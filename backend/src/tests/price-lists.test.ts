@@ -398,9 +398,22 @@ test('حارس نصّي: مرجع البيع وسقف المرتجع الحرّ 
   const src = fs.readFileSync(path.join(SRC, 'routes', 'invoices.ts'), 'utf8');
   assert.equal(src.split('lineRefOf(p, snap, cpMap.get(it.productId))').length - 1, 2, 'البيع والمرتجع الحرّ');
   assert.ok(src.includes('const cust = refOverrideOf(custPerBase, null);'), 'سعر العميل الخاص يغلب القائمة');
-  assert.ok(src.includes('return listLineRef(listResultOf(p), snap.unitFactor, noListRef) ?? noListRef;'), 'ثم القائمة ثم سلّم اليوم');
+  // CONTRACT2 D1/D3: المرجع لكل مرشّح تسعير — ثم القائمة ثم سلّم اليوم — والنطاق: السقف أعلاها والأرضية أدناها مع الشرائح
+  assert.ok(src.includes('const refs = listResultsOf(p).map((lp) => listLineRef(lp, snap.unitFactor, noListRef) ?? noListRef);'), 'ثم القائمة ثم سلّم اليوم');
+  assert.ok(src.includes('return { ref: Math.max(...refs), low: Math.min(...refs) };'));
+  assert.ok(src.includes('if (cust != null) return { ref: cust * snap.unitFactor, low: cust * snap.unitFactor };'), 'سعر العميل مرجعٌ واحد');
+  assert.ok(src.includes('const { ref, low } = lineRefOf(p, snap, cpMap.get(it.productId));'));
+  assert.ok(src.includes('const minAllowed = Math.min(low, minTier);'), 'الأرضية أدنى المراجع');
+  assert.ok(src.includes('const ceiling = lineRefOf(p, snap, cpMap.get(it.productId)).ref;'), 'سقف المرتجع الحرّ أعلاها');
   assert.ok(src.includes('custPrice: refOverrideOf(replayCust.get(p.id), listPerBaseHint(listResultAt(p, hintBaseQty.get(p.id) ?? 0), p.basePrice)),'), 'إعادة الرفع');
   assert.equal(src.includes('cpMap.has(it.productId)'), false, 'لا مرجعٌ يقرأ سعر العميل وحده');
+  // CONTRACT2 D5: القواعد للمندوب وإعادة الرفع وحدهما، واستعلام السعر الثابت كما كان حرفياً
+  assert.ok(src.includes("const needsListEval = req.user!.role === 'SALES_REP' || listReplay;"));
+  assert.ok(src.includes('!needsListEval ? Promise.resolve([] as PriceRuleRow[]) : prisma.priceListRule.findMany({'));
+  assert.ok(src.includes(`prisma.priceListItem.findMany({
+          where: { tenantId: tid, priceListId: docListId, productId: { in: productIds } },
+          select: { productId: true, price: true },
+        }),`));
   // الختم في المرحلتين
   assert.ok(src.includes('...(docListId && { priceListId: docListId }),'));
   assert.ok(src.includes('priceListId: docListId,'));
@@ -623,37 +636,101 @@ test('العملاء: نوعٌ حُذف بين الفحص والكتابة (P200
 
 // ═══ (٥) /api/price-lists ═══
 
-test('GET /price-lists: القوائم مرتّبة واسم زرّ الأساس وعدد العملاء الأحياء والأصناف المسعّرة والقواعد — بشرط الشركة، وبلا قوائم لا groupBy', async () => {
+test('GET /price-lists: القوائم مرتّبة واسم زرّ الأساس وعدد العملاء الأحياء ومنطقة الشركة — بشرط الشركة، والعدّادان الآخران بـ?counts=1 وحده (D5)، وبلا قوائم لا groupBy ولا منطقة', async () => {
+  const worldOf = (seen: Record<string, any>) => ({
+    'priceList.findMany': (args: any) => { seen.lists = args; return [{ id: 'L-W', name: 'سعر الجملة', sortOrder: 0 }, { id: 'L-R', name: 'سعر التجزئة', sortOrder: 1 }]; },
+    'companySettings.findUnique': (args: any) => { (seen.settings ??= []).push(args); return { basePriceLabel: 'سعر المستهلك', countryCode: 'IQ' }; },
+    'glSettings.findUnique': (args: any) => { seen.gl = args; return { timezone: 'Asia/Dubai' }; },
+    'customer.groupBy': (args: any) => { seen.groups = args; return [{ priceListId: 'L-W', _count: { _all: 3 } }]; },
+    'priceListItem.groupBy': (args: any) => { seen.items = args; return [{ priceListId: 'L-R', _count: { _all: 12 } }]; },
+    'priceListRule.groupBy': (args: any) => { seen.rules = args; return [{ priceListId: 'L-W', _count: { _all: 2 } }]; },
+  });
+  // كل نموذج فاتورةٍ وعميلٍ وتطبيق المندوب: الأسماء وعدد العملاء ومنطقة الشركة — بلا groupBy الأصناف والقواعد (review 7.0)
   reset();
   const seen: Record<string, any> = {};
-  scripted = {
-    'priceList.findMany': (args) => { seen.lists = args; return [{ id: 'L-W', name: 'سعر الجملة', sortOrder: 0 }, { id: 'L-R', name: 'سعر التجزئة', sortOrder: 1 }]; },
-    'companySettings.findUnique': (args) => { seen.settings = args; return { basePriceLabel: 'سعر المستهلك' }; },
-    'customer.groupBy': (args) => { seen.groups = args; return [{ priceListId: 'L-W', _count: { _all: 3 } }]; },
-    'priceListItem.groupBy': (args) => { seen.items = args; return [{ priceListId: 'L-R', _count: { _all: 12 } }]; },
-    'priceListRule.groupBy': (args) => { seen.rules = args; return [{ priceListId: 'L-W', _count: { _all: 2 } }]; },
-  };
+  scripted = worldOf(seen);
   const r = await call('GET', '/api/price-lists');
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  // «قوائم الأسعار» (٥ نوفمبر ٢٠٢٦): itemsCount وrulesCount مع customersCount — والمفاتيح القديمة كما هي
   assert.deepEqual(r.body.data, {
+    basePriceLabel: 'سعر المستهلك',
+    lists: [
+      { id: 'L-W', name: 'سعر الجملة', sortOrder: 0, customersCount: 3 },
+      { id: 'L-R', name: 'سعر التجزئة', sortOrder: 1, customersCount: 0 },
+    ],
+    // D1: يوم صلاحية القواعد في الأجهزة يوم الشركة — بمنطقة tenantTz نفسها التي يحسب بها حارس الفاتورة (الدفاتر أولاً ثم البلد)
+    timezone: 'Asia/Dubai',
+  });
+  assert.equal(seen.lists.where.tenantId, TENANT);
+  assert.deepEqual(seen.lists.orderBy, [{ sortOrder: 'asc' }, { name: 'asc' }]);
+  assert.deepEqual(seen.groups.where, { tenantId: TENANT, priceListId: { not: null }, status: { not: 'DELETED' } });
+  assert.deepEqual(calls.filter(c => c.endsWith('.groupBy')), ['customer.groupBy'], 'groupBy العملاء وحده بلا ?counts=1');
+  // التحقّق (D5): إعدادات الشركة قراءةٌ واحدة تحمل البلد مع اسم زرّ الأساس، والمنطقة قراءة الدفاتر وحدها (companyZoneOf — حساب tenantTz
+  // نفسه) — أربعة استعلامات لا خمسة، بلا companySettings مكرّرة
+  assert.deepEqual(seen.settings, [{ where: { tenantId: TENANT }, select: { basePriceLabel: true, countryCode: true } }], 'قراءة إعداداتٍ واحدة');
+  assert.deepEqual(seen.gl, { where: { tenantId: TENANT }, select: { timezone: true } }, 'منطقة الدفاتر بشرطها');
+  assert.deepEqual([...calls].sort(), ['companySettings.findUnique', 'customer.groupBy', 'glSettings.findUnique', 'priceList.findMany']);
+  // ?counts=1 (لوحة القوائم — listWithCounts): itemsCount وrulesCount مع customersCount، groupBy واحد لكلٍّ
+  reset();
+  const seen2: Record<string, any> = {};
+  scripted = worldOf(seen2);
+  const counted = await call('GET', '/api/price-lists?counts=1');
+  assert.equal(counted.status, 200, JSON.stringify(counted.body));
+  assert.deepEqual(counted.body.data, {
     basePriceLabel: 'سعر المستهلك',
     lists: [
       { id: 'L-W', name: 'سعر الجملة', sortOrder: 0, customersCount: 3, itemsCount: 0, rulesCount: 2 },
       { id: 'L-R', name: 'سعر التجزئة', sortOrder: 1, customersCount: 0, itemsCount: 12, rulesCount: 0 },
     ],
+    timezone: 'Asia/Dubai',
   });
-  assert.equal(seen.lists.where.tenantId, TENANT);
-  assert.deepEqual(seen.lists.orderBy, [{ sortOrder: 'asc' }, { name: 'asc' }]);
-  assert.deepEqual(seen.groups.where, { tenantId: TENANT, priceListId: { not: null }, status: { not: 'DELETED' } });
   for (const k of ['items', 'rules']) {
-    assert.deepEqual([seen[k].by, seen[k].where, seen[k]._count], [['priceListId'], { tenantId: TENANT }, { _all: true }], k);
+    assert.deepEqual([seen2[k].by, seen2[k].where, seen2[k]._count], [['priceListId'], { tenantId: TENANT }, { _all: true }], k);
   }
   assert.deepEqual(calls.filter(c => c.endsWith('.groupBy')).sort(), ['customer.groupBy', 'priceListItem.groupBy', 'priceListRule.groupBy'], 'groupBy واحد لكلٍّ');
+  assert.equal(seen2.settings.length, 1, 'ومع العدّادات قراءة إعداداتٍ واحدة');
+  assert.deepEqual([...calls].sort(), [
+    'companySettings.findUnique', 'customer.groupBy', 'glSettings.findUnique', 'priceList.findMany', 'priceListItem.groupBy', 'priceListRule.groupBy',
+  ]);
+  // منطقةٌ بلا دفاتر: من بلد الشركة (companyTimeZone) كحارس الفاتورة — من قراءة الإعدادات نفسها
   reset();
-  const empty = await call('GET', '/api/price-lists');
-  assert.deepEqual(empty.body.data, { basePriceLabel: null, lists: [] });
-  assert.deepEqual(calls.filter(c => c.endsWith('.groupBy')), [], 'بلا قوائم لا groupBy');
+  const seen3: Record<string, any> = {};
+  scripted = { ...worldOf(seen3), 'glSettings.findUnique': () => null };
+  assert.equal((await call('GET', '/api/price-lists')).body.data.timezone, 'Asia/Baghdad', 'IQ ⇒ بغداد');
+  assert.equal(seen3.settings.length, 1);
+  // وبلا صفّ إعداداتٍ ولا دفاتر: الافتراضيّ (الرياض) واسم زرّ الأساس فارغ — كـtenantTz حرفياً
+  reset();
+  scripted = { ...worldOf({}), 'companySettings.findUnique': () => null, 'glSettings.findUnique': () => null };
+  const bare = await call('GET', '/api/price-lists');
+  assert.equal(bare.status, 200, JSON.stringify(bare.body));
+  assert.equal(bare.body.data.timezone, 'Asia/Riyadh');
+  assert.equal(bare.body.data.basePriceLabel, null);
+  // ومنطقة الدفاتر تغلب البلد
+  reset();
+  scripted = { ...worldOf({}), 'glSettings.findUnique': () => ({ timezone: 'Africa/Cairo' }) };
+  assert.equal((await call('GET', '/api/price-lists')).body.data.timezone, 'Africa/Cairo');
+  // شركةٌ بلا قوائم: شكل اليوم حرفياً — لا groupBy ولا منطقة ولا استعلامها، ولو طُلبت العدّادات
+  for (const url of ['/api/price-lists', '/api/price-lists?counts=1']) {
+    reset();
+    const empty = await call('GET', url);
+    assert.deepEqual(empty.body.data, { basePriceLabel: null, lists: [] }, url);
+    assert.deepEqual(calls.filter(c => c.endsWith('.groupBy')), [], 'بلا قوائم لا groupBy');
+    assert.deepEqual(calls.sort(), ['companySettings.findUnique', 'priceList.findMany'], `${url}: استعلامان كما كان`);
+  }
+});
+
+test('companyZoneOf: حساب tenantTz نفسه من قيمتين مقروءتين بلا استعلام — الدفاتر ثم البلد ثم الرياض، وtenantTz يمرّ به', async () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { companyZoneOf, tenantTz } = require('../services/invoiceExpiry') as typeof import('../services/invoiceExpiry');
+  assert.equal(companyZoneOf('Asia/Dubai', 'IQ'), 'Asia/Dubai', 'الدفاتر تغلب البلد');
+  assert.equal(companyZoneOf(null, 'IQ'), 'Asia/Baghdad');
+  assert.equal(companyZoneOf('', 'iq'), 'Asia/Baghdad', 'منطقةٌ فارغة ⇒ البلد، بلا حساسية حالة');
+  assert.equal(companyZoneOf(undefined, undefined), 'Asia/Riyadh');
+  assert.equal(companyZoneOf(null, 'ZZ'), 'Asia/Riyadh');
+  for (const [gl, country] of [[{ timezone: 'Africa/Cairo' }, { countryCode: 'IQ' }], [null, { countryCode: 'IQ' }], [null, null], [{ timezone: null }, { countryCode: 'JO' }]] as const) {
+    reset();
+    scripted = { 'glSettings.findUnique': () => gl, 'companySettings.findUnique': () => country };
+    assert.equal(await tenantTz(TENANT), companyZoneOf(gl?.timezone, country?.countryCode), JSON.stringify([gl, country]));
+  }
 });
 
 test('/price-lists كتابةً: الاسم مقصوص فريدٌ للشركة (409)، ونوع شركةٍ أخرى 404 بلا كتابة، والمستخدم لعملاء 409 PRICE_LIST_IN_USE', async () => {

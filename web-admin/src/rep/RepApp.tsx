@@ -3,10 +3,11 @@ import {
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
 import { cartBadge, cartCount, choiceById, defaultChoice, hasUnitChoice, invoiceItemUnit, lineUnitOf, linkedLineUnit, primaryChoice, rebaseCustPrices, rebaseRow, refreshLineUnit, sameUnit, unitChoices, unitsText, type UnitChoice, type UnitProduct } from './repUnits';
-import { allowedPriceTypesOf, baseLabelOf, defaultPriceTypeOf, priceListsOf, repriceUntouched } from '../lib/priceLists';
+import { allowedPriceTypesOf, baseLabelOf, defaultPriceTypeOf, priceListsOf } from '../lib/priceLists';
 import {
-  listIdOf, repBaseQtyByProduct, repCachedNamesOf, repCustomerListOf, repDefaultListOf, repInvoiceListOf, repListMissing, repListRulesOf,
-  repPriceCacheStale, repPriceRulesOf, repProductBaseQty, repQtyKey, repSwitchChipsOf, type RepPriceRule,
+  listIdOf, repBaseQtyByProduct, repCachedNamesOf, repCustomerListOf, repDefaultListOf, repInvoiceListOf, repKeptPrice, repListMissing, repListRulesOf,
+  repNamesOf, repPriceCacheStale, repPriceRulesOf, repPricesMoved, repPricesSeenAt, repPricingDay, repProductBaseQty, repQtyKey, repRepriceLines,
+  repRulesDated, repSwitchChipsOf, type RepPriceRule,
 } from './repPriceLists';
 import { lineNetWithList, listDependsOnQty } from '../lib/priceListPricing';
 import type { PriceListsInfo } from '../types';
@@ -1759,11 +1760,12 @@ const custPriceRowsOf = (data: unknown, seenAt?: number | null): CustPriceRow[] 
 /* «قوائم الأسعار» (طلب المالك): ردّ /price-lists/prices (كاش 'pricelists') — كل قائمةٍ ببنودها بصفّ أسعار العميل نفسه (السعر صافٍ
  * لوحدة الأساس ومعه أساس الصنف وحقبته لحظة القراءة)، فيُعاد أساسها بعد تحويلٍ بـrebaseCustPrices كأسعار العميل تماماً. والمندوب
  * بلا «تبديل قائمة الأسعار» لا يصله إلا قوائم عملائه. وقواعد القائمة (طلب المالك ٥ نوفمبر ٢٠٢٦: نسبة، فئة، حدٌّ أدنى للكمية، فترة)
- * في `rules` بالكاش نفسه (repPriceRulesOf) — كاشٌ أقدم منها بلا `rules` = لا قواعد، سلوك اليوم حرفاً */
-type ListPriceRows = { id: string; name: string; rows: CustPriceRow[]; rules: RepPriceRule[] };
+ * في `rules` بالكاش نفسه (repPriceRulesOf) — كاشٌ أقدم منها بلا `rules` = لا قواعد، سلوك اليوم حرفاً. و`seenAt` على المدخل نفسه
+ * (وقت قراءة الكاش، كصفوفه وقواعده) ولو كانت القائمة بلا بنودٍ ولا قواعد: منه `pricesSeenAt` في حمولة الإصدار (repPricesSeenAt) */
+type ListPriceRows = { id: string; name: string; rows: CustPriceRow[]; rules: RepPriceRule[]; seenAt?: number };
 const listPriceRowsOf = (data: unknown, seenAt?: number | null): ListPriceRows[] => (Array.isArray(data) ? data : [])
   .filter((l: { id?: unknown } | null) => l && typeof l.id === 'string')
-  .map((l: { id: string; name?: unknown; items?: unknown; rules?: unknown }) => ({ id: l.id, name: String(l.name ?? ''), rows: custPriceRowsOf(l.items, seenAt), rules: repPriceRulesOf(l.rules, seenAt) }));
+  .map((l: { id: string; name?: unknown; items?: unknown; rules?: unknown }) => ({ id: l.id, name: String(l.name ?? ''), rows: custPriceRowsOf(l.items, seenAt), rules: repPriceRulesOf(l.rules, seenAt), ...(seenAt != null && { seenAt }) }));
 
 /** أسعار نوعٍ لوحدة أساس الكتالوج المعطى (بمعرّف الصنف) — null (السعر الأساسي) أو نوعٌ لم تصل أسعاره: لا شيء فيُسعَّر بسلسلة اليوم */
 function listPricesOf(lists: ListPriceRows[] | null, listId: string | null, products: Array<UnitProduct & { id: string; baseConvertedAt?: string | Date | null }>): Record<string, number> {
@@ -2050,7 +2052,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const listsSeq = useRef(0);
   const namesFromNet = async () => {
     const { data, offline } = await fetchThenCache('pricelists:names', async () => (await repApi.get('/price-lists')).data.data);
-    return { info: priceListsOf(data), fromServer: !offline };
+    // ومنطقة الشركة (D1) من الردّ نفسه — يوم صلاحية القواعد كيوم الخادم (repPricingDay)
+    return { info: repNamesOf(data), fromServer: !offline };
   };
   /** الأنواع وأسعارها ونوع العميل الآن — `force` يتجاوز كاش الأسماء (بعد رفضٍ سعريّ، أو نوعٍ بلا أسعار في الجهاز) */
   const loadPriceLists = async (force = false) => {
@@ -2099,20 +2102,27 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
    * (`qtyKey`؛ وبلاها '' فلا عمل زائد): مرجع البند بكمية الصنف في الفاتورة كلّها كما يحسبها الخادم (repBaseQtyByProduct) */
   const qtyRules = useMemo(() => listDependsOnQty(listRules), [listRules]);
   const qtyKey = qtyRules ? repQtyKey(lines) : '';
-  const priceDay = todayLocal();
+  /* يوم صلاحية القواعد (D1، مراجعة «قوائم الأسعار»): يوم الشركة بمنطقتها من كاش الأسماء كيوم حارس الخادم — لا يوم ساعة الجهاز
+   * ومنطقته — وكاشٌ أقدم بلا منطقة ⇒ اليوم المحلي كما كان. يُحسب مرّةً لكل رسم (تلميحات الكتالوج كلّها به)، والإصدار يعيده لحظته */
+  const priceDay = repPricingDay(listInfo);
+  /* D4: المعدَّل يدوياً يتبع مرجعه، ومن لا يبيع بأقل يُرفع سعره إلى المرجع الجديد إن صار دونه (repRepriceLines) — حين تسعّر الفاتورةَ
+   * قائمةٌ بقواعد (فيها يتحرّك المرجع بالكمية واليوم)؛ وبلا قواعد سلوك اليوم حرفاً */
+  const priceFloor = !perms?.canSellBelowPrice && listRules.length > 0;
+  /** السلّة بمراجع اليوم `day` (افتراضه يوم هذا الرسم) — المؤثّر أدناه، والإصدار بيوم لحظته (submit) */
+  const repriceLines = (prev: any[], day: string = priceDay): any[] => {
+    const qtyOf = repBaseQtyByProduct(prev);
+    return repRepriceLines(prev, (l) => {
+      // بند فاتورة بيع (مرتجعٌ مرتبط): سعره سعر الاسترداد ثابتاً — لا يُستبدل بسعر العميل أو القائمة الحالية
+      if (l.saleItemId) return null;
+      const p = products.find(x => x.id === l.productId);
+      if (!p) return null;
+      // بوحدة البند: سعر العميل/القائمة للحبّة × معامل الكرتون (يغلب سعر الكرتون المحدَّد كحارس الخادم) — وإلا بِيع الكرتون بسعر الحبّة صامتاً
+      const unit: UnitChoice = l.unitId ? { id: l.unitId, name: l.unitName, factor: l.unitFactor, price: l.unitDefPrice ?? null } : { id: null, name: l.unit, factor: 1, price: null };
+      return inclOf(p, unit, qtyOf.get(l.productId) ?? 0, custPrices, listPrices, listRules, day);
+    }, priceFloor);
+  };
   useEffect(() => {
-    setLines(prev => {
-      const qtyOf = repBaseQtyByProduct(prev);
-      return repriceUntouched(prev, (l) => {
-        // بند فاتورة بيع (مرتجعٌ مرتبط): سعره سعر الاسترداد ثابتاً — لا يُستبدل بسعر العميل أو القائمة الحالية
-        if (l.saleItemId) return null;
-        const p = products.find(x => x.id === l.productId);
-        if (!p) return null;
-        // بوحدة البند: سعر العميل/القائمة للحبّة × معامل الكرتون (يغلب سعر الكرتون المحدَّد كحارس الخادم) — وإلا بِيع الكرتون بسعر الحبّة صامتاً
-        const unit: UnitChoice = l.unitId ? { id: l.unitId, name: l.unitName, factor: l.unitFactor, price: l.unitDefPrice ?? null } : { id: null, name: l.unit, factor: 1, price: null };
-        return inclOf(p, unit, qtyOf.get(l.productId) ?? 0);
-      }, (l, price) => ({ ...l, unitPrice: price }));
-    });
+    setLines(prev => repriceLines(prev));
   }, [custPrices, listPrices, listRules, priceDay, qtyKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // السعر الذي يُدخله المندوب شامل الضريبة؛ نشتقّ السعر قبل الضريبة للنظام
@@ -2126,10 +2136,11 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
    * «قوائم الأسعار»: ما تقوله قائمة الفاتورة (`list` سعر الصنف الثابت فيها لوحدة الأساس، و`rules` قواعدها) يحلّ محلّ سعر العميل حين لا
    * سعر خاصّ — سعر العميل يغلب القائمة، والقائمة تغلب سعر الوحدة المحدَّد والأساس — بالحلّ المشترك مع حارس الخادم (lineNetWithList ⇐
    * lib/priceRules.ts): القاعدة الغالبة بكمية الصنف في الفاتورة كلّها `baseQty` (بالأساس؛ افتراضها بندٌ واحد بوحدته: التلميح والإضافة)
-   * ويوم الجهاز، والنسبة من سعر البند بلا قائمة (choiceNet بلا تجاوز) كالخادم حرفاً — فالصافي هو مرجعه نفسه بلا تقريبٍ وسيط، والتقريب
-   * مرّةً واحدة على الشامل كما كان (فرق الصافي بعده ≤ نصف وحدة العملة ÷ (١ + الضريبة) < TOL الحارس). بلا قواعد: سلوك اليوم حرفاً */
-  const inclOf = (p: any, c: UnitChoice, baseQty: number = c.factor, cust: Record<string, number> = custPrices, list: Record<string, number> = listPrices, rules: readonly RepPriceRule[] = listRules) =>
-    roundDecimal(lineNetWithList(c, p, cust[p.id], list[p.id], rules, baseQty, todayLocal()) * (1 + Number(p.taxPct) / 100), currencyDecimals(getActiveCurrency()));
+   * ويوم الشركة `day` (افتراضه يوم هذا الرسم priceDay؛ والإصدار يمرّر يوم لحظته)، والنسبة من سعر البند بلا قائمة (choiceNet بلا
+   * تجاوز) كالخادم حرفاً — فالصافي هو مرجعه نفسه بلا تقريبٍ وسيط، والتقريب مرّةً واحدة على الشامل كما كان (فرق الصافي بعده ≤ نصف
+   * وحدة العملة ÷ (١ + الضريبة) < TOL الحارس). بلا قواعد: سلوك اليوم حرفاً */
+  const inclOf = (p: any, c: UnitChoice, baseQty: number = c.factor, cust: Record<string, number> = custPrices, list: Record<string, number> = listPrices, rules: readonly RepPriceRule[] = listRules, day: string = priceDay) =>
+    roundDecimal(lineNetWithList(c, p, cust[p.id], list[p.id], rules, baseQty, day) * (1 + Number(p.taxPct) / 100), currencyDecimals(getActiveCurrency()));
   const inclPrice = (p: any) => inclOf(p, unitChoices(p)[0]); // السعر شامل الضريبة (وحدة الأساس)
   // سعر الوحدة الافتراضية مع اسمها حين للصنف وحدات — وإلا الرقم وحده كما كان
   // الوحدة الافتراضية للمندوب: الرئيسية إن سمح بها قيد الصنف، وإلا الأكبر بين المسموح (repStartChoice)، وإلا الأكبر كما كان
@@ -2504,6 +2515,17 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     if (zatcaPhase2 && !navigator.onLine) {
       setMsg(tr('لا يمكن إصدار فاتورة ضريبية أو مرتجع دون اتصال المرحلة الثانية مفعلة')); return;
     }
+    /* «قوائم الأسعار» (D1): قائمةٌ بعرضٍ مؤقت تُسعَّر بيوم الشركة لحظة الإصدار — سلّةٌ سُعّرت قبل منتصف الليل وأُصدرت بعده بلا رسمٍ
+     * بينهما تحمل أسعار الأمس فيردّها الخادم (ودون اتصال بعد تسليم البضاعة). فتُعاد بنودها بيوم الآن قبل بناء الجسم: غير المعدَّل
+     * بمرجعه الجديد والمعدَّل تحت أرضيته الجديدة يُرفع إليها (D4)، فإن تغيّر سعرٌ رآه المندوب قبل الإصدار (الإجمالي والتوقيع والورقة
+     * من السلّة المعروضة)، وإلا أُرسل اليوم الذي سُعّرت له (pricingDay) فيقبله الخادم ضمن يومٍ من يومه، ويُعاد مع الصندوق الأوف‑لاين.
+     * بلا قاعدةٍ مؤرَّخة (شركةٌ بلا قوائم أو قواعد بلا تواريخ) أو مرتجعٍ من فاتورة بيع: لا شيء والجسم كما كان */
+    const pricingDay = !saleRef && repRulesDated(listRules) ? repPricingDay(listInfo) : null;
+    if (pricingDay) {
+      const repriced = repriceLines(lines, pricingDay);
+      if (repriced !== lines) setLines(repriced);
+      if (repPricesMoved(lines, repriced)) { setMsg(tr('أعيد تسعير البنود حسب قائمة الأسعار راجعها ثم أصدر')); return; }
+    }
     setLoading(true); setMsg('');
     const clientCreatedAt = new Date().toISOString();
     // عميل أُنشئ أوف‑لاين (بلا id خادمي بعد) يُشار إليه بـ customerClientRef فيحلّه الخادم
@@ -2546,6 +2568,14 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     attempt.current = attemptClientRef(attempt.current, body, newClientRef);
     const clientRef = attempt.current.ref;
     const payload = { ...body, clientRef, clientCreatedAt }; // idempotency + العمل دون اتصال
+    /* «قوائم الأسعار» (D1): اليوم الذي سُعّرت له البنود — في الحمولة (فيحفظه الصندوق الأوف‑لاين ويُعاد مع الرفع) لا في مفتاح المحاولة:
+     * إعادة الضغط بالمحتوى نفسه بعد منتصف الليل تحمل clientRef نفسه فلا مستند ثانٍ إن ضاع ردّ الأول. وبلا قاعدةٍ مؤرَّخة لا مفتاح */
+    if (pricingDay) Object.assign(payload, { pricingDay });
+    /* «قوائم الأسعار» (L2.2): متى جُلبت أسعار قائمة الفاتورة وقواعدها التي سعّر بها الجهاز (ختم كاش 'pricelists'، repPricesSeenAt) —
+     * في الحمولة لا في مفتاح المحاولة كـpricingDay (كاشٌ تجدّد بين ضغطتين لا يصنع مستنداً ثانياً)، ويعيده الصندوق كما هو: إعادة الرفع
+     * تُسقط في حارس الخادم قاعدةً كُتبت بعد آخر جلبٍ للجهاز ولو سبقت البيع. لا قائمة في الكاش أو مرتجعٌ من فاتورة بيع: لا مفتاح */
+    const pricesSeenAt = saleRef ? null : repPricesSeenAt(listRows, listId);
+    if (pricesSeenAt) Object.assign(payload, { pricesSeenAt });
     // الطباعة من نتائج المحرك نفسها: سطر البند يساوي حصته من الاجمالي حتما
     const printItems = lines.map((l, i) => ({
       // لقطة الوحدة نفسها التي أُرسلت — فورقة الإصدار تطابق ورقة إعادة الفتح (invoiceDocFromDetail)
@@ -2757,7 +2787,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         if (!p || !ch) return l;
         const ref = inclOf(p, ch, freshBaseQty(prev, l.productId), freshCust, freshList, freshRules);
         const keep = Math.abs(Number(l.unitPrice) - Number(l.refPrice)) > 1e-9 && Number(l.unitFactor ?? 1) === (ch.id ? ch.factor : 1);
-        return { ...l, ...lineUnitOf(ch, p.unit), refPrice: ref, unitPrice: keep ? l.unitPrice : ref };
+        // D4: المعدَّل يدوياً يبقى، ومن لا يبيع بأقل يُرفع إلى المرجع الجديد إن صار دونه (قائمةٌ بقواعد) — وإلا ردّه الخادم عند الإعادة
+        return { ...l, ...lineUnitOf(ch, p.unit), refPrice: ref, unitPrice: keep ? repKeptPrice(l.unitPrice, ref, !perms?.canSellBelowPrice && freshRules.length > 0) : ref };
       }));
       if (saleRef && lines.some(l => l.link)) {
         const sale = toLinkedSale((await repApi.get(`/invoices/${saleRef.id}/returnable`)).data.data);

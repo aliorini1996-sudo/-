@@ -115,9 +115,10 @@ export function suggestedNet(p: SalePick, c: UnitChoice, override?: number | nul
 /**
  * «قوائم الأسعار» بقواعدها (طلب المالك ٥ نوفمبر ٢٠٢٦): مسعِّر البند — السعر الصافي لوحدة البند `c` بكمية صنفه في الفاتورة كلّها
  * (بالأساس). الشاشة تبنيه بـdocLinePricerOf (lib/invoiceModalRepPrice.ts): سعر العميل ثم القائمة (ثابتها وقواعدها بالكمية ويوم
- * الفاتورة) ثم سلّم اليوم — المسعِّر نفسه في فاتورة اللوحة.
+ * الفاتورة) ثم سلّم اليوم — المسعِّر نفسه في فاتورة اللوحة. و`dependsOnQty` (يحمله مسعِّر docLinePricerOf): false ⇒ الكمية لا تغيّر
+ * سعراً فلا تُعاد تلميحات المنتقي بتغيّرها؛ غائبٌ ⇒ يُفترض أنها تغيّره.
  */
-export type LinePricer = (p: SalePick, c: UnitChoice, totalBaseQty: number) => number;
+export type LinePricer = ((p: SalePick, c: UnitChoice, totalBaseQty: number) => number) & { readonly dependsOnQty?: boolean };
 /**
  * سعر البند كما تقبله دوال البنود: مسعِّرٌ بالكمية، أو (الشكل قبل القواعد) سعرٌ ثابت لوحدة الأساس من سعر العميل أو القائمة
  * (`suggestedNet` بثالثه)، أو لا شيء فسلّم اليوم. والسعر الثابت لا يتغيّر بالكمية فلا إعادة تسعيرٍ معه عند تغيّرها.
@@ -143,6 +144,27 @@ function repriceProduct(lines: Line[], p: SalePick, price: LinePrice): Line[] {
 /** سعر الصنف كما سيُضاف بوحدته (تلميح قائمة الأصناف): بكمية صنفه في البنود بعد الإضافة */
 export function addedLinePrice(lines: Line[], p: SalePick, c: UnitChoice, price?: LinePrice): number {
   return netOf(price, p, c, productBaseQty(lines, p.id) + choiceFactor(c));
+}
+
+/** وحدة تلميح الصنف في قائمة الأصناف: الافتراضية (الرئيسية، وإلّا الأكبر) لصنفٍ بوحدات، والأساس لغيره */
+export function pickerChoice(p: SalePick): UnitChoice {
+  const opts = unitChoices(p);
+  return opts.length > 1 ? defaultChoice(p) : opts[0];
+}
+
+/**
+ * تلميحات أسعار قائمة الأصناف دفعةً واحدة (مراجعة D5): `addedLinePrice` بوحدة `pickerChoice` لكل صنف — كمية الفاتورة تُجمع مرّةً
+ * لا لكل صفّ، والشاشة تحفظ الناتج ما لم تتغيّر الأصناف أو المسعِّر أو (حين تغيّر الكمية السعر) كميات البنود. ناتج كل صنفٍ حرفاً
+ * ما كان يُحسب في الرسم لكل صفٍّ مع كل رسم.
+ */
+export function pickerPrices(lines: Line[], products: readonly SalePick[] | null | undefined, price?: LinePrice): Map<string, number> {
+  const qty = docBaseQty(lines);
+  const out = new Map<string, number>();
+  for (const p of products ?? []) {
+    const c = pickerChoice(p);
+    out.set(p.id, netOf(price, p, c, (qty.get(p.id) ?? 0) + choiceFactor(c)));
+  }
+  return out;
 }
 
 /**

@@ -103,6 +103,8 @@ const unitCreateSchema = z.object({
   makePrimary: z.boolean().optional(),
   // الأساس كما رآه النموذج — وحدةٌ بمعاملٍ محسوب على أساسٍ حُوِّل بعده ⇒ 409 BASE_UNIT_CHANGED (ولمفتاح API على صنفٍ حُوِّل إلزامي، D19)
   expectedBaseName: z.string().nullish(),
+  // إقرار 409 PRICE_RULES_UNIT_ACK: قواعد قوائم أسعار محسوبة بالرئيسية التي يغيّر هذا الطلب حجمها (assertPriceRulesAck)
+  acknowledgePriceRules: z.boolean().nullish(),
 });
 
 const unitUpdateSchema = z.object({
@@ -115,6 +117,7 @@ const unitUpdateSchema = z.object({
   // إيقاف الوحدة الرئيسية يلزمه إلغاء الرئيسية صراحةً معه (D13) — وإلا 409 PRIMARY_UNIT_IN_USE
   clearPrimary: z.boolean().optional(),
   expectedBaseName: z.string().nullish(),
+  acknowledgePriceRules: z.boolean().nullish(),
 });
 
 const convertBaseSchema = z.object({
@@ -131,6 +134,8 @@ const convertBaseSchema = z.object({
   dryRun: z.boolean().optional(),
   acknowledgeErp: z.boolean().optional(),
   acknowledgeApi: z.boolean().optional(),
+  // إقرار 409 PRICE_RULES_UNIT_ACK: بلا رئيسية مع keepOldBaseAsPrimary: false يصغر حجم «الرئيسية» (الأساس) F مرّة
+  acknowledgePriceRules: z.boolean().nullish(),
 });
 
 // ═══ «الوحدة الرئيسية» (مواصفة الوحدة الرئيسية §2.2) — عرضٌ وتعريفٌ وإدخالٌ افتراضي فقط (القاعدة الذهبية ١٢) ═══
@@ -144,13 +149,15 @@ const productCreateSchema = productSchema.extend({
 });
 
 /** تبديل الرئيسية لصنفٍ قائم (D11): علمٌ لا مال. expectedPrimaryUnitId (إن حضر مفتاحه) يمنع نموذجاً قديماً */
-const primaryUnitSchema = z.object({ unitId: z.string().min(1).nullable(), expectedPrimaryUnitId: z.string().nullish() });
+const primaryUnitSchema = z.object({ unitId: z.string().min(1).nullable(), expectedPrimaryUnitId: z.string().nullish(), acknowledgePriceRules: z.boolean().nullish() });
 
 /** حارس التعديل (§2.2-هـ): الأساس كما رآه النموذج، ورقعة الوحدة الرئيسية تُكتب مع الصنف في معاملةٍ واحدة */
 const productEditGuardSchema = z.object({
   expectedBaseName: z.string().nullish(),
   primaryUnit: z.object({ id: z.string().min(1), name: z.string().optional(), factor: z.number().optional(),
     price: unitPriceField, unitCode: z.string().max(16).nullish().or(z.literal('')) }).nullish(),
+  // إقرار 409 PRICE_RULES_UNIT_ACK حين تغيّر الرقعة معامل الرئيسية — خارج productSchema فلا يمرّ في { ...data }
+  acknowledgePriceRules: z.boolean().nullish(),
 });
 
 /** حارس الشرائح (§2.2-د): الأساس، والرئيسية ومعاملها كما حُسبت عليهما الحدود حين تُدخل بالرئيسية (/m) */
@@ -193,8 +200,10 @@ const priceOrNull = (p: number | '' | null | undefined): number | null => (p ===
 
 /** رفض بنيويّ للتحويل والوحدات — يُرمى داخل المعاملة فيُلغيها، ويُردّ برمزه ورسالته */
 class UnitsRefusal extends Error {
-  constructor(readonly status: number, message: string, readonly code = 'PRODUCT_UNITS_INVALID') { super(message); }
+  constructor(readonly status: number, message: string, readonly code = 'PRODUCT_UNITS_INVALID', readonly extra: Record<string, unknown> = {}) { super(message); }
 }
+/** جسم الرفض: الرمز والرسالة، وما يحمله الرفض معهما (rulesCount لإقرار قواعد قوائم الأسعار) — وبلا إضافةٍ كما كان حرفياً */
+const refusalBody = (err: UnitsRefusal) => ({ success: false, code: err.code, message: err.message, ...err.extra });
 
 const isUniqueViolation = (err: unknown): boolean => (err as { code?: string })?.code === 'P2002';
 
@@ -395,6 +404,10 @@ async function guardProductEdit(tx: Prisma.TransactionClient, req: AuthRequest, 
       }
       await assertNotReservedBaseName(tx, tid, { id: locked.id, unit: newBase }, patch.name, Number(merged.factor));
     }
+    // D2: معاملٌ جديد للرئيسية يغيّر حجمها ⇒ قواعد قوائم الأسعار المحسوبة بها تُقرّ قبل الكتابة (والاسم أو السعر وحدهما لا يسألان)
+    const patched = locked.units.map((u) => (u.id === current.id ? { ...u, factor: Math.round(Number(merged.factor)) } : u));
+    await assertPriceRulesAck(tx, tid, locked.id, primaryFactorOf(locked),
+      primaryFactorOf({ primaryUnitId: locked.primaryUnitId, units: patched }), o.guard.acknowledgePriceRules);
     await tx.productUnit.updateMany({
       where: { id: current.id, productId: locked.id, tenantId: tid },
       data: {
@@ -416,6 +429,50 @@ async function guardProductEdit(tx: Prisma.TransactionClient, req: AuthRequest, 
 /** وحدات الصنف بلا طابع تعديل في الصنف — فتغييرها تغييرٌ للصنف تراه مزامنة ERP و/api/v1/sync (كالشرائح) */
 const touchProduct = (tx: Prisma.TransactionClient, tid: string, productId: string) =>
   tx.product.updateMany({ where: { id: productId, tenantId: tid }, data: { updatedAt: new Date() } });
+
+/**
+ * «قوائم الأسعار» (CONTRACT2 D2): الوحدة الرئيسية لم تعد عرضاً فقط — سعر الفئة الثابت (primaryPrice) والحدّ الأدنى للكمية (minQty)
+ * مكتوبان **بالرئيسية** لكل صنف (services/priceRules.ts: primaryPrice ÷ معاملها، والكمية ÷ المعامل نفسه). فكل كتابةٍ تغيّر حجم
+ * الرئيسية الفعلي (معاملها، أو تبديلها، أو إلغاؤها، أو إيقافها، أو التحويل بلا رئيسية مع keepOldBaseAsPrimary: false) تغيّر معناها
+ * لهذا الصنف: كرتون ٢٤ صار ٦ ⇒ سعر الفئة ١٢٠ للكرتون صار ٤٨٠ له، و«من ١٠ كراتين» صار من ٦٠ حبّة. فتُردّ 409 بعدد القواعد إلا
+ * بإقرارٍ صريح (acknowledgePriceRules) — ولا يُعاد حساب شيء: قواعد الفئة والكل مشتركةٌ بين أصنافٍ لا يصحّ تعديلها لصنفٍ واحد.
+ * والرسالة مفتاح ترجمة في الواجهة (PHRASES) حرفاً.
+ */
+export const PRICE_RULES_UNIT_ACK_MSG = 'هذا الصنف تشمله قواعد في قوائم الأسعار محسوبة بوحدته الرئيسية (سعر فئة أو حد أدنى للكمية) وتغيير الوحدة الرئيسية يغير معناها — أكد للمتابعة';
+
+/** حجم الرئيسية الفعلي بوحدة الأساس كما يقرؤه الحلّ (primaryFactorOfRule): الرئيسية الصالحة (primaryUnitOf) وإلا ١ — الأساس نفسه */
+const primaryFactorOf = (p: { primaryUnitId?: string | null; units?: UnitDef[] | null }): number => Number(primaryUnitOf(p)?.factor ?? 1);
+
+/**
+ * القواعد التي يتبدّل معناها لصنفٍ بتبدّل حجم رئيسيته — في كل قوائم الشركة، باستعلامٍ واحد: قواعد فئته بسعرٍ ثابت أو بحدٍّ أدنى،
+ * وقواعد كل الأصناف بحدٍّ أدنى، وقواعده هو بحدٍّ أدنى (سعره الثابت لوحدة الأساس basePrice لا يتأثر، ولا النسبة بلا حدّ).
+ * فئته من صفّه وقت الاستعلام عبر العلاقة — والكاتب يمسك قفل الصفّ، فلا تتغيّر بين القراءة والكتابة
+ */
+async function primaryRulesCount(db: Prisma.TransactionClient, tid: string, productId: string): Promise<number> {
+  const perPrimary: Prisma.PriceListRuleWhereInput[] = [{ kind: 'fixed' }, { minQty: { gt: 0 } }];
+  return db.priceListRule.count({
+    where: {
+      tenantId: tid,
+      OR: [
+        { scope: 'category', category: { products: { some: { id: productId, tenantId: tid } } }, OR: perPrimary },
+        { scope: 'all', minQty: { gt: 0 } },
+        { scope: 'product', productId, minQty: { gt: 0 } },
+      ],
+    },
+  });
+}
+
+/**
+ * D2 على الصفّ المقفل قبل أي كتابة: حجم الرئيسية قبل الطلب وبعده (بوحدة الأساس نفسها) — تغيّر بلا إقرارٍ وللصنف قواعد تتأثر ⇒
+ * 409 PRICE_RULES_UNIT_ACK { rulesCount }. لا استعلام حين لم يتغيّر الحجم (تبديلٌ إلى وحدةٍ بالمعامل نفسه، تعديل الاسم أو السعر،
+ * وحدةٌ غير رئيسية) أو حين أُقرّ — فمسار اليوم كما هو لكل كتابةٍ لا تمسّ حجم الرئيسية
+ */
+async function assertPriceRulesAck(db: Prisma.TransactionClient, tid: string, productId: string,
+  before: number, after: number, ack: boolean | null | undefined): Promise<void> {
+  if (ack === true || Math.abs(before - after) <= QTY_EPS) return;
+  const rulesCount = await primaryRulesCount(db, tid, productId);
+  if (rulesCount > 0) throw new UnitsRefusal(409, PRICE_RULES_UNIT_ACK_MSG, 'PRICE_RULES_UNIT_ACK', { rulesCount });
+}
 
 /**
  * «أنواع الأسعار»: أسعار الصنف في الأنواع داخل معاملة كاتبها — السعر الصافي بالوحدة الرئيسية ÷ معاملها (`primaryFactor`، ١ للأساس)
@@ -934,7 +991,7 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     const lists = await adminListPrices(req, tid, [product.id]);
     res.status(201).json(withNameWarn({ success: true, data: { ...product, listPrices: lists?.get(product.id) ?? [] } }));
   } catch (err) {
-    if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
+    if (err instanceof UnitsRefusal) { res.status(err.status).json(refusalBody(err)); return; }
     if (reverseUniqueViolation(err)) { res.status(409).json({ success: false, message: 'اسم الوحدة مكرر لهذا الصنف' }); return; }
     next(err);
   }
@@ -1047,7 +1104,7 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
   } catch (err) {
     // التعديل المحروس في المسارين: الرفض برمزه، ومنه انتظار قفل الصنف خلف تحويلٍ طويل ⇒ 503 PRODUCT_UNITS_BUSY (من lockProductForEdit
     // وحده). وانشغالٌ آخر في المعاملة (قاعدةٌ بطيئة، تعطّل متبادل) ليس «وحدات الصنف قيد التحويل»: يمرّ إلى المعالج العام كما كان
-    if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
+    if (err instanceof UnitsRefusal) { res.status(err.status).json(refusalBody(err)); return; }
     // مسار الانتقال وحده: LotError (LOT_TRACKING_HAS_BALANCE…) والانشغال (55P03، 40P01، P2028، الطابور) ⇒ 503 LOT_BUSY
     const lh = lotPath ? lotHttpError(err) : null;
     if (lh) { res.status(lh.status).json(lh.body); return; }
@@ -1141,7 +1198,7 @@ router.put('/:id/price-tiers', requireAdmin, async (req: AuthRequest, res: Respo
     }, BASE_GUARD_TX); // I10: مهلة المعاملة أطول من مهلة القفل
     res.json({ success: true });
   } catch (err) {
-    if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
+    if (err instanceof UnitsRefusal) { res.status(err.status).json(refusalBody(err)); return; }
     next(err);
   }
 });
@@ -1175,7 +1232,7 @@ router.put('/:id/list-prices', requireAdmin, async (req: AuthRequest, res: Respo
     }, BASE_GUARD_TX); // I10: مهلة المعاملة أطول من مهلة القفل
     res.json({ success: true, data: { listPrices: (listPrices ?? []).map((r) => ({ priceListId: r.priceListId, price: Number(r.price) })) } });
   } catch (err) {
-    if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
+    if (err instanceof UnitsRefusal) { res.status(err.status).json(refusalBody(err)); return; }
     next(err);
   }
 });
@@ -1195,6 +1252,10 @@ router.post('/:id/units', requireAdmin, async (req: AuthRequest, res: Response, 
       if (problem) throw new UnitsRefusal(400, problem);
       // البند ٢: اسم أساسٍ سابق وحدةً أكبر لصنفٍ له تاريخ ⇒ 409 BASE_NAME_RESERVED
       await assertNotReservedBaseName(tx, tid, product, data.name, data.factor);
+      // D2: الجديدة رئيسيةً بحجمٍ غير حجم الرئيسية الآن ⇒ إقرار قواعد قوائم الأسعار المحسوبة بالرئيسية قبل أي كتابة
+      if (data.makePrimary === true) {
+        await assertPriceRulesAck(tx, tid, product.id, primaryFactorOf(product), Math.round(Number(data.factor)), data.acknowledgePriceRules);
+      }
       const created = await tx.productUnit.create({
         data: {
           tenantId: tid, productId: product.id, name: data.name.trim(),
@@ -1213,7 +1274,7 @@ router.post('/:id/units', requireAdmin, async (req: AuthRequest, res: Response, 
     }, BASE_GUARD_TX);
     res.status(201).json({ success: true, data: unit });
   } catch (err) {
-    if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
+    if (err instanceof UnitsRefusal) { res.status(err.status).json(refusalBody(err)); return; }
     if (isUniqueViolation(err)) { res.status(409).json({ success: false, message: 'اسم الوحدة مكرر لهذا الصنف' }); return; }
     next(err);
   }
@@ -1253,6 +1314,11 @@ router.put('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: Res
       }
       refuseLargeRuleWithout(product, product.units.map((u) => (u.id === current.id
         ? { factor: Number(merged.factor), isActive: data.isActive ?? u.isActive } : u)));
+      // D2: الرئيسية بعد الطلب (معاملها، أو إيقافها، أو إلغاؤها بـclearPrimary، أو تفعيل رئيسيةٍ موقوفة) بحجمٍ غير حجمها الآن ⇒ إقرار
+      const nextUnits = product.units.map((u) => (u.id === current.id
+        ? { ...u, factor: Math.round(Number(merged.factor)), isActive: data.isActive ?? u.isActive } : u));
+      await assertPriceRulesAck(tx, tid, product.id, primaryFactorOf(product),
+        primaryFactorOf({ primaryUnitId: isPrimary && data.clearPrimary === true ? null : product.primaryUnitId, units: nextUnits }), data.acknowledgePriceRules);
       await tx.productUnit.updateMany({
         where: { id: current.id, productId: product.id, tenantId: tid },
         data: {
@@ -1273,7 +1339,7 @@ router.put('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: Res
     }, BASE_GUARD_TX);
     res.json({ success: true, data: unit });
   } catch (err) {
-    if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
+    if (err instanceof UnitsRefusal) { res.status(err.status).json(refusalBody(err)); return; }
     if (isUniqueViolation(err)) { res.status(409).json({ success: false, message: 'اسم الوحدة مكرر لهذا الصنف' }); return; }
     next(err);
   }
@@ -1293,6 +1359,10 @@ router.delete('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: 
       const clearPrimary = req.query.clearPrimary === '1' || req.query.clearPrimary === 'true';
       if (isPrimary && !clearPrimary) throw new UnitsRefusal(409, PRIMARY_UNIT_IN_USE_MSG, 'PRIMARY_UNIT_IN_USE');
       refuseLargeRuleWithout(product, product.units.filter((u) => u.id !== req.params.unitId));
+      // D2: حذف الرئيسية الصالحة يعيد «الرئيسية» إلى الأساس ⇒ إقرار قواعد قوائم الأسعار (?acknowledgePriceRules=1 كإذن الرئيسية)
+      const ackRules = req.query.acknowledgePriceRules === '1' || req.query.acknowledgePriceRules === 'true';
+      await assertPriceRulesAck(tx, tid, product.id, primaryFactorOf(product),
+        primaryFactorOf({ primaryUnitId: isPrimary ? null : product.primaryUnitId, units: product.units.filter((u) => u.id !== req.params.unitId) }), ackRules);
       const gone = await tx.productUnit.deleteMany({ where: { id: req.params.unitId, productId: product.id, tenantId: tid } });
       if (gone.count === 0) throw new UnitsRefusal(404, 'الوحدة غير موجودة', 'UNIT_NOT_FOUND');
       if (isPrimary) {
@@ -1303,7 +1373,7 @@ router.delete('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: 
     }, BASE_GUARD_TX);
     res.json({ success: true });
   } catch (err) {
-    if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
+    if (err instanceof UnitsRefusal) { res.status(err.status).json(refusalBody(err)); return; }
     next(err);
   }
 });
@@ -1311,6 +1381,7 @@ router.delete('/:id/units/:unitId', requireAdmin, async (req: AuthRequest, res: 
 /**
  * تبديل الوحدة الرئيسية لصنفٍ قائم (D11): مجرّد علم — لا قفل تاريخ ولا ترحيل ولا إعادة كتابة. القفل يرتّبه مع كتّاب الوحدات
  * والتحويل فلا يُشار إلى وحدةٍ أُوقفت أو حُذفت للتوّ. unitId = null يلغي الرئيسية (سلوك ما قبل الميزة). مفاتيح API مسموح لها.
+ * إلا أن قواعد قوائم الأسعار بسعر فئةٍ أو حدٍّ أدنى محسوبةٌ بالرئيسية: حجمٌ آخر لها ⇒ 409 PRICE_RULES_UNIT_ACK إلا بإقرار (D2).
  */
 router.put('/:id/primary-unit', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -1328,6 +1399,9 @@ router.put('/:id/primary-unit', requireAdmin, async (req: AuthRequest, res: Resp
       if (body.unitId !== null && !primaryUnitOf({ primaryUnitId: body.unitId, units: locked.units })) {
         throw new UnitsRefusal(400, PRIMARY_UNIT_INVALID_MSG, 'PRIMARY_UNIT_INVALID');
       }
+      // D2: العلم لم يعد عرضاً فقط لقواعد قوائم الأسعار المحسوبة بالرئيسية — حجمٌ آخر ⇒ إقرار (والمعامل نفسه أو الإبقاء لا يسألان)
+      await assertPriceRulesAck(tx, tid, locked.id, primaryFactorOf(locked),
+        primaryFactorOf({ primaryUnitId: body.unitId, units: locked.units }), body.acknowledgePriceRules);
       return tx.product.update({
         where: { id: locked.id },
         data: { primaryUnitId: body.unitId }, // @updatedAt يتحرّك فتراه المزامنة وERP
@@ -1336,7 +1410,7 @@ router.put('/:id/primary-unit', requireAdmin, async (req: AuthRequest, res: Resp
     }, BASE_GUARD_TX);
     res.json({ success: true, data: product });
   } catch (err) {
-    if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
+    if (err instanceof UnitsRefusal) { res.status(err.status).json(refusalBody(err)); return; }
     next(err);
   }
 });
@@ -1407,6 +1481,17 @@ function primaryAfterConversion(product: { unit: string; primaryUnitId: string |
 }
 
 /**
+ * D2: حجم الرئيسية بوحدة الأساس **الجديدة** قبل التحويل (حجمها الآن × F) وبعده. الرئيسية القائمة تُضرب بـF، والقديمة تصير رئيسيةً
+ * بمعامل F — فيتساويان (سعر الفئة والحدّ الأدنى بمعناهما)؛ إلا بلا رئيسيةٍ صالحة مع keepOldBaseAsPrimary: false: «الرئيسية» الأساس
+ * الجديد (١) وكانت الكرتون (F) ⇒ سعر الفئة للكرتون يُقرأ للحبّة و«من ١٠» من ١٠ حبّات
+ */
+function conversionPrimarySizes(product: { primaryUnitId: string | null; units: UnitDef[] }, keep: boolean | null | undefined, F: number): { before: number; after: number } {
+  const current = primaryUnitOf(product);
+  const before = (current ? Number(current.factor) : 1) * F;
+  return { before, after: current ? Number(current.factor) * F : (keep !== false ? F : 1) };
+}
+
+/**
  * معاينة التحويل (dryRun): لا معاملة ولا قفل ولا كتابة. الرفض البنيوي نفسه، والعدّ بشروط WHERE التي تكتب بها جمل التحويل.
  */
 async function convertBasePreview(tid: string, productId: string, body: z.infer<typeof convertBaseSchema>, erpLinked: boolean, apiKeys: { write: number; readOnly: number }) {
@@ -1420,7 +1505,10 @@ async function convertBasePreview(tid: string, productId: string, body: z.infer<
   if (!product) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
   await convertBaseRefusalOn(prisma, tid, product, body);
   const pid = product.id;
-  const [invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, vanLoadItemLots, invoiceItemLots, lotRelabels, priceListItems, priceListRules] = await Promise.all([
+  // D2: القواعد التي يتبدّل معناها — تُعدّ حين يتغيّر حجم الرئيسية وحده (استعلامٌ واحد)، والمعاينة لا تطلب الإقرار
+  const sizes = conversionPrimarySizes(product, body.keepOldBaseAsPrimary, Math.round(body.factor));
+  const shifts = Math.abs(sizes.before - sizes.after) > QTY_EPS;
+  const [invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, vanLoadItemLots, invoiceItemLots, lotRelabels, priceListItems, priceListRules, priceRulesAffected] = await Promise.all([
     prisma.invoiceItem.count({ where: { productId: pid, invoice: { tenantId: tid } } }),
     prisma.vanLoadItem.count({ where: { productId: pid, vanLoad: { tenantId: tid } } }),
     prisma.warehouseEntryItem.count({ where: { productId: pid, entry: { tenantId: tid } } }),
@@ -1432,10 +1520,13 @@ async function convertBasePreview(tid: string, productId: string, body: z.infer<
     prisma.lotRelabel.count({ where: { tenantId: tid, productId: pid } }),
     prisma.priceListItem.count({ where: { tenantId: tid, productId: pid } }),
     prisma.priceListRule.count({ where: { tenantId: tid, productId: pid, basePrice: { not: null } } }),
+    shifts ? primaryRulesCount(prisma, tid, pid) : 0,
   ]);
   return {
     success: true, dryRun: true, erpLinked, apiKeys,
     primaryAfter: primaryAfterConversion(product, body.keepOldBaseAsPrimary),
+    // حين يتبدّل معنى قواعد قوائم الأسعار وحدها (التنفيذ بلا acknowledgePriceRules ⇒ 409 PRICE_RULES_UNIT_ACK) — فشكل المعاينة كما كان
+    ...(priceRulesAffected > 0 && { priceRulesAffected }),
     converted: {
       factor: Math.round(body.factor), from: product.unit, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers,
       ...(vanLoadItemLots + invoiceItemLots + lotRelabels > 0 && { vanLoadItemLots, invoiceItemLots, lotRelabels }),
@@ -1505,6 +1596,9 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
       // ١. الأساس المتوقَّع، و«قيود المندوب»، والمعامل والاسم، والاسم المتقاعد — كالمعاينة حرفياً، تحت القفل
       await convertBaseRefusalOn(tx, tid, product, body);
       const F = Math.round(body.factor);
+      // D2: بلا رئيسيةٍ صالحة مع keepOldBaseAsPrimary: false يصغر حجم «الرئيسية» F مرّة ⇒ إقرار قواعد قوائم الأسعار قبل أي كتابة
+      const sizes = conversionPrimarySizes(product, body.keepOldBaseAsPrimary, F);
+      await assertPriceRulesAck(tx, tid, product.id, sizes.before, sizes.after, body.acknowledgePriceRules);
       const oldUnit = product.unit;
       const pid = product.id;
 
@@ -1613,7 +1707,8 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
         data: { price: { divide: F } },
       });
       // وقاعدة الصنف الثابتة في القائمة (PriceListRule.basePrice) لوحدة الأساس كذلك: ÷ F بلا تقريب. والنسبة والحدّ الأدنى للكمية
-      // (بالرئيسية) وسعر الفئة (للرئيسية) لا تتغيّر بالتحويل
+      // (بالرئيسية) وسعر الفئة (للرئيسية) لا تتغيّر بالتحويل — فحجم الرئيسية باقٍ، إلا بلا رئيسية مع keepOldBaseAsPrimary: false
+      // (أُقرّ أعلاه، D2)
       const priceListRules = await tx.priceListRule.updateMany({
         where: { productId: pid, tenantId: tid, basePrice: { not: null } },
         data: { basePrice: { divide: F } },
@@ -1665,7 +1760,7 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
     }, { maxWait: 10_000, timeout: 120_000 }); // صنفٌ بتاريخ سنوات: آلاف الصفوف بالمُطلِق على قاعدةٍ صغيرة
     res.json({ success: true, data: result.data, converted: result.converted });
   } catch (err) {
-    if (err instanceof UnitsRefusal) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
+    if (err instanceof UnitsRefusal) { res.status(err.status).json(refusalBody(err)); return; }
     if (isUniqueViolation(err)) { res.status(409).json({ success: false, message: 'يوجد وحدة باسم وحدة الأساس الحالية لهذا الصنف' }); return; }
     if (err instanceof LotError) { res.status(err.status).json(lotErrorBody(err)); return; } // LOT_BUSY من قفل اللوط وحده
     next(err);

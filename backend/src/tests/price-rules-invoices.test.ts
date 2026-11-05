@@ -3,11 +3,14 @@
 //   • النسبة (خصمٌ أو زيادة) من «سعر البند بلا قائمة»، والسعر الثابت للفئة (بالرئيسية ÷ معاملها لوحدة الأساس) لبند الكرتون والحبّة،
 //     والحدّ الأدنى للكمية بمجموع بنود الصنف كلّها بكل وحداتها، وسعر العميل الخاص يغلب القائمة، وأولوية السعر الثابت في القائمة
 //     مقابل القواعد — للمندوب بلا «تغيير السعر»، والإدارة ومفتاح API أحرار.
-//   • يوم التسعير: الحيّ بيوم الخادم، وإعادة رفع الصندوق بلحظة الجهاز (عرضٌ سرى لحظة البيع ثم انتهى يُقبل)، ولحظةٌ أقدم من سبعة
-//     أيام أو في المستقبل ⇒ ساعة الخادم، وتاريخ الجسم لا يُقرأ أبداً.
-//   • صفر كلفة: بلا قائمةٍ لا استعلام قواعد، وبلا قاعدةٍ بفترة لا استعلام منطقة. وسقف المرتجع الحرّ بالمرجع نفسه، وإشارة سعر
-//     إعادة الرفع (تخمين وحدة جسمٍ بلا لقطة بعد تحويل الأساس) بتلميح القائمة.
-import { after, test } from 'node:test';
+//   • يوم التسعير: الحيّ بيوم الخادم، وإعادة رفع الصندوق بلحظة الجهاز (عرضٌ سرى لحظة البيع ثم انتهى يُقبل)، ولحظةٌ أقدم من ثلاثين
+//     يوماً أو في المستقبل ⇒ ساعة الخادم، وتاريخ الجسم لا يُقرأ أبداً.
+//   • مرشّحو التسعير (CONTRACT2 D1/D3 وتحقّقها): يوم الجهاز (pricingDay) إن ساوى يوم الشركة قبل لحظة التسعير بساعتين أو بعدها بساعتين
+//     (قرب منتصف ليل الشركة وحده — ظهراً لا يفتح تاريخ الجوال عرضاً)، وقواعد القائمة كما عرفها الجهاز: لحظة إصداره، أو لحظة جلبه كاش
+//     الأسعار (pricesSeenAt) قبلها (L2.2) — السقف أعلى المراجع والأرضية أدناها، ومرشّحٌ واحد كما كان حرفياً.
+//   • صفر كلفة: بلا قائمةٍ لا استعلام قواعد، وبلا قاعدةٍ بفترة لا استعلام منطقة، والإدارة ومفتاح API بلا استعلام قواعد (D5). وسقف
+//     المرتجع الحرّ بالمرجع نفسه، وإشارة سعر إعادة الرفع (تخمين وحدة جسمٍ بلا لقطة بعد تحويل الأساس) بتلميح القائمة كما رآه الجهاز.
+import { after, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import path from 'node:path';
@@ -137,6 +140,17 @@ const CHANGE = 'لا تملك صلاحية تغيير سعر البيع';
 const dayAt = (days: number): string =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Date.now() + days * DAY_MS));
 const isoAt = (days: number): string => new Date(Date.now() + days * DAY_MS).toISOString();
+/** لحظة إصدارٍ على الجهاز بتوقيت الشركة (الرياض +03:00 بلا توقيتٍ صيفي): الساعة `hhmm` من يوم الشركة قبل `daysAgo` يوماً */
+const riyadhIso = (daysAgo: number, hhmm: string): string => new Date(`${dayAt(-daysAgo)}T${hhmm}:00+03:00`).toISOString();
+/**
+ * ساعة الخادم مثبّتةً على لحظةٍ بتوقيت الشركة (Date وحده — المؤقّتات حقيقية فيعمل الخادم والطلب)، ويُعيدها node:test بعد الاختبار؛
+ * فـdayAt وisoAt والقواعد المنشأة بعدها نسبةً إليها. ويعيد مبدّلاً للحظةٍ أخرى في الاختبار نفسه
+ */
+const fixClock = (t: TestContext, local: string): ((next: string) => void) => {
+  const ms = (l: string): number => Date.parse(`${l}:00+03:00`);
+  t.mock.timers.enable({ apis: ['Date'], now: ms(local) });
+  return (next) => t.mock.timers.setTime(ms(next));
+};
 
 /** عميلٌ على القائمة L1، ومندوبٌ بلا «تغيير السعر» ولا قائمةٍ افتراضية */
 const CUSTOMER = { id: 'c1', tenantId: TENANT, name: 'بقالة', status: 'ACTIVE', balance: 0, creditLimit: 0, priceListId: 'L1' as string | null };
@@ -163,9 +177,10 @@ const CAN = { ...PRODUCT_BASE, id: 'p2', name: 'عصير علب', unit: 'علب�
 const WATER = { ...PRODUCT_BASE, id: 'p3', name: 'ماء', unit: 'قارورة', basePrice: 1, categoryId: 'cat-water' as string | null, units: [], primaryUnitId: null as string | null };
 
 type Rule = Record<string, unknown> & { id: string; scope: string };
+/** قاعدةٌ كُتبت قبل ستين يوماً — أقدم من أي لحظة جهازٍ تُعتمد (≤ ثلاثين يوماً)، فلا يُسقطها مرشّح D3 إلا حيث يُختبر صراحةً */
 const rule = (o: Partial<Rule> & { id: string; scope: string }): Rule => ({
   productId: null, categoryId: null, kind: 'percent', basePrice: null, primaryPrice: null, percent: null, minQty: 0, startsOn: null, endsOn: null,
-  updatedAt: new Date('2026-11-01T00:00:00Z'), ...o,
+  updatedAt: new Date(Date.now() - 60 * DAY_MS), ...o,
 });
 const PHASE1 = { defaultVatPct: 15, countryCode: 'SA', currency: 'SAR', einvoiceProvider: 'zatca', zatcaPhase2StartedAt: null, zatcaGoLiveArmedAt: null };
 
@@ -225,7 +240,7 @@ const sale = (lines: Line[], extra: Record<string, unknown> = {}) => ({
 const carton = (price: number, qty = 1): Line => ['p1', 'u-ct', qty, price];
 const piece = (price: number, qty = 1): Line => ['p1', null, qty, price];
 /** يُصدر المندوب المستند ويعيد الحالة (والرسالة عند الرفض) */
-async function repStatus(w: { rules?: Rule[]; items?: Record<string, number>; products?: any[]; cps?: { productId: string; price: number }[] }, lines: Line[], extra: Record<string, unknown> = {}, headers: Record<string, string> = {}): Promise<number> {
+async function repStatus(w: Parameters<typeof world>[0], lines: Line[], extra: Record<string, unknown> = {}, headers: Record<string, string> = {}): Promise<number> {
   reset(REP_USER);
   world(w);
   const r = await post(sale(lines, extra), headers);
@@ -336,15 +351,255 @@ test('إعادة رفع الصندوق بلحظة الجهاز: عرضٌ سرى 
   assert.equal(await repStatus({ rules: promo }, [carton(9)], { clientCreatedAt: isoAt(-3) }, REPLAY), 403);
 });
 
-test('لحظة جهازٍ أقدم من سبعة أيام أو في المستقبل ⇒ ساعة الخادم: عرض يومها لا يسري، وعرض اليوم يسري', async () => {
-  const old = { clientCreatedAt: isoAt(-8) };
-  assert.equal(await repStatus({ rules: [rule({ id: 'R-8', scope: 'all', percent: 10, startsOn: dayAt(-8), endsOn: dayAt(-8) })] }, [carton(9)], old, REPLAY), 403);
+test('لحظة جهازٍ حتى ثلاثين يوماً (D1 — المحجوز «بانتظار الإدارة»): ١٠ و٢٥ يوماً بيوم الجهاز، وأقدم أو في المستقبل ⇒ ساعة الخادم', async () => {
+  for (const days of [8, 10, 25]) {
+    const promo = [rule({ id: `R-${days}`, scope: 'all', percent: 10, startsOn: dayAt(-days), endsOn: dayAt(-days) })];
+    const at = { clientCreatedAt: isoAt(-days) };
+    assert.equal(await repStatus({ rules: promo }, [carton(9)], at, REPLAY), 201, `${days} يوماً: عرض يوم البيع يسري`);
+    assert.equal(await repStatus({ rules: promo }, [carton(10)], at, REPLAY), 403, `${days} يوماً: مرشّحٌ واحد — السعر العامّ فوق مرجع يوم البيع`);
+    assert.equal(await repStatus({ rules: promo }, [carton(9)], at), 403, `${days} يوماً: والحيّ بيوم الخادم`);
+  }
+  const old = { clientCreatedAt: isoAt(-40) };
+  assert.equal(await repStatus({ rules: [rule({ id: 'R-40', scope: 'all', percent: 10, startsOn: dayAt(-40), endsOn: dayAt(-40) })] }, [carton(9)], old, REPLAY), 403, 'أربعون يوماً ⇒ ساعة الخادم');
   assert.equal(await repStatus({ rules: [rule({ id: 'R-0', scope: 'all', percent: 10, startsOn: dayAt(0), endsOn: dayAt(0) })] }, [carton(9)], old, REPLAY), 201);
+  const edge = { clientCreatedAt: isoAt(-31) };
+  assert.equal(await repStatus({ rules: [rule({ id: 'R-31', scope: 'all', percent: 10, startsOn: dayAt(-31), endsOn: dayAt(-31) })] }, [carton(9)], edge, REPLAY), 403, 'واحدٌ وثلاثون ⇒ ساعة الخادم');
   const ahead = { clientCreatedAt: isoAt(2) };
   assert.equal(await repStatus({ rules: [rule({ id: 'R+2', scope: 'all', percent: 10, startsOn: dayAt(2), endsOn: dayAt(2) })] }, [carton(9)], ahead, REPLAY), 403);
   assert.equal(await repStatus({ rules: [rule({ id: 'R-0', scope: 'all', percent: 10, startsOn: dayAt(0), endsOn: dayAt(0) })] }, [carton(9)], ahead, REPLAY), 201);
   // ولحظةٌ تالفة كذلك
   assert.equal(await repStatus({ rules: [rule({ id: 'R-0', scope: 'all', percent: 10, startsOn: dayAt(0), endsOn: dayAt(0) })] }, [carton(9)], { clientCreatedAt: 'غداً' }, REPLAY), 201);
+});
+
+// ═══ (٤-ب) يوم تسعير الجهاز (CONTRACT2 D1) ═══
+
+test('D1: يوم الجهاز (pricingDay) مرشّحٌ ثانٍ ضمن ساعتين من لحظة الخادم — ٠٠:٣٠ بتوقيت الشركة يقبل أمسها، والنطاق بين المرجعين', async (t) => {
+  fixClock(t, '2026-11-06T00:30');
+  assert.equal(dayAt(0), '2026-11-06');
+  const yesterday = [rule({ id: 'R-y', scope: 'all', percent: 10, startsOn: dayAt(-1), endsOn: dayAt(-1) })];
+  const dev = { pricingDay: dayAt(-1) };
+  // سلّةٌ سُعّرت قبل منتصف الليل (أو جهازٌ بمنطقة UTC يومه أمسُ الشركة) والعرض ساريه — يُقبل حيّاً، وبلا pricingDay كما كان 403
+  assert.equal(await repStatus({ rules: yesterday }, [carton(9)], dev), 201);
+  assert.equal(await repStatus({ rules: yesterday }, [carton(9)]), 403, 'بلا يوم الجهاز كما كان');
+  // النطاق: السعر العامّ (يوم الخادم) والخصم (يوم الجهاز) كلاهما، وما خارجهما يُرفض
+  assert.equal(await repStatus({ rules: yesterday }, [carton(10)], dev), 201);
+  assert.equal(await repStatus({ rules: yesterday }, [carton(9.5)], dev), 201);
+  assert.equal(await repStatus({ rules: yesterday }, [carton(8.5)], dev), 403);
+  assert.equal(await repStatus({ rules: yesterday }, [carton(10.5)], dev), 403);
+  assert.equal(await repStatus({ rules: yesterday }, [carton(10.35)], { ...dev, pricesIncludeTax: true }), 201, 'شاملاً للضريبة');
+});
+
+test('D1: ٢٣:٣٠ بتوقيت الشركة يقبل يوم غدها — عرضٌ يبدأ غداً، ونهاية عرضٍ اليوم والجهاز سعّر بسعر الغد العامّ', async (t) => {
+  fixClock(t, '2026-11-05T23:30');
+  assert.equal(dayAt(0), '2026-11-05');
+  // المرآة: عرضٌ يبدأ غداً ويوم الجهاز غدٌ (ساعة الجهاز متقدّمة دقائق أو منطقته شرقاً)
+  const tomorrow = [rule({ id: 'R-t', scope: 'all', percent: 10, startsOn: dayAt(1) })];
+  assert.equal(await repStatus({ rules: tomorrow }, [carton(9)], { pricingDay: dayAt(1) }), 201);
+  assert.equal(await repStatus({ rules: tomorrow }, [carton(9)]), 403);
+  // ونهاية عرضٍ في يوم الخادم والجهاز سعّر بسعر الغد العامّ (سلّةٌ مفتوحة عبر منتصف الليل على جهازٍ متقدّم)
+  const endsToday = [rule({ id: 'R-e', scope: 'all', percent: 10, endsOn: dayAt(0) })];
+  assert.equal(await repStatus({ rules: endsToday }, [carton(10)], { pricingDay: dayAt(1) }), 201);
+  assert.equal(await repStatus({ rules: endsToday }, [carton(10)]), 403);
+  // والأمس ليس ضمن ساعتين من ٢٣:٣٠
+  const yesterday = [rule({ id: 'R-y', scope: 'all', percent: 10, startsOn: dayAt(-1), endsOn: dayAt(-1) })];
+  assert.equal(await repStatus({ rules: yesterday }, [carton(9)], { pricingDay: dayAt(-1) }), 403);
+});
+
+test('D1 (التحقّق): ظهراً يُهمل يوم الجهاز المخالف — تغيير تاريخ الجوال يوماً لا يفتح لمندوبٍ بلا «تغيير السعر» عرض الأمس المنتهي ولا عرض الغد', async (t) => {
+  const setClock = fixClock(t, '2026-11-05T12:00');
+  const ended = [rule({ id: 'R-y', scope: 'all', percent: 10, startsOn: '2026-11-04', endsOn: '2026-11-04' })];
+  const next = [rule({ id: 'R-t', scope: 'all', percent: 10, startsOn: '2026-11-06' })];
+  const endsToday = [rule({ id: 'R-e', scope: 'all', percent: 10, endsOn: '2026-11-05' })];
+  assert.equal(await repStatus({ rules: ended }, [carton(9)], { pricingDay: '2026-11-04' }), 403, 'عرض الأمس ظهراً');
+  assert.equal(await repStatus({ rules: ended }, [carton(10)], { pricingDay: '2026-11-04' }), 201, 'سعر اليوم');
+  assert.equal(await repStatus({ rules: next }, [carton(9)], { pricingDay: '2026-11-06' }), 403, 'عرض الغد ظهراً');
+  assert.equal(await repStatus({ rules: endsToday }, [carton(10)], { pricingDay: '2026-11-06' }), 403, 'سعر الغد العامّ ظهراً');
+  assert.equal(await repStatus({ rules: endsToday }, [carton(9)], { pricingDay: '2026-11-06' }), 201);
+  // حدّا النافذة: ٢١:٥٩ لا يبلغ الغد و٢٢:٠٠ يبلغه؛ و٠١:٥٩ يبلغ الأمس و٠٢:٠٠ لا
+  setClock('2026-11-05T21:59');
+  assert.equal(await repStatus({ rules: next }, [carton(9)], { pricingDay: '2026-11-06' }), 403);
+  setClock('2026-11-05T22:00');
+  assert.equal(await repStatus({ rules: next }, [carton(9)], { pricingDay: '2026-11-06' }), 201);
+  const endedTwoAm = [rule({ id: 'R-5', scope: 'all', percent: 10, startsOn: '2026-11-05', endsOn: '2026-11-05' })];
+  setClock('2026-11-06T01:59');
+  assert.equal(await repStatus({ rules: endedTwoAm }, [carton(9)], { pricingDay: '2026-11-05' }), 201);
+  setClock('2026-11-06T02:00');
+  assert.equal(await repStatus({ rules: endedTwoAm }, [carton(9)], { pricingDay: '2026-11-05' }), 403);
+});
+
+test('D1: يوم جهازٍ على بعد يومين فأكثر أو تالفٍ أو بغير نوعه يُهمل بصمت (لا 400)، ويومٌ يساوي يوم الخادم مرشّحٌ واحد كما كان', async () => {
+  const twoAgo = [rule({ id: 'R-2', scope: 'all', percent: 10, startsOn: dayAt(-2), endsOn: dayAt(-2) })];
+  assert.equal(await repStatus({ rules: twoAgo }, [carton(9)], { pricingDay: dayAt(-2) }), 403, 'قبل يومين');
+  assert.equal(await repStatus({ rules: twoAgo }, [carton(10)], { pricingDay: dayAt(-2) }), 201);
+  const inTwo = [rule({ id: 'R+2', scope: 'all', percent: 10, startsOn: dayAt(2) })];
+  assert.equal(await repStatus({ rules: inTwo }, [carton(9)], { pricingDay: dayAt(2) }), 403, 'بعد يومين');
+  const yesterday = [rule({ id: 'R-y', scope: 'all', percent: 10, startsOn: dayAt(-1), endsOn: dayAt(-1) })];
+  for (const pricingDay of ['غداً', '2026-13-01', `${dayAt(-1)}T00:00:00Z`, 20261105, { d: 1 }, '', null, 'x'.repeat(60)]) {
+    assert.equal(await repStatus({ rules: yesterday }, [carton(10)], { pricingDay }), 201, JSON.stringify(pricingDay));
+    assert.equal(await repStatus({ rules: yesterday }, [carton(9)], { pricingDay }), 403, JSON.stringify(pricingDay));
+  }
+  // يوم الجهاز = يوم الخادم: كما كان حرفياً
+  const today = [rule({ id: 'R-d0', scope: 'all', percent: 10, startsOn: dayAt(0), endsOn: dayAt(0) })];
+  assert.equal(await repStatus({ rules: today }, [carton(9)], { pricingDay: dayAt(0) }), 201);
+  assert.equal(await repStatus({ rules: today }, [carton(10)], { pricingDay: dayAt(0) }), 403);
+  assert.equal(await repStatus({ rules: today }, [carton(8.5)], { pricingDay: dayAt(0) }), 403);
+});
+
+test('D1: في إعادة الرفع تُقاس النافذة من لحظة الجهاز لا من لحظة المزامنة — ٠٠:٣٠ على الجهاز يقبل أمسه و٢٣:٣٠ غده، وظهراً لا', async () => {
+  // باع ٠٠:٣٠ قبل يومين (لحظة الجهاز) وسعّر بيوم أمسها (سلّةٌ قبل منتصف الليل): ضمن ساعتين من لحظته
+  const threeAgo = [rule({ id: 'R-3', scope: 'all', percent: 10, startsOn: dayAt(-3), endsOn: dayAt(-3) })];
+  const body = { clientCreatedAt: riyadhIso(2, '00:30'), pricingDay: dayAt(-3) };
+  assert.equal(await repStatus({ rules: threeAgo }, [carton(9)], body, REPLAY), 201);
+  assert.equal(await repStatus({ rules: threeAgo }, [carton(9)], { clientCreatedAt: body.clientCreatedAt }, REPLAY), 403, 'بلا يوم الجهاز');
+  assert.equal(await repStatus({ rules: threeAgo }, [carton(9)], { pricingDay: dayAt(-3) }), 403, 'والحيّ: أيامٌ عن لحظة الخادم');
+  // والبيع نفسه ظهراً على الجهاز: يوم الجهاز المخالف يُهمل
+  const noon = { clientCreatedAt: riyadhIso(2, '12:00'), pricingDay: dayAt(-3) };
+  assert.equal(await repStatus({ rules: threeAgo }, [carton(9)], noon, REPLAY), 403, 'ظهراً على الجهاز');
+  assert.equal(await repStatus({ rules: threeAgo }, [carton(10)], noon, REPLAY), 201);
+  // والمرآة: ٢٣:٣٠ على الجهاز يقبل يوم غده، وظهراً لا
+  const twoAgo = [rule({ id: 'R-2', scope: 'all', percent: 10, startsOn: dayAt(-2), endsOn: dayAt(-2) })];
+  assert.equal(await repStatus({ rules: twoAgo }, [carton(9)], { clientCreatedAt: riyadhIso(3, '23:30'), pricingDay: dayAt(-2) }, REPLAY), 201);
+  assert.equal(await repStatus({ rules: twoAgo }, [carton(9)], { clientCreatedAt: riyadhIso(3, '12:00'), pricingDay: dayAt(-2) }, REPLAY), 403);
+});
+
+test('D1: «تغيير السعر» بلا «البيع بأقل» — الأرضية أدنى المرجعين عند منتصف الليل والسقف لا يُحرس، وظهراً أرضية يوم الخادم وحده', async (t) => {
+  const setClock = fixClock(t, '2026-11-06T00:30');
+  const canChange = { canChangePrice: true, canSellBelowPrice: false };
+  const ended = [rule({ id: 'R-y', scope: 'all', percent: 10, startsOn: '2026-11-05', endsOn: '2026-11-05' })];
+  const run = async (price: number, extra: Record<string, unknown>) => {
+    reset(REP_USER);
+    world({ rules: ended, rep: canChange });
+    return post(sale([carton(price)], extra));
+  };
+  assert.equal((await run(9, { pricingDay: '2026-11-05' })).status, 201);
+  assert.equal((await run(12, { pricingDay: '2026-11-05' })).status, 201);
+  const below = await run(8.5, { pricingDay: '2026-11-05' });
+  assert.equal(below.status, 403);
+  assert.equal(below.body.message, 'لا تملك صلاحية البيع بأقل من السعر المحدد');
+  assert.equal((await run(9, {})).status, 403, 'بلا يوم الجهاز: الأرضية سعر اليوم العامّ');
+  // ظهراً (العرض أمسُ الشركة): يوم الجهاز يُهمل والأرضية سعر اليوم العامّ
+  setClock('2026-11-06T12:00');
+  assert.equal((await run(9, { pricingDay: '2026-11-05' })).status, 403);
+  assert.equal((await run(10, { pricingDay: '2026-11-05' })).status, 201);
+});
+
+test('D1: سقف المرتجع الحرّ أعلى المرجعين — زيادةٌ سرت يوم الجهاز (٠٠:٣٠، أمسُ الشركة) ترفع السقف، وظهراً لا', async (t) => {
+  const setClock = fixClock(t, '2026-11-06T00:30');
+  const run = async (unitPrice: number, extra: Record<string, unknown>) => {
+    reset(REP_USER);
+    world({
+      rules: [rule({ id: 'R-up', scope: 'all', percent: -20, startsOn: '2026-11-05', endsOn: '2026-11-05' })],
+      company: { zatcaPhase2StartedAt: new Date('2026-10-02T00:00:00Z'), returnRequiresSaleInvoice: false },
+    });
+    const r = await post(sale([carton(unitPrice)], { type: 'RETURN', returnReason: 'NORMAL', originalInvoiceRef: 'OLD-1001', originalPaymentType: 'CASH', noteReason: 'إرجاع', ...extra }));
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    return noteCtx[0].manualReturn.repPriceProblem;
+  };
+  assert.equal(await run(11.5, { pricingDay: '2026-11-05' }), null, 'سقفٌ ١٢ بزيادة يوم الجهاز');
+  assert.equal(await run(12.5, { pricingDay: '2026-11-05' }), CHANGE);
+  assert.equal(await run(11.5, {}), CHANGE, 'بلا يوم الجهاز: السقف ١٠');
+  setClock('2026-11-06T12:00');
+  assert.equal(await run(11.5, { pricingDay: '2026-11-05' }), CHANGE, 'ظهراً: السقف ١٠');
+});
+
+// ═══ (٤-ج) قواعد كُتبت أثناء انقطاع المندوب (CONTRACT2 D3) ═══
+
+test('D3: قاعدةٌ كُتبت بعد لحظة الجهاز لا تُرفض بها إعادة الرفع (مرشّحٌ بقواعد الجهاز) — والحيّ يُحرس بها، وما عرفه الجهاز مرشّحٌ واحد', async () => {
+  const fresh = [rule({ id: 'R-new', scope: 'all', percent: 10, updatedAt: new Date(Date.now() - DAY_MS) })];
+  const body = { clientCreatedAt: isoAt(-2) };
+  // الجهاز لم يعرف الخصم: باع بالسعر العامّ ١٠ ⇒ يُقبل، والخصم ٩ كذلك (النطاق)، وما خارجهما يُرفض
+  assert.equal(await repStatus({ rules: fresh }, [carton(10)], body, REPLAY), 201);
+  assert.equal(await repStatus({ rules: fresh }, [carton(9)], body, REPLAY), 201);
+  assert.equal(await repStatus({ rules: fresh }, [carton(10.5)], body, REPLAY), 403);
+  assert.equal(await repStatus({ rules: fresh }, [carton(8.5)], body, REPLAY), 403);
+  // والحيّ: القاعدة تحرسه
+  assert.equal(await repStatus({ rules: fresh }, [carton(10)], body), 403);
+  // إعادة رفعٍ بعد كتابتها بلا لحظة جلب الكاش (pricesSeenAt): يُفترض أن الجهاز عرفها ⇒ مرشّحٌ واحد كما كان؛ وجلبٌ قبلها (التحقّق L2.2)
+  // يعني أنه لم يرها ⇒ مرشّح قواعد الجهاز
+  assert.equal(await repStatus({ rules: fresh }, [carton(10)], { clientCreatedAt: isoAt(-0.5) }, REPLAY), 403);
+  assert.equal(await repStatus({ rules: fresh }, [carton(10)], { clientCreatedAt: isoAt(-0.5), pricesSeenAt: isoAt(-2) }, REPLAY), 201);
+  // ولا لحظة جهاز (تالفة، أو أقدم من ثلاثين يوماً، أو في المستقبل) ⇒ القواعد الحالية وحدها
+  for (const clientCreatedAt of ['غداً', isoAt(-40), isoAt(1)]) {
+    assert.equal(await repStatus({ rules: fresh }, [carton(10)], { clientCreatedAt }, REPLAY), 403, clientCreatedAt);
+  }
+  // زيادةٌ كُتبت بعد لحظة الجهاز: السعر العامّ يُقبل في الإعادة، والحيّ بها
+  const up = [rule({ id: 'R-up', scope: 'all', percent: -20, updatedAt: new Date(Date.now() - DAY_MS) })];
+  assert.equal(await repStatus({ rules: up }, [carton(10)], body, REPLAY), 201);
+  assert.equal(await repStatus({ rules: up }, [carton(12)], body, REPLAY), 201);
+  assert.equal(await repStatus({ rules: up }, [carton(10)], body), 403);
+  // وقاعدةٌ جديدة فوق سعرٍ ثابتٍ في القائمة عرفه الجهاز: الثابت (٨) أو القاعدة (٧)
+  const fix7 = [rule({ id: 'R-7', scope: 'product', productId: 'p1', kind: 'fixed', basePrice: 7 / 24, updatedAt: new Date(Date.now() - DAY_MS) })];
+  assert.equal(await repStatus({ rules: fix7, items: { p1: 8 / 24 } }, [carton(8)], body, REPLAY), 201);
+  assert.equal(await repStatus({ rules: fix7, items: { p1: 8 / 24 } }, [carton(8)], body), 403);
+  // ومع قاعدةٍ قديمة يعرفها الجهاز: تبقى في مرشّحه (خصمٌ قديم ١٠٪ وزيادةٌ جديدة لم يعرفها)
+  const mixed = [rule({ id: 'R-old', scope: 'all', percent: 10 }), rule({ id: 'R-cat', scope: 'category', categoryId: 'cat-juice', percent: -20, updatedAt: new Date(Date.now() - DAY_MS) })];
+  assert.equal(await repStatus({ rules: mixed }, [carton(9)], body, REPLAY), 201, 'قواعد الجهاز: الخصم القديم');
+  assert.equal(await repStatus({ rules: mixed }, [carton(10)], body, REPLAY), 201, 'ضمن النطاق ٩–١٢');
+  assert.equal(await repStatus({ rules: mixed }, [carton(8.5)], body, REPLAY), 403);
+  assert.equal(await repStatus({ rules: mixed }, [carton(9)], body), 403, 'الحيّ: الفئة الجديدة ١٢');
+});
+
+test('D1×D3: يوم الجهاز وقواعده معاً — أربعة مرشّحين، والنطاق أعلاها وأدناها', async () => {
+  // عرضٌ كُتب بعد لحظة الجهاز ويسري يوم الجهاز وحده (أمسَ لحظته)، وزيادةٌ قديمة تسري يوم الخادم وحده
+  const rules = [
+    rule({ id: 'R-new', scope: 'all', percent: 50, startsOn: dayAt(-3), endsOn: dayAt(-3), updatedAt: new Date(Date.now() - DAY_MS) }),
+    rule({ id: 'R-up', scope: 'all', percent: -20, startsOn: dayAt(-2), endsOn: dayAt(-2) }),
+  ];
+  const body = { clientCreatedAt: riyadhIso(2, '00:30'), pricingDay: dayAt(-3) };
+  // المراجع: (كل القواعد، يوم اللحظة) ١٢ · (كل القواعد، يوم الجهاز) ٥ · (قواعد الجهاز، يوم اللحظة) ١٢ · (قواعد الجهاز، يوم الجهاز) ١٠
+  for (const [price, status] of [[5, 201], [10, 201], [12, 201], [4.5, 403], [12.5, 403]] as const) {
+    assert.equal(await repStatus({ rules }, [carton(price)], body, REPLAY), status, String(price));
+  }
+  // وبلا يوم الجهاز: (كل القواعد/قواعد الجهاز، يوم اللحظة) ١٢ ⇒ ١٢ وحده
+  assert.equal(await repStatus({ rules }, [carton(10)], { clientCreatedAt: body.clientCreatedAt }, REPLAY), 403);
+  assert.equal(await repStatus({ rules }, [carton(12)], { clientCreatedAt: body.clientCreatedAt }, REPLAY), 201);
+  // وظهراً على الجهاز: يوم الجهاز يُهمل ⇒ ١٢ وحده كذلك
+  const noon = { clientCreatedAt: riyadhIso(2, '12:00'), pricingDay: dayAt(-3) };
+  assert.equal(await repStatus({ rules }, [carton(5)], noon, REPLAY), 403);
+  assert.equal(await repStatus({ rules }, [carton(12)], noon, REPLAY), 201);
+});
+
+// ═══ (٤-د) قاعدةٌ كُتبت بين جلب الكاش والبيع (التحقّق L2.2: body.pricesSeenAt) ═══
+
+test('L2.2: قاعدةٌ كُتبت بعد جلب الجهاز كاش الأسعار وقبل بيعه لا تُرفض بها إعادة الرفع (pricesSeenAt) — وبلاه كما كان، والمزوّرة والحيّ يُهملانه', async () => {
+  const H = 3_600_000;
+  const ago = (h: number): string => new Date(Date.now() - h * H).toISOString();
+  // المزامنة الآن (١٤:٠٠)، وخصم الفئة ١٠٪ كُتب ١٠:٠٠ (−٤س)، والكاش جُلب ٠٨:٠٠ (−٦س)، والبيعان ٠٩:٠٠ (−٥س) و١١:٠٠ (−٣س) بالسعر الكامل ١٠
+  const cat10 = [rule({ id: 'R-cat', scope: 'category', categoryId: 'cat-juice', percent: 10, updatedAt: new Date(Date.now() - 4 * H) })];
+  const seen = { pricesSeenAt: ago(6) };
+  const at9 = { clientCreatedAt: ago(5) };
+  const at11 = { clientCreatedAt: ago(3) };
+  assert.equal(await repStatus({ rules: cat10 }, [carton(10)], { ...at9, ...seen }, REPLAY), 201, '٠٩:٠٠');
+  assert.equal(await repStatus({ rules: cat10 }, [carton(10)], { ...at11, ...seen }, REPLAY), 201, '١١:٠٠ — الجهاز لم يرَ القاعدة');
+  // بلا pricesSeenAt كما كان: ٠٩:٠٠ يُقبل (القاعدة بعد البيع) و١١:٠٠ يُرفض (يُفترض أن الجهاز عرفها)
+  assert.equal(await repStatus({ rules: cat10 }, [carton(10)], at9, REPLAY), 201);
+  assert.equal(await repStatus({ rules: cat10 }, [carton(10)], at11, REPLAY), 403);
+  // النطاق: الخصم ٩ (القواعد الحالية) والكامل ١٠ (قواعد الجهاز)، وما خارجهما يُرفض
+  assert.equal(await repStatus({ rules: cat10 }, [carton(9)], { ...at11, ...seen }, REPLAY), 201);
+  assert.equal(await repStatus({ rules: cat10 }, [carton(8.5)], { ...at11, ...seen }, REPLAY), 403);
+  assert.equal(await repStatus({ rules: cat10 }, [carton(10.5)], { ...at11, ...seen }, REPLAY), 403);
+  // جلبٌ بعد القاعدة (١٠:٣٠): عرفها ⇒ مرشّحٌ واحد كما كان
+  assert.equal(await repStatus({ rules: cat10 }, [carton(10)], { ...at11, pricesSeenAt: ago(3.5) }, REPLAY), 403);
+  // جلبٌ «بعد» البيع (١٢:٠٠) لا يكون ⇒ يُهمل ويبقى حدّ الإصدار
+  assert.equal(await repStatus({ rules: cat10 }, [carton(10)], { ...at11, pricesSeenAt: ago(2) }, REPLAY), 403);
+  // مزوّرةٌ أقدم من البيع بأكثر من ثلاثين يوماً ⇒ تُهمل، وضمن الثلاثين تُقبل
+  const sold = Date.now() - 3 * H;
+  assert.equal(await repStatus({ rules: cat10 }, [carton(10)], { ...at11, pricesSeenAt: new Date(sold - 30 * DAY_MS - 60_000).toISOString() }, REPLAY), 403, 'أقدم من ثلاثين يوماً');
+  assert.equal(await repStatus({ rules: cat10 }, [carton(10)], { ...at11, pricesSeenAt: new Date(sold - 29 * DAY_MS).toISOString() }, REPLAY), 201);
+  // الحيّ لا يقرؤها
+  assert.equal(await repStatus({ rules: cat10 }, [carton(10)], seen), 403, 'الحيّ');
+  // تالفةٌ أو بغير نوعها: لا 400 أبداً، وكأنها غائبة
+  for (const pricesSeenAt of ['x', '2026-11-05', ago(6).slice(0, 19), 1_730_000_000_000, { a: 1 }, 'x'.repeat(80), null]) {
+    assert.equal(await repStatus({ rules: cat10 }, [carton(10)], { ...at11, pricesSeenAt }, REPLAY), 403, JSON.stringify(pricesSeenAt));
+    assert.equal(await repStatus({ rules: cat10 }, [carton(9)], { ...at11, pricesSeenAt }, REPLAY), 201, JSON.stringify(pricesSeenAt));
+  }
+  // ساعة الجهاز متأخّرة ساعتين (X-FS-Device-Now): لحظتا الإصدار والجلب على ساعته تُصحَّحان بالفرق نفسه
+  const behind = { ...REPLAY, 'x-fs-device-now': String(Date.now() - 2 * H) };
+  assert.equal(await repStatus({ rules: cat10 }, [carton(10)], { clientCreatedAt: ago(5), pricesSeenAt: ago(8) }, behind), 201);
+  assert.equal(await repStatus({ rules: cat10 }, [carton(10)], { clientCreatedAt: ago(5) }, behind), 403, 'بلا الجلب');
+  // ومتقدّمة ساعتين: جلبٌ «١١:٣٠» على ساعته = ٠٩:٣٠ قبل القاعدة — بلا تصحيحه لبدا بعد الإصدار (١١:٠٠) فأُهمل
+  const ahead = { ...REPLAY, 'x-fs-device-now': String(Date.now() + 2 * H) };
+  assert.equal(await repStatus({ rules: cat10 }, [carton(10)], { clientCreatedAt: ago(1), pricesSeenAt: ago(2.5) }, ahead), 201);
 });
 
 // ═══ (٥) الأولوية ═══
@@ -384,16 +639,32 @@ test('السعر الثابت في القائمة مقابل القواعد: ق�
 
 // ═══ (٦) الإدارة ومفتاح API ═══
 
-test('الإدارة ومفتاح API أحرار: قواعد القائمة لا تحرسهم، والمستند يُختم بالقائمة', async () => {
+test('الإدارة ومفتاح API أحرار: قواعد القائمة لا تحرسهم، والمستند يُختم بالقائمة — ولا استعلام قواعد ولا منطقة (D5)', async () => {
   for (const user of [ADMIN, API_KEY]) {
+    // خط الأساس: الشخص نفسه بلا قائمة (ما يقرؤه المسار من منطقةٍ لغير القائمة)
+    reset(user);
+    world({ customer: { priceListId: null } });
+    assert.equal((await post(sale([carton(10)]))).status, 201);
+    const baseTz = tzReads();
     for (const price of [3, 9, 20]) {
       reset(user);
-      const w = world({ rules: [rule({ id: 'R-all', scope: 'all', percent: 10 })] });
-      const r = await post(sale([carton(price)]));
+      // قاعدةٌ بفترة ويوم جهاز: لا شيء منهما يُقرأ للإدارة والمفتاح
+      const w = world({ rules: [rule({ id: 'R-all', scope: 'all', percent: 10 }), rule({ id: 'R-d', scope: 'all', percent: 20, startsOn: dayAt(-1), endsOn: dayAt(1) })] });
+      const r = await post(sale([carton(price)], { pricingDay: dayAt(-1) }));
       assert.equal(r.status, 201, `${user.apiKeyId ?? 'admin'} ${price}: ${JSON.stringify(r.body)}`);
       assert.equal(w.created[0].priceListId, 'L1');
+      assert.equal(w.ruleQueries.length, 0, 'لا استعلام قواعد للإدارة ولا للمفتاح');
+      assert.equal(calls.includes('priceListRule.findMany'), false);
+      assert.equal(tzReads(), baseTz, 'ولا منطقة');
+      // واستعلام السعر الثابت كما كان حرفياً
+      assert.deepEqual(w.itemQueries, [{ where: { tenantId: TENANT, priceListId: 'L1', productId: { in: ['p1'] } }, select: { productId: true, price: true } }]);
     }
   }
+  // إعادة رفعٍ بجلسة الإدارة (لا مفتاح): إشارة سعر إعادة الرفع تقرأ القواعد كما كان
+  reset(ADMIN);
+  const replayed = world({ rules: [rule({ id: 'R-all', scope: 'all', percent: 10 })] });
+  assert.equal((await post(sale([carton(9)]), REPLAY)).status, 201);
+  assert.equal(replayed.ruleQueries.length, 1);
 });
 
 // ═══ (٧) صفر كلفة ═══
@@ -429,6 +700,28 @@ test('بلا قائمةٍ لا استعلام قواعد ولا أسعار ول�
   world({ rules: [rule({ id: 'R-o', scope: 'product', productId: 'p-other', percent: 10, startsOn: dayAt(-1) })] });
   assert.equal((await post(sale([carton(10)]))).status, 201);
   assert.equal(tzReads(), baseTz);
+  // ويوم الجهاز (pricingDay) بلا قاعدةٍ بفترة: لا منطقة ولا مرشّح — وبلا قائمةٍ لا شيء
+  reset(REP_USER);
+  world({ rules: [rule({ id: 'R-all', scope: 'all', percent: 10 })] });
+  assert.equal((await post(sale([carton(9)], { pricingDay: dayAt(-1) }))).status, 201);
+  assert.equal(tzReads(), baseTz);
+  reset(REP_USER);
+  world({ customer: { priceListId: null } });
+  assert.equal((await post(sale([carton(10)], { pricingDay: dayAt(-1) }), REPLAY)).status, 201);
+  assert.deepEqual(calls.filter((c) => c.startsWith('priceList')), []);
+  assert.equal(tzReads(), baseTz);
+  // وبقاعدةٍ بفترة: قراءة منطقةٍ واحدة ولو حضر يوم الجهاز ولحظته وقاعدةٌ لم يعرفها (المرشّحون من القراءة نفسها) — فوق ما تقرؤه
+  // إعادة الرفع نفسها بلا قائمة (منطقة رقم المستند المؤرَّخ بلحظة الجهاز: numTz، كما كانت)
+  const replayBody = { pricingDay: dayAt(-2), clientCreatedAt: isoAt(-1), pricesSeenAt: isoAt(-1.5) };
+  reset(REP_USER);
+  world({ customer: { priceListId: null } });
+  assert.equal((await post(sale([carton(10)], replayBody), REPLAY)).status, 201);
+  const replayTz = tzReads();
+  reset(REP_USER);
+  world({ rules: [rule({ id: 'R-d', scope: 'all', percent: 10, startsOn: dayAt(-3), endsOn: dayAt(1) }), rule({ id: 'R-new', scope: 'all', percent: 5, updatedAt: new Date() })] });
+  assert.equal((await post(sale([carton(9)], replayBody), REPLAY)).status, 201);
+  assert.equal(tzReads(), replayTz + 1);
+  assert.equal(calls.filter((c) => c === 'priceListRule.findMany').length, 1);
 });
 
 // ═══ (٨) سقف المرتجع الحرّ وإشارة سعر إعادة الرفع ═══
@@ -467,4 +760,6 @@ test('إشارة سعر إعادة الرفع بعد تحويل الأساس (ج
   };
   assert.deepEqual(await run([rule({ id: 'R-x2', scope: 'all', percent: -100 })]), [24, 48], 'القارورة ٤ بالزيادة ⇒ الكرتون ٩٦');
   assert.deepEqual(await run([]), [1, 2], 'بلا قاعدة: ٩٦ بعيدٌ عن ٤٨ وعن ٢ ⇒ الساعة (بعد التحويل)');
+  // D3: الإشارة بما رآه الجهاز — زيادةٌ كُتبت بعد لحظة إصداره لم تصله فلا تلتقط بها الوحدة
+  assert.deepEqual(await run([rule({ id: 'R-x2', scope: 'all', percent: -100, updatedAt: new Date() })]), [1, 2], 'قاعدةٌ بعد لحظة الجهاز ⇒ الساعة');
 });

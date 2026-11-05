@@ -400,11 +400,14 @@ test('الإدارة ومفتاح API: الافتراضيّ نوع مندوب ا
   for (const user of [ADMIN, API_KEY]) {
     // بلا مفتاح: نوع المندوب المُصدَر له
     reset(user);
-    const w = issueWorld();
+    // قواعد على قائمة المندوب لا تُقرأ للإدارة ولا للمفتاح (CONTRACT2 D5: لا حارس لهما) — وأسعارها الثابتة تُقرأ كما كانت
+    const w = issueWorld({ rules: { 'L-R': [{ id: 'R-11', scope: 'product', productId: 'p1', kind: 'fixed', basePrice: 11 / 24, minQty: 0, startsOn: '2026-01-01', endsOn: null }] } });
     const r = await post(sellCarton(11));
     assert.equal(r.status, 201, JSON.stringify(r.body));
     assert.equal(w.created[0].priceListId, 'L-R');
     assert.deepEqual(w.itemQueries.map((q) => q.where.priceListId), ['L-R']);
+    assert.deepEqual(w.ruleQueries, [], 'لا استعلام قواعد');
+    assert.equal(calls.includes('glSettings.findUnique'), false, 'ولا منطقة للقاعدة ذات الفترة');
     // مندوبٌ بلا صلاحيةٍ ولا أنواعٍ غير التجزئة: الإدارة تبيع بالجملة وبالأساسي
     for (const [priceListId, price] of [['L-W', 9], [null, 10]] as const) {
       reset(user);

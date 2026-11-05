@@ -89,24 +89,26 @@ test('النافذة: القواعد مع القوائم وحدها، والمس
   const m = modal.replace(/\r\n/g, '\n');
   assert.match(m, /queryKey: \['price-list-rules'\],\s*enabled: priceListOn,\s*queryFn: async \(\) => \(await priceListApi\.rules\(\)\)\.data\.data as PriceListRule\[\],/,
     'شركةٌ بلا قوائم: لا طلب');
-  assert.ok(m.includes('const pricingDay = pricingDayOf(invoiceDate);'), 'التاريخ المختار وإلا اليوم');
+  // يوم التسعير (مراجعة D1): التاريخ المختار حين يُرسل، وإلا يوم الشركة الآن بمنطقتها — والإشعار الدائن في المرحلة الثانية (حقل التاريخ
+  // مخفيّ ولا يُرسل) بيوم الشركة الآن لا بتاريخٍ بقي من البيع (lib/docLinePricerPerf.test.ts)
+  assert.ok(m.includes('const pricingDay = docPricingDayOf(invoiceDate, { dateSent: !(isReturn && phase2), timezone: priceInfo?.timezone });'));
   assert.ok(m.includes('() => docLinePricerOf({ listId: priceListId, custRows, rules: priceListOn ? priceRules : null, day: pricingDay }),'));
   assert.ok(m.includes('[priceListId, custRows, priceListOn, priceRules, pricingDay],'));
-  // القائمة أو العميل أو القواعد أو اليوم (المسعِّر) أو الأصناف تغيّرت: ما لم يُمسّ يُعاد
+  // القائمة أو العميل أو القواعد أو اليوم (المسعِّر) أو الأصناف تغيّرت: ما لم يُمسّ يُعاد — البنود كلّها
   assert.match(m, /useEffect\(\(\) => \{\s*setLines\(ls => repriceLines\(ls\)\);\s*\}, \[pricer, products\]\);/);
-  assert.ok(m.includes('const repriceLines = (ls: LineItem[]) => repriceDocLines(ls, id => productById.get(id), suggestedNet,'));
-  // الإضافة: الجديد بسعره عند كمية صنفه بعده، والزيادة على بندٍ قائم تعيد بنود الصنف (كانت لا تعيد)
+  assert.ok(m.includes('const repriceLines = (ls: LineItem[], productId?: string) => repriceDocLines(ls, id => productById.get(id), suggestedNet,'));
+  // الإضافة: الجديد بسعره عند كمية صنفه بعده، والزيادة على بندٍ قائم تعيد بنود الصنف (كانت لا تعيد) — بنوده وحدها (مراجعة D5)
   assert.ok(m.includes('const price = suggestedNet(p, c, (docBaseQty(lines).get(p.id) ?? 0) + lineUnitFields(p, c).unitFactor);'));
   assert.ok(m.includes('setLines(ls => repriceLines(ls.map(l => lineKey(l) === lineKey(existing)'));
   assert.ok(m.includes('setLines(ls => repriceLines([...ls, {'));
   // تبديل الوحدة بكمية الصنف بعده
   assert.ok(m.includes('const price = suggestedNet(p, c, docBaseQty(after).get(p.id) ?? 0);'));
-  // تعديل الكمية (كان لا يعيد التسعير أبداً) والحذف
+  // تعديل الكمية (كان لا يعيد التسعير أبداً) والحذف — بنود الصنف وحده، والكمية بلا قاعدةٍ بحدٍّ أدنى لا تعيد شيئاً
   assert.ok(m.includes('setLines(ls => withQtyReprice(field, ls.map((l, i) => {'));
-  assert.ok(m.includes("const withQtyReprice = (field: keyof LineItem, ls: LineItem[]) => (field === 'qty' ? repriceLines(ls) : ls);"));
-  assert.ok(m.includes('setLines(ls => repriceLines(ls.filter((_, j) => j !== i)))'));
-  // تلميح المنتقي بالمقترح نفسه كما سيُضاف — لا مقترح بغير المسعِّر
-  assert.ok(m.includes('const net = suggestedNet(p, c, (qty.get(p.id) ?? 0) + lineUnitFields(p, c).unitFactor);'));
+  assert.ok(m.includes("(field === 'qty' && pricer.dependsOnQty && productId ? repriceLines(ls, productId) : ls);"));
+  assert.ok(m.includes('setLines(ls => repriceLines(ls.filter((_, j) => j !== i), ls[i]?.productId))'));
+  // تلميح المنتقي بالمقترح نفسه كما سيُضاف (بكمية صنفه في الفاتورة بعد إضافته) — لا مقترح بغير المسعِّر
+  assert.ok(m.includes('const net = suggestedNet(p, c, qtyInDoc + lineUnitFields(p, c).unitFactor);'));
   assert.ok(m.includes('options={pickOptions}'));
   assert.doesNotMatch(m, /suggestedNetOf|priceOverrides\(|choiceNet\(/);
   // المرتجع المرتبط بأسعار فاتورته: لا مسعِّر عليه

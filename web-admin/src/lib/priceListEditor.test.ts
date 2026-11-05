@@ -2,10 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { QueryClient, QueryObserver } from '@tanstack/react-query';
 import {
-  PRICE_LIST_ITEMS_PAGE, RULE_FORM_MESSAGES, emptyRuleDraft, fillText, itemCommitOf, itemShownPrice, itemsPageOf, patchItemsPage,
-  percentShown, priceListCountsText, ruleDatesText, ruleDraftOf, ruleFixedShown, ruleFormKindOf, ruleInputOf, ruleSummaryText,
-  ruleTimingOf, savedItemsOf, type RuleProductRef,
+  PRICE_LIST_ITEMS_PAGE, RULE_FORM_MESSAGES, emptyRuleDraft, failedItemRowsOf, fillText, isUnitsChangedCode, itemCommitOf, itemShownPrice,
+  itemsPageClampOf, itemsPageOf, itemsPagerShown, itemsRefetchTypeOf, patchItemsPage, percentShown, priceListCountsText, pricedChangedOf,
+  ruleDatesText, ruleDraftDirty, ruleDraftOf, ruleDraftPatch, ruleFixedShown, ruleFormKindOf, ruleInputOf, ruleSummaryText, ruleTimingOf,
+  savedItemsOf, syncItemsCacheAfterSave, type ItemsCacheClient, type ItemsPage, type RuleDraft, type RuleProductRef,
 } from './priceListEditor';
 import { PRICE_RULE_MESSAGES } from './priceRules';
 import type { PriceListItemRow, PriceListRule } from '../types';
@@ -210,7 +212,8 @@ test('اللوحة: صفّ القائمة بعدّاته و«الأسعار وا
   const panel = read('components', 'priceLists', 'PriceListsPanel.tsx');
   assert.ok(panel.includes('priceListCountsText(l, tr, formatNumber)'));
   assert.ok(panel.includes("{tr('الأسعار والقواعد')}"));
-  assert.ok(panel.includes('<PriceListEditor key={openList.id} list={openList} onBack={() => setOpenId(null)} />'));
+  // ومعه onDirtyChange: نموذج قاعدةٍ لم يُحفظ تسأل عنه النافذة قبل الإغلاق (D6)
+  assert.ok(panel.includes('<PriceListEditor key={openList.id} list={openList} onBack={() => setOpenId(null)} onDirtyChange={onDirtyChange} />'));
   const ed = read('components', 'priceLists', 'PriceListEditor.tsx');
   assert.ok(ed.includes("{tr('رجوع')}"));
   assert.ok(ed.includes("{tr('أسعار الأصناف')}") && ed.includes("{tr('القواعد')}"));
@@ -227,7 +230,8 @@ test('تبويب الأصناف: صفحةٌ من الخادم، والحفظ س�
   // سطرٌ يُحفظ ويُكتب فيه ثانيةً: الجديد بعد انتهاء الأول (لا طلبان متسابقان للصنف نفسه)
   assert.ok(s.includes('if (inflight.current.has(pid)) { queued.current.add(pid); return; }'));
   // الإغلاق والرجوع وتبديل التبويب: ما لم يُحفظ يُرسل بعد الفكّ سطراً سطراً (سطرٌ تالف الوحدات لا يُسقط غيره)، والتالف يُقال
-  assert.match(s, /const flushOnUnmount = \(\) => \{[\s\S]*if \(c\.kind === 'write'\) send\(pid, raw\);[\s\S]*if \(invalid\) toast\.error/);
+  // والتالف يُقال بأسماء أصنافه (D6: لا رسالة بلا اسم بعد غياب الجدول)
+  assert.match(s, /const flushOnUnmount = \(\) => \{[\s\S]*if \(c\.kind === 'write'\) send\(pid, raw\);[\s\S]*if \(invalid\.length\) toast\.error\(`\$\{invalid\.join/);
   assert.match(s, /useEffect\(\(\) => \{\s*mounted\.current = true;\s*return \(\) => \{\s*mounted\.current = false;\s*flushOnUnmount\(\);/);
   for (const k of ["['price-lists']", "['products-all']", "['price-list-rules']"]) assert.ok(s.includes(`queryKey: ${k}`), k);
 });
@@ -247,4 +251,270 @@ test('تبويب القواعد: النموذج بنطاقه ونوعه الثل
   assert.ok(f.includes("{tr('الحد الأدنى للكمية (بالوحدة الرئيسية)')}"));
   assert.equal(f.split('type="date"').length - 1, 2);
   assert.equal(f.split('dir="ltr"').length - 1 >= 2, true);
+});
+
+// ═══ إصلاحات المراجعة (قرار D6): المحرّر ═══
+
+test('نموذج القاعدة (D6): تبديل النوع بين الثابت والنسبة أو النطاق والسعر ثابت يمسح الرقم، وبين الخصم والزيادة يبقى', () => {
+  const base: RuleDraft = { ...emptyRuleDraft('product'), productId: 'p-water', kind: 'fixed', value: '25', minQty: '10', startsOn: '2026-11-01' };
+  assert.equal(ruleDraftPatch(base, { kind: 'discount' }).value, '', 'سعر 25 لا يصير خصم 25%');
+  const pct: RuleDraft = { ...base, kind: 'discount', value: '10' };
+  assert.equal(ruleDraftPatch(pct, { kind: 'fixed' }).value, '', 'خصم 10% لا يصير سعر 10');
+  assert.equal(ruleDraftPatch(pct, { kind: 'markup' }).value, '10', 'الخصم والزيادة نسبةٌ موجبة في الحالين');
+  assert.equal(ruleDraftPatch(base, { scope: 'category' }).value, '', 'سعر كرتون صنفٍ ليس سعر كل صنفٍ في الفئة');
+  const all = ruleDraftPatch(base, { scope: 'all' });
+  assert.deepEqual([all.scope, all.kind, all.value], ['all', 'discount', ''], 'كل الأصناف: الثابت خصمٌ بلا رقم');
+  assert.equal(ruleDraftPatch(pct, { scope: 'category' }).value, '10', 'النسبة لا يتغيّر معناها بالنطاق');
+  assert.equal(ruleDraftPatch(pct, { scope: 'all' }).value, '10');
+  assert.deepEqual([ruleDraftPatch(base, { scope: 'category' }).minQty, ruleDraftPatch(base, { kind: 'discount' }).startsOn], ['10', '2026-11-01'],
+    'بقية الخانات كما هي');
+  assert.equal(ruleDraftPatch(base, { value: '30' }).value, '30');
+  assert.equal(ruleDraftPatch(base, { kind: 'fixed' }).value, '25', 'النوع نفسه لا يمسح');
+  assert.equal(ruleDraftPatch(base, { minQty: '5' }).value, '25');
+  // بعد التبديل لا يُحفظ سعرٌ نسبةً: الخانة فارغة ⇒ رسالة النسبة أو السعر
+  const cat: RuleDraft = { ...base, scope: 'category', categoryId: 'c-juice' };
+  assert.equal(ruleInputOf(ruleDraftPatch(cat, { kind: 'discount' }), null).problem, RULE_FORM_MESSAGES.discount);
+  assert.equal(ruleInputOf(ruleDraftPatch({ ...pct, scope: 'category', categoryId: 'c-juice' }, { kind: 'fixed' }), null).problem, PRICE_RULE_MESSAGES.price);
+});
+
+test('نموذج القاعدة (D6): ما لم يُحفظ — للتعديل أيّ تغيير، وللجديد خانةٌ فيها شيء (النطاق والنوع وحدهما لا)', () => {
+  const init = emptyRuleDraft('category');
+  assert.equal(ruleDraftDirty(init, init, true), false);
+  assert.equal(ruleDraftDirty({ ...init, scope: 'product', kind: 'fixed' }, init, true), false, 'اختيار النطاق والنوع وحده');
+  assert.equal(ruleDraftDirty({ ...init, categoryId: 'c' }, init, true), true);
+  assert.equal(ruleDraftDirty({ ...init, value: ' 5 ' }, init, true), true);
+  assert.equal(ruleDraftDirty({ ...init, minQty: '3' }, init, true), true);
+  assert.equal(ruleDraftDirty({ ...init, endsOn: '2026-11-30' }, init, true), true);
+  assert.equal(ruleDraftDirty({ ...init, value: '   ' }, init, true), false, 'المسافات وحدها لا شيء');
+  const saved = ruleDraftOf(rule({ percent: 10, categoryName: 'العصائر' }));
+  assert.equal(ruleDraftDirty(saved, saved, false), false);
+  assert.equal(ruleDraftDirty({ ...saved, value: '10 ' }, saved, false), false, 'المسافات لا تُعدّ تعديلاً');
+  assert.equal(ruleDraftDirty({ ...saved, kind: 'markup' }, saved, false), true);
+  assert.equal(ruleDraftDirty({ ...saved, startsOn: '2026-11-01' }, saved, false), true);
+  assert.equal(ruleDraftDirty({ ...saved, value: '' }, saved, false), true, 'مسحٌ في التعديل تعديل');
+});
+
+test('أسعار الأصناف (D6): حفظٌ يُدخل صنفاً المسعّرة أو يُخرجه يعيد الصفحات، وأخطاء الأسطر باسم صنفها، ورموز تغيّر الوحدات', () => {
+  const known = new Map<string, number | null>([['p-water', 100], ['p-sugar', null]]);
+  const before = (pid: string) => (known.has(pid) ? known.get(pid) ?? null : undefined);
+  assert.equal(pricedChangedOf([{ productId: 'p-water', listPrice: 96 }], before), false, 'سعرٌ تغيّر والصنف مسعّرٌ قبله وبعده: ترقيعٌ بلا جلب');
+  assert.equal(pricedChangedOf([{ productId: 'p-sugar', listPrice: 6.5 }], before), true, 'دخل المسعّرة من «كل الأصناف»');
+  assert.equal(pricedChangedOf([{ productId: 'p-water', listPrice: null }], before), true, 'خرج منها');
+  assert.equal(pricedChangedOf([{ productId: 'p-sugar', listPrice: null }], before), false);
+  assert.equal(pricedChangedOf([{ productId: 'p-new', listPrice: 5 }], before), true, 'لا يُعرف ما كان ⇒ يُعاد');
+  assert.equal(pricedChangedOf([], before), false);
+  const status = {
+    'p-water': { state: 'error', message: 'تغيرت وحدات الصنف' }, 'p-sugar': { state: 'saved' },
+    'p-gone': { state: 'error', message: 'الصنف غير موجود' }, 'p-busy': { state: 'saving' },
+  };
+  const rows = new Map<string, PriceListItemRow>([['p-water', waterRow]]);
+  assert.deepEqual(failedItemRowsOf(status, pid => rows.get(pid)), [
+    { productId: 'p-water', name: 'ماء', message: 'تغيرت وحدات الصنف' },
+    { productId: 'p-gone', name: 'p-gone', message: 'الصنف غير موجود' },
+  ], 'الخطأ وحده باسم صنفه، وصنفٌ غاب عن الجدول بمعرّفه');
+  assert.deepEqual(failedItemRowsOf(status, () => ({ name: '', code: 'W1' })).map(f => f.name), ['W1', 'W1'], 'بلا اسم ⇒ الكود');
+  assert.deepEqual(failedItemRowsOf({}, () => undefined), []);
+  for (const c of ['BASE_UNIT_CHANGED', 'PRIMARY_UNIT_CHANGED', 'PRODUCT_UNITS_CHANGED']) assert.equal(isUnitsChangedCode(c), true, c);
+  for (const c of ['PRODUCT_NOT_FOUND', '', undefined, null, 'PRIMARY_UNIT_IN_USE', 'PRICE_RULES_UNIT_ACK']) assert.equal(isUnitsChangedCode(c), false, String(c));
+});
+
+test('المحرّر (D6): ٤٠٩ تغيّر الوحدات يُسقط المكتوب ولا يعيد إرساله، والمسعّرة تُعاد بعد حفظٍ يغيّرها، وقائمة أخطاءٍ ثابتة باسم الصنف', () => {
+  const s = read('components', 'priceLists', 'PriceListItemsTab.tsx');
+  const onErr = s.slice(s.indexOf('.catch((e) => {'), s.indexOf('.finally(() => {'));
+  assert.match(onErr, /if \(isUnitsChangedCode\(serverCode\(e\)\)\) \{\s*queued\.current\.delete\(pid\);\s*setDraft\(pid, undefined\);\s*qc\.invalidateQueries\(\{ queryKey: \['price-list-items', listId\] \}\);/,
+    'المكتوب بالوحدة القديمة يبقى فيُرسل بالجديدة عند الخروج أو الإغلاق');
+  assert.ok(onErr.includes('if (!mounted.current) toast.error(`${row.name}: ${msg}`);'), 'بعد الفكّ الرسالة باسم الصنف');
+  // الترقيع وإعادة الجلب في syncItemsCacheAfterSave (المسعّرة تغيّرت أو جلبٌ جارٍ ⇒ 'active') — مختبرٌ بعميلٍ حقيقيّ أدناه
+  assert.ok(s.includes('syncItemsCacheAfterSave(qc, listId, saved, pricedChanged);'));
+  assert.doesNotMatch(s, /refetchType: pricedChanged \? 'active' : 'none'/, 'إعادة الجلب بلا الجلب الجاري');
+  assert.ok(s.indexOf('const pricedChanged = pricedChangedOf(saved, pid => rowsRef.current.get(pid)?.listPrice);')
+    < s.indexOf('if (r) rowsRef.current.set(s.productId, { ...r, listPrice: s.listPrice });'), 'ما كان قبل الترقيع');
+  assert.ok(s.indexOf('if (r) rowsRef.current.set(s.productId, { ...r, listPrice: s.listPrice });')
+    < s.indexOf('syncItemsCacheAfterSave(qc, listId, saved, pricedChanged);'));
+  assert.ok(s.includes('const failed = failedItemRowsOf(status, pid => rowsRef.current.get(pid));'));
+  assert.ok(s.includes('data-list-item-errors=""') && s.includes('sticky top-0'), 'قائمة الأخطاء ثابتة أعلى التبويب');
+  assert.ok(s.indexOf('data-list-item-errors=""') < s.indexOf('ref={searchRef}'), 'فوق البحث');
+  // نموذج القاعدة: التبديل عبر ruleDraftPatch، و٤٠٩ يمسح السعر الثابت ويعيد الصنف والقواعد، وأسماءٌ مقروءة وتركيز
+  const f = read('components', 'priceLists', 'PriceRuleForm.tsx');
+  assert.ok(f.includes('const set = (patch: Partial<RuleDraft>) => { setDraft(d => ruleDraftPatch(d, patch)); setProblem(null); };'));
+  assert.doesNotMatch(f, /set\(\{ scope, \.\.\.\(scope === 'all'/, 'التبديل القديم بلا مسح');
+  assert.ok(f.includes('if (isUnitsChangedCode(code) && draftRef.current.productId) unitsChanged(draftRef.current.productId);'));
+  assert.match(f, /if \(fixedOfProduct\) setDraft\(x => \(x\.productId === productId && x\.kind === 'fixed' \? \{ \.\.\.x, value: '' \} : x\)\);/);
+  assert.ok(f.includes('loadProduct(productId, false);') && f.includes('void onStale().then((fresh) => {'));
+  for (const k of ['value', 'minQty', 'from', 'to', 'category']) assert.ok(f.includes(`htmlFor={ids.${k}}`) && f.includes(`id={ids.${k}}`), `اسم الخانة: ${k}`);
+  assert.ok(f.includes('useEffect(() => { headRef.current?.focus(); }, []);'), 'التركيز على النموذج حين يُفتح');
+  assert.ok(f.includes('useEffect(() => () => dirtyCb.current?.(false), []);'));
+  const t = read('components', 'priceLists', 'PriceListRulesTab.tsx');
+  assert.ok(t.includes('onStale={refetchRules} onDirtyChange={formDirtyChange}'));
+  assert.ok(t.includes('if (editing !== null && formDirty.current && !window.confirm(tr(RULE_FORM_DISCARD_ASK))) return;'));
+  assert.ok(t.includes("(back === 'new' ? addBtnRef.current : editBtns.current.get(back) ?? addBtnRef.current)?.focus();"), 'التركيز يعود لزرّ الفتح');
+  // ترك النموذج: الرجوع وتبديل التبويب بسؤال، وإغلاق النافذة كذلك (confirmClose)
+  const ed = read('components', 'priceLists', 'PriceListEditor.tsx');
+  assert.ok(ed.includes('const leaveOk = () => !ruleDirty.current || window.confirm(tr(RULE_FORM_DISCARD_ASK));'));
+  assert.ok(ed.includes('onClick={back}') && ed.includes("onClick={() => goTab('items')}") && ed.includes('onDirtyChange={rulesDirtyChange}'));
+  const modal = read('components', 'PagePanelModal.tsx');
+  assert.ok(modal.includes('const close = () => { if (!confirmClose || confirmClose()) onClose(); };'));
+  assert.ok(modal.includes('{...backdropClose(close)}') && modal.includes('<button type="button" onClick={close}'));
+  const page = read('pages', 'ProductsPage.tsx');
+  assert.ok(page.includes('confirmClose={() => !pricePanelDirty.current || window.confirm(tr(RULE_FORM_DISCARD_ASK))}'));
+  assert.ok(page.includes('<PriceListsPanel onDirtyChange={(d) => { pricePanelDirty.current = d; }} />'));
+  // D5: العدّادات للوحة وحدها بمفتاحها
+  const panel = read('components', 'priceLists', 'PriceListsPanel.tsx');
+  assert.ok(panel.includes("useQuery({ queryKey: ['price-lists', 'counts'], queryFn: async () => priceListsOf((await priceListApi.listWithCounts()).data.data) })"));
+  assert.doesNotMatch(panel, /priceListApi\.list\(\)/);
+});
+
+// ═══ إصلاحات التحقّق: الجلب الجاري لحظة الحفظ، والصفحة بعد آخر صفحة ═══
+
+/**
+ * خادمٌ مصغّر لصفحة أصناف: GET يقرأ القاعدة لحظة الطلب ويردّ حين يفتح الاختبار بابه — فترتيب الالتزام والردود بيد الاختبار، كما
+ * في سباق المراجعة: GET يقرأ قبل التزام PUT ويردّ بعد ردّه
+ */
+function itemsServer(initial: Record<string, number | null>) {
+  const db: Record<string, number | null> = { ...initial };
+  const gets: Array<{ snap: Record<string, number | null>; open: () => void }> = [];
+  const pageOf = (snap: Record<string, number | null>): ItemsPage => {
+    const rows = Object.entries(snap).map(([productId, listPrice]): PriceListItemRow => ({
+      productId, code: productId, name: productId, categoryId: null, categoryName: null, unit: 'حبة', primaryUnit: null, defaultPrice: 10, listPrice,
+    }));
+    return { rows, pagination: { total: rows.length, page: 1, limit: PRICE_LIST_ITEMS_PAGE, pages: 1 }, pricedCount: rows.filter((r) => r.listPrice != null).length };
+  };
+  const queryFn = async (): Promise<ItemsPage> => {
+    const snap = { ...db };
+    let open!: () => void;
+    const gate = new Promise<void>((r) => { open = r; });
+    gets.push({ snap, open });
+    await gate;
+    return pageOf(snap);
+  };
+  return { db, gets, queryFn };
+}
+const flush = async () => { for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0)); };
+const newClient = () => new QueryClient({ defaultOptions: { queries: { retry: 0, staleTime: 30_000 } } });
+const shown = (obs: QueryObserver<ItemsPage>) => Object.fromEntries((obs.getCurrentResult().data?.rows ?? []).map((r) => [r.productId, r.listPrice]));
+/** السلوك السابق (لا يُرى الجلب الجاري): للتحقّق أن الاختبار يعيد السباق فعلاً */
+const blindTo = (qc: QueryClient): ItemsCacheClient => ({
+  isFetching: () => 0,
+  cancelQueries: qc.cancelQueries.bind(qc),
+  setQueriesData: qc.setQueriesData.bind(qc) as ItemsCacheClient['setQueriesData'],
+  invalidateQueries: qc.invalidateQueries.bind(qc),
+});
+
+test('أسعار الأصناف (تحقّق): نوع إعادة الجلب، والصفحة بعد آخر صفحة، وشريط الصفحات', () => {
+  assert.equal(itemsRefetchTypeOf(false, false), 'none', 'تعديل سعرٍ بلا جلبٍ جارٍ: ترقيعٌ بلا طلب كما كان');
+  assert.equal(itemsRefetchTypeOf(true, false), 'active');
+  assert.equal(itemsRefetchTypeOf(false, true), 'active', 'جلبٌ جارٍ قد قرأ قبل الالتزام');
+  assert.equal(itemsRefetchTypeOf(true, true), 'active');
+  assert.equal(itemsPageClampOf(2, 1), 1, 'حُذف الصنف الوحيد في الصفحة الأخيرة ⇒ الصفحة الأخيرة الباقية');
+  assert.equal(itemsPageClampOf(5, 3), 3);
+  assert.equal(itemsPageClampOf(2, 2), 2);
+  assert.equal(itemsPageClampOf(1, 4), 1, 'ما دون الأخيرة كما هو');
+  assert.equal(itemsPageClampOf(3, 0), 1, 'صفحاتٌ صفر أو تالفة ⇒ ١ على الأقل');
+  assert.equal(itemsPageClampOf(3, Number.NaN), 1);
+  assert.equal(itemsPagerShown(1, 1), false, 'صفحةٌ واحدة بلا شريط كما كان');
+  assert.equal(itemsPagerShown(1, 2), true);
+  assert.equal(itemsPagerShown(2, 1), true, 'صفحةٌ بعد الأولى فارغة: الشريط باقٍ للرجوع');
+});
+
+test('أسعار الأصناف (تحقّق): جلبٌ جارٍ قرأ قبل التزام الحفظ لا يكتب السعر القديم فوق المحفوظ — بعميل react-query حقيقي', async () => {
+  // سيناريو المراجعة: «كل الأصناف» — A يُسعَّر جديداً (null→5) فيُعاد الجلب (GET1)، وB يُعدَّل 7→8 فيلتزم بعد قراءة GET1 ويصل ردّه قبله
+  const run = async (client: (qc: QueryClient) => ItemsCacheClient) => {
+    const qc = newClient();
+    const srv = itemsServer({ A: null, B: 7 });
+    const obs = new QueryObserver<ItemsPage>(qc, { queryKey: ['price-list-items', 'L1', 'all', '', '', 1], queryFn: srv.queryFn });
+    const unsub = obs.subscribe(() => {});
+    srv.gets[0].open(); await flush();
+    assert.deepEqual(shown(obs), { A: null, B: 7 });
+    srv.db.A = 5;
+    const typeA = syncItemsCacheAfterSave(client(qc), 'L1', [{ productId: 'A', listPrice: 5 }], true);
+    srv.db.B = 8; // يلتزم بعد قراءة GET1
+    const typeB = syncItemsCacheAfterSave(client(qc), 'L1', [{ productId: 'B', listPrice: 8 }], false);
+    srv.gets[1].open(); await flush(); // ردّ GET1 المتأخّر (B=7)
+    const afterLate = shown(obs);
+    for (const g of srv.gets.slice(2)) g.open();
+    await flush();
+    const cur = obs.getCurrentResult();
+    unsub();
+    return { typeA, typeB, gets: srv.gets.length, afterLate, final: shown(obs), stale: cur.isStale, fetchStatus: cur.fetchStatus };
+  };
+  const before = await run(blindTo);
+  assert.deepEqual([before.typeB, before.final.B], ['none', 7], 'السلوك السابق: الخانة ٧ والخادم ٨ (الاختبار يعيد السباق)');
+  const fixed = await run((qc) => qc);
+  assert.deepEqual([fixed.typeA, fixed.typeB], ['active', 'active'], 'جلبٌ جارٍ ⇒ يُعاد');
+  assert.deepEqual(fixed.afterLate, { A: 5, B: 8 }, 'ردّ GET1 الملغى لا يهبط فوق الترقيع');
+  assert.deepEqual(fixed.final, { A: 5, B: 8 });
+  assert.equal(fixed.gets, 3, 'جلبٌ واحدٌ زائد لا أكثر');
+  assert.deepEqual([fixed.stale, fixed.fetchStatus], [false, 'idle']);
+  // وإعادة كتابة القديم (٧) تُرسل لا تُسقط «كما كان»
+  const rowB: PriceListItemRow = { ...sugarRow, productId: 'B', listPrice: fixed.final.B as number };
+  assert.equal(itemCommitOf(rowB, '7').kind, 'write');
+});
+
+test('أسعار الأصناف (تحقّق): أول تحميلٍ لصفحةٍ أو بحثٍ جديد، وصفحةٌ غير معروضة يجري جلبها — لا يبقى فيهما السعر القديم', async () => {
+  // أول تحميل (بلا بيانات بعد): refetch وحده ينضمّ إلى الجلب الجاري ولا يلغيه — فيُلغى ويُعاد
+  for (const blind of [true, false]) {
+    const qc = newClient();
+    const srv = itemsServer({ B: 7 });
+    const obs = new QueryObserver<ItemsPage>(qc, { queryKey: ['price-list-items', 'L1', 'all', 'b', '', 1], queryFn: srv.queryFn });
+    const unsub = obs.subscribe(() => {});
+    srv.db.B = 8;
+    syncItemsCacheAfterSave(blind ? blindTo(qc) : qc, 'L1', [{ productId: 'B', listPrice: 8 }], false);
+    for (let i = 0; i < srv.gets.length; i++) { srv.gets[i].open(); await flush(); }
+    const final = shown(obs).B;
+    unsub();
+    if (blind) assert.equal(final, 7, 'السلوك السابق: أول تحميلٍ قرأ قبل الالتزام يعرض ٧');
+    else assert.deepEqual([final, srv.gets.length], [8, 2], 'يُلغى ويُعاد بعد الالتزام');
+  }
+  // صفحةٌ غير معروضة ببياناتٍ يجري جلبها: تُلغى وتعود ببياناتها مرقَّعةً «قديمة» (تُعاد عند فتحها) — بلا طلبٍ لها الآن
+  const qc = newClient();
+  const srv = itemsServer({ B: 7 });
+  const key = ['price-list-items', 'L1', 'priced', '', '', 2];
+  const obs = new QueryObserver<ItemsPage>(qc, { queryKey: key, queryFn: srv.queryFn });
+  const unsub = obs.subscribe(() => {});
+  srv.gets[0].open(); await flush();
+  unsub();
+  void qc.refetchQueries({ queryKey: key });
+  assert.equal(srv.gets.length, 2);
+  srv.db.B = 8;
+  syncItemsCacheAfterSave(qc, 'L1', [{ productId: 'B', listPrice: 8 }], false);
+  srv.gets[1].open(); await flush();
+  assert.equal(srv.gets.length, 2, 'غير المعروضة لا تُجلب الآن');
+  assert.equal(qc.getQueryData<ItemsPage>(key)?.rows[0].listPrice, 8);
+  assert.equal(qc.getQueryState(key)?.isInvalidated, true, 'تُعاد من الخادم عند فتحها');
+});
+
+test('أسعار الأصناف (تحقّق): تعديل سعرٍ بلا جلبٍ جارٍ ترقيعٌ بلا طلب، وتغيّر «المسعّرة» جلبٌ واحد للمعروضة', async () => {
+  const qc = newClient();
+  const srv = itemsServer({ A: null, B: 7 });
+  const shownKey = ['price-list-items', 'L1', 'priced', '', '', 1];
+  const otherKey = ['price-list-items', 'L1', 'all', '', '', 1];
+  const otherList = ['price-list-items', 'L2', 'all', '', '', 1];
+  qc.setQueryData<ItemsPage>(otherKey, itemsPageOf({ rows: [{ ...sugarRow, productId: 'B', listPrice: 7 }] }));
+  qc.setQueryData<ItemsPage>(otherList, itemsPageOf({ rows: [{ ...sugarRow, productId: 'B', listPrice: 7 }] }));
+  const obs = new QueryObserver<ItemsPage>(qc, { queryKey: shownKey, queryFn: srv.queryFn });
+  const unsub = obs.subscribe(() => {});
+  srv.gets[0].open(); await flush();
+  srv.db.B = 8;
+  assert.equal(syncItemsCacheAfterSave(qc, 'L1', [{ productId: 'B', listPrice: 8 }], false), 'none');
+  await flush();
+  assert.equal(srv.gets.length, 1, 'لا طلب');
+  assert.equal(shown(obs).B, 8);
+  assert.equal(qc.getQueryData<ItemsPage>(otherKey)?.rows[0].listPrice, 8, 'المخبّأة مرقَّعة');
+  assert.equal(qc.getQueryState(otherKey)?.isInvalidated, true);
+  assert.equal(qc.getQueryData<ItemsPage>(otherList)?.rows[0].listPrice, 7, 'قائمةٌ أخرى لا تُمسّ');
+  assert.equal(qc.getQueryState(otherList)?.isInvalidated, false);
+  srv.db.A = 5;
+  assert.equal(syncItemsCacheAfterSave(qc, 'L1', [{ productId: 'A', listPrice: 5 }], true), 'active');
+  assert.equal(srv.gets.length, 2, 'المعروضة وحدها');
+  srv.gets[1].open(); await flush();
+  assert.deepEqual(shown(obs), { A: 5, B: 8 });
+  unsub();
+});
+
+test('أسعار الأصناف (تحقّق): المكوّن ينقل الصفحة بعد آخر صفحة ببياناتها المستقرّة، ويُبقي شريط الصفحات لصفحةٍ بعد الأولى', () => {
+  const s = read('components', 'priceLists', 'PriceListItemsTab.tsx');
+  assert.match(s, /if \(!d \|\| itemsQ\.isPlaceholderData \|\| itemsQ\.isFetching\) return;\s*const to = itemsPageClampOf\(page, d\.pagination\.pages\);\s*if \(to !== page\) setPage\(to\);/);
+  assert.ok(s.includes('}, [itemsQ.data, itemsQ.isPlaceholderData, itemsQ.isFetching, page]);'));
+  assert.ok(s.includes('{itemsPagerShown(page, pages) && ('));
+  assert.doesNotMatch(s, /\{pages > 1 && \(/, 'الشريط القديم يختفي في صفحةٍ فارغة بعد الأولى');
 });

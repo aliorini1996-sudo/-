@@ -37,13 +37,21 @@ export function isExpiredOn(returnDay: string, expiresAt: Date): boolean {
   return returnDay > isoDay(expiresAt);
 }
 
+/**
+ * منطقة الشركة الزمنية من قيمتين مقروءتين: منطقة إعدادات الدفاتر (glSettings.timezone) ثم بلد الشركة (companySettings.countryCode) —
+ * حساب tenantTz نفسه بلا استعلام، لمستدعٍ قرأ البلد أصلاً في استعلامه (GET /price-lists)
+ */
+export function companyZoneOf(glTimezone: string | null | undefined, countryCode: string | null | undefined): string {
+  return companyTimeZone(glTimezone, countryCode);
+}
+
 /** منطقة الشركة الزمنية — إعدادات الدفاتر ثم البلد */
 export async function tenantTz(tenantId: string): Promise<string> {
   const [gl, company] = await Promise.all([
     prisma.glSettings.findUnique({ where: { tenantId }, select: { timezone: true } }),
     prisma.companySettings.findUnique({ where: { tenantId }, select: { countryCode: true } }),
   ]);
-  return companyTimeZone(gl?.timezone, company?.countryCode);
+  return companyZoneOf(gl?.timezone, company?.countryCode);
 }
 
 const LIFE = { shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true } as const;

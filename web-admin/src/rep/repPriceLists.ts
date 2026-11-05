@@ -9,7 +9,8 @@
  * يعني ردّ الفاتورة 403 «لا تملك صلاحية تغيير سعر البيع» — ودون اتصال بعد صفّها وطباعة ورقتها وتسليم البضاعة.
  */
 import type { PriceListsInfo } from '../types';
-import { allowedPriceTypesOf, priceListsOf, priceTypeAllowed, switchablePriceTypesOf } from '../lib/priceLists';
+import { allowedPriceTypesOf, priceListsOf, priceTypeAllowed, repriceUntouched, switchablePriceTypesOf } from '../lib/priceLists';
+import { companyDayIn } from '../lib/priceListPricing';
 import type { PriceRuleRow } from '../lib/priceRules';
 import { toBase } from '../lib/units';
 import { companyRefreshDue } from './companyRefresh';
@@ -105,6 +106,22 @@ export function repSwitchChipsOf<L extends { id: string }>(
 }
 
 /**
+ * منطقة الشركة الزمنية من ردّ GET /price-lists (كاش 'pricelists:names') — يرسلها الخادم حين توجد قوائم (D1)، وخادمٌ أقدم أو كاشٌ
+ * من قبلها بلا مفتاح ⇒ null (فيُسعَّر باليوم المحلي للجهاز كما كان)
+ */
+export function repTimezoneOf(data: unknown): string | null {
+  const tz = (data as { timezone?: unknown } | null | undefined)?.timezone;
+  return typeof tz === 'string' && tz.trim() !== '' ? tz : null;
+}
+
+/** أسماء القوائم من ردّ GET /price-lists أو كاشه **مع منطقة الشركة** (priceListsOf لا تحملها) — بلا منطقة: الشكل كما كان حرفاً */
+export function repNamesOf(data: unknown): PriceListsInfo {
+  const info = priceListsOf(data);
+  const timezone = repTimezoneOf(data);
+  return timezone ? { ...info, timezone } : info;
+}
+
+/**
  * أسماء الأنواع من كاش الجهاز تكفي بلا طلب؟ (القاعدة هي العنق الضيّق، وكل فتح فاتورةٍ لكل مندوب كان طلباً وثلاث جمل حتى لشركةٍ بلا
  * أنواع — والزيارات الميدانية تتباعد أكثر من ٥ دقائق فلا تكفي نافذة زمنية وحدها). null ⇒ اجلب:
  *  • كاشٌ لا **يعرف** نوع العميل المخبّأ أو نوع المندوب الافتراضي (`mustKnow`: نوعٌ أو أكثر، null يُهمل) أقدم منه ⇒ يُجلب.
@@ -122,7 +139,7 @@ export function repCachedNamesOf(
   canSwitch = false,
 ): PriceListsInfo | null {
   if (!hit || !Array.isArray((hit.data as { lists?: unknown } | null)?.lists)) return null;
-  const info = priceListsOf(hit.data);
+  const info = repNamesOf(hit.data);
   const known = (Array.isArray(mustKnow) ? mustKnow : [mustKnow]) as ReadonlyArray<string | null>;
   if (known.some((id) => id && !info.lists.some((l) => l.id === id))) return null;
   if (!info.lists.length && !canSwitch) return info;
@@ -152,7 +169,7 @@ export function repPriceCacheStale(prev: RepPriceFields | null | undefined, next
 // ═══ «قوائم الأسعار» بقواعدها (طلب المالك ٥ نوفمبر ٢٠٢٦): قواعد القائمة في كاش الجهاز، وكمية الصنف في السلّة ═══
 // ردّ /price-lists/prices يحمل لكل قائمةٍ `rules` مع بنودها (كاش 'pricelists' نفسه)، والحلّ المشترك (lib/priceRules.ts عبر
 // lineNetWithList في lib/priceListPricing.ts) يسعّر بها البند كما يحرسه الخادم: سعر العميل ثم القائمة (سعر الصنف الثابت فيها
-// وقواعدها) بكمية الصنف في الفاتورة كلّها ويوم الجهاز، ثم سلّم اليوم.
+// وقواعدها) بكمية الصنف في الفاتورة كلّها ويوم الشركة (repPricingDay أسفل الملف)، ثم سلّم اليوم.
 
 /**
  * قاعدةٌ كما يخبّئها الجهاز: صفّ الحلّ المشترك بحقوله **كما وصلت** — بلا تطبيعٍ يغيّر معناها، فالحلّ نفسه يحكم بصلاحها في الطرفين
@@ -266,4 +283,83 @@ export function repProductBaseQty(lines: ReadonlyArray<RepQtyLine | null | undef
  */
 export function repQtyKey(lines: ReadonlyArray<RepQtyLine | null | undefined>): string {
   return [...repBaseQtyByProduct(lines)].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([id, q]) => `${id}:${q}`).join('|');
+}
+
+// ═══ مراجعة «قوائم الأسعار» (CONTRACT2): يوم التسعير يوم الشركة (D1)، وأرضية السعر المعدَّل يدوياً حين يتحرّك مرجعه (D4) ═══
+
+/**
+ * يوم تسعير القواعد في الجهاز 'YYYY-MM-DD' (D1): يوم الشركة بمنطقتها من كاش الأسماء (repNamesOf) — يومُ حارس الخادم نفسه
+ * (companyDayOf بمنطقة tenantTz) لا يوم ساعة الجهاز ومنطقته، فجهازٌ على UTC والشركة في الرياض لا يقع على يومٍ غير يوم الخادم بين
+ * منتصف الليل والثالثة. وكاشٌ أقدم بلا منطقة (أو منطقةٌ مجهولة) ⇒ اليوم المحلي للجهاز كما كان (companyDayIn)
+ */
+export function repPricingDay(info: { timezone?: string | null } | null | undefined, now: Date = new Date()): string {
+  return companyDayIn(info?.timezone, now);
+}
+
+/**
+ * في قواعد القائمة قاعدةٌ بفترة صلاحية؟ — وحدها يتعلّق بها اليوم: إعادة التسعير لحظة الإصدار و`pricingDay` في الجسم (D1). بلاها
+ * (شركةٌ بلا قوائم، أو قواعد بلا تواريخ) لا عمل زائد والجسم كما كان حرفاً. وتاريخٌ تالفٌ يُعدّ (يتجاهله الحلّ — لا ضرر من اليوم)
+ */
+export function repRulesDated(rules: readonly PriceRuleRow[] | null | undefined): boolean {
+  return (rules ?? []).some((r) => r.startsOn != null || r.endsOn != null);
+}
+
+const FLOOR_EPS = 1e-9;
+
+/**
+ * سعر بندٍ عدّله المندوب يدوياً على مرجعه (D4): لمن لا يبيع بأقل من السعر (`floor` = !canSellBelowPrice وقائمة الفاتورة بقواعد؛ بلاها
+ * سلوك اليوم حرفاً) يُرفع إلى المرجع إن صار
+ * دونه — حدّ التعديل اليدوي نفسه (upd: `Math.max(v, refPrice)`) وحارس الخادم (`!canSellBelowPrice && priceNet < minAllowed`)؛ وإلا كما هو
+ */
+export function repKeptPrice(unitPrice: number, ref: number, floor: boolean): number {
+  return floor && Number(unitPrice) < Number(ref) - FLOOR_EPS ? ref : unitPrice;
+}
+
+/**
+ * إعادة تسعير سلّة المندوب بمراجعٍ جديدة (`freshOf`؛ null = لا يُمسّ): repriceUntouched حرفاً — غير المعدَّل يأخذ المرجع الجديد،
+ * والمعدَّل يدوياً يبقى بسعره ويتبع مرجعه دائماً — ثم أرضية D4: معدَّلٌ تحرّك مرجعه (نزلت الكمية تحت الحدّ الأدنى، أو تبدّل اليوم)
+ * فصار سعره دون المرجع الجديد يُرفع إليه لمن لا يبيع بأقل (`floor`)، وإلا ردّ الخادم الفاتورة 403 «لا تملك صلاحية البيع بأقل من
+ * السعر المحدد» — ودون اتصال بعد تسليم البضاعة. وبند فاتورة البيع (`saleItemId`: سعر الاسترداد) لا يُمسّ أبداً. لا تغيّر ⇒ المصفوفة نفسها
+ */
+export function repRepriceLines<L extends { unitPrice: number; refPrice: number; saleItemId?: unknown }>(
+  lines: L[], freshOf: (l: L) => number | null, floor: boolean,
+): L[] {
+  const next = repriceUntouched(lines, (l) => (l.saleItemId ? null : freshOf(l)), (l, price) => ({ ...l, unitPrice: price }));
+  if (!floor || next === lines) return next;
+  let lifted = false;
+  const out = next.map((l, i) => {
+    // البند نفسه = مرجعه لم يتحرّك (لا أرضية جديدة)؛ وغير المعدَّل سعره مرجعه أصلاً
+    if (l === lines[i] || l.saleItemId) return l;
+    const kept = repKeptPrice(l.unitPrice, l.refPrice, true);
+    if (kept === l.unitPrice) return l;
+    lifted = true;
+    return { ...l, unitPrice: kept };
+  });
+  return lifted ? out : next;
+}
+
+/** تغيّر سعر بندٍ (لا مرجعه وحده) بين سلّتين متوازيتين؟ — إعادة التسعير لحظة الإصدار توقفه ليراه المندوب (D1) */
+export function repPricesMoved(prev: ReadonlyArray<{ unitPrice: unknown }>, next: ReadonlyArray<{ unitPrice: unknown }>): boolean {
+  return prev.length !== next.length || next.some((l, i) => Number(l.unitPrice) !== Number(prev[i]?.unitPrice));
+}
+
+/** أبعد ملّي ثانيةٍ يمثّلها Date (±8.64e15) — ختمٌ أبعد تالف (toISOString يرمي) */
+const MAX_DATE_MS = 8.64e15;
+
+/**
+ * `pricesSeenAt` (مراجعة التحقق L2.2): متى جُلبت بيانات قائمة الفاتورة التي سعّر بها الجهاز — ختم مدخلها في كاش 'pricelists'
+ * (updatedAt الكاش، يختمه listPriceRowsOf على المدخل وصفوفه وقواعده `seenAt`) ISO. يُرسل في الحمولة خارج مفتاح المحاولة كـpricingDay
+ * ويعيده الصندوق كما هو، فيُسقط حارس الخادم في إعادة الرفع القواعدَ المكتوبة بعده — لم يعرفها الجهاز — ولو سبقت لحظة البيع: جهازٌ
+ * منقطعٌ منذ الثامنة لا يعرف قاعدةً كُتبت في العاشرة فباع بسعر القائمة قبلها في الحادية عشرة (D3 وحده يُسقط ما بعد لحظة البيع).
+ * لقائمة الفاتورة **في كاش الجهاز** ولو بلا قواعد فيه: أول قاعدةٍ تُكتب للقائمة بعد الكاش هي الحالة نفسها (والجهاز لا يعرف قواعد
+ * الخادم إلا من كاشه)، والخادم لا يقرؤه إلا لقائمةٍ لها قواعد فلا كلفة. null ⇒ لا مفتاح والحمولة كما كانت: السعر الأساسي (شركةٌ بلا
+ * قوائم أو عميلٌ بلا قائمة)، أو قائمةٌ ليست في الكاش، أو كاشٌ أقدم بلا ختم وقت، أو ختمٌ تالف
+ */
+export function repPricesSeenAt(
+  lists: ReadonlyArray<{ id: string; seenAt?: unknown }> | null | undefined,
+  listId: string | null,
+): string | null {
+  if (!listId) return null;
+  const t = (lists ?? []).find((l) => l?.id === listId)?.seenAt;
+  return typeof t === 'number' && Number.isFinite(t) && t > 0 && t <= MAX_DATE_MS ? new Date(t).toISOString() : null;
 }

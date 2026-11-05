@@ -11,6 +11,7 @@ import {
 import { PRICE_RULE_LIMITS, priceRuleProblem } from '../services/priceRules';
 import { BASE_GUARD_TX, ProductUnitsChangedError, baseGuardReply, lockBases, type ExpectedBases } from '../services/baseGuard';
 import { QTY_EPS, primaryPriceOf, primaryUnitOf, type UnitDef } from '../services/units';
+import { companyZoneOf } from '../services/invoiceExpiry';
 import { roundHalfUp } from '../lib/money';
 import { paginationMeta } from '../utils/helpers';
 
@@ -248,25 +249,39 @@ const listPriceView = (perBase: number | null, primaryFactor: number) =>
 
 // ═══ القراءة ═══
 
-// القوائم مرتّبة واسم زرّ الأساس، ولكلٍّ عدد عملائها وأصنافها المسعّرة وقواعدها — شركةٌ بلا قوائم: قائمة فارغة بلا groupBy
+/**
+ * القوائم مرتّبة واسم زرّ الأساس، ولكلٍّ عدد عملائها الأحياء — شركةٌ بلا قوائم: قائمة فارغة بلا groupBy ولا منطقة.
+ * - `?counts=1` (لوحة القوائم وحدها — priceListApi.listWithCounts): ومعه عدد أصنافها المسعّرة وقواعدها (itemsCount، rulesCount)،
+ *   groupBy لكلٍّ لا يدفعه كل نموذج فاتورةٍ وعميلٍ وتطبيق مندوبٍ يقرأ الأسماء وحدها (CONTRACT2 D5). وبلاه لا مفتاحان كما قبلهما.
+ * - `timezone` منطقة الشركة (حساب tenantTz نفسه — companyZoneOf: الدفاتر ثم البلد، المصدر الذي يحسب به حارس الفاتورة يوم الشركة) حين
+ *   توجد قوائم: بها تحسب الأجهزة يوم صلاحية القواعد كالخادم لا بساعة الجهاز ومنطقته (D1). والبلد من قراءة إعدادات الشركة نفسها (اسم زرّ
+ *   الأساس)، فالمنطقة استعلامٌ واحد (glSettings.timezone) لا اثنان. شركةٌ بلا قوائم لا قواعد لها فلا منطقة ولا استعلامها
+ */
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
+    const withCounts = req.query.counts === '1' || req.query.counts === 'true';
     const [lists, settings] = await Promise.all([
       prisma.priceList.findMany({ where: { tenantId: tid }, orderBy: LIST_ORDER, select: LIST_SELECT }),
-      prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { basePriceLabel: true } }),
+      prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { basePriceLabel: true, countryCode: true } }),
     ]);
     const none = new Map<string, number>();
-    const [customers, items, rules] = lists.length
-      ? await Promise.all([customersCountOf(tid), itemsCountOf(tid), rulesCountOf(tid)])
-      : [none, none, none];
+    const [customers, items, rules, gl] = lists.length
+      ? await Promise.all([
+        customersCountOf(tid), withCounts ? itemsCountOf(tid) : none, withCounts ? rulesCountOf(tid) : none,
+        prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { timezone: true } }),
+      ])
+      : [none, none, none, null];
+    const timezone = lists.length ? companyZoneOf(gl?.timezone, settings?.countryCode) : null;
     res.json({
       success: true,
       data: {
         basePriceLabel: settings?.basePriceLabel ?? null,
         lists: lists.map((l) => ({
-          ...l, customersCount: customers.get(l.id) ?? 0, itemsCount: items.get(l.id) ?? 0, rulesCount: rules.get(l.id) ?? 0,
+          ...l, customersCount: customers.get(l.id) ?? 0,
+          ...(withCounts && { itemsCount: items.get(l.id) ?? 0, rulesCount: rules.get(l.id) ?? 0 }),
         })),
+        ...(timezone && { timezone }),
       },
     });
   } catch (err) { next(err); }
@@ -457,7 +472,9 @@ router.put('/rules/:ruleId', ...manage, async (req: AuthRequest, res: Response, 
     const seenPrimary = hasOwn(req.body, 'expectedPrimary');
     const row = await prisma.$transaction(async (tx) => {
       const f = await lockRuleProducts(tx, tid, body, seenPrimary, product, old);
-      const updated = await tx.priceListRule.updateMany({ where: { id: existing.id, tenantId: tid }, data: ruleColumnsOf(body, f) });
+      // الطابع صريحاً: إعادة رفع صندوق المندوب تقيس عليه ما عرفه الجهاز من القواعد (rulesAtDevice، CONTRACT2 D3) — لا تعويل على
+      // @updatedAt في updateMany
+      const updated = await tx.priceListRule.updateMany({ where: { id: existing.id, tenantId: tid }, data: { ...ruleColumnsOf(body, f), updatedAt: new Date() } });
       if (updated.count === 0) throw new ListRefusal(404, 'PRICE_RULE_NOT_FOUND'); // حُذفت (أو حُذفت قائمتها) بعد القراءة
       await touchProducts(tx, tid, [old?.id, product?.id]);
       return tx.priceListRule.findFirst({ where: { id: existing.id, tenantId: tid }, select: RULE_SELECT });
@@ -727,18 +744,25 @@ router.get('/:id/rules', readPrices, async (req: AuthRequest, res: Response, nex
   } catch (err) { next(err); }
 });
 
-// قاعدةٌ جديدة في القائمة — بحدّ PRICE_RULE_LIMITS.perList قاعدةً للقائمة (409 PRICE_RULE_LIMIT)
+/**
+ * قاعدةٌ جديدة في القائمة — بحدّ PRICE_RULE_LIMITS.perList قاعدةً للقائمة (409 PRICE_RULE_LIMIT). العدّ داخل المعاملة بعد قفل صفّ
+ * القائمة: منشئان معاً (سكربت مكامِل أو تبويبان) قرأ كلاهما ١٩٩٩ خارجها فصارت ٢٠٠١. FOR NO KEY UPDATE يرتّب المنشئين (وإعادة
+ * التسمية) ويتعارض مع FOR UPDATE حذف القائمة، ولا يتعارض مع FOR KEY SHARE الذي تأخذه مفاتيح العملاء والفواتير والأسعار الأجنبية —
+ * فإنشاء قاعدةٍ لا يوقف إصدار فواتير القائمة. وقائمةٌ حُذفت بين القراءة والقفل ⇒ 404 PRICE_LIST_INVALID. ثم قفل الصنف (lockRuleProducts)
+ */
 router.post('/:id/rules', ...manage, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
     const body = parseRule(req.body);
     const list = await prisma.priceList.findFirst({ where: { id: String(req.params.id), tenantId: tid }, select: { id: true } });
     if (!list) { refuse(res, 404, 'PRICE_LIST_INVALID'); return; }
-    const count = await prisma.priceListRule.count({ where: { tenantId: tid, priceListId: list.id } });
-    if (count >= PRICE_RULE_LIMITS.perList) { refuse(res, 409, 'PRICE_RULE_LIMIT'); return; }
     const product = await ruleTargetOf(tid, body);
     const seenPrimary = hasOwn(req.body, 'expectedPrimary');
     const row = await prisma.$transaction(async (tx) => {
+      const held = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM price_lists WHERE id = ${list.id} AND "tenantId" = ${tid} FOR NO KEY UPDATE`;
+      if (!held?.length) throw new ListRefusal(404, 'PRICE_LIST_INVALID');
+      const count = await tx.priceListRule.count({ where: { tenantId: tid, priceListId: list.id } });
+      if (count >= PRICE_RULE_LIMITS.perList) throw new ListRefusal(409, 'PRICE_RULE_LIMIT');
       const f = await lockRuleProducts(tx, tid, body, seenPrimary, product, null);
       const created = await tx.priceListRule.create({
         data: { tenantId: tid, priceListId: list.id, ...ruleColumnsOf(body, f) }, select: RULE_SELECT,

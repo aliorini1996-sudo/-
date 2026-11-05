@@ -29,6 +29,10 @@ import {
   baseLabelOf, listBaseMap, listEntryFactor, listPriceEditsOf, listPriceInput, listShownPrice, priceListsOf, type ListPriceEdits,
 } from '../../lib/priceLists';
 import { roundHalfUp } from '../../lib/money';
+// «قوائم الأسعار» (D2): تغيير حجم الوحدة الرئيسية لصنفٍ تشمله قواعد بها ⇒ 409 PRICE_RULES_UNIT_ACK، سؤالٌ ثم الطلب نفسه بالإقرار
+import {
+  PRICE_RULES_AFFECTED_TEXT, isPriceRulesAckDeclined, priceRulesAckAsker, priceRulesAffectedOf, withPriceRulesAck,
+} from '../../lib/priceListEditor';
 
 interface Props {
   /** onSave: الصنف كما كان، ومعه listPriceEdits («قوائم الأسعار») حين تغيّر سعر الصنف في قائمة — تحفظه الصفحة بمساره بعد الصنف */
@@ -197,11 +201,15 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
   const shownList = (id: string) => listShownPrice(listBase[id], listFactor);
   const listValue = (id: string) => listDraft[id] ?? shownList(id);
 
-  // قوائم الأصناف في الصفحات الأخرى (الفاتورة والتحميل والوارد) تقرأ الوحدات — تتبع كل تغيير
+  // قوائم الأصناف في الصفحات الأخرى (الفاتورة والتحميل والوارد) تقرأ الوحدات — تتبع كل تغيير، ومعها «قوائم الأسعار»: جدول
+  // أسعار القائمة وقواعدها بوحدات الصنف (حارس 409)، وقواعد التسعير في فاتورة الإدارة (سعر الصنف الثابت يُقسم بالتحويل) — D6
   const refreshLists = () => {
     qc.invalidateQueries({ queryKey: ['products'] });
     qc.invalidateQueries({ queryKey: ['products-all'] });
     qc.invalidateQueries({ queryKey: ['products-min'] });
+    qc.invalidateQueries({ queryKey: ['price-list-items'] });
+    qc.invalidateQueries({ queryKey: ['price-list-rules-of'] });
+    qc.invalidateQueries({ queryKey: ['price-list-rules'] });
   };
   /** أسعار الأنواع من الصنف كما ردّه الخادم: المسودّة كُتبت على وحداتٍ تغيّرت فتُمسح، والمحفوظ من الردّ — وردٌّ بلاها بعد تحويل
    * الأساس (التحويل يقسمها على المعامل) يُعاد جلبه، وإلا عُرض سعر الكرتون مضروباً في المعامل مرّةً ثانية */
@@ -256,18 +264,23 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
     }
   };
   const closeSwitch = () => { setSwitchAsk(null); setSwitchChoice(null); setSwitchUnitId(''); };
-  /** تبديل الرئيسية (D11: مجرّد علم) — expectedPrimaryUnitId ما رآه النموذج، فتغيّرٌ سبقه يُردّ ٤٠٩ */
+  /** تبديل الرئيسية (D11: مجرّد علم) — expectedPrimaryUnitId ما رآه النموذج، فتغيّرٌ سبقه يُردّ ٤٠٩. وصنفٌ تشمله قواعد قوائم أسعار
+   *  بالوحدة الرئيسية يُسأل عنه بنصّ الخادم ثم يُعاد الطلب نفسه بالإقرار (D2) — والرفض لا يكتب شيئاً ولا يُقال خطأً */
   const setPrimary = async (unitId: string | null) => {
     if (!product) return;
     setModeBusy(true);
     try {
-      const { data } = await productApi.setPrimaryUnit(product.id, { unitId, expectedPrimaryUnitId: primaryUnitId });
+      const { data } = await withPriceRulesAck(
+        () => productApi.setPrimaryUnit(product.id, { unitId, expectedPrimaryUnitId: primaryUnitId }),
+        () => productApi.setPrimaryUnit(product.id, { unitId, expectedPrimaryUnitId: primaryUnitId, acknowledgePriceRules: true }),
+        priceRulesAckAsker(tr));
       adopt(data.data as Product);
       closeSwitch();
       refreshLists();
       toast.success(unitId ? tr('صارت الوحدة الرئيسية') : tr('ألغيت الوحدة الرئيسية'));
     } catch (err) {
-      if (isUnitsStale(err)) await reloadStale();
+      if (isPriceRulesAckDeclined(err)) { /* رفض سؤال القواعد: لا شيء كُتب */ }
+      else if (isUnitsStale(err)) await reloadStale();
       else toast.error(tr(serverMessage(err) || 'تعذر الحفظ'));
     }
     setModeBusy(false);
@@ -471,8 +484,16 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
     <input type="number" className="input" min="0" step="any" inputMode="decimal" data-list-price="" value={listValue(activeList.id)}
       placeholder={baseLabel} onChange={e => { const v = e.target.value; const id = activeList.id; setListDraft(d => ({ ...d, [id]: v })); }} />
   );
-  // الفارغ: قائمةٌ بلا قواعد ⇒ السعر الافتراضي كما كان؛ وبقواعد ⇒ قواعدها ثم الافتراضي (lib/priceRules.ts listPriceOf)
-  const listHint = <p className="text-[10px] text-gray-400 mt-1">{tr('قبل الضريبة')} · {(activeList?.rulesCount ?? 0) > 0
+  // الفارغ: قائمةٌ بلا قواعد ⇒ السعر الافتراضي كما كان؛ وبقواعد ⇒ قواعدها ثم الافتراضي (lib/priceRules.ts listPriceOf). وعدد
+  // قواعدها من ['price-lists', 'counts'] — كاش لوحة القوائم، أو طلبه حين تُختار رقاقة قائمةٍ وحدها؛ فالنافذة تقرأ القوائم بلا
+  // عدّادات (قرار D5) ولا طلب زائد لشركةٍ بلا قوائم أو لمن لم يختر قائمة
+  const { data: listCounts } = useQuery({
+    queryKey: ['price-lists', 'counts'],
+    queryFn: async () => priceListsOf((await priceListApi.listWithCounts()).data.data),
+    enabled: !!activeList,
+  });
+  const activeRulesCount = activeList ? listCounts?.lists.find(l => l.id === activeList.id)?.rulesCount ?? activeList.rulesCount : undefined;
+  const listHint = <p className="text-[10px] text-gray-400 mt-1">{tr('قبل الضريبة')} · {(activeRulesCount ?? 0) > 0
     ? fill(tr('فارغ يعني قواعد القائمة ثم {label}'), { label: baseLabel })
     : fill(tr('فارغ يعني {label}'), { label: baseLabel })}</p>;
   // سعر الوحدة الفرعية في النوع المختار مشتقٌّ دائماً: سعر الرئيسية ÷ العدد (لا خانة له)
@@ -1043,25 +1064,33 @@ function ProductUnitsSection({
   // التحويل يغيّر الأساس ويضرب المعاملات — تعديلٌ مفتوح قبله يُغلق فلا يُحفظ بمعاملٍ قديم
   useEffect(() => { setEditId(null); }, [baseUnit]);
 
-  // قوائم الأصناف في الصفحات الأخرى (الفاتورة والتحميل والوارد) تقرأ الوحدات — تتبع كل تغيير
+  // قوائم الأصناف في الصفحات الأخرى (الفاتورة والتحميل والوارد) تقرأ الوحدات — تتبع كل تغيير، ومعها جدول «قوائم الأسعار»
+  // وقواعدها بوحدات الصنف (حارس 409) وقواعد التسعير في فاتورة الإدارة (D6) — بلا طلبٍ ما دامت شاشاتها مغلقة
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['products'] });
     qc.invalidateQueries({ queryKey: ['products-all'] });
     qc.invalidateQueries({ queryKey: ['products-min'] });
+    qc.invalidateQueries({ queryKey: ['price-list-items'] });
+    qc.invalidateQueries({ queryKey: ['price-list-rules-of'] });
+    qc.invalidateQueries({ queryKey: ['price-list-rules'] });
   };
   const sorted = [...units].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || Number(a.factor) - Number(b.factor));
   const product = { unit: baseUnit, units };
   const primary = primaryUnitOf({ primaryUnitId, units });
   // D21: لصنفٍ له رئيسية تُعرض رسائل التحقق بلا «الأساس»، وبلاها كما هي (I1)
   const shown = (msg: string) => (primary ? d21(msg) : msg);
-  /** فشل كتابة وحدة: نموذجٌ قديم ⇒ «أعد فتحه» وإعادة الجلب، وإلا رسالة الخادم */
+  /** فشل كتابة وحدة: رفض سؤال قواعد قوائم الأسعار ⇒ لا شيء كُتب ولا رسالة، ونموذجٌ قديم ⇒ «أعد فتحه» وإعادة الجلب، وإلا رسالة الخادم */
   const fail = (err: unknown, fallback: string) => {
+    if (isPriceRulesAckDeclined(err)) return;
     if (isUnitsStale(err)) void onStale();
     else toast.error(tr(shown(serverMessage(err) || fallback)));
   };
 
   // Enter في خانات الوحدة لا يُرسل نموذج الصنف كلّه (القسم داخل <form> الصنف)
   const noSubmit = (e: React.KeyboardEvent) => { if (e.key === 'Enter') e.preventDefault(); };
+  /* «قوائم الأسعار» (D2): كتابةٌ تغيّر حجم الوحدة الرئيسية (إضافةٌ رئيسية، معاملها، إيقافها أو حذفها) لصنفٍ تشمله قواعد بها ⇒
+   * 409 PRICE_RULES_UNIT_ACK: سؤالٌ بنصّ الخادم ثم الطلب نفسه بـacknowledgePriceRules (withPriceRulesAck) — والرفض في fail صامت */
+  const askRules = priceRulesAckAsker(tr);
 
   if (!productId) {
     return (
@@ -1077,7 +1106,10 @@ function ProductUnitsSection({
     if (problem) { toast.error(tr(shown(problem))); return; }
     setBusy('add');
     try {
-      const { data } = await productApi.addUnit(productId, { ...unitFormPayload(adding), ...(addPrimary && { makePrimary: true }), expectedBaseName: baseUnit });
+      const { data } = await withPriceRulesAck(
+        () => productApi.addUnit(productId, { ...unitFormPayload(adding), ...(addPrimary && { makePrimary: true }), expectedBaseName: baseUnit }),
+        () => productApi.addUnit(productId, { ...unitFormPayload(adding), ...(addPrimary && { makePrimary: true }), expectedBaseName: baseUnit, acknowledgePriceRules: true }),
+        askRules);
       const created = data.data as ProductUnit;
       const next = [...units, created];
       if (addPrimary) onPrimaryChanged(next, created.id);
@@ -1095,7 +1127,10 @@ function ProductUnitsSection({
     if (problem) { toast.error(tr(shown(problem))); return; }
     setBusy(u.id);
     try {
-      const { data } = await productApi.updateUnit(productId, u.id, { ...unitFormPayload(editing), expectedBaseName: baseUnit });
+      const { data } = await withPriceRulesAck(
+        () => productApi.updateUnit(productId, u.id, { ...unitFormPayload(editing), expectedBaseName: baseUnit }),
+        () => productApi.updateUnit(productId, u.id, { ...unitFormPayload(editing), expectedBaseName: baseUnit, acknowledgePriceRules: true }),
+        askRules);
       onUnits(units.map(x => (x.id === u.id ? (data.data as ProductUnit) : x)));
       setEditId(null);
       refresh();
@@ -1121,9 +1156,13 @@ function ProductUnitsSection({
     if (clearing && !window.confirm(`${tr('هذه الوحدة الرئيسية — سيُلغى كونها رئيسية ثم تُوقَف')} — ${u.name}`)) return;
     setBusy(u.id);
     try {
-      const { data } = await withRepRuleSync(() => productApi.updateUnit(productId, u.id, clearing
+      const body = clearing
         ? { isActive: false, clearPrimary: true, expectedBaseName: baseUnit }
-        : { isActive: u.isActive === false, expectedBaseName: baseUnit }));
+        : { isActive: u.isActive === false, expectedBaseName: baseUnit };
+      const { data } = await withPriceRulesAck(
+        () => withRepRuleSync(() => productApi.updateUnit(productId, u.id, body)),
+        () => withRepRuleSync(() => productApi.updateUnit(productId, u.id, { ...body, acknowledgePriceRules: true })),
+        askRules);
       const next = units.map(x => (x.id === u.id ? (data.data as ProductUnit) : x));
       if (clearing) onPrimaryChanged(next, null);
       else onUnits(next);
@@ -1141,7 +1180,10 @@ function ProductUnitsSection({
     if (!window.confirm(`${ask} — ${u.name}`)) return;
     setBusy(u.id);
     try {
-      await withRepRuleSync(() => (clearing ? productApi.removeUnit(productId, u.id, { clearPrimary: true, expectedBaseName: baseUnit }) : productApi.removeUnit(productId, u.id, { expectedBaseName: baseUnit })));
+      await withPriceRulesAck(
+        () => withRepRuleSync(() => (clearing ? productApi.removeUnit(productId, u.id, { clearPrimary: true, expectedBaseName: baseUnit }) : productApi.removeUnit(productId, u.id, { expectedBaseName: baseUnit }))),
+        () => withRepRuleSync(() => productApi.removeUnit(productId, u.id, { ...(clearing && { clearPrimary: true }), expectedBaseName: baseUnit, acknowledgePriceRules: true })),
+        askRules);
       const next = units.filter(x => x.id !== u.id);
       if (clearing) onPrimaryChanged(next, null);
       else onUnits(next);
@@ -1275,6 +1317,8 @@ interface ConvertDryRun {
   /** اسم الوحدة الرئيسية بعد الإضافة، أو null */
   primaryAfter?: string | null;
   converted?: Record<string, unknown>;
+  /** قواعد «قوائم الأسعار» بالوحدة الرئيسية يتغيّر معناها (بلا إبقاء الحالية رئيسية) — التنفيذ يطلب إقرارها (D2) */
+  priceRulesAffected?: number;
 }
 const countOf = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 /**
@@ -1366,6 +1410,7 @@ function ConvertBaseDialog({ productId, baseUnit, basePrice, units, primaryUnitI
   const erpLinked = fresh?.erpLinked === true;
   const apiTotal = countOf(fresh?.apiKeys?.write) + countOf(fresh?.apiKeys?.readOnly);
   const conv = fresh?.converted ?? {};
+  const rulesAffected = priceRulesAffectedOf(fresh);
   const relabeled = countOf(conv.invoiceItems) + countOf(conv.vanLoadItems) + countOf(conv.warehouseEntryItems) + countOf(conv.stockRequestItems);
   // الافتراض في البيع اليوم: الرئيسية، وإلا أكبر وحدة نشطة، وإلا الوحدة الحالية — وبعد الإضافة: ما تقوله المعاينة
   const defaultNow = currentPrimary?.name ?? biggestUnit(units)?.name ?? expected;
@@ -1392,13 +1437,17 @@ function ConvertBaseDialog({ productId, baseUnit, basePrice, units, primaryUnitI
     if (problem) { setError(tr(d21(problem))); return; }
     if (!ready) return;
     setBusy(true); setError(''); setNameError('');
+    // «قوائم الأسعار» (D2): قواعد بالوحدة الرئيسية يتغيّر معناها ⇒ 409 PRICE_RULES_UNIT_ACK، سؤالٌ ثم التنفيذ نفسه بالإقرار
+    const run = (ackRules: boolean) => productApi.convertBase(productId, {
+      ...body(), ...(ackErp && { acknowledgeErp: true }), ...(ackApi && { acknowledgeApi: true }),
+      ...(ackRules && { acknowledgePriceRules: true }),
+    });
     try {
-      const { data } = await productApi.convertBase(productId, {
-        ...body(), ...(ackErp && { acknowledgeErp: true }), ...(ackApi && { acknowledgeApi: true }),
-      });
+      const { data } = await withPriceRulesAck(() => run(false), () => run(true), priceRulesAckAsker(tr));
       toast.success(tr('أضيفت الوحدة الفرعية'));
       onDone(data.data as Product);
     } catch (err) {
+      if (isPriceRulesAckDeclined(err)) { setBusy(false); return; }
       if (refused(err)) { setBusy(false); return; }
       // إقرارٌ صار لازماً بعد المعاينة (ربط ERP أو مفتاحٌ نشط جديد) ⇒ معاينةٌ جديدة تُظهر خانته
       const code = serverCode(err);
@@ -1474,6 +1523,11 @@ function ConvertBaseDialog({ productId, baseUnit, basePrice, units, primaryUnitI
               <p className="text-gray-500">{tr('قد تستغرق حتى دقيقتين لصنف بتاريخ طويل، ومن يحفظ أثناءها يُطلب منه إعادة المحاولة')}</p>
               {defaultAfter !== defaultNow && (
                 <p className="font-semibold text-[#1F1A13]" data-default-after="">{fill(tr('الافتراض في البيع بعد الإضافة: {unit}'), { unit: defaultAfter })}</p>
+              )}
+              {rulesAffected > 0 && (
+                <p className="font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-2" data-price-rules-affected="">
+                  {fill(tr(PRICE_RULES_AFFECTED_TEXT), { n: formatNumber(rulesAffected) })}
+                </p>
               )}
               {erpLinked && (
                 <label className="flex items-start gap-2 cursor-pointer text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-2" data-ack-erp="">

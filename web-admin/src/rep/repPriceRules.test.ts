@@ -10,11 +10,10 @@ import ts from 'typescript';
 import { choiceNet, lineUnitOf, rebaseCustPrices, sameUnit, unitChoices, type UnitChoice } from './repUnits';
 import { roundDecimal } from './invoiceCalc';
 import {
-  rebaseRepRules, repBaseQtyByProduct, repListRulesOf, repPriceRulesOf, repProductBaseQty, repQtyKey, type RepPriceRule,
+  rebaseRepRules, repBaseQtyByProduct, repListRulesOf, repPriceRulesOf, repProductBaseQty, repQtyKey, repRepriceLines, type RepPriceRule,
 } from './repPriceLists';
 import { lineNetWithList, listDependsOnQty } from '../lib/priceListPricing';
 import { listLineRef, listPriceOf, qtyPrimaryOf } from '../lib/priceRules';
-import { repriceUntouched } from '../lib/priceLists';
 import { roundHalfUp } from '../lib/money';
 import { primaryUnitOf, toBase, unitPriceOf } from '../lib/units';
 
@@ -40,18 +39,23 @@ function compile<T>(src: string, name: string, deps: Record<string, unknown>): T
 
 type Map2 = Record<string, number>;
 type Incl = (p: unknown, c: UnitChoice, baseQty?: number, cust?: Map2, list?: Map2, rules?: readonly RepPriceRule[]) => number;
-/** inclOf كما في CreateInvoice حرفاً — بخرائط المكوّن ويوم الجهاز وخانات العملة المعطاة */
+/** inclOf كما في CreateInvoice حرفاً — بخرائط المكوّن ويوم الرسم (priceDay: يوم الشركة، D1) وخانات العملة المعطاة */
 function inclOfWith(o: { cust?: Map2; list?: Map2; rules?: readonly RepPriceRule[]; day?: string; dec?: number } = {}): Incl {
   return compile<Incl>(between(repApp, 'const inclOf = ', ';\n'), 'inclOf', {
     custPrices: o.cust ?? {}, listPrices: o.list ?? {}, listRules: o.rules ?? [], lineNetWithList, roundDecimal,
-    todayLocal: () => o.day ?? '2026-11-15', currencyDecimals: () => o.dec ?? 2, getActiveCurrency: () => 'SAR',
+    priceDay: o.day ?? '2026-11-15', currencyDecimals: () => o.dec ?? 2, getActiveCurrency: () => 'SAR',
   });
 }
 type Line = Record<string, any>;
-/** خطوة مؤثّر إعادة التسعير في CreateInvoice حرفاً (ما داخل setLines(prev => {…})) */
-function repriceStep(prev: Line[], products: unknown[], inclOf: Incl): Line[] {
-  const body = between(repApp, 'const qtyOf = repBaseQtyByProduct(prev);', '(l, price) => ({ ...l, unitPrice: price }));');
-  return compile<(p: Line[]) => Line[]>(`const step = (prev: any[]) => {\n${body}\n};`, 'step', { repBaseQtyByProduct, repriceUntouched, products, inclOf })(prev);
+/**
+ * خطوة مؤثّر إعادة التسعير في CreateInvoice حرفاً (repriceLines: ما يمرّره المؤثّر لـsetLines والإصدار بيوم لحظته) — الخرائط تُمرَّر
+ * إلى inclOf undefined فتعمل افتراضاته (خرائط inclOfWith المعطاة)، واليوم يومه، و`floor` = مندوبٌ بلا «البيع بأقل من السعر» (D4)
+ */
+function repriceStep(prev: Line[], products: unknown[], inclOf: Incl, o: { day?: string; floor?: boolean } = {}): Line[] {
+  return compile<(p: Line[]) => Line[]>(between(repApp, 'const repriceLines = (prev: any[], day: string = priceDay): any[] => {', '\n  };\n'), 'repriceLines', {
+    repBaseQtyByProduct, repRepriceLines, products, inclOf, custPrices: undefined, listPrices: undefined, listRules: undefined,
+    priceDay: o.day ?? '2026-11-15', priceFloor: o.floor === true,
+  })(prev);
 }
 /** addLine في CreateInvoice حرفاً */
 function addLineWith(inclOf: Incl): (prev: Line[], p: unknown, c0: UnitChoice) => Line[] {
@@ -154,7 +158,7 @@ test('inclOf: النسبة على الفئة بحدٍّ أدنى للكمية و
   assert.equal(incl(juice, CARTON, 119), 26.22, 'دون الحدّ بحبّة');
   // والحدّ على مجموع الصنف بكل وحداته: ٩ كراتين و١٢ حبّة = ١٠ كراتين ⇒ بند الحبّات بالخصم نفسه من سعر حبّته
   assert.equal(incl(juice, PIECE, 9 * 12 + 12), roundDecimal(2 * 0.9 * 1.15, 2));
-  // الفترة شاملةٌ طرفيها بيوم الجهاز (todayLocal)، وبعدها يعود سعر كل الأصناف
+  // الفترة شاملةٌ طرفيها بيوم الرسم (priceDay: يوم الشركة، D1)، وبعدها يعود سعر كل الأصناف
   assert.equal(inclOfWith({ rules: list, day: '2026-11-30' })(juice, CARTON, 120), 24.84);
   assert.equal(inclOfWith({ rules: list, day: '2026-11-01' })(juice, CARTON, 120), 24.84);
   assert.equal(inclOfWith({ rules: list, day: '2026-12-01' })(juice, CARTON, 120), 26.22);
@@ -317,9 +321,12 @@ test('CreateInvoice: إعادة التسعير بالكمية خلف قاعدة�
   assert.match(repApp, /const qtyKey = qtyRules \? repQtyKey\(lines\) : '';/);
   assert.equal(listDependsOnQty(list), true);
   assert.equal(listDependsOnQty(list.filter((r) => !Number(r.minQty))), false);
-  const eff = between(repApp, 'useEffect(() => {\n    setLines(prev => {\n      const qtyOf = repBaseQtyByProduct(prev);', '}, [custPrices, listPrices, listRules, priceDay, qtyKey]);');
-  assert.match(eff, /return repriceUntouched\(prev, \(l\) => \{/);
-  assert.match(repApp, /const priceDay = todayLocal\(\);/);
+  const eff = between(repApp, 'useEffect(() => {\n    setLines(prev => repriceLines(prev));', '}, [custPrices, listPrices, listRules, priceDay, qtyKey]);');
+  assert.ok(eff.length < 200, 'المؤثّر يمرّر repriceLines وحدها');
+  assert.match(between(repApp, 'const repriceLines = (prev: any[], day: string = priceDay): any[] => {', '\n  };\n'), /return repRepriceLines\(prev, \(l\) => \{/);
+  // اليوم يوم الشركة بمنطقتها من كاش الأسماء (D1) — لا todayLocal() في التسعير
+  assert.match(repApp, /const priceDay = repPricingDay\(listInfo\);/);
+  assert.doesNotMatch(between(repApp, 'const inclOf = ', ';\n'), /todayLocal/);
   // تبديل الوحدة: السعر والأرضية بعد قصّ اللوط وبكمية الصنف بالوحدة الجديدة
   const unit = between(repApp, 'const setLineUnit = (', '// مسح باركود مستمرّ');
   assert.ok(unit.indexOf('const ref = inclOf(p, ch, repProductBaseQty(c, l.productId));') > unit.indexOf('c[i].qty = fit;'), 'بعد قصّ الكمية');
@@ -332,7 +339,7 @@ test('CreateInvoice: إعادة التسعير بالكمية خلف قاعدة�
   assert.match(repApp, /const priceHint = \(p: any\) => \(hasUnitChoice\(p\) \? `\$\{formatCurrency\(inclOf\(p, startChoice\(p\)\)\)\} \/ \$\{startChoice\(p\)\.name\}` : formatCurrency\(inclPrice\(p\)\)\);/);
   assert.match(repApp, /const inclPrice = \(p: any\) => inclOf\(p, unitChoices\(p\)\[0\]\);/);
   // كل نداءات inclOf معدودة: لا مسار تسعيرٍ لم يُمرَّر له مجموع الصنف إلا التلميح
-  assert.equal((repApp.match(/inclOf\(/g) ?? []).length, 6, 'التعريف لا يُعدّ (const inclOf =): المؤثّر وaddLine وsetLineUnit وrefreshUnits وinclPrice وpriceHint');
+  assert.equal((repApp.match(/inclOf\(/g) ?? []).length, 6, 'التعريف لا يُعدّ (const inclOf =): repriceLines (المؤثّر والإصدار) وaddLine وsetLineUnit وrefreshUnits وinclPrice وpriceHint');
 });
 
 test('rebaseCustPrices يبقى أساس rebaseRepRules (لا حسابٌ موازٍ): الحقبة ثم الاسم ثم وقت القراءة', () => {

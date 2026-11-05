@@ -37,9 +37,8 @@ import SearchableSelect from '../SearchableSelect';
 import PriceTypeChips from '../PriceTypeChips';
 import { baseLabelOf, priceListsOf } from '../../lib/priceLists';
 import {
-  adminInvoiceListOf, adminListHintOf, docBaseQty, docLinePricerOf, repriceDocLines, type AdminListChoice,
+  adminInvoiceListOf, adminListHintOf, docBaseQty, docLinePricerOf, docPricingDayOf, docQtyKey, pickOptionsAtQty, repriceDocLines, type AdminListChoice,
 } from '../../lib/invoiceModalRepPrice';
-import { pricingDayOf } from '../../lib/priceListPricing';
 import ConfirmDialog from '../ConfirmDialog';
 import { overAvailable, refFor, vanRemainingOf, withClientRef, type RefMemo } from '../../lib/vanStockFlags';
 
@@ -243,8 +242,14 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     enabled: priceListOn,
     queryFn: async () => (await priceListApi.rules()).data.data as PriceListRule[],
   });
-  // يوم الفاتورة الذي تُقرأ به فترات القواعد: التاريخ المختار (إصدارٌ قديم) وإلا اليوم على الجهاز
-  const pricingDay = pricingDayOf(invoiceDate);
+  /* ZATCA المرحلة الثانية: المرتجع إشعارٌ دائن على فاتورته الأصلية — لا مرتجع حرّ، والسبب إلزاميّ، والتاريخ «الآن».
+   * القرار من صفّ الشركة كما في صفحة الفواتير (zatcaRegimeOf). شركة «بروفة» يراها الويب مرحلةً أولى ويحسمها الخادم بـ422
+   * مقروءة — والخادم هو الحَكَم في الحالين. */
+  const phase2 = zatcaRegimeOf(company).phase === 2;
+  /* يوم الفاتورة الذي تُقرأ به فترات القواعد (مراجعة D1): اليوم الذي سيستعمله الخادم — التاريخ المختار حين يُرسل، وإلا يوم الشركة الآن
+   * بمنطقتها (timezone من GET /price-lists، وبلاها اليوم المحلي). والإشعار الدائن في المرحلة الثانية يُصدر بلحظته على الخادم وحقل
+   * تاريخه مخفيّ (buildFreeReturnPayload لا يرسله): تاريخٌ بقي من البيع قبل التبديل إلى المرتجع لا يسعّر أسطره الحرّة */
+  const pricingDay = docPricingDayOf(invoiceDate, { dateSent: !(isReturn && phase2), timezone: priceInfo?.timezone });
   /** مسعِّر البند (lib/invoiceModalRepPrice.ts — المسعِّر نفسه في /m): سعر العميل الخاص ⇐ القائمة بسعرها الثابت وقواعدها بكمية الصنف
    * في الفاتورة كلّها ويوم الفاتورة ⇐ سعر الوحدة والأساس — صافياً، مقرَّباً لأربع منازل حين يأتي من سعر العميل أو القائمة كما كان */
   const pricer = useMemo(
@@ -253,28 +258,28 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   );
   const suggestedNet = (p: Product, c: UnitChoice, totalBaseQty: number) => pricer(p, c, totalBaseQty);
   const productById = useMemo(() => new Map((products ?? []).map(p => [p.id, p] as const)), [products]);
-  /** البنود التي لم يُعدَّل سعرها تأخذ المقترح بكمية صنفها في الفاتورة كلّها — والمعدَّلة يدويّاً تبقى (repriceUntouched) */
-  const repriceLines = (ls: LineItem[]) => repriceDocLines(ls, id => productById.get(id), suggestedNet,
-    (l, price) => ({ ...l, unitPrice: price, lineTotal: calcLine(l.qty, price, l.discountPct, l.taxPct) }));
+  /** البنود التي لم يُعدَّل سعرها تأخذ المقترح بكمية صنفها في الفاتورة كلّها — والمعدَّلة يدويّاً تبقى (repriceUntouched). و`productId`:
+   * تغيّرت كمية هذا الصنف وحده فبنوده وحدها تُعاد (مراجعة D5) — والمسعِّر الجديد يعيد البنود كلّها (الأثر أدناه) */
+  const repriceLines = (ls: LineItem[], productId?: string) => repriceDocLines(ls, id => productById.get(id), suggestedNet,
+    (l, price) => ({ ...l, unitPrice: price, lineTotal: calcLine(l.qty, price, l.discountPct, l.taxPct) }), productId);
   /* منتقي الأصناف: صنفٌ بوحدات بسعر الوحدة التي يُضاف بها (الرئيسية، وإلّا الأكبر) واسمها — سعر الحبة وحده يُقرأ سعر كرتون — وبكمية
-   * صنفه في الفاتورة بعد إضافته (شريحة الكمية) كما سيُضاف. محفوظٌ ما لم تتغيّر الأصناف أو المسعِّر أو كميات البنود */
-  const qtyKey = [...docBaseQty(lines)].map(([id, q]) => `${id}:${q}`).join('|');
-  const pickOptions = useMemo(() => {
-    const qty = docBaseQty(lines);
-    return (products || []).map(p => {
-      const c = hasUnitChoice(p) ? defaultChoice(p) : unitChoices(p)[0];
-      const net = suggestedNet(p, c, (qty.get(p.id) ?? 0) + lineUnitFields(p, c).unitFactor);
-      return {
-        value: p.id, label: p.name,
-        hint: hasUnitChoice(p) ? `${p.code} • ${formatCurrency(net)} / ${c.name}` : `${p.code} • ${formatCurrency(net)}`,
-      };
-    });
-  }, [products, pricer, qtyKey]); // eslint-disable-line react-hooks/exhaustive-deps
+   * صنفه في الفاتورة بعد إضافته (شريحة الكمية) كما سيُضاف. والكتالوج كلّه يُسعَّر مرّةً لكل مسعِّر (مراجعة D5: كان ١٠٠٠ صنف مع كل
+   * حرفٍ في خانة الكمية)، ثم أصناف الفاتورة وحدها بكمياتها — وحين لا قاعدة بحدٍّ أدنى للكمية لا تغيّر الكمية تلميحاً فلا يُعاد شيء */
+  const pickHint = (p: Product, qtyInDoc: number) => {
+    const c = hasUnitChoice(p) ? defaultChoice(p) : unitChoices(p)[0];
+    const net = suggestedNet(p, c, qtyInDoc + lineUnitFields(p, c).unitFactor);
+    return hasUnitChoice(p) ? `${p.code} • ${formatCurrency(net)} / ${c.name}` : `${p.code} • ${formatCurrency(net)}`;
+  };
+  const catalogOptions = useMemo(
+    () => (products || []).map(p => ({ value: p.id, label: p.name, hint: pickHint(p, 0) })),
+    [products, pricer], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const qtyKey = pricer.dependsOnQty ? docQtyKey(lines) : '';
+  const pickOptions = useMemo(() => pickOptionsAtQty(catalogOptions, lines, pricer.dependsOnQty, (o, qtyInDoc) => {
+    const p = productById.get(o.value);
+    return p ? { ...o, hint: pickHint(p, qtyInDoc) } : o;
+  }), [catalogOptions, qtyKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ZATCA المرحلة الثانية: المرتجع إشعارٌ دائن على فاتورته الأصلية — لا مرتجع حرّ، والسبب إلزاميّ، والتاريخ «الآن».
-   * القرار من صفّ الشركة كما في صفحة الفواتير (zatcaRegimeOf). شركة «بروفة» يراها الويب مرحلةً أولى ويحسمها الخادم بـ422
-   * مقروءة — والخادم هو الحَكَم في الحالين. */
-  const phase2 = zatcaRegimeOf(company).phase === 2;
   /* «اشتراط اختيار فاتورة البيع للمرتجع» (إعداد مدير الشركة — null = افتراضيّ المرحلة: هذا السلوك حرفياً): مع الاشتراط في
    * الأولى لا «بدون فاتورة بيع»، وبلا اشتراطٍ في الثانية «فاتورة من خارج النظام» برقمها. والخادم الحَكَم في الحالين */
   const linkRequired = returnLinkRequired(company);
@@ -555,12 +560,12 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   const addProduct = (p: Product) => {
     const c = defaultChoice(p);
     const existing = lines.find(l => l.productId === p.id && (l.unitId ?? null) === c.id);
-    // «قوائم الأسعار»: كمية الصنف تغيّرت (شريحة «من ١٠ كراتين») فبنوده التي لم يُعدَّل سعرها تُعاد بها
+    // «قوائم الأسعار»: كمية الصنف تغيّرت (شريحة «من ١٠ كراتين») فبنوده التي لم يُعدَّل سعرها تُعاد بها — بنوده وحدها
     if (existing) {
       setLines(ls => repriceLines(ls.map(l => lineKey(l) === lineKey(existing)
         ? { ...l, qty: l.qty + 1, lineTotal: calcLine(l.qty + 1, l.unitPrice, l.discountPct, l.taxPct) }
         : l
-      )));
+      ), p.id));
     } else {
       // البند الجديد بسعره عند كمية صنفه بعد إضافته
       const price = suggestedNet(p, c, (docBaseQty(lines).get(p.id) ?? 0) + lineUnitFields(p, c).unitFactor);
@@ -569,7 +574,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
         ...lineUnitFields(p, c), qty: 1, unitPrice: price, refPrice: price,
         discountPct: 0, taxPct: Number(p.taxPct),
         lineTotal: calcLine(1, price, 0, Number(p.taxPct)),
-      }]));
+      }], p.id));
     }
   };
 
@@ -584,7 +589,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     const price = suggestedNet(p, c, docBaseQty(after).get(p.id) ?? 0);
     setLines(ls => repriceLines(ls.map((x, i) => (i !== idx ? x : {
       ...x, ...lineUnitFields(p, c), unitPrice: price, refPrice: price, lineTotal: calcLine(x.qty, price, x.discountPct, x.taxPct),
-    }))));
+    })), p.id));
   };
 
   /** وحدة المرتجع لبندٍ من فاتورة البيع (حبّةٌ من كرتون): المتاح وسعر الاسترداد يُعاد التعبير عنهما بها */
@@ -604,10 +609,12 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
       }
       const updated = { ...l, [field]: value };
       return { ...updated, lineTotal: calcLine(updated.qty, updated.unitPrice, updated.discountPct, updated.taxPct) };
-    })));
+    }), ls[idx]?.productId));
   };
-  /** «قوائم الأسعار»: الكمية تغيّر سعر القائمة (حدٌّ أدنى للكمية) — بنود الصنف التي لم يُعدَّل سعرها تُعاد بكميته الجديدة */
-  const withQtyReprice = (field: keyof LineItem, ls: LineItem[]) => (field === 'qty' ? repriceLines(ls) : ls);
+  /** «قوائم الأسعار»: الكمية تغيّر سعر القائمة (حدٌّ أدنى للكمية) — بنود الصنف الذي تغيّرت كميته وحده التي لم يُعدَّل سعرها تُعاد
+   * بكميته الجديدة. وبلا قاعدةٍ بحدٍّ أدنى للكمية (pricer.dependsOnQty) لا تغيّر الكمية سعراً: لا إعادة مع كل حرف (مراجعة D5) */
+  const withQtyReprice = (field: keyof LineItem, ls: LineItem[], productId: string | undefined) =>
+    (field === 'qty' && pricer.dependsOnQty && productId ? repriceLines(ls, productId) : ls);
 
   // الإجماليات من **المحرّك المشترك** لا بحساب يدويّ هنا: الحساب اليدويّ كان
   // يطرح خصم البند بينما الخادم لا يطرحه، فتُطبع ورقةٌ تخالف السجلّ المحاسبيّ
@@ -1039,7 +1046,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                     // مفتاح الصنف ووحدته: الصنف نفسه بوحدتين بندان
                     <tr key={lineKey(l)}>
                       <td>
-                        <button onClick={() => setLines(ls => repriceLines(ls.filter((_, j) => j !== i)))} className="text-red-400 hover:text-red-600">
+                        <button onClick={() => setLines(ls => repriceLines(ls.filter((_, j) => j !== i), ls[i]?.productId))} className="text-red-400 hover:text-red-600">
                           <Trash2 size={14} />
                         </button>
                       </td>

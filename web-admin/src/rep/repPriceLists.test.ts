@@ -227,10 +227,13 @@ test('repCachedNamesOf (رجعة: طلبٌ مع كل فاتورة): شركةٌ �
 test('CreateInvoice: تبديل النوع ووصول أسعاره يعيدان تسعير البنود غير المعدَّلة وحدها — وبند فاتورة البيع ثابت', () => {
   // «قوائم الأسعار» بقواعدها: المؤثّر نفسه يعيد التسعير أيضاً حين تصل القواعد أو يتبدّل اليوم أو تتغيّر كمية صنفٍ (qtyKey) — والقاعدة
   // باقية: غير المعدَّل وحده، وبند فاتورة البيع ثابت، والمرجع بالقاعدة نفسها (inclOf) بكمية الصنف في الفاتورة كلّها
-  const eff = between(repApp, 'return repriceUntouched(prev, (l) => {', '}, [custPrices, listPrices, listRules, priceDay, qtyKey]);');
+  // مراجعة «قوائم الأسعار» (D1/D4): خطوة المؤثّر صارت repriceLines (بيومٍ يمرّره الإصدار) فوق repRepriceLines = repriceUntouched حرفاً + أرضية
+  const eff = between(repApp, 'const repriceLines = (prev: any[], day: string = priceDay): any[] => {', '}, [custPrices, listPrices, listRules, priceDay, qtyKey]);');
+  assert.match(eff, /return repRepriceLines\(prev, \(l\) => \{/);
   assert.match(eff, /if \(l\.saleItemId\) return null;/);
-  assert.match(eff, /return inclOf\(p, unit, qtyOf\.get\(l\.productId\) \?\? 0\);/, 'المرجع الجديد بالقاعدة نفسها (العميل ?? القائمة) وتقريبها الواحد');
-  assert.match(eff, /\(l, price\) => \(\{ \.\.\.l, unitPrice: price \}\)/);
+  assert.match(eff, /return inclOf\(p, unit, qtyOf\.get\(l\.productId\) \?\? 0, custPrices, listPrices, listRules, day\);/, 'المرجع الجديد بالقاعدة نفسها (العميل ?? القائمة) وتقريبها الواحد');
+  assert.match(eff, /useEffect\(\(\) => \{\n\s*setLines\(prev => repriceLines\(prev\)\);/);
+  assert.match(read('rep', 'repPriceLists.ts'), /repriceUntouched\(lines, \(l\) => \(l\.saleItemId \? null : freshOf\(l\)\), \(l, price\) => \(\{ \.\.\.l, unitPrice: price \}\)\)/);
   assert.doesNotMatch(repApp, /choiceNet\(unit, cp, cp\)/, 'المصحِّح القديم لأسعار العميل وحدها صار هذا');
 });
 

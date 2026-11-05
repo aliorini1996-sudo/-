@@ -149,6 +149,8 @@ let W: {
   lockedUnit: Record<string, string>;
   seq: string[]; locks: Array<{ ids: string[]; inTx: boolean }>; created: any[]; updated: any[]; deleted: any[]; touches: Array<{ where: any; inTx: boolean }>;
   upserts: any[]; itemDeletes: any[]; itemDeleteCount: number;
+  /** قفل صفّ القائمة في معاملة الإنشاء (FOR NO KEY UPDATE)، وقائمةٌ حُذفت بين قراءتها وقفلها */
+  listLocks: Array<{ id: string; tid: string; inTx: boolean }>; listGone: boolean;
 };
 
 const product = (id: string, o: Partial<Product> = {}): Product => ({
@@ -186,6 +188,7 @@ function reset(user: User = ADMIN): void {
       RX: { id: 'RX', tenantId: 'T2', priceListId: 'L-X', scope: 'all', productId: null, categoryId: null, kind: 'percent', basePrice: null, primaryPrice: null, percent: 5, minQty: 0, startsOn: null, endsOn: null, updatedAt: STAMP },
     },
     ruleCount: 2, lockedUnit: {}, seq: [], locks: [], created: [], updated: [], deleted: [], touches: [], upserts: [], itemDeletes: [], itemDeleteCount: 1,
+    listLocks: [], listGone: false,
   };
   scripted = {
     'admin.findUnique': () => ({ id: currentUser.id, isActive: true, canManageProducts }),
@@ -218,6 +221,13 @@ function reset(user: User = ADMIN): void {
   };
   rawScript = (r) => {
     if (r.sql.includes("current_setting('lock_timeout')")) return [{ lock_timeout: '0' }];
+    // قفل صفّ القائمة قبل عدّ قواعدها (حدّ ٢٠٠٠ تحت القفل) — القائمة المحذوفة بين القراءة والقفل لا صفّ لها
+    if (r.sql.includes('FROM price_lists') && r.sql.includes('FOR NO KEY UPDATE')) {
+      const [id, tid] = r.values as [string, string];
+      W.seq.push(`listLock:${id}`);
+      W.listLocks.push({ id, tid, inTx: r.inTx });
+      return MY_LISTS.includes(id) && tid === T && !W.listGone ? [{ id }] : [];
+    }
     if (r.sql.includes('FROM products') && r.sql.includes('FOR KEY SHARE')) {
       const [tid, ids] = r.values as [string, string[]];
       W.seq.push(`lock:${ids.join(',')}`);
@@ -330,7 +340,8 @@ test('قاعدة صنفٍ بسعرٍ ثابت: سعر الكرتون الرئي�
     },
     inTx: true,
   }], 'كل نطاقٍ بحقله، والنسبة لا تُخزَّن لسعرٍ ثابت، والفارغ مفتوح');
-  assert.deepEqual(W.seq, ['lock:p1', 'create', 'touch:p1'], 'القفل قبل الكتابة والطابع بعدها');
+  // قفل صفّ القائمة (حدّ القواعد تحت القفل) ثم قفل الصنف، ثم الكتابة والطابع
+  assert.deepEqual(W.seq, ['listLock:L-W', 'lock:p1', 'create', 'touch:p1'], 'القفل قبل الكتابة والطابع بعدها');
   assert.deepEqual(W.locks, [{ ids: ['p1'], inTx: true }]);
   assert.deepEqual(W.touches, [{ where: { id: 'p1', tenantId: T }, inTx: true }]);
   assert.deepEqual(txOpts, [BASE_GUARD_TX], 'مهلة الحارس (I10)');
@@ -414,21 +425,55 @@ test('قاعدة الفئة الثابتة للرئيسية بأربع مناز�
   const pct = await call('POST', '/api/price-lists/L-W/rules', { scope: 'product', productId: 'p1', kind: 'percent', percent: '12.5', minQty: '10', expectedPrimary: { id: 'x', factor: 2 } });
   assert.equal(pct.status, 201, JSON.stringify(pct.body));
   assert.deepEqual([W.created[0].data.percent, W.created[0].data.minQty, W.created[0].data.basePrice], [12.5, 10, null]);
-  assert.deepEqual(W.seq, ['lock:p1', 'create', 'touch:p1']);
+  assert.deepEqual(W.seq, ['listLock:L-W', 'lock:p1', 'create', 'touch:p1']);
 });
 
-test('حدّ القائمة: ٢٠٠٠ قاعدة ⇒ 409 PRICE_RULE_LIMIT بلا كتابة، و١٩٩٩ تمرّ — والعدّ بشرط الشركة والقائمة', async () => {
+test('حدّ القائمة: ٢٠٠٠ قاعدة ⇒ 409 PRICE_RULE_LIMIT بلا كتابة، و١٩٩٩ تمرّ — والعدّ بشرط الشركة والقائمة داخل المعاملة بعد قفل صفّ القائمة', async () => {
   reset();
   W.ruleCount = 2000;
   let where: unknown = null;
-  scripted['priceListRule.count'] = (a) => { where = a.where; return W.ruleCount; };
+  let countInTx: boolean | null = null;
+  scripted['priceListRule.count'] = (a) => { where = a.where; countInTx = inTx; W.seq.push('count'); return W.ruleCount; };
   const full = await call('POST', '/api/price-lists/L-W/rules', { scope: 'all', kind: 'percent', percent: 5 });
   assert.equal(full.status, 409, JSON.stringify(full.body));
   assert.deepEqual([full.body.code, full.body.message], ['PRICE_RULE_LIMIT', 'لا تتسع القائمة لأكثر من 2000 قاعدة']);
   assert.deepEqual(where, { tenantId: T, priceListId: 'L-W' });
   assert.equal(W.created.length, 0);
+  // review 3.1: العدّ تحت قفل صفّ القائمة في معاملة الإنشاء نفسها — لا عدٌّ خارجها يقرؤه منشئان معاً ١٩٩٩ فتصير ٢٠٠١
+  assert.equal(countInTx, true, 'العدّ داخل المعاملة');
+  assert.deepEqual(W.seq, ['listLock:L-W', 'count'], 'القفل قبل العدّ، ولا قفل صنفٍ ولا كتابة بعد الرفض');
+  assert.deepEqual(W.listLocks, [{ id: 'L-W', tid: T, inTx: true }]);
+  assert.equal(calls.filter((c) => c === 'priceListRule.count').length, 1, 'عدٌّ واحد');
   W.ruleCount = 1999;
+  W.seq = [];
   assert.equal((await call('POST', '/api/price-lists/L-W/rules', { scope: 'all', kind: 'percent', percent: 5 })).status, 201);
+  assert.deepEqual(W.seq, ['listLock:L-W', 'count', 'create']);
+});
+
+test('حدّ القائمة تحت التزامن (review 3.1): قفل الصفّ FOR NO KEY UPDATE لا FOR UPDATE (لا يوقف مفاتيح العملاء والفواتير الأجنبية)، والمنشئ الثاني يعدّ ما التزمه الأول', async () => {
+  reset();
+  await call('POST', '/api/price-lists/L-W/rules', { scope: 'all', kind: 'percent', percent: 5 });
+  const lock = raws.find((x) => x.sql.includes('FROM price_lists'))!;
+  assert.match(lock.sql, /^SELECT id FROM price_lists WHERE id = \? AND "tenantId" = \? FOR NO KEY UPDATE$/);
+  assert.deepEqual([lock.values, lock.inTx], [['L-W', T], true]);
+  // منشئان على ١٩٩٩: القفل يرتّبهما فيعدّ الثاني بعد التزام الأول — يُرفض الثاني بلا كتابة (المزيّف يحاكي الترتيب: العدّ بعد كل إنشاء)
+  reset();
+  W.ruleCount = 1999;
+  scripted['priceListRule.count'] = () => W.ruleCount;
+  const pre = scripted['priceListRule.create'];
+  scripted['priceListRule.create'] = (a) => { W.ruleCount += 1; return pre(a); };
+  const firstReq = await call('POST', '/api/price-lists/L-W/rules', { scope: 'all', kind: 'percent', percent: 5 });
+  const second = await call('POST', '/api/price-lists/L-W/rules', { scope: 'all', kind: 'percent', percent: 6 });
+  assert.deepEqual([firstReq.status, second.status, second.body.code], [201, 409, 'PRICE_RULE_LIMIT']);
+  assert.equal(W.created.length, 1);
+  assert.equal(W.ruleCount, 2000, 'لا تتجاوز القائمة الحدّ');
+  // قائمةٌ حُذفت بين القراءة والقفل ⇒ 404 PRICE_LIST_INVALID من داخل المعاملة، بلا عدٍّ ولا كتابة
+  reset();
+  W.listGone = true;
+  const gone = await call('POST', '/api/price-lists/L-W/rules', { scope: 'category', categoryId: 'cat-j', kind: 'fixed', price: 5 });
+  assert.deepEqual([gone.status, gone.body.code, gone.body.message], [404, 'PRICE_LIST_INVALID', PRICE_LIST_MESSAGES.PRICE_LIST_INVALID]);
+  assert.equal(calls.includes('priceListRule.count'), false);
+  assert.equal(writes(), 0);
 });
 
 test('مفتاحٌ أجنبيّ فشل في الكتابة (فئةٌ أو قائمةٌ حُذفت بين الفحص والكتابة) ⇒ رفضه لا 500', async () => {
@@ -442,11 +487,15 @@ test('مفتاحٌ أجنبيّ فشل في الكتابة (فئةٌ أو قائ
 
 test('PUT /rules/:ruleId استبدالٌ كامل: نقل قاعدة صنفٍ إلى صنفٍ آخر يقفل الاثنين بترتيب المعرّف ويلمسهما، وقاعدة الفئة إلى الكل بلا قفل، والمحذوفة أثناء الطلب 404', async () => {
   reset();
+  const startedAt = Date.now();
   const r = await call('PUT', '/api/price-lists/rules/R1', { scope: 'product', productId: 'p2', kind: 'fixed', price: 3, minQty: 2, expectedBaseName: 'علبة' });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.deepEqual(W.locks, [{ ids: ['p1', 'p2'], inTx: true }], 'القديم والجديد في قفلٍ واحد بالترتيب');
   assert.deepEqual(W.updated.map((u) => [u.args.where, u.inTx]), [[{ id: 'R1', tenantId: T }, true]]);
-  assert.deepEqual(W.updated[0].args.data, {
+  // الطابع صريحاً (CONTRACT2 D3: إعادة رفع الصندوق تقيس ما عرفه الجهاز من القواعد بـupdatedAt) — والأعمدة استبدالٌ كامل
+  const { updatedAt: stamped, ...columns } = W.updated[0].args.data;
+  assert.ok(stamped instanceof Date && stamped.getTime() >= startedAt, 'التعديل يحرّك طابع القاعدة');
+  assert.deepEqual(columns, {
     scope: 'product', productId: 'p2', categoryId: null, kind: 'fixed', basePrice: 3, primaryPrice: null, percent: null, minQty: 2, startsOn: null, endsOn: null,
   });
   assert.deepEqual(W.seq, ['lock:p1,p2', 'update', 'touch:p1', 'touch:p2']);
@@ -462,7 +511,9 @@ test('PUT /rules/:ruleId استبدالٌ كامل: نقل قاعدة صنفٍ �
   reset();
   const all = await call('PUT', '/api/price-lists/rules/R2', { scope: 'all', kind: 'percent', percent: 3 });
   assert.equal(all.status, 200, JSON.stringify(all.body));
-  assert.deepEqual(W.updated[0].args.data, { scope: 'all', productId: null, categoryId: null, kind: 'percent', basePrice: null, primaryPrice: null, percent: 3, minQty: 0, startsOn: null, endsOn: null });
+  const { updatedAt: stampedAll, ...allColumns } = W.updated[0].args.data;
+  assert.ok(stampedAll instanceof Date);
+  assert.deepEqual(allColumns, { scope: 'all', productId: null, categoryId: null, kind: 'percent', basePrice: null, primaryPrice: null, percent: 3, minQty: 0, startsOn: null, endsOn: null });
   assert.equal(W.locks.length + W.touches.length, 0);
   // حُذفت بعد القراءة (أو حُذفت قائمتها): 404 لا 500
   reset();

@@ -34,6 +34,10 @@ import { shelfLifeOn, LOT_CACHE_KEYS } from './mLotsLogic';
 import { deleteBalanceText, duplicateNameAskText, duplicateNameSavedText, duplicateNameWarningsOf, type NameMatch } from '../lib/productGuards';
 import { fetchNameMatches, fetchStockSummary } from '../lib/productGuardsApi';
 import { baseQtyText } from '../lib/adminUnits';
+// «قوائم الأسعار» (D2): تغيير حجم الوحدة الرئيسية لصنفٍ تشمله قواعد بها ⇒ 409 PRICE_RULES_UNIT_ACK، سؤالٌ ثم الطلب نفسه بالإقرار
+import {
+  PRICE_RULES_AFFECTED_TEXT, isPriceRulesAckDeclined, priceRulesAckAsker, priceRulesAffectedOf, withPriceRulesAck,
+} from '../lib/priceListEditor';
 
 /**
  * المنتجات والأسعار في تطبيق الإدارة على الجوال.
@@ -74,10 +78,11 @@ function apiMessage(e: unknown, fallback: string): string {
 
 /**
  * وحدات صنفٍ تغيّرت ⇒ كل قائمة أصنافٍ في التطبيق تُجلب من جديد: الفاتورة والتحميل والوارد تبني وحدة البند وسعره
- * منها، وقائمةٌ قديمة تبيع بمعاملٍ لم يعد قائماً (فيرفضها الخادم بعد أن يكتب المستخدم كل شيء).
+ * منها، وقائمةٌ قديمة تبيع بمعاملٍ لم يعد قائماً (فيرفضها الخادم بعد أن يكتب المستخدم كل شيء). ومعها «قوائم الأسعار»: قواعد
+ * التسعير في الفاتورة (سعر الصنف الثابت يُقسم بالتحويل) وجدول القائمة وقواعدها بوحدات الصنف (D6) — بلا طلبٍ ما دامت مغلقة.
  */
 function invalidateProducts(qc: ReturnType<typeof useQueryClient>, productId?: string) {
-  ['m-products', 'm-inv-products', 'm-van-products', 'm-wh-products', 'products']
+  ['m-products', 'm-inv-products', 'm-van-products', 'm-wh-products', 'products', 'price-list-rules', 'price-list-items', 'price-list-rules-of']
     .forEach(k => qc.invalidateQueries({ queryKey: [k] }));
   if (productId) qc.invalidateQueries({ queryKey: ['m-product', productId] });
 }
@@ -443,7 +448,13 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
       const lot = productLotPayload(product ? (lotBase ?? null) : null, lotOn, lotValue);
       Object.assign(payload, lot);
       if (confirmLot && lot.lotTracked === false) payload.confirmLotBalances = true;
-      const res = product ? await productApi.update(product.id, payload) : await productApi.create(payload);
+      // «قوائم الأسعار» (D2): رقعة الرئيسية تغيّر حجمها والصنف تشمله قواعد بها ⇒ سؤالٌ بنصّ الخادم ثم الحفظ نفسه بالإقرار
+      const res = product
+        ? await withPriceRulesAck(
+          () => productApi.update(product.id, payload),
+          () => productApi.update(product.id, { ...payload, acknowledgePriceRules: true }),
+          priceRulesAckAsker(tr))
+        : await productApi.create(payload);
       return { lotChanged: 'lotTracked' in lot, dups: duplicateNameWarningsOf(res?.data) };
     },
     onSuccess: ({ lotChanged, dups }) => {
@@ -459,6 +470,8 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
       onClose();
     },
     onError: (e: unknown, confirmLot) => {
+      // رفض سؤال قواعد قوائم الأسعار: لم يُكتب شيء، والنموذج باقٍ بما فيه
+      if (isPriceRulesAckDeclined(e)) return;
       if (productUnitsChanged(e)) { setLotBalances(null); unitsChangedClose(); return; }
       const bal = product && !confirmLot ? trackingBalanceOf(e) : null;
       if (bal) { setLotBalances(bal.products); return; }
@@ -484,7 +497,10 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
   /** جعل وحدةٍ موجودة رئيسية (الخيار «أ») أو العودة إلى الافتراضي (null) — علمٌ فوري (D11)، والنموذج يُعاد فتحه بالنتيجة */
   const setPrimary = useMutation({
     mutationFn: async (unitId: string | null) => {
-      const res = await productApi.setPrimaryUnit(product!.id, { unitId, expectedPrimaryUnitId: livePrimaryId });
+      const res = await withPriceRulesAck(
+        () => productApi.setPrimaryUnit(product!.id, { unitId, expectedPrimaryUnitId: livePrimaryId }),
+        () => productApi.setPrimaryUnit(product!.id, { unitId, expectedPrimaryUnitId: livePrimaryId, acknowledgePriceRules: true }),
+        priceRulesAckAsker(tr));
       return expectObject<Product>((res.data as { data?: unknown })?.data, tr('الصنف'));
     },
     onSuccess: (fresh) => {
@@ -494,6 +510,7 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
       onReplace(fresh);
     },
     onError: (e: unknown) => {
+      if (isPriceRulesAckDeclined(e)) return;
       if (productUnitsChanged(e)) { setSwitching(false); unitsChangedClose(); return; }
       toast.error(apiMessage(e, tr('تعذر الحفظ')));
     },
@@ -1278,8 +1295,12 @@ function MProductUnits({ product, onClose, onConverted }: {
   const prim = primaryUnitOf(p);
   const primPrice = primaryPriceOf(p);
 
+  /* «قوائم الأسعار» (D2): إيقاف الرئيسية أو حذفها أو تبديلها لصنفٍ تشمله قواعد بالوحدة الرئيسية ⇒ 409 PRICE_RULES_UNIT_ACK —
+   * سؤالٌ بنصّ الخادم ثم الطلب نفسه بـacknowledgePriceRules، والرفض صامت (لا شيء كُتب) */
+  const askRules = priceRulesAckAsker(tr);
   /** وحدات الصنف تغيّرت منذ فُتحت الشاشة: يُقال ويُعاد جلب الصنف — لا كتابة على أساسٍ قديم */
   const onWriteError = (e: unknown) => {
+    if (isPriceRulesAckDeclined(e)) return;
     if (productUnitsChanged(e)) {
       toast.error(tr('تغيّرت وحدات الصنف — أعد فتحه'));
       invalidateProducts(qc, product.id);
@@ -1290,11 +1311,17 @@ function MProductUnits({ product, onClose, onConverted }: {
   const done = () => { setEditing(undefined); setRemoving(null); setStopping(null); };
 
   const toggle = useMutation({
-    mutationFn: async (u: ProductUnit) => productApi.updateUnit(product.id, u.id, {
-      isActive: u.isActive === false, expectedBaseName: p.unit,
-      // إيقاف الرئيسية بعد تأكيدها وحده (stopping) — وإلّا يردّه الخادم 409 PRIMARY_UNIT_IN_USE
-      ...(u.isActive !== false && u.id === p.primaryUnitId && { clearPrimary: true }),
-    }),
+    mutationFn: async (u: ProductUnit) => {
+      const body = {
+        isActive: u.isActive === false, expectedBaseName: p.unit,
+        // إيقاف الرئيسية بعد تأكيدها وحده (stopping) — وإلّا يردّه الخادم 409 PRIMARY_UNIT_IN_USE
+        ...(u.isActive !== false && u.id === p.primaryUnitId && { clearPrimary: true }),
+      };
+      return withPriceRulesAck(
+        () => productApi.updateUnit(product.id, u.id, body),
+        () => productApi.updateUnit(product.id, u.id, { ...body, acknowledgePriceRules: true }),
+        askRules);
+    },
     onSuccess: (_r, u) => {
       invalidateProducts(qc, product.id);
       toast.success(u.isActive === false ? tr('فعلت الوحدة') : tr('أوقفت الوحدة'));
@@ -1303,8 +1330,10 @@ function MProductUnits({ product, onClose, onConverted }: {
     onError: (e: unknown) => { onWriteError(e); setStopping(null); },
   });
   const remove = useMutation({
-    mutationFn: async (u: ProductUnit) =>
-      productApi.removeUnit(product.id, u.id, { ...(u.id === p.primaryUnitId && { clearPrimary: true }), expectedBaseName: p.unit }),
+    mutationFn: async (u: ProductUnit) => withPriceRulesAck(
+      () => productApi.removeUnit(product.id, u.id, { ...(u.id === p.primaryUnitId && { clearPrimary: true }), expectedBaseName: p.unit }),
+      () => productApi.removeUnit(product.id, u.id, { ...(u.id === p.primaryUnitId && { clearPrimary: true }), expectedBaseName: p.unit, acknowledgePriceRules: true }),
+      askRules),
     onSuccess: () => {
       invalidateProducts(qc, product.id);
       toast.success(tr('حذفت الوحدة'));
@@ -1313,8 +1342,10 @@ function MProductUnits({ product, onClose, onConverted }: {
     onError: (e: unknown) => { onWriteError(e); setRemoving(null); },
   });
   const makePrimary = useMutation({
-    mutationFn: async (u: ProductUnit) =>
-      productApi.setPrimaryUnit(product.id, { unitId: u.id, expectedPrimaryUnitId: p.primaryUnitId ?? null }),
+    mutationFn: async (u: ProductUnit) => withPriceRulesAck(
+      () => productApi.setPrimaryUnit(product.id, { unitId: u.id, expectedPrimaryUnitId: p.primaryUnitId ?? null }),
+      () => productApi.setPrimaryUnit(product.id, { unitId: u.id, expectedPrimaryUnitId: p.primaryUnitId ?? null, acknowledgePriceRules: true }),
+      askRules),
     onSuccess: () => {
       invalidateProducts(qc, product.id);
       toast.success(tr('تم الحفظ'));
@@ -1564,14 +1595,26 @@ function UnitSheet({ product, unit, onClose, onSaved, onUnitsChanged, onToggle, 
   // «اجعلها الرئيسية»: لوحدةٍ قائمة نشطة بمعاملٍ صالح ليست الرئيسية الآن (شروط primaryUnitOf)
   const canBePrimary = !!unit && unit.id !== product.primaryUnitId && primaryCandidates([unit]).length === 1;
 
+  // «قوائم الأسعار» (D2): معامل الرئيسية أو إضافةٌ رئيسية لصنفٍ تشمله قواعد بها ⇒ سؤالٌ ثم الطلب نفسه بالإقرار
+  const askRules = priceRulesAckAsker(tr);
   const save = useMutation({
     mutationFn: async () => {
       const body = unitDraftPayload(d);
-      if (unit) await productApi.updateUnit(product.id, unit.id, { ...body, expectedBaseName: product.unit });
-      else await productApi.addUnit(product.id, { ...body, expectedBaseName: product.unit, ...(asPrimary && { makePrimary: true }) });
+      if (unit) {
+        await withPriceRulesAck(
+          () => productApi.updateUnit(product.id, unit.id, { ...body, expectedBaseName: product.unit }),
+          () => productApi.updateUnit(product.id, unit.id, { ...body, expectedBaseName: product.unit, acknowledgePriceRules: true }),
+          askRules);
+      } else {
+        await withPriceRulesAck(
+          () => productApi.addUnit(product.id, { ...body, expectedBaseName: product.unit, ...(asPrimary && { makePrimary: true }) }),
+          () => productApi.addUnit(product.id, { ...body, expectedBaseName: product.unit, ...(asPrimary && { makePrimary: true }), acknowledgePriceRules: true }),
+          askRules);
+      }
     },
     onSuccess: () => onSaved(unit ? tr('حفظت الوحدة') : tr('أضيفت الوحدة')),
     onError: (e: unknown) => {
+      if (isPriceRulesAckDeclined(e)) return;
       if (productUnitsChanged(e)) { onUnitsChanged(); return; }
       toast.error(apiMessage(e, tr('تعذر الحفظ')));
     },
@@ -1727,14 +1770,20 @@ function SubUnitSheet({ product, onClose, onConverted }: {
   const runnable = !problem && canRunSubUnit({ previewKey: preview?.key ?? null, key, preview: preview?.r ?? null, ackErp, ackApi });
   const afterLine = shown ? defaultAfterLine(shown.primaryAfter, defaultChoice(product).name) : null;
 
+  // «قوائم الأسعار» (D2): بلا إبقاء الحالية رئيسية تتبدّل قواعد بالوحدة الرئيسية ⇒ المعاينة تقولها، والتنفيذ يُسأل ثم يُعاد بالإقرار
+  const rulesAffected = priceRulesAffectedOf(shown);
   const run = useMutation({
-    mutationFn: async () => productApi.convertBase(product.id, subUnitBody(d, cur, { acknowledgeErp: ackErp, acknowledgeApi: ackApi })),
+    mutationFn: async () => withPriceRulesAck(
+      () => productApi.convertBase(product.id, subUnitBody(d, cur, { acknowledgeErp: ackErp, acknowledgeApi: ackApi })),
+      () => productApi.convertBase(product.id, { ...subUnitBody(d, cur, { acknowledgeErp: ackErp, acknowledgeApi: ackApi }), acknowledgePriceRules: true }),
+      priceRulesAckAsker(tr)),
     onSuccess: () => {
       invalidateProducts(qc, product.id);
       toast.success(tr('أضيفت الوحدة الفرعية'));
       onConverted();
     },
     onError: (e: unknown) => {
+      if (isPriceRulesAckDeclined(e)) return;
       const msg = onServerError(e);
       if (msg) toast.error(msg);
     },
@@ -1773,6 +1822,11 @@ function SubUnitSheet({ product, onClose, onConverted }: {
             <p>{fill(tr('سيعاد وسم {n} بندا، والفواتير المطبوعة لا تتغير'), { n: formatNumber(dryRunItems(shown)) })}</p>
             <p>{fill(tr('سعر العميل الخاص يبقى لـ«{unit}» كما هو'), { unit: cur })}</p>
             {afterLine && <p className="font-semibold text-[#B7791F]">{fill(tr('الافتراض في البيع بعد الإضافة: {unit}'), { unit: afterLine })}</p>}
+            {rulesAffected > 0 && (
+              <p className="font-semibold text-[#B7791F]" data-price-rules-affected="">
+                {fill(tr(PRICE_RULES_AFFECTED_TEXT), { n: formatNumber(rulesAffected) })}
+              </p>
+            )}
             <p className="text-[11px] text-[#6E6557]">{tr('قد تستغرق حتى دقيقتين لصنف بتاريخ طويل، ومن يحفظ أثناءها يُطلب منه إعادة المحاولة')}</p>
           </div>
         )}

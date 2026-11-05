@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { AlertCircle, Check, ChevronLeft, ChevronRight, Loader2, Plus, Search } from 'lucide-react';
+import { AlertCircle, Check, ChevronLeft, ChevronRight, Loader2, Plus, Search, X } from 'lucide-react';
 import { priceListApi, productApi } from '../../api/client';
 import type { PriceListItemRow } from '../../types';
 import { useTr } from '../../i18n/strings';
 import { activeLocale, formatNumber } from '../../utils/format';
 import {
-  PRICE_LIST_ITEMS_PAGE, fillText, itemCommitOf, itemShownPrice, itemsPageOf, patchItemsPage, savedItemsOf, type ItemsPage, type ItemsScope,
+  PRICE_LIST_ITEMS_PAGE, failedItemRowsOf, fillText, isUnitsChangedCode, itemCommitOf, itemShownPrice, itemsPageClampOf, itemsPageOf,
+  itemsPagerShown, pricedChangedOf, savedItemsOf, syncItemsCacheAfterSave, type ItemsPage, type ItemsScope,
 } from '../../lib/priceListEditor';
 import { PRICE_RULE_MESSAGES } from '../../lib/priceRules';
 
@@ -17,9 +18,14 @@ import { PRICE_RULE_MESSAGES } from '../../lib/priceRules';
  * يفتح الثانية ويركّز البحث).
  *
  * الحفظ تلقائيّ لكل سطر عند Enter أو الخروج من خانته (PUT /price-lists/:id/items بسطرٍ واحد ومعه أساس الصنف ورئيسيّته كما
- * عُرضا — 409 إن تغيّرا) والفارغ يحذف. وخطأ الخادم تحت سطره. فالنافذة تبقى «كل عمليةٍ تحفظ بنفسها»: وما بقي مكتوباً حين يُفكّ
- * التبويب (رجوع، تبديل التبويب، إغلاق النافذة) يُرسل بعد الفكّ سطراً سطراً وتقول نتيجتَه رسالةٌ عامّة.
+ * عُرضا — 409 إن تغيّرا) والفارغ يحذف. وخطأ الخادم تحت سطره وفي قائمة أخطاءٍ ثابتة أعلى التبويب باسم الصنف (تبقى ولو غاب السطر
+ * عن الصفحة أو البحث). فالنافذة تبقى «كل عمليةٍ تحفظ بنفسها»: وما بقي مكتوباً حين يُفكّ التبويب (رجوع، تبديل التبويب، إغلاق
+ * النافذة) يُرسل بعد الفكّ سطراً سطراً وتقول نتيجتَه رسالةٌ باسم الصنف.
  * سطرٌ يُحفظ والمستخدم يكتب فيه ثانيةً: الجديد يُرسل بعد انتهاء الأول (لا طلبان متسابقان للصنف نفسه).
+ * وحفظٌ يُدخل صنفاً «المسعّرة في القائمة» أو يخرجه منها يعيد الصفحات المعروضة من الخادم (pricedChangedOf)، وجلبٌ جارٍ لحظة ردّ
+ * الحفظ يُلغى ويُعاد فلا يكتب فوق السعر المحفوظ ما قرأه قبله (syncItemsCacheAfterSave). وصفحةٌ صارت بعد آخر صفحة تُنقل إليها.
+ * و٤٠٩ «تغيّرت وحدات الصنف»: المكتوب كُتب بالوحدات القديمة فيُسقط، ويُعاد السطر من الخادم برسالته — لا يُرسل الرقم القديم بالوحدات
+ * الجديدة أبداً، لا بالخروج من الخانة ولا عند الإغلاق (قرار D6).
  */
 type Err = { response?: { data?: { message?: string; code?: string } } };
 const serverMsg = (e: unknown): string | undefined => (e as Err)?.response?.data?.message;
@@ -64,6 +70,14 @@ export default function PriceListItemsTab({ listId, itemsCount }: { listId: stri
   const rows = itemsQ.data?.rows ?? [];
   const pages = itemsQ.data?.pagination.pages ?? 1;
   const total = itemsQ.data?.pagination.total ?? 0;
+  // صفحةٌ لم تعد موجودة (حُذف آخر صنفٍ في الصفحة الأخيرة من «المسعّرة»): الخادم يردّها فارغةً بصفحاتٍ أقلّ فتُنقل إلى آخر صفحة —
+  // ببياناتها الحقيقية المستقرّة وحدها (لا البديلة أثناء تبديل الصفحة، ولا المخبّأة وجلبُها الجديد جارٍ)
+  useEffect(() => {
+    const d = itemsQ.data;
+    if (!d || itemsQ.isPlaceholderData || itemsQ.isFetching) return;
+    const to = itemsPageClampOf(page, d.pagination.pages);
+    if (to !== page) setPage(to);
+  }, [itemsQ.data, itemsQ.isPlaceholderData, itemsQ.isFetching, page]);
 
   // ─── الحفظ التلقائي: المسودّات (ما كُتب ولم يُحفظ) والحالة لكل صنف — والمراجع تبقى بعد الفكّ لإرسال ما بقي ───
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -90,14 +104,19 @@ export default function PriceListItemsTab({ listId, itemsCount }: { listId: stri
     if (!mounted.current) return;
     setStatus(m => { const n = { ...m }; if (s) n[pid] = s; else delete n[pid]; return n; });
   };
-  /** بعد كل كتابة: عدّادات القوائم، وأسعار الأصناف في فاتورة الإدارة ونافذة الصنف، وبقية صفحات الجدول عند فتحها */
+  /**
+   * بعد كل كتابة: عدّادات القوائم، وأسعار الأصناف في فاتورة الإدارة ونافذة الصنف، وبقية صفحات الجدول عند فتحها. وصنفٌ دخل
+   * «المسعّرة» أو خرج منها ⇒ الصفحات المعروضة الآن تُعاد من الخادم — فصفحة «المسعّرة» المخبّأة لا تبقى بلا الصنف المضاف من
+   * «كل الأصناف» والمستخدم ينتقل إليها مباشرةً. وجلبٌ لصفحات القائمة جارٍ لحظة الردّ قد قرأ قبل التزام الحفظ: يُلغى ويُعاد،
+   * فلا يهبط بالسعر القديم فوق المحفوظ (syncItemsCacheAfterSave)
+   */
   const afterWrite = (saved: Array<{ productId: string; listPrice: number | null }>) => {
+    const pricedChanged = pricedChangedOf(saved, pid => rowsRef.current.get(pid)?.listPrice);
     for (const s of saved) {
       const r = rowsRef.current.get(s.productId);
       if (r) rowsRef.current.set(s.productId, { ...r, listPrice: s.listPrice });
     }
-    qc.setQueriesData<ItemsPage>({ queryKey: ['price-list-items', listId] }, old => (old ? patchItemsPage(old, saved) : old));
-    qc.invalidateQueries({ queryKey: ['price-list-items', listId], refetchType: 'none' });
+    syncItemsCacheAfterSave(qc, listId, saved, pricedChanged);
     qc.invalidateQueries({ queryKey: ['price-lists'] });
     qc.invalidateQueries({ queryKey: ['price-list-rules'] });
     qc.invalidateQueries({ queryKey: ['products-all'] });
@@ -126,17 +145,20 @@ export default function PriceListItemsTab({ listId, itemsCount }: { listId: stri
         afterWrite(savedItemsOf(res.data?.data, [write]));
         if (draftsRef.current[pid] === raw) setDraft(pid, undefined);
         setRowStatus(pid, { state: 'saved' });
-        if (!mounted.current) toast.success(trRef.current('تم الحفظ'));
+        if (!mounted.current) toast.success(`${row.name}: ${trRef.current('تم الحفظ')}`);
       })
       .catch((e) => {
         const msg = serverMsg(e) ? trRef.current(serverMsg(e) as string) : trRef.current('تعذر الحفظ');
         setRowStatus(pid, { state: 'error', message: msg });
-        // وحدات الصنف تغيّرت بعد التحميل: يُعاد الجدول بأساسه ورئيسيّته الحاليين — والمكتوب يبقى ليُراجَع ويُحفظ ثانيةً
-        const code = serverCode(e);
-        if (code === 'BASE_UNIT_CHANGED' || code === 'PRIMARY_UNIT_CHANGED' || code === 'PRODUCT_UNITS_CHANGED') {
+        // وحدات الصنف تغيّرت بعد التحميل: ما كُتب كان بالوحدة القديمة فيُسقط (ومعه ما كُتب أثناء الحفظ) — لا يُعاد إرساله بأساسٍ
+        // ورئيسيةٍ جديدين عند الخروج من الخانة أو الإغلاق — ويُعاد الجدول بوحداته الحالية وتبقى رسالة الخادم تحت السطر
+        if (isUnitsChangedCode(serverCode(e))) {
+          queued.current.delete(pid);
+          setDraft(pid, undefined);
           qc.invalidateQueries({ queryKey: ['price-list-items', listId] });
         }
-        if (!mounted.current) toast.error(msg);
+        // بعد الفكّ لا جدول: الرسالة باسم الصنف لا نصّ الخادم وحده
+        if (!mounted.current) toast.error(`${row.name}: ${msg}`);
       })
       .finally(() => {
         inflight.current.delete(pid);
@@ -154,19 +176,20 @@ export default function PriceListItemsTab({ listId, itemsCount }: { listId: stri
   };
   /**
    * الفكّ (رجوع، تبديل التبويب، إغلاق النافذة) وفي الخانات ما لم يُحفظ: كل سطرٍ بطلبه كالحفظ العادي (معاملةٌ لكلٍّ — سطرٌ تغيّرت
-   * وحداته لا يُسقط غيره)، ونتيجته رسالةٌ عامّة بعد غياب الجدول. وما يُحفظ الآن يُرسل جديده بعده، والتالف يُقال لا يُسكت عنه
+   * وحداته لا يُسقط غيره)، ونتيجته رسالةٌ باسم الصنف بعد غياب الجدول. وما يُحفظ الآن يُرسل جديده بعده، والتالف يُقال بأسماء
+   * أصنافه لا يُسكت عنه
    */
   const flushOnUnmount = () => {
-    let invalid = false;
+    const invalid: string[] = [];
     for (const [pid, raw] of Object.entries(draftsRef.current)) {
       const row = rowsRef.current.get(pid);
       if (!row) continue;
       if (inflight.current.has(pid)) { queued.current.add(pid); continue; }
       const c = itemCommitOf(row, raw);
-      if (c.kind === 'invalid') invalid = true;
+      if (c.kind === 'invalid') invalid.push(row.name);
       if (c.kind === 'write') send(pid, raw);
     }
-    if (invalid) toast.error(trRef.current(PRICE_RULE_MESSAGES.price));
+    if (invalid.length) toast.error(`${invalid.join('، ')}: ${trRef.current(PRICE_RULE_MESSAGES.price)}`);
   };
   useEffect(() => {
     mounted.current = true;
@@ -199,12 +222,42 @@ export default function PriceListItemsTab({ listId, itemsCount }: { listId: stri
     setPage(1);
     searchRef.current?.focus();
   };
+  // قائمة الأخطاء الثابتة: كل سطرٍ لم يُحفظ باسم صنفه — «إظهار» يبحث عنه في «كل الأصناف»، و«تجاهل» يُسقط ما كُتب فيه (كـEscape)
+  const failed = failedItemRowsOf(status, pid => rowsRef.current.get(pid));
+  const showRow = (pid: string) => {
+    const r = rowsRef.current.get(pid);
+    setScope('all');
+    setCategoryId('');
+    setSearch(r?.code || r?.name || '');
+    setPage(1);
+  };
+  const dismissRow = (pid: string) => {
+    setDraft(pid, undefined);
+    setRowStatus(pid, undefined);
+  };
   const pricedTotal = itemsCount ?? itemsQ.data?.pricedCount;
   const filtered = !!debounced || !!categoryId;
   const toggle = (on: boolean) => `px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${on ? 'bg-white text-[#C94E28] shadow-sm' : 'text-[#6E6557] hover:text-[#1F1A13]'}`;
 
   return (
     <div className="space-y-3" data-price-list-items="">
+      {failed.length > 0 && (
+        <div className="sticky top-0 z-10 rounded-xl border border-red-200 bg-red-50 p-2.5 space-y-1.5 shadow-sm" aria-live="polite" data-list-item-errors="">
+          <p className="text-xs font-semibold text-red-700 flex items-center gap-1.5"><AlertCircle size={14} className="shrink-0" /> {tr('لم يحفظ سعر هذه الأصناف')}</p>
+          <ul className="space-y-1">
+            {failed.map(f => (
+              <li key={f.productId} className="flex items-start gap-2 text-[11px] text-red-700">
+                <span className="min-w-0 flex-1 leading-snug break-words"><b>{f.name}</b>: {f.message}</span>
+                <button type="button" className="shrink-0 font-semibold underline underline-offset-2 hover:text-red-900" onClick={() => showRow(f.productId)}>
+                  {tr('إظهار')}
+                </button>
+                <button type="button" className="shrink-0 p-0.5 rounded hover:bg-red-100" aria-label={`${tr('تجاهل')} ${f.name}`} title={tr('تجاهل')}
+                  onClick={() => dismissRow(f.productId)}><X size={13} /></button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[180px]">
           <Search size={15} className="absolute top-1/2 -translate-y-1/2 text-[#9A8F7E] pointer-events-none" style={{ insetInlineStart: 10 }} />
@@ -306,7 +359,7 @@ export default function PriceListItemsTab({ listId, itemsCount }: { listId: stri
         )}
       </div>
 
-      {pages > 1 && (
+      {itemsPagerShown(page, pages) && (
         <div className="flex items-center justify-between gap-2 text-xs text-[#6E6557]">
           <span>{fillText(tr('{n} صنف'), { n: formatNumber(total) })}</span>
           <div className="flex items-center gap-1">

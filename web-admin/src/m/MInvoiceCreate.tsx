@@ -13,12 +13,11 @@ import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type Installmen
 import { unitChoices, defaultChoice, primaryChoice, invoiceItemUnit, type CustPriceInput, type UnitChoice } from '../rep/repUnits';
 import { refetchUnitsOn } from './mPrimaryUnit';
 import {
-  lineKey, addInvoiceLine, setInvoiceLineUnit, stepInvoiceLine, removeInvoiceLine, refreshInvoiceLines, repriceInvoiceLines, addedLinePrice, qtyText,
+  lineKey, addInvoiceLine, setInvoiceLineUnit, stepInvoiceLine, removeInvoiceLine, refreshInvoiceLines, repriceInvoiceLines, pickerPrices, qtyText,
   type LinePricer, type SalePick,
 } from './mUnits';
 import { baseLabelOf, priceListsOf, defaultPriceTypeOf } from '../lib/priceLists';
-import { adminListHintOf, docLinePricerOf, type DocPriceRule } from '../lib/invoiceModalRepPrice';
-import { pricingDayOf } from '../lib/priceListPricing';
+import { adminListHintOf, docLinePricerOf, docPricingDayOf, docQtyKey, type DocPriceRule } from '../lib/invoiceModalRepPrice';
 import {
   lotErrorOf, lotFlagsOf, lotWarningsOf, LOT_WARNING_LABELS, type LotWarning, type VanLotSnapshotDto,
 } from '../lib/lots';
@@ -174,8 +173,9 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
     queryFn: async () => expectArray<DocPriceRule>((await priceListApi.rules()).data?.data, tr('قوائم الأسعار')),
     enabled: listsOn,
   });
-  // يوم الفاتورة الذي تُقرأ به فترات القواعد: التاريخ المختار وإلا اليوم على الجهاز
-  const pricingDay = pricingDayOf(invoiceDate);
+  // يوم الفاتورة الذي تُقرأ به فترات القواعد (مراجعة D1): التاريخ المختار (يُرسل للخادم)، وإلا يوم الشركة الآن بمنطقتها (timezone من
+  // GET /price-lists) — وبلاها اليوم المحلي للجهاز
+  const pricingDay = docPricingDayOf(invoiceDate, { timezone: priceInfoQ.data?.timezone });
   /** مسعِّر البند (المسعِّر نفسه في فاتورة اللوحة): سعر العميل الخاص ⇐ القائمة بسعرها الثابت وقواعدها بكمية الصنف في الفاتورة
    * كلّها ويوم الفاتورة ⇐ سلّم اليوم — ⚠️ صافياً قبل الضريبة */
   const priceOf: LinePricer = useMemo(
@@ -218,6 +218,15 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
   });
   const snap = hasLotLine ? snapQ.data ?? null : null;
   const shortages = useMemo(() => vanLotShortages(lines, snap), [lines, snap]);
+
+  /* تلميح سعر كل صنفٍ في قائمة البحث كما سيُضاف (بكمية صنفه بعد الإضافة) — محفوظٌ ما لم تتغيّر نتيجة البحث أو المسعِّر، أو كميات
+   * البنود حين تغيّر الكمية السعر (قاعدةٌ بحدٍّ أدنى للكمية) — لا مع كل رسم (مراجعة D5) */
+  const pickQtyKey = priceOf.dependsOnQty === false ? '' : docQtyKey(lines);
+  const pickPrices = useMemo(
+    () => pickerPrices(lines, productsQ.data, priceOf),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- البنود تدخل بمفتاح كمياتها وحده
+    [productsQ.data, priceOf, pickQtyKey],
+  );
 
   const totals = useMemo(() => invoiceTotals(lines, discountPct), [lines, discountPct]);
   // معاينة جدول الأقساط — والخادم يكتب الحقيقي من إجماليّه
@@ -519,10 +528,11 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
                         <span className="min-w-0 flex-1">
                           <span className="block text-sm font-semibold text-[#1F1A13] truncate">{p.name}</span>
                           <span className="block text-[11px] text-[#9A8F7E]">
-                            {/* السعر بوحدته: سعر الكرتون بلا «/ كرتون» يُقرأ سعر حبّة — وبسعر العميل أو قائمة الفاتورة كما سيُضاف (بكمية الصنف بعده) */}
+                            {/* السعر بوحدته: سعر الكرتون بلا «/ كرتون» يُقرأ سعر حبّة — وبسعر العميل أو قائمة الفاتورة كما سيُضاف (بكمية الصنف بعده،
+                                pickPrices بوحدة pickerChoice = d لصنفٍ بوحدات والأساس لغيره) */}
                             {multi
-                              ? `${formatCurrency(addedLinePrice(lines, p, d, priceOf))} / ${d.name}`
-                              : formatCurrency(addedLinePrice(lines, p, opts[0], priceOf))} · {tr('ضريبة')} {Number(p.taxPct ?? 15)}%
+                              ? `${formatCurrency(pickPrices.get(p.id) ?? 0)} / ${d.name}`
+                              : formatCurrency(pickPrices.get(p.id) ?? 0)} · {tr('ضريبة')} {Number(p.taxPct ?? 15)}%
                             {lotOn && lotTrackedOf(p) && <> · {tr('LOT')}</>}
                           </span>
                         </span>

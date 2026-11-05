@@ -7,6 +7,7 @@ import { API_BASE_URL, API_DENIED, API_SYNC_RESOURCES } from './apiDocsData';
 import {
   PRICE_RULE_KINDS, PRICE_RULE_LIMITS, PRICE_RULE_MESSAGES, PRICE_RULE_SCOPES, listLineRef, listPriceOf, priceRuleProblem, qtyPrimaryOf, roundPriceRule,
 } from './priceRules';
+import { pricingDayOf } from './priceListPricing';
 
 /**
  * مستند API يُسلَّم لمبرمج الشركة: كل مسارٍ يذكره يجب أن يكون مركَّباً في الخادم بطريقته — مسارٌ يُحذف أو
@@ -292,8 +293,8 @@ test('كل رمز خطأ في الدليلين وجدول الأخطاء يرس�
   for (const must of ['LOCATIONS_NOT_ALLOWED', 'PAYMENT_METHODS_NOT_ALLOWED', 'PAYMENT_METHOD_UNKNOWN', 'LOCATION_ARCHIVED', 'PAYMENT_METHODS_CONFLICT',
     'LOTS_NOT_ALLOWED', 'LOTS_DISABLED', 'LOT_STOCK_INSUFFICIENT', 'LOT_REQUIRED', 'LOT_BUSY', 'LOT_SCOPED_USER', 'LOT_CHANGED',
     'PRICE_LIST_INVALID', 'PRICE_LIST_FORBIDDEN', 'PRICE_LIST_IN_USE', 'PRICE_LIST_NAME_TAKEN', 'PRICE_TYPE_DEFAULT_NOT_ALLOWED', 'DELETE_NOT_ALLOWED', 'RETURN_LINK_REQUIRED',
-    // قواعد «قوائم الأسعار» (٥ نوفمبر ٢٠٢٦)
-    'PRICE_RULE_INVALID', 'PRICE_RULE_LIMIT', 'PRICE_RULE_NOT_FOUND', 'CATEGORY_NOT_FOUND']) {
+    // قواعد «قوائم الأسعار» (٥ نوفمبر ٢٠٢٦)، وإقرار تغيير الوحدة الرئيسية (CONTRACT2 D2)
+    'PRICE_RULE_INVALID', 'PRICE_RULE_LIMIT', 'PRICE_RULE_NOT_FOUND', 'CATEGORY_NOT_FOUND', 'PRICE_RULES_UNIT_ACK']) {
     assert.ok(codes.has(must), `الدليل لا يذكر ${must}`);
   }
   const unknown = [...codes].filter((c) => !BACKEND_SRC.includes(`'${c}'`));
@@ -466,12 +467,23 @@ function zodKeys(src: string, name: string): string[] {
   return [...body.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1]);
 }
 
+/**
+ * إقرار «قوائم الأسعار» (CONTRACT2 D2): acknowledgePriceRules يُقرأ «من الجسم أو الاستعلام» — قد يدخل مخطّط zod للمسار أو يُقرأ
+ * من req.body خاماً. فالمطابقة بالمخطّط تستثنيه من الطرفين، ووجوده في المستند وفي الخادم يُفحص في اختباره (PRICE_RULES_UNIT_ACK)
+ */
+const ACK_KEY = 'acknowledgePriceRules';
+const noAck = (keys: string[]) => keys.filter((k) => k !== ACK_KEY).sort();
+
 test('دقّة المستند: مسارات وحدات الصنف والتحويل بحقول مخطّطاتها في الخادم حرفياً', () => {
   const products = routeFile('products');
   const bodyOf = (method: string, p: string) => endpointOf(method, p).body.map((f) => f.name).sort();
-  assert.deepEqual(bodyOf('POST', '/products/:id/units'), zodKeys(products, 'unitCreateSchema').sort());
-  assert.deepEqual(bodyOf('PUT', '/products/:id/units/:unitId'), zodKeys(products, 'unitUpdateSchema').sort());
-  assert.deepEqual(bodyOf('POST', '/products/:id/convert-base'), zodKeys(products, 'convertBaseSchema').sort());
+  assert.deepEqual(noAck(bodyOf('POST', '/products/:id/units')), noAck(zodKeys(products, 'unitCreateSchema')));
+  assert.deepEqual(noAck(bodyOf('PUT', '/products/:id/units/:unitId')), noAck(zodKeys(products, 'unitUpdateSchema')));
+  assert.deepEqual(noAck(bodyOf('POST', '/products/:id/convert-base')), noAck(zodKeys(products, 'convertBaseSchema')));
+  // والإقرار في الأجسام الثلاثة موثّقٌ دائماً (والخادم يرسل 409 PRICE_RULES_UNIT_ACK بدونه)
+  for (const [m, p] of [['POST', '/products/:id/units'], ['PUT', '/products/:id/units/:unitId'], ['POST', '/products/:id/convert-base']] as const) {
+    assert.ok(bodyOf(m, p).includes(ACK_KEY), `${m} ${p}: ${ACK_KEY}`);
+  }
   // ورموز الرفض التي يذكرها المستند يرسلها الخادم
   for (const code of ['PRODUCT_UNITS_INVALID', 'BASE_UNIT_CHANGED', 'UNIT_NOT_FOUND', 'PRODUCT_NOT_FOUND']) {
     assert.ok(products.includes(`'${code}'`), `${code} لا يرسله موجّه الأصناف`);
@@ -1070,8 +1082,8 @@ test('الوحدة الرئيسية: أجسام POST /products وPUT /products/:
   assert.ok(/req\.body\?\.primaryUnitName != null/.test(products), 'التفرّع على primaryUnitName وحده');
   // التعديل المحروس
   const guard = schemaKeys(products, 'productEditGuardSchema');
-  assert.deepEqual([...guard].sort(), ['expectedBaseName', 'primaryUnit']);
-  for (const k of guard) assert.ok(names('PUT', '/products/:id').includes(k), `PUT /products/:id: ${k}`);
+  assert.deepEqual(noAck(guard), ['expectedBaseName', 'primaryUnit']);
+  for (const k of [...guard, ACK_KEY]) assert.ok(names('PUT', '/products/:id').includes(k), `PUT /products/:id: ${k}`);
   assert.deepEqual(names('PUT', '/products/:id').filter((n) => n.startsWith('primaryUnit.')).map((n) => n.slice(12)).sort(), schemaKeys(products, 'productEditGuardSchema', 'primaryUnit').sort());
   assert.ok(endpointOf('PUT', '/products/:id').rules.some((r) => /primaryUnitId في الجسم يُتجاهل/.test(r)));
   // الشرائح: حارسها بجانب tiers (اسم مخطّطه للموجّه، فيُقرأ الحقل المتداخل أينما عُرِّف: expectedPrimary: z.object({…}))
@@ -1085,7 +1097,8 @@ test('الوحدة الرئيسية: أجسام POST /products وPUT /products/:
   const epBody = products.slice(ep, products.indexOf('})', ep));
   assert.deepEqual(tierBody.filter((n) => n.startsWith('expectedPrimary.')).map((n) => n.slice(16)).sort(), [...epBody.matchAll(/[{,\s](\w+):/g)].map((m) => m[1]).sort());
   // المسار الجديد مدخلٌ كامل: جسمه = primaryUnitSchema، ومركَّبٌ في الموجّه (ويفحصه اختبار التركيب أيضاً)
-  assert.deepEqual(names('PUT', '/products/:id/primary-unit').sort(), schemaKeys(products, 'primaryUnitSchema').sort());
+  assert.deepEqual(noAck(names('PUT', '/products/:id/primary-unit')), noAck(schemaKeys(products, 'primaryUnitSchema')));
+  assert.ok(names('PUT', '/products/:id/primary-unit').includes(ACK_KEY), `primary-unit: ${ACK_KEY}`);
   assert.ok(products.includes("router.put('/:id/primary-unit'"), 'PUT /:id/primary-unit غير مركّب');
   const prim = endpointOf('PUT', '/products/:id/primary-unit');
   for (const c of ['PRIMARY_UNIT_INVALID', 'PRIMARY_UNIT_CHANGED', 'PRODUCT_NOT_FOUND']) assert.match(prim.response + JSON.stringify(prim.body), new RegExp(`\\b${c}\\b`), c);
@@ -1104,14 +1117,15 @@ test('الوحدة الرئيسية: makePrimary وclearPrimary و?clearPrimary=
   const ud = endpointOf('DELETE', '/products/:id/units/:unitId');
   for (const k of ['makePrimary', 'expectedBaseName']) fieldOf(uc, k);
   for (const k of ['clearPrimary', 'expectedBaseName']) fieldOf(uu, k);
-  assert.deepEqual(ud.query.map((q) => q.name), ['clearPrimary', 'expectedBaseName']);
+  // ?acknowledgePriceRules=1 (إقرار PRICE_RULES_UNIT_ACK لحذف الرئيسية) في الاستعلام كـclearPrimary — الحذف بلا جسم
+  assert.deepEqual(ud.query.map((q) => q.name), ['clearPrimary', 'expectedBaseName', ACK_KEY]);
   for (const e of [uu, ud]) assert.match(e.response, /PRIMARY_UNIT_IN_USE/);
   // الرموز الجديدة: في الفهرس، وفي جدول الأخطاء، ويرسلها الخادم حرفياً
   const docs = read(path.join(process.cwd(), 'src', 'components', 'ApiDocs.tsx'));
   const table = docs.slice(docs.indexOf("['400',"), docs.indexOf('].map(([c, d])', docs.indexOf("['400',")));
   const all = JSON.stringify(API_DOC_GROUPS);
   for (const c of ['PRIMARY_UNIT_INVALID', 'PRIMARY_UNIT_CHANGED', 'PRIMARY_UNIT_IN_USE', 'BASE_UNIT_CHANGED', 'BASE_UNIT_REQUIRED', 'BASE_NAME_RETIRED',
-    'PRODUCT_UNITS_CHANGED', 'PRODUCT_UNITS_BUSY', 'CONVERT_BASE_ERP_ACK', 'CONVERT_BASE_API_ACK', ...CONVERT_BASE_REFUSALS]) {
+    'PRODUCT_UNITS_CHANGED', 'PRODUCT_UNITS_BUSY', 'CONVERT_BASE_ERP_ACK', 'CONVERT_BASE_API_ACK', 'PRICE_RULES_UNIT_ACK', ...CONVERT_BASE_REFUSALS]) {
     assert.match(all, new RegExp(`\\b${c}\\b`), `${c} غائب عن الفهرس`);
     assert.match(table, new RegExp(`\\b${c}\\b`), `${c} غائب عن جدول الأخطاء`);
     assert.ok(BACKEND_SRC.includes(`'${c}'`), `${c} لا يرسله الخادم`);
@@ -1120,7 +1134,7 @@ test('الوحدة الرئيسية: makePrimary وclearPrimary و?clearPrimary=
   const row = (c: string) => new RegExp(`\\['${c}', '[^']*`).exec(table)![0];
   for (const c of ['BASE_UNIT_REQUIRED', 'PRIMARY_UNIT_INVALID']) assert.match(row('400'), new RegExp(c));
   for (const c of CONVERT_BASE_REFUSALS) assert.match(row('403'), new RegExp(c));
-  for (const c of ['PRIMARY_UNIT_CHANGED', 'PRIMARY_UNIT_IN_USE', 'BASE_UNIT_CHANGED', 'BASE_NAME_RETIRED', 'CONVERT_BASE_ERP_ACK', 'CONVERT_BASE_API_ACK', 'PRODUCT_UNITS_CHANGED']) {
+  for (const c of ['PRIMARY_UNIT_CHANGED', 'PRIMARY_UNIT_IN_USE', 'BASE_UNIT_CHANGED', 'BASE_NAME_RETIRED', 'CONVERT_BASE_ERP_ACK', 'CONVERT_BASE_API_ACK', 'PRODUCT_UNITS_CHANGED', 'PRICE_RULES_UNIT_ACK']) {
     assert.match(row('409'), new RegExp(c));
   }
   assert.match(row('503'), /PRODUCT_UNITS_BUSY/);
@@ -1229,7 +1243,7 @@ test('convert-base-5: المستند يذكر رفض 400 لمعاملٍ تاري
   assert.match(rules, /المعاينة \(dryRun\) والتنفيذ معاً/);
 });
 
-test('parity-schema-api-3: primaryUnitId (D18، للعرض وحده) في ردود المسارات التي يرسله الخادم فيها', () => {
+test('parity-schema-api-3: primaryUnitId (D18) في ردود المسارات التي يرسله الخادم فيها', () => {
   const has = (m: string, p: string, re: RegExp) => assert.match(endpointOf(m, p).response, re, `${m} ${p}`);
   has('GET', '/invoices/:id/returnable', /product:\{unit, units:\[[^\]]*\], primaryUnitId/);
   has('GET', '/invoices/:id', /product\{id,name,code,unit,primaryUnitId/);
@@ -1278,7 +1292,7 @@ test('الوحدة الرئيسية: حذف الوحدة يقرأ expectedBaseNa
   const del = products.slice(products.indexOf("router.delete('/:id/units/:unitId'"), products.indexOf("router.put('/:id/primary-unit'"));
   assert.match(del, /req\.query\.expectedBaseName/);
   const ud = endpointOf('DELETE', '/products/:id/units/:unitId');
-  assert.deepEqual(ud.query.map((q) => q.name).sort(), ['clearPrimary', 'expectedBaseName']);
+  assert.deepEqual(noAck(ud.query.map((q) => q.name)), ['clearPrimary', 'expectedBaseName']);
   assert.match(fieldOf(ud, 'expectedBaseName').desc, /BASE_UNIT_REQUIRED/);
   assert.match(fieldOf(ud, 'expectedBaseName').desc, /baseConvertedAt/);
   for (const c of ['BASE_UNIT_CHANGED', 'BASE_UNIT_REQUIRED']) assert.match(ud.response, new RegExp(c));
@@ -1553,17 +1567,27 @@ test('«قوائم الأسعار»: المعنى للمُكامِل — الك�
   const overview = API_DOC_GROUPS.find((g) => g.key === 'price-lists')!.overview;
   for (const s of [
     'الأخصّ (صنف ثم فئة ثم كل الأصناف)، ثم الأعلى minQty، ثم المؤقتة (لها فترة) قبل المفتوحة، ثم القاعدة قبل السعر الثابت',
-    'مجموع كل بنود الصنف نفسه في الفاتورة بكل وحداتها', '÷ معامل وحدته الرئيسية', 'شاملة الطرفين', 'لا بـinvoiceDate',
-    'بلحظة إصدارها على الجهاز', 'ولا أقدم من 7 أيام', 'سعر العميل الخاص × factor (يغلب القائمة دائماً)', 'تُسعّر كما كانت حرفياً',
+    'مجموع كل بنود الصنف نفسه في الفاتورة بكل وحداتها', '÷ معامل وحدته الرئيسية', 'شاملة الطرفين',
+    // D1/D7: «لا بـinvoiceDate» صار للحارس وحده — والشاشتان بالتاريخ المختار، ولحظة الجهاز للتسعير حتى 30 يوماً (لا سبعة)
+    'حارس سعر المندوب في الخادم يقيس بيوم الشركة لحظة الإصدار لا بـinvoiceDate', 'بتاريخ الفاتورة المختار invoiceDate إن اختير',
+    'بلحظة إصدارها على الجهاز', 'ولا أقدم من 30 يوماً', 'pricingDay', 'سعر العميل الخاص × factor (يغلب القائمة دائماً)', 'تُسعّر كما كانت حرفياً',
     'لا تضع خصم بند discountPct', 'بنود المرتجع المرتبط بفاتورة بيع لا تُحسب',
   ]) assert.ok(overview.includes(s), `المقدمة لا تقول: ${s}`);
-  // السبعة الأيام هي حدّ لحظة الجهاز في الخادم (offlineInvoiceDate ⇐ devicePriceInstant)
+  assert.ok(!overview.includes('ولا أقدم من 7 أيام'), 'حدّ السبعة الأيام القديم للتسعير باقٍ');
+  // سبعة أيام لتأريخ الفاتورة (offlineInvoiceDate) كما هي، وثلاثون للتسعير وحده (PRICE_REPLAY_MAX_AGE_MS، CONTRACT2 D1)
   assert.match(read(path.join(BACKEND, 'compliance', 'zatca', 'goLive.ts')), /CUTOVER_BACKDATE_LIMIT_MS = 7 \* 24 \* 60 \* 60 \* 1000;/);
-  assert.match(read(path.join(BACKEND, 'services', 'offlineInvoiceDate.ts')), /OFFLINE_INVOICE_DATE_MAX_AGE_MS = CUTOVER_BACKDATE_LIMIT_MS;/);
+  const offline = read(path.join(BACKEND, 'services', 'offlineInvoiceDate.ts'));
+  assert.match(offline, /OFFLINE_INVOICE_DATE_MAX_AGE_MS = CUTOVER_BACKDATE_LIMIT_MS;/);
+  const replayAge = /export const PRICE_REPLAY_MAX_AGE_MS = ([\d_ *]+);/.exec(offline);
+  assert.ok(replayAge, 'PRICE_REPLAY_MAX_AGE_MS غائب عن offlineInvoiceDate.ts');
+  const replayMs = replayAge![1].replace(/_/g, '').split('*').reduce((a, x) => a * Number(x.trim()), 1);
+  assert.equal(replayMs, 30 * 24 * 60 * 60 * 1000, 'حدّ لحظة الجهاز للتسعير ليس 30 يوماً في الخادم: راجع المستند');
   // ومرجع حارس المندوب في POST /invoices يذكر القاعدة وكميتها ويومها
   const ref = endpointOf('POST', '/invoices').rules.find((r) => r.startsWith('مرجع سعر البند لوحدته'))!;
   assert.match(ref, /قاعدتها الغالبة بمجموع كمية الصنف في المستند بالوحدة الرئيسية/);
-  assert.match(ref, /ويوم الشركة لحظة الإصدار/);
+  assert.match(ref, /بيوم الشركة لحظة الإصدار لا بـinvoiceDate/);
+  assert.match(ref, /حتى 30 يوماً/);
+  assert.match(ref, /لوحة التحكم و\/m بتاريخ الفاتورة المختار invoiceDate/);
   // «إضافة وحدة فرعية أصغر»: priceListRules في الردّ والمعاينة كـpriceListItems، والنسبة وminQty وسعر الفئة لا تتغيّر
   const conv = endpointOf('POST', '/products/:id/convert-base');
   assert.equal(conv.response.split('priceListItems?, priceListRules?').length - 1, 2, 'priceListRules في الردّ والمعاينة');
@@ -1582,9 +1606,211 @@ test('«قوائم الأسعار»: الاسم القديم لا يبقى في 
   const item = [...list.matchAll(/<li>([^]*?)<\/li>/g)].map((m) => m[1]).find((b) => b.startsWith('٥ نوفمبر — «قوائم الأسعار»'));
   assert.ok(item, 'بند ٥ نوفمبر غائب');
   for (const k of ['اسمها السابق «أنواع الأسعار»', '/api/price-lists/rules', '/api/price-lists/:id/items', '/api/price-lists/:id/rules', '/api/price-lists/rules/:ruleId',
-    'rulesCount', 'priceListRules', 'PRICE_RULE_INVALID', 'PRICE_RULE_LIMIT', 'PRICE_RULE_NOT_FOUND', 'CATEGORY_NOT_FOUND', 'دليل «ربط قوائم الأسعار»']) {
+    'rulesCount', 'priceListRules', 'PRICE_RULE_INVALID', 'PRICE_RULE_LIMIT', 'PRICE_RULE_NOT_FOUND', 'CATEGORY_NOT_FOUND', 'دليل «ربط قوائم الأسعار»',
+    // CONTRACT2 D1/D2/D5: العدّادات بـ?counts=1 ومعها timezone، وpricingDay، وإقرار الوحدة الرئيسية
+    'GET /api/price-lists?counts=1', 'timezone', 'pricingDay', 'PRICE_RULES_UNIT_ACK', 'acknowledgePriceRules', 'priceRulesAffected',
+    // التحقّق: pricesSeenAt، ونافذة pricingDay ساعتان قرب منتصف الليل
+    'pricesSeenAt', 'قرب منتصف ليل الشركة: في حدود ساعتين من لحظة الإصدار']) {
     assert.ok(item!.includes(k), `بند ٥ نوفمبر لا يذكر ${k}`);
   }
+  // timezone حين للشركة قوائم (بلا counts=1)، والعدّادان مع counts=1 وحده — لا «ومعها timezone» بعد counts=1
+  assert.ok(item!.includes('وفي GET /api/price-lists الحقل timezone (منطقة الشركة الزمنية لـ«يوم الشركة») حين للشركة قوائم، ومع GET /api/price-lists?counts=1 وحده الحقلان itemsCount وrulesCount'));
+  assert.doesNotMatch(item!, /counts=1[^.]*ومعها timezone/);
+  assert.doesNotMatch(item!, /في حدود يوم\)/, 'نافذة pricingDay القديمة (يوم)');
   // أسعار العميل الخاصة ليست «قائمة الأسعار» بعد اليوم (الاسم صار للميزة)
   assert.ok(!fieldOf(endpointOf('PUT', '/customers/:id/prices'), 'prices').desc.includes('قائمة الأسعار'));
+});
+
+/* ═══ إصلاحات المراجعة (CONTRACT2 D1–D7، ٥ نوفمبر ٢٠٢٦) — المستند يقول ما يفعله الخادم والشاشات ═══ */
+
+test('D7: الوحدة الرئيسية مدخلٌ في قواعد «قوائم الأسعار» — لا يَعِد المستند بأنها للعرض وحده في مواضع تعريفها الخمسة', () => {
+  const docs = read(path.join(process.cwd(), 'src', 'components', 'ApiDocs.tsx'));
+  const overview = API_DOC_GROUPS.find((g) => g.key === 'products')!.overview;
+  const prim = endpointOf('PUT', '/products/:id/primary-unit');
+  const sync = API_SYNC_RESOURCES.find((r) => r.name === 'products')!.what;
+  const getProducts = endpointOf('GET', '/products').rules.find((r) => r.startsWith('الوحدة الرئيسية: primaryUnitId'))!;
+  assert.ok(getProducts, 'قاعدة الوحدة الرئيسية في GET /products');
+  // الوعود القديمة: «للعرض والافتراض فقط»، «علمٌ للعرض لا يمسّ مالاً»، «يتغيّر العرض والإدخال الافتراضي وحدهما»
+  assert.doesNotMatch(overview, /للعرض والافتراض فقط/);
+  assert.doesNotMatch(prim.purpose, /لا يمسّ مالاً/);
+  assert.ok(!prim.rules.some((r) => r.includes('يتغيّر العرض والإدخال الافتراضي وحدهما')));
+  assert.doesNotMatch(getProducts, /للعرض والإدخال الافتراضي فقط/);
+  assert.doesNotMatch(sync, /للعرض والإدخال الافتراضي وحده/);
+  assert.doesNotMatch(docs, /الوحدة الرئيسية من units للعرض وحده/);
+  // وكلٌّ منها يقول إنها تحكم سعر الفئة الثابت (والحدّ الأدنى) في قواعد القوائم
+  for (const [where, text] of [['مقدمة المنتجات', overview], ['primary-unit', `${prim.purpose} ${prim.rules.join(' ')}`], ['GET /products', getProducts],
+    ['مورد products', sync], ['ApiDocs.tsx', docs]] as const) {
+    assert.match(text, /قواعد «قوائم الأسعار»/, where);
+    assert.match(text, /سعر الفئة الثابت/, where);
+  }
+});
+
+test('D2/D7: أمثلة الوحدة الرئيسية في المستند محسوبةٌ بالحلّ المشترك — سعر فئة 12 للرئيسية: الكرتون 12 أو 48 أو 288، وminQty يتبع الرئيسية', () => {
+  const day = '2026-11-05';
+  const rule = { id: 'c1', scope: 'category', categoryId: 'juice', kind: 'fixed', primaryPrice: 12, minQty: 0, updatedAt: '2026-11-05T08:00:00.000Z' };
+  // سطر كرتون (24 حبة) لصنفٍ في الفئة برئيسيةٍ معاملها f (1 بلا رئيسية)
+  const carton = (f: number) => roundPriceRule(listLineRef(listPriceOf(null, [rule], { id: 'p', categoryId: 'juice', primaryFactor: f }, 1, day), 24, 0)!, 4);
+  assert.equal(carton(24), 12); // الكرتون رئيسياً
+  assert.equal(carton(6), 48); // العلبة رئيسيةً (PUT /products/:id/primary-unit)
+  assert.equal(carton(1), 288); // بلا رئيسية بعد «إضافة وحدة فرعية أصغر» بـkeepOldBaseAsPrimary=false
+  // minQty 10 بالرئيسية: 3 كراتين (72 حبة) لا تبلغه بالكرتون رئيسياً، وتبلغه بالعلبة (12 علبة)
+  const min10 = { id: 'm', scope: 'all', kind: 'percent', percent: 10, minQty: 10, updatedAt: '2026-11-05T08:00:00.000Z' };
+  const at = (f: number) => listPriceOf(null, [min10], { id: 'p', primaryFactor: f }, qtyPrimaryOf(3 * 24, { id: 'p', primaryFactor: f }), day);
+  assert.equal(at(24), null);
+  assert.deepEqual(at(6), { kind: 'percent', percent: 10, ruleId: 'm' });
+  // والنصوص تقول الأرقام نفسها
+  const overview = API_DOC_GROUPS.find((g) => g.key === 'products')!.overview;
+  assert.ok(overview.includes('تجعل الكرتون (24) بـ12 ما دام الكرتون رئيسياً، و48 إن صارت العلبة (6) رئيسية'));
+  assert.ok(endpointOf('PUT', '/products/:id/primary-unit').rules.some((r) => r.includes('الكرتون رئيسياً ⇒ الكرتون 12، والعلبة رئيسيةً ⇒ الكرتون 48') && r.includes('10 علب لا 10 كراتين')));
+  assert.ok(endpointOf('POST', '/products/:id/convert-base').rules.some((r) => r.includes('(288 للكرتون من 24)') && r.includes('PRICE_RULES_UNIT_ACK')));
+});
+
+test('D2: PRICE_RULES_UNIT_ACK وacknowledgePriceRules في كل مسارٍ يغيّر حجم الوحدة الرئيسية — في المستند والواجهة والخادم', () => {
+  const sites = [['PUT', '/products/:id'], ['PUT', '/products/:id/primary-unit'], ['POST', '/products/:id/units'], ['PUT', '/products/:id/units/:unitId'],
+    ['DELETE', '/products/:id/units/:unitId'], ['POST', '/products/:id/convert-base']] as const;
+  for (const [m, p] of sites) {
+    const e = endpointOf(m, p);
+    assert.match(fieldOf(e, ACK_KEY).desc, /PRICE_RULES_UNIT_ACK/, `${m} ${p}: الحقل`);
+    assert.match(e.response, /409 \{success:false, code:'PRICE_RULES_UNIT_ACK', message, rulesCount\}/, `${m} ${p}: الرد`);
+  }
+  // الحذف بلا جسم: الإقرار في الاستعلام كـclearPrimary، وبقية المسارات في الجسم
+  assert.ok(endpointOf('DELETE', '/products/:id/units/:unitId').query.some((q) => q.name === ACK_KEY));
+  for (const [m, p] of sites.filter(([method]) => method !== 'DELETE')) assert.ok(endpointOf(m, p).body.some((f) => f.name === ACK_KEY), `${m} ${p}: في الجسم`);
+  // «الصنف الذي تشمله قواعد بالرئيسية» كما في CONTRACT2 D2، والمسارات الستة، في مقدمة المنتجات
+  const overview = API_DOC_GROUPS.find((g) => g.key === 'products')!.overview;
+  for (const s of ['قاعدةُ فئته بسعر ثابت أو بحدّ أدنى', 'قاعدةُ كل الأصناف بحدّ أدنى', 'قاعدتُه هو بحدّ أدنى', 'acknowledgePriceRules: true', '?acknowledgePriceRules=1',
+    'PUT /products/:id/primary-unit', 'makePrimary في POST /products/:id/units', 'رقعة primaryUnit في PUT /products/:id', 'factor في PUT /products/:id/units/:unitId',
+    'مع clearPrimary', 'keepOldBaseAsPrimary=false لصنفٍ بلا رئيسية']) {
+    assert.ok(overview.includes(s), `مقدمة المنتجات لا تقول: ${s}`);
+  }
+  // المعاينة تعدّها، ومجموعة القوائم والدليل يحيلان إليها
+  // priceRulesAffected تحضر في المعاينة حين تزيد على 0 وحدها (شكل المعاينة كما كان) — كما يرسلها الخادم، والمعاينة لا تطلب الإقرار
+  const conv = endpointOf('POST', '/products/:id/convert-base');
+  assert.match(conv.response, /priceRulesAffected\?, converted:/);
+  assert.match(conv.response, /تحضر حين يزيد على 0 وحده/);
+  assert.match(fieldOf(conv, ACK_KEY).desc, /ولا يُطلب مع dryRun/);
+  assert.match(API_DOC_GROUPS.find((g) => g.key === 'price-lists')!.overview, /409 PRICE_RULES_UNIT_ACK \(مع rulesCount\)/);
+  assert.ok(JSON.stringify(API_DOC_GUIDES.find((g) => g.key === 'price-lists-guide')).includes('PRICE_RULES_UNIT_ACK'));
+  // والواجهة ترسل الإقرار في المسارات نفسها (api/client.ts)
+  const client = read(path.join(process.cwd(), 'src', 'api', 'client.ts'));
+  for (const fn of ['setPrimaryUnit', 'addUnit', 'updateUnit', 'removeUnit']) assert.match(client, new RegExp(`\\b${fn}: \\([^\\n]*acknowledgePriceRules\\?: boolean`), fn);
+  assert.match(client, /convertBase: \(id: string, data: \{[^}]*acknowledgePriceRules\?: boolean/);
+  // والخادم يرسل الرمز ويقرأ الإقرار ويعدّ في المعاينة (CONTRACT2 D2)
+  const products = routeFile('products');
+  for (const k of ["'PRICE_RULES_UNIT_ACK'", ACK_KEY, 'priceRulesAffected', 'rulesCount']) assert.ok(products.includes(k), `موجّه الأصناف لا يحمل ${k}: راجع المستند`);
+  assert.match(products, /\.\.\.\(priceRulesAffected > 0 && \{ priceRulesAffected \}\)/, 'priceRulesAffected لم تعد تغيب عند الصفر: راجع «تحضر حين يزيد على 0» في المستند');
+  assert.match(products, /req\.query\.acknowledgePriceRules === '1' \|\| req\.query\.acknowledgePriceRules === 'true'/, 'الحذف يقرأ الإقرار من الاستعلام (1 أو true)');
+  assert.match(String(fieldOf(endpointOf('DELETE', '/products/:id/units/:unitId'), ACK_KEY).type), /^1 \| true$/);
+});
+
+test('D1/D7: pricingDay في POST /invoices، ويوم التسعير في كل شاشة كما في الكود (المختار في الإدارة، ويوم الشركة في تطبيق المندوب)', () => {
+  const f = fieldOf(endpointOf('POST', '/invoices'), 'pricingDay');
+  assert.equal(f.type, 'string YYYY-MM-DD');
+  // التحقّق بعد D1: يُقبل قرب منتصف ليل الشركة وحده (ساعتان حول لحظة الإصدار) لا «يومٌ قبل أو بعد»، ويُرسل لقائمةٍ بقاعدةٍ ذات فترة لا مع كل فاتورة
+  for (const re of [/SALES_REP/, /إن ساوى يوم الشركة قبل لحظة الإصدار بساعتين أو بعدها بساعتين \(وفي إعادة الرفع لحظة إصدارها على الجهاز\)/,
+    /حين لقائمة الفاتورة قاعدةٌ بفترة \(ولا يرسله لمرتجعٍ من فاتورة بيع\)/, /بين أدنى المرجعين وأعلاهما/, /لا يُخزَّن/, /لطلب المفتاح ومستخدمي الشركة لا يُقرأ/]) {
+    assert.match(f.desc, re);
+  }
+  assert.doesNotMatch(f.desc, /مع كل فاتورة|يوم واحد قبل/, 'الوصف القديم: يُرسل مع كل فاتورة ويُقبل يوماً قبل أو بعد');
+  // والكود كذلك: نافذة الخادم ساعتان حول لحظة التسعير (يوما ما قبلها وما بعدها بساعتين)
+  const offlineSrc = read(path.join(BACKEND, 'services', 'offlineInvoiceDate.ts'));
+  const win = /export const PRICING_DAY_WINDOW_MS = ([\d_ *]+);/.exec(offlineSrc);
+  assert.ok(win, 'PRICING_DAY_WINDOW_MS غائب عن offlineInvoiceDate.ts: راجع المستند');
+  assert.equal(win![1].replace(/_/g, '').split('*').reduce((a, x) => a * Number(x.trim()), 1), 2 * 60 * 60 * 1000, 'نافذة pricingDay ليست ساعتين: راجع المستند');
+  assert.match(offlineSrc, /sent === localDateIn\(new Date\(at - PRICING_DAY_WINDOW_MS\), tz\) \|\| sent === localDateIn\(new Date\(at \+ PRICING_DAY_WINDOW_MS\), tz\)/);
+  // الشاشتان بالتاريخ المختار وإلا يوم الشركة: pricingDayOf في الأساس كذلك، والشاشتان تمرّران تاريخ الفاتورة
+  assert.equal(pricingDayOf('2026-10-28', new Date('2026-11-05T10:00:00Z'), 'Asia/Riyadh'), '2026-10-28');
+  assert.equal(pricingDayOf(null, new Date('2026-11-05T22:30:00Z'), 'Asia/Riyadh'), '2026-11-06'); // ١:٣٠ فجراً بالرياض
+  for (const file of [['components', 'forms', 'InvoiceModal.tsx'], ['m', 'MInvoiceCreate.tsx']]) {
+    assert.match(read(path.join(process.cwd(), 'src', ...file)), /\b(?:docPricingDayOf|pricingDayOf)\(invoiceDate\b/, file.join('/'));
+  }
+  // تطبيق المندوب يرسله، والخادم يقرؤه من جسم الفاتورة (CONTRACT2 D1)
+  const repDir = path.join(process.cwd(), 'src', 'rep');
+  const rep = fs.readdirSync(repDir).filter((n) => /\.tsx?$/.test(n) && !n.includes('.test.')).map((n) => read(path.join(repDir, n))).join('\n');
+  assert.match(rep, /\bpricingDay\b(?!Of)/, 'تطبيق المندوب لا يرسل pricingDay: راجع المستند');
+  assert.ok(rep.includes('const pricingDay = !saleRef && repRulesDated(listRules) ? repPricingDay(listInfo) : null;'),
+    'شرط إرسال pricingDay (قائمةٌ بقاعدةٍ ذات فترة، بلا فاتورة بيع) تغيّر: راجع المستند');
+  assert.match(routeFile('invoices'), /pricingDay: z\.|(?:body|req\.body\??)\.pricingDay/, 'الخادم لا يقرأ pricingDay: راجع المستند');
+  // الدليل: اليوم المختار للمفتاح، وحارس المندوب بلحظة الجهاز حتى 30 يوماً وpricingDay
+  const guide = JSON.stringify(API_DOC_GUIDES.find((g) => g.key === 'price-lists-guide'));
+  for (const s of ['pricingDay', 'حتى 30 يوماً', 'يوم invoiceDate الذي ترسله']) assert.ok(guide.includes(s), `الدليل لا يقول: ${s}`);
+  // والقاعدة المحذوفة بعد لحظة الجهاز قيدٌ معروف مكتوب (D3)
+  // وحدّ معرفة الجهاز: لحظة إصداره أو pricesSeenAt إن سبقتها، والمعدّلة لا تُستعاد نسختها القديمة (التحقّق L2.2)
+  const plOverview = API_DOC_GROUPS.find((g) => g.key === 'price-lists')!.overview;
+  assert.match(plOverview, /بلا ما أُنشئ منها أو عُدّل بعد لحظة إصدارها، أو بعد pricesSeenAt إن سبقتها\)، أما قاعدةٌ حُذفت أو سعرٌ ثابت تغيّر بعد تلك اللحظة فلا يُستعاد، ولا النسخة القديمة لقاعدةٍ عُدّلت \(قيدٌ معروف\)/);
+  assert.match(plOverview, /ويقبل معه pricingDay قرب منتصف الليل وحده: إن ساوى يوم الشركة قبل تلك اللحظة بساعتين أو بعدها بساعتين/);
+  assert.doesNotMatch(plOverview, /في حدود يوم واحد/);
+  assert.ok(guide.includes('pricingDay قرب منتصف الليل وحده') && guide.includes('pricesSeenAt'), 'الدليل: نافذة pricingDay وpricesSeenAt');
+  const ref = endpointOf('POST', '/invoices').rules.find((r) => r.startsWith('مرجع سعر البند لوحدته'))!;
+  assert.match(ref, /ومعه pricingDay إن ساوى يوم الشركة قبل تلك اللحظة بساعتين أو بعدها بساعتين/);
+  assert.match(ref, /أو بعد pricesSeenAt لحظة جلبه الأسعار إن سبقتها/);
+  assert.doesNotMatch(ref, /في حدود يوم منه/);
+});
+
+test('التحقّق L2.2: pricesSeenAt في POST /invoices — اختياريّ، لإعادة رفع المندوب وحدها، والقواعد المكتوبة بعده لا تُفرض — كما في الكود', () => {
+  const inv = endpointOf('POST', '/invoices');
+  const f = fieldOf(inv, 'pricesSeenAt');
+  assert.equal(f.type, 'date-time string');
+  assert.equal((f as { required?: boolean }).required, false);
+  for (const s of ['ISO 8601 كاملة بمنطقتها', 'ولا يرسلها لمرتجعٍ من فاتورة بيع', 'تقرؤها إعادة رفع صندوق مندوب التطبيق وحدها',
+    'القواعد التي كُتبت (أُنشئت أو عُدّلت) بعدها لم يعرفها الجهاز فلا تُفرض على هذا المستند', 'X-FS-Device-Now',
+    'ولا أقدم منها بأكثر من 30 يوماً', 'تُهمل بصمت', 'ولا تُستعاد نسختها القديمة', 'الإصدار الحيّ لا يقرؤها', 'ولطلب المفتاح ومستخدمي الشركة لا تُقرأ']) {
+    assert.ok(f.desc.includes(s), `pricesSeenAt لا يقول: ${s}`);
+  }
+  // بعد pricingDay مباشرةً في الجسم
+  const names = inv.body.map((b) => b.name);
+  assert.equal(names.indexOf('pricesSeenAt'), names.indexOf('pricingDay') + 1);
+  // الخادم: حقلٌ اختياريّ يُهمل تالفه، وحدّ المعرفة min(لحظة الإصدار، هو) ضمن ثلاثين يوماً وبتصحيح الساعة، ولإعادة الرفع بلحظة جهازٍ وحدها
+  const invSrc = routeFile('invoices');
+  assert.match(invSrc, /pricesSeenAt: z\.string\(\)\.max\(64\)\.nullish\(\)\.catch\(undefined\),/);
+  assert.match(invSrc, /const knownRules = priceInstant\s*\? rowsKnownAt\(docRules, priceRulesKnownAt\(\{ priceInstant, pricesSeenAt: body\.pricesSeenAt,/);
+  const offlineSrc = read(path.join(BACKEND, 'services', 'offlineInvoiceDate.ts'));
+  assert.match(offlineSrc, /const raw = isoInstantMs\(i\.pricesSeenAt\);\s*if \(raw == null\) return i\.priceInstant;\s*const seen = raw \+ deviceClockSkewMs\(i\.deviceNow, i\.now\);/);
+  assert.match(offlineSrc, /const floor = Math\.max\(at, i\.now\.getTime\(\)\) - PRICE_REPLAY_MAX_AGE_MS;\s*return seen <= at && seen >= floor \? new Date\(seen\) : i\.priceInstant;/);
+  // تطبيق المندوب: يرسلها بلا فاتورة بيع، ومن ختم كاش القائمة
+  const repDir = path.join(process.cwd(), 'src', 'rep');
+  const rep = fs.readdirSync(repDir).filter((n) => /\.tsx?$/.test(n) && !n.includes('.test.')).map((n) => read(path.join(repDir, n))).join('\n');
+  assert.ok(rep.includes('const pricesSeenAt = saleRef ? null : repPricesSeenAt(listRows, listId);'));
+  assert.ok(rep.includes('if (pricesSeenAt) Object.assign(payload, { pricesSeenAt });'));
+});
+
+test('D5/D7: GET /price-lists — العدّادان مع ?counts=1 وحده وtimezone حين توجد قوائم — في المستند والواجهة والخادم', () => {
+  const e = endpointOf('GET', '/price-lists');
+  assert.deepEqual(e.query.map((q) => q.name), ['counts']);
+  assert.equal(fieldOf(e, 'counts').type, '1 | true');
+  assert.match(e.response, /customersCount, itemsCount\?, rulesCount\?\}\], timezone\?\}\}/);
+  assert.ok(e.rules.some((r) => r.startsWith('timezone ') && r.includes('startsOn وendsOn')));
+  assert.ok(e.rules.some((r) => r.startsWith('itemsCount ') && r.includes('مع ?counts=1 وحده')));
+  // الواجهة: لوحة القوائم وحدها تطلب العدّادين، والمنطقة في PriceListsInfo
+  const client = read(path.join(process.cwd(), 'src', 'api', 'client.ts'));
+  assert.match(client, /listWithCounts: \(\) => api\.get\('\/price-lists', \{ params: \{ counts: 1 \} \}\)/);
+  assert.ok(interfaceKeys('PriceListsInfo').optional.includes('timezone'), 'PriceListsInfo.timezone?');
+  // والدليل يطلبهما في مثاله
+  const step = API_DOC_GUIDES.find((g) => g.key === 'price-lists-guide')!.steps.find((s) => s.method === 'GET' && s.path === '/price-lists')!;
+  assert.match(step.curl!, /\/price-lists\?counts=1"/);
+  assert.ok(step.text.includes('timezone'));
+  // والخادم (CONTRACT2 D5)
+  const lists = routeFile('priceLists');
+  assert.match(lists, /req\.query\.counts === '1' \|\| req\.query\.counts === 'true'/, 'GET /price-lists لا يقرأ counts (1 أو true): راجع المستند');
+  assert.match(lists, /\btimezone\b/, 'GET /price-lists لا يرسل timezone: راجع المستند');
+});
+
+test('D7: أخطاء مسارات القواعد والجدول كاملة — 409/503 لقاعدة الصنف في الحذف وللنسبة، و400 «بيانات غير صحيحة» بلا code لنوعٍ خاطئ', () => {
+  const del = endpointOf('DELETE', '/price-lists/rules/:ruleId');
+  for (const c of ['PRICE_RULE_NOT_FOUND', 'BASE_UNIT_CHANGED', 'PRODUCT_UNITS_BUSY']) assert.match(del.response, new RegExp(c), `DELETE: ${c}`);
+  const post = endpointOf('POST', '/price-lists/:id/rules');
+  assert.match(post.response, /تصيبان قاعدة الصنف بنسبةٍ أيضاً/);
+  assert.match(post.response, /بيانات غير صحيحة …', errors\} بلا code/);
+  assert.ok(endpointOf('PUT', '/price-lists/rules/:ruleId').rules.some((r) => r.includes('قاعدة الصنف بنسبة') && r.includes('PRODUCT_UNITS_BUSY')));
+  assert.match(endpointOf('PUT', '/price-lists/:id/items').response, /بيانات غير صحيحة …', errors\} بلا code[^—]*فوق 500/);
+  // والخادم كذلك: الحذف يقفل صنف قاعدة الصنف بأساسه ويردّ أخطاء الكتابة، والجسمان zod (ZodError ⇒ 400 بلا code)
+  const lists = routeFile('priceLists');
+  const at = lists.indexOf("router.delete('/rules/:ruleId'");
+  assert.ok(at > 0);
+  const delSrc = lists.slice(at, lists.indexOf('\nrouter.', at + 10));
+  assert.match(delSrc, /lockBases\(/);
+  assert.match(delSrc, /replyWriteError\(res, err\)/);
+  assert.match(lists, /const ruleBodySchema = z\.object\(/);
+  assert.match(lists, /\)\)\.min\(1\)\.max\(500\)/);
+  assert.match(read(path.join(BACKEND, 'middleware', 'errorHandler.ts')), /ZodError/);
 });

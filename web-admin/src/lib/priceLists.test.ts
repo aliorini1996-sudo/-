@@ -12,7 +12,7 @@ import { choiceNet, unitChoices } from '../rep/repUnits';
 import { PHRASES } from '../i18n/strings';
 import { IMPORT_TYPES } from './importData';
 import { PRICE_RULE_MESSAGES } from './priceRules';
-import { RULE_FORM_MESSAGES } from './priceListEditor';
+import { PRICE_RULES_AFFECTED_TEXT, PRICE_RULES_UNIT_ACK_MESSAGE, RULE_FORM_DISCARD_ASK, RULE_FORM_MESSAGES } from './priceListEditor';
 
 /**
  * «قوائم الأسعار» (كانت «أنواع الأسعار» حتى ٥ نوفمبر ٢٠٢٦) في لوحة الإدارة: صنف «ماء» أساسه القارورة (٢)، والكرتون ٢٤ قارورة
@@ -40,6 +40,10 @@ test('ردّ القوائم مطبَّعاً: الصفوف الصالحة بتر
   assert.ok(!('itemsCount' in info.lists[0]) && !('rulesCount' in info.lists[0]));
   assert.equal(info.basePriceLabel, null);
   assert.deepEqual(priceListsOf(undefined), { basePriceLabel: null, lists: [] }, 'ردٌّ غائب ⇒ لا أنواع');
+  // منطقة الشركة (CONTRACT2 D1) تمرّ كما أرسلها الخادم ليُسعَّر في الإدارة و/m بيوم الشركة — وقيمةٌ تالفة أو خادمٌ أقدم ⇒ لا مفتاح
+  assert.equal(priceListsOf({ lists: [], timezone: 'Asia/Riyadh' }).timezone, 'Asia/Riyadh');
+  for (const bad of ['', '   ', 7, null, {}, undefined]) assert.ok(!('timezone' in priceListsOf({ lists: [], timezone: bad })), String(bad));
+  assert.ok(!('timezone' in info), 'ردٌّ بلا منطقة: الشكل كما كان');
   // اسم الرقاقة الأولى: ما سمّته الشركة كما هو (بيانات لا tr)، وإلا «السعر الأساسي» مترجماً
   assert.equal(baseLabelOf({ basePriceLabel: 'سعر المستهلك' }, tr), 'سعر المستهلك');
   assert.equal(baseLabelOf(null, tr), tr(DEFAULT_BASE_PRICE_LABEL));
@@ -197,7 +201,9 @@ test('نافذة الصنف والصفحة: لقطة listPrices لا تُعاد 
   assert.ok(page.includes('mutationFn: async ({ listPriceEdits, ...values }: ProductSave) => {'));
   assert.ok(page.includes('if (!selected) return productApi.create({ ...values, ...listPricesCreateBody(listPriceEdits) });'));
   assert.ok(page.includes('await productApi.updateListPrices(selected.id, { expectedBaseName: saved.unit, expectedPrimary: listPriceEdits.expectedPrimary, items: listPriceEdits.items });'));
-  assert.ok(page.indexOf('const res = await productApi.update(selected.id, values);') < page.indexOf('await productApi.updateListPrices('), 'بعد الصنف');
+  // الصنف نفسه بإقرار قواعد القوائم بعد السؤال حين يردّه الخادم 409 PRICE_RULES_UNIT_ACK (D2) — والأسعار بعده كما كانت
+  assert.ok(page.indexOf('const res = await withPriceRulesAck(') > 0);
+  assert.ok(page.indexOf('() => productApi.update(selected.id, values),') < page.indexOf('await productApi.updateListPrices('), 'بعد الصنف');
 });
 
 test('فاتورة الإدارة: القائمة من ملف العميل، والمفتاح خلف قوائم عرّفتها الشركة وحدها، والمرتجع المرتبط بلا مفتاح', () => {
@@ -225,7 +231,8 @@ test('ملف العميل والمندوب وإعدادات الشركة: «قا
   const products = read('pages', 'ProductsPage.tsx');
   assert.ok(products.includes("const priceTypesOn = accountingOn && user?.canManageProducts !== false;"));
   assert.ok(products.includes("useState(() => searchParams.get('panel') === 'prices')"));
-  assert.ok(products.includes('<PriceListsPanel />'));
+  // ومعها onDirtyChange: نموذج قاعدةٍ لم يُحفظ تسأل عنه النافذة قبل الإغلاق (D6)
+  assert.ok(products.includes('<PriceListsPanel onDirtyChange={(d) => { pricePanelDirty.current = d; }} />'));
   const reps = read('pages', 'SalesRepsPage.tsx');
   assert.ok(reps.includes("const teamsOn = user?.role === 'ADMIN' && user?.scopeEnabled !== true;"));
   assert.ok(reps.includes("useState(() => searchParams.get('panel') === 'teams')"));
@@ -248,8 +255,10 @@ test('عبارات «قوائم الأسعار» ومحرّرها مترجمةٌ
     read('components', 'priceLists', 'PriceListRulesTab.tsx'), read('components', 'priceLists', 'PriceRuleForm.tsx'), read('lib', 'priceListEditor.ts'),
   ];
   // ما يمرّ بـtr متغيّراً (رسائل التحقّق) لا يلتقطه فحص المفاتيح الحرفية في langs.test.ts
+  // ومعها نصوص الإصلاحات المارّة بـtr متغيّرةً: سؤال ترك نموذج القاعدة، وإقرار قواعد الوحدة الرئيسية (D2) ونصّ معاينة التحويل
   const keys = new Set<string>(['اكتب اسم قائمة الأسعار', 'اسم قائمة الأسعار 40 حرفا على الأكثر', DEFAULT_BASE_PRICE_LABEL,
-    ...Object.values(PRICE_RULE_MESSAGES), ...Object.values(RULE_FORM_MESSAGES)]);
+    ...Object.values(PRICE_RULE_MESSAGES), ...Object.values(RULE_FORM_MESSAGES),
+    RULE_FORM_DISCARD_ASK, PRICE_RULES_UNIT_ACK_MESSAGE, PRICE_RULES_AFFECTED_TEXT]);
   for (const f of files) for (const m of f.matchAll(/\btr\('((?:[^'\\]|\\.)*)'\)/g)) keys.add(m[1]);
   for (const k of ['قائمة الأسعار', 'تبديل قائمة الأسعار', 'قوائم الأسعار', 'سعر «{name}» رقم موجب', 'فارغ يعني {label}', 'فارغ يعني قواعد القائمة ثم {label}', 'ليست قائمة العميل', '{label} صفر وبه تسعر فواتير العميل الذي لا قائمة له — أتحفظ الصنف هكذا؟']) keys.add(k);
   for (const k of keys) {

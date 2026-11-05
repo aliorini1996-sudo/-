@@ -23,7 +23,7 @@ export const PRICE_LIST_NAME_MAX = 40;
 
 /** ردّ GET /price-lists مطبَّعاً: صفوفٌ صالحة بترتيبها — وردٌّ تالف أو غائب ⇒ لا أنواع */
 export function priceListsOf(data: unknown): PriceListsInfo {
-  const d = (data ?? {}) as { basePriceLabel?: unknown; lists?: unknown };
+  const d = (data ?? {}) as { basePriceLabel?: unknown; lists?: unknown; timezone?: unknown };
   const lists: PriceList[] = (Array.isArray(d.lists) ? d.lists : [])
     .filter((l): l is PriceList => !!l && typeof (l as PriceList).id === 'string' && typeof (l as PriceList).name === 'string')
     .map((l) => ({
@@ -36,7 +36,12 @@ export function priceListsOf(data: unknown): PriceListsInfo {
     // ثابتٌ على ترتيب الخادم (sortOrder ثم الاسم) — المتساويان يبقيان كما ردّهما
     .sort((a, b) => a.sortOrder - b.sortOrder);
   const label = typeof d.basePriceLabel === 'string' && d.basePriceLabel.trim() ? d.basePriceLabel.trim() : null;
-  return { basePriceLabel: label, lists };
+  // منطقة الشركة الزمنية (CONTRACT2 D1): يرسلها الخادم حين توجد قوائم ليُسعَّر بيوم الشركة — خادمٌ أقدم أو قيمةٌ تالفة ⇒ لا مفتاح
+  // (الشكل كما كان حرفاً، فاليوم المحلي للجهاز)
+  return {
+    basePriceLabel: label, lists,
+    ...(typeof d.timezone === 'string' && d.timezone.trim() !== '' && { timezone: d.timezone }),
+  };
 }
 
 /** اسم الرقاقة الأولى: ما سمّته الشركة كما هو (بيانات)، وإلا «السعر الأساسي» مترجماً */

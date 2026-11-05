@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { productApi, companyApi, lotsApi } from '../api/client';
@@ -22,6 +22,7 @@ import { deleteBalanceText, duplicateNameSavedText, duplicateNameWarningsOf, has
 import { fetchStockSummary } from '../lib/productGuardsApi';
 import PagePanelModal from '../components/PagePanelModal';
 import PriceListsPanel from '../components/priceLists/PriceListsPanel';
+import { RULE_FORM_DISCARD_ASK, isPriceRulesAckDeclined, priceRulesAckAsker, withPriceRulesAck } from '../lib/priceListEditor';
 
 /** حمولة حفظ الصنف — والتأكيد بعد 409 LOT_TRACKING_HAS_BALANCE (D9)، وأسعار «قوائم الأسعار» المتغيّرة من النافذة، وإقرار الاسم المكرَّر
  *  قبل الحفظ (D4: لا يُعاد تحذير الخادم بعده) */
@@ -68,6 +69,8 @@ export default function ProductsPage() {
   const [searchParams] = useSearchParams();
   const priceTypesOn = accountingOn && user?.canManageProducts !== false;
   const [priceTypesOpen, setPriceTypesOpen] = useState(() => searchParams.get('panel') === 'prices');
+  // نموذج قاعدةٍ في اللوحة لم يُحفظ — تسأل النافذة قبل الإغلاق (قرار D6)
+  const pricePanelDirty = useRef(false);
   const catFilter = lotOn ? categoryId : '';
 
   const { data: categories } = useQuery({
@@ -92,7 +95,12 @@ export default function ProductsPage() {
       // D4: إقرار الاسم المكرَّر قبل الحفظ للواجهة وحدها — لا يُرسل للخادم
       delete values.duplicateNameAck;
       if (!selected) return productApi.create({ ...values, ...listPricesCreateBody(listPriceEdits) });
-      const res = await productApi.update(selected.id, values);
+      // «قوائم الأسعار» (D2): رقعة الرئيسية تغيّر حجمها والصنف تشمله قواعد محسوبة بالوحدة الرئيسية ⇒ 409 PRICE_RULES_UNIT_ACK —
+      // سؤالٌ بنصّ الخادم ثم الحفظ نفسه بـacknowledgePriceRules، والرفض يُبقي النافذة بلا رسالة خطأ
+      const res = await withPriceRulesAck(
+        () => productApi.update(selected.id, values),
+        () => productApi.update(selected.id, { ...values, acknowledgePriceRules: true }),
+        priceRulesAckAsker(tr));
       if (listPriceEdits?.items.length) {
         const saved = res.data.data as Product;
         await productApi.updateListPrices(selected.id, { expectedBaseName: saved.unit, expectedPrimary: listPriceEdits.expectedPrimary, items: listPriceEdits.items });
@@ -103,10 +111,14 @@ export default function ProductsPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); if (lotOn) qc.invalidateQueries({ queryKey: ['products-min'] });
       // «قوائم الأسعار»: عدّادات القوائم وجداول أسعارها (الاسم والوحدات وسعر الصنف فيها) — بلا طلبٍ ما دامت لوحتها مغلقة
       qc.invalidateQueries({ queryKey: ['price-lists'] }); qc.invalidateQueries({ queryKey: ['price-list-items'] });
+      // وقواعدها (اسم الصنف ووحدته في ملخّصها، وسعر الصنف الثابت بوحدته في فاتورة الإدارة)
+      qc.invalidateQueries({ queryKey: ['price-list-rules-of'] }); qc.invalidateQueries({ queryKey: ['price-list-rules'] });
       toast.success(selected ? tr('تم التحديث') : tr('تم الإضافة')); setShowModal(false); setSelected(null); setBalanceConfirm(null);
     },
     // رسالة الخادم لا «حدث خطأ» العمياء — سبب الرفض (تحقق/تكرار كود) يصل للمستخدم
     onError: (err: unknown, values) => {
+      // رفض سؤال قواعد قوائم الأسعار (D2): لم يُكتب شيء، والنافذة باقية بما فيها
+      if (isPriceRulesAckDeclined(err)) return;
       // إطفاء تتبّع صنفٍ له أرصدة في تشغيلات (D9): تأكيدٌ بالتفاصيل ثم الإرسال نفسه بـconfirmLotBalances
       const bal = selected ? trackingBalanceOf(err) : null;
       if (bal && !values.confirmLotBalances) { setBalanceConfirm({ kind: 'product', values, products: bal.products }); return; }
@@ -224,8 +236,9 @@ export default function ProductsPage() {
         </div>
       </div>
       {priceTypesOn && priceTypesOpen && (
-        <PagePanelModal title={tr('قوائم الأسعار')} icon={<Tags size={20} />} onClose={() => setPriceTypesOpen(false)}>
-          <PriceListsPanel />
+        <PagePanelModal title={tr('قوائم الأسعار')} icon={<Tags size={20} />} onClose={() => setPriceTypesOpen(false)}
+          confirmClose={() => !pricePanelDirty.current || window.confirm(tr(RULE_FORM_DISCARD_ASK))}>
+          <PriceListsPanel onDirtyChange={(d) => { pricePanelDirty.current = d; }} />
         </PagePanelModal>
       )}
 

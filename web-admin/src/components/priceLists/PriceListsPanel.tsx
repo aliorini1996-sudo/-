@@ -19,21 +19,27 @@ import PriceListEditor from './PriceListEditor';
  * بها فواتيره، والمندوب يبدّلها على الفاتورة بصلاحية «تبديل قائمة الأسعار». الرقاقة الأولى السعر الافتراضي نفسه (سعر الصنف)
  * باسمٍ يُغيَّر هنا. والكتابة لمن يملك صلاحية الأصناف (الخادم يحكم)، والقائمة التي عليها عملاء لا تُحذف (409 PRICE_LIST_IN_USE)
  * حتى يُنقلوا إلى قائمةٍ أخرى — ولا التي هي قائمةُ مندوبٍ افتراضيّةٌ أو من قوائمه المسموحة (repsCount في الردّ نفسه).
- * كل عمليةٍ تحفظ بنفسها (والمحرّر يحفظ كل سطرٍ عند الخروج منه) — فإغلاق النافذة لا يضيّع شيئاً.
+ * كل عمليةٍ تحفظ بنفسها (والمحرّر يحفظ كل سطرٍ عند الخروج منه) — فإغلاق النافذة لا يضيّع شيئاً، إلا نموذج قاعدةٍ لم يُحفظ:
+ * يُبلَّغ به الأب (onDirtyChange) فتسأل النافذة قبل الإغلاق.
+ * والعدّادات (أصناف القائمة وقواعدها) من GET /price-lists?counts=1 (listWithCounts) بمفتاح ['price-lists', 'counts'] لهذه
+ * اللوحة وحدها — بقية الشاشات تقرأ ['price-lists'] بلا عدّادات (قرار D5). وإبطال ['price-lists'] يشمل المفتاحين.
  */
 type Err = { response?: { data?: { message?: string; code?: string; customersCount?: number; repsCount?: number } } };
 
-export default function PriceListsPanel() {
+export default function PriceListsPanel({ onDirtyChange }: {
+  /** نموذج قاعدةٍ في المحرّر فيه ما لم يُحفظ — النافذة تسأل قبل الإغلاق */
+  onDirtyChange?: (dirty: boolean) => void;
+} = {}) {
   const tr = useTr();
   // رسالة الخادم بلغة الواجهة (رسائل «قوائم الأسعار» عباراتٌ في القاموس، وغيرها تُعرض كما هي)
   const errMsg = (e: unknown, fallback: string) => { const m = (e as Err)?.response?.data?.message; return m ? tr(m) : fallback; };
   const qc = useQueryClient();
-  const listsQ = useQuery({ queryKey: ['price-lists'], queryFn: async () => priceListsOf((await priceListApi.list()).data.data) });
+  const listsQ = useQuery({ queryKey: ['price-lists', 'counts'], queryFn: async () => priceListsOf((await priceListApi.listWithCounts()).data.data) });
   const lists = listsQ.data?.lists ?? [];
   const [newName, setNewName] = useState('');
   const newNameRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
-  // «الأسعار والقواعد»: القائمة المفتوحة في النافذة نفسها (رجوع ⇒ القوائم) — والعدّادات تتجدّد من ['price-lists'] بعد كل حفظ
+  // «الأسعار والقواعد»: القائمة المفتوحة في النافذة نفسها (رجوع ⇒ القوائم) — والعدّادات تتجدّد بإبطال ['price-lists'] بعد كل حفظ
   const [openId, setOpenId] = useState<string | null>(null);
   const openList = openId ? lists.find(l => l.id === openId) ?? null : null;
   const [deleting, setDeleting] = useState<PriceList | null>(null);
@@ -104,7 +110,7 @@ export default function PriceListsPanel() {
   };
 
   // محرّر القائمة المفتوحة مكان اللوحة (المفتاح يعيد تهيئته لكل قائمة) — قائمةٌ حُذفت من مكانٍ آخر تعيد اللوحة
-  if (openList) return <PriceListEditor key={openList.id} list={openList} onBack={() => setOpenId(null)} />;
+  if (openList) return <PriceListEditor key={openList.id} list={openList} onBack={() => setOpenId(null)} onDirtyChange={onDirtyChange} />;
 
   return (
     <div className="space-y-5">

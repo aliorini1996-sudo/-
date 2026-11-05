@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   invoiceLine, addInvoiceLine, setInvoiceLineUnit, refreshInvoiceLines, repriceInvoiceLines, priceOverrideOf, suggestedNet, lineKey,
-  type LinePricer, type SalePick,
+  addedLinePrice, pickerChoice, pickerPrices, type LinePricer, type SalePick,
 } from './mUnits';
 import { unitChoices } from '../rep/repUnits';
 import { invoiceTotals } from './docMath';
@@ -96,6 +96,20 @@ test('تبديل النوع أو العميل: البند الذي لم يُمس
   assert.equal(repriceInvoiceLines(retail, {}, () => 1), retail);
 });
 
+test('pickerPrices: تلميح كل صنفٍ دفعةً واحدة = addedLinePrice بوحدته الافتراضية (والأساس بلا وحدات) بكمية صنفه بعد الإضافة', () => {
+  const pr = byOverride(p => priceOverrideOf(p, 'l-whole', null));
+  const lines = addInvoiceLine(addInvoiceLine([], water, carton, pr), water, bottle, pr);
+  for (const price of [pr, undefined, 2.5]) {
+    const m = pickerPrices(lines, [water, sugar], price);
+    assert.equal(m.get('p1'), addedLinePrice(lines, water, pickerChoice(water), price));
+    assert.equal(m.get('p2'), addedLinePrice(lines, sugar, pickerChoice(sugar), price));
+  }
+  assert.deepEqual(pickerChoice(water), carton, 'الرئيسية');
+  assert.deepEqual(pickerChoice(sugar), unitChoices(sugar)[0], 'الأساس لصنفٍ بلا وحدات');
+  assert.equal(pickerPrices(lines, [water], pr).get('p1'), 100, 'سعر الجملة صافياً للكرتون');
+  assert.equal(pickerPrices([], null, pr).size, 0, 'لا نتيجة بحثٍ بعد');
+});
+
 // ═══ حرّاس نصّية: التوصيل في الشاشات ═══
 const read = (...p: string[]) => fs.readFileSync(path.resolve(process.cwd(), 'src', ...p), 'utf8').replace(/\r\n/g, '\n');
 
@@ -115,7 +129,8 @@ test('MInvoiceCreate: النوع من ملف العميل، والرقاقات �
   // المسعِّر الواحد مع فاتورة اللوحة: سعر العميل ثم القائمة (ثابتها وقواعدها بكمية الصنف ويوم الفاتورة) ثم سلّم اليوم
   assert.ok(s.includes('() => docLinePricerOf({ listId, custRows, rules: listsOn ? rulesQ.data : null, day: pricingDay }),'));
   assert.ok(s.includes('[listId, custRows, listsOn, rulesQ.data, pricingDay],'));
-  assert.ok(s.includes('const pricingDay = pricingDayOf(invoiceDate);'), 'يوم الفاتورة المختار وإلا اليوم');
+  // يوم الفاتورة المختار وإلا يوم الشركة الآن بمنطقتها (مراجعة D1)
+  assert.ok(s.includes('const pricingDay = docPricingDayOf(invoiceDate, { timezone: priceInfoQ.data?.timezone });'));
   assert.match(s, /queryKey: \['price-list-rules'\],[\s\S]{0,200}enabled: listsOn,/, 'القواعد بمفتاح اللوحة وحين للشركة قوائم وحدها');
   assert.ok(s.includes('productApi.customerPrices(customerId)'), 'أسعار العميل الخاصة تغلب القائمة');
   assert.ok(s.includes('setLines(ls => addInvoiceLine(ls, p, c, priceOf));'));
@@ -131,7 +146,9 @@ test('MInvoiceCreate: النوع من ملف العميل، والرقاقات �
   assert.ok(s.includes('onClick={() => setListChoice(o.id)}'));
   assert.ok(s.includes('baseLabelOf(priceInfoQ.data, tr)'), 'اسم الرقاقة الأولى كما سمّته الشركة');
   assert.doesNotMatch(s, /import \{[^}]*\bchoiceNet\b[^}]*\} from '\.\.\/rep\/repUnits';/, 'لا سعرٌ مقترح بلا ثالثه (سعر العميل ?? النوع): suggestedNet وحده');
-  assert.equal(s.split('addedLinePrice(lines, p, ').length - 1, 2, 'تلميح السعر في القائمة بالمقترح نفسه (بوحدات وبلاها) وبكمية الصنف بعد الإضافة');
+  // تلميح السعر في القائمة بالمقترح نفسه (بوحدات وبلاها) وبكمية الصنف بعد الإضافة — محفوظاً (pickerPrices) لا محسوباً مع كل رسم (D5)
+  assert.ok(s.includes('() => pickerPrices(lines, productsQ.data, priceOf),'));
+  assert.equal(s.split('formatCurrency(pickPrices.get(p.id) ?? 0)').length - 1, 2);
   assert.doesNotMatch(s, /suggestedNet\(|priceOverrideOf\(/, 'لا مقترح بغير المسعِّر');
   assert.doesNotMatch(s, /tr\(o\.name\)|tr\(l\.name\)/, 'أسماء الأنواع بيانات لا تمرّ بـtr');
   // أسماء الأنواع مرّةً كل ٥ دقائق لا مع كل فاتورة — ونوع عميلٍ لا تعرفه (أُنشئ بعدها) يعيد قراءتها مرّةً، وإلا لا مفتاح فيسعّر
