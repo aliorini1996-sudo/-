@@ -45,6 +45,11 @@ final class TrackBridge: NSObject, WKScriptMessageHandler {
     private weak var disclosure: UIAlertController?
     /// The newest start waiting for the foreground or for the disclosure answer.
     private var pendingToken: String?
+    /// The rep tapped "ليس الآن" in this launch: no disclosure again until the next app open. Memory only,
+    /// never in a file, so a relaunch (or an app the system ended) asks once more. Without it the page's
+    /// liveness check (nativeTracking.ts verifyDue) sends start again on a return to the app as often as every
+    /// 3 min, and each start showed the disclosure again. A stop leaves it as it is.
+    private var declinedThisLaunch = false
 
     /// Registers the handler on the app's web view (called once from ViewController, next to PrintBridge).
     func install(webView: WKWebView, presenter: UIViewController) {
@@ -96,6 +101,10 @@ final class TrackBridge: NSObject, WKScriptMessageHandler {
             TrackService.shared.start(token: token)
             return
         }
+        guard !declinedThisLaunch else {
+            pendingToken = nil
+            return
+        }
         guard disclosure == nil else { return }   // already on screen: the answer uses the newest token
         showDisclosure()
     }
@@ -116,8 +125,9 @@ final class TrackBridge: NSObject, WKScriptMessageHandler {
         }
         let a = UIAlertController(title: TrackBridge.disclosureTitle, message: TrackBridge.disclosureBody, preferredStyle: .alert)
         a.addAction(UIAlertAction(title: TrackBridge.laterTitle, style: .cancel) { [weak self] _ in
-            // Asked again at the next app open (the web starts again then).
+            // Asked again at the next app open, not at the page's next liveness check (declinedThisLaunch).
             self?.pendingToken = nil
+            self?.declinedThisLaunch = true
         })
         let accept = UIAlertAction(title: TrackBridge.acceptTitle, style: .default) { [weak self] _ in
             TrackConsentStore.saveAccepted()

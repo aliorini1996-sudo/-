@@ -7,7 +7,8 @@ import CoreLocation
 // device ping endpoint, also while the app is in the background or the screen is locked: UIBackgroundModes
 // `location` + when-in-use authorization + allowsBackgroundLocationUpdates set while in the foreground, with
 // the blue location indicator shown. No "Always" authorization is ever requested. It records only with
-// Precise Location on: when it is off, iOS is asked for temporary full accuracy, and nothing starts without it.
+// Precise Location on: when it is off, iOS is asked for temporary full accuracy, and nothing starts without it
+// (after a refusal, not asked again until the next app open).
 // Everything runs on the main queue: the location manager is created on the main thread, the upload session
 // delivers on OperationQueue.main and the timer is on the main run loop. Only file writes go to `io`.
 
@@ -33,7 +34,10 @@ enum TrackContract {
     static let uploadEveryMs: Double = 30_000
     static let maxBatch = 200
     static let maxQueued = 3_000
-    static let backoffMs: [Double] = [30_000, 60_000, 120_000, 300_000]
+    /// Capped at 120 s, the web's own retry cap (trackUpload.ts RETRY_MAX_MS): the manager's map calls a
+    /// location "live" for 2 min only, and a longer step left the rep stale for minutes after a 503 or a 403
+    /// from something in front of the server had already cleared.
+    static let backoffMs: [Double] = [30_000, 60_000, 120_000]
     static let maxTokenChars = 4_096
     static let requestTimeoutSec: TimeInterval = 15
     /// The server's refusal code (backend/src/services/deviceTrack.ts). A 401/403 stops tracking only with it.
@@ -74,7 +78,7 @@ enum TrackLogic {
         return 2 * r * asin(min(1.0, sqrt(h)))
     }
 
-    /// 30 s → 60 s → 120 s → 300 s, then 300 s for every further failure (`step` = failures so far).
+    /// 30 s → 60 s → 120 s, then 120 s for every further failure (`step` = failures so far).
     static func backoffMs(step: Int) -> Double {
         let table = TrackContract.backoffMs
         return table[max(0, min(step, table.count - 1))]
@@ -248,6 +252,12 @@ final class TrackService: NSObject, CLLocationManagerDelegate {
     private var keptThisRun = 0
     private var firstUpload = false             // the first kept point after start is sent at once
 
+    // Launch state: memory only, never in a file, so a relaunch (or an app the system ended) asks once more.
+    /// The rep refused the temporary full-accuracy prompt in this launch: not asked again until the next app
+    /// open. Without it the page's liveness check (nativeTracking.ts verifyDue) restarts the run on a return to
+    /// the app as often as every 3 min, and each start showed the system prompt again.
+    private var accuracyRefused = false
+
     // Queue state: belongs to queueSub, survives a stop and an app restart (TrackFiles.queueName).
     private var queueLoaded = false
     private var queueSub: String?
@@ -338,9 +348,14 @@ final class TrackService: NSObject, CLLocationManagerDelegate {
     /// Precise Location is off: asks iOS for full accuracy for this session, with the purpose text of
     /// fullAccuracyPurposeKey (Info.plist). A grant reaches locationManagerDidChangeAuthorization, which begins;
     /// a refusal, or an error such as the app no longer being in the foreground, ends the start in
-    /// accuracyAnswered. Asked once per run: the delegate may report the reduced accuracy again meanwhile.
+    /// accuracyAnswered. Asked once per run (the delegate may report the reduced accuracy again meanwhile), and
+    /// after a refusal not again in this launch (accuracyRefused): the start then ends at once, as a refusal does.
     private func askFullAccuracy() {
         guard waitingAuth, !running, !accuracyAsked else { return }
+        if accuracyRefused {
+            finish(.denied)
+            return
+        }
         accuracyAsked = true
         let askedEpoch = epoch
         manager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: TrackService.fullAccuracyPurposeKey) { [weak self] _ in
@@ -354,9 +369,13 @@ final class TrackService: NSObject, CLLocationManagerDelegate {
         guard askedEpoch == epoch, waitingAuth, !running else { return }   // already begun, stopped or restarted
         if canRecord {
             begin()
-        } else {
-            finish(.denied)   // asked again at the next app open (the web starts again then)
+            return
         }
+        // Refused, or no answer: asked again at the next app open, not at the page's next liveness check. Not
+        // remembered when the app was already in the background: the rep may never have seen the prompt, and
+        // the start the page sends on the return to the app asks in the foreground.
+        if UIApplication.shared.applicationState != .background { accuracyRefused = true }
+        finish(.denied)
     }
 
     private func begin() {
