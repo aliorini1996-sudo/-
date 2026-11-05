@@ -32,10 +32,21 @@ export function ruleProductOf(p: PricedProduct): PriceRuleProduct {
   return { id: p.id, categoryId: p.categoryId ?? null, primaryFactor: Number.isFinite(f) && f > 0 ? f : 1 };
 }
 
-/** يوم الفاتورة على الجهاز 'YYYY-MM-DD' (تاريخٌ اختاره المستخدم إن صحّ، وإلا اليوم المحلي) */
-export function pricingDayOf(chosen?: string | null, now: Date = new Date()): string {
-  if (typeof chosen === 'string' && /^\d{4}-\d{2}-\d{2}/.test(chosen)) return chosen.slice(0, 10);
+/** يوم الشركة للحظةٍ بمنطقتها الزمنية 'YYYY-MM-DD' (كـcompanyDayOf في الخادم)، وإلا اليوم المحلي للجهاز */
+export function companyDayIn(tz: string | null | undefined, now: Date = new Date()): string {
+  if (typeof tz === 'string' && tz.trim() !== '') {
+    try {
+      const s = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    } catch { /* منطقةٌ مجهولة ⇒ اليوم المحلي */ }
+  }
   return todayLocal(now);
+}
+
+/** يوم الفاتورة على الجهاز 'YYYY-MM-DD': تاريخٌ اختاره المستخدم إن صحّ، وإلا يوم الشركة بمنطقتها (tz)، وإلا اليوم المحلي */
+export function pricingDayOf(chosen?: string | null, now: Date = new Date(), tz?: string | null): string {
+  if (typeof chosen === 'string' && /^\d{4}-\d{2}-\d{2}/.test(chosen)) return chosen.slice(0, 10);
+  return companyDayIn(tz, now);
 }
 
 /** مجموع كمية كل صنفٍ بالأساس من بنود الفاتورة (البنود المرتبطة بفاتورة بيع تُستبعد بالمستدعي) */

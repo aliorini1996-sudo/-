@@ -399,6 +399,8 @@ export interface PriceListItemWrite {
 export interface PriceListsInfo {
   basePriceLabel: string | null;
   lists: PriceList[];
+  /** منطقة الشركة الزمنية (حين توجد قوائم) — يوم صلاحية القواعد في الأجهزة كيوم الخادم */
+  timezone?: string | null;
 }
 
 export interface PriceTier {
