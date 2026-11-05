@@ -5,7 +5,14 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>قد يستخدم التطبيق الميكروفون عند التقاط الوسائط بناءً على طلبك.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>يستخدم التطبيق موقعك لتسجيل مواقع الزيارات الميدانية وتتبّع مسار المندوب أثناء العمل.</string>
+	<string>يستخدم التطبيق موقعك لتسجيل مواقع الزيارات الميدانية وتتبّع مسار المندوب أثناء العمل، ويستمرّ التسجيل أثناء يوم العمل حتى لو خرجت من التطبيق أو أقفلت الشاشة، ويتوقف عند تسجيل الخروج أو في نهاية اليوم.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>يسجّل التطبيق موقعك أثناء يوم العمل، حتى لو خرجت من التطبيق أو أقفلت الشاشة، ليظهر مسارك لمدير شركتك على خريطة التتبّع، ويتوقف عند تسجيل الخروج أو في نهاية اليوم.</string>
+	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
+	<dict>
+		<key>WorkdayRoute</key>
+		<string>يحتاج تسجيل مسارك أثناء يوم العمل إلى موقعك الدقيق، فالموقع التقريبي لا يكفي لإظهار مسارك لمدير شركتك على خريطة التتبّع.</string>
+	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>يستخدم التطبيق الكاميرا لمسح باركود المنتجات والتقاط صور زيارات العملاء.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
@@ -76,6 +83,7 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>processing</string>
+		<string>location</string>
 		
 	</array>
 	<key>UILaunchStoryboardName</key>
