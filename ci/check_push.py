@@ -6,7 +6,7 @@
 #
 # ما يحرسه: ملف الصلاحيات (بصمته ومفتاحاه حرفياً، وملفٌّ واحد في المستودع)، والمشروع (سطرٌ واحد يذكر entitlements
 # داخل إعداد Release للهدف — درس انهيار 1.0 حين صار ملف الصلاحيات مورداً — وPushBridge.swift في مرحلة المصادر، والصوت
-# في مرحلة الموارد، ومعرّفاتنا معرّفةٌ مرّة، وكل معرّفٍ مذكور معرّف، والأقواس متوازنة، والإصدار 1.1.0 في الإعدادين)،
+# في مرحلة الموارد، ومعرّفاتنا معرّفةٌ مرّة، وكل معرّفٍ مذكور معرّف، والأقواس متوازنة، والإصدار 1.2.0 في الإعدادين)،
 # والصوت (يُعاد توليده فيطابق بايتاً ببايت، وأقلّ من ٣٠ ثانية)، وSwift (بلا واجهات «السبب المطلوب» إذ لا Privacy
 # Manifest، وبلا Firebase حيّ، وجسر fsPush بحرّاسه)، وInfo.plist، وبلا CR في الملفات النصية.
 import hashlib
@@ -260,9 +260,9 @@ def check(root):
                 fail("pbx.ours", "معرّفٌ ببادئتنا %s غير معرَّف مرّةً واحدة" % t)
 
         mv_all = len(re.findall(r"MARKETING_VERSION = ", pbx))
-        mv_ok = pbx.count("MARKETING_VERSION = 1.1.0;")
+        mv_ok = pbx.count("MARKETING_VERSION = 1.2.0;")
         if not (mv_all == mv_ok == 2):
-            fail("pbx.version", "MARKETING_VERSION يجب 1.1.0 في الإعدادين (الموجود %d من %d)" % (mv_ok, mv_all))
+            fail("pbx.version", "MARKETING_VERSION يجب 1.2.0 في الإعدادين (الموجود %d من %d)" % (mv_ok, mv_all))
 
     # (ج) الصوت: يُعاد توليده فيطابق بايتاً ببايت، وبمواصفات آبل
     wav = read_bytes(root, WAV)
@@ -416,7 +416,7 @@ def _debug_entitlements(s):
 
 
 def _first_version(s):
-    return s.replace("MARKETING_VERSION = 1.1.0;", "MARKETING_VERSION = 1.2.0;", 1)
+    return s.replace("MARKETING_VERSION = 1.2.0;", "MARKETING_VERSION = 1.3.0;", 1)
 
 
 MUTATIONS = [
@@ -434,7 +434,7 @@ MUTATIONS = [
     ("كلمة UserDefaults في تعليق Swift", BRIDGE, lambda s: s + "// UserDefaults\n", {"swift.privacy"}),
     ("اسم مزوّد الدفع في metadata", "metadata/push-notifications.md",
      lambda s: s + "\n" + "Near" + "Pay\n", {"text.provider"}),
-    ("MARKETING_VERSION 1.2.0 في إعدادٍ واحد", PBX, _first_version, {"pbx.version"}),
+    ("MARKETING_VERSION 1.3.0 في إعدادٍ واحد", PBX, _first_version, {"pbx.version"}),
     ("بايتٌ واحد تغيّر في الصوت", None, None, {"wav.sha", "wav.regen"}),
     ("remote-notification في UIBackgroundModes", INFO,
      lambda s: s.replace("<string>processing</string>", "<string>processing</string>\n\t\t<string>remote-notification</string>", 1),

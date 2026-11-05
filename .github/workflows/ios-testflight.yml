@@ -65,9 +65,9 @@ jobs:
           if grep -RniE "nearpay|near pay|نيرباي|نير باي" FieldSales; then echo "✗ اسم المزوّد"; exit 1; fi
           # لا Privacy Manifest في التطبيق: أي واجهة «سبب مطلوب» في كوده يرفضها App Store Connect (ITMS-91053)
           if grep -RnE --include='*.swift' "UserDefaults|systemUptime|mach_absolute_time|creationDate|modificationDate|ModificationDate|volumeAvailableCapacity|systemFreeSize|activeInputModes" FieldSales; then echo "✗ واجهة تتطلب Privacy Manifest"; exit 1; fi
-          # الإصدار في الإعدادين (Debug وRelease) كلاهما 1.1.0
-          test "$(grep -c 'MARKETING_VERSION = ' FieldSales.xcodeproj/project.pbxproj)" -eq "$(grep -c 'MARKETING_VERSION = 1.1.0;' FieldSales.xcodeproj/project.pbxproj)"
-          grep -q "MARKETING_VERSION = 1.1.0;" FieldSales.xcodeproj/project.pbxproj
+          # الإصدار في الإعدادين (Debug وRelease) كلاهما 1.2.0
+          test "$(grep -c 'MARKETING_VERSION = ' FieldSales.xcodeproj/project.pbxproj)" -eq "$(grep -c 'MARKETING_VERSION = 1.2.0;' FieldSales.xcodeproj/project.pbxproj)"
+          grep -q "MARKETING_VERSION = 1.2.0;" FieldSales.xcodeproj/project.pbxproj
 
       - name: نسخة Xcode
         run: xcodebuild -version

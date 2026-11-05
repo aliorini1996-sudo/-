@@ -48,7 +48,7 @@ jobs:
           if /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" FieldSales/Info.plist 2>/dev/null | grep -qi bluetooth; then echo "✗ وضع خلفية للبلوتوث"; exit 1; fi
           if grep -RniE "nearpay|near pay|نيرباي|نير باي" FieldSales; then echo "✗ اسم المزوّد"; exit 1; fi
           if grep -RnE --include='*.swift' "UserDefaults|systemUptime|mach_absolute_time|creationDate|modificationDate|ModificationDate|volumeAvailableCapacity|systemFreeSize|activeInputModes" FieldSales; then echo "✗ واجهة تتطلب Privacy Manifest"; exit 1; fi
-          test "$(grep -c 'MARKETING_VERSION = ' FieldSales.xcodeproj/project.pbxproj)" -eq "$(grep -c 'MARKETING_VERSION = 1.1.0;' FieldSales.xcodeproj/project.pbxproj)"
+          test "$(grep -c 'MARKETING_VERSION = ' FieldSales.xcodeproj/project.pbxproj)" -eq "$(grep -c 'MARKETING_VERSION = 1.2.0;' FieldSales.xcodeproj/project.pbxproj)"
 
       # المكتبات (Firebase) كبناء TestFlight: fastlane cocoapods ⇒ هنا pod install بالإصدار المثبّت في Gemfile
       - uses: ruby/setup-ruby@v1

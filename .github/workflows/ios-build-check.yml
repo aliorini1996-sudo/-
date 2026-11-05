@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - feature/ios-bg-tracking
+      - "release/ios-*"
   workflow_dispatch:
 
 permissions:
@@ -48,7 +49,9 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :NSLocationWhenInUseUsageDescription" FieldSales/Info.plist
           /usr/libexec/PlistBuddy -c "Print :NSLocationTemporaryUsageDescriptionDictionary:WorkdayRoute" FieldSales/Info.plist
           if /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" FieldSales/Info.plist 2>/dev/null | grep -qi bluetooth; then echo "✗ وضع خلفية للبلوتوث"; exit 1; fi
-          if grep -q CODE_SIGN_ENTITLEMENTS FieldSales.xcodeproj/project.pbxproj; then echo "✗ Entitlements"; exit 1; fi
+          # الصلاحيات (الإشعارات) في Release وحده بحارسها الخاص — بدل الحارس القديم الذي يرفض أي CODE_SIGN_ENTITLEMENTS
+          python3 -I ci/check_push.py
+          python3 -I ci/check_push.py --selftest
           if grep -RniE "nearpay|near pay|نيرباي|نير باي" FieldSales; then echo "✗ اسم المزوّد"; exit 1; fi
           if grep -RnE --include='*.swift' "UserDefaults|systemUptime|mach_absolute_time|creationDate|modificationDate|ModificationDate|volumeAvailableCapacity|systemFreeSize|activeInputModes" FieldSales; then echo "✗ واجهة تتطلب Privacy Manifest"; exit 1; fi
 
