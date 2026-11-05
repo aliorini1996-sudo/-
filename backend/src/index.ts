@@ -80,6 +80,7 @@ import paymentsRouter, { paymentsWebhookRouter } from './routes/payments';
 import paylinkRouter from './routes/paylink';
 import cardPaymentsRouter from './routes/cardPayments';
 import ledgerRouter from './routes/ledger';
+import ownerPurgeRouter from './routes/ownerPurge';
 import { createZatcaRouter, zatcaErrorGuard } from './routes/zatca';
 import { productionZatcaDeps } from './routes/zatcaDeps';
 import { errorHandler } from './middleware/errorHandler';
@@ -222,6 +223,8 @@ app.use('/api/invoices', invoicesRouter);
 // (einvoice/summary، einvoice/documents، :id/einvoice/messages، :id/einvoice/xml، einvoice/submit-pause) يسقط هنا.
 app.use('/api/invoices', invoicesEinvoiceDocsRouter);
 app.use('/api/receipts', receiptsRouter);
+// «الحذف النهائي» لمالك المنصة وحده داخل جلسة «دخول» أصدرها (services/ownerPurge.ts)
+app.use('/api/owner-purge', ownerPurgeRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/notifications', notificationsRouter);

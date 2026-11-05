@@ -1,11 +1,12 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import { PhoneCall, Fuel, LayoutDashboard, Users, Package, UserCheck, FileText, Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap, CreditCard, ClipboardCheck, Landmark, Sparkles, Wallet, MapPinned, Layers } from 'lucide-react';
+import { PhoneCall, Fuel, LayoutDashboard, Users, Package, UserCheck, FileText, Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap, CreditCard, ClipboardCheck, Landmark, Sparkles, Wallet, MapPinned, Layers, Trash2 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { companyApi } from '../api/client';
 import { setActiveCurrency, setActiveNumerals } from '../utils/format';
 import ChangePasswordModal from '../components/ChangePasswordModal';
+import OwnerPurgeModal, { isOwnerIssuedSession } from '../components/OwnerPurgeModal';
 import SupportModal from '../components/SupportModal';
 import EmailVerifyBanner from '../components/EmailVerifyBanner';
 import CompanyBrand from '../components/CompanyBrand';
@@ -58,6 +59,7 @@ const navItems = [
 
 export default function MainLayout() {
   const { user, token, logout, impersonating, stopImpersonating } = useAuthStore();
+  const [purgeOpen, setPurgeOpen] = useState(false);
   const t = useT();
   const [collapsed, setCollapsed] = useState(false);
   // «المدفوع» لحظيّ: سندٌ من جوال مندوب أو من إداريٍّ آخر يظهر هنا دون إعادة تحميل
@@ -98,11 +100,20 @@ export default function MainLayout() {
           <span className="flex items-center gap-2 font-medium">
             <Eye size={16} /> {t('nav.impersonating')} «{impersonating}» {t('nav.asOwner')}
           </span>
-          <button onClick={backToPlatform} className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1 font-semibold">
-            <ArrowRight size={14} /> {t('nav.backToPlatform')}
-          </button>
+          <span className="flex items-center gap-2">
+            {/* «حذف نهائي» لمالك المنصة وحده (جلسة «دخول» أصدرها هو) — الخادم يحرسه أيضاً */}
+            {isOwnerIssuedSession(token) && (
+              <button onClick={() => setPurgeOpen(true)} className="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 rounded-lg px-3 py-1 font-semibold">
+                <Trash2 size={14} /> حذف نهائي
+              </button>
+            )}
+            <button onClick={backToPlatform} className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1 font-semibold">
+              <ArrowRight size={14} /> {t('nav.backToPlatform')}
+            </button>
+          </span>
         </div>
       )}
+      {purgeOpen && <OwnerPurgeModal onClose={() => setPurgeOpen(false)} />}
       <EmailVerifyBanner />
     <div className="flex flex-1 overflow-hidden bg-slate-100">
       {/* Sidebar */}
