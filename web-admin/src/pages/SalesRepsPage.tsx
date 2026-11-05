@@ -63,8 +63,8 @@ export default function SalesRepsPage() {
     onSuccess: (_data, variables) => {
       const wasCreate = !selected;
       qc.invalidateQueries({ queryKey: ['sales-reps'] });
-      /* نافذة الفاتورة تقرأ «النوع الافتراضي» للمندوب من ['sales-reps-all'] (مفتاحٌ غير هذا، وstaleTime ٣٠ ثانية): بلا إبطالٍ
-       * تُسعَّر فاتورةٌ بعد الحفظ مباشرةً بنوعه القديم وتُختم به بصمت */
+      /* نافذة الفاتورة تقرأ «القائمة الافتراضية» للمندوب من ['sales-reps-all'] (مفتاحٌ غير هذا، وstaleTime ٣٠ ثانية): بلا إبطالٍ
+       * تُسعَّر فاتورةٌ بعد الحفظ مباشرةً بقائمته القديمة وتُختم بها بصمت */
       qc.invalidateQueries({ queryKey: ['sales-reps-all'] });
       setShowModal(false);
       setSelected(null);
@@ -170,7 +170,7 @@ export default function SalesRepsPage() {
    * الافتراضية «مفعّل» ولا تُحجب الأرقام عمّن تعذّرت قراءة إعداداته. */
   const { on: accountingFlag, ready: accountingReady } = useAccountingOn();
   const accountingOn = accountingReady && accountingFlag;
-  // «أنواع الأسعار»: عمود نوع سعر المندوب (الافتراضي وما يبدّل بينه) لشركةٍ عرّفت أنواعاً وحدها — والمسار محروسٌ بالمحاسبة
+  // «قوائم الأسعار»: عمود قائمة المندوب (الافتراضية وما يبدّل بينه) لشركةٍ عرّفت قوائم وحدها — والمسار محروسٌ بالمحاسبة
   const { data: priceInfo } = useQuery({
     queryKey: ['price-lists'],
     queryFn: async () => priceListsOf((await priceListApi.list()).data.data),
@@ -253,7 +253,7 @@ export default function SalesRepsPage() {
                 {accountingOn && <th className="text-center">{tr('تحصيل')}</th>}
                 {accountingOn && <th className="text-center">{tr('تغيير سعر')}</th>}
                 {accountingOn && <th className="text-center">{tr('خصم أقصى')}</th>}
-                {priceTypesCol && <th>{tr('نوع السعر')}</th>}
+                {priceTypesCol && <th>{tr('قائمة الأسعار')}</th>}
                 {accountingOn && <th className="text-center">{tr('مخزون السيارة')}</th>}
                 <th className="text-center">{tr('إضافة عميل')}</th>
                 <th>{tr('الحالة')}</th>

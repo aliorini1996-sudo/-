@@ -584,6 +584,38 @@ test('«أنواع الأسعار»: التحويل يقسم أسعار الصن
   assert.deepEqual(countedWhere, { tenantId: TENANT, productId: 'p1' });
 });
 
+test('«قوائم الأسعار» بقواعدها: التحويل يقسم basePrice قواعد الصنف الثابتة على F في المعاملة نفسها (لا النسبة ولا سعر الفئة ولا الحدّ الأدنى)، ويعدّها في الردّ والمعاينة حين وُجدت وحدها', async () => {
+  reset();
+  productWorld();
+  const divided: any[] = [];
+  scripted['priceListRule.updateMany'] = (args) => { divided.push({ args, inTx }); return { count: 3 }; };
+  const r = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  // ÷ F بلا تقريب كسعر الصنف في القائمة، وبشرط الشركة، وللقواعد الثابتة لوحدة الأساس وحدها (basePrice غير فارغ)
+  assert.deepEqual(divided, [{ args: { where: { productId: 'p1', tenantId: TENANT, basePrice: { not: null } }, data: { basePrice: { divide: 24 } } }, inTx: true }]);
+  assert.equal(r.body.converted.priceListRules, 3);
+  assert.equal('priceListItems' in r.body.converted, false, 'كلٌّ بعدّاده');
+  // لا يمسّ غير basePrice (النسبة والحدّ الأدنى بالرئيسية وسعر الفئة للرئيسية ثابتةٌ بالتحويل)
+  assert.deepEqual(Object.keys(divided[0].args.data), ['basePrice']);
+  // صنفٌ بلا قواعد ثابتة: شكل الردّ كما كان (لا مفتاح)
+  reset();
+  productWorld();
+  const plain = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+  assert.equal(plain.status, 200, JSON.stringify(plain.body));
+  assert.equal('priceListRules' in plain.body.converted, false);
+  assert.ok(calls.includes('priceListRule.updateMany'), 'الجملة في المعاملة ولو لم تمسّ شيئاً');
+  // المعاينة تعدّها بشرط جملة القسمة نفسه، بلا كتابة
+  reset();
+  productWorld();
+  let countedWhere: unknown = null;
+  scripted['priceListRule.count'] = (args) => { countedWhere = args.where; return 2; };
+  const dry = await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, dryRun: true } });
+  assert.equal(dry.status, 200, JSON.stringify(dry.body));
+  assert.equal(dry.body.converted.priceListRules, 2);
+  assert.deepEqual(countedWhere, { tenantId: TENANT, productId: 'p1', basePrice: { not: null } });
+  assert.equal(calls.includes('priceListRule.updateMany'), false);
+});
+
 test('التحويل لشركةٍ مربوطة بـERP: بلا إقرار ⇒ 409 CONVERT_BASE_ERP_ACK بلا معاملة، وبالإقرار يمرّ', async () => {
   reset();
   productWorld();

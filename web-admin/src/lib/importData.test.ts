@@ -1562,7 +1562,7 @@ test('البند 31: «السعر شامل الضريبة» يُكشف من ال
   assert.equal(chosen.valid[0].basePrice, 115);
   assert.equal(notice(chosen.notices, PRICE_INCL_TAX_SUGGESTED_NOTICE), undefined);
 
-  // وقوائم الأسعار كذلك
+  // وأسعار العملاء الخاصة كذلك
   const pr = prc([{ 'الاسم': 'أ', 'كود الصنف': 'P1', 'Price incl. VAT': 115 }]);
   assert.deepEqual(pr.errors, []);
   assert.equal(pr.valid[0].price, 115);
@@ -1805,4 +1805,16 @@ test('المخزون الافتتاحي والأسعار: عمود «الوحد�
   assert.ok(!('unit' in p.valid[1]), 'بلا وحدة ⇒ الأساس كما كان');
   const unitPriceOnly = prc([{ 'كود العميل': 'K-1', 'كود الصنف': 'A', 'سعر الوحدة': 7 }]);
   assert.equal(unitPriceOnly.columns?.find((x) => x.field === 'unit')?.header, null, '«سعر الوحدة» سعرٌ لا وحدة');
+});
+
+// «قوائم الأسعار» صار اسم ميزة القوائم وقواعدها (طلب المالك ٥ نوفمبر ٢٠٢٦): استيراد أسعار العملاء الخاصة باسمه الصريح — لا اسمان
+// لشيئين في الشاشة نفسها. والمسار والمعرّف ('prices' و/import/prices) كما هما
+test('نوع الاستيراد «أسعار العملاء الخاصة» لا «قوائم الأسعار»، والمسار والمعرّف كما كانا، وترتيب الاستيراد بالاسم نفسه', () => {
+  assert.equal(IMPORT_TYPES.prices.label, 'أسعار العملاء الخاصة');
+  assert.equal(IMPORT_TYPES.prices.id, 'prices');
+  assert.equal(IMPORT_TYPES.prices.endpoint, '/import/prices');
+  for (const t of Object.values(IMPORT_TYPES)) assert.notEqual(t.label, 'قوائم الأسعار', t.id);
+  const panel = fs.readFileSync(path.resolve(process.cwd(), 'src', 'components', 'DataImportPanel.tsx'), 'utf8');
+  assert.ok(panel.includes("ثم أسعار العملاء الخاصة لأنها تربط بالعملاء والأصناف بالكود أو الجوال')}"));
+  assert.ok(!panel.includes('ثم قوائم الأسعار لأنها'));
 });

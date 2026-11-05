@@ -5,7 +5,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { DEVICE_CLOCK_SKEW_TOLERANCE_MS, OFFLINE_INVOICE_DATE_MAX_AGE_MS, offlineInvoiceDate, type OfflineDateInput } from '../services/offlineInvoiceDate';
+import {
+  DEVICE_CLOCK_SKEW_TOLERANCE_MS, OFFLINE_INVOICE_DATE_MAX_AGE_MS, devicePriceInstant, offlineInvoiceDate, type DevicePriceInput, type OfflineDateInput,
+} from '../services/offlineInvoiceDate';
 import { CUTOVER_BACKDATE_LIMIT_MS } from '../compliance/zatca/goLive';
 import { prefixFor } from '../utils/helpers';
 
@@ -114,4 +116,44 @@ test('D11-4: بادئة رقم المستند المؤرَّخ بلحظة الج
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'invoices.ts'), 'utf8');
   assert.match(src, /const numTz = offlineAt \? await tenantTz\(tid\)\.catch\(\(\) => undefined\) : undefined;/);
   assert.match(src, /generateReturnNumber\(tid, docDate, numTz\) : await generateInvoiceNumber\(tid, docDate, numTz\)/);
+});
+
+// ═══ «قوائم الأسعار» (٥ نوفمبر ٢٠٢٦): لحظة الجهاز ليوم تسعير قواعد القائمة ذات الفترة (devicePriceInstant) ═══
+
+const priceBase = (o: Partial<DevicePriceInput> = {}): DevicePriceInput => ({
+  replay: true, role: 'SALES_REP', viaApiKey: false, clientCreatedAt: '2026-11-03T19:00:00.000Z', now: NOW, ...o,
+});
+
+test('devicePriceInstant: حصر offlineInvoiceDate نفسه — إعادة رفع المندوب وحده، لا مستقبل ولا أقدم من سبعة أيام، واللحظة التالفة ⇒ null', () => {
+  assert.equal(devicePriceInstant(priceBase())?.toISOString(), '2026-11-03T19:00:00.000Z');
+  assert.equal(devicePriceInstant(priceBase({ replay: false })), null, 'إصدار حيّ');
+  assert.equal(devicePriceInstant(priceBase({ role: 'ADMIN' })), null, 'لوحة الإدارة');
+  assert.equal(devicePriceInstant(priceBase({ viaApiKey: true })), null, 'مفتاح API');
+  assert.equal(devicePriceInstant(priceBase({ clientCreatedAt: new Date(NOW.getTime() + 60_000).toISOString() })), null, 'مستقبل');
+  const edge = new Date(NOW.getTime() - OFFLINE_INVOICE_DATE_MAX_AGE_MS);
+  assert.equal(devicePriceInstant(priceBase({ clientCreatedAt: edge.toISOString() }))?.getTime(), edge.getTime());
+  assert.equal(devicePriceInstant(priceBase({ clientCreatedAt: new Date(edge.getTime() - 1).toISOString() })), null, 'أقدم من سبعة أيام');
+  for (const clientCreatedAt of [undefined, null, '', 'غداً']) assert.equal(devicePriceInstant(priceBase({ clientCreatedAt })), null, String(clientCreatedAt));
+  // وانحراف ساعة الجهاز يُصحَّح بالفرق كما في التأريخ
+  const behind = devicePriceInstant(priceBase({ clientCreatedAt: '2026-11-03T17:00:00.000Z', deviceNow: String(NOW.getTime() - 2 * 3_600_000) }));
+  assert.equal(behind?.toISOString(), '2026-11-03T19:00:00.000Z');
+});
+
+test('devicePriceInstant بلا استثناءي التأريخ: المرحلة الثانية لا تُسقط لحظة البيع، ولا يُقرأ تاريخ الجسم — والتأريخ نفسه كما كان', () => {
+  const p2 = new Date('2026-10-02T00:00:00.000Z');
+  assert.equal(offlineInvoiceDate(base({ phase2StartedAt: p2 })), null, 'التأريخ بالختم كما كان');
+  assert.equal(devicePriceInstant({ ...priceBase(), phase2StartedAt: p2 } as DevicePriceInput)?.toISOString(), '2026-11-03T19:00:00.000Z');
+  assert.equal(offlineInvoiceDate(base({ bodyInvoiceDate: '2026-11-01' })), null, 'التاريخ الصريح يغلب التأريخ كما كان');
+  assert.equal(devicePriceInstant({ ...priceBase(), bodyInvoiceDate: '2026-11-01' } as DevicePriceInput)?.toISOString(), '2026-11-03T19:00:00.000Z');
+});
+
+test('حارس نصّي: يوم تسعير القائمة في POST /invoices من devicePriceInstant (لا invoiceDate) ومنطقة الشركة لقائمةٍ بقاعدةٍ ذات فترة وحدها', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'invoices.ts'), 'utf8');
+  const at = src.indexOf('const pricingDay = ');
+  assert.ok(at > 0);
+  const block = src.slice(at, src.indexOf(';', src.indexOf('toISOString().slice(0, 10)', at)) + 1);
+  assert.match(block, /^const pricingDay = docRules\.some\(\(r\) => r\.startsOn != null \|\| r\.endsOn != null\)\s*\? companyDayOf\(devicePriceInstant\(\{/);
+  assert.match(block, /clientCreatedAt: deviceAt, deviceNow: headerText\(req\.headers\[DEVICE_NOW_HEADER\]\), now: new Date\(\),\s*\}\) \?\? new Date\(\), await tenantTz\(tid\)\)/);
+  assert.equal(block.includes('invoiceDate'), false, 'تاريخ الجسم لا يحكم السعر');
+  assert.equal(block.includes('phase2StartedAt'), false);
 });

@@ -83,3 +83,17 @@ export function offlineInvoiceDate(i: OfflineDateInput): Date | null {
   if (now - t > OFFLINE_INVOICE_DATE_MAX_AGE_MS) return null;
   return at;
 }
+
+/** مدخلات لحظة الجهاز للتسعير: مدخلات offlineInvoiceDate بلا التاريخ الصريح ولا المرحلة الثانية */
+export type DevicePriceInput = Omit<OfflineDateInput, 'bodyInvoiceDate' | 'phase2StartedAt'>;
+
+/**
+ * «قوائم الأسعار» (طلب المالك ٥ نوفمبر ٢٠٢٦): لحظة إصدار مستند الصندوق على الجهاز — يومُ تسعير قواعد القائمة ذات الفترة في حارس
+ * سعر المندوب (routes/invoices.ts)، فعرضٌ سرى لحظة البيع وانتهى قبل المزامنة لا يُعدم مستنداً سُلّمت بضاعته.
+ * حصر offlineInvoiceDate نفسه حرفاً (إعادة رفع المندوب وحده لا الإدارة ولا مفتاح API، مصحَّحةً بانحراف ساعته عبر X-FS-Device-Now،
+ * لا مستقبل ولا أقدم من سبعة أيام — وإلا null فساعة الخادم) **بلا استثناءي التأريخ**: التاريخ الصريح في الجسم يختاره المرسل فلا يحكم
+ * السعر أبداً، والمرحلة الثانية تؤرّخ المستند بلحظة ختمه لكنّ البيع وقع لحظة الجهاز. نقيّة.
+ */
+export function devicePriceInstant(i: DevicePriceInput): Date | null {
+  return offlineInvoiceDate({ ...i, bodyInvoiceDate: null, phase2StartedAt: null });
+}

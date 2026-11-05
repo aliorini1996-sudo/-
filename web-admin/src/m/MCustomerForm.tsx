@@ -195,12 +195,12 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
           )}
           {showPriceList && (
             <div data-m-customer-price-list="">
-              <label className="label">{tr('نوع السعر')}</label>
+              <label className="label">{tr('قائمة الأسعار')}</label>
               <select className="input" value={form.priceListId} onChange={e => set('priceListId', e.target.value)}>
                 <option value="">{baseLabelOf(priceInfoQ.data, tr)}</option>
                 {priceLists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
-              <p className="text-[11px] text-[#9A8F7E] mt-1 px-1">{tr('تسعر به فواتير العميل تلقائيا')}</p>
+              <p className="text-[11px] text-[#9A8F7E] mt-1 px-1">{tr('تسعر بها فواتير العميل تلقائيا')}</p>
             </div>
           )}
         </Group>

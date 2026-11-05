@@ -105,8 +105,8 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
       defaultPriceListId: defaults.defaultPriceListId ?? null, allowedPriceTypes: defaults.allowedPriceTypes ?? null,
     },
   });
-  /* «أنواع الأسعار» للمندوب (طلب المالك ٢ نوفمبر ٢٠٢٦): نوعه الافتراضي تُسعَّر به فواتير العميل الذي لا نوع له، والأنواع التي
-   * يبدّل بينها بصلاحية «تبديل نوع السعر» (لا تحديد = كل الأنواع = null). القسم لشركةٍ عرّفت أنواعاً وحدها والمحاسبة مفعّلة،
+  /* «قوائم الأسعار» للمندوب (طلب المالك ٢ نوفمبر ٢٠٢٦): قائمته الافتراضية تُسعَّر بها فواتير العميل الذي لا قائمة له، والقوائم التي
+   * يبدّل بينها بصلاحية «تبديل قائمة الأسعار» (لا تحديد = كل القوائم = null). القسم لشركةٍ عرّفت قوائم وحدها والمحاسبة مفعّلة،
    * وصفّ مندوبٍ بلا المفتاح (خادمٌ قبل الميزة) بلا قسم — والمخفيّ يُرسل محفوظه كما هو */
   const { data: priceInfo } = useQuery({
     queryKey: ['price-lists'],
@@ -225,8 +225,8 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
             <div className="grid grid-cols-2 gap-3">
               <PermToggle label={tr('تغيير السعر')} {...register('canChangePrice')} />
               <PermToggle label={tr('البيع أقل من السعر')} {...register('canSellBelowPrice')} />
-              {/* «أنواع الأسعار»: بلاها يبيع المندوب بنوع سعر العميل (أو نوعه الافتراضي) وحده، ومعها يبدّل رقاقة النوع على الفاتورة */}
-              <PermToggle label={tr('تبديل نوع السعر')} {...register('canChangePriceList')} />
+              {/* «قوائم الأسعار»: بلاها يبيع المندوب بقائمة العميل (أو قائمته الافتراضية) وحدها، ومعها يبدّل رقاقة القائمة على الفاتورة */}
+              <PermToggle label={tr('تبديل قائمة الأسعار')} {...register('canChangePriceList')} />
             </div>
             <div className="mt-3 max-w-xs">
               <label className="label">{tr('أقصى نسبة خصم %')}</label>
@@ -236,8 +236,8 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
 
           {priceLists.length > 0 && (
           <div data-rep-price-types="">
-            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('أنواع الأسعار')}</h3>
-            <label className="label">{tr('أنواع الأسعار المسموحة')}</label>
+            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('قوائم الأسعار')}</h3>
+            <label className="label">{tr('القوائم المسموحة')}</label>
             <div className="grid grid-cols-2 gap-3">
               {repPriceTypeTokens(listIds).map(tok => (
                 <PermToggle key={tok} label={typeName(tok === BASE_PRICE_TYPE ? null : tok)} checked={!!allowedTok?.includes(tok)}
@@ -246,18 +246,18 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
             </div>
             <p className="text-xs text-gray-400 mt-2 leading-relaxed">
               {!watch('canChangePriceList')
-                ? tr('بلا صلاحية تبديل نوع السعر يبيع المندوب بنوع سعر العميل أو بنوعه الافتراضي وحده')
+                ? tr('بلا صلاحية تبديل قائمة الأسعار يبيع المندوب بقائمة العميل أو بقائمته الافتراضية وحدها')
                 : allowedTok
-                  ? tr('يبدل المندوب بين الأنواع المحددة وحدها بصلاحية تبديل نوع السعر ونوع سعر العميل متاح له دائما')
-                  : tr('بلا تحديد يبدل المندوب بين كل الأنواع بصلاحية تبديل نوع السعر')}
+                  ? tr('يبدل المندوب بين القوائم المحددة وحدها بصلاحية تبديل قائمة الأسعار وقائمة العميل متاحة له دائما')
+                  : tr('بلا تحديد يبدل المندوب بين كل القوائم بصلاحية تبديل قائمة الأسعار')}
             </p>
             <div className="mt-3 max-w-xs">
-              <label className="label">{tr('النوع الافتراضي')}</label>
+              <label className="label">{tr('القائمة الافتراضية')}</label>
               <select className="input" value={defaultTypeId ?? ''} onChange={e => setValue('defaultPriceListId', e.target.value || null, { shouldDirty: true })}>
                 {repDefaultChoices(allowedTok, listIds).map(t => <option key={t ?? ''} value={t ?? ''}>{typeName(t)}</option>)}
               </select>
             </div>
-            <p className="text-xs text-gray-400 mt-2 leading-relaxed">{tr('تسعر به فواتير المندوب للعميل الذي لا نوع له ونوع سعر العميل يغلبه')}</p>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">{tr('تسعر بها فواتير المندوب للعميل الذي لا قائمة له وقائمة العميل تغلبها')}</p>
           </div>
           )}
 

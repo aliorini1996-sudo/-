@@ -31,7 +31,7 @@ import {
 import { roundHalfUp } from '../../lib/money';
 
 interface Props {
-  /** onSave: الصنف كما كان، ومعه listPriceEdits («أنواع الأسعار») حين تغيّر سعر نوعٍ — تحفظه الصفحة بمساره بعد الصنف */
+  /** onSave: الصنف كما كان، ومعه listPriceEdits («قوائم الأسعار») حين تغيّر سعر الصنف في قائمة — تحفظه الصفحة بمساره بعد الصنف */
   // duplicateNameAck: أقرّ المدير بالاسم المكرَّر قبل الحفظ (D4) — فلا تُعيد الصفحة تحذير الخادم نفسه بعده؛ والخادم يُسقطه
   product: Product | null; onClose: () => void; onSave: (data: Partial<Product> & { listPriceEdits?: ListPriceEdits; duplicateNameAck?: boolean }) => void; loading: boolean;
   /** فوترة ZATCA (Z5.1a): الشركة تجمع بيانات الفوترة؟ (zatcaCollectOn) — false ⇒ النموذج والحمولة كما اليوم */
@@ -95,7 +95,7 @@ const serverCode = (err: unknown): string | undefined =>
 const UNITS_STALE_CODES = new Set(['BASE_UNIT_CHANGED', 'PRIMARY_UNIT_CHANGED', 'PRIMARY_UNIT_IN_USE']);
 const isUnitsStale = (err: unknown): boolean => UNITS_STALE_CODES.has(serverCode(err) ?? '');
 const UNITS_STALE_MSG = 'تغيّرت وحدات الصنف — أعد فتحه';
-/** أخطاء reverseFormProblem في خانتي السعر الافتراضي — تخفيهما رقاقة «نوع سعر» فيعيد الخطأ الرقاقة الأولى */
+/** أخطاء reverseFormProblem في خانتي السعر الافتراضي — تخفيهما رقاقة «قائمة أسعار» فيعيد الخطأ الرقاقة الأولى */
 const REVERSE_PRICE_PROBLEMS = new Set(['سعر الوحدة الرئيسية مطلوب', 'سعر الوحدة رقم موجب']);
 /** تلميح «إضافة وحدة فرعية أصغر» المعطَّل بحسب سبب الخادم (convertBaseRefusalCode من ردّ الدخول — §4.2) */
 const CONVERT_REFUSAL_HINTS: Record<NonNullable<User['convertBaseRefusalCode']>, string> = {
@@ -179,9 +179,10 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
   const [convertOpen, setConvertOpen] = useState(false);
   const [modeBusy, setModeBusy] = useState(false);
 
-  /* «أنواع الأسعار» (رسم المالك): رقاقاتٌ فوق خانة السعر — الأولى السعر الافتراضي (basePrice كما كان حرفاً) باسمه الذي تختاره
-   * الشركة، وبعدها نوعٌ لكل قائمة تحرّر الخانة سعره بالوحدة الرئيسية صافياً (الصغرى بلاها). المحفوظ لوحدة الأساس (listBase)
-   * ويُعرض × معامل الرئيسية، والمسودّة (listDraft) ما كُتب وحده — فلا يُعاد حفظ نوعٍ لم يُلمس بقيمةٍ مقرَّبة */
+  /* «قوائم الأسعار» (رسم المالك): رقاقاتٌ فوق خانة السعر — الأولى السعر الافتراضي (basePrice كما كان حرفاً) باسمه الذي تختاره
+   * الشركة، وبعدها رقاقةٌ لكل قائمة تحرّر الخانة سعر الصنف الثابت فيها (PriceListItem) بالوحدة الرئيسية صافياً (الصغرى بلاها).
+   * المحفوظ لوحدة الأساس (listBase) ويُعرض × معامل الرئيسية، والمسودّة (listDraft) ما كُتب وحده — فلا يُعاد حفظ قائمةٍ لم تُلمس
+   * بقيمةٍ مقرَّبة. وقواعد القائمة (نسبة/فئة/حدّ أدنى/فترة) تُحرَّر من «الأسعار والقواعد» في لوحة القوائم لا من هنا */
   const { data: priceInfo } = useQuery({
     queryKey: ['price-lists'],
     queryFn: async () => priceListsOf((await priceListApi.list()).data.data),
@@ -297,12 +298,12 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
     queryFn: async () => { const res = await productApi.categories(); return res.data.data as { id: string; name: string }[]; },
   });
 
-  /** رقاقة «+»: نوعٌ جديد في مكانه (POST /price-lists) ثم تُختار رقاقته — والقائمة تُحدَّث قبلها فتظهر */
+  /** رقاقة «+»: قائمةٌ جديدة في مكانها (POST /price-lists) ثم تُختار رقاقتها — والقوائم تُحدَّث قبلها فتظهر */
   const addPriceList = async (name: string): Promise<string | null> => {
     try {
       const { data } = await priceListApi.create(name);
       await qc.invalidateQueries({ queryKey: ['price-lists'] });
-      toast.success(tr('أضيف نوع السعر'));
+      toast.success(tr('أضيفت قائمة الأسعار'));
       return String((data?.data as { id?: string } | undefined)?.id ?? '') || null;
     } catch (err) {
       toast.error(tr(serverMessage(err) || 'تعذر الحفظ'));
@@ -406,7 +407,7 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
     // عميلٍ بلا نوع (ومنهم كل عميلٍ يضيفه المندوب). فالرقاقة الأولى وسؤالٌ قبل الحفظ (صفرٌ مقصود يُحفظ بعد التأكيد)
     if (!product && !reverseLayout && listEdits.items.some(i => i.price != null) && !(Number(rest.basePrice) > 0)) {
       setPriceTab(null);
-      if (!window.confirm(fill(tr('{label} صفر وبه تسعر فواتير العميل الذي لا نوع له — أتحفظ الصنف هكذا؟'), { label: baseLabel }))) return;
+      if (!window.confirm(fill(tr('{label} صفر وبه تسعر فواتير العميل الذي لا قائمة له — أتحفظ الصنف هكذا؟'), { label: baseLabel }))) return;
     }
     const listPriceEdits: ListPriceEdits | null = listEdits.items.length
       ? { items: listEdits.items, expectedPrimary: reverseLayout && product && primary?.id ? { id: primary.id, factor: Math.round(fieldNum(rev.factor)) } : null }
@@ -459,8 +460,8 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
   const revPrimaryPrice = fieldNum(rev.primaryPrice);
   const revDerivedHint = Number.isFinite(revPrimaryPrice) && revPrimaryPrice >= 0 && Number.isInteger(revFactor) && revFactor >= 2
     ? reverseSubPrice({ ...rev, subPrice: '' }) : null;
-  // «أنواع الأسعار»: الرقاقات ظاهرةٌ متى قُرئت الأنواع ولو لم تُعرَّف بعد (قرار المالك) — رقاقة السعر الافتراضي ورقاقة «+» تضيف
-  // نوعاً في مكانه (النافذة لمن يملك صلاحية الأصناف أصلاً). وخانة النوع المختار بالوحدة الرئيسية
+  // «قوائم الأسعار»: الرقاقات ظاهرةٌ متى قُرئت القوائم ولو لم تُعرَّف بعد (قرار المالك) — رقاقة السعر الافتراضي ورقاقة «+» تضيف
+  // قائمةً في مكانها (النافذة لمن يملك صلاحية الأصناف أصلاً). وخانة القائمة المختارة بالوحدة الرئيسية
   const chipsOn = !!priceInfo;
   const priceChips = chipsOn && (
     <PriceTypeChips baseLabel={baseLabel} lists={lists} value={activeList?.id ?? null} onChange={setPriceTab}
@@ -470,7 +471,10 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
     <input type="number" className="input" min="0" step="any" inputMode="decimal" data-list-price="" value={listValue(activeList.id)}
       placeholder={baseLabel} onChange={e => { const v = e.target.value; const id = activeList.id; setListDraft(d => ({ ...d, [id]: v })); }} />
   );
-  const listHint = <p className="text-[10px] text-gray-400 mt-1">{tr('قبل الضريبة')} · {fill(tr('فارغ يعني {label}'), { label: baseLabel })}</p>;
+  // الفارغ: قائمةٌ بلا قواعد ⇒ السعر الافتراضي كما كان؛ وبقواعد ⇒ قواعدها ثم الافتراضي (lib/priceRules.ts listPriceOf)
+  const listHint = <p className="text-[10px] text-gray-400 mt-1">{tr('قبل الضريبة')} · {(activeList?.rulesCount ?? 0) > 0
+    ? fill(tr('فارغ يعني قواعد القائمة ثم {label}'), { label: baseLabel })
+    : fill(tr('فارغ يعني {label}'), { label: baseLabel })}</p>;
   // سعر الوحدة الفرعية في النوع المختار مشتقٌّ دائماً: سعر الرئيسية ÷ العدد (لا خانة له)
   const listSubDerived = (() => {
     if (!activeList) return '';
@@ -1299,7 +1303,7 @@ const convertServerText = (err: unknown): string => {
  */
 function ConvertBaseDialog({ productId, baseUnit, basePrice, units, primaryUnitId, listPriced = false, onClose, onDone, onStale }: {
   productId: string; baseUnit: string; basePrice: number; units: ProductUnit[]; primaryUnitId: string | null;
-  /** للصنف أسعارٌ في «أنواع الأسعار» — تُقسم على المعامل كأسعار العملاء */
+  /** للصنف أسعارٌ في «قوائم الأسعار» — تُقسم على المعامل كأسعار العملاء */
   listPriced?: boolean;
   onClose: () => void; onDone: (p: Product) => void; onStale: () => void;
 }) {
@@ -1418,7 +1422,7 @@ function ConvertBaseDialog({ productId, baseUnit, basePrice, units, primaryUnitI
             <li>{fill(tr('الصنف يباع اليوم بـ«{unit}» بسعر {price}. بعد الإضافة يبقى «{unit}» بسعره وتصير الوحدة الفرعية أصغر وحدة له'), { unit: expected, price: formatCurrency(basePrice) })}</li>
             <li>{tr('أرقام الفواتير والحركات السابقة لا تتغير: ما بيع بها يبقى مطبوعا كما هو وتحسب كميته بالوحدة الجديدة تلقائيا')}</li>
             <li>{tr('أسعار العملاء الخاصة وشرائح الأسعار تقسم على المعامل فيبقى سعر الوحدة الحالية لكل عميل كما هو')}</li>
-            {listPriced && <li>{tr('وأسعار أنواع الأسعار تقسم على المعامل كذلك فيبقى سعر الوحدة الحالية في كل نوع كما هو')}</li>}
+            {listPriced && <li>{tr('وأسعار قوائم الأسعار تقسم على المعامل كذلك فيبقى سعر الوحدة الحالية في كل قائمة كما هو')}</li>}
             {defaultAfter === defaultNow && <li>{tr('المندوب يستمر في البيع بالوحدة الحالية افتراضيا')}</li>}
           </ul>
 

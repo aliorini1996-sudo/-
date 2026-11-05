@@ -372,6 +372,24 @@ test('tenants.ts DELETE /:id: confirmLedgerDestroy من req.query وحده وب�
   ordered(body, ['tenantDeleteRetentionGuard(', "'LEDGER_RETENTION_ACTIVE'", 'req.query.confirmLedgerDestroy', "'LEDGER_HAS_POSTED_MOVES'", '$transaction('], 'ترتيب حارس الحذف');
 });
 
+test('tenants.ts DELETE /:id: «قوائم الأسعار» — القواعد ثم الأسعار ثم القوائم، وكلها قبل الأصناف والفئات وصفّ الشركة (لا تعاقب من الشركة)', () => {
+  const body = handler(tenantsRoutes(), "router.delete('/:id',");
+  ordered(body, [
+    'tx.priceListRule.deleteMany({ where: { tenantId: tid } })', 'tx.priceListItem.deleteMany({ where: { tenantId: tid } })',
+    'tx.priceList.deleteMany({ where: { tenantId: tid } })', 'tx.product.deleteMany(', 'tx.productCategory.deleteMany(', 'tx.tenant.delete(',
+  ], 'ترتيب حذف قوائم الأسعار');
+  assert.equal(body.split('tx.priceListRule.deleteMany(').length - 1, 1);
+});
+
+test('حذف الصنف وأرشفته يحذف قواعده في القوائم مع أسعاره فيها، واسترجاع فئة الاستيراد يُبقي فئةً عليها قواعد', () => {
+  const products = read('routes/products.ts');
+  const fn = products.slice(products.indexOf('async function deleteOrArchiveLocked('), products.indexOf('\n}\n', products.indexOf('async function deleteOrArchiveLocked(')));
+  ordered(fn, ['priceListItem.deleteMany({ where: { productId: req.params.id } })', 'priceListRule.deleteMany({ where: { productId: req.params.id } })', 'product.update(', 'product.delete('], 'حذف الصنف');
+  const imp = read('routes/import.ts');
+  const del = imp.slice(imp.indexOf('async function deleteImportCategory('), imp.indexOf('\n}\n', imp.indexOf('async function deleteImportCategory(')));
+  ordered(del, ['categoryDeletable(', "return 'kept'", 'tx.priceListRule.count({ where: { tenantId: tid, categoryId: catId } })', "return 'kept'", 'tx.productCategory.deleteMany('], 'فئة الاستيراد');
+});
+
 test('tenants.ts ledger-reset: confirmName يُتحقق منه في الخادم مقابل tenant.name قبل أي كتابة', () => {
   const body = handler(tenantsRoutes(), "router.post('/:id/ledger-reset',");
   ordered(body, [

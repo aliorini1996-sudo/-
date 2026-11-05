@@ -6,9 +6,10 @@ import { useTr } from '../i18n/strings';
 import { PRICE_LIST_NAME_MAX, priceListNameProblem } from '../lib/priceLists';
 
 /**
- * رقاقات «أنواع الأسعار» (رسم المالك): الأولى السعر الافتراضي (basePrice) باسمه الذي تختاره الشركة، ثم رقاقةٌ لكل نوع. النقر
- * يبدّل ما تحرّره خانة السعر (نافذة الصنف) أو النوع الذي تُسعَّر به الفاتورة. `value` null = الافتراضي، والأسماء بيانات لا tr.
- * `marked` نقطةٌ على النوع الذي له سعر، و`onAdd` (اختياري) رقاقة «+» تضيف نوعاً في مكانه وتعيد معرّفه (null عند الفشل).
+ * رقاقات «قوائم الأسعار» (رسم المالك): الأولى السعر الافتراضي (basePrice) باسمه الذي تختاره الشركة، ثم رقاقةٌ لكل قائمة. النقر
+ * يبدّل ما تحرّره خانة السعر (نافذة الصنف: سعر الصنف الثابت في القائمة) أو القائمة التي تُسعَّر بها الفاتورة. `value` null =
+ * الافتراضي، والأسماء بيانات لا tr. `marked` نقطةٌ على القائمة التي للصنف فيها سعر، و`onAdd` (اختياري) رقاقة «+» تضيف قائمةً
+ * في مكانها وتعيد معرّفها (null عند الفشل).
  */
 export default function PriceTypeChips({ baseLabel, lists, value, onChange, disabled, marked, onAdd }: {
   baseLabel: string;
@@ -35,7 +36,7 @@ export default function PriceTypeChips({ baseLabel, lists, value, onChange, disa
     if (id) { setAdding(false); setName(''); onChange(id); }
   };
   return (
-    <div className="flex items-center gap-1.5 flex-wrap" role="radiogroup" aria-label={tr('نوع السعر')} data-price-type-chips="">
+    <div className="flex items-center gap-1.5 flex-wrap" role="radiogroup" aria-label={tr('قائمة الأسعار')} data-price-type-chips="">
       <button type="button" role="radio" aria-checked={value === null} disabled={disabled} onClick={() => onChange(null)} className={chip(value === null)}>
         {baseLabel}
       </button>
@@ -46,16 +47,16 @@ export default function PriceTypeChips({ baseLabel, lists, value, onChange, disa
         </button>
       ))}
       {onAdd && !adding && (
-        <button type="button" disabled={disabled} onClick={() => setAdding(true)} title={tr('إضافة نوع سعر')}
+        <button type="button" disabled={disabled} onClick={() => setAdding(true)} title={tr('إضافة قائمة أسعار')}
           className="inline-flex items-center gap-1 rounded-full border-2 border-dashed border-[#E9E1D3] px-2.5 py-1 text-xs font-semibold text-[#6E6557] hover:border-[#D8CDB9] disabled:opacity-60">
-          <Plus size={12} /> {lists.length === 0 ? tr('إضافة نوع سعر') : null}
+          <Plus size={12} /> {lists.length === 0 ? tr('إضافة قائمة أسعار') : null}
         </button>
       )}
       {onAdd && adding && (
         <span className="inline-flex items-center gap-1">
-          {/* داخل نموذج الصنف: Enter يضيف النوع لا يحفظ الصنف */}
+          {/* داخل نموذج الصنف: Enter يضيف القائمة لا يحفظ الصنف */}
           <input autoFocus className="input !py-1 !px-2 text-xs w-36" maxLength={PRICE_LIST_NAME_MAX} value={name} disabled={busy}
-            placeholder={tr('مثل سعر الجملة')} aria-label={tr('اسم نوع السعر')} onChange={e => setName(e.target.value)}
+            placeholder={tr('مثل سعر الجملة')} aria-label={tr('اسم قائمة الأسعار')} onChange={e => setName(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter') { e.preventDefault(); void add(); }
               if (e.key === 'Escape') { e.preventDefault(); setAdding(false); setName(''); }

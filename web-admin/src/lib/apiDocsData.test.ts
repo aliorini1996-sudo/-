@@ -53,3 +53,15 @@ test('مورد المناديب في المستند يصف defaultPriceListId و
   }
   assert.match(reps.what, /'base'/);
 });
+
+/** «قوائم الأسعار» (٥ نوفمبر ٢٠٢٦، اسمها السابق «أنواع الأسعار»): الموارد بالاسم الجديد، والقوائم وقواعدها ليست مورد مزامنة */
+test('موارد المزامنة تصف «قوائم الأسعار» باسمها الجديد — وأسعار القوائم وقواعدها تُقرأ من /api/price-lists لا من المزامنة', () => {
+  const what = (n: string) => API_SYNC_RESOURCES.find(r => r.name === n)!.what;
+  assert.match(what('customers'), /«قوائم الأسعار»/);
+  assert.match(what('sales-reps'), /«تبديل قائمة الأسعار»/);
+  assert.ok(what('products').includes('GET /api/price-lists/prices وGET /api/price-lists/rules'), 'مورد المنتجات يدلّ على القواعد');
+  for (const r of API_SYNC_RESOURCES) assert.doesNotMatch(r.what, /أنواع الأسعار|أنواع أسعار|نوع السعر|نوع سعر/, r.name);
+  // لا مورد للقوائم ولا لقواعدها — في المستند وفي الخادم
+  assert.ok(!API_SYNC_RESOURCES.some(r => /price-list|price-rule/.test(r.name)));
+  assert.doesNotMatch(backend('services', 'apiSync.ts'), /model: 'priceList(Item|Rule)?'/);
+});

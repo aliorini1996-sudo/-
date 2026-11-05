@@ -142,7 +142,9 @@ test('RepApp: أسعار العميل تمرّ من rebaseCustPrices ويُعا�
 
 test('RepApp refreshUnits: الكتالوج وأسعار العميل معاً، والمرجع بالخريطة الطازجة لا المغلقة', () => {
   // «أنواع الأسعار»: الخريطة الثانية (سعر نوع الفاتورة) بعد سعر العميل — العميل يغلب النوع (priceLists.test وrepPriceLists.test)
-  assert.match(repApp, /const inclOf = \(p: any, c: UnitChoice, cust: Record<string, number> = custPrices, list: Record<string, number> = listPrices\) => roundDecimal\(choiceNet\(c, Number\(p\.basePrice\), cust\[p\.id\] \?\? list\[p\.id\]\)/);
+  // «قوائم الأسعار» بقواعدها (٥ نوفمبر ٢٠٢٦): الثبات نفسه — العميل ثم القائمة ثم سلّم اليوم وتقريبٌ واحد على الشامل — عبر
+  // lineNetWithList (choiceNet تحته) بكمية الصنف (افتراضها بندٌ بوحدته) وقواعد القائمة ويوم الجهاز؛ والخرائط الطازجة تُمرَّر كما كانت
+  assert.match(repApp, /const inclOf = \(p: any, c: UnitChoice, baseQty: number = c\.factor, cust: Record<string, number> = custPrices, list: Record<string, number> = listPrices, rules: readonly RepPriceRule\[\] = listRules\) =>\s*roundDecimal\(lineNetWithList\(c, p, cust\[p\.id\], list\[p\.id\], rules, baseQty, todayLocal\(\)\) \* \(1 \+ Number\(p\.taxPct\) \/ 100\), currencyDecimals\(getActiveCurrency\(\)\)\);/);
   const refresh = between(repApp, 'const refreshUnits = async', '\n  return (');
   assert.match(refresh, /await Promise\.all\(\[\s*fetchThenCache\('products'/);
   assert.match(refresh, /customer\?\.id && !customer\._offline\s*\? fetchThenCache\(`custprices:\$\{customer\.id\}`/, 'العميل الأوف‑لاين بلا أسعار خادم');
@@ -150,7 +152,9 @@ test('RepApp refreshUnits: الكتالوج وأسعار العميل معاً،
   assert.match(refresh, /const freshRows = cust\?\.data \? custPriceRowsOf\(cust\.data, cust\.updatedAt\) : custRows;/);
   assert.match(refresh, /const freshCust = freshRows \? rebaseCustPrices\(freshRows, fresh\) : \{\};/);
   assert.match(refresh, /const freshList = listPricesOf\(freshListRows, listId, fresh\);/, 'أسعار النوع على الأساس الجديد كأسعار العميل');
-  assert.match(refresh, /const ref = inclOf\(p, ch, freshCust, freshList\);/);
+  // «قوائم الأسعار» بقواعدها: وقواعد القائمة الطازجة وكمية الصنف على وحدات البنود بعد التحديث — الخرائط الطازجة كما كانت
+  assert.match(refresh, /const freshRules = repListRulesOf\(freshListRows, listId, fresh\);/);
+  assert.match(refresh, /const ref = inclOf\(p, ch, freshBaseQty\(prev, l\.productId\), freshCust, freshList, freshRules\);/);
   assert.doesNotMatch(refresh, /inclOf\(p, ch\)/, 'الخريطة المغلقة في الـclosure قديمة');
   assert.doesNotMatch(refresh, /inclOf\(p, ch, freshCust\)/, 'خريطة النوع المغلقة قديمة كذلك');
   assert.match(refresh, /if \(freshRows\) setCustRows\(freshRows\);/);

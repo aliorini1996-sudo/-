@@ -80,7 +80,7 @@ export default function CompanySettingsPage() {
     const t = params.get('tab');
     return t === 'api' || t === 'print' ? t : 'general';
   });
-  // «أنواع الأسعار» و«فرق العمل» نُقلتا إلى صفحتي المنتجات والمناديب (طلب المالك ٢ نوفمبر ٢٠٢٦): رابط التبويب القديم يحوّل هناك
+  // «قوائم الأسعار» (كانت «أنواع الأسعار») و«فرق العمل» نُقلتا إلى صفحتي المنتجات والمناديب (طلب المالك ٢ نوفمبر ٢٠٢٦): رابط التبويب القديم يحوّل هناك
   const movedPanel = params.get('tab') === 'prices' ? '/app/products?panel=prices' : params.get('tab') === 'teams' ? '/app/sales-reps?panel=teams' : null;
   // تبويب «إعدادات الطباعة» يُركَّب عند أول فتح ثم يبقى مخفيّاً — فلا تضيع مسودة قوالبه بالتنقّل بين التبويبات
   const [printMounted, setPrintMounted] = useState(() => params.get('tab') === 'print');

@@ -4,6 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { API_DOC_GROUPS, API_DOC_GUIDES, API_DOC_PLACEHOLDER_KEY } from './apiDocsCatalog';
 import { API_BASE_URL, API_DENIED, API_SYNC_RESOURCES } from './apiDocsData';
+import {
+  PRICE_RULE_KINDS, PRICE_RULE_LIMITS, PRICE_RULE_MESSAGES, PRICE_RULE_SCOPES, listLineRef, listPriceOf, priceRuleProblem, qtyPrimaryOf, roundPriceRule,
+} from './priceRules';
 
 /**
  * مستند API يُسلَّم لمبرمج الشركة: كل مسارٍ يذكره يجب أن يكون مركَّباً في الخادم بطريقته — مسارٌ يُحذف أو
@@ -220,8 +223,9 @@ function backendSources(dir: string): string {
 const BACKEND_SRC = backendSources(BACKEND);
 const CODE_RE = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g;
 
-test('أدلّة الربط: صفحة اللوكيشن وصفحة طرق الدفع وصفحة مخزون الشركة وتتبّع اللوط وحركات المخزون من نظامكم وأنواع الأسعار، بخطوات مرقّمة لكلٍّ منها', () => {
-  assert.deepEqual(API_DOC_GUIDES.map((g) => g.title), ['ربط صفحة اللوكيشن', 'ربط صفحة طرق الدفع', 'ربط صفحة مخزون الشركة', 'ربط تتبّع LOT', 'ربط حركات المخزون من نظامكم إلى Field Sales', 'ربط أنواع الأسعار']);
+// «قوائم الأسعار» (طلب المالك ٥ نوفمبر ٢٠٢٦: «غير اسمه الى قوائم الاسعار») — الدليل نفسه بمفتاحه price-lists-guide واسمه الجديد
+test('أدلّة الربط: صفحة اللوكيشن وصفحة طرق الدفع وصفحة مخزون الشركة وتتبّع اللوط وحركات المخزون من نظامكم وقوائم الأسعار، بخطوات مرقّمة لكلٍّ منها', () => {
+  assert.deepEqual(API_DOC_GUIDES.map((g) => g.title), ['ربط صفحة اللوكيشن', 'ربط صفحة طرق الدفع', 'ربط صفحة مخزون الشركة', 'ربط تتبّع LOT', 'ربط حركات المخزون من نظامكم إلى Field Sales', 'ربط قوائم الأسعار']);
   for (const g of API_DOC_GUIDES) {
     assert.ok(g.intro.length > 50, g.key);
     assert.ok(g.steps.length >= 5, `${g.key}: خطوات قليلة`);
@@ -235,9 +239,10 @@ test('أدلّة الربط: صفحة اللوكيشن وصفحة طرق الد�
     'POST /lots/products/tracking', 'POST /lots/relabel', 'GET /lots/fefo', 'GET /lots/balances', 'GET /lots/:id/trace', 'PATCH /lots/:id/status',
     // دليل «حركات المخزون من نظامكم»: المناديب (السيارات)، ثم التشغيلة بالبحث، ثم التحقّق قبل الإعادة، ثم رصيد السيارة
     'GET /van-stock/summary', 'GET /lots', 'GET /van-stock/loads', 'GET /van-stock/current',
-    // دليل «أنواع الأسعار»: الأنواع، ثم أسعار الصنف، ثم الأسعار مجمّعة، ثم نوع العميل، ثم صلاحية المندوب، ثم الفاتورة، ثم الحذف
-    'GET /price-lists', 'POST /price-lists', 'PUT /products/:id/list-prices', 'GET /price-lists/prices', 'PUT /customers/:id', 'PUT /sales-reps/:id',
-    'POST /invoices', 'DELETE /price-lists/:id']) {
+    // دليل «قوائم الأسعار»: القوائم، ثم أسعار الصنف، ثم جدول القائمة، ثم القواعد، ثم الأسعار والقواعد مجمّعة، ثم قائمة العميل،
+    // ثم صلاحية المندوب، ثم الفاتورة، ثم الحذف
+    'GET /price-lists', 'POST /price-lists', 'PUT /products/:id/list-prices', 'PUT /price-lists/:id/items', 'POST /price-lists/:id/rules',
+    'GET /price-lists/prices', 'PUT /customers/:id', 'PUT /sales-reps/:id', 'POST /invoices', 'DELETE /price-lists/:id']) {
     assert.ok(stepPaths.has(k), `الدليل لا يذكر ${k}`);
   }
 });
@@ -286,7 +291,9 @@ test('كل رمز خطأ في الدليلين وجدول الأخطاء يرس�
   const codes = new Set([...guides.matchAll(CODE_RE), ...table.matchAll(CODE_RE)].map((m) => m[0]));
   for (const must of ['LOCATIONS_NOT_ALLOWED', 'PAYMENT_METHODS_NOT_ALLOWED', 'PAYMENT_METHOD_UNKNOWN', 'LOCATION_ARCHIVED', 'PAYMENT_METHODS_CONFLICT',
     'LOTS_NOT_ALLOWED', 'LOTS_DISABLED', 'LOT_STOCK_INSUFFICIENT', 'LOT_REQUIRED', 'LOT_BUSY', 'LOT_SCOPED_USER', 'LOT_CHANGED',
-    'PRICE_LIST_INVALID', 'PRICE_LIST_FORBIDDEN', 'PRICE_LIST_IN_USE', 'PRICE_LIST_NAME_TAKEN', 'PRICE_TYPE_DEFAULT_NOT_ALLOWED', 'DELETE_NOT_ALLOWED', 'RETURN_LINK_REQUIRED']) {
+    'PRICE_LIST_INVALID', 'PRICE_LIST_FORBIDDEN', 'PRICE_LIST_IN_USE', 'PRICE_LIST_NAME_TAKEN', 'PRICE_TYPE_DEFAULT_NOT_ALLOWED', 'DELETE_NOT_ALLOWED', 'RETURN_LINK_REQUIRED',
+    // قواعد «قوائم الأسعار» (٥ نوفمبر ٢٠٢٦)
+    'PRICE_RULE_INVALID', 'PRICE_RULE_LIMIT', 'PRICE_RULE_NOT_FOUND', 'CATEGORY_NOT_FOUND']) {
     assert.ok(codes.has(must), `الدليل لا يذكر ${must}`);
   }
   const unknown = [...codes].filter((c) => !BACKEND_SRC.includes(`'${c}'`));
@@ -1054,7 +1061,7 @@ test('الوحدة الرئيسية: أجسام POST /products وPUT /products/:
   const create = schemaKeys(products, 'productCreateSchema');
   assert.deepEqual([...create].sort(), ['basePrice', 'primaryUnitName', 'units']);
   for (const k of create) assert.ok(names('POST', '/products').includes(k), `POST /products: ${k}`);
-  // «أنواع الأسعار»: listPrices في جسم الإنشاء كما في مخطّطه المنفصل
+  // «قوائم الأسعار»: listPrices في جسم الإنشاء كما في مخطّطه المنفصل
   assert.ok(/productListPricesSchema = z\.object\(\{ listPrices:/.test(products) && names('POST', '/products').includes('listPrices'), 'POST /products: listPrices');
   assert.deepEqual(names('POST', '/products').filter((n) => n.startsWith('units[].')).map((n) => n.slice(8)).sort(), schemaKeys(products, 'productCreateUnitSchema').sort());
   assert.equal((fieldOf(endpointOf('POST', '/products'), 'basePrice') as { required?: boolean }).required, false, 'basePrice اختياري مع primaryUnitName');
@@ -1317,10 +1324,10 @@ test('فكّ القيد: GET /company/buyer-relax موثّق وPATCH مستثن�
 });
 
 /**
- * «أنواع الأسعار على مستوى المندوب» (طلب المالك ٢ نوفمبر ٢٠٢٦): الحقلان في جسمَي إنشاء المندوب وتعديله وفي قائمته كما في مخطّط
- * الخادم واختياره، ورمز الافتراضي خارج المسموح يرسله الخادم، وrepsCount في ردّ حذف النوع كما يرسله، والدليل يذكرهما.
+ * «قوائم الأسعار على مستوى المندوب» (طلب المالك ٢ نوفمبر ٢٠٢٦): الحقلان في جسمَي إنشاء المندوب وتعديله وفي قائمته كما في مخطّط
+ * الخادم واختياره، ورمز الافتراضي خارج المسموح يرسله الخادم، وrepsCount في ردّ حذف القائمة كما يرسله، والدليل يذكرهما.
  */
-test('دقّة المستند: defaultPriceListId وallowedPriceTypes للمندوب كما في salesReps.ts، وrepsCount في حذف النوع', () => {
+test('دقّة المستند: defaultPriceListId وallowedPriceTypes للمندوب كما في salesReps.ts، وrepsCount في حذف القائمة', () => {
   const ep = (method: string, p: string) => API_DOC_GROUPS.flatMap((g) => g.endpoints).find((e) => e.method === method && e.path === p)!;
   const reps = routeFile('salesReps');
   const schema = reps.slice(reps.indexOf('const repSchema = z.object({'), reps.indexOf('});', reps.indexOf('const repSchema = z.object({')));
@@ -1338,7 +1345,7 @@ test('دقّة المستند: defaultPriceListId وallowedPriceTypes للمند
   const lists = routeFile('priceLists');
   assert.match(lists, /code: 'PRICE_LIST_IN_USE' as const, customersCount, repsCount/);
   assert.match(ep('DELETE', '/price-lists/:id').response, /customersCount, repsCount/);
-  const guide = JSON.stringify(API_DOC_GUIDES.find((g) => g.title === 'ربط أنواع الأسعار'));
+  const guide = JSON.stringify(API_DOC_GUIDES.find((g) => g.title === 'ربط قوائم الأسعار'));
   for (const k of ['defaultPriceListId', 'allowedPriceTypes', 'PRICE_TYPE_DEFAULT_NOT_ALLOWED', 'repsCount']) assert.ok(guide.includes(k), `الدليل لا يذكر ${k}`);
 });
 
@@ -1390,4 +1397,194 @@ test('دقّة المستند (مراجعة الأمان ٣ نوفمبر): قر�
   assert.ok(rule, 'قاعدة القراءة المتسامحة غائبة');
   assert.doesNotMatch(rule, /بقسمٍ لا تعرفه النسخة يُصلَح/, 'المستند يَعِد بإصلاح قسمٍ مجهول والنواة تُسقط التخطيط');
   assert.match(rule, /لا تعرفها هذه النسخة/);
+});
+
+/* ═══ «قوائم الأسعار» بقواعدها (طلب المالك ٥ نوفمبر ٢٠٢٦: «اضف كل هذه المميزات الى انواع الاسعار و غير اسمه الى قوائم الاسعار») ═══
+ * المستند يصف الشكل الذي تكتبه الواجهة وتقرؤه (types/index.ts وapi/client.ts) وحدود الحلّ المشترك ورسائله (lib/priceRules.ts
+ * = services/priceRules.ts حرفاً)، ومثال الدليل محسوبٌ بالحلّ نفسه — مستندٌ يقول رقماً لا يحسبه الخادم يضلّل المُكامِل. */
+
+/** مفاتيح واجهة TypeScript المصدَّرة من types/index.ts (المستوى الأول وحده) — all بترتيبها وoptional ما عليه «?» */
+function interfaceKeys(name: string): { all: string[]; optional: string[] } {
+  const src = read(path.join(process.cwd(), 'src', 'types', 'index.ts'));
+  const start = src.indexOf(`export interface ${name} {`);
+  assert.ok(start >= 0, `الواجهة ${name} غائبة`);
+  const body = src.slice(start, src.indexOf('\n}', start));
+  const keys = [...body.matchAll(/^ {2}(\w+)(\??):/gm)];
+  assert.ok(keys.length > 0, `لا مفاتيح في ${name}`);
+  return { all: keys.map((m) => m[1]), optional: keys.filter((m) => m[2] === '?').map((m) => m[1]) };
+}
+const PRICE_RULE_ENDPOINTS = [
+  ['GET', '/price-lists/rules'], ['GET', '/price-lists/:id/items'], ['PUT', '/price-lists/:id/items'], ['GET', '/price-lists/:id/rules'],
+  ['POST', '/price-lists/:id/rules'], ['PUT', '/price-lists/rules/:ruleId'], ['DELETE', '/price-lists/rules/:ruleId'],
+] as const;
+/** اسم حقلٍ كلمةً كاملة (لا itemsCount داخل pricedItemsCount) */
+const word = (k: string) => new RegExp(`(?<![\\w])${k}(?![\\w])`);
+
+test('«قوائم الأسعار»: المسارات السبعة الجديدة في مجموعة القوائم — القراءة بصلاحية الأصناف ولمفتاح القراءة، والكتابة لمدير الأصناف', () => {
+  const group = API_DOC_GROUPS.find((g) => g.key === 'price-lists')!;
+  assert.equal(group.title, 'قوائم الأسعار');
+  for (const [m, p] of PRICE_RULE_ENDPOINTS) {
+    const e = endpointOf(m, p);
+    assert.ok(group.endpoints.includes(e), `${m} ${p} خارج مجموعة القوائم`);
+    assert.equal(e.permission, 'canManageProducts', `${m} ${p}`);
+    assert.ok(e.gates.includes('requireAccounting'), `${m} ${p}: requireAccounting`);
+    if (m === 'GET') {
+      assert.ok(e.gates.some((g) => g.includes("requireAdminPermission('canManageProducts')") && g.includes('مسموح لمفتاح القراءة فقط')), `${m} ${p}: حارس القراءة`);
+    } else {
+      assert.ok(e.gates.some((g) => g.startsWith('requireAdmin —')), `${m} ${p}: requireAdmin`);
+      assert.ok(e.gates.some((g) => g.includes('API_KEY_FORBIDDEN')), `${m} ${p}: مفتاح القراءة يُرفض`);
+    }
+  }
+  // GET /price-lists بعدّاديه الجديدين، و/prices بقواعد كل قائمة
+  for (const k of ['itemsCount', 'rulesCount']) {
+    assert.ok(interfaceKeys('PriceList').all.includes(k), `PriceList.${k}`);
+    assert.match(endpointOf('GET', '/price-lists').response, word(k));
+  }
+  assert.match(endpointOf('GET', '/price-lists/prices').response, /items:\[\{productId, price, unit, baseConvertedAt\}\], rules:\[/);
+});
+
+test('«قوائم الأسعار»: القاعدة وأجسام الكتابة وصفّ الجدول في المستند بحقول types/index.ts وapi/client.ts حرفاً', () => {
+  // القاعدة كما تُقرأ: حقول PriceListRule الإلزامية وupdatedAt في كل ردّ قاعدة
+  const rule = interfaceKeys('PriceListRule');
+  const core = [...rule.all.filter((k) => !rule.optional.includes(k)), 'updatedAt'];
+  assert.deepEqual(core, ['id', 'priceListId', 'scope', 'productId', 'categoryId', 'kind', 'basePrice', 'primaryPrice', 'percent', 'minQty', 'startsOn', 'endsOn', 'updatedAt']);
+  for (const [m, p] of [['GET', '/price-lists/rules'], ['GET', '/price-lists/prices'], ['GET', '/price-lists/:id/rules'], ['POST', '/price-lists/:id/rules'], ['PUT', '/price-lists/rules/:ruleId']] as const) {
+    for (const k of core) assert.match(endpointOf(m, p).response, word(k), `${m} ${p}: ${k}`);
+  }
+  for (const k of ['productName', 'productCode', 'categoryName', 'primaryUnit', 'unit', 'baseConvertedAt']) assert.ok(rule.optional.includes(k), `PriceListRule.${k}?`);
+  for (const k of ['productName', 'productCode', 'categoryName', 'primaryUnit']) assert.match(endpointOf('GET', '/price-lists/:id/rules').response, word(k));
+  for (const k of ['unit', 'baseConvertedAt']) assert.match(endpointOf('GET', '/price-lists/rules').response, word(k));
+  assert.ok(endpointOf('GET', '/price-lists/prices').rules.some((r) => r.startsWith('rules ') && r.includes('unit وbaseConvertedAt')), '/prices: أساس صنف القاعدة');
+  // جسم القاعدة = PriceRuleInput، والإلزامي فيه إلزامي هنا
+  const input = interfaceKeys('PriceRuleInput');
+  for (const [m, p] of [['POST', '/price-lists/:id/rules'], ['PUT', '/price-lists/rules/:ruleId']] as const) {
+    const body = endpointOf(m, p).body;
+    assert.deepEqual(body.map((f) => f.name).sort(), [...input.all].sort(), `${m} ${p}: الحقول`);
+    assert.deepEqual(body.filter((f) => f.required).map((f) => f.name).sort(), input.all.filter((k) => !input.optional.includes(k)).sort(), `${m} ${p}: الإلزامي`);
+  }
+  // كتابة الجدول = PriceListItemWrite
+  const write = interfaceKeys('PriceListItemWrite');
+  const items = endpointOf('PUT', '/price-lists/:id/items').body.filter((f) => f.name.startsWith('items[].'));
+  assert.deepEqual(items.map((f) => f.name.slice(8)).sort(), [...write.all].sort());
+  for (const f of items) assert.equal(f.required, !write.optional.includes(f.name.slice(8)), f.name);
+  assert.ok(endpointOf('PUT', '/price-lists/:id/items').response.includes('rows:[{productId, listPrice}]'));
+  // صفّ الجدول = PriceListItemRow (بحقله الاختياري status)، ومعاملات الرابط = listItems في api/client.ts
+  const row = interfaceKeys('PriceListItemRow');
+  for (const k of row.all) assert.match(endpointOf('GET', '/price-lists/:id/items').response, word(k), `صفّ الجدول: ${k}`);
+  assert.match(endpointOf('GET', '/price-lists/:id/items').response, /pagination:\{total, page, limit, pages\}, pricedCount/);
+  const client = read(path.join(process.cwd(), 'src', 'api', 'client.ts'));
+  const params = /listItems: \(id: string, params: \{([^}]*)\}\)/.exec(client);
+  assert.ok(params, 'priceListApi.listItems');
+  const qnames = [...params![1].matchAll(/(\w+)\?:/g)].map((m) => m[1]);
+  assert.deepEqual(endpointOf('GET', '/price-lists/:id/items').query.map((f) => f.name).sort(), [...qnames].sort());
+  // ومسارات العميل هي المسارات الموثّقة (لا مسارٌ في الواجهة يغيب عن المستند)
+  for (const [needle, key] of [
+    ["api.get('/price-lists/rules')", 'GET /price-lists/rules'], ['api.get(`/price-lists/${id}/items`', 'GET /price-lists/:id/items'],
+    ['api.put(`/price-lists/${id}/items`', 'PUT /price-lists/:id/items'], ['api.get(`/price-lists/${id}/rules`)', 'GET /price-lists/:id/rules'],
+    ['api.post(`/price-lists/${id}/rules`', 'POST /price-lists/:id/rules'], ['api.put(`/price-lists/rules/${ruleId}`', 'PUT /price-lists/rules/:ruleId'],
+    ['api.delete(`/price-lists/rules/${ruleId}`)', 'DELETE /price-lists/rules/:ruleId'],
+  ] as const) {
+    assert.ok(client.includes(needle), `client.ts: ${needle}`);
+    assert.ok(documented.has(key), `${key} غير موثّق`);
+  }
+});
+
+test('«قوائم الأسعار»: حدود القاعدة ورسائل رفضها وقيم scope وkind في المستند من الحلّ المشترك نفسه، والأمثلة يقبلها التحقق', () => {
+  const post = endpointOf('POST', '/price-lists/:id/rules');
+  for (const msg of Object.values(PRICE_RULE_MESSAGES)) assert.ok(post.rules.some((r) => r.includes(`«${msg}»`)), `رسالة PRICE_RULE_INVALID غائبة: ${msg}`);
+  assert.equal(fieldOf(post, 'scope').type, `enum: ${PRICE_RULE_SCOPES.join(' | ')}`);
+  assert.equal(fieldOf(post, 'kind').type, `enum: ${PRICE_RULE_KINDS.join(' | ')}`);
+  assert.match(fieldOf(post, 'percent').type!, new RegExp(`${-PRICE_RULE_LIMITS.percentMin}- إلى ${PRICE_RULE_LIMITS.percentMax}`));
+  assert.ok(fieldOf(post, 'minQty').desc.includes(String(PRICE_RULE_LIMITS.minQtyMax)), 'أقصى minQty');
+  assert.ok(post.rules.some((r) => r.includes(`${PRICE_RULE_LIMITS.perList} قاعدة`) && r.includes('PRICE_RULE_LIMIT')), 'حدّ القواعد في القائمة');
+  const overview = API_DOC_GROUPS.find((g) => g.key === 'price-lists')!.overview;
+  assert.ok(overview.includes(`حتى ${PRICE_RULE_LIMITS.perList} في القائمة`) && overview.includes(`من ${-PRICE_RULE_LIMITS.percentMin}- إلى ${PRICE_RULE_LIMITS.percentMax}`));
+  // الأمثلة أجسامٌ يقبلها priceRuleProblem (التحقق نفسه في الخادم والواجهة)
+  for (const e of [post, endpointOf('PUT', '/price-lists/rules/:ruleId')]) assert.equal(priceRuleProblem(JSON.parse(e.example)), null, `${e.method} ${e.path}: المثال مرفوض`);
+  // وحدود الجدول: حتى 500 سطر في الكتابة، والصفحة 50 افتراضاً وحتى 200
+  assert.equal(fieldOf(endpointOf('PUT', '/price-lists/:id/items'), 'items').type, 'array (1 إلى 500)');
+  assert.match(fieldOf(endpointOf('GET', '/price-lists/:id/items'), 'limit').desc, /الافتراضي 50، والحد الأقصى 200/);
+  const body = JSON.parse(endpointOf('PUT', '/price-lists/:id/items').example) as { items: { productId: string; price: number | null }[] };
+  assert.ok(body.items.length >= 1 && body.items.some((i) => i.price === null), 'مثال الجدول بسطر حذف');
+});
+
+test('«قوائم الأسعار»: مثال الدليل محسوبٌ بالحلّ المشترك — خصم الفئة من 10 كراتين بمجموع البنود، وسعر الصنف الثابت أخصّ منه', () => {
+  const guide = API_DOC_GUIDES.find((g) => g.key === 'price-lists-guide')!;
+  const step = guide.steps.find((s) => s.method === 'POST' && s.path === '/price-lists/:id/rules')!;
+  assert.ok(step, 'خطوة القواعد غائبة');
+  const body = JSON.parse(/-d '([^']+)'/.exec(step.curl!)![1]) as Record<string, unknown>;
+  assert.equal(priceRuleProblem(body), null, 'جسم الخطوة مرفوض');
+  const rule = {
+    id: 'r1', scope: String(body.scope), categoryId: String(body.categoryId), kind: String(body.kind), percent: Number(body.percent),
+    minQty: Number(body.minQty), startsOn: String(body.startsOn), endsOn: String(body.endsOn), basePrice: null, primaryPrice: null,
+    updatedAt: '2026-11-05T08:00:00.000Z',
+  };
+  const orange = { id: 'orange', categoryId: String(body.categoryId), primaryFactor: 24 };
+  const mango = { id: 'mango', categoryId: String(body.categoryId), primaryFactor: 24 };
+  const basePrice = 0.5;
+  const carton = basePrice * 24; // 12 بلا سعر وحدة محدَّد
+  const at = (p: typeof orange, totalBase: number, day: string, item: number | null = null) => listPriceOf(item, [rule], p, qtyPrimaryOf(totalBase, p), day);
+  const r4 = (n: number | null) => (n == null ? null : roundPriceRule(n, 4));
+  // 6 كراتين و96 حبة = 240 حبة = 10 كراتين: تنطبق على البندين
+  const ten = at(orange, 6 * 24 + 96, '2026-11-05');
+  assert.equal(r4(listLineRef(ten, 24, carton)), 10.8);
+  assert.equal(r4(listLineRef(ten, 1, basePrice)), 0.45);
+  // 9 كراتين لا تنطبق، و1 ديسمبر خارج الفترة (شاملة الطرفين: 30 نوفمبر داخلها)
+  assert.equal(listLineRef(at(orange, 9 * 24, '2026-11-05'), 24, carton), null);
+  assert.equal(listLineRef(at(orange, 10 * 24, '2026-12-01'), 24, carton), null);
+  assert.equal(r4(listLineRef(at(orange, 10 * 24, '2026-11-30'), 24, carton)), 10.8);
+  // المانجو بسعر ثابت 10 للكرتون (لوحدة الأساس بست منازل): سعر الصنف أخصّ من قاعدة الفئة
+  const mangoItem = roundPriceRule(10 / 24);
+  assert.equal(roundPriceRule(listLineRef(at(mango, 10 * 24, '2026-11-05', mangoItem), 24, carton)!, 2), 10);
+  for (const s of ['6 كراتين و96 حبة', '12 × 0.9 = 10.8', '0.5 × 0.9 = 0.45', 'بـ9 كراتين لا تنطبق فالكرتون 12', 'في 1 ديسمبر انتهت الفترة فالكرتون 12', 'يبقى 10 ولو بلغ 10 كراتين']) {
+    assert.ok(step.text.includes(s), `الدليل لا يقول: ${s}`);
+  }
+  // ومثال ردّ /prices: صفّ القاعدة بحقول PriceListRule وقيم الخطوة نفسها، وسعر المانجو المخزَّن نفسه
+  const pricesStep = guide.steps.find((s) => s.method === 'GET' && s.path === '/price-lists/prices')!;
+  assert.ok(pricesStep.sample?.startsWith('// '), 'سطر التعليق');
+  const sample = JSON.parse(pricesStep.sample!.split('\n').slice(1).join('\n')) as { items: { price: number }[]; rules: Record<string, unknown>[] };
+  assert.equal(sample.items[0].price, mangoItem);
+  const ruleKeys = interfaceKeys('PriceListRule');
+  assert.deepEqual(Object.keys(sample.rules[0]).sort(), [...ruleKeys.all.filter((k) => !ruleKeys.optional.includes(k)), 'updatedAt'].sort());
+  for (const k of ['scope', 'categoryId', 'kind', 'percent', 'minQty', 'startsOn', 'endsOn']) assert.deepEqual(sample.rules[0][k], body[k], k);
+});
+
+test('«قوائم الأسعار»: المعنى للمُكامِل — الكمية بالرئيسية مجموعةً لكل صنف، والفترة بيوم الشركة شاملة، ولحظة الجهاز للصندوق، وسعر العميل يغلب', () => {
+  const overview = API_DOC_GROUPS.find((g) => g.key === 'price-lists')!.overview;
+  for (const s of [
+    'الأخصّ (صنف ثم فئة ثم كل الأصناف)، ثم الأعلى minQty، ثم المؤقتة (لها فترة) قبل المفتوحة، ثم القاعدة قبل السعر الثابت',
+    'مجموع كل بنود الصنف نفسه في الفاتورة بكل وحداتها', '÷ معامل وحدته الرئيسية', 'شاملة الطرفين', 'لا بـinvoiceDate',
+    'بلحظة إصدارها على الجهاز', 'ولا أقدم من 7 أيام', 'سعر العميل الخاص × factor (يغلب القائمة دائماً)', 'تُسعّر كما كانت حرفياً',
+    'لا تضع خصم بند discountPct', 'بنود المرتجع المرتبط بفاتورة بيع لا تُحسب',
+  ]) assert.ok(overview.includes(s), `المقدمة لا تقول: ${s}`);
+  // السبعة الأيام هي حدّ لحظة الجهاز في الخادم (offlineInvoiceDate ⇐ devicePriceInstant)
+  assert.match(read(path.join(BACKEND, 'compliance', 'zatca', 'goLive.ts')), /CUTOVER_BACKDATE_LIMIT_MS = 7 \* 24 \* 60 \* 60 \* 1000;/);
+  assert.match(read(path.join(BACKEND, 'services', 'offlineInvoiceDate.ts')), /OFFLINE_INVOICE_DATE_MAX_AGE_MS = CUTOVER_BACKDATE_LIMIT_MS;/);
+  // ومرجع حارس المندوب في POST /invoices يذكر القاعدة وكميتها ويومها
+  const ref = endpointOf('POST', '/invoices').rules.find((r) => r.startsWith('مرجع سعر البند لوحدته'))!;
+  assert.match(ref, /قاعدتها الغالبة بمجموع كمية الصنف في المستند بالوحدة الرئيسية/);
+  assert.match(ref, /ويوم الشركة لحظة الإصدار/);
+  // «إضافة وحدة فرعية أصغر»: priceListRules في الردّ والمعاينة كـpriceListItems، والنسبة وminQty وسعر الفئة لا تتغيّر
+  const conv = endpointOf('POST', '/products/:id/convert-base');
+  assert.equal(conv.response.split('priceListItems?, priceListRules?').length - 1, 2, 'priceListRules في الردّ والمعاينة');
+  assert.ok(conv.rules.some((r) => r.includes('basePrice تُقسم على factor') && r.includes('minQty') && r.includes('primaryPrice')));
+});
+
+test('«قوائم الأسعار»: الاسم القديم لا يبقى في المستند إلا في «اسمها السابق» — والمسارات والحقول والرموز كما هي', () => {
+  const docs = read(path.join(process.cwd(), 'src', 'components', 'ApiDocs.tsx'));
+  const all = [JSON.stringify([API_DOC_GROUPS, API_DOC_GUIDES, API_SYNC_RESOURCES]), docs].join('\n');
+  const stripped = all.split('اسمها السابق «أنواع الأسعار»').join('').split(PRICE_RULE_MESSAGES.kind).join('');
+  assert.doesNotMatch(stripped, /أنواع الأسعار|أنواع أسعار|نوع السعر|نوع سعر|تبديل نوع/);
+  assert.ok(API_DOC_GROUPS.find((g) => g.key === 'price-lists')!.overview.includes('اسمها السابق «أنواع الأسعار»'));
+  assert.ok(API_DOC_GUIDES.find((g) => g.key === 'price-lists-guide')!.intro.includes('اسمها السابق «أنواع الأسعار»'));
+  // «ما الجديد»: بند ٥ نوفمبر يقول الاسم الجديد والمسارات والرموز الجديدة
+  const list = docs.slice(docs.indexOf('title="ما الجديد'), docs.indexOf('</ul>', docs.indexOf('title="ما الجديد')));
+  const item = [...list.matchAll(/<li>([^]*?)<\/li>/g)].map((m) => m[1]).find((b) => b.startsWith('٥ نوفمبر — «قوائم الأسعار»'));
+  assert.ok(item, 'بند ٥ نوفمبر غائب');
+  for (const k of ['اسمها السابق «أنواع الأسعار»', '/api/price-lists/rules', '/api/price-lists/:id/items', '/api/price-lists/:id/rules', '/api/price-lists/rules/:ruleId',
+    'rulesCount', 'priceListRules', 'PRICE_RULE_INVALID', 'PRICE_RULE_LIMIT', 'PRICE_RULE_NOT_FOUND', 'CATEGORY_NOT_FOUND', 'دليل «ربط قوائم الأسعار»']) {
+    assert.ok(item!.includes(k), `بند ٥ نوفمبر لا يذكر ${k}`);
+  }
+  // أسعار العميل الخاصة ليست «قائمة الأسعار» بعد اليوم (الاسم صار للميزة)
+  assert.ok(!fieldOf(endpointOf('PUT', '/customers/:id/prices'), 'prices').desc.includes('قائمة الأسعار'));
 });

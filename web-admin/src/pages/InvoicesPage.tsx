@@ -108,8 +108,8 @@ export default function InvoicesPage() {
     enabled: accountingReady && accountingOn,
   });
 
-  /* «أنواع الأسعار»: اسم النوع الذي سُعّرت به الفاتورة تحت شارة نوعها (قراءةٌ فقط). الأسماء من GET /price-lists بمفتاح النوافذ
-   * نفسه (مخبّأ)، ولا طلب ما دامت الصفحة بلا فاتورةٍ لها نوع. ونوعٌ يُحذف يُفرَغ من فواتيره (SetNull) فلا اسم معلّق */
+  /* «قوائم الأسعار»: اسم القائمة التي سُعّرت بها الفاتورة تحت شارة نوعها (قراءةٌ فقط). الأسماء من GET /price-lists بمفتاح النوافذ
+   * نفسه (مخبّأ)، ولا طلب ما دامت الصفحة بلا فاتورةٍ لها قائمة. وقائمةٌ تُحذف تُفرَغ من فواتيرها (SetNull) فلا اسم معلّق */
   const pricedRows = !!data?.data.some(inv => inv.priceListId);
   const { data: priceInfo } = useQuery({
     queryKey: ['price-lists'],
@@ -358,7 +358,7 @@ export default function InvoicesPage() {
                   <td>
                     {typeBadge(inv.type)}
                     {priceListName(inv.priceListId) && (
-                      <span className="block text-[10px] text-gray-400 mt-0.5 whitespace-nowrap" title={tr('نوع السعر')} data-invoice-price-type="">
+                      <span className="block text-[10px] text-gray-400 mt-0.5 whitespace-nowrap" title={tr('قائمة الأسعار')} data-invoice-price-type="">
                         {priceListName(inv.priceListId)}
                       </span>
                     )}

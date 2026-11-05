@@ -1,5 +1,5 @@
 /**
- * «أنواع الأسعار» في تطبيق المندوب — قرارات صرفة بلا React ولا شبكة ولا IndexedDB (repPriceLists.test.ts). المكوّن (CreateInvoice في
+ * «قوائم الأسعار» («أنواع الأسعار» سابقاً) في تطبيق المندوب — قرارات صرفة بلا React ولا شبكة ولا IndexedDB (repPriceLists.test.ts). المكوّن (CreateInvoice في
  * RepApp.tsx) يجلب ويخبّئ، وهنا يُحكم: أيّ نوعٍ هو نوع العميل الآن، وهل في الجهاز أسعار نوع الفاتورة، وأيّ رقاقةٍ تُعرض، ومتى تكفي
  * أسماء الأنواع المخبّأة بلا طلب.
  *
@@ -10,7 +10,10 @@
  */
 import type { PriceListsInfo } from '../types';
 import { allowedPriceTypesOf, priceListsOf, priceTypeAllowed, switchablePriceTypesOf } from '../lib/priceLists';
+import type { PriceRuleRow } from '../lib/priceRules';
+import { toBase } from '../lib/units';
 import { companyRefreshDue } from './companyRefresh';
+import { rebaseCustPrices, type CustPriceInput, type UnitProduct } from './repUnits';
 
 /** معرّف نوعٍ صالح أو null (السعر الأساسي) — صفٌّ قديم بلا الحقل أو بقيمةٍ فارغة ⇒ null */
 export function listIdOf(v: unknown): string | null {
@@ -144,4 +147,123 @@ export function repPriceCacheStale(prev: RepPriceFields | null | undefined, next
   const key = (u: RepPriceFields | null | undefined) =>
     JSON.stringify([listIdOf(u?.defaultPriceListId), allowedPriceTypesOf(u?.allowedPriceTypes), u?.canChangePriceList === true]);
   return key(prev) !== key(next);
+}
+
+// ═══ «قوائم الأسعار» بقواعدها (طلب المالك ٥ نوفمبر ٢٠٢٦): قواعد القائمة في كاش الجهاز، وكمية الصنف في السلّة ═══
+// ردّ /price-lists/prices يحمل لكل قائمةٍ `rules` مع بنودها (كاش 'pricelists' نفسه)، والحلّ المشترك (lib/priceRules.ts عبر
+// lineNetWithList في lib/priceListPricing.ts) يسعّر بها البند كما يحرسه الخادم: سعر العميل ثم القائمة (سعر الصنف الثابت فيها
+// وقواعدها) بكمية الصنف في الفاتورة كلّها ويوم الجهاز، ثم سلّم اليوم.
+
+/**
+ * قاعدةٌ كما يخبّئها الجهاز: صفّ الحلّ المشترك بحقوله **كما وصلت** — بلا تطبيعٍ يغيّر معناها، فالحلّ نفسه يحكم بصلاحها في الطرفين
+ * (قيمةٌ يتجاهلها الخادم يتجاهلها الجهاز). ولقاعدة سعر الصنف الثابت (`basePrice` لوحدة الأساس) أساسُ الصنف وحقبته لحظة القراءة
+ * (`unit`/`baseConvertedAt` من ضمّ الصنف كبنود القائمة) ووقت القراءة `seenAt`: بها يُعاد أساسها بعد تحويلٍ (rebaseRepRules)
+ */
+export interface RepPriceRule extends PriceRuleRow {
+  unit?: string | null;
+  baseConvertedAt?: string | null;
+  seenAt?: number;
+}
+
+const hasOwn = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
+const NO_RULES: readonly RepPriceRule[] = Object.freeze([]);
+
+/**
+ * قواعد قائمةٍ من ردّ /price-lists/prices (`l.rules`) أو كاشه — كاشٌ أقدم من الميزة بلا `rules` (أو ردٌّ تالف) ⇒ لا قواعد: سلوك
+ * اليوم حرفياً. والصفّ بلا معرّفٍ أو نطاقٍ أو نوعٍ نصّيّ يُسقط (لا يسعّر أصلاً)، والحقول الغائبة null (الحلّ يعاملهما سواءً)
+ */
+export function repPriceRulesOf(data: unknown, seenAt?: number | null): RepPriceRule[] {
+  if (!Array.isArray(data)) return [];
+  const out: RepPriceRule[] = [];
+  for (const raw of data) {
+    if (!raw || typeof raw !== 'object') continue;
+    const r = raw as Record<string, unknown>;
+    if (typeof r.id !== 'string' || typeof r.scope !== 'string' || typeof r.kind !== 'string') continue;
+    // as: القيم كما وصلت (رقمٌ نصّيّ أو يومٌ تالف يحكم فيه الحلّ لا هذا الملف)
+    const v = (k: string) => (r[k] ?? null) as never;
+    out.push({
+      id: r.id, scope: r.scope, kind: r.kind,
+      productId: v('productId'), categoryId: v('categoryId'),
+      basePrice: v('basePrice'), primaryPrice: v('primaryPrice'), percent: v('percent'), minQty: v('minQty'),
+      startsOn: v('startsOn'), endsOn: v('endsOn'), updatedAt: v('updatedAt'),
+      ...(r.unit != null && { unit: String(r.unit) }),
+      ...(hasOwn(r, 'baseConvertedAt') && { baseConvertedAt: v('baseConvertedAt') }),
+      ...(seenAt != null && { seenAt }),
+    });
+  }
+  return out;
+}
+
+type CatalogProduct = UnitProduct & { id: string; baseConvertedAt?: string | Date | null };
+
+/**
+ * قواعد القائمة على أساس الكتالوج الحالي: قاعدة سعر الصنف الثابت (`basePrice` لوحدة الأساس) يُعاد أساسها كسعر الصنف الثابت في
+ * القائمة وسعر العميل تماماً (rebaseCustPrices: الحقبة ثم الاسم ثم وقت القراءة) — كاشٌ من قبل تحويل الصنف (كرتون ⇒ قارورة) يُقسم
+ * على ٢٤ لا يُضرب سعر كرتونه × ٢٤، وما لا يُعرف أساسه يُسقط فيحكم الخادم (كبنود القائمة). وقاعدة الفئة (`primaryPrice` للرئيسية)
+ * والنسبة والحدّ الأدنى للكمية (بالرئيسية) لا يمسّها التحويل فتبقى حرفاً. بلا قواعد ⇒ مصفوفةٌ ثابتة (لا تُعيد مؤثّراً)
+ */
+export function rebaseRepRules(rules: readonly RepPriceRule[] | null | undefined, products: readonly CatalogProduct[] | null | undefined): readonly RepPriceRule[] {
+  if (!rules?.length) return NO_RULES;
+  let byId: Map<string, CatalogProduct> | null = null;
+  const out: RepPriceRule[] = [];
+  for (const r of rules) {
+    if (r.scope !== 'product' || r.kind !== 'fixed' || r.productId == null || r.basePrice == null) { out.push(r); continue; }
+    byId ??= new Map((products ?? []).filter((p) => p && p.id).map((p) => [String(p.id), p] as const));
+    const pid = String(r.productId);
+    const price = Number(r.basePrice);
+    const row: CustPriceInput = {
+      productId: pid, price,
+      ...(r.unit != null && { unit: r.unit }),
+      ...(hasOwn(r, 'baseConvertedAt') && { baseConvertedAt: r.baseConvertedAt ?? null }),
+      ...(r.seenAt != null && { seenAt: r.seenAt }),
+    };
+    const p = byId.get(pid);
+    const m = rebaseCustPrices([row], p ? [p] : []);
+    if (!hasOwn(m, pid)) continue;
+    out.push(m[pid] === price ? r : { ...r, basePrice: m[pid] });
+  }
+  return out;
+}
+
+/** قواعد قائمة الفاتورة على أساس الكتالوج — السعر الأساسي (null) أو قائمةٌ لم تصل أسعارها أو كاشٌ بلا قواعد: لا شيء */
+export function repListRulesOf(
+  lists: ReadonlyArray<{ id: string; rules?: readonly RepPriceRule[] | null }> | null | undefined,
+  listId: string | null,
+  products: readonly CatalogProduct[] | null | undefined,
+): readonly RepPriceRule[] {
+  const rules = listId ? lists?.find((l) => l.id === listId)?.rules : null;
+  return rules?.length ? rebaseRepRules(rules, products) : NO_RULES;
+}
+
+/** بند السلّة كما يحتاجه حساب الكمية */
+export interface RepQtyLine { productId?: string | null; qty?: number | string | null; unitFactor?: number | null; saleItemId?: unknown }
+
+/**
+ * كمية كل صنفٍ بالأساس في الفاتورة: كل بنوده بكل وحداتها، بلا بنود المرتجع من فاتورة بيع (`saleItemId`: سعرها سعر الاسترداد ولا
+ * تُعاد تسعيرها) — مدخل «الحدّ الأدنى للكمية» **كما يجمعه حارس الخادم حرفاً** (routes/invoices.ts docBaseQty): `toBase(qty، معامل
+ * البند)` (lib/units.ts مرآة services/units.ts: مقرَّبةٌ لستّ منازل) مجموعةً بترتيب البنود = ترتيب بنود الجسم، فيقع الطرفان على
+ * الرقم نفسه عند حدّ الشريحة. والكمية غير الموجبة لا تُعدّ (الخادم لا يقبلها أصلاً)
+ */
+export function repBaseQtyByProduct(lines: ReadonlyArray<RepQtyLine | null | undefined>): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const l of lines) {
+    if (!l || l.saleItemId || !l.productId) continue;
+    const q = Number(l.qty);
+    if (!Number.isFinite(q) || q <= 0) continue;
+    m.set(l.productId, (m.get(l.productId) ?? 0) + toBase(q, { unitFactor: l.unitFactor }));
+  }
+  return m;
+}
+
+/** كمية صنفٍ واحد بالأساس في السلّة (0 بلا بنود) */
+export function repProductBaseQty(lines: ReadonlyArray<RepQtyLine | null | undefined>, productId: string): number {
+  return repBaseQtyByProduct(lines.filter((l) => l?.productId === productId)).get(productId) ?? 0;
+}
+
+/**
+ * بصمة كميات الأصناف في السلّة — تتغيّر حين تتغيّر كمية صنفٍ بأي طريق (تعديل الكمية، «+١» على بندٍ قائم، تبديل الوحدة، حذف بند،
+ * قصّ اللوط) فيُعاد تسعير بنوده غير المعدَّلة يدوياً. لا تتغيّر بالسعر وحده (لا حلقة)
+ */
+export function repQtyKey(lines: ReadonlyArray<RepQtyLine | null | undefined>): string {
+  return [...repBaseQtyByProduct(lines)].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([id, q]) => `${id}:${q}`).join('|');
 }

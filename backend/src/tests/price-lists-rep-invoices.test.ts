@@ -7,6 +7,8 @@
 //   • الإدارة ومفتاح API أحرار من قيد الأنواع المسموحة.
 //   • إعادة رفع الصندوق (X-FS-Replay) بنوعٍ حُذف أو صلاحيةٍ/نوعٍ نُزعا ⇒ الافتراضيّ الجديد (لا نوع العميل وحده) ولا يُعدم المستند.
 //   • المرتجع الحرّ والمرتبط كاليوم بالقاعدة الجديدة، والمرحلة الثانية (فاتورةً وإشعاراً يدوياً) تتسلّم النوع المحسوم نفسه.
+//   • «قوائم الأسعار» (٥ نوفمبر ٢٠٢٦): رسائل الرفض بالاسم الجديد، وقواعد القائمة تُقرأ للقائمة المحسومة نفسها وحدها
+//     (حارس القواعد نفسه في price-rules-invoices.test.ts).
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -169,9 +171,14 @@ const LIST_PRICES: Record<string, number> = { 'L-W': 8 / 24, 'L-R': 12 / 24 };
 const MY_LISTS = new Set(['L-W', 'L-R']);
 const PHASE1 = { defaultVatPct: 15, countryCode: 'SA', currency: 'SAR', einvoiceProvider: 'zatca', zatcaPhase2StartedAt: null, zatcaGoLiveArmedAt: null };
 
-function issueWorld(o: { customer?: Partial<typeof CUSTOMER>; rep?: Partial<typeof REP_ROW> | Record<string, unknown>; phase2?: boolean } = {}) {
+function issueWorld(o: {
+  customer?: Partial<typeof CUSTOMER>; rep?: Partial<typeof REP_ROW> | Record<string, unknown>; phase2?: boolean;
+  /** «قوائم الأسعار» بقواعدها (٥ نوفمبر ٢٠٢٦): قواعد كل قائمة */
+  rules?: Record<string, Record<string, unknown>[]>;
+} = {}) {
   const created: any[] = [];
   const itemQueries: any[] = [];
+  const ruleQueries: any[] = [];
   const repReads: any[] = [];
   const customer = { ...CUSTOMER, ...o.customer };
   scripted = {
@@ -187,10 +194,14 @@ function issueWorld(o: { customer?: Partial<typeof CUSTOMER>; rep?: Partial<type
       const id = args?.where?.priceListId;
       return args?.where?.tenantId === TENANT && LIST_PRICES[id] != null ? [{ productId: 'p1', price: LIST_PRICES[id] }] : [];
     },
+    'priceListRule.findMany': (args) => {
+      ruleQueries.push(args);
+      return args?.where?.tenantId === TENANT ? (o.rules?.[args?.where?.priceListId] ?? []) : [];
+    },
     'companySettings.findUnique': () => (o.phase2 ? { ...PHASE1, zatcaPhase2StartedAt: new Date('2026-10-02T00:00:00Z') } : PHASE1),
     'invoice.create': (args) => { created.push(args.data); return { id: `inv-${created.length}`, ...args.data, items: args.data.items.create, customer }; },
   };
-  return { created, itemQueries, repReads };
+  return { created, itemQueries, ruleQueries, repReads };
 }
 /** بيع كرتونٍ واحد بسعرٍ صافٍ */
 const sellCarton = (unitPrice: number, extra: Record<string, unknown> = {}) => ({
@@ -292,7 +303,7 @@ test('بلا «تبديل نوع السعر»: غير الافتراضيّ ⇒ 4
     const r = await post(sellCarton(priceListId ? 8 : 10, { priceListId }));
     assert.equal(r.status, 403, `${priceListId}: ${JSON.stringify(r.body)}`);
     assert.equal(r.body.code, 'PRICE_LIST_FORBIDDEN');
-    assert.equal(r.body.message, 'لا تملك صلاحية تبديل نوع السعر');
+    assert.equal(r.body.message, 'لا تملك صلاحية تبديل قائمة الأسعار');
     assert.equal('reason' in r.body, false, 'بلا وسم NOT_ALLOWED: السبب الصلاحية — التطبيق يطفئ رقائقه');
     assert.equal(w.created.length, 0);
     assert.equal(w.itemQueries.length, 0, 'لا أسعار تُقرأ لتبديلٍ مرفوض');
@@ -316,7 +327,7 @@ test('بالصلاحية وقيد الأنواع: المسموح يمرّ بسع
   assert.equal(noBase.body.code, 'PRICE_LIST_FORBIDDEN');
   // صلاحيته قائمة والنوع خارج مسموحه: الرسالة بالسبب لا «لا تملك صلاحية»، ووسم reason يبقي رقائق التطبيق
   assert.equal(noBase.body.message, PRICE_LIST_MESSAGES.PRICE_TYPE_NOT_ALLOWED);
-  assert.equal(noBase.body.message, 'نوع السعر غير مسموح لك');
+  assert.equal(noBase.body.message, 'قائمة الأسعار غير مسموحة لك');
   assert.equal(noBase.body.reason, PRICE_TYPE_NOT_ALLOWED_REASON);
   assert.equal(PRICE_TYPE_NOT_ALLOWED_REASON, 'NOT_ALLOWED');
   assert.equal(w0.created.length, 0);
@@ -330,7 +341,7 @@ test('بالصلاحية وقيد الأنواع: المسموح يمرّ بسع
   reset(REP_USER);
   issueWorld({ rep: { ...CAN, allowedPriceTypes: ['base', 'L-R'] } });
   const outside = await post(sellCarton(8, { priceListId: 'L-W' }));
-  assert.deepEqual([outside.body.code, outside.body.reason, outside.body.message], ['PRICE_LIST_FORBIDDEN', 'NOT_ALLOWED', 'نوع السعر غير مسموح لك']);
+  assert.deepEqual([outside.body.code, outside.body.reason, outside.body.message], ['PRICE_LIST_FORBIDDEN', 'NOT_ALLOWED', 'قائمة الأسعار غير مسموحة لك']);
   // مصفوفةٌ فارغة: الافتراضيّ وحده
   reset(REP_USER);
   issueWorld({ rep: { ...CAN, allowedPriceTypes: [] } });
@@ -459,6 +470,40 @@ test('إعادة الرفع (X-FS-Replay): نوعٌ حُذف أو صلاحيةٌ
   const e = issueWorld();
   assert.equal((await post(sellCarton(12), REPLAY)).status, 201);
   assert.equal(e.created[0].priceListId, 'L-R');
+});
+
+test('قواعد القائمة (٥ نوفمبر ٢٠٢٦) تتبع القائمة المحسومة نفسها: الافتراضيّة والمختارة بالصلاحية والافتراضيّة الجديدة في إعادة الرفع — وبلا قائمةٍ لا استعلام', async () => {
+  /** قاعدة صنفٍ ثابتة على التجزئة: كرتونها ١١ (تغلب سعر الصنف الثابت فيها ١٢ عند التساوي) */
+  const rules = { 'L-R': [{ id: 'R-11', scope: 'product', productId: 'p1', kind: 'fixed', basePrice: 11 / 24, minQty: 0, startsOn: null, endsOn: null }] };
+  // الافتراضيّة (قائمة المندوب): القاعدة تحكم، واستعلامٌ واحد مع الأسعار
+  reset(REP_USER);
+  const w = issueWorld({ rules });
+  assert.equal((await post(sellCarton(11))).status, 201);
+  assert.deepEqual(w.ruleQueries.map((q) => q.where.priceListId), ['L-R']);
+  assert.deepEqual(w.itemQueries.map((q) => q.where.priceListId), ['L-R']);
+  reset(REP_USER);
+  issueWorld({ rules });
+  assert.equal((await post(sellCarton(12))).status, 403, 'سعر الصنف الثابت فوق القاعدة');
+  // المختارة بالصلاحية: قواعد الجملة (لا شيء) وسعرها
+  reset(REP_USER);
+  const sw = issueWorld({ rules, rep: { canChangePriceList: true } });
+  assert.equal((await post(sellCarton(8, { priceListId: 'L-W' }))).status, 201);
+  assert.deepEqual(sw.ruleQueries.map((q) => q.where.priceListId), ['L-W']);
+  // إعادة الرفع بقائمةٍ نُزعت صلاحيتها: قواعد الافتراضيّة الجديدة
+  reset(REP_USER);
+  const rp = issueWorld({ rules });
+  assert.equal((await post(sellCarton(11, { priceListId: 'L-W' }), REPLAY)).status, 201);
+  assert.deepEqual(rp.ruleQueries.map((q) => q.where.priceListId), ['L-R']);
+  // والتبديل المرفوض لا يقرأ قواعد، وبلا قائمةٍ لا استعلام
+  reset(REP_USER);
+  const no = issueWorld({ rules });
+  assert.equal((await post(sellCarton(8, { priceListId: 'L-W' }))).status, 403);
+  assert.equal(no.ruleQueries.length, 0);
+  reset(REP_USER);
+  const base = issueWorld({ rules, rep: { defaultPriceListId: null } });
+  assert.equal((await post(sellCarton(10))).status, 201);
+  assert.equal(base.ruleQueries.length, 0);
+  assert.deepEqual(touched('priceList'), []);
 });
 
 // ═══ (٦) المرتجع ═══

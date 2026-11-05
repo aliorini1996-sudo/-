@@ -1095,7 +1095,8 @@ async function deleteOrArchiveLocked(prisma: Prisma.TransactionClient, req: Auth
   const lots = await prisma.productLot.count({ where: { productId: req.params.id } });
   await prisma.priceTier.deleteMany({ where: { productId: req.params.id } });
   await prisma.customerPrice.deleteMany({ where: { productId: req.params.id } });
-  await prisma.priceListItem.deleteMany({ where: { productId: req.params.id } }); // «أنواع الأسعار» — والحذف الفعلي يسلسلها أيضاً
+  await prisma.priceListItem.deleteMany({ where: { productId: req.params.id } }); // «قوائم الأسعار» — والحذف الفعلي يسلسلها أيضاً
+  await prisma.priceListRule.deleteMany({ where: { productId: req.params.id } }); // وقواعد الصنف فيها (Cascade في الحذف الفعلي كذلك)
   if (invoiceItems > 0 || loadItems > 0 || warehouseItems > 0 || lots > 0) {
     await prisma.product.update({ where: { id: req.params.id }, data: { deletedAt: new Date(), status: 'INACTIVE' } });
     return true;
@@ -1419,7 +1420,7 @@ async function convertBasePreview(tid: string, productId: string, body: z.infer<
   if (!product) throw new UnitsRefusal(404, 'الصنف غير موجود', 'PRODUCT_NOT_FOUND');
   await convertBaseRefusalOn(prisma, tid, product, body);
   const pid = product.id;
-  const [invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, vanLoadItemLots, invoiceItemLots, lotRelabels, priceListItems] = await Promise.all([
+  const [invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, vanLoadItemLots, invoiceItemLots, lotRelabels, priceListItems, priceListRules] = await Promise.all([
     prisma.invoiceItem.count({ where: { productId: pid, invoice: { tenantId: tid } } }),
     prisma.vanLoadItem.count({ where: { productId: pid, vanLoad: { tenantId: tid } } }),
     prisma.warehouseEntryItem.count({ where: { productId: pid, entry: { tenantId: tid } } }),
@@ -1430,6 +1431,7 @@ async function convertBasePreview(tid: string, productId: string, body: z.infer<
     prisma.invoiceItemLot.count({ where: { tenantId: tid, productId: pid } }),
     prisma.lotRelabel.count({ where: { tenantId: tid, productId: pid } }),
     prisma.priceListItem.count({ where: { tenantId: tid, productId: pid } }),
+    prisma.priceListRule.count({ where: { tenantId: tid, productId: pid, basePrice: { not: null } } }),
   ]);
   return {
     success: true, dryRun: true, erpLinked, apiKeys,
@@ -1437,8 +1439,10 @@ async function convertBasePreview(tid: string, productId: string, body: z.infer<
     converted: {
       factor: Math.round(body.factor), from: product.unit, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers,
       ...(vanLoadItemLots + invoiceItemLots + lotRelabels > 0 && { vanLoadItemLots, invoiceItemLots, lotRelabels }),
-      // «أنواع الأسعار»: حين للصنف أسعارٌ في الأنواع وحدها — فشكل المعاينة لصنفٍ بلاها كما كان
+      // «قوائم الأسعار»: حين للصنف أسعارٌ في القوائم وحدها — فشكل المعاينة لصنفٍ بلاها كما كان
       ...(priceListItems > 0 && { priceListItems }),
+      // وقواعده الثابتة لوحدة الأساس (القسمة على F) حين وُجدت وحدها
+      ...(priceListRules > 0 && { priceListRules }),
     },
   };
 }
@@ -1608,6 +1612,12 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
         where: { productId: pid, tenantId: tid },
         data: { price: { divide: F } },
       });
+      // وقاعدة الصنف الثابتة في القائمة (PriceListRule.basePrice) لوحدة الأساس كذلك: ÷ F بلا تقريب. والنسبة والحدّ الأدنى للكمية
+      // (بالرئيسية) وسعر الفئة (للرئيسية) لا تتغيّر بالتحويل
+      const priceListRules = await tx.priceListRule.updateMany({
+        where: { productId: pid, tenantId: tid, basePrice: { not: null } },
+        data: { basePrice: { divide: F } },
+      });
       const priceTiers = await tx.$executeRaw`
         UPDATE "price_tiers" AS t SET
           "price" = t."price" / ${F}::float8,
@@ -1646,8 +1656,9 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
           factor: F, from: oldUnit, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices: customerPrices.count, priceTiers,
           // عدّادات اللوط حين مسّ التحويل صفوفاً منها وحدها — فشكل الردّ لصنفٍ بلا لوط كما كان (§١٠.١)
           ...(vanLoadItemLots + invoiceItemLots + lotRelabels > 0 && { vanLoadItemLots, invoiceItemLots, lotRelabels }),
-          // «أنواع الأسعار»: حين مسّ التحويل أسعاراً في الأنواع وحدها (كعدّادات اللوط)
+          // «قوائم الأسعار»: حين مسّ التحويل أسعاراً في القوائم وحدها (كعدّادات اللوط)
           ...(priceListItems.count > 0 && { priceListItems: priceListItems.count }),
+          ...(priceListRules.count > 0 && { priceListRules: priceListRules.count }),
           conversionId: log.id,
         },
       };

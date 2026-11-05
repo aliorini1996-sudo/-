@@ -718,7 +718,7 @@ const PERM_LABELS: Record<PermKey, string> = {
   canDeleteInvoice: 'حذف فاتورة',
   canChangePrice: 'تغيير السعر',
   canSellBelowPrice: 'البيع أقل من السعر',
-  canChangePriceList: 'تبديل نوع السعر',
+  canChangePriceList: 'تبديل قائمة الأسعار',
   canCreateReceipt: 'إصدار سند قبض',
   canEditReceipt: 'تعديل سند قبض',
   canCancelReceipt: 'إلغاء سند قبض',
@@ -899,10 +899,10 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
         {/* «أنواع الأسعار»: خانة لكل نوع والسعر الأساسي باسمه عند الشركة (الأسماء بيانات لا tr) — لا اختيار = كل الأنواع (null)،
             و«النوع الافتراضي» من المختارة وحدها */}
         {typesShown && (
-          <Group title={tr('أنواع الأسعار')} flush>
+          <Group title={tr('قوائم الأسعار')} flush>
             {/* عنوان الخانات كنسخة اللوحة (SalesRepModal): هي ما يبدّل بينه المندوب، لا «نوع سعر المندوب» (ذاك «النوع الافتراضي» تحتها) */}
-            <p className="label px-3.5 pt-3">{tr('أنواع الأسعار المسموحة')}</p>
-            <div data-m-rep-price-types="" role="group" aria-label={tr('أنواع الأسعار المسموحة')}>
+            <p className="label px-3.5 pt-3">{tr('القوائم المسموحة')}</p>
+            <div data-m-rep-price-types="" role="group" aria-label={tr('القوائم المسموحة')}>
               {[{ id: null as string | null, name: baseLabelOf(priceInfoQ.data, tr) }, ...priceLists].map(o => {
                 const on = types.checked.includes(o.id);
                 return (
@@ -920,16 +920,16 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
             <div className="px-3.5 py-3 space-y-1">
               {/* عبارات نسخة اللوحة نفسها (SalesRepModal) — وبلا «تبديل نوع السعر» لا تبديل أصلاً أيّاً كانت الخانات */}
               <Hint text={!perms.canChangePriceList
-                ? tr('بلا صلاحية تبديل نوع السعر يبيع المندوب بنوع سعر العميل أو بنوعه الافتراضي وحده')
+                ? tr('بلا صلاحية تبديل قائمة الأسعار يبيع المندوب بقائمة العميل أو بقائمته الافتراضية وحدها')
                 : types.checked.length
-                  ? tr('يبدل المندوب بين الأنواع المحددة وحدها بصلاحية تبديل نوع السعر ونوع سعر العميل متاح له دائما')
-                  : tr('بلا تحديد يبدل المندوب بين كل الأنواع بصلاحية تبديل نوع السعر')} />
-              <label className="label pt-2">{tr('النوع الافتراضي')}</label>
+                  ? tr('يبدل المندوب بين القوائم المحددة وحدها بصلاحية تبديل قائمة الأسعار وقائمة العميل متاحة له دائما')
+                  : tr('بلا تحديد يبدل المندوب بين كل القوائم بصلاحية تبديل قائمة الأسعار')} />
+              <label className="label pt-2">{tr('القائمة الافتراضية')}</label>
               <select className="input" value={types.def ?? ''}
                 onChange={e => setTypesEdited(setDefaultPriceType(types, e.target.value || null, listIds))}>
                 {defaultOptionsOf(types.checked, listIds).map(t => <option key={t ?? 'base'} value={t ?? ''}>{typeName(t)}</option>)}
               </select>
-              <Hint text={tr('تسعر به فواتير المندوب للعميل الذي لا نوع له ونوع سعر العميل يغلبه')} />
+              <Hint text={tr('تسعر بها فواتير المندوب للعميل الذي لا قائمة له وقائمة العميل تغلبها')} />
             </div>
           </Group>
         )}

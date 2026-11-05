@@ -258,7 +258,7 @@ test('تبديل النوع: بلا «تبديل نوع السعر» ⇒ 403 PRI
     const r = await call('POST', '/api/invoices', { body: sellCarton(priceListId ? 12 : 10, { priceListId }) });
     assert.equal(r.status, 403, JSON.stringify(r.body));
     assert.equal(r.body.code, 'PRICE_LIST_FORBIDDEN');
-    assert.equal(r.body.message, 'لا تملك صلاحية تبديل نوع السعر');
+    assert.equal(r.body.message, 'لا تملك صلاحية تبديل قائمة الأسعار', 'الاسم الجديد «قوائم الأسعار» (٥ نوفمبر ٢٠٢٦)');
     assert.equal(w.created.length, 0);
   }
   // إرسال نوع العميل نفسه صراحةً ليس تبديلاً
@@ -394,10 +394,12 @@ test('عملةٌ بلا كسور (الدينار العراقي): سعر الن�
   assert.equal((await call('POST', '/api/invoices', { body: sellPiece(0.43, 0) })).status, 403);
 });
 
-test('حارس نصّي: «سعر العميل» في مرجع البيع وسقف المرتجع الحرّ وإشارة سعر إعادة الرفع = سعر العميل ?? سعر النوع', () => {
+test('حارس نصّي: مرجع البيع وسقف المرتجع الحرّ = lineRefOf (سعر العميل ثم قائمة المستند بقواعدها ثم سلّم اليوم)، وإشارة سعر إعادة الرفع = سعر العميل ?? تلميح القائمة', () => {
   const src = fs.readFileSync(path.join(SRC, 'routes', 'invoices.ts'), 'utf8');
-  assert.equal(src.split('refOverrideOf(cpMap.get(it.productId), listPriceOf.get(it.productId))').length - 1, 2, 'البيع والمرتجع الحرّ');
-  assert.ok(src.includes('custPrice: refOverrideOf(replayCust.get(p.id), listPriceOf.get(p.id)),'), 'إعادة الرفع');
+  assert.equal(src.split('lineRefOf(p, snap, cpMap.get(it.productId))').length - 1, 2, 'البيع والمرتجع الحرّ');
+  assert.ok(src.includes('const cust = refOverrideOf(custPerBase, null);'), 'سعر العميل الخاص يغلب القائمة');
+  assert.ok(src.includes('return listLineRef(listResultOf(p), snap.unitFactor, noListRef) ?? noListRef;'), 'ثم القائمة ثم سلّم اليوم');
+  assert.ok(src.includes('custPrice: refOverrideOf(replayCust.get(p.id), listPerBaseHint(listResultAt(p, hintBaseQty.get(p.id) ?? 0), p.basePrice)),'), 'إعادة الرفع');
   assert.equal(src.includes('cpMap.has(it.productId)'), false, 'لا مرجعٌ يقرأ سعر العميل وحده');
   // الختم في المرحلتين
   assert.ok(src.includes('...(docListId && { priceListId: docListId }),'));
@@ -621,27 +623,37 @@ test('العملاء: نوعٌ حُذف بين الفحص والكتابة (P200
 
 // ═══ (٥) /api/price-lists ═══
 
-test('GET /price-lists: الأنواع مرتّبة واسم زرّ الأساس وعدد العملاء الأحياء — بشرط الشركة، وبلا أنواعٍ لا groupBy', async () => {
+test('GET /price-lists: القوائم مرتّبة واسم زرّ الأساس وعدد العملاء الأحياء والأصناف المسعّرة والقواعد — بشرط الشركة، وبلا قوائم لا groupBy', async () => {
   reset();
   const seen: Record<string, any> = {};
   scripted = {
     'priceList.findMany': (args) => { seen.lists = args; return [{ id: 'L-W', name: 'سعر الجملة', sortOrder: 0 }, { id: 'L-R', name: 'سعر التجزئة', sortOrder: 1 }]; },
     'companySettings.findUnique': (args) => { seen.settings = args; return { basePriceLabel: 'سعر المستهلك' }; },
     'customer.groupBy': (args) => { seen.groups = args; return [{ priceListId: 'L-W', _count: { _all: 3 } }]; },
+    'priceListItem.groupBy': (args) => { seen.items = args; return [{ priceListId: 'L-R', _count: { _all: 12 } }]; },
+    'priceListRule.groupBy': (args) => { seen.rules = args; return [{ priceListId: 'L-W', _count: { _all: 2 } }]; },
   };
   const r = await call('GET', '/api/price-lists');
   assert.equal(r.status, 200, JSON.stringify(r.body));
+  // «قوائم الأسعار» (٥ نوفمبر ٢٠٢٦): itemsCount وrulesCount مع customersCount — والمفاتيح القديمة كما هي
   assert.deepEqual(r.body.data, {
     basePriceLabel: 'سعر المستهلك',
-    lists: [{ id: 'L-W', name: 'سعر الجملة', sortOrder: 0, customersCount: 3 }, { id: 'L-R', name: 'سعر التجزئة', sortOrder: 1, customersCount: 0 }],
+    lists: [
+      { id: 'L-W', name: 'سعر الجملة', sortOrder: 0, customersCount: 3, itemsCount: 0, rulesCount: 2 },
+      { id: 'L-R', name: 'سعر التجزئة', sortOrder: 1, customersCount: 0, itemsCount: 12, rulesCount: 0 },
+    ],
   });
   assert.equal(seen.lists.where.tenantId, TENANT);
   assert.deepEqual(seen.lists.orderBy, [{ sortOrder: 'asc' }, { name: 'asc' }]);
   assert.deepEqual(seen.groups.where, { tenantId: TENANT, priceListId: { not: null }, status: { not: 'DELETED' } });
+  for (const k of ['items', 'rules']) {
+    assert.deepEqual([seen[k].by, seen[k].where, seen[k]._count], [['priceListId'], { tenantId: TENANT }, { _all: true }], k);
+  }
+  assert.deepEqual(calls.filter(c => c.endsWith('.groupBy')).sort(), ['customer.groupBy', 'priceListItem.groupBy', 'priceListRule.groupBy'], 'groupBy واحد لكلٍّ');
   reset();
   const empty = await call('GET', '/api/price-lists');
   assert.deepEqual(empty.body.data, { basePriceLabel: null, lists: [] });
-  assert.equal(calls.includes('customer.groupBy'), false);
+  assert.deepEqual(calls.filter(c => c.endsWith('.groupBy')), [], 'بلا قوائم لا groupBy');
 });
 
 test('/price-lists كتابةً: الاسم مقصوص فريدٌ للشركة (409)، ونوع شركةٍ أخرى 404 بلا كتابة، والمستخدم لعملاء 409 PRICE_LIST_IN_USE', async () => {
@@ -707,6 +719,9 @@ test('/price-lists كتابةً: الاسم مقصوص فريدٌ للشركة (
   assert.equal(ok.status, 200, JSON.stringify(ok.body));
   assert.deepEqual(seq, [['lock', true], ['count', true]]);
   assert.deepEqual(writes.map(([m, , tx]) => [m, tx]), [['invoice', true], ['customer', true], ['priceList', true]]);
+  // «قوائم الأسعار» (٥ نوفمبر ٢٠٢٦): ترتيب الكتابات كما هو عمداً — أسعار القائمة وقواعدها تُحذف معها بالتعاقب (Cascade، يثبته
+  // اختبار المخطّط) لا بكتابةٍ صريحة، فلا جملة على price_list_items ولا price_list_rules هنا
+  assert.deepEqual(calls.filter(c => /^priceList(Item|Rule)\./.test(c)), [], 'بالتعاقب لا بكتابة');
   for (const [m, args] of writes.slice(0, 2)) {
     assert.deepEqual(args.where, { tenantId: TENANT, priceListId: 'L-W' }, m);
     assert.equal(args.data.priceListId, null, m);
@@ -746,7 +761,8 @@ test('GET /price-lists/prices: المندوب بلا «تبديل نوع الس�
   const seen = world({ canChangePriceList: false, usedLists: ['L-W'] });
   const mine = await call('GET', '/api/price-lists/prices');
   assert.equal(mine.status, 200, JSON.stringify(mine.body));
-  assert.deepEqual(mine.body.data, [{ id: 'L-W', name: 'سعر الجملة', items: [{ productId: 'p1', price: 8 / 24, unit: 'حبة', baseConvertedAt: null }] }]);
+  // «قوائم الأسعار» (٥ نوفمبر ٢٠٢٦): rules مع items لكل قائمة — فارغةً بلا قواعد (المزيّف لا يعيد صفوف قواعد هنا)
+  assert.deepEqual(mine.body.data, [{ id: 'L-W', name: 'سعر الجملة', items: [{ productId: 'p1', price: 8 / 24, unit: 'حبة', baseConvertedAt: null }], rules: [] }]);
   assert.deepEqual(seen.customers.where, { tenantId: TENANT, priceListId: { not: null }, status: { not: 'DELETED' } }, 'العزل مطفأ: كل عملاء الشركة');
   assert.deepEqual(seen.customers.distinct, ['priceListId']);
   assert.match(seen.sql.sql, /JOIN products p ON p\.id = i\."productId"/);
@@ -834,6 +850,13 @@ test('المخطّط إضافيٌّ لـdb push: جدولان جديدان بق�
   }
   assert.match(model('SalesRep'), /canChangePriceList Boolean @default\(false\)/);
   assert.match(model('CompanySettings'), /basePriceLabel\s+String\?/);
+  // «قوائم الأسعار» بقواعدها (٥ نوفمبر ٢٠٢٦): جدولٌ جديد بلا قيدٍ فريد، يُحذف مع قائمته وصنفه وفئته (حذف القائمة والفئة يعتمد عليه)
+  const rule = model('PriceListRule');
+  assert.match(rule, /@@map\("price_list_rules"\)/);
+  assert.match(rule, /priceList\s+PriceList\s+@relation\(fields: \[priceListId\], references: \[id\], onDelete: Cascade\)/);
+  assert.match(rule, /product\s+Product\?\s+@relation\(fields: \[productId\], references: \[id\], onDelete: Cascade\)/);
+  assert.match(rule, /category\s+ProductCategory\?\s+@relation\(fields: \[categoryId\], references: \[id\], onDelete: Cascade\)/);
+  assert.doesNotMatch(rule, /@@unique|@unique/);
 });
 
 test('ERP: نوع السعر لا يخرج في حمولة العميل ولا الفاتورة (payloadVersion 3 كما هي)، والصفّ بلاه هو الكائن نفسه', () => {
