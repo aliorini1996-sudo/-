@@ -815,6 +815,51 @@ test('المرحلة الثانية والإعداد false: سقف المندو�
   }
 });
 
+test('«قوائم الأسعار» بقواعدها (٥ نوفمبر ٢٠٢٦): سقف الإشعار اليدويّ بمرجع حارس البيع نفسه — قاعدة صنفٍ من حدٍّ أدنى للكمية تغلب سعره الثابت في القائمة', async () => {
+  asRep();
+  try {
+    /** الأرز بلا وحدة رئيسية (الحدّ بوحدة الأساس) والكيس (٤): سعر الجملة ٨٠٠، وقاعدةٌ على الجملة: ٧٠٠ من حبّتين، وخصمٌ ٥٠٪ لكل الأصناف (أعمّ) */
+    const rice = { ...PRODUCT_ROWS.find(p => p.id === 'p-rice')!, units: [{ id: 'u-bag', name: 'كيس', factor: 4, price: null, unitCode: null, isActive: true }] };
+    const RULES = [
+      { id: 'R-700', scope: 'product', productId: 'p-rice', categoryId: null, kind: 'fixed', basePrice: 700, primaryPrice: null, percent: null, minQty: 2, startsOn: null, endsOn: null, updatedAt: new Date('2026-11-01T00:00:00Z') },
+      { id: 'R-50', scope: 'all', productId: null, categoryId: null, kind: 'percent', basePrice: null, primaryPrice: null, percent: 50, minQty: 0, startsOn: null, endsOn: null, updatedAt: new Date('2026-11-01T00:00:00Z') },
+    ];
+    const run = async (items: Row[]) => {
+      const rig = buildRig();
+      const ruleQueries: unknown[] = [];
+      script({ rig, stored: false, rep: REP({ canChangePrice: false }), products: [rice], customer: { ...CUSTOMER_ROW(CUSTOMERS.individual as unknown as Row), priceListId: 'L-W' } });
+      scripted['priceListItem.findMany'] = (args: unknown) => {
+        const w = (args as { where?: { tenantId?: string; priceListId?: string } }).where;
+        return w?.tenantId === Z5_TENANT && w.priceListId === 'L-W' ? [{ productId: 'p-rice', price: 800 }] : [];
+      };
+      scripted['priceListRule.findMany'] = (args: unknown) => {
+        ruleQueries.push(args);
+        const w = (args as { where?: { tenantId?: string; priceListId?: string } }).where;
+        return w?.tenantId === Z5_TENANT && w.priceListId === 'L-W' ? RULES : [];
+      };
+      const r = await call('POST', '/api/invoices', {
+        body: returnBody({ customerId: 'c-walkin', originalInvoiceRef: 'OLD-1001', originalPaymentType: 'CASH', noteReason: 'بضاعة تالفة', items }),
+        headers: CAPS,
+      });
+      return { r, rig, ruleQueries };
+    };
+    // حبّةٌ واحدة دون الحدّ: السقف سعرها الثابت ٨٠٠ (الصنف أخصّ من «كل الأصناف»)
+    const one = await run([{ productId: 'p-rice', qty: 1, unitPrice: 750, discountPct: 0, taxPct: 15 }]);
+    assert.equal(one.r.status, 201, JSON.stringify(one.r.body));
+    assert.equal(one.ruleQueries.length, 1, 'قواعد قائمة العميل تُقرأ مرّةً');
+    // حبّتان بلغتا الحدّ: السقف ٧٠٠ ⇒ ٧٥٠ فوقه
+    const two = await run([{ productId: 'p-rice', qty: 2, unitPrice: 750, discountPct: 0, taxPct: 15 }]);
+    assert.equal(two.r.status, 403, JSON.stringify(two.r.body));
+    assert.equal(two.r.body.message, 'لا تملك صلاحية تغيير سعر البيع');
+    assert.equal(two.rig.created.length, 0);
+    // الكيس (٤ حبّات): السقف ٧٠٠ × ٤ = ٢٨٠٠
+    assert.equal((await run([{ productId: 'p-rice', unitId: 'u-bag', qty: 1, unitPrice: 2800, discountPct: 0, taxPct: 15 }])).r.status, 201);
+    assert.equal((await run([{ productId: 'p-rice', unitId: 'u-bag', qty: 1, unitPrice: 2900, discountPct: 0, taxPct: 15 }])).r.status, 403);
+  } finally {
+    asAdmin();
+  }
+});
+
 test('المرحلة الثانية والإعداد false: إشعار دائن 381 قياسيّ معتمد برقمٍ يدويّ — BT-25 وKSA-10 بلا أصل في المنصّة، وقيد مرتجع', async () => {
   asAdmin();
   const rig = buildRig();

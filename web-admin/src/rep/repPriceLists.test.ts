@@ -11,7 +11,7 @@ import { choiceNet, rebaseCustPrices, unitChoices } from './repUnits';
 import { roundDecimal } from './invoiceCalc';
 import {
   listIdOf, repCachedNamesOf, repCustomerListOf, repDefaultListOf, repInvoiceListOf, repListChipsOf, repListMissing, repPriceCacheStale,
-  repSwitchChipsOf,
+  repPriceRulesOf, repSwitchChipsOf,
 } from './repPriceLists';
 import { allowedPriceTypesOf, defaultPriceTypeOf } from '../lib/priceLists';
 import { COMPANY_REFRESH_MIN_GAP_MS } from './companyRefresh';
@@ -38,8 +38,9 @@ type Prod = { id: string; unit?: string | null; units?: unknown[]; baseConverted
 const custPriceRowsOf = (d: unknown, seenAt?: number | null) => compile<(d: unknown, seenAt?: number | null) => Row[]>(
   between(repApp, 'const custPriceRowsOf = ', ';\n'), 'custPriceRowsOf', {},
 )(d, seenAt);
+// «قوائم الأسعار» بقواعدها: الصفّ يحمل قواعد القائمة أيضاً (repPriceRulesOf من repPriceLists.ts — repPriceRules.test.ts)
 const listPriceRowsOf = (d: unknown, seenAt?: number | null) => compile<(d: unknown, seenAt?: number | null) => Lists>(
-  between(repApp, 'const listPriceRowsOf = ', ';\n'), 'listPriceRowsOf', { custPriceRowsOf },
+  between(repApp, 'const listPriceRowsOf = ', ';\n'), 'listPriceRowsOf', { custPriceRowsOf, repPriceRulesOf },
 )(d, seenAt);
 const listPricesOf = (lists: Lists | null, listId: string | null, products: Prod[]) => compile<(l: Lists | null, id: string | null, p: Prod[]) => Record<string, number>>(
   between(repApp, 'function listPricesOf(', '\n}\n'), 'listPricesOf', { rebaseCustPrices },
@@ -188,7 +189,8 @@ test('repListMissing (رجعة: نوعٌ بلا أسعار في الجهاز): �
   assert.equal(repListMissing('l-whole', []), true);
   // والإصدار ممنوعٌ حينها (المرتجع من فاتورة بيع سعره سعرها) — ومتصلاً تُجلب الأسعار من جديد
   const submit = between(repApp, 'const submit = async () => {', 'const manualRef =');
-  assert.match(submit, /if \(!saleRef && listMissing\) \{\s*setMsg\(listsLoading \? tr\('جاري التحميل'\) : tr\('اتصل مرة لتحديث أسعار نوع السعر'\)\);\s*if \(!listsLoading && navigator\.onLine\) void loadPriceLists\(true\);\s*return;\s*\}/);
+  // «قوائم الأسعار» (إعادة التسمية، ٥ نوفمبر ٢٠٢٦): الحارس نفسه بالعبارة الجديدة
+  assert.match(submit, /if \(!saleRef && listMissing\) \{\s*setMsg\(listsLoading \? tr\('جاري التحميل'\) : tr\('اتصل مرة لتحديث أسعار القائمة'\)\);\s*if \(!listsLoading && navigator\.onLine\) void loadPriceLists\(true\);\s*return;\s*\}/);
 });
 
 test('repListChipsOf (رجعة: رقاقةٌ بلا أسعار): رقاقات التبديل للأنواع التي وصلت أسعارها وحدها — ونوع الفاتورة الحالي يبقى ظاهراً', () => {
@@ -223,10 +225,15 @@ test('repCachedNamesOf (رجعة: طلبٌ مع كل فاتورة): شركةٌ �
 });
 
 test('CreateInvoice: تبديل النوع ووصول أسعاره يعيدان تسعير البنود غير المعدَّلة وحدها — وبند فاتورة البيع ثابت', () => {
-  const eff = between(repApp, 'setLines(prev => repriceUntouched(prev, (l) => {', '}, [custPrices, listPrices]);');
+  // «قوائم الأسعار» بقواعدها: المؤثّر نفسه يعيد التسعير أيضاً حين تصل القواعد أو يتبدّل اليوم أو تتغيّر كمية صنفٍ (qtyKey) — والقاعدة
+  // باقية: غير المعدَّل وحده، وبند فاتورة البيع ثابت، والمرجع بالقاعدة نفسها (inclOf) بكمية الصنف في الفاتورة كلّها
+  // مراجعة «قوائم الأسعار» (D1/D4): خطوة المؤثّر صارت repriceLines (بيومٍ يمرّره الإصدار) فوق repRepriceLines = repriceUntouched حرفاً + أرضية
+  const eff = between(repApp, 'const repriceLines = (prev: any[], day: string = priceDay): any[] => {', '}, [custPrices, listPrices, listRules, priceDay, qtyKey]);');
+  assert.match(eff, /return repRepriceLines\(prev, \(l\) => \{/);
   assert.match(eff, /if \(l\.saleItemId\) return null;/);
-  assert.match(eff, /return inclOf\(p, unit\);/, 'المرجع الجديد بالقاعدة نفسها (العميل ?? النوع) وتقريبها الواحد');
-  assert.match(eff, /\(l, price\) => \(\{ \.\.\.l, unitPrice: price \}\)/);
+  assert.match(eff, /return inclOf\(p, unit, qtyOf\.get\(l\.productId\) \?\? 0, custPrices, listPrices, listRules, day\);/, 'المرجع الجديد بالقاعدة نفسها (العميل ?? القائمة) وتقريبها الواحد');
+  assert.match(eff, /useEffect\(\(\) => \{\n\s*setLines\(prev => repriceLines\(prev\)\);/);
+  assert.match(read('rep', 'repPriceLists.ts'), /repriceUntouched\(lines, \(l\) => \(l\.saleItemId \? null : freshOf\(l\)\), \(l, price\) => \(\{ \.\.\.l, unitPrice: price \}\)\)/);
   assert.doesNotMatch(repApp, /choiceNet\(unit, cp, cp\)/, 'المصحِّح القديم لأسعار العميل وحدها صار هذا');
 });
 
@@ -240,9 +247,13 @@ test('CreateInvoice: الرقاقات بالصلاحية والاسم للعلم
   assert.match(ui, /\{canSwitchList && \(opts\.length > 1 \|\| listId !== docDefault\) \? \(/);
   assert.match(ui, /onClick=\{\(\) => setPickedList\(o\.id\)\}/);
   // التنبيه على غير الافتراضيّ: «نوع سعر العميل» كاليوم، و«نوعك الافتراضي» حين جاء الافتراضيّ من المندوب لعميلٍ بلا نوع
-  assert.match(ui, /\{listId !== docDefault && \(custListId == null && repListId != null\s*\? <span[^>]*>\{tr\('ليس نوع سعرك الافتراضي'\)\}<\/span>\s*: <span[^>]*>\{tr\('ليس نوع سعر العميل'\)\}<\/span>\)\}/);
+  // «قوائم الأسعار» (إعادة التسمية): «ليست قائمتك الافتراضية» و«ليست قائمة العميل» مكان عبارتي «نوع السعر» بالشرط نفسه
+  assert.match(ui, /\{listId !== docDefault && \(custListId == null && repListId != null\s*\? <span[^>]*>\{tr\('ليست قائمتك الافتراضية'\)\}<\/span>\s*: <span[^>]*>\{tr\('ليست قائمة العميل'\)\}<\/span>\)\}/);
+  assert.match(ui, /<span className="text-xs text-gray-600">\{tr\('قائمة الأسعار'\)\}:<\/span>/);
+  assert.match(ui, /role="radiogroup" aria-label=\{tr\('قائمة الأسعار'\)\}/);
+  assert.doesNotMatch(repApp, /tr\('[^']*(?:نوع السعر|نوع سعر|أنواع الأسعار)[^']*'\)/, 'لا عبارة «نوع السعر» ظاهرة للمندوب');
   assert.match(ui, /\{current\?\.name \?\? '—'\}/, 'بلا الصلاحية: اسم النوع وحده');
-  assert.match(ui, /\{listMissing && !listsLoading && <p[^>]*>\{tr\('اتصل مرة لتحديث أسعار نوع السعر'\)\}<\/p>\}/);
+  assert.match(ui, /\{listMissing && !listsLoading && <p[^>]*>\{tr\('اتصل مرة لتحديث أسعار القائمة'\)\}<\/p>\}/);
   assert.doesNotMatch(ui, /tr\(o\.name\)|tr\(current\??\.name\)/, 'أسماء الأنواع بيانات الشركة لا تمرّ بـtr');
   const body = between(repApp, 'const body = {', 'attempt.current = attemptClientRef(');
   // لمن يبدّل وحده — ولعميلٍ بنوعٍ لا تعرفه أسماء الجهاز اختار له المبدِّل السعر الأساسي: null صريحاً لا غياب المفتاح (= الافتراضيّ).

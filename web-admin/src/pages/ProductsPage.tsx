@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { productApi, companyApi, lotsApi } from '../api/client';
@@ -23,8 +23,9 @@ import { fetchStockSummary } from '../lib/productGuardsApi';
 import PagePanelModal from '../components/PagePanelModal';
 import PriceListsPanel from '../components/priceLists/PriceListsPanel';
 import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
+import { RULE_FORM_DISCARD_ASK, isPriceRulesAckDeclined, priceRulesAckAsker, withPriceRulesAck } from '../lib/priceListEditor';
 
-/** حمولة حفظ الصنف — والتأكيد بعد 409 LOT_TRACKING_HAS_BALANCE (D9)، وأسعار «أنواع الأسعار» المتغيّرة من النافذة، وإقرار الاسم المكرَّر
+/** حمولة حفظ الصنف — والتأكيد بعد 409 LOT_TRACKING_HAS_BALANCE (D9)، وأسعار «قوائم الأسعار» المتغيّرة من النافذة، وإقرار الاسم المكرَّر
  *  قبل الحفظ (D4: لا يُعاد تحذير الخادم بعده) */
 type ProductSave = Partial<Product> & { confirmLotBalances?: boolean; listPriceEdits?: ListPriceEdits; duplicateNameAck?: boolean };
 /** تأكيد إطفاء التتبّع بأرصدة مسمّاة (D9): لصنفٍ من نافذته، أو للتفعيل الجماعي */
@@ -65,11 +66,13 @@ export default function ProductsPage() {
   const lotOn = lotFlagsOf(company).on;
   const user = useAuthStore(s => s.user);
   const canBulk = lotOn && user?.canManageVanStock !== false;
-  // «أنواع الأسعار» (نُقلت من إعدادات الشركة إلى هنا، طلب المالك ٢ نوفمبر ٢٠٢٦): مع المحاسبة ولمن يدير الأصناف — والخادم يشترطها
-  // للكتابة. ‎?panel=prices يفتحها (رابط التبويب القديم في الإعدادات يحوّل هنا)
+  // «قوائم الأسعار» (كانت «أنواع الأسعار»؛ نُقلت من إعدادات الشركة إلى هنا، طلب المالك ٢ نوفمبر ٢٠٢٦، وأسعارها وقواعدها في لوحتها منذ
+  // ٥ نوفمبر): مع المحاسبة ولمن يدير الأصناف — والخادم يشترطها للكتابة. ‎?panel=prices يفتحها (رابط التبويب القديم في الإعدادات يحوّل هنا)
   const [searchParams] = useSearchParams();
   const priceTypesOn = accountingOn && user?.canManageProducts !== false;
   const [priceTypesOpen, setPriceTypesOpen] = useState(() => searchParams.get('panel') === 'prices');
+  // نموذج قاعدةٍ في اللوحة لم يُحفظ — تسأل النافذة قبل الإغلاق (قرار D6)
+  const pricePanelDirty = useRef(false);
   const catFilter = lotOn ? categoryId : '';
 
   const { data: categories } = useQuery({
@@ -88,13 +91,18 @@ export default function ProductsPage() {
   });
 
   const saveMutation = useMutation({
-    /* «أنواع الأسعار»: أسعار الأنواع المتغيّرة (listPriceEdits) ليست حقل صنف — للجديد تُرسل في جسم إنشائه (listPrices)، وللقائم
+    /* «قوائم الأسعار»: أسعار القوائم المتغيّرة (listPriceEdits) ليست حقل صنف — للجديد تُرسل في جسم إنشائه (listPrices)، وللقائم
      * بمسارها بعد نجاح حفظه وبأساسه كما ردّه الخادم (إعادة تسمية الأساس في الحفظ نفسه). فشلها يبقي النافذة برسالة الخادم */
     mutationFn: async ({ listPriceEdits, ...values }: ProductSave) => {
       // D4: إقرار الاسم المكرَّر قبل الحفظ للواجهة وحدها — لا يُرسل للخادم
       delete values.duplicateNameAck;
       if (!selected) return productApi.create({ ...values, ...listPricesCreateBody(listPriceEdits) });
-      const res = await productApi.update(selected.id, values);
+      // «قوائم الأسعار» (D2): رقعة الرئيسية تغيّر حجمها والصنف تشمله قواعد محسوبة بالوحدة الرئيسية ⇒ 409 PRICE_RULES_UNIT_ACK —
+      // سؤالٌ بنصّ الخادم ثم الحفظ نفسه بـacknowledgePriceRules، والرفض يُبقي النافذة بلا رسالة خطأ
+      const res = await withPriceRulesAck(
+        () => productApi.update(selected.id, values),
+        () => productApi.update(selected.id, { ...values, acknowledgePriceRules: true }),
+        priceRulesAckAsker(tr));
       if (listPriceEdits?.items.length) {
         const saved = res.data.data as Product;
         await productApi.updateListPrices(selected.id, { expectedBaseName: saved.unit, expectedPrimary: listPriceEdits.expectedPrimary, items: listPriceEdits.items });
@@ -102,9 +110,17 @@ export default function ProductsPage() {
       }
       return res;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); if (lotOn) qc.invalidateQueries({ queryKey: ['products-min'] }); toast.success(selected ? tr('تم التحديث') : tr('تم الإضافة')); setShowModal(false); setSelected(null); setBalanceConfirm(null); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); if (lotOn) qc.invalidateQueries({ queryKey: ['products-min'] });
+      // «قوائم الأسعار»: عدّادات القوائم وجداول أسعارها (الاسم والوحدات وسعر الصنف فيها) — بلا طلبٍ ما دامت لوحتها مغلقة
+      qc.invalidateQueries({ queryKey: ['price-lists'] }); qc.invalidateQueries({ queryKey: ['price-list-items'] });
+      // وقواعدها (اسم الصنف ووحدته في ملخّصها، وسعر الصنف الثابت بوحدته في فاتورة الإدارة)
+      qc.invalidateQueries({ queryKey: ['price-list-rules-of'] }); qc.invalidateQueries({ queryKey: ['price-list-rules'] });
+      toast.success(selected ? tr('تم التحديث') : tr('تم الإضافة')); setShowModal(false); setSelected(null); setBalanceConfirm(null);
+    },
     // رسالة الخادم لا «حدث خطأ» العمياء — سبب الرفض (تحقق/تكرار كود) يصل للمستخدم
     onError: (err: unknown, values) => {
+      // رفض سؤال قواعد قوائم الأسعار (D2): لم يُكتب شيء، والنافذة باقية بما فيها
+      if (isPriceRulesAckDeclined(err)) return;
       // إطفاء تتبّع صنفٍ له أرصدة في تشغيلات (D9): تأكيدٌ بالتفاصيل ثم الإرسال نفسه بـconfirmLotBalances
       const bal = selected ? trackingBalanceOf(err) : null;
       if (bal && !values.confirmLotBalances) { setBalanceConfirm({ kind: 'product', values, products: bal.products }); return; }
@@ -142,6 +158,8 @@ export default function ProductsPage() {
     mutationFn: (id: string) => productApi.remove(id),
     onSuccess: (res: { data?: { archived?: boolean } }) => {
       qc.invalidateQueries({ queryKey: ['products'] });
+      // أسعار الصنف وقواعده في القوائم تُحذف معه — عدّاداتها وجداولها وقواعدها
+      qc.invalidateQueries({ queryKey: ['price-lists'] }); qc.invalidateQueries({ queryKey: ['price-list-items'] }); qc.invalidateQueries({ queryKey: ['price-list-rules-of'] });
       // الأرشفة تطمئن المستخدم صراحة أن فواتير الصنف وكشوفه القديمة لم تمس
       toast.success(res?.data?.archived ? tr('حذف الصنف من القوائم فواتيره وكشوفه القديمة باقية كما هي') : tr('تم حذف الصنف'));
       setDeleting(null);
@@ -214,14 +232,15 @@ export default function ProductsPage() {
         <h1 className="page-title">{tr('إدارة المنتجات')}</h1>
         <div className="flex items-center gap-2">
           {priceTypesOn && (
-            <button className="btn-secondary" onClick={() => setPriceTypesOpen(true)}><Tags size={16} />{tr('أنواع الأسعار')}</button>
+            <button className="btn-secondary" onClick={() => setPriceTypesOpen(true)}><Tags size={16} />{tr('قوائم الأسعار')}</button>
           )}
           <button className="btn-primary" onClick={() => { setSelected(null); setShowModal(true); }}><Plus size={16} />{tr('إضافة صنف')}</button>
         </div>
       </div>
       {priceTypesOn && priceTypesOpen && (
-        <PagePanelModal title={tr('أنواع الأسعار')} icon={<Tags size={20} />} onClose={() => setPriceTypesOpen(false)}>
-          <PriceListsPanel />
+        <PagePanelModal title={tr('قوائم الأسعار')} icon={<Tags size={20} />} onClose={() => setPriceTypesOpen(false)}
+          confirmClose={() => !pricePanelDirty.current || window.confirm(tr(RULE_FORM_DISCARD_ASK))}>
+          <PriceListsPanel onDirtyChange={(d) => { pricePanelDirty.current = d; }} />
         </PagePanelModal>
       )}
 

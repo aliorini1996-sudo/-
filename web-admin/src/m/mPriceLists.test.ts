@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   invoiceLine, addInvoiceLine, setInvoiceLineUnit, refreshInvoiceLines, repriceInvoiceLines, priceOverrideOf, suggestedNet, lineKey,
-  type SalePick,
+  addedLinePrice, pickerChoice, pickerPrices, type LinePricer, type SalePick,
 } from './mUnits';
 import { unitChoices } from '../rep/repUnits';
 import { invoiceTotals } from './docMath';
@@ -27,6 +27,8 @@ const water: SalePick = {
 };
 const sugar: SalePick = { id: 'p2', name: 'سكر', unit: 'كيس', basePrice: 7.5, taxPct: 15, listPrices: [] };
 const [bottle, carton] = unitChoices(water);
+/** مسعِّرٌ من سعرٍ ثابت لكل صنف (سعر العميل ?? القائمة لوحدة الأساس — الشكل قبل القواعد): suggestedNet بثالثه */
+const byOverride = (of: (p: SalePick) => number | null): LinePricer => (p, c) => suggestedNet(p, c, of(p));
 
 test('priceOverrideOf: سعر العميل الخاص يغلب سعر النوع، والنوع من listPrices الصنف — ولا هذا ولا ذاك ⇒ null', () => {
   assert.equal(priceOverrideOf(water, 'l-whole', null), 4.166667);
@@ -81,17 +83,31 @@ test('تبديل النوع أو العميل: البند الذي لم يُمس
     { ...invoiceLine(water, bottle, whole(water)), unitPrice: 4 }, // عُدِّل يدويّاً
     invoiceLine(sugar, unitChoices(sugar)[0], whole(sugar)),      // ليس في النوع
   ];
-  const retail = repriceInvoiceLines(lines, catalog, p => priceOverrideOf(p, 'l-retail', null));
+  const retail = repriceInvoiceLines(lines, catalog, byOverride(p => priceOverrideOf(p, 'l-retail', null)));
   assert.equal(retail[0].unitPrice, 60, 'سعر التجزئة للكرتون');
   assert.equal(retail[0].refPrice, 60);
   assert.equal(retail[1].unitPrice, 4, 'المعدَّل يبقى');
   assert.equal(retail[1].refPrice, 2.5, 'ومرجعه يتبع النوع');
   assert.equal(retail[2], lines[2], 'سعر السكر لم يتغيّر');
   // العودة إلى السعر الأساسي: الكرتون بسعره المحدَّد ٤٥
-  assert.equal(repriceInvoiceLines(retail, catalog, () => null)[0].unitPrice, 45);
+  assert.equal(repriceInvoiceLines(retail, catalog, byOverride(() => null))[0].unitPrice, 45);
   // لا تغيّر ⇒ المصفوفة نفسها، وصنفٌ خارج الكتالوج كما هو
-  assert.equal(repriceInvoiceLines(retail, catalog, p => priceOverrideOf(p, 'l-retail', null)), retail);
+  assert.equal(repriceInvoiceLines(retail, catalog, byOverride(p => priceOverrideOf(p, 'l-retail', null))), retail);
   assert.equal(repriceInvoiceLines(retail, {}, () => 1), retail);
+});
+
+test('pickerPrices: تلميح كل صنفٍ دفعةً واحدة = addedLinePrice بوحدته الافتراضية (والأساس بلا وحدات) بكمية صنفه بعد الإضافة', () => {
+  const pr = byOverride(p => priceOverrideOf(p, 'l-whole', null));
+  const lines = addInvoiceLine(addInvoiceLine([], water, carton, pr), water, bottle, pr);
+  for (const price of [pr, undefined, 2.5]) {
+    const m = pickerPrices(lines, [water, sugar], price);
+    assert.equal(m.get('p1'), addedLinePrice(lines, water, pickerChoice(water), price));
+    assert.equal(m.get('p2'), addedLinePrice(lines, sugar, pickerChoice(sugar), price));
+  }
+  assert.deepEqual(pickerChoice(water), carton, 'الرئيسية');
+  assert.deepEqual(pickerChoice(sugar), unitChoices(sugar)[0], 'الأساس لصنفٍ بلا وحدات');
+  assert.equal(pickerPrices(lines, [water], pr).get('p1'), 100, 'سعر الجملة صافياً للكرتون');
+  assert.equal(pickerPrices([], null, pr).size, 0, 'لا نتيجة بحثٍ بعد');
 });
 
 // ═══ حرّاس نصّية: التوصيل في الشاشات ═══
@@ -106,20 +122,34 @@ test('MInvoiceCreate: النوع من ملف العميل، والرقاقات �
   // مندوبٌ آخر يغيّر الافتراضي وحده (رقاقةٌ اختارها المستخدم تبقى كاللوحة) — والتنبيه بقاعدة اللوحة نفسها
   assert.ok(s.includes('onChange={e => setSalesRepId(e.target.value)}'));
   assert.ok(s.includes('const listHint = adminListHintOf(listId, custListId, repListId, custListId !== undefined);'));
-  assert.ok(s.includes("tr(listHint === 'rep' ? 'ليس نوع سعر المندوب' : 'ليس نوع سعر العميل')"));
+  // «قوائم الأسعار» (طلب المالك ٥ نوفمبر ٢٠٢٦): العبارة باسم القائمة
+  assert.ok(s.includes("tr(listHint === 'rep' ? 'ليست قائمة المندوب' : 'ليست قائمة العميل')"));
+  assert.doesNotMatch(s, /ليس نوع سعر/);
   assert.doesNotMatch(s, /pricesIncludeTax/, 'الجوال يرسل أسعاراً صافية بلا مفتاح الشمول');
-  assert.ok(s.includes('const overrideOf = (p: SalePick) => priceOverrideOf(p, listId, custRows);'));
-  assert.ok(s.includes('productApi.customerPrices(customerId)'), 'أسعار العميل الخاصة تغلب النوع');
-  assert.ok(s.includes('setLines(ls => addInvoiceLine(ls, p, c, overrideOf(p)));'));
-  assert.ok(s.includes('setLines(ls => setInvoiceLineUnit(ls, key, p, c, overrideOf(p)));'));
-  assert.ok(s.includes('refreshInvoiceLines(acc, p, overrideOf(p))'));
-  assert.match(s, /setLines\(ls => repriceInvoiceLines\(ls, catalog, overrideOf\)\);[\s\S]{0,200}\}, \[listId, custRows\]\);/);
+  // المسعِّر الواحد مع فاتورة اللوحة: سعر العميل ثم القائمة (ثابتها وقواعدها بكمية الصنف ويوم الفاتورة) ثم سلّم اليوم
+  assert.ok(s.includes('() => docLinePricerOf({ listId, custRows, rules: listsOn ? rulesQ.data : null, day: pricingDay }),'));
+  assert.ok(s.includes('[listId, custRows, listsOn, rulesQ.data, pricingDay],'));
+  // يوم الفاتورة المختار وإلا يوم الشركة الآن بمنطقتها (مراجعة D1)
+  assert.ok(s.includes('const pricingDay = docPricingDayOf(invoiceDate, { timezone: priceInfoQ.data?.timezone });'));
+  assert.match(s, /queryKey: \['price-list-rules'\],[\s\S]{0,200}enabled: listsOn,/, 'القواعد بمفتاح اللوحة وحين للشركة قوائم وحدها');
+  assert.ok(s.includes('productApi.customerPrices(customerId)'), 'أسعار العميل الخاصة تغلب القائمة');
+  assert.ok(s.includes('setLines(ls => addInvoiceLine(ls, p, c, priceOf));'));
+  assert.ok(s.includes('setLines(ls => setInvoiceLineUnit(ls, key, p, c, priceOf));'));
+  assert.ok(s.includes('refreshInvoiceLines(acc, p, priceOf)'));
+  // تغيّر الكمية (+/−، والحذف) يعيد بنود الصنف التي لم تُمسّ — كانت الكمية لا تعيد التسعير قبل القواعد
+  assert.ok(s.includes('setLines(ls => stepInvoiceLine(ls, key, d, catalog, priceOf))'));
+  assert.ok(s.includes('setLines(ls => removeInvoiceLine(ls, k, catalog, priceOf))'));
+  assert.doesNotMatch(s, /ls\.filter\(x => lineKey\(x\) !== k\)/, 'الحذف بلا إعادة تسعير');
+  assert.match(s, /setLines\(ls => repriceInvoiceLines\(ls, catalog, priceOf\)\);[\s\S]{0,200}\}, \[priceOf\]\);/);
   assert.ok(s.includes('...(listsOn && { priceListId: listId }),'), 'شركةٌ بلا أنواع: الجسم كما كان');
   assert.ok(s.includes('if (c.id !== customerId) setListChoice(undefined);'), 'عميلٌ آخر يأخذ نوعه');
   assert.ok(s.includes('onClick={() => setListChoice(o.id)}'));
   assert.ok(s.includes('baseLabelOf(priceInfoQ.data, tr)'), 'اسم الرقاقة الأولى كما سمّته الشركة');
   assert.doesNotMatch(s, /import \{[^}]*\bchoiceNet\b[^}]*\} from '\.\.\/rep\/repUnits';/, 'لا سعرٌ مقترح بلا ثالثه (سعر العميل ?? النوع): suggestedNet وحده');
-  assert.equal(s.split('suggestedNet(p, ').length - 1, 2, 'تلميح السعر في القائمة بالمقترح نفسه (بوحدات وبلاها)');
+  // تلميح السعر في القائمة بالمقترح نفسه (بوحدات وبلاها) وبكمية الصنف بعد الإضافة — محفوظاً (pickerPrices) لا محسوباً مع كل رسم (D5)
+  assert.ok(s.includes('() => pickerPrices(lines, productsQ.data, priceOf),'));
+  assert.equal(s.split('formatCurrency(pickPrices.get(p.id) ?? 0)').length - 1, 2);
+  assert.doesNotMatch(s, /suggestedNet\(|priceOverrideOf\(/, 'لا مقترح بغير المسعِّر');
   assert.doesNotMatch(s, /tr\(o\.name\)|tr\(l\.name\)/, 'أسماء الأنواع بيانات لا تمرّ بـtr');
   // أسماء الأنواع مرّةً كل ٥ دقائق لا مع كل فاتورة — ونوع عميلٍ لا تعرفه (أُنشئ بعدها) يعيد قراءتها مرّةً، وإلا لا مفتاح فيسعّر
   // الخادم بنوع العميل والبنود مقترحةٌ بالأساس
@@ -138,7 +168,7 @@ test('MCustomerForm وMSalesReps: «نوع السعر» يُرسل null صريح
   assert.ok(f.includes('enabled: accountingOn,'), 'لا طلب والمحاسبة مطفأة');
   const r = read('m', 'MSalesReps.tsx');
   assert.ok(r.includes("{ title: 'صلاحيات التسعير', keys: ['canChangePrice', 'canSellBelowPrice', 'canChangePriceList'] },"));
-  assert.ok(r.includes("canChangePriceList: 'تبديل نوع السعر',"));
+  assert.ok(r.includes("canChangePriceList: 'تبديل قائمة الأسعار',"));
   assert.ok(r.includes('canChangePrice: false, canSellBelowPrice: false, canChangePriceList: false,'), 'افتراض الخادم: مطفأة');
   // صلاحيةٌ مانحة (تُقلب مع «تحديد الكل») ومحاسبية (تُخفى والمحاسبة مطفأة)
   const grants = r.slice(r.indexOf('const GRANTS = ['), r.indexOf('] as const;', r.indexOf('const GRANTS = [')));
@@ -159,13 +189,13 @@ test('افتراضيّ فاتورة الجوال مع المندوب المخت�
   const by = (repDefault: string | null) => (p: SalePick) => priceOverrideOf(p, defaultPriceTypeOf(null, repDefault), null);
   const lines = [invoiceLine(water, carton, by(null)(water)), { ...invoiceLine(water, bottle, by(null)(water)), unitPrice: 1.8 }];
   assert.equal(lines[0].unitPrice, 45);
-  const whole = repriceInvoiceLines(lines, catalog, by('l-whole'));
+  const whole = repriceInvoiceLines(lines, catalog, byOverride(by('l-whole')));
   assert.equal(whole[0].unitPrice, 100, 'سعر الجملة صافياً لا شاملاً');
   assert.equal(whole[1].unitPrice, 1.8, 'المعدَّل يبقى');
   assert.equal(whole[1].refPrice, 4.1667, 'ومرجعه يتبع النوع');
   assert.equal(invoiceTotals([whole[0]], 0).total, 115);
   // عميلٌ بنوع التجزئة بعده: نوعه يغلب نوع المندوب
-  const retail = repriceInvoiceLines(whole, catalog, p => priceOverrideOf(p, defaultPriceTypeOf('l-retail', 'l-whole'), null));
+  const retail = repriceInvoiceLines(whole, catalog, byOverride(p => priceOverrideOf(p, defaultPriceTypeOf('l-retail', 'l-whole'), null)));
   assert.equal(retail[0].unitPrice, 60);
 });
 
@@ -229,7 +259,7 @@ test('MSalesReps: قسم «أنواع الأسعار» في الصلاحيات �
   assert.ok(r.includes("baseLabelOf(priceInfoQ.data, tr)"), 'السعر الأساسي باسمه عند الشركة');
   assert.doesNotMatch(r, /tr\(o\.name\)|tr\(l\.name\)/, 'أسماء الأنواع بيانات لا تمرّ بـtr');
   // عنوان الخانات كنسخة اللوحة: هي ما يبدّل بينه المندوب لا «نوع سعره»
-  assert.match(r, /\{typesShown && \([\s\S]{0,400}<p className="label px-3\.5 pt-3">\{tr\('أنواع الأسعار المسموحة'\)\}<\/p>\s*<div data-m-rep-price-types=""/);
+  assert.match(r, /\{typesShown && \([\s\S]{0,400}<p className="label px-3\.5 pt-3">\{tr\('القوائم المسموحة'\)\}<\/p>\s*<div data-m-rep-price-types=""/);
 });
 
 test('MSalesReps: حفظ الصلاحيات يُبطل قائمة مناديب فاتورة الجوال — نوع المندوب الافتراضي منها، والمخبّأ قبل الحفظ يسعّر بالقديم', () => {

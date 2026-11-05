@@ -10,10 +10,13 @@ import {
 } from './priceLists';
 import { choiceNet, unitChoices } from '../rep/repUnits';
 import { PHRASES } from '../i18n/strings';
+import { IMPORT_TYPES } from './importData';
+import { PRICE_RULE_MESSAGES } from './priceRules';
+import { PRICE_RULES_AFFECTED_TEXT, PRICE_RULES_UNIT_ACK_MESSAGE, RULE_FORM_DISCARD_ASK, RULE_FORM_MESSAGES } from './priceListEditor';
 
 /**
- * «أنواع الأسعار» في لوحة الإدارة: صنف «ماء» أساسه القارورة (٢)، والكرتون ٢٤ قارورة رئيسيّته بسعرٍ محدَّد ٤٥،
- * و«سعر الجملة» للكرتون ١٠٠ (مخزَّنٌ للأساس 4.166667 بست منازل كما يكتبه الخادم).
+ * «قوائم الأسعار» (كانت «أنواع الأسعار» حتى ٥ نوفمبر ٢٠٢٦) في لوحة الإدارة: صنف «ماء» أساسه القارورة (٢)، والكرتون ٢٤ قارورة
+ * رئيسيّته بسعرٍ محدَّد ٤٥، و«سعر الجملة» للكرتون ١٠٠ (مخزَّنٌ للأساس 4.166667 بست منازل كما يكتبه الخادم).
  */
 const carton = { id: 'u-ctn', name: 'كرتون', factor: 24, price: 45, isActive: true };
 const water = {
@@ -25,20 +28,27 @@ const ctnChoice = unitChoices(water)[1];
 const baseChoice = unitChoices(water)[0];
 const tr = (s: string) => `«${s}»`;
 
-test('ردّ الأنواع مطبَّعاً: الصفوف الصالحة بترتيب sortOrder ثابتاً، والاسم الافتراضي null حين يُترك فارغاً', () => {
+test('ردّ القوائم مطبَّعاً: الصفوف الصالحة بترتيب sortOrder ثابتاً، والاسم الافتراضي null حين يُترك فارغاً', () => {
   const info = priceListsOf({
     basePriceLabel: '  ',
-    lists: [{ id: 'b', name: 'سعر التجزئة', sortOrder: 1, customersCount: 3 }, null, { id: 7, name: 'تالف' }, { id: 'a', name: 'سعر الجملة', sortOrder: 0 }, { id: 'c', name: 'ج', sortOrder: 1 }],
+    lists: [{ id: 'b', name: 'سعر التجزئة', sortOrder: 1, customersCount: 3, itemsCount: '12', rulesCount: 2 }, null, { id: 7, name: 'تالف' }, { id: 'a', name: 'سعر الجملة', sortOrder: 0 }, { id: 'c', name: 'ج', sortOrder: 1 }],
   });
   assert.deepEqual(info.lists.map(l => l.id), ['a', 'b', 'c'], 'المتساويان بترتيب الخادم');
   assert.equal(info.lists[1].customersCount, 3);
+  // عدّا أصناف القائمة وقواعدها (لصفّها في اللوحة) أرقاماً، وخادمٌ قبلهما بلا مفتاح
+  assert.deepEqual([info.lists[1].itemsCount, info.lists[1].rulesCount], [12, 2]);
+  assert.ok(!('itemsCount' in info.lists[0]) && !('rulesCount' in info.lists[0]));
   assert.equal(info.basePriceLabel, null);
   assert.deepEqual(priceListsOf(undefined), { basePriceLabel: null, lists: [] }, 'ردٌّ غائب ⇒ لا أنواع');
+  // منطقة الشركة (CONTRACT2 D1) تمرّ كما أرسلها الخادم ليُسعَّر في الإدارة و/m بيوم الشركة — وقيمةٌ تالفة أو خادمٌ أقدم ⇒ لا مفتاح
+  assert.equal(priceListsOf({ lists: [], timezone: 'Asia/Riyadh' }).timezone, 'Asia/Riyadh');
+  for (const bad of ['', '   ', 7, null, {}, undefined]) assert.ok(!('timezone' in priceListsOf({ lists: [], timezone: bad })), String(bad));
+  assert.ok(!('timezone' in info), 'ردٌّ بلا منطقة: الشكل كما كان');
   // اسم الرقاقة الأولى: ما سمّته الشركة كما هو (بيانات لا tr)، وإلا «السعر الأساسي» مترجماً
   assert.equal(baseLabelOf({ basePriceLabel: 'سعر المستهلك' }, tr), 'سعر المستهلك');
   assert.equal(baseLabelOf(null, tr), tr(DEFAULT_BASE_PRICE_LABEL));
-  assert.equal(priceListNameProblem('  '), 'اكتب اسم نوع السعر');
-  assert.equal(priceListNameProblem('x'.repeat(41)), 'اسم نوع السعر 40 حرفا على الأكثر');
+  assert.equal(priceListNameProblem('  '), 'اكتب اسم قائمة الأسعار');
+  assert.equal(priceListNameProblem('x'.repeat(41)), 'اسم قائمة الأسعار 40 حرفا على الأكثر');
   assert.equal(priceListNameProblem(' سعر الجملة '), null);
 });
 
@@ -127,25 +137,25 @@ test('نافذة الصنف: العدد المتغيّر يعيد الأنواع
   assert.match(m, /if \(problem\) \{ if \(activeList && REVERSE_PRICE_PROBLEMS\.has\(problem\)\) setPriceTab\(null\); toast\.error\(tr\(problem\)\); return; \}/);
   // (٤) صنفٌ جديد بأسعار أنواعٍ وحدها والسعر الافتراضي المخفي صفر ⇒ الرقاقة الأولى وسؤالٌ قبل الحفظ
   assert.ok(m.includes("if (!product && !reverseLayout && listEdits.items.some(i => i.price != null) && !(Number(rest.basePrice) > 0)) {"));
-  assert.ok(m.includes("if (!window.confirm(fill(tr('{label} صفر وبه تسعر فواتير العميل الذي لا نوع له — أتحفظ الصنف هكذا؟'), { label: baseLabel }))) return;"));
+  assert.ok(m.includes("if (!window.confirm(fill(tr('{label} صفر وبه تسعر فواتير العميل الذي لا قائمة له — أتحفظ الصنف هكذا؟'), { label: baseLabel }))) return;"));
   // (٥) خانة السعر الافتراضي باسم الرقاقة الأولى الذي سمّته الشركة
   assert.ok(m.includes("{primary ? fill(tr('سعر {unit} الواحدة'), { unit: savedBase }) : baseLabel} *"));
 });
 
-test('قائمة الفواتير تُظهر نوع السعر تحت شارة النوع بلا طلبٍ لصفحةٍ بلا نوع، والعبارات بلا لبس، ولا مسار عميلٍ ميّت', () => {
+test('قائمة الفواتير تُظهر قائمة الأسعار تحت شارة النوع بلا طلبٍ لصفحةٍ بلا قائمة، والعبارات بلا لبس، ولا مسار عميلٍ ميّت', () => {
   const page = read('pages', 'InvoicesPage.tsx');
   assert.ok(page.includes('const pricedRows = !!data?.data.some(inv => inv.priceListId);'));
   assert.ok(page.includes('enabled: accountingReady && accountingOn && pricedRows,'), 'لا طلب ما دامت الصفحة بلا فاتورةٍ لها نوع');
   assert.ok(page.includes("queryKey: ['price-lists'],"), 'مفتاح النوافذ نفسه');
   assert.ok(page.includes('data-invoice-price-type=""'));
-  // «غير نوع سعر العميل» تُقرأ بلا تشكيل أمراً «غيِّر نوع سعر العميل»
+  // «غير نوع سعر العميل» تُقرأ بلا تشكيل أمراً «غيِّر نوع سعر العميل» — والاسم صار «ليست قائمة العميل» (٥ نوفمبر ٢٠٢٦)
   const inv = read('components', 'forms', 'InvoiceModal.tsx');
-  assert.ok(inv.includes("{tr('ليس نوع سعر العميل')}"));
+  assert.ok(inv.includes("{tr('ليست قائمة العميل')}"));
   assert.ok(!inv.includes("tr('غير نوع سعر العميل')"));
-  // والمندوب و/m بالعبارة نفسها (و/m قد يختار بينها و«ليس نوع سعر المندوب» حين يأتي الافتراضي من المندوب)، وحُذف
+  // والمندوب و/m بالعبارة نفسها (و/m قد يختار بينها و«ليست قائمة المندوب» حين يأتي الافتراضي من المندوب)، وحُذف
   // المفتاح القديم من القاموس
   for (const src of [read('rep', 'RepApp.tsx'), read('m', 'MInvoiceCreate.tsx')]) {
-    assert.match(src, /\{tr\([^)]*'ليس نوع سعر العميل'/);
+    assert.match(src, /\{tr\([^)]*'ليست قائمة العميل'/);
     assert.ok(!src.includes("tr('غير نوع سعر العميل')"));
   }
   assert.ok(!('غير نوع سعر العميل' in PHRASES));
@@ -191,33 +201,38 @@ test('نافذة الصنف والصفحة: لقطة listPrices لا تُعاد 
   assert.ok(page.includes('mutationFn: async ({ listPriceEdits, ...values }: ProductSave) => {'));
   assert.ok(page.includes('if (!selected) return productApi.create({ ...values, ...listPricesCreateBody(listPriceEdits) });'));
   assert.ok(page.includes('await productApi.updateListPrices(selected.id, { expectedBaseName: saved.unit, expectedPrimary: listPriceEdits.expectedPrimary, items: listPriceEdits.items });'));
-  assert.ok(page.indexOf('const res = await productApi.update(selected.id, values);') < page.indexOf('await productApi.updateListPrices('), 'بعد الصنف');
+  // الصنف نفسه بإقرار قواعد القوائم بعد السؤال حين يردّه الخادم 409 PRICE_RULES_UNIT_ACK (D2) — والأسعار بعده كما كانت
+  assert.ok(page.indexOf('const res = await withPriceRulesAck(') > 0);
+  assert.ok(page.indexOf('() => productApi.update(selected.id, values),') < page.indexOf('await productApi.updateListPrices('), 'بعد الصنف');
 });
 
-test('فاتورة الإدارة: النوع من ملف العميل، والمفتاح خلف أنواعٍ عرّفتها الشركة وحدها، والمرتجع المرتبط بلا مفتاح', () => {
+test('فاتورة الإدارة: القائمة من ملف العميل، والمفتاح خلف قوائم عرّفتها الشركة وحدها، والمرتجع المرتبط بلا مفتاح', () => {
   const s = read('components', 'forms', 'InvoiceModal.tsx');
   assert.equal(s.split('...(priceListOn && { priceListId })').length - 1, 2, 'البيع والمرتجع الحرّ');
   assert.ok(s.includes('const priceListOn = priceLists.length > 0;'));
   assert.ok(s.includes('mutation.mutate(buildLinkedReturnPayload(head, linked, retDec))'), 'المرتبط كما كان');
   assert.ok(s.includes('unlinkSale(); pickCustomerList(v); }}'), 'تغيير العميل يأخذ نوعه');
-  assert.ok(s.includes('const overrides = useMemo(() => priceOverrides(products, priceListId, custRows), [products, priceListId, custRows]);'));
+  // سعر العميل الخاص يغلب القائمة: المسعِّر يأخذ أسعار العميل مع القائمة (كان priceOverrides؛ منذ ٥ نوفمبر ٢٠٢٦ مسعِّر القواعد
+  // docLinePricerOf في lib/invoiceModalRepPrice.ts — ثابته مختبَرٌ هناك)
+  assert.match(s, /docLinePricerOf\(\{ listId: priceListId, custRows,/);
   assert.ok(s.includes('productApi.customerPrices(customerId)'), 'أسعار العميل الخاصة');
-  // الإضافة وتبديل الوحدة وتلميح المنتقي بالمقترح نفسه — لا choiceNet بلا ثالثه بعد اليوم
-  assert.equal(s.split('const price = suggestedNet(p, c);').length - 1, 2);
+  // الإضافة وتبديل الوحدة بالمقترح نفسه (بكمية الصنف في الفاتورة) — لا choiceNet بلا ثالثه بعد اليوم
+  assert.ok(s.split('const price = suggestedNet(p, c, ').length - 1 >= 2);
   assert.doesNotMatch(s, /choiceNet\(c, p\.basePrice\)/);
 });
 
-test('ملف العميل والمندوب وإعدادات الشركة: «نوع السعر» يُرسل null صريحاً، و«تبديل نوع السعر»، والتبويب لصلاحية الأصناف', () => {
+test('ملف العميل والمندوب وإعدادات الشركة: «قائمة الأسعار» تُرسل null صريحاً، و«تبديل قائمة الأسعار»، والتبويب لصلاحية الأصناف', () => {
   const c = read('components', 'forms', 'CustomerModal.tsx');
   assert.ok(c.includes("{...register('priceListId', { setValueAs: (v: unknown) => (v ? String(v) : null) })}"));
   assert.ok(c.includes('enabled: accountingOn,'), 'لا طلب والمحاسبة مطفأة');
-  assert.ok(read('components', 'forms', 'SalesRepModal.tsx').includes("<PermToggle label={tr('تبديل نوع السعر')} {...register('canChangePriceList')} />"));
-  // «أنواع الأسعار» في صفحة المنتجات (نُقلت من إعدادات الشركة، طلب المالك ٢ نوفمبر ٢٠٢٦): مع المحاسبة ولصلاحية الأصناف،
+  assert.ok(read('components', 'forms', 'SalesRepModal.tsx').includes("<PermToggle label={tr('تبديل قائمة الأسعار')} {...register('canChangePriceList')} />"));
+  // «قوائم الأسعار» (كانت «أنواع الأسعار») في صفحة المنتجات (نُقلت من إعدادات الشركة، طلب المالك ٢ نوفمبر ٢٠٢٦): مع المحاسبة ولصلاحية الأصناف،
   // و?panel=prices يفتحها، ورابط التبويب القديم يحوّل إليها؛ و«فرق العمل» إلى المناديب بالطريقة نفسها
   const products = read('pages', 'ProductsPage.tsx');
   assert.ok(products.includes("const priceTypesOn = accountingOn && user?.canManageProducts !== false;"));
   assert.ok(products.includes("useState(() => searchParams.get('panel') === 'prices')"));
-  assert.ok(products.includes('<PriceListsPanel />'));
+  // ومعها onDirtyChange: نموذج قاعدةٍ لم يُحفظ تسأل عنه النافذة قبل الإغلاق (D6)
+  assert.ok(products.includes('<PriceListsPanel onDirtyChange={(d) => { pricePanelDirty.current = d; }} />'));
   const reps = read('pages', 'SalesRepsPage.tsx');
   assert.ok(reps.includes("const teamsOn = user?.role === 'ADMIN' && user?.scopeEnabled !== true;"));
   assert.ok(reps.includes("useState(() => searchParams.get('panel') === 'teams')"));
@@ -233,11 +248,19 @@ test('ملف العميل والمندوب وإعدادات الشركة: «نو
   }
 });
 
-test('عبارات «أنواع الأسعار» مترجمةٌ بلغاتها الأربع وتُبقي عناصرها، ولا «قوائم الأسعار» (استيراد أسعار العملاء) في الميزة', () => {
-  const files = [read('components', 'priceLists', 'PriceListsPanel.tsx'), read('components', 'PriceTypeChips.tsx'), read('lib', 'priceLists.ts')];
-  const keys = new Set<string>(['اكتب اسم نوع السعر', 'اسم نوع السعر 40 حرفا على الأكثر', DEFAULT_BASE_PRICE_LABEL]);
+test('عبارات «قوائم الأسعار» ومحرّرها مترجمةٌ بلغاتها الأربع وتُبقي عناصرها — والاسم صار للميزة لا لاستيراد أسعار العملاء', () => {
+  const files = [
+    read('components', 'priceLists', 'PriceListsPanel.tsx'), read('components', 'PriceTypeChips.tsx'), read('lib', 'priceLists.ts'),
+    read('components', 'priceLists', 'PriceListEditor.tsx'), read('components', 'priceLists', 'PriceListItemsTab.tsx'),
+    read('components', 'priceLists', 'PriceListRulesTab.tsx'), read('components', 'priceLists', 'PriceRuleForm.tsx'), read('lib', 'priceListEditor.ts'),
+  ];
+  // ما يمرّ بـtr متغيّراً (رسائل التحقّق) لا يلتقطه فحص المفاتيح الحرفية في langs.test.ts
+  // ومعها نصوص الإصلاحات المارّة بـtr متغيّرةً: سؤال ترك نموذج القاعدة، وإقرار قواعد الوحدة الرئيسية (D2) ونصّ معاينة التحويل
+  const keys = new Set<string>(['اكتب اسم قائمة الأسعار', 'اسم قائمة الأسعار 40 حرفا على الأكثر', DEFAULT_BASE_PRICE_LABEL,
+    ...Object.values(PRICE_RULE_MESSAGES), ...Object.values(RULE_FORM_MESSAGES),
+    RULE_FORM_DISCARD_ASK, PRICE_RULES_UNIT_ACK_MESSAGE, PRICE_RULES_AFFECTED_TEXT]);
   for (const f of files) for (const m of f.matchAll(/\btr\('((?:[^'\\]|\\.)*)'\)/g)) keys.add(m[1]);
-  for (const k of ['نوع السعر', 'تبديل نوع السعر', 'أنواع الأسعار', 'سعر «{name}» رقم موجب', 'فارغ يعني {label}', 'ليس نوع سعر العميل', '{label} صفر وبه تسعر فواتير العميل الذي لا نوع له — أتحفظ الصنف هكذا؟']) keys.add(k);
+  for (const k of ['قائمة الأسعار', 'تبديل قائمة الأسعار', 'قوائم الأسعار', 'سعر «{name}» رقم موجب', 'فارغ يعني {label}', 'فارغ يعني قواعد القائمة ثم {label}', 'ليست قائمة العميل', '{label} صفر وبه تسعر فواتير العميل الذي لا قائمة له — أتحفظ الصنف هكذا؟']) keys.add(k);
   for (const k of keys) {
     const e = PHRASES[k];
     assert.ok(e, `غير موجودة في القاموس: ${k}`);
@@ -246,7 +269,20 @@ test('عبارات «أنواع الأسعار» مترجمةٌ بلغاتها �
       for (const ph of k.match(/\{\w+\}/g) ?? []) assert.ok(e[lang].includes(ph), `${k} (${lang}) بلا ${ph}`);
     }
   }
-  for (const f of files) assert.ok(!f.includes("tr('قوائم الأسعار')"), 'الاسم محجوزٌ لاستيراد أسعار العملاء');
+  // الاسم «قوائم الأسعار» للميزة نفسها (طلب المالك ٥ نوفمبر ٢٠٢٦)، واستيراد أسعار العملاء الخاصة باسمه الصريح — لا اسمٌ واحد لشيئين
+  assert.ok(files[0].includes("tr('قوائم الأسعار')"), 'عنوان اللوحة');
+  assert.ok(read('pages', 'ProductsPage.tsx').includes("<PagePanelModal title={tr('قوائم الأسعار')}"));
+  assert.notEqual(IMPORT_TYPES.prices.label, 'قوائم الأسعار', 'نوع الاستيراد لا يحمل اسم الميزة');
+  assert.equal(IMPORT_TYPES.prices.label, 'أسعار العملاء الخاصة');
+  // ولا بقيّة للاسم القديم في شاشات الإدارة المعاد تسميتها (حقل «نوع السعر» في نموذج القاعدة = ثابت/خصم/زيادة، لا القائمة)
+  const renamed = [files[0], files[1], files[2], files[3], files[4], files[5], files[7], read('pages', 'ProductsPage.tsx'),
+    read('components', 'forms', 'ProductModal.tsx'), read('components', 'forms', 'CustomerModal.tsx'), read('components', 'forms', 'SalesRepModal.tsx'),
+    read('pages', 'SalesRepsPage.tsx'), read('pages', 'InvoicesPage.tsx')];
+  for (const f of renamed) {
+    for (const m of f.matchAll(/\btr\('((?:[^'\\]|\\.)*)'\)/g)) {
+      assert.doesNotMatch(m[1], /نوع سعر|نوع السعر|أنواع الأسعار|أنواع أسعار|النوع الافتراضي|لا نوع له|كل الأنواع/, m[1]);
+    }
+  }
 });
 
 // ═══ نوع سعر المندوب (طلب المالك ٢ نوفمبر ٢٠٢٦): الافتراضي = نوع العميل ?? نوع المندوب ?? الأساسي، والمسموح بلا قيد = كل الأنواع ═══
@@ -333,16 +369,16 @@ test('نافذة المندوب: الخانات بترتيب الشركة، وا
 test('جدول المناديب ورسالة الحذف: الافتراضي باسمه وما يبدّل بينه، وعدد العملاء والمناديب على النوع مترجماً', () => {
   const info = { basePriceLabel: null, lists: [{ id: 'l-whole', name: 'سعر الجملة', sortOrder: 0 }, { id: 'l-retail', name: 'سعر التجزئة', sortOrder: 1 }] };
   assert.deepEqual(repPriceTypesSummary({ defaultPriceListId: 'l-whole', allowedPriceTypes: null, canChangePriceList: true }, info, tr),
-    { defaultName: 'سعر الجملة', switchable: tr('كل الأنواع') });
+    { defaultName: 'سعر الجملة', switchable: tr('كل القوائم') });
   assert.deepEqual(repPriceTypesSummary({ defaultPriceListId: null, allowedPriceTypes: ['l-retail', 'base'], canChangePriceList: true }, info, tr),
     { defaultName: tr(DEFAULT_BASE_PRICE_LABEL), switchable: `${tr(DEFAULT_BASE_PRICE_LABEL)}، سعر التجزئة` });
   assert.deepEqual(repPriceTypesSummary({ defaultPriceListId: 'l-retail', allowedPriceTypes: ['l-retail'], canChangePriceList: false }, { ...info, basePriceLabel: 'سعر المستهلك' }, tr),
     { defaultName: 'سعر التجزئة', switchable: tr('بلا تبديل') });
   assert.equal(repPriceTypesSummary({}, { ...info, basePriceLabel: 'سعر المستهلك' }, tr).defaultName, 'سعر المستهلك', 'صفٌّ بلا المفتاح ⇒ الأساسي باسم الشركة');
   const id = (s: string) => s;
-  assert.equal(priceListInUseMessage({ code: 'PRICE_LIST_IN_USE', customersCount: 3, repsCount: 2 }, id), 'نوع السعر مستخدم لعملاء (3) ومناديب (2) انقلهم إلى نوع آخر أولا');
-  assert.equal(priceListInUseMessage({ code: 'PRICE_LIST_IN_USE', customersCount: 0, repsCount: 1 }, id), 'نوع السعر مستخدم لمناديب (1) أزله من نوعهم الافتراضي وأنواعهم المسموحة أولا');
-  assert.equal(priceListInUseMessage({ code: 'PRICE_LIST_IN_USE', customersCount: 4 }, id), 'نوع السعر مستخدم لعملاء (4) انقلهم إلى نوع آخر من ملفاتهم أولا', 'خادمٌ بلا repsCount');
+  assert.equal(priceListInUseMessage({ code: 'PRICE_LIST_IN_USE', customersCount: 3, repsCount: 2 }, id), 'قائمة الأسعار مستخدمة لعملاء (3) ومناديب (2) انقلهم إلى قائمة أخرى أولا');
+  assert.equal(priceListInUseMessage({ code: 'PRICE_LIST_IN_USE', customersCount: 0, repsCount: 1 }, id), 'قائمة الأسعار مستخدمة لمناديب (1) أزلها من قائمتهم الافتراضية وقوائمهم المسموحة أولا');
+  assert.equal(priceListInUseMessage({ code: 'PRICE_LIST_IN_USE', customersCount: 4 }, id), 'قائمة الأسعار مستخدمة لعملاء (4) انقلهم إلى قائمة أخرى من ملفاتهم أولا', 'خادمٌ بلا repsCount');
   assert.equal(priceListInUseMessage({ code: 'PRICE_LIST_INVALID' }, id), null, 'غيرها ⇒ رسالة الخادم');
   assert.equal(priceListInUseMessage(undefined, id), null);
 });
@@ -373,8 +409,8 @@ test('نافذة المندوب والجدول والإعدادات: القسم 
       }
     }
   }
-  // عبارات الشاشات الأخرى (تطبيق المندوب وفاتورة الإدارة و/m) جاهزةٌ في القاموس
-  for (const k of ['نوع المندوب', 'نوع سعر العميل', 'نوع السعر الافتراضي', 'الأنواع المسموحة', 'كل الأنواع', 'نوع السعر غير مسموح لك', 'لا تملك صلاحية تبديل نوع السعر']) {
+  // عبارات الشاشات الأخرى (تطبيق المندوب وفاتورة الإدارة و/m) جاهزةٌ في القاموس — بالأسماء الجديدة (٥ نوفمبر ٢٠٢٦)
+  for (const k of ['قائمة المندوب', 'قائمة العميل', 'القائمة الافتراضية', 'القوائم المسموحة', 'كل القوائم', 'قائمة الأسعار غير مسموحة لك', 'لا تملك صلاحية تبديل قائمة الأسعار']) {
     assert.ok(PHRASES[k]?.zh, k);
   }
 });

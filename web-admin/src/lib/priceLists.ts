@@ -1,6 +1,7 @@
 /**
- * «أنواع الأسعار» (طلب المالك: رقاقات تبديلٍ بأسماء تختارها الشركة — سعر الجملة، سعر التجزئة…) — منطق لوحة الإدارة الصرف بلا
- * React ولا شبكة، يُختبر وحده (priceLists.test.ts).
+ * «قوائم الأسعار» (كانت «أنواع الأسعار» حتى ٥ نوفمبر ٢٠٢٦؛ طلب المالك: رقاقات تبديلٍ بأسماء تختارها الشركة — سعر الجملة، سعر
+ * التجزئة…) — منطق لوحة الإدارة الصرف بلا React ولا شبكة، يُختبر وحده (priceLists.test.ts). وقواعد القائمة (صنف/فئة/الكل، نسبة،
+ * حدّ أدنى، فترة) في lib/priceRules.ts ومحرّرها في lib/priceListEditor.ts. الاسم في الواجهة وحدها: المسارات والرموز كما هي.
  *
  * ═══ القاعدة الواحدة (مطابقة لحارس الخادم حرفاً) ═══
  * سعر النوع مخزَّنٌ صافياً **لوحدة الأساس** بست منازل (= سعر الوحدة الرئيسية ÷ معاملها) كسعر العميل الخاص، فمرجع البند:
@@ -22,17 +23,25 @@ export const PRICE_LIST_NAME_MAX = 40;
 
 /** ردّ GET /price-lists مطبَّعاً: صفوفٌ صالحة بترتيبها — وردٌّ تالف أو غائب ⇒ لا أنواع */
 export function priceListsOf(data: unknown): PriceListsInfo {
-  const d = (data ?? {}) as { basePriceLabel?: unknown; lists?: unknown };
+  const d = (data ?? {}) as { basePriceLabel?: unknown; lists?: unknown; timezone?: unknown };
   const lists: PriceList[] = (Array.isArray(d.lists) ? d.lists : [])
     .filter((l): l is PriceList => !!l && typeof (l as PriceList).id === 'string' && typeof (l as PriceList).name === 'string')
     .map((l) => ({
       id: l.id, name: l.name, sortOrder: Number(l.sortOrder) || 0,
       ...(l.customersCount != null && { customersCount: Number(l.customersCount) || 0 }),
+      // عدّا أصناف القائمة وقواعدها (لصفّها في اللوحة) — خادمٌ قبلهما بلا مفتاح
+      ...(l.itemsCount != null && { itemsCount: Number(l.itemsCount) || 0 }),
+      ...(l.rulesCount != null && { rulesCount: Number(l.rulesCount) || 0 }),
     }))
     // ثابتٌ على ترتيب الخادم (sortOrder ثم الاسم) — المتساويان يبقيان كما ردّهما
     .sort((a, b) => a.sortOrder - b.sortOrder);
   const label = typeof d.basePriceLabel === 'string' && d.basePriceLabel.trim() ? d.basePriceLabel.trim() : null;
-  return { basePriceLabel: label, lists };
+  // منطقة الشركة الزمنية (CONTRACT2 D1): يرسلها الخادم حين توجد قوائم ليُسعَّر بيوم الشركة — خادمٌ أقدم أو قيمةٌ تالفة ⇒ لا مفتاح
+  // (الشكل كما كان حرفاً، فاليوم المحلي للجهاز)
+  return {
+    basePriceLabel: label, lists,
+    ...(typeof d.timezone === 'string' && d.timezone.trim() !== '' && { timezone: d.timezone }),
+  };
 }
 
 /** اسم الرقاقة الأولى: ما سمّته الشركة كما هو (بيانات)، وإلا «السعر الأساسي» مترجماً */
@@ -41,11 +50,11 @@ export function baseLabelOf(info: Pick<PriceListsInfo, 'basePriceLabel'> | null 
   return own || tr(DEFAULT_BASE_PRICE_LABEL);
 }
 
-/** اسم نوعٍ أو الرقاقة الأولى: مقصوصٌ بين ١ و٤٠ حرفاً (رسالة للعرض بـtr، أو null) */
+/** اسم قائمةٍ أو الرقاقة الأولى: مقصوصٌ بين ١ و٤٠ حرفاً (رسالة للعرض بـtr، أو null) */
 export function priceListNameProblem(name: string): string | null {
   const n = String(name ?? '').trim();
-  if (!n) return 'اكتب اسم نوع السعر';
-  if (n.length > PRICE_LIST_NAME_MAX) return 'اسم نوع السعر 40 حرفا على الأكثر';
+  if (!n) return 'اكتب اسم قائمة الأسعار';
+  if (n.length > PRICE_LIST_NAME_MAX) return 'اسم قائمة الأسعار 40 حرفا على الأكثر';
   return null;
 }
 
@@ -175,9 +184,9 @@ export function repriceUntouched<L extends { unitPrice: number; refPrice: number
   return changed ? next : lines;
 }
 
-// ─── نافذة المندوب: «أنواع الأسعار» (النوع الافتراضي والمسموح) — عرضٌ وحده، والقواعد في النسخة المشتركة أسفل الملف ───
+// ─── نافذة المندوب: «قوائم الأسعار» (القائمة الافتراضية والمسموحة) — عرضٌ وحده، والقواعد في النسخة المشتركة أسفل الملف ───
 
-/** رموز خانات «أنواع الأسعار المسموحة» بترتيب الشركة: 'base' (السعر الأساسي) أولاً ثم معرّفات الأنواع */
+/** رموز خانات «القوائم المسموحة» بترتيب الشركة: 'base' (السعر الأساسي) أولاً ثم معرّفات الأنواع */
 export function repPriceTypeTokens(allLists: readonly string[]): string[] {
   return [BASE_PRICE_TYPE, ...allLists];
 }
@@ -214,13 +223,13 @@ export function repToggleAllowedType(
   return { allowed, defaultId: defTok === BASE_PRICE_TYPE ? null : defTok };
 }
 
-/** خيارات «النوع الافتراضي»: المحدَّد وحده، أو السعر الأساسي وكل الأنواع بلا تحديد — null = السعر الأساسي */
+/** خيارات «القائمة الافتراضية»: المحدَّد وحده، أو السعر الأساسي وكل الأنواع بلا تحديد — null = السعر الأساسي */
 export function repDefaultChoices(allowed: string[] | null, allLists: readonly string[]): Array<string | null> {
   return (allowed ?? repPriceTypeTokens(allLists)).map((t) => (t === BASE_PRICE_TYPE ? null : t));
 }
 
 /**
- * سطر «نوع السعر» في جدول المناديب: الافتراضي باسمه، ثم ما يبدّل بينه — كل الأنواع، أو المحدَّد بأسمائه، أو «بلا تبديل» بلا
+ * سطر «قائمة الأسعار» في جدول المناديب: الافتراضي باسمه، ثم ما يبدّل بينه — كل القوائم، أو المحدَّد بأسمائه، أو «بلا تبديل» بلا
  * صلاحية. الأسماء بيانات الشركة (لا tr)، ونوعٌ لم يعد موجوداً يُسقط
  */
 export function repPriceTypesSummary(
@@ -232,13 +241,13 @@ export function repPriceTypesSummary(
   const defaultName = nameOf(rep.defaultPriceListId ?? null) ?? baseLabelOf(info, tr);
   if (!rep.canChangePriceList) return { defaultName, switchable: tr('بلا تبديل') };
   const allowed = repAllowedTokensOf(rep.allowedPriceTypes, info.lists.map((l) => l.id));
-  if (allowed === null) return { defaultName, switchable: tr('كل الأنواع') };
+  if (allowed === null) return { defaultName, switchable: tr('كل القوائم') };
   const names = allowed.map((t) => nameOf(t === BASE_PRICE_TYPE ? null : t)).filter((n): n is string => !!n);
   return { defaultName, switchable: names.join('، ') };
 }
 
 /**
- * رسالة ٤٠٩ PRICE_LIST_IN_USE عند حذف نوع: بعدد العملاء والمناديب الذين عليه (customersCount · repsCount) مترجمةً — وغيرها null
+ * رسالة ٤٠٩ PRICE_LIST_IN_USE عند حذف قائمة: بعدد العملاء والمناديب الذين عليه (customersCount · repsCount) مترجمةً — وغيرها null
  * (فتُعرض رسالة الخادم كما هي)
  */
 export function priceListInUseMessage(data: unknown, tr: (s: string) => string): string | null {
@@ -247,9 +256,9 @@ export function priceListInUseMessage(data: unknown, tr: (s: string) => string):
   const customers = Math.max(0, Number(d.customersCount) || 0);
   const reps = Math.max(0, Number(d.repsCount) || 0);
   const fill = (s: string) => s.replace('{customers}', String(customers)).replace('{reps}', String(reps));
-  if (customers > 0 && reps > 0) return fill(tr('نوع السعر مستخدم لعملاء ({customers}) ومناديب ({reps}) انقلهم إلى نوع آخر أولا'));
-  if (reps > 0) return fill(tr('نوع السعر مستخدم لمناديب ({reps}) أزله من نوعهم الافتراضي وأنواعهم المسموحة أولا'));
-  if (customers > 0) return fill(tr('نوع السعر مستخدم لعملاء ({customers}) انقلهم إلى نوع آخر من ملفاتهم أولا'));
+  if (customers > 0 && reps > 0) return fill(tr('قائمة الأسعار مستخدمة لعملاء ({customers}) ومناديب ({reps}) انقلهم إلى قائمة أخرى أولا'));
+  if (reps > 0) return fill(tr('قائمة الأسعار مستخدمة لمناديب ({reps}) أزلها من قائمتهم الافتراضية وقوائمهم المسموحة أولا'));
+  if (customers > 0) return fill(tr('قائمة الأسعار مستخدمة لعملاء ({customers}) انقلهم إلى قائمة أخرى من ملفاتهم أولا'));
   return null;
 }
 

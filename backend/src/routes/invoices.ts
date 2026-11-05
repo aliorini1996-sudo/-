@@ -18,7 +18,9 @@ import {
   ReturnCancelStockShort, VanStockShort, assertReturnRemovalKeepsVan, lockVanSellable, preLockReturnOutBuckets, recordVanStockHeld,
   vanRemainingFor, vanShortage, vanStockHeldBody,
 } from '../services/repSaleStock';
-import { DEVICE_NOW_HEADER, headerText, offlineInvoiceDate } from '../services/offlineInvoiceDate';
+import {
+  DEVICE_NOW_HEADER, devicePriceInstant, devicePricingDay, headerText, offlineInvoiceDate, priceRulesKnownAt, rawDeviceMoment, rowsKnownAt,
+} from '../services/offlineInvoiceDate';
 import { catalogTeamsFor, resolveDocTeam, supervisorViewerOf, teamCatalogProblem, teamMembershipSelectFor } from '../services/teams';
 // «لوكيشن»: ختم الفاتورة بموقع مندوبها وقت الإصدار، والمرتبط يرث ختم أصله (services/locations.ts)
 import { inheritedLocation, locationDocWhere, locationFilterOf, repStampLocation } from '../services/locations';
@@ -70,17 +72,21 @@ import { CancelRefused, lockInvoiceForCancel } from '../services/docCancel';
 // «تتبّع اللوط»: توزيع البنود على التشغيلات داخل معاملة الإصدار، وحارسا إلغاء المرتجع وإطفاء عودته — للصنف المتتبَّع في شركةٍ
 // فعّلت الميزة وحده؛ وغيره مساره حرفياً كما كان (services/lotsInvoice.ts)
 import { randomUUID } from 'node:crypto';
-import { LotError, asLotBusy, invoiceItemLotColumns, lotHttpError, type ItemExpiryStamp, type LotActor, type LotWarning } from '../services/lots';
+import { LotError, asLotBusy, companyDayOf, invoiceItemLotColumns, lotHttpError, type ItemExpiryStamp, type LotActor, type LotWarning } from '../services/lots';
 import { LOT_LOCK_TIMEOUT, acquireLotQueue, companyDay } from '../services/lotsDb';
 import {
   LOT_ALLOW_UNKNOWN, LOT_TX_OPTIONS, allocateInvoiceLotsInTx, assertRestockOffKeepsLots, assertReturnCancelKeepsLots, assertReturnStillUntracked,
   freeReturnStamps, invoiceLotLines, invoiceLotMoment, recordReplayHeld, returnHistoryBound, saleItemLots, scaleLotHint, type IssuanceLotPlan,
 } from '../services/lotsInvoice';
-// «أنواع الأسعار»: نوع سعر المستند وحارس تبديله، و«سعر العميل» في مرجع الحارس = سعر العميل ?? سعر النوع — و«نوع سعر المندوب»:
-// افتراضيّ المستند (نوع العميل ?? نوع المندوب الافتراضي) والأنواع المسموح له التبديل إليها
+// «قوائم الأسعار»: قائمة أسعار المستند وحارس تبديلها، و«سعر العميل» يغلب القائمة في مرجع الحارس — و«قائمة المندوب»:
+// افتراضيّ المستند (قائمة العميل ?? القائمة الافتراضية للمندوب) والقوائم المسموح له التبديل إليها
 import {
   PRICE_LIST_MESSAGES, PRICE_TYPE_NOT_ALLOWED_REASON, allowedPriceTypesOf, defaultPriceTypeOf, docPriceListOf, priceTypeAllowed, refOverrideOf,
 } from '../services/priceLists';
+// وقواعد القائمة (طلب المالك ٥ نوفمبر ٢٠٢٦ — على نسق Odoo): الحلّ المشترك نفسه الذي تقترح به الأجهزة السعر (services/priceRules.ts)
+import {
+  listLineRef, listPerBaseHint, listPriceOf, qtyPrimaryOf, type ListPriceResult, type PriceRuleProduct, type PriceRuleRow,
+} from '../services/priceRules';
 
 const router = Router();
 router.use(authenticate);
@@ -220,9 +226,9 @@ const createInvoiceSchema = z.object({
   // (BT-25) وطريقة دفعها (BR-49) لإشعارٍ دائن بلا فاتورة في المنصّة — يُفحصان في routes/invoicesNotes.ts، وفي غير ذلك لا يُقرآن
   originalInvoiceRef: z.string().max(200).optional(),
   originalPaymentType: z.enum(['CASH', 'CREDIT']).optional(),
-  // «أنواع الأسعار»: نوع سعر المستند — غائبٌ ⇒ الافتراضيّ: نوع العميل المحفوظ، وإلا النوع الافتراضي لمندوب المستند (العملاء
-  // والصناديق القديمة)، وnull ⇒ السعر الأساسي صراحةً. المندوب لا يرسل غير الافتراضيّ إلا بـ«تبديل نوع السعر» وضمن أنواعه
-  // المسموحة (403 PRICE_LIST_FORBIDDEN)
+  // «قوائم الأسعار»: قائمة أسعار المستند — غائبةٌ ⇒ الافتراضيّة: قائمة العميل المحفوظة، وإلا القائمة الافتراضية لمندوب المستند
+  // (العملاء والصناديق القديمة)، وnull ⇒ السعر الأساسي صراحةً. المندوب لا يرسل غير الافتراضيّة إلا بـ«تبديل قائمة الأسعار» وضمن
+  // قوائمه المسموحة (403 PRICE_LIST_FORBIDDEN)
   priceListId: z.string().min(1).nullish(),
   // هل يعود المرتجع لمخزون السيارة؟ (اختياري — يُشتقّ من السبب إن غاب)
   returnToStock: z.boolean().optional(),
@@ -233,6 +239,15 @@ const createInvoiceSchema = z.object({
   // العمل دون اتصال: مفتاح idempotency ولحظة الإنشاء على الجهاز (اختياريان — لا يؤثّران أونلاين)
   clientRef: z.string().uuid().optional(),
   clientCreatedAt: z.string().optional(),
+  // «قوائم الأسعار» (CONTRACT2 D1): يوم الشركة الذي سعّر به الجهاز قواعد القائمة ذات الفترة 'YYYY-MM-DD' (تطبيق المندوب يعيد تسعير
+  // البنود عند الإصدار ويرسله، والصندوق يعيده كما هو). يقرؤه حارس سعر المندوب وحده، ويوماً مرشّحاً ثانياً إن ساوى يوم الشركة قبل لحظة
+  // التسعير بساعتين أو بعدها بساعتين — قرب منتصف ليل الشركة وحده (devicePricingDay). تلميحٌ لا يحكم: قيمةٌ تالفة أو بغير نوعها تُهمل
+  // بصمت (catch) فلا يُرفض بها مستندٌ سُلّمت بضاعته
+  pricingDay: z.string().max(40).nullish().catch(undefined),
+  // «قوائم الأسعار» (التحقّق L2.2): لحظة جلب الجهاز كاش أسعار القوائم وقواعدها (ISO على ساعته). لإعادة رفع المندوب بلحظة جهازٍ وحدها:
+  // حدُّ ما عرفه من القواعد min(لحظة الإصدار، هي) إن لم تكن بعد الإصدار ولا أقدم منه بثلاثين يوماً (priceRulesKnownAt)؛ والحيّ لا يقرؤها.
+  // تلميحٌ لا يحكم كـpricingDay: تالفةٌ أو بغير نوعها تُهمل بصمت
+  pricesSeenAt: z.string().max(64).nullish().catch(undefined),
   // ═══ خطة السداد ═══
   // `type` يبقى CASH|CREDIT|RETURN حرفياً: التقسيط بيعٌ آجل بجدول، لا نوع رابع.
   // انظر تعليق `paymentPlan` في المخطط لسبب المنع.
@@ -324,7 +339,7 @@ export async function resolveLineUnit(
     docAt?: Date | null;
     /** صافي سعر البند قبل الضريبة كما يقيسه حارس السعر — إشارة الحالة B */
     netUnitPrice?: number;
-    /** سعر العميل الحالي لوحدة الأساس (وبلاه سعر نوع المستند — «أنواع الأسعار»)، أو null */
+    /** سعر العميل الحالي لوحدة الأساس (وبلاه ما تقوله قائمة أسعار المستند لوحدة الأساس — listPerBaseHint)، أو null */
     custPrice?: number | null;
   },
 ): Promise<LineUnitResult> {
@@ -950,6 +965,12 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   } catch (err) { next(err); }
 });
 
+/** «قوائم الأسعار»: أعمدة قاعدة القائمة كما يقرؤها الحلّ المشترك (PriceRuleRow في services/priceRules.ts) */
+const PRICE_RULE_SELECT = {
+  id: true, scope: true, productId: true, categoryId: true, kind: true, basePrice: true, primaryPrice: true, percent: true,
+  minQty: true, startsOn: true, endsOn: true, updatedAt: true,
+} as const;
+
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   // «تتبّع اللوط»: خطة المستند المتتبَّع (لإشعار الحجز في catch) وتحرير الطابور في finally — null لغير المتتبَّع
   let lotPlan: IssuanceLotPlan | null = null;
@@ -1061,6 +1082,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true,
         returnRuleEnabled: true, returnRuleMode: true, returnRuleMetric: true, returnRuleValue: true,
         teams: { select: { teamId: true } },
+        // «قوائم الأسعار»: فئة الصنف لقواعد الفئة في القائمة (services/priceRules.ts)
+        categoryId: true,
         lotTracked: true,
         repSaleAllowed: true, repReturnAllowed: true, repSaleUnit: true, repReturnUnit: true, repRulesChangedAt: true,
         // «الوحدة الرئيسية»: لحظة آخر تحويل (null ⇒ لا سؤال لسجلّ التحويلات أبداً، I8)، والرئيسية لرسالة المتاح وحدها (عرض)
@@ -1073,17 +1096,17 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const noBase = missingBaseForApi(!!req.user?.apiKeyId, body.items,
       new Map(products.map((p) => [p.id, { name: p.name, baseConvertedAt: p.baseConvertedAt ?? null }])));
     if (noBase) { const g = baseUnitRequiredReply(noBase); res.status(g.status).json(g.body); return; }
-    /* «أنواع الأسعار» (services/priceLists.ts): نوع سعر المستند — المرسل إن حضر مفتاحه (null = السعر الأساسي)، وإلا افتراضيّه
-     * (defaultPriceTypeOf): نوع العميل، وإلا النوع الافتراضي لمندوب المستند («نوع سعر المندوب»، طلب المالك ٢ نوفمبر ٢٠٢٦ — المندوب
+    /* «قوائم الأسعار» (services/priceLists.ts): قائمة أسعار المستند — المرسلة إن حضر مفتاحها (null = السعر الأساسي)، وإلا افتراضيّها
+     * (defaultPriceTypeOf): قائمة العميل، وإلا القائمة الافتراضية لمندوب المستند («قائمة المندوب»، طلب المالك ٢ نوفمبر ٢٠٢٦ — المندوب
      * نفسه، أو salesRepId الذي تُصدر له الإدارة ومفتاح API)، وإلا السعر الأساسي. فعميلٌ قديم وصندوق أوف-لاين قديم بلا المفتاح يُسعَّران
-     * بالافتراضيّ. عمودا المندوب من صفّه المقروء أعلاه (لا استعلام جديد)، وغيابهما = اليوم حرفياً (نوع العميل، وكل الأنواع).
-     * المندوب لا يسعّر بغير الافتراضيّ إلا بـ«تبديل نوع السعر» وضمن أنواعه المسموحة (allowedPriceTypes: null = بلا قيد كاليوم، والافتراضيّ
-     * مسموحٌ دائماً — priceTypeAllowed)، والإدارة ومفتاح API أحرار (النوع عندهم تعبئةٌ افتراضية كالسعر). ونوعٌ غير الافتراضيّ من الشركة
-     * نفسها وإلا 400 — ونوعا العميل والمندوب الافتراضيّان محروسان عند كتابتهما (routes/customers.ts وroutes/salesReps.ts). وأسعار النوع
-     * لأصناف المستند وحدها وحين يوجد نوعٌ فقط: بلا نوعٍ لا استعلام زائد.
-     * وإعادة رفع الصندوق (X-FS-Replay — تُمحى لمفتاح API في middleware/auth.ts) لا تُرفض بنوعٍ حُذف قبل المزامنة ولا بـ«تبديل نوع
-     * السعر» أو نوعٍ مسموح نُزعا بعد الإصدار: مستندٌ سُلّمت بضاعته يُعدَم في الصندوق بأي 4xx. فيُسعَّر بالافتراضيّ الحالي كأن المفتاح
-     * غائب، وحارس السعر أدناه يحكم كالمعتاد — فالترويسة (يكتبها الجهاز) لا تفتح نوعاً أرخص بلا صلاحية، ولا يُختم المستند بمعرّفٍ لا وجود له */
+     * بالافتراضيّة. عمودا المندوب من صفّه المقروء أعلاه (لا استعلام جديد)، وغيابهما = اليوم حرفياً (قائمة العميل، وكل القوائم).
+     * المندوب لا يسعّر بغير الافتراضيّة إلا بـ«تبديل قائمة الأسعار» وضمن قوائمه المسموحة (allowedPriceTypes: null = بلا قيد كاليوم،
+     * والافتراضيّة مسموحةٌ دائماً — priceTypeAllowed)، والإدارة ومفتاح API أحرار (القائمة عندهم تعبئةٌ افتراضية كالسعر). وقائمةٌ غير
+     * الافتراضيّة من الشركة نفسها وإلا 400 — وقائمتا العميل والمندوب الافتراضيّتان محروستان عند كتابتهما (routes/customers.ts
+     * وroutes/salesReps.ts). وأسعار القائمة وقواعدها لأصناف المستند وحدها وحين توجد قائمةٌ فقط: بلا قائمةٍ لا استعلام زائد.
+     * وإعادة رفع الصندوق (X-FS-Replay — تُمحى لمفتاح API في middleware/auth.ts) لا تُرفض بقائمةٍ حُذفت قبل المزامنة ولا بـ«تبديل قائمة
+     * الأسعار» أو قائمةٍ مسموحة نُزعا بعد الإصدار: مستندٌ سُلّمت بضاعته يُعدَم في الصندوق بأي 4xx. فيُسعَّر بالافتراضيّة الحالية كأن المفتاح
+     * غائب، وحارس السعر أدناه يحكم كالمعتاد — فالترويسة (يكتبها الجهاز) لا تفتح قائمةً أرخص بلا صلاحية، ولا يُختم المستند بمعرّفٍ لا وجود له */
     const listReplay = String(req.headers['x-fs-replay'] || '') === '1' && !req.user?.apiKeyId;
     const custListId = customer.priceListId ?? null;
     const defaultListId = defaultPriceTypeOf(custListId, rep.defaultPriceListId);
@@ -1092,8 +1115,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (req.user!.role === 'SALES_REP' && (rep.canChangePriceList !== true
         || !priceTypeAllowed(docListId, allowedPriceTypesOf(rep.allowedPriceTypes), defaultListId))) {
         if (!listReplay) {
-          // الرمز واحد والرسالة بالسبب: بالصلاحية والنوع خارج أنواعه المسموحة ⇒ «نوع السعر غير مسموح لك» ووسم reason (التطبيق
-          // لا يحسب صلاحيته سُحبت فيطفئ رقائقه)، وبلاها «لا تملك صلاحية تبديل نوع السعر» كما كان
+          // الرمز واحد والرسالة بالسبب: بالصلاحية والقائمة خارج قوائمه المسموحة ⇒ «قائمة الأسعار غير مسموحة لك» ووسم reason (التطبيق
+          // لا يحسب صلاحيته سُحبت فيطفئ رقائقه)، وبلاها «لا تملك صلاحية تبديل قائمة الأسعار» كما كان
           const notAllowed = rep.canChangePriceList === true;
           res.status(403).json({
             success: false, code: 'PRICE_LIST_FORBIDDEN', ...(notAllowed && { reason: PRICE_TYPE_NOT_ALLOWED_REASON }),
@@ -1108,14 +1131,35 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         docListId = defaultListId;
       }
     }
-    // سعر النوع لوحدة الأساس (صافٍ) لكل صنفٍ له سعرٌ فيه — وغيره يُسعَّر بسلسلة اليوم كما هي
-    const listPriceOf = new Map<string, number>();
+    /* ما تقوله قائمة المستند (طلب المالك ٥ نوفمبر ٢٠٢٦ — services/priceRules.ts): سعر الصنف الثابت فيها لوحدة الأساس (PriceListItem —
+     * صافٍ، «قاعدة صنفٍ» بلا شرط)، وقواعدها (PriceListRule: صنفٌ أو فئةٌ أو كل الأصناف، سعرٌ ثابت أو نسبة، بحدٍّ أدنى للكمية وفترة) — لأصناف
+     * المستند وفئاتها وحدها. وبلا قائمةٍ لا استعلام زائد، وبها استعلامان متوازيان. وما لا تقول فيه القائمة شيئاً يُسعَّر بسلّم اليوم كما هو.
+     * والقواعد يقرؤها حارس سعر المندوب وإشارة سعر إعادة الرفع وحدهما (CONTRACT2 D5): فالإدارة ومفتاح API في الإصدار الحيّ (لا حارس
+     * لهما ولا إعادة رفع — X-FS-Replay تُمحى للمفتاح) لا يُسألان عنها ولا عن منطقة الشركة، واستعلام السعر الثابت كما كان حرفياً */
+    const needsListEval = req.user!.role === 'SALES_REP' || listReplay;
+    const listItemOf = new Map<string, number>();
+    let docRules: PriceRuleRow[] = [];
     if (docListId) {
-      const rows = await prisma.priceListItem.findMany({
-        where: { tenantId: tid, priceListId: docListId, productId: { in: productIds } },
-        select: { productId: true, price: true },
-      });
-      for (const r of rows ?? []) listPriceOf.set(r.productId, Number(r.price));
+      const categoryIds = [...new Set(products.map((p) => p.categoryId).filter((c): c is string => !!c))];
+      const [rows, rules] = await Promise.all([
+        prisma.priceListItem.findMany({
+          where: { tenantId: tid, priceListId: docListId, productId: { in: productIds } },
+          select: { productId: true, price: true },
+        }),
+        !needsListEval ? Promise.resolve([] as PriceRuleRow[]) : prisma.priceListRule.findMany({
+          where: {
+            tenantId: tid, priceListId: docListId,
+            OR: [
+              { scope: 'product', productId: { in: productIds } },
+              ...(categoryIds.length ? [{ scope: 'category', categoryId: { in: categoryIds } }] : []),
+              { scope: 'all' },
+            ],
+          },
+          select: PRICE_RULE_SELECT,
+        }),
+      ]);
+      for (const r of rows ?? []) listItemOf.set(r.productId, Number(r.price));
+      docRules = rules ?? [];
     }
     // «تتبّع اللوط»: الأصناف المتتبَّعة في القراءة المسبقة (مفاتيح الطابور) — والمرجع النهائي ما يُقرأ تحت القفل (D25)
     const preTracked = new Set(lotsOn ? products.filter((p) => p.lotTracked === true).map((p) => p.id) : []);
@@ -1136,9 +1180,62 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // invoiceDate وإلا الآن. ويبقى الحقل الخام من الجسم حيث لا يزيد القاعدة إلا تشدّداً: رفض التسليح (phase1ArmRefusal) وحارس
     // clientRef في المرحلة الثانية (invoicesZatca.ts/invoicesNotes.ts offlineOrigin). والمندوب كما كان حرفاً بحرف.
     const deviceAt = req.user?.apiKeyId ? undefined : body.clientCreatedAt;
+    /* لحظة التسعير ويومه 'YYYY-MM-DD' (CONTRACT2 D1) — يقرأ اليومَ قواعدُ القائمة ذات الفترة وحدها: يوم الشركة بمنطقتها للحظة الخادم في
+     * الإصدار الحيّ، ولإعادة رفع صندوق المندوب لحظةُ إصداره على الجهاز (devicePriceInstant: مصحَّحةً بانحراف ساعته، لا مستقبل ولا أقدم
+     * من ثلاثين يوماً PRICE_REPLAY_MAX_AGE_MS — وإلا ساعة الخادم): عرضٌ سرى لحظة البيع وانتهى قبل المزامنة — ولو بقي المستند محجوزاً
+     * «بانتظار الإدارة» أكثر من أسبوع — لا يُعدم مستنداً سُلّمت بضاعته. وتاريخ الجسم (invoiceDate) لا يُقرأ هنا أبداً — يختاره المرسل.
+     * والمنطقة تُقرأ لقائمةٍ فيها قاعدةٌ بفترة وحدها؛ وبلاها لا يُقرأ اليوم أصلاً (يوم UTC للحظة الخادم، بلا استعلام) */
+    const priceNow = new Date();
+    const priceDeviceNow = headerText(req.headers[DEVICE_NOW_HEADER]);
+    const priceInstant = docRules.length ? devicePriceInstant({
+      replay: isReplay, role: req.user!.role, viaApiKey: Boolean(req.user?.apiKeyId),
+      clientCreatedAt: deviceAt, deviceNow: priceDeviceNow, now: priceNow,
+    }) : null;
+    const datedRules = docRules.some((r) => r.startsOn != null || r.endsOn != null);
+    const priceTz = datedRules ? await tenantTz(tid) : null;
+    const pricingDay = priceTz ? companyDayOf(priceInstant ?? priceNow, priceTz) : priceNow.toISOString().slice(0, 10);
+    /* مرشّحو التسعير لحارس سعر المندوب (CONTRACT2 D1 وD3):
+     * (أ) يوم الجهاز (body.pricingDay: اليوم الذي سعّر به البنود) يوماً ثانياً — للمندوب وحده، ولقائمةٍ بقاعدةٍ ذات فترة، إن ساوى يوم الشركة
+     *     قبل لحظة التسعير (لحظة الجهاز في إعادة الرفع، وإلا ساعة الخادم) بساعتين أو بعدها بساعتين (devicePricingDay)؛ فسلّةٌ سُعّرت قبل
+     *     منتصف الليل وأُصدرت بعده، أو ساعة جهازٍ أو منطقته تخالف بدقائق، لا تُرفض بها فاتورة — وظهراً لا يفتح تاريخ الجوال عرض الأمس ولا الغد؛
+     * (ب) قواعد القائمة كما عرفها الجهاز (rowsKnownAt: ما كُتب بعد حدّ معرفته لم يصله) — لإعادة الرفع بلحظة جهازٍ وحدها، وحين تخالف القواعد
+     *     الحالية. والحدّ لحظة إصداره، أو لحظة جلبه كاش الأسعار (body.pricesSeenAt) إن سبقتها بثلاثين يوماً فأقلّ (priceRulesKnownAt):
+     *     جهازٌ منقطعٌ منذ ٠٨:٠٠ لم يرَ قاعدةً كُتبت ١٠:٠٠ ولو باع ١١:٠٠. (القاعدة المحذوفة أو المعدَّلة أثناء الانقطاع حدٌّ مقبول كتعديل سعر
+     *     القائمة: المعدَّلة تسقط من قواعد الجهاز بنسختها الجديدة، ونسختها القديمة لا يعرفها الخادم.)
+     * المرجع لكل (يومٍ × قواعد): السقف أعلاها والأرضية أدناها (lineRefOf) — ومرشّحٌ واحد (الحيّ بلا يومٍ آخر، والإدارة ومفتاح API، وكل
+     * شركةٍ بلا قوائم أو بلا قواعد) ⇒ المرجع حرفياً كما كان */
+    const rawMoment = priceTz && priceInstant ? rawDeviceMoment(deviceAt, priceInstant) : null;
+    const deviceDay = priceTz && req.user!.role === 'SALES_REP' && !req.user?.apiKeyId
+      ? devicePricingDay(body.pricingDay, priceInstant ?? priceNow, priceTz)
+        // إعادة رفعٍ من جوالٍ تنحرف ساعته: يومه حُسب بساعته هو (rawDeviceMoment)
+        ?? (rawMoment ? devicePricingDay(body.pricingDay, rawMoment, priceTz) : null)
+      : null;
+    const pricingDays = deviceDay && deviceDay !== pricingDay ? [pricingDay, deviceDay] : [pricingDay];
+    const knownRules = priceInstant
+      ? rowsKnownAt(docRules, priceRulesKnownAt({ priceInstant, pricesSeenAt: body.pricesSeenAt, deviceNow: priceDeviceNow, now: priceNow }))
+      : docRules;
+    const priceCandidates = (knownRules.length !== docRules.length ? [docRules, knownRules] : [docRules])
+      .flatMap((rules) => pricingDays.map((day) => ({ rules, day })));
+    type PriceCandidate = (typeof priceCandidates)[number];
+    /** الصنف كما يحتاجه حلّ القائمة: فئته ومعامل وحدته الرئيسية (١ بلاها) */
+    const ruleProductOf = (p: (typeof products)[number]): PriceRuleProduct => ({
+      id: p.id, categoryId: p.categoryId ?? null, primaryFactor: Number(primaryUnitOf(p)?.factor) || 1,
+    });
+    /** ما تقوله قائمة المستند لصنفٍ بمجموع كميته بالأساس في المستند لمرشّح تسعير (services/priceRules.ts listPriceOf) — بلا قائمةٍ null */
+    const listResultFor = (p: (typeof products)[number], totalBaseQty: number, c: PriceCandidate): ListPriceResult => {
+      const rp = ruleProductOf(p);
+      return listPriceOf(listItemOf.get(p.id), c.rules, rp, qtyPrimaryOf(totalBaseQty, rp), c.day);
+    };
+    /** وكما رآه الجهاز (آخر المرشّحين: قواعده التي عرفها ويومه؛ ومرشّحٌ واحد ⇒ هو) — لإشارة سعر إعادة الرفع وحدها */
+    const listResultAt = (p: (typeof products)[number], totalBaseQty: number): ListPriceResult =>
+      listResultFor(p, totalBaseQty, priceCandidates[priceCandidates.length - 1]);
+    /** بندٌ مرتجعٌ من بند فاتورة بيع: لا يُسعَّر من القائمة ولا تُحسب كميته في كمية الصنف */
+    const linkedLine = (it: (typeof body.items)[number]): boolean => !!it.invoiceItemId || (body.type === 'RETURN' && !!body.originalInvoiceId);
     /* D16: سجلّ التحويلات لإعادة الرفع وحدها، ولأصنافٍ حُوِّلت وحدها (baseConvertedAt ≠ null) — صنفٌ لم يُحوَّل لا يُسأل عنه
-     * السجلّ أبداً (I8). ومعه سعر العميل الحالي لتلك الأصناف: مرجع إشارة السعر لجسمٍ بلا لقطة (الحالة B) — وبلاه سعر نوع
-     * المستند (listPriceOf أعلاه، مقسومٌ على F مع أسعار العميل): الجملة والتجزئة يفترقان أكثر من ٢٥٪ فلا يلتقط الأساسُ أحدهما */
+     * السجلّ أبداً (I8). ومعه سعر العميل الحالي لتلك الأصناف: مرجع إشارة السعر لجسمٍ بلا لقطة (الحالة B) — وبلاه ما تقوله قائمة
+     * المستند لوحدة الأساس (listPerBaseHint: ثابتها، أو نسبتها من الأساس — مقسومٌ على F مع أسعار العميل): الجملة والتجزئة يفترقان أكثر
+     * من ٢٥٪ فلا يلتقط الأساسُ أحدهما. وكمية الصنف لها قبل حلّ الوحدات تقديرٌ بمعامل لقطة الجهاز أو وحدته المختارة (وإلا ١) — تلميحٌ لا
+     * يحكم؛ الحارس أدناه بلقطة الخادم */
     // ومراجعة المخزون (البند ٢): وصنفٌ لم يُحوَّل لكن لقطة الجهاز بأساسٍ غير أساسه الآن — أُعيدت تسميته بعد الإصدار (صفّ معامل ١
     // في السجلّ)، فلا يُعدّ أساس الجهاز «تحويلاً» إن صار اسمه وحدةً أكبر بعدها. وغير هذا كما كان: لا سؤال
     const renamedOnDevice = (p: { id: string; unit: string }) => body.items.some((it) => it.productId === p.id
@@ -1146,7 +1243,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const convertedIds = isReplay ? products.filter((p) => p.baseConvertedAt || renamedOnDevice(p)).map((p) => p.id) : [];
     const convsOf = new Map<string, BaseConversionRow[]>();
     const replayCust = new Map<string, number>();
+    const hintBaseQty = new Map<string, number>();
     if (convertedIds.length) {
+      body.items.forEach((it) => {
+        if (linkedLine(it)) return;
+        const u = it.unitId ? products.find((x) => x.id === it.productId)?.units.find((x) => x.id === it.unitId) : undefined;
+        hintBaseQty.set(it.productId, (hintBaseQty.get(it.productId) ?? 0) + toBase(it.qty, { unitFactor: deviceFactorOf(it.unitFactor) ?? u?.factor ?? 1 }));
+      });
       const [rows, cps] = await Promise.all([
         prisma.productBaseConversion.findMany({
           where: { tenantId: tid, productId: { in: convertedIds } },
@@ -1175,7 +1278,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           conversions: convs, docAt: replayDocAt,
           // صافي السعر كما يقيسه حارس السعر أدناه (الشامل يُردّ إلى الصافي بنسبة البند)
           netUnitPrice: body.pricesIncludeTax ? netFromInclusive(it.unitPrice, it.taxPct ?? p.taxPct ?? 0) : it.unitPrice,
-          custPrice: refOverrideOf(replayCust.get(p.id), listPriceOf.get(p.id)),
+          custPrice: refOverrideOf(replayCust.get(p.id), listPerBaseHint(listResultAt(p, hintBaseQty.get(p.id) ?? 0), p.basePrice)),
         }),
       });
       if (!r.ok) { res.status(r.status).json({ success: false, code: r.code, message: r.message }); return; }
@@ -1184,6 +1287,36 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (r.notice) unitNotices.push({ productId: p.id, productName: p.name, unitName: r.unit.unitName ?? p.unit, rebase: r.rebase, notice: r.notice });
     }
     const snapOf = (idx: number): LineUnit => unitSnap[idx] ?? BASE_LINE_UNIT;
+    /* «قوائم الأسعار» بقواعدها: كمية كل صنفٍ بالأساس في المستند كلّه — كل بنوده غير المرتبطة بكل وحداتها بلقطة الخادم — هي ما يُقاس
+     * به «الحد الأدنى للكمية» (بالرئيسية: qtyPrimaryOf)، فكرتونٌ و٢٤ حبّة من الصنف نفسه كرتونان. وما تقوله القائمة لكل صنفٍ مرّةً واحدة */
+    const docBaseQty = new Map<string, number>();
+    body.items.forEach((it, idx) => {
+      if (!linkedLine(it)) docBaseQty.set(it.productId, (docBaseQty.get(it.productId) ?? 0) + toBase(it.qty, snapOf(idx)));
+    });
+    const listResults = new Map<string, ListPriceResult[]>();
+    /** ما تقوله القائمة للصنف لكل مرشّح تسعير (بترتيب priceCandidates) — مرّةً واحدة للصنف */
+    const listResultsOf = (p: (typeof products)[number]): ListPriceResult[] => {
+      let r = listResults.get(p.id);
+      if (!r) {
+        const qty = docBaseQty.get(p.id) ?? 0;
+        r = priceCandidates.map((c) => listResultFor(p, qty, c));
+        listResults.set(p.id, r);
+      }
+      return r;
+    };
+    /* مرجع البند الصافي بوحدته (القاعدة ٤): سعر العميل الخاص (لوحدة الأساس) × المعامل يغلب كل شيء كاليوم — هو السقف المتّفق عليه معه،
+     * والتحويل يقسمه على F لئلّا يتغيّر سعر كرتونه. وإلا ما تقوله قائمة المستند (listLineRef: سعرها لوحدة الأساس × المعامل، أو نسبتها من
+     * «سعر البند بلا قائمة»)، وإلا «سعر البند بلا قائمة» نفسه: سعر الوحدة المحدَّد (جملة) وإلا الأساس × المعامل (unitPriceOf). ولقطة جهازٍ
+     * بمعاملٍ غير معامل الوحدة اليوم (إعادة رفع) تُسعَّر بالاشتقاق. بلا قائمةٍ وبلا قواعد: المرجع حرفياً كما كان.
+     * ونطاقه على مرشّحي التسعير (CONTRACT2 D1/D3): ref = أعلى المراجع (السقف وسقف المرتجع الحرّ)، وlow = أدناها (الأرضية مع الشرائح).
+     * مرشّحٌ واحد ⇒ ref = low = المرجع نفسه حرفياً */
+    const lineRefOf = (p: (typeof products)[number], snap: LineUnit, custPerBase: number | null | undefined): { ref: number; low: number } => {
+      const noListRef = snap.priceUnit ? unitPriceOf(snap.priceUnit, p.basePrice) : p.basePrice * snap.unitFactor;
+      const cust = refOverrideOf(custPerBase, null);
+      if (cust != null) return { ref: cust * snap.unitFactor, low: cust * snap.unitFactor };
+      const refs = listResultsOf(p).map((lp) => listLineRef(lp, snap.unitFactor, noListRef) ?? noListRef);
+      return { ref: Math.max(...refs), low: Math.min(...refs) };
+    };
     // D16: إشعار الإدارة بعد الالتزام وحده (best-effort) — لمستندٍ أُعيد رفعه فحسمت الساعة أو خالفت السعرَ في بندٍ منه
     const noticeRebased = async (number: string | null): Promise<void> => {
       if (!unitNotices.length || !body.clientRef) return;
@@ -1266,7 +1399,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const isReturnDoc = body.type === 'RETURN';
       const maxD = rep.maxDiscountPct || 0;
       // هامش المقارنة: ٠٫٠١ كما كان — وفي عملةٍ بلا كسور (الدينار العراقي، الليرة) نصف وحدتها: التطبيق يقرّب السعر الشامل لخانات
-      // العملة، ومرجعٌ لوحدة الأساس بستّ منازل (سعر نوعٍ أو سعر عميلٍ من سعر كرتون ÷ ٢٤ = ٤١٫٦٦٦٦٦٧) يصله ٤٢ — هامش تقريبٍ لا
+      // العملة، ومرجعٌ لوحدة الأساس بستّ منازل (سعر قائمةٍ أو سعر عميلٍ من سعر كرتون ÷ ٢٤ = ٤١٫٦٦٦٦٦٧) يصله ٤٢ — هامش تقريبٍ لا
       // حرّية سعر (فرق الصافي ≤ نصف وحدة ÷ (١ + الضريبة)). الخانتان والثلاث: نصف الوحدة دون ٠٫٠١ فالهامش كما كان حرفياً
       const TOL = Math.max(0.01, 0.5 / 10 ** dec + 1e-9);
       const fail = (msg: string) => { res.status(403).json({ success: false, message: msg }); };
@@ -1283,17 +1416,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         const snap = snapOf(idx);
         const factor = snap.unitFactor;
         /* المرجع بوحدة البند (القاعدة ٤): سعر العميل والأساس والشرائح مخزَّنة لوحدة الأساس فتُضرب بالمعامل، وإلّا مرّ
-         * بيع كرتون بسعر حبّة. وسعر العميل يغلب سعر الوحدة المحدَّد: هو السقف المتّفق عليه معه، والتحويل يقسمه على F
-         * لئلّا يتغيّر سعر كرتونه — فلو غلبه سعر الوحدة (= سعر الكرتون القديم العامّ) لضاع على العميل سعره بعد التحويل.
-         * وبلا سعر عميل: سعر نوع المستند («أنواع الأسعار»، لوحدة الأساس ويقسمه التحويل كذلك)، وإلا سعر الوحدة المحدَّد (جملة)
-         * وإلّا الأساس × المعامل (unitPriceOf). ولقطة جهازٍ بمعاملٍ غير معامل الوحدة اليوم (إعادة رفع) تُسعَّر بالاشتقاق: سعر
-         * الوحدة المحدَّد اليوم لمعاملٍ آخر. */
-        const override = refOverrideOf(cpMap.get(it.productId), listPriceOf.get(it.productId));
-        const ref = override != null
-          ? override * factor
-          : snap.priceUnit ? unitPriceOf(snap.priceUnit, p.basePrice) : p.basePrice * factor;
+         * بيع كرتون بسعر حبّة. وسعر العميل يغلب كل شيء، ثم ما تقوله قائمة المستند (سعرها الثابت وقواعدها بكمية الصنف في المستند
+         * كلّه ويوم التسعير)، ثم سعر الوحدة المحدَّد وإلّا الأساس × المعامل — lineRefOf أعلاه. والأرضية والهامش كما كانا، على نطاق
+         * المرشّحين (CONTRACT2 D1): السقف أعلى المراجع، والأرضية أدناها مع الشرائح — ومرشّحٌ واحد كما كان حرفياً */
+        const { ref, low } = lineRefOf(p, snap, cpMap.get(it.productId));
         const minTier = p.priceTiers.length ? Math.min(...p.priceTiers.map(t => t.price)) * factor : ref;
-        const minAllowed = Math.min(ref, minTier);
+        const minAllowed = Math.min(low, minTier);
         // المراجع (basePrice/سعر العميل/الشرائح) مخزنة **صافية قبل الضريبة**، بينما
         // تطبيق المندوب يرسل السعر **شاملا** كما اعلن للعميل — فنرد المرسل الى الاساس
         // الصافي قبل المقارنة، وإلا رفض الحارس مندوبا لم يغير السعر اصلا (1.15 مقابل 1.00)
@@ -1312,11 +1440,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         for (const [idx, it] of body.items.entries()) {
           const p = products.find(x => x.id === it.productId)!;
           const snap = snapOf(idx);
-          // مرجع البيع نفسه: سعر العميل، ثم سعر نوع المستند، ثم سعر الوحدة المحدَّد أو الأساس
-          const override = refOverrideOf(cpMap.get(it.productId), listPriceOf.get(it.productId));
-          const ceiling = override != null
-            ? override * snap.unitFactor
-            : snap.priceUnit ? unitPriceOf(snap.priceUnit, p.basePrice) : p.basePrice * snap.unitFactor;
+          // مرجع البيع نفسه: سعر العميل، ثم ما تقوله قائمة المستند بقواعدها، ثم سعر الوحدة المحدَّد أو الأساس — أعلاه على المرشّحين
+          const ceiling = lineRefOf(p, snap, cpMap.get(it.productId)).ref;
           const priceNet = body.pricesIncludeTax ? netFromInclusive(it.unitPrice, it.taxPct ?? p.taxPct ?? 0) : it.unitPrice;
           if (priceNet > ceiling + TOL) { repReturnPriceProblem = 'لا تملك صلاحية تغيير سعر البيع'; break; }
         }
@@ -1787,7 +1912,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           salesRepId,
           ...(docTeamId && { teamId: docTeamId }),
           ...(invLocationId && { locationId: invLocationId }),
-          // «أنواع الأسعار»: النوع الذي سُعّر به المستند وقت الإصدار (null = السعر الأساسي)
+          // «قوائم الأسعار»: القائمة التي سُعّر بها المستند وقت الإصدار (null = السعر الأساسي)
           ...(docListId && { priceListId: docListId }),
           type: body.type,
           ...(isReturn && {

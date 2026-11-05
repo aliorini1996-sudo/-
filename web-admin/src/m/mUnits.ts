@@ -20,8 +20,9 @@ import { formatQty, factorOf, primaryUnitOf, roundQty, unitProblem, QTY_EPS, MAX
 import { suggestionChoice } from '../lib/adminUnits';
 import { splitVanMovement } from '../lib/vanMovement';
 import { qtyByUnit, unitTotalsText } from '../rep/warehouseNoticeFacts';
-import { unitChoices, defaultChoice, choiceById, lineUnitOf, refreshLineUnit, type CustPriceInput, type UnitChoice, type UnitProduct } from '../rep/repUnits';
-import { priceOverrides, repriceUntouched, suggestedNetOf } from '../lib/priceLists';
+import { unitChoices, defaultChoice, lineUnitOf, refreshLineUnit, type CustPriceInput, type UnitChoice, type UnitProduct } from '../rep/repUnits';
+import { priceOverrides, suggestedNetOf } from '../lib/priceLists';
+import { docBaseQty, repriceDocLines } from '../lib/invoiceModalRepPrice';
 import type { ProductListPrice } from '../types';
 import type { Line } from './docMath';
 
@@ -79,8 +80,10 @@ export interface SalePick extends UnitProduct {
   /** سعر وحدة الأساس صافياً قبل الضريبة (القاعدة ٤) */
   basePrice?: number | string | null;
   taxPct?: number | null;
-  /** «أنواع الأسعار»: سعر الصنف في كل نوع صافياً لوحدة الأساس (يردّه GET /products للإدارة) — نوعٌ غائب ⇒ سلسلة اليوم */
+  /** «قوائم الأسعار»: سعر الصنف الثابت في كل قائمة صافياً لوحدة الأساس (يردّه GET /products للإدارة) — قائمةٌ غائبة ⇒ قواعدها ثم سلسلة اليوم */
   listPrices?: ProductListPrice[] | null;
+  /** فئة الصنف — بها تنطبق قواعد الفئة في قائمة الفاتورة */
+  categoryId?: string | null;
   /** حقبة أساس الصنف — بها تُعاد أسعار العميل المقروءة قبل تحويلٍ إلى أساسه الحالي (rebaseCustPrices) */
   baseConvertedAt?: string | Date | null;
 }
@@ -110,18 +113,74 @@ export function suggestedNet(p: SalePick, c: UnitChoice, override?: number | nul
 }
 
 /**
+ * «قوائم الأسعار» بقواعدها (طلب المالك ٥ نوفمبر ٢٠٢٦): مسعِّر البند — السعر الصافي لوحدة البند `c` بكمية صنفه في الفاتورة كلّها
+ * (بالأساس). الشاشة تبنيه بـdocLinePricerOf (lib/invoiceModalRepPrice.ts): سعر العميل ثم القائمة (ثابتها وقواعدها بالكمية ويوم
+ * الفاتورة) ثم سلّم اليوم — المسعِّر نفسه في فاتورة اللوحة. و`dependsOnQty` (يحمله مسعِّر docLinePricerOf): false ⇒ الكمية لا تغيّر
+ * سعراً فلا تُعاد تلميحات المنتقي بتغيّرها؛ غائبٌ ⇒ يُفترض أنها تغيّره.
+ */
+export type LinePricer = ((p: SalePick, c: UnitChoice, totalBaseQty: number) => number) & { readonly dependsOnQty?: boolean };
+/**
+ * سعر البند كما تقبله دوال البنود: مسعِّرٌ بالكمية، أو (الشكل قبل القواعد) سعرٌ ثابت لوحدة الأساس من سعر العميل أو القائمة
+ * (`suggestedNet` بثالثه)، أو لا شيء فسلّم اليوم. والسعر الثابت لا يتغيّر بالكمية فلا إعادة تسعيرٍ معه عند تغيّرها.
+ */
+export type LinePrice = LinePricer | number | null | undefined;
+
+const netOf = (price: LinePrice, p: SalePick, c: UnitChoice, totalBaseQty: number): number =>
+  typeof price === 'function' ? price(p, c, totalBaseQty) : suggestedNet(p, c, price);
+
+/** معامل وحدة البند كما يُكتب على البند (`lineUnitOf`): الأساس ١ */
+const choiceFactor = (c: UnitChoice): number => (c.id ? c.factor : 1);
+
+/** كمية الصنف بالأساس في بنود الفاتورة كلّها (كل وحداته) */
+export function productBaseQty(lines: Line[], productId: string): number {
+  return docBaseQty(lines).get(productId) ?? 0;
+}
+
+/** بنود الصنف التي لم يمسّها المستخدم تُعاد بكميته الجديدة — مع مسعِّرٍ بالكمية وحده، وبقية الأصناف لا تُمسّ */
+function repriceProduct(lines: Line[], p: SalePick, price: LinePrice): Line[] {
+  return typeof price === 'function' ? repriceInvoiceLines(lines, { [p.id]: p }, price) : lines;
+}
+
+/** سعر الصنف كما سيُضاف بوحدته (تلميح قائمة الأصناف): بكمية صنفه في البنود بعد الإضافة */
+export function addedLinePrice(lines: Line[], p: SalePick, c: UnitChoice, price?: LinePrice): number {
+  return netOf(price, p, c, productBaseQty(lines, p.id) + choiceFactor(c));
+}
+
+/** وحدة تلميح الصنف في قائمة الأصناف: الافتراضية (الرئيسية، وإلّا الأكبر) لصنفٍ بوحدات، والأساس لغيره */
+export function pickerChoice(p: SalePick): UnitChoice {
+  const opts = unitChoices(p);
+  return opts.length > 1 ? defaultChoice(p) : opts[0];
+}
+
+/**
+ * تلميحات أسعار قائمة الأصناف دفعةً واحدة (مراجعة D5): `addedLinePrice` بوحدة `pickerChoice` لكل صنف — كمية الفاتورة تُجمع مرّةً
+ * لا لكل صفّ، والشاشة تحفظ الناتج ما لم تتغيّر الأصناف أو المسعِّر أو (حين تغيّر الكمية السعر) كميات البنود. ناتج كل صنفٍ حرفاً
+ * ما كان يُحسب في الرسم لكل صفٍّ مع كل رسم.
+ */
+export function pickerPrices(lines: Line[], products: readonly SalePick[] | null | undefined, price?: LinePrice): Map<string, number> {
+  const qty = docBaseQty(lines);
+  const out = new Map<string, number>();
+  for (const p of products ?? []) {
+    const c = pickerChoice(p);
+    out.set(p.id, netOf(price, p, c, (qty.get(p.id) ?? 0) + choiceFactor(c)));
+  }
+  return out;
+}
+
+/**
  * بند فاتورة جديد بوحدةٍ مختارة (الافتراض أكبر وحدة — انظر رأس repUnits.ts). السعر سعر **تلك الوحدة** صافياً قبل
  * الضريبة (`suggestedNet`): سعرها المحدَّد وإلّا الأساس × المعامل — فكرتونٌ يُضاف بسعر الحبّة يُباع بخسارة ٢٤ ضعفاً بلا تحذير.
- * و`override` سعر العميل أو نوع الفاتورة لوحدة الأساس (priceOverrideOf). ولصنفٍ بلا وحدات ولا override: سعر الأساس ووحدته كما
- * كان البند قبل الميزة حرفاً. و`refPrice` المقترح نفسه: به يُعرف البند الذي لم يمسّه المستخدم (repriceInvoiceLines)
+ * و`price` مسعِّر الفاتورة (LinePricer) أو سعر العميل أو القائمة لوحدة الأساس (priceOverrideOf). ولصنفٍ بلا وحدات ولا سعر: سعر
+ * الأساس ووحدته كما كان البند قبل الميزة حرفاً. و`totalBaseQty` كمية الصنف في الفاتورة بعد البند (غائبةٌ ⇒ البند وحده).
+ * و`refPrice` المقترح نفسه: به يُعرف البند الذي لم يمسّه المستخدم (repriceInvoiceLines)
  */
-export function invoiceLine(p: SalePick, c: UnitChoice = defaultChoice(p), override?: number | null): Line {
-  const price = suggestedNet(p, c, override);
+export function invoiceLine(p: SalePick, c: UnitChoice = defaultChoice(p), price?: LinePrice, totalBaseQty?: number): Line {
+  const net = netOf(price, p, c, totalBaseQty ?? choiceFactor(c));
   return {
     productId: p.id, name: p.name, qty: 1,
     // ⚠️ سعرٌ **قبل** الضريبة — هذا ما يتوقّعه مسار الأدمن (docMath.ts)
-    unitPrice: price,
-    refPrice: price,
+    unitPrice: net,
+    refPrice: net,
     discountPct: 0,
     taxPct: Number(p.taxPct ?? 15),
     // ومعها أساس الصنف كما رآه هذا الجهاز: تحويلٌ للأساس بعد فتح القائمة يُكشف بـ400 UNIT_INVALID لا يُقيَّد بغير ما رُئي
@@ -129,38 +188,41 @@ export function invoiceLine(p: SalePick, c: UnitChoice = defaultChoice(p), overr
   };
 }
 
-/** إضافة الصنف بوحدة: بندٌ قائم بالوحدة نفسها يزيد واحداً، وإلّا بندٌ جديد — «+١ حبة» لا تُضاف إلى بند كرتون */
-export function addInvoiceLine(lines: Line[], p: SalePick, c: UnitChoice = defaultChoice(p), override?: number | null): Line[] {
+/**
+ * إضافة الصنف بوحدة: بندٌ قائم بالوحدة نفسها يزيد واحداً، وإلّا بندٌ جديد — «+١ حبة» لا تُضاف إلى بند كرتون.
+ * و«قوائم الأسعار»: الجديد يُسعَّر بكمية صنفه بعده، وكمية الصنف تغيّرت فبنوده التي لم تُمسّ تُعاد بها (شريحة «من ١٠ كراتين»)
+ */
+export function addInvoiceLine(lines: Line[], p: SalePick, c: UnitChoice = defaultChoice(p), price?: LinePrice): Line[] {
   const key = lineKey({ productId: p.id, unitId: c.id });
   const i = lines.findIndex(l => lineKey(l) === key);
-  if (i < 0) return [...lines, invoiceLine(p, c, override)];
+  if (i < 0) return repriceProduct([...lines, invoiceLine(p, c, price, productBaseQty(lines, p.id) + choiceFactor(c))], p, price);
   const n = [...lines];
   n[i] = { ...n[i], qty: n[i].qty + 1 };
-  return n;
+  return repriceProduct(n, p, price);
 }
 
 /**
  * تبديل وحدة البند — **ويُعاد تسعيره** بسعر الوحدة الجديدة: سعر الحبّة المكتوب على بندٍ صار كرتوناً يبيعه بخسارة ٢٤ ضعفاً.
  * والوحدة التي أخذها بندٌ آخر للصنف لا يُنتقل إليها (يتنازع البندان الكمية): القائمة كما هي.
+ * وكمية الصنف بالأساس تغيّرت بالمعامل: البند بسعره عند كميته الجديدة، وبنود الصنف الأخرى التي لم تُمسّ تُعاد بها
  */
-export function setInvoiceLineUnit(lines: Line[], key: string, p: SalePick, c: UnitChoice, override?: number | null): Line[] {
+export function setInvoiceLineUnit(lines: Line[], key: string, p: SalePick, c: UnitChoice, price?: LinePrice): Line[] {
   const next = lineKey({ productId: p.id, unitId: c.id });
   if (next !== key && lines.some(l => lineKey(l) === next)) return lines;
-  const price = suggestedNet(p, c, override);
-  return lines.map(l => (lineKey(l) === key ? { ...l, ...lineUnitOf(c, p.unit), unitPrice: price, refPrice: price } : l));
+  const u = lineUnitOf(c, p.unit);
+  const staged = lines.map(l => (lineKey(l) === key ? { ...l, ...u } : l));
+  const net = netOf(price, p, c, productBaseQty(staged, p.id));
+  return repriceProduct(lines.map((l, i) => (lineKey(l) === key ? { ...staged[i], unitPrice: net, refPrice: net } : l)), p, price);
 }
 
 /**
- * «أنواع الأسعار»: تبديل العميل أو نوع السعر (أو وصول أسعار العميل بعد البنود) يعيد تسعير البنود التي لم يمسّها المستخدم (`unitPrice`
- * ما زال `refPrice`) بالمقترح الجديد بوحدتها، والمعدَّل يدويّاً يبقى بسعره ويتبع مرجعه وحده — قاعدة تطبيق المندوب ولوحة الإدارة
- * (repriceUntouched). بندٌ صنفه خارج `catalog` أو وحدته لم تعد قائمة يبقى كما هو. لا تغيّر ⇒ المصفوفة نفسها
+ * «قوائم الأسعار»: تبديل العميل أو القائمة، أو وصول أسعار العميل أو القواعد بعد البنود، أو تغيّر يوم الفاتورة أو كمية صنف — يعيد
+ * تسعير البنود التي لم يمسّها المستخدم (`unitPrice` ما زال `refPrice`) بالمسعِّر بوحدتها وكمية صنفها في الفاتورة كلّها، والمعدَّل
+ * يدويّاً يبقى بسعره ويتبع مرجعه وحده — قاعدة تطبيق المندوب ولوحة الإدارة (repriceDocLines ← repriceUntouched). بندٌ صنفه خارج
+ * `catalog` أو وحدته لم تعد قائمة يبقى كما هو. لا تغيّر ⇒ المصفوفة نفسها
  */
-export function repriceInvoiceLines(lines: Line[], catalog: Record<string, SalePick>, overrideOf: (p: SalePick) => number | null): Line[] {
-  return repriceUntouched(lines as Array<Line & { refPrice: number }>, (l) => {
-    const p = catalog[l.productId];
-    const c = p ? choiceById(p, l.unitId ?? null) : null;
-    return p && c ? suggestedNet(p, c, overrideOf(p)) : null;
-  }, (l, price) => ({ ...l, unitPrice: price }));
+export function repriceInvoiceLines(lines: Line[], catalog: Record<string, SalePick>, price: LinePricer): Line[] {
+  return repriceDocLines(lines as Array<Line & { refPrice: number }>, id => catalog[id], price, (l, net) => ({ ...l, unitPrice: net }));
 }
 
 /**
@@ -168,12 +230,13 @@ export function repriceInvoiceLines(lines: Line[], catalog: Record<string, SaleP
  * (مرآة تطبيق المندوب): الوحدة بمعرّفها كما هي الآن، وبند الأساس الذي صار اسمه وحدةً (حُوِّل الأساس: كرتون ⇒ حبة) يصير
  * بتلك الوحدة — فـ«٢ كرتون» تبقى كرتونين لا حبّتين، وتحمل أساس الصنف الجديد فلا يُرفض البند ثانيةً.
  * والسعر المكتوب **يبقى** ما لم يتغيّر المعامل (سعر الكرتون هو هو بعد التحويل، وقد عدّله المستخدم يدوياً)؛ ومعاملٌ تغيّر
- * (كرتون ٢٤ صار ١٢) يُعاد تسعيره بسعر الوحدة الآن (بسعر العميل أو نوع الفاتورة `override` إن وُجد). وبندٌ لا وحدة صالحة له الآن
- * يبقى كما هو — يختار المستخدم.
+ * (كرتون ٢٤ صار ١٢) يُعاد تسعيره بسعر الوحدة الآن (بسعر العميل أو قائمة الفاتورة `price` إن وُجد، بكمية الصنف الجديدة) — وبنود
+ * الصنف الأخرى التي لم تُمسّ تُعاد بكميته الجديدة. وبندٌ لا وحدة صالحة له الآن يبقى كما هو — يختار المستخدم.
  */
-export function refreshInvoiceLines(lines: Line[], p: SalePick, override?: number | null): Line[] {
+export function refreshInvoiceLines(lines: Line[], p: SalePick, price?: LinePrice): Line[] {
   let changed = false;
-  const out = lines.map(l => {
+  const repriceAt = new Map<number, UnitChoice>();
+  const staged = lines.map((l, i) => {
     if (l.productId !== p.id) return l;
     const c = refreshLineUnit(l, p);
     if (!c) return l;
@@ -182,16 +245,39 @@ export function refreshInvoiceLines(lines: Line[], p: SalePick, override?: numbe
       && (l.baseUnit ?? '') === u.baseUnit && (l.unitName ?? null) === u.unitName;
     if (same) return l;
     changed = true;
-    const reprice = factorOf(l) !== u.unitFactor && !(l.unitId == null && c.id);
-    const price = reprice ? suggestedNet(p, c, override) : null;
-    return { ...l, ...u, ...(price != null && { unitPrice: price, refPrice: price }) };
+    if (factorOf(l) !== u.unitFactor && !(l.unitId == null && c.id)) repriceAt.set(i, c);
+    return { ...l, ...u };
   });
-  return changed ? out : lines;
+  if (!changed) return lines;
+  const total = productBaseQty(staged, p.id);
+  const out = repriceAt.size
+    ? staged.map((l, i) => {
+      const c = repriceAt.get(i);
+      if (!c) return l;
+      const net = netOf(price, p, c, total);
+      return { ...l, unitPrice: net, refPrice: net };
+    })
+    : staged;
+  return repriceProduct(out, p, price);
 }
 
-/** زيادة كمية بندٍ أو إنقاصها بمفتاحه — والبند الذي يبلغ الصفر يُحذف */
-export function stepInvoiceLine(lines: Line[], key: string, d: number): Line[] {
-  return lines.map(l => (lineKey(l) === key ? { ...l, qty: Math.max(0, l.qty + d) } : l)).filter(l => l.qty > 0);
+/**
+ * زيادة كمية بندٍ أو إنقاصها بمفتاحه — والبند الذي يبلغ الصفر يُحذف. و«قوائم الأسعار»: كمية الصنف تغيّرت فبنوده التي لم تُمسّ
+ * تُعاد بمسعِّر الفاتورة `price` (والصنف من `catalog`) — بلاهما كما كانت حرفاً
+ */
+export function stepInvoiceLine(lines: Line[], key: string, d: number, catalog?: Record<string, SalePick>, price?: LinePrice): Line[] {
+  const hit = lines.find(l => lineKey(l) === key);
+  const next = lines.map(l => (lineKey(l) === key ? { ...l, qty: Math.max(0, l.qty + d) } : l)).filter(l => l.qty > 0);
+  const p = hit ? catalog?.[hit.productId] : undefined;
+  return p ? repriceProduct(next, p, price) : next;
+}
+
+/** حذف بندٍ بمفتاحه — وكمية صنفه نقصت فبنوده الأخرى التي لم تُمسّ تُعاد بمسعِّر الفاتورة (كـstepInvoiceLine) */
+export function removeInvoiceLine(lines: Line[], key: string, catalog?: Record<string, SalePick>, price?: LinePrice): Line[] {
+  const hit = lines.find(l => lineKey(l) === key);
+  const next = lines.filter(l => lineKey(l) !== key);
+  const p = hit ? catalog?.[hit.productId] : undefined;
+  return p ? repriceProduct(next, p, price) : next;
 }
 
 // ═══════════════ أسطر التحميل والوارد: سطرٌ لكل (صنف، وحدة) ═══════════════

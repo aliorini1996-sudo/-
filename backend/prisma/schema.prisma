@@ -777,6 +777,7 @@ model ProductCategory {
   name      String
   createdAt DateTime  @default(now())
   products  Product[]
+  priceListRules PriceListRule[]
 
   @@index([tenantId])
   @@map("product_categories")
@@ -842,6 +843,7 @@ model Product {
   teams               ProductTeam[]
   customerPrices      CustomerPrice[]
   priceListItems      PriceListItem[]
+  priceListRules      PriceListRule[]
   invoiceItems        InvoiceItem[]
   vanLoadItems        VanLoadItem[]
   stockRequestItems   RepStockRequestItem[]
@@ -1050,6 +1052,7 @@ model PriceList {
   updatedAt DateTime @updatedAt
 
   items     PriceListItem[]
+  rules     PriceListRule[]
   customers Customer[]
   invoices  Invoice[]
   repsDefault SalesRep[] @relation("RepDefaultPriceList")
@@ -1077,6 +1080,43 @@ model PriceListItem {
   @@index([tenantId])
   @@index([productId])
   @@map("price_list_items")
+}
+
+/// قاعدة في قائمة أسعار (طلب المالك ٥ نوفمبر ٢٠٢٦ — قوائم أسعار على نسق Odoo). جدولٌ جديد إضافيّ فقط (db push آمن).
+/// تُطبَّق على صنف أو فئة أو كل الأصناف؛ سعراً ثابتاً أو نسبة خصم/زيادة من سعر الصنف الأساسي؛ بحدٍّ أدنى للكمية وفترة صلاحية.
+/// الحلّ والأولوية في services/priceRules.ts (نسخة مطابقة في web-admin/src/lib/priceRules.ts). سعر العميل الخاص يغلبها دائماً.
+model PriceListRule {
+  id           String           @id @default(uuid())
+  tenantId     String
+  priceListId  String
+  priceList    PriceList        @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  /// 'product' | 'category' | 'all'
+  scope        String
+  productId    String?
+  product      Product?         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  categoryId   String?
+  category     ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  /// 'fixed' | 'percent' ('all' نسبةٌ فقط)
+  kind         String
+  /// سعر ثابت لصنف (scope=product): صافٍ لوحدة **أساس** واحدة بستّ منازل كـPriceListItem — يقسمه convert-base على F
+  basePrice    Float?
+  /// سعر ثابت لفئة (scope=category): صافٍ للوحدة **الرئيسية** لكل صنفٍ فيها (الأساس إن لم تكن له رئيسية)
+  primaryPrice Float?
+  /// نسبة (kind=percent): موجبة = خصم، سالبة = زيادة، من سعر الصنف بلا قائمة (سعر الوحدة المحدَّد وإلا الأساس × المعامل)
+  percent      Float?
+  /// الحدّ الأدنى لكمية الصنف في الفاتورة (مجموع بنوده) **بالوحدة الرئيسية**؛ 0 = بلا حدّ. لا يغيّره convert-base
+  minQty       Float            @default(0)
+  /// فترة الصلاحية بيوم الشركة 'YYYY-MM-DD' شاملةً الطرفين؛ null = مفتوحة
+  startsOn     String?
+  endsOn       String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([tenantId])
+  @@index([priceListId])
+  @@index([productId])
+  @@index([categoryId])
+  @@map("price_list_rules")
 }
 
 // محتوى الصفحة التعريفية التسويقية والصفحات التابعة (CMS) — صف واحد بمعرّف ثابت "main"

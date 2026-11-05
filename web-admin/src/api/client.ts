@@ -1,3 +1,4 @@
+import type { PriceListItemWrite, PriceRuleInput } from '../types';
 import axios from 'axios';
 import { sessionSpace, expiredDestination, useAuthStore } from '../store/authStore';
 import { FS_CAPS_HEADER, FS_CAPS_VALUE } from './caps';
@@ -97,16 +98,17 @@ export const productApi = {
   remove: (id: string) => api.delete(`/products/${id}`),
   // «الوحدة الرئيسية» (D11): مجرّد علم — unitId: null يعيد الصنف إلى الافتراضي. expectedPrimaryUnitId (حين يُرسل) ما رآه
   // النموذج، فيُردّ 409 PRIMARY_UNIT_CHANGED إن تغيّرت منذ فُتح الصنف، و400 PRIMARY_UNIT_INVALID لوحدة موقوفة أو لصنف آخر
-  setPrimaryUnit: (id: string, data: { unitId: string | null; expectedPrimaryUnitId?: string | null }) =>
+  // acknowledgePriceRules: إقرار 409 PRICE_RULES_UNIT_ACK (الصنف تشمله قواعد قوائم أسعار محسوبة بالوحدة الرئيسية) — في كل كتابة تغيّر الرئيسية
+  setPrimaryUnit: (id: string, data: { unitId: string | null; expectedPrimaryUnitId?: string | null; acknowledgePriceRules?: boolean }) =>
     api.put(`/products/${id}/primary-unit`, data),
   // الوحدات المتعددة: وحدات البيع الأكبر من وحدة الأساس (كرتون = ٢٤ حبة). makePrimary يجعل المضافة رئيسية في المعاملة نفسها؛
   // وإيقاف الرئيسية أو حذفها يُردّ 409 PRIMARY_UNIT_IN_USE إلا مع clearPrimary صريح (في الجسم للتعديل، وفي الاستعلام للحذف)
-  addUnit: (id: string, data: { name: string; factor: number; price?: number | null; unitCode?: string | null; makePrimary?: boolean; expectedBaseName?: string }) =>
+  addUnit: (id: string, data: { name: string; factor: number; price?: number | null; unitCode?: string | null; makePrimary?: boolean; expectedBaseName?: string; acknowledgePriceRules?: boolean }) =>
     api.post(`/products/${id}/units`, data),
-  updateUnit: (id: string, unitId: string, data: { name?: string; factor?: number; price?: number | null; unitCode?: string | null; isActive?: boolean; sortOrder?: number; clearPrimary?: boolean; expectedBaseName?: string }) =>
+  updateUnit: (id: string, unitId: string, data: { name?: string; factor?: number; price?: number | null; unitCode?: string | null; isActive?: boolean; sortOrder?: number; clearPrimary?: boolean; expectedBaseName?: string; acknowledgePriceRules?: boolean }) =>
     api.put(`/products/${id}/units/${unitId}`, data),
   // الحذف بلا جسم: clearPrimary وexpectedBaseName (الأساس كما رآه النموذج ⇒ 409 BASE_UNIT_CHANGED لنموذجٍ قديم) في الاستعلام
-  removeUnit: (id: string, unitId: string, opts?: { clearPrimary?: boolean; expectedBaseName?: string }) =>
+  removeUnit: (id: string, unitId: string, opts?: { clearPrimary?: boolean; expectedBaseName?: string; acknowledgePriceRules?: boolean }) =>
     api.delete(`/products/${id}/units/${unitId}`, { params: removeUnitParams(opts) }),
   /**
    * «إضافة وحدة فرعية أصغر» (convert-base): وحدته الحالية تصير وحدةً بمعامل `factor`
@@ -117,7 +119,7 @@ export const productApi = {
    */
   convertBase: (id: string, data: {
     newBaseName: string; factor: number; expectedBaseName: string; basePrice?: number; baseUnitCode?: string | null;
-    keepOldBaseAsPrimary?: boolean; dryRun?: boolean; acknowledgeErp?: boolean; acknowledgeApi?: boolean;
+    keepOldBaseAsPrimary?: boolean; dryRun?: boolean; acknowledgeErp?: boolean; acknowledgeApi?: boolean; acknowledgePriceRules?: boolean;
   }) =>
     api.post(`/products/${id}/convert-base`, data),
   /* «أنواع الأسعار»: أسعار الصنف في الأنواع — price سعر **الوحدة الرئيسية** صافياً (الأساس بلاها) يقسمه الخادم على معاملها
@@ -137,10 +139,25 @@ export const productApi = {
  * الأساسي»). وأسعار الأنواع للإدارة في GET /products (listPrices)؛ و/price-lists/prices للمندوب يناديه تطبيقه بعميله (repApi) */
 export const priceListApi = {
   list: () => api.get('/price-lists'),
+  /** مع عدّادات الأصناف والقواعد لكل قائمة (لوحة القوائم وحدها — بقية الشاشات لا تحتاجها) */
+  listWithCounts: () => api.get('/price-lists', { params: { counts: 1 } }),
   create: (name: string) => api.post('/price-lists', { name }),
   update: (id: string, data: { name?: string; sortOrder?: number }) => api.put(`/price-lists/${id}`, data),
   remove: (id: string) => api.delete(`/price-lists/${id}`),
   setBaseLabel: (label: string | null) => api.put('/price-lists/base-label', { label }),
+  /* «قوائم الأسعار» بقواعدها (طلب المالك ٥ نوفمبر ٢٠٢٦) — جدول أسعار القائمة وقواعدها (لمن يملك صلاحية الأصناف) */
+  /** كل قواعد القوائم (للتسعير في فاتورة الإدارة و/m): PriceListRule[] */
+  rules: () => api.get('/price-lists/rules'),
+  /** أصناف القائمة بأسعارها (صفحة): scope 'priced' المسعّرة فيها وحدها، 'all' كل الأصناف لإضافة سطر */
+  listItems: (id: string, params: { search?: string; categoryId?: string; scope?: 'priced' | 'all'; page?: number; limit?: number }) =>
+    api.get(`/price-lists/${id}/items`, { params }),
+  /** حفظ أسعار أصنافٍ في القائمة: price سعر **الوحدة الرئيسية** صافياً (null يحذف)، ومعه أساس الصنف ورئيسيّته كما أُدخل بهما */
+  saveItems: (id: string, items: PriceListItemWrite[]) => api.put(`/price-lists/${id}/items`, { items }),
+  /** قواعد قائمةٍ واحدة بأسماء أصنافها وفئاتها للعرض */
+  listRules: (id: string) => api.get(`/price-lists/${id}/rules`),
+  createRule: (id: string, data: PriceRuleInput) => api.post(`/price-lists/${id}/rules`, data),
+  updateRule: (ruleId: string, data: PriceRuleInput) => api.put(`/price-lists/rules/${ruleId}`, data),
+  removeRule: (ruleId: string) => api.delete(`/price-lists/rules/${ruleId}`),
 };
 
 // «الفرق» داخل الشركة — /api/company/teams (مطفأة افتراضياً، يفعّلها مدير الشركة من إعدادات الشركة)

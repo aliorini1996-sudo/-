@@ -187,7 +187,7 @@ export default function DataImportPanel() {
   const [stockInclTax, setStockInclTax] = useState(false);
   const [stockServerBlock, setStockServerBlock] = useState<OpeningStockServerBlock | null>(null);
   const [stockAck, setStockAck] = useState(false);
-  // قوائم الأسعار: إقرار المالك بأن السعر الخاص الصفري مقصود (يُصفَّر مع كل ملف جديد) — البند 1
+  // أسعار العملاء الخاصة: إقرار المالك بأن السعر الخاص الصفري مقصود (يُصفَّر مع كل ملف جديد) — البند 1
   const [zeroPriceAck, setZeroPriceAck] = useState(false);
   // البند 31: المنتجات والأسعار — «الأسعار شاملة الضريبة». null = لم يلمسها المالك ⇒ يحسمها عنوان العمود
   const [priceInclTax, setPriceInclTax] = useState<boolean | null>(null);
@@ -362,7 +362,7 @@ export default function DataImportPanel() {
     // اقتراح «فعّل خيار الأسعار شاملة الضريبة» لا يُعرض والخانة مؤشّرة أصلاً (تأشيراً تلقائياً أو بيد المالك)
     const notices: ImportNotice[] = [...preview.fileNotices, ...(tf.notices ?? [])]
       .filter((n) => !(inclusiveChosen && n.key === PRICE_INCL_TAX_SUGGESTED_NOTICE));
-    // قوائم الأسعار: السعر الخاص الصفري يمنع الاستيراد حتى إقرار المالك (البند 1)
+    // أسعار العملاء الخاصة: السعر الخاص الصفري يمنع الاستيراد حتى إقرار المالك (البند 1)
     const zeroPrice = zeroPriceGate(preview.kind, tf.zeroPriceRows, zeroPriceAck);
     return {
       ...tf, ledgerKind, aware, split, rows, sentFileRows, undated, chooserCtx, notices, zeroPrice,
@@ -551,7 +551,7 @@ export default function DataImportPanel() {
         </div>
       </div>
       <p className="text-[11px] text-amber-700 bg-amber-50/70 border border-amber-100 rounded-lg px-3 py-2 mt-3">
-        {tr('الترتيب الموصى به العملاء والمنتجات أولا ثم الأرصدة الافتتاحية أو دفتر الأستاذ ثم قوائم الأسعار لأنها تربط بالعملاء والأصناف بالكود أو الجوال')}
+        {tr('الترتيب الموصى به العملاء والمنتجات أولا ثم الأرصدة الافتتاحية أو دفتر الأستاذ ثم أسعار العملاء الخاصة لأنها تربط بالعملاء والأصناف بالكود أو الجوال')}
       </p>
       <ImportLedgerNotice ctx={ledger} />
       {accessNote && (

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { invoiceApi, customerApi, productApi, salesRepApi, companyApi, lotsApi, priceListApi, vanStockApi } from '../../api/client';
-import { Customer, Product, SalesRep } from '../../types';
+import { Customer, Product, SalesRep, type PriceListRule } from '../../types';
 import { formatCurrency, formatDate, formatDayOnly, getActiveCurrency } from '../../utils/format';
 import { currencyDecimals } from '../../i18n/countries';
 import { useTr } from '../../i18n/strings';
@@ -35,8 +35,10 @@ import { X, Trash2, Plus, Undo2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SearchableSelect from '../SearchableSelect';
 import PriceTypeChips from '../PriceTypeChips';
-import { baseLabelOf, priceListsOf, priceOverrides, repriceUntouched, suggestedNetOf } from '../../lib/priceLists';
-import { adminInvoiceListOf, adminListHintOf, type AdminListChoice } from '../../lib/invoiceModalRepPrice';
+import { baseLabelOf, priceListsOf } from '../../lib/priceLists';
+import {
+  adminInvoiceListOf, adminListHintOf, docBaseQty, docLinePricerOf, docPricingDayOf, docQtyKey, pickOptionsAtQty, repriceDocLines, type AdminListChoice,
+} from '../../lib/invoiceModalRepPrice';
 import ConfirmDialog from '../ConfirmDialog';
 import { overAvailable, refFor, vanRemainingOf, withClientRef, type RefMemo } from '../../lib/vanStockFlags';
 
@@ -211,7 +213,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
 
   /* «أنواع الأسعار»: الفاتورة تُسعَّر بنوع سعر العميل (من ملفه)، وإلا بالنوع الافتراضي للمندوب المختار، ويبدّله المدير برقاقة —
    * بلا حارسٍ له ولا قيد «الأنواع المسموحة» (الخادم يحرس المندوب وحده).
-   * والسعر المقترح للبند: سعر العميل الخاص يغلب سعر النوع، والنوع يغلب سعر الوحدة والأساس (suggestedNetOf ← choiceNet بثالثه، كحارس الخادم).
+   * والسعر المقترح للبند: سعر العميل الخاص يغلب القائمة، والقائمة (سعرها الثابت وقواعدها) تغلب سعر الوحدة والأساس — المسعِّر أدناه، كحارس الخادم.
    * وشركةٌ بلا أنواع: لا رقاقات ولا مفتاح في الجسم — والخادم يأخذ نوع العميل (null) كما قبل الميزة */
   const { data: priceInfo } = useQuery({
     queryKey: ['price-lists'],
@@ -233,13 +235,51 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     enabled: !!customerId,
     queryFn: async () => (await productApi.customerPrices(customerId)).data.data as CustPriceInput[],
   });
-  const overrides = useMemo(() => priceOverrides(products, priceListId, custRows), [products, priceListId, custRows]);
-  const suggestedNet = (p: Product, c: UnitChoice) => suggestedNetOf(c, p.basePrice, overrides[p.id]);
-
+  /* «قوائم الأسعار» بقواعدها (طلب المالك ٥ نوفمبر ٢٠٢٦): القائمة سعرٌ ثابت لصنف (listPrices) وقواعد — نسبة خصم أو زيادة، فئة، حدٌّ
+   * أدنى للكمية، فترة. القواعد تُجلب حين للشركة قوائم وحدها (شركةٌ بلاها: لا طلب، والمقترح كما كان حرفاً)، وتعذّرها يُبقي السعر الثابت */
+  const { data: priceRules } = useQuery({
+    queryKey: ['price-list-rules'],
+    enabled: priceListOn,
+    queryFn: async () => (await priceListApi.rules()).data.data as PriceListRule[],
+  });
   /* ZATCA المرحلة الثانية: المرتجع إشعارٌ دائن على فاتورته الأصلية — لا مرتجع حرّ، والسبب إلزاميّ، والتاريخ «الآن».
    * القرار من صفّ الشركة كما في صفحة الفواتير (zatcaRegimeOf). شركة «بروفة» يراها الويب مرحلةً أولى ويحسمها الخادم بـ422
    * مقروءة — والخادم هو الحَكَم في الحالين. */
   const phase2 = zatcaRegimeOf(company).phase === 2;
+  /* يوم الفاتورة الذي تُقرأ به فترات القواعد (مراجعة D1): اليوم الذي سيستعمله الخادم — التاريخ المختار حين يُرسل، وإلا يوم الشركة الآن
+   * بمنطقتها (timezone من GET /price-lists، وبلاها اليوم المحلي). والإشعار الدائن في المرحلة الثانية يُصدر بلحظته على الخادم وحقل
+   * تاريخه مخفيّ (buildFreeReturnPayload لا يرسله): تاريخٌ بقي من البيع قبل التبديل إلى المرتجع لا يسعّر أسطره الحرّة */
+  const pricingDay = docPricingDayOf(invoiceDate, { dateSent: !(isReturn && phase2), timezone: priceInfo?.timezone });
+  /** مسعِّر البند (lib/invoiceModalRepPrice.ts — المسعِّر نفسه في /m): سعر العميل الخاص ⇐ القائمة بسعرها الثابت وقواعدها بكمية الصنف
+   * في الفاتورة كلّها ويوم الفاتورة ⇐ سعر الوحدة والأساس — صافياً، مقرَّباً لأربع منازل حين يأتي من سعر العميل أو القائمة كما كان */
+  const pricer = useMemo(
+    () => docLinePricerOf({ listId: priceListId, custRows, rules: priceListOn ? priceRules : null, day: pricingDay }),
+    [priceListId, custRows, priceListOn, priceRules, pricingDay],
+  );
+  const suggestedNet = (p: Product, c: UnitChoice, totalBaseQty: number) => pricer(p, c, totalBaseQty);
+  const productById = useMemo(() => new Map((products ?? []).map(p => [p.id, p] as const)), [products]);
+  /** البنود التي لم يُعدَّل سعرها تأخذ المقترح بكمية صنفها في الفاتورة كلّها — والمعدَّلة يدويّاً تبقى (repriceUntouched). و`productId`:
+   * تغيّرت كمية هذا الصنف وحده فبنوده وحدها تُعاد (مراجعة D5) — والمسعِّر الجديد يعيد البنود كلّها (الأثر أدناه) */
+  const repriceLines = (ls: LineItem[], productId?: string) => repriceDocLines(ls, id => productById.get(id), suggestedNet,
+    (l, price) => ({ ...l, unitPrice: price, lineTotal: calcLine(l.qty, price, l.discountPct, l.taxPct) }), productId);
+  /* منتقي الأصناف: صنفٌ بوحدات بسعر الوحدة التي يُضاف بها (الرئيسية، وإلّا الأكبر) واسمها — سعر الحبة وحده يُقرأ سعر كرتون — وبكمية
+   * صنفه في الفاتورة بعد إضافته (شريحة الكمية) كما سيُضاف. والكتالوج كلّه يُسعَّر مرّةً لكل مسعِّر (مراجعة D5: كان ١٠٠٠ صنف مع كل
+   * حرفٍ في خانة الكمية)، ثم أصناف الفاتورة وحدها بكمياتها — وحين لا قاعدة بحدٍّ أدنى للكمية لا تغيّر الكمية تلميحاً فلا يُعاد شيء */
+  const pickHint = (p: Product, qtyInDoc: number) => {
+    const c = hasUnitChoice(p) ? defaultChoice(p) : unitChoices(p)[0];
+    const net = suggestedNet(p, c, qtyInDoc + lineUnitFields(p, c).unitFactor);
+    return hasUnitChoice(p) ? `${p.code} • ${formatCurrency(net)} / ${c.name}` : `${p.code} • ${formatCurrency(net)}`;
+  };
+  const catalogOptions = useMemo(
+    () => (products || []).map(p => ({ value: p.id, label: p.name, hint: pickHint(p, 0) })),
+    [products, pricer], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const qtyKey = pricer.dependsOnQty ? docQtyKey(lines) : '';
+  const pickOptions = useMemo(() => pickOptionsAtQty(catalogOptions, lines, pricer.dependsOnQty, (o, qtyInDoc) => {
+    const p = productById.get(o.value);
+    return p ? { ...o, hint: pickHint(p, qtyInDoc) } : o;
+  }), [catalogOptions, qtyKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /* «اشتراط اختيار فاتورة البيع للمرتجع» (إعداد مدير الشركة — null = افتراضيّ المرحلة: هذا السلوك حرفياً): مع الاشتراط في
    * الأولى لا «بدون فاتورة بيع»، وبلا اشتراطٍ في الثانية «فاتورة من خارج النظام» برقمها. والخادم الحَكَم في الحالين */
   const linkRequired = returnLinkRequired(company);
@@ -366,14 +406,11 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   };
 
   const changeKind = (k: 'SALE' | 'RETURN') => { setDocKind(k); unlinkSale(); };
-  // العميل أو المندوب أو النوع تغيّر أو وصلت أسعار العميل: البنود التي لم يُعدَّل سعرها تأخذ المقترح الجديد (repriceUntouched)
+  // العميل أو المندوب أو القائمة تغيّر، أو وصلت أسعار العميل أو القواعد أو الأصناف، أو تغيّر تاريخ الفاتورة: البنود التي لم يُعدَّل
+  // سعرها تأخذ المقترح الجديد (repriceUntouched) — وتغيّر الكمية يعيدها في الإضافة والتعديل والحذف أدناه
   useEffect(() => {
-    setLines(ls => repriceUntouched(ls, l => {
-      const p = (products || []).find(x => x.id === l.productId);
-      const c = p ? choiceById(p, l.unitId) : null;
-      return p && c ? suggestedNet(p, c) : null;
-    }, (l, price) => ({ ...l, unitPrice: price, lineTotal: calcLine(l.qty, price, l.discountPct, l.taxPct) })));
-  }, [overrides]); // eslint-disable-line react-hooks/exhaustive-deps
+    setLines(ls => repriceLines(ls));
+  }, [pricer, products]); // eslint-disable-line react-hooks/exhaustive-deps
   /** عميلٌ آخر: الفاتورة تعود إلى نوعها الافتراضي (نوع سعره من ملفه ?? نوع المندوب) — والمدير يبدّله برقاقة */
   const pickCustomerList = (id: string) => { if (id !== customerId) setListChoice(undefined); };
   const setLinkedQty = (saleItemId: string, v: number) =>
@@ -523,19 +560,21 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   const addProduct = (p: Product) => {
     const c = defaultChoice(p);
     const existing = lines.find(l => l.productId === p.id && (l.unitId ?? null) === c.id);
+    // «قوائم الأسعار»: كمية الصنف تغيّرت (شريحة «من ١٠ كراتين») فبنوده التي لم يُعدَّل سعرها تُعاد بها — بنوده وحدها
     if (existing) {
-      setLines(ls => ls.map(l => lineKey(l) === lineKey(existing)
+      setLines(ls => repriceLines(ls.map(l => lineKey(l) === lineKey(existing)
         ? { ...l, qty: l.qty + 1, lineTotal: calcLine(l.qty + 1, l.unitPrice, l.discountPct, l.taxPct) }
         : l
-      ));
+      ), p.id));
     } else {
-      const price = suggestedNet(p, c);
-      setLines(ls => [...ls, {
+      // البند الجديد بسعره عند كمية صنفه بعد إضافته
+      const price = suggestedNet(p, c, (docBaseQty(lines).get(p.id) ?? 0) + lineUnitFields(p, c).unitFactor);
+      setLines(ls => repriceLines([...ls, {
         productId: p.id, productName: p.name, productCode: p.code,
         ...lineUnitFields(p, c), qty: 1, unitPrice: price, refPrice: price,
         discountPct: 0, taxPct: Number(p.taxPct),
         lineTotal: calcLine(1, price, 0, Number(p.taxPct)),
-      }]);
+      }], p.id));
     }
   };
 
@@ -545,10 +584,12 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     const p = (products || []).find(x => x.id === l?.productId);
     const c = p ? choiceById(p, unitId) : null;
     if (!l || !p || !c || unitTaken(lines, l.productId, c.id, lineKey(l))) return;
-    const price = suggestedNet(p, c);
-    setLines(ls => ls.map((x, i) => (i !== idx ? x : {
+    // سعر الوحدة الجديدة عند كمية الصنف بعد التبديل (المعامل غيّرها)، وبنود الصنف الأخرى التي لم تُمسّ تُعاد بها
+    const after = lines.map((x, i) => (i === idx ? { ...x, ...lineUnitFields(p, c) } : x));
+    const price = suggestedNet(p, c, docBaseQty(after).get(p.id) ?? 0);
+    setLines(ls => repriceLines(ls.map((x, i) => (i !== idx ? x : {
       ...x, ...lineUnitFields(p, c), unitPrice: price, refPrice: price, lineTotal: calcLine(x.qty, price, x.discountPct, x.taxPct),
-    })));
+    })), p.id));
   };
 
   /** وحدة المرتجع لبندٍ من فاتورة البيع (حبّةٌ من كرتون): المتاح وسعر الاسترداد يُعاد التعبير عنهما بها */
@@ -558,7 +599,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   const updateLine = (idx: number, field: keyof LineItem, value: number) => {
     // المرتجع الحرّ: لا كمية سالبة (مرتجعٌ سالب بيعٌ مقنَّع يرفع رصيد العميل) — والصفر يُمنع عند الإصدار
     if (isReturn && field === 'qty') value = Math.max(0, Number.isFinite(value) ? value : 0);
-    setLines(ls => ls.map((l, i) => {
+    setLines(ls => withQtyReprice(field, ls.map((l, i) => {
       if (i !== idx) return l;
       // تعديل الإجمالي مباشرة: يُشتق سعر الوحدة عكسياً ويبقى الإجمالي كما كُتب
       // (لا يُعاد حسابه — وإلا حارب الحقلُ الكاتبَ أثناء الكتابة)
@@ -568,8 +609,12 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
       }
       const updated = { ...l, [field]: value };
       return { ...updated, lineTotal: calcLine(updated.qty, updated.unitPrice, updated.discountPct, updated.taxPct) };
-    }));
+    }), ls[idx]?.productId));
   };
+  /** «قوائم الأسعار»: الكمية تغيّر سعر القائمة (حدٌّ أدنى للكمية) — بنود الصنف الذي تغيّرت كميته وحده التي لم يُعدَّل سعرها تُعاد
+   * بكميته الجديدة. وبلا قاعدةٍ بحدٍّ أدنى للكمية (pricer.dependsOnQty) لا تغيّر الكمية سعراً: لا إعادة مع كل حرف (مراجعة D5) */
+  const withQtyReprice = (field: keyof LineItem, ls: LineItem[], productId: string | undefined) =>
+    (field === 'qty' && pricer.dependsOnQty && productId ? repriceLines(ls, productId) : ls);
 
   // الإجماليات من **المحرّك المشترك** لا بحساب يدويّ هنا: الحساب اليدويّ كان
   // يطرح خصم البند بينما الخادم لا يطرحه، فتُطبع ورقةٌ تخالف السجلّ المحاسبيّ
@@ -956,11 +1001,11 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
             {/* «أنواع الأسعار»: نوع العميل (وإلا نوع المندوب) مختارٌ افتراضاً، والرقاقة تبدّله فتُعاد أسعار البنود التي لم تُعدَّل */}
             {priceListOn && (
               <div className="flex items-center gap-2 flex-wrap mb-3" data-invoice-price-type="">
-                <span className="text-xs font-semibold text-gray-500">{tr('نوع السعر')}</span>
+                <span className="text-xs font-semibold text-gray-500">{tr('قائمة الأسعار')}</span>
                 <PriceTypeChips baseLabel={baseLabelOf(priceInfo, tr)} lists={priceLists} value={priceListId} onChange={setListChoice}
                   disabled={mutation.isPending} />
-                {listHint === 'customer' && <span className="text-[11px] text-amber-700">{tr('ليس نوع سعر العميل')}</span>}
-                {listHint === 'rep' && <span className="text-[11px] text-amber-700">{tr('ليس نوع سعر المندوب')}</span>}
+                {listHint === 'customer' && <span className="text-[11px] text-amber-700">{tr('ليست قائمة العميل')}</span>}
+                {listHint === 'rep' && <span className="text-[11px] text-amber-700">{tr('ليست قائمة المندوب')}</span>}
               </div>
             )}
             <div className="flex items-center justify-between mb-2">
@@ -971,13 +1016,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                   searchPlaceholder={tr('اكتب اسم أو كود الصنف')}
                   value=""
                   resetOnSelect
-                  // صنفٌ بوحدات: سعر الوحدة التي يُضاف بها (الرئيسية، وإلّا الأكبر) واسمها — سعر الحبة وحده يُقرأ سعر كرتون
-                  options={(products || []).map(p => ({
-                    value: p.id, label: p.name,
-                    hint: hasUnitChoice(p)
-                      ? `${p.code} • ${formatCurrency(suggestedNet(p, defaultChoice(p)))} / ${defaultChoice(p).name}`
-                      : `${p.code} • ${formatCurrency(suggestedNet(p, unitChoices(p)[0]))}`,
-                  }))}
+                  // صنفٌ بوحدات: سعر الوحدة التي يُضاف بها (الرئيسية، وإلّا الأكبر) واسمها، بكمية صنفه بعد الإضافة (pickOptions)
+                  options={pickOptions}
                   onChange={(v) => { const p = (products || []).find(x => x.id === v); if (p) addProduct(p); }}
                 />
               </div>
@@ -1006,7 +1046,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                     // مفتاح الصنف ووحدته: الصنف نفسه بوحدتين بندان
                     <tr key={lineKey(l)}>
                       <td>
-                        <button onClick={() => setLines(ls => ls.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600">
+                        <button onClick={() => setLines(ls => repriceLines(ls.filter((_, j) => j !== i), ls[i]?.productId))} className="text-red-400 hover:text-red-600">
                           <Trash2 size={14} />
                         </button>
                       </td>

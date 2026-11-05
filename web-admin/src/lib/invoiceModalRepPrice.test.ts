@@ -76,8 +76,43 @@ test('النافذة: النوع من المندوب المختار، ورقاق
   // المدير حرّ: لا قيد أنواع المندوب المسموحة في النافذة (الخادم يحرس المندوب وحده)
   assert.doesNotMatch(modal, /switchablePriceTypesOf|priceTypeAllowed|allowedPriceTypes/);
   assert.equal(modal.split('...(priceListOn && { priceListId })').length - 1, 2, 'البيع والمرتجع الحرّ كما كانا');
-  assert.ok(modal.includes("{listHint === 'customer' && <span className=\"text-[11px] text-amber-700\">{tr('ليس نوع سعر العميل')}</span>}"));
-  assert.ok(modal.includes("{listHint === 'rep' && <span className=\"text-[11px] text-amber-700\">{tr('ليس نوع سعر المندوب')}</span>}"));
+  // «قوائم الأسعار» (طلب المالك ٥ نوفمبر ٢٠٢٦): العبارتان باسم القائمة
+  assert.ok(modal.includes("{listHint === 'customer' && <span className=\"text-[11px] text-amber-700\">{tr('ليست قائمة العميل')}</span>}"));
+  assert.ok(modal.includes("{listHint === 'rep' && <span className=\"text-[11px] text-amber-700\">{tr('ليست قائمة المندوب')}</span>}"));
+  assert.ok(modal.includes("<span className=\"text-xs font-semibold text-gray-500\">{tr('قائمة الأسعار')}</span>"));
+  assert.doesNotMatch(modal, /tr\('(?:نوع السعر|ليس نوع سعر العميل|ليس نوع سعر المندوب)'\)/);
+});
+
+/* «قوائم الأسعار» بقواعدها في النافذة: القواعد تُجلب مع القوائم وحدها، والمقترح من المسعِّر الواحد بكمية الصنف ويوم الفاتورة، وكل
+ * تغيّرٍ في كمية صنف (إضافة، كمية، وحدة، حذف) يعيد بنوده التي لم تُمسّ — والبنود المرتبطة بفاتورة بيعٍ في جدولها لا تُمسّ */
+test('النافذة: القواعد مع القوائم وحدها، والمسعِّر بكمية الصنف ويوم الفاتورة، والكمية تعيد تسعير ما لم يُمسّ', () => {
+  const m = modal.replace(/\r\n/g, '\n');
+  assert.match(m, /queryKey: \['price-list-rules'\],\s*enabled: priceListOn,\s*queryFn: async \(\) => \(await priceListApi\.rules\(\)\)\.data\.data as PriceListRule\[\],/,
+    'شركةٌ بلا قوائم: لا طلب');
+  // يوم التسعير (مراجعة D1): التاريخ المختار حين يُرسل، وإلا يوم الشركة الآن بمنطقتها — والإشعار الدائن في المرحلة الثانية (حقل التاريخ
+  // مخفيّ ولا يُرسل) بيوم الشركة الآن لا بتاريخٍ بقي من البيع (lib/docLinePricerPerf.test.ts)
+  assert.ok(m.includes('const pricingDay = docPricingDayOf(invoiceDate, { dateSent: !(isReturn && phase2), timezone: priceInfo?.timezone });'));
+  assert.ok(m.includes('() => docLinePricerOf({ listId: priceListId, custRows, rules: priceListOn ? priceRules : null, day: pricingDay }),'));
+  assert.ok(m.includes('[priceListId, custRows, priceListOn, priceRules, pricingDay],'));
+  // القائمة أو العميل أو القواعد أو اليوم (المسعِّر) أو الأصناف تغيّرت: ما لم يُمسّ يُعاد — البنود كلّها
+  assert.match(m, /useEffect\(\(\) => \{\s*setLines\(ls => repriceLines\(ls\)\);\s*\}, \[pricer, products\]\);/);
+  assert.ok(m.includes('const repriceLines = (ls: LineItem[], productId?: string) => repriceDocLines(ls, id => productById.get(id), suggestedNet,'));
+  // الإضافة: الجديد بسعره عند كمية صنفه بعده، والزيادة على بندٍ قائم تعيد بنود الصنف (كانت لا تعيد) — بنوده وحدها (مراجعة D5)
+  assert.ok(m.includes('const price = suggestedNet(p, c, (docBaseQty(lines).get(p.id) ?? 0) + lineUnitFields(p, c).unitFactor);'));
+  assert.ok(m.includes('setLines(ls => repriceLines(ls.map(l => lineKey(l) === lineKey(existing)'));
+  assert.ok(m.includes('setLines(ls => repriceLines([...ls, {'));
+  // تبديل الوحدة بكمية الصنف بعده
+  assert.ok(m.includes('const price = suggestedNet(p, c, docBaseQty(after).get(p.id) ?? 0);'));
+  // تعديل الكمية (كان لا يعيد التسعير أبداً) والحذف — بنود الصنف وحده، والكمية بلا قاعدةٍ بحدٍّ أدنى لا تعيد شيئاً
+  assert.ok(m.includes('setLines(ls => withQtyReprice(field, ls.map((l, i) => {'));
+  assert.ok(m.includes("(field === 'qty' && pricer.dependsOnQty && productId ? repriceLines(ls, productId) : ls);"));
+  assert.ok(m.includes('setLines(ls => repriceLines(ls.filter((_, j) => j !== i), ls[i]?.productId))'));
+  // تلميح المنتقي بالمقترح نفسه كما سيُضاف (بكمية صنفه في الفاتورة بعد إضافته) — لا مقترح بغير المسعِّر
+  assert.ok(m.includes('const net = suggestedNet(p, c, qtyInDoc + lineUnitFields(p, c).unitFactor);'));
+  assert.ok(m.includes('options={pickOptions}'));
+  assert.doesNotMatch(m, /suggestedNetOf|priceOverrides\(|choiceNet\(/);
+  // المرتجع المرتبط بأسعار فاتورته: لا مسعِّر عليه
+  assert.doesNotMatch(m, /setLinked\([^\n]*reprice/);
 });
 
 /* حفظ المندوب يُبطل قائمة نافذة الفاتورة: النافذة تقرأ نوعه الافتراضي من ['sales-reps-all'] — مفتاحٌ لا يطابقه إبطال ['sales-reps']

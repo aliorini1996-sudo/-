@@ -215,7 +215,9 @@ test('ردّ 400 UNIT_INVALID في الإصدار الحيّ: الرسالة ت�
 test('الدمج في السلّة بالصنف والوحدة، والتحميل والطلب يرسلان unitId، ولقطة البند تحمل أساس الصنف', () => {
   assert.match(repApp, /prev\.findIndex\(l => l\.productId === p\.id && !l\.saleItemId && sameUnit\(l, \{ unitId: c0\.id \}\)\)/);
   assert.match(repApp, /\.\.\.lineUnitOf\(c0, p\.unit\)/, 'بندٌ بلا أساسه: تحويل الأساس قبل رفعه يُقرأ على الأساس الجديد');
-  assert.match(repApp, /\.\.\.lineUnitOf\(ch, p\.unit\), unitPrice: inclOf\(p, ch\)/);
+  // «قوائم الأسعار» بقواعدها: السعر والأرضية بالوحدة الجديدة ما زالا معاً (refPrice = unitPrice) — بكمية الصنف كلّها بعد التبديل
+  assert.match(repApp, /c\[i\] = \{ \.\.\.l, \.\.\.lineUnitOf\(ch, p\.unit\) \};/);
+  assert.match(repApp, /const ref = inclOf\(p, ch, repProductBaseQty\(c, l\.productId\)\);\s*c\[i\] = \{ \.\.\.c\[i\], unitPrice: ref, refPrice: ref \};/);
   // و«الوحدة الرئيسية» §6.4: كل صفّ تحميلٍ أو طلبٍ يرسل أساس الصنف كما يعرفه كتالوج الجهاز (baseUnitName)
   assert.match(repApp, /rows\.map\(r => \(\{ productId: r\.productId, qty: Number\(r\.qty\), \.\.\.\(r\.unitId && \{ unitId: r\.unitId \}\), \.\.\.\(r\.baseUnit && \{ baseUnitName: r\.baseUnit \}\) \}\)\)/);
   assert.match(repApp, /return \{ productId, qty: Number\(raw\), \.\.\.\(u\.id && \{ unitId: u\.id \}\), \.\.\.\(base && \{ baseUnitName: base \}\) \};/);

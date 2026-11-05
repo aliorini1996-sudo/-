@@ -549,7 +549,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
         await tx.invoice.deleteMany({ where: { tenantId: tid } });
         await tx.customerPrice.deleteMany({ where: { customer: { tenantId: tid } } });
         await tx.priceTier.deleteMany({ where: { product: { tenantId: tid } } });
-        // «أنواع الأسعار»: أسعارها ثم الأنواع (لا تعاقب من الشركة) — قبل الأصناف والعملاء وصفّ الشركة
+        // «قوائم الأسعار»: قواعدها ثم أسعارها ثم القوائم (لا تعاقب من الشركة) — قبل الأصناف والفئات والعملاء وصفّ الشركة
+        await tx.priceListRule.deleteMany({ where: { tenantId: tid } });
         await tx.priceListItem.deleteMany({ where: { tenantId: tid } });
         await tx.priceList.deleteMany({ where: { tenantId: tid } });
         await tx.notification.deleteMany({ where: { tenantId: tid } });

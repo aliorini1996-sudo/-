@@ -584,6 +584,136 @@ test('«أنواع الأسعار»: التحويل يقسم أسعار الصن
   assert.deepEqual(countedWhere, { tenantId: TENANT, productId: 'p1' });
 });
 
+test('«قوائم الأسعار» بقواعدها: التحويل يقسم basePrice قواعد الصنف الثابتة على F في المعاملة نفسها (لا النسبة ولا سعر الفئة ولا الحدّ الأدنى)، ويعدّها في الردّ والمعاينة حين وُجدت وحدها', async () => {
+  reset();
+  productWorld();
+  const divided: any[] = [];
+  scripted['priceListRule.updateMany'] = (args) => { divided.push({ args, inTx }); return { count: 3 }; };
+  const r = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  // ÷ F بلا تقريب كسعر الصنف في القائمة، وبشرط الشركة، وللقواعد الثابتة لوحدة الأساس وحدها (basePrice غير فارغ)
+  assert.deepEqual(divided, [{ args: { where: { productId: 'p1', tenantId: TENANT, basePrice: { not: null } }, data: { basePrice: { divide: 24 } } }, inTx: true }]);
+  assert.equal(r.body.converted.priceListRules, 3);
+  assert.equal('priceListItems' in r.body.converted, false, 'كلٌّ بعدّاده');
+  // لا يمسّ غير basePrice (النسبة والحدّ الأدنى بالرئيسية وسعر الفئة للرئيسية ثابتةٌ بالتحويل)
+  assert.deepEqual(Object.keys(divided[0].args.data), ['basePrice']);
+  // صنفٌ بلا قواعد ثابتة: شكل الردّ كما كان (لا مفتاح)
+  reset();
+  productWorld();
+  const plain = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+  assert.equal(plain.status, 200, JSON.stringify(plain.body));
+  assert.equal('priceListRules' in plain.body.converted, false);
+  assert.ok(calls.includes('priceListRule.updateMany'), 'الجملة في المعاملة ولو لم تمسّ شيئاً');
+  // المعاينة تعدّها بشرط جملة القسمة نفسه، بلا كتابة
+  reset();
+  productWorld();
+  let countedWhere: unknown = null;
+  scripted['priceListRule.count'] = (args) => { countedWhere = args.where; return 2; };
+  const dry = await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, dryRun: true } });
+  assert.equal(dry.status, 200, JSON.stringify(dry.body));
+  assert.equal(dry.body.converted.priceListRules, 2);
+  assert.deepEqual(countedWhere, { tenantId: TENANT, productId: 'p1', basePrice: { not: null } });
+  assert.equal(calls.includes('priceListRule.updateMany'), false);
+});
+
+// CONTRACT2 D2 (review 2.1، 3.0، 6.0، 1.2): سعر الفئة الثابت والحدّ الأدنى للكمية بالرئيسية — والتحويل يبقي حجمها إلا بلا رئيسية مع
+// keepOldBaseAsPrimary: false (الكرتون كان «الرئيسية» بحجم F فصارت الحبّة بحجم ١)
+const PRICE_RULES_ACK_MSG = 'هذا الصنف تشمله قواعد في قوائم الأسعار محسوبة بوحدته الرئيسية (سعر فئة أو حد أدنى للكمية) وتغيير الوحدة الرئيسية يغير معناها — أكد للمتابعة';
+const AFFECTED_RULES_WHERE = {
+  tenantId: TENANT,
+  OR: [
+    { scope: 'category', category: { products: { some: { id: 'p1', tenantId: TENANT } } }, OR: [{ kind: 'fixed' }, { minQty: { gt: 0 } }] },
+    { scope: 'all', minQty: { gt: 0 } },
+    { scope: 'product', productId: 'p1', minQty: { gt: 0 } },
+  ],
+};
+/** عدّ القواعد المتأثرة (شرطه OR) منفصلاً عن عدّ قواعد الصنف الثابتة في المعاينة (basePrice) */
+function affectedRules(n: number): Array<{ where: any; inTx: boolean }> {
+  const seen: Array<{ where: any; inTx: boolean }> = [];
+  scripted['priceListRule.count'] = (args) => {
+    if (!args?.where?.OR) return 0;
+    seen.push({ where: args.where, inTx });
+    return n;
+  };
+  return seen;
+}
+
+test('D2 التحويل بلا رئيسية مع keepOldBaseAsPrimary: false وللصنف قواعد بالرئيسية ⇒ 409 PRICE_RULES_UNIT_ACK بعددها تحت القفل بلا أي كتابة، وبالإقرار يمرّ', async () => {
+  reset();
+  const w = productWorld();
+  const seen = affectedRules(2);
+  const r = await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, keepOldBaseAsPrimary: false } });
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.deepEqual(r.body, { success: false, code: 'PRICE_RULES_UNIT_ACK', message: PRICE_RULES_ACK_MSG, rulesCount: 2 });
+  assert.deepEqual(seen, [{ where: AFFECTED_RULES_WHERE, inTx: true }], 'استعلامٌ واحد في المعاملة');
+  const lockAt = raws.findIndex(x => x.kind === '$queryRaw' && /FOR UPDATE/.test(x.sql));
+  assert.ok(lockAt >= 0 && calls.indexOf('priceListRule.count') > calls.indexOf('$queryRaw'), 'بعد قفل صفّ الصنف');
+  assert.equal(raws.some(x => x.kind === '$executeRaw'), false, 'لا جملة تحويل');
+  assert.ok(!calls.some(c => /\.(create|update|updateMany|delete|deleteMany)$/.test(c)), calls.join(' → '));
+  assert.deepEqual([w.product.unit, w.units.length, w.conversions.length, w.tables.invoice_items[0].unitFactor], ['كرتون', 1, 0, 1]);
+  assert.equal(anyConverting(TENANT, ['p1']), false, '«قيد التحويل» يُحرَّر بعد الرفض');
+  // بالإقرار: التحويل كما كان (بلا رئيسية) ولا عدّ
+  reset();
+  const w2 = productWorld();
+  const seen2 = affectedRules(2);
+  const ok = await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, keepOldBaseAsPrimary: false, acknowledgePriceRules: true } });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.deepEqual([w2.product.unit, w2.product.primaryUnitId], ['حبة', null]);
+  assert.deepEqual(seen2, []);
+  // بلا قواعد متأثرة: يمرّ بعدٍّ واحد صفر
+  reset();
+  const w3 = productWorld();
+  const seen3 = affectedRules(0);
+  assert.equal((await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, keepOldBaseAsPrimary: false } })).status, 200);
+  assert.equal(w3.product.unit, 'حبة');
+  assert.equal(seen3.length, 1);
+});
+
+test('D2 التحويل الافتراضي (الكرتون يصير الرئيسية) أو برئيسيةٍ قائمة: حجم الرئيسية باقٍ ⇒ لا عدّ ولا إقرار ولو للصنف قواعد — شكل الردّ كما كان', async () => {
+  for (const [o, body] of [
+    [{}, CONVERT],
+    [{}, { ...CONVERT, keepOldBaseAsPrimary: true }],
+    [{ primaryUnitId: 'u-pal' }, { ...CONVERT, keepOldBaseAsPrimary: false }],
+  ] as const) {
+    reset();
+    const w = productWorld();
+    if ('primaryUnitId' in o) w.product.primaryUnitId = o.primaryUnitId;
+    const seen = affectedRules(7);
+    const r = await call('POST', '/api/products/p1/convert-base', { body });
+    assert.equal(r.status, 200, `${JSON.stringify(o)} ${JSON.stringify(body)}: ${JSON.stringify(r.body)}`);
+    assert.deepEqual(seen, [], 'لا عدّ');
+    assert.equal(w.product.unit, 'حبة');
+    // ومعاينته بلا priceRulesAffected
+    reset();
+    const w2 = productWorld();
+    if ('primaryUnitId' in o) w2.product.primaryUnitId = o.primaryUnitId;
+    const seenDry = affectedRules(7);
+    const dry = await call('POST', '/api/products/p1/convert-base', { body: { ...body, dryRun: true } });
+    assert.equal(dry.status, 200, JSON.stringify(dry.body));
+    assert.equal('priceRulesAffected' in dry.body, false);
+    assert.deepEqual(seenDry, []);
+  }
+});
+
+test('D2 معاينة التحويل: priceRulesAffected بعدد القواعد المتأثرة حين يتغيّر حجم الرئيسية وحده — بلا معاملة ولا إقرار، وصفرٌ بلا مفتاح', async () => {
+  reset();
+  productWorld();
+  const seen = affectedRules(3);
+  const dry = await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, keepOldBaseAsPrimary: false, dryRun: true } });
+  assert.equal(dry.status, 200, JSON.stringify(dry.body));
+  assert.equal(dry.body.priceRulesAffected, 3);
+  assert.equal(dry.body.primaryAfter, null);
+  assert.deepEqual(seen, [{ where: AFFECTED_RULES_WHERE, inTx: false }]);
+  assert.equal(calls.includes('$transaction'), false);
+  assert.equal(raws.length, 0);
+  reset();
+  productWorld();
+  affectedRules(0);
+  const none = await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, keepOldBaseAsPrimary: false, dryRun: true } });
+  assert.equal(none.status, 200);
+  assert.equal('priceRulesAffected' in none.body, false);
+});
+
 test('التحويل لشركةٍ مربوطة بـERP: بلا إقرار ⇒ 409 CONVERT_BASE_ERP_ACK بلا معاملة، وبالإقرار يمرّ', async () => {
   reset();
   productWorld();

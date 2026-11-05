@@ -53,3 +53,37 @@ test('مورد المناديب في المستند يصف defaultPriceListId و
   }
   assert.match(reps.what, /'base'/);
 });
+
+/** «قوائم الأسعار» (٥ نوفمبر ٢٠٢٦، اسمها السابق «أنواع الأسعار»): الموارد بالاسم الجديد، والقوائم وقواعدها ليست مورد مزامنة */
+test('موارد المزامنة تصف «قوائم الأسعار» باسمها الجديد — وأسعار القوائم وقواعدها تُقرأ من /api/price-lists لا من المزامنة', () => {
+  const what = (n: string) => API_SYNC_RESOURCES.find(r => r.name === n)!.what;
+  assert.match(what('customers'), /«قوائم الأسعار»/);
+  assert.match(what('sales-reps'), /«تبديل قائمة الأسعار»/);
+  assert.ok(what('products').includes('GET /api/price-lists/prices وGET /api/price-lists/rules'), 'مورد المنتجات يدلّ على القواعد');
+  for (const r of API_SYNC_RESOURCES) assert.doesNotMatch(r.what, /أنواع الأسعار|أنواع أسعار|نوع السعر|نوع سعر/, r.name);
+  // لا مورد للقوائم ولا لقواعدها — في المستند وفي الخادم
+  assert.ok(!API_SYNC_RESOURCES.some(r => /price-list|price-rule/.test(r.name)));
+  assert.doesNotMatch(backend('services', 'apiSync.ts'), /model: 'priceList(Item|Rule)?'/);
+});
+
+/**
+ * مراجعة ٥ نوفمبر (CONTRACT2 D7): مورد المنتجات كان يقول «تغيّر القواعد لا يحرّكه» وموجّه القوائم يلمس الصنف في كتابة قاعدة الصنف
+ * (إنشاءً وتعديلاً وحذفاً) — ويقول «الرئيسية للعرض وحده» وبها يُحسب سعر الفئة الثابت والحد الأدنى للكمية
+ */
+test('مورد المنتجات: كتابة قاعدة صنفٍ تحرّك updatedAt الصنف وقواعد الفئة وكل الأصناف لا — كما يلمسه موجّه القوائم، والرئيسية مدخلٌ في القواعد', () => {
+  const what = API_SYNC_RESOURCES.find(r => r.name === 'products')!.what;
+  assert.doesNotMatch(what, /تغيّر القواعد لا يحرّكه/);
+  assert.match(what, /قائمة أو قاعدة صنفٍ — إنشاءً وتعديلاً وحذفاً — تحرّك updatedAt الصنف/);
+  assert.match(what, /أما قواعد الفئة وكل الأصناف فلا تحرّكه/);
+  // الخادم: المسارات الثلاثة تلمس صنف قاعدة الصنف داخل معاملتها (touchProducts)
+  const lists = backend('routes', 'priceLists.ts');
+  for (const route of ["router.post('/:id/rules'", "router.put('/rules/:ruleId'", "router.delete('/rules/:ruleId'"]) {
+    const at = lists.indexOf(route);
+    assert.ok(at > 0, route);
+    const next = lists.indexOf('\nrouter.', at + route.length);
+    assert.match(lists.slice(at, next > 0 ? next : undefined), /touchProducts\(tx, tid, \[[^\]]*product\?\.id/, `${route}: لا يلمس الصنف`);
+  }
+  // والرئيسية ليست «للعرض وحده»: بها سعر الفئة الثابت والحد الأدنى للكمية
+  assert.doesNotMatch(what, /للعرض والإدخال الافتراضي وحده/);
+  assert.match(what, /سعر الفئة الثابت والحد الأدنى للكمية بالوحدة الرئيسية/);
+});

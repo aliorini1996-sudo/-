@@ -7,6 +7,7 @@
 //   • price-tiers بـexpectedPrimary، وGET /customer-prices يردّ unit.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -665,4 +666,188 @@ test('GET /customer-prices/:id يردّ unit وbaseConvertedAt (أساس الص�
   assert.match(seen!.sql, /WHERE cp\."customerId" = \? AND p\."tenantId" = \? AND p\."deletedAt" IS NULL$/);
   assert.deepEqual(seen!.values, ['c1', TENANT]);
   assert.equal(opIdx('customerPrice.findMany'), -1);
+});
+
+// ═══ «قوائم الأسعار» (CONTRACT2 D2): كل كتابةٍ تغيّر حجم الرئيسية الفعلي تُقرّ قواعد القوائم المحسوبة بها ═══
+
+const ACK_MSG = 'هذا الصنف تشمله قواعد في قوائم الأسعار محسوبة بوحدته الرئيسية (سعر فئة أو حد أدنى للكمية) وتغيير الوحدة الرئيسية يغير معناها — أكد للمتابعة';
+/** قواعد الشركة المتأثرة كما يعدّها الخادم — وكل عدٍّ بشرطه وموضعه (داخل المعاملة؟) */
+function ruleCounter(n: number): Array<{ where: any; inTx: boolean }> {
+  const seen: Array<{ where: any; inTx: boolean }> = [];
+  scripted['priceListRule.count'] = (a) => { seen.push({ where: a.where, inTx }); return n; };
+  return seen;
+}
+/** شرط العدّ المنصوص (D2): فئة الصنف بسعرٍ ثابت أو حدٍّ أدنى، وكل الأصناف بحدٍّ أدنى، وقواعد الصنف بحدٍّ أدنى — في كل قوائم الشركة */
+const AFFECTED_WHERE = {
+  tenantId: TENANT,
+  OR: [
+    { scope: 'category', category: { products: { some: { id: 'p1', tenantId: TENANT } } }, OR: [{ kind: 'fixed' }, { minQty: { gt: 0 } }] },
+    { scope: 'all', minQty: { gt: 0 } },
+    { scope: 'product', productId: 'p1', minQty: { gt: 0 } },
+  ],
+};
+const productWrites = () => ops().filter((o) => /^(productUnit|product)\.(create|update|updateMany|deleteMany)$/.test(o));
+
+test('D2 PUT primary-unit: حجمٌ آخر للرئيسية وللصنف قواعد ⇒ 409 PRICE_RULES_UNIT_ACK بعددها بلا كتابة، وبالإقرار يمرّ — والعدّ تحت القفل بشرطه المنصوص', async () => {
+  for (const [primaryUnitId, unitId] of [[null, 'u-ct'], ['u-ct', null]] as const) {
+    reset();
+    const w = world({ primaryUnitId });
+    const seen = ruleCounter(3);
+    const r = await call('PUT', '/api/products/p1/primary-unit', { unitId });
+    assert.equal(r.status, 409, JSON.stringify(r.body));
+    assert.deepEqual(r.body, { success: false, code: 'PRICE_RULES_UNIT_ACK', message: ACK_MSG, rulesCount: 3 });
+    assert.deepEqual(productWrites(), [], 'لا كتابة');
+    assert.equal(w.product.primaryUnitId, primaryUnitId);
+    assert.deepEqual(seen, [{ where: AFFECTED_WHERE, inTx: true }], 'استعلامٌ واحد داخل المعاملة');
+    assert.ok(rawIdx('FOR UPDATE') < opIdx('priceListRule.count'), 'بعد قفل الصفّ');
+    // الإقرار: تمرّ الكتابة بلا عدّ
+    reset();
+    const w2 = world({ primaryUnitId });
+    const seen2 = ruleCounter(3);
+    const ok = await call('PUT', '/api/products/p1/primary-unit', { unitId, acknowledgePriceRules: true });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    assert.equal(w2.product.primaryUnitId, unitId);
+    assert.deepEqual(seen2, [], 'المُقرّ لا يُعدّ');
+  }
+  // بلا قواعد متأثرة: كما كان (عدٌّ واحد صفر ثم الكتابة)
+  reset();
+  const w3 = world();
+  const none = ruleCounter(0);
+  assert.equal((await call('PUT', '/api/products/p1/primary-unit', { unitId: 'u-ct' })).status, 200);
+  assert.equal(w3.product.primaryUnitId, 'u-ct');
+  assert.equal(none.length, 1);
+  // الحجم نفسه: الرئيسية كما هي، أو وحدةٌ أخرى بالمعامل نفسه، أو الإلغاء لرئيسيةٍ موقوفة (حجمها الفعلي الأساس) ⇒ لا عدّ ولا 409
+  for (const [o, unitId] of [
+    [{ primaryUnitId: 'u-ct' }, 'u-ct'],
+    [{ primaryUnitId: 'u-ct', units: [unit({ id: 'u-ct', name: 'كرتون', factor: 24 }), unit({ id: 'u-bx', name: 'صندوق', factor: 24 })] }, 'u-bx'],
+    [{ primaryUnitId: 'u-ct', units: [unit({ id: 'u-ct', name: 'كرتون', factor: 24, isActive: false })] }, null],
+  ] as const) {
+    reset();
+    world(o as Parameters<typeof world>[0]);
+    const seen = ruleCounter(5);
+    const r = await call('PUT', '/api/products/p1/primary-unit', { unitId });
+    assert.equal(r.status, 200, `${JSON.stringify(o)} → ${unitId}: ${JSON.stringify(r.body)}`);
+    assert.deepEqual(seen, [], 'لا عدّ والحجم كما هو');
+  }
+});
+
+test('D2 الوحدات: makePrimary والمعامل والإيقاف والإلغاء والحذف للرئيسية ⇒ 409 بلا كتابة إلا بالإقرار (جسماً أو ?acknowledgePriceRules=1) — وما لا يمسّ حجمها بلا عدّ', async () => {
+  const shifting: Array<[string, string, unknown, Parameters<typeof world>[0]]> = [
+    ['POST', '/api/products/p1/units', { name: 'طبلية', factor: 1200, makePrimary: true }, {}],
+    ['POST', '/api/products/p1/units', { name: 'طبلية', factor: 1200, makePrimary: true }, { primaryUnitId: 'u-ct' }],
+    ['PUT', '/api/products/p1/units/u-ct', { factor: 12 }, { primaryUnitId: 'u-ct' }],
+    ['PUT', '/api/products/p1/units/u-ct', { isActive: false, clearPrimary: true }, { primaryUnitId: 'u-ct' }],
+    ['PUT', '/api/products/p1/units/u-ct', { clearPrimary: true }, { primaryUnitId: 'u-ct' }],
+    // رئيسيةٌ موقوفة (حجمها الفعلي الأساس) تُفعَّل ⇒ يصير حجمها ٢٤
+    ['PUT', '/api/products/p1/units/u-ct', { isActive: true }, { primaryUnitId: 'u-ct', units: [unit({ id: 'u-ct', name: 'كرتون', factor: 24, isActive: false })] }],
+    ['DELETE', '/api/products/p1/units/u-ct?clearPrimary=1', undefined, { primaryUnitId: 'u-ct' }],
+  ];
+  for (const [method, url, body, o] of shifting) {
+    reset();
+    const w = world(o);
+    const before = JSON.stringify({ units: w.units, primary: w.product.primaryUnitId });
+    const seen = ruleCounter(2);
+    const r = await call(method, url, body);
+    assert.equal(r.status, 409, `${method} ${url} ${JSON.stringify(body)}: ${JSON.stringify(r.body)}`);
+    assert.deepEqual(r.body, { success: false, code: 'PRICE_RULES_UNIT_ACK', message: ACK_MSG, rulesCount: 2 });
+    assert.deepEqual(productWrites(), [], `${method} ${url}: لا كتابة`);
+    assert.equal(JSON.stringify({ units: w.units, primary: w.product.primaryUnitId }), before);
+    assert.deepEqual(seen.map((x) => [x.where, x.inTx]), [[AFFECTED_WHERE, true]]);
+    // بالإقرار: الكتابة كما كانت
+    reset();
+    world(o);
+    const seen2 = ruleCounter(2);
+    const ackUrl = method === 'DELETE' ? `${url}&acknowledgePriceRules=1` : url;
+    const ackBody = method === 'DELETE' ? undefined : { ...(body as object), acknowledgePriceRules: true };
+    const ok = await call(method, ackUrl, ackBody);
+    assert.ok([200, 201].includes(ok.status), `${method} ${ackUrl}: ${JSON.stringify(ok.body)}`);
+    assert.deepEqual(seen2, []);
+  }
+  // ?acknowledgePriceRules=true كـ1
+  reset();
+  world({ primaryUnitId: 'u-ct' });
+  ruleCounter(2);
+  assert.equal((await call('DELETE', '/api/products/p1/units/u-ct?clearPrimary=1&acknowledgePriceRules=true')).status, 200);
+  // ما لا يمسّ حجم الرئيسية: لا عدّ — وحدةٌ تُضاف بلا makePrimary، وسعر الرئيسية أو اسمها، والمعامل نفسه، ووحدةٌ غير رئيسية
+  const steady: Array<[string, string, unknown, Parameters<typeof world>[0]]> = [
+    ['POST', '/api/products/p1/units', { name: 'طبلية', factor: 1200 }, { primaryUnitId: 'u-ct' }],
+    ['PUT', '/api/products/p1/units/u-ct', { price: 50, name: 'كرتونة' }, { primaryUnitId: 'u-ct' }],
+    ['PUT', '/api/products/p1/units/u-ct', { factor: 24 }, { primaryUnitId: 'u-ct' }],
+    ['PUT', '/api/products/p1/units/u-ct', { factor: 12 }, {}],
+    ['PUT', '/api/products/p1/units/u-sh', { isActive: false, factor: 8 }, { primaryUnitId: 'u-ct', units: [unit({ id: 'u-ct', name: 'كرتون', factor: 24 }), unit({ id: 'u-sh', name: 'شدة', factor: 6 })] }],
+    ['DELETE', '/api/products/p1/units/u-sh', undefined, { primaryUnitId: 'u-ct', units: [unit({ id: 'u-ct', name: 'كرتون', factor: 24 }), unit({ id: 'u-sh', name: 'شدة', factor: 6 })] }],
+    ['DELETE', '/api/products/p1/units/u-ct', undefined, {}],
+  ];
+  for (const [method, url, body, o] of steady) {
+    reset();
+    world(o);
+    const seen = ruleCounter(9);
+    const r = await call(method, url, body);
+    assert.ok([200, 201].includes(r.status), `${method} ${url} ${JSON.stringify(body)}: ${JSON.stringify(r.body)}`);
+    assert.deepEqual(seen, [], `${method} ${url} ${JSON.stringify(body)}: لا عدّ`);
+  }
+});
+
+test('D2 PUT /:id برقعة الرئيسية: معاملٌ جديد ⇒ 409 بلا كتابة إلا بالإقرار، والاسم أو السعر وحدهما بلا عدّ — وفي مسار «تتبّع اللوط» كذلك', async () => {
+  reset();
+  const w = world({ primaryUnitId: 'u-ct' });
+  const seen = ruleCounter(4);
+  const r = await call('PUT', '/api/products/p1', { basePrice: 2.5, expectedBaseName: 'قارورة', primaryUnit: { id: 'u-ct', factor: 12, price: 30 } });
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.deepEqual(r.body, { success: false, code: 'PRICE_RULES_UNIT_ACK', message: ACK_MSG, rulesCount: 4 });
+  assert.deepEqual(productWrites(), []);
+  assert.deepEqual([w.units[0].factor, w.product.basePrice], [24, 2]);
+  assert.deepEqual(seen.map((x) => [x.where, x.inTx]), [[AFFECTED_WHERE, true]]);
+  assert.ok(rawIdx('FOR NO KEY UPDATE') < opIdx('priceListRule.count'), 'بعد قفل التعديل');
+  // بالإقرار: الرقعة والصنف كما كانا، والإقرار لا يُكتب في الصنف
+  reset();
+  const w2 = world({ primaryUnitId: 'u-ct' });
+  const seen2 = ruleCounter(4);
+  const ok = await call('PUT', '/api/products/p1', { basePrice: 2.5, expectedBaseName: 'قارورة', primaryUnit: { id: 'u-ct', factor: 12, price: 30 }, acknowledgePriceRules: true });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.deepEqual([w2.units[0].factor, w2.product.basePrice], [12, 2.5]);
+  assert.ok(!('acknowledgePriceRules' in first('product.update').args.data), 'الإقرار ليس حقلاً في الصنف');
+  assert.deepEqual(seen2, []);
+  // الاسم والسعر والمعامل نفسه: لا عدّ
+  for (const patch of [{ id: 'u-ct', name: 'كرتونة', price: 30 }, { id: 'u-ct', factor: 24 }]) {
+    reset();
+    world({ primaryUnitId: 'u-ct' });
+    const s = ruleCounter(4);
+    assert.equal((await call('PUT', '/api/products/p1', { primaryUnit: patch })).status, 200, JSON.stringify(patch));
+    assert.deepEqual(s, []);
+  }
+  // مسار «تتبّع اللوط»: الحارس نفسه على صفّ FOR UPDATE قبل الكتابة والحدث
+  reset();
+  const w3 = world({ primaryUnitId: 'u-ct', lots: true });
+  const s3 = ruleCounter(1);
+  const lot = await call('PUT', '/api/products/p1', { lotTracked: true, primaryUnit: { id: 'u-ct', factor: 6 } });
+  assert.equal(lot.status, 409, JSON.stringify(lot.body));
+  assert.deepEqual([lot.body.code, lot.body.rulesCount], ['PRICE_RULES_UNIT_ACK', 1]);
+  assert.equal(opIdx('lotEvent.create'), -1);
+  assert.deepEqual([w3.units[0].factor, w3.product.lotTracked], [24, false]);
+  assert.equal(s3.length, 1);
+});
+
+test('D2 حارس نصّي: الكتّاب الستة التي تغيّر الرئيسية تمرّ بـassertPriceRulesAck قبل أول كتابة لها، والرسالة مفتاح الواجهة حرفاً', () => {
+  const src = fs.readFileSync(path.join(SRC, 'routes', 'products.ts'), 'utf8').replace(/^﻿/, '').replace(/\r\n/g, '\n');
+  assert.equal(src.split('await assertPriceRulesAck(').length - 1, 6, 'رقعة PUT /:id، والإضافة، والتعديل، والحذف، والرئيسية، والتحويل');
+  const body = (head: string) => src.slice(src.indexOf(head), src.indexOf('\n});', src.indexOf(head)));
+  const fn = (head: string) => src.slice(src.indexOf(head), src.indexOf('\n}\n', src.indexOf(head)));
+  for (const [where, write] of [
+    [fn('async function guardProductEdit('), 'tx.productUnit.updateMany('],
+    [body("router.post('/:id/units'"), 'tx.productUnit.create('],
+    [body("router.put('/:id/units/:unitId'"), 'tx.productUnit.updateMany('],
+    [body("router.delete('/:id/units/:unitId'"), 'tx.productUnit.deleteMany('],
+    [body("router.put('/:id/primary-unit'"), 'tx.product.update('],
+    [body("router.post('/:id/convert-base'"), 'await lockLotProducts('],
+  ] as const) {
+    const ack = where.indexOf('await assertPriceRulesAck(');
+    assert.ok(ack > 0 && ack < where.indexOf(write), `${where.slice(0, 60)}: الإقرار قبل ${write}`);
+  }
+  // الحذف بلا جسم: الإقرار من الاستعلام كإذن الرئيسية
+  assert.match(body("router.delete('/:id/units/:unitId'"), /req\.query\.acknowledgePriceRules === '1' \|\| req\.query\.acknowledgePriceRules === 'true'/);
+  // المعاينة تعدّ وحدها ولا تطلب الإقرار
+  assert.match(fn('async function convertBasePreview('), /shifts \? primaryRulesCount\(prisma, tid, pid\) : 0/);
+  assert.ok(src.includes(`export const PRICE_RULES_UNIT_ACK_MSG = '${ACK_MSG}';`));
+  assert.equal(productsModule.PRICE_RULES_UNIT_ACK_MSG, ACK_MSG);
 });

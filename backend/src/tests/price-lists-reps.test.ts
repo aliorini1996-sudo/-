@@ -232,6 +232,22 @@ test('نسخة الويب من القواعد المشتركة مطابقة حر
   ]) assert.equal(block(web, head), block(server, head), head);
 });
 
+test('«قوائم الأسعار» (طلب المالك ٥ نوفمبر ٢٠٢٦): رسائل الخادم بالاسم الجديد حرفاً كما في العقد — والرموز كما هي، ولا «نوع سعر» في رسالة', () => {
+  assert.deepEqual(
+    [PRICE_LIST_MESSAGES.PRICE_LIST_INVALID, PRICE_LIST_MESSAGES.PRICE_LIST_FORBIDDEN, PRICE_LIST_MESSAGES.PRICE_LIST_NAME_TAKEN,
+      PRICE_LIST_MESSAGES.PRICE_LIST_NAME_INVALID, PRICE_LIST_MESSAGES.PRICE_TYPE_DEFAULT_NOT_ALLOWED, PRICE_LIST_MESSAGES.PRICE_TYPE_NOT_ALLOWED],
+    ['قائمة الأسعار غير موجودة', 'لا تملك صلاحية تبديل قائمة الأسعار', 'توجد قائمة أسعار بهذا الاسم', 'اسم قائمة الأسعار من حرف إلى 40 حرفاً',
+      'القائمة الافتراضية للمندوب يجب أن تكون من القوائم المسموحة له', 'قائمة الأسعار غير مسموحة لك'],
+  );
+  for (const m of [...Object.values(PRICE_LIST_MESSAGES), ...Object.values(PRICE_LIST_IN_USE_BY)]) {
+    assert.doesNotMatch(m, /نوع|أنواع|الأنواع/, m);
+  }
+  // رسائل المسارات الجديدة بلا تشكيل (مفاتيح ترجمة الواجهة بلا تشكيل)
+  for (const k of ['PRICE_RULE_INVALID', 'PRICE_RULE_LIMIT', 'PRICE_RULE_NOT_FOUND', 'PRODUCT_NOT_FOUND', 'CATEGORY_NOT_FOUND', 'BASE_UNIT_REQUIRED', 'BASE_UNIT_CHANGED', 'PRIMARY_UNIT_CHANGED'] as const) {
+    assert.doesNotMatch(PRICE_LIST_MESSAGES[k], /[ً-ْ]/, k);
+  }
+});
+
 // ═══ (٢) إنشاء المندوب ═══
 
 test('POST /sales-reps: الأنواع بلا تكرار و«base» رمزاً، والافتراضي منها، والفحص والإنشاء في معاملةٍ واحدة بقفل FOR KEY SHARE', async () => {
@@ -574,6 +590,8 @@ test('DELETE /price-lists/:id: افتراضيُّ مندوبٍ أو ضمن مس�
   assert.equal(PRICE_LIST_IN_USE_BY.customers, PRICE_LIST_MESSAGES.PRICE_LIST_IN_USE, 'رسالة العملاء وحدهم كما كانت');
   assert.match(PRICE_LIST_IN_USE_BY.reps, /مناديب/);
   assert.match(PRICE_LIST_IN_USE_BY.both, /عملاء ومناديب/);
+  // «قوائم الأسعار» (٥ نوفمبر ٢٠٢٦): الرسائل الثلاث بالاسم الجديد — المعنى والرمز والعددان كما كانت
+  for (const m of Object.values(PRICE_LIST_IN_USE_BY)) assert.ok(m.startsWith('قائمة الأسعار مستخدمة ل'), m);
   // لا عملاء ولا مناديب: الحذف يمضي كما كان
   reset();
   const seen = world(0, 0);

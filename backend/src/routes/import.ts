@@ -392,6 +392,8 @@ async function deleteImportCategory(tid: string, catId: string, draftLinked: boo
         accountRows: await tx.glProductCategoryAccount.count({ where: { tenantId: tid, categoryId: catId } }),
       });
       if (!deletable) return 'kept' as const;
+      // «قوائم الأسعار»: فئةٌ عليها قواعد أسعار تبقى — حذفها يسلسل القواعد (Cascade) فتسقط أسعارٌ كتبتها الإدارة بعد الاستيراد بصمت
+      if ((await tx.priceListRule.count({ where: { tenantId: tid, categoryId: catId } })) > 0) return 'kept' as const;
       await tx.productCategory.deleteMany({ where: { id: catId, tenantId: tid } });
       return 'deleted' as const;
     }, IMPORT_WRITE_TX);

@@ -13,11 +13,11 @@ import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type Installmen
 import { unitChoices, defaultChoice, primaryChoice, invoiceItemUnit, type CustPriceInput, type UnitChoice } from '../rep/repUnits';
 import { refetchUnitsOn } from './mPrimaryUnit';
 import {
-  lineKey, addInvoiceLine, setInvoiceLineUnit, stepInvoiceLine, refreshInvoiceLines, repriceInvoiceLines, priceOverrideOf, suggestedNet, qtyText,
-  type SalePick,
+  lineKey, addInvoiceLine, setInvoiceLineUnit, stepInvoiceLine, removeInvoiceLine, refreshInvoiceLines, repriceInvoiceLines, pickerPrices, qtyText,
+  type LinePricer, type SalePick,
 } from './mUnits';
 import { baseLabelOf, priceListsOf, defaultPriceTypeOf } from '../lib/priceLists';
-import { adminListHintOf } from '../lib/invoiceModalRepPrice';
+import { adminListHintOf, docLinePricerOf, docPricingDayOf, docQtyKey, type DocPriceRule } from '../lib/invoiceModalRepPrice';
 import {
   lotErrorOf, lotFlagsOf, lotWarningsOf, LOT_WARNING_LABELS, type LotWarning, type VanLotSnapshotDto,
 } from '../lib/lots';
@@ -67,6 +67,9 @@ interface Pick {
  * الأساسي — القاعدة الواحدة مع الخادم (defaultPriceTypeOf). وتبديل المندوب يغيّر الافتراضي وحده كفاتورة اللوحة (InvoiceModal):
  * النوع يتبعه ما لم يختر المستخدم رقاقة، والبنود التي لم تُمسّ تُعاد بالنوع الجديد. والإدارة حرّة بين الأنواع كلها (لا قيد «الأنواع
  * المسموحة» عليها، فهو للمندوب وحده).
+ * و«قوائم الأسعار» بقواعدها (طلب المالك ٥ نوفمبر ٢٠٢٦): القائمة سعرٌ ثابت لصنف وقواعد (نسبة خصم أو زيادة، فئة، حدٌّ أدنى للكمية،
+ * فترة)، فالمقترح من المسعِّر الواحد مع فاتورة اللوحة (docLinePricerOf) بكمية الصنف في الفاتورة كلّها ويوم الفاتورة — وكل تغيّرٍ
+ * في كمية صنف (نقرة، +/−، وحدة، حذف) يعيد بنوده التي لم تُمسّ. شركةٌ بلا قوائم: لا قواعد تُجلب، والمقترح كما كان حرفاً.
  */
 type Step = 'head' | 'items' | 'review';
 
@@ -163,13 +166,28 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
     staleTime: 30_000,
   });
   const custRows = custPricesQ.data ?? null;
-  /** ثالث choiceNet للصنف: سعر العميل الخاص ?? سعر نوع الفاتورة (لوحدة الأساس) — أو null فسلسلة اليوم */
-  const overrideOf = (p: SalePick) => priceOverrideOf(p, listId, custRows);
-  // تبديل العميل أو النوع، أو وصول أسعار العميل بعد البنود: البنود التي لم يمسّها المستخدم تُعاد بالمقترح الجديد، والمعدَّلة تبقى
+  /* «قوائم الأسعار» بقواعدها (طلب المالك ٥ نوفمبر ٢٠٢٦): قواعد القوائم (نسبة، فئة، حدٌّ أدنى للكمية، فترة) — تُجلب حين للشركة قوائم
+   * وحدها (المفتاح نفسه في فاتورة اللوحة)، وتعذّرها يُبقي سعر الصنف الثابت في القائمة كما كان */
+  const rulesQ = useQuery({
+    queryKey: ['price-list-rules'],
+    queryFn: async () => expectArray<DocPriceRule>((await priceListApi.rules()).data?.data, tr('قوائم الأسعار')),
+    enabled: listsOn,
+  });
+  // يوم الفاتورة الذي تُقرأ به فترات القواعد (مراجعة D1): التاريخ المختار (يُرسل للخادم)، وإلا يوم الشركة الآن بمنطقتها (timezone من
+  // GET /price-lists) — وبلاها اليوم المحلي للجهاز
+  const pricingDay = docPricingDayOf(invoiceDate, { timezone: priceInfoQ.data?.timezone });
+  /** مسعِّر البند (المسعِّر نفسه في فاتورة اللوحة): سعر العميل الخاص ⇐ القائمة بسعرها الثابت وقواعدها بكمية الصنف في الفاتورة
+   * كلّها ويوم الفاتورة ⇐ سلّم اليوم — ⚠️ صافياً قبل الضريبة */
+  const priceOf: LinePricer = useMemo(
+    () => docLinePricerOf({ listId, custRows, rules: listsOn ? rulesQ.data : null, day: pricingDay }),
+    [listId, custRows, listsOn, rulesQ.data, pricingDay],
+  );
+  // تبديل العميل أو القائمة، أو وصول أسعار العميل أو القواعد بعد البنود، أو تاريخ الفاتورة: البنود التي لم يمسّها المستخدم تُعاد
+  // بالمقترح الجديد، والمعدَّلة تبقى (وتغيّر الكمية يعيد بنود صنفه في دوال البنود نفسها)
   useEffect(() => {
-    setLines(ls => repriceInvoiceLines(ls, catalog, overrideOf));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- النوع وأسعار العميل وحدهما يُطلقان إعادة التسعير، لا كل بندٍ يُضاف
-  }, [listId, custRows]);
+    setLines(ls => repriceInvoiceLines(ls, catalog, priceOf));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- المسعِّر وحده يُطلق إعادة التسعير، لا كل بندٍ يُضاف
+  }, [priceOf]);
 
   // صنفٌ في البنود يعود في قائمةٍ أحدث (بعد 400 UNIT_INVALID مثلاً) ⇒ تُحدَّث وحداته في منتقي بنده، ولقطة بنوده تُحلّ
   // من جديد (refreshInvoiceLines): بلاها يبقى البند بأساسٍ لم يعد قائماً فيرفضه الخادم مرّةً بعد مرّة
@@ -180,7 +198,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
     const hit = fresh.filter(p => inLines.has(p.id) && catalog[p.id] !== p);
     if (!hit.length) return;
     setCatalog(c => ({ ...c, ...Object.fromEntries(hit.map(p => [p.id, p])) }));
-    setLines(ls => hit.reduce((acc, p) => refreshInvoiceLines(acc, p, overrideOf(p)), ls));
+    setLines(ls => hit.reduce((acc, p) => refreshInvoiceLines(acc, p, priceOf), ls));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- القائمة الجديدة وحدها تُطلق التحديث، لا كل تعديلٍ في البنود
   }, [productsQ.data]);
 
@@ -201,6 +219,15 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
   const snap = hasLotLine ? snapQ.data ?? null : null;
   const shortages = useMemo(() => vanLotShortages(lines, snap), [lines, snap]);
 
+  /* تلميح سعر كل صنفٍ في قائمة البحث كما سيُضاف (بكمية صنفه بعد الإضافة) — محفوظٌ ما لم تتغيّر نتيجة البحث أو المسعِّر، أو كميات
+   * البنود حين تغيّر الكمية السعر (قاعدةٌ بحدٍّ أدنى للكمية) — لا مع كل رسم (مراجعة D5) */
+  const pickQtyKey = priceOf.dependsOnQty === false ? '' : docQtyKey(lines);
+  const pickPrices = useMemo(
+    () => pickerPrices(lines, productsQ.data, priceOf),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- البنود تدخل بمفتاح كمياتها وحده
+    [productsQ.data, priceOf, pickQtyKey],
+  );
+
   const totals = useMemo(() => invoiceTotals(lines, discountPct), [lines, discountPct]);
   // معاينة جدول الأقساط — والخادم يكتب الحقيقي من إجماليّه
   const insPreview = useMemo(
@@ -208,19 +235,20 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
     [plan, totals.total, insCount, insFirst, insPeriod],
   );
 
-  /** إضافة الصنف بوحدة (الافتراض «الوحدة الرئيسية» وإلّا أكبر وحدة — defaultChoice): بندٌ قائم بالوحدة نفسها يزيد واحداً — والسعر ⚠️ **قبل** الضريبة (mUnits.invoiceLine) بسعر العميل أو النوع */
+  /** إضافة الصنف بوحدة (الافتراض «الوحدة الرئيسية» وإلّا أكبر وحدة — defaultChoice): بندٌ قائم بالوحدة نفسها يزيد واحداً — والسعر ⚠️ **قبل** الضريبة (mUnits.invoiceLine) بسعر العميل أو القائمة بكمية الصنف بعد الإضافة */
   const addProduct = (p: SalePick, c?: UnitChoice) => {
     setCatalog(m => (m[p.id] === p ? m : { ...m, [p.id]: p }));
-    setLines(ls => addInvoiceLine(ls, p, c, overrideOf(p)));
+    setLines(ls => addInvoiceLine(ls, p, c, priceOf));
   };
-  // البند بمفتاحه (الصنف + الوحدة) لا بالصنف وحده: بندا الكرتون والحبّة يُعدَّلان ويُحذفان كلٌّ وحده
-  const setQty = (key: string, d: number) => setLines(ls => stepInvoiceLine(ls, key, d));
+  // البند بمفتاحه (الصنف + الوحدة) لا بالصنف وحده: بندا الكرتون والحبّة يُعدَّلان ويُحذفان كلٌّ وحده — وكمية الصنف تغيّرت فبنوده
+  // التي لم تُمسّ تُعاد بالمسعِّر (شريحة «من ١٠ كراتين»)
+  const setQty = (key: string, d: number) => setLines(ls => stepInvoiceLine(ls, key, d, catalog, priceOf));
   const patch = (key: string, k: 'unitPrice' | 'discountPct', v: number) =>
     setLines(ls => ls.map(l => lineKey(l) === key ? { ...l, [k]: v } : l));
   /** تبديل وحدة البند يعيد تسعيره بسعر الوحدة الجديدة — سعر الحبّة على بندٍ صار كرتوناً خسارةٌ صامتة */
   const switchUnit = (key: string, p: SalePick, unitId: string | null) => {
     const c = unitChoices(p).find(o => o.id === unitId);
-    if (c) setLines(ls => setInvoiceLineUnit(ls, key, p, c, overrideOf(p)));
+    if (c) setLines(ls => setInvoiceLineUnit(ls, key, p, c, priceOf));
   };
 
   const save = useMutation({
@@ -387,8 +415,8 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
                 بيانات الشركة لا tr، والرقاقة الأولى السعر الأساسي باسمه عند الشركة */}
             {listsOn && (
               <div className="rounded-2xl border border-[#F1EBDF] bg-white p-3 space-y-2" data-m-price-type="">
-                <p className="text-[11px] font-bold text-[#9A8F7E]">{tr('نوع السعر')}</p>
-                <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label={tr('نوع السعر')}>
+                <p className="text-[11px] font-bold text-[#9A8F7E]">{tr('قائمة الأسعار')}</p>
+                <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label={tr('قائمة الأسعار')}>
                   {[{ id: null as string | null, name: baseLabelOf(priceInfoQ.data, tr) }, ...priceLists].map(o => (
                     <button key={o.id ?? 'base'} type="button" role="radio" aria-checked={o.id === listId} onClick={() => setListChoice(o.id)}
                       className={`min-h-[34px] px-3 rounded-full text-[12px] font-semibold border transition-colors ${o.id === listId
@@ -399,7 +427,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
                 </div>
                 {/* تنبيه الخروج عن الافتراضي بقاعدة اللوحة نفسها: نوع المندوب حين يأتي الافتراضي منه (العميل بلا نوع)، وإلا نوع العميل */}
                 {listHint && (
-                  <p className="text-[10px] text-[#8A6D1F]">{tr(listHint === 'rep' ? 'ليس نوع سعر المندوب' : 'ليس نوع سعر العميل')}</p>
+                  <p className="text-[10px] text-[#8A6D1F]">{tr(listHint === 'rep' ? 'ليست قائمة المندوب' : 'ليست قائمة العميل')}</p>
                 )}
               </div>
             )}
@@ -433,7 +461,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
                             {multi && ` · ${formatNumber(l.qty)} ${l.unit}`}
                           </span>
                         </span>
-                        <button onClick={() => setLines(ls => ls.filter(x => lineKey(x) !== k))}
+                        <button onClick={() => setLines(ls => removeInvoiceLine(ls, k, catalog, priceOf))}
                           className="p-2 text-[#C0392B]" aria-label={tr('حذف')}><Trash2 size={15} /></button>
                       </div>
                       {p && multi && (
@@ -500,10 +528,11 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
                         <span className="min-w-0 flex-1">
                           <span className="block text-sm font-semibold text-[#1F1A13] truncate">{p.name}</span>
                           <span className="block text-[11px] text-[#9A8F7E]">
-                            {/* السعر بوحدته: سعر الكرتون بلا «/ كرتون» يُقرأ سعر حبّة — وبسعر العميل أو نوع الفاتورة كما سيُضاف */}
+                            {/* السعر بوحدته: سعر الكرتون بلا «/ كرتون» يُقرأ سعر حبّة — وبسعر العميل أو قائمة الفاتورة كما سيُضاف (بكمية الصنف بعده،
+                                pickPrices بوحدة pickerChoice = d لصنفٍ بوحدات والأساس لغيره) */}
                             {multi
-                              ? `${formatCurrency(suggestedNet(p, d, overrideOf(p)))} / ${d.name}`
-                              : formatCurrency(suggestedNet(p, opts[0], overrideOf(p)))} · {tr('ضريبة')} {Number(p.taxPct ?? 15)}%
+                              ? `${formatCurrency(pickPrices.get(p.id) ?? 0)} / ${d.name}`
+                              : formatCurrency(pickPrices.get(p.id) ?? 0)} · {tr('ضريبة')} {Number(p.taxPct ?? 15)}%
                             {lotOn && lotTrackedOf(p) && <> · {tr('LOT')}</>}
                           </span>
                         </span>
@@ -537,7 +566,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
               <Row k={tr('المندوب')} v={repsQ.data?.find(r => r.id === salesRepId)?.name || '—'} />
               <Row k={tr('النوع')} v={plan === 'INSTALLMENT' ? tr('تقسيط') : (type === 'CASH' ? tr('نقدي') : tr('آجل'))} />
               {listsOn && (
-                <Row k={tr('نوع السعر')} v={priceLists.find(l => l.id === listId)?.name ?? baseLabelOf(priceInfoQ.data, tr)} />
+                <Row k={tr('قائمة الأسعار')} v={priceLists.find(l => l.id === listId)?.name ?? baseLabelOf(priceInfoQ.data, tr)} />
               )}
               <Row k={tr('الأصناف')} v={String(lines.length)} />
             </div>

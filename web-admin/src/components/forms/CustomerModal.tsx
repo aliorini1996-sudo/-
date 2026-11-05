@@ -51,14 +51,15 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
     onSave({ ...data, ...pickPhase2(buyer) } as CustomerForm);
   };
   const legacyBuyerErrors = Object.entries(buyerErrors).filter(([f]) => !(BUYER_PHASE2_FIELDS as readonly string[]).includes(f));
-  /* «أنواع الأسعار»: نوع سعر العميل تُسعَّر به فواتيره — يظهر لشركةٍ عرّفت أنواعاً (والمسار محروسٌ بالمحاسبة). والفارغ يُرسل null
-   * صريحاً (setValueAs) فيعود العميل إلى السعر الافتراضي؛ وشركةٌ بلا أنواع: لا خانة ولا طلبٌ آخر، والمحفوظ يُعاد كما هو */
+  /* «قوائم الأسعار»: قائمة العميل تُسعَّر بها فواتيره — تظهر لشركةٍ عرّفت قوائم (والمسار محروسٌ بالمحاسبة). والفارغ يُرسل null
+   * صريحاً (setValueAs) فيعود العميل إلى القائمة الافتراضية للمندوب ثم السعر الافتراضي؛ وشركةٌ بلا قوائم: لا خانة ولا طلبٌ آخر،
+   * والمحفوظ يُعاد كما هو */
   const { data: priceInfo } = useQuery({
     queryKey: ['price-lists'],
     queryFn: async () => priceListsOf((await priceListApi.list()).data.data),
     enabled: accountingOn,
   });
-  // صفّ عميلٍ بلا المفتاح أصلاً (خادمٌ قبل الميزة) لا تُعرض له الخانة — وإلا أرسل حفظه null فوق نوعه
+  // صفّ عميلٍ بلا المفتاح أصلاً (خادمٌ قبل الميزة) لا تُعرض له الخانة — وإلا أرسل حفظه null فوق قائمته
   const priceLists = accountingOn && (!customer || customer.priceListId !== undefined) ? priceInfo?.lists ?? [] : [];
 
   return (
@@ -196,12 +197,12 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
               </div>
               {priceLists.length > 0 && (
                 <div data-customer-price-list="">
-                  <label className="label">{tr('نوع السعر')}</label>
+                  <label className="label">{tr('قائمة الأسعار')}</label>
                   <select className="input" {...register('priceListId', { setValueAs: (v: unknown) => (v ? String(v) : null) })}>
                     <option value="">{baseLabelOf(priceInfo, tr)}</option>
                     {priceLists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
-                  <p className="text-[11px] text-gray-400 mt-1">{tr('تسعر به فواتير العميل تلقائيا')}</p>
+                  <p className="text-[11px] text-gray-400 mt-1">{tr('تسعر بها فواتير العميل تلقائيا')}</p>
                 </div>
               )}
             </div>

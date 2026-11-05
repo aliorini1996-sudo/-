@@ -1257,7 +1257,7 @@ function toLedger(rows: Record<string, unknown>[], opts?: TransformOpts): Transf
   return { valid, fileRows, errors, undated, notices: c.notices(extra), columns: c.res.columns, blockers };
 }
 
-// ============ قوائم الأسعار ============
+// ============ أسعار العملاء الخاصة (كانت «قوائم الأسعار» حتى ٥ نوفمبر ٢٠٢٦ — الاسم صار لميزة قوائم الأسعار نفسها) ============
 const A_PRC: ImportSpec = {
   ...CUST_ID,
   productCode: { aliases: ['كود الصنف', 'مرجع داخلي', 'رقم الصنف', 'product code', 'item code', 'sku'], exclude: CODE_EXCLUDE },
@@ -1535,7 +1535,7 @@ export const IMPORT_TYPES: Record<ImportKind, ImportTypeDef> = {
   products: { id: 'products', label: 'المنتجات', endpoint: '/import/products', transform: toProducts },
   balances: { id: 'balances', label: 'الأرصدة الافتتاحية', endpoint: '/import/balances', transform: toBalances },
   ledger: { id: 'ledger', label: 'كشوف الحسابات / دفتر الأستاذ', endpoint: '/import/ledger', transform: toLedger },
-  prices: { id: 'prices', label: 'قوائم الأسعار', endpoint: '/import/prices', transform: toPrices },
+  prices: { id: 'prices', label: 'أسعار العملاء الخاصة', endpoint: '/import/prices', transform: toPrices },
   opening_stock: { id: 'opening_stock', label: 'المخزون الافتتاحي', endpoint: '/import/opening-stock', transform: toOpeningStock },
 };
 
