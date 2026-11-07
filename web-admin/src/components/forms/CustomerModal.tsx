@@ -46,6 +46,9 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
   const submit = (raw: CustomerForm) => {
     // الجوال يُرسل دائماً نصّاً مقصوصاً — والفارغ '' صريحاً فيُمسح المحفوظ متى أفرغه المدير (العمود لا يقبل null)
     const data: CustomerForm = { ...raw, phone: trimCustomerPhone(raw.phone) };
+    // الموقع لا خانة له هنا إلا الرابط: lat/lng في القيم صدى صفّ القائمة كما حُمّل فلا يُرسلان — وإلا أعاد تعديلُ الاسم أو الجوال
+    // من صفٍّ قديم الدبوسَ القديم فوق التقاطٍ أحدث من المندوب (تدقيق نطاق ٥٠ متراً). والرابط الملصوق يحدّث الموقع كما كان
+    delete data.lat; delete data.lng;
     if (!zatcaCollect) { onSave(data); return; }
     const values = { ...buyerFormValues(data as BuyerRowLike), ...pickPhase2(buyer) };
     const check = buyerFormCheck(values, customer as BuyerRowLike | null, BUYER_BILLING_FIELDS, { relaxed: buyerRelax });

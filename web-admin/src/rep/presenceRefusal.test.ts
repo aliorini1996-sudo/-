@@ -93,6 +93,28 @@ test('اللون: «انتظر وأعد» (موقعٌ غير دقيق، أو ل�
     { text: 'إثبات تواجدك مشروط بأن تكون داخل 50 مترا من موقع أحد عملائك — أقرب عملائك على بعد 334 مترا منك', soft: false });
 });
 
+test('القراءة التقريبية (الموقع الدقيق مطفأ): «فعّل الموقع الدقيق» بدقّتها — لا «انتظر» ولا مسافةٌ كاذبة، ورفضٌ صريح لا ليّن', () => {
+  // ±2000 م عند نطاق 50: الخادم يقول «غير دقيق» ما دام أقرب عميل ضمن 2050 م، و«خارج النطاق» بعدها — والانتظار لا يُصلح أيّاً منهما
+  for (const a of [away({ reason: 'LOW_ACCURACY', nearestM: 900, radius: 50 }), away({ nearestM: 3400, radius: 50 }), away(), away({ message: 'نص الخادم' })]) {
+    assert.equal(presenceAwayText(a, ar, 'ok', 1999.6), 'موقع جوالك تقريبي (±2000 م) لا دقيق — فعّل الموقع الدقيق من إعدادات الموقع في جوالك ثم أعد المحاولة', a.reason);
+    assert.equal(presenceAwayText(a, en, 'ok', 2000), PHRASES[PRESENCE_AWAY_TEXTS.coarse].en.replace('{acc}', '2000'));
+    assert.doesNotMatch(presenceAwayText(a, en, 'ok', 2000), /\{acc\}|3400|900/);
+    assert.equal(presenceAwaySoft(a, 'ok', 2000), false, 'إعدادٌ في الجوال لا انتظار');
+    assert.deepEqual(presenceAwayView(a, ar, 'ok', 1500), { text: presenceAwayText(a, ar, 'ok', 1500), soft: false });
+  }
+  // بلا قراءة: الخادم لم يرَ موقعاً — نصّ «بلا موقع» كما هو ولو وصلت دقّةٌ ما
+  const noFix = away({ reason: 'NO_FIX' });
+  assert.equal(presenceAwayText(noFix, ar, 'timeout', 2000), PRESENCE_AWAY_TEXTS.noFixTimeout);
+  assert.equal(presenceAwaySoft(noFix, 'timeout', 2000), true);
+  // ليست تقريبية (null/غائبة/تالفة): كما كان حرفياً
+  for (const c of [null, undefined, Number.NaN, -1, Infinity]) {
+    assert.equal(presenceAwayText(away({ reason: 'LOW_ACCURACY' }), ar, 'ok', c), PRESENCE_AWAY_TEXTS.lowAccuracy, String(c));
+    assert.equal(presenceAwaySoft(away({ reason: 'LOW_ACCURACY' }), 'ok', c), true, String(c));
+    assert.equal(presenceAwayText(away({ nearestM: 334, radius: 50 }), ar, 'ok', c),
+      'إثبات تواجدك مشروط بأن تكون داخل 50 مترا من موقع أحد عملائك — أقرب عملائك على بعد 334 مترا منك');
+  }
+});
+
 test('التركية: «داخل N متراً» = «en fazla N metre uzaklıkta» لا «على مسافة N متر»', () => {
   for (const key of [PRESENCE_AWAY_TEXTS.outsideNear, PRESENCE_AWAY_TEXTS.outsideNone]) {
     assert.match(PHRASES[key].tr, /en fazla \{radius\} metre uzaklıktayken/);
@@ -106,7 +128,7 @@ test('كل نصوص الرفض مترجمة بالخمس، والعناصر ال
     assert.ok(p, key);
     for (const lang of ['en', 'fr', 'tr', 'zh'] as const) {
       assert.ok(p[lang]?.trim(), `${key} ${lang}`);
-      for (const ph of ['{radius}', '{m}']) assert.equal(p[lang].includes(ph), key.includes(ph), `${key} ${lang} ${ph}`);
+      for (const ph of ['{radius}', '{m}', '{acc}']) assert.equal(p[lang].includes(ph), key.includes(ph), `${key} ${lang} ${ph}`);
     }
   }
   assert.ok(PHRASES['أعد المحاولة']?.en, 'زرّ الإعادة مترجم');
@@ -121,7 +143,7 @@ test('حارس ثابت: رفض المكان يُبقي النافذة مفتو�
   const catchAt = c.indexOf('} catch (e) {');
   const handler = c.slice(catchAt, c.indexOf('} finally {', catchAt));
   assert.match(handler, /const f = presenceFailureOf\(e\);/);
-  assert.match(handler, /if \(f\.kind === 'away'\) \{\n\s*const v = presenceAwayView\(f, tr, fixReason\);\n\s*onAway\?\.\(v\);\n\s*setResult\(\{ kind: 'away', \.\.\.v \}\);\n\s*\}/);
+  assert.match(handler, /if \(f\.kind === 'away'\) \{\n\s*const v = presenceAwayView\(f, tr, fixReason, coarseM\);\n\s*onAway\?\.\(v\);\n\s*setResult\(\{ kind: 'away', \.\.\.v \}\);\n\s*\}/);
   assert.equal(handler.match(/onAnswered\(\)/g)?.length, 1, 'onAnswered للنهائيّ وحده');
   assert.ok(handler.indexOf("f.kind === 'away'") < handler.indexOf('onAnswered()'));
   // بعد «إغلاق مؤقت» تعيده النبضة بسببه (لا بالسؤال الأول بلا إغلاق): التطبيق يحفظ آخر رفضٍ لكل طلب ويمرّره للنافذة الجديدة
@@ -133,6 +155,10 @@ test('حارس ثابت: رفض المكان يُبقي النافذة مفتو�
   // سبب غياب القراءة من القراءة الطازجة نفسها، والإعادة هي confirm نفسها (لمسةٌ جديدة وقراءةٌ طازجة)
   assert.match(c, /const r = await precisePunchFix\(\);\n\s*fixReason = r\.reason;/);
   assert.ok(c.indexOf('let fixReason') < c.indexOf('try {'));
+  // القراءة التقريبية بحكم العقد المشترك (pinAccuracyLevel في punchFix.ts) من القراءة المرسلة نفسها — والمرسَل بلا تغيير
+  assert.match(modal, /import \{ precisePunchFix, pinAccuracyLevel, startPunchWarmup, type PunchFixReason \} from '\.\/punchFix';/);
+  assert.ok(c.indexOf('let coarseM: number | null = null;') > 0 && c.indexOf('let coarseM') < c.indexOf('try {'));
+  assert.match(c, /fixReason = r\.reason;\n\s*const acc = r\.fix\?\.accuracy;\n\s*if \(typeof acc === 'number' && pinAccuracyLevel\(acc\) === 'coarse'\) coarseM = acc;\n\s*const body = \{ \.\.\.\(r\.fix \?\? \{\}\), deviceId/);
   // المهلة تنتهي والمحاولة لم يُحكم بها: لا «انتهت» ولا «تم» حتى يصل حكمها (لمستها سبقت المهلة)
   assert.match(modal, /const ended = phase === 'expired' && !busy;/);
   assert.match(modal, /const retryable = \(result\?\.kind === 'error' \|\| away\) && !ended;/);
@@ -148,4 +174,39 @@ test('حارس ثابت: رفض المكان يُبقي النافذة مفتو�
   assert.match(retryBlock, /\{away && countdown\}/, 'يرى ما بقي من المهلة');
   // الجرس كما هو: يسكت بالنتيجة، وأُسكت بالضغطة الأولى
   assert.match(modal, /const alarmOn = !result && !busy && phase !== 'expired';/);
+});
+
+test('حارس ثابت: تسخين GPS ما دامت النافذة تنتظر ضغطةً أو إعادة — يتوقّف بالحكم والمهلة والفكّ، ولا يُرسل شيئاً', () => {
+  const modal = fs.readFileSync(path.resolve(process.cwd(), 'src', 'rep', 'PresenceCheck.tsx'), 'utf8');
+  // شرط التسخين بعد تعريف ended وretryable، ودالة الإيقاف نفسها تنظيف الأثر (عند تغيّر الشرط وعند فكّ النافذة) — ويُجدَّد بدخول
+  // «متأخر» وبعد كل نتيجة (رفض المكان): التسخين يقف وحده بعد سقفه، والإعادة تجد GPS دافئاً. وللصفحة الظاهرة وحدها (usePageVisible):
+  // نافذةٌ فُتحت والتطبيق في الخلفية لا تستهلك سقف التسخين، ويُفتح من جديد بكل إظهار
+  assert.match(modal, /import \{ usePageVisible \} from '\.\/usePageVisible';/);
+  assert.match(modal, /const visible = usePageVisible\(\);\n\s*const warm = !ended && \(!result \|\| retryable\);\n\s*useEffect\(\(\) => \(warm && visible \? startPunchWarmup\(\) : undefined\), \[warm, visible, phase, result\]\);/);
+  assert.ok(modal.indexOf('const retryable = ') < modal.indexOf('const warm = '));
+  assert.equal(modal.match(/startPunchWarmup\(/g)?.length, 1, 'موضعٌ واحد للتسخين');
+  // التسخين لا يردّ: الردّ في confirm وحده بقراءةٍ طازجة بعد الضغط
+  const c = modal.slice(modal.indexOf('const confirm = async () => {'), modal.indexOf('const color = '));
+  assert.doesNotMatch(c, /startPunchWarmup/);
+  assert.equal(modal.match(/precisePunchFix\(\)/g)?.length, 1);
+  assert.equal(modal.match(/\/respond`/g)?.length, 1);
+});
+
+/** محاكاة شرط التسخين بالحالات: ينتظر الضغط أو «أعد المحاولة» = يسخّن، والحكم النهائي أو انتهاء المهلة = يتوقّف */
+test('شرط التسخين بالحالات — كما في PresenceCheck.tsx', () => {
+  type K = 'ok' | 'late' | 'noFix' | 'expired' | 'error' | 'away';
+  const warmOf = (kind: K | null, expired: boolean, busy: boolean) => {
+    const ended = expired && !busy;
+    const away = kind === 'away';
+    const retryable = (kind === 'error' || away) && !ended;
+    return !ended && (!kind || retryable);
+  };
+  assert.equal(warmOf(null, false, false), true, 'ينتظر الضغطة الأولى');
+  assert.equal(warmOf(null, false, true), true, 'يقرأ بعد الضغط');
+  assert.equal(warmOf('away', false, false), true, 'رُفض المكان: «أعد المحاولة»');
+  assert.equal(warmOf('error', false, false), true, 'فشل الإرسال: يُعاد');
+  for (const k of ['ok', 'late', 'noFix', 'expired'] as const) assert.equal(warmOf(k, false, false), false, k);
+  assert.equal(warmOf(null, true, false), false, 'انتهت المهلة');
+  assert.equal(warmOf('away', true, false), false, 'انتهت المهلة بعد الرفض');
+  assert.equal(warmOf(null, true, true), true, 'محاولةٌ سبقت المهلة ما زالت تقرأ');
 });

@@ -9,6 +9,7 @@ import { AuthRequest } from '../types';
 const NOT_DELETED = { status: { not: 'DELETED' } } as const;
 import { paginate, paginationMeta } from '../utils/helpers';
 import { resolveLocationUrl } from '../services/geoLink';
+import { explicitPinWins } from '../services/customerPinSource';
 import { withDeletedProductName } from '../services/deletedProduct';
 import { purgeInTx } from '../services/ownerPurge';
 import { customerScope, ensureAssignment, canAccessCustomer } from '../services/customerScope';
@@ -243,8 +244,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (!allowedForRep || taken) data.aiPlaceId = null;
     }
     const { clientCreatedAt, locationUrl, ...rest } = data;
-    // رابط موقع مُرسَل ⇒ يُحلّ إلى إحداثيات (مباشر/مختصر/اسم مكان) — يُتجاهل عند الفشل؛ لا يجلب الخادم إلا روابط Google (SSRF)
-    if (locationUrl) {
+    // رابط موقع مُرسَل ⇒ يُحلّ إلى إحداثيات (مباشر/مختصر/اسم مكان) — يُتجاهل عند الفشل؛ لا يجلب الخادم إلا روابط Google (SSRF).
+    // ومع lat وlng صريحين معاً (التقاط GPS عند الباب) تُقدَّم الصريحة ولا يُحلّ الرابط (PIN-3 — services/customerPinSource.ts)
+    if (locationUrl && !explicitPinWins(rest)) {
       const geo = await resolveLocationUrl(locationUrl, { googleOnly: true });
       if (geo) { rest.lat = geo.lat; rest.lng = geo.lng; }
     }
@@ -320,7 +322,10 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     // فوترة ZATCA (Z5.1a): حقول المشتري للشركة الجامعة وحدها — فحص المتغيّر فقط، والمندوب لا يحوّل منشأة إلى فرد (نقد الخطة 21)
     const buyerGate = await applyBuyerGateToWrite(buyerDataDeps, req, tid, data as Record<string, unknown>, { customerId: req.params.id, replay: false });
     if (!buyerGate.ok) { res.status(buyerGate.status).json(buyerGate.body); return; }
-    // رابط موقع مُرسَل ⇒ يُحلّ إلى إحداثيات (مباشر/مختصر/اسم مكان) — يُتجاهل عند الفشل؛ لا يجلب الخادم إلا روابط Google (SSRF)
+    // رابط موقع مُرسَل ⇒ يُحلّ إلى إحداثيات (مباشر/مختصر/اسم مكان) — يُتجاهل عند الفشل؛ لا يجلب الخادم إلا روابط Google (SSRF).
+    // في التعديل يبقى الرابط مقدَّماً كما كان (PIN-3 للإنشاء وحده): لا عميلَ لنا يرسل الاثنين معاً هنا إلا نموذج الإدارة يعيد
+    // إحداثيات صفّه مع الرابط الجديد — وصفٌّ قديم (أعاد المندوب الالتقاط بعد تحميل القائمة) كان سيُسقط الرابط ويكتب القديم.
+    // وتعديلٌ بلا حقول موقع لا يكتب lat/lng أصلاً — فلا يتحرّك الدبّوس بتعديل الاسم أو العنوان
     if (locationUrl) {
       const geo = await resolveLocationUrl(locationUrl, { googleOnly: true });
       if (geo) { data.lat = geo.lat; data.lng = geo.lng; }

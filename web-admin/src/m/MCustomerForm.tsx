@@ -12,12 +12,14 @@ import BuyerDataFields from '../components/BuyerDataFields';
 import { BUYER_BILLING_FIELDS, BUYER_PHASE2_FIELDS, BuyerField, BuyerRowLike } from '../lib/zatca/buyerData';
 import { BuyerFormValues, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerRelaxWarnings, buyerUpdatePayload } from '../lib/zatca/buyerForm';
 import { M_CUSTOMER_PHONE_MAX, mCustomerFormValid, mCustomerPhonePayload } from './mCustomerPhone';
+import { precisePinFix } from '../rep/punchFix';
+import { PIN_WARN_M, MPin, mPinAccuracyM, mPinFailText, mPinFromFix, mPinLevel, mPinPayload, mPinWarnText, mPinWarns } from './mCustomerPin';
 
 type Form = {
   name: string; phone: string; businessName: string; altPhone: string; email: string;
   city: string; district: string; address: string; commercialReg: string; taxNumber: string;
   channel: string; status: 'ACTIVE' | 'INACTIVE' | 'BLOCKED';
-  creditLimit: string; paymentDays: string; locationUrl: string;
+  creditLimit: string; paymentDays: string;
   /** «أنواع الأسعار»: معرّف نوع سعر العميل — '' = السعر الأساسي */
   priceListId: string;
 };
@@ -25,7 +27,7 @@ type Form = {
 const empty: Form = {
   name: '', phone: '', businessName: '', altPhone: '', email: '',
   city: '', district: '', address: '', commercialReg: '', taxNumber: '',
-  channel: '', status: 'ACTIVE', creditLimit: '0', paymentDays: '30', locationUrl: '', priceListId: '',
+  channel: '', status: 'ACTIVE', creditLimit: '0', paymentDays: '30', priceListId: '',
 };
 
 /**
@@ -53,6 +55,8 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
   const tr = useTr();
   const qc = useQueryClient();
   const [geoBusy, setGeoBusy] = useState(false);
+  // دبوس العميل الملتقط من الجهاز (PIN-6) — null = لا التقاط فيبقى المحفوظ كما هو
+  const [pin, setPin] = useState<MPin | null>(null);
   const [form, setForm] = useState<Form>(() => customer ? {
     name: customer.name || '', phone: customer.phone || '',
     businessName: customer.businessName || '', altPhone: customer.altPhone || '',
@@ -61,7 +65,7 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
     taxNumber: customer.taxNumber || '', channel: customer.channel || '',
     status: customer.status || 'ACTIVE',
     creditLimit: String(customer.creditLimit ?? 0), paymentDays: String(customer.paymentDays ?? 30),
-    locationUrl: '', priceListId: customer.priceListId ?? '',
+    priceListId: customer.priceListId ?? '',
   } : empty);
   /* «أنواع الأسعار»: نوع سعر العميل تُسعَّر به فواتيره — لشركةٍ عرّفت أنواعاً والمحاسبة مفعّلة (المسار محروسٌ بها). وصفّ عميلٍ بلا
    * المفتاح أصلاً (خادمٌ قبل الميزة) لا تُعرض له الخانة — وإلا أرسل حفظه null فوق نوعه */
@@ -95,10 +99,12 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
         paymentDays: Number(form.paymentDays) || 0,
       };
       (['businessName', 'altPhone', 'email', 'city', 'district', 'address',
-        'commercialReg', 'taxNumber', 'channel', 'locationUrl'] as const).forEach(k => {
+        'commercialReg', 'taxNumber', 'channel'] as const).forEach(k => {
         const v = form[k].trim();
         if (v) payload[k] = v;
       });
+      // الموقع: إحداثيات الالتقاط صريحةً لا رابطاً يحلّه الخادم — وبلا التقاطٍ لا يُرسل شيء فيبقى المحفوظ (PIN-6)
+      Object.assign(payload, mPinPayload(pin));
       if (showBuyer) {
         Object.assign(payload, customer ? buyerUpdatePayload(buyer, customer as BuyerRowLike) : buyerCreatePayload(buyer));
       }
@@ -118,20 +124,31 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
       toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر الحفظ')),
   });
 
-  /** التقاط الموقع من الجهاز — يُرسَل كرابط خرائط يحلّه الخادم إلى إحداثيات */
-  const grabLocation = () => {
-    if (!navigator.geolocation) { toast.error(tr('جهازك لا يدعم تحديد الموقع')); return; }
+  /**
+   * التقاط موقع العميل من الجهاز (PIN-6): كان يأخذ أوّل قراءة getCurrentPosition أيّاً كانت دقّتها — داخل المحلّ قراءة شبكة
+   * ±٨٠–١٥٠ م تُحفظ دبوساً مُزاحاً. الآن المراقبة الدقيقة المشتركة مع تطبيق المندوب (بلا مخبّأ وأدقّ ما وصل)، والدقّة تُعرض
+   * ويُنبَّه على ما أضعف من ٣٠ م. والتقاطٌ فاشل يُبقي السابق كما هو.
+   */
+  const grabLocation = async () => {
+    if (geoBusy) return;
     setGeoBusy(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        set('locationUrl', `https://maps.google.com/?q=${pos.coords.latitude},${pos.coords.longitude}`);
-        setGeoBusy(false);
-        toast.success(tr('تم التقاط الموقع'));
-      },
-      () => { setGeoBusy(false); toast.error(tr('تعذر تحديد الموقع فعل الإذن')); },
-      { enableHighAccuracy: true, timeout: 10000 },
-    );
+    try {
+      const r = await precisePinFix();
+      const got = mPinFromFix(r.fix);
+      if (!got) { toast.error(tr(mPinFailText(r.reason))); return; }
+      setPin(got);
+      // التقاطٌ ضعيف يُعلَن تنبيهاً لا نجاحاً — والتفصيل تحت الزرّ
+      if (mPinWarns(mPinLevel(got))) toast(tr('تم التقاط الموقع بدقة ضعيفة'), { icon: '⚠️' });
+      else toast.success(tr('تم التقاط الموقع'));
+    } catch {
+      toast.error(tr(mPinFailText('unavailable')));
+    } finally {
+      setGeoBusy(false);
+    }
   };
+  const pinAccM = mPinAccuracyM(pin);
+  const pinLevel = pin ? mPinLevel(pin) : null;
+  const pinWarnKey = pinLevel ? mPinWarnText(pinLevel) : null;
 
   // الاسم وحده إلزاميّ — الجوال اختياريّ بلا حدّ أدنى ولا صيغة (طلب المالك ٧ نوفمبر ٢٠٢٦)
   const valid = mCustomerFormValid(form, customer ? customer.phone ?? '' : null);
@@ -167,9 +184,26 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
           <button type="button" onClick={grabLocation} disabled={geoBusy}
             className="w-full flex items-center justify-center gap-2 border border-[#E9E1D3] bg-white rounded-xl py-3 text-sm font-semibold text-[#1F1A13] min-h-[48px]">
             {geoBusy ? <Loader2 size={16} className="animate-spin" /> : <MapPin size={16} className="text-[#E15A30]" />}
-            {form.locationUrl ? tr('تم التقاط الموقع أعد الالتقاط') : tr('التقط موقعي الحالي')}
+            {geoBusy ? tr('جارٍ تحديد موقعك بدقة…') : pin ? tr('تم التقاط الموقع أعد الالتقاط') : tr('التقط موقعي الحالي')}
           </button>
-          {(customer?.lat != null && customer?.lng != null) && !form.locationUrl && (
+          {/* دقّة الالتقاط «±N م» وتنبيه ما أضعف من ٣٠ م أو بلا دقّة معلومة — تنبيهٌ لا منع، والإلغاء يُبقي المحفوظ (PIN-6) */}
+          {pin && pinLevel && (
+            <div data-m-customer-pin={pinLevel} className="px-1 space-y-1">
+              {pinAccM != null && (
+                <p className={`text-[11px] font-semibold ${pinWarnKey ? 'text-[#B7791F]' : 'text-[#2F855A]'}`}>
+                  {tr('دقة الموقع الملتقط ±{n} م').replace('{n}', String(pinAccM))}
+                </p>
+              )}
+              {pinWarnKey && (
+                <p className="text-[11px] text-[#B7791F] leading-relaxed">{tr(pinWarnKey).replace('{m}', String(PIN_WARN_M))}</p>
+              )}
+              <button type="button" onClick={() => setPin(null)} disabled={geoBusy}
+                className="text-[11px] font-semibold text-[#6E6557] underline underline-offset-2 min-h-[32px]">
+                {tr('إلغاء الموقع الملتقط')}
+              </button>
+            </div>
+          )}
+          {(customer?.lat != null && customer?.lng != null) && !pin && (
             <p className="text-[11px] text-[#2F855A] px-1">{tr('لهذا العميل موقع محفوظ')}</p>
           )}
         </Group>
@@ -231,7 +265,8 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
       {/* زرّ الحفظ ثابت أسفل — لا يُبحث عنه بالتمرير */}
       <div className="flex-shrink-0 border-t border-[#E9E1D3] bg-white p-3"
         style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
-        <button onClick={onSave} disabled={!valid || save.isPending}
+        {/* أثناء الالتقاط لا حفظ — وإلا حُفظ العميل بلا الموقع الذي ينتظره المدير */}
+        <button onClick={onSave} disabled={!valid || save.isPending || geoBusy}
           className="w-full bg-[#E15A30] text-white font-bold py-3.5 rounded-xl min-h-[50px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {save.isPending && <Loader2 size={16} className="animate-spin" />}
           {customer ? tr('حفظ التعديلات') : tr('إضافة العميل')}

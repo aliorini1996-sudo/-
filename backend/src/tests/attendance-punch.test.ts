@@ -336,7 +336,9 @@ test('دقّة القراءة: السماحية سقفها ٢٥ — دقّةٌ �
   try {
     const r = await call('post', '/attendance/checkin', { body: { ...HERE, accuracy: 45 } });
     assert.equal(r.statusCode, 409);
-    assert.equal(codeOf(r), 'PUNCH_AWAY_FROM_CUSTOMER', '٤٥ ضمن النطاق والخمسين: الحكم بُعدٌ لا دقّة');
+    assert.equal(codeOf(r), 'PUNCH_AWAY_FROM_CUSTOMER', 'رفضٌ كما كان بالرمز المعروف');
+    // والسبب «غير دقيق» لا «بعيد»: ٤٥ أرخى من السماحية و٨٠ − ٤٥ ≤ ٥٠ (تدقيق SM-3 — punch-low-accuracy-reason.test.ts)
+    assert.equal((r.body as { reason?: string }).reason, 'LOW_ACCURACY');
     assert.equal(rows.length, 0);
   } finally { punchAtCustomer = false; nearCustomers = []; }
 });

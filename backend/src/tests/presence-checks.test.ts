@@ -576,7 +576,8 @@ test('مقيَّد: مسافة الإدارة وسماحية الدقّة بسق
   sentCheck('cap', 30_000);
   const capped = await respond('cap', { ...AT_80, accuracy: 45 });
   assert.equal(capped.statusCode, 409, 'السماحية لا تتجاوز ٢٥ م مهما ادّعت القراءة (٥٠ + ٤٥ كانت تشمل ٨٠)');
-  assert.equal(capped.body!.reason, 'OUTSIDE');
+  // الرفض كما كان، والسبب «غير دقيق» لا «بعيد»: ٤٥ أرخى من السماحية و٨٠ − ٤٥ ≤ ٥٠ (تدقيق SM-3 — punch-low-accuracy-reason.test.ts)
+  assert.equal(capped.body!.reason, 'LOW_ACCURACY');
   assert.equal(capped.body!.nearestM, 80);
 });
 

@@ -1,7 +1,8 @@
 /**
  * استخراج إحداثيات (lat,lng) من رابط موقع أو نصّ يلصقه المندوب.
  * يدعم روابط خرائط Google المباشرة (تحوي الإحداثيات) والمختصرة (تتبع التحويل)،
- * وكذلك لصق «lat,lng» مباشرة. يرجع null بأمان عند التعذّر (الميزة اختيارية).
+ * وروابط خرائط Apple، وكذلك لصق «lat,lng» مباشرة. يرجع null بأمان عند التعذّر (الميزة اختيارية).
+ * دبّوس المكان يُقدَّم دائماً على مركز الخريطة `@` (انظر parseCoords) — المواقع المحفوظة قبل ذلك لا تتغيّر.
  *
  * الجلب من الخادم محروس (SSRF): لا عنوان داخلي (loopback/خاص/link-local/بيانات السحابة) في أي تحويلة، وجسم الرد
  * يُقرأ حتى ٢ م.ب ثم يُقطع، ومهلة كلية للتحويلات كلها — ومسارات المستخدمين تجلب روابط Google وحدها (googleOnly).
@@ -18,40 +19,113 @@ function valid(lat: number, lng: number): LatLng | null {
   return null;
 }
 
-/** يحاول استخراج الإحداثيات من نصّ/رابط بلا أي طلب شبكة */
-export function parseCoords(input: string): LatLng | null {
-  if (!input) return null;
-  const s = input.trim();
+/** رقم إحداثيّ بمنازله العشرية كلها — يُقرأ بـNumber كما كُتب بلا تقريب */
+const NUM = '(-?\\d{1,3}\\.\\d+)';
+/** دبّوس المكان في بيانات رابط Google: `!3dLAT!4dLNG` */
+const BANG_RE = /!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/g;
+/** قيمة معامل تبدأ بالإحداثيين: «24.71,46.67» و«loc:24.71,46.67» و«24.71, 46.67 (اسم المحل)» */
+const PARAM_POINT_RE = new RegExp(`^\\s*(?:loc:\\s*)?${NUM}\\s*[,،]\\s*${NUM}(?![\\d.])`, 'i');
+/** مقطع مسار هو الإحداثيات وحدها: /maps/search/24.71,+46.67 */
+const SEGMENT_POINT_RE = new RegExp(`^\\s*${NUM}\\s*[,،]\\s*${NUM}\\s*$`);
 
-  // 1) لصق مباشر: "24.7136, 46.6753" أو "24.7136،46.6753"
-  const plain = s.match(/^(-?\d{1,3}(?:\.\d+)?)(?:\s*[,،]\s*|\s+)(-?\d{1,3}(?:\.\d+)?)$/);
-  if (plain) { const r = valid(parseFloat(plain[1]), parseFloat(plain[2])); if (r) return r; }
+/** فكّ ترميز النسبة بلا رمي: نصٌّ فيه % ليس ترميزاً يبقى كما هو */
+function safeDecode(v: string): string {
+  try { return decodeURIComponent(v); } catch { return v; }
+}
 
-  // 2) روابط Google: ...@lat,lng,zoom  |  ?q=lat,lng  |  ?ll=lat,lng  |  &destination=lat,lng
-  const at = s.match(/@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/);
-  if (at) { const r = valid(parseFloat(at[1]), parseFloat(at[2])); if (r) return r; }
+/** قيمة المعامل الأولى مفكوكةً (و+ مسافة). يُفكّ كل معامل وحده لا الرابط كلّه: «%26q%3D» داخل اسم مكان لا يصنع معاملاً مزيّفاً */
+function paramValue(s: string, name: string): string | null {
+  const m = s.match(new RegExp(`[?&]${name}=([^&#]*)`, 'i'));
+  return m ? safeDecode(m[1].replace(/\+/g, ' ')) : null;
+}
 
-  const q = s.match(/[?&](?:q|ll|query|destination|center|sll)=(-?\d{1,3}\.\d+)(?:,|%2C)(-?\d{1,3}\.\d+)/i);
-  if (q) { const r = valid(parseFloat(q[1]), parseFloat(q[2])); if (r) return r; }
-
-  // 3) الصيغة الداخلية !3dLAT!4dLNG (تظهر في بعض روابط place)
-  const bang = s.match(/!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/);
-  if (bang) { const r = valid(parseFloat(bang[1]), parseFloat(bang[2])); if (r) return r; }
-
+/** أول معامل (بترتيب الأسماء المعطى) قيمته إحداثيات صالحة */
+function fromParams(s: string, names: readonly string[]): LatLng | null {
+  for (const name of names) {
+    const v = paramValue(s, name);
+    const m = v ? v.match(PARAM_POINT_RE) : null;
+    const r = m ? valid(Number(m[1]), Number(m[2])) : null;
+    if (r) return r;
+  }
   return null;
 }
 
 /**
- * استخراج نقطة المكان الدقيقة من بيانات خرائط Google. نفضّل هندسة المكان
- * `[null,null,[lat,lng]]` ثم مركز الخريطة القانوني `/@lat,lng` ثم `!3d!4d` —
- * كلها أدقّ من حدود العرض (viewport) التي تظهر في مقدّمة الاستجابة.
+ * النقطة في مسار رابط Google: `/maps/search/LAT,LNG` و`/maps/place/LAT,LNG` (أول مقطع)، و`/maps/dir/…/LAT,LNG`
+ * (آخر مقطع = الوجهة؛ مقطع البداية لا يُؤخذ أبداً). يتوقّف عند مقطع `@…` (مركز العرض) أو `data=`.
+ * و`dir` بمواضعه كما هي (الفارغ موضعٌ): `dir/البداية//@…` و`dir/البداية/` بلا وجهة ⇒ لا نقطة — البداية موقع صاحب الرابط
+ * لحظة إنشائه لا المحلّ؛ و`dir//الوجهة` و`dir/أ/ب/` تعطي الوجهة.
+ */
+function fromPath(s: string): LatLng | null {
+  const m = s.match(/\/maps\/(place|search|dir)\/([^?#]*)/i);
+  if (!m) return null;
+  const parts: string[] = [];
+  for (const seg of m[2].split('/')) {
+    if (seg.startsWith('@') || /^data=/i.test(seg)) break;
+    parts.push(seg);
+  }
+  let seg: string | undefined;
+  if (m[1].toLowerCase() === 'dir') {
+    // الشرطة الأخيرة بعد وجهةٍ (dir/أ/ب/) ليست موضعاً فارغاً — وما بقي موضعٌ واحد فهو البداية وحدها
+    if (parts.length > 2 && parts[parts.length - 1] === '') parts.pop();
+    seg = parts.length >= 2 ? parts[parts.length - 1] : undefined;
+  } else {
+    seg = parts.find(Boolean);
+  }
+  const p = seg ? safeDecode(seg.replace(/\+/g, ' ')).match(SEGMENT_POINT_RE) : null;
+  return p ? valid(Number(p[1]), Number(p[2])) : null;
+}
+
+/** آخر زوج `!3d!4d` صالح: حين يتعدّد (مكانٌ فُتح من بحثٍ قرب مكانٍ آخر) يأتي المكان المفتوح آخراً */
+function lastBang(s: string): LatLng | null {
+  const all = [...s.matchAll(BANG_RE)];
+  for (let i = all.length - 1; i >= 0; i--) {
+    const r = valid(Number(all[i][1]), Number(all[i][2]));
+    if (r) return r;
+  }
+  return null;
+}
+
+/**
+ * يحاول استخراج الإحداثيات من نصّ/رابط بلا أي طلب شبكة. الترتيب من الأدقّ (دبّوس المكان) إلى الأعمّ (مركز العرض):
+ *  ١) لصق «lat,lng» مباشرة.
+ *  ٢) دبّوس المكان `!3d…!4d…` (آخر زوج حين يتعدّد) — رابط المكان على الكمبيوتر فيه `@` مُزاحٌ عنه مئات الأمتار (PIN-1).
+ *  ٣) معاملات النقطة: `q=` و`query=` و`daddr=` و`destination=` و`coordinate=` (خرائط Apple الجديدة)، ومنها `loc:`.
+ *  ٤) النقطة في المسار: `/maps/search/…` و`/maps/place/…` ووجهة `/maps/dir/…`.
+ *  ٥) `ll=` (دبّوس خرائط Apple، ونقطة رابط «q=اسم&ll=») ثم `sll=`.
+ *  ٦) آخر الملاذ: مركز الخريطة `@lat,lng` ثم `center=` — لا يُؤخذ إلا إن لم يوجد غيره.
+ */
+export function parseCoords(input: string): LatLng | null {
+  if (!input) return null;
+  const s = input.trim();
+
+  // ١) لصق مباشر: "24.7136, 46.6753" أو "24.7136،46.6753"
+  const plain = s.match(/^(-?\d{1,3}(?:\.\d+)?)(?:\s*[,،]\s*|\s+)(-?\d{1,3}(?:\.\d+)?)$/);
+  if (plain) { const r = valid(Number(plain[1]), Number(plain[2])); if (r) return r; }
+
+  const dec = safeDecode(s); // `%21` في تحويلةٍ مرمَّزة ⇒ `!`
+  return lastBang(dec)
+    || fromParams(s, ['q', 'query', 'daddr', 'destination', 'coordinate'])
+    || fromPath(s)
+    || fromParams(s, ['ll', 'sll'])
+    || (() => {
+      const at = dec.match(/@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/);
+      return at ? valid(Number(at[1]), Number(at[2])) : null;
+    })()
+    || fromParams(s, ['center']);
+}
+
+/**
+ * استخراج نقطة المكان الدقيقة من بيانات خرائط Google (جسم صفحة أو معاينة). نفضّل هندسة المكان
+ * `[null,null,[lat,lng]]` ثم دبّوس المكان `!3d!4d` (أول زوج: رابط الصفحة نفسها يسبق روابط الأماكن المجاورة)
+ * ثم آخر الملاذ مركز العرض `/@lat,lng` — كلها أدقّ من حدود العرض (viewport) التي تظهر في مقدّمة الاستجابة.
  */
 function coordsFromGoogleData(text: string): LatLng | null {
   if (!text) return null;
   const m = text.match(/\[null,null,\[(-?\d{1,3}\.\d{4,}),(-?\d{1,3}\.\d{4,})\]/)
-    || text.match(/\/@(-?\d{1,3}\.\d{4,}),(-?\d{1,3}\.\d{4,})/)
-    || text.match(/!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/);
-  return m ? valid(parseFloat(m[1]), parseFloat(m[2])) : null;
+    || text.match(/!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/)
+    || text.match(/\/@(-?\d{1,3}\.\d{4,}),(-?\d{1,3}\.\d{4,})/);
+  return m ? valid(Number(m[1]), Number(m[2])) : null;
 }
 
 /**
@@ -173,12 +247,16 @@ export async function resolveLocationUrl(input: string, opts: { googleOnly?: boo
   const left = () => Math.min(8000, deadline - Date.now());
   // روابط maps.app.goo.gl قد تمرّ بـ4 تحويلات قبل صفحة الخرائط — نسمح بعدد كافٍ
   for (let hop = 0; hop < 6; hop++) {
+    // الإحداثيات في نصّ وجهة التحويلة تُقرأ قبل جلبها (PIN-7): لا تضيع إن انتهت المهلة أو فشل الجلب أو كانت خارج Google.
+    // قراءة نصّ الرابط لا تجلب شيئاً فلا خطر SSRF فيها (والمُدخَل نفسه قُرئ أعلاه)
+    if (hop > 0) {
+      const fromUrl = parseCoords(cur);
+      if (fromUrl) return fromUrl;
+    }
     if (opts.googleOnly && !isGoogleMapsUrl(cur)) break; // لا يتبع تحويلةً خارج Google
     const r = await fetchMaps(cur, left());
     if (!r) break;
 
-    const fromUrl = parseCoords(cur);
-    if (fromUrl) return fromUrl;
     // التقط اسم المكان من q= (لترميزه جغرافياً كخطة بديلة إن لزم)
     const qm = cur.match(/[?&](?:q|query)=([^&]+)/i);
     if (qm) {
@@ -207,6 +285,9 @@ export async function resolveLocationUrl(input: string, opts: { googleOnly?: boo
     if (coords) return coords;
     break;
   }
+  // وجهة آخر تحويلة حين نفدت المحاولات لم تُقرأ بعد (والقراءة لا تجلب شيئاً)
+  const tail = cur === s ? null : parseCoords(cur);
+  if (tail) return tail;
 
   // خطة بديلة أخيرة: رمّز اسم المكان جغرافياً (تقريبيّ لكن أفضل من لا شيء)
   return placeName ? geocodePlace(placeName) : null;

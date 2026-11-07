@@ -263,9 +263,9 @@ async function ensureRepAttendance(req: AuthRequest, res: Response): Promise<{ t
  * ويُرفض صادقٌ عند باب عميله («يعمل على كل المسافات»، طلب المالك ٢١ أكتوبر ٢٠٢٦).
  *
  * ودقّة القراءة (بلاغ «لا يعمل إلا بـ٣٠٠ متر»): الجوال يقرأ قراءةً طازجة بأفضل دقّة (rep/punchFix.ts)، ويُسامَح هنا
- * بقدر هامش خطأ الجهاز حتى ٢٥ متراً. وقراءةٌ أسوأ من النطاق نفسه — وعميلٌ قد يقع داخله في حدود خطئها — لا يُحكم بها
- * بُعداً: «موقعك غير دقيق». والرمز يبقى PUNCH_AWAY_FROM_CUSTOMER بسببٍ فرعيّ (reason) لا رمزاً جديداً: حزمةٌ أقدم
- * مفتوحة على جوال مندوب ترسل الدقّة أيضاً، ورمزٌ لا تعرفه تبتلعه بلا رسالة.
+ * بقدر هامش خطأ الجهاز حتى ٢٥ متراً. وقراءةٌ أرخى من تلك السماحية — وعميلٌ قد يقع داخل النطاق في حدود خطئها — لا يُقال
+ * لصاحبها «بعيد» إن رُفض: «موقعك غير دقيق» (punchLowAccuracy — نصّ الرفض وحده، لا القبول ولا الرفض). والرمز يبقى
+ * PUNCH_AWAY_FROM_CUSTOMER بسببٍ فرعيّ (reason) لا رمزاً جديداً: حزمةٌ أقدم مفتوحة على جوال مندوب ترسل الدقّة أيضاً، ورمزٌ لا تعرفه تبتلعه بلا رسالة.
  */
 export const PUNCH_RADIUS_M = 50;
 /** أقصى ما يُسامَح به من هامش خطأ الجهاز فوق مسافة الإدارة — فقراءةٌ رديئة لا تفتح القيد مهما ادّعت */
@@ -281,9 +281,16 @@ export function punchRadiusOf(v: unknown): number {
 export function punchAllowanceOf(accuracy: unknown): number {
   return typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > 0 ? Math.min(accuracy, PUNCH_ACCURACY_ALLOWANCE_M) : 0;
 }
-/** قراءةٌ هامش خطئها أوسع من النطاق المسموح (ومن ٥٠م) لا تكفي للحكم بأن المندوب بعيد */
-export function punchFixTooCoarse(accuracy: unknown, radius: number): boolean {
-  return typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > Math.max(radius, PUNCH_RADIUS_M);
+/**
+ * سبب رفضٍ خارج النطاق: الدقّة لا البُعد — قراءةٌ أرخى من السماحية (PUNCH_ACCURACY_ALLOWANCE_M) وأقرب عميلٍ قد يقع داخل
+ * النطاق في حدود خطئها (أقرب عميل − الدقّة ≤ النطاق). يغيّر نصّ الرفض وسببه الفرعيّ وحدهما: القبول (inside) لا يقرؤه.
+ * كان الشرط «الدقّة أوسع من max(النطاق، ٥٠)» فبقيت منطقةٌ ميتة (تدقيق SM-3، ٧ نوفمبر ٢٠٢٦): بنطاق ٥٠ ودقّةٍ بين ٢٥ و٥٠
+ * يُرفض الصادق على بعد ٣٠ م من عميله بنصّ «أقرب عملائك على بعد ٨٠ مترا» فيظنّ الدبّوس خاطئاً. والشرط الجديد يشمل القديم
+ * كلّه (max(النطاق، ٥٠) > ٢٥ دائماً): ما كان «غير دقيق» يبقى كذلك بنصّه نفسه، والمندوب البعيد كيلومترات يُقال له بُعده
+ */
+export function punchLowAccuracy(inside: boolean, nearestM: number | null, accuracy: unknown, radius: number): boolean {
+  return !inside && nearestM != null && typeof accuracy === 'number' && Number.isFinite(accuracy)
+    && accuracy > PUNCH_ACCURACY_ALLOWANCE_M && nearestM - accuracy <= radius;
 }
 /** خارج النطاق: REJECT تردّ البصمة (الافتراض)، FLAG تقبلها بوسم */
 export type PunchOutsideAction = 'REJECT' | 'FLAG';
@@ -330,7 +337,7 @@ async function judgePunchPlace(tid: string, repId: string, radiusRaw: unknown, l
   const nearest = dists.length ? dists[0] : null;
   const inside = nearest != null && nearest <= reach;
   // الدقّة سببٌ فقط حين قد يقع عميلٌ داخل النطاق في حدود خطئها — المندوب البعيد كيلومترات يُقال له بُعده لا «انتظر»
-  const lowAccuracy = !inside && nearest != null && punchFixTooCoarse(accuracy, radius) && nearest - acc! <= radius;
+  const lowAccuracy = punchLowAccuracy(inside, nearest, acc, radius);
   return { inside, nearestM: nearest, radius, accuracy: acc, lowAccuracy, noFix: false };
 }
 

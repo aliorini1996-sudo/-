@@ -57,16 +57,26 @@ export const PRESENCE_AWAY_TEXTS = {
   // لا قراءة والموقع غير مرفوض (مهلة/تعذّر) — نصّ البصمة نفسه (VISIT_NOFIX_MSG في RepApp.tsx)
   noFixTimeout: 'تعذر تحديد موقعك اقترب من نافذة او مكان مفتوح ثم اعد المحاولة',
   lowAccuracy: 'موقعك غير دقيق الآن — انتظر لحظات ثم أعد المحاولة',
+  // القراءة المرسلة تقريبيةٌ بالكيلومترات (الموقع الدقيق مطفأ للتطبيق أو المتصفّح — pinAccuracyLevel = coarse في punchFix.ts):
+  // «انتظر» لا يُصلحها، و«أقرب عملائك على بعد…» لا يصدق بها — المطلوب إعدادٌ في الجوال (R5 من تدقيق نطاق ٥٠ متراً)
+  coarse: 'موقع جوالك تقريبي (±{acc} م) لا دقيق — فعّل الموقع الدقيق من إعدادات الموقع في جوالك ثم أعد المحاولة',
 } as const;
+
+/** دقّةٌ تقريبية معلومة (أمتار) — وغيرها (null، سالب، NaN) كأن القراءة دقيقة: لا يُقال «فعّل الموقع الدقيق» بلا بيّنة */
+const coarseOf = (m: number | null | undefined): number | null => (typeof m === 'number' && Number.isFinite(m) && m >= 0 ? m : null);
 
 /**
  * ما يقرؤه المندوب عن رفض المكان، بلغته. fixReason: سبب غياب القراءة في الجهاز — رفض «بلا موقع» والموقع غير مرفوض (مهلةٌ أو
  * تعذّر) لا يُقال له «فعّل الموقع» وهو مفعّل: تُقال الحقيقة بدلاً منه (كالبصمة).
+ * coarseM: دقّة القراءة المرسلة إن كانت تقريبية (PresenceCheck.tsx يحكم بـpinAccuracyLevel) — رفضٌ بقراءةٍ كهذه، «غير دقيق» أو
+ * «خارج النطاق»، يُقال له «فعّل الموقع الدقيق»: الانتظار لا يُصلحها ومسافة أقرب عميلٍ بها لا تصدق. الحكم نفسه من الخادم بلا تغيير.
  */
-export function presenceAwayText(a: PresenceAway, tr: (s: string) => string, fixReason?: PunchFixReason | null): string {
+export function presenceAwayText(a: PresenceAway, tr: (s: string) => string, fixReason?: PunchFixReason | null, coarseM?: number | null): string {
   if (a.reason === 'NO_FIX') {
     return tr(fixReason === 'timeout' || fixReason === 'unavailable' ? PRESENCE_AWAY_TEXTS.noFixTimeout : PRESENCE_AWAY_TEXTS.noFix);
   }
+  const coarse = coarseOf(coarseM);
+  if (coarse != null) return tr(PRESENCE_AWAY_TEXTS.coarse).replace('{acc}', String(Math.round(coarse)));
   if (a.reason === 'LOW_ACCURACY') return tr(PRESENCE_AWAY_TEXTS.lowAccuracy);
   if (a.radius == null) return a.message ?? tr(PRESENCE_AWAY_TEXTS.outsideGeneric);
   const radius = String(Math.round(a.radius));
@@ -77,14 +87,18 @@ export function presenceAwayText(a: PresenceAway, tr: (s: string) => string, fix
 
 /**
  * رفضُ «انتظر وأعد» لا «أنت بعيد»: موقعٌ غير دقيق، أو بلا قراءة والموقع مفعّل (مهلةٌ أو تعذّر) — قد يكون واقفاً عند عميله،
- * فيُلوَّن تنبيهاً (كهرمانياً) كحالات النافذة الليّنة لا رفضاً (أحمر). والبُعد الصريح ورفض الإذن أحمران
+ * فيُلوَّن تنبيهاً (كهرمانياً) كحالات النافذة الليّنة لا رفضاً (أحمر). والبُعد الصريح ورفض الإذن أحمران — ومعهما القراءة التقريبية:
+ * لا يُصلحها الانتظار بل إعدادٌ في الجوال، كرفض الإذن
  */
-export function presenceAwaySoft(a: PresenceAway, fixReason?: PunchFixReason | null): boolean {
+export function presenceAwaySoft(a: PresenceAway, fixReason?: PunchFixReason | null, coarseM?: number | null): boolean {
+  if (a.reason !== 'NO_FIX' && coarseOf(coarseM) != null) return false;
   return a.reason === 'LOW_ACCURACY' || (a.reason === 'NO_FIX' && (fixReason === 'timeout' || fixReason === 'unavailable'));
 }
 
 /** ما تعرضه النافذة عن رفض المكان — ويحفظه التطبيق لطلبه، فتعود به النافذة بعد «إغلاق مؤقت» لا بالسؤال الأول */
 export interface PresenceAwayView { text: string; soft: boolean }
-export function presenceAwayView(a: PresenceAway, tr: (s: string) => string, fixReason?: PunchFixReason | null): PresenceAwayView {
-  return { text: presenceAwayText(a, tr, fixReason), soft: presenceAwaySoft(a, fixReason) };
+export function presenceAwayView(
+  a: PresenceAway, tr: (s: string) => string, fixReason?: PunchFixReason | null, coarseM?: number | null,
+): PresenceAwayView {
+  return { text: presenceAwayText(a, tr, fixReason, coarseM), soft: presenceAwaySoft(a, fixReason, coarseM) };
 }

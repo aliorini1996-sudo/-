@@ -24,7 +24,9 @@ import RepTeamSwitch from './RepTeamSwitch';
 import { CardPaySheet, CardPayResult, cardPayDeviceSupported, readPendingCardPay, clearPendingCardPay, isCardPayId, type CardPayPending } from './CardPay';
 import { currentActiveTeam, sellableNow, storedUserActiveTeam, useActiveTeam, type RepTeam } from './repTeam';
 import { toGeoFix, isGeoFix, attachFix, fixCoords, visitGate, planFinalize, visitFailure, isFinalVisitRejection, MIN_VISIT_SEC, type GeoFix } from './visitLocation';
-import { precisePunchFix } from './punchFix';
+import { precisePunchFix, precisePinFix, startPunchWarmup, fixIsCoarse } from './punchFix';
+import { initialRepPin, repPinReducer, repPinPayload, repPinView, REP_PIN_TEXTS, REP_PIN_WARN_M, type RepPinState, type RepPinAction } from './repCustomerPin';
+import { usePageVisible } from './usePageVisible';
 import { getDeviceId, describeDevice } from './deviceId';
 import { pushState, enablePush, refreshPush, refreshIosPush, dropPush, forgetForeignPush, isIos, standalone, type PushState } from './pushAlerts';
 import { IOS_PUSH_EVENT, iosPushEventDetail, iosPushReady, iosPushScreen, type IosPushEvent } from './iosPush';
@@ -54,7 +56,7 @@ import { useHeartbeat } from './useHeartbeat';
 import PresenceCheckModal from './PresenceCheck';
 import { installPresenceAlarmUnlock } from './presenceAlarm';
 import type { PendingPresence } from './presencePhase';
-import type { PresenceAwayView } from './presenceRefusal';
+import { PRESENCE_AWAY_TEXTS, type PresenceAwayView } from './presenceRefusal';
 import { underCutoverReview } from './outboxReview';
 // مراجعة المخزون (D5 والبند ١٣): حجز فاتورةٍ فوق مخزون السيارة، وشاشة «مخزون سيارتي» دون اتصال
 import { underVanStockHeld } from './vanStockHeld';
@@ -69,7 +71,7 @@ import BuyerDataFields from '../components/BuyerDataFields';
 import { BUYER_BILLING_FIELDS, BuyerField } from '../lib/zatca/buyerData';
 import { BuyerFormValues, buyerBadge, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerRelaxWarnings, buyerUpdatePayload } from '../lib/zatca/buyerForm';
 import { RepBuyerBanner, RepBuyerDataForm, fetchIncompleteBuyers } from './RepBuyerData';
-import { Component, createContext, lazy, Suspense, useContext, useMemo, useRef, type ReactNode } from 'react';
+import { Component, createContext, lazy, Suspense, useContext, useMemo, useReducer, useRef, type ReactNode } from 'react';
 import { Sparkles, MapPinOff, Wrench } from 'lucide-react';
 import { cacheUpdate, outboxAll } from './offlineDb';
 import { onInvoicesSynced } from './offlineSync';
@@ -296,6 +298,14 @@ function fmtWorkMinutes(mins: number, tr: (s: string) => string): string {
 
 /** رفضٌ للبصمة يُعرض نصُّه للمندوب — لا تأخّرٌ في الشاشة يُعالَج بإعادة التحميل */
 const PUNCH_REFUSALS = ['LOCATION_REQUIRED', 'PUNCH_AWAY_FROM_CUSTOMER'];
+// R5: قراءةٌ بدقّة الكيلومتر = إذن «الموقع التقريبي» — «انتظر حتى يحدد جوالك موقعك» لا تزول به أبداً، فيُقال ما يُصلحه:
+// رفضها بنصّ «أثبت تواجدي» نفسه ودقّتها، وقبولها (نطاقٌ واسع) بتنبيهٍ أنها سُجّلت بموقعٍ تقريبي
+const PUNCH_COARSE_MSG = PRESENCE_AWAY_TEXTS.coarse;
+const PUNCH_COARSE_ACCEPTED_MSG = 'سجلت بصمتك بموقع تقريبي (±{acc} م) — فعّل الموقع الدقيق من إعدادات الموقع في جوالك';
+// رفض «غير دقيق» (LOW_ACCURACY) بلغة المندوب: نصّ الخادم نفسه حرفياً (lowAccuracyText في routes/tracking.ts) بدقّة القراءة
+// المرسلة — وكان يُعرض بالعربية لكل لغة
+const PUNCH_LOW_ACCURACY_MSG = 'موقعك غير دقيق الآن (±{acc} م) — انتظر لحظات أو اقترب من مكان مفتوح ثم أعد المحاولة';
+const withAcc = (text: string, acc: number): string => text.replace('{acc}', String(Math.round(acc)));
 
 // atCustomer: «بصمة الحضور بموقع عميل» — موقع البصمة قراءةٌ طازجة بأفضل دقّة لا قراءةٌ مخبّأة (punchFix.ts)
 function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = false }: { atCustomer?: boolean; boundDevice?: boolean; presenceOn?: boolean }) {
@@ -308,6 +318,18 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
   const [err, setErr] = useState('');
   // بصمةٌ قُبلت خارج النطاق (الإدارة اختارت «اقبلها بوسم»): يعرف المندوب أنها موسومةٌ وتظهر للإدارة
   const [placeNote, setPlaceNote] = useState('');
+  // R5: دقّة آخر بصمةٍ قُبلت بقراءةٍ تقريبية (بالكيلومتر) — يُنبَّه ليفعّل الموقع الدقيق قبل التالية؛ null = لا تنبيه
+  const [coarseNote, setCoarseNote] = useState<number | null>(null);
+  // R1: تسخين الـGPS ما دامت شاشة البصمة ظاهرةً للمقيَّد بـ«بصمة الحضور بموقع عميل» — فلا يبدأ بارداً عند الضغط داخل المحلّ.
+  // قراءاته تُهمَل (البصمة تقرأ بمراقبتها الطازجة)، ويتوقّف بمغادرة الشاشة أو إخفاء التطبيق. ويقف وحده بعد سقفه، فيُجدَّد
+  // بكل عودةٍ إلى المقدّمة (visible) وبعد كل بصمة (warmTick) — المحاولة التالية بعد دقائق تجد GPS دافئاً
+  const visible = usePageVisible();
+  const [warmTick, setWarmTick] = useState(0);
+  useEffect(() => {
+    if (!atCustomer || !visible) return;
+    const stop = startPunchWarmup();
+    return () => { stop(); };
+  }, [atCustomer, visible, warmTick]);
   // تنبيهات الحضور على هذا الجهاز (pushAlerts.ts)
   const [pushSt, setPushSt] = useState<PushState | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
@@ -340,12 +362,16 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
     // ضغطةٌ ثانية قبل أن يُرسم التعطيل تُهمل — والخادم بدوره يعيد النوبة المفتوحة ولا يفتح ثانية
     if (inFlight.current) return;
     inFlight.current = true;
-    setBusy(true); setErr(''); setPlaceNote(''); setDeviceRefused(false);
+    setBusy(true); setErr(''); setPlaceNote(''); setCoarseNote(null); setDeviceRefused(false);
     // التتبّع الخلفي في تطبيق الجوال يبدأ بلمسة الحضور (قرار المالك ٤ نوفمبر): رابط التطبيق يُفتح داخل هذه اللمسة قبل أيّ انتظار،
     // والبصمة تُكمل بعد العودة من شاشة التطبيق فتقرأ موقعها والصفحة ظاهرة. بلا تطبيق أو بلا بدءٍ منتظَر: يعود فوراً
     if (kind === 'checkin') await startNativeTrackingOnPunch();
     // لا قراءة والموقع غير مرفوض (مهلة/تعذّر): رفض الخادم «فعّل الموقع» لا يصف الحال — تُقال الحقيقة بدلاً منه
     let noFix = false;
+    // R5: القراءة تقريبية (إذن «الموقع التقريبي») — الخادم يحكم بها كما هي، والشاشة تقول ما يُصلحها
+    let coarse = false;
+    // دقّة القراءة المرسلة (أمتار) — بها يُكتب نصّ «غير دقيق» و«تقريبي» بلغة المندوب
+    let sentAcc: number | null = null;
     try {
       // موقع البصمة أفضل جهد للجميع: يُسجَّل إن توفّر — والمقيَّد بـ«اشتراط تفعيل الموقع» يبصم بلا شرط (القيد على صفحة العميل وحدها).
       // والمقيَّد بـ«بصمة الحضور بموقع عميل» يُحكم عليه بموقعه: قراءةٌ طازجة بأفضل دقّة ومعها هامش خطئها، لا مخبّأةٌ من الطريق
@@ -356,6 +382,8 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
           const r = await precisePunchFix();
           loc = r.fix;
           noFix = !r.fix && r.reason !== 'denied';
+          coarse = fixIsCoarse(r.fix);
+          sentAcc = typeof r.fix?.accuracy === 'number' && Number.isFinite(r.fix.accuracy) ? r.fix.accuracy : null;
         } finally { setLocating(false); }
       } else {
         loc = await grabLocation();
@@ -371,6 +399,7 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
           ? `${tr('سجلت بصمتك خارج النطاق')} — ${tr('أقرب عملائك على بعد')} ${place.distanceM} ${tr('متر')} — ${tr('تظهر للإدارة موسومة')}`
           : `${tr('سجلت بصمتك خارج النطاق')} — ${tr('تظهر للإدارة موسومة')}`);
       }
+      if (coarse && sentAcc != null) setCoarseNote(sentAcc);
     } catch (e) {
       const resp = (e as { response?: { status?: number; data?: { message?: string; code?: string; reason?: string } } })?.response;
       // 409 = الشاشة متأخّرة عن الخادم (انصرافٌ نجح وضاع ردّه في شبكة ضعيفة، أو من جهازٍ آخر):
@@ -380,8 +409,18 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
       setDeviceRefused(resp?.data?.reason === 'DEVICE');
       if (resp?.status === 409 && !PUNCH_REFUSALS.includes(resp.data?.code || '')) load();
       else if (noFix && resp?.data?.code === 'PUNCH_AWAY_FROM_CUSTOMER' && resp.data.reason !== 'DEVICE') setErr(tr(VISIT_NOFIX_MSG));
+      // R5: رفضٌ لقراءةٍ تقريبية («غير دقيق» أو «بعيد» بمسافةٍ عشوائية) — الانتظار لا يُصلحه، تفعيل الموقع الدقيق يُصلحه
+      else if (coarse && sentAcc != null && resp?.data?.code === 'PUNCH_AWAY_FROM_CUSTOMER' && resp.data.reason !== 'DEVICE') setErr(withAcc(tr(PUNCH_COARSE_MSG), sentAcc));
+      // «غير دقيق» بلغة المندوب (نصّ الخادم عربيٌّ دائماً) — والرمز والحكم كما هما
+      else if (resp?.data?.code === 'PUNCH_AWAY_FROM_CUSTOMER' && resp.data.reason === 'LOW_ACCURACY') {
+        setErr(sentAcc != null ? withAcc(tr(PUNCH_LOW_ACCURACY_MSG), sentAcc) : tr('موقعك غير دقيق الآن — انتظر لحظات ثم أعد المحاولة'));
+      }
       else setErr(resp?.data?.message || tr('تعذّر التسجيل، حاول ثانية'));
-    } finally { inFlight.current = false; setBusy(false); }
+    } finally {
+      inFlight.current = false; setBusy(false);
+      // التسخين يُجدَّد بعد كل محاولة: إعادةٌ بعد رفضٍ أو انصرافٌ لاحق لا يبدأ من GPS بارد وإن مضى سقف التسخين
+      if (atCustomer) setWarmTick((t) => t + 1);
+    }
   };
 
   const shifts = state ? shiftsOf(state) : [];
@@ -436,6 +475,7 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
             <p className="text-[11px] text-[#5C5346] bg-[#FBF7F0] rounded-xl px-3 py-2 text-center">{tr('على آيفون سفاري وتطبيق الشاشة الرئيسية جهازان مختلفان وبصمتك مربوطة بجهاز واحد ابصم دائما من تطبيق الشاشة الرئيسية وان رفضت بعد اضافته اطلب من الادارة فك الربط مرة واحدة')}</p>
           )}
           {placeNote && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">{placeNote}</p>}
+          {coarseNote != null && <p data-punch-coarse className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">{withAcc(tr(PUNCH_COARSE_ACCEPTED_MSG), coarseNote)}</p>}
 
           {next === 'checkout' ? (
             <button
@@ -3588,6 +3628,77 @@ function CreateReceipt({ customer, repName, company, perms, onClose, onDone }: {
   );
 }
 
+// ============ دبوس العميل (الإضافة والتعديل) ============
+/**
+ * «التقاط موقعي الحالي عند العميل» (R2/PIN-2/PIN-3 — repCustomerPin.ts): مراقبةٌ دقيقة بلا مخبّأ (precisePinFix) بدل
+ * getCurrentPosition بقراءةٍ مخبّأة حتى ٣٠ ثانية ودقّةٍ تُرمى، والالتقاط والرابط الملصوق لا يجتمعان.
+ */
+function useRepPin(prefill?: AiAddPrefill | null) {
+  const [pin, dispatch] = useReducer(repPinReducer, prefill ?? null, initialRepPin);
+  // آخر حالةٍ مرسومة: ضغطةٌ ثانية أثناء الالتقاط لا تفتح مراقبةً ثانية، ورقم الالتقاط يُبطله لصق رابطٍ بعده
+  const latest = useRef<RepPinState>(pin);
+  latest.current = pin;
+  const capturePin = useCallback(async () => {
+    if (latest.current.gps === 'getting') return;
+    const seq = latest.current.seq + 1;
+    dispatch({ type: 'start' });
+    let done: RepPinAction;
+    try {
+      const r = await precisePinFix();
+      done = { type: 'done', seq, fix: r.fix, reason: r.reason };
+    } catch {
+      done = { type: 'done', seq, fix: null, reason: 'unavailable' };
+    }
+    dispatch(done);
+  }, []);
+  const pastePinLink = useCallback((url: string) => dispatch({ type: 'link', url }), []);
+  return { pin, capturePin, pastePinLink };
+}
+
+/** زرّ الالتقاط ودقّته «±N م» وتنبيهه، ثم خانة الرابط — تنبيهٌ لا منع: الحفظ متاحٌ بأيّ دقّة */
+function RepPinFields({ pin, onCapture, onLink }: { pin: RepPinState; onCapture: () => void; onLink: (url: string) => void }) {
+  const tr = useTr();
+  const getting = pin.gps === 'getting';
+  const view = repPinView(pin);
+  const noticeText = view.notice === 'coarse' ? tr(REP_PIN_TEXTS.coarse)
+    : view.notice === 'unknown' ? tr(REP_PIN_TEXTS.unknown)
+      : tr(REP_PIN_TEXTS.weak).replace('{m}', String(REP_PIN_WARN_M));
+  return (
+    <>
+      <button type="button" onClick={onCapture} disabled={getting}
+        className={`w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold border disabled:opacity-70 ${pin.coords && !getting ? 'border-green-600 text-green-700 bg-green-50' : 'border-[#E15A30] text-[#E15A30]'}`}>
+        <MapPin size={16} />
+        {getting ? tr('جارٍ تحديد موقعك بدقة…') : pin.coords ? tr('تم تحديد الموقع ✓') : tr('التقاط موقعي الحالي عند العميل')}
+      </button>
+      {pin.coords && (
+        <p className="text-[11px] text-green-600 mt-1 text-center" dir="ltr">
+          {pin.coords.lat.toFixed(5)}, {pin.coords.lng.toFixed(5)}
+          {/* bdi: اتجاه «±N م» من لغته لا من سطر الإحداثيات — فلا تقع «م» قبل الرقم لقارئ العربية */}
+          {view.accM != null && <span data-rep-pin-acc className={view.notice === 'none' ? '' : 'text-amber-700 font-semibold'}> · <bdi>±{view.accM} {tr('م')}</bdi></span>}
+        </p>
+      )}
+      {pin.coords && pin.fromMap && <p className="text-[11px] text-amber-600 mt-1 text-center">{tr('الموقع من خريطة Google — اضغط الزر عند باب المحل لالتقاطه أدق')}</p>}
+      {view.notice !== 'none' && (
+        <div data-rep-pin-notice={view.notice} className="mt-1 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center leading-relaxed">
+          <p>{noticeText}</p>
+          <button type="button" onClick={onCapture} disabled={getting} className="mt-1 font-semibold underline underline-offset-2 min-h-[32px] disabled:opacity-60">
+            {tr(REP_PIN_TEXTS.retake)}
+          </button>
+        </div>
+      )}
+      {/* فشل إعادة الالتقاط والدبوس السابق باقٍ: لا يُنصح بلصق رابطٍ يمحوه */}
+      {pin.gps === 'denied' && <p className="text-[11px] text-amber-600 mt-1">{tr(pin.coords ? REP_PIN_TEXTS.deniedKept : REP_PIN_TEXTS.denied)}</p>}
+      {pin.gps === 'failed' && <p className="text-[11px] text-amber-600 mt-1">{tr(REP_PIN_TEXTS.failed)}</p>}
+      <div className="mt-2">
+        {/* لصق رابطٍ يمحو الالتقاط، والالتقاط يمحو الرابط — فما يُرسَل هو ما يراه المندوب */}
+        <input className="input" dir="ltr" placeholder={tr('أو الصق رابط الموقع من خرائط Google')}
+          value={pin.locUrl} onChange={e => onLink(e.target.value)} />
+        {pin.coords && <p data-rep-pin-link-hint className="text-[10px] text-gray-400 mt-1">{tr(REP_PIN_TEXTS.linkReplaces)}</p>}
+      </div>
+    </>
+  );
+}
+
 // ============ إضافة عميل جديد ============
 function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = false, buyerRelax = false, prefill = null, outletTypes }: { onClose: () => void; onCreated: (c: any) => void; accountingOn?: boolean; zatcaCollect?: boolean; buyerRelax?: boolean; prefill?: AiAddPrefill | null; outletTypes?: { code: string; label: string }[] }) {
   const tr = useTr();
@@ -3604,24 +3715,11 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
   // مفتاح المحاولة: إعادة الضغط بالمحتوى نفسه تحمل clientRef نفسه (attemptClientRef) — لا مستند ثانٍ إن ضاع ردّ الأول
   const attempt = useRef<{ key: string; ref: string } | null>(null);
   const [msg, setMsg] = useState('');
-  // الموقع على الخريطة (اختياري): التقاط GPS مباشر أو لصق رابط خرائط Google
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(prefill?.lat != null && prefill?.lng != null ? { lat: prefill.lat, lng: prefill.lng } : null);
-  const [locUrl, setLocUrl] = useState('');
-  const [gps, setGps] = useState<'idle' | 'getting' | 'ok' | 'denied'>(prefill?.lat != null ? 'ok' : 'idle');
-  // الموقع المعبّأ من خريطة Google (المندوب ليس عند الباب) — يُوسم بمصدره ويزول الوسم حين يلتقط المندوب موقعه
-  const [pinFromMap, setPinFromMap] = useState(!!prefill?.pinFromMap && prefill?.lat != null);
+  // الموقع على الخريطة (اختياري): التقاط GPS دقيق أو لصق رابط خرائط Google — لا يجتمعان (repCustomerPin.ts).
+  // والموقع المعبّأ من خريطة Google (المندوب ليس عند الباب) يُوسم بمصدره ويزول الوسم حين يلتقط المندوب موقعه
+  const { pin, capturePin, pastePinLink } = useRepPin(prefill);
   // المندوب الذكي: نوع المنفذ (أساس التوقّع للمحلات المشابهة) — معبّأ من المحل المقترح
   const [outletType, setOutletType] = useState(prefill?.outletType ?? '');
-
-  const captureGps = () => {
-    if (!navigator.geolocation) { setGps('denied'); return; }
-    setGps('getting');
-    navigator.geolocation.getCurrentPosition(
-      (p) => { setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }); setGps('ok'); setPinFromMap(false); },
-      () => setGps('denied'),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
-    );
-  };
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -3644,10 +3742,8 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
       city: form.city.trim() || undefined,
       district: form.district.trim() || undefined,
       address: form.address.trim() || undefined,
-      // الموقع الاختياري: إحداثيات GPS إن التُقطت، ورابط الموقع إن لُصق (يحلّه الخادم)
-      lat: coords?.lat,
-      lng: coords?.lng,
-      locationUrl: locUrl.trim() || undefined,
+      // الموقع الاختياري: إحداثيات GPS إن التُقطت، أو رابط الموقع إن لُصق (يحلّه الخادم) — لا الاثنان معاً
+      ...repPinPayload(pin),
       // حقلان ماليّان: لا يُرسلان أصلاً حين يُطفأ «النظام المحاسبي» — شاشةٌ لا
       // تعرض المال لا تكتبه، ويبقى للخادم افتراضُه هو
       creditLimit: accountingOn && form.creditLimit ? Number(form.creditLimit) : undefined,
@@ -3739,18 +3835,7 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
         {/* الموقع على الخريطة — اختياري: يظهر للإدارة على خريطة التتبّع */}
         <div>
           <p className="text-xs font-semibold text-gray-400 mb-2">{tr('موقع العميل على الخريطة اختياري')}</p>
-          <button type="button" onClick={captureGps}
-            className={`w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold border ${coords ? 'border-green-600 text-green-700 bg-green-50' : 'border-[#E15A30] text-[#E15A30]'}`}>
-            <MapPin size={16} />
-            {coords ? tr('تم تحديد الموقع ✓') : gps === 'getting' ? tr('جار تحديد الموقع') : tr('التقاط موقعي الحالي عند العميل')}
-          </button>
-          {coords && <p className="text-[11px] text-green-600 mt-1 text-center" dir="ltr">{coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</p>}
-          {coords && pinFromMap && <p className="text-[11px] text-amber-600 mt-1 text-center">{tr('الموقع من خريطة Google — اضغط الزر عند باب المحل لالتقاطه أدق')}</p>}
-          {gps === 'denied' && <p className="text-[11px] text-amber-600 mt-1">{tr('تعذر الوصول للموقع الصق الرابط أدناه بدلا منه')}</p>}
-          <div className="mt-2">
-            <input className="input" dir="ltr" placeholder={tr('أو الصق رابط الموقع من خرائط Google')}
-              value={locUrl} onChange={e => setLocUrl(e.target.value)} />
-          </div>
+          <RepPinFields pin={pin} onCapture={capturePin} onLink={pastePinLink} />
           <p className="text-[10px] text-gray-400 mt-1">{tr('من تطبيق خرائط Google مشاركة ← نسخ الرابط ثم الصقه هنا')}</p>
         </div>
 
@@ -3768,7 +3853,8 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
       </div>
 
       <div className="p-4 border-t bg-white">
-        <button onClick={submit} disabled={loading} className="w-full bg-[#E15A30] text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
+        {/* أثناء التقاط الموقع لا حفظ — وإلا حُفظ العميل بلا الموقع الذي ينتظره المندوب */}
+        <button onClick={submit} disabled={loading || pin.gps === 'getting'} className="w-full bg-[#E15A30] text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
           {tr('حفظ العميل')}
         </button>
@@ -3801,19 +3887,8 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   const hasPin = customer.lat != null && customer.lng != null;
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [locUrl, setLocUrl] = useState('');
-  const [gps, setGps] = useState<'idle' | 'getting' | 'ok' | 'denied'>('idle');
-
-  const captureGps = () => {
-    if (!navigator.geolocation) { setGps('denied'); return; }
-    setGps('getting');
-    navigator.geolocation.getCurrentPosition(
-      (p) => { setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }); setGps('ok'); },
-      () => setGps('denied'),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
-    );
-  };
+  // موقعٌ جديد يختاره المندوب (التقاطٌ دقيق أو رابط — لا يجتمعان)؛ بلا اختيارٍ لا يُرسل شيء فيبقى المحفوظ كما هو
+  const { pin, capturePin, pastePinLink } = useRepPin(null);
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
   // الحقل الاختياري المُفرَّغ يُرسَل null فيُمحى فعلاً، لا undefined فيبقى القديم
@@ -3844,11 +3919,8 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
       address: opt(form.address),
     };
     if (zatcaCollect) Object.assign(payload, buyerUpdatePayload(buyer, customer));
-    // الموقع يُرسَل فقط إن غيّره المندوب — وإلا بقي كما هو
-    if (!pinLocked) {
-      if (coords) { payload.lat = coords.lat; payload.lng = coords.lng; }
-      else if (locUrl.trim()) payload.locationUrl = locUrl.trim();
-    }
+    // الموقع يُرسَل فقط إن غيّره المندوب — وإلا بقي كما هو (تعديل الحقول الأخرى لا يحرّك الدبوس)
+    if (!pinLocked) Object.assign(payload, repPinPayload(pin));
     try {
       const res = await repApi.put(`/customers/${customer.id}`, payload);
       onSaved(res.data.data);
@@ -3919,20 +3991,10 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
             </p>
           ) : (
             <>
-              {hasPin && !coords && !locUrl.trim() && (
+              {hasPin && !pin.coords && !pin.locUrl.trim() && (
                 <p className="text-[11px] text-gray-500 mb-2">{tr('للعميل موقع محفوظ ويبقى كما هو ما لم تحدد موقعا جديدا')}</p>
               )}
-              <button type="button" onClick={captureGps}
-                className={`w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold border ${coords ? 'border-green-600 text-green-700 bg-green-50' : 'border-[#E15A30] text-[#E15A30]'}`}>
-                <MapPin size={16} />
-                {coords ? tr('تم تحديد الموقع ✓') : gps === 'getting' ? tr('جار تحديد الموقع') : tr('التقاط موقعي الحالي عند العميل')}
-              </button>
-              {coords && <p className="text-[11px] text-green-600 mt-1 text-center" dir="ltr">{coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</p>}
-              {gps === 'denied' && <p className="text-[11px] text-amber-600 mt-1">{tr('تعذر الوصول للموقع الصق الرابط أدناه بدلا منه')}</p>}
-              <div className="mt-2">
-                <input className="input" dir="ltr" placeholder={tr('أو الصق رابط الموقع من خرائط Google')}
-                  value={locUrl} onChange={e => setLocUrl(e.target.value)} disabled={!!coords} />
-              </div>
+              <RepPinFields pin={pin} onCapture={capturePin} onLink={pastePinLink} />
             </>
           )}
         </div>
@@ -3941,7 +4003,7 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
       </div>
 
       <div className="p-4 border-t bg-white">
-        <button onClick={submit} disabled={loading} className="w-full bg-[#E15A30] text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
+        <button onClick={submit} disabled={loading || pin.gps === 'getting'} className="w-full bg-[#E15A30] text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Pencil size={16} />}
           {tr('حفظ التعديلات')}
         </button>

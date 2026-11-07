@@ -8,10 +8,14 @@
 //
 // والمقيَّد بـ«بصمة الحضور بموقع عميل» لا يُقبل تواجده إلا داخل نطاق أحد عملائه (طلب المالك ٧ نوفمبر ٢٠٢٦): رفض الخادم
 // (PRESENCE_AWAY_FROM_CUSTOMER — presenceRefusal.ts) لا يُنهي الطلب — تبقى النافذة بسببه و«أعد المحاولة» بقراءةٍ طازجة حتى المهلة.
+//
+// تدقيق نطاق ٥٠ متراً (٧ نوفمبر ٢٠٢٦): النافذة المفتوحة تُسخّن GPS (startPunchWarmup) فلا تبدأ القراءة بعد الضغط من GPS بارد،
+// والرفض بقراءةٍ تقريبية بالكيلومترات (الموقع الدقيق مطفأ) يقول «فعّل الموقع الدقيق» لا «انتظر». حكم الخادم كما هو.
 import { useEffect, useRef, useState } from 'react';
 import { MapPin, Check, Clock } from 'lucide-react';
 import repApi from './repApi';
-import { precisePunchFix, type PunchFixReason } from './punchFix';
+import { precisePunchFix, pinAccuracyLevel, startPunchWarmup, type PunchFixReason } from './punchFix';
+import { usePageVisible } from './usePageVisible';
 import { presenceFailureOf, presenceAwayView, type PresenceAwayView } from './presenceRefusal';
 import { getDeviceId, describeDevice } from './deviceId';
 import { useTr } from '../i18n/strings';
@@ -97,12 +101,16 @@ export default function PresenceCheckModal({ pending, onClose, onDismiss, onAnsw
     setStage('locating');
     // سبب غياب القراءة إن غابت — به يُقال رفض «بلا موقع» على حقيقته (مهلةٌ أو تعذّر، لا «فعّل الموقع» وهو مفعّل)
     let fixReason: PunchFixReason | null = null;
+    // دقّة القراءة المرسلة إن كانت تقريبية (pinAccuracyLevel = coarse) — بها يُقال للرفض «فعّل الموقع الدقيق»، والمرسَل نفسه بلا تغيير
+    let coarseM: number | null = null;
     try {
       // لحظة الضغط على الخادم قبل القراءة — لا تنتظرها القراءة، ويُنتظر وصولها قبل الردّ (فيُحكم بها). وفي «أعد المحاولة» بعد رفض
       // المكان لمسةٌ جديدة: الخادم مسح لمسة المحاولة المرفوضة، فلا تُحسب له لحظةٌ كان فيها بعيداً — تُحسب لحظة هذه الضغطة وحدها
       const tap = repApi.post(`/tracking/presence/${pending.id}/tap`, {}, { background: true, timeout: 10_000 }).catch(() => null);
       const r = await precisePunchFix();
       fixReason = r.reason;
+      const acc = r.fix?.accuracy;
+      if (typeof acc === 'number' && pinAccuracyLevel(acc) === 'coarse') coarseM = acc;
       const body = { ...(r.fix ?? {}), deviceId: getDeviceId(), deviceName: await describeDevice() };
       await tap;
       setStage('sending');
@@ -117,7 +125,7 @@ export default function PresenceCheckModal({ pending, onClose, onDismiss, onAnsw
       // بعيدٌ عن عملائه (المقيَّد بـ«بصمة الحضور بموقع عميل»): الطلب ما زال مفتوحاً على الخادم — لا onAnswered (فلا يُعدّ مُجاباً
       // ولا تُغلقه النبضة: بدأ منه الردّ)، والنافذة تبقى بسببه و«أعد المحاولة» حتى المهلة. والجرس لا يعود: أُسكت بالضغطة الأولى
       if (f.kind === 'away') {
-        const v = presenceAwayView(f, tr, fixReason);
+        const v = presenceAwayView(f, tr, fixReason, coarseM);
         onAway?.(v);
         setResult({ kind: 'away', ...v });
       }
@@ -138,6 +146,14 @@ export default function PresenceCheckModal({ pending, onClose, onDismiss, onAnsw
   // انتهت المهلة — ومحاولةٌ ما زالت تقرأ أو ترسل لا يُقال لها «انتهت» ولا يُعرض «تم»: لمستها سبقت المهلة فقد يُحكم بها، فتنتظر حكمها
   const ended = phase === 'expired' && !busy;
   const retryable = (result?.kind === 'error' || away) && !ended;
+  // تسخين GPS ما دامت النافذة تنتظر ضغطةً أو إعادة: مراقبةٌ بأعلى دقّة لا تُرسل شيئاً (لا ردّ تلقائي) — فحين يضغط تصل قراءةٌ
+  // دقيقة في ثوانٍ بدل GPS بارد وأوّل قراءة شبكةٍ خشنة. الردّ يبقى قراءةً طازجة بعد الضغط (precisePunchFix) كما هو، ويتوقّف
+  // التسخين بالحكم النهائي أو انتهاء المهلة أو فكّ النافذة («تم» أو «إغلاق مؤقت» أو تبديل الطلب). والتسخين يقف وحده بعد سقفه
+  // (PUNCH_WARMUP_MAX_MS) — فيُجدَّد بدخول «متأخر» وبعد كل رفضٍ للمكان: المحاولة التالية تجد GPS دافئاً، والمدّة محدودةٌ بعمر الطلب.
+  // والنافذة قد تُفتح والتطبيق في الخلفية (نبضة أو رسالة عامل الخدمة): التسخين للصفحة الظاهرة وحدها، ويُفتح بسقفٍ كامل عند الإظهار
+  const visible = usePageVisible();
+  const warm = !ended && (!result || retryable);
+  useEffect(() => (warm && visible ? startPunchWarmup() : undefined), [warm, visible, phase, result]);
   // العدّ التنازلي: في انتظار الضغط، وبعد رفض المكان — ليعرف كم بقي له ليصل أحد عملائه
   const countdown = (
     <p className="flex items-center justify-center gap-1.5 text-sm font-bold tabular-nums" style={{ color }}>
