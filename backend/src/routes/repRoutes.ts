@@ -6,6 +6,7 @@
 // و«لا زيارة في سجلّ الزيارات»، وزيارةٌ سُجّلت من ملفّ العميل مباشرةً تُحتسب.
 // ============================================================================
 import { Router, Response, NextFunction } from 'express';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
@@ -23,7 +24,7 @@ const routeSchema = z.object({
   name: z.string().min(1).max(80),
   isPermanent: z.boolean().default(false),
   routeDate: z.string().regex(DAY).nullish(),
-  /** خطٌّ يحلّ هذا محلّه — يُعطَّل داخل المعاملة نفسها مهما تغيّرت مفاتيحه */
+  /** خطٌّ يحلّ هذا محلّه — يُحذف فعلياً داخل المعاملة نفسها مهما تغيّرت مفاتيحه */
   replacesId: z.string().uuid().nullish(),
   stops: z.array(z.object({
     customerId: z.string().uuid(),
@@ -69,6 +70,24 @@ async function routeFor(tid: string, salesRepId: string, day: string) {
     where: { tenantId: tid, salesRepId, isActive: true, isPermanent: true, createdAt: { lt: endOfDay } },
     include: { stops: { include: { customer: { select: { id: true, name: true, businessName: true, phone: true, address: true, lat: true, lng: true } } }, orderBy: { seq: 'asc' } } },
   });
+}
+
+/**
+ * حذفٌ فعليّ لخطوط سيرٍ بمحطّاتها — لا تعطيل ولا نسخةٌ مخفيّة (أمر المالك ٧ نوفمبر ٢٠٢٦: «أي حذف حذفٌ نهائي»).
+ *
+ * لا شيء يقرأ خطّاً موقوفاً: الإنجاز يُشتقّ من سجلّ الزيارات (RepVisit) لا من الخطّ، و`routeFor` والقائمة
+ * تقرآن النشط وحده، ولا جدول يشير إلى الخطّ غير محطّاته — فبقاء القديم «موقوفاً» لم يكن تاريخاً مقروءاً بل
+ * نسخةً مخفيّة. المحطّات تُحذف صراحةً قبل رأسها (مع أن مفتاحها Cascade) كي لا يتعلّق الحذف بقيدٍ في القاعدة،
+ * والشركة تُفرض على كل شرط فلا يمسّ الحذف خطّ شركةٍ أخرى مهما كان الشرط.
+ *
+ * `isActive` باقٍ في الجدول لصفوفٍ موقوفة كتبها المسار القديم: القراءة ما زالت تتجاهلها، وكل كتابةٍ لمندوبٍ
+ * تحذف بقاياه (انظر POST وDELETE) — فلا يُنشئ هذا المسار صفّاً موقوفاً بعد اليوم.
+ */
+async function deleteRoutes(tx: Prisma.TransactionClient, tid: string, where: Prisma.RepRouteWhereInput): Promise<number> {
+  const ids = (await tx.repRoute.findMany({ where: { ...where, tenantId: tid }, select: { id: true } })).map(r => r.id);
+  if (!ids.length) return 0;
+  await tx.repRouteStop.deleteMany({ where: { routeId: { in: ids } } });
+  return (await tx.repRoute.deleteMany({ where: { id: { in: ids }, tenantId: tid } })).count;
 }
 
 /** حدود اليوم بإزاحة الجهاز — الزيارة تُحتسب ليوم المندوب لا ليوم الخادم */
@@ -218,7 +237,8 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   try {
     const tid = tenantId(req);
     const r = await prisma.repRoute.findFirst({
-      where: { id: String(req.params.id), tenantId: tid },
+      // النسخ المعطَّلة القديمة (قبل الحذف الحقيقي، أمر المالك ٧ نوفمبر) لا تُقرأ — المحذوف محذوف
+      where: { id: String(req.params.id), tenantId: tid, isActive: true },
       include: { stops: { orderBy: { seq: 'asc' }, include: { customer: { select: { id: true, name: true, businessName: true } } } } },
     });
     // النطاق يسبق: خطُّ مندوبٍ لا يراه المستخدم = غير موجود لا «ممنوع»،
@@ -264,25 +284,32 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const stops = body.stops.filter(s => ok.has(s.customerId));
     if (!stops.length) { res.status(400).json({ success: false, message: 'لا عملاء صالحين في خط السير' }); return; }
 
+    /* الخطّ المُحرَّر يُحذف فعلياً — فيُفحص نطاقه أولاً كما يُفحص في DELETE.
+     *
+     * قد يكون لمندوبٍ غير المرسَل (غيّر المالك المندوب في التعديل)، وكان التعطيل بالمعرّف وحده كتابةً عمياء
+     * على خطّ مندوبٍ خارج نطاق المستخدم. خطٌّ غائب (حذفه مستخدمٌ آخر أثناء التحرير) أو خارج النطاق لا يُمسّ،
+     * ويُحفظ الجديد كما كان يُحفظ حين لا يطابق التعطيلُ شيئاً. ومندوب الخطّ لا يتغيّر بعد إنشائه (التعديل
+     * إنشاءٌ جديد)، فلا سباق بين هذا الفحص والحذف داخل المعاملة. */
+    const replaced = body.replacesId
+      ? await prisma.repRoute.findFirst({ where: { id: body.replacesId, tenantId: tid }, select: { id: true, salesRepId: true } })
+      : null;
+    const replacedId = replaced && (await canAccessRep(req, tid, replaced.salesRepId)) ? replaced.id : null;
+
     const saved = await prisma.$transaction(async tx => {
       // **خطٌّ واحد لكل حالة**: دائمٌ واحد للمندوب، ومؤقّتٌ واحد لليوم.
       // خطّان يجعلان «ما خط سيري اليوم؟» سؤالاً بلا جواب — فيُستبدل القديم
-      // بدل أن يتراكما صامتَين.
-      // **الخطّ المُحرَّر يُعطَّل بمعرّفه**: الاستبدال بالمفاتيح وحده يفشل متى
+      // بدل أن يتراكما صامتَين. والاستبدال **حذفٌ فعليّ** لا تعطيل: لا نسخةٌ
+      // مخفيّة تبقى للخطّ القديم (أمر المالك ٧ نوفمبر ٢٠٢٦).
+      // **الخطّ المُحرَّر يُحذف بمعرّفه**: الاستبدال بالمفاتيح وحده يفشل متى
       // غُيّر أحدها (تاريخ أو نوع أو مندوب)، فيبقى القديم نشطاً ويعمل المندوب
       // على خطٍّ ظنّ المالك أنه بدّله — أو يراه مندوبان معاً في اليوم نفسه.
-      if (body.replacesId) {
-        await tx.repRoute.updateMany({
-          where: { id: body.replacesId, tenantId: tid },
-          data: { isActive: false },
-        });
-      }
-      await tx.repRoute.updateMany({
-        where: body.isPermanent
-          ? { tenantId: tid, salesRepId: body.salesRepId, isPermanent: true, isActive: true }
-          : { tenantId: tid, salesRepId: body.salesRepId, isPermanent: false, routeDate: body.routeDate!, isActive: true },
-        data: { isActive: false },
-      });
+      if (replacedId) await deleteRoutes(tx, tid, { id: replacedId });
+      // بالمفاتيح بلا شرط isActive: يذهب النشط وما بقي موقوفاً من المسار القديم معاً
+      await deleteRoutes(tx, tid, body.isPermanent
+        ? { salesRepId: body.salesRepId, isPermanent: true }
+        : { salesRepId: body.salesRepId, isPermanent: false, routeDate: body.routeDate! });
+      // وبقايا التعطيل القديم لهذا المندوب (خطوطٌ «أُوقفت» قبل أمر الحذف الفعليّ) — لا يقرؤها شيء
+      await deleteRoutes(tx, tid, { salesRepId: body.salesRepId, isActive: false });
       const r = await tx.repRoute.create({
         data: {
           tenantId: tid, salesRepId: body.salesRepId, name: body.name,
@@ -304,7 +331,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   } catch (err) { next(err); }
 });
 
-/** إيقاف خط سير — تعطيلٌ لا حذف، فالتاريخ يبقى مقروءاً */
+/**
+ * حذف خط سير — **حذفٌ فعليّ** للخطّ ومحطّاته في معاملةٍ واحدة، لا تعطيل ولا نسخةٌ مخفيّة
+ * (أمر المالك ٧ نوفمبر ٢٠٢٦). لا تاريخ يضيع: الإنجاز يُقرأ من سجلّ الزيارات لا من الخطّ.
+ * ومعه بقايا التعطيل القديم لمندوبه — خطوطٌ «أُوقفت» قبل الأمر ولا يقرؤها شيء.
+ */
 router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -313,7 +344,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     if (!r || !(await canAccessRep(req, tid, r.salesRepId))) {
       res.status(404).json({ success: false, message: 'خط السير غير موجود' }); return;
     }
-    await prisma.repRoute.update({ where: { id: r.id }, data: { isActive: false } });
+    await prisma.$transaction(tx => deleteRoutes(tx, tid, { OR: [{ id: r.id }, { salesRepId: r.salesRepId, isActive: false }] }));
     res.json({ success: true });
   } catch (err) { next(err); }
 });

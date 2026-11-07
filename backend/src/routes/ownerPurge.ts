@@ -8,6 +8,8 @@ import prisma from '../config/database';
 import { authenticate, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { buildPurgePlan, delegateOf, executePurge, labelFieldsOf, PurgeRefused, targetableModels } from '../services/ownerPurge';
+import { findArchivedProducts, mergeArchivedProduct, MergeRefused } from '../services/productTwins';
+import { asLotBusy } from '../services/lots';
 
 const router = Router();
 
@@ -87,6 +89,83 @@ router.post('/delete', async (req: AuthRequest, res: Response, next: NextFunctio
     if (err instanceof PurgeRefused) { res.status(404).json({ success: false, message: err.message }); return; }
     next(err);
   }
+});
+
+/**
+ * «التوائم المؤرشفة» (services/productTwins.ts): الأصناف المؤرشفة قبل الحذف الحقيقي (٥ نوفمبر ٢٠٢٦) مع توأمها القائم المقترح
+ * ورصيدها الباقي في السيارات وعدد حركاتها — قراءةٌ فقط
+ */
+router.get('/archived-products', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await findArchivedProducts(prisma, tenantId(req)) });
+  } catch (err) { next(err); }
+});
+
+const MERGE = z.object({ pairs: z.array(z.object({ fromId: ID, toId: ID })).min(1).max(200) });
+
+/**
+ * دمج المؤرشف في توأمه: كل زوجٍ في معاملته — حركات A وتاريخه إلى B ثم حذف A نهائياً. فشل زوجٍ لا يوقف غيره (failed[])،
+ * وكل دمجٍ تمّ سطرٌ في سجل نشاط المنصة
+ */
+router.post('/archived-products/merge', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { pairs } = MERGE.parse(req.body ?? {});
+    const tid = tenantId(req);
+    const u = req.user as unknown as { by?: string };
+    const merged: Array<{ fromId: string; toId: string; moved: Record<string, number> }> = [];
+    const failed: Array<{ fromId: string; toId: string; code: string; message: string }> = [];
+    const seen = new Set<string>();
+    for (const { fromId, toId } of pairs) {
+      if (seen.has(fromId)) { failed.push({ fromId, toId, code: 'DUPLICATE', message: 'الصنف مكرر في الطلب' }); continue; }
+      seen.add(fromId);
+      try {
+        const r = await prisma.$transaction((tx) => mergeArchivedProduct(tx, tid, fromId, toId), { maxWait: 10_000, timeout: 60_000 });
+        merged.push({ fromId, toId, moved: r.moved });
+        await prisma.platformAuditLog.create({
+          data: {
+            actorType: 'OWNER', actorId: String(u.by ?? ''), action: 'owner.mergeArchivedProduct', method: 'POST',
+            path: '/api/owner-purge/archived-products/merge', status: 200, targetId: fromId,
+            detail: JSON.stringify({ tenantId: tid, toId, moved: r.moved, deleted: r.deleted }).slice(0, 4000),
+            ip: req.ip ?? null,
+          },
+        }).catch(() => { /* السجل لا يُسقط دمجاً تمّ */ });
+      } catch (err) {
+        if (err instanceof MergeRefused) failed.push({ fromId, toId, code: err.code, message: err.message });
+        else if (asLotBusy(err)) failed.push({ fromId, toId, code: 'BUSY', message: 'الصنف مشغول بحركة أخرى أعد المحاولة بعد لحظات' });
+        else {
+          console.error('[owner-purge] merge archived product failed', fromId, toId, err);
+          failed.push({ fromId, toId, code: 'ERROR', message: `تعذر الدمج: ${String((err as Error)?.message ?? err).slice(0, 300)}` });
+        }
+      }
+    }
+    res.json({ success: true, data: { merged, failed } });
+  } catch (err) { next(err); }
+});
+
+/**
+ * العملاء المحذوفون قبل ٥ نوفمبر ٢٠٢٦ (status DELETED — نسخة مخفية بأثرها المالي). قرار المالك (٧ نوفمبر): «يُحذفون مع فواتيرهم»
+ * — يُعرضون هنا بعدد مستنداتهم، ويحذفها المالك بـPOST /delete { model: 'Customer', ids } (المحرّك يحذف الفواتير والسندات والقيود)
+ */
+router.get('/archived-customers', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const rows = await prisma.customer.findMany({
+      where: { tenantId: tid, status: 'DELETED' },
+      select: { id: true, name: true, code: true, phone: true, balance: true },
+      orderBy: { name: 'asc' }, take: 5000,
+    });
+    const ids = rows.map((r) => r.id);
+    const [inv, rec] = ids.length ? await Promise.all([
+      prisma.invoice.groupBy({ by: ['customerId'], where: { tenantId: tid, customerId: { in: ids } }, _count: { _all: true } }),
+      prisma.receipt.groupBy({ by: ['customerId'], where: { tenantId: tid, customerId: { in: ids } }, _count: { _all: true } }),
+    ]) : [[], []];
+    const invOf = new Map(inv.map((x) => [x.customerId, x._count._all]));
+    const recOf = new Map(rec.map((x) => [x.customerId, x._count._all]));
+    res.json({
+      success: true,
+      data: rows.map((r) => ({ id: r.id, name: r.name, code: r.code, phone: r.phone, balance: Number(r.balance), invoices: invOf.get(r.id) ?? 0, receipts: recOf.get(r.id) ?? 0 })),
+    });
+  } catch (err) { next(err); }
 });
 
 export default router;

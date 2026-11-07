@@ -122,17 +122,16 @@ export default function TeamsPanel() {
                       className="p-2 rounded-lg text-[#6E6557] hover:bg-[#FAF7F0]" title={t.isActive ? tr('أرشفة') : tr('استعادة')}>
                       {t.isActive ? <Archive size={15} /> : <ArchiveRestore size={15} />}
                     </button>
-                    {t.docsCount === 0 && (
-                      <button type="button" disabled={remove.isPending} title={tr('حذف')}
-                        onClick={() => { if (window.confirm(`${tr('حذف الفريق')} «${t.name}»؟`)) remove.mutate(t.id); }}
-                        className="p-2 rounded-lg text-red-500 hover:bg-red-50"><Trash2 size={15} /></button>
-                    )}
+                    {/* الحذف حقيقيّ لكل فريق ولو كان عليه مستندات (أمر المالك ٧ نوفمبر ٢٠٢٦) — مستنداته تبقى بلا فريق */}
+                    <button type="button" disabled={remove.isPending} title={tr('حذف')}
+                      onClick={() => { if (window.confirm(`${tr('حذف الفريق')} «${t.name}»؟\n\n${tr('حذف الفريق نهائي ولا يمكن التراجع تبقى فواتيره وسنداته وزياراته واستلاماته محفوظة بلا فريق وتصبح أصنافه الخاصة عامة ما لم تكن لفريق آخر')}`)) remove.mutate(t.id); }}
+                      className="p-2 rounded-lg text-red-500 hover:bg-red-50"><Trash2 size={15} /></button>
                   </div>
                 </div>
               ))}
             </div>
           )}
-          <p className="text-xs text-[#9A8F7E]">{tr('الفريق الذي عليه مستندات لا يحذف بل يؤرشف ليبقى في التقارير والمستندات القديمة تبقى بلا فريق')}</p>
+          <p className="text-xs text-[#9A8F7E]">{tr('حذف الفريق نهائي ولا يمكن التراجع تبقى فواتيره وسنداته وزياراته واستلاماته محفوظة بلا فريق وتصبح أصنافه الخاصة عامة ما لم تكن لفريق آخر')}</p>
         </div>
       )}
 

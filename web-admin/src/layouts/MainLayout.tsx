@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import { PhoneCall, Fuel, LayoutDashboard, Users, Package, UserCheck, FileText, Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap, CreditCard, ClipboardCheck, Landmark, Sparkles, Wallet, MapPinned, Layers, Trash2 } from 'lucide-react';
+import { PhoneCall, Fuel, LayoutDashboard, Users, Package, UserCheck, FileText, Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap, CreditCard, ClipboardCheck, Landmark, Sparkles, Wallet, MapPinned, Layers, Trash2, Archive } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -7,6 +7,7 @@ import { companyApi } from '../api/client';
 import { setActiveCurrency, setActiveNumerals } from '../utils/format';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import OwnerPurgeModal, { isOwnerIssuedSession } from '../components/OwnerPurgeModal';
+import ArchivedProductsModal from '../components/ArchivedProductsModal';
 import SupportModal from '../components/SupportModal';
 import EmailVerifyBanner from '../components/EmailVerifyBanner';
 import CompanyBrand from '../components/CompanyBrand';
@@ -60,6 +61,7 @@ const navItems = [
 export default function MainLayout() {
   const { user, token, logout, impersonating, stopImpersonating } = useAuthStore();
   const [purgeOpen, setPurgeOpen] = useState(false);
+  const [archivedOpen, setArchivedOpen] = useState(false);
   const t = useT();
   const [collapsed, setCollapsed] = useState(false);
   // «المدفوع» لحظيّ: سندٌ من جوال مندوب أو من إداريٍّ آخر يظهر هنا دون إعادة تحميل
@@ -107,6 +109,12 @@ export default function MainLayout() {
                 <Trash2 size={14} /> حذف نهائي
               </button>
             )}
+            {/* «الأصناف المؤرشفة» — دمج النسخ المخفية في الصنف الحالي (المالك وحده؛ الخادم يحرسه أيضاً) */}
+            {isOwnerIssuedSession(token) && (
+              <button onClick={() => setArchivedOpen(true)} className="flex items-center gap-1.5 bg-amber-700 hover:bg-amber-800 rounded-lg px-3 py-1 font-semibold">
+                <Archive size={14} /> المحذوفات المخفية
+              </button>
+            )}
             <button onClick={backToPlatform} className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1 font-semibold">
               <ArrowRight size={14} /> {t('nav.backToPlatform')}
             </button>
@@ -114,6 +122,7 @@ export default function MainLayout() {
         </div>
       )}
       {purgeOpen && <OwnerPurgeModal onClose={() => setPurgeOpen(false)} />}
+      {archivedOpen && <ArchivedProductsModal onClose={() => setArchivedOpen(false)} />}
       <EmailVerifyBanner />
     <div className="flex flex-1 overflow-hidden bg-slate-100">
       {/* Sidebar */}

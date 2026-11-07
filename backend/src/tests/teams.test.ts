@@ -76,7 +76,7 @@ test('حارس نصّي: الوسم من قراءة المندوب القائم�
   assert.ok(read('routes/visits.ts').includes('const visitTeamId = resolveDocTeam('));
 });
 
-test('حارس نصّي: إدارة الفرق لمدير غير مقيَّد بصلاحية إعدادات الشركة، والفريق ذو المستندات يُؤرشف لا يُحذف', () => {
+test('حارس نصّي: إدارة الفرق لمدير غير مقيَّد بصلاحية إعدادات الشركة، والحذف حقيقيّ ولو كان على الفريق مستندات', () => {
   const r = read('routes/teams.ts');
   assert.match(r, /router\.use\(requireAdmin\);/);
   for (const route of ["router.patch('/settings'", "router.post('/'", "router.put('/:id'", "router.delete('/:id'", "router.put('/:id/members'", "router.put('/:id/products'"]) {
@@ -86,7 +86,32 @@ test('حارس نصّي: إدارة الفرق لمدير غير مقيَّد ب
     assert.ok(head.includes('managePerm'), `${route}: بلا صلاحية إعدادات الشركة`);
     assert.ok(r.slice(i, i + 400).includes('if (!(await guardManage(req, res))) return;'), `${route}: المقيَّد يعيد رسم فرقه`);
   }
-  assert.ok(r.includes("code: 'TEAM_HAS_DOCUMENTS'"));
+  // أمر المالك ٧ نوفمبر ٢٠٢٦: «أي حذف حذفٌ فعليّ — لا نسخة مؤرشفة ولا مخفية» ⇒ لا رفض 409 ولا «أرشفه بدل الحذف»
+  assert.ok(!r.includes('TEAM_HAS_DOCUMENTS'), 'حذف الفريق لا يُرفض بسبب مستنداته');
+  assert.ok(!r.includes('أرشفه بدل الحذف'));
+  const del = r.slice(r.indexOf("router.delete('/:id'"), r.indexOf('/** القائمة الكاملة بعد التعديل'));
+  assert.ok(del.includes('await prisma.$transaction(async (tx) => {') && del.includes('{ maxWait: 10_000, timeout: 60_000 }'), 'معاملةٌ واحدة بمهلة صريحة');
+  // كل صفٍّ يشير للفريق اختيارياً (SetNull في schema.prisma) يُفرَّغ وسمه ولا يُحذف — المستند الماليّ لا يُحذف أبداً
+  const schema0 = fs.readFileSync(path.join(__dirname, '..', '..', 'prisma', 'schema.prisma'), 'utf8');
+  const optional = [...schema0.matchAll(/model (\w+) \{([\s\S]*?)\n\}/g)]
+    .filter(([, , body]) => /\n\s*\w+\s+Team\?\s+@relation\(/.test(body))
+    .map(([, name, body]) => {
+      assert.match(body, /\n\s*team\s+Team\?\s+@relation\(fields: \[teamId\][^\n]*onDelete: SetNull/, `${name}: وسمٌ اختياريّ باسم teamId وSetNull`);
+      return name;
+    });
+  assert.deepEqual(optional.sort(), ['Invoice', 'Receipt', 'RepSettlement', 'RepVisit'], 'جدولٌ جديد يحمل teamId: أضفه لتفريغ الحذف');
+  for (const m of optional) {
+    const client = m[0].toLowerCase() + m.slice(1);
+    assert.ok(del.includes(`await tx.${client}.updateMany({ where: tagged, data: { teamId: null } })`), `${m}: يُفرَّغ وسمه`);
+    assert.ok(!del.includes(`tx.${client}.delete`), `${m}: لا يُحذف`);
+  }
+  // إعدادات الفريق الصرفة (Cascade) تُحذف صراحةً في المعاملة نفسها، ثم الفريق — ولا جدول آخر يشير إليه إلزامياً
+  const required = [...schema0.matchAll(/model (\w+) \{([\s\S]*?)\n\}/g)].filter(([, , body]) => /\n\s*\w+\s+Team\s+@relation\(/.test(body)).map(([, name]) => name);
+  assert.deepEqual(required.sort(), ['ProductTeam', 'TeamMember', 'TeamSupervisor']);
+  for (const child of ['teamMember', 'teamSupervisor', 'productTeam']) assert.ok(del.includes(`await tx.${child}.deleteMany({ where: { teamId: team.id } });`), child);
+  assert.ok(del.indexOf('tx.productTeam.deleteMany') < del.indexOf('tx.team.deleteMany'), 'الأبناء قبل الفريق');
+  assert.ok(del.includes('if ((await tx.team.deleteMany({ where: { id: team.id, tenantId: tid } })).count === 0) return null;'));
+  assert.ok(del.includes("res.json({ success: true, data: { untagged } });"));
   assert.ok(read('routes/company.ts').includes("router.use('/teams', teamsRouter);"), 'تحت بادئة الشركة المصنّفة');
   // علم الميزة في إعدادات الشركة (يفعّلها مديرها) ومطفأ افتراضياً
   const schema = fs.readFileSync(path.join(__dirname, '..', '..', 'prisma', 'schema.prisma'), 'utf8');
@@ -217,7 +242,7 @@ test('حارس نصّي: روابط الدفع بشكلها، ولوحة الت�
   assert.ok(sup.indexOf("if (req.user?.apiKeyId)") < sup.indexOf('guardManage'), 'مفتاح API لا يكتب النطاق');
   assert.ok(sup.includes("a.role === 'ADMIN' && add.includes(a.id)"), 'رفض المدير للمضافين وحدهم');
   assert.ok(sup.includes('await demoteOrphanSupervisors(tid, remove);'));
-  assert.ok(t.includes('await demoteOrphanSupervisors(tid, team.supervisors.map((s) => s.adminId));'), 'حذف الفريق');
+  assert.ok(t.includes('await demoteOrphanSupervisors(tid, team.supervisors.map((s) => s.adminId), tx);'), 'حذف الفريق — داخل معاملته');
   assert.ok(t.includes("data: { scopeMode: 'LISTS' }"), 'يعود لقوائمه مقيّداً لا مفكوكاً');
 });
 
@@ -263,7 +288,8 @@ test('حارس نصّي: الاستلام موسوم بفريقه، والعهد
   assert.ok(list.includes('...composeTeamCustodyWhere(await teamSupervisorIdOf(req), requestedTeam(req.query.teamId)),'));
   assert.ok(read('routes/receipts.ts').includes('salesRepId: repId, ...(isSalesRep ? {} : composeTeamCustodyWhere(await teamSupervisorIdOf(req))) }'));
   const t = read('routes/teams.ts');
-  assert.equal(t.split('visits: true, settlements: true').length - 1, 2, 'عدّ المستندات والحذف يشملان الاستلامات');
+  assert.equal(t.split('visits: true, settlements: true').length - 1, 1, 'عدّ المستندات يشمل الاستلامات');
+  assert.ok(t.includes('await tx.repSettlement.updateMany({ where: tagged, data: { teamId: null } })'), 'الحذف يفرّغ وسم الاستلامات ولا يحذفها');
   const c = read('routes/customers.ts');
   const st = c.slice(c.indexOf("router.get('/:id/statement'"), c.indexOf("router.get('/:id/invoices'"));
   assert.equal(st.split('...teamEntries').length - 1, 4, 'الحركات والمرحَّل (بالحصّة وبالمجموع) والإجماليات بالقيد نفسه — وإلا رصيدٌ افتتاحيّ لا يطابق المعروض');

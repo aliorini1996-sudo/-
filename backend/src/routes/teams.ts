@@ -1,4 +1,5 @@
 import { Router, Response, NextFunction } from 'express';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
@@ -13,7 +14,8 @@ import { teamName } from '../services/teams';
  * الشركة كما كانت (لا وسم ولا تقييد أصناف)، وتبقى الفرق ووسوم المستندات محفوظة لإعادة التفعيل.
  *
  * الإدارة لمستخدم الشركة الكامل بصلاحية «إعدادات الشركة» وحده — المقيَّد النطاق لا يعيد رسم الفرق التي تحكم ما يراه.
- * والفريق الذي عليه مستندات لا يُحذف بل يُؤرشف: الحذف يفرّغ وسمها فتسقط من تقارير الفريق بصمت.
+ * والحذف حذفٌ حقيقيّ ولو كان على الفريق مستندات (أمر المالك ٧ نوفمبر ٢٠٢٦: «لا نسخة مؤرشفة ولا مخفية»): المستندات المالية
+ * لا تُحذف أبداً بل يُفرَّغ وسمها فتبقى «بلا فريق»، والأرشفة (isActive=false) خيارٌ صريحٌ منفصل لمن أراد بقاءه في التقارير.
  */
 const router = Router();
 router.use(requireAdmin);
@@ -81,12 +83,12 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
 const nameSchema = z.string().trim().min(1, 'اكتب اسم الفريق').max(60);
 
-/** مشرفو فرقٍ لم يبقَ لهم فريق: قوائم يدوية مقيّدة (لا تُفكّ — ما لم يُحدَّد له أحد لا يرى شيئاً) */
-async function demoteOrphanSupervisors(tid: string, adminIds: string[]): Promise<void> {
+/** مشرفو فرقٍ لم يبقَ لهم فريق: قوائم يدوية مقيّدة (لا تُفكّ — ما لم يُحدَّد له أحد لا يرى شيئاً). db: معاملة الحذف إن وُجدت */
+async function demoteOrphanSupervisors(tid: string, adminIds: string[], db: Prisma.TransactionClient = prisma): Promise<void> {
   if (!adminIds.length) return;
-  const still = new Set((await prisma.teamSupervisor.findMany({ where: { adminId: { in: adminIds } }, select: { adminId: true } })).map((s) => s.adminId));
+  const still = new Set((await db.teamSupervisor.findMany({ where: { adminId: { in: adminIds } }, select: { adminId: true } })).map((s) => s.adminId));
   const orphans = adminIds.filter((id) => !still.has(id));
-  if (orphans.length) await prisma.admin.updateMany({ where: { id: { in: orphans }, tenantId: tid, scopeMode: 'TEAMS' }, data: { scopeMode: 'LISTS' } });
+  if (orphans.length) await db.admin.updateMany({ where: { id: { in: orphans }, tenantId: tid, scopeMode: 'TEAMS' }, data: { scopeMode: 'LISTS' } });
 }
 
 router.post('/', managePerm, async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -123,23 +125,41 @@ router.put('/:id', managePerm, async (req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err); }
 });
 
-// حذف فريقٍ بلا مستندات — وعليه مستندات: يُؤرشف بدل الحذف (لا يفرّغ وسمها فتسقط من تقاريره)
+/**
+ * حذفٌ حقيقيّ ولو كان على الفريق مستندات (أمر المالك ٧ نوفمبر ٢٠٢٦: «أي حذف حذفٌ فعليّ — لا نسخة مؤرشفة ولا مخفية»)، في معاملةٍ واحدة:
+ *  ١. يُفرَّغ وسم الفريق عن كل صفٍّ يشير إليه اختيارياً (schema.prisma: Invoice وReceipt وRepVisit وRepSettlement) — المستند
+ *     الماليّ لا يُحذف أبداً، فيبقى بمبلغه وعميله ومندوبه «بلا فريق» في التقارير. والتفريغ صريحٌ لا اتّكالاً على SetNull في
+ *     القاعدة: يحرّك updatedAt فتلتقط مزامنة /api/v1/sync تغيّر teamId.
+ *  ٢. تُحذف إعداداته الصرفة: عضويات المناديب ومشرفوه وأصنافه الخاصة (وطابع تلك الأصناف ليرى المزامِن أنها صارت عامة أو لفرقٍ أخرى).
+ *  ٣. يُحذف الفريق نفسه، ومن فقد آخر فريقٍ يشرف عليه يعود لقوائمه اليدوية مقيّداً (فشلٌ مغلق).
+ */
 router.delete('/:id', managePerm, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!(await guardManage(req, res))) return;
     const tid = tenantId(req);
-    const team = await prisma.team.findFirst({
-      where: { id: req.params.id, tenantId: tid },
-      select: { id: true, supervisors: { select: { adminId: true } }, _count: { select: { invoices: true, receipts: true, visits: true, settlements: true } } },
-    });
-    if (!team) { res.status(404).json({ success: false, message: 'الفريق غير موجود' }); return; }
-    if (team._count.invoices + team._count.receipts + team._count.visits + team._count.settlements > 0) {
-      res.status(409).json({ success: false, code: 'TEAM_HAS_DOCUMENTS', message: 'على الفريق فواتير أو سندات أو زيارات — أرشفه بدل الحذف ليبقى في التقارير' });
-      return;
-    }
-    await prisma.team.delete({ where: { id: team.id } });
-    await demoteOrphanSupervisors(tid, team.supervisors.map((s) => s.adminId));
-    res.json({ success: true });
+    const untagged = await prisma.$transaction(async (tx) => {
+      const team = await tx.team.findFirst({
+        where: { id: req.params.id, tenantId: tid },
+        select: { id: true, supervisors: { select: { adminId: true } }, products: { select: { productId: true } } },
+      });
+      if (!team) return null;
+      const tagged = { tenantId: tid, teamId: team.id };
+      const invoices = (await tx.invoice.updateMany({ where: tagged, data: { teamId: null } })).count;
+      const receipts = (await tx.receipt.updateMany({ where: tagged, data: { teamId: null } })).count;
+      const visits = (await tx.repVisit.updateMany({ where: tagged, data: { teamId: null } })).count;
+      const settlements = (await tx.repSettlement.updateMany({ where: tagged, data: { teamId: null } })).count;
+      await tx.teamMember.deleteMany({ where: { teamId: team.id } });
+      await tx.teamSupervisor.deleteMany({ where: { teamId: team.id } });
+      await tx.productTeam.deleteMany({ where: { teamId: team.id } });
+      const productIds = team.products.map((p) => p.productId);
+      if (productIds.length) await tx.product.updateMany({ where: { id: { in: productIds }, tenantId: tid }, data: { updatedAt: new Date() } });
+      // deleteMany لا delete: حذفٌ متزامنٌ سبقنا ⇒ 404 لا P2025 بـ500
+      if ((await tx.team.deleteMany({ where: { id: team.id, tenantId: tid } })).count === 0) return null;
+      await demoteOrphanSupervisors(tid, team.supervisors.map((s) => s.adminId), tx);
+      return { invoices, receipts, visits, settlements };
+    }, { maxWait: 10_000, timeout: 60_000 });
+    if (!untagged) { res.status(404).json({ success: false, message: 'الفريق غير موجود' }); return; }
+    res.json({ success: true, data: { untagged } });
   } catch (err) { next(err); }
 });
 

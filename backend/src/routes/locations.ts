@@ -19,8 +19,9 @@ import { baseQtyOf } from '../services/units';
  *   النطاق (كإدارة الفرق: المقيَّد لا يعيد رسم ما يراه غيره). إسناد مندوب ⇒ «المناديب» ومندوبٌ في نطاقه (canAccessRep —
  *   404 لا 403 كي لا يُكشف وجوده). الملخّص ⇒ «التقارير» بنطاق المستندات كبقيّة التقارير. وقائمة المواقع لأيّ مستخدم شركة:
  *   فلتر «الموقع» في الفواتير ومخزون السيارات يحتاجها.
- * - **الموقع ذو المستندات لا يُحذف بل يُؤرشف**، والموقع الذي فيه مناديب لا يُؤرشف ولا يُحذف حتى يُنقلوا — فلا يُختم
- *   مستندٌ جديد بموقعٍ مؤرشف، ولا يسقط ختمٌ قديم من تقاريره بصمت.
+ * - **الحذف حذفٌ فعليّ** (أمر المالك ٧ نوفمبر ٢٠٢٦): يُزال الموقع، ويُفكّ ربط مناديبه، وتبقى فواتيره وتحميلاته بلا موقع —
+ *   لا أرشفة بدل الحذف. والأرشفة (isActive=false) إجراءٌ مستقلّ: الموقع الذي فيه مناديب لا يُؤرشف حتى يُنقلوا، فلا يُختم
+ *   مستندٌ جديد بموقعٍ مؤرشف.
  */
 const router = Router();
 router.use(authenticate, requireAdmin, requireLocations);
@@ -212,28 +213,34 @@ router.put('/:id', managePerm, async (req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err); }
 });
 
-// حذف موقعٍ بلا مناديب ولا مستندات — وعليه مستندات: يُؤرشف بدل الحذف (الحذف يفرّغ ختمها فتسقط من تقاريره)
+/**
+ * حذف الموقع حذفاً فعلياً (أمر المالك ٧ نوفمبر ٢٠٢٦: «أيّ حذفٍ حذفٌ حقيقي — لا نسخة مؤرشفة ولا مخفية»): صفّه يُزال من
+ * القاعدة، فلا أرشفة بدلاً منه ولا رفض لأنّ فيه مناديب أو عليه مستندات (أُلغي 409 LOCATION_HAS_REPS/LOCATION_HAS_DOCUMENTS هنا؛
+ * الأرشفة إجراءٌ مستقلّ بـPUT isActive=false وحدها). كلّه في معاملةٍ واحدة بعد قفل صفّه (FOR UPDATE، كحذف قائمة الأسعار):
+ * - مناديبه (كلّ مناديب الشركة لا نطاق المستخدم) يُفكّ ربطهم (locationId = null) — فما يصدرونه بعدُ بلا ختمٍ حتى يُسندوا.
+ * - فواتيره وتحميلاته تبقى كاملةً بلا موقع (locationId = null) فتظهر في سطر «بلا موقع» بالملخّص — المستند المالي لا يُحذف.
+ * - التفريغ صريحٌ بطابع تعديل (updateMany يحرّك updatedAt): SetNull في القاعدة لا يحرّكه فيبقى مكامِل /api/v1/sync على معرّفٍ
+ *   محذوف. وSetNull باقٍ شبكةَ أمانٍ لما التزم بعد التفريغ.
+ * لا أبناء آخرين للموقع: علاقاته الثلاث في المخطط (salesReps وinvoices وvanLoads) كلّها اختيارية بـSetNull ولا علاقة إلزامية.
+ */
 router.delete('/:id', managePerm, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!(await guardManage(req, res))) return;
     const tid = tenantId(req);
-    const loc = await prisma.salesLocation.findFirst({ where: { id: String(req.params.id), tenantId: tid }, select: { id: true } });
-    if (!loc) { res.status(404).json({ success: false, message: 'الموقع غير موجود' }); return; }
-    const [reps, invoice, load] = await Promise.all([
-      prisma.salesRep.count({ where: { tenantId: tid, locationId: loc.id } }),
-      prisma.invoice.findFirst({ where: { tenantId: tid, locationId: loc.id }, select: { id: true } }),
-      prisma.vanLoad.findFirst({ where: { tenantId: tid, locationId: loc.id }, select: { id: true } }),
-    ]);
-    if (reps > 0) {
-      res.status(409).json({ success: false, code: 'LOCATION_HAS_REPS', message: `في الموقع ${reps} مندوب — انقلهم لموقع آخر قبل الحذف`, repsCount: reps });
-      return;
-    }
-    if (invoice || load) {
-      res.status(409).json({ success: false, code: 'LOCATION_HAS_DOCUMENTS', message: 'على الموقع فواتير أو تحميلات — أرشفه بدل الحذف ليبقى في التقارير' });
-      return;
-    }
-    await prisma.salesLocation.delete({ where: { id: loc.id } });
-    res.json({ success: true });
+    const id = String(req.params.id);
+    const unlinked = await prisma.$transaction(async (tx) => {
+      // الوجود والشركة والقفل في قراءةٍ واحدة: ختمٌ يُكتب الآن (FOR KEY SHARE على مفتاحه) يلتزم قبلنا فيُفرَّغ هنا، أو ينتظر
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM sales_locations WHERE id = ${id} AND "tenantId" = ${tid} FOR UPDATE`;
+      if (!locked?.length) return null;
+      const linked = { tenantId: tid, locationId: id };
+      const reps = await tx.salesRep.updateMany({ where: linked, data: { locationId: null } });
+      const invoices = await tx.invoice.updateMany({ where: linked, data: { locationId: null } });
+      const vanLoads = await tx.vanLoad.updateMany({ where: linked, data: { locationId: null } });
+      await tx.salesLocation.delete({ where: { id } });
+      return { reps: reps.count, invoices: invoices.count, vanLoads: vanLoads.count };
+    }, { maxWait: 10_000, timeout: 60_000 });
+    if (!unlinked) { res.status(404).json({ success: false, message: 'الموقع غير موجود' }); return; }
+    res.json({ success: true, data: { id, unlinked } });
   } catch (err) { next(err); }
 });
 

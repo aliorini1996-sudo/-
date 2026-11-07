@@ -60,6 +60,8 @@ test('جرد كتّاب بنود الفاتورة (§٤.١٥): موضعٌ جدي
     'scripts/backfillBaseQty.ts': ['TABLE-NAME'],
     // محرّك الحذف (الصنف المحذوف حقيقياً من أي مسار): لقطة الاسم والوحدة في بنود فواتيره قبل فكّ ربطها — لا كمية ولا توزيع
     'services/ownerPurge.ts': ['invoiceItem.updateMany', 'invoiceItem.updateMany'],
+    // دمج الصنف المؤرشف في نظيره (أمر المالك ٧ نوفمبر): لقطة اسم/وحدة A في بنوده ثم توجيهها إلى B — لا كمية ولا توزيع
+    'services/productTwins.ts': ['invoiceItem.updateMany', 'invoiceItem.updateMany'],
     // الختم اللاحق: الصلاحية وحدها، ويتخطّى المختوم (أدناه)
     'services/invoiceExpiry.ts': ['invoiceItem.update', 'invoiceItem.update'],
   });

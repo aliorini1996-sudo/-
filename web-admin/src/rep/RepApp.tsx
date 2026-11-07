@@ -4233,6 +4233,8 @@ const DECIDED_SHOWN_MS = 7 * 24 * 3600 * 1000;
 type RepVanRow = {
   productId: string; name: string; code: string; unit: string; loaded: number; sold: number; returned: number; remaining: number;
   expired?: number; damaged?: number; units?: UnitDef[] | null; primaryUnitId?: string | null; pendingBase?: number;
+  /** حالة الصنف وأرشفته من الخادم — عرضٌ فقط: وسم «محذوف/موقوف» يميّز الصنف المؤرشف عن توأمه النشط بالاسم نفسه */
+  status?: string; archived?: boolean;
 };
 
 function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: boolean }) {
@@ -4716,6 +4718,14 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
             <div key={s.productId} className={`bg-white border border-gray-100 rounded-xl p-3 shadow-sm flex items-center justify-between${lv ? ' flex-wrap' : ''}`}>
               <div className="min-w-0">
                 <p className="font-semibold text-sm text-[#1F1A13] truncate">{s.name}</p>
+                {(s.code || s.archived === true || s.status === 'INACTIVE') && (
+                  <p className="text-[11px] text-gray-400 flex items-center gap-1.5 min-w-0">
+                    {s.code && <span className="truncate" dir="ltr">{s.code}</span>}
+                    {s.archived === true
+                      ? <span className="shrink-0 rounded-full bg-red-50 text-red-700 px-1.5 py-0.5 text-[10px] font-semibold">{tr('محذوف')}</span>
+                      : s.status === 'INACTIVE' && <span className="shrink-0 rounded-full bg-slate-100 text-slate-600 px-1.5 py-0.5 text-[10px] font-semibold">{tr('موقوف')}</span>}
+                  </p>
+                )}
                 <p className="text-[11px] text-gray-400">{u(s.sold) != null
                   ? `${tr('محمل')} ${q(s.loaded)} · ${tr('مباع')} ${q(s.sold)}`
                   : `${tr('محمل')} ${fmt(s.loaded)} · ${tr('مباع')} ${fmt(s.sold)} ${s.unit}`}</p>

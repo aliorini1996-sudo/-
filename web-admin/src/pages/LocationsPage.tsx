@@ -439,7 +439,7 @@ function LocationsTab({ locations, canManage }: { locations: SalesLocation[]; ca
       {deleting && (
         <ConfirmDialog
           title={tr('حذف الموقع')}
-          message={`${deleting.name} — ${tr('يحذف الموقع نهائيا إن لم يكن عليه مناديب ولا فواتير ولا تحميلات، وإلا فأرشفه ليبقى في التقارير')}`}
+          message={`${deleting.name} — ${tr('يحذف الموقع نهائيا بلا أرشفة، ويفك ربط مناديبه، وتبقى فواتيره وتحميلاته بلا موقع، ولا يمكن التراجع')}`}
           confirmLabel={tr('حذف')}
           danger
           loading={remove.isPending}

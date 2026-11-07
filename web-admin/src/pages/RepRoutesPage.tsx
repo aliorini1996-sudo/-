@@ -116,7 +116,8 @@ export default function RepRoutesModal({ onClose }: { onClose: () => void }) {
                       <td className="px-3 py-3 text-left">
                         <div className="flex items-center gap-2 justify-end">
                           <button onClick={() => setEditing({ id: r.id })} className="btn-secondary text-xs">{tr('تعديل')}</button>
-                          <button onClick={() => mDel.mutate(r.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded" title={tr('إيقاف')}>
+                          {/* حذفٌ فعليّ بلا نسخةٍ مخفيّة — فيُسأل قبله */}
+                          <button onClick={() => { if (window.confirm(`${tr('حذف نهائي')}: ${r.name}؟`)) mDel.mutate(r.id); }} className="p-1.5 text-red-600 hover:bg-red-50 rounded" title={tr('حذف')}>
                             <Trash2 size={14} />
                           </button>
                         </div>
@@ -181,7 +182,7 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
     mutationFn: () => repRouteApi.save({
       salesRepId, name: name.trim(), isPermanent,
       routeDate: isPermanent ? null : routeDate,
-      // الخطّ المُحرَّر يُعطَّل بمعرّفه لا بمفاتيحه: تغييرُ التاريخ أو النوع أو
+      // الخطّ المُحرَّر يُحذف فعلياً بمعرّفه لا بمفاتيحه: تغييرُ التاريخ أو النوع أو
       // المندوب كان يُنشئ خطّاً ثانياً ويترك الأول نشطاً يعمل عليه المندوب
       ...(id && { replacesId: id }),
       stops: stops.map(s => ({ customerId: s.customerId, note: s.note ?? null })),

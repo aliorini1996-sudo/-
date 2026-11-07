@@ -307,7 +307,8 @@ const stub = (r: string, exports: Record<string, unknown>): void => {
 
 let st: {
   admin: Row; tenant: Row; reps: Row[]; locations: Row[]; invoiceGroups: Row[]; loads: Row[]; products: Row[];
-  hasInvoice: boolean; hasLoad: boolean;
+  /** صفوف الفواتير والتحميلات بختمها — لحذف الموقع الفعليّ (تفريغ الختم لا حذف المستند) */
+  invoiceRows: Row[]; loadRows: Row[];
 };
 let calls: { op: string; args: Row }[] = [];
 function reset(): void {
@@ -325,11 +326,28 @@ function reset(): void {
       { id: 'L2', tenantId: T, name: 'جدة', lat: null, lng: null, isActive: false },
       { id: 'LX', tenantId: 'OTHER', name: 'خارج', lat: null, lng: null, isActive: true },
     ],
-    invoiceGroups: [], loads: [], products: [], hasInvoice: false, hasLoad: false,
+    invoiceGroups: [], loads: [], products: [],
+    invoiceRows: [
+      { id: 'I1', tenantId: T, locationId: 'L1' },
+      { id: 'I2', tenantId: T, locationId: 'L1' },
+      { id: 'I3', tenantId: T, locationId: 'L2' },
+      { id: 'I4', tenantId: T, locationId: null },
+      { id: 'IX', tenantId: 'OTHER', locationId: 'L1' }, // معرّفٌ مطابق في شركةٍ أخرى (مستحيلٌ بالمفتاح لكنه يحرس الشرط)
+    ],
+    loadRows: [
+      { id: 'V1', tenantId: T, locationId: 'L1' },
+      { id: 'V2', tenantId: T, locationId: 'L2' },
+    ],
   };
 }
 reset();
 const log = (op: string, args: Row) => { calls.push({ op, args }); };
+/** updateMany بشرطَي الشركة والختم (الشكل الوحيد الذي يرسله حذف الموقع) — يعيد العدد كـPrisma */
+const updateRows = (rows: Row[], a: Row) => {
+  const hit = rows.filter((x) => x.tenantId === a.where.tenantId && x.locationId === a.where.locationId);
+  for (const x of hit) Object.assign(x, a.data);
+  return { count: hit.length };
+};
 const idMatch = (row: Row, idw: unknown) => idw === undefined || (typeof idw === 'string' ? row.id === idw : (idw as Row)?.not !== undefined ? row.id !== (idw as Row).not : true);
 
 const db: Row = {
@@ -352,6 +370,7 @@ const db: Row = {
       return [...m.entries()].map(([locationId, n]) => ({ locationId, _count: { _all: n } }));
     },
     async update(a: Row) { log('salesRep.update', a); const r = st.reps.find((x) => x.id === a.where.id)!; Object.assign(r, a.data); return r; },
+    async updateMany(a: Row) { log('salesRep.updateMany', a); return updateRows(st.reps, a); },
   },
   salesLocation: {
     async findFirst(a: Row) {
@@ -364,11 +383,13 @@ const db: Row = {
     async delete(a: Row) { log('salesLocation.delete', a); st.locations = st.locations.filter((x) => x.id !== a.where.id); return {}; },
   },
   invoice: {
-    async findFirst(a: Row) { log('invoice.findFirst', a); return st.hasInvoice ? { id: 'I1' } : null; },
+    async findFirst(a: Row) { log('invoice.findFirst', a); return null; },
     async groupBy(a: Row) { log('invoice.groupBy', a); return st.invoiceGroups; },
+    async updateMany(a: Row) { log('invoice.updateMany', a); return updateRows(st.invoiceRows, a); },
   },
   vanLoad: {
-    async findFirst(a: Row) { log('vanLoad.findFirst', a); return st.hasLoad ? { id: 'V1' } : null; },
+    async findFirst(a: Row) { log('vanLoad.findFirst', a); return null; },
+    async updateMany(a: Row) { log('vanLoad.updateMany', a); return updateRows(st.loadRows, a); },
     async findMany(a: Row) { log('vanLoad.findMany', a); return st.loads; },
     async create(a: Row) { log('vanLoad.create', a); return { id: 'VNEW', ...a.data, items: [] }; },
   },
@@ -382,8 +403,15 @@ const db: Row = {
     },
   },
 };
-db.$transaction = async (fn: (tx: Row) => Promise<unknown>) => fn(db);
+db.$transaction = async (fn: (tx: Row) => Promise<unknown>, opts?: Row) => { log('$transaction', opts ?? {}); return fn(db); };
 db.$executeRaw = async () => 0;
+// قفل صفّ الموقع في حذفه (SELECT … FOR UPDATE): القيمتان بالترتيب المعرّف ثم الشركة
+db.$queryRaw = async (strings: TemplateStringsArray, ...values: unknown[]) => {
+  const sql = strings.join('?');
+  log('$queryRaw', { sql, values });
+  const [id, tid] = values;
+  return st.locations.filter((x) => x.id === id && x.tenantId === tid).map((x) => ({ id: x.id }));
+};
 stub('config/database', { default: db });
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -466,7 +494,7 @@ test('الإسناد تشغيلاً: موقعٌ من الشركة وفعّال،
   assert.equal(st.reps.find((r) => r.id === 'R1')!.locationId, null, 'null = بلا موقع');
 });
 
-test('التعريف تشغيلاً: الاسم الفريد والنقطة الكاملة، ولا أرشفة ولا حذف وفيه مناديب، ولا حذف وعليه مستندات', async () => {
+test('التعريف تشغيلاً: الاسم الفريد والنقطة الكاملة، والأرشفة (إجراءٌ مستقلّ) لا تصحّ وفيه مناديب', async () => {
   reset();
   assert.equal((await call(locationsRouter, 'post', '/', { body: { name: ' الرياض ' } })).body.code, 'LOCATION_NAME_TAKEN');
   assert.equal((await call(locationsRouter, 'post', '/', { body: { name: 'الخبر', lat: 26.2 } })).status, 400, 'نصف نقطة');
@@ -477,24 +505,71 @@ test('التعريف تشغيلاً: الاسم الفريد والنقطة ال
 
   const archive = await call(locationsRouter, 'put', '/:id', { params: { id: 'L1' }, body: { isActive: false } });
   assert.equal(archive.status, 409);
-  assert.equal(archive.body.code, 'LOCATION_HAS_REPS', 'مندوبٌ في الموقع ⇒ يُنقل أولاً');
-  assert.equal((await call(locationsRouter, 'delete', '/:id', { params: { id: 'L1' } })).body.code, 'LOCATION_HAS_REPS');
+  assert.equal(archive.body.code, 'LOCATION_HAS_REPS', 'مندوبٌ في الموقع ⇒ يُنقل أولاً قبل الأرشفة');
 
   st.reps[0].locationId = null;
-  st.hasInvoice = true;
-  assert.equal((await call(locationsRouter, 'delete', '/:id', { params: { id: 'L1' } })).body.code, 'LOCATION_HAS_DOCUMENTS', 'يُؤرشف بدل الحذف');
-  st.hasInvoice = false;
-  st.hasLoad = true;
-  assert.equal((await call(locationsRouter, 'delete', '/:id', { params: { id: 'L1' } })).body.code, 'LOCATION_HAS_DOCUMENTS', 'والتحميلات كالفواتير');
-  assert.ok(!calls.some((c) => c.op === 'salesLocation.delete'));
   assert.equal((await call(locationsRouter, 'put', '/:id', { params: { id: 'L1' }, body: { isActive: false } })).status, 200, 'بلا مناديب ⇒ يُؤرشف');
   // مسح النقطة: الزوج null معاً، ونصفها يُرفض
   assert.equal((await call(locationsRouter, 'put', '/:id', { params: { id: 'L1' }, body: { lat: null } })).status, 400);
   assert.equal((await call(locationsRouter, 'put', '/:id', { params: { id: 'L1' }, body: { lat: null, lng: null } })).status, 200);
 
-  // المقيَّد النطاق لا يعيد رسم المواقع
+  // المقيَّد النطاق لا يعيد رسم المواقع — ولا يحذفها
   st.admin = { ...st.admin, scopeEnabled: true };
   assert.equal((await call(locationsRouter, 'post', '/', { body: { name: 'تبوك' } })).status, 403);
+  calls = [];
+  assert.equal((await call(locationsRouter, 'delete', '/:id', { params: { id: 'L1' } })).status, 403);
+  assert.deepEqual(calls, [], 'المقيَّد: لا قفل ولا كتابة');
+  assert.ok(st.locations.some((l) => l.id === 'L1'));
+});
+
+test('الحذف فعليّ (أمر المالك ٧ نوفمبر): بقفل الصفّ في معاملة يفكّ المناديب ويُفرغ ختم الفواتير والتحميلات ثم يحذف — لا أرشفة ولا 409', async () => {
+  reset();
+  // L1 فيه مندوب (R1) وعليه فاتورتان وتحميل — كان يُرفض 409 LOCATION_HAS_REPS/LOCATION_HAS_DOCUMENTS
+  const r = await call(locationsRouter, 'delete', '/:id', { params: { id: 'L1' } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body, { success: true, data: { id: 'L1', unlinked: { reps: 1, invoices: 2, vanLoads: 1 } } });
+
+  // الترتيب: معاملةٌ بمهلة، قفلٌ أولاً، ثم التفريغ، ثم حذف الصفّ آخراً — ولا تحديث للموقع (لا أرشفة بدل الحذف)
+  assert.deepEqual(calls.map((c) => c.op), ['$transaction', '$queryRaw', 'salesRep.updateMany', 'invoice.updateMany', 'vanLoad.updateMany', 'salesLocation.delete']);
+  assert.deepEqual(calls[0].args, { maxWait: 10_000, timeout: 60_000 });
+  const lock = calls[1].args;
+  assert.match(lock.sql, /^SELECT id FROM sales_locations WHERE id = \? AND "tenantId" = \? FOR UPDATE$/);
+  assert.deepEqual(lock.values, ['L1', T], 'القفل بالمعرّف والشركة');
+  for (const op of ['salesRep.updateMany', 'invoice.updateMany', 'vanLoad.updateMany']) {
+    const a = calls.find((c) => c.op === op)!.args;
+    assert.deepEqual(a, { where: { tenantId: T, locationId: 'L1' }, data: { locationId: null } }, `${op}: بشرط الشركة والختم، تفريغٌ لا حذف`);
+  }
+  assert.deepEqual(calls.find((c) => c.op === 'salesLocation.delete')!.args, { where: { id: 'L1' } });
+
+  // النتيجة: الصفّ أُزيل فعلاً، والمندوب بلا موقع، والمستندات باقيةٌ كلّها بلا ختم — وغيرها على حاله
+  assert.deepEqual(st.locations.map((l) => l.id), ['L2', 'LX'], 'لا نسخة باقية للموقع');
+  assert.equal(st.reps.find((x) => x.id === 'R1')!.locationId, null);
+  assert.deepEqual(st.invoiceRows.map((x) => [x.id, x.locationId]), [['I1', null], ['I2', null], ['I3', 'L2'], ['I4', null], ['IX', 'L1']],
+    'فواتير الموقع بلا ختم وباقية، وموقعٌ آخر وشركةٌ أخرى لا تُمسّ');
+  assert.deepEqual(st.loadRows.map((x) => [x.id, x.locationId]), [['V1', null], ['V2', 'L2']]);
+  assert.ok(!calls.some((c) => c.op === 'salesLocation.update'), 'لا أرشفة');
+
+  // المؤرشف يُحذف كذلك (لا يبقى مؤرشفاً)، بمستنداته
+  calls = [];
+  const archived = await call(locationsRouter, 'delete', '/:id', { params: { id: 'L2' } });
+  assert.equal(archived.status, 200);
+  assert.deepEqual(archived.body.data.unlinked, { reps: 0, invoices: 1, vanLoads: 1 });
+  assert.ok(!st.locations.some((l) => l.id === 'L2'));
+
+  // موقع شركةٍ أخرى أو غير موجود: 404 بعد القفل الفارغ، بلا أيّ كتابة
+  for (const id of ['LX', 'NOPE']) {
+    calls = [];
+    const miss = await call(locationsRouter, 'delete', '/:id', { params: { id } });
+    assert.equal(miss.status, 404, id);
+    assert.deepEqual(calls.map((c) => c.op), ['$transaction', '$queryRaw'], `${id}: لا تفريغ ولا حذف`);
+  }
+  assert.ok(st.locations.some((l) => l.id === 'LX'));
+  assert.equal(st.invoiceRows.find((x) => x.id === 'IX')!.locationId, 'L1', 'مستند الشركة الأخرى لم يُمسّ');
+
+  // حارسٌ نصّي: معالج الحذف بلا رفض 409 ولا أرشفة
+  const src = read('routes', 'locations.ts');
+  const del = src.slice(src.indexOf("router.delete('/:id'"), src.indexOf('export default router;'));
+  assert.doesNotMatch(del, /LOCATION_HAS_REPS|LOCATION_HAS_DOCUMENTS|isActive|status\(409\)/, 'الحذف لا يُرفض لمناديب أو مستندات ولا يؤرشف');
 });
 
 test('الملخّص تشغيلاً: الفترة بأيام الشركة، والمؤكَّد وحده بتاريخه، والتحميلات LOAD بلحظتها، وأسماء الأصناف', async () => {
