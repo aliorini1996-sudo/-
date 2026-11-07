@@ -9,6 +9,7 @@ import { receiptInvoicesFrom } from '../../rep/receiptLinks';
 import { X, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SearchableSelect from '../SearchableSelect';
+import { joinCustomerHint } from '../../lib/customerPhoneField';
 import { METHOD_CHOICE_UNAVAILABLE, choicePayload, pickChoice, receiptChoicesFor } from '../../lib/paymentMethodsConfig';
 
 interface Props { onClose: () => void; onSaved: (doc: ReceiptDoc) => void; }
@@ -176,7 +177,7 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
               options={(customers || []).map(c => ({
                 value: c.id,
                 label: c.name,
-                hint: Number(c.balance) > 0 ? `${tr('رصيد')} ${formatCurrency(c.balance)}` : c.phone,
+                hint: Number(c.balance) > 0 ? `${tr('رصيد')} ${formatCurrency(c.balance)}` : joinCustomerHint(c.phone),
                 hintColor: Number(c.balance) > 0 ? 'text-red-500' : undefined,
               }))}
               onChange={(v) => { setCustomerId(v); setSelectedCustomer((customers || []).find(c => c.id === v) || null); setAllocations({}); }}

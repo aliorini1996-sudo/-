@@ -2,6 +2,7 @@ import { Invoice } from '../../types';
 import { formatCurrency, formatDate, statusLabels } from '../../utils/format';
 import { useTr } from '../../i18n/strings';
 import { isDocTaxFree, type TaxModeDoc } from '../../lib/taxMode';
+import { customerPhoneText } from '../../lib/customerPhoneField';
 import { X, Printer } from 'lucide-react';
 
 interface Props { invoice: Invoice; onClose: () => void; }
@@ -31,7 +32,7 @@ export default function InvoiceDetailModal({ invoice, onClose }: Props) {
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div className="space-y-2">
               <p><span className="text-gray-500">{tr('العميل')}:</span> <span className="font-medium">{invoice.customer.name}</span></p>
-              <p><span className="text-gray-500">{tr('الجوال')}:</span> <span>{invoice.customer.phone}</span></p>
+              <p><span className="text-gray-500">{tr('الجوال')}:</span> <span dir="ltr">{customerPhoneText(invoice.customer.phone)}</span></p>
             </div>
             <div className="space-y-2">
               <p><span className="text-gray-500">{tr('المندوب')}:</span> <span className="font-medium">{invoice.salesRep?.name ?? '—'}</span></p>

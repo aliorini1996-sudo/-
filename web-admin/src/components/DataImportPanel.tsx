@@ -28,8 +28,6 @@ import {
   revertConfirmKey, openingStockRevertHint, OPENING_STOCK_REVERT_HINT,
   // البندان 43 و44
   conflictingPricePairs, skippedStatLabel, PRICE_DUPLICATE_PAIRS_TITLE, PRICE_DUPLICATE_KEPT_ROW, type PriceDuplicatePair,
-  // البند 49
-  phoneNotEditableWarning, CUSTOMER_PHONE_NOT_EDITABLE, CUSTOMER_PHONE_NOT_EDITABLE_FIX,
   // البند 39
   futureDatedWarning, IMPORT_FUTURE_DATED, IMPORT_FUTURE_DATED_MAX, IMPORT_FUTURE_DATED_FIX,
   // البند 36: العدّاد الصادق وراء سقف الأخطاء
@@ -109,8 +107,6 @@ interface ImportResult {
     similar?: { row: number; code?: string; matchedBy?: 'phone' | 'name' }[];
     /** الأسعار (البند 43): أزواج (عميل/صنف) تكررت في الملف — المحفوظ آخرها */
     duplicates?: PriceDuplicatePair[];
-    /** العملاء (البند 49): أُنشئوا بجوال لا تقبله بطاقة العميل، فلا يُحفظ لها تعديل */
-    phoneNotEditable?: { count?: number; rows?: number[] } | null;
     /** الأرصدة والكشوف (البند 39): صفوف تاريخها بعد «اليوم + يوم» بتوقيت الشركة — خادم أقدم لا يرسله */
     futureDated?: { count?: number; rows?: number[]; maxDate?: string; message?: string } | null;
     /** البند 31: العدّ نفسه إن وضعه الخادم في التنبيهات بدل جذر الرد */
@@ -989,8 +985,6 @@ export default function DataImportPanel() {
         // البندان 43 و44: عدّاد لكل سبب تخطٍّ (قائمة الصفوف تُقتطع)، وأزواج اختلف فيها السعر
         const skipCounts = skipReasonCounts(result.kind, skippedRows);
         const pricePairs = conflictingPricePairs(w?.duplicates);
-        // البند 49: عملاء استُوردوا بجوال لا تقبله بطاقتهم
-        const phoneGap = phoneNotEditableWarning(w?.phoneNotEditable);
         // البند 39: صفوف كُتبت بتاريخ بعد اليوم (خطأ سنة) — خادم أقدم لا يرسل الحقل فلا كتلة
         const futureDated = futureDatedWarning(w?.futureDated);
         // البند 31: أُرسل الملف بأسعار شاملة الضريبة ⇒ ما خُزّن صافٍ، وعدد ما حُوّل إن أرسله الخادم
@@ -1079,22 +1073,6 @@ export default function DataImportPanel() {
                     {tr(PRICES_SAVED_NET)}
                     {netRows > 0 ? <> · <bdi className="tabular-nums font-semibold">{netRows}</bdi> {tr(PRICES_SAVED_NET_ROWS)}</> : null}
                   </p>
-                )}
-                {/* البند 49: بطاقات هؤلاء العملاء لا تقبل أي تعديل قبل جوال صالح */}
-                {phoneGap && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mt-4 text-[11px] text-amber-900 text-right">
-                    <p className="font-semibold">
-                      <AlertTriangle size={12} className="inline me-1" />
-                      {tr(CUSTOMER_PHONE_NOT_EDITABLE)} (<bdi className="tabular-nums">{phoneGap.count}</bdi>)
-                    </p>
-                    <p className="mt-1">{tr(CUSTOMER_PHONE_NOT_EDITABLE_FIX)}</p>
-                    {phoneGap.rows.length > 0 && (
-                      <p className="mt-1">
-                        {tr('صف')}: <bdi className="tabular-nums">{phoneGap.rows.slice(0, 20).map(row).join(listSeparator(lang))}</bdi>
-                        {phoneGap.rows.length > 20 ? ' …' : ''}
-                      </p>
-                    )}
-                  </div>
                 )}
                 {/* البند 43: زوج عميل وصنف بسعرين مختلفين — المحفوظ آخر صف، والملغى معدود في التخطي */}
                 {pricePairs.length > 0 && (

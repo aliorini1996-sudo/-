@@ -43,6 +43,7 @@ import {
 } from '../../lib/invoiceModalRepPrice';
 import ConfirmDialog from '../ConfirmDialog';
 import { overAvailable, refFor, vanRemainingOf, withClientRef, type RefMemo } from '../../lib/vanStockFlags';
+import { joinCustomerHint } from '../../lib/customerPhoneField';
 
 /**
  * بند الفاتورة في المحرّر. الوحدات المتعددة: `unit` اسم وحدة البند كما يُطبع، والكمية والسعر بها؛ و`unitId` وحدتها
@@ -771,7 +772,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                 options={(customers || []).map(c => ({
                   value: c.id,
                   label: c.name,
-                  hint: c.phone + (Number(c.balance) > 0 ? ` • ${tr('رصيد')} ${formatCurrency(c.balance)}` : ''),
+                  // الجوال اختياريّ (٧ نوفمبر ٢٠٢٦): عميلٌ بلا جوال لا يبدأ تلميحه بفاصلٍ يتيم
+                  hint: joinCustomerHint(c.phone, Number(c.balance) > 0 && `${tr('رصيد')} ${formatCurrency(c.balance)}`),
                   hintColor: Number(c.balance) > 0 ? 'text-red-500' : undefined,
                 }))}
                 // فاتورة البيع المربوطة لعميلٍ آخر يرفضها الخادم («فاتورة البيع لعميلٍ آخر») — تُفكّ مع تغيير العميل

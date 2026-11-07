@@ -1,13 +1,13 @@
 // البندان 3 و4 (مراجعة استيراد البيانات 2026-09-17): مطابقة العملاء في الاستيراد. منطق صرف بلا قاعدة بيانات.
-// والدفعة 3: البند 49 — جوال الاستيراد وقاعدة تعديل بطاقة العميل نفسها.
+// وأمر المالك (٧ نوفمبر): جوال العميل اختياري حرّ — يُخزَّن كما كُتب والفارغ ''، والفارغ والتافه لا يطابقان أحداً،
+// وتنبيه البند 49 (عملاء بلا جوال من تسع خانات) أُلغي.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildCustomerMatcher, normImportPhone, planCustomerImport, storedCustomerPhone } from '../services/importMatch';
-import {
-  CUSTOMER_PHONE_MIN, CUSTOMER_PHONE_NOT_EDITABLE, IMPORT_ROW_MESSAGES, customerMatchError, isEditableCustomerPhone, phoneNotEditableRows,
-} from '../services/importLedger';
+import { CUSTOMER_PHONE_MAX, buildCustomerMatcher, normImportPhone, planCustomerImport, storedCustomerPhone } from '../services/importMatch';
+import * as importLedger from '../services/importLedger';
+import { IMPORT_ROW_MESSAGES, customerMatchError } from '../services/importLedger';
 
 const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
 
@@ -20,7 +20,7 @@ test('normImportPhone: الصيغ الدولية والأرقام العربية
   }
   // هاتف أرضي بثمانية أرقام فأكثر يبقى
   assert.equal(normImportPhone('011 234 5678'), '0112345678');
-  assert.equal(storedCustomerPhone('0'), '—');
+  assert.equal(storedCustomerPhone('0'), '');
   assert.equal(storedCustomerPhone(' 0501234567 '), '0501234567');
 });
 
@@ -86,12 +86,12 @@ test('سيناريو البند 3(أ): خمسة فروع «صيدلية النه
   assert.deepEqual(dupCode.map((d) => d.action), ['create', 'skip']);
 });
 
-test('سيناريو البند 3(ب): 800 صف بلا كود بجوال «0» وأسماء مختلفة ⇒ 800 إنشاء لا 401، ويخزَّن «—»', () => {
+test('سيناريو البند 3(ب): 800 صف بلا كود بجوال «0» وأسماء مختلفة ⇒ 800 إنشاء لا 401، ويخزَّن فارغاً (بلا جوال)', () => {
   const rows = Array.from({ length: 800 }, (_, i) => ({ name: `عميل رقم ${i + 1}`, phone: '0' }));
   const plan = planCustomerImport([{ code: 'Z', phone: '0', name: 'قائم' }], rows);
   const creates = plan.filter((d) => d.action === 'create');
   assert.equal(creates.length, 800);
-  assert.ok(creates.every((d) => d.action === 'create' && d.phone === '—'));
+  assert.ok(creates.every((d) => d.action === 'create' && d.phone === ''));
   // بلا كود: الجوال الصالح المطابق ⇒ PHONE_EXISTS، ثم الاسم المطبَّع ⇒ NAME_EXISTS
   const skip = planCustomerImport(
     [{ code: 'A', phone: '0501234567', name: 'مؤسسة الأمل' }],
@@ -107,8 +107,8 @@ test('حارس ثابت: /customers بالمخطِّط وskippedRows وwarnings.
   const customers = body("router.post('/customers'");
   assert.match(customers, /customerImportPlanner\(existing\)/);
   assert.doesNotMatch(customers, /names\.has\(|phones\.has\(/, 'التخطي بشرط OR القديم');
-  // البند 49: التنبيه المعدود يُضاف إلى warnings القائمة ولا يزيح similar
-  assert.match(customers, /data: \{ \.\.\.result, \.\.\.cappedErrors\(result\.errors\), skippedRows, attachedRows, warnings: \{ similar, \.\.\.\(phoneNotEditable \? \{ phoneNotEditable \} : \{\}\) \} \}/);
+  // warnings.similar وحده (تنبيه الجوال «البند 49» أُلغي بأمر المالك ٧ نوفمبر)
+  assert.match(customers, /data: \{ \.\.\.result, \.\.\.cappedErrors\(result\.errors\), skippedRows, attachedRows, warnings: \{ similar \} \} \}\);\n  \} catch/);
   assert.doesNotMatch(src, /async function customerFinder\(/);
   assert.match(body("router.post('/balances'"), /customerMatchError\(/);
   // البندان 43 و44: /prices يطابق داخل المخطِّط (planPriceImportRows) بالمطابق نفسه ورموزه — عبر planPriceRowsWithUnits («الوحدة
@@ -271,36 +271,67 @@ test('حارس ثابت: /customers يكتب الكود المربوط بشرط 
   assert.doesNotMatch(attachLoop, /progress\.(write|commit)\(/, 'العميل المربوط لا يدخل سجلات الدفعة فيحذفه التراجع');
 });
 
-test('سيناريو البند 49: جوال «—» أو قصير يمرّ في الاستيراد ثم يفشل كل تعديل للعميل ⇒ تنبيه معدود بصفوفه بقاعدة البطاقة نفسها', () => {
-  // قاعدة بطاقة العميل حرفياً: تعديلها يفحص phone بـmin(9) ولو لم يتغيّر، فما دونها يوقف كل تعديل لاحق
-  assert.match(read('routes/customers.ts'), /phone: z\.string\(\)\.min\(9\)/);
-  assert.equal(CUSTOMER_PHONE_MIN, 9);
-  // ما يخزّنه الاستيراد للجوال التافه أو الفارغ لا تقبله البطاقة — وهو أصل البند
-  assert.equal(isEditableCustomerPhone(storedCustomerPhone('')), false);
-  assert.equal(isEditableCustomerPhone(storedCustomerPhone('0')), false);
-  assert.equal(isEditableCustomerPhone(storedCustomerPhone('0501234567')), true);
-  assert.equal(isEditableCustomerPhone(storedCustomerPhone('011 234 5678')), true);
-  // هاتف أرضي بثمانية أرقام: يُطابِق ويُخزَّن، ولا تقبله البطاقة ⇒ يُعدّ في التنبيه لا يُرفض صفّه
-  assert.equal(storedCustomerPhone('01123456'), '01123456');
-  assert.equal(isEditableCustomerPhone('01123456'), false);
-  const gap = phoneNotEditableRows([
-    { row: 2, phone: storedCustomerPhone('') },
-    { row: 3, phone: storedCustomerPhone('0501234567') },
-    { row: 4, phone: '01123456' },
-  ]);
-  assert.deepEqual(gap, { count: 2, rows: [2, 4] });
-  assert.equal(phoneNotEditableRows([{ row: 2, phone: '0501234567' }]), null, 'ملف بجوالات صالحة بلا تنبيه');
-  assert.match(CUSTOMER_PHONE_NOT_EDITABLE, /لا يقل عن تسع خانات/);
+// ═══ أمر المالك (٧ نوفمبر): جوال العميل اختياري حرّ — بلا حدّ أدنى ولا صيغة، وتنبيه البند 49 أُلغي ═══
+
+test('أمر المالك (٧ نوفمبر): جوال العميل المستورد يُخزَّن كما كُتب ولو قصيراً، والفارغ والشرطة والأصفار ⇒ \'\' لا «—»', () => {
+  // بلا جوال: '' (Customer.phone نصّ إلزامي) — لا «—» يظهر جوالاً فيُبنى منه رابط واتساب أو اتصال
+  for (const s of ['', '   ', null, undefined, '—', '-', 'لا يوجد', 'N/A', '0', '000', '0.0', '0,0', '٠']) {
+    assert.equal(storedCustomerPhone(s), '', String(s));
+  }
+  // لا حدّ أدنى ولا صيغة: القصير والأرضي والدولي والمكتوب بفواصل كما هو بعد القصّ
+  for (const s of ['12345', '0112', '01123456', '+966 50 123 4567', '050-123-4567', '٠٥٠١٢٣٤٥٦٧', '+44 20 7946 0958', 'ext 12']) {
+    assert.equal(storedCustomerPhone(`  ${s} `), s, s);
+  }
+  // حدّ الأمان وحده: ما فوق ٣٠ خانة ⇒ أول جوال صالح في الخلية، وإلا أول ٣٠ خانة
+  assert.equal(CUSTOMER_PHONE_MAX, 30);
+  assert.equal(storedCustomerPhone('0501234567 / 0551234567 / 0561234567'), '0501234567');
+  const junk = 'رقم المحل القديم 1 2 3 لا يعمل حالياً';
+  assert.ok(junk.length > CUSTOMER_PHONE_MAX);
+  assert.equal(storedCustomerPhone(junk), junk.slice(0, CUSTOMER_PHONE_MAX).trim());
+  assert.ok(storedCustomerPhone('9'.repeat(40)).length <= CUSTOMER_PHONE_MAX);
 });
 
-test('حارس ثابت (البند 49): /customers يحسب التنبيه من creates قبل الكتابة، ولا يرفض الصفّ ولا يعدّه متخطياً', () => {
+test('أمر المالك (٧ نوفمبر): الجوال الفارغ أو التافه لا يطابق ولا يتخطى ولا يربط — \'\' لا يساوي \'\'', () => {
+  // عملاء قائمون بلا جوال ('' الجديد و«—» القديم) وبجوال قصير حرّ
+  const existing = [
+    { id: 'e1', code: 'E-1', phone: '', name: 'بقالة الأولى' },
+    { id: 'e2', code: 'E-2', phone: '', name: 'بقالة الثانية' },
+    { id: 'e3', code: 'E-3', phone: '—', name: 'بقالة الثالثة' },
+    { id: 'e4', code: 'E-4', phone: '12345', name: 'بقالة الرابعة' },
+  ];
+  // ملف عملاء بلا كود بجوالات فارغة أو قصيرة وأسماء جديدة ⇒ كلها تُنشأ (لا PHONE_EXISTS)، والقصير يُخزَّن كما هو
+  const plan = planCustomerImport(existing, [
+    { name: 'جديد ١', phone: '' }, { name: 'جديد ٢', phone: '' }, { name: 'جديد ٣', phone: '—' },
+    { name: 'جديد ٤', phone: '12345' }, { name: 'جديد ٥', phone: '12345' },
+  ]);
+  assert.deepEqual(plan.map((d) => (d.action === 'create' ? `create:${d.phone}` : d.action === 'skip' ? d.reason : d.action)),
+    ['create:', 'create:', 'create:', 'create:12345', 'create:12345']);
+  // بالكود: الجوال الفارغ لا يجعل العميل «مشابهاً» ولا يربط الكود بعميل بكود تلقائي بلا جوال؛ الاسم الفريد وحده يربط
+  const auto = [{ id: 'a1', code: 'clx9k2m7p0000abcd1234efgh', phone: '', name: 'مؤسسة النور' }];
+  assert.deepEqual(planCustomerImport(auto, [{ code: 'C1', phone: '', name: 'محل آخر' }])
+    .map((d) => (d.action === 'create' ? `create:${d.similar ?? ''}` : d.action)), ['create:']);
+  assert.deepEqual(planCustomerImport(auto, [{ code: 'C1', phone: '', name: 'مؤسسة النور' }])
+    .map((d) => (d.action === 'attach' ? d.matchedBy : d.action)), ['name']);
+  // المطابق (/balances و/ledger و/prices): الجوال الفارغ أو «—» أو القصير يسقط إلى الاسم، ولا يلتبس بالعملاء بلا جوال
+  const match = buildCustomerMatcher(existing);
+  assert.deepEqual(match({ phone: '', customerName: 'بقالة الأولى' }), { id: 'e1' });
+  assert.deepEqual(match({ phone: '—', customerName: 'بقالة الثانية' }), { id: 'e2' });
+  assert.deepEqual(match({ phone: '12345', customerName: 'بقالة الثالثة' }), { id: 'e3' });
+  assert.deepEqual(match({ phone: '' }), { error: 'NOT_FOUND' });
+  assert.deepEqual(match({ phone: '12345' }), { error: 'NOT_FOUND' }, 'جوال قصير حرّ لا يطابق ولو تطابق نصّه');
+});
+
+test('حارس ثابت (أمر المالك ٧ نوفمبر): تنبيه «عملاء بلا جوال صالح» أُلغي من الخدمة والمسار، والجوال لا يُرفض صفّه بطوله', () => {
+  for (const k of ['CUSTOMER_PHONE_MIN', 'isEditableCustomerPhone', 'CUSTOMER_PHONE_NOT_EDITABLE', 'phoneNotEditableRows']) {
+    assert.equal(k in importLedger, false, k);
+  }
   const src = read('routes/import.ts');
+  assert.doesNotMatch(src, /phoneNotEditable|isEditableCustomerPhone|CUSTOMER_PHONE_MIN/);
+  // مخطط الصف: الجوال اختياري مقصوص بلا حدّ أدنى (حدّ الطول في storedCustomerPhone لا رفض للصفّ)
+  assert.match(src, /const customerRow = z\.object\(\{\n  name: z\.string\(\)\.trim\(\)\.min\(1\),\n  phone: z\.string\(\)\.trim\(\)\.optional\(\)\.default\(''\),\n/);
+  // المخزَّن قرار المخطِّط (storedCustomerPhone) لا الخلية الخام
   const i = src.indexOf("router.post('/customers'");
   const body = src.slice(i, src.indexOf('\nrouter.', i + 20));
-  // الحساب على ما سيُنشأ (creates: {row, phone}) قبل حلقة الكتابة، فالتنبيه يصل ولو انقطعت الكتابة
-  assert.match(body, /phoneNotEditable = phoneNotEditableRows\(creates\);/);
-  assert.ok(body.indexOf('phoneNotEditableRows(creates)') < body.indexOf('runImportChunks('), 'التنبيه بعد الكتابة');
-  // انحدار: الصفّ بجوال قصير يُنشأ كما كان (تنبيه لا رفض ولا تخطٍّ)
-  assert.doesNotMatch(body, /isEditableCustomerPhone\(/, 'الجوال صار شرط إنشاء');
-  assert.match(body, /warnings: \{ similar, \.\.\.\(phoneNotEditable \? \{ phoneNotEditable \} : \{\}\) \}/);
+  assert.match(body, /creates\.push\(\{ row: d\.row, phone: d\.phone, r \}\);/);
+  assert.match(body, /writeItem: async \(tx: Prisma\.TransactionClient, \{ r, phone \}\) => \{/);
 });

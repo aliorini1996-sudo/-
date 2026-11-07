@@ -813,7 +813,7 @@ function toCustomers(rows: Record<string, unknown>[], opts?: TransformOpts): Tra
       errors.push({ row: line, message: PAYMENT_DAYS_INVALID, value: c.s(row, 'paymentDays'), field: 'paymentDays' }); return;
     }
     fileRows.push(line);
-    // الجوال يُرسل كما هو: الخادم يطبّعه (normImportPhone) ويعامل التافه «—»
+    // الجوال يُرسل كما هو: الخادم يطابق بـnormImportPhone، ويخزّن الفارغ أو ما بلا أرقام '' (الجوال اختياري حرّ)
     valid.push({
       name, phone, code: code || undefined,
       email: c.s(row, 'email') || undefined, businessName: c.s(row, 'businessName') || undefined,
@@ -990,11 +990,16 @@ function rowDate(raw: string, line: number, errors: ImportRowError[], order: Dat
   if (d === null) errors.push({ row: line, message: DATE_ERROR_MESSAGE, value: raw });
   return d;
 }
-/** مفتاح العميل داخل الملف: الكود، وإلا أرقام الجوال، وإلا الاسم المطبَّع */
+/**
+ * مفتاح العميل داخل الملف: الكود، وإلا أرقام الجوال، وإلا الاسم المطبَّع.
+ * الجوال التافه («0» خلية Excel الفارغة، «123»، رقمٌ مكرر) ليس هويةً — كما لا يطابق به الخادم (normImportPhone) — وإلا
+ * اجتمع عميلان مختلفان جوالهما «0» في مفتاحٍ واحد: «عملاء مكررون» كاذب في الأرصدة، ورصيد افتتاح الثاني يسقط «منقولاً» في الكشف.
+ * (جوال العميل اختياري حرّ بأمر المالك ٧ نوفمبر: الفارغ والتافه لا يطابقان أحداً ولا يدمجان عميلين.)
+ */
 const customerKey = (name: string, code: string, phone: string): string => {
   if (code) return `c:${code.trim()}`;
   const digits = toAsciiDigits(phone).replace(/\D/g, '');
-  if (digits) return `p:${digits}`;
+  if (digits && !blankPhone(phone)) return `p:${digits}`;
   return `n:${norm(name)}`;
 };
 function toBalances(rows: Record<string, unknown>[], opts?: TransformOpts): TransformOut {

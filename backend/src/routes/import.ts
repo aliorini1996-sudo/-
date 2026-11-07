@@ -24,8 +24,8 @@ import {
   assertMasterBatchReservable, customerMatchError, groupLedgerRows, importRowError, importWriteFailure, mergeBalanceRows, normImportName,
   priceRowIssue, pricesRevertPlan, taxPctIssue, type BalanceSkipReason, type ImportMasterKind, type ImportRowError, type OpeningStockLine, type ResolvedBalanceRow,
   newPricesRevertTotals, runPricesRevertChunks, type PriceRevertChunkDelta,
-  // الدفعة 3 (البنود 31 و36 و43 و44 و49): فحص الصفوف صفاً صفاً، وتخطيط الأسعار، وجوال البطاقة
-  importRowLimitError, parseImportRows, phoneNotEditableRows, planPriceImportRows, type ImportRowSchema,
+  // الدفعة 3 (البنود 31 و36 و43 و44): فحص الصفوف صفاً صفاً، وتخطيط الأسعار
+  importRowLimitError, parseImportRows, planPriceImportRows, type ImportRowSchema,
 } from '../services/importLedger';
 // البند 31: ردّ السعر الشامل إلى صافيه بالدالّة المالية الموحّدة نفسها (نصف-لأعلى)
 import { netFromInclusive, roundHalfUp } from '../lib/money';
@@ -488,8 +488,6 @@ router.post('/customers', requireImportAccess('customers'), async (req: AuthRequ
     const skippedRows: { row: number; reason: CustomerSkipReason }[] = [];
     const similar: { row: number; code: string; matchedBy: 'phone' | 'name' }[] = [];
     const attachedRows: { row: number; code: string; matchedBy: 'phone' | 'name' }[] = [];
-    // البند 49: عملاء أُنشئوا بجوال لا تقبله بطاقة العميل ⇒ تنبيه معدود بصفوفه (لا رفض: ملف بلا عمود جوال كان يمرّ)
-    let phoneNotEditable: ReturnType<typeof phoneNotEditableRows> = null;
     // البند 36: صفّ مخالف للمخطط ⇒ أخطاء صفوف بلا أي كتابة ولا حجز دفعة (الرد بشكله نفسه بأصفار)
     if (result.errors.length) { res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows, attachedRows, warnings: { similar } } }); return; }
     // مفتاح API: بوابة بيانات المشتري التي يمرّ بها POST /customers تسري هنا صفاً صفاً (customersZatca.ts importBuyerRowsGate) —
@@ -518,10 +516,9 @@ router.post('/customers', requireImportAccess('customers'), async (req: AuthRequ
         if (d.action === 'attach') { planner.commitAttach(d); attaches.push(d); return; }
         planner.commit(r);
         if (d.similar && r.code && similar.length < 500) similar.push({ row: d.row, code: r.code, matchedBy: d.similar });
+        // الجوال اختياري حرّ (أمر المالك ٧ نوفمبر): المكتوب كما هو والفارغ '' (storedCustomerPhone) — لا تنبيه ولا رفض
         creates.push({ row: d.row, phone: d.phone, r });
       });
-      // البند 49: قاعدة بطاقة العميل نفسها (تسع خانات) — تُحسب على ما سيُنشأ قبل الكتابة
-      phoneNotEditable = phoneNotEditableRows(creates);
       await runImportChunks({
         chunks: planImportChunks(creates, () => 1, importChunkTarget(creates.length)),
         runTx: <X>(fn: (tx: Prisma.TransactionClient) => Promise<X>) => prisma.$transaction(async tx => fn(tx), IMPORT_WRITE_TX),
@@ -582,7 +579,7 @@ router.post('/customers', requireImportAccess('customers'), async (req: AuthRequ
     } finally {
       result.batchId = await progress.finish();
     }
-    res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows, attachedRows, warnings: { similar, ...(phoneNotEditable ? { phoneNotEditable } : {}) } } });
+    res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows, attachedRows, warnings: { similar } } });
   } catch (err) { sendImportError(err, res, next); }
 });
 

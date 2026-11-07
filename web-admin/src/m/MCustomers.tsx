@@ -13,6 +13,7 @@ import { MCard, MRow, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import MCustomerForm from './MCustomerForm';
 import { can } from './perms';
 import { expectArray, expectObject } from './shape';
+import { mCustomerTel } from './mCustomerPhone';
 import { buyerRelaxOn, zatcaCollectOn, type ZatcaCompanyLike } from '../lib/zatcaRegime';
 import { BuyerRowLike, customerBuyerStatus, missingBuyerFormFields } from '../lib/zatca/buyerData';
 import { BUYER_CLASSIFICATION_LABELS_AR, BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, buyerBadge, buyerRelaxSimplified } from '../lib/zatca/buyerForm';
@@ -278,8 +279,11 @@ function MCustomerDetail({ customer, accountingOn, zatcaCollect = false, buyerRe
 
         {/* بيانات */}
         <MCard>
-          <Info label={tr('الجوال')} value={c.phone} icon={Phone} href={c.phone ? `tel:${c.phone}` : undefined} />
-          {c.altPhone && <Info label={tr('رقم بديل')} value={c.altPhone} icon={Phone} href={`tel:${c.altPhone}`} />}
+          {/* الجوال اختياريّ حرّ (طلب المالك ٧ نوفمبر ٢٠٢٦): الفارغ شرطةٌ بلا رابط، والعبثيّ نصٌّ بلا رابط اتصال */}
+          {c.phone?.trim()
+            ? <Info label={tr('الجوال')} value={c.phone} icon={Phone} href={mCustomerTel(c.phone) ?? undefined} />
+            : <Info label={tr('الجوال')} value="—" />}
+          {c.altPhone?.trim() && <Info label={tr('رقم بديل')} value={c.altPhone} icon={Phone} href={mCustomerTel(c.altPhone) ?? undefined} />}
           {c.businessName && <Info label={tr('اسم المنشأة')} value={c.businessName} />}
           {c.email && <Info label={tr('البريد الإلكتروني')} value={c.email} />}
           {/* «قناة البيع» تصنيفٌ تجاريّ لا مال، فتبقى. و«مدة السداد» شرطُ

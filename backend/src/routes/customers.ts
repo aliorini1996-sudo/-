@@ -25,6 +25,7 @@ import { invalidateEstimateData } from '../ai-rep/estimateData';
 import { patchSessionOutlet } from '../ai-rep/session';
 import { UnitInvalidError } from '../services/warehouseStock';
 import { PRICE_LIST_MESSAGES } from '../services/priceLists';
+import { CUSTOMER_PHONE_MAX } from '../services/importMatch';
 // «الوحدة الرئيسية» §2.10: أسعار العميل لوحدة الأساس تُكتب تحت قفل صفّ الصنف مقارنةً بالأساس الذي كُتبت له
 import {
   ProductUnitsBusyError, ProductUnitsChangedError, baseGuardReply, lockBases, missingBaseForApi, staleClientBase, type ExpectedBases,
@@ -42,6 +43,14 @@ const buyerDataDeps: CustomerBuyerDataDeps = {
   tenantId,
 };
 
+/**
+ * جوال العميل حرّ (أمر المالك ٧ نوفمبر ٢٠٢٦: «فك القيد بالكامل… اجعل تسجيل الجوال ليس إجبارياً»): اختياريّ بلا حدٍّ أدنى
+ * ولا صيغة — يُقصّ طرفاه، وسقفه ٣٠ حرفاً أماناً وحده. والعمود NOT NULL فالغائب والفارغ وnull يُخزَّن '' (لا مخطّط جديد).
+ * والجوال الفارغ لا يُطابَق به عميلٌ ولا يُكشف به تكرار (لا يساوي '' فارغاً آخر). للعملاء وحدهم: جوال المندوب وربط واتساب كما هما
+ * السقف معرَّفٌ مرّةً في services/importMatch.ts (يقصّ به الاستيراد) ويُعاد تصديره هنا — فلا يفترق حدّا البطاقة والاستيراد
+ */
+export { CUSTOMER_PHONE_MAX };
+
 const customerSchema = z.object({
   name: z.string().min(1),
   // nullish على الحقول النصية الاختيارية: نموذج التحرير (react-hook-form) يرسل null للحقول
@@ -49,7 +58,8 @@ const customerSchema = z.object({
   businessName: z.string().nullish(),
   commercialReg: z.string().nullish(),
   taxNumber: z.string().nullish(),
-  phone: z.string().min(9),
+  // اختياريّ بلا حدٍّ أدنى (CUSTOMER_PHONE_MAX أعلاه) — والغائب/null/الفارغ يُكتب '' في الإنشاء وفي التعديل حين يُرسل
+  phone: z.string().trim().max(CUSTOMER_PHONE_MAX).nullish(),
   altPhone: z.string().nullish(),
   email: z.string().email().or(z.literal('')).nullish(),
   city: z.string().nullish(),
@@ -242,7 +252,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // المزامنة متسلسلة على جهاز واحد فلا تكرار متزامن؛ والفحص أعلاه يمنع إعادة الرفع.
     const customer = await prisma.customer.create({
       data: {
-        ...rest, email: data.email || null, channel: data.channel || null, outletType: data.outletType || null, aiPlaceId: data.aiPlaceId || null, tenantId: tid,
+        // الجوال اختياريّ والعمود NOT NULL ⇒ '' حين يغيب (أمر المالك ٧ نوفمبر)
+        ...rest, phone: rest.phone ?? '', email: data.email || null, channel: data.channel || null, outletType: data.outletType || null, aiPlaceId: data.aiPlaceId || null, tenantId: tid,
         ...(data.priceListId !== undefined && { priceListId: data.priceListId || null }),
         clientCreatedAt: clientCreatedAt ? new Date(clientCreatedAt) : undefined,
         ...(creatorRepId && { createdBySalesRepId: creatorRepId }),
@@ -284,11 +295,16 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     // التحقق أن العميل يخص شركة المستخدم (ومُسنَد للمندوب عند تفعيل العزل) قبل التعديل
     const exists = await prisma.customer.findFirst({
       where: { id: req.params.id, tenantId: tid, ...(await customerScope(req, tid)) },
-      select: { id: true },
+      select: { id: true, phone: true },
     });
     if (!exists) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+    // جوالٌ محفوظ أطول من السقف (سبق القيد: مفتاح API أو استيراد) يعود مع نموذج التعديل كما هو ⇒ يُترك كما هو بلا رفض،
+    // وإلا تعذّر تعديل اسم العميل أو عنوانه بسبب جواله القائم. والجديد الأطول يُرفض 400 كالإنشاء
+    const sentPhone = (req.body as { phone?: unknown } | null | undefined)?.phone;
+    const keepStoredPhone = typeof sentPhone === 'string' && sentPhone.trim().length > CUSTOMER_PHONE_MAX
+      && sentPhone.trim() === (exists.phone ?? '').trim();
     // نستبعد الحقول الداخلية (locationUrl يُحلّ منفصلاً؛ clientRef/clientCreatedAt لا تُحرَّر)
-    const { locationUrl, clientRef: _cr, clientCreatedAt: _cc, aiPlaceId: _ap, ...data } = customerSchema.partial().parse(req.body);
+    const { locationUrl, clientRef: _cr, clientCreatedAt: _cc, aiPlaceId: _ap, ...data } = customerSchema.partial().parse(keepStoredPhone ? { ...req.body, phone: undefined } : req.body);
     void _cr; void _cc; void _ap; // معرّف مكان Google يُربط عند الإنشاء وحده
     // «تعديل بيانات العميل» للمندوب يشمل البيانات الوصفية لا الشروط المالية: الحدّ الائتمانيّ
     // وفترة السداد وحالة العميل قرارُ الإدارة — وإلا رفع المندوب حدّ عميله ليتجاوز ضابط الائتمان
@@ -311,8 +327,9 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     }
     const customer = await prisma.customer.update({
       where: { id: req.params.id },
-      // البريد والقناة يُكتبان فقط إن أُرسلا: تعديلٌ جزئيّ (كتطبيق المندوب) لا يمحو بريد العميل
-      data: { ...data, ...(data.email !== undefined && { email: data.email || null }), ...(data.channel !== undefined && { channel: data.channel || null }), ...(data.outletType !== undefined && { outletType: data.outletType || null }), ...(data.priceListId !== undefined && { priceListId: data.priceListId || null }) },
+      // البريد والقناة يُكتبان فقط إن أُرسلا: تعديلٌ جزئيّ (كتطبيق المندوب) لا يمحو بريد العميل.
+      // والجوال كذلك، ومسحه (null أو الفارغ) يُكتب '' لأن العمود NOT NULL (أمر المالك ٧ نوفمبر: الجوال اختياريّ)
+      data: { ...data, phone: data.phone === undefined ? undefined : (data.phone ?? ''), ...(data.email !== undefined && { email: data.email || null }), ...(data.channel !== undefined && { channel: data.channel || null }), ...(data.outletType !== undefined && { outletType: data.outletType || null }), ...(data.priceListId !== undefined && { priceListId: data.priceListId || null }) },
     });
     // نوع المنفذ أو الموقع تغيّر ⇒ توقّعات المحلات المشابهة تُعاد من القاعدة
     if (data.outletType !== undefined || data.lat !== undefined || data.lng !== undefined) invalidateEstimateData(tid);

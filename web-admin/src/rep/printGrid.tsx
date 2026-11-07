@@ -35,6 +35,8 @@ import type { Align, SectionId } from '../lib/print/printSettingsCore';
 import { areStampsRemoved } from '../lib/print/printSettings';
 import { pdProps, usePrintDesignPreview, type PrintDesignPreview } from './printDesignContext';
 import { getActiveCurrency } from '../utils/format';
+// جوال العميل اختياري حرّ (٧ نوفمبر): الفارغ و«—» القديمة (استيرادٌ سابق) لا يُطبع سطراً
+import { hasCustomerPhone } from '../lib/customerPhoneField';
 import { currencyDecimals } from '../i18n/countries';
 import { factorOf } from '../lib/units';
 import { invoiceLotsOf, lotLineText } from './docLots';
@@ -848,7 +850,7 @@ export const GridReceipt = forwardRef<HTMLDivElement, {
   if (customer.businessName) buyerRows.push({ keys: ['rcp.business'], def: 'المنشأة', value: customer.businessName });
   if (customer.commercialReg) buyerRows.push({ keys: ['rcp.commercialReg'], def: 'السجل التجاري', value: customer.commercialReg, ltr: true });
   if (customer.taxNumber && !taxOff) buyerRows.push({ keys: ['rcp.taxNumber'], def: 'الرقم الضريبي', value: customer.taxNumber, ltr: true });
-  if (customer.phone) buyerRows.push({ keys: ['rcp.phone'], def: 'الجوال', value: customer.phone, ltr: true });
+  if (hasCustomerPhone(customer.phone)) buyerRows.push({ keys: ['rcp.phone'], def: 'الجوال', value: customer.phone, ltr: true });
   const addr = [customer.address, customer.district, customer.city].filter(Boolean).join('، ');
   if (addr) buyerRows.push({ keys: ['rcp.address'], def: 'العنوان', value: addr });
   const buyerLive = buyerRows.filter((r) => !goneAny(pt, r.keys));

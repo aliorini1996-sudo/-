@@ -322,9 +322,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
      },
      {
       "name": "phone",
-      "type": "string",
-      "required": true,
-      "desc": "الجوال، 9 أحرف على الأقل، بلا فحص للصيغة وبلا منع للتكرار"
+      "type": "string | null",
+      "required": false,
+      "desc": "الجوال، اختياري بلا حدّ أدنى للطول ولا فحص للصيغة ولا منع للتكرار. تُحذف المسافات من طرفيه، وأقصاه 30 حرفاً وما زاد يعود 400. الغائب أو null أو الفارغ يُحفظ نصاً فارغاً \"\" لا null"
      },
      {
       "name": "businessName",
@@ -530,9 +530,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
      },
      {
       "name": "phone",
-      "type": "string",
+      "type": "string | null",
       "required": false,
-      "desc": "الجوال، 9 أحرف على الأقل إذا أُرسل"
+      "desc": "الجوال، بلا حدّ أدنى للطول وأقصاه 30 حرفاً بعد حذف المسافات من طرفيه. null أو الفارغ يمسحه فيُحفظ \"\"، وغيابه يتركه بلا تغيير. والجوال المحفوظ قبل هذا القيد وهو أطول من 30 حرفاً يُقبل إذا أُرسل كما هو دون تغيير، فيبقى كما هو"
      },
      {
       "name": "businessName / commercialReg / taxNumber / altPhone / city / district / address",
@@ -6262,7 +6262,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "rows[].phone",
       "type": "string",
       "required": false,
-      "desc": "الجوال. الفارغ أو غير الصالح يُخزَّن «—»، ويُذكر صفّه في warnings.phoneNotEditable لأن بطاقة العميل لا تقبل تعديله حتى يُكتب له جوال من 9 خانات على الأقل"
+      "desc": "الجوال، اختياري بلا حدّ أدنى للطول ولا فحص للصيغة، ويُحفظ كما كُتب بعد حذف المسافات من طرفيه. الخلية بلا أي رقم أو بأصفار وحدها تُحفظ \"\"، وما زاد على 30 حرفاً يُحفظ منه أول جوال صالح وإلا أول 30 حرفاً. الفارغ أو غير الصالح لا يُطابَق به أي عميل ولا يمنع إنشاء الصف"
      },
      {
       "name": "rows[].email",
@@ -6337,7 +6337,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "true يتجاوز رفض الملف المكرر IMPORT_DUPLICATE_BATCH، ولا يتجاوز IMPORT_IN_PROGRESS"
      }
     ],
-    "response": "{success:true, data:{created, skipped, attached?, total, errors:[{row, message, code?, value?, field?}], errorsTotal, batchId, skippedRows:[{row, reason:'CODE_EXISTS'|'PHONE_EXISTS'|'NAME_EXISTS'|'CODE_ATTACHABLE'|'CODE_AMBIGUOUS_NAME'}], attachedRows:[{row, code, matchedBy:'phone'|'name'}], warnings:{similar:[{row, code, matchedBy}], phoneNotEditable?:{count, rows}}}}. batchId = null إن لم يُنشأ عميل، ويغيب حين يُردّ الطلب بأخطاء الشكل أو بيانات المشتري",
+    "response": "{success:true, data:{created, skipped, attached?, total, errors:[{row, message, code?, value?, field?}], errorsTotal, batchId, skippedRows:[{row, reason:'CODE_EXISTS'|'PHONE_EXISTS'|'NAME_EXISTS'|'CODE_ATTACHABLE'|'CODE_AMBIGUOUS_NAME'}], attachedRows:[{row, code, matchedBy:'phone'|'name'}], warnings:{similar:[{row, code, matchedBy}]}}}. batchId = null إن لم يُنشأ عميل، ويغيب حين يُردّ الطلب بأخطاء الشكل أو بيانات المشتري",
     "rules": [
      "المطابقة على كل عملاء الشركة. الصف ذو الكود: كودٌ مسجّل ⇒ يُتخطّى بالسبب CODE_EXISTS. وعميلٌ وحيد بكود تلقائي بالجوال نفسه (أو بالاسم إن كان وحيداً) يُكتب الكود فيه بدل الإنشاء، فيُعدّ في attached وattachedRows ولا يدخل الدفعة (التراجع لا يعيد كوده). وإن تعدّد المرشّحون ⇒ يُتخطّى بالسبب CODE_ATTACHABLE، واسمٌ مشترك بلا جوال يميّز ⇒ CODE_AMBIGUOUS_NAME. وإلا يُنشأ، ويُذكر في warnings.similar إن شابه جوالُه أو اسمه عميلاً قائماً",
      "الصف بلا كود: جوالٌ موجود ⇒ يُتخطّى بالسبب PHONE_EXISTS، واسمٌ موجود بعد تطبيع الهمزات والتاء المربوطة والياء ⇒ NAME_EXISTS، وإلا يُنشأ. والصفوف المنشأة قبله في الملف نفسه تُحسب موجودة",

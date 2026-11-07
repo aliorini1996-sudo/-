@@ -183,6 +183,21 @@ export function parseCallWebhook(body: Record<string, unknown>): ParsedCallEvent
 }
 
 /**
+ * صيغ رقم الطرف الآخر التي يُطابَق بها جوال العميل كما خُزِّن (مطابقة تامّة): ‎+9665… و9665… و05….
+ * جوال العميل صار اختيارياً وبلا حدٍّ أدنى (طلب المالك ٧ نوفمبر) ⇒ يُخزَّن '' لمن لا جوال له، وقد يحمل رقماً
+ * قصيراً أو عبثياً. فالمرشّحات تُبنى من رقم E.164 صالح وحده (٨ خانات فأكثر) ولا يكون فيها فارغٌ أبداً —
+ * فلا يطابق '' ولا رقمٌ قصير أيَّ مكالمة، والطرف المجهول أو المحجوب ⇒ قائمة فارغة (لا استعلام أصلاً).
+ */
+export function customerPhoneCandidates(peer: string | null | undefined): string[] {
+  const e164 = toE164(peer);
+  if (!e164) return [];
+  const digits = e164.slice(1);
+  const out = [e164, digits];
+  if (digits.startsWith('966')) out.push('0' + digits.slice(3));
+  return out.filter((p) => p.replace(/\D/g, '').length >= 8);
+}
+
+/**
  * يقيّد المكالمة: مطابقة القناة ← لقطة المندوب وقت الحدث، ومطابقة الطرف الآخر ← عميل.
  * الإدخال متسامح مع التكرار (القيد الفريد يبتلع إعادة إرسال الويبهوك).
  */
@@ -202,14 +217,18 @@ export async function recordCallEvent(tenantId: string, ev: ParsedCallEvent): Pr
   // الطرف الآخر (العميل المحتمل)
   const peer = ev.direction === 'OUT' ? ev.toE164 : ev.fromE164;
   let customerId: string | null = null;
-  if (peer) {
-    const digits = peer.replace('+', '');
-    const local = digits.startsWith('966') ? '0' + digits.slice(3) : null;
-    const customer = await prisma.customer.findFirst({
-      where: { tenantId, OR: [{ phone: peer }, { phone: digits }, ...(local ? [{ phone: local }] : [])] },
+  const candidates = customerPhoneCandidates(peer);
+  if (candidates.length) {
+    // take: 2 يكشف الالتباس: رقمٌ يحمله أكثر من عميل (رقمٌ مؤقّت مشترك كـ0500000000 كُتب لتجاوز القيد القديم)
+    // لا تُنسب مكالمته لأحدهم اعتباطاً — المكالمة تُسجَّل بلا عميل خيرٌ من نسبتها لعميلٍ خطأ
+    // والمؤرشف القديم (status DELETED باقٍ من قبل الحذف الحقيقي) لا يُحسب: عميلٌ أُرشف ثم أُعيد بجواله نفسه
+    // لا يصير «رقماً مشتركاً» فتضيع مكالمات العميل الحيّ
+    const matches = await prisma.customer.findMany({
+      where: { tenantId, status: { not: 'DELETED' }, phone: { in: candidates, not: '' } },
       select: { id: true },
+      take: 2,
     });
-    customerId = customer?.id ?? null;
+    customerId = matches.length === 1 ? matches[0].id : null;
   }
   try {
     await prisma.callLog.create({

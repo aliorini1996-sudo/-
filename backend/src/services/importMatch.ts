@@ -12,6 +12,8 @@
  *   والصف بلا كود يُتخطى بجوال صالح ثم باسم مطبَّع. الكود الجديد الذي يطابق جوالُه أو اسمه الفريد عميلاً واحداً معروفاً
  *   بكود تلقائي ⇒ attach (يُكتب الكود في ذلك العميل فتطابقه ملفات الأرصدة والكشوف والأسعار)، وتعذّر تعيينه ⇒ CODE_ATTACHABLE،
  *   واسمٌ يشترك فيه أكثر من عميل بعضهم بكود تلقائي بلا جوال يميّز ⇒ CODE_AMBIGUOUS_NAME (لا عميل ثالث مكرر).
+ * - storedCustomerPhone: جوال العميل اختياري حرّ (أمر المالك ٧ نوفمبر) ⇒ يُخزَّن كما كُتب، والفارغ ''. والمطابقة والتخطي
+ *   بالجوال المطبَّع الصالح وحده، فالفارغ ('' لا يساوي '') والقديم «—» والتافه لا يربط عميلاً بآخر.
  */
 import { normImportName, type CustomerMatch, type CustomerMatchRow, type CustomerMatcher } from './importLedger';
 
@@ -149,9 +151,26 @@ export type CustomerImportDecision =
   | { action: 'attach'; index: number; row: number; customerId: string; code: string; fromCode: string | null; matchedBy: 'phone' | 'name' }
   | { action: 'skip'; index: number; row: number; reason: CustomerSkipReason };
 
-/** الجوال المخزَّن: الأصلي المقصوص إن كان صالحاً، وإلا «—» */
+/**
+ * حدّ أمان لطول الجوال المخزَّن — لا حدّ أدنى ولا صيغة (أمر المالك ٧ نوفمبر: جوال العميل اختياري حرّ).
+ * التعريف الوحيد في الخادم: routes/customers.ts يستورده لمخطّط البطاقة، فلا يفترق حدّ الاستيراد عن حدّ البطاقة.
+ */
+export const CUSTOMER_PHONE_MAX = 30;
+
+/**
+ * الجوال المخزَّن (Customer.phone نصّ إلزامي في المخطط ⇒ '' يعني «بلا جوال»، كبطاقة العميل):
+ * - المكتوب مقصوصاً كما هو، ولو قصيراً أو بلا صيغة جوال (الجوال حرّ بأمر المالك).
+ * - خلية بلا أي رقم («—» و«-» و«لا يوجد») أو أصفارٍ وحدها (خلية Excel الرقمية الفارغة) ⇒ '' — لا «—» كما كان، فلا يظهر
+ *   جوالاً يُبنى منه رابط واتساب أو اتصال.
+ * - ما فوق CUSTOMER_PHONE_MAX (خلية بجوالات كثيرة) ⇒ أول جوال صالح فيها، وإلا أول ٣٠ خانة.
+ * المطابقة لا تقرأ المخزَّن بل normImportPhone، فالفارغ والتافه لا يطابقان أحداً ولا يُتخطى بهما صفّ.
+ */
 export function storedCustomerPhone(phone: string | null | undefined): string {
-  return normImportPhone(phone) ? trimmed(phone) : '—';
+  const t = trimmed(phone);
+  const digits = asciiDigits(t).replace(/\D/g, '');
+  if (!digits || /^0+$/.test(digits)) return '';
+  if (t.length <= CUSTOMER_PHONE_MAX) return t;
+  return normImportPhone(t) ?? t.slice(0, CUSTOMER_PHONE_MAX).trim();
 }
 
 interface Bucket { n: number; auto: number; autoIds: string[] }

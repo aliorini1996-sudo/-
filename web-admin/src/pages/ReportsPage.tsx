@@ -6,6 +6,7 @@ import AttendanceImportModal from '../components/attendance/AttendanceImportModa
 import PresenceDayModal from '../components/attendance/PresenceDayModal';
 import { presenceByRepDay, presenceSummary, type PresenceRow } from '../lib/presenceReport';
 import { splitSheetsByTeam } from '../lib/teamReport';
+import { customerPhoneText } from '../lib/customerPhoneField';
 import RepRankingBoard, { RANKING_LABELS, type RankingData, type RankingMetric } from '../components/reports/RepRankingBoard';
 import { formatCurrency, activeLocale, formatDayOnly } from '../utils/format';
 import { useTr } from '../i18n/strings';
@@ -1583,7 +1584,7 @@ export default function ReportsPage() {
                 {balanceRows.map(c => (
                   <tr key={c.id}>
                     <td className="font-medium text-gray-800">{c.name}</td>
-                    <td className="font-mono text-sm text-gray-500">{c.phone}</td>
+                    <td className="font-mono text-sm text-gray-500">{customerPhoneText(c.phone)}</td>
                     <td className={`font-semibold ${Number(c.balance) > Number(c.creditLimit) ? 'text-red-600' : 'text-orange-600'}`}>
                       {formatCurrency(c.balance)}
                     </td>
@@ -2098,7 +2099,7 @@ export default function ReportsPage() {
                               <p className="font-medium text-gray-800">{c.name}</p>
                               {c.businessName && <p className="text-[11px] text-gray-400">{c.businessName}</p>}
                             </td>
-                            <td className="text-gray-600 font-mono text-xs" dir="ltr">{c.phone}</td>
+                            <td className="text-gray-600 font-mono text-xs" dir="ltr">{customerPhoneText(c.phone)}</td>
                             <td className="text-gray-600">{c.city || '—'}</td>
                             <td className={`font-semibold ${c.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(c.balance)}</td>
                             <td className="text-xs text-gray-500">{c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : <span className="text-orange-500 font-medium">{tr('لم يحصل قط')}</span>}</td>

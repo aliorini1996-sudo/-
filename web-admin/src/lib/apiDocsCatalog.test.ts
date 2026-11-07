@@ -1902,7 +1902,9 @@ test('«إزالة الضريبة»: «ما الجديد» بعنوانٍ يشم
   const list = docs.slice(docs.indexOf('title="ما الجديد'), docs.indexOf('</ul>', docs.indexOf('title="ما الجديد')));
   const bullets = [...list.matchAll(/<li>([^]*?)<\/li>/g)].map((m) => m[1]);
   assert.ok(bullets[0].startsWith('٧ نوفمبر — «إزالة الضريبة»'), 'أول بند');
-  assert.equal(bullets.filter((b) => b.startsWith('٧ نوفمبر — ')).length, 1);
+  assert.equal(bullets.filter((b) => b.startsWith('٧ نوفمبر — «إزالة الضريبة»')).length, 1, 'بند الإزالة مرّةً واحدة');
+  // بعد دمج master: بند «جوال العميل اختياري» بالتاريخ نفسه يليه مباشرةً — لا يُبتلع في الدمج
+  assert.ok(bullets[1].startsWith('٧ نوفمبر — ') && bullets[1].includes('جوال العميل اختياري'), 'بند جوال العميل (٧ نوفمبر) ثانياً');
   for (const k of ['GET /api/company/tax-mode', 'taxDisabled, taxModeChangedAt', 'GET /api/company', '403 API_KEY_FORBIDDEN', 'POST /api/invoices',
     `422 ${TAX_MODE_CODES.disabled}`, 'والغائب = 0', 'وفي المرتجع المرتبط بفاتورة بيع كذلك', 'taxFree = true', "einvoiceProvider = 'none'", 'بمبلغ الاسترداد نفسه', 'مزامنة invoices',
     'المستندات السابقة تبقى بضريبتها', `409 ${TAX_MODE_CODES.zatcaConflict}`, `409 ${TAX_MODE_CODES.blocksZatca}`, 'والشركات الأخرى بلا أي تغيير']) {
@@ -2028,4 +2030,26 @@ test('«إزالة الضريبة» E8/E1: builtTaxFree موثّق حقلاً و
   const list = docs.slice(docs.indexOf('title="ما الجديد'), docs.indexOf('</ul>', docs.indexOf('title="ما الجديد')));
   const first = [...list.matchAll(/<li>([^]*?)<\/li>/g)].map((m) => m[1])[0];
   assert.ok(first.includes('وbuiltTaxFree في جسم POST /api/invoices حقلٌ لشاشات المنصة وتطبيق المندوب يتجاهله المفتاح فلا ترسله'));
+});
+
+test('جوال العميل اختياري حرّ (٧ نوفمبر): المستند لا يعيد «9 أحرف» ولا الإلزام ولا تنبيه phoneNotEditable — كما في الخادم', () => {
+  const phoneOf = (method: string, p: string) => endpointOf(method, p).body.find((f) => f.name === 'phone');
+  for (const [m, p] of [['POST', '/customers'], ['PUT', '/customers/:id']] as const) {
+    const f = phoneOf(m, p);
+    assert.ok(f, `${m} ${p}: حقل phone غائب`);
+    assert.equal(f!.required, false, `${m} ${p}: الجوال عاد إلزامياً`);
+    assert.doesNotMatch(f!.desc, /9 أحرف|9 خانات|تسع خانات|على الأقل/, `${m} ${p}: حدٌّ أدنى عاد للجوال`);
+    assert.match(f!.desc, /30 حرفاً/, `${m} ${p}: السقف غير مذكور`);
+  }
+  // استيراد العملاء: الجوال اختياري حرّ، والرد بلا تنبيه البند 49 الملغى
+  const imp = endpointOf('POST', '/import/customers');
+  const rowPhone = imp.body.find((f) => f.name === 'rows[].phone');
+  assert.ok(rowPhone, 'rows[].phone غائب');
+  assert.equal(rowPhone!.required, false);
+  assert.doesNotMatch(rowPhone!.desc, /phoneNotEditable|9 خانات|«—»/);
+  assert.ok(!imp.response.includes('phoneNotEditable'), 'رد الاستيراد ما زال يذكر phoneNotEditable');
+  // والخادم يطابق المستند: لا حدّ أدنى في المخطّط، والسقف 30 معرَّفٌ مرّةً في importMatch
+  const route = routeFile('customers');
+  assert.match(route, /phone: z\.string\(\)\.trim\(\)\.max\(CUSTOMER_PHONE_MAX\)\.nullish\(\),/);
+  assert.match(read(path.join(BACKEND, 'services', 'importMatch.ts')), /export const CUSTOMER_PHONE_MAX = 30;/);
 });
