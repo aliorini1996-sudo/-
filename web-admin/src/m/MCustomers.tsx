@@ -16,6 +16,7 @@ import { expectArray, expectObject } from './shape';
 import { buyerRelaxOn, zatcaCollectOn, type ZatcaCompanyLike } from '../lib/zatcaRegime';
 import { BuyerRowLike, customerBuyerStatus, missingBuyerFormFields } from '../lib/zatca/buyerData';
 import { BUYER_CLASSIFICATION_LABELS_AR, BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, buyerBadge, buyerRelaxSimplified } from '../lib/zatca/buyerForm';
+import { useMTaxOff } from './mTaxMode';
 
 const MInvoiceCreate = lazy(() => import('./MInvoiceCreate'));
 const MReceiptCreate = lazy(() => import('./MReceiptCreate'));
@@ -190,6 +191,8 @@ function MCustomerDetail({ customer, accountingOn, zatcaCollect = false, buyerRe
   const tr = useTr();
   const lang = useLang(s => s.lang);
   const user = useAuthStore(s => s.user);
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): لا «الرقم الضريبي» في ملف العميل — والمحفوظ يبقى
+  const taxOff = useMTaxOff();
   const [doc, setDoc] = useState<'invoice' | 'receipt' | null>(null);
   const [statement, setStatement] = useState(false);
   useBackClose(!!doc, () => setDoc(null));
@@ -294,7 +297,7 @@ function MCustomerDetail({ customer, accountingOn, zatcaCollect = false, buyerRe
           )}
           {/* بيانات الفوترة الضريبية: لا وجه لها بلا فاتورة تُصدَر */}
           {accountingOn && c.commercialReg && <Info label={tr('السجل التجاري')} value={c.commercialReg} />}
-          {accountingOn && c.taxNumber && <Info label={tr('الرقم الضريبي')} value={c.taxNumber} />}
+          {accountingOn && !taxOff && c.taxNumber && <Info label={tr('الرقم الضريبي')} value={c.taxNumber} />}
           {/* فوترة ZATCA (D2): التصنيف ونواقص الفاتورة الضريبية — للشركة التي تجمع بيانات الفوترة وحدها */}
           {zatcaCollect && accountingOn && (() => {
             const st = customerBuyerStatus(c as BuyerRowLike);

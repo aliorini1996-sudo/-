@@ -29,6 +29,8 @@ import {
 } from '../services/importLedger';
 // البند 31: ردّ السعر الشامل إلى صافيه بالدالّة المالية الموحّدة نفسها (نصف-لأعلى)
 import { netFromInclusive, roundHalfUp } from '../lib/money';
+// «إزالة الضريبة»: الشركة بلا ضريبة لا ضريبة في أسعارها ولا تكاليفها — خيار «شاملة الضريبة» يسقط فيُحفظ المكتوب كما هو
+import { isTaxOff } from '../services/taxMode';
 import { entryTotalCost } from '../services/warehouseCost';
 import { derivedBasePrice, primaryUnitOf, unitFields } from '../services/units';
 import { importDuplicateNameWarnings, type DuplicateNameWarning } from '../services/productNames';
@@ -661,11 +663,12 @@ router.post('/products', requireImportAccess('products'), async (req: AuthReques
     // البند 36: صفّ مخالف للمخطط ⇒ أخطاء صفوف بلا أي كتابة ولا حجز دفعة
     if (result.errors.length) { res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows: [], netFromInclusive: 0 } }); return; }
 
-    const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true, currency: true } });
+    const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true, currency: true, taxDisabled: true } });
     const defaultVat = company?.defaultVatPct ?? 15;
     // البند 31: الصافي مقرَّب بمنازل عملة الشركة بالدالّة المالية الموحّدة (نصف-لأعلى)، وعدد ما تحوّل يُذكر في الرد
     const decimals = currencyDecimalsOf(company?.currency);
-    const inclTax = body.pricesIncludeTax === true;
+    // «إزالة الضريبة»: النسبة الفعلية صفر ⇒ لا ردّ (السعر كما كُتب، netFromInclusive: 0). والنسبة المخزَّنة للصنف كما كانت (r.taxPct ?? defaultVat)
+    const inclTax = body.pricesIncludeTax === true && !isTaxOff(company);
     let netFromInclusiveRows = 0;
     /** البند 31: سعر الصفّ بعد ردّه إلى صافيه — يُحسب مرّة قبل الكتابة، فلا تُعيد شريحة فاشلة العدّ */
     const netPriceByRow = new Map<number, number>();
@@ -1164,10 +1167,11 @@ router.post('/prices', requireImportAccess('prices'), async (req: AuthRequest, r
       for (const e of plan.errors) result.errors.push(e);
       // البند 31: الضريبة من الصنف المطابَق (لا من الصف)، وإلا ضريبة الشركة الافتراضية؛ والتقريب بمنازل عملة الشركة
       if (body.pricesIncludeTax === true) {
-        const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true, currency: true } });
+        const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true, currency: true, taxDisabled: true } });
         const decimals = currencyDecimalsOf(company?.currency);
         const taxByProduct = new Map(prods.map(p => [p.id, p.taxPct]));
-        for (const w of writes) {
+        // «إزالة الضريبة»: النسبة الفعلية صفر ⇒ لا ردّ ولا تقريب — السعر كما كُتب (netFromInclusive: 0)
+        if (!isTaxOff(company)) for (const w of writes) {
           const net = roundHalfUp(netFromInclusive(w.price, taxByProduct.get(w.productId) ?? company?.defaultVatPct ?? 0), decimals);
           if (net !== w.price) netFromInclusiveRows++;
           w.price = net;
@@ -1293,6 +1297,12 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
     // البند 16: البصمة للصفوف وحدها — إعادة الرفع بتبديل «شاملة الضريبة» تكرار لا دفعة ثانية
     const contentHash = openingStockContentHash(rows);
     assertNotDuplicateBatch(await duplicateBatch(tid, OPENING_STOCK_KIND, contentHash), body.force === true);
+
+    // «إزالة الضريبة»: الشركة بلا ضريبة لا تستردّ ضريبة مدخلات — «التكلفة شاملة الضريبة» يسقط فالتكلفة ما كُتب (بعد البصمة: الخيار
+    // لا يدخلها). العلم يُقرأ حين يُطلب الخيار وحده، فالملف بلاه بلا استعلامٍ زائد كما كان
+    if (body.pricesIncludeTax && isTaxOff(await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { taxDisabled: true } }))) {
+      body.pricesIncludeTax = false;
+    }
 
     // البند 24: المطابقة بالأصناف النشطة وحدها — الموقوف والمؤرشف والملتبس خطأ صف صريح
     const products = await prisma.product.findMany({

@@ -25,6 +25,7 @@ import { priceOverrides, suggestedNetOf } from '../lib/priceLists';
 import { docBaseQty, repriceDocLines } from '../lib/invoiceModalRepPrice';
 import type { ProductListPrice } from '../types';
 import type { Line } from './docMath';
+import { effectiveTaxPct, isTaxOff, type TaxModeCompany } from '../lib/taxMode';
 
 /** للصنف وحدةٌ نشطة أكبر من الأساس؟ — بلا شرط المعرّف: وحدات التقارير تصل بالاسم والمعامل وحدهما */
 export function hasBigUnit(units: UnitDef[] | null | undefined): boolean {
@@ -167,6 +168,35 @@ export function pickerPrices(lines: Line[], products: readonly SalePick[] | null
   return out;
 }
 
+// ═══════════════ «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦) ═══════════════
+
+/**
+ * نسبة ضريبة البند **الفعلية** (lib/taxMode.effectiveTaxPct): صفرٌ للشركة «بلا ضريبة»، وإلّا نسبة الصنف وافتراضها ١٥ كما كان
+ * البند حرفاً (`Number(p.taxPct ?? 15)`). ونسبة الصنف المخزّنة لا تُمسّ — فإعادة الضريبة تعيد كل شيء.
+ */
+export function lineTaxPct(p: { taxPct?: number | string | null } | null | undefined, tax?: TaxModeCompany | null): number {
+  return effectiveTaxPct(tax, p?.taxPct ?? 15);
+}
+
+/**
+ * البنود بنسبتها الفعلية الآن — بعد تبدّل وضع الشركة والفاتورة مفتوحة (تجديد الإعدادات، أو ردّ 409 TAX_MODE_CHANGED): كل بندٍ
+ * بنسبة صنفه من `catalog` (lineTaxPct)، وبندٌ صنفه غائبٌ يصير صفراً للشركة بلا ضريبة ويبقى كما هو لغيرها. والسعر **لا يُمسّ**:
+ * سعر الجوال صافٍ والسعر المكتوب نهائي (قرار المالك)، فالمتغيّر النسبة وحدها والإجمالي يتبعها. لا تغيّر ⇒ المصفوفة نفسها
+ */
+export function retaxInvoiceLines<L extends { productId: string; taxPct: number }>(
+  lines: L[], catalog: Record<string, { taxPct?: number | string | null } | undefined>, tax?: TaxModeCompany | null,
+): L[] {
+  let changed = false;
+  const out = lines.map(l => {
+    const p = catalog[l.productId];
+    const pct = p ? lineTaxPct(p, tax) : isTaxOff(tax) ? 0 : l.taxPct;
+    if (pct === l.taxPct) return l;
+    changed = true;
+    return { ...l, taxPct: pct };
+  });
+  return changed ? out : lines;
+}
+
 /**
  * بند فاتورة جديد بوحدةٍ مختارة (الافتراض أكبر وحدة — انظر رأس repUnits.ts). السعر سعر **تلك الوحدة** صافياً قبل
  * الضريبة (`suggestedNet`): سعرها المحدَّد وإلّا الأساس × المعامل — فكرتونٌ يُضاف بسعر الحبّة يُباع بخسارة ٢٤ ضعفاً بلا تحذير.
@@ -174,7 +204,7 @@ export function pickerPrices(lines: Line[], products: readonly SalePick[] | null
  * الأساس ووحدته كما كان البند قبل الميزة حرفاً. و`totalBaseQty` كمية الصنف في الفاتورة بعد البند (غائبةٌ ⇒ البند وحده).
  * و`refPrice` المقترح نفسه: به يُعرف البند الذي لم يمسّه المستخدم (repriceInvoiceLines)
  */
-export function invoiceLine(p: SalePick, c: UnitChoice = defaultChoice(p), price?: LinePrice, totalBaseQty?: number): Line {
+export function invoiceLine(p: SalePick, c: UnitChoice = defaultChoice(p), price?: LinePrice, totalBaseQty?: number, tax?: TaxModeCompany | null): Line {
   const net = netOf(price, p, c, totalBaseQty ?? choiceFactor(c));
   return {
     productId: p.id, name: p.name, qty: 1,
@@ -182,7 +212,8 @@ export function invoiceLine(p: SalePick, c: UnitChoice = defaultChoice(p), price
     unitPrice: net,
     refPrice: net,
     discountPct: 0,
-    taxPct: Number(p.taxPct ?? 15),
+    // «إزالة الضريبة»: النسبة الفعلية (صفرٌ للشركة بلا ضريبة) — وغياب `tax` نسبة الصنف وافتراضها ١٥ كما كانت حرفاً
+    taxPct: lineTaxPct(p, tax),
     // ومعها أساس الصنف كما رآه هذا الجهاز: تحويلٌ للأساس بعد فتح القائمة يُكشف بـ400 UNIT_INVALID لا يُقيَّد بغير ما رُئي
     ...lineUnitOf(c, p.unit),
   };
@@ -192,10 +223,10 @@ export function invoiceLine(p: SalePick, c: UnitChoice = defaultChoice(p), price
  * إضافة الصنف بوحدة: بندٌ قائم بالوحدة نفسها يزيد واحداً، وإلّا بندٌ جديد — «+١ حبة» لا تُضاف إلى بند كرتون.
  * و«قوائم الأسعار»: الجديد يُسعَّر بكمية صنفه بعده، وكمية الصنف تغيّرت فبنوده التي لم تُمسّ تُعاد بها (شريحة «من ١٠ كراتين»)
  */
-export function addInvoiceLine(lines: Line[], p: SalePick, c: UnitChoice = defaultChoice(p), price?: LinePrice): Line[] {
+export function addInvoiceLine(lines: Line[], p: SalePick, c: UnitChoice = defaultChoice(p), price?: LinePrice, tax?: TaxModeCompany | null): Line[] {
   const key = lineKey({ productId: p.id, unitId: c.id });
   const i = lines.findIndex(l => lineKey(l) === key);
-  if (i < 0) return repriceProduct([...lines, invoiceLine(p, c, price, productBaseQty(lines, p.id) + choiceFactor(c))], p, price);
+  if (i < 0) return repriceProduct([...lines, invoiceLine(p, c, price, productBaseQty(lines, p.id) + choiceFactor(c), tax)], p, price);
   const n = [...lines];
   n[i] = { ...n[i], qty: n[i].qty + 1 };
   return repriceProduct(n, p, price);

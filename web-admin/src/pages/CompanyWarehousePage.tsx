@@ -14,6 +14,7 @@ import StockRequestModal from '../components/StockRequestModal';
 import StockZeroModal from '../components/StockZeroModal';
 import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
 import { warehouseNoticeDocFromEntry, Company } from '../rep/RepDocuments';
+import { isTaxOff } from '../lib/taxMode';
 import { useAuthStore, isStaffImpersonationClient } from '../store/authStore';
 import { biggestUnit, hasBigUnit, productUnitLabel } from '../lib/adminUnits';
 import { anyBigUnit, fmtTotalQty, qtyText, qtyViewFor, totalsList, unitTotalsParts, type QtyView, type UnitTotal } from '../lib/qtyView';
@@ -164,6 +165,8 @@ export default function CompanyWarehousePage() {
   });
   // «تتبّع اللوط» من /company — نسخةٌ بلا العلم تُعامَل إطفاءً
   const lotOn = lotFlagsOf(companyQ.data as { lotTrackingEnabled?: unknown } | null | undefined).on;
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): شركةٌ بلا ضريبة — لا «قبل الضريبة» ولا «شاملة الضريبة»، والتكلفة كما تُكتب
+  const taxOff = isTaxOff(companyQ.data);
 
   // المستودع كميّاتٌ وتكلفةٌ وقيمة مخزون: يُمنع كلّه مع المحاسبة
   const { on: accountingOn, ready: accountingReady } = useAccountingOn();
@@ -575,7 +578,7 @@ export default function CompanyWarehousePage() {
                 )}
                 {e.totalCost > 0 && (
                   <p className="text-[11px] text-[#6E6557] mt-1.5">
-                    {tr('قيمة البضاعة قبل الضريبة')}: <b className="text-[#1F1A13]">{formatCurrency(e.totalCost)}</b>
+                    {taxOff ? tr('قيمة البضاعة') : tr('قيمة البضاعة قبل الضريبة')}: <b className="text-[#1F1A13]">{formatCurrency(e.totalCost)}</b>
                   </p>
                 )}
                 {e.createdBy && <p className="text-[11px] text-[#9A8F7E] mt-1">{tr('سجلها')}: {e.createdBy}</p>}
@@ -586,7 +589,7 @@ export default function CompanyWarehousePage() {
         )}
       </div>
 
-      {showEntry && <WarehouseEntryModal lotOn={lotOn} seed={entrySeed} stockRows={rows} onClose={() => { setShowEntry(false); setEntrySeed(null); }} />}
+      {showEntry && <WarehouseEntryModal lotOn={lotOn} seed={entrySeed} stockRows={rows} taxOff={taxOff} onClose={() => { setShowEntry(false); setEntrySeed(null); }} />}
       {showZero && canZeroStock && <StockZeroModal onClose={() => setShowZero(false)} />}
 
       {showRequest && (
@@ -749,7 +752,7 @@ interface EntryRow { rowId: string; productId: string; name: string; unit: strin
 // نموذج تسجيل وارد (استلام/شراء) أو تسوية للمستودع
 // `seed` (D1): «تسوية» من صفّ الجدول — النافذة تسويةً بسطر صنف الصفّ ولو حُذف من المنتجات. و`stockRows` أرصدة اليوم:
 // «الرصيد الآن» تحت كل سطر و«اجعل الرصيد صفراً» للتسوية، ومعرفة المحذوف قبل الإرسال
-function WarehouseEntryModal({ onClose, lotOn, seed = null, stockRows = [] }: { onClose: () => void; lotOn: boolean; seed?: WhRow | null; stockRows?: WhRow[] }) {
+function WarehouseEntryModal({ onClose, lotOn, seed = null, stockRows = [], taxOff = false }: { onClose: () => void; lotOn: boolean; seed?: WhRow | null; stockRows?: WhRow[]; taxOff?: boolean }) {
   const qc = useQueryClient();
   const tr = useTr();
   const [type, setType] = useState<'RECEIVE' | 'ADJUST'>(seed ? 'ADJUST' : 'RECEIVE');
@@ -770,7 +773,9 @@ function WarehouseEntryModal({ onClose, lotOn, seed = null, stockRows = [] }: { 
   });
   // فاتورة المورّد تعلن السعر شاملاً الضريبة غالباً؛ المؤشّر يخبر الخادم فيردّه
   // إلى صافيه قبل الحفظ — فيبقى العمود بمعنى واحد مهما اختلفت عادة المورّدين
-  const [costsIncludeTax, setCostsIncludeTax] = useState(false);
+  const [costsIncludeTaxState, setCostsIncludeTax] = useState(false);
+  // «إزالة الضريبة»: لا خانة «شاملة الضريبة» ولا خصم ضريبةٍ من التكلفة — المكتوب هو التكلفة (والخادم يتجاهل العلم كذلك)
+  const costsIncludeTax = !taxOff && costsIncludeTaxState;
   // D8: مرجع محاولة الحفظ — يُعاد مع الإعادة بالمحتوى نفسه (ضاع الردّ ⇒ الخادم يردّ الحركة نفسها ولا يكتبها ثانية)، ومحتوى آخر ⇒ مرجعٌ جديد
   const attempt = useRef<EntryAttempt>(null);
   // D3: المحذوف لا يُستلم (الخادم 422 PRODUCT_ARCHIVED) — من صفوف المستودع، ومعه ما ردّه الخادم في هذه النافذة
@@ -1050,7 +1055,7 @@ function WarehouseEntryModal({ onClose, lotOn, seed = null, stockRows = [] }: { 
                         <button onClick={() => removeRow(r.rowId)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={15} /></button>
                       </div>
                       {line !== null && (
-                        <p className="text-[11px] text-[#6E6557] mt-1">{tr('قيمة السطر قبل الضريبة')}: <b className="text-[#1F1A13]">{formatCurrency(line)}</b></p>
+                        <p className="text-[11px] text-[#6E6557] mt-1">{taxOff ? tr('قيمة السطر') : tr('قيمة السطر قبل الضريبة')}: <b className="text-[#1F1A13]">{formatCurrency(line)}</b></p>
                       )}
                       {/* رصيد اليوم للصنف — والتسوية تعيده صفراً بضغطة (D1) لصنفٍ في سطرٍ واحد */}
                       {stock && (
@@ -1085,13 +1090,15 @@ function WarehouseEntryModal({ onClose, lotOn, seed = null, stockRows = [] }: { 
 
               {type === 'RECEIVE' && (
                 <div className="px-3 py-2 bg-[#FAF7F0] border-t border-[#F1EBDF] space-y-2">
+                  {!taxOff && (
                   <label className="flex items-center gap-2 text-[11px] text-[#6E6557] cursor-pointer">
                     <input type="checkbox" checked={costsIncludeTax} onChange={e => setCostsIncludeTax(e.target.checked)} className="accent-[#E15A30]" />
                     {tr('الأسعار المدخلة شاملة الضريبة')}
                   </label>
+                  )}
                   {entryTotal > 0 && (
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-[#6E6557]">{tr('قيمة البضاعة المستلمة قبل الضريبة')}</span>
+                      <span className="text-[#6E6557]">{taxOff ? tr('قيمة البضاعة المستلمة') : tr('قيمة البضاعة المستلمة قبل الضريبة')}</span>
                       <b className="text-[#1F1A13]">{formatCurrency(entryTotal)}</b>
                     </div>
                   )}

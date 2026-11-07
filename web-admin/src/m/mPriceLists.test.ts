@@ -133,7 +133,8 @@ test('MInvoiceCreate: النوع من ملف العميل، والرقاقات �
   assert.ok(s.includes('const pricingDay = docPricingDayOf(invoiceDate, { timezone: priceInfoQ.data?.timezone });'));
   assert.match(s, /queryKey: \['price-list-rules'\],[\s\S]{0,200}enabled: listsOn,/, 'القواعد بمفتاح اللوحة وحين للشركة قوائم وحدها');
   assert.ok(s.includes('productApi.customerPrices(customerId)'), 'أسعار العميل الخاصة تغلب القائمة');
-  assert.ok(s.includes('setLines(ls => addInvoiceLine(ls, p, c, priceOf));'));
+  // «إزالة الضريبة» (٧ نوفمبر ٢٠٢٦): البند الجديد بنسبته الفعلية من إعدادات الشركة (taxCo) — المسعِّر نفسه
+  assert.ok(s.includes('setLines(ls => addInvoiceLine(ls, p, c, priceOf, taxCo));'));
   assert.ok(s.includes('setLines(ls => setInvoiceLineUnit(ls, key, p, c, priceOf));'));
   assert.ok(s.includes('refreshInvoiceLines(acc, p, priceOf)'));
   // تغيّر الكمية (+/−، والحذف) يعيد بنود الصنف التي لم تُمسّ — كانت الكمية لا تعيد التسعير قبل القواعد

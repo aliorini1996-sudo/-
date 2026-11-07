@@ -1,6 +1,7 @@
 import { computeInvoiceTotals } from '../rep/invoiceCalc';
 import { currencyDecimals } from '../i18n/countries';
 import { getActiveCurrency } from '../utils/format';
+import { effectiveTaxPct, type TaxModeCompany } from '../lib/taxMode';
 
 /**
  * حساب بنود الفاتورة في مسار **الإدارة**.
@@ -52,11 +53,15 @@ export function lineTotal(l: Pick<Line, 'qty' | 'unitPrice' | 'discountPct' | 't
   return r.items[0].lineTotal;
 }
 
-/** ملخّص الفاتورة — من المحرّك المشترك، فلا يختلف رقمان لمستند واحد */
-export function invoiceTotals(lines: Line[], invoiceDiscountPct: number) {
+/**
+ * ملخّص الفاتورة — من المحرّك المشترك، فلا يختلف رقمان لمستند واحد.
+ * و«إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): النسبة الاحتياطية للمحرّك فعليّة — صفرٌ للشركة بلا ضريبة (`company`)، وإلّا ١٥
+ * كما كانت حرفاً (غيابها = اليوم). وكل بندٍ يحمل نسبته على أيّ حال (mUnits.invoiceLine)، فهذا حدٌّ ثانٍ لا الأوّل.
+ */
+export function invoiceTotals(lines: Line[], invoiceDiscountPct: number, company?: TaxModeCompany | null) {
   const r = computeInvoiceTotals(
     lines.map(l => ({ qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct })),
-    { companyVat: 15, decimals: currencyDecimals(getActiveCurrency()), invoiceDiscountPct },
+    { companyVat: effectiveTaxPct(company, 15), decimals: currencyDecimals(getActiveCurrency()), invoiceDiscountPct },
   );
   return { subtotal: r.subtotal, discount: r.discountAmt, tax: r.taxAmt, total: r.total };
 }

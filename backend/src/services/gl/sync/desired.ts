@@ -117,6 +117,8 @@ export interface InvoiceFacts {
   dueDate: Date | null;
   customerName: string | null;
   salesRepName: string | null;
+  /** «إزالة الضريبة»: Invoice.taxFree — يدخل الحمولة حين يكون true وحده (الغائب/false = حمولة اليوم حرفاً) */
+  taxFree?: boolean | null;
   items: readonly InvoiceItemFacts[];
 }
 
@@ -267,6 +269,7 @@ function accountEntryPayload(g: KeyGroup, effectAt: Date, ctx: DeriveContext): S
         invoice: {
           id: inv.id, number: inv.number, type: inv.type, customerId: inv.customerId, salesRepId: inv.salesRepId,
           pricesIncludeTax: inv.pricesIncludeTax, subtotal: inv.subtotal, discountAmt: inv.discountAmt, taxAmt: inv.taxAmt, total: inv.total,
+          taxFree: inv.taxFree,
         },
         items: inv.items.map((it) => ({
           productId: it.productId, categoryId: it.categoryId, qty: it.qty, unitPrice: it.unitPrice,

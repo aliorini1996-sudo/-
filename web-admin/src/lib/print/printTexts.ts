@@ -48,6 +48,9 @@ const PRINT_PHRASES: Readonly<Record<string, Partial<Record<PrintSecondLang, str
   'إشعار دائن': { en: 'Credit Note', fr: 'Avoir', tr: 'Alacak Dekontu', zh: '贷项通知单' },
   'إشعار مدين': { en: 'Debit Note', fr: 'Note de débit', tr: 'Borç Dekontu', zh: '借项通知单' },
   'إشعار دائن مرتجع': { en: 'Credit Note (Return)', fr: 'Avoir (retour)', tr: 'İade Alacak Dekontu', zh: '退货贷项通知单' },
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): عنوان المرتجع المختوم بلا ضريبة (TAX_FREE_TITLES) — بحروفٍ كبيرة كـ«Invoice»، ولا
+  // يرجع سطره الثاني إلى ترجمة «إشعار دائن مرتجع» (افتراضيّ inv.returnTitle) أبداً
+  'فاتورة مرتجع': { en: 'Return Invoice', fr: 'Facture de retour', tr: 'İade Faturası', zh: '退货发票' },
   'إجمالي المرتجع دائن': { en: 'Total Return (Credit)', fr: 'Total du retour (avoir)' },
   'إجمالي المرتجع': { en: 'Total Return', fr: 'Total du retour' },
   'الرقم الضريبي': { en: 'VAT No.', fr: 'N° de TVA', tr: 'Vergi No', zh: '税号' },
@@ -161,7 +164,8 @@ const NO_EDIT: PrintTextEdit = Object.freeze({ text: null, alt: null, hidden: fa
 
 /** ما يصوغه inv.title (عناوين الفاتورة) وinv.returnTitle (عناوين الإشعار الدائن) من عناوين القرار — والإشعار المدين inv.debitTitle، وعناوين الحالة بمفاتيحها (titleKeyOf) */
 const INVOICE_TITLES: ReadonlySet<string> = new Set(['فاتورة ضريبية مبسطة', 'فاتورة ضريبية', 'فاتورة']);
-const RETURN_TITLES: ReadonlySet<string> = new Set(['إشعار دائن مرتجع', 'إشعار دائن']);
+// و«فاتورة مرتجع» (عنوان المرتجع المختوم بلا ضريبة — TAX_FREE_TITLES): صياغة الشركة لعنوان المرتجع تسري عليه كما تسري «فاتورة» بـinv.title
+const RETURN_TITLES: ReadonlySet<string> = new Set(['إشعار دائن مرتجع', 'إشعار دائن', 'فاتورة مرتجع']);
 /** عنوان الإشعار المدين في قرار المرحلة الثانية — يصوغه inv.debitTitle */
 const DEBIT_TITLE = 'إشعار مدين';
 /**

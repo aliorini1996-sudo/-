@@ -346,8 +346,8 @@ export function refreshLinkedLine(prev: LinkedReturnLine, fresh: LinkedReturnLin
 }
 
 /** مدخلات المحرّك للمرتجع المرتبط — هي حرفياً ما يقرؤه الخادم من بنود الطلب (انظر رأس الملف) */
-function linkedCalcInputs(lines: LinkedReturnLine[], decimals: number) {
-  return lines.map((l) => ({ qty: num(l.qty), unitPrice: linkedUnitPrice(l, decimals), discountPct: 0, taxPct: num(l.taxPct) }));
+function linkedCalcInputs(lines: LinkedReturnLine[], decimals: number, taxOff = false) {
+  return lines.map((l) => ({ qty: num(l.qty), unitPrice: linkedUnitPrice(l, decimals), discountPct: 0, taxPct: taxOff ? 0 : num(l.taxPct) }));
 }
 
 export interface LinkedReturnTotals {
@@ -362,10 +362,12 @@ export interface LinkedReturnTotals {
 /**
  * معاينة إجماليّ المرتجع المرتبط بالمحرّك المشترك وبخيارات الخادم نفسها: أسعار شاملة، خصم الفاتورة صفر، خانات العملة.
  * `companyVat` لا أثر له هنا (كل بند يحمل ضريبته) ويُمرَّر للتوقيع وحده.
+ * «إزالة الضريبة» (`taxOff`): الشركة بلا ضريبة ⇒ كل بندٍ بنسبة صفر وبمبلغ الاسترداد نفسه (سعرٌ شامل بنسبة صفر = هو)، فلا ضريبة
+ * في المعاينة — كما يسعّره الخادم. الغائب = الحساب كما كان حرفاً.
  */
-export function linkedReturnTotals(lines: LinkedReturnLine[], decimals: number, companyVat = 15): LinkedReturnTotals {
+export function linkedReturnTotals(lines: LinkedReturnLine[], decimals: number, companyVat = 15, taxOff = false): LinkedReturnTotals {
   const active = activeLinkedLines(lines);
-  const calc = computeInvoiceTotals(linkedCalcInputs(active, decimals), {
+  const calc = computeInvoiceTotals(linkedCalcInputs(active, decimals, taxOff), {
     companyVat, decimals, invoiceDiscountPct: 0, pricesIncludeTax: true,
   });
   const lineTotals: Record<string, number> = {};
@@ -394,6 +396,8 @@ export interface ReturnHead {
   phase2: boolean;
   /** سبب الإشعار الدائن — يُرسَل في المرحلة الثانية وحدها (لا عمود له في مرتجع المرحلة الأولى) */
   noteReason?: string;
+  /** «إزالة الضريبة»: الشركة بلا ضريبة (isTaxOff) ⇒ نسبة كل بندٍ مُرسَل صفر (المرتبط بمبلغه نفسه). الغائب = الجسم كما كان حرفاً */
+  taxOff?: boolean;
 }
 
 /**
@@ -421,7 +425,7 @@ export function buildLinkedReturnPayload(head: ReturnHead, sale: LinkedSale, dec
       ...(l.retUnitId && { unitId: l.retUnitId }),
       unitPrice: linkedUnitPrice(l, decimals),
       discountPct: 0,
-      taxPct: num(l.taxPct),
+      taxPct: head.taxOff ? 0 : num(l.taxPct),
     })),
   };
 }
@@ -438,7 +442,7 @@ export function buildFreeReturnPayload(head: ReturnHead, lines: FreeReturnLine[]
     ...(!head.phase2 && head.invoiceDate && { invoiceDate: head.invoiceDate }),
     ...(head.phase2 && { noteReason: (head.noteReason ?? '').trim() }),
     items: lines.map((l) => ({
-      productId: l.productId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct,
+      productId: l.productId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: head.taxOff ? 0 : l.taxPct,
       // بلا وحدة يدخل المرتجع السيارة بالأساس: «٢» كرتونان تصير حبّتين
       ...(l.unitId && { unitId: l.unitId }),
     })),

@@ -22,6 +22,7 @@ import { listLineRef, listPriceOf, qtyPrimaryOf } from '../lib/priceRules';
 import { priceListsOf, repriceUntouched } from '../lib/priceLists';
 import { todayLocal } from '../lib/shelfLife';
 import { primaryUnitOf, unitPriceOf } from '../lib/units';
+import { effectiveTaxPct } from '../lib/taxMode';
 
 const read = (...p: string[]) => fs.readFileSync(path.join(process.cwd(), 'src', ...p), 'utf8').replace(/\r\n/g, '\n');
 const repApp = read('rep', 'RepApp.tsx');
@@ -49,6 +50,8 @@ const inclOfWith = (rules: readonly RepPriceRule[], day: string): Incl =>
   compile<Incl>(between(repApp, 'const inclOf = ', ';\n'), 'inclOf', {
     custPrices: {}, listPrices: {}, listRules: rules, lineNetWithList, roundDecimal,
     priceDay: day, currencyDecimals: () => 2, getActiveCurrency: () => 'SAR',
+    // «إزالة الضريبة»: النسبة الفعلية من وضع الشركة — شركةٌ بلا العلم = نسبة الصنف كما كانت (taxOffRep.test.ts يغطّي الإزالة)
+    effectiveTaxPct, company: null,
   });
 /** repriceLines من CreateInvoice حرفاً (المؤثّر والإصدار) — الخرائط undefined فتعمل افتراضات inclOf المعطى، و`floor` = بلا «البيع بأقل» */
 const repriceLinesWith = (products: unknown[], inclOf: Incl, day: string, floor: boolean) =>

@@ -445,7 +445,9 @@ test('القالب ثنائي اللغة (تخطيط المطبوعات): الق
   /* قرار المالك ٤ نوفمبر ٢٠٢٦ («احذف كل شيء حتى QR»): الرمز يُطبع ما لم تحذفه الشركة صراحةً — بوابةٌ واحدة qrShown من isQrRemoved
    * على تخطيط القالب، وكل استعمالٍ للكتلة (الثنائي والإجماليات واليتيم) يمرّ بها فتسقط الكتلة كلّها معاً (المختوم والحكومي والمرحلة
    * الأولى والسبب والتلميح والتعليق وICV/UUID). ولا قراءة يدوية لـsections.qr. */
-  assert.match(a4, /\n\s*const qrShown = isQrRemoved\(layout\) \? null : qrNode;\n/);
+  /* تحديثٌ مقصود («إزالة الضريبة»، طلب المالك ٧ نوفمبر ٢٠٢٦): البوابة نفسها وشرطٌ ثانٍ من القرار وحده (hideTaxIds — المستند المختوم بلا
+   * ضريبة لا كتلة رمز له: لا «أضف الرقم الضريبي…» ولا «قيد الاعتماد…») — وما زالت قراءة الحذف واحدة */
+  assert.match(a4, /\n\s*const qrShown = isQrRemoved\(layout\) \|\| zDecision\.hideTaxIds \? null : qrNode;\n/);
   assert.equal((a4.match(/\bqrNode\b/g) || []).length, 2, 'qrNode: التعريف والبوابة وحدهما');
   assert.equal((stripComments(a4).match(/isQrRemoved\(/g) || []).length, 1, 'قراءةٌ ثانية لحذف الرمز في قالب A4');
   assert.doesNotMatch(stripComments(s), /sections\??\.qr\b/, 'قراءةٌ يدوية لخيار حذف الرمز');

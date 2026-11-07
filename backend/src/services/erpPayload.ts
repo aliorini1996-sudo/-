@@ -201,11 +201,12 @@ export interface ErpInvoiceInput extends Rec {
  *  - `netAmount`: صافي البند بعد خصم البند **وحصّته من خصم الفاتورة الكلّي** قبل الضريبة (lineTotal − taxAmt).
  *  - `invoiceDateLocal`: تاريخ الفاتورة بمنطقة الشركة. `originalInvoiceNumber`: مرجع الإشعار.
  * وبلا لقطة الفوترة الإلكترونية ورمز QR (لا يلزمان المستقبِل) وبلا صور منتجات البنود، ولا شيء من «تتبّع اللوط» (withoutLotKeys)،
- * ولا نوع السعر (withoutPriceList).
+ * ولا نوع السعر (withoutPriceList)، ولا ختم «إزالة الضريبة» (taxFree): عمودٌ جديد على الفاتورة يتسرّب إلى الحمولة لولا هذا، فتبقى
+ * payloadVersion 3 حرفياً كما هي (موصل Odoo لم يُختبر بمفاتيح مجهولة) — والمستند المختوم بنوده 0٪ فيصل المستقبِلَ بلا ضريبة أصلاً.
  */
 export function invoicePayloadRow(inv: ErpInvoiceInput, timeZone: string): Rec {
-  const { einvoiceSnapshot: _snap, einvoiceQr: _qr, originalInvoice, items, ...rest } = withoutPriceList(withoutLotKeys(inv)) as ErpInvoiceInput & { einvoiceSnapshot?: unknown; einvoiceQr?: unknown };
-  void _snap; void _qr;
+  const { einvoiceSnapshot: _snap, einvoiceQr: _qr, taxFree: _taxFree, originalInvoice, items, ...rest } = withoutPriceList(withoutLotKeys(inv)) as ErpInvoiceInput & { einvoiceSnapshot?: unknown; einvoiceQr?: unknown; taxFree?: unknown };
+  void _snap; void _qr; void _taxFree;
   const incl = inv.pricesIncludeTax === true;
   return {
     ...rest,

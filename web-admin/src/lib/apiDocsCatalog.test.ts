@@ -8,6 +8,7 @@ import {
   PRICE_RULE_KINDS, PRICE_RULE_LIMITS, PRICE_RULE_MESSAGES, PRICE_RULE_SCOPES, listLineRef, listPriceOf, priceRuleProblem, qtyPrimaryOf, roundPriceRule,
 } from './priceRules';
 import { pricingDayOf } from './priceListPricing';
+import { TAX_MODE_CODES } from './taxMode';
 
 /**
  * مستند API يُسلَّم لمبرمج الشركة: كل مسارٍ يذكره يجب أن يكون مركَّباً في الخادم بطريقته — مسارٌ يُحذف أو
@@ -120,6 +121,8 @@ test('كل مسار في المستند مركَّبٌ في الخادم بطر�
 const COVERED_ROUTERS = [
   'locations', 'paymentMethodsConfig', 'printSettings', 'printTexts', 'attendanceAdmin', 'teams', 'reports', 'invoices', 'salesReps', 'vanStock', 'warehouse', 'receipts',
   'repStockRequests', 'products', 'lots', 'import', 'companyBuyerRelax', 'returnPolicy', 'stockZero', 'priceLists',
+  // «إزالة الضريبة» (٧ نوفمبر ٢٠٢٦): موجّه /company/tax-mode المتداخل أيّاً كان اسم ملفه — وغيابه يُفشل اختبار الميزة أدناه لا هذا
+  ...(MOUNTS.get('/company/tax-mode') ?? []),
 ];
 const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'PUT /company/teams/:id/supervisors': 'يرفض مفاتيح API دائماً بـ403 (API_KEY_FORBIDDEN بعد فحص صلاحيتي الإعدادات والمستخدمين) — نطاق مستخدمي الشركة من اللوحة وحدها، ومذكورٌ في مقدمة مجموعة الفرق',
@@ -127,6 +130,7 @@ const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'PUT /rep-stock-requests/mine': 'للمندوب وحده (repOnly) والمفتاح مستخدم شركة فيُرفض 403',
   'DELETE /rep-stock-requests/mine': 'للمندوب وحده (repOnly) والمفتاح مستخدم شركة فيُرفض 403',
   'PATCH /company/buyer-relax': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — قرار ضريبي من لوحة التحكم بتحذيره، لمدير الشركة غير المقيّد',
+  'PATCH /company/tax-mode': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — «إزالة الضريبة» قرار ضريبي من لوحة التحكم بتحذيره وتأكيده، لمدير الشركة غير المقيّد أو جلسة المالك، ومذكورٌ في GET /company/tax-mode',
   'PUT /company/return-policy': 'يرفض مفاتيح API دائماً بـ403 (API_KEY_FORBIDDEN بعد فحص صلاحية الإعدادات) — «اشتراط اختيار فاتورة البيع للمرتجع» لمدير الشركة من اللوحة وحدها، ومذكورٌ في GET /company وPOST /invoices',
   'GET /stock-zero/preview': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — معاينة «تصفير المخزون» لمدير الشركة غير المقيّد بصلاحية المخزون (canManageVanStock) أو جلسة المالك (بلا صلاحية) من لوحة التحكم وحدها، ومذكورةٌ في GET /warehouse/entries وGET /van-stock/loads',
   'POST /stock-zero': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — «تصفير المخزون» بكلمة تأكيد لمدير الشركة غير المقيّد بصلاحية المخزون (canManageVanStock) أو جلسة المالك (بلا صلاحية) من لوحة التحكم وحدها، وحركاته (zeroRunId) موثّقةٌ في GET /warehouse/entries وGET /van-stock/loads وGET /van-stock/movements',
@@ -1813,4 +1817,119 @@ test('D7: أخطاء مسارات القواعد والجدول كاملة — 4
   assert.match(lists, /const ruleBodySchema = z\.object\(/);
   assert.match(lists, /\)\)\.min\(1\)\.max\(500\)/);
   assert.match(read(path.join(BACKEND, 'middleware', 'errorHandler.ts')), /ZodError/);
+});
+
+/* ═══ «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦) — المسار الجديد وسلوك POST /invoices والختم taxFree والتعارض مع المرحلة الثانية ═══ */
+
+const TAX_MODE_PATH = '/company/tax-mode';
+const taxRow = (code: string) => {
+  const docs = read(path.join(process.cwd(), 'src', 'components', 'ApiDocs.tsx'));
+  const at = docs.indexOf(`['${code}', '`);
+  assert.ok(at > 0, `صفّ ${code} في جدول الأخطاء`);
+  return docs.slice(at, docs.indexOf("'],", at));
+};
+
+test('«إزالة الضريبة»: GET /company/tax-mode موثّق وPATCH مستثنى بسببه، والحقلان في GET /company، والأعمدة في مخطّط الخادم', () => {
+  const get = endpointOf('GET', TAX_MODE_PATH);
+  assert.equal(get.response, '{success:true, data:{taxDisabled, taxModeChangedAt}}');
+  assert.ok(get.gates.includes('مسموح لمفتاح القراءة فقط'));
+  // ضمن مجموعة الشركة بعد فكّ القيد (القراءة لمستخدمي الشركة كفكّ القيد)
+  const group = API_DOC_GROUPS.find((g) => g.endpoints.some((e) => e.path === TAX_MODE_PATH))!;
+  const paths = group.endpoints.map((e) => `${e.method} ${e.path}`);
+  assert.equal(paths.indexOf(`GET ${TAX_MODE_PATH}`), paths.indexOf('GET /company/buyer-relax') + 1);
+  // التبديل يرفض المفتاح دائماً: مستثنى من الفهرس ومذكورٌ في قواعد القراءة بصلاحيته وتعارضه
+  assert.ok(!documented.has(`PATCH ${TAX_MODE_PATH}`), 'التبديل موثّقٌ والمفتاح يُرفض فيه دائماً');
+  assert.ok(`PATCH ${TAX_MODE_PATH}` in NOT_DOCUMENTED);
+  const rules = get.rules.join('\n');
+  for (const k of [`PATCH ${TAX_MODE_PATH} {taxDisabled}`, 'لمدير الشركة غير المقيّد بنطاق (أو جلسة مالك المنصة)', '403 API_KEY_FORBIDDEN',
+    `409 ${TAX_MODE_CODES.zatcaConflict}`, `409 ${TAX_MODE_CODES.blocksZatca}`, `422 ${TAX_MODE_CODES.disabled}`, "einvoiceProvider = 'none'", 'taxFree = true',
+    'بمبلغ الاسترداد نفسه', 'المستندات السابقة تبقى كما صدرت', 'taxModeChangedAt', 'null = لم يُبدَّل قط', 'نسب الأصناف taxPct تبقى مخزّنة',
+    'reasons من TENANT_FLAG وLIVE وARMED وREHEARSAL', 'وإعادة الضريبة حرّة دائماً', 'لا يكتب شيئاً ولا يقدّم taxModeChangedAt']) {
+    assert.ok(rules.includes(k), `قواعد GET ${TAX_MODE_PATH} لا تذكر ${k}`);
+  }
+  // GET /company: الحقلان في الأعمدة الخام وقاعدةٌ تقول إن PUT /company لا يمسّهما
+  const company = endpointOf('GET', '/company');
+  for (const k of ['taxDisabled', 'taxModeChangedAt']) assert.match(company.response, new RegExp(`\\b${k}\\b`), `${k} غائب عن ردّ GET /company`);
+  assert.ok(company.rules.some((r) => r.startsWith('taxDisabled') && r.includes(`GET ${TAX_MODE_PATH}`) && r.includes('لا يمسّه PUT /company')));
+  // الأعمدة في الخادم كما يصفها المستند (عمودان في إعدادات الشركة، وختمٌ في الفاتورة بافتراضيّ false)
+  const schema = read(path.join(BACKEND, '..', 'prisma', 'schema.prisma'));
+  const block = (m: string) => schema.slice(schema.indexOf(`model ${m} {`), schema.indexOf('\n}', schema.indexOf(`model ${m} {`)));
+  assert.match(block('CompanySettings'), /\n\s*taxDisabled\s+Boolean\s+@default\(false\)/);
+  assert.match(block('CompanySettings'), /\n\s*taxModeChangedAt\s+DateTime\?/);
+  assert.match(block('Invoice'), /\n\s*taxFree\s+Boolean\s+@default\(false\)/);
+  // ولا يدخل مخطّط PUT /company (zod يُسقطه فلا يكتبه الحفظ العام)
+  const companySchema = routeFile('company').slice(routeFile('company').indexOf('const companySchema'), routeFile('company').indexOf('});', routeFile('company').indexOf('const companySchema')));
+  assert.ok(companySchema.length > 50 && !/taxDisabled|taxModeChangedAt/.test(companySchema), 'PUT /company يكتب العلم');
+});
+
+test('«إزالة الضريبة»: POST /invoices — 422 TAX_DISABLED للمفتاح، والنسبة صفر والختم taxFree ومزوّد none، والمرتجع المرتبط بمبلغه، و409 TAX_MODE_CHANGED وإعادة الرفع كما بُنيت', () => {
+  const post = endpointOf('POST', '/invoices');
+  const main = post.rules.find((r) => r.startsWith('«إزالة الضريبة» (taxDisabled = true'));
+  assert.ok(main, 'قاعدة «إزالة الضريبة» غائبة');
+  for (const k of [`422 {success:false, code:'${TAX_MODE_CODES.disabled}', message}`, 'ولا يُكتب شيء', 'taxPct = 0 لكل بند', 'taxAmt = 0', 'السعر المرسل نهائي',
+    'taxFree = true', "einvoiceProvider = 'none'", 'einvoiceStatus = null', 'الغائب هنا 0 لا defaultVatPct', 'بلا أي تغيير (taxFree = false)',
+    // المرتجع المرتبط من المفتاح: بندٌ بنسبة أكبر من 0 يُرفض 422 كالبيع (المُكامِل يُبلَّغ فلا تفترق دفاتره) — ويسعّره الخادم من بند البيع
+    'والمرتجع المرتبط بفاتورة بيع كذلك: بندٌ فيه بنسبة أكبر من 0 يرجع 422 أيضاً']) {
+    assert.ok(main!.includes(k), `القاعدة لا تذكر ${k}`);
+  }
+  const linked = post.rules.find((r) => r.includes('المرتجع المرتبط بفاتورة بيع (originalInvoiceId) والشركة بلا ضريبة'));
+  assert.ok(linked && /بنسبة 0 وبمبلغ الاسترداد نفسه/.test(linked) && /لا يتغيّر إلا taxAmt إلى 0/.test(linked) && /taxFree = true/.test(linked), 'المرتجع المرتبط');
+  const live = post.rules.find((r) => r.includes(TAX_MODE_CODES.changed));
+  assert.ok(live, `${TAX_MODE_CODES.changed} غائب`);
+  assert.match(live!, /\(لا المفتاح\)/);
+  assert.ok(live!.includes(`409 ${TAX_MODE_CODES.changed}`));
+  assert.match(live!, /X-FS-Replay، وهي تُمحى لطلب المفتاح\) تُقبل كما بناها الجهاز/);
+  assert.match(live!, /يُحفظ المستند بضريبته وtaxFree = false مطابقاً للورقة/);
+  assert.match(live!, /taxFree لا يتغيّر بتبديل الشركة لاحقاً/);
+  // «كما بُني» لصندوق المندوب وحده، والمستند المُنشأ قبل التبديل على المسار المعتاد (invoices.ts: taxRepReplay وtaxReplayPredates)
+  assert.match(live!, /وهذا لجلسة المندوب وحدها: الترويسة نفسها من مستخدمي الشركة أو جلسة مالك المنصة لا تمنح «كما بُني»/);
+  assert.match(live!, /قبل لحظة التبديل taxModeChangedAt صدر والشركة بضريبتها، فيُحفظ كما بُني على المسار المعتاد بلا ختم \(taxFree = false\)/);
+  // الحقلان في الجسم يحيلان إليها، والختم في أعمدة القائمة
+  assert.ok(fieldOf(post, 'items[].taxPct').desc.includes(`422 ${TAX_MODE_CODES.disabled} (والمرتجع المرتبط بفاتورة بيع كذلك`));
+  assert.match(live!, /وعدا المرتجع المرتبط بفاتورة بيع\) يرجع 409/);
+  assert.ok(fieldOf(post, 'items[].taxPct').desc.includes('عند الغياب يرث defaultVatPct'), 'سلوك اليوم باقٍ للشركة ذات الضريبة');
+  assert.match(fieldOf(post, 'pricesIncludeTax').desc, /ولا أثر له في الشركة «بلا ضريبة»/);
+  assert.match(endpointOf('GET', '/invoices').response, /وpricesIncludeTax وtaxFree \(«إزالة الضريبة»/);
+  // جدول الأخطاء: 422 للمفتاح، والثلاثة الأخرى 409 (ورموزها من القواعد المشتركة حرفاً)
+  assert.ok(taxRow('422').includes(`${TAX_MODE_CODES.disabled} بندٌ بـtaxPct أكبر من 0`));
+  for (const c of [TAX_MODE_CODES.zatcaConflict, TAX_MODE_CODES.blocksZatca, TAX_MODE_CODES.changed]) assert.ok(taxRow('409').includes(c), `409: ${c}`);
+  assert.ok(!taxRow('409').includes(TAX_MODE_CODES.disabled) && !taxRow('422').includes(TAX_MODE_CODES.changed), 'رمزٌ في صفّ غير حالته');
+});
+
+test('«إزالة الضريبة»: «ما الجديد» بعنوانٍ يشمل ٧ نوفمبر، وبندُه الأوّل يذكر المسار والحقلين والرموز والختم والتعارض', () => {
+  const docs = read(path.join(process.cwd(), 'src', 'components', 'ApiDocs.tsx'));
+  assert.ok(docs.includes('title="ما الجديد (٢٩ أكتوبر – ٧ نوفمبر ٢٠٢٦)"'), 'العنوان');
+  const list = docs.slice(docs.indexOf('title="ما الجديد'), docs.indexOf('</ul>', docs.indexOf('title="ما الجديد')));
+  const bullets = [...list.matchAll(/<li>([^]*?)<\/li>/g)].map((m) => m[1]);
+  assert.ok(bullets[0].startsWith('٧ نوفمبر — «إزالة الضريبة»'), 'أول بند');
+  assert.equal(bullets.filter((b) => b.startsWith('٧ نوفمبر — ')).length, 1);
+  for (const k of ['GET /api/company/tax-mode', 'taxDisabled, taxModeChangedAt', 'GET /api/company', '403 API_KEY_FORBIDDEN', 'POST /api/invoices',
+    `422 ${TAX_MODE_CODES.disabled}`, 'والغائب = 0', 'وفي المرتجع المرتبط بفاتورة بيع كذلك', 'taxFree = true', "einvoiceProvider = 'none'", 'بمبلغ الاسترداد نفسه', 'مزامنة invoices',
+    'المستندات السابقة تبقى بضريبتها', `409 ${TAX_MODE_CODES.zatcaConflict}`, `409 ${TAX_MODE_CODES.blocksZatca}`, 'والشركات الأخرى بلا أي تغيير']) {
+    assert.ok(bullets[0].includes(k), `بند ٧ نوفمبر لا يذكر ${k}`);
+  }
+});
+
+/**
+ * المستند يَعِد بما يفعله الخادم: موجّه /company/tax-mode بقراءته وتبديله ورفض المفتاح والتعارض، ورموز الفواتير والمرحلة الثانية
+ * مستعملةٌ خارج ملف القواعد المشتركة. يُكتب الخادم في الفرع نفسه بالتوازي (العقد)، فهذا يفشل حتى يصل — لا يُعدَّل ليمرّ.
+ */
+test('«إزالة الضريبة» — الخادم يفعل ما يَعِد به المستند: المسار بطريقتيه ورفض المفتاح والتعارض، ورموز الرفض مستعملة', () => {
+  const owner = ownerOf(TAX_MODE_PATH)!;
+  const sub = TAX_MODE_PATH.slice(owner.prefix.length) || '/';
+  const src = [...owner.files].map(routeFile).join('\n');
+  assert.ok(src.includes(`.get('${sub}'`), `GET ${TAX_MODE_PATH} غير مركّب`);
+  assert.ok(src.includes(`.patch('${sub}'`), `PATCH ${TAX_MODE_PATH} غير مركّب`);
+  assert.match(src, /apiKeyId/, 'التبديل لا يفحص المفتاح');
+  assert.ok(src.includes("'API_KEY_FORBIDDEN'"), 'رفض المفتاح بغير API_KEY_FORBIDDEN');
+  // الردّ بالحقلين اللذين يوثّقهما المستند
+  assert.match(src, /data: \{ taxDisabled[:,][^}]*taxModeChangedAt/);
+  // الإصدار يختم المستند «بلا ضريبة»
+  assert.match(routeFile('invoices'), /taxFree: true/);
+  // أسباب التعارض في الردّ كما يعدّدها المستند
+  assert.match(read(path.join(BACKEND, 'compliance', 'zatca', 'settingsGuards.ts')), /TAX_MODE_ZATCA_REASONS = Object\.freeze\(\['TENANT_FLAG', 'LIVE', 'ARMED', 'REHEARSAL'\]/);
+  const used = BACKEND_SRC.split(read(path.join(BACKEND, 'services', 'taxMode.ts'))).join('');
+  for (const [k, code] of Object.entries(TAX_MODE_CODES)) {
+    assert.match(used, new RegExp(`'${code}'|TAX_MODE_CODES\\.${k}\\b|TAX_MODE_MESSAGES\\.${code}\\b`), `${code} لا يرسله الخادم`);
+  }
 });

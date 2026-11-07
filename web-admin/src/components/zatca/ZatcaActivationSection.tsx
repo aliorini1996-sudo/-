@@ -64,6 +64,8 @@ export default function ZatcaActivationSection({ ov }: { ov: ZatcaOverview }) {
       toast.success(tr(data?.applied === false ? 'التفعيل مُسلَّح مسبقا' : 'بدأ تسليح التفعيل — بانتظار مزامنة المناديب'));
     } catch (err) {
       const e = apiErrorOf(err);
+      // «إزالة الضريبة»: أُزيلت ضريبة الشركة من جهازٍ آخر (409 TAX_OFF_BLOCKS_ZATCA) ⇒ إعادة قراءة الشركة فيختفي التبويب
+      if (e.code === 'TAX_OFF_BLOCKS_ZATCA') void qc.invalidateQueries({ queryKey: ['company'] });
       toast.error(goLiveErrorMessage(e.code, e.message));
     } finally {
       setBusy(false);
@@ -81,6 +83,8 @@ export default function ZatcaActivationSection({ ov }: { ov: ZatcaOverview }) {
       toast.success(tr('أُلغي التسليح — عاد إصدار الفواتير دون اتصال'));
     } catch (err) {
       const e = apiErrorOf(err);
+      // «إزالة الضريبة»: أُزيلت ضريبة الشركة من جهازٍ آخر (409 TAX_OFF_BLOCKS_ZATCA) ⇒ إعادة قراءة الشركة فيختفي التبويب
+      if (e.code === 'TAX_OFF_BLOCKS_ZATCA') void qc.invalidateQueries({ queryKey: ['company'] });
       toast.error(goLiveErrorMessage(e.code, e.message));
     } finally {
       setBusy(false);
@@ -101,6 +105,8 @@ export default function ZatcaActivationSection({ ov }: { ov: ZatcaOverview }) {
       ]);
     } catch (err) {
       const e = apiErrorOf(err);
+      // «إزالة الضريبة»: أُزيلت ضريبة الشركة من جهازٍ آخر (409 TAX_OFF_BLOCKS_ZATCA) ⇒ إعادة قراءة الشركة فيختفي التبويب
+      if (e.code === 'TAX_OFF_BLOCKS_ZATCA') void qc.invalidateQueries({ queryKey: ['company'] });
       // 409 GO_LIVE_NOT_READY يحمل الجاهزية المحدَّثة — حدّثها في مكانها كي يرى المدير ما نقص
       const fresh = (err as { response?: { data?: { readiness?: ZatcaGoLiveReadiness } } } | null)?.response?.data?.readiness;
       if (fresh) qc.setQueryData(READINESS_KEY, fresh);

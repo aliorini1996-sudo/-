@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Phone, MessageCircle, Package } from 'lucide-react';
 import { roundDecimal } from '../rep/invoiceCalc';
 import { currencyDecimals, currencySymbol } from '../i18n/countries';
+import { isTaxOff } from '../lib/taxMode';
 
 /**
  * منيو المنتجات العام — الصفحة التي يشاركها المندوب مع عملائه:
@@ -14,7 +15,8 @@ import { currencyDecimals, currencySymbol } from '../i18n/countries';
  */
 
 interface CatalogData {
-  company: { name: string; logo?: string | null; primaryColor?: string | null; currency: string };
+  /** `taxDisabled: true` («إزالة الضريبة») يرسله الخادم للشركة بلا ضريبة وحدها — غائبٌ = المنيو كما كان */
+  company: { name: string; logo?: string | null; primaryColor?: string | null; currency: string; taxDisabled?: boolean };
   rep: { name: string; contact?: string | null };
   /**
    * الوحدات المتعددة: `unit`/`basePrice` لوحدة الأساس (الحبة)، و`units` وحدات البيع الأكبر النشطة بمعاملها وسعرها
@@ -76,6 +78,9 @@ export default function CatalogPage() {
   const brand = data?.company.primaryColor || '#E15A30';
   const dec = currencyDecimals(data?.company.currency || 'SAR');
   const sym = currencySymbol(data?.company.currency || 'SAR');
+  /* «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): منيو شركةٍ بلا ضريبة — السعر المكتوب هو ما يدفعه العميل (لا رفع بالنسبة)، ولا
+   * عبارة «شاملة الضريبة». والخادم يرسل taxPct صفراً كذلك؛ والحارس هنا لنسخةٍ قديمة من الخادم */
+  const taxOff = isTaxOff(data?.company);
   // السعر شامل الضريبة — مطابق لمعادلة تطبيق المندوب حرفياً (CatalogPrices أسفل الملف)
 
   const cats = useMemo(() => {
@@ -115,7 +120,7 @@ export default function CatalogPage() {
           : <span style={{ width: 44, height: 44, borderRadius: 12, background: brand, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Package size={22} color="#fff" /></span>}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 800, fontSize: 16, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{data.company.name}</div>
-          <div style={{ fontSize: 11.5, color: '#8A8178' }}>منيو المنتجات · الاسعار شاملة الضريبة</div>
+          <div style={{ fontSize: 11.5, color: '#8A8178' }}>{taxOff ? 'منيو المنتجات' : 'منيو المنتجات · الاسعار شاملة الضريبة'}</div>
         </div>
       </header>
 
@@ -151,7 +156,7 @@ export default function CatalogPage() {
             </div>
             <div style={{ padding: '10px 12px' }}>
               <div style={{ fontWeight: 700, fontSize: 13.5, lineHeight: 1.45, minHeight: 38 }}>{p.name}</div>
-              <CatalogPrices p={p} brand={brand} dec={dec} sym={sym} />
+              <CatalogPrices p={taxOff ? { ...p, taxPct: 0 } : p} brand={brand} dec={dec} sym={sym} />
             </div>
           </div>
         ))}

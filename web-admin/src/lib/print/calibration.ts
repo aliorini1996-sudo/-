@@ -23,9 +23,12 @@
  */
 import QRCode from 'qrcode';
 import {
-  FONT_SCALES, PRINT_SAMPLE_WATERMARK, dotsPerMm, geometry, isQrRemoved, layoutOf, qrPlan, type PrintProfile,
+  FONT_SCALES, dotsPerMm, geometry, isQrRemoved, layoutOf, qrPlan, type PrintProfile,
 } from './printSettings';
 import type { Company, InvoiceDoc } from '../../rep/RepDocuments';
+// «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): شركةٌ أزالت الضريبة تطبع صفحتها ونموذجها بلا أيّ ذكرٍ للضريبة — بلا العلم كاليوم حرفاً
+import { isTaxOff } from '../taxMode';
+import { sampleWatermarkFor } from './taxFreePrint';
 
 type Tr = (ar: string) => string;
 
@@ -71,6 +74,11 @@ export interface CalibrationOptions {
   mode: 'system' | 'raster';
   /** اسم القالب للعرض */
   name: string;
+  /**
+   * «إزالة الضريبة»: الشركة بلا ضريبة (isTaxOff) ⇒ شريط «نموذج اختبار» وحده، وعيّنة الخط «فاتورة»، ولا رمز تجريبيّ (لا رمز في أيّ
+   * مستندٍ لها فلا معايرة له، وحمولته وتعليقه يذكران الضريبة). غيابه أو false: الصفحة كما هي حرفاً
+   */
+  taxOff?: boolean;
 }
 
 // ─── التخطيط: صفحةٌ واحدة، أو قسمان على الورق القصير ───
@@ -112,15 +120,15 @@ export interface CalibrationLayout {
 }
 
 /** نصوص الصفحة وأحجامها — مصدرٌ واحد للتقدير وللرسم */
-function calibrationModel(p: PrintProfile, tr: Tr, name: string) {
+function calibrationModel(p: PrintProfile, tr: Tr, name: string, taxOff = false) {
   const g = geometry(p);
   const W = g.printableWidthMm;
   const base = p.printer === 'thermal' ? 11 : 12.5;
-  const noQr = isQrRemoved(layoutOf(p));
+  const noQr = isQrRemoved(layoutOf(p)) || taxOff;
   const q = calibrationQr(p);
   const slotMm = (q.cells + 4) * q.cellMm + 0.4;
   const fonts = [
-    ...FONT_SCALES.map((s) => ({ px: r1(base * s * 100) / 100, bold: false, text: `${tr('حجم الخط')} ${Math.round(s * 100)}% — ${tr('فاتورة ضريبية مبسطة')} 0123456789` })),
+    ...FONT_SCALES.map((s) => ({ px: r1(base * s * 100) / 100, bold: false, text: `${tr('حجم الخط')} ${Math.round(s * 100)}% — ${tr(taxOff ? 'فاتورة' : 'فاتورة ضريبية مبسطة')} 0123456789` })),
     { px: base, bold: true, text: `${tr('خط عريض للنص')} — ${tr('الإجمالي')} 115.00` },
   ];
   const meta = [
@@ -142,7 +150,8 @@ function calibrationModel(p: PrintProfile, tr: Tr, name: string) {
   const help = (lines: readonly string[]) => 1.5 + sum(lines.map((h) => textMm(`• ${tr(h)}`, small, W)));
   // العنوان بأطول صورته («· n/m»)
   const title = `${tr('صفحة معايرة')} — ${name} · 9/9`;
-  const banner = 2 * 1.5 * PX_MM + 2 + textMm(tr(PRINT_SAMPLE_WATERMARK), base, W) + 1.5;
+  const watermark = sampleWatermarkFor(taxOff);
+  const banner = 2 * 1.5 * PX_MM + 2 + textMm(tr(watermark), base, W) + 1.5;
   const est = {
     banner,
     title: textMm(title, base * 1.15, W),
@@ -155,12 +164,12 @@ function calibrationModel(p: PrintProfile, tr: Tr, name: string) {
     helpQr: help(helpQr),
     end: lineMm(small) + 0.4 + END_SAFETY_MM,
   };
-  return { g, W, base, q, slotMm, fonts, meta, qrCaption, helpRuler, helpQr, est, noQr };
+  return { g, W, base, q, slotMm, fonts, meta, qrCaption, helpRuler, helpQr, est, noQr, watermark };
 }
 
 /** أقسام الصفحة لهذا القالب: واحدٌ إن اتسع كل شيء، وإلا الرأس والمساطر ثم الرمز — والتقدير لكلٍّ داخل طول القسم */
-export function calibrationLayout(p: PrintProfile, tr: Tr, name = ''): CalibrationLayout {
-  const { g, est, noQr } = calibrationModel(p, tr, name);
+export function calibrationLayout(p: PrintProfile, tr: Tr, name = '', taxOff = false): CalibrationLayout {
+  const { g, est, noQr } = calibrationModel(p, tr, name, taxOff);
   const bodyMm = g.paperLengthMm === null ? null : Math.max(20, (g.usableLengthMm ?? 0) - 0.5);
   const end = bodyMm === null ? 0 : est.end;
   const head = est.banner + est.title;
@@ -183,10 +192,11 @@ export function calibrationLayout(p: PrintProfile, tr: Tr, name = ''): Calibrati
  * يقسم الصفحة قسمين (calibrationLayout) يتعاقبان على الأوراق.
  */
 export function buildCalibrationDocument(p: PrintProfile, tr: Tr, opts: CalibrationOptions): string {
-  const { g, W, base, q, slotMm, fonts, meta, qrCaption, helpRuler, helpQr, noQr } = calibrationModel(p, tr, opts.name);
+  const taxOff = opts.taxOff === true;
+  const { g, W, base, q, slotMm, fonts, meta, qrCaption, helpRuler, helpQr, noQr, watermark } = calibrationModel(p, tr, opts.name, taxOff);
   const raster = p.printer !== 'page';
   const roll = g.paperLengthMm === null;
-  const layout = calibrationLayout(p, tr, opts.name);
+  const layout = calibrationLayout(p, tr, opts.name, taxOff);
   const { bodyMm, sheets } = layout;
   const dummy = dummyQrValue();
   const room = Math.max(0, g.paperWidthMm - W);
@@ -206,7 +216,7 @@ export function buildCalibrationDocument(p: PrintProfile, tr: Tr, opts: Calibrat
   const helpHtml = (lines: readonly string[]) => `<div class="help">${lines.map((h) => `<div>• ${esc(tr(h))}</div>`).join('')}</div>`;
 
   const head = (n: number) => `
-    <div class="banner">${esc(tr(PRINT_SAMPLE_WATERMARK))}</div>
+    <div class="banner">${esc(tr(watermark))}</div>
     <div class="title">${esc(tr('صفحة معايرة'))} — ${esc(opts.name)}${sheets > 1 ? ` · <span dir="ltr">${n}/${sheets}</span>` : ''}</div>`;
   const rulers = `
     <div class="meta" dir="ltr">${esc(meta)}</div>
@@ -294,6 +304,7 @@ export function sampleInvoiceDoc(company: Company | null | undefined, tr: Tr, no
     { name: `${tr('صنف تجريبي')} 1`, unit: tr('الوحدة'), qty: 2, unitPrice: 28.75, discountPct: 0, taxPct: 15, lineTotal: 57.5, code: 'TST-001', taxAmt: 7.5 },
     { name: `${tr('صنف تجريبي')} 2`, unit: tr('الوحدة'), qty: 1, unitPrice: 57.5, discountPct: 0, taxPct: 15, lineTotal: 57.5, code: 'TST-002', taxAmt: 7.5 },
   ];
+  if (isTaxOff(company)) return taxFreeSampleDoc(company, tr, now, items);
   return {
     kind: 'invoice',
     number: 'TEST-0001',
@@ -313,5 +324,32 @@ export function sampleInvoiceDoc(company: Company | null | undefined, tr: Tr, no
       qr: dummyQrValue(), printable: true, overdue: false, reportDeadline: null, issuedAt: null,
       uuid: '00000000-0000-0000-0000-000000000000', icv: 1, warnings: 0,
     },
+  };
+}
+
+/**
+ * «إزالة الضريبة»: النموذج كما تطبع الشركة حقاً — مختومٌ بلا ضريبة (taxFree) بالمبالغ نفسها (السعر المكتوب نهائي): بنودٌ بنسبة صفر،
+ * بلا رقمٍ ضريبيّ (ولا الوهميّ ولا المحفوظ — يبقى في الإعدادات كما هو)، وبلا عرض المرحلة الثانية (لا ربط مع الهيئة لشركةٍ بلا ضريبة)
+ * فلا رمز ولا علامة بروفة. شريط «نموذج اختبار» يضعه المستدعي (sampleWatermarkFor في lib/print/taxFreePrint.ts).
+ */
+function taxFreeSampleDoc(
+  company: Company | null | undefined, tr: Tr, now: Date, items: readonly InvoiceDoc['items'][number][],
+): InvoiceDoc {
+  return {
+    kind: 'invoice',
+    number: 'TEST-0001',
+    date: now.toISOString(),
+    type: 'CASH',
+    company: { ...(company ?? {}), name: company?.name || tr('اسم الشركة'), taxNumber: undefined, printSettings: undefined },
+    customer: { name: tr('عميل تجريبي') },
+    repName: tr('مندوب تجريبي'),
+    items: items.map((it) => ({ ...it, taxPct: 0, taxAmt: 0 })),
+    subtotal: 115,
+    discount: 0,
+    tax: 0,
+    total: 115,
+    pricesIncludeTax: false,
+    taxFree: true,
+    zatca: null,
   };
 }

@@ -25,13 +25,15 @@ interface Props {
   zatcaCollect?: boolean;
   /** فكّ قيد الرقم الضريبي والعنوان الوطني (buyerRelaxOn — طلب المالك ٣١ أكتوبر ٢٠٢٦): صيغها تنبيهات لا تمنع الحفظ. غيابه = القيد قائم */
   buyerRelax?: boolean;
+  /** «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الشركة بلا ضريبة (isTaxOff) — لا خانة الرقم الضريبي، والمحفوظ يُرسل كما هو بلا تغيير */
+  taxOff?: boolean;
 }
 
 /** حقول المرحلة الثانية من الحالة المحكومة (الرقم الضريبي والسجل والمدينة والحي والاسم من حقول النموذج المسجّلة). */
 const pickPhase2 = (b: BuyerFormValues): Partial<BuyerFormValues> =>
   Object.fromEntries(BUYER_PHASE2_FIELDS.map(f => [f, b[f]])) as Partial<BuyerFormValues>;
 
-export default function CustomerModal({ customer, onClose, onSave, loading, accountingOn = true, buyerRelax = false, zatcaCollect = false }: Props) {
+export default function CustomerModal({ customer, onClose, onSave, loading, accountingOn = true, buyerRelax = false, taxOff = false, zatcaCollect = false }: Props) {
   const tr = useTr();
   const { register, handleSubmit, watch, formState: { errors } } = useForm<CustomerForm>({
     defaultValues: customer || { status: 'ACTIVE', creditLimit: 0, paymentDays: 30 },
@@ -102,10 +104,12 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
                 <label className="label">{tr('السجل التجاري')}</label>
                 <input className="input" {...register('commercialReg')} />
               </div>
-              <div>
-                <label className="label">{tr('الرقم الضريبي')}</label>
-                <input className="input" {...register('taxNumber')} />
-              </div>
+              {!taxOff && (
+                <div>
+                  <label className="label">{tr('الرقم الضريبي')}</label>
+                  <input className="input" {...register('taxNumber')} />
+                </div>
+              )}
               <div>
                 <label className="label">{tr('الحالة')}</label>
                 <select className="input" {...register('status')}>

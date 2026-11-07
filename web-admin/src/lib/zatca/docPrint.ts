@@ -20,6 +20,7 @@
  */
 
 import type { ZatcaDocView, ZatcaMirrorStatus } from './docStatus';
+import { TAX_FREE_TITLES } from '../taxMode';
 
 export type ZatcaPrintKind =
   /** المرحلة الأولى — سلوك اليوم بلا أيّ تغيير */
@@ -63,9 +64,20 @@ export interface ZatcaPrintDecision {
   shareLabel: string;
   /** نصّ التأكيد أعلى شاشة النتيجة. */
   confirmText: string;
+  /**
+   * «إزالة الضريبة» (lib/taxMode.ts، طلب المالك ٧ نوفمبر ٢٠٢٦): مستندٌ مختومٌ بلا ضريبة — لا رقم ضريبيّ للبائع ولا للمشتري، ولا كتلة
+   * رمز أصلاً (لا رمز ولا تعليق ولا «أضف الرقم الضريبي…» ولا «قيد الاعتماد…»)، ولا عبارةٌ تذكر الضريبة. يُحمَل `true` في فرع
+   * `taxFree` وحده؛ وغيابه في كل قرارٍ آخر = سلوك اليوم حرفاً (الكائن نفسه بلا حقلٍ جديد).
+   */
+  hideTaxIds?: boolean;
 }
 
 export interface ZatcaPrintFacts {
+  /**
+   * «إزالة الضريبة»: المستند مختومٌ بلا ضريبة (`Invoice.taxFree` ← `isDocTaxFree`). يسبق كلّ فرعٍ آخر — والمرحلة الثانية لا تجتمع
+   * معه (الخادم يمنع الجمع)، فإن اجتمعا غلب الختم.
+   */
+  taxFree?: boolean;
   /** مرتجع المرحلة الأولى (`type === 'RETURN'`) — عنوانه اليوم «إشعار دائن مرتجع». */
   isReturn?: boolean;
   /** للمشتري رقم ضريبي ⇒ قياسية في تصنيف المرحلة الأولى. */
@@ -89,6 +101,8 @@ export const ZATCA_PRINT_PHRASES: readonly string[] = Object.freeze([
   'اعتمدت الهيئة الفاتورة ولم تصل نسختها المعتمدة راجع الإدارة قبل التسليم',
   'مشاركة / حفظ PDF', 'مشاركة / حفظ سند التسليم', 'تم الإصدار بنجاح',
   'صدر المستند وبانتظار اعتماد الهيئة', 'المستند مبطل لدى الهيئة',
+  // «إزالة الضريبة»: عنوانا المستند المختوم بلا ضريبة (TAX_FREE_TITLES — «فاتورة» أعلاه)
+  TAX_FREE_TITLES.return,
 ]);
 
 /** عنوان المرحلة الأولى — النصّ نفسه الذي تطبعه القوالب اليوم، حرفاً بحرف. */
@@ -122,9 +136,33 @@ const PHASE1: Omit<ZatcaPrintDecision, 'title'> = Object.freeze({
 } as Omit<ZatcaPrintDecision, 'title'>);
 
 /**
+ * «إزالة الضريبة»: ورقة المستند المختوم بلا ضريبة — عنوانها «فاتورة» أو «فاتورة مرتجع» (TAX_FREE_TITLES)، ولا رمز ولا تعليق، ولا
+ * تفصيل ضريبة، ولا تصنيف قياسيّ، ولا رقم ضريبيّ (hideTaxIds). ورقةٌ تُسلَّم وتُطبع كفاتورة المرحلة الأولى في كل ما عدا ذلك.
+ */
+export function taxFreePrintDecision(facts: Pick<ZatcaPrintFacts, 'isReturn'>): ZatcaPrintDecision {
+  return {
+    phase: 1,
+    kind: 'phase1',
+    title: facts.isReturn ? TAX_FREE_TITLES.return : TAX_FREE_TITLES.sale,
+    qr: { source: 'none', value: null, caption: null },
+    showTaxBreakdown: false,
+    standardLayout: false,
+    printable: true,
+    canPrint: true,
+    notice: null,
+    watermark: null,
+    shareLabel: 'مشاركة / حفظ PDF',
+    confirmText: 'تم الإصدار بنجاح',
+    hideTaxIds: true,
+  };
+}
+
+/**
  * قرار الطباعة. `v === null` (المرحلة الأولى) ⇒ سلوك اليوم بلا استثناء واحد — وهو الفرع الذي يمرّ به كلّ من لم يُفعَّل.
+ * و`facts.taxFree` (مستندٌ مختومٌ بلا ضريبة) يسبق الفرعين: taxFreePrintDecision.
  */
 export function zatcaPrintDecision(facts: ZatcaPrintFacts, v: ZatcaDocView | null | undefined): ZatcaPrintDecision {
+  if (facts.taxFree) return taxFreePrintDecision(facts);
   if (!v) {
     return {
       ...PHASE1,

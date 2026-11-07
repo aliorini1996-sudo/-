@@ -20,6 +20,7 @@ import {
 import { qrHost, qrOrphan, resolveLayout } from '../../lib/print/layout';
 import { NumInput, QrRemoveField, SectionStyleFields, StampsField, chipCls } from './designer/SectionStyleFields';
 import { layoutEditable, logoChoices } from './PrintPreview';
+import { useTaxOffPrint } from './taxOffPrint';
 
 export interface PrintDesignToolsProps {
   p: PrintProfile;
@@ -87,6 +88,9 @@ export function qrOrphanNote(p: PrintProfile): boolean {
 
 export default function PrintDesignTools({ p, update, phase2, selected = null, onSelect }: PrintDesignToolsProps) {
   const tr = useTr();
+  // «إزالة الضريبة» (سياق تبويب «إعدادات الطباعة»): لا رمز QR ولا أختام حالةٍ للهيئة في أيّ مستندٍ لشركةٍ بلا ضريبة — فلا صفّ للرمز
+  // ولا كتلة حذفه ولا تنبيه «يطبع الرمز وحده» ولا «أختام الحالة». بلا العلم: الأدوات كما كانت حرفاً
+  const taxOff = useTaxOffPrint();
   if (!layoutEditable(p)) {
     return (
       <p className="text-xs text-[#6E6557] flex items-start gap-1.5" data-tools-locked="">
@@ -104,9 +108,10 @@ export default function PrintDesignTools({ p, update, phase2, selected = null, o
   const logoOff = !p.options.showLogo || preprinted;
   const free = l.logoMm !== undefined || l.logoAfter !== undefined || l.sections !== undefined || l.canvas !== undefined || l.stamps !== undefined;
   const issues = freeIssues(p);
-  const orphan = qrOrphanNote(p);
-  const rows = toolRows(p);
-  const sections = sectionsFor(p.printer, l.design);
+  const orphan = !taxOff && qrOrphanNote(p);
+  const rows = taxOff ? toolRows(p).filter((r) => r.id !== 'qr') : toolRows(p);
+  // «إزالة الضريبة»: لا «بعد: رمز QR» في موضع الشعار لشركةٍ بلا ضريبة (إلا موضعاً محفوظاً من قبل فيبقى ظاهراً كما هو)
+  const sections = taxOff ? sectionsFor(p.printer, l.design).filter((s) => s !== 'qr' || l.logoAfter === 'qr') : sectionsFor(p.printer, l.design);
   const logoInCanvas = !!l.canvas?.boxes.some((b) => b.id === 'logo');
   const setLogoMm = (v: number) => update(withLogo(p, { logoMm: v }));
   const label = 'text-[11px] text-[#6E6557] min-w-[84px]';
@@ -204,7 +209,7 @@ export default function PrintDesignTools({ p, update, phase2, selected = null, o
       </div>
 
       {/* رمز QR في الصفحة والنقطية: ليس قسماً في الترتيب (يحمله قسم الإجماليات أو البيانات) — فحذفه هنا صراحةً بتنبيهٍ وتأكيد */}
-      {qrToolBlock(p) && (
+      {!taxOff && qrToolBlock(p) && (
         <div className="rounded-xl border border-[#F1EBDF] px-2.5 py-2 space-y-1.5" data-tool-qr="">
           <span className="block text-xs font-bold text-[#1F1A13]">{tr(SECTION_LABELS.qr)}</span>
           <QrRemoveField p={p} update={update} />
@@ -212,9 +217,11 @@ export default function PrintDesignTools({ p, update, phase2, selected = null, o
       )}
 
       {/* أختام الحالة (وسم المحاكاة وإشعار سند التسليم وختم الإلغاء) — لكل طابعة قابلة للتحرير */}
-      <div className="rounded-xl border border-[#F1EBDF] px-2.5 py-2" data-tool-stamps="">
-        <StampsField p={p} update={update} />
-      </div>
+      {!taxOff && (
+        <div className="rounded-xl border border-[#F1EBDF] px-2.5 py-2" data-tool-stamps="">
+          <StampsField p={p} update={update} />
+        </div>
+      )}
 
       {issues.length > 0 && (
         <div className="space-y-1" role="alert">

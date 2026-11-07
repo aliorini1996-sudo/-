@@ -22,7 +22,7 @@ import {
   stuckCountsByTenant, summarizePendingFees,
 } from '../services/gl/ownerLedger';
 import { adminPermissionFields, ownerSessionPermissionFields } from './auth';
-import { tenantDeleteArchiveBlock } from '../compliance/zatca/settingsGuards';
+import { ownerZatcaEnableBlock, tenantDeleteArchiveBlock } from '../compliance/zatca/settingsGuards';
 import { lotErr, lotErrorBody, lotHttpError } from '../services/lots';
 import { listMerchants, nearpayConfigured } from '../services/nearpay';
 import { recordLotEvent, type LotEventActor } from '../services/lotsDb';
@@ -337,6 +337,13 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
         res.status(403).json({ success: false, code: 'CONVERT_BASE_FLAG_OWNER_ONLY', message: 'هذا الإعداد لمالك المنصة وحده' });
         return;
       }
+    }
+    // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): لا يُفعَّل ربط المرحلة الثانية لشركةٍ أزالت ضريبتها — يعيدها مديرها من إعداداتها
+    // أولاً (409 TAX_OFF_BLOCKS_ZATCA). الانتقال إلى المفعّل وحده: الجسم بلا العلم أو بالإطفاء ⇒ لا قراءة، وبقيمته المفعّلة نفسها يمرّ
+    if (body.zatcaPhase2Enabled === true) {
+      const zCur = await prisma.tenant.findUnique({ where: { id: req.params.id }, select: { zatcaPhase2Enabled: true, settings: { select: { taxDisabled: true } } } });
+      const zBlock = ownerZatcaEnableBlock(zCur, body.zatcaPhase2Enabled);
+      if (zBlock) { res.status(zBlock.status).json(zBlock.body); return; }
     }
     // التاجر الجديد موجودٌ فعلاً بين تجّار حسابنا لدى NearPay — لا يُربط معرّفٌ مكتوب باليد، ويفشل مغلقاً إن تعذّر السؤال
     if (merchantChanged && body.nearpayMerchantId) {

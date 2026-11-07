@@ -90,6 +90,8 @@ export const GO_LIVE_ERROR_LABEL: Record<string, string> = {
   GO_LIVE_NOT_READY: 'لم تكتمل شروط التفعيل بعد — راجع قائمة الجاهزية',
   CONFIRMATION_REQUIRED: 'اكتب كلمة «تفعيل» وأقرَّ بمزامنة المناديب أولاً',
   TENANT_NOT_FOUND: 'تعذّر العثور على إعدادات الشركة',
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الشركة أزالت ضريبتها (من جهازٍ آخر) — الخادم يرفض التسليح والتفعيل (= TAX_MODE_MESSAGES)
+  TAX_OFF_BLOCKS_ZATCA: 'الضريبة مزالة لهذه الشركة أعدها أولا من إعدادات الشركة قبل ربط الفوترة الإلكترونية',
 };
 
 export function goLiveErrorMessage(code: string | null, serverMessage: string | null): string {

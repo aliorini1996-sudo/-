@@ -15,6 +15,7 @@ import printTextsRouter from './printTexts';
 import returnPolicyRouter from './returnPolicy';
 import paymentMethodsConfigRouter from './paymentMethodsConfig';
 import companyBuyerRelaxRouter from './companyBuyerRelax';
+import companyTaxModeRouter from './companyTaxMode';
 
 const router = Router();
 router.use(authenticate);
@@ -35,6 +36,9 @@ router.use('/payment-methods', paymentMethodsConfigRouter);
 // «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦) — /api/company/buyer-relax (routes/companyBuyerRelax.ts): القراءة
 // لكل مستخدم شركة والتغيير لمدير الشركة غير المقيّد وحده بلا مفتاح API. مسارٌ مستقلّ — PUT /api/company وcompanySchema كما هما
 router.use('/buyer-relax', companyBuyerRelaxRouter);
+// «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦) — /api/company/tax-mode (routes/companyTaxMode.ts): القراءة لكل مستخدم شركة والقلب
+// لمدير الشركة غير المقيّد أو جلسة المالك بلا مفتاح API، ومحروسٌ بربط المرحلة الثانية. مسارٌ مستقلّ — PUT /api/company وcompanySchema كما هما
+router.use('/tax-mode', companyTaxModeRouter);
 
 const companySchema = z.object({
   name: z.string().min(1),
@@ -65,8 +69,9 @@ const companySchema = z.object({
 function maskCompany<T extends Record<string, unknown> | null>(c: T): T {
   if (!c) return c;
   // returnPolicyChangedBy: معرّف من غيّر إعداد المرتجع (مديرٌ أو جلسة مالك) — للتدقيق لا لأجهزة المناديب
-  const { einvoiceClientSecret, lotOnInvoice: _lotOnInvoice, returnPolicyChangedBy: _changedBy, ...rest } = c as Record<string, unknown>;
-  void _lotOnInvoice; void _changedBy;
+  // وكذا taxModeChangedBy («إزالة الضريبة»: OWNER:<المعرّف> لجلسة المالك) — العلم taxDisabled وtaxModeChangedAt يبقيان للأجهزة
+  const { einvoiceClientSecret, lotOnInvoice: _lotOnInvoice, returnPolicyChangedBy: _changedBy, taxModeChangedBy: _taxBy, ...rest } = c as Record<string, unknown>;
+  void _lotOnInvoice; void _changedBy; void _taxBy;
   return { ...rest, einvoiceHasSecret: !!einvoiceClientSecret } as unknown as T;
 }
 

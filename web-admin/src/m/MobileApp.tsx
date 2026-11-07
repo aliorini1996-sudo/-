@@ -30,6 +30,7 @@ import { can, PermKey } from './perms';
 import { visibleTabs } from './tabRules';
 import { useBackClose } from '../lib/useBackClose';
 import { COMPANY_REFRESH_TICK_MS, DOC_OPEN_EVENT, companyRefreshDue, docOpenRefreshDue } from '../rep/companyRefresh';
+import { MTaxOffContext, M_COMPANY_REFETCH_EVENT, mTaxOffOf } from './mTaxMode';
 
 /**
  * تطبيق الإدارة على الجوال (`/m`) — قوقعة مستقلّة على نمط تطبيق المندوب:
@@ -88,6 +89,9 @@ export default function MobileApp() {
   /* «تتبّع اللوط» ميزة يفعّلها المالك لكل شركة — مطفأة افتراضياً، فالقراءة `=== true` (lotFlagsOf): نسخة إعداداتٍ
    * قديمة بلا العلم أو تعذّر قراءتها إطفاء، فلا بلاطة ولا مفتاح ولا جلب (§١٠.١). */
   const lotOn = lotFlagsOf(company as { lotTrackingEnabled?: unknown } | null).on;
+  /* «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): علم الشركة (=== true وحدها) — يصل الشاشات بسياقٍ واحد (MTaxOffContext)، فتسقط
+   * كل خانة ضريبة وعمودها ووسمها. وغيابه أو إعداداتٌ لم تصل = الشاشات كما كانت حرفاً */
+  const taxOff = mTaxOffOf(company);
 
   // التبويبات المسموحة لهذا المستخدم — المنع عند `false` الصريحة وحدها،
   // ثم إسقاط التبويبين المحاسبيين حين يُطفئ المالك الميزة عن الشركة
@@ -219,12 +223,17 @@ export default function MobileApp() {
     document.addEventListener('visibilitychange', refresh);
     window.addEventListener('online', refresh);
     window.addEventListener(DOC_OPEN_EVENT, onDocOpen);
+    // «إزالة الضريبة»: ردّ 409 TAX_MODE_CHANGED (فاتورة الجوال) يطلبها فوراً بلا فجوة — فيصل العلم الجديد الفاتورة المفتوحة
+    // فتعيد نسبة بنودها، بدل أن يُرفض الإصدار مرّةً بعد مرّة حتى دورة الدقائق الخمس
+    const onTaxMode = () => { last = Date.now(); void pull(); };
+    window.addEventListener(M_COMPANY_REFETCH_EVENT, onTaxMode);
     const iv = window.setInterval(refresh, COMPANY_REFRESH_TICK_MS);
     return () => {
       alive = false;
       document.removeEventListener('visibilitychange', refresh);
       window.removeEventListener('online', refresh);
       window.removeEventListener(DOC_OPEN_EVENT, onDocOpen);
+      window.removeEventListener(M_COMPANY_REFETCH_EVENT, onTaxMode);
       window.clearInterval(iv);
     };
   }, [token]);
@@ -255,7 +264,8 @@ export default function MobileApp() {
       <div className={framed ? 'relative w-[400px] h-[820px] bg-black rounded-[44px] p-2.5 shadow-2xl' : 'relative w-full h-full'}>
         {framed && <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-32 h-6 bg-black rounded-b-2xl z-30" />}
         <div className={`w-full h-full bg-white overflow-hidden relative flex flex-col ${framed ? 'rounded-[36px]' : ''}`}>
-          {body}
+          {/* علم «بلا ضريبة» لكل الشاشات — مزوّدٌ بلا عنصر، فالشجرة المرسومة كما كانت */}
+          <MTaxOffContext.Provider value={taxOff}>{body}</MTaxOffContext.Provider>
         </div>
       </div>
     </div>

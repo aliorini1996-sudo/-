@@ -33,6 +33,8 @@ import {
 import MUnitChips from './MUnitChips';
 import MLotFields, { whLotsQuery } from './MLotFields';
 import { anyPrimary, fill, qtyTotalLabel, refetchUnitsOn, withBaseUnitName } from './mPrimaryUnit';
+// «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): علم الشركة الحالي (المستودع بلا ختم) — مطفأ ⇒ الشاشة كما كانت حرفاً
+import { useMTaxOff } from './mTaxMode';
 
 /* الإشعار في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
 const MWarehouseNoticeDoc = lazy(() => import('./MWarehouseNoticeDoc'));
@@ -127,6 +129,8 @@ export default function MWarehouse({ onBack, company }: {
   company?: unknown;
 }) {
   const tr = useTr();
+  // «إزالة الضريبة»: التكلفة كما كُتبت فلا وسم «قبل الضريبة» على قيمها
+  const taxOff = useMTaxOff();
   // تمييز العدد بالعربية (S14) — واللغات الأخرى كما كانت
   const lang = useLang(s => s.lang);
   // «تتبّع اللوط» — مطفأ ⇒ لا جلب ولا حقل ولا سطر زائد (§١٠.١)
@@ -275,7 +279,7 @@ export default function MWarehouse({ onBack, company }: {
                   {tr('كل الرصيد مقيم بتكلفة معروفة والقيمة أعلاه تغطيه كاملا')}
                 </p>
               )}
-              <p className="text-[11px] text-[#9A8F7E] px-1">{tr('كل قيم التكلفة قبل الضريبة')}</p>
+              {!taxOff && <p className="text-[11px] text-[#9A8F7E] px-1">{tr('كل قيم التكلفة قبل الضريبة')}</p>}
             </>
           )}
         </section>
@@ -362,6 +366,7 @@ function StockRow({ r, open, onToggle, lotOn, dup = false, onAdjust }: {
   onAdjust?: () => void;
 }) {
   const tr = useTr();
+  const taxOff = useMTaxOff();
   // اللون على الرقم المعروض (#19): غبار عائمةٍ سالب يُطبع «0» فلا يُلوَّن أحمر
   const tone = isZeroQty(r.onHand) ? 'text-[#B7791F]' : r.onHand < 0 ? 'text-[#C0392B]' : 'text-[#2F855A]';
   // صنفٌ له وحدةٌ أكبر: الكميات مفكَّكة («٢ كرتون و٣ حبة») بلا اتجاهٍ مفروض، والتكلفة تُسمّى بوحدة الأساس ومعها الكرتون
@@ -470,7 +475,7 @@ function StockRow({ r, open, onToggle, lotOn, dup = false, onAdjust }: {
                 {kind === 'deficitUncosted' ? tr('عجز بلا تكلفة') : r.costedQty !== 0 ? formatCurrency(r.stockValue) : '—'}
               </b>
             </div>
-            <p className="text-[10px] text-[#9A8F7E]">{tr('قبل الضريبة')}</p>
+            {!taxOff && <p className="text-[10px] text-[#9A8F7E]">{tr('قبل الضريبة')}</p>}
             {/* الاستثناء على الصفّ نفسه: قيمةٌ تحتها كمّيةٌ لا تشملها تُقرأ كاملةً بلا هذا السطر */}
             {r.uncostedQty > 0 && (
               <p className="text-[10px] text-[#8A6D1F] leading-relaxed">
@@ -559,6 +564,7 @@ function Cell({ label, value, tone = 'default', multi }: {
 
 function EntryRow({ e, onNotice }: { e: WhEntry; onNotice: () => void }) {
   const tr = useTr();
+  const taxOff = useMTaxOff();
   // تمييز العدد بالعربية (S14): «صنفان» و«3 أصناف» لا «2 صنف» — واللغات الأخرى كما كانت
   const lang = useLang(s => s.lang);
   const receive = e.type === 'RECEIVE';
@@ -586,7 +592,7 @@ function EntryRow({ e, onNotice }: { e: WhEntry; onNotice: () => void }) {
                 {formatCurrency(e.totalCost)}
               </span>
               {/* الإجمالي يحسبه الخادم صافياً — والوسم يمنع قراءته شاملاً */}
-              <span className="block text-[9px] text-[#9A8F7E]">{tr('قبل الضريبة')}</span>
+              {!taxOff && <span className="block text-[9px] text-[#9A8F7E]">{tr('قبل الضريبة')}</span>}
             </span>
           )}
           {/* هدف لمسٍ ٤٠px: الصفّ نفسه غير قابل للنقر، فالزرّ وحده يستقبل الإبهام */}
@@ -630,6 +636,9 @@ interface FormRow extends StockLineUnit {
  * محذوف). و`stockRows` أرصدة الشاشة: «الرصيد الآن» تحت كل سطر و«اجعل الرصيد صفراً» للتسوية، ومعرفة المحذوف قبل الإرسال */
 function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onClose: () => void; lotOn: boolean; seed?: WhRow | null; stockRows?: WhRow[] }) {
   const tr = useTr();
+  /* «إزالة الضريبة»: لا خانة «الأسعار المدخلة شاملة الضريبة» ولا وسم «قبل الضريبة» — التكلفة كما تُكتب (الخادم يستخرج بنسبةٍ فعلية
+   * صفر)، فالمعاينة بلا استخراجٍ أيضاً ولو بقي المؤشّر من قبل تبدّل الوضع */
+  const taxOff = useMTaxOff();
   const qc = useQueryClient();
   const [type, setType] = useState<'RECEIVE' | 'ADJUST'>(seed ? 'ADJUST' : 'RECEIVE');
   const [supplier, setSupplier] = useState('');
@@ -665,6 +674,8 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
   // فاتورة المورّد تُعلن السعر شاملاً الضريبة غالباً؛ المؤشّر يُخبر الخادم فيردّه
   // إلى صافيه قبل الحفظ — فيبقى للعمود معنى واحد مهما اختلفت عادة المورّدين
   const [costsIncludeTax, setCostsIncludeTax] = useState(false);
+  // والمؤشّر المضبوط قبل إزالة الضريبة لا يُرسل بعدها (الخانة مخفيّة فلا يُرى ليُلغى)
+  useEffect(() => { if (taxOff) setCostsIncludeTax(false); }, [taxOff]);
   const [q, setQ] = useState('');
   const [dq, setDq] = useState('');
 
@@ -753,7 +764,7 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
   const netOf = (r: FormRow): number | null => {
     const c = Number(r.unitCost);
     if (r.unitCost.trim() === '' || !Number.isFinite(c) || c <= 0) return null;
-    return costsIncludeTax && r.taxPct > 0 ? c / (1 + r.taxPct / 100) : c;
+    return costsIncludeTax && !taxOff && r.taxPct > 0 ? c / (1 + r.taxPct / 100) : c;
   };
 
   /**
@@ -1016,7 +1027,7 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
                   )}
                   {line !== null && (
                     <p className="text-[10px] text-[#6E6557]">
-                      {tr('قيمة السطر قبل الضريبة')}: <b className="text-[#1F1A13] tabular-nums">{formatCurrency(line)}</b>
+                      {taxOff ? tr('قيمة السطر') : tr('قيمة السطر قبل الضريبة')}: <b className="text-[#1F1A13] tabular-nums">{formatCurrency(line)}</b>
                     </p>
                   )}
                   {/* رصيد الصنف الآن — والتسوية تعيده صفراً بلمسة (D1) لصنفٍ في سطرٍ واحد */}
@@ -1042,7 +1053,7 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
         </section>
 
         {/* ─────────── الأسعار والضريبة ─────────── */}
-        {receive && (
+        {receive && !taxOff && (
           <section className="space-y-2.5">
             <div className="bg-white rounded-2xl border border-[#F1EBDF] p-3 space-y-2.5">
               <label className="flex items-center gap-2.5 min-h-[44px] cursor-pointer">
@@ -1076,7 +1087,7 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
         style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
         {receive && total > 0 && (
           <p className="text-[11px] text-[#6E6557] mb-2 px-0.5 flex items-center justify-between gap-2">
-            <span>{tr('قيمة البضاعة المستلمة قبل الضريبة')}</span>
+            <span>{taxOff ? tr('قيمة البضاعة المستلمة') : tr('قيمة البضاعة المستلمة قبل الضريبة')}</span>
             <b className="text-[#1F1A13] tabular-nums">{formatCurrency(total)}</b>
           </p>
         )}

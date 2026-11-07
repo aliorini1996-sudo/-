@@ -31,6 +31,7 @@ import {
 } from './designerMath';
 import { usePointerDrag } from './usePointerDrag';
 import { withBandHeight } from './DesignInspector';
+import { sampleWatermark, useTaxOffPrint } from '../taxOffPrint';
 
 export interface A4BandsCanvasProps {
   p: PrintProfile;
@@ -165,6 +166,8 @@ export default function A4BandsCanvas({ p, update, doc, selected, onSelect, zoom
   const printer: 'page' | 'impact' = p.printer === 'impact' ? 'impact' : 'page';
   const canvasAllowed = p.printer !== 'thermal' && l.design === 'standard';
   const qrRemoved = isQrRemoved(l);
+  // «إزالة الضريبة» (سياق التبويب): لا رمز QR ولا تنبيه هيئةٍ لشركةٍ بلا ضريبة — لا مربع QR يُضاف أو يُرسم، والعلامة «نموذج اختبار»
+  const taxOff = useTaxOffPrint();
   const qrMinMm = qrMinMmFor(p);
   const resolved: ResolvedCanvas | null = useMemo(
     () => (canvasAllowed ? resolveCanvas(resolveLayout(p), { printer, qrMinMm, kind: doc }) : null),
@@ -293,7 +296,7 @@ export default function A4BandsCanvas({ p, update, doc, selected, onSelect, zoom
   };
 
   const ctx = useMemo(() => ({ active: selected, onPick: (s: DesignSel) => onSelect(s) }), [selected, onSelect]);
-  const addable = canvasAllowed && l.canvas ? addableBoxes(p, doc) : [];
+  const addable = canvasAllowed && l.canvas ? addableBoxes(p, doc).filter((id) => !(taxOff && id === 'qr')) : [];
   const px = (v: number): number => v * scale;
 
   const renderBand = (band: CanvasBand) => {
@@ -315,7 +318,7 @@ export default function A4BandsCanvas({ p, update, doc, selected, onSelect, zoom
           {tr(CANVAS_BAND_LABELS[band])} · <span dir="ltr">{hMm} mm</span>
         </span>
         {/* الأصغر مساحةً يُرسم آخراً فيعلو: مربّعٌ وُضع فوق أكبر منه (كالشعار على بيانات المستند) يبقى قابلاً للنقر والسحب */}
-        {drawnBoxes(p, bandR.boxes).sort((a, b) => b.w * b.h - a.w * a.h).map((b) => {
+        {drawnBoxes(p, bandR.boxes).filter((b) => !(taxOff && b.id === 'qr')).sort((a, b) => b.w * b.h - a.w * a.h).map((b) => {
           const isLive = live?.id === b.id;
           const r = isLive ? live.rect : { x: b.x, y: b.y, w: b.w, h: b.h };
           const isSel = selected === `box:${b.id}`;
@@ -424,7 +427,7 @@ export default function A4BandsCanvas({ p, update, doc, selected, onSelect, zoom
             </div>
             <div aria-hidden="true" className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <span style={{ transform: 'rotate(-28deg)', color: 'rgba(225,90,48,0.22)', fontWeight: 800, fontSize: Math.max(13, (SHEET_WIDTH_PX * scale) / 13), whiteSpace: 'nowrap' }}>
-                {tr(PRINT_SAMPLE_WATERMARK)}
+                {tr(sampleWatermark(taxOff))}
               </span>
             </div>
           </div>
@@ -442,10 +445,10 @@ export default function A4BandsCanvas({ p, update, doc, selected, onSelect, zoom
           )}
         </div>
       </div>
-      {doc === 'invoice' && qrRemoved && (
+      {doc === 'invoice' && qrRemoved && !taxOff && (
         <p className="mt-2 text-[11px] text-[#8E2A1F] bg-[#FBEBE2] rounded px-2 py-1" role="note" data-qr-removed-note="">{tr(QR_REMOVE_WARNING)}</p>
       )}
-      {phase2 && doc === 'invoice' && !qrRemoved && (
+      {phase2 && !taxOff && doc === 'invoice' && !qrRemoved && (
         <p className="mt-2 text-[11px] text-[#9A8F7E]">{tr(QR_FLOW_NOTE)}</p>
       )}
     </div>

@@ -1,10 +1,11 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { priceListApi, productApi } from '../../api/client';
+import { companyApi, priceListApi, productApi } from '../../api/client';
 import type { PriceListRule, PriceRuleInput, Product } from '../../types';
 import { useTr } from '../../i18n/strings';
 import { primaryUnitOf } from '../../lib/units';
+import { isTaxOff } from '../../lib/taxMode';
 import {
   emptyRuleDraft, fillText, isUnitsChangedCode, ruleDraftDirty, ruleDraftOf, ruleDraftPatch, ruleFixedShown, ruleInputOf,
   type RuleDraft, type RuleFormKind, type RuleProductRef,
@@ -58,6 +59,13 @@ export default function PriceRuleForm({ listId, rule, categories, onSaved, onCan
 }) {
   const tr = useTr();
   const uid = useId();
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): علم الشركة من ردّ /company (ذاكرة ['company'] نفسها) — بلا ضريبة ⇒ لا «قبل الضريبة»
+  const { data: companyCfg } = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as { taxDisabled?: boolean } | null,
+    staleTime: 300_000,
+  });
+  const taxOff = isTaxOff(companyCfg);
   const ids = { head: `${uid}-head`, product: `${uid}-product`, category: `${uid}-category`, value: `${uid}-value`, valueHint: `${uid}-value-hint`,
     minQty: `${uid}-min`, minQtyHint: `${uid}-min-hint`, from: `${uid}-from`, to: `${uid}-to` };
   const initialRef = useRef<RuleDraft>(rule ? ruleDraftOf(rule) : emptyRuleDraft(categories.length > 0 ? 'category' : 'product'));
@@ -171,7 +179,7 @@ export default function PriceRuleForm({ listId, rule, categories, onSaved, onCan
   const seg = (on: boolean) => `py-2 px-2 rounded-xl border text-xs sm:text-sm font-semibold transition-colors disabled:opacity-40 ${on
     ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#6E6557] hover:border-[#D8CDB9]'}`;
   const unitName = productRef ? productRef.primaryUnit?.name ?? productRef.unit : null;
-  const valueLabel = draft.kind === 'fixed' ? tr('السعر قبل الضريبة') : draft.kind === 'discount' ? tr('نسبة الخصم %') : tr('نسبة الزيادة %');
+  const valueLabel = draft.kind === 'fixed' ? (taxOff ? tr('السعر') : tr('السعر قبل الضريبة')) : draft.kind === 'discount' ? tr('نسبة الخصم %') : tr('نسبة الزيادة %');
   const valueHint = draft.kind !== 'fixed'
     ? tr('نسبة من السعر الافتراضي للصنف تكتب موجبة')
     : draft.scope === 'product'

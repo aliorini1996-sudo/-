@@ -11,6 +11,7 @@ import { MHeader } from './mobileUi';
 import BuyerDataFields from '../components/BuyerDataFields';
 import { BUYER_BILLING_FIELDS, BUYER_PHASE2_FIELDS, BuyerField, BuyerRowLike } from '../lib/zatca/buyerData';
 import { BuyerFormValues, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerRelaxWarnings, buyerUpdatePayload } from '../lib/zatca/buyerForm';
+import { useMTaxOff } from './mTaxMode';
 
 type Form = {
   name: string; phone: string; businessName: string; altPhone: string; email: string;
@@ -51,6 +52,9 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
 }) {
   const tr = useTr();
   const qc = useQueryClient();
+  /* «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): لا قسم «بيانات ضريبية» ولا خانة «الرقم الضريبي» — والسجل التجاري ينتقل إلى البيانات
+   * الأساسية. والرقم المحفوظ يبقى في الحالة فيُرسل كما هو (الإخفاء لا يمحو)، فإعادة الضريبة تعيده */
+  const taxOff = useMTaxOff();
   const [geoBusy, setGeoBusy] = useState(false);
   const [form, setForm] = useState<Form>(() => customer ? {
     name: customer.name || '', phone: customer.phone || '',
@@ -155,6 +159,9 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
           <Field label={tr('اسم المنشأة')} value={form.businessName} onChange={v => set('businessName', v)} />
           <Field label={tr('رقم بديل')} dir="ltr" value={form.altPhone} onChange={v => set('altPhone', v)} type="tel" />
           <Field label={tr('البريد الإلكتروني')} dir="ltr" type="email" value={form.email} onChange={v => set('email', v)} />
+          {accountingOn && taxOff && (
+            <Field label={tr('السجل التجاري')} dir="ltr" value={form.commercialReg} onChange={v => set('commercialReg', v)} />
+          )}
         </Group>
 
         <Group title={tr('العنوان')}>
@@ -205,7 +212,7 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
           )}
         </Group>
 
-        {accountingOn && (
+        {accountingOn && !taxOff && (
           <Group title={tr('بيانات ضريبية')}>
             <Field label={tr('السجل التجاري')} dir="ltr" value={form.commercialReg} onChange={v => set('commercialReg', v)} />
             <Field label={tr('الرقم الضريبي')} dir="ltr" value={form.taxNumber} onChange={v => set('taxNumber', v)} />

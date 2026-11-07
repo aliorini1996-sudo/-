@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { productApi, companyApi, lotsApi } from '../api/client';
 import { zatcaCollectOn, type ZatcaCompanyLike } from '../lib/zatcaRegime';
+import { isTaxOff } from '../lib/taxMode';
 import { Product } from '../types';
 import { formatCurrency, formatNumber, statusLabels } from '../utils/format';
 import { primaryPriceOf, primaryUnitOf, unitPriceOf } from '../lib/units';
@@ -58,9 +59,11 @@ export default function ProductsPage() {
   // فوترة ZATCA (Z5.1a): الفئة الضريبية في بطاقة الصنف للشركة التي تجمع بيانات الفوترة وحدها
   const { data: company } = useQuery({
     queryKey: ['company'],
-    queryFn: async () => { const res = await companyApi.get(); return res.data.data as ZatcaCompanyLike & { lotTrackingEnabled?: boolean }; },
+    queryFn: async () => { const res = await companyApi.get(); return res.data.data as ZatcaCompanyLike & { lotTrackingEnabled?: boolean; taxDisabled?: boolean }; },
   });
   const zatcaCollect = zatcaCollectOn(company);
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الشركة بلا ضريبة ⇒ لا عمود «الضريبة %» ولا خانة النسبة في نافذة الصنف
+  const taxOff = isTaxOff(company);
   // «تتبّع اللوط»: مطفأ ⇒ الصفحة كما كانت حرفياً (لا عمود ولا فلتر ولا طلب). والتفعيل الجماعي بصلاحية مخزون السيارات أيضاً
   // (routes/lots.ts: canManageVanStock على الموجّه، وcanManageProducts على المسار)
   const lotOn = lotFlagsOf(company).on;
@@ -213,7 +216,7 @@ export default function ProductsPage() {
   const allPicked = pageIds.length > 0 && pageIds.every(id => picked.has(id));
   const togglePick = (id: string) => setPicked(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const togglePage = () => setPicked(s => { const n = new Set(s); for (const id of pageIds) { if (allPicked) n.delete(id); else n.add(id); } return n; });
-  const cols = 8 + (lotOn ? 1 : 0) + (canBulk ? 1 : 0) + (purge.enabled ? 1 : 0);
+  const cols = 8 - (taxOff ? 1 : 0) + (lotOn ? 1 : 0) + (canBulk ? 1 : 0) + (purge.enabled ? 1 : 0);
   // «الوحدة الرئيسية» (R4/R5): صنفٌ له رئيسية يُعرض وسمه «كرتون (24 قارورة)» وسعره سعر الرئيسية وتحته سعر الفرعية،
   // وأرصدته بالرئيسية (R1). وبلا رئيسية كل ذلك كما كان حرفاً (I1) — ومعه عنوان العمود
   const anyPrimary = rows.some(p => primaryUnitOf(p) !== null);
@@ -294,7 +297,7 @@ export default function ProductsPage() {
                   <th className="w-8"><input type="checkbox" className="w-4 h-4 accent-[#E15A30]" aria-label={tr('تحديد أصناف الصفحة')}
                     checked={allPicked} onChange={togglePage} disabled={!pageIds.length} /></th>
                 )}
-                <th>{tr('الكود')}</th><th>{tr('اسم الصنف')}</th><th>{tr('الفئة')}</th><th>{tr('الوحدة')}</th><th>{anyPrimary ? tr('السعر') : tr('السعر الأساسي')}</th><th>{tr('الضريبة %')}</th>
+                <th>{tr('الكود')}</th><th>{tr('اسم الصنف')}</th><th>{tr('الفئة')}</th><th>{tr('الوحدة')}</th><th>{anyPrimary ? tr('السعر') : tr('السعر الأساسي')}</th>{!taxOff && <th>{tr('الضريبة %')}</th>}
                 {lotOn && <th>{tr('التشغيلة')}</th>}
                 <th>{tr('الحالة')}</th><th>{tr('إجراءات')}</th>
               </tr>
@@ -333,7 +336,7 @@ export default function ProductsPage() {
                   ) : (
                     <td className="font-semibold text-[#E15A30]">{formatCurrency(p.basePrice)}</td>
                   )}
-                  <td className="text-gray-600">{p.taxPct}%</td>
+                  {!taxOff && <td className="text-gray-600">{p.taxPct}%</td>}
                   {lotOn && (
                     <td>
                       {p.lotTracked === true
@@ -369,6 +372,7 @@ export default function ProductsPage() {
         <ProductModal
           key={`${selected?.id ?? 'new'}:${modalKey}`}
           zatcaCollect={zatcaCollect}
+          taxOff={taxOff}
           lotTrackingOn={lotOn}
           product={selected}
           onClose={() => { setShowModal(false); setSelected(null); }}

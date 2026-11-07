@@ -2,7 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { zatcaDocView, type ZatcaDocView } from './docStatus';
-import { DELIVERY_NOTE_TITLE, phase1Title, REHEARSAL_WATERMARK, zatcaPrintDecision } from './docPrint';
+import { DELIVERY_NOTE_TITLE, phase1Title, REHEARSAL_WATERMARK, ZATCA_PRINT_PHRASES, zatcaPrintDecision } from './docPrint';
+import { TAX_FREE_TITLES } from '../taxMode';
 
 const ISSUED = '2026-09-23T06:00:00.000Z';
 const NOW = new Date('2026-09-23T12:00:00.000Z');
@@ -153,4 +154,67 @@ test('«معتمد من الهيئة» لا يُكتب إلا تحت رمزٍ ا
   assert.equal(caption('reported', '01'), 'رمز الاستجابة السريعة للفاتورة الضريبية');
   assert.equal(caption('reported_warn', '01'), 'رمز الاستجابة السريعة للفاتورة الضريبية');
   assert.equal(caption('reported', '02'), 'رمز الاستجابة السريعة للفاتورة الضريبية');
+});
+
+// ═══ «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): حقيقة taxFree — المستند المختوم بلا ضريبة ═══
+
+test('taxFree: «فاتورة»/«فاتورة مرتجع» بلا رمز ولا تعليق ولا تفصيل ضريبة ولا تصنيف قياسيّ — وhideTaxIds', () => {
+  for (const facts of [{ saudi: true }, { saudi: true, buyerHasTaxNumber: true }, { saudi: false }, {}]) {
+    const sale = zatcaPrintDecision({ ...facts, taxFree: true }, null);
+    assert.equal(sale.title, TAX_FREE_TITLES.sale);
+    assert.equal(sale.title, 'فاتورة');
+    assert.deepEqual(sale.qr, { source: 'none', value: null, caption: null });
+    assert.equal(sale.showTaxBreakdown, false);
+    assert.equal(sale.standardLayout, false, 'مشترٍ برقم ضريبي لا يجعل الورقة قياسية');
+    assert.equal(sale.hideTaxIds, true);
+    assert.equal(sale.printable, true);
+    assert.equal(sale.canPrint, true);
+    assert.equal(sale.notice, null);
+    assert.equal(sale.watermark, null);
+    assert.equal(sale.shareLabel, 'مشاركة / حفظ PDF');
+    assert.equal(sale.confirmText, 'تم الإصدار بنجاح');
+    const ret = zatcaPrintDecision({ ...facts, isReturn: true, taxFree: true }, undefined);
+    assert.equal(ret.title, TAX_FREE_TITLES.return);
+    assert.equal(ret.title, 'فاتورة مرتجع');
+    assert.equal(ret.qr.source, 'none');
+    assert.equal(ret.hideTaxIds, true);
+  }
+});
+
+test('taxFree يغلب المرحلة الثانية إن اجتمعا (الخادم يمنع الجمع) — لا رمز مختوم ولا عنوان ضريبيّ ولا ختم حالة', () => {
+  for (const [subtype, mirror] of [['02', 'reported'], ['01', 'cleared'], ['01', 'clearance_pending'], ['02', 'rejected']] as const) {
+    const d = zatcaPrintDecision({ saudi: true, buyerHasTaxNumber: subtype === '01', taxFree: true }, view(mirror, subtype));
+    assert.equal(d.title, 'فاتورة', `${subtype}/${mirror}`);
+    assert.equal(d.qr.source, 'none');
+    assert.equal(d.qr.value, null);
+    assert.equal(d.qr.caption, null);
+    assert.equal(d.showTaxBreakdown, false);
+    assert.equal(d.hideTaxIds, true);
+    assert.equal(d.canPrint, true);
+    assert.equal(d.watermark, null);
+    assert.equal(d.notice, null);
+  }
+});
+
+test('taxFree غائبٌ أو false ⇒ القرار نفسه حرفاً (لا حقل hideTaxIds) — المرحلتان', () => {
+  const facts = [{ saudi: true }, { saudi: true, buyerHasTaxNumber: true }, { saudi: false }, { isReturn: true, saudi: true }];
+  for (const f of facts) {
+    for (const v of [null, view('reported', '02'), view('clearance_pending', '01'), view('rejected', '01')]) {
+      const today = zatcaPrintDecision(f, v);
+      assert.deepEqual(zatcaPrintDecision({ ...f, taxFree: false }, v), today);
+      assert.deepEqual(zatcaPrintDecision({ ...f, taxFree: undefined }, v), today);
+      assert.equal('hideTaxIds' in today, false, 'حقلٌ جديد في قرار اليوم');
+    }
+  }
+});
+
+test('taxFree: لا كلمة ضريبة في أيّ نصٍّ يُنتجه القرار', () => {
+  const TAX = /ضريب|الضرائب|VAT|ض\.ق\.م|مبسطة|إشعار دائن|إشعار مدين|الهيئة/;
+  for (const isReturn of [false, true]) {
+    const d = zatcaPrintDecision({ saudi: true, buyerHasTaxNumber: true, isReturn, taxFree: true }, null);
+    for (const s of [d.title, d.qr.caption, d.notice, d.watermark, d.shareLabel, d.confirmText]) {
+      if (s) assert.doesNotMatch(s, TAX, s);
+    }
+  }
+  assert.ok(ZATCA_PRINT_PHRASES.includes(TAX_FREE_TITLES.sale) && ZATCA_PRINT_PHRASES.includes(TAX_FREE_TITLES.return), 'عنوانا الختم خارج حارس القاموس');
 });

@@ -16,6 +16,7 @@ import { lineNetWithList, listDependsOnQty } from '../lib/priceListPricing';
 import { listLineRef, listPriceOf, qtyPrimaryOf } from '../lib/priceRules';
 import { roundHalfUp } from '../lib/money';
 import { primaryUnitOf, toBase, unitPriceOf } from '../lib/units';
+import { effectiveTaxPct } from '../lib/taxMode';
 
 const read = (...p: string[]) => fs.readFileSync(path.join(process.cwd(), 'src', ...p), 'utf8').replace(/\r\n/g, '\n');
 const repApp = read('rep', 'RepApp.tsx');
@@ -44,6 +45,8 @@ function inclOfWith(o: { cust?: Map2; list?: Map2; rules?: readonly RepPriceRule
   return compile<Incl>(between(repApp, 'const inclOf = ', ';\n'), 'inclOf', {
     custPrices: o.cust ?? {}, listPrices: o.list ?? {}, listRules: o.rules ?? [], lineNetWithList, roundDecimal,
     priceDay: o.day ?? '2026-11-15', currencyDecimals: () => o.dec ?? 2, getActiveCurrency: () => 'SAR',
+    // «إزالة الضريبة»: النسبة الفعلية من وضع الشركة — شركةٌ بلا العلم = نسبة الصنف كما كانت (taxOffRep.test.ts يغطّي الإزالة)
+    effectiveTaxPct, company: null,
   });
 }
 type Line = Record<string, any>;
@@ -60,7 +63,7 @@ function repriceStep(prev: Line[], products: unknown[], inclOf: Incl, o: { day?:
 /** addLine في CreateInvoice حرفاً */
 function addLineWith(inclOf: Incl): (prev: Line[], p: unknown, c0: UnitChoice) => Line[] {
   return compile(between(repApp, 'const addLine = (prev: any[], p: any, c0: UnitChoice): any[] => {', '\n  };\n'), 'addLine',
-    { sameUnit, lineUnitOf, repProductBaseQty, inclOf });
+    { sameUnit, lineUnitOf, repProductBaseQty, inclOf, effectiveTaxPct, company: null });
 }
 
 // عصير: الحبّة أساسٌ بسعر ٢، والكرتون ١٢ رئيسيٌّ بلا سعرٍ محدَّد (٢٤ = الأساس × المعامل)، في فئة العصائر. وماء بلا وحدات في فئة المياه
@@ -338,8 +341,10 @@ test('CreateInvoice: إعادة التسعير بالكمية خلف قاعدة�
   // التلميح كما كان: الوحدة الافتراضية بكمية بندٍ واحد
   assert.match(repApp, /const priceHint = \(p: any\) => \(hasUnitChoice\(p\) \? `\$\{formatCurrency\(inclOf\(p, startChoice\(p\)\)\)\} \/ \$\{startChoice\(p\)\.name\}` : formatCurrency\(inclPrice\(p\)\)\);/);
   assert.match(repApp, /const inclPrice = \(p: any\) => inclOf\(p, unitChoices\(p\)\[0\]\);/);
+  // «إزالة الضريبة» (٧ نوفمبر ٢٠٢٦): مؤثّر انقلاب وضع الشركة (repRetaxLines) يسعّر بوحدة البند ومجموع الصنف كـrepriceLines
+  assert.match(repApp, /refOf: \(l, p\) => inclOf\(p, l\.unitId \? [^\n]*, qtyOf\.get\(l\.productId\) \?\? 0\),/);
   // كل نداءات inclOf معدودة: لا مسار تسعيرٍ لم يُمرَّر له مجموع الصنف إلا التلميح
-  assert.equal((repApp.match(/inclOf\(/g) ?? []).length, 6, 'التعريف لا يُعدّ (const inclOf =): repriceLines (المؤثّر والإصدار) وaddLine وsetLineUnit وrefreshUnits وinclPrice وpriceHint');
+  assert.equal((repApp.match(/inclOf\(/g) ?? []).length, 7, 'التعريف لا يُعدّ (const inclOf =): repriceLines (المؤثّر والإصدار) وaddLine وsetLineUnit وrefreshUnits وinclPrice وpriceHint ومؤثّر «إزالة الضريبة»');
 });
 
 test('rebaseCustPrices يبقى أساس rebaseRepRules (لا حسابٌ موازٍ): الحقبة ثم الاسم ثم وقت القراءة', () => {

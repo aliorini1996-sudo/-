@@ -26,6 +26,7 @@ import {
 import { logoPlacements, rollAlignOf, sectionDrop, withSectionBefore } from './stripModel';
 import { usePointerDrag } from './usePointerDrag';
 import { withStyleKey } from './SectionStyleFields';
+import { sampleWatermark, useTaxOffPrint } from '../taxOffPrint';
 
 export interface RollStripProps {
   p: PrintProfile;
@@ -202,8 +203,10 @@ export default function RollStrip({ p, update, doc, selected, onSelect, company 
   };
 
   // كل قسمٍ مخفي — ومنه الأصناف ورمز QR (قرار المالك ٤ نوفمبر ٢٠٢٦: يُخفيان بقرار الشركة الصريح) — ويُعاد بنقرة بلا تأكيد
-  const hidden = hiddenRollSections(p);
-  const qrRemoved = isQrRemoved(l);
+  // «إزالة الضريبة» (سياق التبويب): لا رمز QR لشركةٍ بلا ضريبة — لا شريحة له ولا تنبيه هيئة، والعلامة «نموذج اختبار»
+  const taxOff = useTaxOffPrint();
+  const hidden = taxOff ? hiddenRollSections(p).filter((s) => s !== 'qr') : hiddenRollSections(p);
+  const qrRemoved = isQrRemoved(l) && !taxOff;
 
   if (failed) return <p className="text-sm text-[#8E2A1F] text-center py-10">{tr('تعذر عرض المعاينة الحرارية')}</p>;
   if (html === null) return <div className="flex justify-center py-10"><span className="w-6 h-6 border-4 border-[#E15A30] border-t-transparent rounded-full animate-spin" /></div>;
@@ -214,7 +217,7 @@ export default function RollStrip({ p, update, doc, selected, onSelect, company 
           className="bg-white shadow-sm border border-[#E9E1D3] block"
           style={{ width: `calc(${p.paper.widthMm}mm + 2px)`, maxWidth: '100%', height }} />
         <div aria-hidden="true" className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <span style={{ transform: 'rotate(-28deg)', color: 'rgba(225,90,48,0.22)', fontWeight: 800, fontSize: 13, whiteSpace: 'nowrap' }}>{tr(PRINT_SAMPLE_WATERMARK)}</span>
+          <span style={{ transform: 'rotate(-28deg)', color: 'rgba(225,90,48,0.22)', fontWeight: 800, fontSize: 13, whiteSpace: 'nowrap' }}>{tr(sampleWatermark(taxOff))}</span>
         </div>
         <div ref={overlayRef} className="absolute inset-0" style={{ pointerEvents: 'none', margin: 1 }}>
           {live?.align && (

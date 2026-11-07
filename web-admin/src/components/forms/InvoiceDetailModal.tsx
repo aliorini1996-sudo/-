@@ -1,12 +1,16 @@
 import { Invoice } from '../../types';
 import { formatCurrency, formatDate, statusLabels } from '../../utils/format';
 import { useTr } from '../../i18n/strings';
+import { isDocTaxFree, type TaxModeDoc } from '../../lib/taxMode';
 import { X, Printer } from 'lucide-react';
 
 interface Props { invoice: Invoice; onClose: () => void; }
 
 export default function InvoiceDetailModal({ invoice, onClose }: Props) {
   const tr = useTr();
+  // «إزالة الضريبة»: فاتورةٌ صدرت بلا ضريبة (Invoice.taxFree) تُعرض بلا عمود نسبة ولا سطر ضريبة ولا شارة فوترة إلكترونية؛
+  // والقديمة بضريبتها كما صدرت
+  const taxFree = isDocTaxFree(invoice as unknown as TaxModeDoc);
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -40,7 +44,7 @@ export default function InvoiceDetailModal({ invoice, onClose }: Props) {
           </div>
 
           {/* حالة الفوترة الإلكترونية */}
-          {invoice.einvoiceProvider && invoice.einvoiceProvider !== 'none' && (() => {
+          {!taxFree && invoice.einvoiceProvider && invoice.einvoiceProvider !== 'none' && (() => {
             const st = invoice.einvoiceStatus;
             const label = st === 'cleared' ? tr('معتمدة') : st === 'submitted' ? tr('مرسلة') : st === 'pending' ? tr('قيد الاعتماد') : st === 'error' ? tr('فشل الإرسال') : tr('جاهزة');
             const cls = st === 'cleared' || st === 'submitted' ? 'bg-[#E4F1EA] text-[#1E7A52] border-[#C9E4D6]'
@@ -62,7 +66,7 @@ export default function InvoiceDetailModal({ invoice, onClose }: Props) {
             <div className="border border-gray-100 rounded-xl overflow-hidden">
               <table className="table">
                 <thead>
-                  <tr><th>{tr('الصنف')}</th><th>{tr('الكمية')}</th><th>{tr('السعر')}</th><th>{tr('خصم')}</th><th>{tr('ضريبة')}</th><th>{tr('الإجمالي')}</th></tr>
+                  <tr><th>{tr('الصنف')}</th><th>{tr('الكمية')}</th><th>{tr('السعر')}</th><th>{tr('خصم')}</th>{!taxFree && <th>{tr('ضريبة')}</th>}<th>{tr('الإجمالي')}</th></tr>
                 </thead>
                 <tbody>
                   {invoice.items.map(item => (
@@ -75,7 +79,7 @@ export default function InvoiceDetailModal({ invoice, onClose }: Props) {
                       <td>{Number(item.qty)}</td>
                       <td>{formatCurrency(item.unitPrice)}</td>
                       <td>{Number(item.discountPct) > 0 ? `${item.discountPct}%` : '-'}</td>
-                      <td>{item.taxPct}%</td>
+                      {!taxFree && <td>{item.taxPct}%</td>}
                       <td className="font-semibold">{formatCurrency(item.lineTotal)}</td>
                     </tr>
                   ))}
@@ -91,7 +95,7 @@ export default function InvoiceDetailModal({ invoice, onClose }: Props) {
               {Number(invoice.discountAmt) > 0 && (
                 <div className="flex justify-between text-red-500"><span>{tr('الخصم')}</span><span>- {formatCurrency(invoice.discountAmt)}</span></div>
               )}
-              <div className="flex justify-between text-[#E15A30]"><span>{tr('الضريبة')}</span><span>{formatCurrency(invoice.taxAmt)}</span></div>
+              {!taxFree && <div className="flex justify-between text-[#E15A30]"><span>{tr('الضريبة')}</span><span>{formatCurrency(invoice.taxAmt)}</span></div>}
               <div className="flex justify-between font-bold text-base border-t pt-2"><span>{tr('الإجمالي')}</span><span>{formatCurrency(invoice.total)}</span></div>
               <div className="flex justify-between text-green-600"><span>{tr('المدفوع')}</span><span>{formatCurrency(invoice.paidAmt)}</span></div>
               {Number(invoice.remainingAmt) > 0 && (

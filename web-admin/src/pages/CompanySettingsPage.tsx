@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { companyApi, lotsApi } from '../api/client';
 import { supportedCountries, getCountry } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
-import { Building2, Save, Upload, Trash2, Image as ImageIcon, ShieldCheck, ShieldAlert, Lock, Layers } from 'lucide-react';
+import { Building2, Save, Upload, Trash2, Image as ImageIcon, ShieldCheck, ShieldAlert, Lock, Layers, Percent } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Header } from '../rep/RepDocuments';
 import DataImportPanel from '../components/DataImportPanel';
@@ -20,6 +20,8 @@ import { zatcaCollectOn } from '../lib/zatcaRegime';
 import { useAuthStore } from '../store/authStore';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { lotFlagsOf } from '../lib/lots';
+import { TAX_FREE_TITLES, TAX_MODE_CONFIRM_OFF, TAX_MODE_HINT, TAX_MODE_LABEL, isTaxOff } from '../lib/taxMode';
+import { TAX_MODE_BLOCKED_TEXT, taxModeBlockedByZatca, taxModeChecked, taxModeErrorCode, taxModeErrorMessage, type TaxModeCardCompany } from './taxOffScreens1';
 
 // تبويب ربط فوترة المرحلة الثانية كسول: لا يُحمَّل (ولا عباراته) إلا لشركة فعّل لها المالك العلم وفتحت التبويب
 const loadZatcaPhase2Tab = () => import('../components/zatca/ZatcaPhase2Tab');
@@ -103,7 +105,8 @@ export default function CompanySettingsPage() {
     queryFn: async () => {
       const res = await companyApi.get();
       return res.data.data as (CompanyForm & { logo?: string; primaryColor?: string; headerStyle?: string; countryCode?: string; currency?: string; defaultVatPct?: number;
-        einvoiceEnabled?: boolean; einvoiceEnv?: string; einvoiceClientId?: string; einvoiceActivityCode?: string; einvoiceBranchCode?: string; einvoiceIntermediaryUrl?: string; einvoiceHasSecret?: boolean }) | null;
+        einvoiceEnabled?: boolean; einvoiceEnv?: string; einvoiceClientId?: string; einvoiceActivityCode?: string; einvoiceBranchCode?: string; einvoiceIntermediaryUrl?: string; einvoiceHasSecret?: boolean;
+        taxDisabled?: boolean; taxModeChangedAt?: string | null }) | null;
     },
   });
 
@@ -191,8 +194,11 @@ export default function CompanySettingsPage() {
     </div>
   );
 
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الشركة بلا ضريبة (taxDisabled) ⇒ لا رقم ضريبي ولا فوترة إلكترونية ولا تبويب الربط ولا
+  // معاينة «فاتورة ضريبية» — ويبقى مفتاح «إزالة الضريبة» وحده (TaxModeCard) لإعادتها. الحقول المخفية تبقى قيمها المحفوظة كما هي
+  const taxOff = isTaxOff(data);
   const previewCompany = {
-    name: data?.name || tr('اسم الشركة'), address: data?.address, taxNumber: data?.taxNumber,
+    name: data?.name || tr('اسم الشركة'), address: data?.address, taxNumber: taxOff ? undefined : data?.taxNumber,
     commercialReg: data?.commercialReg, phone: data?.phone, email: data?.email,
     logo, primaryColor, headerStyle,
   };
@@ -224,6 +230,9 @@ export default function CompanySettingsPage() {
   // «اشتراط اختيار فاتورة البيع للمرتجع» (طلب المالك ٣١ أكتوبر ٢٠٢٦): لمدير الشركة غير المقيَّد وحده كتبويب «الفرق» — في الإعدادات
   // العامة لا تبويب الفوترة (شركات المرحلة الأولى تحتاجه أيضاً)، ويُحفظ فوراً بمساره المستقل (PUT /company/return-policy)
   const returnPolicyCardOn = role === 'ADMIN' && !scopeEnabled;
+  // «إزالة الضريبة»: لمدير الشركة غير المقيَّد (وجلسة المالك تعمل كحسابه) — يُحفظ فوراً بمساره المستقل (PATCH /company/tax-mode)،
+  // والخادم يرفض غيره ويرفض الإزالة ما دام ربط المرحلة الثانية مفعّلاً (409 TAX_MODE_ZATCA_CONFLICT)
+  const taxModeCardOn = role === 'ADMIN' && !scopeEnabled;
   // الحقل المقفل يبدو مقفلاً (لا حقلاً يتجاهل الكتابة صامتاً) ويُقرأ معه سبب القفل
   const lockedProps = sellerLocked ? { 'aria-describedby': SELLER_LOCK_HINT_ID, title: tr(zatcaSellerLockHint(role, scopeEnabled)) } : {};
 
@@ -326,7 +335,7 @@ export default function CompanySettingsPage() {
                 <input className="input" {...register('address')} placeholder={tr('المدينة - الحي - الشارع')} />
               </div>
               <div>
-                <label className="label">{tr('الدولة تحدد العملة والضريبة والفوترة الإلكترونية')}</label>
+                <label className="label">{taxOff ? tr('الدولة') : tr('الدولة تحدد العملة والضريبة والفوترة الإلكترونية')}</label>
                 <select className={`input ${sellerLocked ? LOCKED_INPUT_CLASS : ''}`} value={countryCode} disabled={sellerLocked} {...lockedProps} onChange={e => setCountryCode(e.target.value)}>
                   {supportedCountries().filter(c => zatcaCountryChoiceAllowed(c.code, data, role, scopeEnabled)).map(c => (
                     <option key={c.code} value={c.code}>{c.nameAr} — {c.currency}</option>
@@ -334,8 +343,9 @@ export default function CompanySettingsPage() {
                 </select>
                 {accountingOn && (() => { const c = getCountry(countryCode); return (
                   <p className="text-[11px] text-[#6E6557] mt-1.5 leading-relaxed bg-[#FAF7F0] rounded-lg px-3 py-2 border border-[#E9E1D3]">
-                    {tr('العملة')}: <b>{currencyOverride ? (currencyOverride === 'USD' ? '$ (USD)' : '€ (EUR)') : `${c.symbolAr} (${c.currency})`}</b> · {tr('الضريبة الافتراضية')}: <b>{c.defaultVatPct}%</b><br />
-                    {tr('الفوترة الإلكترونية')}: <b>{c.einvoiceNoteAr}</b>
+                    {tr('العملة')}: <b>{currencyOverride ? (currencyOverride === 'USD' ? '$ (USD)' : '€ (EUR)') : `${c.symbolAr} (${c.currency})`}</b>
+                    {!taxOff && <> · {tr('الضريبة الافتراضية')}: <b>{c.defaultVatPct}%</b><br />
+                    {tr('الفوترة الإلكترونية')}: <b>{c.einvoiceNoteAr}</b></>}
                   </p>
                 ); })()}
               </div>
@@ -347,7 +357,7 @@ export default function CompanySettingsPage() {
                   <option value="USD">{tr('دولار امريكي')} — USD $</option>
                   <option value="EUR">{tr('يورو')} — EUR €</option>
                 </select>
-                <p className="text-[11px] text-[#6E6557] mt-1.5">{zatcaLive ? tr('العملة مقفلة على الريال السعودي بعد تفعيل الفوترة الإلكترونية المرحلة الثانية') : tr('تغير عملة الفواتير والسندات والتقارير كلها — الضريبة والفوترة الالكترونية تبقى حسب الدولة')}</p>
+                <p className="text-[11px] text-[#6E6557] mt-1.5">{zatcaLive ? tr('العملة مقفلة على الريال السعودي بعد تفعيل الفوترة الإلكترونية المرحلة الثانية') : taxOff ? tr('تغير عملة الفواتير والسندات والتقارير كلها') : tr('تغير عملة الفواتير والسندات والتقارير كلها — الضريبة والفوترة الالكترونية تبقى حسب الدولة')}</p>
               </div>
               )}
               <div>
@@ -367,10 +377,12 @@ export default function CompanySettingsPage() {
                 <p className="text-[11px] text-[#6E6557] mt-1.5">{tr('يسري على المبالغ والكميات والتواريخ في اللوحة وتطبيق المندوب والتقارير — الواجهة الانجليزية تبقى بارقام انجليزية دائما')}</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
+                {!taxOff && (
                 <div>
                   <label className="label">{tr('الرقم الضريبي')}</label>
                   <input className={`input ${sellerLocked ? LOCKED_INPUT_CLASS : ''}`} dir="ltr" readOnly={sellerLocked} {...lockedProps} {...register('taxNumber')} />
                 </div>
+                )}
                 <div>
                   <label className="label">{tr('السجل التجاري')}</label>
                   <input className={`input ${sellerLocked ? LOCKED_INPUT_CLASS : ''}`} dir="ltr" readOnly={sellerLocked} {...lockedProps} {...register('commercialReg')} />
@@ -468,9 +480,11 @@ export default function CompanySettingsPage() {
 
           {buyerRelaxCardOn && <BuyerRelaxCard value={(data as { buyerVatAddressRelaxed?: unknown } | null | undefined)?.buyerVatAddressRelaxed === true} />}
           {returnPolicyCardOn && <ReturnPolicyCard company={data} />}
+          {taxModeCardOn && <TaxModeCard company={data} />}
 
-          {/* الفوترة الإلكترونية (الربط الحكومي) — بيانات الربط تُدخلها الشركة */}
-          {accountingOn && (
+          {/* الفوترة الإلكترونية (الربط الحكومي) — بيانات الربط تُدخلها الشركة. «إزالة الضريبة»: لا فوترة إلكترونية لشركةٍ بلا ضريبة
+              (المزوّد 'none' في كل مستندٍ جديد) — البطاقة تُخفى وبياناتها المحفوظة تُرسل كما هي */}
+          {accountingOn && !taxOff && (
           <div className="card">
             <div className="flex items-center gap-3 mb-5 pb-4 border-b border-gray-100">
               <div className="w-11 h-11 bg-[#E4F1EA] rounded-xl flex items-center justify-center">
@@ -558,7 +572,7 @@ export default function CompanySettingsPage() {
           <p className="text-sm font-semibold text-gray-500">{tr('معاينة الترويسة كما ستظهر في المطبوعات')}</p>
           <div className="card bg-white p-0 overflow-hidden">
             <div style={{ width: 754, transformOrigin: 'top right', transform: 'scale(0.62)' }} className="p-5">
-              <Header title={tr('فاتورة ضريبية')} company={previewCompany} />
+              <Header title={taxOff ? tr(TAX_FREE_TITLES.sale) : tr('فاتورة ضريبية')} company={previewCompany} />
             </div>
             <div style={{ height: 130 }} />
           </div>
@@ -621,6 +635,63 @@ function BuyerRelaxCard({ value }: { value: boolean }) {
         <p>{tr('عند التفعيل يحفظ الرقم الضريبي ورقم المبنى والرمز البريدي ولو لم تكن بالصيغة المعتمدة وتصدر فاتورة ضريبية مبسطة بدل الفاتورة الضريبية لكل منشأة بياناتها ناقصة أو غير صحيحة فلا يستطيع العميل خصم ضريبة المدخلات بها والمسؤولية الضريبية على شركتك')}</p>
         <p>{tr('الإشعار الدائن أو المدين على فاتورة ضريبية سابقة يبقى ضريبيا ويحتاج بيانات العميل كاملة')}</p>
       </div>
+    </div>
+  );
+}
+
+/**
+ * «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦) — مفتاح مدير الشركة يُحفظ فور تبديله بمساره (companyApi.taxMode.set ⇒ PATCH
+ * /company/tax-mode)، ويقرؤه الجميع من ردّ /company (taxDisabled). الإزالة بتأكيدٍ واحد (TAX_MODE_CONFIRM_OFF)، والإعادة بلا تأكيد.
+ * يبقى ظاهراً وحده بعد الإزالة (بعنوانه وتلميحه) لإعادة الضريبة. ممنوعةٌ ما دام ربط المرحلة الثانية مفعّلاً: المفتاح معطّلٌ برسالة
+ * الرفض، والخادم يرفض 409 TAX_MODE_ZATCA_CONFLICT فتُعرض رسالته. بعد كل قلبٍ (أو رفض) يُبطَل ['company'] فتتحدّث كل شاشة.
+ */
+function TaxModeCard({ company }: { company: TaxModeCardCompany | null | undefined }) {
+  const tr = useTr();
+  const qc = useQueryClient();
+  const save = useMutation({
+    mutationFn: (taxDisabled: boolean) => companyApi.taxMode.set(taxDisabled),
+    onSuccess: (res, off) => {
+      // الردّ { taxDisabled, taxModeChangedAt } (أو داخل data) — يُكتب في ذاكرة ['company'] فوراً ثم تُعاد قراءتها (كل الشاشات تقرأ العلم منها)
+      const d = (res?.data ?? {}) as { taxDisabled?: unknown; taxModeChangedAt?: unknown; data?: { taxDisabled?: unknown; taxModeChangedAt?: unknown } };
+      const body = d.data && typeof d.data === 'object' ? d.data : d;
+      qc.setQueryData(['company'], (old: Record<string, unknown> | null | undefined) => (old ? {
+        ...old, taxDisabled: typeof body.taxDisabled === 'boolean' ? body.taxDisabled : off,
+        ...(body.taxModeChangedAt !== undefined ? { taxModeChangedAt: body.taxModeChangedAt } : {}),
+      } : old));
+      qc.invalidateQueries({ queryKey: ['company'] });
+      qc.invalidateQueries({ queryKey: ['zatca', 'overview'] });
+      toast.success(off ? tr('أزيلت الضريبة من المستندات الجديدة') : tr('أعيدت الضريبة للمستندات الجديدة'));
+    },
+    onError: (err: unknown) => {
+      // رفضٌ لتغيّر حال الشركة (ربطٌ فُعّل من جهاز آخر) ⇒ إعادة القراءة فيتعطّل المفتاح برسالته
+      if (taxModeErrorCode(err)) qc.invalidateQueries({ queryKey: ['company'] });
+      // رموز الوضع بعبارتها (TAX_MODE_MESSAGES)، وغيرها (الصلاحية والنطاق) بنصّ الخادم مترجماً إن كان في القاموس
+      const known = taxModeErrorMessage(err);
+      const server = (err as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
+      toast.error(tr(known ?? (typeof server === 'string' && server ? server : 'حدث خطأ في الحفظ')));
+    },
+  });
+  const checked = taxModeChecked(save.isPending, save.variables, company);
+  const blocked = taxModeBlockedByZatca(company);
+  const toggle = (off: boolean) => {
+    if (off && !window.confirm(tr(TAX_MODE_CONFIRM_OFF))) return;
+    save.mutate(off);
+  };
+  return (
+    <div className="card" data-tax-mode="">
+      <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+        <div className="w-11 h-11 bg-[#FBEBE2] rounded-xl flex items-center justify-center">
+          <Percent size={22} className="text-[#E15A30]" />
+        </div>
+        <p className="font-semibold text-gray-800">{tr(TAX_MODE_LABEL)}</p>
+      </div>
+      <label className={`flex items-center gap-2.5 text-sm text-gray-700 select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 ${blocked ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
+        <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={checked} disabled={save.isPending || blocked}
+          onChange={e => toggle(e.target.checked)} />
+        {tr(TAX_MODE_LABEL)}
+      </label>
+      <p className="text-[11px] text-[#6E6557] mt-1.5 leading-relaxed">{tr(TAX_MODE_HINT)}</p>
+      {blocked && <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-[11px] leading-relaxed" role="note">{tr(TAX_MODE_BLOCKED_TEXT)}</p>}
     </div>
   );
 }

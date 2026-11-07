@@ -40,6 +40,9 @@ import { factorOf } from '../lib/units';
 import { invoiceLotsOf, lotLineText } from './docLots';
 import { methodLabelFor } from '../lib/paymentMethodsConfig';
 import { receiptLinkView } from './receiptLinks';
+// «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الفاتورة بختمها وقرارها، والسند بعلم الشركة — بلا ختمٍ ولا علمٍ الورقة كما هي حرفاً
+import { isTaxOff } from '../lib/taxMode';
+import { isTaxFreePrint } from '../lib/print/taxFreePrint';
 
 export interface GridInvoiceFacts {
   pt: PrintTexts;
@@ -513,8 +516,12 @@ interface Col {
 
 export const GridInvoice = forwardRef<HTMLDivElement, {
   doc: InvoiceDoc; facts: GridInvoiceFacts; look: PrintLook; layout: ResolvedLayout; qr: ReactNode | null;
-}>(({ doc, facts, look, layout, qr }, ref) => {
+}>(({ doc, facts, look, layout, qr: qrIn }, ref) => {
   const { pt, zDecision, inclusiveDoc, vatRate, noteRefs } = facts;
+  /* «إزالة الضريبة»: فاتورةٌ مختومة بلا ضريبة — لا رقم ضريبيّ للبائع ولا للمشتري، ولا ملاحظة أقساطٍ ضريبية، ولا رمز (ولو مُرِّرت
+   * عقدته) — والعنوان وسطور الضريبة من القرار (showTaxBreakdown:false). بلا ختم: كما هو حرفاً */
+  const taxFree = isTaxFreePrint(zDecision, doc);
+  const qr = taxFree ? null : qrIn;
   const company = (doc.company ?? null) as (InvoiceDoc['company'] & { addrCity?: string | null; addrPostalCode?: string | null }) | null;
   const customer = doc.customer as InvoiceDoc['customer'] & { postalCode?: string | null };
   const items = doc.items as GridItem[];
@@ -565,13 +572,13 @@ export const GridInvoice = forwardRef<HTMLDivElement, {
   if (customer.city) buyerRows.push({ keys: ['cust.city'], def: 'المدينة', value: customer.city });
   if (clean(customer.postalCode)) buyerRows.push({ keys: ['cust.postalCode'], def: 'الرمز البريدي', value: clean(customer.postalCode), ltr: true });
   if (customer.commercialReg) buyerRows.push({ keys: ['cust.commercialReg'], def: 'السجل التجاري', value: customer.commercialReg, ltr: true });
-  if (customer.taxNumber) buyerRows.push({ keys: ['cust.taxNumber'], def: 'الرقم الضريبي', value: customer.taxNumber, ltr: true });
+  if (customer.taxNumber && !taxFree) buyerRows.push({ keys: ['cust.taxNumber'], def: 'الرقم الضريبي', value: customer.taxNumber, ltr: true });
   const sellerRows: KvRow[] = [];
   if (company?.name) sellerRows.push({ keys: ['sel.name'], def: 'الاسم', value: company.name });
   if (company?.address) sellerRows.push({ keys: ['sel.address'], def: 'العنوان', value: company.address });
   if (clean(company?.addrCity)) sellerRows.push({ keys: ['sel.city'], def: 'المدينة', value: clean(company?.addrCity) });
   if (clean(company?.addrPostalCode)) sellerRows.push({ keys: ['sel.postalCode'], def: 'الرمز البريدي', value: clean(company?.addrPostalCode), ltr: true });
-  if (company?.taxNumber) sellerRows.push({ keys: ['sel.taxNumber'], def: 'الرقم الضريبي', value: company.taxNumber, ltr: true });
+  if (company?.taxNumber && !taxFree) sellerRows.push({ keys: ['sel.taxNumber'], def: 'الرقم الضريبي', value: company.taxNumber, ltr: true });
   const partyBox = (headingKey: string, rows: KvRow[]) => {
     const live = rows.filter((r) => !goneAny(pt, r.keys));
     if (pt.hidden(headingKey) || live.length === 0) return <div style={{ flex: '1 1 0' }} />;
@@ -750,7 +757,7 @@ export const GridInvoice = forwardRef<HTMLDivElement, {
             ) : null}
           </tbody>
         </table>
-        {!pt.hidden('inst.note') ? (
+        {!pt.hidden('inst.note') && !taxFree ? (
           <div {...unitProps(pt, ['inst.note'], { marginTop: 3, fontSize: '0.9em' })}><Pk pt={pt} k="inst.note">{arOf(pt, 'inst.note', noteDef)}{withOwnAlt(pt.ownAlt('inst.note'))}</Pk></div>
         ) : null}
       </div>
@@ -802,6 +809,8 @@ export const GridReceipt = forwardRef<HTMLDivElement, {
 }>(({ doc, pt, title, look, layout }, ref) => {
   const company = (doc.company ?? null) as (ReceiptDoc['company'] & { addrCity?: string | null }) | null;
   const customer = doc.customer;
+  // «إزالة الضريبة»: السند بلا ختم — علم الشركة الآن يُسقط رقمها الضريبيّ من الترويسة ورقم العميل من صندوقه
+  const taxOff = isTaxOff(company);
   const kit = kitOf(pt, look, layout, company);
   const dctx = usePrintDesignPreview();
   const logo = gridLogo(look, layout, company?.logo);
@@ -825,7 +834,7 @@ export const GridReceipt = forwardRef<HTMLDivElement, {
   if (customer.name) buyerRows.push({ keys: ['rcp.from'], def: 'استلمنا من السيد', value: customer.name });
   if (customer.businessName) buyerRows.push({ keys: ['rcp.business'], def: 'المنشأة', value: customer.businessName });
   if (customer.commercialReg) buyerRows.push({ keys: ['rcp.commercialReg'], def: 'السجل التجاري', value: customer.commercialReg, ltr: true });
-  if (customer.taxNumber) buyerRows.push({ keys: ['rcp.taxNumber'], def: 'الرقم الضريبي', value: customer.taxNumber, ltr: true });
+  if (customer.taxNumber && !taxOff) buyerRows.push({ keys: ['rcp.taxNumber'], def: 'الرقم الضريبي', value: customer.taxNumber, ltr: true });
   if (customer.phone) buyerRows.push({ keys: ['rcp.phone'], def: 'الجوال', value: customer.phone, ltr: true });
   const addr = [customer.address, customer.district, customer.city].filter(Boolean).join('، ');
   if (addr) buyerRows.push({ keys: ['rcp.address'], def: 'العنوان', value: addr });
@@ -882,7 +891,7 @@ export const GridReceipt = forwardRef<HTMLDivElement, {
   const footer = <Footer key="footer" kit={kit} thanks={null} companyName={company?.name || ''} />;
   const header = (
     <GridHeader key="header" kit={kit} look={look} logo={logo} company={company}
-      title={pt.on ? title : { text: 'سند قبض', alt: null }} titleKey="rcp.title" showTax />
+      title={pt.on ? title : { text: 'سند قبض', alt: null }} titleKey="rcp.title" showTax={!taxOff} />
   );
   const bySection: Partial<Record<SectionId, ReactNode>> = { header, info, parties, items, signatures: sig, footer };
   const order = sectionsOf(layout);

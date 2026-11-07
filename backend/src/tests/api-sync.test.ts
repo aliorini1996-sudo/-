@@ -328,6 +328,8 @@ test('أعمدة الميزات الحديثة مكشوفة في المزامن�
     ['customers', 'priceListId'], ['invoices', 'priceListId'], ['sales-reps', 'canChangePriceList'],
     // وعلى مستوى المندوب: نوعه الافتراضي والأنواع التي يبدّل بينها
     ['sales-reps', 'defaultPriceListId'], ['sales-reps', 'allowedPriceTypes'],
+    // «إزالة الضريبة»: ختم المستند بلا ضريبة — به يعرض نظام الشركة المستند كما صدر
+    ['invoices', 'taxFree'],
   ];
   for (const [r, c] of exposed) {
     const def = sync.syncResource(r);
