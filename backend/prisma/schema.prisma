@@ -1172,6 +1172,8 @@ model Invoice {
   // pricesIncludeTax=true — وهي فواتير تطبيق المندوب التي يبقى فيها السعر المعلن
   // للعميل كما هو حرفيا. الافتراضي false يجعل كل الصفوف التاريخية صحيحة بلا ترحيل.
   pricesIncludeTax Boolean @default(false)
+  /// «إزالة الضريبة»: صدر المستند والشركة بلا ضريبة — يُطبع ويُعرض بلا أي ذكرٍ لها مهما تغيّر إعداد الشركة بعده (المستند القديم بضريبته كما صدر)
+  taxFree          Boolean @default(false)
   subtotal         Float
   discountPct      Float   @default(0)
   discountAmt      Float   @default(0)
@@ -1448,6 +1450,11 @@ model CompanySettings {
   returnRequiresSaleInvoice Boolean?
   returnPolicyChangedAt     DateTime? // آخر تغيير — مرجع تسامح إعادة رفع صندوق المندوب (مستندٌ أُنشئ قبله يُقبل)
   returnPolicyChangedBy     String?   // من غيّره (actorOf: جلسة المالك OWNER:<id>)
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): منشأة غير خاضعة — لا ضريبة ولا ذكرٌ لها في أي شاشة أو مستند جديد. يقلبه مدير الشركة
+  // (PATCH /api/company/tax-mode)، ويُمنع مع ربط المرحلة الثانية. Product.taxPct تبقى مخزّنة كما هي فالإعادة ترجع كل شيء (services/taxMode.ts)
+  taxDisabled               Boolean   @default(false)
+  taxModeChangedAt          DateTime? // مرجع تسامح إعادة رفع صندوق المندوب (مستندٌ أُنشئ قبله يُقبل كما بُني)
+  taxModeChangedBy          String?
   // «أنواع الأسعار»: اسم زرّ السعر الافتراضي (Product.basePrice) — null = «السعر الأساسي». يغيّره مدير الشركة
   basePriceLabel            String?
 

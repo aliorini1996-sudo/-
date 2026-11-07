@@ -67,6 +67,8 @@ function QrImage({ value, size, ec = 'M', scale = 3 }: {
 
 export interface Company {
   name: string;
+  /** «إزالة الضريبة» (lib/taxMode.ts): الشركة الآن بلا ضريبة — يحكم السند والكشف وإشعار المستودع (لا ختم لها)؛ والفاتورة بختمها taxFree */
+  taxDisabled?: boolean;
   address?: string;
   taxNumber?: string;
   commercialReg?: string;
@@ -125,6 +127,8 @@ export interface DocCustomer {
 
 export interface InvoiceDoc {
   kind: 'invoice';
+  /** «إزالة الضريبة»: صدر بلا ضريبة (Invoice.taxFree) — يُطبع بلا أي ذكرٍ لها؛ الغائب = مستندٌ بضريبته كما اليوم */
+  taxFree?: boolean;
   number: string;
   date: string;
   type: 'CASH' | 'CREDIT';
