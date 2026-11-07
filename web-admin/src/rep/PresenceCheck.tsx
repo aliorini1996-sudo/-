@@ -5,10 +5,14 @@
 // يجيب عن صاحبه — فتُختم لحظة الضغط على الخادم أولاً (بها يُحكم، فثواني قراءة الموقع والشبكة لا تُحسب عليه)، ثمّ قراءة موقعٍ
 // طازجة (punchFix.ts) تُرسَل مع الجهاز. ولا «لاحقاً» قبل المحاولة: «إغلاق مؤقت» بعد فشل الإرسال وحده (بلا شبكة لا يُقفل
 // التطبيق ربع ساعة)، والنبضة تعيد الطلب ما دام معلّقاً.
+//
+// والمقيَّد بـ«بصمة الحضور بموقع عميل» لا يُقبل تواجده إلا داخل نطاق أحد عملائه (طلب المالك ٧ نوفمبر ٢٠٢٦): رفض الخادم
+// (PRESENCE_AWAY_FROM_CUSTOMER — presenceRefusal.ts) لا يُنهي الطلب — تبقى النافذة بسببه و«أعد المحاولة» بقراءةٍ طازجة حتى المهلة.
 import { useEffect, useRef, useState } from 'react';
 import { MapPin, Check, Clock } from 'lucide-react';
 import repApi from './repApi';
-import { precisePunchFix } from './punchFix';
+import { precisePunchFix, type PunchFixReason } from './punchFix';
+import { presenceFailureOf, presenceAwayView, type PresenceAwayView } from './presenceRefusal';
 import { getDeviceId, describeDevice } from './deviceId';
 import { useTr } from '../i18n/strings';
 import { presencePhase, mmss, type PendingPresence } from './presencePhase';
@@ -17,7 +21,8 @@ import { iosPushAvailable, iosPushClear } from './iosPush';
 
 export type { PendingPresence, PresencePhase } from './presencePhase';
 
-type Result = { kind: 'ok' | 'late' | 'noFix' | 'expired' | 'error'; text: string };
+/** away = رُفض لبعده عن عملائه: الطلب مفتوح ويُعاد — كـerror لا كـexpired. soft: رفض «انتظر وأعد» (presenceAwaySoft) */
+type Result = { kind: 'ok' | 'late' | 'noFix' | 'expired' | 'error' | 'away'; text: string; soft?: boolean };
 
 /**
  * يُغلق إشعار «أثبت تواجدك» لهذا الطلب العالق في الدرج (وإلّا حلّ التالي محلّه بلا صوت) — والصفحة ظاهرة وحدها: والتطبيق في
@@ -34,8 +39,12 @@ function closePresenceNotifications(checkId: string): void {
   } catch { /* متصفّحٌ بلا عامل خدمة */ }
 }
 
-export default function PresenceCheckModal({ pending, onClose, onDismiss, onAnswered, onAttempt }: {
+export default function PresenceCheckModal({ pending, onClose, onDismiss, onAnswered, onAttempt, lastAway, onAway }: {
   pending: PendingPresence;
+  /** آخر رفضٍ للمكان لهذا الطلب — تعود به النافذة بعد «إغلاق مؤقت» (سببه والمهلة و«أعد المحاولة») لا بالسؤال الأول */
+  lastAway?: PresenceAwayView | null;
+  /** رُفض المكان — يحفظه التطبيق لهذا الطلب */
+  onAway?: (v: PresenceAwayView) => void;
   /** بدأ المندوب الردّ (ضغط) — لا تغلقه النبضة وهو يقرأ موقعه أو يرسل، فيرى حكمه */
   onAttempt: () => void;
   /** حُكم الطلب (أُجيب أو فات) — لا تعيد النبضة فتحه، ولا يُغلق قبل أن يقرأ المندوب نتيجته */
@@ -50,7 +59,7 @@ export default function PresenceCheckModal({ pending, onClose, onDismiss, onAnsw
   const skew = useRef(pending.serverNow - Date.now());
   const [now, setNow] = useState(() => Date.now() + skew.current);
   const [stage, setStage] = useState<'idle' | 'locating' | 'sending'>('idle');
-  const [result, setResult] = useState<Result | null>(null);
+  const [result, setResult] = useState<Result | null>(() => (lastAway ? { kind: 'away', ...lastAway } : null));
 
   useEffect(() => {
     // الإشعار يُغلق حين يرى المندوب النافذة فعلاً: بلمسةٍ منه والنافذة ظاهرة — لا بظهورها وحده. جوالٌ موضوعٌ بشاشةٍ مضيئة لا
@@ -86,10 +95,14 @@ export default function PresenceCheckModal({ pending, onClose, onDismiss, onAnsw
     closePresenceNotifications(pending.id);
     onAttempt();
     setStage('locating');
+    // سبب غياب القراءة إن غابت — به يُقال رفض «بلا موقع» على حقيقته (مهلةٌ أو تعذّر، لا «فعّل الموقع» وهو مفعّل)
+    let fixReason: PunchFixReason | null = null;
     try {
-      // لحظة الضغط على الخادم قبل القراءة — لا تنتظرها القراءة، ويُنتظر وصولها قبل الردّ (فيُحكم بها)
+      // لحظة الضغط على الخادم قبل القراءة — لا تنتظرها القراءة، ويُنتظر وصولها قبل الردّ (فيُحكم بها). وفي «أعد المحاولة» بعد رفض
+      // المكان لمسةٌ جديدة: الخادم مسح لمسة المحاولة المرفوضة، فلا تُحسب له لحظةٌ كان فيها بعيداً — تُحسب لحظة هذه الضغطة وحدها
       const tap = repApi.post(`/tracking/presence/${pending.id}/tap`, {}, { background: true, timeout: 10_000 }).catch(() => null);
       const r = await precisePunchFix();
+      fixReason = r.reason;
       const body = { ...(r.fix ?? {}), deviceId: getDeviceId(), deviceName: await describeDevice() };
       await tap;
       setStage('sending');
@@ -100,9 +113,16 @@ export default function PresenceCheckModal({ pending, onClose, onDismiss, onAnsw
       else if (d.status === 'LATE') setResult({ kind: 'late', text: tr('سجل ردك متاخرا') });
       else setResult({ kind: 'ok', text: tr('تم اثبات تواجدك') });
     } catch (e) {
-      const resp = (e as { response?: { status?: number; data?: { code?: string } } })?.response;
+      const f = presenceFailureOf(e);
+      // بعيدٌ عن عملائه (المقيَّد بـ«بصمة الحضور بموقع عميل»): الطلب ما زال مفتوحاً على الخادم — لا onAnswered (فلا يُعدّ مُجاباً
+      // ولا تُغلقه النبضة: بدأ منه الردّ)، والنافذة تبقى بسببه و«أعد المحاولة» حتى المهلة. والجرس لا يعود: أُسكت بالضغطة الأولى
+      if (f.kind === 'away') {
+        const v = presenceAwayView(f, tr, fixReason);
+        onAway?.(v);
+        setResult({ kind: 'away', ...v });
+      }
       // طلبٌ انتهى، أو ليس له (404)، أو أُطفئت الميزة (403): نهائيٌّ لا يُعاد
-      if (resp?.data?.code === 'PRESENCE_EXPIRED' || resp?.data?.code === 'PRESENCE_CLOSED' || resp?.status === 403 || resp?.status === 404) {
+      else if (f.kind === 'expired') {
         onAnswered();
         setResult({ kind: 'expired', text: tr('انتهت مهلة التحقق') });
       } else setResult({ kind: 'error', text: tr('تعذر الارسال حاول ثانية') });
@@ -113,6 +133,18 @@ export default function PresenceCheckModal({ pending, onClose, onDismiss, onAnsw
 
   const color = phase === 'onTime' ? '#1E7A52' : '#B7791F';
   const busyText = stage === 'sending' ? tr('جار الارسال') : tr('جار تحديد موقعك');
+  // رُفض لبعده عن عملائه: يُعاد ما بقيت المهلة كفشل الإرسال، وبعدها «انتهت مهلة التحقق» (ويُختم «بلا رد» كما اليوم)
+  const away = result?.kind === 'away';
+  // انتهت المهلة — ومحاولةٌ ما زالت تقرأ أو ترسل لا يُقال لها «انتهت» ولا يُعرض «تم»: لمستها سبقت المهلة فقد يُحكم بها، فتنتظر حكمها
+  const ended = phase === 'expired' && !busy;
+  const retryable = (result?.kind === 'error' || away) && !ended;
+  // العدّ التنازلي: في انتظار الضغط، وبعد رفض المكان — ليعرف كم بقي له ليصل أحد عملائه
+  const countdown = (
+    <p className="flex items-center justify-center gap-1.5 text-sm font-bold tabular-nums" style={{ color }}>
+      <Clock size={16} />
+      {phase === 'onTime' ? `${tr('الوقت المتبقي')} ${mmss(leftMs)}` : `${tr('تاخرت ويسجل ردك متاخرا')} · ${mmss(leftMs)}`}
+    </p>
+  );
 
   return (
     // فوق حاجز الموقع (z-[1300]) وعارض الصور (z-[1200]): الطلب يُجاب أينما كان المندوب في التطبيق
@@ -125,13 +157,15 @@ export default function PresenceCheckModal({ pending, onClose, onDismiss, onAnsw
 
         {result ? (
           <>
-            <p className={`text-sm font-semibold ${result.kind === 'ok' ? 'text-[#1E7A52]' : result.kind === 'error' ? 'text-[#C0392B]' : 'text-[#B7791F]'}`}>
-              {result.kind === 'ok' && <Check size={16} className="inline -mt-0.5 me-1" />}{result.text}
+            {/* الأحمر للفشل والبُعد الصريح وانتهاء المهلة، والكهرماني لـ«انتظر وأعد» (موقعٌ غير دقيق أو لم تصل قراءة) */}
+            <p className={`text-sm font-semibold ${result.kind === 'ok' ? 'text-[#1E7A52]' : result.kind === 'error' || (away && (ended || !result.soft)) ? 'text-[#C0392B]' : 'text-[#B7791F]'}`}>
+              {result.kind === 'ok' && <Check size={16} className="inline -mt-0.5 me-1" />}{away && ended ? tr('انتهت مهلة التحقق') : result.text}
             </p>
-            {result.kind === 'error' && phase !== 'expired' ? (
+            {retryable ? (
               <>
+                {away && countdown}
                 <button onClick={confirm} disabled={busy} className="w-full rounded-2xl bg-[#E15A30] py-3.5 text-white font-bold disabled:opacity-60">
-                  {busy ? busyText : tr('اثبت تواجدي')}
+                  {busy ? busyText : away ? tr('أعد المحاولة') : tr('اثبت تواجدي')}
                 </button>
                 <button onClick={onDismiss} disabled={busy} className="w-full rounded-2xl border border-[#E9E1D3] py-3 font-bold text-[#1F1A13] disabled:opacity-60">
                   {tr('اغلاق مؤقت')}
@@ -141,7 +175,7 @@ export default function PresenceCheckModal({ pending, onClose, onDismiss, onAnsw
               <button onClick={onClose} className="w-full rounded-2xl border border-[#E9E1D3] py-3 font-bold text-[#1F1A13]">{tr('تم')}</button>
             )}
           </>
-        ) : phase === 'expired' ? (
+        ) : ended ? (
           <>
             <p className="text-sm text-[#C0392B] font-semibold">{tr('انتهت مهلة التحقق')}</p>
             <button onClick={onClose} className="w-full rounded-2xl border border-[#E9E1D3] py-3 font-bold text-[#1F1A13]">{tr('إغلاق')}</button>
@@ -149,10 +183,7 @@ export default function PresenceCheckModal({ pending, onClose, onDismiss, onAnsw
         ) : (
           <>
             <p className="text-sm text-[#5C5346] leading-relaxed">{tr('طلب تحقق من الادارة اضغط الزر وسيؤخذ موقعك الان')}</p>
-            <p className="flex items-center justify-center gap-1.5 text-sm font-bold tabular-nums" style={{ color }}>
-              <Clock size={16} />
-              {phase === 'onTime' ? `${tr('الوقت المتبقي')} ${mmss(leftMs)}` : `${tr('تاخرت ويسجل ردك متاخرا')} · ${mmss(leftMs)}`}
-            </p>
+            {countdown}
             <button onClick={confirm} disabled={busy} className="w-full rounded-2xl bg-[#E15A30] py-3.5 text-white text-lg font-bold disabled:opacity-60">
               {busy ? busyText : tr('اثبت تواجدي')}
             </button>

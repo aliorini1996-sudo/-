@@ -54,6 +54,7 @@ import { useHeartbeat } from './useHeartbeat';
 import PresenceCheckModal from './PresenceCheck';
 import { installPresenceAlarmUnlock } from './presenceAlarm';
 import type { PendingPresence } from './presencePhase';
+import type { PresenceAwayView } from './presenceRefusal';
 import { underCutoverReview } from './outboxReview';
 // مراجعة المخزون (D5 والبند ١٣): حجز فاتورةٍ فوق مخزون السيارة، وشاشة «مخزون سيارتي» دون اتصال
 import { underVanStockHeld } from './vanStockHeld';
@@ -4869,6 +4870,9 @@ export default function RepApp() {
   const answeredPresence = useRef(new Set<string>());
   // بدأ الردّ منها (قراءة الموقع أو الإرسال أو خطأٌ بعده) — منفصلةٌ عن answered: «إغلاق مؤقت» يُعيدها النبضة
   const attemptedPresence = useRef(new Set<string>());
+  // آخر رفضٍ للمكان لكل طلب (المقيَّد بالبصمة عند عميل) — النبضة تعيد الطلب بعد «إغلاق مؤقت» فتعود النافذة بسببه ومهلته
+  // و«أعد المحاولة» و«إغلاق مؤقت»، لا بالسؤال الأول بلا إغلاق كأنه لم يُرفض
+  const awayPresence = useRef(new Map<string, PresenceAwayView>());
   // لحظة ظهور الطلب المعروض — ردّ نبضةٍ أُطلقت قبلها «لا طلب» قديمٌ لا يغلقه
   const presenceShownAt = useRef(0);
   const showPresence = useCallback((p: unknown, beatAt?: number) => {
@@ -5571,7 +5575,7 @@ export default function RepApp() {
     clearAiSession();
     resetLive(); // حكم الموقع لا يرثه من يدخل بعده
     await dropPush(); // الجهاز لا يتلقّى تنبيهات حضورِ حسابٍ خرج منه
-    setPresence(null); answeredPresence.current.clear(); attemptedPresence.current.clear(); // طلب تحققه لا يراه من يدخل بعده
+    setPresence(null); answeredPresence.current.clear(); attemptedPresence.current.clear(); awayPresence.current.clear(); // طلب تحققه لا يراه من يدخل بعده
     vanLotsRef.current = null; setVanLots(null); // «تتبّع اللوط»: لقطة سيارته لا يراها من يدخل بعده (والمخزّنة مُسحت بـrefClear)
     clearPendingCardPay(); setCardPayView(null); // عملية بطاقته المعلّقة (فاتورةٌ ومبلغ) لا يراها من يدخل بعده على الجوال نفسه
     localStorage.removeItem('rep_token'); localStorage.removeItem('rep_user');
@@ -5631,6 +5635,8 @@ export default function RepApp() {
             <PresenceCheckModal key={presence.id} pending={presence}
               onAnswered={() => answeredPresence.current.add(presence.id)}
               onAttempt={() => attemptedPresence.current.add(presence.id)}
+              lastAway={awayPresence.current.get(presence.id) ?? null}
+              onAway={(v) => awayPresence.current.set(presence.id, v)}
               onClose={() => { answeredPresence.current.add(presence.id); setPresence(null); }}
               onDismiss={() => setPresence(null)} />
           )}

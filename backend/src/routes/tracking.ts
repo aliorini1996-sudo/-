@@ -334,16 +334,32 @@ async function judgePunchPlace(tid: string, repId: string, radiusRaw: unknown, l
   return { inside, nearestM: nearest, radius, accuracy: acc, lowAccuracy, noFix: false };
 }
 
+/** ذيل رسالة الخروج: مسافة أقرب عملائه، أو لا عميل قريب — مشتركٌ بين البصمة وإثبات التواجد */
+const nearestWhere = (p: PunchPlace): string => (p.nearestM != null
+  ? ` — أقرب عملائك على بعد ${Math.round(p.nearestM)} مترا منك`
+  : ' — لا عميل لك قريب من موقعك الحالي');
+const lowAccuracyText = (p: PunchPlace): string => `موقعك غير دقيق الآن (±${Math.round(p.accuracy!)} م) — انتظر لحظات أو اقترب من مكان مفتوح ثم أعد المحاولة`;
+
 /** نصّ رفض البصمة خارج النطاق */
 function placeRefusal(p: PunchPlace): PunchRefusal {
   if (p.noFix) return { code: 'PUNCH_AWAY_FROM_CUSTOMER', message: 'فعّل الموقع في جوالك — البصمة مشروطة بأن تكون عند أحد عملائك' };
-  if (p.lowAccuracy) {
-    return { code: 'PUNCH_AWAY_FROM_CUSTOMER', reason: 'LOW_ACCURACY', message: `موقعك غير دقيق الآن (±${Math.round(p.accuracy!)} م) — انتظر لحظات أو اقترب من مكان مفتوح ثم أعد المحاولة` };
-  }
-  const where = p.nearestM != null
-    ? ` — أقرب عملائك على بعد ${Math.round(p.nearestM)} مترا منك`
-    : ' — لا عميل لك قريب من موقعك الحالي';
-  return { code: 'PUNCH_AWAY_FROM_CUSTOMER', message: `البصمة مشروطة بأن تكون داخل ${p.radius} مترا من موقع أحد عملائك${where}` };
+  if (p.lowAccuracy) return { code: 'PUNCH_AWAY_FROM_CUSTOMER', reason: 'LOW_ACCURACY', message: lowAccuracyText(p) };
+  return { code: 'PUNCH_AWAY_FROM_CUSTOMER', message: `البصمة مشروطة بأن تكون داخل ${p.radius} مترا من موقع أحد عملائك${nearestWhere(p)}` };
+}
+
+/**
+ * «أثبت تواجدي» لمندوبٍ مقيَّد بالبصمة عند عميل (طلب المالك ٧ نوفمبر ٢٠٢٦): لا يُقبل الإثبات إلا داخل نطاق أحد عملائه —
+ * الحكم نفسه (judgePunchPlace): مسافته من الإدارة وسماحية الدقّة بسقفها، وعملاؤه بنطاق قائمته. رمزٌ واحد بسببٍ فرعيّ:
+ * NO_FIX بلا موقع، وLOW_ACCURACY قراءةٌ أرخى من أن يُحكم بها بُعداً، وOUTSIDE خارج النطاق بمسافة أقرب عميل.
+ */
+type PresenceRefusal = {
+  code: 'PRESENCE_AWAY_FROM_CUSTOMER'; reason: 'NO_FIX' | 'LOW_ACCURACY' | 'OUTSIDE'; message: string; nearestM: number | null; radius: number;
+};
+function presencePlaceRefusal(p: PunchPlace): PresenceRefusal {
+  const base = { code: 'PRESENCE_AWAY_FROM_CUSTOMER' as const, nearestM: p.nearestM != null ? Math.round(p.nearestM) : null, radius: p.radius };
+  if (p.noFix) return { ...base, reason: 'NO_FIX', message: 'فعّل الموقع — إثبات تواجدك مشروط بأن تكون عند أحد عملائك' };
+  if (p.lowAccuracy) return { ...base, reason: 'LOW_ACCURACY', message: lowAccuracyText(p) };
+  return { ...base, reason: 'OUTSIDE', message: `إثبات تواجدك مشروط بأن تكون داخل ${p.radius} مترا من موقع أحد عملائك${nearestWhere(p)}` };
 }
 
 /** ما يُكتب على صفّ البصمة من حكم المكان: null للمندوب غير المقيّد، وإلّا داخل/خارج ومسافة أقرب عميل */
@@ -596,8 +612,27 @@ router.post('/presence/:id/respond', async (req: AuthRequest, res: Response, nex
     const { lat, lng, accuracy } = body;
     const hasFix = lat != null && lng != null;
     const device = punchDeviceOf(body, req.get('user-agent'));
-    const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: { requireBoundDevice: true, boundDeviceId: true } });
-    const nearest = hasFix ? (await nearestCustomersM(tid, repId, lat, lng, PUNCH_NEAREST_SEARCH_M))[0] ?? null : null;
+    const rep = await prisma.salesRep.findFirst({
+      where: { id: repId, tenantId: tid },
+      select: { requireBoundDevice: true, boundDeviceId: true, requirePunchAtCustomer: true, punchRadiusM: true },
+    });
+    let nearest: number | null;
+    if (rep?.requirePunchAtCustomer === true) {
+      // مقيَّدٌ بالبصمة عند عميل: الإثبات داخل نطاق أحد عملائه وحده (طلب المالك ٧ نوفمبر ٢٠٢٦). وpunchOutsideAction=FLAG
+      // لا تُرخيه — تلك تقبل البصمة بوسمٍ تراه الإدارة، أمّا إثبات التواجد فصارمٌ لكل مقيَّد: ردٌّ من خارج النطاق لا يُثبت شيئاً
+      const place = await judgePunchPlace(tid, repId, rep.punchRadiusM, lat, lng, accuracy);
+      if (!place.inside) {
+        // يبقى الطلب مُرسَلاً (SENT) فيُعيد المحاولة حتى تنتهي مهلته — ثم «بلا ردّ» من الحلقة كما اليوم — وتُمحى لحظة ضغطه:
+        // محاولةٌ تالية تُحكم بلحظتها هي، فلا يضغط خارج النطاق ثم يمشي إلى العميل ويُحسب له «في الوقت».
+        // ومهلة الضغطة الأولى (٧٥ ث لقراءة الموقع والشبكة) باقيةٌ كما لكل مندوب — قبولٌ مقصود: المكان يُحكم بالردّ نفسه
+        // داخل النطاق، وأقصى ما تكسبه ضغطةٌ بلا ردّ ٧٥ ثانية في الوقت (في الوقت/متأخر)، وتقصيرها يظلم الصادق بشبكةٍ بطيئة
+        await prisma.presenceCheck.updateMany({ where: { id: check.id, status: 'SENT' }, data: { tappedAt: null } });
+        res.status(409).json({ success: false, ...presencePlaceRefusal(place) }); return;
+      }
+      nearest = place.nearestM;
+    } else {
+      nearest = hasFix ? (await nearestCustomersM(tid, repId, lat, lng, PUNCH_NEAREST_SEARCH_M))[0] ?? null : null;
+    }
     // التحويل الشرطيّ: ردّان متزامنان (ضغطتان) يُكتب أولهما وحده
     const done = await prisma.presenceCheck.updateMany({
       where: { id: check.id, status: 'SENT' },

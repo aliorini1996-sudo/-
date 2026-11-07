@@ -20,7 +20,7 @@ type Check = {
 type Rep = {
   id: string; tenantId: string; requirePresenceCheck: boolean; isActive: boolean; tenantOn: boolean;
   shiftStart: string | null; shiftEnd: string | null; tzOffsetMin: number | null; requireBoundDevice?: boolean; boundDeviceId?: string | null;
-  shiftDays?: number;
+  shiftDays?: number; requirePunchAtCustomer?: boolean; punchRadiusM?: number; punchOutsideAction?: string;
 };
 let checks: Check[] = [];
 let reps: Rep[] = [];
@@ -29,6 +29,9 @@ let markers = new Set<string>();
 let pushes: { repId: string; payload: Record<string, unknown>; ttlSec?: number }[] = [];
 let pushDevices = 1;
 let seq = 0;
+/** مواقع عملاء المندوب كما يعيدها البحث في القاعدة (nearestCustomersM) */
+const CUSTOMER = { lat: 24.7139, lng: 46.6753 };
+let customersNear: { lat: number; lng: number }[] = [CUSTOMER];
 
 const eligible = (r: Rep) => r.requirePresenceCheck && r.isActive && r.tenantOn;
 const matches = (c: Check, w: Record<string, unknown>): boolean => Object.entries(w).every(([k, v]) => {
@@ -81,7 +84,14 @@ const prisma = {
           .map((s) => ({ id: s.id ?? `sh-${r.id}`, checkInAt: s.checkInAt })),
       })).filter((r) => r.attendance.length);
     },
-    async findFirst(a: { where: { id: string } }) { const r = reps.find((x) => x.id === a.where.id); return r ? { ...r } : null; },
+    // يحترم select كالقاعدة: حقلٌ يسقط من اختيار المعالج يصل غائباً — فلا يرتخي قيد المقيَّد بصمتاً والاختبارات خضراء
+    async findFirst(a: { where: { id: string }; select?: Record<string, boolean> }) {
+      const r = reps.find((x) => x.id === a.where.id);
+      if (!r) return null;
+      if (!a.select) return { ...r };
+      const row = r as unknown as Record<string, unknown>;
+      return Object.fromEntries(Object.keys(a.select).filter((k) => a.select![k]).map((k) => [k, row[k]]));
+    },
   },
   repAttendance: {
     async findFirst(a: { where: { salesRepId: string; checkOutAt: { lte: Date } } }) {
@@ -99,8 +109,8 @@ const prisma = {
     async deleteMany() { return { count: 0 }; },
   },
   tenant: { async findUnique() { return { attendanceEnabled: true }; } },
-  // أقرب العملاء (nearestCustomersM): عميلٌ على بعد ~٣٣ م من نقطة الردّ
-  async $queryRaw() { return [{ lat: 24.7139, lng: 46.6753 }]; },
+  // أقرب العملاء (nearestCustomersM): افتراضاً عميلٌ على بعد ~٣٣ م من نقطة الردّ
+  async $queryRaw() { return customersNear.map((c) => ({ ...c })); },
 };
 stub('config/database', { default: prisma });
 stub('services/webPush', {
@@ -126,7 +136,7 @@ const trackingRouter = require('../routes/tracking').default as Router;
 /* eslint-enable @typescript-eslint/no-var-requires */
 
 const MIN = 60_000;
-const reset = () => { checks = []; reps = []; shifts = []; markers = new Set(); pushes = []; pushDevices = 1; seq = 0; pc._resetPresenceLoop(); };
+const reset = () => { checks = []; reps = []; shifts = []; markers = new Set(); pushes = []; pushDevices = 1; seq = 0; customersNear = [CUSTOMER]; pc._resetPresenceLoop(); };
 /** مولّدٌ ببذرة (mulberry32) — قابلٌ للتكرار ومتنوّع (السحب المستقل يرفض المواعيد المتطابقة) */
 const prng = (seed: number) => () => {
   seed = (seed + 0x6D2B79F5) | 0;
@@ -476,4 +486,169 @@ test('حضورٌ وانصرافٌ متناوبان (٢٠ دقيقة حضور ث�
     sent += checks.filter((c) => c.sentAt != null).length;
   }
   assert.ok(sent / 20 >= 0.5, `المُرسل يومياً ${sent / 20} — نمطٌ يكاد يُعفي من التحقق`);
+});
+
+// ═══ «أثبت تواجدي» للمقيَّد بالبصمة عند عميل (طلب المالك ٧ نوفمبر ٢٠٢٦): داخل نطاق أحد عملائه وحده ═══
+// العميل عند CUSTOMER؛ والمسافات بالـhaversine المزيّف: ٠٫٠٠٠٣ درجة عرض ≈ ٣٣ م، ٠٫٠٠٠٧٢ ≈ ٨٠ م، ٠٫٠٠٠٩ ≈ ١٠٠ م، ٠٫٠٠٣ ≈ ٣٣٤ م
+const AT_33 = { lat: 24.7136, lng: 46.6753 };
+const AT_80 = { lat: 24.71462, lng: 46.6753 };
+const AT_100 = { lat: 24.7148, lng: 46.6753 };
+const AT_334 = { lat: 24.7169, lng: 46.6753 };
+const sentCheck = (id: string, agoMs: number, extra: Partial<Check> = {}): Check => {
+  const sentAt = new Date(Date.now() - agoMs);
+  const c: Check = { id, tenantId: 't1', salesRepId: 'r1', day: '2026-11-07', dueAt: sentAt, windowEndAt: new Date(Date.now() + 3600_000), status: 'SENT', sentAt, pushSent: 1, ...extra };
+  checks.push(c);
+  return c;
+};
+const respond = (id: string, body: Record<string, unknown>) => call('post', '/presence/:id/respond', { params: { id }, body });
+
+test('مقيَّدٌ بالبصمة عند عميل: الإثبات داخل النطاق PASSED بمسافة أقرب عميل، وخارجه 409 OUTSIDE والطلب باقٍ مُرسَلاً بلا كتابة', async () => {
+  reset();
+  addRep({ requirePunchAtCustomer: true, punchRadiusM: 50, punchOutsideAction: 'REJECT' });
+  const ok = sentCheck('in', 60_000);
+  const r = await respond('in', { ...AT_33, accuracy: 8 });
+  assert.equal(r.statusCode, 200);
+  assert.deepEqual(r.body!.data, { status: 'PASSED', located: true });
+  assert.equal(ok.status, 'PASSED');
+  assert.equal(ok.distanceM, 33);
+
+  const away = sentCheck('away', 60_000, { tappedAt: new Date(Date.now() - 30_000) });
+  const x = await respond('away', { ...AT_334, accuracy: 10 });
+  assert.equal(x.statusCode, 409);
+  assert.equal(x.body!.success, false);
+  assert.equal(x.body!.code, 'PRESENCE_AWAY_FROM_CUSTOMER');
+  assert.equal(x.body!.reason, 'OUTSIDE');
+  assert.equal(x.body!.nearestM, 334);
+  assert.equal(x.body!.radius, 50);
+  assert.match(String(x.body!.message), /إثبات تواجدك مشروط بأن تكون داخل 50 مترا من موقع أحد عملائك/);
+  assert.match(String(x.body!.message), /أقرب عملائك على بعد 334 مترا منك/);
+  assert.equal(away.status, 'SENT', 'يبقى مفتوحاً فيعيد المحاولة');
+  assert.equal(away.tappedAt, null, 'لحظة الضغط تُمحى');
+  assert.equal(away.respondedAt, undefined, 'لا كتابة لردٍّ مرفوض');
+  assert.equal(away.lat, undefined);
+  // ما زال معلّقاً للتطبيق، ولم يُقبل حتى انتهت مهلته ⇒ «بلا ردّ» من الحلقة كما اليوم
+  const pending = await call('get', '/presence');
+  assert.equal((pending.body!.data as { id: string } | null)?.id, 'away');
+  await pc.runPresenceChecks(new Date(Date.now() + pc.PRESENCE_LATE_MS), () => 0.5);
+  assert.equal(away.status, 'MISSED');
+});
+
+test('مقيَّد: بلا موقع 409 NO_FIX، وقراءةٌ أرخى من النطاق وعميلٌ في حدود خطئها 409 LOW_ACCURACY، ولا عميل قريب يُقال', async () => {
+  reset();
+  addRep({ requirePunchAtCustomer: true, punchRadiusM: 50 });
+  const a = sentCheck('nofix', 30_000, { tappedAt: new Date(Date.now() - 10_000) });
+  const n = await respond('nofix', {});
+  assert.equal(n.statusCode, 409);
+  assert.equal(n.body!.code, 'PRESENCE_AWAY_FROM_CUSTOMER');
+  assert.equal(n.body!.reason, 'NO_FIX');
+  assert.equal(n.body!.message, 'فعّل الموقع — إثبات تواجدك مشروط بأن تكون عند أحد عملائك');
+  assert.equal(a.status, 'SENT');
+  assert.equal(a.tappedAt, null);
+  // نصف موقعٍ (خط عرض بلا طول) كغيابه
+  assert.equal((await respond('nofix', { lat: AT_33.lat })).body!.reason, 'NO_FIX');
+
+  const b = sentCheck('coarse', 30_000);
+  const l = await respond('coarse', { ...AT_100, accuracy: 80 });
+  assert.equal(l.statusCode, 409);
+  assert.equal(l.body!.reason, 'LOW_ACCURACY');
+  assert.equal(l.body!.nearestM, 100);
+  assert.match(String(l.body!.message), /موقعك غير دقيق الآن \(±80 م\) — انتظر لحظات/);
+  assert.equal(b.status, 'SENT');
+  // القراءة نفسها بدقّةٍ جيّدة: بُعدٌ صريح لا «انتظر»
+  assert.equal((await respond('coarse', { ...AT_100, accuracy: 10 })).body!.reason, 'OUTSIDE');
+
+  customersNear = [];
+  const none = await respond('coarse', { ...AT_33, accuracy: 5 });
+  assert.equal(none.body!.reason, 'OUTSIDE');
+  assert.equal(none.body!.nearestM, null);
+  assert.match(String(none.body!.message), /لا عميل لك قريب من موقعك الحالي/);
+});
+
+test('مقيَّد: مسافة الإدارة وسماحية الدقّة بسقفها كالبصمة — ١٠٠ م داخل نطاق ١٢٠، و١٠٠ م بدقّة ٢٥ داخل نطاق ٨٠، و٨٠ م بدقّة ٤٥ خارج نطاق ٥٠', async () => {
+  reset();
+  const rep = addRep({ requirePunchAtCustomer: true, punchRadiusM: 120 });
+  sentCheck('r120', 30_000);
+  assert.deepEqual((await respond('r120', { ...AT_100 })).body!.data, { status: 'PASSED', located: true }, 'مسافة الإدارة للمندوب لا الافتراض');
+  rep.punchRadiusM = 80;
+  sentCheck('allow', 30_000);
+  assert.equal((await respond('allow', { ...AT_100, accuracy: 25 })).statusCode, 200, '٨٠ + سماحية ٢٥');
+  rep.punchRadiusM = 50;
+  sentCheck('cap', 30_000);
+  const capped = await respond('cap', { ...AT_80, accuracy: 45 });
+  assert.equal(capped.statusCode, 409, 'السماحية لا تتجاوز ٢٥ م مهما ادّعت القراءة (٥٠ + ٤٥ كانت تشمل ٨٠)');
+  assert.equal(capped.body!.reason, 'OUTSIDE');
+  assert.equal(capped.body!.nearestM, 80);
+});
+
+test('مقيَّدٌ بـFLAG (تُقبل بصمته خارج النطاق بوسم): إثبات التواجد لا يرتخي — خارج النطاق 409', async () => {
+  reset();
+  addRep({ requirePunchAtCustomer: true, punchRadiusM: 50, punchOutsideAction: 'FLAG' });
+  const c = sentCheck('flag', 30_000);
+  const r = await respond('flag', { ...AT_334, accuracy: 5 });
+  assert.equal(r.statusCode, 409);
+  assert.equal(r.body!.code, 'PRESENCE_AWAY_FROM_CUSTOMER');
+  assert.equal(r.body!.reason, 'OUTSIDE');
+  assert.equal(c.status, 'SENT');
+  assert.deepEqual((await respond('flag', { ...AT_33, accuracy: 5 })).body!.data, { status: 'PASSED', located: true });
+});
+
+test('غير المقيَّد بالبصمة عند عميل: كما كان — الردّ البعيد وبلا موقع يُقبلان بالوقت وحده', async () => {
+  reset();
+  addRep({ requirePunchAtCustomer: false, punchRadiusM: 50, punchOutsideAction: 'REJECT' });
+  const far = sentCheck('far', 30_000);
+  assert.deepEqual((await respond('far', { ...AT_334, accuracy: 5 })).body!.data, { status: 'PASSED', located: true });
+  assert.equal(far.distanceM, 334, 'مسافة أقرب عميل تُسجَّل كما كانت');
+  sentCheck('blind', 30_000);
+  assert.deepEqual((await respond('blind', {})).body!.data, { status: 'PASSED', located: false });
+});
+
+test('مقيَّد: محاولةٌ بعد الرفض تُحكم بلحظة وصولها لا بضغطةٍ سبقت الرفض — ضغط خارج النطاق ثم المشي لا يُكافأ', async () => {
+  reset();
+  addRep({ requirePunchAtCustomer: true, punchRadiusM: 50 });
+  // ضغط في الدقيقتين (قبل ٤٠ ث) والردّ وصل بعدهما من خارج النطاق
+  const c = sentCheck('walk2', 150_000, { tappedAt: new Date(Date.now() - 40_000) });
+  assert.equal((await respond('walk2', { ...AT_334, accuracy: 5 })).statusCode, 409);
+  assert.equal(c.tappedAt, null);
+  // مشى إلى العميل وأعاد: لحظة الوصول (بعد الدقيقتين وهامشهما) ⇒ متأخر، لا «في الوقت» بالضغطة القديمة
+  const r = await respond('walk2', { ...AT_33, accuracy: 5 });
+  assert.deepEqual(r.body!.data, { status: 'LATE', located: true });
+  assert.ok((c.delaySec as number) >= 149 && (c.delaySec as number) <= 151, `التأخّر حتى الوصول: ${c.delaySec}`);
+  // والضغطة الجديدة بعد الرفض تُسجَّل (الحقل مُحي) فتُحكم المحاولة بلحظتها هي
+  reset();
+  addRep({ requirePunchAtCustomer: true, punchRadiusM: 50 });
+  const d = sentCheck('retap', 60_000, { tappedAt: new Date(Date.now() - 50_000) });
+  assert.equal((await respond('retap', { ...AT_334 })).statusCode, 409);
+  assert.deepEqual((await call('post', '/presence/:id/tap', { params: { id: 'retap' } })).body!.data, { tapped: true });
+  assert.ok(d.tappedAt instanceof Date && Date.now() - (d.tappedAt as Date).getTime() < 5_000, 'ضغطةٌ جديدة بلحظتها');
+});
+
+test('مقيَّد: الطلب المنتهي يبقى PRESENCE_EXPIRED قبل حكم المكان، والردّ المُعاد بعد القبول حكمه كما سُجّل ولو من بعيد', async () => {
+  reset();
+  addRep({ requirePunchAtCustomer: true, punchRadiusM: 50 });
+  sentCheck('old', 16 * MIN);
+  const e = await respond('old', { ...AT_334 });
+  assert.equal(e.statusCode, 409);
+  assert.equal(e.body!.code, 'PRESENCE_EXPIRED');
+  sentCheck('done', 30_000);
+  assert.equal((await respond('done', { ...AT_33, accuracy: 5 })).statusCode, 200);
+  const replay = await respond('done', { ...AT_334 });
+  assert.equal(replay.statusCode, 200);
+  assert.deepEqual(replay.body!.data, { status: 'PASSED', located: true });
+});
+
+test('حارس ثابت: الردّ يحكم المقيَّد بـjudgePunchPlace نفسها (لا مسافةٌ مكرّرة)، ولا يقرأ punchOutsideAction، ويمحو الضغطة عند الرفض', () => {
+  const tr = fs.readFileSync(path.join(SRC, 'routes', 'tracking.ts'), 'utf8').replace(/\r\n/g, '\n');
+  const p = "router.post('/presence/:id/respond'";
+  const h = tr.slice(tr.indexOf(p), tr.indexOf('\n});', tr.indexOf(p)));
+  assert.match(h, /if \(rep\?\.requirePunchAtCustomer === true\) \{/);
+  // الحقلان في اختيار المندوب: غيابهما يُرخي القيد بصمت (undefined ⇒ غير مقيَّد، ونطاقٌ افتراضيّ ٥٠ م)
+  const sel = h.slice(h.indexOf('prisma.salesRep.findFirst('), h.indexOf('});', h.indexOf('prisma.salesRep.findFirst(')));
+  assert.match(sel, /requirePunchAtCustomer: true/);
+  assert.match(sel, /punchRadiusM: true/);
+  assert.match(h, /await judgePunchPlace\(tid, repId, rep\.punchRadiusM, lat, lng, accuracy\)/);
+  assert.match(h, /updateMany\(\{ where: \{ id: check\.id, status: 'SENT' \}, data: \{ tappedAt: null \} \}\)/);
+  assert.doesNotMatch(h, /punchOutsideAction:|haversineM/);
+  // الرفض قبل الكتابة: حكم المكان يسبق التحويل الشرطيّ
+  assert.ok(h.indexOf('presencePlaceRefusal(place)') > 0);
+  assert.ok(h.indexOf('presencePlaceRefusal(place)') < h.indexOf('status: outcome, respondedAt: now'));
 });
