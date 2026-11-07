@@ -9,6 +9,7 @@ import { X, Printer, Download } from 'lucide-react';
 import { shareOrDownloadExcel, num } from '../../utils/excel';
 import toast from 'react-hot-toast';
 import { docQtyText, totalsByUnit } from '../../lib/adminUnits';
+import { hasCustomerPhone, joinCustomerHint } from '../../lib/customerPhoneField';
 
 interface Props { customer: Customer; onClose: () => void; }
 
@@ -76,7 +77,8 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
     if (!data) return;
     const summary = [
       { [tr('البند')]: tr('العميل'), [tr('القيمة')]: customer.name },
-      { [tr('البند')]: tr('الجوال'), [tr('القيمة')]: customer.phone },
+      // الجوال اختياريّ (٧ نوفمبر ٢٠٢٦): عميلٌ بلا جوال لا يُطبع له سطرٌ فارغ في الملخّص
+      ...(hasCustomerPhone(customer.phone) ? [{ [tr('البند')]: tr('الجوال'), [tr('القيمة')]: customer.phone.trim() }] : []),
       { [tr('البند')]: teamScoped ? tr('مبيعات فريقك') : tr('إجمالي المبيعات'), [tr('القيمة')]: num(summarySales) },
       { [tr('البند')]: teamScoped ? tr('تحصيل فريقك') : tr('إجمالي التحصيل'), [tr('القيمة')]: num(summaryCollected) },
       { [tr('البند')]: teamScoped ? tr('رصيد فريقك') : tr('الرصيد الحالي'), [tr('القيمة')]: num(summaryBalance) },
@@ -120,7 +122,7 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
           <div>
             <h2 className="text-lg font-bold text-gray-800">{tr('كشف حساب')}</h2>
-            <p className="text-sm text-gray-500">{customer.name} • {customer.phone}</p>
+            <p className="text-sm text-gray-500">{joinCustomerHint(customer.name, customer.phone)}</p>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={exportStatement} disabled={isLoading} className="btn-secondary"><Download size={15} />Excel</button>

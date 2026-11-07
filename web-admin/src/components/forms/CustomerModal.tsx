@@ -10,6 +10,7 @@ import { X, MapPin } from 'lucide-react';
 import BuyerDataFields from '../BuyerDataFields';
 import { BUYER_BILLING_FIELDS, BUYER_PHASE2_FIELDS, BuyerField, BuyerRowLike } from '../../lib/zatca/buyerData';
 import { BuyerFormValues, buyerFormCheck, buyerFormValues, buyerRelaxWarnings } from '../../lib/zatca/buyerForm';
+import { CUSTOMER_PHONE_MAX, customerPhoneEditError, trimCustomerPhone } from '../../lib/customerPhoneField';
 
 // locationUrl حقل إدخال فقط (يحلّه الخادم إلى lat/lng) — ليس حقلاً مخزّناً
 type CustomerForm = Partial<Customer> & { locationUrl?: string };
@@ -42,7 +43,9 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
   const [buyer, setBuyer] = useState<BuyerFormValues>(() => buyerFormValues(customer as BuyerRowLike | null));
   const [buyerErrors, setBuyerErrors] = useState<Partial<Record<BuyerField, string>>>({});
   const watched = zatcaCollect ? watch() : null;
-  const submit = (data: CustomerForm) => {
+  const submit = (raw: CustomerForm) => {
+    // الجوال يُرسل دائماً نصّاً مقصوصاً — والفارغ '' صريحاً فيُمسح المحفوظ متى أفرغه المدير (العمود لا يقبل null)
+    const data: CustomerForm = { ...raw, phone: trimCustomerPhone(raw.phone) };
     if (!zatcaCollect) { onSave(data); return; }
     const values = { ...buyerFormValues(data as BuyerRowLike), ...pickPhase2(buyer) };
     const check = buyerFormCheck(values, customer as BuyerRowLike | null, BUYER_BILLING_FIELDS, { relaxed: buyerRelax });
@@ -85,10 +88,13 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
                 <label className="label">{tr('اسم المنشأة')}</label>
                 <input className="input" {...register('businessName')} />
               </div>
+              {/* الجوال حرّ (أمر المالك ٧ نوفمبر ٢٠٢٦): اختياريّ بلا نجمة ولا حدّ أدنى ولا صيغة — سقف ٣٠ خانة وحده،
+                  وجوال العميل المحفوظ كما هو لا يُفحص به (رقمٌ قديم أطول لا يمنع تعديل باقي البطاقة، كالخادم) */}
               <div>
-                <label className="label">{tr('رقم الجوال')} *</label>
-                <input className="input" dir="ltr" {...register('phone', { required: true })} />
-                {errors.phone && <p className="text-red-500 text-xs mt-1">{tr('مطلوب')}</p>}
+                <label className="label">{tr('رقم الجوال')}</label>
+                <input className="input" dir="ltr" maxLength={CUSTOMER_PHONE_MAX} placeholder={tr('اختياري')}
+                  {...register('phone', { validate: (v) => { const e = customerPhoneEditError(v, customer?.phone); return e ? tr(e) : true; } })} />
+                {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone.message || tr('رقم الجوال أطول من 30 خانة')}</p>}
               </div>
               <div>
                 <label className="label">{tr('رقم بديل')}</label>

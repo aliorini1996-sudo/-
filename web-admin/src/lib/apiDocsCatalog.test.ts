@@ -1814,3 +1814,25 @@ test('D7: أخطاء مسارات القواعد والجدول كاملة — 4
   assert.match(lists, /\)\)\.min\(1\)\.max\(500\)/);
   assert.match(read(path.join(BACKEND, 'middleware', 'errorHandler.ts')), /ZodError/);
 });
+
+test('جوال العميل اختياري حرّ (٧ نوفمبر): المستند لا يعيد «9 أحرف» ولا الإلزام ولا تنبيه phoneNotEditable — كما في الخادم', () => {
+  const phoneOf = (method: string, p: string) => endpointOf(method, p).body.find((f) => f.name === 'phone');
+  for (const [m, p] of [['POST', '/customers'], ['PUT', '/customers/:id']] as const) {
+    const f = phoneOf(m, p);
+    assert.ok(f, `${m} ${p}: حقل phone غائب`);
+    assert.equal(f!.required, false, `${m} ${p}: الجوال عاد إلزامياً`);
+    assert.doesNotMatch(f!.desc, /9 أحرف|9 خانات|تسع خانات|على الأقل/, `${m} ${p}: حدٌّ أدنى عاد للجوال`);
+    assert.match(f!.desc, /30 حرفاً/, `${m} ${p}: السقف غير مذكور`);
+  }
+  // استيراد العملاء: الجوال اختياري حرّ، والرد بلا تنبيه البند 49 الملغى
+  const imp = endpointOf('POST', '/import/customers');
+  const rowPhone = imp.body.find((f) => f.name === 'rows[].phone');
+  assert.ok(rowPhone, 'rows[].phone غائب');
+  assert.equal(rowPhone!.required, false);
+  assert.doesNotMatch(rowPhone!.desc, /phoneNotEditable|9 خانات|«—»/);
+  assert.ok(!imp.response.includes('phoneNotEditable'), 'رد الاستيراد ما زال يذكر phoneNotEditable');
+  // والخادم يطابق المستند: لا حدّ أدنى في المخطّط، والسقف 30 معرَّفٌ مرّةً في importMatch
+  const route = routeFile('customers');
+  assert.match(route, /phone: z\.string\(\)\.trim\(\)\.max\(CUSTOMER_PHONE_MAX\)\.nullish\(\),/);
+  assert.match(read(path.join(BACKEND, 'services', 'importMatch.ts')), /export const CUSTOMER_PHONE_MAX = 30;/);
+});

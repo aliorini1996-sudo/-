@@ -18,6 +18,8 @@ import { PrintRefusedError, printThermalInvoice, printThermalReceipt } from './t
 import { receiptInvoicesFrom, receiptLinkView, type ReceiptInvoiceLink } from './receiptLinks';
 import { backdropClose } from '../lib/backdropClose';
 import { useBackClose } from '../lib/useBackClose';
+// جوال العميل اختياري حرّ (٧ نوفمبر): الفارغ و«—» القديمة (استيرادٌ سابق) لا يُطبع سطر «الجوال: —»
+import { hasCustomerPhone } from '../lib/customerPhoneField';
 import {
   LEGACY_THERMAL_ID, PRINT_NOTES, areStampsRemoved, deviceProfilesFor, deviceRollProfile, isQrRemoved, pdfProfileOf, printKindOf, profileDisplayName, profileFor,
   readPrintSettings,
@@ -878,7 +880,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
    * والرقم الضريبي للمشتري يُبقي الصندوق ما لم يُحذف سطره. التصنيف (مبسّطة/قياسية) من القرار لا من التسمية. */
   const custBoxShown = !deletedAs(pt, 'cust.heading', 'block') && (!pt.hidden('cust.heading') || !pt.hidden('cust.name') || (!!doc.customer.taxNumber && !pt.hidden('cust.taxNumber'))
     || (!!doc.customer.businessName && !pt.hidden('cust.business')) || (!!doc.customer.commercialReg && !pt.hidden('cust.commercialReg'))
-    || (!!doc.customer.phone && !pt.hidden('cust.phone')) || (!!fullAddress(doc.customer) && !pt.hidden('cust.address')));
+    || (hasCustomerPhone(doc.customer.phone) && !pt.hidden('cust.phone')) || (!!fullAddress(doc.customer) && !pt.hidden('cust.address')));
   /* رمز QR للمرحلة الأولى — يُبنى محلياً من إعدادات الشركة. لا يُبنى أبداً لصفٍّ من المرحلة الثانية:
    * رمزه مختومٌ من الخادم، ورمزٌ من صنعنا فوق عنوان «فاتورة ضريبية» ورقةٌ كاذبة. */
   const qrValue = zDecision.qr.source === 'phase1' && doc.company?.taxNumber
@@ -976,7 +978,7 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
     {doc.customer.businessName && !pt.hidden('cust.business') && <InfoBox label={L('cust.business', 'المنشأة')} value={doc.customer.businessName} />}
     {doc.customer.commercialReg && !pt.hidden('cust.commercialReg') && <InfoBox label={L('cust.commercialReg', 'السجل التجاري')} value={doc.customer.commercialReg} />}
     {doc.customer.taxNumber && !pt.hidden('cust.taxNumber') && <InfoBox label={L('cust.taxNumber', 'الرقم الضريبي')} value={doc.customer.taxNumber} />}
-    {doc.customer.phone && !pt.hidden('cust.phone') && <InfoBox label={L('cust.phone', 'الجوال')} value={doc.customer.phone} />}
+    {hasCustomerPhone(doc.customer.phone) && !pt.hidden('cust.phone') && <InfoBox label={L('cust.phone', 'الجوال')} value={doc.customer.phone} />}
     {addr && !pt.hidden('cust.address') && <InfoBox label={L('cust.address', 'العنوان')} value={addr} />}
   </div>;
   const infoPart = (f: Fx, o?: { omitDoc?: boolean; omitCust?: boolean }) => (
@@ -1360,7 +1362,7 @@ export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(
     {doc.customer.businessName && !pt.hidden('rcp.business') && <InfoBox label={L('rcp.business', 'المنشأة')} value={doc.customer.businessName} />}
     {doc.customer.commercialReg && !pt.hidden('rcp.commercialReg') && <InfoBox label={L('rcp.commercialReg', 'السجل التجاري')} value={doc.customer.commercialReg} />}
     {doc.customer.taxNumber && !pt.hidden('rcp.taxNumber') && <InfoBox label={L('rcp.taxNumber', 'الرقم الضريبي')} value={doc.customer.taxNumber} />}
-    {doc.customer.phone && !pt.hidden('rcp.phone') && <InfoBox label={L('rcp.phone', 'الجوال')} value={doc.customer.phone} />}
+    {hasCustomerPhone(doc.customer.phone) && !pt.hidden('rcp.phone') && <InfoBox label={L('rcp.phone', 'الجوال')} value={doc.customer.phone} />}
     {addr && !pt.hidden('rcp.address') && <InfoBox label={L('rcp.address', 'العنوان')} value={addr} />}
     <div style={{ height: 8 }} />
     {/* «إدارة طرق الدفع»: اسم الشركة للطريقة (مخصّصة أو مدمجة سُمّيت) كما كتبته، وإلا الافتراضي مترجماً كما اليوم */}
@@ -1555,7 +1557,7 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
           {doc.customer.businessName && <InfoBox label={tr('المنشأة')} value={doc.customer.businessName} />}
           {doc.customer.commercialReg && <InfoBox label={tr('السجل التجاري')} value={doc.customer.commercialReg} />}
           {doc.customer.taxNumber && <InfoBox label={tr('الرقم الضريبي')} value={doc.customer.taxNumber} />}
-          {doc.customer.phone && <InfoBox label={tr('الجوال')} value={doc.customer.phone} />}
+          {hasCustomerPhone(doc.customer.phone) && <InfoBox label={tr('الجوال')} value={doc.customer.phone} />}
           {addr && <InfoBox label={tr('العنوان')} value={addr} />}
         </div>
         <div style={{ flex: 1, background: '#eff6ff', borderRadius: 10, padding: 14 }}>

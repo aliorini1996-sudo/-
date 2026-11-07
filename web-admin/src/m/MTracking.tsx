@@ -12,6 +12,7 @@ import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
 import { MSpinner, MError } from './mobileUi';
 import { expectArray, expectObject } from './shape';
+import { mCustomerTel } from './mCustomerPhone';
 import { SA_CENTER, repIcon, visitIcon, customerIcon, fmtDur, timeText } from './mapIcons';
 import { repLiveState, repLiveText, noteServerNow, serverClockNow } from '../lib/liveRepStatus';
 import { useNow } from '../lib/useNow';
@@ -276,8 +277,9 @@ export default function MTracking() {
               </button>
             </div>
             <div className="flex gap-2 mt-3">
-              {pickedCustomer.phone && (
-                <a href={`tel:${pickedCustomer.phone}`}
+              {/* جوال العميل اختياريّ حرّ (طلب المالك ٧ نوفمبر ٢٠٢٦): زرّ الاتصال لرقمٍ يُطلَب وحده — لا tel: فارغ ولا عبثيّ */}
+              {mCustomerTel(pickedCustomer.phone) && (
+                <a href={mCustomerTel(pickedCustomer.phone)!}
                   className="flex-1 flex items-center justify-center gap-1.5 border border-[#E9E1D3] rounded-xl py-2.5 min-h-[44px] text-sm font-semibold text-[#E15A30]">
                   <Phone size={14} /> {tr('اتصال')}
                 </a>
@@ -446,11 +448,16 @@ function VisitScreen({ q, onBack }: {
           <div className="flex-1 overflow-y-auto overscroll-contain p-3 space-y-3">
             <div className="bg-white rounded-2xl border border-[#F1EBDF] p-4 space-y-2">
               <p className="text-base font-bold text-[#1F1A13]">{q.data.customer?.name || tr('عميل محذوف')}</p>
-              {q.data.customer?.phone && (
-                <a href={`tel:${q.data.customer.phone}`} className="text-sm text-[#E15A30] font-semibold flex items-center gap-1.5" dir="ltr">
-                  <Phone size={13} /> {q.data.customer.phone}
+              {/* رقمٌ يُطلَب ⇒ رابط اتصال؛ ونصٌّ لا يُطلَب يُعرض كما هو بلا رابط؛ والفارغ لا شيء */}
+              {mCustomerTel(q.data.customer?.phone) ? (
+                <a href={mCustomerTel(q.data.customer?.phone)!} className="text-sm text-[#E15A30] font-semibold flex items-center gap-1.5" dir="ltr">
+                  <Phone size={13} /> {q.data.customer?.phone}
                 </a>
-              )}
+              ) : q.data.customer?.phone?.trim() ? (
+                <p className="text-sm text-[#6E6557] flex items-center gap-1.5" dir="ltr">
+                  <Phone size={13} /> {q.data.customer?.phone}
+                </p>
+              ) : null}
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#6E6557] pt-1">
                 <span>{tr('المندوب')}: <b className="text-[#1F1A13]">{q.data.salesRep?.name || '—'}</b></span>
                 <span>{tr('الوقت')}: <b className="text-[#1F1A13]">{timeText(q.data.createdAt)}</b></span>

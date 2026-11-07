@@ -21,6 +21,7 @@ import { BuyerField, BuyerRowLike } from '../lib/zatca/buyerData';
 import { BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, buyerBadge } from '../lib/zatca/buyerForm';
 import { withLiveCompany } from '../rep/companyRefresh';
 import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
+import { customerPhoneText } from '../lib/customerPhoneField';
 
 /** جلب إعدادات الشركة — نفسه للاستعلام ولـensureQueryData عند فتح كشف قبل اكتمال تحميلها (كالفواتير والسندات، D-G6) */
 const fetchCompany = async () => { const res = await companyApi.get(); return res.data.data as Company; };
@@ -368,7 +369,8 @@ export default function CustomersPage() {
                       </span>
                     )}
                   </td>
-                  <td className="text-gray-600 font-mono">{c.phone}</td>
+                  {/* الجوال اختياريّ (٧ نوفمبر ٢٠٢٦): عميلٌ بلا جوال شرطةٌ كالمدينة لا خانةٌ بيضاء */}
+                  <td className="text-gray-600 font-mono">{customerPhoneText(c.phone, '-')}</td>
                   <td className="text-gray-600">{c.city || '-'}</td>
                   <td>
                     {c.channel

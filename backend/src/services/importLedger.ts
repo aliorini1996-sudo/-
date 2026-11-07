@@ -1506,27 +1506,7 @@ export function planPriceImportRows<R extends PriceImportRowInput>(
   return { writes, skippedRows, duplicates, errors };
 }
 
-// ═══ الدفعة 3 (البند 49): جوال العميل المستورد وقاعدة تعديل بطاقته ═══
-
-/**
- * قاعدة بطاقة العميل حرفياً (backend/src/routes/customers.ts: `phone: z.string().min(9)` في customerSchema،
- * وPUT يفحصها بـ`.partial()`): أقل من تسع خانات يوقف **كل** تعديل لاحق للعميل.
- *
- * والاستيراد يخزّن «—» للجوال الفارغ أو التافه (importMatch.ts: storedCustomerPhone)، فيخرج العميل من الاستيراد
- * غير قابل للتعديل. ولا يُرفض صفّه هنا: ملف عملاء بلا عمود جوال كان يُستورد نظيفاً، ورفضه انحدار — يُعدّ ويُنبَّه
- * عليه بصفوفه ليصحّحه المالك، ويبقى توحيد القاعدة نفسها في بطاقة العميل (قبول القيمة غير المتغيّرة في PUT).
- */
-export const CUSTOMER_PHONE_MIN = 9;
-
-export function isEditableCustomerPhone(phone: string | null | undefined): boolean {
-  return typeof phone === 'string' && phone.trim().length >= CUSTOMER_PHONE_MIN;
-}
-
-export const CUSTOMER_PHONE_NOT_EDITABLE = 'عملاء بلا جوال صالح: لا يُحفظ أي تعديل لبطاقاتهم حتى يُكتب لهم جوال لا يقل عن تسع خانات';
-
-/** البند 49: صفوف العملاء المنشأة بجوال لا تقبله بطاقة العميل ⇒ تنبيه معدود بصفوفه (أو null) */
-export function phoneNotEditableRows(created: readonly { row: number; phone: string }[]): { count: number; rows: number[] } | null {
-  const rows: number[] = [];
-  for (const c of created) if (!isEditableCustomerPhone(c.phone)) rows.push(c.row);
-  return rows.length ? { count: rows.length, rows: rows.slice(0, 500) } : null;
-}
+// ═══ الدفعة 3 (البند 49): تنبيه «عملاء بلا جوال صالح» أُلغي ═══
+// أمر المالك (٧ نوفمبر): جوال العميل اختياري بلا حدّ أدنى ولا صيغة، فبطاقة العميل تقبل كل ما يخزّنه الاستيراد
+// (importMatch.ts: storedCustomerPhone — المكتوب كما هو، والفارغ '') ولا عميل مستورد يتعطّل تعديله.
+// فحُذفت قاعدة التسع خانات (CUSTOMER_PHONE_MIN) وتنبيه warnings.phoneNotEditable من ردّ /import/customers.

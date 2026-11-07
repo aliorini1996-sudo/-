@@ -84,6 +84,7 @@ import { todayLocal } from '../lib/shelfLife';
 import { useLocationGate, strictLiveFix } from './locationGate';
 import { attemptClientRef, customerScopeOpen, deviceKind, liveSnapshot, onLiveRefused, requestLocationInGesture, resetLive, strictRepNow, LIVE_REFUSAL_MESSAGE, type LiveBlock } from './liveGate';
 import { clearAiSession, markConverted, type AiAddPrefill } from './aiRepSession';
+import { CUSTOMER_PHONE_MAX, customerPhoneValue, customerSubline, customerWaHref, hasWaTarget } from './customerPhone';
 import { OUTLET_TYPE_OPTIONS } from './aiRepLogic';
 import { dayMinutes, nextPunch, shiftMinutes, shiftsOf, type AttendanceState } from './attendanceDay';
 import { installGeoReconnect } from './geoReconnect';
@@ -1079,7 +1080,8 @@ function RepCustomers({ onSelect, canAdd, onAdd, accountingOn = true, zatcaColle
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-gray-800 text-sm truncate">{c.name}</p>
-              <p className="text-xs text-gray-400">{c.phone} • {c.city || ''}</p>
+              {/* الجوال اختياري (أمر المالك ٧ نوفمبر ٢٠٢٦): الفارغ يسقط بفاصله */}
+              {customerSubline(c.phone, c.city) && <p className="text-xs text-gray-400">{customerSubline(c.phone, c.city)}</p>}
               {zatcaCollect && buyerBadge(c) && (
                 <span className={`inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded-full ${buyerBadge(c) === 'incomplete' ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>
                   {/* فكّ القيد (طلب المالك ٣١ أكتوبر ٢٠٢٦): الناقص الذي تصدر له مبسطة — والشارة تظهر بالشرط نفسه */}
@@ -1161,17 +1163,9 @@ function PayLinkSheet({ customer, onClose }: { customer: any; onClose: () => voi
   const waText = link
     ? encodeURIComponent(`${tr('مرحبا يمكنك سداد فاتورة')} ${link.invoiceNumber} ${tr('بمبلغ')} ${formatCurrency(link.amount)} ${tr('الكترونيا عبر الرابط')}\n${link.payUrl}`)
     : '';
-  // wa.me لا يفهم الصيغة المحلية 05… — التطبيع لدولي كما في lib/phone.ts الخلفية
-  const waDigits = (p: unknown): string => {
-    let d = String(p ?? '').replace(/[^0-9]/g, '');
-    if (d.startsWith('00')) d = d.slice(2);
-    if (d.length === 10 && d.startsWith('05')) d = '966' + d.slice(1);
-    else if (d.length === 9 && d.startsWith('5')) d = '966' + d;
-    return d;
-  };
-  const waHref = link
-    ? (customer.phone && waDigits(customer.phone) ? `https://wa.me/${waDigits(customer.phone)}?text=${waText}` : `https://wa.me/?text=${waText}`)
-    : '#';
+  // الجوال اختياري وحرّ الصيغة (أمر المالك ٧ نوفمبر ٢٠٢٦): الفارغ أو العبث لا يُستهدف — يختار المندوب جهة الاتصال في واتساب
+  const waHref = link ? customerWaHref(customer.phone, waText) : '#';
+  const waNoTarget = !hasWaTarget(customer.phone);
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={onClose}>
@@ -1199,6 +1193,7 @@ function PayLinkSheet({ customer, onClose }: { customer: any; onClose: () => voi
                   <MessageCircle size={16} /> {tr('ارسال واتساب')}
                 </a>
               </div>
+              {waNoTarget && <p className="text-[11px] text-amber-600 mt-2 leading-relaxed">{tr('لا يوجد جوال صالح للعميل اختر جهة الاتصال في واتساب')}</p>}
               <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">{tr('عند سداد العميل يسجل سند القبض تلقائيا باسمك وتسدد الفاتورة')}</p>
               <button onClick={() => setLink(null)} className="mt-3 text-xs text-[#2E6FB0] font-semibold">{tr('اصدار رابط لفاتورة اخرى')}</button>
             </div>
@@ -1393,7 +1388,7 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
             <div className="min-w-0">
               <p className="font-bold text-lg">{customer.name}</p>
               {customer.businessName && <p className="text-[#E8C9BC] text-sm">{customer.businessName}</p>}
-              <p className="text-[#E8C9BC] text-xs">{customer.phone}</p>
+              {customer.phone && <p className="text-[#E8C9BC] text-xs">{customer.phone}</p>}
             </div>
             {canEdit && (
               <button onClick={onEdit} aria-label={tr('تعديل بيانات العميل')}
@@ -3631,7 +3626,7 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
 
   const submit = async () => {
     if (!form.name.trim()) { setMsg(tr('اسم العميل مطلوب')); return; }
-    if (form.phone.trim().length < 9) { setMsg(tr('رقم جوال صحيح مطلوب 9 أرقام على الأقل')); return; }
+    // الجوال اختياري بلا حدّ أدنى ولا صيغة (أمر المالك ٧ نوفمبر ٢٠٢٦) — الفارغ يُرسَل '' (العمود NOT NULL)
     if (zatcaCollect) {
       const check = buyerFormCheck(buyerView, null, BUYER_BILLING_FIELDS, { relaxed: buyerRelax });
       setBuyerErrors(check.errors);
@@ -3642,7 +3637,7 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
     const body = {
       name: form.name.trim(),
       businessName: form.businessName.trim() || undefined,
-      phone: form.phone.trim(),
+      phone: customerPhoneValue(form.phone),
       commercialReg: form.commercialReg.trim() || undefined,
       taxNumber: form.taxNumber.trim() || undefined,
       city: form.city.trim() || undefined,
@@ -3680,10 +3675,10 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
     }
   };
 
-  const field = (label: string, key: string, opts?: { required?: boolean; type?: string; ltr?: boolean }) => (
+  const field = (label: string, key: string, opts?: { required?: boolean; type?: string; ltr?: boolean; maxLength?: number }) => (
     <div>
       <label className="label">{label}{opts?.required && ' *'}</label>
-      <input className="input" type={opts?.type || 'text'} dir={opts?.ltr ? 'ltr' : 'rtl'}
+      <input className="input" type={opts?.type || 'text'} dir={opts?.ltr ? 'ltr' : 'rtl'} maxLength={opts?.maxLength}
         value={(form as any)[key]} onChange={e => set(key, e.target.value)} />
     </div>
   );
@@ -3701,7 +3696,7 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
           <div className="space-y-3">
             {field(tr('اسم العميل'), 'name', { required: true })}
             {field(tr('اسم المنشأة'), 'businessName')}
-            {field(tr('رقم الجوال'), 'phone', { required: true, ltr: true })}
+            {field(tr('رقم الجوال'), 'phone', { ltr: true, type: 'tel', maxLength: CUSTOMER_PHONE_MAX })}
           </div>
         </div>
 
@@ -3829,7 +3824,7 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
 
   const submit = async () => {
     if (!form.name.trim()) { setMsg(tr('اسم العميل مطلوب')); return; }
-    if (form.phone.trim().length < 9) { setMsg(tr('رقم جوال صحيح مطلوب 9 أرقام على الأقل')); return; }
+    // الجوال اختياري بلا حدّ أدنى ولا صيغة (أمر المالك ٧ نوفمبر ٢٠٢٦) — مسحه يُرسَل '' فيُمحى فعلاً (العمود NOT NULL فلا null)
     if (zatcaCollect) {
       const check = buyerFormCheck(buyerView, customer, BUYER_BILLING_FIELDS, { relaxed: buyerRelax });
       setBuyerErrors(check.errors);
@@ -3839,7 +3834,7 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
     const payload: Record<string, unknown> = {
       name: form.name.trim(),
       businessName: opt(form.businessName),
-      phone: form.phone.trim(),
+      phone: customerPhoneValue(form.phone),
       altPhone: opt(form.altPhone),
       commercialReg: opt(form.commercialReg),
       taxNumber: opt(form.taxNumber),
@@ -3864,10 +3859,10 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
     }
   };
 
-  const field = (label: string, key: string, opts?: { required?: boolean; ltr?: boolean; type?: string }) => (
+  const field = (label: string, key: string, opts?: { required?: boolean; ltr?: boolean; type?: string; maxLength?: number }) => (
     <div>
       <label className="label">{label}{opts?.required && ' *'}</label>
-      <input className="input" type={opts?.type || 'text'} dir={opts?.ltr ? 'ltr' : 'rtl'}
+      <input className="input" type={opts?.type || 'text'} dir={opts?.ltr ? 'ltr' : 'rtl'} maxLength={opts?.maxLength}
         value={(form as any)[key]} onChange={e => set(key, e.target.value)} />
     </div>
   );
@@ -3886,7 +3881,7 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
             {field(tr('اسم العميل'), 'name', { required: true })}
             {field(tr('اسم المنشأة'), 'businessName')}
             <div className="grid grid-cols-2 gap-3">
-              {field(tr('رقم الجوال'), 'phone', { required: true, ltr: true, type: 'tel' })}
+              {field(tr('رقم الجوال'), 'phone', { ltr: true, type: 'tel', maxLength: CUSTOMER_PHONE_MAX })}
               {field(tr('جوال بديل'), 'altPhone', { ltr: true, type: 'tel' })}
             </div>
           </div>

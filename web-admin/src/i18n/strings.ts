@@ -1553,6 +1553,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'اسم العميل': { en: 'Customer name', fr: 'Nom du client', tr: 'Müşteri adı', zh: '客户名称' },
   'اسم المنشأة': { en: 'Business name', fr: 'Nom de l établissement', tr: 'İşletme adı', zh: '商户名称' },
   'رقم الجوال': { en: 'Mobile number', fr: 'Numéro de mobile', tr: 'Cep telefonu numarası', zh: '手机号' },
+  'رقم الجوال أطول من 30 خانة': { en: 'The mobile number is longer than 30 characters', fr: 'Le numéro de mobile dépasse 30 caractères', tr: 'Cep telefonu numarası 30 karakterden uzun', zh: '手机号超过 30 个字符' },
   'رقم بديل': { en: 'Alt number', fr: 'Numéro alternatif', tr: 'Alternatif numara', zh: '备用号码' },
   'الحي': { en: 'District', fr: 'Quartier', tr: 'Mahalle', zh: '街区' },
   'العنوان التفصيلي': { en: 'Detailed address', fr: 'Adresse détaillée', tr: 'Açık adres', zh: '详细地址' },
@@ -1931,7 +1932,6 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'تعذر إصدار السند حاول مجددا': { en: 'Could not issue the receipt try again', fr: 'Impossible d émettre le reçu réessayez', tr: 'Makbuz oluşturulamadı tekrar deneyin', zh: '收款单开具失败，请重试' },
   'البيانات النظامية': { en: 'Legal details', fr: 'Informations légales', tr: 'Yasal bilgiler', zh: '法定信息' },
   'حفظ العميل': { en: 'Save customer', fr: 'Enregistrer le client', tr: 'Müşteriyi kaydet', zh: '保存客户' },
-  'رقم جوال صحيح مطلوب 9 أرقام على الأقل': { en: 'A valid mobile number is required at least 9 digits', fr: 'Un numéro de mobile valide est requis au moins 9 chiffres', tr: 'Geçerli bir cep telefonu numarası gerekli en az 9 rakam', zh: '请填写有效手机号，至少 9 位' },
   'تعذر إضافة العميل': { en: 'Could not add the customer', fr: 'Impossible d ajouter le client', tr: 'Müşteri eklenemedi', zh: '添加客户失败' },
   'لا تملك صلاحية تحميل مخزون السيارة': { en: 'You don t have permission to load van stock', fr: 'Vous n êtes pas autorisé à charger le stock du véhicule', tr: 'Araç stoku yükleme yetkiniz yok', zh: '您无装车权限' },
   'أضف صنفا وكمية صحيحة': { en: 'Add an item and a valid quantity', fr: 'Ajoutez un article et une quantité valide', tr: 'Bir ürün ve geçerli bir miktar ekleyin', zh: '请添加商品并填写有效数量' },
@@ -2605,6 +2605,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'بمبلغ': { en: 'for the amount of', fr: 'pour un montant de', tr: 'tutar:', zh: '金额' },
   'الكترونيا عبر الرابط': { en: 'online via the link', fr: 'en ligne via le lien', tr: 'bu bağlantı üzerinden çevrimiçi', zh: '，请通过以下链接支付：' },
   'ارسال واتساب': { en: 'Send via WhatsApp', fr: 'Envoyer par WhatsApp', tr: 'WhatsApp ile gönder', zh: '通过 WhatsApp 发送' },
+  'لا يوجد جوال صالح للعميل اختر جهة الاتصال في واتساب': { en: 'The customer has no usable mobile number — pick the contact in WhatsApp', fr: 'Le client n’a pas de numéro de mobile utilisable — choisissez le contact dans WhatsApp', tr: 'Müşterinin kullanılabilir cep telefonu yok — kişiyi WhatsApp’ta seçin', zh: '该客户没有可用的手机号——请在 WhatsApp 中选择联系人' },
   'عند سداد العميل يسجل سند القبض تلقائيا باسمك وتسدد الفاتورة': { en: 'When the customer pays, the receipt is recorded automatically in your name and the invoice is settled', fr: 'Dès que le client paie, le reçu est enregistré automatiquement à votre nom et la facture est réglée', tr: 'Müşteri ödediğinde tahsilat makbuzu otomatik olarak sizin adınıza kaydedilir ve fatura kapanır', zh: '客户付款后，收款单自动以您的名义登记，发票随之结清' },
   'اصدار رابط لفاتورة اخرى': { en: 'Issue a link for another invoice', fr: 'Émettre un lien pour une autre facture', tr: 'Başka bir fatura için bağlantı oluştur', zh: '为另一张发票创建链接' },
   'اختر الفاتورة ليصدر رابط دفع بكامل المبلغ المتبقي عليها': { en: 'Pick the invoice to issue a payment link for its full remaining amount', fr: 'Choisissez la facture pour émettre un lien de paiement du montant restant total', tr: 'Kalan tutarın tamamı için ödeme bağlantısı oluşturulacak faturayı seçin', zh: '选择发票以创建其全部剩余金额的支付链接' },
@@ -4614,10 +4615,6 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'أزواج عميل وصنف تكررت في الملف بسعرين مختلفين، المحفوظ آخرها': { en: 'Customer and product pairs repeated in the file with two different prices — the last one is saved', fr: 'Des paires client-article se répètent dans le fichier avec deux prix différents : c’est la dernière qui est enregistrée', tr: 'Dosyada aynı müşteri-ürün çiftleri iki farklı fiyatla tekrarlandı; sonuncusu kaydedildi', zh: '文件中同一客户与商品的组合以两个不同价格重复出现——保存的是最后一条' },
   'المحفوظ صف': { en: 'Saved row', fr: 'Ligne conservée', tr: 'Kaydedilen satır', zh: '已保存的行' },
   'صف متخطى': { en: 'Skipped row', fr: 'Ligne ignorée', tr: 'Atlanan satır', zh: '跳过的行' },
-
-  // ── تنبيه العملاء بلا جوال صالح (البند 49) ──
-  'عملاء بلا جوال صالح: لا يُحفظ أي تعديل لبطاقاتهم حتى يُكتب لهم جوال لا يقل عن تسع خانات': { en: 'Customers without a valid mobile number: no edit to their records is saved until a mobile number of at least nine digits is entered', fr: 'Clients sans numéro de mobile valide : aucune modification de leur fiche n’est enregistrée tant qu’un numéro d’au moins neuf chiffres n’est pas saisi', tr: 'Geçerli cep telefonu olmayan müşteriler: kartlarına en az dokuz haneli bir numara yazılmadıkça hiçbir değişiklik kaydedilmez', zh: '没有有效手机号的客户：在为其填写至少九位的手机号之前，其资料的任何修改都不会被保存' },
-  'اكتب لهم جوالاً صالحاً في بطاقة العميل، أو صحّح عمود الجوال في الملف وأعد استيراده بعد التراجع عن هذه الدفعة': { en: 'Enter a valid mobile number in the customer record, or fix the mobile column in the file and import it again after undoing this batch', fr: 'Saisissez un numéro de mobile valide dans la fiche client, ou corrigez la colonne mobile du fichier et réimportez-le après avoir annulé ce lot', tr: 'Müşteri kartına geçerli bir cep telefonu yazın veya dosyadaki cep telefonu sütununu düzeltip bu partiyi geri aldıktan sonra yeniden içe aktarın', zh: '请在客户资料中填写有效手机号，或修正文件中的手机号列，撤销本批次后重新导入' },
 
   // ── خانة «الأسعار شاملة الضريبة» ونتيجة التحويل (البند 31) ──
   'الأسعار في الملف شاملة الضريبة': { en: 'Prices in the file include tax', fr: 'Les prix du fichier sont taxe comprise', tr: 'Dosyadaki fiyatlar vergi dahildir', zh: '文件中的价格为含税价' },

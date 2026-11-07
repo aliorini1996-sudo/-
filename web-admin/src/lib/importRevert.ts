@@ -460,21 +460,7 @@ export interface PriceDuplicatePair { rows?: number[]; kept?: number; prices?: n
 export const conflictingPricePairs = (list: readonly PriceDuplicatePair[] | null | undefined): PriceDuplicatePair[] =>
   (list ?? []).filter((d) => d?.conflict === true);
 
-// ═══ البند 49: عملاء استُوردوا بجوال لا تقبله بطاقة العميل ═══
-
-/** نص الخادم حرفياً (services/importLedger.ts CUSTOMER_PHONE_NOT_EDITABLE) */
-export const CUSTOMER_PHONE_NOT_EDITABLE = 'عملاء بلا جوال صالح: لا يُحفظ أي تعديل لبطاقاتهم حتى يُكتب لهم جوال لا يقل عن تسع خانات';
-export const CUSTOMER_PHONE_NOT_EDITABLE_FIX = 'اكتب لهم جوالاً صالحاً في بطاقة العميل، أو صحّح عمود الجوال في الملف وأعد استيراده بعد التراجع عن هذه الدفعة';
-
-/** تحذير warnings.phoneNotEditable ({count, rows}) — الغائب أو الصفري أو المشوّه بلا كتلة */
-export function phoneNotEditableWarning(
-  w: { count?: unknown; rows?: unknown } | null | undefined,
-): { count: number; rows: number[] } | null {
-  const n = count(w?.count);
-  if (n <= 0) return null;
-  const rows = (Array.isArray(w?.rows) ? w!.rows : []).filter((r): r is number => typeof r === 'number' && Number.isFinite(r));
-  return { count: n, rows };
-}
+// (البند 49 «عملاء بلا جوال صالح» أُلغي بأمر المالك ٧ نوفمبر ٢٠٢٦: جوال العميل اختياري حرّ، فلا جوال يمنع تعديل البطاقة)
 
 // ═══ البند 39: صفوف تاريخها بعد اليوم (خطأ سنة: 2052 بدل 2025) ═══
 

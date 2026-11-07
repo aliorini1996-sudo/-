@@ -646,23 +646,16 @@ test('البندان 43 و44: تخطّي الأسعار بسببه العربي�
   assert.ok(PRICE_DUPLICATE_PAIRS_TITLE.includes('المحفوظ آخرها'));
 });
 
-test('البند 49: العملاء بجوال لا تقبله بطاقتهم يُنبَّه عليهم بعددهم وصفوفهم', async () => {
-  const { phoneNotEditableWarning, CUSTOMER_PHONE_NOT_EDITABLE, CUSTOMER_PHONE_NOT_EDITABLE_FIX } = await import('./importRevert');
-  assert.deepEqual(phoneNotEditableWarning({ count: 3, rows: [2, 5, 9] }), { count: 3, rows: [2, 5, 9] });
-  // عدد بلا صفوف (خادم قصّها) يبقى تنبيهاً، والصفر والغياب والتشويه بلا كتلة
-  assert.deepEqual(phoneNotEditableWarning({ count: 2 }), { count: 2, rows: [] });
-  assert.deepEqual(phoneNotEditableWarning({ count: 2, rows: [4, 'x', null] }), { count: 2, rows: [4] });
-  assert.equal(phoneNotEditableWarning({ count: 0, rows: [] }), null);
-  assert.equal(phoneNotEditableWarning({ rows: [3] }), null);
-  assert.equal(phoneNotEditableWarning(null), null);
-  assert.equal(phoneNotEditableWarning(undefined), null);
-  // العبارة تقول للمالك ما يعطّله وما يصلحه
-  assert.ok(CUSTOMER_PHONE_NOT_EDITABLE.includes('لا يُحفظ أي تعديل'));
-  assert.ok(CUSTOMER_PHONE_NOT_EDITABLE_FIX.includes('جوالاً صالحاً'));
-
+test('البند 49 أُلغي (أمر المالك ٧ نوفمبر: جوال العميل اختياري حرّ): لا تنبيه «عملاء بلا جوال صالح» في نافذة الاستيراد', async () => {
+  // الخادم لا يرسل warnings.phoneNotEditable، وبطاقة العميل تقبل كل ما يخزّنه الاستيراد ⇒ لا كتلة تنذر بتعطّل التعديل
   const panel = await panelSource();
-  assert.match(panel, /phoneNotEditableWarning\(w\?\.phoneNotEditable\)/, 'تحذير الجوال لا يُقرأ من رد الخادم');
-  assert.ok(panel.includes('{tr(CUSTOMER_PHONE_NOT_EDITABLE)}'), 'نص تحذير الجوال غائب عن النافذة');
+  assert.doesNotMatch(panel, /phoneNotEditable/, 'النافذة ما زالت تقرأ تنبيه الجوال الملغى');
+  assert.ok(!panel.includes('CUSTOMER_PHONE_NOT_EDITABLE'), 'نص تنبيه التسع خانات ما زال في النافذة');
+  // ولا نصّ «تسع خانات» باقٍ في الحزمة أو القاموس يُوصل خطأً من جديد
+  const mod = await import('./importRevert') as Record<string, unknown>;
+  for (const k of ['CUSTOMER_PHONE_NOT_EDITABLE', 'CUSTOMER_PHONE_NOT_EDITABLE_FIX', 'phoneNotEditableWarning']) assert.equal(mod[k], undefined, k);
+  const { PHRASES } = await import('../i18n/strings');
+  assert.ok(!Object.keys(PHRASES).some((k) => k.startsWith('عملاء بلا جوال صالح') || k.startsWith('اكتب لهم جوالاً صالحاً')), 'مدخلات القاموس الملغاة باقية');
 });
 
 test('البند 39: تنبيه «تواريخ بعد اليوم» يصل المالك بعدده وأقصى تاريخ مقبول وأمثلة صفوفه', async () => {

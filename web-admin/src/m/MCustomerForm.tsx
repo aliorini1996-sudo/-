@@ -11,6 +11,7 @@ import { MHeader } from './mobileUi';
 import BuyerDataFields from '../components/BuyerDataFields';
 import { BUYER_BILLING_FIELDS, BUYER_PHASE2_FIELDS, BuyerField, BuyerRowLike } from '../lib/zatca/buyerData';
 import { BuyerFormValues, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerRelaxWarnings, buyerUpdatePayload } from '../lib/zatca/buyerForm';
+import { M_CUSTOMER_PHONE_MAX, mCustomerFormValid, mCustomerPhonePayload } from './mCustomerPhone';
 
 type Form = {
   name: string; phone: string; businessName: string; altPhone: string; email: string;
@@ -87,7 +88,8 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
       // الفارغ يُحذف لا يُرسَل فارغاً أو null (انظر تعليق الرأس)
       const payload: Record<string, unknown> = {
         name: form.name.trim(),
-        phone: form.phone.trim(),
+        // الجوال اختياريّ حرّ (طلب المالك ٧ نوفمبر): '' حين يُترك فارغاً، والتعديل يرسله حين يتغيّر وحده
+        ...mCustomerPhonePayload(form.phone, customer ? customer.phone ?? '' : null),
         status: form.status,
         creditLimit: Number(form.creditLimit) || 0,
         paymentDays: Number(form.paymentDays) || 0,
@@ -131,7 +133,8 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
     );
   };
 
-  const valid = form.name.trim().length > 0 && form.phone.trim().length > 0;
+  // الاسم وحده إلزاميّ — الجوال اختياريّ بلا حدّ أدنى ولا صيغة (طلب المالك ٧ نوفمبر ٢٠٢٦)
+  const valid = mCustomerFormValid(form, customer ? customer.phone ?? '' : null);
 
   /** الحفظ: فحص بيانات الفوترة قبل الإرسال بقواعد الخادم نفسها (للشركة الجامعة وحدها) */
   const onSave = () => {
@@ -151,7 +154,7 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
       <div className="flex-1 overflow-y-auto overscroll-contain p-3 space-y-4">
         <Group title={tr('البيانات الأساسية')}>
           <Field label={tr('اسم العميل')} required value={form.name} onChange={v => set('name', v)} />
-          <Field label={tr('رقم الجوال')} required dir="ltr" value={form.phone} onChange={v => set('phone', v)} type="tel" />
+          <Field label={tr('رقم الجوال')} dir="ltr" value={form.phone} onChange={v => set('phone', v)} type="tel" maxLength={M_CUSTOMER_PHONE_MAX} />
           <Field label={tr('اسم المنشأة')} value={form.businessName} onChange={v => set('businessName', v)} />
           <Field label={tr('رقم بديل')} dir="ltr" value={form.altPhone} onChange={v => set('altPhone', v)} type="tel" />
           <Field label={tr('البريد الإلكتروني')} dir="ltr" type="email" value={form.email} onChange={v => set('email', v)} />
@@ -247,14 +250,14 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-function Field({ label, value, onChange, required, dir, type = 'text' }: {
+function Field({ label, value, onChange, required, dir, type = 'text', maxLength }: {
   label: string; value: string; onChange: (v: string) => void;
-  required?: boolean; dir?: 'ltr' | 'rtl'; type?: string;
+  required?: boolean; dir?: 'ltr' | 'rtl'; type?: string; maxLength?: number;
 }) {
   return (
     <div>
       <label className="label">{label}{required && ' *'}</label>
-      <input className="input" type={type} dir={dir} value={value} step={type === 'number' ? 'any' : undefined} inputMode={type === 'number' ? 'decimal' : undefined} onChange={e => onChange(e.target.value)} />
+      <input className="input" type={type} dir={dir} value={value} step={type === 'number' ? 'any' : undefined} inputMode={type === 'number' ? 'decimal' : undefined} maxLength={maxLength} onChange={e => onChange(e.target.value)} />
     </div>
   );
 }
