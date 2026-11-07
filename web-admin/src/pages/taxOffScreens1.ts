@@ -38,8 +38,69 @@ export function taxModeBlockedByZatca(c: TaxModeCardCompany | null | undefined):
   return c?.zatcaPhase2Enabled === true || present(c?.zatcaPhase2StartedAt) || present(c?.zatcaGoLiveArmedAt);
 }
 
-/** رسالة المنع المعروضة تحت المفتاح المعطّل (عربية تُمرَّر إلى tr) */
+/** رسالة المنع العامة (عربية تُمرَّر إلى tr) — لرفضٍ بلا سببٍ معروف؛ والأسباب المعروفة بعباراتها (taxModeBlockLines) */
 export const TAX_MODE_BLOCKED_TEXT = TAX_MODE_MESSAGES[TAX_MODE_CODES.zatcaConflict];
+
+// ─── أسباب منع الإزالة (ردّ 409 TAX_MODE_ZATCA_CONFLICT يحمل reasons[] — compliance/zatca/settingsGuards في الخادم) ───
+
+/** أسباب المنع بترتيبها الثابت (كالخادم): علم المالك، التفعيل الحيّ، التسليح، قائمة البروفة */
+export const TAX_MODE_ZATCA_REASONS = Object.freeze(['TENANT_FLAG', 'LIVE', 'ARMED', 'REHEARSAL'] as const);
+export type TaxModeZatcaReason = (typeof TAX_MODE_ZATCA_REASONS)[number];
+
+/** عبارة كل سبب (عربية تُمرَّر إلى tr) — تظهر تحت المفتاح المعطّل وفي رسالة الرفض، فيعرف المدير ما يمنعه بالضبط وكيف يُرفع */
+export const TAX_MODE_REASON_TEXT: Readonly<Record<TaxModeZatcaReason, string>> = Object.freeze({
+  TENANT_FLAG: 'لا يمكن إزالة الضريبة لأن ربط الفوترة الإلكترونية (المرحلة الثانية) مفعل لشركتك من إدارة المنصة — تواصل مع الدعم لإيقافه أولا',
+  LIVE: 'لا يمكن إزالة الضريبة لأن ربط الفوترة الإلكترونية (المرحلة الثانية) بدأ فعليا لشركتك وهذا التفعيل لا يلغى',
+  ARMED: 'لا يمكن إزالة الضريبة لأن تفعيل ربط الفوترة الإلكترونية (المرحلة الثانية) مسلح لشركتك — انزع التسليح أولا من تبويب الربط',
+  REHEARSAL: 'لا يمكن إزالة الضريبة لأن شركتك ضمن تجربة ربط الفوترة الإلكترونية — تواصل مع الدعم لإخراجها منها أولا',
+});
+
+/**
+ * أسباب رفض الخادم للإزالة: المعروفة منها بالترتيب الثابت، و[] لرفضٍ بلا سببٍ معروف (فتظهر العبارة العامة)، وnull لأي ردٍّ آخر
+ * (ليس 409 TAX_MODE_ZATCA_CONFLICT).
+ */
+export function taxModeConflictReasons(err: unknown): TaxModeZatcaReason[] | null {
+  if (taxModeErrorCode(err) !== TAX_MODE_CODES.zatcaConflict) return null;
+  const raw = (err as { response?: { data?: { reasons?: unknown } } }).response?.data?.reasons;
+  const got: unknown[] = Array.isArray(raw) ? raw : [];
+  return TAX_MODE_ZATCA_REASONS.filter((r) => got.includes(r));
+}
+
+/**
+ * عبارات منع الإزالة (عربية تُمرَّر إلى tr) — [] ⇒ المفتاح متاح. ما يظهر في ردّ GET /company (العلم والتفعيل والتسليح) يُقرأ منه
+ * طازجاً (فنزع التسليح يعيد المفتاح بلا تحديث للصفحة)، وقائمة البروفة لا تصل إلا في ردّ الرفض فتُحفظ منه (stickyReasons)، ورفضٌ
+ * بلا سببٍ معروف (stickyReasons = []) ⇒ العبارة العامة. الشركة بلا ضريبة: [] دائماً (إعادة الضريبة حرّة).
+ */
+export function taxModeBlockLines(c: TaxModeCardCompany | null | undefined, stickyReasons: readonly TaxModeZatcaReason[] | null): string[] {
+  if (isTaxOff(c)) return [];
+  const on: Record<TaxModeZatcaReason, boolean> = {
+    TENANT_FLAG: c?.zatcaPhase2Enabled === true,
+    LIVE: present(c?.zatcaPhase2StartedAt),
+    ARMED: present(c?.zatcaGoLiveArmedAt),
+    REHEARSAL: stickyReasons?.includes('REHEARSAL') === true,
+  };
+  const lines = TAX_MODE_ZATCA_REASONS.filter((r) => on[r]).map((r) => TAX_MODE_REASON_TEXT[r]);
+  if (lines.length) return lines;
+  return stickyReasons !== null && stickyReasons.length === 0 ? [TAX_MODE_BLOCKED_TEXT] : [];
+}
+
+/**
+ * ما يُحفظ من رفض الخادم ليبقى المفتاح معطّلاً (لا حلقة تأكيدٍ ثم رفض): البروفة وحدها من الأسباب المعروفة (غيرها يُقرأ من ردّ
+ * /company الذي يُعاد بعد الرفض)، و[] لرفضٍ بلا سببٍ معروف، وnull ⇒ لا شيء يُحفظ.
+ */
+export function taxModeStickyReasons(reasons: readonly TaxModeZatcaReason[] | null): TaxModeZatcaReason[] | null {
+  if (reasons === null) return null;
+  if (reasons.length === 0) return [];
+  return reasons.includes('REHEARSAL') ? ['REHEARSAL'] : null;
+}
+
+/** رسالة رفض القلب: لكل سببٍ عبارته (سطرٌ لكل سبب)، وإلا عبارة الرمز (taxModeErrorMessage) — null لغير رموز الوضع */
+export function taxModeRefusalLines(err: unknown): string[] | null {
+  const reasons = taxModeConflictReasons(err);
+  if (reasons && reasons.length) return reasons.map((r) => TAX_MODE_REASON_TEXT[r]);
+  const known = taxModeErrorMessage(err);
+  return known ? [known] : null;
+}
 
 /** القيمة المعروضة في المفتاح أثناء الحفظ: المطلوب، وإلا علم الشركة */
 export function taxModeChecked(pending: boolean, requested: boolean | undefined, company: TaxModeCompany | null | undefined): boolean {

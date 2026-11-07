@@ -510,6 +510,28 @@ export function sectionRows(p: PrintProfile): SectionRow[] {
   }));
 }
 
+/** صفّ «ترتيب الأقسام» كما يُعرض: `at` موضعه في الترتيب الحقيقي، و`upTo`/`downTo` الموضع الذي ينقله إليه ▲/▼ */
+export interface LayoutSectionRow extends SectionRow { at: number; upTo: number; downTo: number }
+
+/**
+ * صفوف «ترتيب الأقسام» المعروضة: للشركة بضريبتها sectionRows نفسها (at = موضع الصفّ، و▲▼ إلى الموضع المجاور — اليوم حرفاً).
+ * «إزالة الضريبة» (E6): بلا ضريبة لا صفّ «رمز QR» (لا رمز على مستنداتها) — ويبقى الرمز في الترتيب المحفوظ بموضعه، فالنقل بمواضعه
+ * الحقيقية: ▲▼ إلى موضع الصفّ الظاهر المجاور (يتخطّى الرمز المخفي فلا ضغطةَ بلا أثرٍ ظاهر)، والسحب إلى موضع الصفّ المُفلَت عليه.
+ */
+export function layoutSectionRows(p: PrintProfile, taxOff: boolean): LayoutSectionRow[] {
+  const all = sectionRows(p);
+  if (!taxOff) return all.map((r, i) => ({ ...r, at: i, upTo: i - 1, downTo: i + 1 }));
+  const shown = all.map((r, i) => ({ id: r.id, at: i })).filter((r) => r.id !== 'qr');
+  return shown.map((r, v) => {
+    const upTo = v > 0 ? shown[v - 1].at : -1;
+    const downTo = v < shown.length - 1 ? shown[v + 1].at : all.length;
+    return {
+      id: r.id, at: r.at, upTo, downTo,
+      up: v > 0 && canMoveSection(p, r.id, upTo), down: v < shown.length - 1 && canMoveSection(p, r.id, downTo),
+    };
+  });
+}
+
 /**
  * زرّ ▲/▼ الذي يعود إليه التركيز بعد النقل بلوحة المفاتيح: React ينقل عقدة الصفّ في DOM (فيضيع تركيز زرّه) أو يُعطَّل الزرّ عند
  * الحدّ — فالاتجاه نفسه إن بقي متاحاً، وإلا الآخر، وإلا null
@@ -572,6 +594,8 @@ function Segmented<T extends string>({ label, options, labels, value, onPick, di
 /** حقول «التخطيط» في الخطوة الرابعة — اللوحة تلفّها في قسمها */
 export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: PrintProfile) => void }) {
   const tr = useTr();
+  // «إزالة الضريبة» (E6): بلا ضريبة لا صفّ «رمز QR» في الترتيب (layoutSectionRows) — والسياق من اللوحة، وافتراضه false: اليوم حرفاً
+  const taxOff = useTaxOffPrint();
   const [drag, setDrag] = useState<SectionId | null>(null);
   // السحب باللمس/القلم من المقبض: الصفّ المسحوب والصفّ تحت الإصبع — يُنقل عند الرفع وحده (والإلغاء يتركه)، والفأرة لسحب HTML5 كاليوم
   const [touch, setTouch] = useState<{ id: SectionId; from: number; over: number } | null>(null);
@@ -582,7 +606,7 @@ export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: Pr
     const want = refocus.current;
     if (!want) return;
     refocus.current = null;
-    const to = moveFocusTarget(sectionRows(p), want.id, want.dir);
+    const to = moveFocusTarget(layoutSectionRows(p, taxOff), want.id, want.dir);
     if (to) orderRef.current?.querySelector<HTMLButtonElement>(`[data-section="${want.id}"] [data-move="${to}"]`)?.focus();
   });
   if (!layoutEditable(p)) {
@@ -591,7 +615,7 @@ export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: Pr
   const l = layoutOf(p);
   const custom = p.options.layout !== undefined;
   const set = (patch: Parameters<typeof withLayout>[1]) => update(withLayout(p, patch));
-  const rows = sectionRows(p);
+  const rows = layoutSectionRows(p, taxOff);
   const logoOff = !p.options.showLogo || p.template === 'impact_preprinted';
   const colorful = p.printer === 'page' && p.template === 'page_branded';
   const grid = l.design === 'grid_bilingual';
@@ -601,7 +625,8 @@ export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: Pr
   const touchEnd = (commit: boolean) => {
     const t = touch;
     setTouch(null);
-    if (commit && t && t.over >= 0 && t.over !== t.from && canMoveSection(p, t.id, t.over)) move(t.id, t.over);
+    const to = t && t.over >= 0 && rows[t.over] ? rows[t.over].at : -1;
+    if (commit && t && to >= 0 && t.over !== t.from && canMoveSection(p, t.id, to)) move(t.id, to);
   };
   return (
     <>
@@ -645,9 +670,9 @@ export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: Pr
               <li key={r.id} data-section={r.id} draggable={movable}
                 onDragStart={(e) => { setDrag(r.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', r.id); }}
                 onDragEnd={() => setDrag(null)}
-                onDragOver={(e) => { if (drag && drag !== r.id && canMoveSection(p, drag, i)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
-                onDrop={(e) => { e.preventDefault(); if (drag && canMoveSection(p, drag, i)) move(drag, i); setDrag(null); }}
-                className={`flex items-center gap-2 px-2.5 py-1.5 text-sm ${drag === r.id || touch?.id === r.id ? 'opacity-50' : ''} ${movable ? 'cursor-grab' : ''} ${touch && touch.over === i && touch.id !== r.id ? (canMoveSection(p, touch.id, i) ? 'bg-[#FBEBE2]' : 'bg-red-50') : ''}`}>
+                onDragOver={(e) => { if (drag && drag !== r.id && canMoveSection(p, drag, r.at)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                onDrop={(e) => { e.preventDefault(); if (drag && canMoveSection(p, drag, r.at)) move(drag, r.at); setDrag(null); }}
+                className={`flex items-center gap-2 px-2.5 py-1.5 text-sm ${drag === r.id || touch?.id === r.id ? 'opacity-50' : ''} ${movable ? 'cursor-grab' : ''} ${touch && touch.over === i && touch.id !== r.id ? (canMoveSection(p, touch.id, r.at) ? 'bg-[#FBEBE2]' : 'bg-red-50') : ''}`}>
                 <span data-grip="" aria-hidden="true" className="p-1 -m-1" style={movable ? { touchAction: 'none' } : undefined}
                   onPointerDown={(e) => {
                     if (!movable || e.pointerType === 'mouse') return;
@@ -662,9 +687,9 @@ export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: Pr
                 </span>
                 <span className="text-[11px] text-[#9A8F7E] w-4" dir="ltr">{i + 1}</span>
                 <span className="flex-1 min-w-0 text-[#1F1A13]">{label}</span>
-                <button type="button" data-move="up" disabled={!r.up} onClick={() => { refocus.current = { id: r.id, dir: 'up' }; move(r.id, i - 1); }} aria-label={`${tr('نقل لأعلى')}: ${label}`}
+                <button type="button" data-move="up" disabled={!r.up} onClick={() => { refocus.current = { id: r.id, dir: 'up' }; move(r.id, r.upTo); }} aria-label={`${tr('نقل لأعلى')}: ${label}`}
                   className="p-1 rounded-md text-[#6E6557] hover:bg-[#FAF7F0] disabled:opacity-30"><ArrowUp size={14} /></button>
-                <button type="button" data-move="down" disabled={!r.down} onClick={() => { refocus.current = { id: r.id, dir: 'down' }; move(r.id, i + 1); }} aria-label={`${tr('نقل لأسفل')}: ${label}`}
+                <button type="button" data-move="down" disabled={!r.down} onClick={() => { refocus.current = { id: r.id, dir: 'down' }; move(r.id, r.downTo); }} aria-label={`${tr('نقل لأسفل')}: ${label}`}
                   className="p-1 rounded-md text-[#6E6557] hover:bg-[#FAF7F0] disabled:opacity-30"><ArrowDown size={14} /></button>
               </li>
             );
@@ -724,7 +749,7 @@ function AccentPicker({ value, onPick }: { value: string | null; onPick: (v: str
 }
 
 /** مخطّط «كلاسيكي بإطارات — ثنائي اللغة»: ترويسة بلغتين وشعار في الوسط، صندوق المستند ورمزه، صندوقا البائع والمشتري، جدول بشبكة، الإجماليات، التواقيع */
-export function GridThumb() {
+export function GridThumb({ taxOff = false }: { taxOff?: boolean }) {
   const box = { border: '1px solid #1F1A13', display: 'block' } as const;
   const bar = (w: string) => <span className="block" style={{ height: 2, width: w, background: '#1F1A13', marginTop: 2 }} />;
   return (
@@ -736,7 +761,8 @@ export function GridThumb() {
       </span>
       <span className="flex gap-[2px] mt-[3px]">
         <span style={{ ...box, flex: 1, height: 9 }} />
-        <span className="block" style={{ width: 9, height: 9, background: 'repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0 / 3px 3px' }} />
+        {/* «إزالة الضريبة» (E6): بلا مربع الرمز لشركةٍ بلا ضريبة */}
+        {!taxOff && <span className="block" style={{ width: 9, height: 9, background: 'repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0 / 3px 3px' }} />}
       </span>
       <span className="flex gap-[2px] mt-[2px]">
         <span style={{ ...box, flex: 1, height: 8 }} />

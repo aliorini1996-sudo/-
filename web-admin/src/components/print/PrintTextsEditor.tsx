@@ -9,7 +9,7 @@ import { useDir } from '../../i18n/lang';
 import {
   PRINT_SECOND_LANGS, PRINT_TEXT_CATALOG, PRINT_TEXT_LINE, PRINT_TEXT_WARNINGS, PRINT_TEXTS_ISSUES, PRINT_TEXTS_LIMITS, SECOND_LANG_NAMES,
   canonicalPrintTexts, checkPrintTexts, emptyPrintTexts, isEmptyPrintTexts, normalizePrintTexts, phraseIn,
-  printTextEntry, printTextsBytes,
+  printTextEntry, printTextsBytes, taxFreeDefaultIn,
   type PrintLineScope, type PrintSecondLang, type PrintTextEdit, type PrintTextEntry, type PrintTextGroup, type PrintTextsIssue,
   type PrintTextsV1,
 } from '../../lib/print/printTexts';
@@ -789,7 +789,8 @@ function TextRow({ entry, edit, lang, taxOff = false, active, issues, onChange, 
   // النصّ الافتراضي للصفّ: نصّ القائمة، أو «فاتورة»/«فاتورة مرتجع» لعنواني المستند بلا ضريبة
   const defaultText = printTextDefault(entry, taxOff);
   // ما يُطبع باللغة الثانية إن تُركت خانتها فارغة: ترجمة الصياغة العربية الجديدة من القاموس (إن وُجدت)، وإلا ترجمة الافتراضي
-  const altFallback = lang ? (edit.text !== null ? phraseIn(edit.text.trim(), lang) : phraseIn(defaultText, lang)) : null;
+  // و«إزالة الضريبة» (E4): افتراضيّ المستند بلا ضريبة («فاتورة مرتجع»، «إجمالي المرتجع») بترجمته على الورقة — والشركة بضريبتها كما كانت حرفاً
+  const altFallback = lang ? (edit.text !== null ? phraseIn(edit.text.trim(), lang) : taxFreeDefaultIn(entry.key, defaultText, lang) ?? phraseIn(defaultText, lang)) : null;
   const altMissing = lang !== null && edit.text !== null && edit.text.trim() !== '' && edit.alt === null && !altFallback;
   const textIssue = issues.find((i) => i.path.endsWith('.text'));
   const altIssue = issues.find((i) => i.path.endsWith('.alt'));

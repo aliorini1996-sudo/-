@@ -53,7 +53,7 @@ export const TAX_MODE_CODES = {
 } as const;
 
 export const TAX_MODE_MESSAGES = {
-  TAX_MODE_CHANGED: 'أزيلت الضريبة لشركتك حدث الصفحة ثم أعد الإصدار',
+  TAX_MODE_CHANGED: 'تغيرت إعدادات الشركة حدث الصفحة ثم أعد الإصدار',
   TAX_DISABLED: 'الضريبة مزالة لهذه الشركة أرسل taxPct صفرا أو احذفه',
   TAX_MODE_ZATCA_CONFLICT: 'لا يمكن إزالة الضريبة ما دام ربط الفوترة الإلكترونية (المرحلة الثانية) مفعلا للشركة',
   TAX_OFF_BLOCKS_ZATCA: 'الضريبة مزالة لهذه الشركة أعدها أولا من إعدادات الشركة قبل ربط الفوترة الإلكترونية',

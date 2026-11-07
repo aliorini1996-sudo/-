@@ -583,3 +583,214 @@ test('قرار ٤ — حدود التسامح: بعد التبديل أو بلا
   const key = await runOnce(TAX_OFF, API_KEY, invBody([line(), lineB()], { clientCreatedAt: BEFORE_SWITCH }), REPLAY);
   assert.equal(key.status, 422, JSON.stringify(key.body));
 });
+
+// ═══ (٧) CONTRACT2 E1: الوضع الذي سعّر به الجهاز (builtTaxFree) — جدول القرار صفاً صفاً، وانحراف الساعة، والشركة بضريبتها حرفاً ═══
+
+const STRICT = { rep: { canChangePrice: false, canSellBelowPrice: false } };
+/** شركةٌ أعادت ضريبتها بعد إزالتها: taxDisabled false ومعه لحظة التبديل — كاش أجهزتها قد يبقى «بلا ضريبة» */
+const TAX_ON_RESTORED: Row = { ...BASE_SETTINGS, taxDisabled: false, taxModeChangedAt: new Date('2026-11-06T08:00:00.000Z') };
+const TAX_ON_ALL: Array<[string, Row]> = [['غائب', TAX_ON_ABSENT], ['false', TAX_ON_FALSE], ['أُعيدت', TAX_ON_RESTORED]];
+const withFlag = (body: Row, builtTaxFree: boolean): Row => ({ ...body, builtTaxFree });
+const assert409 = (r: Run, label: string): void => {
+  assert.equal(r.status, 409, `${label}: ${JSON.stringify(r.body)}`);
+  assert.deepEqual(r.body, { success: false, code: TAX_MODE_CODES.changed, message: TAX_MODE_MESSAGES.TAX_MODE_CHANGED });
+  assert.ok(!r.calls.includes('$transaction') && !r.calls.includes('invoice.create'), `${label}: ${r.calls.join(' → ')}`);
+};
+/** مطابقة مسار اليوم حرفاً: النداءات والمستند والردّ واستعلام الإعدادات */
+const assertSameRun = (a: Run, b: Run, label: string): void => {
+  assert.equal(a.status, b.status, `${label}: ${JSON.stringify(a.body)}`);
+  assert.deepEqual(a.calls, b.calls, `${label}: تسلسل الاستعلامات تغيّر`);
+  assert.deepEqual(a.create, b.create, `${label}: بيانات المستند تغيّرت`);
+  assert.deepEqual(a.body, b.body, `${label}: الردّ تغيّر`);
+  assert.deepEqual(a.settingsSelect, b.settingsSelect, `${label}: استعلام الإعدادات تغيّر`);
+};
+
+test('E1 — بلا ضريبة × true: الحيّ بقواعده (صفرٌ مختوم، فوق الصفر 409، والمرتجع المرتبط صفرٌ بمبلغه)، وإعادة الرفع كما بُنيت بلا مقارنة لحظة', async () => {
+  for (const user of [ADMIN, REP_USER]) {
+    const zero = await runOnce(TAX_OFF, user, withFlag(invBody(netLines()), true));
+    assert.equal(zero.status, 201, `${user.role}: ${JSON.stringify(zero.body)}`);
+    assertTaxFreeDoc(docOf(zero), 240);
+    assert409(await runOnce(TAX_OFF, user, withFlag(invBody([line(), lineB()]), true)), `${user.role} فوق الصفر`);
+    const ret = await runOnce(TAX_OFF, user, withFlag(linkedReturnBody(15), true), {}, { linkedSale: true });
+    assert.equal(ret.status, 201, `${user.role} مرتجع: ${JSON.stringify(ret.body)}`);
+    assertTaxFreeDoc(docOf(ret), 7.83);
+  }
+  // إعادة الرفع: لحظةٌ قبل التبديل (كانت تُسقط الختم) لا تُقرأ — صفرٌ أو غائبة ⇒ مختومة
+  for (const taxPct of [0, undefined]) {
+    const r = await runOnce(TAX_OFF, REP_USER, withFlag(invBody(netLines({ taxPct }), { clientRef: crypto.randomUUID(), clientCreatedAt: BEFORE_SWITCH }), true), REPLAY);
+    assert.equal(r.status, 201, `${taxPct}: ${JSON.stringify(r.body)}`);
+    assertTaxFreeDoc(docOf(r), 240);
+  }
+  const ret = await runOnce(TAX_OFF, REP_USER, withFlag({ ...linkedReturnBody(0), clientRef: crypto.randomUUID(), clientCreatedAt: BEFORE_SWITCH }, true), REPLAY, { linkedSale: true });
+  assert.equal(ret.status, 201, JSON.stringify(ret.body));
+  assertTaxFreeDoc(docOf(ret), 7.83);
+  // وبندٌ فوق الصفر ⇒ كما بُني: مسار الشركة بضريبتها حرفاً (والعَلَم لا يُكتب في المستند)
+  const taxed = invBody([line(), lineB()], { clientRef: '9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d' });
+  const off = await runOnce(TAX_OFF, REP_USER, withFlag(taxed, true), REPLAY, STRICT);
+  const on = await runOnce(TAX_ON_FALSE, REP_USER, taxed, REPLAY, STRICT);
+  assertSameRun(off, on, 'كما بُني');
+  assertTodayDoc(docOf(off));
+  assert.deepEqual([docOf(off).taxAmt, docOf(off).total], [36, 276]);
+});
+
+test('E1 — بلا ضريبة × false: الحيّ بقواعده (فوق الصفر 409، صفرٌ مختوم)، وإعادة رفع المندوب مسار اليوم كما بُنيت ولو بنودها صفر', async () => {
+  for (const user of [ADMIN, REP_USER]) {
+    assert409(await runOnce(TAX_OFF, user, withFlag(invBody([line(), lineB()]), false)), `${user.role} فوق الصفر`);
+    const zero = await runOnce(TAX_OFF, user, withFlag(invBody(netLines()), false));
+    assert.equal(zero.status, 201, `${user.role}: ${JSON.stringify(zero.body)}`);
+    assertTaxFreeDoc(docOf(zero), 240);
+  }
+  // ترويسة الإعادة من غير المندوب لا تمنح «كما بُني» (قرار ٣ كما هو)
+  assert409(await runOnce(TAX_OFF, ADMIN, withFlag(invBody([line(), lineB()], { clientRef: crypto.randomUUID() }), false), REPLAY), 'الإدارة بالترويسة');
+  const adminZero = await runOnce(TAX_OFF, ADMIN, withFlag(invBody(netLines(), { clientRef: crypto.randomUUID() }), false), REPLAY);
+  assertTaxFreeDoc(docOf(adminZero), 240);
+  // المندوب: بلا لحظة أو بلحظةٍ بعد التبديل — لا مقارنة؛ الجهاز سعّر بالضريبة ⇒ مسار اليوم حرفاً كما بُني
+  const cases: Array<[string, Row, { linkedSale?: boolean }, [number, number]]> = [
+    ['بنود صفر', invBody(netLines(), { clientRef: 'b1000000-0000-4000-8000-000000000001' }), {}, [0, 240]],
+    ['نسبة غائبة (الاحتياطية)', invBody(netLines({ taxPct: undefined }), { clientRef: 'b1000000-0000-4000-8000-000000000002' }), {}, [31.3, 240]],
+    ['بنود ١٥٪', invBody([line(), lineB()], { clientRef: 'b1000000-0000-4000-8000-000000000003' }), {}, [36, 276]],
+    ['مرتجع مرتبط بنود صفر', { ...linkedReturnBody(0), clientRef: 'b1000000-0000-4000-8000-000000000004' }, { linkedSale: true }, [1.02, 7.83]],
+    ['بنود صفر بلحظةٍ بعد التبديل', invBody(netLines(), { clientRef: 'b1000000-0000-4000-8000-000000000005', clientCreatedAt: BEFORE_SWITCH }), {}, [0, 240]],
+  ];
+  for (const [name, body, o, nums] of cases) {
+    const off = await runOnce(TAX_OFF_EARLIER, REP_USER, withFlag(body, false), REPLAY, o);
+    const on = await runOnce(TAX_ON_FALSE, REP_USER, body, REPLAY, o);
+    assertSameRun(off, on, name);
+    assertTodayDoc(docOf(off));
+    assert.deepEqual([docOf(off).taxAmt, docOf(off).total], nums, name);
+  }
+});
+
+test('E1 — بلا ضريبة × غائب (عميلٌ قديم): مقارنة اللحظة القائمة، مصحَّحةً بانحراف ساعة الجهاز (X-FS-Device-Now) فوق خمس دقائق', async () => {
+  const now = Date.now();
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const H = 3_600_000;
+  const MIN = 60_000;
+  const settings: Row = { ...BASE_SETTINGS, taxDisabled: true, taxModeChangedAt: new Date(now - H) };
+  const replayAt = async (clientCreatedAt: string, deviceNow?: string): Promise<Run> => runOnce(settings, REP_USER,
+    invBody(netLines(), { clientRef: crypto.randomUUID(), clientCreatedAt }),
+    { ...REPLAY, ...(deviceNow !== undefined && { 'X-FS-Device-Now': deviceNow }) });
+  // جوالٌ متأخّر ٣ ساعات أصدر بعد التبديل بنصف ساعة: لحظته الخام قبل التبديل، والمصحَّحة بعده ⇒ مختوم (رقماً أو ISO)
+  const slowAt = iso(now - 3 * H - 30 * MIN);
+  for (const deviceNow of [String(now - 3 * H), iso(now - 3 * H)]) {
+    const r = await replayAt(slowAt, deviceNow);
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assertTaxFreeDoc(docOf(r), 240);
+  }
+  // وبلا الترويسة: السلوك القائم (الخام قبل التبديل ⇒ مسار اليوم)
+  const slowRaw = await replayAt(slowAt);
+  assert.equal(slowRaw.status, 201, JSON.stringify(slowRaw.body));
+  assertTodayDoc(docOf(slowRaw));
+  // جوالٌ متقدّم ٣ ساعات أصدر قبل التبديل بساعة: الخام بعده، والمصحَّح قبله ⇒ مسار اليوم (بنوده صفر بلا ختم)
+  const fastAt = iso(now + H);
+  const fast = await replayAt(fastAt, String(now + 3 * H));
+  assert.equal(fast.status, 201, JSON.stringify(fast.body));
+  assertTodayDoc(docOf(fast));
+  assert.equal(docOf(fast).taxAmt, 0);
+  const fastRaw = await replayAt(fastAt);
+  assertTaxFreeDoc(docOf(fastRaw), 240);
+  // انحرافٌ دون خمس دقائق لا يُصحَّح: خامٌ قبل التبديل بدقيقتين وساعةٌ متأخّرة ٤ دقائق ⇒ مسار اليوم
+  const small = await replayAt(iso(now - H - 2 * MIN), String(now - 4 * MIN));
+  assert.equal(small.status, 201, JSON.stringify(small.body));
+  assertTodayDoc(docOf(small));
+  // ترويسةٌ تالفة ⇒ لا تصحيح
+  const bad = await replayAt(slowAt, 'not-a-time');
+  assertTodayDoc(docOf(bad));
+});
+
+test('E1 — بضريبتها × true: الحيّ 409 TAX_MODE_CHANGED (كاشٌ قديم بعد إعادة الضريبة) بلا معاملة ولا مستند — للإدارة والمندوب والمرتجع وترويسة غير المندوب', async () => {
+  for (const [name, settings] of TAX_ON_ALL) {
+    const cases: Array<[string, User, Row, Record<string, string>, { linkedSale?: boolean }]> = [
+      ['الإدارة صفراً', ADMIN, invBody(netLines()), {}, {}],
+      ['المندوب صفراً', REP_USER, invBody(netLines()), {}, {}],
+      ['المدير', MANAGER, invBody(netLines()), {}, {}],
+      ['المرتجع الحرّ', REP_USER, invBody(netLines(), { type: 'RETURN' }), {}, {}],
+      ['المرتجع المرتبط', ADMIN, linkedReturnBody(0), {}, { linkedSale: true }],
+      ['بنود ١٥٪', ADMIN, invBody([line(), lineB()]), {}, {}],
+      ['الإدارة بترويسة الإعادة', ADMIN, invBody(netLines(), { clientRef: crypto.randomUUID() }), REPLAY, {}],
+      ['المحاسب بترويسة الإعادة', ACCOUNTANT, invBody(netLines(), { clientRef: crypto.randomUUID() }), REPLAY, {}],
+    ];
+    for (const [label, user, body, headers, o] of cases) {
+      assert409(await runOnce(settings, user, withFlag(body, true), headers, o), `${name} / ${label}`);
+    }
+  }
+});
+
+test('E1 — بضريبتها × true لشركةٍ لم تُزل ضريبتها قط (بلا taxModeChangedAt): إعادة رفع المندوب صفراً ⇒ مسار اليوم كما بُني بلا ختم (التحقّق النهائي ٧ نوفمبر)', async () => {
+  for (const [name, settings] of TAX_ON_ALL) {
+    if (settings.taxModeChangedAt) continue;
+    const body = invBody(netLines({ taxPct: 0 }), { clientRef: crypto.randomUUID(), clientCreatedAt: BEFORE_SWITCH });
+    const flagged = await runOnce(settings, REP_USER, withFlag(body, true), REPLAY, STRICT);
+    const plain = await runOnce(settings, REP_USER, body, REPLAY, STRICT);
+    assertSameRun(flagged, plain, `${name}: الختم بلا إزالةٍ سابقة`);
+    assert.notEqual(docOf(flagged).taxFree, true, name);
+  }
+});
+
+test('E1 — بضريبتها × true: إعادة رفع المندوب كل بنودها صفر ⇒ مختومة بلا ضريبة (بنود صفر، none/null)، وبندٌ فوق الصفر ⇒ كما بُني', async () => {
+  for (const [name, settings] of TAX_ON_ALL.filter(([, s]) => s.taxModeChangedAt != null)) {
+    for (const taxPct of [0, undefined]) {
+      const r = await runOnce(settings, REP_USER, withFlag(invBody(netLines({ taxPct }), { clientRef: crypto.randomUUID(), clientCreatedAt: BEFORE_SWITCH }), true), REPLAY, STRICT);
+      assert.equal(r.status, 201, `${name}/${taxPct}: ${JSON.stringify(r.body)}`);
+      assertTaxFreeDoc(docOf(r), 240);
+      assert.equal(docOf(r).subtotal, 240);
+      assert.equal(r.body.data.taxFree, true);
+      assert.equal(r.body.data.einvoiceProvider, 'none');
+      // استعلامٌ واحدٌ للإعدادات كما كان
+      assert.equal(r.settingsSelect.filter((sel) => (sel as Row | undefined)?.defaultVatPct).length, 1);
+    }
+    // المرتجع المرتبط: المبلغ المسترد نفسه بنسبة صفر
+    const ret = await runOnce(settings, REP_USER, withFlag({ ...linkedReturnBody(0), clientRef: crypto.randomUUID() }, true), REPLAY, { linkedSale: true });
+    assert.equal(ret.status, 201, `${name}: ${JSON.stringify(ret.body)}`);
+    assertTaxFreeDoc(docOf(ret), 7.83);
+    assert.deepEqual((docOf(ret).items as { create: Row[] }).create.map(i => i.lineTotal), [3.33, 4.5]);
+    // بندٌ فوق الصفر (لا يبنيه جهازٌ بلا ضريبة) ⇒ كما بُني: مسار اليوم حرفاً
+    const taxed = invBody([line(), lineB()], { clientRef: '9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5e' });
+    const asBuilt = await runOnce(settings, REP_USER, withFlag(taxed, true), REPLAY, STRICT);
+    const today = await runOnce(settings, REP_USER, taxed, REPLAY, STRICT);
+    assertSameRun(asBuilt, today, `${name} كما بُني`);
+    assertTodayDoc(docOf(asBuilt));
+  }
+});
+
+test('E1 — بضريبتها × false أو غائب: النداءات والمستند والردّ حرفاً بحرف (والعَلَم لا يُكتب)، ومفتاح API يتجاهل العَلَم في الحالين', async () => {
+  const scenarios: Array<{ name: string; user: User; body: Row; headers?: Record<string, string>; o?: { rep?: Row; linkedSale?: boolean } }> = [
+    { name: 'الإدارة حيّاً', user: ADMIN, body: invBody([line(), lineB()]) },
+    { name: 'الإدارة بنسبةٍ غائبة', user: ADMIN, body: invBody([line({ taxPct: undefined }), lineB()]) },
+    { name: 'الإدارة بنود صفر', user: ADMIN, body: invBody(netLines()) },
+    { name: 'المندوب حيّاً', user: REP_USER, body: invBody([line(), lineB()]), o: STRICT },
+    { name: 'إعادة رفع المندوب', user: REP_USER, body: invBody([line(), lineB()], { clientRef: 'c1000000-0000-4000-8000-000000000001' }), headers: REPLAY },
+    { name: 'إعادة رفع المندوب صفراً بلحظة', user: REP_USER, body: invBody(netLines(), { clientRef: 'c1000000-0000-4000-8000-000000000002', clientCreatedAt: BEFORE_SWITCH }), headers: REPLAY },
+    { name: 'المرتجع من فاتورة بيع', user: ADMIN, body: linkedReturnBody(15), o: { linkedSale: true } },
+    { name: 'إعادة رفع مرتجعٍ مرتبط', user: REP_USER, body: { ...linkedReturnBody(15), clientRef: 'c1000000-0000-4000-8000-000000000003' }, headers: REPLAY, o: { linkedSale: true } },
+  ];
+  for (const [name, settings] of TAX_ON_ALL) {
+    for (const s of scenarios) {
+      const absent = await runOnce(settings, s.user, s.body, s.headers, s.o);
+      const flagFalse = await runOnce(settings, s.user, withFlag(s.body, false), s.headers, s.o);
+      assert.equal(absent.status, 201, `${name}/${s.name}: ${JSON.stringify(absent.body)}`);
+      assertSameRun(flagFalse, absent, `${name}/${s.name}`);
+      assertTodayDoc(docOf(flagFalse));
+      assert.equal('builtTaxFree' in docOf(flagFalse), false);
+    }
+  }
+  // مفتاح API: العَلَم مُهمَل — بضريبتها كما اليوم، و«بلا ضريبة» بقواعده (422 فوق الصفر، صفرٌ مختوم)
+  for (const flag of [true, false]) {
+    for (const [name, settings] of TAX_ON_ALL) {
+      const body = invBody([line(), lineB()]);
+      assertSameRun(await runOnce(settings, API_KEY, withFlag(body, flag), REPLAY), await runOnce(settings, API_KEY, body, REPLAY), `${name} مفتاح ${flag}`);
+    }
+    const taxed = await runOnce(TAX_OFF, API_KEY, withFlag(invBody([line(), lineB()], { clientCreatedAt: BEFORE_SWITCH }), flag), REPLAY);
+    assert.equal(taxed.status, 422, JSON.stringify(taxed.body));
+    assert.equal(taxed.body.code, 'TAX_DISABLED');
+    const zero = await runOnce(TAX_OFF, API_KEY, withFlag(invBody(netLines()), flag));
+    assertSameRun(zero, await runOnce(TAX_OFF, API_KEY, invBody(netLines())), `بلا ضريبة مفتاح ${flag}`);
+    assertTaxFreeDoc(docOf(zero), 240);
+  }
+});
+
+test('E1 — المخطط: builtTaxFree منطقيٌّ اختياري — قيمةٌ بغير نوعها ⇒ 400 بلا مستند', async () => {
+  const r = await runOnce(TAX_ON_FALSE, ADMIN, { ...invBody([line(), lineB()]), builtTaxFree: 'yes' });
+  assert.equal(r.status, 400, JSON.stringify(r.body));
+  assert.ok(!r.calls.includes('invoice.create'));
+});

@@ -8,7 +8,7 @@ import {
   PRICE_RULE_KINDS, PRICE_RULE_LIMITS, PRICE_RULE_MESSAGES, PRICE_RULE_SCOPES, listLineRef, listPriceOf, priceRuleProblem, qtyPrimaryOf, roundPriceRule,
 } from './priceRules';
 import { pricingDayOf } from './priceListPricing';
-import { TAX_MODE_CODES } from './taxMode';
+import { TAX_MODE_CODES, TAX_MODE_MESSAGES } from './taxMode';
 
 /**
  * مستند API يُسلَّم لمبرمج الشركة: كل مسارٍ يذكره يجب أن يكون مركَّباً في الخادم بطريقته — مسارٌ يُحذف أو
@@ -1932,4 +1932,100 @@ test('«إزالة الضريبة» — الخادم يفعل ما يَعِد ب
   for (const [k, code] of Object.entries(TAX_MODE_CODES)) {
     assert.match(used, new RegExp(`'${code}'|TAX_MODE_CODES\\.${k}\\b|TAX_MODE_MESSAGES\\.${code}\\b`), `${code} لا يرسله الخادم`);
   }
+});
+
+/* ═══ «إزالة الضريبة» — إصلاحات المراجعة (CONTRACT2 E8): المرجع كامل للمبرمج، ويقول ما يفعله الخادم للشركة بلا ضريبة ═══ */
+
+test('«إزالة الضريبة» E8: GET /company لا يُرجع taxModeChangedBy — والمستند يقولها وmaskCompany يحجبه', () => {
+  const company = endpointOf('GET', '/company');
+  assert.match(company.response, /ولا يعود returnPolicyChangedBy ولا taxModeChangedBy \(معرّفا من غيّر إعداد المرتجع و«إزالة الضريبة»، للتدقيق وحدهما\)/);
+  assert.ok(routeFile('company').includes('taxModeChangedBy: _taxBy'), 'maskCompany لا يحجب taxModeChangedBy');
+  assert.ok(endpointOf('GET', TAX_MODE_PATH).rules.some((r) => r.includes('ولا يعود فيه taxModeChangedBy')));
+});
+
+test('«إزالة الضريبة» E8: سطور ردّ التكلفة/السعر الشامل إلى الصافي تستثني الشركة بلا ضريبة — كما يفعل الخادم', () => {
+  const entries = endpointOf('POST', '/warehouse/entries');
+  assert.ok(entries.rules.some((r) => r.includes('مع costsIncludeTax=true يكون unitCost ÷ (1 + taxPct الصنف/100) مقرّباً لأربع خانات، والشركة «بلا ضريبة»')
+    && r.includes('unitCost المحفوظ ما أُرسل')), 'قاعدة التكلفة الصافية');
+  assert.match(fieldOf(endpointOf('POST', '/import/products'), 'rows[].units[].price').desc, /فيُردّ إلى صافيه بضريبة الصنف، وفي الشركة «بلا ضريبة» يُحفظ كما أُرسل\)/);
+  const guideText = API_DOC_GUIDES.flatMap((g) => g.steps.map((s) => s.text)).join('\n');
+  assert.ok(guideText.includes('يحوّل الخادم التكلفة إلى الصافي بضريبة الصنف (والشركة «بلا ضريبة»: تُحفظ التكلفة كما أُرسلت)'), 'دليل الوارد');
+  // لا سطر ردٍّ إلى الصافي بلا استثناء: كل وعدٍ بالتحويل بضريبة الصنف يتبعه ذكر الشركة بلا ضريبة في السطر نفسه
+  const src = read(path.join(process.cwd(), 'src', 'lib', 'apiDocsCatalog.ts'));
+  for (const line of src.split('\n').filter((x) => /يحوّل الخادم التكلفة إلى الصافي بضريبة الصنف|unitCost ÷ \(1 \+ taxPct الصنف|فيُردّ إلى صافيه بضريبة الصنف/.test(x))) {
+    assert.match(line, /«بلا ضريبة»/, `سطر بلا استثناء: ${line.trim().slice(0, 80)}`);
+  }
+  // الخادم: النسبة الفعلية صفر في الوارد والاستيراد
+  assert.ok(routeFile('warehouse').includes('taxOff ? 0 : p.taxPct'), 'warehouse.ts يردّ بضريبة الصنف للشركة بلا ضريبة');
+  assert.ok(routeFile('import').includes('body.pricesIncludeTax === true && !isTaxOff(company)'), 'import.ts يردّ بضريبة الصنف للشركة بلا ضريبة');
+});
+
+test('«إزالة الضريبة» E8: مثال المرتجع المرتبط وقاعدة /returnable — أرسل taxPct 0 أو احذفه للشركة بلا ضريبة', () => {
+  const post = endpointOf('POST', '/invoices');
+  const ex = post.rules.find((r) => r.startsWith('مثال مرتجع من فاتورة بيع (المرحلة الأولى)'));
+  assert.ok(ex, 'المثال غائب');
+  assert.ok(ex!.includes('والشركة «بلا ضريبة» (taxDisabled في GET /company/tax-mode): "taxPct":0 أو احذفه، وإلا 422 TAX_DISABLED'), 'المثال بلا ملاحظة الإزالة');
+  // المثال نفسه باقٍ كما هو للشركة ذات الضريبة
+  assert.ok(ex!.includes('"discountPct":0,"taxPct":15}]}'));
+  const returnable = endpointOf('GET', '/invoices/:id/returnable');
+  const rule = returnable.rules.find((r) => r.startsWith('«إزالة الضريبة»'));
+  assert.ok(rule, 'قاعدة الإزالة غائبة عن /returnable');
+  for (const k of ['نسبة بند البيع كما صدر', 'لا تنسخه إلى المرتجع', 'أرسل taxPct: 0 أو احذفه', `422 ${TAX_MODE_CODES.disabled}`, 'بنسبة 0 وبمبلغ الاسترداد نفسه']) {
+    assert.ok(rule!.includes(k), `قاعدة /returnable لا تذكر ${k}`);
+  }
+  assert.match(returnable.response, /\btaxPct\b/);
+  // الخادم: /returnable يُرجع نسبة البند المخزّنة، والمفتاح يُرفض 422 ولو في المرتجع المرتبط
+  const inv = routeFile('invoices');
+  assert.ok(inv.slice(inv.indexOf("router.get('/:id/returnable'")).slice(0, 8000).includes('taxPct: Number(it.taxPct)'));
+  assert.match(inv, /if \(taxed && \(req\.user\?\.apiKeyId \|\| !\(body\.type === 'RETURN' && body\.originalInvoiceId\)\)\)/);
+});
+
+test('«إزالة الضريبة» E8/E1: builtTaxFree موثّق حقلاً وجدولاً (بحالاته الخمس)، والرسالة المحايدة، وإعادة الرفع كما بُنيت لصندوق المندوب وحده', () => {
+  const post = endpointOf('POST', '/invoices');
+  const f = post.body.find((b) => b.name === 'builtTaxFree') as { name: string; desc: string; type?: string; required?: boolean } | undefined;
+  assert.ok(f, 'builtTaxFree غائب عن الجسم');
+  assert.equal(f!.type, 'boolean');
+  assert.equal(f!.required, false);
+  for (const k of ['true = سعّرها والشركة «بلا ضريبة»', 'وfalse = سعّرها والشركة بضريبتها', 'فتعيده إعادة الرفع', 'ولا يدخل في clientRef', 'لا يُخزَّن',
+    'لطلب المفتاح لا يُقرأ أصلاً', `422 ${TAX_MODE_CODES.disabled}`]) {
+    assert.ok(f!.desc.includes(k), `وصف builtTaxFree لا يذكر ${k}`);
+  }
+  const names = post.body.map((b) => b.name);
+  assert.equal(names.indexOf('builtTaxFree'), names.indexOf('clientCreatedAt') + 1, 'بعد clientCreatedAt');
+  // الجدول: قاعدةٌ واحدة بحالاتها الخمس كما في CONTRACT2 E1
+  const e1 = post.rules.filter((r) => r.startsWith('«إزالة الضريبة» — الوضع الذي سعّر به الجهاز builtTaxFree'));
+  assert.equal(e1.length, 1, 'قاعدة الجدول');
+  const cases = e1[0].split(' • ').slice(1);
+  assert.equal(cases.length, 5, 'خمس حالات');
+  assert.ok(cases[0].startsWith('الشركة بلا ضريبة وtrue:') && cases[0].includes('بلا مقارنة لحظة') && cases[0].includes('بنودها كلها 0 ⇒ taxFree = true'));
+  assert.ok(cases[1].startsWith('الشركة بلا ضريبة وfalse:') && cases[1].includes('بلا ختم (taxFree = false) ولو كانت بنودها كلها 0') && cases[1].includes('بلا مقارنة لحظة'));
+  assert.ok(cases[2].startsWith('الشركة بلا ضريبة وغائب') && cases[2].includes('clientCreatedAt المصحّحة بلحظة التبديل taxModeChangedAt'));
+  assert.ok(cases[3].startsWith('الشركة بضريبتها وtrue') && cases[3].includes(`الحيّ 409 ${TAX_MODE_CODES.changed}`)
+    && cases[3].includes("مختومة taxFree = true مع einvoiceProvider = 'none' وeinvoiceStatus = null") && cases[3].includes('وبندٌ أكبر من 0 ⇒ بضريبته كما بُني'));
+  assert.ok(cases[4].startsWith('الشركة بضريبتها وfalse أو غائب: بلا أي تغيير'));
+  assert.ok(e1[0].includes('طلب المفتاح يتجاهله وتبقى له قواعده: 422 TAX_DISABLED ولو في المرتجع المرتبط بفاتورة بيع'));
+  assert.ok(e1[0].includes('«إعادة الرفع» هنا صندوق المندوب وحده (X-FS-Replay بجلسة المندوب'));
+  // القاعدة التي قبله: الرسالة المحايدة حرفاً من القواعد المشتركة، والإعادة القديمة بلا builtTaxFree بلحظةٍ مصحّحة
+  const live = post.rules[post.rules.indexOf(e1[0]) - 1];
+  assert.ok(live.includes(TAX_MODE_CODES.changed));
+  assert.ok(live.includes(`'${TAX_MODE_MESSAGES.TAX_MODE_CHANGED}'`), 'الرسالة كما يرسلها الخادم');
+  assert.ok(!/ضريب/.test(TAX_MODE_MESSAGES.TAX_MODE_CHANGED), 'E2: الرسالة محايدة');
+  assert.ok(read(path.join(BACKEND, 'services', 'taxMode.ts')).includes(`TAX_MODE_CHANGED: '${TAX_MODE_MESSAGES.TAX_MODE_CHANGED}'`), 'نسخة الخادم');
+  assert.ok(live.includes('ومستند الصندوق بلا builtTaxFree (إصدارٌ أقدم من التطبيق)') && live.includes('مصحّحةً بفرق ساعة الجهاز X-FS-Device-Now'));
+  // الخادم يفعل ما يَعِده الجدول
+  const inv = routeFile('invoices');
+  assert.match(inv, /builtTaxFree: z\.boolean\(\)\.optional\(\)/);
+  assert.ok(inv.includes('const builtTaxFree = req.user?.apiKeyId ? undefined : body.builtTaxFree;'), 'المفتاح يتجاهله');
+  const block = inv.slice(inv.indexOf('let docTaxFree = false;'), inv.indexOf('const replayDocAt'));
+  assert.ok(block.length > 200, 'كتلة الإزالة');
+  assert.ok(block.includes("const taxRepReplay = isReplay && req.user?.role === 'SALES_REP' && !req.user?.apiKeyId;"), 'كما بُني لصندوق المندوب وحده');
+  assert.ok(block.includes('deviceClockSkewMs(priceDeviceNow, priceNow)'), 'اللحظة مصحّحة بفرق الساعة');
+  assert.ok(block.includes('builtTaxFree === false || (builtTaxFree === undefined'), 'false كما بُني، والغائب بالتوقيت');
+  assert.ok(block.includes('} else if (builtTaxFree === true) {') && block.includes("if (!(isReplay && req.user?.role === 'SALES_REP')) {"), 'الاتجاه المعاكس');
+  // جدول الأخطاء و«ما الجديد»
+  assert.ok(taxRow('409').includes('أو فاتورة سعّرها الجهاز بلا ضريبة (builtTaxFree = true) والشركة أعادت ضريبتها'));
+  const docs = read(path.join(process.cwd(), 'src', 'components', 'ApiDocs.tsx'));
+  const list = docs.slice(docs.indexOf('title="ما الجديد'), docs.indexOf('</ul>', docs.indexOf('title="ما الجديد')));
+  const first = [...list.matchAll(/<li>([^]*?)<\/li>/g)].map((m) => m[1])[0];
+  assert.ok(first.includes('وbuiltTaxFree في جسم POST /api/invoices حقلٌ لشاشات المنصة وتطبيق المندوب يتجاهله المفتاح فلا ترسله'));
 });

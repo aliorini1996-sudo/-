@@ -9,7 +9,7 @@
  */
 import { createContext, useContext } from 'react';
 import { PRINT_NOTES, PRINT_WARNINGS, type TemplateId } from '../../lib/print/printSettings';
-import { TAX_FREE_TITLE_TEXTS, isTaxPhraseKey, type PrintTextEntry, type PrintTextWarning } from '../../lib/print/printTexts';
+import { TAX_FREE_TITLE_TEXTS, isTaxPhraseKey, taxFreeDefaultOf, type PrintTextEntry, type PrintTextWarning } from '../../lib/print/printTexts';
 import { TAX_FREE_SAMPLE_WATERMARK, sampleWatermarkFor } from '../../lib/print/taxFreePrint';
 import type { Company, DocCustomer, InvoiceDoc, ReceiptDoc } from '../../rep/RepDocuments';
 
@@ -40,9 +40,12 @@ export function printTextRowVisible(key: string, taxOff: boolean): boolean {
   return !taxOff || !isTaxPhraseKey(key);
 }
 
-/** النصّ الافتراضي لصفّ المحرّر (تسميته وما يظهر في خانته فارغةً): «فاتورة» و«فاتورة مرتجع» بلا ضريبة، وإلا نصّ القائمة كما هو */
+/**
+ * النصّ الافتراضي لصفّ المحرّر (تسميته وما يظهر في خانته فارغةً): «فاتورة» و«فاتورة مرتجع» بلا ضريبة، و«إجمالي المرتجع» لسطر
+ * إجمالي المرتجع (E3 — ما يطبعه المستند بلا ضريبة: taxFreeDefaultOf)، وإلا نصّ القائمة كما هو
+ */
 export function printTextDefault(entry: Pick<PrintTextEntry, 'key' | 'ar'>, taxOff: boolean): string {
-  return (taxOff && TAX_FREE_TITLE_TEXTS[entry.key]) || entry.ar;
+  return (taxOff && (TAX_FREE_TITLE_TEXTS[entry.key] || taxFreeDefaultOf(entry.key))) || entry.ar;
 }
 
 /**

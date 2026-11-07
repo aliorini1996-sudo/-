@@ -48,9 +48,6 @@ const PRINT_PHRASES: Readonly<Record<string, Partial<Record<PrintSecondLang, str
   'إشعار دائن': { en: 'Credit Note', fr: 'Avoir', tr: 'Alacak Dekontu', zh: '贷项通知单' },
   'إشعار مدين': { en: 'Debit Note', fr: 'Note de débit', tr: 'Borç Dekontu', zh: '借项通知单' },
   'إشعار دائن مرتجع': { en: 'Credit Note (Return)', fr: 'Avoir (retour)', tr: 'İade Alacak Dekontu', zh: '退货贷项通知单' },
-  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): عنوان المرتجع المختوم بلا ضريبة (TAX_FREE_TITLES) — بحروفٍ كبيرة كـ«Invoice»، ولا
-  // يرجع سطره الثاني إلى ترجمة «إشعار دائن مرتجع» (افتراضيّ inv.returnTitle) أبداً
-  'فاتورة مرتجع': { en: 'Return Invoice', fr: 'Facture de retour', tr: 'İade Faturası', zh: '退货发票' },
   'إجمالي المرتجع دائن': { en: 'Total Return (Credit)', fr: 'Total du retour (avoir)' },
   'إجمالي المرتجع': { en: 'Total Return', fr: 'Total du retour' },
   'الرقم الضريبي': { en: 'VAT No.', fr: 'N° de TVA', tr: 'Vergi No', zh: '税号' },
@@ -86,17 +83,46 @@ const PRINT_KEY_PHRASES: Readonly<Record<string, Partial<Record<PrintSecondLang,
   'sel.taxNumber': { en: 'VAT Number', fr: 'N° de TVA', tr: 'Vergi No', zh: '税号' },
 });
 
-/** ترجمة نصّ مفتاحٍ للورقة: ترجمة المفتاح متى كان النصّ افتراضيَّ القائمة نفسه، ثم phraseIn */
+/**
+ * «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦، القراران E3 وE4): النصّ الافتراضيّ للمستند المختوم بلا ضريبة لمفتاحه — عنوان المرتجع
+ * «فاتورة مرتجع» (TAX_FREE_TITLES) و«إجمالي المرتجع» لا «إجمالي المرتجع دائن» — وترجمته للورقة بكل لغة (بحروفٍ كبيرة كـ«Invoice»، ولا
+ * يرجع السطر الثاني إلى ترجمة «إشعار دائن مرتجع» أو «… (avoir)» أبداً). يُترجم بها افتراضيّ القالب نفسه وحده (keyPhraseIn بالنصّ
+ * الذي يمرّره القالب للمستند بلا ضريبة) — لا صياغة الشركة (phraseIn): فشركةٌ بضريبتها حفظت «فاتورة مرتجع» نصّاً تبقى ترجمتها من
+ * القاموس كما كانت حرفاً، وليست في PRINT_PHRASES.
+ */
+const TAX_FREE_KEY_PHRASES: Readonly<Record<string, Readonly<{ ar: string } & Record<PrintSecondLang, string>>>> = Object.freeze({
+  'inv.returnTitle': Object.freeze({ ar: 'فاتورة مرتجع', en: 'Return Invoice', fr: 'Facture de retour', tr: 'İade Faturası', zh: '退货发票' }),
+  'tot.returnGrand': Object.freeze({ ar: 'إجمالي المرتجع', en: 'Total Return', fr: 'Total du retour', tr: 'Toplam İade', zh: '退货合计' }),
+});
+
+/** النصّ الافتراضيّ للمفتاح على المستند بلا ضريبة (TAX_FREE_KEY_PHRASES) أو null — والقالب يمرّره خلف الختم وحده */
+export function taxFreeDefaultOf(key: string): string | null {
+  return Object.prototype.hasOwnProperty.call(TAX_FREE_KEY_PHRASES, key) ? TAX_FREE_KEY_PHRASES[key].ar : null;
+}
+
+/** ترجمة النصّ الافتراضيّ للمستند بلا ضريبة بمفتاحه — null لنصٍّ غيره (فلا يتغيّر شيءٌ لغيره) */
+export function taxFreeDefaultIn(key: string, ar: string, lang: PrintSecondLang): string | null {
+  return taxFreeDefaultOf(key) === ar ? TAX_FREE_KEY_PHRASES[key][lang] : null;
+}
+
+/** ترجمة نصّ مفتاحٍ للورقة: ترجمة المفتاح متى كان النصّ افتراضيَّ القائمة نفسه (أو افتراضيَّ المستند بلا ضريبة)، ثم phraseIn */
 function keyPhraseIn(key: string, ar: string, lang: PrintSecondLang): string | null {
   const entry = printTextEntry(key);
-  const own = entry && ar === entry.ar ? PRINT_KEY_PHRASES[key]?.[lang] : undefined;
+  const own = entry && ar === entry.ar ? PRINT_KEY_PHRASES[key]?.[lang] : (taxFreeDefaultIn(key, ar, lang) ?? undefined);
   return own ?? phraseIn(ar, lang);
 }
+
+/**
+ * عباراتٌ ترجمتها للورقة PRINT_PHRASES وحدها: «إجمالي المرتجع» يدخل القاموس لشاشات الواجهة («إزالة الضريبة»، E3) — ولا يغيّر ذلك
+ * سطراً ثانياً تطبعه اليوم شركةٌ صاغت سطراً بهذا النصّ (التركية والصينية بلا ترجمة كما كانتا: E4)
+ */
+const PRINT_ONLY_PHRASES: ReadonlySet<string> = new Set(['إجمالي المرتجع']);
 
 /** نصّ اللغة الثانية للورقة — ترجمة الطباعة ثم القاموس؛ null لنصٍّ خارجهما */
 export function phraseIn(ar: string, lang: PrintSecondLang): string | null {
   const fix = PRINT_PHRASES[ar]?.[lang];
   if (fix) return fix;
+  if (PRINT_ONLY_PHRASES.has(ar)) return null;
   const p = PHRASES[ar];
   return p ? p[lang] ?? null : null;
 }
@@ -164,7 +190,8 @@ const NO_EDIT: PrintTextEdit = Object.freeze({ text: null, alt: null, hidden: fa
 
 /** ما يصوغه inv.title (عناوين الفاتورة) وinv.returnTitle (عناوين الإشعار الدائن) من عناوين القرار — والإشعار المدين inv.debitTitle، وعناوين الحالة بمفاتيحها (titleKeyOf) */
 const INVOICE_TITLES: ReadonlySet<string> = new Set(['فاتورة ضريبية مبسطة', 'فاتورة ضريبية', 'فاتورة']);
-// و«فاتورة مرتجع» (عنوان المرتجع المختوم بلا ضريبة — TAX_FREE_TITLES): صياغة الشركة لعنوان المرتجع تسري عليه كما تسري «فاتورة» بـinv.title
+// و«فاتورة مرتجع» (عنوان المرتجع المختوم بلا ضريبة — TAX_FREE_TITLES): صياغة الشركة لعنوان المرتجع تسري عليه كما تسري «فاتورة» بـinv.title.
+// لا يبلغه مستندٌ بضريبته: titleKeyOf يُسأل بعنوان القرار، وقرار الشركة بضريبتها لا يعطي «فاتورة مرتجع» أبداً (lib/zatca/docPrint.ts)
 const RETURN_TITLES: ReadonlySet<string> = new Set(['إشعار دائن مرتجع', 'إشعار دائن', 'فاتورة مرتجع']);
 /** عنوان الإشعار المدين في قرار المرحلة الثانية — يصوغه inv.debitTitle */
 const DEBIT_TITLE = 'إشعار مدين';
@@ -275,7 +302,8 @@ export function makePrintTexts(
       /* ترجمةٌ كُتبت بلا صياغةٍ عربية تخصّ العنوان الذي تترجمه (entry.ar: «فاتورة ضريبية مبسطة») — فلا تُطبع تحت عنوان قرارٍ آخر
        * («فاتورة ضريبية» للقياسية أو «فاتورة» خارج السعودية): ذاك يُترجم من القاموس، وإلا وصفت الإنجليزيةُ فاتورةً قياسية بأنها مبسّطة */
       if (e.text === null && e.alt !== null && decided !== printTextEntry(key)?.ar) {
-        const v = lang ? phraseIn(decided, lang) : null;
+        // keyPhraseIn: «فاتورة مرتجع» (عنوان المستند بلا ضريبة) بترجمته للورقة — وما سواه phraseIn نفسها حرفاً
+        const v = lang ? keyPhraseIn(key, decided, lang) : null;
         return { text: primary, alt: v && v !== primary ? v : null };
       }
       return { text: primary, alt: altOf(key, decided, primary) };

@@ -68,7 +68,8 @@ export function repOfflineTaxFree(company: TaxModeCompany | null | undefined, li
   return isTaxOff(company) && lines.length > 0 && lines.every((l) => Number(l.taxPct) === 0);
 }
 
-/** ردّ الخادم: نسبة ضريبةٍ لشركةٍ أُزيلت ضريبتها بعد آخر قراءةٍ للجهاز لإعداداتها (409 TAX_MODE_CHANGED) — يُجلب /company ويُعاد التسعير */
+/** ردّ الخادم: الجهاز سعّر بوضعٍ غير وضع الشركة الآن (409 TAX_MODE_CHANGED) — أُزيلت الضريبة بعد آخر قراءةٍ للجهاز لإعداداتها، أو أُعيدت
+ * وحمولته builtTaxFree: true (E1/E2) — يُجلب /company ويُعاد التسعير بالاتجاهين (repRetaxLines) */
 export function isTaxModeChanged(err: unknown): boolean {
   const data = (err as { response?: { data?: { code?: unknown } } } | null | undefined)?.response?.data;
   return data?.code === TAX_MODE_CODES.changed;

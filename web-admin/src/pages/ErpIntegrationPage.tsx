@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, AlertTriangle, CheckCircle2, DatabaseZap, Info, Loader2, Play, Save, ServerCog, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { erpApi } from '../api/client';
+import { companyApi, erpApi } from '../api/client';
 import { ErpIntegration, ErpSyncLog } from '../types';
 import { formatDateTime } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useAccountingOn } from '../components/AccountingGate';
+import { isTaxOff } from '../lib/taxMode';
 
 type FormState = ErpIntegration & {
   apiKey?: string;
@@ -126,6 +127,14 @@ export default function ErpIntegrationPage() {
   // مسارات مزامنة الأصناف والفواتير والسندات محاسبية: تختفي مع المحاسبة
   // ويبقى مسار العملاء — والإعداد المحفوظ لا يُمسّ لأننا نخفي لا نُصفّر.
   const { on: accountingFlag, ready: accountingReady } = useAccountingOn();
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): علم الشركة من ردّ /company (ذاكرة ['company'] نفسها التي تقرؤها بوّابة المحاسبة،
+  // فلا طلب زائد) — بلا ضريبة ⇒ لا تحذير «هيئة الزكاة» (مستنداتها لا تُبلَّغ أصلاً)، وتبقى عبارة المسودات والسندات
+  const { data: companyCfg } = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as { taxDisabled?: boolean } | null,
+    staleTime: 300_000,
+  });
+  const taxOff = isTaxOff(companyCfg);
   const accountingOn = accountingReady && accountingFlag;
   const busy = saveMutation.isPending || testMutation.isPending || syncMutation.isPending;
 
@@ -195,7 +204,7 @@ export default function ErpIntegrationPage() {
                   <AlertTriangle size={16} className="shrink-0 mt-1" />
                   <div>
                     <p>{tr('الفواتير تصل إلى Odoo مسودات لا تُرحَّل آلياً، وسندات القبض سجلات للمراجعة لا دفعات محاسبية.')}</p>
-                    <p>{tr('إن كانت فواتيرك تُبلَّغ لهيئة الزكاة من Field Sales وOdoo لديك مربوط بالهيئة أيضاً، فلا ترحّلها في Odoo: ترحيلها هناك يبلّغها مرة ثانية.')}</p>
+                    {!taxOff && <p>{tr('إن كانت فواتيرك تُبلَّغ لهيئة الزكاة من Field Sales وOdoo لديك مربوط بالهيئة أيضاً، فلا ترحّلها في Odoo: ترحيلها هناك يبلّغها مرة ثانية.')}</p>}
                   </div>
                 </div>
               )}

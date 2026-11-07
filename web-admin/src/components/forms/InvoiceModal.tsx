@@ -13,6 +13,7 @@ import { zatcaDocView } from '../../lib/zatca/docStatus';
 import { buyerNoticeOf, buyerNoticeText, zatcaIssueOutcome } from '../../lib/zatca/issueOutcome';
 import { zatcaRegimeOf } from '../../lib/zatcaRegime';
 import { isTaxOff, effectiveTaxPct, TAX_MODE_CODES, TAX_MODE_MESSAGES } from '../../lib/taxMode';
+import { retaxRestoredLines } from '../../lib/invoiceModalRetax';
 import {
   RETURN_REASONS, type ReturnReason, type ReturnableSaleRow, type LinkedSale, type ReturnHead,
   toLinkedSale, linkedSaleProblem, clampReturnQty, fillLinkedQty, isLineReturnable, linkedReturnTotals,
@@ -419,6 +420,14 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   useEffect(() => {
     if (taxOff) setLines(ls => (ls.some(l => l.taxPct !== 0) ? ls.map(l => ({ ...l, taxPct: 0, lineTotal: calcLine(l.qty, l.unitPrice, l.discountPct, 0) })) : ls));
   }, [taxOff]);
+  // وعادت الضريبة والنافذة مفتوحة (E2: ردّ 409 أو تجدّد قراءة الشركة): البنود المسعَّرة بلا ضريبة بنسبة صنفها الفعلية وسعرها الصافي
+  // كما هو (retaxRestoredLines). الوضع السابق من taxOffSeen: أول قراءةٍ للشركة ليست عودة، والشركة التي لم تتبدّل كما كانت حرفاً
+  const taxOffSeen = useRef(taxOff);
+  useEffect(() => {
+    const wasOff = taxOffSeen.current;
+    taxOffSeen.current = taxOff;
+    if (wasOff && !taxOff) setLines(ls => retaxRestoredLines(ls, products, company, calcLine));
+  }, [taxOff]); // eslint-disable-line react-hooks/exhaustive-deps
   /** عميلٌ آخر: الفاتورة تعود إلى نوعها الافتراضي (نوع سعره من ملفه ?? نوع المندوب) — والمدير يبدّله برقاقة */
   const pickCustomerList = (id: string) => { if (id !== customerId) setListChoice(undefined); };
   const setLinkedQty = (saleItemId: string, v: number) =>
@@ -527,8 +536,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
       onSaved(doc);
     },
     onError: (err: unknown, vars) => {
-      /* «إزالة الضريبة»: أُزيلت ضريبة الشركة بعد فتح النافذة (409 TAX_MODE_CHANGED) — تُعاد قراءة الشركة فتصير البنود بنسبة صفر
-       * (الأثر أعلاه) والمرتجع المرتبط بلا ضريبة، ويُعاد الإصدار. لا رمز آخر يمرّ من هنا */
+      /* «إزالة الضريبة» (E2): وضع الشركة تبدّل بعد فتح النافذة (409 TAX_MODE_CHANGED بالاتجاهين: builtTaxFree يخالفه) — تُعاد قراءة
+       * الشركة فتنقلب البنود (الأثران أعلاه) والمرتجع المرتبط، بالرسالة المحايدة، ويُعاد الإصدار. لا رمز آخر يمرّ من هنا */
       if ((err as { response?: { data?: { code?: string } } })?.response?.data?.code === TAX_MODE_CODES.changed) {
         void qc.invalidateQueries({ queryKey: ['company'] });
         toast.error(tr(TAX_MODE_MESSAGES.TAX_MODE_CHANGED), { duration: 8000 });
@@ -709,6 +718,9 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
         paymentPlan: 'INSTALLMENT',
         installmentPlan: { count: insCount, firstDueDate: insFirst, period: insPeriod },
       }),
+      // «إزالة الضريبة» (CONTRACT2 E1): الوضع الذي سُعِّرت به البنود مُعلَناً دائماً (isTaxOff للشركة كما قرأتها النافذة) — يخالف وضعها
+      // الآن ⇒ 409 TAX_MODE_CHANGED فتُجلب الشركة وتنقلب نسب البنود ثم يُعاد الإصدار
+      builtTaxFree: taxOff,
       // «تتبّع اللوط»: سطرٌ بتشغيلةٍ مختارة يحمل lots بالكمية الأساسية (withSaleLots)؛ و«تلقائي» بنده كما كان حرفاً
       items: withSaleLots(lines.map(l => ({
         productId: l.productId, qty: l.qty, unitPrice: l.unitPrice,
@@ -1136,7 +1148,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                   <div className="flex justify-between text-red-500"><span>{tr('إجمالي الخصم')}</span><span>- {formatCurrency(shown.discountAmt)}</span></div>
                 )}
                 {!taxOff && <div className="flex justify-between text-[#E15A30]"><span>{tr('ضريبة القيمة المضافة')}</span><span>{formatCurrency(shown.taxAmt)}</span></div>}
-                <div className="flex justify-between font-bold text-lg border-t pt-2 text-amber-700"><span>{tr('إجمالي المرتجع دائن')}</span><span>{formatCurrency(shown.total)}</span></div>
+                <div className="flex justify-between font-bold text-lg border-t pt-2 text-amber-700"><span>{taxOff ? tr('إجمالي المرتجع') : tr('إجمالي المرتجع دائن')}</span><span>{formatCurrency(shown.total)}</span></div>
                 {phase2 && linked && <p className="text-[11px] text-gray-500 leading-relaxed">{tr('تقديري يحسب الإشعار الدائن من أسعار الفاتورة الأصلية')}</p>}
               </div>
             </div>

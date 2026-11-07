@@ -396,7 +396,8 @@ export interface ReturnHead {
   phase2: boolean;
   /** سبب الإشعار الدائن — يُرسَل في المرحلة الثانية وحدها (لا عمود له في مرتجع المرحلة الأولى) */
   noteReason?: string;
-  /** «إزالة الضريبة»: الشركة بلا ضريبة (isTaxOff) ⇒ نسبة كل بندٍ مُرسَل صفر (المرتبط بمبلغه نفسه). الغائب = الجسم كما كان حرفاً */
+  /** «إزالة الضريبة»: الشركة بلا ضريبة (isTaxOff) ⇒ نسبة كل بندٍ مُرسَل صفر (المرتبط بمبلغه نفسه). الغائب = بنود الجسم كما كانت حرفاً.
+   * والجسم يعلن به الوضع الذي سُعِّر به دائماً (`builtTaxFree` — CONTRACT2 E1): true له وإلا false */
   taxOff?: boolean;
 }
 
@@ -417,6 +418,8 @@ export function buildLinkedReturnPayload(head: ReturnHead, sale: LinkedSale, dec
     notes: head.notes,
     ...(!head.phase2 && head.invoiceDate && { invoiceDate: head.invoiceDate }),
     ...(head.phase2 && { noteReason: (head.noteReason ?? '').trim() }),
+    // «إزالة الضريبة» (CONTRACT2 E1): الوضع الذي سُعِّرت به البنود — يخالف وضع الشركة الآن ⇒ 409 TAX_MODE_CHANGED فتُجلب ويُعاد الإصدار
+    builtTaxFree: head.taxOff === true,
     items: activeLinkedLines(sale.lines).map((l) => ({
       productId: l.productId,
       invoiceItemId: l.saleItemId,
@@ -441,6 +444,8 @@ export function buildFreeReturnPayload(head: ReturnHead, lines: FreeReturnLine[]
     notes: head.notes,
     ...(!head.phase2 && head.invoiceDate && { invoiceDate: head.invoiceDate }),
     ...(head.phase2 && { noteReason: (head.noteReason ?? '').trim() }),
+    // «إزالة الضريبة» (CONTRACT2 E1): كالمرتبط
+    builtTaxFree: head.taxOff === true,
     items: lines.map((l) => ({
       productId: l.productId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: head.taxOff ? 0 : l.taxPct,
       // بلا وحدة يدخل المرتجع السيارة بالأساس: «٢» كرتونان تصير حبّتين

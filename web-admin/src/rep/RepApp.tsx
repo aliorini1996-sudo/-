@@ -2602,6 +2602,11 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
      * تُسقط في حارس الخادم قاعدةً كُتبت بعد آخر جلبٍ للجهاز ولو سبقت البيع. لا قائمة في الكاش أو مرتجعٌ من فاتورة بيع: لا مفتاح */
     const pricesSeenAt = saleRef ? null : repPricesSeenAt(listRows, listId);
     if (pricesSeenAt) Object.assign(payload, { pricesSeenAt });
+    /* «إزالة الضريبة» (E1): الوضع الذي سعّر به الجهاز البنود (isTaxOff لإعدادات الشركة المخبّأة — taxOff نفسه الذي بنى نِسَبها وأسعارها)،
+     * مُعلَناً دائماً (true/false). في الحمولة فيحفظه الصندوق الأوف‑لاين ويُعاد مع الرفع كما بُني، لا في مفتاح المحاولة كـpricingDay.
+     * الخادم يحكم به: جهازٌ سعّر «بلا ضريبة» والشركة أعادتها (أو العكس) ⇒ 409 TAX_MODE_CHANGED للإصدار المتصل، والرفع يُحفظ كما بُني
+     * ويطابق الورقة التي بيد العميل. وعميلٌ قديم بلا المفتاح: سلوك الخادم كما كان */
+    Object.assign(payload, { builtTaxFree: taxOff });
     // الطباعة من نتائج المحرك نفسها: سطر البند يساوي حصته من الاجمالي حتما
     const printItems = lines.map((l, i) => ({
       // لقطة الوحدة نفسها التي أُرسلت — فورقة الإصدار تطابق ورقة إعادة الفتح (invoiceDocFromDetail)
@@ -2719,7 +2724,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           setMsg(tr('لا يمكن إصدار فاتورة ضريبية أو مرتجع دون اتصال المرحلة الثانية مفعلة')); setLoading(false); return;
         }
         const provider = (company as any)?.einvoiceProvider;
-        if (['eta', 'peppol', 'ttn'].includes(provider)) {
+        // «إزالة الضريبة» (E6): الشركة «بلا ضريبة» لا تخليص لمستنداتها (الخادم يختمها einvoiceProvider 'none') — فلا منع ولا رسالة تخليص
+        if (!taxOff && ['eta', 'peppol', 'ttn'].includes(provider)) {
           // أسواق التخليص الحكومي اللحظي: لا يُسمح بالإصدار أوف‑لاين (قرار المالك)
           setMsg(tr('لا يمكن إصدار فاتورة دون اتصال في هذا السوق يتطلب تخليصا حكوميا لحظيا')); setLoading(false); return;
         }
@@ -2743,6 +2749,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           subtotal, discount, tax, total,
           paidAmt: paid, remainingAmt: isReturn ? 0 : total - paid,
           // «إزالة الضريبة»: الشركة بلا ضريبة وكل بنود الحمولة صفر ⇒ ورقةٌ بلا أي ذكرٍ لها، كما يختمها الخادم حين يُرفع الصندوق (X-FS-Replay)
+          // — والحمولة المصفوفة تحمل builtTaxFree (الوضع نفسه) فيُختم كذلك ولو انقلب وضع الشركة قبل الرفع أو خالفت ساعة الجهاز (E1)
           ...(repOfflineTaxFree(company, payload.items) && { taxFree: true }),
         });
       } else {
@@ -2769,8 +2776,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         // «اشتراط اختيار فاتورة البيع للمرتجع» ورقم الأصل اليدويّ (RETURN_LINK_REQUIRED، ZATCA_RETURN_REF_INVALID،
         // ZATCA_RETURN_REF_IN_SYSTEM): عبارة القاموس بلغة المندوب — الإعداد تغيّر بعد تحميل الشاشة، أو رقمٌ يُردّ
         if (isReturn && RETURN_POLICY_CODES.has(err?.response?.data?.code)) { setMsg(tr(returnIssueError(err).message)); setLoading(false); return; }
-        // «إزالة الضريبة»: الشركة أزالتها بعد آخر قراءةٍ للجهاز لإعداداتها (409 TAX_MODE_CHANGED) — تُجلب /company وكاشها الآن فتنقلب السلّة
-        // إلى الوضع الجديد (مؤثّر taxOff: النسب صفر وغير المعدَّل بسعره الصافي)، برسالةٍ بلا ذكرٍ للضريبة، ثم يعيد المندوب الإصدار
+        // «إزالة الضريبة» (E2): الشركة أزالتها أو أعادتها بعد آخر قراءةٍ للجهاز لإعداداتها (409 TAX_MODE_CHANGED، بالاتجاهين: builtTaxFree
+        // يخالف وضعها الآن) — تُجلب /company وكاشها الآن فتنقلب السلّة إلى الوضع الجديد (مؤثّر taxOff ⇐ repRetaxLines: عند الإزالة النسب صفر
+        // وغير المعدَّل بسعره الصافي، وعند العودة نسب الأصناف وغير المعدَّل بشامله من جديد)، برسالةٍ بلا ذكرٍ للضريبة، ثم يعيد المندوب الإصدار
         if (isTaxModeChanged(err)) { onCompanyStale?.(); setMsg(tr('تغيرت إعدادات الشركة راجع الأسعار ثم أعد الإصدار')); setLoading(false); return; }
         setMsg(err?.response?.data?.message || tr('تعذر إصدار المستند حاول مجددا')); setLoading(false);
       }

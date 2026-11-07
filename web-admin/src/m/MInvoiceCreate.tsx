@@ -275,6 +275,9 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
           paymentPlan: 'INSTALLMENT',
           installmentPlan: { count: insCount, firstDueDate: insFirst, period: insPeriod },
         }),
+        // «إزالة الضريبة» (CONTRACT2 E1): الوضع الذي سُعِّرت به البنود مُعلَناً دائماً (isTaxOff لإعدادات الشركة التي تحملها الشاشة) —
+        // يخالف وضعها الآن (ولو أُعيدت الضريبة قبل دورة التجديد) ⇒ 409 TAX_MODE_CHANGED فتُجلب الإعدادات وتنقلب نسب البنود
+        builtTaxFree: taxOff,
         items: lines.map(l => ({
           productId: l.productId, qty: l.qty,
           unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct,
@@ -302,8 +305,9 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
       // وحدات صنفٍ تغيّرت منذ فُتحت القائمة: تُجلب من جديد فيتحدّث منتقي البند — ورسالة الخادم تسمّي الصنف. وسباقٌ مع «إضافة
       // وحدة فرعية أصغر» (409 PRODUCT_UNITS_CHANGED) مثله؛ أمّا 503 PRODUCT_UNITS_BUSY فرسالته وحدها (الكتالوج لم يتغيّر بعد)
       if (refetchUnitsOn(e)) qc.invalidateQueries({ queryKey: ['m-inv-products'] });
-      // «إزالة الضريبة»: الشركة أُزيلت ضريبتها بعد آخر قراءةٍ لإعداداتها (409 TAX_MODE_CHANGED) — تُجلب فوراً فيصل العلم هذه الشاشة
-      // فتصير نسبة كل بندٍ صفراً (retaxInvoiceLines أعلاه) بسعره المكتوب، ويُعاد الإصدار
+      // «إزالة الضريبة» (E2): وضع الشركة تبدّل بعد آخر قراءةٍ لإعداداتها (409 TAX_MODE_CHANGED بالاتجاهين — أُزيلت الضريبة أو أُعيدت
+      // وbuiltTaxFree يخالفها) — تُجلب فوراً فيصل العلم هذه الشاشة فتنقلب نسبة كل بندٍ (retaxInvoiceLines أعلاه: صفرٌ أو نسبة صنفه)
+      // بسعره المكتوب، بالرسالة المحايدة، ويُعاد الإصدار
       if (taxModeChangedOf(e)) {
         requestCompanyRefetch();
         toast.error(tr(TAX_MODE_MESSAGES.TAX_MODE_CHANGED));

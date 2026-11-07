@@ -20,7 +20,7 @@ import {
   vanRemainingFor, vanShortage, vanStockHeldBody,
 } from '../services/repSaleStock';
 import {
-  DEVICE_NOW_HEADER, devicePriceInstant, devicePricingDay, headerText, offlineInvoiceDate, priceRulesKnownAt, rawDeviceMoment, rowsKnownAt,
+  DEVICE_NOW_HEADER, deviceClockSkewMs, devicePriceInstant, devicePricingDay, headerText, offlineInvoiceDate, priceRulesKnownAt, rawDeviceMoment, rowsKnownAt,
 } from '../services/offlineInvoiceDate';
 import { catalogTeamsFor, resolveDocTeam, supervisorViewerOf, teamCatalogProblem, teamMembershipSelectFor } from '../services/teams';
 // «لوكيشن»: ختم الفاتورة بموقع مندوبها وقت الإصدار، والمرتبط يرث ختم أصله (services/locations.ts)
@@ -251,6 +251,10 @@ const createInvoiceSchema = z.object({
   // حدُّ ما عرفه من القواعد min(لحظة الإصدار، هي) إن لم تكن بعد الإصدار ولا أقدم منه بثلاثين يوماً (priceRulesKnownAt)؛ والحيّ لا يقرؤها.
   // تلميحٌ لا يحكم كـpricingDay: تالفةٌ أو بغير نوعها تُهمل بصمت
   pricesSeenAt: z.string().max(64).nullish().catch(undefined),
+  // «إزالة الضريبة» (CONTRACT2 E1): الوضع الذي سعّر به الجهاز البنود — isTaxOff(الشركة) كما عرفها لحظتها. يرسله تطبيق المندوب
+  // والإدارة و/m والمرتجع، والصندوق يعيده كما هو (خارج مفتاح الإعادة كـpricingDay). للجلسة وحدها: مفتاح API يتجاهله. غيابه
+  // (عميلٌ قديم) ⇒ السلوك القائم حرفاً
+  builtTaxFree: z.boolean().optional(),
   // ═══ خطة السداد ═══
   // `type` يبقى CASH|CREDIT|RETURN حرفياً: التقسيط بيعٌ آجل بجدول، لا نوع رابع.
   // انظر تعليق `paymentPlan` في المخطط لسبب المنع.
@@ -1293,13 +1297,23 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
      *    ويسعّر من جديد؛ لا تصفيرٌ صامت (سعرٌ شاملٌ قديم بنسبة صفر زيادةٌ صامتة على العميل).
      *  • مفتاح API ببندٍ نسبته فوق الصفر: 422 TAX_DISABLED (الغائب صفر) — والمرتجع من فاتورة بيع كذلك: المُكامِل يُبلَّغ فلا تفترق دفاتره.
      *  • المرتجع من فاتورة بيع بجلسة: مبلغه من بند البيع على الخادم (priceLinkedReturn) فلا أثر لنسبة الجسم فيه حيّاً — صفرٌ بالمبلغ نفسه.
-     * والشركة بضريبتها (taxDisabled false أو غائب): لا شيء مما هنا، والمسار كله كما كان حرفاً بحرف */
+     * والشركة بضريبتها (taxDisabled false أو غائب): لا شيء مما هنا، والمسار كله كما كان حرفاً بحرف.
+     *
+     * الوضع الذي سعّر به الجهاز (body.builtTaxFree — CONTRACT2 E1؛ للجلسة وحدها، ومفتاح API يتجاهله) يحسم إعادة الرفع بدل اللحظة:
+     *  • الشركة بلا ضريبة وtrue: إعادة الرفع كما بُنيت (صفرٌ ⇒ مختوم) بلا مقارنة لحظة؛ والحيّ قواعده أعلاه.
+     *  • الشركة بلا ضريبة وfalse: إعادة الرفع مسار اليوم كما بُنيت (سعّر الجهاز بالضريبة — ولو بنوده صفر)؛ والحيّ قواعده أعلاه.
+     *  • غائب (عميلٌ قديم): السلوك القائم، ولحظة الجهاز مصحَّحةٌ بانحراف ساعته (deviceClockSkewMs — X-FS-Device-Now كتأريخ المستند).
+     *  • الشركة بضريبتها وtrue (كاش جهازٍ قديم بعد إعادة الضريبة): الحيّ 409 TAX_MODE_CHANGED فيجلب الشركة ويعيد التسعير؛ وإعادة رفع
+     *    المندوب كل بنودها صفر ⇒ مختومة بلا ضريبة (none/null) فتطابق ورقة العميل، وبندٌ فوق الصفر ⇒ كما بُني.
+     *  • الشركة بضريبتها وfalse أو غائب: لا شيء — المسار حرفاً بحرف */
     let docTaxFree = false;
+    const builtTaxFree = req.user?.apiKeyId ? undefined : body.builtTaxFree;
     if (isTaxOff(company)) {
       const taxRepReplay = isReplay && req.user?.role === 'SALES_REP' && !req.user?.apiKeyId;
-      const taxDeviceMs = taxRepReplay && deviceAt ? Date.parse(deviceAt) : NaN;
+      const taxDeviceMs = taxRepReplay && deviceAt ? Date.parse(deviceAt) + deviceClockSkewMs(priceDeviceNow, priceNow) : NaN;
       const taxChangedMs = company?.taxModeChangedAt ? new Date(company.taxModeChangedAt).getTime() : NaN;
-      const taxReplayPredates = Number.isFinite(taxDeviceMs) && Number.isFinite(taxChangedMs) && taxDeviceMs < taxChangedMs;
+      const taxReplayPredates = taxRepReplay && (builtTaxFree === false || (builtTaxFree === undefined
+        && Number.isFinite(taxDeviceMs) && Number.isFinite(taxChangedMs) && taxDeviceMs < taxChangedMs));
       const taxed = body.items.some((it) => (it.taxPct ?? 0) > 0);
       if (!taxReplayPredates && !(taxed && taxRepReplay)) {
         if (taxed && (req.user?.apiKeyId || !(body.type === 'RETURN' && body.originalInvoiceId))) {
@@ -1308,6 +1322,16 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           }
           res.status(409).json({ success: false, code: TAX_MODE_CODES.changed, message: TAX_MODE_MESSAGES.TAX_MODE_CHANGED }); return;
         }
+        for (const it of body.items) it.taxPct = 0;
+        docTaxFree = true;
+      }
+    } else if (builtTaxFree === true) {
+      // الشركة بضريبتها والجهاز سعّر بلا ضريبة (E1): الحيّ يُعاد تسعيره، وإعادة رفع المندوب صفراً تُختم كورقتها
+      if (!(isReplay && req.user?.role === 'SALES_REP')) {
+        res.status(409).json({ success: false, code: TAX_MODE_CODES.changed, message: TAX_MODE_MESSAGES.TAX_MODE_CHANGED }); return;
+      }
+      // والختم لشركةٍ مرّت بإزالة الضريبة فعلاً (taxModeChangedAt) — وإلا فالمسار كما بُني اليوم حرفياً
+      if (company?.taxModeChangedAt != null && body.items.every((it) => (it.taxPct ?? 0) === 0)) {
         for (const it of body.items) it.taxPct = 0;
         docTaxFree = true;
       }
@@ -1661,7 +1685,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
      * المسار القديم كما لو لم يكن الفرع. وكلّ ما عدا ذلك ردٌّ جاهز: 201/202 للإصدار، و426 لحزمة قديمة، و409 لإعادة
      * رفعٍ من قبل التفعيل، و422 لبيانات المشتري أو المبالغ، و503 لوحدة محجوبة.
      */
-    if (regimeCandidate({
+    // مستندٌ مختوم «بلا ضريبة» (docTaxFree) لا يدخل فرع المرحلة الثانية أبداً — صدر بلا ضريبة فيبقى بالمسار القديم وختمه
+    if (!docTaxFree && regimeCandidate({
       tenantId: tid,
       settings: {
         countryCode: company?.countryCode ?? null,

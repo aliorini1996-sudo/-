@@ -1096,7 +1096,8 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
       {/* ورقةٌ بلا تفصيل ضريبة وأسعارها غير شاملة: «المجموع − الخصم» لا يساوي الإجمالي، والفرق بلا سطر يفسّره.
           فيقوله عنوانُ السطر نفسه — بلا نسبة ولا وعاء، فتبقى الورقة غير ضريبية */}
       {!grandGone && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderTop: `2px solid ${brand}`, marginTop: 6, fontWeight: 700, fontSize: f(18), color: doc.isReturn ? '#b45309' : brand }}>
-        <span>{doc.isReturn ? L('tot.returnGrand', 'إجمالي المرتجع دائن')
+        {/* «إزالة الضريبة» (E3): المرتجع المختوم بلا ضريبة «إجمالي المرتجع» لا «… دائن» — وصياغة الشركة للسطر تسري كاليوم */}
+        <span>{doc.isReturn ? L('tot.returnGrand', zDecision.hideTaxIds ? 'إجمالي المرتجع' : 'إجمالي المرتجع دائن')
           : !zDecision.showTaxBreakdown && !inclusiveDoc && doc.tax > 0 ? V('المبلغ المستحق شامل الضرائب')
           : L('tot.grand', 'الإجمالي النهائي')}</span>
         <span>{formatCurrency(doc.total)}</span>

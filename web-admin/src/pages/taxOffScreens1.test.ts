@@ -14,7 +14,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { TAX_FREE_TITLES, TAX_MODE_CONFIRM_OFF, TAX_MODE_HINT, TAX_MODE_LABEL, TAX_MODE_MESSAGES } from '../lib/taxMode';
 import {
-  CUSTOMER_EXPORT_TAX_COL, TAX_MODE_BLOCKED_TEXT, customerExportColWidths, taxModeBlockedByZatca, taxModeChecked, taxModeErrorCode,
+  CUSTOMER_EXPORT_TAX_COL, TAX_MODE_BLOCKED_TEXT, TAX_MODE_REASON_TEXT, customerExportColWidths, taxModeBlockedByZatca, taxModeChecked, taxModeErrorCode,
   taxModeErrorMessage,
 } from './taxOffScreens1';
 import {
@@ -126,7 +126,8 @@ test('إعدادات الشركة (المصدر): بطاقة المفتاح لم
   assert.equal(card.split('window.confirm(').length - 1, 1, 'الإعادة بلا تأكيد');
   assert.ok(card.includes("qc.invalidateQueries({ queryKey: ['company'] });"), 'لا تحديث لبقية الشاشات بعد القلب');
   assert.ok(card.includes('{tr(TAX_MODE_LABEL)}') && card.includes('{tr(TAX_MODE_HINT)}'));
-  assert.ok(card.includes('const known = taxModeErrorMessage(err);'), 'رسالة 409 من TAX_MODE_MESSAGES');
+  // رسالة 409 بعبارة كل سببٍ من reasons[] أو بعبارة الرمز (TAX_MODE_MESSAGES) — قرار E6 (taxOffScreens3.test.ts)
+  assert.ok(card.includes('const known = taxModeRefusalLines(err);'), 'رسالة 409 من TAX_MODE_MESSAGES');
   assert.ok(card.includes('disabled={save.isPending || blocked}'));
   // ما يُخفى للشركة بلا ضريبة — والشرط نفسه كما كان لغيرها
   assert.ok(s.includes("{accountingOn && !taxOff && (\n          <div className=\"card\">"), 'بطاقة الفوترة الإلكترونية');
@@ -185,11 +186,11 @@ test('إعدادات الشركة بضريبتها: الحقول والبطاق�
   }
   const card = html.slice(html.indexOf('data-tax-mode'));
   assert.doesNotMatch(card.slice(0, card.indexOf('</label>')), /checked=""/);
-  // المفتاح معطّل برسالة المنع لشركةٍ ربطها مفعّل
+  // المفتاح معطّل برسالة المنع لشركةٍ ربطها مفعّل — بعبارة سببها (علم المالك) منذ قرار E6
   const blocked = await renderSettings({ ...SA_COMPANY, zatcaPhase2Enabled: true });
   const bc = blocked.slice(blocked.indexOf('data-tax-mode'));
   assert.match(bc.slice(0, bc.indexOf('</label>')), /disabled=""/);
-  assert.ok(bc.includes(TAX_MODE_MESSAGES.TAX_MODE_ZATCA_CONFLICT));
+  assert.ok(bc.includes(TAX_MODE_REASON_TEXT.TENANT_FLAG));
 });
 
 // ═══ الأصناف والعملاء ═══

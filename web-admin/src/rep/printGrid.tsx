@@ -514,6 +514,17 @@ interface Col {
   align?: 'right' | 'center';
 }
 
+/**
+ * «إزالة الضريبة» (E4): سطر العنوان الثاني للمستند المختوم بلا ضريبة — ترجمة المحلِّل لمفتاح العنوان (pt.en: نصّ الشركة الثاني، أو
+ * ترجمة صياغتها من القاموس، أو ترجمة الورقة لعنوان القرار «فاتورة مرتجع» ⇒ «Return Invoice») حين لا يحمل العنوان سطراً ثانياً؛
+ * والمستند بضريبته لا يمرّ هنا (ترجمة نصّ العنوان من القاموس كما كانت حرفاً)
+ */
+function taxFreeHeadTitle(pt: PrintTexts, titleKey: string, decided: string, title: { text: string; alt: string | null }): { text: string; alt: string | null } {
+  if (title.alt !== null || title.text === '') return title;
+  const alt = pt.en(titleKey, decided);
+  return alt && alt !== title.text ? { text: title.text, alt } : title;
+}
+
 export const GridInvoice = forwardRef<HTMLDivElement, {
   doc: InvoiceDoc; facts: GridInvoiceFacts; look: PrintLook; layout: ResolvedLayout; qr: ReactNode | null;
 }>(({ doc, facts, look, layout, qr: qrIn }, ref) => {
@@ -701,7 +712,8 @@ export const GridInvoice = forwardRef<HTMLDivElement, {
   if (tax && doc.discount > 0 && doc.tax > 0) totRows.push({ keys: ['tot.taxable'], def: 'الوعاء الخاضع للضريبة', value: doc.total - doc.tax });
   if (tax) totRows.push({ keys: ['tot.vat', 'tot.vatIncl'], def: 'ضريبة القيمة المضافة', value: doc.tax, suffix: vatRate });
   totRows.push(doc.isReturn
-    ? { keys: ['tot.returnGrand'], def: 'إجمالي المرتجع دائن', value: doc.total, strong: true }
+    // «إزالة الضريبة» (E3): المرتجع المختوم بلا ضريبة «إجمالي المرتجع» لا «… دائن» — وصياغة الشركة للسطر تسري عليه كاليوم
+    ? { keys: ['tot.returnGrand'], def: taxFree ? 'إجمالي المرتجع' : 'إجمالي المرتجع دائن', value: doc.total, strong: true }
     : { keys: ['tot.due', 'tot.grand'], def: 'إجمالي المبلغ المستحق', value: doc.total, strong: true });
   if (!doc.isReturn && doc.type === 'CREDIT' && doc.remainingAmt !== undefined) {
     totRows.push({ keys: ['tot.paid'], def: 'المدفوع', value: doc.paidAmt ?? 0 });
@@ -783,7 +795,8 @@ export const GridInvoice = forwardRef<HTMLDivElement, {
   const headerNode = (
     <GridHeader key="header" kit={kit} look={look} logo={logo} company={company}
       // بلا نصوص: عنوان القرار بالعربية (العنوان الممرَّر مترجمٌ بلغة واجهة الجهاز كقالب اليوم) — القالب عربيٌّ أولاً
-      title={pt.on ? facts.title : { text: zDecision.title, alt: null }} titleKey={titleKey}
+      title={taxFree ? taxFreeHeadTitle(pt, titleKey, zDecision.title, pt.on ? facts.title : { text: zDecision.title, alt: null })
+        : pt.on ? facts.title : { text: zDecision.title, alt: null }} titleKey={titleKey}
       showTax={false} zDecision={marks} />
   );
 

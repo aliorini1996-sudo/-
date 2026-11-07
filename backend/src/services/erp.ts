@@ -15,9 +15,10 @@ import prisma from '../config/database';
 import { isPublicIp } from './geoLink';
 import { openErpSecret } from './erpSecrets';
 import { readPaymentMethodsConfig, type PaymentMethodsConfigV1 } from './paymentMethodsCore';
+import { isTaxOff } from './taxMode';
 import {
   ERP_PAGE_SIZE, ERP_REQUEST_TIMEOUT_MS, ERP_RESOURCES, ERP_SYNC_V2_SINCE, ERP_WATERMARK_OVERLAP_MS,
-  companyTimeZone, customerPayloadRow, erpEnvelope, erpUrlProblem, invoicePayloadRow, parseErpResponse, productPayloadRow,
+  companyTimeZone, customerPayloadRow, erpEnvelope, erpSinceAfterTaxToggle, erpUrlProblem, invoicePayloadRow, parseErpResponse, productPayloadRow,
   receiptPayloadRow, summarizeErpRun, type ErpChunkResult, type ErpInvoiceInput, type ErpReceiptInput, type ErpResource,
   type ErpRunTotals,
 } from './erpPayload';
@@ -99,12 +100,20 @@ async function watermark(tenantId: string, resource: ErpResource): Promise<Date 
   return last ? new Date(last.startedAt.getTime() - ERP_WATERMARK_OVERLAP_MS) : null;
 }
 
-async function tenantTimeZone(tenantId: string): Promise<string> {
+/**
+ * منطقة الشركة للتواريخ المحلية، و«إزالة الضريبة» (E7) من الصفّ نفسه: علم الشركة الآن (صفوف المنتجات والعملاء) ولحظة آخر
+ * قلبٍ للمفتاح (إعادة إرسال القسمين كاملين — erpSinceAfterTaxToggle). تعذّر القراءة = سلوك اليوم (بضريبتها، والمؤشّر كما هو).
+ */
+async function tenantExportContext(tenantId: string): Promise<{ timeZone: string; taxOff: boolean; taxModeChangedAt: Date | null }> {
   const [gl, company] = await Promise.all([
     prisma.glSettings.findUnique({ where: { tenantId }, select: { timezone: true } }).catch(() => null),
-    prisma.companySettings.findUnique({ where: { tenantId }, select: { countryCode: true } }).catch(() => null),
+    prisma.companySettings.findUnique({ where: { tenantId }, select: { countryCode: true, taxDisabled: true, taxModeChangedAt: true } }).catch(() => null),
   ]);
-  return companyTimeZone(gl?.timezone, company?.countryCode);
+  return {
+    timeZone: companyTimeZone(gl?.timezone, company?.countryCode),
+    taxOff: isTaxOff(company),
+    taxModeChangedAt: company?.taxModeChangedAt ?? null,
+  };
 }
 
 type PageCursor = { updatedAt: Date; id: string };
@@ -122,7 +131,7 @@ async function tenantPaymentMethods(tenantId: string): Promise<PaymentMethodsCon
   return readPaymentMethodsConfig(row?.paymentMethodsConfig ?? null);
 }
 
-async function readPage(tenantId: string, resource: ErpResource, since: Date | null, after: PageCursor | null, timeZone: string, methods: PaymentMethodsConfigV1 | null = null): Promise<unknown[]> {
+async function readPage(tenantId: string, resource: ErpResource, since: Date | null, after: PageCursor | null, timeZone: string, methods: PaymentMethodsConfigV1 | null = null, taxOff = false): Promise<unknown[]> {
   const where = {
     tenantId,
     ...(since ? { updatedAt: { gt: since } } : {}),
@@ -130,7 +139,8 @@ async function readPage(tenantId: string, resource: ErpResource, since: Date | n
   };
   const page = { orderBy: [{ updatedAt: 'asc' as const }, { id: 'asc' as const }], take: ERP_PAGE_SIZE };
   if (resource === 'customers') {
-    return (await prisma.customer.findMany({ where, ...page })).map((c) => customerPayloadRow(c as unknown as Record<string, unknown>));
+    // «إزالة الضريبة» (E7): الشركة بلا ضريبة ⇒ taxNumber null في الصفّ (المخزّن باقٍ)
+    return (await prisma.customer.findMany({ where, ...page })).map((c) => customerPayloadRow(c as unknown as Record<string, unknown>, taxOff));
   }
   if (resource === 'products') {
     // المؤرشف (deletedAt) يُرسل أيضاً فيُؤرشف في ERP — لا يبقى نشطاً هناك إلى الأبد
@@ -138,7 +148,8 @@ async function readPage(tenantId: string, resource: ErpResource, since: Date | n
     const rows = await prisma.product.findMany({
       where, include: { category: true, priceTiers: true, units: { orderBy: [{ sortOrder: 'asc' }, { factor: 'asc' }] } }, ...page,
     });
-    return rows.map((p) => productPayloadRow(p as unknown as Record<string, unknown>));
+    // «إزالة الضريبة» (E7): الشركة بلا ضريبة ⇒ taxPct صفر في الصفّ (النسبة الفعلية؛ المخزّنة باقية لإعادة الضريبة)
+    return rows.map((p) => productPayloadRow(p as unknown as Record<string, unknown>, taxOff));
   }
   if (resource === 'invoices') {
     const rows = await prisma.invoice.findMany({
@@ -195,14 +206,16 @@ export async function syncErpResource(tenantId: string, resource: ErpResource) {
   try {
     const url = erpResourceUrl(config, resource);
     await assertSafeErpUrl(url);
-    const [since, timeZone, methods] = await Promise.all([
-      watermark(tenantId, resource), tenantTimeZone(tenantId),
+    const [mark, { timeZone, taxOff, taxModeChangedAt }, methods] = await Promise.all([
+      watermark(tenantId, resource), tenantExportContext(tenantId),
       // «إدارة طرق الدفع»: أسماء الشركة لطرق سنداتها — للسندات وحدها
       resource === 'receipts' ? tenantPaymentMethods(tenantId) : Promise.resolve(null),
     ]);
+    // «إزالة الضريبة» (E7): قُلب المفتاح منذ آخر مزامنةٍ نظيفة ⇒ المنتجات والعملاء كاملين مرةً واحدة بالوضع الجديد
+    const since = erpSinceAfterTaxToggle(resource, mark, taxModeChangedAt);
     let after: PageCursor | null = null;
     for (;;) {
-      const rows = await readPage(tenantId, resource, since, after, timeZone, methods);
+      const rows = await readPage(tenantId, resource, since, after, timeZone, methods, taxOff);
       if (!rows.length) break;
       const last = rows[rows.length - 1] as { updatedAt: Date; id: string };
       after = { updatedAt: last.updatedAt, id: last.id };

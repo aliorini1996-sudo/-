@@ -21,7 +21,7 @@ import { useAuthStore } from '../store/authStore';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { lotFlagsOf } from '../lib/lots';
 import { TAX_FREE_TITLES, TAX_MODE_CONFIRM_OFF, TAX_MODE_HINT, TAX_MODE_LABEL, isTaxOff } from '../lib/taxMode';
-import { TAX_MODE_BLOCKED_TEXT, taxModeBlockedByZatca, taxModeChecked, taxModeErrorCode, taxModeErrorMessage, type TaxModeCardCompany } from './taxOffScreens1';
+import { taxModeBlockLines, taxModeChecked, taxModeConflictReasons, taxModeErrorCode, taxModeRefusalLines, taxModeStickyReasons, type TaxModeCardCompany, type TaxModeZatcaReason } from './taxOffScreens1';
 
 // تبويب ربط فوترة المرحلة الثانية كسول: لا يُحمَّل (ولا عباراته) إلا لشركة فعّل لها المالك العلم وفتحت التبويب
 const loadZatcaPhase2Tab = () => import('../components/zatca/ZatcaPhase2Tab');
@@ -642,12 +642,15 @@ function BuyerRelaxCard({ value }: { value: boolean }) {
 /**
  * «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦) — مفتاح مدير الشركة يُحفظ فور تبديله بمساره (companyApi.taxMode.set ⇒ PATCH
  * /company/tax-mode)، ويقرؤه الجميع من ردّ /company (taxDisabled). الإزالة بتأكيدٍ واحد (TAX_MODE_CONFIRM_OFF)، والإعادة بلا تأكيد.
- * يبقى ظاهراً وحده بعد الإزالة (بعنوانه وتلميحه) لإعادة الضريبة. ممنوعةٌ ما دام ربط المرحلة الثانية مفعّلاً: المفتاح معطّلٌ برسالة
- * الرفض، والخادم يرفض 409 TAX_MODE_ZATCA_CONFLICT فتُعرض رسالته. بعد كل قلبٍ (أو رفض) يُبطَل ['company'] فتتحدّث كل شاشة.
+ * يبقى ظاهراً وحده بعد الإزالة (بعنوانه وتلميحه) لإعادة الضريبة. ممنوعةٌ ما دام ربط المرحلة الثانية مفعّلاً: المفتاح معطّلٌ وتحته
+ * عبارة كل سببٍ (العلم/التفعيل/التسليح من ردّ /company)، والخادم يرفض 409 TAX_MODE_ZATCA_CONFLICT بأسبابه reasons[] فتُعرض عبارة كل
+ * سبب، وما لا يظهر في /company (قائمة البروفة، أو رفضٌ بلا سببٍ معروف) يُحفظ فيبقى المفتاح معطّلاً بلا حلقة تأكيدٍ ثم رفض.
+ * بعد كل قلبٍ (أو رفض) يُبطَل ['company'] فتتحدّث كل شاشة.
  */
 function TaxModeCard({ company }: { company: TaxModeCardCompany | null | undefined }) {
   const tr = useTr();
   const qc = useQueryClient();
+  const [stickyReasons, setStickyReasons] = useState<TaxModeZatcaReason[] | null>(null);
   const save = useMutation({
     mutationFn: (taxDisabled: boolean) => companyApi.taxMode.set(taxDisabled),
     onSuccess: (res, off) => {
@@ -665,14 +668,19 @@ function TaxModeCard({ company }: { company: TaxModeCardCompany | null | undefin
     onError: (err: unknown) => {
       // رفضٌ لتغيّر حال الشركة (ربطٌ فُعّل من جهاز آخر) ⇒ إعادة القراءة فيتعطّل المفتاح برسالته
       if (taxModeErrorCode(err)) qc.invalidateQueries({ queryKey: ['company'] });
-      // رموز الوضع بعبارتها (TAX_MODE_MESSAGES)، وغيرها (الصلاحية والنطاق) بنصّ الخادم مترجماً إن كان في القاموس
-      const known = taxModeErrorMessage(err);
+      // ما لا يظهر في /company من أسباب المنع (البروفة، أو رفضٌ بلا سببٍ معروف) يُحفظ فيتعطّل المفتاح
+      const sticky = taxModeStickyReasons(taxModeConflictReasons(err));
+      if (sticky) setStickyReasons(sticky);
+      // رموز الوضع بعبارة كل سببٍ أو بعبارة الرمز (TAX_MODE_MESSAGES)، وغيرها (الصلاحية والنطاق) بنصّ الخادم مترجماً إن كان في القاموس
+      const known = taxModeRefusalLines(err);
       const server = (err as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
-      toast.error(tr(known ?? (typeof server === 'string' && server ? server : 'حدث خطأ في الحفظ')));
+      toast.error(known ? known.map((l) => tr(l)).join('\n') : tr(typeof server === 'string' && server ? server : 'حدث خطأ في الحفظ'),
+        known && known.length > 1 ? { style: { whiteSpace: 'pre-line' } } : undefined);
     },
   });
   const checked = taxModeChecked(save.isPending, save.variables, company);
-  const blocked = taxModeBlockedByZatca(company);
+  const blockLines = taxModeBlockLines(company, stickyReasons);
+  const blocked = blockLines.length > 0;
   const toggle = (off: boolean) => {
     if (off && !window.confirm(tr(TAX_MODE_CONFIRM_OFF))) return;
     save.mutate(off);
@@ -691,7 +699,11 @@ function TaxModeCard({ company }: { company: TaxModeCardCompany | null | undefin
         {tr(TAX_MODE_LABEL)}
       </label>
       <p className="text-[11px] text-[#6E6557] mt-1.5 leading-relaxed">{tr(TAX_MODE_HINT)}</p>
-      {blocked && <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-[11px] leading-relaxed" role="note">{tr(TAX_MODE_BLOCKED_TEXT)}</p>}
+      {blocked && (
+        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-[11px] leading-relaxed space-y-1" role="note" data-tax-mode-blocked="">
+          {blockLines.map((l) => <p key={l}>{tr(l)}</p>)}
+        </div>
+      )}
     </div>
   );
 }

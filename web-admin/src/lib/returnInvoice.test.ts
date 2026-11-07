@@ -72,7 +72,7 @@ test('جسم المرتجع المرتبط (المرحلة الأولى): سعر
   const body = buildLinkedReturnPayload(head({ returnReason: 'DAMAGED', notes: 'تلف بالنقل', invoiceDate: '2026-10-12' }), sale);
   assert.deepEqual(body, {
     customerId: 'c1', salesRepId: 'r1', type: 'RETURN', returnReason: 'DAMAGED', originalInvoiceId: 'sale-1',
-    pricesIncludeTax: true, discountPct: 0, notes: 'تلف بالنقل', invoiceDate: '2026-10-12',
+    pricesIncludeTax: true, discountPct: 0, notes: 'تلف بالنقل', invoiceDate: '2026-10-12', builtTaxFree: false,
     items: [{ productId: 'p-a', invoiceItemId: 'si-a', qty: 1, unitPrice: 103.5, discountPct: 0, taxPct: 15 }],
   });
   // لا ما يرفضه الخادم مع المرتجع أو يكسر المرحلة الثانية
@@ -95,7 +95,7 @@ test('جسم المرتجع الحرّ: بنود المحرّر كما يرسل 
     { productId: 'p-a', qty: 2, unitPrice: 90, discountPct: 5, taxPct: 15 },
   ], 2);
   assert.deepEqual(body, {
-    customerId: 'c1', salesRepId: 'r1', type: 'RETURN', returnReason: 'EXCHANGE', discountPct: 2, notes: '',
+    customerId: 'c1', salesRepId: 'r1', type: 'RETURN', returnReason: 'EXCHANGE', discountPct: 2, notes: '', builtTaxFree: false,
     items: [{ productId: 'p-a', qty: 2, unitPrice: 90, discountPct: 5, taxPct: 15 }],
   });
   assert.ok(!('pricesIncludeTax' in body) && !('originalInvoiceId' in body));
@@ -334,6 +334,9 @@ test('مسار البيع لم يتغيّر: الجسم المرسل نفسه ح
         paymentPlan: 'INSTALLMENT',
         installmentPlan: { count: insCount, firstDueDate: insFirst, period: insPeriod },
       }),
+      // «إزالة الضريبة» (CONTRACT2 E1): الوضع الذي سُعِّرت به البنود مُعلَناً دائماً (isTaxOff للشركة كما قرأتها النافذة) — يخالف وضعها
+      // الآن ⇒ 409 TAX_MODE_CHANGED فتُجلب الشركة وتنقلب نسب البنود ثم يُعاد الإصدار
+      builtTaxFree: taxOff,
       // «تتبّع اللوط»: سطرٌ بتشغيلةٍ مختارة يحمل lots بالكمية الأساسية (withSaleLots)؛ و«تلقائي» بنده كما كان حرفاً
       items: withSaleLots(lines.map(l => ({
         productId: l.productId, qty: l.qty, unitPrice: l.unitPrice,

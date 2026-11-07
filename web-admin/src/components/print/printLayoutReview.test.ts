@@ -46,9 +46,10 @@ test('▲▼ مرسومةً بـdata-move، والنقرة تسجّل الترك
   assert.match(html, /data-section="items"[^]*?data-move="up"[^]*?data-move="down"/);
   assert.equal((html.match(/data-move="up"/g) ?? []).length, sectionRows(page()).length);
   const src = fs.readFileSync(path.join(process.cwd(), 'src', 'components', 'print', 'PrintPreview.tsx'), 'utf8').replace(/\r\n/g, '\n');
-  assert.match(src, /refocus\.current = \{ id: r\.id, dir: 'up' \}; move\(r\.id, i - 1\)/);
-  assert.match(src, /refocus\.current = \{ id: r\.id, dir: 'down' \}; move\(r\.id, i \+ 1\)/);
-  assert.match(src, /moveFocusTarget\(sectionRows\(p\), want\.id, want\.dir\)/);
+  // «إزالة الضريبة» (E6): ▲▼ إلى upTo/downTo من layoutSectionRows (= i ∓ 1 للشركة بضريبتها) — تحديثٌ واعٍ للحارس
+  assert.match(src, /refocus\.current = \{ id: r\.id, dir: 'up' \}; move\(r\.id, r\.upTo\)/);
+  assert.match(src, /refocus\.current = \{ id: r\.id, dir: 'down' \}; move\(r\.id, r\.downTo\)/);
+  assert.match(src, /moveFocusTarget\(layoutSectionRows\(p, taxOff\), want\.id, want\.dir\)/);
 });
 
 test('مخطّط «المقاس والهوامش»: الصفحة والنقطية بلا تخطيط بخطّ 100% مهما حُفظ fontScale — والرول وما له تخطيط بحجمه', () => {
