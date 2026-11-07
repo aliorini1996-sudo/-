@@ -8902,7 +8902,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "body": [],
     "response": "{success:true}",
     "rules": [
-     "فيه مناديب 409 LOCATION_HAS_REPS مع repsCount، وعليه فواتير أو تحميلات 409 LOCATION_HAS_DOCUMENTS — أرشفه بدل الحذف ليبقى في التقارير",
+     "الحذف حقيقيّ منذ ٧ نوفمبر ٢٠٢٦ (لا أرشفة): يُفكّ ربط مناديبه وتُفرَّغ locationId لفواتيره وتحميلاته وتبقى المستندات، والردّ data.unlinked {reps, invoices, vanLoads}؛ 404 لموقعٍ غير موجود",
      "الحذف الفعلي لا يصل المزامنة تعديلاً: طابِق معرّفات مورد locations بـ/v1/sync/locations/ids"
     ],
     "example": ""
@@ -9019,7 +9019,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
  {
   "key": "teams",
   "title": "الفرق داخل الشركة",
-  "overview": "ميزة «الفرق»: مطفأة افتراضياً ويفعّلها مدير الشركة (PATCH /company/teams/settings). حين تُفعَّل تُوسم الفواتير والسندات والزيارات واستلامات التحصيل بفريق المندوب (teamId)، وتقيّد أصناف الفريق بيع مناديبه، وتقبل التقارير teamId.\nالمسارات تحت https://api.fieldsa.net/api/company/teams لأي مستخدم شركة للقراءة، والكتابة بصلاحية canManageCompanySettings ولصاحب مفتاح غير مقيّد النطاق.\nالفريق الذي عليه مستندات لا يُحذف بل يُؤرشف (409 TEAM_HAS_DOCUMENTS). وتعيين مشرفي الفريق (PUT /company/teams/:id/supervisors) يكتب نطاق مستخدمي الشركة فهو ممنوع على المفتاح دائماً بـ403 — من لوحة التحكم وحدها. الرمز API_KEY_FORBIDDEN، إلا إن نقص صاحب المفتاح canManageCompanySettings أو canManageCompanyUsers فيسبقه 403 نقص الصلاحية بلا code، لأن الصلاحيتين تُفحصان أولاً.\nحذف فريق له مشرفون بالمفتاح يحوّل من لم يبقَ له فريق منهم إلى قوائم يدوية مقيّدة (يرى أقل لا أكثر) — احذفه من اللوحة إن أردت مراجعة نطاقهم.\nللمزامنة: مورد teams في /v1/sync قائمة كاملة بالأعضاء والأصناف.",
+  "overview": "ميزة «الفرق»: مطفأة افتراضياً ويفعّلها مدير الشركة (PATCH /company/teams/settings). حين تُفعَّل تُوسم الفواتير والسندات والزيارات واستلامات التحصيل بفريق المندوب (teamId)، وتقيّد أصناف الفريق بيع مناديبه، وتقبل التقارير teamId.\nالمسارات تحت https://api.fieldsa.net/api/company/teams لأي مستخدم شركة للقراءة، والكتابة بصلاحية canManageCompanySettings ولصاحب مفتاح غير مقيّد النطاق.\nحذف الفريق حقيقيّ منذ ٧ نوفمبر ٢٠٢٦: تُفرَّغ teamId لفواتيره وسنداته وزياراته واستلاماته وتبقى المستندات، وتُحذف عضويته ومشرفوه وأصنافه الخاصة. وتعيين مشرفي الفريق (PUT /company/teams/:id/supervisors) يكتب نطاق مستخدمي الشركة فهو ممنوع على المفتاح دائماً بـ403 — من لوحة التحكم وحدها. الرمز API_KEY_FORBIDDEN، إلا إن نقص صاحب المفتاح canManageCompanySettings أو canManageCompanyUsers فيسبقه 403 نقص الصلاحية بلا code، لأن الصلاحيتين تُفحصان أولاً.\nحذف فريق له مشرفون بالمفتاح يحوّل من لم يبقَ له فريق منهم إلى قوائم يدوية مقيّدة (يرى أقل لا أكثر) — احذفه من اللوحة إن أردت مراجعة نطاقهم.\nللمزامنة: مورد teams في /v1/sync قائمة كاملة بالأعضاء والأصناف.",
   "endpoints": [
    {
     "method": "GET",
@@ -9158,7 +9158,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "body": [],
     "response": "{success:true}",
     "rules": [
-     "عليه فواتير أو سندات أو زيارات أو استلامات 409 TEAM_HAS_DOCUMENTS — أرشفه بدل الحذف",
+     "الحذف حقيقيّ ولو عليه مستندات: تبقى بلا فريق (teamId=null)، والردّ data.untagged {invoices, receipts, visits, settlements}",
      "مشرفوه الذين لم يبقَ لهم فريق يتحوّلون إلى قوائم يدوية مقيّدة"
     ],
     "example": ""
@@ -9298,7 +9298,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
           '- النجاح 201 بالموقع الجديد.',
           '- 409 LOCATION_NAME_TAKEN لاسم مكرر، و400 لإحداثي دون الآخر أو خارج المدى.',
           '- إعادة التسمية أو الأرشفة بـPUT /api/locations/:id بالجسم {"isActive":false}، وترجع 409 LOCATION_HAS_REPS (مع repsCount) إن بقي فيه مناديب.',
-          '- الحذف بـDELETE لا يصح إلا لموقع بلا مناديب ولا مستندات، وإلا 409 LOCATION_HAS_DOCUMENTS — أرشفه بدلاً من حذفه.',
+          '- الحذف بـDELETE حقيقيّ: يُفكّ ربط المناديب وتبقى الفواتير والتحميلات بلا موقع (والأرشفة إجراءٌ منفصل بـisActive).',
         ].join('\n'),
         curl: send('POST', '/locations', '{"name":"فرع جدة","lat":21.5433,"lng":39.1728}'),
       },
