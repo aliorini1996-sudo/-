@@ -232,11 +232,13 @@ export function UndatedDateChooser({ ctx, count, input, onInput, confirmed, onCo
 }
 
 /** تصنيف صفوف المعاينة حول تاريخ البدء بالتقويم المحلي، مع استبعاد الصفوف بعد تاريخ البدء */
-export function CutoverSplitNotice({ ctx, split, excludeAfter, onToggleExclude }: {
+export function CutoverSplitNotice({ ctx, split, excludeAfter, onToggleExclude, taxOff }: {
   ctx: LedgerImportCtx;
   split: ImportCutoverSplit;
   excludeAfter: boolean;
   onToggleExclude: (v: boolean) => void;
+  /** «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الشركة بلا ضريبة ⇒ سطر «بعد البدء» بلا «ولا ضريبة». غيابه = النصّ كما كان */
+  taxOff?: boolean;
 }) {
   const tr = useTr();
   // التاريخ الكامل قبل التفعيل: لا قيد افتتاحي ولا «قبل البدء» (البدء يتحرك إلى أقدم أثر) ⇒ سطر واحد صادق
@@ -264,7 +266,7 @@ export function CutoverSplitNotice({ ctx, split, excludeAfter, onToggleExclude }
         {row(split.before, ctx.activated
           ? tr('قبل تاريخ البدء: تُرحَّل وصولا متأخرا بتاريخ البدء')
           : tr('قبل تاريخ البدء: تدخل القيد الافتتاحي عند التفعيل'))}
-        {row(split.onOrAfter, `${tr('في يوم البدء أو بعده: تُرحَّل بتاريخها على حساب الأرصدة الافتتاحية 319002، لا إيرادا ولا ضريبة')}${excludeAfter && split.onOrAfter ? ` — ${tr('مستبعدة')}` : ''}`,
+        {row(split.onOrAfter, `${taxOff ? tr('في يوم البدء أو بعده: تُرحَّل بتاريخها على حساب الأرصدة الافتتاحية 319002، لا إيرادا') : tr('في يوم البدء أو بعده: تُرحَّل بتاريخها على حساب الأرصدة الافتتاحية 319002، لا إيرادا ولا ضريبة')}${excludeAfter && split.onOrAfter ? ` — ${tr('مستبعدة')}` : ''}`,
           split.onOrAfter > 0 ? 'text-amber-700' : 'text-gray-400')}
         {row(split.undated, tr('بلا تاريخ'), split.undated > 0 ? 'text-amber-700' : 'text-gray-400')}
       </ul>

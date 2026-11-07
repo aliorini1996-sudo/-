@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
 import { primaryUnitOf, unitPriceOf } from '../services/units';
+import { isTaxOff } from '../services/taxMode';
 
 /**
  * منيو المنتجات العام — رابط يشاركه المندوب مع عملائه:
@@ -30,7 +31,7 @@ router.get('/catalog/:tenantId/:repId', async (req: Request, res: Response, next
       prisma.tenant.findUnique({ where: { id: tenantId }, select: { isActive: true, catalogEnabled: true } }),
       prisma.companySettings.findUnique({
         where: { tenantId },
-        select: { name: true, logo: true, primaryColor: true, currency: true, phone: true },
+        select: { name: true, logo: true, primaryColor: true, currency: true, phone: true, taxDisabled: true },
       }),
       prisma.salesRep.findFirst({
         where: { id: repId, tenantId, isActive: true },
@@ -58,6 +59,9 @@ router.get('/catalog/:tenantId/:repId', async (req: Request, res: Response, next
       },
     });
 
+    // «إزالة الضريبة»: الشركة بلا ضريبة ⇒ نسبة كل صنفٍ صفر فلا يرفع المنيو السعر، وعلمها taxDisabled فيُسقط «الأسعار شاملة الضريبة».
+    // والشركة بضريبتها: JSON العلن حرفاً كما كان (المفتاح غائب، والنسبة المخزَّنة)
+    const taxOff = isTaxOff(company);
     res.json({
       success: true,
       data: {
@@ -66,12 +70,13 @@ router.get('/catalog/:tenantId/:repId', async (req: Request, res: Response, next
           logo: company.logo,
           primaryColor: company.primaryColor,
           currency: company.currency,
+          ...(taxOff && { taxDisabled: true }),
         },
         rep: { name: rep.name, contact: channel?.e164 ?? rep.phone ?? null },
         products: products.map(p => {
           const primaryId = primaryUnitOf({ primaryUnitId: p.primaryUnitId, units: p.units })?.id ?? null;
           return {
-            name: p.name, unit: p.unit, basePrice: p.basePrice, taxPct: p.taxPct,
+            name: p.name, unit: p.unit, basePrice: p.basePrice, taxPct: taxOff ? 0 : p.taxPct,
             image: p.image, category: p.category?.name ?? null,
             // السعر صافٍ قبل الضريبة كسعر الأساس، والواجهة تضيف taxPct فوقه. والفارغ يُمرَّر undefined لا null:
             // Number(null) = 0 «سعرٌ صالح» في unitPriceOf فيُعرض الكرتون مجاناً بدل الأساس × المعامل

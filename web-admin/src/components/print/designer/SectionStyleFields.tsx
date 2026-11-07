@@ -19,6 +19,7 @@ import {
   type Align, type PrintProfile, type SectionId, type SectionStyle,
 } from '../../../lib/print/printSettings';
 import { withQrRemoved, withSectionStyle, withStampsRemoved } from '../../../lib/print/designModel';
+import { useTaxOffPrint } from '../taxOffPrint';
 
 /** أقسامٌ تحمل بيانات إلزامية للفاتورة الضريبية — إخفاؤها مسموح (قرار المالك في نصوص المطبوعات) بتنبيهٍ وتأكيدٍ واحد */
 export const MANDATORY_CONTENT_SECTIONS: readonly SectionId[] = Object.freeze(['header', 'info', 'parties', 'customer', 'totals'] as SectionId[]);
@@ -111,16 +112,18 @@ export function AlignChips({ value, onChange, allowAuto, label }: { value: Align
 /** صفوف أدوات قسمٍ واحد */
 export function SectionStyleFields({ p, update, id, phase2 }: { p: PrintProfile; update(next: PrintProfile): void; id: SectionId; phase2: boolean }) {
   const tr = useTr();
+  // «إزالة الضريبة» (سياق تبويب «إعدادات الطباعة»): لا فاتورة ضريبية ولا متطلبات هيئة لشركةٍ بلا ضريبة — الإخفاء بلا تنبيهٍ ولا تأكيد
+  const taxOff = useTaxOffPrint();
   const s = sectionStyleOf(p, id);
   const visible = s.visible !== false;
-  const strong = complianceWarning(id);
-  const mandatory = MANDATORY_CONTENT_SECTIONS.includes(id);
+  const strong = taxOff ? null : complianceWarning(id);
+  const mandatory = !taxOff && MANDATORY_CONTENT_SECTIONS.includes(id);
   const fontPct = fin(s.fontPct) ? s.fontPct : 100;
   const before = fin(s.spaceBeforeMm) ? s.spaceBeforeMm : 0;
   const after = fin(s.spaceAfterMm) ? s.spaceAfterMm : 0;
   const empty = Object.keys(s).length === 0;
   const toggleVisible = (): void => {
-    const ask = visible ? hideConfirmText(id, tr) : null;
+    const ask = visible && !taxOff ? hideConfirmText(id, tr) : null;
     if (ask && !window.confirm(ask)) return;
     update(withStyleKey(p, id, 'visible', visible ? false : undefined));
   };
@@ -174,11 +177,14 @@ export function SectionStyleFields({ p, update, id, phase2 }: { p: PrintProfile;
  */
 export function QrRemoveField({ p, update }: { p: PrintProfile; update(next: PrintProfile): void }) {
   const tr = useTr();
+  // «إزالة الضريبة»: لا رمز QR في أيّ مستندٍ لشركةٍ بلا ضريبة — فلا حقل لحذفه ولا تنبيه هيئة
+  const taxOff = useTaxOffPrint();
   const removed = isQrRemoved(layoutOf(p));
   const toggle = (): void => {
     if (!removed && !window.confirm(`${tr(QR_REMOVE_ACTION)}\n${tr(QR_REMOVE_WARNING)}`)) return;
     update(withQrRemoved(p, !removed));
   };
+  if (taxOff) return null;
   return (
     <div data-qr-remove={removed ? 'removed' : ''} className="space-y-1">
       <button type="button" onClick={toggle} aria-pressed={removed} className={toggleCls(removed)}>
@@ -196,11 +202,14 @@ export function QrRemoveField({ p, update }: { p: PrintProfile; update(next: Pri
  */
 export function StampsField({ p, update }: { p: PrintProfile; update(next: PrintProfile): void }) {
   const tr = useTr();
+  // «إزالة الضريبة»: أختام الحالة (محاكاة الهيئة وسند التسليم والإلغاء) للمرحلة الثانية وحدها — لا مكان لها لشركةٍ بلا ضريبة
+  const taxOff = useTaxOffPrint();
   const removed = areStampsRemoved(layoutOf(p));
   const toggle = (): void => {
     if (!removed && !window.confirm(`${tr(STAMPS_REMOVE_ACTION)}\n${tr(STAMPS_REMOVE_WARNING)}`)) return;
     update(withStampsRemoved(p, !removed));
   };
+  if (taxOff) return null;
   return (
     <div data-stamps={removed ? 'removed' : ''} className="space-y-1">
       <div className="flex flex-wrap items-center gap-2">

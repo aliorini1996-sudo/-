@@ -11,6 +11,7 @@ import { MHeader } from './mobileUi';
 import BuyerDataFields from '../components/BuyerDataFields';
 import { BUYER_BILLING_FIELDS, BUYER_PHASE2_FIELDS, BuyerField, BuyerRowLike } from '../lib/zatca/buyerData';
 import { BuyerFormValues, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerRelaxWarnings, buyerUpdatePayload } from '../lib/zatca/buyerForm';
+import { useMTaxOff } from './mTaxMode';
 import { M_CUSTOMER_PHONE_MAX, mCustomerFormValid, mCustomerPhonePayload } from './mCustomerPhone';
 import { precisePinFix } from '../rep/punchFix';
 import { PIN_WARN_M, MPin, mPinAccuracyM, mPinFailText, mPinFromFix, mPinLevel, mPinPayload, mPinWarnText, mPinWarns } from './mCustomerPin';
@@ -54,6 +55,9 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
 }) {
   const tr = useTr();
   const qc = useQueryClient();
+  /* «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): لا قسم «بيانات ضريبية» ولا خانة «الرقم الضريبي» — والسجل التجاري ينتقل إلى البيانات
+   * الأساسية. والرقم المحفوظ يبقى في الحالة فيُرسل كما هو (الإخفاء لا يمحو)، فإعادة الضريبة تعيده */
+  const taxOff = useMTaxOff();
   const [geoBusy, setGeoBusy] = useState(false);
   // دبوس العميل الملتقط من الجهاز (PIN-6) — null = لا التقاط فيبقى المحفوظ كما هو
   const [pin, setPin] = useState<MPin | null>(null);
@@ -175,6 +179,9 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
           <Field label={tr('اسم المنشأة')} value={form.businessName} onChange={v => set('businessName', v)} />
           <Field label={tr('رقم بديل')} dir="ltr" value={form.altPhone} onChange={v => set('altPhone', v)} type="tel" />
           <Field label={tr('البريد الإلكتروني')} dir="ltr" type="email" value={form.email} onChange={v => set('email', v)} />
+          {accountingOn && taxOff && (
+            <Field label={tr('السجل التجاري')} dir="ltr" value={form.commercialReg} onChange={v => set('commercialReg', v)} />
+          )}
         </Group>
 
         <Group title={tr('العنوان')}>
@@ -242,7 +249,7 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
           )}
         </Group>
 
-        {accountingOn && (
+        {accountingOn && !taxOff && (
           <Group title={tr('بيانات ضريبية')}>
             <Field label={tr('السجل التجاري')} dir="ltr" value={form.commercialReg} onChange={v => set('commercialReg', v)} />
             <Field label={tr('الرقم الضريبي')} dir="ltr" value={form.taxNumber} onChange={v => set('taxNumber', v)} />

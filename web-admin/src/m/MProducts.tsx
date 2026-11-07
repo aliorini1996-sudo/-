@@ -34,6 +34,8 @@ import { shelfLifeOn, LOT_CACHE_KEYS } from './mLotsLogic';
 import { deleteBalanceText, duplicateNameAskText, duplicateNameSavedText, duplicateNameWarningsOf, type NameMatch } from '../lib/productGuards';
 import { fetchNameMatches, fetchStockSummary } from '../lib/productGuardsApi';
 import { baseQtyText } from '../lib/adminUnits';
+// «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): علم الشركة من القوقعة — مطفأ ⇒ الشاشة كما كانت حرفاً
+import { useMTaxOff } from './mTaxMode';
 // «قوائم الأسعار» (D2): تغيير حجم الوحدة الرئيسية لصنفٍ تشمله قواعد بها ⇒ 409 PRICE_RULES_UNIT_ACK، سؤالٌ ثم الطلب نفسه بالإقرار
 import {
   PRICE_RULES_AFFECTED_TEXT, isPriceRulesAckDeclined, priceRulesAckAsker, priceRulesAffectedOf, withPriceRulesAck,
@@ -216,6 +218,8 @@ export default function MProducts({ onBack, lotOn = false }: {
 
 function ProductRow({ p, onOpen, lotOn = false }: { p: Product; onOpen: () => void; lotOn?: boolean }) {
   const tr = useTr();
+  // «إزالة الضريبة»: السعر المكتوب نهائي فلا وسم «قبل الضريبة» — ويبقى اسم الوحدة وحده حيث كان معه
+  const taxOff = useMTaxOff();
   const off = p.status === 'INACTIVE';
   // شارة «لوط» للصنف المتتبَّع والميزة مفعّلة وحدها (الإطفاء يُخفي ولا يحذف، D8)
   const lot = lotOn && p.lotTracked === true;
@@ -258,14 +262,16 @@ function ProductRow({ p, onOpen, lotOn = false }: { p: Product; onOpen: () => vo
           {prim && primPrice != null ? (
             <span className="text-end">
               <span className="block text-xs font-bold text-[#E15A30] whitespace-nowrap">{formatCurrency(primPrice)}</span>
-              <span className="block text-[9px] text-[#9A8F7E]">{prim.name} · {tr('قبل الضريبة')}</span>
+              <span className="block text-[9px] text-[#9A8F7E]">{prim.name}{!taxOff && <> · {tr('قبل الضريبة')}</>}</span>
               <span className="block text-[9px] text-[#9A8F7E] whitespace-nowrap">{formatCurrency(p.basePrice, undefined, 4)} / {p.unit}</span>
             </span>
           ) : (
           <span className="text-end">
             <span className="block text-xs font-bold text-[#E15A30] whitespace-nowrap">{formatCurrency(p.basePrice)}</span>
             {/* الوسم تحت كل سعر معروض — لا يُترك للقارئ أن يخمّن أهو شاملٌ أم صافٍ */}
-            <span className="block text-[9px] text-[#9A8F7E]">{multi && `${p.unit} · `}{tr('قبل الضريبة')}</span>
+            {taxOff
+              ? multi && <span className="block text-[9px] text-[#9A8F7E]">{p.unit}</span>
+              : <span className="block text-[9px] text-[#9A8F7E]">{multi && `${p.unit} · `}{tr('قبل الضريبة')}</span>}
           </span>
           )}
           <ChevronLeft size={15} className="text-[#C9BFB0]" />
@@ -319,6 +325,9 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
   const qc = useQueryClient();
   const user = useAuthStore(x => x.user);
   const ownerSession = useAuthStore(x => !!x.impersonating);
+  /* «إزالة الضريبة»: خانة النسبة ووسمها ونصّها تختفي — والنسبة المخزّنة تبقى في الحالة فتُرسل كما هي (لا تُمسّ)، وصنفٌ جديد بلا
+   * نسبة يرثها الخادم من ضريبة دولة الشركة كما اليوم، فإعادة الضريبة تعيد كل شيء */
+  const taxOff = useMTaxOff();
   const [form, setForm] = useState<FormState>(() => product ? {
     name: product.name || '',
     code: product.code || '',
@@ -626,7 +635,8 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
           <ReverseFields f={rf} set={setR} touched={rfTouched} problem={revProblem} renaming={renamingBase} />
         )}
 
-        <Group title={rev ? tr('الضريبة') : tr('السعر والضريبة')}>
+        {!(taxOff && rev) && (
+        <Group title={taxOff ? tr('السعر') : rev ? tr('الضريبة') : tr('السعر والضريبة')}>
           {!rev && (
           <div>
             <label className="label">{tr('السعر الأساسي')}{multi && product ? ` (${product.unit})` : ''} *</label>
@@ -634,12 +644,15 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
               inputMode="decimal" value={form.basePrice}
               onChange={e => set('basePrice', e.target.value)} />
             {/* السطر الحاكم: من يكتب هنا رقماً شاملاً يبيع أعلى من سعره ولا يدري */}
+            {!taxOff && (
             <p className="text-[11px] text-[#B7791F] mt-1.5 flex items-center gap-1">
               <AlertTriangle size={11} className="flex-shrink-0" />
               {tr('السعر قبل الضريبة تحسب الضريبة تلقائيا')}
             </p>
+            )}
           </div>
           )}
+          {!taxOff && (
           <div>
             <label className="label">{tr('نسبة الضريبة %')}</label>
             <input className="input min-h-[44px]" type="number" dir="ltr" step="0.01" min="0" max="100"
@@ -648,7 +661,9 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
             <p className="text-[11px] text-[#9A8F7E] mt-1.5">{tr('اتركها فارغة لتطبيق ضريبة دولة الشركة')}</p>
             {!taxOk && <p className="text-[11px] text-[#C0392B] mt-1">{tr('النسبة بين صفر ومئة')}</p>}
           </div>
+          )}
         </Group>
+        )}
 
         <Group title={tr('الفئة والحالة')}>
           <div>
@@ -900,6 +915,8 @@ function ReverseFields({ f, set, touched, problem, renaming }: {
   f: ReverseForm; set: (k: keyof ReverseForm, v: string) => void; touched: boolean; problem: string | null; renaming: boolean;
 }) {
   const tr = useTr();
+  // «إزالة الضريبة»: لا «قبل الضريبة» تحت السعر ولا رمز الوحدة الضريبي (و«متقدم» لا يحوي غيرهما فيسقط كلّه)
+  const taxOff = useMTaxOff();
   const pn = f.primaryName.trim() || tr('الوحدة الرئيسية');
   const sn = f.subName.trim() || tr('الوحدة الفرعية');
   const F = Math.round(Number(f.factor));
@@ -914,10 +931,12 @@ function ReverseFields({ f, set, touched, problem, renaming }: {
         placeholder={tr('مثال: كرتون')} />
       <div>
         <NumField label={fill(tr('سعر {unit}'), { unit: pn })} required value={f.primaryPrice} onChange={v => set('primaryPrice', v)} />
+        {!taxOff && (
         <p className="text-[11px] text-[#B7791F] mt-1.5 flex items-center gap-1">
           <AlertTriangle size={11} className="flex-shrink-0" />
           {tr('السعر قبل الضريبة تحسب الضريبة تلقائيا')}
         </p>
+        )}
       </div>
       <div>
         <Field label={tr('الوحدة الفرعية')} required value={f.subName} onChange={v => set('subName', v)} placeholder={tr('حبة')} />
@@ -933,6 +952,7 @@ function ReverseFields({ f, set, touched, problem, renaming }: {
       <NumField label={`${fill(tr('سعر {unit} الواحدة'), { unit: sn })} (${tr('اختياري')})`} value={f.subPrice}
         onChange={v => set('subPrice', v)}
         placeholder={derived != null ? `≈ ${derived} ${tr('محسوب')}` : undefined} />
+      {!taxOff && (
       <details className="rounded-xl border border-[#F1EBDF] px-3 py-2">
         <summary className="text-[12px] font-semibold text-[#6E6557] cursor-pointer min-h-[32px] flex items-center">{tr('متقدم')}</summary>
         <div className="space-y-3 pt-2">
@@ -942,6 +962,7 @@ function ReverseFields({ f, set, touched, problem, renaming }: {
             onChange={v => set('subUnitCode', v)} placeholder="PCE" />
         </div>
       </details>
+      )}
       {/* معاينة حيّة بالأرقام: «١ كرتون = ٢٤ قارورة · ٤٨٫٠٠ للكرتون · ٢٫٠٠ للقارورة» */}
       {fOk && ppOk && sub != null && (
         <p className="text-[12px] text-[#1F1A13] bg-[#FAF7F0] border border-[#F1EBDF] rounded-xl px-3 py-2 leading-relaxed tabular-nums">
@@ -1046,6 +1067,8 @@ interface TierRow { uid: number; minQty: string; maxQty: string; price: string }
  */
 function MProductTiers({ product, onClose }: { product: Product; onClose: () => void }) {
   const tr = useTr();
+  // «إزالة الضريبة»: لا «قبل الضريبة» تحت السعر ولا في سطر الشرائح
+  const taxOff = useMTaxOff();
   const qc = useQueryClient();
   const [rows, setRows] = useState<TierRow[] | null>(null);
   // ما بُذرت به الشاشة: الأساس، والرئيسية ومعاملها حين تُدخَل الشرائح بها (null = بالأساس) — ثابتان حتى الحفظ
@@ -1158,10 +1181,12 @@ function MProductTiers({ product, onClose }: { product: Product; onClose: () => 
                     <p className="text-lg font-bold text-[#1F1A13]">{formatCurrency(basePrice)}</p>
                   </>
                 )}
+                {!taxOff && (
                 <p className="text-[11px] text-[#B7791F] mt-1.5 flex items-center gap-1">
                   <AlertTriangle size={11} className="flex-shrink-0" />
                   {tr('السعر قبل الضريبة تحسب الضريبة تلقائيا')}
                 </p>
+                )}
               </MCard>
 
               {rows.length === 0 ? (
@@ -1214,9 +1239,11 @@ function MProductTiers({ product, onClose }: { product: Product; onClose: () => 
               {invalid && (
                 <p className="text-[11px] text-[#C0392B] px-1">{tr('راجع الكميات والأسعار')}</p>
               )}
+              {!taxOff && (
               <p className="text-[11px] text-[#9A8F7E] px-1 leading-relaxed">
                 {tr('سعر الشريحة يطبق عند بلوغ الكمية وهو أيضا قبل الضريبة')}
               </p>
+              )}
               {/* وسم وحدة الإدخال: بالرئيسية، أو بالفرعية باسمها لصنفٍ له رئيسية (D21)، أو «بوحدة الأساس» كما كان */}
               {pr ? (
                 <p className="text-[11px] text-[#B7791F] px-1 leading-relaxed">
@@ -1269,6 +1296,8 @@ function MProductUnits({ product, onClose, onConverted }: {
   onConverted: () => void;
 }) {
   const tr = useTr();
+  // «إزالة الضريبة»: الأسعار بلا وسم «قبل الضريبة» (السعر المكتوب نهائي)
+  const taxOff = useMTaxOff();
   const qc = useQueryClient();
   // «إضافة وحدة فرعية أصغر»: canConvertBase من ردّ الدخول، أو جلسة المالك — والخادم يفرض البوابتين (§3)
   const user = useAuthStore(x => x.user);
@@ -1386,7 +1415,7 @@ function MProductUnits({ product, onClose, onConverted }: {
                       </p>
                       <span className="text-end flex-shrink-0">
                         <span className="block text-sm font-bold text-[#E15A30] whitespace-nowrap">{formatCurrency(primPrice ?? 0)}</span>
-                        <span className="block text-[9px] text-[#9A8F7E]">{tr('قبل الضريبة')}</span>
+                        {!taxOff && <span className="block text-[9px] text-[#9A8F7E]">{tr('قبل الضريبة')}</span>}
                       </span>
                     </div>
                   </MCard>
@@ -1396,7 +1425,7 @@ function MProductUnits({ product, onClose, onConverted }: {
                       <p className="text-lg font-bold text-[#1F1A13] truncate">{p.unit}</p>
                       <span className="text-end flex-shrink-0">
                         <span className="block text-sm font-bold text-[#E15A30] whitespace-nowrap">{formatCurrency(p.basePrice, undefined, 4)}</span>
-                        <span className="block text-[9px] text-[#9A8F7E]">{tr('قبل الضريبة')}</span>
+                        {!taxOff && <span className="block text-[9px] text-[#9A8F7E]">{tr('قبل الضريبة')}</span>}
                       </span>
                     </div>
                     <p className="text-[11px] text-[#9A8F7E] mt-1.5 leading-relaxed">
@@ -1411,7 +1440,7 @@ function MProductUnits({ product, onClose, onConverted }: {
                   <p className="text-lg font-bold text-[#1F1A13] truncate">{p.unit}</p>
                   <span className="text-end flex-shrink-0">
                     <span className="block text-sm font-bold text-[#E15A30] whitespace-nowrap">{formatCurrency(p.basePrice)}</span>
-                    <span className="block text-[9px] text-[#9A8F7E]">{tr('قبل الضريبة')}</span>
+                    {!taxOff && <span className="block text-[9px] text-[#9A8F7E]">{tr('قبل الضريبة')}</span>}
                   </span>
                 </div>
                 <p className="text-[11px] text-[#9A8F7E] mt-1.5 leading-relaxed">
@@ -1455,11 +1484,13 @@ function MProductUnits({ product, onClose, onConverted }: {
                                 {/* `?? undefined` لا null: Number(null) = 0 «سعرٌ صالح» في unitPriceOf فيظهر الكرتون مجّاناً */}
                                 {formatCurrency(unitPriceOf({ ...u, price: u.price ?? undefined }, p.basePrice))}
                               </span>
+                              {(u.price == null || !taxOff) && (
                               <span className="block text-[9px] text-[#9A8F7E]">
                                 {u.price == null
                                   ? (prim ? fill(tr('محسوب من سعر {unit}'), { unit: p.unit }) : tr('محسوب من سعر الأساس'))
                                   : tr('قبل الضريبة')}
                               </span>
+                              )}
                             </span>
                             <ChevronLeft size={15} className="text-[#C9BFB0]" />
                           </span>
@@ -1577,6 +1608,8 @@ function UnitSheet({ product, unit, onClose, onSaved, onUnitsChanged, onToggle, 
   onRemove: (u: ProductUnit) => void;
 }) {
   const tr = useTr();
+  // «إزالة الضريبة»: لا «قبل الضريبة» تحت السعر ولا خانة رمز الوحدة الضريبي (قيمتها المحفوظة تبقى في المسودة كما هي)
+  const taxOff = useMTaxOff();
   const [d, setD] = useState<UnitDraft>(() => unitDraftOf(unit));
   // «وحدة رئيسية» للمضافة (makePrimary) — في المعاملة نفسها على الخادم
   const [asPrimary, setAsPrimary] = useState(false);
@@ -1642,13 +1675,17 @@ function UnitSheet({ product, unit, onClose, onSaved, onUnitsChanged, onToggle, 
             {derived != null && ` = ${formatCurrency(derived)}`}
           </p>
           {/* السطر الحاكم كخانة سعر الصنف: رقمٌ شاملٌ مكتوبٌ هنا يبيع الكرتون أعلى من سعره */}
+          {!taxOff && (
           <p className="text-[11px] text-[#B7791F] mt-1 flex items-center gap-1">
             <AlertTriangle size={11} className="flex-shrink-0" />
             {tr('السعر قبل الضريبة تحسب الضريبة تلقائيا')}
           </p>
+          )}
         </div>
+        {!taxOff && (
         <Field label={tr('رمز الوحدة الضريبي')} dir="ltr" value={d.unitCode}
           onChange={v => set('unitCode', v)} placeholder="CT" />
+        )}
         {!unit && (
           <label className="flex items-center gap-2.5 min-h-[44px] cursor-pointer">
             <input type="checkbox" checked={asPrimary} onChange={e => setAsPrimary(e.target.checked)}

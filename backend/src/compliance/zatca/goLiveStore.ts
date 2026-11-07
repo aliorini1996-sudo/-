@@ -57,6 +57,11 @@ export interface GoLiveStore {
   findCutoverByClientRef(tenantId: string, clientRef: string): Promise<CutoverReviewRow | null>;
   /** حسمٌ CAS من PENDING؛ null = غير موجود؛ applied=false إن سبق حسمه (يعيد صفّه كما هو). */
   resolveCutover(tenantId: string, id: string, patch: CutoverResolvePatch): Promise<{ applied: boolean; row: CutoverReviewRow } | null>;
+  /**
+   * «إزالة الضريبة» (٧ نوفمبر ٢٠٢٦): CompanySettings.taxDisabled — يقرؤه التسليح والتفعيل وحدهما (409 TAX_OFF_BLOCKS_ZATCA).
+   * اختياريّ: غيابه (مخزنٌ قديم) ⇒ لا فحص، فلا يتغيّر شيء لمن لم يُحقن له.
+   */
+  loadTaxDisabled?(tenantId: string): Promise<boolean>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -67,6 +72,8 @@ export interface MemoryGoLiveStore extends GoLiveStore {
   readonly rows: CutoverReviewRow[];
   readonly armed: Map<string, Date | null>;
   readonly reps: Map<string, RepSyncRow[]>;
+  /** الشركات «بلا ضريبة» (CompanySettings.taxDisabled). */
+  readonly taxOff: Set<string>;
 }
 
 let memSeq = 0;
@@ -97,14 +104,16 @@ export function memoryGoLiveStore(init: {
   armed?: Record<string, Date | null>;
   reps?: Record<string, RepSyncRow[]>;
   knownTenants?: readonly string[] | null;
+  taxOff?: readonly string[];
 } = {}): MemoryGoLiveStore {
   const rows: CutoverReviewRow[] = [];
   const armed = new Map<string, Date | null>(Object.entries(init.armed ?? {}));
   const reps = new Map<string, RepSyncRow[]>(Object.entries(init.reps ?? {}));
   const known = init.knownTenants == null ? null : new Set(init.knownTenants);
+  const taxOff = new Set<string>(init.taxOff ?? []);
 
   const store: MemoryGoLiveStore = {
-    rows, armed, reps,
+    rows, armed, reps, taxOff,
     async loadArmedAt(tenantId) {
       const v = armed.get(tenantId);
       return v ? new Date(v.getTime()) : null;
@@ -184,6 +193,9 @@ export function memoryGoLiveStore(init: {
       if (patch.resultInvoiceId !== undefined) r.resultInvoiceId = patch.resultInvoiceId;
       r.updatedAt = new Date(patch.reviewedAt.getTime());
       return { applied: true, row: cloneRow(r) };
+    },
+    async loadTaxDisabled(tenantId) {
+      return taxOff.has(tenantId);
     },
   };
   return store;

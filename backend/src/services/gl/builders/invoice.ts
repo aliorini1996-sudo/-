@@ -61,6 +61,11 @@ export interface InvoicePayload {
   currency: string;
   currencyDecimals: number;
   items: readonly InvoicePayloadItem[];
+  /**
+   * «إزالة الضريبة»: الفاتورة مختومة بلا ضريبة (Invoice.taxFree — صدرت والشركة غير مسجّلة) ⇒ خارج الإقرار: بنودها الصفرية بلا
+   * مفتاح ضريبة ولا سطر علامة (MARKER) ولا «0٪» في الوصف. غائبٌ (كل حمولة قبل الميزة وكل فاتورة بضريبتها) ⇒ المسار كما كان
+   */
+  taxFree?: boolean;
 }
 
 export interface BuildInvoiceOptions {
@@ -192,8 +197,10 @@ export function buildInvoiceMove(payload: InvoicePayload, ctx: BuildContext, opt
   } else {
     for (const item of items) {
       const pct = Number(item.taxPct) || 0;
-      const tax = resolveInvoiceItemTax(item, ctx);
-      const bKey = tax ? `tax:${tax.id}` : `pct:${pct}`;
+      // «إزالة الضريبة»: بند صفري في فاتورة مختومة بلا ضريبة ⇒ سلّة 'none' بلا ضريبة (لا مفتاح ولا علامة ولا «0٪»)
+      const free = payload.taxFree === true && pct === 0;
+      const tax = free ? null : resolveInvoiceItemTax(item, ctx);
+      const bKey = tax ? `tax:${tax.id}` : free ? 'none' : `pct:${pct}`;
       let bucket = buckets.get(bKey);
       if (!bucket) {
         bucket = { key: bKey, pct, tax };
@@ -405,6 +412,8 @@ export function invoicePayloadFromRows(input: {
   invoice: {
     id: string; number?: string | null; type: string; customerId: string; salesRepId?: string | null;
     pricesIncludeTax?: boolean | null; subtotal: number; discountAmt: number; taxAmt: number; total: number;
+    /** «إزالة الضريبة»: Invoice.taxFree — يدخل الحمولة حين يكون true وحده، فحمولة الفاتورة بضريبتها حرفاً كما كانت */
+    taxFree?: boolean | null;
   };
   items: readonly {
     productId?: string | null; categoryId?: string | null; qty: number; unitPrice: number;
@@ -438,6 +447,7 @@ export function invoicePayloadFromRows(input: {
     total: str(inv.total),
     currency: input.currency,
     currencyDecimals: dec,
+    ...(inv.taxFree === true ? { taxFree: true } : {}),
     items: input.items.map((it) => ({
       productId: it.productId ?? null,
       categoryId: it.categoryId ?? null,

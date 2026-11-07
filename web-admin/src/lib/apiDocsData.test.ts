@@ -87,3 +87,21 @@ test('مورد المنتجات: كتابة قاعدة صنفٍ تحرّك updat
   assert.doesNotMatch(what, /للعرض والإدخال الافتراضي وحده/);
   assert.match(what, /سعر الفئة الثابت والحد الأدنى للكمية بالوحدة الرئيسية/);
 });
+
+/**
+ * «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): مورد الفواتير يصف ختم taxFree — عمودٌ في Invoice بافتراضيّ false، ومكشوفٌ في قائمة
+ * سماح الخادم (العقد: يُصنَّف «ختم بلا ضريبة» مكشوفاً). الخادم يُكتب بالتوازي في الفرع نفسه، فشطر INVOICE_COLS يفشل حتى يصل.
+ */
+test('مورد الفواتير في المستند يصف ختم taxFree — وهو عمودٌ في Invoice ومكشوفٌ في قائمة سماح الخادم', () => {
+  const what = API_SYNC_RESOURCES.find(r => r.name === 'invoices')!.what;
+  assert.match(what, /ومعها taxFree \(ختم «بلا ضريبة»: true = صدر المستند والشركة «بلا ضريبة» فبنوده بنسبة 0 وtaxAmt = 0، وfalse = كما كان/);
+  assert.match(what, /ختمٌ لا يتغيّر بتبديل الشركة لاحقاً، فالمستند السابق يبقى بضريبته/);
+  // ولا يذكره موردٌ آخر: السندات والكشوف والمخزون تقرأ علم الشركة الحالي ولا ختم لها
+  for (const r of API_SYNC_RESOURCES) if (r.name !== 'invoices') assert.doesNotMatch(r.what, /\btaxFree\b/, r.name);
+  const schema = fs.readFileSync(path.resolve(process.cwd(), '..', 'backend', 'prisma', 'schema.prisma'), 'utf8').replace(/\r\n/g, '\n');
+  const inv = schema.slice(schema.indexOf('model Invoice {'), schema.indexOf('\n}', schema.indexOf('model Invoice {')));
+  assert.match(inv, /\n\s*taxFree\s+Boolean\s+@default\(false\)/);
+  const src = backend('services', 'apiSync.ts');
+  const cols = src.slice(src.indexOf('const INVOICE_COLS = ['), src.indexOf('];', src.indexOf('const INVOICE_COLS = [')));
+  assert.ok(cols.includes("'taxFree'"), 'taxFree ليس في INVOICE_COLS');
+});

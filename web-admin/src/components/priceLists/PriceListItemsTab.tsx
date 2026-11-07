@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { AlertCircle, Check, ChevronLeft, ChevronRight, Loader2, Plus, Search, X } from 'lucide-react';
-import { priceListApi, productApi } from '../../api/client';
+import { companyApi, priceListApi, productApi } from '../../api/client';
 import type { PriceListItemRow } from '../../types';
 import { useTr } from '../../i18n/strings';
+import { isTaxOff } from '../../lib/taxMode';
 import { activeLocale, formatNumber } from '../../utils/format';
 import {
   PRICE_LIST_ITEMS_PAGE, failedItemRowsOf, fillText, isUnitsChangedCode, itemCommitOf, itemShownPrice, itemsPageClampOf, itemsPageOf,
@@ -67,6 +68,13 @@ export default function PriceListItemsTab({ listId, itemsCount }: { listId: stri
     queryFn: async () => { const res = await productApi.categories(); return res.data.data as { id: string; name: string }[]; },
   });
   const itemsQ = useQuery({ ...priceListItemsQuery(listId, scope, debounced, categoryId, page), placeholderData: keepPreviousData });
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): علم الشركة من ردّ /company (ذاكرة ['company'] نفسها) — بلا ضريبة ⇒ لا «قبل الضريبة»
+  const { data: companyCfg } = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as { taxDisabled?: boolean } | null,
+    staleTime: 300_000,
+  });
+  const taxOff = isTaxOff(companyCfg);
   const rows = itemsQ.data?.rows ?? [];
   const pages = itemsQ.data?.pagination.pages ?? 1;
   const total = itemsQ.data?.pagination.total ?? 0;
@@ -284,7 +292,9 @@ export default function PriceListItemsTab({ listId, itemsCount }: { listId: stri
         <button type="button" className="btn-primary !py-1.5 !px-3 text-xs" onClick={addProduct}><Plus size={14} /> {tr('إضافة صنف')}</button>
       </div>
       <p className="text-[11px] text-[#9A8F7E] leading-relaxed">
-        {tr('السعر صاف قبل الضريبة بالوحدة الرئيسية، ويحفظ كل سطر عند Enter أو الخروج منه، والفارغ يحذف الصنف من القائمة')}
+        {taxOff
+          ? tr('السعر بالوحدة الرئيسية، ويحفظ كل سطر عند Enter أو الخروج منه، والفارغ يحذف الصنف من القائمة')
+          : tr('السعر صاف قبل الضريبة بالوحدة الرئيسية، ويحفظ كل سطر عند Enter أو الخروج منه، والفارغ يحذف الصنف من القائمة')}
       </p>
 
       <div className="border border-[#E9E1D3] rounded-xl overflow-hidden bg-white">

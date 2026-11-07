@@ -22,6 +22,8 @@ export interface ZatcaCompanyLike {
   zatcaRegime?: unknown;
   /** «فك قيد الرقم الضريبي والعنوان الوطني» (CompanySettings.buyerVatAddressRelaxed) — يضبطه مدير الشركة؛ غيابه = القيد قائم */
   buyerVatAddressRelaxed?: boolean | null;
+  /** «إزالة الضريبة» (CompanySettings.taxDisabled — lib/taxMode.ts): الشركة بلا ضريبة لا تجمع بيانات مشترٍ ضريبية؛ غيابه = سلوك اليوم */
+  taxDisabled?: boolean | null;
 }
 
 const BLOCKED_RE = /^[A-Z_]{1,40}$/;
@@ -32,9 +34,13 @@ export function isZatcaPhase2Live(company: ZatcaCompanyLike | null | undefined):
   return v instanceof Date || (typeof v === 'string' && v !== '');
 }
 
-/** جمع بيانات المشتري وإظهار أقسامها: (العلم === true || مفعّلة) && SA. */
+/**
+ * جمع بيانات المشتري وإظهار أقسامها: (العلم === true || مفعّلة) && SA. و«إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الشركة بلا ضريبة
+ * (taxDisabled === true) لا جمع لها أبداً — الخادم يرفض الجمع بين الإزالة والربط (409)، وهذا حارس سباقهما في الواجهة. الغائب: كما كان حرفاً.
+ */
 export function zatcaCollectOn(company: ZatcaCompanyLike | null | undefined): boolean {
-  return (company?.zatcaPhase2Enabled === true || isZatcaPhase2Live(company)) && company?.countryCode === 'SA';
+  return company?.taxDisabled !== true
+    && (company?.zatcaPhase2Enabled === true || isZatcaPhase2Live(company)) && company?.countryCode === 'SA';
 }
 
 /**

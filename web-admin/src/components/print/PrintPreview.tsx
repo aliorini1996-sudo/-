@@ -11,6 +11,8 @@ import { sampleInvoiceDoc } from '../../lib/print/calibration';
 import { PrintableInvoice, PrintableReceipt, type Company, type InvoiceDoc, type ReceiptDoc } from '../../rep/RepDocuments';
 import { PrintLookContext, SHEET_WIDTH_PX, lookFor } from '../../rep/printLook';
 import { thermalPreviewHtml } from '../../rep/thermal';
+import { isTaxOff } from '../../lib/taxMode';
+import { sampleWatermark, taxFreeInvoiceDoc, useTaxOffPrint } from './taxOffPrint';
 
 /**
  * معاينة قالب الطباعة في «إعدادات الطباعة» (التصميم §5.1 D، صورة M1 المبسّطة): الورقة بمقاسها الفعلي (مصغّرة لتتسع)، وحدود
@@ -71,7 +73,9 @@ const r2 = (n: number): number => Math.round(n * 100) / 100;
 export function previewInvoiceDoc(company: Company | null | undefined, tr: Tr, now: Date = new Date()): InvoiceDoc {
   const d = sampleInvoiceDoc(company, tr, now);
   const c = d.company ?? { name: tr('اسم الشركة') };
-  return {
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): للشركة بلا ضريبة مستندٌ مختومٌ بلا ضريبة ولا رقمٍ ضريبي للطرفين — والسند منه
+  const taxOff = isTaxOff(company);
+  const doc: InvoiceDoc = {
     ...d,
     company: {
       ...c,
@@ -82,7 +86,7 @@ export function previewInvoiceDoc(company: Company | null | undefined, tr: Tr, n
       addrPostalCode: c.addrPostalCode || '12211',
     },
     customer: {
-      name: tr('عميل تجريبي'), businessName: tr('مؤسسة تجريبية'), taxNumber: '310000000000003', phone: '0500000000',
+      name: tr('عميل تجريبي'), businessName: tr('مؤسسة تجريبية'), ...(taxOff ? {} : { taxNumber: '310000000000003' }), phone: '0500000000',
       address: tr('جدة - حي الروضة'), city: tr('جدة'), postalCode: '23435',
     },
     items: d.items.map((it, i) => ({
@@ -91,6 +95,7 @@ export function previewInvoiceDoc(company: Company | null | undefined, tr: Tr, n
       taxAmt: d.pricesIncludeTax ? r2(it.lineTotal - it.lineTotal / (1 + it.taxPct / 100)) : r2((it.lineTotal * it.taxPct) / 100),
     })),
   };
+  return taxOff ? taxFreeInvoiceDoc(doc) : doc;
 }
 
 /** سند المعاينة — مقابل فاتورة المعاينة، بلا رمز QR كاليوم */
@@ -105,6 +110,8 @@ export function previewReceiptDoc(company: Company | null | undefined, tr: Tr, n
 /** العلامة المائية فوق كل معاينة — «نموذج اختبار — ليس مستندا ضريبيا» */
 function Watermark({ size }: { size: number }) {
   const tr = useTr();
+  // «إزالة الضريبة»: «نموذج اختبار» وحده لشركةٍ بلا ضريبة (سياق تبويب «إعدادات الطباعة»)
+  const PRINT_SAMPLE_WATERMARK = sampleWatermark(useTaxOffPrint());
   return (
     <div aria-hidden="true" className="absolute inset-0 flex items-center justify-center pointer-events-none">
       <span style={{ transform: 'rotate(-28deg)', color: 'rgba(225,90,48,0.32)', fontWeight: 800, fontSize: size, whiteSpace: 'nowrap' }}>
@@ -205,7 +212,10 @@ export function PaperPreview({ profile, companyName, brandColor }: { profile: Pr
   // العادية: رمز قالب الصفحة (176 بكسل من 794) مُصغَّراً أو مُكبَّراً بعرض الورق كما يُطبع ويُحفظ PDF — لا مقاس A4 ثابت
   const qrMm = plan ? plan.sizeMm : pageQrModuleMm(g.paperWidthMm, qrCells) * qrCells;
   // ما حذفته الشركة صراحةً (قرار المالك ٤ نوفمبر ٢٠٢٦) لا يُرسم في المخطّط — والعلامة المائية باقية: معاينةٌ على الشاشة لا ورق
-  const removed = { qr: isQrRemoved(layoutOf(profile)), items: isItemsRemoved(layoutOf(profile)) };
+  const removed: Removed = { qr: isQrRemoved(layoutOf(profile)), items: isItemsRemoved(layoutOf(profile)) };
+  // «إزالة الضريبة» (سياق التبويب): المخطّط بلا رقمٍ ضريبي ولا «فاتورة ضريبية مبسطة» ولا سطري الضريبة ولا رمز، والعلامة «نموذج اختبار»
+  const taxOff = useTaxOffPrint();
+  if (taxOff) { removed.qr = true; removed.tax = true; }
 
   const contentRef = useRef<HTMLDivElement>(null);
   const [contentPx, setContentPx] = useState(0);
@@ -259,7 +269,7 @@ export function PaperPreview({ profile, companyName, brandColor }: { profile: Pr
           {/* العلامة المائية — كل معاينة واختبار «ليس مستندا ضريبيا» */}
           <div aria-hidden="true" className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <span style={{ transform: 'rotate(-28deg)', color: 'rgba(225,90,48,0.32)', fontWeight: 800, fontSize: Math.max(13, paperW / 13), whiteSpace: 'nowrap' }}>
-              {tr(PRINT_SAMPLE_WATERMARK)}
+              {tr(sampleWatermark(taxOff))}
             </span>
           </div>
         </div>
@@ -301,8 +311,8 @@ function Row({ a, b, bold }: { a: ReactNode; b: ReactNode; bold?: boolean }) {
 }
 const Sep = () => <div style={{ borderTop: '1px dashed #000', margin: '4px 0' }} />;
 
-/** ما حذفته الشركة صراحةً من المطبوعة: رمز QR وجدول الأصناف */
-type Removed = { qr: boolean; items: boolean };
+/** ما حذفته الشركة صراحةً من المطبوعة: رمز QR وجدول الأصناف — وtax: الشركة بلا ضريبة («إزالة الضريبة»: لا رقم ضريبي ولا عنوانٌ ضريبي ولا سطرا الضريبة) */
+type Removed = { qr: boolean; items: boolean; tax?: boolean };
 
 function RollOrImpactSample({ profile, companyName, qrMm, qrCells, removed, tr }: { profile: PrintProfile; companyName: string; qrMm: number; qrCells: number; removed: Removed; tr: Tr }) {
   const o = profile.options;
@@ -313,10 +323,10 @@ function RollOrImpactSample({ profile, companyName, qrMm, qrCells, removed, tr }
     <div>
       {logo && <div style={{ margin: '0 auto 4px', width: 44, height: 22, border: '1.5px solid #000', fontSize: '0.75em', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{tr('شعار الشركة')}</div>}
       <div style={{ textAlign: 'center', fontWeight: 700, fontSize: '1.25em' }}>{companyName}</div>
-      <div style={{ textAlign: 'center', fontSize: '0.9em' }}>{tr('الرقم الضريبي')} <span dir="ltr">300000000000003</span></div>
+      {!removed.tax && <div style={{ textAlign: 'center', fontSize: '0.9em' }}>{tr('الرقم الضريبي')} <span dir="ltr">300000000000003</span></div>}
       {o.showContact && <div style={{ textAlign: 'center', fontSize: '0.9em' }}>{tr('العنوان')} · <span dir="ltr">0500000000</span></div>}
       <Sep />
-      <div style={{ textAlign: 'center', fontWeight: 700 }}>{tr('فاتورة ضريبية مبسطة')}</div>
+      <div style={{ textAlign: 'center', fontWeight: 700 }}>{removed.tax ? tr('فاتورة') : tr('فاتورة ضريبية مبسطة')}</div>
       {o.copyLabels && <div style={{ textAlign: 'center', fontSize: '0.85em' }}>{tr('الأصل')}</div>}
       <Sep />
       <Row a={tr('رقم')} b="INV-1024" />
@@ -349,9 +359,9 @@ function RollOrImpactSample({ profile, companyName, qrMm, qrCells, removed, tr }
         </div>
       ))}
       <Sep />
-      <Row a={tr('المجموع قبل الضريبة')} b="100.00" />
-      <Row a={`${tr('ضريبة القيمة المضافة')} 15%`} b="15.00" />
-      <Row a={tr('الإجمالي')} b="115.00" bold />
+      {!removed.tax && <Row a={tr('المجموع قبل الضريبة')} b="100.00" />}
+      {!removed.tax && <Row a={`${tr('ضريبة القيمة المضافة')} 15%`} b="15.00" />}
+      <Row a={tr('الإجمالي')} b={removed.tax ? '100.00' : '115.00'} bold />
       {o.showSignatures && (
         <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
           {['توقيع المستلم', 'توقيع المندوب'].map((l) => (
@@ -374,10 +384,10 @@ function PageSample({ profile, companyName, brandColor, mono, qrMm, qrCells, rem
         {o.showLogo && <div style={{ width: 54, height: 54, border: mono ? '1.5px solid #000' : `1.5px solid ${brandColor}`, borderRadius: 6, fontSize: '0.8em', display: 'flex', alignItems: 'center', justifyContent: 'center', color: mono ? '#000' : brandColor }}>{tr('شعار الشركة')}</div>}
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 800, fontSize: '1.5em', color: mono ? '#000' : brandColor }}>{companyName}</div>
-          <div>{tr('الرقم الضريبي')} <span dir="ltr">300000000000003</span></div>
+          {!removed.tax && <div>{tr('الرقم الضريبي')} <span dir="ltr">300000000000003</span></div>}
           {o.showContact && <div>{tr('العنوان')} · <span dir="ltr">0500000000</span></div>}
         </div>
-        <div style={{ fontWeight: 800, fontSize: '1.3em' }}>{tr('فاتورة ضريبية مبسطة')}</div>
+        <div style={{ fontWeight: 800, fontSize: '1.3em' }}>{removed.tax ? tr('فاتورة') : tr('فاتورة ضريبية مبسطة')}</div>
       </div>
       {o.copyLabels && <div style={{ textAlign: 'center', marginTop: 4 }}>{tr('الأصل')}</div>}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 16px', margin: '8px 0' }}>
@@ -405,9 +415,9 @@ function PageSample({ profile, companyName, brandColor, mono, qrMm, qrCells, rem
       </table>}
       <div style={{ display: 'flex', gap: 12, marginTop: 8, alignItems: 'flex-start' }}>
         <div style={{ flex: 1 }}>
-          <Row a={tr('المجموع قبل الضريبة')} b="100.00" />
-          <Row a={`${tr('ضريبة القيمة المضافة')} 15%`} b="15.00" />
-          <Row a={tr('الإجمالي')} b="115.00" bold />
+          {!removed.tax && <Row a={tr('المجموع قبل الضريبة')} b="100.00" />}
+          {!removed.tax && <Row a={`${tr('ضريبة القيمة المضافة')} 15%`} b="15.00" />}
+          <Row a={tr('الإجمالي')} b={removed.tax ? '100.00' : '115.00'} bold />
         </div>
         {!removed.qr && <QrSlot mm={qrMm} cells={qrCells} tr={tr} />}
       </div>
@@ -500,6 +510,28 @@ export function sectionRows(p: PrintProfile): SectionRow[] {
   }));
 }
 
+/** صفّ «ترتيب الأقسام» كما يُعرض: `at` موضعه في الترتيب الحقيقي، و`upTo`/`downTo` الموضع الذي ينقله إليه ▲/▼ */
+export interface LayoutSectionRow extends SectionRow { at: number; upTo: number; downTo: number }
+
+/**
+ * صفوف «ترتيب الأقسام» المعروضة: للشركة بضريبتها sectionRows نفسها (at = موضع الصفّ، و▲▼ إلى الموضع المجاور — اليوم حرفاً).
+ * «إزالة الضريبة» (E6): بلا ضريبة لا صفّ «رمز QR» (لا رمز على مستنداتها) — ويبقى الرمز في الترتيب المحفوظ بموضعه، فالنقل بمواضعه
+ * الحقيقية: ▲▼ إلى موضع الصفّ الظاهر المجاور (يتخطّى الرمز المخفي فلا ضغطةَ بلا أثرٍ ظاهر)، والسحب إلى موضع الصفّ المُفلَت عليه.
+ */
+export function layoutSectionRows(p: PrintProfile, taxOff: boolean): LayoutSectionRow[] {
+  const all = sectionRows(p);
+  if (!taxOff) return all.map((r, i) => ({ ...r, at: i, upTo: i - 1, downTo: i + 1 }));
+  const shown = all.map((r, i) => ({ id: r.id, at: i })).filter((r) => r.id !== 'qr');
+  return shown.map((r, v) => {
+    const upTo = v > 0 ? shown[v - 1].at : -1;
+    const downTo = v < shown.length - 1 ? shown[v + 1].at : all.length;
+    return {
+      id: r.id, at: r.at, upTo, downTo,
+      up: v > 0 && canMoveSection(p, r.id, upTo), down: v < shown.length - 1 && canMoveSection(p, r.id, downTo),
+    };
+  });
+}
+
 /**
  * زرّ ▲/▼ الذي يعود إليه التركيز بعد النقل بلوحة المفاتيح: React ينقل عقدة الصفّ في DOM (فيضيع تركيز زرّه) أو يُعطَّل الزرّ عند
  * الحدّ — فالاتجاه نفسه إن بقي متاحاً، وإلا الآخر، وإلا null
@@ -562,6 +594,8 @@ function Segmented<T extends string>({ label, options, labels, value, onPick, di
 /** حقول «التخطيط» في الخطوة الرابعة — اللوحة تلفّها في قسمها */
 export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: PrintProfile) => void }) {
   const tr = useTr();
+  // «إزالة الضريبة» (E6): بلا ضريبة لا صفّ «رمز QR» في الترتيب (layoutSectionRows) — والسياق من اللوحة، وافتراضه false: اليوم حرفاً
+  const taxOff = useTaxOffPrint();
   const [drag, setDrag] = useState<SectionId | null>(null);
   // السحب باللمس/القلم من المقبض: الصفّ المسحوب والصفّ تحت الإصبع — يُنقل عند الرفع وحده (والإلغاء يتركه)، والفأرة لسحب HTML5 كاليوم
   const [touch, setTouch] = useState<{ id: SectionId; from: number; over: number } | null>(null);
@@ -572,7 +606,7 @@ export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: Pr
     const want = refocus.current;
     if (!want) return;
     refocus.current = null;
-    const to = moveFocusTarget(sectionRows(p), want.id, want.dir);
+    const to = moveFocusTarget(layoutSectionRows(p, taxOff), want.id, want.dir);
     if (to) orderRef.current?.querySelector<HTMLButtonElement>(`[data-section="${want.id}"] [data-move="${to}"]`)?.focus();
   });
   if (!layoutEditable(p)) {
@@ -581,7 +615,7 @@ export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: Pr
   const l = layoutOf(p);
   const custom = p.options.layout !== undefined;
   const set = (patch: Parameters<typeof withLayout>[1]) => update(withLayout(p, patch));
-  const rows = sectionRows(p);
+  const rows = layoutSectionRows(p, taxOff);
   const logoOff = !p.options.showLogo || p.template === 'impact_preprinted';
   const colorful = p.printer === 'page' && p.template === 'page_branded';
   const grid = l.design === 'grid_bilingual';
@@ -591,7 +625,8 @@ export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: Pr
   const touchEnd = (commit: boolean) => {
     const t = touch;
     setTouch(null);
-    if (commit && t && t.over >= 0 && t.over !== t.from && canMoveSection(p, t.id, t.over)) move(t.id, t.over);
+    const to = t && t.over >= 0 && rows[t.over] ? rows[t.over].at : -1;
+    if (commit && t && to >= 0 && t.over !== t.from && canMoveSection(p, t.id, to)) move(t.id, to);
   };
   return (
     <>
@@ -635,9 +670,9 @@ export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: Pr
               <li key={r.id} data-section={r.id} draggable={movable}
                 onDragStart={(e) => { setDrag(r.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', r.id); }}
                 onDragEnd={() => setDrag(null)}
-                onDragOver={(e) => { if (drag && drag !== r.id && canMoveSection(p, drag, i)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
-                onDrop={(e) => { e.preventDefault(); if (drag && canMoveSection(p, drag, i)) move(drag, i); setDrag(null); }}
-                className={`flex items-center gap-2 px-2.5 py-1.5 text-sm ${drag === r.id || touch?.id === r.id ? 'opacity-50' : ''} ${movable ? 'cursor-grab' : ''} ${touch && touch.over === i && touch.id !== r.id ? (canMoveSection(p, touch.id, i) ? 'bg-[#FBEBE2]' : 'bg-red-50') : ''}`}>
+                onDragOver={(e) => { if (drag && drag !== r.id && canMoveSection(p, drag, r.at)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                onDrop={(e) => { e.preventDefault(); if (drag && canMoveSection(p, drag, r.at)) move(drag, r.at); setDrag(null); }}
+                className={`flex items-center gap-2 px-2.5 py-1.5 text-sm ${drag === r.id || touch?.id === r.id ? 'opacity-50' : ''} ${movable ? 'cursor-grab' : ''} ${touch && touch.over === i && touch.id !== r.id ? (canMoveSection(p, touch.id, r.at) ? 'bg-[#FBEBE2]' : 'bg-red-50') : ''}`}>
                 <span data-grip="" aria-hidden="true" className="p-1 -m-1" style={movable ? { touchAction: 'none' } : undefined}
                   onPointerDown={(e) => {
                     if (!movable || e.pointerType === 'mouse') return;
@@ -652,9 +687,9 @@ export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: Pr
                 </span>
                 <span className="text-[11px] text-[#9A8F7E] w-4" dir="ltr">{i + 1}</span>
                 <span className="flex-1 min-w-0 text-[#1F1A13]">{label}</span>
-                <button type="button" data-move="up" disabled={!r.up} onClick={() => { refocus.current = { id: r.id, dir: 'up' }; move(r.id, i - 1); }} aria-label={`${tr('نقل لأعلى')}: ${label}`}
+                <button type="button" data-move="up" disabled={!r.up} onClick={() => { refocus.current = { id: r.id, dir: 'up' }; move(r.id, r.upTo); }} aria-label={`${tr('نقل لأعلى')}: ${label}`}
                   className="p-1 rounded-md text-[#6E6557] hover:bg-[#FAF7F0] disabled:opacity-30"><ArrowUp size={14} /></button>
-                <button type="button" data-move="down" disabled={!r.down} onClick={() => { refocus.current = { id: r.id, dir: 'down' }; move(r.id, i + 1); }} aria-label={`${tr('نقل لأسفل')}: ${label}`}
+                <button type="button" data-move="down" disabled={!r.down} onClick={() => { refocus.current = { id: r.id, dir: 'down' }; move(r.id, r.downTo); }} aria-label={`${tr('نقل لأسفل')}: ${label}`}
                   className="p-1 rounded-md text-[#6E6557] hover:bg-[#FAF7F0] disabled:opacity-30"><ArrowDown size={14} /></button>
               </li>
             );
@@ -714,7 +749,7 @@ function AccentPicker({ value, onPick }: { value: string | null; onPick: (v: str
 }
 
 /** مخطّط «كلاسيكي بإطارات — ثنائي اللغة»: ترويسة بلغتين وشعار في الوسط، صندوق المستند ورمزه، صندوقا البائع والمشتري، جدول بشبكة، الإجماليات، التواقيع */
-export function GridThumb() {
+export function GridThumb({ taxOff = false }: { taxOff?: boolean }) {
   const box = { border: '1px solid #1F1A13', display: 'block' } as const;
   const bar = (w: string) => <span className="block" style={{ height: 2, width: w, background: '#1F1A13', marginTop: 2 }} />;
   return (
@@ -726,7 +761,8 @@ export function GridThumb() {
       </span>
       <span className="flex gap-[2px] mt-[3px]">
         <span style={{ ...box, flex: 1, height: 9 }} />
-        <span className="block" style={{ width: 9, height: 9, background: 'repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0 / 3px 3px' }} />
+        {/* «إزالة الضريبة» (E6): بلا مربع الرمز لشركةٍ بلا ضريبة */}
+        {!taxOff && <span className="block" style={{ width: 9, height: 9, background: 'repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0 / 3px 3px' }} />}
       </span>
       <span className="flex gap-[2px] mt-[2px]">
         <span style={{ ...box, flex: 1, height: 8 }} />

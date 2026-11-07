@@ -14,8 +14,10 @@ import { unitChoices, defaultChoice, primaryChoice, invoiceItemUnit, type CustPr
 import { refetchUnitsOn } from './mPrimaryUnit';
 import {
   lineKey, addInvoiceLine, setInvoiceLineUnit, stepInvoiceLine, removeInvoiceLine, refreshInvoiceLines, repriceInvoiceLines, pickerPrices, qtyText,
-  type LinePricer, type SalePick,
+  retaxInvoiceLines, type LinePricer, type SalePick,
 } from './mUnits';
+import { isTaxOff, TAX_MODE_MESSAGES, type TaxModeCompany } from '../lib/taxMode';
+import { requestCompanyRefetch, taxModeChangedOf } from './mTaxMode';
 import { baseLabelOf, priceListsOf, defaultPriceTypeOf } from '../lib/priceLists';
 import { adminListHintOf, docLinePricerOf, docPricingDayOf, docQtyKey, type DocPriceRule } from '../lib/invoiceModalRepPrice';
 import {
@@ -80,13 +82,17 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
   presetCustomerId?: string;
   onClose: () => void;
   onCreated: (invoiceId: string) => void;
-  /** إعدادات الشركة (ردّ /company) — لعلم «تتبّع اللوط» وحده؛ غيابها إطفاء فالشاشة كما كانت حرفاً */
+  /** إعدادات الشركة (ردّ /company) — لعلمَي «تتبّع اللوط» و«إزالة الضريبة»؛ غيابها إطفاء فالشاشة كما كانت حرفاً */
   company?: unknown;
 }) {
   const tr = useTr();
   const qc = useQueryClient();
   const user = useAuthStore(s => s.user);
   const lotOn = lotFlagsOf(company as { lotTrackingEnabled?: unknown } | null).on;
+  /* «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): نسبة كل بندٍ جديد فعليّة (mUnits.lineTaxPct — صفرٌ للشركة بلا ضريبة) والسعر الصافي
+   * المكتوب نهائي، ولا سطر ضريبةٍ ولا وسم «قبل الضريبة» في الشاشة. والمطفأة (العلم غائبٌ أو false) كما كانت حرفاً */
+  const taxCo = company as TaxModeCompany | null | undefined;
+  const taxOff = isTaxOff(taxCo);
   const [step, setStep] = useState<Step>('head');
   const [customerId, setCustomerId] = useState(presetCustomerId || '');
   const [salesRepId, setSalesRepId] = useState('');
@@ -188,6 +194,12 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
     setLines(ls => repriceInvoiceLines(ls, catalog, priceOf));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- المسعِّر وحده يُطلق إعادة التسعير، لا كل بندٍ يُضاف
   }, [priceOf]);
+  // «إزالة الضريبة»: وضع الشركة تبدّل والفاتورة مفتوحة (تجديد الإعدادات، أو ردّ 409 TAX_MODE_CHANGED) ⇒ كل بندٍ بنسبته الفعلية الآن،
+  // والسعر الصافي كما هو. وبنودٌ فارغة (الفتح الأول) لا تتغيّر
+  useEffect(() => {
+    setLines(ls => retaxInvoiceLines(ls, catalog, taxCo));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- تبدّل الوضع وحده يُطلق إعادة النسبة
+  }, [taxOff]);
 
   // صنفٌ في البنود يعود في قائمةٍ أحدث (بعد 400 UNIT_INVALID مثلاً) ⇒ تُحدَّث وحداته في منتقي بنده، ولقطة بنوده تُحلّ
   // من جديد (refreshInvoiceLines): بلاها يبقى البند بأساسٍ لم يعد قائماً فيرفضه الخادم مرّةً بعد مرّة
@@ -228,7 +240,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
     [productsQ.data, priceOf, pickQtyKey],
   );
 
-  const totals = useMemo(() => invoiceTotals(lines, discountPct), [lines, discountPct]);
+  const totals = useMemo(() => invoiceTotals(lines, discountPct, taxCo), [lines, discountPct, taxCo]);
   // معاينة جدول الأقساط — والخادم يكتب الحقيقي من إجماليّه
   const insPreview = useMemo(
     () => (plan === 'INSTALLMENT' ? previewInstallments(totals.total, insCount, insFirst, insPeriod) : []),
@@ -238,7 +250,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
   /** إضافة الصنف بوحدة (الافتراض «الوحدة الرئيسية» وإلّا أكبر وحدة — defaultChoice): بندٌ قائم بالوحدة نفسها يزيد واحداً — والسعر ⚠️ **قبل** الضريبة (mUnits.invoiceLine) بسعر العميل أو القائمة بكمية الصنف بعد الإضافة */
   const addProduct = (p: SalePick, c?: UnitChoice) => {
     setCatalog(m => (m[p.id] === p ? m : { ...m, [p.id]: p }));
-    setLines(ls => addInvoiceLine(ls, p, c, priceOf));
+    setLines(ls => addInvoiceLine(ls, p, c, priceOf, taxCo));
   };
   // البند بمفتاحه (الصنف + الوحدة) لا بالصنف وحده: بندا الكرتون والحبّة يُعدَّلان ويُحذفان كلٌّ وحده — وكمية الصنف تغيّرت فبنوده
   // التي لم تُمسّ تُعاد بالمسعِّر (شريحة «من ١٠ كراتين»)
@@ -263,6 +275,9 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
           paymentPlan: 'INSTALLMENT',
           installmentPlan: { count: insCount, firstDueDate: insFirst, period: insPeriod },
         }),
+        // «إزالة الضريبة» (CONTRACT2 E1): الوضع الذي سُعِّرت به البنود مُعلَناً دائماً (isTaxOff لإعدادات الشركة التي تحملها الشاشة) —
+        // يخالف وضعها الآن (ولو أُعيدت الضريبة قبل دورة التجديد) ⇒ 409 TAX_MODE_CHANGED فتُجلب الإعدادات وتنقلب نسب البنود
+        builtTaxFree: taxOff,
         items: lines.map(l => ({
           productId: l.productId, qty: l.qty,
           unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct,
@@ -290,6 +305,14 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
       // وحدات صنفٍ تغيّرت منذ فُتحت القائمة: تُجلب من جديد فيتحدّث منتقي البند — ورسالة الخادم تسمّي الصنف. وسباقٌ مع «إضافة
       // وحدة فرعية أصغر» (409 PRODUCT_UNITS_CHANGED) مثله؛ أمّا 503 PRODUCT_UNITS_BUSY فرسالته وحدها (الكتالوج لم يتغيّر بعد)
       if (refetchUnitsOn(e)) qc.invalidateQueries({ queryKey: ['m-inv-products'] });
+      // «إزالة الضريبة» (E2): وضع الشركة تبدّل بعد آخر قراءةٍ لإعداداتها (409 TAX_MODE_CHANGED بالاتجاهين — أُزيلت الضريبة أو أُعيدت
+      // وbuiltTaxFree يخالفها) — تُجلب فوراً فيصل العلم هذه الشاشة فتنقلب نسبة كل بندٍ (retaxInvoiceLines أعلاه: صفرٌ أو نسبة صنفه)
+      // بسعره المكتوب، بالرسالة المحايدة، ويُعاد الإصدار
+      if (taxModeChangedOf(e)) {
+        requestCompanyRefetch();
+        toast.error(tr(TAX_MODE_MESSAGES.TAX_MODE_CHANGED));
+        return;
+      }
       // «تتبّع اللوط»: الرفض برمزه وتفاصيله بلغة الواجهة (النقص بالمطلوب والمتاح بوحدات الصنف، والانشغال) — واللقطة تُجدَّد
       const lot = lotErrorOf(e);
       if (lot) {
@@ -504,7 +527,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
                     </div>
                   );
                 })}
-                <p className="px-3 py-2 text-[10px] text-[#9A8F7E]">{tr('السعر قبل الضريبة تحسب الضريبة تلقائيا')}</p>
+                {!taxOff && <p className="px-3 py-2 text-[10px] text-[#9A8F7E]">{tr('السعر قبل الضريبة تحسب الضريبة تلقائيا')}</p>}
                 {lines.some(l => unitChoices(catalog[l.productId]).length > 1) && (
                   <p className="px-3 pb-2 -mt-1 text-[10px] text-[#9A8F7E]">{tr('سعر البند لوحدته المختارة وتبديل الوحدة يعيد تسعيره')}</p>
                 )}
@@ -532,7 +555,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
                                 pickPrices بوحدة pickerChoice = d لصنفٍ بوحدات والأساس لغيره) */}
                             {multi
                               ? `${formatCurrency(pickPrices.get(p.id) ?? 0)} / ${d.name}`
-                              : formatCurrency(pickPrices.get(p.id) ?? 0)} · {tr('ضريبة')} {Number(p.taxPct ?? 15)}%
+                              : formatCurrency(pickPrices.get(p.id) ?? 0)}{!taxOff && <> · {tr('ضريبة')} {Number(p.taxPct ?? 15)}%</>}
                             {lotOn && lotTrackedOf(p) && <> · {tr('LOT')}</>}
                           </span>
                         </span>
@@ -597,9 +620,10 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
             )}
 
             <div className="rounded-2xl border border-[#E9E1D3] bg-white p-4 space-y-2">
-              <Row k={tr('الإجمالي قبل الضريبة')} v={formatCurrency(totals.subtotal)} />
+              {/* «إزالة الضريبة»: المجموع قبل الخصم ثم الخصم ثم الإجمالي — بلا سطر ضريبة ولا «قبل الضريبة» */}
+              <Row k={taxOff ? tr('المجموع قبل الخصم') : tr('الإجمالي قبل الضريبة')} v={formatCurrency(totals.subtotal)} />
               <Row k={tr('الخصم')} v={`− ${formatCurrency(totals.discount)}`} />
-              <Row k={tr('الضريبة')} v={formatCurrency(totals.tax)} />
+              {!taxOff && <Row k={tr('الضريبة')} v={formatCurrency(totals.tax)} />}
               <div className="border-t border-[#E9E1D3] pt-2 flex justify-between items-center">
                 <span className="font-bold text-[#1F1A13]">{tr('الإجمالي')}</span>
                 <span className="text-xl font-bold text-[#E15A30]">{formatCurrency(totals.total)}</span>

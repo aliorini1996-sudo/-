@@ -6,7 +6,9 @@ import {
   openingStockGate, openingStockAckState, fileRowOf, localizedServerMessage, listSeparator, PRICE_INCL_TAX_SUGGESTED_NOTICE,
   OPENING_STOCK_LOT_HINT, type InvalidDateRow, type OpeningStockBlock, type OpeningStockServerBlock, type ImportNotice,
   openingStockPrimaryPreview, openingStockUnitRequiredRows, QTY_UNIT_REQUIRED, type ImportPreviewProduct,
+  OPENING_STOCK_OPEN_NOTE_TAX_OFF, OPENING_STOCK_MATCH_NOTE,
 } from '../lib/importData';
+import { isTaxOff } from '../lib/taxMode';
 import { useTr } from '../i18n/strings';
 import { useLang } from '../i18n/lang';
 import { useAuthStore } from '../store/authStore';
@@ -84,6 +86,11 @@ interface Preview {
   /** إقرارات المالك بعد 409: الاستيراد رغم التكرار / رغم التداخل */
   flags: { force?: boolean; confirmOverlap?: boolean };
   conflict: Conflict | null;
+  /**
+   * «إزالة الضريبة»: الشركة بلا ضريبة لحظة رفع الملف ⇒ عمودا الضريبة والرقم الضريبي يُتجاهلان ولا خانة «شاملة الضريبة» في
+   * المعاينة ولا علمها في الجسم. غائبٌ ⇒ المعاينة كما كانت حرفاً (العلم في الملف لا في اعتماديات الحساب)
+   */
+  taxOff?: boolean;
 }
 interface ImportResult {
   created: number; skipped: number; total: number; errors: ImportResultRowError[];
@@ -200,9 +207,11 @@ export default function DataImportPanel() {
 
   const { data: companyCfg } = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { warehouseEnabled?: boolean; lotTrackingEnabled?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { warehouseEnabled?: boolean; lotTrackingEnabled?: boolean; taxDisabled?: boolean } | null,
     staleTime: 300_000,
   });
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): لا عمود ضريبة يُستورد ولا خانة «شاملة الضريبة» — السعر والتكلفة كما في الملف
+  const taxOff = isTaxOff(companyCfg);
   // «تتبّع اللوط»: المخزون الافتتاحي يقرأ أعمدة التشغيلة للشركة المفعّل لها وحدها — مطفأ ⇒ التحويل والمعاينة كما كانا (§١٠.١)
   const lotTracking = lotFlagsOf(companyCfg).on;
   const stockGate = openingStockGate({
@@ -322,7 +331,7 @@ export default function DataImportPanel() {
       setStockAck(false);
       setZeroPriceAck(false);
       setPriceInclTax(null);
-      setPreview({ kind, fileName: file.name, raw: rows, fileNotices: parsed.notices ?? [], flags: {}, conflict: null });
+      setPreview({ kind, fileName: file.name, raw: rows, fileNotices: parsed.notices ?? [], flags: {}, conflict: null, ...(taxOff && { taxOff: true }) });
     } catch (e) {
       // ترميز لا يُفك (البند 27) برسالته، وغيره الرسالة العامة
       toast.error(e instanceof ImportFileError ? tr(e.key) : tr('تعذر قراءة الملف تأكد أنه Excel/CSV صالح'), { duration: 8000 });
@@ -340,6 +349,7 @@ export default function DataImportPanel() {
     const tf = IMPORT_TYPES[preview.kind].transform(preview.raw, {
       ...(ledgerKind && undatedDate ? { undatedDate } : {}), currencyDecimals: companyDecimals, pricesIncludeTax: priceInclTax === true,
       ...(lotTracking ? { lotTracking: true } : {}),
+      ...(preview.taxOff ? { taxOff: true } : {}),
     });
     const aware = !!ledger && ledgerKind;
     const split = aware && ledger?.cutoverDate ? classifyImportRowsByCutover(tf.valid, ledger.cutoverDate, ledger.timezone) : null;
@@ -352,7 +362,7 @@ export default function DataImportPanel() {
     const chooserCtx: LedgerImportCtx | null = ledger ?? (forceUndated || serverActivated ? MIN_ACTIVATED_CTX : null);
     const needChooser = ledgerKind && !!chooserCtx;
     // البند 31: عنوان عمود السعر يقول «شامل الضريبة» ⇒ تأكيد تلقائي للخانة، وقرار المالك يسبقه إن لمسها
-    const inclusiveDetected = inclusiveTaxDetected(preview.kind, tf.columns ?? []);
+    const inclusiveDetected = !preview.taxOff && inclusiveTaxDetected(preview.kind, tf.columns ?? []);
     const inclusiveChosen = priceInclTax ?? inclusiveDetected;
     // تنبيهات الملف ثم التحويل، وعوائقه، وخريطة الأعمدة (البنود 9 و11 و12 و13)
     // اقتراح «فعّل خيار الأسعار شاملة الضريبة» لا يُعرض والخانة مؤشّرة أصلاً (تأشيراً تلقائياً أو بيد المالك)
@@ -393,7 +403,7 @@ export default function DataImportPanel() {
     const flags = { ...preview.flags, ...extra };
     const body = buildImportBody({
       kind, rows: view.rows, ledgerKind: view.ledgerKind, undatedDate,
-      stockInclTax, stockAckBody: stockAckInfo.body, flags,
+      stockInclTax: stockInclTax && !preview.taxOff, stockAckBody: stockAckInfo.body, flags,
       zeroPriceRows: view.zeroPriceRows, zeroPriceAck, pricesIncludeTax,
     });
     const withConflict = (conflict: Conflict | null) => setPreview({ ...preview, flags, conflict });
@@ -568,7 +578,10 @@ export default function DataImportPanel() {
                 <span className={`font-semibold ${blocked ? 'text-gray-500' : 'text-gray-800'}`}>{tr(IMPORT_TYPES[kind].label)}</span>
               </div>
               {isStock && (
-                <OpeningStockNote gate={stockGate} />
+                // «إزالة الضريبة»: البطاقة المفتوحة بنصّها بلا «صافية من الضريبة»؛ وحالات المنع والإقرار كما هي
+                taxOff && stockGate.state === 'open'
+                  ? <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">{tr(OPENING_STOCK_OPEN_NOTE_TAX_OFF)}</p>
+                  : <OpeningStockNote gate={stockGate} />
               )}
               <label aria-disabled={disabled}
                 className={`btn-primary w-full justify-center text-xs py-2 ${disabled ? 'opacity-60 pointer-events-none' : 'cursor-pointer'}`}>
@@ -681,21 +694,25 @@ export default function DataImportPanel() {
               {preview.kind === OPENING_STOCK && (
                 <div className="rounded-xl border border-[#E8E0D2] bg-[#FBF7F0] p-3 text-[11px] text-[#6E6557] space-y-2">
                   <p className="flex items-center justify-between gap-2">
-                    <span>{tr('إجمالي تكلفة الملف')}{stockInclTax ? ` (${tr('شاملة الضريبة')})` : ''}</span>
+                    <span>{tr('إجمالي تكلفة الملف')}{stockInclTax && !preview.taxOff ? ` (${tr('شاملة الضريبة')})` : ''}</span>
                     <bdi className="tabular-nums font-bold text-gray-800">{formatCurrency(view.totalCost ?? 0)}</bdi>
                   </p>
+                  {preview.taxOff ? <p>{tr(OPENING_STOCK_MATCH_NOTE)}</p> : (
+                    <>
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input type="checkbox" checked={stockInclTax} disabled={busy !== null}
                       onChange={(e) => { setStockInclTax(e.target.checked); setPreview({ ...preview, flags: {}, conflict: null }); }} />
                     <span className="font-semibold">{tr('التكلفة شاملة الضريبة')}</span>
                   </label>
                   <p>{tr('تخصم ضريبة كل صنف من التكلفة قبل التسجيل، فيدخل المخزون بتكلفته الصافية. الأصناف تطابق بالكود ثم الباركود ثم الاسم')}</p>
+                    </>
+                  )}
                   {/* «تتبّع اللوط»: أعمدة التشغيلة لشركته وحدها */}
                   {lotTracking && <p data-opening-stock-lots="">{tr(OPENING_STOCK_LOT_HINT)}</p>}
                 </div>
               )}
               {/* البند 31: عمود السعر شامل الضريبة ⇒ يخصمها الخادم قبل الحفظ، فلا تُضاف مرتين عند البيع */}
-              {inclusiveTaxKind(preview.kind) && (
+              {inclusiveTaxKind(preview.kind) && !preview.taxOff && (
                 <div className="rounded-xl border border-[#E8E0D2] bg-[#FBF7F0] p-3 text-[11px] text-[#6E6557] space-y-2">
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input type="checkbox" checked={pricesIncludeTax} disabled={busy !== null}
@@ -796,7 +813,7 @@ export default function DataImportPanel() {
                   onChange={() => { setUndatedInput(undatedDate ?? undatedInput); setUndatedDate(null); }} />
               )}
               {view.split && ledger && (
-                <CutoverSplitNotice ctx={ledger} split={view.split} excludeAfter={excludeAfter}
+                <CutoverSplitNotice ctx={ledger} split={view.split} excludeAfter={excludeAfter} taxOff={taxOff}
                   onToggleExclude={(v) => { setExcludeAfter(v); setPreview({ ...preview, conflict: null }); }} />
               )}
 

@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link2, Wallet, ReceiptText, Banknote, Copy, XCircle, CheckCircle2, Clock, Ban } from 'lucide-react';
 import toast from 'react-hot-toast';
-import api from '../api/client';
+import api, { companyApi } from '../api/client';
 import { formatCurrency, formatDate } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
+import { isTaxOff } from '../lib/taxMode';
 
 /**
  * صفحة «المدفوعات الالكترونية» — لوحة أدمن الشركة (ميزة اشتراك كبترو آب وهاتف).
@@ -52,6 +53,14 @@ export default function PaylinkPage() {
   // محصَّلٌ وعمولةٌ ومستحقٌّ وفواتير تُسدَّد: الصفحة مالية بالكامل مهما كان
   // مفتاح الميزة الخاص بها — إطفاء المحاسبة يوقف حتى تحديثها الدوري.
   const { on: accountingOn, ready: accountingReady } = useAccountingOn();
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): علم الشركة من ردّ /company (ذاكرة ['company'] نفسها التي تقرؤها بوّابة المحاسبة،
+  // فلا طلب زائد) — بلا ضريبة ⇒ وصف العمولة بلا «شاملة الضريبة» (المبلغ نفسه لا يتغيّر)
+  const { data: companyCfg } = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as { taxDisabled?: boolean } | null,
+    staleTime: 300_000,
+  });
+  const taxOff = isTaxOff(companyCfg);
 
   // تحديث تلقائي كل ٣٠ ثانية: المالك يراقب دفعة واردة فلا يليق ببياناته الموت
   const { data: summary } = useQuery({
@@ -111,7 +120,7 @@ export default function PaylinkPage() {
         {!summary?.scoped && <>
           <Card icon={Wallet} tint="text-[#C94E28] bg-[#FBEBE2]" label={tr('عمولة المنصة')}
             value={formatCurrency(summary?.fees ?? 0)}
-            sub={`${summary?.feePct ?? 4}% + ${summary?.feeFlat ?? 1} ${tr('ريال لكل دفعة شاملة الضريبة')}`} />
+            sub={`${summary?.feePct ?? 4}% + ${summary?.feeFlat ?? 1} ${taxOff ? tr('ريال لكل دفعة') : tr('ريال لكل دفعة شاملة الضريبة')}`} />
           <Card icon={Banknote} tint="text-[#2E6FB0] bg-[#2E6FB0]/10" label={tr('صافي مستحقكم الان')}
             value={formatCurrency(summary?.balance ?? 0)} sub={tr('يورد لحسابكم كل خميس')} />
           <Card icon={CheckCircle2} tint="text-gray-600 bg-gray-100" label={tr('المورد اليكم سابقا')}

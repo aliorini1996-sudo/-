@@ -344,6 +344,12 @@ export const companyApi = {
   // «فك قيد الرقم الضريبي والعنوان الوطني» (طلب المالك ٣١ أكتوبر ٢٠٢٦) — /api/company/buyer-relax: القراءة لكل مستخدم شركة
   // ({ enabled })، والتبديل لمدير الشركة غير المقيّد وحده (403 BUYER_RELAX_ADMIN_ONLY / BUYER_RELAX_SCOPED، والمفتاح 403 دائماً،
   // و409 COMPANY_SETTINGS_MISSING بلا صفّ إعدادات). والقيمة نفسها تصل في GET /company باسم buyerVatAddressRelaxed
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦) — /api/company/tax-mode: القراءة لكل مستخدم شركة، والقلب لمدير الشركة غير المقيّد
+  // (أو جلسة المالك) — 409 TAX_MODE_ZATCA_CONFLICT ما دام ربط المرحلة الثانية مفعّلاً. العلم نفسه يصل أيضاً في GET /company (taxDisabled)
+  taxMode: {
+    get: () => api.get('/company/tax-mode'),
+    set: (taxDisabled: boolean) => api.patch('/company/tax-mode', { taxDisabled }),
+  },
   buyerRelax: {
     get: () => api.get('/company/buyer-relax'),
     set: (enabled: boolean) => api.patch('/company/buyer-relax', { enabled }),

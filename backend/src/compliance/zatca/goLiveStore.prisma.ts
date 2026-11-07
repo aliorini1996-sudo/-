@@ -72,6 +72,11 @@ export function prismaGoLiveStore(prisma: PrismaLike): GoLiveStore {
       });
       return { applied: r.count === 1, armedAt: null };
     },
+    async loadTaxDisabled(tenantId) {
+      // «إزالة الضريبة»: true صريحاً وحده (غياب الصفّ = سلوك اليوم)
+      const s = await prisma.companySettings.findUnique({ where: { tenantId }, select: { taxDisabled: true } });
+      return s?.taxDisabled === true;
+    },
     async loadRepSync(tenantId) {
       const reps = await prisma.salesRep.findMany({
         where: { tenantId },

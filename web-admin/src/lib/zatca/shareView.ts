@@ -50,9 +50,12 @@ export function isShareableMirror(mirror: unknown): boolean {
   return typeof mirror === 'string' && SHAREABLE_MIRRORS.includes(mirror);
 }
 
-/** صفّ فاتورةٍ من `GET /invoices` — بلا استيراد نوعٍ من docStatus كي لا تتشابك الوحدتان. */
-export function isShareableRow(row: { zatcaPhase?: unknown; einvoiceStatus?: unknown } | null | undefined): boolean {
-  if (!row) return false;
+/**
+ * صفّ فاتورةٍ من `GET /invoices` — بلا استيراد نوعٍ من docStatus كي لا تتشابك الوحدتان. و«إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦):
+ * المختوم بلا ضريبة (`taxFree === true`) لا رابط مشترٍ له أبداً — الصفحة والرسالة رابطُ مستندٍ لدى الهيئة (والخادم يمنع الجمع).
+ */
+export function isShareableRow(row: { zatcaPhase?: unknown; einvoiceStatus?: unknown; taxFree?: unknown } | null | undefined): boolean {
+  if (!row || row.taxFree === true) return false;
   return Number(row.zatcaPhase) === 2 && isShareableMirror(row.einvoiceStatus);
 }
 
@@ -245,6 +248,8 @@ export interface ShareMessageInput {
   mirror?: string | null;
   /** مرحلة الفوترة إن عُرفت — غير الثانية ⇒ لا ادّعاء باسم الهيئة أيّاً كانت المرآة. */
   phase?: number | null;
+  /** «إزالة الضريبة»: المستند مختومٌ بلا ضريبة ⇒ لا «الضريبية» في العنوان الاحتياطي ولا عبارة الهيئة. غيابه = سلوك اليوم حرفاً. */
+  taxFree?: boolean | null;
 }
 
 /**
@@ -254,11 +259,14 @@ export interface ShareMessageInput {
  */
 export function shareMessageOf(input: ShareMessageInput, link: string): string {
   const title = typeof input.title === 'string' ? input.title.trim() : '';
+  // «إزالة الضريبة»: العنوان الاحتياطي بلا «الضريبية» ولا عبارة هيئة للمختوم بلا ضريبة
+  const taxFree = input.taxFree === true;
+  const fallback = taxFree ? 'فاتورتكم' : 'فاتورتكم الضريبية';
   const head = title
     ? (input.number ? `${title} رقم ${input.number}` : title)
-    : (input.number ? `فاتورتكم الضريبية رقم ${input.number}` : 'فاتورتكم الضريبية');
+    : (input.number ? `${fallback} رقم ${input.number}` : fallback);
   const from = input.sellerName ? ` من ${input.sellerName}` : '';
-  const phaseOk = input.phase === undefined || input.phase === null || Number(input.phase) === 2;
+  const phaseOk = !taxFree && (input.phase === undefined || input.phase === null || Number(input.phase) === 2);
   const note = phaseOk && isShareableMirror(input.mirror) ? NOTES[input.mirror as ShareStatus].label : null;
   return note ? `${head}${from}\nنسخة ${note}:\n${link}` : `${head}${from}:\n${link}`;
 }

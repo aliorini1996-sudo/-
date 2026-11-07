@@ -24,6 +24,8 @@ import PrintDeviceTools from './PrintDeviceTools';
 import PrintDesignTools, { CLASSIC_COPY_NAME, classicCopyFor, isClassicRoll } from './PrintDesignTools';
 import { PrintableInvoice, type Company } from '../../rep/RepDocuments';
 import { currentPrintIdentity, usePrintDeviceChoice } from '../../rep/printDevice';
+import { isTaxOff } from '../../lib/taxMode';
+import { TaxOffPrintContext, taxOffProfileWarnings, templateHintFor, useTaxOffPrint } from './taxOffPrint';
 
 /**
  * تبويب «إعدادات الطباعة» في إعدادات الشركة (طلب المالك ٢٣ أكتوبر ٢٠٢٦، التصميم §5.1) — الإعداد هنا، والطباعة به في شاشة
@@ -70,6 +72,9 @@ export default function PrintSettingsPanel({ phase2 }: { phase2: boolean }) {
   const company = qc.getQueryData<Company | null>(['company']);
   const companyName = company?.name || tr('اسم الشركة');
   const brandColor = company?.primaryColor || '#1e3a8a';
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الشركة بلا ضريبة (taxDisabled في ردّ /company) — التبويب كله بلا تنبيهات الهيئة والرمز
+  // والفاتورة الضريبية، ومعايناته مستنداتٌ بلا ضريبة (TaxOffPrintContext لمكوّناته). الغائب أو false: التبويب كما كان حرفاً
+  const taxOff = isTaxOff(company);
 
   const s = draft ?? server;
   const hasCompany = q.data?.hasCompany !== false;
@@ -138,6 +143,7 @@ export default function PrintSettingsPanel({ phase2 }: { phase2: boolean }) {
   const full = s.profiles.length >= PRINT_LIMITS.maxProfiles;
 
   return (
+    <TaxOffPrintContext.Provider value={taxOff}>
     <div className="space-y-5">
       <div className="card">
         <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -224,6 +230,8 @@ export default function PrintSettingsPanel({ phase2 }: { phase2: boolean }) {
                 const legacy = isLegacyProfileId(p.id);
                 const usage = profileUsage(s, p.id);
                 const w = profileWarnings(p, { phase2 }).warnings;
+                // «إزالة الضريبة»: بلا تنبيهات الرمز والفاتورة الضريبية لشركةٍ بلا ضريبة
+                const shownWarnings = taxOffProfileWarnings({ warnings: w, notes: [] }, taxOff).warnings;
                 const mm = printableMm(p);
                 return (
                   <div key={p.id} className="p-3.5 flex items-center gap-3 flex-wrap">
@@ -233,8 +241,9 @@ export default function PrintSettingsPanel({ phase2 }: { phase2: boolean }) {
                         {profileDisplayName(p, tr)}
                         {legacy && <span className="text-[10px] text-[#1E7A52] bg-green-50 rounded-full px-2 py-0.5">{tr('الافتراضي الحالي')}</span>}
                         {usage.map((u) => <span key={u} className="text-[10px] text-[#C94E28] bg-[#FBEBE2] rounded-full px-2 py-0.5">{tr(DOC_KIND_SHORT[u])}</span>)}
-                        {isQrRemoved(layoutOf(p)) && <span data-qr-removed="" className="text-[10px] font-bold text-white bg-[#B42318] rounded-full px-2 py-0.5">{tr(QR_REMOVED_BADGE)}</span>}
-                        {w.length > 0 && <span title={w.map((x) => tr(x)).join(' · ')}><AlertTriangle size={14} className="text-amber-600" /></span>}
+                        {/* «إزالة الضريبة» (E6): لا شارة «بلا رمز QR» لشركةٍ بلا ضريبة — لا رمز على مستنداتها أصلاً */}
+                        {isQrRemoved(layoutOf(p)) && !taxOff && <span data-qr-removed="" className="text-[10px] font-bold text-white bg-[#B42318] rounded-full px-2 py-0.5">{tr(QR_REMOVED_BADGE)}</span>}
+                        {shownWarnings.length > 0 && <span title={shownWarnings.map((x) => tr(x)).join(' · ')}><AlertTriangle size={14} className="text-amber-600" /></span>}
                       </p>
                       <p className="text-xs text-[#6E6557] mt-0.5">
                         {tr(PRINTER_SHORT[p.printer])} · {tr(PRESET_LABELS[p.paper.preset])} · {tr(TEMPLATE_LABELS[p.template])}
@@ -274,6 +283,7 @@ export default function PrintSettingsPanel({ phase2 }: { phase2: boolean }) {
         {editor === null && issues.length > 0 && <span className="text-xs text-red-600">{tr(issues[0].message)}</span>}
       </div>
     </div>
+    </TaxOffPrintContext.Provider>
   );
 }
 
@@ -303,7 +313,9 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
   const index = editor.index ?? settings.profiles.length;
   const check = checkPrintSettings(withProfile(settings, p, editor.index), true);
   const issues = check.ok ? [] : check.issues.filter((i) => i.path.startsWith(`profiles[${index}]`));
-  const { warnings, notes } = profileWarnings(p, { phase2 });
+  // «إزالة الضريبة»: الشركة بلا ضريبة (سياق اللوحة) — بلا تنبيهات الرمز والفاتورة الضريبية، ولا قسم «رمز QR»، ووصف القوالب بلا ضريبة
+  const taxOff = useTaxOffPrint();
+  const { warnings, notes } = taxOffProfileWarnings(profileWarnings(p, { phase2 }), taxOff);
   const raster = p.printer !== 'page';
   const detailedMinDots = p.paper.dpi !== null && p.printer === 'thermal' ? maxPrintableDots('thermal', PRINT_LIMITS.detailedMinMm, p.paper.dpi) : 0;
   const plan = qrPlan(p, STAMPED_QR_CELLS.typical);
@@ -410,12 +422,12 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
                 const t = c.kind === 'template' ? c.t : null;
                 const blocked = t === 'roll_detailed' && (p.paper.printableDots ?? 0) < detailedMinDots;
                 const label = t ? TEMPLATE_LABELS[t] : DESIGN_LABELS.grid_bilingual;
-                const hint = t ? TEMPLATE_HINTS[t] : DESIGN_HINTS.grid_bilingual ?? '';
+                const hint = templateHintFor(t, t ? TEMPLATE_HINTS[t] : DESIGN_HINTS.grid_bilingual ?? '', taxOff);
                 return (
                   <button key={t ?? 'grid_bilingual'} type="button" disabled={blocked} onClick={() => update(applyDesignCard(p, c))}
                     data-design-card={t ?? 'grid_bilingual'}
                     className={`text-right rounded-2xl border-2 p-3 flex gap-3 transition-colors disabled:opacity-50 ${designCardSelected(p, c) ? 'border-[#E15A30] bg-[#FBEBE2]' : 'border-[#E9E1D3] bg-white hover:border-[#D8CDB9]'}`}>
-                    {t ? <TemplateThumb t={t} /> : <GridThumb />}
+                    {t ? <TemplateThumb t={t} taxOff={taxOff} /> : <GridThumb taxOff={taxOff} />}
                     <span className="min-w-0">
                       <span className="block font-bold text-[#1F1A13]">{tr(label)}</span>
                       <span className="block text-xs text-[#6E6557] mt-1 leading-relaxed">{tr(hint)}</span>
@@ -441,7 +453,7 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
                   <input className="input" maxLength={PRINT_LIMITS.footerMax} placeholder={tr('شكرا لتعاملكم معنا')} value={p.options.footerText ?? ''}
                     onChange={(e) => setOpt('footerText', e.target.value ? e.target.value : null)} />
                 </label>
-                <p className="text-[11px] text-[#6E6557] flex items-start gap-1.5"><Info size={12} className="mt-0.5 shrink-0" />{tr(QR_PANEL_NOTE)}</p>
+                {!taxOff && <p className="text-[11px] text-[#6E6557] flex items-start gap-1.5"><Info size={12} className="mt-0.5 shrink-0" />{tr(QR_PANEL_NOTE)}</p>}
               </Section>
 
               <Section title={tr('التخطيط')} open><LayoutFields p={p} update={update} /></Section>
@@ -485,7 +497,8 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
                 <Toggle label={tr('خط عريض للنص')} checked={p.options.boldBody} onChange={(v) => setOpt('boldBody', v)} />
               </Section>
 
-              <Section title={tr('رمز QR')}>
+              {/* «إزالة الضريبة»: لا رمز QR في أيّ مستندٍ لشركةٍ بلا ضريبة — فلا قسم لمقاسه */}
+              {!taxOff && (<Section title={tr('رمز QR')}>
                 {raster ? (
                   <>
                     <div className="flex gap-1.5">
@@ -502,7 +515,7 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
                     <p className="text-[11px] text-[#9A8F7E]">{tr('لا يصغر الرمز عن الحد الأدنى لدقة الطابعة')}</p>
                   </>
                 ) : <p className="text-xs text-[#6E6557]">{tr('مقاس الرمز في الصفحة كما هو اليوم')}</p>}
-              </Section>
+              </Section>)}
 
               <Section title={tr('النسخ')}>
                 <div>
@@ -691,8 +704,8 @@ function NumField({ label, value, onChange, step, suffix }: { label: string; val
   );
 }
 
-/** صورة مصغّرة لكل تصميم — مخطّط لا معاينة */
-function TemplateThumb({ t }: { t: TemplateId }) {
+/** صورة مصغّرة لكل تصميم — مخطّط لا معاينة؛ وبلا مربع الرمز لشركةٍ بلا ضريبة (E6) */
+function TemplateThumb({ t, taxOff = false }: { t: TemplateId; taxOff?: boolean }) {
   const line = (w: string, bold = false) => <span className="block rounded-sm" style={{ height: bold ? 3 : 2, width: w, background: '#1F1A13', margin: '3px auto 0' }} />;
   const roll = t.startsWith('roll_');
   return (
@@ -707,7 +720,7 @@ function TemplateThumb({ t }: { t: TemplateId }) {
           {Array.from({ length: 9 }, (_, i) => <span key={i} className="block" style={{ height: 3, background: i < 3 ? '#1F1A13' : '#9A8F7E' }} />)}
         </span>
       ) : (<>{line('85%')}{line('60%')}{line('85%')}</>)}
-      <span className="block mx-auto mt-1.5" style={{ width: 14, height: 14, background: 'repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0 / 4px 4px' }} />
+      {!taxOff && <span className="block mx-auto mt-1.5" style={{ width: 14, height: 14, background: 'repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0 / 4px 4px' }} />}
     </span>
   );
 }

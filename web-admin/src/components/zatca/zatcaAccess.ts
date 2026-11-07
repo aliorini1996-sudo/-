@@ -9,13 +9,16 @@
 export const ZATCA_TAB_ROLE = 'ADMIN';
 
 export function zatcaTabVisible(
-  company: { zatcaPhase2Enabled?: boolean | null; countryCode?: string | null; zatcaPhase2StartedAt?: string | null } | null | undefined,
+  company: { zatcaPhase2Enabled?: boolean | null; countryCode?: string | null; zatcaPhase2StartedAt?: string | null; taxDisabled?: boolean | null } | null | undefined,
   role: string | null | undefined,
   scopeEnabled?: boolean | null,
 ): boolean {
   // Z5.0: شركة فُعّلت حيّاً (zatcaPhase2StartedAt) لا تفقد التبويب بإطفاء العلم بعد التفعيل — كبوابة الخادم
   const live = typeof company?.zatcaPhase2StartedAt === 'string' && company.zatcaPhase2StartedAt !== '';
-  return (company?.zatcaPhase2Enabled === true || live) && company?.countryCode === 'SA' && role === ZATCA_TAB_ROLE && scopeEnabled !== true;
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): شركةٌ بلا ضريبة (taxDisabled === true — كـisTaxOff في lib/taxMode.ts، والملف بلا استيراد)
+  // لا ترى التبويب ولا شيئاً منه — الخادم يرفض ربطها 409 TAX_OFF_BLOCKS_ZATCA. الغائب أو false: الشرط كما كان حرفاً
+  return (company?.zatcaPhase2Enabled === true || live) && company?.countryCode === 'SA' && role === ZATCA_TAB_ROLE && scopeEnabled !== true
+    && company?.taxDisabled !== true;
 }
 
 /** شركة بعلم المالك والمستخدم ليس مدير الشركة أو مقيّد النطاق — من يردّه حارس حقول البائع في الخادم. */

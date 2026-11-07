@@ -21,6 +21,8 @@ import { BuyerField, BuyerRowLike } from '../lib/zatca/buyerData';
 import { BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, buyerBadge } from '../lib/zatca/buyerForm';
 import { withLiveCompany } from '../rep/companyRefresh';
 import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
+import { isTaxOff } from '../lib/taxMode';
+import { customerExportColWidths } from './taxOffScreens1';
 import { customerPhoneText } from '../lib/customerPhoneField';
 
 /** جلب إعدادات الشركة — نفسه للاستعلام ولـensureQueryData عند فتح كشف قبل اكتمال تحميلها (كالفواتير والسندات، D-G6) */
@@ -69,6 +71,9 @@ export default function CustomersPage() {
   const bucketMode = zatcaCollect && buyerBucket !== '';
   // فكّ قيد الرقم الضريبي والعنوان الوطني (طلب المالك ٣١ أكتوبر ٢٠٢٦): الشارة «ناقصة تصدر مبسطة» والصيغ تنبيهات في النموذج
   const buyerRelax = buyerRelaxOn(company);
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الشركة بلا ضريبة ⇒ لا خانة الرقم الضريبي في نافذة العميل ولا عموده في التصدير
+  // (المحفوظ يبقى كما هو ويعود بعودة الضريبة)
+  const taxOff = isTaxOff(company);
   const cols = bucketMode ? 9 : accountingOn ? 9 : 7;
   useEffect(() => {
     if (!zatcaCollect) return;
@@ -233,7 +238,7 @@ export default function CustomersPage() {
         [tr('المدينة')]: c.city || '',
         [tr('الحي')]: c.district || '',
         [tr('العنوان')]: c.address || '',
-        [tr('الرقم الضريبي')]: c.taxNumber || '',
+        ...(taxOff ? {} : { [tr('الرقم الضريبي')]: c.taxNumber || '' }),
         [tr('السجل التجاري')]: c.commercialReg || '',
         [tr('القناة')]: c.channel ? tr(channelLabel(c.channel)) : '',
         ...(accountingOn ? {
@@ -246,9 +251,7 @@ export default function CustomersPage() {
         [tr('تاريخ الإضافة')]: formatDate(c.createdAt),
       }));
       const out = await shareOrDownloadExcel(
-        [{ name: tr('العملاء'), rows, colWidths: accountingOn
-          ? [26, 28, 24, 14, 14, 24, 14, 14, 28, 18, 16, 14, 14, 14, 10, 10, 40, 14]
-          : [26, 28, 24, 14, 14, 24, 14, 14, 28, 18, 16, 14, 10, 40, 14] }],
+        [{ name: tr('العملاء'), rows, colWidths: customerExportColWidths(accountingOn, taxOff) }],
         `${tr('العملاء')}-${new Date().toISOString().slice(0, 10)}`,
       );
       toast.success(out === 'shared' ? tr('تمت المشاركة') : `${tr('تم تصدير')} ${rows.length} ${tr('عميل')}`);
@@ -454,6 +457,7 @@ export default function CustomersPage() {
           accountingOn={accountingOn}
           zatcaCollect={zatcaCollect}
           buyerRelax={buyerRelax}
+          taxOff={taxOff}
           customer={selected}
           onClose={() => { setShowModal(false); setSelected(null); }}
           onSave={saveMutation.mutate}

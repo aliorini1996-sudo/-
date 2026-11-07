@@ -119,6 +119,9 @@ const INVOICE_COLS = [
   'taxAmt', 'total', 'paidAmt', 'remainingAmt', 'einvoiceProvider', 'einvoiceStatus', 'einvoiceUuid', 'einvoiceQr',
   'einvoiceSubmittedAt', 'einvoiceHash', 'einvoicePih', 'einvoiceIcv', 'einvoiceWarnings', 'createdAt', 'updatedAt',
   'zatcaPhase', 'documentKind', 'invoiceSubtype', 'issuedAt', 'originalInvoiceId', 'billingReference', 'noteReason',
+  // «إزالة الضريبة»: ختم بلا ضريبة — true ⇒ صدر المستند والشركة بلا ضريبة (بنوده 0٪ وeinvoiceProvider 'none') فيُعرض بلا أي
+  // ذكرٍ لها مهما تغيّر إعداد الشركة بعده؛ false ⇒ المستند كما صدر (والقديم بضريبته). عمود الفاتورة لا يحرّكه شيء بعد الإصدار
+  'taxFree',
   // «أنواع الأسعار»: النوع الذي سُعّر به المستند وقت الإصدار (null = السعر الأساسي)
   'priceListId',
   'teamId',

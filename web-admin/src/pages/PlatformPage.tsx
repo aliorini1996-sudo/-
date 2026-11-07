@@ -30,6 +30,7 @@ import LanguageToggle from '../components/LanguageToggle';
 import { useTr } from '../i18n/strings';
 import { backdropClose } from '../lib/backdropClose';
 import { lotRecordsRetainedOf, tenantLotNote, tenantLotPayload } from '../lib/lotTrackingUi';
+import { taxModeErrorMessage } from './taxOffScreens1';
 // سجلّ عروض الأسعار — كسولٌ: يجرّ html2canvas وjsPDF لمعاينة المستند وتنزيله
 const QuotesPanel = lazy(() => import('../components/QuotesPanel'));
 // «موظفو المنصة» وسجل نشاطهم — للمالك وحده، فلا تُحمَّل حزمتها في جلسة موظف أصلاً
@@ -1050,7 +1051,11 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
       subscriptionEndsAt: subscriptionEndsAt || null,
     }),
     onSuccess: () => { toast.success(tr('تم تحديث بيانات الشركة')); onSaved(); },
-    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر التحديث')),
+    // «إزالة الضريبة»: رفض تفعيل علم المرحلة الثانية لشركةٍ أزالت ضريبتها (409 TAX_OFF_BLOCKS_ZATCA) بعبارته مترجمة — وغيره كما كان
+    onError: (err: unknown) => {
+      const taxMode = taxModeErrorMessage(err);
+      toast.error(taxMode ? tr(taxMode) : (err as { response?: { data?: { message?: string } } })?.response?.data?.message || tr('تعذر التحديث'));
+    },
   });
 
   const submit = () => {

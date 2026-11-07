@@ -189,7 +189,8 @@ test('قائمة القوالب: شارة حمراء «بلا رمز QR» لقا
   }
   assert.equal(isQrRemoved(layoutOf(withSectionStyle(page(), 'totals', { visible: false }))), false);
   const s = read(...printDir, 'PrintSettingsPanel.tsx');
-  assert.ok(s.includes('{isQrRemoved(layoutOf(p)) && <span data-qr-removed=""'), 'الشارة بشرط الحذف الصريح');
+  // «إزالة الضريبة» (E6): والشارة لا تظهر لشركةٍ بلا ضريبة (لا رمز على مستنداتها) — تحديثٌ واعٍ للحارس
+  assert.ok(s.includes('{isQrRemoved(layoutOf(p)) && !taxOff && <span data-qr-removed=""'), 'الشارة بشرط الحذف الصريح');
   assert.ok(s.includes('{tr(QR_REMOVED_BADGE)}</span>}'));
   const row = s.slice(s.indexOf('{s.profiles.map((p, i) => {'), s.indexOf("{tr('تعديل')}"));
   assert.ok(row.indexOf('data-qr-removed') > row.indexOf('{usage.map('), 'بجوار شارات الاستعمال');
@@ -252,7 +253,8 @@ test('ترتيب الأقسام باللمس: الصفّ تحت الإصبع م�
   assert.doesNotMatch(li('header'), /data-grip=""[^>]*touch-action:none/, 'الثابت يُمرَّر عليه كالعادة');
   const v = read(...printDir, 'PrintPreview.tsx');
   const sec = v.slice(v.indexOf('export function LayoutFields('), v.indexOf('function AccentPicker('));
-  for (const frag of ['onPointerDown=', 'setPointerCapture', 'onPointerCancel=', "e.pointerType === 'mouse'", 'canMoveSection(p, t.id, t.over)', 'draggable={movable}']) {
+  // «إزالة الضريبة» (E6): الإفلات بموضع الصفّ الحقيقي (rows[t.over].at — = t.over للشركة بضريبتها) — تحديثٌ واعٍ للحارس
+  for (const frag of ['onPointerDown=', 'setPointerCapture', 'onPointerCancel=', "e.pointerType === 'mouse'", 'const to = t && t.over >= 0 && rows[t.over] ? rows[t.over].at : -1;', 'canMoveSection(p, t.id, to)', 'draggable={movable}']) {
     assert.ok(sec.includes(frag), frag);
   }
 });

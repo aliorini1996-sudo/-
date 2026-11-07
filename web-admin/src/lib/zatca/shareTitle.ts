@@ -10,8 +10,14 @@
 // ============================================================================
 
 import { makePrintTexts, normalizePrintTexts } from '../print/printTexts';
+import { TAX_FREE_TITLES } from '../taxMode';
 
 export interface ShareTitleFacts {
+  /**
+   * «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): المستند مختومٌ بلا ضريبة (`Invoice.taxFree`) ⇒ عنوانه «فاتورة»/«فاتورة مرتجع»
+   * (TAX_FREE_TITLES) بصياغة الشركة كما تطبعه القوالب — لا عنوان ضريبيّ. يسبق كل ما عداه، وغيابه = سلوك اليوم حرفاً.
+   */
+  taxFree?: boolean | null;
   /** نوع المستند عند الهيئة (ZatcaDocView.documentKind) — يغيب في الصفوف القديمة. */
   documentKind?: string | null;
   /** '01' قياسية / '02' مبسّطة (ZatcaDocView.subtype) — يغيب في بعض الصفوف. */
@@ -47,6 +53,12 @@ export function sharePhase2DecidedTitle(f: ShareTitleFacts): string | null {
  * عربيّ دائماً (المستلم عميل الشركة) — فالمترجم هويّة، ولا لغة ثانية في سطر الرسالة.
  */
 export function shareMessageTitle(f: ShareTitleFacts, rawPrintTexts: unknown): string | null {
+  if (f.taxFree === true) {
+    // المختوم بلا ضريبة: عنوان قرار الطباعة نفسه (docPrint.taxFreePrintDecision) بصياغة الشركة له — والمحذوف ⇒ العنوان نفسه
+    const plain = f.isReturn ? TAX_FREE_TITLES.return : TAX_FREE_TITLES.sale;
+    const pt = makePrintTexts(normalizePrintTexts(rawPrintTexts), (s) => s, { standard: false });
+    return pt.title(plain, { isReturn: !!f.isReturn, phase2: false }).text.trim() || plain;
+  }
   const decided = sharePhase2DecidedTitle(f);
   if (!decided) return null;
   const pt = makePrintTexts(normalizePrintTexts(rawPrintTexts), (s) => s, { standard: subtypeOf(f) === '01' });

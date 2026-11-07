@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { companyApi } from '../api/client';
 import { useTr } from '../i18n/strings';
 import { isPhase2Company, returnLinkDefault, returnLinkRequired } from '../lib/returnPolicy';
+import { isTaxOff } from '../lib/taxMode';
 
 /**
  * «اشتراط اختيار فاتورة البيع للمرتجع» (طلب المالك ٣١ أكتوبر ٢٠٢٦) — لمدير الشركة غير المقيَّد وحده (الصفحة تُظهرها بـ
@@ -27,6 +28,8 @@ export default function ReturnPolicyCard({ company }: { company: ReturnPolicyCom
   const qc = useQueryClient();
   const phase2 = isPhase2Company(company);
   const phaseDefault = returnLinkDefault(company);
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الشركة بلا ضريبة لا ترى عبارة مراحل الفوترة الإلكترونية — «غير مشترط» وحدها
+  const taxOff = isTaxOff(company);
   const stored = company?.returnRequiresSaleInvoice;
   const custom = stored === true || stored === false;
   const save = useMutation({
@@ -69,7 +72,7 @@ export default function ReturnPolicyCard({ company }: { company: ReturnPolicyCom
       </label>
       <div className="flex items-center justify-between gap-2 flex-wrap mt-1.5">
         <p className="text-[11px] text-[#6E6557]">
-          {tr('الافتراضي لشركتك')}: <b>{phaseDefault ? tr('مشترط في المرحلة الثانية') : tr('غير مشترط في المرحلة الأولى')}</b>
+          {tr('الافتراضي لشركتك')}: <b>{phaseDefault ? tr('مشترط في المرحلة الثانية') : taxOff ? tr('غير مشترط') : tr('غير مشترط في المرحلة الأولى')}</b>
         </p>
         {custom && (
           <button type="button" className="text-[11px] font-semibold text-[#C94E28] hover:underline disabled:opacity-50" disabled={save.isPending}

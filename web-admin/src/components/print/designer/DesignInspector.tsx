@@ -18,6 +18,7 @@ import { AlignChips, NumInput, QrRemoveField, SectionStyleFields, StampsField, c
 import { bandAllows, bandLimits, fitBoxesToBand, snapGrid } from './designerMath';
 import { canvasQrMinMm } from '../../../rep/RepDocuments';
 import { lookFor } from '../../../rep/printLook';
+import { useTaxOffPrint } from '../taxOffPrint';
 
 /** أصغر ضلعٍ لمربع QR كما ترسمه الورقة (الصفحة 50.5 مم، والنقطية بخانتها) — لا حدّ الخادم 47 وحده */
 export const qrBoxMinFor = (p: PrintProfile): number => canvasQrMinMm(lookFor(p));
@@ -53,7 +54,9 @@ export const isBandSel = (s: DesignSel | null): s is 'band:header' | 'band:foote
 export default function DesignInspector({ p, update, selected, onSelect, phase2 }: DesignInspectorProps) {
   const tr = useTr();
   const l = layoutOf(p);
-  const sections = sectionsFor(p.printer, l.design);
+  // «إزالة الضريبة» (سياق التبويب): لا رمز QR لشركةٍ بلا ضريبة — فلا شريحة له بين الأقسام (وحقلا حذفه والأختام يُخفيان أنفسهما)
+  const taxOff = useTaxOffPrint();
+  const sections = taxOff ? sectionsFor(p.printer, l.design).filter((s) => s !== 'qr') : sectionsFor(p.printer, l.design);
   const head = 'text-sm font-bold text-[#1F1A13] mb-2 flex items-center gap-2';
 
   if (selected === 'logo') return <LogoInspector p={p} update={update} />;

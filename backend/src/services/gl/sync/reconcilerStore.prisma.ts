@@ -96,6 +96,7 @@ export function createPrismaReconcilerStore(db: Db): ReconcilerStore {
           select: {
             id: true, number: true, type: true, customerId: true, salesRepId: true, pricesIncludeTax: true,
             subtotal: true, discountAmt: true, taxAmt: true, total: true, dueDate: true,
+            taxFree: true, // «إزالة الضريبة»: ختم الفاتورة ⇒ الحمولة (حين true وحده)
             customer: { select: { name: true } }, salesRep: { select: { name: true } },
             items: {
               select: { productId: true, qty: true, unitPrice: true, taxPct: true, taxAmt: true, lineTotal: true, vatCategory: true, product: { select: { categoryId: true } } },
@@ -106,7 +107,7 @@ export function createPrismaReconcilerStore(db: Db): ReconcilerStore {
         ctx.invoices = new Map(list.map((i): [string, InvoiceFacts] => [i.id, {
           id: i.id, number: i.number, type: i.type, customerId: i.customerId, salesRepId: i.salesRepId,
           pricesIncludeTax: i.pricesIncludeTax, subtotal: i.subtotal, discountAmt: i.discountAmt, taxAmt: i.taxAmt, total: i.total,
-          dueDate: i.dueDate, customerName: i.customer?.name ?? null, salesRepName: i.salesRep?.name ?? null,
+          dueDate: i.dueDate, customerName: i.customer?.name ?? null, salesRepName: i.salesRep?.name ?? null, taxFree: i.taxFree,
           items: i.items.map((it) => ({
             productId: it.productId, categoryId: it.product?.categoryId ?? null, qty: it.qty, unitPrice: it.unitPrice,
             taxPct: it.taxPct, taxAmt: it.taxAmt, lineTotal: it.lineTotal, vatCategory: it.vatCategory,

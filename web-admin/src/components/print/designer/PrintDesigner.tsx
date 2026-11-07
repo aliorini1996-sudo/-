@@ -19,6 +19,7 @@ import A4BandsCanvas from './A4BandsCanvas';
 import RollStrip from './RollStrip';
 import DesignInspector from './DesignInspector';
 import { pushHistory, redoHistory, undoHistory, type History } from './designerMath';
+import { useTaxOffPrint } from '../taxOffPrint';
 
 export interface PrintDesignerProps {
   profile: PrintProfile;
@@ -36,6 +37,8 @@ export const MONO_PREVIEW_HINT = 'الطباعة بالأبيض والأسود: 
 
 export default function PrintDesigner({ profile, phase2, company, companyName, onApply, onClose }: PrintDesignerProps) {
   const tr = useTr();
+  // «إزالة الضريبة» (سياق التبويب): لا تنبيه هيئةٍ على حذف الأصناف لشركةٍ بلا ضريبة
+  const taxOff = useTaxOffPrint();
   const dir = useDir();
   const [hist, setHist] = useState<History<PrintProfile>>(() => ({ past: [], cur: profile, future: [] }));
   const [selected, setSelected] = useState<DesignSel | null>(null);
@@ -165,7 +168,7 @@ export default function PrintDesigner({ profile, phase2, company, companyName, o
               </p>
             )}
             {/* جدول الأصناف محذوف بخيار الشركة الصريح (قرار المالك ٤ نوفمبر ٢٠٢٦): تنبيهٌ أحمر دائم أيّاً كان العنصر المحدَّد — رمز QR له تنبيهه تحت اللوحة/الشريط */}
-            {isItemsRemoved(layoutOf(p)) && (
+            {isItemsRemoved(layoutOf(p)) && !taxOff && (
               <p className="mb-2 text-[11px] text-[#8E2A1F] bg-[#FBEBE2] rounded px-2 py-1" role="note" data-items-removed-note="">{tr(ITEMS_REMOVE_WARNING)}</p>
             )}
             {thermal

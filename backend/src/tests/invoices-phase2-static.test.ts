@@ -71,9 +71,62 @@ test('قرار النظام الضريبي يُبنى من صفّ الإعداد
   assert.match(call, /zatcaPhase2StartedAt: company\?\.zatcaPhase2StartedAt/, 'العمود لا يُقرأ من الصفّ المحمَّل');
   assert.doesNotMatch(call, /await /, 'قرار النظام الضريبي يستعلم — المرحلة الأولى تدفع الثمن');
   // العمودان (Z5.2 startedAt وZ5.8 armedAt) مضافان إلى select الموجود لا باستعلام ثانٍ — ومعهما عمودا «اشتراط اختيار فاتورة البيع
-  // للمرتجع» (returnRequiresSaleInvoice وreturnPolicyChangedAt) في الـselect نفسه
-  assert.match(read('routes/invoices.ts'), /select: \{\s*defaultVatPct: true, countryCode: true, currency: true, einvoiceProvider: true, zatcaPhase2StartedAt: true, zatcaGoLiveArmedAt: true,\s*returnRequiresSaleInvoice: true, returnPolicyChangedAt: true,\s*\}/);
+  // للمرتجع» (returnRequiresSaleInvoice وreturnPolicyChangedAt)، وعمودا «إزالة الضريبة» (taxDisabled وtaxModeChangedAt — ٧ نوفمبر
+  // ٢٠٢٦، تعديلٌ مقصود لهذا الحارس) في الـselect نفسه
+  assert.match(read('routes/invoices.ts'), /select: \{\s*defaultVatPct: true, countryCode: true, currency: true, einvoiceProvider: true, zatcaPhase2StartedAt: true, zatcaGoLiveArmedAt: true,\s*returnRequiresSaleInvoice: true, returnPolicyChangedAt: true,\s*taxDisabled: true, taxModeChangedAt: true,\s*\}/);
   assert.equal(read('routes/invoices.ts').split('prisma.companySettings.findUnique').length - 1, 1, 'استعلام إعدادات ثانٍ في المسار');
+  // «إزالة الضريبة»: الصفّ يُقرأ قبل أوّل قراءةٍ لنسبة بند (صافي السعر في حلّ الوحدات وحارس سعر المندوب) — وإلا قيست بنسبةٍ لم تُحسم
+  const load = post.indexOf('const company = await prisma.companySettings.findUnique');
+  assert.ok(load > 0 && load < post.indexOf('it.taxPct'), 'نسبة بندٍ تُقرأ قبل صفّ الإعدادات');
+  assert.ok(post.indexOf('if (isTaxOff(company))') > load && post.indexOf('if (isTaxOff(company))') < post.indexOf('it.taxPct ?? p.taxPct'), 'حسم «إزالة الضريبة» بعد أوّل قراءةٍ لنسبة البند');
+});
+
+test('«إزالة الضريبة» (قرارات المراجعة ٧ نوفمبر ٢٠٢٦): «كما بُني» لصندوق المندوب وحده، والمفتاح بلا استثناء المرتجع، وتسامح ما قبل التبديل داخل فرع الشركة بلا ضريبة', () => {
+  const post = stripComments(handler(read('routes/invoices.ts'), "router.post('/',"));
+  const start = post.indexOf('if (isTaxOff(company)) {');
+  assert.ok(start > 0, 'فرع «إزالة الضريبة» مفقود');
+  const gate = post.slice(start, post.indexOf('docTaxFree = true;', start));
+  // (٣) شكل repReplay نفسه: الترويسة من دورٍ آخر لا تمنح «كما بُني»
+  assert.match(gate, /const taxRepReplay = isReplay && req\.user\?\.role === 'SALES_REP' && !req\.user\?\.apiKeyId;/);
+  assert.match(post, /const repReplay = isReplay && req\.user!\.role === 'SALES_REP' && !req\.user\?\.apiKeyId;/, 'شكل repReplay المرجعي تغيّر');
+  // (٤) لحظة جهاز المندوب قبل taxModeChangedAt ⇒ مسار اليوم (لا تصفير ولا ختم) — ولا يُقرأ إلا تحت الفرع فالشركة بضريبتها لا تمسّه
+  // (تعديلٌ مقصود لهذا الحارس — مراجعة ٧ نوفمبر ٢٠٢٦): لحظة الجهاز مصحَّحةٌ بانحراف ساعته (X-FS-Device-Now) كتأريخ المستند،
+  // وbuiltTaxFree (CONTRACT2 E1) يحسم بدل اللحظة: false ⇒ مسار اليوم كما بُني، true ⇒ بلا مقارنة، وغيابه ⇒ اللحظة المصحَّحة
+  assert.match(gate, /const taxDeviceMs = taxRepReplay && deviceAt \? Date\.parse\(deviceAt\) \+ deviceClockSkewMs\(priceDeviceNow, priceNow\) : NaN;/);
+  assert.match(gate, /company\?\.taxModeChangedAt \? new Date\(company\.taxModeChangedAt\)\.getTime\(\) : NaN/);
+  assert.match(gate, /const taxReplayPredates = taxRepReplay && \(builtTaxFree === false \|\| \(builtTaxFree === undefined\s+&& Number\.isFinite\(taxDeviceMs\) && Number\.isFinite\(taxChangedMs\) && taxDeviceMs < taxChangedMs\)\);/);
+  assert.match(gate, /if \(!taxReplayPredates && !\(taxed && taxRepReplay\)\) \{/);
+  // ولحظة الخادم وترويسة ساعة الجهاز هما ما قرأه التسعير قبل الفرع (لا قراءةٌ ثانية للترويسة)
+  assert.ok(post.indexOf('const priceDeviceNow = headerText(req.headers[DEVICE_NOW_HEADER]);') > 0
+    && post.indexOf('const priceDeviceNow = headerText(req.headers[DEVICE_NOW_HEADER]);') < start, 'priceDeviceNow بعد الفرع أو مفقود');
+  assert.ok(post.indexOf('const priceNow = new Date();') > 0 && post.indexOf('const priceNow = new Date();') < start, 'priceNow بعد الفرع أو مفقود');
+  const uses = (t: string) => (t.match(/company\??\.taxModeChangedAt/g) ?? []).length;
+  // ويُقرأ مرةً أخرى في فرع الشركة بضريبتها مع builtTaxFree (الختم لشركةٍ مرّت بالإزالة فعلاً — التحقّق النهائي ٧ نوفمبر)
+  assert.ok(uses(gate) > 0 && uses(post) === uses(gate) + 1, 'taxModeChangedAt يُقرأ خارج فرع «إزالة الضريبة» وفرع builtTaxFree');
+  // (١) المفتاح ببندٍ فوق الصفر ⇒ 422 ولو مرتجعاً من فاتورة بيع؛ (٢) والجلسة الحيّة بمرتجعها المرتبط تبقى صفراً بلا 409
+  assert.match(gate, /if \(taxed && \(req\.user\?\.apiKeyId \|\| !\(body\.type === 'RETURN' && body\.originalInvoiceId\)\)\) \{/);
+  // وdeviceAt مُعرَّفٌ قبل الفرع (لا لحظة لمفتاح API)
+  const dev = post.indexOf('const deviceAt = req.user?.apiKeyId ? undefined : body.clientCreatedAt;');
+  assert.ok(dev > 0 && dev < start, 'deviceAt بعد فرع «إزالة الضريبة» أو مفقود');
+});
+
+test('«إزالة الضريبة» E1: builtTaxFree اختياريٌّ في المخطط، يُقرأ مرةً للجلسة وحدها، والشركة بضريبتها لا تمسّها إلا قيمته true', () => {
+  const s = read('routes/invoices.ts');
+  assert.match(s, /\n {2}builtTaxFree: z\.boolean\(\)\.optional\(\),\n/, 'حقل المخطط تغيّر');
+  const post = stripComments(handler(s, "router.post('/',"));
+  // مفتاح API يتجاهله (قواعده كما كانت) — والقراءة الوحيدة من الجسم
+  const decl = 'const builtTaxFree = req.user?.apiKeyId ? undefined : body.builtTaxFree;';
+  assert.ok(post.indexOf(decl) > 0 && post.indexOf(decl) < post.indexOf('if (isTaxOff(company)) {'), 'builtTaxFree بعد الفرع أو مفقود');
+  assert.equal(post.split('body.builtTaxFree').length - 1, 1, 'body.builtTaxFree يُقرأ في موضعٍ ثانٍ');
+  // فرع الشركة بضريبتها: true وحدها — الحيّ 409، وإعادة رفع المندوب صفراً مختومة
+  const i = post.indexOf('} else if (builtTaxFree === true) {');
+  assert.ok(i > post.indexOf('if (isTaxOff(company)) {'), 'فرع الشركة بضريبتها مع builtTaxFree مفقود');
+  const branch = post.slice(i, post.indexOf('const replayDocAt', i));
+  assert.match(branch, /if \(!\(isReplay && req\.user\?\.role === 'SALES_REP'\)\) \{\s*res\.status\(409\)\.json\(\{ success: false, code: TAX_MODE_CODES\.changed, message: TAX_MODE_MESSAGES\.TAX_MODE_CHANGED \}\); return;/);
+  assert.match(branch, /if \(company\?\.taxModeChangedAt != null && body\.items\.every\(\(it\) => \(it\.taxPct \?\? 0\) === 0\)\) \{\s*for \(const it of body\.items\) it\.taxPct = 0;\s*docTaxFree = true;/);
+  // والمختوم «بلا ضريبة» لا يدخل فرع المرحلة الثانية
+  assert.match(post, /if \(!docTaxFree && regimeCandidate\(\{/);
+  assert.doesNotMatch(branch, /await |prisma\./, 'فرع builtTaxFree يستعلم');
 });
 
 test('القراءات: حارس القدرات لا يُستدعى إلا لصفّ zatcaPhase = 2 (لا اعتماديات ولا استعلام للمرحلة الأولى)', () => {

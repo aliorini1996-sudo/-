@@ -44,6 +44,7 @@ import {
   computeGoLiveGate, goLiveEnvAllows, goLiveNotReadyMessage, isCutoverStatus, type CutoverStatus, type GoLiveGate,
 } from '../compliance/zatca/goLive';
 import type { CutoverReviewRow, GoLiveStore } from '../compliance/zatca/goLiveStore';
+import { taxOffBlocksZatcaBody } from '../compliance/zatca/settingsGuards';
 import { LIVE_ENVIRONMENT } from '../compliance/zatca/regime';
 import { compileSecrets } from '../compliance/zatca/responses';
 import { SecretKeyring, SecretsError } from '../compliance/zatca/secrets';
@@ -821,6 +822,11 @@ export function createZatcaRouter(deps: ZatcaRouteDeps): ZatcaRouter {
     });
   };
 
+  // «إزالة الضريبة» (٧ نوفمبر ٢٠٢٦): CompanySettings.taxDisabled من مخزن التفعيل — يُقرأ في التسليح والتفعيل وحدهما.
+  // مخزنٌ بلا القارئ ⇒ لا فحص (كما اليوم).
+  const taxOffFor = async (tenantId: string): Promise<boolean> =>
+    deps.goLiveStore?.loadTaxDisabled ? (await deps.goLiveStore.loadTaxDisabled(tenantId)) === true : false;
+
   if (deps.config.issues.length) {
     log('zatca.config.allowed-envs', { issues: deps.config.issues.map(i => `${i.code}:${i.value}`).join(','), allowed: allowedEnvs.join(',') });
   }
@@ -1199,6 +1205,8 @@ export function createZatcaRouter(deps: ZatcaRouteDeps): ZatcaRouter {
     const ctx = ctxOf(res);
     // نقد 2/4: لا يُسلَّح قبل أن تفتح المنصّة بيئة الإطلاق لهذه الشركة (كـ /go-live) — فلا تُحبس شركةٌ في «مُسلَّح وعلمها مطفأ» بلا تعافٍ
     if (!goLiveEnvAllows(goLiveEnvOf(), ctx.tenantId)) { sendRouteError(res, 409, 'GO_LIVE_UNAVAILABLE'); return; }
+    // «إزالة الضريبة» (٧ نوفمبر ٢٠٢٦): لا يُسلَّح ربط المرحلة الثانية لشركةٍ أزالت ضريبتها — تعيدها من إعداداتها أولاً
+    if (await taxOffFor(ctx.tenantId)) { res.status(409).json(taxOffBlocksZatcaBody()); return; }
     const r = await store.setArmedAtOnce(ctx.tenantId, deps.now());
     if (!r.armedAt) { sendServiceError(res, 'TENANT_NOT_FOUND'); return; }
     res.json({ success: true, data: { armedAt: r.armedAt, applied: r.applied, readiness: await goLiveGateFor(ctx) } });
@@ -1224,6 +1232,8 @@ export function createZatcaRouter(deps: ZatcaRouteDeps): ZatcaRouter {
   router.post('/go-live', h(log, async (req, res) => {
     const ctx = ctxOf(res);
     if (!deps.goLiveStore || !goLiveEnvAllows(goLiveEnvOf(), ctx.tenantId)) { sendRouteError(res, 409, 'GO_LIVE_UNAVAILABLE'); return; }
+    // «إزالة الضريبة»: ولا يُفعَّل حيّاً (شبكة أمانٍ خلف التسليح: تسليحٌ سبق قلب المفتاح بلحظة لا يصل إلى التفعيل)
+    if (await taxOffFor(ctx.tenantId)) { res.status(409).json(taxOffBlocksZatcaBody()); return; }
     const gate = await goLiveGateFor(ctx);
     if (!gate.available) { sendError(res, 409, 'GO_LIVE_NOT_READY', goLiveNotReadyMessage(gate), { readiness: gate }); return; }
     const b = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};

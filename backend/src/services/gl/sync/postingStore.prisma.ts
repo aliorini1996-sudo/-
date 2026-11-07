@@ -650,6 +650,8 @@ export class PrismaPostingTx implements PostingTx {
           select: {
             id: true, number: true, type: true, customerId: true, salesRepId: true, pricesIncludeTax: true, subtotal: true,
             discountAmt: true, taxAmt: true, total: true, dueDate: true,
+            // «إزالة الضريبة»: الختم يصل الحمولة (invoicePayloadFromRows يضعه حين true وحده) فقيد المختومة بلا علامة ولا مفتاح ضريبة
+            taxFree: true,
             customer: { select: { name: true } }, salesRep: { select: { name: true } },
             items: { select: { productId: true, qty: true, unitPrice: true, taxPct: true, taxAmt: true, lineTotal: true, vatCategory: true, product: { select: { categoryId: true } } } },
           },

@@ -40,6 +40,11 @@ interface Props {
   product: Product | null; onClose: () => void; onSave: (data: Partial<Product> & { listPriceEdits?: ListPriceEdits; duplicateNameAck?: boolean }) => void; loading: boolean;
   /** فوترة ZATCA (Z5.1a): الشركة تجمع بيانات الفوترة؟ (zatcaCollectOn) — false ⇒ النموذج والحمولة كما اليوم */
   zatcaCollect?: boolean;
+  /**
+   * «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الشركة بلا ضريبة (isTaxOff) — لا خانة نسبة ولا «قبل الضريبة» ولا رموز الوحدة
+   * وأكواد الفوترة الإلكترونية، ولا تُرسل النسبة (الجديد يرثها الخادم من ضريبة الدولة مخزّنةً لا فعّالة، والقائم بلا تغيير)
+   */
+  taxOff?: boolean;
   /** «تتبّع اللوط» مفعّل للشركة؟ (lotFlagsOf(company).on) — false ⇒ لا قسم ولا حقل في الحمولة (§١٠.١) */
   lotTrackingOn?: boolean;
 }
@@ -132,7 +137,7 @@ const fieldNum = (raw: string): number => {
   return s === '' ? NaN : Number(s);
 };
 
-export default function ProductModal({ product, onClose, onSave, loading, zatcaCollect = false, lotTrackingOn = false }: Props) {
+export default function ProductModal({ product, onClose, onSave, loading, taxOff = false, zatcaCollect = false, lotTrackingOn = false }: Props) {
   const tr = useTr();
   const qc = useQueryClient();
   const { register, handleSubmit, watch, setValue, getValues, formState: { errors } } = useForm<Partial<Product>>({
@@ -427,6 +432,8 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
       : null;
     void confirmThenSave(String(rest.name ?? ''), newBase, {
       ...rest, shelfLifeEnabled: !!rest.shelfLifeEnabled, shelfLifeValue: lifeValue,
+      // «إزالة الضريبة»: النسبة لا تُرسل — الصنف الجديد يرثها الخادم (defaultVatPct مخزّنةً لا فعّالة)، والقائم يبقى بنسبته
+      ...(taxOff ? { taxPct: undefined } : {}),
       shelfLifeBasis: rest.shelfLifeBasis || 'SALE', shelfLifeFromDate: fromDate,
       returnRuleEnabled: ruleEnabled, returnRuleMode: rest.returnRuleMode || 'NEAR_EXPIRY', returnRuleMetric: rest.returnRuleMetric || 'DAYS',
       returnRuleValue: ruleVal,
@@ -493,7 +500,7 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
     enabled: !!activeList,
   });
   const activeRulesCount = activeList ? listCounts?.lists.find(l => l.id === activeList.id)?.rulesCount ?? activeList.rulesCount : undefined;
-  const listHint = <p className="text-[10px] text-gray-400 mt-1">{tr('قبل الضريبة')} · {(activeRulesCount ?? 0) > 0
+  const listHint = <p className="text-[10px] text-gray-400 mt-1">{taxOff ? null : <>{tr('قبل الضريبة')} · </>}{(activeRulesCount ?? 0) > 0
     ? fill(tr('فارغ يعني قواعد القائمة ثم {label}'), { label: baseLabel })
     : fill(tr('فارغ يعني {label}'), { label: baseLabel })}</p>;
   // سعر الوحدة الفرعية في النوع المختار مشتقٌّ دائماً: سعر الرئيسية ÷ العدد (لا خانة له)
@@ -646,10 +653,13 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
                 {listHint}
               </div>
             )}
-            <div>
-              <label className="label">{tr('نسبة الضريبة %')}</label>
-              <input type="number" className="input" min="0" max="100" step="0.01" {...register('taxPct', { valueAsNumber: true })} />
-            </div>
+            {/* «إزالة الضريبة»: لا خانة نسبة لشركةٍ بلا ضريبة — النسبة المخزّنة تبقى كما هي (إعادة الضريبة تعيدها) */}
+            {!taxOff && (
+              <div>
+                <label className="label">{tr('نسبة الضريبة %')}</label>
+                <input type="number" className="input" min="0" max="100" step="0.01" {...register('taxPct', { valueAsNumber: true })} />
+              </div>
+            )}
             <div>
               <label className="label">{tr('الفئة')}</label>
               <select className="input" {...register('categoryId')}>
@@ -682,7 +692,7 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
                   {activeList ? listInput : (
                     <input type="number" className="input" min="0" step="any" inputMode="decimal" value={rev.primaryPrice} onChange={revSet('primaryPrice')} />
                   )}
-                  {activeList ? listHint : <p className="text-[10px] text-gray-400 mt-1">{tr('قبل الضريبة')}</p>}
+                  {activeList ? listHint : taxOff ? null : <p className="text-[10px] text-gray-400 mt-1">{tr('قبل الضريبة')}</p>}
                 </div>
                 <div>
                   <label className="label">{tr('الوحدة الفرعية')} *</label>
@@ -704,6 +714,8 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
                   <p className="text-[10px] text-gray-400 mt-1">{fill(tr('فارغ يعني سعر {unit} مقسوما على العدد'), { unit: revPrimaryName })}</p>
                 </div>
               </div>
+              {/* «إزالة الضريبة»: رمزا الوحدة للفوترة الإلكترونية وحدها — لا خانة لهما لشركةٍ بلا ضريبة (المحفوظ يبقى) */}
+              {!taxOff && (
               <details className="rounded-lg border border-gray-100 bg-gray-50/60">
                 <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold text-gray-600">{tr('متقدم')}</summary>
                 <div className="px-3 pb-3 pt-1 grid grid-cols-2 gap-3">
@@ -717,6 +729,7 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
                   </div>
                 </div>
               </details>
+              )}
               {revOk && !activeList && (
                 <p className="rounded-lg bg-[#FAF7F0] border border-[#F1EBDF] px-3 py-2 text-xs text-gray-700" data-reverse-preview="">
                   <b>1 {rev.primaryName.trim()}</b> = {revFactor} {rev.subName.trim()} · {formatCurrency(revPrimaryPrice)} / {rev.primaryName.trim()} · {formatCurrency(reverseSubPrice(rev), undefined, 4)} / {rev.subName.trim()}
@@ -742,6 +755,7 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
               onPrimaryChanged={primaryChanged}
               onStale={reloadStale}
               onConvert={() => setConvertOpen(true)}
+              taxOff={taxOff}
               syncRepUnitRules={async () => {
                 /* «قيود المندوب» تُحفظ مع «حفظ التعديلات» والوحدات فوراً: من غيّر القيد في النموذج ثم حذف آخر وحدةٍ كبرى رفضه
                  * الخادم (409 REP_UNIT_RULE_SET يقرأ القيد المحفوظ) وهو يرى القيد مُزالاً أمامه. فيُحفظ القيد كما في النموذج.
@@ -972,7 +986,9 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
             </div>
           )}
 
-          {/* أكواد الفوترة الإلكترونية — تلزم لبعض الدول (مصر ETA وغيرها) */}
+          {/* أكواد الفوترة الإلكترونية — تلزم لبعض الدول (مصر ETA وغيرها). «إزالة الضريبة»: لا فوترة إلكترونية لشركةٍ بلا ضريبة
+              (المزوّد 'none' في كل مستند) — فلا قسم لها، والمحفوظ يُرسل كما هو */}
+          {!taxOff && (
           <details className="rounded-xl border border-gray-200 bg-gray-50/60">
             <summary className="cursor-pointer select-none px-4 py-2.5 text-sm font-semibold text-gray-700 flex items-center gap-2">
               {tr('أكواد الفوترة الإلكترونية')}
@@ -1000,6 +1016,7 @@ export default function ProductModal({ product, onClose, onSave, loading, zatcaC
               )}
             </div>
           </details>
+          )}
 
           <div className="flex gap-3 pt-2">
             <button type="submit" disabled={loading || checking} className="btn-primary flex-1 justify-center py-2.5">
@@ -1032,7 +1049,7 @@ const serverMessage = (err: unknown): string | undefined =>
  */
 function ProductUnitsSection({
   productId, baseUnit, basePrice, units, onUnits, syncRepUnitRules,
-  primaryUnitId, canConvertBase, convertRefusal, onSetPrimary, onPrimaryChanged, onStale, onConvert,
+  primaryUnitId, canConvertBase, convertRefusal, onSetPrimary, onPrimaryChanged, onStale, onConvert, taxOff = false,
 }: {
   productId: string | null;
   baseUnit: string;
@@ -1053,6 +1070,8 @@ function ProductUnitsSection({
   onStale: () => void | Promise<void>;
   /** يفتح نافذة «إضافة وحدة فرعية أصغر» */
   onConvert: () => void;
+  /** «إزالة الضريبة»: لا خانة لرمز الوحدة (للفوترة الإلكترونية وحدها) لشركةٍ بلا ضريبة — والرمز المحفوظ يبقى كما هو */
+  taxOff?: boolean;
 }) {
   const tr = useTr();
   const qc = useQueryClient();
@@ -1212,8 +1231,10 @@ function ProductUnitsSection({
         placeholder={tr('السعر اختياري')} aria-label={tr('السعر اختياري')}
         title={primary ? fill(tr('فارغ يعني سعر {unit} مضروبا في المعامل'), { unit: baseUnit }) : tr('فارغ يعني سعر الأساس مضروبا في المعامل')}
         onChange={e => set({ ...f, price: e.target.value })} />
-      <input className="input py-1.5 text-sm" dir="ltr" maxLength={16} value={f.unitCode} placeholder={tr('رمز الوحدة الضريبي')}
-        aria-label={tr('رمز الوحدة الضريبي')} onChange={e => set({ ...f, unitCode: e.target.value })} />
+      {!taxOff && (
+        <input className="input py-1.5 text-sm" dir="ltr" maxLength={16} value={f.unitCode} placeholder={tr('رمز الوحدة الضريبي')}
+          aria-label={tr('رمز الوحدة الضريبي')} onChange={e => set({ ...f, unitCode: e.target.value })} />
+      )}
     </div>
   );
 

@@ -187,6 +187,28 @@ export function printTextEntry(key: string): PrintTextEntry | undefined {
 /** مفاتيح عناوين الحالة (سند التسليم، المستند الملغى، المستند بانتظار اعتماد الهيئة) — قرار المالك ٤ نوفمبر ٢٠٢٦ */
 export const PRINT_STATUS_TITLE_KEYS: readonly string[] = Object.freeze(['inv.deliveryNoteTitle', 'inv.voidTitle', 'inv.pendingTitle']);
 
+/**
+ * «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦: «لا يكون لها ذكر في اي سطر في النظام ولا في اي مستند»): مفاتيح عبارات الضريبة — سطورٌ
+ * لا تُطبع أصلاً على مستندٍ بلا ضريبة (الرقم الضريبي للبائع والمشتري، أعمدة الضريبة وصفوفها، ملاحظتا الأسعار الشاملة والأقساط،
+ * تعليق الرمز، وعناوين المرحلة الثانية والإشعار المدين). يُخفيها محرّر «نصوص المطبوعات» وتنبيهاتها لشركةٍ أزالت الضريبة، وما صاغته
+ * الشركة منها يبقى محفوظاً كما هو فيعود بعودة الضريبة. وعنوانا الفاتورة والمرتجع (inv.title وinv.returnTitle) خارجها: يصوغان
+ * «فاتورة» و«فاتورة مرتجع» (TAX_FREE_TITLE_TEXTS).
+ */
+export const TAX_PHRASE_KEYS: readonly string[] = Object.freeze([
+  'h.taxNumber', 'cust.taxNumber', 'rcp.taxNumber', 'sel.taxNumber',
+  'inv.debitTitle', 'inv.deliveryNoteTitle', 'inv.voidTitle', 'inv.pendingTitle',
+  'col.priceIncl', 'col.tax', 'col.vatAmount', 'item.beforeTax', 'note.pricesIncl',
+  'tot.taxable', 'tot.vat', 'tot.vatIncl', 'tot.exclVat', 'inst.note', 'qr.caption',
+]);
+
+/** مفتاحٌ من عبارات الضريبة (TAX_PHRASE_KEYS)؟ */
+export function isTaxPhraseKey(key: string): boolean {
+  return TAX_PHRASE_KEYS.includes(key);
+}
+
+/** النصّ الافتراضي لعنواني المستند بلا ضريبة في المحرّر — = TAX_FREE_TITLES (lib/taxMode.ts) بمفتاحيهما */
+export const TAX_FREE_TITLE_TEXTS: Readonly<Record<string, string>> = Object.freeze({ 'inv.title': 'فاتورة', 'inv.returnTitle': 'فاتورة مرتجع' });
+
 /** كل مفتاحٍ يُحذف سطره (طلب المالك ٣ نوفمبر ٢٠٢٦) — باقيةٌ للمستدعين، والجواب true دائماً */
 export function printTextHideable(_e: PrintTextEntry): true {
   return true;
@@ -258,6 +280,15 @@ export function printTextWarning(entry: PrintTextEntry): PrintTextWarning | null
   if (entry.lock === 'standard') return 'standard';
   if (entry.lock !== 'none' || entry.hideOnly) return 'tax';
   return null;
+}
+
+/**
+ * تنبيه المحرّر لشركةٍ أزالت الضريبة («إزالة الضريبة»): لا تنبيه يذكر الضريبة أو الهيئة ('tax' و'standard' و'status' — لا فاتورة ضريبية
+ * لها) — سطر المنصّة وحده كما هو. وللشركة ذات الضريبة: printTextWarning حرفاً.
+ */
+export function printTextWarningFor(entry: PrintTextEntry, taxOff: boolean): PrintTextWarning | null {
+  const w = printTextWarning(entry);
+  return taxOff && w !== 'platform' ? null : w;
 }
 
 /** تعديل نصٍّ واحد: text = صياغة عربية بديلة، alt = نصّ اللغة الثانية، hidden = «حذف السطر» (لا يُطبع هو ولا وحدته كاملة) */

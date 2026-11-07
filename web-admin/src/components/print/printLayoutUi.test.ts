@@ -187,15 +187,18 @@ test('التوصيل: كتلة «التخطيط» في الخطوة الرابع
   assert.ok(s.includes("import PrintPreview, { GridThumb, LayoutFields, applyDesignCard, designCardSelected, designCards } from './PrintPreview';"));
   assert.ok(s.includes('{designCards(p).map((c) => {'), 'بطاقات التصميم مع ثنائي اللغة');
   assert.ok(s.includes('onClick={() => update(applyDesignCard(p, c))}'));
-  assert.ok(s.includes('{t ? <TemplateThumb t={t} /> : <GridThumb />}'));
+  // «إزالة الضريبة» (E6): المصغّرتان بلا مربع الرمز لشركةٍ بلا ضريبة — تحديثٌ واعٍ للحارس
+  assert.ok(s.includes('{t ? <TemplateThumb t={t} taxOff={taxOff} /> : <GridThumb taxOff={taxOff} />}'));
   const v = preview();
   const sec = v.slice(v.indexOf('export function LayoutFields('), v.indexOf('function AccentPicker('));
   assert.ok(sec.length > 1000);
   for (const frag of [
-    'draggable={movable}', 'onDragOver={(e) => { if (drag && drag !== r.id && canMoveSection(p, drag, i))', 'onDrop={(e) => {',
+    // «إزالة الضريبة» (E6): السحب و▲▼ بمواضع layoutSectionRows (r.at وr.upTo وr.downTo = i وi ∓ 1 للشركة بضريبتها) — تحديثٌ واعٍ
+    'draggable={movable}', 'onDragOver={(e) => { if (drag && drag !== r.id && canMoveSection(p, drag, r.at))', 'onDrop={(e) => {',
     // ▲▼ تمرّ بـmove، وتسجّل قبلها زرّ التركيز بعد النقل (printLayoutReview.test.ts)
-    "disabled={!r.up} onClick={() => { refocus.current = { id: r.id, dir: 'up' }; move(r.id, i - 1); }}",
-    "disabled={!r.down} onClick={() => { refocus.current = { id: r.id, dir: 'down' }; move(r.id, i + 1); }}",
+    "disabled={!r.up} onClick={() => { refocus.current = { id: r.id, dir: 'up' }; move(r.id, r.upTo); }}",
+    "disabled={!r.down} onClick={() => { refocus.current = { id: r.id, dir: 'down' }; move(r.id, r.downTo); }}",
+    'const rows = layoutSectionRows(p, taxOff);',
     'const move = (id: SectionId, to: number) => update(moveSection(p, id, to));', "tr('إعادة الترتيب الافتراضي')", "tr('اسحب لتغيير الترتيب')",
     "tr('مكان الشعار')", "tr('حجم الشعار')", "tr('حجم الخط')", "tr('شكل الجدول')", "tr('ترتيب الأقسام')", '<AccentPicker',
   ]) assert.ok(sec.includes(frag), frag);

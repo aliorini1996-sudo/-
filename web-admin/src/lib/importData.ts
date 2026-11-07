@@ -496,6 +496,11 @@ export interface TransformOpts {
    * غائبٌ أو false ⇒ التحويل كما قبل الميزة حرفياً — لا حقل ولا عمود في المعاينة ولا بصمة مختلفة (§١٠.١)
    */
   lotTracking?: boolean;
+  /**
+   * «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الشركة بلا ضريبة (isTaxOff) ⇒ عمودا نسبة الضريبة (المنتجات) والرقم الضريبي (العملاء)
+   * يُتجاهلان فلا حقل ولا خانة في المعاينة ولا خطأ ولا تنبيه عنهما، ولا اقتراح «الأسعار شاملة الضريبة». غائبٌ ⇒ التحويل كما كان حرفاً
+   */
+  taxOff?: boolean;
 }
 /** رقم صف الخادم (موضع الصف المرسل + 2) ⇒ رقم صف الملف؛ خارج النطاق (ومنه 0) يبقى كما هو */
 export function fileRowOf(fileRows: readonly number[] | undefined, serverRow: number): number {
@@ -719,6 +724,8 @@ export const PRICE_INCL_TAX_SUGGESTED_NOTICE = 'عنوان عمود السعر �
  * الويب لا يحوّل السعر: التحويل بـnetFromInclusive على الخادم حسب ضريبة كل صنف (وضريبة الشركة للخانة الفارغة).
  */
 function priceInclTax(c: ReturnType<typeof makeCtx>, field: string, opts?: TransformOpts): { notices: ImportNotice[]; out: Pick<TransformOut, 'priceInclTaxSuggested' | 'pricesIncludeTax'> } {
+  // «إزالة الضريبة»: السعر المكتوب نهائي — لا اقتراح ولا علم
+  if (opts?.taxOff === true) return { notices: [], out: {} };
   const suggested = (c.res.candidates[field] ?? []).some(headerSaysPriceIncludesTax);
   const chosen = opts?.pricesIncludeTax === true;
   return {
@@ -767,6 +774,9 @@ const A_CUST: ImportSpec = {
   // للتنبيه فقط (لا يُستورد مع العملاء)
   balance: { aliases: BALANCE_ALIASES, exclude: BALANCE_EXCLUDE },
 };
+/** «إزالة الضريبة»: مواصفة بلا حقلٍ ضريبي — عموده لا يُطابَق فلا يظهر في «عمود الملف ← الحقل» ولا يُرسل */
+const withoutField = (spec: ImportSpec, field: string): ImportSpec => Object.fromEntries(Object.entries(spec).filter(([f]) => f !== field));
+const A_CUST_TAX_OFF: ImportSpec = withoutField(A_CUST, 'taxNumber');
 const UNLIMITED = new Set(['غير محدود', 'غير محدد', 'بدون', 'بلا حد', 'مفتوح', 'unlimited', 'no limit', 'none', 'n/a'].map(norm));
 /**
  * رقم حقل عميل ثانوي بهدوء: الرقم المفهوم كما هو (السالب وكسر الأيام يُرفضان بعده)؛ وللأيام عدد صحيح واحد داخل النص
@@ -784,7 +794,7 @@ function optionalCustomerNumber(raw: unknown, days: boolean, ignored: string[]):
   return undefined;
 }
 function toCustomers(rows: Record<string, unknown>[], opts?: TransformOpts): TransformOut {
-  const c = makeCtx(rows, A_CUST, opts);
+  const c = makeCtx(rows, opts?.taxOff === true ? A_CUST_TAX_OFF : A_CUST, opts);
   const valid: Record<string, unknown>[] = []; const fileRows: number[] = []; const { errors } = c;
   let balanceIgnored = false;
   const ignored: string[] = [];
@@ -855,8 +865,9 @@ const A_PROD: ImportSpec = {
   barcode: { aliases: ['الباركود', 'barcode', 'ean'] },
   category: { aliases: ['فئة المنتج', 'الفئة', 'التصنيف', 'المجموعة', 'category', 'group'] },
 };
+const A_PROD_TAX_OFF: ImportSpec = withoutField(A_PROD, 'taxPct');
 function toProducts(rows: Record<string, unknown>[], opts?: TransformOpts): TransformOut {
-  const c = makeCtx(rows, A_PROD, opts);
+  const c = makeCtx(rows, opts?.taxOff === true ? A_PROD_TAX_OFF : A_PROD, opts);
   const valid: Record<string, unknown>[] = []; const fileRows: number[] = []; const { errors } = c;
   // البند 30: الكود الفعلي (عمود الكود أو الاسم المولَّد) ⇒ توقيع الصف الأول. المكرر المطابق لا يُرسل،
   // والمكرر المختلف خطأ صف ظاهر — لا تخطٍّ صامت يضيع «ماء كرتون» خلف «ماء حبة».
@@ -1664,6 +1675,10 @@ export const OPENING_STOCK_ACTIVE_NOTE = 'الدفاتر مفعّلة: لا اس
 export const OPENING_STOCK_FULL_HISTORY_NOTE = 'طريقة ترحيل التاريخ الكامل مختارة في معالج الدفاتر، والمخزون الافتتاحي المستورد لا يدخل الدفاتر فيها. اختر طريقة الأرصدة الافتتاحية في الخطوة 2 ثم استورد المخزون';
 export const OPENING_STOCK_AFTER_CUTOVER_NOTE = 'تاريخ البدء المحفوظ في المعالج اليوم أو قبله، فالمخزون المستورد الآن لا يدخل القيد الافتتاحي به. يدخله فقط إذا عدّلت تاريخ البدء في يوم لاحق إلى تاريخ لا يسبق أقرب تاريخ بدء يشمله، ثم اعتمدت الدفاتر';
 export const OPENING_STOCK_OPEN_NOTE = 'تُسجَّل الكميات حركة وارد واحدة بتكلفة صافية من الضريبة في المستودع، ولا تدخل الدفاتر: قيمة مخزون المستودع الافتتاحية يُدخلها المحاسب في معالج الدفاتر. التراجع متاح قبل التفعيل فقط';
+/** «إزالة الضريبة»: نصّ البطاقة نفسه لشركةٍ بلا ضريبة — التكلفة كما في الملف بلا ذكر للضريبة */
+export const OPENING_STOCK_OPEN_NOTE_TAX_OFF = 'تسجل الكميات حركة وارد واحدة بتكلفتها في المستودع، ولا تدخل الدفاتر: قيمة مخزون المستودع الافتتاحية يدخلها المحاسب في معالج الدفاتر. التراجع متاح قبل التفعيل فقط';
+/** «إزالة الضريبة»: وصف معاينة المخزون الافتتاحي بلا خانة «التكلفة شاملة الضريبة» */
+export const OPENING_STOCK_MATCH_NOTE = 'الأصناف تطابق بالكود ثم الباركود ثم الاسم';
 
 export type OpeningStockBlock = 'active' | 'fullHistory';
 /** آخر رفض من الخادم: بعد التفعيل، أو التاريخ الكامل، أو تاريخ بدء ≤ اليوم (يُقبل بإقرار) */

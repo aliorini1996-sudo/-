@@ -9,11 +9,11 @@ import { useDir } from '../../i18n/lang';
 import {
   PRINT_SECOND_LANGS, PRINT_TEXT_CATALOG, PRINT_TEXT_LINE, PRINT_TEXT_WARNINGS, PRINT_TEXTS_ISSUES, PRINT_TEXTS_LIMITS, SECOND_LANG_NAMES,
   canonicalPrintTexts, checkPrintTexts, emptyPrintTexts, isEmptyPrintTexts, normalizePrintTexts, phraseIn,
-  printTextEntry, printTextsBytes,
+  printTextEntry, printTextsBytes, taxFreeDefaultIn,
   type PrintLineScope, type PrintSecondLang, type PrintTextEdit, type PrintTextEntry, type PrintTextGroup, type PrintTextsIssue,
   type PrintTextsV1,
 } from '../../lib/print/printTexts';
-import { COMPANY_SETTINGS_MISSING_MSG, DESIGN_LABELS, PRINT_SAMPLE_WATERMARK, newProfile, withDesign } from '../../lib/print/printSettings';
+import { COMPANY_SETTINGS_MISSING_MSG, DESIGN_LABELS, newProfile, withDesign } from '../../lib/print/printSettings';
 import { PrintableInvoice, PrintableReceipt, type Company, type DocCustomer, type InvoiceDoc, type ReceiptDoc } from '../../rep/RepDocuments';
 import { DEFAULT_PRINT_LOOK, PrintLookContext, SHEET_WIDTH_PX, lookFor, type PrintLook } from '../../rep/printLook';
 import { PrintTextsPreviewContext } from '../../rep/printTextsContext';
@@ -23,6 +23,8 @@ import {
   PRINT_TEXTS_STALE_MSG, deleteConfirmText, deletedLines, isPrintTextsStale, lineWarning, printTextsServerState, reconcilePrintTexts, withTextEdit,
   type PrintTextsCompany, type PrintTextsServerState,
 } from './PrintTextsCard';
+import { isTaxOff } from '../../lib/taxMode';
+import { editorWarningFor, printTextDefault, printTextRowVisible, sampleWatermark, taxFreeInvoiceDoc, taxFreeReceiptDoc } from './taxOffPrint';
 
 /**
  * محرّر «نصوص المطبوعات» (طلب المالك ٣١ أكتوبر ٢٠٢٦) — نافذةٌ كاملة ببوابة إلى document.body (البطاقة داخل نموذج الإعدادات
@@ -212,12 +214,15 @@ const TITLE_WARNING = 'المنشأة المسجلة في ضريبة القيم�
 const TITLE_KEYS: ReadonlySet<string> = new Set(['inv.title', 'inv.returnTitle', 'inv.debitTitle']);
 /** قراءة النصوص من الخادم عند فتح المحرّر — مفتاحٌ خاصّ لا يمسّه إبطال ['company']، ولا ذاكرة بعد الإغلاق (gcTime 0) */
 const PRINT_TEXTS_QUERY_KEY = ['company-print-texts'] as const;
-/** تسمية الصفّ — «اسم الشركة في التذييل» قيمةٌ لا تسمية فنصّه في القائمة وصفُه */
-const rowLabel = (entry: PrintTextEntry, tr: Tr): string => tr(entry.ar);
+/** تسمية الصفّ — «اسم الشركة في التذييل» قيمةٌ لا تسمية فنصّه في القائمة وصفُه. «إزالة الضريبة»: عنوانا الفاتورة والمرتجع «فاتورة» و«فاتورة مرتجع» */
+const rowLabel = (entry: PrintTextEntry, tr: Tr, taxOff = false): string => tr(printTextDefault(entry, taxOff));
 
-/** نصوص القائمة لتبويب المستند بترتيب الورقة: مجموعاته، وفي كلٍّ نصوص المستند قبل المشتركة (التوقيعات قبل سطر الشكر) */
-function groupsFor(tab: DocTab): { group: PrintTextGroup; entries: PrintTextEntry[] }[] {
-  const mine = PRINT_TEXT_CATALOG.filter((e) => e.doc === tab || e.doc === 'shared');
+/**
+ * نصوص القائمة لتبويب المستند بترتيب الورقة: مجموعاته، وفي كلٍّ نصوص المستند قبل المشتركة (التوقيعات قبل سطر الشكر). «إزالة الضريبة»:
+ * بلا عبارات الضريبة (printTextRowVisible) — سطورٌ لا تُطبع لشركةٍ بلا ضريبة
+ */
+function groupsFor(tab: DocTab, taxOff = false): { group: PrintTextGroup; entries: PrintTextEntry[] }[] {
+  const mine = PRINT_TEXT_CATALOG.filter((e) => (e.doc === tab || e.doc === 'shared') && printTextRowVisible(e.key, taxOff));
   return GROUP_ORDER[tab]
     .map((group) => {
       const inGroup = mine.filter((e) => e.group === group);
@@ -253,6 +258,9 @@ export default function PrintTextsEditor({ company, onClose }: { company: PrintT
   const tr = useTr();
   const dir = useDir();
   const qc = useQueryClient();
+  // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الشركة بلا ضريبة (CompanySettings.taxDisabled من ردّ /company) — المحرّر بلا عبارات
+  // الضريبة وتنبيهاتها، والمعاينة مستندٌ مختومٌ بلا ضريبة. الغائب أو false: المحرّر كما كان حرفاً
+  const taxOff = isTaxOff(company);
   const [initial, setInitial] = useState<PrintTextsV1>(() => normalizePrintTexts(company?.printTexts) ?? emptyPrintTexts());
   const [draft, setDraft] = useState<PrintTextsV1>(initial);
   const [stored, setStored] = useState(() => normalizePrintTexts(company?.printTexts) !== null);
@@ -313,11 +321,18 @@ export default function PrintTextsEditor({ company, onClose }: { company: PrintT
   const texts = useMemo(() => normalizePrintTexts(draft), [draft]);
   const docCompany = useMemo(() => sampleCompany(company, tr, texts), [company, tr, texts]);
   const grid = design === 'grid' && paper === 'a4';
-  const invoiceDoc = useMemo(() => sampleInvoice(docCompany, tr, sample, now, grid, paper), [docCompany, tr, sample, now, grid, paper]);
-  const receiptDoc = useMemo(() => sampleReceipt(docCompany, tr, sample, now, grid), [docCompany, tr, sample, now, grid]);
+  // «إزالة الضريبة»: المستند النموذجي كما يصدر للشركة — مختومٌ بلا ضريبة وبلا رقمٍ ضريبي للطرفين (taxFreeInvoiceDoc)
+  const invoiceDoc = useMemo(() => {
+    const d = sampleInvoice(docCompany, tr, sample, now, grid, paper);
+    return taxOff ? taxFreeInvoiceDoc(d) : d;
+  }, [docCompany, tr, sample, now, grid, paper, taxOff]);
+  const receiptDoc = useMemo(() => {
+    const d = sampleReceipt(docCompany, tr, sample, now, grid);
+    return taxOff ? taxFreeReceiptDoc(d) : d;
+  }, [docCompany, tr, sample, now, grid, taxOff]);
   // معاينة A4: مظهر اليوم، أو التصميم ثنائي اللغة بالقالب الحقيقي (التسميات الإنجليزية بجانب العربية)
   const previewLook = useMemo<PrintLook>(() => (grid ? gridPreviewLook() : DEFAULT_PRINT_LOOK), [grid]);
-  const groups = useMemo(() => groupsFor(tab), [tab]);
+  const groups = useMemo(() => groupsFor(tab, taxOff), [tab, taxOff]);
   const tabKeys = useMemo(() => new Set(groups.flatMap((g) => g.entries.map((e) => e.key))), [groups]);
 
   const save = useMutation({
@@ -360,13 +375,16 @@ export default function PrintTextsEditor({ company, onClose }: { company: PrintT
   const setEdit = useCallback((key: string, patch: Partial<PrintTextEdit> | null) => update((d) => withTextEdit(d, key, patch)), [update]);
   /** «حذف السطر»: لكل عبارة — وما كان إلزامياً للفاتورة الضريبية يُسأل عنه مرّةً واحدة (تنبيهٌ لا يمنع) */
   const deleteLine = useCallback((key: string) => {
+    // «إزالة الضريبة»: لا سؤال بتنبيه هيئةٍ أو فاتورةٍ ضريبية لشركةٍ بلا ضريبة — يُحذف السطر مباشرة
+    if (taxOff) { setEdit(key, { hidden: true }); return; }
     const ask = deleteConfirmText(key, tr);
     if (ask !== null && !window.confirm(ask)) return;
     setEdit(key, { hidden: true });
-  }, [setEdit, tr]);
+  }, [setEdit, tr, taxOff]);
   /** «استعادة»: يعود السطر إلى الورقة بصياغته المحفوظة في المسودة */
   const restoreLine = useCallback((key: string) => setEdit(key, { hidden: false }), [setEdit]);
-  const deleted = useMemo(() => deletedLines(draft, tab), [draft, tab]);
+  // «إزالة الضريبة»: سطور الضريبة المحذوفة لا تُعرض (لا تُطبع أصلاً بلا ضريبة) وتبقى محذوفةً في المسودة كما هي
+  const deleted = useMemo(() => deletedLines(draft, tab).filter((e) => printTextRowVisible(e.key, taxOff)), [draft, tab, taxOff]);
 
   const saveDraft = () => {
     if (!dirty || !valid || save.isPending) return;
@@ -501,18 +519,23 @@ export default function PrintTextsEditor({ company, onClose }: { company: PrintT
               <>
                 <Seg small value={sample.isReturn ? 'return' : 'sale'} onChange={(v) => setSample((s) => ({ ...s, isReturn: v === 'return' }))}
                   options={[['sale', tr('فاتورة بيع')], ['return', tr('مرتجع')]]} />
-                <Seg small value={sample.standard ? 'standard' : 'simplified'} onChange={(v) => setSample((s) => ({ ...s, standard: v === 'standard' }))}
-                  options={[['simplified', tr('فاتورة مبسطة')], ['standard', tr('فاتورة ضريبية لعميل له رقم ضريبي')]]} />
+                {/* «إزالة الضريبة»: لا مبسطة ولا ضريبية ولا أسعار شاملة لشركةٍ بلا ضريبة — المبدّلان يُخفيان */}
+                {!taxOff && (
+                  <Seg small value={sample.standard ? 'standard' : 'simplified'} onChange={(v) => setSample((s) => ({ ...s, standard: v === 'standard' }))}
+                    options={[['simplified', tr('فاتورة مبسطة')], ['standard', tr('فاتورة ضريبية لعميل له رقم ضريبي')]]} />
+                )}
                 <label className="flex items-center gap-1.5 cursor-pointer select-none text-[#44403a]">
                   <input type="checkbox" className="w-3.5 h-3.5 accent-[#E15A30]" checked={sample.installments && !sample.isReturn} disabled={sample.isReturn}
                     onChange={(e) => setSample((s) => ({ ...s, installments: e.target.checked }))} />
                   {tr('جدول الأقساط')}
                 </label>
-                <label className="flex items-center gap-1.5 cursor-pointer select-none text-[#44403a]">
-                  <input type="checkbox" className="w-3.5 h-3.5 accent-[#E15A30]" checked={sample.inclusive}
-                    onChange={(e) => setSample((s) => ({ ...s, inclusive: e.target.checked }))} />
-                  {tr('الأسعار شاملة الضريبة')}
-                </label>
+                {!taxOff && (
+                  <label className="flex items-center gap-1.5 cursor-pointer select-none text-[#44403a]">
+                    <input type="checkbox" className="w-3.5 h-3.5 accent-[#E15A30]" checked={sample.inclusive}
+                      onChange={(e) => setSample((s) => ({ ...s, inclusive: e.target.checked }))} />
+                    {tr('الأسعار شاملة الضريبة')}
+                  </label>
+                )}
               </>
             ) : (
               <Seg small value={sample.links} onChange={(v) => setSample((s) => ({ ...s, links: v }))}
@@ -523,14 +546,14 @@ export default function PrintTextsEditor({ company, onClose }: { company: PrintT
           {/* السطر المختار (من القائمة أو بالنقر عليه في المعاينة — والمحذوف مشطوبٌ فيها قابلٌ للنقر): حذفه أو استعادته من هنا */}
           {activeEntry && (
             <div data-pt-actions={activeEntry.key} className="mb-2 flex items-center gap-2 flex-wrap rounded-xl border border-[#E9E1D3] bg-white px-3 py-2 text-xs">
-              <span className={`min-w-0 flex-1 font-semibold text-[#1F1A13] truncate ${activeDeleted ? 'line-through opacity-60' : ''}`}>{rowLabel(activeEntry, tr)}</span>
+              <span className={`min-w-0 flex-1 font-semibold text-[#1F1A13] truncate ${activeDeleted ? 'line-through opacity-60' : ''}`}>{rowLabel(activeEntry, tr, taxOff)}</span>
               {activeDeleted && <span className="badge-inactive shrink-0">{tr('محذوف')}</span>}
               <LineButton deleted={activeDeleted} scope={PRINT_TEXT_LINE[activeEntry.key]}
                 onDelete={() => deleteLine(activeEntry.key)} onRestore={() => restoreLine(activeEntry.key)} />
             </div>
           )}
           <p className="text-[11px] text-[#9A8F7E] mb-2">
-            {tr(PRINT_SAMPLE_WATERMARK)} · {paper === 'a4' ? tr('ما ينقص من بيانات شركتك يظهر بقيمة توضيحية') : tr('المعاينة الحرارية للعرض فقط — اختر النص من القائمة')}
+            {tr(sampleWatermark(taxOff))} · {paper === 'a4' ? tr('ما ينقص من بيانات شركتك يظهر بقيمة توضيحية') : tr('المعاينة الحرارية للعرض فقط — اختر النص من القائمة')}
           </p>
           {paper === 'a4' ? (
             <SheetPreview>
@@ -549,7 +572,7 @@ export default function PrintTextsEditor({ company, onClose }: { company: PrintT
             <div className="mb-3 rounded-xl border border-[#F2C4BC] bg-[#FBE3DF] px-3 py-2 text-xs text-[#8E2A1F]" role="alert">
               {generalIssues.map((i, n) => {
                 const entry = printTextEntry(issueKey(i.path) ?? '');
-                return <p key={n}>{entry ? `${rowLabel(entry, tr)}: ` : ''}{tr(i.message)}</p>;
+                return <p key={n}>{entry && printTextRowVisible(entry.key, taxOff) ? `${rowLabel(entry, tr, taxOff)}: ` : ''}{tr(i.message)}</p>;
               })}
             </div>
           )}
@@ -603,7 +626,7 @@ export default function PrintTextsEditor({ company, onClose }: { company: PrintT
                   <li key={entry.key} data-deleted-line={entry.key} className="flex items-center gap-2 rounded-lg border border-[#E9E1D3] bg-white px-2.5 py-1.5">
                     <button type="button" onClick={() => onPick(entry.key)}
                       className="min-w-0 flex-1 text-start text-[12.5px] text-[#44403a] truncate hover:text-[#C94E28]">
-                      <span className="line-through">{rowLabel(entry, tr)}</span> <span className="text-[10.5px] text-[#9A8F7E]">· {tr(GROUP_TITLES[entry.group])}</span>
+                      <span className="line-through">{rowLabel(entry, tr, taxOff)}</span> <span className="text-[10.5px] text-[#9A8F7E]">· {tr(GROUP_TITLES[entry.group])}</span>
                     </button>
                     <button type="button" data-restore-line={entry.key} onClick={() => restoreLine(entry.key)}
                       className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-[#E9E1D3] px-2 py-1 text-[11.5px] font-semibold text-[#1F1A13] hover:bg-[#FAF7F0]">
@@ -621,7 +644,7 @@ export default function PrintTextsEditor({ company, onClose }: { company: PrintT
               <p className="text-xs font-bold text-[#9A8F7E] mb-1.5">{tr(GROUP_TITLES[group])}</p>
               <div className="space-y-2">
                 {entries.map((entry) => (
-                  <TextRow key={entry.key} entry={entry} edit={draft.edits[entry.key] ?? NO_EDIT} lang={lang}
+                  <TextRow key={entry.key} entry={entry} edit={draft.edits[entry.key] ?? NO_EDIT} lang={lang} taxOff={taxOff}
                     active={active === entry.key} issues={issuesAt(`edits.${entry.key}`)}
                     onChange={(patch) => setEdit(entry.key, patch)} onActivate={onActivate}
                     onDelete={() => deleteLine(entry.key)} onRestore={() => restoreLine(entry.key)}
@@ -740,10 +763,12 @@ function LineButton({ deleted, scope, onDelete, onRestore }: {
  * صفّ نصٍّ واحد: «حذف السطر» أو «استعادة»، والصياغة العربية ونصّ اللغة الثانية (لكل عبارة — لا قفل)، وإعادة الافتراضي، وتنبيه
  * ما كان إلزامياً للفاتورة الضريبية بجانبه (لا يمنع)
  */
-function TextRow({ entry, edit, lang, active, issues, onChange, onActivate, onDelete, onRestore, rowRef }: {
+function TextRow({ entry, edit, lang, taxOff = false, active, issues, onChange, onActivate, onDelete, onRestore, rowRef }: {
   entry: PrintTextEntry;
   edit: PrintTextEdit;
   lang: PrintSecondLang | null;
+  /** «إزالة الضريبة»: الشركة بلا ضريبة — بلا تنبيه هيئةٍ ولا تحذير العنوان، وعنوانا الفاتورة والمرتجع «فاتورة» و«فاتورة مرتجع» */
+  taxOff?: boolean;
   active: boolean;
   issues: PrintTextsIssue[];
   onChange: (patch: Partial<PrintTextEdit> | null) => void;
@@ -757,10 +782,15 @@ function TextRow({ entry, edit, lang, active, issues, onChange, onActivate, onDe
   const edited = edit.text !== null || edit.alt !== null || edit.hidden;
   // تنبيه وحدة الحذف: تنبيه العبارة، وعنوان الصندوق أشدّ تنبيهٍ في صفوفه التي تسقط معه
   const warning = lineWarning(entry.key);
+  // «إزالة الضريبة»: تنبيهات الهيئة والفاتورة الضريبية لا تظهر لشركةٍ بلا ضريبة (سطر المنصّة وحده)
+  const warningShown = editorWarningFor(warning, taxOff) !== null;
   const scope = PRINT_TEXT_LINE[entry.key];
   const isTitle = TITLE_KEYS.has(entry.key);
+  // النصّ الافتراضي للصفّ: نصّ القائمة، أو «فاتورة»/«فاتورة مرتجع» لعنواني المستند بلا ضريبة
+  const defaultText = printTextDefault(entry, taxOff);
   // ما يُطبع باللغة الثانية إن تُركت خانتها فارغة: ترجمة الصياغة العربية الجديدة من القاموس (إن وُجدت)، وإلا ترجمة الافتراضي
-  const altFallback = lang ? (edit.text !== null ? phraseIn(edit.text.trim(), lang) : phraseIn(entry.ar, lang)) : null;
+  // و«إزالة الضريبة» (E4): افتراضيّ المستند بلا ضريبة («فاتورة مرتجع»، «إجمالي المرتجع») بترجمته على الورقة — والشركة بضريبتها كما كانت حرفاً
+  const altFallback = lang ? (edit.text !== null ? phraseIn(edit.text.trim(), lang) : taxFreeDefaultIn(entry.key, defaultText, lang) ?? phraseIn(defaultText, lang)) : null;
   const altMissing = lang !== null && edit.text !== null && edit.text.trim() !== '' && edit.alt === null && !altFallback;
   const textIssue = issues.find((i) => i.path.endsWith('.text'));
   const altIssue = issues.find((i) => i.path.endsWith('.alt'));
@@ -771,7 +801,7 @@ function TextRow({ entry, edit, lang, active, issues, onChange, onActivate, onDe
       className={`rounded-xl border px-3 py-2.5 transition-colors ${active ? 'border-[#E15A30] ring-2 ring-[#E15A30]/25 bg-[#FFFBF8]' : issues.length ? 'border-[#F2C4BC] bg-white' : deleted ? 'border-[#E8C9BC] bg-[#FDF8F5]' : 'border-[#E9E1D3] bg-white'}`}>
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
-          <p className={`text-[13px] font-semibold text-[#1F1A13] truncate ${deleted ? 'line-through opacity-60' : ''}`}>{rowLabel(entry, tr)}</p>
+          <p className={`text-[13px] font-semibold text-[#1F1A13] truncate ${deleted ? 'line-through opacity-60' : ''}`}>{rowLabel(entry, tr, taxOff)}</p>
           {deleted && scope && <p className="text-[10.5px] text-[#C94E28]">{tr(LINE_SCOPE_HINTS[scope])}</p>}
         </div>
         {deleted && <span className="badge-inactive shrink-0">{tr('محذوف')}</span>}
@@ -783,7 +813,7 @@ function TextRow({ entry, edit, lang, active, issues, onChange, onActivate, onDe
         )}
         <LineButton deleted={deleted} scope={scope} onDelete={onDelete} onRestore={onRestore} />
       </div>
-      {warning && (
+      {warning && warningShown && (
         <p data-pt-warning={warning} className={`mt-1.5 flex items-start gap-1.5 text-[10.5px] leading-relaxed ${warning === 'platform' ? 'text-[#6E6557]' : 'text-[#B45309]'}`}>
           {warning === 'platform' ? <Info size={12} className="mt-0.5 shrink-0" /> : <AlertTriangle size={12} className="mt-0.5 shrink-0" />}
           {tr(PRINT_TEXT_WARNINGS[warning])}
@@ -792,15 +822,15 @@ function TextRow({ entry, edit, lang, active, issues, onChange, onActivate, onDe
 
       <div className="mt-2 space-y-1.5">
         <input className="input py-1.5" dir="rtl" lang="ar"
-          maxLength={entry.max} placeholder={entry.ar}
-          aria-label={`${rowLabel(entry, tr)} — ${tr('الصياغة بالعربية')}`}
+          maxLength={entry.max} placeholder={defaultText}
+          aria-label={`${rowLabel(entry, tr, taxOff)} — ${tr('الصياغة بالعربية')}`}
           value={edit.text ?? ''} onChange={(e) => onChange({ text: e.target.value })} />
         {textIssue && <p className="text-[11px] text-[#C0392B]">{tr(textIssue.message)}</p>}
         {lang !== null && (
           <>
             <input className="input py-1.5" dir="ltr" lang={lang}
               maxLength={entry.max} placeholder={altFallback ?? ''}
-              aria-label={`${rowLabel(entry, tr)} — ${SECOND_LANG_NAMES[lang]}`}
+              aria-label={`${rowLabel(entry, tr, taxOff)} — ${SECOND_LANG_NAMES[lang]}`}
               value={edit.alt ?? ''} onChange={(e) => onChange({ alt: e.target.value })} />
             {altIssue && <p className="text-[11px] text-[#C0392B]">{tr(altIssue.message)}</p>}
             {altMissing && <p className="text-[10.5px] text-[#B45309]">{tr('الصياغة الجديدة بلا ترجمة جاهزة — اكتب نصها باللغة الثانية وإلا لا يطبع سطرها')}</p>}
@@ -809,7 +839,7 @@ function TextRow({ entry, edit, lang, active, issues, onChange, onActivate, onDe
       </div>
       {otherIssues.map((i, k) => <p key={k} className="text-[11px] text-[#C0392B] mt-1">{tr(i.message)}</p>)}
 
-      {isTitle && (active || edited) && (
+      {isTitle && !taxOff && (active || edited) && (
         <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800 leading-relaxed">
           <p className="flex items-start gap-1.5"><AlertTriangle size={12} className="mt-0.5 shrink-0" />{tr(TITLE_WARNING)}</p>
         </div>

@@ -14,6 +14,7 @@ import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
 import { zatcaChipOf, zatcaDocView, type ZatcaDocView } from '../lib/zatca/docStatus';
 import { zatcaPrintDecision, type ZatcaPrintDecision } from '../lib/zatca/docPrint';
+import { isDocTaxFree, isTaxOff } from '../lib/taxMode';
 import { PrintRefusedError, printThermalInvoice, printThermalReceipt } from './thermal';
 import { receiptInvoicesFrom, receiptLinkView, type ReceiptInvoiceLink } from './receiptLinks';
 import { backdropClose } from '../lib/backdropClose';
@@ -69,6 +70,8 @@ function QrImage({ value, size, ec = 'M', scale = 3 }: {
 
 export interface Company {
   name: string;
+  /** «إزالة الضريبة» (lib/taxMode.ts): الشركة الآن بلا ضريبة — يحكم السند والكشف وإشعار المستودع (لا ختم لها)؛ والفاتورة بختمها taxFree */
+  taxDisabled?: boolean;
   address?: string;
   taxNumber?: string;
   commercialReg?: string;
@@ -127,6 +130,8 @@ export interface DocCustomer {
 
 export interface InvoiceDoc {
   kind: 'invoice';
+  /** «إزالة الضريبة»: صدر بلا ضريبة (Invoice.taxFree) — يُطبع بلا أي ذكرٍ لها؛ الغائب = مستندٌ بضريبته كما اليوم */
+  taxFree?: boolean;
   number: string;
   date: string;
   type: 'CASH' | 'CREDIT';
@@ -397,6 +402,37 @@ export interface StockRequestDoc {
 }
 
 export type AnyDoc = InvoiceDoc | ReceiptDoc | StatementDoc | SettlementLogDoc | LoadNoticeDoc | WarehouseNoticeDoc | StockRequestDoc;
+
+/**
+ * «إزالة الضريبة» (lib/taxMode.ts، طلب المالك ٧ نوفمبر ٢٠٢٦): هل يُرسم المستند بلا أي ذكرٍ للضريبة؟ الفاتورة والمرتجع بختمهما
+ * (`Invoice.taxFree` ← isDocTaxFree — والمستند القديم بضريبته كما صدر ولو أُزيلت بعده)، وما لا ختم له (السند والكشف وسجل التحصيل
+ * وإشعارات الحركة والمستودع وطلب المخزون) بحال الشركة الآن (`company.taxDisabled` ← isTaxOff).
+ */
+export function docTaxOff(doc: AnyDoc): boolean {
+  return doc.kind === 'invoice' ? isDocTaxFree(doc) : isTaxOff(doc.company);
+}
+
+const omitTaxNumber = <X extends { taxNumber?: string }>(x: X): X => {
+  const { taxNumber: _dropped, ...rest } = x;
+  return rest as X;
+};
+
+/**
+ * المستند كما يُرسم: بلا ضريبة (docTaxOff) ⇒ بلا الرقم الضريبي للبائع (company.taxNumber) ولا للمشتري (customer.taxNumber) — فتسقط
+ * أسطرهما من كل قالب بشرط القيمة القائم فيه اليوم (ترويسة الشركة بسطرها المحروس كما هو، وصندوق العميل في الفاتورة والسند والكشف،
+ * وصندوقا البائع والمشتري في القالب ثنائي اللغة، ورأس الشريط)، ولا يُبنى رمز المرحلة الأولى (يشترط رقم البائع). الختم والعلم يبقيان
+ * فتقرؤهما القوالب. وإلا فالمستند نفسه (المرجع ذاته) — ورقة اليوم حرفاً لكل شركةٍ بضريبتها ولكل مستندٍ صدر بضريبته.
+ */
+export function taxFreeView<T extends AnyDoc>(doc: T): T {
+  if (!docTaxOff(doc)) return doc;
+  const company = doc.company;
+  const customer = (doc as { customer?: DocCustomer }).customer;
+  return {
+    ...doc,
+    ...(company?.taxNumber ? { company: omitTaxNumber(company) } : null),
+    ...(customer?.taxNumber ? { customer: omitTaxNumber(customer) } : null),
+  } as T;
+}
 
 /**
  * تُطبع وحدة البند؟ خيار القالب (showItemUnit)، **أو** بندٌ بغير وحدة الأساس، أو صنفٌ له وحدات — فخيار «إخفاء الوحدة»
@@ -846,7 +882,9 @@ function InfoBox({ label, value }: { label: React.ReactNode; value: React.ReactN
 }
 
 // ============ قالب الفاتورة ============
-export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(({ doc }, ref) => {
+export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(({ doc: issued }, ref) => {
+  // «إزالة الضريبة»: المختوم بلا ضريبة يُرسم بلا رقمي البائع والمشتري الضريبيين (taxFreeView) — وغيره المستند نفسه حرفاً
+  const doc = taxFreeView(issued);
   const uiTr = useTr();
   const sheet = useSheet();
   // خيارات القالب: اسم المندوب ووحدة الصنف والتوقيعات والتذييل — ولا خيار يمسّ العنوان أو الرمز أو الضريبة (§1.6)
@@ -865,8 +903,9 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
   const isSimplified = !doc.customer.taxNumber;
   /* فوترة ZATCA المرحلة الثانية (Z5.6b، نقد الخطة 6): القرار الواحد قبل القالب — عنوانه ورمزه وهل يُظهر ضريبة.
    * `doc.zatca` فارغ لكلّ من لم يُفعَّل، فالقرار يعود `phase1` والقالب أدناه كما هو اليوم حرفاً بحرف. */
+  /* «إزالة الضريبة»: المستند المختوم بلا ضريبة (taxFree) قرارُه «فاتورة»/«فاتورة مرتجع» بلا رمز ولا تفصيل ولا رقم ضريبي (hideTaxIds) */
   const zDecision = zatcaPrintDecision(
-    { isReturn: !!doc.isReturn, buyerHasTaxNumber: !isSimplified, saudi: isSaudiDoc(doc.company) },
+    { isReturn: !!doc.isReturn, buyerHasTaxNumber: !isSimplified, saudi: isSaudiDoc(doc.company), taxFree: isDocTaxFree(doc) },
     doc.zatca,
   );
   /* «نصوص المطبوعات»: صياغة الشركة وحذفها للسطر ولغتها الثانية (L للتسميات، V للقيم الثابتة) — و`tr` لما ليس في القائمة: لغة
@@ -903,8 +942,9 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
    * كتلةُ اليوم نفسها (InvoiceQrBlock) — فلا عنوان ولا رمز ولا ضريبة من صنع القالب الجديد. */
   const qrNode = <InvoiceQrBlock doc={doc} zDecision={zDecision} qrValue={qrValue} look={look} pt={pt} />;
   /* «احذف كل شيء حتى QR» (قرار المالك ٤ نوفمبر ٢٠٢٦): البوابة الوحيدة للرمز — حذفته الشركة صراحةً (isQrRemoved) ⇒ لا كتلة كلّها
-   * (المختوم والحكومي والمرحلة الأولى والسبب والتلميح والتعليق وICV/UUID) في الإجماليات ولا يتيمةً ولا في الثنائي. وإلا كاليوم. */
-  const qrShown = isQrRemoved(layout) ? null : qrNode;
+   * (المختوم والحكومي والمرحلة الأولى والسبب والتلميح والتعليق وICV/UUID) في الإجماليات ولا يتيمةً ولا في الثنائي. وإلا كاليوم.
+   * و«إزالة الضريبة» (hideTaxIds): لا كتلة رمز أصلاً — لا «أضف الرقم الضريبي…» ولا «قيد الاعتماد…»، والإجماليات بمحاذاة الحذف. */
+  const qrShown = isQrRemoved(layout) || zDecision.hideTaxIds ? null : qrNode;
   // أختام الحالة (وسم البروفة وإشعار سند التسليم/الإبطال): تُحذف بقرار الشركة وحده (stamps:false) — وقرار الطباعة canPrint لا يتغيّر
   const stampsOff = areStampsRemoved(layout);
   if (layout?.design === 'grid_bilingual') {
@@ -1058,7 +1098,8 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
       {/* ورقةٌ بلا تفصيل ضريبة وأسعارها غير شاملة: «المجموع − الخصم» لا يساوي الإجمالي، والفرق بلا سطر يفسّره.
           فيقوله عنوانُ السطر نفسه — بلا نسبة ولا وعاء، فتبقى الورقة غير ضريبية */}
       {!grandGone && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderTop: `2px solid ${brand}`, marginTop: 6, fontWeight: 700, fontSize: f(18), color: doc.isReturn ? '#b45309' : brand }}>
-        <span>{doc.isReturn ? L('tot.returnGrand', 'إجمالي المرتجع دائن')
+        {/* «إزالة الضريبة» (E3): المرتجع المختوم بلا ضريبة «إجمالي المرتجع» لا «… دائن» — وصياغة الشركة للسطر تسري كاليوم */}
+        <span>{doc.isReturn ? L('tot.returnGrand', zDecision.hideTaxIds ? 'إجمالي المرتجع' : 'إجمالي المرتجع دائن')
           : !zDecision.showTaxBreakdown && !inclusiveDoc && doc.tax > 0 ? V('المبلغ المستحق شامل الضرائب')
           : L('tot.grand', 'الإجمالي النهائي')}</span>
         <span>{formatCurrency(doc.total)}</span>
@@ -1107,7 +1148,8 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
           </tr>}
         </tbody>
       </table>
-      {!pt.hidden('inst.note') && <p style={{ fontSize: f(11), color: '#6E6557', marginTop: 6 }}>
+      {/* «إزالة الضريبة»: الملاحظة جملةٌ عن الضريبة — لا تُطبع على المستند المختوم بلا ضريبة (hideTaxIds) */}
+      {!zDecision.hideTaxIds && !pt.hidden('inst.note') && <p style={{ fontSize: f(11), color: '#6E6557', marginTop: 6 }}>
         {L('inst.note', 'الضريبة مستحقة بالكامل على هذه الفاتورة عند التوريد والأقساط جدول سداد لا تجزئة ضريبية')}
       </p>}
     </div>
@@ -1175,7 +1217,8 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
         case 'title': return <div style={{ fontSize: f(titlePx(headerStyle)), fontWeight: 700, color: brand }}>{invTitle}</div>;
         case 'docInfo': return docBox(f);
         case 'customer': return custBox(f);
-        case 'qr': return <InvoiceQrBlock doc={doc} zDecision={zDecision} qrValue={qrValue} look={look} pt={pt} fit={{ w: box.px.width, h: box.px.height }} />;
+        // «إزالة الضريبة» (hideTaxIds): مربع الرمز في اللوحة فارغٌ — لا رمز ولا تلميح
+        case 'qr': return zDecision.hideTaxIds ? null : <InvoiceQrBlock doc={doc} zDecision={zDecision} qrValue={qrValue} look={look} pt={pt} fit={{ w: box.px.width, h: box.px.height }} />;
         case 'totals': return totalsRows(f, true);
         case 'signatures': return signaturesPart(f, true);
         case 'footer': return footerPart(f, true);
@@ -1203,6 +1246,9 @@ function InvoiceQrBlock({ doc, zDecision, qrValue, look, pt, fit }: { doc: Invoi
   const tr = pt.tr;
   const L = labeler(pt);
   const f = useSectionFont();
+  /* «إزالة الضريبة» (hideTaxIds): المستند المختوم بلا ضريبة لا كتلة رمز له بأيّ فرع — لا رمز ولا تعليق ولا «أضف الرقم الضريبي…»
+   * ولا «قيد الاعتماد…» ولا معرّف منظومة (القالب لا يمرّرها أصلاً، وهذا دفاعٌ ثانٍ لكل مستدعٍ) */
+  if (zDecision.hideTaxIds) return null;
   const einv = doc.einvoice;
   const gov = !!einv?.provider && ['eta', 'peppol', 'ttn'].includes(einv.provider);
   const box: React.CSSProperties = { background: '#fff', padding: 6, border: '1px solid #eef2f7', borderRadius: 8, display: 'block', width: 'fit-content', margin: '0 auto' };
@@ -1304,7 +1350,9 @@ function FooterLine({ pt, thanks, name }: { pt: PrintTexts; thanks: React.ReactN
 }
 
 // ============ قالب سند القبض ============
-export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(({ doc }, ref) => {
+export const PrintableReceipt = forwardRef<HTMLDivElement, { doc: ReceiptDoc }>(({ doc: issued }, ref) => {
+  // «إزالة الضريبة»: شركةٌ أُزيلت ضريبتها ⇒ السند بلا رقمي البائع والمشتري الضريبيين (taxFreeView) — وإلا المستند نفسه حرفاً
+  const doc = taxFreeView(issued);
   const uiTr = useTr();
   const sheet = useSheet();
   const look = usePrintLook();
@@ -1512,7 +1560,9 @@ function ReceiptInvoicesBox({ doc }: { doc: ReceiptDoc }) {
 }
 
 // ============ قالب كشف الحساب ============
-export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc }>(({ doc }, ref) => {
+export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc }>(({ doc: issued }, ref) => {
+  // «إزالة الضريبة»: شركةٌ أُزيلت ضريبتها ⇒ الكشف بلا رقمها الضريبي في الترويسة ولا رقم العميل في بياناته (taxFreeView)
+  const doc = taxFreeView(issued);
   const tr = useTr();
   const sheet = useSheet();
   const brand = brandColor(doc.company);
@@ -1656,7 +1706,9 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
 PrintableStatement.displayName = 'PrintableStatement';
 
 // سجلّ استلامات التحصيل لمندوب — جدولٌ مرتّب بالوقت والمبلغ ومن استلم، برأس الشركة
-export const PrintableSettlementLog = forwardRef<HTMLDivElement, { doc: SettlementLogDoc }>(({ doc }, ref) => {
+export const PrintableSettlementLog = forwardRef<HTMLDivElement, { doc: SettlementLogDoc }>(({ doc: issued }, ref) => {
+  // «إزالة الضريبة»: الترويسة بلا الرقم الضريبي لشركةٍ أُزيلت ضريبتها (taxFreeView)
+  const doc = taxFreeView(issued);
   const tr = useTr();
   const sheet = useSheet();
   const brand = brandColor(doc.company);
@@ -1749,7 +1801,9 @@ export const PrintableSettlementLog = forwardRef<HTMLDivElement, { doc: Settleme
 PrintableSettlementLog.displayName = 'PrintableSettlementLog';
 
 // إشعار حركة بضاعة لسيارة مندوب — اسم المندوب + الأصناف بكمياتها + التاريخ والوقت، برأس الشركة
-export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeDoc }>(({ doc }, ref) => {
+export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeDoc }>(({ doc: issued }, ref) => {
+  // «إزالة الضريبة»: الترويسة بلا الرقم الضريبي لشركةٍ أُزيلت ضريبتها (taxFreeView)
+  const doc = taxFreeView(issued);
   const tr = useTr();
   const sheet = useSheet();
   const brand = brandColor(doc.company);
@@ -1857,7 +1911,10 @@ const fmtNoticeQty = (n: number) => String(Number(Number(n).toFixed(2)));
 export const warehouseNoticeProductCount = (items: readonly Pick<WarehouseNoticeItem, 'productId' | 'name'>[]): number =>
   new Set(items.map((i) => i.productId ?? i.name)).size;
 
-export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: WarehouseNoticeDoc }>(({ doc }, ref) => {
+export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: WarehouseNoticeDoc }>(({ doc: issued }, ref) => {
+  // «إزالة الضريبة»: شركةٌ أُزيلت ضريبتها ⇒ الترويسة بلا رقمها الضريبي، وقيم الوارد بلا «قبل الضريبة» (الكلفة هي المبلغ المُدخَل)
+  const doc = taxFreeView(issued);
+  const taxOff = docTaxOff(doc);
   const tr = useTr();
   const sheet = useSheet();
   const brand = brandColor(doc.company);
@@ -1924,8 +1981,8 @@ export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: Wareho
             <th style={th}>{tr('الكمية')}</th>
             <th style={receive || withLots ? th : { ...th, borderRadius: '8px 0 0 0' }}>{tr('الوحدة')}</th>
             {withLots && <th style={receive ? th : { ...th, borderRadius: '8px 0 0 0' }}>{tr('التشغيلة / الانتهاء')}</th>}
-            {receive && <th style={th}>{tr('سعر الوحدة قبل الضريبة')}</th>}
-            {receive && <th style={{ ...th, borderRadius: '8px 0 0 0' }}>{tr('القيمة قبل الضريبة')}</th>}
+            {receive && <th style={th}>{taxOff ? tr('سعر الوحدة') : tr('سعر الوحدة قبل الضريبة')}</th>}
+            {receive && <th style={{ ...th, borderRadius: '8px 0 0 0' }}>{taxOff ? tr('القيمة') : tr('القيمة قبل الضريبة')}</th>}
           </tr>
         </thead>
         <tbody>
@@ -1959,7 +2016,7 @@ export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: Wareho
         {receive && (
           <tfoot>
             <tr style={{ background: '#f1f5f9', fontWeight: 700 }}>
-              <td style={{ ...td, borderTop: `2px solid ${brand}`, textAlign: 'right' }} colSpan={cols - 1}>{tr('قيمة البضاعة قبل الضريبة')}</td>
+              <td style={{ ...td, borderTop: `2px solid ${brand}`, textAlign: 'right' }} colSpan={cols - 1}>{taxOff ? tr('قيمة البضاعة') : tr('قيمة البضاعة قبل الضريبة')}</td>
               <td style={{ ...td, borderTop: `2px solid ${brand}`, color: brand }}>{anyCosted ? formatCurrency(doc.totalCost) : '—'}</td>
             </tr>
           </tfoot>
@@ -1993,7 +2050,9 @@ export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: Wareho
 PrintableWarehouseNotice.displayName = 'PrintableWarehouseNotice';
 
 /** طلب مخزون — الأصناف بكمّياتها المطلوبة ورصيدها الآن، وخانتا مقدّم الطلب واعتماد الجهة */
-export const PrintableStockRequest = forwardRef<HTMLDivElement, { doc: StockRequestDoc }>(({ doc }, ref) => {
+export const PrintableStockRequest = forwardRef<HTMLDivElement, { doc: StockRequestDoc }>(({ doc: issued }, ref) => {
+  // «إزالة الضريبة»: الترويسة بلا الرقم الضريبي لشركةٍ أُزيلت ضريبتها (taxFreeView)
+  const doc = taxFreeView(issued);
   const tr = useTr();
   const sheet = useSheet();
   const brand = brandColor(doc.company);
@@ -2155,6 +2214,8 @@ function customerWithPostal(c: any): DocCustomer {
 export function invoiceDocFromDetail(inv: any, repName: string, company?: Company | null): InvoiceDoc {
   return {
     kind: 'invoice',
+    // «إزالة الضريبة»: ختم المستند من صفّه (Invoice.taxFree) — صريحاً true وحده، وغيابه لا يضيف حقلاً (الشكل كما كان)
+    ...(inv.taxFree === true && { taxFree: true }),
     number: inv.number,
     date: inv.invoiceDate,
     deliveryDate: inv.deliveryDate ?? undefined,
@@ -2511,11 +2572,14 @@ export function docCopyLabels(doc: AnyDoc, tr: (ar: string) => string): [string,
   return [tr('الأصل'), tr('نسخة')];
 }
 
-export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
+export function DocumentResult({ doc: issued, onClose, showLotsStrip = false }: {
   doc: AnyDoc; onClose: () => void;
   /** «تتبّع اللوط»: شريط «تشغيلات البنود» خارج الورقة — للإدارة وحدها (§٦.١)، فلا يمرّره تطبيق المندوب */
   showLotsStrip?: boolean;
 }) {
+  /* «إزالة الضريبة»: المستند كما يُرسم ويُطبع من هذه الشاشة كلّها (المعاينة والـPDF والشريط والطباعة المباشرة) — المختوم بلا ضريبة،
+   * أو ما لا ختم له لشركةٍ أُزيلت ضريبتها ⇒ بلا رقمي البائع والمشتري الضريبيين (taxFreeView)؛ وإلا المستند نفسه حرفاً */
+  const doc = taxFreeView(issued);
   const tr = useTr();
   const printRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
@@ -2534,9 +2598,10 @@ export function DocumentResult({ doc, onClose, showLotsStrip = false }: {
   const confirmBg = green ? 'bg-[#E4F1EA] border-[#cfe8db]' : 'bg-[#FBEBE2] border-[#F5DACE]';
   /* فوترة ZATCA المرحلة الثانية (Z5.6b): القرار نفسه الذي يبني الورقة يحكم أزرارها — مستندٌ لا ورقة له
    * لا زرّ طباعة له ولا مشاركة، ومستندٌ صار سند تسليم يُسمّى الزرُّ باسمه لا «مشاركة الفاتورة». */
-  const zDoc = doc.kind === 'invoice' ? doc.zatca ?? null : null;
+  // «إزالة الضريبة»: المختوم بلا ضريبة لا شارة هيئةٍ له (الختم يغلب لو اجتمعا — والخادم يمنع الجمع)
+  const zDoc = doc.kind === 'invoice' && !isDocTaxFree(doc) ? doc.zatca ?? null : null;
   const zDecision = doc.kind === 'invoice'
-    ? zatcaPrintDecision({ isReturn: !!doc.isReturn, buyerHasTaxNumber: !!doc.customer.taxNumber, saudi: isSaudiDoc(doc.company) }, zDoc)
+    ? zatcaPrintDecision({ isReturn: !!doc.isReturn, buyerHasTaxNumber: !!doc.customer.taxNumber, saudi: isSaudiDoc(doc.company), taxFree: isDocTaxFree(doc) }, zDoc)
     : null;
   const zChip = zDoc ? zatcaChipOf(zDoc) : null;
   const zBlocked = zDecision !== null && !zDecision.canPrint;

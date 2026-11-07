@@ -5,7 +5,7 @@ import {
   PRINT_NOTES, PRINT_SAMPLE_WATERMARK, geometry, isQrRemoved, layoutOf, type DevicePrintChoice, type PrintProfile,
 } from '../../lib/print/printSettings';
 import { DIRECT_PRINT_FALLBACK, DirectPrintError, PrintRefusedError } from '../../lib/print/printErrors';
-import { buildCalibrationDocument, sampleBannerHtml, sampleInvoiceDoc } from '../../lib/print/calibration';
+import { buildCalibrationDocument as buildCalibrationPage, sampleBannerHtml, sampleInvoiceDoc, type CalibrationOptions } from '../../lib/print/calibration';
 import { directPath, isIosLink, linkPrinter, linkedPrinter, onLateHandoff, printerForJob, type DirectLink } from '../../lib/print/transport/direct';
 import {
   directAvailableFor, directHintFor, printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type DirectOutcome, type PrintTransport,
@@ -19,6 +19,8 @@ import { directOpts, withConnection } from '../../rep/printDevice';
 import type { Company, InvoiceDoc } from '../../rep/RepDocuments';
 import { DirectPrintOverlay, useDirectPrint } from './DirectPrintUi';
 import { AppUpdateButton, AppUpdateHint } from './AppUpdatePrompt';
+import { isTaxOff } from '../../lib/taxMode';
+import { TAX_OFF_DEVICE_SAMPLE_NOTE, sampleWatermark, useTaxOffPrint } from './taxOffPrint';
 
 /**
  * أدوات الطباعة على هذا الجهاز — «إعدادات الطباعة» M3 (التصميم §5.1 E و§5.2): طريقة الاتصال، و«ربط الطابعة»، وصفحة المعايرة،
@@ -62,6 +64,12 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
   const capable = supportsDirect(profile);
   const transport: PrintTransport = transportFor(profile, choice, available);
   const sample = useMemo(() => sampleInvoiceDoc(company, tr), [company, tr]);
+  /* «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الشركة بلا ضريبة (علمها في ردّ /company، أو سياق تبويب «إعدادات الطباعة») — المستند
+   * التجريبيّ بلا ضريبة (sampleInvoiceDoc يقرأ العلم نفسه)، وشريطه «نموذج اختبار» وحده، وصفحة المعايرة بلا عبارة ضريبية ولا رمز.
+   * الاسمان أدناه يحجبان المستوردين في هذا النطاق — والشركة بضريبتها: القيمتان نفساهما حرفاً (sampleWatermark(false) هو الثابت) */
+  const taxOff = useTaxOffPrint() || isTaxOff(company);
+  const PRINT_SAMPLE_WATERMARK = sampleWatermark(taxOff);
+  const buildCalibrationDocument = (p: PrintProfile, t: typeof tr, o: CalibrationOptions): string => buildCalibrationPage(p, t, taxOff ? { ...o, taxOff } : o);
   const look = useMemo(() => lookFor(profile), [profile]);
   const sysProfile = systemProfile ?? profile;
   const profileVia = (via: PrintTransport): PrintProfile => (via === 'bt-serial' ? profile : sysProfile);
@@ -242,7 +250,7 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
         )}
       </div>
       {!isQrRemoved(layoutOf(profile)) && (
-        <p className="text-[11px] text-[#9A8F7E]">{tr('المعاينة والاختبار يحملان «نموذج اختبار — ليس مستندا ضريبيا» ورمزا تجريبيا')}</p>
+        <p className="text-[11px] text-[#9A8F7E]">{taxOff ? tr(TAX_OFF_DEVICE_SAMPLE_NOTE) : tr('المعاينة والاختبار يحملان «نموذج اختبار — ليس مستندا ضريبيا» ورمزا تجريبيا')}</p>
       )}
 
       {msg && msg.app === 'soft' && <AppUpdateHint />}

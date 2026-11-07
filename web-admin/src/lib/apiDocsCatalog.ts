@@ -2544,7 +2544,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[...], pagination:{total, page, limit, pages}}. كل صف فيه أعمدة الفاتورة: id وnumber وtype وstatus وinvoiceDate وdueDate وdeliveryDate وpaymentPlan وpricesIncludeTax وsubtotal وdiscountPct وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وreturnReason وreturnToStock وeinvoiceProvider وeinvoiceStatus وeinvoiceQr وclientRef وzatcaPhase وdocumentKind وinvoiceSubtype وissuedAt وoriginalInvoiceId وcreatedAt وlocationId وteamId وpriceListId (قائمة الأسعار التي سُعّر بها المستند، وnull = السعر الأساسي، أو قائمةٌ حُذفت بعدها، أو مستندٌ لا يُختم: الإشعار الدائن المرتبط بفاتورة والإشعار المدين — انظر قاعدة priceListId أدناه). ومعها customer{id,name,phone} وsalesRep{id,name} وlocation{id,name} (ختم موقع المندوب وقت الإصدار، أو null) و_count{items}، وitems عند طلب withItems (كل بند بـlineRef، ومعه lots مع withLots=1 والميزة مفعّلة). الحقل einvoiceSnapshot محذوف من صفوف القائمة",
+    "response": "{success:true, data:[...], pagination:{total, page, limit, pages}}. كل صف فيه أعمدة الفاتورة: id وnumber وtype وstatus وinvoiceDate وdueDate وdeliveryDate وpaymentPlan وpricesIncludeTax وtaxFree («إزالة الضريبة»: true = صدر المستند والشركة بلا ضريبة، وfalse = كما كان) وsubtotal وdiscountPct وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وreturnReason وreturnToStock وeinvoiceProvider وeinvoiceStatus وeinvoiceQr وclientRef وzatcaPhase وdocumentKind وinvoiceSubtype وissuedAt وoriginalInvoiceId وcreatedAt وlocationId وteamId وpriceListId (قائمة الأسعار التي سُعّر بها المستند، وnull = السعر الأساسي، أو قائمةٌ حُذفت بعدها، أو مستندٌ لا يُختم: الإشعار الدائن المرتبط بفاتورة والإشعار المدين — انظر قاعدة priceListId أدناه). ومعها customer{id,name,phone} وsalesRep{id,name} وlocation{id,name} (ختم موقع المندوب وقت الإصدار، أو null) و_count{items}، وitems عند طلب withItems (كل بند بـlineRef، ومعه lots مع withLots=1 والميزة مفعّلة). الحقل einvoiceSnapshot محذوف من صفوف القائمة",
     "rules": [
      "الترتيب حسب createdAt تنازلياً، والترقيم بالأسلوب skip=(page-1)*limit",
      "هذه القائمة لا تشترط X-FS-Caps حتى للصفوف المربوطة بالمرحلة الثانية، بخلاف GET /invoices/:id",
@@ -2667,7 +2667,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "للمندوب وحده: returnBlocked يحمل سبب «قيود المندوب» إن كان الصنف لا يرجعه المندوب أو قيده «الكبرى فقط» وقد بيع بالأساس، وproduct.repReturnUnit (ANY | BASE | LARGE) يقصر وحدات الإرجاع — المفتاح ومستخدمو الشركة لا يرون الحقل ولا يمسّهم القيد",
      "returnBlocked نص سبب الرفض إن كان قيد المرتجع للصنف يمنعه اليوم بتوقيت الشركة، وإلا null. للقيد وضعان (returnRuleMode) بحدٍّ بالأيام أو بنسبة من مدة الصلاحية (returnRuleMetric وreturnRuleValue): NEAR_EXPIRY «قرب الانتهاء» يقبل المرتجع إذا بقي من صلاحية ما بيع الحدُّ أو أقل والمنتهي يُقبل، وSTILL_VALID «ما زال صالحاً» يقبله إذا بقي الحدُّ أو أكثر والمنتهي يُرفض. وهو إرشاد للعرض: القرار للخادم عند الإصدار في POST /invoices، فيرجع 422 RETURN_RULE_BLOCKED برسالة «اسم الصنف: السبب»، ويوم المرتجع لطلب المفتاح invoiceDate إن أُرسل وإلا اليوم (clientCreatedAt لا يُقرأ للمفتاح)",
      "فاتورة غير موجودة أو خارج النطاق 404، وفاتورة ليست بيعاً مؤكداً (مرتجع أو ملغاة أو إشعار) 422",
-     "الإرجاع بوحدة: أرسل الكمية بوحدة الأساس بلا unitId، أو بوحدة من product.units بمعرّفها unitId، ومجموع ما يُرجَع من البند بالأساس لا يتجاوز returnableBase (وإلا 422 RETURN_LINK_INVALID). حبةٌ من بند كرتون = {invoiceItemId, qty:1} بلا unitId. وصنفٌ بلا وحدات: الأرقام كما كانت قبل الميزة (المعامل 1)"
+     "الإرجاع بوحدة: أرسل الكمية بوحدة الأساس بلا unitId، أو بوحدة من product.units بمعرّفها unitId، ومجموع ما يُرجَع من البند بالأساس لا يتجاوز returnableBase (وإلا 422 RETURN_LINK_INVALID). حبةٌ من بند كرتون = {invoiceItemId, qty:1} بلا unitId. وصنفٌ بلا وحدات: الأرقام كما كانت قبل الميزة (المعامل 1)",
+     "«إزالة الضريبة»: taxPct في السطر نسبة بند البيع كما صدر (15 لبيعٍ صدر قبل الإزالة) — لا تنسخه إلى المرتجع والشركة «بلا ضريبة» (taxDisabled في GET /company/tax-mode): أرسل taxPct: 0 أو احذفه، وإلا 422 TAX_DISABLED. ويسعّره الخادم بنسبة 0 وبمبلغ الاسترداد نفسه (refundUnitPrice كما هنا)"
     ],
     "example": ""
    },
@@ -2808,7 +2809,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "items[].taxPct",
       "type": "number 0-100",
       "required": false,
-      "desc": "ضريبة البند. عند الغياب يرث defaultVatPct من إعدادات الشركة (الافتراضي 15)"
+      "desc": "ضريبة البند. عند الغياب يرث defaultVatPct من إعدادات الشركة (الافتراضي 15). والشركة «بلا ضريبة» (taxDisabled = true في GET /company/tax-mode): أرسله 0 أو احذفه (الغائب = 0)، وأكبر من 0 يرجع 422 TAX_DISABLED (والمرتجع المرتبط بفاتورة بيع كذلك: مبلغه من بند البيع بنسبة 0) — انظر قاعدة «إزالة الضريبة»"
      },
      {
       "name": "items[].invoiceItemId",
@@ -2832,7 +2833,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "pricesIncludeTax",
       "type": "boolean",
       "required": false,
-      "desc": "هل الأسعار المرسلة شاملة الضريبة، الافتراضي false"
+      "desc": "هل الأسعار المرسلة شاملة الضريبة، الافتراضي false. ولا أثر له في الشركة «بلا ضريبة»: النسبة صفر فالسعر المرسل نهائي"
      },
      {
       "name": "discountPct",
@@ -2961,6 +2962,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "لحظة الإنشاء على الجهاز، وهو حقل لتطبيق المندوب حين يعمل دون اتصال. لا ترسله من التكاملات: لطلب المفتاح لا يُخزَّن ولا يصير يوم المرتجع (قيد المرتجع للصنف ووسم صلاحية بنوده يُقاسان بـinvoiceDate وإلا اليوم)، لكنه يبقى يُشدّد إن أرسلته: في المرحلة الثانية يلزمه clientRef وإلا 426، وخلال تسليح التفعيل قد يُرفض به المستند 409"
      },
      {
+      "name": "builtTaxFree",
+      "type": "boolean",
+      "required": false,
+      "desc": "«إزالة الضريبة»: الوضع الذي سعّر به الجهاز بنود المستند — true = سعّرها والشركة «بلا ضريبة» (taxDisabled في GET /company/tax-mode، فنسبة كل بند 0)، وfalse = سعّرها والشركة بضريبتها. ترسله شاشات المنصة وتطبيق المندوب بحال الشركة كما عرفها الجهاز لحظة التسعير، ويبقى في صندوق المندوب كما هو فتعيده إعادة الرفع، ولا يدخل في clientRef. لا يُخزَّن، وأثره في قاعدة «إزالة الضريبة» — الوضع الذي سعّر به الجهاز. لا ترسله من التكاملات: لطلب المفتاح لا يُقرأ أصلاً وتبقى له قواعده (422 TAX_DISABLED)"
+     },
+     {
       "name": "recipientSignature",
       "type": "string data:image/png;base64 (<=300000)",
       "required": false,
@@ -2976,6 +2983,10 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "المرحلة الأولى: 201 {success:true, data:{...invoice, items[], customer{...}, installments[], signature}}. تكرار clientRef يرجع 200 {success:true, data:<الفاتورة القائمة>, idempotent:true}. المرحلة الثانية: الشكل نفسه مضافاً إليه data.einvoice. المبسّطة (02) ترجع 201. القياسية (01) تُرسل للاعتماد داخل الطلب بمهلة تقارب 20 ثانية، وترجع 201 إذا اعتُمدت، أو 202 ZATCA_CLEARANCE_PENDING إذا بقيت بانتظار الاعتماد (success:true وdata موجودة)، أو 422 ZATCA_REJECTED إذا رُفضت وأُبطلت (data.status=CANCELLED)، أو 202 ZATCA_CLEARED_NO_XML. وكل بند في data.items يحمل لقطة وحدته: qty وunitName (null = الأساس) وunitFactor وbaseQty وunitCode. «تتبّع LOT»: المستند الذي فيه صنف متتبَّع يحمل كل بند فيه lots (صفوف توزيعه كما في withLots=1)، ومعه warnings:[{code, productId, detail?}] بجوار data حين توجد تحذيرات (LOT_FROM_UNKNOWN بيعٌ من الرصيد غير المسمّى، LOT_SPLIT_UNIT وحدة بند انقسمت بين مصدرين detail:{unitFactor, idx}، LOT_INTO_BLOCKED مرتجع حرّ دخل تشغيلة موقوفة فبقي معزولاً، صريحةً أو مستنتَجةً من مبيعات العميل، detail:{lotId, lotNumber, blockKind, line}) — لا تمنع الإصدار. والرفض: 409 {success:false, code:'LOT_STOCK_INSUFFICIENT', message, detail:{productId, wanted, available, byLot:[{lotId, lotNumber, usable, status, expiryDate}], unknownUsable, lines}} و422 LOT_QTY_INVALID أو LOT_NOT_FOUND أو LOT_PRODUCT_MISMATCH أو LOT_BLOCKED أو LOT_EXPIRED (detail فيه productId وline فهرس البند)، و503 LOT_BUSY",
     "rules": [
      "الحساب: خصم الفاتورة يوزَّع على البنود قبل الضريبة، والإجمالي يساوي مجموع صافي البنود، والتقريب نصف لأعلى بعدد خانات عملة الشركة",
+     "«إزالة الضريبة» (taxDisabled = true في GET /company/tax-mode وGET /company، للمنشأة غير المسجّلة في ضريبة القيمة المضافة): كل مستند جديد بلا ضريبة — البيع والمرتجع بنوعيه. الخادم يكتب taxPct = 0 لكل بند وtaxAmt = 0، فالسعر المرسل نهائي يدفعه العميل كما هو (لا تُضاف إليه ضريبة، ولا أثر لـpricesIncludeTax) والإجمالي مجموع صافي البنود، ويختم المستند taxFree = true مع einvoiceProvider = 'none' وeinvoiceStatus = null، ويعود taxFree في ردّ الإصدار وكل قراءة ومزامنة. ومن مفتاحك: بندٌ بـtaxPct أكبر من 0 يرجع 422 {success:false, code:'TAX_DISABLED', message} ولا يُكتب شيء — أرسل taxPct: 0 أو احذفه (الغائب هنا 0 لا defaultVatPct). والمرتجع المرتبط بفاتورة بيع كذلك: بندٌ فيه بنسبة أكبر من 0 يرجع 422 أيضاً، فأرسل نسبته 0 أو احذفها ويسعّره الخادم من بند البيع بنسبة 0 (القاعدة التالية). والشركة التي لم تُزل ضريبتها بلا أي تغيير (taxFree = false)",
+     "«إزالة الضريبة» — المرتجع المرتبط بفاتورة بيع (originalInvoiceId) والشركة بلا ضريبة: بنسبة 0 وبمبلغ الاسترداد نفسه — يحسبه الخادم شاملاً من إجمالي بند البيع كما يفعل دائماً، فلا يتغيّر إلا taxAmt إلى 0 — ومختوماً taxFree = true، ولو صدرت فاتورة البيع بضريبتها قبل الإزالة",
+     "«إزالة الضريبة» — شاشات المنصة وتطبيق المندوب (لا المفتاح): طلبٌ حيّ ببند taxPct أكبر من 0 بعد الإزالة (بيانات شركة قديمة في الجهاز، وعدا المرتجع المرتبط بفاتورة بيع) يرجع 409 TAX_MODE_CHANGED فيعيد الجهاز قراءة الشركة ويسعّر من جديد، وmessage فيه محايدة لا تذكر الضريبة لأنها تُعرض للشركة بلا ضريبة: 'تغيرت إعدادات الشركة حدث الصفحة ثم أعد الإصدار' (والرمز نفسه في الاتجاه المعاكس بعد إعادة الضريبة — قاعدة builtTaxFree التالية). وإعادة رفع صندوق تطبيق المندوب (X-FS-Replay، وهي تُمحى لطلب المفتاح) تُقبل كما بناها الجهاز: إن حمل بندٌ ضريبةً يُحفظ المستند بضريبته وtaxFree = false مطابقاً للورقة التي بيد العميل، وإلا يُختم taxFree = true. وهذا لجلسة المندوب وحدها: الترويسة نفسها من مستخدمي الشركة أو جلسة مالك المنصة لا تمنح «كما بُني» فتسري عليها قواعد الإصدار الحيّ (409). ومستند الصندوق بلا builtTaxFree (إصدارٌ أقدم من التطبيق) المُنشأ على الجهاز (clientCreatedAt مصحّحةً بفرق ساعة الجهاز X-FS-Device-Now كتاريخ المستند) قبل لحظة التبديل taxModeChangedAt صدر والشركة بضريبتها، فيُحفظ كما بُني على المسار المعتاد بلا ختم (taxFree = false) ولو كانت بنوده كلها صفراً؛ وبلا clientCreatedAt صالح تسري قواعد الإزالة؛ ومع builtTaxFree يحسمه الوضع الذي بُني عليه لا اللحظة (القاعدة التالية). والمستندات السابقة تبقى كما صدرت: taxFree لا يتغيّر بتبديل الشركة لاحقاً، وإعادة الضريبة تسري على المستندات الجديدة وحدها",
+     "«إزالة الضريبة» — الوضع الذي سعّر به الجهاز builtTaxFree (لشاشات المنصة وتطبيق المندوب؛ طلب المفتاح يتجاهله وتبقى له قواعده: 422 TAX_DISABLED ولو في المرتجع المرتبط بفاتورة بيع): يحسم المستند بالوضع الذي بُني عليه لا بلحظته، و«إعادة الرفع» هنا صندوق المندوب وحده (X-FS-Replay بجلسة المندوب، وهي تُمحى لطلب المفتاح؛ الترويسة نفسها من دورٍ آخر إصدارٌ حيّ). • الشركة بلا ضريبة وtrue: الحيّ بقواعد الإزالة (بندٌ بنسبة أكبر من 0 ⇒ 409 TAX_MODE_CHANGED، وإلا نسبة 0 وtaxFree = true)، وإعادة الرفع تُقبل كما بُنيت بلا مقارنة لحظة: بنودها كلها 0 ⇒ taxFree = true. • الشركة بلا ضريبة وfalse: الحيّ كذلك، وإعادة الرفع على المسار المعتاد كما بُنيت (سعّرها الجهاز والشركة بضريبتها) بلا ختم (taxFree = false) ولو كانت بنودها كلها 0، بلا مقارنة لحظة. • الشركة بلا ضريبة وغائب (إصدارٌ أقدم من التطبيق): السلوك السابق بمقارنة clientCreatedAt المصحّحة بلحظة التبديل taxModeChangedAt (القاعدة السابقة). • الشركة بضريبتها وtrue (بيانات شركة قديمة في الجهاز بعد إعادة الضريبة): الحيّ 409 TAX_MODE_CHANGED فيعيد الجهاز قراءة الشركة ويسعّر البنود بضريبتها، وإعادة الرفع تُقبل كما بُنيت: بنودها كلها 0 ⇒ مختومة taxFree = true مع einvoiceProvider = 'none' وeinvoiceStatus = null مطابقةً للورقة التي بيد العميل، وبندٌ أكبر من 0 ⇒ بضريبته كما بُني. • الشركة بضريبتها وfalse أو غائب: بلا أي تغيير",
      "الأثر المحاسبي: CREDIT يرفع رصيد العميل بالإجمالي ويضع paidAmt=0 وremainingAmt=total. CASH يسجّل قيدين (مدين ثم تحصيل) فلا يتغير الرصيد، ويضع paidAmt=total وremainingAmt=0. RETURN ينقص رصيد العميل وtotalSales ويضع paid=0 وremaining=0",
      "الحد الائتماني لا يمنع الإنشاء. إذا كان creditLimit>0 وتجاوزه الرصيد مع الإجمالي يُنشأ تنبيه CREDIT_LIMIT_EXCEEDED فقط",
      "العميل المحظور BLOCKED يرجع 400، والعميل أو المندوب خارج النطاق يرجع 403 أو 404",
@@ -3000,7 +3011,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "قيد المرتجع للصنف (منتج مفعّلة صلاحيته وقيد إرجاعه returnRuleEnabled): مرتجع فيه صنف يمنع قيدُه إرجاعه يرجع 422 RETURN_RULE_BLOCKED برسالة «اسم الصنف: السبب»، لأي مُصدِر ومنه المفتاح وفي المرحلتين، مرتبطاً بفاتورة بيع كان أو حرّاً. للقيد وضعان (returnRuleMode) بحدٍّ بالأيام أو بنسبة من مدة الصلاحية: NEAR_EXPIRY «قرب الانتهاء» يقبل المرتجع إذا بقي من صلاحية ما بيع الحدُّ أو أقل والمنتهي يُقبل، وSTILL_VALID «ما زال صالحاً» يقبله إذا بقي الحدُّ أو أكثر والمنتهي يُرفض. يُقاس على بند البيع المرتبط، وإلا آخر بيع للصنف لهذا العميل حتى invoiceDate. ويوم المرتجع لطلب المفتاح invoiceDate إن أُرسل وإلا اليوم بتوقيت الشركة، وclientCreatedAt لا يُقرأ للمفتاح هنا ولا في وسم صلاحية البنود ولا يُخزَّن (هو لحظة جهاز تطبيق المندوب حين يرفع ما سجّله دون اتصال). وبيع لا يُعرف انتهاؤه لا يُرفض به",
      "أخطاء الربط: 422 RETURN_LINK_INVALID (بند ليس من الفاتورة، أو صنف مختلف، أو كمية فوق المتاح، أو فاتورة ليست بيعاً مؤكداً للعميل نفسه)، و409 بالرمز نفسه حين يسبقك مرتجع متزامن على الكمية نفسها، و404 «فاتورة البيع الأصلية غير موجودة» لفاتورة خارج نطاق صاحب المفتاح",
      "مثال مرتجع حرّ بلا فاتورة بيع (المرحلة الأولى): {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"DAMAGED\",\"returnToStock\":false,\"items\":[{\"productId\":\"…\",\"qty\":2,\"unitPrice\":5}]}",
-     "مثال مرتجع من فاتورة بيع (المرحلة الأولى): {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"NORMAL\",\"originalInvoiceId\":\"<id فاتورة البيع>\",\"pricesIncludeTax\":true,\"discountPct\":0,\"items\":[{\"productId\":\"…\",\"invoiceItemId\":\"<saleItemId>\",\"qty\":1,\"unitPrice\":103.5,\"discountPct\":0,\"taxPct\":15}]}. وحبّتان من بند بيع بالكرتون: البند نفسه بـ\"qty\":2 بلا unitId (والسعر يحسبه الخادم)",
+     "مثال مرتجع من فاتورة بيع (المرحلة الأولى): {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"NORMAL\",\"originalInvoiceId\":\"<id فاتورة البيع>\",\"pricesIncludeTax\":true,\"discountPct\":0,\"items\":[{\"productId\":\"…\",\"invoiceItemId\":\"<saleItemId>\",\"qty\":1,\"unitPrice\":103.5,\"discountPct\":0,\"taxPct\":15}]}. وحبّتان من بند بيع بالكرتون: البند نفسه بـ\"qty\":2 بلا unitId (والسعر يحسبه الخادم). والشركة «بلا ضريبة» (taxDisabled في GET /company/tax-mode): \"taxPct\":0 أو احذفه، وإلا 422 TAX_DISABLED — ولو صدرت فاتورة البيع بضريبتها قبل الإزالة",
      "مثال مرتجع في المرحلة الثانية: الجسم نفسه مع noteReason (3 أحرف على الأقل). الأسعار والضريبة تؤخذ من بنود الأصل ويُهمل unitPrice المرسل، لكنه يبقى إلزامياً في المخطط",
      "«اشتراط اختيار فاتورة البيع للمرتجع» (returnRequiresSaleInvoice في GET /company، يضبطه مدير الشركة من لوحة التحكم وحدها): null الافتراضي = سلوك المرحلة كما هو (الأولى حرّ والثانية مرتبط). true = كل مرتجع بلا originalInvoiceId يُرفض لأي مُصدِر ومنه المفتاح قبل أي كتابة: في المرحلة الأولى 422 {success:false, code:'RETURN_LINK_REQUIRED', message}، وفي المرحلة الثانية 422 ZATCA_RETURN_NEEDS_ORIGINAL كالافتراضي (ومستند صندوق تطبيق المندوب المُنشأ على الجهاز قبل آخر تغيير للإعداد يُقبل ما دام التغيير خلال آخر سبعة أيام، والمفتاح لا ينال ذلك). false في المرحلة الثانية = المرتجع بلا originalInvoiceId يصدر إشعاراً دائناً (381) برقم الفاتورة الأصلية المكتوب originalInvoiceRef وطريقة دفعها originalPaymentType وسببه noteReason: البنود والأسعار والضريبة من الطلب كالفاتورة، والنوع الفرعي من بيانات العميل الحالية كفاتورةٍ تصدر الآن (قياسي 01 يُعتمد داخل الطلب؛ ومع فكّ القيد buyerVatAddressRelaxed تصدر للمنشأة الناقصة مبسّطاً 02 ومعه notice:{code:'ZATCA_BUYER_SIMPLIFIED'}، وبلا فكّه 422 ZATCA_BUYER_INCOMPLETE)، وقيده قيد مرتجع (originalInvoiceId=null وbillingReference=الرقم)، ولا حارس كمية عليه لأنه لا أصل له في المنصّة. والأخطاء: 422 ZATCA_RETURN_REF_INVALID و409 ZATCA_RETURN_REF_IN_SYSTEM و422 ZATCA_NOTE_LINES_INVALID للسبب، والمندوب بأصناف مفعّلة صلاحيتها 422 RETURN_NEEDS_SALE_INVOICE، ومندوبٌ بلا canChangePrice بسعرٍ فوق مرجع سعر البند لوحدته (سعر العميل الخاص، ثم قائمة المستند، ثم سعر الوحدة أو الأساس) 403 (لا ينطبق على المفتاح). الشركة مسؤولة نظاماً عن صحة الرقم المكتوب: الهيئة تشترط وجود المرجع ولا تتحقق منه",
      "مثال مرتجع برقم فاتورة من نظام سابق (المرحلة الثانية وreturnRequiresSaleInvoice=false): {\"customerId\":\"…\",\"salesRepId\":\"…\",\"type\":\"RETURN\",\"returnReason\":\"DAMAGED\",\"originalInvoiceRef\":\"OLD-2024-1001\",\"originalPaymentType\":\"CREDIT\",\"noteReason\":\"بضاعة تالفة من فاتورة النظام السابق\",\"pricesIncludeTax\":false,\"items\":[{\"productId\":\"…\",\"qty\":2,\"unitPrice\":45.5,\"taxPct\":15}]}",
@@ -5255,7 +5266,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "costsIncludeTax",
       "type": "boolean",
       "required": false,
-      "desc": "الافتراضي false. اجعله true إن كانت قيم unitCost شاملة للضريبة، فيحوّلها الخادم إلى الصافي قبل الحفظ"
+      "desc": "الافتراضي false. اجعله true إن كانت قيم unitCost شاملة للضريبة، فيحوّلها الخادم إلى الصافي قبل الحفظ. ولا أثر له في الشركة «بلا ضريبة» (taxDisabled في GET /company/tax-mode): تُحفظ التكلفة كما أُرسلت"
      },
      {
       "name": "clientRef",
@@ -5341,7 +5352,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "ADJUST مع unitCost يعطي 400",
      "صنفٌ لا يتبع الشركة (أو حُذف حذفاً فعلياً) ⇒ 400 {success:false, code:'PRODUCT_NOT_FOUND', message, productId, index, productIds, indexes}: index موضع أول سطرٍ مرفوض في items كما أرسلتها (من الصفر، والسطر الصفري لا يزيحه)، وindexes كل المواضع",
      "الوارد RECEIVE لصنفٍ مؤرشف (deletedAt غير فارغ) ⇒ 422 {success:false, code:'PRODUCT_ARCHIVED', message, productId, index} بلا كتابة. والتسوية ADJUST تُقبل عليه",
-     "unitCost المحفوظ صافٍ دائماً ولوحدة البند، والتقييم يقسمه على unitFactor فتكلفة الحبة = تكلفة الكرتون ÷ 24. مع costsIncludeTax=true يكون unitCost ÷ (1 + taxPct الصنف/100) مقرّباً لأربع خانات",
+     "unitCost المحفوظ صافٍ دائماً ولوحدة البند، والتقييم يقسمه على unitFactor فتكلفة الحبة = تكلفة الكرتون ÷ 24. مع costsIncludeTax=true يكون unitCost ÷ (1 + taxPct الصنف/100) مقرّباً لأربع خانات، والشركة «بلا ضريبة» (taxDisabled في GET /company/tax-mode) بلا ردّ: unitCost المحفوظ ما أُرسل",
      "التقييم: الوارد المسعّر يحرّك متوسط التكلفة، والوارد بلا سعر يدخل uncostedQty، والتسوية الموجبة تُقيَّم بمتوسط اللحظة، والسالبة تنقص الكمية المقيَّمة وغير المقيَّمة بنسبتهما",
      "المسار لا يُنشئ قيداً محاسبياً ولا ذمة مورد، فهو حركة مخزون فقط",
      "createdBy هو اسم مستخدم الشركة صاحب المفتاح",
@@ -6425,7 +6436,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "rows[].units[].price",
       "type": "number ≥ 0",
       "required": false,
-      "desc": "سعر هذه الوحدة (صافٍ، أو شامل مع pricesIncludeTax فيُردّ إلى صافيه بضريبة الصنف). إن غاب يُشتق عند البيع basePrice × factor"
+      "desc": "سعر هذه الوحدة (صافٍ، أو شامل مع pricesIncludeTax فيُردّ إلى صافيه بضريبة الصنف، وفي الشركة «بلا ضريبة» يُحفظ كما أُرسل). إن غاب يُشتق عند البيع basePrice × factor"
      },
      {
       "name": "rows[].units[].unitCode",
@@ -6443,7 +6454,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "pricesIncludeTax",
       "type": "boolean",
       "required": false,
-      "desc": "الافتراضي false. true إن كانت basePrice وunits[].price شاملة للضريبة، فيردّها الخادم إلى الصافي بضريبة الصف (أو الافتراضية) مقرَّباً بمنازل عملة الشركة. لا يدخل في بصمة الدفعة"
+      "desc": "الافتراضي false. true إن كانت basePrice وunits[].price شاملة للضريبة، فيردّها الخادم إلى الصافي بضريبة الصف (أو الافتراضية) مقرَّباً بمنازل عملة الشركة. ولا أثر له في الشركة «بلا ضريبة» (taxDisabled في GET /company/tax-mode): تُحفظ الأسعار كما أُرسلت. لا يدخل في بصمة الدفعة"
      },
      {
       "name": "force",
@@ -6723,7 +6734,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "pricesIncludeTax",
       "type": "boolean",
       "required": false,
-      "desc": "الافتراضي false. true يردّ السعر إلى الصافي بضريبة الصنف مقرَّباً بمنازل عملة الشركة (قبل القسمة على معامل الوحدة). لا يدخل في بصمة الدفعة"
+      "desc": "الافتراضي false. true يردّ السعر إلى الصافي بضريبة الصنف مقرَّباً بمنازل عملة الشركة (قبل القسمة على معامل الوحدة). ولا أثر له في الشركة «بلا ضريبة» (taxDisabled في GET /company/tax-mode): يُحفظ السعر كما أُرسل. لا يدخل في بصمة الدفعة"
      },
      {
       "name": "force",
@@ -6829,7 +6840,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "pricesIncludeTax",
       "type": "boolean",
       "required": false,
-      "desc": "الافتراضي false. true يردّ unitCost إلى الصافي بضريبة الصنف. لا يدخل في بصمة الدفعة"
+      "desc": "الافتراضي false. true يردّ unitCost إلى الصافي بضريبة الصنف. ولا أثر له في الشركة «بلا ضريبة» (taxDisabled في GET /company/tax-mode): تُحفظ التكلفة كما أُرسلت. لا يدخل في بصمة الدفعة"
      },
      {
       "name": "force",
@@ -8309,7 +8320,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:{كل أعمدة إعدادات الشركة ومنها name وaddress وtaxNumber وcommercialReg وphone وemail وlogo (base64) وprimaryColor وheaderStyle وnumerals وcountryCode وcurrency وcurrencyOverride وdefaultVatPct وeinvoiceProvider وeinvoiceEnabled وeinvoiceEnv وeinvoiceClientId وحقول بائع زاتكا وzatcaPhase2StartedAt، مع einvoiceHasSecret:boolean بدل السر، والأعلام erpEnabled وpetroappEnabled وhatifEnabled وcatalogEnabled وpaylinkEnabled وwarehouseEnabled وreceivablesSummaryEnabled وaccountingEnabled وdailyReportEnabled وattendanceEnabled وinvoiceSignatureEnabled وaccountingSuiteEnabled وzatcaPhase2Enabled وaiRepEnabled وapiEnabled وlocationsEnabled وpaymentMethodsEnabled وlotTrackingEnabled وlotOnInvoice}}. وفي أعمدة الإعدادات الخام: teamsEnabled وbuyerVatAddressRelaxed وprintSettings وprintTexts وpaymentMethodsConfig (JSON أو null)، وreturnRequiresSaleInvoice (boolean أو null) وreturnPolicyChangedAt (date-time أو null) وbasePriceLabel («قوائم الأسعار»: اسم السعر الأساسي كما سمّته الشركة، وnull = «السعر الأساسي»)؛ ولا يعود returnPolicyChangedBy (معرّف من غيّر إعداد المرتجع، للتدقيق وحده)",
+    "response": "{success:true, data:{كل أعمدة إعدادات الشركة ومنها name وaddress وtaxNumber وcommercialReg وphone وemail وlogo (base64) وprimaryColor وheaderStyle وnumerals وcountryCode وcurrency وcurrencyOverride وdefaultVatPct وeinvoiceProvider وeinvoiceEnabled وeinvoiceEnv وeinvoiceClientId وحقول بائع زاتكا وzatcaPhase2StartedAt، مع einvoiceHasSecret:boolean بدل السر، والأعلام erpEnabled وpetroappEnabled وhatifEnabled وcatalogEnabled وpaylinkEnabled وwarehouseEnabled وreceivablesSummaryEnabled وaccountingEnabled وdailyReportEnabled وattendanceEnabled وinvoiceSignatureEnabled وaccountingSuiteEnabled وzatcaPhase2Enabled وaiRepEnabled وapiEnabled وlocationsEnabled وpaymentMethodsEnabled وlotTrackingEnabled وlotOnInvoice}}. وفي أعمدة الإعدادات الخام: teamsEnabled وbuyerVatAddressRelaxed وtaxDisabled («إزالة الضريبة»، false افتراضياً) وtaxModeChangedAt (date-time أو null) وprintSettings وprintTexts وpaymentMethodsConfig (JSON أو null)، وreturnRequiresSaleInvoice (boolean أو null) وreturnPolicyChangedAt (date-time أو null) وbasePriceLabel («قوائم الأسعار»: اسم السعر الأساسي كما سمّته الشركة، وnull = «السعر الأساسي»)؛ ولا يعود returnPolicyChangedBy ولا taxModeChangedBy (معرّفا من غيّر إعداد المرتجع و«إزالة الضريبة»، للتدقيق وحدهما)",
     "rules": [
      "«اشتراط اختيار فاتورة البيع للمرتجع» returnRequiresSaleInvoice: null = افتراضيّ المرحلة (المرحلة الأولى لا تشترط، والثانية تشترط)، وtrue = كل مرتجع بفاتورة بيع (originalInvoiceId)، وfalse = لا اشتراط (وفي المرحلة الثانية مرتجعٌ برقم فاتورة من نظام سابق originalInvoiceRef). القاعدة الفعّالة = القيمة إن كانت true أو false، وإلا zatcaPhase2StartedAt مضبوط. يضبطه مدير الشركة من لوحة التحكم وحدها: مساره PUT /company/return-policy ممنوع على المفتاح دائماً بـ403 API_KEY_FORBIDDEN، ولا يمسّه PUT /company. التفاصيل في POST /invoices",
      "einvoiceClientSecret لا يُعاد أبداً ويُستبدل بـ einvoiceHasSecret",
@@ -8320,6 +8331,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "«تتبّع LOT»: lotTrackingEnabled يفعّله مزود الخدمة لكل شركة — تحقّق منه قبل /lots ومزامنة موارد التشغيلات وحقول التشغيلات في المسارات الأخرى. وlotOnInvoice (طباعة رقم التشغيلة على فاتورة العميل، يضبطه PUT /lots/settings) يصل true مع الميزة المفعّلة وحدها، ولا يمسّه PUT /company",
      "اقرأ طرق الدفع من GET /company/payment-methods وإعدادات الطباعة من GET /company/print-settings ونصوص المطبوعات من GET /company/print-texts لا من الأعمدة الخام: المسارات تعيد الصورة المكتملة بالافتراضي، وتُهمل في الخام ما لا يصلح",
      "buyerVatAddressRelaxed (فكّ قيد الرقم الضريبي والعنوان الوطني، false افتراضياً): يضبطه مدير الشركة من لوحة التحكم وحدها ولا يمسّه PUT /company — وأثره في GET /company/buyer-relax",
+     "taxDisabled («إزالة الضريبة» للمنشأة غير المسجّلة في ضريبة القيمة المضافة، false افتراضياً) وtaxModeChangedAt (لحظة آخر تبديل): يضبطه مدير الشركة من لوحة التحكم وحدها ولا يمسّه PUT /company — وأثره في GET /company/tax-mode وPOST /invoices. وdefaultVatPct ونسب الأصناف تبقى كما خُزّنت والشركة بلا ضريبة: لا تبنِ منها نسبة بندٍ جديد",
      "basePriceLabel («قوائم الأسعار»): اسم السعر الأساسي كما سمّته الشركة، وnull = «السعر الأساسي». يضبطه PUT /price-lists/base-label ولا يمسّه PUT /company، ويعود كذلك في GET /price-lists"
     ],
     "example": ""
@@ -8482,6 +8494,30 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "عند التفعيل: صيغ الرقم الضريبي ورقم المبنى والرمز البريدي للعميل تنبيهات (warnings) لا 400، وفاتورة منشأة بياناتها لا تكفي للضريبية تصدر مبسطة 02 بـ201 ومعها notice{code:'ZATCA_BUYER_SIMPLIFIED'} بدل 422؛ والتعديل من لوحة التحكم وحدها",
      "التبديل لمدير الشركة غير المقيّد بنطاق من لوحة التحكم، ولا يُغيَّر بالمفتاح",
      "القيمة نفسها في GET /company باسم buyerVatAddressRelaxed، وغياب صفّ إعدادات الشركة = false"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/company/tax-mode",
+    "purpose": "حال «إزالة الضريبة» للشركة: هل هي منشأة غير مسجّلة في ضريبة القيمة المضافة فتصدر مستنداتها الجديدة بلا ضريبة",
+    "permission": "أي مستخدم شركة",
+    "gates": [
+     "authenticate",
+     "requireAdmin",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:{taxDisabled, taxModeChangedAt}}",
+    "rules": [
+     "taxDisabled = true: الشركة «بلا ضريبة» — كل مستند جديد يصدر بلا ضريبة: نسبة كل بند 0 وtaxAmt = 0، والسعر المكتوب هو ما يدفعه العميل (لا تُضاف إليه ضريبة ولا يُعدَّل أي سعر مخزَّن)، والمستند مختومٌ taxFree = true بلا رقم ضريبي ولا رمز QR. والمستندات السابقة تبقى كما صدرت بضريبتها (taxFree = false). وfalse أو غياب صفّ إعدادات الشركة = السلوك المعتاد بلا أي تغيير",
+     "taxModeChangedAt: لحظة آخر تبديل (ISO-8601 بتوقيت UTC)، وnull = لم يُبدَّل قط. إن تغيّرت عمّا قرأته فأعد قراءة الشركة قبل الإصدار",
+     "أثرها على POST /invoices: بندٌ بـtaxPct أكبر من 0 من مفتاحك يرجع 422 TAX_DISABLED (والمرتجع المرتبط بفاتورة بيع كذلك)، وما يُقبل يُكتب بنسبة 0 مختوماً taxFree = true مع einvoiceProvider = 'none'، والمرتجع المرتبط بفاتورة بيع بنسبة 0 وبمبلغ الاسترداد نفسه — التفاصيل في قواعد POST /invoices",
+     "نسب الأصناف taxPct تبقى مخزّنة كما هي (GET /products ومزامنة products) فإعادة الضريبة ترجع كل شيء، لكن النسبة الفعلية لكل بند جديد ما دامت الشركة بلا ضريبة صفر — فلا تبنِ الفاتورة من taxPct الصنف",
+     "التبديل PATCH /company/tax-mode {taxDisabled} لمدير الشركة غير المقيّد بنطاق (أو جلسة مالك المنصة) من لوحة التحكم بتحذيرٍ وتأكيد، ولا يُغيَّر بالمفتاح (403 API_KEY_FORBIDDEN). وإرسال القيمة الحالية نفسها لا يكتب شيئاً ولا يقدّم taxModeChangedAt",
+     "«إزالة الضريبة» وربط الفوترة الإلكترونية (المرحلة الثانية مع الهيئة) لا يجتمعان: إزالتها والربط مفعّلٌ للشركة أو في بروفته أو مُسلَّحٌ أو حيّ تُرفض 409 TAX_MODE_ZATCA_CONFLICT ومعه reasons من TENANT_FLAG وLIVE وARMED وREHEARSAL، وإعادة الضريبة حرّة دائماً. وتفعيل الربط أو تسليحه أو تشغيله الحيّ والضريبة مزالة يُرفض 409 TAX_OFF_BLOCKS_ZATCA حتى تُعاد الضريبة",
+     "القيمة نفسها في GET /company باسم taxDisabled ومعها taxModeChangedAt، ولا يعود فيه taxModeChangedBy (معرّف من بدّل، للتدقيق وحده)"
     ],
     "example": ""
    },
@@ -9445,7 +9481,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
           'الجسم {type: RECEIVE|ADJUST, supplier?, note?, costsIncludeTax?, items:[{productId, qty, unitId?, baseUnitName?, unitCost?, lotId?, lotNumber?, productionDate?, expiryDate?, lineRef?}]}، والنجاح 201 بالحركة.',
           '- lineRef «مرجع السطر»: معرّف السطر في نظامكم (حتى 100 حرف، والفارغ null)، يعود كما هو على البند في الرد والسجل ومزامنة warehouse-entries، فتطابق به بنود الحركة بأسطر طلبكم.',
           '- unitId وحدة البند كما في فاتورة المورّد (كرتون) من units[].id للصنف: qty بها وunitCost لها، والرصيد يزيد qty × factor. بلا unitId فالكمية والتكلفة بوحدة الأساس. وbaseUnitName = unit الصنف كما في كتالوجكم: إلزامي لطلب المفتاح على صنف أُضيفت له وحدة فرعية أصغر (baseConvertedAt غير فارغ) وإلا 400 BASE_UNIT_REQUIRED، ومخالفٌ لأساسه الحالي 400 UNIT_INVALID فحدّث الأصناف ثم أعد الإرسال. والأصناف التي لم تُحوَّل لا تحتاجه.',
-          '- RECEIVE وارد أو شراء بكميات موجبة، وunitCost اختياري موجب (أغفله إن لم يوجد سعر). مع costsIncludeTax=true يحوّل الخادم التكلفة إلى الصافي بضريبة الصنف.',
+          '- RECEIVE وارد أو شراء بكميات موجبة، وunitCost اختياري موجب (أغفله إن لم يوجد سعر). مع costsIncludeTax=true يحوّل الخادم التكلفة إلى الصافي بضريبة الصنف (والشركة «بلا ضريبة»: تُحفظ التكلفة كما أُرسلت).',
           '- ADJUST تسوية جرد: الموجب يزيد والسالب ينقص، وبلا unitCost (وإلا 400).',
           '- الصنف المتتبَّع بالتشغيلة («تتبّع LOT»): الوارد والتسوية بالزيادة يحملان تشغيلة السطر — items[].lotId لتشغيلة قائمة، أو items[].lotNumber مع productionDate وexpiryDate (YYYY-MM-DD) تُحلّ أو تُنشأ، و"lotId": null في التسوية للرصيد غير المسمّى. وبدونها 422 LOT_REQUIRED (دليل ربط تتبّع LOT).',
           '- التسوية بالنقص بلا lotId ولا lotNumber يسحبها الخادم تلقائياً: كل تشغيلات المستودع بالأقرب انتهاءً أولاً (والموقوفة والمنتهية منها، والتي بلا انتهاء آخراً)، ثم الرصيد غير المسمّى. فإن أخذ السطر من أكثر من تشغيلة عاد في الرد بنوداً متعددة للصنف نفسه، لكلٍّ lotId وbaseQty (بوحدة السطر إن كانت حصّته وحداتٍ كاملة وإلا بوحدة الأساس) وكلها بـlineRef السطر. لإتلاف تشغيلة بعينها أرسل lotId. وما فاق الرصيد 409 LOT_STOCK_INSUFFICIENT.',
@@ -9754,7 +9790,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
           'الجسم {type: "RECEIVE", note, supplier?, costsIncludeTax?, items:[{productId, qty, unitId?, baseUnitName, unitCost?, lineRef}]}، والنجاح 201.',
           '- note: رقم المستند في نظامكم بصيغة ثابتة مميّزة، مثل "ERP:GRN-000123" (حتى 300 حرف). وlineRef: معرّف كل سطر، مثل "GRN-000123/1" (حتى 100 حرف). هما وسيلتكم الوحيدة لتجد الحركة لاحقاً وتمنع تكرارها (الخطوة 12).',
           '- qty موجبة دائماً في الوارد (السالبة 400 «كمية الوارد يجب أن تكون موجبة استخدم تسوية للتنقيص»)، والسطر الذي كميته صفر يُحذف.',
-          '- unitCost تكلفة وحدة السطر (الكرتون في سطر الكرتون) وأكبر من صفر. إن لم يوجد سعر فاحذف المفتاح من السطر: "unitCost": null (None في بايثون) يرجع 400 «بيانات غير صحيحة items» وتُرفض الحركة كلها، وكذلك note وsupplier وcostsIncludeTax بقيمة null. أما unitId وbaseUnitName وlineRef فتقبل null. ومع costsIncludeTax = true يحوّل الخادم التكلفة إلى الصافي بضريبة الصنف.',
+          '- unitCost تكلفة وحدة السطر (الكرتون في سطر الكرتون) وأكبر من صفر. إن لم يوجد سعر فاحذف المفتاح من السطر: "unitCost": null (None في بايثون) يرجع 400 «بيانات غير صحيحة items» وتُرفض الحركة كلها، وكذلك note وsupplier وcostsIncludeTax بقيمة null. أما unitId وbaseUnitName وlineRef فتقبل null. ومع costsIncludeTax = true يحوّل الخادم التكلفة إلى الصافي بضريبة الصنف (والشركة «بلا ضريبة»: تُحفظ التكلفة كما أُرسلت).',
           '- أرسل المستند كله في طلب واحد بكل أسطره، لا طلباً لكل سطر: لا حد لعدد الأسطر، والجسم حتى 10 ميغابايت. والحركة تُكتب كاملة أو لا يُكتب منها شيء.',
           '- الصنف المتتبَّع بالتشغيلة يحمل تشغيلته في السطر (الخطوة 10)، وإلا 422 LOT_REQUIRED.',
           '- الرد {success: true, data: {id, type, note, supplier, createdBy, createdAt, items:[{id, productId, qty, unitName, unitFactor, baseQty, unitCost, lotId, lineRef, product}]}, warnings?}. في سطر وحدة الأساس (بلا unitId) يكون unitName = null، وunitCost المحفوظ صافٍ قبل الضريبة. ومع «تتبّع LOT» يحمل كل بند الحقل lot {lotNumber, productionDate, expiryDate} أو null، وقد يأتي بجوار data الحقل warnings:[{code, productId, detail}]: LOT_INTO_BLOCKED حين تدخل الزيادة تشغيلة موقوفة، وLOT_SPLIT_UNIT حين يقسم السحب التلقائي في تسوية النقص كرتوناً بين تشغيلتين. التحذير لا يمنع الحركة: الحركة سُجّلت. احفظ data.id مقابل مستندكم، وطابق البنود بـlineRef لا بترتيبها: ترتيب البنود في الرد غير مضمون.',

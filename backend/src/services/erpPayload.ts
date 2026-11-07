@@ -92,10 +92,11 @@ export function withoutDisplayOnlyKeys<T extends Rec>(r: T): T {
  * وبلا أعمدة «تتبّع اللوط» (withoutLotKeys)، ولا مفتاحَي العرض (withoutDisplayOnlyKeys).
  */
 type ProductPayload<T> = Omit<T, 'image' | 'lotTracked' | 'lotTrackedSince' | 'lots' | (typeof PRODUCT_DISPLAY_ONLY_KEYS)[number]>;
-export function productPayloadRow<T extends Rec>(p: T): ProductPayload<T> {
+export function productPayloadRow<T extends Rec>(p: T, taxOff = false): ProductPayload<T> {
   const { image: _image, ...rest } = withoutDisplayOnlyKeys(withoutLotKeys(p)) as T & { image?: unknown };
   void _image;
-  return rest as ProductPayload<T>;
+  // «إزالة الضريبة» (E7): الشركة بلا ضريبة ⇒ النسبة الفعلية صفر (taxPct المخزّنة تبقى في القاعدة لإعادة الضريبة) — في مكان المفتاح نفسه
+  return (taxOff ? { ...rest, taxPct: 0 } : rest) as ProductPayload<T>;
 }
 
 /**
@@ -122,9 +123,26 @@ export function withoutLineRef<T extends Rec>(r: T): Omit<T, 'lineRef'> {
   return rest as Omit<T, 'lineRef'>;
 }
 
-/** العميل كما في القاعدة — بلا نوع سعره (withoutPriceList) */
-export function customerPayloadRow<T extends Rec>(c: T): Omit<T, 'priceListId'> {
-  return withoutPriceList(c);
+/**
+ * العميل كما في القاعدة — بلا نوع سعره (withoutPriceList). و«إزالة الضريبة» (E7): الشركة بلا ضريبة ⇒ taxNumber null
+ * (المخزّن يبقى في القاعدة)، فلا يحمل الشريك في ERP رقماً ضريبياً. والشركة بضريبتها ⇒ الصفّ نفسه حرفاً.
+ */
+export function customerPayloadRow<T extends Rec>(c: T, taxOff = false): Omit<T, 'priceListId'> {
+  const row = withoutPriceList(c);
+  return taxOff ? ({ ...row, taxNumber: null } as Omit<T, 'priceListId'>) : row;
+}
+
+/**
+ * «إزالة الضريبة» (E7): قلب المفتاح لا يمسّ updatedAt أي صنفٍ أو عميل، فالمزامنة التالية بالمؤشّر لا تعيد إرسالهم — ويبقى
+ * الصنف في ERP بنسبته القديمة والشريك برقمه. فإن قُلب المفتاح عند بدء آخر مزامنةٍ نظيفة للقسم أو بعده (المؤشّر + التداخل)
+ * يُرسل قسما المنتجات والعملاء كاملين مرةً واحدة (upsert بمعرّف Field Sales فلا تكرار) — في الاتجاهين: الإزالة تصفّر،
+ * والإعادة ترجع النسب والأرقام المخزّنة. والفواتير والسندات بمؤشّرها كما هي (الختم taxFree يحكم كل مستند).
+ * شركةٌ لم تقلب المفتاح قط (taxModeChangedAt null) أو أول مزامنة (المؤشّر null) ⇒ المؤشّر نفسه حرفاً.
+ */
+export function erpSinceAfterTaxToggle(resource: ErpResource, since: Date | null, taxModeChangedAt: Date | string | null | undefined): Date | null {
+  if (!since || taxModeChangedAt == null || (resource !== 'products' && resource !== 'customers')) return since;
+  const at = new Date(taxModeChangedAt).getTime();
+  return Number.isFinite(at) && at >= since.getTime() + ERP_WATERMARK_OVERLAP_MS ? null : since;
 }
 
 export interface ErpInvoiceItemInput extends Rec {
@@ -201,11 +219,12 @@ export interface ErpInvoiceInput extends Rec {
  *  - `netAmount`: صافي البند بعد خصم البند **وحصّته من خصم الفاتورة الكلّي** قبل الضريبة (lineTotal − taxAmt).
  *  - `invoiceDateLocal`: تاريخ الفاتورة بمنطقة الشركة. `originalInvoiceNumber`: مرجع الإشعار.
  * وبلا لقطة الفوترة الإلكترونية ورمز QR (لا يلزمان المستقبِل) وبلا صور منتجات البنود، ولا شيء من «تتبّع اللوط» (withoutLotKeys)،
- * ولا نوع السعر (withoutPriceList).
+ * ولا نوع السعر (withoutPriceList)، ولا ختم «إزالة الضريبة» (taxFree): عمودٌ جديد على الفاتورة يتسرّب إلى الحمولة لولا هذا، فتبقى
+ * payloadVersion 3 حرفياً كما هي (موصل Odoo لم يُختبر بمفاتيح مجهولة) — والمستند المختوم بنوده 0٪ فيصل المستقبِلَ بلا ضريبة أصلاً.
  */
 export function invoicePayloadRow(inv: ErpInvoiceInput, timeZone: string): Rec {
-  const { einvoiceSnapshot: _snap, einvoiceQr: _qr, originalInvoice, items, ...rest } = withoutPriceList(withoutLotKeys(inv)) as ErpInvoiceInput & { einvoiceSnapshot?: unknown; einvoiceQr?: unknown };
-  void _snap; void _qr;
+  const { einvoiceSnapshot: _snap, einvoiceQr: _qr, taxFree: _taxFree, originalInvoice, items, ...rest } = withoutPriceList(withoutLotKeys(inv)) as ErpInvoiceInput & { einvoiceSnapshot?: unknown; einvoiceQr?: unknown; taxFree?: unknown };
+  void _snap; void _qr; void _taxFree;
   const incl = inv.pricesIncludeTax === true;
   return {
     ...rest,

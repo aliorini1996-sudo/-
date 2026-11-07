@@ -65,6 +65,9 @@ import { COMPANY_REFRESH_TICK_MS, companyRefreshDue, docOpenRefreshDue, withLive
 import { APP_UPDATE_CHECK_GAP_MS, APP_UPDATE_TRIED_KEY, fetchLatestBuildId, isNewerBuild, shouldAutoReload } from './appUpdate';
 import { BUILD_ID } from '../lib/buildId';
 import { buyerRelaxOn, zatcaCollectOn, zatcaRegimeOf } from '../lib/zatcaRegime';
+// «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): نسبة البند الفعلية من وضع الشركة، وإعادة السلّة إليه حين ينقلب، وختم ورقة الأوف‑لاين
+import { effectiveTaxPct, isTaxOff } from '../lib/taxMode';
+import { isTaxModeChanged, repOfflineTaxFree, repRetaxLines } from './repTaxMode';
 import { zatcaDocView, zatcaStatusChip } from '../lib/zatca/docStatus';
 import { buyerNoticeOf, buyerNoticeText, isZatcaOutdatedClient, zatcaIssueOutcome, zatcaReloadForUpdate } from '../lib/zatca/issueOutcome';
 import BuyerDataFields from '../components/BuyerDataFields';
@@ -1861,10 +1864,13 @@ function docCustomerOf<C>(c: C): C {
   return postal && !raw?.postalCode ? { ...c, postalCode: postal } : c;
 }
 
-function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone, onPermsStale }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void; /** صلاحيات المندوب ونوعه الافتراضي وأنواعه المسموحة من /auth/me الآن (refreshUser) — بعد رفضٍ سعريّ */ onPermsStale?: () => void }) {
+function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone, onPermsStale, onCompanyStale }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void; /** صلاحيات المندوب ونوعه الافتراضي وأنواعه المسموحة من /auth/me الآن (refreshUser) — بعد رفضٍ سعريّ */ onPermsStale?: () => void; /** إعدادات الشركة من الخادم الآن (/company وكاشها) — بعد 409 TAX_MODE_CHANGED */ onCompanyStale?: () => void }) {
   const tr = useTr();
   const lots = useContext(RepLotsContext); // «تتبّع اللوط» (§٦.٣)
   const isReturn = mode === 'return';
+  /* «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الشركة «بلا ضريبة» (/company المخبّأة) ⇒ نسبة كل بندٍ جديد صفر والسعر صافٍ كما كُتب للصنف،
+   * ولا «منها ضريبة» ولا سطر «الضريبة» ولا «السعر شامل». والعلم غائب أو false: كل شيءٍ كما كان حرفاً */
+  const taxOff = isTaxOff(company);
   const canSellOnCredit = perms.canSellOnCredit !== false;
   const canSellInCash = perms.canSellInCash !== false;
   // التقسيط إذنٌ مستقلّ فوق الآجل — افتراضه مُغلق (خلافاً للآجل والنقدي)
@@ -2174,14 +2180,33 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
    * lib/priceRules.ts): القاعدة الغالبة بكمية الصنف في الفاتورة كلّها `baseQty` (بالأساس؛ افتراضها بندٌ واحد بوحدته: التلميح والإضافة)
    * ويوم الشركة `day` (افتراضه يوم هذا الرسم priceDay؛ والإصدار يمرّر يوم لحظته)، والنسبة من سعر البند بلا قائمة (choiceNet بلا
    * تجاوز) كالخادم حرفاً — فالصافي هو مرجعه نفسه بلا تقريبٍ وسيط، والتقريب مرّةً واحدة على الشامل كما كان (فرق الصافي بعده ≤ نصف
-   * وحدة العملة ÷ (١ + الضريبة) < TOL الحارس). بلا قواعد: سلوك اليوم حرفاً */
+   * وحدة العملة ÷ (١ + الضريبة) < TOL الحارس). بلا قواعد: سلوك اليوم حرفاً.
+   * «إزالة الضريبة»: النسبة الفعلية (effectiveTaxPct) — صفرٌ للشركة «بلا ضريبة» فالشامل هو الصافي نفسه، وإلا نسبة الصنف كما كانت */
   const inclOf = (p: any, c: UnitChoice, baseQty: number = c.factor, cust: Record<string, number> = custPrices, list: Record<string, number> = listPrices, rules: readonly RepPriceRule[] = listRules, day: string = priceDay) =>
-    roundDecimal(lineNetWithList(c, p, cust[p.id], list[p.id], rules, baseQty, day) * (1 + Number(p.taxPct) / 100), currencyDecimals(getActiveCurrency()));
+    roundDecimal(lineNetWithList(c, p, cust[p.id], list[p.id], rules, baseQty, day) * (1 + effectiveTaxPct(company, p.taxPct) / 100), currencyDecimals(getActiveCurrency()));
   const inclPrice = (p: any) => inclOf(p, unitChoices(p)[0]); // السعر شامل الضريبة (وحدة الأساس)
   // سعر الوحدة الافتراضية مع اسمها حين للصنف وحدات — وإلا الرقم وحده كما كان
   // الوحدة الافتراضية للمندوب: الرئيسية إن سمح بها قيد الصنف، وإلا الأكبر بين المسموح (repStartChoice)، وإلا الأكبر كما كان
   const startChoice = (p: any): UnitChoice => repStartChoice(p, repAction);
   const priceHint = (p: any) => (hasUnitChoice(p) ? `${formatCurrency(inclOf(p, startChoice(p)))} / ${startChoice(p).name}` : formatCurrency(inclPrice(p)));
+  /* «إزالة الضريبة»: انقلب وضع الشركة والسلّة مفتوحة (نبضة /company، أو جلبها بعد 409 TAX_MODE_CHANGED) — كل بندٍ إلى الوضع الجديد
+   * (repRetaxLines): نسبته الفعلية، وغير المعدَّل بمرجعه الجديد، والمعدَّل يدوياً بسعره المكتوب فوق أرضية من لا يبيع بأقل، وبند فاتورة
+   * البيع بمبلغ استرداده. لا يجري عند الفتح (البنود تُضاف بالوضع الحالي أصلاً) ولا بلا انقلاب: الافتراض كما كان حرفاً */
+  const taxOffSeen = useRef(taxOff);
+  useEffect(() => {
+    if (taxOffSeen.current === taxOff) return;
+    taxOffSeen.current = taxOff;
+    setLines(prev => {
+      const qtyOf = repBaseQtyByProduct(prev);
+      return repRetaxLines(prev, {
+        company,
+        productOf: (l) => products.find(x => x.id === l.productId),
+        // بوحدة البند وكمية الصنف في الفاتورة كلّها — كـrepriceLines
+        refOf: (l, p) => inclOf(p, l.unitId ? { id: l.unitId, name: l.unitName, factor: l.unitFactor, price: l.unitDefPrice ?? null } : { id: null, name: l.unit, factor: 1, price: null }, qtyOf.get(l.productId) ?? 0),
+        floor: !perms?.canSellBelowPrice,
+      });
+    });
+  }, [taxOff]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // المرتجع المرتبط بفاتورة: أصنافه من الفاتورة وحدها؛ والمرتجع الحرّ لا يقبل صنفاً مفعّلة صلاحيته
   const returnBlock = (p: any): string | null => {
@@ -2200,7 +2225,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     if (idx >= 0) { const c = [...prev]; c[idx] = { ...c[idx], qty: c[idx].qty + 1 }; return c; }
     // البند الجديد بكمية الصنف كلّها بعد إضافته (بنوده بوحداتٍ أخرى + هذه الوحدة) — «قوائم الأسعار»: الحدّ الأدنى للكمية
     const ref = inclOf(p, c0, repProductBaseQty(prev, p.id) + c0.factor);
-    return [...prev, { productId: p.id, name: p.name, ...lineUnitOf(c0, p.unit), image: p.image || null, qty: 1, unitPrice: ref, refPrice: ref, discountPct: 0, taxPct: Number(p.taxPct) }];
+    return [...prev, { productId: p.id, name: p.name, ...lineUnitOf(c0, p.unit), image: p.image || null, qty: 1, unitPrice: ref, refPrice: ref, discountPct: 0, taxPct: effectiveTaxPct(company, p.taxPct) }];
   };
   /** «تتبّع اللوط»: إضافة وحدةٍ (معاملها أساسي) تتجاوز المتاح المحلي على مجموع أسطر الصنف في rows؟ ⇒ المتاح، وإلا null */
   const lotOverflow = (rows: any[], productId: string, addBase: number, stored: StoredVanLots | null = lotStored, pend: PendingOut = lotPending): number | null => {
@@ -2381,7 +2406,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const dec = currencyDecimals(getActiveCurrency());
   const repCalc = computeInvoiceTotals(
     lines.map(l => ({ qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct })),
-    { companyVat: 15, decimals: dec, invoiceDiscountPct: 0, pricesIncludeTax: true }, // taxPct يأتي مع كل بند
+    { companyVat: taxOff ? 0 : 15, decimals: dec, invoiceDiscountPct: 0, pricesIncludeTax: true }, // taxPct يأتي مع كل بند
   );
   const subtotal = repCalc.subtotal;
   const discount = repCalc.discountAmt;
@@ -2436,7 +2461,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       productId: l.productId, name: l.name, ...linkedLineUnit(l),
       image: products.find(x => x.id === l.productId)?.image || null,
       qty: l.qty, maxQty: l.returnable,
-      unitPrice: linkedUnitPrice(l, retDec()), refPrice: linkedUnitPrice(l, retDec()), discountPct: 0, taxPct: l.taxPct,
+      // «إزالة الضريبة»: صفرٌ بالمبلغ المسترد نفسه (الخادم يسعّر المرتبط بنسبةٍ صفر من إجمالي بند البيع)، وإلا نسبة بند البيع كما كانت
+      unitPrice: linkedUnitPrice(l, retDec()), refPrice: linkedUnitPrice(l, retDec()), discountPct: 0, taxPct: effectiveTaxPct(company, l.taxPct),
       saleItemId: l.saleItemId, shelfLife: l.shelfLife, expiresAt: l.expiresAt, expiredToday: l.expiredToday,
       link: l,
     })));
@@ -2612,6 +2638,11 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
      * تُسقط في حارس الخادم قاعدةً كُتبت بعد آخر جلبٍ للجهاز ولو سبقت البيع. لا قائمة في الكاش أو مرتجعٌ من فاتورة بيع: لا مفتاح */
     const pricesSeenAt = saleRef ? null : repPricesSeenAt(listRows, listId);
     if (pricesSeenAt) Object.assign(payload, { pricesSeenAt });
+    /* «إزالة الضريبة» (E1): الوضع الذي سعّر به الجهاز البنود (isTaxOff لإعدادات الشركة المخبّأة — taxOff نفسه الذي بنى نِسَبها وأسعارها)،
+     * مُعلَناً دائماً (true/false). في الحمولة فيحفظه الصندوق الأوف‑لاين ويُعاد مع الرفع كما بُني، لا في مفتاح المحاولة كـpricingDay.
+     * الخادم يحكم به: جهازٌ سعّر «بلا ضريبة» والشركة أعادتها (أو العكس) ⇒ 409 TAX_MODE_CHANGED للإصدار المتصل، والرفع يُحفظ كما بُني
+     * ويطابق الورقة التي بيد العميل. وعميلٌ قديم بلا المفتاح: سلوك الخادم كما كان */
+    Object.assign(payload, { builtTaxFree: taxOff });
     // الطباعة من نتائج المحرك نفسها: سطر البند يساوي حصته من الاجمالي حتما
     const printItems = lines.map((l, i) => ({
       // لقطة الوحدة نفسها التي أُرسلت — فورقة الإصدار تطابق ورقة إعادة الفتح (invoiceDocFromDetail)
@@ -2657,6 +2688,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           paidAmt: Number(row.paidAmt ?? 0), remainingAmt: Number(row.remainingAmt ?? total),
           zatca: out.view,
           ...noteDoc(row),
+          // «إزالة الضريبة»: ختم الخادم (Invoice.taxFree) — الورقة بلا أي ذكرٍ للضريبة؛ غيابه = كما كانت
+          ...(row.taxFree === true && { taxFree: true }),
         });
         return;
       }
@@ -2714,6 +2747,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         zatca: zatcaDocView(inv),
         ...(notice && { buyerNotice: buyerNoticeText(notice, tr) }),
         ...noteDoc(inv),
+        // «إزالة الضريبة»: ورقة الإصدار بختم الخادم نفسه (Invoice.taxFree) كورقة إعادة الفتح (invoiceDocFromDetail)؛ غيابه = كما كانت
+        ...(inv.taxFree === true && { taxFree: true }),
       });
     } catch (err: any) {
       // انقطاع الشبكة ⇒ نلتقط الفاتورة في الصفّ الصادر ونطبع برقم مؤقّت (ترتفع عند الاتصال)
@@ -2725,7 +2760,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           setMsg(tr('لا يمكن إصدار فاتورة ضريبية أو مرتجع دون اتصال المرحلة الثانية مفعلة')); setLoading(false); return;
         }
         const provider = (company as any)?.einvoiceProvider;
-        if (['eta', 'peppol', 'ttn'].includes(provider)) {
+        // «إزالة الضريبة» (E6): الشركة «بلا ضريبة» لا تخليص لمستنداتها (الخادم يختمها einvoiceProvider 'none') — فلا منع ولا رسالة تخليص
+        if (!taxOff && ['eta', 'peppol', 'ttn'].includes(provider)) {
           // أسواق التخليص الحكومي اللحظي: لا يُسمح بالإصدار أوف‑لاين (قرار المالك)
           setMsg(tr('لا يمكن إصدار فاتورة دون اتصال في هذا السوق يتطلب تخليصا حكوميا لحظيا')); setLoading(false); return;
         }
@@ -2748,6 +2784,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           company, customer: docBuyer, repName, items: offlineItems,
           subtotal, discount, tax, total,
           paidAmt: paid, remainingAmt: isReturn ? 0 : total - paid,
+          // «إزالة الضريبة»: الشركة بلا ضريبة وكل بنود الحمولة صفر ⇒ ورقةٌ بلا أي ذكرٍ لها، كما يختمها الخادم حين يُرفع الصندوق (X-FS-Replay)
+          // — والحمولة المصفوفة تحمل builtTaxFree (الوضع نفسه) فيُختم كذلك ولو انقلب وضع الشركة قبل الرفع أو خالفت ساعة الجهاز (E1)
+          ...(repOfflineTaxFree(company, payload.items) && { taxFree: true }),
         });
       } else {
         // 426: لا فائدة من إعادة المحاولة بالحزمة نفسها — يُعرض زرّ التحديث تحت الرسالة
@@ -2773,6 +2812,10 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         // «اشتراط اختيار فاتورة البيع للمرتجع» ورقم الأصل اليدويّ (RETURN_LINK_REQUIRED، ZATCA_RETURN_REF_INVALID،
         // ZATCA_RETURN_REF_IN_SYSTEM): عبارة القاموس بلغة المندوب — الإعداد تغيّر بعد تحميل الشاشة، أو رقمٌ يُردّ
         if (isReturn && RETURN_POLICY_CODES.has(err?.response?.data?.code)) { setMsg(tr(returnIssueError(err).message)); setLoading(false); return; }
+        // «إزالة الضريبة» (E2): الشركة أزالتها أو أعادتها بعد آخر قراءةٍ للجهاز لإعداداتها (409 TAX_MODE_CHANGED، بالاتجاهين: builtTaxFree
+        // يخالف وضعها الآن) — تُجلب /company وكاشها الآن فتنقلب السلّة إلى الوضع الجديد (مؤثّر taxOff ⇐ repRetaxLines: عند الإزالة النسب صفر
+        // وغير المعدَّل بسعره الصافي، وعند العودة نسب الأصناف وغير المعدَّل بشامله من جديد)، برسالةٍ بلا ذكرٍ للضريبة، ثم يعيد المندوب الإصدار
+        if (isTaxModeChanged(err)) { onCompanyStale?.(); setMsg(tr('تغيرت إعدادات الشركة راجع الأسعار ثم أعد الإصدار')); setLoading(false); return; }
         setMsg(err?.response?.data?.message || tr('تعذر إصدار المستند حاول مجددا')); setLoading(false);
       }
     }
@@ -3130,7 +3173,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                   </div>
                 )}
                 <div className="grid grid-cols-3 gap-2">
-                  {[['الكمية', 'qty'], ['السعر شامل', 'unitPrice'], ['خصم%', 'discountPct']].map(([lbl, f]) => {
+                  {/* «إزالة الضريبة»: «السعر» وحده — لا «شامل» */}
+                  {[['الكمية', 'qty'], [taxOff ? 'السعر' : 'السعر شامل', 'unitPrice'], ['خصم%', 'discountPct']].map(([lbl, f]) => {
                     const locked = (f === 'unitPrice' && !perms?.canChangePrice) || (f === 'discountPct' && maxDisc === 0)
                       || (!!l.saleItemId && f !== 'qty'); // بند فاتورة بيع: سعر الاسترداد ثابت
                     return (
@@ -3146,12 +3190,13 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                   })}
                 </div>
                 <div className="flex justify-between items-center mt-2 text-xs">
-                  <span className="text-gray-400">{tr('منها ضريبة')}: {formatCurrency(repCalc.items[i]?.taxAmt ?? 0)}</span>
+                  {/* «إزالة الضريبة»: لا «منها ضريبة» — والفراغ يُبقي الإجمالي في مكانه */}
+                  {taxOff ? <span /> : <span className="text-gray-400">{tr('منها ضريبة')}: {formatCurrency(repCalc.items[i]?.taxAmt ?? 0)}</span>}
                   {perms?.canChangePrice && !l.saleItemId ? (
                     <span className="inline-flex items-center gap-1">
                       <DecimalInput min={0}
                         className="input !py-1 !px-2 text-sm font-bold text-[#E15A30] w-28 text-center"
-                        title={tr('عدل الاجمالي وسينعكس على السعر الشامل')}
+                        title={taxOff ? tr('عدل الاجمالي وسينعكس على سعر الوحدة') : tr('عدل الاجمالي وسينعكس على السعر الشامل')}
                         value={repCalc.items[i]?.lineTotal ?? 0}
                         onCommit={v => upd(i, 'lineTotal', v)} />
                     </span>
@@ -3165,7 +3210,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             <div className="bg-white rounded-xl p-4 mt-2 border border-gray-100 space-y-1.5 text-sm">
               <div className="flex justify-between text-gray-500"><span>{tr('قبل الخصم')}</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between text-red-500"><span>{tr('الخصم')}</span><span>- {formatCurrency(discount)}</span></div>
-              <div className="flex justify-between text-[#E15A30]"><span>{tr('الضريبة')} {(() => { const ps = [...new Set(lines.map(l => Number(l.taxPct)))]; return ps.length === 1 ? `${ps[0]}%` : tr('نسب متعددة'); })()}</span><span>{formatCurrency(tax)}</span></div>
+              {/* «إزالة الضريبة»: لا سطر للضريبة ولا نسبتها */}
+              {!taxOff && <div className="flex justify-between text-[#E15A30]"><span>{tr('الضريبة')} {(() => { const ps = [...new Set(lines.map(l => Number(l.taxPct)))]; return ps.length === 1 ? `${ps[0]}%` : tr('نسب متعددة'); })()}</span><span>{formatCurrency(tax)}</span></div>}
               <div className="flex justify-between font-bold text-base border-t pt-2"><span>{tr('الإجمالي')}</span><span>{formatCurrency(total)}</span></div>
             </div>
             {/* الإشعار الدائن (المرحلة الثانية): الفاتورة الأصلية وسبب الإشعار (KSA-10) — يُرسل noteReason مع كل مرتجعٍ مرتبطٍ أو يدويّ،
@@ -3700,7 +3746,7 @@ function RepPinFields({ pin, onCapture, onLink }: { pin: RepPinState; onCapture:
 }
 
 // ============ إضافة عميل جديد ============
-function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = false, buyerRelax = false, prefill = null, outletTypes }: { onClose: () => void; onCreated: (c: any) => void; accountingOn?: boolean; zatcaCollect?: boolean; buyerRelax?: boolean; prefill?: AiAddPrefill | null; outletTypes?: { code: string; label: string }[] }) {
+function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = false, buyerRelax = false, prefill = null, outletTypes, taxOff = false }: { onClose: () => void; onCreated: (c: any) => void; accountingOn?: boolean; zatcaCollect?: boolean; buyerRelax?: boolean; prefill?: AiAddPrefill | null; outletTypes?: { code: string; label: string }[]; /** «إزالة الضريبة»: لا حقل «الرقم الضريبي» (فارغٌ لا يُرسل) */ taxOff?: boolean }) {
   const tr = useTr();
   // من محلٍّ اقترحه المندوب الذكي: اسم المنشأة وعنوانها معبّآن من خرائط Google (لا يعيد المندوب كتابتهما)
   const [form, setForm] = useState({
@@ -3801,7 +3847,7 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
           <p className="text-xs font-semibold text-gray-400 mb-2">{tr('البيانات النظامية')}</p>
           <div className="grid grid-cols-2 gap-3">
             {field(tr('السجل التجاري'), 'commercialReg', { ltr: true })}
-            {field(tr('الرقم الضريبي'), 'taxNumber', { ltr: true })}
+            {!taxOff && field(tr('الرقم الضريبي'), 'taxNumber', { ltr: true })}
           </div>
         </div>
 
@@ -3870,8 +3916,10 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
  * من المندوب. والمقيَّد بـ«البيع داخل نطاق العميل» لا يحرّك موقع العميل (يفتح البوّابة على نفسه).
  * يلزمه اتصال: تعديلٌ يُكتب فوق سجلٍّ قائم لا يُطابَق من طابور.
  */
-function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = false, buyerRelax = false }: {
+function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = false, buyerRelax = false, taxOff = false }: {
   customer: any; pinLocked: boolean; onClose: () => void; onSaved: (c: any) => void;
+  /** «إزالة الضريبة»: لا حقل «الرقم الضريبي»، ولا يُرسل فيبقى المحفوظ كما هو */
+  taxOff?: boolean;
   /** فوترة ZATCA (Z5.1a، D2): الشركة تجمع بيانات الفوترة؟ */
   zatcaCollect?: boolean;
   /** فكّ قيد الرقم الضريبي والعنوان الوطني (buyerRelaxOn — طلب المالك ٣١ أكتوبر ٢٠٢٦): الصيغ تنبيهات لا تمنع الحفظ */
@@ -3919,6 +3967,8 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
       address: opt(form.address),
     };
     if (zatcaCollect) Object.assign(payload, buyerUpdatePayload(buyer, customer));
+    // «إزالة الضريبة»: الحقل مخفيّ ⇒ لا يُرسل — الرقم المحفوظ يبقى كما هو (لا يُمحى بنسخة عميلٍ من قائمةٍ لا تحمله)
+    if (taxOff) delete payload.taxNumber;
     // الموقع يُرسَل فقط إن غيّره المندوب — وإلا بقي كما هو (تعديل الحقول الأخرى لا يحرّك الدبوس)
     if (!pinLocked) Object.assign(payload, repPinPayload(pin));
     try {
@@ -3964,7 +4014,7 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
           <p className="text-xs font-semibold text-gray-400 mb-2">{tr('البيانات النظامية')}</p>
           <div className="grid grid-cols-2 gap-3">
             {field(tr('السجل التجاري'), 'commercialReg', { ltr: true })}
-            {field(tr('الرقم الضريبي'), 'taxNumber', { ltr: true })}
+            {!taxOff && field(tr('الرقم الضريبي'), 'taxNumber', { ltr: true })}
           </div>
         </div>
 
@@ -5750,10 +5800,10 @@ export default function RepApp() {
               onStatement={(doc) => { setDocBack('customerDetail'); setModal(null); setDocResult(doc); }}
               onOpenDoc={(doc) => { setDocBack('customerDetail'); setModal(null); setDocResult(doc); }} />
           ) : modal === 'createInvoice' && selectedCustomer ? (
-            <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} perms={user} onPermsStale={() => { void refreshUser(); }} onClose={() => setModal('customerDetail')}
+            <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} perms={user} onPermsStale={() => { void refreshUser(); }} onCompanyStale={() => pullCompanyRef.current()} onClose={() => setModal('customerDetail')}
               onDone={(doc) => { setModal(null); setRefreshKey(k => k + 1); setDocResult(doc); }} />
           ) : modal === 'createReturn' && selectedCustomer ? (
-            <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} mode="return" perms={user} onPermsStale={() => { void refreshUser(); }} onClose={() => setModal('customerDetail')}
+            <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} mode="return" perms={user} onPermsStale={() => { void refreshUser(); }} onCompanyStale={() => pullCompanyRef.current()} onClose={() => setModal('customerDetail')}
               onDone={(doc) => { setModal(null); setRefreshKey(k => k + 1); setDocResult(doc); }} />
           ) : modal === 'createReceipt' && selectedCustomer ? (
             <CreateReceipt customer={selectedCustomer} repName={user.name} company={company} perms={user} onClose={() => setModal('customerDetail')}
@@ -5762,7 +5812,7 @@ export default function RepApp() {
             <LogVisit customer={selectedCustomer} strict={locationRequired} onClose={() => setModal('customerDetail')}
               onDone={(offline) => { setModal('customerDetail'); if (offline) setRefreshKey(k => k + 1); }} />
           ) : modal === 'editCustomer' && selectedCustomer ? (
-            <EditCustomer customer={selectedCustomer} pinLocked={user.requireCustomerProximity === true} zatcaCollect={zatcaCollect} buyerRelax={buyerRelax}
+            <EditCustomer customer={selectedCustomer} pinLocked={user.requireCustomerProximity === true} zatcaCollect={zatcaCollect} buyerRelax={buyerRelax} taxOff={isTaxOff(company)}
               onClose={() => setModal('customerDetail')}
               onSaved={(c) => {
                 // الردّ سجلُّ العميل من الخادم؛ نُبقي ما حسبه التطبيق فوقه (الرصيد وغيره) ونحدّث الكاش
@@ -5788,7 +5838,7 @@ export default function RepApp() {
                 setModal('customerDetail');
               }} />
           ) : modal === 'addCustomer' ? (
-            <AddCustomer onClose={() => { setModal(null); setAiPrefill(null); }} accountingOn={accountingOn} zatcaCollect={zatcaCollect} buyerRelax={buyerRelax}
+            <AddCustomer onClose={() => { setModal(null); setAiPrefill(null); }} accountingOn={accountingOn} zatcaCollect={zatcaCollect} buyerRelax={buyerRelax} taxOff={isTaxOff(company)}
               prefill={aiPrefill} outletTypes={aiRepOn ? OUTLET_TYPE_OPTIONS : undefined}
               onCreated={(c) => { if (aiPrefill?.aiPlaceId) markConverted(aiPrefill.aiPlaceId, c._offline ? null : c.id); setAiPrefill(null); setModal('customerDetail'); setSelectedCustomer(c); }} />
           ) : (

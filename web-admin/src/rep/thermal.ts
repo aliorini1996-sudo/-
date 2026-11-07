@@ -28,6 +28,9 @@ import { logoBox, orderedSections, resolveLayout, rollSectionsHtml, type Resolve
 // إظهار/إخفاء ومحاذاة وحجم خط ومسافة — كلّه خلف hasFreeLayout، فقالبٌ بلا المفاتيح الأربعة يطبع كما قبلها حرفاً بحرف
 import { DEFAULT_SECTIONS, fontPx, hasFreeLayout, logoPlan, sectionCssText, sectionLook, visibleOrder, type LogoPlan } from '../lib/print/layout';
 import type { SectionId } from '../lib/print/printSettingsCore';
+// «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الفاتورة بختمها (taxFree ⇒ قرار الطباعة) والسند بعلم الشركة — بلا ختمٍ ولا علمٍ كاليوم حرفاً
+import { isDocTaxFree, isTaxOff } from '../lib/taxMode';
+import { isTaxFreePrint, withoutTaxIds } from '../lib/print/taxFreePrint';
 
 type Tr = (ar: string) => string;
 /** الشريط الكلاسيكي عربيٌّ وحده كما اليوم — فمترجمه الهويّة */
@@ -311,9 +314,14 @@ export async function printThermalInvoice(doc: InvoiceDoc, opts?: ThermalPrintOp
   /* فوترة ZATCA المرحلة الثانية (Z5.6b، نقد الخطة 6): القرار نفسه الذي يحكم قالب A4 يحكم الشريط الحراريّ —
    * وإلا طُبع الرمز المبنيّ محلياً على ورقة مستندٍ مختوم. تصنيف ZATCA سعوديّ؛ خارج السعودية العنوان محايد. */
   const d = zatcaPrintDecision(
-    { isReturn: !!doc.isReturn, buyerHasTaxNumber: !isSimplified, saudi: isSaudiDoc(doc.company) },
+    { isReturn: !!doc.isReturn, buyerHasTaxNumber: !isSimplified, saudi: isSaudiDoc(doc.company), taxFree: isDocTaxFree(doc) },
     doc.zatca,
   );
+  /* «إزالة الضريبة»: فاتورةٌ مختومة بلا ضريبة — العنوان والرمز وسطور الضريبة من القرار (فاتورة/فاتورة مرتجع، لا رمز، بلا تفصيل)،
+   * والرقم الضريبي للبائع والمشتري يسقط من المستند نفسه قبل أيّ قالب (الكلاسيكي والمختصر والمفصّل). بلا ختم: المستند كما هو */
+  const taxFree = isTaxFreePrint(d, doc);
+  // والختم يغلب كلياً (E5): لا عرض مرحلةٍ ثانية على ورقته — فلا ICV ولا UUID في أيّ قالبٍ حراريّ ولو حمل المستند عرضاً (دفاعاً)
+  if (taxFree) doc = { ...withoutTaxIds(doc), zatca: null };
   const title = d.title;
   // القالبان الجديدان أو الكلاسيكي — يُعرف قبل الرمز: البلوتوث المباشر يأخذ الرمز خانةً لا صورة (qrBuilders)
   const roll = rollOf(opts, doc.company, d.standardLayout);
@@ -341,7 +349,7 @@ export async function printThermalInvoice(doc: InvoiceDoc, opts?: ThermalPrintOp
   if (roll) {
     // دفاعٌ ثانٍ خلف شاشة النتيجة: مستندٌ لا ورقة له (مُبطل أو لم تحسمه الهيئة) لا يُطبع من أيّ قالبٍ جديد
     if (!d.canPrint) throw new PrintRefusedError(d.notice || 'لا يحمل هذا المستند رمز فاتورة ضريبية');
-    await deliverRoll(rollInvoiceBody({ doc, d, title, qr: rollQr(d, qr, roll.profile), vatPcts, inclusiveDoc }, roll), roll);
+    await deliverRoll(rollInvoiceBody({ doc, d, title, qr: rollQr(d, qr, roll.profile), vatPcts, inclusiveDoc, taxFree }, roll), roll);
     return;
   }
 
@@ -365,6 +373,7 @@ export async function printThermalInvoice(doc: InvoiceDoc, opts?: ThermalPrintOp
     ${doc.discount > 0 ? `<div class="row"><span>الخصم</span><span>${money(doc.discount)}</span></div>` : ''}
     ${d.showTaxBreakdown ? `<div class="row"><span>ض.ق.م ${vatRate}</span><span>${money(doc.tax)}</span></div>` : ''}
     <div class="row b lg"><span>${doc.isReturn ? 'إجمالي المرتجع'
+      : taxFree ? 'الإجمالي'
       : !d.showTaxBreakdown && !inclusiveDoc && doc.tax > 0 ? 'المبلغ المستحق شامل الضرائب'
       : 'الإجمالي'}</span><span>${money(doc.total)}</span></div>
     ${!doc.isReturn && doc.type === 'CREDIT' && doc.remainingAmt !== undefined ? `
@@ -420,6 +429,8 @@ function receiptInvoiceRows(doc: ReceiptDoc, tr: Tr = asIs, L?: (key: string, ar
 }
 
 export async function printThermalReceipt(doc: ReceiptDoc, opts?: ThermalPrintOptions): Promise<void> {
+  // «إزالة الضريبة»: السند بلا ختم — يحكمه علم الشركة الآن، فلا رقم ضريبيّ للشركة ولا للعميل في أيّ قالب. بلا العلم كما هو
+  if (isTaxOff(doc.company)) doc = withoutTaxIds(doc);
   const roll = rollOf(opts, doc.company, false);
   if (roll) { await deliverRoll(rollReceiptBody(doc, roll), roll); return; }
   await classicOut(opts, `
@@ -626,6 +637,8 @@ interface InvoiceFacts {
   qr: string;
   vatPcts: number[];
   inclusiveDoc: boolean;
+  /** «إزالة الضريبة»: ورقةٌ بلا أيّ ذكرٍ للضريبة (isTaxFreePrint) — غيابه كاليوم */
+  taxFree?: boolean;
 }
 
 /**
@@ -739,6 +752,7 @@ function rollInvoiceBody(f: InvoiceFacts, r: Roll): string {
   const numberKey = doc.isReturn ? 'inv.returnNumber' : 'inv.number';
   const vatKey = inclusiveDoc ? 'tot.vatIncl' : 'tot.vat';
   // صفّ الإجمالي النهائي بتسمياته الثلاث صفٌّ واحد: يُحذف بحذف tot.returnGrand للمرتجع، وإلا بحذف tot.grand
+  // «إزالة الضريبة» (E3): إجمالي المرتجع المختوم بلا ضريبة «إجمالي المرتجع» (كالكلاسيكي) لا «… دائن» — وصياغة الشركة للسطر تسري كاليوم
   const grandKey = doc.isReturn ? 'tot.returnGrand' : 'tot.grand';
   // العلامة المائية للبروفة وتنبيه سند التسليم من قرار الطباعة: في الرأس كاليوم، وأوّل الشريط إن أُخفي الرأس (keep) — وتسقطان معاً
   // بقرار الشركة وحده (stamps:false، areStampsRemoved)
@@ -776,7 +790,8 @@ function rollInvoiceBody(f: InvoiceFacts, r: Roll): string {
     ${gone(r, vatKey) ? '' : `${d.showTaxBreakdown ? `<div class="row"><span>${inclusiveDoc
       ? lbl(r, 'tot.vatIncl', 'منها ضريبة القيمة المضافة', { suffix: rate })
       : lbl(r, 'tot.vat', 'ضريبة القيمة المضافة', { suffix: rate })}</span><span>${money(doc.tax)}</span></div>` : ''}`}
-    ${gone(r, grandKey) ? '' : `<div class="row b lg"><span>${doc.isReturn ? lbl(r, 'tot.returnGrand', 'إجمالي المرتجع دائن')
+    ${gone(r, grandKey) ? '' : `<div class="row b lg"><span>${doc.isReturn ? lbl(r, 'tot.returnGrand', f.taxFree ? 'إجمالي المرتجع' : 'إجمالي المرتجع دائن')
+      : f.taxFree ? lbl(r, 'tot.grand', 'الإجمالي')
       : !d.showTaxBreakdown && !inclusiveDoc && doc.tax > 0 ? val(r, 'المبلغ المستحق شامل الضرائب')
       : lbl(r, 'tot.grand', 'الإجمالي')}</span><span>${money(doc.total)}</span></div>`}
     ${!doc.isReturn && doc.type === 'CREDIT' && doc.remainingAmt !== undefined ? `

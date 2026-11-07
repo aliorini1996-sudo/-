@@ -49,6 +49,7 @@ import { isGoogleMapsUrl, resolveLocationUrl } from '../services/geoLink';
 import { runAdvisor, numbersIn, scrubPii } from '../ai-rep/advisor';
 import { advisorSystemPrompt, baseAllowedNumbers, buildAdvisorTools, OutletCtx } from '../ai-rep/advisorTools';
 import { getCountryTax } from '../config/countries';
+import { isTaxOff } from '../services/taxMode';
 import { GUIDE_QUESTION, GUIDE_QUESTION_LEARNED, planEligible, planFromText, rankCandidates, rulePlan, ruleGuideText, PlanCandidate } from '../ai-rep/guide';
 import { getLearned, invalidateLearned, policyFor, recordTurn, resetLearning, rollbackModel, updateTurn, type TurnRecord } from '../ai-rep/learn/store';
 import { learningView } from '../ai-rep/learn/view';
@@ -455,11 +456,13 @@ function toOutletCtx(o: SessionOutlet): OutletCtx {
 async function advisorContext(c: RepCtx, outlets: OutletCtx[], origin: { lat: number; lng: number } | null) {
   const [data, company] = await Promise.all([
     loadData(c),
-    prisma.companySettings.findUnique({ where: { tenantId: c.tid }, select: { name: true } }),
+    // taxDisabled في القراءة نفسها (بلا استعلام زائد): «إزالة الضريبة» ⇒ لا «قبل الضريبة» في الخطة الحتمية ولا تعليمات العقل
+    prisma.companySettings.findUnique({ where: { tenantId: c.tid }, select: { name: true, taxDisabled: true } }),
   ]);
   return {
     companyName: company?.name || 'الشركة', outlets, origin, data, minPeers: c.settings.minPeers, showMoney: c.showMoney,
     playbook: c.settings.playbook, now: new Date(), currency: getCountryTax(c.countryCode).currency,
+    taxOff: isTaxOff(company),
   };
 }
 
@@ -484,7 +487,7 @@ rep.post('/guide', async (req: AuthRequest, res: Response, next: NextFunction) =
     const plan = rulePlan(cands as PlanCandidate[], s.origin, undefined, policy.params, hb);
     const learnedOn = arm === 'LEARNED' && learned.mode !== 'OFF';
     const learnedFlag = learnedOn && !!learned.policy;
-    const rules = { text: ruleGuideText(plan, byRef, s.origin, actx.currency), plan, source: 'RULES' as const };
+    const rules = { text: ruleGuideText(plan, byRef, s.origin, actx.currency, { taxOff: actx.taxOff }), plan, source: 'RULES' as const };
     const turnId = randomUUID();
     const turnBase = {
       id: turnId, tenantId: c.tid, salesRepId: c.repId, kind: 'GUIDE' as const, intent: 'GUIDE', arm, policyVersion: policy.version, hourBand: hb,

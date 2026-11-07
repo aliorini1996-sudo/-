@@ -144,7 +144,7 @@ test('RepApp refreshUnits: الكتالوج وأسعار العميل معاً،
   // «أنواع الأسعار»: الخريطة الثانية (سعر نوع الفاتورة) بعد سعر العميل — العميل يغلب النوع (priceLists.test وrepPriceLists.test)
   // «قوائم الأسعار» بقواعدها (٥ نوفمبر ٢٠٢٦): الثبات نفسه — العميل ثم القائمة ثم سلّم اليوم وتقريبٌ واحد على الشامل — عبر
   // lineNetWithList (choiceNet تحته) بكمية الصنف (افتراضها بندٌ بوحدته) وقواعد القائمة ويوم الشركة (priceDay = repPricingDay، D1)؛ والخرائط الطازجة تُمرَّر كما كانت
-  assert.match(repApp, /const inclOf = \(p: any, c: UnitChoice, baseQty: number = c\.factor, cust: Record<string, number> = custPrices, list: Record<string, number> = listPrices, rules: readonly RepPriceRule\[\] = listRules, day: string = priceDay\) =>\s*roundDecimal\(lineNetWithList\(c, p, cust\[p\.id\], list\[p\.id\], rules, baseQty, day\) \* \(1 \+ Number\(p\.taxPct\) \/ 100\), currencyDecimals\(getActiveCurrency\(\)\)\);/);
+  assert.match(repApp, /const inclOf = \(p: any, c: UnitChoice, baseQty: number = c\.factor, cust: Record<string, number> = custPrices, list: Record<string, number> = listPrices, rules: readonly RepPriceRule\[\] = listRules, day: string = priceDay\) =>\s*roundDecimal\(lineNetWithList\(c, p, cust\[p\.id\], list\[p\.id\], rules, baseQty, day\) \* \(1 \+ effectiveTaxPct\(company, p\.taxPct\) \/ 100\), currencyDecimals\(getActiveCurrency\(\)\)\);/);
   const refresh = between(repApp, 'const refreshUnits = async', '\n  return (');
   assert.match(refresh, /await Promise\.all\(\[\s*fetchThenCache\('products'/);
   assert.match(refresh, /customer\?\.id && !customer\._offline\s*\? fetchThenCache\(`custprices:\$\{customer\.id\}`/, 'العميل الأوف‑لاين بلا أسعار خادم');

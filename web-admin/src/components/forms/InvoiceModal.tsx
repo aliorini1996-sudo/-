@@ -12,6 +12,8 @@ import { InvoiceDoc, Company } from '../../rep/RepDocuments';
 import { zatcaDocView } from '../../lib/zatca/docStatus';
 import { buyerNoticeOf, buyerNoticeText, zatcaIssueOutcome } from '../../lib/zatca/issueOutcome';
 import { zatcaRegimeOf } from '../../lib/zatcaRegime';
+import { isTaxOff, effectiveTaxPct, TAX_MODE_CODES, TAX_MODE_MESSAGES } from '../../lib/taxMode';
+import { retaxRestoredLines } from '../../lib/invoiceModalRetax';
 import {
   RETURN_REASONS, type ReturnReason, type ReturnableSaleRow, type LinkedSale, type ReturnHead,
   toLinkedSale, linkedSaleProblem, clampReturnQty, fillLinkedQty, isLineReturnable, linkedReturnTotals,
@@ -194,6 +196,9 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     queryKey: ['company'],
     queryFn: async () => { const res = await companyApi.get(); return res.data.data as Company; },
   });
+  /* «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): شركةٌ بلا ضريبة ⇒ نسبة كل بندٍ صفر (effectiveTaxPct) والسعر المكتوب نهائي، ولا عمود
+   * نسبة ولا سطر ضريبة ولا تلميح شمولها؛ والمرتجع المرتبط بالمبلغ نفسه بلا ضريبة. الغائب = النافذة كما كانت حرفاً */
+  const taxOff = isTaxOff(company);
 
   // نجلب القائمة كاملة لتعمل القائمة المنسدلة بالتصفية المحلية بالكتابة
   const { data: customers } = useQuery({
@@ -412,6 +417,18 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   useEffect(() => {
     setLines(ls => repriceLines(ls));
   }, [pricer, products]); // eslint-disable-line react-hooks/exhaustive-deps
+  // أُزيلت الضريبة والنافذة مفتوحة (ردّ TAX_MODE_CHANGED أعاد قراءة الشركة): البنود القائمة بنسبة صفر وسعرها المكتوب كما هو
+  useEffect(() => {
+    if (taxOff) setLines(ls => (ls.some(l => l.taxPct !== 0) ? ls.map(l => ({ ...l, taxPct: 0, lineTotal: calcLine(l.qty, l.unitPrice, l.discountPct, 0) })) : ls));
+  }, [taxOff]);
+  // وعادت الضريبة والنافذة مفتوحة (E2: ردّ 409 أو تجدّد قراءة الشركة): البنود المسعَّرة بلا ضريبة بنسبة صنفها الفعلية وسعرها الصافي
+  // كما هو (retaxRestoredLines). الوضع السابق من taxOffSeen: أول قراءةٍ للشركة ليست عودة، والشركة التي لم تتبدّل كما كانت حرفاً
+  const taxOffSeen = useRef(taxOff);
+  useEffect(() => {
+    const wasOff = taxOffSeen.current;
+    taxOffSeen.current = taxOff;
+    if (wasOff && !taxOff) setLines(ls => retaxRestoredLines(ls, products, company, calcLine));
+  }, [taxOff]); // eslint-disable-line react-hooks/exhaustive-deps
   /** عميلٌ آخر: الفاتورة تعود إلى نوعها الافتراضي (نوع سعره من ملفه ?? نوع المندوب) — والمدير يبدّله برقاقة */
   const pickCustomerList = (id: string) => { if (id !== customerId) setListChoice(undefined); };
   const setLinkedQty = (saleItemId: string, v: number) =>
@@ -479,6 +496,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
           subtotal: Number(inv.subtotal), discount: Number(inv.discountAmt), tax: Number(inv.taxAmt), total: Number(inv.total),
           paidAmt: Number(inv.paidAmt ?? 0), remainingAmt: Number(inv.remainingAmt ?? 0),
           zatca: zatcaDocView(inv),
+          // «إزالة الضريبة»: ختم المستند من ردّ الخادم (Invoice.taxFree) — الغائب = الورقة كما كانت
+          ...(inv.taxFree === true && { taxFree: true }),
         };
         toast.success(tr('تم إنشاء المرتجع'));
         // فكّ القيد (طلب المالك ٣١ أكتوبر ٢٠٢٦): صدر الإشعار مبسطاً لعميلٍ ناقص البيانات — يُقال ولا يُطبع
@@ -508,6 +527,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
         /* فوترة ZATCA المرحلة الثانية (Z5.6b، نقد الخطة 6): مستند ما بعد الحفظ يُبنى هنا لا من
          * `invoiceDocFromDetail` — وبدونه تطبع اللوحة رمز المرحلة الأولى لفاتورة مختومة. */
         zatca: zatcaDocView(inv),
+        // «إزالة الضريبة»: ختم المستند من ردّ الخادم (Invoice.taxFree) — الغائب = الورقة كما كانت
+        ...(inv.taxFree === true && { taxFree: true }),
       };
       toast.success(tr('تم إنشاء الفاتورة'));
       // فكّ القيد (طلب المالك ٣١ أكتوبر ٢٠٢٦): منشأة ناقصة البيانات صدرت لها مبسطة لا ضريبية — يُقال ولا يُطبع
@@ -516,6 +537,13 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
       onSaved(doc);
     },
     onError: (err: unknown, vars) => {
+      /* «إزالة الضريبة» (E2): وضع الشركة تبدّل بعد فتح النافذة (409 TAX_MODE_CHANGED بالاتجاهين: builtTaxFree يخالفه) — تُعاد قراءة
+       * الشركة فتنقلب البنود (الأثران أعلاه) والمرتجع المرتبط، بالرسالة المحايدة، ويُعاد الإصدار. لا رمز آخر يمرّ من هنا */
+      if ((err as { response?: { data?: { code?: string } } })?.response?.data?.code === TAX_MODE_CODES.changed) {
+        void qc.invalidateQueries({ queryKey: ['company'] });
+        toast.error(tr(TAX_MODE_MESSAGES.TAX_MODE_CHANGED), { duration: 8000 });
+        return;
+      }
       /* «تتبّع اللوط»: الأصناف المتتبَّعة لا تُباع فوق متاح تشغيلات السيارة (منعٌ دائم، R3) — رسالة النقص من تفاصيل الخادم
        * بالاسم والكمية والمتاح بوحدات الصنف؛ والانشغال «أعد المحاولة» */
       const le = lotErrorOf(err);
@@ -573,8 +601,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
       setLines(ls => repriceLines([...ls, {
         productId: p.id, productName: p.name, productCode: p.code,
         ...lineUnitFields(p, c), qty: 1, unitPrice: price, refPrice: price,
-        discountPct: 0, taxPct: Number(p.taxPct),
-        lineTotal: calcLine(1, price, 0, Number(p.taxPct)),
+        discountPct: 0, taxPct: effectiveTaxPct(company, p.taxPct),
+        lineTotal: calcLine(1, price, 0, effectiveTaxPct(company, p.taxPct)),
       }], p.id));
     }
   };
@@ -622,7 +650,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   // بمقدار الخصم كاملاً — بلا خطأ ولا تحذير يراه أحد.
   const calcAll = computeInvoiceTotals(
     lines.map(l => ({ qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, taxPct: l.taxPct })),
-    { companyVat: 15, decimals: 2, invoiceDiscountPct: discountPct },
+    { companyVat: taxOff ? 0 : 15, decimals: 2, invoiceDiscountPct: discountPct },
   );
   const subtotal = calcAll.subtotal;
   const totalDiscount = calcAll.discountAmt;
@@ -634,7 +662,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   /* معاينة المرتجع المرتبط: المحرّك نفسه بخيارات الخادم نفسها (أسعار الاسترداد شاملة، بلا خصم، خانات عملة الشركة) —
    * فإجماليّه هنا هو ما يُقيَّد في المرحلة الأولى. وفي الثانية تقديرٌ: الإشعار يُسعَّر من بنود الأصل على الخادم. */
   const retDec = currencyDecimals(getActiveCurrency());
-  const linkedCalc = isReturn && linked ? linkedReturnTotals(linked.lines, retDec, Number((company as { defaultVatPct?: number } | null | undefined)?.defaultVatPct ?? 15)) : null;
+  // «إزالة الضريبة»: المرتبط بالمبلغ نفسه بنسبة صفر (taxOff) — كما يسعّره الخادم
+  const linkedCalc = isReturn && linked ? linkedReturnTotals(linked.lines, retDec, Number((company as { defaultVatPct?: number } | null | undefined)?.defaultVatPct ?? 15), taxOff) : null;
   /* بلا فاتورة مختارة والاشتراط قائم (المرحلة الثانية افتراضاً، أو الأولى بالإعداد): لا بنود تُرسل ⇒ أصفار (لا إجماليّ أسطرٍ
    * حرّة مخفيّة لن تُصدر). و«فاتورة من خارج النظام»: إجماليّ الأسطر الحرّة — هي ما يُرسل ويُسعَّر به الإشعار */
   const freeHidden = (phase2 || linkRequired) && !manual;
@@ -647,7 +676,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     const ref = manual ? { number: manualNo, paymentType: manualPay } : null;
     const problem = returnFormProblem({ phase2, linkRequired, manual: ref, linked, freeLines: lines, noteReason, invoiceDate });
     if (problem) { toast.error(tr(problem)); return; }
-    const head: ReturnHead = { customerId, salesRepId, returnReason, notes, invoiceDate, phase2, noteReason };
+    const head: ReturnHead = { customerId, salesRepId, returnReason, notes, invoiceDate, phase2, noteReason, ...(taxOff && { taxOff: true }) };
     // خانات عملة الشركة: سعر وحدة المرتجع (حبّةٌ من كرتون) يُشتقّ من مبلغه بها كما يحسبه الخادم (linkedUnitPrice)
     if (linked) { mutation.mutate(buildLinkedReturnPayload(head, linked, retDec)); return; }
     // «تتبّع اللوط» (D5): المرتجع الحرّ لصنفٍ متتبَّع بتشغيلته المختارة للسطر كله، وإلا يحدّدها الخادم من مبيعات العميل السابقة —
@@ -690,6 +719,9 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
         paymentPlan: 'INSTALLMENT',
         installmentPlan: { count: insCount, firstDueDate: insFirst, period: insPeriod },
       }),
+      // «إزالة الضريبة» (CONTRACT2 E1): الوضع الذي سُعِّرت به البنود مُعلَناً دائماً (isTaxOff للشركة كما قرأتها النافذة) — يخالف وضعها
+      // الآن ⇒ 409 TAX_MODE_CHANGED فتُجلب الشركة وتنقلب نسب البنود ثم يُعاد الإصدار
+      builtTaxFree: taxOff,
       // «تتبّع اللوط»: سطرٌ بتشغيلةٍ مختارة يحمل lots بالكمية الأساسية (withSaleLots)؛ و«تلقائي» بنده كما كان حرفاً
       items: withSaleLots(lines.map(l => ({
         productId: l.productId, qty: l.qty, unitPrice: l.unitPrice,
@@ -922,7 +954,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                 <thead>
                   <tr>
                     <th>{tr('الصنف')}</th><th>{tr('مباع')}</th><th>{tr('المرتجع سابقا')}</th><th>{tr('المتاح للإرجاع')}</th>
-                    <th title={tr('سعر الوحدة شامل الضريبة بعد خصومات فاتورة البيع')}>{tr('سعر الاسترداد')}</th>
+                    <th title={taxOff ? tr('سعر الوحدة بعد خصومات فاتورة البيع') : tr('سعر الوحدة شامل الضريبة بعد خصومات فاتورة البيع')}>{tr('سعر الاسترداد')}</th>
                     <th>{tr('كمية المرتجع')}</th><th>{tr('الإجمالي')}</th>
                   </tr>
                 </thead>
@@ -1032,12 +1064,12 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                   <tr>
                     <th className="w-6"></th>
                     <th>{tr('الصنف')}</th><th>{tr('الكمية')}</th><th>{tr('السعر')}</th>
-                    <th>{tr('خصم%')}</th><th>{tr('ضريبة%')}</th><th>{tr('الإجمالي')}</th>
+                    <th>{tr('خصم%')}</th>{!taxOff && <th>{tr('ضريبة%')}</th>}<th>{tr('الإجمالي')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {lines.length === 0 && (
-                    <tr><td colSpan={7} className="text-center py-8 text-gray-400 text-sm">{tr('اختر صنفا من القائمة لإضافته')}</td></tr>
+                    <tr><td colSpan={taxOff ? 6 : 7} className="text-center py-8 text-gray-400 text-sm">{tr('اختر صنفا من القائمة لإضافته')}</td></tr>
                   )}
                   {lines.map((l, i) => {
                     const p = (products || []).find(x => x.id === l.productId);
@@ -1090,7 +1122,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                       <td><input type="number" className="input w-20 text-center" min="0.001" step="any" inputMode="decimal" value={l.qty} onChange={e => updateLine(i, 'qty', Number(e.target.value))} /></td>
                       <td><DecimalInput className="input w-24" min={0} value={Number(l.unitPrice.toFixed(6))} onCommit={v => updateLine(i, 'unitPrice', v)} /></td>
                       <td><input type="number" className="input w-16 text-center" min="0" max="100" step="any" value={l.discountPct} onChange={e => updateLine(i, 'discountPct', Number(e.target.value))} /></td>
-                      <td><input type="number" className="input w-16 text-center" min="0" max="100" step="any" value={l.taxPct} onChange={e => updateLine(i, 'taxPct', Number(e.target.value))} /></td>
+                      {!taxOff && <td><input type="number" className="input w-16 text-center" min="0" max="100" step="any" value={l.taxPct} onChange={e => updateLine(i, 'taxPct', Number(e.target.value))} /></td>}
                       <td><DecimalInput className="input w-28 font-semibold" min={0} title={tr('عدل الاجمالي وسينعكس على سعر الوحدة')} value={l.lineTotal} onCommit={v => updateLine(i, 'lineTotal', v)} /></td>
                     </tr>
                     );
@@ -1117,8 +1149,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                 {shown.discountAmt > 0 && (
                   <div className="flex justify-between text-red-500"><span>{tr('إجمالي الخصم')}</span><span>- {formatCurrency(shown.discountAmt)}</span></div>
                 )}
-                <div className="flex justify-between text-[#E15A30]"><span>{tr('ضريبة القيمة المضافة')}</span><span>{formatCurrency(shown.taxAmt)}</span></div>
-                <div className="flex justify-between font-bold text-lg border-t pt-2 text-amber-700"><span>{tr('إجمالي المرتجع دائن')}</span><span>{formatCurrency(shown.total)}</span></div>
+                {!taxOff && <div className="flex justify-between text-[#E15A30]"><span>{tr('ضريبة القيمة المضافة')}</span><span>{formatCurrency(shown.taxAmt)}</span></div>}
+                <div className="flex justify-between font-bold text-lg border-t pt-2 text-amber-700"><span>{taxOff ? tr('إجمالي المرتجع') : tr('إجمالي المرتجع دائن')}</span><span>{formatCurrency(shown.total)}</span></div>
                 {phase2 && linked && <p className="text-[11px] text-gray-500 leading-relaxed">{tr('تقديري يحسب الإشعار الدائن من أسعار الفاتورة الأصلية')}</p>}
               </div>
             </div>
@@ -1131,7 +1163,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                 <input type="number" className="input w-20 text-center" min="0" max="100" step="any" value={discountPct} onChange={e => setDiscountPct(Number(e.target.value))} />
               </div>
               <div className="flex justify-between text-red-500"><span>{tr('إجمالي الخصم')}</span><span>- {formatCurrency(totalDiscount)}</span></div>
-              <div className="flex justify-between text-[#E15A30]"><span>{tr('ضريبة القيمة المضافة')}</span><span>{formatCurrency(taxTotal)}</span></div>
+              {!taxOff && <div className="flex justify-between text-[#E15A30]"><span>{tr('ضريبة القيمة المضافة')}</span><span>{formatCurrency(taxTotal)}</span></div>}
               <div className="flex justify-between font-bold text-lg border-t pt-2"><span>{tr('الإجمالي النهائي')}</span><span>{formatCurrency(total)}</span></div>
             </div>
           </div>

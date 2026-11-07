@@ -20,7 +20,7 @@ import {
   vanRemainingFor, vanShortage, vanStockHeldBody,
 } from '../services/repSaleStock';
 import {
-  DEVICE_NOW_HEADER, devicePriceInstant, devicePricingDay, headerText, offlineInvoiceDate, priceRulesKnownAt, rawDeviceMoment, rowsKnownAt,
+  DEVICE_NOW_HEADER, deviceClockSkewMs, devicePriceInstant, devicePricingDay, headerText, offlineInvoiceDate, priceRulesKnownAt, rawDeviceMoment, rowsKnownAt,
 } from '../services/offlineInvoiceDate';
 import { catalogTeamsFor, resolveDocTeam, supervisorViewerOf, teamCatalogProblem, teamMembershipSelectFor } from '../services/teams';
 // «لوكيشن»: ختم الفاتورة بموقع مندوبها وقت الإصدار، والمرتبط يرث ختم أصله (services/locations.ts)
@@ -29,6 +29,8 @@ import { expiryDateFor, localDateIn, returnRuleProblem, shelfLifeOf } from '../s
 import { REP_PRODUCT_RULE_CODE, replayPredatesRepRule, repLineProblem, repLinkedReturnProblem, repUnitRuleOf } from '../services/repProductRules';
 // «اشتراط اختيار فاتورة البيع للمرتجع» (services/returnPolicy.ts): القاعدة الفعّالة بمرحلتيها وتسامح صندوق المندوب
 import { replayPredatesReturnPolicy, returnLinkRequired } from '../services/returnPolicy';
+// «إزالة الضريبة» (services/taxMode.ts، طلب المالك ٧ نوفمبر ٢٠٢٦): بنود المستند الجديد لشركةٍ «بلا ضريبة» صفرٌ وختمه Invoice.taxFree
+import { TAX_MODE_CODES, TAX_MODE_MESSAGES, isTaxOff } from '../services/taxMode';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, canAccessRep, existingInScope, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
@@ -249,6 +251,10 @@ const createInvoiceSchema = z.object({
   // حدُّ ما عرفه من القواعد min(لحظة الإصدار، هي) إن لم تكن بعد الإصدار ولا أقدم منه بثلاثين يوماً (priceRulesKnownAt)؛ والحيّ لا يقرؤها.
   // تلميحٌ لا يحكم كـpricingDay: تالفةٌ أو بغير نوعها تُهمل بصمت
   pricesSeenAt: z.string().max(64).nullish().catch(undefined),
+  // «إزالة الضريبة» (CONTRACT2 E1): الوضع الذي سعّر به الجهاز البنود — isTaxOff(الشركة) كما عرفها لحظتها. يرسله تطبيق المندوب
+  // والإدارة و/m والمرتجع، والصندوق يعيده كما هو (خارج مفتاح الإعادة كـpricingDay). للجلسة وحدها: مفتاح API يتجاهله. غيابه
+  // (عميلٌ قديم) ⇒ السلوك القائم حرفاً
+  builtTaxFree: z.boolean().optional(),
   // ═══ خطة السداد ═══
   // `type` يبقى CASH|CREDIT|RETURN حرفياً: التقسيط بيعٌ آجل بجدول، لا نوع رابع.
   // انظر تعليق `paymentPlan` في المخطط لسبب المنع.
@@ -659,7 +665,8 @@ export function priceLinkedReturn(
   links: ReadonlyArray<{ saleItemId: string | null; unitFactor?: number | null }>,
   saleLines: ReadonlyMap<string, SaleLineForRefund>,
   returned: ReadonlyMap<string, number>,
-  opts: { companyVat: number; decimals: number },
+  // taxFree («إزالة الضريبة»): المرتجع بلا ضريبة — المبلغ نفسه (شاملٌ من إجمالي بند البيع) وضريبته صفر. غائبٌ ⇒ نسبة بند البيع كما كان
+  opts: { companyVat: number; decimals: number; taxFree?: boolean },
 ) {
   const consumed = new Map<string, number>();
   const raw = items.map((it, idx) => {
@@ -672,7 +679,7 @@ export function priceLinkedReturn(
     consumed.set(sid, (consumed.get(sid) ?? 0) + want);
     const amount = refundInCurrency(sale, want, done, opts.decimals);
     // بلا تقريب: المحرّك يقرّب الكمية × السعر فيعود المبلغ نفسه، والسعر المقرَّب كان يُضاعف خطأه بالكمية
-    return { qty: it.qty, unitPrice: it.qty > 0 ? amount / it.qty : 0, discountPct: 0, taxPct: sale.taxPct };
+    return { qty: it.qty, unitPrice: it.qty > 0 ? amount / it.qty : 0, discountPct: 0, taxPct: opts.taxFree ? 0 : sale.taxPct };
   });
   return computeInvoiceTotals(raw, { companyVat: opts.companyVat, decimals: opts.decimals, invoiceDiscountPct: 0, pricesIncludeTax: true });
 }
@@ -1264,6 +1271,71 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       for (const r of rows ?? []) convsOf.set(r.productId, [...(convsOf.get(r.productId) ?? []), r]);
       for (const c of cps ?? []) replayCust.set(c.productId, Number(c.price));
     }
+    // ضريبة وعملة دولة الشركة — تُطبَّق على البنود التي لم تُحدَّد ضريبتها، وتضبط خانات التقريب (وهامش حارس سعر المندوب أدناه).
+    // يُقرأ هنا قبل أوّل قراءةٍ لنسبة بند (صافي السعر في حلّ الوحدات أدناه) — «إزالة الضريبة» تحسم النسبة قبلها؛ والاستعلام واحدٌ كما كان
+    const company = await prisma.companySettings.findUnique({
+      where: { tenantId: tid },
+      // zatcaPhase2StartedAt: قرار النظام الضريبي (Z5.2) يُقرأ من هذا الصفّ المحمَّل أصلاً — صفر استعلامات للمرحلة الأولى
+      // zatcaGoLiveArmedAt (Z5.8، نقد 4): رفض إصدار المرحلة الأولى بعد التسليح — NULL لكلّ الشركات اليوم فلا أثر
+      // returnRequiresSaleInvoice/returnPolicyChangedAt: «اشتراط اختيار فاتورة البيع للمرتجع» من الصفّ نفسه — لا استعلام
+      // taxDisabled/taxModeChangedAt: «إزالة الضريبة» (services/taxMode.ts) من الصفّ نفسه — لا استعلام
+      select: {
+        defaultVatPct: true, countryCode: true, currency: true, einvoiceProvider: true, zatcaPhase2StartedAt: true, zatcaGoLiveArmedAt: true,
+        returnRequiresSaleInvoice: true, returnPolicyChangedAt: true,
+        taxDisabled: true, taxModeChangedAt: true,
+      },
+    });
+    /* «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦ — services/taxMode.ts): شركةٌ «بلا ضريبة» (taxDisabled صراحةً) ⇒ المستند الجديد بلا ضريبة:
+     * كل بنوده بنسبة صفر، والنسبة الاحتياطية صفر، ولا مزوّد فوترة (none وحالةٌ فارغة)، ويُختم taxFree فيُعرض ويُطبع بلا أي ذكرٍ لها.
+     * والسعر المرسل نهائي (قرار المالك): صافيه في حارس سعر المندوب هو نفسه (netFromInclusive(…, 0)).
+     *  • إعادة رفع صندوق المندوب (X-FS-Replay بجلسة SALES_REP — شكل repReplay أدناه؛ تُمحى للمفتاح) ببندٍ نسبته فوق الصفر: يُقبل
+     *    **كما بناه الجهاز** بضريبته وبلا ختم (مسار اليوم حرفياً)، فيطابق السجلُّ الورقةَ التي بيد العميل — مستندٌ سُلّمت بضاعته لا يُعدم
+     *    في الصندوق. وكل بنوده صفر ⇒ بلا ضريبة. والترويسة من دورٍ آخر (الإدارة/m/جلسة المالك) لا تمنح «كما بُني»: قواعد الإصدار الحيّ.
+     *  • مستند صندوق المندوب المُنشأ على الجهاز (clientCreatedAt) قبل لحظة التبديل (taxModeChangedAt — مرجع تسامح الإعادة): صدر والشركة
+     *    بضريبتها ⇒ مسار اليوم حرفاً كما بُني (بلا تصفير ولا ختم) — المستند القديم يبقى كما صدر (قرار المالك ٢) ولو كانت بنوده صفراً.
+     *  • إصدارٌ حيّ بجلسة (المندوب والويب و/m) ببندٍ نسبته فوق الصفر: 409 TAX_MODE_CHANGED — كاش الشركة على الجهاز قديم فيعيد قراءتها
+     *    ويسعّر من جديد؛ لا تصفيرٌ صامت (سعرٌ شاملٌ قديم بنسبة صفر زيادةٌ صامتة على العميل).
+     *  • مفتاح API ببندٍ نسبته فوق الصفر: 422 TAX_DISABLED (الغائب صفر) — والمرتجع من فاتورة بيع كذلك: المُكامِل يُبلَّغ فلا تفترق دفاتره.
+     *  • المرتجع من فاتورة بيع بجلسة: مبلغه من بند البيع على الخادم (priceLinkedReturn) فلا أثر لنسبة الجسم فيه حيّاً — صفرٌ بالمبلغ نفسه.
+     * والشركة بضريبتها (taxDisabled false أو غائب): لا شيء مما هنا، والمسار كله كما كان حرفاً بحرف.
+     *
+     * الوضع الذي سعّر به الجهاز (body.builtTaxFree — CONTRACT2 E1؛ للجلسة وحدها، ومفتاح API يتجاهله) يحسم إعادة الرفع بدل اللحظة:
+     *  • الشركة بلا ضريبة وtrue: إعادة الرفع كما بُنيت (صفرٌ ⇒ مختوم) بلا مقارنة لحظة؛ والحيّ قواعده أعلاه.
+     *  • الشركة بلا ضريبة وfalse: إعادة الرفع مسار اليوم كما بُنيت (سعّر الجهاز بالضريبة — ولو بنوده صفر)؛ والحيّ قواعده أعلاه.
+     *  • غائب (عميلٌ قديم): السلوك القائم، ولحظة الجهاز مصحَّحةٌ بانحراف ساعته (deviceClockSkewMs — X-FS-Device-Now كتأريخ المستند).
+     *  • الشركة بضريبتها وtrue (كاش جهازٍ قديم بعد إعادة الضريبة): الحيّ 409 TAX_MODE_CHANGED فيجلب الشركة ويعيد التسعير؛ وإعادة رفع
+     *    المندوب كل بنودها صفر ⇒ مختومة بلا ضريبة (none/null) فتطابق ورقة العميل، وبندٌ فوق الصفر ⇒ كما بُني.
+     *  • الشركة بضريبتها وfalse أو غائب: لا شيء — المسار حرفاً بحرف */
+    let docTaxFree = false;
+    const builtTaxFree = req.user?.apiKeyId ? undefined : body.builtTaxFree;
+    if (isTaxOff(company)) {
+      const taxRepReplay = isReplay && req.user?.role === 'SALES_REP' && !req.user?.apiKeyId;
+      const taxDeviceMs = taxRepReplay && deviceAt ? Date.parse(deviceAt) + deviceClockSkewMs(priceDeviceNow, priceNow) : NaN;
+      const taxChangedMs = company?.taxModeChangedAt ? new Date(company.taxModeChangedAt).getTime() : NaN;
+      const taxReplayPredates = taxRepReplay && (builtTaxFree === false || (builtTaxFree === undefined
+        && Number.isFinite(taxDeviceMs) && Number.isFinite(taxChangedMs) && taxDeviceMs < taxChangedMs));
+      const taxed = body.items.some((it) => (it.taxPct ?? 0) > 0);
+      if (!taxReplayPredates && !(taxed && taxRepReplay)) {
+        if (taxed && (req.user?.apiKeyId || !(body.type === 'RETURN' && body.originalInvoiceId))) {
+          if (req.user?.apiKeyId) {
+            res.status(422).json({ success: false, code: TAX_MODE_CODES.disabled, message: TAX_MODE_MESSAGES.TAX_DISABLED }); return;
+          }
+          res.status(409).json({ success: false, code: TAX_MODE_CODES.changed, message: TAX_MODE_MESSAGES.TAX_MODE_CHANGED }); return;
+        }
+        for (const it of body.items) it.taxPct = 0;
+        docTaxFree = true;
+      }
+    } else if (builtTaxFree === true) {
+      // الشركة بضريبتها والجهاز سعّر بلا ضريبة (E1): الحيّ يُعاد تسعيره، وإعادة رفع المندوب صفراً تُختم كورقتها
+      if (!(isReplay && req.user?.role === 'SALES_REP')) {
+        res.status(409).json({ success: false, code: TAX_MODE_CODES.changed, message: TAX_MODE_MESSAGES.TAX_MODE_CHANGED }); return;
+      }
+      // والختم لشركةٍ مرّت بإزالة الضريبة فعلاً (taxModeChangedAt) — وإلا فالمسار كما بُني اليوم حرفياً
+      if (company?.taxModeChangedAt != null && body.items.every((it) => (it.taxPct ?? 0) === 0)) {
+        for (const it of body.items) it.taxPct = 0;
+        docTaxFree = true;
+      }
+    }
     // لحظة المستند على الجهاز (deviceAt — لا لحظة لمفتاح API، ولا إعادة رفع له أصلاً)
     const replayDocAt = isReplay && deviceAt && !Number.isNaN(new Date(deviceAt).getTime()) ? new Date(deviceAt) : null;
     const unitSnap: LineUnit[] = [];
@@ -1339,18 +1411,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // الإشعار الدائن «برقمٍ يدويّ» (المرحلة الثانية والاشتراط مطفأ): رفض سعر مندوبٍ بلا «تغيير السعر» فوق مرجع حارس البيع — يُقرأ هناك وحده
     let repReturnPriceProblem: string | null = null;
 
-    // ضريبة وعملة دولة الشركة — تُطبَّق على البنود التي لم تُحدَّد ضريبتها، وتضبط خانات التقريب (وهامش حارس سعر المندوب أدناه)
-    const company = await prisma.companySettings.findUnique({
-      where: { tenantId: tid },
-      // zatcaPhase2StartedAt: قرار النظام الضريبي (Z5.2) يُقرأ من هذا الصفّ المحمَّل أصلاً — صفر استعلامات للمرحلة الأولى
-      // zatcaGoLiveArmedAt (Z5.8، نقد 4): رفض إصدار المرحلة الأولى بعد التسليح — NULL لكلّ الشركات اليوم فلا أثر
-      // returnRequiresSaleInvoice/returnPolicyChangedAt: «اشتراط اختيار فاتورة البيع للمرتجع» من الصفّ نفسه — لا استعلام
-      select: {
-        defaultVatPct: true, countryCode: true, currency: true, einvoiceProvider: true, zatcaPhase2StartedAt: true, zatcaGoLiveArmedAt: true,
-        returnRequiresSaleInvoice: true, returnPolicyChangedAt: true,
-      },
-    });
-    const companyVat = company?.defaultVatPct ?? 15;
+    // ضريبة دولة الشركة (صفّ الإعدادات مقروءٌ أعلاه قبل حلّ الوحدات) — تُطبَّق على البنود التي لم تُحدَّد ضريبتها، وصفرٌ لمستندٍ «بلا ضريبة»
+    const companyVat = docTaxFree ? 0 : (company?.defaultVatPct ?? 15);
     // الخانات من العملة الفعلية (تجاوز الدولار/اليورو يغلب خانات الدولة — كويتية بالدولار: خانتان لا ثلاث)
     const dec = currencyDecimalsOf(company?.currency ?? getCountryTax(company?.countryCode).currency);
 
@@ -1475,8 +1537,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     }
 
     // مزوّد الفوترة الإلكترونية وحالتها المبدئية: ZATCA/none = جاهزة (QR محلي)؛ ETA/Peppol/TTN = بانتظار الإرسال الحكومي
-    const einvoiceProvider = (company as { einvoiceProvider?: string } | null)?.einvoiceProvider || getCountryTax(company?.countryCode).provider;
-    const einvoiceStatus = ['eta', 'peppol', 'ttn'].includes(einvoiceProvider) ? 'pending' : 'generated';
+    // («إزالة الضريبة»: المستند بلا ضريبة لا مزوّد له ولا حالة — none وnull، فلا شارة فوترة إلكترونية)
+    const einvoiceProvider = docTaxFree ? 'none' : ((company as { einvoiceProvider?: string } | null)?.einvoiceProvider || getCountryTax(company?.countryCode).provider);
+    const einvoiceStatus = docTaxFree ? null : (['eta', 'peppol', 'ttn'].includes(einvoiceProvider) ? 'pending' : 'generated');
 
     // محرّك الحساب المشترك — نفس الوحدة التي يستخدمها تطبيق المندوب أوف-لاين، فتتطابق
     // الورقة المطبوعة مع سجلّ الخادم (lib/invoiceCalc.ts).
@@ -1622,7 +1685,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
      * المسار القديم كما لو لم يكن الفرع. وكلّ ما عدا ذلك ردٌّ جاهز: 201/202 للإصدار، و426 لحزمة قديمة، و409 لإعادة
      * رفعٍ من قبل التفعيل، و422 لبيانات المشتري أو المبالغ، و503 لوحدة محجوبة.
      */
-    if (regimeCandidate({
+    // مستندٌ مختوم «بلا ضريبة» (docTaxFree) لا يدخل فرع المرحلة الثانية أبداً — صدر بلا ضريبة فيبقى بالمسار القديم وختمه
+    if (!docTaxFree && regimeCandidate({
       tenantId: tid,
       settings: {
         countryCode: company?.countryCode ?? null,
@@ -1793,7 +1857,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     let refundLines = new Map<string, SaleLineForRefund>();
     let refundReturned = new Map<string, number>();
     const priceRefund = (returned: ReadonlyMap<string, number>): Priced => {
-      const c = priceLinkedReturn(body.items, saleLinkLines, refundLines, returned, { companyVat, decimals: dec });
+      // «إزالة الضريبة»: المرتجع بلا ضريبة بنسبة صفر والمبلغ نفسه (والشركة بضريبتها: الخيارات كما كانت حرفياً)
+      const c = priceLinkedReturn(body.items, saleLinkLines, refundLines, returned, docTaxFree ? { companyVat, decimals: dec, taxFree: true } : { companyVat, decimals: dec });
       return {
         items: finalItems.map((src, idx) => ({ ...src, ...c.items[idx] })),
         subtotal: c.subtotal, discountAmt: c.discountAmt, taxAmt: c.taxAmt, total: c.total, pricesIncludeTax: true, discountPct: 0,
@@ -1955,6 +2020,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           remainingAmt: isReturn ? 0 : (body.type === 'CASH' ? 0 : priced.total),
           einvoiceProvider,
           einvoiceStatus,
+          // «إزالة الضريبة»: ختم المستند «بلا ضريبة» — يحكم عرضه وطباعته أبداً (المستند بضريبته لا يُكتب له المفتاح فيبقى كما كان)
+          ...(docTaxFree && { taxFree: true }),
           items: {
             create: priced.items.map((i, idx) => ({
               productId: i.productId,

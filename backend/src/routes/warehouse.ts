@@ -44,6 +44,7 @@ export async function warehouseAsOf(tid: string, asOf: unknown): Promise<Date | 
 import { netUnitCost, entryTotalCost, lineCost } from '../services/warehouseCost';
 // مفتاح منع التكرار للوارد والتسوية (D8): بلا قيدٍ فريد — قفلٌ استشاري على المرجع ثم البحث به داخل المعاملة
 import { CLIENT_REF_SCHEMA, ClientRefReplay, clientRefQuery, lockClientRef } from '../services/stockClientRef';
+import { isTaxOff } from '../services/taxMode';
 
 const router = Router();
 router.use(authenticate);
@@ -285,7 +286,11 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
       const at = items.findIndex((i) => !trackedNow.has(i.productId) && warehouseLineCarriesLot(i));
       if (at >= 0) throw lotOnUntrackedError(products.find((p) => p.id === items[at].productId)?.name ?? '', items[at].productId, at);
     }
-    const taxOf = new Map(products.map((p) => [p.id, p.taxPct]));
+    // «إزالة الضريبة»: الشركة بلا ضريبة غير مسجّلة فلا تستردّ ضريبة مدخلات — النسبة الفعلية صفر فالتكلفة المخزَّنة ما كُتب.
+    // العلم يُقرأ حين يلزم الردّ من الشامل وحده (costsIncludeTax وسطرٌ بسعر)، فالوارد بلا الخيار بلا استعلامٍ زائد كما كان
+    const taxOff = data.costsIncludeTax && items.some((i) => i.unitCost != null)
+      && isTaxOff(await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { taxDisabled: true } }));
+    const taxOf = new Map(products.map((p) => [p.id, taxOff ? 0 : p.taxPct]));
     // لقطة وحدة كل بند بترتيب `items` — يحلّها الخادم من وحدات الصنف (بلا unitId ⇒ الأساس، ولا استعلام)
     const units = await resolveLineUnits(tid, items);
 
