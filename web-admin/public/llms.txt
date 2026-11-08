@@ -81,34 +81,34 @@ Key facts:
 
 ## Guides (pillar articles)
 
-- [Field Sales Management Software in Arab markets](https://fieldsa.net/en/blog/field-sales-software/): Field sales management software runs the rep's whole selling cycle from a phone: visiting the customer, issuing and printing the invoice on the spot, collecting cash or recording credit, and deducting the sale from van stock in real time.
-- [Offline Field Sales App & Mobile Invoicing in Arab markets](https://fieldsa.net/en/blog/mobile-field-invoicing/): Mobile field invoicing means issuing and printing the invoice in front of the customer during the visit, on a 58mm or 80mm Bluetooth thermal printer.
-- [GPS Rep Tracking in Arab markets](https://fieldsa.net/en/blog/gps-rep-tracking/): GPS rep tracking is not surveillance; it ties each visit and invoice to a place and a time.
-- [Distributor Management System (DMS) Software in Arab markets](https://fieldsa.net/en/blog/distribution-management-system/): A distributor management system (DMS) connects warehouse, van and outlet in one chain: stock is loaded onto the van, the rep sells from it and issues the invoice, and at day's end the dashboard shows what remains per item against what was loaded and sold.
-- [Distribution Customer & Credit Management in Arab markets](https://fieldsa.net/en/blog/distribution-customer-management/): Managing distribution customers differs from sales CRM in that the customer here is a running balance, not a deal to close.
-- [Van Stock & Inventory in Arab markets](https://fieldsa.net/en/blog/van-stock-inventory/): Van stock is controlled by a single balance equation: expected at day's end = opening balance + loaded − sold + returned − damaged.
-- [Van Sales App in Arab markets](https://fieldsa.net/en/blog/van-sales-app/): A van sales app turns the rep's vehicle into both a mobile warehouse and a point of sale: the rep sees what is on board, sells it, prints the invoice on a thermal printer, and the item leaves the van's balance immediately.
+- [Field Sales Management Software worldwide](https://fieldsa.net/en/blog/field-sales-software/): Field sales management software runs the rep's whole selling cycle from a phone: visiting the customer, issuing and printing the invoice on the spot, collecting cash or recording credit, and deducting the sale from van stock in real time.
+- [Offline Field Sales App & Mobile Invoicing worldwide](https://fieldsa.net/en/blog/mobile-field-invoicing/): Mobile field invoicing means issuing and printing the invoice in front of the customer during the visit, on a 58mm or 80mm Bluetooth thermal printer.
+- [GPS Rep Tracking worldwide](https://fieldsa.net/en/blog/gps-rep-tracking/): GPS rep tracking is not surveillance; it ties each visit and invoice to a place and a time.
+- [Distributor Management System (DMS) Software worldwide](https://fieldsa.net/en/blog/distribution-management-system/): A distributor management system (DMS) connects warehouse, van and outlet in one chain: stock is loaded onto the van, the rep sells from it and issues the invoice, and at day's end the dashboard shows what remains per item against what was loaded and sold.
+- [Distribution Customer & Credit Management worldwide](https://fieldsa.net/en/blog/distribution-customer-management/): Managing distribution customers differs from sales CRM in that the customer here is a running balance, not a deal to close.
+- [Van Stock & Inventory worldwide](https://fieldsa.net/en/blog/van-stock-inventory/): Van stock is controlled by a single balance equation: expected at day's end = opening balance + loaded − sold + returned − damaged.
+- [Van Sales App worldwide](https://fieldsa.net/en/blog/van-sales-app/): A van sales app turns the rep's vehicle into both a mobile warehouse and a point of sale: the rep sees what is on board, sells it, prints the invoice on a thermal printer, and the item leaves the van's balance immediately.
 - [What Is Field Sales Management Software?](https://fieldsa.net/en/blog/what-is-field-sales-management/): Field sales management software runs the work that happens outside the office: the rep on the street, the customer in their shop, the goods in the van.
 - [Retail Execution for FMCG Distributors](https://fieldsa.net/en/blog/retail-execution/): Retail execution is verifying that what was agreed with the outlet actually happened on the shelf: the item is present, the price is right, the promotion is applied.
 - [How to Choose a Field Sales System](https://fieldsa.net/en/blog/how-to-choose-field-sales-system/): Choosing a field sales system is settled by five questions rather than a feature list.
 - [Van Sales Best Practices](https://fieldsa.net/en/blog/van-sales-best-practices/): Van sales best practice comes down to controlling three things daily.
 - [How to Reduce Overdue Receivables](https://fieldsa.net/en/blog/reduce-overdue-receivables/): Overdue receivables are solved by prevention, not pursuit.
-- [Sales Reports & Analytics in Arab markets](https://fieldsa.net/en/blog/sales-reports-analytics/): Useful field sales reports answer a decision rather than display numbers.
+- [Sales Reports & Analytics worldwide](https://fieldsa.net/en/blog/sales-reports-analytics/): Useful field sales reports answer a decision rather than display numbers.
 - [Increase Field Rep Productivity](https://fieldsa.net/en/blog/increase-rep-productivity/): Field rep productivity is measured by productive visits rather than visit count: how many visits ended in an actual order.
 - [Key Field Sales KPIs](https://fieldsa.net/en/blog/field-sales-kpis/): Six indicators are enough to run a field team: coverage rate (outlets visited ÷ planned), productive visit rate (visits ending in an order ÷ visits), average invoice value, collection against amount due, average debt age, and van stock shortage rate.
 - [Why Offline Matters in Field Sales](https://fieldsa.net/en/blog/offline-field-sales-app/): Offline operation is not a nice-to-have in field sales but an operational requirement: many outlets sit inside markets and buildings with no stable signal, and the rep cannot postpone the sale until coverage returns.
 - [Thermal Printing of Field Invoices](https://fieldsa.net/en/blog/thermal-printing-invoices/): Field thermal printing uses a portable 58mm or 80mm Bluetooth printer that prints by heat on sensitive paper with no ink.
 - [Controlling Credit Limits](https://fieldsa.net/en/blog/credit-limit-control/): A credit limit works when going over it becomes a management decision rather than a silent event under selling pressure.
-- [E-Invoicing & Tax Compliance in Arab markets](https://fieldsa.net/en/blog/einvoicing-compliance/): E-invoicing means issuing the invoice in a structured digital format that systems can read, rather than a hand-written slip.
+- [E-Invoicing & Tax Compliance worldwide](https://fieldsa.net/en/blog/einvoicing-compliance/): E-invoicing means issuing the invoice in a structured digital format that systems can read, rather than a hand-written slip.
 - [Pricing Tiers Strategy](https://fieldsa.net/en/blog/pricing-tiers-strategy/): Price tiers in distribution rest on one of three bases: customer type (wholesale, semi-wholesale, retail), purchased quantity, or an agreement specific to one customer.
 - [Digital Transformation for Distributors](https://fieldsa.net/en/blog/digital-transformation-distribution/): Digital transformation in distribution does not start with the system but with identifying which link is run on paper and costs the most: usually the hand-written invoice, or van stock that stays unknown until month-end, or the customer balance only the accountant knows.
 - [Sales Route Planning](https://fieldsa.net/en/blog/route-planning-sales/): Route planning means fixing which outlet is visited on which day and at what frequency, instead of leaving the order to the rep's daily judgement.
 - [Following Up Distribution Sales on WhatsApp](https://fieldsa.net/en/blog/whatsapp-sales-followup/): WhatsApp is the real communication channel between distributors in the region and their customers, but it fails as a management tool for one reason: the message is never recorded against the customer's account.
 - [ROI of a Field Sales System](https://fieldsa.net/en/blog/field-sales-system-roi/): The return on a field sales system is computed from four items measurable inside your own company, not from a market average.
-- [Food, Dairy & Wholesale Distribution Solutions in Arab markets](https://fieldsa.net/en/blog/wholesale-food-distributors/): Food distribution imposes a constraint other sectors do not have: items expire, so issuing must follow oldest-first or stock becomes guaranteed loss.
-- [Sales Rep Management in Arab markets](https://fieldsa.net/en/blog/sales-rep-management/): Managing sales reps rests on three measurable things: what each rep sold, how much they collected, and where they were during the working day.
-- [FMCG Trade Marketing & Distribution in Arab markets](https://fieldsa.net/en/blog/fmcg-distribution/): FMCG distribution is run on frequency rather than deal size: many outlets, small invoices, close visit intervals.
-- [Collection & Receivables in Arab markets](https://fieldsa.net/en/blog/collection-receivables/): Collection in distribution fails because nobody knows the customer's true balance during the visit.
+- [Food, Dairy & Wholesale Distribution Solutions worldwide](https://fieldsa.net/en/blog/wholesale-food-distributors/): Food distribution imposes a constraint other sectors do not have: items expire, so issuing must follow oldest-first or stock becomes guaranteed loss.
+- [Sales Rep Management worldwide](https://fieldsa.net/en/blog/sales-rep-management/): Managing sales reps rests on three measurable things: what each rep sold, how much they collected, and where they were during the working day.
+- [FMCG Trade Marketing & Distribution worldwide](https://fieldsa.net/en/blog/fmcg-distribution/): FMCG distribution is run on frequency rather than deal size: many outlets, small invoices, close visit intervals.
+- [Collection & Receivables worldwide](https://fieldsa.net/en/blog/collection-receivables/): Collection in distribution fails because nobody knows the customer's true balance during the visit.
 
 ## Country guides (English)
 
@@ -132,7 +132,7 @@ Key facts:
 
 ## Best / comparison guides (buyer intent)
 
-- [Best Field Sales & Distribution Software in Arab markets](https://fieldsa.net/en/blog/best-field-sales-software/): No system is the best for everyone — only the one that fits your size and sector.
+- [Best Field Sales & Distribution Software worldwide](https://fieldsa.net/en/blog/best-field-sales-software/): No system is the best for everyone — only the one that fits your size and sector.
 - [Best Field Sales & Distribution Software in Saudi Arabia](https://fieldsa.net/en/blog/best-field-sales-software-sa/)
 - [Best Field Sales & Distribution Software in Egypt](https://fieldsa.net/en/blog/best-field-sales-software-eg/)
 - [Best Field Sales & Distribution Software in the UAE](https://fieldsa.net/en/blog/best-field-sales-software-ae/)
