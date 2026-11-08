@@ -58,8 +58,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: web-admin/package-lock.json
 
-      # يجلب المقالات الحيّة من الـCMS العام ويعيد توليد الخريطة مع hreflang (بلا حاجة لتثبيت حزم)
+      # gen-sitemap وgen-llms يستوردان esbuild (تحميل وحدات TS) منذ 936e8cd — بلا تثبيت فشلت المهمة كل يوم
+      # من ٥ أكتوبر ٢٠٢٦ (ERR_MODULE_NOT_FOUND) فتوقّف تحديث الخريطة وإشعار IndexNow حتى ٨ نوفمبر
+      - name: تثبيت الحزم بنسخ القفل
+        run: npm ci --no-audit --no-fund
+
+      # يجلب المقالات الحيّة من الـCMS العام ويعيد توليد الخريطة مع hreflang
       - name: تحديث خريطة الموقع من المحتوى الحيّ
         run: node scripts/gen-sitemap.mjs
 
