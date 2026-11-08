@@ -8,6 +8,8 @@
  *  - severity: 'warn' تحذير يُطبع ولا يُفشل البناء؛ غيابها = حاجبة.
  *  - cmsWarn: حاجبة لنصوص المستودع وتحذير لنصوص CMS — verify-claims يسند كل مطابقة بسياقها (fromCmsContext).
  *  - scope: 'head' (العنوان والوصف وH1) · 'raw' (HTML الخام) · الافتراضي النصّ المرئي.
+ *  - paths / exceptPaths: تقصر القاعدة في verify-claims على ملفات dist التي يطابق مسارها النسبي paths ولا يطابق
+ *    exceptPaths (الفاصل / أو \). checkText في الاختبارات يطبّقها على أي نصّ بلا مسار.
  *
  * ⚠️ كل نصّ يُطبَّع بـnorm (حذف التشكيل والتطويل) قبل الفحص، والأنماط مكتوبة بلا تشكيل:
  *    كان النمط «مُفعّل» لا يطابق «مفعّل» ولا «مفعل»، و«مُعتمَد» يفلت من «معتمد».
@@ -115,6 +117,35 @@ const PHASE1_STALE_FORM = [
   'What\\s+ships\\s+today[^.؛\\n]{0,60}?Phase[\\s-]*(?:1|one)\\b',
   'دور[ةه]\\s*(?:ال)?مرحل[ةه]\\s*ال[أا]ول[ىي]',
 ].join('|');
+
+/**
+ * أسماء المنافسين لقاعدة competitor-name (حاجبة مطلقاً). الأصل من السوق العربي، ووُسّعت (٨ نوفمبر ٢٠٢٦) بما ظهر
+ * في بحث الأسواق العالمية لخطة SEO متعدد اللغات، قبل أي صفحة بلغة جديدة — تصحيح نقد الخطة:
+ * الأسماء لا تدخل القواميس ولا تعليمات الترجمة، والحارس يمنع تسرّبها من نصّ مترجم أو CMS.
+ * المستبعد عمداً (يلتبس بكلمات عامة أو بأنظمة ERP تُذكر تكاملاً): Odoo · SAP · Sage وحدها · Tally · Priority · Logo ·
+ * Mikro · Bling · Venda · Fast · Sapo · 1C/ERPNext — والنموذج يُقارن بالنماذج لا بالأسماء.
+ * فُحصت قبل الإضافة على مصادر المستودع (src وscripts وpublic وindex.html) ونصوص CMS الحيّة: صفر مطابقة.
+ */
+const COMPETITORS_LATIN = [
+  // السوق العربي (الأصل)
+  'MEST\\s*SE', 'mestsoft', 'Daftra', 'Qoyod', 'qoyod\\.com', 'daftra\\.com', 'Delta\\s*Sales\\s*App', 'deltasalesapp', 'PepUpSales', 'pepupsales',
+  'ALZERP', 'Star\\s*Business\\s*ERP', 'Mandob\\s*Optimum', 'Plugin-ERP', 'BI-Technologies', 'UpGrowth',
+  // أفريقيا الفرنكوفونية والمغرب والشرق الأفريقي وجنوبه وغربه
+  'Kolonell', 'FieldPro', 'Optimetriks', 'BeatRoute', 'Field\\s*Assist', 'Predictiv', 'Massist', 'Skynamo', 'MACmobile', 'bMobile\\s*Route',
+  'Sodapp', 'LaceUp', 'MarketForce\\s*360', 'Matiyas', 'SmartBiashara', 'UzaPoint', 'Levanda\\s*POS', 'CloudApper', 'InfoVera', 'Sales\\s*Diary',
+  // أمريكا اللاتينية وإيبيريا
+  'M[áa]xima\\s*Tech', 'maxPedido', 'MaxMotorista', 'Omie', 'Conta\\s*Azul', 'PagVendas', 'Mobilvendor', 'CPG\\s*Soft', 'YoFacturo', 'Ofima',
+  'Cegid', 'GotelGest', 'FarAndSoft', 'Sage\\s*Sales\\s*Management', 'ForceManager',
+  // أوروبا
+  'Azuvio', 'Ediconnect', 'Senior\\s*SFA', 'Dynamics\\s*Mobile', 'App4Sales', 'inSitu\\s*Sales', 'Comarch', 'Asseco', 'WAPRO', 'Comax2Go',
+  'osapiens',
+  // آسيا
+  'Bizom', 'Botree', 'Trackolap', 'SalesOn', 'SAMS\\s*Online', 'Softvirtue', 'Moneypex', 'HysabOne', 'Tarkie', 'Ivy\\s*Mobility', 'SimpliDOTS',
+  'MileApp', 'Salesmania', 'HashMicro', 'iReap', 'MountainTop\\s*OrderIT', 'MySales\\s*Buddy', 'Ak[ıi]nsoft', 'MobiWork', 'MISA\\s*AMIS',
+  'DMS\\s*NextX', 'Mobisale', 'Ecount',
+];
+/** بلا \b (حدّ الكلمة في JS لاتيني فقط): الصينية والكورية والروسية */
+const COMPETITORS_OTHER = ['勤策', '外勤365', '舟谱云', '纷享销客', '易订货', '易指快销', '세일즈덕', '샤플', '모두의거래', 'Агент\\s*Плюс'];
 
 export const RULES = [
   {
@@ -227,6 +258,20 @@ export const RULES = [
     why: 'لا عملاء مرجعيون — أي رقم ثقة غير مملوك',
   },
   {
+    id: 'arab-only-targeting',
+    // التموضع عالمي (قرار المالك ٨ نوفمبر ٢٠٢٦: المنصة لكل دول العالم): عنوان صفحة إنجليزية أو فرنسية أو تركية أو
+    // صينية ووصفها وH1 لا تحصر الاستهداف في «الأسواق العربية» ونظائرها — كان عنوان /en/ «…Software for Arab Markets»
+    // فيذهب الباحث خارج المنطقة إلى غيرنا. القيد على الرأس وحده لا على المتن: شرح السوق العربية في مقال
+    // عنها محتوى صحيح. ومقالات المدوّنة مستثناة بالمسار (exceptPaths): الصفحات الجامعة في catalog.mjs (REGION)
+    // موضوعها المنطقة العربية فعلاً (جدول مقارنة دولها الـ22)، فعنوانها «…in Arab markets» وصفٌ صادق لها.
+    // الصفحات العربية خارج القاعدة (paths): الجذر العربي وعناوينه المفهرسة لا تُمسّ.
+    re: /\bArab\s+(?:markets?|world)\b|march[ée]s\s+arabes?|monde\s+arabe|Arap\s+(?:pazar|dünya)\w*|阿拉伯(?:市场|世界)/i,
+    scope: 'head', // العنوان والوصف وH1 — gen-llms يستثني نطاق head (llms.txt يحمل عناوين المقالات الجامعة)
+    paths: /^(?:en|fr|tr|zh)[\\/]/,
+    exceptPaths: /^(?:en|fr|tr|zh)[\\/]blog[\\/][^\\/]+[\\/]/,
+    why: 'عنوان أو وصف صفحة غير عربية يحصر الاستهداف في الأسواق العربية — التموضع عالمي (شركات التوزيع في أي دولة)',
+  },
+  {
     id: 'competitor-name',
     // قرار المالك (٢٩ يوليو ٢٠٢٦): **لا يُذكر اسم أي منافس في أي مخرَج، أبداً.**
     // المقارنة تبقى قائمة لكن بالنماذج لا بالأسماء (انظر /pricing).
@@ -237,7 +282,7 @@ export const RULES = [
     //
     // «قيود» و«دفترة» و«مست» كلمات عربية شائعة (قيود محاسبية · دفترة الحسابات)،
     // لذلك تُطابَق الأسماء اللاتينية والنطاقات فقط — والعربية منها ما لا يلتبس.
-    re: /\b(MEST\s*SE|mestsoft|Daftra|Qoyod|qoyod\.com|daftra\.com|Delta\s*Sales\s*App|deltasalesapp|PepUpSales|pepupsales)\b/i,
+    re: new RegExp(`\\b(?:${COMPETITORS_LATIN.join('|')})\\b|(?:${COMPETITORS_OTHER.join('|')})`, 'i'),
     scope: 'raw', // يشمل الروابط والوسوم لا النصّ المرئي وحده
     why: 'ذكر اسم منافس — قرار المالك: المقارنة بالنماذج لا بالأسماء',
   },

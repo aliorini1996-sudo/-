@@ -26,12 +26,15 @@ const outArg = argv.indexOf('--out') >= 0 ? argv[argv.indexOf('--out') + 1] : nu
 const OUT = outArg ? path.resolve(outArg) : path.join(ROOT, 'public/sitemap.xml');
 
 /**
- * الصفحات التسويقية المُصيَّرة. الرئيسية وحدها بخمس لغات؛ والبقية بثلاث (ع/إ/فر) لأن prerender
+ * الصفحات التسويقية المُصيَّرة. الرئيسية و«احجز اجتماعاً» بخمس لغات؛ والبقية بثلاث (ع/إ/فر) لأن prerender
  * لا يصيّر لها نسخة تركية ولا صينية — كانت الخريطة تعلن /tr/about و/zh/pricing وأخواتها (16 رابطاً)
  * فيتسلّم الزاحف قوقعة الرئيسية بـcanonical «/». مطابقة لـavailableLangs في src/i18n/locale.ts.
  */
+const FIVE_LANG = new Set(['/', '/meeting']);
 const I18N_ROUTES = [
   { p: '/', priority: '1.0', freq: 'weekly' },
+  // lastmod تاريخ الصفحة نفسها (أُنشئت ٨ نوفمبر ٢٠٢٦) لا CONTENT_VERSION الأقدم منها
+  { p: '/meeting', priority: '0.6', freq: 'monthly', lastmod: '2026-11-08' },
   { p: '/about', priority: '0.7', freq: 'monthly' },
   { p: '/contact', priority: '0.7', freq: 'monthly' },
   { p: '/calculator', priority: '0.9', freq: 'weekly' },
@@ -41,7 +44,7 @@ const I18N_ROUTES = [
   { p: '/privacy', priority: '0.3', freq: 'yearly' },
   { p: '/service-agreement', priority: '0.3', freq: 'yearly' },
 ];
-const langsFor = (arPath) => (arPath === '/' ? ['ar', 'en', 'fr', 'tr', 'zh'] : ['ar', 'en', 'fr']);
+const langsFor = (arPath) => (FIVE_LANG.has(arPath) ? ['ar', 'en', 'fr', 'tr', 'zh'] : ['ar', 'en', 'fr']);
 
 /**
  * محتوى CMS **كما يُنشر** (scripts/cms-content.mjs، الوحدة نفسها في prerender وgen-llms): الجلب بمحاولات حتى
@@ -94,9 +97,11 @@ const urlsOf = (arPath) => {
 };
 
 /**
- * عنقود hreflang للغات الموجودة فقط (langs) + x-default إلى العربية.
+ * عنقود hreflang للغات الموجودة فقط (langs) + x-default: الإنجليزية إن كانت في العنقود، وإلا العربية —
+ * القاعدة نفسها في xDefaultLang (src/i18n/locale.ts) وhreflangFor (scripts/prerender.mjs)، ويفرضها verify-sitemap.
  * لغة واحدة ⇒ لا عنقود (صفحة بلا نسخ لغوية لا تحتاج hreflang، كما في HTML المُصيَّر).
  */
+const xDefaultOf = (langs) => (langs.includes('en') ? 'en' : langs.includes('ar') ? 'ar' : langs[0]);
 const alt = (arPath, langs = langsFor(arPath)) => {
   if (langs.length < 2) return '';
   const u = urlsOf(arPath);
@@ -107,7 +112,7 @@ const alt = (arPath, langs = langsFor(arPath)) => {
     tr: `    <xhtml:link rel="alternate" hreflang="tr" href="${u.tr}"/>`,
     zh: `    <xhtml:link rel="alternate" hreflang="zh-Hans" href="${u.zh}"/>`,
   };
-  return [...langs.map((L) => line[L]), `    <xhtml:link rel="alternate" hreflang="x-default" href="${langs.includes('ar') ? u.ar : u[langs[0]]}"/>`].join('\n');
+  return [...langs.map((L) => line[L]), `    <xhtml:link rel="alternate" hreflang="x-default" href="${u[xDefaultOf(langs)]}"/>`].join('\n');
 };
 
 const imageBlock = (img) => (img ? `    <image:image>\n      <image:loc>${img}</image:loc>\n    </image:image>\n` : '');
@@ -145,7 +150,7 @@ async function main() {
     const langs = langsFor(r.p);
     const alternates = alt(r.p, langs);
     const u = urlsOf(r.p);
-    for (const L of langs) urls.push(urlEntry(u[L], { lastmod: r.p === '/' && L === 'ar' ? homeArMod : CONTENT_VERSION, freq: r.freq, priority: r.priority, alternates }));
+    for (const L of langs) urls.push(urlEntry(u[L], { lastmod: r.p === '/' && L === 'ar' ? homeArMod : (r.lastmod || CONTENT_VERSION), freq: r.freq, priority: r.priority, alternates }));
   }
 
   // فهرس المدوّنة (عربي + /en + /fr مع hreflang)

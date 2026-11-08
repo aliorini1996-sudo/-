@@ -131,6 +131,9 @@ for (const f of files) {
   ].join(' ').replace(/<[^>]+>/g, ' ');
 
   for (const rule of RULES) {
+    // قواعد مقصورة على مسارات (arab-only-targeting: الصفحات غير العربية عدا مقالات المدوّنة)
+    if (rule.paths && !rule.paths.test(rel)) continue;
+    if (rule.exceptPaths && rule.exceptPaths.test(rel)) continue;
     const haystack = rule.scope === 'head' ? head : rule.scope === 'raw' ? raw : text;
     if (rule.cmsWarn) {
       // اسم قصير يوجد في CMS ما دام المقال حيّاً ⇒ الإسناد بالسياق الملاصق لا بالنصّ وحده (fromCmsContext).

@@ -16,6 +16,12 @@
  *   4) صورة مشاركة (og:image / twitter:image) أو <img> محلية أو image:loc غير موجودة في dist.
  *   5) رابط داخلي <a href> **مصدره المستودع** يشير إلى صفحة غير مُصيَّرة وليس مسار تطبيق معروفاً،
  *      أو رابط بلاحقة ‎-region‎.
+ *   6) x-default في عنقود الخريطة لا يتبع القاعدة: الإنجليزية إن كانت في العنقود، وإلا العربية
+ *      (xDefaultLang في src/i18n/locale.ts — والصفحة تطابق الخريطة بالبند 3).
+ *   7) robots.txt: قاعدة Disallow (في أي مجموعة User-agent) تحجب رابطاً في الخريطة أو بادئة لغة
+ *      (/xx/ لكل رمز ISO 639-1) — كانت `Disallow: /m` تحجب /meeting/ وكل بادئة تبدأ بـm كـ/ms/ و/mr/.
+ *      والقواعد كلها تُفحص لا /m وحدها (/rep تبتلع /rep-app إلا بـAllow، و/app تبتلع أي مسار تسويقي يبدأ بها).
+ *      وبالعكس: مسارات التطبيق (/m و/m/… و/rep و/app و/login…) يجب أن تبقى محجوبة.
  *
  * ويُحذّر دون إفشال (تصحيح الناقد 15): الروابط المعطوبة داخل نص مقالات CMS (contentHtml)،
  * لأن المالك يحرّرها من اللوحة، ولا يصحّ أن يُسقط تحريرُه نشرَ الموقع كله. الإسناد:
@@ -161,8 +167,83 @@ for (let attempt = 0; attempt < 2 && !cmsHrefs; attempt++) {
   } catch { /* محاولة ثانية ثم إسناد بنيوي */ }
 }
 
-// ───────── 1) الخريطة ← الصفحات ─────────
 const xml = fs.readFileSync(SITEMAP, 'utf8');
+
+// ───────── 0) robots.txt ← الخريطة وبادئات اللغات ─────────
+/**
+ * قواعد robots.txt مجموعةً مجموعة كما يقرؤها Google وBing وYandex: المطابقة من بداية المسار، و`*` أي تتابع،
+ * و`$` في آخر القاعدة نهاية المسار. الأطول مطابقةً يحكم، والتعادل لصالح Allow.
+ */
+const ROBOTS = fs.existsSync(path.join(DIST, 'robots.txt')) ? path.join(DIST, 'robots.txt') : path.join(ROOT, 'public/robots.txt');
+function robotsGroups(txt) {
+  const groups = [];
+  let cur = null;
+  let lastWasAgent = false;
+  for (const raw of String(txt).split(/\r?\n/)) {
+    const line = raw.replace(/#.*$/, '').trim();
+    const m = line.match(/^([A-Za-z-]+)\s*:\s*(.*)$/);
+    if (!m) continue;
+    const key = m[1].toLowerCase();
+    const val = m[2].trim();
+    if (key === 'user-agent') {
+      if (!lastWasAgent) { cur = { agents: [], rules: [] }; groups.push(cur); }
+      cur.agents.push(val);
+      lastWasAgent = true;
+      continue;
+    }
+    lastWasAgent = false;
+    if (!cur || (key !== 'allow' && key !== 'disallow') || !val) continue;
+    const anchored = val.endsWith('$');
+    const body = (anchored ? val.slice(0, -1) : val).replace(/[.+?^{}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+    cur.rules.push({ allow: key === 'allow', rule: val, len: val.length, re: new RegExp(`^${body}${anchored ? '$' : ''}`) });
+  }
+  return groups;
+}
+/** القاعدة الحاكمة لمسار في مجموعة (الأطول، والتعادل لـAllow) أو null إن لم تطابقه قاعدة */
+function robotsVerdict(group, p) {
+  let best = null;
+  for (const r of group.rules) {
+    if (!r.re.test(p)) continue;
+    if (!best || r.len > best.len || (r.len === best.len && r.allow && !best.allow)) best = r;
+  }
+  return best;
+}
+/** رموز ISO 639-1 — بادئة لغة حالية أو قادمة (/es/ و/ms/ و/pt/…) يجب ألّا تحجبها قاعدة بادئة عارية */
+const ISO_639_1 = ('aa ab ae af ak am an ar as av ay az ba be bg bh bi bm bn bo br bs ca ce ch co cr cs cu cv cy da de dv dz ee el en eo es et eu '
+  + 'fa ff fi fj fo fr fy ga gd gl gn gu gv ha he hi ho hr ht hu hy hz ia id ie ig ii ik io is it iu ja jv ka kg ki kj kk kl km kn ko kr ks ku kv kw '
+  + 'ky la lb lg li ln lo lt lu lv mg mh mi mk ml mn mr ms mt my na nb nd ne ng nl nn no nr nv ny oc oj om or os pa pi pl ps pt qu rm rn ro ru rw sa '
+  + 'sc sd se sg si sk sl sm sn so sq sr ss st su sv sw ta te tg th ti tk tl tn to tr ts tt tw ty ug uk ur uz ve vi vo wa wo xh yi yo za zh zu').split(' ');
+/** مسارات التطبيق التي يجب أن تبقى محجوبة عن الزحف (لوحات ودخول) */
+const MUST_BLOCK = ['/m', '/m/', '/m/login', '/rep', '/rep/', '/app', '/app/customers', '/platform', '/owner', '/staff', '/login'];
+let robotsChecked = 0;
+if (!fs.existsSync(ROBOTS)) {
+  report('error', 'robots-missing', 'لا يوجد robots.txt في dist ولا public', ROBOTS);
+} else {
+  const groups = robotsGroups(fs.readFileSync(ROBOTS, 'utf8'));
+  if (!groups.length) report('error', 'robots-empty', 'robots.txt بلا مجموعة User-agent', ROBOTS);
+  const label = (g) => g.agents.length > 1 ? `${g.agents[0]} (+${g.agents.length - 1})` : g.agents[0];
+  const sitemapPaths = [...xml.matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/g)].map((m) => {
+    try { return new URL(decodeEntities(m[1])).pathname; } catch { return null; }
+  }).filter(Boolean);
+  const langPrefixes = ISO_639_1.flatMap((c) => [`/${c}/`, `/${c}`]);
+  for (const g of groups) {
+    for (const p of [...sitemapPaths, ...langPrefixes]) {
+      robotsChecked++;
+      const v = robotsVerdict(g, p);
+      if (v && !v.allow) {
+        const what = sitemapPaths.includes(p) ? 'رابط في الخريطة' : 'بادئة لغة';
+        report('error', 'robots-blocks', 'robots.txt يحجب رابطاً في الخريطة أو بادئة لغة (قاعدة بادئة أعرض من مسار التطبيق)',
+          `${label(g)}: «Disallow: ${v.rule}» تحجب ${what} ${safeDecode(p)}`);
+      }
+    }
+    for (const p of MUST_BLOCK) {
+      const v = robotsVerdict(g, p);
+      if (!v || v.allow) report('error', 'robots-open', 'مسار تطبيق لم يعد محجوباً في robots.txt', `${label(g)}: ${p}${v ? ` (Allow: ${v.rule})` : ''}`);
+    }
+  }
+}
+
+// ───────── 1) الخريطة ← الصفحات ─────────
 const entries = [...xml.matchAll(/<url>([\s\S]*?)<\/url>/g)].map((m) => {
   const b = m[1];
   return {
@@ -190,6 +271,16 @@ for (const e of entries) {
   // بدائل الخريطة نفسها: كل بديل يجب أن يكون <loc> (وإلا عنقود يشير إلى صفحة لا نعلنها)
   for (const a of e.alts) {
     if (!locSet.has(normUrl(a.href))) report('error', 'alt-not-loc', 'بديل hreflang في الخريطة ليس رابطاً فيها', `${where} ← ${a.hreflang}: ${safeDecode(a.href)}`);
+  }
+  // x-default: الإنجليزية إن كانت في العنقود، وإلا العربية (xDefaultLang في src/i18n/locale.ts)
+  if (e.alts.length) {
+    const byLang = new Map(e.alts.map((a) => [a.hreflang.toLowerCase(), normUrl(a.href)]));
+    const want = byLang.get('en') || byLang.get('ar');
+    const xd = byLang.get('x-default');
+    if (!xd) report('error', 'x-default-missing', 'عنقود hreflang في الخريطة بلا x-default', where);
+    else if (want && xd !== want) {
+      report('error', 'x-default', 'x-default لا يتبع القاعدة (الإنجليزية إن كانت في العنقود وإلا العربية)', `${where} ← x-default: ${safeDecode(xd)} · المتوقّع: ${safeDecode(want)}`);
+    }
   }
   for (const img of e.images) {
     const ip = internalPath(img, ORIGIN + '/');
@@ -323,7 +414,7 @@ for (const f of pages) {
 }
 
 // ───────── الخلاصة ─────────
-console.log(`فحص الخريطة والروابط: ${entries.length} رابط في الخريطة · ${pages.length} صفحة مُصيَّرة · ${linkCount} رابط داخلي`
+console.log(`فحص الخريطة والروابط: ${entries.length} رابط في الخريطة · ${pages.length} صفحة مُصيَّرة · ${linkCount} رابط داخلي · ${robotsChecked} مسار مقابل robots.txt`
   + (cmsHrefs ? '' : ' · ⚠ تعذّر جلب CMS (الإسناد بنيوي وحده)'));
 const errors = [...issues.values()].filter((x) => x.level === 'error');
 const warns = [...issues.values()].filter((x) => x.level === 'warn');

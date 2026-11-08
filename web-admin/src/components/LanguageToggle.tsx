@@ -2,7 +2,7 @@ import { Globe, Check } from 'lucide-react';
 import { useState, useLayoutEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useLang, isAppRoute, type Lang } from '../i18n/lang';
-import { pathForLocale } from '../i18n/locale';
+import { switchLocalePath } from '../i18n/locale';
 import { backdropClose } from '../lib/backdropClose';
 
 const LANGS: { code: Lang; label: string }[] = [
@@ -54,11 +54,12 @@ export default function LanguageToggle({ variant = 'light' }: { variant?: 'light
     floating: 'text-[13px] px-3.5 py-2.5 bg-white text-[#1F1A13] shadow-lg border border-[#E9E1D3] hover:border-[#E15A30]',
   };
 
-  // اختيار لغة: داخل التطبيق يضبطها مباشرةً، وعلى التسويق ينتقل للرابط المقابل
+  // اختيار لغة: داخل التطبيق يضبطها مباشرةً، وعلى التسويق ينتقل للرابط المقابل إن كانت للصفحة نسخة
+  // بتلك اللغة، وإلا إلى رئيسيتها (switchLocalePath) — لا إلى مسار بلا صفحة يسقط إلى «غير موجودة»
   const choose = (code: Lang) => {
     setOpen(false);
     if (inApp) setLang(code);
-    else navigate(pathForLocale(loc.pathname, code));
+    else navigate(switchLocalePath(loc.pathname, code));
   };
 
   const current = LANGS.find((l) => l.code === lang) ?? LANGS[0];

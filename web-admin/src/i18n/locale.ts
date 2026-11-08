@@ -23,19 +23,15 @@ export function basePath(pathname: string): string {
   return pathname;
 }
 
-// يحوّل المسار الحالي إلى نظيره باللغة المطلوبة (للتبديل بين اللغات عبر الرابط)
-export function pathForLocale(pathname: string, locale: Lang): string {
-  const ar = basePath(pathname);
-  if (locale === 'ar') return ar;
-  const prefix = PREFIX[locale];
-  return ar === '/' ? prefix : prefix + ar;
-}
-
 /**
  * الصفحات التسويقية المُصيَّرة بثلاث لغات (ع/إ/فر) — مطابقة لـI18N_ROUTES في scripts/gen-sitemap.mjs
- * وصفحات INFO في scripts/prerender.mjs. الرئيسية وحدها بخمس لغات (التركية والصينية لها رئيسية فقط).
+ * وصفحات INFO في scripts/prerender.mjs. الرئيسية و«احجز اجتماعاً» بخمس لغات (نصوص MeetingPage خماسية
+ * ومُصيَّرة بلغاتها كلها)، وما عداهما بلا نسخة تركية ولا صينية.
  */
 const TRILINGUAL_PATHS = new Set(['/about', '/contact', '/calculator', '/invoice-generator', '/pricing', '/terms', '/privacy', '/service-agreement', '/blog']);
+const FIVE_LANG_PATHS = new Set(['/', '/meeting']);
+
+const trimSlash = (p: string) => (p.length > 1 && p.endsWith('/') ? p.slice(0, -1) : p) || '/';
 
 /**
  * اللغات التي توجد بها الصفحة فعلاً (مُصيَّرة ومعلنة في الخريطة) — القيمة الافتراضية لـseoUrls.
@@ -46,17 +42,71 @@ const TRILINGUAL_PATHS = new Set(['/about', '/contact', '/calculator', '/invoice
  * المدوّنة تمرّر لغاتها صراحةً (حسب وجود النسخة)؛ وكل ما سوى ذلك عربي فقط.
  */
 export function availableLangs(arPath: string): Lang[] {
-  const p = arPath.length > 1 && arPath.endsWith('/') ? arPath.slice(0, -1) : arPath;
-  if (p === '/' || p === '') return ['ar', 'en', 'fr', 'tr', 'zh'];
+  const p = trimSlash(arPath);
+  if (FIVE_LANG_PATHS.has(p)) return ['ar', 'en', 'fr', 'tr', 'zh'];
   if (TRILINGUAL_PATHS.has(p)) return ['ar', 'en', 'fr'];
   return ['ar'];
+}
+
+/**
+ * نماذج بلا صفحة مُصيَّرة (noindex) لكن لها مسار بلغات بنصوص تلك اللغات: لا تدخل hreflang ولا الخريطة،
+ * ويصلها الرابط بلغة الزائر. نموذج الاشتراك/عرض السعر ثلاثي النصوص (التركية والصينية كانتا تعرضان
+ * الإنجليزية تحت /tr/ و/zh/) — فمساراه بهما أُزيلا ويقع رابطهما على النسخة الإنجليزية.
+ */
+const FORM_ROUTE_LANGS: Record<string, Lang[]> = { '/subscribe-request': ['ar', 'en', 'fr'] };
+
+/**
+ * اللغات التي يملك فيها المسار صفحةً حقيقية في الراوتر (App.tsx) — أوسع من availableLangs بالنماذج
+ * وبمقالات المدوّنة (/blog/:slug مسجَّل عربياً وإنجليزياً وفرنسياً، ووجود المقال نفسه بلغته شأن صفحته).
+ * كل مسار تحت /en و/fr و/tr و/zh في App.tsx يجب أن تعلنه هذه الدالة لتلك اللغة (langs.test.ts يفرضه):
+ * مسار بلا صفحة بلغته كان يُخدَم قوقعة الرئيسية العربية بـcanonical «/» (/tr/about وأخواتها).
+ */
+export function routeLangs(arPath: string): Lang[] {
+  const p = trimSlash(arPath);
+  const seo = availableLangs(p);
+  if (seo.length > 1) return seo;
+  if (FORM_ROUTE_LANGS[p]) return FORM_ROUTE_LANGS[p];
+  if (p.startsWith('/blog/')) return ['ar', 'en', 'fr'];
+  return seo;
+}
+
+/**
+ * رابط المسار باللغة المطلوبة إن كانت له صفحة بها، وإلا نظيره الإنجليزي، وإلا العربي —
+ * فلا يقود رابط داخلي إلى مسار غير مسجَّل (كان `/en/signup` و`/tr/pricing` يسقطان إلى الرئيسية العربية).
+ * للتبديل بين اللغات استعمل switchLocalePath (يذهب إلى رئيسية اللغة بدل النسخة الإنجليزية).
+ */
+export function pathForLocale(pathname: string, locale: Lang): string {
+  const ar = basePath(pathname);
+  const langs = routeLangs(ar);
+  const target: Lang = langs.includes(locale) ? locale : langs.includes('en') ? 'en' : 'ar';
+  if (target === 'ar') return ar;
+  const prefix = PREFIX[target];
+  return ar === '/' ? prefix : prefix + ar;
+}
+
+/**
+ * وجهة مبدّل اللغة: الصفحة نفسها باللغة المختارة إن وُجدت بها، وإلا رئيسية تلك اللغة —
+ * مَن اختار التركية على صفحة ميزة عربية يصل إلى /tr/ لا إلى صفحة غير موجودة.
+ */
+export function switchLocalePath(pathname: string, locale: Lang): string {
+  return routeLangs(basePath(pathname)).includes(locale) ? pathForLocale(pathname, locale) : pathForLocale('/', locale);
+}
+
+/**
+ * x-default للعنقود: الإنجليزية إن كانت فيه، وإلا العربية، وإلا أول لغة فيه.
+ * القاعدة نفسها في scripts/prerender.mjs (hreflangFor) وscripts/gen-sitemap.mjs (alt)، ويفرضها verify-sitemap.
+ * الباحث بلغة لا نسخة لها (إسبانية، إندونيسية…) يذهب إلى الإنجليزية لا إلى صفحة عربية؛ والعربي يطابق `ar` فلا يتأثر.
+ */
+export function xDefaultLang(langs: readonly Lang[]): Lang | undefined {
+  return langs.includes('en') ? 'en' : langs.includes('ar') ? 'ar' : langs[0];
 }
 
 /**
  * روابط canonical + hreflang البديلة لصفحة ما (بناءً على مسارها العربي).
  *
  * - langs: اللغات الموجودة فعلاً (الافتراضي availableLangs). البدائل تُعلن لها وحدها، ومعها x-default
- *   إلى العربية. صفحة بلغة واحدة لا بدائل لها (قائمة فارغة) — كما في الخريطة وHTML المُصيَّر.
+ *   (xDefaultLang: الإنجليزية إن وُجدت وإلا العربية). صفحة بلغة واحدة لا بدائل لها (قائمة فارغة) —
+ *   كما في الخريطة وHTML المُصيَّر.
  * - canonical: رابط لغة الصفحة نفسها دائماً (سلوك ثابت لا يتغيّر بتغيّر langs).
  */
 export function seoUrls(arPath: string, locale: Lang, langs: readonly Lang[] = availableLangs(arPath)): {
@@ -76,11 +126,12 @@ export function seoUrls(arPath: string, locale: Lang, langs: readonly Lang[] = a
   const canonical = (urls.find((u) => u.lang === locale) || urls[0]).href;
   const present = urls.filter((u) => langs.includes(u.lang));
   if (present.length < 2) return { canonical, alternates: [] };
+  const xd = xDefaultLang(present.map((u) => u.lang));
   return {
     canonical,
     alternates: [
       ...present.map(({ hreflang, href }) => ({ hreflang, href })),
-      { hreflang: 'x-default', href: langs.includes('ar') ? arUrl : present[0].href },
+      { hreflang: 'x-default', href: (present.find((u) => u.lang === xd) || present[0]).href },
     ],
   };
 }

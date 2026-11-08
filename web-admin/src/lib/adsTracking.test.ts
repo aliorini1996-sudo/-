@@ -6,6 +6,7 @@ import { isAdsTagRoute } from './adsRoutes';
 import { makeGtag, initAdsTag, trackSignup, trackWhatsApp, __setAdsConfigForTests } from './ads';
 import { readUtm, optOut, isAdMeasurementUrl, isGoogleAdsStorageName } from './attribution';
 import { visitChannelLabel } from './visitChannels';
+import { pathForLocale } from '../i18n/locale';
 
 /**
  * تتبّع حملة Google Ads: أين يُحمَّل الوسم، وهل تصل إشارة النقر المدفوع فعلاً.
@@ -661,9 +662,11 @@ test('عامل الخدمة: وعد التفعيل لا ينتظر المرور 
 /* ─── قمع الحملة: زرّ التجربة يصل إلى صفحة التسجيل بكل لغة ────────────────── */
 
 /**
- * `pathForLocale('/signup', 'en')` ⇒ `/en/signup` غير مسجَّل، فيحوّله المسار `*` إلى
+ * `pathForLocale('/signup', 'en')` كان ⇒ `/en/signup` غير مسجَّل، فيحوّله المسار `*` إلى
  * الرئيسية العربية: زائر الحملة غير العربي لا يسجّل ولا يُرسل تحويل التسجيل.
- * كل هدف ثابت لـpathForLocale يجب أن يكون مساراً مسجَّلاً في App.tsx بكل بادئة لغة.
+ * كل هدف ثابت لـpathForLocale يجب أن **يُخرج** مساراً مسجَّلاً في App.tsx بكل لغة. وصارت الدالة تسقط
+ * إلى النظير الإنجليزي حين لا صفحة باللغة (أُزيلت /tr/pricing و/zh/contact وأخواتهما — routeLangs)،
+ * فيُفحص ناتجها الفعلي لا البادئة مركّبةً يدوياً.
  */
 test('كل رابط pathForLocale ثابت يقع على مسار مسجَّل في App.tsx بكل لغة', () => {
   const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
@@ -679,9 +682,9 @@ test('كل رابط pathForLocale ثابت يقع على مسار مسجَّل �
     const s = readFileSync(file, 'utf8');
     for (const m of s.matchAll(/pathForLocale\(\s*'(\/[^']*)'/g)) {
       seen++;
-      for (const prefix of ['/en', '/fr', '/tr', '/zh']) {
-        const p = m[1] === '/' ? prefix : prefix + m[1];
-        if (!routes.has(p)) broken.push(`${file.pathname.split('/src/').pop()}: ${p}`);
+      for (const L of ['ar', 'en', 'fr', 'tr', 'zh'] as const) {
+        const p = pathForLocale(m[1], L);
+        if (!routes.has(p)) broken.push(`${file.pathname.split('/src/').pop()}: ${m[1]} (${L}) ⇒ ${p}`);
       }
     }
   }

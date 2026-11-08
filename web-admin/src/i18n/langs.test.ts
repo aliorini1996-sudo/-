@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { routeLangs, pathForLocale, switchLocalePath } from './locale';
+import type { Lang } from './lang';
 
 /**
  * حرّاس اكتمال اللغات.
@@ -67,7 +69,56 @@ test('مبدّلا اللغة كلاهما يعرض الخمس، والمسار�
   const app = read('src', 'App.tsx');
   // /zh بلا مسارات = إعادة توجيه صامتة للرئيسية العربية عبر الالتقاط الشامل
   assert.match(app, /path="\/zh"/, 'مسار /zh غير مسجَّل');
-  assert.match(app, /path="\/zh\/pricing"/, 'مسارات /zh الفرعية ناقصة');
+  assert.match(app, /path="\/zh\/meeting"/, 'صفحة «احجز اجتماعاً» الصينية غير مسجَّلة');
+});
+
+test('مسارات اللغات في App.tsx = الصفحات الموجودة بها فعلاً (routeLangs) — لا مسار بلا صفحة ولا صفحة بلا مسار', () => {
+  // درس /tr/about و/zh/pricing: مسارات مسجَّلة بلا صفحة مُصيَّرة بلغتها، فكان الخادم يردّ قوقعة الرئيسية العربية
+  // بـcanonical «/»، والروابط الداخلية والمبدّل يقودان إليها.
+  const app = read('src', 'App.tsx');
+  const routes = new Set([...app.matchAll(/<Route\s+path="(\/[^"]*)"/g)].map((m) => m[1]));
+  const stray: string[] = [];
+  for (const r of routes) {
+    const m = r.match(/^\/(en|fr|tr|zh)(\/.*)?$/);
+    if (!m) continue;
+    const arPath = (m[2] || '/').replace(':slug', 'x');
+    if (!routeLangs(arPath).includes(m[1] as Lang)) stray.push(r);
+  }
+  assert.deepEqual(stray, [], `مسارات لغة بلا صفحة بها (احذفها أو أضف الصفحة إلى availableLangs): ${stray.join(' · ')}`);
+  const missing: string[] = [];
+  for (const arPath of ['/', '/about', '/contact', '/calculator', '/invoice-generator', '/pricing', '/terms', '/privacy',
+    '/service-agreement', '/blog', '/meeting', '/subscribe-request']) {
+    for (const L of routeLangs(arPath)) {
+      const p = pathForLocale(arPath, L);
+      if (!routes.has(p)) missing.push(`${arPath} (${L}) ⇒ ${p}`);
+    }
+  }
+  assert.deepEqual(missing, [], `صفحات تعلنها routeLangs بلا مسار: ${missing.join(' · ')}`);
+  // الوجهات البديلة: لا صفحة تركية للأسعار ⇒ الإنجليزية للروابط، ورئيسية التركية للمبدّل
+  assert.equal(pathForLocale('/pricing', 'tr'), '/en/pricing');
+  assert.equal(pathForLocale('/tr/contact', 'zh'), '/en/contact');
+  assert.equal(pathForLocale('/meeting', 'zh'), '/zh/meeting');
+  assert.equal(pathForLocale('/subscribe-request', 'fr'), '/fr/subscribe-request');
+  assert.equal(pathForLocale('/مزايا/x', 'en'), '/مزايا/x');
+  assert.equal(switchLocalePath('/en/pricing/', 'tr'), '/tr');
+  assert.equal(switchLocalePath('/en/pricing/', 'fr'), '/fr/pricing/');
+  assert.equal(switchLocalePath('/مزايا/x', 'zh'), '/zh');
+  assert.equal(switchLocalePath('/en/blog/x', 'fr'), '/fr/blog/x');
+  assert.equal(switchLocalePath('/zh/meeting', 'ar'), '/meeting');
+});
+
+test('عنوان الرئيسيات غير العربية ووصفها: React (seoByLang) = الزاحف (homeMeta في prerender) — بلا حصر في الأسواق العربية', () => {
+  // useSeo يستبدل عنوان HTML المُصيَّر بعد الإقلاع؛ نسختان مختلفتان = عنوانان لصفحة واحدة بحسب من يقرأ
+  const land = read('src', 'pages', 'LandingPage.tsx');
+  const pre = read('scripts', 'prerender.mjs');
+  const block = land.slice(land.indexOf('const seoByLang = {'), land.indexOf('}[lang];', land.indexOf('const seoByLang = {')));
+  for (const L of ['en', 'fr', 'tr', 'zh']) {
+    const m = block.match(new RegExp(`\\n    ${L}: \\{\\s*title: '([^']+)',\\s*description: '([^']+)'`));
+    assert.ok(m, `seoByLang.${L} غير موجود بالشكل المتوقّع`);
+    assert.ok(pre.includes(`title: '${m[1]}'`), `عنوان ${L} في LandingPage لا يطابق homeMeta: «${m[1]}»`);
+    assert.ok(pre.includes(`desc: '${m[2]}'`), `وصف ${L} في LandingPage لا يطابق homeMeta: «${m[2]}»`);
+    assert.doesNotMatch(`${m[1]} ${m[2]}`, /Arab\s+(?:markets?|world)|march[ée]s\s+arabes|monde\s+arabe|Arap\s+(?:pazar|dünya)|阿拉伯(?:市场|世界)/i, `حصر عربي في ${L}`);
+  }
 });
 
 test('تنسيق الأرقام والتواريخ يعرف الصينية', () => {

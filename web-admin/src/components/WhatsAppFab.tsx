@@ -107,7 +107,8 @@ export default function WhatsAppFab() {
   if (HIDDEN_ON.test(pathname)) return null;
 
   // النصّ يتبع لغة الصفحة لا لغة ثابتة — الزائر الإنجليزي يقرأ الإنجليزية
-  const docLang = typeof document !== 'undefined' ? document.documentElement.lang : 'ar';
+  // أول حرفين: الصفحات الصينية تحمل lang="zh-Hans" (lib/seo.ts)
+  const docLang = (typeof document !== 'undefined' ? document.documentElement.lang || 'ar' : 'ar').slice(0, 2);
   const label = docLang === 'en' ? 'Chat with us on WhatsApp'
     : docLang === 'fr' ? 'Discutez avec nous sur WhatsApp'
     : docLang === 'tr' ? 'WhatsApp üzerinden bize yazın'

@@ -36,12 +36,28 @@ test('صفحة بلغة واحدة: canonical ذاتي بلا بدائل لغا�
   assert.equal(s.canonical.replace(/\/$/, ''), 'https://fieldsa.net/مزايا/ربط-المرحلة-الثانية');
 });
 
-test('الرئيسية وحدها بخمس لغات، والصفحات الثلاثية بلا tr/zh', () => {
+test('الرئيسية و«احجز اجتماعاً» وحدهما بخمس لغات، والصفحات الثلاثية بلا tr/zh', () => {
   assert.deepEqual([...availableLangs('/')].sort(), ['ar', 'en', 'fr', 'tr', 'zh']);
+  assert.deepEqual([...availableLangs('/meeting/')].sort(), ['ar', 'en', 'fr', 'tr', 'zh']);
   const p = seoUrls('/pricing', 'en');
   const langs = p.alternates.map((a) => a.hreflang);
   assert.ok(langs.includes('ar') && langs.includes('en') && langs.includes('fr') && langs.includes('x-default'));
   assert.ok(!langs.includes('tr') && !langs.some((l) => l.startsWith('zh')), `بدائل خاطئة: ${langs.join(',')}`);
+});
+
+test('x-default: الإنجليزية إن كانت في العنقود، وإلا العربية — كالخريطة والتصيير المسبق', () => {
+  const xd = (s: { alternates: { hreflang: string; href: string }[] }) => s.alternates.find((a) => a.hreflang === 'x-default')?.href;
+  assert.equal(xd(seoUrls('/', 'ar')), 'https://fieldsa.net/en');
+  assert.equal(xd(seoUrls('/pricing', 'fr')), 'https://fieldsa.net/en/pricing');
+  assert.equal(xd(seoUrls('/meeting', 'zh')), 'https://fieldsa.net/en/meeting');
+  // مقال بلا نسخة إنجليزية (العربية والفرنسية فقط) ⇒ العربية
+  assert.equal(xd(seoUrls('/blog/x-so', 'fr', ['ar', 'fr'])), 'https://fieldsa.net/blog/x-so');
+  // والقاعدة نفسها مكتوبة في السكربتين (لا استيراد من TS هناك)
+  const pre = fs.readFileSync(path.join(process.cwd(), 'scripts', 'prerender.mjs'), 'utf8');
+  const map = fs.readFileSync(path.join(process.cwd(), 'scripts', 'gen-sitemap.mjs'), 'utf8');
+  for (const [name, s] of [['prerender.mjs', pre], ['gen-sitemap.mjs', map]] as const) {
+    assert.ok(s.includes("const xDefaultOf = (langs) => (langs.includes('en') ? 'en' : langs.includes('ar') ? 'ar' : langs[0]);"), `${name}: قاعدة x-default غير مطابقة`);
+  }
 });
 
 test('اتحاد المقالات: مقال المستودع الغائب عن CMS يبقى، ونسخة CMS تتقدّم عند تطابق slug', () => {
@@ -85,12 +101,13 @@ test('الدمج: الهدف بشرطة أخيرة، ولا يُطبَّق إن 
   for (const slug of merged) assert.ok(!ex(slug, 'ar'), `المدموج ${slug} لا يُعدّ هدفاً`);
 });
 
-test('الخريطة الملتزمة: tr/zh للرئيسية وحدها، ولا ‎-region‎، ولا رابط مدموج', () => {
+test('الخريطة الملتزمة: tr/zh للرئيسية و«احجز اجتماعاً» وحدهما، ولا ‎-region‎، ولا رابط مدموج', () => {
   const sm = fs.readFileSync(path.join(process.cwd(), 'public', 'sitemap.xml'), 'utf8');
   const locs = [...sm.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
   assert.ok(locs.length > 100);
   const trzh = locs.filter((u) => /^https:\/\/fieldsa\.net\/(tr|zh)\//.test(u));
-  assert.deepEqual(trzh.sort(), ['https://fieldsa.net/tr/', 'https://fieldsa.net/zh/']);
+  // الصفحتان الخماسيتان وحدهما (availableLangs في i18n/locale.ts)
+  assert.deepEqual(trzh.sort(), ['https://fieldsa.net/tr/', 'https://fieldsa.net/tr/meeting/', 'https://fieldsa.net/zh/', 'https://fieldsa.net/zh/meeting/']);
   assert.ok(!sm.includes('-region'), 'لا رابط ‎-region‎ في الخريطة');
   const merged = consolidatedFor('ar', existsWith([]));
   for (const slug of merged) assert.ok(!locs.includes(`https://fieldsa.net/blog/${slug}/`), `المدموج ${slug} في الخريطة`);

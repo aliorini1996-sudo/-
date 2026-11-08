@@ -64,11 +64,23 @@ const fetchCms = async () => (await fetchPublicCms({
   offlineHint: 'مقالات المستودع وأسعار احتياطية',
 })).data;
 
-/** src/blog/posts.ts (بلا استيرادات) كوحدة ESM في الذاكرة — كما يحمّلها gen-sitemap */
-async function loadPostsModule() {
-  const src = fs.readFileSync(path.join(ROOT, 'src/blog/posts.ts'), 'utf8');
+/** ملف TS بلا استيرادات (posts.ts وcountries.ts) كوحدة ESM في الذاكرة — كما يحمّل gen-sitemap مقالاته */
+async function loadTsModule(rel) {
+  const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
   const { code } = transformSync(src, { loader: 'ts', format: 'esm' });
   return import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+}
+const loadPostsModule = () => loadTsModule('src/blog/posts.ts');
+
+/**
+ * سجلّ دول المنصّة (src/i18n/countries.ts): عدد الدول المعدّة بعملتها وخاناتها وضريبتها الافتراضية، بلا «دولة أخرى» (XX).
+ * يُحسب من السجلّ نفسه الذي تختار منه الشركة دولتها — لا رقم مكتوب هنا ينزاح عنه.
+ */
+async function registryCountries() {
+  const { COUNTRIES: REG } = await loadTsModule('src/i18n/countries.ts');
+  const all = Object.values(REG || {});
+  const listed = all.filter((c) => c && c.code !== 'XX');
+  return { count: listed.length, hasOther: all.some((c) => c && c.code === 'XX') };
 }
 
 /* ─── فحص النصوص ─────────────────────────────────────────────────────────────── */
@@ -164,6 +176,8 @@ async function main() {
   console.log('توليد llms.txt + llms-full.txt ...');
   const cms = await fetchCms();
   const mod = await loadPostsModule();
+  const registry = await registryCountries();
+  console.log(`  سجلّ الدول: ${registry.count} دولة${registry.hasOther ? ' + «دولة أخرى»' : ''}`);
 
   // ── الكتالوج: القانوني وحده، بلغة قابلة للفهرسة (كما في الخريطة) ──
   const CATALOG = buildCatalog();
@@ -273,8 +287,10 @@ Key facts:
 - Also known as: فيلد سيلز, Field Sales, Fieldsa (fieldsa.net). Other products share the generic name “Field Sales”; this file describes only FieldSales at fieldsa.net.
 - Product type: field sales, van sales (DSD) and sales rep management software (SaaS, multi-tenant).
 - Core features: tax invoices with a QR code and returns from the rep’s phone, receipt vouchers linked to the invoices they settle, customer balances and statements, van stock per item, visit proof with location and photos, routes drawn on roads, thermal printing, team permissions, product catalog and price tiers, ERP integration.
-- Markets: all ${COUNTRIES.length} Arab League countries, with country guides (currency, VAT rate, tax authority).
-- Languages: website in Arabic, English and French, plus Turkish and Chinese home pages. The apps are Arabic-first (right to left) and also run in English and French.
+- Markets: distribution companies in any country. Each company picks its country from a registry of ${registry.count} countries that presets the currency, its decimals and the default VAT rate (all editable)${registry.hasOther ? ', or chooses “Other country” and sets the currency and tax rate by hand' : ''}.
+- Government e-invoicing: Saudi Arabia is the only country where a government integration is live (see Saudi e-invoicing below). In every other country invoices are standard invoices in the company’s currency and tax rate, and connection to the national e-invoicing platform is arranged on request.
+- Country guides (blog): currently ${COUNTRIES.length} countries in the Middle East and Africa, each with currency, VAT rate and tax authority.
+- Languages: the apps run in Arabic (right to left), English, French, Turkish and Chinese. The website is in Arabic, English and French, with Turkish and Chinese home pages.
 - Pricing: ${PRICING_LINE} No setup fees. Free 10-day trial, no credit card; sign-up form: ${ORIGIN}/signup/
 - Rep app: runs in any smartphone browser and is on Google Play and the App Store; a thermal printer is optional.
 - Saudi e-invoicing: We support Phase 2 integration with ZATCA’s Fatoora platform, for companies in Saudi Arabia: UBL 2.1 XML with a UUID, an ECDSA cryptographic stamp, a QR code, an ICV/PIH hash chain, clearance for standard and reporting for simplified invoices, and EGS onboarding with a CSID obtained through a Fatoora portal OTP. ZATCA does not certify software vendors, so FieldSales claims no certification.
@@ -365,17 +381,17 @@ ${bestEn.map((a, i) => (i === 0 ? catalogLine(a, 'en') : `- [${a.title}](${blogU
   add(`
 ## أسئلة شائعة بالعربية (إجابات قابلة للاقتباس)
 
-${answersFor('ar', { tiers }).map(answerLine).join('')}
+${answersFor('ar', { tiers, countries: registry.count }).map(answerLine).join('')}
 ## Common questions (quotable answers)
 
-${answersFor('en', { tiers }).map(answerLine).join('')}
+${answersFor('en', { tiers, countries: registry.count }).map(answerLine).join('')}
 ## Main pages
 
 - [Home (Arabic)](${abs('/')}): product overview, features, quote request and FAQ.
 - [Home (English)](${abs('/en/')}) · [French](${abs('/fr/')}) · [Turkish](${abs('/tr/')}) · [Chinese](${abs('/zh/')})
 - [About](${abs('/about/')}): who is behind FieldSales. English: ${abs('/en/about/')}
 - [Contact](${abs('/contact/')}): sales and support. English: ${abs('/en/contact/')}
-- [Blog (Arabic)](${abs('/blog/')}): guides for distributors in Arab markets. English: ${abs('/en/blog/')} · French: ${abs('/fr/blog/')}
+- [Blog (Arabic)](${abs('/blog/')}): practical guides on field sales, van sales, collection and e-invoicing for distribution companies. English: ${abs('/en/blog/')} · French: ${abs('/fr/blog/')}
 
 ## Company
 
@@ -436,7 +452,7 @@ ${answersFor('en', { tiers }).map(answerLine).join('')}
   const addF = (s) => F.push(fixed(s));
   addF(`# FieldSales (فيلد سيلز): full index of canonical pages (updated ${UPDATED})
 
-> Every canonical page on fieldsa.net for distribution companies in Arab markets: product pages, generated guides in Arabic, English and French with a direct answer each, and blog posts. Curated overview: ${ORIGIN}/llms.txt
+> Every canonical page on fieldsa.net, a field sales platform for distribution companies in any country: product pages, generated guides in Arabic, English and French with a direct answer each, and blog posts. Curated overview: ${ORIGIN}/llms.txt
 
 Pricing: ${PRICING_LINE}
 

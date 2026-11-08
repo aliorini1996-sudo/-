@@ -87,7 +87,7 @@ export const defaultContentEn = {
   pages: {
     about: {
       title: 'About us',
-      body: 'Field Sales is a complete Saudi platform for managing distribution field reps — from creating an order in the field to issuing the tax invoice, collecting payments, and reporting. We help distribution companies run their field teams with full efficiency and transparency.',
+      body: 'Field Sales is a complete Saudi platform for managing distribution field reps — from creating an order in the field to issuing the tax invoice, collecting payments, and reporting. We help distribution companies in any country run their field teams with full efficiency and transparency.',
     },
     terms: {
       title: 'Terms & Conditions',

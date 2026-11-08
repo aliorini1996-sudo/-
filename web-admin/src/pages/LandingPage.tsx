@@ -556,7 +556,8 @@ function contactSection(contact: ContactInfo, lang: Lang): string {
   if (!cards) return '';
 
   // زر «اطلب اشتراكك الآن» → صفحة «تسجيل طلب اشتراك جديد» (يصل الطلب للإدارة بريدياً)
-  const requestUrl = lang === 'ar' ? '/subscribe-request/' : `/${lang}/subscribe-request/`;
+  // بلغة الصفحة إن كان للنموذج نسخة بها، وإلا الإنجليزية (لا نموذج تركي ولا صيني — pathForLocale)
+  const requestUrl = `${pathForLocale('/subscribe-request', lang)}/`;
   return `<section id="contact-box" style="max-width:1200px; margin:0 auto; padding:6px 28px 60px;">
     <div style="background:#fff; border:1px solid #E9E1D3; border-radius:26px; padding:44px 40px; text-align:center;">
       <div style="font-family:'IBM Plex Sans',sans-serif; font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#E15A30; font-weight:600;">CONTACT</div>
@@ -579,8 +580,9 @@ function quoteSection(contact: ContactInfo, lang: Lang): string {
     tr: { title: 'Teklif isteyin', sub: 'Kaç saha temsilciniz olduğunu ve şirketinizin ihtiyaçlarını bize bildirin, size uygun bir teklif gönderelim.', cta: 'Teklif isteyin', wa: 'WhatsApp üzerinden yazın' },
     zh: { title: '获取报价', sub: '告诉我们您的业务员人数和企业需求，我们将为您发送合适的报价。', cta: '获取报价', wa: '通过 WhatsApp 联系' },
   }[lang];
-  // الرابط مكتوب بلغته وشرطته هنا: localizeLinks وslashInternalLinks لا يطابقان رابطاً فيه استعلام
-  const quoteUrl = `${lang === 'ar' ? '' : `/${lang}`}/subscribe-request/?type=quote`;
+  // الرابط مكتوب بلغته وشرطته هنا: localizeLinks وslashInternalLinks لا يطابقان رابطاً فيه استعلام.
+  // ولغته لغة الصفحة إن كان للنموذج نسخة بها، وإلا الإنجليزية (pathForLocale)
+  const quoteUrl = `${pathForLocale('/subscribe-request', lang)}/?type=quote`;
   const wa = String(contact.whatsapp || '').trim();
   return `<div style="text-align:center; max-width:640px; margin:0 auto;">
       <div style="font-family:'IBM Plex Sans',sans-serif; font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#E15A30; font-weight:600;">Quote</div>
@@ -635,20 +637,21 @@ function featureLinksRow(lang: Lang): string {
   </section>`;
 }
 
-// يضيف بادئة اللغة (/en · /fr) لروابط الصفحات التسويقية داخلياً حتى تبقى اللغة ثابتة عند التنقّل.
+// يضيف بادئة اللغة (/en · /fr · /tr · /zh) لروابط الصفحات التسويقية داخلياً حتى تبقى اللغة ثابتة عند التنقّل.
 // (مسارات التطبيق /login · /rep · /signup تُترك — تحفظ لغتها من localStorage؛ والروابط الخارجية/المرساة تُترك.)
-const LOCALIZED_PATHS = ['/about', '/contact', '/subscribe-request', '/blog', '/calculator', '/invoice-generator', '/privacy', '/terms', '/service-agreement'];
+// والوجهة من pathForLocale (i18n/locale.ts، المشتقّة من availableLangs): الصفحة بلغة الصفحة إن وُجدت بها، وإلا
+// نظيرها الإنجليزي — فلا يقود رابط من /tr/ أو /zh/ إلى مسار بلا صفحة (كان /tr/about يُخدَم قوقعة الرئيسية العربية).
+// /meeting هنا: زرّ «احجز اجتماعاً» في البطل كان يفتح الصفحة العربية من الرئيسيات الأربع.
+const LOCALIZED_PATHS = ['/about', '/contact', '/subscribe-request', '/meeting', '/pricing', '/blog', '/calculator', '/invoice-generator', '/privacy', '/terms', '/service-agreement'];
 function localizeLinks(html: string, lang: Lang): string {
   if (lang === 'ar') return html;
-  const prefix = lang === 'en' ? '/en' : lang === 'tr' ? '/tr' : lang === 'zh' ? '/zh' : '/fr';
   let out = html;
   for (const p of LOCALIZED_PATHS) {
     // الرابط /contact يصير /en/contact بتطابق تام مع علامة الاقتباس (لتفادي مطابقة /blog داخل /blog/slug)
-    // المدونة بلا نسخة تركية بعد — روابطها من /tr تقود للإنجليزية كي لا نعرض محتوى عربياً في سياق تركي
-    const target = (lang === 'tr' || lang === 'zh') && p === '/blog' ? '/en' : prefix;
+    const target = pathForLocale(p, lang);
     // الصيغتان معاً: القالب يكتب الرابط بلا شرطة، وروابط هذا الملف بشرطة أخيرة
-    out = out.split(`href="${p}"`).join(`href="${target}${p}"`);
-    out = out.split(`href="${p}/"`).join(`href="${target}${p}/"`);
+    out = out.split(`href="${p}"`).join(`href="${target}"`);
+    out = out.split(`href="${p}/"`).join(`href="${target}/"`);
   }
   return out;
 }
@@ -706,7 +709,10 @@ export default function LandingPage() {
     ? { '@context': 'https://schema.org', '@type': 'Organization', '@id': 'https://fieldsa.net/#organization', url: 'https://fieldsa.net/', sameAs }
     : undefined;
 
-  // SEO الصفحة الرئيسية — كلمات مفتاحية لكل خدمة + canonical/hreflang حسب اللغة (دولي: ع/إ/فر)
+  // SEO الصفحة الرئيسية — كلمات مفتاحية لكل خدمة + canonical/hreflang حسب اللغة.
+  // عنوان ووصف en/fr/tr/zh **حرفياً** كما في homeMeta بـscripts/prerender.mjs (ما يقرؤه الزاحف قبل JS) —
+  // langs.test.ts يفرض التطابق. التموضع عالمي (شركات التوزيع في أي دولة) بلا حصر في «الأسواق العربية»
+  // (verify-claims: arab-only-targeting)، والسعودية وربطها الحيّ في المتن والأسئلة.
   const seoByLang = {
     ar: {
       title: 'FieldSales فيلد سيلز | نظام مبيعات المناديب والتوزيع',
@@ -716,26 +722,26 @@ export default function LandingPage() {
       locale: 'ar' as const,
     },
     en: {
-      title: 'FieldSales | Field Sales & Distribution Management System',
-      description: 'FieldSales is a complete platform to manage field distribution reps ZATCA e-invoices collection van stock GPS tracking and reports Free 10-day trial',
+      title: 'FieldSales | Field Sales & Distribution Management Software',
+      description: 'Field sales software for distribution companies in any country: invoices with a QR code, collection, van stock and rep GPS tracking. Free 10-day trial.',
       keywords: 'field sales system, sales rep management software, distribution management software, route accounting, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales, van stock management, GPS rep tracking, customer management, product catalog, ERP integration',
       locale: 'en' as const,
     },
     fr: {
-      title: 'FieldSales | Système de gestion des ventes terrain et de la distribution',
-      description: 'FieldSales est une plateforme complète pour gérer les commerciaux de distribution factures fiscales encaissement stock du véhicule suivi GPS et rapports Essai gratuit de 10 jours',
-      keywords: 'système de vente terrain, logiciel de gestion des commerciaux, logiciel de gestion de distribution, facturation électronique, facture fiscale, encaissement, gestion des créances, stock du véhicule, suivi GPS des commerciaux, gestion des clients, catalogue produits, intégration ERP, logiciel de distribution Maroc, logiciel commercial Algérie Tunisie',
+      title: 'FieldSales | Logiciel de vente terrain et de distribution',
+      description: 'Logiciel de vente terrain pour distributeurs de tous pays : prévente et vente en tournée, factures, encaissement et suivi GPS. Essai gratuit 10 jours.',
+      keywords: 'logiciel de vente terrain, application de prévente, vente en tournée, logiciel de gestion des commerciaux, logiciel de gestion de distribution, facturation électronique, facture fiscale, encaissement, gestion des créances, stock du véhicule, suivi GPS des commerciaux, gestion des clients, catalogue produits, intégration ERP',
       locale: 'fr' as const,
     },
     tr: {
-      title: 'FieldSales | Saha Satış ve Dağıtım Yönetim Sistemi',
-      description: 'FieldSales saha dağıtım ekipleri için eksiksiz bir platform vergi faturaları tahsilat araç stoku GPS takibi ve raporlar 10 gün ücretsiz deneyin',
+      title: 'FieldSales | Saha Satış ve Dağıtım Yönetim Yazılımı',
+      description: 'Her ülkedeki dağıtım şirketleri için saha satış ve plasiyer yazılımı: QR kodlu faturalar, tahsilat, araç stoku ve GPS takibi. 10 gün ücretsiz deneme.',
       keywords: 'saha satış sistemi saha ekibi yönetimi dağıtım yönetim yazılımı rota muhasebesi e-fatura vergi faturası tahsilat cari hesap araç stoku yönetimi GPS temsilci takibi müşteri yönetimi ürün kataloğu ERP entegrasyonu',
       locale: 'tr' as const,
     },
     zh: {
-      title: 'FieldSales | 外勤销售与分销管理系统',
-      description: 'FieldSales 是外勤分销团队的一体化平台 增值税发票 收款 车载库存 GPS 追踪与报表 免费试用 10 天',
+      title: 'FieldSales | 外勤销售与分销管理软件',
+      description: '面向各国分销企业的外勤销售系统：带二维码的发票、收款、车载库存与业务员 GPS 追踪。免费试用 10 天。',
       keywords: '外勤销售系统 业务员管理软件 分销管理系统 路线销售管理 ZATCA 电子发票 增值税发票 收款管理 应收账款 车销库存管理 GPS 业务员追踪 客户管理 产品目录 ERP 集成',
       locale: 'zh' as const,
     },

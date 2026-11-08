@@ -247,6 +247,35 @@ test('أسماء المنافسين المسنَدة: تُكشف بصيغها، 
   assert.equal((original as unknown as { cmsWarn?: boolean }).cmsWarn, undefined, 'لا إسناد للأسماء الأصلية: حجبها مطلق كما كان');
 });
 
+test('أسماء منافسي الأسواق العالمية في القاعدة الأصلية الحاجبة — بلا إنذار على كلمات عامة', () => {
+  const rule = RULES.find((r) => r.id === 'competitor-name')!;
+  for (const t of ['Kolonell', 'FieldPro', 'MáximaTech', 'Maxima Tech', 'Omie', 'Conta Azul', 'Azuvio', 'BeatRoute', 'Bizom', 'FieldAssist',
+    'Skynamo', 'ForceManager', 'Mobilvendor', '勤策', '纷享销客', 'Агент Плюс', 'Daftra', 'qoyod.com']) {
+    assert.ok(findViolation(rule, t), `مرّ اسم منافس: «${t}»`);
+  }
+  for (const t of ['Field Sales', 'field assistant', 'predictive routing', 'beat route planning', 'sales on credit', 'omitted', 'Odoo', 'SAP', 'Sage ERP',
+    'دفترة الحسابات', '外勤销售']) {
+    assert.equal(findViolation(rule, t), null, `إنذار كاذب: «${t}»`);
+  }
+});
+
+test('حصر الاستهداف في «الأسواق العربية»: يُكشف في رأس الصفحات غير العربية ومقصور عليها، والمقالات الجامعة مستثناة', () => {
+  const rule = RULES.find((r) => r.id === 'arab-only-targeting')! as typeof RULES[number] & { paths: RegExp; exceptPaths: RegExp };
+  assert.equal(rule.scope, 'head', 'العنوان والوصف وH1 لا المتن');
+  for (const t of ['Field Sales & Distribution Management Software for Arab Markets', 'pour les marchés arabes', 'dans le monde arabe',
+    'Arap pazarları için', 'Arap dünyasındaki dağıtımcılar', '面向阿拉伯市场', '阿拉伯世界', 'across the Arab world']) {
+    assert.ok(findViolation(rule, t), `مرّ حصر عربي: «${t}»`);
+  }
+  for (const t of ['Saudi Arabia', 'Arabie saoudite', 'Arabic-first', 'Arab countries', 'Arapça', '阿拉伯语', 'Arab League']) {
+    assert.equal(findViolation(rule, t), null, `إنذار كاذب: «${t}»`);
+  }
+  for (const p of ['en/index.html', 'fr\\about\\index.html', 'tr/index.html', 'zh/meeting/index.html', 'en/blog/index.html']) assert.ok(rule.paths.test(p) && !rule.exceptPaths.test(p), p);
+  for (const p of ['index.html', 'about/index.html', 'meeting/index.html']) assert.ok(!rule.paths.test(p), `صفحة عربية في نطاق القاعدة: ${p}`);
+  for (const p of ['en/blog/field-sales-software/index.html', 'fr\\blog\\van-sales-app\\index.html']) assert.ok(rule.exceptPaths.test(p), p);
+  // gen-llms يستثني نطاق head: عناوين المقالات الجامعة («…in Arab markets») في llms.txt وصف صادق لموضوعها
+  assert.ok(RULES.filter((r) => r.scope !== 'head').every((r) => r.id !== 'arab-only-targeting'));
+});
+
 test('إسناد اسم المنافس بسياقه: عنوان مقال CMS ورابطه ونصّه تحذير، وجملة المستودع حاجبة', () => {
   const rule = RULES.find((r) => r.id === NAMES)!;
   const corpus = cmsCorpus({ blog: [{

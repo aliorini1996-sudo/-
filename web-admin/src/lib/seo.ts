@@ -62,8 +62,11 @@ export function useSeo({ title, description, keywords, canonical: rawCanonical, 
     if (canonical) { setMeta('property', 'og:url', canonical); setLink('canonical', canonical); }
     if (image) { setMeta('property', 'og:image', image); setMeta('name', 'twitter:image', image); }
     if (locale) {
+      // og:locale بصيغة لغة_إقليم (zh_CN مقابل المبسّطة — لا zh_Hans في المعيار)، وlang بالرمز نفسه في hreflang
+      // (zh-Hans) — القيمتان كما يكتبهما prerender.mjs (buildPage) فلا يتبدّل وسم الصفحة الصينية بعد الإقلاع.
+      // من يقرأ documentElement.lang لاسم اللغة يأخذ أول حرفين (WhatsAppFab وVisitTracker).
       setMeta('property', 'og:locale', locale === 'en' ? 'en_US' : locale === 'fr' ? 'fr_FR' : locale === 'tr' ? 'tr_TR' : locale === 'zh' ? 'zh_CN' : 'ar_SA');
-      document.documentElement.lang = locale;
+      document.documentElement.lang = locale === 'zh' ? 'zh-Hans' : locale;
     }
 
     // روابط hreflang للنسخ اللغوية — تُزال القديمة وتُعاد كتابتها لكل صفحة

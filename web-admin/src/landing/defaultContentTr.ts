@@ -87,7 +87,7 @@ export const defaultContentTr = {
   pages: {
     about: {
       title: 'Hakkımızda',
-      body: 'Field Sales, dağıtım saha temsilcilerini yönetmek için eksiksiz bir platformdur — sahada siparişin oluşturulmasından vergi faturasının düzenlenmesine, tahsilata ve raporlamaya kadar. Dağıtım şirketlerinin saha ekiplerini tam verimlilik ve şeffaflıkla yönetmesine yardımcı oluyoruz.',
+      body: 'Field Sales, dağıtım saha temsilcilerini yönetmek için eksiksiz bir platformdur — sahada siparişin oluşturulmasından vergi faturasının düzenlenmesine, tahsilata ve raporlamaya kadar. Her ülkedeki dağıtım şirketlerinin saha ekiplerini tam verimlilik ve şeffaflıkla yönetmesine yardımcı oluyoruz.',
     },
     terms: {
       title: 'Şartlar ve Koşullar',

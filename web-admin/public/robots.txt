@@ -8,7 +8,10 @@ Disallow: /staff
 # /rep-app صفحة تنزيل التطبيق العامّة — تُستثنى صراحةً لأن Disallow: /rep قاعدة بادئة تبتلعها
 Allow: /rep-app
 Disallow: /rep
-Disallow: /m
+# تطبيق الإدارة على الجوال: /m وحدها و/m/… لا بادئة «/m» العارية — كانت تحجب /meeting/ وأي مسار أو بادئة لغة تبدأ بالحرف m
+# (verify-sitemap.mjs يُفشل البناء إن حجبت قاعدةٌ رابطاً في الخريطة أو بادئة لغة)
+Disallow: /m$
+Disallow: /m/
 Disallow: /login
 Disallow: /signup
 Disallow: /verify-email
@@ -97,7 +100,8 @@ Disallow: /staff
 # /rep-app صفحة تنزيل التطبيق العامّة — تُستثنى صراحةً لأن Disallow: /rep قاعدة بادئة تبتلعها
 Allow: /rep-app
 Disallow: /rep
-Disallow: /m
+Disallow: /m$
+Disallow: /m/
 Disallow: /login
 Disallow: /verify-email
 Disallow: /activate

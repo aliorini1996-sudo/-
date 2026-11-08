@@ -197,7 +197,8 @@ function VisitTracker() {
     analyticsApi.track({
       path: pathname,
       referrer: document.referrer || '',
-      lang: document.documentElement.lang || 'ar',
+      // رمز اللغة بحرفين: الصفحات الصينية تحمل lang="zh-Hans" (seo.ts) والإحصاءات تُجمَّع بـzh
+      lang: (document.documentElement.lang || 'ar').slice(0, 2),
       ...attributionPayload(),
     }).catch(() => { /* تجاهل */ });
   }, [pathname]);
@@ -306,31 +307,15 @@ export default function App() {
         <Route path="/en/pricing" element={<PricingPage />} />
         <Route path="/en/blog" element={<BlogIndexPage />} />
         <Route path="/en/blog/:slug" element={<BlogPostPage />} />
-        {/* النسخة التركية على /tr — سوق تركيا مع hreflang (المدونة تبقى ع/إ/فر — روابطها التركية تقود للإنجليزية) */}
+        {/* التركية والصينية: الرئيسية و«احجز اجتماعاً» وحدهما — الصفحتان المُصيَّرتان بهما فعلاً (routeLangs في
+            i18n/locale.ts). أُزيلت /tr/about و/zh/pricing وأخواتها: لا صفحة مُصيَّرة لها فكان الخادم يردّ قوقعة
+            الرئيسية العربية بـcanonical «/»؛ الآن تقع على NotFoundPage (noindex)، والروابط الداخلية تقود إلى
+            نظيرها الإنجليزي (pathForLocale) والمبدّل إلى رئيسية اللغة (switchLocalePath). */}
         <Route path="/tr" element={<LandingPage />} />
-        <Route path="/tr/about" element={<InfoPage pageKey="about" />} />
-        <Route path="/tr/terms" element={<InfoPage pageKey="terms" />} />
-        <Route path="/tr/service-agreement" element={<InfoPage pageKey="serviceAgreement" />} />
-        <Route path="/tr/privacy" element={<InfoPage pageKey="privacy" />} />
-        <Route path="/tr/contact" element={<ContactPage />} />
         <Route path="/tr/meeting" element={<MeetingPage />} />
-        <Route path="/tr/subscribe-request" element={<SubscriptionRequestPage />} />
-        <Route path="/tr/calculator" element={<LeakCalculatorPage />} />
-        <Route path="/tr/invoice-generator" element={<InvoiceGeneratorPage />} />
-        <Route path="/tr/pricing" element={<PricingPage />} />
-        {/* النسخة الصينية على /zh — المدونة تبقى ع/إ/فر فروابطها الصينية تقود للإنجليزية */}
         <Route path="/zh" element={<LandingPage />} />
-        <Route path="/zh/about" element={<InfoPage pageKey="about" />} />
-        <Route path="/zh/terms" element={<InfoPage pageKey="terms" />} />
-        <Route path="/zh/service-agreement" element={<InfoPage pageKey="serviceAgreement" />} />
-        <Route path="/zh/privacy" element={<InfoPage pageKey="privacy" />} />
-        <Route path="/zh/contact" element={<ContactPage />} />
         <Route path="/zh/meeting" element={<MeetingPage />} />
-        <Route path="/zh/subscribe-request" element={<SubscriptionRequestPage />} />
-        <Route path="/zh/calculator" element={<LeakCalculatorPage />} />
-        <Route path="/zh/invoice-generator" element={<InvoiceGeneratorPage />} />
-        <Route path="/zh/pricing" element={<PricingPage />} />
-        {/* النسخة الفرنسية على /fr — للأسواق الفرنكوفونية (المغرب العربي) مع hreflang */}
+        {/* النسخة الفرنسية على /fr مع hreflang */}
         <Route path="/fr" element={<LandingPage />} />
         <Route path="/fr/about" element={<InfoPage pageKey="about" />} />
         <Route path="/fr/terms" element={<InfoPage pageKey="terms" />} />

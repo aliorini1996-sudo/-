@@ -584,7 +584,7 @@ export function aboutContent(lang) {
         },
         {
           h2: 'Languages and markets',
-          paras: ['Arabic-first interface with English and French, plus introductory pages in Turkish and Chinese. We serve distribution companies across the Arab world, and amounts follow each company’s currency and decimals.'],
+          paras: ['The apps run in Arabic, English, French, Turkish and Chinese; the website is in Arabic, English and French, with Turkish and Chinese home pages. We serve distribution companies in Saudi Arabia, the Gulf and any other country, and amounts follow each company’s currency, decimals and tax rate.'],
         },
         {
           h2: 'E-invoicing in Saudi Arabia',
@@ -620,7 +620,7 @@ export function aboutContent(lang) {
         },
         {
           h2: 'Langues et marchés',
-          paras: ['Interface d’abord en arabe, avec l’anglais et le français, et des pages de présentation en turc et en chinois. Nous servons les entreprises de distribution du monde arabe ; les montants suivent la devise de chaque entreprise.'],
+          paras: ['L’application fonctionne en arabe, anglais, français, turc et chinois ; le site est en arabe, anglais et français, avec des pages d’accueil en turc et en chinois. Nous servons les entreprises de distribution d’Arabie saoudite, du Golfe et de tous les autres pays ; les montants suivent la devise, les décimales et le taux de taxe de chaque entreprise.'],
         },
         {
           h2: 'Facturation électronique en Arabie saoudite',

@@ -13,6 +13,9 @@ export interface ClaimRule {
   pre?: RegExp;
   severity?: 'warn';
   scope?: 'head' | 'raw';
+  /** verify-claims يطبّقها على ملفات dist التي يطابق مسارها النسبي paths ولا يطابق exceptPaths */
+  paths?: RegExp;
+  exceptPaths?: RegExp;
   /** حاجبة لنصوص المستودع وتحذير لنصوص CMS (يُسند verify-claims كل مطابقة بسياقها عبر fromCmsContext) */
   cmsWarn?: boolean;
 }

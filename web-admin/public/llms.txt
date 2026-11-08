@@ -1,17 +1,19 @@
 # FieldSales (فيلد سيلز)
 
-> FieldSales (Arabic name فيلد سيلز, fieldsa.net) is a cloud platform for managing field sales reps and van sales in distribution companies across Arab markets. Reps issue and print invoices and receipt vouchers from their phone, log visits with location and photos and see their van stock per item, while managers follow sales, collections and customer balances as they happen.
+> FieldSales (Arabic name فيلد سيلز, fieldsa.net) is a cloud platform for managing field sales reps and van sales in distribution companies in any country. Reps issue and print invoices and receipt vouchers from their phone, log visits with location and photos and see their van stock per item, while managers follow sales, collections and customer balances as they happen.
 >
-> فيلد سيلز (FieldSales) منصة سحابية لإدارة مناديب المبيعات والتوزيع الميداني لشركات التوزيع في الأسواق العربية، يصدر فيها المندوب من جواله الفاتورة وسند القبض ويطبعهما أمام العميل، ويسجّل زيارته بموقعها وصورها، ويرى مخزون سيارته لكل صنف، وتتابع الإدارة المبيعات والتحصيل وأرصدة العملاء لحظة حدوثها.
+> فيلد سيلز (FieldSales) منصة سحابية لإدارة مناديب المبيعات والتوزيع الميداني لشركات التوزيع في أنحاء العالم، يصدر فيها المندوب من جواله الفاتورة وسند القبض ويطبعهما أمام العميل، ويسجّل زيارته بموقعها وصورها، ويرى مخزون سيارته لكل صنف، وتتابع الإدارة المبيعات والتحصيل وأرصدة العملاء لحظة حدوثها.
 
-Last updated: 2026-10-26
+Last updated: 2026-11-08
 
 Key facts:
 - Also known as: فيلد سيلز, Field Sales, Fieldsa (fieldsa.net). Other products share the generic name “Field Sales”; this file describes only FieldSales at fieldsa.net.
 - Product type: field sales, van sales (DSD) and sales rep management software (SaaS, multi-tenant).
 - Core features: tax invoices with a QR code and returns from the rep’s phone, receipt vouchers linked to the invoices they settle, customer balances and statements, van stock per item, visit proof with location and photos, routes drawn on roads, thermal printing, team permissions, product catalog and price tiers, ERP integration.
-- Markets: all 22 Arab League countries, with country guides (currency, VAT rate, tax authority).
-- Languages: website in Arabic, English and French, plus Turkish and Chinese home pages. The apps are Arabic-first (right to left) and also run in English and French.
+- Markets: distribution companies in any country. Each company picks its country from a registry of 136 countries that presets the currency, its decimals and the default VAT rate (all editable), or chooses “Other country” and sets the currency and tax rate by hand.
+- Government e-invoicing: Saudi Arabia is the only country where a government integration is live (see Saudi e-invoicing below). In every other country invoices are standard invoices in the company’s currency and tax rate, and connection to the national e-invoicing platform is arranged on request.
+- Country guides (blog): currently 22 countries in the Middle East and Africa, each with currency, VAT rate and tax authority.
+- Languages: the apps run in Arabic (right to left), English, French, Turkish and Chinese. The website is in Arabic, English and French, with Turkish and Chinese home pages.
 - Pricing: Per company, not per user: 299 SAR/month (up to 5 reps), 399 SAR/month (up to 10 reps), 599 SAR/month (up to 20 reps). All prices include VAT. Above 20 reps the price is set in a conversation. No setup fees. Free 10-day trial, no credit card; sign-up form: https://fieldsa.net/signup/
 - Rep app: runs in any smartphone browser and is on Google Play and the App Store; a thermal printer is optional.
 - Saudi e-invoicing: We support Phase 2 integration with ZATCA’s Fatoora platform, for companies in Saudi Arabia: UBL 2.1 XML with a UUID, an ECDSA cryptographic stamp, a QR code, an ICV/PIH hash chain, clearance for standard and reporting for simplified invoices, and EGS onboarding with a CSID obtained through a Fatoora portal OTP. ZATCA does not certify software vendors, so FieldSales claims no certification.
@@ -153,7 +155,7 @@ Key facts:
 
 ## Common questions (quotable answers)
 
-- **What is FieldSales?** FieldSales (Arabic name فيلد سيلز, fieldsa.net) is a cloud platform for managing field sales reps and van sales in distribution companies across Arab markets. Reps issue and print invoices and receipt vouchers from their phone, log visits with location and photos and see their van stock per item, while managers follow sales, collections and customer balances as they happen. [FieldSales home page](https://fieldsa.net/en/)
+- **What is FieldSales?** FieldSales (Arabic name فيلد سيلز, fieldsa.net) is a cloud platform for managing field sales reps and van sales in distribution companies in any country. Reps issue and print invoices and receipt vouchers from their phone, log visits with location and photos and see their van stock per item, while managers follow sales, collections and customer balances as they happen. [FieldSales home page](https://fieldsa.net/en/)
 - **Does FieldSales support ZATCA Phase 2?** FieldSales supports ZATCA Phase 2 integration with the Fatoora platform for companies in Saudi Arabia. Every tax document is UBL 2.1 XML with a UUID, an ECDSA cryptographic stamp, a QR code and an ICV/PIH hash chain. Standard invoices go through clearance and simplified ones through reporting, after the admin onboards an EGS unit and gets a CSID with a Fatoora portal OTP. ZATCA does not certify software vendors. [E-invoicing in Saudi Arabia](https://fieldsa.net/en/blog/einvoicing-compliance-sa/)
 - **Can reps issue invoices offline?** It depends on the company’s Phase 2 integration. Without it, reps issue and print invoices and receipts offline, and they sync without duplicates when the connection returns. Saudi companies with Phase 2 integration enabled need a connection at the moment of issue for invoices (standard and simplified) and returns, while receipts, visits and new customers still work offline. [Offline field sales app](https://fieldsa.net/en/blog/offline-field-sales-app/)
 - **How much does FieldSales cost?** Pricing is per company, not per user, and includes VAT: 299 SAR a month for up to 5 reps, 399 SAR for up to 10 reps and 599 SAR for up to 20 reps. Above 20 reps the price is set in a conversation. No setup fees, no annual lock-in, and a 10-day free trial without a credit card. [Pricing](https://fieldsa.net/en/pricing/)
@@ -163,7 +165,7 @@ Key facts:
 - **How do you calculate a sales rep’s commission?** Commission is the commission base times the rate. The fairest base for distribution reps is net sales after returns, so no commission is paid on goods that came back. Net sales of one hundred thousand at 2% give two thousand. With tiered rates each rate applies only to sales inside its tier, with an optional floor and cap. [free commission calculator (Arabic)](https://fieldsa.net/free/commission/)
 - **How do you manage van stock custody?** Van stock custody is the stock recorded against a rep in their vehicle. It is managed through three documented movements: loading from the warehouse, unloading back to it, and adjustments with a written reason. FieldSales computes the remaining quantity of each item in each van live as loaded minus sold, to compare with the physical count at day end. [Van stock guide](https://fieldsa.net/en/blog/van-stock-inventory/)
 - **What hardware does a rep need?** Any smartphone. The rep app works in the phone browser without installation and is also available on Google Play and the App Store. A 58 mm Bluetooth thermal printer is optional for printing invoices and receipts in front of the customer, and FieldSales neither requires a specific model nor sells hardware. [Rep app (Arabic page)](https://fieldsa.net/rep-app/)
-- **Which countries and languages does FieldSales cover?** FieldSales serves distribution companies across all 22 Arab countries, with country guides covering currency, VAT and the tax authority. The website is in Arabic, English and French, with Turkish and Chinese home pages, and the apps are Arabic-first and also run in English and French. [Field sales software in Arab markets](https://fieldsa.net/en/blog/field-sales-software/)
+- **Which countries and languages does FieldSales cover?** FieldSales serves distribution companies in any country: each company picks its country from a registry of 136 countries that presets the currency and VAT rate, or sets them by hand. A government e-invoicing integration is live in Saudi Arabia only, and other countries are connected on request. The apps run in Arabic, English, French, Turkish and Chinese. [FieldSales home page](https://fieldsa.net/en/)
 
 ## Main pages
 
@@ -171,7 +173,7 @@ Key facts:
 - [Home (English)](https://fieldsa.net/en/) · [French](https://fieldsa.net/fr/) · [Turkish](https://fieldsa.net/tr/) · [Chinese](https://fieldsa.net/zh/)
 - [About](https://fieldsa.net/about/): who is behind FieldSales. English: https://fieldsa.net/en/about/
 - [Contact](https://fieldsa.net/contact/): sales and support. English: https://fieldsa.net/en/contact/
-- [Blog (Arabic)](https://fieldsa.net/blog/): guides for distributors in Arab markets. English: https://fieldsa.net/en/blog/ · French: https://fieldsa.net/fr/blog/
+- [Blog (Arabic)](https://fieldsa.net/blog/): practical guides on field sales, van sales, collection and e-invoicing for distribution companies. English: https://fieldsa.net/en/blog/ · French: https://fieldsa.net/fr/blog/
 
 ## Company
 

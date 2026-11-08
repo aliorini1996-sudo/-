@@ -24,12 +24,15 @@
  * تاريخ آخر تعديل للنصوص المكتوبة يدوياً في llms.txt: الأجوبة هنا والحقائق الثابتة في scripts/gen-llms.mjs.
  * يدخل في «Last updated» مع CONTENT_VERSION وتواريخ المقالات، فارفعه عند تعديل أي منها.
  */
-export const TEXT_VERSION = '2026-10-26';
+export const TEXT_VERSION = '2026-11-08';
 
-/** جملة التعريف المستقلة: ما يُقتبس جواباً عن «ما هي فيلد سيلز؟» */
+/**
+ * جملة التعريف المستقلة: ما يُقتبس جواباً عن «ما هي فيلد سيلز؟». التموضع عالمي (قرار المالك ٨ نوفمبر ٢٠٢٦):
+ * لشركات التوزيع في أي دولة، لا «الأسواق العربية» وحدها — والسعودية وربطها الحيّ في أجوبتها.
+ */
 export const WHAT_IS = {
-  ar: 'فيلد سيلز (FieldSales) منصة سحابية لإدارة مناديب المبيعات والتوزيع الميداني لشركات التوزيع في الأسواق العربية، يصدر فيها المندوب من جواله الفاتورة وسند القبض ويطبعهما أمام العميل، ويسجّل زيارته بموقعها وصورها، ويرى مخزون سيارته لكل صنف، وتتابع الإدارة المبيعات والتحصيل وأرصدة العملاء لحظة حدوثها.',
-  en: 'FieldSales (Arabic name فيلد سيلز, fieldsa.net) is a cloud platform for managing field sales reps and van sales in distribution companies across Arab markets. Reps issue and print invoices and receipt vouchers from their phone, log visits with location and photos and see their van stock per item, while managers follow sales, collections and customer balances as they happen.',
+  ar: 'فيلد سيلز (FieldSales) منصة سحابية لإدارة مناديب المبيعات والتوزيع الميداني لشركات التوزيع في أنحاء العالم، يصدر فيها المندوب من جواله الفاتورة وسند القبض ويطبعهما أمام العميل، ويسجّل زيارته بموقعها وصورها، ويرى مخزون سيارته لكل صنف، وتتابع الإدارة المبيعات والتحصيل وأرصدة العملاء لحظة حدوثها.',
+  en: 'FieldSales (Arabic name فيلد سيلز, fieldsa.net) is a cloud platform for managing field sales reps and van sales in distribution companies in any country. Reps issue and print invoices and receipt vouchers from their phone, log visits with location and photos and see their van stock per item, while managers follow sales, collections and customer balances as they happen.',
 };
 
 /** تمييز العدد العربي: ٣–١٠ جمع، و١١–٩٩ مفرد منصوب، وغيرهما مفرد */
@@ -69,10 +72,11 @@ function priceAnswer(lang, tiers) {
  * الأسئلة وأجوبتها بلغة القسم. الروابط مسارات نسبية بشرطة أخيرة، وgen-llms يتحقق أن كلاً منها صفحة قانونية.
  * الترتيب مقصود: جواب الربط بين التعريف (بلا أرقام) وجواب دون اتصال، وجواب السعر بعدهما بعيداً عن عبارة الربط.
  * @param {'ar'|'en'} lang
- * @param {{ tiers?: Array<{ price: string, reps: number|null }> }} [opts]
+ * @param {{ tiers?: Array<{ price: string, reps: number|null }>, countries?: number }} [opts]
+ *   countries: عدد دول سجلّ الدول (src/i18n/countries.ts بلا «دولة أخرى») يمرّره gen-llms — الملف بلا استيراد
  * @returns {Array<{ q: string, a: string, href?: string, label?: string }>}
  */
-export function answersFor(lang, { tiers = [] } = {}) {
+export function answersFor(lang, { tiers = [], countries = 0 } = {}) {
   if (lang === 'ar') {
     return [
       {
@@ -176,8 +180,8 @@ export function answersFor(lang, { tiers = [] } = {}) {
     },
     {
       q: 'Which countries and languages does FieldSales cover?',
-      a: 'FieldSales serves distribution companies across all 22 Arab countries, with country guides covering currency, VAT and the tax authority. The website is in Arabic, English and French, with Turkish and Chinese home pages, and the apps are Arabic-first and also run in English and French.',
-      href: '/en/blog/field-sales-software/', label: 'Field sales software in Arab markets',
+      a: `FieldSales serves distribution companies in any country: each company picks its country from ${countries ? `a registry of ${countries} countries` : 'a country registry'} that presets the currency and VAT rate, or sets them by hand. A government e-invoicing integration is live in Saudi Arabia only, and other countries are connected on request. The apps run in Arabic, English, French, Turkish and Chinese.`,
+      href: '/en/', label: 'FieldSales home page',
     },
   ];
 }

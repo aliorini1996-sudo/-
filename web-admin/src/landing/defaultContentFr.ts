@@ -1,4 +1,4 @@
-// Contenu français de la page d'accueil (utilisé lorsque la langue = FR) — marchés francophones (Maghreb)
+// Contenu français de la page d'accueil (utilisé lorsque la langue = FR) — distributeurs francophones de tous pays
 export const defaultContentFr = {
   cta: { tryFree: 'Démarrez votre essai gratuit' },
   hero: {
@@ -87,7 +87,7 @@ export const defaultContentFr = {
   pages: {
     about: {
       title: 'À propos',
-      body: 'Field Sales est une plateforme complète de gestion des commerciaux de distribution sur le terrain — de la création d’une commande jusqu’à l’émission de la facture fiscale, l’encaissement des paiements et le reporting. Nous aidons les entreprises de distribution à gérer leurs équipes terrain avec une efficacité et une transparence totales, dans les pays arabes et francophones.',
+      body: 'Field Sales est une plateforme complète de gestion des commerciaux de distribution sur le terrain — de la création d’une commande jusqu’à l’émission de la facture fiscale, l’encaissement des paiements et le reporting. Nous aidons les entreprises de distribution à gérer leurs équipes terrain avec une efficacité et une transparence totales, quel que soit leur pays.',
     },
     terms: {
       title: 'Conditions générales',

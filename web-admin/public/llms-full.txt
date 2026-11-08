@@ -1,6 +1,6 @@
-# FieldSales (فيلد سيلز): full index of canonical pages (updated 2026-10-26)
+# FieldSales (فيلد سيلز): full index of canonical pages (updated 2026-11-08)
 
-> Every canonical page on fieldsa.net for distribution companies in Arab markets: product pages, generated guides in Arabic, English and French with a direct answer each, and blog posts. Curated overview: https://fieldsa.net/llms.txt
+> Every canonical page on fieldsa.net, a field sales platform for distribution companies in any country: product pages, generated guides in Arabic, English and French with a direct answer each, and blog posts. Curated overview: https://fieldsa.net/llms.txt
 
 Pricing: Per company, not per user: 299 SAR/month (up to 5 reps), 399 SAR/month (up to 10 reps), 599 SAR/month (up to 20 reps). All prices include VAT. Above 20 reps the price is set in a conversation.
 

@@ -55,6 +55,20 @@ async function loadTs(rel, exportName) {
   } finally { fs.unlinkSync(tmp); }
 }
 
+/**
+ * نصوص «احجز اجتماعاً» من مصدرها الواحد (كائن TEXT في src/pages/MeetingPage.tsx) لا نسخة ثالثة هنا:
+ * المكوّن يستورد React وغيره فلا يُحمَّل كاملاً، فيُقتطع كائن TEXT وحده (نصّ ثابت بلا استيراد) ويُحوَّل.
+ * تعذّر الاقتطاع ⇒ خطأ يوقف البناء: الخريطة تعلن /meeting/ بلغاتها، وصفحة غائبة تُفشل verify-sitemap على أي حال.
+ */
+async function loadMeetingText() {
+  const src = fs.readFileSync(path.resolve(__dirname, '../src/pages/MeetingPage.tsx'), 'utf8');
+  const m = src.match(/const TEXT = (\{[\s\S]*?\r?\n\}) as const;/);
+  if (!m) throw new Error('تعذّر اقتطاع كائن TEXT من src/pages/MeetingPage.tsx (غيّر prerender.mjs مع شكله)');
+  const { code } = transformSync(`export const TEXT = ${m[1]};`, { loader: 'ts', format: 'esm' });
+  const mod = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+  return mod.TEXT;
+}
+
 // المقالات اليدوية: اتحاد CMS الحيّ ومقالات src/blog/posts.ts بالدالة نفسها التي يراها الزائر (effectivePosts)
 function manualPostsFrom(mod, cmsBlog) {
   return mod.effectivePosts(cmsBlog).map((p) => ({
@@ -115,9 +129,12 @@ let template = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
  */
 function buildPage({ lang, title, description, keywords, canonical, image, ogType = 'website', hreflang = '', jsonLd = null, bodyHtml = '', robots = '', templateLd = [] }) {
   const dir = lang === 'ar' ? 'rtl' : 'ltr';
+  // og:locale بصيغة لغة_إقليم (المعيار لا يعرف zh_Hans): zh_CN هو مقابل الصينية المبسّطة، ومثله في src/lib/seo.ts
   const ogLocale = { en: 'en_US', fr: 'fr_FR', tr: 'tr_TR', zh: 'zh_CN' }[lang] || 'ar_SA';
+  // lang بالرمز نفسه في hreflang (zh-Hans لا zh المجرَّدة) — والقيمة نفسها يكتبها useSeo بعد الإقلاع
+  const htmlLang = HREFLANG_CODE[lang] || lang;
   let h = template;
-  h = h.replace(/<html[^>]*>/, `<html lang="${lang}" dir="${dir}">`);
+  h = h.replace(/<html[^>]*>/, `<html lang="${htmlLang}" dir="${dir}">`);
   h = h.replace(/<title>[\s\S]*?<\/title>/, `<title>${esc(title)}</title>`);
   h = h.replace(/(<meta name="description" content=")[\s\S]*?("\s*\/>)/, `$1${esc(description)}$2`);
   if (keywords) h = h.replace(/(<meta name="keywords" content=")[\s\S]*?("\s*\/>)/, `$1${esc(keywords)}$2`);
@@ -146,8 +163,9 @@ function buildPage({ lang, title, description, keywords, canonical, image, ogTyp
   //   · الأنواع التي تُصدرها الصفحة نفسها (لا تكرار).
   //   · FAQPage دائماً (P2): أسئلة الرئيسية لا تظهر في أي صفحة غيرها — كانت تُحقن في أكثر من مئتي
   //     صفحة، منها إنجليزية بأسئلة عربية. الرئيسية العربية لا تمرّ بـbuildPage، وتُبنى أسئلتها من CMS.
-  //   · SoftwareApplication في الصفحات غير العربية (تصحيح الناقد 19): وصفه عربي وinLanguage ar.
-  const ownTypes = new Set(['FAQPage', ...(lang === 'ar' ? [] : ['SoftwareApplication'])]);
+  // ويُوطَّن SoftwareApplication في الصفحات غير العربية بدل حذفه (localizedApp أدناه؛ كان يُحذف لأن وصفه عربي
+  // وinLanguage ar — تصحيح الناقد 19): الكيان نفسه بمعرّفه #software، بوصف بلغة الصفحة وinLanguage بها.
+  const ownTypes = new Set(['FAQPage']);
   if (jsonLd) {
     for (const n of (Array.isArray(jsonLd['@graph']) ? jsonLd['@graph'] : [jsonLd])) {
       const t = n && n['@type'];
@@ -159,9 +177,13 @@ function buildPage({ lang, title, description, keywords, canonical, image, ogTyp
     try {
       const j = JSON.parse(body);
       if (Array.isArray(j['@graph'])) {
-        const g = j['@graph'].filter((n) => !(n && typeof n['@type'] === 'string' && ownTypes.has(n['@type'])));
-        if (g.length !== j['@graph'].length || templateLd.length) {
-          return `<script type="application/ld+json">${JSON.stringify({ ...j, '@graph': [...g, ...templateLd] })}</script>`;
+        const g = j['@graph']
+          .filter((n) => !(n && typeof n['@type'] === 'string' && ownTypes.has(n['@type'])))
+          .map((n) => (lang !== 'ar' && n && n['@type'] === 'SoftwareApplication' ? localizedApp(n, lang) : n))
+          .filter(Boolean);
+        const out = [...g, ...templateLd];
+        if (JSON.stringify(out) !== JSON.stringify(j['@graph'])) {
+          return `<script type="application/ld+json">${JSON.stringify({ ...j, '@graph': out })}</script>`;
         }
       }
     } catch { /* قالب غير متوقّع — يُترك كما هو بدل كسره */ }
@@ -251,10 +273,36 @@ const canon = (url) => {
 // لغة واحدة ⇒ لا عنقود (كما في الخريطة وseoUrls). وكل وسم يحمل data-seo-alt: useSeo يحذف الموسوم
 // ويكتب بدائل seoUrls مكانه عند إقلاع React — بلا الوسم كان يُضيف عنقوداً ثانياً فوق هذا (P1).
 const HREFLANG_CODE = { zh: 'zh-Hans' }; // المحتوى بالمبسّطة تحديداً؛ بقيّة اللغات رمزها اسمها
+const langUrl = (L, p) => canon(`${ORIGIN}${L === 'ar' ? '' : '/' + L}${p}`);
+// x-default: الإنجليزية إن كانت في العنقود، وإلا العربية — القاعدة نفسها في xDefaultLang (src/i18n/locale.ts)
+// وalt (scripts/gen-sitemap.mjs)، ويفرضها verify-sitemap. الباحث بلغة لا نسخة لها يذهب إلى الإنجليزية لا إلى العربية.
+const xDefaultOf = (langs) => (langs.includes('en') ? 'en' : langs.includes('ar') ? 'ar' : langs[0]);
 const hreflangFor = (blogPath, langs = LANGS) => (langs.length < 2 ? '' : langs
-  .map((L) => `\n    <link rel="alternate" hreflang="${HREFLANG_CODE[L] || L}" href="${canon(`${ORIGIN}${L === 'ar' ? '' : '/' + L}${blogPath}`)}" data-seo-alt="1"/>`)
-  .join('') + `\n    <link rel="alternate" hreflang="x-default" href="${canon(ORIGIN + blogPath)}" data-seo-alt="1"/>`);
+  .map((L) => `\n    <link rel="alternate" hreflang="${HREFLANG_CODE[L] || L}" href="${langUrl(L, blogPath)}" data-seo-alt="1"/>`)
+  .join('') + `\n    <link rel="alternate" hreflang="x-default" href="${langUrl(xDefaultOf(langs), blogPath)}" data-seo-alt="1"/>`);
 const trilingualHreflang = (blogPath) => hreflangFor(blogPath, LANGS);
+
+/**
+ * SoftwareApplication القالب (index.html) بلغة الصفحة — بدل حذفه من الصفحات غير العربية.
+ * يبقى الكيان نفسه (#software واسمه وروابط تنزيله) ويتغيّر الوصف وinLanguage إلى لغة الصفحة (verify-schema
+ * القاعدة 6). وتسقط الحقول العربية النصّ (featureList وkeywords)، ويسقط offers: هذه الصفحات لم تكن تحمل
+ * SoftwareApplication أصلاً فلا عرض سعر فيها، ولا يتغيّر بالتوطين ما يظهر من السعر (قرار المالك ٢٧ أكتوبر:
+ * الأسعار باقية في البيانات المنظّمة العربية وصفحات الأسعار وllms والمقالات؛ والرئيسيات بلا AggregateOffer —
+ * verify-pricing). لغة بلا وصف هنا ⇒ يُحذف كما كان.
+ */
+const APP_I18N = {
+  en: { inLanguage: 'en', description: 'Field sales and distribution management software for distribution companies in any country: invoices and receipts with a QR code from the rep’s phone, collection and customer balances, van stock per item, visit proof and rep GPS tracking, with ERP integration.' },
+  fr: { inLanguage: 'fr', description: 'Logiciel de vente terrain et de gestion de la distribution pour les entreprises de distribution de tous pays : factures et reçus à code QR depuis le mobile du commercial, encaissement et soldes clients, stock du véhicule par article, preuve de visite et suivi GPS des commerciaux, avec intégration ERP.' },
+  tr: { inLanguage: 'tr', description: 'Her ülkedeki dağıtım şirketleri için saha satış ve dağıtım yönetim yazılımı: temsilcinin telefonundan QR kodlu fatura ve makbuz, tahsilat ve cari hesaplar, ürün bazında araç stoku, ziyaret kanıtı ve GPS temsilci takibi, ERP entegrasyonu.' },
+  zh: { inLanguage: 'zh-Hans', description: '面向各国分销企业的外勤销售与分销管理软件：业务员用手机开具带二维码的发票和收款单，管理收款与客户余额、按商品的车载库存、拜访凭证和业务员 GPS 追踪，并支持 ERP 集成。' },
+};
+function localizedApp(node, lang) {
+  const t = APP_I18N[lang];
+  if (!t) return null;
+  // eslint-disable-next-line no-unused-vars
+  const { offers, featureList, keywords, description, inLanguage, ...rest } = node;
+  return { ...rest, inLanguage: t.inLanguage, description: t.description };
+}
 
 const tr = (L, ar, en, fr) => (L === 'ar' ? ar : L === 'en' ? en : fr);
 
@@ -458,18 +506,24 @@ async function main() {
   const enFaqHtml = enFaq.kept.length
     ? `<h2>${esc(homeEnDefaults?.faq?.title || 'Frequently asked questions')}</h2>\n` + enFaq.kept.map((f) => `<h3>${esc(f.q)}</h3><p>${esc(f.a)}</p>`).join('\n')
     : '';
+  // العنوان والوصف حرفياً كما في seoByLang بـsrc/pages/LandingPage.tsx (ما يكتبه useSeo بعد الإقلاع؛ langs.test.ts يفرض
+  // التطابق). التموضع عالمي: شركات التوزيع في أي دولة، بلا حصر في «الأسواق العربية» (verify-claims: arab-only-targeting)،
+  // والسعودية والخليج وربط المرحلة الثانية الحيّ في المتن.
   const homeMeta = {
     en: {
-      title: 'FieldSales | Field Sales & Distribution Management Software for Arab Markets',
-      desc: 'Arabic-first field sales system for distributors across Saudi Arabia, Egypt and the Arab world: tax invoices, collection, van stock and rep tracking. Free 10-day trial.',
+      title: 'FieldSales | Field Sales & Distribution Management Software',
+      desc: 'Field sales software for distribution companies in any country: invoices with a QR code, collection, van stock and rep GPS tracking. Free 10-day trial.',
+      // الكلمات المفتاحية بلغة الصفحة كما في seoByLang (بدونها ترث الصفحة كلمات القالب العربية)
+      keywords: 'field sales system, sales rep management software, distribution management software, route accounting, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales, van stock management, GPS rep tracking, customer management, product catalog, ERP integration',
       templateLd: enFaq.kept.length ? [faqPageNode(enFaq.kept)] : [],
-      body: `<main><h1>FieldSales — field sales &amp; distribution management for Arab markets</h1>
+      body: `<main><h1>FieldSales — field sales &amp; distribution management software</h1>
 <p>FieldSales is a cloud platform for distribution companies that sell through field reps. Reps issue invoices and receipts with a QR code from their phones, print them on a thermal printer, collect payments and manage their van stock, while managers see sales, collections, receivables and every rep’s route on one dashboard.</p>
-<p>It is built Arabic-first, with English and French interfaces, for distributors of food, beverages and consumer goods across the Arab world.</p>
+<p>Built in Riyadh, it serves distributors of food, beverages and consumer goods in Saudi Arabia, the Gulf and any other country: each company sets its country, currency and tax rate, and the apps run in Arabic, English, French, Turkish and Chinese.</p>
 <ul><li>Field invoicing with QR code and thermal printing</li><li>Collection, receivables and customer statements with credit limits</li><li>Van stock per rep with live variance detection</li><li>GPS rep tracking and route planning</li><li>Product catalog, price tiers and ERP integration</li></ul>
 <h2>E-invoicing in Saudi Arabia</h2>
 <p>FieldSales supports Phase 2 integration with ZATCA’s Fatoora platform.</p>
 <p>For Saudi companies with the integration enabled, invoices (standard and simplified) and returns need a connection at the moment of issuance, while receipts and visit logging still work offline. <a href="/en/blog/einvoicing-compliance-sa/">E-invoicing and tax compliance in Saudi Arabia</a></p>
+<p>In other countries the system issues standard invoices in the company’s currency and tax rate, and connection to the national e-invoicing platform is arranged on request.</p>
 <h2>Request a quote</h2>
 <p>Tell us how many reps you have and what your company needs, and we will send you a quote that fits. <a href="/en/subscribe-request/?type=quote">Request a quote</a> or <a href="${waHref}" rel="noopener">chat with us on WhatsApp</a>.</p>
 ${enFaqHtml}
@@ -480,34 +534,43 @@ ${enFaqHtml}
 <p>By topic: <a href="/en/blog/mobile-field-invoicing/">offline field sales app</a> · <a href="/en/blog/fmcg-distribution/">trade marketing and distribution</a> · <a href="/en/blog/wholesale-food-distributors/">dairy distribution</a> · <a href="/en/blog/van-sales-app/">van sales app</a> · <a href="/en/blog/collection-receivables/">collection and receivables</a></p></main>`,
     },
     fr: {
-      title: 'FieldSales | Logiciel de gestion des ventes terrain et distribution',
-      desc: 'Système de vente terrain pour les distributeurs en Arabie saoudite, en Égypte et dans le monde arabe : factures, encaissement, stock et suivi. Essai gratuit 10 jours.',
-      body: `<main><h1>FieldSales — gestion des ventes terrain et de la distribution pour les marchés arabes</h1>
-<p>FieldSales est une plateforme SaaS pour les entreprises de distribution : les commerciaux émettent des factures structurées à code QR, encaissent les paiements et gèrent le stock du véhicule depuis une application mobile, tandis que les gérants disposent de tableaux de bord en direct, du suivi GPS et de rapports. Disponible en arabe, anglais et français dans les 22 pays arabes.</p>
+      title: 'FieldSales | Logiciel de vente terrain et de distribution',
+      desc: 'Logiciel de vente terrain pour distributeurs de tous pays : prévente et vente en tournée, factures, encaissement et suivi GPS. Essai gratuit 10 jours.',
+      keywords: 'logiciel de vente terrain, application de prévente, vente en tournée, logiciel de gestion des commerciaux, logiciel de gestion de distribution, facturation électronique, facture fiscale, encaissement, gestion des créances, stock du véhicule, suivi GPS des commerciaux, gestion des clients, catalogue produits, intégration ERP',
+      body: `<main><h1>FieldSales — logiciel de vente terrain et de gestion de la distribution</h1>
+<p>FieldSales est une plateforme SaaS pour les entreprises de distribution : une application de prévente et de vente en tournée avec laquelle les commerciaux émettent des factures structurées à code QR, encaissent les paiements et gèrent le stock du véhicule, tandis que les gérants disposent de tableaux de bord en direct, du suivi GPS et de rapports. Chaque entreprise choisit son pays, sa devise et son taux de taxe, et l’application fonctionne en arabe, anglais, français, turc et chinois.</p>
 <ul><li>Facturation terrain avec code QR et impression thermique</li><li>Encaissement, créances et relevés clients avec limites de crédit</li><li>Stock du véhicule par commercial avec détection des écarts</li><li>Suivi GPS et planification des tournées</li><li>Catalogue produits, grilles tarifaires et intégration ERP</li></ul>
+<h2>Facturation électronique</h2>
+<p>En Arabie saoudite, nous prenons en charge l’intégration phase 2 avec la plateforme Fatoora de la ZATCA. Dans les autres pays, le système émet des factures standard dans la devise et au taux de taxe de l’entreprise, et la connexion à la plateforme nationale de facturation électronique se fait sur demande.</p>
 <h2>Contact et demandes d'abonnement</h2>
 <p>E-mail officiel : <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Siège social : Arabie saoudite · <a href="/fr/subscribe-request/">Envoyez une demande d'abonnement</a> ou <a href="/signup">commencez l'essai gratuit</a>.</p>
 <p><a href="/signup">Essai gratuit de 10 jours</a> — sans carte bancaire. <a href="/fr/blog">Blog</a> · <a href="/fr/subscribe-request/?type=quote">Demander un devis</a> · <a href="/fr/invoice-generator/">Générateur de factures gratuit</a> · <a href="/fr/about">À propos</a> · <a href="/fr/contact">Contact</a> · <a href="/fr/terms/">Conditions</a> · <a href="/fr/privacy/">Confidentialité</a> · <a href="/fr/service-agreement/">Accord de service</a></p>
-<p>Par thème : <a href="/fr/blog/collection-receivables/">recouvrement de créances</a> · <a href="/fr/blog/collection-receivables-eg/">recouvrement de créances en Égypte</a> · <a href="/fr/blog/van-sales-app/">application van sales</a> · <a href="/fr/blog/collection-receivables-sa/">recouvrement de créances en Arabie saoudite</a> · <a href="/fr/blog/distribution-management-system/">système de gestion de la distribution</a></p></main>`,
+<p>Par thème : <a href="/fr/blog/collection-receivables/">recouvrement de créances</a> · <a href="/fr/blog/collection-receivables-eg/">recouvrement de créances en Égypte</a> · <a href="/fr/blog/van-sales-app/">application de vente en tournée</a> · <a href="/fr/blog/collection-receivables-sa/">recouvrement de créances en Arabie saoudite</a> · <a href="/fr/blog/distribution-management-system/">système de gestion de la distribution</a></p></main>`,
     },
     tr: {
       title: 'FieldSales | Saha Satış ve Dağıtım Yönetim Yazılımı',
-      desc: 'Suudi Arabistan Mısır ve Arap dünyasındaki dağıtımcılar için saha satış sistemi: vergi faturaları tahsilat araç stoku ve GPS takibi. 10 gün ücretsiz deneme.',
-      body: `<main><h1>FieldSales — Arap pazarları için saha satış ve dağıtım yönetimi</h1>
-<p>FieldSales dağıtım şirketleri için bir SaaS platformudur: saha temsilcileri mobil uygulamadan QR kodlu yapılandırılmış vergi faturaları keser, tahsilat yapar ve araç stokunu yönetir; yöneticiler canlı panolar, GPS takibi ve raporlar alır. Arapça, İngilizce, Fransızca ve Türkçe olarak 22 Arap ülkesinde kullanılabilir.</p>
+      desc: 'Her ülkedeki dağıtım şirketleri için saha satış ve plasiyer yazılımı: QR kodlu faturalar, tahsilat, araç stoku ve GPS takibi. 10 gün ücretsiz deneme.',
+      keywords: 'saha satış sistemi saha ekibi yönetimi dağıtım yönetim yazılımı rota muhasebesi e-fatura vergi faturası tahsilat cari hesap araç stoku yönetimi GPS temsilci takibi müşteri yönetimi ürün kataloğu ERP entegrasyonu',
+      body: `<main><h1>FieldSales — saha satış ve dağıtım yönetim yazılımı</h1>
+<p>FieldSales dağıtım şirketleri için bir SaaS platformudur: saha temsilcileri mobil uygulamadan QR kodlu yapılandırılmış faturalar keser, tahsilat yapar ve araç stokunu yönetir; yöneticiler canlı panolar, GPS takibi ve raporlar alır. Her şirket kendi ülkesini, para birimini ve vergi oranını seçer; uygulama Arapça, İngilizce, Fransızca, Türkçe ve Çince çalışır.</p>
 <ul><li>QR kodlu saha faturalama ve termal yazdırma</li><li>Tahsilat, cari hesap ve kredi limitli müşteri ekstreleri</li><li>Temsilci başına araç stoku ve canlı fark tespiti</li><li>GPS temsilci takibi ve rota planlama</li><li>Ürün kataloğu, fiyat listeleri ve ERP entegrasyonu</li></ul>
+<h2>E-fatura</h2>
+<p>Suudi Arabistan’da ZATCA’nın Fatoora platformuyla 2. Aşama entegrasyonunu destekliyoruz. Diğer ülkelerde sistem şirketin para birimi ve vergi oranıyla standart faturalar keser; ulusal e-fatura platformu bağlantısı talep üzerine yapılır.</p>
 <h2>İletişim ve abonelik talepleri</h2>
-<p>Resmi e-posta: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Merkez: Suudi Arabistan · <a href="/tr/subscribe-request/">Abonelik talebi gönderin</a> veya <a href="/signup">ücretsiz denemeyi başlatın</a>.</p>
+<p>Resmi e-posta: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Merkez: Suudi Arabistan · <a href="/en/subscribe-request/">Abonelik talebi gönderin (İngilizce)</a> · <a href="/tr/meeting/">Toplantı planlayın</a> veya <a href="/signup">ücretsiz denemeyi başlatın</a>.</p>
 <p><a href="/signup">10 günlük ücretsiz deneme</a> — kredi kartı gerekmez. <a href="/en/blog">Blog (İngilizce)</a> · <a href="/en/about/">Hakkında (İngilizce)</a> · <a href="/en/contact/">İletişim (İngilizce)</a></p></main>`,
     },
     zh: {
       title: 'FieldSales | 外勤销售与分销管理软件',
-      desc: '面向沙特、埃及及阿拉伯世界分销商的外勤销售系统：增值税发票、收款、车载库存与业务员 GPS 追踪。免费试用 10 天。',
-      body: `<main><h1>FieldSales — 面向阿拉伯市场的外勤销售与分销管理</h1>
-<p>FieldSales 是一套面向分销企业的 SaaS 平台：业务员通过手机应用开具带二维码的结构化增值税发票、完成收款并管理车载库存；管理者则获得实时看板、GPS 追踪与报表。支持阿拉伯语、英语、法语、土耳其语和中文，覆盖 22 个阿拉伯国家。</p>
+      desc: '面向各国分销企业的外勤销售系统：带二维码的发票、收款、车载库存与业务员 GPS 追踪。免费试用 10 天。',
+      keywords: '外勤销售系统 业务员管理软件 分销管理系统 路线销售管理 ZATCA 电子发票 增值税发票 收款管理 应收账款 车销库存管理 GPS 业务员追踪 客户管理 产品目录 ERP 集成',
+      body: `<main><h1>FieldSales — 外勤销售与分销管理软件</h1>
+<p>FieldSales 是一套面向分销企业的 SaaS 平台：业务员通过手机应用开具带二维码的结构化发票、完成收款并管理车载库存；管理者则获得实时看板、GPS 追踪与报表。各国企业可自选国家、货币和税率，应用支持阿拉伯语、英语、法语、土耳其语和中文。</p>
 <ul><li>带二维码的外勤开票与热敏打印</li><li>收款、应收账款与带信用额度的客户对账单</li><li>按业务员划分的车载库存与实时差异检测</li><li>业务员 GPS 追踪与路线规划</li><li>产品目录、价格体系与 ERP 集成</li></ul>
+<h2>电子发票</h2>
+<p>在沙特，我们支持与 ZATCA Fatoora 平台的第二阶段对接。其他国家使用本企业货币和税率的标准发票，如需对接本国政府电子发票平台，可按需办理。</p>
 <h2>联系我们与订阅申请</h2>
-<p>官方邮箱：<a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · 总部：沙特阿拉伯 · <a href="/zh/subscribe-request/">提交订阅申请</a>或直接<a href="/signup">开始免费试用</a>。</p>
+<p>官方邮箱：<a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · 总部：沙特阿拉伯 · <a href="/en/subscribe-request/">提交订阅申请（英文）</a> · <a href="/zh/meeting/">预约会议</a>或直接<a href="/signup">开始免费试用</a>。</p>
 <p><a href="/signup">立即开始 10 天免费试用</a> — 无需信用卡。<a href="/en/blog">博客（英文）</a> · <a href="/en/about/">关于我们（英文）</a> · <a href="/en/contact/">联系我们（英文）</a></p></main>`,
     },
   };
@@ -515,8 +578,26 @@ ${enFaqHtml}
   const marketingHreflang = hreflangFor('/', [...LANGS, 'tr', 'zh']);
   for (const L of ['en', 'fr', 'tr', 'zh']) {
     const canonical = canon(`${ORIGIN}/${L}`);
-    const html = buildPage({ lang: L, title: homeMeta[L].title, description: homeMeta[L].desc, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: marketingHreflang, bodyHtml: homeMeta[L].body, templateLd: homeMeta[L].templateLd || [] });
+    const html = buildPage({ lang: L, title: homeMeta[L].title, description: homeMeta[L].desc, keywords: homeMeta[L].keywords, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: marketingHreflang, bodyHtml: homeMeta[L].body, templateLd: homeMeta[L].templateLd || [] });
     writeRoute(`/${L}`, html);
+    n++;
+  }
+
+  // 3ب) «احجز اجتماعاً» بلغاتها الخمس (نصوص MeetingPage خماسية) — كانت قوقعة الرئيسية العربية بـcanonical «/» لكل
+  // زاحف لا يشغّل JavaScript، وكانت `Disallow: /m` في robots.txt تحجبها. العنوان والوصف والعنوان الرئيسي من TEXT نفسه
+  // الذي يرسمه React (useSeo وH1)، والعنقود خماسي كالخريطة (availableLangs في src/i18n/locale.ts وlangsFor في gen-sitemap).
+  const MEETING_LANGS = ['ar', 'en', 'fr', 'tr', 'zh'];
+  const meetingText = await loadMeetingText();
+  const meetingHreflang = hreflangFor('/meeting', MEETING_LANGS);
+  for (const L of MEETING_LANGS) {
+    const t = meetingText[L];
+    if (!t || !t.seoTitle || !t.seoDesc || !t.title) throw new Error(`نصوص «احجز اجتماعاً» ناقصة للغة ${L} في MeetingPage.tsx`);
+    const prefix = L === 'ar' ? '' : `/${L}`;
+    const body = `<main><h1>${esc(t.title)}</h1><p>${esc(t.sub)}</p><p>${esc(t.note)}</p><p><a href="${prefix || ''}/">${esc(t.home)}</a></p></main>`;
+    writeRoute(`${prefix}/meeting`, buildPage({
+      lang: L, title: t.seoTitle, description: t.seoDesc, canonical: canon(`${ORIGIN}${prefix}/meeting`),
+      image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: meetingHreflang, bodyHtml: body,
+    }));
     n++;
   }
 
@@ -686,9 +767,9 @@ ${pricingFaqHtml('fr')}`,
       ar: { t: about.ar.title, d: about.ar.description,
         b: `<h1>عن منصّة FieldSales</h1><p>FieldSales منصّة سحابية عربية لإدارة المبيعات الميدانية والتوزيع: فواتير ضريبية منظّمة من الميدان، تحصيل وكشوف حساب، مخزون سيارة المندوب، تتبّع GPS، وتقارير لحظية — لشركات التوزيع في الدول العربية بواجهة عربية أصلية ودعم للإنجليزية والفرنسية.</p>\n${sectionsHtml(about.ar.sections)}` },
       en: { t: about.en.title, d: about.en.description,
-        b: `<h1>About FieldSales</h1><p>FieldSales is an Arabic-first SaaS platform for field sales and distribution: structured tax invoices from the field, collection and statements, van stock, GPS tracking and live reports — serving distributors across the Arab world in Arabic, English and French.</p>\n${sectionsHtml(about.en.sections)}` },
+        b: `<h1>About FieldSales</h1><p>FieldSales is a SaaS platform for field sales and distribution, built in Riyadh: structured tax invoices from the field, collection and statements, van stock, GPS tracking and live reports — for distribution companies in Saudi Arabia, the Gulf and any other country, with apps in Arabic, English, French, Turkish and Chinese.</p>\n${sectionsHtml(about.en.sections)}` },
       fr: { t: about.fr.title, d: about.fr.description,
-        b: `<h1>À propos de FieldSales</h1><p>FieldSales est une plateforme SaaS pour la vente terrain et la distribution : factures structurées, encaissement et relevés, stock du véhicule, suivi GPS et rapports en direct — au service des distributeurs du monde arabe, en arabe, anglais et français.</p>\n${sectionsHtml(about.fr.sections)}` },
+        b: `<h1>À propos de FieldSales</h1><p>FieldSales est une plateforme SaaS pour la vente terrain et la distribution, conçue à Riyad : factures structurées, encaissement et relevés, stock du véhicule, suivi GPS et rapports en direct — pour les entreprises de distribution d’Arabie saoudite, du Golfe et de tous les autres pays, avec une application en arabe, anglais, français, turc et chinois.</p>\n${sectionsHtml(about.fr.sections)}` },
     },
     contact: {
       ar: { t: 'تواصل مع فيلد سيلز – نظام إدارة المناديب | FieldSales', d: 'تواصل مع فريق FieldSales للاستفسارات والمبيعات والدعم الفني.',
@@ -1122,7 +1203,7 @@ ${homeFaqHtml}
   })(DIST);
   console.log(`  تطبيع الشرطة الأخيرة: ${links} رابطاً في ${patched} ملف`);
 
-  console.log(`✅ prerender: ${n} صفحة ثابتة (${buildCatalog().length} مقال مولَّد ×3 + ${manual.length} مقال يدوي + فهارس + رئيسية ع/إ/فر/تر/صيني + ${Object.keys(INFO).length} صفحة تعريفية ×3) في dist/`);
+  console.log(`✅ prerender: ${n} صفحة ثابتة (${buildCatalog().length} مقال مولَّد ×3 + ${manual.length} مقال يدوي + فهارس + رئيسية و«احجز اجتماعاً» ع/إ/فر/تر/صيني + ${Object.keys(INFO).length} صفحة تعريفية ×3) في dist/`);
 }
 
 await main();

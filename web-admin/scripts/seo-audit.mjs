@@ -86,6 +86,17 @@ else {
   noSelf.length
     ? fail(`روابط بعنقود hreflang لا يذكرها (${noSelf.length}): ${noSelf.slice(0, 5).map(decodeURI).join(', ')}`)
     : ok('كل رابط في عنقود hreflang يذكر نفسه فيه');
+  // x-default: الإنجليزية إن كانت في العنقود، وإلا العربية (xDefaultLang في src/i18n/locale.ts) — كان العربي دائماً،
+  // فيذهب الباحث بلغة لا نسخة لها (إسبانية، إندونيسية…) إلى صفحة عربية
+  const badXd = blocks.filter((b) => /<xhtml:link\b/.test(b)).map((b) => {
+    const alts = new Map([...b.matchAll(/<xhtml:link\b[^>]*hreflang="([^"]+)"[^>]*href="([^"]+)"/g)].map((m) => [m[1].toLowerCase(), norm(m[2])]));
+    const want = alts.get('en') || alts.get('ar');
+    const loc = (b.match(/<loc>\s*([^<]+?)\s*<\/loc>/) || [])[1];
+    return !alts.get('x-default') || (want && alts.get('x-default') !== want) ? loc : null;
+  }).filter(Boolean);
+  badXd.length
+    ? fail(`x-default لا يتبع القاعدة «الإنجليزية وإلا العربية» (${badXd.length}): ${badXd.slice(0, 5).map(decodeURI).join(', ')}`)
+    : ok('x-default في كل عنقود: الإنجليزية إن وُجدت وإلا العربية');
   sm.includes('xmlns:xhtml') ? ok('مساحة أسماء xhtml معرّفة') : warn('لا توجد مساحة xhtml لـhreflang');
 
   // تغطية مقالات المدوّنة: من CMS الحيّ (المصدر الذي يراه الزائر — 122 مقالاً في أكتوبر 2026) لا من posts.ts
