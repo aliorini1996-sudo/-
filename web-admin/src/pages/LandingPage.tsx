@@ -484,29 +484,6 @@ function coverageSection(lang: Lang): string {
   </section>`;
 }
 
-// ---- شريط «يخدم جميع دول العالم» أعلى الصفحة (طلب المالك ٨ نوفمبر ٢٠٢٦: كتابة وتوضيح قويّ بأعلى الصفحة الرئيسية) ----
-function worldBanner(lang: Lang): string {
-  const t = {
-    ar: { title: 'يخدم جميع دول العالم', sub: 'بعملة دولتك وضريبتها ولغتك والدعم الفني متواجد لكل الدول بلا استثناء' },
-    en: { title: 'Serving every country in the world', sub: 'Your country s currency tax and language with technical support for every country without exception' },
-    fr: { title: 'Au service de tous les pays du monde', sub: 'La devise la taxe et la langue de votre pays avec un support technique pour tous les pays sans exception' },
-    tr: { title: 'Dünyanın tüm ülkelerine hizmet veriyor', sub: 'Ülkenizin para birimi vergisi ve dili ile istisnasız tüm ülkeler için teknik destek' },
-    zh: { title: '服务全球所有国家', sub: '使用您本国的货币 税率和语言 技术支持覆盖所有国家 无一例外' },
-  }[lang];
-  return `<div data-world-banner="" style="background:#1F1A13; color:#fff;">
-    <div style="max-width:1200px; margin:0 auto; padding:16px 28px; display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; text-align:center;">
-      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="flex-shrink:0;"><circle cx="12" cy="12" r="9.5" stroke="#E15A30" stroke-width="1.8"></circle><path d="M2.5 12h19M12 2.5c2.6 2.8 3.9 6 3.9 9.5S14.6 18.7 12 21.5M12 2.5C9.4 5.3 8.1 8.5 8.1 12s1.3 6.7 3.9 9.5" stroke="#E15A30" stroke-width="1.8" stroke-linecap="round"></path></svg>
-      <strong style="font-size:22px; line-height:1.3; font-weight:700; letter-spacing:-0.3px;">${t.title}</strong>
-      <span style="font-size:15.5px; line-height:1.5; color:#E9E1D3;">${t.sub}</span>
-    </div>
-  </div>`;
-}
-
-function injectWorldBanner(html: string, lang: Lang): string {
-  const anchor = '<!-- ============ HERO ============ -->';
-  return html.replace(anchor, `${anchor}\n  ${worldBanner(lang)}`);
-}
-
 // يحقن قسم التغطية العالمية قبل قسم «طلب عرض سعر»
 function injectCoverage(html: string, lang: Lang): string {
   const anchor = '<!-- ============ PRICING ============ -->';
@@ -873,7 +850,6 @@ export default function LandingPage() {
     html = applyContent(TEMPLATE, arContent, 'ar');
   }
   html = injectLangSwitcher(html, lang);
-  html = injectWorldBanner(html, lang);
   html = injectCoverage(html, lang);
   // «طلب عرض سعر» ومربع «للتواصل وطلبات الاشتراك» — بياناتهما من CMS العربي (المصدر الواحد) وتُعرض بكل اللغات
   html = injectQuote(html, (arContent.contact as ContactInfo) || {}, lang);
