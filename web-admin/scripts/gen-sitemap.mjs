@@ -1,10 +1,19 @@
-// يولّد public/sitemap.xml آلياً من المسارات + روابط hreflang + مقالات المدوّنة.
+// يولّد خريطة الموقع آلياً من المسارات + روابط hreflang + مقالات المدوّنة + الطبقة متعددة اللغات.
 // مصادر المقالات: اتحاد محتوى الـCMS الحيّ (مصحَّحاً بقائمة cmsFixes.ts كما يُنشر — scripts/cms-content.mjs)
 // ومقالات src/blog/posts.ts — بالدالة نفسها التي يراها الزائر (effectivePosts)، لا نسخة موازية.
 // يُشغَّل عند كل بناء (prebuild) وفي الصيانة المجدولة.
 // لا اتصال مباشر بقاعدة البيانات — يستخدم الـAPI العام فقط.
 //
-// التشغيل: node scripts/gen-sitemap.mjs [--out <ملف>]   (الافتراضي public/sitemap.xml)
+// المخرجات (spec-b §٨.٢) — sitemap.xml **فهرس** وأبناؤه بجانبه:
+//   - sitemap-legacy.xml: الخريطة القائمة حرفياً كما كانت sitemap.xml، والتغيير الوحيد بدائل الرئيسية وabout وcontact
+//     (عنقودها يمتدّ إلى رئيسيات اللغات الجديدة وصفحاتها — clusterAlternates، والتبادل شرط يفرضه verify-sitemap).
+//   - sitemap-{code}.xml لكل لغة منشورة لها صفحة في i18nPages (src/i18n/registry/published.json)، ومنها
+//     sitemap-en.xml بصفحة /languages/. والمسارات والعناقيد من src/i18n/i18nRoutes.mjs وحدها — لا تُحسب هنا.
+//   - sitemap.xml: <sitemapindex> بالأبناء بترتيب السجل، وlastmod كلٍّ أحدث lastmod فيه.
+//   - ابنٌ سابق لم يعد في المجموعة (لغة سُحب نشرها) يُحذف من مجلد الفهرس.
+// المستهلكون يقرؤون الفهرس مدموجاً عبر scripts/sitemap-files.mjs.
+//
+// التشغيل: node scripts/gen-sitemap.mjs [--out <ملف الفهرس>]   (الافتراضي public/sitemap.xml، والأبناء بجانبه)
 // SEO_ALLOW_OFFLINE=1 للتشغيل المحلي بلا شبكة فقط (مقالات المستودع وحدها).
 import fs from 'fs';
 import path from 'path';
@@ -12,6 +21,7 @@ import { fileURLToPath } from 'url';
 import { transformSync } from 'esbuild';
 import { buildCatalog, isIndexable, CONTENT_VERSION } from '../src/blog/seo/catalog.mjs';
 import { existsWith, consolidatedTarget, consolidationReport } from '../src/blog/consolidate.mjs';
+import { i18nPages, clusterAlternates, legacyClusterKey } from '../src/i18n/i18nRoutes.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -24,6 +34,10 @@ import { fetchPublicCms } from './cms-content.mjs';
 const argv = process.argv.slice(2);
 const outArg = argv.indexOf('--out') >= 0 ? argv[argv.indexOf('--out') + 1] : null;
 const OUT = outArg ? path.resolve(outArg) : path.join(ROOT, 'public/sitemap.xml');
+/** مجلد الفهرس — الأبناء تُكتب بجانبه وتُقرأ منه (sitemap-files.mjs) */
+const OUT_DIR = path.dirname(OUT);
+/** السجل المنشور للطبقة متعددة اللغات (يولّده scripts/import-i18n.mjs ويُلتزم) — يُقرأ داخل main فيبقى تعذّره غير قاتل */
+const PUBLISHED_FILE = path.join(ROOT, 'src/i18n/registry/published.json');
 
 /**
  * الصفحات التسويقية المُصيَّرة. الرئيسية و«احجز اجتماعاً» بخمس لغات؛ والبقية بثلاث (ع/إ/فر) لأن prerender
@@ -115,6 +129,10 @@ const alt = (arPath, langs = langsFor(arPath)) => {
   return [...langs.map((L) => line[L]), `    <xhtml:link rel="alternate" hreflang="x-default" href="${u[xDefaultOf(langs)]}"/>`].join('\n');
 };
 
+/** بدائل عنقود من clusterAlternates (i18nRoutes.mjs) بالصيغة الحرفية نفسها لأسطر alt() أعلاه */
+const xhtmlLines = (alternates) => alternates
+  .map((a) => `    <xhtml:link rel="alternate" hreflang="${a.hreflang}" href="${a.href}"/>`).join('\n');
+
 const imageBlock = (img) => (img ? `    <image:image>\n      <image:loc>${img}</image:loc>\n    </image:image>\n` : '');
 
 // كل رابط يمرّ عبر canon هنا — نقطة واحدة تضمن ألّا يُفلت رابط بلا شرطة
@@ -125,6 +143,8 @@ const urlEntry = (loc, { lastmod = CONTENT_VERSION, freq = 'monthly', priority =
   `  <url>\n    <loc>${canon(loc)}</loc>\n${alternates ? alternates + '\n' : ''}${imageBlock(image)}    <lastmod>${lastmod}</lastmod>\n  </url>`;
 
 async function main() {
+  // السجل أولاً: تعذّر قراءته خطأ غير الشبكة ⇒ لا يُكتب شيء ويبقى ما في القرص (القاعدة أدناه)
+  const I18N = JSON.parse(fs.readFileSync(PUBLISHED_FILE, 'utf8'));
   const { data: cms, fixes, version: fixesVersion } = await fetchCms();
   const mod = await loadPostsModule();
   const catalog = buildCatalog();
@@ -148,7 +168,10 @@ async function main() {
   const homeArMod = fixes?.home.touched ? [CONTENT_VERSION, fixesVersion].sort().pop() : CONTENT_VERSION;
   for (const r of I18N_ROUTES) {
     const langs = langsFor(r.p);
-    const alternates = alt(r.p, langs);
+    // الرئيسية وabout وcontact: عنقودها من clusterAlternates — القدامى بالصيغة نفسها ثم رئيسيات/صفحات اللغات الجديدة.
+    // بلا لغة جديدة منشورة مطابقٌ حرفياً لـalt() (i18nSitemap.test.ts). وما سواها بلا تغيير.
+    const clusterKey = legacyClusterKey(r.p);
+    const alternates = clusterKey ? xhtmlLines(clusterAlternates(clusterKey, I18N)) : alt(r.p, langs);
     const u = urlsOf(r.p);
     for (const L of langs) urls.push(urlEntry(u[L], { lastmod: r.p === '/' && L === 'ar' ? homeArMod : (r.lastmod || CONTENT_VERSION), freq: r.freq, priority: r.priority, alternates }));
   }
@@ -219,11 +242,46 @@ async function main() {
     }
   }
 
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${urls.join('\n')}\n</urlset>\n`;
-  fs.mkdirSync(path.dirname(OUT), { recursive: true });
-  fs.writeFileSync(OUT, xml);
+  const urlset = (entries) => `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${entries.join('\n')}\n</urlset>\n`;
+  const newestLastmod = (entries) => entries.map((e) => (e.match(/<lastmod>([^<]+)<\/lastmod>/) || [])[1]).filter(Boolean).sort().pop() || CONTENT_VERSION;
+
+  // ── الطبقة متعددة اللغات: خريطة لكل لغة منشورة، بالمسارات والعناقيد من i18nRoutes.mjs وحدها ──
+  // lastmod = contentDate اللغة (يتجدّد بتغيّر بصمة محتواها وحده)، و/languages/ = أحدثها بين المنشورة.
+  const i18nAll = i18nPages(I18N);
+  const localeOf = new Map((I18N.locales || []).map((l) => [l.code, l]));
+  const contentDates = (I18N.locales || []).map((l) => l.contentDate).filter(Boolean).sort();
+  const newestContent = contentDates.pop() || CONTENT_VERSION;
+  const byCode = new Map(); // بترتيب أول ظهور في i18nPages = ترتيب السجل (و/languages/ تحت en)
+  for (const p of i18nAll) {
+    if (!byCode.has(p.code)) byCode.set(p.code, []);
+    const lastmod = p.pageKey === 'languages' ? newestContent : (localeOf.get(p.code)?.contentDate || CONTENT_VERSION);
+    byCode.get(p.code).push(urlEntry(ORIGIN + p.path, {
+      lastmod, alternates: p.clusterKey ? xhtmlLines(clusterAlternates(p.clusterKey, I18N)) : '',
+    }));
+  }
+
+  // ── الكتابة: الأبناء أولاً ثم الفهرس، ثم حذف ابنٍ سابق لم يعد في المجموعة ──
+  const children = [{ name: 'sitemap-legacy.xml', entries: urls }, ...[...byCode].map(([code, entries]) => ({ name: `sitemap-${code}.xml`, entries }))];
+  const SITEMAP_LIMIT = 50000; // حدّ البروتوكول لكل خريطة (روابط) ولكل فهرس (أبناء)
+  for (const c of children) {
+    c.xml = urlset(c.entries);
+    if (c.entries.length > SITEMAP_LIMIT) throw new Error(`${c.name}: ${c.entries.length} رابطاً يتجاوز حدّ ${SITEMAP_LIMIT}`);
+    if (Buffer.byteLength(c.xml, 'utf8') > 50 * 1024 * 1024) throw new Error(`${c.name}: يتجاوز 50MB`);
+  }
+  if (children.length > SITEMAP_LIMIT) throw new Error(`الفهرس: ${children.length} خريطة تتجاوز حدّ ${SITEMAP_LIMIT}`);
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  for (const c of children) fs.writeFileSync(path.join(OUT_DIR, c.name), c.xml);
+  const index = `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${children
+    .map((c) => `  <sitemap><loc>${ORIGIN}/${c.name}</loc><lastmod>${newestLastmod(c.entries)}</lastmod></sitemap>`).join('\n')}\n</sitemapindex>\n`;
+  fs.writeFileSync(OUT, index);
+  const keep = new Set(children.map((c) => c.name));
+  const removed = fs.readdirSync(OUT_DIR).filter((f) => /^sitemap-[a-z0-9-]+\.xml$/.test(f) && !keep.has(f));
+  for (const f of removed) fs.unlinkSync(path.join(OUT_DIR, f));
+
   const marketing = I18N_ROUTES.reduce((n, r) => n + langsFor(r.p).length, 0);
-  console.log(`✅ sitemap.xml: ${urls.length} رابط (${marketing} تسويقية + فهرس مدوّنة ع/إ/فر + ${posts.length} مقال يدوي بلا ${consolidatedOut} نسخة مدموجة + ${seoUrlCount} رابط مقالات SEO مولَّدة لِـ${catalog.length} مقال) ← ${path.relative(ROOT, OUT) || OUT}`);
+  console.log(`✅ sitemap-legacy.xml: ${urls.length} رابط (${marketing} تسويقية + فهرس مدوّنة ع/إ/فر + ${posts.length} مقال يدوي بلا ${consolidatedOut} نسخة مدموجة + ${seoUrlCount} رابط مقالات SEO مولَّدة لِـ${catalog.length} مقال)`);
+  console.log(`✅ الطبقة متعددة اللغات: ${i18nAll.length} صفحة في ${byCode.size} خريطة (${[...byCode].map(([code, e]) => `${code}:${e.length}`).join(' ')})${I18N.simulated ? ' — ⚠️ سجل محاكاة: لا يُلتزم' : ''}`);
+  console.log(`✅ sitemap.xml: فهرس بـ${children.length} خريطة فرعية${removed.length ? ` (حُذف ${removed.join('، ')})` : ''} ← ${path.relative(ROOT, OUT) || OUT}`);
 }
 
 // خطأ غير الشبكة لا يُفشل البناء — يبقى sitemap.xml الحالي كما هو. (تعذّر CMS يُفشله عمداً داخل fetchCms)

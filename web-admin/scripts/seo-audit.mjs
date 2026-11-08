@@ -3,6 +3,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
+import { isSitemapIndex, childFilesOf, mergedUrlsetFromFile } from './sitemap-files.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -61,7 +62,17 @@ else {
 section('sitemap.xml — التغطية و hreflang');
 if (!exists('public/sitemap.xml')) fail('لا يوجد sitemap.xml');
 else {
-  const sm = read('public/sitemap.xml');
+  // sitemap.xml فهرس: الفحص على <url> أبنائه كلها مدموجة (scripts/sitemap-files.mjs) — على الفهرس وحده يمرّ كل شيء بلا فحص
+  const smFile = path.join(ROOT, 'public/sitemap.xml');
+  const smRaw = read('public/sitemap.xml');
+  if (isSitemapIndex(smRaw)) {
+    const kids = childFilesOf(smFile, smRaw);
+    const gone = kids.filter((k) => !k.exists);
+    gone.length
+      ? fail(`فهرس الخريطة يشير إلى أبناء غير موجودة في public (${gone.length}): ${gone.map((k) => k.name || k.loc).join(', ')}`)
+      : ok(`فهرس الخريطة: ${kids.length} خريطة فرعية موجودة (${kids.map((k) => k.name).join('، ')})`);
+  }
+  const sm = mergedUrlsetFromFile(smFile, { onMissing: 'skip' });
   const locs = [...sm.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
   ok(`عدد الروابط: ${locs.length}`);
   locs.some((l) => l.includes('localhost')) ? fail('يحتوي روابط localhost') : ok('كل الروابط مطلقة (لا localhost)');

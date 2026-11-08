@@ -1,5 +1,7 @@
 // توطين معتمد على المسار: /en إنجليزية، /fr فرنسية، /tr تركية، /zh صينية، وغيرها عربية — لفهرسة دولية صحيحة + hreflang
 import type { Lang } from './lang';
+import { PUBLISHED } from './i18nPublished';
+import { legacyClusterKey, newClusterMembers } from './i18nRoutes.mjs';
 
 export const SITE_ORIGIN = 'https://fieldsa.net';
 
@@ -108,11 +110,18 @@ export function xDefaultLang(langs: readonly Lang[]): Lang | undefined {
  *   (xDefaultLang: الإنجليزية إن وُجدت وإلا العربية). صفحة بلغة واحدة لا بدائل لها (قائمة فارغة) —
  *   كما في الخريطة وHTML المُصيَّر.
  * - canonical: رابط لغة الصفحة نفسها دائماً (سلوك ثابت لا يتغيّر بتغيّر langs).
+ * - الطبقة متعددة اللغات: الرئيسية و/about و/contact **بلا langs صريحة** يتمدّد عنقودها بصفحات اللغات الجديدة
+ *   المنشورة المكافئة (newClusterMembers من السجل المنشور) بين القدامى وx-default — بالترتيب نفسه الذي يكتبه
+ *   prerender وgen-sitemap (clusterAlternates)، فلا يعيد React العنقود إلى خمس لغات بعد الإقلاع. هذا المصدر
+ *   الواحد لـLandingPage وInfoPage وContactPage. من يمرّر langs صراحةً (المدوّنة) لا يتأثر، و/meeting لا يتمدّد.
+ *   بلا لغة جديدة منشورة يبقى الناتج كما كان حرفياً.
  */
-export function seoUrls(arPath: string, locale: Lang, langs: readonly Lang[] = availableLangs(arPath)): {
+export function seoUrls(arPath: string, locale: Lang, langs?: readonly Lang[]): {
   canonical: string;
   alternates: { hreflang: string; href: string }[];
 } {
+  const explicit = langs !== undefined;
+  const L = langs ?? availableLangs(arPath);
   const suffix = arPath === '/' ? '' : arPath;
   const arUrl = SITE_ORIGIN + (arPath === '/' ? '/' : arPath);
   const urls: { lang: Lang; hreflang: string; href: string }[] = [
@@ -124,13 +133,16 @@ export function seoUrls(arPath: string, locale: Lang, langs: readonly Lang[] = a
     { lang: 'zh', hreflang: 'zh-Hans', href: SITE_ORIGIN + '/zh' + suffix },
   ];
   const canonical = (urls.find((u) => u.lang === locale) || urls[0]).href;
-  const present = urls.filter((u) => langs.includes(u.lang));
+  const present = urls.filter((u) => L.includes(u.lang));
+  const key = explicit ? null : legacyClusterKey(arPath);
+  const extra = key ? newClusterMembers(key, PUBLISHED) : [];
   if (present.length < 2) return { canonical, alternates: [] };
   const xd = xDefaultLang(present.map((u) => u.lang));
   return {
     canonical,
     alternates: [
       ...present.map(({ hreflang, href }) => ({ hreflang, href })),
+      ...extra.map(({ hreflang, href }) => ({ hreflang, href })),
       { hreflang: 'x-default', href: (present.find((u) => u.lang === xd) || present[0]).href },
     ],
   };

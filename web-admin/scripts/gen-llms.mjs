@@ -37,6 +37,8 @@ import { TEMPLATES } from './templates-data.mjs';
 import { loadPricing, repsCap } from './pricing-source.mjs';
 import { RULES, findViolation, findViolations, norm, PHASE1, PHASE2 } from './claims-rules.mjs';
 import { fetchPublicCms } from './cms-content.mjs';
+// الطبقة متعددة اللغات (spec-b §٩.١): مساراتها من i18nRoutes.mjs وحدها، والسجل المنشور يُقرأ داخل main
+import { i18nPages } from '../src/i18n/i18nRoutes.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -174,6 +176,12 @@ function guarded(name, blocks) {
 
 async function main() {
   console.log('توليد llms.txt + llms-full.txt ...');
+  const I18N = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/i18n/registry/published.json'), 'utf8'));
+  /** اللغات الجديدة المنشورة (غير الخمس القديمة) برئيسيتها — قسم «Languages» ودليل /<code>/llms.txt لكلٍّ منها */
+  const I18N_PAGES = i18nPages(I18N);
+  const i18nNew = (I18N.locales || []).filter((l) => !l.legacy)
+    .map((l) => ({ ...l, home: I18N_PAGES.find((p) => p.code === l.code && p.pageKey === 'home') }))
+    .filter((l) => l.home);
   const cms = await fetchCms();
   const mod = await loadPostsModule();
   const registry = await registryCountries();
@@ -232,8 +240,11 @@ async function main() {
   FEATURES.forEach(featureUrl); SECTORS.forEach(sectorUrl); TEMPLATES.forEach(templateUrl); FREE_TOOLS.forEach(toolUrl);
   for (const L of ['ar', 'en', 'fr']) for (const a of articles(L)) known(blogUrl(a.slug, L));
   for (const p of posts) for (const L of ['ar', 'en']) if (manualListed(p.slug, L)) known(blogUrl(p.slug, L));
-  // روابط ليست صفحات محتوى: نموذج التسجيل والملفات
+  // صفحات الطبقة متعددة اللغات (ومنها /languages/) — مُصيَّرة من السجل نفسه
+  for (const p of I18N_PAGES) known(abs(p.path));
+  // روابط ليست صفحات محتوى: نموذج التسجيل والملفات (ومنها دليل كل لغة جديدة، يكتبه gen-llms-i18n في dist)
   const NON_PAGE = new Set([`${ORIGIN}/signup/`, `${ORIGIN}/llms.txt`, `${ORIGIN}/llms-full.txt`, `${ORIGIN}/sitemap.xml`]);
+  for (const l of i18nNew) NON_PAGE.add(`${ORIGIN}/${l.code}/llms.txt`);
 
   // ── أوصاف ──
   const sentences = (s) => String(s || '').split(/(?<=[.!?؟])\s+/).filter(Boolean);
@@ -290,7 +301,7 @@ Key facts:
 - Markets: distribution companies in any country. Each company picks its country from a registry of ${registry.count} countries that presets the currency, its decimals and the default VAT rate (all editable)${registry.hasOther ? ', or chooses “Other country” and sets the currency and tax rate by hand' : ''}.
 - Government e-invoicing: Saudi Arabia is the only country where a government integration is live (see Saudi e-invoicing below). In every other country invoices are standard invoices in the company’s currency and tax rate, and connection to the national e-invoicing platform is arranged on request.
 - Country guides (blog): currently ${COUNTRIES.length} countries in the Middle East and Africa, each with currency, VAT rate and tax authority.
-- Languages: the apps run in Arabic (right to left), English, French, Turkish and Chinese. The website is in Arabic, English and French, with Turkish and Chinese home pages.
+- Languages: the apps run in Arabic (right to left), English, French, Turkish and Chinese, and only in these five. The website is in Arabic, English and French, with Turkish and Chinese home pages${i18nNew.length ? `, and product pages in ${i18nNew.length} more languages for information (see Languages below)` : ''}.
 - Pricing: ${PRICING_LINE} No setup fees. Free 10-day trial, no credit card; sign-up form: ${ORIGIN}/signup/
 - Rep app: runs in any smartphone browser and is on Google Play and the App Store; a thermal printer is optional.
 - Saudi e-invoicing: We support Phase 2 integration with ZATCA’s Fatoora platform, for companies in Saudi Arabia: UBL 2.1 XML with a UUID, an ECDSA cryptographic stamp, a QR code, an ICV/PIH hash chain, clearance for standard and reporting for simplified invoices, and EGS onboarding with a CSID obtained through a Fatoora portal OTP. ZATCA does not certify software vendors, so FieldSales claims no certification.
@@ -436,6 +447,20 @@ ${answersFor('en', { tiers, countries: registry.count }).map(answerLine).join(''
 `));
   }
 
+  // الطبقة متعددة اللغات: صفحات تعريف بالمنتج بلغات أخرى — واجهة التطبيق بالخمس وحدها (صدق لغات الواجهة)
+  // مختصر هنا (سطر رموز اللغات): llms.txt مُنسَّق تحت 40 ألف حرف (geo-audit)، ويكبر القسم بكل موجة؛
+  // القائمة الكاملة بأسمائها ورابط دليل كل لغة في llms-full.txt (قسم Languages هناك).
+  const i18nList = i18nNew.map((l) => `- [${l.nativeName}](${abs(l.home.path)}): ${l.name}. Guide for AI: ${ORIGIN}/${l.code}/llms.txt\n`).join('');
+  if (i18nNew.length) {
+    add(`
+## Languages
+
+Product pages in other languages describe FieldSales for information; the app interface itself is in the five languages above. Each one has a home page at /code/ and a guide for AI at /code/llms.txt (for example ${abs(i18nNew[0].home.path)} and ${ORIGIN}/${i18nNew[0].code}/llms.txt), for these codes: ${i18nNew.map((l) => l.code).join(', ')}. The full list with names is in ${ORIGIN}/llms-full.txt.
+
+- [All languages](${abs('/languages/')})
+`);
+  }
+
   add(`
 ## Optional
 
@@ -473,6 +498,9 @@ ${TEMPLATES.map((t) => `- [${t.title}](${templateUrl(t)}): ${t.purpose}`).join('
       addF(`- [${a.title}](${blogUrl(a.slug, L)})${ans ? `\n  ${ans}` : ''}\n`);
     }
   };
+  if (i18nNew.length) {
+    addF(`\n## Languages\n\nProduct pages in other languages describe FieldSales for information; the app interface is in Arabic, English, French, Turkish and Chinese only.\n\n${i18nList}- [All languages](${abs('/languages/')})\n`);
+  }
   section('Articles (العربية)', ar, 'ar');
   section('Articles (English)', en, 'en');
   section('Articles (Français)', fr, 'fr');

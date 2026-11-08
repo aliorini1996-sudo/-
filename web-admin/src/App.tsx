@@ -5,6 +5,8 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { useAuthStore } from './store/authStore';
 import { useLang, isAppRoute } from './i18n/lang';
 import { localeFromPath } from './i18n/locale';
+import { I18N_PAGES, i18nPageAt } from './i18n/i18nPublished';
+import { uiLangFor } from './i18n/i18nRoutes.mjs';
 import { analyticsApi } from './api/client';
 import { attributionPayload } from './lib/attribution';
 import { initAdsTag } from './lib/ads';
@@ -30,6 +32,8 @@ import FeaturePage from './pages/FeaturePage';
 import TemplatesPage from './pages/TemplatesPage';
 import FreeToolsPage from './pages/FreeToolsPage';
 import NotFoundPage from './pages/NotFoundPage';
+// الطبقة التسويقية متعددة اللغات — فورية: المكوّن صغير، وحمولته (ملف اللغة وجدول الدول) كسولة داخله
+import I18nMarketingPage from './pages/I18nMarketingPage';
 // لوحات مصادَق عليها — تحميل كسول (لا تُحمَّل لزوّار الصفحات العامّة/المدوّنة)
 const MainLayout = lazy(() => import('./layouts/MainLayout'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -171,6 +175,11 @@ function LocaleSync() {
   const setLang = useLang((s) => s.setLang);
   useEffect(() => {
     if (isAppRoute(pathname)) return;
+    // صفحات الطبقة متعددة اللغات: لغة الواجهة (عناصر التطبيق المشتركة كشاشة التحميل) من الخمس — الإنجليزية لغير الخمس.
+    // لغة المستند واتجاهه تضبطهما الصفحة نفسها، وapplyDoc لا يمسّهما على هذه المسارات (lang.ts) —
+    // وإلا كتب localeFromPath('/es/') ⇒ ar لغةً عربية واتجاهاً RTL فوق الصفحة الإسبانية.
+    const i = i18nPageAt(pathname);
+    if (i) { setLang(uiLangFor(i.code)); return; }
     setLang(localeFromPath(pathname));
   }, [pathname, setLang]);
   return null;
@@ -329,6 +338,8 @@ export default function App() {
         <Route path="/fr/pricing" element={<PricingPage />} />
         <Route path="/fr/blog" element={<BlogIndexPage />} />
         <Route path="/fr/blog/:slug" element={<BlogPostPage />} />
+        {/* الطبقة متعددة اللغات — من السجل المنشور وحده (i18n/registry/published.json)؛ G2 في verify-i18n يفرض مطابقتها للمُصيَّر والخريطة */}
+        {I18N_PAGES.map((p) => <Route key={p.path} path={p.path.replace(/\/$/, '')} element={<I18nMarketingPage />} />)}
         <Route path="/platform" element={<SuperAdminRoute><PlatformPage /></SuperAdminRoute>} />
         <Route path="/staff/login" element={<StaffLoginPage />} />
         <Route path="/staff" element={<StaffRoute><PlatformPage /></StaffRoute>} />

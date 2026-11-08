@@ -432,6 +432,15 @@ function injectLangSwitcher(html: string, current: Lang): string {
   );
 }
 
+/**
+ * رابط واحد إلى صفحة اللغات (/languages/) في سطر حقوق التذييل — مدخل الصفحات بلغات غير الخمس.
+ * مبدّل اللغة الخماسي أعلاه لا يتغيّر؛ وجسم الرئيسية المُصيَّر (prerender) يحمل الرابط نفسه للزاحف.
+ */
+const OTHER_LANGS: Record<Lang, string> = { ar: 'لغات أخرى', en: 'Other languages', fr: 'Autres langues', tr: 'Diğer diller', zh: '其他语言' };
+function injectLanguagesLink(html: string, lang: Lang): string {
+  return html.replace(/(<span style="font-size:13px;">©[^<]*<\/span>)/, `$1<a href="/languages/" style="font-size:13px; text-decoration:underline;">${OTHER_LANGS[lang]}</a>`);
+}
+
 // ---- قسم «تغطية العالم العربي» — يبرز خدمة النظام وتوافقه مع أنظمة الدول العربية ----
 const COVERAGE_COUNTRIES: { flag: string; ar: string; en: string; fr: string; tr: string; zh: string }[] = [
   { flag: '🇸🇦', ar: 'السعودية', en: 'Saudi Arabia', fr: 'Arabie saoudite', tr: 'Suudi Arabistan', zh: '沙特' },
@@ -886,6 +895,7 @@ export default function LandingPage() {
   html = injectContactBox(html, (arContent.contact as ContactInfo) || {}, lang);
   html = localizeLinks(html, lang); // يبقي لغة الروابط ثابتة عند الانتقال للصفحات التالية
   html = slashInternalLinks(html); // بعد التوطين: localizeLinks يطابق الرابط حرفياً
+  html = injectLanguagesLink(html, lang);
 
   return <div ref={rootRef} dangerouslySetInnerHTML={{ __html: html }} />;
 }

@@ -20,8 +20,14 @@ import {
 } from '../src/blog/clusters.mjs';
 import * as claimsRules from './claims-rules.mjs';
 import { fetchPublicCms, postUrl } from './cms-content.mjs';
+// الطبقة متعددة اللغات (spec-b §٧): المسارات والعناقيد من i18nRoutes.mjs وحدها، وHTML الصفحة من القالب المشترك
+// الذي يرسمه React حرفياً بعد الإقلاع (I18nMarketingPage.tsx) — لا نسخة ثانية هنا.
+import { i18nPages, clusterAlternates, canon as i18nCanon } from '../src/i18n/i18nRoutes.mjs';
+import { renderI18nPage, vatMapFrom } from '../src/i18n/marketingTemplate.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+/** JSON من المستودع نسبةً إلى web-admin/ (السجل المنشور وملفات المحتوى وقائمة الدول — يولّدها import-i18n وbuild-world-countries) */
+const readJson = (rel) => JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', rel), 'utf8'));
 const DIST = path.resolve(__dirname, '../dist');
 const ORIGIN = 'https://fieldsa.net';
 const LANGS = ['ar', 'en', 'fr'];
@@ -127,17 +133,27 @@ let template = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
  * إقلاع React: LandingPage يستبدل كتلة الصفحة بكتلة Organization، فـFAQPage الرئيسية الإنجليزية الظاهرة
  * أسئلتها كانت ستختفي من السكيما بعد الإقلاع لو وُضعت هناك (كالرئيسية العربية أدناه).
  */
-function buildPage({ lang, title, description, keywords, canonical, image, ogType = 'website', hreflang = '', jsonLd = null, bodyHtml = '', robots = '', templateLd = [] }) {
-  const dir = lang === 'ar' ? 'rtl' : 'ltr';
+/**
+ * معاملات الطبقة متعددة اللغات (spec-b §٧-٢) — اختيارية، وغيابها يعطي السلوك الحالي حرفياً لكل منادٍ قائم:
+ *   htmlLang / dir / ogLocale: من السجل (Rendered) بدل اشتقاقها من lang الخماسي (كانت كل لغة غير الخمس ar_SA وrtl لغير ltr…).
+ *   keywords: false يحذف وسم الكلمات المفتاحية الموروث (عربي في القالب) بدل إبقائه.
+ *   hreflangList: بدائل clusterAlternates [{hreflang, href}] تُكتب بصيغة hreflangFor الحرفية (يتقدّم على hreflang).
+ *   waLabel: تسمية رابط واتساب المحقون بلغة الصفحة (كانت عربية لأي لغة غير الخمس).
+ */
+function buildPage({ lang, title, description, keywords, canonical, image, ogType = 'website', hreflang = '', jsonLd = null, bodyHtml = '', robots = '', templateLd = [],
+  htmlLang: htmlLangOverride = '', dir: dirOverride = '', ogLocale: ogLocaleOverride = '', waLabel = '', hreflangList = null }) {
+  const dir = dirOverride || (lang === 'ar' ? 'rtl' : 'ltr');
   // og:locale بصيغة لغة_إقليم (المعيار لا يعرف zh_Hans): zh_CN هو مقابل الصينية المبسّطة، ومثله في src/lib/seo.ts
-  const ogLocale = { en: 'en_US', fr: 'fr_FR', tr: 'tr_TR', zh: 'zh_CN' }[lang] || 'ar_SA';
+  const ogLocale = ogLocaleOverride || { en: 'en_US', fr: 'fr_FR', tr: 'tr_TR', zh: 'zh_CN' }[lang] || 'ar_SA';
   // lang بالرمز نفسه في hreflang (zh-Hans لا zh المجرَّدة) — والقيمة نفسها يكتبها useSeo بعد الإقلاع
-  const htmlLang = HREFLANG_CODE[lang] || lang;
+  const htmlLang = htmlLangOverride || HREFLANG_CODE[lang] || lang;
   let h = template;
   h = h.replace(/<html[^>]*>/, `<html lang="${htmlLang}" dir="${dir}">`);
   h = h.replace(/<title>[\s\S]*?<\/title>/, `<title>${esc(title)}</title>`);
   h = h.replace(/(<meta name="description" content=")[\s\S]*?("\s*\/>)/, `$1${esc(description)}$2`);
-  if (keywords) h = h.replace(/(<meta name="keywords" content=")[\s\S]*?("\s*\/>)/, `$1${esc(keywords)}$2`);
+  // صفحات الطبقة: لا كلمات عربية موروثة من القالب (لا مقابل لها بلغة الصفحة، والوسم بلا أثر في الترتيب)
+  if (keywords === false) h = h.replace(/\s*<meta name="keywords" content="[\s\S]*?"\s*\/>/, '');
+  else if (keywords) h = h.replace(/(<meta name="keywords" content=")[\s\S]*?("\s*\/>)/, `$1${esc(keywords)}$2`);
   h = h.replace(/(<link rel="canonical" href=")[^"]*("\s*\/>)/, `$1${canonical}$2`);
   // تقليم الفهرسة: يستبدل وسم robots الافتراضي (index,follow) لا يُضيف وسماً ثانياً متناقضاً
   if (robots) h = h.replace(/(<meta name="robots" content=")[^"]*("\s*\/>)/, `$1${robots}$2`);
@@ -192,7 +208,8 @@ function buildPage({ lang, title, description, keywords, canonical, image, ogTyp
   // `data-seo-page` يجعل كتلة الصفحة قابلة للتمييز عن كتلة القالب العامّة، فيستبدلها
   // useSeo عند إقلاع React بدل أن يضيف نسخة ثانية (وإلا تكرّر Article وBreadcrumbList
   // في الصفحة المُصيَّرة بعد التصيير — وهو ما لا يراه أي فحص للـHTML الثابت).
-  const extra = hreflang + (jsonLd ? `\n    <script type="application/ld+json" data-seo-page="1">${JSON.stringify(jsonLd)}</script>` : '');
+  const hreflangHtml = hreflangList ? hreflangTags(hreflangList) : hreflang;
+  const extra = hreflangHtml + (jsonLd ? `\n    <script type="application/ld+json" data-seo-page="1">${JSON.stringify(jsonLd)}</script>` : '');
   h = h.replace('</head>', `${extra}\n  </head>`);
   // رابط المحادثة يُحقَن **مركزياً** لا في كل صفحة على حدة.
   //
@@ -207,7 +224,8 @@ function buildPage({ lang, title, description, keywords, canonical, image, ogTyp
   const ssr = [];
   if (bodyHtml) ssr.push(bodyHtml);
   if (WA_LINK) {
-    const label = lang === 'en' ? 'Chat with us on WhatsApp'
+    const label = waLabel ? esc(waLabel)
+      : lang === 'en' ? 'Chat with us on WhatsApp'
       : lang === 'fr' ? 'Discutez avec nous sur WhatsApp'
       : lang === 'tr' ? 'WhatsApp üzerinden bize yazın'
       : lang === 'zh' ? '通过 WhatsApp 联系我们' : 'تحدّث معنا على واتساب';
@@ -281,6 +299,12 @@ const hreflangFor = (blogPath, langs = LANGS) => (langs.length < 2 ? '' : langs
   .map((L) => `\n    <link rel="alternate" hreflang="${HREFLANG_CODE[L] || L}" href="${langUrl(L, blogPath)}" data-seo-alt="1"/>`)
   .join('') + `\n    <link rel="alternate" hreflang="x-default" href="${langUrl(xDefaultOf(langs), blogPath)}" data-seo-alt="1"/>`);
 const trilingualHreflang = (blogPath) => hreflangFor(blogPath, LANGS);
+/**
+ * بدائل جاهزة [{hreflang, href}] (clusterAlternates في src/i18n/i18nRoutes.mjs، وx-default آخرها) بصيغة hreflangFor
+ * الحرفية — عناقيد الرئيسية وabout وcontact الممدَّدة وصفحات الطبقة متعددة اللغات. بلا لغة جديدة منشورة يطابق
+ * ناتجها hreflangFor('/', خمس لغات) وtrilingualHreflang حرفاً بحرف (i18nSitemap.test.ts).
+ */
+const hreflangTags = (list) => list.map((a) => `\n    <link rel="alternate" hreflang="${a.hreflang}" href="${a.href}" data-seo-alt="1"/>`).join('');
 
 /**
  * SoftwareApplication القالب (index.html) بلغة الصفحة — بدل حذفه من الصفحات غير العربية.
@@ -327,6 +351,9 @@ function articleJsonLd(a, lang, canonical) {
 }
 
 async function main() {
+  // السجل المنشور للطبقة متعددة اللغات قبل أي كتابة: منه عناقيد الرئيسيات وabout وcontact (§٣) وصفحات القسم 3ج.
+  // غيابه يوقف البناء هنا (ملف ملتزم يولّده scripts/import-i18n.mjs) بدل عناقيد تختلف عن الخريطة.
+  const I18N = readJson('src/i18n/registry/published.json');
   // محتوى CMS أولاً وبمحاولات متكرّرة: تعذّره الكلّي يوقف البناء قبل أن يُكتب شيء في dist.
   // والمصحَّح لا الخام: كل ما يلي (المقالات وأسئلة الرئيسية) يقرأ النص المنشور نفسه الذي يرسمه React.
   const { data: cms, fixes: cmsFixes, version: fixesVersion } = await fetchCms();
@@ -529,7 +556,7 @@ async function main() {
 ${enFaqHtml}
 <h2>Contact &amp; subscription requests</h2>
 <p>Official email: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Head office: Riyadh, Saudi Arabia · <a href="/en/subscribe-request/">Submit a subscription request</a> or <a href="/signup">start the free trial</a> directly.</p>
-<p><a href="/signup">Start your free 10-day trial</a> — no credit card required. <a href="/en/blog">Read the blog</a> · <a href="/en/subscribe-request/?type=quote">Request a quote</a> · <a href="/en/about">About</a> · <a href="/en/contact">Contact</a> · <a href="/en/terms/">Terms</a> · <a href="/en/privacy/">Privacy</a> · <a href="/en/service-agreement/">Service agreement</a></p>
+<p><a href="/signup">Start your free 10-day trial</a> — no credit card required. <a href="/en/blog">Read the blog</a> · <a href="/en/subscribe-request/?type=quote">Request a quote</a> · <a href="/en/about">About</a> · <a href="/en/contact">Contact</a> · <a href="/en/terms/">Terms</a> · <a href="/en/privacy/">Privacy</a> · <a href="/en/service-agreement/">Service agreement</a> · <a href="/languages/">Other languages</a></p>
 <p>Guides for Saudi distribution: <a href="/en/blog/sales-rep-management-sa/">Sales rep management in Saudi Arabia</a> · <a href="/en/blog/van-sales-app-sa/">Van sales app for Saudi Arabia</a> · <a href="/en/blog/distribution-management-system-sa/">Distributor management system (DMS) in Saudi Arabia</a> · <a href="/en/blog/field-sales-software-sa/">Field sales management software for Saudi Arabia</a> · <a href="/en/blog/collection-receivables-sa/">Collection and receivables in Saudi Arabia</a></p>
 <p>By topic: <a href="/en/blog/mobile-field-invoicing/">offline field sales app</a> · <a href="/en/blog/fmcg-distribution/">trade marketing and distribution</a> · <a href="/en/blog/wholesale-food-distributors/">dairy distribution</a> · <a href="/en/blog/van-sales-app/">van sales app</a> · <a href="/en/blog/collection-receivables/">collection and receivables</a></p></main>`,
     },
@@ -544,7 +571,7 @@ ${enFaqHtml}
 <p>En Arabie saoudite, nous prenons en charge l’intégration phase 2 avec la plateforme Fatoora de la ZATCA. Dans les autres pays, le système émet des factures standard dans la devise et au taux de taxe de l’entreprise, et la connexion à la plateforme nationale de facturation électronique se fait sur demande.</p>
 <h2>Contact et demandes d'abonnement</h2>
 <p>E-mail officiel : <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Siège social : Arabie saoudite · <a href="/fr/subscribe-request/">Envoyez une demande d'abonnement</a> ou <a href="/signup">commencez l'essai gratuit</a>.</p>
-<p><a href="/signup">Essai gratuit de 10 jours</a> — sans carte bancaire. <a href="/fr/blog">Blog</a> · <a href="/fr/subscribe-request/?type=quote">Demander un devis</a> · <a href="/fr/invoice-generator/">Générateur de factures gratuit</a> · <a href="/fr/about">À propos</a> · <a href="/fr/contact">Contact</a> · <a href="/fr/terms/">Conditions</a> · <a href="/fr/privacy/">Confidentialité</a> · <a href="/fr/service-agreement/">Accord de service</a></p>
+<p><a href="/signup">Essai gratuit de 10 jours</a> — sans carte bancaire. <a href="/fr/blog">Blog</a> · <a href="/fr/subscribe-request/?type=quote">Demander un devis</a> · <a href="/fr/invoice-generator/">Générateur de factures gratuit</a> · <a href="/fr/about">À propos</a> · <a href="/fr/contact">Contact</a> · <a href="/fr/terms/">Conditions</a> · <a href="/fr/privacy/">Confidentialité</a> · <a href="/fr/service-agreement/">Accord de service</a> · <a href="/languages/">Autres langues</a></p>
 <p>Par thème : <a href="/fr/blog/collection-receivables/">recouvrement de créances</a> · <a href="/fr/blog/collection-receivables-eg/">recouvrement de créances en Égypte</a> · <a href="/fr/blog/van-sales-app/">application de vente en tournée</a> · <a href="/fr/blog/collection-receivables-sa/">recouvrement de créances en Arabie saoudite</a> · <a href="/fr/blog/distribution-management-system/">système de gestion de la distribution</a></p></main>`,
     },
     tr: {
@@ -558,7 +585,7 @@ ${enFaqHtml}
 <p>Suudi Arabistan’da ZATCA’nın Fatoora platformuyla 2. Aşama entegrasyonunu destekliyoruz. Diğer ülkelerde sistem şirketin para birimi ve vergi oranıyla standart faturalar keser; ulusal e-fatura platformu bağlantısı talep üzerine yapılır.</p>
 <h2>İletişim ve abonelik talepleri</h2>
 <p>Resmi e-posta: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Merkez: Suudi Arabistan · <a href="/en/subscribe-request/">Abonelik talebi gönderin (İngilizce)</a> · <a href="/tr/meeting/">Toplantı planlayın</a> veya <a href="/signup">ücretsiz denemeyi başlatın</a>.</p>
-<p><a href="/signup">10 günlük ücretsiz deneme</a> — kredi kartı gerekmez. <a href="/en/blog">Blog (İngilizce)</a> · <a href="/en/about/">Hakkında (İngilizce)</a> · <a href="/en/contact/">İletişim (İngilizce)</a></p></main>`,
+<p><a href="/signup">10 günlük ücretsiz deneme</a> — kredi kartı gerekmez. <a href="/en/blog">Blog (İngilizce)</a> · <a href="/en/about/">Hakkında (İngilizce)</a> · <a href="/en/contact/">İletişim (İngilizce)</a> · <a href="/languages/">Diğer diller</a></p></main>`,
     },
     zh: {
       title: 'FieldSales | 外勤销售与分销管理软件',
@@ -571,11 +598,12 @@ ${enFaqHtml}
 <p>在沙特，我们支持与 ZATCA Fatoora 平台的第二阶段对接。其他国家使用本企业货币和税率的标准发票，如需对接本国政府电子发票平台，可按需办理。</p>
 <h2>联系我们与订阅申请</h2>
 <p>官方邮箱：<a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · 总部：沙特阿拉伯 · <a href="/en/subscribe-request/">提交订阅申请（英文）</a> · <a href="/zh/meeting/">预约会议</a>或直接<a href="/signup">开始免费试用</a>。</p>
-<p><a href="/signup">立即开始 10 天免费试用</a> — 无需信用卡。<a href="/en/blog">博客（英文）</a> · <a href="/en/about/">关于我们（英文）</a> · <a href="/en/contact/">联系我们（英文）</a></p></main>`,
+<p><a href="/signup">立即开始 10 天免费试用</a> — 无需信用卡。<a href="/en/blog">博客（英文）</a> · <a href="/en/about/">关于我们（英文）</a> · <a href="/en/contact/">联系我们（英文）</a> · <a href="/languages/">其他语言</a></p></main>`,
     },
   };
-  // الرئيسية المترجمة: hreflang خماسي (ع/إ/فر/تر/صيني) — للتسويق فقط، والمدونة تبقى ثلاثية
-  const marketingHreflang = hreflangFor('/', [...LANGS, 'tr', 'zh']);
+  // الرئيسية المترجمة: hreflang خماسي (ع/إ/فر/تر/صيني) ثم رئيسيات اللغات الجديدة المنشورة — للتسويق فقط، والمدونة
+  // تبقى ثلاثية. من clusterAlternates (المصدر نفسه للخريطة وseoUrls في React)، وبلا لغة جديدة مطابق لـhreflangFor الخماسي.
+  const marketingHreflang = hreflangTags(clusterAlternates('home', I18N));
   for (const L of ['en', 'fr', 'tr', 'zh']) {
     const canonical = canon(`${ORIGIN}/${L}`);
     const html = buildPage({ lang: L, title: homeMeta[L].title, description: homeMeta[L].desc, keywords: homeMeta[L].keywords, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: marketingHreflang, bodyHtml: homeMeta[L].body, templateLd: homeMeta[L].templateLd || [] });
@@ -600,6 +628,38 @@ ${enFaqHtml}
     }));
     n++;
   }
+
+  // 3ج) الطبقة متعددة اللغات (spec-b §٧-٥) — كل صفحة في i18nPages(published.json) بالقالب المشترك (marketingTemplate.mjs):
+  // العنوان والوصف وH1 والجسم وJSON-LD وhreflang كلها من Rendered، فيرى الزاحف ما يرسمه React حرفياً. lang الصفحة
+  // رمزها (page.code) فيوطّن localizedApp كيان SoftwareApplication لـen/fr/tr/zh ويحذفه لغيرها (لا وصف له في APP_I18N
+  // ⇒ لا AggregateOffer). لغةٌ لا تدخل القائمة إلا بعد مراجعتها واستيرادها (scripts/import-i18n.mjs)؛ وبلا أي لغة منشورة
+  // تبقى /languages/ وصفحتا en وحدها.
+  const i18nWorld = readJson('src/i18n/world-countries.json');
+  const { COUNTRIES: REG } = await loadTs('i18n/countries.ts');
+  const vatByCode = vatMapFrom(REG);
+  const fileCache = new Map();
+  const fileOf = (code) => {
+    if (!fileCache.has(code)) fileCache.set(code, readJson(`src/i18n/marketing/${code}.json`));
+    return fileCache.get(code);
+  };
+  let i18nCount = 0;
+  for (const page of i18nPages(I18N)) {
+    const r = renderI18nPage({
+      page, reg: I18N, file: page.pageKey === 'languages' ? undefined : fileOf(page.code),
+      world: page.pageKey === 'countries' ? i18nWorld : undefined, vatByCode,
+    });
+    // canonical ذاتي بشرطة أخيرة — القالب والمسارات من الوحدة نفسها، فاختلافهما عطل في أحدهما لا يُكتب صامتاً
+    if (r.canonical !== i18nCanon(ORIGIN + page.path)) throw new Error(`canonical ${r.canonical} لا يطابق مسار الصفحة ${page.path}`);
+    writeRoute(page.path, buildPage({
+      lang: page.code, htmlLang: r.lang, dir: r.dir, ogLocale: r.ogLocale, keywords: false,
+      title: r.title, description: r.description, canonical: r.canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website',
+      hreflangList: r.alternates.length ? r.alternates : null, jsonLd: r.jsonld, bodyHtml: r.html,
+      waLabel: page.pageKey === 'languages' ? 'Chat with us on WhatsApp' : fileOf(page.code).strings['tierB.home.cta.whatsapp'],
+    }));
+    n++;
+    i18nCount++;
+  }
+  console.log(`  الطبقة متعددة اللغات: ${i18nCount} صفحة لـ${I18N.locales.length} لغة منشورة${I18N.simulated ? ' (⚠️ محاكاة — لا تُلتزم)' : ''}`);
 
   // بيانات منظّمة للأدوات المجانية (WebApplication + FAQPage) — تُحقن في صفحتيهما الثابتتين لنتائج غنية وGEO
   const toolJsonLd = (L, name, url, faq) => ({
@@ -812,11 +872,16 @@ ${pricingFaqHtml('fr')}`,
     },
   };
   for (const [route, langs] of Object.entries(INFO)) {
+    // about وcontact: عنقودهما ممدَّد إلى صفحات اللغات الجديدة (clusterAlternates — المصدر نفسه للخريطة وseoUrls)،
+    // وبلا لغة جديدة منشورة مطابق لـtrilingualHreflang حرفياً. وما سواهما بلا تغيير.
+    const infoHreflang = route === 'about' || route === 'contact'
+      ? hreflangTags(clusterAlternates(route, I18N))
+      : trilingualHreflang(`/${route}`);
     for (const L of LANGS) {
       const m = langs[L];
       const prefix = L === 'ar' ? '' : `/${L}`;
       const canonical = canon(`${ORIGIN}${prefix}/${route}`);
-      const html = buildPage({ lang: L, title: m.t, description: m.d, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: trilingualHreflang(`/${route}`), jsonLd: m.j || null, bodyHtml: `<main>${m.b}</main>` });
+      const html = buildPage({ lang: L, title: m.t, description: m.d, canonical, image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: infoHreflang, jsonLd: m.j || null, bodyHtml: `<main>${m.b}</main>` });
       writeRoute(`${prefix}/${route}`, html);
       n++;
     }
@@ -1125,7 +1190,7 @@ ${homeFaqHtml}
 <h2>للتواصل وطلبات الاشتراك</h2>
 <p>البريد الرسمي: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · مقر الشركة: المملكة العربية السعودية · <a href="/subscribe-request/">سجّل طلب اشتراك جديد</a> أو <a href="/signup">ابدأ التجربة المجانية</a> مباشرةً.</p>
 <h2>روابط مفيدة</h2>
-<p><a href="/blog/">المدوّنة</a> · <a href="/calculator/">حاسبة تسريب الإيرادات</a> · <a href="/invoice-generator/">مولّد الفاتورة الضريبية المجاني</a> · <a href="/blog/distribution-terms-glossary/">قاموس مصطلحات التوزيع</a> · <a href="/blog/distribution-owners-questions/">أسئلة أصحاب شركات التوزيع</a> · <a href="/about/">عن المنصّة</a> · <a href="/contact/">تواصل معنا</a> · <a href="/en/">English</a> · <a href="/fr/">Français</a></p>
+<p><a href="/blog/">المدوّنة</a> · <a href="/calculator/">حاسبة تسريب الإيرادات</a> · <a href="/invoice-generator/">مولّد الفاتورة الضريبية المجاني</a> · <a href="/blog/distribution-terms-glossary/">قاموس مصطلحات التوزيع</a> · <a href="/blog/distribution-owners-questions/">أسئلة أصحاب شركات التوزيع</a> · <a href="/about/">عن المنصّة</a> · <a href="/contact/">تواصل معنا</a> · <a href="/en/">English</a> · <a href="/fr/">Français</a> · <a href="/languages/">لغات أخرى</a></p>
 <p>الشروط والسياسات: <a href="/terms/">الشروط والأحكام</a> · <a href="/privacy/">سياسة الخصوصية</a> · <a href="/service-agreement/">اتفاقية الخدمة</a></p>
 <p>صفحات المنصّة: <a href="/subscribe-request/?type=quote">طلب عرض سعر</a> · <a href="/rep-app/">تطبيق المندوب</a> · <a href="/نماذج/">نماذج Excel مجانية</a> · <a href="/free/">أدوات مجانية</a> · <a href="${PHASE2_FEATURE_HREF}">${esc(PHASE2_ANCHOR)}</a> · <a href="/tr/">Türkçe</a> · <a href="/zh/">中文</a></p>
 <p>القطاعات: ${SECTORS.map((sec) => `<a href="/قطاعات/${sec.slug}/">${esc(sec.name)}</a>`).join(' · ')} · <a href="/قطاعات/">كل القطاعات</a></p>
@@ -1203,7 +1268,7 @@ ${homeFaqHtml}
   })(DIST);
   console.log(`  تطبيع الشرطة الأخيرة: ${links} رابطاً في ${patched} ملف`);
 
-  console.log(`✅ prerender: ${n} صفحة ثابتة (${buildCatalog().length} مقال مولَّد ×3 + ${manual.length} مقال يدوي + فهارس + رئيسية و«احجز اجتماعاً» ع/إ/فر/تر/صيني + ${Object.keys(INFO).length} صفحة تعريفية ×3) في dist/`);
+  console.log(`✅ prerender: ${n} صفحة ثابتة (${buildCatalog().length} مقال مولَّد ×3 + ${manual.length} مقال يدوي + فهارس + رئيسية و«احجز اجتماعاً» ع/إ/فر/تر/صيني + ${Object.keys(INFO).length} صفحة تعريفية ×3 + ${i18nCount} صفحة للطبقة متعددة اللغات) في dist/`);
 }
 
 await main();

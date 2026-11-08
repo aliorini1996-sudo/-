@@ -174,7 +174,9 @@ for (const f of files) {
   if (seenPage.has(where)) continue;
   seenPage.add(where);
   const lang = ((raw.match(/<html\b[^>]*\blang="([^"]*)"/i) || [])[1] || 'ar').toLowerCase();
-  const nonArabic = !lang.startsWith('ar');
+  // لغات تُكتب بالحرف العربي وليست عربية (الأردية والفارسية والبشتو…): نسبة الحرف العربي فيها
+  // ليست دليلاً على أنها عربية — يحرس الفرق بين نصّها والعربية verify-i18n (G4) بالحروف المميِّزة.
+  const nonArabic = !/^(?:ar|fa|ur|ps|sd|ug|ckb|ku)(?:-|$)/.test(lang);
   let text = null;
 
   for (const n of allNodes) {

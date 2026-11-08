@@ -23,6 +23,10 @@
  *      والقواعد كلها تُفحص لا /m وحدها (/rep تبتلع /rep-app إلا بـAllow، و/app تبتلع أي مسار تسويقي يبدأ بها).
  *      وبالعكس: مسارات التطبيق (/m و/m/… و/rep و/app و/login…) يجب أن تبقى محجوبة.
  *
+ *   8) فهرس الخريطة (sitemap.xml صار <sitemapindex>) يشير إلى ابن غير موجود بجانبه في dist، أو إلى ابن خارج
+ *      fieldsa.net. البنود 1–7 تعمل على <url> الأبناء كلها مدموجةً (scripts/sitemap-files.mjs) — بلا الدمج كان
+ *      الفهرس يمرّ أخضر **بلا فحص** (صفر <url> فيه).
+ *
  * ويُحذّر دون إفشال (تصحيح الناقد 15): الروابط المعطوبة داخل نص مقالات CMS (contentHtml)،
  * لأن المالك يحرّرها من اللوحة، ولا يصحّ أن يُسقط تحريرُه نشرَ الموقع كله. الإسناد:
  *   - ما داخل <article> في صفحة مقال يدوي (ليس من الكتالوج) ⇒ نصّ CMS.
@@ -35,6 +39,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
+import { isSitemapIndex, childFilesOf, mergedUrlsetFromFile } from './sitemap-files.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -167,7 +172,21 @@ for (let attempt = 0; attempt < 2 && !cmsHrefs; attempt++) {
   } catch { /* محاولة ثانية ثم إسناد بنيوي */ }
 }
 
-const xml = fs.readFileSync(SITEMAP, 'utf8');
+// الفهرس ← أبناؤه بجانبه (dist أو public)، والبنود كلها على <url> الأبناء مدموجة. ابنٌ غائب خطأ حاجب ويُفحص الموجود.
+const sitemapRaw = fs.readFileSync(SITEMAP, 'utf8');
+let sitemapChildren = 0;
+if (isSitemapIndex(sitemapRaw)) {
+  const kids = childFilesOf(SITEMAP, sitemapRaw);
+  sitemapChildren = kids.length;
+  if (!kids.length) report('error', 'sitemap-index-empty', 'فهرس الخريطة بلا أبناء', path.basename(SITEMAP));
+  for (const k of kids) {
+    let foreign = true;
+    try { foreign = new URL(k.loc.replace(/&amp;/g, '&')).origin !== ORIGIN; } catch { /* غير صالح ⇒ خارجي */ }
+    if (foreign) report('error', 'sitemap-child-foreign', 'ابن في فهرس الخريطة خارج fieldsa.net أو غير صالح', k.loc);
+    if (!k.exists) report('error', 'sitemap-child-missing', 'فهرس الخريطة يشير إلى ابن غير موجود في dist (الزاحف يتسلّم 404 أو قوقعة)', `${k.loc} ← ${k.name || 'اسم غير صالح'}`);
+  }
+}
+const xml = mergedUrlsetFromFile(SITEMAP, { onMissing: 'skip' });
 
 // ───────── 0) robots.txt ← الخريطة وبادئات اللغات ─────────
 /**
@@ -214,7 +233,8 @@ const ISO_639_1 = ('aa ab ae af ak am an ar as av ay az ba be bg bh bi bm bn bo 
   + 'ky la lb lg li ln lo lt lu lv mg mh mi mk ml mn mr ms mt my na nb nd ne ng nl nn no nr nv ny oc oj om or os pa pi pl ps pt qu rm rn ro ru rw sa '
   + 'sc sd se sg si sk sl sm sn so sq sr ss st su sv sw ta te tg th ti tk tl tn to tr ts tt tw ty ug uk ur uz ve vi vo wa wo xh yi yo za zh zu').split(' ');
 /** مسارات التطبيق التي يجب أن تبقى محجوبة عن الزحف (لوحات ودخول) */
-const MUST_BLOCK = ['/m', '/m/', '/m/login', '/rep', '/rep/', '/app', '/app/customers', '/platform', '/owner', '/staff', '/login'];
+// /signup: نموذج بلا صفحة مُصيَّرة — الزاحف بلا JavaScript يتسلّم قوقعة الرئيسية العربية (نسخة مكرّرة)، فيُحجب للجميع (spec-b §١٠)
+const MUST_BLOCK = ['/m', '/m/', '/m/login', '/rep', '/rep/', '/app', '/app/customers', '/platform', '/owner', '/staff', '/login', '/signup'];
 let robotsChecked = 0;
 if (!fs.existsSync(ROBOTS)) {
   report('error', 'robots-missing', 'لا يوجد robots.txt في dist ولا public', ROBOTS);
@@ -414,7 +434,7 @@ for (const f of pages) {
 }
 
 // ───────── الخلاصة ─────────
-console.log(`فحص الخريطة والروابط: ${entries.length} رابط في الخريطة · ${pages.length} صفحة مُصيَّرة · ${linkCount} رابط داخلي · ${robotsChecked} مسار مقابل robots.txt`
+console.log(`فحص الخريطة والروابط: ${entries.length} رابط في الخريطة${sitemapChildren ? ` (فهرس بـ${sitemapChildren} خريطة فرعية)` : ''} · ${pages.length} صفحة مُصيَّرة · ${linkCount} رابط داخلي · ${robotsChecked} مسار مقابل robots.txt`
   + (cmsHrefs ? '' : ' · ⚠ تعذّر جلب CMS (الإسناد بنيوي وحده)'));
 const errors = [...issues.values()].filter((x) => x.level === 'error');
 const warns = [...issues.values()].filter((x) => x.level === 'warn');

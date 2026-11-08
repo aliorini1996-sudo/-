@@ -1,24 +1,26 @@
+# robots.txt — مولَّد من scripts/gen-robots.mjs (لا يُحرَّر يدوياً)
+# مجموعة واحدة: كل زاحف مسمّى يقرأ القواعد نفسها، وأي زاحف آخر يشمله «*».
 User-agent: *
-Allow: /
-# لوحات الدخول والتطبيق ليست للفهرسة
-Disallow: /app
-Disallow: /platform
-Disallow: /owner
-Disallow: /staff
-# /rep-app صفحة تنزيل التطبيق العامّة — تُستثنى صراحةً لأن Disallow: /rep قاعدة بادئة تبتلعها
-Allow: /rep-app
-Disallow: /rep
-# تطبيق الإدارة على الجوال: /m وحدها و/m/… لا بادئة «/m» العارية — كانت تحجب /meeting/ وأي مسار أو بادئة لغة تبدأ بالحرف m
-# (verify-sitemap.mjs يُفشل البناء إن حجبت قاعدةٌ رابطاً في الخريطة أو بادئة لغة)
-Disallow: /m$
-Disallow: /m/
-Disallow: /login
-Disallow: /signup
-Disallow: /verify-email
-Disallow: /activate
-
-# --- زواحف الذكاء الاصطناعي: مرحّب بها كلها صراحةً (GEO) ---
-# كل زاحف موثّق عالمياً مذكور أدناه، وأي زاحف جديد مشمول تلقائياً بقاعدة * أعلاه.
+# محركات البحث
+User-agent: Googlebot
+User-agent: bingbot
+User-agent: YandexBot
+User-agent: Baiduspider
+User-agent: DuckDuckBot
+User-agent: Applebot
+User-agent: SeznamBot
+User-agent: PetalBot
+User-agent: coccocbot-web
+User-agent: Yeti
+# رموز التحكم في استعمال المحتوى للذكاء الاصطناعي (مرحّب بها — لا تُحجب)
+User-agent: Google-Extended
+User-agent: GoogleOther
+User-agent: GoogleOther-Image
+User-agent: GoogleOther-Video
+User-agent: Google-CloudVertexBot
+User-agent: Applebot-Extended
+User-agent: YandexAdditional
+User-agent: YandexAdditionalBot
 # OpenAI (ChatGPT)
 User-agent: GPTBot
 User-agent: OAI-SearchBot
@@ -32,50 +34,38 @@ User-agent: claude-web
 # Perplexity
 User-agent: PerplexityBot
 User-agent: Perplexity-User
-# Google (Gemini / AI Overviews / Vertex)
-User-agent: Google-Extended
-User-agent: GoogleOther
-User-agent: GoogleOther-Image
-User-agent: GoogleOther-Video
-User-agent: Google-CloudVertexBot
-# Apple (Siri / Apple Intelligence)
-User-agent: Applebot
-User-agent: Applebot-Extended
-# Meta (Meta AI / Llama)
+# Meta (Meta AI)
+User-agent: meta-webindexer
 User-agent: meta-externalagent
 User-agent: meta-externalfetcher
+User-agent: facebookexternalhit
 User-agent: FacebookBot
-# Amazon (Alexa / Bedrock / Nova)
+# Amazon (Alexa وRufus وBedrock وNova)
 User-agent: Amazonbot
+User-agent: Amzn-SearchBot
+User-agent: Amzn-User
 User-agent: NovaAct
 User-agent: bedrockbot
+# Mistral (Le Chat)
+User-agent: MistralAI-User
+User-agent: MistralAI-Index
 # ByteDance / TikTok
 User-agent: Bytespider
 User-agent: TikTokSpider
 # Huawei (PanGu)
-User-agent: PetalBot
 User-agent: PanguBot
-# Mistral
-User-agent: MistralAI-User
-# Cohere
+# زواحف ذكاء اصطناعي وأدوات أخرى موثّقة
 User-agent: cohere-ai
 User-agent: cohere-training-data-crawler
-# Allen Institute for AI
 User-agent: AI2Bot
 User-agent: Ai2Bot-Dolma
-# DuckDuckGo (DuckAssist)
 User-agent: DuckAssistBot
-# You.com
 User-agent: YouBot
-# Common Crawl (تغذّي معظم النماذج المفتوحة)
 User-agent: CCBot
-# Diffbot
 User-agent: Diffbot
-# Webz.io (بيانات تدريب)
 User-agent: Webzio-Extended
 User-agent: omgili
 User-agent: omgilibot
-# محركات وأدوات AI أخرى موثّقة
 User-agent: Timpibot
 User-agent: ImagesiftBot
 User-agent: iaskspider
@@ -93,6 +83,7 @@ User-agent: Crawlspace
 User-agent: SemrushBot-OCOB
 User-agent: ProRataInc
 Allow: /
+# لوحات الدخول والتطبيق ليست للفهرسة
 Disallow: /app
 Disallow: /platform
 Disallow: /owner
@@ -100,9 +91,12 @@ Disallow: /staff
 # /rep-app صفحة تنزيل التطبيق العامّة — تُستثنى صراحةً لأن Disallow: /rep قاعدة بادئة تبتلعها
 Allow: /rep-app
 Disallow: /rep
+# /m وحدها و/m/… لا بادئة «/m» العارية (كانت تحجب /meeting/ وبادئات لغات مثل /ms/ و/mr/)
 Disallow: /m$
 Disallow: /m/
 Disallow: /login
+# /signup: نموذج بلا صفحة مُصيَّرة (قوقعة الرئيسية لغير مشغّلي JavaScript) — محجوب للجميع بلا استثناء
+Disallow: /signup
 Disallow: /verify-email
 Disallow: /activate
 

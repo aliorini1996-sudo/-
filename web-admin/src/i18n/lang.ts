@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { i18nPageAt } from './i18nPublished';
+import { uiLangFor } from './i18nRoutes.mjs';
 
 export type Lang = 'ar' | 'en' | 'fr' | 'tr' | 'zh'; // العربية وحدها RTL، وما عداها LTR
 const KEY = 'app_lang';
@@ -24,6 +26,9 @@ function initial(): Lang {
       const saved = localStorage.getItem(KEY);
       if (saved === 'ar' || saved === 'en' || saved === 'fr' || saved === 'tr' || saved === 'zh') return saved;
     }
+    // صفحات الطبقة متعددة اللغات (/es/ و/languages/…): لغة الواجهة من الخمس — الإنجليزية لغيرها
+    const i = i18nPageAt(p);
+    if (i) return uiLangFor(i.code);
     // على صفحات التسويق: اللغة مشتقّة من المسار (/en · /fr) لتطابق الفهرسة الدولية بلا وميض
     if (p === '/en' || p.startsWith('/en/')) return 'en';
     if (p === '/fr' || p.startsWith('/fr/')) return 'fr';
@@ -35,7 +40,10 @@ function initial(): Lang {
 }
 
 // يضبط لغة واتجاه المستند (يؤثّر على عناصر تعتمد على html[dir])
+// لا يمسّهما على صفحات الطبقة متعددة اللغات: prerender كتب lang وdir الصحيحين (es/ltr، ur/rtl…) والصفحة تتولاهما —
+// ولغة الواجهة هناك («en» لـ/es/) ليست لغة المستند.
 function applyDoc(lang: Lang) {
+  if (typeof window !== 'undefined' && window.location && i18nPageAt(window.location.pathname)) return;
   if (typeof document !== 'undefined') {
     document.documentElement.lang = lang;
     document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';

@@ -19,11 +19,14 @@
 //   node scripts/indexnow.mjs --since <ref>         الفرق مع الخريطة في ref (مثل sha قبل الدفع)
 //   node scripts/indexnow.mjs --all                 الخريطة كاملة (صراحةً فقط)
 // خيارات: --dry-run يطبع ولا يرسل · --write <ملف> يكتب القائمة النهائية · --sitemap <ملف> خريطة بديلة
+// الخريطة فهرس (sitemap.xml ← sitemap-legacy.xml وخريطة لكل لغة): تُقرأ <url> الأبناء كلها مدموجةً
+// (scripts/sitemap-files.mjs)، والنسخة الملتزمة كذلك من git بالمرجع نفسه — ابنٌ غائب في المرجع = روابطه «مضافة».
 // رموز الخروج: 0 نجاح أو لا شيء للإرسال · 1 رفض الخادم أو تعذّر الاتصال · 2 خطأ استخدام أو مرجع git.
 import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { mergedUrlsetFromFile, mergedUrlsetFromGit } from './sitemap-files.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -76,6 +79,11 @@ function sitemapDiff(oldXml, newXml) {
   return { added, changed, removed };
 }
 
+/** الخريطة الحالية مدموجةً (فهرس ⇒ أبناؤه بجانبه؛ urlset ⇒ كما هو). ابنٌ غائب يوقف التشغيل: قائمة ناقصة تُرسل خطأً */
+function currentSitemap() {
+  try { return mergedUrlsetFromFile(SITEMAP); } catch (e) { return die(e.message); }
+}
+
 function committedSitemap(ref) {
   // المسار نسبيّ لمجلد web-admin (./) فيعمل أيّاً كان جذر المستودع
   const rel = './' + path.relative(ROOT, SITEMAP).split(path.sep).join('/');
@@ -85,7 +93,9 @@ function committedSitemap(ref) {
     die(`المرجع «${ref}» غير موجود في git — لا إرسال (إرسال الخريطة كاملة بدلاً منه يحتاج --all صراحةً)`);
   }
   try {
-    return execFileSync('git', ['show', `${ref}:${rel}`], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }).toString('utf8');
+    // قراءة فقط (git show): الفهرس ثم كل ابن بالمرجع نفسه
+    const show = (spec) => execFileSync('git', ['show', spec], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }).toString('utf8');
+    return mergedUrlsetFromGit(ref, rel, show);
   } catch {
     // الخريطة لم تكن ملتزمة في ذلك المرجع: كل روابطها «مضافة» — صحيح لكنه أول تشغيل، فيُذكر صراحةً
     console.warn(`  ⚠ لا خريطة في ${ref} — كل روابط الخريطة الحالية تُعدّ مضافة`);
@@ -107,13 +117,13 @@ if (modes.length && positional.length) die('روابط سطر الأوامر ل�
 
 if (flag('--all')) {
   if (!fs.existsSync(SITEMAP)) die(`لا توجد الخريطة ${SITEMAP}`);
-  raw = [...parseSitemap(fs.readFileSync(SITEMAP, 'utf8')).keys()];
+  raw = [...parseSitemap(currentSitemap()).keys()];
   origin = 'الخريطة كاملة (--all)';
 } else if (flag('--changed') || flag('--since')) {
   const ref = flag('--since') ? opt('--since') : 'HEAD';
   if (!ref) die('--since يحتاج مرجع git');
   if (!fs.existsSync(SITEMAP)) die(`لا توجد الخريطة ${SITEMAP}`);
-  const d = sitemapDiff(committedSitemap(ref), fs.readFileSync(SITEMAP, 'utf8'));
+  const d = sitemapDiff(committedSitemap(ref), currentSitemap());
   const extra = changedFileUrls();
   raw = [...d.added, ...d.changed, ...d.removed, ...extra];
   origin = `الفرق مع ${ref}: ${d.added.length} مضاف · ${d.changed.length} متغيّر · ${d.removed.length} محذوف`

@@ -27,6 +27,9 @@ on:
       - 'web-admin/scripts/geo-audit.mjs'
       # التزامٌ يدوي بخريطة مولّدة محلياً: بلا هذا لا يرى التشغيل اليومي فرقاً عن HEAD فلا يُشعَر بتغييرها
       - 'web-admin/public/sitemap.xml'
+      # sitemap.xml فهرس: الأبناء (sitemap-legacy.xml وخريطة لكل لغة) والسجل المنشور للطبقة متعددة اللغات
+      - 'web-admin/public/sitemap-*.xml'
+      - 'web-admin/src/i18n/registry/**'
 
 permissions:
   contents: write
@@ -105,8 +108,8 @@ jobs:
             fi
             node scripts/indexnow.mjs --since "$BASE" --dry-run --write "$OUT"
           fi
-          # الخريطة كما ستُنشر — مرجع «اكتمال النشر» في المهمة اللاحقة
-          cp public/sitemap.xml "$RUNNER_TEMP/seo/sitemap.xml"
+          # الخريطة كما ستُنشر — مرجع «اكتمال النشر» في المهمة اللاحقة: الفهرس وأبناؤه مدموجةً في urlset واحد
+          node scripts/sitemap-files.mjs --merge public/sitemap.xml --out "$RUNNER_TEMP/seo/sitemap.xml"
           COUNT=$(grep -c . "$OUT" || true)
           echo "count=${COUNT:-0}" >> "$GITHUB_OUTPUT"
           {
@@ -129,11 +132,15 @@ jobs:
       - name: التزام الملفات المولّدة ودفعها
         id: commit
         run: |
-          FILES="public/sitemap.xml public/llms.txt public/llms-full.txt"
+          FILES="public/sitemap.xml public/sitemap-*.xml public/llms.txt public/llms-full.txt"
           for f in seo/lastmod.json seo/changed-urls.txt; do
             if [ -f "$f" ]; then FILES="$FILES $f"; fi
           done
-          git add -- $FILES
+          # -A يشمل حذف الأبناء (لغة سُحب نشرها). set -f يمرّر النمط sitemap-*.xml إلى git كما هو (pathspec يطابق
+          # المحذوف أيضاً) — بتوسيع bash يُستبدل بالملفات الموجودة وحدها فيسقط الابن المحذوف من الالتزام.
+          set -f
+          git add -A -- $FILES
+          set +f
           if git diff --cached --quiet; then
             echo "لا تغييرات في الملفات المولّدة."
             echo "pushed=false" >> "$GITHUB_OUTPUT"

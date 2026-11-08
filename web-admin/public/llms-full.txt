@@ -36,6 +36,50 @@ Pricing: Per company, not per user: 299 SAR/month (up to 5 reps), 399 SAR/month 
 - [نموذج تقرير زيارة ميدانية يومي](https://fieldsa.net/نماذج/تقرير-زيارة-ميدانية/): توثيق ما رآه المندوب عند العميل: حالة الرفّ والمنافسين والطلب — معلومة تُبنى عليها قرارات لا تُروى شفهياً.
 - [Free tax invoice generator](https://fieldsa.net/invoice-generator/) · [Revenue leak calculator](https://fieldsa.net/calculator/)
 
+## Languages
+
+Product pages in other languages describe FieldSales for information; the app interface is in Arabic, English, French, Turkish and Chinese only.
+
+- [Español](https://fieldsa.net/es/): Spanish. Guide for AI: https://fieldsa.net/es/llms.txt
+- [Português](https://fieldsa.net/pt/): Portuguese. Guide for AI: https://fieldsa.net/pt/llms.txt
+- [Bahasa Indonesia](https://fieldsa.net/id/): Indonesian. Guide for AI: https://fieldsa.net/id/llms.txt
+- [Русский](https://fieldsa.net/ru/): Russian. Guide for AI: https://fieldsa.net/ru/llms.txt
+- [Deutsch](https://fieldsa.net/de/): German. Guide for AI: https://fieldsa.net/de/llms.txt
+- [Polski](https://fieldsa.net/pl/): Polish. Guide for AI: https://fieldsa.net/pl/llms.txt
+- [Bahasa Melayu](https://fieldsa.net/ms/): Malay. Guide for AI: https://fieldsa.net/ms/llms.txt
+- [繁體中文](https://fieldsa.net/zh-hant/): Chinese (Traditional). Guide for AI: https://fieldsa.net/zh-hant/llms.txt
+- [日本語](https://fieldsa.net/ja/): Japanese. Guide for AI: https://fieldsa.net/ja/llms.txt
+- [한국어](https://fieldsa.net/ko/): Korean. Guide for AI: https://fieldsa.net/ko/llms.txt
+- [Italiano](https://fieldsa.net/it/): Italian. Guide for AI: https://fieldsa.net/it/llms.txt
+- [Nederlands](https://fieldsa.net/nl/): Dutch. Guide for AI: https://fieldsa.net/nl/llms.txt
+- [Tiếng Việt](https://fieldsa.net/vi/): Vietnamese. Guide for AI: https://fieldsa.net/vi/llms.txt
+- [ไทย](https://fieldsa.net/th/): Thai. Guide for AI: https://fieldsa.net/th/llms.txt
+- [हिन्दी](https://fieldsa.net/hi/): Hindi. Guide for AI: https://fieldsa.net/hi/llms.txt
+- [বাংলা](https://fieldsa.net/bn/): Bengali. Guide for AI: https://fieldsa.net/bn/llms.txt
+- [اردو](https://fieldsa.net/ur/): Urdu. Guide for AI: https://fieldsa.net/ur/llms.txt
+- [فارسی](https://fieldsa.net/fa/): Persian. Guide for AI: https://fieldsa.net/fa/llms.txt
+- [עברית](https://fieldsa.net/he/): Hebrew. Guide for AI: https://fieldsa.net/he/llms.txt
+- [Українська](https://fieldsa.net/uk/): Ukrainian. Guide for AI: https://fieldsa.net/uk/llms.txt
+- [Čeština](https://fieldsa.net/cs/): Czech. Guide for AI: https://fieldsa.net/cs/llms.txt
+- [Slovenčina](https://fieldsa.net/sk/): Slovak. Guide for AI: https://fieldsa.net/sk/llms.txt
+- [Magyar](https://fieldsa.net/hu/): Hungarian. Guide for AI: https://fieldsa.net/hu/llms.txt
+- [Ελληνικά](https://fieldsa.net/el/): Greek. Guide for AI: https://fieldsa.net/el/llms.txt
+- [Български](https://fieldsa.net/bg/): Bulgarian. Guide for AI: https://fieldsa.net/bg/llms.txt
+- [Српски](https://fieldsa.net/sr/): Serbian. Guide for AI: https://fieldsa.net/sr/llms.txt
+- [Hrvatski](https://fieldsa.net/hr/): Croatian. Guide for AI: https://fieldsa.net/hr/llms.txt
+- [Bosanski](https://fieldsa.net/bs/): Bosnian. Guide for AI: https://fieldsa.net/bs/llms.txt
+- [Slovenščina](https://fieldsa.net/sl/): Slovenian. Guide for AI: https://fieldsa.net/sl/llms.txt
+- [Svenska](https://fieldsa.net/sv/): Swedish. Guide for AI: https://fieldsa.net/sv/llms.txt
+- [Dansk](https://fieldsa.net/da/): Danish. Guide for AI: https://fieldsa.net/da/llms.txt
+- [Norsk](https://fieldsa.net/no/): Norwegian. Guide for AI: https://fieldsa.net/no/llms.txt
+- [Suomi](https://fieldsa.net/fi/): Finnish. Guide for AI: https://fieldsa.net/fi/llms.txt
+- [Eesti](https://fieldsa.net/et/): Estonian. Guide for AI: https://fieldsa.net/et/llms.txt
+- [Latviešu](https://fieldsa.net/lv/): Latvian. Guide for AI: https://fieldsa.net/lv/llms.txt
+- [Lietuvių](https://fieldsa.net/lt/): Lithuanian. Guide for AI: https://fieldsa.net/lt/llms.txt
+- [Català](https://fieldsa.net/ca/): Catalan. Guide for AI: https://fieldsa.net/ca/llms.txt
+- [Afrikaans](https://fieldsa.net/af/): Afrikaans. Guide for AI: https://fieldsa.net/af/llms.txt
+- [All languages](https://fieldsa.net/languages/)
+
 ## Articles (العربية)
 
 - [برنامج إدارة مناديب المبيعات الميدانية في الأسواق العربية](https://fieldsa.net/blog/field-sales-software/)

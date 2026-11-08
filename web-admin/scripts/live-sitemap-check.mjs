@@ -21,9 +21,14 @@
  *   (lastmod والبدائل) أو بتاريخ أحدث، والمحذوف غائباً. ينتهي بـ0 دائماً ويكتب deployed=true|false
  *   في GITHUB_OUTPUT؛ انقضاء المهلة تحذير (النشر قد يطول) لا فشل.
  *
+ * الخريطة فهرس (sitemap.xml ← sitemap-legacy.xml وخريطة لكل لغة): الوضعان يجلبان الفهرس ثم أبناءه من الأصل نفسه
+ * ويقرآن <url> كلها مدموجة (scripts/sitemap-files.mjs). ابنٌ يعلنه الفهرس الحيّ ويردّ بغير 200 خللٌ مؤكَّد في الفحص؛
+ * وفي الانتظار يُعاد الاستطلاع. أما --wait-for فيقرأ خريطة ملتزمة مدموجة سلفاً (الوركفلو يدمجها) فلا يتغيّر.
+ *
  * طلبات GET عامة فقط. خيارات: --origin <أصل> · --sample <N> عيّنة موزّعة بانتظام · --verbose كل البنود.
  */
 import fs from 'fs';
+import { mergedUrlsetFromUrl } from './sitemap-files.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : null; };
@@ -79,7 +84,7 @@ function parseSitemap(xml) {
 }
 
 async function liveSitemap() {
-  const r = await get(`${ORIGIN}/sitemap.xml?nocache=${Date.now()}`, { tries: 2 });
+  const r = await mergedUrlsetFromUrl(`${ORIGIN}/sitemap.xml?nocache=${Date.now()}`, get, { tries: 2 });
   if (r.transient || r.status !== 200) return null;
   return parseSitemap(r.body);
 }
@@ -144,7 +149,14 @@ async function waitForDeploy() {
 
 // ───────── الوضع الأول: فحص الخريطة الحية ─────────
 async function checkLive() {
-  const sm = await get(`${ORIGIN}/sitemap.xml?nocache=${Date.now()}`, { tries: 3 });
+  const sm = await mergedUrlsetFromUrl(`${ORIGIN}/sitemap.xml?nocache=${Date.now()}`, get, { tries: 3 });
+  // ابنٌ يعلنه الفهرس الحيّ ولا يُخدم (404 مثلاً) ليس عطل شبكة: الزاحف يتسلّم الشيء نفسه ⇒ فشل
+  if (sm.child && !sm.transient) {
+    const why = sm.error || `HTTP ${sm.status}`;
+    console.error(`✗ الفهرس الحيّ يعلن خريطة فرعية لا تُخدم: ${shown(sm.child)} — ${why}`);
+    summary(`### الفحص الحيّ للخريطة\n\n❌ الفهرس يعلن خريطة فرعية لا تُخدم: \`${shown(sm.child)}\` (${why}).\n`);
+    return 1;
+  }
   if (sm.transient || sm.status !== 200) {
     const why = sm.transient ? sm.error : `HTTP ${sm.status}`;
     console.warn(`⚠ تعذّر جلب الخريطة الحية (${why}) — لا فحص في هذا التشغيل (غير مانع).`);
@@ -205,7 +217,7 @@ async function checkLive() {
   const errors = [...cats.values()].filter((c) => c.level === 'error');
   const warns = [...cats.values()].filter((c) => c.level === 'warn');
   const failed = badCount;
-  const line = `الفحص الحيّ: ${locs.length}${sample ? ` (عيّنة من ${total})` : ''} رابطاً من ${ORIGIN}/sitemap.xml — سليم ${okCount} · خلل ${failed} · تعذّر ${netCount}`;
+  const line = `الفحص الحيّ: ${locs.length}${sample ? ` (عيّنة من ${total})` : ''} رابطاً من ${ORIGIN}/sitemap.xml${sm.children ? ` (فهرس بـ${sm.children} خريطة فرعية)` : ''} — سليم ${okCount} · خلل ${failed} · تعذّر ${netCount}`;
   console.log(line);
   if (!homeTitle) console.warn('  ⚠ تعذّر جلب الرئيسية — فحص «عنوان القوقعة» معطّل في هذا التشغيل');
   let md = `### الفحص الحيّ للخريطة\n\n${line}\n`;

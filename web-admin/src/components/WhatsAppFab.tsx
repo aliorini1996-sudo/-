@@ -1,6 +1,7 @@
 import { useLocation } from 'react-router-dom';
 import { anonId, isOptedOut } from '../lib/attribution';
 import { trackWhatsApp } from '../lib/ads';
+import { PUBLISHED, i18nPageAt } from '../i18n/i18nPublished';
 
 /**
  * زرّ المحادثة العائم — قناة التحويل المقصودة.
@@ -108,8 +109,13 @@ export default function WhatsAppFab() {
 
   // النصّ يتبع لغة الصفحة لا لغة ثابتة — الزائر الإنجليزي يقرأ الإنجليزية
   // أول حرفين: الصفحات الصينية تحمل lang="zh-Hans" (lib/seo.ts)
-  const docLang = (typeof document !== 'undefined' ? document.documentElement.lang || 'ar' : 'ar').slice(0, 2);
-  const label = docLang === 'en' ? 'Chat with us on WhatsApp'
+  // صفحات الطبقة متعددة اللغات: اللغة رمز الصفحة من السجل، والتسمية لغير الخمس من السجل نفسه (waLabel) —
+  // وإلا سقطت إلى العربية على صفحة إسبانية أو أردية.
+  const i18n = i18nPageAt(pathname);
+  const docLang = i18n ? i18n.code : (typeof document !== 'undefined' ? document.documentElement.lang || 'ar' : 'ar').slice(0, 2);
+  const label = i18n && !['ar', 'en', 'fr', 'tr', 'zh'].includes(i18n.code)
+    ? (PUBLISHED.locales.find((l) => l.code === i18n.code)?.waLabel || 'Chat with us on WhatsApp')
+    : docLang === 'en' ? 'Chat with us on WhatsApp'
     : docLang === 'fr' ? 'Discutez avec nous sur WhatsApp'
     : docLang === 'tr' ? 'WhatsApp üzerinden bize yazın'
     : docLang === 'zh' ? '通过 WhatsApp 联系我们'

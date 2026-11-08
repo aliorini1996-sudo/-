@@ -101,8 +101,23 @@ test('الدمج: الهدف بشرطة أخيرة، ولا يُطبَّق إن 
   for (const slug of merged) assert.ok(!ex(slug, 'ar'), `المدموج ${slug} لا يُعدّ هدفاً`);
 });
 
+test('الخريطة الملتزمة فهرس: sitemap.xml يشير إلى sitemap-legacy.xml، والأبناء كلها ملتزمة بجانبه', () => {
+  // sitemap.xml صار <sitemapindex> (spec-b §٨): خريطة الصفحات القائمة في sitemap-legacy.xml وخريطة لكل لغة منشورة
+  const idx = fs.readFileSync(path.join(process.cwd(), 'public', 'sitemap.xml'), 'utf8');
+  assert.match(idx, /<sitemapindex\b/, 'sitemap.xml ليس فهرساً');
+  assert.ok(!/<url>/.test(idx), 'الفهرس يحوي <url> مباشرة');
+  const kids = [...idx.matchAll(/<sitemap>\s*<loc>\s*([^<]+?)\s*<\/loc>/g)].map((m) => m[1]);
+  assert.ok(kids.includes('https://fieldsa.net/sitemap-legacy.xml'), `الفهرس لا يشير إلى sitemap-legacy.xml: ${kids.join(', ')}`);
+  for (const k of kids) {
+    const name = k.split('/').pop() || '';
+    assert.match(name, /^sitemap-[a-z0-9-]+\.xml$/, `ابن باسم غير متوقّع: ${k}`);
+    assert.ok(fs.existsSync(path.join(process.cwd(), 'public', name)), `ابن غير ملتزم: public/${name}`);
+  }
+});
+
 test('الخريطة الملتزمة: tr/zh للرئيسية و«احجز اجتماعاً» وحدهما، ولا ‎-region‎، ولا رابط مدموج', () => {
-  const sm = fs.readFileSync(path.join(process.cwd(), 'public', 'sitemap.xml'), 'utf8');
+  // الصفحات القائمة في sitemap-legacy.xml (صفحات الطبقة متعددة اللغات في sitemap-{code}.xml ويحرسها verify-i18n)
+  const sm = fs.readFileSync(path.join(process.cwd(), 'public', 'sitemap-legacy.xml'), 'utf8');
   const locs = [...sm.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
   assert.ok(locs.length > 100);
   const trzh = locs.filter((u) => /^https:\/\/fieldsa\.net\/(tr|zh)\//.test(u));
