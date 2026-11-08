@@ -733,6 +733,25 @@ router.get('/:id/stock-summary', requireAdmin, async (req: AuthRequest, res: Res
  * التصنيف من الشركة نفسها — أو لا تصنيف. بلا هذا يُربط صنفٌ بتصنيف شركةٍ أخرى (المفتاح الأجنبيّ لا يعرف
  * الشركة) فيُقرأ اسمه مع الصنف، أو يفشل معرّفٌ مجهول بخطأ 500 بدل 400.
  */
+/** مرونة الربط (٨ نوفمبر ٢٠٢٦): التصنيف باسمه (categoryName) بلا تفريق أحرف — يُعاد القائم أو يُنشأ */
+async function categoryIdByName(tid: string, name: string): Promise<string> {
+  const hit = await prisma.productCategory.findFirst({ where: { tenantId: tid, name: { equals: name, mode: 'insensitive' } }, select: { id: true } });
+  if (hit) return hit.id;
+  return (await prisma.productCategory.create({ data: { tenantId: tid, name }, select: { id: true } })).id;
+}
+const categoryNameOf = (body: unknown): string => {
+  const v = (body as { categoryName?: unknown } | null | undefined)?.categoryName;
+  return typeof v === 'string' ? v.trim().slice(0, 100) : '';
+};
+
+/** المؤرشف (حذفٌ قديم قبل الحذف الحقيقي) لا يحجز الكود: يُعاد ترقيمه «الكود~old-xxxxxx» وتبقى فواتيره القديمة باسمه */
+async function freeArchivedProductCode(tid: string, id: string, code: string): Promise<void> {
+  const base = `${code}~old-${id.slice(0, 6)}`;
+  let next = base;
+  for (let n = 2; await prisma.product.count({ where: { tenantId: tid, code: next } }); n++) next = `${base}-${n}`;
+  await prisma.product.update({ where: { id }, data: { code: next } });
+}
+
 async function categoryOwned(tid: string, categoryId: string | null | undefined): Promise<boolean> {
   if (!categoryId) return true;
   return (await prisma.productCategory.count({ where: { id: categoryId, tenantId: tid } })) > 0;
@@ -940,10 +959,22 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     const reverse = req.body?.primaryUnitName != null ? reverseCreatePlan(productCreateSchema.parse(req.body)) : null;
     if (reverse instanceof UnitsRefusal) { res.status(reverse.status).json({ success: false, code: reverse.code, message: reverse.message }); return; }
     const data = reverse ? reverse.data : productSchema.parse(req.body);
-    // كود مكرر يفسر بوضوح (خاصة تصادم كود صنف مؤرشف) بدل خطأ unique غامض
-    const dupe = await prisma.product.findFirst({ where: { tenantId: tid, code: data.code }, select: { deletedAt: true } });
-    if (dupe) {
-      res.status(409).json({ success: false, message: dupe.deletedAt ? 'الكود مستخدم بصنف محذوف مؤرشف بفواتيره القديمة استخدم كودا مختلفا' : 'كود الصنف مستخدم من قبل' });
+    // الكود بلا تفريق أحرف (ABC = abc). المؤرشف لا يحجزه: يُعاد ترقيمه ويُنشأ الجديد. والقائم: مفتاح API يستلمه 200 existing
+    // (إنشاءٌ متكرر آمن لموصلات Odoo وغيرها بدل 409 يعلّق المزامنة)، واللوحة 409 كما كانت (مرونة الربط، ٨ نوفمبر ٢٠٢٦)
+    const codeOf = () => prisma.product.findFirst({
+      where: { tenantId: tid, code: { equals: data.code, mode: 'insensitive' } },
+      orderBy: { deletedAt: { sort: 'asc', nulls: 'first' } }, select: { id: true, code: true, deletedAt: true },
+    });
+    let codeHit = await codeOf();
+    for (let i = 0; codeHit?.deletedAt && i < 20; i++) { await freeArchivedProductCode(tid, codeHit.id, codeHit.code); codeHit = await codeOf(); }
+    const liveHit = codeHit && !codeHit.deletedAt ? codeHit : null;
+    if (liveHit) {
+      if (req.user?.apiKeyId) {
+        const existing = await prisma.product.findUnique({ where: { id: liveHit.id }, include: { category: true, units: UNITS_ORDER } });
+        res.status(200).json({ success: true, data: existing, existing: true, warnings: [{ code: 'CODE_EXISTS', message: 'الصنف موجود بهذا الكود فأُعيد كما هو — حدّثه بـPUT /products/:id', productId: liveHit.id }] });
+        return;
+      }
+      res.status(409).json({ success: false, message: 'كود الصنف مستخدم من قبل' });
       return;
     }
     // S4 (D4): اسمٌ يطابق صنفاً للشركة — قائماً أو موقوفاً أو مؤرشفاً — تحذيرٌ في الردّ لا رفض، فلا ينكسر مفتاح API ولا تكامل
@@ -963,6 +994,7 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     // فوترة ZATCA (Z5.1a): الفئة الضريبية للشركة الجامعة وحدها — لا تُقرأ البوابة إلا إن حمل الجسم حقلاً منها
     const vatGate = await applyProductVatGate(prisma, req.body, tid, { productId: null, taxPct: data.taxPct });
     if (!vatGate.ok) { res.status(vatGate.status).json(vatGate.body); return; }
+    { const cn = categoryNameOf(req.body); if (!data.categoryId && cn) data.categoryId = await categoryIdByName(tid, cn); }
     if (!(await categoryOwned(tid, data.categoryId))) {
       // الربط البرمجي (مفتاح API): تصنيفٌ لم يعد موجوداً لا يرفض الصنف — يُنشأ بلا تصنيف مع تحذير CATEGORY_NOT_FOUND (طلب المالك
       // ٨ نوفمبر ٢٠٢٦: موصل «مروج» يحمل أرقام تصنيفات محذوفة فكانت أصنافه تُرفض 400 كل دورة). اللوحة والجوال كما كانا: 400
@@ -1069,6 +1101,7 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     // taxPct الفارغ (حقل مُسح او null من النموذج) يعني «بلا تغيير» لا تصفير النسبة
     if (updateData.taxPct == null) delete updateData.taxPct;
     if ('categoryId' in updateData) updateData.categoryId = updateData.categoryId || null;
+    { const cn = categoryNameOf(req.body); if (!updateData.categoryId && cn) updateData.categoryId = await categoryIdByName(tid, cn); }
     if (!(await categoryOwned(tid, updateData.categoryId as string | null | undefined))) {
       // الربط البرمجي: تصنيفٌ غير موجود ⇒ يبقى تصنيف الصنف المحفوظ كما هو مع تحذير، لا رفض (انظر POST أعلاه)
       if (!req.user?.apiKeyId) { res.status(400).json({ success: false, message: 'التصنيف غير موجود' }); return; }

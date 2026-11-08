@@ -167,7 +167,7 @@ router.put('/mine', repOnly, async (req: AuthRequest, res: Response, next: NextF
     const apiMissing = missingBaseForApi(!!req.user?.apiKeyId, written, new Map(prods.map((p) => [p.id, { name: p.name, baseConvertedAt: p.baseConvertedAt }])));
     if (apiMissing) throw baseUnitRequired(apiMissing);
     // ولإعادة الرفع أيضاً: الطلب لا يمرّ بصندوق الأوف‑لاين، و«٥ كرتون» من كاشٍ قديم تُقرأ «٥ قارورة» بلا هذا الرفض
-    const bad = staleClientBase(written, expected);
+    const bad = staleClientBase(written, expected, new Map(prods.map((p) => [p.id, p.baseConvertedAt])));
     if (bad) throw staleBase(bad);
     const note = data.note?.trim() || null;
 
@@ -298,7 +298,7 @@ router.put('/:id', companyOnly, async (req: AuthRequest, res: Response, next: Ne
     if (apiMissing) throw baseUnitRequired(apiMissing);
     const expected: ExpectedBases = new Map(prods.map((p) => [p.id, { name: p.name, unit: p.unit }]));
     // المقارنة الحيّة لسطرٍ يحمل baseUnitName وحده؛ وبلاه الحكم كما كان (I1)
-    const bad = staleClientBase(data.items, expected);
+    const bad = staleClientBase(data.items, expected, new Map(prods.map((p) => [p.id, p.baseConvertedAt])));
     if (bad) throw staleBase(bad);
     const saved = await prisma.$transaction(async (tx) => {
       await lockTenant(tx, tid);

@@ -523,7 +523,7 @@ router.put('/:id/prices', requireAdmin, async (req: AuthRequest, res: Response, 
       return;
     }
     const expected: ExpectedBases = new Map(owned.map(p => [p.id, { name: p.name, unit: p.unit }]));
-    const stale = staleClientBase(prices, expected);
+    const stale = staleClientBase(prices, expected, new Map(owned.map(p => [p.id, p.baseConvertedAt])));
     if (stale) throw new UnitInvalidError(`تغيّرت وحدات «${stale}» — حدّث قائمة الأصناف ثم أعد الحفظ`);
     // تحت قفل صفّ الصنف (FOR KEY SHARE): تحويلٌ التزم بعد القراءة أعلاه ⇒ 409 PRODUCT_UNITS_CHANGED بلا أي upsert
     await prisma.$transaction(async (tx) => {

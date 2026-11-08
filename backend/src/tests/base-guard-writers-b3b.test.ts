@@ -369,7 +369,8 @@ const relabel = (body: Row, user: Row = ADMIN) => call(lotsRouter, 'post', '/rel
 
 test('إعادة الوسم: أساسٌ قديم ⇒ 400 UNIT_INVALID قبل الطابور، ومفتاح API على صنفٍ محوَّل بلا الحقل ⇒ 400 BASE_UNIT_REQUIRED', async () => {
   reset();
-  let r = await relabel({ baseUnitName: 'كرتون' });
+  // مرونة الربط (٨ نوفمبر ٢٠٢٦): الأساس القديم يُرفض لصنفٍ حُوِّلت وحدته (P2) — ولصنفٍ لم يُحوَّل قط تسميةٌ لا كمية
+  let r = await relabel({ productId: 'P2', baseUnitName: 'كرتون' });
   assert.deepEqual([r.status, r.body.code], [400, 'UNIT_INVALID'], JSON.stringify(r.body));
   assert.equal(st.txOpts.length, 0);
   r = await relabel({ productId: 'P2' }, KEY);

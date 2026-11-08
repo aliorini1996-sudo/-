@@ -160,11 +160,19 @@ const fresh = (w: (typeof WRITERS)[number]) => { reset(); if (w.seed) { seedUnse
 test('كاشٌ قديم: baseUnitName ≠ أساس الصنف الآن ⇒ 400 UNIT_INVALID «تغيّرت وحدات» بلا معاملة ولا إنشاء — لكل كاتب', async () => {
   for (const w of WRITERS) {
     fresh(w);
+    // مرونة الربط (٨ نوفمبر ٢٠٢٦): الحارس لصنفٍ حُوِّلت وحدته وحده
+    st.products[0].baseConvertedAt = new Date('2026-10-30T09:00:00.000Z');
     const r = await w.post(w.body([{ productId: 'P2', qty: 2, baseUnitName: 'علبة' }, { productId: 'P1', qty: 2, baseUnitName: 'كرتون' }]));
     assert.deepEqual([r.status, r.body?.code], [400, 'UNIT_INVALID'], `${w.name}: ${JSON.stringify(r.body)}`);
     assert.match(r.body.message, /تغيّرت وحدات «ماء» — حدّث قائمة الأصناف/, w.name);
     assert.doesNotMatch(r.body.message, /الأساس/, 'D21');
     assert.deepEqual([created(), st.txOpts.length], [0, 0], w.name);
+  }
+  // وصنفٌ لم يُحوَّل قط: اختلاف اسم الأساس أو حالة أحرفه تسميةٌ لا كمية ⇒ لا رفض
+  for (const w of WRITERS) {
+    fresh(w);
+    const r = await w.post(w.body([{ productId: 'P1', qty: 2, baseUnitName: 'Units' }]));
+    assert.notEqual(r.status, 400, `${w.name}: ${JSON.stringify(r.body)}`);
   }
 });
 
@@ -196,6 +204,7 @@ test('إعادة الرفع أوف‑لاين (X-FS-Replay): السباق ⇒ 50
   for (const type of ['LOAD', 'EXPIRED_OUT']) {
     reset();
     seedUnsellable('P1', 50, 'expired');
+    st.products[0].baseConvertedAt = new Date('2026-10-30T09:00:00.000Z');
     const r = await load({ type, items: [{ productId: 'P1', qty: 1, baseUnitName: 'كرتون' }] }, { headers: { 'x-fs-replay': '1' } });
     assert.deepEqual([r.status, r.body?.code], [503, 'PRODUCT_UNITS_CHANGED'], `${type}: ${JSON.stringify(r.body)}`);
     assert.match(r.body.message, /«ماء»/);

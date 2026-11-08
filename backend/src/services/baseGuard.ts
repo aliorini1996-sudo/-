@@ -134,9 +134,12 @@ const sentBase = (s: string | null | undefined): boolean => baseNameKey(s) !== '
 /** المقارنة الحيّة قبل المعاملة: أول صنفٍ أرسل بنده baseUnitName ≠ أساسه الآن، أو null. بندٌ بلا الحقل ⇒ مسار اليوم */
 export function staleClientBase(
   lines: ReadonlyArray<{ productId: string; baseUnitName?: string | null }>, products: ExpectedBases,
+  converted?: ReadonlyMap<string, Date | null | undefined>,
 ): string | null {
   for (const l of lines) {
     if (!sentBase(l.baseUnitName)) continue;
+    // مرونة الربط (٨ نوفمبر ٢٠٢٦): صنفٌ لم تُحوَّل وحدته الصغرى قط ⇒ اختلاف الاسم تسميةٌ لا كمية (Units عند Odoo = حبة هنا) فلا رفض
+    if (converted && converted.get(l.productId) == null) continue;
     const p = products.get(l.productId);
     if (p && baseNameKey(l.baseUnitName) !== baseNameKey(p.unit)) return p.name;
   }

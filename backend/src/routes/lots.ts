@@ -440,7 +440,7 @@ router.post('/relabel', async (req: AuthRequest, res: Response, next: NextFuncti
       const line = [{ productId: body.productId, baseUnitName: body.baseUnitName }];
       const apiMissing = missingBaseForApi(!!req.user?.apiKeyId, line, new Map([[body.productId, prod]]));
       if (apiMissing) { const g = baseUnitRequiredReply(apiMissing); res.status(g.status).json(g.body); return; }
-      const stale = staleClientBase(line, new Map([[body.productId, { name: prod.name, unit: prod.unit }]]));
+      const stale = staleClientBase(line, new Map([[body.productId, { name: prod.name, unit: prod.unit }]]), new Map([[body.productId, prod.baseConvertedAt]]));
       if (stale) { res.status(400).json({ success: false, code: 'UNIT_INVALID', message: `تغيّرت وحدات «${stale}» — حدّث الصنف ثم أعد الحفظ` }); return; }
     }
     const { day } = await companyDay(prisma, tid);

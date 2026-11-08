@@ -276,7 +276,7 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     const expected = expectedBasesOf(products);
     const noBase = missingBaseForApi(!!req.user?.apiKeyId, items, new Map(products.map((p) => [p.id, p])));
     if (noBase) { const r = baseUnitRequiredReply(noBase); res.status(r.status).json(r.body); return; }
-    const stale = staleClientBase(items, expected);
+    const stale = staleClientBase(items, expected, new Map(products.map((p) => [p.id, p.baseConvertedAt])));
     if (stale) throw new UnitInvalidError(`تغيّرت وحدات «${stale}» — حدّث قائمة الأصناف ثم أعد الحفظ`);
     // «تتبّع اللوط» (D9، كالسيارة) والميزة مفعّلة: سطرٌ يحمل تشغيلةً لصنفٍ غير متتبَّع ⇒ 422 LOT_PRODUCT_MISMATCH بسبب NOT_TRACKED
     // وموضعه (موضع السطر بعد حذف الصفرية كسائر أخطاء الحركة) لا إهمالٌ صامت — واجهةٌ قديمة لصنفٍ أُطفئ تتبّعه تُنقص الصنف وتُبقي رصيد

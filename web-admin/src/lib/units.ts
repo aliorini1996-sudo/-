@@ -319,4 +319,5 @@ export function derivedBasePrice(primaryPrice: number, factor: number): number {
 }
 
 /** D20-أ: مفتاح المقارنة الوحيد لاسم وحدة الأساس — قصّ الأطراف ثم أول ٦٤ حرفاً (حدّ baseUnitName في كل مخطّط) */
-export function baseNameKey(s: string | null | undefined): string { return String(s ?? '').trim().slice(0, 64); }
+// مرونة الربط (طلب المالك ٨ نوفمبر ٢٠٢٦): بلا تفريق بين الأحرف الكبيرة والصغيرة ولا بين المسافات المتكررة — PCS = pcs = Pcs
+export function baseNameKey(s: string | null | undefined): string { return String(s ?? '').trim().replace(/\s+/g, ' ').slice(0, 64).toLowerCase(); }

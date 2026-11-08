@@ -422,7 +422,7 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     const expected = expectedBasesOf(products);
     const noBase = missingBaseForApi(!!req.user?.apiKeyId, items, productById);
     if (noBase) { const r = baseUnitRequiredReply(noBase); res.status(r.status).json(r.body); return; }
-    const bad = staleClientBase(items, expected);
+    const bad = staleClientBase(items, expected, new Map(products.map((p) => [p.id, p.baseConvertedAt])));
     if (bad) {
       if (replay) throw new ProductUnitsChangedError([bad]);
       throw new UnitInvalidError(`تغيّرت وحدات «${bad}» — حدّث قائمة الأصناف ثم أعد الحفظ`);
