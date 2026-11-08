@@ -853,6 +853,8 @@ export const contactApi = {
   // طلب اشتراك جديد (صفحة تسجيل طلب اشتراك) — يصل للإدارة بريدياً
   subscription: (data: { companyName: string; contactName: string; email: string; phone: string; country: string; city?: string; repsCount?: string; notes?: string; kind?: 'quote' }) =>
     api.post('/contact/subscription', data),
+  // «احجز اجتماع» — الاسم والجوال الدولي (+مفتاح ورقم) فقط، يصل للإدارة بريدياً
+  meeting: (data: { name: string; phone: string; country?: string; lang?: string }) => api.post('/contact/meeting', data),
 };
 
 // طلبات الدعم الفني من لوحة الأدمن — تصل إلى help@fieldsa.net

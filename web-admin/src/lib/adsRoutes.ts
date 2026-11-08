@@ -31,7 +31,7 @@ const LOCALE_PREFIX = /^\/(en|fr|tr|zh)(?=\/|$)/;
 
 /** الجزء الأول من مسار الصفحة التسويقية (بعد نزع بادئة اللغة) */
 const MARKETING_ROOTS = new Set([
-  'about', 'terms', 'service-agreement', 'privacy', 'contact', 'subscribe-request',
+  'about', 'terms', 'service-agreement', 'privacy', 'contact', 'meeting', 'subscribe-request',
   'calculator', 'invoice-generator', 'pricing', 'signup', 'tutorial', 'profile',
   'blog', 'free', 'قطاعات', 'مزايا', 'نماذج',
 ]);

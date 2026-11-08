@@ -68,4 +68,35 @@ router.post('/subscription', mailLimiter, async (req: Request, res: Response, ne
   } catch (err) { next(err); }
 });
 
+// «احجز اجتماع» (طلب المالك ٨ نوفمبر ٢٠٢٦) — صفحة بسيطة: الاسم والجوال الدولي فقط (أي دولة في العالم)، يصل للإدارة بريدياً.
+// الجوال بصيغة دولية كاملة +<مفتاح><رقم> (E.164: ١٥ رقماً على الأكثر)، والدولة رمز ISO من قائمة الواجهة، واللغة للعلم فقط.
+export const meetingSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  phone: z.string().trim().regex(/^\+[1-9]\d{6,14}$/),
+  country: z.string().trim().regex(/^[A-Z]{2}$/).optional(),
+  lang: z.enum(['ar', 'en', 'fr', 'tr', 'zh']).optional(),
+});
+
+router.post('/meeting', mailLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const parsed = meetingSchema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ success: false, message: 'اكتب اسمك ورقم جوال صحيحا' }); return; }
+    const body = parsed.data;
+    const name = body.name.replace(/[<>]/g, '');
+    const sent = await sendMail({
+      to: 'info@fieldsa.net',
+      subject: `📅 طلب اجتماع من ${name}`,
+      html: mailLayout('طلب اجتماع جديد', [
+        ['الاسم', name],
+        ['الجوال', body.phone],
+        ['الدولة', body.country || ''],
+        ['لغة الصفحة', body.lang || 'ar'],
+      ], 'تواصل معه لتحديد موعد الاجتماع.'),
+    });
+
+    if (!sent) { res.status(503).json({ success: false, message: 'تعذر إرسال الطلب حاول لاحقا أو راسلنا مباشرة' }); return; }
+    res.json({ success: true, data: { sent } });
+  } catch (err) { next(err); }
+});
+
 export default router;

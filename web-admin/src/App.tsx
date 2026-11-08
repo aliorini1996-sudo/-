@@ -14,6 +14,7 @@ import WhatsAppFab from './components/WhatsAppFab';
 import LandingPage from './pages/LandingPage';
 import InfoPage from './pages/InfoPage';
 import ContactPage from './pages/ContactPage';
+import MeetingPage from './pages/MeetingPage';
 import SignupPage from './pages/SignupPage';
 import LoginPage from './pages/LoginPage';
 import OwnerLoginPage from './pages/OwnerLoginPage';
@@ -265,6 +266,7 @@ export default function App() {
         <Route path="/service-agreement" element={<InfoPage pageKey="serviceAgreement" />} />
         <Route path="/privacy" element={<InfoPage pageKey="privacy" />} />
         <Route path="/contact" element={<ContactPage />} />
+        <Route path="/meeting" element={<MeetingPage />} />
         <Route path="/subscribe-request" element={<SubscriptionRequestPage />} />
         <Route path="/calculator" element={<LeakCalculatorPage />} />
         <Route path="/tutorial" element={<TutorialPage />} />
@@ -297,6 +299,7 @@ export default function App() {
         <Route path="/en/service-agreement" element={<InfoPage pageKey="serviceAgreement" />} />
         <Route path="/en/privacy" element={<InfoPage pageKey="privacy" />} />
         <Route path="/en/contact" element={<ContactPage />} />
+        <Route path="/en/meeting" element={<MeetingPage />} />
         <Route path="/en/subscribe-request" element={<SubscriptionRequestPage />} />
         <Route path="/en/calculator" element={<LeakCalculatorPage />} />
         <Route path="/en/invoice-generator" element={<InvoiceGeneratorPage />} />
@@ -310,6 +313,7 @@ export default function App() {
         <Route path="/tr/service-agreement" element={<InfoPage pageKey="serviceAgreement" />} />
         <Route path="/tr/privacy" element={<InfoPage pageKey="privacy" />} />
         <Route path="/tr/contact" element={<ContactPage />} />
+        <Route path="/tr/meeting" element={<MeetingPage />} />
         <Route path="/tr/subscribe-request" element={<SubscriptionRequestPage />} />
         <Route path="/tr/calculator" element={<LeakCalculatorPage />} />
         <Route path="/tr/invoice-generator" element={<InvoiceGeneratorPage />} />
@@ -321,6 +325,7 @@ export default function App() {
         <Route path="/zh/service-agreement" element={<InfoPage pageKey="serviceAgreement" />} />
         <Route path="/zh/privacy" element={<InfoPage pageKey="privacy" />} />
         <Route path="/zh/contact" element={<ContactPage />} />
+        <Route path="/zh/meeting" element={<MeetingPage />} />
         <Route path="/zh/subscribe-request" element={<SubscriptionRequestPage />} />
         <Route path="/zh/calculator" element={<LeakCalculatorPage />} />
         <Route path="/zh/invoice-generator" element={<InvoiceGeneratorPage />} />
@@ -332,6 +337,7 @@ export default function App() {
         <Route path="/fr/service-agreement" element={<InfoPage pageKey="serviceAgreement" />} />
         <Route path="/fr/privacy" element={<InfoPage pageKey="privacy" />} />
         <Route path="/fr/contact" element={<ContactPage />} />
+        <Route path="/fr/meeting" element={<MeetingPage />} />
         <Route path="/fr/subscribe-request" element={<SubscriptionRequestPage />} />
         <Route path="/fr/calculator" element={<LeakCalculatorPage />} />
         <Route path="/fr/invoice-generator" element={<InvoiceGeneratorPage />} />

@@ -17,7 +17,7 @@ const enc = (p: string) => encodeURI(p); // location.pathname يصل مُرمَ�
 test('الوسم مسموح على كل صفحة تسويقية — ومنها صفحة هبوط الحملة والتسجيل', () => {
   const allowed = [
     '/', '/pricing', '/pricing/', '/signup', '/about', '/terms', '/privacy', '/service-agreement',
-    '/contact', '/subscribe-request', '/calculator', '/invoice-generator', '/tutorial', '/profile',
+    '/contact', '/meeting', '/en/meeting', '/subscribe-request', '/calculator', '/invoice-generator', '/tutorial', '/profile',
     '/blog', '/blog/field-sales-software-sa/', '/free', '/free/commission',
     enc('/قطاعات'), enc('/قطاعات/مواد-غذائية'), enc('/مزايا/الفوترة-بدون-انترنت'), enc('/نماذج/كشف-حساب-عميل'),
     '/en', '/en/', '/en/pricing/', '/en/blog/x', '/fr/pricing', '/fr/blog/x/', '/tr/pricing', '/zh/contact',
@@ -65,7 +65,7 @@ test('المسار العربي غير المفكوك لا يسقط من الق�
  */
 test('كل مسارات App.tsx مصنّفة صراحةً، والتصنيف يطابق isAdsTagRoute', () => {
   const PUBLIC = new Set([
-    '/', '/about', '/terms', '/service-agreement', '/privacy', '/contact', '/subscribe-request',
+    '/', '/about', '/terms', '/service-agreement', '/privacy', '/contact', '/meeting', '/subscribe-request',
     '/calculator', '/tutorial', '/profile', '/invoice-generator', '/pricing', '/signup',
     '/قطاعات', '/قطاعات/:slug', '/مزايا', '/مزايا/:slug', '/نماذج', '/نماذج/:slug',
     '/free', '/free/:tool', '/blog', '/blog/:slug',
