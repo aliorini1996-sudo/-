@@ -7,6 +7,7 @@ export const defaultContentTr = {
     titleLine2: 'siparişten tahsilata yönetin',
     subtitle: 'Dağıtım temsilcilerinizi ofisle gerçek zamanlı buluşturan hepsi bir arada bir sistem — siparişler, vergi faturaları, tahsilat, makbuzlar ve doğru raporlar tek bir yerde.',
     ctaSecondary: 'Demoyu izleyin',
+    ctaMeeting: 'Toplantı planlayın',
   },
   features: {
     title: 'Dağıtım ekiplerinin ihtiyaç duyduğu her şey, tek platformda',

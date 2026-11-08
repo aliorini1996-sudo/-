@@ -19,7 +19,7 @@ const SECTIONS: { title: string; fields: [string, string, boolean?][]; blog?: bo
     ['hero.titleLine1', 'العنوان السطر الأول'],
     ['hero.titleLine2', 'العنوان السطر الثاني'],
     ['hero.subtitle', 'الوصف', true],
-    ['hero.ctaSecondary', 'زر شاهد العرض'],
+    ['hero.ctaMeeting', 'زر احجز اجتماع'],
   ] },
   { title: 'المميزات', fields: [
     ['features.title', 'عنوان القسم'],

@@ -7,6 +7,7 @@ export const defaultContentEn = {
     titleLine2: 'from order to collection',
     subtitle: 'An all-in-one system that connects your distribution reps with the back office in real time — orders, tax invoices, payment collection, receipts, and accurate reports in one place.',
     ctaSecondary: 'Watch the demo',
+    ctaMeeting: 'Book a meeting',
   },
   features: {
     title: 'Everything distribution teams need, in one platform',

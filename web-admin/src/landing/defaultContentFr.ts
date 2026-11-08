@@ -7,6 +7,7 @@ export const defaultContentFr = {
     titleLine2: 'de la commande à l’encaissement',
     subtitle: 'Une solution tout-en-un qui relie vos commerciaux de distribution au back-office en temps réel — commandes, factures fiscales, encaissement, reçus et rapports précis, au même endroit.',
     ctaSecondary: 'Voir la démo',
+    ctaMeeting: 'Réserver une réunion',
   },
   features: {
     title: 'Tout ce dont les équipes de distribution ont besoin, sur une seule plateforme',

@@ -9,6 +9,7 @@ export const defaultContent = {
     "titleLine1": "أدر مناديبك الميدانيين",
     "titleLine2": "من الطلب حتى التحصيل",
     "ctaSecondary": "شاهد العرض",
+    "ctaMeeting": "احجز اجتماع",
     "ctaPrimary": "ابدأ تجربتك المجانية"
   },
   "faq": {

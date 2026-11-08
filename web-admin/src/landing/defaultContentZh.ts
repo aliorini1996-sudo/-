@@ -7,6 +7,7 @@ export const defaultContentZh = {
     titleLine2: '从下单到收款一条线',
     subtitle: '让分销业务员与办公室实时连通的一体化系统 — 订单、增值税发票、收款、收款单与准确报表，全部集中在一处。',
     ctaSecondary: '观看演示',
+    ctaMeeting: '预约会议',
   },
   features: {
     title: '分销团队需要的一切，都在同一个平台',
