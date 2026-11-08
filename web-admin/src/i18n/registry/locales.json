@@ -1,6 +1,6 @@
 {
  "meta": {
-  "waveMax": 1,
+  "waveMax": 9,
   "foundingYear": "2026",
   "generatedAt": "2026-11-08",
   "factory": "D:/claude-work/global-i18n",
@@ -401,13 +401,23 @@
     "base": true,
     "tierA": true
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "equals English: tierB.contact.title"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact",
+    "features",
+    "feature:offlineInvoicing",
+    "feature:vanStock",
+    "feature:routesVisits",
+    "apps",
+    "quote"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "6b75044e4541fca1d1f9d895a85a9a9570a3f469b62e45df06b2a3e7b29bb138"
   },
   {
    "code": "ms",
@@ -1427,13 +1437,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "equals English: tierB.countries.columns.currency"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "967c3110f7eb59820f5f056669c9f21a715a1cf747520590f1c87fe9d388277e"
   },
   {
    "code": "af",
@@ -1487,14 +1501,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "334185ef7525af2ced627620dc4139f67ca1d0b79f0fdea74d891d783f9fcfe7"
   },
   {
    "code": "ta",
@@ -1516,14 +1533,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "8ac89d466ab82d703f952b89fb0ab3f0df3cf5ff04bd481990165e8029013f7e"
   },
   {
    "code": "te",
@@ -1545,14 +1565,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "1cea1cfc02a46d9863057fb9aaa967d02389d2e71607c1365f1a91f57a607b03"
   },
   {
    "code": "mr",
@@ -1574,14 +1597,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "817c173a1c51c2bb4ea93adb3bf24c00c376185341020151140853ed62c8d781"
   },
   {
    "code": "gu",
@@ -1603,14 +1629,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "a9a304683ea3ea72a6c6d0356f35e7e9947a5f15294fd808b783d78c49e0e12e"
   },
   {
    "code": "kn",
@@ -1632,14 +1661,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "833a4b0fd755bee579096adba076382bb4de99991d890fda8c0fc83b535523ad"
   },
   {
    "code": "ml",
@@ -1661,14 +1693,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "636b7a580a022f7ae41bf48714ca1a3c2af967ad9f70eb874375f8a9b0f0691f"
   },
   {
    "code": "pa",
@@ -1690,14 +1725,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "6243d25b0f4af64f222986a0314b8a35570434570ff12cd523e2930fdc087293"
   },
   {
    "code": "ne",
@@ -1719,14 +1757,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "34c18c489109114a0a66df70f64e2386892d0ca3f21cc9146e8ed067de7429c3"
   },
   {
    "code": "si",
@@ -1748,14 +1789,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "2b6577c8f44fce10c52720426786cec62d2390a650d6aa405775cbcfd5bccad0"
   },
   {
    "code": "az",
@@ -1777,14 +1821,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "06233fca45d5af1213e05c8d976cfd60863ee1987c2d54e860129d7ddea2619a"
   },
   {
    "code": "kk",
@@ -1806,14 +1853,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "8ac986c19fd2d83d10b761357aead5bff7d8bf58b0bc88053a8d108cf9571105"
   },
   {
    "code": "uz",
@@ -1835,14 +1885,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "efb40412f75d1e4b140f53f461ed0c1c621ba5734e1a558240d5ccc5dc9d8edf"
   },
   {
    "code": "ka",
@@ -1864,14 +1917,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "c1f09f87ef9a86bb5b8bcfd480e6683eeee2d0f5ed7a2b945b9d87e6d66cfcc7"
   },
   {
    "code": "hy",
@@ -1893,14 +1949,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "be3103b6bc24b7cc4fdb00735c63aed3089e2eae02f75c2ff177332411c63ed7"
   },
   {
    "code": "sq",
@@ -1922,14 +1981,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "fe53d5c7e246235f91bf4e1ed4de51eccd4401a4f02dc1880f0a2f0208aa5acf"
   },
   {
    "code": "mk",
@@ -1951,14 +2013,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "16dc5ad59ba9a7a3892f4d82391c2d81b922a17a8bcfbf6019262fa7c165e7ed"
   },
   {
    "code": "be",
@@ -1980,13 +2045,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "e7ec1a8e010b49ae4ff80994b7f20805d416df8c6d54d77a75faca944ce1816e"
   },
   {
    "code": "mn",
@@ -2008,14 +2077,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "ac72334d02fcf2e9bf4a6fff7985452bbb4562fe7de3152c11b03afee460945a"
   },
   {
    "code": "is",
@@ -2037,14 +2109,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "ff7e35810bf627cd060e27ac6b80ae2396a363b0f927229e318363e5173cff80"
   },
   {
    "code": "ga",
@@ -2066,14 +2141,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "b8be1597743493a78ef4db5f3f00156b682e0522d96b16021a8f4e6fab618b95"
   },
   {
    "code": "mt",
@@ -2095,14 +2173,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "bf9f421ed2fa41cbe9d1cb0fc485604c1e8e78aeb4395d03cd07e3a452eaa8a7"
   },
   {
    "code": "cy",
@@ -2124,14 +2205,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "7c071393b6ed2530b9424f228d3d2c0ef03f035cc5c86fc70eb028588df2e151"
   },
   {
    "code": "eu",
@@ -2153,14 +2237,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "266b5fc5d2b203b9a87b706997ee5ae028351b6ddab3adf83011bdb0a7581ae6"
   },
   {
    "code": "gl",
@@ -2182,14 +2269,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "716f7868e7c03f84374350eb253bfe78c9488175fe6b6708b3586987838b0cc4"
   },
   {
    "code": "zu",
@@ -2211,14 +2301,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "9d343d40ebde45afe15d8e6118dd9deeff1674dd7989d4335b96590c471bb6ed"
   },
   {
    "code": "pcm",
@@ -2243,8 +2336,17 @@
    "published": false,
    "pages": [],
    "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+    "equals English: tierB.home.capabilities.2.title",
+    "equals English: tierB.home.capabilities.3.title",
+    "equals English: tierB.home.capabilities.5.title",
+    "equals English: tierB.home.howItWorks.1.title",
+    "equals English: tierB.category.sections.3.title",
+    "equals English: tierB.countries.columns.country",
+    "equals English: tierB.countries.columns.currency",
+    "equals English: tierB.countries.columns.tax",
+    "equals English: tierB.countries.columns.einvoicing",
+    "equals English: tierB.about.h1",
+    "equals English: tierB.contact.h1"
    ],
    "contentDate": null,
    "contentHash": null
@@ -2269,14 +2371,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 2 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "6791cd3fc54c459a6b5eb480be8af938bfbad0d62a142978cddb9498b54b6538"
   },
   {
    "code": "my",
@@ -2293,20 +2398,22 @@
    "ogLocale": "my_MM",
    "intlLocale": "my",
    "slug": "van-sales-software",
-   "quality": null,
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "c4504651c54d1ff9dcd45dedcf17b723c847c6b5ba2fec21cf1852dcd5431ba7"
   },
   {
    "code": "km",
@@ -2328,14 +2435,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 3 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "4c66608ad978b6bbd0e65b9c02985d5f62b99173028be47dd761cb804bed3c6f"
   },
   {
    "code": "lo",
@@ -2352,20 +2462,22 @@
    "ogLocale": "lo_LA",
    "intlLocale": "lo",
    "slug": "van-sales-software",
-   "quality": null,
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "23842724c2025df391e555db70468fc4e32164758e4fdeb67ede1b27c3111397"
   },
   {
    "code": "ps",
@@ -2387,14 +2499,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 3 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "fc6fab127562e8f4fe4320f6872702c19f56e5a811bf3f14a7c3e189aa4ce847"
   },
   {
    "code": "ku",
@@ -2410,21 +2525,23 @@
    "markets": "TR,SY,IQ",
    "ogLocale": "ku_TR",
    "intlLocale": "ku",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "nermalava-firotina-ji-wesayite",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "6c0c3d1287022858c57e3e68e55c9ed54208c9ac65280706418dbe53b8b7f3a4"
   },
   {
    "code": "ckb",
@@ -2446,14 +2563,17 @@
     "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "stale: tierB.countries.taxNote lacks dash (—) explanation",
-    "wave 3 > waveMax 1"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "ecde1a9c6058dcf66980e6f814a50e1509bed741d27cd5630e0a625cfd8a79d5"
   },
   {
    "code": "sd",
@@ -2470,20 +2590,22 @@
    "ogLocale": "sd_PK",
    "intlLocale": "sd",
    "slug": "van-sales-software",
-   "quality": null,
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "f4ac986dbe27f09cd7d00b7b2ebffea598c3a4ff06a1e70cc5fa9316d9ed991a"
   },
   {
    "code": "ug",
@@ -2499,21 +2621,23 @@
    "markets": "CN,KZ",
    "ogLocale": "ug_CN",
    "intlLocale": "ug",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "mashinida-mal-setish",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "ba9b7eb80c4ddba0563903940d7f1963c890a956cf709ad45105a9519915920d"
   },
   {
    "code": "tg",
@@ -2529,21 +2653,23 @@
    "markets": "TJ",
    "ogLocale": "tg_TJ",
    "intlLocale": "tg",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "furush-az-moshin",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "a68a101333851c2ec4d55417ad1a20e078fb3c7be10db641ba4e7bafe4ac0684"
   },
   {
    "code": "ky",
@@ -2559,21 +2685,23 @@
    "markets": "KG",
    "ogLocale": "ky_KG",
    "intlLocale": "ky",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "unaadan-satuu-programmasy",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "d81934234e0e2cbe5cbfe19ec439e63510b9f674c8f0ca71e82f7990c3288cd7"
   },
   {
    "code": "tk",
@@ -2589,21 +2717,23 @@
    "markets": "TM",
    "ogLocale": "tk_TM",
    "intlLocale": "tk",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "masyndan-satuw-programmasy",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "0961a0467b6ecef4bfde30dd4803415d61643e3d35b7faba3484db3a3e086ebe"
   },
   {
    "code": "tt",
@@ -2619,21 +2749,23 @@
    "markets": "RU",
    "ogLocale": "tt_RU",
    "intlLocale": "tt",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "mashinadan-satu-programmasy",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "a304f31cd5abf60dc07fed6b79408b99f7e2b45b00403ccf88b9ebba232f5848"
   },
   {
    "code": "or",
@@ -2650,20 +2782,22 @@
    "ogLocale": "or_IN",
    "intlLocale": "or",
    "slug": "van-sales-software",
-   "quality": null,
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "dbb64fc472ccd66c724ce6d7dcd0ee5a4f062f097071bc484523aa525cf98854"
   },
   {
    "code": "as",
@@ -2680,20 +2814,22 @@
    "ogLocale": "as_IN",
    "intlLocale": "as",
    "slug": "van-sales-software",
-   "quality": null,
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "e13737b659142e517989b2e81412f9778b755a88178a6a0b4dd497218b0c6871"
   },
   {
    "code": "bho",
@@ -2710,20 +2846,22 @@
    "ogLocale": "bho_IN",
    "intlLocale": "bho",
    "slug": "van-sales-software",
-   "quality": null,
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "cc62e67f69779182eb97971e47b28694494beb3edd6af19a637d53d754baaa13"
   },
   {
    "code": "mai",
@@ -2740,20 +2878,22 @@
    "ogLocale": "mai_IN",
    "intlLocale": "mai",
    "slug": "van-sales-software",
-   "quality": null,
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "4afb43a97b6c841b8791a8e51e253e8c94fdbe41aa6c787a6054f632caaeeb6d"
   },
   {
    "code": "jv",
@@ -2769,21 +2909,23 @@
    "markets": "ID",
    "ogLocale": "jv_ID",
    "intlLocale": "jv",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "aplikasi-sales-canvas",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "cfa0090224a04ad286c9eb16d1fff5b92c15504967ff4a1e6a87293c4cbe9b00"
   },
   {
    "code": "su",
@@ -2799,21 +2941,23 @@
    "markets": "ID",
    "ogLocale": "su_ID",
    "intlLocale": "su",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "aplikasi-sales-canvas",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "2925ff8f6aa77209d79d001576ad55ae3eaeaa8305991a11251dd4538cd9fc36"
   },
   {
    "code": "ceb",
@@ -2829,21 +2973,23 @@
    "markets": "PH",
    "ogLocale": "ceb_PH",
    "intlLocale": "ceb",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "van-sales-app",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "11c87b748a87b4ea40e58565736bd02b892a15a2004054cde614937ff3e36655"
   },
   {
    "code": "hmn",
@@ -2860,17 +3006,15 @@
    "ogLocale": "hmn_LA",
    "intlLocale": "hmn",
    "slug": "van-sales-software",
-   "quality": null,
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -2890,17 +3034,15 @@
    "ogLocale": "bo_CN",
    "intlLocale": "bo",
    "slug": "van-sales-software",
-   "quality": null,
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -2920,17 +3062,15 @@
    "ogLocale": "dz_BT",
    "intlLocale": "dz",
    "slug": "van-sales-software",
-   "quality": null,
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -2950,17 +3090,15 @@
    "ogLocale": "dv_MV",
    "intlLocale": "dv",
    "slug": "van-sales-software",
-   "quality": null,
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -2979,17 +3117,15 @@
    "markets": "TL",
    "ogLocale": "tet_TL",
    "intlLocale": "tet",
-   "slug": "van-sales-software",
+   "slug": "software-vendas-husi-kareta",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -3012,14 +3148,12 @@
    "slug": "van-sales-software",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -3039,17 +3173,15 @@
    "markets": "NG,NE,GH",
    "ogLocale": "ha_NG",
    "intlLocale": "ha",
-   "slug": "van-sales-software",
+   "slug": "manhajar-sayarwa-daga-mota",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -3069,17 +3201,15 @@
    "markets": "NG,BJ",
    "ogLocale": "yo_NG",
    "intlLocale": "yo",
-   "slug": "van-sales-software",
+   "slug": "eto-tita-lati-inu-oko",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -3099,17 +3229,15 @@
    "markets": "NG",
    "ogLocale": "ig_NG",
    "intlLocale": "ig",
-   "slug": "van-sales-software",
+   "slug": "ngwanro-ire-ahia-site-n-ugboala",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -3129,17 +3257,15 @@
    "markets": "SO,ET,DJ,KE",
    "ogLocale": "so_SO",
    "intlLocale": "so",
-   "slug": "van-sales-software",
+   "slug": "barnaamijka-van-sales",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -3159,17 +3285,15 @@
    "markets": "ET,KE",
    "ogLocale": "om_ET",
    "intlLocale": "om",
-   "slug": "van-sales-software",
+   "slug": "sooftiweerii-gurgurtaa-konkolaataa-irraa",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -3192,14 +3316,12 @@
    "slug": "van-sales-software",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -3219,21 +3341,23 @@
    "markets": "ZA",
    "ogLocale": "xh_ZA",
    "intlLocale": "xh",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "isoftwe-yokuthengisa-ngeveni",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "03e953f80f9fd9556d62206334899d4c8577140c72781032dd857edd1d3ba7cc"
   },
   {
    "code": "st",
@@ -3249,21 +3373,23 @@
    "markets": "LS,ZA",
    "ogLocale": "st_LS",
    "intlLocale": "st",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "software-ya-thekiso-ka-vene",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "16e508506e3281783aed8dc552743bac357dab1e4c9f1a0d11fb40d40c554909"
   },
   {
    "code": "tn",
@@ -3279,21 +3405,23 @@
    "markets": "BW,ZA",
    "ogLocale": "tn_BW",
    "intlLocale": "tn",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "software-ya-go-rekisa-ka-vene",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "c0527bf7c04d7441061d4208fd5041ce96f340e42f686f909b0effd65f2c81ed"
   },
   {
    "code": "nso",
@@ -3309,21 +3437,23 @@
    "markets": "ZA",
    "ogLocale": "nso_ZA",
    "intlLocale": "nso",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "softwere-ya-thekiso-ka-vene",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "5ecbc94ff959f573a9f6a5d7737e50234971c6d04d7267a48e286ae8a7b6d260"
   },
   {
    "code": "ts",
@@ -3339,21 +3469,23 @@
    "markets": "ZA,MZ",
    "ogLocale": "ts_ZA",
    "intlLocale": "ts",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "sofutiwere-ya-ku-xavisa-hi-veni",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "5bcccfbc4a5478607abf379ba59d4b19ba8ecda8b76345a105c46d162a7d43c4"
   },
   {
    "code": "ss",
@@ -3369,21 +3501,23 @@
    "markets": "SZ,ZA",
    "ogLocale": "ss_SZ",
    "intlLocale": "ss",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "software-yekutsengisa-ngeveni",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "b4b42e772103a22048365b91baec802b2560633c84dd88776c446e849c11890c"
   },
   {
    "code": "sn",
@@ -3399,21 +3533,23 @@
    "markets": "ZW",
    "ogLocale": "sn_ZW",
    "intlLocale": "sn",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "software-yekutengesa-nevheni",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "193b7cca61ef7ed10cf0ec9308453498413f38a59e1a2fda26e1ed763edf14f1"
   },
   {
    "code": "ny",
@@ -3429,21 +3565,23 @@
    "markets": "MW,ZM",
    "ogLocale": "ny_MW",
    "intlLocale": "ny",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "pulogalamu-yogulitsa-mgalimoto",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "a5e092fd99019d53152ddf99e1c4dc7efa19b12c6e93a5d5e007b04bb3ed79cd"
   },
   {
    "code": "mg",
@@ -3459,21 +3597,23 @@
    "markets": "MG",
    "ogLocale": "mg_MG",
    "intlLocale": "mg",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "rindrambaiko-van-sales",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "e505390324b4224c02f0c2e6cc74bde4f378e0b87fc09fc7601ebcc22f1fbdb4"
   },
   {
    "code": "rw",
@@ -3489,21 +3629,23 @@
    "markets": "RW",
    "ogLocale": "rw_RW",
    "intlLocale": "rw",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "porogaramu-van-sales",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "477654366b62d907f2735d02340790960532c35a238d56623a8c94ac1f928164"
   },
   {
    "code": "rn",
@@ -3519,18 +3661,16 @@
    "markets": "BI",
    "ogLocale": "rn_BI",
    "intlLocale": "rn",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "porogarama-van-sales",
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -3549,21 +3689,23 @@
    "markets": "UG",
    "ogLocale": "lg_UG",
    "intlLocale": "lg",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "pulogulaamu-van-sales",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "6218fb34a7db170a2036564bcb90f0fc23f87c9c20a953e3c14bc770373eb432"
   },
   {
    "code": "nyn",
@@ -3579,18 +3721,16 @@
    "markets": "UG",
    "ogLocale": "nyn_UG",
    "intlLocale": "nyn",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "puroguramu-van-sales",
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -3609,18 +3749,16 @@
    "markets": "UG,SS",
    "ogLocale": "ach_UG",
    "intlLocale": "ach",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "software-me-van-sales",
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -3639,21 +3777,23 @@
    "markets": "CD,CG",
    "ogLocale": "ln_CD",
    "intlLocale": "ln",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "logiciel-ya-van-sales",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "113b72af9bdeb1f4b5f0c0e76b60a12d7d20f267b87a5ae0d52a36afd824d6d9"
   },
   {
    "code": "kg",
@@ -3669,18 +3809,16 @@
    "markets": "CD,CG,AO",
    "ogLocale": "kg_CD",
    "intlLocale": "kg",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "logiciel-ya-van-sales",
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -3699,18 +3837,16 @@
    "markets": "CD",
    "ogLocale": "lua_CD",
    "intlLocale": "lua",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "programme-wa-van-sales",
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -3729,18 +3865,16 @@
    "markets": "ZM",
    "ogLocale": "bem_ZM",
    "intlLocale": "bem",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "software-ya-kushitisha-mu-motoka",
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -3759,18 +3893,16 @@
    "markets": "ZM",
    "ogLocale": "loz_ZM",
    "intlLocale": "loz",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "software-ya-ku-lekisa-mwa-mota",
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -3789,18 +3921,16 @@
    "markets": "MW,ZM",
    "ogLocale": "tum_MW",
    "intlLocale": "tum",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "pulogilamu-ya-van-sales",
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -3819,17 +3949,15 @@
    "markets": "SN,GM",
    "ogLocale": "wo_SN",
    "intlLocale": "wo",
-   "slug": "van-sales-software",
+   "slug": "logiciel-jaay-ci-oto",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -3849,17 +3977,15 @@
    "markets": "SN,GN,NG,CM,ML,NE",
    "ogLocale": "ff_SN",
    "intlLocale": "ff",
-   "slug": "van-sales-software",
+   "slug": "logiciel-yeeyde-e-nder-oto",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -3879,18 +4005,16 @@
    "markets": "ML",
    "ogLocale": "bm_ML",
    "intlLocale": "bm",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "kamiyoneti-feere-porogaramu",
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -3910,17 +4034,15 @@
    "ogLocale": "ak_GH",
    "intlLocale": "ak",
    "slug": "van-sales-software",
-   "quality": null,
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -3940,17 +4062,15 @@
    "ogLocale": "ee_GH",
    "intlLocale": "ee",
    "slug": "van-sales-software",
-   "quality": null,
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -3970,17 +4090,15 @@
    "ogLocale": "gaa_GH",
    "intlLocale": "gaa",
    "slug": "van-sales-software",
-   "quality": null,
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -4000,20 +4118,22 @@
    "ogLocale": "kri_SL",
    "intlLocale": "kri",
    "slug": "van-sales-software",
-   "quality": null,
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "352018df3f6210387502ceebf2ba199d97731da9cdb536ad409abcd87299d4e2"
   },
   {
    "code": "zgh",
@@ -4029,18 +4149,16 @@
    "markets": "MA",
    "ogLocale": "zgh_MA",
    "intlLocale": "zgh",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "asghzan-n-uznzi-sg-tkamyunt",
+   "quality": "hold",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+    "quality hold"
    ],
    "contentDate": null,
    "contentHash": null
@@ -4059,21 +4177,23 @@
    "markets": "MU",
    "ogLocale": "mfe_MU",
    "intlLocale": "mfe",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "lozisiel-lavant-ar-van",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "3c557c1537f977dd01c500990041961bc50ec5595019d4394f0755ba60a75959"
   },
   {
    "code": "crs",
@@ -4089,21 +4209,23 @@
    "markets": "SC",
    "ogLocale": "crs_SC",
    "intlLocale": "crs",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "lozisyel-lavant-avek-van",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "e1b1ab1ad5435fb8f02620920fe98c5a18cdedd2f68cb52ea0bc7dcb334e5f36"
   },
   {
    "code": "ht",
@@ -4119,21 +4241,23 @@
    "markets": "HT",
    "ogLocale": "ht_HT",
    "intlLocale": "ht",
-   "slug": "van-sales-software",
-   "quality": null,
+   "slug": "lojisyel-vant-ak-kamyonet",
+   "quality": "publish-with-notes",
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
-   "published": false,
-   "pages": [],
-   "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
-    "review missing"
+   "published": true,
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
    ],
-   "contentDate": null,
-   "contentHash": null
+   "reasons": [],
+   "contentDate": "2026-11-08",
+   "contentHash": "fdf7921269a045b8c7b9bc86315ad5cfbd0c12a7029126315cea33f0a3964cb6"
   },
   {
    "code": "qu",
@@ -4149,17 +4273,15 @@
    "markets": "PE,BO,EC",
    "ogLocale": "qu_PE",
    "intlLocale": "qu",
-   "slug": "van-sales-software",
+   "slug": "karrumanta-rantikuy-software",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4179,17 +4301,15 @@
    "markets": "PY",
    "ogLocale": "gn_PY",
    "intlLocale": "gn",
-   "slug": "van-sales-software",
+   "slug": "nemu-camionetagui-software",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4209,17 +4329,15 @@
    "markets": "BO,PE",
    "ogLocale": "ay_BO",
    "intlLocale": "ay",
-   "slug": "van-sales-software",
+   "slug": "awtuta-aljana-software",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4239,17 +4357,15 @@
    "markets": "NZ",
    "ogLocale": "mi_NZ",
    "intlLocale": "mi",
-   "slug": "van-sales-software",
+   "slug": "pumanawa-hoko-a-wena",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4269,17 +4385,15 @@
    "markets": "WS,AS",
    "ogLocale": "sm_WS",
    "intlLocale": "sm",
-   "slug": "van-sales-software",
+   "slug": "polokalame-faatau-atu-mai-le-veni",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4299,17 +4413,15 @@
    "markets": "TO",
    "ogLocale": "to_TO",
    "intlLocale": "to",
-   "slug": "van-sales-software",
+   "slug": "polokalama-fakatau-atu-mei-he-veni",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4329,17 +4441,15 @@
    "markets": "VU",
    "ogLocale": "bi_VU",
    "intlLocale": "bi",
-   "slug": "van-sales-software",
+   "slug": "sofwea-blong-salem-stok-long-trak",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4359,17 +4469,15 @@
    "markets": "PG",
    "ogLocale": "tpi_PG",
    "intlLocale": "tpi",
-   "slug": "van-sales-software",
+   "slug": "software-bilong-salim-stok-long-ka",
    "quality": null,
    "complete": {
-    "base": false,
+    "base": true,
     "tierA": false
    },
    "published": false,
    "pages": [],
    "reasons": [
-    "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4399,7 +4507,6 @@
    "pages": [],
    "reasons": [
     "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4429,7 +4536,6 @@
    "pages": [],
    "reasons": [
     "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4459,7 +4565,6 @@
    "pages": [],
    "reasons": [
     "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4489,7 +4594,6 @@
    "pages": [],
    "reasons": [
     "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4519,7 +4623,6 @@
    "pages": [],
    "reasons": [
     "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4549,7 +4652,6 @@
    "pages": [],
    "reasons": [
     "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4579,7 +4681,6 @@
    "pages": [],
    "reasons": [
     "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4609,7 +4710,6 @@
    "pages": [],
    "reasons": [
     "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4639,7 +4739,6 @@
    "pages": [],
    "reasons": [
     "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,
@@ -4669,7 +4768,6 @@
    "pages": [],
    "reasons": [
     "content missing",
-    "wave 3 > waveMax 1",
     "review missing"
    ],
    "contentDate": null,

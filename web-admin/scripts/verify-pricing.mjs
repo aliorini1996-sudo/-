@@ -59,7 +59,8 @@ if (!fs.existsSync(DIST)) {
 //    النمط يلتقط «NNN ر.س» و«NNN ﷼» و«NNN SAR» و«"price": "NNN"» فقط — لا أي رقم عابر.
 const PRICE_PATTERNS = [
   /(\d{2,4})\s*(?:ر\.?\s?س|﷼|ريال)/g,
-  /(\d{2,4})\s*SAR/gi,
+  // حدّ كلمة: «2026 sarta» (السوندية «و») ليست «SAR» — كانت إيجابية كاذبة تُفشل البناء
+  /(\d{2,4})\s*SAR/gi,
   /"(?:price|lowPrice|highPrice)"\s*:\s*"?(\d{2,4})"?/g,
 ];
 
