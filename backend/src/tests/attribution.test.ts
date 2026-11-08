@@ -5,6 +5,7 @@ import {
   resolveAttribution, contentTypeOf, refFromPath, makeWaCode, paidChannelOf, requestOptedOut,
   aiEngineOfSource, AI_ENGINE_IDS, ipSalt, ipFingerprint, geoLookupUrl,
 } from '../services/attribution';
+import { AI_ENGINES, aiEngineLabel, aiEngineOfVisit, aiEngineOfReferrer, referrerPathOf } from '../services/aiEngines';
 
 test('محرك ذكاء توليدي يصنف ai_generative ويعرف اسمه', () => {
   const r = resolveAttribution({ referrerHost: 'chatgpt.com', path: '/' });
@@ -228,13 +229,190 @@ test('مصادر ليست مساعد ذكاء لا تُصنَّف ai_generative'
   assert.equal(resolveAttribution({ utm: { source: 'notchatgpt.com' } }).utmSource, 'other');
 });
 
-test('لوحة المالك تعدّ زيارة الذكاء بلا مُحيل: لكل محرّك في AI_ENGINE_IDS تسمية في analytics.ts', async () => {
+test('لوحة المالك تعدّ زيارة الذكاء بلا مُحيل: analytics.ts يقرأ السجل الواحد لا قائمة خاصة', async () => {
   const { readFileSync } = await import('node:fs');
   const src = readFileSync(new URL('../routes/analytics.ts', import.meta.url), 'utf8');
-  assert.deepEqual([...AI_ENGINE_IDS].sort(), ['chatgpt', 'claude', 'copilot', 'gemini', 'perplexity']);
-  for (const id of AI_ENGINE_IDS) assert.match(src, new RegExp(`engine: '${id}'`), `engine=${id}`);
+  // لا قائمة محرّكات ثانية بتعابير نمطية في المسار — مصدرها services/aiEngines.ts وحده
+  assert.match(src, /from '\.\.\/services\/aiEngines'/);
+  assert.equal(/const AI_ENGINES\s*[:=]/.test(src), false);
+  assert.equal(/re: \/\(\^\|\\\.\)/.test(src), false);
   assert.match(src, /const aiRows = rows\.filter\(\(r\) => aiLabelOf\(r\)\)/);
-  assert.match(src, /r\.channel === 'ai_generative' && r\.aiEngine/);
+  assert.match(src, /aiEngineLabel\(aiEngineOfVisit\(r\)\)/);
+  // المسار الكامل للمُحيل يصل الإسناد في /track
+  assert.match(src, /resolveAttribution\(\{ utm, referrerHost, referrerPath, path \}\)/);
+  // الزيارة بلا مُحيل تُعدّ من عمود aiEngine حين قناتها ai_generative
+  for (const id of AI_ENGINE_IDS) {
+    assert.equal(aiEngineOfVisit({ referrerHost: null, channel: 'ai_generative', aiEngine: id }), id, `engine=${id}`);
+    assert.ok(aiEngineLabel(id), `label=${id}`);
+  }
+  assert.equal(aiEngineOfVisit({ referrerHost: null, channel: 'direct', aiEngine: 'chatgpt' }), null);
+});
+
+// --- البند 15 من خطة GEO: سجلّ محرّكات الذكاء العالمية الواحد ---
+
+test('المعرّفات الخمسة الأصلية باقية بقيمها ونطاقاتها القديمة كلها (توافق البيانات المخزّنة)', () => {
+  for (const id of ['chatgpt', 'perplexity', 'copilot', 'gemini', 'claude']) assert.ok(AI_ENGINE_IDS.includes(id), id);
+  // أول خمسة في السجل كما كانت في AI_ENGINE_IDS القديم بالترتيب
+  assert.deepEqual(AI_ENGINE_IDS.slice(0, 5), ['chatgpt', 'perplexity', 'copilot', 'gemini', 'claude']);
+  const oldHosts: [string, string][] = [
+    ['chatgpt.com', 'chatgpt'], ['chat.openai.com', 'chatgpt'], ['openai.com', 'chatgpt'], ['labs.openai.com', 'chatgpt'],
+    ['perplexity.ai', 'perplexity'], ['www.perplexity.ai', 'perplexity'],
+    ['copilot.microsoft.com', 'copilot'], ['gemini.google.com', 'gemini'], ['claude.ai', 'claude'],
+  ];
+  for (const [host, id] of oldHosts) {
+    const r = resolveAttribution({ referrerHost: host });
+    assert.equal(r.aiEngine, id, `host=${host}`);
+    assert.equal(r.channel, 'ai_generative', `host=${host}`);
+  }
+  // أسماء العرض القديمة في اللوحة باقية (استمرارية الأرقام)
+  const labels: Record<string, string> = {
+    chatgpt: 'ChatGPT', perplexity: 'Perplexity', gemini: 'Gemini', claude: 'Claude', copilot: 'Copilot',
+    grok: 'Grok', deepseek: 'DeepSeek', meta_ai: 'Meta AI',
+  };
+  for (const [id, label] of Object.entries(labels)) assert.equal(aiEngineLabel(id), label, id);
+  // معرّف مخزّن خارج السجل يُعرض باسمه لا يختفي
+  assert.equal(aiEngineLabel('future_engine'), 'future_engine');
+  assert.equal(aiEngineLabel(null), null);
+});
+
+test('سلامة السجل: معرّفات فريدة تتّسع لعمود aiEngine، ونطاق واحد لمحرّك واحد، ولا نطاق بحث عامّ', () => {
+  const ids = new Set<string>();
+  const hosts = new Map<string, string>();
+  const GENERIC = ['google.com', 'www.google.com', 'bing.com', 'www.bing.com', 'ya.ru', 'yandex.ru', 'naver.com',
+    'search.naver.com', 'baidu.com', 'www.baidu.com', 'x.com', 'twitter.com', 'duckduckgo.com', 'search.brave.com',
+    'kagi.com', 'huggingface.co', 'hf.co', 'microsoft.com', 'cloud.microsoft', 'm365.cloud.microsoft', 'google',
+    'meta', 'facebook.com', 'tencent.com', 'aliyun.com', 'yandex.com'];
+  for (const e of AI_ENGINES) {
+    assert.match(e.id, /^[a-z0-9_]{2,24}$/, `id=${e.id}`); // visits.aiEngine VarChar(24)
+    assert.ok(!ids.has(e.id), `مكرّر: ${e.id}`);
+    ids.add(e.id);
+    assert.ok(e.label.trim(), `label=${e.id}`);
+    assert.ok(e.hosts.length || e.paths?.length, `بلا نطاق ولا مسار: ${e.id}`);
+    for (const h of e.hosts) {
+      assert.match(h, /^[a-z0-9.-]+\.[a-z]{2,}$/, `host=${h}`);
+      assert.ok(!GENERIC.includes(h), `نطاق عامّ في hosts: ${h}`);
+      assert.ok(!hosts.has(h), `${h} في ${hosts.get(h)} و${e.id}`);
+      hosts.set(h, e.id);
+    }
+    for (const p of e.paths || []) assert.match(p, /^[a-z0-9.-]+\.[a-z]{2,}\/[a-z0-9/_-]+$/, `path=${p}`);
+    for (const s of e.sources || []) {
+      assert.equal(s, s.toLowerCase(), `source=${s}`);
+      assert.ok(!['meta', 'google', 'bing', 'x', 'facebook', 'brave', 'kagi', 'alice', 'yandex', 'naver', 'baidu'].includes(s), `مصدر ملتبس: ${s}`);
+    }
+  }
+});
+
+test('محرّكات عالمية جديدة من المُحيل ⇒ ai_generative باسمها', () => {
+  const cases: [string, string][] = [
+    ['grok.com', 'grok'], ['x.ai', 'grok'], ['chat.deepseek.com', 'deepseek'], ['deepseek.com', 'deepseek'],
+    ['meta.ai', 'meta_ai'], ['www.meta.ai', 'meta_ai'], ['chat.mistral.ai', 'mistral'], ['you.com', 'youcom'],
+    ['duck.ai', 'duckai'], ['poe.com', 'poe'], ['phind.com', 'phind'], ['notebooklm.google.com', 'notebooklm'],
+    ['iask.ai', 'iask'], ['chat.humain.ai', 'humain'], ['bard.google.com', 'gemini'],
+    ['copilot.cloud.microsoft', 'copilot'], ['edgeservices.bing.com', 'copilot'],
+    // الصين
+    ['www.doubao.com', 'doubao'], ['doubao.com', 'doubao'], ['kimi.com', 'kimi'], ['www.kimi.com', 'kimi'],
+    ['kimi.moonshot.cn', 'kimi'], ['www.qianwen.com', 'qwen'], ['chat.qwen.ai', 'qwen'], ['tongyi.aliyun.com', 'qwen'],
+    ['yuanbao.tencent.com', 'yuanbao'], ['yiyan.baidu.com', 'ernie'], ['chatglm.cn', 'zhipu'], ['chat.z.ai', 'zhipu'],
+    ['metaso.cn', 'metaso'],
+    // روسيا وكوريا
+    ['alice.yandex.ru', 'alice'], ['giga.chat', 'gigachat'], ['mate.kanana.ai', 'kanana'], ['wrtn.ai', 'wrtn'],
+  ];
+  for (const [host, id] of cases) {
+    const r = resolveAttribution({ referrerHost: host, path: '/' });
+    assert.equal(r.aiEngine, id, `host=${host}`);
+    assert.equal(r.channel, 'ai_generative', `host=${host}`);
+  }
+});
+
+test('مساعد على نطاق عامّ يُعرف بمساره وحده، والنطاق بلا مساره يبقى بحثاً أو تواصلاً', () => {
+  const ai: [string, string, string][] = [
+    ['x.com', '/i/grok', 'grok'], ['x.com', '/i/grok/share/abc', 'grok'],
+    ['ya.ru', '/alice', 'alice'], ['ya.ru', '/alice/', 'alice'], ['ya.ru', '/alice/chat/1', 'alice'],
+    ['huggingface.co', '/chat/conversation/1', 'huggingchat'], ['hf.co', '/chat', 'huggingchat'],
+    ['kagi.com', '/assistant', 'kagi'], ['search.brave.com', '/ask', 'brave'],
+    ['m365.cloud.microsoft', '/chat', 'copilot'],
+  ];
+  for (const [referrerHost, referrerPath, id] of ai) {
+    const r = resolveAttribution({ referrerHost, referrerPath });
+    assert.equal(r.aiEngine, id, `${referrerHost}${referrerPath}`);
+    assert.equal(r.channel, 'ai_generative', `${referrerHost}${referrerPath}`);
+  }
+  const notAi: [string, string | null, string][] = [
+    ['x.com', '/home', 'social'], ['x.com', null, 'social'],
+    ['ya.ru', '/', 'organic'], ['ya.ru', null, 'organic'], ['ya.ru', '/alicex', 'organic'], ['ya.ru', '/search', 'organic'],
+    ['huggingface.co', '/models', 'referral'], ['huggingface.co', '/chatbots', 'referral'],
+    ['kagi.com', '/search', 'organic'], ['kagi.com', null, 'organic'],
+    ['search.brave.com', '/search', 'organic'], ['search.brave.com', null, 'organic'],
+    ['m365.cloud.microsoft', null, 'referral'], ['m365.cloud.microsoft', '/launch/word', 'referral'],
+    ['www.bing.com', '/chat', 'organic'], ['www.google.com', '/search', 'organic'],
+  ];
+  for (const [referrerHost, referrerPath, channel] of notAi) {
+    const r = resolveAttribution({ referrerHost, referrerPath });
+    assert.equal(r.aiEngine, null, `${referrerHost}${referrerPath ?? ''}`);
+    assert.equal(r.channel, channel, `${referrerHost}${referrerPath ?? ''}`);
+  }
+  // اللوحة تقرأ المسار من رابط المُحيل الكامل المخزّن
+  assert.equal(aiEngineOfVisit({ referrerHost: 'ya.ru', referrer: 'https://ya.ru/alice?x=1' }), 'alice');
+  assert.equal(aiEngineOfVisit({ referrerHost: 'ya.ru', referrer: 'https://ya.ru/' }), null);
+  assert.equal(aiEngineOfVisit({ referrerHost: 'grok.com', referrer: null, channel: 'referral' }), 'grok'); // زيارة قديمة
+  assert.equal(referrerPathOf('ليس رابطاً'), null);
+  assert.equal(aiEngineOfReferrer('notgrok.com'), null);
+  assert.equal(aiEngineOfReferrer('chat.deepseek.com.evil.io'), null);
+});
+
+test('utm_source لمحرّك جديد بلا مُحيل ⇒ ai_generative ويُحفظ باسم المحرّك لا other', () => {
+  const cases: [string, string][] = [
+    ['grok', 'grok'], ['grok.com', 'grok'], ['deepseek', 'deepseek'], ['chat.deepseek.com', 'deepseek'],
+    ['meta.ai', 'meta_ai'], ['meta_ai', 'meta_ai'], ['chat.mistral.ai', 'mistral'], ['lechat', 'mistral'],
+    ['you.com', 'youcom'], ['duck.ai', 'duckai'], ['poe.com', 'poe'], ['huggingchat', 'huggingchat'],
+    ['doubao', 'doubao'], ['www.doubao.com', 'doubao'], ['kimi.moonshot.cn', 'kimi'], ['tongyi', 'qwen'],
+    ['qianwen.com', 'qwen'], ['yuanbao', 'yuanbao'], ['yiyan', 'ernie'], ['chatglm', 'zhipu'],
+    ['alice.yandex.ru', 'alice'], ['giga.chat', 'gigachat'], ['GigaChat', 'gigachat'], ['wrtn', 'wrtn'],
+    ['copilot.com', 'copilot'], ['copilot.cloud.microsoft', 'copilot'],
+  ];
+  for (const [source, id] of cases) {
+    assert.equal(aiEngineOfSource(source), id, `source=${source}`);
+    const r = resolveAttribution({ utm: { source }, referrerHost: null, path: '/' });
+    assert.equal(r.channel, 'ai_generative', `source=${source}`);
+    assert.equal(r.aiEngine, id, `source=${source}`);
+    assert.equal(r.utmSource, id, `source=${source}`);
+  }
+});
+
+test('أسماء ملتبسة في utm_source لا تُعدّ ذكاءً: meta إعلان Meta، وbrave/kagi/alice/yandex/naver/baidu', () => {
+  for (const source of ['meta', 'brave', 'kagi', 'alice', 'yandex', 'naver', 'baidu', 'x', 'ya.ru', 'huggingface.co', 'kagi.com']) {
+    assert.equal(aiEngineOfSource(source), null, `source=${source}`);
+    assert.notEqual(resolveAttribution({ utm: { source }, referrerHost: null }).channel, 'ai_generative', `source=${source}`);
+  }
+  // إعلان Meta يبقى اجتماعياً مدفوعاً ومصدره meta كما كان
+  const ad = resolveAttribution({ utm: { source: 'meta', medium: 'paid_social' } });
+  assert.equal(ad.channel, 'paid_social');
+  assert.equal(ad.utmSource, 'meta');
+  assert.equal(ad.aiEngine, null);
+});
+
+test('محرّكات بحث عالمية تُطابَق تامّة أو فرعية: بحث ⇒ organic، ومجتمعاتها ونطاقات مشابهة ⇒ referral', () => {
+  for (const host of ['www.baidu.com', 'm.baidu.com', 'search.naver.com', 'm.search.naver.com', 'search.daum.net',
+    'www.so.com', 'm.so.com', 'www.sogou.com', 'search.seznam.cz', 'search.yahoo.com', 'us.search.yahoo.com',
+    'search.yahoo.co.jp', 'coccoc.com', 'petalsearch.com', 'ya.ru', 'kagi.com', 'yandex.com.tr']) {
+    assert.equal(resolveAttribution({ referrerHost: host }).channel, 'organic', `host=${host}`);
+  }
+  for (const host of ['also.com', 'blog.naver.com', 'cafe.daum.net', 'baike.baidu.com', 'tieba.baidu.com', 'notkagi.com', 'myya.ru']) {
+    assert.equal(resolveAttribution({ referrerHost: host }).channel, 'referral', `host=${host}`);
+  }
+  // القائمة الجزئية القديمة كما هي
+  for (const host of ['www.google.com.sa', 'www.bing.com', 'duckduckgo.com', 'yandex.ru', 'search.brave.com', 'www.ecosia.org']) {
+    assert.equal(resolveAttribution({ referrerHost: host }).channel, 'organic', `host=${host}`);
+  }
+});
+
+test('نوع المحتوى يعرف بادئة أي لغة (tr وzh وغيرهما) لا en وfr وحدهما، ولا يعدّ /ax و/hx لغة', () => {
+  for (const p of ['/tr/blog/x/', '/zh/blog/x/', '/es/blog/', '/pt-br/blog/x', '/blog/x/', '/en/blog/x/', '/fr/blog/']) {
+    assert.equal(contentTypeOf(p), 'blog', p);
+  }
+  for (const p of ['/tr/', '/zh', '/zh-hans/', '/es/', '/en/', '/fr', '/']) assert.equal(contentTypeOf(p), 'landing', p);
+  for (const p of ['/ax/', '/hx', '/ax/blog', '/app', '/m/', '/about']) assert.equal(contentTypeOf(p), null, p);
+  assert.equal(contentTypeOf('/tr/pricing/'), 'pricing');
 });
 
 // --- #10/#23: بصمة IP بملح سرّي دائماً ---
@@ -296,4 +474,16 @@ test('geoLookupUrl بمفتاح ⇒ HTTPS، وعنوان غير صالح ⇒ ل�
   for (const bad of ['', 'abc', '1.2.3.4/../batch', '1.2.3.4?x=1', '1.2.3.4:8080', 'fe80::1%eth0']) {
     assert.equal(geoLookupUrl(bad), null, `ip=${bad}`);
   }
+});
+
+test('مسار مُحيل من آلاف الشرطات لا يجمّد الخادم (ReDoS) ويُقصّ قبل الفحص', () => {
+  const evil = '/' + '/'.repeat(200_000) + 'x';
+  const t0 = process.hrtime.bigint();
+  assert.equal(aiEngineOfReferrer('ya.ru', evil), null);
+  assert.equal(aiEngineOfReferrer('ya.ru', '/'.repeat(200_000)), null);
+  resolveAttribution({ referrerHost: 'ya.ru', referrerPath: evil, path: '/' });
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < 200, `استغرق ${ms}ms`);
+  // القاعدة المسارية ما زالت تعمل مع شرطة أخيرة
+  assert.equal(aiEngineOfReferrer('ya.ru', '/alice///'), 'alice');
 });

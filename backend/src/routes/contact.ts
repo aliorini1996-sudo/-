@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { sendMail, mailLayout } from '../services/mailer';
 import { mailLimiter } from '../middleware/rateLimits';
 import { leadAlertRecipients } from '../services/leadAlerts';
+import { pageLangSchema, pageLangLabel } from '../lib/pageLang';
 
 // استقبال رسائل التواصل من الصفحة التعريفية وإرسالها لبريد الشركة
 const router = Router();
@@ -71,11 +72,12 @@ router.post('/subscription', mailLimiter, async (req: Request, res: Response, ne
 
 // «احجز اجتماع» (طلب المالك ٨ نوفمبر ٢٠٢٦) — صفحة بسيطة: الاسم والجوال الدولي فقط (أي دولة في العالم)، يصل للإدارة بريدياً.
 // الجوال بصيغة دولية كاملة +<مفتاح><رقم> (E.164: ١٥ رقماً على الأكثر)، والدولة رمز ISO من قائمة الواجهة، واللغة للعلم فقط.
+// اللغة أي وسم BCP-47 قصير صحيح (lib/pageLang.ts) لا قائمة مغلقة: صفحة بلغة جديدة (es، pt-BR) لا تُرفض فيضيع العميل.
 export const meetingSchema = z.object({
   name: z.string().trim().min(1).max(120),
   phone: z.string().trim().regex(/^\+[1-9]\d{6,14}$/),
   country: z.string().trim().regex(/^[A-Z]{2}$/).optional(),
-  lang: z.enum(['ar', 'en', 'fr', 'tr', 'zh']).optional(),
+  lang: pageLangSchema.optional(),
 });
 
 router.post('/meeting', mailLimiter, async (req: Request, res: Response, next: NextFunction) => {
@@ -92,7 +94,7 @@ router.post('/meeting', mailLimiter, async (req: Request, res: Response, next: N
         ['الاسم', name],
         ['الجوال', body.phone],
         ['الدولة', body.country || ''],
-        ['لغة الصفحة', body.lang || 'ar'],
+        ['لغة الصفحة', pageLangLabel(body.lang || 'ar')],
       ], 'تواصل معه لتحديد موعد الاجتماع.'),
     });
 

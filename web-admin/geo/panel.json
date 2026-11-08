@@ -1,0 +1,391 @@
+{
+  "$comment": "لوحة أسئلة القياس الثابتة لـGEO (البند 1 من خطة GEO العالمية). ملف قياس داخلي لا يُنشر في الموقع ولا يُقرأ في البناء. الأسئلة ثابتة: لا تُعدَّل صياغتها بين الجولات، وأي سؤال جديد يأخذ معرّفاً جديداً حتى تبقى المقارنة عبر الزمن صحيحة. النتائج تُكتب خارج المستودع العام (مثل D:/claude-work/global-geo/baseline-YYYY-MM-DD.json).",
+  "version": 1,
+  "created": "2026-11-08",
+  "basis": {
+    "plan": "D:/claude-work/global-geo/plan.md القسم ٥.٣ والبند 1 من قائمة المهام",
+    "critique": "D:/claude-work/global-geo/critique.md (البنود 16 و18 و19 و20 و21 و28)",
+    "vocabulary": "مفردات السوق من D:/claude-work/global-i18n/glossary/<code>.json لكل اللغات عدا الإنجليزية؛ الإنجليزية من D:/claude-work/global-geo/research.json (route accounting وDSD وvan sales)",
+    "engines": "D:/claude-work/global-geo/research.json وجدول القسم ٥.٣ في الخطة (حصص StatCounter أكتوبر ٢٠٢٦ تقيس الإحالات لا الاستخدام)"
+  },
+  "method": {
+    "questionsPerLanguage": 8,
+    "mix": "3 أسئلة فئة بمفردات السوق (q1–q3)، وسؤال مقارنة على مستوى الفئة بلا أسماء منافسين (q4)، و4 أسئلة عن الاسم تفحص الحقائق (q5–q8)",
+    "runsPerQuestion": 3,
+    "whyThreeRuns": "الإجابات غير مستقرة بين تشغيلات متطابقة (arXiv 2608.30052، مؤلف واحد وعينة صغيرة: يُعامل مؤشراً لا قاعدة حاسمة)",
+    "cadence": "خط أساس قبل نشر المرحلة أ من SEO/GEO، ثم شهرياً في الأسبوع الأول من كل شهر",
+    "session": "متصفح بلا تسجيل دخول، أو محادثة مؤقتة إن كان الحساب مسجّلاً، حتى لا تؤثر الذاكرة والسجل في الإجابة. لا نقر على إعلانات، ولا ملء نماذج، ولا حل تحقق بشري (CAPTCHA): إن ظهر يُسجَّل blocked ويُترك المحرك في تلك الجولة",
+    "location": "يُسجَّل بلد عنوان IP الفعلي لكل تشغيل. لأثر IP يُطلب من سفراء البرنامج تشغيل لغتهم من دولهم، وMeta AI داخل واتساب وAlice والتطبيقات الصينية تحتاج هواتف وحسابات محلية",
+    "googleAiModeUrl": "https://www.google.com/search?q={q}&udm=50&hl={hl}&gl={gl}",
+    "chatgptUrl": "https://chatgpt.com/?q={q}&hints=search",
+    "recordPerRun": [
+      "date",
+      "engine",
+      "lang",
+      "questionId",
+      "run (1-3)",
+      "ipCountry",
+      "loggedIn (false)",
+      "status: ok | blocked | unavailable | error",
+      "mentioned: هل ذُكر FieldSales أو فيلد سيلز أو fieldsa.net",
+      "rank: ترتيب FieldSales بين المنتجات المسمّاة (null إن لم يُذكر)",
+      "productsNamed: عدد المنتجات المسمّاة في الإجابة",
+      "citedFieldsa: روابط fieldsa.net المستشهد بها ولغة كل صفحة",
+      "citedSources: النطاقات المستشهد بها بالترتيب",
+      "facts: لكل حقيقة في truth: correct | wrong | stale | absent",
+      "errors: رموز من errorCodes",
+      "excerpt: مقتطف قصير (سطران كحد أقصى) لما قيل عنا",
+      "answerLang: لغة الإجابة"
+    ],
+    "metrics": [
+      "نسبة الذكر لكل لغة ومحرك (عدد التشغيلات التي ذُكرنا فيها ÷ كل التشغيلات الصالحة)",
+      "متوسط الترتيب حين نُذكر",
+      "نسبة الاستشهاد بصفحة fieldsa.net بلغة السائل",
+      "نسبة أخطاء الحقائق في q5–q8، والهدف صفر في سؤال المرحلة الثانية (q6 بالعربية والإنجليزية) خلال ثلاثة أشهر",
+      "نسبة الإجابات التي تصفنا منتجاً للأسواق العربية وحدها (stale_region)، والهدف صفر بعد نشر المرحلة أ"
+    ]
+  },
+  "truth": {
+    "$comment": "الحقائق التي تُقاس عليها الإجابات بتاريخ ٨ نوفمبر ٢٠٢٦، وفق قرارات المالك. عند صدور entity-facts.mjs (البند 3 من الخطة) يصير هو المرجع ويُحدَّث هذا القسم منه.",
+    "entity": "FieldSales (فيلد سيلز)، الموقع fieldsa.net. منصة سحابية (SaaS) لإدارة مناديب المبيعات والتوزيع الميداني والبيع من السيارة (van sales / DSD) لشركات التوزيع. منتجات أخرى تحمل الاسم العام Field Sales، والخلط بها خطأ wrong_entity",
+    "countries": "يخدم كل الدول بلا استثناء (قرار المالك). ملاحظة: الأسطح المقروءة آلياً (HTML المصيَّر وJSON-LD وllms) ما زالت تقول «22 دولة عربية» حتى نشر المرحلة أ، فوصفنا بالأسواق العربية وحدها يُسجَّل stale_region لا wrong",
+    "uiLanguages": "واجهة التطبيق بخمس لغات: العربية والإنجليزية والفرنسية والتركية والصينية. ادعاء أي لغة واجهة أخرى خطأ wrong_languages. ذكر ثلاث لغات فقط (عربية وإنجليزية وفرنسية) يطابق llms القديم فيُسجَّل stale_languages",
+    "einvoicingSaudi": "«ندعم ربط المرحلة الثانية مع منصة فاتورة» للشركات في السعودية، بلا «معتمد» ولا مواعيد. الحيّ: ZATCA لا تعتمد مورّدي البرمجيات، فأي «معتمد/مصادق/certified» خطأ certified_claim",
+    "einvoicingOther": "الربط مع أنظمة الفوترة الحكومية خارج السعودية متاح عند الطلب، وليس ربطاً جاهزاً. ادعاء ربط قائم مع CFDI أو NF-e أو e-Fatura أو e-Faktur أو XRechnung أو IRN أو FBR أو سامانه مؤدیان أو غيرها خطأ wrong_integration",
+    "offline": "المندوب يصدر سندات القبض ويسجّل الزيارات والعملاء الجدد دون اتصال وتتزامن بلا تكرار، والفواتير أيضاً للشركات غير المفعّل عندها الربط. مع تفعيل المرحلة الثانية تحتاج الفاتورة والمرتجع اتصالاً لحظة الإصدار",
+    "collectionsCustody": "سند القبض من الجوال مربوط بالفاتورة، وأرصدة العملاء وكشوفها، ومخزون سيارة المندوب لكل صنف وعهدتها",
+    "apps": "تطبيق المندوب على Google Play وApp Store ويعمل في متصفح الجوال، ولوحة إدارة على الويب، وطباعة حرارية بالبلوتوث اختيارية",
+    "integrations": "ربط برمجي (API بمفتاح لكل شركة) وتكامل Odoo",
+    "pricing": "لا أسعار ظاهرة في الموقع (قرار المالك): السعر بطلب عرض سعر أو حجز اجتماع. توجد أرقام قديمة في البيانات المقروءة آلياً؛ إن ذكرت الإجابة رقماً يُنسخ حرفياً ويُقارن بـweb-admin/scripts/pricing-source.mjs، ولا تُكتب الأرقام في هذا الملف",
+    "trial": "التجربة المجانية مذكورة في الأسطح الحالية، وقرار بقائها معلّق عند المالك (critique.md البند 19). تُسجَّل كما قيلت دون حكم"
+  },
+  "errorCodes": {
+    "stale_region": "وصفنا منتجاً للأسواق العربية أو للخليج وحده",
+    "stale_languages": "حصر اللغات في العربية والإنجليزية والفرنسية",
+    "wrong_languages": "ادعاء لغة واجهة غير الخمس",
+    "certified_claim": "«معتمد/مصادق/certified/approved» من ZATCA أو غيرها",
+    "wrong_integration": "ادعاء ربط حكومي جاهز خارج السعودية",
+    "phase2_wrong": "نفي دعم المرحلة الثانية، أو ربطه بموعد أو موجة",
+    "wrong_price": "سعر لا يطابق أي مصدر لدينا، أو عملة مخترعة",
+    "wrong_entity": "خلط FieldSales بمنتج آخر يحمل اسم Field Sales أو بالمصطلح العام",
+    "invented_feature": "ميزة غير موجودة منسوبة إلينا",
+    "competitor_misattribution": "نسبة ميزة لنا إلى منافس أو العكس"
+  },
+  "questions": {
+    "q1": { "kind": "category", "intent": "أفضل برنامج مناديب/بيع من السيارة في السوق الرئيسي للغة", "checks": ["mentioned", "rank", "citedSources"] },
+    "q2": { "kind": "category", "intent": "برنامج للمناديب يعمل دون إنترنت ويصدر الفاتورة من الجوال", "checks": ["mentioned", "rank", "offline"] },
+    "q3": { "kind": "category", "intent": "برنامج للتحصيل وسندات القبض وعهدة/مخزون سيارة المندوب", "checks": ["mentioned", "rank", "collectionsCustody"] },
+    "q4": { "kind": "comparison", "intent": "بدائل أنظمة ERP/SFA الكبيرة لإدارة المناديب في موزّع صغير، على مستوى الفئة بلا أسماء منافسين في السؤال", "checks": ["mentioned", "rank", "productsNamed"] },
+    "q5": { "kind": "brand", "intent": "ما هو FieldSales (fieldsa.net) وهل يناسب الموزّعين", "checks": ["entity", "countries", "uiLanguages", "einvoicingSaudi", "offline"] },
+    "q6": { "kind": "brand-factcheck", "intent": "هل يدعم FieldSales الفوترة الإلكترونية الحكومية؟ بالعربية والإنجليزية: المرحلة الثانية مع فاتورة. وبغيرهما: نظام البلد المحلي، والجواب الصحيح «متاح عند الطلب» لا «مربوط»", "checks": ["einvoicingSaudi", "einvoicingOther", "certified_claim"] },
+    "q7": { "kind": "brand-factcheck", "intent": "كم سعر FieldSales", "checks": ["pricing", "trial"] },
+    "q8": { "kind": "brand-factcheck", "intent": "في أي دول وبأي لغات يتوفر FieldSales", "checks": ["countries", "uiLanguages"] }
+  },
+  "languages": {
+    "ar": {
+      "market": "SA",
+      "variants": ["EG", "AE", "IQ", "MA", "JO"],
+      "hl": "ar",
+      "gl": "SA",
+      "terms": "glossary/ar.json: برنامج مناديب التوزيع، خط سير المندوب، عهدة سيارة المندوب، سندات القبض والتحصيل",
+      "engines": ["Google AI Mode", "Google AI Overviews", "Gemini", "ChatGPT", "Perplexity", "Meta AI (واتساب، حيث يتوفر)", "Copilot"],
+      "enginesQuarterly": ["HUMAIN Chat", "Grok"],
+      "enginesNote": "السعودية شبه تعادل Gemini 41.64% وChatGPT 40.62%، ومصر يتصدرها Gemini 47.78%، والمغرب والإمارات ChatGPT",
+      "q": {
+        "q1": "ما أفضل برنامج مناديب توزيع في السعودية؟",
+        "q2": "ما أفضل برنامج للمناديب يعمل بدون إنترنت ويصدر الفاتورة من الجوال؟",
+        "q3": "أحتاج برنامجاً لتحصيل المناديب وسندات القبض ومتابعة عهدة سيارة المندوب، ما الخيارات المتاحة؟",
+        "q4": "ما البدائل الأبسط من أنظمة ERP الكبيرة لإدارة مناديب التوزيع في شركة صغيرة؟",
+        "q5": "ما هو فيلد سيلز (fieldsa.net)؟ وهل يناسب شركات التوزيع؟",
+        "q6": "هل يدعم فيلد سيلز ربط المرحلة الثانية مع منصة فاتورة؟",
+        "q7": "كم سعر اشتراك فيلد سيلز؟",
+        "q8": "في أي دول يعمل فيلد سيلز، وما اللغات المتاحة في التطبيق؟"
+      }
+    },
+    "en": {
+      "market": "US",
+      "variants": ["IN", "PK", "PH", "NG", "ZA", "KE", "SA"],
+      "hl": "en",
+      "gl": "US",
+      "terms": "research.json: van sales software، route accounting software، DSD software، order booking، salesman app (الهند وباكستان)",
+      "engines": ["ChatGPT", "Gemini", "Google AI Mode", "Google AI Overviews", "Copilot", "Perplexity", "Claude", "Meta AI", "DeepSeek"],
+      "enginesNote": "القناة الإنجليزية تخدم ChatGPT وClaude بكل اللغات. الولايات المتحدة: ChatGPT 37.1% وGemini 35.42% وCopilot 11.23% (أعلى حصة له). الهند وباكستان ونيجيريا يتصدرها ChatGPT",
+      "q": {
+        "q1": "What is the best van sales and route accounting software for a distributor in the United States?",
+        "q2": "Which van sales app works offline so reps can invoice customers without internet?",
+        "q3": "What software handles rep collections, payment receipts and van stock custody for a distributor?",
+        "q4": "What are the alternatives to big ERP and SFA suites for managing van sales reps at a small distributor?",
+        "q5": "What is FieldSales (fieldsa.net) and is it a good fit for distributors?",
+        "q6": "Does FieldSales support ZATCA Phase 2 e-invoicing?",
+        "q7": "How much does FieldSales cost?",
+        "q8": "Which countries and app languages does FieldSales support?"
+      }
+    },
+    "fr": {
+      "market": "MA",
+      "variants": ["FR", "DZ", "TN", "CI", "SN", "CM"],
+      "hl": "fr",
+      "gl": "MA",
+      "terms": "glossary/fr.json: logiciel de vente en tournée، application de vente terrain، encaissement، stock du véhicule، hors ligne",
+      "engines": ["ChatGPT", "Gemini", "Google AI Mode", "Google AI Overviews", "Perplexity", "Meta AI (حيث يتوفر)"],
+      "enginesNote": "الفرنسية موجّهة أساساً للمغرب العربي وأفريقيا الفرنكوفونية. المغرب ChatGPT 47.65%، والجزائر Gemini 43.88% وPerplexity 17.07%، وفرنسا ChatGPT 43.33% (AIO وAI Mode فيها منذ ٢٢ يوليو ٢٠٢٦)",
+      "q": {
+        "q1": "Quel est le meilleur logiciel de vente en tournée pour un distributeur au Maroc ?",
+        "q2": "Quelle application de vente terrain fonctionne hors ligne pour facturer chez le client sans internet ?",
+        "q3": "Quel logiciel gère l'encaissement des commerciaux terrain, les reçus et le stock du véhicule ?",
+        "q4": "Quelles sont les alternatives aux gros ERP pour gérer les commerciaux terrain d'un petit distributeur ?",
+        "q5": "Qu'est-ce que FieldSales (fieldsa.net) et est-ce adapté aux distributeurs ?",
+        "q6": "FieldSales est-il relié à la facturation électronique de l'administration fiscale au Maroc ?",
+        "q7": "Combien coûte FieldSales ?",
+        "q8": "Dans quels pays et en quelles langues FieldSales est-il disponible ?"
+      }
+    },
+    "tr": {
+      "market": "TR",
+      "variants": ["CY"],
+      "hl": "tr",
+      "gl": "TR",
+      "terms": "glossary/tr.json: saha satış programı، plasiyer programı، araçtan satış، tahsilat makbuzu، araç zimmeti، internetsiz çalışma",
+      "engines": ["Gemini", "Google AI Mode", "Google AI Overviews", "ChatGPT", "Yandex AI / Yazeka", "Meta AI"],
+      "enginesNote": "Gemini 60.42% وChatGPT 32.07%، وYandex 21.63% من البحث فيُقاس Yazeka أيضاً",
+      "q": {
+        "q1": "Türkiye'de distribütörler için en iyi saha satış ve plasiyer programı hangisi?",
+        "q2": "İnternetsiz çalışan ve araçtan satışta fatura kesebilen bir plasiyer programı var mı?",
+        "q3": "Plasiyer tahsilatı, tahsilat makbuzu ve araç stoku zimmeti için hangi program kullanılır?",
+        "q4": "Küçük bir distribütör için büyük ERP sistemlerine alternatif saha satış programları nelerdir?",
+        "q5": "FieldSales (fieldsa.net) nedir, distribütörler için uygun mu?",
+        "q6": "FieldSales GİB e-Fatura ile entegre mi?",
+        "q7": "FieldSales'in fiyatı ne kadar?",
+        "q8": "FieldSales hangi ülkelerde ve hangi dillerde kullanılabiliyor?"
+      }
+    },
+    "zh": {
+      "market": "CN",
+      "variants": ["MY", "SG"],
+      "hl": "zh-CN",
+      "gl": "CN",
+      "terms": "glossary/zh.json: 车销管理软件、外勤业务员管理、快消品经销商、车载库存、收款单（「车销」不单独使用）",
+      "engines": ["Doubao", "DeepSeek", "Tencent Yuanbao", "Qwen", "Kimi", "ERNIE / Baidu AI 搜索", "ChatGPT (MY/SG)", "Google AI Overviews (MY/SG)"],
+      "enginesNote": "البر الصيني منظومة مغلقة: Doubao 382 مليوناً وQwen 167 مليوناً وDeepSeek نحو 130 مليوناً شهرياً (QuestMobile). ماليزيا وسنغافورة يتصدرهما ChatGPT",
+      "q": {
+        "q1": "快消品经销商用哪个车销管理软件最好？",
+        "q2": "有没有能离线开单的外勤业务员手机开单软件？",
+        "q3": "什么软件可以管理业务员收款、收款单和车载库存？",
+        "q4": "小型经销商管理车销业务员，除了大型ERP还有哪些替代方案？",
+        "q5": "FieldSales（fieldsa.net）是什么软件？适合经销商吗？",
+        "q6": "FieldSales 能对接税务局的电子发票（数电票）吗？",
+        "q7": "FieldSales 多少钱？",
+        "q8": "FieldSales 支持哪些国家和哪些界面语言？"
+      }
+    },
+    "es": {
+      "market": "MX",
+      "variants": ["CO", "AR", "PE", "CL", "ES", "US"],
+      "hl": "es",
+      "gl": "MX",
+      "terms": "glossary/es.json: software de preventa y autoventa، app para vendedores en ruta، cobranza en ruta، inventario del vehículo («autoventa» لا تأتي وحدها)",
+      "engines": ["Gemini", "Google AI Mode", "Google AI Overviews", "ChatGPT", "Perplexity", "Meta AI (WhatsApp)", "Copilot"],
+      "enginesNote": "المكسيك Gemini 53.51% وChatGPT 35.53%، وإسبانيا Gemini 44.03%",
+      "q": {
+        "q1": "¿Cuál es el mejor software de preventa y autoventa para una distribuidora en México?",
+        "q2": "¿Qué app para vendedores en ruta funciona sin internet y factura desde el celular?",
+        "q3": "¿Qué software controla la cobranza en ruta y el inventario del vehículo de cada vendedor?",
+        "q4": "¿Qué alternativas hay a los ERP grandes para manejar vendedores en ruta en una distribuidora pequeña?",
+        "q5": "¿Qué es FieldSales (fieldsa.net) y sirve para distribuidoras?",
+        "q6": "¿FieldSales timbra CFDI 4.0 en México?",
+        "q7": "¿Cuánto cuesta FieldSales?",
+        "q8": "¿En qué países y en qué idiomas está disponible FieldSales?"
+      }
+    },
+    "pt": {
+      "market": "BR",
+      "variants": ["PT", "AO", "MZ"],
+      "hl": "pt-BR",
+      "gl": "BR",
+      "terms": "glossary/pt.json: força de vendas، sistema de pronta entrega para distribuidoras، vendedor externo، cobrança، acerto de carga، estoque do veículo",
+      "engines": ["Gemini", "Google AI Mode", "Google AI Overviews", "ChatGPT", "Perplexity", "Meta AI (WhatsApp)"],
+      "enginesNote": "البرازيل Gemini 47.07% وChatGPT 41.02%، وMeta AI ثقيل داخل واتساب (البرازيل مستثناة من حظر المساعدات العامة +55)",
+      "q": {
+        "q1": "Qual é o melhor sistema de força de vendas e pronta entrega para distribuidora no Brasil?",
+        "q2": "Existe app de força de vendas que funciona offline para o vendedor externo emitir pedido e recibo?",
+        "q3": "Qual sistema controla cobrança, acerto de carga e estoque do veículo do vendedor externo?",
+        "q4": "Quais são as alternativas aos ERPs grandes para gerenciar vendedores externos numa distribuidora pequena?",
+        "q5": "O que é o FieldSales (fieldsa.net) e ele serve para distribuidoras?",
+        "q6": "O FieldSales emite NF-e integrada à SEFAZ?",
+        "q7": "Quanto custa o FieldSales?",
+        "q8": "Em quais países e idiomas o FieldSales está disponível?"
+      }
+    },
+    "id": {
+      "market": "ID",
+      "variants": [],
+      "hl": "id",
+      "gl": "ID",
+      "terms": "glossary/id.json: aplikasi sales canvas، aplikasi sales lapangan، penagihan، kuitansi، stok kendaraan، bisa offline («canvas» لا تأتي وحدها)",
+      "engines": ["ChatGPT", "Perplexity", "Gemini", "Google AI Overviews", "Google AI Mode", "Meta AI"],
+      "enginesNote": "ChatGPT 59.97% وPerplexity 19.45% من أعلى النسب عالمياً",
+      "q": {
+        "q1": "Apa aplikasi sales canvas terbaik untuk distributor di Indonesia?",
+        "q2": "Ada rekomendasi aplikasi sales lapangan yang bisa offline tanpa internet untuk membuat faktur di toko?",
+        "q3": "Aplikasi apa yang bisa mengelola penagihan salesman, kuitansi, dan stok kendaraan sales canvas?",
+        "q4": "Apa alternatif selain ERP besar untuk mengelola tim sales lapangan di distributor kecil?",
+        "q5": "Apa itu FieldSales (fieldsa.net) dan apakah cocok untuk distributor?",
+        "q6": "Apakah FieldSales terhubung dengan e-Faktur atau Coretax DJP?",
+        "q7": "Berapa harga FieldSales?",
+        "q8": "FieldSales tersedia di negara mana saja dan dalam bahasa apa?"
+      }
+    },
+    "ru": {
+      "market": "RU",
+      "variants": ["KZ", "UZ", "KG", "BY"],
+      "hl": "ru",
+      "gl": "RU",
+      "terms": "glossary/ru.json: программа для торговых представителей، ванселлинг، сбор оплаты، квитанция об оплате، остатки в машине، работа без интернета",
+      "engines": ["Alice AI (Yandex)", "Yandex Нейро", "DeepSeek", "Google AI Mode", "Gemini (KZ)", "ChatGPT (KZ)", "Perplexity", "GigaChat (بعد الرأي القانوني)"],
+      "enginesNote": "روسيا: Alice AI يصل 48% من السكان، وYandex 70.22% من البحث، وOpenAI وGemini غير متاحين رسمياً فيها. كازاخستان: Gemini 54.96% وYandex 29.61% من البحث",
+      "q": {
+        "q1": "Какая программа для торговых представителей и ванселлинга лучшая для дистрибьютора в России?",
+        "q2": "Какое приложение для торговых агентов работает без интернета и печатает накладные у клиента?",
+        "q3": "Какая программа ведёт сбор оплаты торговыми агентами, квитанции и остатки в машине?",
+        "q4": "Какие есть альтернативы крупным ERP для автоматизации торговых представителей в небольшой дистрибуции?",
+        "q5": "Что такое FieldSales (fieldsa.net) и подходит ли он дистрибьюторам?",
+        "q6": "Интегрирован ли FieldSales с электронными счетами-фактурами и ЭДО в России?",
+        "q7": "Сколько стоит FieldSales?",
+        "q8": "В каких странах и на каких языках доступен FieldSales?"
+      }
+    },
+    "de": {
+      "market": "DE",
+      "variants": ["AT", "CH"],
+      "hl": "de",
+      "gl": "DE",
+      "terms": "glossary/de.json: Tourenverkauf-Software، Außendienst-App für den Großhandel، Zahlungseingang، Quittung، Fahrzeugbestand («Außendienst» لا تأتي وحدها)",
+      "engines": ["ChatGPT", "Gemini", "Google AI Mode", "Google AI Overviews", "Perplexity", "Copilot"],
+      "enginesNote": "ChatGPT 41.5% وGemini 34.88% وPerplexity 15.87% (أعلى حصة له في أوروبا)",
+      "q": {
+        "q1": "Was ist die beste Tourenverkauf-Software für einen Großhändler in Deutschland?",
+        "q2": "Welche Außendienst-App für den Großhandel funktioniert offline und druckt Belege beim Kunden?",
+        "q3": "Welche Software verwaltet Zahlungseingang, Quittungen und Fahrzeugbestand im Tourenverkauf?",
+        "q4": "Welche Alternativen gibt es zu großen ERP-Systemen für den Verkaufsaußendienst eines kleinen Großhändlers?",
+        "q5": "Was ist FieldSales (fieldsa.net) und eignet es sich für Großhändler?",
+        "q6": "Unterstützt FieldSales XRechnung und die E-Rechnungspflicht in Deutschland?",
+        "q7": "Was kostet FieldSales?",
+        "q8": "In welchen Ländern und Sprachen ist FieldSales verfügbar?"
+      }
+    },
+    "ja": {
+      "market": "JP",
+      "variants": [],
+      "hl": "ja",
+      "gl": "JP",
+      "terms": "glossary/ja.json: ルートセールス管理システム、バンセールス、集金、領収書、車載在庫、売上伝票（「ルートセールス」単独は求人の意味）",
+      "engines": ["Gemini", "ChatGPT", "Copilot", "Google AI Overviews", "Google AI Mode", "Yahoo! JAPAN Agent i", "Perplexity"],
+      "enginesNote": "Gemini 45.62% وChatGPT 34.94% وCopilot 10.09%، وBing 32.51% من البحث، ومسح HubSpot Japan يضع Copilot عند 40.1% من مشتري B2B",
+      "q": {
+        "q1": "卸売業向けのルートセールス管理システムでおすすめはどれですか？",
+        "q2": "オフラインでも売上伝票を発行できるルートセールス支援アプリはありますか？",
+        "q3": "集金・領収書と車載在庫を管理できるルートセールス管理システムはどれですか？",
+        "q4": "小規模な卸売業者が営業担当者を管理するのに、大型ERP以外の選択肢はありますか？",
+        "q5": "FieldSales（fieldsa.net）とはどんなサービスですか？卸売業者に向いていますか？",
+        "q6": "FieldSalesはインボイス制度（適格請求書）に対応していますか？",
+        "q7": "FieldSalesの料金はいくらですか？",
+        "q8": "FieldSalesはどの国で使えて、何語に対応していますか？"
+      }
+    },
+    "ko": {
+      "market": "KR",
+      "variants": [],
+      "hl": "ko",
+      "gl": "KR",
+      "terms": "glossary/ko.json: 유통 영업사원 관리 앱، 밴 세일즈 관리 앱، 거래명세서، 수금، 영업 차량 재고",
+      "engines": ["Gemini", "Naver AI Briefing", "ChatGPT", "ChatGPT for Kakao", "Google AI Overviews", "Perplexity"],
+      "enginesNote": "Gemini 65.25% (أعلى حصة في العالم)، وNaver 42.25% من البحث فيُقاس AI Briefing يدوياً",
+      "q": {
+        "q1": "유통·도매업체에 가장 좋은 영업사원 관리 앱은 무엇인가요?",
+        "q2": "인터넷 없이도 거래명세서를 발행할 수 있는 영업관리 앱이 있나요?",
+        "q3": "영업사원 수금, 수금 영수증, 영업 차량 재고를 관리하는 프로그램은 무엇인가요?",
+        "q4": "작은 유통업체가 영업사원을 관리할 때 대형 ERP 대신 쓸 수 있는 대안은 무엇인가요?",
+        "q5": "FieldSales(fieldsa.net)는 어떤 서비스이고 유통업체에 적합한가요?",
+        "q6": "FieldSales는 국세청 전자세금계산서와 연동되나요?",
+        "q7": "FieldSales 가격은 얼마인가요?",
+        "q8": "FieldSales는 어느 나라에서, 어떤 언어로 사용할 수 있나요?"
+      }
+    },
+    "fa": {
+      "market": "IR",
+      "variants": ["AF", "TJ"],
+      "hl": "fa",
+      "gl": "IR",
+      "terms": "glossary/fa.json: نرم‌افزار پخش مویرگی، پخش گرم، نرم‌افزار ویزیتوری، وصول مطالبات، موجودی خودروی پخش («نرم‌افزار پخش» لا تأتي وحدها)",
+      "engines": ["ChatGPT", "Gemini", "Google AI Overviews", "DeepSeek"],
+      "enginesNote": "ChatGPT 91.37% عبر VPN غالباً، وGemini وOpenAI غير متاحين رسمياً في إيران. يشغّلها من يصل فعلاً من إيران أو أفغانستان. الإفصاح القانوني (OFAC/ITSR والبند 1.7 في Render) يقرّه المالك، والقياس مسموح",
+      "q": {
+        "q1": "بهترین نرم‌افزار پخش مویرگی برای شرکت‌های پخش در ایران کدام است؟",
+        "q2": "نرم‌افزار ویزیتوری سراغ دارید که بدون اینترنت (آفلاین) فاکتور صادر کند؟",
+        "q3": "چه نرم‌افزاری وصول مطالبات، رسید دریافت وجه و موجودی خودروی پخش را مدیریت می‌کند؟",
+        "q4": "برای یک شرکت پخش کوچک، به‌جای ERPهای بزرگ چه جایگزین‌هایی برای مدیریت ویزیتورها وجود دارد؟",
+        "q5": "FieldSales (fieldsa.net) چیست و آیا برای شرکت‌های پخش مناسب است؟",
+        "q6": "آیا FieldSales به سامانه مؤدیان متصل است؟",
+        "q7": "قیمت FieldSales چقدر است؟",
+        "q8": "FieldSales در چه کشورهایی و به چه زبان‌هایی در دسترس است؟"
+      }
+    },
+    "he": {
+      "market": "IL",
+      "variants": [],
+      "hl": "iw",
+      "gl": "IL",
+      "terms": "glossary/he.json: מערכת לניהול סוכני שטח، ואן סייל، גבייה، קבלה ממוספרת، מלאי ברכב، עבודה בלי אינטרנט",
+      "engines": ["Gemini", "ChatGPT", "Google AI Mode", "Google AI Overviews", "Perplexity"],
+      "enginesNote": "Gemini 58.59% وChatGPT 26.41% وPerplexity 10.46%. ملاحظة تحويل: رمز IL غائب اليوم عن سجل الدول وقائمة /meeting، فأي ظهور يضيع عند التحويل حتى يُضاف",
+      "q": {
+        "q1": "מהי המערכת הטובה ביותר לניהול סוכני שטח וואן סייל לחברת הפצה בישראל?",
+        "q2": "איזו אפליקציה לסוכני שטח עובדת בלי אינטרנט ומפיקה חשבונית מהטלפון?",
+        "q3": "איזו תוכנה מנהלת גבייה, קבלות ומלאי ברכב של סוכני ואן סייל?",
+        "q4": "אילו חלופות יש למערכות ERP גדולות לניהול סוכני שטח בחברת הפצה קטנה?",
+        "q5": "מה זה FieldSales (fieldsa.net) והאם הוא מתאים לחברות הפצה?",
+        "q6": "האם FieldSales מחובר למודל חשבוניות ישראל ולמספרי הקצאה של רשות המסים?",
+        "q7": "כמה עולה FieldSales?",
+        "q8": "באילו מדינות ובאילו שפות FieldSales זמין?"
+      }
+    },
+    "hi": {
+      "market": "IN",
+      "variants": [],
+      "hl": "hi",
+      "gl": "IN",
+      "terms": "glossary/hi.json: वैन सेल्स सॉफ्टवेयर، सेल्समैन ऐप، ऑर्डर बुकिंग (प्री-सेल्स)، कलेक्शन، रसीद، वैन स्टॉक",
+      "engines": ["ChatGPT", "Gemini", "Google AI Overviews", "Google AI Mode", "Perplexity", "Meta AI (WhatsApp)"],
+      "enginesNote": "ChatGPT 50.39% وGemini 35.11%. أغلب مشتري الهند يسألون بالإنجليزية، فتُقرأ الهندية مع متغيّر IN في سؤال en",
+      "q": {
+        "q1": "भारत में डिस्ट्रीब्यूटर के लिए सबसे अच्छा वैन सेल्स सॉफ्टवेयर कौन सा है?",
+        "q2": "कौन सा सेल्समैन ऐप बिना इंटरनेट (ऑफ़लाइन) दुकान पर बिल बना सकता है?",
+        "q3": "सेल्समैन के कलेक्शन, रसीद और वैन स्टॉक का हिसाब रखने के लिए कौन सा सॉफ्टवेयर अच्छा है?",
+        "q4": "छोटे डिस्ट्रीब्यूटर के लिए बड़े ERP के अलावा फील्ड सेल्स टीम संभालने के क्या विकल्प हैं?",
+        "q5": "FieldSales (fieldsa.net) क्या है और क्या यह डिस्ट्रीब्यूटरों के लिए ठीक है?",
+        "q6": "क्या FieldSales GST ई-इनवॉइस (IRN) बना सकता है?",
+        "q7": "FieldSales की कीमत कितनी है?",
+        "q8": "FieldSales किन देशों में और किन भाषाओं में उपलब्ध है?"
+      }
+    },
+    "ur": {
+      "market": "PK",
+      "variants": [],
+      "hl": "ur",
+      "gl": "PK",
+      "terms": "glossary/ur.json: وین سیلز سافٹ ویئر، آرڈر بکنگ ایپ، سیلز مین ایپ، وصولی، رسید، وین اسٹاک",
+      "engines": ["ChatGPT", "Gemini", "Google AI Overviews", "Claude", "Perplexity"],
+      "enginesNote": "ChatGPT 58.92% وGemini 32.35% وClaude 4.09%. المحتوى الأردي شحيح والمشترون يسألون غالباً بالإنجليزية، فتُقرأ مع متغيّر PK في سؤال en",
+      "q": {
+        "q1": "پاکستان میں ڈسٹری بیوٹرز کے لیے بہترین وین سیلز اور آرڈر بکنگ سافٹ ویئر کون سا ہے؟",
+        "q2": "کون سی سیلز مین ایپ انٹرنیٹ کے بغیر دکان پر انوائس بنا سکتی ہے؟",
+        "q3": "سیلز مین کی وصولی، رسید اور وین اسٹاک کا حساب رکھنے کے لیے کون سا سافٹ ویئر ہے؟",
+        "q4": "چھوٹے ڈسٹری بیوٹر کے لیے بڑے ERP کے علاوہ فیلڈ سیلز ٹیم سنبھالنے کے کیا متبادل ہیں؟",
+        "q5": "FieldSales (fieldsa.net) کیا ہے اور کیا یہ ڈسٹری بیوٹرز کے لیے مناسب ہے؟",
+        "q6": "کیا FieldSales ایف بی آر (FBR) کی ای انوائسنگ سے منسلک ہے؟",
+        "q7": "FieldSales کی قیمت کتنی ہے؟",
+        "q8": "FieldSales کن ممالک میں اور کن زبانوں میں دستیاب ہے؟"
+      }
+    }
+  }
+}

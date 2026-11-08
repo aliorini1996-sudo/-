@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { analyticsApi } from '../api/client';
-import { X, Users, Globe2, TrendingUp, MapPin, Link2, FileText, Clock, RefreshCw } from 'lucide-react';
+import { X, Users, Globe2, TrendingUp, MapPin, Link2, FileText, Clock, RefreshCw, Sparkles } from 'lucide-react';
 import { backdropClose } from '../lib/backdropClose';
 import { visitChannelLabel } from '../lib/visitChannels';
+import { buildEngineCountryMatrix, type AiEngineCountryItem } from '../lib/aiEngineCountry';
 
 interface Row { at: string; path: string; referrer: string; country: string | null; city: string | null; countryCode: string | null }
 interface Item { label: string; count: number }
@@ -17,6 +18,9 @@ interface Stats {
     byChannel: Item[]; byContentType: Item[]; byUtmSource: Item[]; byCampaign: Item[]; byFirstTouch: Item[];
     whatsapp: { clicks: number; byRef: Item[]; uniqueClickers: number };
   };
+  // زيارات محركات الذكاء (GEO) — أسماء المحركات من سجل الخادم services/aiEngines.ts
+  // وbyEngineCountry إضافة لاحقة (نسخة خادم أقدم لا تُرجعها فيُخفى الجدول)
+  ai?: { total: number; byEngine: Item[]; byDay: { date: string; count: number }[]; byEngineCountry?: AiEngineCountryItem[] };
   recent: Row[];
 }
 
@@ -122,6 +126,9 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
               <TopList title="أكثر الصفحات زيارة" icon={FileText} items={data.byPath} mono />
             </div>
 
+            {/* --- محركات الذكاء الاصطناعي GEO: من يقتبسنا وفي أي دولة --- */}
+            {data.ai && <AiEnginesSection ai={data.ai} total={data.total} />}
+
             {/* --- الإسناد التسويقي: من أين تأتي المحادثات فعلاً --- */}
             {data.attribution && (
               <div className="mt-4">
@@ -196,6 +203,67 @@ export default function VisitsPanel({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// زيارات محركات الذكاء: المجموع وحصته، وكل محرك، وجدول «المحرك × الدولة»
+function AiEnginesSection({ ai, total }: { ai: NonNullable<Stats['ai']>; total: number }) {
+  const matrix = buildEngineCountryMatrix(ai.byEngineCountry);
+  const share = total ? Math.round((ai.total / total) * 1000) / 10 : 0;
+  return (
+    <div className="bg-white border border-[#E9E1D3] rounded-2xl p-4 space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h3 className="text-sm font-bold text-[#1F1A13] flex items-center gap-2"><Sparkles size={15} className="text-[#E15A30]" /> محركات الذكاء الاصطناعي</h3>
+        <span className="text-[11px] text-[#6E6557]">
+          <b className="text-[#1F1A13] tabular-nums">{ai.total}</b> زيارة · <span className="tabular-nums">{share}%</span> من كل الزيارات
+        </span>
+      </div>
+
+      {ai.total === 0 ? (
+        <p className="text-xs text-[#9A8F7E]">لا زيارات من محركات الذكاء في هذه المدة</p>
+      ) : (
+        <div className="space-y-4">
+          <TopList title="حسب المحرك" icon={Sparkles} items={ai.byEngine} />
+
+          {matrix.rows.length > 0 && (
+            <div className="border border-[#E9E1D3] rounded-2xl overflow-hidden min-w-0">
+              <h4 className="text-sm font-bold text-[#1F1A13] px-4 pt-4 pb-2 flex items-center gap-2"><MapPin size={15} className="text-[#E15A30]" /> المحرك × الدولة</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[12px] tabular-nums">
+                  <thead className="text-[#9A8F7E] text-[11px] bg-[#FAF7F0]">
+                    <tr>
+                      <th className="text-right font-medium px-3 py-2 sticky right-0 bg-[#FAF7F0]">المحرك</th>
+                      {matrix.columns.map((c) => (
+                        <th key={c.key} className="text-center font-medium px-2 py-2 whitespace-nowrap" title={c.label}>
+                          {c.countryCode ? `${flag(c.countryCode)} ` : ''}<span className="inline-block max-w-[84px] truncate align-bottom">{c.label}</span>
+                        </th>
+                      ))}
+                      <th className="text-center font-semibold px-3 py-2 text-[#6E6557]">المجموع</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {matrix.rows.map((r) => (
+                      <tr key={r.engine} className="border-t border-[#F1EBDF]">
+                        <td className="px-3 py-2 text-[#1F1A13] whitespace-nowrap sticky right-0 bg-white">{r.engine}</td>
+                        {r.cells.map((n, i) => (
+                          <td key={matrix.columns[i].key} className={`text-center px-2 py-2 ${n ? 'text-[#1F1A13] font-semibold' : 'text-[#D5CBBA]'}`}>{n || '·'}</td>
+                        ))}
+                        <td className="text-center px-3 py-2 font-bold text-[#C94E28]">{r.total}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* حدود القياس: بلا هذا السطر يُقرأ الرقم على أنه كل أثر الذكاء وهو ليس كذلك */}
+      <p className="text-[11px] text-[#9A8F7E] leading-relaxed">
+        لا يميزها المحيل فتحسب بحثا أو زيارة مباشرة: AI Mode وAI Overviews من جوجل، وإجابات Bing وYandex وNaver داخل نتائج البحث، ومساعدات التطبيقات التي تفتح الرابط بلا محيل
+      </p>
     </div>
   );
 }

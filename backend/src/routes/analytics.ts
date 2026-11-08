@@ -6,6 +6,7 @@ import prisma from '../config/database';
 import { platformGate } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 import { resolveAttribution, contentTypeOf, makeWaCode, requestOptedOut, ipFingerprint, geoLookupUrl } from '../services/attribution';
+import { AI_ENGINES, aiEngineOfVisit, aiEngineLabel } from '../services/aiEngines';
 import { computeLiveCounts, LIVE_WINDOW_MIN } from '../services/presence';
 import { riyadhDay } from '../services/requestCounter';
 import { setInfraSnapshot, getInfraSnapshot } from '../services/infraMetrics';
@@ -62,12 +63,19 @@ router.post('/track', async (req: Request, res: Response) => {
     // بصمة بملح سرّي دائماً (IP_SALT أو مشتقّ من JWT_SECRET) — لا ملح مكتوب في الكود
     const ipHash = ipFingerprint(ip);
     let referrerHost: string | null = null;
+    // المسار يصل نادراً (سياسة المُحيل ترسل الأصل غالباً)، وحين يصل يميّز `ya.ru/alice` عن بحث Yandex
+    let referrerPath: string | null = null;
     if (referrer && typeof referrer === 'string') {
-      try { const h = new URL(referrer).hostname; if (h && !/(^|\.)fieldsa\.net$/.test(h)) referrerHost = h; } catch { /* تجاهل */ }
+      try {
+        // يُقصّ إلى طول التخزين قبل التحليل: لا يُحلَّل نص أطول مما يُحفظ
+        const u = new URL(referrer.slice(0, 500));
+        const h = u.hostname;
+        if (h && !/(^|\.)fieldsa\.net$/.test(h)) { referrerHost = h; referrerPath = u.pathname || null; }
+      } catch { /* تجاهل */ }
     }
     const geo = isBot || !ip ? {} : await geoLookup(ip);
     // الإسناد: يُشتقّ على الخادم من وسوم مُطبَّعة + نطاق المُحيل (لا يُوثق بقيم العميل خاماً)
-    const attr = resolveAttribution({ utm, referrerHost, path });
+    const attr = resolveAttribution({ utm, referrerHost, referrerPath, path });
     const s40 = (v: unknown, n = 40) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, n) : null);
     await prisma.visit.create({
       data: {
@@ -147,7 +155,7 @@ router.get('/go/wa', async (req: Request, res: Response) => {
 });
 
 interface V {
-  createdAt: Date; path: string; referrerHost: string | null;
+  createdAt: Date; path: string; referrerHost: string | null; referrer: string | null;
   country: string | null; city: string | null; countryCode: string | null;
   ipHash: string | null; lang: string | null;
   // طبقة الإسناد التسويقي (كلها اختيارية — الزيارات التاريخية بلا هذه القيم)
@@ -163,27 +171,29 @@ function topCounts(items: V[], key: (v: V) => string | null, limit = 8) {
   return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([label, count]) => ({ label, count }));
 }
 
-// محركات الإجابة بالذكاء الاصطناعي — زيارة من أحد هذه المصادر = اقتباس/توصية من AI (مؤشّر GEO)
-// `engine` = قيمة عمود aiEngine التي يخزّنها resolveAttribution (services/attribution.ts · AI_ENGINE_IDS)
-const AI_ENGINES: { label: string; engine?: string; re: RegExp }[] = [
-  { label: 'ChatGPT', engine: 'chatgpt', re: /(^|\.)chatgpt\.com$|(^|\.)chat\.openai\.com$/i },
-  { label: 'Perplexity', engine: 'perplexity', re: /(^|\.)perplexity\.ai$/i },
-  { label: 'Gemini', engine: 'gemini', re: /(^|\.)gemini\.google\.com$|(^|\.)bard\.google\.com$/i },
-  { label: 'Claude', engine: 'claude', re: /(^|\.)claude\.ai$/i },
-  { label: 'Copilot', engine: 'copilot', re: /(^|\.)copilot\.microsoft\.com$/i },
-  { label: 'Grok', re: /(^|\.)grok\.com$|(^|\.)x\.ai$/i },
-  { label: 'DeepSeek', re: /(^|\.)deepseek\.com$/i },
-  { label: 'Meta AI', re: /(^|\.)meta\.ai$/i },
-  { label: 'أخرى AI', re: /(^|\.)you\.com$|(^|\.)poe\.com$|(^|\.)phind\.com$|(^|\.)mistral\.ai$|(^|\.)kagi\.com$/i },
-];
-const aiEngineOf = (host: string | null) => (host ? AI_ENGINES.find((e) => e.re.test(host))?.label || null : null);
 /**
- * محرّك الذكاء لصفّ زيارة: من المُحيل أولاً، وإلا من عمود aiEngine لزيارة صُنّفت ai_generative
- * بلا مُحيل (مثل `utm_source=chatgpt.com` من تطبيق الجوال) — وإلا لسقطت من إحصاء GEO.
+ * اسم محرّك الذكاء لصفّ زيارة (مؤشّر GEO) — من السجل الواحد services/aiEngines.ts الذي يخزّن منه
+ * الإسناد عمود aiEngine، فلا قائمتان متعارضتان. المُحيل أولاً (يسمّي زيارات قديمة خُزّنت referral)،
+ * وإلا عمود aiEngine لزيارة صُنّفت ai_generative بلا مُحيل (مثل `utm_source=chatgpt.com` من الجوال).
  */
-const aiLabelOf = (r: Pick<V, 'referrerHost' | 'channel' | 'aiEngine'>) =>
-  aiEngineOf(r.referrerHost)
-  || (r.channel === 'ai_generative' && r.aiEngine ? AI_ENGINES.find((e) => e.engine === r.aiEngine)?.label || null : null);
+const aiLabelOf = (r: Pick<V, 'referrerHost' | 'referrer' | 'channel' | 'aiEngine'>) => aiEngineLabel(aiEngineOfVisit(r));
+
+/**
+ * «المحرّك × الدولة» من الحقلين المخزّنين أصلاً (المُحيل/aiEngine والدولة) — بلا تغيير في المخطّط.
+ * الدولة الغائبة (زائر رفض القياس أو فشل تحديد الموقع) تبقى null فتُعرض «غير معروفة» لا تختفي.
+ */
+function aiByEngineCountry(aiRows: V[], limit = 200) {
+  const m = new Map<string, { engine: string; country: string | null; countryCode: string | null; count: number }>();
+  for (const r of aiRows) {
+    const engine = aiLabelOf(r);
+    if (!engine) continue;
+    const key = `${engine}|${r.country || ''}`;
+    const e = m.get(key);
+    if (e) e.count++;
+    else m.set(key, { engine, country: r.country || null, countryCode: r.countryCode || null, count: 1 });
+  }
+  return [...m.values()].sort((a, b) => b.count - a.count).slice(0, limit);
+}
 
 // «الزيارات الحية» — عدد المستخدمين المتصلين بالمنصّة الآن عبر كل الشركات (للمالك فقط).
 // «متصل الآن» = آخر ظهور خلال آخر ٥ دقائق. المندوب يُحدَّث lastSeenAt بنبض الحضور
@@ -392,7 +402,7 @@ router.get('/stats', platformGate, async (req: AuthRequest, res: Response, next:
       where: { createdAt: { gte: since }, isBot: false },
       orderBy: { createdAt: 'desc' },
       select: {
-        createdAt: true, path: true, referrerHost: true, country: true, city: true, countryCode: true, ipHash: true, lang: true,
+        createdAt: true, path: true, referrerHost: true, referrer: true, country: true, city: true, countryCode: true, ipHash: true, lang: true,
         channel: true, aiEngine: true, contentType: true,
         utmSource: true, utmMedium: true, utmCampaign: true,
         firstSource: true, firstMedium: true, waRef: true, waClicked: true, anonId: true,
@@ -450,7 +460,8 @@ router.get('/stats', platformGate, async (req: AuthRequest, res: Response, next:
             },
           };
         })(),
-        ai: { total: aiRows.length, byEngine: aiByEngine, byDay: aiByDay },
+        // byEngineCountry حقل إضافي: لوحة أقدم تتجاهله، ولا تغيير في بقية الردّ
+        ai: { total: aiRows.length, byEngine: aiByEngine, byDay: aiByDay, byEngineCountry: aiByEngineCountry(aiRows) },
         recent: rows.slice(0, 60).map((r) => ({
           at: r.createdAt, path: r.path, referrer: r.referrerHost || 'مباشر',
           country: r.country, city: r.city, countryCode: r.countryCode,

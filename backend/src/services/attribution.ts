@@ -1,5 +1,6 @@
 import { randomBytes, createHash, createHmac } from 'crypto';
 import { isIP } from 'net';
+import { AI_ENGINE_IDS, aiEngineOfReferrer, aiEngineOfUtmSource, hostMatches } from './aiEngines';
 /**
  * إسناد الزيارات — تطبيع وسوم الحملة واشتقاق القناة على الخادم.
  *
@@ -19,6 +20,10 @@ const SOURCES = new Set([
   'softwaresuggest', 'techjockey', 'odoo_apps', 'email', 'whatsapp', 'direct',
   // منصّات الحملات الممولة (Meta تُعلن على فيسبوك وإنستغرام معاً)
   'instagram', 'meta',
+  // أسماء محرّكات الذكاء من سجلّها (services/aiEngines.ts) — `utm_source=chat.deepseek.com` يُحفظ
+  // `deepseek` لا `other`. وجود الاسم هنا يحفظه فقط؛ عدّه ذكاءً يقرّره `sources` في السجل
+  // (`utm_source=alice` يُحفظ `alice` ولا يُعدّ ذكاءً، و`alice.yandex.ru` يُعدّ).
+  ...AI_ENGINE_IDS,
 ]);
 
 /** وسائط الحملات المدفوعة — تُحفظ بقيمتها لا `other`، وتُحسم قناتها في `paidChannelOf` */
@@ -47,29 +52,11 @@ const PAID_SOCIAL_SOURCES = new Set([
  */
 const PAID_CLICK_IDS = ['gclid', 'gbraid', 'wbraid', 'gad_source', 'gad_campaignid'] as const;
 
-/** محرّكات الذكاء التوليدي — تُعرف من نطاق المُحيل، أو من `utm_source` حين يغيب المُحيل */
-const AI_ENGINES: Record<string, string> = {
-  'chatgpt.com': 'chatgpt',
-  'chat.openai.com': 'chatgpt',
-  'openai.com': 'chatgpt',
-  'perplexity.ai': 'perplexity',
-  'www.perplexity.ai': 'perplexity',
-  'copilot.microsoft.com': 'copilot',
-  'gemini.google.com': 'gemini',
-  'claude.ai': 'claude',
-};
-
-/** أسماء محرّكات الذكاء المعروفة (chatgpt · perplexity · copilot · gemini · claude) */
-export const AI_ENGINE_IDS: readonly string[] = [...new Set(Object.values(AI_ENGINES))];
-
-/** محرّك الذكاء من نطاق: مطابقة تامّة أو نطاق فرعي لأحد نطاقات `AI_ENGINES` */
-function aiEngineOfHost(host: string): string | null {
-  if (!host) return null;
-  for (const [h, engine] of Object.entries(AI_ENGINES)) {
-    if (host === h || host.endsWith('.' + h)) return engine;
-  }
-  return null;
-}
+/**
+ * محرّكات الذكاء التوليدي — سجلّ واحد في services/aiEngines.ts تقرأ منه لوحة المالك أيضاً.
+ * تُعرف من نطاق المُحيل (أو `host/مسار` حين يصل المسار)، أو من `utm_source` حين يغيب المُحيل.
+ */
+export { AI_ENGINE_IDS };
 
 /**
  * محرّك الذكاء من `utm_source` — نطاقه (`chatgpt.com`) أو اسمه (`perplexity`).
@@ -77,14 +64,24 @@ function aiEngineOfHost(host: string): string | null {
  * لماذا: ChatGPT يضيف `utm_source=chatgpt.com` إلى الروابط التي يقتبسها، وتطبيقات
  * المساعدات على الجوال لا ترسل مُحيلاً. فلو اكتُفي بالمُحيل لصُنّفت الزيارة «مباشرة».
  */
-export function aiEngineOfSource(source: unknown): string | null {
-  const s = clamp(source, 64);
-  if (!s) return null;
-  if (AI_ENGINE_IDS.includes(s)) return s;
-  return aiEngineOfHost(s);
-}
+export const aiEngineOfSource = aiEngineOfUtmSource;
 
+/** بحث بمطابقة جزئية — القائمة الأصلية كما هي، فلا تتغيّر قناة أي مُحيل كان يُعدّ بحثاً */
 const SEARCH_HOSTS = ['google.', 'bing.com', 'duckduckgo.com', 'yandex.', 'search.brave.com', 'ecosia.org'];
+/**
+ * محرّكات بحث مضافة لأسواق العالم — مطابقة تامّة أو نطاق فرعي لا `includes`: `so.com` بالمطابقة
+ * الجزئية تلتقط also.com، و`naver.com` تلتقط blog.naver.com (مجتمع لا بحث)، و`daum.net` تلتقط
+ * cafe.daum.net. لذا نطاق صفحة النتائج نفسها لا النطاق العام.
+ * `ya.ru` بحث Yandex الرئيسي (و`ya.ru/alice` مساعد يحسمه سجلّ الذكاء قبل هذا)؛ `kagi.com` بحث
+ * (Kagi Assistant على `kagi.com/assistant` في السجل).
+ */
+const SEARCH_HOSTS_EXACT = [
+  'ya.ru', 'www.baidu.com', 'm.baidu.com', 'search.naver.com', 'search.daum.net',
+  'www.so.com', 'm.so.com', 'www.sogou.com', 'm.sogou.com', 'search.seznam.cz',
+  'search.yahoo.com', 'search.yahoo.co.jp', 'coccoc.com', 'petalsearch.com', 'kagi.com',
+];
+const isSearchHost = (host: string) =>
+  SEARCH_HOSTS.some((h) => host.includes(h)) || SEARCH_HOSTS_EXACT.some((h) => hostMatches(host, h));
 const SOCIAL_HOSTS = ['facebook.com', 'linkedin.com', 'x.com', 'twitter.com', 't.co', 'instagram.com', 'telegram', 'youtube.com'];
 
 const clamp = (v: unknown, max: number): string | null => {
@@ -108,6 +105,11 @@ export interface AttributionInput {
    */
   utm?: Record<string, unknown> | null;
   referrerHost?: string | null;
+  /**
+   * مسار المُحيل إن وصل كاملاً — اختياري. يميّز مساعداً يشارك نطاقاً عامّاً (`ya.ru/alice` ·
+   * `x.com/i/grok` · `huggingface.co/chat`). الغالب أن يصل الأصل وحده فيُحكم بالنطاق.
+   */
+  referrerPath?: string | null;
   path?: string | null;
 }
 
@@ -122,16 +124,25 @@ export interface AttributionResult {
   contentType: string | null;
 }
 
+/**
+ * بادئة لغة في المسار: رمز بحرفين مع منطقة أو كتابة اختيارية (`/tr/` · `/zh/` · `/pt-br/` ·
+ * `/zh-hans/`) — عامّة كي لا يتكرّر نسيان كل لغة جديدة (كانت en وfr وحدهما فسقطت tr وzh).
+ * مسارا التطبيق ذوا الحرفين (`/ax` السفراء و`/hx`) ليسا لغة.
+ */
+const LANG_PREFIX = String.raw`\/(?!(?:ax|hx)(?:\/|$))[a-z]{2}(?:-[a-z0-9]{2,4})?`;
+const BLOG_RE = new RegExp(String.raw`^(?:${LANG_PREFIX})?\/blog`);
+const LANG_HOME_RE = new RegExp(String.raw`^${LANG_PREFIX}\/?$`);
+
 /** نوع المحتوى من المسار — لقراءة «أي نوع صفحة يولّد المحادثات» */
 export function contentTypeOf(path?: string | null): string | null {
   if (!path) return null;
   const p = String(path).toLowerCase();
-  if (/^\/(en\/|fr\/)?blog/.test(p)) return 'blog';
+  if (BLOG_RE.test(p)) return 'blog';
   if (/(invoice-generator|calculator|\/free)/.test(p)) return 'tool';
   if (/pricing|الأسعار|التسعير/.test(p)) return 'pricing';
   if (/(قطاعات|sectors?)\//.test(p)) return 'sector';
   if (/(مقارنة|compare|vs-)/.test(p)) return 'compare';
-  if (p === '/' || /^\/(en|fr)\/?$/.test(p)) return 'landing';
+  if (p === '/' || LANG_HOME_RE.test(p)) return 'landing';
   return null;
 }
 
@@ -189,7 +200,7 @@ export function resolveAttribution(input: AttributionInput): AttributionResult {
   const u = input.utm || {};
   const host = (input.referrerHost || '').toLowerCase();
 
-  const hostEngine = aiEngineOfHost(host);
+  const hostEngine = aiEngineOfReferrer(host, input.referrerPath);
   const sourceEngine = aiEngineOfSource(u.source);
   const aiEngine = hostEngine || sourceEngine;
 
@@ -206,7 +217,7 @@ export function resolveAttribution(input: AttributionInput): AttributionResult {
   else if (utmMedium && utmMedium !== 'other' && utmMedium !== 'none') channel = utmMedium === 'ai_answer' ? 'ai_generative' : utmMedium;
   else if (sourceEngine) channel = 'ai_generative';
   else if (!host) channel = 'direct';
-  else if (SEARCH_HOSTS.some((h) => host.includes(h))) channel = 'organic';
+  else if (isSearchHost(host)) channel = 'organic';
   else if (SOCIAL_HOSTS.some((h) => host.includes(h))) channel = 'social';
   else channel = 'referral';
 
