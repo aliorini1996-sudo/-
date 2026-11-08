@@ -15,6 +15,8 @@ import ZatcaTabBoundary from '../components/zatca/ZatcaTabBoundary';
 import PrintTabBoundary from '../components/print/PrintTabBoundary';
 import PrintTextsCard from '../components/print/PrintTextsCard';
 import ReturnPolicyCard from '../components/ReturnPolicyCard';
+import VatRateEditor from '../components/VatRateEditor';
+import SupportModal from '../components/SupportModal';
 import { isZatcaPhase2Live } from '../lib/zatcaRegime';
 import { zatcaCollectOn } from '../lib/zatcaRegime';
 import { useAuthStore } from '../store/authStore';
@@ -43,6 +45,8 @@ interface IdentityState { logo: string; primaryColor: string; headerStyle: strin
 interface EinvState { enabled: boolean; env: string; clientId: string; clientSecret: string; activityCode: string; branchCode: string; intermediaryUrl: string }
 /** ما أُرسل في الحفظ — يصير خطّ الأساس بعد نجاحه (ما لم يُعدَّل بعده يأخذ قيمة الخادم عند التحديث، ومنها ما طبّعه).
  * sellerLocked: الرقم الضريبي والسجل والدولة للاطلاع وقت الإرسال ⇒ لا تُرسل (withoutLockedSellerFields). */
+// نموذج بيانات الربط الحكومي الذاتي (ETA/Peppol/TTN) مطفأ: الربط عند الطلب عبر خدمة العملاء حتى يُبنى المحوّل (طلب المالك ٨ نوفمبر ٢٠٢٦)
+const EINVOICE_SELF_SERVICE: boolean = false;
 interface SaveSnapshot { form: CompanyForm; state: IdentityState; einv: EinvState; sellerLocked: boolean }
 
 const PRESET_COLORS = ['#1e3a8a', '#0f766e', '#b91c1c', '#7c3aed', '#b45309', '#0e7490', '#15803d', '#374151'];
@@ -71,6 +75,7 @@ export default function CompanySettingsPage() {
   // بيانات ربط الفوترة الإلكترونية (السرّ لا يُعاد من الخادم — hasSecret يشير إن كان مضبوطاً)
   const [einv, setEinv] = useState<EinvState>({ enabled: false, env: 'preprod', clientId: '', clientSecret: '', activityCode: '', branchCode: '', intermediaryUrl: '' });
   const [hasSecret, setHasSecret] = useState(false);
+  const [showSupport, setShowSupport] = useState(false); // «الربط الحكومي عند الطلب»: طلبٌ لخدمة العملاء
   // تبويب ربط فوترة المرحلة الثانية — يظهر فقط بعلم المالك وللشركة السعودية ولمدير الشركة (ADMIN) وحده (الخادم يفرض الشروط نفسها).
   // جلسة دخول مالك المنصة تحمل دور الحساب الذي دخل به ونطاقه فتعمل كذلك الحساب (قرار المالك 17 سبتمبر 2026)
   const role = useAuthStore(s => s.user?.role);
@@ -243,6 +248,7 @@ export default function CompanySettingsPage() {
       <div className="page-header">
         <h1 className="page-title">{tr('إعدادات الشركة')}</h1>
       </div>
+      {showSupport && <SupportModal onClose={() => setShowSupport(false)} />}
 
       {/* شريط التبويبات: الفوترة الإلكترونية محكومة بـzatcaTabOn وحده، والربط البرمجي بـapiTabOn */}
       {(printTabOn || zatcaTabOn || apiTabOn) && (
@@ -344,10 +350,14 @@ export default function CompanySettingsPage() {
                 {accountingOn && (() => { const c = getCountry(countryCode); return (
                   <p className="text-[11px] text-[#6E6557] mt-1.5 leading-relaxed bg-[#FAF7F0] rounded-lg px-3 py-2 border border-[#E9E1D3]">
                     {tr('العملة')}: <b>{currencyOverride ? (currencyOverride === 'USD' ? '$ (USD)' : '€ (EUR)') : `${c.symbolAr} (${c.currency})`}</b>
-                    {!taxOff && <> · {tr('الضريبة الافتراضية')}: <b>{c.defaultVatPct}%</b><br />
+                    {!taxOff && <> · {tr('الضريبة الافتراضية')}: <b>{countryCode === (data?.countryCode || 'SA') ? (data?.defaultVatPct ?? c.defaultVatPct) : c.defaultVatPct}%</b><br />
                     {tr('الفوترة الإلكترونية')}: <b>{c.einvoiceNoteAr}</b></>}
                   </p>
                 ); })()}
+                {accountingOn && !taxOff && (
+                  <VatRateEditor savedCountry={data?.countryCode || 'SA'} selectedCountry={countryCode}
+                    savedVatPct={Number(data?.defaultVatPct ?? getCountry(data?.countryCode).defaultVatPct)} />
+                )}
               </div>
               {accountingOn && (
               <div>
@@ -503,9 +513,14 @@ export default function CompanySettingsPage() {
                   {tr('نظام ZATCA السعودية يعمل تلقائيا برمز QR على كل فاتورة لا يحتاج بيانات ربط')}
                 </div>
               );
-              if (prov === 'none') return (
-                <div className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 leading-relaxed">
-                  {tr('لا توجد فوترة إلكترونية إلزامية في دولتك حاليا تصدر فواتير عادية بعملة وضريبة دولتك')}
+              // كل دولةٍ غير السعودية (طلب المالك ٨ نوفمبر ٢٠٢٦): النظام يعمل بفواتير عادية بلا ربط، والربط الحكومي عند الطلب عبر خدمة العملاء.
+              // نموذج بيانات الربط أدناه يبقى خلف EINVOICE_SELF_SERVICE حتى يُبنى محوّل الدولة فعلاً
+              if (prov === 'none' || !EINVOICE_SELF_SERVICE) return (
+                <div className="text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 leading-relaxed">
+                  {tr('النظام يعمل في دولتك بفواتير عادية دون ربط حكومي وإذا رغبت بربط فواتيرك مع منصة الفوترة الحكومية في دولتك تواصل مع خدمة العملاء لإتمام الربط')}
+                  <button type="button" onClick={() => setShowSupport(true)} className="mt-2 block font-semibold text-[#E15A30] underline">
+                    {tr('تواصل مع خدمة العملاء')}
+                  </button>
                 </div>
               );
               const provLabel = prov === 'eta' ? 'ETA مصر' : prov === 'peppol' ? 'Peppol الإمارات' : 'TTN تونس';

@@ -394,7 +394,9 @@ test('GENERIC_6D: نفس هيكل SA_6D (الرموز والأنواع والم�
   assert.equal(g.defaultPurchaseTaxKey, 'S14_PURCH');
   assert.equal(standardTaxKey('SALE', 7.5), 'S7_5_SALE');
   assert.equal(genericTemplate('NG').taxes[0].key, 'S7_5_SALE');
-  assert.throws(() => genericTemplate('XX'), RangeError);
+  // 'XX' صارت «دولة أخرى» في السجل (٨ نوفمبر ٢٠٢٦) — الرمز المجهول الآن QQ
+  assert.throws(() => genericTemplate('QQ'), RangeError);
+  assert.equal(genericTemplate('XX').vatPct, 0);
   const s = genericSettings('EG');
   assert.equal(s.templateKey, 'GENERIC_6D');
   assert.equal(s.taxDeadlineRule, 'DAYS_AFTER');

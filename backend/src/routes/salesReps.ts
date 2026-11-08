@@ -29,7 +29,8 @@ export const SHIFT_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const repSchema = z.object({
   name: z.string().min(1),
-  phone: z.string().min(9),
+  // جوال المندوب بأي صيغة دولية (طلب المالك ٨ نوفمبر ٢٠٢٦: فك قيد الرقم السعودي) — أرقام دول كثيرة ٧ أو ٨ خانات
+  phone: z.string().trim().min(6).max(30),
   email: emailSchema,
   username: z.string().min(4),
   password: z.string().optional(), // طول كلمة المرور يُفحص في المعالج لرسالة أوضح

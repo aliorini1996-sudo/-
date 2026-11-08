@@ -421,39 +421,50 @@ const COVERAGE_COUNTRIES: { flag: string; ar: string; en: string; fr: string; tr
   { flag: '🇩🇿', ar: 'الجزائر', en: 'Algeria', fr: 'Algérie', tr: 'Cezayir', zh: '阿尔及利亚' },
   { flag: '🇹🇳', ar: 'تونس', en: 'Tunisia', fr: 'Tunisie', tr: 'Tunus', zh: '突尼斯' },
   { flag: '🇯🇴', ar: 'الأردن', en: 'Jordan', fr: 'Jordanie', tr: 'Ürdün', zh: '约旦' },
+  // تغطية عالمية (طلب المالك ٨ نوفمبر ٢٠٢٦: المنصة لكل دول العالم)
+  { flag: '🇺🇸', ar: 'الولايات المتحدة', en: 'United States', fr: 'États-Unis', tr: 'ABD', zh: '美国' },
+  { flag: '🇬🇧', ar: 'المملكة المتحدة', en: 'United Kingdom', fr: 'Royaume-Uni', tr: 'Birleşik Krallık', zh: '英国' },
+  { flag: '🇩🇪', ar: 'ألمانيا', en: 'Germany', fr: 'Allemagne', tr: 'Almanya', zh: '德国' },
+  { flag: '🇫🇷', ar: 'فرنسا', en: 'France', fr: 'France', tr: 'Fransa', zh: '法国' },
+  { flag: '🇹🇷', ar: 'تركيا', en: 'Türkiye', fr: 'Turquie', tr: 'Türkiye', zh: '土耳其' },
+  { flag: '🇮🇳', ar: 'الهند', en: 'India', fr: 'Inde', tr: 'Hindistan', zh: '印度' },
+  { flag: '🇧🇷', ar: 'البرازيل', en: 'Brazil', fr: 'Brésil', tr: 'Brezilya', zh: '巴西' },
+  { flag: '🇳🇬', ar: 'نيجيريا', en: 'Nigeria', fr: 'Nigeria', tr: 'Nijerya', zh: '尼日利亚' },
+  { flag: '🇮🇩', ar: 'إندونيسيا', en: 'Indonesia', fr: 'Indonésie', tr: 'Endonezya', zh: '印度尼西亚' },
+  { flag: '🌍', ar: 'وجميع دول العالم', en: 'and every other country', fr: 'et tous les autres pays', tr: 've diğer tüm ülkeler', zh: '以及全球所有其他国家' },
 ];
 
 function coverageSection(lang: Lang): string {
   const t = {
     ar: {
-      eyebrow: 'تغطية إقليمية',
-      title: 'يخدم شركات التوزيع في العالم العربي',
-      sub: 'من السعودية إلى مصر ودول الخليج والمغرب العربي عملة كل دولة وضريبتها وصيغة فاتورتها بالعربية والإنجليزية والفرنسية',
-      note: 'متوافق مع أنظمة الفوترة الإلكترونية والضريبة في كل سوق ZATCA السعودية مع تطبيق عملة كل دولة ونسبة ضريبتها تلقائيا',
+      eyebrow: 'تغطية عالمية',
+      title: 'يخدم شركات التوزيع في جميع دول العالم',
+      sub: 'اختر دولتك وعملتها وحدد نسبة ضريبتها بنفسك وأصدر فواتيرك بالعربية والإنجليزية والفرنسية والتركية والصينية والدعم الفني متواجد لكل الدول بلا استثناء',
+      note: 'في السعودية فواتير ZATCA بالمرحلتين وفي بقية الدول يعمل النظام بفواتير عادية بعملة دولتك وضريبتها والربط مع منصة الفوترة الحكومية في دولتك عند الطلب عبر خدمة العملاء',
     },
     en: {
-      eyebrow: 'Regional coverage',
-      title: 'Built for distribution companies across the Arab world',
-      sub: 'From Saudi Arabia to Egypt the Gulf and the Maghreb each country s currency tax and invoice format in Arabic English and French',
-      note: 'Compliant with each market s e-invoicing and tax systems ZATCA Saudi Arabia with each country s currency and VAT applied automatically',
+      eyebrow: 'Global coverage',
+      title: 'Built for distribution companies in every country',
+      sub: 'Choose your country and currency set your own tax rate and issue invoices in Arabic English French Turkish and Chinese with technical support for every country without exception',
+      note: 'ZATCA invoices in Saudi Arabia and in every other country the system runs on standard invoices in your currency and tax rate with government e-invoicing connection available on request through customer support',
     },
     fr: {
-      eyebrow: 'Couverture régionale',
-      title: 'Conçu pour les entreprises de distribution du monde arabe',
-      sub: 'De l Arabie saoudite à l Égypte au Golfe et au Maghreb la devise la taxe et le format de facture de chaque pays en arabe anglais et français',
-      note: 'Conforme aux systèmes de facturation électronique et de taxe de chaque marché ZATCA Arabie saoudite avec la devise et la TVA de chaque pays appliquées automatiquement',
+      eyebrow: 'Couverture mondiale',
+      title: 'Conçu pour les entreprises de distribution de tous les pays',
+      sub: 'Choisissez votre pays et votre devise fixez vous même votre taux de taxe et émettez vos factures en arabe anglais français turc et chinois avec un support technique pour tous les pays sans exception',
+      note: 'Factures ZATCA en Arabie saoudite et dans tous les autres pays le système fonctionne avec des factures standard dans votre devise et votre taux de taxe la connexion à la plateforme de facturation gouvernementale se fait sur demande auprès du service client',
     },
     tr: {
-      eyebrow: 'Bölgesel kapsam',
-      title: 'Arap dünyasındaki dağıtım şirketleri için tasarlandı',
-      sub: 'Suudi Arabistan dan Mısır a Körfez den Mağrip e her ülkenin para birimi vergisi ve fatura formatı Arapça İngilizce ve Fransızca',
-      note: 'Her pazarın e-fatura ve vergi sistemleriyle uyumlu ZATCA Suudi Arabistan her ülkenin para birimi ve KDV oranı otomatik uygulanır',
+      eyebrow: 'Küresel kapsam',
+      title: 'Tüm ülkelerdeki dağıtım şirketleri için tasarlandı',
+      sub: 'Ülkenizi ve para biriminizi seçin vergi oranınızı kendiniz belirleyin faturalarınızı Arapça İngilizce Fransızca Türkçe ve Çince kesin istisnasız tüm ülkeler için teknik destek',
+      note: 'Suudi Arabistan da ZATCA faturaları diğer tüm ülkelerde sistem para biriminiz ve vergi oranınızla standart faturalarla çalışır devlet e-fatura platformu bağlantısı müşteri hizmetleri üzerinden talep üzerine yapılır',
     },
     zh: {
-      eyebrow: '区域覆盖',
-      title: '为阿拉伯世界的分销企业而生',
-      sub: '从沙特到埃及 从海湾到马格里布 每个国家的货币 税率与发票格式 支持阿拉伯语 英语和法语',
-      note: '符合各市场的电子发票与税务体系 沙特 ZATCA 每个国家的货币与增值税率自动适用',
+      eyebrow: '全球覆盖',
+      title: '为全球所有国家的分销企业而生',
+      sub: '选择您的国家和货币 自行设定税率 以阿拉伯语 英语 法语 土耳其语和中文开具发票 技术支持覆盖所有国家 无一例外',
+      note: '沙特使用 ZATCA 发票 其他所有国家使用您本国货币和税率的标准发票 如需对接政府电子发票平台 可通过客服按需办理',
     },
   }[lang];
   const pills = COVERAGE_COUNTRIES.map((c) =>
@@ -473,7 +484,30 @@ function coverageSection(lang: Lang): string {
   </section>`;
 }
 
-// يحقن قسم تغطية العالم العربي قبل قسم «طلب عرض سعر»
+// ---- شريط «يخدم جميع دول العالم» أعلى الصفحة (طلب المالك ٨ نوفمبر ٢٠٢٦: كتابة وتوضيح قويّ بأعلى الصفحة الرئيسية) ----
+function worldBanner(lang: Lang): string {
+  const t = {
+    ar: { title: 'يخدم جميع دول العالم', sub: 'بعملة دولتك وضريبتها ولغتك والدعم الفني متواجد لكل الدول بلا استثناء' },
+    en: { title: 'Serving every country in the world', sub: 'Your country s currency tax and language with technical support for every country without exception' },
+    fr: { title: 'Au service de tous les pays du monde', sub: 'La devise la taxe et la langue de votre pays avec un support technique pour tous les pays sans exception' },
+    tr: { title: 'Dünyanın tüm ülkelerine hizmet veriyor', sub: 'Ülkenizin para birimi vergisi ve dili ile istisnasız tüm ülkeler için teknik destek' },
+    zh: { title: '服务全球所有国家', sub: '使用您本国的货币 税率和语言 技术支持覆盖所有国家 无一例外' },
+  }[lang];
+  return `<div data-world-banner="" style="background:#1F1A13; color:#fff;">
+    <div style="max-width:1200px; margin:0 auto; padding:16px 28px; display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; text-align:center;">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="flex-shrink:0;"><circle cx="12" cy="12" r="9.5" stroke="#E15A30" stroke-width="1.8"></circle><path d="M2.5 12h19M12 2.5c2.6 2.8 3.9 6 3.9 9.5S14.6 18.7 12 21.5M12 2.5C9.4 5.3 8.1 8.5 8.1 12s1.3 6.7 3.9 9.5" stroke="#E15A30" stroke-width="1.8" stroke-linecap="round"></path></svg>
+      <strong style="font-size:22px; line-height:1.3; font-weight:700; letter-spacing:-0.3px;">${t.title}</strong>
+      <span style="font-size:15.5px; line-height:1.5; color:#E9E1D3;">${t.sub}</span>
+    </div>
+  </div>`;
+}
+
+function injectWorldBanner(html: string, lang: Lang): string {
+  const anchor = '<!-- ============ HERO ============ -->';
+  return html.replace(anchor, `${anchor}\n  ${worldBanner(lang)}`);
+}
+
+// يحقن قسم التغطية العالمية قبل قسم «طلب عرض سعر»
 function injectCoverage(html: string, lang: Lang): string {
   const anchor = '<!-- ============ PRICING ============ -->';
   return html.replace(anchor, `${coverageSection(lang)}\n  ${anchor}`);
@@ -839,6 +873,7 @@ export default function LandingPage() {
     html = applyContent(TEMPLATE, arContent, 'ar');
   }
   html = injectLangSwitcher(html, lang);
+  html = injectWorldBanner(html, lang);
   html = injectCoverage(html, lang);
   // «طلب عرض سعر» ومربع «للتواصل وطلبات الاشتراك» — بياناتهما من CMS العربي (المصدر الواحد) وتُعرض بكل اللغات
   html = injectQuote(html, (arContent.contact as ContactInfo) || {}, lang);

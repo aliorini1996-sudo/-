@@ -205,7 +205,8 @@ export default function InfoPage({ pageKey }: { pageKey: PageKey }) {
   // القاعدة نفسها في scripts/prerender.mjs (loadPrivacyHtml).
   const cmsPage = (data as typeof defaultContent | null | undefined)?.pages?.[pageKey];
   const defPage = defaultContent.pages[pageKey];
-  const arPage = pageKey !== 'privacy' && cmsPage && (cmsPage.body?.length || 0) > (defPage.body?.length || 0) ? cmsPage : defPage;
+  // والشروط كذلك منذ ٨ نوفمبر ٢٠٢٦: نسخة CMS (يوليو) هي الوثيقة نفسها بعلامات ترقيم فتطول، فكانت تحجب قسم «الاستخدام الدولي» الجديد
+  const arPage = pageKey !== 'privacy' && pageKey !== 'terms' && cmsPage && (cmsPage.body?.length || 0) > (defPage.body?.length || 0) ? cmsPage : defPage;
   const page = lang === 'en' ? defaultContentEn.pages[pageKey]
     : lang === 'fr' ? defaultContentFr.pages[pageKey]
     : lang === 'tr' ? defaultContentTr.pages[pageKey]

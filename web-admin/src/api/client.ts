@@ -313,6 +313,8 @@ export const authApi = {
 export const companyApi = {
   get: () => api.get('/company'),
   update: (data: unknown) => api.put('/company', data),
+  // «محرّر الضريبة» (طلب المالك ٨ نوفمبر ٢٠٢٦): نسبة ضريبة دولة المشترك خارج السعودية — مسارٌ مستقلّ يُحفظ فوراً (السعودية 409 VAT_RATE_FIXED)
+  vatRate: (data: { defaultVatPct: number; applyToProducts?: boolean }) => api.patch('/company/vat-rate', data),
   // «إعدادات الطباعة» — /api/company/print-settings: القراءة لكل مسجّل (data خام تُقرأ عبر normalizePrintSettings)، والحفظ
   // بصلاحية إعدادات الشركة (409 COMPANY_SETTINGS_MISSING بلا صفّ إعدادات) — مسارٌ مستقلّ لا حقلٌ في update أعلاه.
   // null = «استعادة الافتراضي»: يُرسل { reset: true } (express.json الصارم يرفض null الخام) فيُكتب العمود null حرفياً

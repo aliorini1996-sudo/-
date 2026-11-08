@@ -93,7 +93,7 @@ export default function BuyerDataFields({ values, onChange, stored, include = 'p
           <label className="label">{tr(BUYER_FIELD_LABELS_AR.countryCode)}</label>
           <select className="input" value={values.countryCode ?? ''} disabled={isLocked('countryCode')} onChange={e => onChange('countryCode', e.target.value)}>
             <option value="">{tr('السعودية افتراضي')}</option>
-            {supportedCountries().map(c => (
+            {supportedCountries().filter(c => c.code !== 'XX').map(c => (
               <option key={c.code} value={c.code}>{lang === 'ar' ? c.nameAr : c.nameEn}</option>
             ))}
             {values.countryCode && !supportedCountries().some(c => c.code === values.countryCode) && (

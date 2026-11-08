@@ -102,6 +102,35 @@ async function staffChangesPhone(tid: string, phone: string | null | undefined):
   return (phone ?? '').trim() !== (cur?.phone ?? '').trim();
 }
 
+// «محرّر الضريبة» (طلب المالك ٨ نوفمبر ٢٠٢٦): المشترك خارج السعودية يحدّد نسبة ضريبة دولته بنفسه، وتصير نسبة كل صنف جديد.
+// applyToProducts: الأصناف التي على النسبة السابقة تنتقل إلى الجديدة (المعفاة وذات النسب الأخرى تبقى). السعودية (ZATCA) ثابتة 409
+const vatRateSchema = z.object({
+  defaultVatPct: z.number().finite().min(0).max(100),
+  applyToProducts: z.boolean().optional(),
+});
+router.patch('/vat-rate', requireAdmin, requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const body = vatRateSchema.parse(req.body);
+    const pct = Math.round(body.defaultVatPct * 100) / 100;
+    const out = await prisma.$transaction(async (tx) => {
+      const cur = await tx.companySettings.findUnique({ where: { tenantId: tid }, select: { countryCode: true, defaultVatPct: true, einvoiceProvider: true } });
+      if (!cur) return { code: 'NO_SETTINGS' as const };
+      if (getCountryTax(cur.countryCode).provider === 'zatca' || cur.einvoiceProvider === 'zatca') return { code: 'VAT_RATE_FIXED' as const };
+      const old = cur.defaultVatPct;
+      await tx.companySettings.update({ where: { tenantId: tid }, data: { defaultVatPct: pct } });
+      let productsUpdated = 0;
+      if (body.applyToProducts === true && old !== pct) {
+        productsUpdated = (await tx.product.updateMany({ where: { tenantId: tid, taxPct: old }, data: { taxPct: pct } })).count;
+      }
+      return { code: 'OK' as const, old, productsUpdated };
+    });
+    if (out.code === 'NO_SETTINGS') { res.status(404).json({ success: false, code: 'NO_SETTINGS', message: 'احفظ بيانات الشركة أولاً' }); return; }
+    if (out.code === 'VAT_RATE_FIXED') { res.status(409).json({ success: false, code: 'VAT_RATE_FIXED', message: 'نسبة الضريبة في السعودية ثابتة وفق ZATCA' }); return; }
+    res.json({ success: true, data: { defaultVatPct: pct, previousVatPct: out.old, productsUpdated: out.productsUpdated } });
+  } catch (err) { next(err); }
+});
+
 // التعديل للإدارة فقط — ضمن شركة المستخدم
 router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -168,6 +197,9 @@ router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings')
     // القيمة تؤخذ من الطلب إن أُرسلت، وإلا من المحفوظ — كي لا يمحو حفظٌ عاديّ تجاوزاً قائماً.
     {
       const existing = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { currencyOverride: true, countryCode: true, currency: true, einvoiceProvider: true, zatcaPhase2StartedAt: true } });
+      // «محرّر الضريبة» (طلب المالك ٨ نوفمبر ٢٠٢٦): حفظٌ بالدولة نفسها لا يمحو النسبة التي حدّدها المشترك (PATCH /company/vat-rate) —
+      // تعود لافتراضي الدولة عند تغيير الدولة وحده، والسعودية (ZATCA) على نسبة الدولة دائماً
+      if (data.countryCode && existing && existing.countryCode === clean.countryCode && clean.einvoiceProvider !== 'zatca') delete clean.defaultVatPct;
       const sent = 'currencyOverride' in (req.body ?? {});
       const override = sent ? (data.currencyOverride || null) : (existing?.currencyOverride ?? null);
       clean.currencyOverride = override;

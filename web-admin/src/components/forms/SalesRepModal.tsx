@@ -158,7 +158,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
               </div>
               <div>
                 <label className="label">{tr('الجوال')} *</label>
-                <input className="input" dir="ltr" {...register('phone', { required: tr('مطلوب'), minLength: { value: 9, message: tr('رقم غير صحيح') } })} />
+                <input className="input" dir="ltr" placeholder="+971 50 123 4567" {...register('phone', { required: tr('مطلوب'), minLength: { value: 6, message: tr('رقم غير صحيح') } })} />
                 {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone.message}</p>}
               </div>
               <div>
