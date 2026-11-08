@@ -948,7 +948,8 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     }
     // S4 (D4): اسمٌ يطابق صنفاً للشركة — قائماً أو موقوفاً أو مؤرشفاً — تحذيرٌ في الردّ لا رفض، فلا ينكسر مفتاح API ولا تكامل
     const nameWarn = duplicateNameWarnings(await duplicateNameMatches(prisma, tid, data.name));
-    const withNameWarn = <T extends object>(body: T) => (nameWarn.length ? { ...body, warnings: nameWarn } : body);
+    const extraWarn: Array<{ code: 'CATEGORY_NOT_FOUND'; message: string; categoryId: string }> = [];
+    const withNameWarn = <T extends object>(body: T) => (nameWarn.length || extraWarn.length ? { ...body, warnings: [...nameWarn, ...extraWarn] } : body);
     const lifeProblem = shelfLifeProblem(data) ?? returnRuleConfigProblem(data);
     if (lifeProblem) { res.status(400).json({ success: false, message: lifeProblem }); return; }
     // «قيود المندوب»: الصنف الجديد بلا وحدات بعد، فلا «كبرى فقط» عند إنشائه — إلا الإنشاء العكسي فوحداته معه (D10)
@@ -962,7 +963,13 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     // فوترة ZATCA (Z5.1a): الفئة الضريبية للشركة الجامعة وحدها — لا تُقرأ البوابة إلا إن حمل الجسم حقلاً منها
     const vatGate = await applyProductVatGate(prisma, req.body, tid, { productId: null, taxPct: data.taxPct });
     if (!vatGate.ok) { res.status(vatGate.status).json(vatGate.body); return; }
-    if (!(await categoryOwned(tid, data.categoryId))) { res.status(400).json({ success: false, message: 'التصنيف غير موجود' }); return; }
+    if (!(await categoryOwned(tid, data.categoryId))) {
+      // الربط البرمجي (مفتاح API): تصنيفٌ لم يعد موجوداً لا يرفض الصنف — يُنشأ بلا تصنيف مع تحذير CATEGORY_NOT_FOUND (طلب المالك
+      // ٨ نوفمبر ٢٠٢٦: موصل «مروج» يحمل أرقام تصنيفات محذوفة فكانت أصنافه تُرفض 400 كل دورة). اللوحة والجوال كما كانا: 400
+      if (!req.user?.apiKeyId) { res.status(400).json({ success: false, message: 'التصنيف غير موجود' }); return; }
+      extraWarn.push({ code: 'CATEGORY_NOT_FOUND', message: 'التصنيف غير موجود فحُفظ الصنف بلا تصنيف', categoryId: String(data.categoryId) });
+      data.categoryId = null;
+    }
     // «تتبّع اللوط» (§٤.٢): صنفٌ يُنشأ متتبَّعاً يلزمه علم الشركة، وتبدأ حقبته لحظة إنشائه، وTRACKING_ON في معاملة الإنشاء نفسها.
     // صنفٌ جديد لا عملية لوطٍ عليه قبل التزامه فلا قفل ولا طابور. والجسم بلا العلم (أو بـfalse) ⇒ الإنشاء كما كان حرفياً
     const lot = productLotSchema.parse(req.body);
@@ -1053,7 +1060,8 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     // S4 (D4): إعادة تسمية الصنف باسم صنفٍ آخر للشركة (قائمٍ أو موقوفٍ أو مؤرشف) — تحذيرٌ في الردّ لا رفض
     const renamed = data.name !== undefined && productNameKey(data.name) !== productNameKey(exists.name);
     const nameWarn = renamed ? duplicateNameWarnings(await duplicateNameMatches(prisma, tid, data.name, exists.id)) : [];
-    const withNameWarn = <T extends object>(body: T) => (nameWarn.length ? { ...body, warnings: nameWarn } : body);
+    const extraWarn: Array<{ code: 'CATEGORY_NOT_FOUND'; message: string; categoryId: string }> = [];
+    const withNameWarn = <T extends object>(body: T) => (nameWarn.length || extraWarn.length ? { ...body, warnings: [...nameWarn, ...extraWarn] } : body);
     const updateData: Record<string, unknown> = { ...data };
     for (const k of REP_RULE_KEYS) delete updateData[k];
     Object.assign(updateData, repRules.write);
@@ -1061,7 +1069,12 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     // taxPct الفارغ (حقل مُسح او null من النموذج) يعني «بلا تغيير» لا تصفير النسبة
     if (updateData.taxPct == null) delete updateData.taxPct;
     if ('categoryId' in updateData) updateData.categoryId = updateData.categoryId || null;
-    if (!(await categoryOwned(tid, updateData.categoryId as string | null | undefined))) { res.status(400).json({ success: false, message: 'التصنيف غير موجود' }); return; }
+    if (!(await categoryOwned(tid, updateData.categoryId as string | null | undefined))) {
+      // الربط البرمجي: تصنيفٌ غير موجود ⇒ يبقى تصنيف الصنف المحفوظ كما هو مع تحذير، لا رفض (انظر POST أعلاه)
+      if (!req.user?.apiKeyId) { res.status(400).json({ success: false, message: 'التصنيف غير موجود' }); return; }
+      extraWarn.push({ code: 'CATEGORY_NOT_FOUND', message: 'التصنيف غير موجود فبقي تصنيف الصنف كما هو', categoryId: String(updateData.categoryId) });
+      delete updateData.categoryId;
+    }
     if ('image' in updateData) updateData.image = updateData.image || null;
     if ('itemCode' in updateData) updateData.itemCode = updateData.itemCode || null;
     if ('unitCode' in updateData) updateData.unitCode = updateData.unitCode || null;

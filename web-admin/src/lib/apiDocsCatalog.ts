@@ -1110,7 +1110,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "basePrice صافٍ قبل الضريبة — الفواتير ذات pricesIncludeTax=true تحوّل السعر الشامل إلى صافٍ للمقارنة",
      "فحص الصلاحية: إن كان shelfLifeEnabled=true بلا وحدة صحيحة أو بمدة غير صحيحة أو تتجاوز الحد، أو بأساس PURCHASE بلا shelfLifeFromDate ⇒ 400. وقيد المرتجع (returnRuleEnabled) بلا صلاحية مفعّلة أو بوضع أو حدّ غير صحيح ⇒ 400 برسالة عربية",
      "حقول ZATCA الثلاثة ليست في مخطط zod بل تُقرأ من الجسم الخام وتُقص مسافاتها والنص الفارغ = null",
-     "categoryId يجب أن يكون تصنيفاً من الشركة نفسها (GET /products/categories)، وإلا 400 {success:false, message:'التصنيف غير موجود'} — وكذلك في PUT /products/:id",
+     "categoryId يجب أن يكون تصنيفاً من الشركة نفسها (GET /products/categories). ومن مفتاح API (منذ ٨ نوفمبر ٢٠٢٦): التصنيف غير الموجود لا يرفض الطلب — POST يُنشئ الصنف بلا تصنيف، وPUT يُبقي تصنيفه المحفوظ، ويعود في الردّ warnings: [{code:'CATEGORY_NOT_FOUND', message, categoryId}]؛ فطابق تصنيفاتك من GET /v1/sync/categories. ومن لوحة التحكم يبقى 400 {success:false, message:'التصنيف غير موجود'}",
      "لا يُنشأ مخزون ولا قيود عند إنشاء الصنف",
      "«قيود المندوب» (repSaleAllowed وrepReturnAllowed وrepSaleUnit وrepReturnUnit): تحكم ما يفعله دور المندوب وحده بالصنف في POST /invoices (بيعاً ومرتجعاً بمرحلتيه) وفي الإشعار الدائن — المفتاح ومستخدمو الشركة لا تمسّهم. LARGE يلزمه وحدة كبرى نشطة وإلا 400 REP_UNIT_RULE_INVALID، ويُقبل عند الإنشاء مع units وprimaryUnitName في الطلب نفسه، أما الإنشاء بلا وحدات فيرفضه (أضف وحداته أولاً ثم عدّله)",
      "لبيعه بالكرتون أيضاً أضف بعد الإنشاء وحدة: POST /products/:id/units بالجسم {\"name\":\"كرتون\",\"factor\":40,\"price\":13.04}، أو أرسلها هنا في units مع primaryUnitName لتعريفه بالكرتون",
