@@ -222,7 +222,7 @@ const JSONLD = (lang: Lang) => ({
       operatingSystem: 'Web',
       offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
       featureList: lang === 'en'
-        ? 'ZATCA-compliant QR code, PDF download, bilingual invoice, 50 countries VAT presets (all Arab markets + more), simplified & standard tax invoices'
+        ? 'ZATCA-compliant QR code, PDF download, bilingual invoice, 50 countries VAT presets, simplified & standard tax invoices'
         : 'رمز QR متوافق مع ZATCA تحميل PDF فاتورة ثنائية اللغة ضرائب 50 دولة كل الدول العربية وأسواق أخرى فاتورة ضريبية ومبسطة',
       publisher: { '@type': 'Organization', name: 'FieldSales', url: 'https://fieldsa.net' },
       inLanguage: lang,

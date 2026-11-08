@@ -94,7 +94,7 @@ export const CLUSTERS = {
       landing: { href: '/blog/distribution-companies-management-system/', anchor: 'نظام إدارة شركات التوزيع' },
       feature: { href: featureHref('فوترة-بدون-إنترنت'), anchor: 'برنامج فواتير يعمل بدون إنترنت' },
     },
-    en: { landing: { href: '/en/blog/distribution-management-system/', anchor: 'Distribution management system for Arab markets' } },
+    en: { landing: { href: '/en/blog/distribution-management-system/', anchor: 'Distribution management system for distributors worldwide' } },
   },
   invoicing: {
     ar: {

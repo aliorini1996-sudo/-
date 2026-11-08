@@ -259,8 +259,8 @@ test('أسماء منافسي الأسواق العالمية في القاعد�
   }
 });
 
-test('حصر الاستهداف في «الأسواق العربية»: يُكشف في رأس الصفحات غير العربية ومقصور عليها، والمقالات الجامعة مستثناة', () => {
-  const rule = RULES.find((r) => r.id === 'arab-only-targeting')! as typeof RULES[number] & { paths: RegExp; exceptPaths: RegExp };
+test('حصر الاستهداف في «الأسواق العربية»: يُكشف في رأس الصفحات غير العربية ومقالاتها، ومقصور عليها', () => {
+  const rule = RULES.find((r) => r.id === 'arab-only-targeting')! as typeof RULES[number] & { paths: RegExp; exceptPaths?: RegExp };
   assert.equal(rule.scope, 'head', 'العنوان والوصف وH1 لا المتن');
   for (const t of ['Field Sales & Distribution Management Software for Arab Markets', 'pour les marchés arabes', 'dans le monde arabe',
     'Arap pazarları için', 'Arap dünyasındaki dağıtımcılar', '面向阿拉伯市场', '阿拉伯世界', 'across the Arab world']) {
@@ -269,10 +269,11 @@ test('حصر الاستهداف في «الأسواق العربية»: يُكش
   for (const t of ['Saudi Arabia', 'Arabie saoudite', 'Arabic-first', 'Arab countries', 'Arapça', '阿拉伯语', 'Arab League']) {
     assert.equal(findViolation(rule, t), null, `إنذار كاذب: «${t}»`);
   }
-  for (const p of ['en/index.html', 'fr\\about\\index.html', 'tr/index.html', 'zh/meeting/index.html', 'en/blog/index.html']) assert.ok(rule.paths.test(p) && !rule.exceptPaths.test(p), p);
+  for (const p of ['en/index.html', 'fr\\about\\index.html', 'tr/index.html', 'zh/meeting/index.html', 'en/blog/index.html']) assert.ok(rule.paths.test(p), p);
   for (const p of ['index.html', 'about/index.html', 'meeting/index.html']) assert.ok(!rule.paths.test(p), `صفحة عربية في نطاق القاعدة: ${p}`);
-  for (const p of ['en/blog/field-sales-software/index.html', 'fr\\blog\\van-sales-app\\index.html']) assert.ok(rule.exceptPaths.test(p), p);
-  // gen-llms يستثني نطاق head: عناوين المقالات الجامعة («…in Arab markets») في llms.txt وصف صادق لموضوعها
+  // منذ ٨ نوفمبر (طلب المالك «صحّح العناوين») المقالات داخلة في القاعدة: لاحقة REGION صارت «worldwide / partout dans le monde»
+  assert.equal(rule.exceptPaths, undefined, 'لا استثناء للمقالات');
+  for (const p of ['en/blog/field-sales-software/index.html', 'fr\\blog\\van-sales-app\\index.html']) assert.ok(rule.paths.test(p), p);
   assert.ok(RULES.filter((r) => r.scope !== 'head').every((r) => r.id !== 'arab-only-targeting'));
 });
 

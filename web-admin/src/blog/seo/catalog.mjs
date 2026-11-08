@@ -46,7 +46,7 @@ export const COUNTRIES = [
 ];
 
 // دولة وهمية للمقالات العامة (غير المرتبطة بدولة) — تبسّط بُناة الأقسام
-const REGION = { code: 'REGION', ar: 'الأسواق العربية', en: 'Arab markets', fr: 'les marchés arabes', inAr: 'في الأسواق العربية', inEn: 'in Arab markets', inFr: 'sur les marchés arabes', cap: { ar: 'المنطقة', en: 'the region', fr: 'la région' }, cities: [{ ar: 'الرياض', en: 'Riyadh', fr: 'Riyad' }, { ar: 'القاهرة', en: 'Cairo', fr: 'Le Caire' }], cur: { ar: 'العملة المحلية', en: 'the local currency', fr: 'la monnaie locale' }, vat: null, tax: { ar: 'الجهة الضريبية المحلية', en: 'the local tax authority', fr: "l'autorité fiscale locale" }, einv: { ar: 'تتجه دول عربية عدة نحو الفوترة الإلكترونية الإلزامية', en: 'several Arab countries are moving to mandatory e-invoicing', fr: 'plusieurs pays arabes adoptent la facturation électronique obligatoire' } };
+const REGION = { code: 'REGION', ar: 'الأسواق العربية', en: 'worldwide', fr: 'international', inAr: 'في الأسواق العربية', inEn: 'worldwide', inFr: 'partout dans le monde', cap: { ar: 'المنطقة', en: 'your capital', fr: 'votre capitale' }, cities: [{ ar: 'الرياض', en: 'Lagos', fr: 'Casablanca' }, { ar: 'القاهرة', en: 'Jakarta', fr: 'Abidjan' }], cur: { ar: 'العملة المحلية', en: 'the local currency', fr: 'la monnaie locale' }, vat: null, tax: { ar: 'الجهة الضريبية المحلية', en: 'the local tax authority', fr: "l'autorité fiscale locale" }, einv: { ar: 'تتجه دول عربية عدة نحو الفوترة الإلكترونية الإلزامية', en: 'more and more countries are moving to mandatory e-invoicing', fr: 'de plus en plus de pays adoptent la facturation électronique obligatoire' } };
 
 // ----------------------------------------------------------------------------
 // روابط داخلية ودعوات لاتخاذ إجراء (تحسّن الربط الداخلي وتقلّل «صفحات العبور»)
@@ -197,9 +197,14 @@ const faqData = (c, L, topicId) => {
   // جواب «هل يصدر فواتير متوافقة ضريبيا»: للسعودية وحدها تتصدّره جملة الربط، فتبتعد عن نسبة الضريبة وعن
   // سؤال التجربة التالي («خلال دقائق») — نافذة حارس الموعد/الرقم في scripts/claims-rules.mjs (٨٠ قبل و١٢٠ بعد).
   const vatA = P(L,
-    `يصدر فاتورة ضريبية منظمة تناسب متطلبات ${c.tax.ar} (ضريبة ${c.vat}٪) مع رمز QR وطباعة حرارية`,
-    `issues a structured tax invoice aligned with ${c.tax.en} (VAT ${c.vat}%), with a QR code and thermal printing.`,
-    `émet une facture structurée conforme à ${c.tax.fr} (TVA ${c.vat} %), avec code QR et impression thermique.`);
+    `يصدر فاتورة ضريبية منظمة (ضريبة ${c.vat}٪) مع رمز QR وطباعة حرارية`,
+    `issues a structured tax invoice (VAT ${c.vat}%), with a QR code and thermal printing.`,
+    `émet une facture structurée (TVA ${c.vat} %), avec code QR et impression thermique.`);
+  // خارج السعودية: لا «نعم» على سؤال التوافق ولا ربط حكومي قائم — الفاتورة المنظمة حقيقة، والربط بمنظومة الجهة عند الطلب
+  const vatAbroad = P(L,
+    `يصدر النظام فاتورة ضريبية منظمة (ضريبة ${c.vat}٪) مع رمز QR وطباعة حرارية أما الربط المباشر بمنظومة ${c.tax.ar} للفوترة الإلكترونية فمتاح عند الطلب وراجع المتطلبات السارية مع مستشارك الضريبي`,
+    `It issues a structured tax invoice (VAT ${c.vat}%) with a QR code and thermal printing. Direct integration with the e-invoicing system of ${c.tax.en} is available on request — confirm current requirements with a local tax advisor.`,
+    `Il émet une facture structurée (TVA ${c.vat} %) avec code QR et impression thermique. L’intégration directe au système de facturation électronique de ${c.tax.fr} est disponible sur demande — vérifiez les exigences en vigueur auprès d’un conseiller local.`);
   const taxA = c.vat == null
     ? P(L, `نعم فالنظام يصدر فواتير وكشوف حساب منظمة برمز QR وطباعة حرارية ويتكيف مع المتطلبات المحلية ${c.inAr}.`,
         `Yes, it issues structured invoices and statements with a QR code and thermal printing, adapting to local rules ${c.inEn}.`,
@@ -208,7 +213,7 @@ const faqData = (c, L, topicId) => {
       ? P(L, `نعم فنحن ندعم ربط المرحلة الثانية مع منصة فاتورة للشركات التي تفعله والنظام ${vatA}`,
           `Yes. We support Phase 2 integration with ZATCA’s Fatoora platform for companies that enable it, and the system ${vatA}`,
           `Oui. Nous prenons en charge l’intégration de la phase 2 avec la plateforme Fatoora pour les entreprises qui l’activent, et le système ${vatA}`)
-      : P(L, `نعم فالنظام ${vatA}`, `Yes, it ${vatA}`, `Oui, il ${vatA}`);
+      : vatAbroad;
   // أسئلة الضربة أولاً: تطابق استعلاماً حقيقياً، وتتصدّر كتلة FAQ فتراها محرّكات AI أوّلاً.
   const strike = (topicId && STRIKE_FAQ[topicId]) ? STRIKE_FAQ[topicId](c, L) : [];
   return [
@@ -818,10 +823,10 @@ const S = {
       return P(L,
         `<h2>البيئة التنظيمية للتوزيع ${c.inAr}</h2>
      <p>تعمل شركات التوزيع ${c.inAr} ضمن إطار ${c.tax.ar} تبلغ ضريبة القيمة المضافة ${c.vat}٪ و${c.einv.ar} عمليا يعني ذلك أن كل فاتورة تصدر من الميدان يجب أن تكون منظمة وقابلة للتحقق لا ورقة مكتوبة بخط اليد${dAr}</p>
-     <p>تصدر منصة FieldSales فاتورة منظمة برمز QR وطباعة حرارية بعملة ${c.cur.ar} وتضبط التحصيل وكشوف الحساب وحدود الائتمان سواء عمل فريقك في ${cityJoin} أو المدن الأصغر هكذا يلتزم مندوبك بمتطلبات ${c.tax.ar} من أول زيارة ويبقى سجلك جاهزا للمراجعة </p>`,
+     <p>تصدر منصة FieldSales فاتورة منظمة برمز QR وطباعة حرارية بعملة ${c.cur.ar} وتضبط التحصيل وكشوف الحساب وحدود الائتمان سواء عمل فريقك في ${cityJoin} أو المدن الأصغر ويبقى سجلك منظما جاهزا للمراجعة من أول زيارة </p>`,
         `<h2>The regulatory environment for distribution ${c.inEn}</h2>
      <p>Distributors ${c.inEn} operate under ${c.tax.en}: value added tax is ${c.vat}%, and ${c.einv.en}. In practice, every invoice issued from the field must be structured and verifiable — not a handwritten note.${dEn}</p>
-     <p>FieldSales issues a structured invoice with a QR code and thermal printing in ${c.cur.en}, and manages collection, statements and credit limits — whether your team covers ${cityJoin} or smaller towns. Your reps stay aligned with ${c.tax.en} from the first visit, and your records stay audit-ready.</p>`,
+     <p>FieldSales issues a structured invoice with a QR code and thermal printing in ${c.cur.en}, and manages collection, statements and credit limits — whether your team covers ${cityJoin} or smaller towns. Your records stay organized and ready for review from the first visit.</p>`,
         `<h2>L'environnement réglementaire de la distribution ${c.inFr}</h2>
      <p>Les distributeurs ${c.inFr} opèrent sous ${c.tax.fr} : la TVA est de ${c.vat} %, et ${c.einv.fr}. Concrètement, chaque facture émise sur le terrain doit être structurée et vérifiable — pas une note manuscrite.${dFr}</p>
      <p>FieldSales émet une facture structurée à code QR et impression thermique en ${c.cur.fr}, et gère l'encaissement, les relevés et les limites de crédit — que votre équipe couvre ${cityJoin} ou de plus petites villes.</p>`);
@@ -1485,7 +1490,7 @@ const descOf = (topic, c, L) => {
 };
 const excerptOf = (topic, c, L) => P(L,
   `كل ما تحتاجه شركات التوزيع ${topic.cs ? c.inAr : 'العربية'} عن ${topic.label.ar} بخطوات عملية وأمثلة محلية`,
-  `Everything distributors ${topic.cs ? c.inEn : 'in Arab markets'} need about ${topic.label.en.toLowerCase()} — with practical steps and local examples.`,
+  `Everything distributors ${topic.cs ? c.inEn : 'worldwide'} need about ${topic.label.en.toLowerCase()} — with practical steps and local examples.`,
   `Tout ce que les distributeurs ${topic.cs ? c.inFr : 'arabes'} doivent savoir sur ${topic.label.fr.toLowerCase()} — étapes pratiques et exemples locaux.`);
 
 // أدوات الربط الداخلي (عناقيد مواضيع + دول)
@@ -1632,9 +1637,9 @@ export function getArticle(slug, L) {
   const intro = P(L,
     `<p>${t} أصبح ضرورة لكل شركة توزيع تريد النمو بكفاءة في هذا الدليل من <strong>FieldSales</strong> نشرح كيف تدير مبيعاتك الميدانية باحتراف من الطلب إلى الفاتورة إلى التحصيل مع مراعاة متطلبات ${topic.cs ? c.ar : 'السوق العربي'} المحلية </p>
      <p>سواء كنت موزعا للمواد الغذائية أو المشروبات أو مستلزمات التجزئة ستجد هنا خطوات عملية وأمثلة محلية تساعدك على رفع كفاءة مناديبك وتحصيلك ومبيعاتك مدعومة بالأرقام لا التخمين </p>`,
-    `<p>${t} has become essential for any distributor that wants to grow efficiently. In this <strong>FieldSales</strong> guide we explain how to run your field sales professionally — from order to invoice to collection — while respecting local requirements ${topic.cs ? c.inEn : 'in Arab markets'}.</p>
+    `<p>${t} has become essential for any distributor that wants to grow efficiently. In this <strong>FieldSales</strong> guide we explain how to run your field sales professionally — from order to invoice to collection — while respecting local requirements ${topic.cs ? c.inEn : 'in every country'}.</p>
      <p>Whether you distribute food, beverages or retail supplies, you'll find practical steps and local examples here to raise the efficiency of your reps, collection and sales — backed by numbers, not guesswork.</p>`,
-    `<p>${t} est devenu essentiel pour tout distributeur qui veut croître efficacement. Dans ce guide <strong>FieldSales</strong>, nous expliquons comment gérer vos ventes terrain — de la commande à la facture et à l'encaissement — en respectant les exigences ${topic.cs ? c.inFr : 'des marchés arabes'}.</p>
+    `<p>${t} est devenu essentiel pour tout distributeur qui veut croître efficacement. Dans ce guide <strong>FieldSales</strong>, nous expliquons comment gérer vos ventes terrain — de la commande à la facture et à l'encaissement — en respectant les exigences ${topic.cs ? c.inFr : 'de chaque pays'}.</p>
      <p>Que vous distribuiez de l'alimentaire, des boissons ou des produits de détail, vous trouverez ici des étapes pratiques et des exemples locaux pour améliorer vos commerciaux, votre encaissement et vos ventes.</p>`);
   // أقسام الموضوع + أقسام تعميق عامة تُضاف للجميع (خطوات/نتائج/مؤشرات/قبل-بعد/أخطاء/مصطلحات) دون تكرار، ثم CTA
   const coreKeys = topic.secs.filter((k) => k !== 'cta');
