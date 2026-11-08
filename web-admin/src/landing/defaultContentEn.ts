@@ -91,7 +91,7 @@ export const defaultContentEn = {
     },
     terms: {
       title: 'Terms & Conditions',
-      body: `Last updated: July 2026
+      body: `Last updated: November 2026
 
 These Terms & Conditions govern your use of the FieldSales platform. By creating an account or using the platform, you acknowledge that you have read and agree to these Terms. If you do not agree, please do not use the service.
 
@@ -148,7 +148,16 @@ We may amend these Terms from time to time and publish the updated version on th
 15. Governing Law & Disputes
 These Terms are governed by the laws of the Kingdom of Saudi Arabia. Disputes shall be settled amicably where possible, otherwise before the competent authorities.
 
-16. Contact
+16. International Use
+• The platform is available to companies in every country in the world. The Subscriber selects its country and currency and sets the tax rate required by the laws of its country.
+• In Saudi Arabia, invoices are issued in line with the requirements of the Zakat, Tax and Customs Authority (ZATCA). In countries that require invoices to be connected to a government platform, the system works with standard invoices without that connection, and the connection is arranged at the Subscriber's request through customer support.
+• The Subscriber is responsible for the accuracy of its tax rate and tax data and for complying with the commercial, tax and data protection laws of its country.
+• The Subscriber shall use the platform in compliance with applicable export control and international sanctions laws.
+• Technical support is available to Subscribers in all countries without exception at help@fieldsa.net and through the contact channels published on our website.
+• Nothing in these Terms limits any mandatory right granted to the Subscriber by the law of its country that cannot be waived by agreement.
+• These Terms are available in several languages; if the texts differ, the Arabic text prevails.
+
+17. Contact
 For any inquiry: info@fieldsa.net`,
     },
     serviceAgreement: {
@@ -194,7 +203,7 @@ info@fieldsa.net`,
     },
     privacy: {
       title: 'Privacy Policy',
-      body: `Last updated: September 2026
+      body: `Last updated: November 2026
 
 FieldSales ("we", "the platform") is committed to protecting the privacy of its customers, users and website visitors. This policy explains what data we collect, how we use and protect it, with whom we share it, and the rights you have under the Saudi Personal Data Protection Law (PDPL).
 
@@ -334,7 +343,16 @@ The platform is intended for business use and is not to be used by anyone under 
 17. Changes to This Policy
 We may update this policy from time to time and publish the updated version on this page with the update date.
 
-18. Contact
+18. Users Outside Saudi Arabia
+We serve companies in every country in the world, and this Policy applies to users in all countries.
+• Platform data is stored on the servers described in Section 10. If you are outside Saudi Arabia, using the platform means your data is transferred to those servers to provide the service; for such transfers we rely on the safeguards required by the laws of your country, including standard contractual clauses where required.
+• The Subscriber company is the controller of the operational data it enters in its account, and we process that data on its behalf. We sign a Data Processing Agreement (DPA) with the Subscriber on request.
+• If the laws of your country grant you additional rights, such as the EU General Data Protection Regulation (GDPR), the UK GDPR, Brazil's LGPD, or US state privacy laws such as the California CCPA, we respect those rights, including the rights to restrict processing, to data portability, not to be subject to a decision based solely on automated processing that significantly affects you, and to know the categories of data we have collected and the parties we have shared it with.
+• We do not sell your personal data, and we will not discriminate against you for exercising any of your rights.
+• We respond to your request within the period set by the laws of your country, and you have the right to lodge a complaint with the data protection authority in your country.
+• To exercise these rights, contact us at info@fieldsa.net as described in Section 14.
+
+19. Contact
 For any privacy or data inquiry:
 "مؤسسة تكامل الميدان للتجارة والإستيراد" (FieldSales), Riyadh, Kingdom of Saudi Arabia
 info@fieldsa.net`,

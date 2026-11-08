@@ -91,7 +91,7 @@ export const defaultContentTr = {
     },
     terms: {
       title: 'Şartlar ve Koşullar',
-      body: `Son güncelleme: Temmuz 2026
+      body: `Son güncelleme: Kasım 2026
 
 Bu Şartlar ve Koşullar, FieldSales platformunu kullanımınızı düzenler. Hesap oluşturarak veya platformu kullanarak bu Şartları okuduğunuzu ve kabul ettiğinizi beyan edersiniz. Kabul etmiyorsanız lütfen hizmeti kullanmayın.
 
@@ -148,7 +148,16 @@ Bu Şartları zaman zaman değiştirebilir ve güncel sürümü bu sayfada yayı
 15. Uygulanacak Hukuk ve Uyuşmazlıklar
 Bu Şartlar, hizmetin faaliyet gösterildiği ülkede yürürlükteki mevzuata tabidir. Uyuşmazlıklar mümkün olduğunca dostane yolla, aksi hâlde yetkili merciler önünde çözülür.
 
-16. İletişim
+16. Uluslararası Kullanım
+• Platform dünyanın tüm ülkelerindeki şirketlerin kullanımına açıktır. Abone ülkesini ve para birimini seçer ve ülkesinin mevzuatının gerektirdiği vergi oranını belirler.
+• Suudi Arabistan'da faturalar Zekât, Vergi ve Gümrük İdaresi (ZATCA) gerekliliklerine uygun olarak düzenlenir. Faturaların bir devlet platformuna bağlanmasını şart koşan ülkelerde sistem bu bağlantı olmadan standart faturalarla çalışır; bağlantı, Abonenin talebi üzerine müşteri hizmetleri aracılığıyla kurulur.
+• Abone, vergi oranının ve vergi verilerinin doğruluğundan ve ülkesinin ticaret, vergi ve veri koruma mevzuatına uymaktan sorumludur.
+• Abone, platformu geçerli ihracat kontrolü ve uluslararası yaptırım mevzuatına uygun olarak kullanmayı kabul eder.
+• Teknik destek, istisnasız tüm ülkelerdeki Aboneler için help@fieldsa.net adresinden ve web sitemizde yayımlanan iletişim kanallarından sağlanır.
+• Bu Koşullar, Abonenin ülkesinin hukukunun tanıdığı ve sözleşmeyle feragat edilemeyen hiçbir zorunlu hakkı sınırlamaz.
+• Bu Koşullar birden fazla dilde sunulur; metinler arasında farklılık olması halinde Arapça metin esas alınır.
+
+17. İletişim
 Her türlü soru için: info@fieldsa.net`,
     },
     serviceAgreement: {
@@ -194,7 +203,7 @@ info@fieldsa.net`,
     },
     privacy: {
       title: 'Gizlilik Politikası',
-      body: `Son güncelleme: Eylül 2026
+      body: `Son güncelleme: Kasım 2026
 
 FieldSales ("biz", "platform"), müşterilerinin, kullanıcılarının ve web sitesi ziyaretçilerinin gizliliğini korumayı taahhüt eder. Bu politika hangi verileri topladığımızı, bunları nasıl kullandığımızı ve koruduğumuzu, kimlerle paylaştığımızı ve Suudi Arabistan Kişisel Verilerin Korunması Kanunu (PDPL) kapsamındaki haklarınızı açıklar.
 
@@ -334,7 +343,16 @@ Platform ticari kullanım içindir ve 18 yaşından küçükler tarafından kull
 17. Bu Politikadaki Değişiklikler
 Bu politikayı zaman zaman güncelleyebilir ve güncel sürümü güncelleme tarihiyle birlikte bu sayfada yayımlarız.
 
-18. İletişim
+18. Suudi Arabistan Dışındaki Kullanıcılar
+Dünyanın tüm ülkelerindeki şirketlere hizmet veriyoruz ve bu Politika tüm ülkelerdeki kullanıcılar için geçerlidir.
+• Platform verileri 10. bölümde açıklanan sunucularda saklanır. Suudi Arabistan dışındaysanız platformu kullanmanız, hizmetin sunulması için verilerinizin bu sunuculara aktarılması anlamına gelir; bu aktarımlarda, gerektiği durumlarda standart sözleşme hükümleri dahil olmak üzere ülkenizin mevzuatının öngördüğü güvencelere dayanırız.
+• Abone şirket, hesabına girdiği operasyonel verilerin veri sorumlusudur ve biz bu verileri onun adına işleriz. Talep halinde Abone ile Veri İşleme Sözleşmesi (DPA) imzalarız.
+• Ülkenizin mevzuatı size Avrupa Birliği Genel Veri Koruma Tüzüğü (GDPR), UK GDPR, Brezilya LGPD veya Kaliforniya CCPA gibi ABD eyalet gizlilik yasaları gibi ek haklar tanıyorsa; işlemenin kısıtlanmasını isteme, veri taşınabilirliği, sizi önemli ölçüde etkileyen yalnızca otomatik işlemeye dayalı bir karara tabi olmama ve topladığımız veri kategorilerini ve paylaştığımız tarafları öğrenme hakları dahil bu haklara saygı gösteririz.
+• Kişisel verilerinizi satmayız ve haklarınızı kullandığınız için size karşı ayrımcılık yapmayız.
+• Talebinize ülkenizin mevzuatında belirlenen süre içinde yanıt veririz ve ülkenizdeki veri koruma otoritesine şikâyette bulunma hakkınız vardır.
+• Bu hakları kullanmak için 14. bölümde belirtildiği gibi info@fieldsa.net adresine yazın.
+
+19. İletişim
 Gizlilik veya verilerinizle ilgili her soru için:
 "مؤسسة تكامل الميدان للتجارة والإستيراد" (FieldSales), Riyad, Suudi Arabistan Krallığı
 info@fieldsa.net`,

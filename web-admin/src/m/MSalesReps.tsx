@@ -562,7 +562,7 @@ function RepForm({ rep, onClose, onSaved }: {
   };
 
   const nameOk = name.trim().length > 0;
-  const phoneOk = phone.trim().length >= 9;
+  const phoneOk = phone.trim().length >= 6; // أي رقم دولي (فك قيد الرقم السعودي ٨ نوفمبر ٢٠٢٦)
   const userOk = username.trim().length >= 4;
   const passOk = rep ? (password.length === 0 || password.length >= 8) : password.length >= 8;
   const valid = nameOk && phoneOk && userOk && passOk;

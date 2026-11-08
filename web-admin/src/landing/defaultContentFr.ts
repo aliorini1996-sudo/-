@@ -91,7 +91,7 @@ export const defaultContentFr = {
     },
     terms: {
       title: 'Conditions générales',
-      body: `Dernière mise à jour : juillet 2026
+      body: `Dernière mise à jour : novembre 2026
 
 Les présentes Conditions générales régissent votre utilisation de la plateforme FieldSales. En créant un compte ou en utilisant la plateforme, vous reconnaissez avoir lu et accepté ces Conditions. Si vous ne les acceptez pas, veuillez ne pas utiliser le service.
 
@@ -148,7 +148,16 @@ Nous pouvons modifier ces Conditions de temps à autre et publier la version mis
 15. Droit applicable et litiges
 Les présentes Conditions sont régies par la législation applicable dans le pays d’exploitation du service. Les litiges sont réglés à l’amiable dans la mesure du possible, à défaut devant les autorités compétentes.
 
-16. Contact
+16. Utilisation internationale
+• La plateforme est accessible aux entreprises de tous les pays du monde. L'Abonné choisit son pays et sa devise et fixe le taux de taxe exigé par la législation de son pays.
+• En Arabie saoudite, les factures sont émises conformément aux exigences de l'Autorité de la zakat, des impôts et des douanes (ZATCA). Dans les pays qui exigent la connexion des factures à une plateforme gouvernementale, le système fonctionne avec des factures standard sans cette connexion, et la connexion est mise en place à la demande de l'Abonné via le service client.
+• L'Abonné est responsable de l'exactitude de son taux de taxe et de ses données fiscales ainsi que du respect des lois commerciales, fiscales et de protection des données de son pays.
+• L'Abonné s'engage à utiliser la plateforme conformément aux lois applicables en matière de contrôle des exportations et de sanctions internationales.
+• Le support technique est disponible pour les Abonnés de tous les pays, sans exception, à l'adresse help@fieldsa.net et via les canaux de contact publiés sur notre site.
+• Les présentes Conditions ne limitent aucun droit impératif accordé à l'Abonné par la loi de son pays et auquel il ne peut être renoncé par contrat.
+• Les présentes Conditions sont disponibles en plusieurs langues ; en cas de divergence, le texte arabe prévaut.
+
+17. Contact
 Pour toute question : info@fieldsa.net`,
     },
     serviceAgreement: {
@@ -194,7 +203,7 @@ info@fieldsa.net`,
     },
     privacy: {
       title: 'Politique de confidentialité',
-      body: `Dernière mise à jour : septembre 2026
+      body: `Dernière mise à jour : novembre 2026
 
 FieldSales (« nous », « la plateforme ») s’engage à protéger la vie privée de ses clients, de ses utilisateurs et des visiteurs de son site. La présente politique explique quelles données nous collectons, comment nous les utilisons et les protégeons, avec qui nous les partageons, ainsi que les droits dont vous disposez en vertu de la loi saoudienne sur la protection des données personnelles (PDPL).
 
@@ -334,7 +343,16 @@ La plateforme est destinée à un usage professionnel et ne doit pas être utili
 17. Modifications de la présente politique
 Nous pouvons mettre à jour cette politique de temps à autre et publier la version mise à jour sur cette page avec la date de mise à jour.
 
-18. Contact
+18. Utilisateurs hors d'Arabie saoudite
+Nous servons des entreprises dans tous les pays du monde, et la présente politique s'applique aux utilisateurs de tous les pays.
+• Les données de la plateforme sont conservées sur les serveurs décrits à la section 10. Si vous vous trouvez hors d'Arabie saoudite, l'utilisation de la plateforme implique le transfert de vos données vers ces serveurs afin de fournir le service ; pour ces transferts, nous appliquons les garanties exigées par la législation de votre pays, notamment les clauses contractuelles types lorsque cela est requis.
+• L'entreprise abonnée est responsable du traitement des données d'exploitation qu'elle saisit dans son compte, et nous les traitons pour son compte. Nous signons un accord de traitement des données (DPA) avec l'Abonné sur demande.
+• Si la législation de votre pays vous accorde des droits supplémentaires, comme le Règlement général sur la protection des données (RGPD) de l'Union européenne, le UK GDPR, la LGPD brésilienne ou les lois des États américains sur la vie privée telles que le CCPA en Californie, nous respectons ces droits, notamment le droit à la limitation du traitement, le droit à la portabilité des données, le droit de ne pas faire l'objet d'une décision fondée exclusivement sur un traitement automatisé vous affectant de manière significative, et le droit de connaître les catégories de données collectées et les destinataires avec lesquels elles ont été partagées.
+• Nous ne vendons pas vos données personnelles et nous n'exercerons aucune discrimination à votre égard parce que vous exercez vos droits.
+• Nous répondons à votre demande dans le délai fixé par la législation de votre pays, et vous avez le droit d'introduire une réclamation auprès de l'autorité de protection des données de votre pays.
+• Pour exercer ces droits, écrivez-nous à info@fieldsa.net comme indiqué à la section 14.
+
+19. Contact
 Pour toute question relative à la confidentialité ou à vos données :
 « مؤسسة تكامل الميدان للتجارة والإستيراد » (FieldSales), Riyad, Royaume d’Arabie saoudite
 info@fieldsa.net`,
