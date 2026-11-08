@@ -19,6 +19,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { getCountryTax, CountryTax } from '../config/countries';
 import { sendMail, mailLayout } from './mailer';
+import { leadAlertRecipients } from './leadAlerts';
 import { escapeHtml, frontendBase, logEvent } from './affiliate/core';
 import { mailTrialActivated } from './affiliate/mail';
 import { phoneKey } from './phoneKey';
@@ -114,13 +115,14 @@ export async function notifyOwnerNewTrial(i: {
     ...(i.extraRows ?? []),
   ];
   const sent = await sendMail({
-    to: process.env.MAIL_TO || 'info@fieldsa.net',
+    // لحظياً إلى البريد الرئيسي والثلاثة (طلب المالك ٨ نوفمبر — services/leadAlerts.ts)
+    to: leadAlertRecipients(),
     subject: `${title} ${i.companyName}`,
     replyTo: i.email,
     html: mailLayout(escapeHtml(title), rows.map(([k, v]) => [escapeHtml(k), escapeHtml(v)]),
       escapeHtml(i.note ?? 'سجل عميل جديد للتجربة المجانية عبر fieldsa.net ينصح بالتواصل معه لتفعيل أفضل تجربة وتحويله لمشترك')),
   });
-  if (!sent) console.error('[mail] فشل إرسال إشعار عميل تجريبي جديد إلى info@fieldsa.net');
+  if (!sent) console.error('[mail] فشل إرسال إشعار عميل تجريبي جديد');
   return sent;
 }
 

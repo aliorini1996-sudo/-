@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { sendMail, mailLayout } from '../services/mailer';
 import { mailLimiter } from '../middleware/rateLimits';
+import { leadAlertRecipients } from '../services/leadAlerts';
 
 // استقبال رسائل التواصل من الصفحة التعريفية وإرسالها لبريد الشركة
 const router = Router();
@@ -84,7 +85,8 @@ router.post('/meeting', mailLimiter, async (req: Request, res: Response, next: N
     const body = parsed.data;
     const name = body.name.replace(/[<>]/g, '');
     const sent = await sendMail({
-      to: 'info@fieldsa.net',
+      // لحظياً إلى البريد الرئيسي والثلاثة (طلب المالك ٨ نوفمبر — services/leadAlerts.ts)
+      to: leadAlertRecipients(),
       subject: `📅 طلب اجتماع من ${name}`,
       html: mailLayout('طلب اجتماع جديد', [
         ['الاسم', name],

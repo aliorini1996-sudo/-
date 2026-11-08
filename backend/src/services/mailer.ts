@@ -18,7 +18,7 @@ interface MailInput {
   subject: string;
   html: string;
   replyTo?: string;
-  to?: string; // المستقبِل (افتراضياً MAIL_TO/info@fieldsa.net)
+  to?: string | string[]; // المستقبِل أو المستقبِلون (افتراضياً MAIL_TO/info@fieldsa.net) — مصفوفة يقبلها SMTP وResend كلاهما
 }
 
 export async function sendMail({ subject, html, replyTo, to: toOverride }: MailInput): Promise<boolean> {
