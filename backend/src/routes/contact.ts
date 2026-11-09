@@ -18,7 +18,8 @@ router.post('/', mailLimiter, async (req: Request, res: Response, next: NextFunc
     }).parse(req.body);
 
     const sent = await sendMail({
-      to: 'info@fieldsa.net',
+      // لحظياً إلى البريد الرئيسي وabdullah وanas وceo (طلب المالك ١٠ نوفمبر — services/leadAlerts.ts)
+      to: leadAlertRecipients(),
       subject: `📩 رسالة تواصل جديدة من ${body.name}`,
       replyTo: body.email,
       html: mailLayout('رسالة تواصل جديدة', [
@@ -51,7 +52,8 @@ router.post('/subscription', mailLimiter, async (req: Request, res: Response, ne
 
     const title = body.kind === 'quote' ? 'طلب عرض سعر' : 'طلب اشتراك جديد';
     const sent = await sendMail({
-      to: 'info@fieldsa.net',
+      // لحظياً إلى البريد الرئيسي وabdullah وanas وceo (طلب المالك ١٠ نوفمبر — services/leadAlerts.ts)
+      to: leadAlertRecipients(),
       subject: `🟠 ${title} ${body.companyName}`,
       replyTo: body.email,
       html: mailLayout(title, [

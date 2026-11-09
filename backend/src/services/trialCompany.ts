@@ -475,7 +475,8 @@ export async function activateCompany(i: { token: string; password: string; phon
   if (portal) {
     const aff = portal.affiliate;
     sendMail({
-      to: process.env.MAIL_TO || 'info@fieldsa.net',
+      // لحظياً إلى البريد الرئيسي وabdullah وanas وceo (طلب المالك ١٠ نوفمبر — services/leadAlerts.ts)
+      to: leadAlertRecipients(),
       subject: `✅ شركة فعّلت حساباً فتحه سفير ${admin.tenant.name}`,
       html: mailLayout('✅ شركة فعّلت حساباً فتحه سفير', [
         ['الشركة', escapeHtml(admin.tenant.name)],

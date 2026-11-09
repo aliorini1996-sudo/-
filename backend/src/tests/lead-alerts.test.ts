@@ -28,3 +28,15 @@ test('الوصل: طلب الاجتماع وإشعار التجربة (التس�
   // البريد يقبل مستلمين متعددين
   assert.match(src('services', 'mailer.ts'), /to\?: string \| string\[\];/);
 });
+
+test('الوصل (طلب المالك ١٠ نوفمبر): «تواصل معنا» و«طلب اشتراك/عرض سعر» وتفعيل شركة السفير — كلها إلى leadAlertRecipients() لا info@ وحده', () => {
+  const contact = src('routes', 'contact.ts');
+  const general = contact.slice(contact.indexOf("router.post('/',"), contact.indexOf("router.post('/subscription'"));
+  assert.match(general, /to: leadAlertRecipients\(\),\s*subject: `📩 رسالة تواصل جديدة من/);
+  const sub = contact.slice(contact.indexOf("router.post('/subscription'"), contact.indexOf("router.post('/meeting'"));
+  assert.match(sub, /to: leadAlertRecipients\(\),\s*subject: `🟠 \$\{title\}/);
+  assert.doesNotMatch(contact, /to: 'info@fieldsa\.net'/, 'لا نموذج يرسل إلى info@ وحده');
+  const tc = src('services', 'trialCompany.ts');
+  const act = tc.slice(tc.indexOf('شركة فعّلت حساباً فتحه سفير') - 400, tc.indexOf('شركة فعّلت حساباً فتحه سفير'));
+  assert.match(act, /to: leadAlertRecipients\(\),/);
+});
