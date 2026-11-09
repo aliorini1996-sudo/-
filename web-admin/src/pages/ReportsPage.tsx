@@ -15,7 +15,7 @@ import { filterFlat, filterNested } from '../lib/reportSearch';
 import { groupCollectionsByRep, collectionTotals, CollReceiptLike, CollRepGroup } from '../lib/collectionsByRep';
 import { companyMethodLabel } from '../lib/paymentMethodsConfig';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Download, TrendingUp, Users, UserCheck, MapPin, FileText, Search, X, Wallet, AlertTriangle, Pencil, Upload } from 'lucide-react';
+import { Download, TrendingUp, Users, UserCheck, UserX, MapPin, FileText, Search, X, Wallet, AlertTriangle, Pencil, Upload } from 'lucide-react';
 import { shareOrDownloadExcel, num, ExcelSheet } from '../utils/excel';
 import { mergeRuns } from '../lib/mergeRuns';
 import { attendanceDayCells, breakOf, compactMinutes, periodsOf, punchDetailRows, punchInUrl, punchOutUrl, periodOutside, placeLabel, entryLabel, type WorkPeriodLike } from '../lib/workPeriods';
@@ -91,6 +91,8 @@ type SalesRow = { name: string; total: number; count?: number; qty?: number; cod
 const plainQty = (n: number) => String(Number(n.toFixed(3)));
 interface ReturnsSummary { count: number; total: number; salesTotal: number; returnRate: number | null; byReason: Record<string, { count: number; total: number }>; expiredLines: number }
 const RETURN_REASON_LABELS: Record<string, string> = { NORMAL: 'مرتجع عادي', DAMAGED: 'بضاعة تالفة', EXCHANGE: 'استبدال' };
+/** «العملاء الذين لم تتم زيارتهم» — صفّ الخادم (/reports/unvisited-customers): آخر زيارة قبل الفترة، null = لم يُزر قبلها */
+interface UnvisitedCust { id: string; name: string; businessName: string | null; phone: string; city: string | null; reps: string[]; lastVisitAt: string | null; createdAt: string }
 interface CustGroup { customerId: string; customerName: string; visitsCount: number; avgDurationSec: number | null; lastVisit: string; visits: CustVisit[] }
 /* سند القبض وتجميعةُ المندوب: أنواع وحدة `lib/collectionsByRep` نفسها —
    نسخةٌ ثانية منهما تنحرف عن الحساب الذي تختبره وحدتُه. */
@@ -139,7 +141,7 @@ export default function ReportsPage() {
   const [rankMetricState, setRankMetric] = useState<RankingMetric>('sales');
   const rankMetric: RankingMetric = rankMetrics.includes(rankMetricState) ? rankMetricState : 'visits';
   const [rankProduct, setRankProduct] = useState('');
-  // نوع تقرير العملاء: أرصدة العملاء | زيارات العملاء
+  // نوع تقرير العملاء: أرصدة العملاء | زيارات العملاء | العملاء الذين لم تتم زيارتهم
   // نوع تقرير المبيعات: التجميعة كما كانت، أو قائمة الطلبات (فواتير بتاريخ تسليم)
   const companyQ = useQuery({
     queryKey: ['company'],
@@ -154,8 +156,9 @@ export default function ReportsPage() {
   // نوع تقرير التحصيل: ملخّصٌ عامّ (كما كان) أو تفصيلٌ لكلّ مندوب
   const [collType, setCollType] = useState<'summary' | 'byRep'>('summary');
   const [expandedColl, setExpandedColl] = useState<string | null>(null); // صفّ المندوب المفتوح
-  const [custTypeState, setCustType] = useState<'balances' | 'visits'>('balances');
-  const custType = accountingOn ? custTypeState : 'visits';
+  const [custTypeState, setCustType] = useState<'balances' | 'visits' | 'unvisited'>('balances');
+  // المحاسبة مطفأة: تسقط الأرصدة إلى الزيارات، ويبقى «لم تتم زيارتهم» (عملٌ ميداني لا مالي)
+  const custType = accountingOn ? custTypeState : (custTypeState === 'balances' ? 'visits' : custTypeState);
 
   // اسم المندوب للعرض: الفارغ هو دلو «بلا مندوب» (سندٌ من اللوحة أو مندوبٌ حُذف)
   const collRepName = (r: { name: string }) => r.name || tr('بدون مندوب سند من الإدارة');
@@ -240,6 +243,18 @@ export default function ReportsPage() {
       return res.data.data as { count: number; visits: CustVisit[] };
     },
     enabled: tab === 'balances' && custType === 'visits',
+  });
+
+  /* «العملاء الذين لم تتم زيارتهم» (طلب المالك ٩ نوفمبر ٢٠٢٦): مكمّل تقرير الزيارات بفترة «من/إلى» نفسها — بلا فريق
+   * (العملاء مشتركون كالأرصدة). «من» بعد «إلى» لا يُطلب أصلاً: رسالةٌ صريحة بدل تقريرٍ فارغ */
+  const unvisitedBadRange = !!from && !!to && from > to;
+  const { data: unvisitedData, status: unvisitedStatus, fetchStatus: unvisitedFetchStatus, refetch: unvisitedRefetch } = useQuery({
+    queryKey: ['report-unvisited-customers', from, to],
+    queryFn: async () => {
+      const res = await reportApi.unvisitedCustomers({ ...(from && { from }), ...(to && { to }) });
+      return res.data.data as { totalCustomers: number; count: number; customers: UnvisitedCust[] };
+    },
+    enabled: tab === 'balances' && custType === 'unvisited' && !unvisitedBadRange,
   });
 
   const [expandedPerf, setExpandedPerf] = useState<string | null>(null); // صفّ مواقع الزيارات المفتوح
@@ -464,6 +479,13 @@ export default function ReportsPage() {
     () => filterFlat(visitsData?.visits || [], q, v => [v.customerName, v.repName, v.note]),
     [visitsData, q],
   );
+  // البحث باسم العميل أو نشاطه أو جواله أو مدينته أو مندوبه المُسنَد
+  const unvisitedRows = useMemo(
+    () => filterFlat(unvisitedData?.customers || [], q, c => [c.name, c.businessName, c.phone, c.city, ...c.reps]),
+    [unvisitedData, q],
+  );
+  // بلا آخر زيارة: «قبل الفترة» إن حُدّد «من»، و«حتى نهاية الفترة» إن حُدّد «إلى» وحده (قد يكون زِير بعدها)، و«قط» بلا تواريخ
+  const fmtLastVisit = (iso: string | null) => iso ? fmtDay(iso) : (from ? tr('لم يُزر قبل الفترة') : to ? tr('لم يُزر حتى نهاية الفترة') : tr('لم يُزر قط'));
   // تجميع الزيارات بالعميل: صفّ لكل عميل (عدد الزيارات + متوسط المدّة)، والتوسيع يُظهر كل زياراته
   const custGroups = useMemo<CustGroup[]>(() => {
     const map = new Map<string, CustVisit[]>();
@@ -724,6 +746,12 @@ export default function ReportsPage() {
         [tr('الإجمالي')]: num(r.total),
       })), colWidths: multi ? [28, 14, 12, 24, 16] : [28, 14, 16] }];
       fname = tr('تقارير المبيعات');
+    } else if (tab === 'balances' && custType === 'unvisited' && unvisitedRows.length) {
+      sheets = [{ name: tr('العملاء الذين لم تتم زيارتهم'), colWidths: [26, 22, 16, 14, 24, 18], rows: unvisitedRows.map(c => ({
+        [tr('العميل')]: c.name, [tr('النشاط التجاري')]: c.businessName || '', [tr('الجوال')]: customerPhoneText(c.phone),
+        [tr('المدينة')]: c.city || '', [tr('المندوب')]: c.reps.join('، '), [tr('آخر زيارة')]: fmtLastVisit(c.lastVisitAt),
+      })) }];
+      fname = tr('العملاء الذين لم تتم زيارتهم');
     } else if (tab === 'balances' && custType === 'visits' && visitRows?.length) {
       sheets = [
         { name: tr('ملخص العملاء'), colWidths: [26, 14, 16, 22], rows: custGroups.map(g => ({
@@ -737,7 +765,7 @@ export default function ReportsPage() {
         })) },
       ];
       fname = tr('زيارات العملاء');
-    } else if (tab === 'balances' && balanceRows?.length) {
+    } else if (tab === 'balances' && custType === 'balances' && balanceRows?.length) {
       sheets = [{ name: tr('أرصدة العملاء'), rows: balanceRows.map(c => ({
         [tr('العميل')]: c.name, [tr('الجوال')]: c.phone, [tr('الرصيد')]: num(c.balance), [tr('الحد الائتماني')]: num(c.creditLimit),
       })), colWidths: [24, 16, 14, 16] }];
@@ -799,7 +827,7 @@ export default function ReportsPage() {
   // «ورقة لكل فريق»: أوراق المستندات تُقسَم بعمود الفريق (lib/teamReport.ts) — حين لا فلتر فريق
   const exportSheets = (sheets: ExcelSheet[]) => (teamsOn && !teamFilter && splitByTeam ? splitSheetsByTeam(sheets, tr('الفريق')) : sheets);
   // أرصدة العملاء لا تنقسم بالفريق (العملاء مشتركون) — فلا يُكتب اسم فريقٍ على ملفٍ لم يُفلتر به
-  const exportTeamName = tab === 'balances' && custType === 'balances' ? '' : teamFilterName;
+  const exportTeamName = tab === 'balances' && custType !== 'visits' ? '' : teamFilterName;
   const withTeam = (name: string) => (exportTeamName ? `${name} - ${exportTeamName}` : name);
   const handleExport = async () => {
     const built = buildSheets();
@@ -819,7 +847,7 @@ export default function ReportsPage() {
     // المديونيات لحظية: لا نطبع نطاقاً ضُبط في تبويبٍ آخر على تقريرٍ لا يتأثر به
     const range = (tab === 'performance' && perfType === 'receivables')
       ? tr('لحظي وقت الإصدار')
-      : (from && to) ? `${from} — ${to}` : tr('كل الفترات');
+      : (from && to) ? `${from} — ${to}` : from ? `${tr('من')} ${from}` : to ? `${tr('إلى')} ${to}` : tr('كل الفترات');
     const teamLine = exportTeamName ? ` · ${tr('الفريق')}: ${exportTeamName}` : '';
     const header = `<div style="border-bottom:2px solid #E15A30;padding-bottom:10px;margin-bottom:8px"><h2 style="font-size:18px;margin:0;color:#1F1A13">${esc(title)}</h2><p style="font-size:12px;color:#6E6557;margin:4px 0 0">${esc(tr('الفترة'))}: ${esc(range)}${esc(teamLine)} · ${esc(tr('تاريخ الإصدار'))}: ${esc(new Date().toLocaleDateString(activeLocale()))}</p></div>`;
     const wrap = (inner: string, withHeader: boolean): HTMLElement => {
@@ -1004,7 +1032,7 @@ export default function ReportsPage() {
             <p className="text-xs text-gray-400 pb-2">{tr('الأرصدة لحظية تعكس وضع المديونية الآن لا فترة محددة')}</p>
           )}
           {/* «فرق العمل»: الفريق — المستندات بوسمها والمناديب بعضويتهم؛ أرصدة العملاء لا تنقسم (العملاء مشتركون) */}
-          {teamsOn && !(tab === 'balances' && custType === 'balances') && (
+          {teamsOn && !(tab === 'balances' && custType !== 'visits') && (
             <div>
               <label className="label">{tr('الفريق')}</label>
               <select className="input w-44" value={teamFilter} onChange={e => setTeamFilter(e.target.value)}>
@@ -1078,12 +1106,13 @@ export default function ReportsPage() {
               </select>
             </div>
           )}
-          {tab === 'balances' && accountingOn && (
+          {tab === 'balances' && (
             <div>
               <label className="label">{tr('نوع التقرير')}</label>
-              <select className="input w-44" value={custType} onChange={e => setCustType(e.target.value as 'balances' | 'visits')}>
+              <select className="input w-56" value={custType} onChange={e => setCustType(e.target.value as 'balances' | 'visits' | 'unvisited')}>
                 {accountingOn && <option value="balances">{tr('أرصدة العملاء')}</option>}
                 <option value="visits">{tr('زيارات العملاء')}</option>
+                <option value="unvisited">{tr('العملاء الذين لم تتم زيارتهم')}</option>
               </select>
             </div>
           )}
@@ -1095,7 +1124,7 @@ export default function ReportsPage() {
       {q && (() => {
         const shown = tab === 'sales' ? (salesType === 'orders' ? orderRows.length : salesType === 'returns' ? returnRows.length : salesType === 'lots' ? lotSalesRows.length : (Array.isArray(salesRows) ? salesRows.length : 0))
           : tab === 'collections' ? collRepShown.length
-          : tab === 'balances' ? (custType === 'visits' ? custGroups.length : balanceRows.length)
+          : tab === 'balances' ? (custType === 'visits' ? custGroups.length : custType === 'unvisited' ? unvisitedRows.length : balanceRows.length)
           : perfType === 'performance' ? perfRows.length
           : perfType === 'hours' ? hoursRows.length
           : perfType === 'ranking' ? rankRowsShown.length
@@ -1703,6 +1732,60 @@ export default function ReportsPage() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* «العملاء الذين لم تتم زيارتهم» — نشطون بلا أي زيارة في الفترة؛ التحميل والخطأ صريحان كتقرير الزيارات */}
+      {tab === 'balances' && custType === 'unvisited' && unvisitedBadRange && (
+        <div className="card flex items-center justify-center h-24 text-[#B42318] text-sm">{tr('تاريخ البداية بعد تاريخ النهاية')}</div>
+      )}
+      {tab === 'balances' && custType === 'unvisited' && !unvisitedBadRange && unvisitedStatus === 'pending' && (
+        <div className="card flex items-center justify-center h-32 text-gray-400">
+          {unvisitedFetchStatus === 'paused' ? tr('بانتظار عودة الاتصال') : tr('جاري التحميل')}
+        </div>
+      )}
+      {tab === 'balances' && custType === 'unvisited' && !unvisitedBadRange && unvisitedStatus === 'error' && (
+        <div className="card flex flex-col items-center justify-center h-32 gap-2 text-gray-500">
+          <span>{tr('تعذر تحميل التقرير')}</span>
+          <button onClick={() => unvisitedRefetch()} className="btn-secondary">{tr('إعادة المحاولة')}</button>
+        </div>
+      )}
+      {tab === 'balances' && custType === 'unvisited' && !unvisitedBadRange && unvisitedStatus === 'success' && unvisitedData && (
+        <div className="card p-0">
+          <div className="px-5 py-3 border-b border-[#F1EBDF] flex items-center gap-3 text-sm flex-wrap">
+            <span className="flex items-center gap-2"><UserX size={16} className="text-[#E15A30]" /><b className="text-[#1F1A13]">{tr('عملاء لم تتم زيارتهم')}: {unvisitedRows.length}</b></span>
+            <span className="text-[#9A8F7E]">•</span>
+            <span className="text-[#6E6557]">{tr('من أصل')} {unvisitedData.totalCustomers} {tr('عميل نشط')}</span>
+            {!from && !to && <span className="text-[12px] text-[#9A8F7E]">({tr('بلا تحديد مدة: من لم يُزر قط')})</span>}
+          </div>
+          {unvisitedRows.length === 0 ? (
+            <div className="flex items-center justify-center h-24 text-gray-400 text-sm">
+              {q ? tr('لا نتائج مطابقة للبحث') : unvisitedData.totalCustomers === 0 ? tr('لا يوجد عملاء نشطون لهذه الفترة') : tr('كل العملاء تمت زيارتهم في هذه الفترة')}
+            </div>
+          ) : (
+          <div className="table-wrapper">
+            <table className="table">
+              <thead>
+                <tr><th>#</th><th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('المدينة')}</th><th>{tr('المندوب')}</th><th>{tr('آخر زيارة')}</th></tr>
+              </thead>
+              <tbody>
+                {unvisitedRows.map((c, i) => (
+                  <tr key={c.id}>
+                    <td className="text-gray-400">{i + 1}</td>
+                    <td className="font-medium text-gray-800">
+                      {c.name || '—'}
+                      {c.businessName && c.businessName !== c.name && <span className="block text-[11px] font-normal text-[#9A8F7E]">{c.businessName}</span>}
+                    </td>
+                    <td className="font-mono text-sm text-gray-500">{customerPhoneText(c.phone)}</td>
+                    <td className="text-gray-500">{c.city || '—'}</td>
+                    <td className="text-gray-600">{c.reps.length ? c.reps.join('، ') : '—'}</td>
+                    <td className={c.lastVisitAt ? 'text-gray-500 text-sm' : 'text-[#B42318] text-sm'}>{fmtLastVisit(c.lastVisitAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          )}
         </div>
       )}
 

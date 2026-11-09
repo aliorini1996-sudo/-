@@ -8115,6 +8115,43 @@ export const API_DOC_GROUPS: DocGroup[] = [
    },
    {
     "method": "GET",
+    "path": "/reports/unvisited-customers",
+    "purpose": "العملاء الذين لم تتم زيارتهم: العملاء النشطون بلا أي زيارة في المدى، مع مناديبهم المسندين وآخر زيارة قبل المدى",
+    "permission": "canViewReports",
+    "gates": [
+     "requireAdmin",
+     "requireAdminPermission('canViewReports')",
+     "نطاق المستخدم المقيّد: عملاؤه وحدهم، وأسماء المناديب في reps من مناديبه وحدهم",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [
+     {
+      "name": "from",
+      "type": "string (YYYY-MM-DD)",
+      "required": false,
+      "desc": "بداية المدى على createdAt للزيارة، وغيابه يعني من البداية (فيصير التقرير: من لم يُزر قط)"
+     },
+     {
+      "name": "to",
+      "type": "string (YYYY-MM-DD)",
+      "required": false,
+      "desc": "نهاية المدى شاملة اليوم كاملاً، وغيابه يعني حتى الآن (ويوم from كاملاً على الأقل)"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{totalCustomers, count, customers:[{id, name, businessName, phone, city, reps:[اسم المندوب], lastVisitAt, createdAt}]}} من لم يُزر قط أولاً ثم الأقدم زيارة",
+    "rules": [
+     "مكمّل GET /reports/customer-visits بتعريف المدى نفسه: عميل له زيارة واحدة في المدى من أي مندوب لا يظهر",
+     "العملاء النشطون (status=ACTIVE) الموجودون قبل نهاية المدى وحدهم، وtotalCustomers عددهم",
+     "lastVisitAt آخر زيارة قبل from، وnull إن لم يُزر قبلها أو غاب from",
+     "reps أسماء المناديب النشطين المسندين للعميل داخل نطاق المستخدم، ومصفوفة فارغة إن لم يوجد",
+     "لا يقبل teamId: العملاء مشتركون بين الفرق",
+     "تاريخ بغير صيغة YYYY-MM-DD أو from بعد to يرجع 400"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
     "path": "/reports/rep-receivables",
     "purpose": "مديونيات العملاء المسندين لكل مندوب مع الرصيد اللحظي وتاريخ آخر تحصيل",
     "permission": "canViewReports",

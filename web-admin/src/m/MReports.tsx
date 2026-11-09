@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, Fragment, ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  TrendingUp, Receipt, Users, UserCheck, Wallet, Clock, MapPin,
+  TrendingUp, Receipt, Users, UserCheck, Wallet, Clock, MapPin, UserX,
   RefreshCw, ChevronLeft, AlertTriangle, Package, CalendarDays, UserRound,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -106,6 +106,11 @@ interface WorkHoursRow {
 interface CustVisit {
   id: string; customerId: string; customerName: string; repName: string;
   createdAt: string; durationSec: number | null; note: string; mapsUrl: string;
+}
+/** «العملاء الذين لم تتم زيارتهم» — /reports/unvisited-customers: آخر زيارة قبل المدى، null = لم يُزر قبله */
+interface UnvisitedCust {
+  id: string; name: string; businessName: string | null; phone: string; city: string | null;
+  reps: string[]; lastVisitAt: string | null; createdAt: string;
 }
 /** تجميع الزيارات بالعميل — يُشتقّ على الجهاز (الخادم يرسلها مسطّحة) */
 interface CustGroup {
@@ -319,6 +324,8 @@ const REPORTS = [
   { id: 'receivables', label: 'مديونيات المناديب', icon: Wallet, dated: false },
   { id: 'hours', label: 'ساعات العمل', icon: Clock, dated: true },
   { id: 'visits', label: 'زيارات العملاء', icon: MapPin, dated: true },
+  // طلب المالك ٩ نوفمبر ٢٠٢٦ — ميدانيٌّ لا مالي، فيبقى مع المحاسبة المطفأة
+  { id: 'unvisited', label: 'عملاء لم تتم زيارتهم', icon: UserX, dated: true },
 ] as const;
 
 type ReportId = typeof REPORTS[number]['id'];
@@ -452,6 +459,7 @@ export default function MReports({ onBack, accountingOn = true, company }: {
       {shown === 'receivables' && <ReceivablesReport onOpen={setDetail} />}
       {shown === 'hours' && <HoursReport from={from} to={to} onOpen={setDetail} />}
       {shown === 'visits' && <VisitsReport from={from} to={to} onOpen={setDetail} />}
+      {shown === 'unvisited' && <UnvisitedReport from={from} to={to} />}
     </div>
   );
 }
@@ -837,6 +845,45 @@ function HoursReport({ from, to, onOpen }: {
               subtitle={`${formatNumber(r.workedDays)} ${tr('يوم حضور')} · ${formatNumber(r.absentDays)} ${tr('بلا نشاط')} · ${formatNumber(r.visitsTotal)} ${tr('زيارة')}`}
               trailing={<Amount value={fmtMin(r.fieldMinutesTotal, tr)} chevron />}
               onClick={() => onOpen({ kind: 'hours', row: r })} />
+          ))}
+        </MCard>
+        <More hidden={hidden} />
+      </State>
+    </Pane>
+  );
+}
+
+// ═══════════════ ٨) العملاء الذين لم تتم زيارتهم (طلب المالك ٩ نوفمبر ٢٠٢٦) ═══════════════
+
+/** مكمّل «زيارات العملاء» بالمدى نفسه: عملاء نشطون بلا أي زيارة فيه، من لم يُزر قط أولاً ثم الأقدم زيارة (ترتيب الخادم) */
+function UnvisitedReport({ from, to }: { from: string; to: string }) {
+  const tr = useTr();
+  const bad = !!from && !!to && from > to;
+  const q = useQuery({
+    queryKey: ['m-report', 'unvisited', from, to],
+    queryFn: async () => expectObject<{ totalCustomers: number; count: number; customers: UnvisitedCust[] }>(
+      (await reportApi.unvisitedCustomers(params({ from, to }))).data?.data, 'عملاء لم تتم زيارتهم'),
+    enabled: !bad,
+  });
+  const rows = useMemo(() => q.data?.customers ?? [], [q.data]);
+  const { limit, onScroll, hidden } = useWindowed(`${from}|${to}`, rows.length);
+
+  if (bad) return <Pane><div className="h-[260px]"><MEmpty text={tr('تاريخ البداية بعد تاريخ النهاية')} icon={UserX} /></div></Pane>;
+  return (
+    <Pane onScroll={onScroll}>
+      <State q={q} empty={rows.length === 0} emptyText={tr((q.data?.totalCustomers ?? 0) === 0 ? 'لا يوجد عملاء نشطون لهذه الفترة' : 'كل العملاء تمت زيارتهم في هذه الفترة')} emptyIcon={UserX}>
+        <div className="grid grid-cols-2 gap-2.5">
+          <MStat label={tr('عملاء لم تتم زيارتهم')} value={formatNumber(rows.length)} icon={UserX} />
+          <MStat label={tr('العملاء النشطون')} value={formatNumber(q.data?.totalCustomers ?? 0)} icon={Users} />
+        </div>
+        <MCard>
+          {rows.slice(0, limit).map(c => (
+            <MRow key={c.id}
+              leading={<Initial name={c.name} />}
+              title={c.name || tr('عميل بلا اسم')}
+              subtitle={[c.reps.join('، '), c.city].filter(Boolean).join(' · ') || c.phone}
+              trailing={<Amount value={c.lastVisitAt ? formatDate(c.lastVisitAt) : (from ? tr('لم يُزر قبل الفترة') : to ? tr('لم يُزر حتى نهاية الفترة') : tr('لم يُزر قط'))}
+                tone={c.lastVisitAt ? 'default' : 'bad'} />} />
           ))}
         </MCard>
         <More hidden={hidden} />

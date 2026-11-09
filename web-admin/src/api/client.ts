@@ -294,6 +294,7 @@ export const reportApi = {
   // تقييم الأداء: ترتيب المناديب حسب معيار (visits | product | sales | distance | appTime)
   repRanking: (params?: Record<string, string>) => api.get('/reports/rep-ranking', { params }),
   customerVisits: (params?: Record<string, string>) => api.get('/reports/customer-visits', { params }),
+  unvisitedCustomers: (params?: Record<string, string>) => api.get('/reports/unvisited-customers', { params }),
   // «طرق الدفع»: تحصيل كل مندوب لكل طريقة دفع في الفترة (from/to بأيام الشركة، teamId اختياري) — ميزة يفعّلها المالك
   paymentMethods: (params?: Record<string, string>) => api.get('/reports/payment-methods', { params }),
 };
