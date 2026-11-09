@@ -167,10 +167,10 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       ...(await customerScope(req, tid)),
       ...(search && {
         OR: [
-          { name: { contains: search } },
-          { businessName: { contains: search } },
+          { name: { contains: search, mode: 'insensitive' as const } },
+          { businessName: { contains: search, mode: 'insensitive' as const } },
           { phone: { contains: search } },
-          { code: { contains: search } },
+          { code: { contains: search, mode: 'insensitive' as const } },
         ],
       }),
       // «جميع الحالات» تعني الأحياء جميعاً لا المحذوفين — والحالة المطلوبة

@@ -234,7 +234,7 @@ export function buyerListWhere(o: { tid: string; scope: Record<string, unknown>;
   if (Object.keys(o.scope).length > 0) and.push(o.scope);
   if (o.status !== 'ALL') and.push({ status: o.status });
   if (o.search) {
-    and.push({ OR: [{ name: { contains: o.search } }, { businessName: { contains: o.search } }, { phone: { contains: o.search } }, { code: { contains: o.search } }] });
+    and.push({ OR: [{ name: { contains: o.search, mode: 'insensitive' as const } }, { businessName: { contains: o.search, mode: 'insensitive' as const } }, { phone: { contains: o.search } }, { code: { contains: o.search, mode: 'insensitive' as const } }] });
   }
   if (o.repId) and.push({ assignments: { some: { salesRepId: o.repId } } });
   return { tenantId: o.tid, AND: and };
