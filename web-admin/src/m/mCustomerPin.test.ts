@@ -135,7 +135,7 @@ test('MCustomerForm: الالتقاط بـprecisePinFix وحده — لا getCur
   assert.doesNotMatch(src, /locationUrl/, 'لا رابط يطغى على الالتقاط أو يُبنى منه');
   assert.match(src, /await precisePinFix\(\)/);
   assert.match(src, /Object\.assign\(payload, mPinPayload\(pin\)\)/);
-  assert.match(src, /disabled=\{!valid \|\| save\.isPending \|\| geoBusy\}/, 'لا حفظ قبل وصول الالتقاط المنتظَر');
+  assert.match(src, /disabled=\{save\.isPending \|\| geoBusy\}/, 'لا حفظ قبل وصول الالتقاط المنتظَر');
   assert.match(src, /onClick=\{\(\) => setPin\(null\)\}/, 'إلغاء الالتقاط يُبقي المحفوظ');
   // كل tr('…') حرفيّة في الشاشة الخاصة بالموقع مترجمة
   for (const key of ['دقة الموقع الملتقط ±{n} م', 'تم التقاط الموقع بدقة ضعيفة', 'إلغاء الموقع الملتقط', 'جارٍ تحديد موقعك بدقة…',

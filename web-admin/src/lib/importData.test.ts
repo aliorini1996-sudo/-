@@ -15,7 +15,7 @@ import {
   fileRowOf, importContextTimezone, localizedServerMessage, listSeparator,
   NUMERIC_ERROR, TAX_FRACTION_NOTICE, ZERO_BALANCE_NOTICE, DUPLICATE_CUSTOMERS_NOTICE, TOTALS_ROWS_NOTICE,
   BALANCE_DC_CONFLICT_BLOCKER, AMBIGUOUS_COLUMN_BLOCKER, PARTIAL_NO_PAID_COLUMN, DRAFT_ROWS_NOTICE, CANCELLED_ROWS_NOTICE,
-  UNKNOWN_STATUS_NOTICE, NEGATIVE_PRICE, NEGATIVE_CREDIT_LIMIT, PAYMENT_DAYS_INVALID, PAID_OUT_OF_RANGE, NO_CUSTOMER_ROWS_NOTICE,
+  UNKNOWN_STATUS_NOTICE, NEGATIVE_PRICE, PAID_OUT_OF_RANGE, NO_CUSTOMER_ROWS_NOTICE,
   resolveColumns, type ImportNotice,
   AMBIGUOUS_AMOUNT_ERROR, BALANCE_SIDE_INVALID, BALANCE_SIDE_UNRESOLVED_BLOCKER, BALANCE_DC_IGNORED_NOTICE, BALANCE_DC_MISMATCH_NOTICE,
   LEDGER_NO_AMOUNT_COLUMN_BLOCKER, CUSTOMER_OPTIONAL_IGNORED_NOTICE, isTotalsName, BALANCE_FROM_DC_NOTICE,
@@ -543,9 +543,10 @@ test('البند 1: المبالغ النصية لا تصير صفراً ولا 
     { 'الاسم': 'ج', 'حد الائتمان': 'كبير' },
     { 'الاسم': 'د', 'فترة السداد': '7.5' },
   ]);
-  // «كبير» حقل ثانوي غير رقمي: العميل يُنشأ بالافتراضي وتنبيه (البند 1 مراجعة ثانية)، والسالب وكسر الأيام خطأ صف
-  assert.deepEqual(c.valid.map((v) => [v.name, v.creditLimit, v.paymentDays]), [['أ', 5000, 30], ['ج', undefined, undefined]]);
-  assert.deepEqual(c.errors.map((e) => e.message), [NEGATIVE_CREDIT_LIMIT, PAYMENT_DAYS_INVALID]);
+  // «كبير» حقل ثانوي غير رقمي: العميل يُنشأ بالافتراضي وتنبيه (البند 1 مراجعة ثانية)؛ و«بلا قيود على العميل» (٩ نوفمبر ٢٠٢٦):
+  // السالب يُترك للافتراضي بالتنبيه نفسه، وكسر الأيام يُقصّ — لا خطأ صف
+  assert.deepEqual(c.valid.map((v) => [v.name, v.creditLimit, v.paymentDays]), [['أ', 5000, 30], ['ب', undefined, undefined], ['ج', undefined, undefined], ['د', undefined, 7]]);
+  assert.deepEqual(c.errors, []);
 
   // الكشوف: مدين سالب ينتقل دائناً والعكس
   const l = led([{ 'الاسم': 'أ', 'مدين': '-200', 'دائن': '' }, { 'الاسم': 'ب', 'مدين': '', 'دائن': '(50)' }]);
@@ -863,8 +864,28 @@ test('البند 1 (ثانية): حد الائتمان وفترة السداد �
   assert.deepEqual(notice(c.notices, CUSTOMER_OPTIONAL_IGNORED_NOTICE), { key: CUSTOMER_OPTIONAL_IGNORED_NOTICE, count: 1, values: ['غير محدود'] });
   assert.deepEqual(cust([{ 'الاسم': 'أ', 'فترة السداد': 'Net 30' }]).valid.map((v) => v.paymentDays), [30]);
   assert.deepEqual(cust([{ 'الاسم': 'أ', 'فترة السداد': '٣٠ يوماً' }]).valid.map((v) => v.paymentDays), [30]);
+  // «بلا قيود على العميل» (٩ نوفمبر ٢٠٢٦): السالب لا يُسقط العميل — يُترك للافتراضي بالتنبيه نفسه
   const neg = cust([{ 'الاسم': 'أ', 'حد الائتمان': '-5' }]);
-  assert.deepEqual([neg.valid.length, neg.errors.map((e) => e.message)], [0, [NEGATIVE_CREDIT_LIMIT]]);
+  assert.deepEqual([neg.valid.map((v) => v.creditLimit), neg.errors], [[undefined], []]);
+  assert.deepEqual(notice(neg.notices, CUSTOMER_OPTIONAL_IGNORED_NOTICE)?.values, ['-5']);
+});
+
+test('«بلا قيود على العميل» (٩ نوفمبر ٢٠٢٦): الاسم الفارغ لا يُسقط الصف — يُرسل ليسمّيه الخادم، والصف بلا أي خانة عميل يُترك', () => {
+  const c = cust([
+    { 'الاسم': '', 'الجوال': '0501234567' },
+    { 'الاسم': '', 'اسم المنشأة': 'مؤسسة النور' },
+    { 'الاسم': '', 'المدينة': 'جدة' },
+    { 'الاسم': '', 'الرصيد': 50 },
+    { 'الاسم': 'ب', 'البريد': 'ليس بريداً' },
+  ]);
+  assert.deepEqual(c.errors, []);
+  assert.deepEqual(c.valid.map((v) => [v.name, v.phone, v.businessName, v.city, v.email]), [
+    ['', '0501234567', undefined, undefined, undefined],
+    ['', '', 'مؤسسة النور', undefined, undefined],
+    ['', '', undefined, 'جدة', undefined],
+    ['ب', '', undefined, undefined, 'ليس بريداً'],
+  ]);
+  assert.deepEqual(c.fileRows, [2, 3, 4, 6]);
 });
 
 // ═══ دفعة الإصلاحات 2 — ما بقي بعد المراجعة الثالثة ═══
@@ -1584,19 +1605,14 @@ test('البند 31: «السعر شامل الضريبة» يُكشف من ال
 // ═══ الدفعة 3 — إتمام (البندان 36 و39، وانحدار 37 و38) ═══
 
 test('البند 36: قيود zod نفسها أخطاء صفوف في المعاينة لا رفض ملف كامل', () => {
-  // حد ائتمان سالب وفترة سداد كسرية: الخادم يرفض بهما الملف كله بـ400 بلا سطر — والمعاينة تعزل الصف وتُبقي الباقي
+  // «بلا قيود على العميل» (٩ نوفمبر ٢٠٢٦): حد ائتمان سالب وفترة سداد كسرية لا يُسقطان الصف — كالخادم: السالب للافتراضي والكسر يُقصّ
   const c = cust([
     { 'الاسم': 'أ', 'حد الائتمان': '-500' },
     { 'الاسم': 'ب', 'فترة السداد': '15.5' },
     { 'الاسم': 'ج', 'حد الائتمان': '1000', 'فترة السداد': '30' },
   ]);
-  assert.deepEqual(c.errors.map((e) => [e.row, e.message, e.field]), [
-    [2, NEGATIVE_CREDIT_LIMIT, 'creditLimit'],
-    [3, PAYMENT_DAYS_INVALID, 'paymentDays'],
-  ]);
-  assert.deepEqual(c.valid.map((v) => v.name), ['ج']);
-  assert.equal(c.valid[0].creditLimit, 1000);
-  assert.equal(c.valid[0].paymentDays, 30);
+  assert.deepEqual(c.errors, []);
+  assert.deepEqual(c.valid.map((v) => [v.name, v.creditLimit, v.paymentDays]), [['أ', undefined, undefined], ['ب', undefined, 15], ['ج', 1000, 30]]);
 
   // نسبة الضريبة خارج 0..100 خطأ صف واحد، والصف السليم يمضي
   const p = prod([
@@ -1617,10 +1633,10 @@ test('البند 36: قيود zod نفسها أخطاء صفوف في المعا
   // الحدّ نفسه بالضبط يمرّ (لا انحدار على ملف كان يُقبل)
   assert.deepEqual(stock([{ 'اسم الصنف': 'ص'.repeat(IMPORT_TEXT_MAX), 'الكمية': 1, 'تكلفة الوحدة': 1 }]).errors, []);
 
-  // حارس ثابت: القيود التي تُقلَّد هنا ما زالت هي قيود zod في الخادم حرفياً
+  // حارس ثابت: القيود التي تُقلَّد هنا ما زالت هي قيود zod في الخادم حرفياً — وحد الائتمان وفترة السداد يُصحَّحان قبلها لا يرفضان
   const src = backendSrc('routes/import.ts');
-  assert.match(src, /creditLimit: z\.number\(\)\.nonnegative\(\)/);
-  assert.match(src, /paymentDays: z\.number\(\)\.int\(\)\.nonnegative\(\)/);
+  assert.match(src, /creditLimit: z\.preprocess\(looseImportAmount, z\.number\(\)\.nonnegative\(\)/);
+  assert.match(src, /paymentDays: z\.preprocess\(looseImportDays, z\.number\(\)\.int\(\)\.nonnegative\(\)/);
   assert.match(src, /taxPct: z\.number\(\)\.min\(0\)\.max\(100\)/);
   assert.match(src, new RegExp(`z\\.string\\(\\)\\.trim\\(\\)\\.max\\(${IMPORT_TEXT_MAX}\\)`));
 });

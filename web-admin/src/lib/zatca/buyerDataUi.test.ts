@@ -54,7 +54,8 @@ test('الحمولة: الحقول الجديدة لا تُرسل إلا للج�
   assert.ok(app.includes('...(zatcaCollect ? buyerCreatePayload(buyer) : {}),'), 'إضافة عميل من المندوب');
   assert.ok(app.includes('if (zatcaCollect) Object.assign(payload, buyerUpdatePayload(buyer, customer));'), 'تعديل عميل من المندوب');
   const add = app.slice(app.indexOf('function AddCustomer('), app.indexOf('function EditCustomer('));
-  assert.match(add, /if \(zatcaCollect\) \{\n\s*const check = buyerFormCheck\(buyerView, null, BUYER_BILLING_FIELDS, \{ relaxed: buyerRelax \}\);/);
+  // «بلا قيود على العميل» (٩ نوفمبر ٢٠٢٦): الفحص تلميحٌ حيّ للجامعة وحدها — لا فحص يمنع الإرسال
+  assert.ok(add.includes('const buyerHints = zatcaCollect ? buyerFormHints(buyerView, null, { relaxed: buyerRelax }) : {};'));
   const form = read('m', 'MCustomerForm.tsx');
   assert.match(form, /if \(showBuyer\) \{\n\s*Object\.assign\(payload, customer \? buyerUpdatePayload\(buyer, customer as BuyerRowLike\) : buyerCreatePayload\(buyer\)\);/);
   const modal = read('components', 'forms', 'CustomerModal.tsx');
@@ -131,6 +132,48 @@ test('نقطة المندوب الضيّقة: PATCH لحقول الفوترة و
 });
 
 /**
+ * أمر المالك ٩ نوفمبر ٢٠٢٦ («بلا قيود على العميل»): فحص بيانات الفوترة في نماذج العميل الأربعة لا يمنع الحفظ أبداً — تلميحٌ حيّ
+ * (buyerFormHints بقيمة فكّ القيد الفعلية) تحت حقله أو في قائمة تنبيهات القسم، والإرسال دائماً. الخادم (POST/PUT /customers) يُهمل
+ * حقل المرحلة الثانية غير الصالح ويحفظ الباقي كما كُتب. ويبقى منع «المندوب يُكمل ولا يُخفّض» في نموذج المندوب الضيّق (403 في الخادم).
+ */
+test('بلا قيود على العميل: الفحص تلميحٌ حيّ في النماذج الأربعة — لا ok يُسأل ولا زرّ يُعطَّل ولا إرسالٌ يُقطع', () => {
+  const forms: Array<[string, string]> = [
+    ['components/forms/CustomerModal.tsx', read('components', 'forms', 'CustomerModal.tsx')],
+    ['m/MCustomerForm.tsx', read('m', 'MCustomerForm.tsx')],
+    ['rep/RepApp.tsx', read('rep', 'RepApp.tsx')],
+    ['rep/RepBuyerData.tsx', read('rep', 'RepBuyerData.tsx')],
+  ];
+  for (const [name, src] of forms) {
+    assert.doesNotMatch(src, /\bcheck\.ok\b/, `${name}: الفحص يمنع الإرسال`);
+    assert.ok(!src.includes("tr('صحح بيانات الفوترة الإلكترونية')"), `${name}: رسالة المنع باقية`);
+    assert.ok(!src.includes('setBuyerErrors('), `${name}: أخطاء تُضبط عند الإرسال بدل التلميح الحيّ`);
+  }
+  const [modal, m, app, narrow] = forms.map(f => f[1]);
+  // التلميح الحيّ للجامعة وحدها، ومُمرَّرٌ للقسم مع سطر «لا يُحفظ» (POST/PUT /customers يُهمل حقل المرحلة الثانية غير الصالح)
+  assert.ok(modal.includes('const buyerHints = buyerValues ? buyerFormHints(buyerValues, customer as BuyerRowLike | null, { relaxed: buyerRelax }) : {};'));
+  assert.ok(modal.includes('errors={buyerHints}\n              dropsInvalid\n'));
+  assert.ok(modal.includes('<button type="submit" disabled={loading} className="btn-primary'), 'زرّ الإدارة لا يُعطَّل بالفحص');
+  assert.ok(m.includes('const buyerHints = showBuyer ? buyerFormHints(buyerView, customer as BuyerRowLike | null, { relaxed: buyerRelax }) : {};'));
+  assert.ok(m.includes('errors={buyerHints} dropsInvalid onChange='));
+  assert.ok(m.includes('const onSave = () => save.mutate();'));
+  assert.ok(m.includes('<button onClick={onSave} disabled={save.isPending || geoBusy}'), 'زرّ /m لا يُعطَّل بالفحص');
+  const edit = app.slice(app.indexOf('function EditCustomer('), app.indexOf('\nfunction ', app.indexOf('function EditCustomer(') + 30));
+  assert.ok(edit.includes('const buyerHints = zatcaCollect ? buyerFormHints(buyerView, customer, { relaxed: buyerRelax }) : {};'));
+  assert.equal(app.split('errors={buyerHints} dropsInvalid').length - 1, 2, 'إضافة المندوب وتعديله');
+  // الإرسال يبدأ بلا فحص: setLoading أول ما في submit بعد التعليق (إضافةً وتعديلاً)
+  for (const [label, body] of [['AddCustomer', app.slice(app.indexOf('function AddCustomer('), app.indexOf('function EditCustomer('))], ['EditCustomer', edit]] as const) {
+    const submit = body.slice(body.indexOf('const submit = async () => {'));
+    const firstStmt = submit.split('\n').slice(1).find(l => !l.trim().startsWith('//'));
+    assert.equal(firstStmt?.trim(), "setLoading(true); setMsg('');", `${label}: شيءٌ قبل الإرسال`);
+  }
+  // النموذج الضيّق: التلميح الحيّ وردّ الخادم فوقه، بلا سطر «لا يُحفظ» (PATCH /buyer-data يردّ خطأه بنفسه) — ومنع Q3 باقٍ قبل الإرسال
+  assert.ok(narrow.includes('const errors = { ...buyerFormHints(values, customer, { relaxed: buyerRelax }), ...serverErrors };'));
+  assert.ok(!narrow.includes('dropsInvalid'));
+  assert.match(narrow, /if \(restricted\.length > 0 \|\| buyerDowngrade\(customer, check\.patch\)\) \{\n\s*setMsg\(tr\('يمكنك إكمال بيانات الفوترة فقط مسحها أو تحويل العميل من منشأة إلى فرد للإدارة'\)\);\n\s*return;\n\s*\}/);
+  assert.ok(narrow.indexOf('buyerDowngrade(customer, check.patch)') < narrow.indexOf('await repApi.patch('), 'منع Q3 قبل الطلب');
+});
+
+/**
  * طلب المالك ٣١ أكتوبر ٢٠٢٦ (فكّ قيد الرقم الضريبي والعنوان الوطني): كل ما يضيفه للشاشات خلف buyerRelax (= buyerRelaxOn(company)
  * الذي يشترط الجمع) — فالشركة التي لم تفكّ القيد ترسل الفحص نفسه وترى القسم نفسه والشارة نفسها.
  */
@@ -146,8 +189,9 @@ test('فكّ القيد: سطر المبسطة والتنبيهات تُمرَّ
     const n = src.split('relaxed: true, warnings: buyerRelaxWarnings(').length - 1 + src.split('relaxed: true,\n').length - 1;
     assert.ok(n >= 1, `${name}: لا يمرّر فكّ القيد`);
     guarded(src, 'buyerRelaxWarnings(', ['{...(buyerRelax && {'], 200);
-    // كل فحصٍ قبل الإرسال بقيمة الشركة — لا relaxed: true ثابتة
+    // كل فحصٍ وكل تلميحٍ بقيمة الشركة — لا relaxed: true ثابتة (رسائل فكّ القيد «حُفظ كما أُدخل، وتصدر مبسطة» لا تصدق على غيرها)
     for (const m of src.matchAll(/buyerFormCheck\([^;]*\);/g)) assert.match(m[0], /\{ relaxed: buyerRelax \}\);$/, `${name}: ${m[0]}`);
+    for (const m of src.matchAll(/buyerFormHints\([^)]*\)/g)) assert.match(m[0], /\{ relaxed: buyerRelax \}\)$/, `${name}: ${m[0]}`);
     passed += n;
   }
   assert.equal(passed, 5, 'الإدارة و/m وإضافة المندوب وتعديله ونموذجه الضيّق');

@@ -1,4 +1,5 @@
 ﻿import { Router, Response, NextFunction } from 'express';
+import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
@@ -27,41 +28,57 @@ router.use(authenticate); // القراءة متاحة للمندوب (للبح�
 router.use(requireAccounting); // عزل «النظام المحاسبي»
 router.use(requireAdminPermission('canManageProducts'));
 
+// «بلا قيود على الأصناف» (أمر المالك ٩ نوفمبر ٢٠٢٦): الحقل غير الصالح يُصحَّح أو يُهمل بدل رفض الصنف — الكود الفارغ يُولَّد،
+// والاسم الفارغ = الكود، والوحدة الفارغة «حبة»، والسعر نصاً يُحوَّل والسالب أو غير الرقمي صفر، والنسبة خارج ٠–١٠٠ تُورَث،
+// والقيم المجهولة في القوائم تُهمل. حرّاس الكمية (معامل الوحدة) والكود المكرّر من اللوحة باقيان
+const pText = z.preprocess((v) => (v == null ? '' : String(v).trim()), z.string());
+const pLooseText = z.preprocess((v) => (v == null ? v : typeof v === 'object' ? JSON.stringify(v) : String(v)), z.string().nullish());
 const productSchema = z.object({
-  code: z.string().min(1),
-  name: z.string().min(1),
+  code: pText,
+  name: pText,
   // nullish لا optional: نماذج RHF ترسل null للحقول الفارغة غير الملموسة،
   // وoptional() يرفض null فيفشل حفظ التعديل بلا سبب ظاهر (درس نموذج العملاء)
-  barcode: z.string().nullish(),
-  unit: z.string().min(1),
-  basePrice: z.number().min(0),
-  taxPct: z.number().min(0).max(100).nullish(), // يُورَث من ضريبة دولة الشركة عند الغياب
-  image: z.string().nullish().or(z.literal('')), // صورة الصنف (base64 data URL)
-  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
-  damagedReturnToStock: z.boolean().optional(), // سياسة: هل يعود مرتجع هذا الصنف التالف للمخزون؟
+  barcode: pLooseText,
+  unit: z.preprocess((v) => (v == null || String(v).trim() === '' ? 'حبة' : String(v).trim()), z.string()),
+  basePrice: z.preprocess((v) => { const n = Number(v); return v == null || v === '' || !Number.isFinite(n) || n < 0 ? 0 : n; }, z.number()),
+  taxPct: z.preprocess((v) => { if (v == null || v === '') return v === '' ? null : v; const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null; }, z.number().nullish()), // يُورَث من ضريبة دولة الشركة عند الغياب
+  image: pLooseText, // صورة الصنف (base64 data URL)
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional().catch(undefined),
+  damagedReturnToStock: z.boolean().optional().catch(undefined), // سياسة: هل يعود مرتجع هذا الصنف التالف للمخزون؟
   // صلاحية الصنف وأساس حسابها (البيع | الشراء بتاريخٍ يُكتب هنا | تحميل السيارة) — يُتحقَّق منها بعد الدمج مع المحفوظ
-  shelfLifeEnabled: z.boolean().optional(),
-  shelfLifeValue: z.number().int().positive().nullish(),
-  shelfLifeUnit: z.enum(SHELF_LIFE_UNITS).nullish(),
-  shelfLifeBasis: z.enum(SHELF_LIFE_BASES).optional(),
-  shelfLifeFromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish().or(z.literal('')),
+  shelfLifeEnabled: z.boolean().optional().catch(undefined),
+  shelfLifeValue: z.number().int().positive().nullish().catch(null),
+  shelfLifeUnit: z.enum(SHELF_LIFE_UNITS).nullish().catch(null),
+  shelfLifeBasis: z.enum(SHELF_LIFE_BASES).optional().catch(undefined),
+  shelfLifeFromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish().or(z.literal('')).catch(null),
   // قيد المرتجع لصنف الصلاحية: قرب الانتهاء | ما زال صالحاً، بالأيام | بالنسبة — يُتحقَّق منه مدمجاً (returnRuleConfigProblem)
-  returnRuleEnabled: z.boolean().optional(),
-  returnRuleMode: z.enum(RETURN_RULE_MODES).nullish(),
-  returnRuleMetric: z.enum(RETURN_RULE_METRICS).nullish(),
-  returnRuleValue: z.number().int().positive().nullish(),
+  returnRuleEnabled: z.boolean().optional().catch(undefined),
+  returnRuleMode: z.enum(RETURN_RULE_MODES).nullish().catch(null),
+  returnRuleMetric: z.enum(RETURN_RULE_METRICS).nullish().catch(null),
+  returnRuleValue: z.number().int().positive().nullish().catch(null),
   // «قيود المندوب» (services/repProductRules.ts): للمندوب وحده. null من النموذج ⇒ بلا تغيير (الأعمدة غير قابلة للفراغ)،
   // و«الكبرى فقط» يُتحقَّق منه مع وحدات الصنف (repRuleConfigProblem)
-  repSaleAllowed: z.boolean().nullish(),
-  repReturnAllowed: z.boolean().nullish(),
-  repSaleUnit: z.enum(REP_UNIT_RULES).nullish(),
-  repReturnUnit: z.enum(REP_UNIT_RULES).nullish(),
-  categoryId: z.string().nullish(),
+  repSaleAllowed: z.boolean().nullish().catch(null),
+  repReturnAllowed: z.boolean().nullish().catch(null),
+  repSaleUnit: z.enum(REP_UNIT_RULES).nullish().catch(null),
+  repReturnUnit: z.enum(REP_UNIT_RULES).nullish().catch(null),
+  categoryId: pLooseText,
   // أكواد الفوترة الإلكترونية
-  itemCode: z.string().nullish().or(z.literal('')),     // كود الصنف (EGS/GS1)
-  itemCodeType: z.enum(['EGS', 'GS1']).nullish(),
-  unitCode: z.string().nullish().or(z.literal('')),     // كود الوحدة حسب جدول المزوّد
+  itemCode: pLooseText,     // كود الصنف (EGS/GS1)
+  itemCodeType: z.enum(['EGS', 'GS1']).nullish().catch(null),
+  unitCode: pLooseText,     // كود الوحدة حسب جدول المزوّد
 });
+
+/** كودٌ يُولَّد لصنفٍ وصل بلا كود — فريدٌ في الشركة (بلا قيود: أمر المالك ٩ نوفمبر ٢٠٢٦) */
+async function autoProductCode(tid: string): Promise<string> {
+  for (let i = 0; i < 20; i++) {
+    const c = `P-${Date.now().toString(36).toUpperCase()}${i ? `-${i}` : ''}`;
+    if (!(await prisma.product.count({ where: { tenantId: tid, code: c } }))) return c;
+  }
+  return `P-${randomUUID().slice(0, 8).toUpperCase()}`;
+}
+const SHELF_RETURN_KEYS = ['shelfLifeEnabled', 'shelfLifeValue', 'shelfLifeUnit', 'shelfLifeBasis', 'shelfLifeFromDate', 'returnRuleEnabled', 'returnRuleMode', 'returnRuleMetric', 'returnRuleValue'] as const;
+const REP_RULE_INPUT_KEYS = ['repSaleAllowed', 'repReturnAllowed', 'repSaleUnit', 'repReturnUnit'] as const;
 
 // «تتبّع اللوط» (§٤.٢) — مخطّطٌ منفصل عن productSchema فلا يمرّ العلم في { ...data } إلى الإنشاء والتعديل: انتقاله يُحكم بعلم
 // الشركة والقفل والحقبة (setProductLotTracking)، وproductSchema يُسقط المفتاحين من data كأي مفتاحٍ مجهول.
@@ -959,6 +976,8 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     const reverse = req.body?.primaryUnitName != null ? reverseCreatePlan(productCreateSchema.parse(req.body)) : null;
     if (reverse instanceof UnitsRefusal) { res.status(reverse.status).json({ success: false, code: reverse.code, message: reverse.message }); return; }
     const data = reverse ? reverse.data : productSchema.parse(req.body);
+    if (!data.code) data.code = await autoProductCode(tid);
+    if (!data.name) data.name = data.code;
     // الكود بلا تفريق أحرف (ABC = abc). المؤرشف لا يحجزه: يُعاد ترقيمه ويُنشأ الجديد. والقائم: مفتاح API يستلمه 200 existing
     // (إنشاءٌ متكرر آمن لموصلات Odoo وغيرها بدل 409 يعلّق المزامنة)، واللوحة 409 كما كانت (مرونة الربط، ٨ نوفمبر ٢٠٢٦)
     const codeOf = () => prisma.product.findFirst({
@@ -979,14 +998,21 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     }
     // S4 (D4): اسمٌ يطابق صنفاً للشركة — قائماً أو موقوفاً أو مؤرشفاً — تحذيرٌ في الردّ لا رفض، فلا ينكسر مفتاح API ولا تكامل
     const nameWarn = duplicateNameWarnings(await duplicateNameMatches(prisma, tid, data.name));
-    const extraWarn: Array<{ code: 'CATEGORY_NOT_FOUND'; message: string; categoryId: string }> = [];
+    const extraWarn: Array<{ code: string; message: string; categoryId?: string }> = [];
     const withNameWarn = <T extends object>(body: T) => (nameWarn.length || extraWarn.length ? { ...body, warnings: [...nameWarn, ...extraWarn] } : body);
     const lifeProblem = shelfLifeProblem(data) ?? returnRuleConfigProblem(data);
-    if (lifeProblem) { res.status(400).json({ success: false, message: lifeProblem }); return; }
+    if (lifeProblem) { // بلا قيود: إعداد الصلاحية أو قيد المرتجع الخاطئ يُهمل ويُحفظ الصنف
+      for (const k of SHELF_RETURN_KEYS) delete (data as Record<string, unknown>)[k];
+      extraWarn.push({ code: 'SHELF_LIFE_IGNORED', message: lifeProblem });
+    }
     // «قيود المندوب»: الصنف الجديد بلا وحدات بعد، فلا «كبرى فقط» عند إنشائه — إلا الإنشاء العكسي فوحداته معه (D10)
-    const repRules = repRuleWrite(data, null);
+    let repRules = repRuleWrite(data, null);
     const repProblem = repRuleConfigProblem(repRules.merged, reverse ? reverse.units.map((u) => ({ factor: u.factor, isActive: true })) : null);
-    if (repProblem) { res.status(400).json({ success: false, code: 'REP_UNIT_RULE_INVALID', message: repProblem }); return; }
+    if (repProblem) { // بلا قيود: قيد المندوب الخاطئ يُهمل
+      for (const k of REP_RULE_INPUT_KEYS) delete (data as Record<string, unknown>)[k];
+      repRules = repRuleWrite(data, null);
+      extraWarn.push({ code: 'REP_UNIT_RULE_IGNORED', message: repProblem });
+    }
     if (data.taxPct == null) { // وراثة ضريبة دولة الشركة عند عدم تحديدها
       const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true } });
       data.taxPct = company?.defaultVatPct ?? 15;
@@ -996,16 +1022,17 @@ router.post('/', requireAdmin, async (req: AuthRequest, res: Response, next: Nex
     if (!vatGate.ok) { res.status(vatGate.status).json(vatGate.body); return; }
     { const cn = categoryNameOf(req.body); if (!data.categoryId && cn) data.categoryId = await categoryIdByName(tid, cn); }
     if (!(await categoryOwned(tid, data.categoryId))) {
-      // الربط البرمجي (مفتاح API): تصنيفٌ لم يعد موجوداً لا يرفض الصنف — يُنشأ بلا تصنيف مع تحذير CATEGORY_NOT_FOUND (طلب المالك
-      // ٨ نوفمبر ٢٠٢٦: موصل «مروج» يحمل أرقام تصنيفات محذوفة فكانت أصنافه تُرفض 400 كل دورة). اللوحة والجوال كما كانا: 400
-      if (!req.user?.apiKeyId) { res.status(400).json({ success: false, message: 'التصنيف غير موجود' }); return; }
+      // تصنيفٌ لم يعد موجوداً لا يرفض الصنف — يُنشأ بلا تصنيف مع تحذير CATEGORY_NOT_FOUND (موصل «مروج» ٨ نوفمبر، ولكل الجلسات ٩ نوفمبر ٢٠٢٦)
       extraWarn.push({ code: 'CATEGORY_NOT_FOUND', message: 'التصنيف غير موجود فحُفظ الصنف بلا تصنيف', categoryId: String(data.categoryId) });
       data.categoryId = null;
     }
     // «تتبّع اللوط» (§٤.٢): صنفٌ يُنشأ متتبَّعاً يلزمه علم الشركة، وتبدأ حقبته لحظة إنشائه، وTRACKING_ON في معاملة الإنشاء نفسها.
     // صنفٌ جديد لا عملية لوطٍ عليه قبل التزامه فلا قفل ولا طابور. والجسم بلا العلم (أو بـfalse) ⇒ الإنشاء كما كان حرفياً
     const lot = productLotSchema.parse(req.body);
-    if (lot.lotTracked === true && !(await lotsAllowed(tid))) { res.status(403).json(lotErrorBody(lotErr('LOTS_NOT_ALLOWED'))); return; }
+    if (lot.lotTracked === true && !(await lotsAllowed(tid))) { // بلا قيود: الشركة بلا «تتبّع اللوط» ⇒ يُنشأ الصنف غير متتبَّع
+      lot.lotTracked = false;
+      extraWarn.push({ code: 'LOTS_NOT_ALLOWED_IGNORED', message: 'تتبّع LOT غير مفعّل للشركة فأُنشئ الصنف بلا تتبّع' });
+    }
     const lotStart = lot.lotTracked === true ? { lotTracked: true, lotTrackedSince: new Date() } : null;
     // «أنواع الأسعار»: أسعار الأنواع (صافية بالرئيسية — الأساس في الإنشاء العادي) في معاملة الإنشاء نفسها؛ بلاها الإنشاء كما كان
     const listItems = (productListPricesSchema.parse(req.body ?? {}).listPrices ?? []).filter((i) => i.price != null);
@@ -1045,20 +1072,64 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
   let lotPath = false;
   try {
     const tid = tenantId(req);
-    const exists = await prisma.product.findFirst({
-      where: { id: req.params.id, tenantId: tid },
-      select: {
-        id: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true,
-        returnRuleEnabled: true, returnRuleMode: true, returnRuleMetric: true, returnRuleValue: true,
-        unit: true, units: { select: { name: true, factor: true, isActive: true } },
-        name: true, // S4: إعادة التسمية وحدها تسأل عن الاسم المكرَّر
-        lotTracked: true, // «تتبّع اللوط»: الانتقال يُعرف من القراءة نفسها بلا استعلام
-        repSaleAllowed: true, repReturnAllowed: true, repSaleUnit: true, repReturnUnit: true,
-      },
-    });
-    if (!exists) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
+    const existsSelect = {
+      id: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, shelfLifeBasis: true, shelfLifeFromDate: true,
+      returnRuleEnabled: true, returnRuleMode: true, returnRuleMetric: true, returnRuleValue: true,
+      unit: true, units: { select: { name: true, factor: true, isActive: true } },
+      name: true, // S4: إعادة التسمية وحدها تسأل عن الاسم المكرَّر
+      lotTracked: true, // «تتبّع اللوط»: الانتقال يُعرف من القراءة نفسها بلا استعلام
+      repSaleAllowed: true, repReturnAllowed: true, repSaleUnit: true, repReturnUnit: true,
+    } as const;
+    let exists = await prisma.product.findFirst({ where: { id: req.params.id, tenantId: tid }, select: existsSelect });
+    if (!exists) {
+      // «لا يُرفض أبداً — حُذف من قبل أو لم يُحذف» (أمر المالك ٩ نوفمبر ٢٠٢٦): المعرّف المجهول لا 404 — صنفٌ قائمٌ بالكود نفسه
+      // (بلا تفريق أحرف) يُعدَّل مكانه، وإلا يُنشأ الصنف بالمعرّف نفسه (معرّفٌ تملكه شركةٌ أخرى ⇒ معرّفٌ جديد مع تحذير)
+      const raw = productSchema.parse(req.body ?? {});
+      const byCode = raw.code ? await prisma.product.findFirst({
+        where: { tenantId: tid, deletedAt: null, code: { equals: raw.code, mode: 'insensitive' } }, select: { id: true },
+      }) : null;
+      if (byCode) {
+        req.params.id = byCode.id;
+        exists = await prisma.product.findFirst({ where: { id: byCode.id, tenantId: tid }, select: existsSelect });
+      }
+      if (!exists) {
+        const requestedId = String(req.params.id);
+        const taken = await prisma.product.findUnique({ where: { id: requestedId }, select: { id: true } });
+        if (!raw.code) raw.code = await autoProductCode(tid);
+        const archived = await prisma.product.findMany({ where: { tenantId: tid, deletedAt: { not: null }, code: { equals: raw.code, mode: 'insensitive' } }, select: { id: true, code: true } });
+        for (const a of archived) await freeArchivedProductCode(tid, a.id, a.code);
+        if (!raw.name) raw.name = raw.code;
+        let taxPct = raw.taxPct;
+        if (taxPct == null) taxPct = (await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true } }))?.defaultVatPct ?? 15;
+        let categoryId: string | null = raw.categoryId || null;
+        { const cn = categoryNameOf(req.body); if (!categoryId && cn) categoryId = await categoryIdByName(tid, cn); }
+        if (!(await categoryOwned(tid, categoryId))) categoryId = null;
+        const created = await prisma.product.create({
+          data: {
+            ...(taken ? {} : { id: requestedId }), tenantId: tid, code: raw.code, name: raw.name, unit: raw.unit, basePrice: raw.basePrice, taxPct,
+            barcode: raw.barcode || null, categoryId, image: raw.image || null, itemCode: raw.itemCode || null, unitCode: raw.unitCode || null,
+            ...(raw.itemCodeType ? { itemCodeType: raw.itemCodeType } : {}), ...(raw.status ? { status: raw.status } : {}),
+          },
+          include: { category: true, units: UNITS_ORDER },
+        });
+        res.status(201).json({
+          success: true, data: created, created: true,
+          ...(taken ? { warnings: [{ code: 'PRODUCT_ID_REASSIGNED', message: 'المعرّف مستخدم في شركة أخرى فأُنشئ الصنف بمعرّف جديد', requestedId }] } : {}),
+        });
+        return;
+      }
+    }
     // productSchema.partial() يُسقط primaryUnitId من الجسم عمداً: رحلة GET ثم PUT لا تكتب قيمةً قديمة (PUT /:id/primary-unit وحده يكتبه)
     const data = productSchema.partial().parse(req.body);
+    // بلا قيود (٩ نوفمبر ٢٠٢٦): الكود أو الاسم أو الوحدة الفارغة في التعديل «بلا تغيير» لا مسحٌ ولا رفض
+    if (data.code !== undefined && !data.code) delete data.code;
+    if (data.name !== undefined && !data.name) delete data.name;
+    { // السعر الفارغ أو غير الرقمي أو السالب في التعديل «بلا تغيير» لا صفر
+      const bp = (req.body as { basePrice?: unknown } | null | undefined)?.basePrice;
+      const n = Number(bp);
+      if (bp === undefined || bp === null || bp === '' || !Number.isFinite(n) || n < 0) delete data.basePrice;
+    }
+    { const u = (req.body as { unit?: unknown } | null | undefined)?.unit; if (u == null || String(u).trim() === '') delete data.unit; }
     // «الوحدة الرئيسية» (§2.2-هـ): ما يمسّ الأساس (سعره أو اسمه أو رقعة الرئيسية) يُكتب تحت قفل الصفّ بعد مقارنة الأساس الذي رآه النموذج
     const guard = productEditGuardSchema.parse(req.body ?? {});
     const touchesBase = data.basePrice !== undefined || data.unit !== undefined || guard.primaryUnit != null;
@@ -1078,21 +1149,31 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
       returnRuleMetric: data.returnRuleMetric !== undefined ? data.returnRuleMetric : exists.returnRuleMetric,
       returnRuleValue: data.returnRuleValue !== undefined ? data.returnRuleValue : exists.returnRuleValue,
     };
+    const extraWarn: Array<{ code: string; message: string; categoryId?: string }> = [];
     const lifeProblem = shelfLifeProblem(merged) ?? returnRuleConfigProblem(merged);
-    if (lifeProblem) { res.status(400).json({ success: false, message: lifeProblem }); return; }
+    if (lifeProblem) { // بلا قيود: الصلاحية أو قيد المرتجع الخاطئ يُهمل ويبقى المحفوظ، ويُحفظ باقي الصنف
+      for (const k of SHELF_RETURN_KEYS) delete (data as Record<string, unknown>)[k];
+      extraWarn.push({ code: 'SHELF_LIFE_IGNORED', message: lifeProblem });
+    }
     // «قيود المندوب»: مدمجةً مع المحفوظ — «الكبرى فقط» يلزمه وحدةٌ كبرى نشطة، وتغييرها يختم repRulesChangedAt
-    const repRules = repRuleWrite(data, exists);
+    let repRules = repRuleWrite(data, exists);
     const newlyLarge = (['SALE', 'RETURN'] as const).some((a) => repUnitRuleOf(repRules.merged, a) === 'LARGE' && repUnitRuleOf(exists, a) !== 'LARGE');
     const repProblem = newlyLarge ? repRuleConfigProblem(repRules.merged, exists.units) : null;
-    if (repProblem) { res.status(400).json({ success: false, code: 'REP_UNIT_RULE_INVALID', message: repProblem }); return; }
+    if (repProblem) { // بلا قيود: قيد المندوب الخاطئ يُهمل ويبقى المحفوظ
+      for (const k of REP_RULE_INPUT_KEYS) delete (data as Record<string, unknown>)[k];
+      repRules = repRuleWrite(data, exists);
+      extraWarn.push({ code: 'REP_UNIT_RULE_IGNORED', message: repProblem });
+    }
     // «تتبّع اللوط» (§٤.٢): القيمة المرسلة المختلفة عن المحفوظ وحدها انتقال — وتفعيله وحده يقرأ علم الشركة (§١٠.١)
     const lot = productLotSchema.parse(req.body);
-    const lotTo = lot.lotTracked != null && lot.lotTracked !== exists.lotTracked ? lot.lotTracked : null;
-    if (lotTo === true && !(await lotsAllowed(tid))) { res.status(403).json(lotErrorBody(lotErr('LOTS_NOT_ALLOWED'))); return; }
+    let lotTo = lot.lotTracked != null && lot.lotTracked !== exists.lotTracked ? lot.lotTracked : null;
+    if (lotTo === true && !(await lotsAllowed(tid))) { // بلا قيود: الشركة بلا «تتبّع اللوط» ⇒ يُهمل طلب التفعيل
+      lotTo = null;
+      extraWarn.push({ code: 'LOTS_NOT_ALLOWED_IGNORED', message: 'تتبّع LOT غير مفعّل للشركة فبقي الصنف كما هو' });
+    }
     // S4 (D4): إعادة تسمية الصنف باسم صنفٍ آخر للشركة (قائمٍ أو موقوفٍ أو مؤرشف) — تحذيرٌ في الردّ لا رفض
     const renamed = data.name !== undefined && productNameKey(data.name) !== productNameKey(exists.name);
     const nameWarn = renamed ? duplicateNameWarnings(await duplicateNameMatches(prisma, tid, data.name, exists.id)) : [];
-    const extraWarn: Array<{ code: 'CATEGORY_NOT_FOUND'; message: string; categoryId: string }> = [];
     const withNameWarn = <T extends object>(body: T) => (nameWarn.length || extraWarn.length ? { ...body, warnings: [...nameWarn, ...extraWarn] } : body);
     const updateData: Record<string, unknown> = { ...data };
     for (const k of REP_RULE_KEYS) delete updateData[k];
@@ -1103,8 +1184,7 @@ router.put('/:id', requireAdmin, async (req: AuthRequest, res: Response, next: N
     if ('categoryId' in updateData) updateData.categoryId = updateData.categoryId || null;
     { const cn = categoryNameOf(req.body); if (!updateData.categoryId && cn) updateData.categoryId = await categoryIdByName(tid, cn); }
     if (!(await categoryOwned(tid, updateData.categoryId as string | null | undefined))) {
-      // الربط البرمجي: تصنيفٌ غير موجود ⇒ يبقى تصنيف الصنف المحفوظ كما هو مع تحذير، لا رفض (انظر POST أعلاه)
-      if (!req.user?.apiKeyId) { res.status(400).json({ success: false, message: 'التصنيف غير موجود' }); return; }
+      // تصنيفٌ غير موجود ⇒ يبقى تصنيف الصنف المحفوظ كما هو مع تحذير، لا رفض (لكل الجلسات منذ ٩ نوفمبر ٢٠٢٦)
       extraWarn.push({ code: 'CATEGORY_NOT_FOUND', message: 'التصنيف غير موجود فبقي تصنيف الصنف كما هو', categoryId: String(updateData.categoryId) });
       delete updateData.categoryId;
     }

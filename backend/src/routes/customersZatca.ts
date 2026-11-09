@@ -148,7 +148,9 @@ export async function applyBuyerGateToWrite(
   // التسامح لصندوق تطبيق المندوب (وجلسات اللوحة) وحده — هوية المفتاح من المصادقة لا من الجسم، فلا يفتحه clientRef
   const replay = opts.replay && !req.user?.apiKeyId;
   if (errors.length > 0) {
-    if (!(opts.customerId === null && replay)) return { ok: false, status: 400, body: customerZatcaInvalidBody(errors) };
+    // «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): لا رفض لكل الجلسات — كمسار الرفع المؤجَّل: حقول المرحلة الثانية الخاطئة
+    // تُهمل، والقديمة تُحفظ كما كُتبت، والتنبيه يعود في warnings
+    void replay;
     // الرفع المؤجَّل: حقول المرحلة الثانية الخاطئة تُسقط (لم تكن تُحفظ قبل Z5.1a أصلاً)، والقديمة (الرقم الضريبي والسجل والنصوص)
     // تُحفظ كما كانت تُحفظ اليوم بلا فحص — والقائمة تُظهرها ناقصة. والتحذير يعود للجهاز
     for (const e of errors) {
@@ -162,6 +164,10 @@ export async function applyBuyerGateToWrite(
       tenantId: tid, customerId: stored.id, actorId: req.user?.id ?? '', role: req.user?.role ?? '', impersonated: req.user?.impersonated === true,
       fields: v.changed.filter(f => f === 'buyerType' || f === 'taxNumber' || f === 'commercialReg'), route: 'PUT /customers/:id',
     }));
+  }
+  // محارف التحكّم تكسر XML الفاتورة والطباعة: تُنظَّف من النصوص بدل رفض العميل (لا قيود — أمر المالك ٩ نوفمبر ٢٠٢٦)
+  for (const [k, v] of Object.entries(patch)) {
+    if (typeof v === 'string') (patch as Record<string, unknown>)[k] = v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
   }
   Object.assign(data, patch);
   return { ok: true, warnings: warnings.length > 0 ? warnings : null };
@@ -426,21 +432,39 @@ export function createCustomerBuyerDataRouter(deps: CustomerBuyerDataDeps): Rout
     }
     const v = validateBuyerChanges(patch, stored, { relaxed: gate.relaxed });
     const errors = [...typeErrors, ...v.errors];
-    if (errors.length > 0) { res.status(400).json(customerZatcaInvalidBody(errors)); return; }
+    // «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦) كبوابة الإنشاء والتعديل: لا 400 — حقول المرحلة الثانية الخاطئة وأخطاء النوع
+    // تُهمل، والقديمة (الرقم الضريبي والسجل والنصوص) تُحفظ كما كُتبت بلا محارف التحكّم، والأخطاء تعود في warnings
+    const dropped = new Set<string>();
+    for (const e of errors) {
+      if ((BUYER_PHASE2_FIELDS as readonly string[]).includes(e.field) || typeErrors.some((t) => t.field === e.field)) {
+        delete (patch as Record<string, unknown>)[e.field];
+        dropped.add(e.field);
+      }
+    }
+    for (const [k, val] of Object.entries(patch)) {
+      if (typeof val === 'string') (patch as Record<string, unknown>)[k] = val.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+    }
+    const changed = v.changed.filter((f) => !dropped.has(f));
+    for (const e of errors) {
+      const f = e.field;
+      if (dropped.has(f) || changed.includes(f)) continue;
+      const nv = (patch as Record<string, unknown>)[f];
+      if (nv !== undefined && nv !== (stored as unknown as Record<string, unknown>)[f]) changed.push(f);
+    }
 
     let row: BuyerRow = stored;
-    if (v.changed.length > 0) {
+    if (changed.length > 0) {
       const write: BuyerPatch = {};
-      for (const f of v.changed) write[f as BuyerField] = patch[f as BuyerField] ?? null;
+      for (const f of changed) write[f as BuyerField] = patch[f as BuyerField] ?? null;
       row = (await deps.db.customer.update({ where: { id }, data: write, select: BUYER_ROW_SELECT })) as BuyerRow;
       if (!isRep && buyerDowngrade(stored, patch)) {
         audit(buyerDowngradeAuditLine({
           tenantId: tid, customerId: id, actorId: req.user?.id ?? '', role: req.user?.role ?? '', impersonated: req.user?.impersonated === true,
-          fields: v.changed.filter(f => f === 'buyerType' || f === 'taxNumber' || f === 'commercialReg'), route: 'PATCH /customers/:id/buyer-data',
+          fields: changed.filter(f => f === 'buyerType' || f === 'taxNumber' || f === 'commercialReg'), route: 'PATCH /customers/:id/buyer-data',
         }));
       }
     }
-    res.json({ success: true, data: buyerRowView(row, customerBuyerStatus(row)), changed: v.changed, warnings: v.warnings });
+    res.json({ success: true, data: buyerRowView(row, customerBuyerStatus(row)), changed, warnings: [...errors, ...v.warnings] });
   }));
 
   return router;

@@ -5,9 +5,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CUSTOMER_PHONE_MAX, buildCustomerMatcher, normImportPhone, planCustomerImport, storedCustomerPhone } from '../services/importMatch';
+import {
+  CUSTOMER_NAME_PLACEHOLDER, CUSTOMER_PHONE_MAX, CUSTOMER_PHONE_STORE_MAX, buildCustomerMatcher, customerImportName, normImportPhone, planCustomerImport,
+  storedCustomerPhone,
+} from '../services/importMatch';
 import * as importLedger from '../services/importLedger';
-import { IMPORT_ROW_MESSAGES, customerMatchError } from '../services/importLedger';
+import { IMPORT_ROW_MESSAGES, customerMatchError, parseImportRows } from '../services/importLedger';
+import { customerRow, importBuyerRowsLenient } from '../routes/import';
 
 const read = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
 
@@ -108,7 +112,7 @@ test('حارس ثابت: /customers بالمخطِّط وskippedRows وwarnings.
   assert.match(customers, /customerImportPlanner\(existing\)/);
   assert.doesNotMatch(customers, /names\.has\(|phones\.has\(/, 'التخطي بشرط OR القديم');
   // warnings.similar وحده (تنبيه الجوال «البند 49» أُلغي بأمر المالك ٧ نوفمبر)
-  assert.match(customers, /data: \{ \.\.\.result, \.\.\.cappedErrors\(result\.errors\), skippedRows, attachedRows, warnings: \{ similar \} \} \}\);\n  \} catch/);
+  assert.match(customers, /data: \{ \.\.\.result, \.\.\.cappedErrors\(result\.errors\), skippedRows, attachedRows, warnings: \{ similar, buyer \} \} \}\);\n  \} catch/);
   assert.doesNotMatch(src, /async function customerFinder\(/);
   assert.match(body("router.post('/balances'"), /customerMatchError\(/);
   // البندان 43 و44: /prices يطابق داخل المخطِّط (planPriceImportRows) بالمطابق نفسه ورموزه — عبر planPriceRowsWithUnits («الوحدة
@@ -282,13 +286,13 @@ test('أمر المالك (٧ نوفمبر): جوال العميل المستو�
   for (const s of ['12345', '0112', '01123456', '+966 50 123 4567', '050-123-4567', '٠٥٠١٢٣٤٥٦٧', '+44 20 7946 0958', 'ext 12']) {
     assert.equal(storedCustomerPhone(`  ${s} `), s, s);
   }
-  // حدّ الأمان وحده: ما فوق ٣٠ خانة ⇒ أول جوال صالح في الخلية، وإلا أول ٣٠ خانة
+  // «بلا قيود» (٩ نوفمبر ٢٠٢٦): سقف خانة النماذج ٣٠ لا يقصّ المستورد — يُخزَّن كما كُتب حتى ٢٠٠ خانة، وما فوقها يُقصّ لا يُرفض
   assert.equal(CUSTOMER_PHONE_MAX, 30);
-  assert.equal(storedCustomerPhone('0501234567 / 0551234567 / 0561234567'), '0501234567');
+  assert.equal(CUSTOMER_PHONE_STORE_MAX, 200);
+  assert.equal(storedCustomerPhone('0501234567 / 0551234567 / 0561234567'), '0501234567 / 0551234567 / 0561234567');
   const junk = 'رقم المحل القديم 1 2 3 لا يعمل حالياً';
-  assert.ok(junk.length > CUSTOMER_PHONE_MAX);
-  assert.equal(storedCustomerPhone(junk), junk.slice(0, CUSTOMER_PHONE_MAX).trim());
-  assert.ok(storedCustomerPhone('9'.repeat(40)).length <= CUSTOMER_PHONE_MAX);
+  assert.equal(storedCustomerPhone(junk), junk);
+  assert.equal(storedCustomerPhone('9'.repeat(250)), '9'.repeat(200));
 });
 
 test('أمر المالك (٧ نوفمبر): الجوال الفارغ أو التافه لا يطابق ولا يتخطى ولا يربط — \'\' لا يساوي \'\'', () => {
@@ -328,10 +332,117 @@ test('حارس ثابت (أمر المالك ٧ نوفمبر): تنبيه «عم
   const src = read('routes/import.ts');
   assert.doesNotMatch(src, /phoneNotEditable|isEditableCustomerPhone|CUSTOMER_PHONE_MIN/);
   // مخطط الصف: الجوال اختياري مقصوص بلا حدّ أدنى (حدّ الطول في storedCustomerPhone لا رفض للصفّ)
-  assert.match(src, /const customerRow = z\.object\(\{\n  name: z\.string\(\)\.trim\(\)\.min\(1\),\n  phone: z\.string\(\)\.trim\(\)\.optional\(\)\.default\(''\),\n/);
+  assert.match(src, /const customerRow = z\.object\(\{\n  name: z\.preprocess\(looseImportText, z\.string\(\)\.trim\(\)\.optional\(\)\.default\(''\)\),[^\n]*\n  phone: z\.preprocess\(looseImportText, z\.string\(\)\.trim\(\)\.optional\(\)\.default\(''\)\),\n/);
   // المخزَّن قرار المخطِّط (storedCustomerPhone) لا الخلية الخام
   const i = src.indexOf("router.post('/customers'");
   const body = src.slice(i, src.indexOf('\nrouter.', i + 20));
   assert.match(body, /creates\.push\(\{ row: d\.row, phone: d\.phone, r \}\);/);
   assert.match(body, /writeItem: async \(tx: Prisma\.TransactionClient, \{ r, phone \}\) => \{/);
+});
+
+// ═══ «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): خانات صفّ العميل لا ترفض صفّها ═══
+
+test('بلا قيود (٩ نوفمبر): مخطّط صفّ العميل لا يرفض صفاً لخانة — الاسم الفارغ، والرقم في خانة نصية، والأرقام غير الصالحة', () => {
+  const raw: unknown[] = [
+    { phone: '0501234567' },                                                   // بلا اسم
+    { name: '', businessName: 'مؤسسة النور' },                                 // اسم فارغ
+    { name: 1001, phone: 501234567, code: 77, email: 'ليس بريداً', taxNumber: 300000000000003, channel: 'XYZ' },
+    { name: 'أ', creditLimit: -5, paymentDays: -1 },                             // سالبان ⇒ الافتراضي
+    { name: 'ب', creditLimit: 'كبير', paymentDays: 'Net 30' },                  // غير رقميين ⇒ الافتراضي
+    { name: 'ج', creditLimit: '1500', paymentDays: 7.5 },                        // نصّ رقمي يُقرأ، وكسر الأيام يُقصّ
+    { name: 'د', city: { x: 1 }, address: null, district: ['a'] },               // غير البسيط يُهمل
+    { name: 'هـ\u0000', phone: '05\u000001234567' },                              // المحرف الصفري يُحذف (يرفضه Postgres)
+    {},
+  ];
+  const out = parseImportRows(customerRow, raw);
+  assert.deepEqual(out.errors, []);
+  assert.equal(out.rows.length, raw.length);
+  assert.deepEqual([out.rows[0].name, out.rows[0].phone], ['', '0501234567']);
+  assert.deepEqual([out.rows[2].name, out.rows[2].phone, out.rows[2].code, out.rows[2].email, out.rows[2].taxNumber, out.rows[2].channel],
+    ['1001', '501234567', '77', 'ليس بريداً', '300000000000003', 'XYZ']);
+  assert.deepEqual([out.rows[3].creditLimit, out.rows[3].paymentDays], [undefined, undefined]);
+  assert.deepEqual([out.rows[4].creditLimit, out.rows[4].paymentDays], [undefined, undefined]);
+  assert.deepEqual([out.rows[5].creditLimit, out.rows[5].paymentDays], [1500, 7]);
+  assert.deepEqual([out.rows[6].city, out.rows[6].address, out.rows[6].district], [undefined, undefined, undefined]);
+  assert.deepEqual([out.rows[7].name, out.rows[7].phone], ['هـ', '0501234567']);
+  assert.deepEqual([out.rows[8].name, out.rows[8].phone], ['', '']);
+  // الملف السليم كما كان حرفاً بحرف (البصمة والعدّ لا يتبدّلان)
+  const ok = parseImportRows(customerRow, [{ name: ' بقالة ', phone: ' 0501234567 ', code: 'C1', creditLimit: 5000, paymentDays: 30, city: 'الرياض' }]);
+  assert.deepEqual(ok.rows, [{ name: 'بقالة', phone: '0501234567', code: 'C1', creditLimit: 5000, paymentDays: 30, city: 'الرياض' }]);
+  // وما ليس صفّاً أصلاً (ليس كائناً) يبقى خطأ شكل
+  assert.equal(parseImportRows(customerRow, ['نص', null]).errors.length, 2);
+});
+
+test('بلا قيود (٩ نوفمبر): الاسم الفارغ ⇒ اسم المنشأة ثم الجوال المخزَّن، وإلا فراغ (يُحفظ «عميل») لا يُطابَق به', () => {
+  assert.equal(customerImportName({ name: ' بقالة ', businessName: 'مؤسسة' }), 'بقالة');
+  assert.equal(customerImportName({ name: '', businessName: ' مؤسسة النور ', phone: '0501234567' }), 'مؤسسة النور');
+  assert.equal(customerImportName({ name: '  ', phone: ' 0501234567 ' }), '0501234567');
+  // جوال بلا أرقام لا يصير اسماً
+  assert.equal(customerImportName({ name: '', phone: '—' }), '');
+  assert.equal(customerImportName({}), '');
+  assert.equal(CUSTOMER_NAME_PLACEHOLDER, 'عميل');
+  // الصفّ بلا ما يسمّيه لا يُتخطّى لتشابه الاسم: لا مع صفٍّ قبله بلا اسم، ولا مع عميلٍ قائم اسمه «عميل»
+  const plan = planCustomerImport([{ code: 'K', phone: '', name: CUSTOMER_NAME_PLACEHOLDER }], [{ name: '' }, { name: '' }, { name: '', code: 'X1' }]);
+  assert.deepEqual(plan.map((d) => d.action), ['create', 'create', 'create']);
+  // والمسمّى ببديله (اسم المنشأة) يُطابَق كأيّ اسم
+  const named = planCustomerImport([{ code: 'K', phone: '', name: 'مؤسسة النور' }], [{ name: customerImportName({ businessName: 'مؤسسه النور' }) }]);
+  assert.deepEqual(named.map((d) => (d.action === 'skip' ? d.reason : d.action)), ['NAME_EXISTS']);
+});
+
+test('حارس ثابت (٩ نوفمبر): /customers يسمّي الصفّ قبل البصمة، ويكتب «عميل» للفارغ، وبيانات المشتري بالمفتاح تنبيهات لا ردّ مبكر', () => {
+  const src = read('routes/import.ts');
+  const i = src.indexOf("router.post('/customers'");
+  const body = src.slice(i, src.indexOf('\n});', i));
+  const naming = body.indexOf('for (const r of rows) r.name = customerImportName(r);');
+  const buyer = body.indexOf('if (req.user?.apiKeyId) buyer = (await importBuyerRowsLenient(prisma, tid, rows)).slice(0, 500);');
+  const reserve = body.indexOf('await reserveMasterBatch(');
+  assert.ok(naming > body.indexOf('if (result.errors.length) {') && naming < buyer && buyer < reserve, 'التسمية ثم المشتري قبل البصمة والحجز');
+  assert.match(body, /name: r\.name \|\| CUSTOMER_NAME_PLACEHOLDER,/);
+  // ردّ مبكر واحد (أخطاء الشكل)، وبوابة الرفض القديمة لا تُستدعى
+  assert.equal(body.split('if (result.errors.length) {').length - 1, 1);
+  assert.doesNotMatch(src, /importBuyerRowsGate\(/);
+});
+
+/** قاعدة مزيّفة لبوابة المشتري: شركة سعودية تجمع بيانات الفوترة (أو لا) */
+function buyerGateDb(collect: boolean, relaxed = false) {
+  const calls: string[] = [];
+  const db = {
+    tenant: {
+      findUnique: async () => {
+        calls.push('tenant.findUnique');
+        return { zatcaPhase2Enabled: collect, settings: { countryCode: 'SA', zatcaPhase2StartedAt: null, buyerVatAddressRelaxed: relaxed } };
+      },
+    },
+  };
+  return { db: db as never, calls };
+}
+
+test('بلا قيود (٩ نوفمبر): استيراد المفتاح ببيانات مشترٍ خاطئة ⇒ تنبيه بالشكل نفسه والصفّ يُكتب كما أُرسل، والسليم يُطبَّع', async () => {
+  const f = buyerGateDb(true);
+  const rows: Record<string, unknown>[] = [
+    { name: 'سليم', phone: '0500000010', taxNumber: '٣٠٠٠٠٠٠٠٠٠٠٠٠٠٣', commercialReg: '2050012345' },
+    { name: 'بلا ضريبة', phone: '0500000011', city: 'الرياض' },
+    { name: 'ضريبي خاطئ', phone: '0500000012', taxNumber: '١٢٣' },
+    { name: 'سجل خاطئ', phone: '0500000013', commercialReg: '12-34 56' },
+  ];
+  const warns = await importBuyerRowsLenient(f.db, 'T1', rows);
+  assert.deepEqual(warns.map((w) => [w.row, w.code, w.field, w.value]), [
+    [4, 'CUSTOMER_ZATCA_INVALID', 'taxNumber', '١٢٣'],
+    [5, 'CUSTOMER_ZATCA_INVALID', 'commercialReg', '12-34 56'],
+  ]);
+  assert.match(warns[0].message, /15 رقماً/);
+  // السليم مطبَّع، والخاطئ يُحفظ كما أُرسل (بأرقام لاتينية كالإنشاء المفرد) لا يُسقط ولا يرفض صفّه
+  assert.equal(rows[0].taxNumber, '300000000000003');
+  assert.equal(rows[2].taxNumber, '123');
+  assert.equal(rows[3].commercialReg, '12-34 56');
+  assert.deepEqual(rows[1], { name: 'بلا ضريبة', phone: '0500000011', city: 'الرياض' });
+  assert.deepEqual(f.calls, ['tenant.findUnique'], 'استعلام البوابة مرّة واحدة للملف كله');
+  // غير الجامعة: لا تنبيه ولا تطبيع، وملفٌّ بلا رقم ضريبي ولا سجل لا يستعلم أصلاً
+  const off = buyerGateDb(false);
+  const offRows: Record<string, unknown>[] = [{ name: 'x', taxNumber: '١٢٣' }];
+  assert.deepEqual(await importBuyerRowsLenient(off.db, 'T1', offRows), []);
+  assert.equal(offRows[0].taxNumber, '١٢٣');
+  const none = buyerGateDb(true);
+  assert.deepEqual(await importBuyerRowsLenient(none.db, 'T1', [{ name: 'x', city: 'جدة' }]), []);
+  assert.deepEqual(none.calls, []);
 });

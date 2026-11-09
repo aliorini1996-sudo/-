@@ -42,8 +42,11 @@ test('B3 الوارد: العلم من استعلام حارس التفعيل ن
   // لا دالّة لوط قبل مخرج المسار القائم
   const before = post.slice(0, post.indexOf('if (!preTracked.length) {'));
   assert.doesNotMatch(before, /acquireLotQueue|lockLotProducts|planWarehouseEntryInTx|companyDay\(/);
-  // ثلاثة: المسار القائم مطفأً، ومفعّلاً بإعادة قراءة التتبّع (D25، tx.warehouseEntry.create)، ومسار اللوط
-  assert.equal((post.match(/warehouseEntry\.create\(/g) ?? []).length, 3, 'إنشاءٌ في كل فرع لا رابع');
+  // ثلاثة: المسار القائم مطفأً، ومفعّلاً بإعادة قراءة التتبّع (D25، tx.warehouseEntry.create)، ومسار اللوط — ورابعٌ في createSplit
+  // («الربط لا يُرفض» ٩ نوفمبر ٢٠٢٦: تسوية الإنقاص المفصولة من وارد بأسطر سالبة) لا يُستدعى إلا داخل معاملات الفروع الثلاثة
+  assert.equal((post.match(/warehouseEntry\.create\(/g) ?? []).length, 4, 'إنشاءٌ في كل فرع + تسوية الإنقاص المفصولة لا خامس');
+  assert.equal((post.match(/await createSplit\(tx, (null|splitPlan)\);/g) ?? []).length, 3, 'تسوية الإنقاص في معاملة كل فرع');
+  assert.ok(post.indexOf('const splitPlan = splitLines.length ? await planWarehouseEntryInTx(') < post.indexOf('const plan = await planWarehouseEntryInTx('), 'خطة النقص قبل الوارد');
   assert.ok(post.includes('await assertStillUntracked(tx, tid, productIds);'), 'D25: إعادة قراءة التتبّع في المسار غير المتتبَّع والميزة مفعّلة');
   // ما في السيارات: داخل الشرط وحده، والردّ القائم حرفياً خارجه
   const vans = slice(w, "router.get('/vans'", 'const entrySchema');

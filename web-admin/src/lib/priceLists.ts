@@ -96,7 +96,8 @@ export interface ListPriceEdits { items: ListPriceItem[]; expectedPrimary: { id:
 
 /**
  * ما تغيّر من خانات الأنواع وحده (المسودّة مقابل المعروض عند الفتح) — فالنوع الذي لم يُلمس لا يُعاد كتابته بقيمةٍ مقرَّبة.
- * سعرٌ غير رقمٍ أو سالب ⇒ `problem` باسم النوع (يُعرض بـtr ثم يُبدَّل {name})
+ * سعرٌ غير رقمٍ أو سالب ⇒ يُهمل بنده (يبقى سعر القائمة المحفوظ) و`problem` باسم أول نوعٍ منها للتنبيه (يُعرض بـtr ثم يُبدَّل
+ * {name}) — تنبيهٌ لا يمنع حفظ الصنف (بلا قيود على الأصناف، أمر المالك ٩ نوفمبر ٢٠٢٦)
  *
  * `resendAll`: عدد الفرعية في الرئيسية يتغيّر في الحفظ نفسه (الطريقة العكسية لصنفٍ قائم). المخزَّن للأساس، فمعاملٌ جديد يقلب
  * سعر الكرتون في كل نوعٍ لم يُلمس (٤ للقارورة × ١٢ = ٤٨ لا ٩٦ المعروضة)، فيُرسل كل نوعٍ له سعرٌ بما تعرضه خانته — ويقسمه
@@ -109,16 +110,17 @@ export function listPriceEditsOf(
   resendAll = false,
 ): { items: ListPriceItem[]; problem: { listId: string; name: string } | null } {
   const items: ListPriceItem[] = [];
+  let problem: { listId: string; name: string } | null = null;
   for (const l of lists) {
     const drafted = Object.prototype.hasOwnProperty.call(drafts, l.id);
     if (!drafted && !resendAll) continue;
     const raw = String(drafted ? drafts[l.id] ?? '' : shown(l.id)).trim();
     if (raw === shown(l.id).trim() && !(resendAll && raw !== '')) continue;
     const v = listPriceInput(raw);
-    if (v !== null && (Number.isNaN(v) || v < 0)) return { items: [], problem: { listId: l.id, name: l.name } };
+    if (v !== null && (Number.isNaN(v) || v < 0)) { problem ??= { listId: l.id, name: l.name }; continue; }
     items.push({ priceListId: l.id, price: v });
   }
-  return { items, problem: null };
+  return { items, problem };
 }
 
 /** حمولة إنشاء الصنف: listPrices بالأسعار المكتوبة وحدها (الفارغ لا معنى له لصنفٍ جديد) — وبلاها لا مفتاح */

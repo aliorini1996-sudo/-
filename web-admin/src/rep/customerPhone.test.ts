@@ -24,7 +24,8 @@ test('القيمة المرسلة: مقصوصة الأطراف و\'\' للفار
   assert.equal(customerPhoneValue('٠٥٥١٢٣٤٥٦٧'), '٠٥٥١٢٣٤٥٦٧');
   const long = '1'.repeat(40);
   assert.equal(customerPhoneValue(long), long, 'الخادم حَكَم الطول — لا يُقتطع رقمٌ قديم بصمت عند التعديل');
-  assert.equal(CUSTOMER_PHONE_MAX, 30);
+  // طول الخانة بقدر ما يحفظه الخادم (يقصّ إلى ٢٠٠ لا يرفض — «بلا قيود على العميل»، ٩ نوفمبر ٢٠٢٦)
+  assert.equal(CUSTOMER_PHONE_MAX, 200);
 });
 
 test('أرقام واتساب: تطبيع السعودي المحلي، و00 الدولية، والأرقام العربية تُقرأ', () => {
@@ -73,6 +74,16 @@ test('RepApp: لا قيد «9 أرقام» ولا نجمة إلزام على ج�
   }
   // الإرسال: '' للفارغ (العمود NOT NULL) لا null ولا undefined — في الإضافة (والطابور دون اتصال) وفي التعديل
   assert.equal((repApp.match(/phone: customerPhoneValue\(form\.phone\)/g) ?? []).length, 2);
+});
+
+test('RepApp بلا قيود على العميل (٩ نوفمبر ٢٠٢٦): الاسم ليس مطلوباً في الإضافة ولا التعديل — الخادم يملأ الفارغ', () => {
+  assert.ok(!repApp.includes("tr('اسم العميل مطلوب')"), 'منع الحفظ بلا اسم عاد');
+  assert.ok(!/if \(!form\.name\.trim\(\)\)/.test(repApp), 'فحص الاسم الفارغ عاد');
+  const nameFields = repApp.match(/field\(tr\('اسم العميل'\), 'name'[^)]*\)/g) ?? [];
+  assert.equal(nameFields.length, 2, 'حقلا الاسم في الإضافة والتعديل');
+  for (const f of nameFields) assert.ok(!f.includes('required'), `الاسم بلا نجمة إلزام: ${f}`);
+  // العميل المحلي (دون اتصال) يُعرض بالبديل نفسه الذي يضعه الخادم
+  assert.ok(repApp.includes("const shownName = payload.name || payload.businessName || payload.phone || 'عميل';"));
 });
 
 test('RepApp: الجوال الفارغ لا يُعرض بفاصل يتيم ولا يُستهدف برابط الدفع', () => {

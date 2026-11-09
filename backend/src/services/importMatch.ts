@@ -12,8 +12,9 @@
  *   والصف بلا كود يُتخطى بجوال صالح ثم باسم مطبَّع. الكود الجديد الذي يطابق جوالُه أو اسمه الفريد عميلاً واحداً معروفاً
  *   بكود تلقائي ⇒ attach (يُكتب الكود في ذلك العميل فتطابقه ملفات الأرصدة والكشوف والأسعار)، وتعذّر تعيينه ⇒ CODE_ATTACHABLE،
  *   واسمٌ يشترك فيه أكثر من عميل بعضهم بكود تلقائي بلا جوال يميّز ⇒ CODE_AMBIGUOUS_NAME (لا عميل ثالث مكرر).
- * - storedCustomerPhone: جوال العميل اختياري حرّ (أمر المالك ٧ نوفمبر) ⇒ يُخزَّن كما كُتب، والفارغ ''. والمطابقة والتخطي
- *   بالجوال المطبَّع الصالح وحده، فالفارغ ('' لا يساوي '') والقديم «—» والتافه لا يربط عميلاً بآخر.
+ * - storedCustomerPhone: جوال العميل اختياري حرّ (أمر المالك ٧ نوفمبر) ⇒ يُخزَّن كما كُتب (حتى ٢٠٠ خانة)، والفارغ ''. والمطابقة
+ *   والتخطي بالجوال المطبَّع الصالح وحده، فالفارغ ('' لا يساوي '') والقديم «—» والتافه لا يربط عميلاً بآخر.
+ * - customerImportName: «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦) ⇒ الاسم الفارغ يأخذ اسم المنشأة ثم الجوال، وإلا «عميل».
  */
 import { normImportName, type CustomerMatch, type CustomerMatchRow, type CustomerMatcher } from './importLedger';
 
@@ -152,25 +153,42 @@ export type CustomerImportDecision =
   | { action: 'skip'; index: number; row: number; reason: CustomerSkipReason };
 
 /**
- * حدّ أمان لطول الجوال المخزَّن — لا حدّ أدنى ولا صيغة (أمر المالك ٧ نوفمبر: جوال العميل اختياري حرّ).
- * التعريف الوحيد في الخادم: routes/customers.ts يستورده لمخطّط البطاقة، فلا يفترق حدّ الاستيراد عن حدّ البطاقة.
+ * سقف خانة الجوال في نماذج الإدخال (اللوحة والمندوب و/m في الويب: lib/customerPhoneField.ts) — لا حدّ أدنى ولا صيغة (أمر المالك
+ * ٧ نوفمبر: جوال العميل اختياري حرّ). routes/customers.ts يستورده.
  */
 export const CUSTOMER_PHONE_MAX = 30;
+
+/**
+ * «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): أي نصّ جوال يُقبل — والمخزَّن يُقصّ إلى ٢٠٠ خانة كبطاقة العميل
+ * (routes/customers.ts) لا يُرفض صفّه.
+ */
+export const CUSTOMER_PHONE_STORE_MAX = 200;
 
 /**
  * الجوال المخزَّن (Customer.phone نصّ إلزامي في المخطط ⇒ '' يعني «بلا جوال»، كبطاقة العميل):
  * - المكتوب مقصوصاً كما هو، ولو قصيراً أو بلا صيغة جوال (الجوال حرّ بأمر المالك).
  * - خلية بلا أي رقم («—» و«-» و«لا يوجد») أو أصفارٍ وحدها (خلية Excel الرقمية الفارغة) ⇒ '' — لا «—» كما كان، فلا يظهر
  *   جوالاً يُبنى منه رابط واتساب أو اتصال.
- * - ما فوق CUSTOMER_PHONE_MAX (خلية بجوالات كثيرة) ⇒ أول جوال صالح فيها، وإلا أول ٣٠ خانة.
+ * - ما فوق CUSTOMER_PHONE_STORE_MAX ⇒ أول ٢٠٠ خانة (لا رفض).
  * المطابقة لا تقرأ المخزَّن بل normImportPhone، فالفارغ والتافه لا يطابقان أحداً ولا يُتخطى بهما صفّ.
  */
 export function storedCustomerPhone(phone: string | null | undefined): string {
   const t = trimmed(phone);
   const digits = asciiDigits(t).replace(/\D/g, '');
   if (!digits || /^0+$/.test(digits)) return '';
-  if (t.length <= CUSTOMER_PHONE_MAX) return t;
-  return normImportPhone(t) ?? t.slice(0, CUSTOMER_PHONE_MAX).trim();
+  return t.length <= CUSTOMER_PHONE_STORE_MAX ? t : t.slice(0, CUSTOMER_PHONE_STORE_MAX).trim();
+}
+
+/** اسم العميل حين لا يسمّيه الصفّ بشيء (لا اسم ولا اسم منشأة ولا جوال) */
+export const CUSTOMER_NAME_PLACEHOLDER = 'عميل';
+
+/**
+ * «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): الاسم الفارغ لا يرفض صفّ الاستيراد — المكتوب، ثم اسم المنشأة، ثم الجوال
+ * المخزَّن. و'' حين لا شيء منها: يُحفظ CUSTOMER_NAME_PLACEHOLDER، ولا يُطابَق بالاسم ولا يُتخطّى به (الصفّ بلا اسم لا يُعدّ
+ * مكرراً لصفٍّ آخر بلا اسم ولا لعميلٍ اسمه «عميل»).
+ */
+export function customerImportName(r: { name?: string | null; businessName?: string | null; phone?: string | null }): string {
+  return trimmed(r.name) || trimmed(r.businessName) || storedCustomerPhone(r.phone);
 }
 
 interface Bucket { n: number; auto: number; autoIds: string[] }

@@ -2,7 +2,8 @@
 //  · D2 «التحميل فوق رصيد المستودع يمنع»: المستودع مفعّل ⇒ LOAD يتجاوز رصيد صنفٍ (بالأساس، وأسطره مجموعة) 422 WAREHOUSE_INSUFFICIENT
 //    بلا كتابة، لكل مُصدِر (الإدارة ومفتاح API)، والحكم داخل المعاملة تحت قفل المستودع — تحميلان متزامنان لا يمرّان معاً فوق الرصيد.
 //    والشركة بلا مستودع، والتنزيل والتسوية، كما كانت.
-//  · D3: LOAD لصنفٍ مؤرشف 422 PRODUCT_ARCHIVED، والتنزيل والتسوية تمرّ عليه؛ وصنفٌ غريب 400 PRODUCT_NOT_FOUND بموضع سطره (#23).
+//  · D3 و#23 («الربط لا يُرفض» ٩ نوفمبر ٢٠٢٦): LOAD لصنفٍ مؤرشف يُقبل بتحذير أو يُنقل إلى توأمه الحيّ، وصنف شركةٍ أخرى يُترك سطره،
+//    والمعرّف الحرّ صنفٌ مؤقّت — تحذيراتٌ في ردّ النجاح.
 //  · D8: clientRef — المكرَّر يردّ الحركة القائمة 200 (replay: true) بلا كتابة، ولو تزامن مع أصله؛ ولشركةٍ أخرى مستقلّ؛ و?clientRef=.
 //  · D9: عهدة أدوات المندوب المحذوف ظاهرة «مندوب محذوف» في الملخّص وGET /tools وتُستلم منه.
 import { test } from 'node:test';
@@ -122,8 +123,16 @@ function makeDb(inTx: boolean, held: (() => void)[] = [], created: string[] = []
       findMany: async ({ where }: { where: { tenantId: string } }) => S.reps.filter((r) => r.tenantId === where.tenantId),
     },
     product: {
-      findMany: async ({ where }: { where: { id?: { in: string[] }; tenantId: string } }) =>
-        S.products.filter((p) => p.tenantId === where.tenantId && (!where.id || where.id.in.includes(p.id))).map((p) => ({ ...p, units: unitsOf(p.id), baseConvertedAt: null })),
+      // بلا tenantId: بحث الوجود عبر الشركات للصنف المؤقّت («الربط لا يُرفض»)
+      findMany: async ({ where }: { where: { id?: { in: string[] }; tenantId?: string } }) =>
+        S.products.filter((p) => (where.tenantId === undefined || p.tenantId === where.tenantId) && (!where.id || where.id.in.includes(p.id))).map((p) => ({ ...p, units: unitsOf(p.id), baseConvertedAt: null })),
+      create: async ({ data }: { data: Row }) => {
+        if (S.products.some((p) => p.id === data.id || (p.tenantId === data.tenantId && p.code === data.code))) {
+          throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+        }
+        S.products.push({ primaryUnitId: null, deletedAt: null, lotTracked: false, ...data } as unknown as ProductRow);
+        return { id: data.id };
+      },
     },
     productUnit: {
       findMany: async ({ where }: { where: { tenantId: string; id?: { in: string[] }; productId?: { in: string[] } } }) =>
@@ -373,26 +382,52 @@ test('D2: شركتان مستقلّتان — رصيد الصنف من مستو�
 
 // ═══ D3 و#23 ═══
 
-test('D3: تحميل صنفٍ مؤرشف 422 PRODUCT_ARCHIVED بموضعه ولو كفاه الرصيد، والتنزيل والتسوية عليه تمرّ؛ والموقوف غير المؤرشف لا يُرفض', async () => {
+// «الربط لا يُرفض» (أمر المالك ٩ نوفمبر ٢٠٢٦): D3 و#23 صارا تحذيرين في ردّ النجاح — الحركة تُكتب بما يمكن معالجته
+const warnCodes = (r: Res) => ((r.body!.warnings ?? []) as Row[]).map((w) => [w.code, w.index, w.productId]);
+const loadItems = (r: Res) => (r.body!.data as { items: { productId: string; qty: number }[] }).items.map((i) => [i.productId, i.qty]);
+
+test('D3 (لا يُرفض): تحميل صنفٍ مؤرشف يُقبل عليه بتحذير PRODUCT_ARCHIVED (ورصيد المستودع يحكم كأي تحميل)، وتوأمه الحيّ بالرمز نفسه يأخذ السطر؛ والتنزيل والتسوية كما كانت', async () => {
   reset();
   const r = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pA', qty: 1 }, { productId: 'pX', qty: 1 }] });
-  assert.equal(r.statusCode, 422, JSON.stringify(r.body));
-  assert.deepEqual([r.body!.code, r.body!.productId, r.body!.index], ['PRODUCT_ARCHIVED', 'pX', 1]);
-  assert.match(String(r.body!.message), /«كرتون بيض M» محذوف/);
-  assert.equal(S.creates, 0);
+  assert.equal(r.statusCode, 201, JSON.stringify(r.body));
+  assert.deepEqual(warnCodes(r), [['PRODUCT_ARCHIVED', 1, 'pX']]);
+  assert.match(String(((r.body!.warnings as Row[])[0]).message), /«كرتون بيض M» محذوف/);
+  assert.deepEqual(loadItems(r), [['pA', 1], ['pX', 1]]);
+  assert.equal(S.creates, 1);
+  // فوق رصيده في المستودع ⇒ 422 WAREHOUSE_INSUFFICIENT كأي تحميل (الحارس باقٍ)
+  const over = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pX', qty: 30 }] });
+  assert.deepEqual([over.statusCode, over.body!.code], [422, 'WAREHOUSE_INSUFFICIENT']);
   for (const [type, qty] of [['UNLOAD', 2], ['ADJUST', -1]] as const) {
-    assert.equal((await post({ salesRepId: 'r1', type, items: [{ productId: 'pX', qty }] })).statusCode, 201, type);
+    const u = await post({ salesRepId: 'r1', type, items: [{ productId: 'pX', qty }] });
+    assert.deepEqual([u.statusCode, u.body!.warnings], [201, undefined], type);
   }
+  // توأمٌ حيّ واحد بالرمز نفسه (حالة أحرفٍ أخرى) وبوحدة الأساس نفسها ⇒ السطر عليه
+  S.products.push({ id: 'pX2', tenantId: T, name: 'كرتون بيض M (جديد)', unit: 'كرتون', code: 'x-old', primaryUnitId: null, status: 'ACTIVE', deletedAt: null, lotTracked: false });
+  S.whItems.push({ productId: 'pX2', tenantId: T, qty: 5, unitFactor: 1, baseQty: 5 });
+  const moved = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pX', qty: 2 }] });
+  assert.equal(moved.statusCode, 201, JSON.stringify(moved.body));
+  assert.deepEqual(warnCodes(moved), [['PRODUCT_REDIRECTED', 0, 'pX']]);
+  assert.equal(((moved.body!.warnings as Row[])[0]).toProductId, 'pX2');
+  assert.deepEqual(loadItems(moved), [['pX2', 2]]);
   S.products.find((p) => p.id === 'pA')!.status = 'INACTIVE';
   assert.equal((await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pA', qty: 1 }] })).statusCode, 201, 'الموقوف وسمٌ في العرض وحده');
 });
 
-test('#23: صنفٌ لا يتبع الشركة 400 PRODUCT_NOT_FOUND بموضع سطره قبل حلّ وحدته (لا UNIT_INVALID مضلِّل)', async () => {
-  reset();
-  const r = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pA', qty: 1 }, { productId: 'q1', qty: 1, unitId: 'uC' }] }, API);
-  assert.equal(r.statusCode, 400, JSON.stringify(r.body));
-  assert.deepEqual([r.body!.code, r.body!.productId, r.body!.index, r.body!.indexes], ['PRODUCT_NOT_FOUND', 'q1', 1, [1]]);
-  assert.match(String(r.body!.message), /السطر 2/);
+test('#23 (لا يُرفض): صنف شركةٍ أخرى يُترك سطره PRODUCT_NOT_FOUND بموضعه قبل حلّ وحدته (لا UNIT_INVALID مضلِّل)، والمعرّف الحرّ صنفٌ مؤقّت؛ وكلها صفرية ⇒ 200', async () => {
+  reset({ warehouse: false });
+  const r = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pA', qty: 1 }, { productId: 'q1', qty: 1, unitId: 'uC' }, { productId: 'ext-123', qty: 4 }] }, API);
+  assert.equal(r.statusCode, 201, JSON.stringify(r.body));
+  assert.deepEqual(warnCodes(r), [['PRODUCT_NOT_FOUND', 1, 'q1'], ['PRODUCT_PLACEHOLDER_CREATED', 2, 'ext-123']]);
+  assert.match(String(((r.body!.warnings as Row[])[0]).message), /السطر 2/);
+  assert.deepEqual(loadItems(r), [['pA', 1], ['ext-123', 4]]);
+  const ph = S.products.find((p) => p.id === 'ext-123')! as unknown as Row;
+  assert.deepEqual([ph.tenantId, ph.code, ph.name, ph.unit, ph.basePrice, ph.status], [T, 'P-EXT-123', 'صنف P-EXT-123', 'حبة', 0, 'ACTIVE']);
+  assert.equal(S.products.filter((p) => p.id === 'q1').length, 1, 'عزل الشركات');
+  const zero = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pA', qty: 0 }] }, API);
+  assert.deepEqual([zero.statusCode, zero.body!.data, zero.body!.noop, warnCodes(zero)], [200, null, true, [['NO_QUANTITIES', undefined, undefined]]]);
+  const none = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'q1', qty: 1 }] }, API);
+  assert.deepEqual([none.statusCode, none.body!.noop, warnCodes(none)], [200, true, [['PRODUCT_NOT_FOUND', 0, 'q1']]]);
+  assert.equal(S.creates, 1);
 });
 
 // ═══ D8: clientRef ═══

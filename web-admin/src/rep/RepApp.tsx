@@ -71,8 +71,7 @@ import { isTaxModeChanged, repOfflineTaxFree, repRetaxLines } from './repTaxMode
 import { zatcaDocView, zatcaStatusChip } from '../lib/zatca/docStatus';
 import { buyerNoticeOf, buyerNoticeText, isZatcaOutdatedClient, zatcaIssueOutcome, zatcaReloadForUpdate } from '../lib/zatca/issueOutcome';
 import BuyerDataFields from '../components/BuyerDataFields';
-import { BUYER_BILLING_FIELDS, BuyerField } from '../lib/zatca/buyerData';
-import { BuyerFormValues, buyerBadge, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerRelaxWarnings, buyerUpdatePayload } from '../lib/zatca/buyerForm';
+import { BuyerFormValues, buyerBadge, buyerCreatePayload, buyerFormHints, buyerFormValues, buyerRelaxWarnings, buyerUpdatePayload } from '../lib/zatca/buyerForm';
 import { RepBuyerBanner, RepBuyerDataForm, fetchIncompleteBuyers } from './RepBuyerData';
 import { Component, createContext, lazy, Suspense, useContext, useMemo, useReducer, useRef, type ReactNode } from 'react';
 import { Sparkles, MapPinOff, Wrench } from 'lucide-react';
@@ -3753,10 +3752,11 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
     name: '', businessName: prefill?.businessName ?? '', phone: '', commercialReg: '', taxNumber: '',
     city: '', district: '', address: prefill?.address ?? '', creditLimit: '', paymentDays: '30',
   });
-  // فوترة ZATCA (Z5.1a، D2): حقول المشتري للشركة الجامعة وحدها — تُفحص قبل الإرسال وتبقى مع العميل في الصفّ دون اتصال
+  // فوترة ZATCA (Z5.1a، D2): حقول المشتري للشركة الجامعة وحدها — تبقى مع العميل في الصفّ دون اتصال. «بلا قيود على العميل» (أمر المالك
+  // ٩ نوفمبر ٢٠٢٦): قواعد الخادم تلميحٌ حيّ لا يمنع الحفظ — والخادم يُهمل حقل المرحلة الثانية غير الصالح ويحفظ الباقي كما كُتب
   const [buyer, setBuyer] = useState<BuyerFormValues>(() => buyerFormValues(null));
-  const [buyerErrors, setBuyerErrors] = useState<Partial<Record<BuyerField, string>>>({});
   const buyerView = { ...buyer, taxNumber: form.taxNumber, commercialReg: form.commercialReg, businessName: form.businessName, city: form.city, district: form.district };
+  const buyerHints = zatcaCollect ? buyerFormHints(buyerView, null, { relaxed: buyerRelax }) : {};
   const [loading, setLoading] = useState(false);
   // مفتاح المحاولة: إعادة الضغط بالمحتوى نفسه تحمل clientRef نفسه (attemptClientRef) — لا مستند ثانٍ إن ضاع ردّ الأول
   const attempt = useRef<{ key: string; ref: string } | null>(null);
@@ -3770,13 +3770,8 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
   const submit = async () => {
-    if (!form.name.trim()) { setMsg(tr('اسم العميل مطلوب')); return; }
-    // الجوال اختياري بلا حدّ أدنى ولا صيغة (أمر المالك ٧ نوفمبر ٢٠٢٦) — الفارغ يُرسَل '' (العمود NOT NULL)
-    if (zatcaCollect) {
-      const check = buyerFormCheck(buyerView, null, BUYER_BILLING_FIELDS, { relaxed: buyerRelax });
-      setBuyerErrors(check.errors);
-      if (!check.ok) { setMsg(Object.values(check.errors)[0] || tr('صحح بيانات الفوترة الإلكترونية')); return; }
-    }
+    // «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): لا اسم مطلوب — الفارغ يأخذ في الخادم بديلاً (اسم المنشأة ثم الجوال ثم «عميل»).
+    // والجوال اختياري بلا حدّ أدنى ولا صيغة (٧ نوفمبر) — الفارغ يُرسَل '' (العمود NOT NULL)، وبيانات الفوترة تلميحٌ لا يمنع (buyerHints)
     setLoading(true); setMsg('');
     const clientCreatedAt = new Date().toISOString();
     const body = {
@@ -3810,7 +3805,9 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
       // إلا المقيَّد بـ«اشتراط تفعيل الموقع» (القفل الكامل): لا عميل دون اتصال — يعيد الإضافة متصلاً بالمفتاح نفسه
       if (isNetworkError(err) && !strictRepNow()) {
         await outboxAdd({ clientRef, repId: currentRepId(), kind: 'customer', payload, status: 'queued', clientCreatedAt });
-        onCreated({ ...payload, id: 'local-' + clientRef, clientRef, _offline: true, balance: 0, creditLimit: payload.creditLimit ?? 0, status: 'ACTIVE' });
+        // العميل المحلي يُعرض باسم الخادم البديل نفسه حين يُترك الاسم فارغاً (الطابور يرسل الفارغ كما هو والخادم يملؤه)
+        const shownName = payload.name || payload.businessName || payload.phone || 'عميل';
+        onCreated({ ...payload, name: shownName, id: 'local-' + clientRef, clientRef, _offline: true, balance: 0, creditLimit: payload.creditLimit ?? 0, status: 'ACTIVE' });
       } else {
         setMsg(err?.response?.data?.message || tr('تعذر إضافة العميل'));
         setLoading(false);
@@ -3837,7 +3834,7 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
         <div>
           <p className="text-xs font-semibold text-gray-400 mb-2">{tr('البيانات الأساسية')}</p>
           <div className="space-y-3">
-            {field(tr('اسم العميل'), 'name', { required: true })}
+            {field(tr('اسم العميل'), 'name')}
             {field(tr('اسم المنشأة'), 'businessName')}
             {field(tr('رقم الجوال'), 'phone', { ltr: true, type: 'tel', maxLength: CUSTOMER_PHONE_MAX })}
           </div>
@@ -3873,7 +3870,7 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
         )}
 
         {zatcaCollect && (
-          <BuyerDataFields values={{ ...buyerView, name: form.name }} stored={null} errors={buyerErrors}
+          <BuyerDataFields values={{ ...buyerView, name: form.name }} stored={null} errors={buyerHints} dropsInvalid
             onChange={(f, v) => setBuyer(b => ({ ...b, [f]: v }))}
             {...(buyerRelax && { relaxed: true, warnings: buyerRelaxWarnings(buyerView, null) })} />
         )}
@@ -3941,19 +3938,16 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
   // الحقل الاختياري المُفرَّغ يُرسَل null فيُمحى فعلاً، لا undefined فيبقى القديم
   const opt = (v: string) => (v.trim() ? v.trim() : null);
-  // فوترة ZATCA (Z5.1a، D2): حقول المشتري للشركة الجامعة وحدها — يُرسل المتغيّر منها فقط
+  // فوترة ZATCA (Z5.1a، D2): حقول المشتري للشركة الجامعة وحدها — يُرسل المتغيّر منها فقط. «بلا قيود على العميل» (أمر المالك ٩ نوفمبر
+  // ٢٠٢٦): قواعد الخادم تلميحٌ حيّ لا يمنع الحفظ — والخادم يُهمل حقل المرحلة الثانية غير الصالح ويحفظ الباقي كما كُتب
   const [buyer, setBuyer] = useState<BuyerFormValues>(() => buyerFormValues(customer));
-  const [buyerErrors, setBuyerErrors] = useState<Partial<Record<BuyerField, string>>>({});
   const buyerView = { ...buyer, taxNumber: form.taxNumber, commercialReg: form.commercialReg, businessName: form.businessName, city: form.city, district: form.district };
+  const buyerHints = zatcaCollect ? buyerFormHints(buyerView, customer, { relaxed: buyerRelax }) : {};
 
   const submit = async () => {
-    if (!form.name.trim()) { setMsg(tr('اسم العميل مطلوب')); return; }
-    // الجوال اختياري بلا حدّ أدنى ولا صيغة (أمر المالك ٧ نوفمبر ٢٠٢٦) — مسحه يُرسَل '' فيُمحى فعلاً (العمود NOT NULL فلا null)
-    if (zatcaCollect) {
-      const check = buyerFormCheck(buyerView, customer, BUYER_BILLING_FIELDS, { relaxed: buyerRelax });
-      setBuyerErrors(check.errors);
-      if (!check.ok) { setMsg(Object.values(check.errors)[0] || tr('صحح بيانات الفوترة الإلكترونية')); return; }
-    }
+    // «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): لا اسم مطلوب — الفارغ لا يمحو الاسم المحفوظ في الخادم ولا يرفض التعديل.
+    // والجوال اختياري بلا حدّ أدنى ولا صيغة (٧ نوفمبر) — مسحه يُرسَل '' فيُمحى فعلاً (العمود NOT NULL فلا null)، وبيانات الفوترة تلميحٌ
+    // لا يمنع (buyerHints). ويبقى «المندوب يُكمل ولا يُخفّض»: الخادم يردّ 403 CUSTOMER_BUYER_REP_RESTRICTED برسالته فتظهر هنا
     setLoading(true); setMsg('');
     const payload: Record<string, unknown> = {
       name: form.name.trim(),
@@ -4001,7 +3995,7 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
         <div>
           <p className="text-xs font-semibold text-gray-400 mb-2">{tr('البيانات الأساسية')}</p>
           <div className="space-y-3">
-            {field(tr('اسم العميل'), 'name', { required: true })}
+            {field(tr('اسم العميل'), 'name')}
             {field(tr('اسم المنشأة'), 'businessName')}
             <div className="grid grid-cols-2 gap-3">
               {field(tr('رقم الجوال'), 'phone', { ltr: true, type: 'tel', maxLength: CUSTOMER_PHONE_MAX })}
@@ -4028,7 +4022,7 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
         </div>
 
         {zatcaCollect && (
-          <BuyerDataFields values={{ ...buyerView, name: form.name, channel: customer.channel ?? '' }} stored={customer} errors={buyerErrors}
+          <BuyerDataFields values={{ ...buyerView, name: form.name, channel: customer.channel ?? '' }} stored={customer} errors={buyerHints} dropsInvalid
             onChange={(f, v) => setBuyer(b => ({ ...b, [f]: v }))}
             {...(buyerRelax && { relaxed: true, warnings: buyerRelaxWarnings(buyerView, customer) })} />
         )}

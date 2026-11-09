@@ -2,7 +2,9 @@ import { useTr } from '../i18n/strings';
 import { useLang } from '../i18n/lang';
 import { supportedCountries } from '../i18n/countries';
 import { BUYER_ID_SCHEMES } from '../lib/zatca/validators';
-import { BuyerField, BuyerFieldError, BuyerRowLike, customerBuyerStatus, missingBuyerFormFields } from '../lib/zatca/buyerData';
+import {
+  BUYER_BILLING_FIELDS, BUYER_PHASE2_FIELDS, BuyerField, BuyerFieldError, BuyerRowLike, customerBuyerStatus, missingBuyerFormFields,
+} from '../lib/zatca/buyerData';
 import {
   BUYER_CLASSIFICATION_LABELS_AR, BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, BUYER_ID_SCHEME_LABELS_AR, BuyerFormValues, buyerRelaxSimplified,
   liveBuyerRow,
@@ -20,8 +22,11 @@ import {
  *
  * طلب المالك ٣١ أكتوبر ٢٠٢٦ (فكّ قيد الرقم الضريبي والعنوان الوطني): relaxed يضيف سطر «تصدر له فاتورة ضريبية مبسطة…» للمنشأة
  * الناقصة، وwarnings قائمةُ «تنبيهات لا تمنع الحفظ» — يمرّرهما المضيف حين buyerRelaxOn(company) وحده، وغيابهما = الرسم كما اليوم.
+ *
+ * أمر المالك ٩ نوفمبر ٢٠٢٦ («بلا قيود على العميل»): errors تلميحاتٌ لا تمنع الحفظ (buyerFormHints حيّةً من المضيف) — بلون التنبيه
+ * تحت حقلها، وما يخصّ حقلاً لا يرسمه القسم (الرقم الضريبي والسجل والاسم والمدينة والحي في include='phase2') في قائمة التنبيهات.
  */
-export default function BuyerDataFields({ values, onChange, stored, include = 'phase2', errors, title = true, locked, relaxed = false, warnings }: {
+export default function BuyerDataFields({ values, onChange, stored, include = 'phase2', errors, title = true, locked, relaxed = false, warnings, dropsInvalid = false }: {
   values: Partial<BuyerFormValues> & { name?: string; channel?: string };
   onChange: (field: BuyerField, value: string) => void;
   stored?: BuyerRowLike | null;
@@ -34,6 +39,11 @@ export default function BuyerDataFields({ values, onChange, stored, include = 'p
   relaxed?: boolean;
   /** تنبيهات صيغٍ لا تمنع الحفظ (buyerRelaxWarnings) — غيابها أو [] = لا قائمة. */
   warnings?: readonly BuyerFieldError[];
+  /**
+   * الحفظ يُهمل قيمة المرحلة الثانية غير الصالحة ويحفظ العميل بدونها (POST/PUT /customers — أمر المالك ٩ نوفمبر ٢٠٢٦): سطرٌ يقول
+   * ذلك حين يُلمَّح على حقلٍ منها. غيابه = لا سطر (نقطة المندوب الضيّقة PATCH /buyer-data تردّ الخطأ بنفسها).
+   */
+  dropsInvalid?: boolean;
 }) {
   const tr = useTr();
   const lang = useLang(s => s.lang);
@@ -43,12 +53,20 @@ export default function BuyerDataFields({ values, onChange, stored, include = 'p
   const b2b = status.subtypeIfIssuedNow === '01';
   const relaxSimplified = b2b && !status.complete && relaxed && buyerRelaxSimplified(liveRow);
 
+  // رسائل القواعد عربية (نسخة الخادم)؛ بغير العربية اسم الحقل وعبارة عامة مترجمة
+  const errorText = (f: BuyerField, m: string) => (lang === 'ar' ? m : `${tr(BUYER_FIELD_LABELS_AR[f])}: ${tr('قيمة غير صحيحة')}`);
+  // تلميحٌ لا يمنع الحفظ (٩ نوفمبر ٢٠٢٦): بلون التنبيه لا الخطأ
   const errorOf = (f: BuyerField) => {
     const m = errors?.[f];
     if (!m) return null;
-    // رسائل القواعد عربية (نسخة الخادم)؛ بغير العربية اسم الحقل وعبارة عامة مترجمة
-    return <p className="text-red-500 text-[11px] mt-1">{lang === 'ar' ? m : `${tr(BUYER_FIELD_LABELS_AR[f])}: ${tr('قيمة غير صحيحة')}`}</p>;
+    return <p data-buyer-hint={f} className="text-[#B7791F] text-[11px] mt-1">{errorText(f, m)}</p>;
   };
+  // ما يخصّ حقلاً لا يرسمه القسم يظهر في قائمة التنبيهات (وإلا لم يره أحد بعد أن صار الحفظ لا يُمنع)
+  const shown: readonly BuyerField[] = include === 'all' ? BUYER_BILLING_FIELDS : BUYER_PHASE2_FIELDS;
+  const otherErrors = (Object.entries(errors ?? {}) as [BuyerField, string | undefined][])
+    .filter((e): e is [BuyerField, string] => !!e[1] && !shown.includes(e[0]));
+  const droppedNote = dropsInvalid && BUYER_PHASE2_FIELDS.some(f => !!errors?.[f]);
+  const notesOn = (warnings && warnings.length > 0) || otherErrors.length > 0 || droppedNote;
   const need = (f: BuyerField) => (b2b && missing.includes(f) ? <span className="text-[#B7791F]"> •</span> : null);
   const isLocked = (f: BuyerField) => locked?.(f) === true;
   const text = (f: BuyerField, o: { ltr?: boolean; numeric?: boolean; wide?: boolean } = {}) => (
@@ -125,13 +143,16 @@ export default function BuyerDataFields({ values, onChange, stored, include = 'p
         {text('addrPostalCode', { ltr: true, numeric: true })}
       </div>
 
-      {/* فكّ القيد: صيغٌ ليست المعتمدة حُفظت كما أُدخلت — تنبيهٌ لا يمنع الحفظ (رسائل القواعد عربية؛ وبغيرها اسم الحقل وعبارة عامة) */}
-      {warnings && warnings.length > 0 && (
+      {/* تنبيهات لا تمنع الحفظ (رسائل القواعد عربية؛ وبغيرها اسم الحقل وعبارة عامة): ملاحظات حقولٍ خارج القسم، وصيغ فكّ القيد
+          التي حُفظت كما أُدخلت، وسطر إهمال قيمة المرحلة الثانية غير الصالحة حين يقول المضيف إن الحفظ يُهملها */}
+      {notesOn && (
         <div data-buyer-relax-warnings="" className="rounded-xl border border-amber-200 bg-amber-50 text-amber-800 px-3 py-2 mt-3 text-[11px] leading-relaxed space-y-0.5">
           <p className="font-semibold">{tr('تنبيهات لا تمنع الحفظ')}</p>
-          {warnings.map((w, i) => (
+          {otherErrors.map(([f, m]) => <p key={`hint-${f}`} data-buyer-hint={f}>{errorText(f, m)}</p>)}
+          {warnings?.map((w, i) => (
             <p key={`${w.field}-${i}`}>{lang === 'ar' ? w.messageAr : `${tr(BUYER_FIELD_LABELS_AR[w.field])}: ${tr('القيمة ليست بالصيغة المعتمدة')}`}</p>
           ))}
+          {droppedNote && <p data-buyer-dropped-note="">{tr('ما لا يصح من العنوان الوطني أو المعرف لا يحفظ ويحفظ العميل بدونه')}</p>}
         </div>
       )}
     </div>

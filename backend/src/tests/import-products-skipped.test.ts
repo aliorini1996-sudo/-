@@ -86,31 +86,27 @@ test('حارس ثابت: /products يجلب deletedAt ويخطط بـplanProduct
 
 // ═══ الدفعة 3 (البند 36): رفض الشكل صفاً صفاً برقم الصف والخانة ═══
 
-// مخططا الصف كما في routes/import.ts حرفياً (الحارس أدناه يثبّت قيودهما)
-const zCustomerRow = z.object({
-  name: z.string().trim().min(1),
-  phone: z.string().trim().optional().default(''),
-  creditLimit: z.number().nonnegative().optional(),
-  paymentDays: z.number().int().nonnegative().optional(),
-});
+// مخطّط صفّ المنتج كما في routes/import.ts حرفياً (الحارس أدناه يثبّت قيوده). وصفّ العميل لا قيد على خاناته منذ ٩ نوفمبر ٢٠٢٦
+// («بلا قيود على العميل»: import-customer-match.test.ts)
 const zProductRow = z.object({
   code: z.string().trim().min(1),
   name: z.string().trim().min(1),
   unit: z.string().trim().optional().default('حبة'),
+  basePrice: z.number().nonnegative().optional(),
   taxPct: z.number().min(0).max(100).optional(),
 });
 
-test('سيناريو البند 36: حد ائتمان سالب في صف واحد ⇒ خطأ صف برقمه وخانته وقيمته، لا «بيانات غير صحيحة» للملف كله', () => {
-  const out = parseImportRows(zCustomerRow, [
-    { name: 'مؤسسة النور', creditLimit: 1500 },
-    { name: 'تموينات الخير', creditLimit: -1500 },
-    { name: 'بقالة الحي', creditLimit: 0 },
+test('سيناريو البند 36: سعر سالب في صف واحد ⇒ خطأ صف برقمه وخانته وقيمته، لا «بيانات غير صحيحة» للملف كله', () => {
+  const out = parseImportRows(zProductRow, [
+    { code: 'P1', name: 'ماء', basePrice: 1500 },
+    { code: 'P2', name: 'عصير', basePrice: -1500 },
+    { code: 'P3', name: 'خبز', basePrice: 0 },
   ]);
-  assert.deepEqual(out.errors, [{ row: 3, message: SCHEMA_FIELD_TOO_SMALL, value: '-1500', field: 'creditLimit' }]);
+  assert.deepEqual(out.errors, [{ row: 3, message: SCHEMA_FIELD_TOO_SMALL, value: '-1500', field: 'basePrice' }]);
   assert.equal(SCHEMA_FIELD_TOO_SMALL, 'القيمة أقل من المسموح في هذه الخانة');
-  // الخانة تُترجم في الويب (FIELD_LABELS: creditLimit ⇒ «الحد الائتماني») فيعرف المالك عموده
-  assert.equal(out.errors[0].field, 'creditLimit');
-  assert.deepEqual(out.rows.map((r) => r.name), ['مؤسسة النور', 'بقالة الحي']);
+  // الخانة تُترجم في الويب (FIELD_LABELS) فيعرف المالك عموده
+  assert.equal(out.errors[0].field, 'basePrice');
+  assert.deepEqual(out.rows.map((r) => r.name), ['ماء', 'خبز']);
 });
 
 test('البند 36: ضريبة 115 ⇒ «أكبر من المسموح»، والخانة المطلوبة الفارغة «مطلوبة»، والنص في خانة رقمية «نوع القيمة»', () => {
@@ -148,9 +144,11 @@ test('البند 36: ملف فوق حدّ الدفعة ⇒ خطأ صف على أ
 
 test('حارس ثابت: قيود الصف في routes/import.ts هي التي تحاكيها مخططات هذا الملف', () => {
   const src = read('routes/import.ts');
-  assert.match(src, /creditLimit: z\.number\(\)\.nonnegative\(\)\.optional\(\)/);
+  assert.match(src, /basePrice: z\.number\(\)\.nonnegative\(\)\.optional\(\)/);
   assert.match(src, /taxPct: z\.number\(\)\.min\(0\)\.max\(100\)\.optional\(\)/);
   assert.match(src, /name: z\.string\(\)\.trim\(\)\.min\(1\)/);
+  // والعميل بلا قيود (٩ نوفمبر ٢٠٢٦): حد الائتمان غير الصالح يُهمل إلى الافتراضي لا يرفض صفّه
+  assert.match(src, /creditLimit: z\.preprocess\(looseImportAmount, z\.number\(\)\.nonnegative\(\)\.optional\(\)\),/);
 });
 
 // ═══ الدفعة 3 (البندان 43 و44): تخطيط صفوف /prices ═══

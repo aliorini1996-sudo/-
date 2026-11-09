@@ -66,7 +66,9 @@ test('R1: مسار التحميل لا يستدعي دوال اللوط إلا �
   // أعمدة البند وضمّ تشغيلاته في نداء الإنشاء الوحيد بشرط الخطة وحدها
   // بموضع السطر في الطلب (i.at) كما عرّفت به الخطة أسطرها — لا بموضعه بعد ترشيح الأصفار
   assert.ok(code.includes('...(plan && vanItemLotColumns(plan, i.at, {'));
-  assert.ok(code.includes('const items = data.items.map((i, at) => ({ ...i, at })).filter(i => i.qty !== 0);'));
+  assert.ok(code.includes('const nonZero = data.items.map((i, at) => ({ ...i, at })).filter(i => i.qty !== 0);'));
+  // «الربط لا يُرفض» (٩ نوفمبر ٢٠٢٦): البنود الباقية بعد التساهل تحمل `at` نفسه (services/stockLenient.ts يحفظ الأسطر كما هي)
+  assert.ok(code.includes('const { lines: items, units, products, warnings } = lenient;'));
   assert.ok(code.includes('idx: i.at, productId: i.productId,'));
   assert.ok(code.includes('...(plan && { lots: ITEM_LOTS_INCLUDE })'));
   assert.equal((stripComments(van).match(/\.vanLoad\.(create|createMany|upsert)\(/g) ?? []).length, 1, 'نداء إنشاء الحركة واحد (locations.test.ts)');
@@ -79,10 +81,12 @@ test('R1: مسار التحميل لا يستدعي دوال اللوط إلا �
 test('§١٠.١: العلمان في قراءة المندوب القائمة، والأصناف بقراءةٍ واحدة، والفروع القائمة معاملاتٌ بقفل الأساس وBASE_GUARD_TX', () => {
   assert.ok(post.includes('include: { tenant: { select: { locationsEnabled: true, lotTrackingEnabled: true, warehouseEnabled: true } } } });'), 'لا استعلام للعلم');
   assert.equal((post.match(/prisma\.product\.(count|findMany)\(/g) ?? []).length, 1, 'قراءةٌ واحدة للأصناف كما كان العدّ');
-  // مراجعة المخزون #23 وD3: صنفٌ غريب 400 PRODUCT_NOT_FOUND بموضع سطره، وتحميل المؤرشف 422 PRODUCT_ARCHIVED — قبل حلّ الوحدات
-  assert.ok(post.includes("const refused = lineProductRefusal(items, products, { rejectArchived: data.type === 'LOAD' ? 'LOAD' : null });"));
-  assert.ok(post.indexOf('lineProductRefusal(items') < post.indexOf('await resolveLineUnits('), 'الحكم على الأصناف قبل حلّ وحداتها');
-  const legacy = between(post, '\n    const load = outBucket', 'res.status(201).json({ success: true, data: load });');
+  // مراجعة المخزون #23 وD3 بلا رفض («الربط لا يُرفض» ٩ نوفمبر ٢٠٢٦): الحكم على الأصناف (المؤقّت، والمؤرشف وتوأمه) ثم حلّ الوحدات
+  // في lenientStockLines بعد قراءة الأصناف الوحيدة — وتوائم المؤرشف والصنف المؤقّت تقرؤها الخدمة حين تلزم وحدها
+  assert.ok(post.includes("archived: data.type === 'LOAD' ? 'LOAD' : null, select: VAN_LINE_PRODUCT_SELECT, replay,"));
+  assert.ok(post.indexOf('prisma.product.findMany(') < post.indexOf('await lenientStockLines('), 'الأصناف قبل حلّ وحداتها');
+  assert.ok(!post.includes('resolveLineUnits('), 'لا حلٌّ صارم للوحدات في المسار');
+  const legacy = between(post, '\n    const load = outBucket', 'res.status(201).json({ success: true, data: load,');
   assert.equal((legacy.match(/await prisma\.\$transaction\(async \(tx\) => \{/g) ?? []).length, 3, 'الإزالة وغير المتتبَّع والمطفأ');
   assert.equal((legacy.match(/await lockBases\(tx, tid, expected\);/g) ?? []).length, 3);
   assert.equal((legacy.match(/\}, BASE_GUARD_TX\)/g) ?? []).length, 3);

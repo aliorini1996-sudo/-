@@ -414,15 +414,16 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
     return [...map.values()];
   }, [categories, extraCats]);
 
-  const price = Number(form.basePrice);
-  const taxOk = form.taxPct.trim() === ''
-    || (Number.isFinite(Number(form.taxPct)) && Number(form.taxPct) >= 0 && Number(form.taxPct) <= 100);
-  // الوضع العكسي: الخانتان المخفيّتان (unit وbasePrice) لا تُشترطان — تحلّ محلّهما خانات الرئيسية والفرعية (reverseFormProblem)
-  const revProblem = rev ? reverseFormProblem(rf) : null;
-  const valid = rev
-    ? !!form.name.trim() && !!form.code.trim() && taxOk && revProblem === null
-    : !!form.name.trim() && !!form.code.trim() && !!form.unit.trim()
-      && form.basePrice.trim() !== '' && Number.isFinite(price) && price >= 0 && taxOk;
+  /* «بلا قيود على الأصناف» (أمر المالك ٩ نوفمبر ٢٠٢٦): لا خانة تمنع الحفظ — الكود الفارغ يولّده الخادم للجديد والاسم الفارغ
+   * = الكود والوحدة الفارغة «حبة» (وللقائم «بلا تغيير»)، والسعر الفارغ أو غير الصالح لا يُرسل (صفرٌ للجديد، والمحفوظ للقائم)،
+   * والنسبة خارج ٠–١٠٠ تُورَث من ضريبة الشركة (تلميحها باقٍ). والزرّ لا ينتظر إلا بنية الوحدتين في الطريقة العكسية (العدد واسم
+   * الرئيسية — reverseFormProblem) */
+  const price = form.basePrice.trim() === '' ? NaN : Number(form.basePrice);
+  const priceOk = Number.isFinite(price) && price >= 0;
+  const tax = form.taxPct.trim() === '' ? NaN : Number(form.taxPct);
+  const taxOk = form.taxPct.trim() === '' || (Number.isFinite(tax) && tax >= 0 && tax <= 100);
+  const revProblem = rev ? reverseFormProblem(rf, !!product) : null;
+  const valid = revProblem === null;
 
   /** وحدات الصنف تغيّرت منذ فُتح النموذج (409 BASE_UNIT_CHANGED/PRIMARY_UNIT_CHANGED): يُقال ويُغلق، فيُفتح على الجديد */
   const unitsChangedClose = () => {
@@ -438,14 +439,15 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
         name: form.name.trim(),
         code: form.code.trim(),
         unit: form.unit.trim(),
-        basePrice: price,
         status: form.status,
         barcode: form.barcode.trim(),
         categoryId: form.categoryId,
       };
+      // السعر الفارغ أو غير الصالح يُحذف لا يُرسَل: صفرٌ للجديد في الخادم، و«لا تغيّره» للقائم
+      if (priceOk) payload.basePrice = price;
       // نسبةٌ فارغة تُحذف لا تُرسَل: الخادم يقرأ غيابها «ورّث ضريبة دولة الشركة»
-      // عند الإنشاء و«لا تغيّرها» عند التعديل، بينما NaN يرفضه مخطّطه أصلاً
-      if (form.taxPct.trim() !== '') payload.taxPct = Number(form.taxPct);
+      // عند الإنشاء و«لا تغيّرها» عند التعديل، بينما NaN لا يُرسل أبداً
+      if (Number.isFinite(tax)) payload.taxPct = tax;
       // الحقول غير المذكورة (الصورة، سياسة التالف، أكواد الفوترة) تبقى كما هي:
       // مسار التعديل `partial()` فلا يُصفّر ما لم يصله
       // «الوحدة الرئيسية»: الفرعية والرئيسية تغلبان unit/basePrice المخفيّتين — إنشاءٌ ذرّي، أو رقعةٌ ذرّية لصنفٍ قائم
@@ -615,13 +617,13 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
         </Group>
 
         <Group title={tr('بيانات الصنف')}>
-          <Field label={tr('اسم الصنف')} required value={form.name} onChange={v => set('name', v)} />
-          <Field label={tr('كود الصنف')} required dir="ltr" value={form.code} onChange={v => set('code', v)} />
+          <Field label={tr('اسم الصنف')} value={form.name} onChange={v => set('name', v)} />
+          <Field label={tr('كود الصنف')} dir="ltr" value={form.code} onChange={v => set('code', v)} />
           <Field label={tr('باركود')} dir="ltr" value={form.barcode} onChange={v => set('barcode', v)} />
           {!rev && (
           <div>
             {/* نصوص لوحة الويب نفسها (ProductModal) — المعنى واحدٌ فاللفظ واحد في الواجهتين */}
-            <Field label={multi ? tr('وحدة الأساس') : tr('وحدة القياس')} required value={form.unit}
+            <Field label={multi ? tr('وحدة الأساس') : tr('وحدة القياس')} value={form.unit}
               onChange={v => set('unit', v)} placeholder={tr('كرتون / قطعة / كيلو')} />
             {!product && (
               <p className="text-[11px] text-[#9A8F7E] mt-1.5">{tr('احفظ الصنف أولا ثم أضف له وحدات بيع أكبر مثل الكرتون')}</p>
@@ -639,8 +641,8 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
         <Group title={taxOff ? tr('السعر') : rev ? tr('الضريبة') : tr('السعر والضريبة')}>
           {!rev && (
           <div>
-            <label className="label">{tr('السعر الأساسي')}{multi && product ? ` (${product.unit})` : ''} *</label>
-            <input className="input min-h-[44px]" type="number" dir="ltr" step="any" min="0"
+            <label className="label">{tr('السعر الأساسي')}{multi && product ? ` (${product.unit})` : ''}</label>
+            <input className="input min-h-[44px]" type="number" dir="ltr" step="any"
               inputMode="decimal" value={form.basePrice}
               onChange={e => set('basePrice', e.target.value)} />
             {/* السطر الحاكم: من يكتب هنا رقماً شاملاً يبيع أعلى من سعره ولا يدري */}
@@ -655,7 +657,7 @@ function MProductForm({ product, categories, onClose, onReplace, lotOn = false }
           {!taxOff && (
           <div>
             <label className="label">{tr('نسبة الضريبة %')}</label>
-            <input className="input min-h-[44px]" type="number" dir="ltr" step="0.01" min="0" max="100"
+            <input className="input min-h-[44px]" type="number" dir="ltr" step="0.01"
               inputMode="decimal" value={form.taxPct}
               onChange={e => set('taxPct', e.target.value)} />
             <p className="text-[11px] text-[#9A8F7E] mt-1.5">{tr('اتركها فارغة لتطبيق ضريبة دولة الشركة')}</p>
@@ -930,7 +932,8 @@ function ReverseFields({ f, set, touched, problem, renaming }: {
       <Field label={tr('الوحدة الرئيسية')} required value={f.primaryName} onChange={v => set('primaryName', v)}
         placeholder={tr('مثال: كرتون')} />
       <div>
-        <NumField label={fill(tr('سعر {unit}'), { unit: pn })} required value={f.primaryPrice} onChange={v => set('primaryPrice', v)} />
+        {/* بلا قيود (٩ نوفمبر ٢٠٢٦): السعر الفارغ صفرٌ للجديد و«بلا تغيير» للقائم، والفرعية الفارغة «حبة» — العدد واسم الرئيسية وحدهما يلزمان */}
+        <NumField label={fill(tr('سعر {unit}'), { unit: pn })} value={f.primaryPrice} onChange={v => set('primaryPrice', v)} />
         {!taxOff && (
         <p className="text-[11px] text-[#B7791F] mt-1.5 flex items-center gap-1">
           <AlertTriangle size={11} className="flex-shrink-0" />
@@ -939,7 +942,7 @@ function ReverseFields({ f, set, touched, problem, renaming }: {
         )}
       </div>
       <div>
-        <Field label={tr('الوحدة الفرعية')} required value={f.subName} onChange={v => set('subName', v)} placeholder={tr('حبة')} />
+        <Field label={tr('الوحدة الفرعية')} value={f.subName} onChange={v => set('subName', v)} placeholder={tr('حبة')} />
         {renaming && <RenameHint sub />}
       </div>
       <div>

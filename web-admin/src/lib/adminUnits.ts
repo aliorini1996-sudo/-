@@ -280,54 +280,69 @@ export interface ReverseForm {
 
 export const EMPTY_REVERSE_FORM: ReverseForm = { primaryName: '', primaryPrice: '', subName: '', factor: '', subPrice: '', primaryUnitCode: '', subUnitCode: '' };
 
+/** الوحدة الفارغة في إنشاء الصنف — مرآة الخادم (routes/products.ts productSchema.unit: الفارغ «حبة») */
+export const DEFAULT_PRODUCT_UNIT = 'حبة';
+
+/** سعرٌ صالح من خانة (رقمٌ ≥ ٠) أو null — الفارغ والنصّ والسالب لا تمنع الحفظ (بلا قيود على الأصناف، أمر المالك ٩ نوفمبر ٢٠٢٦) */
+function priceOf(raw: string): number | null {
+  const n = readNum(raw);
+  return n === null || Number.isNaN(n) || n < 0 ? null : n;
+}
+
 /**
  * سبب رفض النموذج قبل إرساله، أو null — والخادم يتحقّق ثانيةً (unitProblem وPRIMARY_UNIT_INVALID). الرسائل مفاتيح
  * القاموس (tr في الشاشة)، وبلا كلمة «الأساس» (D21).
+ *
+ * «بلا قيود على الأصناف» (أمر المالك ٩ نوفمبر ٢٠٢٦): لا يمنع الحفظ إلا بنية الوحدتين — العدد (معاملٌ تالف يفسد كل كمية)،
+ * والرئيسية باسمٍ غير اسم الفرعية («٢ كرتون» لا تلتبس)، واسم الرئيسية لصنفٍ جديد (وحدةٌ بلا اسمٍ لا تُنشأ). والأسعار لا تمنع:
+ * الفارغ والسالب والنصّ صفرٌ في الإنشاء و«بلا تغيير» في التعديل (reverseCreatePayload/reverseEditPatch)، والفرعية الفارغة
+ * «حبة» في الإنشاء وبلا تغيير في التعديل كالخادم. `editing`: صنفٌ قائم ⇒ اسم الرئيسية الفارغ «بلا تغيير» أيضاً.
  */
-export function reverseFormProblem(f: ReverseForm): string | null {
+export function reverseFormProblem(f: ReverseForm, editing = false): string | null {
   const pn = String(f.primaryName ?? '').trim();
   const sn = String(f.subName ?? '').trim();
-  if (!pn) return 'اسم الوحدة الرئيسية مطلوب';
-  if (!sn) return 'اسم الوحدة الفرعية مطلوب';
+  if (!pn && !editing) return 'اسم الوحدة الرئيسية مطلوب';
   if (pn.length > 24 || sn.length > 24) return 'اسم الوحدة طويل';
-  if (pn === sn) return 'الوحدة الرئيسية والفرعية باسمين مختلفين';
+  const subShown = sn || (editing ? '' : DEFAULT_PRODUCT_UNIT);
+  if (pn && subShown && pn === subShown) return 'الوحدة الرئيسية والفرعية باسمين مختلفين';
   const F = readNum(f.factor);
   if (F === null || Number.isNaN(F) || Math.abs(F - Math.round(F)) > QTY_EPS || Math.round(F) < 2 || Math.round(F) > MAX_UNIT_FACTOR) {
     return 'عدد الوحدات الفرعية في الرئيسية عدد صحيح من 2 إلى 100000';
   }
-  const pp = readNum(f.primaryPrice);
-  if (pp === null) return 'سعر الوحدة الرئيسية مطلوب';
-  if (Number.isNaN(pp) || pp < 0) return 'سعر الوحدة رقم موجب';
-  const sp = readNum(f.subPrice);
-  if (sp !== null && (Number.isNaN(sp) || sp < 0)) return 'سعر الوحدة رقم موجب';
   if (String(f.primaryUnitCode ?? '').trim().length > 16 || String(f.subUnitCode ?? '').trim().length > 16) return 'رمز الوحدة الضريبي 16 حرفا على الأكثر';
   return null;
 }
 
-/** سعر الفرعية كما سيُحفظ: المكتوب، وإلّا المشتقّ من سعر الرئيسية (D10) — للمعاينة الحيّة وplaceholder «≈ … محسوب» */
+/** سعر الرئيسية كما سيُحفظ في الإنشاء: المكتوب الصالح، وإلّا صفر (بلا قيود) — للمعاينة الحيّة والحمولة */
+export function reversePrimaryPrice(f: ReverseForm): number {
+  return priceOf(f.primaryPrice) ?? 0;
+}
+
+/** سعر الفرعية كما سيُحفظ: المكتوب الصالح، وإلّا المشتقّ من سعر الرئيسية (D10) — للمعاينة الحيّة وplaceholder «≈ … محسوب» */
 export function reverseSubPrice(f: ReverseForm): number {
-  const sp = readNum(f.subPrice);
-  if (sp !== null && !Number.isNaN(sp)) return sp;
-  return derivedBasePrice(Number(readNum(f.primaryPrice)), Math.round(Number(readNum(f.factor))));
+  const sp = priceOf(f.subPrice);
+  if (sp !== null) return sp;
+  return derivedBasePrice(reversePrimaryPrice(f), Math.round(Number(readNum(f.factor))));
 }
 
 /**
  * حقول الوحدة في جسم إنشاء الصنف (POST /products، §2.2-ب): الفرعية `unit` وسعرها `basePrice` (null ⇒ يشتقّه الخادم
  * بـderivedBasePrice نفسها)، والرئيسية وحدةٌ بسعرها الصريح، و`primaryUnitName` اسمها. المستدعي يدمجها **فوق** بقية حقول
  * النموذج (الاسم والرمز والضريبة…) فتغلب `unit`/`basePrice`/`unitCode` المخفيّة. يُستدعى بعد `reverseFormProblem` = null.
+ * بلا قيود: سعر الرئيسية غير الصالح (فارغٌ أو سالبٌ أو نصّ) صفر، وسعر الفرعية غير الصالح null (مشتقّ)، والفرعية الفارغة
+ * تُرسل فارغةً فيكتبها الخادم «حبة».
  */
 export function reverseCreatePayload(f: ReverseForm): {
   unit: string; basePrice: number | null; unitCode: string | null;
   units: { name: string; factor: number; price: number; unitCode: string | null }[];
   primaryUnitName: string;
 } {
-  const sp = readNum(f.subPrice);
   const pn = f.primaryName.trim();
   return {
     unit: f.subName.trim(),
-    basePrice: sp === null || Number.isNaN(sp) ? null : sp,
+    basePrice: priceOf(f.subPrice),
     unitCode: f.subUnitCode.trim() || null,
-    units: [{ name: pn, factor: Math.round(Number(readNum(f.factor))), price: Number(readNum(f.primaryPrice)), unitCode: f.primaryUnitCode.trim() || null }],
+    units: [{ name: pn, factor: Math.round(Number(readNum(f.factor))), price: reversePrimaryPrice(f), unitCode: f.primaryUnitCode.trim() || null }],
     primaryUnitName: pn,
   };
 }
@@ -336,18 +351,25 @@ export function reverseCreatePayload(f: ReverseForm): {
  * رقعة «حفظ التعديلات» لصنفٍ له رئيسية (PUT /products/:id، §2.2-هـ): الفرعية `unit`/`basePrice`/`unitCode`، والرئيسية
  * `primaryUnit` بمعرّفها كما رآه النموذج (`primaryId` — رئيسيةٌ تغيّرت بعد فتحه ⇒ 409 PRIMARY_UNIT_CHANGED)، فيُحفظ الكلّ
  * ذرّياً. سعر الفرعية الفارغ ⇒ `derivedBasePrice` صريحاً (§4.2). و`expectedBaseName` يضيفه المستدعي (الأساس المحفوظ).
+ * بلا قيود: ما لا يصلح «بلا تغيير» لا رفض — سعر الرئيسية غير الصالح لا يُرسل (يبقى المحفوظ)، وسعر الفرعية بلا سعرٍ صالح
+ * يُشتقّ منه لا يُرسل، واسم الرئيسية الفارغ لا يُرسل، والفرعية الفارغة يُبقيها الخادم كما هي.
  */
 export function reverseEditPatch(f: ReverseForm, primaryId: string): {
-  unit: string; basePrice: number; unitCode: string | null;
-  primaryUnit: { id: string; name: string; factor: number; price: number; unitCode: string | null };
+  unit: string; basePrice?: number; unitCode: string | null;
+  primaryUnit: { id: string; name?: string; factor: number; price?: number; unitCode: string | null };
 } {
+  const F = Math.round(Number(readNum(f.factor)));
+  const pp = priceOf(f.primaryPrice);
+  const sp = priceOf(f.subPrice);
+  const basePrice = sp ?? (pp !== null ? derivedBasePrice(pp, F) : null);
+  const pn = f.primaryName.trim();
   return {
     unit: f.subName.trim(),
-    basePrice: reverseSubPrice(f),
+    ...(basePrice !== null ? { basePrice } : {}),
     unitCode: f.subUnitCode.trim() || null,
     primaryUnit: {
-      id: primaryId, name: f.primaryName.trim(), factor: Math.round(Number(readNum(f.factor))),
-      price: Number(readNum(f.primaryPrice)), unitCode: f.primaryUnitCode.trim() || null,
+      id: primaryId, ...(pn ? { name: pn } : {}), factor: F,
+      ...(pp !== null ? { price: pp } : {}), unitCode: f.primaryUnitCode.trim() || null,
     },
   };
 }

@@ -295,9 +295,18 @@ export class World {
       product: {
         findMany: async (a: Row) => {
           log('product.findMany', { args: a });
-          return w.products.filter((p) => p.tenantId === a.where.tenantId && inList(a.where.id, p.id)
+          // بلا tenantId: بحث الوجود عبر الشركات («الربط لا يُرفض»: الصنف المؤقّت لا يأخذ معرّف صنف شركةٍ أخرى)
+          return w.products.filter((p) => (a.where.tenantId === undefined || p.tenantId === a.where.tenantId) && inList(a.where.id, p.id)
             && (a.where.lotTracked === undefined || p.lotTracked === a.where.lotTracked))
             .map((p) => ({ ...p, units: w.units.filter((u) => u.productId === p.id).map(({ name, factor, isActive }) => ({ name, factor, isActive })) }));
+        },
+        // الصنف المؤقّت (services/stockLenient.ts): قيدا المعرّف و(الشركة، الرمز) كالقاعدة ⇒ P2002
+        create: async (a: Row) => {
+          log('product.create', { args: a });
+          if (w.products.some((p) => p.id === a.data.id || (p.tenantId === a.data.tenantId && p.code === a.data.code))) {
+            throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+          }
+          return { id: w.product({ ...a.data }).id };
         },
       },
       productUnit: {

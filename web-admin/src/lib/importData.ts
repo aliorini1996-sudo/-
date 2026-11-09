@@ -535,8 +535,6 @@ export const FUTURE_DATE_NOTICE = 'صفوف تاريخها أبعد من الغ�
 export const CUSTOMER_BALANCE_WARNING = 'عمود الرصيد لا يُستورد مع العملاء؛ استخدم بطاقة الأرصدة الافتتاحية بالملف نفسه';
 // مفاتيح الأخطاء والتنبيهات الجديدة (نصوص tr)
 export const NUMERIC_ERROR = 'قيمة رقمية غير مفهومة';
-export const NEGATIVE_CREDIT_LIMIT = 'حد الائتمان لا يكون سالباً';
-export const PAYMENT_DAYS_INVALID = 'فترة السداد عدد صحيح من الأيام لا يقل عن صفر';
 export const NEGATIVE_PRICE = 'السعر لا يكون سالباً';
 export const TAX_PCT_INVALID = 'نسبة الضريبة بين 0 و100';
 export const TAX_FRACTION_NOTICE = 'نسب ضريبة مكتوبة كسراً (0.15) حُوّلت إلى نسبة مئوية (15)';
@@ -777,9 +775,11 @@ const A_CUST: ImportSpec = {
 /** «إزالة الضريبة»: مواصفة بلا حقلٍ ضريبي — عموده لا يُطابَق فلا يظهر في «عمود الملف ← الحقل» ولا يُرسل */
 const withoutField = (spec: ImportSpec, field: string): ImportSpec => Object.fromEntries(Object.entries(spec).filter(([f]) => f !== field));
 const A_CUST_TAX_OFF: ImportSpec = withoutField(A_CUST, 'taxNumber');
+/** خانات العميل التي يُستورد منها (الرصيد للتنبيه وحده) — صفٌّ فارغٌ فيها كلها ليس عميلاً */
+const CUSTOMER_ROW_FIELDS = Object.keys(A_CUST).filter((f) => f !== 'balance');
 const UNLIMITED = new Set(['غير محدود', 'غير محدد', 'بدون', 'بلا حد', 'مفتوح', 'unlimited', 'no limit', 'none', 'n/a'].map(norm));
 /**
- * رقم حقل عميل ثانوي بهدوء: الرقم المفهوم كما هو (السالب وكسر الأيام يُرفضان بعده)؛ وللأيام عدد صحيح واحد داخل النص
+ * رقم حقل عميل ثانوي بهدوء: الرقم المفهوم كما هو (السالب يُترك بعده للافتراضي وكسر الأيام يُقصّ)؛ وللأيام عدد صحيح واحد داخل النص
  * («30 يوم»، «Net 30»، «٣٠ يوماً»). «غير محدود» وما لا يُفهم ⇒ undefined (افتراضي الخادم) ويُسجَّل في ignored.
  */
 function optionalCustomerNumber(raw: unknown, days: boolean, ignored: string[]): number | undefined {
@@ -804,14 +804,16 @@ function toCustomers(rows: Record<string, unknown>[], opts?: TransformOpts): Tra
     if (isTotalsRow(name, code, phone)) { c.totalsRow(name || code); return; }
     // عمود «الرصيد» لا يُستورد مع العملاء — تنبيه غير مانع حين يحمل قيمة غير صفرية
     if (!balanceIgnored) { const b = parseAmount(c.raw(row, 'balance')); if (!b.ok || (b.value !== undefined && b.value !== 0)) balanceIgnored = true; }
-    if (!name) { errors.push({ row: line, message: 'اسم العميل مفقود' }); return; }
-    // حقلان ثانويان: النص غير الرقمي («غير محدود»، «30 يوم») لا يُسقط العميل؛ يُترك للافتراضي بتنبيه معدود
-    const creditLimit = optionalCustomerNumber(c.raw(row, 'creditLimit'), false, ignored);
-    if (creditLimit !== undefined && creditLimit < 0) { errors.push({ row: line, message: NEGATIVE_CREDIT_LIMIT, value: c.s(row, 'creditLimit'), field: 'creditLimit' }); return; }
-    const paymentDays = optionalCustomerNumber(c.raw(row, 'paymentDays'), true, ignored);
-    if (paymentDays !== undefined && (!Number.isInteger(paymentDays) || paymentDays < 0)) {
-      errors.push({ row: line, message: PAYMENT_DAYS_INVALID, value: c.s(row, 'paymentDays'), field: 'paymentDays' }); return;
-    }
+    // «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): لا خانة ترفض الصف — الاسم الفارغ يسمّيه الخادم (اسم المنشأة ثم الجوال ثم
+    // «عميل»)، والصفّ الذي لا يحمل أي خانة عميل (ملاحظة في عمود لا يُستورد) ليس عميلاً فيُترك كالسطر الفارغ
+    if (!name && !code && !phone && !CUSTOMER_ROW_FIELDS.some((f) => c.s(row, f))) return;
+    // حقلان ثانويان: النص غير الرقمي («غير محدود»، «30 يوم») والسالب لا يُسقطان العميل؛ يُتركان للافتراضي بتنبيه معدود، وكسر
+    // الأيام يُقصّ (كالخادم)
+    let creditLimit = optionalCustomerNumber(c.raw(row, 'creditLimit'), false, ignored);
+    if (creditLimit !== undefined && creditLimit < 0) { ignored.push(c.s(row, 'creditLimit')); creditLimit = undefined; }
+    let paymentDays = optionalCustomerNumber(c.raw(row, 'paymentDays'), true, ignored);
+    if (paymentDays !== undefined && paymentDays < 0) { ignored.push(c.s(row, 'paymentDays')); paymentDays = undefined; }
+    if (paymentDays !== undefined) paymentDays = Math.trunc(paymentDays);
     fileRows.push(line);
     // الجوال يُرسل كما هو: الخادم يطابق بـnormImportPhone، ويخزّن الفارغ أو ما بلا أرقام '' (الجوال اختياري حرّ)
     valid.push({

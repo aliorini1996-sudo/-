@@ -6,7 +6,7 @@ import {
   hasBigUnit, biggestUnit, baseQtyText, docQtyText, totalsByUnit, lineKey, unitTaken, suggestionChoice,
   unitFormProblem, unitFormPayload, unitFormOf, EMPTY_UNIT_FORM, convertFormProblem, convertPreview, convertPayload,
   primaryOrBiggest, productUnitLabel, reverseFormProblem, reverseCreatePayload, reverseEditPatch, reverseFormOf, reverseSubPrice,
-  EMPTY_REVERSE_FORM, type ReverseForm,
+  reversePrimaryPrice, EMPTY_REVERSE_FORM, type ReverseForm,
 } from './adminUnits';
 
 /**
@@ -214,21 +214,21 @@ test('docQtyText: «×5 قارورة» مع الرئيسية (من البند أ
 
 const rf = (o: Partial<ReverseForm> = {}): ReverseForm => ({ ...EMPTY_REVERSE_FORM, primaryName: 'كرتون', primaryPrice: '48', subName: 'قارورة', factor: '24', ...o });
 
-test('reverseFormProblem: الأسماء غير فارغة ومختلفة و≤ ٢٤، والعدد صحيح ٢..١٠٠٠٠٠، وسعر الرئيسية ≥ ٠ — وبلا «الأساس» في رسائله', () => {
+test('reverseFormProblem: بنية الوحدتين وحدها — اسم الرئيسية للجديد، واسمان مختلفان و≤ ٢٤، والعدد صحيح ٢..١٠٠٠٠٠ — وبلا «الأساس» في رسائله', () => {
   assert.equal(reverseFormProblem(rf()), null);
   assert.equal(reverseFormProblem(rf({ factor: '٢٤', primaryPrice: '٤٨٫٥' })), null, 'أرقام هندية وفاصلة عربية');
   const bad: Array<[Partial<ReverseForm>, string]> = [
     [{ primaryName: ' ' }, 'اسم الوحدة الرئيسية مطلوب'],
-    [{ subName: '' }, 'اسم الوحدة الفرعية مطلوب'],
     [{ subName: 'ق'.repeat(25) }, 'اسم الوحدة طويل'],
     [{ subName: ' كرتون ' }, 'الوحدة الرئيسية والفرعية باسمين مختلفين'],
+    // الفرعية الفارغة «حبة» في الخادم — فالرئيسية لا تأخذ اسمها
+    [{ primaryName: 'حبة', subName: '' }, 'الوحدة الرئيسية والفرعية باسمين مختلفين'],
     [{ factor: '1' }, 'عدد الوحدات الفرعية في الرئيسية عدد صحيح من 2 إلى 100000'],
     [{ factor: '2.5' }, 'عدد الوحدات الفرعية في الرئيسية عدد صحيح من 2 إلى 100000'],
     [{ factor: '100001' }, 'عدد الوحدات الفرعية في الرئيسية عدد صحيح من 2 إلى 100000'],
     [{ factor: '' }, 'عدد الوحدات الفرعية في الرئيسية عدد صحيح من 2 إلى 100000'],
-    [{ primaryPrice: '' }, 'سعر الوحدة الرئيسية مطلوب'],
-    [{ primaryPrice: '-1' }, 'سعر الوحدة رقم موجب'],
-    [{ subPrice: 'x' }, 'سعر الوحدة رقم موجب'],
+    [{ factor: '0' }, 'عدد الوحدات الفرعية في الرئيسية عدد صحيح من 2 إلى 100000'],
+    [{ factor: '-24' }, 'عدد الوحدات الفرعية في الرئيسية عدد صحيح من 2 إلى 100000'],
     [{ primaryUnitCode: 'X'.repeat(17) }, 'رمز الوحدة الضريبي 16 حرفا على الأكثر'],
   ];
   for (const [o, msg] of bad) {
@@ -237,6 +237,42 @@ test('reverseFormProblem: الأسماء غير فارغة ومختلفة و≤ 
     assert.doesNotMatch(got!, /الأساس/, 'D21');
   }
   assert.equal(reverseFormProblem(rf({ factor: '100000', primaryPrice: '0' })), null, 'الحدّ الأعلى والسعر الصفري مقبولان');
+  // «بلا قيود على الأصناف» (أمر المالك ٩ نوفمبر ٢٠٢٦): الأسعار والفرعية الفارغة لا تمنع الحفظ
+  for (const o of [{ primaryPrice: '' }, { primaryPrice: '-1' }, { primaryPrice: 'x' }, { subPrice: 'x' }, { subPrice: '-2' }, { subName: '' }] as Partial<ReverseForm>[]) {
+    assert.equal(reverseFormProblem(rf(o)), null, JSON.stringify(o));
+  }
+  // صنفٌ قائم: اسما الوحدتين الفارغان «بلا تغيير» — والعدد يبقى إلزامياً
+  assert.equal(reverseFormProblem(rf({ primaryName: '', subName: '' }), true), null);
+  assert.equal(reverseFormProblem(rf({ primaryName: '' })), 'اسم الوحدة الرئيسية مطلوب', 'والجديد بلا اسم رئيسية لا يُنشئها');
+  assert.equal(reverseFormProblem(rf({ primaryName: '', factor: '' }), true), 'عدد الوحدات الفرعية في الرئيسية عدد صحيح من 2 إلى 100000');
+  assert.equal(reverseFormProblem(rf({ subName: 'كرتون' }), true), 'الوحدة الرئيسية والفرعية باسمين مختلفين');
+});
+
+test('reverseCreatePayload بلا قيود: سعر الرئيسية غير الصالح صفر، وسعر الفرعية غير الصالح null (مشتقّ)، والفرعية الفارغة تُرسل فارغة', () => {
+  for (const pp of ['', '-5', 'abc']) {
+    const p = reverseCreatePayload(rf({ primaryPrice: pp }));
+    assert.equal(p.units[0].price, 0, `سعر الرئيسية «${pp}»`);
+    assert.equal(p.basePrice, null);
+    assert.equal(reversePrimaryPrice(rf({ primaryPrice: pp })), 0);
+  }
+  assert.equal(reverseCreatePayload(rf({ subPrice: '-1' })).basePrice, null, 'السالب لا يُرسل — يشتقّه الخادم');
+  assert.equal(reverseCreatePayload(rf({ subName: '  ' })).unit, '', 'الخادم يكتبها «حبة»');
+  assert.equal(reverseSubPrice(rf({ subPrice: '-1' })), 2, 'المعاينة: السالب ⇒ المشتقّ 48 ÷ 24');
+  assert.equal(reverseSubPrice(rf({ primaryPrice: '' })), 0);
+});
+
+test('reverseEditPatch بلا قيود: ما لا يصلح لا يُرسل فيبقى المحفوظ — سعر الرئيسية واسمها، وسعر الفرعية بلا أصلٍ يُشتقّ منه', () => {
+  const p = reverseEditPatch(rf({ primaryPrice: '', primaryName: ' ' }), 'u-c');
+  assert.equal('basePrice' in p, false, 'لا سعر فرعية ولا رئيسية صالح ⇒ لا basePrice');
+  assert.equal('price' in p.primaryUnit, false);
+  assert.equal('name' in p.primaryUnit, false);
+  assert.equal(p.primaryUnit.factor, 24);
+  const q = reverseEditPatch(rf({ primaryPrice: '-1', subPrice: '1.5' }), 'u-c');
+  assert.equal(q.basePrice, 1.5, 'سعر الفرعية الصريح يُرسل وحده');
+  assert.equal('price' in q.primaryUnit, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(reverseEditPatch(rf({ primaryPrice: 'x', subPrice: 'y' }), 'u-c'))), {
+    unit: 'قارورة', unitCode: null, primaryUnit: { id: 'u-c', name: 'كرتون', factor: 24, unitCode: null },
+  }, 'لا NaN ولا null في الحمولة');
 });
 
 test('reverseCreatePayload: الفرعية unit وسعرها (فارغ ⇒ null يشتقّه الخادم)، والرئيسية وحدةٌ بسعرها الصريح و primaryUnitName', () => {

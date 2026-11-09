@@ -9,10 +9,10 @@ import { baseLabelOf, priceListsOf } from '../lib/priceLists';
 import { useTr } from '../i18n/strings';
 import { MHeader } from './mobileUi';
 import BuyerDataFields from '../components/BuyerDataFields';
-import { BUYER_BILLING_FIELDS, BUYER_PHASE2_FIELDS, BuyerField, BuyerRowLike } from '../lib/zatca/buyerData';
-import { BuyerFormValues, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerRelaxWarnings, buyerUpdatePayload } from '../lib/zatca/buyerForm';
+import { BuyerRowLike } from '../lib/zatca/buyerData';
+import { BuyerFormValues, buyerCreatePayload, buyerFormHints, buyerFormValues, buyerRelaxWarnings, buyerUpdatePayload } from '../lib/zatca/buyerForm';
 import { useMTaxOff } from './mTaxMode';
-import { M_CUSTOMER_PHONE_MAX, mCustomerFormValid, mCustomerPhonePayload } from './mCustomerPhone';
+import { M_CUSTOMER_PHONE_MAX, mCustomerPhonePayload } from './mCustomerPhone';
 import { precisePinFix } from '../rep/punchFix';
 import { PIN_WARN_M, MPin, mPinAccuracyM, mPinFailText, mPinFromFix, mPinLevel, mPinPayload, mPinWarnText, mPinWarns } from './mCustomerPin';
 
@@ -86,10 +86,12 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
   // بيانات المشتري (Z5.1a): مع قسم «بيانات ضريبية» نفسه (المحاسبة) — والحقول الجديدة وحدها تُرسل null حين تُفرَّغ قيمة محفوظة
   const showBuyer = zatcaCollect && accountingOn;
   const [buyer, setBuyer] = useState<BuyerFormValues>(() => buyerFormValues(customer as BuyerRowLike | null));
-  const [buyerErrors, setBuyerErrors] = useState<Partial<Record<BuyerField, string>>>({});
   const buyerView = {
     ...buyer, taxNumber: form.taxNumber, commercialReg: form.commercialReg, businessName: form.businessName, city: form.city, district: form.district,
   };
+  // «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): قواعد الخادم تلميحٌ حيّ لا يمنع الحفظ — والخادم يُهمل حقل المرحلة الثانية غير
+  // الصالح ويحفظ الباقي كما كُتب
+  const buyerHints = showBuyer ? buyerFormHints(buyerView, customer as BuyerRowLike | null, { relaxed: buyerRelax }) : {};
 
   const save = useMutation({
     mutationFn: async () => {
@@ -154,19 +156,9 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
   const pinLevel = pin ? mPinLevel(pin) : null;
   const pinWarnKey = pinLevel ? mPinWarnText(pinLevel) : null;
 
-  // الاسم وحده إلزاميّ — الجوال اختياريّ بلا حدّ أدنى ولا صيغة (طلب المالك ٧ نوفمبر ٢٠٢٦)
-  const valid = mCustomerFormValid(form, customer ? customer.phone ?? '' : null);
-
-  /** الحفظ: فحص بيانات الفوترة قبل الإرسال بقواعد الخادم نفسها (للشركة الجامعة وحدها) */
-  const onSave = () => {
-    if (showBuyer) {
-      const check = buyerFormCheck(buyerView, customer as BuyerRowLike | null, BUYER_BILLING_FIELDS, { relaxed: buyerRelax });
-      setBuyerErrors(check.errors);
-      if (!check.ok) { toast.error(tr('صحح بيانات الفوترة الإلكترونية')); return; }
-    }
-    save.mutate();
-  };
-  const legacyBuyerErrors = Object.entries(buyerErrors).filter(([f]) => !(BUYER_PHASE2_FIELDS as readonly string[]).includes(f));
+  // «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): لا حقل يمنع الحفظ — الاسم الفارغ يأخذ في الخادم بديلاً (اسم المنشأة ثم الجوال
+  // ثم «عميل») في الإنشاء ولا يمحو المحفوظ في التعديل، والجوال حرّ بلا حدّ أدنى ولا صيغة (٧ نوفمبر)، وبيانات الفوترة تلميحٌ (buyerHints)
+  const onSave = () => save.mutate();
 
   return (
     <div className="h-full flex flex-col bg-[#FAF7F0]">
@@ -174,7 +166,7 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
 
       <div className="flex-1 overflow-y-auto overscroll-contain p-3 space-y-4">
         <Group title={tr('البيانات الأساسية')}>
-          <Field label={tr('اسم العميل')} required value={form.name} onChange={v => set('name', v)} />
+          <Field label={tr('اسم العميل')} value={form.name} onChange={v => set('name', v)} />
           <Field label={tr('رقم الجوال')} dir="ltr" value={form.phone} onChange={v => set('phone', v)} type="tel" maxLength={M_CUSTOMER_PHONE_MAX} />
           <Field label={tr('اسم المنشأة')} value={form.businessName} onChange={v => set('businessName', v)} />
           <Field label={tr('رقم بديل')} dir="ltr" value={form.altPhone} onChange={v => set('altPhone', v)} type="tel" />
@@ -256,13 +248,13 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
           </Group>
         )}
 
-        {/* فوترة ZATCA المرحلة الثانية (D2) — للشركة التي تجمع بيانات الفوترة وحدها، ولا تمنع الحفظ قبل التفعيل */}
+        {/* فوترة ZATCA المرحلة الثانية (D2) — للشركة التي تجمع بيانات الفوترة وحدها، ولا تمنع الحفظ (تلميحات الرقم الضريبي والسجل
+            في قائمة تنبيهات القسم) */}
         {showBuyer && (
           <Group title={tr('بيانات الفوترة الإلكترونية المشتري')}>
             <BuyerDataFields title={false} values={{ ...buyerView, name: form.name, channel: form.channel }} stored={customer as BuyerRowLike | null}
-              errors={buyerErrors} onChange={(f, v) => setBuyer(b => ({ ...b, [f]: v }))}
+              errors={buyerHints} dropsInvalid onChange={(f, v) => setBuyer(b => ({ ...b, [f]: v }))}
               {...(buyerRelax && { relaxed: true, warnings: buyerRelaxWarnings(buyerView, customer as BuyerRowLike | null) })} />
-            {legacyBuyerErrors.map(([f, m]) => <p key={f} className="text-red-500 text-[11px]">{m}</p>)}
           </Group>
         )}
 
@@ -273,7 +265,7 @@ export default function MCustomerForm({ customer, accountingOn = true, zatcaColl
       <div className="flex-shrink-0 border-t border-[#E9E1D3] bg-white p-3"
         style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
         {/* أثناء الالتقاط لا حفظ — وإلا حُفظ العميل بلا الموقع الذي ينتظره المدير */}
-        <button onClick={onSave} disabled={!valid || save.isPending || geoBusy}
+        <button onClick={onSave} disabled={save.isPending || geoBusy}
           className="w-full bg-[#E15A30] text-white font-bold py-3.5 rounded-xl min-h-[50px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {save.isPending && <Loader2 size={16} className="animate-spin" />}
           {customer ? tr('حفظ التعديلات') : tr('إضافة العميل')}

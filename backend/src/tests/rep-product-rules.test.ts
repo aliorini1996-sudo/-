@@ -105,13 +105,24 @@ test('حارس نصّي: الفحص للمندوب وحده قبل فرع الم
   assert.match(notes, /repReturnAllowed: true, repReturnUnit: true, repRulesChangedAt: true,/);
 });
 
-test('حارس نصّي: الحفظ يختم التغيير ويتحقّق من «الكبرى فقط»، والوحدات والتحويل لا يتركان القيد بلا معنى', () => {
+test('حارس نصّي: الحفظ يختم التغيير ويتحقّق من «الكبرى فقط» — والقيد الخاطئ يُهمل بتحذير REP_UNIT_RULE_IGNORED لا 400 (بلا قيود، ٩ نوفمبر ٢٠٢٦)، والوحدات والتحويل لا يتركان القيد بلا معنى', () => {
   const products = read('routes/products.ts');
   assert.equal(products.split('repRuleConfigProblem(repRules.merged').length - 1, 2, 'الإنشاء والتعديل كلاهما');
-  assert.match(products, /const repRules = repRuleWrite\(data, exists\);/);
+  assert.match(products, /let repRules = repRuleWrite\(data, exists\);/);
+  assert.match(products, /let repRules = repRuleWrite\(data, null\);/);
   // «الكبرى فقط» يُفحص حين يُضبط من جديد وحده — قيدٌ قائم فقد وحدته الكبرى لا يحبس تعديلات الصنف الأخرى
   assert.match(products, /const repProblem = newlyLarge \? repRuleConfigProblem\(repRules\.merged, exists\.units\) : null;/);
-  assert.match(products, /code: 'REP_UNIT_RULE_INVALID'/);
+  // بلا قيود (أمر المالك ٩ نوفمبر ٢٠٢٦): لا رفض REP_UNIT_RULE_INVALID — تُسقط مفاتيح القيد الأربعة من الجسم ويُعاد حساب الكتابة
+  // (فيبقى المحفوظ في التعديل، والافتراض في الإنشاء) مع تحذير، في الإنشاء والتعديل كليهما
+  assert.doesNotMatch(products, /REP_UNIT_RULE_INVALID/);
+  assert.match(products, /const REP_RULE_INPUT_KEYS = \['repSaleAllowed', 'repReturnAllowed', 'repSaleUnit', 'repReturnUnit'\] as const;/);
+  assert.equal(products.split("extraWarn.push({ code: 'REP_UNIT_RULE_IGNORED', message: repProblem });").length - 1, 2, 'الإنشاء والتعديل كلاهما');
+  for (const [fallback, recompute] of [['null', /repRules = repRuleWrite\(data, null\);/], ['exists', /repRules = repRuleWrite\(data, exists\);/]] as const) {
+    const at = products.indexOf(`repRules = repRuleWrite(data, ${fallback});`);
+    const branch = products.slice(products.indexOf('if (repProblem) {', at), products.indexOf("code: 'REP_UNIT_RULE_IGNORED'", at));
+    assert.match(branch, /for \(const k of REP_RULE_INPUT_KEYS\) delete \(data as Record<string, unknown>\)\[k\];/, fallback);
+    assert.match(branch, recompute, `${fallback}: الكتابة تُعاد بعد الإسقاط`);
+  }
   assert.equal(products.split('refuseLargeRuleWithout(product,').length - 1, 2, 'تعديل الوحدة وحذفها');
   // التحويل ومعاينته (dryRun) يرفضان بالحارس المشترك نفسه (الوحدة الرئيسية §2.2-ز): القيد قبل فحص المعامل والاسم، تحت القفل
   const convert = products.slice(products.indexOf("router.post('/:id/convert-base'"));

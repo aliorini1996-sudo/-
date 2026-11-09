@@ -144,20 +144,25 @@ test('الإنشاء: بلا حدٍّ أدنى ولا صيغة — يُقصّ ط
   }
 });
 
-test('الإنشاء: سقف الأمان ٣٠ حرفاً بعد القصّ — ٣٠ تمرّ و٣١ ⇒ 400 على phone بلا كتابة', async () => {
-  assert.equal(customersModule.CUSTOMER_PHONE_MAX, 30);
+test('الإنشاء بلا قيود (أمر المالك ٩ نوفمبر ٢٠٢٦): الجوال الطويل يُقبل ويُقصّ إلى ٢٠٠، والرقم المجرّد يُحفظ نصاً، والاسم الفارغ يأخذ بديلاً', async () => {
   const ok = world();
-  assert.equal((await call('POST', '/api/customers', { name: 'بقالة', phone: `  ${'5'.repeat(30)}  ` })).status, 201);
-  assert.equal(ok.written[0].phone, '5'.repeat(30));
-  const bad = world();
-  const r = await call('POST', '/api/customers', { name: 'بقالة', phone: '5'.repeat(31) });
-  assert.equal(r.status, 400, JSON.stringify(r.body));
-  assert.ok(r.body.errors?.phone, 'الخطأ على phone');
-  assert.equal(bad.written.length, 0);
-  // والجوال نصٌّ كما كان: الرقم المجرّد يُرفض لا يُحوَّل بصمت
+  assert.equal((await call('POST', '/api/customers', { name: 'بقالة', phone: `  ${'5'.repeat(31)}  ` })).status, 201);
+  assert.equal(ok.written[0].phone, '5'.repeat(31));
+  const long = world();
+  assert.equal((await call('POST', '/api/customers', { name: 'بقالة', phone: '5'.repeat(250) })).status, 201);
+  assert.equal(long.written[0].phone, '5'.repeat(200));
   const num = world();
-  assert.equal((await call('POST', '/api/customers', { name: 'بقالة', phone: 501234567 })).status, 400);
-  assert.equal(num.written.length, 0);
+  assert.equal((await call('POST', '/api/customers', { name: 'بقالة', phone: 501234567 })).status, 201);
+  assert.equal(num.written[0].phone, '501234567');
+  const noName = world();
+  assert.equal((await call('POST', '/api/customers', { name: '', phone: '0501234567' })).status, 201);
+  assert.equal(noName.written[0].name, '0501234567');
+  const bad = world();
+  const r = await call('POST', '/api/customers', { name: 'بقالة', email: 'ليس بريداً', lat: 999, channel: 'XYZ', creditLimit: '50' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(bad.written[0].email, 'ليس بريداً');
+  assert.equal(bad.written[0].lat, null);
+  assert.equal(bad.written[0].channel, null);
 });
 
 test('الرفع المؤجَّل من صندوق المندوب (clientRef) بلا جوال يُنشأ، والتكرار بـclientRef وحده لا بالجوال', async () => {
@@ -204,13 +209,12 @@ test('التعديل: جوالٌ محفوظ أطول من السقف يعود م
   // سؤال الوجود يحمل الجوال المحفوظ للمقارنة
   assert.deepEqual(w.customerQueries[0].select, { id: true, phone: true });
 
+  // بلا قيود (٩ نوفمبر ٢٠٢٦): الجديد الأطول يُقبل أيضاً (يُترك المحفوظ بلا كتابة كما في حارس السقف القديم)، ولا رفض
   const changed = await call('PUT', '/api/customers/c1', { name: 'اسم جديد', phone: `${stored}9` });
-  assert.equal(changed.status, 400, JSON.stringify(changed.body));
-  assert.ok(changed.body.errors?.phone);
-  assert.equal(w.written.length, 1, 'الجديد الأطول لا يُكتب');
+  assert.equal(changed.status, 200, JSON.stringify(changed.body));
   // واستبداله بقصير يمرّ
   assert.equal((await call('PUT', '/api/customers/c1', { phone: '0501234567' })).status, 200);
-  assert.equal(w.written[1].phone, '0501234567');
+  assert.equal(w.written[w.written.length - 1].phone, '0501234567');
 });
 
 // ═══ البحث: الجوال الفارغ لا يطابق بحثاً ═══
@@ -231,5 +235,5 @@ test('customers.ts: لا حدّ أدنى لجوال العميل في المخط
   const src = fs.readFileSync(path.join(SRC, 'routes', 'customers.ts'), 'utf8');
   const schema = src.slice(src.indexOf('const customerSchema'), src.indexOf('});', src.indexOf('const customerSchema')));
   assert.doesNotMatch(schema, /phone: z\.string\(\)\.min\(/, 'عاد الحدّ الأدنى');
-  assert.match(schema, /phone: z\.string\(\)\.trim\(\)\.max\(CUSTOMER_PHONE_MAX\)\.nullish\(\),/);
+  assert.match(schema, /phone: z\.preprocess\(\(v\) => \(v == null \? v : String\(v\)\.trim\(\)\.slice\(0, 200\)\), z\.string\(\)\.nullish\(\)\),/);
 });

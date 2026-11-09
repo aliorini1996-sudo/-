@@ -3,7 +3,7 @@
 //   • حذف الشركة: حارس الحفظ D31 (LOT_RECORDS_RETAINED) وحذف جداول اللوط قبل الأصناف بالترتيب.
 //   • /api/company: lotTrackingEnabled وlotOnInvoice المشروط بالعلم، والحفظ لا يمسّه ولا يكشفه خاماً.
 //   • علم الصنف (POST/PUT /api/products): FOR UPDATE ثم قفل اللوط، والحقبة، وD9 بالكمية الأساسية (سطر كرتون وسطر حبة للصنف
-//     نفسه)، وLOTS_NOT_ALLOWED، والانشغال 503 — والمسار بلا انتقالٍ حرفياً كما كان (لا استعلام ولا معاملة جديدة).
+//     نفسه)، وإهمال التفعيل بلا علم الشركة بتحذير LOTS_NOT_ALLOWED_IGNORED (بلا قيود، ٩ نوفمبر ٢٠٢٦)، والانشغال 503 — والمسار بلا انتقالٍ حرفياً كما كان (لا استعلام ولا معاملة جديدة).
 //   • حذف الصنف (§٤.١٩): العدّ والحذف في معاملةٍ واحدة بقفل الصفّ، والتشغيلة تؤرشف ولا تُحذف.
 //   • حمولة ERP بلا أي مفتاح لوط (R4) — وتفصيلها بالوحدات في erp-payload.test.ts.
 import { after, test } from 'node:test';
@@ -248,17 +248,25 @@ test('ERP: لا مفتاح يبدأ بـlot في المنتج ولا الفات�
 
 // ═══ علم الصنف — حرّاس نصّية ═══
 
-test('حارس نصّي: lotTracked وconfirmLotBalances خارج productSchema فلا يمرّان في { ...data } — والانتقال وحده يقرأ علم الشركة', () => {
+test('حارس نصّي: lotTracked وconfirmLotBalances خارج productSchema فلا يمرّان في { ...data } — والانتقال وحده يقرأ علم الشركة، والعلم المطفأ يُهمل التفعيل بتحذير لا 403 (بلا قيود، ٩ نوفمبر ٢٠٢٦)', () => {
   const src = strip(read('routes/products.ts'));
   const schema = src.slice(src.indexOf('const productSchema'), src.indexOf('});', src.indexOf('const productSchema')));
   assert.doesNotMatch(schema, /lotTracked|confirmLotBalances/);
   // nullish لا optional (درس productSchema): null من نموذج RHF غيابٌ كما كان قبل الميزة، لا 400
   assert.match(src, /const productLotSchema = z\.object\(\{\n\s*lotTracked: z\.boolean\(\)\.nullish\(\),\n\s*confirmLotBalances: z\.boolean\(\)\.nullish\(\),/);
-  assert.match(routeBody(src, "router.put('/:id', requireAdmin"), /const lotTo = lot\.lotTracked != null && lot\.lotTracked !== exists\.lotTracked \? lot\.lotTracked : null;/);
+  assert.match(routeBody(src, "router.put('/:id', requireAdmin"), /let lotTo = lot\.lotTracked != null && lot\.lotTracked !== exists\.lotTracked \? lot\.lotTracked : null;/);
   // العلم يُقرأ لطلب التفعيل وحده (§١٠.١)، في الإنشاء والتعديل
   const reads = [...src.matchAll(/^.*await lotsAllowed\(tid\).*$/gm)].map((m) => m[0]);
   assert.equal(reads.length, 2);
   for (const l of reads) assert.match(l, /=== true && !\(await lotsAllowed\(tid\)\)/, l);
+  // بلا قيود (أمر المالك ٩ نوفمبر ٢٠٢٦): الشركة بلا العلم ⇒ لا 403 LOTS_NOT_ALLOWED من الإنشاء ولا التعديل — يُهمل التفعيل
+  // (الإنشاء غير متتبَّع، والتعديل بلا انتقال) مع تحذير LOTS_NOT_ALLOWED_IGNORED
+  for (const head of ["router.post('/', requireAdmin", "router.put('/:id', requireAdmin"]) {
+    const body = routeBody(src, head);
+    assert.doesNotMatch(body, /lotErr\('LOTS_NOT_ALLOWED'\)/, head);
+    const gate = body.slice(body.indexOf('!(await lotsAllowed(tid))'), body.indexOf("code: 'LOTS_NOT_ALLOWED_IGNORED'"));
+    assert.match(gate, head.startsWith('router.post') ? /^!\(await lotsAllowed\(tid\)\)\) \{\s*lot\.lotTracked = false;\s*extraWarn\.push\(\{ $/ : /^!\(await lotsAllowed\(tid\)\)\) \{\s*lotTo = null;\s*extraWarn\.push\(\{ $/, head);
+  }
   const put = routeBody(src, "router.put('/:id', requireAdmin");
   assert.match(put, /lotTracked: true, \/\/|lotTracked: true,\s*\n/, 'العلم في قراءة التعديل القائمة');
   // R1: دوالّ اللوط في التعديل داخل شرط الانتقال وحده
@@ -338,13 +346,18 @@ test('null في lotTracked وconfirmLotBalances غيابٌ كما كان قبل 
   assert.ok(!Object.keys(calls[2].args.data).some((k) => /^lot|^confirmLot/.test(k)));
 });
 
-test('التفعيل والعلم مطفأ للشركة ⇒ 403 LOTS_NOT_ALLOWED بلا كتابة', async () => {
+test('التفعيل والعلم مطفأ للشركة ⇒ 200 بتحذير LOTS_NOT_ALLOWED_IGNORED (بلا قيود، ٩ نوفمبر ٢٠٢٦): بقية الحقول تُحفظ والتفعيل يُهمل — لا معاملة ولا قفل ولا حدث', async () => {
   reset();
   productsWorld({ tenantLots: false, tracked: false });
   const r = await call('PUT', '/api/products/p1', { name: 'شاي', lotTracked: true });
-  assert.equal(r.status, 403);
-  assert.equal(r.body.code, 'LOTS_NOT_ALLOWED');
-  assert.deepEqual(ops(), ['product.findFirst', 'tenant.findUnique']);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.notEqual(r.body.code, 'LOTS_NOT_ALLOWED');
+  assert.deepEqual((r.body.warnings ?? []).map((w: any) => w.code), ['LOTS_NOT_ALLOWED_IGNORED']);
+  // العلم يُقرأ لطلب التفعيل، ثم التعديل العادي بلا انتقال: لا $transaction ولا SQL خام ولا lotEvent
+  assert.deepEqual(ops(), ['product.findFirst', 'tenant.findUnique', 'product.findMany', 'product.update'] /* D4: قراءة الاسم المكرَّر */);
+  const data = calls[opIdx('product.update')].args.data;
+  assert.equal(data.name, 'شاي', 'بقية الحقول تُحفظ');
+  assert.ok(!('lotTracked' in data) && !('confirmLotBalances' in data) && !('lotTrackedSince' in data), 'العلم لا يُكتب');
 });
 
 test('التفعيل: صفّ الصنف FOR UPDATE ← قفل اللوط ← lotTracked والحقبة الآن ← TRACKING_ON، كلها في معاملةٍ واحدة بمهل D13', async () => {
@@ -489,7 +502,7 @@ test('الانشغال: انتظار قفل اللوط (55P03) ⇒ 503 LOT_BUSY�
   assert.equal((await call('PUT', '/api/products/p1', { lotTracked: true })).status, 200, 'الطابور حُرّر في finally');
 });
 
-test('الإنشاء: بلا العلم كما كان (لا قراءة علم ولا معاملة)؛ ومتتبَّعاً يلزمه العلم، وحقبته وTRACKING_ON في معاملة الإنشاء', async () => {
+test('الإنشاء: بلا العلم كما كان (لا قراءة علم ولا معاملة)؛ ومتتبَّعاً والعلم مطفأ ⇒ 201 غير متتبَّع بتحذير LOTS_NOT_ALLOWED_IGNORED (بلا قيود، ٩ نوفمبر ٢٠٢٦)؛ والعلم مفعّل ⇒ حقبته وTRACKING_ON في معاملة الإنشاء', async () => {
   const body = { code: 'C1', name: 'شاي', unit: 'حبة', basePrice: 5, taxPct: 15 };
   reset();
   scripted['product.create'] = (a) => ({ id: 'p-new', ...a.data });
@@ -499,10 +512,16 @@ test('الإنشاء: بلا العلم كما كان (لا قراءة علم و
 
   reset();
   scripted['tenant.findUnique'] = () => ({ lotTrackingEnabled: false });
+  scripted['product.create'] = (a) => ({ id: 'p-new', ...a.data });
   const off = await call('POST', '/api/products', { ...body, lotTracked: true });
-  assert.equal(off.status, 403);
-  assert.equal(off.body.code, 'LOTS_NOT_ALLOWED');
-  assert.equal(opIdx('product.create'), -1);
+  assert.equal(off.status, 201, JSON.stringify(off.body));
+  assert.notEqual(off.body.code, 'LOTS_NOT_ALLOWED');
+  assert.deepEqual((off.body.warnings ?? []).map((w: any) => w.code), ['LOTS_NOT_ALLOWED_IGNORED']);
+  // يُنشأ كما يُنشأ بلا العلم: خارج أي معاملة، بلا حقبة ولا حدث TRACKING_ON
+  assert.deepEqual(ops(), ['product.findFirst', 'product.findMany', 'tenant.findUnique', 'product.create']);
+  assert.ok(!calls[opIdx('product.create')].inTx);
+  assert.ok(!Object.keys(calls[opIdx('product.create')].args.data).some((k) => /^lot/.test(k)), 'لا lotTracked ولا lotTrackedSince');
+  assert.equal(opIdx('lotEvent.create'), -1);
 
   reset();
   scripted['tenant.findUnique'] = () => ({ lotTrackingEnabled: true });

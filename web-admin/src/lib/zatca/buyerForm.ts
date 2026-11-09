@@ -5,6 +5,8 @@
  *
  * طلب المالك ٣١ أكتوبر ٢٠٢٦: فكّ قيد الرقم الضريبي والعنوان الوطني (buyerRelaxOn) — الفحص بـ{ relaxed: true } يحوّل أخطاء صيغ
  * الرقم الضريبي ورقم المبنى والرمز البريدي إلى تنبيهات لا تمنع الحفظ، والشارة تقول «ناقصة تصدر مبسطة». بلا الخيار: كما اليوم حرفياً.
+ *
+ * أمر المالك ٩ نوفمبر ٢٠٢٦ («بلا قيود على العميل»): نماذج العميل لا يمنعها الفحص أبداً — buyerFormHints تلميحٌ حيّ والإرسال دائماً.
  */
 import { BUYER_ID_SCHEMES } from './validators';
 import {
@@ -103,6 +105,16 @@ export function buyerFormCheck(values: Partial<BuyerFormValues>, stored: BuyerRo
   for (const e of [...typeErrors, ...v.errors]) if (!errors[e.field]) errors[e.field] = e.messageAr;
   const cleared = stored ? clearedBuyerFields(stored, patch) : [];
   return { patch, errors, warnings: v.warnings, cleared, ok: Object.keys(errors).length === 0 };
+}
+
+/**
+ * «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): ملاحظات بيانات الفوترة الحيّة في نماذج العميل — للعرض وحده، ولا تمنع الحفظ
+ * أبداً. القواعد نفسها (buyerFormCheck بقيمة فكّ القيد الفعلية للشركة، فتبقى رسائلها صادقة)، لكنّ POST/PUT /customers لم يعد
+ * يرفض: حقل المرحلة الثانية غير الصالح يُهمل، والرقم الضريبي والسجل والنصوص تُحفظ كما كُتبت (applyBuyerGateToWrite في الخادم).
+ * فالنموذج يعرض الرسالة الأولى لكل حقل تلميحاً ويُرسل — لا ok يُسأل قبل الإرسال.
+ */
+export function buyerFormHints(values: Partial<BuyerFormValues>, stored: BuyerRowLike | null | undefined, opts: { relaxed?: boolean } = {}): Partial<Record<BuyerField, string>> {
+  return buyerFormCheck(values, stored, BUYER_BILLING_FIELDS, { relaxed: opts.relaxed === true }).errors;
 }
 
 /** صفّ العميل كما سيُحفظ (قيم النموذج فوق المحفوظ). */

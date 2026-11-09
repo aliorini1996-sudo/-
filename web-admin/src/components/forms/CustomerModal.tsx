@@ -8,9 +8,9 @@ import { baseLabelOf, priceListsOf } from '../../lib/priceLists';
 import { SALES_CHANNELS } from '../../lib/channels';
 import { X, MapPin } from 'lucide-react';
 import BuyerDataFields from '../BuyerDataFields';
-import { BUYER_BILLING_FIELDS, BUYER_PHASE2_FIELDS, BuyerField, BuyerRowLike } from '../../lib/zatca/buyerData';
-import { BuyerFormValues, buyerFormCheck, buyerFormValues, buyerRelaxWarnings } from '../../lib/zatca/buyerForm';
-import { CUSTOMER_PHONE_MAX, customerPhoneEditError, trimCustomerPhone } from '../../lib/customerPhoneField';
+import { BUYER_PHASE2_FIELDS, BuyerRowLike } from '../../lib/zatca/buyerData';
+import { BuyerFormValues, buyerFormHints, buyerFormValues, buyerRelaxWarnings } from '../../lib/zatca/buyerForm';
+import { CUSTOMER_PHONE_MAX, trimCustomerPhone } from '../../lib/customerPhoneField';
 
 // locationUrl حقل إدخال فقط (يحلّه الخادم إلى lat/lng) — ليس حقلاً مخزّناً
 type CustomerForm = Partial<Customer> & { locationUrl?: string };
@@ -36,15 +36,18 @@ const pickPhase2 = (b: BuyerFormValues): Partial<BuyerFormValues> =>
 
 export default function CustomerModal({ customer, onClose, onSave, loading, accountingOn = true, buyerRelax = false, taxOff = false, zatcaCollect = false }: Props) {
   const tr = useTr();
-  const { register, handleSubmit, watch, formState: { errors } } = useForm<CustomerForm>({
+  const { register, handleSubmit, watch } = useForm<CustomerForm>({
     defaultValues: customer || { status: 'ACTIVE', creditLimit: 0, paymentDays: 30 },
   });
   const hasLoc = customer?.lat != null && customer?.lng != null;
-  // بيانات المشتري (Z5.1a): حالة محكومة تُدمج في الحمولة للشركة الجامعة وحدها، وتُفحص قبل الإرسال بقواعد الخادم (مع الرقم
-  // الضريبي والسجل والاسم والمدينة والحي من النموذج نفسه). غير الجامعة: الحمولة كما اليوم حرفياً
+  // بيانات المشتري (Z5.1a): حالة محكومة تُدمج في الحمولة للشركة الجامعة وحدها (مع الرقم الضريبي والسجل والاسم والمدينة والحي من
+  // النموذج نفسه). غير الجامعة: الحمولة كما اليوم حرفياً
   const [buyer, setBuyer] = useState<BuyerFormValues>(() => buyerFormValues(customer as BuyerRowLike | null));
-  const [buyerErrors, setBuyerErrors] = useState<Partial<Record<BuyerField, string>>>({});
   const watched = zatcaCollect ? watch() : null;
+  const buyerValues = watched ? { ...buyerFormValues(watched as BuyerRowLike), ...pickPhase2(buyer) } : null;
+  // «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): قواعد الخادم تلميحٌ حيّ في القسم لا يمنع الإرسال — والخادم يُهمل حقل المرحلة
+  // الثانية غير الصالح ويحفظ الباقي كما كُتب
+  const buyerHints = buyerValues ? buyerFormHints(buyerValues, customer as BuyerRowLike | null, { relaxed: buyerRelax }) : {};
   const submit = (raw: CustomerForm) => {
     // الجوال يُرسل دائماً نصّاً مقصوصاً — والفارغ '' صريحاً فيُمسح المحفوظ متى أفرغه المدير (العمود لا يقبل null)
     const data: CustomerForm = { ...raw, phone: trimCustomerPhone(raw.phone) };
@@ -52,13 +55,8 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
     // من صفٍّ قديم الدبوسَ القديم فوق التقاطٍ أحدث من المندوب (تدقيق نطاق ٥٠ متراً). والرابط الملصوق يحدّث الموقع كما كان
     delete data.lat; delete data.lng;
     if (!zatcaCollect) { onSave(data); return; }
-    const values = { ...buyerFormValues(data as BuyerRowLike), ...pickPhase2(buyer) };
-    const check = buyerFormCheck(values, customer as BuyerRowLike | null, BUYER_BILLING_FIELDS, { relaxed: buyerRelax });
-    setBuyerErrors(check.errors);
-    if (!check.ok) return;
     onSave({ ...data, ...pickPhase2(buyer) } as CustomerForm);
   };
-  const legacyBuyerErrors = Object.entries(buyerErrors).filter(([f]) => !(BUYER_PHASE2_FIELDS as readonly string[]).includes(f));
   /* «قوائم الأسعار»: قائمة العميل تُسعَّر بها فواتيره — تظهر لشركةٍ عرّفت قوائم (والمسار محروسٌ بالمحاسبة). والفارغ يُرسل null
    * صريحاً (setValueAs) فيعود العميل إلى القائمة الافتراضية للمندوب ثم السعر الافتراضي؛ وشركةٌ بلا قوائم: لا خانة ولا طلبٌ آخر،
    * والمحفوظ يُعاد كما هو */
@@ -79,35 +77,37 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
 
-        <form onSubmit={handleSubmit(submit)} className="p-6 space-y-6">
+        {/* «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): النموذج يُرسل دائماً — noValidate يُسقط منع المتصفح (البريد والأرقام
+            وطول الخانة)، والخادم يصحّح أو يهمل غير الصالح: الاسم الفارغ يأخذ بديلاً (اسم المنشأة ثم الجوال ثم «عميل») في الإنشاء،
+            ولا يمحو المحفوظ في التعديل */}
+        <form noValidate onSubmit={handleSubmit(submit)} className="p-6 space-y-6">
           {/* Basic Info */}
           <div>
             <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('البيانات الأساسية')}</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="label">{tr('اسم العميل')} *</label>
-                <input className="input" {...register('name', { required: true })} />
-                {errors.name && <p className="text-red-500 text-xs mt-1">{tr('مطلوب')}</p>}
+                <label className="label">{tr('اسم العميل')}</label>
+                <input className="input" {...register('name')} />
               </div>
               <div>
                 <label className="label">{tr('اسم المنشأة')}</label>
                 <input className="input" {...register('businessName')} />
               </div>
-              {/* الجوال حرّ (أمر المالك ٧ نوفمبر ٢٠٢٦): اختياريّ بلا نجمة ولا حدّ أدنى ولا صيغة — سقف ٣٠ خانة وحده،
-                  وجوال العميل المحفوظ كما هو لا يُفحص به (رقمٌ قديم أطول لا يمنع تعديل باقي البطاقة، كالخادم) */}
+              {/* الجوال حرّ (أمر المالك ٧ و٩ نوفمبر ٢٠٢٦): اختياريّ بلا نجمة ولا حدّ أدنى ولا صيغة ولا فحصٍ يمنع الحفظ —
+                  طول الخانة بقدر ما يحفظه الخادم (CUSTOMER_PHONE_MAX) */}
               <div>
                 <label className="label">{tr('رقم الجوال')}</label>
                 <input className="input" dir="ltr" maxLength={CUSTOMER_PHONE_MAX} placeholder={tr('اختياري')}
-                  {...register('phone', { validate: (v) => { const e = customerPhoneEditError(v, customer?.phone); return e ? tr(e) : true; } })} />
-                {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone.message || tr('رقم الجوال أطول من 30 خانة')}</p>}
+                  {...register('phone')} />
               </div>
               <div>
                 <label className="label">{tr('رقم بديل')}</label>
                 <input className="input" dir="ltr" {...register('altPhone')} />
               </div>
+              {/* البريد نصٌّ حرّ: خانة البريد الأصلية كان يمنع بها المتصفحُ الحفظ لصيغةٍ غير بريدية — inputMode يُبقي لوحة مفاتيح البريد */}
               <div>
                 <label className="label">{tr('البريد الإلكتروني')}</label>
-                <input className="input" type="email" dir="ltr" {...register('email')} />
+                <input className="input" type="text" inputMode="email" dir="ltr" {...register('email')} />
               </div>
               <div>
                 <label className="label">{tr('السجل التجاري')}</label>
@@ -158,12 +158,14 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
             </div>
           </div>
 
-          {/* فوترة ZATCA المرحلة الثانية (D2): للشركة التي تجمع بيانات الفوترة وحدها — لا تمنع الحفظ قبل التفعيل */}
+          {/* فوترة ZATCA المرحلة الثانية (D2): للشركة التي تجمع بيانات الفوترة وحدها — لا تمنع الحفظ (تلميحات الحقول خارج القسم
+              كالرقم الضريبي والسجل في قائمة تنبيهاته) */}
           {zatcaCollect && watched && (
             <BuyerDataFields
-              values={{ ...buyerFormValues(watched as BuyerRowLike), ...pickPhase2(buyer), name: watched.name ?? '', channel: watched.channel ?? '' }}
+              values={{ ...buyerValues, name: watched.name ?? '', channel: watched.channel ?? '' }}
               stored={customer as BuyerRowLike | null}
-              errors={buyerErrors}
+              errors={buyerHints}
+              dropsInvalid
               onChange={(f, v) => setBuyer(b => ({ ...b, [f]: v }))}
               {...(buyerRelax && {
                 relaxed: true,
@@ -220,12 +222,6 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
               )}
             </div>
           </div>
-          )}
-
-          {zatcaCollect && legacyBuyerErrors.length > 0 && (
-            <div className="rounded-xl border border-red-200 bg-red-50 text-red-700 text-xs p-3 space-y-1">
-              {legacyBuyerErrors.map(([f, m]) => <p key={f}>{m}</p>)}
-            </div>
           )}
 
           {/* Actions */}

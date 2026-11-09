@@ -8,7 +8,9 @@ import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { computeWarehouseStock, tenantCurrencyDecimals, loadWarehouseInputs, composeWarehouse, summarizeVansStock, resolveLineUnits, UnitInvalidError, lineProductRefusal } from '../services/warehouseStock';
+import { computeWarehouseStock, tenantCurrencyDecimals, loadWarehouseInputs, composeWarehouse, summarizeVansStock, UnitInvalidError, UNIT_SELECT } from '../services/warehouseStock';
+// «الربط لا يُرفض» (أمر المالك ٩ نوفمبر ٢٠٢٦): الحركة تُقبل بما يمكن معالجته، والمتروك أو المعدَّل تحذيرٌ في ردّ النجاح
+import { lenientStockLines, noQuantitiesWarning, stockNoopBody, type StockWarning } from '../services/stockLenient';
 // «الوحدة الرئيسية» §3 (#5): الوارد والتسوية يكتبان كمية وتكلفةً بوحدة الأساس — تُقارَن بالأساس الذي يعرفه العميل حيّاً، ثم تحت القفل
 import {
   BASE_GUARD_TX, ProductUnitsBusyError, ProductUnitsChangedError, assertBasesUnchanged, baseGuardReply, baseUnitRequiredReply, expectedBasesOf, lockBases,
@@ -21,7 +23,7 @@ import { adminRepFilter } from '../services/adminScope';
 import { addDays, isLocalDate } from '../services/gl/dates';
 import { importedEntryInstant } from '../services/importTimezoneRebase';
 import { importTimezone } from '../services/importLedger';
-import { LOT_NUMBER_MAX, LotError, asLotBusy, lotHttpError } from '../services/lots';
+import { LOT_NUMBER_MAX, LotError, asLotBusy, lotHttpError, type LotWarning, type WarehouseEntryPlan } from '../services/lots';
 import { acquireLotQueue, companyDay, lockLotProducts } from '../services/lotsDb';
 import { LOT_PRODUCT_SELECT, lotActorOf, lotEventActorOf, planWarehouseEntryInTx, vansLotUnsellable, warehouseLineCarriesLot, warehousePlanLines } from '../services/lotsWarehouse';
 // D9: سطرٌ بتشغيلةٍ لصنفٍ غير متتبَّع — الخطأ نفسه لحركة السيارة (422 LOT_PRODUCT_MISMATCH بسبب NOT_TRACKED وموضع السطر)
@@ -218,6 +220,17 @@ const entrySchema = z.object({
 /** تشغيلة السطر في ردّ الحركة وسجلّها (ن٢-١٨) — والميزة مفعّلة وحدها، فالردّ للشركة المطفأة كما كان */
 const ENTRY_LOT_SELECT = { select: { lotNumber: true, productionDate: true, expiryDate: true } } as const;
 
+/**
+ * أصناف أسطر الحركة في قراءةٍ واحدة: الضريبة (الردّ من الشامل إلى الصافي) وأعمدة «تتبّع اللوط» والأساس وتاريخ تحويله (حارس §3)،
+ * والأرشفة والرمز والوحدات («الربط لا يُرفض»: توأم المؤرشف الحيّ، وخطر التحويل لوحدةٍ غريبة). بها تُقرأ التوائم أيضاً (stockLenient)
+ */
+const ENTRY_PRODUCT_SELECT = {
+  id: true, taxPct: true, name: true, code: true, unit: true, baseConvertedAt: true, deletedAt: true, units: { select: UNIT_SELECT }, ...LOT_PRODUCT_SELECT,
+} as const;
+
+/** ملاحظة تسوية الإنقاص المكتوبة من أسطر وارد سالبة حين لا ملاحظة في الطلب */
+const NEGATIVE_RECEIVE_NOTE = 'تسوية إنقاص لأسطر وارد بكمية سالبة';
+
 // تسجيل وارد (استلام/شراء) أو تسوية للمستودع
 router.post('/entries', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -227,10 +240,13 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     // آخر ⇒ 409 CLIENT_REF_REUSED. والطلبان المتزامنان بالمرجع نفسه يحسمهما القفل في المعاملة (refGate). المستودع للشركة كلها فلا نطاق
     const clientRef = data.clientRef ?? null;
     const priorInclude = { items: { include: { product: { select: { id: true, name: true, unit: true, primaryUnitId: true } }, ...(lotsOn(req) && { lot: ENTRY_LOT_SELECT }) } } };
+    // «الربط لا يُرفض»: وارد كل أسطره سالبة يُكتب تسويةَ إنقاص (أدناه) فحركته المحفوظة بمرجعه ADJUST — حركته هو لا «حركةٌ أخرى»
+    // (فالقبول لواردٍ فيه سطرٌ سالب؛ والمختلط يحمل الوارد مرجعه فيطابق نوعه). ووارد بلا سطرٍ سالب يجد تسويةً بمرجعه ⇒ 409 كما كان
+    const negativeReceive = data.type === 'RECEIVE' && data.items.some((i) => i.qty < 0);
     const priorOf = async (db: Prisma.TransactionClient | typeof prisma) => {
       if (!clientRef) return null;
       const prior = await db.warehouseEntry.findFirst({ where: { tenantId: tid, clientRef }, orderBy: { createdAt: 'asc' }, include: priorInclude });
-      if (prior && prior.type !== data.type) {
+      if (prior && prior.type !== data.type && !(negativeReceive && prior.type === 'ADJUST')) {
         throw Object.assign(new Error('مرجع الحفظ clientRef مستعملٌ لحركةٍ أخرى — ولّد مرجعاً جديداً لكل حفظ'), { status: 409, code: 'CLIENT_REF_REUSED' });
       }
       return prior;
@@ -244,93 +260,132 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
       const prior = await priorOf(tx);
       if (prior) throw new ClientRefReplay(prior);
     };
-    const items = data.items.filter((i) => i.qty !== 0);
-    if (!items.length) { res.status(400).json({ success: false, message: 'لا توجد كميات صالحة' }); return; }
-    // الوارد موجبٌ دائماً؛ التنقيص يكون تسويةً صريحة
-    if (data.type === 'RECEIVE' && items.some((i) => i.qty < 0)) {
-      res.status(400).json({ success: false, message: 'كمية الوارد يجب أن تكون موجبة استخدم تسوية للتنقيص' });
-      return;
-    }
-    // التسوية جردٌ أو تالف لا شراء — فلا ثمن لها. والرفض الصريح أصدق من إسقاطٍ صامت
-    if (data.type === 'ADJUST' && items.some((i) => i.unitCost != null)) {
-      res.status(400).json({ success: false, message: 'سعر الوحدة يسجل مع الوارد فقط لا مع التسوية' });
-      return;
-    }
+    // «الربط لا يُرفض» (أمر المالك ٩ نوفمبر ٢٠٢٦، services/stockLenient.ts): الحركة تُقبل ويُعالَج منها ما يمكن، وما تُرك أو عُدِّل
+    // تحذيرٌ في ردّ النجاح (warnings) بموضع سطره `at` في items كما أرسلها العميل. و`fi` موضعه بعد حذف الأسطر الصفرية — به تُعرَّف
+    // أسطر خطة اللوط وأخطاؤها ({idx}) وخطأ D9 كما كانت
+    const warnings: StockWarning[] = [];
+    const nonZero = data.items.map((i, at) => ({ ...i, at })).filter((i) => i.qty !== 0).map((i, fi) => ({ ...i, fi }));
+    // كل الأسطر صفرية ⇒ 200 بلا حركة وتحذير NO_QUANTITIES (كان 400 «لا توجد كميات صالحة»)
+    if (!nonZero.length) { res.status(200).json(stockNoopBody([noQuantitiesWarning()])); return; }
+    // التسوية جردٌ أو تالف لا شراء — فلا ثمن لها: سعرٌ مُرسَل معها يُهمل بتحذير UNIT_COST_IGNORED (كان 400 للطلب كله)
+    const priced = data.type === 'ADJUST' ? nonZero.map((i) => {
+      if (i.unitCost == null) return i;
+      warnings.push({ code: 'UNIT_COST_IGNORED', index: i.at, productId: i.productId, message: `سعر الوحدة يسجل مع الوارد فقط لا مع التسوية — أُهمل سعر السطر ${i.at + 1}` });
+      return { ...i, unitCost: undefined };
+    }) : nonZero;
 
-    const productIds = [...new Set(items.map((i) => i.productId))];
-    // نقرأ الضريبة مع التحقّق: الردّ من الشامل إلى الصافي يحتاج نسبة كل صنف
-    // (ومعها أعمدة «تتبّع اللوط» في الاستعلام نفسه: العلم والاسم وما يلزم إلزام انتهاء التشغيلة)
-    // (ومعها وحدة الأساس وتاريخ تحويلها لحارس §3 في الاستعلام نفسه)
-    // (ومعها الأرشفة deletedAt لرفض الوارد على صنفٍ مؤرشف، مراجعة المخزون H2)
-    const products = await prisma.product.findMany({
-      where: { id: { in: productIds }, tenantId: tid },
-      select: { id: true, taxPct: true, name: true, unit: true, baseConvertedAt: true, deletedAt: true, ...LOT_PRODUCT_SELECT },
+    // الأصناف في قراءةٍ واحدة (ENTRY_PRODUCT_SELECT) قبل حلّ وحدات البنود
+    const found = await prisma.product.findMany({
+      where: { id: { in: [...new Set(priced.map((i) => i.productId))] }, tenantId: tid },
+      select: ENTRY_PRODUCT_SELECT,
     });
-    // مراجعة المخزون #23 وH2: صنفٌ لا يتبع الشركة ⇒ 400 PRODUCT_NOT_FOUND بموضع سطره في الطلب، والوارد لصنفٍ مؤرشف ⇒ 422 PRODUCT_ARCHIVED.
-    // التسوية تمرّ على المؤرشف (بها يُصحَّح رصيده). المواضع من items كما أرسلها العميل قبل حذف الأسطر الصفرية
-    const lineAt = data.items.map((i, at) => ({ productId: i.productId, at, qty: i.qty })).filter((l) => l.qty !== 0);
-    const refused = lineProductRefusal(lineAt, products, { rejectArchived: data.type === 'RECEIVE' ? 'RECEIVE' : null });
-    if (refused) { res.status(refused.status).json(refused.body); return; }
-    // «الوحدة الرئيسية» §3: الأساس الذي حُلّت عليه البنود — يُقارَن بما يعرفه العميل الآن، ثم تحت القفل في معاملة الإنشاء.
-    // مفتاح API على صنفٍ حُوِّل بلا baseUnitName ⇒ 400 (D19) بدل خطأٍ ×٢٤ صامت في الكمية والتكلفة
+    // مراجعة المخزون #23 وH2 صارا بلا رفض: صنفٌ لا يتبع الشركة ⇒ صنفٌ مؤقّت بمعرّفه نفسه (PRODUCT_PLACEHOLDER_CREATED، كان 400)
+    // ما لم يكن المعرّف لشركةٍ أخرى (يُترك سطره PRODUCT_NOT_FOUND)، والوارد **الموجب** لصنفٍ مؤرشف ⇒ صنفٌ حيّ واحد بالرمز نفسه
+    // (PRODUCT_REDIRECTED) وإلا يُقبل على المؤرشف (PRODUCT_ARCHIVED، كان 422). السالب يصير تسوية إنقاص (أدناه) والتسوية تمرّ على
+    // المؤرشف أصلاً. ثم وحدة البند: الموقوفة بمعاملها، والغريبة أساساً بلا خطر تحويل وإلا يُترك سطرها (UNIT_INVALID) — لا كمية تُضرب
+    // بمعاملٍ مخمَّن
+    const lenient = await lenientStockLines(tid, priced, found, {
+      archived: data.type === 'RECEIVE' ? 'RECEIVE' : null, archivedApplies: (i) => i.qty > 0, select: ENTRY_PRODUCT_SELECT,
+      isApiKey: !!req.user?.apiKeyId, lotsOn: lotsOn(req), carriesLot: warehouseLineCarriesLot,
+      stripLot: (i) => ({ ...i, lotId: undefined, lotNumber: undefined, productionDate: undefined, expiryDate: undefined }),
+    });
+    warnings.push(...lenient.warnings);
+    // لم يبقَ سطرٌ يُكتب ⇒ 200 بلا حركة بتحذيراته (لا مرجع يُحفظ: إعادته تعيد الردّ نفسه)
+    if (!lenient.lines.length) { res.status(200).json(stockNoopBody(warnings)); return; }
+    const { products } = lenient;
+    // كل سطر بلقطة وحدته المحلولة (يكتبها unitFields)
+    const lines = lenient.lines.map((i, k) => ({ ...i, unit: lenient.units[k] }));
+    type EntryLine = (typeof lines)[number];
+    const productIds = [...new Set(lines.map((i) => i.productId))];
+    // «الوحدة الرئيسية» §3 (باقٍ بلا تساهل — يمنع خطأ الكمية الصامت): الأساس الذي حُلّت عليه البنود — يُقارَن بما يعرفه العميل الآن،
+    // ثم تحت القفل في معاملة الإنشاء. مفتاح API على صنفٍ حُوِّل بلا baseUnitName ⇒ 400 (D19) بدل خطأٍ ×٢٤ صامت في الكمية والتكلفة
     const expected = expectedBasesOf(products);
-    const noBase = missingBaseForApi(!!req.user?.apiKeyId, items, new Map(products.map((p) => [p.id, p])));
+    const noBase = missingBaseForApi(!!req.user?.apiKeyId, lines, new Map(products.map((p) => [p.id, p])));
     if (noBase) { const r = baseUnitRequiredReply(noBase); res.status(r.status).json(r.body); return; }
-    const stale = staleClientBase(items, expected, new Map(products.map((p) => [p.id, p.baseConvertedAt])));
+    const stale = staleClientBase(lines, expected, new Map(products.map((p) => [p.id, p.baseConvertedAt])));
     if (stale) throw new UnitInvalidError(`تغيّرت وحدات «${stale}» — حدّث قائمة الأصناف ثم أعد الحفظ`);
     // «تتبّع اللوط» (D9، كالسيارة) والميزة مفعّلة: سطرٌ يحمل تشغيلةً لصنفٍ غير متتبَّع ⇒ 422 LOT_PRODUCT_MISMATCH بسبب NOT_TRACKED
     // وموضعه (موضع السطر بعد حذف الصفرية كسائر أخطاء الحركة) لا إهمالٌ صامت — واجهةٌ قديمة لصنفٍ أُطفئ تتبّعه تُنقص الصنف وتُبقي رصيد
     // التشغيلة. بلا استعلام ولا معاملة؛ والمطفأة تُهملها كما كانت حرفياً (§١٠.١)
     if (lotsOn(req)) {
       const trackedNow = new Set(products.filter((p) => p.lotTracked === true).map((p) => p.id));
-      const at = items.findIndex((i) => !trackedNow.has(i.productId) && warehouseLineCarriesLot(i));
-      if (at >= 0) throw lotOnUntrackedError(products.find((p) => p.id === items[at].productId)?.name ?? '', items[at].productId, at);
+      const stray = lines.find((i) => !trackedNow.has(i.productId) && warehouseLineCarriesLot(i));
+      if (stray) throw lotOnUntrackedError(products.find((p) => p.id === stray.productId)?.name ?? '', stray.productId, stray.fi);
     }
+    // «الربط لا يُرفض»: الوارد بكمية سالبة (مرتجعٌ للمورّد أو عكس استلام في نظام المُكامِل) كان 400 — صار **إنقاصاً** بتحذير
+    // NEGATIVE_RECEIVE_AS_ADJUST. لا القيمة المطلقة: −٥ تُقرأ +٥ فيبعد الرصيد عشرة عن الحقيقة. ولا سطر وارد سالب: خطة اللوط ترفضه
+    // (LOT_QTY_INVALID) وتقييم الوارد يفترض دخولاً. فأسطره السالبة تسويةُ إنقاص (ADJUST) بلا سعر — طريق الإنقاص الذي يعرفه كل قارئ
+    // (التقييم بالمتوسّط، وسحب اللوط بالأقرب انتهاءً، وحارس نقص التشغيلة). كلها سالبة ⇒ الحركة نفسها تسوية (تحمل المرجع)؛ ومختلطة ⇒
+    // تسويةٌ منفصلة في المعاملة نفسها قبل الوارد (النقص أولاً كخطة اللوط) تعود في الردّ `adjustment`، والوارد يحمل المرجع
+    const negative = data.type === 'RECEIVE' ? lines.filter((i) => i.qty < 0) : [];
+    for (const i of negative) {
+      warnings.push({
+        code: 'NEGATIVE_RECEIVE_AS_ADJUST', index: i.at, productId: i.productId,
+        message: `كمية السطر ${i.at + 1} سالبة فسُجّلت تسوية إنقاص لا وارداً${i.unitCost != null ? ' وأُهمل سعرها' : ''}`,
+      });
+    }
+    const decreaseOnly = negative.length > 0 && negative.length === lines.length;
+    const entryType: 'RECEIVE' | 'ADJUST' = decreaseOnly ? 'ADJUST' : data.type;
+    const asDecrease = (i: EntryLine): EntryLine => ({ ...i, unitCost: undefined });
+    const mainLines: EntryLine[] = decreaseOnly ? negative.map(asDecrease) : negative.length ? lines.filter((i) => i.qty > 0) : lines;
+    const splitLines: EntryLine[] = decreaseOnly ? [] : negative.map(asDecrease);
     // «إزالة الضريبة»: الشركة بلا ضريبة غير مسجّلة فلا تستردّ ضريبة مدخلات — النسبة الفعلية صفر فالتكلفة المخزَّنة ما كُتب.
     // العلم يُقرأ حين يلزم الردّ من الشامل وحده (costsIncludeTax وسطرٌ بسعر)، فالوارد بلا الخيار بلا استعلامٍ زائد كما كان
-    const taxOff = data.costsIncludeTax && items.some((i) => i.unitCost != null)
+    const taxOff = data.costsIncludeTax && mainLines.some((i) => i.unitCost != null)
       && isTaxOff(await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { taxDisabled: true } }));
     const taxOf = new Map(products.map((p) => [p.id, taxOff ? 0 : p.taxPct]));
-    // لقطة وحدة كل بند بترتيب `items` — يحلّها الخادم من وحدات الصنف (بلا unitId ⇒ الأساس، ولا استعلام)
-    const units = await resolveLineUnits(tid, items);
 
     const by = req.user as { name?: string } | undefined;
     const withLots = lotsOn(req);
     // البنود كما كانت، و«تتبّع اللوط» يضيف lotId لكل سطر من خطة المعاملة وحدها — وسطر نقصٍ سُحب تلقائياً من أكثر من تشغيلة
     // (splitByLine) بندٌ لكلٍّ بإشارته: بوحدة السطر إن كانت حصّته وحداتٍ كاملة، وإلا بوحدة الأساس (Σ الأساس = أساس السطر)
-    // و«مرجع السطر» على كل بندٍ من سطره — والمقسوم على تشغيلات يحمله كلُّ بندٍ منه فيجمعها المُكامِل إلى سطره. غائبٌ ⇒ البند كما كان
-    const entryData = (lotIdByLine: ReadonlyMap<number, string | null> | null, splitByLine?: ReadonlyMap<number, { lotId: string | null; qty: number }[]>) => ({
-      tenantId: tid, type: data.type, note: data.note, supplier: data.supplier, createdBy: by?.name,
+    // و«مرجع السطر» على كل بندٍ من سطره — والمقسوم على تشغيلات يحمله كلُّ بندٍ منه فيجمعها المُكامِل إلى سطره. غائبٌ ⇒ البند كما كان.
+    // `part`: الحركة (mainLines بنوعها، وتحمل المرجع) أو تسوية الإنقاص المفصولة من وارد مختلط (splitLines، ADJUST بلا مرجع)
+    const entryData = (lotIdByLine: ReadonlyMap<number, string | null> | null, splitByLine?: ReadonlyMap<number, { lotId: string | null; qty: number }[]>, part: 'main' | 'split' = 'main') => ({
+      tenantId: tid, type: part === 'split' ? 'ADJUST' : entryType, supplier: data.supplier, createdBy: by?.name,
+      note: part === 'split' || decreaseOnly ? (data.note ?? NEGATIVE_RECEIVE_NOTE) : data.note,
       // D8: المرجع بالنشر الشرطيّ — غائبٌ ⇒ العمود null كما كان
-      ...(clientRef && { clientRef }),
+      ...(part === 'main' && clientRef && { clientRef }),
       items: {
-        create: items.flatMap((i, idx) => {
+        create: (part === 'split' ? splitLines : mainLines).flatMap((i) => {
           const unitCost = i.unitCost == null
             ? null
             : netUnitCost(i.unitCost, taxOf.get(i.productId) ?? 0, data.costsIncludeTax);
           const lineRef = i.lineRef != null ? { lineRef: i.lineRef } : null;
-          const split = splitByLine?.get(idx);
+          const split = splitByLine?.get(i.fi);
           if (split) {
             const sign = Number(i.qty) < 0 ? -1 : 1;
-            const F = units[idx]?.factor ?? 1;
+            const F = i.unit.factor;
             return split.map((r) => {
               const inUnits = r.qty / F;
               const whole = F > 1 && Math.abs(inUnits - Math.round(inUnits)) <= 1e-9;
-              return { productId: i.productId, ...unitFields(sign * (whole ? Math.round(inUnits) : r.qty), whole ? units[idx] : null), unitCost, lotId: r.lotId, ...lineRef };
+              return { productId: i.productId, ...unitFields(sign * (whole ? Math.round(inUnits) : r.qty), whole ? i.unit : null), unitCost, lotId: r.lotId, ...lineRef };
             });
           }
           return [{
             productId: i.productId,
             // الكمية بوحدة البند كما في فاتورة المورّد، ولقطة وحدتها، والكمية بالأساس للرصيد والتقييم
-            ...unitFields(i.qty, units[idx]),
+            ...unitFields(i.qty, i.unit),
             unitCost,
-            ...(lotIdByLine && { lotId: lotIdByLine.get(idx) ?? null }),
+            ...(lotIdByLine && { lotId: lotIdByLine.get(i.fi) ?? null }),
             ...lineRef,
           }];
         }),
       },
     });
     const entryInclude = { items: { include: { product: { select: { id: true, name: true, unit: true, primaryUnitId: true } }, ...(withLots && { lot: ENTRY_LOT_SELECT }) } } };
+    /** تسوية الإنقاص المفصولة (وارد مختلط) في معاملة الحركة نفسها، قبل إنشاء الوارد — null حين لا أسطر سالبة مع موجبة */
+    const createSplit = (tx: Prisma.TransactionClient, plan: WarehouseEntryPlan | null) => (splitLines.length
+      ? tx.warehouseEntry.create({ data: entryData(plan?.lotIdByLine ?? null, plan?.splitByLine, 'split'), include: entryInclude })
+      : null);
+    /** ردّ الإنشاء: الحركة، وتسوية الإنقاص المفصولة (adjustment) إن وُجدت، والتحذيرات («الربط لا يُرفض» ثم اللوط) إن وُجدت — وإلا كما كان */
+    const entryReply = <E>(entry: E, adjustment: E | null, lotWarnings: readonly LotWarning[]) => {
+      const all: (StockWarning | LotWarning)[] = [...warnings, ...lotWarnings];
+      return { success: true, data: entry, ...(adjustment && { adjustment }), ...(all.length > 0 && { warnings: all }) };
+    };
+    /** أسطر خطة اللوط بالأساس من unitFields نفسها التي تكتب السطر (D22)، ومعرّف كل سطر موضعه بعد حذف الصفرية (fi) */
+    const planLinesOf = (part: readonly EntryLine[]) => warehousePlanLines(part, part.map((i) => unitFields(i.qty, i.unit).baseQty), products, part.map((i) => i.unit.factor))
+      .map((l, k) => ({ ...l, idx: part[k].fi }));
 
     // الميزة مطفأة أو لا صنف متتبَّع في الحركة ⇒ المسار القائم: إنشاءٌ واحد بلا قفل لوط (§١٠). والميزة مفعّلة (D25): تُعاد قراءة تتبّع
     // الأصناف FOR KEY SHARE في معاملة الإنشاء — صنفٌ صار متتبَّعاً بين القراءتين ⇒ 503 LOT_BUSY TRACKING_CHANGED بلا حركة فيُعاد بمسار
@@ -340,27 +395,30 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     // بمهلة BASE_GUARD_TX (I10). تحويلٌ التزم بين القراءة والإنشاء ⇒ 409 PRODUCT_UNITS_CHANGED بلا حركة
     const preTracked = withLots ? products.filter((p) => p.lotTracked === true).map((p) => p.id) : [];
     if (!preTracked.length) {
-      const entry = withLots
+      const out = withLots
         ? await prisma.$transaction(async (tx) => {
           await refGate(tx);
           await lockBases(tx, tid, expected);
           await assertStillUntracked(tx, tid, productIds);
-          return tx.warehouseEntry.create({ data: entryData(null), include: entryInclude });
+          const adjustment = await createSplit(tx, null);
+          const entry = await tx.warehouseEntry.create({ data: entryData(null), include: entryInclude });
+          return { entry, adjustment };
         }, BASE_GUARD_TX).catch((e: unknown) => { throw (e instanceof ProductUnitsChangedError ? null : asLotBusy(e)) ?? e; })
         : await prisma.$transaction(async (tx) => {
           await refGate(tx);
           await lockBases(tx, tid, expected);
-          return tx.warehouseEntry.create({ data: entryData(null), include: entryInclude });
+          const adjustment = await createSplit(tx, null);
+          const entry = await tx.warehouseEntry.create({ data: entryData(null), include: entryInclude });
+          return { entry, adjustment };
         }, BASE_GUARD_TX);
-      res.status(201).json({ success: true, data: entry });
+      res.status(201).json(entryReply(out.entry, out.adjustment, []));
       return;
     }
 
     // «تتبّع اللوط» (§٤.٤): اليوم قبل المعاملة، ثم طابور الأصناف قبل طلب اتصالها (D29)، ثم المعاملة بمهلتها الموسّعة (D13):
     // قفل الأصناف (المتتبَّع تحت القفل هو المرجع، D25)، ثم الخطة (تشغيلةٌ لكل سطر، والنقص من صالح المستودع I1/I2)، ثم الإنشاء.
-    // الكمية للخطة بالأساس من unitFields نفسها التي تكتب السطر (D22)
+    // الكمية للخطة بالأساس من unitFields نفسها التي تكتب السطر (D22، planLinesOf)
     const { day } = await companyDay(prisma, tid);
-    const baseQtys = items.map((i, idx) => unitFields(i.qty, units[idx]).baseQty);
     const release = await acquireLotQueue(tid, preTracked);
     try {
       const out = await prisma.$transaction(async (tx) => {
@@ -368,14 +426,16 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
         const locked = await lockLotProducts(tx, tid, productIds);
         // §3: الأساس تحت قفل lockLotProducts نفسه (صفوفه تحمل unit) — بلا قفلٍ ثانٍ، وقبل أي خطة أو كتابة
         assertBasesUnchanged(expected, locked.units);
-        const plan = await planWarehouseEntryInTx(tx, {
-          tenantId: tid, type: data.type, actor: lotActorOf(req.user), createdBy: by?.name ?? null, day, allowUnknown: true,
-          lines: warehousePlanLines(items, baseQtys, products, units.map((u) => u?.factor ?? 1)), locked, eventActor: lotEventActorOf(req.user),
-        });
+        const planBase = { tenantId: tid, actor: lotActorOf(req.user), createdBy: by?.name ?? null, day, allowUnknown: true, locked, eventActor: lotEventActorOf(req.user) };
+        // تسوية الإنقاص المفصولة (وارد مختلط) أولاً: نقصها على رصيد المستودع قبل تشغيلات الوارد — زيادةٌ في الطلب نفسه لا تغطّي نقصه
+        // (كخطة اللوط نفسها)، ونقص تشغيلتها 409 LOT_STOCK_INSUFFICIENT كأي تسوية
+        const splitPlan = splitLines.length ? await planWarehouseEntryInTx(tx, { ...planBase, type: 'ADJUST', lines: planLinesOf(splitLines) }) : null;
+        const plan = await planWarehouseEntryInTx(tx, { ...planBase, type: entryType, lines: planLinesOf(mainLines) });
+        const adjustment = await createSplit(tx, splitPlan);
         const entry = await tx.warehouseEntry.create({ data: entryData(plan.lotIdByLine, plan.splitByLine), include: entryInclude });
-        return { entry, warnings: plan.warnings };
+        return { entry, adjustment, warnings: [...(splitPlan?.warnings ?? []), ...plan.warnings] };
       }, { maxWait: 10_000, timeout: 20_000 });
-      res.status(201).json({ success: true, data: out.entry, ...(out.warnings.length > 0 && { warnings: out.warnings }) });
+      res.status(201).json(entryReply(out.entry, out.adjustment, out.warnings));
     } catch (e) {
       // تبدّل الأساس (§3) يُفحص قبل asLotBusy فيمرّ كما هو إلى baseGuardReply أدناه — لا يُقرأ انشغالاً من اسم صنفٍ في رسالته.
       // وانشغال القفل أو مهلة المعاملة في مسار اللوط ⇒ 503 LOT_BUSY (D14) عبر معالج الموجّه أدناه

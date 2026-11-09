@@ -60,9 +60,10 @@ test('نافذة الصنف: طريقتا التعريف بنصّ مثالٍ، �
 
 test('نافذة الصنف: الطريقة العكسية تُخفي الوحدة والسعر وتُرسل الإنشاء الذرّي برقعة reverseCreatePayload — ومثال «كرتون فيه 24 قارورة»', () => {
   const s = modal();
-  // الخانتان مخفيّتان وrequired مشروط
-  assert.ok(s.includes("{...register('unit', { required: !reverseLayout })}"));
-  assert.ok(s.includes("{...register('basePrice', { required: !reverseLayout, valueAsNumber: true })}"));
+  // الخانتان مخفيّتان — ولا required (بلا قيود على الأصناف، أمر المالك ٩ نوفمبر ٢٠٢٦: الوحدة الفارغة «حبة» والسعر الفارغ صفر)
+  assert.ok(s.includes("{...register('unit')}"));
+  assert.ok(s.includes("{...register('basePrice', { valueAsNumber: true })}"));
+  assert.doesNotMatch(s, /required: /, 'لا خانة إلزامية في نموذج الصنف');
   const rf = s.slice(s.indexOf('data-reverse-form=""'), s.indexOf('{!newReverse && ('));
   for (const k of ["tr('الوحدة الرئيسية')", "tr('الوحدة الفرعية')", "fill(tr('سعر {unit}'), { unit: revPrimaryName })",
     "fill(tr('كم {sub} في {primary}'), { sub: revSubName, primary: revPrimaryName })", "tr('مثال: كرتون فيه 24 قارورة')",
@@ -70,7 +71,7 @@ test('نافذة الصنف: الطريقة العكسية تُخفي الوحد
     assert.ok(rf.includes(k), `خانة النموذج العكسي: ${k}`);
   }
   // التحقق قبل الإرسال، والإنشاء في طلبٍ واحد (لا «احفظ الصنف أولاً» في الوضع العكسي الجديد)، والتعديل برقعة الرئيسية ذرّياً
-  assert.ok(s.includes('const problem = reverseFormProblem(rev);'));
+  assert.ok(s.includes('const problem = reverseFormProblem(rev, !!product);'));
   assert.ok(s.includes('...(newReverse ? reverseCreatePayload(rev) : {}),'));
   assert.ok(s.includes('...(reverseLayout && product && primary?.id ? reverseEditPatch(rev, primary.id) : {}),'));
   assert.ok(s.includes('{!newReverse && (\n            <ProductUnitsSection'));
@@ -86,7 +87,32 @@ test('نافذة الصنف: «قيود المندوب» ترى رئيسية ا�
   const s = modal();
   assert.ok(s.includes("? (reverseFormProblem(rev) === null ? [rev.primaryName.trim()] : [])"));
   assert.ok(s.includes(': units.filter((u) => Number(u.factor) > 1 && u.isActive !== false).map((u) => u.name);'));
-  assert.ok(s.includes('!(newReverse ? bigNames.length > 0 : hasBigUnit(units))'));
+  assert.ok(s.includes('const largeOk = newReverse ? bigNames.length > 0 : hasBigUnit(units);'));
+});
+
+test('نافذة الصنف بلا قيود (أمر المالك ٩ نوفمبر ٢٠٢٦): النموذج يُرسل دائماً — تنبيهٌ لا منع، ولا NaN في الحمولة', () => {
+  const s = modal();
+  // منع المتصفح (min/step) ساقط، ولا خطأ تحقّقٍ يُنتظر
+  assert.ok(s.includes('<form noValidate onSubmit={handleSubmit(submit)}'));
+  assert.doesNotMatch(s, /formState: \{ errors \}/);
+  const submit = s.slice(s.indexOf('const submit = (form: Partial<Product>) => {'), s.indexOf('const confirmThenSave = async'));
+  // الصلاحية وقيد المرتجع وقيد وحدة المندوب: تنبيهاتٌ تُجمع ثم الحفظ — لا return بعدها
+  for (const msg of ['مدة الصلاحية يجب أن تكون عدداً صحيحاً أكبر من صفر', 'اكتب تاريخ الشراء أو الإنتاج الذي تحسب منه الصلاحية', 'قيد الوحدة الكبرى فقط يحتاج وحدة كبرى نشطة لهذا الصنف']) {
+    assert.ok(submit.includes(`hints.push(tr('${msg}'));`), msg);
+    assert.ok(!submit.includes(`toast.error(tr('${msg}'))`), `${msg}: ما زال يمنع`);
+  }
+  assert.ok(submit.includes('if (ruleProblem) hints.push(tr(ruleProblem));'));
+  assert.ok(submit.includes("if (hints.length) toast(hints.join(' — '), { icon: '⚠️', duration: 7000 });"));
+  // قيد المرتجع أو وحدة المندوب غير الصالح لا يُرسل وحده — فلا تضيع معه صلاحيةٌ صالحة
+  assert.ok(submit.includes('? { returnRuleEnabled: undefined, returnRuleMode: undefined, returnRuleMetric: undefined, returnRuleValue: undefined }'));
+  assert.ok(submit.includes('repSaleUnit: repUnitSent(repSaleUnit), repReturnUnit: repUnitSent(repReturnUnit),'));
+  // السعر والنسبة الفارغان لا يُرسلان NaN — يُحذفان (صفرٌ أو ضريبة الشركة للجديد، والمحفوظ للقائم)
+  assert.ok(submit.includes('basePrice: priceOrUndef(rest.basePrice), taxPct: finiteOrUndef(rest.taxPct),'));
+  assert.ok(submit.indexOf('taxPct: finiteOrUndef(rest.taxPct),') < submit.indexOf('...(taxOff ? { taxPct: undefined } : {}),'), '«إزالة الضريبة» تغلب');
+  // لا تُعلَّم خانةٌ إلزامية إلا العدد واسم الرئيسية للجديد في الطريقة العكسية
+  for (const k of ["{tr('كود الصنف')} *", "{tr('اسم الصنف')} *", "{tr('وحدة القياس')} *", "{tr('مدة الصلاحية')} *", "{tr('الحد')} *", "{tr('الوحدة الفرعية')} *"]) {
+    assert.ok(!s.includes(k), k);
+  }
 });
 
 // ─── نافذة الصنف: صنفٌ قائم (§4.2) ───
@@ -249,7 +275,7 @@ test('D21: لا «الأساس» في أي نصٍّ جديد — والنصوص 
   assert.ok(d.includes('setError(tr(d21(problem)))'));
   assert.ok(s.includes('const shown = (msg: string) => (primary ? d21(msg) : msg);'));
   // تسمية السعر للصنف ذي الرئيسية بلا «الأساس»، وبلاها كما كانت: اسم الرقاقة الأولى («السعر الأساسي» ما لم تسمّه الشركة)
-  assert.ok(s.includes("{primary ? fill(tr('سعر {unit} الواحدة'), { unit: savedBase }) : baseLabel} *"));
+  assert.ok(s.includes("{primary ? fill(tr('سعر {unit} الواحدة'), { unit: savedBase }) : baseLabel}</label>"), 'بلا نجمة: السعر الفارغ صفر (٩ نوفمبر ٢٠٢٦)');
   assert.ok(s.includes('const baseLabel = baseLabelOf(priceInfo, tr);'));
   assert.ok(s.includes("{units.length > 0 && !primary && <p className=\"text-[10px] text-gray-400 mt-1\">{tr('سعر وحدة الأساس')}</p>}"));
   // تلميح خانة الوحدة يسمّي الزرّ الجديد (الاستثناء الوحيد في §4.2)

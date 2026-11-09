@@ -1,8 +1,8 @@
 // مراجعة المخزون — حركات المستودع (POST /warehouse/entries) فوق القاعدة المزيّفة lots-b3-fake.ts (نمط line-ref-warehouse.test.ts):
 //  · D8: clientRef — يُحفظ، والمكرَّر يردّ الحركة القائمة 200 (replay: true) بلا كتابة ولو تزامن مع أصله (القفل في المعاملة يجده)،
 //    ومرجعٌ لحركةٍ من نوعٍ آخر 409 CLIENT_REF_REUSED، ولكل شركة مستقلّ، وGET /entries?clientRef=.
-//  · D3: الوارد RECEIVE لصنفٍ مؤرشف 422 PRODUCT_ARCHIVED بموضع سطره، والتسوية عليه تمرّ (طريق تصفية رصيده).
-//  · #23: صنفٌ لا يتبع الشركة 400 PRODUCT_NOT_FOUND بموضع سطره (كان «منتج غير صالح» بلا رمز ولا سطر).
+//  · D3 («الربط لا يُرفض» ٩ نوفمبر ٢٠٢٦): الوارد RECEIVE لصنفٍ مؤرشف يُنقل إلى توأمه الحيّ بالرمز نفسه أو يُقبل عليه بتحذير، والتسوية تمرّ.
+//  · #23: صنفٌ لا يتبع الشركة يُترك سطره بتحذير PRODUCT_NOT_FOUND بموضعه، والوارد السالب تسوية إنقاص، والوحدة الغريبة بلا رفض.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -139,17 +139,128 @@ test('D8: مرجعٌ لحركةٍ من نوعٍ آخر 409 CLIENT_REF_REUSED، �
   assert.equal(world.entries.length, 2);
 });
 
-test('D3: الوارد لصنفٍ مؤرشف 422 PRODUCT_ARCHIVED بموضعه بلا حركة، والتسوية عليه تمرّ؛ و#23: صنفٌ غريب 400 PRODUCT_NOT_FOUND بموضعه', async () => {
+/** بنود حركةٍ مكتوبة: [الصنف، الكمية، المعامل، الأساس، التكلفة] */
+const itemsOf = (entryId: string) => world.items.filter((i) => i.entryId === entryId).map((i) => [i.productId, i.qty, i.unitFactor, i.baseQty, i.unitCost]);
+const codes = (r: { body: Row }) => ((r.body.warnings ?? []) as Row[]).map((w) => [w.code, w.index, w.productId]);
+
+// «الربط لا يُرفض» (أمر المالك ٩ نوفمبر ٢٠٢٦): D3 و#23 صارا تحذيرين في ردّ النجاح — الحركة تُكتب بما يمكن معالجته
+test('D3 (لا يُرفض): الوارد لصنفٍ مؤرشف بلا توأم حيّ يُقبل عليه بتحذير PRODUCT_ARCHIVED بموضعه، والتسوية عليه تمرّ بلا تحذير', async () => {
   fresh();
   const r = await post({ type: 'RECEIVE', items: [{ productId: 'P3', qty: 1 }, { productId: 'OLD', qty: 3 }] });
-  assert.equal(r.status, 422, JSON.stringify(r.body));
-  assert.deepEqual([r.body.code, r.body.productId, r.body.index], ['PRODUCT_ARCHIVED', 'OLD', 1]);
-  assert.match(String(r.body.message), /«كرتون بيض M» محذوف/);
-  assert.equal(world.entries.length, 0);
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(codes(r), [['PRODUCT_ARCHIVED', 1, 'OLD']]);
+  assert.match(String((r.body.warnings as Row[])[0].message), /«كرتون بيض M» محذوف/);
+  assert.deepEqual(itemsOf(r.body.data.id), [['P3', 1, 1, 1, null], ['OLD', 3, 1, 3, null]]);
   const adj = await post({ type: 'ADJUST', items: [{ productId: 'OLD', qty: 25 }] });
   assert.equal(adj.status, 201, JSON.stringify(adj.body));
+  assert.equal(adj.body.warnings, undefined, 'التسوية على المؤرشف كما كانت');
+});
+
+test('D3 (لا يُرفض): صنفٌ حيّ واحد برمز المؤرشف (بلا اعتبار لحالة الأحرف) ⇒ يُسجَّل السطر عليه بتحذير PRODUCT_REDIRECTED', async () => {
+  fresh();
+  world.product({ id: 'NEW', name: 'كرتون بيض M جديد', code: 'old' });
+  const r = await post({ type: 'RECEIVE', clientRef: 'po-old', items: [{ productId: 'OLD', qty: 4, unitCost: 2 }] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(codes(r), [['PRODUCT_REDIRECTED', 0, 'OLD']]);
+  assert.equal((r.body.warnings as Row[])[0].toProductId, 'NEW');
+  assert.deepEqual(itemsOf(r.body.data.id), [['NEW', 4, 1, 4, 2]]);
+  // توأمان حيّان بالرمز نفسه ⇒ لا تخمين: يُقبل على المؤرشف
+  world.product({ id: 'NEW2', name: 'نسخة', code: 'Old' });
+  const two = await post({ type: 'RECEIVE', items: [{ productId: 'OLD', qty: 1 }] });
+  assert.deepEqual([two.status, codes(two)], [201, [['PRODUCT_ARCHIVED', 0, 'OLD']]]);
+  assert.deepEqual(itemsOf(two.body.data.id), [['OLD', 1, 1, 1, null]]);
+});
+
+test('#23 (لا يُرفض، أمر المالك ٩ نوفمبر): صنفٌ ليس في الشركة ⇒ صنفٌ مؤقّت بمعرّفه نفسه؛ ومعرّف صنف شركةٍ أخرى أو معرّفٌ لا يصلح يُترك سطره، وكلها متروكة أو صفرية ⇒ 200 بلا حركة', async () => {
+  fresh();
   // الموضع من items كما أرسلها العميل: السطر الصفري لا يزيحه
-  const nf = await post({ type: 'RECEIVE', items: [{ productId: 'P3', qty: 0 }, { productId: 'P3', qty: 1 }, { productId: 'Q1', qty: 1 }] });
-  assert.equal(nf.status, 400, JSON.stringify(nf.body));
-  assert.deepEqual([nf.body.code, nf.body.productId, nf.body.index, nf.body.indexes], ['PRODUCT_NOT_FOUND', 'Q1', 2, [2]]);
+  const nf = await post({ type: 'RECEIVE', items: [
+    { productId: 'P3', qty: 0 }, { productId: 'P3', qty: 1 }, { productId: 'Q1', qty: 1 },
+    { productId: 'erp-9f2c41aa77', qty: 6, unitCost: 3, baseUnitName: ' علبة ' },
+  ] });
+  assert.equal(nf.status, 201, JSON.stringify(nf.body));
+  assert.deepEqual(codes(nf), [['PRODUCT_NOT_FOUND', 2, 'Q1'], ['PRODUCT_PLACEHOLDER_CREATED', 3, 'erp-9f2c41aa77']]);
+  assert.deepEqual(itemsOf(nf.body.data.id), [['P3', 1, 1, 1, null], ['erp-9f2c41aa77', 6, 1, 6, 3]]);
+  const ph = world.products.find((p) => p.id === 'erp-9f2c41aa77')! as unknown as Row;
+  assert.deepEqual([ph.tenantId, ph.code, ph.name, ph.unit, ph.status, ph.basePrice, ph.taxPct, ph.deletedAt], ['t1', 'P-ERP-9F2C', 'صنف P-ERP-9F2C', 'علبة', 'ACTIVE', 0, 15, null]);
+  assert.equal(world.products.find((p) => p.id === 'Q1')!.tenantId, 't2', 'عزل الشركات: صنف الشركة الأخرى لا يُمسّ ولا يُنشأ بمعرّفه');
+  // إعادة الإرسال تجد الصنف: لا صنف ثانٍ ولا تحذير إنشاء
+  const again = await post({ type: 'RECEIVE', items: [{ productId: 'erp-9f2c41aa77', qty: 1 }] });
+  assert.deepEqual([again.status, codes(again)], [201, []]);
+  assert.equal(world.products.filter((p) => p.id === 'erp-9f2c41aa77').length, 1);
+  // الرمز فريدٌ في الشركة: المحجوز ⇒ بذيل
+  world.product({ id: 'C1', code: 'P-ERP-AAAA' });
+  const clash = await post({ type: 'ADJUST', items: [{ productId: 'erp-aaaa-1', qty: -2 }] });
+  assert.deepEqual([clash.status, codes(clash)], [201, [['PRODUCT_PLACEHOLDER_CREATED', 0, 'erp-aaaa-1']]]);
+  assert.deepEqual([world.products.find((p) => p.id === 'erp-aaaa-1')!.code, world.products.find((p) => p.id === 'erp-aaaa-1')!.unit], ['P-ERP-AAAA-2', 'حبة']);
+  const n = world.entries.length;
+  const none = await post({ type: 'RECEIVE', clientRef: 'po-none', items: [{ productId: 'Q1', qty: 1 }, { productId: 'رمز عربي', qty: 2 }] });
+  assert.equal(none.status, 200, JSON.stringify(none.body));
+  assert.deepEqual([none.body.success, none.body.data, none.body.noop], [true, null, true]);
+  assert.deepEqual(codes(none), [['PRODUCT_NOT_FOUND', 0, 'Q1'], ['PRODUCT_NOT_FOUND', 1, 'رمز عربي']]);
+  const zero = await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: 0 }] });
+  assert.equal(zero.status, 200, JSON.stringify(zero.body));
+  assert.deepEqual([zero.body.data, zero.body.noop, codes(zero)], [null, true, [['NO_QUANTITIES', undefined, undefined]]]);
+  assert.match(String((zero.body.warnings as Row[])[0].message), /لا توجد كميات صالحة/);
+  assert.equal(world.entries.length, n, 'لا حركة للطلبين الأخيرين');
+  assert.equal(world.products.some((p) => p.id === 'رمز عربي'), false);
+});
+
+test('التسوية بسعر: يُهمل السعر بتحذير UNIT_COST_IGNORED (كان 400) وتُكتب التسوية بلا تكلفة', async () => {
+  fresh();
+  const r = await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: -2, unitCost: 5 }, { productId: 'P3', qty: 1 }] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(codes(r), [['UNIT_COST_IGNORED', 0, 'P3']]);
+  assert.match(String((r.body.warnings as Row[])[0].message), /سعر الوحدة يسجل مع الوارد فقط/);
+  assert.deepEqual(itemsOf(r.body.data.id), [['P3', -2, 1, -2, null], ['P3', 1, 1, 1, null]]);
+});
+
+test('الوارد السالب (كان 400): كله سالب ⇒ تسوية إنقاص تحمل المرجع وإعادتها replay لا 409؛ ومختلط ⇒ الوارد وتسويةٌ منفصلة adjustment بلا سعر', async () => {
+  fresh();
+  const neg = await post({ type: 'RECEIVE', clientRef: 'rtv-1', supplier: 'المورّد', items: [{ productId: 'P3', qty: -3, unitCost: 4 }] });
+  assert.equal(neg.status, 201, JSON.stringify(neg.body));
+  assert.deepEqual(codes(neg), [['NEGATIVE_RECEIVE_AS_ADJUST', 0, 'P3']]);
+  assert.equal(neg.body.adjustment, undefined);
+  const e1 = world.entries.find((e) => e.id === neg.body.data.id)!;
+  assert.equal(e1.type, 'ADJUST', 'إنقاصٌ لا وارد سالب ولا قيمة مطلقة');
+  assert.equal(e1.supplier, 'المورّد');
+  assert.equal(refOf.get(e1.id), 'rtv-1');
+  assert.deepEqual(itemsOf(e1.id), [['P3', -3, 1, -3, null]]);
+  const again = await post({ type: 'RECEIVE', clientRef: 'rtv-1', items: [{ productId: 'P3', qty: -3, unitCost: 4 }] });
+  assert.deepEqual([again.status, again.body.replay, again.body.data.id], [200, true, e1.id], JSON.stringify(again.body));
+  // وارد بلا سطرٍ سالب بمرجع تسوية ⇒ 409 كما كان
+  assert.equal((await post({ type: 'RECEIVE', clientRef: 'rtv-1', items: [{ productId: 'P3', qty: 3 }] })).status, 409);
+
+  const mix = await post({ type: 'RECEIVE', clientRef: 'po-mix', items: [{ productId: 'P3', qty: 10, unitCost: 2 }, { productId: 'P3', qty: -4, unitCost: 2 }] });
+  assert.equal(mix.status, 201, JSON.stringify(mix.body));
+  assert.deepEqual(codes(mix), [['NEGATIVE_RECEIVE_AS_ADJUST', 1, 'P3']]);
+  const main = world.entries.find((e) => e.id === mix.body.data.id)!;
+  const adj = world.entries.find((e) => e.id === mix.body.adjustment.id)!;
+  assert.deepEqual([main.type, adj.type], ['RECEIVE', 'ADJUST']);
+  assert.deepEqual(itemsOf(main.id), [['P3', 10, 1, 10, 2]]);
+  assert.deepEqual(itemsOf(adj.id), [['P3', -4, 1, -4, null]]);
+  assert.deepEqual([refOf.get(main.id), refOf.get(adj.id)], ['po-mix', null], 'المرجع على الوارد وحده');
+  const creates0 = creates();
+  const replay = await post({ type: 'RECEIVE', clientRef: 'po-mix', items: [{ productId: 'P3', qty: 10, unitCost: 2 }, { productId: 'P3', qty: -4, unitCost: 2 }] });
+  assert.deepEqual([replay.status, replay.body.data.id, creates()], [200, main.id, creates0], 'لا كتابة ثانية للحركتين');
+});
+
+test('وحدة البند (كان 400 UNIT_INVALID): الموقوفة بمعاملها، والغريبة أساساً لصنفٍ بلا وحدات أكبر، وإلا يُترك السطر — لا ضرب بمعاملٍ مخمَّن', async () => {
+  fresh();
+  world.product({ id: 'CT', name: 'عصير' });
+  world.unit({ id: 'U-CT', productId: 'CT', factor: 24, name: 'كرتون' });
+  world.unit({ id: 'U-OFF', productId: 'CT', factor: 6, name: 'شدّة', isActive: false });
+  const r = await post({
+    type: 'RECEIVE',
+    items: [
+      { productId: 'CT', qty: 2, unitId: 'U-OFF' }, // موقوفة ⇒ ٢ × ٦
+      { productId: 'P3', qty: 5, unitId: 'U-CT' }, // وحدة صنفٍ آخر بمعامل ٢٤ ⇒ خطر: يُترك
+      { productId: 'P3', qty: 7, unitId: 'nope' }, // مجهولة وP3 بلا وحدات أكبر ⇒ الأساس
+      { productId: 'CT', qty: 1, unitId: 'nope' }, // مجهولة وCT له كرتون ⇒ خطر: يُترك
+      { productId: 'CT', qty: 1, unitId: 'U-CT' },
+    ],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(codes(r), [['UNIT_INACTIVE', 0, 'CT'], ['UNIT_INVALID', 1, 'P3'], ['UNIT_FALLBACK_BASE', 2, 'P3'], ['UNIT_INVALID', 3, 'CT']]);
+  assert.deepEqual(itemsOf(r.body.data.id), [['CT', 2, 6, 12, null], ['P3', 7, 1, 7, null], ['CT', 1, 24, 24, null]]);
 });

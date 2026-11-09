@@ -827,7 +827,9 @@ test('حارس نصّي (الوحدات): حدّ القراءة يحوّل إل�
   assert.doesNotMatch(load, /qty: i\.qty/, 'كميةٌ خام إلى التقييم');
   const w = read('routes/warehouse.ts');
   const post = w.slice(w.indexOf("router.post('/entries'"), w.indexOf("router.get('/entries'"));
-  assert.ok(post.includes('const units = await resolveLineUnits(tid, items);') && post.includes('...unitFields(i.qty, units[idx]),'));
+  // «الربط لا يُرفض» (٩ نوفمبر ٢٠٢٦): الوحدة يحلّها الخادم بلا رفض (services/stockLenient.ts) وكل سطرٍ يحمل لقطتها إلى الكتابة والخطة
+  assert.ok(post.includes('const lenient = await lenientStockLines(tid, priced, found, {') && post.includes('const lines = lenient.lines.map((i, k) => ({ ...i, unit: lenient.units[k] }));'));
+  assert.ok(post.includes('...unitFields(i.qty, i.unit),') && post.includes('part.map((i) => unitFields(i.qty, i.unit).baseQty)'));
   const vans = w.slice(w.indexOf("router.get('/vans'"), w.indexOf('const entrySchema'));
   assert.ok(vans.includes('productId: true, qty: true, unitFactor: true, baseQty: true, returnExpired: true,'), 'فواتير السيارة بلقطة وحدتها');
 });

@@ -102,8 +102,10 @@ test('نافذة الصنف: سعر النوع يُعرض بالوحدة الر�
     { priceListId: 'l-retail', price: null },
     { priceListId: 'l-new', price: 80 },
   ]);
-  // رقمٌ تالف أو سالب ⇒ اسم النوع لرسالته، ولا بنود
+  // رقمٌ تالف أو سالب ⇒ اسم النوع لتنبيهه، وبنده وحده لا يُرسل (بلا قيود على الأصناف، ٩ نوفمبر ٢٠٢٦: تنبيهٌ لا منع)
   assert.deepEqual(listPriceEditsOf(lists, { 'l-new': '-1' }, shown), { items: [], problem: { listId: 'l-new', name: 'سعر خاص' } });
+  assert.deepEqual(listPriceEditsOf(lists, { 'l-whole': '96', 'l-new': '-1', 'l-retail': 'x' }, shown),
+    { items: [{ priceListId: 'l-whole', price: 96 }], problem: { listId: 'l-retail', name: 'سعر التجزئة' } }, 'الصالح يُرسل والتنبيه بأول نوعٍ تالف');
   // الإنشاء: المكتوب وحده في listPrices، وبلا شيءٍ لا مفتاح
   assert.deepEqual(listPricesCreateBody({ items: e.items, expectedPrimary: null }), { listPrices: [{ priceListId: 'l-whole', price: 96 }, { priceListId: 'l-new', price: 80 }] });
   assert.deepEqual(listPricesCreateBody(undefined), {});
@@ -123,7 +125,9 @@ test('عدد الفرعية في الرئيسية تغيّر في الحفظ: ا
   assert.deepEqual(listPriceEditsOf(lists, { 'l-whole': '90' }, shown, true).items, [{ priceListId: 'l-whole', price: 90 }, { priceListId: 'l-retail', price: 108 }]);
   // والخادم يقسمه على المعامل الجديد (expectedPrimary = ١٢): 96 ÷ 12 = 8 للقارورة، والكرتون 96 كما عُرض لا 4 × 12 = 48
   assert.equal(listShownPrice(96 / 12, 12), '96');
-  assert.deepEqual(listPriceEditsOf(lists, { 'l-none': 'x' }, shown, true), { items: [], problem: { listId: 'l-none', name: 'سعر خاص' } });
+  assert.deepEqual(listPriceEditsOf(lists, { 'l-none': 'x' }, shown, true),
+    { items: [{ priceListId: 'l-whole', price: 96 }, { priceListId: 'l-retail', price: 108 }], problem: { listId: 'l-none', name: 'سعر خاص' } },
+    'التالف وحده لا يُرسل — والأنواع الأخرى تُعاد كما عُرضت');
 });
 
 test('نافذة الصنف: العدد المتغيّر يعيد الأنواع كلها، وتبديل طريقة صنفٍ جديد يمسح المسودّة، وخطأ السعر يعيد الرقاقة الأولى، والافتراضي صفراً يُسأل عنه', () => {
@@ -133,13 +137,15 @@ test('نافذة الصنف: العدد المتغيّر يعيد الأنواع
   assert.ok(m.includes('const listEdits = listPriceEditsOf(lists, listDraft, shownList, factorChanged);'));
   // (٢) صنفٌ جديد: مسودّة الأنواع كُتبت بوحدة الطريقة السابقة (قارورة ↔ كرتون) فتُمسح مع تبديلها
   assert.match(m, /if \(!product\) \{\s*if \(m !== defMode\) \{ setListDraft\(\{\}\); setPriceTab\(null\); \}\s*setDefMode\(m\); writeDefMode\(userId, m\); return;/);
-  // (٣) الطريقة العكسية: خطأ سعرٍ في خانةٍ تخفيها رقاقة نوعٍ يعيد الرقاقة الأولى
-  assert.match(m, /if \(problem\) \{ if \(activeList && REVERSE_PRICE_PROBLEMS\.has\(problem\)\) setPriceTab\(null\); toast\.error\(tr\(problem\)\); return; \}/);
+  // (٣) بلا قيود على الأصناف (٩ نوفمبر ٢٠٢٦): السعر لا يمنع الحفظ في الطريقة العكسية — بنية الوحدتين وحدها — وسعر قائمةٍ تالف تنبيهٌ لا منع
+  assert.match(m, /if \(problem\) \{ toast\.error\(tr\(problem\)\); return; \}/);
+  assert.doesNotMatch(m, /REVERSE_PRICE_PROBLEMS/);
+  assert.ok(m.includes("if (listEdits.problem) hints.push(fill(tr('سعر «{name}» رقم موجب'), { name: listEdits.problem.name }));"));
   // (٤) صنفٌ جديد بأسعار أنواعٍ وحدها والسعر الافتراضي المخفي صفر ⇒ الرقاقة الأولى وسؤالٌ قبل الحفظ
   assert.ok(m.includes("if (!product && !reverseLayout && listEdits.items.some(i => i.price != null) && !(Number(rest.basePrice) > 0)) {"));
   assert.ok(m.includes("if (!window.confirm(fill(tr('{label} صفر وبه تسعر فواتير العميل الذي لا قائمة له — أتحفظ الصنف هكذا؟'), { label: baseLabel }))) return;"));
   // (٥) خانة السعر الافتراضي باسم الرقاقة الأولى الذي سمّته الشركة
-  assert.ok(m.includes("{primary ? fill(tr('سعر {unit} الواحدة'), { unit: savedBase }) : baseLabel} *"));
+  assert.ok(m.includes("{primary ? fill(tr('سعر {unit} الواحدة'), { unit: savedBase }) : baseLabel}</label>"), 'بلا نجمة: السعر الفارغ صفر (٩ نوفمبر ٢٠٢٦)');
 });
 
 test('قائمة الفواتير تُظهر قائمة الأسعار تحت شارة النوع بلا طلبٍ لصفحةٍ بلا قائمة، والعبارات بلا لبس، ولا مسار عميلٍ ميّت', () => {
@@ -196,7 +202,7 @@ test('نافذة الصنف والصفحة: لقطة listPrices لا تُعاد 
   assert.equal(m.split('data-price-types=""').length - 1, 2, 'الطريقتان');
   assert.ok(m.indexOf('data-price-types=""') < m.indexOf("register('unit'"), 'فوق خانتي الوحدة والسعر');
   // خانة السعر الافتراضي باقيةٌ مسجّلة (مخفيّة خلف رقاقة نوع) فلا يضيع basePrice
-  assert.ok(m.includes("{...register('basePrice', { required: !reverseLayout, valueAsNumber: true })}"));
+  assert.ok(m.includes("{...register('basePrice', { valueAsNumber: true })}"));
   const page = read('pages', 'ProductsPage.tsx');
   assert.ok(page.includes('mutationFn: async ({ listPriceEdits, ...values }: ProductSave) => {'));
   assert.ok(page.includes('if (!selected) return productApi.create({ ...values, ...listPricesCreateBody(listPriceEdits) });'));

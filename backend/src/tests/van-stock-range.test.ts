@@ -249,7 +249,9 @@ test('حارس نصّي (الوحدات): كل قارئ لرصيد السيار�
   const cs = van.slice(van.indexOf('export async function computeStock'), van.indexOf("router.post('/loads'"));
   assert.equal(cs.split('unitFactor: true, baseQty: true').length - 1, 2, 'computeStock يقرأ لقطة الصفّين');
   const post = van.slice(van.indexOf("router.post('/loads'"), van.indexOf("router.get('/current'"));
-  assert.ok(/const units = await resolveLineUnits\(tid, items, \{ replay: /.test(post), 'الوحدة يحلّها الخادم (وإعادة الرفع تقبل الموقوفة)');
+  // «الربط لا يُرفض» (٩ نوفمبر ٢٠٢٦): الوحدة يحلّها الخادم بلا رفض (services/stockLenient.ts) وإعادة الرفع تقبل الموقوفة كما كانت
+  assert.ok(/const lenient = await lenientStockLines\(tid, nonZero, found, \{/.test(post) && post.includes('select: VAN_LINE_PRODUCT_SELECT, replay,'), 'الوحدة يحلّها الخادم (وإعادة الرفع تقبل الموقوفة)');
+  assert.ok(post.includes('const { lines: items, units, products, warnings } = lenient;'), 'units[idx] وحدة items[idx]');
   assert.ok(post.includes('toBase(i.qty, { unitFactor: units[idx].factor })'), 'رصيد الإزالة يُقارن بالأساس');
   assert.ok(post.includes('...unitFields(i.qty, units[idx]),'), 'البند يُكتب بلقطة وحدته');
   for (const sig of ["router.get('/suggest'", "router.get('/accuracy'"]) {

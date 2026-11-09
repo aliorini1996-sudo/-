@@ -585,7 +585,7 @@ function customersWorld() {
 }
 const NEW_CUSTOMER = { name: 'بقالة', phone: '0500000000' };
 
-test('العملاء: نوع السعر يُسقط من جسم المندوب في الإنشاء والتعديل (قرار الإدارة)، ويُكتب للإدارة بعد فحص شركته', async () => {
+test('العملاء: نوع السعر يُسقط من جسم المندوب في الإنشاء والتعديل (قرار الإدارة)، ويُكتب للإدارة بعد فحص شركته — ونوع شركةٍ أخرى يُهمل لا يرفض العميل (٩ نوفمبر)', async () => {
   reset(REP_USER);
   const w = customersWorld();
   const created = await call('POST', '/api/customers', { body: { ...NEW_CUSTOMER, priceListId: 'L-W' } });
@@ -607,12 +607,16 @@ test('العملاء: نوع السعر يُسقط من جسم المندوب ف
   assert.equal(a.written[2].priceListId, null, 'الفارغ من النموذج = السعر الأساسي');
   assert.equal((await call('PUT', '/api/customers/c1', { body: { name: 'بلا نوع' } })).status, 200);
   assert.equal('priceListId' in a.written[3], false, 'تعديلٌ لا يحمل المفتاح لا يمسّ النوع');
-  for (const [method, url] of [['POST', '/api/customers'], ['PUT', '/api/customers/c1']] as const) {
-    const r = await call(method, url, { body: { ...NEW_CUSTOMER, priceListId: 'L-X' } });
-    assert.equal(r.status, 400, JSON.stringify(r.body));
-    assert.equal(r.body.code, 'PRICE_LIST_INVALID');
-  }
-  assert.equal(a.written.length, 4, 'نوع شركةٍ أخرى لا يُكتب');
+  // نوع شركةٍ أخرى: «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦) — لا 400 PRICE_LIST_INVALID؛ العميل يُكتب والنوع الغريب لا
+  const postX = await call('POST', '/api/customers', { body: { ...NEW_CUSTOMER, priceListId: 'L-X' } });
+  assert.equal(postX.status, 201, JSON.stringify(postX.body));
+  assert.equal(a.written[4].priceListId, null, 'الإنشاء: النوع الغريب يصير السعر الأساسي');
+  assert.equal(a.written[4].name, NEW_CUSTOMER.name, 'وبقية الجسم كما هي');
+  const putX = await call('PUT', '/api/customers/c1', { body: { ...NEW_CUSTOMER, priceListId: 'L-X' } });
+  assert.equal(putX.status, 200, JSON.stringify(putX.body));
+  assert.equal('priceListId' in a.written[5], false, 'التعديل: النوع الغريب لا يمسّ نوع العميل المحفوظ');
+  assert.equal(a.written[5].name, NEW_CUSTOMER.name, 'وبقية الجسم كما هي');
+  assert.equal(a.written.length, 6, 'كل طلب كتب العميل مرّة واحدة');
 });
 
 test('العملاء: نوعٌ حُذف بين الفحص والكتابة (P2003 على priceListId) ⇒ 400 PRICE_LIST_INVALID لا عطل 500', async () => {

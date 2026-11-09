@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buyerBadge, buyerCreatePayload, buyerFormCheck, buyerFormValues, buyerRelaxSimplified, buyerRelaxWarnings, buyerUpdatePayload, liveBuyerRow,
+  buyerBadge, buyerCreatePayload, buyerFormCheck, buyerFormHints, buyerFormValues, buyerRelaxSimplified, buyerRelaxWarnings, buyerUpdatePayload, liveBuyerRow,
   liveBuyerStatus, repCompleteLocked, BUYER_ID_SCHEME_LABELS_AR,
 } from './buyerForm';
 import { BUYER_BILLING_FIELDS, BUYER_PHASE2_FIELDS, customerBuyerStatus, repCompleteOnlyDenied } from './buyerData';
@@ -38,7 +38,7 @@ test('حمولة التعديل: المتغيّر بعد التطبيع وحده
   assert.deepEqual(buyerUpdatePayload({}, STORED), {}, 'غياب المفتاح = بلا تغيير');
 });
 
-test('الفحص قبل الإرسال: أخطاء الصيغ للمتغيّر وحده، والمسح يُرصد، والنقص لا يمنع', () => {
+test('الفحص (للحمولة وQ3 وللتلميح): أخطاء الصيغ للمتغيّر وحده، والمسح يُرصد، والنقص لا يُعدّ خطأ', () => {
   const bad = buyerFormCheck({ ...buyerFormValues(STORED), addrPostalCode: '123', buyerIdScheme: 'NAT' }, STORED, BUYER_BILLING_FIELDS);
   assert.equal(bad.ok, false);
   assert.deepEqual(Object.keys(bad.errors).sort(), ['addrPostalCode', 'buyerIdValue']);
@@ -46,6 +46,33 @@ test('الفحص قبل الإرسال: أخطاء الصيغ للمتغيّر �
   assert.equal(cleared.ok, true);
   assert.deepEqual(cleared.cleared, ['city']);
   assert.equal(buyerFormCheck({ buyerType: 'BUSINESS' }, null, BUYER_PHASE2_FIELDS).ok, true, 'منشأة بلا عنوان تُحفظ (النقص لا يمنع)');
+});
+
+/**
+ * أمر المالك ٩ نوفمبر ٢٠٢٦ («بلا قيود على العميل»): buyerFormHints تلميحٌ للعرض وحده — رسائل الفحص نفسها بقيمة فكّ القيد الفعلية
+ * للشركة (فلا تقول «حُفظ كما أُدخل، وتصدر مبسطة» لشركةٍ لم تفكّ القيد)، والنماذج ترسل دائماً.
+ */
+test('بلا قيود على العميل: buyerFormHints = أخطاء الفحص للعرض، بقيمة فكّ القيد الفعلية — وغياب الخيار = false', () => {
+  const cases: Array<[Record<string, string>, Record<string, string | null> | null]> = [
+    [{ taxNumber: '123', addrBuildingNo: '12' }, null], [{ ...buyerFormValues(STORED), addrPostalCode: '123', buyerIdScheme: 'NAT' }, STORED],
+    [{ taxNumber: '3000\u0001' }, null], [{ countryCode: 'KSA' }, null], [buyerFormValues(STORED), STORED], [{ city: '' }, STORED],
+  ];
+  for (const [values, stored] of cases) {
+    for (const relaxed of [false, true]) {
+      assert.deepEqual(buyerFormHints(values, stored, { relaxed }), buyerFormCheck(values, stored, BUYER_BILLING_FIELDS, { relaxed }).errors, JSON.stringify(values));
+    }
+    assert.deepEqual(buyerFormHints(values, stored), buyerFormHints(values, stored, { relaxed: false }));
+  }
+  // القيد قائم: الصيغة السعودية تلميحٌ تحت حقلها بلا ادّعاء حفظٍ أو مبسطة
+  const off = buyerFormHints({ taxNumber: '123', addrBuildingNo: '12' }, null);
+  assert.deepEqual(Object.keys(off).sort(), ['addrBuildingNo', 'taxNumber']);
+  assert.ok(Object.values(off).every(msg => !msg!.includes('حُفظ كما أُدخل') && !msg!.includes('مبسطة')));
+  // فكّ القيد: الصيغة تنبيهٌ في قائمته (buyerRelaxWarnings) لا تلميح خطأ — والمحارف والطول تلميح كما كانا خطأ
+  assert.deepEqual(buyerFormHints({ taxNumber: '123', addrBuildingNo: '12' }, null, { relaxed: true }), {});
+  assert.ok(buyerFormHints({ taxNumber: '3000\u0001' }, null, { relaxed: true }).taxNumber);
+  // النظيف والنقص: لا تلميح
+  assert.deepEqual(buyerFormHints(buyerFormValues(STORED), STORED), {});
+  assert.deepEqual(buyerFormHints({ buyerType: 'BUSINESS' }, null), {});
 });
 
 test('الحالة الحيّة والشارة', () => {
@@ -103,7 +130,7 @@ const ROWS = [
   { name: 'فرد', buyerType: 'INDIVIDUAL', taxNumber: '300000000000003' },
 ];
 
-test('فكّ القيد: صيغة الرقم الضريبي ورقم المبنى والرمز البريدي تنبيه لا يمنع الحفظ — وبلا الخيار خطأ كما اليوم', () => {
+test('فكّ القيد: صيغة الرقم الضريبي ورقم المبنى والرمز البريدي تنبيه — وبلا الخيار خطأ (تلميحٌ لا يمنع الحفظ منذ ٩ نوفمبر)', () => {
   for (const [field, bad] of [['taxNumber', '123'], ['addrBuildingNo', '12'], ['addrPostalCode', '1']] as const) {
     const today = buyerFormCheck({ [field]: bad }, null, BUYER_BILLING_FIELDS);
     assert.equal(today.ok, false, `${field}: اليوم خطأ`);

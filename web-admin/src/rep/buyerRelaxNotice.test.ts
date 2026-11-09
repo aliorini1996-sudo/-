@@ -55,6 +55,41 @@ test('قسم بيانات المشتري مع فكّ القيد: سطر المب
   // (الرسم على الخادم يقرأ حال اللغة الابتدائية «ar» دائماً — فرع اللغات الأخرى نسخة errorOf القائمة: اسم الحقل وعبارة عامة)
 });
 
+/**
+ * أمر المالك ٩ نوفمبر ٢٠٢٦ («بلا قيود على العميل»): errors في القسم تلميحاتٌ لا تمنع الحفظ — بلون التنبيه تحت حقلها، وما يخصّ حقلاً
+ * لا يرسمه القسم في قائمة «تنبيهات لا تمنع الحفظ»، وسطر «لا يُحفظ» حين يقول المضيف إن الحفظ يُهمل قيمة المرحلة الثانية غير الصالحة.
+ */
+const DROPPED = 'ما لا يصح من العنوان الوطني أو المعرف لا يحفظ ويحفظ العميل بدونه';
+const BUILDING_ERR = 'رقم المبنى يجب أن يكون 4 أرقام';
+const VAT_ERR = 'الرقم الضريبي للعميل يجب أن يكون 15 رقماً يبدأ وينتهي بالرقم 3';
+
+test('بلا قيود على العميل: التلميح تحت حقله بلون التنبيه لا الخطأ — وما خارج القسم في قائمة التنبيهات مرّةً واحدة', () => {
+  const v = { ...buyerFormValues(B2B), addrBuildingNo: '12', taxNumber: '3123' };
+  const errors = { addrBuildingNo: BUILDING_ERR, taxNumber: VAT_ERR };
+  const phase2 = fields({ include: 'phase2', errors }, v);
+  assert.ok(!phase2.includes('text-red-500'), 'لون خطأٍ يوحي بالمنع');
+  assert.ok(phase2.includes(`data-buyer-hint="addrBuildingNo" class="text-[#B7791F] text-[11px] mt-1">${BUILDING_ERR}`));
+  // الرقم الضريبي لا خانة له في include='phase2' ⇒ في قائمة التنبيهات (وإلا لم يره أحد بعد أن صار الحفظ لا يُمنع)
+  assert.ok(phase2.includes(WARN_TITLE));
+  assert.equal(phase2.split(VAT_ERR).length - 1, 1);
+  assert.ok(phase2.includes(`data-buyer-hint="taxNumber">${VAT_ERR}`));
+  // include='all': الرقم الضريبي تحت خانته — لا تكرار في القائمة ولا قائمة بلا داعٍ
+  const all = fields({ include: 'all', errors }, v);
+  assert.equal(all.split(VAT_ERR).length - 1, 1);
+  assert.ok(!all.includes(WARN_TITLE));
+  // بلا ملاحظات: الرسم كما كان (والخاصية الجديدة لا تغيّر شيئاً)
+  assert.equal(fields({ dropsInvalid: true }, buyerFormValues(B2B)), fields({}, buyerFormValues(B2B)));
+  assert.equal(fields({ include: 'phase2', errors: {} }, buyerFormValues(B2B)), fields({ include: 'phase2' }, buyerFormValues(B2B)));
+});
+
+test('بلا قيود على العميل: سطر «لا يُحفظ» حين يُهمل الحفظ قيمة المرحلة الثانية غير الصالحة وحدها', () => {
+  const v = { ...buyerFormValues(B2B), addrBuildingNo: '12', taxNumber: '3123' };
+  assert.ok(fields({ errors: { addrBuildingNo: BUILDING_ERR }, dropsInvalid: true }, v).includes(DROPPED));
+  assert.ok(!fields({ errors: { addrBuildingNo: BUILDING_ERR } }, v).includes(DROPPED), 'المضيف لم يقل إن الحفظ يُهملها (PATCH /buyer-data)');
+  // الرقم الضريبي (حقلٌ قائم) يُحفظ كما كُتب: لا سطر
+  assert.ok(!fields({ include: 'phase2', errors: { taxNumber: VAT_ERR }, dropsInvalid: true }, v).includes(DROPPED));
+});
+
 const NOTICE = 'صدرت فاتورة ضريبية مبسطة لأن بيانات العميل ناقصة للفاتورة الضريبية — ناقص للفاتورة الضريبية: رقم المبنى (4 أرقام)';
 const doc = (over: Partial<InvoiceDoc> = {}): InvoiceDoc => ({
   kind: 'invoice', number: 'INV-7', date: '2026-10-31T10:00:00', type: 'CASH',

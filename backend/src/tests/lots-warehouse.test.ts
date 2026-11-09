@@ -221,6 +221,43 @@ test('النقص بلا تشغيلة: سحبٌ تلقائي بالأقرب ان�
   assert.equal(world.warehouseRaw(C), 4);
 });
 
+test('«الربط لا يُرفض»: الوارد السالب لصنفٍ متتبَّع تسوية إنقاص بالسحب التلقائي، ونقص التشغيلة 409 باقٍ بلا كتابة، والمختلط ينقص قبل أن يزيد', async () => {
+  fresh();
+  const A = stock('P1', 'A', 10);
+  const neg = await post({ type: 'RECEIVE', items: [{ productId: 'P1', qty: -4 }] });
+  assert.equal(neg.status, 201, JSON.stringify(neg.body));
+  assert.deepEqual((neg.body.warnings as Row[]).map((w) => w.code), ['NEGATIVE_RECEIVE_AS_ADJUST']);
+  assert.equal(world.entries[world.entries.length - 1].type, 'ADJUST', 'إنقاصٌ لا وارد سالب (خطة اللوط ترفضه) ولا قيمة مطلقة');
+  assert.deepEqual(lastItems().map((i) => [i.lotId, i.baseQty]), [[A, -4]]);
+  assert.equal(world.warehouseRaw(A), 6);
+  // فوق رصيد التشغيلات ⇒ 409 LOT_STOCK_INSUFFICIENT كأي تسوية، ولا حركة
+  const n = world.entries.length;
+  const over = await post({ type: 'RECEIVE', items: [{ productId: 'P1', qty: -7 }] });
+  assert.deepEqual([over.status, over.body.code], [409, 'LOT_STOCK_INSUFFICIENT']);
+  assert.equal(world.entries.length, n);
+  // مختلط: النقص على رصيد المستودع **قبل** تشغيلة الوارد — ٧ فوق الستة ⇒ 409 بلا نصف حركة ولا تشغيلة؛ وستٌّ تمرّ: حركتان
+  const mixOver = await post({ type: 'RECEIVE', items: [{ productId: 'P1', qty: 10, lotNumber: 'B' }, { productId: 'P1', qty: -7 }] });
+  assert.deepEqual([mixOver.status, mixOver.body.code], [409, 'LOT_STOCK_INSUFFICIENT']);
+  assert.equal(world.entries.length, n);
+  assert.equal(world.lots.some((l) => l.lotNumber === 'B'), false, 'لا تشغيلة من وارد لم يُكتب');
+  const mix = await post({ type: 'RECEIVE', items: [{ productId: 'P1', qty: 10, lotNumber: 'B' }, { productId: 'P1', qty: -6 }] });
+  assert.equal(mix.status, 201, JSON.stringify(mix.body));
+  assert.equal(world.entries.length, n + 2);
+  assert.deepEqual([world.warehouseRaw(A), world.warehouseRaw(lotOf('B').id)], [0, 10]);
+  assert.deepEqual((mix.body.adjustment.items as Row[]).map((i) => [i.qty, i.lotId]), [[-6, A]]);
+  assert.deepEqual((mix.body.data.items as Row[]).map((i) => [i.qty, i.lotId]), [[10, lotOf('B').id]]);
+});
+
+test('«الربط لا يُرفض»: صنفٌ مؤقّت بمعرّف سطرٍ يحمل تشغيلة ⇒ غير متتبَّع، فتُهمل التشغيلة بتحذير LOT_IGNORED لا 422 ولا لوط', async () => {
+  fresh();
+  const r = await post({ type: 'RECEIVE', items: [{ productId: 'erp-new-1', qty: 5, lotNumber: 'Z9', expiryDate: '2027-05-01' }, { productId: 'P1', qty: 2, lotNumber: 'A' }] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual((r.body.warnings as Row[]).map((w) => [w.code, w.index]), [['PRODUCT_PLACEHOLDER_CREATED', 0], ['LOT_IGNORED', 0]]);
+  assert.deepEqual(lastItems().map((i) => [i.productId, i.baseQty, i.lotId == null]), [['erp-new-1', 5, true], ['P1', 2, false]]);
+  assert.equal(world.lots.some((l) => l.lotNumber === 'Z9'), false);
+  assert.equal(world.products.find((p) => p.id === 'erp-new-1')!.lotTracked, false);
+});
+
 test('النقص بلا تشغيلة مع صريحٍ للصنف نفسه: التلقائي يأخذ المصدر الوحيد **مما بقي** بعد الصريح (كالسيارة) لا LOT_REQUIRED على العرض كاملاً', async () => {
   // لوط A صالحه ١٠ وغير المسمّى ٥: الصريح يصفّي A فيبقى غير المسمّى وحده مصدراً للسطر التلقائي
   fresh();

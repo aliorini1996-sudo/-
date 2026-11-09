@@ -10,8 +10,8 @@ import {
   repCompleteOnlyDenied,
 } from '../lib/zatca/buyerData';
 import {
-  BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, BuyerFormValues, buyerFormCheck, buyerFormValues, buyerRelaxSimplified, buyerRelaxWarnings,
-  buyerUpdatePayload, repCompleteLocked,
+  BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, BuyerFormValues, buyerFormCheck, buyerFormHints, buyerFormValues, buyerRelaxSimplified,
+  buyerRelaxWarnings, buyerUpdatePayload, repCompleteLocked,
 } from '../lib/zatca/buyerForm';
 
 /**
@@ -27,6 +27,9 @@ import {
  *
  * طلب المالك ٣١ أكتوبر ٢٠٢٦ (فكّ قيد الرقم الضريبي والعنوان الوطني — buyerRelaxOn): اللافتة تقول إن المنشأة الناقصة تصدر لها مبسطة،
  * والنموذج يقبل صيغ الرقم الضريبي ورقم المبنى والرمز البريدي تنبيهاتٍ — وقواعد Q3 (إكمال لا مسح ولا تخفيض) كما هي.
+ *
+ * أمر المالك ٩ نوفمبر ٢٠٢٦ («بلا قيود على العميل»): فحص الصيغ لا يمنع الإرسال — تلميحٌ حيّ (buyerFormHints) والخادم مرجع (ما يردّه
+ * من fieldErrors يظهر تحت حقوله). ويبقى منع Q3 وحده قبل الإرسال (الخادم يرفضه 403 CUSTOMER_BUYER_REP_RESTRICTED).
  */
 
 /**
@@ -95,7 +98,9 @@ export function RepBuyerDataForm({ customer, canEditCustomer = false, onClose, o
 }) {
   const tr = useTr();
   const [values, setValues] = useState<BuyerFormValues>(() => buyerFormValues(customer));
-  const [errors, setErrors] = useState<Partial<Record<BuyerField, string>>>({});
+  // ردّ الخادم (fieldErrors) فوق التلميح الحيّ — ويزول بأول تعديل
+  const [serverErrors, setServerErrors] = useState<Partial<Record<BuyerField, string>>>({});
+  const errors = { ...buyerFormHints(values, customer, { relaxed: buyerRelax }), ...serverErrors };
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   const fields = canEditCustomer ? BUYER_BILLING_FIELDS : BUYER_REP_COMPLETE_FIELDS;
@@ -103,9 +108,8 @@ export function RepBuyerDataForm({ customer, canEditCustomer = false, onClose, o
 
   const submit = async () => {
     setMsg('');
+    // الفحص للحمولة وقيود Q3 وحدها — ملاحظات الصيغ لا تمنع الإرسال (٩ نوفمبر ٢٠٢٦)
     const check = buyerFormCheck(values, customer, BUYER_BILLING_FIELDS, { relaxed: buyerRelax });
-    setErrors(check.errors);
-    if (!check.ok) { setMsg(tr('صحح بيانات الفوترة الإلكترونية')); return; }
     const restricted = canEditCustomer ? check.cleared : repCompleteOnlyDenied(customer, check.patch);
     if (restricted.length > 0 || buyerDowngrade(customer, check.patch)) {
       setMsg(tr('يمكنك إكمال بيانات الفوترة فقط مسحها أو تحويل العميل من منشأة إلى فرد للإدارة'));
@@ -126,7 +130,7 @@ export function RepBuyerDataForm({ customer, canEditCustomer = false, onClose, o
       if (data?.fieldErrors?.length) {
         const map: Partial<Record<BuyerField, string>> = {};
         for (const e of data.fieldErrors) if (!map[e.field]) map[e.field] = e.messageAr;
-        setErrors(map);
+        setServerErrors(map);
       }
       setMsg(isNetworkError(err) ? tr('يلزم اتصال بالإنترنت لحفظ بيانات الفوترة') : (data?.message || tr('تعذر حفظ التعديل')));
       setLoading(false);
@@ -143,7 +147,7 @@ export function RepBuyerDataForm({ customer, canEditCustomer = false, onClose, o
         <p className="text-sm font-bold text-gray-700 mb-3 truncate">{customer.name}</p>
         {!canEditCustomer && <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">{tr('تكمل الحقول الفارغة فقط والمحفوظ واسم المنشأة والرقم الضريبي والسجل التجاري تعدلها الإدارة')}</p>}
         <BuyerDataFields include="all" title={false} values={{ ...values, name: customer.name ?? '', channel: customer.channel ?? '' }}
-          stored={customer} errors={errors} locked={locked} onChange={(f, v) => setValues(s => ({ ...s, [f]: v }))}
+          stored={customer} errors={errors} locked={locked} onChange={(f, v) => { setValues(s => ({ ...s, [f]: v })); setServerErrors({}); }}
           {...(buyerRelax && { relaxed: true, warnings: buyerRelaxWarnings(values, customer) })} />
         {msg && <p className="text-red-500 text-xs text-center mt-3">{msg}</p>}
       </div>

@@ -41,8 +41,11 @@ import {
 import {
   ACCOUNTING_NOT_ALLOWED_MESSAGE, importAccessBody, importAccessDecision, importKindsAllowed, isImportAccountingKind, loadImportActor, requireImportAccess,
 } from '../services/importAccess';
-import { buildCustomerMatcher, customerImportPlanner, type CustomerImportDecision, type CustomerSkipReason } from '../services/importMatch';
-import { importBuyerRowsGate } from './customersZatca';
+import {
+  CUSTOMER_NAME_PLACEHOLDER, buildCustomerMatcher, customerImportName, customerImportPlanner, type CustomerImportDecision, type CustomerSkipReason,
+} from '../services/importMatch';
+import { loadBuyerGate, type ImportBuyerRowError } from './customersZatca';
+import { BUYER_PHASE2_FIELDS, bodyTouchesBuyerGate, normalizeBuyerFields, validateBuyerChanges } from '../compliance/zatca/buyerData';
 import {
   importChunkTarget, mergeImportDeltas, planImportChunks, runImportChunks, type ImportProgressDelta, type ImportProgressState,
 } from '../services/importChunks';
@@ -457,21 +460,75 @@ const importDate = z.preprocess((v) => (typeof v === 'string' && v.trim() === ''
 const undatedDateField = z.preprocess((v) => (v === '' || v === null ? undefined : v), z.string().trim().regex(YMD_RE, 'التاريخ بصيغة YYYY-MM-DD').optional());
 
 // ===== استيراد العملاء =====
-const customerRow = z.object({
-  name: z.string().trim().min(1),
-  phone: z.string().trim().optional().default(''),
-  email: z.string().trim().optional(),
-  code: z.string().trim().optional(),            // كود العميل في النظام السابق (لربط الأرصدة لاحقاً)
-  businessName: z.string().trim().optional(),
-  commercialReg: z.string().trim().optional(),
-  taxNumber: z.string().trim().optional(),
-  city: z.string().trim().optional(),
-  district: z.string().trim().optional(),
-  address: z.string().trim().optional(),
-  channel: z.string().trim().optional(),
-  creditLimit: z.number().nonnegative().optional(),
-  paymentDays: z.number().int().nonnegative().optional(),
+// «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): خانات صفّ العميل لا ترفض صفّها — القيمة غير الصالحة تُصحَّح أو تُهمل.
+// الملف السليم يعطي الصفوف نفسها حرفاً بحرف (البصمة والعدّ كما هما)، والمختلف كان خطأ صفٍّ يوقف الدفعة كلها.
+/** خانة نصية: الرقم والقيمة المنطقية نصٌّ (جوال أو كود مخزَّن رقماً في Excel)، وغير البسيط يُهمل، والمحرف الصفري (يرفضه Postgres) يُحذف */
+const looseImportText = (v: unknown): string | undefined => {
+  if (typeof v === 'string') return v.replace(/\u0000/g, '');
+  if ((typeof v === 'number' && Number.isFinite(v)) || typeof v === 'boolean' || typeof v === 'bigint') return String(v);
+  return undefined;
+};
+/** حد الائتمان: الرقم (أو النصّ الرقمي) غير السالب، وغيره يُهمل إلى الافتراضي */
+const looseImportAmount = (v: unknown): number | undefined => {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v.trim()) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+};
+/** فترة السداد: عددٌ صحيح غير سالب (الكسر يُقصّ)، وغيره يُهمل إلى الافتراضي */
+const looseImportDays = (v: unknown): number | undefined => {
+  const n = looseImportAmount(v);
+  return n === undefined ? undefined : Math.trunc(n);
+};
+export const customerRow = z.object({
+  name: z.preprocess(looseImportText, z.string().trim().optional().default('')), // الفارغ ⇒ customerImportName بعد الفحص
+  phone: z.preprocess(looseImportText, z.string().trim().optional().default('')),
+  email: z.preprocess(looseImportText, z.string().trim().optional()),
+  code: z.preprocess(looseImportText, z.string().trim().optional()),            // كود العميل في النظام السابق (لربط الأرصدة لاحقاً)
+  businessName: z.preprocess(looseImportText, z.string().trim().optional()),
+  commercialReg: z.preprocess(looseImportText, z.string().trim().optional()),
+  taxNumber: z.preprocess(looseImportText, z.string().trim().optional()),
+  city: z.preprocess(looseImportText, z.string().trim().optional()),
+  district: z.preprocess(looseImportText, z.string().trim().optional()),
+  address: z.preprocess(looseImportText, z.string().trim().optional()),
+  channel: z.preprocess(looseImportText, z.string().trim().optional()),         // المجهول يُحفظ null (CHANNELS)
+  creditLimit: z.preprocess(looseImportAmount, z.number().nonnegative().optional()),
+  paymentDays: z.preprocess(looseImportDays, z.number().int().nonnegative().optional()),
 });
+
+/** رمز تنبيه warnings.buyer (رمز الإنشاء المفرد نفسه) — تنبيهٌ لا خطأ صفّ ولا فشل طلب، فلا يصنّفه الويب بين رموز الإخفاق */
+const IMPORT_BUYER_WARNING_CODE: ImportBuyerRowError['code'] = 'CUSTOMER_ZATCA_INVALID';
+
+/**
+ * «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): بيانات المشتري في استيراد المفتاح كإنشائه المفرد (applyBuyerGateToWrite) —
+ * ما كان يرفضه importBuyerRowsGate خطأ صفٍّ يوقف الدفعة صار تنبيهاً بشكله نفسه (warnings.buyer) ويُكتب الصفّ: السليم مطبَّعاً
+ * (أرقام لاتينية؛ '' ⇒ غائب)، والقديمة الخاطئة (الرقم الضريبي والسجل والنصوص) كما كُتبت بعد التطبيع، وحقول المرحلة الثانية
+ * الخاطئة تُسقط (ومخطّط الصفّ لا يحملها أصلاً). الشركة غير الجامعة، أو ملفٌّ لا يحمل صفٌّ فيه رقماً ضريبياً ولا سجلاً: لا استعلام
+ * ولا أثر. وجلسة اللوحة (رفع ملف Excel) لا تمرّ به كما كانت.
+ */
+export async function importBuyerRowsLenient(
+  db: Parameters<typeof loadBuyerGate>[0], tid: string, rows: readonly object[],
+): Promise<ImportBuyerRowError[]> {
+  if (!rows.some(r => bodyTouchesBuyerGate(r))) return [];
+  const gate = await loadBuyerGate(db, tid);
+  if (!gate.collect) return [];
+  const out: ImportBuyerRowError[] = [];
+  rows.forEach((r, i) => {
+    if (!bodyTouchesBuyerGate(r)) return;
+    const raw = r as Record<string, unknown>;
+    const { patch, errors: typeErrors } = normalizeBuyerFields(r);
+    const errors = [...typeErrors, ...validateBuyerChanges(patch, null, { relaxed: gate.relaxed }).errors];
+    const drop = new Set<string>(typeErrors.map(e => e.field));
+    for (const e of errors) {
+      out.push({
+        row: i + 2, code: IMPORT_BUYER_WARNING_CODE, field: e.field, message: e.messageAr,
+        ...(typeof raw[e.field] === 'string' ? { value: String(raw[e.field]).slice(0, 64) } : {}),
+      });
+      if ((BUYER_PHASE2_FIELDS as readonly string[]).includes(e.field)) drop.add(e.field);
+    }
+    for (const f of drop) { delete patch[f as keyof typeof patch]; raw[f] = undefined; }
+    for (const [f, v] of Object.entries(patch)) raw[f] = v ?? undefined;
+  });
+  return out;
+}
 const customersBody = z.object({
   // البند 36: الصفوف تُفحص صفاً صفاً بعد الغلاف (parseImportBodyRows) لا دفعةً واحدة
   rows: z.array(z.unknown()),
@@ -488,15 +545,15 @@ router.post('/customers', requireImportAccess('customers'), async (req: AuthRequ
     const skippedRows: { row: number; reason: CustomerSkipReason }[] = [];
     const similar: { row: number; code: string; matchedBy: 'phone' | 'name' }[] = [];
     const attachedRows: { row: number; code: string; matchedBy: 'phone' | 'name' }[] = [];
-    // البند 36: صفّ مخالف للمخطط ⇒ أخطاء صفوف بلا أي كتابة ولا حجز دفعة (الرد بشكله نفسه بأصفار)
-    if (result.errors.length) { res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows, attachedRows, warnings: { similar } } }); return; }
-    // مفتاح API: بوابة بيانات المشتري التي يمرّ بها POST /customers تسري هنا صفاً صفاً (customersZatca.ts importBuyerRowsGate) —
-    // وإلا صار الاستيراد بالمفتاح طريقاً حول رفض الرقم الضريبي أو السجل الخاطئ. المخالف خطأ صفٍّ برمز CUSTOMER_ZATCA_INVALID
-    // بلا أي كتابة ولا حجز دفعة، كالصفّ المخالف للمخطط أعلاه، والسليم يُطبَّع. وجلسة اللوحة (رفع ملف Excel) كما كانت حرفاً بحرف
-    if (req.user?.apiKeyId) {
-      result.errors.push(...await importBuyerRowsGate(prisma, tid, rows));
-      if (result.errors.length) { res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows, attachedRows, warnings: { similar } } }); return; }
-    }
+    let buyer: ImportBuyerRowError[] = [];
+    // البند 36: صفّ ليس كائناً، أو صفوف فوق حدّ الدفعة ⇒ أخطاء صفوف بلا أي كتابة ولا حجز دفعة (الرد بشكله نفسه بأصفار).
+    // خانات الصفّ نفسها لا ترفضه («بلا قيود على العميل»، ٩ نوفمبر ٢٠٢٦)
+    if (result.errors.length) { res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows, attachedRows, warnings: { similar, buyer } } }); return; }
+    // الاسم الفارغ ⇒ اسم المنشأة ثم الجوال (customerImportName)، وإلا '' يُحفظ «عميل» ولا يُطابَق به — قبل البصمة فهي بصمة ما يُكتب
+    for (const r of rows) r.name = customerImportName(r);
+    // مفتاح API: بيانات المشتري تُطبَّع كإنشائه المفرد، وما كان يرفضه الفحص تنبيهٌ في warnings.buyer لا خطأ صفّ (importBuyerRowsLenient).
+    // وجلسة اللوحة (رفع ملف Excel) كما كانت حرفاً بحرف
+    if (req.user?.apiKeyId) buyer = (await importBuyerRowsLenient(prisma, tid, rows)).slice(0, 500);
     // البند 20: الدفعة محجوزة قبل أي كتابة (البصمة والاستيراد الجاري تحت قفل النوع)
     const progress = new ImportBatchProgress(
       await reserveMasterBatch(tid, 'customers', importContentHash('customers', rows), importedBy(req), body.force === true), 'customers');
@@ -526,7 +583,7 @@ router.post('/customers', requireImportAccess('customers'), async (req: AuthRequ
           const c = await tx.customer.create({
             data: {
               tenantId: tid,
-              name: r.name,
+              name: r.name || CUSTOMER_NAME_PLACEHOLDER,
               phone,
               email: r.email || null,
               businessName: r.businessName || null,
@@ -579,7 +636,7 @@ router.post('/customers', requireImportAccess('customers'), async (req: AuthRequ
     } finally {
       result.batchId = await progress.finish();
     }
-    res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows, attachedRows, warnings: { similar } } });
+    res.json({ success: true, data: { ...result, ...cappedErrors(result.errors), skippedRows, attachedRows, warnings: { similar, buyer } } });
   } catch (err) { sendImportError(err, res, next); }
 });
 

@@ -271,6 +271,15 @@ test('MProducts: الإنشاء العكسي في طلب POST واحد بـrever
   assert.match(s, /: \[p\.code, p\.unit, unitsBrief\(p\.units, formatNumber\), p\.category\?\.name\]\)/);
 });
 
+test('MProducts بلا قيود (أمر المالك ٩ نوفمبر ٢٠٢٦): الزرّ لا ينتظر إلا بنية الوحدتين، والسعر والنسبة غير الصالحين لا يُرسلان', () => {
+  const s = src('MProducts.tsx');
+  assert.match(s, /const revProblem = rev \? reverseFormProblem\(rf, !!product\) : null;\s*const valid = revProblem === null;/);
+  assert.match(s, /if \(priceOk\) payload\.basePrice = price;/);
+  assert.match(s, /if \(Number\.isFinite\(tax\)\) payload\.taxPct = tax;/);
+  assert.doesNotMatch(s, /basePrice: price,/, 'السعر الفارغ كان يُرسل صفراً فوق سعر الصنف القائم');
+  assert.doesNotMatch(s, /<Field label=\{tr\('(اسم|كود) الصنف'\)\} required/);
+});
+
 test('MProducts: تعديل صنفٍ قائم لا يرسل حمولة الإنشاء (units/primaryUnitName) — مراجعة B1 ٥', () => {
   const s = src('MProducts.tsx');
   assert.match(s, /if \(rev\) Object\.assign\(payload, product \? \(seedPrim\?\.id \? reverseEditPatch\(rf, String\(seedPrim\.id\)\) : \{\}\) : reverseCreatePayload\(rf\)\);/);

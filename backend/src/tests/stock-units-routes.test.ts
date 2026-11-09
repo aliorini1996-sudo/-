@@ -197,27 +197,36 @@ test('تحميلٌ بلا أيّ وحدة: لا استعلام عن الوحدا
 });
 
 /**
- * وحدةٌ لا تخصّ الصنف أو موقوفة أو لشركةٍ أخرى ⇒ رفضٌ ظاهر لا قيدٌ صامت بالأساس.
- * «١٠ كراتين» من شاشةٍ بقائمة أصنافٍ قديمة كانت تُقيَّد عشر حبّات فيختلّ رصيد السيارة ولا يعلم أحد.
+ * وحدةٌ لا تخصّ الصنف أو موقوفة أو لشركةٍ أخرى — «الربط لا يُرفض» (أمر المالك ٩ نوفمبر ٢٠٢٦، services/stockLenient.ts): لا 400 للطلب
+ * كله، ولا قيدٌ صامت بالأساس أيضاً: «١٠ كراتين» من شاشةٍ بقائمة أصنافٍ قديمة كانت تُقيَّد عشر حبّات فيختلّ رصيد السيارة ولا يعلم أحد.
+ * الموقوفة تُقبل بمعاملها المسجَّل (UNIT_INACTIVE)، والغريبة لصنفٍ له وحدات أكبر يُترك سطرها (UNIT_INVALID) بتحذير.
  */
-test('وحدةٌ لا تخصّ الصنف أو موقوفة أو لشركةٍ أخرى ⇒ ٤٠٠ UNIT_INVALID ولا كتابة', async () => {
-  for (const unitId of ['U-P2', 'U-OFF', 'U-X']) {
+test('وحدةٌ لا تخصّ الصنف أو لشركةٍ أخرى ⇒ يُترك السطر بتحذير UNIT_INVALID (200 بلا حركة)، والموقوفة بمعاملها بتحذير — لا ضرب بمعاملٍ مخمَّن', async () => {
+  for (const unitId of ['U-P2', 'U-X']) {
     reset();
     const r = await call(vanRouter, 'post', '/loads', {
       body: { salesRepId: 'R1', type: 'LOAD', items: [{ productId: 'P1', qty: 1, unitId }] },
     });
-    assert.equal(r.status, 400, `${unitId}: ${JSON.stringify(r.body)}`);
-    assert.equal(r.body.code, 'UNIT_INVALID', unitId);
-    assert.equal(st.createdLoads.length, 0, `${unitId}: لا كتابة بعد رفض`);
+    assert.equal(r.status, 200, `${unitId}: ${JSON.stringify(r.body)}`);
+    assert.deepEqual([r.body.noop, r.body.warnings.map((w: Row) => [w.code, w.index, w.productId])], [true, [['UNIT_INVALID', 0, 'P1']]], unitId);
+    assert.equal(st.createdLoads.length, 0, `${unitId}: لا كتابة لسطرٍ متروك`);
     assert.equal(st.unitQueries[0].tenantId, T, 'الحلّ داخل الشركة');
   }
-  // والموقوفة تُقبل في إعادة الرفع أوف‑لاين وحدها (أُوقفت بعد تسجيل الحركة على الجهاز)
+  reset();
+  const off = await call(vanRouter, 'post', '/loads', {
+    body: { salesRepId: 'R1', type: 'LOAD', items: [{ productId: 'P1', qty: 1, unitId: 'U-OFF' }, { productId: 'P1', qty: 2 }] },
+  });
+  assert.equal(off.status, 201, JSON.stringify(off.body));
+  assert.deepEqual(off.body.warnings.map((w: Row) => [w.code, w.index]), [['UNIT_INACTIVE', 0]]);
+  assert.deepEqual(st.createdLoads[0].items.map((i: Row) => [i.unitName, i.unitFactor, i.baseQty]), [['شدّة', 6, 6], [null, 1, 2]]);
+  // والموقوفة في إعادة الرفع أوف‑لاين (أُوقفت بعد تسجيل الحركة على الجهاز) بلا تحذير كما كانت
   reset();
   const replay = await call(vanRouter, 'post', '/loads', {
     body: { salesRepId: 'R1', type: 'LOAD', items: [{ productId: 'P1', qty: 1, unitId: 'U-OFF' }] },
     headers: { 'x-fs-replay': '1' },
   });
-  assert.notEqual(replay.status, 400, `إعادة الرفع: ${JSON.stringify(replay.body)}`);
+  assert.equal(replay.status, 201, `إعادة الرفع: ${JSON.stringify(replay.body)}`);
+  assert.equal(replay.body.warnings, undefined);
 });
 
 test('إزالة التالف بالأساس: كرتونان (٤٨) لا يُزالان من ٣٠ حبة تالفة، وكرتونٌ واحد يُزال', async () => {

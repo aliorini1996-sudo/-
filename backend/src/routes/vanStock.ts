@@ -16,8 +16,10 @@ import { paymentMethodsRange } from '../services/paymentMethodsReport';
 // الوحدات المتعددة: كل رصيدٍ ومقارنة بالأساس (baseQtyOf)، وكل بندٍ يُكتب بلقطة وحدته (unitFields)
 import { baseQtyOf, primaryUnitOf, productQtyText, toBase, unitFields } from '../services/units';
 import {
-  resolveLineUnits, unitsByProduct, UnitInvalidError, UNIT_SELECT, lineProductRefusal, assertWarehouseCovers, WarehouseInsufficientError, vanKeyOf,
+  unitsByProduct, UnitInvalidError, UNIT_SELECT, assertWarehouseCovers, WarehouseInsufficientError, vanKeyOf,
 } from '../services/warehouseStock';
+// «الربط لا يُرفض» (أمر المالك ٩ نوفمبر ٢٠٢٦): الحركة تُقبل بما يمكن معالجته، والمتروك أو المعدَّل تحذيرٌ في ردّ النجاح
+import { lenientStockLines, noQuantitiesWarning, stockNoopBody } from '../services/stockLenient';
 // مفتاح منع التكرار لحركات السيارة (D8): بلا قيدٍ فريد — قفلٌ استشاري على المرجع ثم البحث به داخل المعاملة
 import { CLIENT_REF_SCHEMA, ClientRefReplay, clientRefQuery, lockClientRef } from '../services/stockClientRef';
 // حدود أيام ملخّص السيارات بتوقيت الشركة كسجلّ التحميلات (#14)
@@ -316,6 +318,15 @@ export async function computeStock(tid: string, salesRepId: string, range?: Stoc
   return rows;
 }
 
+/**
+ * أصناف بنود حركة السيارة في قراءةٍ واحدة: الأساس وتاريخ تحويله ووحداته («الوحدة الرئيسية» §3)، وعلم التتبّع واسمه وصلاحيته
+ * («تتبّع اللوط»)، والأرشفة والرمز («الربط لا يُرفض»: توأم المؤرشف الحيّ). بها تُقرأ التوائم أيضاً (services/stockLenient.ts)
+ */
+const VAN_LINE_PRODUCT_SELECT = {
+  id: true, name: true, code: true, unit: true, primaryUnitId: true, baseConvertedAt: true, units: { select: UNIT_SELECT },
+  lotTracked: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, deletedAt: true,
+} as const;
+
 // تسجيل حركة تحميل/تنزيل/تسوية لسيارة المندوب
 router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -366,27 +377,33 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
 
     // البنود غير الصفرية وكلٌّ بموضعه `at` في طلب العميل: به تُعرَّف أسطر خطة اللوط، فيشير تحذيرها وخطؤها ({idx}، §٢.٦) إلى
     // السطر الذي أرسله لا إلى موضعه بعد ترشيح الأصفار. وما سواها (units وترتيب البنود) بموضع البند في `items` كما كان
-    const items = data.items.map((i, at) => ({ ...i, at })).filter(i => i.qty !== 0);
-    if (!items.length) { res.status(400).json({ success: false, message: 'لا توجد كميات صالحة' }); return; }
-    const productIds = [...new Set(items.map(i => i.productId))];
+    const nonZero = data.items.map((i, at) => ({ ...i, at })).filter(i => i.qty !== 0);
+    // «الربط لا يُرفض» (أمر المالك ٩ نوفمبر ٢٠٢٦، services/stockLenient.ts): كل الأسطر صفرية ⇒ 200 بلا حركة وتحذير NO_QUANTITIES
+    // (كان 400 «لا توجد كميات صالحة»). وما تُرك أو عُدِّل بعدها تحذيرٌ في ردّ النجاح (warnings) بموضع سطره i.at
+    if (!nonZero.length) { res.status(200).json(stockNoopBody([noQuantitiesWarning()])); return; }
+    const replay = String(req.headers['x-fs-replay'] || '') === '1';
     // الأصناف نفسها بدل العدّ (استعلامٌ واحد كما كان): «الوحدة الرئيسية» §3 تحتاج أساسها وتاريخ تحويلها ووحداتها في الميزتين،
     // و«تتبّع اللوط» علمها واسمها وصلاحيتها (lotProducts) والميزة مفعّلة وحدها. تُقرأ **قبل** حلّ وحدات البنود: فتحويلٌ يلتزم بين
     // القراءتين يجعل الأساس المتوقَّع أقدم من الوحدات المحلولة فيرفضه القفل (409)؛ ولو قُرئت بعدها لرأت الأساس الجديد ومرّ القفل
-    // ببندٍ حُلّ معامله على الأساس القديم (طبلية ×50 كرتوناً تُكتب ×50 قارورة). ومعها الأرشفة (deletedAt) لرفض تحميل المؤرشف (مراجعة المخزون H2)
-    const products = await prisma.product.findMany({
-      where: { id: { in: productIds }, tenantId: tid },
-      select: {
-        id: true, name: true, unit: true, primaryUnitId: true, baseConvertedAt: true, units: { select: UNIT_SELECT },
-        lotTracked: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, deletedAt: true,
-      },
+    // ببندٍ حُلّ معامله على الأساس القديم (طبلية ×50 كرتوناً تُكتب ×50 قارورة). ومعها الأرشفة والرمز (توأم المؤرشف الحيّ)
+    const found = await prisma.product.findMany({
+      where: { id: { in: [...new Set(nonZero.map(i => i.productId))] }, tenantId: tid },
+      select: VAN_LINE_PRODUCT_SELECT,
     });
-    // #23: وجود الأصناف **قبل** حلّ وحداتها — صنفٌ محذوف بسطرٍ يحمل unitId كان يُردّ UNIT_INVALID «حدّث قائمة الأصناف» فيعيد المُكامِل
-    // سحب أصنافه بلا فائدة: الآن 400 PRODUCT_NOT_FOUND بموضع السطر (i.at). وH2 (مراجعة المخزون): **التحميل** لصنفٍ مؤرشف ⇒ 422 PRODUCT_ARCHIVED؛
-    // والتنزيل والتسوية والإزالة تمرّ عليه (طريق تصفية رصيده). الموقوف غير المؤرشف كما كان
-    const refused = lineProductRefusal(items, products, { rejectArchived: data.type === 'LOAD' ? 'LOAD' : null });
-    if (refused) { res.status(refused.status).json(refused.body); return; }
-    // لقطة وحدة كل بند بترتيب `items` — يحلّها الخادم من وحدات الصنف (بلا unitId ⇒ الأساس، ولا استعلام)
-    const units = await resolveLineUnits(tid, items, { replay: String(req.headers['x-fs-replay'] || '') === '1' });
+    // #23 وH2 (مراجعة المخزون) صارا بلا رفض — وجود الأصناف **قبل** حلّ وحداتها: صنفٌ لا يتبع الشركة ⇒ صنفٌ مؤقّت بمعرّفه نفسه
+    // (PRODUCT_PLACEHOLDER_CREATED، كان 400) ما لم يكن المعرّف لشركةٍ أخرى (يُترك سطره PRODUCT_NOT_FOUND)، و**التحميل** لصنفٍ مؤرشف ⇒
+    // صنفٌ حيّ واحد بالرمز نفسه (PRODUCT_REDIRECTED) وإلا يُقبل على المؤرشف (PRODUCT_ARCHIVED، كان 422 — ورصيد المستودع يحكم عليه كأي
+    // تحميل). والتنزيل والتسوية والإزالة تمرّ عليه كما كانت. ثم لقطة وحدة كل بند يحلّها الخادم: الموقوفة بمعاملها (وإعادة الرفع كما
+    // كانت)، والغريبة أساساً بلا خطر تحويل وإلا يُترك سطرها (UNIT_INVALID) — units[idx] لـitems[idx]
+    const lenient = await lenientStockLines(tid, nonZero, found, {
+      archived: data.type === 'LOAD' ? 'LOAD' : null, select: VAN_LINE_PRODUCT_SELECT, replay,
+      isApiKey: !!req.user?.apiKeyId, lotsOn, carriesLot: vanLineCarriesLot,
+      stripLot: (i) => ({ ...i, lots: undefined, lotNumber: undefined, productionDate: undefined, expiryDate: undefined, lotReason: undefined }),
+    });
+    const { lines: items, units, products, warnings } = lenient;
+    // لم يبقَ سطرٌ يُكتب ⇒ 200 بلا حركة بتحذيراته (لا مرجع يُحفظ: إعادته تعيد الردّ نفسه)
+    if (!items.length) { res.status(200).json(stockNoopBody(warnings)); return; }
+    const productIds = [...new Set(items.map(i => i.productId))];
 
     // إزالة المنتهي صلاحيته أو التالف: كمياتٌ موجبة لا تتجاوز رصيده لكل صنف في سيارة هذا المندوب — والفحص والإنشاء
     // تحت قفلٍ استشاري للمندوب ولذلك الرصيد (أدناه) فلا تتجاوز إزالتان متزامنتان رصيده معاً
@@ -417,8 +434,7 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     // «الوحدة الرئيسية» §3: الأساس الذي حُلّت عليه البنود. مفتاح API على صنفٍ حُوِّل بلا baseUnitName ⇒ 400 (D19)، ثم المقارنة
     // الحيّة بما يعرفه العميل ⇒ 400 UNIT_INVALID — والسباق بعدها يحرسه القفل في المعاملة. وفي إعادة الرفع لا 4xx (المستند سُجّل
     // على الجهاز ولا يُعدم): أساسٌ مُرسَل يخالف أساس الصنف ⇒ 503 PRODUCT_UNITS_CHANGED كالسباق، لا كتابةٌ صامتة بأساسٍ يعرف الخادم
-    // أنه غير أساس العميل (كمية كرتونٍ تُكتب قوارير)
-    const replay = String(req.headers['x-fs-replay'] || '') === '1';
+    // أنه غير أساس العميل (كمية كرتونٍ تُكتب قوارير). باقٍ بلا تساهل مع «الربط لا يُرفض»: يمنع خطأ الكمية الصامت (replay أعلاه)
     const expected = expectedBasesOf(products);
     const noBase = missingBaseForApi(!!req.user?.apiKeyId, items, productById);
     if (noBase) { const r = baseUnitRequiredReply(noBase); res.status(r.status).json(r.body); return; }
@@ -512,7 +528,8 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
           }, { locked, eventActor: lotEventActorOf(req.user) });
           return { load: await createLoad(tx, plan), warnings: plan.warnings };
         }, { maxWait: 10_000, timeout: 20_000 });
-        res.status(201).json({ success: true, data: out.load, warnings: out.warnings });
+        // تحذيرات «الربط لا يُرفض» ثم تحذيرات اللوط — بلا الأولى كما كان حرفياً
+        res.status(201).json({ success: true, data: out.load, warnings: [...warnings, ...out.warnings] });
       } catch (e) {
         // تبدّل الأساس (§3) يُفحص قبل asLotBusy فيمرّ كما هو إلى baseGuardReply أدناه (409/503 PRODUCT_UNITS_CHANGED) — لا يُقرأ
         // انشغالاً من اسم صنفٍ في رسالته. وما سواه: 55P03 و40P01 وP2028 في مسار اللوط ⇒ 503 LOT_BUSY (صندوق المندوب يعيد على 5xx)
@@ -557,7 +574,8 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
           await whGate(tx);
           return createLoad(tx);
         }, BASE_GUARD_TX);
-    res.status(201).json({ success: true, data: load });
+    // «الربط لا يُرفض»: التحذيرات حين وُجدت وحدها — وإلا الردّ كما كان حرفياً
+    res.status(201).json({ success: true, data: load, ...(warnings.length > 0 && { warnings }) });
   } catch (err) {
     // §3: تبدّل الأساس أثناء الحفظ ⇒ PRODUCT_UNITS_CHANGED، 409 حيّاً و503 لإعادة الرفع (الصندوق يعيد ولا يُعدم المستند)؛ وانتظار
     // قفل الأصناف (lockBases يحوّله ProductUnitsBusyError) ⇒ 503 PRODUCT_UNITS_BUSY. صنفا خطأ الحارس وحدهما (كـcustomers.ts): مهلة

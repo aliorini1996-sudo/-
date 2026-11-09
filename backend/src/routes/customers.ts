@@ -52,41 +52,66 @@ const buyerDataDeps: CustomerBuyerDataDeps = {
  */
 export { CUSTOMER_PHONE_MAX };
 
+// «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): فتح العميل ونقله (اللوحة والمندوب والربط البرمجي) لا يُرفض لحقل —
+// القيمة غير الصالحة تُصحَّح أو تُهمل: أي نصّ يُقبل (أرقام تُحوَّل نصاً)، والجوال والبريد كما كُتبا، والإحداثيات خارج النطاق تُهمل،
+// والقيمة المجهولة في القوائم (القناة والنوع والحالة) تُهمل، والأرقام النصية تُحوَّل، والاسم الفارغ يأخذ بديلاً (customerNameFallback)
+const looseText = z.preprocess((v) => (v == null ? v : typeof v === 'object' ? JSON.stringify(v) : String(v)), z.string().nullish());
+const looseCoord = (lim: number) => z.preprocess((v) => {
+  if (v === undefined) return undefined;
+  if (v === null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) && Math.abs(n) <= lim ? n : null;
+}, z.number().nullish());
+const looseNumber = z.preprocess((v) => {
+  if (v == null || v === '') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}, z.number().optional());
 const customerSchema = z.object({
-  name: z.string().min(1),
+  name: looseText,
   // nullish على الحقول النصية الاختيارية: نموذج التحرير (react-hook-form) يرسل null للحقول
   // غير المُعبّأة لعميل قائم، وz.string().optional() ترفض null فتفشل كل عملية تعديل لعميل بحقول فارغة
-  businessName: z.string().nullish(),
-  commercialReg: z.string().nullish(),
-  taxNumber: z.string().nullish(),
-  // اختياريّ بلا حدٍّ أدنى (CUSTOMER_PHONE_MAX أعلاه) — والغائب/null/الفارغ يُكتب '' في الإنشاء وفي التعديل حين يُرسل
-  phone: z.string().trim().max(CUSTOMER_PHONE_MAX).nullish(),
-  altPhone: z.string().nullish(),
-  email: z.string().email().or(z.literal('')).nullish(),
-  city: z.string().nullish(),
-  district: z.string().nullish(),
-  address: z.string().nullish(),
+  businessName: looseText,
+  commercialReg: looseText,
+  taxNumber: looseText,
+  // اختياريّ بلا حدّ — والغائب/null/الفارغ يُكتب '' في الإنشاء وفي التعديل حين يُرسل. الطويل يُقصّ إلى ٢٠٠ لا يُرفض
+  phone: z.preprocess((v) => (v == null ? v : String(v).trim().slice(0, 200)), z.string().nullish()),
+  altPhone: looseText,
+  email: z.preprocess((v) => (v == null ? v : String(v).trim()), z.string().nullish()),
+  city: looseText,
+  district: looseText,
+  address: looseText,
   // موقع العميل على الخريطة (اختياري): إحداثيات مباشرة أو رابط خرائط Google يحلّه الخادم
   // nullish: نموذج التحرير قد يرسل null لعميل بلا موقع
-  lat: z.number().min(-90).max(90).nullish(),
-  lng: z.number().min(-180).max(180).nullish(),
-  locationUrl: z.string().max(2000).optional(),
-  // قناة البيع (تصنيف مؤسسي) — يقبل قيمة صحيحة أو فارغ/null/غياب (كلها = غير محدّد)
-  channel: z.enum(['MT', 'WHOLESALE', 'TT', 'DISCOUNTER', 'CASH_VAN', 'ECOMMERCE']).nullish().or(z.literal('')),
+  lat: looseCoord(90),
+  lng: looseCoord(180),
+  locationUrl: z.preprocess((v) => (v == null ? undefined : String(v).slice(0, 2000)), z.string().optional()),
+  // قناة البيع (تصنيف مؤسسي) — يقبل قيمة صحيحة أو فارغ/null/غياب (كلها = غير محدّد)، والمجهول يُهمل
+  channel: z.enum(['MT', 'WHOLESALE', 'TT', 'DISCOUNTER', 'CASH_VAN', 'ECOMMERCE']).nullish().or(z.literal('')).catch(null),
   // المندوب الذكي: نوع المنفذ (أساس مقارنة المحلات المتشابهة) ومعرّف المكان في Google لمحلٍّ مقترح حُوِّل عميلاً
-  outletType: z.enum(OUTLET_TYPE_CODES as unknown as [string, ...string[]]).nullish().or(z.literal('')),
-  aiPlaceId: z.string().min(1).max(300).nullish(),
-  status: z.enum(['ACTIVE', 'INACTIVE', 'BLOCKED']).optional(),
-  creditLimit: z.number().min(0).optional(),
-  paymentDays: z.number().int().min(0).optional(),
+  outletType: z.enum(OUTLET_TYPE_CODES as unknown as [string, ...string[]]).nullish().or(z.literal('')).catch(null),
+  aiPlaceId: z.string().min(1).max(300).nullish().catch(null),
+  status: z.enum(['ACTIVE', 'INACTIVE', 'BLOCKED']).optional().catch(undefined),
+  creditLimit: looseNumber,
+  paymentDays: z.preprocess((v) => {
+    if (v == null || v === '') return undefined;
+    const n = Math.trunc(Number(v));
+    return Number.isFinite(n) && n >= 0 ? n : undefined;
+  }, z.number().int().optional()),
   // «أنواع الأسعار»: نوع سعر العميل — null أو الفارغ = السعر الأساسي. للإدارة وحدها (يُسقط من جسم المندوب في الإنشاء والتعديل)،
   // والمعرّف من الشركة نفسها وإلا 400 PRICE_LIST_INVALID (priceListOwned)
   priceListId: z.string().nullish(),
   // العمل دون اتصال: idempotency + لحظة الإنشاء على الجهاز — nullish لأن نموذج التحرير
   // يرسلهما null لعملاء لوحة الإدارة (لا تُحرَّر؛ تُستبعد من التحديث)
-  clientRef: z.string().uuid().nullish(),
-  clientCreatedAt: z.string().nullish(),
+  // مرجعٌ ليس UUID (معرّف نظامٍ آخر) لا يرفض العميل — يُهمل التكرار الآمن فقط
+  clientRef: z.string().uuid().nullish().catch(null),
+  clientCreatedAt: looseText,
 });
+
+/** الاسم الفارغ لا يرفض العميل: اسم المنشأة، ثم الجوال، ثم «عميل» */
+function customerNameFallback(d: { name?: string | null; businessName?: string | null; phone?: string | null }): string {
+  return (d.name ?? '').trim() || (d.businessName ?? '').trim() || (d.phone ?? '').trim() || 'عميل';
+}
 
 /**
  * «أنواع الأسعار»: نوع العميل من الشركة نفسها — أو بلا نوع. المفتاح الأجنبي لا يعرف الشركة، فبلا الفحص يُربط عميلٌ بنوع شركةٍ
@@ -194,12 +219,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       }
     }
     const data = customerSchema.parse(req.body);
+    data.name = customerNameFallback(data);
 
     // المندوب الذي ينشئ العميل (إن كان الطالب مندوباً) — يُوثَّق ويُسنَد له العميل تلقائياً
     const creatorRepId = req.user?.role === 'SALES_REP' ? req.user.id : null;
     // «أنواع الأسعار»: نوع سعر العميل قرار الإدارة — المندوب لا يضعه لعميلٍ يفتحه (وإلا سعّر بأرخص نوعٍ بلا «تبديل نوع السعر»)
     if (creatorRepId) delete data.priceListId;
-    else if (!(await priceListOwned(tid, data.priceListId))) { priceListInvalid(res); return; }
+    else if (!(await priceListOwned(tid, data.priceListId))) data.priceListId = null; // نوعٌ غريب يُهمل لا يرفض العميل
 
     // idempotency: عميل سبق رفعه (نفس clientRef) يُعاد بدل إنشاء مكرّر
     if (data.clientRef) {
@@ -257,7 +283,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         // الجوال اختياريّ والعمود NOT NULL ⇒ '' حين يغيب (أمر المالك ٧ نوفمبر)
         ...rest, phone: rest.phone ?? '', email: data.email || null, channel: data.channel || null, outletType: data.outletType || null, aiPlaceId: data.aiPlaceId || null, tenantId: tid,
         ...(data.priceListId !== undefined && { priceListId: data.priceListId || null }),
-        clientCreatedAt: clientCreatedAt ? new Date(clientCreatedAt) : undefined,
+        clientCreatedAt: clientCreatedAt && !Number.isNaN(new Date(clientCreatedAt).getTime()) ? new Date(clientCreatedAt) : undefined, // تاريخ الجهاز التالف يُهمل لا 500
         ...(creatorRepId && { createdBySalesRepId: creatorRepId }),
       } as any,
     });
@@ -279,13 +305,121 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   }
 });
 
+/**
+ * معرّفٌ يُنشأ به العميل كما أرسله النظام الخارجي: يُعاد في الروابط (/api/customers/<id>) كما هو، فلا مسافة ولا محرف تحكّم
+ * ولا / \ ? # % ولا نقاطٌ وحدها (تطبّعها الروابط)، وحتى ١٢٨ محرفاً، وليس اسم مسارٍ ثابت في هذا الموجّه. غيره ⇒ معرّفٌ جديد مع تحذير
+ */
+const CUSTOMER_STATIC_PATHS = new Set(['locations', 'zatca-buyer-data']);
+function keepableCustomerId(id: string): boolean {
+  return /^(?!\.+$)[^\s/\\?#%\u0000-\u001F\u007F]{1,128}$/u.test(id) && !CUSTOMER_STATIC_PATHS.has(id);
+}
+
+/** تصادم المفتاح الأساسي (P2002 على id): طلبٌ موازٍ أنشأ العميل بالمعرّف نفسه بين السؤال والكتابة */
+const isIdConflict = (err: unknown): boolean => {
+  const e = err as { code?: unknown; meta?: { target?: unknown } } | null;
+  if (e?.code !== 'P2002') return false;
+  const t = e.meta?.target;
+  return Array.isArray(t) ? t.includes('id') : String(t ?? '').includes('pkey');
+};
+
+/**
+ * PUT /:id لمعرّفٍ لا يجده الطالب في شركته (upsert بالمعرّف — أمر المالك ٩ نوفمبر ٢٠٢٦: «لا يُرفض أبداً — حُذف من قبل أو لم
+ * يُحذف»). موصل ERP يحتفظ بمعرّفات عملاء قديمة (حُذفوا، أو أُنشئوا في حساب آخر) فكان الـ404 يُضيّع بياناتهم:
+ *  • المعرّف لعميلٍ في الشركة نفسها خارج نطاق الطالب (عزل المناديب/نطاق المستخدم) ⇒ كما كان: 403 بلا «تعديل العميل» وإلا 404 — لا إنشاء ولا كشف.
+ *  • غير مستعمل في أي شركة ⇒ يُنشأ العميل **بالمعرّف نفسه** في شركة الطالب بقواعد POST حرفياً (الاسم البديل، الجوال '' حين يغيب،
+ *    بوابة المشتري بـcustomerId: null، نوع السعر الغريب يُهمل، والمندوب يحتاج «إضافة عميل» ويُوثَّق منشئاً ويُسنَد له).
+ *  • مستعمل في شركة أخرى (أو غير صالح رابطاً) ⇒ يُنشأ بمعرّف جديد مع تحذير CUSTOMER_ID_REASSIGNED (العزل: لا يُمسّ عميل الأخرى).
+ * الردّ 201 { success, data, created: true, warnings? }. ويعيد 'RACED' بلا ردّ إن سبقه طلبٌ موازٍ بالمعرّف نفسه فيُعاد البحث.
+ * ومعرّف مكان Google (aiPlaceId) لا يُربط هنا — كالتعديل؛ ربطه لإنشاء المندوب الذكي عبر POST وحده
+ */
+async function createMissingOnPut(
+  req: AuthRequest, res: Response, tid: string, perms: { canAdd: boolean; canEdit: boolean },
+): Promise<'DONE' | 'RACED'> {
+  const requestedId = String(req.params.id);
+  const holder = await prisma.customer.findUnique({ where: { id: requestedId }, select: { tenantId: true } });
+  if (holder?.tenantId === tid) {
+    if (!perms.canEdit) res.status(403).json({ success: false, message: 'ليس لديك صلاحية تعديل العملاء' });
+    else res.status(404).json({ success: false, message: 'العميل غير موجود' });
+    return 'DONE';
+  }
+  if (!perms.canAdd) { res.status(403).json({ success: false, message: 'ليس لديك صلاحية إضافة عملاء' }); return 'DONE'; }
+  const keepId = !holder && keepableCustomerId(requestedId);
+
+  const data = customerSchema.parse(req.body ?? {});
+  data.name = customerNameFallback(data);
+  const creatorRepId = req.user?.role === 'SALES_REP' ? req.user.id : null;
+  if (creatorRepId) delete data.priceListId;
+  else if (!(await priceListOwned(tid, data.priceListId))) data.priceListId = null;
+  // مفتاح التكرار يتبع عميلاً واحداً في الشركة (POST يبحث به): مرجعٌ يحمله عميلٌ آخر لا يُنسخ إلى هذا
+  if (data.clientRef && (await prisma.customer.findFirst({ where: { tenantId: tid, clientRef: data.clientRef }, select: { id: true } }))) data.clientRef = null;
+
+  const buyerGate = await applyBuyerGateToWrite(buyerDataDeps, req, tid, data as Record<string, unknown>, { customerId: null, replay: !!data.clientRef && !req.user?.apiKeyId });
+  if (!buyerGate.ok) { res.status(buyerGate.status).json(buyerGate.body); return 'DONE'; }
+
+  const { clientCreatedAt, locationUrl, aiPlaceId: _ap, ...rest } = data;
+  void _ap;
+  if (locationUrl && !explicitPinWins(rest)) {
+    const geo = await resolveLocationUrl(locationUrl, { googleOnly: true });
+    if (geo) { rest.lat = geo.lat; rest.lng = geo.lng; }
+  }
+  // لحظة الإنشاء على الجهاز: تاريخٌ لا يُقرأ يُهمل لا يُسقط العميل
+  const createdAtDevice = clientCreatedAt ? new Date(clientCreatedAt) : null;
+  const customer = await prisma.customer.create({
+    data: {
+      ...(keepId && { id: requestedId }),
+      ...rest, phone: rest.phone ?? '', email: rest.email || null, channel: rest.channel || null, outletType: rest.outletType || null, tenantId: tid,
+      ...(rest.priceListId !== undefined && { priceListId: rest.priceListId || null }),
+      clientCreatedAt: createdAtDevice && !Number.isNaN(createdAtDevice.getTime()) ? createdAtDevice : undefined,
+      ...(creatorRepId && { createdBySalesRepId: creatorRepId }),
+    } as any,
+  }).catch((err: unknown) => {
+    if (keepId && isIdConflict(err)) return null;
+    throw err;
+  });
+  if (!customer) return 'RACED';
+  if (creatorRepId) await ensureAssignment(tid, customer.id, creatorRepId);
+  if (customer.outletType) invalidateEstimateData(tid);
+
+  const warnings: object[] = [...(buyerGate.warnings ?? [])];
+  if (!keepId) {
+    warnings.push({
+      code: 'CUSTOMER_ID_REASSIGNED', requestedId,
+      message: holder ? 'المعرّف مستخدم في شركة أخرى فأُنشئ العميل بمعرّف جديد' : 'المعرّف لا يصلح في الروابط فأُنشئ العميل بمعرّف جديد',
+    });
+  }
+  res.status(201).json({ success: true, data: customer, created: true, ...(warnings.length > 0 && { warnings }) });
+  return 'DONE';
+}
+
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    // المندوب يحتاج صلاحية "تعديل العميل"؛ الإدارة مسموح لها دائماً
+    // المندوب يحتاج صلاحية "تعديل العميل" للتعديل، و"إضافة عميل" لإنشاء معرّفٍ لا يجده (upsert)؛ الإدارة مسموح لها دائماً
+    const isRep = req.user?.role === 'SALES_REP';
+    const rep = isRep
+      ? await prisma.salesRep.findUnique({ where: { id: req.user!.id }, select: { canEditCustomer: true, canAddCustomer: true, requireCustomerProximity: true } })
+      : null;
+    // بلا الصلاحيتين معاً: الرفض كما كان قبل أي سؤال عن العميل
+    if (isRep && !rep?.canEditCustomer && !rep?.canAddCustomer) {
+      res.status(403).json({ success: false, message: 'ليس لديك صلاحية تعديل العملاء' });
+      return;
+    }
+    // التحقق أن العميل يخص شركة المستخدم (ومُسنَد للمندوب عند تفعيل العزل) قبل التعديل
+    const scope = await customerScope(req, tid);
+    const findExisting = () => prisma.customer.findFirst({
+      where: { id: req.params.id, tenantId: tid, ...scope },
+      select: { id: true, phone: true },
+    });
+    let exists = await findExisting();
+    // لا يجده ⇒ يُنشأ (createMissingOnPut)؛ وسباقٌ أنشأه بالمعرّف نفسه في الأثناء ⇒ يُعاد البحث فيُعدَّل كأيّ عميل
+    for (let attempt = 0; !exists && attempt < 2; attempt++) {
+      const outcome = await createMissingOnPut(req, res, tid, { canAdd: !isRep || rep?.canAddCustomer === true, canEdit: !isRep || rep?.canEditCustomer === true });
+      if (outcome === 'DONE') return;
+      exists = await findExisting();
+    }
+    if (!exists) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
     let repPinsLocked = false;
-    if (req.user?.role === 'SALES_REP') {
-      const rep = await prisma.salesRep.findUnique({ where: { id: req.user.id }, select: { canEditCustomer: true, requireCustomerProximity: true } });
+    if (isRep) {
       if (!rep?.canEditCustomer) {
         res.status(403).json({ success: false, message: 'ليس لديك صلاحية تعديل العملاء' });
         return;
@@ -294,12 +428,6 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       // تقيس المسافة إلى هذه النقطة، فمن يملك تعديلها يفتح البوّابة على نفسه من أي مكان.
       repPinsLocked = rep.requireCustomerProximity === true;
     }
-    // التحقق أن العميل يخص شركة المستخدم (ومُسنَد للمندوب عند تفعيل العزل) قبل التعديل
-    const exists = await prisma.customer.findFirst({
-      where: { id: req.params.id, tenantId: tid, ...(await customerScope(req, tid)) },
-      select: { id: true, phone: true },
-    });
-    if (!exists) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
     // جوالٌ محفوظ أطول من السقف (سبق القيد: مفتاح API أو استيراد) يعود مع نموذج التعديل كما هو ⇒ يُترك كما هو بلا رفض،
     // وإلا تعذّر تعديل اسم العميل أو عنوانه بسبب جواله القائم. والجديد الأطول يُرفض 400 كالإنشاء
     const sentPhone = (req.body as { phone?: unknown } | null | undefined)?.phone;
@@ -307,6 +435,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       && sentPhone.trim() === (exists.phone ?? '').trim();
     // نستبعد الحقول الداخلية (locationUrl يُحلّ منفصلاً؛ clientRef/clientCreatedAt لا تُحرَّر)
     const { locationUrl, clientRef: _cr, clientCreatedAt: _cc, aiPlaceId: _ap, ...data } = customerSchema.partial().parse(keepStoredPhone ? { ...req.body, phone: undefined } : req.body);
+    if ('name' in data && !(data.name ?? '').trim()) delete data.name; // الاسم الفارغ لا يمحو الاسم المحفوظ ولا يرفض التعديل
     void _cr; void _cc; void _ap; // معرّف مكان Google يُربط عند الإنشاء وحده
     // «تعديل بيانات العميل» للمندوب يشمل البيانات الوصفية لا الشروط المالية: الحدّ الائتمانيّ
     // وفترة السداد وحالة العميل قرارُ الإدارة — وإلا رفع المندوب حدّ عميله ليتجاوز ضابط الائتمان
@@ -314,7 +443,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       delete data.creditLimit; delete data.paymentDays; delete data.status;
       // «أنواع الأسعار»: ونوع سعره كذلك — نقلُ عميلٍ إلى نوعٍ أرخص يمرّر سعره من حارس الفاتورة
       delete data.priceListId;
-    } else if (!(await priceListOwned(tid, data.priceListId))) { priceListInvalid(res); return; }
+    } else if (!(await priceListOwned(tid, data.priceListId))) delete data.priceListId; // نوعٌ غريب يُهمل لا يرفض التعديل
     if (repPinsLocked && (data.lat !== undefined || data.lng !== undefined || locationUrl)) {
       res.status(403).json({ success: false, code: 'PIN_LOCKED', message: 'لا يمكنك تعديل موقع العميل اطلب من الادارة ضبطه' });
       return;
@@ -330,12 +459,14 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       const geo = await resolveLocationUrl(locationUrl, { googleOnly: true });
       if (geo) { data.lat = geo.lat; data.lng = geo.lng; }
     }
-    const customer = await prisma.customer.update({
+    let customer = await prisma.customer.update({
       where: { id: req.params.id },
       // البريد والقناة يُكتبان فقط إن أُرسلا: تعديلٌ جزئيّ (كتطبيق المندوب) لا يمحو بريد العميل.
       // والجوال كذلك، ومسحه (null أو الفارغ) يُكتب '' لأن العمود NOT NULL (أمر المالك ٧ نوفمبر: الجوال اختياريّ)
-      data: { ...data, phone: data.phone === undefined ? undefined : (data.phone ?? ''), ...(data.email !== undefined && { email: data.email || null }), ...(data.channel !== undefined && { channel: data.channel || null }), ...(data.outletType !== undefined && { outletType: data.outletType || null }), ...(data.priceListId !== undefined && { priceListId: data.priceListId || null }) },
+      data: { ...data, name: data.name ?? undefined, phone: data.phone === undefined ? undefined : (data.phone ?? ''), ...(data.email !== undefined && { email: data.email || null }), ...(data.channel !== undefined && { channel: data.channel || null }), ...(data.outletType !== undefined && { outletType: data.outletType || null }), ...(data.priceListId !== undefined && { priceListId: data.priceListId || null }) },
     });
+    // «حُذف من قبل أو لم يُحذف يُقبل» (٩ نوفمبر ٢٠٢٦): عميلٌ مؤرشف قديم (status DELETED) يعود نشطاً حين يصله تعديل بلا حالة صريحة
+    if (data.status === undefined && customer.status === 'DELETED') customer = await prisma.customer.update({ where: { id: req.params.id }, data: { status: 'ACTIVE' } });
     // نوع المنفذ أو الموقع تغيّر ⇒ توقّعات المحلات المشابهة تُعاد من القاعدة
     if (data.outletType !== undefined || data.lat !== undefined || data.lng !== undefined) invalidateEstimateData(tid);
     res.json({ success: true, data: customer, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });
