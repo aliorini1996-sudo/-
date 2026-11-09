@@ -118,7 +118,7 @@ router.post('/track', async (req: Request, res: Response) => {
  * 🔴 هذا يقيس نقرة المستخدم فقط — لا يُبيح مراسلة أحد. لا رسائل مبتدأة إطلاقاً.
  */
 router.get('/go/wa', async (req: Request, res: Response) => {
-  const number = String(req.query.n || process.env.WHATSAPP_NUMBER || '966581835269').replace(/[^0-9]/g, '');
+  const number = String(req.query.n || process.env.WHATSAPP_NUMBER || '966506061608').replace(/[^0-9]/g, '');
   const ref = String(req.query.ref || 'home').slice(0, 48);
   const fallback = `https://wa.me/${number}`;
   try {
