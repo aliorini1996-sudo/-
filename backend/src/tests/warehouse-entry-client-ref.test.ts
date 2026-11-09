@@ -172,6 +172,10 @@ test('D3 (لا يُرفض): صنفٌ حيّ واحد برمز المؤرشف (ب
 });
 
 test('#23 (لا يُرفض، أمر المالك ٩ نوفمبر): صنفٌ ليس في الشركة ⇒ صنفٌ مؤقّت بمعرّفه نفسه؛ ومعرّف صنف شركةٍ أخرى أو معرّفٌ لا يصلح يُترك سطره، وكلها متروكة أو صفرية ⇒ 200 بلا حركة', async () => {
+  // الاستيراد بعد التبديلات (stub) لا في رأس الملف — وإلا حُمّلت الوحدة قبل بدائلها
+  const { stockLenientFlags } = require('../services/stockLenient') as typeof import('../services/stockLenient');
+  stockLenientFlags.placeholdersOn = true; // سلوك الصنف المؤقّت (مطفأ افتراضاً منذ ٩ نوفمبر ٢٠٢٦) — يُختبر مفعّلاً
+  try {
   fresh();
   // الموضع من items كما أرسلها العميل: السطر الصفري لا يزيحه
   const nf = await post({ type: 'RECEIVE', items: [
@@ -204,6 +208,7 @@ test('#23 (لا يُرفض، أمر المالك ٩ نوفمبر): صنفٌ لي
   assert.match(String((zero.body.warnings as Row[])[0].message), /لا توجد كميات صالحة/);
   assert.equal(world.entries.length, n, 'لا حركة للطلبين الأخيرين');
   assert.equal(world.products.some((p) => p.id === 'رمز عربي'), false);
+  } finally { stockLenientFlags.placeholdersOn = false; }
 });
 
 test('التسوية بسعر: يُهمل السعر بتحذير UNIT_COST_IGNORED (كان 400) وتُكتب التسوية بلا تكلفة', async () => {

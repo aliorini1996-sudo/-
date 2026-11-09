@@ -249,6 +249,10 @@ test('«الربط لا يُرفض»: الوارد السالب لصنفٍ مت�
 });
 
 test('«الربط لا يُرفض»: صنفٌ مؤقّت بمعرّف سطرٍ يحمل تشغيلة ⇒ غير متتبَّع، فتُهمل التشغيلة بتحذير LOT_IGNORED لا 422 ولا لوط', async () => {
+  // الاستيراد بعد التبديلات (stub) لا في رأس الملف — وإلا حُمّلت الوحدة قبل بدائلها
+  const { stockLenientFlags } = require('../services/stockLenient') as typeof import('../services/stockLenient');
+  stockLenientFlags.placeholdersOn = true; // سلوك الصنف المؤقّت (مطفأ افتراضاً منذ ٩ نوفمبر ٢٠٢٦) — يُختبر مفعّلاً
+  try {
   fresh();
   const r = await post({ type: 'RECEIVE', items: [{ productId: 'erp-new-1', qty: 5, lotNumber: 'Z9', expiryDate: '2027-05-01' }, { productId: 'P1', qty: 2, lotNumber: 'A' }] });
   assert.equal(r.status, 201, JSON.stringify(r.body));
@@ -256,6 +260,7 @@ test('«الربط لا يُرفض»: صنفٌ مؤقّت بمعرّف سطرٍ 
   assert.deepEqual(lastItems().map((i) => [i.productId, i.baseQty, i.lotId == null]), [['erp-new-1', 5, true], ['P1', 2, false]]);
   assert.equal(world.lots.some((l) => l.lotNumber === 'Z9'), false);
   assert.equal(world.products.find((p) => p.id === 'erp-new-1')!.lotTracked, false);
+  } finally { stockLenientFlags.placeholdersOn = false; }
 });
 
 test('النقص بلا تشغيلة مع صريحٍ للصنف نفسه: التلقائي يأخذ المصدر الوحيد **مما بقي** بعد الصريح (كالسيارة) لا LOT_REQUIRED على العرض كاملاً', async () => {

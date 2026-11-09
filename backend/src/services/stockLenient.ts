@@ -104,6 +104,9 @@ export interface PlaceholderOptions<L> {
  * لا يصلح. والسباق (طلبان متزامنان بالمعرّف نفسه) يحسمه قيد المفتاح: الخاسر يتجاهل التصادم ويقرأ ما كُتب.
  * الإنشاء خارج معاملة الحركة: إعادة الطلب نفسه تجد الصنف فلا تنشئه ثانيةً، ورفضٌ لاحق بحارسٍ باقٍ لا يمحوه.
  */
+/** إنشاء صنفٍ مؤقّت لمعرّفٍ مجهول في حركة مخزون — مطفأ بأمر المالك (٩ نوفمبر ٢٠٢٦: الخادم لا يُنشئ شيئاً من عنده) */
+export const stockLenientFlags = { placeholdersOn: false };
+
 export async function placeholderProducts<L extends LenientLine, P extends LenientProduct>(
   tid: string, lines: readonly L[], products: readonly P[], opts: PlaceholderOptions<L>,
 ): Promise<{ lines: L[]; products: P[]; warnings: StockWarning[] }> {
@@ -116,7 +119,9 @@ export async function placeholderProducts<L extends LenientLine, P extends Lenie
     ? await prisma.product.findMany({ where: { id: { in: valid } }, select: { id: true, tenantId: true } })
     : [];
   const foreign = new Set(taken.filter((t) => t.tenantId !== tid).map((t) => t.id));
-  const free = valid.filter((id) => !taken.some((t) => t.id === id));
+  // «الخادم لا يُنشئ شيئاً لأحد — يقبل النقل فقط» (أمر المالك ٩ نوفمبر ٢٠٢٦): الصنف المؤقّت مطفأ — سطر الصنف المجهول يُترك بتحذير
+  // PRODUCT_NOT_FOUND وتُسجَّل بقية الأسطر. true يعيد الإنشاء
+  const free = stockLenientFlags.placeholdersOn ? valid.filter((id) => !taken.some((t) => t.id === id)) : [];
   const created = new Set<string>();
   if (free.length) {
     const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { defaultVatPct: true } });

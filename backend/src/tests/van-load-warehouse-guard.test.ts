@@ -414,6 +414,10 @@ test('D3 (لا يُرفض): تحميل صنفٍ مؤرشف يُقبل عليه �
 });
 
 test('#23 (لا يُرفض): صنف شركةٍ أخرى يُترك سطره PRODUCT_NOT_FOUND بموضعه قبل حلّ وحدته (لا UNIT_INVALID مضلِّل)، والمعرّف الحرّ صنفٌ مؤقّت؛ وكلها صفرية ⇒ 200', async () => {
+  // الاستيراد بعد التبديلات (stub) لا في رأس الملف — وإلا حُمّلت الوحدة قبل بدائلها
+  const { stockLenientFlags } = require('../services/stockLenient') as typeof import('../services/stockLenient');
+  stockLenientFlags.placeholdersOn = true; // سلوك الصنف المؤقّت (مطفأ افتراضاً منذ ٩ نوفمبر ٢٠٢٦) — يُختبر مفعّلاً
+  try {
   reset({ warehouse: false });
   const r = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pA', qty: 1 }, { productId: 'q1', qty: 1, unitId: 'uC' }, { productId: 'ext-123', qty: 4 }] }, API);
   assert.equal(r.statusCode, 201, JSON.stringify(r.body));
@@ -428,6 +432,7 @@ test('#23 (لا يُرفض): صنف شركةٍ أخرى يُترك سطره PROD
   const none = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'q1', qty: 1 }] }, API);
   assert.deepEqual([none.statusCode, none.body!.noop, warnCodes(none)], [200, true, [['PRODUCT_NOT_FOUND', 0, 'q1']]]);
   assert.equal(S.creates, 1);
+  } finally { stockLenientFlags.placeholdersOn = false; }
 });
 
 // ═══ D8: clientRef ═══
