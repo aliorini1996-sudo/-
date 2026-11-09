@@ -15,8 +15,9 @@ const router = Router();
 
 /** جلسة المالك نفسه: توكن «دخول» مُصدِره المالك (byKind OWNER) — authenticate تحقّق أن المُصدِر حيّ */
 export function isPlatformOwnerSession(req: AuthRequest): boolean {
-  const u = req.user as unknown as { impersonated?: boolean; byKind?: string; apiKeyId?: string } | undefined;
-  return u?.impersonated === true && u?.byKind === 'OWNER' && !u?.apiKeyId;
+  const u = req.user as unknown as { impersonated?: boolean; byKind?: string; staffFull?: boolean; apiKeyId?: string } | undefined;
+  // وموظف المنصة بكل الصلاحيات (staffFull حيّ من authenticate) كالمالك تماماً — أمر المالك ٩ نوفمبر ٢٠٢٦
+  return u?.impersonated === true && (u?.byKind === 'OWNER' || (u?.byKind === 'STAFF' && u?.staffFull === true)) && !u?.apiKeyId;
 }
 
 router.use(authenticate);

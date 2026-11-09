@@ -30,6 +30,8 @@ import { CONVERT_BASE_OPEN_TO_COMPANY } from '../services/convertBaseAccess';
 
 // إدارة الشركات المشتركة — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
+/** «كل صلاحيةٍ للموظف بإمكانيات المالك نفسها» (أمر المالك ٩ نوفمبر ٢٠٢٦): القيود الخاصة بالموظف في هذا الملف مطفأة — true يعيدها */
+const STAFF_OWNER_PARITY_OFF = false as boolean;
 // مالك المنصة وموظفوها بصلاحياتهم (services/platformAccess.ts: platformGate — ما لا قاعدة له للمالك وحده)
 router.use(platformGate);
 
@@ -208,7 +210,7 @@ router.get('/', async (req: PlatformRequest, res: Response, next: NextFunction) 
       orderBy: { createdAt: 'desc' },
       include: {
         // عدد العملاء للمالك وحده (طلب المالك): لا يُقرأ لموظف المنصة فلا يصل ردّه
-        _count: { select: { admins: true, salesReps: true, customers: !req.platformStaff, invoices: true } },
+        _count: { select: { admins: true, salesReps: true, customers: true, invoices: true } },
         admins: { select: { name: true, email: true }, take: 1, orderBy: { createdAt: 'asc' } },
         // M2 (§8.1): حالة الدفاتر لشارة بطاقة الشركة
         glSettings: { select: { activatedAt: true, backfillState: true } },
@@ -246,7 +248,7 @@ router.get('/:id', async (req: PlatformRequest, res: Response, next: NextFunctio
       include: {
         admins: { select: { id: true, name: true, email: true, isActive: true } },
         // عدد العملاء للمالك وحده — كقائمة الشركات
-        _count: { select: { salesReps: true, customers: !req.platformStaff, products: true, invoices: true, receipts: true } },
+        _count: { select: { salesReps: true, customers: true, products: true, invoices: true, receipts: true } },
       },
     });
     if (!tenant) { res.status(404).json({ success: false, message: 'الشركة غير موجودة' }); return; }
@@ -323,7 +325,8 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       ? await prisma.tenant.findUnique({ where: { id: req.params.id }, select: { cardPayEnabled: true, nearpayMerchantId: true } })
       : null;
     const merchantChanged = !!cardPayCur && body.nearpayMerchantId !== undefined && (body.nearpayMerchantId ?? null) !== cardPayCur.nearpayMerchantId;
-    if ((req as PlatformRequest).platformStaff && cardPayCur
+    // كل صلاحيةٍ للموظف بإمكانيات المالك (أمر المالك ٩ نوفمبر ٢٠٢٦): لا قيد على التحصيل بالبطاقة لمن يملك «تعديل الاشتراك»
+    if (STAFF_OWNER_PARITY_OFF && (req as PlatformRequest).platformStaff && cardPayCur
       && (merchantChanged || (body.cardPayEnabled !== undefined && body.cardPayEnabled !== cardPayCur.cardPayEnabled))) {
       res.status(403).json({ success: false, code: 'STAFF_CARDPAY_FORBIDDEN', message: 'التحصيل بالبطاقة وحساب التاجر لدى مزوّد الدفع يضبطهما مالك المنصة وحده' });
       return;
@@ -331,7 +334,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     // «إضافة وحدة فرعية أصغر» (الوحدة الرئيسية D14-ب): يقلبه مالك المنصّة وحده — العلم يفتح إعادة كتابة تاريخ الأصناف لمديري
     // الشركة، فلا يكفيه «تعديل الاشتراك» لموظف المنصّة (platformGate يسمح له بالمسار كله). الجسم الذي يعيد القيمة نفسها يمرّ
     // (نموذج الحفظ قد يرسل الأعلام كلها) — كالتحصيل بالبطاقة أعلاه
-    if ((req as PlatformRequest).platformStaff && body.convertBaseOpen !== undefined) {
+    if (STAFF_OWNER_PARITY_OFF && (req as PlatformRequest).platformStaff && body.convertBaseOpen !== undefined) {
       const cur = await prisma.tenant.findUnique({ where: { id: req.params.id }, select: { convertBaseOpen: true } });
       if (cur && cur.convertBaseOpen !== body.convertBaseOpen) {
         res.status(403).json({ success: false, code: 'CONVERT_BASE_FLAG_OWNER_ONLY', message: 'هذا الإعداد لمالك المنصة وحده' });
@@ -444,7 +447,7 @@ router.post('/:id/impersonate', async (req: AuthRequest, res: Response, next: Ne
 
     // المُصدِر (المالك أو الموظف ونسخة جلسته) يُفحص حيّاً في كل طلب من الجلسة (authenticate ← impersonationIssuerOk)
     const token = jwt.sign(
-      { id: admin.id, role: admin.role, name: admin.name, tenantId: tenant.id, impersonated: true, ...impersonationIssuer(req) },
+      { id: admin.id, role: admin.role, name: admin.name, tenantId: tenant.id, impersonated: true, ...impersonationIssuer(req), ...((req as PlatformRequest).platformStaff ? { sf: true } : {}) },
       process.env.JWT_SECRET!,
       { expiresIn: '2h' }
     );
@@ -717,7 +720,7 @@ async function staffResetAdmin(req: PlatformRequest, res: Response): Promise<voi
 // إعادة تعيين كلمة مرور أدمن الشركة — موظف المنصة عبر بريد المدير (staffResetAdmin)، والمالك كما كان
 router.post('/:id/reset-admin', async (req: PlatformRequest, res: Response, next: NextFunction) => {
   try {
-    if (req.platformStaff) { await staffResetAdmin(req, res); return; }
+    if (STAFF_OWNER_PARITY_OFF && req.platformStaff) { await staffResetAdmin(req, res); return; } // الموظف يضبط كلمة المرور كالمالك
     const schema = z.object({ adminId: z.string().optional(), newPassword: z.string().min(8, 'كلمة المرور 8 أحرف على الأقل') });
     const { adminId, newPassword } = schema.parse(req.body);
     // إن لم يُحدَّد adminId نعيد تعيين كلمة مرور المدير الرئيسي (الأقدم) للشركة

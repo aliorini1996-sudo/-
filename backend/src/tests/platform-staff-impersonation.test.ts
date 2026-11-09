@@ -1,7 +1,8 @@
 // جلسة «دخول» أصدرها موظف منصة إلى حساب شركة (مراجعة أمنية، ٢٤ أكتوبر ٢٠٢٦). نثبت فوق Prisma مزيّف في الذاكرة (بلا قاعدة)
 // وبالموجّهات الحقيقية (authenticate، /api/company-users، /api/sales-reps، /api/api-keys، platformGate، قناة البث):
-//   أ) لا اعتماد يبقى بعد سقوطها: لا مستخدم ولا مندوب ولا كلمة مرور ولا بريد دخول ولا ترقية إلى مدير ولا مفتاح API — وجلسة المالك كما هي.
-//   ب) كل كتابةٍ فيها سطرٌ باسم الموظف في سجل نشاط المنصة قبل المعالج، وتعذّره ٥٠٣ بلا فعل.
+//   أ) جلسة الموظف كجلسة المالك تماماً (أمر المالك ٩ نوفمبر ٢٠٢٦ — كل صلاحيةٍ للموظف بإمكانيات المالك): ينشئ المستخدمين
+//      والمناديب ويضع كلمات المرور والبريد ويرقّي إلى مدير ويصدر مفاتيح API ويغيّر كلمة مرور الحساب — بلا STAFF_SESSION_NO_CREDENTIALS.
+//   ب) والمساءلة باقية: كل كتابةٍ فيها سطرٌ باسم الموظف في سجل نشاط المنصة قبل المعالج بحالتها، وتعذّره ٥٠٣ بلا فعل.
 //   ج) قناة البث تُغلق متى سقط مُصدِرها وعند انتهاء التوكن.
 //   د) القراءة الحساسة المسجَّلة سطرٌ واحد في ربع الساعة للرابط نفسه، والتعذّر يبقى يمنع، والكتابات كلها تُسجَّل.
 import { test, mock } from 'node:test';
@@ -199,99 +200,134 @@ function reset(): void {
 
 const NO_CREDS = 'STAFF_SESSION_NO_CREDENTIALS';
 
-// ═══════════════════ أ) لا اعتمادات دائمة من جلسة الموظف ═══════════════════
+// ═══════════════════ أ) جلسة الموظف كجلسة المالك (أمر المالك ٩ نوفمبر ٢٠٢٦) ═══════════════════
 
-test('أ) الحارس المشترك: جلسة «دخول» الموظف وحدها — لا جلسة المالك ولا المستخدم العادي', () => {
+/** أسطر سجل نشاط المنصة مختصرة: [الاسم، الطريقة، المسار، الحالة] */
+const auditRows = () => audits.map((a) => [a.actorName, a.method, a.path, a.status]);
+
+test('أ) الحارس المشترك: جلسة «دخول» الموظف المقيَّد وحدها — لا الموظف بكل الصلاحيات (staffFull) ولا جلسة المالك ولا المستخدم العادي', () => {
   assert.equal(pa.isStaffImpersonation({ user: { impersonated: true, byKind: 'STAFF' } }), true);
+  assert.equal(pa.isStaffImpersonation({ user: { impersonated: true, byKind: 'STAFF', staffFull: true } }), false, 'كالمالك');
   assert.equal(pa.isStaffImpersonation({ user: { impersonated: true, byKind: 'OWNER' } }), false);
   assert.equal(pa.isStaffImpersonation({ user: { byKind: 'STAFF' } }), false, 'byKind بلا انتحال لا يُعتدّ به');
   assert.equal(pa.isStaffImpersonation({}), false);
 });
 
-test('أ) إنشاء مستخدم شركة: ٤٠٣ لجلسة الموظف بلا كتابة، وجلسة المالك تنشئ كما كانت', async () => {
+test('أ) إنشاء مستخدم شركة: جلسة الموظف تنشئ كالمالك تماماً (مديراً أو مشرفاً بكلمة مرور) وكل إنشاءٍ سطرٌ باسمه، وجلسة المالك كما كانت بلا سطر', async () => {
   reset();
   const s = addStaff();
   const body = { name: 'مستخدم جديد', email: 'new@co.sa', role: 'ADMIN', password: 'Secret123' };
   const r = await call('POST', '/api/company-users', staffSession(s), body);
-  assert.equal(r.status, 403);
-  assert.equal(r.body.code, NO_CREDS);
-  assert.equal(r.body.message, pa.STAFF_SESSION_NO_CREDENTIALS);
-  assert.equal((await call('POST', '/api/company-users', staffSession(s), { ...body, role: 'MANAGER' })).status, 403, 'ولو مشرفاً');
-  assert.deepEqual(writes, []);
-  const ok = await call('POST', '/api/company-users', ownerSession(), { ...body, role: 'MANAGER' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.notEqual(r.body.code, NO_CREDS);
+  const m = await call('POST', '/api/company-users', staffSession(s), { ...body, email: 'new-m@co.sa', role: 'MANAGER' });
+  assert.equal(m.status, 201, `ومشرفاً: ${JSON.stringify(m.body)}`);
+  assert.deepEqual(writes, ['admin.create', 'admin.create']);
+  const created = [...admins.values()].find((x) => x.email === 'new@co.sa')!;
+  assert.equal(created.role, 'ADMIN', 'مديرٌ جديد');
+  assert.ok(String(created.passwordHash).startsWith('$2'), 'بكلمة مروره');
+  await settle();
+  assert.deepEqual(auditRows(), [
+    ['سارة الدعم', 'POST', '/api/company-users', 201],
+    ['سارة الدعم', 'POST', '/api/company-users', 201],
+  ]);
+  const ok = await call('POST', '/api/company-users', ownerSession(), { ...body, email: 'new2@co.sa', role: 'MANAGER' });
   assert.equal(ok.status, 201, JSON.stringify(ok.body));
-  assert.deepEqual(writes, ['admin.create']);
+  assert.deepEqual(writes, ['admin.create', 'admin.create', 'admin.create']);
+  await settle();
+  assert.equal(audits.length, 2, 'جلسة المالك بلا سطر');
 });
 
-test('أ) تعديل مستخدم شركة: كلمة مرور أو بريد آخر أو ترقية إلى مدير ٤٠٣ للموظف — وغيرها يمرّ، والمالك يفعل كل ذلك', async () => {
+test('أ) تعديل مستخدم شركة: جلسة الموظف تضع كلمة المرور وتغيّر البريد وترقّي إلى مدير كالمالك — وكل تعديلٍ سطرٌ باسمه', async () => {
   reset();
   const s = addStaff();
   const t = staffSession(s);
   for (const [why, body] of [
     ['كلمة مرور', { password: 'NewSecret99' }],
-    ['بريد آخر', { email: 'staff-owned@x.co' }],
+    ['بريد آخر', { email: 'staff-set@x.co' }],
     ['ترقية إلى مدير', { role: 'ADMIN' }],
   ] as const) {
     const r = await call('PUT', '/api/company-users/u2', t, body);
-    assert.equal(r.status, 403, why);
-    assert.equal(r.body.code, NO_CREDS, why);
+    assert.equal(r.status, 200, `${why}: ${JSON.stringify(r.body)}`);
+    assert.notEqual(r.body.code, NO_CREDS, why);
   }
-  assert.deepEqual(writes, [], 'لم يُكتب شيء');
-  // نموذج الواجهة يرسل الحقول كلها: البريد نفسه (بحالة أحرفٍ أخرى) والدور نفسه ليسا تغييراً
-  assert.equal((await call('PUT', '/api/company-users/u2', t, { name: 'مشرف المبيعات', email: 'SUP@co.sa', role: 'MANAGER' })).status, 200);
-  assert.equal((await call('PUT', '/api/company-users/u3', t, { name: 'مدير المبيعات', role: 'ADMIN' })).status, 200, 'مديرٌ قائم ليس ترقية');
-  assert.equal((await call('PUT', '/api/company-users/u2', t, { password: '' })).status, 200, 'كلمة مرور فارغة = بلا تغيير');
+  assert.deepEqual(writes, ['admin.update', 'admin.update', 'admin.update']);
+  const u2 = admins.get('u2')!;
+  assert.ok(String(u2.passwordHash).startsWith('$2'), 'كلمة مرور الموظف كُتبت');
+  assert.equal(u2.email, 'staff-set@x.co');
+  assert.equal(u2.role, 'ADMIN');
+  await settle();
+  assert.deepEqual(auditRows(), Array.from({ length: 3 }, () => ['سارة الدعم', 'PUT', '/api/company-users/u2', 200]));
+  // والمالك كما كان
   writes = [];
-  const owner = await call('PUT', '/api/company-users/u2', ownerSession(), { password: 'NewSecret99', email: 'sup2@co.sa' });
+  const owner = await call('PUT', '/api/company-users/u3', ownerSession(), { password: 'NewSecret99', email: 'boss3@co.sa' });
   assert.equal(owner.status, 200, JSON.stringify(owner.body));
   assert.deepEqual(writes, ['admin.update']);
-  assert.ok(String(admins.get('u2')!.passwordHash).startsWith('$2'), 'كلمة مرور المالك كُتبت');
+  assert.ok(String(admins.get('u3')!.passwordHash).startsWith('$2'), 'كلمة مرور المالك كُتبت');
+  await settle();
+  assert.equal(audits.length, 3, 'جلسة المالك بلا سطر');
 });
 
-test('أ) المناديب: الإنشاء وكلمة المرور ٤٠٣ للموظف، وتعديلٌ بلا كلمة مرور يمرّ، والمالك كما كان', async () => {
+test('أ) المناديب: جلسة الموظف تنشئ المندوب وتضع كلمة مروره كالمالك، والتعديل العادي يمرّ — وسطرٌ باسمه لكلٍّ', async () => {
   reset();
   const s = addStaff();
   const t = staffSession(s);
   const repBody = { name: 'مندوب جديد', phone: '0500000002', username: 'rep2', password: 'Secret123' };
   const c = await call('POST', '/api/sales-reps', t, repBody);
-  assert.equal(c.status, 403);
-  assert.equal(c.body.code, NO_CREDS);
+  assert.equal(c.status, 201, JSON.stringify(c.body));
+  assert.notEqual(c.body.code, NO_CREDS);
   const p = await call('PUT', '/api/sales-reps/r1', t, { password: 'NewSecret99' });
-  assert.equal(p.status, 403);
-  assert.equal(p.body.code, NO_CREDS);
-  assert.deepEqual(writes, []);
+  assert.equal(p.status, 200, JSON.stringify(p.body));
+  assert.ok(String(reps.get('r1')!.passwordHash).startsWith('$2'), 'كلمة المرور كُتبت');
   assert.equal((await call('PUT', '/api/sales-reps/r1', t, { isActive: false })).status, 200, 'تعديلٌ عادي');
-  assert.equal(reps.get('r1')!.passwordHash, undefined);
+  assert.deepEqual(writes, ['salesRep.create', 'salesRep.update', 'salesRep.update']);
+  await settle();
+  assert.deepEqual(auditRows(), [
+    ['سارة الدعم', 'POST', '/api/sales-reps', 201],
+    ['سارة الدعم', 'PUT', '/api/sales-reps/r1', 200],
+    ['سارة الدعم', 'PUT', '/api/sales-reps/r1', 200],
+  ]);
   writes = [];
-  assert.equal((await call('POST', '/api/sales-reps', ownerSession(), repBody)).status, 201);
-  assert.equal((await call('PUT', '/api/sales-reps/r1', ownerSession(), { password: 'NewSecret99' })).status, 200);
+  assert.equal((await call('POST', '/api/sales-reps', ownerSession(), { ...repBody, phone: '0500000003', username: 'rep3' })).status, 201);
+  assert.equal((await call('PUT', '/api/sales-reps/r1', ownerSession(), { password: 'OwnerSecret99' })).status, 200);
   assert.deepEqual(writes, ['salesRep.create', 'salesRep.update']);
+  await settle();
+  assert.equal(audits.length, 3, 'جلسة المالك بلا سطر');
 });
 
-test('أ) مفتاح API: ٤٠٣ للموظف قبل الإصدار، والمالك يصدر كما كان', async () => {
+test('أ) مفتاح API: جلسة الموظف تصدره كالمالك تماماً وسطرها باسمه، والمالك يصدر كما كان', async () => {
   reset();
   const s = addStaff();
   const r = await call('POST', '/api/api-keys', staffSession(s), { name: 'مزامنة' });
-  assert.equal(r.status, 403);
-  assert.equal(r.body.code, NO_CREDS);
-  assert.deepEqual(writes, []);
-  const ok = await call('POST', '/api/api-keys', ownerSession(), { name: 'مزامنة' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.match(r.body.data.key, /^fsk_/);
+  assert.deepEqual(writes, ['apiKey.create']);
+  await settle();
+  assert.deepEqual(auditRows(), [['سارة الدعم', 'POST', '/api/api-keys', 201]]);
+  const ok = await call('POST', '/api/api-keys', ownerSession(), { name: 'مزامنة ٢' });
   assert.equal(ok.status, 201, JSON.stringify(ok.body));
   assert.match(ok.body.data.key, /^fsk_/);
-  assert.deepEqual(writes, ['apiKey.create']);
+  assert.deepEqual(writes, ['apiKey.create', 'apiKey.create']);
+  await settle();
+  assert.equal(audits.length, 1, 'جلسة المالك بلا سطر');
 });
 
-test('أ) تغيير كلمة مرور الحساب نفسه (/api/auth/change-password) ٤٠٣ للموظف بأي كتابةٍ للمسار، والمالك يمرّ', async () => {
+test('أ) تغيير كلمة مرور الحساب نفسه (/api/auth/change-password): جلسة الموظف تبلغ المعالج كالمالك بأي كتابةٍ للمسار — وسطرٌ باسمه لكلٍّ', async () => {
   reset();
   const s = addStaff();
-  for (const url of ['/api/auth/change-password', '/API/Auth/Change-Password/', '/api/auth/change-password?x=1']) {
+  const urls = ['/api/auth/change-password', '/API/Auth/Change-Password/', '/api/auth/change-password?x=1'];
+  for (const url of urls) {
     const r = await call('POST', url, staffSession(s), { currentPassword: 'x', newPassword: 'NewSecret99' });
-    assert.equal(r.status, 403, url);
-    assert.equal(r.body.code, NO_CREDS, url);
+    assert.equal(r.status, 200, url);
+    assert.notEqual(r.body.code, NO_CREDS, url);
   }
-  assert.equal(hits.length, 0, 'لم يبلغ المعالج');
+  assert.equal(hits.length, 3, 'بلغ المعالج');
+  await settle();
+  assert.deepEqual(auditRows(), urls.map((u) => ['سارة الدعم', 'POST', u.split('?')[0], 200]), 'بلا الاستعلام');
   assert.equal((await call('POST', '/api/auth/change-password', ownerSession(), {})).status, 200);
-  assert.equal(hits.length, 1);
+  assert.equal(hits.length, 4);
+  await settle();
+  assert.equal(audits.length, 3, 'جلسة المالك بلا سطر');
 });
 
 test('أ) تركيب الحارس في كل مسارٍ يُنشئ اعتماداً — ولا مسار آخر في الملفات الثلاثة يضع كلمة مرور أو يصدر مفتاحاً', () => {
@@ -349,29 +385,37 @@ test('ب) تعذّر السجل ⇒ ٥٠٣ AUDIT_UNAVAILABLE ولا يبلغ ا�
   assert.equal(r.status, 503);
   assert.equal(r.body.code, 'AUDIT_UNAVAILABLE');
   assert.equal(hits.length, 0);
-  // المنع في السجل قبل حارس الاعتمادات: الإنشاء الممنوع أصلاً لا يصل الكتابة ولا يُنفَّذ
+  // السجل قبل المعالج: الإنشاء (المسموح للموظف كالمالك) لا يُنفَّذ بلا سطره
   assert.equal((await call('POST', '/api/company-users', staffSession(s), { name: 'xx', email: 'x@x.co', role: 'MANAGER', password: 'Secret123' })).status, 503);
   assert.deepEqual(writes, []);
   assert.equal((await call('GET', '/api/company-thing', staffSession(s))).status, 200);
   assert.equal((await call('POST', '/api/company-thing', ownerSession(), {})).status, 200, 'جلسة المالك لا تُكتب فلا تُمنع');
 });
 
-test('ب) محاولة الاعتماد الممنوعة نفسها مسجَّلة بحالتها ٤٠٣', async () => {
+test('ب) إصدار الاعتماد نفسه (مفتاح API) مسجَّلٌ باسم الموظف بحالة نجاحه ٢٠١ — والمرفوض لعلّةٍ أخرى يُختم بحالته', async () => {
   reset();
   const s = addStaff();
-  await call('POST', '/api/api-keys', staffSession(s), { name: 'x' });
+  assert.equal((await call('POST', '/api/api-keys', staffSession(s), { name: 'x' })).status, 201);
   await settle();
   assert.equal(audits.length, 1);
-  assert.equal(audits[0].path, '/api/api-keys');
-  assert.equal(audits[0].status, 403);
+  assert.deepEqual(
+    { actorType: audits[0].actorType, actorId: audits[0].actorId, actorName: audits[0].actorName, action: audits[0].action, path: audits[0].path, status: audits[0].status },
+    { actorType: 'STAFF', actorId: s.id, actorName: 'سارة الدعم', action: 'tenants.impersonate.write', path: '/api/api-keys', status: 201 },
+  );
+  // جسمٌ غير صالح: الرفض نفسه (لا اعتماد) يُختم بحالته على سطره
+  assert.equal((await call('POST', '/api/api-keys', staffSession(s), {})).status, 400);
+  await settle();
+  assert.equal(audits.length, 2);
+  assert.equal(audits[1].status, 400);
+  assert.deepEqual(writes, ['apiKey.create']);
 });
 
-test('ب) المُصدِر يُقرأ مرة: liveImpersonationIssuer تعيد اسم الموظف، وnull لما يُسقط الجلسة، وimpersonationIssuerOk مطابقة لها', async () => {
+test('ب) المُصدِر يُقرأ مرة: liveImpersonationIssuer تعيد اسم الموظف و«كالمالك» (full)، وnull لما يُسقط الجلسة، وimpersonationIssuerOk مطابقة لها', async () => {
   reset();
   const s = addStaff();
   const p = { by: s.id, byKind: 'STAFF', btv: 0 };
-  assert.deepEqual(await pa.liveImpersonationIssuer(p), { name: 'سارة الدعم' });
-  assert.deepEqual(await pa.liveImpersonationIssuer({ by: 'o1', byKind: 'OWNER' }), { name: null });
+  assert.deepEqual(await pa.liveImpersonationIssuer(p), { name: 'سارة الدعم', full: true });
+  assert.deepEqual(await pa.liveImpersonationIssuer({ by: 'o1', byKind: 'OWNER' }), { name: null, full: true });
   assert.equal(await pa.impersonationIssuerOk(p), true);
   s.permissions = ['tenants.view'];
   assert.equal(await pa.liveImpersonationIssuer(p), null);

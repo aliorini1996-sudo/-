@@ -11,6 +11,10 @@ export interface AuthPayload {
   by?: string;
   byKind?: 'OWNER' | 'STAFF';
   btv?: number;
+  /** موظف منصة بكل الصلاحيات (يضعه authenticate حيّاً لا التوكن) — داخل الشركة كالمالك تماماً */
+  staffFull?: boolean;
+  /** في التوكن للعرض فقط: الموظف المُصدِر كان بكل الصلاحيات لحظة «الدخول» (الحكم في الخادم حيّ) */
+  sf?: boolean;
   canAccessDashboard?: boolean;
   canManageCustomers?: boolean;
   canManageProducts?: boolean;

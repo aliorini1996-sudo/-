@@ -400,23 +400,32 @@ export async function impersonationIssuerOk(p: { by?: unknown; byKind?: unknown;
   return (await liveImpersonationIssuer(p)) !== null;
 }
 
-/** كـimpersonationIssuerOk ويعيد اسم الموظف المُصدِر معه — لسطر سجل كتاباته بلا قراءةٍ ثانية. null = سقطت الجلسة */
-export async function liveImpersonationIssuer(p: { by?: unknown; byKind?: unknown; btv?: unknown }): Promise<{ name: string | null } | null> {
+/** موظفٌ مُنح كل صلاحيات الكتالوج بلا استثناء — يُعامَل داخل الشركات كالمالك تماماً (أمر المالك ٩ نوفمبر ٢٠٢٦) */
+export function hasAllStaffPermissions(perms: readonly string[] | null | undefined): boolean {
+  const set = new Set(perms ?? []);
+  return STAFF_PERMISSIONS.every((p) => set.has(p.key));
+}
+
+/** كـimpersonationIssuerOk ويعيد اسم الموظف المُصدِر معه — لسطر سجل كتاباته بلا قراءةٍ ثانية. null = سقطت الجلسة.
+ *  full: المُصدِر المالك، أو موظفٌ بكل الصلاحيات (يُحسب حيّاً في كل طلب — سحب صلاحيةٍ واحدة يعيد القيود فوراً) */
+export async function liveImpersonationIssuer(p: { by?: unknown; byKind?: unknown; btv?: unknown }): Promise<{ name: string | null; full: boolean } | null> {
   if (typeof p.by !== 'string' || !p.by) return null;
   if (p.byKind === 'OWNER') {
     const o = await prisma.superAdmin.findUnique({ where: { id: p.by }, select: { isActive: true } });
-    return o?.isActive === true ? { name: null } : null;
+    return o?.isActive === true ? { name: null, full: true } : null;
   }
   if (p.byKind === 'STAFF') {
     const s = await prisma.platformStaff.findUnique({ where: { id: p.by }, select: { name: true, isActive: true, tokenVersion: true, permissions: true } });
-    return s && s.isActive && s.tokenVersion === p.btv && s.permissions.includes('tenants.impersonate') ? { name: s.name } : null;
+    return s && s.isActive && s.tokenVersion === p.btv && s.permissions.includes('tenants.impersonate')
+      // كل صلاحيةٍ تُمنح للموظف بإمكانيات المالك نفسها (أمر المالك ٩ نوفمبر ٢٠٢٦): صلاحية «الدخول» تجعله داخل الشركة كالمالك تماماً
+      ? { name: s.name, full: true } : null;
   }
   return null;
 }
 
-/** جلسة «دخول» أصدرها موظف منصة لا المالك — تُقيَّد بما لا تُقيَّد به جلسة المالك (أدناه) */
-export function isStaffImpersonation(req: { user?: { impersonated?: boolean; byKind?: string } | null }): boolean {
-  return req.user?.impersonated === true && req.user?.byKind === 'STAFF';
+/** جلسة «دخول» أصدرها موظف منصة **مقيَّد** — تُقيَّد بما لا تُقيَّد به جلسة المالك (أدناه). موظفٌ بكل الصلاحيات (staffFull) كالمالك */
+export function isStaffImpersonation(req: { user?: { impersonated?: boolean; byKind?: string; staffFull?: boolean } | null }): boolean {
+  return req.user?.impersonated === true && req.user?.byKind === 'STAFF' && req.user?.staffFull !== true;
 }
 
 export const STAFF_SESSION_NO_CREDENTIALS = 'لا ينشئ موظف المنصة داخل الشركة حسابات ولا كلمات مرور ولا مفاتيح ربط اطلبها من المالك';
@@ -447,7 +456,8 @@ const impersonationWriteAudited = new WeakSet<object>();
  * authenticate بعد التحقّق من المُصدِر. true = تابع.
  */
 export async function auditStaffImpersonationWrite(req: AuthRequest, res: Response, issuerName: string | null): Promise<boolean> {
-  if (!isStaffImpersonation(req) || READ_METHODS.has(req.method) || impersonationWriteAudited.has(req)) return true;
+  // كل جلسة موظف (ولو بكل الصلاحيات) تُسجَّل كتاباتها باسمه — التكافؤ مع المالك في القدرة لا في المساءلة
+  if (!(req.user?.impersonated === true && req.user?.byKind === 'STAFF') || READ_METHODS.has(req.method) || impersonationWriteAudited.has(req)) return true;
   try {
     const id = await writePlatformAudit({
       actorType: 'STAFF', actorId: String(req.user!.by), actorName: issuerName, action: 'tenants.impersonate.write',

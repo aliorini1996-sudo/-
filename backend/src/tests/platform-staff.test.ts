@@ -370,7 +370,11 @@ test('«دخول»: التوكن يحمل مُصدِره، ويسقط بتعطي
   assert.deepEqual(issuer, { by: s.id, byKind: 'STAFF', btv: 0 });
   const sign = (extra: Record<string, unknown>) => jwt.sign({ id: 'a1', role: 'ADMIN', name: 'مدير', tenantId: 't1', impersonated: true, ...extra }, SECRET);
   const viaStaff = sign(issuer);
-  assert.equal((await call('GET', '/api/company-thing', viaStaff)).status, 200);
+  const live = await call('GET', '/api/company-thing', viaStaff);
+  assert.equal(live.status, 200);
+  // أمر المالك ٩ نوفمبر ٢٠٢٦: الموظف المُصدِر الحيّ داخل الشركة كالمالك — staffFull يضعه authenticate حيّاً لا التوكن
+  assert.equal(live.body.user.staffFull, true);
+  assert.equal(pa.isStaffImpersonation({ user: live.body.user }), false, 'لا قيود الموظف المقيَّد');
   s.permissions = ['tenants.view'];
   assert.equal((await call('GET', '/api/company-thing', viaStaff)).status, 401, 'سُحبت صلاحية الدخول');
   s.permissions = ['tenants.view', 'tenants.impersonate'];
@@ -380,7 +384,9 @@ test('«دخول»: التوكن يحمل مُصدِره، ويسقط بتعطي
   s.isActive = false;
   assert.equal((await call('GET', '/api/company-thing', viaStaff)).status, 401, 'عُطّل');
   const viaOwner = sign({ by: 'o1', byKind: 'OWNER' });
-  assert.equal((await call('GET', '/api/company-thing', viaOwner)).status, 200);
+  const ownerLive = await call('GET', '/api/company-thing', viaOwner);
+  assert.equal(ownerLive.status, 200);
+  assert.equal(ownerLive.body.user.staffFull, undefined, 'staffFull للموظف وحده');
   owners.set('o1', { id: 'o1', isActive: false });
   assert.equal((await call('GET', '/api/company-thing', viaOwner)).status, 401);
   const legacy = await call('GET', '/api/company-thing', sign({}));
@@ -390,10 +396,13 @@ test('«دخول»: التوكن يحمل مُصدِره، ويسقط بتعطي
   assert.equal((await call('GET', '/api/company-thing', jwt.sign({ id: 'a1', role: 'ADMIN', name: 'م', tenantId: 't1' }, SECRET))).status, 200);
 });
 
-test('tenants.ts يوقّع «دخول» بمُصدِره', () => {
+test('tenants.ts يوقّع «دخول» بمُصدِره ووسم العرض sf لجلسة الموظف، وauthenticate يحكم بـstaffFull من المُصدِر الحيّ لا من التوكن', () => {
   const src = read('routes', 'tenants.ts');
-  assert.match(src, /impersonated: true, \.\.\.impersonationIssuer\(req\) \}/);
-  assert.match(read('middleware', 'auth.ts'), /if \(payload\.impersonated\) \{\n\s+try \{\n\s+const issuer = await liveImpersonationIssuer\(payload\);\n\s+if \(!issuer\) \{/);
+  assert.match(src, /impersonated: true, \.\.\.impersonationIssuer\(req\), \.\.\.\(\(req as PlatformRequest\)\.platformStaff \? \{ sf: true \} : \{\}\) \}/);
+  const auth = read('middleware', 'auth.ts').replace(/\r\n/g, '\n');
+  assert.match(auth, /if \(payload\.impersonated\) \{\n\s+try \{\n\s+const issuer = await liveImpersonationIssuer\(payload\);\n\s+if \(!issuer\) \{/);
+  assert.match(auth, /if \(payload\.byKind === 'STAFF' && issuer\.full\) \(req\.user as AuthPayload\)\.staffFull = true;/);
+  assert.doesNotMatch(auth, /payload\.sf\b/, 'sf للعرض في الواجهة وحده');
 });
 
 // ═══════════════════ الدخول وكلمة المرور ═══════════════════
@@ -468,7 +477,7 @@ test('إدارة الموظفين: المالك ينشئ بكلمة مرورٍ �
 
 // ═══════════════════ محتوى الموقع ومولد الفواتير ═══════════════════
 
-test('محتوى الموقع من الموظف: نصوص وروابط فقط — لا وسم ولا علامة تنصيص مزدوجة ولا مخطّط سكربت، وما لم يتغيّر لا يُفحص', () => {
+test('محتوى الموقع من الموظف كالمالك (أمر المالك ٩ نوفمبر ٢٠٢٦): فحص النصوص staffUnsafeChange باقٍ دالةً لكنه مطفأ في الحفظ', () => {
   const prev = { hero: { title: 'قديم <b>غامق</b>' }, social: { x: 'https://x.com/fs' } };
   assert.equal(staffUnsafeChange({ hero: { title: 'قديم <b>غامق</b>' }, social: { x: 'https://x.com/fs' } }, prev), null, 'محتوى المالك القائم');
   assert.equal(staffUnsafeChange({ hero: { title: 'عنوانٌ جديد للمندوب\'s app' } }, prev), null, 'نصٌّ عادي وفاصلةٌ عليا');
@@ -478,8 +487,10 @@ test('محتوى الموقع من الموظف: نصوص وروابط فقط �
   assert.equal(staffUnsafeChange({ social: { x: 'javascript:alert(1)' } }, prev), 'social.x');
   assert.equal(staffUnsafeChange({ heroImage: 'data:text/html;base64,PHNjcmlwdD4=' }, prev), 'heroImage');
   assert.equal(staffUnsafeChange({ items: [{ t: 'ok' }, { t: '{{hero.title}}' }] }, prev), 'items.1.t');
+  // PUT / يحفظ للموظف بصلاحية content.edit كما للمالك: شرط الفحص مطفأ (لا STAFF_CONTENT_UNSAFE يبلغه الموظف)
   const src = read('routes', 'siteContent.ts');
-  assert.match(src, /if \(req\.platformStaff\) \{[\s\S]*staffUnsafeChange\(req\.body \?\? \{\}, prev\)[\s\S]*STAFF_CONTENT_UNSAFE/);
+  assert.match(src, /if \(false as boolean && req\.platformStaff\) \{[\s\S]*staffUnsafeChange\(req\.body \?\? \{\}, prev\)[\s\S]*STAFF_CONTENT_UNSAFE/);
+  assert.doesNotMatch(src, /if \(req\.platformStaff\) \{/, 'لا فرع موظفٍ حيّ في الحفظ');
 });
 
 test('مولد الفواتير صلاحيةٌ مستقلة: القائمة والتصدير لا يصلانهم بمرشّح المصدر، والتفاصيل كأنهم غير موجودين', () => {
@@ -500,7 +511,17 @@ test('روابط الدفع: مسارات /owner خلف حارس اللوحة ق
 
 // ═══════════════════ قنوات دائمة من جلسة «دخول» وإنشاء الشركة (جولة التحقق الثانية) ═══════════════════
 
-test('قنوات تبقى بعد سقوط جلسة الموظف مغلقة: هاتف الشركة وERP وسرّ ويبهوك هاتف، وكلمة مرور مدير الشركة الجديدة إلى بريده', () => {
+test('قنوات الاعتماد الدائم: حرّاس الهاتف وERP وسرّ ويبهوك هاتف للموظف المقيَّد وحده (الموظف الحيّ كالمالك)، وإعادة كلمة مرور المدير بيد الموظف كالمالك، وكلمة مرور مدير الشركة الجديدة إلى بريده', () => {
+  // أمر المالك ٩ نوفمبر ٢٠٢٦: الحرّاس تبقى مركَّبةً لكن isStaffImpersonation لا يصدق على جلسة موظفٍ حيّ (staffFull) — فلا ٤٠٣
+  assert.equal(pa.isStaffImpersonation({ user: { impersonated: true, byKind: 'STAFF', staffFull: true } }), false);
+  let refused: number | null = null;
+  const fakeRes = { status(c: number) { refused = c; return { json() { /* */ } }; } };
+  assert.equal(pa.refuseStaffCredentials({ user: { impersonated: true, byKind: 'STAFF', staffFull: true } } as never, fakeRes as never), false);
+  assert.equal(refused, null, 'لا ردّ ٤٠٣');
+  // إعادة كلمة مرور المدير: الموظف يضعها بنفسه كالمالك — فرع البريد (staffResetAdmin) مطفأ
+  const tenantsSrc = read('routes', 'tenants.ts');
+  assert.match(tenantsSrc, /const STAFF_OWNER_PARITY_OFF = false as boolean;/);
+  assert.match(tenantsSrc, /if \(STAFF_OWNER_PARITY_OFF && req\.platformStaff\) \{ await staffResetAdmin\(req, res\); return; \}/);
   const company = read('routes', 'company.ts');
   assert.match(company, /if \(isStaffImpersonation\(req\) && await staffChangesPhone\(tid, data\.phone\) && refuseStaffCredentials\(req, res\)\) return;/);
   const erp = read('routes', 'erp.ts');
@@ -531,12 +552,13 @@ test('حارس /auth/change-password لجلسة الموظف يطابق مسار
   assert.doesNotMatch(auth.slice(auth.indexOf('function normalizedUrlPath'), auth.indexOf('function normalizedUrlPath') + 400), /originalUrl \?\?/);
 });
 
-test('عدد عملاء الشركات للمالك وحده: لا يُقرأ لموظف المنصة في القائمة ولا في الشركة المفردة، ولا عمود له في لوحته', () => {
+test('عدد عملاء الشركات للموظف كالمالك (أمر المالك ٩ نوفمبر ٢٠٢٦): يُقرأ في القائمة وفي الشركة المفردة بلا شرط', () => {
   const tenants = read('routes', 'tenants.ts');
-  assert.equal((tenants.match(/customers: !req\.platformStaff/g) ?? []).length, 2);
-  assert.doesNotMatch(tenants, /_count: \{ select: \{[^}]*customers: true/, 'لا عدّ عملاء بلا شرط في مسارات الشركات');
+  assert.equal((tenants.match(/customers: !req\.platformStaff/g) ?? []).length, 0, 'لا حجب عن الموظف');
+  assert.match(tenants, /_count: \{ select: \{ admins: true, salesReps: true, customers: true, invoices: true \} \}/, 'القائمة');
+  assert.match(tenants, /_count: \{ select: \{ salesReps: true, customers: true, products: true, invoices: true, receipts: true \} \}/, 'الشركة المفردة');
+  // العمود في لوحة المنصة يُرسم من العدد متى أُذن له (perms.customers)
   const page = fs.readFileSync(path.join(SRC, '..', '..', 'web-admin', 'src', 'pages', 'PlatformPage.tsx'), 'utf8');
-  assert.match(page, /customers: isOwner,/);
   assert.match(page, /\{perms\.customers && <th className="text-center">\{tr\('عملاء'\)\}<\/th>\}/);
   assert.match(page, /\{perms\.customers && <td className="text-center text-gray-600">\{t\._count\?\.customers \?\? 0\}<\/td>\}/);
 });

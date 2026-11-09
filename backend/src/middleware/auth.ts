@@ -105,6 +105,8 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
         res.status(401).json({ success: false, code: 'IMPERSONATION_ENDED', message: 'انتهت جلسة الدخول الى الشركة' });
         return;
       }
+      // موظفٌ بكل الصلاحيات ⇒ كالمالك داخل الشركة (staffFull يُحسب حيّاً لا من التوكن)
+      if (payload.byKind === 'STAFF' && issuer.full) (req.user as AuthPayload).staffFull = true;
       // جلسة الموظف: كل كتابةٍ سطرٌ باسمه في سجل نشاط المنصة قبل التنفيذ (تعذّره ٥٠٣) — جلسة المالك كما هي
       if (!(await auditStaffImpersonationWrite(req, res, issuer.name))) return;
       // وتغيير كلمة مرور الحساب نفسه اعتمادٌ يبقى بعدها — مساره (/api/auth) خارج موجّهات الشركة فيُحرس هنا

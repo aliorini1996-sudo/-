@@ -20,11 +20,11 @@ export const PURGE_LABELS: Record<string, string> = {
 const COMMON = ['Invoice', 'Receipt', 'VanLoad', 'WarehouseEntry', 'SalesLocation', 'Customer', 'Product', 'SalesRep', 'Admin', 'RepStockRequest'];
 const labelOf = (m: string) => PURGE_LABELS[m] ?? m;
 
-/** جلسة «دخول» أصدرها المالك (لا موظف المنصة) — من حمولة التوكن */
+/** جلسة «دخول» أصدرها المالك، أو موظف المنصة بكل الصلاحيات (sf) — من حمولة التوكن للعرض، والخادم يحكم حيّاً */
 export function isOwnerIssuedSession(token: string | null | undefined): boolean {
   try {
     const p = JSON.parse(decodeURIComponent(escape(atob(String(token ?? '').split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))));
-    return p?.impersonated === true && p?.byKind === 'OWNER';
+    return p?.impersonated === true && (p?.byKind === 'OWNER' || (p?.byKind === 'STAFF' && p?.sf === true));
   } catch { return false; }
 }
 

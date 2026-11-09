@@ -111,23 +111,19 @@ function reset(current: { cardPayEnabled: boolean; nearpayMerchantId: string | n
 }
 const wrote = (): boolean => calls.some((c) => c.op === 'tenant.update');
 
-test('موظف المنصة لا يفعّل التحصيل بالبطاقة ولا يغيّر التاجر — 403 بلا كتابة ورسالةٌ بلا اسم المزوّد؛ والقيم نفسها تمرّ', async () => {
+test('موظف المنصة بـ«تعديل الاشتراك» كالمالك (أمر المالك ٩ نوفمبر ٢٠٢٦): يفعّل التحصيل بالبطاقة ويغيّر التاجر ويطفئه — لا STAFF_CARDPAY_FORBIDDEN', async () => {
   const token = pa.signStaffToken(staff);
   await withServerEnv(async () => {
     for (const body of [{ cardPayEnabled: true }, { nearpayMerchantId: MERCHANT }, { cardPayEnabled: true, nearpayMerchantId: MERCHANT }]) {
       reset({ cardPayEnabled: false, nearpayMerchantId: null });
       const r = await put(body, token);
-      assert.equal(r.status, 403, `${JSON.stringify(body)} ⇒ ${JSON.stringify(r.body)}`);
-      assert.equal(r.body.code, 'STAFF_CARDPAY_FORBIDDEN');
-      assert.doesNotMatch(String(r.body.message), BRAND);
-      assert.ok(!wrote(), 'لا كتابة');
+      assert.notEqual(r.body?.code, 'STAFF_CARDPAY_FORBIDDEN', `${JSON.stringify(body)} ⇒ ${JSON.stringify(r.body)}`);
+      assert.notEqual(r.status, 403, `${JSON.stringify(body)} ⇒ ${JSON.stringify(r.body)}`);
     }
-    // إطفاءٌ أو فكّ تاجرٍ قائم كذلك للمالك وحده
     for (const body of [{ cardPayEnabled: false }, { nearpayMerchantId: null }]) {
       reset({ cardPayEnabled: true, nearpayMerchantId: MERCHANT });
       const r = await put(body, token);
-      assert.equal(r.status, 403, `${JSON.stringify(body)} ⇒ ${JSON.stringify(r.body)}`);
-      assert.ok(!wrote());
+      assert.notEqual(r.status, 403, `${JSON.stringify(body)} ⇒ ${JSON.stringify(r.body)}`);
     }
     // نموذج الحفظ يعيد القيمتين كما هما مع تعديلٍ آخر — يمرّ
     reset({ cardPayEnabled: true, nearpayMerchantId: MERCHANT });

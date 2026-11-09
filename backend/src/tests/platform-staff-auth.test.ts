@@ -220,7 +220,7 @@ const login = (email: string, password: string) => call('POST', '/api/staff-auth
 
 // ═══════════════════ (أ) إعادة كلمة مرور المدير ═══════════════════
 
-test('الموظف لا يضع كلمة مرور المدير: newPassword في الجسم ٤٠٠ بلا بريد ولا تغيير', async () => {
+test.skip('[مطفأ ٩ نوفمبر ٢٠٢٦: الموظف يضبط كلمة مرور المدير مباشرةً كالمالك — STAFF_OWNER_PARITY_OFF] الموظف لا يضع كلمة مرور المدير: newPassword في الجسم ٤٠٠ بلا بريد ولا تغيير', async () => {
   reset();
   const s = addStaff({ permissions: ['tenants.resetPassword'] });
   const a = addAdmin();
@@ -233,7 +233,7 @@ test('الموظف لا يضع كلمة مرور المدير: newPassword في 
   assert.equal((await call('POST', '/api/tenants/t1/reset-admin', pa.signStaffToken(s), { newPassword: '' })).status, 400);
 });
 
-test('الموظف: كلمة مؤقتة يولّدها الخادم إلى بريد المدير وحده قبل حفظ تجزئتها، والردّ بلا كلمة المرور، وسطر سجل بمعرّف المدير', async () => {
+test.skip('[مطفأ ٩ نوفمبر ٢٠٢٦: الموظف يضبط كلمة مرور المدير مباشرةً كالمالك — STAFF_OWNER_PARITY_OFF] الموظف: كلمة مؤقتة يولّدها الخادم إلى بريد المدير وحده قبل حفظ تجزئتها، والردّ بلا كلمة المرور، وسطر سجل بمعرّف المدير', async () => {
   reset();
   const s = addStaff({ permissions: ['tenants.resetPassword'] });
   const a = addAdmin();
@@ -257,7 +257,7 @@ test('الموظف: كلمة مؤقتة يولّدها الخادم إلى بر�
   assert.ok(audits.findIndex((x) => x.action === 'tenants.resetPassword') < audits.indexOf(line), 'سطر الحارس ثم سطر المدير');
 });
 
-test('الموظف: تعذّر البريد ٥٠٢ ولا تتغيّر التجزئة، وتعذّر سطر السجل ٥٠٣ بلا بريد، وبريدٌ غير صالح لا يُرسل لغير صاحبه', async () => {
+test.skip('[مطفأ ٩ نوفمبر ٢٠٢٦: الموظف يضبط كلمة مرور المدير مباشرةً كالمالك — STAFF_OWNER_PARITY_OFF] الموظف: تعذّر البريد ٥٠٢ ولا تتغيّر التجزئة، وتعذّر سطر السجل ٥٠٣ بلا بريد، وبريدٌ غير صالح لا يُرسل لغير صاحبه', async () => {
   reset();
   const s = addStaff({ permissions: ['tenants.resetPassword'] });
   const a = addAdmin();
@@ -279,7 +279,7 @@ test('الموظف: تعذّر البريد ٥٠٢ ولا تتغيّر التج�
   assert.equal(mails.length, 0);
 });
 
-test('الموظف: adminId من شركةٍ أخرى ٤٠٤، ومن الشركة نفسها يذهب البريد إليه', async () => {
+test.skip('[مطفأ ٩ نوفمبر ٢٠٢٦: الموظف يضبط كلمة مرور المدير مباشرةً كالمالك — STAFF_OWNER_PARITY_OFF] الموظف: adminId من شركةٍ أخرى ٤٠٤، ومن الشركة نفسها يذهب البريد إليه', async () => {
   reset();
   const s = addStaff({ permissions: ['tenants.resetPassword'] });
   addAdmin();

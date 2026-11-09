@@ -318,16 +318,17 @@ test('علم الشركة: المالك يكتبه من PUT /tenants/:id، وا�
   assert.equal(list.body.data[0].convertBaseOpen, false, 'علم الشركة كما في صفّها (افتراضه false) — قلب البوابة لا يفتح شركة');
 });
 
-test('علم الشركة: موظف المنصّة بـtenants.edit لا يغيّره (403 بلا كتابة)، والجسم الذي يعيد القيمة نفسها يمرّ', async () => {
+test('علم الشركة: موظف المنصّة بـtenants.edit يغيّره كالمالك (أمر المالك ٩ نوفمبر ٢٠٢٦)، والجسم الذي يعيد القيمة نفسها يمرّ', async () => {
   const staff = { id: 's1', name: 'سارة', email: 's@x.co', isActive: true, permissions: ['tenants.edit'], tokenVersion: 0, mustChangePassword: false };
   const token = pa.signStaffToken(staff);
   reset();
   scripted['platformStaff.findUnique'] = () => staff;
   scripted['tenant.findUnique'] = () => ({ convertBaseOpen: false });
+  scripted['tenant.update'] = (a) => ({ id: 'T1', ...a.data });
   const r = await call('PUT', '/api/tenants/T1', { convertBaseOpen: true }, token);
-  assert.equal(r.status, 403, JSON.stringify(r.body));
-  assert.equal(r.body.code, 'CONVERT_BASE_FLAG_OWNER_ONLY');
-  assert.ok(!calls.some((c) => c.op === 'tenant.update'));
+  assert.notEqual(r.body?.code, 'CONVERT_BASE_FLAG_OWNER_ONLY', JSON.stringify(r.body));
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.ok(calls.some((c) => c.op === 'tenant.update'));
 
   reset();
   scripted['platformStaff.findUnique'] = () => staff;

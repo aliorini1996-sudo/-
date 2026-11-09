@@ -39,7 +39,8 @@ export function staffUnsafeChange(next: unknown, prev: unknown, path = ''): stri
 // حفظ/تحديث المحتوى — مالك المنصّة، وموظفها بصلاحية «تعديل محتوى الصفحة والبروفايل» نصوصاً بلا HTML
 router.put('/', platformGate, async (req: PlatformRequest, res: Response, next: NextFunction) => {
   try {
-    if (req.platformStaff) {
+    // كل صلاحيةٍ للموظف بإمكانيات المالك (٩ نوفمبر ٢٠٢٦): «تعديل المحتوى» بلا قيد النصوص — الشرط مطفأ
+    if (false as boolean && req.platformStaff) {
       const row = await prisma.siteContent.findUnique({ where: { id: 'main' } });
       let prev: unknown = null;
       if (row) { try { prev = JSON.parse(row.data); } catch { prev = null; } }
