@@ -105,6 +105,11 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   r('POST', `/api/tenants/${SEG}/reset-admin`, 'tenants.resetPassword'),
   r('POST', `/api/tenants/${SEG}/ledger-reset`, 'tenants.ledger'),
   r('PUT', `/api/tenants/${SEG}/ledger-paylink-fee-invoice-from`, 'tenants.ledger'),
+  // ملاحظات الشركة وحالة الصفقة: لمن يرى قائمة الشركات (طلب المالك ٩ نوفمبر ٢٠٢٦) — بلا مفتاح جديد كي لا يسقط «كل الصلاحيات» عن موظفٍ قائم
+  r('GET', `/api/tenants/${SEG}/notes`, 'tenants.view'),
+  r('POST', `/api/tenants/${SEG}/notes`, 'tenants.view'),
+  r('DELETE', `/api/tenants/${SEG}/notes/${SEG}`, 'tenants.view'),
+  r('PUT', `/api/tenants/${SEG}/deal`, 'tenants.view'),
 
   // ── العملاء المحتملون /api/leads ──
   r('GET', '/api/leads', 'leads.view'),

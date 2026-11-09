@@ -503,6 +503,11 @@ export const tenantApi = {
   setPaylinkFeeTaxInvoiceFrom: (id: string, data: { from: string | null }, preview?: boolean) =>
     api.put(`/tenants/${id}/ledger-paylink-fee-invoice-from`, data, { params: preview ? { preview: 1 } : undefined }),
   // نظام تشغيل المالك (خطة فجوة التنفيذ)
+  // ملاحظات الشركة وحالة الصفقة — لوحة المنصة وحدها (طلب المالك ٩ نوفمبر ٢٠٢٦)
+  notes: (id: string) => api.get(`/tenants/${id}/notes`),
+  addNote: (id: string, body: string) => api.post(`/tenants/${id}/notes`, { body }),
+  removeNote: (id: string, noteId: string) => api.delete(`/tenants/${id}/notes/${noteId}`),
+  setDeal: (id: string, stage: string | null) => api.put(`/tenants/${id}/deal`, { stage }),
   opsMetrics: () => api.get('/tenants/ops/metrics'),
   opsCards: () => api.get('/tenants/ops/cards'),
   sendWeeklyReport: () => api.post('/tenants/ops/weekly-report'),

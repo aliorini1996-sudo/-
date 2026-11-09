@@ -410,9 +410,11 @@ test('tenants.ts ledger-reset: confirmName يُتحقق منه في الخادم
 test('tenants.ts GET /: ledgerStatus من groupBy واحد خارج أي حلقة، بلا استعلام لكل شركة', () => {
   const body = handler(tenantsRoutes(), "router.get('/',");
   assert.equal((body.match(/glSourceEvent\.groupBy\(/g) ?? []).length, 1, 'groupBy واحد');
-  assert.equal((body.match(/prisma\.\w+\.\w+\(/g) ?? []).length, 2, 'tenant.findMany + glSourceEvent.groupBy فقط');
+  // + tenantNote.groupBy واحد لعدد ملاحظات كل الشركات (لوحة المنصة، ٩ نوفمبر ٢٠٢٦) — خارج الدمج كذلك
+  assert.equal((body.match(/prisma\.\w+\.\w+\(/g) ?? []).length, 3, 'tenant.findMany + glSourceEvent.groupBy + tenantNote.groupBy فقط');
   const map = body.indexOf('tenants.map(');
   assert.ok(map > body.indexOf('glSourceEvent.groupBy('), 'الاستعلام قبل الدمج');
+  assert.ok(map > body.indexOf('tenantNote.groupBy('), 'عدد الملاحظات قبل الدمج');
   assert.doesNotMatch(body.slice(map), /await|prisma\./, 'لا استعلام داخل الدمج');
   assert.match(body, /by: \['tenantId'\]/);
   assert.match(body, /detectedAt: \{ lt: ledgerStuckCutoff\(/);

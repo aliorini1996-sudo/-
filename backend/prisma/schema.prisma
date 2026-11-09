@@ -213,7 +213,40 @@ model Tenant {
   aiLessons             AiLesson[]
   aiLearningRuns        AiLearningRun[]
 
+  // لوحة المنصة وحدها (طلب المالك ٩ نوفمبر ٢٠٢٦): ملاحظات المالك والموظفين وحالة الصفقة — لا تصل الشركة أبداً
+  platformNotes         TenantNote[]
+  platformDeal          TenantDeal?
+
   @@map("tenants")
+}
+
+/// ملاحظة المالك أو موظف المنصة على الشركة ومجريات الصفقة معها (لوحة المنصة وحدها — لا مسار للشركة يقرؤها)
+model TenantNote {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// NOTE ملاحظة مكتوبة، STAGE سطرٌ آلي عند تغيير حالة الصفقة
+  kind       String   @default("NOTE")
+  body       String
+  /// OWNER أو STAFF — ومعرّفه واسمه وقت الكتابة
+  authorKind String
+  authorId   String
+  authorName String
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@map("tenant_notes")
+}
+
+/// حالة صفقة الشركة في لوحة المنصة — صفّ واحد لكل شركة، وغيابه = «بلا حالة» (routes/tenants.ts: DEAL_STAGES)
+model TenantDeal {
+  tenantId      String   @id
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  stage         String
+  updatedByName String
+  updatedAt     DateTime @updatedAt
+
+  @@map("tenant_deals")
 }
 
 // دفعة استيراد — تسجّل ما أُنشئ في كل رفعة لإتاحة التراجع/الإزالة الآمنة

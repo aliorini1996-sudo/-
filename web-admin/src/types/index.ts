@@ -82,6 +82,9 @@ export interface Tenant {
   createdAt: string;
   admins?: { id?: string; name: string; email: string; isActive?: boolean }[];
   _count?: { admins?: number; salesReps?: number; customers?: number; invoices?: number; receipts?: number; products?: number };
+  // لوحة المنصة وحدها: عدد الملاحظات وحالة الصفقة (طلب المالك ٩ نوفمبر ٢٠٢٦)
+  notesCount?: number;
+  platformDeal?: { stage: string; updatedAt: string; updatedByName: string } | null;
 }
 
 export type LeadStage = 'NEW' | 'CONTACTED' | 'QUALIFIED' | 'PROPOSAL' | 'WON' | 'LOST';

@@ -214,8 +214,13 @@ router.get('/', async (req: PlatformRequest, res: Response, next: NextFunction) 
         admins: { select: { name: true, email: true }, take: 1, orderBy: { createdAt: 'asc' } },
         // M2 (§8.1): حالة الدفاتر لشارة بطاقة الشركة
         glSettings: { select: { activatedAt: true, backfillState: true } },
+        // حالة الصفقة (لوحة المنصة وحدها — طلب المالك ٩ نوفمبر ٢٠٢٦)
+        platformDeal: { select: { stage: true, updatedAt: true, updatedByName: true } },
       },
     });
+    // عدد ملاحظات كل شركة لشارة أيقونة «الملاحظات» — استعلام واحد لكل الشركات
+    const noteRows = await prisma.tenantNote.groupBy({ by: ['tenantId'], _count: { _all: true } });
+    const notesBy = new Map(noteRows.map((r) => [r.tenantId, r._count._all]));
     // M3 (§8.1): استعلام واحد للأحداث المتعثرة أقدم من 24 ساعة لكل الشركات (الحالات التي يحمرّ لها C8)
     const stuckRows = await prisma.glSourceEvent.groupBy({
       by: ['tenantId'],
@@ -234,6 +239,7 @@ router.get('/', async (req: PlatformRequest, res: Response, next: NextFunction) 
           stuckEvents: stuck.get(t.id) ?? 0,
         }),
         ledgerActivatedAt: t.glSettings?.activatedAt ?? null,
+        notesCount: notesBy.get(t.id) ?? 0,
         // بوابة الإطلاق (للقراءة فقط): مغلقة ⇒ خانة علم «إضافة وحدة فرعية أصغر» معطّلة في صفحة المنصّة
         convertBaseReleased: CONVERT_BASE_OPEN_TO_COMPANY,
       })),
@@ -912,6 +918,94 @@ router.put('/:id/ledger-paylink-fee-invoice-from', async (req: AuthRequest, res:
     if (err instanceof OwnerLedgerReply) { res.status(err.status).json(err.body); return; }
     next(err);
   }
+});
+
+// ───────── ملاحظات الشركة وحالة الصفقة (طلب المالك ٩ نوفمبر ٢٠٢٦) ─────────
+// لوحة المنصة وحدها: المالك ومن يرى قائمة الشركات من الموظفين (tenants.view) يكتبون ويغيّرون ويحذفون — ولا مسار للشركة يقرؤها.
+// كتابة الموظف تُسجَّل في سجل نشاطه تلقائياً (platformGate).
+
+export const DEAL_STAGES = ['NOT_FIT', 'CONTACTED', 'MEETING', 'NO_REPLY', 'NEGOTIATION', 'BUYER', 'LOST'] as const;
+export type DealStage = typeof DEAL_STAGES[number];
+export const DEAL_STAGE_LABELS: Record<DealStage, string> = {
+  NOT_FIT: 'غير مناسب', CONTACTED: 'تم التواصل', MEETING: 'تم الاجتماع', NO_REPLY: 'لم يتم الرد',
+  NEGOTIATION: 'المفاوضة', BUYER: 'مشتري', LOST: 'تم خسارة العميل',
+};
+
+/** كاتب الملاحظة: الموظف من جلسته، والمالك باسمه في جدوله */
+async function platformAuthor(req: PlatformRequest): Promise<{ authorKind: 'OWNER' | 'STAFF'; authorId: string; authorName: string }> {
+  if (req.platformStaff) return { authorKind: 'STAFF', authorId: req.platformStaff.id, authorName: req.platformStaff.name };
+  const id = req.user!.id;
+  const owner = await prisma.superAdmin.findUnique({ where: { id }, select: { name: true } });
+  return { authorKind: 'OWNER', authorId: id, authorName: owner?.name || 'مالك المنصة' };
+}
+
+const noteSelect = { id: true, kind: true, body: true, authorKind: true, authorName: true, createdAt: true } as const;
+const dealSelect = { stage: true, updatedAt: true, updatedByName: true } as const;
+const noteBodySchema = z.object({ body: z.string().trim().min(1, 'اكتب الملاحظة').max(5000, 'الملاحظة أطول من ٥٠٠٠ حرف') });
+const dealSchema = z.object({ stage: z.enum(DEAL_STAGES).nullable() });
+
+async function tenantExists(id: string): Promise<boolean> {
+  return !!(await prisma.tenant.findUnique({ where: { id }, select: { id: true } }));
+}
+
+router.get('/:id/notes', async (req: PlatformRequest, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.params.id;
+    if (!(await tenantExists(tenantId))) { res.status(404).json({ success: false, message: 'الشركة غير موجودة' }); return; }
+    const [notes, deal] = await Promise.all([
+      prisma.tenantNote.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' }, take: 500, select: noteSelect }),
+      prisma.tenantDeal.findUnique({ where: { tenantId }, select: dealSelect }),
+    ]);
+    res.json({ success: true, data: { notes, deal } });
+  } catch (err) { next(err); }
+});
+
+router.post('/:id/notes', async (req: PlatformRequest, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.params.id;
+    const parsed = noteBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) { res.status(400).json({ success: false, message: parsed.error.issues[0]?.message || 'اكتب الملاحظة' }); return; }
+    if (!(await tenantExists(tenantId))) { res.status(404).json({ success: false, message: 'الشركة غير موجودة' }); return; }
+    const author = await platformAuthor(req);
+    const note = await prisma.tenantNote.create({ data: { tenantId, kind: 'NOTE', body: parsed.data.body, ...author }, select: noteSelect });
+    res.status(201).json({ success: true, data: note });
+  } catch (err) { next(err); }
+});
+
+router.delete('/:id/notes/:noteId', async (req: PlatformRequest, res: Response, next: NextFunction) => {
+  try {
+    const r = await prisma.tenantNote.deleteMany({ where: { id: req.params.noteId, tenantId: req.params.id } });
+    if (r.count === 0) { res.status(404).json({ success: false, message: 'الملاحظة غير موجودة' }); return; }
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// تغيير حالة الصفقة (null يزيلها) — ويُسجَّل سطرٌ في سجل الملاحظات بالاسم والوقت متى تغيّرت فعلاً
+router.put('/:id/deal', async (req: PlatformRequest, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.params.id;
+    const parsed = dealSchema.safeParse(req.body ?? {});
+    if (!parsed.success) { res.status(400).json({ success: false, message: 'حالة الصفقة غير معروفة' }); return; }
+    if (!(await tenantExists(tenantId))) { res.status(404).json({ success: false, message: 'الشركة غير موجودة' }); return; }
+    const stage = parsed.data.stage;
+    const author = await platformAuthor(req);
+    const out = await prisma.$transaction(async (tx) => {
+      const prev = await tx.tenantDeal.findUnique({ where: { tenantId }, select: dealSelect });
+      if ((prev?.stage ?? null) === stage) return { deal: prev, note: null }; // بلا تغيير ⇒ لا سطر في السجل
+      const deal = stage
+        ? await tx.tenantDeal.upsert({
+          where: { tenantId },
+          create: { tenantId, stage, updatedByName: author.authorName },
+          update: { stage, updatedByName: author.authorName },
+          select: dealSelect,
+        })
+        : (await tx.tenantDeal.deleteMany({ where: { tenantId } }), null);
+      const body = stage ? `حالة الصفقة: ${DEAL_STAGE_LABELS[stage]}` : 'أُزيلت حالة الصفقة';
+      const note = await tx.tenantNote.create({ data: { tenantId, kind: 'STAGE', body, ...author }, select: noteSelect });
+      return { deal, note };
+    });
+    res.json({ success: true, data: out });
+  } catch (err) { next(err); }
 });
 
 export default router;

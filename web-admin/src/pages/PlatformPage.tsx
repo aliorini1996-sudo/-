@@ -31,6 +31,7 @@ import { useTr } from '../i18n/strings';
 import { backdropClose } from '../lib/backdropClose';
 import { lotRecordsRetainedOf, tenantLotNote, tenantLotPayload } from '../lib/lotTrackingUi';
 import { taxModeErrorMessage } from './taxOffScreens1';
+import { DealStageSelect, NotesButton, TenantNotesModal } from '../components/TenantCrm';
 // سجلّ عروض الأسعار — كسولٌ: يجرّ html2canvas وjsPDF لمعاينة المستند وتنزيله
 const QuotesPanel = lazy(() => import('../components/QuotesPanel'));
 // «موظفو المنصة» وسجل نشاطهم — للمالك وحده، فلا تُحمَّل حزمتها في جلسة موظف أصلاً
@@ -64,6 +65,7 @@ export default function PlatformPage() {
   const [perfTarget, setPerfTarget] = useState<Tenant | null>(null);
   const [editTarget, setEditTarget] = useState<Tenant | null>(null);
   const [resetTarget, setResetTarget] = useState<Tenant | null>(null);
+  const [notesTarget, setNotesTarget] = useState<Tenant | null>(null);
   const [createdInfo, setCreatedInfo] = useState<{ company: string; email: string; password: string } | null>(null);
 
   const canTenants = can('tenants.view');
@@ -129,10 +131,13 @@ export default function PlatformPage() {
     resetByEmail: !isOwner,
     // عدد عملاء كل شركة للمالك وحده (طلب المالك) — والخادم لا يرسله للموظف أصلاً (routes/tenants.ts)
     customers: isOwner,
+    // حالة الصفقة والملاحظات: لكل من يرى قائمة الشركات (طلب المالك ٩ نوفمبر ٢٠٢٦)
+    crm: canTenants,
   };
 
   const colHandlers = {
     onEnter: (t: Tenant) => enterMutation.mutate(t.id),
+    onNotes: (t: Tenant) => setNotesTarget(t),
     onPerf: setPerfTarget,
     onEdit: setEditTarget,
     onReset: setResetTarget,
@@ -277,6 +282,7 @@ export default function PlatformPage() {
       )}
       {createdInfo && <CredentialsModal info={createdInfo} onClose={() => setCreatedInfo(null)} />}
       {perfTarget && tenantPerms.perf && <PerformanceModal tenant={perfTarget} onClose={() => setPerfTarget(null)} />}
+      {notesTarget && tenantPerms.crm && <TenantNotesModal tenant={notesTarget} onClose={() => setNotesTarget(null)} />}
       {editTarget && tenantPerms.edit && (
         <EditTenantModal
           tenant={editTarget}
@@ -333,7 +339,7 @@ export default function PlatformPage() {
 }
 
 /** أزرار صفّ الشركة الممنوحة — للمالك كلها صادقة (tenants.create/impersonate/performance/edit/resetPassword/delete) */
-type TenantPerms = { add: boolean; enter: boolean; perf: boolean; edit: boolean; reset: boolean; resetByEmail: boolean; del: boolean; customers: boolean };
+type TenantPerms = { add: boolean; enter: boolean; perf: boolean; edit: boolean; reset: boolean; resetByEmail: boolean; del: boolean; customers: boolean; crm: boolean };
 
 // ترحيب الموظف حين لا يُمنح جدول الشركات — القائمة الجانبية فيها ما مُنح وحده
 function StaffWelcome({ name, hint }: { name?: string; hint: string | null }) {
@@ -352,7 +358,7 @@ function StaffWelcome({ name, hint }: { name?: string; hint: string | null }) {
 // عمود شركات التوزيع — ترويسة ملوّنة + جدول الشركات.
 function TenantColumn({
   title, icon: Icon, accent, accentSoft, tenants, isLoading, perms,
-  onAdd, onEnter, onPerf, onEdit, onReset, onToggle, onDelete, enterPending,
+  onAdd, onEnter, onNotes, onPerf, onEdit, onReset, onToggle, onDelete, enterPending,
 }: {
   title: string;
   icon: React.ElementType;
@@ -363,6 +369,7 @@ function TenantColumn({
   perms: TenantPerms;
   onAdd: () => void;
   onEnter: (t: Tenant) => void;
+  onNotes: (t: Tenant) => void;
   onPerf: (t: Tenant) => void;
   onEdit: (t: Tenant) => void;
   onReset: (t: Tenant) => void;
@@ -380,7 +387,7 @@ function TenantColumn({
   const limitOf = (t: Tenant) => t.maxSalesReps;
   // عمودٌ بلا أي زرٍّ ممنوح لا يُرسم
   const showActions = perms.enter || perms.perf || perms.edit || perms.reset || perms.del;
-  const cols = 5 + (perms.customers ? 1 : 0) + (showActions ? 1 : 0);
+  const cols = 5 + (perms.customers ? 1 : 0) + (perms.crm ? 1 : 0) + (showActions ? 1 : 0);
 
   return (
     <section className="card p-0 overflow-hidden flex flex-col">
@@ -415,6 +422,7 @@ function TenantColumn({
               {perms.customers && <th className="text-center">{tr('عملاء')}</th>}
               <th>{tr('انتهاء الاشتراك')}</th>
               <th>{tr('الحالة')}</th>
+              {perms.crm && <th>{tr('الصفقة')}</th>}
               {showActions && <th>{tr('إجراءات')}</th>}
             </tr>
           </thead>
@@ -456,6 +464,12 @@ function TenantColumn({
                       );
                     })()}
                   </td>
+                  {perms.crm && <td>
+                    <div className="flex items-center gap-1">
+                      <DealStageSelect tenant={t} />
+                      <NotesButton tenant={t} onClick={() => onNotes(t)} />
+                    </div>
+                  </td>}
                   {showActions && <td>
                     <div className="flex items-center gap-1">
                       {perms.enter && (
