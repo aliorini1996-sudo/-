@@ -102,7 +102,8 @@ test('findArchivedProducts: المؤرشفة وحدها، بتوأمها ورص�
   assert.deepEqual(await findArchivedProducts(memDb({}) as never, 't1', { vanBalances }), []);
 });
 
-const REPOINT = ['GlMoveLine', 'InvoiceItem', 'InvoiceItemLot', 'LotEvent', 'LotRelabel', 'ProductLot', 'RepStockRequestItem', 'VanLoadItem', 'VanLoadItemLot', 'WarehouseEntryItem'];
+// «هدف الشهر» (RepTarget): هدف كمية الصنف يتبعه إلى توأمه كبنود فواتيره — فيبقى تقدّمه يُقاس على ما صار باسم B
+const REPOINT = ['GlMoveLine', 'InvoiceItem', 'InvoiceItemLot', 'LotEvent', 'LotRelabel', 'ProductLot', 'RepStockRequestItem', 'RepTarget', 'VanLoadItem', 'VanLoadItemLot', 'WarehouseEntryItem'];
 
 test('خطة الجداول من نموذج Prisma: التاريخ والحركات تُوجَّه إلى B، والإعداد لا يُوجَّه أبداً', () => {
   const plan = mergePlanModels();
@@ -110,7 +111,7 @@ test('خطة الجداول من نموذج Prisma: التاريخ والحرك�
   assert.deepEqual(plan.unhandled, []);
   for (const t of plan.repoint) assert.ok(!CONFIG_MODELS.has(t.model), t.model);
   const kind = Object.fromEntries(plan.repoint.map((t) => [t.model, t.kind]));
-  for (const m of ['InvoiceItem', 'VanLoadItem', 'WarehouseEntryItem', 'RepStockRequestItem', 'ProductLot']) assert.equal(kind[m], 'FK', m);
+  for (const m of ['InvoiceItem', 'VanLoadItem', 'WarehouseEntryItem', 'RepStockRequestItem', 'ProductLot', 'RepTarget']) assert.equal(kind[m], 'FK', m);
   for (const m of ['VanLoadItemLot', 'InvoiceItemLot', 'LotRelabel', 'LotEvent', 'GlMoveLine']) assert.equal(kind[m], 'PLAIN', m);
   const special = Object.fromEntries(plan.repoint.map((t) => [t.model, t.special]));
   assert.equal(special.ProductLot, 'LOTS');

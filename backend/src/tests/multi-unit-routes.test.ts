@@ -344,6 +344,7 @@ test('التحويل: أرقام التاريخ المطبوعة لا تتغيّ
   assert.equal(formatQty(w.tables.invoice_items[2].baseQty!, unitsAfter, 'حبة'), '3 كرتون', 'الصفّ بلا baseQty يُحسب من لقطته');
 
   // كل جملة: داخل المعاملة، تكتب اللقطة وحدها، ومقيّدة بالصنف والشركة عبر رأس مستندها
+  // (ولقطة «هدف الشهر» rep_targets بجملتي Prisma بعمود الشركة نفسه — اختبارها «هدف الشهر» أدناه)
   const heads: Record<string, [string, string]> = {
     invoice_items: ['invoices', 'invoiceId'], van_load_items: ['van_loads', 'vanLoadId'],
     warehouse_entry_items: ['warehouse_entries', 'entryId'], rep_stock_request_items: ['rep_stock_requests', 'requestId'],
@@ -522,7 +523,7 @@ test('التحويل dryRun: لا معاملة ولا قفل ولا كتابة،
   reset();
   const w = productWorld();
   const counted: Record<string, any> = {};
-  for (const m of ['invoiceItem', 'vanLoadItem', 'warehouseEntryItem', 'repStockRequestItem', 'customerPrice', 'priceTier', 'vanLoadItemLot', 'invoiceItemLot', 'lotRelabel']) {
+  for (const m of ['invoiceItem', 'vanLoadItem', 'warehouseEntryItem', 'repStockRequestItem', 'customerPrice', 'priceTier', 'vanLoadItemLot', 'invoiceItemLot', 'lotRelabel', 'repTarget']) {
     scripted[`${m}.count`] = (args) => { counted[m] = args.where; return m === 'invoiceItem' ? 3 : m === 'vanLoadItemLot' ? 2 : 1; };
   }
   scripted['apiKey.groupBy'] = () => [{ readOnly: true, _count: { _all: 2 } }];
@@ -539,9 +540,10 @@ test('التحويل dryRun: لا معاملة ولا قفل ولا كتابة،
   assert.equal(r.body.primaryAfter, 'كرتون');
   assert.deepEqual(r.body.converted, {
     factor: 24, from: 'كرتون', invoiceItems: 3, vanLoadItems: 1, warehouseEntryItems: 1, stockRequestItems: 1, customerPrices: 1, priceTiers: 1,
-    vanLoadItemLots: 2, invoiceItemLots: 1, lotRelabels: 1,
+    vanLoadItemLots: 2, invoiceItemLots: 1, lotRelabels: 1, repTargets: 1,
   });
   assert.deepEqual(counted.invoiceItem, { productId: 'p1', invoice: { tenantId: TENANT } });
+  assert.deepEqual(counted.repTarget, { tenantId: TENANT, productId: 'p1' }, '«هدف الشهر» بشرط الشركة والصنف');
   assert.deepEqual(counted.vanLoadItem, { productId: 'p1', vanLoad: { tenantId: TENANT } });
   assert.deepEqual(counted.customerPrice, { productId: 'p1', product: { tenantId: TENANT } });
   assert.deepEqual(counted.vanLoadItemLot, { tenantId: TENANT, productId: 'p1' });
@@ -614,6 +616,31 @@ test('«قوائم الأسعار» بقواعدها: التحويل يقسم ba
   assert.equal(dry.body.converted.priceListRules, 2);
   assert.deepEqual(countedWhere, { tenantId: TENANT, productId: 'p1', basePrice: { not: null } });
   assert.equal(calls.includes('priceListRule.updateMany'), false);
+});
+
+test('«هدف الشهر»: التحويل يضرب لقطة معامل أهداف الصنف في F، وهدف الأساس القديم يصير على وحدته الجديدة — في المعاملة نفسها بشرط الشركة والصنف', async () => {
+  reset();
+  const w = productWorld();
+  const writes: any[] = [];
+  scripted['repTarget.updateMany'] = (args) => { writes.push({ args, inTx }); return { count: args?.where?.unitId === null ? 1 : 3 }; };
+  const r = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const ct = w.units.find(u => u.name === 'كرتون')!;
+  assert.ok(ct, 'الأساس القديم صار وحدة');
+  // «١٠٠ كرتون» يبقى مئة كرتون: المعامل ×٢٤ فيُقاس على بنودٍ صار أساسها حبّات
+  assert.deepEqual(writes, [
+    { args: { where: { tenantId: TENANT, productId: 'p1' }, data: { unitFactor: { multiply: 24 } } }, inTx: true },
+    { args: { where: { tenantId: TENANT, productId: 'p1', unitId: null }, data: { unitId: ct.id } }, inTx: true },
+  ]);
+  assert.ok(calls.indexOf('repTarget.updateMany') > calls.indexOf('productUnit.create'), 'بعد إنشاء الوحدة القديمة (معرّفها)');
+  assert.equal(r.body.converted.repTargets, 3);
+  // صنفٌ بلا أهداف: شكل الردّ كما كان (لا مفتاح)، والجملتان في المعاملة ولو لم تمسّا شيئاً
+  reset();
+  productWorld();
+  const plain = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
+  assert.equal(plain.status, 200, JSON.stringify(plain.body));
+  assert.equal('repTargets' in plain.body.converted, false);
+  assert.equal(calls.filter(c => c === 'repTarget.updateMany').length, 2);
 });
 
 // CONTRACT2 D2 (review 2.1، 3.0، 6.0، 1.2): سعر الفئة الثابت والحدّ الأدنى للكمية بالرئيسية — والتحويل يبقي حجمها إلا بلا رئيسية مع

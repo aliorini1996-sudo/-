@@ -1629,7 +1629,7 @@ async function convertBasePreview(tid: string, productId: string, body: z.infer<
   // D2: القواعد التي يتبدّل معناها — تُعدّ حين يتغيّر حجم الرئيسية وحده (استعلامٌ واحد)، والمعاينة لا تطلب الإقرار
   const sizes = conversionPrimarySizes(product, body.keepOldBaseAsPrimary, Math.round(body.factor));
   const shifts = Math.abs(sizes.before - sizes.after) > QTY_EPS;
-  const [invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, vanLoadItemLots, invoiceItemLots, lotRelabels, priceListItems, priceListRules, priceRulesAffected] = await Promise.all([
+  const [invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, vanLoadItemLots, invoiceItemLots, lotRelabels, priceListItems, priceListRules, repTargets, priceRulesAffected] = await Promise.all([
     prisma.invoiceItem.count({ where: { productId: pid, invoice: { tenantId: tid } } }),
     prisma.vanLoadItem.count({ where: { productId: pid, vanLoad: { tenantId: tid } } }),
     prisma.warehouseEntryItem.count({ where: { productId: pid, entry: { tenantId: tid } } }),
@@ -1641,6 +1641,7 @@ async function convertBasePreview(tid: string, productId: string, body: z.infer<
     prisma.lotRelabel.count({ where: { tenantId: tid, productId: pid } }),
     prisma.priceListItem.count({ where: { tenantId: tid, productId: pid } }),
     prisma.priceListRule.count({ where: { tenantId: tid, productId: pid, basePrice: { not: null } } }),
+    prisma.repTarget.count({ where: { tenantId: tid, productId: pid } }),
     shifts ? primaryRulesCount(prisma, tid, pid) : 0,
   ]);
   return {
@@ -1655,6 +1656,8 @@ async function convertBasePreview(tid: string, productId: string, body: z.infer<
       ...(priceListItems > 0 && { priceListItems }),
       // وقواعده الثابتة لوحدة الأساس (القسمة على F) حين وُجدت وحدها
       ...(priceListRules > 0 && { priceListRules }),
+      // «هدف الشهر»: أهداف الكمية على الصنف (لقطة معاملها × F) حين وُجدت وحدها
+      ...(repTargets > 0 && { repTargets }),
     },
   };
 }
@@ -1813,6 +1816,11 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
           unitCode: product.unitCode || null, isActive: true, sortOrder: 0,
         },
       });
+      /* «هدف الشهر» (services/repTargets.ts): هدف الكمية يحمل لقطة وحدته كبقية الصفوف — معاملها × F، فيبقى «١٠٠ كرتون» مئة كرتون
+       * يُقاس على بنودٍ صار أساسها حبّات. وهدفٌ كان بالأساس القديم (unitId فارغ) يصير على وحدته الآن (الكرتون أعلاه) — وإلا قرأه
+       * تعديله «حبّة» فبدّل معناه بلا أن يطلب أحد. والشركة والصنف شرطٌ في الجملتين */
+      const repTargets = await tx.repTarget.updateMany({ where: { tenantId: tid, productId: pid }, data: { unitFactor: { multiply: F } } });
+      await tx.repTarget.updateMany({ where: { tenantId: tid, productId: pid, unitId: null }, data: { unitId: oldBaseUnit.id } });
 
       // ٤. الأسعار المخزَّنة لوحدة الأساس تصير للحبة: ÷ F — بلا تقريب، فسعر العميل × ٢٤ يعود سعر كرتونه بالفلس.
       // وحدود الشرائح بالأساس × F؛ والشريحة التي لم يملأها الترحيل بعد (baseMinQty = 0 وminQty ≠ 0) تُحسب من القديم.
@@ -1875,6 +1883,8 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
           // «قوائم الأسعار»: حين مسّ التحويل أسعاراً في القوائم وحدها (كعدّادات اللوط)
           ...(priceListItems.count > 0 && { priceListItems: priceListItems.count }),
           ...(priceListRules.count > 0 && { priceListRules: priceListRules.count }),
+          // «هدف الشهر»: حين مسّ التحويل أهدافاً وحدها
+          ...(repTargets.count > 0 && { repTargets: repTargets.count }),
           conversionId: log.id,
         },
       };

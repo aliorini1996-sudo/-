@@ -141,6 +141,7 @@ model Tenant {
   vanLoads             VanLoad[]
   repStockRequests     RepStockRequest[]
   vanToolMoves         VanToolMove[]
+  repTargets           RepTarget[] // «هدف الشهر» للمناديب
   teams                Team[]
   salesLocations       SalesLocation[]
   priceLists           PriceList[]
@@ -591,6 +592,7 @@ model SalesRep {
   vanLoads      VanLoad[]
   stockRequests RepStockRequest[]
   vanToolMoves  VanToolMove[]
+  repTargets    RepTarget[] // «هدف الشهر»
   locations     RepLocation[]
   settlements   RepSettlement[]
   RepVisit      RepVisit[]
@@ -882,6 +884,8 @@ model Product {
   stockRequestItems   RepStockRequestItem[]
   warehouseEntryItems WarehouseEntryItem[]
   lots                ProductLot[]
+  /// «هدف الشهر» بكمية هذا الصنف — SetNull: حذف الصنف يُبقي الهدف بلقطة اسمه (productName)
+  repTargets          RepTarget[]
 
 
   // ZATCA المرحلة الثانية — الفئة الضريبية
@@ -1969,6 +1973,37 @@ model VanToolMove {
   @@index([tenantId, salesRepId])
   @@index([tenantId, deletedSalesRepId])
   @@map("van_tool_moves")
+}
+
+/// «هدف الشهر» — هدف شهري للمندوب (طلب المالك ٩ نوفمبر ٢٠٢٦؛ يجوز أكثر من هدف في الشهر، لكلٍّ مكافأته وشريط تقدّمه).
+/// يُضبط من صفحة «المناديب» ويظهر في رئيسية تطبيق المندوب. التقدّم يُحسب حيّاً من المستندات المؤكَّدة (services/repTargets.ts)
+/// ولا يُخزَّن. والراتب لا يُخزَّن أبداً: مكافأة SALARY_PCT نصٌّ «يستحق X% من الراتب» وحده.
+model RepTarget {
+  id            String    @id @default(uuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId    String
+  salesRep      SalesRep  @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  month         String // 'YYYY-MM' بتوقيت الشركة
+  kind          String // SALES_AMOUNT | PRODUCT_QTY | COLLECTION_PCT
+  targetValue   Float // مبلغ | كمية بوحدة الهدف | نسبة 0-100
+  productId     String?
+  product       Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName   String? // لقطة الاسم (يبقى إن حُذف الصنف)
+  unitId        String? // ProductUnit.id — null = الوحدة الأساس (بلا FK مثل primaryUnitId)
+  unitName      String?
+  unitFactor    Float     @default(1) // لقطة المعامل: هدف الأساس = targetValue × unitFactor (يضربه convert-base بـF)
+  rewardKind    String // COMMISSION_SALES_PCT | SALARY_PCT | FIXED_AMOUNT
+  rewardValue   Float
+  note          String?
+  createdById   String?
+  createdByName String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([tenantId, salesRepId, month])
+  @@index([productId])
+  @@map("rep_targets")
 }
 
 /// وارد مخزون الشركة (المستودع المركزيّ) — استلام/شراء أو تسوية. مرتبطٌ بمخزون

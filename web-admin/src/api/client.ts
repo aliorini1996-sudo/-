@@ -6,6 +6,7 @@ import { removeUnitParams } from './unitParams';
 import type { PrintSettingsV1 } from '../lib/print/printSettingsCore';
 import type { PrintTextsV1 } from '../lib/print/printTextsCore';
 import type { PaymentMethodsConfigInput } from '../lib/paymentMethodsCore';
+import type { RepTargetInput } from '../lib/repTargets';
 import type {
   LotCreateRequest, LotListParams, LotRef, LotRelabelRequest, LotStatusRequest, LotTrackingRequest, LotUpdateRequest,
 } from '../lib/lots';
@@ -223,6 +224,14 @@ export const salesRepApi = {
     api.put(`/sales-reps/${id}/customers`, diff),
   isolation: () => api.get('/sales-reps/settings/isolation'),
   setIsolation: (enabled: boolean) => api.patch('/sales-reps/settings/isolation', { enabled }),
+};
+
+// «هدف الشهر» — /api/rep-targets: أهداف المندوب الشهرية بتقدّمها ومكافأتها (month = YYYY-MM بتوقيت الشركة، وغيابه = الشهر الحالي)
+export const repTargetsApi = {
+  forRep: (repId: string, month?: string) => api.get(`/rep-targets/rep/${repId}`, { params: month ? { month } : undefined }),
+  create: (repId: string, body: RepTargetInput) => api.post(`/rep-targets/rep/${repId}`, body),
+  update: (id: string, body: RepTargetInput) => api.put(`/rep-targets/${id}`, body),
+  remove: (id: string) => api.delete(`/rep-targets/${id}`),
 };
 
 // شرائح البروفايل — قراءة عامّة وكتابة لمالك المنصّة

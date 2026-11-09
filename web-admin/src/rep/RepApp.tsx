@@ -93,6 +93,9 @@ import { CUSTOMER_PHONE_MAX, customerPhoneValue, customerSubline, customerWaHref
 import { OUTLET_TYPE_OPTIONS } from './aiRepLogic';
 import { dayMinutes, nextPunch, shiftMinutes, shiftsOf, type AttendanceState } from './attendanceDay';
 import { installGeoReconnect } from './geoReconnect';
+import RepTargetsCard from './RepTargetsCard';
+import { fetchMyTargets, markTargetsFetched, targetsFetchNeeded } from './repTargetsFetch';
+import type { RepTargetsData } from '../lib/repTargets';
 // داخل تطبيق أندرويد: كل طلبات الموقع تمرّ بمالكٍ يعيد فتح الاتصال إن سكت (عملية التطبيق ماتت والصفحة مفتوحة) — قبل أي طلب موقع
 installGeoReconnect();
 // المندوب الذكي كسول: لا تُحمَّل حزمته إلا لمن فُعّلت له الميزة وفتحها
@@ -806,7 +809,7 @@ function MenuLinkCard({ repId }: { repId: string }) {
   );
 }
 
-function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true, settingsReady = true, dailyReportOn, attendanceOn, aiRepOn }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean; accountingOn?: boolean; /** وصلت إعدادات الشركة؟ لا نطلب رقماً قبل معرفة المفتاح */ settingsReady?: boolean; dailyReportOn?: boolean; attendanceOn?: boolean; aiRepOn?: boolean }) {
+function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true, settingsReady = true, dailyReportOn, attendanceOn, aiRepOn, refreshKey = 0 }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean; accountingOn?: boolean; /** وصلت إعدادات الشركة؟ لا نطلب رقماً قبل معرفة المفتاح */ settingsReady?: boolean; dailyReportOn?: boolean; attendanceOn?: boolean; aiRepOn?: boolean; /** مفتاح تحديث الرئيسية (مستندٌ صدر أو مزامنةٌ رفعت) — بطاقة «هدف الشهر» تجلب فوراً حين يتغيّر */ refreshKey?: number }) {
   const tr = useTr();
   // `null` = **لا نعرف بعد**، وهو غير الصفر. كان الجلب الفاشل يُبتلع في `catch`
   // فتبقى القيم الابتدائية أصفاراً وتُعرَض كأنّها حقيقة: مندوبٌ بذمّته خمسة عشر
@@ -908,6 +911,41 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
 
   useEffect(() => { loadRoute(); }, [loadRoute]);
 
+  /**
+   * «هدف الشهر» (طلب المالك ٩ نوفمبر ٢٠٢٦) — بطاقةٌ دائمة بنداءٍ مستقلّ كخط السير: فشلها لا يمسّ بقيّة الأرقام. المحفوظة تُعرض
+   * فوراً، والشبكة بعد مستندٍ أو مزامنة (refreshKey) أو بعد ٣٠ ثانية من آخر جلب (الرئيسية تُركَّب مع كل تبديل تبويب). وبلا
+   * اتصال: المحفوظة موسومةً بزمنها، وإلّا تغيب — لا «٠٪» كأنها حقيقة. و٤٠٣/٤٠٤ (المحاسبة أُطفئت أو خادمٌ أقدم) تُخفيها.
+   */
+  const [targets, setTargets] = useState<RepTargetsData | null>(null);
+  const [targetsStale, setTargetsStale] = useState<number | null>(null);
+  const loadTargets = useCallback(async (force = false) => {
+    const cached = await cacheGet<RepTargetsData>('rep-targets');
+    const due = force || !cached?.data || targetsFetchNeeded(refreshKey);
+    // المحفوظة تُعرض فوراً — وما دام جلبها الجديد جارياً فهي موسومةٌ بزمنها (شبكةٌ ضعيفة قد تطيل الانتظار): لا يُقرأ تقدّم الأمس
+    // كأنه اللحظة. ونسخةٌ جُلبت قبل أقل من ٣٠ ثانية بلا مستندٍ بعدها طازجةٌ فلا وسم ولا طلب
+    if (cached?.data) { setTargets(cached.data); setTargetsStale(due ? cached.updatedAt : null); }
+    if (!due) return;
+    try {
+      const data = await fetchMyTargets();
+      markTargetsFetched(refreshKey);
+      setTargets(data); setTargetsStale(null);
+      if (data) { try { await cacheSet('rep-targets', data); } catch { /* التخزين المحلي اختياري */ } }
+    } catch (e) {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      if (status === 403 || status === 404 || !cached?.data) { setTargets(null); setTargetsStale(null); return; }
+      setTargetsStale(cached?.updatedAt ?? Date.now());
+    }
+  }, [refreshKey]);
+
+  useEffect(() => {
+    if (!settingsReady) return;
+    if (!accountingOn) { setTargets(null); setTargetsStale(null); return; }
+    void loadTargets();
+  }, [settingsReady, accountingOn, loadTargets]);
+
+  // مزامنةٌ رفعت فواتير الصندوق في الخلفية ⇒ تقدّم الهدف تغيّر
+  useEffect(() => (settingsReady && accountingOn ? onInvoicesSynced(() => { void loadTargets(true); }) : undefined), [settingsReady, accountingOn, loadTargets]);
+
   const stat = (label: string, value: string, icon: React.ElementType, color: string, bg: string) => {
     const Icon = icon;
     return (
@@ -957,7 +995,8 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
               ? tr('تعذر تحميل الأرقام لا تعتمد على هذه الشاشة الآن')
               : `${tr('أرقام غير محدثة آخر تحديث')} ${formatDate(new Date(stale!).toISOString())}`}
           </span>
-          <button onClick={load} className="shrink-0 font-semibold underline">{tr('تحديث')}</button>
+          {/* «تحديث» يحدّث بطاقة «هدف الشهر» أيضاً: لا أرقامٌ طازجة جوار أهدافٍ موسومةٍ قديمة */}
+          <button onClick={() => { void load(); void loadTargets(true); }} className="shrink-0 font-semibold underline">{tr('تحديث')}</button>
         </div>
       )}
 
@@ -995,6 +1034,9 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
           </div>
         </button>
       )}
+
+      {/* «هدف الشهر» — بعد خط السير وقبل إحصائيات اليوم، ولا يظهر والمحاسبة مطفأة أو بلا أهداف */}
+      {accountingOn && targets && <RepTargetsCard data={targets} stale={targetsStale} onRetry={() => { void loadTargets(true); }} />}
 
       {/* Stats — أربعُ بطاقاتٍ مالية حين يعمل «النظام المحاسبي»، وبطاقتا زياراتٍ
           **بديلاً** عنها حين يُطفأ: لا خانة مال، ولا شرطةً مكانها، ولا طلبَ يُردّ ٤٠٣.
@@ -5901,7 +5943,7 @@ export default function RepApp() {
               ))}
               {/* Body */}
               <div className="flex-1 overflow-hidden">
-                {screen === 'home' && <RepHome key={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} attendanceOn={attendanceOn} aiRepOn={aiRepOn} />}
+                {screen === 'home' && <RepHome key={refreshKey} refreshKey={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} attendanceOn={attendanceOn} aiRepOn={aiRepOn} />}
                 {screen === 'dailyreport' && <RepDailyReport key={refreshKey} onDone={() => setScreen('home')} />}
                 {screen === 'route' && <RepRouteScreen key={`route-${refreshKey}`} onBack={() => setScreen('home')} />}
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" company={company} onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}

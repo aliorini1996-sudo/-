@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { salesRepApi, invoiceApi, receiptApi, customerApi, companyApi, dailyReportApi, priceListApi } from '../api/client';
 import { SalesRep, Invoice, Receipt, Customer } from '../types';
-import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck, Image as ImageIcon, ClipboardList, UserX, CreditCard, UsersRound } from 'lucide-react';
+import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck, Image as ImageIcon, ClipboardList, UserX, CreditCard, UsersRound, Target } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
@@ -11,6 +11,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import RepVanStockNote from '../components/RepVanStockNote';
 import RepVanLotsNote from '../components/RepVanLotsNote';
 import CardTerminalsModal from '../components/CardTerminalsModal';
+import RepTargetsModal from '../components/RepTargetsModal';
 import PagePanelModal from '../components/PagePanelModal';
 import TeamsTabBoundary from '../components/teams/TeamsTabBoundary';
 import { formatCurrency, formatDate, formatDayOnly, formatTime, formatNumber, statusLabels, paymentMethodLabels, getActiveCurrency } from '../utils/format';
@@ -49,6 +50,7 @@ export default function SalesRepsPage() {
   const [collectRep, setCollectRep] = useState<SalesRep | null>(null);
   const [assignRep, setAssignRep] = useState<SalesRep | null>(null); // نافذة إسناد العملاء
   const [historyRep, setHistoryRep] = useState<SalesRep | null>(null); // سجلّ التقارير اليومية
+  const [targetsRep, setTargetsRep] = useState<SalesRep | null>(null); // «هدف الشهر»
   const purge = useOwnerBulkPurge('SalesRep');
 
   const { data, isLoading } = useQuery({
@@ -291,6 +293,9 @@ export default function SalesRepsPage() {
                   <td><span className={r.isActive ? 'badge-active' : 'badge-inactive'}>{r.isActive ? tr('نشط') : tr('غير نشط')}</span></td>
                   <td>
                     <div className="flex items-center gap-1">
+                      {accountingOn && (
+                        <button onClick={() => setTargetsRep(r)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('هدف الشهر')} aria-label={tr('هدف الشهر')}><Target size={14} /></button>
+                      )}
                       {accountingOn && r.showCollectionBalance !== false && (
                         <button onClick={() => setCollectRep(r)} className="p-1.5 hover:bg-green-50 rounded text-green-600" title={tr('استلام تحصيل')}><Banknote size={14} /></button>
                       )}
@@ -381,6 +386,8 @@ export default function SalesRepsPage() {
       {historyRep && (
         <RepDailyReportsModal rep={historyRep} onClose={() => setHistoryRep(null)} />
       )}
+
+      {targetsRep && <RepTargetsModal rep={targetsRep} onClose={() => setTargetsRep(null)} />}
     </div>
   );
 }

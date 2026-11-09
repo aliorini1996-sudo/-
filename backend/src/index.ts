@@ -25,6 +25,7 @@ import customersRouter from './routes/customers';
 import productsRouter from './routes/products';
 import priceListsRouter from './routes/priceLists';
 import salesRepsRouter from './routes/salesReps';
+import repTargetsRouter from './routes/repTargets';
 import invoicesRouter from './routes/invoices';
 // ZATCA المرحلة الثانية (Z5.7): شاشة متابعة المستندات وتنزيل الـXML — موجّه مستقلّ على المسار نفسه
 import invoicesEinvoiceDocsRouter from './routes/invoicesEinvoiceDocs';
@@ -218,6 +219,7 @@ app.use('/api/customers', customersRouter);
 app.use('/api/products', productsRouter);
 app.use('/api/price-lists', priceListsRouter); // «أنواع الأسعار» — أسعارٌ مسمّاة للشركة ونوع سعر كل عميل (routes/priceLists.ts)
 app.use('/api/sales-reps', salesRepsRouter);
+app.use('/api/rep-targets', repTargetsRouter); // «هدف الشهر» — أهداف المندوب الشهرية (routes/repTargets.ts)
 app.use('/api/invoices', invoicesRouter);
 // ZATCA المرحلة الثانية (Z5.7) — **بعد** الموجّه الأصليّ عمداً: ما يطابقه ذاك يُحسم فيه بلا تغيير، وما لا يطابقه
 // (einvoice/summary، einvoice/documents، :id/einvoice/messages، :id/einvoice/xml، einvoice/submit-pause) يسقط هنا.
