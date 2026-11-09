@@ -17,6 +17,8 @@ import { addDays, isLocalDate, zonedStartOfDay } from '../services/gl/dates';
 import { LOT_CERTAINTIES, LOT_EPS, fefoCompare, roundLot, type LotBlockKind, type LotCertainty, type LotMeta, type LotStatus } from '../services/lots';
 import { companyDay, loadLotMetas } from '../services/lotsDb';
 import { cleanMoney, isReturnInvoice, netSales, signedAmount } from '../services/netSales';
+import { buildUnvisitedRows, unvisitedRange } from '../services/unvisitedCustomers';
+import { lastVisitBeforeMap, visitedCustomerIds } from '../services/unvisitedCustomersDb';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
@@ -811,6 +813,33 @@ router.get('/customer-visits', async (req: AuthRequest, res: Response, next: Nex
       };
     }).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     res.json({ success: true, data: { count: rows.length, visits: rows } });
+  } catch (err) { next(err); }
+});
+
+// تقرير «العملاء الذين لم تتم زيارتهم» (طلب المالك ٩ نوفمبر ٢٠٢٦) — مكمّل «زيارات العملاء» بتعريف الفترة نفسه:
+// عملاء نشطون يراهم المستخدم، موجودون قبل نهاية الفترة، بلا أي زيارة فيها من أي مندوب (services/unvisitedCustomers.ts).
+router.get('/unvisited-customers', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const range = unvisitedRange(req.query.from, req.query.to);
+    if ('error' in range) { res.status(400).json({ success: false, message: range.error }); return; }
+    const { fromDate, toEnd, hasFrom } = range;
+    const [custScope, repScope] = await Promise.all([adminCustomerFilter(req), adminRepFilter(req)]);
+    const customers = await prisma.customer.findMany({
+      where: { tenantId: tid, status: 'ACTIVE', createdAt: { lt: toEnd }, ...custScope },
+      select: {
+        id: true, name: true, businessName: true, phone: true, city: true, createdAt: true,
+        // أسماء المناديب: النشطون وداخل نطاق المستخدم وحدهم — عميلٌ ظاهر لا يكشف اسم مندوبٍ خارج النطاق (قاعدة AND)
+        assignments: { where: { salesRep: { isActive: true, ...repScope } }, select: { salesRep: { select: { name: true } } } },
+      },
+    });
+    // من زِير في الفترة: من زيارات الشركة كلها (لا نطاق المستخدم ولا الفريق) — والاستعلامان في خدمةٍ (unvisitedCustomersDb)
+    const visitedIds = await visitedCustomerIds(tid, fromDate, toEnd);
+    const pendingIds = customers.filter(c => !visitedIds.has(c.id)).map(c => c.id);
+    // آخر زيارة قبل الفترة لمن لم يُزر فيها — وبلا «من» فلا «قبل»
+    const lastVisitBefore = hasFrom && pendingIds.length ? await lastVisitBeforeMap(tid, pendingIds, fromDate) : new Map<string, Date>();
+    const rows = buildUnvisitedRows(customers, visitedIds, lastVisitBefore);
+    res.json({ success: true, data: { totalCustomers: customers.length, count: rows.length, customers: rows } });
   } catch (err) { next(err); }
 });
 
