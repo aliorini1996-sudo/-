@@ -633,7 +633,9 @@ test('customers.ts: مخطّط zod بلا حقول المرحلة الثانية
   const create = post.indexOf('prisma.customer.create(');
   assert.ok(idem > 0 && idem < gate && gate < create, 'POST: بعد التكرار وقبل الإنشاء');
   assert.match(post.slice(gate), /^[^\n]*\n\s*if \(!buyerGate\.ok\) \{ res\.status\(buyerGate\.status\)\.json\(buyerGate\.body\); return; \}/);
-  assert.ok(post.includes('res.status(201).json({ success: true, data: customer, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });'));
+  // تحذيرات البوابة تعود مع تحذير الرقم المرجعي المأخوذ (CUSTOMER_REF_TAKEN، ٩ نوفمبر ٢٠٢٦)
+  assert.ok(post.includes('const postWarnings = [...(buyerGate.warnings ?? []), ...(refWarning ? [refWarning] : [])];'));
+  assert.ok(post.includes('res.status(201).json({ success: true, data: customer, ...(postWarnings.length > 0 && { warnings: postWarnings }) });'));
   // تسامح aiPlaceId (إسقاط الربط بدل 409) لصندوق المندوب وحده: المفتاح لا يرثه ولو وصلته الترويسة
   assert.ok(post.includes("const replay = String(req.headers['x-fs-replay'] || '') === '1' && !req.user?.apiKeyId;"), 'aiPlaceId: المفتاح يعود 409 دائماً');
 
@@ -643,7 +645,7 @@ test('customers.ts: مخطّط zod بلا حقول المرحلة الثانية
   const pgate = put.indexOf("const buyerGate = await applyBuyerGateToWrite(buyerDataDeps, req, tid, data as Record<string, unknown>, { customerId: req.params.id, replay: false });");
   const update = put.indexOf('prisma.customer.update(');
   assert.ok(exists > 0 && strip > exists && pgate > strip && pgate < update, 'PUT: بعد الوجود ونزع الحقول المالية وقبل الكتابة');
-  assert.ok(put.includes('res.json({ success: true, data: customer, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });'));
+  assert.ok(put.includes('res.json({ success: true, data: customer, ...(putWarnings.length > 0 && { warnings: putWarnings }) });'));
 });
 
 test('import.ts: استيراد العملاء بمفتاح API بلا رفض (٩ نوفمبر ٢٠٢٦) — بيانات المشتري تنبيهات بعد فحص المخطط وقبل حجز الدفعة وأي كتابة', () => {

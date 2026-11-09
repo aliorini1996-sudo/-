@@ -68,6 +68,8 @@ const looseNumber = z.preprocess((v) => {
   return Number.isFinite(n) && n >= 0 ? n : undefined;
 }, z.number().optional());
 const customerSchema = z.object({
+  // الرقم المرجعي للعميل في نظام المُرسِل (Odoo وغيره) يُحفظ كوداً للعميل — customerRefOf يقرأ أسماءه الشائعة أيضاً
+  code: looseText,
   name: looseText,
   // nullish على الحقول النصية الاختيارية: نموذج التحرير (react-hook-form) يرسل null للحقول
   // غير المُعبّأة لعميل قائم، وz.string().optional() ترفض null فتفشل كل عملية تعديل لعميل بحقول فارغة
@@ -107,6 +109,24 @@ const customerSchema = z.object({
   clientRef: z.string().uuid().nullish().catch(null),
   clientCreatedAt: looseText,
 });
+
+/** «الرقم المرجعي من عندهم» (أمر المالك ٩ نوفمبر ٢٠٢٦): code أو ref أو reference أو externalRef/externalId أو erpRef/odooRef/odooId */
+const CUSTOMER_REF_KEYS = ['code', 'ref', 'reference', 'externalRef', 'externalId', 'erpRef', 'odooRef', 'odooId', 'refCode'] as const;
+function customerRefOf(body: unknown): string | null {
+  const b = (body ?? {}) as Record<string, unknown>;
+  for (const k of CUSTOMER_REF_KEYS) {
+    const v = b[k];
+    if (v != null && typeof v !== 'object' && String(v).trim() !== '') return String(v).trim().slice(0, 100);
+  }
+  return null;
+}
+/** عميل الشركة بهذا الرقم المرجعي (بلا تفريق أحرف) — غير المستثنى */
+function customerByRef(tid: string, ref: string, exceptId?: string) {
+  return prisma.customer.findFirst({
+    where: { tenantId: tid, code: { equals: ref, mode: 'insensitive' }, ...(exceptId ? { id: { not: exceptId } } : {}) },
+    select: { id: true },
+  });
+}
 
 /** الاسم الفارغ لا يرفض العميل: اسم المنشأة، ثم الجوال، ثم «عميل» */
 function customerNameFallback(d: { name?: string | null; businessName?: string | null; phone?: string | null }): string {
@@ -220,6 +240,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     }
     const data = customerSchema.parse(req.body);
     data.name = customerNameFallback(data);
+    const ref = customerRefOf(req.body);
+    if (ref) data.code = ref; else delete data.code;
 
     // المندوب الذي ينشئ العميل (إن كان الطالب مندوباً) — يُوثَّق ويُسنَد له العميل تلقائياً
     const creatorRepId = req.user?.role === 'SALES_REP' ? req.user.id : null;
@@ -270,6 +292,30 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (!allowedForRep || taken) data.aiPlaceId = null;
     }
     const { clientCreatedAt, locationUrl, ...rest } = data;
+    // «الرقم المرجعي من عندهم»: عميلٌ قائم بالرقم نفسه ⇒ يُحدَّث هو (لا عميل مكرّر في كل مزامنة) — للإدارة ومفتاح API؛
+    // والمندوب لا يعدّل عميل غيره: رقمٌ مأخوذ يُترك ويُنشأ عميله بكودٍ تلقائي مع تحذير
+    let refWarning: object | null = null;
+    if (ref) {
+      const byRef = await customerByRef(tid, ref);
+      if (byRef && !creatorRepId) {
+        const { clientRef: _c, aiPlaceId: _a, ...upd } = rest;
+        void _c; void _a;
+        const updated = await prisma.customer.update({
+          where: { id: byRef.id },
+          data: {
+            ...upd, phone: upd.phone === undefined ? undefined : (upd.phone ?? ''), email: upd.email === undefined ? undefined : (upd.email || null),
+            channel: upd.channel === undefined ? undefined : (upd.channel || null), outletType: upd.outletType === undefined ? undefined : (upd.outletType || null),
+            ...(upd.priceListId !== undefined && { priceListId: upd.priceListId || null }),
+          } as any,
+        });
+        res.status(200).json({ success: true, data: updated, existing: true, updated: true, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });
+        return;
+      }
+      if (byRef) {
+        delete (rest as Record<string, unknown>).code;
+        refWarning = { code: 'CUSTOMER_REF_TAKEN', message: 'الرقم المرجعي لعميلٍ آخر فأُنشئ العميل بكودٍ تلقائي', ref };
+      }
+    }
     // رابط موقع مُرسَل ⇒ يُحلّ إلى إحداثيات (مباشر/مختصر/اسم مكان) — يُتجاهل عند الفشل؛ لا يجلب الخادم إلا روابط Google (SSRF).
     // ومع lat وlng صريحين معاً (التقاط GPS عند الباب) تُقدَّم الصريحة ولا يُحلّ الرابط (PIN-3 — services/customerPinSource.ts)
     if (locationUrl && !explicitPinWins(rest)) {
@@ -298,7 +344,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       }
       catch (e) { console.error('[ai-rep] ربط التحويل تعذّر:', (e as Error)?.message); }
     }
-    res.status(201).json({ success: true, data: customer, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });
+    const postWarnings = [...(buyerGate.warnings ?? []), ...(refWarning ? [refWarning] : [])];
+    res.status(201).json({ success: true, data: customer, ...(postWarnings.length > 0 && { warnings: postWarnings }) });
   } catch (err) {
     if (isPriceListFkFail(err)) { priceListInvalid(res); return; }
     next(err);
@@ -342,11 +389,18 @@ async function createMissingOnPut(
     else res.status(404).json({ success: false, message: 'العميل غير موجود' });
     return 'DONE';
   }
+  // «الرقم المرجعي من عندهم»: عميلٌ قائم بالرقم نفسه ⇒ يُعدَّل هو (المستدعي يعيد البحث بالمعرّف الجديد) — لا إنشاء مكرّر
+  const ref = customerRefOf(req.body);
+  if (ref && perms.canEdit) {
+    const byRef = await customerByRef(tid, ref);
+    if (byRef) { req.params.id = byRef.id; return 'RACED'; }
+  }
   if (!perms.canAdd) { res.status(403).json({ success: false, message: 'ليس لديك صلاحية إضافة عملاء' }); return 'DONE'; }
   const keepId = !holder && keepableCustomerId(requestedId);
 
   const data = customerSchema.parse(req.body ?? {});
   data.name = customerNameFallback(data);
+  if (ref && !(await customerByRef(tid, ref))) data.code = ref; else delete data.code;
   const creatorRepId = req.user?.role === 'SALES_REP' ? req.user.id : null;
   if (creatorRepId) delete data.priceListId;
   else if (!(await priceListOwned(tid, data.priceListId))) data.priceListId = null;
@@ -436,6 +490,16 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     // نستبعد الحقول الداخلية (locationUrl يُحلّ منفصلاً؛ clientRef/clientCreatedAt لا تُحرَّر)
     const { locationUrl, clientRef: _cr, clientCreatedAt: _cc, aiPlaceId: _ap, ...data } = customerSchema.partial().parse(keepStoredPhone ? { ...req.body, phone: undefined } : req.body);
     if ('name' in data && !(data.name ?? '').trim()) delete data.name; // الاسم الفارغ لا يمحو الاسم المحفوظ ولا يرفض التعديل
+    // «الرقم المرجعي من عندهم»: يُكتب كوداً للعميل — ما لم يكن لعميلٍ آخر (يُترك بتحذير لا رفض)
+    let refWarning: object | null = null;
+    {
+      const ref = customerRefOf(req.body);
+      delete data.code;
+      if (ref) {
+        if (await customerByRef(tid, ref, req.params.id)) refWarning = { code: 'CUSTOMER_REF_TAKEN', message: 'الرقم المرجعي لعميلٍ آخر فبقي كود العميل كما هو', ref };
+        else data.code = ref;
+      }
+    }
     void _cr; void _cc; void _ap; // معرّف مكان Google يُربط عند الإنشاء وحده
     // «تعديل بيانات العميل» للمندوب يشمل البيانات الوصفية لا الشروط المالية: الحدّ الائتمانيّ
     // وفترة السداد وحالة العميل قرارُ الإدارة — وإلا رفع المندوب حدّ عميله ليتجاوز ضابط الائتمان
@@ -463,13 +527,14 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       where: { id: req.params.id },
       // البريد والقناة يُكتبان فقط إن أُرسلا: تعديلٌ جزئيّ (كتطبيق المندوب) لا يمحو بريد العميل.
       // والجوال كذلك، ومسحه (null أو الفارغ) يُكتب '' لأن العمود NOT NULL (أمر المالك ٧ نوفمبر: الجوال اختياريّ)
-      data: { ...data, name: data.name ?? undefined, phone: data.phone === undefined ? undefined : (data.phone ?? ''), ...(data.email !== undefined && { email: data.email || null }), ...(data.channel !== undefined && { channel: data.channel || null }), ...(data.outletType !== undefined && { outletType: data.outletType || null }), ...(data.priceListId !== undefined && { priceListId: data.priceListId || null }) },
+      data: { ...data, name: data.name ?? undefined, code: data.code ?? undefined, phone: data.phone === undefined ? undefined : (data.phone ?? ''), ...(data.email !== undefined && { email: data.email || null }), ...(data.channel !== undefined && { channel: data.channel || null }), ...(data.outletType !== undefined && { outletType: data.outletType || null }), ...(data.priceListId !== undefined && { priceListId: data.priceListId || null }) },
     });
     // «حُذف من قبل أو لم يُحذف يُقبل» (٩ نوفمبر ٢٠٢٦): عميلٌ مؤرشف قديم (status DELETED) يعود نشطاً حين يصله تعديل بلا حالة صريحة
     if (data.status === undefined && customer.status === 'DELETED') customer = await prisma.customer.update({ where: { id: req.params.id }, data: { status: 'ACTIVE' } });
     // نوع المنفذ أو الموقع تغيّر ⇒ توقّعات المحلات المشابهة تُعاد من القاعدة
     if (data.outletType !== undefined || data.lat !== undefined || data.lng !== undefined) invalidateEstimateData(tid);
-    res.json({ success: true, data: customer, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });
+    const putWarnings = [...(buyerGate.warnings ?? []), ...(refWarning ? [refWarning] : [])];
+    res.json({ success: true, data: customer, ...(putWarnings.length > 0 && { warnings: putWarnings }) });
   } catch (err) {
     if (isPriceListFkFail(err)) { priceListInvalid(res); return; }
     next(err);
