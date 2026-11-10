@@ -248,7 +248,8 @@ export default function SalesRepsPage() {
       {purge.bar}
       <div className="card p-0">
         <div className="table-wrapper">
-          <table className="table">
+          {/* الجدول مضغوط ليتّسع لشاشة اللوحة كلها بلا تمرير أفقي (طلب المالك ١٠ نوفمبر): حشوة أفقية أصغر، والإجراءات صفّان */}
+          <table className="table [&_th]:px-2.5 [&_td]:px-2.5">
             <thead>
               <tr>
                 {purge.enabled && <th className="w-8 px-2">{purge.headerBox((data ?? []).map(r => r.id))}</th>}
@@ -274,10 +275,10 @@ export default function SalesRepsPage() {
                   {purge.enabled && <td className="w-8 px-2">{purge.rowBox(r.id)}</td>}
                   <td>
                     <p className="font-medium text-gray-800">{r.name}</p>
-                    <p className="text-xs text-gray-400">{r.email || ''}</p>
+                    <p className="text-xs text-gray-400 max-w-[11rem] truncate" title={r.email || undefined}>{r.email || ''}</p>
                   </td>
-                  <td className="font-mono text-sm text-gray-600">{r.phone}</td>
-                  <td className="font-mono text-sm text-gray-500">{r.username}</td>
+                  <td className="font-mono text-sm text-gray-600 whitespace-nowrap">{r.phone}</td>
+                  <td className="font-mono text-sm text-gray-500 whitespace-nowrap">{r.username}</td>
                   {accountingOn && <td className="text-center">{perm(r.canCreateInvoice)}</td>}
                   {accountingOn && <td className="text-center">{perm(r.canSellOnCredit)}</td>}
                   {accountingOn && <td className="text-center">{perm(r.canSellInCash)}</td>}
@@ -292,7 +293,7 @@ export default function SalesRepsPage() {
                   <td className="text-center">{perm(r.canAddCustomer)}</td>
                   <td><span className={r.isActive ? 'badge-active' : 'badge-inactive'}>{r.isActive ? tr('نشط') : tr('غير نشط')}</span></td>
                   <td>
-                    <div className="flex items-center gap-1">
+                    <div className="grid grid-cols-4 gap-0.5 w-max">
                       {accountingOn && (
                         <button onClick={() => setTargetsRep(r)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('هدف الشهر')} aria-label={tr('هدف الشهر')}><Target size={14} /></button>
                       )}
