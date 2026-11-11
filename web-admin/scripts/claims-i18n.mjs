@@ -46,14 +46,139 @@ const CERT_GROUPS = [
   [['sw'], 'imethibitishwa'],
 ];
 
-/** لغات بلا قاعدة اعتماد بعد — تحذير «لا قاعدة اعتماد للغة X»، وتُكمَل قبل رفع WAVE_MAX إلى 2 */
-export const NO_CERT_RULE = Object.freeze(['ta', 'te', 'kn', 'ml', 'gu', 'pa', 'si']);
+// <cert-stems-ai> مولَّدة — مفردات «معتمد/مرخّص» من وكلاء الترجمة والمراجعة (١١ نوفمبر ٢٠٢٦)، كل جذع مُتحقَّق
+// أنه لا يظهر في ترجمة اللغة المنشورة. نص حرفي؛ المسافة تصير \s+ عند البناء.
+const CERT_STEMS_AI = {
+  ach: ["layisin","certifi"],
+  ak: ["tumi krataa","adansedie krataa","apene so","certif","accredit","licens"],
+  am: ["የተረጋገጠ","ዕውቅና ያለው","እውቅና ያለው","ሰርተፍኬት","የምስክር ወረቀት","የጸደቀ"],
+  as: ["প্ৰমাণিত","প্ৰমাণপত্ৰ","চাৰ্টিফাইড","স্বীকৃতিপ্ৰাপ্ত"],
+  ay: ["certifica","acredita","homologa","autoriza","aprobad"],
+  az: ["sertifikatl","akkredit","lisenziyal"],
+  bem: ["laisensi","satifiketi","certif","licens"],
+  bho: ["प्रमाणित","प्रमाणपत्र","सर्टिफाइड","मान्यता प्राप्त","मान्यताप्राप्त"],
+  bi: ["setifaed","setifiket","laesens"],
+  bm: ["lakodɔnnen","yamaruyasɛbɛn","yamaruya sɛbɛn","yamaruya sɔrɔ"],
+  bo: ["ཆོག་མཆན","ལག་ཁྱེར","ཆོག་འཐུས","དཔང་ཡིག"],
+  br: ["testeniek","sertifi","aprouet","akreditet"],
+  ceb: ["sertipik","sertifik","akredit","lisensyado","aprobado sa"],
+  ckb: ["بڕوانامەدار","مۆڵەتدار"],
+  co: ["certifi","omologat","accreditat"],
+  crs: ["sertif","akredit","lisansye","aprouve par"],
+  cy: ["ardystiedig","ardystio","achred","trwyddedig"],
+  dv: ["ސެޓިފައިޑް","ސެޓްފައިޑް","ފިކެޓް","ތަޞްދީޤު","ސަރުކާރުން ހުއްދަ","އެކްރެޑިޓ"],
+  dz: ["ཆ་འཇོག","ཆོག་ཐམ","ཆོག་མཆན","ངོས་ལེན་ཐོབ","ལག་ཁྱེར་ཐོབ"],
+  ee: ["kpeɖodzigbal","mɔɖegbal"],
+  eu: ["ziurtagiri","akreditat","homologat"],
+  ff: ["certifi","homolog","accrédit","agrément","approuv"],
+  fo: ["góðken","sertifi","løggild","viðurkend","akkrediter"],
+  fy: ["sertifisear","sertifikaat","akkreditear","goedkard"],
+  ga: ["deimhniúchán","creidiúnaith","ceadúnaithe","faofa ag"],
+  gaa: ["certif","accredit","licensed","approved","akpɛlɛ nɔ"],
+  gd: ["teisteana","barantaich","barantachadh","cead oifigeil"],
+  gn: ["certific","homolog","oñemoneĩ"],
+  gu: ["પ્રમાણિત","સર્ટિફાઇડ","માન્યતાપ્રાપ્ત","માન્યતા પ્રાપ્ત"],
+  ha: ["takardar shaida","lasisi","an amince","hukuma ta amince","satifiket"],
+  hmn: ["certif","accredit","licens"],
+  ht: ["sètifi","akredit","lisansye","apwouve pa"],
+  hy: ["հավաստագրված","սերտիֆիկաց","հավատարմագրված","լիցենզավոր"],
+  ig: ["asambodo","akwụkwọ ikike","nkwado gọọmentị","ikike gọọmentị"],
+  is: ["vottað","vottuð","vottun","faggil"],
+  jv: ["sertifik","akredit","dilisensi"],
+  ka: ["სერტიფიცირ","აკრედიტ","ლიცენზირ"],
+  kg: ["certifi","homologu","accrédit"],
+  kl: ["akuerisa","akuerineqar","akuersissut","certifi","godkend","autoriser"],
+  km: ["វិញ្ញាបនបត្រ","ទទួលស្គាល់ជាផ្លូវការ"],
+  kn: ["ಪ್ರಮಾಣೀಕೃತ","ಪ್ರಮಾಣೀಕರಿಸಲ್ಪಟ್ಟ","ಪ್ರಮಾಣಪತ್ರ","ಮಾನ್ಯತೆ ಪಡೆದ","ಸರ್ಟಿಫೈಡ್"],
+  kri: ["sɛtifay","sɛtifik","certifi","akrɛdit"],
+  ku: ["sertîfîk","sertifîk","akredît","akredit","lîsansdar"],
+  ky: ["сертификатта","аккредит","лицензиял"],
+  lb: ["zertifi","akkredit","homolog","lizenzéiert","konform"],
+  lg: ["satifikeeti","satifiketi"],
+  ln: ["certifi","accrédit","homologu"],
+  lo: ["ໄດ້ຮັບການຮັບຮອງ","ໃບຢັ້ງຢືນ","ຖືກຮັບຮອງ"],
+  loz: ["laisensi","lumelezwa ki","lumelezwi ki","tifike"],
+  lua: ["certifi","homolog","accrédit","agrément"],
+  mai: ["प्रमाणित","प्रमाणपत्र","सर्टिफाइड","मान्यता प्राप्त","मान्यताप्राप्त"],
+  mfe: ["sertifi","akredit","lisansie","aprouve par"],
+  mg: ["sertifika","nankatoavin","mari-pankatoavana"],
+  mi: ["whakamanatia","raihana","tiwhikete"],
+  ml: ["സാക്ഷ്യപ്പെടുത്തിയ","സാക്ഷ്യപത്രം","സർട്ടിഫൈഡ്","അംഗീകാരമുള്ള","അംഗീകാരം നേടിയ"],
+  mn: ["гэрчилгээжсэн","магадлан итгэмж","сертификаттай","тусгай зөвшөөрөлтэй"],
+  mt: ["ċertifikat","certifikat","akkreditat","liċenzjat","approvat minn"],
+  my: ["အသိအမှတ်ပြု"],
+  nso: ["setifikeiti"],
+  ny: ["satifiketi","laisensi"],
+  nyn: ["layisensi","layisinsi","satifikeeti","sitifikeeti","certifi"],
+  oc: ["certific","omologa","acredit","aprovat"],
+  om: ["sertifikeetii","beekamtii argate","hayyama mootummaa","seeraan hayyamame","waraqaa ragaa"],
+  or: ["ପ୍ରମାଣିତ","ପ୍ରମାଣପତ୍ର","ସାର୍ଟିଫାଏଡ","ସ୍ୱୀକୃତିପ୍ରାପ୍ତ"],
+  pa: ["ਪ੍ਰਮਾਣਿਤ","ਸਰਟੀਫਾਈਡ","ਮਾਨਤਾ ਪ੍ਰਾਪਤ","ਮਾਨਤਾ-ਪ੍ਰਾਪਤ"],
+  pcm: ["certifi","accredit","approved by","licensed"],
+  ps: ["تصدیق شوی","جواز لرونکی"],
+  qu: ["certific","homolog","aprobado","aprobasqa"],
+  rm: ["certifi","omologà","conformitad"],
+  rn: ["yemewe na","vyemewe na","zemewe na","bwemewe na","yemejwe na","uruhusha rwa Leta"],
+  rw: ["seritifika","yemewe na","byemewe na"],
+  sd: ["تصديق ٿيل","سند يافته","لائسنس يافته"],
+  si: ["සහතිකලත්","සහතිකගත","ප්‍රතීතන"],
+  sm: ["fa'amaonia","faamaonia","laisene"],
+  sn: ["chitifiketi","setifiketi","satifiketi","rezinesi"],
+  so: ["ansixiy","ansixin","shahaad","rukhsad","liisan"],
+  sq: ["certifikuar","akredituar","licencuar","miratuar nga"],
+  ss: ["sitifiketi"],
+  st: ["setifikeiti"],
+  su: ["sertifik","akredit","dilisensi"],
+  ta: ["சான்றளிக்கப்பட்ட","சான்றிதழ் பெற்ற","அங்கீகாரம் பெற்ற"],
+  te: ["సర్టిఫైడ్","ధృవీకరణ పత్రం","ధృవీకరణ పొందిన","గుర్తింపు పొందిన"],
+  tet: ["sertifika","akreditasaun","aprovadu","homologadu"],
+  tg: ["сертификатдор","сертификатсия","аккредит","иҷозатномадор"],
+  ti: ["ምስክር ወረቐት","ዕውቅና ዝረኸበ","ዕውቅና ዘለዎ","ሕጋዊ ፍቓድ","ሰርቲፊኬት"],
+  tk: ["sertifikatla","sertifikatly","akkredit","ygtyýarnamaly"],
+  tn: ["setifikeiti"],
+  to: ["fakamo'oni'i","laiseni","fakangofua'i","sētifiketi","tohi fakamo'oni"],
+  tpi: ["setifi","apruvim","apruvol","laisens"],
+  ts: ["xitifikheti","satifikheti"],
+  tt: ["сертификатлан","аккредит","лицензияле"],
+  tum: ["satifiketi","laisensi","layisensi"],
+  ug: ["گۇۋاھنامە","ئىجازەتنامىلىك","ئېتىراپ قىلىنغان"],
+  uz: ["sertifikatlan","sertifikatga ega","akkredit","litsenziyalangan"],
+  wo: ["certifi","homolog","accrédit"],
+  xh: ["satifikethi"],
+  yi: ["באַגלייביק","ליצענזיר","סערטיפֿיציר","אַקרעדיטיר","אויטאָריזיר"],
+  yo: ["ìfọwọ́sí","ìwé-ẹ̀rí"],
+  yue: ["認證","認可","持牌"],
+  zgh: ["certifi","homologu","accrédit"],
+  zu: ["sitifiketi"],
+};
+for (const [code, stems] of Object.entries(CERT_STEMS_AI)) {
+  CERT_GROUPS.push([[code], stems.map((s) => s.replace(/\s+/g, '\\s+')).join('|')]);
+}
+// </cert-stems-ai>
+
+/** لغات بلا قاعدة اعتماد بعد (فارغة منذ ١١ نوفمبر: لكل لغة منشورة قاعدة) — تحذير «لا قاعدة اعتماد للغة X» */
+export const NO_CERT_RULE = Object.freeze([]);
 
 /** مصدر نمط الاعتماد لكل رمز (تجتمع المجموعات التي يظهر فيها الرمز، مثل sr) */
 export const CERT_BY_LANG = Object.freeze(CERT_GROUPS.reduce((acc, [codes, src]) => {
   for (const c of codes) acc[c] = acc[c] ? `${acc[c]}|${src}` : src;
   return acc;
 }, {}));
+
+/** كريول معجمها إنجليزي (البيدجن النيجيري، الكريو، توك بيسين، البيسلاما) — انظر englishCopies */
+export const ENGLISH_LEXIFIER = Object.freeze(['pcm', 'kri', 'tpi', 'bi']);
+
+/**
+ * مفاتيح تطابق الإنجليزية حرفياً فتُعدّ نسخاً لا ترجمة (تمنع النشر في المستورد وتُفشل G1 في الحارس).
+ * في كريول المعجم الإنجليزي العنوان القصير المطابق («Currency»، «About FieldSales») طبيعيّ لا نسخ: يُقبل حتى
+ * ٥ كلمات ما دام المطابق لا يتجاوز ٢٠٪ من القيم — والجمل الأطول تبقى نسخاً. slugHint مستثنى دائماً.
+ */
+export function englishCopies(code, strings, enStrings) {
+  const same = Object.keys(strings).filter((k) => k !== 'tierB.category.slugHint'
+    && typeof enStrings[k] === 'string' && strings[k] === enStrings[k]);
+  if (!ENGLISH_LEXIFIER.includes(code) || same.length > Object.keys(strings).length * 0.2) return same;
+  return same.filter((k) => String(strings[k]).trim().split(/\s+/).length > 5);
+}
 
 /** ممنوع في كل اللغات */
 export const CERT_ALL = /\b(?:certified|accredited|approved\s+by)\b/i;

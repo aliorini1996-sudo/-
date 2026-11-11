@@ -72,6 +72,7 @@
     <xhtml:link rel="alternate" hreflang="eu" href="https://fieldsa.net/eu/autosalmenta-softwarea/"/>
     <xhtml:link rel="alternate" hreflang="gl" href="https://fieldsa.net/gl/software-autovenda/"/>
     <xhtml:link rel="alternate" hreflang="zu" href="https://fieldsa.net/zu/isofthiwe-yokuthengisa-ngeveni/"/>
+    <xhtml:link rel="alternate" hreflang="pcm" href="https://fieldsa.net/pcm/van-sales-software/"/>
     <xhtml:link rel="alternate" hreflang="yue" href="https://fieldsa.net/yue/van-sales-system/"/>
     <xhtml:link rel="alternate" hreflang="my" href="https://fieldsa.net/my/van-sales-software/"/>
     <xhtml:link rel="alternate" hreflang="km" href="https://fieldsa.net/km/van-sales-software/"/>
@@ -92,6 +93,18 @@
     <xhtml:link rel="alternate" hreflang="jv" href="https://fieldsa.net/jv/aplikasi-sales-canvas/"/>
     <xhtml:link rel="alternate" hreflang="su" href="https://fieldsa.net/su/aplikasi-sales-canvas/"/>
     <xhtml:link rel="alternate" hreflang="ceb" href="https://fieldsa.net/ceb/van-sales-app/"/>
+    <xhtml:link rel="alternate" hreflang="hmn" href="https://fieldsa.net/hmn/van-sales-software/"/>
+    <xhtml:link rel="alternate" hreflang="bo" href="https://fieldsa.net/bo/van-sales-software/"/>
+    <xhtml:link rel="alternate" hreflang="dz" href="https://fieldsa.net/dz/van-sales-software/"/>
+    <xhtml:link rel="alternate" hreflang="dv" href="https://fieldsa.net/dv/van-sales-software/"/>
+    <xhtml:link rel="alternate" hreflang="tet" href="https://fieldsa.net/tet/software-vendas-husi-kareta/"/>
+    <xhtml:link rel="alternate" hreflang="am" href="https://fieldsa.net/am/van-sales-software/"/>
+    <xhtml:link rel="alternate" hreflang="ha" href="https://fieldsa.net/ha/manhajar-sayarwa-daga-mota/"/>
+    <xhtml:link rel="alternate" hreflang="yo" href="https://fieldsa.net/yo/eto-tita-lati-inu-oko/"/>
+    <xhtml:link rel="alternate" hreflang="ig" href="https://fieldsa.net/ig/ngwanro-ire-ahia-site-n-ugboala/"/>
+    <xhtml:link rel="alternate" hreflang="so" href="https://fieldsa.net/so/barnaamijka-van-sales/"/>
+    <xhtml:link rel="alternate" hreflang="om" href="https://fieldsa.net/om/sooftiweerii-gurgurtaa-konkolaataa-irraa/"/>
+    <xhtml:link rel="alternate" hreflang="ti" href="https://fieldsa.net/ti/van-sales-software/"/>
     <xhtml:link rel="alternate" hreflang="xh" href="https://fieldsa.net/xh/isoftwe-yokuthengisa-ngeveni/"/>
     <xhtml:link rel="alternate" hreflang="st" href="https://fieldsa.net/st/software-ya-thekiso-ka-vene/"/>
     <xhtml:link rel="alternate" hreflang="tn" href="https://fieldsa.net/tn/software-ya-go-rekisa-ka-vene/"/>
@@ -102,12 +115,45 @@
     <xhtml:link rel="alternate" hreflang="ny" href="https://fieldsa.net/ny/pulogalamu-yogulitsa-mgalimoto/"/>
     <xhtml:link rel="alternate" hreflang="mg" href="https://fieldsa.net/mg/rindrambaiko-van-sales/"/>
     <xhtml:link rel="alternate" hreflang="rw" href="https://fieldsa.net/rw/porogaramu-van-sales/"/>
+    <xhtml:link rel="alternate" hreflang="rn" href="https://fieldsa.net/rn/porogarama-van-sales/"/>
     <xhtml:link rel="alternate" hreflang="lg" href="https://fieldsa.net/lg/pulogulaamu-van-sales/"/>
+    <xhtml:link rel="alternate" hreflang="nyn" href="https://fieldsa.net/nyn/puroguramu-van-sales/"/>
+    <xhtml:link rel="alternate" hreflang="ach" href="https://fieldsa.net/ach/software-me-van-sales/"/>
     <xhtml:link rel="alternate" hreflang="ln" href="https://fieldsa.net/ln/logiciel-ya-van-sales/"/>
+    <xhtml:link rel="alternate" hreflang="kg" href="https://fieldsa.net/kg/logiciel-ya-van-sales/"/>
+    <xhtml:link rel="alternate" hreflang="lua" href="https://fieldsa.net/lua/programme-wa-van-sales/"/>
+    <xhtml:link rel="alternate" hreflang="bem" href="https://fieldsa.net/bem/software-ya-kushitisha-mu-motoka/"/>
+    <xhtml:link rel="alternate" hreflang="loz" href="https://fieldsa.net/loz/software-ya-ku-lekisa-mwa-mota/"/>
+    <xhtml:link rel="alternate" hreflang="tum" href="https://fieldsa.net/tum/pulogilamu-ya-van-sales/"/>
+    <xhtml:link rel="alternate" hreflang="wo" href="https://fieldsa.net/wo/logiciel-jaay-ci-oto/"/>
+    <xhtml:link rel="alternate" hreflang="ff" href="https://fieldsa.net/ff/logiciel-yeeyde-e-nder-oto/"/>
+    <xhtml:link rel="alternate" hreflang="bm" href="https://fieldsa.net/bm/kamiyoneti-feere-porogaramu/"/>
+    <xhtml:link rel="alternate" hreflang="ak" href="https://fieldsa.net/ak/van-sales-software/"/>
+    <xhtml:link rel="alternate" hreflang="ee" href="https://fieldsa.net/ee/van-sales-software/"/>
+    <xhtml:link rel="alternate" hreflang="gaa" href="https://fieldsa.net/gaa/van-sales-software/"/>
     <xhtml:link rel="alternate" hreflang="kri" href="https://fieldsa.net/kri/van-sales-software/"/>
+    <xhtml:link rel="alternate" hreflang="zgh" href="https://fieldsa.net/zgh/asghzan-n-uznzi-sg-tkamyunt/"/>
     <xhtml:link rel="alternate" hreflang="mfe" href="https://fieldsa.net/mfe/lozisiel-lavant-ar-van/"/>
     <xhtml:link rel="alternate" hreflang="crs" href="https://fieldsa.net/crs/lozisyel-lavant-avek-van/"/>
     <xhtml:link rel="alternate" hreflang="ht" href="https://fieldsa.net/ht/lojisyel-vant-ak-kamyonet/"/>
+    <xhtml:link rel="alternate" hreflang="qu" href="https://fieldsa.net/qu/karrumanta-rantikuy-software/"/>
+    <xhtml:link rel="alternate" hreflang="gn" href="https://fieldsa.net/gn/nemu-camionetagui-software/"/>
+    <xhtml:link rel="alternate" hreflang="ay" href="https://fieldsa.net/ay/awtuta-aljana-software/"/>
+    <xhtml:link rel="alternate" hreflang="mi" href="https://fieldsa.net/mi/pumanawa-hoko-a-wena/"/>
+    <xhtml:link rel="alternate" hreflang="sm" href="https://fieldsa.net/sm/polokalame-faatau-atu-mai-le-veni/"/>
+    <xhtml:link rel="alternate" hreflang="to" href="https://fieldsa.net/to/polokalama-fakatau-atu-mei-he-veni/"/>
+    <xhtml:link rel="alternate" hreflang="bi" href="https://fieldsa.net/bi/sofwea-blong-salem-stok-long-trak/"/>
+    <xhtml:link rel="alternate" hreflang="tpi" href="https://fieldsa.net/tpi/software-bilong-salim-stok-long-ka/"/>
+    <xhtml:link rel="alternate" hreflang="lb" href="https://fieldsa.net/lb/software-verkaf-op-tournee/"/>
+    <xhtml:link rel="alternate" hreflang="fy" href="https://fieldsa.net/fy/software-ferkeap-ut-de-bus/"/>
+    <xhtml:link rel="alternate" hreflang="fo" href="https://fieldsa.net/fo/ritbunadur-til-solu-ur-bili/"/>
+    <xhtml:link rel="alternate" hreflang="kl" href="https://fieldsa.net/kl/biilimit-tuniniaaneq/"/>
+    <xhtml:link rel="alternate" hreflang="gd" href="https://fieldsa.net/gd/bathar-bog-reic-as-a-bhan/"/>
+    <xhtml:link rel="alternate" hreflang="br" href="https://fieldsa.net/br/meziant-gwerzh-dre-gamionetenn/"/>
+    <xhtml:link rel="alternate" hreflang="oc" href="https://fieldsa.net/oc/logicial-venda-camioneta/"/>
+    <xhtml:link rel="alternate" hreflang="co" href="https://fieldsa.net/co/lugiziale-vendita-in-giru/"/>
+    <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/software-vendita-sin-tura/"/>
+    <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/farkoyf-fun-vogn-program/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/van-sales-software/"/>
     <lastmod>2026-11-08</lastmod>
   </url>
@@ -183,6 +229,7 @@
     <xhtml:link rel="alternate" hreflang="eu" href="https://fieldsa.net/eu/countries/"/>
     <xhtml:link rel="alternate" hreflang="gl" href="https://fieldsa.net/gl/countries/"/>
     <xhtml:link rel="alternate" hreflang="zu" href="https://fieldsa.net/zu/countries/"/>
+    <xhtml:link rel="alternate" hreflang="pcm" href="https://fieldsa.net/pcm/countries/"/>
     <xhtml:link rel="alternate" hreflang="yue" href="https://fieldsa.net/yue/countries/"/>
     <xhtml:link rel="alternate" hreflang="my" href="https://fieldsa.net/my/countries/"/>
     <xhtml:link rel="alternate" hreflang="km" href="https://fieldsa.net/km/countries/"/>
@@ -203,6 +250,18 @@
     <xhtml:link rel="alternate" hreflang="jv" href="https://fieldsa.net/jv/countries/"/>
     <xhtml:link rel="alternate" hreflang="su" href="https://fieldsa.net/su/countries/"/>
     <xhtml:link rel="alternate" hreflang="ceb" href="https://fieldsa.net/ceb/countries/"/>
+    <xhtml:link rel="alternate" hreflang="hmn" href="https://fieldsa.net/hmn/countries/"/>
+    <xhtml:link rel="alternate" hreflang="bo" href="https://fieldsa.net/bo/countries/"/>
+    <xhtml:link rel="alternate" hreflang="dz" href="https://fieldsa.net/dz/countries/"/>
+    <xhtml:link rel="alternate" hreflang="dv" href="https://fieldsa.net/dv/countries/"/>
+    <xhtml:link rel="alternate" hreflang="tet" href="https://fieldsa.net/tet/countries/"/>
+    <xhtml:link rel="alternate" hreflang="am" href="https://fieldsa.net/am/countries/"/>
+    <xhtml:link rel="alternate" hreflang="ha" href="https://fieldsa.net/ha/countries/"/>
+    <xhtml:link rel="alternate" hreflang="yo" href="https://fieldsa.net/yo/countries/"/>
+    <xhtml:link rel="alternate" hreflang="ig" href="https://fieldsa.net/ig/countries/"/>
+    <xhtml:link rel="alternate" hreflang="so" href="https://fieldsa.net/so/countries/"/>
+    <xhtml:link rel="alternate" hreflang="om" href="https://fieldsa.net/om/countries/"/>
+    <xhtml:link rel="alternate" hreflang="ti" href="https://fieldsa.net/ti/countries/"/>
     <xhtml:link rel="alternate" hreflang="xh" href="https://fieldsa.net/xh/countries/"/>
     <xhtml:link rel="alternate" hreflang="st" href="https://fieldsa.net/st/countries/"/>
     <xhtml:link rel="alternate" hreflang="tn" href="https://fieldsa.net/tn/countries/"/>
@@ -213,17 +272,50 @@
     <xhtml:link rel="alternate" hreflang="ny" href="https://fieldsa.net/ny/countries/"/>
     <xhtml:link rel="alternate" hreflang="mg" href="https://fieldsa.net/mg/countries/"/>
     <xhtml:link rel="alternate" hreflang="rw" href="https://fieldsa.net/rw/countries/"/>
+    <xhtml:link rel="alternate" hreflang="rn" href="https://fieldsa.net/rn/countries/"/>
     <xhtml:link rel="alternate" hreflang="lg" href="https://fieldsa.net/lg/countries/"/>
+    <xhtml:link rel="alternate" hreflang="nyn" href="https://fieldsa.net/nyn/countries/"/>
+    <xhtml:link rel="alternate" hreflang="ach" href="https://fieldsa.net/ach/countries/"/>
     <xhtml:link rel="alternate" hreflang="ln" href="https://fieldsa.net/ln/countries/"/>
+    <xhtml:link rel="alternate" hreflang="kg" href="https://fieldsa.net/kg/countries/"/>
+    <xhtml:link rel="alternate" hreflang="lua" href="https://fieldsa.net/lua/countries/"/>
+    <xhtml:link rel="alternate" hreflang="bem" href="https://fieldsa.net/bem/countries/"/>
+    <xhtml:link rel="alternate" hreflang="loz" href="https://fieldsa.net/loz/countries/"/>
+    <xhtml:link rel="alternate" hreflang="tum" href="https://fieldsa.net/tum/countries/"/>
+    <xhtml:link rel="alternate" hreflang="wo" href="https://fieldsa.net/wo/countries/"/>
+    <xhtml:link rel="alternate" hreflang="ff" href="https://fieldsa.net/ff/countries/"/>
+    <xhtml:link rel="alternate" hreflang="bm" href="https://fieldsa.net/bm/countries/"/>
+    <xhtml:link rel="alternate" hreflang="ak" href="https://fieldsa.net/ak/countries/"/>
+    <xhtml:link rel="alternate" hreflang="ee" href="https://fieldsa.net/ee/countries/"/>
+    <xhtml:link rel="alternate" hreflang="gaa" href="https://fieldsa.net/gaa/countries/"/>
     <xhtml:link rel="alternate" hreflang="kri" href="https://fieldsa.net/kri/countries/"/>
+    <xhtml:link rel="alternate" hreflang="zgh" href="https://fieldsa.net/zgh/countries/"/>
     <xhtml:link rel="alternate" hreflang="mfe" href="https://fieldsa.net/mfe/countries/"/>
     <xhtml:link rel="alternate" hreflang="crs" href="https://fieldsa.net/crs/countries/"/>
     <xhtml:link rel="alternate" hreflang="ht" href="https://fieldsa.net/ht/countries/"/>
+    <xhtml:link rel="alternate" hreflang="qu" href="https://fieldsa.net/qu/countries/"/>
+    <xhtml:link rel="alternate" hreflang="gn" href="https://fieldsa.net/gn/countries/"/>
+    <xhtml:link rel="alternate" hreflang="ay" href="https://fieldsa.net/ay/countries/"/>
+    <xhtml:link rel="alternate" hreflang="mi" href="https://fieldsa.net/mi/countries/"/>
+    <xhtml:link rel="alternate" hreflang="sm" href="https://fieldsa.net/sm/countries/"/>
+    <xhtml:link rel="alternate" hreflang="to" href="https://fieldsa.net/to/countries/"/>
+    <xhtml:link rel="alternate" hreflang="bi" href="https://fieldsa.net/bi/countries/"/>
+    <xhtml:link rel="alternate" hreflang="tpi" href="https://fieldsa.net/tpi/countries/"/>
+    <xhtml:link rel="alternate" hreflang="lb" href="https://fieldsa.net/lb/countries/"/>
+    <xhtml:link rel="alternate" hreflang="fy" href="https://fieldsa.net/fy/countries/"/>
+    <xhtml:link rel="alternate" hreflang="fo" href="https://fieldsa.net/fo/countries/"/>
+    <xhtml:link rel="alternate" hreflang="kl" href="https://fieldsa.net/kl/countries/"/>
+    <xhtml:link rel="alternate" hreflang="gd" href="https://fieldsa.net/gd/countries/"/>
+    <xhtml:link rel="alternate" hreflang="br" href="https://fieldsa.net/br/countries/"/>
+    <xhtml:link rel="alternate" hreflang="oc" href="https://fieldsa.net/oc/countries/"/>
+    <xhtml:link rel="alternate" hreflang="co" href="https://fieldsa.net/co/countries/"/>
+    <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/countries/"/>
+    <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/countries/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/countries/"/>
     <lastmod>2026-11-08</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/languages/</loc>
-    <lastmod>2026-11-08</lastmod>
+    <lastmod>2026-11-11</lastmod>
   </url>
 </urlset>

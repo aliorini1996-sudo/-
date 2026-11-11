@@ -73,6 +73,7 @@
     <xhtml:link rel="alternate" hreflang="eu" href="https://fieldsa.net/eu/"/>
     <xhtml:link rel="alternate" hreflang="gl" href="https://fieldsa.net/gl/"/>
     <xhtml:link rel="alternate" hreflang="zu" href="https://fieldsa.net/zu/"/>
+    <xhtml:link rel="alternate" hreflang="pcm" href="https://fieldsa.net/pcm/"/>
     <xhtml:link rel="alternate" hreflang="yue" href="https://fieldsa.net/yue/"/>
     <xhtml:link rel="alternate" hreflang="my" href="https://fieldsa.net/my/"/>
     <xhtml:link rel="alternate" hreflang="km" href="https://fieldsa.net/km/"/>
@@ -93,6 +94,18 @@
     <xhtml:link rel="alternate" hreflang="jv" href="https://fieldsa.net/jv/"/>
     <xhtml:link rel="alternate" hreflang="su" href="https://fieldsa.net/su/"/>
     <xhtml:link rel="alternate" hreflang="ceb" href="https://fieldsa.net/ceb/"/>
+    <xhtml:link rel="alternate" hreflang="hmn" href="https://fieldsa.net/hmn/"/>
+    <xhtml:link rel="alternate" hreflang="bo" href="https://fieldsa.net/bo/"/>
+    <xhtml:link rel="alternate" hreflang="dz" href="https://fieldsa.net/dz/"/>
+    <xhtml:link rel="alternate" hreflang="dv" href="https://fieldsa.net/dv/"/>
+    <xhtml:link rel="alternate" hreflang="tet" href="https://fieldsa.net/tet/"/>
+    <xhtml:link rel="alternate" hreflang="am" href="https://fieldsa.net/am/"/>
+    <xhtml:link rel="alternate" hreflang="ha" href="https://fieldsa.net/ha/"/>
+    <xhtml:link rel="alternate" hreflang="yo" href="https://fieldsa.net/yo/"/>
+    <xhtml:link rel="alternate" hreflang="ig" href="https://fieldsa.net/ig/"/>
+    <xhtml:link rel="alternate" hreflang="so" href="https://fieldsa.net/so/"/>
+    <xhtml:link rel="alternate" hreflang="om" href="https://fieldsa.net/om/"/>
+    <xhtml:link rel="alternate" hreflang="ti" href="https://fieldsa.net/ti/"/>
     <xhtml:link rel="alternate" hreflang="xh" href="https://fieldsa.net/xh/"/>
     <xhtml:link rel="alternate" hreflang="st" href="https://fieldsa.net/st/"/>
     <xhtml:link rel="alternate" hreflang="tn" href="https://fieldsa.net/tn/"/>
@@ -103,12 +116,45 @@
     <xhtml:link rel="alternate" hreflang="ny" href="https://fieldsa.net/ny/"/>
     <xhtml:link rel="alternate" hreflang="mg" href="https://fieldsa.net/mg/"/>
     <xhtml:link rel="alternate" hreflang="rw" href="https://fieldsa.net/rw/"/>
+    <xhtml:link rel="alternate" hreflang="rn" href="https://fieldsa.net/rn/"/>
     <xhtml:link rel="alternate" hreflang="lg" href="https://fieldsa.net/lg/"/>
+    <xhtml:link rel="alternate" hreflang="nyn" href="https://fieldsa.net/nyn/"/>
+    <xhtml:link rel="alternate" hreflang="ach" href="https://fieldsa.net/ach/"/>
     <xhtml:link rel="alternate" hreflang="ln" href="https://fieldsa.net/ln/"/>
+    <xhtml:link rel="alternate" hreflang="kg" href="https://fieldsa.net/kg/"/>
+    <xhtml:link rel="alternate" hreflang="lua" href="https://fieldsa.net/lua/"/>
+    <xhtml:link rel="alternate" hreflang="bem" href="https://fieldsa.net/bem/"/>
+    <xhtml:link rel="alternate" hreflang="loz" href="https://fieldsa.net/loz/"/>
+    <xhtml:link rel="alternate" hreflang="tum" href="https://fieldsa.net/tum/"/>
+    <xhtml:link rel="alternate" hreflang="wo" href="https://fieldsa.net/wo/"/>
+    <xhtml:link rel="alternate" hreflang="ff" href="https://fieldsa.net/ff/"/>
+    <xhtml:link rel="alternate" hreflang="bm" href="https://fieldsa.net/bm/"/>
+    <xhtml:link rel="alternate" hreflang="ak" href="https://fieldsa.net/ak/"/>
+    <xhtml:link rel="alternate" hreflang="ee" href="https://fieldsa.net/ee/"/>
+    <xhtml:link rel="alternate" hreflang="gaa" href="https://fieldsa.net/gaa/"/>
     <xhtml:link rel="alternate" hreflang="kri" href="https://fieldsa.net/kri/"/>
+    <xhtml:link rel="alternate" hreflang="zgh" href="https://fieldsa.net/zgh/"/>
     <xhtml:link rel="alternate" hreflang="mfe" href="https://fieldsa.net/mfe/"/>
     <xhtml:link rel="alternate" hreflang="crs" href="https://fieldsa.net/crs/"/>
     <xhtml:link rel="alternate" hreflang="ht" href="https://fieldsa.net/ht/"/>
+    <xhtml:link rel="alternate" hreflang="qu" href="https://fieldsa.net/qu/"/>
+    <xhtml:link rel="alternate" hreflang="gn" href="https://fieldsa.net/gn/"/>
+    <xhtml:link rel="alternate" hreflang="ay" href="https://fieldsa.net/ay/"/>
+    <xhtml:link rel="alternate" hreflang="mi" href="https://fieldsa.net/mi/"/>
+    <xhtml:link rel="alternate" hreflang="sm" href="https://fieldsa.net/sm/"/>
+    <xhtml:link rel="alternate" hreflang="to" href="https://fieldsa.net/to/"/>
+    <xhtml:link rel="alternate" hreflang="bi" href="https://fieldsa.net/bi/"/>
+    <xhtml:link rel="alternate" hreflang="tpi" href="https://fieldsa.net/tpi/"/>
+    <xhtml:link rel="alternate" hreflang="lb" href="https://fieldsa.net/lb/"/>
+    <xhtml:link rel="alternate" hreflang="fy" href="https://fieldsa.net/fy/"/>
+    <xhtml:link rel="alternate" hreflang="fo" href="https://fieldsa.net/fo/"/>
+    <xhtml:link rel="alternate" hreflang="kl" href="https://fieldsa.net/kl/"/>
+    <xhtml:link rel="alternate" hreflang="gd" href="https://fieldsa.net/gd/"/>
+    <xhtml:link rel="alternate" hreflang="br" href="https://fieldsa.net/br/"/>
+    <xhtml:link rel="alternate" hreflang="oc" href="https://fieldsa.net/oc/"/>
+    <xhtml:link rel="alternate" hreflang="co" href="https://fieldsa.net/co/"/>
+    <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/"/>
+    <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/"/>
     <lastmod>2026-10-26</lastmod>
   </url>
@@ -185,6 +231,7 @@
     <xhtml:link rel="alternate" hreflang="eu" href="https://fieldsa.net/eu/"/>
     <xhtml:link rel="alternate" hreflang="gl" href="https://fieldsa.net/gl/"/>
     <xhtml:link rel="alternate" hreflang="zu" href="https://fieldsa.net/zu/"/>
+    <xhtml:link rel="alternate" hreflang="pcm" href="https://fieldsa.net/pcm/"/>
     <xhtml:link rel="alternate" hreflang="yue" href="https://fieldsa.net/yue/"/>
     <xhtml:link rel="alternate" hreflang="my" href="https://fieldsa.net/my/"/>
     <xhtml:link rel="alternate" hreflang="km" href="https://fieldsa.net/km/"/>
@@ -205,6 +252,18 @@
     <xhtml:link rel="alternate" hreflang="jv" href="https://fieldsa.net/jv/"/>
     <xhtml:link rel="alternate" hreflang="su" href="https://fieldsa.net/su/"/>
     <xhtml:link rel="alternate" hreflang="ceb" href="https://fieldsa.net/ceb/"/>
+    <xhtml:link rel="alternate" hreflang="hmn" href="https://fieldsa.net/hmn/"/>
+    <xhtml:link rel="alternate" hreflang="bo" href="https://fieldsa.net/bo/"/>
+    <xhtml:link rel="alternate" hreflang="dz" href="https://fieldsa.net/dz/"/>
+    <xhtml:link rel="alternate" hreflang="dv" href="https://fieldsa.net/dv/"/>
+    <xhtml:link rel="alternate" hreflang="tet" href="https://fieldsa.net/tet/"/>
+    <xhtml:link rel="alternate" hreflang="am" href="https://fieldsa.net/am/"/>
+    <xhtml:link rel="alternate" hreflang="ha" href="https://fieldsa.net/ha/"/>
+    <xhtml:link rel="alternate" hreflang="yo" href="https://fieldsa.net/yo/"/>
+    <xhtml:link rel="alternate" hreflang="ig" href="https://fieldsa.net/ig/"/>
+    <xhtml:link rel="alternate" hreflang="so" href="https://fieldsa.net/so/"/>
+    <xhtml:link rel="alternate" hreflang="om" href="https://fieldsa.net/om/"/>
+    <xhtml:link rel="alternate" hreflang="ti" href="https://fieldsa.net/ti/"/>
     <xhtml:link rel="alternate" hreflang="xh" href="https://fieldsa.net/xh/"/>
     <xhtml:link rel="alternate" hreflang="st" href="https://fieldsa.net/st/"/>
     <xhtml:link rel="alternate" hreflang="tn" href="https://fieldsa.net/tn/"/>
@@ -215,12 +274,45 @@
     <xhtml:link rel="alternate" hreflang="ny" href="https://fieldsa.net/ny/"/>
     <xhtml:link rel="alternate" hreflang="mg" href="https://fieldsa.net/mg/"/>
     <xhtml:link rel="alternate" hreflang="rw" href="https://fieldsa.net/rw/"/>
+    <xhtml:link rel="alternate" hreflang="rn" href="https://fieldsa.net/rn/"/>
     <xhtml:link rel="alternate" hreflang="lg" href="https://fieldsa.net/lg/"/>
+    <xhtml:link rel="alternate" hreflang="nyn" href="https://fieldsa.net/nyn/"/>
+    <xhtml:link rel="alternate" hreflang="ach" href="https://fieldsa.net/ach/"/>
     <xhtml:link rel="alternate" hreflang="ln" href="https://fieldsa.net/ln/"/>
+    <xhtml:link rel="alternate" hreflang="kg" href="https://fieldsa.net/kg/"/>
+    <xhtml:link rel="alternate" hreflang="lua" href="https://fieldsa.net/lua/"/>
+    <xhtml:link rel="alternate" hreflang="bem" href="https://fieldsa.net/bem/"/>
+    <xhtml:link rel="alternate" hreflang="loz" href="https://fieldsa.net/loz/"/>
+    <xhtml:link rel="alternate" hreflang="tum" href="https://fieldsa.net/tum/"/>
+    <xhtml:link rel="alternate" hreflang="wo" href="https://fieldsa.net/wo/"/>
+    <xhtml:link rel="alternate" hreflang="ff" href="https://fieldsa.net/ff/"/>
+    <xhtml:link rel="alternate" hreflang="bm" href="https://fieldsa.net/bm/"/>
+    <xhtml:link rel="alternate" hreflang="ak" href="https://fieldsa.net/ak/"/>
+    <xhtml:link rel="alternate" hreflang="ee" href="https://fieldsa.net/ee/"/>
+    <xhtml:link rel="alternate" hreflang="gaa" href="https://fieldsa.net/gaa/"/>
     <xhtml:link rel="alternate" hreflang="kri" href="https://fieldsa.net/kri/"/>
+    <xhtml:link rel="alternate" hreflang="zgh" href="https://fieldsa.net/zgh/"/>
     <xhtml:link rel="alternate" hreflang="mfe" href="https://fieldsa.net/mfe/"/>
     <xhtml:link rel="alternate" hreflang="crs" href="https://fieldsa.net/crs/"/>
     <xhtml:link rel="alternate" hreflang="ht" href="https://fieldsa.net/ht/"/>
+    <xhtml:link rel="alternate" hreflang="qu" href="https://fieldsa.net/qu/"/>
+    <xhtml:link rel="alternate" hreflang="gn" href="https://fieldsa.net/gn/"/>
+    <xhtml:link rel="alternate" hreflang="ay" href="https://fieldsa.net/ay/"/>
+    <xhtml:link rel="alternate" hreflang="mi" href="https://fieldsa.net/mi/"/>
+    <xhtml:link rel="alternate" hreflang="sm" href="https://fieldsa.net/sm/"/>
+    <xhtml:link rel="alternate" hreflang="to" href="https://fieldsa.net/to/"/>
+    <xhtml:link rel="alternate" hreflang="bi" href="https://fieldsa.net/bi/"/>
+    <xhtml:link rel="alternate" hreflang="tpi" href="https://fieldsa.net/tpi/"/>
+    <xhtml:link rel="alternate" hreflang="lb" href="https://fieldsa.net/lb/"/>
+    <xhtml:link rel="alternate" hreflang="fy" href="https://fieldsa.net/fy/"/>
+    <xhtml:link rel="alternate" hreflang="fo" href="https://fieldsa.net/fo/"/>
+    <xhtml:link rel="alternate" hreflang="kl" href="https://fieldsa.net/kl/"/>
+    <xhtml:link rel="alternate" hreflang="gd" href="https://fieldsa.net/gd/"/>
+    <xhtml:link rel="alternate" hreflang="br" href="https://fieldsa.net/br/"/>
+    <xhtml:link rel="alternate" hreflang="oc" href="https://fieldsa.net/oc/"/>
+    <xhtml:link rel="alternate" hreflang="co" href="https://fieldsa.net/co/"/>
+    <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/"/>
+    <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/"/>
     <lastmod>2026-10-05</lastmod>
   </url>
@@ -297,6 +389,7 @@
     <xhtml:link rel="alternate" hreflang="eu" href="https://fieldsa.net/eu/"/>
     <xhtml:link rel="alternate" hreflang="gl" href="https://fieldsa.net/gl/"/>
     <xhtml:link rel="alternate" hreflang="zu" href="https://fieldsa.net/zu/"/>
+    <xhtml:link rel="alternate" hreflang="pcm" href="https://fieldsa.net/pcm/"/>
     <xhtml:link rel="alternate" hreflang="yue" href="https://fieldsa.net/yue/"/>
     <xhtml:link rel="alternate" hreflang="my" href="https://fieldsa.net/my/"/>
     <xhtml:link rel="alternate" hreflang="km" href="https://fieldsa.net/km/"/>
@@ -317,6 +410,18 @@
     <xhtml:link rel="alternate" hreflang="jv" href="https://fieldsa.net/jv/"/>
     <xhtml:link rel="alternate" hreflang="su" href="https://fieldsa.net/su/"/>
     <xhtml:link rel="alternate" hreflang="ceb" href="https://fieldsa.net/ceb/"/>
+    <xhtml:link rel="alternate" hreflang="hmn" href="https://fieldsa.net/hmn/"/>
+    <xhtml:link rel="alternate" hreflang="bo" href="https://fieldsa.net/bo/"/>
+    <xhtml:link rel="alternate" hreflang="dz" href="https://fieldsa.net/dz/"/>
+    <xhtml:link rel="alternate" hreflang="dv" href="https://fieldsa.net/dv/"/>
+    <xhtml:link rel="alternate" hreflang="tet" href="https://fieldsa.net/tet/"/>
+    <xhtml:link rel="alternate" hreflang="am" href="https://fieldsa.net/am/"/>
+    <xhtml:link rel="alternate" hreflang="ha" href="https://fieldsa.net/ha/"/>
+    <xhtml:link rel="alternate" hreflang="yo" href="https://fieldsa.net/yo/"/>
+    <xhtml:link rel="alternate" hreflang="ig" href="https://fieldsa.net/ig/"/>
+    <xhtml:link rel="alternate" hreflang="so" href="https://fieldsa.net/so/"/>
+    <xhtml:link rel="alternate" hreflang="om" href="https://fieldsa.net/om/"/>
+    <xhtml:link rel="alternate" hreflang="ti" href="https://fieldsa.net/ti/"/>
     <xhtml:link rel="alternate" hreflang="xh" href="https://fieldsa.net/xh/"/>
     <xhtml:link rel="alternate" hreflang="st" href="https://fieldsa.net/st/"/>
     <xhtml:link rel="alternate" hreflang="tn" href="https://fieldsa.net/tn/"/>
@@ -327,12 +432,45 @@
     <xhtml:link rel="alternate" hreflang="ny" href="https://fieldsa.net/ny/"/>
     <xhtml:link rel="alternate" hreflang="mg" href="https://fieldsa.net/mg/"/>
     <xhtml:link rel="alternate" hreflang="rw" href="https://fieldsa.net/rw/"/>
+    <xhtml:link rel="alternate" hreflang="rn" href="https://fieldsa.net/rn/"/>
     <xhtml:link rel="alternate" hreflang="lg" href="https://fieldsa.net/lg/"/>
+    <xhtml:link rel="alternate" hreflang="nyn" href="https://fieldsa.net/nyn/"/>
+    <xhtml:link rel="alternate" hreflang="ach" href="https://fieldsa.net/ach/"/>
     <xhtml:link rel="alternate" hreflang="ln" href="https://fieldsa.net/ln/"/>
+    <xhtml:link rel="alternate" hreflang="kg" href="https://fieldsa.net/kg/"/>
+    <xhtml:link rel="alternate" hreflang="lua" href="https://fieldsa.net/lua/"/>
+    <xhtml:link rel="alternate" hreflang="bem" href="https://fieldsa.net/bem/"/>
+    <xhtml:link rel="alternate" hreflang="loz" href="https://fieldsa.net/loz/"/>
+    <xhtml:link rel="alternate" hreflang="tum" href="https://fieldsa.net/tum/"/>
+    <xhtml:link rel="alternate" hreflang="wo" href="https://fieldsa.net/wo/"/>
+    <xhtml:link rel="alternate" hreflang="ff" href="https://fieldsa.net/ff/"/>
+    <xhtml:link rel="alternate" hreflang="bm" href="https://fieldsa.net/bm/"/>
+    <xhtml:link rel="alternate" hreflang="ak" href="https://fieldsa.net/ak/"/>
+    <xhtml:link rel="alternate" hreflang="ee" href="https://fieldsa.net/ee/"/>
+    <xhtml:link rel="alternate" hreflang="gaa" href="https://fieldsa.net/gaa/"/>
     <xhtml:link rel="alternate" hreflang="kri" href="https://fieldsa.net/kri/"/>
+    <xhtml:link rel="alternate" hreflang="zgh" href="https://fieldsa.net/zgh/"/>
     <xhtml:link rel="alternate" hreflang="mfe" href="https://fieldsa.net/mfe/"/>
     <xhtml:link rel="alternate" hreflang="crs" href="https://fieldsa.net/crs/"/>
     <xhtml:link rel="alternate" hreflang="ht" href="https://fieldsa.net/ht/"/>
+    <xhtml:link rel="alternate" hreflang="qu" href="https://fieldsa.net/qu/"/>
+    <xhtml:link rel="alternate" hreflang="gn" href="https://fieldsa.net/gn/"/>
+    <xhtml:link rel="alternate" hreflang="ay" href="https://fieldsa.net/ay/"/>
+    <xhtml:link rel="alternate" hreflang="mi" href="https://fieldsa.net/mi/"/>
+    <xhtml:link rel="alternate" hreflang="sm" href="https://fieldsa.net/sm/"/>
+    <xhtml:link rel="alternate" hreflang="to" href="https://fieldsa.net/to/"/>
+    <xhtml:link rel="alternate" hreflang="bi" href="https://fieldsa.net/bi/"/>
+    <xhtml:link rel="alternate" hreflang="tpi" href="https://fieldsa.net/tpi/"/>
+    <xhtml:link rel="alternate" hreflang="lb" href="https://fieldsa.net/lb/"/>
+    <xhtml:link rel="alternate" hreflang="fy" href="https://fieldsa.net/fy/"/>
+    <xhtml:link rel="alternate" hreflang="fo" href="https://fieldsa.net/fo/"/>
+    <xhtml:link rel="alternate" hreflang="kl" href="https://fieldsa.net/kl/"/>
+    <xhtml:link rel="alternate" hreflang="gd" href="https://fieldsa.net/gd/"/>
+    <xhtml:link rel="alternate" hreflang="br" href="https://fieldsa.net/br/"/>
+    <xhtml:link rel="alternate" hreflang="oc" href="https://fieldsa.net/oc/"/>
+    <xhtml:link rel="alternate" hreflang="co" href="https://fieldsa.net/co/"/>
+    <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/"/>
+    <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/"/>
     <lastmod>2026-10-05</lastmod>
   </url>
@@ -409,6 +547,7 @@
     <xhtml:link rel="alternate" hreflang="eu" href="https://fieldsa.net/eu/"/>
     <xhtml:link rel="alternate" hreflang="gl" href="https://fieldsa.net/gl/"/>
     <xhtml:link rel="alternate" hreflang="zu" href="https://fieldsa.net/zu/"/>
+    <xhtml:link rel="alternate" hreflang="pcm" href="https://fieldsa.net/pcm/"/>
     <xhtml:link rel="alternate" hreflang="yue" href="https://fieldsa.net/yue/"/>
     <xhtml:link rel="alternate" hreflang="my" href="https://fieldsa.net/my/"/>
     <xhtml:link rel="alternate" hreflang="km" href="https://fieldsa.net/km/"/>
@@ -429,6 +568,18 @@
     <xhtml:link rel="alternate" hreflang="jv" href="https://fieldsa.net/jv/"/>
     <xhtml:link rel="alternate" hreflang="su" href="https://fieldsa.net/su/"/>
     <xhtml:link rel="alternate" hreflang="ceb" href="https://fieldsa.net/ceb/"/>
+    <xhtml:link rel="alternate" hreflang="hmn" href="https://fieldsa.net/hmn/"/>
+    <xhtml:link rel="alternate" hreflang="bo" href="https://fieldsa.net/bo/"/>
+    <xhtml:link rel="alternate" hreflang="dz" href="https://fieldsa.net/dz/"/>
+    <xhtml:link rel="alternate" hreflang="dv" href="https://fieldsa.net/dv/"/>
+    <xhtml:link rel="alternate" hreflang="tet" href="https://fieldsa.net/tet/"/>
+    <xhtml:link rel="alternate" hreflang="am" href="https://fieldsa.net/am/"/>
+    <xhtml:link rel="alternate" hreflang="ha" href="https://fieldsa.net/ha/"/>
+    <xhtml:link rel="alternate" hreflang="yo" href="https://fieldsa.net/yo/"/>
+    <xhtml:link rel="alternate" hreflang="ig" href="https://fieldsa.net/ig/"/>
+    <xhtml:link rel="alternate" hreflang="so" href="https://fieldsa.net/so/"/>
+    <xhtml:link rel="alternate" hreflang="om" href="https://fieldsa.net/om/"/>
+    <xhtml:link rel="alternate" hreflang="ti" href="https://fieldsa.net/ti/"/>
     <xhtml:link rel="alternate" hreflang="xh" href="https://fieldsa.net/xh/"/>
     <xhtml:link rel="alternate" hreflang="st" href="https://fieldsa.net/st/"/>
     <xhtml:link rel="alternate" hreflang="tn" href="https://fieldsa.net/tn/"/>
@@ -439,12 +590,45 @@
     <xhtml:link rel="alternate" hreflang="ny" href="https://fieldsa.net/ny/"/>
     <xhtml:link rel="alternate" hreflang="mg" href="https://fieldsa.net/mg/"/>
     <xhtml:link rel="alternate" hreflang="rw" href="https://fieldsa.net/rw/"/>
+    <xhtml:link rel="alternate" hreflang="rn" href="https://fieldsa.net/rn/"/>
     <xhtml:link rel="alternate" hreflang="lg" href="https://fieldsa.net/lg/"/>
+    <xhtml:link rel="alternate" hreflang="nyn" href="https://fieldsa.net/nyn/"/>
+    <xhtml:link rel="alternate" hreflang="ach" href="https://fieldsa.net/ach/"/>
     <xhtml:link rel="alternate" hreflang="ln" href="https://fieldsa.net/ln/"/>
+    <xhtml:link rel="alternate" hreflang="kg" href="https://fieldsa.net/kg/"/>
+    <xhtml:link rel="alternate" hreflang="lua" href="https://fieldsa.net/lua/"/>
+    <xhtml:link rel="alternate" hreflang="bem" href="https://fieldsa.net/bem/"/>
+    <xhtml:link rel="alternate" hreflang="loz" href="https://fieldsa.net/loz/"/>
+    <xhtml:link rel="alternate" hreflang="tum" href="https://fieldsa.net/tum/"/>
+    <xhtml:link rel="alternate" hreflang="wo" href="https://fieldsa.net/wo/"/>
+    <xhtml:link rel="alternate" hreflang="ff" href="https://fieldsa.net/ff/"/>
+    <xhtml:link rel="alternate" hreflang="bm" href="https://fieldsa.net/bm/"/>
+    <xhtml:link rel="alternate" hreflang="ak" href="https://fieldsa.net/ak/"/>
+    <xhtml:link rel="alternate" hreflang="ee" href="https://fieldsa.net/ee/"/>
+    <xhtml:link rel="alternate" hreflang="gaa" href="https://fieldsa.net/gaa/"/>
     <xhtml:link rel="alternate" hreflang="kri" href="https://fieldsa.net/kri/"/>
+    <xhtml:link rel="alternate" hreflang="zgh" href="https://fieldsa.net/zgh/"/>
     <xhtml:link rel="alternate" hreflang="mfe" href="https://fieldsa.net/mfe/"/>
     <xhtml:link rel="alternate" hreflang="crs" href="https://fieldsa.net/crs/"/>
     <xhtml:link rel="alternate" hreflang="ht" href="https://fieldsa.net/ht/"/>
+    <xhtml:link rel="alternate" hreflang="qu" href="https://fieldsa.net/qu/"/>
+    <xhtml:link rel="alternate" hreflang="gn" href="https://fieldsa.net/gn/"/>
+    <xhtml:link rel="alternate" hreflang="ay" href="https://fieldsa.net/ay/"/>
+    <xhtml:link rel="alternate" hreflang="mi" href="https://fieldsa.net/mi/"/>
+    <xhtml:link rel="alternate" hreflang="sm" href="https://fieldsa.net/sm/"/>
+    <xhtml:link rel="alternate" hreflang="to" href="https://fieldsa.net/to/"/>
+    <xhtml:link rel="alternate" hreflang="bi" href="https://fieldsa.net/bi/"/>
+    <xhtml:link rel="alternate" hreflang="tpi" href="https://fieldsa.net/tpi/"/>
+    <xhtml:link rel="alternate" hreflang="lb" href="https://fieldsa.net/lb/"/>
+    <xhtml:link rel="alternate" hreflang="fy" href="https://fieldsa.net/fy/"/>
+    <xhtml:link rel="alternate" hreflang="fo" href="https://fieldsa.net/fo/"/>
+    <xhtml:link rel="alternate" hreflang="kl" href="https://fieldsa.net/kl/"/>
+    <xhtml:link rel="alternate" hreflang="gd" href="https://fieldsa.net/gd/"/>
+    <xhtml:link rel="alternate" hreflang="br" href="https://fieldsa.net/br/"/>
+    <xhtml:link rel="alternate" hreflang="oc" href="https://fieldsa.net/oc/"/>
+    <xhtml:link rel="alternate" hreflang="co" href="https://fieldsa.net/co/"/>
+    <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/"/>
+    <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/"/>
     <lastmod>2026-10-05</lastmod>
   </url>
@@ -521,6 +705,7 @@
     <xhtml:link rel="alternate" hreflang="eu" href="https://fieldsa.net/eu/"/>
     <xhtml:link rel="alternate" hreflang="gl" href="https://fieldsa.net/gl/"/>
     <xhtml:link rel="alternate" hreflang="zu" href="https://fieldsa.net/zu/"/>
+    <xhtml:link rel="alternate" hreflang="pcm" href="https://fieldsa.net/pcm/"/>
     <xhtml:link rel="alternate" hreflang="yue" href="https://fieldsa.net/yue/"/>
     <xhtml:link rel="alternate" hreflang="my" href="https://fieldsa.net/my/"/>
     <xhtml:link rel="alternate" hreflang="km" href="https://fieldsa.net/km/"/>
@@ -541,6 +726,18 @@
     <xhtml:link rel="alternate" hreflang="jv" href="https://fieldsa.net/jv/"/>
     <xhtml:link rel="alternate" hreflang="su" href="https://fieldsa.net/su/"/>
     <xhtml:link rel="alternate" hreflang="ceb" href="https://fieldsa.net/ceb/"/>
+    <xhtml:link rel="alternate" hreflang="hmn" href="https://fieldsa.net/hmn/"/>
+    <xhtml:link rel="alternate" hreflang="bo" href="https://fieldsa.net/bo/"/>
+    <xhtml:link rel="alternate" hreflang="dz" href="https://fieldsa.net/dz/"/>
+    <xhtml:link rel="alternate" hreflang="dv" href="https://fieldsa.net/dv/"/>
+    <xhtml:link rel="alternate" hreflang="tet" href="https://fieldsa.net/tet/"/>
+    <xhtml:link rel="alternate" hreflang="am" href="https://fieldsa.net/am/"/>
+    <xhtml:link rel="alternate" hreflang="ha" href="https://fieldsa.net/ha/"/>
+    <xhtml:link rel="alternate" hreflang="yo" href="https://fieldsa.net/yo/"/>
+    <xhtml:link rel="alternate" hreflang="ig" href="https://fieldsa.net/ig/"/>
+    <xhtml:link rel="alternate" hreflang="so" href="https://fieldsa.net/so/"/>
+    <xhtml:link rel="alternate" hreflang="om" href="https://fieldsa.net/om/"/>
+    <xhtml:link rel="alternate" hreflang="ti" href="https://fieldsa.net/ti/"/>
     <xhtml:link rel="alternate" hreflang="xh" href="https://fieldsa.net/xh/"/>
     <xhtml:link rel="alternate" hreflang="st" href="https://fieldsa.net/st/"/>
     <xhtml:link rel="alternate" hreflang="tn" href="https://fieldsa.net/tn/"/>
@@ -551,12 +748,45 @@
     <xhtml:link rel="alternate" hreflang="ny" href="https://fieldsa.net/ny/"/>
     <xhtml:link rel="alternate" hreflang="mg" href="https://fieldsa.net/mg/"/>
     <xhtml:link rel="alternate" hreflang="rw" href="https://fieldsa.net/rw/"/>
+    <xhtml:link rel="alternate" hreflang="rn" href="https://fieldsa.net/rn/"/>
     <xhtml:link rel="alternate" hreflang="lg" href="https://fieldsa.net/lg/"/>
+    <xhtml:link rel="alternate" hreflang="nyn" href="https://fieldsa.net/nyn/"/>
+    <xhtml:link rel="alternate" hreflang="ach" href="https://fieldsa.net/ach/"/>
     <xhtml:link rel="alternate" hreflang="ln" href="https://fieldsa.net/ln/"/>
+    <xhtml:link rel="alternate" hreflang="kg" href="https://fieldsa.net/kg/"/>
+    <xhtml:link rel="alternate" hreflang="lua" href="https://fieldsa.net/lua/"/>
+    <xhtml:link rel="alternate" hreflang="bem" href="https://fieldsa.net/bem/"/>
+    <xhtml:link rel="alternate" hreflang="loz" href="https://fieldsa.net/loz/"/>
+    <xhtml:link rel="alternate" hreflang="tum" href="https://fieldsa.net/tum/"/>
+    <xhtml:link rel="alternate" hreflang="wo" href="https://fieldsa.net/wo/"/>
+    <xhtml:link rel="alternate" hreflang="ff" href="https://fieldsa.net/ff/"/>
+    <xhtml:link rel="alternate" hreflang="bm" href="https://fieldsa.net/bm/"/>
+    <xhtml:link rel="alternate" hreflang="ak" href="https://fieldsa.net/ak/"/>
+    <xhtml:link rel="alternate" hreflang="ee" href="https://fieldsa.net/ee/"/>
+    <xhtml:link rel="alternate" hreflang="gaa" href="https://fieldsa.net/gaa/"/>
     <xhtml:link rel="alternate" hreflang="kri" href="https://fieldsa.net/kri/"/>
+    <xhtml:link rel="alternate" hreflang="zgh" href="https://fieldsa.net/zgh/"/>
     <xhtml:link rel="alternate" hreflang="mfe" href="https://fieldsa.net/mfe/"/>
     <xhtml:link rel="alternate" hreflang="crs" href="https://fieldsa.net/crs/"/>
     <xhtml:link rel="alternate" hreflang="ht" href="https://fieldsa.net/ht/"/>
+    <xhtml:link rel="alternate" hreflang="qu" href="https://fieldsa.net/qu/"/>
+    <xhtml:link rel="alternate" hreflang="gn" href="https://fieldsa.net/gn/"/>
+    <xhtml:link rel="alternate" hreflang="ay" href="https://fieldsa.net/ay/"/>
+    <xhtml:link rel="alternate" hreflang="mi" href="https://fieldsa.net/mi/"/>
+    <xhtml:link rel="alternate" hreflang="sm" href="https://fieldsa.net/sm/"/>
+    <xhtml:link rel="alternate" hreflang="to" href="https://fieldsa.net/to/"/>
+    <xhtml:link rel="alternate" hreflang="bi" href="https://fieldsa.net/bi/"/>
+    <xhtml:link rel="alternate" hreflang="tpi" href="https://fieldsa.net/tpi/"/>
+    <xhtml:link rel="alternate" hreflang="lb" href="https://fieldsa.net/lb/"/>
+    <xhtml:link rel="alternate" hreflang="fy" href="https://fieldsa.net/fy/"/>
+    <xhtml:link rel="alternate" hreflang="fo" href="https://fieldsa.net/fo/"/>
+    <xhtml:link rel="alternate" hreflang="kl" href="https://fieldsa.net/kl/"/>
+    <xhtml:link rel="alternate" hreflang="gd" href="https://fieldsa.net/gd/"/>
+    <xhtml:link rel="alternate" hreflang="br" href="https://fieldsa.net/br/"/>
+    <xhtml:link rel="alternate" hreflang="oc" href="https://fieldsa.net/oc/"/>
+    <xhtml:link rel="alternate" hreflang="co" href="https://fieldsa.net/co/"/>
+    <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/"/>
+    <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/"/>
     <lastmod>2026-10-05</lastmod>
   </url>
@@ -681,6 +911,7 @@
     <xhtml:link rel="alternate" hreflang="eu" href="https://fieldsa.net/eu/about/"/>
     <xhtml:link rel="alternate" hreflang="gl" href="https://fieldsa.net/gl/about/"/>
     <xhtml:link rel="alternate" hreflang="zu" href="https://fieldsa.net/zu/about/"/>
+    <xhtml:link rel="alternate" hreflang="pcm" href="https://fieldsa.net/pcm/about/"/>
     <xhtml:link rel="alternate" hreflang="yue" href="https://fieldsa.net/yue/about/"/>
     <xhtml:link rel="alternate" hreflang="my" href="https://fieldsa.net/my/about/"/>
     <xhtml:link rel="alternate" hreflang="km" href="https://fieldsa.net/km/about/"/>
@@ -701,6 +932,18 @@
     <xhtml:link rel="alternate" hreflang="jv" href="https://fieldsa.net/jv/about/"/>
     <xhtml:link rel="alternate" hreflang="su" href="https://fieldsa.net/su/about/"/>
     <xhtml:link rel="alternate" hreflang="ceb" href="https://fieldsa.net/ceb/about/"/>
+    <xhtml:link rel="alternate" hreflang="hmn" href="https://fieldsa.net/hmn/about/"/>
+    <xhtml:link rel="alternate" hreflang="bo" href="https://fieldsa.net/bo/about/"/>
+    <xhtml:link rel="alternate" hreflang="dz" href="https://fieldsa.net/dz/about/"/>
+    <xhtml:link rel="alternate" hreflang="dv" href="https://fieldsa.net/dv/about/"/>
+    <xhtml:link rel="alternate" hreflang="tet" href="https://fieldsa.net/tet/about/"/>
+    <xhtml:link rel="alternate" hreflang="am" href="https://fieldsa.net/am/about/"/>
+    <xhtml:link rel="alternate" hreflang="ha" href="https://fieldsa.net/ha/about/"/>
+    <xhtml:link rel="alternate" hreflang="yo" href="https://fieldsa.net/yo/about/"/>
+    <xhtml:link rel="alternate" hreflang="ig" href="https://fieldsa.net/ig/about/"/>
+    <xhtml:link rel="alternate" hreflang="so" href="https://fieldsa.net/so/about/"/>
+    <xhtml:link rel="alternate" hreflang="om" href="https://fieldsa.net/om/about/"/>
+    <xhtml:link rel="alternate" hreflang="ti" href="https://fieldsa.net/ti/about/"/>
     <xhtml:link rel="alternate" hreflang="xh" href="https://fieldsa.net/xh/about/"/>
     <xhtml:link rel="alternate" hreflang="st" href="https://fieldsa.net/st/about/"/>
     <xhtml:link rel="alternate" hreflang="tn" href="https://fieldsa.net/tn/about/"/>
@@ -711,12 +954,45 @@
     <xhtml:link rel="alternate" hreflang="ny" href="https://fieldsa.net/ny/about/"/>
     <xhtml:link rel="alternate" hreflang="mg" href="https://fieldsa.net/mg/about/"/>
     <xhtml:link rel="alternate" hreflang="rw" href="https://fieldsa.net/rw/about/"/>
+    <xhtml:link rel="alternate" hreflang="rn" href="https://fieldsa.net/rn/about/"/>
     <xhtml:link rel="alternate" hreflang="lg" href="https://fieldsa.net/lg/about/"/>
+    <xhtml:link rel="alternate" hreflang="nyn" href="https://fieldsa.net/nyn/about/"/>
+    <xhtml:link rel="alternate" hreflang="ach" href="https://fieldsa.net/ach/about/"/>
     <xhtml:link rel="alternate" hreflang="ln" href="https://fieldsa.net/ln/about/"/>
+    <xhtml:link rel="alternate" hreflang="kg" href="https://fieldsa.net/kg/about/"/>
+    <xhtml:link rel="alternate" hreflang="lua" href="https://fieldsa.net/lua/about/"/>
+    <xhtml:link rel="alternate" hreflang="bem" href="https://fieldsa.net/bem/about/"/>
+    <xhtml:link rel="alternate" hreflang="loz" href="https://fieldsa.net/loz/about/"/>
+    <xhtml:link rel="alternate" hreflang="tum" href="https://fieldsa.net/tum/about/"/>
+    <xhtml:link rel="alternate" hreflang="wo" href="https://fieldsa.net/wo/about/"/>
+    <xhtml:link rel="alternate" hreflang="ff" href="https://fieldsa.net/ff/about/"/>
+    <xhtml:link rel="alternate" hreflang="bm" href="https://fieldsa.net/bm/about/"/>
+    <xhtml:link rel="alternate" hreflang="ak" href="https://fieldsa.net/ak/about/"/>
+    <xhtml:link rel="alternate" hreflang="ee" href="https://fieldsa.net/ee/about/"/>
+    <xhtml:link rel="alternate" hreflang="gaa" href="https://fieldsa.net/gaa/about/"/>
     <xhtml:link rel="alternate" hreflang="kri" href="https://fieldsa.net/kri/about/"/>
+    <xhtml:link rel="alternate" hreflang="zgh" href="https://fieldsa.net/zgh/about/"/>
     <xhtml:link rel="alternate" hreflang="mfe" href="https://fieldsa.net/mfe/about/"/>
     <xhtml:link rel="alternate" hreflang="crs" href="https://fieldsa.net/crs/about/"/>
     <xhtml:link rel="alternate" hreflang="ht" href="https://fieldsa.net/ht/about/"/>
+    <xhtml:link rel="alternate" hreflang="qu" href="https://fieldsa.net/qu/about/"/>
+    <xhtml:link rel="alternate" hreflang="gn" href="https://fieldsa.net/gn/about/"/>
+    <xhtml:link rel="alternate" hreflang="ay" href="https://fieldsa.net/ay/about/"/>
+    <xhtml:link rel="alternate" hreflang="mi" href="https://fieldsa.net/mi/about/"/>
+    <xhtml:link rel="alternate" hreflang="sm" href="https://fieldsa.net/sm/about/"/>
+    <xhtml:link rel="alternate" hreflang="to" href="https://fieldsa.net/to/about/"/>
+    <xhtml:link rel="alternate" hreflang="bi" href="https://fieldsa.net/bi/about/"/>
+    <xhtml:link rel="alternate" hreflang="tpi" href="https://fieldsa.net/tpi/about/"/>
+    <xhtml:link rel="alternate" hreflang="lb" href="https://fieldsa.net/lb/about/"/>
+    <xhtml:link rel="alternate" hreflang="fy" href="https://fieldsa.net/fy/about/"/>
+    <xhtml:link rel="alternate" hreflang="fo" href="https://fieldsa.net/fo/about/"/>
+    <xhtml:link rel="alternate" hreflang="kl" href="https://fieldsa.net/kl/about/"/>
+    <xhtml:link rel="alternate" hreflang="gd" href="https://fieldsa.net/gd/about/"/>
+    <xhtml:link rel="alternate" hreflang="br" href="https://fieldsa.net/br/about/"/>
+    <xhtml:link rel="alternate" hreflang="oc" href="https://fieldsa.net/oc/about/"/>
+    <xhtml:link rel="alternate" hreflang="co" href="https://fieldsa.net/co/about/"/>
+    <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/about/"/>
+    <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/about/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/about/"/>
     <lastmod>2026-10-05</lastmod>
   </url>
@@ -791,6 +1067,7 @@
     <xhtml:link rel="alternate" hreflang="eu" href="https://fieldsa.net/eu/about/"/>
     <xhtml:link rel="alternate" hreflang="gl" href="https://fieldsa.net/gl/about/"/>
     <xhtml:link rel="alternate" hreflang="zu" href="https://fieldsa.net/zu/about/"/>
+    <xhtml:link rel="alternate" hreflang="pcm" href="https://fieldsa.net/pcm/about/"/>
     <xhtml:link rel="alternate" hreflang="yue" href="https://fieldsa.net/yue/about/"/>
     <xhtml:link rel="alternate" hreflang="my" href="https://fieldsa.net/my/about/"/>
     <xhtml:link rel="alternate" hreflang="km" href="https://fieldsa.net/km/about/"/>
@@ -811,6 +1088,18 @@
     <xhtml:link rel="alternate" hreflang="jv" href="https://fieldsa.net/jv/about/"/>
     <xhtml:link rel="alternate" hreflang="su" href="https://fieldsa.net/su/about/"/>
     <xhtml:link rel="alternate" hreflang="ceb" href="https://fieldsa.net/ceb/about/"/>
+    <xhtml:link rel="alternate" hreflang="hmn" href="https://fieldsa.net/hmn/about/"/>
+    <xhtml:link rel="alternate" hreflang="bo" href="https://fieldsa.net/bo/about/"/>
+    <xhtml:link rel="alternate" hreflang="dz" href="https://fieldsa.net/dz/about/"/>
+    <xhtml:link rel="alternate" hreflang="dv" href="https://fieldsa.net/dv/about/"/>
+    <xhtml:link rel="alternate" hreflang="tet" href="https://fieldsa.net/tet/about/"/>
+    <xhtml:link rel="alternate" hreflang="am" href="https://fieldsa.net/am/about/"/>
+    <xhtml:link rel="alternate" hreflang="ha" href="https://fieldsa.net/ha/about/"/>
+    <xhtml:link rel="alternate" hreflang="yo" href="https://fieldsa.net/yo/about/"/>
+    <xhtml:link rel="alternate" hreflang="ig" href="https://fieldsa.net/ig/about/"/>
+    <xhtml:link rel="alternate" hreflang="so" href="https://fieldsa.net/so/about/"/>
+    <xhtml:link rel="alternate" hreflang="om" href="https://fieldsa.net/om/about/"/>
+    <xhtml:link rel="alternate" hreflang="ti" href="https://fieldsa.net/ti/about/"/>
     <xhtml:link rel="alternate" hreflang="xh" href="https://fieldsa.net/xh/about/"/>
     <xhtml:link rel="alternate" hreflang="st" href="https://fieldsa.net/st/about/"/>
     <xhtml:link rel="alternate" hreflang="tn" href="https://fieldsa.net/tn/about/"/>
@@ -821,12 +1110,45 @@
     <xhtml:link rel="alternate" hreflang="ny" href="https://fieldsa.net/ny/about/"/>
     <xhtml:link rel="alternate" hreflang="mg" href="https://fieldsa.net/mg/about/"/>
     <xhtml:link rel="alternate" hreflang="rw" href="https://fieldsa.net/rw/about/"/>
+    <xhtml:link rel="alternate" hreflang="rn" href="https://fieldsa.net/rn/about/"/>
     <xhtml:link rel="alternate" hreflang="lg" href="https://fieldsa.net/lg/about/"/>
+    <xhtml:link rel="alternate" hreflang="nyn" href="https://fieldsa.net/nyn/about/"/>
+    <xhtml:link rel="alternate" hreflang="ach" href="https://fieldsa.net/ach/about/"/>
     <xhtml:link rel="alternate" hreflang="ln" href="https://fieldsa.net/ln/about/"/>
+    <xhtml:link rel="alternate" hreflang="kg" href="https://fieldsa.net/kg/about/"/>
+    <xhtml:link rel="alternate" hreflang="lua" href="https://fieldsa.net/lua/about/"/>
+    <xhtml:link rel="alternate" hreflang="bem" href="https://fieldsa.net/bem/about/"/>
+    <xhtml:link rel="alternate" hreflang="loz" href="https://fieldsa.net/loz/about/"/>
+    <xhtml:link rel="alternate" hreflang="tum" href="https://fieldsa.net/tum/about/"/>
+    <xhtml:link rel="alternate" hreflang="wo" href="https://fieldsa.net/wo/about/"/>
+    <xhtml:link rel="alternate" hreflang="ff" href="https://fieldsa.net/ff/about/"/>
+    <xhtml:link rel="alternate" hreflang="bm" href="https://fieldsa.net/bm/about/"/>
+    <xhtml:link rel="alternate" hreflang="ak" href="https://fieldsa.net/ak/about/"/>
+    <xhtml:link rel="alternate" hreflang="ee" href="https://fieldsa.net/ee/about/"/>
+    <xhtml:link rel="alternate" hreflang="gaa" href="https://fieldsa.net/gaa/about/"/>
     <xhtml:link rel="alternate" hreflang="kri" href="https://fieldsa.net/kri/about/"/>
+    <xhtml:link rel="alternate" hreflang="zgh" href="https://fieldsa.net/zgh/about/"/>
     <xhtml:link rel="alternate" hreflang="mfe" href="https://fieldsa.net/mfe/about/"/>
     <xhtml:link rel="alternate" hreflang="crs" href="https://fieldsa.net/crs/about/"/>
     <xhtml:link rel="alternate" hreflang="ht" href="https://fieldsa.net/ht/about/"/>
+    <xhtml:link rel="alternate" hreflang="qu" href="https://fieldsa.net/qu/about/"/>
+    <xhtml:link rel="alternate" hreflang="gn" href="https://fieldsa.net/gn/about/"/>
+    <xhtml:link rel="alternate" hreflang="ay" href="https://fieldsa.net/ay/about/"/>
+    <xhtml:link rel="alternate" hreflang="mi" href="https://fieldsa.net/mi/about/"/>
+    <xhtml:link rel="alternate" hreflang="sm" href="https://fieldsa.net/sm/about/"/>
+    <xhtml:link rel="alternate" hreflang="to" href="https://fieldsa.net/to/about/"/>
+    <xhtml:link rel="alternate" hreflang="bi" href="https://fieldsa.net/bi/about/"/>
+    <xhtml:link rel="alternate" hreflang="tpi" href="https://fieldsa.net/tpi/about/"/>
+    <xhtml:link rel="alternate" hreflang="lb" href="https://fieldsa.net/lb/about/"/>
+    <xhtml:link rel="alternate" hreflang="fy" href="https://fieldsa.net/fy/about/"/>
+    <xhtml:link rel="alternate" hreflang="fo" href="https://fieldsa.net/fo/about/"/>
+    <xhtml:link rel="alternate" hreflang="kl" href="https://fieldsa.net/kl/about/"/>
+    <xhtml:link rel="alternate" hreflang="gd" href="https://fieldsa.net/gd/about/"/>
+    <xhtml:link rel="alternate" hreflang="br" href="https://fieldsa.net/br/about/"/>
+    <xhtml:link rel="alternate" hreflang="oc" href="https://fieldsa.net/oc/about/"/>
+    <xhtml:link rel="alternate" hreflang="co" href="https://fieldsa.net/co/about/"/>
+    <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/about/"/>
+    <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/about/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/about/"/>
     <lastmod>2026-10-05</lastmod>
   </url>
@@ -901,6 +1223,7 @@
     <xhtml:link rel="alternate" hreflang="eu" href="https://fieldsa.net/eu/about/"/>
     <xhtml:link rel="alternate" hreflang="gl" href="https://fieldsa.net/gl/about/"/>
     <xhtml:link rel="alternate" hreflang="zu" href="https://fieldsa.net/zu/about/"/>
+    <xhtml:link rel="alternate" hreflang="pcm" href="https://fieldsa.net/pcm/about/"/>
     <xhtml:link rel="alternate" hreflang="yue" href="https://fieldsa.net/yue/about/"/>
     <xhtml:link rel="alternate" hreflang="my" href="https://fieldsa.net/my/about/"/>
     <xhtml:link rel="alternate" hreflang="km" href="https://fieldsa.net/km/about/"/>
@@ -921,6 +1244,18 @@
     <xhtml:link rel="alternate" hreflang="jv" href="https://fieldsa.net/jv/about/"/>
     <xhtml:link rel="alternate" hreflang="su" href="https://fieldsa.net/su/about/"/>
     <xhtml:link rel="alternate" hreflang="ceb" href="https://fieldsa.net/ceb/about/"/>
+    <xhtml:link rel="alternate" hreflang="hmn" href="https://fieldsa.net/hmn/about/"/>
+    <xhtml:link rel="alternate" hreflang="bo" href="https://fieldsa.net/bo/about/"/>
+    <xhtml:link rel="alternate" hreflang="dz" href="https://fieldsa.net/dz/about/"/>
+    <xhtml:link rel="alternate" hreflang="dv" href="https://fieldsa.net/dv/about/"/>
+    <xhtml:link rel="alternate" hreflang="tet" href="https://fieldsa.net/tet/about/"/>
+    <xhtml:link rel="alternate" hreflang="am" href="https://fieldsa.net/am/about/"/>
+    <xhtml:link rel="alternate" hreflang="ha" href="https://fieldsa.net/ha/about/"/>
+    <xhtml:link rel="alternate" hreflang="yo" href="https://fieldsa.net/yo/about/"/>
+    <xhtml:link rel="alternate" hreflang="ig" href="https://fieldsa.net/ig/about/"/>
+    <xhtml:link rel="alternate" hreflang="so" href="https://fieldsa.net/so/about/"/>
+    <xhtml:link rel="alternate" hreflang="om" href="https://fieldsa.net/om/about/"/>
+    <xhtml:link rel="alternate" hreflang="ti" href="https://fieldsa.net/ti/about/"/>
     <xhtml:link rel="alternate" hreflang="xh" href="https://fieldsa.net/xh/about/"/>
     <xhtml:link rel="alternate" hreflang="st" href="https://fieldsa.net/st/about/"/>
     <xhtml:link rel="alternate" hreflang="tn" href="https://fieldsa.net/tn/about/"/>
@@ -931,12 +1266,45 @@
     <xhtml:link rel="alternate" hreflang="ny" href="https://fieldsa.net/ny/about/"/>
     <xhtml:link rel="alternate" hreflang="mg" href="https://fieldsa.net/mg/about/"/>
     <xhtml:link rel="alternate" hreflang="rw" href="https://fieldsa.net/rw/about/"/>
+    <xhtml:link rel="alternate" hreflang="rn" href="https://fieldsa.net/rn/about/"/>
     <xhtml:link rel="alternate" hreflang="lg" href="https://fieldsa.net/lg/about/"/>
+    <xhtml:link rel="alternate" hreflang="nyn" href="https://fieldsa.net/nyn/about/"/>
+    <xhtml:link rel="alternate" hreflang="ach" href="https://fieldsa.net/ach/about/"/>
     <xhtml:link rel="alternate" hreflang="ln" href="https://fieldsa.net/ln/about/"/>
+    <xhtml:link rel="alternate" hreflang="kg" href="https://fieldsa.net/kg/about/"/>
+    <xhtml:link rel="alternate" hreflang="lua" href="https://fieldsa.net/lua/about/"/>
+    <xhtml:link rel="alternate" hreflang="bem" href="https://fieldsa.net/bem/about/"/>
+    <xhtml:link rel="alternate" hreflang="loz" href="https://fieldsa.net/loz/about/"/>
+    <xhtml:link rel="alternate" hreflang="tum" href="https://fieldsa.net/tum/about/"/>
+    <xhtml:link rel="alternate" hreflang="wo" href="https://fieldsa.net/wo/about/"/>
+    <xhtml:link rel="alternate" hreflang="ff" href="https://fieldsa.net/ff/about/"/>
+    <xhtml:link rel="alternate" hreflang="bm" href="https://fieldsa.net/bm/about/"/>
+    <xhtml:link rel="alternate" hreflang="ak" href="https://fieldsa.net/ak/about/"/>
+    <xhtml:link rel="alternate" hreflang="ee" href="https://fieldsa.net/ee/about/"/>
+    <xhtml:link rel="alternate" hreflang="gaa" href="https://fieldsa.net/gaa/about/"/>
     <xhtml:link rel="alternate" hreflang="kri" href="https://fieldsa.net/kri/about/"/>
+    <xhtml:link rel="alternate" hreflang="zgh" href="https://fieldsa.net/zgh/about/"/>
     <xhtml:link rel="alternate" hreflang="mfe" href="https://fieldsa.net/mfe/about/"/>
     <xhtml:link rel="alternate" hreflang="crs" href="https://fieldsa.net/crs/about/"/>
     <xhtml:link rel="alternate" hreflang="ht" href="https://fieldsa.net/ht/about/"/>
+    <xhtml:link rel="alternate" hreflang="qu" href="https://fieldsa.net/qu/about/"/>
+    <xhtml:link rel="alternate" hreflang="gn" href="https://fieldsa.net/gn/about/"/>
+    <xhtml:link rel="alternate" hreflang="ay" href="https://fieldsa.net/ay/about/"/>
+    <xhtml:link rel="alternate" hreflang="mi" href="https://fieldsa.net/mi/about/"/>
+    <xhtml:link rel="alternate" hreflang="sm" href="https://fieldsa.net/sm/about/"/>
+    <xhtml:link rel="alternate" hreflang="to" href="https://fieldsa.net/to/about/"/>
+    <xhtml:link rel="alternate" hreflang="bi" href="https://fieldsa.net/bi/about/"/>
+    <xhtml:link rel="alternate" hreflang="tpi" href="https://fieldsa.net/tpi/about/"/>
+    <xhtml:link rel="alternate" hreflang="lb" href="https://fieldsa.net/lb/about/"/>
+    <xhtml:link rel="alternate" hreflang="fy" href="https://fieldsa.net/fy/about/"/>
+    <xhtml:link rel="alternate" hreflang="fo" href="https://fieldsa.net/fo/about/"/>
+    <xhtml:link rel="alternate" hreflang="kl" href="https://fieldsa.net/kl/about/"/>
+    <xhtml:link rel="alternate" hreflang="gd" href="https://fieldsa.net/gd/about/"/>
+    <xhtml:link rel="alternate" hreflang="br" href="https://fieldsa.net/br/about/"/>
+    <xhtml:link rel="alternate" hreflang="oc" href="https://fieldsa.net/oc/about/"/>
+    <xhtml:link rel="alternate" hreflang="co" href="https://fieldsa.net/co/about/"/>
+    <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/about/"/>
+    <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/about/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/about/"/>
     <lastmod>2026-10-05</lastmod>
   </url>
@@ -1011,6 +1379,7 @@
     <xhtml:link rel="alternate" hreflang="eu" href="https://fieldsa.net/eu/contact/"/>
     <xhtml:link rel="alternate" hreflang="gl" href="https://fieldsa.net/gl/contact/"/>
     <xhtml:link rel="alternate" hreflang="zu" href="https://fieldsa.net/zu/contact/"/>
+    <xhtml:link rel="alternate" hreflang="pcm" href="https://fieldsa.net/pcm/contact/"/>
     <xhtml:link rel="alternate" hreflang="yue" href="https://fieldsa.net/yue/contact/"/>
     <xhtml:link rel="alternate" hreflang="my" href="https://fieldsa.net/my/contact/"/>
     <xhtml:link rel="alternate" hreflang="km" href="https://fieldsa.net/km/contact/"/>
@@ -1031,6 +1400,18 @@
     <xhtml:link rel="alternate" hreflang="jv" href="https://fieldsa.net/jv/contact/"/>
     <xhtml:link rel="alternate" hreflang="su" href="https://fieldsa.net/su/contact/"/>
     <xhtml:link rel="alternate" hreflang="ceb" href="https://fieldsa.net/ceb/contact/"/>
+    <xhtml:link rel="alternate" hreflang="hmn" href="https://fieldsa.net/hmn/contact/"/>
+    <xhtml:link rel="alternate" hreflang="bo" href="https://fieldsa.net/bo/contact/"/>
+    <xhtml:link rel="alternate" hreflang="dz" href="https://fieldsa.net/dz/contact/"/>
+    <xhtml:link rel="alternate" hreflang="dv" href="https://fieldsa.net/dv/contact/"/>
+    <xhtml:link rel="alternate" hreflang="tet" href="https://fieldsa.net/tet/contact/"/>
+    <xhtml:link rel="alternate" hreflang="am" href="https://fieldsa.net/am/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ha" href="https://fieldsa.net/ha/contact/"/>
+    <xhtml:link rel="alternate" hreflang="yo" href="https://fieldsa.net/yo/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ig" href="https://fieldsa.net/ig/contact/"/>
+    <xhtml:link rel="alternate" hreflang="so" href="https://fieldsa.net/so/contact/"/>
+    <xhtml:link rel="alternate" hreflang="om" href="https://fieldsa.net/om/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ti" href="https://fieldsa.net/ti/contact/"/>
     <xhtml:link rel="alternate" hreflang="xh" href="https://fieldsa.net/xh/contact/"/>
     <xhtml:link rel="alternate" hreflang="st" href="https://fieldsa.net/st/contact/"/>
     <xhtml:link rel="alternate" hreflang="tn" href="https://fieldsa.net/tn/contact/"/>
@@ -1041,12 +1422,45 @@
     <xhtml:link rel="alternate" hreflang="ny" href="https://fieldsa.net/ny/contact/"/>
     <xhtml:link rel="alternate" hreflang="mg" href="https://fieldsa.net/mg/contact/"/>
     <xhtml:link rel="alternate" hreflang="rw" href="https://fieldsa.net/rw/contact/"/>
+    <xhtml:link rel="alternate" hreflang="rn" href="https://fieldsa.net/rn/contact/"/>
     <xhtml:link rel="alternate" hreflang="lg" href="https://fieldsa.net/lg/contact/"/>
+    <xhtml:link rel="alternate" hreflang="nyn" href="https://fieldsa.net/nyn/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ach" href="https://fieldsa.net/ach/contact/"/>
     <xhtml:link rel="alternate" hreflang="ln" href="https://fieldsa.net/ln/contact/"/>
+    <xhtml:link rel="alternate" hreflang="kg" href="https://fieldsa.net/kg/contact/"/>
+    <xhtml:link rel="alternate" hreflang="lua" href="https://fieldsa.net/lua/contact/"/>
+    <xhtml:link rel="alternate" hreflang="bem" href="https://fieldsa.net/bem/contact/"/>
+    <xhtml:link rel="alternate" hreflang="loz" href="https://fieldsa.net/loz/contact/"/>
+    <xhtml:link rel="alternate" hreflang="tum" href="https://fieldsa.net/tum/contact/"/>
+    <xhtml:link rel="alternate" hreflang="wo" href="https://fieldsa.net/wo/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ff" href="https://fieldsa.net/ff/contact/"/>
+    <xhtml:link rel="alternate" hreflang="bm" href="https://fieldsa.net/bm/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ak" href="https://fieldsa.net/ak/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ee" href="https://fieldsa.net/ee/contact/"/>
+    <xhtml:link rel="alternate" hreflang="gaa" href="https://fieldsa.net/gaa/contact/"/>
     <xhtml:link rel="alternate" hreflang="kri" href="https://fieldsa.net/kri/contact/"/>
+    <xhtml:link rel="alternate" hreflang="zgh" href="https://fieldsa.net/zgh/contact/"/>
     <xhtml:link rel="alternate" hreflang="mfe" href="https://fieldsa.net/mfe/contact/"/>
     <xhtml:link rel="alternate" hreflang="crs" href="https://fieldsa.net/crs/contact/"/>
     <xhtml:link rel="alternate" hreflang="ht" href="https://fieldsa.net/ht/contact/"/>
+    <xhtml:link rel="alternate" hreflang="qu" href="https://fieldsa.net/qu/contact/"/>
+    <xhtml:link rel="alternate" hreflang="gn" href="https://fieldsa.net/gn/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ay" href="https://fieldsa.net/ay/contact/"/>
+    <xhtml:link rel="alternate" hreflang="mi" href="https://fieldsa.net/mi/contact/"/>
+    <xhtml:link rel="alternate" hreflang="sm" href="https://fieldsa.net/sm/contact/"/>
+    <xhtml:link rel="alternate" hreflang="to" href="https://fieldsa.net/to/contact/"/>
+    <xhtml:link rel="alternate" hreflang="bi" href="https://fieldsa.net/bi/contact/"/>
+    <xhtml:link rel="alternate" hreflang="tpi" href="https://fieldsa.net/tpi/contact/"/>
+    <xhtml:link rel="alternate" hreflang="lb" href="https://fieldsa.net/lb/contact/"/>
+    <xhtml:link rel="alternate" hreflang="fy" href="https://fieldsa.net/fy/contact/"/>
+    <xhtml:link rel="alternate" hreflang="fo" href="https://fieldsa.net/fo/contact/"/>
+    <xhtml:link rel="alternate" hreflang="kl" href="https://fieldsa.net/kl/contact/"/>
+    <xhtml:link rel="alternate" hreflang="gd" href="https://fieldsa.net/gd/contact/"/>
+    <xhtml:link rel="alternate" hreflang="br" href="https://fieldsa.net/br/contact/"/>
+    <xhtml:link rel="alternate" hreflang="oc" href="https://fieldsa.net/oc/contact/"/>
+    <xhtml:link rel="alternate" hreflang="co" href="https://fieldsa.net/co/contact/"/>
+    <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/contact/"/>
+    <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/contact/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/contact/"/>
     <lastmod>2026-10-05</lastmod>
   </url>
@@ -1121,6 +1535,7 @@
     <xhtml:link rel="alternate" hreflang="eu" href="https://fieldsa.net/eu/contact/"/>
     <xhtml:link rel="alternate" hreflang="gl" href="https://fieldsa.net/gl/contact/"/>
     <xhtml:link rel="alternate" hreflang="zu" href="https://fieldsa.net/zu/contact/"/>
+    <xhtml:link rel="alternate" hreflang="pcm" href="https://fieldsa.net/pcm/contact/"/>
     <xhtml:link rel="alternate" hreflang="yue" href="https://fieldsa.net/yue/contact/"/>
     <xhtml:link rel="alternate" hreflang="my" href="https://fieldsa.net/my/contact/"/>
     <xhtml:link rel="alternate" hreflang="km" href="https://fieldsa.net/km/contact/"/>
@@ -1141,6 +1556,18 @@
     <xhtml:link rel="alternate" hreflang="jv" href="https://fieldsa.net/jv/contact/"/>
     <xhtml:link rel="alternate" hreflang="su" href="https://fieldsa.net/su/contact/"/>
     <xhtml:link rel="alternate" hreflang="ceb" href="https://fieldsa.net/ceb/contact/"/>
+    <xhtml:link rel="alternate" hreflang="hmn" href="https://fieldsa.net/hmn/contact/"/>
+    <xhtml:link rel="alternate" hreflang="bo" href="https://fieldsa.net/bo/contact/"/>
+    <xhtml:link rel="alternate" hreflang="dz" href="https://fieldsa.net/dz/contact/"/>
+    <xhtml:link rel="alternate" hreflang="dv" href="https://fieldsa.net/dv/contact/"/>
+    <xhtml:link rel="alternate" hreflang="tet" href="https://fieldsa.net/tet/contact/"/>
+    <xhtml:link rel="alternate" hreflang="am" href="https://fieldsa.net/am/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ha" href="https://fieldsa.net/ha/contact/"/>
+    <xhtml:link rel="alternate" hreflang="yo" href="https://fieldsa.net/yo/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ig" href="https://fieldsa.net/ig/contact/"/>
+    <xhtml:link rel="alternate" hreflang="so" href="https://fieldsa.net/so/contact/"/>
+    <xhtml:link rel="alternate" hreflang="om" href="https://fieldsa.net/om/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ti" href="https://fieldsa.net/ti/contact/"/>
     <xhtml:link rel="alternate" hreflang="xh" href="https://fieldsa.net/xh/contact/"/>
     <xhtml:link rel="alternate" hreflang="st" href="https://fieldsa.net/st/contact/"/>
     <xhtml:link rel="alternate" hreflang="tn" href="https://fieldsa.net/tn/contact/"/>
@@ -1151,12 +1578,45 @@
     <xhtml:link rel="alternate" hreflang="ny" href="https://fieldsa.net/ny/contact/"/>
     <xhtml:link rel="alternate" hreflang="mg" href="https://fieldsa.net/mg/contact/"/>
     <xhtml:link rel="alternate" hreflang="rw" href="https://fieldsa.net/rw/contact/"/>
+    <xhtml:link rel="alternate" hreflang="rn" href="https://fieldsa.net/rn/contact/"/>
     <xhtml:link rel="alternate" hreflang="lg" href="https://fieldsa.net/lg/contact/"/>
+    <xhtml:link rel="alternate" hreflang="nyn" href="https://fieldsa.net/nyn/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ach" href="https://fieldsa.net/ach/contact/"/>
     <xhtml:link rel="alternate" hreflang="ln" href="https://fieldsa.net/ln/contact/"/>
+    <xhtml:link rel="alternate" hreflang="kg" href="https://fieldsa.net/kg/contact/"/>
+    <xhtml:link rel="alternate" hreflang="lua" href="https://fieldsa.net/lua/contact/"/>
+    <xhtml:link rel="alternate" hreflang="bem" href="https://fieldsa.net/bem/contact/"/>
+    <xhtml:link rel="alternate" hreflang="loz" href="https://fieldsa.net/loz/contact/"/>
+    <xhtml:link rel="alternate" hreflang="tum" href="https://fieldsa.net/tum/contact/"/>
+    <xhtml:link rel="alternate" hreflang="wo" href="https://fieldsa.net/wo/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ff" href="https://fieldsa.net/ff/contact/"/>
+    <xhtml:link rel="alternate" hreflang="bm" href="https://fieldsa.net/bm/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ak" href="https://fieldsa.net/ak/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ee" href="https://fieldsa.net/ee/contact/"/>
+    <xhtml:link rel="alternate" hreflang="gaa" href="https://fieldsa.net/gaa/contact/"/>
     <xhtml:link rel="alternate" hreflang="kri" href="https://fieldsa.net/kri/contact/"/>
+    <xhtml:link rel="alternate" hreflang="zgh" href="https://fieldsa.net/zgh/contact/"/>
     <xhtml:link rel="alternate" hreflang="mfe" href="https://fieldsa.net/mfe/contact/"/>
     <xhtml:link rel="alternate" hreflang="crs" href="https://fieldsa.net/crs/contact/"/>
     <xhtml:link rel="alternate" hreflang="ht" href="https://fieldsa.net/ht/contact/"/>
+    <xhtml:link rel="alternate" hreflang="qu" href="https://fieldsa.net/qu/contact/"/>
+    <xhtml:link rel="alternate" hreflang="gn" href="https://fieldsa.net/gn/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ay" href="https://fieldsa.net/ay/contact/"/>
+    <xhtml:link rel="alternate" hreflang="mi" href="https://fieldsa.net/mi/contact/"/>
+    <xhtml:link rel="alternate" hreflang="sm" href="https://fieldsa.net/sm/contact/"/>
+    <xhtml:link rel="alternate" hreflang="to" href="https://fieldsa.net/to/contact/"/>
+    <xhtml:link rel="alternate" hreflang="bi" href="https://fieldsa.net/bi/contact/"/>
+    <xhtml:link rel="alternate" hreflang="tpi" href="https://fieldsa.net/tpi/contact/"/>
+    <xhtml:link rel="alternate" hreflang="lb" href="https://fieldsa.net/lb/contact/"/>
+    <xhtml:link rel="alternate" hreflang="fy" href="https://fieldsa.net/fy/contact/"/>
+    <xhtml:link rel="alternate" hreflang="fo" href="https://fieldsa.net/fo/contact/"/>
+    <xhtml:link rel="alternate" hreflang="kl" href="https://fieldsa.net/kl/contact/"/>
+    <xhtml:link rel="alternate" hreflang="gd" href="https://fieldsa.net/gd/contact/"/>
+    <xhtml:link rel="alternate" hreflang="br" href="https://fieldsa.net/br/contact/"/>
+    <xhtml:link rel="alternate" hreflang="oc" href="https://fieldsa.net/oc/contact/"/>
+    <xhtml:link rel="alternate" hreflang="co" href="https://fieldsa.net/co/contact/"/>
+    <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/contact/"/>
+    <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/contact/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/contact/"/>
     <lastmod>2026-10-05</lastmod>
   </url>
@@ -1231,6 +1691,7 @@
     <xhtml:link rel="alternate" hreflang="eu" href="https://fieldsa.net/eu/contact/"/>
     <xhtml:link rel="alternate" hreflang="gl" href="https://fieldsa.net/gl/contact/"/>
     <xhtml:link rel="alternate" hreflang="zu" href="https://fieldsa.net/zu/contact/"/>
+    <xhtml:link rel="alternate" hreflang="pcm" href="https://fieldsa.net/pcm/contact/"/>
     <xhtml:link rel="alternate" hreflang="yue" href="https://fieldsa.net/yue/contact/"/>
     <xhtml:link rel="alternate" hreflang="my" href="https://fieldsa.net/my/contact/"/>
     <xhtml:link rel="alternate" hreflang="km" href="https://fieldsa.net/km/contact/"/>
@@ -1251,6 +1712,18 @@
     <xhtml:link rel="alternate" hreflang="jv" href="https://fieldsa.net/jv/contact/"/>
     <xhtml:link rel="alternate" hreflang="su" href="https://fieldsa.net/su/contact/"/>
     <xhtml:link rel="alternate" hreflang="ceb" href="https://fieldsa.net/ceb/contact/"/>
+    <xhtml:link rel="alternate" hreflang="hmn" href="https://fieldsa.net/hmn/contact/"/>
+    <xhtml:link rel="alternate" hreflang="bo" href="https://fieldsa.net/bo/contact/"/>
+    <xhtml:link rel="alternate" hreflang="dz" href="https://fieldsa.net/dz/contact/"/>
+    <xhtml:link rel="alternate" hreflang="dv" href="https://fieldsa.net/dv/contact/"/>
+    <xhtml:link rel="alternate" hreflang="tet" href="https://fieldsa.net/tet/contact/"/>
+    <xhtml:link rel="alternate" hreflang="am" href="https://fieldsa.net/am/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ha" href="https://fieldsa.net/ha/contact/"/>
+    <xhtml:link rel="alternate" hreflang="yo" href="https://fieldsa.net/yo/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ig" href="https://fieldsa.net/ig/contact/"/>
+    <xhtml:link rel="alternate" hreflang="so" href="https://fieldsa.net/so/contact/"/>
+    <xhtml:link rel="alternate" hreflang="om" href="https://fieldsa.net/om/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ti" href="https://fieldsa.net/ti/contact/"/>
     <xhtml:link rel="alternate" hreflang="xh" href="https://fieldsa.net/xh/contact/"/>
     <xhtml:link rel="alternate" hreflang="st" href="https://fieldsa.net/st/contact/"/>
     <xhtml:link rel="alternate" hreflang="tn" href="https://fieldsa.net/tn/contact/"/>
@@ -1261,12 +1734,45 @@
     <xhtml:link rel="alternate" hreflang="ny" href="https://fieldsa.net/ny/contact/"/>
     <xhtml:link rel="alternate" hreflang="mg" href="https://fieldsa.net/mg/contact/"/>
     <xhtml:link rel="alternate" hreflang="rw" href="https://fieldsa.net/rw/contact/"/>
+    <xhtml:link rel="alternate" hreflang="rn" href="https://fieldsa.net/rn/contact/"/>
     <xhtml:link rel="alternate" hreflang="lg" href="https://fieldsa.net/lg/contact/"/>
+    <xhtml:link rel="alternate" hreflang="nyn" href="https://fieldsa.net/nyn/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ach" href="https://fieldsa.net/ach/contact/"/>
     <xhtml:link rel="alternate" hreflang="ln" href="https://fieldsa.net/ln/contact/"/>
+    <xhtml:link rel="alternate" hreflang="kg" href="https://fieldsa.net/kg/contact/"/>
+    <xhtml:link rel="alternate" hreflang="lua" href="https://fieldsa.net/lua/contact/"/>
+    <xhtml:link rel="alternate" hreflang="bem" href="https://fieldsa.net/bem/contact/"/>
+    <xhtml:link rel="alternate" hreflang="loz" href="https://fieldsa.net/loz/contact/"/>
+    <xhtml:link rel="alternate" hreflang="tum" href="https://fieldsa.net/tum/contact/"/>
+    <xhtml:link rel="alternate" hreflang="wo" href="https://fieldsa.net/wo/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ff" href="https://fieldsa.net/ff/contact/"/>
+    <xhtml:link rel="alternate" hreflang="bm" href="https://fieldsa.net/bm/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ak" href="https://fieldsa.net/ak/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ee" href="https://fieldsa.net/ee/contact/"/>
+    <xhtml:link rel="alternate" hreflang="gaa" href="https://fieldsa.net/gaa/contact/"/>
     <xhtml:link rel="alternate" hreflang="kri" href="https://fieldsa.net/kri/contact/"/>
+    <xhtml:link rel="alternate" hreflang="zgh" href="https://fieldsa.net/zgh/contact/"/>
     <xhtml:link rel="alternate" hreflang="mfe" href="https://fieldsa.net/mfe/contact/"/>
     <xhtml:link rel="alternate" hreflang="crs" href="https://fieldsa.net/crs/contact/"/>
     <xhtml:link rel="alternate" hreflang="ht" href="https://fieldsa.net/ht/contact/"/>
+    <xhtml:link rel="alternate" hreflang="qu" href="https://fieldsa.net/qu/contact/"/>
+    <xhtml:link rel="alternate" hreflang="gn" href="https://fieldsa.net/gn/contact/"/>
+    <xhtml:link rel="alternate" hreflang="ay" href="https://fieldsa.net/ay/contact/"/>
+    <xhtml:link rel="alternate" hreflang="mi" href="https://fieldsa.net/mi/contact/"/>
+    <xhtml:link rel="alternate" hreflang="sm" href="https://fieldsa.net/sm/contact/"/>
+    <xhtml:link rel="alternate" hreflang="to" href="https://fieldsa.net/to/contact/"/>
+    <xhtml:link rel="alternate" hreflang="bi" href="https://fieldsa.net/bi/contact/"/>
+    <xhtml:link rel="alternate" hreflang="tpi" href="https://fieldsa.net/tpi/contact/"/>
+    <xhtml:link rel="alternate" hreflang="lb" href="https://fieldsa.net/lb/contact/"/>
+    <xhtml:link rel="alternate" hreflang="fy" href="https://fieldsa.net/fy/contact/"/>
+    <xhtml:link rel="alternate" hreflang="fo" href="https://fieldsa.net/fo/contact/"/>
+    <xhtml:link rel="alternate" hreflang="kl" href="https://fieldsa.net/kl/contact/"/>
+    <xhtml:link rel="alternate" hreflang="gd" href="https://fieldsa.net/gd/contact/"/>
+    <xhtml:link rel="alternate" hreflang="br" href="https://fieldsa.net/br/contact/"/>
+    <xhtml:link rel="alternate" hreflang="oc" href="https://fieldsa.net/oc/contact/"/>
+    <xhtml:link rel="alternate" hreflang="co" href="https://fieldsa.net/co/contact/"/>
+    <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/contact/"/>
+    <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/contact/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/contact/"/>
     <lastmod>2026-10-05</lastmod>
   </url>

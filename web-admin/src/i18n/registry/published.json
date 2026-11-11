@@ -1,6 +1,6 @@
 {
  "waveMax": 9,
- "generatedAt": "2026-11-08",
+ "generatedAt": "2026-11-11",
  "simulated": false,
  "locales": [
   {
@@ -1510,6 +1510,27 @@
    "contentDate": "2026-11-08"
   },
   {
+   "code": "pcm",
+   "hreflang": "pcm",
+   "name": "Nigerian Pidgin",
+   "nativeName": "Naijá",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "pcm_NG",
+   "intlLocale": "pcm",
+   "slug": "van-sales-software",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Chat us for WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
    "code": "yue",
    "hreflang": "yue",
    "name": "Cantonese",
@@ -1930,6 +1951,258 @@
    "contentDate": "2026-11-08"
   },
   {
+   "code": "hmn",
+   "hreflang": "hmn",
+   "name": "Hmong",
+   "nativeName": "Hmoob",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "hmn_LA",
+   "intlLocale": "hmn",
+   "slug": "van-sales-software",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Tham hauv WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "bo",
+   "hreflang": "bo",
+   "name": "Tibetan",
+   "nativeName": "བོད་སྐད།",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "bo_CN",
+   "intlLocale": "bo",
+   "slug": "van-sales-software",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "WhatsApp ནང་ཁ་བརྡ་གཏོང་བ།",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "dz",
+   "hreflang": "dz",
+   "name": "Dzongkha",
+   "nativeName": "རྫོང་ཁ",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "dz_BT",
+   "intlLocale": "dz",
+   "slug": "van-sales-software",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "WhatsApp ནང་གླེང་སྡུར་འབད།",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "dv",
+   "hreflang": "dv",
+   "name": "Dhivehi",
+   "nativeName": "ދިވެހި",
+   "dir": "rtl",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "dv_MV",
+   "intlLocale": "dv",
+   "slug": "van-sales-software",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "WhatsApp ގައި ޗެޓް ކުރައްވާ",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "tet",
+   "hreflang": "tet",
+   "name": "Tetum",
+   "nativeName": "Tetun",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "tet_TL",
+   "intlLocale": "tet",
+   "slug": "software-vendas-husi-kareta",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Koalia iha WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "am",
+   "hreflang": "am",
+   "name": "Amharic",
+   "nativeName": "አማርኛ",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "am_ET",
+   "intlLocale": "am",
+   "slug": "van-sales-software",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "በWhatsApp ያነጋግሩን",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "ha",
+   "hreflang": "ha",
+   "name": "Hausa",
+   "nativeName": "Hausa",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "ha_NG",
+   "intlLocale": "ha",
+   "slug": "manhajar-sayarwa-daga-mota",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Yi magana da mu ta WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "yo",
+   "hreflang": "yo",
+   "name": "Yoruba",
+   "nativeName": "Yorùbá",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "yo_NG",
+   "intlLocale": "yo",
+   "slug": "eto-tita-lati-inu-oko",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Bá wa sọ̀rọ̀ lórí WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "ig",
+   "hreflang": "ig",
+   "name": "Igbo",
+   "nativeName": "Asụsụ Igbo",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "ig_NG",
+   "intlLocale": "ig",
+   "slug": "ngwanro-ire-ahia-site-n-ugboala",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Kparịta ụka na WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "so",
+   "hreflang": "so",
+   "name": "Somali",
+   "nativeName": "Soomaali",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "so_SO",
+   "intlLocale": "so",
+   "slug": "barnaamijka-van-sales",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Nagala soo xiriir WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "om",
+   "hreflang": "om",
+   "name": "Oromo",
+   "nativeName": "Afaan Oromoo",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "om_ET",
+   "intlLocale": "om",
+   "slug": "sooftiweerii-gurgurtaa-konkolaataa-irraa",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "WhatsApp irratti nu dubbisaa",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "ti",
+   "hreflang": "ti",
+   "name": "Tigrinya",
+   "nativeName": "ትግርኛ",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "ti_ER",
+   "intlLocale": "ti",
+   "slug": "van-sales-software",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "ብWhatsApp ተዘራረቡና",
+   "contentDate": "2026-11-11"
+  },
+  {
    "code": "xh",
    "hreflang": "xh",
    "name": "Xhosa",
@@ -2140,6 +2413,27 @@
    "contentDate": "2026-11-08"
   },
   {
+   "code": "rn",
+   "hreflang": "rn",
+   "name": "Kirundi",
+   "nativeName": "Ikirundi",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "rn_BI",
+   "intlLocale": "rn",
+   "slug": "porogarama-van-sales",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Tuvugishe kuri WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
    "code": "lg",
    "hreflang": "lg",
    "name": "Luganda",
@@ -2159,6 +2453,48 @@
    ],
    "waLabel": "Yogera naffe ku WhatsApp",
    "contentDate": "2026-11-08"
+  },
+  {
+   "code": "nyn",
+   "hreflang": "nyn",
+   "name": "Nyankole",
+   "nativeName": "Runyankore",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "nyn_UG",
+   "intlLocale": "nyn",
+   "slug": "puroguramu-van-sales",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Gamba naitwe aha WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "ach",
+   "hreflang": "ach",
+   "name": "Acholi",
+   "nativeName": "Acoli",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "ach_UG",
+   "intlLocale": "ach",
+   "slug": "software-me-van-sales",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Lok kwedwa i WhatsApp",
+   "contentDate": "2026-11-11"
   },
   {
    "code": "ln",
@@ -2182,6 +2518,237 @@
    "contentDate": "2026-11-08"
   },
   {
+   "code": "kg",
+   "hreflang": "kg",
+   "name": "Kongo",
+   "nativeName": "Kikongo",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "kg_CD",
+   "intlLocale": "kg",
+   "slug": "logiciel-ya-van-sales",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Zonza ye beto mu WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "lua",
+   "hreflang": "lua",
+   "name": "Luba-Kasai",
+   "nativeName": "Tshiluba",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "lua_CD",
+   "intlLocale": "lua",
+   "slug": "programme-wa-van-sales",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Yikila netu ku WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "bem",
+   "hreflang": "bem",
+   "name": "Bemba",
+   "nativeName": "Ichibemba",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "bem_ZM",
+   "intlLocale": "bem",
+   "slug": "software-ya-kushitisha-mu-motoka",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Lanshanyeni naifwe pa WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "loz",
+   "hreflang": "loz",
+   "name": "Lozi",
+   "nativeName": "Silozi",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "loz_ZM",
+   "intlLocale": "loz",
+   "slug": "software-ya-ku-lekisa-mwa-mota",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Mu bulele ni luna fa WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "tum",
+   "hreflang": "tum",
+   "name": "Tumbuka",
+   "nativeName": "Chitumbuka",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "tum_MW",
+   "intlLocale": "tum",
+   "slug": "pulogilamu-ya-van-sales",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Yowoyani nase pa WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "wo",
+   "hreflang": "wo",
+   "name": "Wolof",
+   "nativeName": "Wolof",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "wo_SN",
+   "intlLocale": "wo",
+   "slug": "logiciel-jaay-ci-oto",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Waxtaan ak nun ci WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "ff",
+   "hreflang": "ff",
+   "name": "Fula",
+   "nativeName": "Fulfulde",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "ff_SN",
+   "intlLocale": "ff",
+   "slug": "logiciel-yeeyde-e-nder-oto",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Haaldee e amen e WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "bm",
+   "hreflang": "bm",
+   "name": "Bambara",
+   "nativeName": "Bamanankan",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "bm_ML",
+   "intlLocale": "bm",
+   "slug": "kamiyoneti-feere-porogaramu",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Kuma an fɛ WhatsApp kan",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "ak",
+   "hreflang": "ak",
+   "name": "Akan (Twi)",
+   "nativeName": "Akan",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "ak_GH",
+   "intlLocale": "ak",
+   "slug": "van-sales-software",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Kasa kyerɛ yɛn wɔ WhatsApp so",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "ee",
+   "hreflang": "ee",
+   "name": "Ewe",
+   "nativeName": "Eʋegbe",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "ee_GH",
+   "intlLocale": "ee",
+   "slug": "van-sales-software",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Ƒo nu kple mí le WhatsApp dzi",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "gaa",
+   "hreflang": "gaa",
+   "name": "Ga",
+   "nativeName": "Gã",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "gaa_GH",
+   "intlLocale": "gaa",
+   "slug": "van-sales-software",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Wie kɛ wɔ yɛ WhatsApp nɔ",
+   "contentDate": "2026-11-11"
+  },
+  {
    "code": "kri",
    "hreflang": "kri",
    "name": "Krio",
@@ -2201,6 +2768,27 @@
    ],
    "waLabel": "Chat wit wi na WhatsApp",
    "contentDate": "2026-11-08"
+  },
+  {
+   "code": "zgh",
+   "hreflang": "zgh",
+   "name": "Standard Moroccan Tamazight",
+   "nativeName": "ⵜⴰⵎⴰⵣⵉⵖⵜ",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "zgh_MA",
+   "intlLocale": "zgh",
+   "slug": "asghzan-n-uznzi-sg-tkamyunt",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "ⵙⴰⵡⵍ ⴰⴽⴷ ⵏⵏⵖ ⴳ WhatsApp",
+   "contentDate": "2026-11-11"
   },
   {
    "code": "mfe",
@@ -2264,6 +2852,384 @@
    ],
    "waLabel": "Pale ak nou sou WhatsApp",
    "contentDate": "2026-11-08"
+  },
+  {
+   "code": "qu",
+   "hreflang": "qu",
+   "name": "Quechua",
+   "nativeName": "Runasimi",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "qu_PE",
+   "intlLocale": "qu",
+   "slug": "karrumanta-rantikuy-software",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "WhatsAppwan rimanakuy",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "gn",
+   "hreflang": "gn",
+   "name": "Guarani",
+   "nativeName": "Avañeʼẽ",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "gn_PY",
+   "intlLocale": "gn",
+   "slug": "nemu-camionetagui-software",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Eñe'ẽ orendive WhatsApp rupive",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "ay",
+   "hreflang": "ay",
+   "name": "Aymara",
+   "nativeName": "Aymar aru",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "ay_BO",
+   "intlLocale": "ay",
+   "slug": "awtuta-aljana-software",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "WhatsApp tuqi aruskipañani",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "mi",
+   "hreflang": "mi",
+   "name": "Maori",
+   "nativeName": "Te Reo Māori",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "mi_NZ",
+   "intlLocale": "mi",
+   "slug": "pumanawa-hoko-a-wena",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Kōrero mai mā WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "sm",
+   "hreflang": "sm",
+   "name": "Samoan",
+   "nativeName": "Gagana Sāmoa",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "sm_WS",
+   "intlLocale": "sm",
+   "slug": "polokalame-faatau-atu-mai-le-veni",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Talanoa mai i le WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "to",
+   "hreflang": "to",
+   "name": "Tongan",
+   "nativeName": "Lea faka-Tonga",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "to_TO",
+   "intlLocale": "to",
+   "slug": "polokalama-fakatau-atu-mei-he-veni",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Talanoa mai 'i he WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "bi",
+   "hreflang": "bi",
+   "name": "Bislama",
+   "nativeName": "Bislama",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "bi_VU",
+   "intlLocale": "bi",
+   "slug": "sofwea-blong-salem-stok-long-trak",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Toktok long WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "tpi",
+   "hreflang": "tpi",
+   "name": "Tok Pisin",
+   "nativeName": "Tok Pisin",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "tpi_PG",
+   "intlLocale": "tpi",
+   "slug": "software-bilong-salim-stok-long-ka",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Toktok long WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "lb",
+   "hreflang": "lb",
+   "name": "Luxembourgish",
+   "nativeName": "Lëtzebuergesch",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "lb_LU",
+   "intlLocale": "lb",
+   "slug": "software-verkaf-op-tournee",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Op WhatsApp schreiwen",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "fy",
+   "hreflang": "fy",
+   "name": "Western Frisian",
+   "nativeName": "Frysk",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "fy_NL",
+   "intlLocale": "fy",
+   "slug": "software-ferkeap-ut-de-bus",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Berjocht fia WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "fo",
+   "hreflang": "fo",
+   "name": "Faroese",
+   "nativeName": "Føroyskt",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "fo_FO",
+   "intlLocale": "fo",
+   "slug": "ritbunadur-til-solu-ur-bili",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Skriva til okkara á WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "kl",
+   "hreflang": "kl",
+   "name": "Greenlandic",
+   "nativeName": "Kalaallisut",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "kl_GL",
+   "intlLocale": "kl",
+   "slug": "biilimit-tuniniaaneq",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "WhatsApp-ikkut allaffigisigut",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "gd",
+   "hreflang": "gd",
+   "name": "Scottish Gaelic",
+   "nativeName": "Gàidhlig",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "gd_GB",
+   "intlLocale": "gd",
+   "slug": "bathar-bog-reic-as-a-bhan",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Dèan còmhradh air WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "br",
+   "hreflang": "br",
+   "name": "Breton",
+   "nativeName": "Brezhoneg",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "br_FR",
+   "intlLocale": "br",
+   "slug": "meziant-gwerzh-dre-gamionetenn",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Kaozeal war WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "oc",
+   "hreflang": "oc",
+   "name": "Occitan",
+   "nativeName": "Occitan",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "oc_FR",
+   "intlLocale": "oc",
+   "slug": "logicial-venda-camioneta",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Discutir sus WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "co",
+   "hreflang": "co",
+   "name": "Corsican",
+   "nativeName": "Corsu",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "co_FR",
+   "intlLocale": "co",
+   "slug": "lugiziale-vendita-in-giru",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Scriviteci nant’à WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "rm",
+   "hreflang": "rm",
+   "name": "Romansh",
+   "nativeName": "Rumantsch",
+   "dir": "ltr",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "rm_CH",
+   "intlLocale": "rm",
+   "slug": "software-vendita-sin-tura",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "Scriver sin WhatsApp",
+   "contentDate": "2026-11-11"
+  },
+  {
+   "code": "yi",
+   "hreflang": "yi",
+   "name": "Yiddish",
+   "nativeName": "ייִדיש",
+   "dir": "rtl",
+   "legacy": false,
+   "tier": "B",
+   "ogLocale": "yi_IL",
+   "intlLocale": "yi",
+   "slug": "farkoyf-fun-vogn-program",
+   "pages": [
+    "home",
+    "category",
+    "countries",
+    "about",
+    "contact"
+   ],
+   "waLabel": "שרייַבט אונדז אויף וואַטסאַפּ",
+   "contentDate": "2026-11-11"
   }
  ]
 }

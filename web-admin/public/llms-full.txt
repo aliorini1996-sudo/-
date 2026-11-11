@@ -106,6 +106,7 @@ Product pages in other languages describe FieldSales for information; the app in
 - [Euskara](https://fieldsa.net/eu/): Basque. Guide for AI: https://fieldsa.net/eu/llms.txt
 - [Galego](https://fieldsa.net/gl/): Galician. Guide for AI: https://fieldsa.net/gl/llms.txt
 - [isiZulu](https://fieldsa.net/zu/): Zulu. Guide for AI: https://fieldsa.net/zu/llms.txt
+- [Naijá](https://fieldsa.net/pcm/): Nigerian Pidgin. Guide for AI: https://fieldsa.net/pcm/llms.txt
 - [粵語](https://fieldsa.net/yue/): Cantonese. Guide for AI: https://fieldsa.net/yue/llms.txt
 - [မြန်မာ](https://fieldsa.net/my/): Burmese. Guide for AI: https://fieldsa.net/my/llms.txt
 - [ខ្មែរ](https://fieldsa.net/km/): Khmer. Guide for AI: https://fieldsa.net/km/llms.txt
@@ -126,6 +127,18 @@ Product pages in other languages describe FieldSales for information; the app in
 - [Basa Jawa](https://fieldsa.net/jv/): Javanese. Guide for AI: https://fieldsa.net/jv/llms.txt
 - [Basa Sunda](https://fieldsa.net/su/): Sundanese. Guide for AI: https://fieldsa.net/su/llms.txt
 - [Cebuano](https://fieldsa.net/ceb/): Cebuano. Guide for AI: https://fieldsa.net/ceb/llms.txt
+- [Hmoob](https://fieldsa.net/hmn/): Hmong. Guide for AI: https://fieldsa.net/hmn/llms.txt
+- [བོད་སྐད།](https://fieldsa.net/bo/): Tibetan. Guide for AI: https://fieldsa.net/bo/llms.txt
+- [རྫོང་ཁ](https://fieldsa.net/dz/): Dzongkha. Guide for AI: https://fieldsa.net/dz/llms.txt
+- [ދިވެހި](https://fieldsa.net/dv/): Dhivehi. Guide for AI: https://fieldsa.net/dv/llms.txt
+- [Tetun](https://fieldsa.net/tet/): Tetum. Guide for AI: https://fieldsa.net/tet/llms.txt
+- [አማርኛ](https://fieldsa.net/am/): Amharic. Guide for AI: https://fieldsa.net/am/llms.txt
+- [Hausa](https://fieldsa.net/ha/): Hausa. Guide for AI: https://fieldsa.net/ha/llms.txt
+- [Yorùbá](https://fieldsa.net/yo/): Yoruba. Guide for AI: https://fieldsa.net/yo/llms.txt
+- [Asụsụ Igbo](https://fieldsa.net/ig/): Igbo. Guide for AI: https://fieldsa.net/ig/llms.txt
+- [Soomaali](https://fieldsa.net/so/): Somali. Guide for AI: https://fieldsa.net/so/llms.txt
+- [Afaan Oromoo](https://fieldsa.net/om/): Oromo. Guide for AI: https://fieldsa.net/om/llms.txt
+- [ትግርኛ](https://fieldsa.net/ti/): Tigrinya. Guide for AI: https://fieldsa.net/ti/llms.txt
 - [isiXhosa](https://fieldsa.net/xh/): Xhosa. Guide for AI: https://fieldsa.net/xh/llms.txt
 - [Sesotho](https://fieldsa.net/st/): Sesotho. Guide for AI: https://fieldsa.net/st/llms.txt
 - [Setswana](https://fieldsa.net/tn/): Setswana. Guide for AI: https://fieldsa.net/tn/llms.txt
@@ -136,12 +149,45 @@ Product pages in other languages describe FieldSales for information; the app in
 - [Chicheŵa](https://fieldsa.net/ny/): Chichewa. Guide for AI: https://fieldsa.net/ny/llms.txt
 - [Malagasy](https://fieldsa.net/mg/): Malagasy. Guide for AI: https://fieldsa.net/mg/llms.txt
 - [Ikinyarwanda](https://fieldsa.net/rw/): Kinyarwanda. Guide for AI: https://fieldsa.net/rw/llms.txt
+- [Ikirundi](https://fieldsa.net/rn/): Kirundi. Guide for AI: https://fieldsa.net/rn/llms.txt
 - [Luganda](https://fieldsa.net/lg/): Luganda. Guide for AI: https://fieldsa.net/lg/llms.txt
+- [Runyankore](https://fieldsa.net/nyn/): Nyankole. Guide for AI: https://fieldsa.net/nyn/llms.txt
+- [Acoli](https://fieldsa.net/ach/): Acholi. Guide for AI: https://fieldsa.net/ach/llms.txt
 - [Lingála](https://fieldsa.net/ln/): Lingala. Guide for AI: https://fieldsa.net/ln/llms.txt
+- [Kikongo](https://fieldsa.net/kg/): Kongo. Guide for AI: https://fieldsa.net/kg/llms.txt
+- [Tshiluba](https://fieldsa.net/lua/): Luba-Kasai. Guide for AI: https://fieldsa.net/lua/llms.txt
+- [Ichibemba](https://fieldsa.net/bem/): Bemba. Guide for AI: https://fieldsa.net/bem/llms.txt
+- [Silozi](https://fieldsa.net/loz/): Lozi. Guide for AI: https://fieldsa.net/loz/llms.txt
+- [Chitumbuka](https://fieldsa.net/tum/): Tumbuka. Guide for AI: https://fieldsa.net/tum/llms.txt
+- [Wolof](https://fieldsa.net/wo/): Wolof. Guide for AI: https://fieldsa.net/wo/llms.txt
+- [Fulfulde](https://fieldsa.net/ff/): Fula. Guide for AI: https://fieldsa.net/ff/llms.txt
+- [Bamanankan](https://fieldsa.net/bm/): Bambara. Guide for AI: https://fieldsa.net/bm/llms.txt
+- [Akan](https://fieldsa.net/ak/): Akan (Twi). Guide for AI: https://fieldsa.net/ak/llms.txt
+- [Eʋegbe](https://fieldsa.net/ee/): Ewe. Guide for AI: https://fieldsa.net/ee/llms.txt
+- [Gã](https://fieldsa.net/gaa/): Ga. Guide for AI: https://fieldsa.net/gaa/llms.txt
 - [Krio](https://fieldsa.net/kri/): Krio. Guide for AI: https://fieldsa.net/kri/llms.txt
+- [ⵜⴰⵎⴰⵣⵉⵖⵜ](https://fieldsa.net/zgh/): Standard Moroccan Tamazight. Guide for AI: https://fieldsa.net/zgh/llms.txt
 - [Kreol Morisien](https://fieldsa.net/mfe/): Mauritian Creole. Guide for AI: https://fieldsa.net/mfe/llms.txt
 - [Kreol Seselwa](https://fieldsa.net/crs/): Seychellois Creole. Guide for AI: https://fieldsa.net/crs/llms.txt
 - [Kreyòl ayisyen](https://fieldsa.net/ht/): Haitian Creole. Guide for AI: https://fieldsa.net/ht/llms.txt
+- [Runasimi](https://fieldsa.net/qu/): Quechua. Guide for AI: https://fieldsa.net/qu/llms.txt
+- [Avañeʼẽ](https://fieldsa.net/gn/): Guarani. Guide for AI: https://fieldsa.net/gn/llms.txt
+- [Aymar aru](https://fieldsa.net/ay/): Aymara. Guide for AI: https://fieldsa.net/ay/llms.txt
+- [Te Reo Māori](https://fieldsa.net/mi/): Maori. Guide for AI: https://fieldsa.net/mi/llms.txt
+- [Gagana Sāmoa](https://fieldsa.net/sm/): Samoan. Guide for AI: https://fieldsa.net/sm/llms.txt
+- [Lea faka-Tonga](https://fieldsa.net/to/): Tongan. Guide for AI: https://fieldsa.net/to/llms.txt
+- [Bislama](https://fieldsa.net/bi/): Bislama. Guide for AI: https://fieldsa.net/bi/llms.txt
+- [Tok Pisin](https://fieldsa.net/tpi/): Tok Pisin. Guide for AI: https://fieldsa.net/tpi/llms.txt
+- [Lëtzebuergesch](https://fieldsa.net/lb/): Luxembourgish. Guide for AI: https://fieldsa.net/lb/llms.txt
+- [Frysk](https://fieldsa.net/fy/): Western Frisian. Guide for AI: https://fieldsa.net/fy/llms.txt
+- [Føroyskt](https://fieldsa.net/fo/): Faroese. Guide for AI: https://fieldsa.net/fo/llms.txt
+- [Kalaallisut](https://fieldsa.net/kl/): Greenlandic. Guide for AI: https://fieldsa.net/kl/llms.txt
+- [Gàidhlig](https://fieldsa.net/gd/): Scottish Gaelic. Guide for AI: https://fieldsa.net/gd/llms.txt
+- [Brezhoneg](https://fieldsa.net/br/): Breton. Guide for AI: https://fieldsa.net/br/llms.txt
+- [Occitan](https://fieldsa.net/oc/): Occitan. Guide for AI: https://fieldsa.net/oc/llms.txt
+- [Corsu](https://fieldsa.net/co/): Corsican. Guide for AI: https://fieldsa.net/co/llms.txt
+- [Rumantsch](https://fieldsa.net/rm/): Romansh. Guide for AI: https://fieldsa.net/rm/llms.txt
+- [ייִדיש](https://fieldsa.net/yi/): Yiddish. Guide for AI: https://fieldsa.net/yi/llms.txt
 - [All languages](https://fieldsa.net/languages/)
 
 ## Articles (العربية)

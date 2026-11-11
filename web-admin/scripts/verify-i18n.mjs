@@ -26,7 +26,7 @@ import {
 } from '../src/i18n/i18nRoutes.mjs';
 import {
   findI18nViolations, checkMarketingStrings, scriptProblems, contentHashOf, publishedEntry, certRuleFor, NO_CERT_RULE,
-  livePriceRe, toAsciiDigits, I18N_RULE_WHY,
+  livePriceRe, toAsciiDigits, I18N_RULE_WHY, englishCopies,
 } from './claims-i18n.mjs';
 import { RULES, findViolation } from './claims-rules.mjs';
 import { loadPricing } from './pricing-source.mjs';
@@ -224,10 +224,11 @@ for (const l of published.locales) {
       if (typeof S[k] !== 'string' || !S[k].trim()) err('G1', `${l.code}/${pageKey}: المفتاح ${k} غائب أو فارغ`);
     }
   }
+  const copies = new Set(l.code !== 'en' && enFile ? englishCopies(l.code, S, enFile.strings) : []);
   for (const [k, v] of Object.entries(S)) {
     if (/\{[A-Za-z0-9_]+\}/.test(v)) err('G1', `${l.code}: عنصر نائب متبقٍّ في ${k}`);
     if (/[<>]/.test(v)) err('G1', `${l.code}: وسم HTML في ${k}`);
-    if (l.code !== 'en' && k !== 'tierB.category.slugHint' && enFile && v === enFile.strings[k]) err('G1', `${l.code}: ${k} يساوي الإنجليزية حرفياً`);
+    if (copies.has(k)) err('G1', `${l.code}: ${k} يساوي الإنجليزية حرفياً`);
   }
   if (f._meta?.contentHash !== contentHashOf(S)) warn('G1', `${l.code}: _meta.contentHash لا يطابق strings — تعديل يدوي؟ أعِد المستورد`);
   const d = f._derived || {};
