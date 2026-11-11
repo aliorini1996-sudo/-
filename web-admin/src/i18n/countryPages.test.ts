@@ -15,7 +15,7 @@ import {
 import { PUBLISHED, I18N_PAGES } from './i18nPublished';
 import { COUNTRIES } from './countries';
 import {
-  checkCountryContent, stampProblem, selfYearViolations, govLinkViolations, COUNTRY_YEAR_SECTION,
+  checkCountryContent, stampProblem, selfYearViolations, govLinkViolations, sentencesOf, isSelfSentence, dateIn,
 } from '../../scripts/claims-i18n.mjs';
 import {
   strippedCountryFile, countryContentRel, countryContentFilesProblems, countryLeakFingerprints, assetLeaks,
@@ -28,7 +28,8 @@ import {
  *
  * مثبّت دولة مصغّر مكتوب هنا (لا يتبع ما نشره المصنع اليوم) فوق السجل الحقيقي وملف es.json الحقيقي:
  * المسار، والربط من صفّ الدولة في جدول /es/countries/ ومن قائمة صفحات اللغة، وFAQPage، وx-default الذاتي،
- * وقاعدة السنة (مسموحة في قسم einvoicing وحده، وختم «آخر تحقق» بسنة التحقق وحدها، ورقم+عملة حاجب في كل مكان).
+ * وقاعدة السنة على مستوى الجملة (السنة أو التاريخ محجوب في جملة عن FieldSales أيّ قسم كانت فيه، ومسموح في جمل حقائق
+ * الدولة وعناوين المصادر، وH1 بلا سنة، وختم «آخر تحقق» بسنة التحقق وحدها، ورقم+عملة حاجب في كل مكان).
  * ثم الفهرس الملتزم نفسه: كل صفحة فيه تُصيَّر من ملفها، وكل مستثناة بسبب مكتوب.
  */
 
@@ -179,32 +180,30 @@ test('x-default ذاتي: canonical = hreflang es = x-default (لا نظير ب�
   }
 });
 
-test('قاعدة السنة: مسموحة في قسم einvoicing وحده؛ وحاجبة في بقية الصفحة؛ ورقم+عملة حاجب حتى في einvoicing', () => {
+test('قاعدة السنة على مستوى الجملة: جملة الدولة بتاريخها تمرّ في أيّ قسم، وعنوان المصدر يمرّ؛ وH1 بلا سنة؛ ورقم+عملة حاجب في كل مكان', () => {
   const opts = { code: 'es', livePrices: [] as string[], verifiedAt: '2026-11-11' };
-  assert.equal(COUNTRY_YEAR_SECTION, 'einvoicing');
-  assert.deepEqual(checkCountryContent(content(), opts), [], 'المثبّت: سنوات في einvoicing وحده + ختم بسنة التحقق');
-  const withTaxYear = content({
-    sections: content().sections.map((s) => (s.id === 'tax' ? { ...s, body: 'La tasa general es 16% desde 2010.' } : s)),
-  });
-  const v1 = checkCountryContent(withTaxYear, opts);
-  assert.deepEqual(v1.map((v) => [v.id, v.path, v.match]), [['i18n-year', 'sections.tax.body', '2010']]);
-  for (const [field, over] of [
-    ['title', { title: 'Software 2027 | FieldSales' }],
-    ['faq.0.a', { faq: [{ q: '¿CFDI?', a: 'Llegará en 2027.' }] }],
-    ['sampleInvoice.fields.0.example', { sampleInvoice: { title: 'x', fields: [{ label: 'Fecha', example: '11/11/2026' }] } }],
-    ['sources.0.title', { sources: [{ title: 'Decreto 358 de 2020', url: 'https://www.dian.gov.co' }] }],
-  ] as const) {
-    const v = checkCountryContent(content(over as Partial<CountryPageContent>), opts);
-    assert.ok(v.some((x) => x.id === 'i18n-year' && x.path === field), `${field}: السنة يجب أن تُحجب خارج einvoicing`);
-  }
-  const money = content({
-    sections: content().sections.map((s) => (s.id === 'einvoicing' ? { ...s, body: 'Multa de MXN 1500 desde 2014.' } : s)),
-  });
-  assert.ok(checkCountryContent(money, opts).some((v) => v.id === 'i18n-currency-number' && v.path === 'sections.einvoicing.body'), 'رقم+عملة حاجب في einvoicing');
+  assert.deepEqual(checkCountryContent(content(), opts), [], 'المثبّت: سنوات حكومية + ختم بسنة التحقق');
+  // سنة في جملة تصف الدولة خارج einvoicing ⇒ تمرّ (كانت تُحجب قبل قرار ١١ نوفمبر)
+  const tax = (body: string) => content({ sections: content().sections.map((s) => (s.id === 'tax' ? { ...s, body } : s)) });
+  assert.deepEqual(checkCountryContent(tax('La tasa general es 16% desde 2010.'), opts), []);
+  assert.deepEqual(checkCountryContent(content({
+    sections: content().sections.map((s) => (s.id === 'distribution' ? { ...s, body: 'Según el INEGI, en 2024 había más de 600 mil tienditas. FieldSales sirve a distribuidoras.' } : s)),
+  }), opts), [], 'حقيقة السوق بسنتها ثم جملة FieldSales بلا سنة');
+  // سنة في عنوان مصدر (اسم وثيقة) ⇒ تمرّ
+  assert.deepEqual(checkCountryContent(content({ sources: [{ title: 'DIAN Normograma — Decreto 358 de 2020', url: 'https://www.dian.gov.co' }] }), opts), []);
+  assert.deepEqual(checkCountryContent(content({ sources: [{ title: 'Nota Técnica 2025.002 v1.53 (30/10/2026)', url: 'https://www.nfe.fazenda.gov.br' }] }), { ...opts, code: 'pt' }), []);
+  // ومثال الفاتورة بتاريخه (بنية مستند الدولة، لا جملة عن FieldSales)
+  assert.deepEqual(checkCountryContent(content({ sampleInvoice: { title: 'x', fields: [{ label: 'Fecha', example: '11/11/2026' }] } }), opts), []);
+  // H1 يُعاد نشره في قائمة صفحات اللغة وllms.txt (السنة محجوبة هناك كلها) ⇒ بلا سنة ولو لم يذكر FieldSales
+  assert.ok(checkCountryContent(content({ h1: 'Distribuidoras en México 2026' }), opts).some((v) => v.id === 'i18n-year' && v.path === 'h1'));
+  // رقم+عملة حاجب في كل مكان: جملة دولة، وعنوان مصدر، ومثال الفاتورة
+  assert.ok(checkCountryContent(withEinv('Multa de MXN 1500 desde 2014.'), opts).some((v) => v.id === 'i18n-currency-number' && v.path === 'sections.einvoicing.body'));
+  assert.ok(checkCountryContent(tax('Desde 2020 el límite es de $ 300 000.'), opts).some((v) => v.id === 'i18n-currency-number' && v.path === 'sections.tax.body'));
+  assert.ok(checkCountryContent(content({ sources: [{ title: 'Multas de 2023: MXN 1500', url: 'https://www.sat.gob.mx' }] }), opts).some((v) => v.id === 'i18n-currency-number' && v.path === 'sources.0.title'));
   assert.ok(checkCountryContent(content({ sampleInvoice: { title: 'x', fields: [{ label: 'Total', example: '$ 100' }] } }), opts)
     .some((v) => v.id === 'i18n-currency-number'), 'مثال الفاتورة بلا مبالغ');
   assert.ok(checkCountryContent(content({ intro: 'FieldSales está certificado por el SAT.' }), opts).some((v) => v.id === 'i18n-certification'));
-  // ختم «آخر تحقق»: سنة التحقق وحدها
+  // ختم «آخر تحقق»: سنة التحقق وحدها (كما كان)
   assert.equal(stampProblem('Última verificación: noviembre de 2026', '2026-11-11'), null);
   assert.equal(stampProblem('Verificado el 11/11/2026', '2026-11-11'), null);
   assert.match(String(stampProblem('Última verificación: noviembre de 2025', '2026-11-11')), /2025/);
@@ -212,27 +211,71 @@ test('قاعدة السنة: مسموحة في قسم einvoicing وحده؛ وح
 });
 
 /** قسم einvoicing من المثبّت مع جملة مُلحقة */
-const withEinv = (extra: string, base = content()): CountryPageContent => ({
+function withEinv(extra: string, base = content()): CountryPageContent {
+  return { ...base, sections: base.sections.map((s) => (s.id === 'einvoicing' ? { ...s, body: `${s.body}\n${extra}` } : s)) };
+}
+/** قسم بعينه من المثبّت مع جملة مُلحقة */
+const withSection = (id: string, extra: string, base = content()): CountryPageContent => ({
   ...base,
-  sections: base.sections.map((s) => (s.id === 'einvoicing' ? { ...s, body: `${s.body}\n${extra}` } : s)),
+  sections: base.sections.map((s) => (s.id === id ? { ...s, body: `${s.body}\n${extra}` } : s)),
 });
 const ids = (c: CountryPageContent, code = 'es') => checkCountryContent(c, { code, livePrices: [], verifiedAt: '2026-11-11' }).map((v) => `${v.id}@${v.path}`);
 
-test('السنة داخل einvoicing محجوبة في كل جملة عن FieldSales نفسها (الاسم أو المتكلم) — الحقيقة الحكومية بتاريخها تمرّ', () => {
-  // حالة المراجِع حرفياً: موعد بجوار FieldSales داخل القسم المسموح كان يمرّ من الحارسين
-  assert.deepEqual(ids(withEinv('FieldSales integrará la factura electrónica de la DIAN en 2027.')), ['i18n-year-self@sections.einvoicing.body']);
+test('السنة أو التاريخ محجوب في كل جملة عن FieldSales نفسها (الاسم أو المتكلم أو صيغه) في أيّ قسم — الحقيقة الحكومية بتاريخها تمرّ', () => {
+  const promise = 'FieldSales integrará la factura electrónica de la DIAN en 2027.';
+  // «FieldSales … 2027» في كل قسم من الخمسة
+  for (const id of COUNTRY_SECTION_IDS) assert.ok(ids(withSection(id, promise)).includes(`i18n-year-self@sections.${id}.body`), id);
+  // وفي المقدمة والعنوان والوصف وعناوين الأقسام ومثال الفاتورة وعنوان مصدر يذكر FieldSales
+  assert.ok(ids(content({ intro: 'FieldSales llegará a Colombia en 2027.' })).includes('i18n-year-self@intro'));
+  assert.ok(ids(content({ title: 'Software 2027 | FieldSales' })).includes('i18n-year-self@title'));
+  assert.ok(ids(content({ description: 'FieldSales para distribuidoras, con CFDI desde 2027.' })).includes('i18n-year-self@description'));
+  assert.ok(ids(content({ sections: content().sections.map((s) => (s.id === 'how' ? { ...s, title: 'FieldSales en México desde 2027' } : s)) })).includes('i18n-year-self@sections.how.title'));
+  assert.ok(ids(content({ sampleInvoice: { title: 'x', note: 'La nota de FieldSales tendrá CFDI en 2027.', fields: [{ label: 'a', example: 'b' }] } })).includes('i18n-year-self@sampleInvoice.note'));
+  assert.ok(ids(content({ sources: [{ title: 'FieldSales — hoja de ruta 2027', url: 'https://fieldsa.net' }] })).includes('i18n-year-self@sources.0.title'));
+  // في الأسئلة: السؤال والجواب
+  assert.ok(ids(content({ faq: [{ q: '¿FieldSales emite CFDI?', a: 'Sí: FieldSales se conectará con el SAT en 2027.' }] })).includes('i18n-year-self@faq.0.a'));
+  assert.ok(ids(content({ faq: [{ q: '¿FieldSales emitirá CFDI en 2027?', a: 'No.' }] })).includes('i18n-year-self@faq.0.q'));
+  // المتكلم بلا اسم: الضمير والملكيّة والمستقبل، وكل صيغة للمتكلمين، و«la app»
   for (const s of [
-    'Integraremos la factura electrónica de la DIAN en 2027.', // المتكلم بلا اسم ولا ضمير (صيغة المستقبل)
+    'Integraremos la factura electrónica de la DIAN en 2027.',
     'Nuestro equipo conectará la DIAN en 2027.',
     'Desde 2027, nosotros emitiremos la factura.',
-  ]) assert.ok(ids(withEinv(s)).includes('i18n-year-self@sections.einvoicing.body'), s);
+    'Desde 2027 ofrecemos la conexión con la DIAN.',
+    'En 2027 estudiamos la integración con el SAT.',
+    'La app se conectará con el SAT en 2027.',
+  ]) assert.ok(ids(withSection('collections', s)).includes('i18n-year-self@sections.collections.body'), s);
   assert.equal(selfYearViolations('O FieldSales vai se conectar à SEFAZ em 2027.', 'pt').length, 1);
+  assert.equal(selfYearViolations('Oferecemos a emissão de NF-e desde 2027.', 'pt').length, 1);
+  assert.equal(selfYearViolations('O app vai emitir NF-e em 2027.', 'pt').length, 1);
   assert.equal(selfYearViolations('Kami akan terhubung ke DJP pada 2027.', 'id').length, 1);
-  // الحقيقة الحكومية بتاريخها مسموحة، ولو تلتها مباشرة جملة الإفصاح عن FieldSales (النافذة كانت ستحجبها، الجملة لا)
+  assert.equal(selfYearViolations('Aplikasi ini akan menerbitkan faktur pajak pada 2027.', 'id').length, 1);
+  // التاريخ بلا سنة موعدٌ أيضاً (اسم الشهر)، والتاريخ الرقمي بسنته؛ والكسر و«24/7» ليسا تاريخاً
+  assert.equal(selfYearViolations('FieldSales llegará a Colombia en julio.', 'es').length, 1);
+  assert.equal(selfYearViolations('O FieldSales emitirá NF-e a partir de 1/12/2027.', 'pt').length, 1);
+  assert.equal(selfYearViolations('FieldSales terhubung ke Coretax mulai Mei.', 'id').length, 1);
+  assert.equal(selfYearViolations('FieldSales funciona 24/7, incluso sin señal.', 'es').length, 0, '24/7 ليس تاريخاً');
+  assert.equal(selfYearViolations('FieldSales tidak menghitung DPP nilai lain (11/12) secara otomatis.', 'id').length, 0, 'الكسر ليس تاريخاً');
+  // الحقيقة الحكومية بتاريخها مسموحة، ولو تلتها مباشرة جملة الإفصاح عن FieldSales
   assert.deepEqual(ids(withEinv('La DIAN exige la factura electrónica desde 2019. FieldSales no transmite facturas a la DIAN.')), []);
+  assert.deepEqual(ids(withSection('tax', 'Desde el 1 de enero de 2025 aplica la tasa. FieldSales usa la tasa que configura tu empresa.')), []);
   assert.equal(selfYearViolations('A NF-e é obrigatória desde 2008 para o atacado.', 'pt').length, 0);
-  // خارج einvoicing السنة محجوبة أصلاً (i18n-year) لا بهذه القاعدة
-  assert.ok(ids(content({ intro: 'FieldSales llegará a Colombia en 2027.' })).includes('i18n-year@intro'));
+  assert.equal(selfYearViolations('Sejak 1 Januari 2025, Coretax DJP menjadi platform utama.', 'id').length, 0);
+  // كلمات بنهاية المتكلمين ليست أفعالاً: لا تجعل جملة الدولة جملة عن FieldSales
+  for (const s of ['Los préstamos a mínimos crecieron desde 2020.', 'Los últimos tramos rigen desde 2024.', 'Los próximos reclamos de 2025.', 'Desde 2026, la carga máxima es de 500 kilogramos.']) {
+    assert.equal(isSelfSentence(s, 'es'), false, s);
+  }
+  assert.equal(isSelfSentence('La app del banco existe desde 2020.', 'es'), false, 'تطبيق البنك ليس FieldSales');
+});
+
+test('حدود الجملة: نقطة الاختصار لا تقطعها (فلا تنعزل السنة عن FieldSales)، ونقطة آخر الجملة تقطعها', () => {
+  assert.deepEqual(sentencesOf('FieldSales factura a S.A. de C.V. desde 2027.'), ['FieldSales factura a S.A. de C.V. desde 2027.']);
+  assert.deepEqual(sentencesOf('FieldSales opera en EE. UU. desde 2027.'), ['FieldSales opera en EE. UU. desde 2027.']);
+  assert.deepEqual(sentencesOf('Lo exige el art. 29 desde 2014. FieldSales no timbra.'), ['Lo exige el art. 29 desde 2014.', 'FieldSales no timbra.']);
+  assert.deepEqual(sentencesOf('La DIAN lo exige (Resolución 165). FieldSales no transmite.'), ['La DIAN lo exige (Resolución 165).', 'FieldSales no transmite.']);
+  assert.deepEqual(sentencesOf('Rige «desde 2019.» FieldSales no transmite.'), ['Rige «desde 2019.»', 'FieldSales no transmite.']);
+  assert.deepEqual(sentencesOf('La versión 4.0 es la única válida.\nFieldSales no emite CFDI.'), ['La versión 4.0 es la única válida.', 'FieldSales no emite CFDI.']);
+  assert.equal(selfYearViolations('FieldSales factura a S.A. de C.V. desde 2027.', 'es').length, 1);
+  assert.equal(dateIn('FieldSales usa la versión 4.0 del CFDI.', 'es'), null, '«4.0» ليس تاريخاً');
 });
 
 test('ادّعاء ربط حكومي لـFieldSales خارج السعودية محجوب في كل الصفحة؛ والنفي و«عند الطلب» والسعودية والسؤال تمرّ', () => {
@@ -308,18 +351,28 @@ test('فحوص dist لصفحة الدولة (G3 · G5 · G6) على HTML مصي�
   assert.deepEqual(gates(good.replace(`<link rel="canonical" href="${self}" />`, '<link rel="canonical" href="https://fieldsa.net/es/" />')), ['G3']);
   assert.deepEqual(gates(good.replace(`hreflang="x-default" href="${self}"`, 'hreflang="x-default" href="https://fieldsa.net/en/"')), ['G3']);
   assert.deepEqual(gates(good.replace('</head>', '<link rel="alternate" hreflang="pt" href="https://fieldsa.net/pt/" /></head>')), ['G3']);
-  // G5: سنة خارج einvoicing في الصفحة · سنة قرب FieldSales داخل einvoicing · ادّعاء ربط · ختم بسنة أخرى · رقم+عملة · عنوان بسنة
+  // G5: جملة دولة بسنتها تمرّ في أيّ قسم، وعنوان مصدر بسنته يمرّ · FieldSales بسنة في أيّ قسم وفي الأسئلة والعنوان
+  // يُحجب · H1 بسنة · ادّعاء ربط · ختم بسنة أخرى · رقم+عملة
   const html = (c: CountryPageContent) => docOf(renderI18nPage({ page, reg: REG, file: ES, country: strippedCountryFile(countryFile(c), 'es') }));
   const g5 = (c: CountryPageContent) => run(html(c), strippedCountryFile(countryFile(c), 'es')).filter((x) => x.g === 'G5').map((x) => x.msg).join('\n');
-  assert.match(g5(content({ sections: content().sections.map((s) => (s.id === 'tax' ? { ...s, body: 'La tasa general es 16% desde 2010.' } : s)) })), /\[i18n-year\] «2010»/);
-  assert.match(g5(withEinv('FieldSales integrará la factura electrónica de la DIAN en 2027.')), /\[i18n-year-self\]/);
+  assert.equal(g5(withSection('tax', 'La tasa general es 16% desde 2010.')), '', 'جملة دولة بسنتها خارج einvoicing');
+  assert.equal(g5(content({ sources: [{ title: 'DIAN Normograma — Decreto 358 de 2020', url: 'https://www.dian.gov.co' }] })), '', 'عنوان مصدر بسنته');
+  for (const id of COUNTRY_SECTION_IDS) assert.match(g5(withSection(id, 'FieldSales integrará la factura electrónica de la DIAN en 2027.')), /\[i18n-year-self\]/, id);
+  assert.match(g5(content({ faq: [{ q: '¿FieldSales emite CFDI?', a: 'Sí: FieldSales se conectará con el SAT en 2027.' }] })), /\[i18n-year-self\]/);
+  assert.match(g5(content({ title: 'Software 2027 | FieldSales' })), /\[i18n-year-self\]/);
+  assert.match(g5(content({ h1: 'Distribuidoras en México 2026' })), /\[i18n-year\] H1 «2026»/);
   assert.match(g5(content({ intro: 'FieldSales está conectado directamente con la DIAN y transmite tus facturas electrónicas.' })), /\[i18n-gov-link\]/);
   assert.match(g5(content({ lastVerifiedLabel: 'Última verificación: noviembre de 2025' })), /2025/);
   assert.match(g5(withEinv('Multa de MXN 1500.')), /\[i18n-currency-number\]/);
-  assert.match(g5(content({ title: 'Software 2027 | FieldSales' })), /\[i18n-year\] «2027»/);
-  // ولو اختلف HTML عن الملف (dist قديم أو محرَّر): السنة الملصقة في dist نفسه تُلتقط
-  assert.match(run(good.replace('Texto de la sección tax sin fechas.', 'Texto de la sección tax desde 2010.')).map((x) => x.msg).join('\n'), /\[i18n-year\] «2010»/);
-  assert.match(run(good.replace('FieldSales no emite CFDI.', 'FieldSales emitirá CFDI desde 2027.')).map((x) => x.msg).join('\n'), /\[i18n-year-self\]/);
+  assert.match(g5(withSection('tax', 'Desde 2020 el límite es de $ 300 000.')), /\[i18n-currency-number\]/);
+  // ولو اختلف HTML عن الملف (dist قديم أو محرَّر): التاريخ الملصق قرب FieldSales في dist نفسه يُلتقط، وجملة الدولة تمرّ
+  const distOnly = (h: string) => run(h).filter((x) => x.g === 'G5').map((x) => x.msg).join('\n');
+  assert.equal(distOnly(good.replace('Texto de la sección tax sin fechas.', 'Texto de la sección tax desde 2010.')), '');
+  assert.match(distOnly(good.replace('Texto de la sección tax sin fechas.', 'FieldSales cubre la sección tax desde 2027.')), /\[i18n-year-self\]/);
+  assert.match(distOnly(good.replace('FieldSales no emite CFDI.', 'FieldSales emitirá CFDI desde 2027.')), /\[i18n-year-self\]/);
+  assert.match(distOnly(good.replace('<p>Sí, y sincroniza al volver la señal.</p>', '<p>Sí, y FieldSales lo hará en julio.</p>')), /\[i18n-year-self\]/, 'جواب سؤال ظاهر');
+  // G6: الأقسام الخمسة بترتيبها (قسم محذوف يُلتقط)
+  assert.ok(run(good.replace(/<section data-country-section="einvoicing">[\s\S]*?<\/section>/, '')).some((x) => x.g === 'G6' && /أقسام/.test(x.msg)));
   // G6: FAQPage غائب · سؤال ظاهر زائد · ختم بتاريخ آخر · زرّ الاجتماع غائب · لا مصدر https · لا مثال فاتورة
   const noFaqLd = good.replace(/"@type":"FAQPage"/, '"@type":"Thing"');
   assert.ok(run(noFaqLd).some((x) => x.g === 'G6' && /FAQPage/.test(x.msg)));

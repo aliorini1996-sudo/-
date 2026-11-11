@@ -245,7 +245,7 @@ export const I18N_RULE_WHY = Object.freeze({
   'i18n-year': 'سنة في نص جديد — لا مواعيد (المسموح سنة التأسيس في وصف «من نحن» وفقرته الأولى)',
   'i18n-live-price': 'سعر باقة حيّ أو سنويّ — قرار المالك: لا سعر ظاهر (طلب عرض سعر مكانه)',
   'i18n-currency-number': 'رقم ملاصق لرمز عملة — لا أسعار في صفحات الطبقة',
-  'i18n-year-self': 'سنة في جملة عن FieldSales نفسها (الاسم أو المتكلم) داخل قسم الفوترة الإلكترونية — الربط خارج السعودية «عند الطلب» بلا موعد',
+  'i18n-year-self': 'سنة أو تاريخ في جملة عن FieldSales نفسها (الاسم أو المتكلم أو صيغه) — لا موعد قرب FieldSales، والربط خارج السعودية «عند الطلب» بلا موعد (التاريخ مسموح في جمل حقائق الدولة وعناوين المصادر)',
   'i18n-gov-link': 'ادّعاء ربط أو تأهيل حكومي لـFieldSales خارج السعودية — الربط الحيّ في السعودية وحدها، وغيرها «عند الطلب» بلا وعد',
 });
 
@@ -282,29 +282,30 @@ export function checkMarketingStrings(strings, opts = {}) {
 
 // ─── صفحات الدول (نوع «country») ────────────────────────────────────────────────────────────
 //
-// قاعدة السنة على صفحة الدولة: التواريخ مسموحة في قسم الفوترة الإلكترونية **وحده** (حقائق حكومية بمصدر: مواعيد
-// الإلزام ومراحله)، وحاجبة في بقية الصفحة (العنوان والوصف وH1 والمقدمة والأقسام الأخرى والأسئلة ومثال الفاتورة
-// والمصادر). الاستثناء الآلي الوحيد خارجه ختم «آخر تحقق»: عنصر يفرضه القالب بتاريخ basedOnFactsVerifiedAt، فلا
-// تمرّ فيه إلا سنة ذلك التاريخ نفسها (أي سنة أخرى أو رقم آخر فيه يُحجب). قاعدة رقم+عملة والاعتماد والسعر الحيّ
-// حاجبة في كل الصفحة بلا استثناء، والقسم المسموح فيه بالتاريخ منها.
-
-/** القسم الوحيد الذي تُسمح فيه السنوات في صفحة الدولة */
-export const COUNTRY_YEAR_SECTION = 'einvoicing';
+// قاعدة السنة على صفحة الدولة على مستوى **الجملة** في الصفحة كلها (قرار المنسّق ١١ نوفمبر، متّسق مع قاعدة الكتالوج
+// وقرار المالك «لا موعد ولا رقم قرب جملة الربط»): السنة أو التاريخ محجوب في كل جملة عن FieldSales نفسها (الاسم،
+// أو ضمير المتكلم/المتكلمين وملكيّته، أو صيغ المتكلمين، أو «التطبيق» مشاراً إليه — selfYearViolations)، ومسموح في
+// الجمل التي تصف الدولة وقوانينها وسوقها (حقائق بمصدر) وفي عناوين المصادر (أسماء وثائق) — أيّ قسم كانت فيه.
+// استثناءان:
+//   · H1 حاجبٌ للسنة كله: يُعاد نشره خارج صفحته (قائمة صفحات اللغة في كل صفحة أخرى، وllms.txt اللغة) حيث السنة
+//     محجوبة بلا استثناء — فلا يُنشر ما يُسقط تلك الصفحات.
+//   · ختم «آخر تحقق»: عنصر يفرضه القالب بتاريخ basedOnFactsVerifiedAt، فلا تمرّ فيه إلا سنة ذلك التاريخ نفسها.
+// قاعدة رقم+عملة والاعتماد والسعر الحيّ حاجبة في كل الصفحة بلا استثناء (عناوين المصادر منها)، وادّعاء الربط الحكومي كذلك.
 
 /**
  * نصوص محتوى لغة واحدة من ملف الدولة، كلٌّ بمساره ونطاق السنة فيه:
- * year = 'allow' (قسم einvoicing) · 'stamp' (ختم آخر تحقق: سنة التحقق وحدها) · 'block' (البقية).
+ * year = 'sentence' (السنة/التاريخ محجوب في جملة عن FieldSales وحدها) · 'block' (H1: السنة محجوبة كلها) ·
+ * 'stamp' (ختم آخر تحقق: سنة التحقق وحدها).
  * slugHint والروابط (url) خارج الفحص: الأول يُطبَّع إلى مسار، والثانية عناوين لا نصّ.
  */
 export function countryContentTexts(c) {
   const out = [];
-  const add = (p, v, year = 'block') => { if (typeof v === 'string' && v.trim()) out.push({ path: p, text: v, year }); };
+  const add = (p, v, year = 'sentence') => { if (typeof v === 'string' && v.trim()) out.push({ path: p, text: v, year }); };
   if (!c || typeof c !== 'object') return out;
-  add('title', c.title); add('description', c.description); add('h1', c.h1); add('intro', c.intro);
+  add('title', c.title); add('description', c.description); add('h1', c.h1, 'block'); add('intro', c.intro);
   (Array.isArray(c.sections) ? c.sections : []).forEach((s, i) => {
-    const y = s && s.id === COUNTRY_YEAR_SECTION ? 'allow' : 'block';
-    add(`sections.${s && s.id ? s.id : i}.title`, s && s.title, y);
-    add(`sections.${s && s.id ? s.id : i}.body`, s && s.body, y);
+    add(`sections.${s && s.id ? s.id : i}.title`, s && s.title);
+    add(`sections.${s && s.id ? s.id : i}.body`, s && s.body);
   });
   (Array.isArray(c.faq) ? c.faq : []).forEach((f, i) => { add(`faq.${i}.q`, f && f.q); add(`faq.${i}.a`, f && f.a); });
   const si = c.sampleInvoice || {};
@@ -344,12 +345,15 @@ export function checkCountryContent(c, opts = {}) {
     return out;
   }
   for (const t of countryContentTexts(c)) {
+    // الاعتماد والسعر الحيّ ورقم+عملة في كل نصّ؛ والسنة كلها في H1 وحده
     for (const v of findI18nViolations(t.text, { code: opts.code, livePrices: opts.livePrices, allowYear: t.year !== 'block' })) {
       out.push({ ...v, path: t.path });
     }
-    // في القسم المسموح فيه بالتاريخ: السنة محجوبة في كل جملة عن FieldSales نفسها
-    if (t.year === 'allow') for (const v of selfYearViolations(t.text, opts.code)) out.push({ ...v, path: t.path });
-    if (t.year !== 'stamp') for (const v of govLinkViolations(t.text, opts.code)) out.push({ ...v, path: t.path });
+    // السنة أو التاريخ محجوب في كل جملة عن FieldSales نفسها — أيّ قسم كانت فيه (والأسئلة ومثال الفاتورة وعناوين المصادر)
+    if (t.year !== 'stamp') {
+      for (const v of selfYearViolations(t.text, opts.code)) out.push({ ...v, path: t.path });
+      for (const v of govLinkViolations(t.text, opts.code)) out.push({ ...v, path: t.path });
+    }
     if (t.year === 'stamp') {
       const p = stampProblem(t.text, opts.verifiedAt);
       if (p) out.push({ id: 'i18n-year', match: t.text.slice(0, 60), why: `${I18N_RULE_WHY['i18n-year']} — ${p}`, path: t.path });
@@ -358,15 +362,18 @@ export function checkCountryContent(c, opts = {}) {
   return out;
 }
 
-// ─── قواعد الجملة لصفحات الدول: السنة قرب FieldSales، وادّعاء الربط الحكومي ────────────────────────────
+// ─── قواعد الجملة لصفحات الدول: السنة أو التاريخ قرب FieldSales، وادّعاء الربط الحكومي ─────────────────────
 //
 // تعمل على الجملة (لا على نافذة أحرف): النافذة حول الاسم تلتقط تاريخاً حكومياً صحيحاً في الجملة السابقة لجملة
 // الإفصاح («…obligatoria desde 2014. FieldSales no emite CFDI») فتحجب حقيقة مسموحة، والجملة لا.
-// الجملة تنتهي بـ. ! ? يليها فراغ، أو بسطر جديد (الفقرة)؛ و«4.0» و«1/12/2026» لا تقطعانها.
+// الجملة تنتهي بـ. ! ? … (وما يليها من علامة إغلاق) يليها فراغ ثم حرف ليس صغيراً، أو بسطر جديد (الفقرة)؛ و«4.0»
+// و«1/12/2026» لا تقطعانها، ولا نقطة اختصار («S.A. de C.V.» · «EE. UU.» · «art.» — انظر sentencesOf).
 
 /**
  * لكل لغة صفحة دولة:
- *  self   — ما يجعل الجملة كلاماً عن FieldSales نفسها: الاسم، وضمير المتكلم وملكيّته، وصيغ المتكلمين (المستقبل وأفعال الربط).
+ *  self   — ما يجعل الجملة كلاماً عن FieldSales نفسها: الاسم، وضمير المتكلم وملكيّته، وصيغ المتكلمين (كل فعل
+ *           بصيغة المتكلمين في es · pt — FIRST_PLURAL — والمستقبل وأفعال الربط)، و«التطبيق» مشاراً إليه («la app»).
+ *  months — أسماء الشهور (التاريخ بلا سنة في جملة عن FieldSales موعدٌ أيضاً).
  *  link   — أفعال الربط والإرسال والتأهيل لدى جهة.
  *  auth   — الجهة الحكومية أو مستندها (لا ادّعاء ربط بلا جهة: «conectado a internet» ليس ادّعاءً).
  *  neg    — النفي وصيغة «عند الطلب» (الجملة الصادقة اليوم: «لا ربط»، أو «متاح عند الطلب بلا موعد»).
@@ -375,7 +382,11 @@ export function checkCountryContent(c, opts = {}) {
  */
 const COUNTRY_CLAIMS = Object.freeze({
   es: {
-    self: ['FieldSales', 'nosotr[oa]s', 'nuestr[oa]s?', '\\p{L}+(?:aremos|eremos|iremos)', 'vamos', 'conectamos', 'integramos', 'transmitimos', 'timbramos', 'enviamos', 'reportamos', 'somos'],
+    self: [
+      'FieldSales', 'nosotr[oa]s', 'nuestr[oa]s?', '\\p{L}+(?:aremos|eremos|iremos)', 'vamos', 'conectamos', 'integramos', 'transmitimos', 'timbramos', 'enviamos', 'reportamos', 'somos',
+      '(?:la|esta)\\s+app(?!\\s+del?(?![\\p{L}\\p{N}]))',
+    ],
+    months: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'se?ptiembre', 'octubre', 'noviembre', 'diciembre'],
     link: [
       'conectad[oa]s?\\s+(?:directamente\\s+)?(?:con|a|al)', '(?:se\\s+)?conecta(?:mos|n)?\\s+(?:directamente\\s+)?(?:con|a|al)',
       'integrad[oa]s?\\s+(?:directamente\\s+)?(?:con|a|al)', '(?:se\\s+)?integra(?:mos|n)?\\s+(?:directamente\\s+)?(?:con|a|al)',
@@ -387,7 +398,11 @@ const COUNTRY_CLAIMS = Object.freeze({
     saudi: ['Arabia\\s+Saud(?:ita|í)', 'ZATCA'],
   },
   pt: {
-    self: ['FieldSales', 'nós', 'noss[oa]s?', '\\p{L}+(?:aremos|eremos|iremos)', 'vamos', 'conectamos', 'integramos', 'transmitimos', 'enviamos', 'somos'],
+    self: [
+      'FieldSales', 'nós', 'noss[oa]s?', '\\p{L}+(?:aremos|eremos|iremos)', 'vamos', 'conectamos', 'integramos', 'transmitimos', 'enviamos', 'somos',
+      '(?:o|a|este|esta)\\s+(?:app|aplicativo)(?!\\s+d[eoa]s?(?![\\p{L}\\p{N}]))',
+    ],
+    months: ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'],
     link: [
       'conectad[oa]s?\\s+(?:diretamente\\s+)?(?:com|[àa]o?s?)', '(?:se\\s+)?conecta(?:mos|m)?(?:-se)?\\s+(?:diretamente\\s+)?(?:com|[àa]o?s?)',
       'integrad[oa]s?\\s+(?:diretamente\\s+)?(?:com|[àa]o?s?)', '(?:se\\s+)?integra(?:mos|m)?(?:-se)?\\s+(?:diretamente\\s+)?(?:com|[àa]o?s?)',
@@ -399,7 +414,8 @@ const COUNTRY_CLAIMS = Object.freeze({
     saudi: ['Ar[aá]bia\\s+Saudita', 'ZATCA'],
   },
   id: {
-    self: ['FieldSales', 'kami', 'kita'],
+    self: ['FieldSales', 'kami', 'kita', 'aplikasi\\s+ini'],
+    months: ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'],
     link: [
       'terhubung\\s+(?:langsung\\s+)?(?:ke|dengan)', 'terintegrasi\\s+(?:langsung\\s+)?(?:ke|dengan)', 'terkoneksi', 'tersambung\\s+(?:ke|dengan)',
       'mengirim(?:kan)?\\s+(?:faktur|data)', '(?:adalah|sebagai|merupakan)\\s+(?:PJAP|penyedia\\s+jasa\\s+aplikasi\\s+perpajakan|mitra\\s+resmi)',
@@ -411,13 +427,27 @@ const COUNTRY_CLAIMS = Object.freeze({
   },
 });
 
+/**
+ * صيغة المتكلمين في es · pt (حاضر وماضٍ ومضارع التزامي وشرطي): كلمة تنتهي بـ-amos/-emos/-imos بلا حرف منبَّر
+ * («ofrecemos» · «estudiamos» · «temos»)، أو بنهايات المتكلمين المنبَّرة («teníamos» · «estávamos» · «pudiéramos»).
+ * المنبَّر غير ذلك صفةٌ أو اسم لا فعل («mínimos» · «últimos» · «próximos» · «préstamos»)، والأسماء غير المنبَّرة
+ * بالنهاية نفسها مستثناة بالاسم (FIRST_PLURAL_NOT).
+ */
+const FIRST_PLURAL_NOT = ['ramos', 'tramos', '\\p{L}*gramos', 'reclamos', 'amos', 'gamos', 'extremos', 'supremos', 'remos', 'memos', 'primos', 'racimos'];
+const FIRST_PLURAL = `(?!(?:${FIRST_PLURAL_NOT.join('|')})(?![\\p{L}\\p{N}]))`
+  + '(?:[^\\P{L}áéíóúâêôãõ]+(?:amos|emos|imos)|\\p{L}+(?:íamos|ábamos|ávamos|áramos|éramos|êramos|íramos|ásemos|ésemos|ássemos|êssemos|íssemos|ôssemos|ínhamos))';
+const FIRST_PLURAL_LANGS = Object.freeze(['es', 'pt']);
+
 const word = (alts) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${alts.join('|')})(?![\\p{L}\\p{N}])`, 'iu');
 const claimReCache = new Map();
 function claimRes(code) {
   if (!COUNTRY_CLAIMS[code]) return null;
   if (!claimReCache.has(code)) {
     const r = COUNTRY_CLAIMS[code];
-    claimReCache.set(code, { self: word(r.self), link: word(r.link), auth: word(r.auth), neg: word(r.neg), saudi: word(r.saudi) });
+    claimReCache.set(code, {
+      self: word([...r.self, ...(FIRST_PLURAL_LANGS.includes(code) ? [FIRST_PLURAL] : [])]),
+      months: word(r.months), link: word(r.link), auth: word(r.auth), neg: word(r.neg), saudi: word(r.saudi),
+    });
   }
   return claimReCache.get(code);
 }
@@ -425,17 +455,57 @@ function claimRes(code) {
 /** هل للغة قواعد جملة صفحات الدول */
 export const hasCountryClaimRules = (code) => !!COUNTRY_CLAIMS[code];
 
-/** جمل نصّ: تنتهي بـ. ! ? يليها فراغ، أو بسطر جديد */
-export const sentencesOf = (text) => String(text ?? '').split(/(?<=[.!?])\s+|\n+/u).map((s) => s.trim()).filter(Boolean);
+/** هل الجملة كلامٌ عن FieldSales نفسها (الاسم أو المتكلم أو صيغه أو «التطبيق» مشاراً إليه) — false للغة بلا قاعدة */
+export const isSelfSentence = (s, code) => {
+  const R = claimRes(code);
+  return !!(R && R.self.test(s));
+};
 
-/** السنة في جملة عن FieldSales نفسها (القسم المسموح فيه بالتاريخ وحده يحتاجها؛ خارجه السنة محجوبة أصلاً) */
+/** نقاط اختصار لا تُنهي جملة (والحرف الواحد قبل النقطة كذلك: «S.A.» · «C.V.» · «p. ej.») */
+const ABBREV = new Set(['ee', 'uu', 'art', 'arts', 'núm', 'núms', 'nº', 'pág', 'págs', 'sr', 'sra', 'sres', 'dr', 'dra', 'lic', 'ing', 'ltda', 'cía', 'cia', 'tbk', 'dll', 'dsb', 'dst', 'aprox', 'vs', 'inc']);
+
+/**
+ * جمل نصّ: تنتهي بـ. ! ? … (وعلامة إغلاق اختيارية) يليها فراغ ثم حرف ليس صغيراً، أو بسطر جديد. النقطة بعد حرف واحد
+ * أو اختصار معروف لا تُنهي جملة: قطعها كان سيعزل السنة عن FieldSales في جملة واحدة («FieldSales factura a S.A. de
+ * C.V. desde 2027»)، والجملة الأطول أحوط.
+ */
+export function sentencesOf(text) {
+  const t = String(text ?? '');
+  const out = [];
+  let from = 0;
+  for (const m of t.matchAll(/([.!?…])["'»”’)\]]*\s+(?=[^\s\p{Ll}])|\n+/gu)) {
+    if (m[1] === '.') {
+      const before = t.slice(from, m.index).match(/([\p{L}º]+)$/u);
+      if (before && (before[1].length === 1 || ABBREV.has(before[1].toLowerCase()))) continue;
+    }
+    out.push(t.slice(from, m.index + m[0].length));
+    from = m.index + m[0].length;
+  }
+  out.push(t.slice(from));
+  return out.map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * أول سنة أو تاريخ في جملة (السنة، ومنها «1/12/2026» · أو اسم شهر بلغة الصفحة) أو null.
+ * «يوم/شهر» رقمياً بلا سنة لا يُعدّ تاريخاً: يطابق الكسر حرفاً بحرف («DPP nilai lain (11/12)» في صفحة إندونيسيا
+ * المنشورة) و«24/7»، والتاريخ في النثر يُكتب باسم الشهر.
+ */
+export function dateIn(s, code) {
+  const R = claimRes(code);
+  const m = toAsciiDigits(s).match(YEAR_RE) || (R ? String(s).match(R.months) : null);
+  return m ? m[0] : null;
+}
+
+/**
+ * السنة أو التاريخ في جملة عن FieldSales نفسها — في كل نصوص صفحة الدولة (عدا ختم «آخر تحقق»): لا موعد قرب
+ * FieldSales. الجملة التي تصف الدولة وقوانينها وسوقها تمرّ بتاريخها، ولو سبقت أو تلت مباشرة جملة عن FieldSales.
+ */
 export function selfYearViolations(text, code) {
   const R = claimRes(code);
   if (!R) return [];
   const out = [];
   for (const s of sentencesOf(text)) {
-    const y = toAsciiDigits(s).match(YEAR_RE);
-    if (y && R.self.test(s)) out.push({ id: 'i18n-year-self', match: s.slice(0, 60), why: I18N_RULE_WHY['i18n-year-self'] });
+    if (R.self.test(s) && dateIn(s, code)) out.push({ id: 'i18n-year-self', match: s.slice(0, 60), why: I18N_RULE_WHY['i18n-year-self'] });
   }
   return out;
 }
@@ -449,7 +519,7 @@ export function govLinkViolations(text, code) {
   if (!R) return [];
   const out = [];
   for (const s of sentencesOf(text)) {
-    if (/[?？]$/.test(s)) continue;
+    if (/[?？]["'»”’)\]]*$/.test(s)) continue;
     if (R.self.test(s) && R.link.test(s) && R.auth.test(s) && !R.neg.test(s) && !R.saudi.test(s)) {
       out.push({ id: 'i18n-gov-link', match: s.slice(0, 60), why: I18N_RULE_WHY['i18n-gov-link'] });
     }

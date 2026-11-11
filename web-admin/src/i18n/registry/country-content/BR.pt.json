@@ -1,0 +1,187 @@
+{
+ "code": "BR",
+ "basedOnFactsVerifiedAt": "2026-11-11",
+ "content": {
+  "pt": {
+   "slugHint": "software-venda-pronta-entrega-distribuidoras-brasil",
+   "title": "Software de venda pronta entrega no Brasil | FieldSales",
+   "description": "App para vendedores e RCAs de distribuidoras: venda pronta entrega no caminhão, pedidos, controle de recebimentos (Pix, boleto), rotas e modo offline.",
+   "h1": "Software para distribuidoras no Brasil: venda pronta entrega, pedidos e cobrança",
+   "intro": "O FieldSales é uma plataforma em nuvem para distribuidoras e atacadistas que trabalham com vendedores e RCAs na rua. Pelo celular, o vendedor faz a venda pronta entrega direto do caminhão ou tira o pedido para entrega posterior, imprime o comprovante na impressora térmica, registra recebimentos em Pix, boleto ou dinheiro e consulta o saldo em aberto de cada cliente, mesmo sem sinal. O gestor acompanha rotas, visitas e o estoque de cada veículo pelo painel web. A nota fiscal continua com o emissor ou ERP da sua empresa.",
+   "sections": [
+    {
+     "id": "distribution",
+     "title": "Como funciona a distribuição no Brasil",
+     "body": "O atacado distribuidor é o principal canal de abastecimento do pequeno varejo. Segundo o Ranking ABAD/NielsenIQ 2026 (ano-base 2025), o setor abastece cerca de 56% do mercado mercearil, atende 1.181.640 pontos de venda e cobre 95% do varejo tradicional. As 768 empresas participantes do levantamento somam cerca de 37,3 mil RCAs (representantes comerciais autônomos) e 28,2 mil vendedores CLT, com uma frota de 22,4 mil veículos próprios e 28 mil alugados. Entre elas, o modelo mais comum é o distribuidor com entrega (70,1%), seguido do atacado generalista com entrega (56,3%) e do atacado de balcão (31,5%); 52,3% da receita dos participantes vem de empresas com matriz em SP, MG e SC, e o Nordeste lidera a receita do modelo distribuidor com entrega. Os clientes são PDVs de vários canais: o pequeno varejo (mercearias e supermercados pequenos), bares, hotéis, restaurantes e cafeterias, farmácias e perfumarias, lojas de conveniência e atacarejos. Na venda pronta entrega, quando a mercadoria sai no caminhão, a parte fiscal tem três etapas: a NF-e de remessa da carga (CFOP 5.904, remessa para venda fora do estabelecimento, “inclusive por meio de veículos”), uma nota para cada venda fora do estabelecimento referenciando essa remessa (CFOP 5.103 ou 5.104) e a NF-e de retorno do que voltou (CFOP 1.904). No ato da entrega, o cliente costuma assinar o canhoto do DANFE como comprovante de recebimento. Na hora de receber, convivem Pix, boleto bancário, duplicata nas vendas a prazo, dinheiro, cheque, cartão e TED ou depósito."
+    },
+    {
+     "id": "tax",
+     "title": "ICMS, IPI, PIS/COFINS e a reforma: o que vai na nota",
+     "body": "O Brasil não tem uma alíquota nacional única de imposto sobre vendas. O ICMS é estadual: a alíquota interna varia conforme o estado e o produto — em geral de 17% a 20%, segundo a PwC, com 18% como alíquota geral em São Paulo — e nas operações interestaduais aplicam-se 12%, 7% ou 4% (importados). Na esfera federal há o IPI, devido pelo fabricante e pelo importador conforme a tabela TIPI, e o PIS/COFINS (1,65% + 7,6% no regime não cumulativo; 0,65% + 3% no cumulativo). A reforma tributária substitui esses tributos aos poucos pela CBS (federal, administrada pela Receita Federal) e pelo IBS (estadual e municipal, sob o Comitê Gestor do IBS); em 2026, ano de teste, a nota destaca CBS de 0,9% e IBS estadual de 0,1%, com apuração apenas informativa para quem cumpre as obrigações acessórias. Na identificação, empresas usam o CNPJ (14 caracteres no formato AA.AAA.AAA/AAAA-DV; desde julho de 2026 novos registros podem receber CNPJ alfanumérico, e os números atuais continuam válidos), pessoas físicas usam o CPF (11 dígitos) e contribuintes do ICMS têm Inscrição Estadual, com formato próprio em cada estado. A NF-e traz, entre outros dados, a chave de acesso de 44 dígitos, CNPJ, IE e CRT do emitente, o destinatário com o código IBGE do município, NCM de 8 dígitos e CFOP em cada item, os tributos de cada item, conforme o caso (ICMS com CST ou CSOSN, ICMS-ST, IPI, PIS, COFINS e o grupo IBS/CBS) e a forma de pagamento. Todo esse cálculo fiscal fica com o seu emissor ou ERP. No FieldSales, você define a moeda (real, R$), o nome do imposto e a alíquota nas configurações da empresa, e o app usa essa configuração nas vendas e nos comprovantes. A plataforma não calcula automaticamente ICMS por estado, ICMS-ST, DIFAL nem IBS/CBS."
+    },
+    {
+     "id": "einvoicing",
+     "title": "Nota fiscal eletrônica no Brasil: NF-e e NFC-e",
+     "body": "A nota fiscal eletrônica é a regra na venda de mercadorias no Brasil e funciona no modelo de autorização prévia. A NF-e (modelo 55) substituiu a nota em papel modelos 1 e 1-A, e a NFC-e (modelo 65) cobre a venda ao consumidor final. O XML, com assinatura digital ICP-Brasil, vai para a SEFAZ do estado, e a mercadoria só circula depois da Autorização de Uso, acompanhada do DANFE. O sistema é nacional, coordenado pelo ENCAT com a Receita Federal, e o Portal Nacional da NF-e registra mais de 62,9 bilhões de notas autorizadas e cerca de 2,915 milhões de emissores. A obrigatoriedade nasceu dos Protocolos ICMS 10/2007 e 42/2009, por CNAE e tipo de operação, com ampliações em alguns estados e dispensas em outros. Para o distribuidor, dois detalhes pesam: a NFC-e não pode ser emitida para comprador com Inscrição Estadual (rejeição 789), então a venda ao varejista inscrito sai em NF-e; e, na NF-e, a venda presencial fora do estabelecimento precisa referenciar a nota de remessa (rejeição 864, MOC 7.0). Com a reforma tributária, o Ato Conjunto RFB/CGIBS nº 4/2026 tornou obrigatórias a NF-e e a NFC-e com os campos de IBS/CBS a partir de 3/8/2026 para empresas fora do Simples Nacional; a NF-e passa a ser obrigatória a partir de 1/12/2026 para contribuintes de IBS/CBS sem inscrição no ICMS, e o Simples Nacional (inclusive MEI) e as operações monofásicas entram a partir de 1/1/2027. A rejeição automática de notas sem esses campos (regra UB12-10) segue como “implementação futura” na NT 2025.002 v1.53, de 30/10/2026, mas a obrigação continua valendo, segundo a Receita Federal e o CGIBS. Várias Notas Técnicas tiveram a entrada em produção adiada para 16/11/2026 (informe do Portal da NF-e de 27/10/2026). Em 2027, segundo a Sovos, a CBS passa à alíquota cheia e o PIS/COFINS é extinto; a alíquota de referência de 11,3% calculada pelo TCU ainda é uma proposta, e o Senado tem até 15/12/2026 para defini-la (Agência Senado). Pelo cronograma descrito pela Sovos, o IBS sobe gradualmente a partir de 2029 enquanto ICMS e ISS caem, até a extinção dos dois em 2033. Toda essa parte fiscal é feita pelo emissor ou ERP que a sua empresa já usa. O FieldSales não emite documentos fiscais no Brasil e hoje não tem conexão direta com a autoridade fiscal. Essa conexão fica disponível sob demanda, depois de estudarmos os requisitos do país, sem promessa nem prazo."
+    },
+    {
+     "id": "collections",
+     "title": "Recebimentos e contas a receber: Pix, boleto, dinheiro e prazo",
+     "body": "Na rua, o vendedor recebe de várias formas. O Pix, lançado pelo Banco Central em 16/11/2020, funciona 24 horas por dia, todos os dias, e já foi usado por mais de 150 milhões de pessoas físicas (dados do BCB de setembro de 2026); o pagamento pode ser feito por QR Code dinâmico ou estático, pela chave Pix ou, em cobranças recorrentes, pelo Pix Automático. Também aparecem o boleto bancário, a duplicata mercantil nas vendas a prazo, o dinheiro, o cheque, o cartão de débito ou crédito e a TED ou depósito. A tabela oficial de meios de pagamento da NF-e prevê, entre outros, Pix, boleto, duplicata mercantil, dinheiro, cheque, cartão e TED. No fim do dia, o que importa é saber quem pagou, como pagou e quanto ainda falta receber. No FieldSales, você cadastra as formas de pagamento com os nomes que a sua empresa usa — Pix, Boleto, Dinheiro, Cheque, Cartão — e o vendedor escolhe a forma em cada recibo, que abate o saldo em aberto do cliente. O saldo devedor de cada cliente aparece no app e no painel, com o histórico de vendas e recebimentos, e cada recibo fica registrado com o vendedor e a forma de pagamento, para a conferência na volta. Esses nomes servem para registro e controle: a plataforma não gera boleto nem QR Code Pix, não se conecta a bancos e não faz conciliação bancária automática."
+    },
+    {
+     "id": "how",
+     "title": "Como o FieldSales funciona na sua operação",
+     "body": "No FieldSales, a configuração é da sua empresa: moeda em real (R$), nome e alíquota do imposto e formas de pagamento ficam nas configurações. O vendedor usa o app no Android ou no iPhone, e o gestor acompanha tudo pelo painel web. Sem sinal na estrada, o app continua registrando vendas, pedidos, recibos e visitas e sincroniza quando a conexão volta. O comprovante sai na impressora térmica, mas é um documento operacional interno e não substitui a NF-e, a NFC-e nem o DANFE. A carga do caminhão fica como estoque do veículo sob responsabilidade do vendedor e é conferida na volta, enquanto a rota e as visitas ficam registradas com localização e fotos. Cada empresa tem uma API própria para trocar pedidos e faturas com o seu sistema, e cada integração é avaliada caso a caso. A interface do app e do painel está disponível em árabe, inglês, francês, turco e chinês — não em português. O FieldSales tem sede em Riad, na Arábia Saudita."
+    }
+   ],
+   "faq": [
+    {
+     "q": "O FieldSales substitui o emissor de NF-e da minha empresa?",
+     "a": "Não. O FieldSales não emite documentos fiscais no Brasil e hoje não tem conexão direta com a autoridade fiscal. A NF-e, a NFC-e e o DANFE continuam saindo do emissor ou do ERP que você já usa. O comprovante impresso pelo app é um documento operacional interno. Uma conexão direta fica disponível sob demanda, depois de um estudo dos requisitos do país, sem promessa nem prazo."
+    },
+    {
+     "q": "O app funciona sem internet na rota?",
+     "a": "Sim. O vendedor registra vendas, pedidos, recibos e visitas sem sinal, e o app sincroniza tudo com o painel quando a conexão volta. Isso vale para os registros do FieldSales, não para a nota fiscal, que segue no seu emissor."
+    },
+    {
+     "q": "Como registro um recebimento em Pix ou boleto?",
+     "a": "Nas configurações, cadastre as formas de pagamento que a sua empresa usa, por exemplo Pix, Boleto, Dinheiro e Cheque. No recibo, o vendedor escolhe a forma de pagamento e o valor recebido abate o saldo em aberto do cliente. O FieldSales não gera QR Code Pix nem boleto e não se conecta ao banco: a confirmação do crédito continua no seu extrato."
+    },
+    {
+     "q": "Como o sistema trata o ICMS, que muda de estado para estado?",
+     "a": "Você define o nome do imposto e a alíquota nas configurações da empresa, e o app usa essa configuração nas vendas. A plataforma não calcula ICMS por estado, ICMS-ST, DIFAL nem IBS/CBS. Esse cálculo fica com o emissor ou ERP que gera a sua NF-e."
+    },
+    {
+     "q": "O aplicativo está em português?",
+     "a": "Não. A interface do app e do painel está disponível em árabe, inglês, francês, turco e chinês. Moeda, imposto e formas de pagamento você configura com os termos usados no Brasil, como real (R$), ICMS e Pix."
+    },
+    {
+     "q": "Como controlo a carga do caminhão na venda pronta entrega?",
+     "a": "A carga que sai do depósito fica como estoque do veículo, sob responsabilidade do vendedor. Cada venda baixa esse estoque, e na volta o gestor confere o que saiu, o que foi vendido e o que retornou. As notas de remessa e de retorno (CFOP 5.904 e 1.904) continuam sendo emitidas no seu sistema fiscal."
+    }
+   ],
+   "sampleInvoice": {
+    "title": "Estrutura de um comprovante de venda do FieldSales",
+    "note": "Exemplo de estrutura, sem valores. É um comprovante operacional interno e não substitui a NF-e, a NFC-e nem o DANFE.",
+    "fields": [
+     {
+      "label": "Empresa",
+      "example": "Razão social, CNPJ e endereço da distribuidora"
+     },
+     {
+      "label": "Cliente",
+      "example": "Nome do PDV, CNPJ ou CPF e endereço"
+     },
+     {
+      "label": "Documento",
+      "example": "Número sequencial, data e hora da venda"
+     },
+     {
+      "label": "Vendedor",
+      "example": "Nome do vendedor ou RCA"
+     },
+     {
+      "label": "Itens",
+      "example": "Código, descrição, unidade (caixa, fardo, unidade), quantidade e preço unitário"
+     },
+     {
+      "label": "Imposto",
+      "example": "Nome e alíquota definidos pela empresa, por exemplo ICMS"
+     },
+     {
+      "label": "Totais",
+      "example": "Subtotal, imposto e total da venda"
+     },
+     {
+      "label": "Pagamento",
+      "example": "À vista (Pix, dinheiro ou cartão) ou a prazo"
+     },
+     {
+      "label": "Observação",
+      "example": "Documento operacional; a nota fiscal sai do emissor da empresa"
+     }
+    ]
+   },
+   "sources": [
+    {
+     "url": "https://www.nfe.fazenda.gov.br/portal/principal.aspx",
+     "title": "Portal Nacional da NF-e (ENCAT/Receita Federal)"
+    },
+    {
+     "url": "https://www.nfe.fazenda.gov.br/portal/perguntasFrequentes.aspx?tipoConteudo=4figqHYhYho=",
+     "title": "Portal da NF-e – Perguntas frequentes: obrigatoriedade da NF-e (Protocolos ICMS 10/2007 e 42/2009)"
+    },
+    {
+     "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=BMcHSMEoepU=",
+     "title": "Nota Técnica 2025.002-RTC v1.53 (30/10/2026) – IBS/CBS na NF-e e NFC-e"
+    },
+    {
+     "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=J%2BI%2Bv4eN00E%3D",
+     "title": "MOC 7.0 – Anexo I: leiaute e regras de validação da NF-e e da NFC-e"
+    },
+    {
+     "url": "https://www.in.gov.br/web/dou/-/ato-conjunto-rfb/cgibs-n-4-de-30-de-julho-de-2026-722697172",
+     "title": "DOU – Ato Conjunto RFB/CGIBS nº 4, de 30/07/2026"
+    },
+    {
+     "url": "https://www.in.gov.br/en/web/dou/-/ato-conjunto-rfb/cgibs-n-1-de-22-de-dezembro-de-2025-677624586",
+     "title": "DOU – Ato Conjunto RFB/CGIBS nº 1, de 22/12/2025"
+    },
+    {
+     "url": "https://www.gov.br/fazenda/pt-br/assuntos/noticias/2026/agosto/receita-federal-e-cgibs-flexibilizarao-obrigatoriedade-de-informacoes-em-documentos-fiscais",
+     "title": "Ministério da Fazenda (03/08/2026) – Receita Federal e CGIBS flexibilizarão obrigatoriedade de informações em documentos fiscais"
+    },
+    {
+     "url": "https://netcpa.com.br/colunas/receita-federal-e-cgibs-esclarecem-adiamento-das-regras-de-validacao-dos-documentos-fiscais-eletronicos/28246",
+     "title": "Portal CPA (27/08/2026) – Receita Federal e CGIBS esclarecem adiamento das regras de validação dos documentos fiscais eletrônicos"
+    },
+    {
+     "url": "https://www.nfe.fazenda.gov.br/portal/informe.aspx?ehCTG=false",
+     "title": "Portal da NF-e – Informes (produção adiada para 16/11/2026)"
+    },
+    {
+     "url": "https://portal.fazenda.sp.gov.br/servicos/nfe/Paginas/Descri%c3%a7%c3%a3o-de-Modelo-Operacional.aspx",
+     "title": "SEFAZ-SP – NF-e: descrição do modelo operacional"
+    },
+    {
+     "url": "https://www12.senado.leg.br/noticias/materias/2026/11/10/senado-recebe-acordao-do-tcu-que-propoe-aliquota-de-11-3-para-a-cbs",
+     "title": "Agência Senado (10/11/2026) – Senado recebe acórdão do TCU que propõe alíquota de 11,3% para a CBS"
+    },
+    {
+     "url": "https://taxsummaries.pwc.com/brazil/corporate/other-taxes",
+     "title": "PwC Worldwide Tax Summaries – Brazil: Other taxes (ICMS, IPI, PIS/COFINS)"
+    },
+    {
+     "url": "https://sovos.com/taxapedia/?p=53",
+     "title": "Sovos Taxapedia – Cronograma da reforma tributária no Brasil"
+    },
+    {
+     "url": "https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/cnpj/cnpj-alfanumerico.pdf",
+     "title": "Receita Federal – Perguntas e respostas: CNPJ alfanumérico"
+    },
+    {
+     "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=74KmX8poGpM=",
+     "title": "Portal da NF-e – Tabela de CFOP (5.904, 5.103, 5.104 e 1.904)"
+    },
+    {
+     "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=uekMIW1ydFM=",
+     "title": "Portal da NF-e – Tabela de meios de pagamento (Pix, boleto, duplicata)"
+    },
+    {
+     "url": "https://www.bcb.gov.br/estabilidadefinanceira/pix",
+     "title": "Banco Central do Brasil – Pix"
+    },
+    {
+     "url": "https://abad.com.br/indicadores/atacado-distribuidor-chega-a-r-6166-bilhoes-de-faturamento-e-reforca-protagonismo-nacional/",
+     "title": "ABAD – Ranking ABAD/NielsenIQ 2026: atacado distribuidor"
+    },
+    {
+     "url": "https://abad.com.br/wp-content/uploads/2026/05/Apresentacao-NIQ-Ranking-ABAD-2026_v2_12.05.26.pdf",
+     "title": "Ranking ABAD NielsenIQ 2026 (ano-base 2025) – apresentação"
+    }
+   ],
+   "lastVerifiedLabel": "Última verificação: novembro de 2026"
+  }
+ }
+}

@@ -12,7 +12,8 @@
  * الدولة تُستثنى (ولا يُضعف حارس لأجلها) إن: غاب ملفها أو حقائقها، أو لم يكتمل تدقيق الحقائق، أو لم تُجز المراجعة،
  * أو غابت لغة سوقها، أو بُنيت الصفحة على حقائق غير المدقّقة (basedOnFactsVerifiedAt ≠ verifiedAt)، أو نقص شكلها، أو
  * لم يصلح slug أو صادم صفحة أخرى، أو لم تُنشر لغتها بصفحة الدول، أو خالف نصّها قاعدة من قواعد الحارس نفسها
- * (claims-i18n: الاعتماد والسنة خارج einvoicing والسعر الحيّ ورقم+عملة · claims-rules · لغة النص).
+ * (claims-i18n: الاعتماد، والسنة أو التاريخ في جملة عن FieldSales (والسنة كلها في H1)، والسعر الحيّ، ورقم+عملة،
+ * وادّعاء الربط الحكومي · claims-rules · لغة النص).
  */
 import fs from 'fs';
 import path from 'path';
@@ -24,7 +25,7 @@ import {
 import { COUNTRY_SECTION_IDS } from '../src/i18n/marketingTemplate.mjs';
 import {
   checkCountryContent, countryContentTexts, scriptProblems, findI18nViolations, selfYearViolations, govLinkViolations,
-  stampProblem, hasCountryClaimRules, COUNTRY_YEAR_SECTION,
+  stampProblem, hasCountryClaimRules,
 } from './claims-i18n.mjs';
 import { RULES, findViolation } from './claims-rules.mjs';
 import {
@@ -353,7 +354,6 @@ export function assetLeaks(assets, fingerprints) {
 // verify-i18n يطبّقها على كل صفحة دولة في dist، واختبار countryPages.test.ts يطبّقها على HTML مصيَّر من المثبّت
 // ثم مكسور عمداً — فيُثبت أنها تلتقط الكسر قبل أول نشر فعلي.
 
-const RE_YEAR_SECTION = () => new RegExp(`<section\\b[^>]*data-country-section="${COUNTRY_YEAR_SECTION}"[^>]*>[\\s\\S]*?<\\/section>`, 'gi');
 const RE_STAMP = () => /<p\b[^>]*data-country-verified[^>]*>[\s\S]*?<\/p>/gi;
 
 /**
@@ -381,21 +381,24 @@ export function countryPageDistProblems({ html, page, reg, country, livePrices =
   const wantAlts = [`${page.hreflang}|${want}`, `x-default|${want}`].sort().join(' · ');
   if (alts !== wantAlts) add('G3', `بدائل الرأس «${alts || '—'}» لا الذاتية «${wantAlts}»`);
 
-  // G5: السنة مسموحة في قسم einvoicing وحده (إلا في جملة عن FieldSales نفسها)، والختم بسنة التحقق وحدها،
-  // وبقية القواعد (رقم+عملة · الاعتماد · السعر الحيّ · ادّعاء الربط الحكومي) في كل الصفحة
+  // G5: قاعدة السنة على مستوى الجملة في الصفحة كلها — السنة أو التاريخ محجوب في كل جملة عن FieldSales نفسها (الاسم
+  // أو المتكلم أو صيغه)، ومسموح في جمل حقائق الدولة وعناوين المصادر أيّ قسم كانت فيه؛ وH1 بلا سنة (يُعاد نشره في
+  // قائمة صفحات اللغة وllms.txt حيث السنة محجوبة كلها)؛ وختم «آخر تحقق» بسنة التحقق وحدها. وبقية القواعد
+  // (رقم+عملة · الاعتماد · السعر الحيّ · ادّعاء الربط الحكومي) في كل الصفحة بلا استثناء.
   const title = titleOf(head);
   const metas = [metaContent(head, 'name', 'description'), metaContent(head, 'property', 'og:title'), metaContent(head, 'property', 'og:description')].map((x) => x || '');
-  const sections = [...main.matchAll(RE_YEAR_SECTION())].map((m) => m[0]);
   const stamps = [...main.matchAll(RE_STAMP())].map((m) => m[0]);
-  if (!sections.length) add('G5', `لا قسم data-country-section="${COUNTRY_YEAR_SECTION}"`);
-  const rest = stripTags(removeElements(removeElements(removeElements(main, RE_YEAR_SECTION()), RE_STAMP()), RE_COUNTRIES));
-  for (const v of findI18nViolations([rest, title, ...metas].join(' \n '), { code: page.code, livePrices })) add('G5', `[${v.id}] «${v.match}» — ${v.why}`);
-  for (const v of findI18nViolations([...sections, ...stamps].map(stripTags).join(' \n '), { code: page.code, livePrices, allowYear: true })) {
+  for (const v of findI18nViolations([stripTags(removeElements(main, RE_COUNTRIES)), title, ...metas].join(' \n '), { code: page.code, livePrices, allowYear: true })) {
     add('G5', `[${v.id}] «${v.match}» — ${v.why}`);
   }
+  const h1Text = [...main.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/gi)].map((m) => stripTags(m[1])).join(' \n ');
+  for (const v of findI18nViolations(h1Text, { code: page.code })) if (v.id === 'i18n-year') add('G5', `[${v.id}] H1 «${v.match}» — ${v.why}`);
   if (!hasCountryClaimRules(page.code)) add('G5', `لا قاعدة جملة (السنة قرب FieldSales وادّعاء الربط) للغة ${page.code}`);
-  for (const b of sections.flatMap((s) => blockTexts(s))) for (const v of selfYearViolations(b, page.code)) add('G5', `[${v.id}] «${v.match}» — ${v.why}`);
-  for (const b of [...blockTexts(removeElements(main, RE_LANGS_NAV)), title, ...metas]) {
+  const noNav = removeElements(main, RE_LANGS_NAV);
+  for (const b of [...blockTexts(removeElements(noNav, RE_STAMP())), title, ...metas]) {
+    for (const v of selfYearViolations(b, page.code)) add('G5', `[${v.id}] «${v.match}» — ${v.why}`);
+  }
+  for (const b of [...blockTexts(noNav), title, ...metas]) {
     for (const v of govLinkViolations(b, page.code)) add('G5', `[${v.id}] «${v.match}» — ${v.why}`);
   }
   if (!stamps.length) add('G5', 'ختم «آخر تحقق» (data-country-verified) غائب');
@@ -431,6 +434,9 @@ export function countryPageDistProblems({ html, page, reg, country, livePrices =
   const sourcesSec = (main.match(/<section\b[^>]*data-country-sources[^>]*>[\s\S]*?<\/section>/i) || [''])[0];
   if (!/<a\b[^>]*href="https:\/\//i.test(sourcesSec)) add('G6', 'قائمة المصادر بلا رابط https');
   if (!/<table\b[^>]*data-country-sample-fields/i.test(main)) add('G6', 'مثال بنية الفاتورة غائب');
+  // الأقسام الخمسة بترتيبها (كان «قسم einvoicing موجود» شرطاً لاستثناء السنة فيه — صار فحص بنية)
+  const secIds = [...main.matchAll(/<section\b[^>]*data-country-section="([^"]*)"/gi)].map((m) => m[1]).join(',');
+  if (secIds !== COUNTRY_SECTION_IDS.join(',')) add('G6', `أقسام الصفحة «${secIds || '—'}» لا «${COUNTRY_SECTION_IDS.join(',')}»`);
   return out;
 }
 

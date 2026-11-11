@@ -862,4 +862,16 @@
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/es/quote/"/>
     <lastmod>2026-11-08</lastmod>
   </url>
+  <url>
+    <loc>https://fieldsa.net/es/software-preventa-venta-en-ruta-mexico/</loc>
+    <xhtml:link rel="alternate" hreflang="es" href="https://fieldsa.net/es/software-preventa-venta-en-ruta-mexico/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/es/software-preventa-venta-en-ruta-mexico/"/>
+    <lastmod>2026-11-11</lastmod>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/es/software-preventa-autoventa-colombia/</loc>
+    <xhtml:link rel="alternate" hreflang="es" href="https://fieldsa.net/es/software-preventa-autoventa-colombia/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/es/software-preventa-autoventa-colombia/"/>
+    <lastmod>2026-11-11</lastmod>
+  </url>
 </urlset>

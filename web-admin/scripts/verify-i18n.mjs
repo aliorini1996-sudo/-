@@ -14,9 +14,10 @@
  * وما يُصيَّر ويصل إلى المتصفح منها ملفاتها المشتقة المجرّدة src/i18n/registry/country-content/<CC>.<code>.json)
  * داخلةٌ في كل فحص: G0 يعيد اشتقاق الفهرس والملفات المجرّدة (scripts/country-i18n.mjs) ويقارن · G-codes slug لا يصادم ·
  * G1 الشكل · G2 مُصيَّرة وفي خريطة لغتها ومربوطة من صفّها في جدول /<lang>/countries/ ومن قائمة صفحات لغتها · G3 canonical
- * ذاتي وhreflang ذاتي + x-default ذاتي · G5 السنة مسموحة في قسم einvoicing وحده إلا في جملة عن FieldSales نفسها (وختم
- * «آخر تحقق» بسنة التحقق وحدها)، ورقم+عملة وادّعاء الربط الحكومي حاجبان في كل الصفحة · G6 أسئلة FAQPage = الظاهرة،
- * والأزرار، وختم التحقق = تاريخ الحقائق · G-assets لا notes ولا review ولا تدقيق حقائق ولا محتوى دولة مستثناة في
+ * ذاتي وhreflang ذاتي + x-default ذاتي · G5 السنة أو التاريخ محجوب في كل جملة عن FieldSales نفسها في الصفحة كلها
+ * ومسموح في جمل حقائق الدولة وعناوين المصادر (وH1 بلا سنة، وختم «آخر تحقق» بسنة التحقق وحدها)، ورقم+عملة وادّعاء
+ * الربط الحكومي حاجبان في كل الصفحة · G6 أسئلة FAQPage = الظاهرة، والأقسام الخمسة، والأزرار، وختم التحقق = تاريخ
+ * الحقائق · G-assets لا notes ولا review ولا تدقيق حقائق ولا محتوى دولة مستثناة في
  * dist/assets. منطق فحوص dist لصفحة الدولة في country-i18n.mjs (countryPageDistProblems · countryLinkProblems) ويختبره
  * countryPages.test.ts على HTML مصيَّر من المثبّت.
  *
@@ -444,8 +445,9 @@ if (distOk) {
     const isCountry = isCountryPageKey(page.pageKey);
     if (isCountry) {
       // صفحة الدولة (G3 · G5 · G6 الخاصة بها) — المنطق في country-i18n.mjs (countryPageDistProblems)، والاختبار
-      // يشغّله على HTML مصيَّر من المثبّت ثم مكسور عمداً: السنة في einvoicing وحده (لا في جملة عن FieldSales)،
-      // والختم بسنة التحقق، وادّعاء الربط الحكومي، والعنقود الذاتي، وFAQPage، والأزرار، والمصادر، ومثال الفاتورة
+      // يشغّله على HTML مصيَّر من المثبّت ثم مكسور عمداً: السنة أو التاريخ محجوب في جملة عن FieldSales (أيّ قسم)،
+      // وH1 بلا سنة، والختم بسنة التحقق، وادّعاء الربط الحكومي، والعنقود الذاتي، وFAQPage، والأزرار، والمصادر،
+      // والأقسام، ومثال الفاتورة
       const cc = countryOfPageKey(page.pageKey);
       for (const x of countryPageDistProblems({ html, page, reg: REG, country: countryFileOf(cc, page.code), livePrices: LIVE_PRICES })) {
         err(x.g, `${page.path}: ${x.msg}`);

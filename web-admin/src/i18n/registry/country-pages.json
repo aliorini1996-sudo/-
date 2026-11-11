@@ -1,55 +1,37 @@
 {
- "pages": [],
- "excluded": [
+ "pages": [
   {
    "cc": "MX",
    "code": "es",
-   "reasons": [
-    "i18n-year (sections.tax.body): «2026»",
-    "i18n-year (sources.5.title): «2025»"
-   ]
+   "slug": "software-preventa-venta-en-ruta-mexico",
+   "h1": "FieldSales para distribuidoras en México: preventa, venta en ruta y cobranza",
+   "contentDate": "2026-11-11",
+   "contentHash": "3fbb7081853c03cca6d6c7c4b63dd1f49fcde86fe8eb2554f2e78e770e2649f5"
   },
   {
    "cc": "CO",
    "code": "es",
-   "reasons": [
-    "i18n-year (sources.1.title): «2023»",
-    "i18n-year (sources.2.title): «2025»",
-    "i18n-year (sources.3.title): «2025»",
-    "i18n-year (sources.4.title): «2020»",
-    "i18n-year (sources.6.title): «2018»"
-   ]
+   "slug": "software-preventa-autoventa-colombia",
+   "h1": "FieldSales para distribuidores en Colombia: preventa, autoventa y cobros en ruta",
+   "contentDate": "2026-11-11",
+   "contentHash": "0d6cb7bb8fef25429f75ed9039d285488b9e4fd767970151d51ff91a71fde7ad"
   },
   {
    "cc": "BR",
    "code": "pt",
-   "reasons": [
-    "i18n-year (sections.distribution.body): «2026»",
-    "i18n-year (sections.tax.body): «2026»",
-    "i18n-year (sections.collections.body): «2020»",
-    "i18n-year (sources.1.title): «2007»",
-    "i18n-year (sources.2.title): «2025»",
-    "i18n-year (sources.4.title): «2026»",
-    "i18n-year (sources.5.title): «2025»",
-    "i18n-year (sources.6.title): «2026»",
-    "i18n-year (sources.7.title): «2026»",
-    "i18n-year (sources.8.title): «2026»",
-    "i18n-year (sources.10.title): «2026»",
-    "i18n-year (sources.17.title): «2026»",
-    "i18n-year (sources.18.title): «2026»"
-   ]
+   "slug": "software-venda-pronta-entrega-distribuidoras-brasil",
+   "h1": "Software para distribuidoras no Brasil: venda pronta entrega, pedidos e cobrança",
+   "contentDate": "2026-11-11",
+   "contentHash": "ff4684dcde2e2ead92a34e7a536f36888dece91e2dcebe533fdee3eb2daec7e7"
   },
   {
    "cc": "ID",
    "code": "id",
-   "reasons": [
-    "i18n-year (sections.distribution.body): «2025»",
-    "i18n-year (sections.tax.body): «2025»",
-    "i18n-year (sections.collections.body): «2026»",
-    "i18n-year (sources.2.title): «2024»",
-    "i18n-year (sources.6.title): «2025»",
-    "i18n-year (sources.11.title): «2025»"
-   ]
+   "slug": "aplikasi-sales-kanvas-indonesia",
+   "h1": "Aplikasi sales kanvas, taking order, dan penagihan untuk distributor di Indonesia",
+   "contentDate": "2026-11-11",
+   "contentHash": "91d29920422e439d99404f7e0ad923bbc737af42937763fe0d9455999451a43f"
   }
- ]
+ ],
+ "excluded": []
 }

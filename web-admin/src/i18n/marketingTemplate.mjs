@@ -19,7 +19,7 @@ import {
 /** يُرفع عند تغيير بنية HTML أو JSON-LD — مرجع للمقارنة بين بناءين (2: صفحات الدول وروابطها من جدول الدول) */
 export const TEMPLATE_VERSION = 2;
 
-/** أقسام صفحة الدولة بترتيبها الثابت — einvoicing وحده يحمل تواريخ حكومية (claims-i18n: COUNTRY_YEAR_SECTION) */
+/** أقسام صفحة الدولة بترتيبها الثابت — التواريخ في أيّها مسموحة في جمل حقائق الدولة وحدها، لا في جملة عن FieldSales (claims-i18n) */
 export const COUNTRY_SECTION_IDS = Object.freeze(['distribution', 'tax', 'einvoicing', 'collections', 'how']);
 
 /**
@@ -337,7 +337,7 @@ export function countryContentOf(country, code, cc) {
 
 /**
  * جسم صفحة الدولة من ملفها المشتق المجرّد (src/i18n/registry/country-content/<CC>.<code>.json): المقدمة، والأقسام
- * الخمسة بترتيبها (data-country-section — einvoicing وحده يحمل تواريخ)، ومثال بنية الفاتورة **بلا مبالغ** (حقول
+ * الخمسة بترتيبها (data-country-section)، ومثال بنية الفاتورة **بلا مبالغ** (حقول
  * وأمثلة نصية)، والأسئلة (FAQPage)، والمصادر، و«آخر تحقق» (time بتاريخ basedOnFactsVerifiedAt).
  */
 function countryBody(c, country, code) {
