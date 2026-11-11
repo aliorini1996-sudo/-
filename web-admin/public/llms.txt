@@ -12,7 +12,7 @@ Key facts:
 - Core features: tax invoices with a QR code and returns from the rep’s phone, receipt vouchers linked to the invoices they settle, customer balances and statements, van stock per item, visit proof with location and photos, routes drawn on roads, thermal printing, team permissions, product catalog and price tiers, ERP integration.
 - Markets: distribution companies in any country. Each company picks its country from a registry of 136 countries that presets the currency, its decimals and the default VAT rate (all editable), or chooses “Other country” and sets the currency and tax rate by hand.
 - Government e-invoicing: Saudi Arabia is the only country where a government integration is live (see Saudi e-invoicing below). In every other country invoices are standard invoices in the company’s currency and tax rate, and connection to the national e-invoicing platform is arranged on request.
-- Country guides (blog): currently 22 countries in the Middle East and Africa, each with currency, VAT rate and tax authority.
+- Country guides (blog): currently 31 countries in the Middle East, Africa and Asia, each with currency, VAT rate and tax authority.
 - Languages: the apps run in Arabic (right to left), English, French, Turkish and Chinese, and only in these five. The website has pages in 153 languages: the full site in Arabic, English and French, and product pages in Turkish, Chinese and 148 more languages for information (see Languages below).
 - Pricing: Per company, not per user: 299 SAR/month (up to 5 reps), 399 SAR/month (up to 10 reps), 599 SAR/month (up to 20 reps). All prices include VAT. Above 20 reps the price is set in a conversation. No setup fees. Free 10-day trial, no credit card; sign-up form: https://fieldsa.net/signup/
 - Rep app: runs in any smartphone browser and is on Google Play and the App Store; a thermal printer is optional.
@@ -119,6 +119,9 @@ Key facts:
 - [Field Sales Management Software in Qatar](https://fieldsa.net/en/blog/field-sales-software-qa/): Invoicing requirements differ by country, so check what currently applies with the General Tax Authority before settling on a configuration.
 - [Field Sales Management Software in Bahrain](https://fieldsa.net/en/blog/field-sales-software-bh/): VAT in Bahrain is charged at 10% and shown as a separate line on the invoice; check current rules with the National Bureau for Revenue (NBR).
 - [Field Sales Management Software in Oman](https://fieldsa.net/en/blog/field-sales-software-om/): VAT in Oman is charged at 5% and shown as a separate line on the invoice; check current rules with the Oman Tax Authority.
+- [Field Sales Management Software in Morocco](https://fieldsa.net/en/blog/field-sales-software-ma/): VAT in Morocco is charged at 20% and shown as a separate line on the invoice; check current rules with the General Directorate of Taxes (DGI).
+- [Field Sales Management Software in Iraq](https://fieldsa.net/en/blog/field-sales-software-iq/): Invoicing requirements differ by country, so check what currently applies with the General Commission for Taxes before settling on a configuration.
+- In the market’s own language only: [Pakistan](https://fieldsa.net/en/blog/field-sales-software-pk/) · [Nigeria](https://fieldsa.net/en/blog/field-sales-software-ng/) · [South Africa](https://fieldsa.net/en/blog/field-sales-software-za/) · [Kenya](https://fieldsa.net/en/blog/field-sales-software-ke/) · [Côte d’Ivoire (French)](https://fieldsa.net/fr/blog/field-sales-software-ci/) · [Senegal (French)](https://fieldsa.net/fr/blog/field-sales-software-sn/) · [Philippines](https://fieldsa.net/en/blog/field-sales-software-ph/) · [Ghana](https://fieldsa.net/en/blog/field-sales-software-gh/) · [Cameroon (French)](https://fieldsa.net/fr/blog/field-sales-software-cm/)
 
 ## أدلة الدول بالعربية
 
@@ -129,6 +132,8 @@ Key facts:
 - [برنامج إدارة مناديب المبيعات الميدانية في قطر](https://fieldsa.net/blog/field-sales-software-qa/): تختلف متطلبات الفوترة بين الدول فتحقق من الساري لدى الهيئة العامة للضرائب قبل اعتماد أي إعداد
 - [برنامج إدارة مناديب المبيعات الميدانية في البحرين](https://fieldsa.net/blog/field-sales-software-bh/): وتحتسب ضريبة القيمة المضافة في البحرين بنسبة 10% وتظهر مفصلة في الفاتورة مع مراجعة الساري لدى الجهاز الوطني للإيرادات NBR.
 - [برنامج إدارة مناديب المبيعات الميدانية في عمان](https://fieldsa.net/blog/field-sales-software-om/): وتحتسب ضريبة القيمة المضافة في عمان بنسبة 5% وتظهر مفصلة في الفاتورة مع مراجعة الساري لدى جهاز الضرائب.
+- [برنامج إدارة مناديب المبيعات الميدانية في المغرب](https://fieldsa.net/blog/field-sales-software-ma/): وتحتسب ضريبة القيمة المضافة في المغرب بنسبة 20% وتظهر مفصلة في الفاتورة مع مراجعة الساري لدى المديرية العامة للضرائب DGI.
+- [برنامج إدارة مناديب المبيعات الميدانية في العراق](https://fieldsa.net/blog/field-sales-software-iq/): تختلف متطلبات الفوترة بين الدول فتحقق من الساري لدى الهيئة العامة للضرائب قبل اعتماد أي إعداد
 
 ## Best / comparison guides (buyer intent)
 
@@ -214,5 +219,5 @@ Product pages in other languages describe FieldSales for information; the app in
 
 ## Optional
 
-- [Full index](https://fieldsa.net/llms-full.txt): every canonical guide in Arabic, English and French with its direct answer (381 pages), plus every blog post.
+- [Full index](https://fieldsa.net/llms-full.txt): every canonical guide in Arabic, English and French with its direct answer (396 pages), plus every blog post.
 - [Sitemap](https://fieldsa.net/sitemap.xml)
