@@ -152,6 +152,8 @@ export function buildPaymentMethodsReport(
   cashSales: CashSaleGroupRow[],
   reps: Map<string, RepInfo>,
   config: PaymentMethodsConfigV1 | null = null,
+  /** الدفع الإلكتروني مطفأ للشركة (Tenant.paylinkEnabled=false): لا جدول لـONLINE إلا بتحصيلٍ قديم في الفترة (طلب المالك ١١ نوفمبر) */
+  onlineOff = false,
 ): PaymentMethodsReport {
   const byMethod = new Map<string, { rows: Map<string, Collected>; noRep: { amount: number; count: number } }>();
   const methodOf = (m: string) => {
@@ -208,7 +210,7 @@ export function buildPaymentMethodsReport(
       rows, total, noRep: { amount: round3(b.noRep.amount), count: b.noRep.count },
     };
     const hasMoney = rows.length > 0 || block.noRep.count > 0 || block.noRep.amount !== 0;
-    return { block, show: d.active || hasMoney };
+    return { block, show: (d.active && !(onlineOff && method === 'ONLINE')) || hasMoney };
   });
   // المعطّلة بلا تحصيلٍ في الفترة لا جدول لها؛ والتي حُصّل بها تبقى (سنداتها قائمة) — والمجهولة القديمة لا تُنشأ إلا بتحصيل
   const methods: MethodBlock[] = built.filter((x) => x.show).map((x) => x.block);

@@ -1248,7 +1248,7 @@ router.get('/payment-methods', requirePaymentMethods, async (req: AuthRequest, r
     if (!range.ok) { res.status(400).json({ success: false, message: range.message }); return; }
     const team = reportTeamOf(req.query.teamId);
     const docScope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
-    const [receiptGroups, cashSaleGroups, activeReps, methodsRow] = await Promise.all([
+    const [receiptGroups, cashSaleGroups, activeReps, methodsRow, tenantRow] = await Promise.all([
       prisma.receipt.groupBy({
         // «إدارة طرق الدفع»: والمفتاح المخصّص — جدولٌ لكل طريقة مخصّصة (القرار ٦ في services/paymentMethodsReport.ts)
         by: ['salesRepId', 'paymentMethod', 'paymentMethodKey'],
@@ -1271,6 +1271,8 @@ router.get('/payment-methods', requirePaymentMethods, async (req: AuthRequest, r
       }),
       // أسماء الشركة لطرقها وطرقها المخصّصة وما عطّلته
       prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { paymentMethodsConfig: true } }),
+      // الدفع الإلكتروني مطفأ للشركة ⇒ لا جدول «دفع إلكتروني» فارغ (طلب المالك ١١ نوفمبر)
+      prisma.tenant.findUnique({ where: { id: tid }, select: { paylinkEnabled: true } }),
     ]);
 
     // أسماء من حصّل وحدهم (المعرّفات من مستنداتٍ مرّت بالنطاق) — نشطاً أو موقوفاً
@@ -1285,6 +1287,7 @@ router.get('/payment-methods', requirePaymentMethods, async (req: AuthRequest, r
       cashSaleGroups.map((g) => ({ salesRepId: g.salesRepId, amount: Number(g._sum.paidAmt ?? 0), count: g._count._all })),
       repInfo,
       readPaymentMethodsConfig(methodsRow?.paymentMethodsConfig ?? null),
+      tenantRow?.paylinkEnabled !== true,
     );
     res.json({ success: true, data: { range: { from: range.from, to: range.to, timezone: tz }, ...report, roster: rosterOf(activeReps, repInfo) } });
   } catch (err) { next(err); }
