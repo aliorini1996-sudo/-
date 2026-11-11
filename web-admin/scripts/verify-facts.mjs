@@ -22,7 +22,8 @@
  *     وأسماء كل لغة منشورة (Intl.DisplayNames وقائمة لغات الواجهة المكتوبة في محتواها) في صفحات بادئتها وحدها —
  *     «Ingles» في tl/ و«árabe» في es/. كانت جملة tl الصحيحة تُعدّ أربع لغات فتخرج ٧ مواضع زائفة.
  *  5. gov-einvoice-abroad — ادّعاء ربط بمنظومة فوترة حكومية خارج السعودية (ETA وPeppol وTTN وKSeF وCFDI…)
- *     أو «الربط الحكومي» عامةً، بلا «عند الطلب» ولا نفي: في الرؤوس وJSON-LD وllms ومتن صفحات الكيان.
+ *     أو «الربط الحكومي» عامةً، بلا «عند الطلب» ولا نفي ولا سؤال، وليس صفةَ نظام العميل أو إلزامَ القانون في جملة لا تذكرنا
+ *     (THIRD_PARTY): في الرؤوس وJSON-LD وllms ومتن صفحات الكيان.
  *  6. org-facts — عقدة ‎#organization‎: سنة التأسيس والمقر وصيغ الاسم والبريد والهاتف، وروابط تحميل التطبيق.
  *  7. support-languages (تحذير) — ContactPoint.availableLanguage لغات فريق المبيعات والدعم (CONTACT.supportLanguages)،
  *     لا لغات الواجهة: الفريق يردّ بالعربية والإنجليزية والفرنسية والتطبيق بخمس.
@@ -162,6 +163,23 @@ const GOV_CLAIM = /\bwe\s+(?:also\s+)?(?:support|integrate|connect|submit)|\bsup
 const ON_REQUEST = /عند\s*الطلب|(?:ب)?حسب\s*(?:الطلب|متطلبات|حاج[ةه])|selon\s+les\s+besoins|on\s+request|upon\s+request|on\s+demand|sur\s+demande|à\s+la\s+demande|talep\s+(?:üzerine|halinde|edil)|按需|根据需求|可申请/iu;
 const NEGATION = /\bnot\s+(?:yet\s+)?(?:built|implemented|supported|available|integrated|connected|live|offered)|\bno\s+(?:integration|connection)\b|\bdoes\s*n[o']t\b|\bdon['’]t\b|\bisn['’]t\b|n['’]est\s+pas|\bne\s+\S+\s+pas\b|\bpas\s+encore\b|değil|desteklenmi|尚未|不支持|未对接|暂不|غير\s*(?:مبني|متاح|مدعوم|مربوط|مرتبط|منفذ)|لا\s*(?:ندعم|نربط|يدعم|تدعم|يوجد|يتوفر)|لم\s*(?:نبن|ندعم|نربط|يتم|تنفذ)|ليس|ليست/iu;
 const SAUDI_CTX = /ZATCA|Fatoora|منص[ةه]\s*«?فاتور[ةه]|هيئ[ةه]\s*الزكا[ةه]|السعودي|Saudi|Suudi|沙特|saoudite/iu;
+/**
+ * الربط صفةُ نظام **غيرنا** في جملة لا تذكرنا — حقيقة قانونية أو وصف لنظام العميل، لا ادّعاء (١١ نوفمبر ٢٠٢٦، دليل باكستان):
+ * «The tax invoice itself comes from your FBR-integrated system.» · «…businesses still issue their tax invoices from their
+ * FBR-integrated system.» · «In Pakistan a sales-tax-registered business must issue its tax invoices through a system
+ * integrated with FBR…». الشرطان معاً: نظامٌ بضمير ملكية غيرنا (your/their/its · votre/leur) أو منشأةٌ يُلزمها القانون
+ * (business must · entreprise doit)، **ولا** إشارة إلينا في الجملة (OUR_REF). «An FBR-integrated system for distributors»
+ * (بلا ملكية ولا إلزام) و«FieldSales is your FBR-integrated system» و«our FBR-integrated app» تبقى ادّعاءً.
+ */
+const THIRD_PARTY = new RegExp([
+  '\\b(?:your|their|its)\\s+(?:own\\s+)?(?:[\\p{L}\\p{N}]+[-\\s])?(?:integrated|connected|linked)\\s+(?:[\\p{L}-]+\\s+)?(?:system|software|ERP|POS|solution)s?\\b',
+  '\\b(?:your|their|its)\\s+(?:own\\s+)?(?:[\\p{L}-]+\\s+)?(?:system|software|ERP|POS|solution)s?\\s+(?:integrated|connected|linked)\\s+(?:with|to|into)\\b',
+  '\\b(?:votre|vos|leurs?|son|sa|ses)\\s+(?:propres?\\s+)?(?:syst[èe]me|logiciel|ERP|solution)s?\\s+(?:int[ée]gr[ée]e?s?|connect[ée]e?s?|reli[ée]e?s?)\\s+(?:à|a|au|aux|avec)(?!\\p{L})',
+  '\\b(?:business(?:es)?|compan(?:y|ies)|taxpayers?|sellers?|suppliers?)\\b[^.;:]{0,40}?\\b(?:must|ha(?:s|ve)\\s+to|(?:is|are)\\s+required\\s+to)\\b',
+  '\\b(?:entreprises?|contribuables?|vendeurs?|fournisseurs?)\\b[^.;:]{0,40}?\\b(?:doi(?:t|vent)|(?:est|sont)\\s+tenu(?:e|s|es)?\\s+de)\\b',
+].join('|'), 'iu');
+/** إشارة إلينا: اسمنا أو ضمير المتكلم أو ملكيته */
+const OUR_REF = /FieldSales|Field\s?Sales|fieldsa\.net|فيلد\s*سيلز|\b(?:we|we['’](?:re|ve|ll)|us|our|ours|nous|notre|nos)\b|(?<!\p{L})[وف]?(?:نحن|لدينا|منصتنا|نظامنا|تطبيقنا|برنامجنا)(?!\p{L})/iu;
 
 const ENTITY_TYPES = new Set(['Organization', 'Corporation', 'LocalBusiness', 'SoftwareApplication', 'MobileApplication', 'WebApplication', 'WebSite', 'ContactPoint']);
 const APP_TYPES = new Set(['SoftwareApplication', 'MobileApplication', 'WebApplication']);
@@ -182,6 +200,7 @@ function govClaims(text) {
     if (!GOV_CLAIM.test(s)) continue;
     if (ON_REQUEST.test(s) || NEGATION.test(s)) continue;
     if (generic && SAUDI_CTX.test(s)) continue; // «الربط الحكومي» في سياق السعودية حقيقة لا ادّعاء
+    if (named && THIRD_PARTY.test(s) && !OUR_REF.test(s)) continue; // نظام العميل أو إلزام القانون، لا نحن
     out.push({ match: s, note: `منظومة: ${(named || generic)[0]}` });
   }
   return out;

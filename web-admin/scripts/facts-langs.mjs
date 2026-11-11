@@ -302,6 +302,9 @@ const qualified = (s, c) => {
   return i > 0 && CONCESSIVE_TAIL.test(s.slice(Math.max(0, i - 24), i));
 };
 
+/** جملة سؤال (تنتهي بعلامة استفهام) — ليست ادّعاءً لقاعدتَي ui-languages وgov-einvoice-abroad */
+export const QUESTION = /[?؟？]\s*$/;
+
 export const sentences = (text) => String(text)
   .split(/(?<=[.!?؟])\s+|(?<=[。！？])\s*|\n+|\s+[·•|]\s+/u)
   .map((s) => s.trim().replace(/^(?:[-*>•]\s*)+/, ''))
@@ -402,6 +405,8 @@ export function createLangDetector(locales = []) {
    * كانت «تطبيقات FieldSales بالخمس. ولوحة الإدارة متاحة بالعربية والإنجليزية.» تمرّ (١١ نوفمبر ٢٠٢٦)، وهي قائمة
    * ناقصة لا تفصيل. والعبارة لا الجملة: «الواجهة عربية ومعها الإنجليزية والفرنسية، وللموقع صفحات بالتركية والصينية»
    * تذكر الخمس في جملتها موزّعةً على عبارتين فلا تُعذر. واللغة الزائدة و«فقط» والحصر («لا … إلا») لا تُعذر أبداً.
+   * والسؤال ليس ادّعاءً (كقاعدة gov-einvoice-abroad في verify-facts): «Is the app available in French and Arabic?» سؤال
+   * السوق كما يُبحث في دليل المغرب (١١ نوفمبر ٢٠٢٦)، وجوابه هو الذي يُحاسَب على الخمس.
    */
   const languageClaims = (text, loc = null) => {
     const out = [];
@@ -410,11 +415,13 @@ export function createLangDetector(locales = []) {
     const memo = new Map();
     const states5 = (i) => {
       if (i < 0) return false;
-      if (!memo.has(i)) memo.set(i, all[i].length <= 1200 && clauses(all[i]).some((c) => sameSet(mentionedLangs(c, loc), UI)));
+      // السؤال لا يعدّ الخمس فلا يُعذر به تفصيلٌ بعده
+      if (!memo.has(i)) memo.set(i, all[i].length <= 1200 && !QUESTION.test(all[i]) && clauses(all[i]).some((c) => sameSet(mentionedLangs(c, loc), UI)));
       return memo.get(i);
     };
     for (const [si, s] of all.entries()) {
       if (s.length > 1200) continue; // كتلة بلا ترقيم (قائمة روابط) لا جملة
+      if (QUESTION.test(s)) continue; // السؤال ليس ادّعاء
       for (const c of clauses(s)) {
         const langs = mentionedLangs(c, loc);
         if (!langs.size) continue;

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { createLangDetector, docLocale, splitUiLanguages, localeLangNames } from '../../scripts/facts-langs.mjs';
 
 /**
@@ -139,4 +140,65 @@ test('تقسيم القوائم بصيغها المنشورة، ورمز لغة 
   assert.equal(docLocale('es/llms.txt', det), det.has('es') ? 'es' : null);
   assert.equal(docLocale('rep-app/index.html', det), null);
   assert.equal(docLocale('index.html', det), null);
+});
+
+/**
+ * السؤال ليس ادّعاءً (١١ نوفمبر ٢٠٢٦): أسئلة دليل المغرب «Is the app available in French and Arabic?» بلغاته الثلاث كانت تُدان
+ * قائمةً ناقصة، وجوابها يعدّ الخمس. القائمة نفسها خبراً تُدان كما كانت، والسؤال الذي يعدّ الخمس لا يُعذر به تفصيلٌ بعده.
+ */
+test('السؤال لا يُدان قائمةَ لغات، والخبر نفسه يُدان، ولا يُعذر بسؤالٍ تفصيلٌ بعده', () => {
+  for (const q of ['Is the app available in French and Arabic?', 'هل التطبيق متاح بالعربية والفرنسية؟', "L'application est-elle disponible en français et en arabe ?"]) {
+    assert.deepEqual(det.languageClaims(q, null), [], q);
+  }
+  assert.equal(det.languageClaims('The app is available in French and Arabic.', null).length, 1);
+  assert.equal(det.languageClaims('التطبيق متاح بالعربية والفرنسية.', null).length, 1);
+  // تفصيلٌ مُستدرَك يُعذر بعد خبرٍ يعدّ الخمس، ولا يُعذر بعد سؤالٍ يعدّها: لا خبر بالخمس قبله
+  const detail = 'The app interface has no Pulaar version, but Arabic and English are among them.';
+  assert.deepEqual(det.languageClaims(`The app interface is available in Arabic, English, French, Turkish and Chinese. ${detail}`, null), []);
+  assert.equal(det.languageClaims(`Is the app interface available in Arabic, English, French, Turkish and Chinese? ${detail}`, null).length, 1);
+});
+
+/**
+ * أجوبة أدلة الدول بصيغتها المنشورة (review.fix3 في ملفَي IQ وMA): «منها» تجعل «العربية أو الإنجليزية» تفصيلاً من الخمس، وحذف
+ * الفاصلة قبل «وكذلك» يُبقي الخمس في عبارة واحدة. الصيغتان القديمتان قائمتان ناقصتان بقاعدة العبارة.
+ */
+test('أجوبة لغات الواجهة في دليلَي العراق والمغرب تعدّ الخمس، وصيغتاهما القديمتان تُدانان', () => {
+  const page = (cc: string) => JSON.parse(read('src/content/country-pages', `${cc}.json`)) as { content: Record<string, { faq: { q: string; a: string }[] }> };
+  for (const cc of ['IQ', 'MA']) {
+    for (const L of ['ar', 'en', 'fr']) {
+      for (const f of page(cc).content[L].faq) assert.deepEqual(det.languageClaims(`${f.q} ${f.a}`, null), [], `${cc}.${L}: ${f.q}`);
+    }
+  }
+  assert.equal(det.languageClaims('لا. واجهة FieldSales متاحة بالعربية والإنجليزية والفرنسية والتركية والصينية فقط، ويستطيع فريقك في إقليم كردستان العمل بالواجهة العربية أو الإنجليزية.', null).length, 1);
+  assert.equal(det.languageClaims('نعم. الواجهة متاحة بالعربية والفرنسية والإنجليزية، وكذلك بالتركية والصينية، وهذه هي لغات الواجهة الخمس.', null).length, 1);
+});
+
+/**
+ * gov-einvoice-abroad في verify-facts (يُشغَّل بـ--probe لأن الحارس سكربت): الربط صفةُ نظام العميل أو إلزامُ القانون في جملة لا
+ * تذكرنا ليس ادّعاءً — جمل دليل باكستان الثلاث (نصّ JSON-LD وllms-full) كانت تُدان وهي تنفي عنا الربط. وادّعاء الربط المنسوب
+ * إلينا أو بلا مالك يبقى محجوباً.
+ */
+test('حارس الحقائق: ربط نظام العميل بـFBR حقيقة لا ادّعاء، والربط المنسوب إلينا أو بلا مالك يُحجب', () => {
+  const probe = (s: string) => {
+    const r = spawnSync(process.execPath, [path.join(root, 'scripts/verify-facts.mjs'), '--probe', s], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    return (JSON.parse(r.stdout) as { govEinvoice: { match: string }[] }).govEinvoice.map((g) => g.match);
+  };
+  const facts = [
+    'The tax invoice itself comes from your FBR-integrated system.',
+    'Sales-tax-registered businesses still issue their tax invoices from their FBR-integrated system.',
+    "No. In Pakistan a sales-tax-registered business must issue its tax invoices through a system integrated with FBR, carrying an FBR invoice number and QR code, and only PRAL or one of the integrators on FBR's published list can set up that integration.",
+    "Vos factures sont émises par votre logiciel connecté à l'ETA.",
+  ];
+  assert.deepEqual(probe(facts.join('\n')), []);
+  const claims = [
+    'FieldSales is your FBR-integrated system.',
+    'Our app is an FBR-integrated system for distributors.',
+    'An FBR-integrated system for distributors.',
+    'We integrate with FBR.',
+    'Integrates with FBR and eTIMS.',
+    'Every business must use an app integrated with FBR, and FieldSales is integrated with FBR.',
+    'Businesses must issue invoices through FBR; our platform is integrated with FBR.',
+  ];
+  assert.deepEqual(probe(claims.join('\n')), claims);
 });

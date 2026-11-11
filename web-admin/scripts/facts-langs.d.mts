@@ -22,6 +22,8 @@ export function localeLangNames(intl: string, uiLanguages?: string): Record<stri
 export function createLangDetector(locales?: PublishedLocale[]): LangDetector;
 export function docLocale(name: string, detector: LangDetector): string | null;
 
+/** جملة سؤال (تنتهي بعلامة استفهام) — ليست ادّعاءً لقاعدتَي ui-languages وgov-einvoice-abroad */
+export const QUESTION: RegExp;
 export const sentences: (text: string) => string[];
 export const clauses: (sentence: string) => string[];
 export const setStr: (s: Iterable<string>) => string;
