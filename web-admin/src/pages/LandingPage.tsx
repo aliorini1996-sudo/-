@@ -733,13 +733,13 @@ export default function LandingPage() {
     en: {
       title: 'FieldSales | Field Sales & Distribution Management Software',
       description: 'Field sales software for distribution companies in any country: invoices with a QR code, collection, van stock and rep GPS tracking. Free 10-day trial.',
-      keywords: 'field sales system, sales rep management software, distribution management software, route accounting, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales, van stock management, GPS rep tracking, customer management, product catalog, ERP integration',
+      keywords: 'field sales system, sales rep management software, distribution management software, route accounting, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales software, van stock management, GPS rep tracking, customer management, product catalog, ERP integration',
       locale: 'en' as const,
     },
     fr: {
       title: 'FieldSales | Logiciel de vente terrain et de distribution',
       description: 'Logiciel de vente terrain pour distributeurs de tous pays : prévente et vente en tournée, factures, encaissement et suivi GPS. Essai gratuit 10 jours.',
-      keywords: 'logiciel de vente terrain, application de prévente, vente en tournée, logiciel de gestion des commerciaux, logiciel de gestion de distribution, facturation électronique, facture fiscale, encaissement, gestion des créances, stock du véhicule, suivi GPS des commerciaux, gestion des clients, catalogue produits, intégration ERP',
+      keywords: 'logiciel de vente terrain, application de prévente, logiciel de vente en tournée, logiciel de gestion des commerciaux, logiciel de gestion de distribution, facturation électronique, facture fiscale, encaissement, gestion des créances, stock du véhicule, suivi GPS des commerciaux, gestion des clients, catalogue produits, intégration ERP',
       locale: 'fr' as const,
     },
     tr: {
@@ -751,7 +751,7 @@ export default function LandingPage() {
     zh: {
       title: 'FieldSales | 外勤销售与分销管理软件',
       description: '面向各国分销企业的外勤销售系统：带二维码的发票、收款、车载库存与业务员 GPS 追踪。免费试用 10 天。',
-      keywords: '外勤销售系统 业务员管理软件 分销管理系统 路线销售管理 ZATCA 电子发票 增值税发票 收款管理 应收账款 车销库存管理 GPS 业务员追踪 客户管理 产品目录 ERP 集成',
+      keywords: '外勤销售系统 业务员管理软件 分销管理系统 路线销售管理 ZATCA 电子发票 收款管理 应收账款 车销库存管理 GPS 业务员追踪 客户管理 产品目录 ERP 集成',
       locale: 'zh' as const,
     },
   }[lang];

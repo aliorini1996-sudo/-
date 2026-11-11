@@ -1226,7 +1226,7 @@ const TOPICS = [
     // ⚠️ «البيع من السيارة» يُرجع 10/10 مواقع سيارات مستعملة (قياس SERP مصر والخليج) — انقلاب نيّة تامّ.
     // المصطلح العامل هو المنقول «كاش فان» + «مناديب التوزيع» (يعمل في مصر أيضاً).
     label: svc('تطبيق كاش فان لمناديب التوزيع Van Sales', 'Van Sales App', 'Application de vente en camion (Van Sales)'),
-    kw: (c, L) => P(L, `تطبيق فان سيلز ${c.ar}, تطبيق كاش فان ${c.ar}, مخزون سيارة المندوب, توزيع متنقل`, `van sales app ${c.en}, mobile selling ${c.en}, van stock, mobile distribution`, `application van sales ${c.fr}, vente en camion ${c.fr}, stock véhicule`),
+    kw: (c, L) => P(L, `تطبيق فان سيلز ${c.ar}, تطبيق كاش فان ${c.ar}, مخزون سيارة المندوب, توزيع متنقل`, `van sales app ${c.en}, mobile selling ${c.en}, van stock, mobile distribution`, `application de vente terrain ${c.fr}, application de vente en tournée ${c.fr}, stock véhicule`),
     secs: ['vansalesmeaning', 'why', 'vanstock', 'invoice', 'gps', 'offline', 'cta'] },
   { id: 'einvoicing-compliance', cs: true, rm: 6,
     question: svc('ما هي الفوترة الإلكترونية للمندوب', 'What does e-invoicing mean for a field rep?', 'Que signifie la facturation électronique pour un commercial terrain ?'),
@@ -1281,7 +1281,7 @@ const TOPICS = [
     secs: ['why', 'vanstock', 'crm', 'invoice', 'cta'] },
   { id: 'fmcg-distribution', cs: true, rm: 6,
     label: svc('برنامج مناديب توزيع FMCG والمواد الغذائية', 'FMCG Trade Marketing & Distribution', 'Distribution de produits de grande consommation (FMCG)'),
-    kw: (c, L) => P(L, `توزيع FMCG ${c.ar}, سلع استهلاكية ${c.ar}, تسويق تجاري, مناديب توزيع, مخزون سيارة`, `FMCG distribution ${c.en}, FMCG distributors ${c.en}, trade marketing and distribution ${c.en}, consumer goods ${c.en}, van sales`, `distribution FMCG ${c.fr}, marketing commercial ${c.fr}, biens de consommation ${c.fr}`),
+    kw: (c, L) => P(L, `توزيع FMCG ${c.ar}, سلع استهلاكية ${c.ar}, تسويق تجاري, مناديب توزيع, مخزون سيارة`, `FMCG distribution ${c.en}, FMCG distributors ${c.en}, trade marketing and distribution ${c.en}, consumer goods ${c.en}`, `distribution FMCG ${c.fr}, marketing commercial ${c.fr}, biens de consommation ${c.fr}`),
     secs: ['why', 'gps', 'vanstock', 'reports', 'cta'] },
   { id: 'mobile-field-invoicing', cs: true, rm: 5,
     label: svc('تطبيق فواتير المناديب من الجوال', 'Offline Field Sales App & Mobile Invoicing', 'Application de vente terrain hors ligne et facturation mobile'),
@@ -1308,8 +1308,16 @@ const TOPICS = [
     kw: (c, L) => P(L, `اختيار نظام مبيعات ميدانية, معايير, مقارنة, برنامج توزيع`, `choose field sales system, criteria, comparison, distribution software`, `choisir un système de vente terrain, critères, comparaison`),
     secs: ['features', 'tax', 'reps', 'faq', 'cta'] },
   { id: 'van-sales-best-practices', cs: false, rm: 6,
-    label: svc('أفضل ممارسات الكاش فان لمناديب التوزيع', 'Van Sales Best Practices', 'Bonnes pratiques de la vente en camion'),
-    kw: (c, L) => P(L, `كاش فان, أفضل الممارسات, مخزون سيارة, خطوط سير`, `van sales best practices, van stock, routes`, `vente en camion, bonnes pratiques, tournées`),
+    // قاموس المصطلحات (src/i18n/glossary): «van sales» و«vente en camion» و«كاش فان» لا تُستهدف منفردة — تُقرن بالتوزيع.
+    // الإنجليزية بصيغة طبيعية «… for Distributors» لا «Van Sales Distribution Best Practices» المتكلّفة.
+    // الوصف الإنجليزي خاصّ: الذيل العامّ «a practical FieldSales guide for distributors» يكرّر «for Distributors» بعد العنوان؛
+    // العربية والفرنسية بلا ذيل خاصّ ([]) فتبقيان على الذيل العامّ في descOf.
+    desc: (c, L) => P(L,
+      [],
+      ['load the van from actual route sales, invoice during the visit and count the van on return.', 'load from route sales, invoice at the visit and count on return.'],
+      []),
+    label: svc('أفضل ممارسات الكاش فان لمناديب التوزيع', 'Van Sales Best Practices for Distributors', 'Bonnes pratiques de la vente en tournée pour la distribution'),
+    kw: (c, L) => P(L, `كاش فان لمناديب التوزيع, أفضل الممارسات, مخزون سيارة, خطوط سير`, `van sales best practices for distributors, van stock, routes`, `logiciel de vente en tournée, bonnes pratiques, tournées commerciales`),
     secs: ['vanstock', 'gps', 'invoice', 'reports', 'cta'] },
   { id: 'reduce-overdue-receivables', cs: false, rm: 6,
     label: svc('كيف تقلل الذمم المتعثرة', 'How to Reduce Overdue Receivables', 'Comment réduire les impayés'),
@@ -1586,7 +1594,7 @@ function relatedLinks(topic, c, L) {
   } else {
     add('how-to-choose-field-sales-system', P(L, 'كيف تختار نظام مبيعات ميدانية', 'How to choose a field sales system', 'Comment choisir un système'));
     add('field-sales-system-roi', P(L, 'العائد على الاستثمار', 'ROI of a field sales system', "Le ROI d'un système"));
-    add('van-sales-best-practices', P(L, 'أفضل ممارسات الكاش فان', 'Van sales best practices', 'Bonnes pratiques van sales'));
+    add('van-sales-best-practices', P(L, 'أفضل ممارسات الكاش فان', 'Van sales best practices for distributors', 'Bonnes pratiques de la vente en tournée'));
     // عنقود جغرافي: النظام في أسواق بارزة (قانونية وحدها)
     ['SA', 'EG', 'AE'].forEach((oc) => {
       const s = `field-sales-software-${oc.toLowerCase()}`;
@@ -1618,11 +1626,12 @@ function relatedLinks(topic, c, L) {
 }
 
 // يبني قائمة المقالات (بيانات وصفية فقط) للغة معيّنة — للفهرس وخريطة الموقع
-// طبقة كلمات مفتاحية عالية النية تُضاف لكل مقال — تقوّي تغطية مصطلحات الشراء في الأسواق العربية
+// طبقة كلمات مفتاحية عالية النية تُضاف لكل مقال — تقوّي تغطية مصطلحات الشراء في الأسواق العربية.
+// الفرنسية بمصطلح القاموس المفضّل (src/i18n/glossary/fr.json): «logiciel de vente en tournée» لا «logiciel van sales» الإنجليزية
 const EXTRA_KW = (c, L) => P(L,
   `فان سيلز ${c.ar}, DSD ${c.ar}, أتمتة قوة المبيعات, برنامج مناديب ${c.ar}, برنامج توزيع FMCG ${c.ar}, برنامج شركات الجملة ${c.ar}, تطبيق مندوب مبيعات ${c.ar}, حسابات خطوط السير, إدارة الموزعين ${c.ar}, برنامج توزيع مواد غذائية ${c.ar}, نظام نقاط بيع متنقل`,
   `distributor management system ${c.en}, DMS software ${c.en}, van sales software ${c.en}, DSD software ${c.en}, sales force automation ${c.en}, field force automation, FMCG distribution software ${c.en}, wholesale distribution software ${c.en}, route accounting ${c.en}, mobile sales app ${c.en}, food distribution software ${c.en}`,
-  `logiciel van sales ${c.fr}, DSD ${c.fr}, automatisation force de vente ${c.fr}, gestion des distributeurs ${c.fr}, logiciel distribution FMCG ${c.fr}, logiciel de gros ${c.fr}, comptabilité de tournée, application commerciale mobile ${c.fr}`);
+  `logiciel de vente en tournée ${c.fr}, DSD ${c.fr}, automatisation force de vente ${c.fr}, gestion des distributeurs ${c.fr}, logiciel distribution FMCG ${c.fr}, logiciel de gros ${c.fr}, comptabilité de tournée, application commerciale mobile ${c.fr}`);
 
 export function listArticles(L) {
   const out = [];

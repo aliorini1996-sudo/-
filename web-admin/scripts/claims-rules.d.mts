@@ -18,6 +18,31 @@ export interface ClaimRule {
   exceptPaths?: RegExp;
   /** حاجبة لنصوص المستودع وتحذير لنصوص CMS (يُسند verify-claims كل مطابقة بسياقها عبر fromCmsContext) */
   cmsWarn?: boolean;
+  /** verify-claims يُلحق بالنطاق محتوى <meta name="keywords"> */
+  keywords?: boolean;
+  /** رمز لغة قاعدة من قاموس المصطلحات (src/i18n/glossary) — لا تدخل checkText */
+  glossary?: 'ar' | 'en' | 'fr' | 'tr' | 'zh';
+  /** كلمة القاموس الحرفية لقاعدة القاموس */
+  term?: string;
+  /** طيّ النصّ بطول ثابت قبل المطابقة (قواعد التركية: trFold) — المطابقة المُعادة من النصّ الأصلي */
+  fold?: (s: string) => string;
+}
+
+/** نصّ صفحة لـruleHaystack: الرأس (العنوان والوصف وH1 كلٌّ في سطره) والنصّ المرئي وHTML الخام والكلمات المفتاحية */
+export interface PageText {
+  head: string;
+  text: string;
+  raw: string;
+  kw: string;
+}
+
+/** بند avoid في قاموس المصطلحات */
+export interface GlossaryAvoid {
+  term: string;
+  why: string;
+  unlessWith?: string[];
+  /** head (الافتراضي): منفردة في الرأس والكلمات المفتاحية · text: الصفحة كلها · alone: وحدها عنواناً أو بنداً */
+  scope?: 'head' | 'text' | 'alone';
 }
 
 export const norm: (s: string) => string;
@@ -30,6 +55,17 @@ export const PHASE2_INTEGRATION: string;
 export const DATE_OR_NUMBER: RegExp;
 export const near: (term: string) => RegExp;
 export const RULES: ClaimRule[];
+export const GLOSSARY_AVOID: Record<'ar' | 'en' | 'fr' | 'tr' | 'zh', GlossaryAvoid[]>;
+export const GLOSSARY_RULES: ClaimRule[];
+export const GLOSSARY_PATHS: Record<'ar' | 'en' | 'fr' | 'tr' | 'zh', RegExp>;
+export function glossaryPattern(code: string, literal: string): string;
+export function trFold(s: string): string;
+export const FIELD_SEP: string;
+export const decodeAttr: (s: string) => string;
+export function pageHead(html: string): string;
+export const pageKeywords: (html: string) => string;
+export function ruleHaystack(rule: ClaimRule, page: PageText): string;
+export function checkGlossary(text: string, code: string): string[];
 export function findViolation(rule: ClaimRule, haystack: string): { index: number; match: string } | null;
 export function findViolations(rule: ClaimRule, haystack: string, limit?: number): { index: number; match: string }[];
 export function checkText(text: string): string[];

@@ -1,0 +1,136 @@
+{
+  "code": "tr",
+  "categoryTerms": [
+    "saha satış programı",
+    "plasiyer programı",
+    "mobil saha satış uygulaması",
+    "araçtan satış (sıcak satış)",
+    "ön sipariş / sipariş toplama (soğuk satış)",
+    "rut satışı",
+    "mağazaya doğrudan teslimat (DSD)",
+    "plasiyer",
+    "araç stoku",
+    "araç yükleme / araç boşaltma",
+    "zimmet / araç zimmeti",
+    "tahsilat",
+    "tahsilat makbuzu",
+    "cari ekstre / müşteri bakiyesi",
+    "kredi limiti",
+    "vadeli satış",
+    "rota ve ziyaret takibi",
+    "Bluetooth termal yazıcı",
+    "internetsiz çalışma",
+    "araç mutabakatı"
+  ],
+  "preferred": {
+    "category": "saha satış programı",
+    "categoryPage": "plasiyer programı",
+    "vanSales": "araçtan satış (sıcak satış)",
+    "preSales": "ön sipariş / sipariş toplama (soğuk satış)",
+    "rep": "plasiyer (pazarlama); arayüzde «temsilci»",
+    "vanStock": "araç stoku",
+    "vanCustody": "zimmet",
+    "collection": "tahsilat",
+    "receipt": "tahsilat makbuzu",
+    "customerStatement": "cari ekstre",
+    "creditLimit": "kredi limiti",
+    "creditSale": "vadeli satış",
+    "route": "rut / rota",
+    "offline": "internetsiz",
+    "featureOfflineInvoicing": "İnternetsiz fatura ve termal yazdırma",
+    "featureVanStock": "Araç stoku ve tahsilat",
+    "featureRoutesVisits": "Rota ve ziyaret takibi",
+    "zatcaSentence": "ZATCA’nın Fatoora platformu ile 2. Aşama entegrasyonunu destekliyoruz",
+    "eInvoicingOutsideSaudi": "Talep üzerine mevcut",
+    "ctaQuote": "Teklif isteyin",
+    "ctaMeeting": "Toplantı planlayın"
+  },
+  "avoid": [
+    {
+      "term": "araç satış",
+      "why": "تعني بيع السيارات وبرامج معارضها (فرضية لم يُتحقق منها ببحث، والمصنع يتجنّبها)؛ الصحيح «araçtan satış» مقروناً بـ«plasiyer»",
+      "scope": "text"
+    },
+    {
+      "term": "araç takip",
+      "why": "تتبّع الأساطيل بالـGPS لا البيع الميداني",
+      "unlessWith": [
+        "plasiyer",
+        "saha satış",
+        "temsilci"
+      ]
+    },
+    {
+      "term": "sıcak satış",
+      "why": "في المبيعات العامة تعني العميل الدافئ؛ لا تُذكر إلا في سياق التوزيع (plasiyer، araçtan، ön sipariş)",
+      "unlessWith": [
+        "plasiyer",
+        "araçtan",
+        "ön sipariş",
+        "soğuk satış",
+        "sipariş",
+        "dağıtım",
+        "distribütör",
+        "toptan",
+        "saha satış",
+        "fatura"
+      ]
+    },
+    {
+      "term": "soğuk satış",
+      "why": "في المبيعات العامة تعني الاتصال البارد؛ لا تُذكر إلا في سياق التوزيع",
+      "unlessWith": [
+        "plasiyer",
+        "araçtan",
+        "ön sipariş",
+        "sıcak satış",
+        "sipariş",
+        "dağıtım",
+        "distribütör",
+        "toptan",
+        "saha satış"
+      ]
+    },
+    {
+      "term": "plasiyer",
+      "why": "وحدها عنواناً أو بنداً في الكلمات المفتاحية نيّتها إعلانات توظيف (iş ilanları)؛ تأتي «plasiyer programı/uygulaması»، وداخل جملة («Plasiyerlerinizi… yönetin») تمرّ",
+      "scope": "alone"
+    },
+    {
+      "term": "satış temsilcisi",
+      "why": "وحدها عنواناً أو بنداً نيّتها إعلانات توظيف",
+      "scope": "alone"
+    },
+    {
+      "term": "satış öncesi",
+      "why": "تعني «ما قبل البيع» لا البيع المسبق التوزيعي؛ الصحيح «ön sipariş» أو «sipariş toplama»",
+      "scope": "text"
+    },
+    {
+      "term": "veresiye",
+      "why": "عامّية؛ الصحيح «vadeli satış»"
+    }
+  ],
+  "keep": [
+    "FieldSales",
+    "fieldsa.net",
+    "ZATCA",
+    "Fatoora",
+    "WhatsApp",
+    "iPhone",
+    "App Store",
+    "Google Play",
+    "GPS",
+    "QR",
+    "API",
+    "ERP",
+    "DSD"
+  ],
+  "notes": "السوق التركي يقسم العمل إلى «sıcak satış» (البيع من السيارة مع فاتورة في الموقع) و«soğuk satış» (أخذ الطلب والتسليم لاحقاً)، ويُذكر الزوج مع الشرح بين قوسين. «plasiyer» لفظ التسويق، وواجهة التطبيق التركية تقول «temsilci» و«Araç stoku» و«Tahsilat makbuzu» و«zimmet». صيغة «siz» المهذبة. الكلمات في avoid تُحرس في العنوان والوصف وH1 والكلمات المفتاحية (scope الافتراضي head)، و«plasiyer» و«satış temsilcisi» حين تكون وحدها عنواناً أو بنداً (scope alone)، و«araç satış» و«satış öncesi» في الصفحة كلها (scope text). التركية تُلصق اللواحق، فالحارس يطابق جذر الكلمة بلواحقها (plasiyerler، araç satışı). لا ادعاء ربط بـe-Fatura أو e-Arşiv أو e-İrsaliye لدى GİB: الربط في تركيا «Talep üzerine mevcut» فقط، ولا «uyumlu/onaylı/sertifikalı» حتى في النفي. Yandex محرك معتبر في تركيا. لا سعر ولا عملة سعر (TL، ₺) ولا أسماء منافسين.",
+  "sources": [
+    "D:/claude-work/global-seo/plan.md — «مفردات الفئة المعتمدة لكل لغة» (التركية)",
+    "D:/claude-work/global-seo/research.json — regions[1] code=tr",
+    "D:/claude-work/global-i18n/glossary/tr.json — قاموس المصنع",
+    "web-admin/src/i18n/marketing/tr.json — صفحة الفئة والجمل الثابتة المنشورة"
+  ]
+}

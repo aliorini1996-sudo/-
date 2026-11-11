@@ -152,8 +152,10 @@ function buildPage({ lang, title, description, keywords, canonical, image, ogTyp
   h = h.replace(/<html[^>]*>/, `<html lang="${htmlLang}" dir="${dir}">`);
   h = h.replace(/<title>[\s\S]*?<\/title>/, `<title>${esc(title)}</title>`);
   h = h.replace(/(<meta name="description" content=")[\s\S]*?("\s*\/>)/, `$1${esc(description)}$2`);
-  // صفحات الطبقة: لا كلمات عربية موروثة من القالب (لا مقابل لها بلغة الصفحة، والوسم بلا أثر في الترتيب)
-  if (keywords === false) h = h.replace(/\s*<meta name="keywords" content="[\s\S]*?"\s*\/>/, '');
+  // صفحات الطبقة: لا كلمات عربية موروثة من القالب (لا مقابل لها بلغة الصفحة، والوسم بلا أثر في الترتيب).
+  // وكذلك صفحات en/fr/tr/zh التي لا تمرّر كلماتها (عن المنصّة والتواصل والأسعار والشروط…): كانت ترث كلمات القالب
+  // العربية — ومنها «van sales» منفردة التي يحرسها قاموس المصطلحات (claims-rules.mjs) — ولا وسم خير من وسم بلغة أخرى.
+  if (keywords === false || (keywords == null && lang !== 'ar')) h = h.replace(/\s*<meta name="keywords" content="[\s\S]*?"\s*\/>/, '');
   else if (keywords) h = h.replace(/(<meta name="keywords" content=")[\s\S]*?("\s*\/>)/, `$1${esc(keywords)}$2`);
   h = h.replace(/(<link rel="canonical" href=")[^"]*("\s*\/>)/, `$1${canonical}$2`);
   // تقليم الفهرسة: يستبدل وسم robots الافتراضي (index,follow) لا يُضيف وسماً ثانياً متناقضاً
@@ -550,7 +552,7 @@ async function main() {
       title: 'FieldSales | Field Sales & Distribution Management Software',
       desc: 'Field sales software for distribution companies in any country: invoices with a QR code, collection, van stock and rep GPS tracking. Free 10-day trial.',
       // الكلمات المفتاحية بلغة الصفحة كما في seoByLang (بدونها ترث الصفحة كلمات القالب العربية)
-      keywords: 'field sales system, sales rep management software, distribution management software, route accounting, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales, van stock management, GPS rep tracking, customer management, product catalog, ERP integration',
+      keywords: 'field sales system, sales rep management software, distribution management software, route accounting, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales software, van stock management, GPS rep tracking, customer management, product catalog, ERP integration',
       templateLd: enFaq.kept.length ? [faqPageNode(enFaq.kept)] : [],
       body: `<main><h1>FieldSales — field sales &amp; distribution management software</h1>
 <p>FieldSales is a cloud platform for distribution companies that sell through field reps. Reps issue invoices and receipts with a QR code from their phones, print them on a thermal printer, collect payments and manage their van stock, while managers see sales, collections, receivables and every rep’s route on one dashboard.</p>
@@ -572,7 +574,7 @@ ${enFaqHtml}
     fr: {
       title: 'FieldSales | Logiciel de vente terrain et de distribution',
       desc: 'Logiciel de vente terrain pour distributeurs de tous pays : prévente et vente en tournée, factures, encaissement et suivi GPS. Essai gratuit 10 jours.',
-      keywords: 'logiciel de vente terrain, application de prévente, vente en tournée, logiciel de gestion des commerciaux, logiciel de gestion de distribution, facturation électronique, facture fiscale, encaissement, gestion des créances, stock du véhicule, suivi GPS des commerciaux, gestion des clients, catalogue produits, intégration ERP',
+      keywords: 'logiciel de vente terrain, application de prévente, logiciel de vente en tournée, logiciel de gestion des commerciaux, logiciel de gestion de distribution, facturation électronique, facture fiscale, encaissement, gestion des créances, stock du véhicule, suivi GPS des commerciaux, gestion des clients, catalogue produits, intégration ERP',
       body: `<main><h1>FieldSales — logiciel de vente terrain et de gestion de la distribution</h1>
 <p>FieldSales est une plateforme SaaS pour les entreprises de distribution : une application de prévente et de vente en tournée avec laquelle les commerciaux émettent des factures structurées à code QR, encaissent les paiements et gèrent le stock du véhicule, tandis que les gérants disposent de tableaux de bord en direct, du suivi GPS et de rapports. Chaque entreprise choisit son pays, sa devise et son taux de taxe, et l’application fonctionne en arabe, anglais, français, turc et chinois.</p>
 <ul><li>Facturation terrain avec code QR et impression thermique</li><li>Encaissement, créances et relevés clients avec limites de crédit</li><li>Stock du véhicule par commercial avec détection des écarts</li><li>Suivi GPS et planification des tournées</li><li>Catalogue produits, grilles tarifaires et intégration ERP</li></ul>
@@ -599,7 +601,7 @@ ${enFaqHtml}
     zh: {
       title: 'FieldSales | 外勤销售与分销管理软件',
       desc: '面向各国分销企业的外勤销售系统：带二维码的发票、收款、车载库存与业务员 GPS 追踪。免费试用 10 天。',
-      keywords: '外勤销售系统 业务员管理软件 分销管理系统 路线销售管理 ZATCA 电子发票 增值税发票 收款管理 应收账款 车销库存管理 GPS 业务员追踪 客户管理 产品目录 ERP 集成',
+      keywords: '外勤销售系统 业务员管理软件 分销管理系统 路线销售管理 ZATCA 电子发票 收款管理 应收账款 车销库存管理 GPS 业务员追踪 客户管理 产品目录 ERP 集成',
       body: `<main><h1>FieldSales — 外勤销售与分销管理软件</h1>
 <p>FieldSales 是一套面向分销企业的 SaaS 平台：业务员通过手机应用开具带二维码的结构化发票、完成收款并管理车载库存；管理者则获得实时看板、GPS 追踪与报表。各国企业可自选国家、货币和税率，应用支持阿拉伯语、英语、法语、土耳其语和中文。</p>
 <ul><li>带二维码的外勤开票与热敏打印</li><li>收款、应收账款与带信用额度的客户对账单</li><li>按业务员划分的车载库存与实时差异检测</li><li>业务员 GPS 追踪与路线规划</li><li>产品目录、价格体系与 ERP 集成</li></ul>

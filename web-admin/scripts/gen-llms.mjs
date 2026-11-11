@@ -87,7 +87,10 @@ async function registryCountries() {
 
 /* ─── فحص النصوص ─────────────────────────────────────────────────────────────── */
 
-const TEXT_RULES = RULES.filter((r) => r.scope !== 'head'); // ما يطبّقه verify-claims على ملفات .txt
+// ما يطبّقه verify-claims على ملفات .txt — ومنها نطاق المسار: الملفان في جذر dist، فقاعدة مقصورة على صفحات لغة أخرى
+// (قاموس fr أو tr مثلاً) لا تُطبَّق هنا كما لا يطبّقها verify-claims عليهما
+const TEXT_RULES = RULES.filter((r) => r.scope !== 'head'
+  && (!r.paths || r.paths.test('llms.txt')) && !(r.exceptPaths && r.exceptPaths.test('llms.txt')));
 // مصنِّف أسئلة المقالات نفسه (P2): نفي قديم أو وعد «دون اتصال» بلا قيد الربط
 const p2Problem = faqProblemWith({ RULES, findViolation, norm, PHASE2 });
 /** رقم يليه «ر.س» أو «ريال» أو SAR: الأسعار في هذا الملف من CMS وحده، فوصف مقال فيه سعر لا يُنقل */

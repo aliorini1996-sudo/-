@@ -16,6 +16,8 @@
  *  - لا أسماء منافسين (قرار المالك): القائمة الأصلية حاجبة مطلقاً، وقائمة competitor-name-attributed حاجبة
  *    في نصوص المستودع وتحذير في نصوص CMS (مقال repzo-alternative-field-reps ينتظر قرار المالك).
  *  - كل تحذير مُسنَد إلى CMS يُطبع معه «المقالات المتأثرة» كاملةً: هي قائمة البنود التي تُحرَّر من لوحة CMS.
+ *  - قاموس المصطلحات (src/i18n/glossary): كلمة تنقلب نيّتها لا تُستهدف منفردة في صفحات لغتها — حاجبة في نصوص المستودع،
+ *    وتحذير في نصوص CMS (cmsWarn)، وتُفحص معها الكلمات المفتاحية.
  *
  * القواعد نفسها في scripts/claims-rules.mjs ويختبرها src/content/claimsGuard.test.ts.
  *
@@ -25,7 +27,10 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { RULES, findViolation, findViolations, PHASE2_CMS_CLEANED, cmsCorpus, fromCms, fromCmsContext } from './claims-rules.mjs';
+import {
+  RULES, findViolation, findViolations, PHASE2_CMS_CLEANED, cmsCorpus, fromCms, fromCmsContext,
+  decodeAttr, pageHead, pageKeywords, ruleHaystack,
+} from './claims-rules.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -53,7 +58,6 @@ const ALLOW = [];
 const ldJsonText = (h) => [...h.matchAll(/<script\b[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)]
   .map((m) => m[1].replace(/["{}\[\],]/g, ' '))
   .join(' ');
-const decodeAttr = (s) => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 // ⚠️ تجريد الوسوم يحذف سمات content، فوصف meta وog/twitter — أول ما يظهر في نتائج البحث
 // وبطاقة المشاركة — لم يكن يمرّ بقاعدتي الاعتماد والموعد. يُلحَق نصّه بالنصّ المرئي.
 const metaText = (h) => [...h.matchAll(/<meta\b[^>]*>/gi)]
@@ -123,18 +127,15 @@ for (const f of files) {
   if (ALLOW.some((a) => a.match.test(rel))) { skipped++; continue; }
   const raw = fs.readFileSync(f, 'utf8');
   const text = /\.html$/i.test(f) ? stripHtml(raw) : raw;
-  // نطاق «الرأس»: العنوان والوصف وH1 — ما يُبنى عليه الاستهداف فعلاً
-  const head = [
-    (raw.match(/<title>([\s\S]*?)<\/title>/i) || [])[1] || '',
-    (raw.match(/<meta name="description" content="([^"]*)"/i) || [])[1] || '',
-    (raw.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) || [])[1] || '',
-  ].join(' ').replace(/<[^>]+>/g, ' ');
+  // نطاق «الرأس»: العنوان والوصف وH1 — كلٌّ في سطره (FIELD_SEP: لا يعبر سياقٌ حقلاً، وآخر العنوان حدٌّ لنطاق alone)،
+  // والكلمات المفتاحية للقواعد التي تطلبها (keywords: قاموس المصطلحات) في سطر بعدها — انظر pageHead/ruleHaystack
+  const page = { raw, text, head: pageHead(raw), kw: pageKeywords(raw) };
 
   for (const rule of RULES) {
-    // قواعد مقصورة على مسارات (arab-only-targeting: الصفحات غير العربية عدا مقالات المدوّنة)
+    // قواعد مقصورة على مسارات (arab-only-targeting: الصفحات غير العربية عدا مقالات المدوّنة؛ القاموس: صفحات لغته)
     if (rule.paths && !rule.paths.test(rel)) continue;
     if (rule.exceptPaths && rule.exceptPaths.test(rel)) continue;
-    const haystack = rule.scope === 'head' ? head : rule.scope === 'raw' ? raw : text;
+    const haystack = ruleHaystack(rule, page);
     if (rule.cmsWarn) {
       // اسم قصير يوجد في CMS ما دام المقال حيّاً ⇒ الإسناد بالسياق الملاصق لا بالنصّ وحده (fromCmsContext).
       // تعذّر جلب CMS ⇒ لا إسناد ⇒ تحذير في هذا البناء وحده (مصادر المستودع يحرسها claimsGuard.test.ts).

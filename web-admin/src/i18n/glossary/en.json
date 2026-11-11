@@ -1,0 +1,158 @@
+{
+  "code": "en",
+  "categoryTerms": [
+    "route accounting software",
+    "DSD software",
+    "direct store delivery software",
+    "route sales software",
+    "van sales software",
+    "van sales app",
+    "order taking app for distributors",
+    "field sales app with offline invoicing",
+    "presell and delivery",
+    "truck inventory",
+    "route settlement",
+    "distributor management system",
+    "order booker app",
+    "spot sale",
+    "recovery",
+    "ex-truck",
+    "booking salesman",
+    "sari-sari store ordering",
+    "beat plan",
+    "secondary sales",
+    "open market",
+    "route-to-market",
+    "spaza",
+    "duka"
+  ],
+  "preferred": {
+    "category": "van sales software",
+    "categoryGlobal": "route accounting / DSD software",
+    "vanSales": "van sales (compound: van sales software/app, or with distributors/distribution)",
+    "preSales": "pre-sales / presell",
+    "rep": "sales rep / field rep",
+    "vanStock": "van stock",
+    "collection": "collections",
+    "receipt": "receipt",
+    "customerStatement": "customer statement",
+    "creditLimit": "credit limit",
+    "route": "route",
+    "offline": "offline",
+    "featureOfflineInvoicing": "Offline invoicing and thermal printing",
+    "featureVanStock": "Van stock custody and collections",
+    "featureRoutesVisits": "Routes and visits",
+    "marketPakistan": "order booker app · spot sale · recovery",
+    "marketPhilippines": "ex-truck · booking salesman · sari-sari",
+    "marketIndia": "distributor management system (spelled out) · beat · secondary sales",
+    "marketNigeria": "open market · route-to-market",
+    "marketSouthAfrica": "spaza",
+    "marketKenya": "duka · eTIMS (on request only)",
+    "zatcaSentence": "We support Phase 2 integration with ZATCA’s Fatoora platform",
+    "eInvoicingOutsideSaudi": "Available on request",
+    "ctaQuote": "Request a quote",
+    "ctaMeeting": "Book a meeting"
+  },
+  "avoid": [
+    {
+      "term": "van sales",
+      "why": "منفردةً تجلب أرقام مبيعات الفانات التجارية وتجار الفانات المستعملة (goodcarbadcar.net وcazoo.co.uk). تأتي مركّبة «van sales software/app» أو مع الموزّعين والتوزيع أو وظيفة يؤديها البرنامج (invoicing، van stock، collections، route)",
+      "unlessWith": [
+        "software",
+        "app",
+        "apps",
+        "application",
+        "system",
+        "platform",
+        "solution",
+        "tool",
+        "management",
+        "route accounting",
+        "distributor",
+        "distributors",
+        "distribution",
+        "wholesale",
+        "wholesalers",
+        "FMCG",
+        "pre-sales",
+        "presales",
+        "presell",
+        "pre-selling",
+        "cash van",
+        "invoicing",
+        "invoices",
+        "van stock",
+        "collections",
+        "route"
+      ]
+    },
+    {
+      "term": "van sales rep",
+      "why": "نيّتها وظائف حين تكون وحدها عنواناً أو بنداً في الكلمات المفتاحية (إعلان «Van Sales Representatives» على Jobberman في غانا، و«van sales rep» في نيجيريا وكينيا)؛ داخل عبارة أداة («E-Invoicing for Van Sales Reps») تمرّ",
+      "scope": "alone"
+    },
+    {
+      "term": "van sales representative",
+      "why": "نيّتها وظائف حين تكون وحدها عنواناً أو بنداً (Jobberman في أكرا وتيما)",
+      "scope": "alone"
+    },
+    {
+      "term": "order booking",
+      "why": "منفردةً تجلب تطبيقات شركات الشحن على Shopify (Oshi وM&P وCourierify)؛ تُقرن دائماً بالموزّع أو FMCG أو salesman",
+      "unlessWith": [
+        "distributor",
+        "distributors",
+        "distribution",
+        "FMCG",
+        "salesman",
+        "salesmen",
+        "order booker",
+        "field",
+        "rep",
+        "reps"
+      ]
+    },
+    {
+      "term": "order booker",
+      "why": "اسم الوظيفة نفسه في باكستان (إعلانات Rozee.pk وQureos)؛ وحدها عنواناً أو بنداً تجلب الوظائف، ومركّبة «order booker app» هي المعتمدة",
+      "scope": "alone"
+    },
+    {
+      "term": "DMS",
+      "why": "الاختصار وحده يُستعمل لبرامج وكالات السيارات (Dealer Management System) — فرضية لم تُختبر، والخطة تكتب «distributor management system» كاملة. المركّب «DMS software» يمرّ: طلبه مثبت في Search Console (استعلام صاعد، ملاحظة catalog.mjs ٢٥ يوليو ٢٠٢٦)",
+      "unlessWith": [
+        "distributor management system",
+        "distribution management system",
+        "distributor",
+        "distributors",
+        "distribution",
+        "FMCG",
+        "software",
+        "system",
+        "platform",
+        "app"
+      ]
+    }
+  ],
+  "keep": [
+    "FieldSales",
+    "fieldsa.net",
+    "ZATCA",
+    "Fatoora",
+    "WhatsApp",
+    "iPhone",
+    "App Store",
+    "Google Play",
+    "GPS",
+    "QR",
+    "API",
+    "ERP",
+    "DSD"
+  ],
+  "notes": "الإنجليزية لغة المصدر للترجمة والافتراضي العالمي (x-default)، بتموضع عالمي: شركات التوزيع والجملة في كل دول العالم، لا «Arab markets» (تحرسها قاعدة arab-only-targeting). المصطلح العالمي «route accounting / DSD software» (فئة قائمة: ٢٢ منتجاً على SourceForge)، وصفحة الفئة الحالية «van sales software». مفردات الأسواق تُستعمل في صفحات دولها فقط. الكلمات في avoid تُحرس في العنوان والوصف وH1 والكلمات المفتاحية (scope الافتراضي head)، وكلمات نيّة الوظائف حين تكون وحدها عنواناً أو بنداً (scope alone): ذكر «van sales» شرحاً في المتن مشروع. واجهة التطبيق بخمس لغات: Arabic, English, French, Turkish and Chinese. الربط الحكومي للفوترة حيّ في السعودية وحدها بالجملة الثابتة بلا موعد أو رقم قربها؛ FBR وeTIMS وMBS وE-VAT وGST IRN وBIR «available on request» بلا وعد ولا «compliant/certified». لا سعر ظاهر ولا أسماء منافسين.",
+  "sources": [
+    "D:/claude-work/global-seo/plan.md — «مفردات الفئة المعتمدة لكل لغة» (الإنجليزية)",
+    "D:/claude-work/global-seo/research.json — en وen-GB وen-PK وen-PH وen-IN وen-NG وen-ZA وen-KE وen-GH",
+    "web-admin/src/i18n/marketing/en.json — صفحة الفئة والجمل الثابتة المنشورة"
+  ]
+}
