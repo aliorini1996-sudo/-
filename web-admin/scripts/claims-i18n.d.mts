@@ -41,3 +41,8 @@ export function stampProblem(text: string, verifiedAt: string): string | null;
 export function checkCountryContent(c: unknown, opts?: {
   code?: string; livePrices?: readonly string[]; verifiedAt?: string;
 }): (I18nViolation & { path: string })[];
+// قواعد الجملة لصفحات الدول (es · pt · id): السنة في جملة عن FieldSales داخل einvoicing، وادّعاء الربط الحكومي
+export function hasCountryClaimRules(code: string | undefined): boolean;
+export function sentencesOf(text: string): string[];
+export function selfYearViolations(text: string, code: string): I18nViolation[];
+export function govLinkViolations(text: string, code: string): I18nViolation[];

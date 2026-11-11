@@ -24,6 +24,7 @@ import { fetchPublicCms, postUrl } from './cms-content.mjs';
 // الذي يرسمه React حرفياً بعد الإقلاع (I18nMarketingPage.tsx) — لا نسخة ثانية هنا.
 import { i18nPages, clusterAlternates, canon as i18nCanon, withCountryPages, countryOfPageKey } from '../src/i18n/i18nRoutes.mjs';
 import { renderI18nPage, vatMapFrom } from '../src/i18n/marketingTemplate.mjs';
+import { countryContentRel } from './country-i18n.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** JSON من المستودع نسبةً إلى web-admin/ (السجل المنشور وملفات المحتوى وقائمة الدول — يولّدها import-i18n وbuild-world-countries) */
@@ -646,12 +647,13 @@ ${enFaqHtml}
   let i18nCount = 0;
   let countryCount = 0;
   for (const page of i18nPages(I18N)) {
-    // صفحة دولة (country:<CC>): محتواها من src/content/country-pages/<CC>.json (نسخة حرفية من المصنع)
+    // صفحة دولة (country:<CC>): محتواها من ملفها المشتق المجرّد src/i18n/registry/country-content/<CC>.<code>.json — الملف
+    // نفسه الذي تحمّله حزمة المتصفح فيرسمه React حرفياً (لا src/content: فيه notes وreview)
     const cc = countryOfPageKey(page.pageKey);
     const r = renderI18nPage({
       page, reg: I18N, file: page.pageKey === 'languages' ? undefined : fileOf(page.code),
       world: page.pageKey === 'countries' ? i18nWorld : undefined, vatByCode,
-      country: cc ? readJson(`src/content/country-pages/${cc}.json`) : undefined,
+      country: cc ? readJson(countryContentRel(cc, page.code)) : undefined,
     });
     if (cc) countryCount++;
     // canonical ذاتي بشرطة أخيرة — القالب والمسارات من الوحدة نفسها، فاختلافهما عطل في أحدهما لا يُكتب صامتاً

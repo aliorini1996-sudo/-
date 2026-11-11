@@ -9,6 +9,9 @@
  *    ونسخةٌ في المستودع لم يعد مصدرها صالحاً تُحذف (تعديل في الشجرة يُلتزم، لا أمر git).
  * 2) يشتقّ الفهرس من نسخ المستودع (deriveCountryIndex في country-i18n.mjs — الحارس يعيد الاشتقاق نفسه) ويكتب
  *    src/i18n/registry/country-pages.json، ويطبع ما نُشر وما استُثني وسببه.
+ * 3) يكتب لكل صفحة منشورة وحدها ملفاً مشتقاً مجرّداً src/i18n/registry/country-content/<CC>.<code>.json (code ·
+ *    basedOnFactsVerifiedAt · content[code] بحقول القالب) ويحذف ما سواه من ذلك المجلد — هو وحده ما تحمله حزمة المتصفح
+ *    ويصيّره prerender. النسخ الحرفية في src/content (notes وreview والمستثناة) لا تصل إلى المتصفح.
  * بعده: npm run seo:sitemap — ثم تُلتزم المخرجات معاً بمسارات صريحة.
  */
 import fs from 'fs';
@@ -16,8 +19,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { withCountryPages, i18nPages } from '../src/i18n/i18nRoutes.mjs';
 import {
-  COUNTRY_TARGETS, COUNTRY_PAGES_DIR, COUNTRY_FACTS_DIR, COUNTRY_INDEX_FILE, COUNTRY_QUALITY_OK,
-  deriveCountryIndex, factsAudited, reviewQuality,
+  COUNTRY_TARGETS, COUNTRY_PAGES_DIR, COUNTRY_FACTS_DIR, COUNTRY_INDEX_FILE, COUNTRY_QUALITY_OK, COUNTRY_CONTENT_DIR,
+  deriveCountryIndex, deriveCountryContentFiles, listCountryContentFiles, factsAudited, reviewQuality,
 } from './country-i18n.mjs';
 import { loadPricing } from './pricing-source.mjs';
 
@@ -87,4 +90,19 @@ if (!fs.existsSync(out) || fs.readFileSync(out, 'utf8') !== text) {
 } else {
   console.log(`\n  ${COUNTRY_INDEX_FILE}: لا تغيير`);
 }
+// الملفات المشتقة المجرّدة: واحد لكل صفحة منشورة، وما سواها في المجلد يُحذف
+const derived = deriveCountryContentFiles({ root: ROOT, index });
+for (const [relp, body] of derived) {
+  const f = path.join(ROOT, relp);
+  if (fs.existsSync(f) && fs.readFileSync(f, 'utf8') === body) continue;
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, body);
+  console.log(`  ✓ كُتب ${relp}`);
+}
+for (const relp of listCountryContentFiles(ROOT)) {
+  if (derived.has(relp)) continue;
+  fs.unlinkSync(path.join(ROOT, relp));
+  console.log(`  حذف ${relp} (ليست صفحة منشورة)`);
+}
+console.log(`  ${COUNTRY_CONTENT_DIR}: ${derived.size} ملف مشتق`);
 console.log('  التالي: npm run seo:sitemap ثم البناء — وتُلتزم المخرجات معاً بمسارات صريحة.');

@@ -17,7 +17,9 @@ import { countryOfPageKey, type I18nPage } from '../i18n/i18nRoutes.mjs';
  * الروابط داخل الصفحة `<a>` عادية عمداً: كل تنقّل تحميل كامل لصفحة مُصيَّرة بلغتها.
  */
 const files = import.meta.glob<{ default: MarketingFile }>('../i18n/marketing/*.json'); // حزمة لكل لغة
-const countryFiles = import.meta.glob<{ default: CountryPageFile }>('../content/country-pages/*.json'); // حزمة لكل صفحة دولة
+// حزمة لكل صفحة دولة **منشورة**: الملفات المشتقة المجرّدة وحدها (scripts/import-country-i18n.mjs) — لا src/content أبداً:
+// نسخه الحرفية تحمل notes وreview والدول المستثناة، وما يُجمَّع هنا يُخدم علناً (verify-i18n G-assets يحرسه)
+const countryFiles = import.meta.glob<{ default: CountryPageFile }>('../i18n/registry/country-content/*.json');
 const VAT_BY_CODE = vatMapFrom(COUNTRIES);
 const OG_LOCALE: Record<Lang, string> = { ar: 'ar_SA', en: 'en_US', fr: 'fr_FR', tr: 'tr_TR', zh: 'zh_CN' };
 
@@ -80,8 +82,8 @@ export default function I18nMarketingPage() {
         const cc = countryOfPageKey(page.pageKey);
         let country: CountryPageFile | undefined;
         if (cc) {
-          const loadCountry = countryFiles[`../content/country-pages/${cc}.json`];
-          if (!loadCountry) throw new Error(`لا ملف لصفحة الدولة ${cc}`);
+          const loadCountry = countryFiles[`../i18n/registry/country-content/${cc}.${page.code}.json`];
+          if (!loadCountry) throw new Error(`لا ملف لصفحة الدولة ${cc} (${page.code})`);
           country = (await loadCountry()).default;
         }
         const r = renderI18nPage({ page, reg: PUBLISHED, file, world, vatByCode: VAT_BY_CODE, country });

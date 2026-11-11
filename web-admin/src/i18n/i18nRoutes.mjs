@@ -67,7 +67,8 @@ const CODE_RE = /^[a-z]{2,3}(-[a-z]{2,4})?$/;
 
 // ─── صفحات الدول (نوع «country») ────────────────────────────────────────────────────────────
 // صفحة دولة واحدة بلغة سوقها (المكسيك وكولومبيا بالإسبانية، والبرازيل بالبرتغالية، وإندونيسيا بالإندونيسية)،
-// محتواها src/content/country-pages/<CC>.json وفهرسها المولَّد src/i18n/registry/country-pages.json
+// محتواها المنشور ملفها المشتق المجرّد src/i18n/registry/country-content/<CC>.<code>.json (من نسخة المصنع الحرفية
+// src/content/country-pages/<CC>.json، التي لا تدخل المتصفح) وفهرسها المولَّد src/i18n/registry/country-pages.json
 // (scripts/import-country-i18n.mjs). مفتاحها «country:<CC>» ومسارها /<lang>/<slug>/، وعنقودها ذاتي: لا نظير لها
 // بلغة أخرى، فبدائلها نفسها وx-default نفسها.
 

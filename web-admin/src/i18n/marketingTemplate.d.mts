@@ -9,7 +9,11 @@ export interface MarketingFile {
               percent: { before: string; after: string; decimal: string }; namesFallback: string | null };
   strings: Record<string, string>;
 }
-/** ملف صفحة الدولة (src/content/country-pages/<CC>.json — نسخة حرفية من مصنع المحتوى) — ما يقرؤه القالب منه */
+/**
+ * محتوى لغة من ملف صفحة الدولة — ما يقرؤه القالب منه. الملف الذي يُصيَّر هو المشتق المجرّد
+ * src/i18n/registry/country-content/<CC>.<code>.json (scripts/country-i18n.mjs: strippedCountryFile)، لا النسخة الحرفية
+ * src/content/country-pages/<CC>.json (فيها notes وreview ولا تدخل المتصفح).
+ */
 export interface CountryPageContent {
   slugHint: string | null; title: string; description: string; h1: string; intro: string;
   sections: { id: string; title: string; body: string }[];
@@ -19,7 +23,7 @@ export interface CountryPageContent {
   sourcesTitle?: string; lastVerifiedLabel: string;
 }
 export interface CountryPageFile {
-  code: string; languages: string[]; basedOnFactsVerifiedAt: string;
+  code: string; languages?: string[]; basedOnFactsVerifiedAt: string;   // languages في النسخة الحرفية وحدها
   content: Record<string, CountryPageContent>;
   review?: { quality?: string | null } & Record<string, unknown>;
   [k: string]: unknown;

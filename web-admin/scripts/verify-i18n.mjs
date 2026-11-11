@@ -7,13 +7,18 @@
  *
  * الفحوص (كلها تُفشل البناء إلا ما وُصف تحذيراً):
  *   G0 السجل · G-codes تصادم الرموز · G1 الاكتمال · G2 المسارات = المُصيَّر = الخريطة ·
- *   G3 hreflang متبادل وcanonical ذاتي · G4 لغة النص · G5 الادّعاءات والأسعار · G6 الصدق · G7 robots · G9 أحجام الخرائط
+ *   G3 hreflang متبادل وcanonical ذاتي · G4 لغة النص · G5 الادّعاءات والأسعار · G6 الصدق · G7 robots · G9 أحجام الخرائط ·
+ *   G-assets حزم المتصفح بلا محتوى غير منشور
  *
- * صفحات الدول (نوع «country:<CC>»، فهرسها src/i18n/registry/country-pages.json ومحتواها src/content/country-pages)
- * داخلةٌ في كل فحص: G0 يعيد اشتقاق الفهرس (scripts/country-i18n.mjs) ويقارن · G-codes slug لا يصادم · G1 الشكل ·
- * G2 مُصيَّرة وفي خريطة لغتها ومربوطة من صفّها في جدول /<lang>/countries/ ومن قائمة صفحات لغتها · G3 canonical ذاتي
- * وhreflang ذاتي + x-default ذاتي · G5 السنة مسموحة في قسم einvoicing وحده (وختم «آخر تحقق» بسنة التحقق وحدها) ورقم+عملة
- * حاجب في كل الصفحة · G6 أسئلة FAQPage = الظاهرة، والأزرار، وختم التحقق = تاريخ الحقائق.
+ * صفحات الدول (نوع «country:<CC>»، فهرسها src/i18n/registry/country-pages.json، ونسخها الحرفية src/content/country-pages،
+ * وما يُصيَّر ويصل إلى المتصفح منها ملفاتها المشتقة المجرّدة src/i18n/registry/country-content/<CC>.<code>.json)
+ * داخلةٌ في كل فحص: G0 يعيد اشتقاق الفهرس والملفات المجرّدة (scripts/country-i18n.mjs) ويقارن · G-codes slug لا يصادم ·
+ * G1 الشكل · G2 مُصيَّرة وفي خريطة لغتها ومربوطة من صفّها في جدول /<lang>/countries/ ومن قائمة صفحات لغتها · G3 canonical
+ * ذاتي وhreflang ذاتي + x-default ذاتي · G5 السنة مسموحة في قسم einvoicing وحده إلا في جملة عن FieldSales نفسها (وختم
+ * «آخر تحقق» بسنة التحقق وحدها)، ورقم+عملة وادّعاء الربط الحكومي حاجبان في كل الصفحة · G6 أسئلة FAQPage = الظاهرة،
+ * والأزرار، وختم التحقق = تاريخ الحقائق · G-assets لا notes ولا review ولا تدقيق حقائق ولا محتوى دولة مستثناة في
+ * dist/assets. منطق فحوص dist لصفحة الدولة في country-i18n.mjs (countryPageDistProblems · countryLinkProblems) ويختبره
+ * countryPages.test.ts على HTML مصيَّر من المثبّت.
  *
  * التشغيل: node scripts/verify-i18n.mjs [--dist dist] [--verbose]
  *   I18N_WARN=1             مؤقت: يطبع ولا يُفشل
@@ -29,14 +34,21 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { transformSync } from 'esbuild';
 import {
   ORIGIN, LEGACY, i18nPages, clusterAlternates, checkLocaleCode, normalizeSlug, requiredKeys, canon,
-  withCountryPages, countryOfPageKey, isCountryPageKey, countryEntryOf, countrySlug,
+  withCountryPages, isCountryPageKey, countryOfPageKey, countrySlug,
 } from '../src/i18n/i18nRoutes.mjs';
 import {
   findI18nViolations, checkMarketingStrings, scriptProblems, contentHashOf, publishedEntry, certRuleFor, NO_CERT_RULE,
-  livePriceRe, toAsciiDigits, I18N_RULE_WHY, englishCopies, checkCountryContent, stampProblem, COUNTRY_YEAR_SECTION,
+  livePriceRe, toAsciiDigits, I18N_RULE_WHY, englishCopies,
 } from './claims-i18n.mjs';
-import { deriveCountryIndex, countryShapeProblems, COUNTRY_INDEX_FILE, COUNTRY_PAGES_DIR } from './country-i18n.mjs';
+import {
+  deriveCountryIndex, countryShapeProblems, countryContentRel, countryContentFilesProblems, countryLeakFingerprints, assetLeaks,
+  countryPageDistProblems, countryLinkProblems, COUNTRY_INDEX_FILE, COUNTRY_PAGES_DIR,
+} from './country-i18n.mjs';
 import { RULES, findViolation } from './claims-rules.mjs';
+import {
+  decode, headOf, tagsOf, metaContent, titleOf, canonicalOf, alternatesOf, htmlAttrs, mainOf, removeElements, stripTags, ldBlocks,
+  RE_LANGS_NAV, RE_COUNTRIES, RE_LINKS,
+} from './html-scan.mjs';
 import { loadPricing } from './pricing-source.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -62,10 +74,11 @@ const ROBOTS_REQUIRED = [
 ];
 
 // ─── التقرير ────────────────────────────────────────────────────────────────────────────
-const CHECKS = ['G0', 'G-codes', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G9'];
+const CHECKS = ['G0', 'G-codes', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G9', 'G-assets'];
 const TITLES = {
   G0: 'السجل', 'G-codes': 'تصادم الرموز', G1: 'الاكتمال', G2: 'المسارات = المُصيَّر = الخريطة',
   G3: 'hreflang متبادل وcanonical ذاتي', G4: 'لغة النص', G5: 'الادّعاءات والأسعار', G6: 'الصدق', G7: 'robots', G9: 'أحجام الخرائط',
+  'G-assets': 'حزم المتصفح بلا محتوى غير منشور',
 };
 const report = Object.fromEntries(CHECKS.map((c) => [c, { errors: [], warnings: [] }]));
 const err = (g, m) => report[g].errors.push(m);
@@ -75,42 +88,7 @@ const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 const exists = (f) => fs.existsSync(f);
 const rel = (f) => path.relative(ROOT, f).split(path.sep).join('/');
 
-// ─── أدوات HTML ─────────────────────────────────────────────────────────────────────────
-const decode = (s) => String(s ?? '')
-  .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-  .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
-  .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-  .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
-const attrsOf = (tag) => {
-  const out = {};
-  for (const m of String(tag).matchAll(/([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*("([^"]*)"|'([^']*)')/g)) out[m[1].toLowerCase()] = decode(m[3] ?? m[4] ?? '');
-  return out;
-};
-const headOf = (html) => {
-  const i = html.search(/<\/head>/i);
-  return i >= 0 ? html.slice(0, i) : html;
-};
-const tagsOf = (html, name) => [...html.matchAll(new RegExp(`<${name}\\b[^>]*>`, 'gi'))].map((m) => attrsOf(m[0]));
-const metaContent = (head, key, val) => (tagsOf(head, 'meta').find((a) => a[key] === val) || {}).content ?? null;
-const titleOf = (head) => decode(((head.match(/<title>([\s\S]*?)<\/title>/i) || [])[1] || '').trim());
-const canonicalOf = (head) => (tagsOf(head, 'link').find((a) => (a.rel || '').toLowerCase() === 'canonical') || {}).href ?? null;
-const alternatesOf = (head) => tagsOf(head, 'link')
-  .filter((a) => (a.rel || '').toLowerCase() === 'alternate' && a.hreflang)
-  .map((a) => ({ hreflang: a.hreflang, href: a.href }));
-const htmlAttrs = (html) => attrsOf((html.match(/<html\b[^>]*>/i) || [''])[0]);
-/** محتوى <main> داخل حاوية الطبقة (القالب قد يحمل غيرها) */
-const mainOf = (html) => {
-  const at = html.indexOf('data-i18n-page=');
-  const from = at >= 0 ? at : 0;
-  const m = html.slice(from).match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
-  return m ? m[1] : '';
-};
-const removeElements = (html, re) => html.replace(re, ' ');
-const stripTags = (h) => decode(String(h).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
-const RE_LANGS_NAV = /<nav\b[^>]*data-i18n-langs[^>]*>[\s\S]*?<\/nav>/gi;
-const RE_COUNTRIES = /<table\b[^>]*data-i18n-countries[^>]*>[\s\S]*?<\/table>/gi;
-const RE_LINKS = /<a\b[^>]*>[\s\S]*?<\/a>/gi;
-const ldBlocks = (html) => [...html.matchAll(/<script\b[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
+// ─── أدوات HTML (scripts/html-scan.mjs — مشتركة مع فحوص dist لصفحات الدول واختباراتها) ─────────────────
 /** النص كما يفحصه verify-claims (المرئي + JSON-LD + أوصاف meta) — لقواعد claims-rules */
 const claimsText = (h) => {
   const ld = ldBlocks(h).map((s) => s.replace(/["{}[\],]/g, ' ')).join(' ');
@@ -138,13 +116,15 @@ const registry = readJson(path.join(REG_DIR, 'locales.json'));
 const countryIndex = exists(path.join(ROOT, COUNTRY_INDEX_FILE)) ? readJson(path.join(ROOT, COUNTRY_INDEX_FILE)) : { pages: [], excluded: [] };
 /** السجل المنشور ومعه صفحات الدول — مصدر الصفحات والعناقيد (published وحده لمقارنة اللغات في G0) */
 const REG = withCountryPages(published, countryIndex);
+/** الملف المشتق المجرّد لصفحة دولة منشورة (src/i18n/registry/country-content/<CC>.<code>.json) — ما صُيِّرت منه */
 const countryFiles = new Map();
-const countryFileOf = (cc) => {
-  if (!countryFiles.has(cc)) {
-    const fp = path.join(ROOT, COUNTRY_PAGES_DIR, `${cc}.json`);
-    countryFiles.set(cc, exists(fp) ? readJson(fp) : null);
+const countryFileOf = (cc, code) => {
+  const key = `${cc}.${code}`;
+  if (!countryFiles.has(key)) {
+    const fp = path.join(ROOT, countryContentRel(cc, code));
+    countryFiles.set(key, exists(fp) ? readJson(fp) : null);
   }
-  return countryFiles.get(cc);
+  return countryFiles.get(key);
 };
 const world = readJson(path.join(ROOT, 'src/i18n/world-countries.json'));
 const regByCode = new Map(registry.locales.map((l) => [l.code, l]));
@@ -222,8 +202,13 @@ const PAGE_VAT = Object.keys(COUNTRIES_REG).length ? vatMapFrom(COUNTRIES_REG) :
   }
   for (const x of derivedCountries.excluded) warn('G0', `صفحة الدولة ${x.cc} (${x.code}) مستثناة: ${x.reasons.slice(0, 3).join(' | ')}${x.reasons.length > 3 ? ` | …(+${x.reasons.length - 3})` : ''}`);
   for (const e of countryIndex.pages || []) {
-    if (!countryFileOf(e.cc)) err('G0', `صفحة الدولة ${e.cc} في الفهرس بلا ${COUNTRY_PAGES_DIR}/${e.cc}.json`);
+    if (!exists(path.join(ROOT, COUNTRY_PAGES_DIR, `${e.cc}.json`))) err('G0', `صفحة الدولة ${e.cc} في الفهرس بلا ${COUNTRY_PAGES_DIR}/${e.cc}.json`);
+    if (!countryFileOf(e.cc, e.code)) err('G0', `صفحة الدولة ${e.cc} في الفهرس بلا ملفها المشتق ${countryContentRel(e.cc, e.code)}`);
     if (!pubSet.has(e.code)) err('G0', `صفحة الدولة ${e.cc} بلغة غير منشورة ${e.code}`);
+  }
+  // الملفات المشتقة المجرّدة (ما تحمله حزمة المتصفح): واحد لكل صفحة منشورة = اشتقاقه من src/content، ولا زائد
+  for (const p of countryContentFilesProblems({ root: ROOT, index: derivedCountries })) {
+    err('G0', `${p} — أعِد scripts/import-country-i18n.mjs ولا تحرّر يدوياً`);
   }
 }
 
@@ -284,7 +269,7 @@ for (const l of published.locales) {
 
 // G1: شكل محتوى صفحات الدول المنشورة (ما يحتاجه القالب)
 for (const e of countryIndex.pages || []) {
-  const cf = countryFileOf(e.cc);
+  const cf = countryFileOf(e.cc, e.code);
   if (!cf) continue;
   const c = cf.content && cf.content[e.code];
   for (const p of countryShapeProblems(c)) err('G1', `صفحة الدولة ${e.cc} (${e.code}): ${p}`);
@@ -342,18 +327,11 @@ if (distOk) {
 }
 // G2: صفحة الدولة مربوطة من صفّها في جدول /<lang>/countries/ ومن قائمة صفحات كل صفحة أخرى للغتها
 if (distOk) {
+  // المنطق في country-i18n.mjs (countryLinkProblems) — والاختبار يشغّله على HTML مصيَّر من المثبّت
   for (const cp of pages.filter((p) => isCountryPageKey(p.pageKey))) {
-    const cc = countryOfPageKey(cp.pageKey);
-    for (const other of pages.filter((p) => p.code === cp.code && p.path !== cp.path && p.pageKey !== 'languages')) {
-      const h = htmlAt(fileForPath(other.path));
-      if (!h) continue;
-      const nav = (h.match(/<nav\b[^>]*data-i18n-pages[^>]*>[\s\S]*?<\/nav>/i) || [''])[0];
-      if (!nav.includes(`href="${cp.path}"`)) err('G2', `${other.path}: قائمة صفحات اللغة (data-i18n-pages) بلا رابط ${cp.path}`);
-      if (other.pageKey === 'countries') {
-        const row = [...h.matchAll(/<tr>\s*<th\b[^>]*scope="row"[^>]*>([\s\S]*?)<\/th>/gi)].map((m) => m[1]).find((x) => x.includes(`data-country-link="${cc}"`));
-        if (!row || !row.includes(`href="${cp.path}"`)) err('G2', `${other.path}: صفّ ${cc} في جدول الدول لا يربط ${cp.path}`);
-      }
-    }
+    const others = pages.filter((p) => p.code === cp.code && p.path !== cp.path && p.pageKey !== 'languages')
+      .map((p) => ({ path: p.path, pageKey: p.pageKey, html: htmlAt(fileForPath(p.path)) }));
+    for (const x of countryLinkProblems({ cp, others })) err(x.g, x.msg);
   }
 }
 {
@@ -380,12 +358,8 @@ if (distOk) {
     const want = canon(ORIGIN + page.path);
     const got = canonicalOf(head);
     if (got !== want) err('G3', `${page.path}: canonical «${got}» ≠ ${want}`);
+    // صفحة الدولة: العنقود الذاتي (hreflang لغتها + x-default إليها) يفحصه countryPageDistProblems في حلقة G5 أدناه
     const cluster = page.clusterKey ? clusterAlternates(page.clusterKey, REG) : [];
-    if (isCountryPageKey(page.pageKey)) {
-      // لا نظير لها: hreflang ذاتي + x-default ذاتي، كلاهما = canonical
-      const selfOk = cluster.length === 2 && cluster.every((a) => canon(a.href) === want) && cluster[1].hreflang === 'x-default' && cluster[0].hreflang === page.hreflang;
-      if (!selfOk) err('G3', `${page.path}: عنقود صفحة الدولة ليس ذاتياً (hreflang ${page.hreflang} + x-default = canonical): ${cluster.map(altKey).join(' · ')}`);
-    }
     const have = new Set(alternatesOf(head).map(altKey));
     const need2 = new Set(cluster.map(altKey));
     const missing = [...need2].filter((k) => !have.has(k));
@@ -468,32 +442,19 @@ if (distOk) {
     }
     // G5: قواعد الطبقة على النص الظاهر (بلا جدول الدول للرقم الملاصق للعملة)
     const isCountry = isCountryPageKey(page.pageKey);
-    // صفحة الدولة: السنة مسموحة في قسم einvoicing وحده، وختم «آخر تحقق» بسنة التحقق وحدها — وبقية الصفحة حاجبة
-    const RE_YEAR_SECTION = new RegExp(`<section\\b[^>]*data-country-section="${COUNTRY_YEAR_SECTION}"[^>]*>[\\s\\S]*?<\\/section>`, 'gi');
-    const RE_STAMP = /<p\b[^>]*data-country-verified[^>]*>[\s\S]*?<\/p>/gi;
-    const mainForYear = isCountry ? removeElements(removeElements(main, RE_YEAR_SECTION), RE_STAMP) : main;
-    const nonTable = stripTags(removeElements(mainForYear, RE_COUNTRIES));
-    for (const v of findI18nViolations([nonTable, title, desc, ogTitle, ogDesc].join(' \n '), {
-      code: page.code, livePrices: LIVE_PRICES, allowYear: page.pageKey === 'about',
-    })) err('G5', `${page.path}: [${v.id}] «${v.match}» — ${v.why}`);
     if (isCountry) {
-      // القسم المسموح فيه بالتاريخ والختم: كل القواعد عدا السنة (رقم+عملة والاعتماد والسعر الحيّ حاجبة فيهما)
-      const dated = [...main.matchAll(RE_YEAR_SECTION), ...main.matchAll(RE_STAMP)].map((m) => stripTags(m[0])).join(' \n ');
-      if (!main.match(RE_YEAR_SECTION)) err('G5', `${page.path}: لا قسم data-country-section="${COUNTRY_YEAR_SECTION}"`);
-      for (const v of findI18nViolations(dated, { code: page.code, livePrices: LIVE_PRICES, allowYear: true })) {
-        err('G5', `${page.path}: [${v.id}] «${v.match}» — ${v.why}`);
+      // صفحة الدولة (G3 · G5 · G6 الخاصة بها) — المنطق في country-i18n.mjs (countryPageDistProblems)، والاختبار
+      // يشغّله على HTML مصيَّر من المثبّت ثم مكسور عمداً: السنة في einvoicing وحده (لا في جملة عن FieldSales)،
+      // والختم بسنة التحقق، وادّعاء الربط الحكومي، والعنقود الذاتي، وFAQPage، والأزرار، والمصادر، ومثال الفاتورة
+      const cc = countryOfPageKey(page.pageKey);
+      for (const x of countryPageDistProblems({ html, page, reg: REG, country: countryFileOf(cc, page.code), livePrices: LIVE_PRICES })) {
+        err(x.g, `${page.path}: ${x.msg}`);
       }
-      const entry = countryEntryOf(REG, page.code, page.pageKey);
-      const stamp = (main.match(RE_STAMP) || [''])[0];
-      const sp = stampProblem(stripTags(stamp), entry ? entry.contentDate : '');
-      if (!stamp) err('G5', `${page.path}: ختم «آخر تحقق» (data-country-verified) غائب`);
-      else if (sp) err('G5', `${page.path}: [i18n-year] ${sp}`);
-      // ومصدر الحقيقة نفسه: محتوى ملف الدولة بلغته (القاعدة نفسها في المستورد)
-      const cf = entry ? countryFileOf(entry.cc) : null;
-      const c = cf && cf.content ? cf.content[page.code] : null;
-      if (c) for (const v of checkCountryContent(c, { code: page.code, livePrices: LIVE_PRICES, verifiedAt: cf.basedOnFactsVerifiedAt })) {
-        err('G5', `${COUNTRY_PAGES_DIR}/${entry.cc}.json ${page.code}.${v.path}: [${v.id}] «${v.match}» — ${v.why}`);
-      }
+    } else {
+      const nonTable = stripTags(removeElements(main, RE_COUNTRIES));
+      for (const v of findI18nViolations([nonTable, title, desc, ogTitle, ogDesc].join(' \n '), {
+        code: page.code, livePrices: LIVE_PRICES, allowYear: page.pageKey === 'about',
+      })) err('G5', `${page.path}: [${v.id}] «${v.match}» — ${v.why}`);
     }
     // G5: JSON-LD بلا عروض ولا أسعار
     const ld = ldBlocks(html).join('\n');
@@ -513,26 +474,9 @@ if (distOk) {
     } else if (!/Arabic, English, French, Turkish and Chinese/.test(ui)) {
       err('G6', '/languages/: لا تذكر لغات الواجهة الخمس بالإنجليزية');
     }
-    if ((page.pageKey === 'home' && !page.legacy) || isCountry) {
+    if (page.pageKey === 'home' && !page.legacy) {
       if (!html.includes('/subscribe-request/?type=quote')) err('G6', `${page.path}: رابط «طلب عرض سعر» غائب`);
       if (!html.includes('go/wa')) err('G6', `${page.path}: رابط واتساب (go/wa) غائب`);
-      if (isCountry && !/href="\/(?:en|fr|tr|zh)\/meeting\/"/.test(html)) err('G6', `${page.path}: رابط «احجز اجتماعاً» غائب`);
-    }
-    if (isCountry) {
-      // FAQPage = الأسئلة الظاهرة، وختم التحقق = تاريخ الحقائق في الفهرس، ومثال الفاتورة بلا رقم ملاصق لعملة (G5 أعلاه)
-      const entry = countryEntryOf(REG, page.code, page.pageKey);
-      const graph = ldBlocks(html).flatMap((b) => { try { const j = JSON.parse(b); return Array.isArray(j['@graph']) ? j['@graph'] : [j]; } catch { return []; } });
-      const faqLd = graph.find((n) => n && n['@type'] === 'FAQPage');
-      const shown = [...main.matchAll(/<section\b[^>]*data-country-faq[^>]*>([\s\S]*?)<\/section>/gi)].flatMap((m) => [...m[1].matchAll(/<h3>([\s\S]*?)<\/h3>/gi)].map((q) => stripTags(q[1])));
-      if (!faqLd) err('G6', `${page.path}: لا FAQPage في JSON-LD`);
-      else {
-        const names = (faqLd.mainEntity || []).map((q) => String(q.name).replace(/\s+/g, ' ').trim());
-        if (names.length !== shown.length || names.some((n, i) => n !== shown[i])) err('G6', `${page.path}: أسئلة FAQPage (${names.length}) لا تطابق الظاهرة (${shown.length})`);
-      }
-      const dt = ((main.match(/<p\b[^>]*data-country-verified[^>]*>[\s\S]*?<time\b[^>]*datetime="([^"]+)"/i) || [])[1]) || '';
-      if (!entry || dt !== entry.contentDate) err('G6', `${page.path}: ختم آخر تحقق «${dt}» ≠ تاريخ الحقائق ${entry ? entry.contentDate : '—'}`);
-      if (!/<section\b[^>]*data-country-sources[^>]*>[\s\S]*?<a\b[^>]*href="https:\/\//i.test(main)) err('G6', `${page.path}: قائمة المصادر بلا رابط https`);
-      if (!/<table\b[^>]*data-country-sample-fields/i.test(main)) err('G6', `${page.path}: مثال بنية الفاتورة غائب`);
     }
     // G6: عمود الفوترة الإلكترونية ثابت بالرمز (السعودية «حيّ» وحدها) وجدول الدول كامل
     if (page.pageKey === 'countries') {
@@ -657,6 +601,28 @@ for (const l of published.locales) {
       }
     }
   }
+}
+
+// ─── G-assets: حزم المتصفح بلا محتوى غير منشور ─────────────────────────────────────────────
+// ما يُخدم علناً في dist/assets لا يحمل ملاحظات التحرير والمراجعة (notes · review) ولا تدقيق الحقائق (audit ·
+// honesty · uncertain) ولا محتوى دولة مستثناة أو لغة غير منشورة — ببصمات من src/content نفسها (country-i18n.mjs).
+// لا يُبحث عن أسماء المفاتيح (reviewedAt · notes): التطبيق نفسه يستعملها في شاشاته.
+if (distOk) {
+  const ASSETS = path.join(DIST, 'assets');
+  const assetFiles = [];
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (/\.(?:m?js|css|json|map|txt|html?)$/i.test(e.name)) assetFiles.push(full);
+    }
+  };
+  if (exists(ASSETS)) walk(ASSETS);
+  else err('G-assets', `لا ${rel(ASSETS)}`);
+  const fps = countryLeakFingerprints({ root: ROOT, index: countryIndex });
+  const leaks = assetLeaks(assetFiles.map((f) => ({ name: rel(f), text: fs.readFileSync(f, 'utf8') })), fps);
+  for (const l of leaks) err('G-assets', `${l.name}: ${l.cc} ${l.kind} — «${l.fp}»`);
+  if (VERBOSE) console.log(`  G-assets: ${assetFiles.length} ملف · ${fps.length} بصمة`);
 }
 
 // ─── الخلاصة ────────────────────────────────────────────────────────────────────────────

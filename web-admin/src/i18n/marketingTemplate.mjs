@@ -336,7 +336,7 @@ export function countryContentOf(country, code, cc) {
 }
 
 /**
- * جسم صفحة الدولة من ملفها (src/content/country-pages/<CC>.json — نسخة حرفية من مصنع المحتوى): المقدمة، والأقسام
+ * جسم صفحة الدولة من ملفها المشتق المجرّد (src/i18n/registry/country-content/<CC>.<code>.json): المقدمة، والأقسام
  * الخمسة بترتيبها (data-country-section — einvoicing وحده يحمل تواريخ)، ومثال بنية الفاتورة **بلا مبالغ** (حقول
  * وأمثلة نصية)، والأسئلة (FAQPage)، والمصادر، و«آخر تحقق» (time بتاريخ basedOnFactsVerifiedAt).
  */

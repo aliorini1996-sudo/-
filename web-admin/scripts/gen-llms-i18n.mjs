@@ -24,6 +24,7 @@ import { fileURLToPath } from 'url';
 import { transformSync } from 'esbuild';
 import { ORIGIN, i18nPages, canon, quoteHref, meetingHref, withCountryPages, countryOfPageKey } from '../src/i18n/i18nRoutes.mjs';
 import { renderI18nPage, vatMapFrom } from '../src/i18n/marketingTemplate.mjs';
+import { countryContentRel } from './country-i18n.mjs';
 import { RULES, findViolation } from './claims-rules.mjs';
 import { findI18nViolations, NO_CERT_RULE, I18N_RULE_WHY } from './claims-i18n.mjs';
 import { loadPricing } from './pricing-source.mjs';
@@ -87,7 +88,7 @@ async function main() {
       const cc = countryOfPageKey(page.pageKey);
       return renderI18nPage({
         page, reg: I18N, file, world: page.pageKey === 'countries' ? world : undefined, vatByCode,
-        country: cc ? readJson(`src/content/country-pages/${cc}.json`) : undefined,
+        country: cc ? readJson(countryContentRel(cc, page.code)) : undefined,
       }).h1;
     };
 
