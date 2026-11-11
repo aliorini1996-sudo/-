@@ -1,0 +1,140 @@
+{
+  "code": "fr",
+  "categoryTerms": [
+    "logiciel de vente terrain",
+    "logiciel de vente en tournée",
+    "application de vente en tournée",
+    "application de vente terrain",
+    "application prévente",
+    "logiciel de prévente",
+    "prise de commande terrain",
+    "livraison directe en magasin (DSD)",
+    "vendeur-livreur",
+    "tournée commerciale",
+    "force de vente",
+    "bon de chargement",
+    "stock du véhicule",
+    "chargement / déchargement",
+    "rapprochement de fin de tournée",
+    "encaissement",
+    "reçu d’encaissement",
+    "Mobile Money",
+    "carnet à souches",
+    "imprimante thermique Bluetooth",
+    "mode hors ligne"
+  ],
+  "preferred": {
+    "category": "logiciel de vente en tournée",
+    "categoryBroad": "logiciel de vente terrain",
+    "vanSales": "vente en tournée — toujours composée (logiciel/application de vente en tournée) ou dans un contexte de distribution",
+    "preSales": "prévente",
+    "rep": "commercial terrain / commerciaux terrain",
+    "repDriverSeller": "vendeur-livreur",
+    "vanStock": "stock du véhicule",
+    "vanCustody": "stock confié au véhicule",
+    "loadingNote": "bon de chargement",
+    "endOfRoute": "rapprochement de fin de tournée",
+    "collection": "encaissement",
+    "receipt": "reçu d’encaissement",
+    "customerStatement": "relevé de compte",
+    "creditLimit": "plafond de crédit",
+    "route": "tournée",
+    "offline": "hors ligne",
+    "featureOfflineInvoicing": "Facturation hors ligne et impression thermique",
+    "featureVanStock": "Stock du véhicule et encaissements",
+    "featureRoutesVisits": "Suivi des tournées et visites",
+    "zatcaSentence": "Nous prenons en charge l’intégration de la phase 2 avec la plateforme Fatoora de la ZATCA",
+    "eInvoicingOutsideSaudi": "Disponible sur demande",
+    "ctaQuote": "Demander un devis",
+    "ctaMeeting": "Réserver une réunion"
+  },
+  "avoid": [
+    {
+      "term": "application van sales",
+      "why": "مصطلح إنجليزي داخل صفحة فرنسية؛ الخطة تحذفه من الصفحة الفرنسية ويحلّ محله «application de vente terrain» و«application prévente»",
+      "scope": "text"
+    },
+    {
+      "term": "vente en camion",
+      "why": "تُوقف حتى تُقاس في Search Console (يُرجَّح أنها تعطي بيع الشاحنات)؛ مقبولة مركّبة «logiciel/application de vente en camion» أو مع الشرح «(van sales)»",
+      "unlessWith": [
+        "logiciel",
+        "application",
+        "(van sales)"
+      ]
+    },
+    {
+      "term": "vente au camion",
+      "why": "مثل «vente en camion»: لم تُقس، وتُقرأ بيع شاحنات؛ مركّبة مع logiciel/application أو مع «(van sales)» فقط",
+      "unlessWith": [
+        "logiciel",
+        "application",
+        "(van sales)"
+      ]
+    },
+    {
+      "term": "vente en tournée",
+      "why": "منفردةً تنقلب إلى حفلات وجولات فنية وباعة متجولين (passetonbillet.fr وdreets.gouv.fr)؛ تأتي مركّبة «logiciel/application de vente en tournée» أو في سياق التوزيع",
+      "unlessWith": [
+        "logiciel",
+        "application",
+        "système",
+        "outil",
+        "distributeur",
+        "distributeurs",
+        "distribution",
+        "grossiste",
+        "grossistes"
+      ]
+    },
+    {
+      "term": "autovente",
+      "why": "لم تثبت في أسواق المغرب العربي وأفريقيا الفرنكوفونية وقد تُقرأ بيع سيارات"
+    },
+    {
+      "term": "vente ambulante",
+      "why": "باعة متجولون في الشارع لا توزيع بين الشركات"
+    },
+    {
+      "term": "porte-à-porte",
+      "why": "بيع للمستهلك في البيوت لا بين الشركات"
+    },
+    {
+      "term": "prévendeur",
+      "why": "مسمّى وظيفي (إعلانات emploitic في الجزائر)؛ وحدها عنواناً أو بنداً في الكلمات المفتاحية تجلب الوظائف",
+      "scope": "alone"
+    },
+    {
+      "term": "commerciaux terrain",
+      "why": "وحدها عنواناً أو بنداً يُرجَّح أنها تُرجع إعلانات وظائف (فرضية)؛ تأتي مع «application/logiciel/gestion des»",
+      "scope": "alone"
+    },
+    {
+      "term": "VRP",
+      "why": "صفة قانونية لعقد عمل المندوب في فرنسا، لا اسم فئة برمجيات"
+    }
+  ],
+  "keep": [
+    "FieldSales",
+    "fieldsa.net",
+    "ZATCA",
+    "Fatoora",
+    "WhatsApp",
+    "iPhone",
+    "App Store",
+    "Google Play",
+    "Mobile Money",
+    "GPS",
+    "QR",
+    "API",
+    "ERP",
+    "DSD"
+  ],
+  "notes": "الفرنسية موجّهة إلى أفريقيا الفرنكوفونية والمغرب العربي (مشتري البرامج في المغرب والجزائر وتونس يبحث بالفرنسية)، لا إلى «les marchés arabes». صيغة vous ومفردات محايدة تصلح لفرنسا وبلجيكا وكندا والمغرب العربي وأفريقيا معاً: «véhicule» لا «camionnette/fourgon» وحدها، و«point de vente»، و«commercial» للمندوب. الكلمات في avoid تُحرس في العنوان والوصف وH1 والكلمات المفتاحية (scope الافتراضي head)، و«application van sales» في الصفحة كلها (scope text)، و«prévendeur» و«commerciaux terrain» حين تكون وحدها عنواناً أو بنداً (scope alone، فداخل جملة مثل «pour les commerciaux terrain» تمرّ). تحذير لا يحرسه نمط: «distributeur» وحدها قد تعني آلة البيع (distributeur automatique). جملة الربط الثابتة بلا تاريخ ولا رقم قربها، و«no promise of conformity» تُصاغ بلا جذر conform. ساحل العاج (FNE) وبنين (e-MECeF) والمغرب: الربط «disponible sur demande» بلا وعد. لا «certifié/homologué/agréé» ولا سعر أو عملة سعر (FCFA، MAD، DZD) ولا أسماء منافسين.",
+  "sources": [
+    "D:/claude-work/global-seo/plan.md — «مفردات الفئة المعتمدة لكل لغة» (الفرنسية) والبند ٨",
+    "D:/claude-work/global-seo/research.json — fr وfr-FR وar-MA وfr-CI",
+    "D:/claude-work/global-i18n/glossary/fr.json — قاموس المصنع",
+    "web-admin/src/i18n/marketing/fr.json — صفحة الفئة والجمل الثابتة المنشورة"
+  ]
+}

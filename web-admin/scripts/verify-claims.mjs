@@ -16,6 +16,8 @@
  *  - لا أسماء منافسين (قرار المالك): القائمة الأصلية حاجبة مطلقاً، وقائمة competitor-name-attributed حاجبة
  *    في نصوص المستودع وتحذير في نصوص CMS (مقال repzo-alternative-field-reps ينتظر قرار المالك).
  *  - كل تحذير مُسنَد إلى CMS يُطبع معه «المقالات المتأثرة» كاملةً: هي قائمة البنود التي تُحرَّر من لوحة CMS.
+ *  - قاموس المصطلحات (src/i18n/glossary): كلمة تنقلب نيّتها لا تُستهدف منفردة في صفحات لغتها — حاجبة في نصوص المستودع،
+ *    وتحذير في نصوص CMS (cmsWarn)، وتُفحص معها الكلمات المفتاحية.
  *
  * القواعد نفسها في scripts/claims-rules.mjs ويختبرها src/content/claimsGuard.test.ts.
  *
@@ -129,12 +131,15 @@ for (const f of files) {
     (raw.match(/<meta name="description" content="([^"]*)"/i) || [])[1] || '',
     (raw.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) || [])[1] || '',
   ].join(' ').replace(/<[^>]+>/g, ' ');
+  // الكلمات المفتاحية للقواعد التي تطلبها (keywords: قاموس المصطلحات) — استهدافٌ صريح كالعنوان، يحمل «vente en camion X»
+  const kw = decodeAttr((raw.match(/<meta name="keywords" content="([^"]*)"/i) || [])[1] || '');
 
   for (const rule of RULES) {
-    // قواعد مقصورة على مسارات (arab-only-targeting: الصفحات غير العربية عدا مقالات المدوّنة)
+    // قواعد مقصورة على مسارات (arab-only-targeting: الصفحات غير العربية عدا مقالات المدوّنة؛ القاموس: صفحات لغته)
     if (rule.paths && !rule.paths.test(rel)) continue;
     if (rule.exceptPaths && rule.exceptPaths.test(rel)) continue;
-    const haystack = rule.scope === 'head' ? head : rule.scope === 'raw' ? raw : text;
+    const base = rule.scope === 'head' ? head : rule.scope === 'raw' ? raw : text;
+    const haystack = rule.keywords && kw ? `${base} . ${kw}` : base;
     if (rule.cmsWarn) {
       // اسم قصير يوجد في CMS ما دام المقال حيّاً ⇒ الإسناد بالسياق الملاصق لا بالنصّ وحده (fromCmsContext).
       // تعذّر جلب CMS ⇒ لا إسناد ⇒ تحذير في هذا البناء وحده (مصادر المستودع يحرسها claimsGuard.test.ts).

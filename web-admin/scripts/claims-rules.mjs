@@ -13,7 +13,10 @@
  *
  * ⚠️ كل نصّ يُطبَّع بـnorm (حذف التشكيل والتطويل) قبل الفحص، والأنماط مكتوبة بلا تشكيل:
  *    كان النمط «مُفعّل» لا يطابق «مفعّل» ولا «مفعل»، و«مُعتمَد» يفلت من «معتمد».
+ *  - keywords: verify-claims يُلحق بالنطاق محتوى <meta name="keywords"> (قواعد القاموس: الاستهداف لا المتن).
+ *  - glossary: رمز لغة قاعدة من قاموس المصطلحات (src/i18n/glossary) — تُستثنى من checkText (انظر checkGlossary).
  */
+import { RESERVED_SEGMENTS } from '../src/i18n/i18nRoutes.mjs';
 
 /** حذف التشكيل (U+064B–U+0652) والألف الخنجرية (U+0670) والتطويل (U+0640) */
 export const norm = (s) => String(s).replace(/[ً-ْٰـ]/g, '');
@@ -146,6 +149,150 @@ const COMPETITORS_LATIN = [
 ];
 /** بلا \b (حدّ الكلمة في JS لاتيني فقط): الصينية والكورية والروسية */
 const COMPETITORS_OTHER = ['勤策', '外勤365', '舟谱云', '纷享销客', '易订货', '易指快销', '세일즈덕', '샤플', '모두의거래', 'Агент\\s*Плюс'];
+
+/* ─── قاموس المصطلحات: كلمات تنقلب نيّتها فتُتجنّب منفردة (بند ٢٢ في خطة SEO، و١٤ جزئياً في خطة GEO) ─── */
+
+// <glossary-avoid> مولَّدة من src/i18n/glossary/{ar,en,fr,tr,zh}.json (حقل avoid) بالأمر: node scripts/gen-glossary-guard.mjs
+// لا تُحرَّر يدوياً — المصدر الواحد هو القواميس، واختبار src/i18n/glossary.test.ts يفشل إن انحرفت النسخة عنها.
+export const GLOSSARY_AVOID = {
+  ar: [
+    {"term":"مندوب مبيعات","why":"نيّتها إعلانات وظائف حين تكون هي العنوان أو بند الكلمات المفتاحية وحدها (نتائج naukrigulf في المغرب والجزائر، ويُرجَّح النمط نفسه في الخليج). تأتي مركّبة: «تطبيق مندوب مبيعات للشركات» أو «نظام إدارة المناديب». داخل عبارة إدارة («صلاحيات مندوب المبيعات»، «غش مندوب المبيعات») نيّتها إدارية فتمرّ","scope":"alone"},
+    {"term":"البيع من السيارة","why":"انقلاب نيّة تامّ: قياس SERP في مصر والخليج أرجع ١٠ مواقع سيارات مستعملة من ١٠ (ملاحظة catalog.mjs على van-sales-app). تأتي مع سياق التوزيع أو مرادفاً شارحاً بعد «الكاش فان»","unlessWith":["برنامج","تطبيق","نظام","مندوب","مناديب","التوزيع","كاش فان","البيع المسبق"]},
+    {"term":"كاش فان","why":"وحدها لم تُقَس (بحث نوفمبر أرجع برامج الدعم النقدي ولا منتجاً واحداً)، والصيغة العاملة المقيسة «كاش فان» مع «مناديب التوزيع» (catalog.mjs). في العنوان والوصف والكلمات المفتاحية تأتي مركّبة («برنامج كاش فان»، «تطبيق كاش فان») أو مع سياق التوزيع، وفي المتن مرادفاً حرّاً","unlessWith":["برنامج","تطبيق","نظام","منصة","التوزيع","مناديب","مندوب","عهدة","البيع المسبق"]},
+    {"term":"تتبع المركبات","why":"فئة تتبّع الأساطيل بالـGPS لا إدارة المناديب","unlessWith":["التوزيع","مناديب","مندوب"]},
+    {"term":"إدارة الأسطول","why":"فئة تتبّع الأساطيل بالـGPS لا إدارة المناديب","unlessWith":["التوزيع","مناديب","مندوب"]},
+  ],
+  en: [
+    {"term":"van sales","why":"منفردةً تجلب أرقام مبيعات الفانات التجارية وتجار الفانات المستعملة (goodcarbadcar.net وcazoo.co.uk). تأتي مركّبة «van sales software/app» أو مع الموزّعين والتوزيع أو وظيفة يؤديها البرنامج (invoicing، van stock، collections، route)","unlessWith":["software","app","apps","application","system","platform","solution","tool","management","route accounting","distributor","distributors","distribution","wholesale","wholesalers","FMCG","pre-sales","presales","presell","pre-selling","cash van","invoicing","invoices","van stock","collections","route"]},
+    {"term":"van sales rep","why":"نيّتها وظائف حين تكون وحدها عنواناً أو بنداً في الكلمات المفتاحية (إعلان «Van Sales Representatives» على Jobberman في غانا، و«van sales rep» في نيجيريا وكينيا)؛ داخل عبارة أداة («E-Invoicing for Van Sales Reps») تمرّ","scope":"alone"},
+    {"term":"van sales representative","why":"نيّتها وظائف حين تكون وحدها عنواناً أو بنداً (Jobberman في أكرا وتيما)","scope":"alone"},
+    {"term":"order booking","why":"منفردةً تجلب تطبيقات شركات الشحن على Shopify (Oshi وM&P وCourierify)؛ تُقرن دائماً بالموزّع أو FMCG أو salesman","unlessWith":["distributor","distributors","distribution","FMCG","salesman","salesmen","order booker","field","rep","reps"]},
+    {"term":"order booker","why":"اسم الوظيفة نفسه في باكستان (إعلانات Rozee.pk وQureos)؛ وحدها عنواناً أو بنداً تجلب الوظائف، ومركّبة «order booker app» هي المعتمدة","scope":"alone"},
+    {"term":"DMS","why":"الاختصار وحده يُستعمل لبرامج وكالات السيارات (Dealer Management System) — فرضية لم تُختبر، والخطة تكتب «distributor management system» كاملة. المركّب «DMS software» يمرّ: طلبه مثبت في Search Console (استعلام صاعد، ملاحظة catalog.mjs ٢٥ يوليو ٢٠٢٦)","unlessWith":["distributor management system","distribution management system","distributor","distributors","distribution","FMCG","software","system","platform","app"]},
+  ],
+  fr: [
+    {"term":"application van sales","why":"مصطلح إنجليزي داخل صفحة فرنسية؛ الخطة تحذفه من الصفحة الفرنسية ويحلّ محله «application de vente terrain» و«application prévente»","scope":"text"},
+    {"term":"vente en camion","why":"تُوقف حتى تُقاس في Search Console (يُرجَّح أنها تعطي بيع الشاحنات)؛ مقبولة مركّبة «logiciel/application de vente en camion» أو مع الشرح «(van sales)»","unlessWith":["logiciel","application","(van sales)"]},
+    {"term":"vente au camion","why":"مثل «vente en camion»: لم تُقس، وتُقرأ بيع شاحنات؛ مركّبة مع logiciel/application أو مع «(van sales)» فقط","unlessWith":["logiciel","application","(van sales)"]},
+    {"term":"vente en tournée","why":"منفردةً تنقلب إلى حفلات وجولات فنية وباعة متجولين (passetonbillet.fr وdreets.gouv.fr)؛ تأتي مركّبة «logiciel/application de vente en tournée» أو في سياق التوزيع","unlessWith":["logiciel","application","système","outil","distributeur","distributeurs","distribution","grossiste","grossistes"]},
+    {"term":"autovente","why":"لم تثبت في أسواق المغرب العربي وأفريقيا الفرنكوفونية وقد تُقرأ بيع سيارات"},
+    {"term":"vente ambulante","why":"باعة متجولون في الشارع لا توزيع بين الشركات"},
+    {"term":"porte-à-porte","why":"بيع للمستهلك في البيوت لا بين الشركات"},
+    {"term":"prévendeur","why":"مسمّى وظيفي (إعلانات emploitic في الجزائر)؛ وحدها عنواناً أو بنداً في الكلمات المفتاحية تجلب الوظائف","scope":"alone"},
+    {"term":"commerciaux terrain","why":"وحدها عنواناً أو بنداً يُرجَّح أنها تُرجع إعلانات وظائف (فرضية)؛ تأتي مع «application/logiciel/gestion des»","scope":"alone"},
+    {"term":"VRP","why":"صفة قانونية لعقد عمل المندوب في فرنسا، لا اسم فئة برمجيات"},
+  ],
+  tr: [
+    {"term":"araç satış","why":"تعني بيع السيارات وبرامج معارضها (فرضية لم يُتحقق منها ببحث، والمصنع يتجنّبها)؛ الصحيح «araçtan satış» مقروناً بـ«plasiyer»","scope":"text"},
+    {"term":"araç takip","why":"تتبّع الأساطيل بالـGPS لا البيع الميداني","unlessWith":["plasiyer","saha satış","temsilci"]},
+    {"term":"sıcak satış","why":"في المبيعات العامة تعني العميل الدافئ؛ لا تُذكر إلا في سياق التوزيع (plasiyer، araçtan، ön sipariş)","unlessWith":["plasiyer","araçtan","ön sipariş","soğuk satış","sipariş","dağıtım","distribütör","toptan","saha satış","fatura"]},
+    {"term":"soğuk satış","why":"في المبيعات العامة تعني الاتصال البارد؛ لا تُذكر إلا في سياق التوزيع","unlessWith":["plasiyer","araçtan","ön sipariş","sıcak satış","sipariş","dağıtım","distribütör","toptan","saha satış"]},
+    {"term":"plasiyer","why":"وحدها عنواناً أو بنداً في الكلمات المفتاحية نيّتها إعلانات توظيف (iş ilanları)؛ تأتي «plasiyer programı/uygulaması»، وداخل جملة («Plasiyerlerinizi… yönetin») تمرّ","scope":"alone"},
+    {"term":"satış temsilcisi","why":"وحدها عنواناً أو بنداً نيّتها إعلانات توظيف","scope":"alone"},
+    {"term":"satış öncesi","why":"تعني «ما قبل البيع» لا البيع المسبق التوزيعي؛ الصحيح «ön sipariş» أو «sipariş toplama»","scope":"text"},
+    {"term":"veresiye","why":"عامّية؛ الصحيح «vadeli satış»"},
+  ],
+  zh: [
+    {"term":"车销","why":"منفردةً تجلب تجارة السيارات (车销客 تطبيق لتجار السيارات المستعملة)؛ تأتي مع «访销/经销商/快消/业务员/外勤» أو «管理软件»","unlessWith":["访销","经销","快消","业务员","外勤","分销","批发","库存","软件","管理","系统","APP"]},
+    {"term":"车销客","why":"اسم تطبيق لتجار السيارات المستعملة (华夏二手车网)","scope":"text"},
+    {"term":"汽车销售","why":"بيع السيارات نفسها","scope":"text"},
+    {"term":"卖车","why":"بيع السيارات","scope":"text"},
+    {"term":"预售","why":"في البر الرئيسي تعني البيع المسبق للسلع في التجارة الإلكترونية؛ pre-sales التوزيعي «访销»","scope":"text"},
+    {"term":"增值税发票","why":"في البر الرئيسي تشير إلى الفاتورة الضريبية الرسمية عبر نظام الضرائب (金税/数电票)، فاستهدافها في العنوان أو الوصف أو الكلمات المفتاحية يجلب باحثي الفابياو الصيني ويُفهم ربطاً بمصلحة الضرائب الصينية. ذكرها في المتن وصفاً لفاتورة ضريبة القيمة المضافة السعودية (وهي ترجمة «فاتورة ضريبية» في واجهة التطبيق) مقبول؛ والمفضّل «发票» العامة"},
+    {"term":"增值税专用发票","why":"فاتورة ضريبة القيمة المضافة الخاصة في نظام الضرائب الصيني — تُفهم ربطاً به","scope":"text"},
+    {"term":"税控","why":"أجهزة ونظام الرقابة الضريبية الصيني — تُفهم ربطاً به","scope":"text"},
+    {"term":"全电发票","why":"الفاتورة الإلكترونية الكاملة في نظام الضرائب الصيني — تُفهم ربطاً به","scope":"text"},
+    {"term":"数电票","why":"الفاتورة الرقمية في نظام الضرائب الصيني — تُفهم ربطاً به","scope":"text"},
+  ],
+};
+// </glossary-avoid>
+
+/**
+ * قواعد القاموس — واحدة لكل كلمة في avoid، مقصورة على صفحات لغتها (paths)، وحاجبة لنصوص المستودع وتحذير لنصوص CMS
+ * (cmsWarn: مقالات CMS يحرّرها المالك من اللوحة، لا من المستودع).
+ *
+ * لماذا النطاق الافتراضي «الرأس» (العنوان والوصف وH1) مع الكلمات المفتاحية لا المتن كله: انقلاب النية يقع حين تكون
+ * الكلمة المفردة هي **المستهدفة** («Bonnes pratiques de la vente en camion» تستهدف بيع الشاحنات). أمّا ذكرها في المتن شرحاً
+ * («la vente en camion conclut vente et livraison…») فمحتوى صناعي مشروع — فلسفة dead-keyword-targeting نفسها. وما خطؤه
+ * في أي موضع (ترجمة خاطئة أو اسم تطبيق سيارات) يحمل scope: "text" في القاموس فيُفحص في الصفحة كلها.
+ *
+ * «منفردة» = بلا سياق unlessWith في الجملة نفسها: كلمة من القائمة قبلها أو بعدها في نافذة GLOSSARY_WINDOW حرفاً لا تعبرها
+ * فاصلة أو نقطة أو «|» (فلا يُعفي «application» في بند كلمات مفتاحية سابق البندَ التالي). الإعفاء بنظرة خلفية **بعد**
+ * مطابقة الكلمة لا قبلها، فلا يتكرّر ثمنها على كل موضع في النصوص الطويلة.
+ * الحدود: العربية بسوابق الجر والعطف و«ال» على كل كلمة والتاء المربوطة هاءً والهمزات؛ التركية بلواحقها (plasiyerler،
+ * araç satışı)؛ الإنجليزية والفرنسية بجمعها (apps، distributeurs)؛ الصينية بلا حدود (لا مسافات فيها).
+ */
+const GLOSSARY_LATIN = 'A-Za-z0-9\\u00C0-\\u024F';
+const GLOSSARY_SEP = '[^,.;|\\n،؛!?؟。，；！？]';
+const GLOSSARY_WINDOW = { zh: 15 };
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** نصّ حرفي من القاموس ← نمط بحدود كتابة لغته (نصّ القاموس يُطبَّع بـnorm كما يُطبَّع النص المفحوص) */
+export function glossaryPattern(code, literal) {
+  const words = norm(literal).trim().split(/\s+/).filter(Boolean);
+  if (code === 'ar') {
+    const core = words.map((w) => `(?:ال)?${escRe(w.length > 3 ? w.replace(/^ال/, '') : w)
+      .replace(/[إأآا]/g, '[إأآا]').replace(/[ةه]$/, '[ةه]').replace(/[يى]$/, '[يى]')}`).join('\\s+');
+    return `(?<![${AR}])(?:[وف]?[بكل]?ل?)?${core}(?![${AR}])`;
+  }
+  if (code === 'zh') return words.map(escRe).join('\\s*');
+  const body = words.map(escRe).join('\\s+');
+  if (code === 'tr') return `(?<![${GLOSSARY_LATIN}])${body}`; // اللواحق التركية تلتصق بالجذر
+  return `(?<![${GLOSSARY_LATIN}])${body}s?(?![${GLOSSARY_LATIN}])`;
+}
+
+/**
+ * مسار صفحات اللغة في dist: اللغات القديمة تحت مجلدها، والعربية في الجذر — أي مسار لا يبدأ بمجلد لغة. مجلد اللغة مقطع
+ * بشكل رمز لغة ليس من المقاطع المحجوزة (checkLocaleCode يرفض رمزاً يساوي محجوزاً، فـog وrep-app صفحات عربية لا لغات).
+ */
+const SEG_END = '[\\\\/]';
+const LOCALE_DIR = `(?!(?:${RESERVED_SEGMENTS.map(escRe).join('|')})${SEG_END})[a-z]{2,3}(?:-[a-z]{2,4})?${SEG_END}`;
+export const GLOSSARY_PATHS = {
+  ar: new RegExp(`^(?:ar${SEG_END}|(?!${LOCALE_DIR}))`),
+  en: new RegExp(`^en${SEG_END}`),
+  fr: new RegExp(`^fr${SEG_END}`),
+  tr: new RegExp(`^tr${SEG_END}`),
+  zh: new RegExp(`^zh${SEG_END}`),
+};
+
+/**
+ * حدّ مقطع لـscope: "alone" — بداية العنوان أو نهايته أو فاصل («|» «:» «—» فاصلة نقطة سطر). كلمات نيّة الوظائف
+ * («مندوب مبيعات» · «plasiyer» · «van sales rep») تنقلب حين تكون **هي** المقطع كله (عنوان «Plasiyer | …» أو بند كلمات
+ * مفتاحية «مندوب مبيعات»)، لا حين تكون جزءاً من جملة إدارة («صلاحيات مندوب المبيعات» · «Plasiyerlerinizi ve
+ * ihtiyaçlarınızı anlatın» · «E-Invoicing for Van Sales Reps») — وهذه لا تحصرها قائمة سياق.
+ */
+const GLOSSARY_SEG = '[,.;:|\\n،؛!?؟。，；！？—–]';
+const GLOSSARY_PAD = '[\\s«»"\'()]*';
+
+/** قاعدة لكلمة واحدة من avoid */
+function glossaryRule(code, entry, i) {
+  const term = glossaryPattern(code, entry.term);
+  const n = GLOSSARY_WINDOW[code] ?? 50;
+  const ctx = (entry.unlessWith || []).map((c) => glossaryPattern(code, c)).join('|');
+  const tail = code === 'tr' ? `[${GLOSSARY_LATIN}]*` : ''; // plasiyerler · plasiyerin
+  const source = entry.scope === 'alone'
+    ? `(?<=(?:^|${GLOSSARY_SEG})${GLOSSARY_PAD})(?:${term})${tail}(?=${GLOSSARY_PAD}(?:$|${GLOSSARY_SEG}))`
+    : ctx
+      ? `(?:${term})(?<!(?:${ctx})${GLOSSARY_SEP}{0,${n}}(?:${term}))(?!${GLOSSARY_SEP}{0,${n}}(?:${ctx}))`
+      : term;
+  const where = entry.scope === 'text' ? 'في صفحات اللغة'
+    : entry.scope === 'alone' ? 'وحدها عنواناً أو بنداً في الكلمات المفتاحية'
+      : 'منفردةً في العنوان أو الوصف أو H1 أو الكلمات المفتاحية';
+  return {
+    id: `glossary-${code}-${String(i + 1).padStart(2, '0')}`,
+    re: new RegExp(source, 'i'),
+    ...(entry.scope === 'text' ? {} : { scope: 'head' }),
+    keywords: true,
+    paths: GLOSSARY_PATHS[code],
+    cmsWarn: true,
+    glossary: code,
+    term: entry.term,
+    why: `قاموس ${code}: «${entry.term}» ${where} — ${entry.why}`,
+  };
+}
+
+export const GLOSSARY_RULES = Object.entries(GLOSSARY_AVOID)
+  .flatMap(([code, list]) => list.map((entry, i) => glossaryRule(code, entry, i)));
 
 export const RULES = [
   {
@@ -300,6 +447,8 @@ export const RULES = [
     cmsWarn: true,
     why: 'ذكر اسم منافس — حاجب في نصوص المستودع، وتحذير في نصوص CMS حتى يقرّر المالك (قرار ٢٩ يوليو ٢٠٢٦: لا أسماء منافسين)',
   },
+  // قاموس المصطلحات (أعلاه): قاعدة لكل كلمة في avoid بلغات الموقع الخمس
+  ...GLOSSARY_RULES,
 ];
 
 /**
@@ -336,9 +485,18 @@ export function findViolations(rule, haystack, limit = Infinity) {
   return out;
 }
 
-/** معرّفات القواعد المُدانة في نصّ واحد (كل القواعد على النص نفسه) — للاختبار */
+/**
+ * معرّفات القواعد المُدانة في نصّ واحد (كل القواعد على النص نفسه) — للاختبار.
+ * عدا قواعد القاموس: هي للغة بعينها ولموضع الاستهداف (الرأس) لا لأي نصّ — «van sales» في متن إنجليزي أو «مندوب مبيعات»
+ * في جملة شرح صحيحتان. تُفحص بـcheckGlossary.
+ */
 export function checkText(text) {
-  return RULES.filter((r) => findViolation(r, text)).map((r) => r.id);
+  return RULES.filter((r) => !r.glossary && findViolation(r, text)).map((r) => r.id);
+}
+
+/** قواعد قاموس لغة واحدة المُدانة في نصّ (كأنه رأس صفحة من صفحاتها) — للاختبار ولفحص ترجمة قبل نشرها */
+export function checkGlossary(text, code) {
+  return RULES.filter((r) => r.glossary === code && findViolation(r, text)).map((r) => r.id);
 }
 
 /**
