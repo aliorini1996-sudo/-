@@ -21,7 +21,7 @@ import { fileURLToPath } from 'url';
 import { transformSync } from 'esbuild';
 import { buildCatalog, isIndexable, CONTENT_VERSION } from '../src/blog/seo/catalog.mjs';
 import { existsWith, consolidatedTarget, consolidationReport } from '../src/blog/consolidate.mjs';
-import { i18nPages, clusterAlternates, legacyClusterKey, i18nLastmod, clusterChangedAt } from '../src/i18n/i18nRoutes.mjs';
+import { i18nPages, clusterAlternates, legacyClusterKey, i18nLastmod, clusterChangedAt, withCountryPages, countryEntryOf } from '../src/i18n/i18nRoutes.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -38,6 +38,8 @@ const OUT = outArg ? path.resolve(outArg) : path.join(ROOT, 'public/sitemap.xml'
 const OUT_DIR = path.dirname(OUT);
 /** السجل المنشور للطبقة متعددة اللغات (يولّده scripts/import-i18n.mjs ويُلتزم) — يُقرأ داخل main فيبقى تعذّره غير قاتل */
 const PUBLISHED_FILE = path.join(ROOT, 'src/i18n/registry/published.json');
+/** فهرس صفحات الدول (يولّده scripts/import-country-i18n.mjs ويُلتزم) — يُدمج في السجل بـwithCountryPages وحدها */
+const COUNTRY_INDEX_FILE = path.join(ROOT, 'src/i18n/registry/country-pages.json');
 
 /**
  * الصفحات التسويقية المُصيَّرة. الرئيسية و«احجز اجتماعاً» والبروفايل بخمس لغات؛ والبقية بثلاث (ع/إ/فر) لأن prerender
@@ -156,7 +158,7 @@ const urlEntry = (loc, { lastmod = CONTENT_VERSION, freq = 'monthly', priority =
 
 async function main() {
   // السجل أولاً: تعذّر قراءته خطأ غير الشبكة ⇒ لا يُكتب شيء ويبقى ما في القرص (القاعدة أدناه)
-  const I18N = JSON.parse(fs.readFileSync(PUBLISHED_FILE, 'utf8'));
+  const I18N = withCountryPages(JSON.parse(fs.readFileSync(PUBLISHED_FILE, 'utf8')), JSON.parse(fs.readFileSync(COUNTRY_INDEX_FILE, 'utf8')));
   const { data: cms, fixes, version: fixesVersion } = await fetchCms();
   const mod = await loadPostsModule();
   const catalog = buildCatalog();
@@ -274,7 +276,11 @@ async function main() {
   const byCode = new Map(); // بترتيب أول ظهور في i18nPages = ترتيب السجل (و/languages/ تحت en)
   for (const p of i18nAll) {
     if (!byCode.has(p.code)) byCode.set(p.code, []);
-    const lastmod = p.pageKey === 'languages' ? newestContent : i18nLastmod(p, I18N, CONTENT_VERSION);
+    // صفحة الدولة: lastmod = تاريخ التحقق من حقائقها (contentDate في فهرسها)؛ وغيرها بقاعدة i18nLastmod
+    const country = countryEntryOf(I18N, p.code, p.pageKey);
+    const lastmod = p.pageKey === 'languages' ? newestContent
+      : country ? (country.contentDate || CONTENT_VERSION)
+        : i18nLastmod(p, I18N, CONTENT_VERSION);
     byCode.get(p.code).push(urlEntry(ORIGIN + p.path, {
       lastmod, alternates: p.clusterKey ? xhtmlLines(clusterAlternates(p.clusterKey, I18N)) : '',
     }));

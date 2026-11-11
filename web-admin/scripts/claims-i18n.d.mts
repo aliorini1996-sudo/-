@@ -38,3 +38,18 @@ export function scriptProblems(text: string, opts?: { script?: string; code?: st
 export function contentHashOf(strings: Record<string, string>): string;
 export function placeholdersOf(s: string): string[];
 export function publishedEntry(loc: Record<string, unknown>, waLabel: string | undefined | null): Record<string, unknown>;
+
+// صفحات الدول: السنة أو التاريخ محجوب في جملة عن FieldSales (أيّ قسم)، ومسموح في جمل حقائق الدولة وعناوين المصادر؛
+// وH1 بلا سنة؛ وختم «آخر تحقق» بسنة تاريخ التحقق وحدها
+export function countryContentTexts(c: unknown): { path: string; text: string; year: 'sentence' | 'block' | 'stamp' }[];
+export function stampProblem(text: string, verifiedAt: string): string | null;
+export function checkCountryContent(c: unknown, opts?: {
+  code?: string; livePrices?: readonly string[]; verifiedAt?: string;
+}): (I18nViolation & { path: string })[];
+// قواعد الجملة لصفحات الدول (es · pt · id): السنة أو التاريخ في جملة عن FieldSales، وادّعاء الربط الحكومي
+export function hasCountryClaimRules(code: string | undefined): boolean;
+export function isSelfSentence(s: string, code: string): boolean;
+export function sentencesOf(text: string): string[];
+export function dateIn(s: string, code: string): string | null;
+export function selfYearViolations(text: string, code: string): I18nViolation[];
+export function govLinkViolations(text: string, code: string): I18nViolation[];

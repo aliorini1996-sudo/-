@@ -1,0 +1,37 @@
+{
+ "pages": [
+  {
+   "cc": "MX",
+   "code": "es",
+   "slug": "software-preventa-venta-en-ruta-mexico",
+   "h1": "FieldSales para distribuidoras en México: preventa, venta en ruta y cobranza",
+   "contentDate": "2026-11-11",
+   "contentHash": "3fbb7081853c03cca6d6c7c4b63dd1f49fcde86fe8eb2554f2e78e770e2649f5"
+  },
+  {
+   "cc": "CO",
+   "code": "es",
+   "slug": "software-preventa-autoventa-colombia",
+   "h1": "FieldSales para distribuidores en Colombia: preventa, autoventa y cobros en ruta",
+   "contentDate": "2026-11-11",
+   "contentHash": "0d6cb7bb8fef25429f75ed9039d285488b9e4fd767970151d51ff91a71fde7ad"
+  },
+  {
+   "cc": "BR",
+   "code": "pt",
+   "slug": "software-venda-pronta-entrega-distribuidoras-brasil",
+   "h1": "Software para distribuidoras no Brasil: venda pronta entrega, pedidos e cobrança",
+   "contentDate": "2026-11-11",
+   "contentHash": "ff4684dcde2e2ead92a34e7a536f36888dece91e2dcebe533fdee3eb2daec7e7"
+  },
+  {
+   "cc": "ID",
+   "code": "id",
+   "slug": "aplikasi-sales-kanvas-indonesia",
+   "h1": "Aplikasi sales kanvas, taking order, dan penagihan untuk distributor di Indonesia",
+   "contentDate": "2026-11-11",
+   "contentHash": "91d29920422e439d99404f7e0ad923bbc737af42937763fe0d9455999451a43f"
+  }
+ ],
+ "excluded": []
+}

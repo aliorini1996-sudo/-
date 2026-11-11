@@ -7,9 +7,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { StaticRouter } from 'react-router-dom/server';
 import {
   renderI18nPage, vatMapFrom, escapeHtml, TEMPLATE_VERSION,
-  type MarketingFile, type WorldCountries, type Rendered,
+  type MarketingFile, type WorldCountries, type Rendered, type CountryPageFile,
 } from './marketingTemplate.mjs';
-import { i18nPages, clusterAlternates, newClusterMembers, canon, type PublishedRegistry, type PublishedLocale, type I18nPage } from './i18nRoutes.mjs';
+import { i18nPages, clusterAlternates, newClusterMembers, canon, countryOfPageKey, type PublishedRegistry, type PublishedLocale, type I18nPage } from './i18nRoutes.mjs';
 import { PUBLISHED, I18N_PAGES } from './i18nPublished';
 import { seoUrls } from './locale';
 import { COUNTRIES } from './countries';
@@ -400,9 +400,12 @@ test('كل صفحة منشورة تُصيَّر بلا خطأ: عنوان ووص
   };
   const byCode = new Map(PUBLISHED.locales.map((l) => [l.code, l]));
   for (const page of I18N_PAGES) {
+    // صفحة دولة (country:<CC>) تُصيَّر من ملفها المشتق المجرّد كما يفعل prerender
+    const cc = countryOfPageKey(page.pageKey);
     const r = renderI18nPage({
       page, reg: PUBLISHED, file: page.pageKey === 'languages' ? undefined : fileOf(page.code),
       world: page.pageKey === 'countries' ? WORLD : undefined, vatByCode: VAT,
+      country: cc ? readJson<CountryPageFile>('src', 'i18n', 'registry', 'country-content', `${cc}.${page.code}.json`) : undefined,
     });
     const where = page.path;
     assert.ok(r.title.trim() && r.description.trim() && r.h1.trim(), `${where}: عنوان أو وصف أو h1 فارغ`);

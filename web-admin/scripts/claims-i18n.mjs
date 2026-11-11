@@ -244,11 +244,14 @@ function currencyCodes() {
   return currencyCodesCache;
 }
 
-/** رقم ملاصق (حتى 3 أحرف) لرمز عملة ISO 4217 أو لرمز $ € £ ¥ ₹ ₺ ﷼ ر.س — قبله أو بعده */
+/**
+ * رقم ملاصق (حتى 3 أحرف) لرمز عملة ISO 4217 أو لرمز $ € £ ¥ ₹ ₺ ﷼ ر.س أو Rp (الروبية كما تُكتب في إندونيسيا:
+ * «Rp 499.000» — IDR وحده كان يُفلتها عن صفحة إندونيسيا) — قبله أو بعده. «R$» يلتقطه «$».
+ */
 let currencyReCache = null;
 export function currencyNumberRe() {
   if (currencyReCache) return currencyReCache;
-  const cur = `(?:(?<![A-Za-z])(?:${currencyCodes().join('|')})(?![A-Za-z])|[$€£¥₹₺﷼]|ر\\.س)`;
+  const cur = `(?:(?<![A-Za-z])(?:${currencyCodes().join('|')}|Rp)(?![A-Za-z])|[$€£¥₹₺﷼]|ر\\.س)`;
   currencyReCache = new RegExp(`\\d[^\\n\\d]{0,3}?${cur}|${cur}[^\\n\\d]{0,3}?\\d`, 'u');
   return currencyReCache;
 }
@@ -260,6 +263,8 @@ export const I18N_RULE_WHY = Object.freeze({
   'i18n-live-price': 'سعر باقة حيّ أو سنويّ — قرار المالك: لا سعر ظاهر (طلب عرض سعر مكانه)',
   'i18n-currency-number': 'رقم ملاصق لرمز عملة — لا أسعار في صفحات الطبقة',
   'i18n-gov-einvoicing': 'اسم منظومة فوترة حكومية خارج السعودية في نصّ مترجم — المصدر الإنجليزي لا يسمّي أياً منها، والربط فيها «عند الطلب» بلا وعد',
+  'i18n-year-self': 'سنة أو تاريخ في جملة عن FieldSales نفسها (الاسم أو المتكلم أو صيغه) — لا موعد قرب FieldSales، والربط خارج السعودية «عند الطلب» بلا موعد (التاريخ مسموح في جمل حقائق الدولة وعناوين المصادر)',
+  'i18n-gov-link': 'ادّعاء ربط أو تأهيل حكومي لـFieldSales خارج السعودية — الربط الحيّ في السعودية وحدها، وغيرها «عند الطلب» بلا وعد',
 });
 
 /**
@@ -304,6 +309,269 @@ export function checkMarketingStrings(strings, opts = {}) {
     for (const v of findI18nViolations(value, { ...opts, allowYear: YEAR_KEYS.includes(key) })) out.push({ ...v, key });
     const gov = govEinvoicingName(value);
     if (gov) out.push({ id: 'i18n-gov-einvoicing', match: gov.slice(0, 60), why: I18N_RULE_WHY['i18n-gov-einvoicing'], key });
+  }
+  return out;
+}
+
+// ─── صفحات الدول (نوع «country») ────────────────────────────────────────────────────────────
+//
+// قاعدة السنة على صفحة الدولة على مستوى **الجملة** في الصفحة كلها (قرار المنسّق ١١ نوفمبر، متّسق مع قاعدة الكتالوج
+// وقرار المالك «لا موعد ولا رقم قرب جملة الربط»): السنة أو التاريخ محجوب في كل جملة عن FieldSales نفسها (الاسم،
+// أو ضمير المتكلم/المتكلمين وملكيّته، أو صيغ المتكلمين، أو «التطبيق» مشاراً إليه — selfYearViolations)، ومسموح في
+// الجمل التي تصف الدولة وقوانينها وسوقها (حقائق بمصدر) وفي عناوين المصادر (أسماء وثائق) — أيّ قسم كانت فيه.
+// استثناءان:
+//   · H1 حاجبٌ للسنة كله: يُعاد نشره خارج صفحته (قائمة صفحات اللغة في كل صفحة أخرى، وllms.txt اللغة) حيث السنة
+//     محجوبة بلا استثناء — فلا يُنشر ما يُسقط تلك الصفحات.
+//   · ختم «آخر تحقق»: عنصر يفرضه القالب بتاريخ basedOnFactsVerifiedAt، فلا تمرّ فيه إلا سنة ذلك التاريخ نفسها.
+// قاعدة رقم+عملة والاعتماد والسعر الحيّ حاجبة في كل الصفحة بلا استثناء (عناوين المصادر منها)، وادّعاء الربط الحكومي كذلك.
+
+/**
+ * نصوص محتوى لغة واحدة من ملف الدولة، كلٌّ بمساره ونطاق السنة فيه:
+ * year = 'sentence' (السنة/التاريخ محجوب في جملة عن FieldSales وحدها) · 'block' (H1: السنة محجوبة كلها) ·
+ * 'stamp' (ختم آخر تحقق: سنة التحقق وحدها).
+ * slugHint والروابط (url) خارج الفحص: الأول يُطبَّع إلى مسار، والثانية عناوين لا نصّ.
+ */
+export function countryContentTexts(c) {
+  const out = [];
+  const add = (p, v, year = 'sentence') => { if (typeof v === 'string' && v.trim()) out.push({ path: p, text: v, year }); };
+  if (!c || typeof c !== 'object') return out;
+  add('title', c.title); add('description', c.description); add('h1', c.h1, 'block'); add('intro', c.intro);
+  (Array.isArray(c.sections) ? c.sections : []).forEach((s, i) => {
+    add(`sections.${s && s.id ? s.id : i}.title`, s && s.title);
+    add(`sections.${s && s.id ? s.id : i}.body`, s && s.body);
+  });
+  (Array.isArray(c.faq) ? c.faq : []).forEach((f, i) => { add(`faq.${i}.q`, f && f.q); add(`faq.${i}.a`, f && f.a); });
+  const si = c.sampleInvoice || {};
+  add('sampleInvoice.title', si.title); add('sampleInvoice.note', si.note);
+  (Array.isArray(si.fields) ? si.fields : []).forEach((f, i) => { add(`sampleInvoice.fields.${i}.label`, f && f.label); add(`sampleInvoice.fields.${i}.example`, f && f.example); });
+  (Array.isArray(c.sources) ? c.sources : []).forEach((s, i) => {
+    for (const k of ['title', 'label', 'name']) add(`sources.${i}.${k}`, s && s[k]);
+  });
+  add('sourcesTitle', c.sourcesTitle);
+  add('lastVerifiedLabel', c.lastVerifiedLabel, 'stamp');
+  return out;
+}
+
+/**
+ * ختم «آخر تحقق»: لا يحمل إلا سنة تاريخ التحقق (أو لا سنة)، ولا رقماً آخر غير يوم/شهر/سنة ذلك التاريخ.
+ * يعيد null إن سلِم، وإلا وصف الخلل.
+ */
+export function stampProblem(text, verifiedAt) {
+  const m = String(verifiedAt ?? '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return `تاريخ التحقق «${verifiedAt}» ليس YYYY-MM-DD`;
+  const [, y, mo, d] = m;
+  const allowed = new Set([y, mo, d, String(Number(mo)), String(Number(d))]);
+  const nums = toAsciiDigits(text).match(/\d+/g) || [];
+  const bad = nums.filter((n) => !allowed.has(n));
+  if (bad.length) return `رقم «${bad[0]}» في ختم آخر تحقق ليس من تاريخ التحقق ${verifiedAt}`;
+  return null;
+}
+
+/**
+ * مخالفات قواعد الطبقة في محتوى لغة من ملف الدولة — يطبّقها المستورد (import-country-i18n) والحارس (verify-i18n G5)
+ * والاختبارات. opts: { code, livePrices, verifiedAt }.
+ */
+export function checkCountryContent(c, opts = {}) {
+  const out = [];
+  if (!hasCountryClaimRules(opts.code)) {
+    out.push({ id: 'i18n-gov-link', match: String(opts.code), path: '(lang)', why: `لا قاعدة جملة (ادّعاء الربط والسنة قرب FieldSales) للغة «${opts.code}» — لا تُنشر صفحة دولة بها قبل إضافتها في COUNTRY_CLAIMS` });
+    return out;
+  }
+  for (const t of countryContentTexts(c)) {
+    // الاعتماد والسعر الحيّ ورقم+عملة في كل نصّ؛ والسنة كلها في H1 وحده
+    for (const v of findI18nViolations(t.text, { code: opts.code, livePrices: opts.livePrices, allowYear: t.year !== 'block' })) {
+      out.push({ ...v, path: t.path });
+    }
+    // السنة أو التاريخ محجوب في كل جملة عن FieldSales نفسها — أيّ قسم كانت فيه (والأسئلة ومثال الفاتورة وعناوين المصادر)
+    if (t.year !== 'stamp') {
+      for (const v of selfYearViolations(t.text, opts.code)) out.push({ ...v, path: t.path });
+      for (const v of govLinkViolations(t.text, opts.code)) out.push({ ...v, path: t.path });
+    }
+    if (t.year === 'stamp') {
+      const p = stampProblem(t.text, opts.verifiedAt);
+      if (p) out.push({ id: 'i18n-year', match: t.text.slice(0, 60), why: `${I18N_RULE_WHY['i18n-year']} — ${p}`, path: t.path });
+    }
+  }
+  return out;
+}
+
+// ─── قواعد الجملة لصفحات الدول: السنة أو التاريخ قرب FieldSales، وادّعاء الربط الحكومي ─────────────────────
+//
+// تعمل على الجملة (لا على نافذة أحرف): النافذة حول الاسم تلتقط تاريخاً حكومياً صحيحاً في الجملة السابقة لجملة
+// الإفصاح («…obligatoria desde 2014. FieldSales no emite CFDI») فتحجب حقيقة مسموحة، والجملة لا.
+// الجملة تنتهي بـ. ! ? … (وما يليها من علامة إغلاق) يليها فراغ ثم حرف ليس صغيراً، أو بسطر جديد (الفقرة)؛ و«4.0»
+// و«1/12/2026» لا تقطعانها، ولا نقطة اختصار («S.A. de C.V.» · «EE. UU.» · «art.» — انظر sentencesOf).
+
+/**
+ * لكل لغة صفحة دولة:
+ *  self   — ما يجعل الجملة كلاماً عن FieldSales نفسها: الاسم، وضمير المتكلم وملكيّته، وصيغ المتكلمين (كل فعل
+ *           بصيغة المتكلمين في es · pt — FIRST_PLURAL — والمستقبل وأفعال الربط)، و«التطبيق/المنصة» مشاراً إليهما
+ *           («la app» · «la aplicación» · «a plataforma» · «platform ini» — لا «… del SAT/da Receita»)، والاسم بفراغ.
+ *  months — أسماء الشهور (التاريخ بلا سنة في جملة عن FieldSales موعدٌ أيضاً).
+ *  link   — أفعال الربط والإرسال والتأهيل لدى جهة.
+ *  auth   — الجهة الحكومية أو مستندها (لا ادّعاء ربط بلا جهة: «conectado a internet» ليس ادّعاءً).
+ *  neg    — النفي وصيغة «عند الطلب» (الجملة الصادقة اليوم: «لا ربط»، أو «متاح عند الطلب بلا موعد»).
+ *  saudi  — الربط الحيّ الوحيد (السعودية) — ذكرها صادق.
+ * لغةٌ بلا مدخل هنا لا تُنشر لها صفحة دولة (checkCountryContent يحجبها).
+ */
+/** اسم المنصة كما قد يُكتب: «FieldSales» أو «Field Sales» أو «Field-Sales» — لا يفلت الاسم من القاعدة بفراغ */
+const SELF_NAME = 'Field[\\s\\u00a0-]?Sales';
+
+const COUNTRY_CLAIMS = Object.freeze({
+  es: {
+    self: [
+      SELF_NAME, 'nosotr[oa]s', 'nuestr[oa]s?', '\\p{L}+(?:aremos|eremos|iremos)', 'vamos', 'conectamos', 'integramos', 'transmitimos', 'timbramos', 'enviamos', 'reportamos', 'somos',
+      '(?:la|esta)\\s+(?:app|aplicaci[oó]n|plataforma)(?!\\s+del?(?![\\p{L}\\p{N}]))',
+    ],
+    months: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'se?ptiembre', 'octubre', 'noviembre', 'diciembre'],
+    link: [
+      'conectad[oa]s?\\s+(?:directamente\\s+)?(?:con|a|al)', '(?:se\\s+)?conecta(?:mos|n)?\\s+(?:directamente\\s+)?(?:con|a|al)',
+      'integrad[oa]s?\\s+(?:directamente\\s+)?(?:con|a|al)', '(?:se\\s+)?integra(?:mos|n)?\\s+(?:directamente\\s+)?(?:con|a|al)',
+      // المستقبل والمصدر والشرطي («se conectará con» · «integrarse a» · «timbrará»): وعدٌ بالربط ادّعاءٌ أيضاً
+      '(?:se\\s+)?(?:conectar|integrar)\\p{L}*\\s+(?:directamente\\s+)?(?:con|a|al)', 'timbrar\\p{L}*',
+      'transmit\\p{L}*', 'habilitad[oa]s?\\s+(?:por|ante)', 'autorizad[oa]s?\\s+(?:por|ante)', 'registrad[oa]s?\\s+ante',
+      '(?:es|somos)\\s+(?:un\\s+)?(?:proveedor(?:es)?\\s+tecnol[oó]gicos?|PAC)', 'timbra(?:mos|n)?',
+    ],
+    auth: ['DIAN', 'SAT', 'SFE', 'RADIAN', 'CFDI', 'PAC', 'Hacienda', 'autoridad(?:es)?\\s+(?:tributaria|fiscal)(?:es)?', 'gobierno', 'gubernamental(?:es)?', 'factura(?:s|ción)?\\s+electr[oó]nicas?'],
+    neg: ['no', 'nunca', 'ni', 'tampoco', 'bajo\\s+solicitud', 'a\\s+solicitud', 'previa\\s+solicitud'],
+    saudi: ['Arabia\\s+Saud(?:ita|í)', 'ZATCA'],
+  },
+  pt: {
+    self: [
+      SELF_NAME, 'nós', 'noss[oa]s?', '\\p{L}+(?:aremos|eremos|iremos)', 'vamos', 'conectamos', 'integramos', 'transmitimos', 'enviamos', 'somos',
+      '(?:o|a|este|esta)\\s+(?:app|aplicativo|plataforma)(?!\\s+d[eoa]s?(?![\\p{L}\\p{N}]))',
+    ],
+    months: ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'],
+    link: [
+      'conectad[oa]s?\\s+(?:diretamente\\s+)?(?:com|[àa]o?s?)', '(?:se\\s+)?conecta(?:mos|m)?(?:-se)?\\s+(?:diretamente\\s+)?(?:com|[àa]o?s?)',
+      'integrad[oa]s?\\s+(?:diretamente\\s+)?(?:com|[àa]o?s?)', '(?:se\\s+)?integra(?:mos|m)?(?:-se)?\\s+(?:diretamente\\s+)?(?:com|[àa]o?s?)',
+      // المستقبل والمصدر («vai se integrar à» · «se conectará com»): وعدٌ بالربط ادّعاءٌ أيضاً
+      '(?:se\\s+)?(?:conectar|integrar)\\p{L}*(?:-se)?\\s+(?:diretamente\\s+)?(?:com|[àa]o?s?)',
+      'transmit\\p{L}*', 'credenciad[oa]s?', 'habilitad[oa]s?\\s+(?:pel[oa]s?|junto)', 'autorizad[oa]s?\\s+(?:pel[oa]s?|junto)',
+      '(?:é|somos)\\s+(?:um\\s+)?provedor(?:es)?\\s+(?:tecnol[oó]gicos?|autorizad[oa]s?|credenciad[oa]s?)',
+    ],
+    auth: ['SEFAZ', 'Receita(?:\\s+Federal)?', 'fisco', 'CGIBS', 'prefeituras?', 'NF-?e', 'NFC-?e', 'NFS-?e', 'notas?\\s+fisca(?:l|is)', 'autoridade(?:s)?\\s+(?:fiscal|fiscais|tribut[aá]ria)', 'governo', 'governamenta(?:l|is)'],
+    neg: ['não', 'nunca', 'nem', 'tampouco', 'sob\\s+demanda', 'sob\\s+consulta', 'mediante\\s+solicitação', 'a\\s+pedido'],
+    saudi: ['Ar[aá]bia\\s+Saudita', 'ZATCA'],
+  },
+  id: {
+    self: [SELF_NAME, 'kami', 'kita', '(?:aplikasi|platform)\\s+ini'],
+    months: ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'],
+    link: [
+      'terhubung\\s+(?:langsung\\s+)?(?:ke|dengan)', 'terintegrasi\\s+(?:langsung\\s+)?(?:ke|dengan)', 'terkoneksi', 'tersambung\\s+(?:ke|dengan)',
+      'mengirim(?:kan)?\\s+(?:faktur|data)', '(?:adalah|sebagai|merupakan)\\s+(?:PJAP|penyedia\\s+jasa\\s+aplikasi\\s+perpajakan|mitra\\s+resmi)',
+      'terdaftar\\s+(?:sebagai|di)', 'resmi\\s+(?:bermitra|terdaftar)',
+    ],
+    auth: ['DJP', 'Coretax', 'e-?Faktur', 'faktur\\s+pajak', 'pemerintah', 'otoritas\\s+pajak', 'PJAP', 'Direktorat\\s+Jenderal\\s+Pajak'],
+    neg: ['tidak', 'belum', 'bukan', 'atas\\s+permintaan'],
+    saudi: ['Arab\\s+Saudi', 'ZATCA'],
+  },
+});
+
+/**
+ * صيغة المتكلمين في es · pt (حاضر وماضٍ ومضارع التزامي وشرطي): كلمة تنتهي بـ-amos/-emos/-imos بلا حرف منبَّر
+ * («ofrecemos» · «estudiamos» · «temos»)، أو بنهايات المتكلمين المنبَّرة («teníamos» · «estávamos» · «pudiéramos»).
+ * المنبَّر غير ذلك صفةٌ أو اسم لا فعل («mínimos» · «últimos» · «próximos» · «préstamos»)، والأسماء غير المنبَّرة
+ * بالنهاية نفسها مستثناة بالاسم (FIRST_PLURAL_NOT).
+ */
+const FIRST_PLURAL_NOT = ['ramos', 'tramos', '\\p{L}*gramos', 'reclamos', 'amos', 'gamos', 'extremos', 'supremos', 'remos', 'memos', 'primos', 'racimos'];
+const FIRST_PLURAL = `(?!(?:${FIRST_PLURAL_NOT.join('|')})(?![\\p{L}\\p{N}]))`
+  + '(?:[^\\P{L}áéíóúâêôãõ]+(?:amos|emos|imos)|\\p{L}+(?:íamos|ábamos|ávamos|áramos|éramos|êramos|íramos|ásemos|ésemos|ássemos|êssemos|íssemos|ôssemos|ínhamos))';
+const FIRST_PLURAL_LANGS = Object.freeze(['es', 'pt']);
+
+const word = (alts) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${alts.join('|')})(?![\\p{L}\\p{N}])`, 'iu');
+const claimReCache = new Map();
+function claimRes(code) {
+  if (!COUNTRY_CLAIMS[code]) return null;
+  if (!claimReCache.has(code)) {
+    const r = COUNTRY_CLAIMS[code];
+    claimReCache.set(code, {
+      self: word([...r.self, ...(FIRST_PLURAL_LANGS.includes(code) ? [FIRST_PLURAL] : [])]),
+      months: word(r.months), link: word(r.link), auth: word(r.auth), neg: word(r.neg), saudi: word(r.saudi),
+    });
+  }
+  return claimReCache.get(code);
+}
+
+/** هل للغة قواعد جملة صفحات الدول */
+export const hasCountryClaimRules = (code) => !!COUNTRY_CLAIMS[code];
+
+/** هل الجملة كلامٌ عن FieldSales نفسها (الاسم أو المتكلم أو صيغه أو «التطبيق» مشاراً إليه) — false للغة بلا قاعدة */
+export const isSelfSentence = (s, code) => {
+  const R = claimRes(code);
+  return !!(R && R.self.test(s));
+};
+
+/** نقاط اختصار لا تُنهي جملة (والحرف الواحد قبل النقطة كذلك: «S.A.» · «C.V.» · «p. ej.») */
+const ABBREV = new Set(['ee', 'uu', 'art', 'arts', 'núm', 'núms', 'nº', 'pág', 'págs', 'sr', 'sra', 'sres', 'dr', 'dra', 'lic', 'ing', 'ltda', 'cía', 'cia', 'tbk', 'dll', 'dsb', 'dst', 'aprox', 'vs', 'inc']);
+
+/**
+ * جمل نصّ: تنتهي بـ. ! ? … (وعلامة إغلاق اختيارية) يليها فراغ ثم حرف ليس صغيراً، أو بسطر جديد. النقطة بعد حرف واحد
+ * أو اختصار معروف لا تُنهي جملة: قطعها كان سيعزل السنة عن FieldSales في جملة واحدة («FieldSales factura a S.A. de
+ * C.V. desde 2027»)، والجملة الأطول أحوط.
+ */
+export function sentencesOf(text) {
+  const t = String(text ?? '');
+  const out = [];
+  let from = 0;
+  for (const m of t.matchAll(/([.!?…])["'»”’)\]]*\s+(?=[^\s\p{Ll}])|\n+/gu)) {
+    if (m[1] === '.') {
+      const before = t.slice(from, m.index).match(/([\p{L}º]+)$/u);
+      if (before && (before[1].length === 1 || ABBREV.has(before[1].toLowerCase()))) continue;
+    }
+    out.push(t.slice(from, m.index + m[0].length));
+    from = m.index + m[0].length;
+  }
+  out.push(t.slice(from));
+  return out.map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * أول سنة أو تاريخ في جملة (السنة، ومنها «1/12/2026» · أو اسم شهر بلغة الصفحة) أو null.
+ * «يوم/شهر» رقمياً بلا سنة لا يُعدّ تاريخاً: يطابق الكسر حرفاً بحرف («DPP nilai lain (11/12)» في صفحة إندونيسيا
+ * المنشورة) و«24/7»، والتاريخ في النثر يُكتب باسم الشهر.
+ */
+export function dateIn(s, code) {
+  const R = claimRes(code);
+  const m = toAsciiDigits(s).match(YEAR_RE) || (R ? String(s).match(R.months) : null);
+  return m ? m[0] : null;
+}
+
+/**
+ * السنة أو التاريخ في جملة عن FieldSales نفسها — في كل نصوص صفحة الدولة (عدا ختم «آخر تحقق»): لا موعد قرب
+ * FieldSales. الجملة التي تصف الدولة وقوانينها وسوقها تمرّ بتاريخها، ولو سبقت أو تلت مباشرة جملة عن FieldSales.
+ */
+export function selfYearViolations(text, code) {
+  const R = claimRes(code);
+  if (!R) return [];
+  const out = [];
+  for (const s of sentencesOf(text)) {
+    if (R.self.test(s) && dateIn(s, code)) out.push({ id: 'i18n-year-self', match: s.slice(0, 60), why: I18N_RULE_WHY['i18n-year-self'] });
+  }
+  return out;
+}
+
+/**
+ * تقطيع أدقّ لادّعاء الربط وحده: عند كل . ! ? … (وعلامة إغلاق اختيارية) يليها فراغ، بلا استثناء اختصار ولا حرف
+ * صغير. الجملة المدمجة عبر نقطة اختصار أو حرف واحد («…con el SAT de la Fase A. No requiere…» · «…S.A. ¿Y tú?»)
+ * تستعير النفي أو علامة السؤال أو ذكر السعودية من الجملة التالية فيمرّ الادّعاء — فيُفحص كل جزء أدقّ أيضاً.
+ * (للسنة الجملة المدمجة أحوط وحدها: كل جزء أدقّ داخل جملة مدمجة.)
+ */
+const fineSentencesOf = (text) => String(text ?? '').split(/(?<=[.!?…]["'»”’)\]]*)\s+|\n+/u).map((s) => s.trim()).filter(Boolean);
+
+/**
+ * ادّعاء ربط حكومي: جملة عن FieldSales نفسها + فعل ربط أو تأهيل + جهة حكومية، بلا نفي ولا «عند الطلب» ولا ذكر
+ * السعودية. السؤال (ينتهي بـ?) ليس ادّعاءً. يُفحص في الجملة المدمجة (sentencesOf) وفي كل جزء أدقّ منها.
+ */
+export function govLinkViolations(text, code) {
+  const R = claimRes(code);
+  if (!R) return [];
+  const out = [];
+  for (const s of new Set([...sentencesOf(text), ...fineSentencesOf(text)])) {
+    if (/[?？]["'»”’)\]]*$/.test(s)) continue;
+    if (R.self.test(s) && R.link.test(s) && R.auth.test(s) && !R.neg.test(s) && !R.saudi.test(s)) {
+      out.push({ id: 'i18n-gov-link', match: s.slice(0, 60), why: I18N_RULE_WHY['i18n-gov-link'] });
+    }
   }
   return out;
 }
