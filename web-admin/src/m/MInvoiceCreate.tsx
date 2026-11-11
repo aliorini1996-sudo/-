@@ -28,6 +28,8 @@ import { buyerNoticeOf, buyerNoticeText, type BuyerNotice } from '../lib/zatca/i
 import { vanAvailableOf, vanLotShortages, LOT_CACHE_KEYS } from './mLotsLogic';
 import { can } from './perms';
 import MUnitChips from './MUnitChips';
+import { useLaserScanner, scanFeedback } from '../lib/useLaserScanner';
+import { findByScan, type ScanMatchable } from '../lib/laserScanner';
 
 interface Pick {
   id: string; name: string; code?: string; phone?: string; basePrice?: number; taxPct?: number; unit?: string;
@@ -252,6 +254,52 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
     setCatalog(m => (m[p.id] === p ? m : { ...m, [p.id]: p }));
     setLines(ls => addInvoiceLine(ls, p, c, priceOf, taxCo));
   };
+
+  /* «قارئ الباركود الليزر» (طلب المالك ١١ نوفمبر ٢٠٢٦): قارئ بلوتوث مع الجوال يكتب كلوحة مفاتيح — دفعته في خطوة الأصناف تضيف
+   * الصنف بوحدته الافتراضية كالنقر عليه. والأصناف هنا تُبحث في الخادم (البحث يشمل الباركود)، فالمسح يسأله بالكود نفسه ثم
+   * يطابق تامّاً (الباركود وأصفاره البادئة ثم كود الصنف) — «يحتوي» وحده قد يلتقط صنفاً آخر يتضمّن الرقم */
+  // المسحات المتتابعة تُخدم بالترتيب (طابور) — مسحٌ ثانٍ أثناء سؤال الخادم عن الأول لا يضيع
+  const laserChain = useRef<Promise<void>>(Promise.resolve());
+  // مسحاتٌ لم يُحسم بحثها بعد: «مراجعة» و«إصدار» معطّلان حتى تُحسم — وإلا صدرت فاتورةٌ بلا صنفٍ ظنّه المستخدم أُضيف
+  const [laserBusy, setLaserBusy] = useState(0);
+  // الحالة الحيّة تُقرأ بعد انتظار الخادم لا لقطة لحظة المسح: الخطوة والإصدار الجاري ودالة الإضافة بمسعِّرها الحالي (قائمةٌ بُدّلت
+  // أثناء البحث لا يُسعَّر البند بسابقتها) — تُملأ بعد تعريف save أدناه
+  const laserLive = useRef<{ step: Step; pending: boolean; add: (p: SalePick) => void }>({ step, pending: false, add: () => undefined });
+  const laserAlive = useRef(true);
+  useEffect(() => { laserAlive.current = true; return () => { laserAlive.current = false; }; }, []);
+  useLaserScanner((code) => {
+    setLaserBusy(n => n + 1);
+    // غادر خطوة الأصناف أو بدأ الإصدار أو أُغلقت الشاشة: لا يُضاف شيء — ونغمة خطأ ورسالةٌ تسمّي الباركود فلا يظنّه أُضيف
+    const left = () => !laserAlive.current || laserLive.current.step !== 'items' || laserLive.current.pending;
+    const drop = () => { scanFeedback(false); toast.error(`${tr('لم يضف الصنف')}: ${code}`, { id: 'laser-scan' }); };
+    // catch الأخير: استثناءٌ في مسحٍ (ولو من رسالة خطئه نفسها) لا يكسر السلسلة فتتوقّف المسحات بعده
+    laserChain.current = laserChain.current.then(async () => {
+      try {
+        if (left()) { drop(); return; }
+        // المسح وصل: رسالة انتظارٍ تحلّ محلّها النتيجة (المعرّف نفسه)
+        toast.loading(`${tr('جار البحث')}: ${code}`, { id: 'laser-scan' });
+        // الخادم يبحث بـ«يحتوي»: باركودٌ رقمي يُسأل بلبّه بلا أصفاره البادئة (جزءٌ من كل صيغةٍ بأصفارٍ أكثر أو أقل — UPC-A مخزّن
+        // ومقروء EAN-13، أو أصفارٌ أسقطها استيراد Excel)، والمطابقة التامة بعدها بالمقروء نفسه. ونافذةٌ أوسع فلا يُقصى المقصود
+        // خلف أصنافٍ تتضمّن الرقم، والنشط وحده كفاتورة اللوحة (غير النشط يرفضه الخادم عند الإصدار)
+        const core = code.replace(/^0+(?=\d)/, '');
+        const search = /^\d+$/.test(code) && core.length >= 4 ? core : code;
+        // مهلةٌ لكل بحث: طلبٌ عالقٌ على شبكةٍ ميتة لا يحبس الطابور كلّه دقائق
+        const res = await productApi.list({ search, status: 'ACTIVE', limit: 200 }, { timeout: 8000 });
+        const found = expectArray<SalePick>(res.data?.data, tr('الأصناف'));
+        if (left()) { drop(); return; }
+        const p = findByScan(found as (SalePick & ScanMatchable)[], code);
+        if (!p) { scanFeedback(false); toast.error(`${tr('لا يوجد صنف بهذا الباركود')}: ${code}`, { id: 'laser-scan' }); return; }
+        laserLive.current.add(p);
+        scanFeedback(true);
+        toast.success(p.name, { id: 'laser-scan', duration: 1500 });
+      } catch {
+        scanFeedback(false);
+        toast.error(tr('تعذر البحث عن الصنف'), { id: 'laser-scan' });
+      } finally {
+        setLaserBusy(n => Math.max(0, n - 1));
+      }
+    }).catch(() => undefined);
+  }, step === 'items');
   // البند بمفتاحه (الصنف + الوحدة) لا بالصنف وحده: بندا الكرتون والحبّة يُعدَّلان ويُحذفان كلٌّ وحده — وكمية الصنف تغيّرت فبنوده
   // التي لم تُمسّ تُعاد بالمسعِّر (شريحة «من ١٠ كراتين»)
   const setQty = (key: string, d: number) => setLines(ls => stepInvoiceLine(ls, key, d, catalog, priceOf));
@@ -326,6 +374,8 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
       toast.error(data?.message || tr('تعذر الإصدار'));
     },
   });
+  // «قارئ الباركود الليزر»: ما يقرؤه طابور المسح بعد انتظار الخادم (أعلاه)
+  laserLive.current = { step, pending: save.isPending, add: addProduct };
 
   const headReady = !!customerId && !!salesRepId;
 
@@ -644,14 +694,15 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
           </button>
         )}
         {step === 'items' && (
-          <button onClick={() => setStep('review')} disabled={lines.length === 0}
+          // مسحٌ بالقارئ لم يُحسم بحثه: لا مراجعة قبله (وإلا صدرت الفاتورة بلا صنفه)
+          <button onClick={() => setStep('review')} disabled={lines.length === 0 || laserBusy > 0}
             className="w-full bg-[#E15A30] text-white font-bold py-3.5 rounded-xl min-h-[50px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
-            <ShoppingCart size={17} />
+            {laserBusy > 0 ? <Loader2 size={17} className="animate-spin" /> : <ShoppingCart size={17} />}
             {tr('مراجعة')} · {formatCurrency(totals.total)}
           </button>
         )}
         {step === 'review' && (
-          <button onClick={() => save.mutate()} disabled={save.isPending || lines.length === 0}
+          <button onClick={() => save.mutate()} disabled={save.isPending || lines.length === 0 || laserBusy > 0}
             className="w-full bg-[#2F855A] text-white font-bold py-3.5 rounded-xl min-h-[50px] flex items-center justify-center gap-2 disabled:opacity-60">
             {save.isPending && <Loader2 size={16} className="animate-spin" />}
             {tr('إصدار الفاتورة')}

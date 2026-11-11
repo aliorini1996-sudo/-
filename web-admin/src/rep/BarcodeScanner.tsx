@@ -17,8 +17,10 @@ const HAS_CAMERA = typeof navigator !== 'undefined' && !!navigator.mediaDevices?
 // (BarcodeDetector غير مدعوم في WKWebView). وفي كل الأحوال يوجد بديل إدخال يدوي.
 // onDetect يُستدعى لكل كود مقروء ويُعيد {ok,label} لعرض تأكيد داخل الماسح.
 // onProceed يغلق الماسح وينتقل لمراجعة/إتمام الفاتورة؛ itemCount = عدد الأصناف المُضافة (يظهر حيّاً).
-export default function BarcodeScanner({ onDetect, onClose, onProceed, itemCount }: {
+export default function BarcodeScanner({ onDetect, onClose, onProceed, itemCount, onUseLaser }: {
   onDetect: (code: string) => ScanResult; onClose: () => void; onProceed: () => void; itemCount: number;
+  /** «قارئ الليزر» (طلب المالك ١١ نوفمبر ٢٠٢٦): جهازٌ بقارئٍ مدمج يُفعّله هنا فيصير حقل القارئ مكان الكاميرا */
+  onUseLaser?: () => void;
 }) {
   const tr = useTr();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -128,7 +130,12 @@ export default function BarcodeScanner({ onDetect, onClose, onProceed, itemCount
     <div className="fixed inset-0 bg-black z-[70] flex flex-col" dir="rtl">
       <div className="bg-[#1F1A13] text-white p-4 flex items-center justify-between">
         <span className="font-bold flex items-center gap-2"><ScanLine size={18} /> {tr('مسح الباركود')}</span>
-        <button onClick={onClose} className="p-1 flex items-center gap-1 text-sm"><X size={20} /> {tr('إغلاق')}</button>
+        <div className="flex items-center gap-2">
+          {onUseLaser && (
+            <button onClick={onUseLaser} className="rounded-lg bg-white/10 px-2.5 py-1 text-xs">{tr('لدي قارئ ليزر')}</button>
+          )}
+          <button onClick={onClose} className="p-1 flex items-center gap-1 text-sm"><X size={20} /> {tr('إغلاق')}</button>
+        </div>
       </div>
 
       {!showManual ? (

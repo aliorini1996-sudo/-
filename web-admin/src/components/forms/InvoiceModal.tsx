@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { invoiceApi, customerApi, productApi, salesRepApi, companyApi, lotsApi, priceListApi, vanStockApi } from '../../api/client';
 import { Customer, Product, SalesRep, type PriceListRule } from '../../types';
@@ -36,6 +37,8 @@ import { useAuthStore } from '../../store/authStore';
 import { X, Trash2, Plus, Undo2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SearchableSelect from '../SearchableSelect';
+import { useLaserScanner, scanFeedback } from '../../lib/useLaserScanner';
+import { findByScan } from '../../lib/laserScanner';
 import PriceTypeChips from '../PriceTypeChips';
 import { baseLabelOf, priceListsOf } from '../../lib/priceLists';
 import {
@@ -667,6 +670,36 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   /* بلا فاتورة مختارة والاشتراط قائم (المرحلة الثانية افتراضاً، أو الأولى بالإعداد): لا بنود تُرسل ⇒ أصفار (لا إجماليّ أسطرٍ
    * حرّة مخفيّة لن تُصدر). و«فاتورة من خارج النظام»: إجماليّ الأسطر الحرّة — هي ما يُرسل ويُسعَّر به الإشعار */
   const freeHidden = (phase2 || linkRequired) && !manual;
+
+  /* «قارئ الباركود الليزر» (طلب المالك ١١ نوفمبر ٢٠٢٦): قارئ USB/بلوتوث يكتب كلوحة مفاتيح — دفعته تضيف الصنف مباشرةً كاختياره
+   * من القائمة (أو تزيد كميته)، بلا حقلٍ مركَّز. يعمل حيث تظهر قائمة «أضف صنفا» وحدها: لا مع بنود فاتورة بيعٍ مرتبطة ولا أثناء
+   * الإصدار أو تأكيد نقص السيارة. والمطابقة: الباركود (وأصفاره البادئة) ثم كود الصنف */
+  const canPickProducts = !(isReturn && (linked || loadingSaleId || freeHidden));
+  /* مسحٌ والمؤشّر في حقلٍ من البنود (كمية سطرٍ أو سعره أو إجماليه): أرقام الدفعة دخلت الحقل حرفاً حرفاً قبل أن تُعرف باركوداً
+   * فعدّلت البند مع كل حرف، وإعادة الحقل نصَّه تمرّ بالاشتقاق العكسي (الإجمالي المقرَّب ⇒ سعر وحدةٍ غير سعره) فيخرج البند عن
+   * إعادة التسعير صامتاً. فالبنود تُصوَّر عند أول حرفٍ من الدفعة وتعود كما كانت عند المسح (قبل الإضافة، ولو لم يوجد الصنف)
+   * وعند رفض الدفعة المتعثّرة — والحقل نفسه يعيده الخطّاف */
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
+  const burstLines = useRef<LineItem[] | null>(null);
+  const undoBurst = () => {
+    const snap = burstLines.current;
+    burstLines.current = null;
+    if (!snap) return;
+    linesRef.current = snap; // دفعةٌ تبدأ في المهمة نفسها بعد رفض المتعثّرة تُصوِّر المستعادة لا ما خلّفته أرقامها
+    setLines(snap);
+  };
+  useLaserScanner((code) => {
+    const p = findByScan(products || [], code);
+    // متزامنٌ: دفعةٌ تبدأ في المهمة نفسها (سكونٌ حُسم عند أول مفاتيحها) تُصوِّر البنود بعد هذا المسح لا قبله فلا تمحو إضافته
+    flushSync(() => { undoBurst(); if (p) addProduct(p); });
+    if (!p) { scanFeedback(false); toast.error(`${tr('لا يوجد صنف بهذا الباركود')}: ${code}`, { id: 'laser-scan' }); return; }
+    scanFeedback(true);
+    toast.success(p.name, { id: 'laser-scan', duration: 1500 });
+  }, canPickProducts && !mutation.isPending && !askVanShort, {
+    onBurstStart: () => { burstLines.current = linesRef.current; },
+    onBurstAbort: undoBurst,
+  });
   const shown = linkedCalc ?? (freeHidden ? { subtotal: 0, discountAmt: 0, taxAmt: 0, total: 0 } : { subtotal, discountAmt: totalDiscount, taxAmt: taxTotal, total });
 
   const submitReturn = () => {
@@ -870,7 +903,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                 <div className="grid grid-cols-4 gap-4 items-end">
                   <div className="col-span-2">
                     <label className="label">{tr('رقم الفاتورة الأصلية')} *</label>
-                    <input className="input" dir="ltr" maxLength={RETURN_REF_MAX} value={manualNo} disabled={mutation.isPending}
+                    {/* رقمٌ حرّ لا صنف: قارئٌ يمسح رقم الفاتورة الورقية يكتبه هنا كما هو — لا يُمحى ولا يُبحث عنه صنفاً */}
+                    <input className="input" dir="ltr" data-laser-ignore="" maxLength={RETURN_REF_MAX} value={manualNo} disabled={mutation.isPending}
                       onChange={e => setManualNo(e.target.value)} placeholder="INV-0001" />
                   </div>
                   <div className="col-span-2">
@@ -890,7 +924,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                     : tr('الفوترة الإلكترونية المرحلة الثانية مفعلة: المرتجع يصدر إشعارا دائنا مرتبطا بفاتورة البيع الأصلية وأسعاره من أسعارها')}</p>
                   <div>
                     <label className="label">{tr('سبب الإشعار الدائن')} *</label>
-                    <input className="input" maxLength={NOTE_REASON_MAX} value={noteReason} onChange={e => setNoteReason(e.target.value)}
+                    {/* نصٌّ حرّ: دفعةٌ سريعة فيه (أداة توسيع نصوص، سطح مكتبٍ بعيد) تبقى كما كُتبت لا تُمحى بحثاً عن صنف */}
+                    <input className="input" data-laser-ignore="" maxLength={NOTE_REASON_MAX} value={noteReason} onChange={e => setNoteReason(e.target.value)}
                       placeholder={tr('اكتب سبب الإرجاع كما يظهر في الإشعار الدائن')} />
                   </div>
                 </>
@@ -1043,7 +1078,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
               </div>
             )}
             <div className="flex items-center justify-between mb-2">
-              <label className="label mb-0">{tr('الأصناف')}</label>
+              <label className="label mb-0">{tr('الأصناف')}<span className="ms-2 text-[11px] font-normal text-gray-400">{tr('أو امسح الباركود بالقارئ')}</span></label>
               <div className="w-72">
                 <SearchableSelect
                   placeholder={tr('أضف صنفا')}
@@ -1171,7 +1206,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
 
           <div>
             <label className="label">{tr('ملاحظات')}</label>
-            <textarea className="input" rows={2} value={notes} onChange={e => setNotes(e.target.value)} />
+            {/* الملاحظات نصٌّ حرّ كذلك: نصٌّ سريع فيها يبقى كما كُتب، ومسحٌ والمؤشّر فيها يظهر أرقاماً تُرى فتُحذف — لا محوٌ صامت لما كُتب */}
+            <textarea className="input" data-laser-ignore="" rows={2} value={notes} onChange={e => setNotes(e.target.value)} />
           </div>
         </div>
 

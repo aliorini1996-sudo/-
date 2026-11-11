@@ -83,7 +83,8 @@ export const customerApi = {
 };
 
 export const productApi = {
-  list: (params?: Record<string, string | number>) => api.get('/products', { params }),
+  // cfg اختياري (مهلة طلب المسح بالقارئ الليزر في /m) — والنداءات القائمة بلا مهلة كما كانت
+  list: (params?: Record<string, string | number>, cfg?: { timeout?: number }) => api.get('/products', { params, ...cfg }),
   get: (id: string) => api.get(`/products/${id}`),
   // «الوحدة الرئيسية»: الجسم يقبل units[] وprimaryUnitName للإنشاء العكسي الذرّي (الصنف ووحداته ورئيسيّه في معاملة واحدة)،
   // وbasePrice اختيارياً حينها (يُشتقّ من سعر الرئيسية: derivedBasePrice). وunits بلا primaryUnitName يُتجاهل كما قبل الميزة

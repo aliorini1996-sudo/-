@@ -41,6 +41,9 @@ import AppIntro from '../components/AppIntro';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
 import SearchableSelect from '../components/SearchableSelect';
 import BarcodeScanner from './BarcodeScanner';
+import LaserScanField, { readLaserPref, writeLaserPref } from './LaserScanField';
+import { useLaserScanner, scanFeedback } from '../lib/useLaserScanner';
+import { scanMatcher } from '../lib/laserScanner';
 import SaleInvoicePicker, { type ReturnableSale } from './SaleInvoicePicker';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT, useTr } from '../i18n/strings';
@@ -1905,7 +1908,7 @@ function docCustomerOf<C>(c: C): C {
   return postal && !raw?.postalCode ? { ...c, postalCode: postal } : c;
 }
 
-function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone, onPermsStale, onCompanyStale }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void; /** صلاحيات المندوب ونوعه الافتراضي وأنواعه المسموحة من /auth/me الآن (refreshUser) — بعد رفضٍ سعريّ */ onPermsStale?: () => void; /** إعدادات الشركة من الخادم الآن (/company وكاشها) — بعد 409 TAX_MODE_CHANGED */ onCompanyStale?: () => void }) {
+function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone, onPermsStale, onCompanyStale, laserBlocked = false }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void; /** صلاحيات المندوب ونوعه الافتراضي وأنواعه المسموحة من /auth/me الآن (refreshUser) — بعد رفضٍ سعريّ */ onPermsStale?: () => void; /** إعدادات الشركة من الخادم الآن (/company وكاشها) — بعد 409 TAX_MODE_CHANGED */ onCompanyStale?: () => void; /** «قارئ الليزر»: الفاتورة مغطّاة (حاجز الموقع أو «أثبت تواجدك») — القارئ لا يعدّل سلّةً تحت الغطاء ولا يُسمع «نجاحاً» لا يُرى */ laserBlocked?: boolean }) {
   const tr = useTr();
   const lots = useContext(RepLotsContext); // «تتبّع اللوط» (§٦.٣)
   const isReturn = mode === 'return';
@@ -1975,6 +1978,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     : retManualOk && !manualMode ? tr('اختر فاتورة البيع الأصلية أو فاتورة من خارج النظام') : null;
   const [showCart, setShowCart] = useState(false); // عرض الأصناف المختارة للمراجعة قبل الإصدار
   const [showScanner, setShowScanner] = useState(false); // ماسح الباركود
+  // «قارئ الليزر» (طلب المالك ١١ نوفمبر ٢٠٢٦): تفضيل هذا الجهاز يُظهر حقل القارئ بدل زر الكاميرا، وآخر مسحٍ يُعرض لحظةً
+  const [laserOn, setLaserOn] = useState(readLaserPref);
+  const [laserFlash, setLaserFlash] = useState<{ ok: boolean; pending?: boolean; label: string; n: number } | null>(null);
   const [loading, setLoading] = useState(false);
   // مفتاح المحاولة: إعادة الضغط بالمحتوى نفسه تحمل clientRef نفسه (attemptClientRef) — لا مستند ثانٍ إن ضاع ردّ الأول
   const attempt = useRef<{ key: string; ref: string } | null>(null);
@@ -2273,7 +2279,10 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     const cap = lotCapOf(productId, stored, pend);
     return cap != null && cartBaseOf(rows, productId) + addBase > cap + LOT_EPS ? cap : null;
   };
+  // عدّاد الإضافات: إضافةٌ وصل حكم لوطها أثناء دفعة قارئٍ في خانة بند لا تطمسها إعادة السلّة بعد الدفعة (laserRestore)
+  const cartAdds = useRef(0);
   const commitAdd = (p: any, c0: UnitChoice, stored: StoredVanLots | null = lotStored, pend: PendingOut = lotPending) => {
+    cartAdds.current++;
     if (lotNote) setLotNote('');
     cartRef.current = addLine(cartRef.current, p, c0);
     // تحديث دالّي + نسخ غير مُفسِد — يضمن صحّة المسح السريع المتتابع للباركود. والمتاح يُحكَّم داخله على السلّة الفعلية
@@ -2377,17 +2386,68 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   };
 
   // مسح باركود مستمرّ → إيجاد الصنف بحقل barcode وإضافته؛ يُعيد نتيجة للعرض داخل الماسح (يبقى مفتوحاً)
-  const onScan = (code: string): { ok: boolean; label: string } => {
-    const p = teamProducts.find((x) => x.barcode && String(x.barcode) === code);
+  // المطابقة المشتركة (lib/laserScanner): الباركود تامّاً أو بأصفاره البادئة (UPC-A/EAN-13)، ثم كود الصنف — للكاميرا والقارئ سواء
+  const onScan = (code: string): { ok: boolean; label: string; later?: Promise<{ ok: boolean; label: string }> } => {
+    // نوع المطابقة (باركود أم كود الصنف) يُحسم على الأصناف **كلّها** ثم يُبحث به في أصناف الفريق: باركود صنفٍ مستبعَد (فريقٌ آخر
+    // أو قيد مندوب) يُقال سببه ولا يسقط إلى كود صنفٍ آخر يساويه فيُضاف غيره بنغمة نجاح
+    const match = scanMatcher(products, code);
+    const p = teamProducts.find((x) => match(x, code));
     // «قيود المندوب»: صنفٌ ممنوعٌ على المندوب في هذا الفعل يُقال سببه (قبل رسالة الفريق التي كانت ستلتقطه)
-    const repBlocked = p ? null : products.find((x) => x.barcode && String(x.barcode) === code && repBlockKey(x, repAction));
+    const repBlocked = p ? null : products.find((x) => match(x, code) && repBlockKey(x, repAction));
     if (repBlocked) return { ok: false, label: tr(repBlockKey(repBlocked, repAction)!) };
     // صنفٌ مسجَّل لكنه ليس من أصناف الفريق الحالي: يُقال ذلك لا «لا يوجد صنف» (فيظنه المندوب باركوداً غير مسجّل)
-    if (!p && products.some((x) => x.barcode && String(x.barcode) === code)) return { ok: false, label: tr('الصنف ليس من أصناف فريقك الحالي بدل الفريق') };
+    if (!p && products.some((x) => match(x, code))) return { ok: false, label: tr('الصنف ليس من أصناف فريقك الحالي بدل الفريق') };
     // قيد المرتجع و«تتبّع اللوط» (المتاح في السيارة) يُقالان داخل الماسح، والإضافة على السلّة الأحدث
     if (p) return addProduct(p, true);
     return { ok: false, label: `${tr('لا يوجد صنف بهذا الباركود')}: ${code}` };
   };
+
+  /* «قارئ الليزر»: كل مسحٍ يضيف الصنف مباشرةً (أو يزيد كميته) بنغمةٍ واهتزاز، ونتيجته شريطٌ لحظيّ أعلى الشاشة — وحكم
+   * «تتبّع اللوط» المتأخّر (later) يحلّ محلّ الأول حين يصل. والمستمع العام يعمل بلا حقلٍ مركَّز ما دام ماسح الكاميرا
+   * ومنتقي فاتورة البيع مغلقَين (للكاميرا إدخالها اليدوي، فلا إضافة مرّتين) وبلا إصدارٍ جارٍ ولا غطاءٍ فوق الفاتورة (laserBlocked) */
+  const laserSeq = useRef(0);
+  const showLaser = (r: { ok: boolean; label: string }, pending = false) => {
+    const n = ++laserSeq.current;
+    // حكمٌ معلّق (later): شريطٌ محايد بلا نغمةٍ ولا اهتزاز — لا «فشل» مسموعٌ ثم «نجاح» لصنفٍ أُضيف فيعيد المندوب مسحه
+    if (!pending) scanFeedback(r.ok);
+    setLaserFlash({ ok: r.ok, pending, label: r.label, n });
+    window.setTimeout(() => setLaserFlash(f => (f && f.n === n ? null : f)), pending ? 8000 : 2500);
+  };
+  const onLaser = (code: string) => {
+    const r = onScan(code);
+    if (!r.later) { showLaser(r); return; }
+    showLaser(r, true);
+    // النغمة حين يصل الحكم وحده — وإن تعثّر فلم يُضف شيء: يُقال ذلك ولا يبقى «جار التحقق» معلّقاً
+    r.later.then(x => showLaser(x)).catch(() => { lotUnsayChecking(); showLaser({ ok: false, label: tr('اتصل مرة لتحديث أرصدة السيارة') }); });
+  };
+  /* مسحٌ والتركيز في خانة بندٍ في السلّة (كمية/سعر/خصم/إجمالي): القارئ كتب أرقامه فيها قبل أن تُعرف الدفعة باركوداً، وكل حرفٍ
+   * التزم بالسلّة — فتحرّك الإجمالي فأسقط التوقيع، أو قصّ اللوط فقال رسالته. المستمع يعيد نصّ الخانة، وهنا تُعاد السلّة والتوقيع
+   * والرسالة كما كانت قبل أول حرف: قبل إضافة الصنف الممسوح، وبلا إضافةٍ لدفعةٍ مرفوضة. والتوقيع المُعاد يحرسه مؤثّر الإجمالي:
+   * إن تغيّر الإجمالي فعلاً (الصنف أُضيف) سقط كما يجب */
+  const laserLive = useRef({ signatures, sigDropped, msg, lotNote });
+  laserLive.current = { signatures, sigDropped, msg, lotNote };
+  const laserSnap = useRef<{ lines: any[]; adds: number; signatures: typeof signatures; sigDropped: boolean; msg: string; lotNote: string } | null>(null);
+  const laserBurstStart = () => {
+    const a = document.activeElement;
+    // لا خانة سلّةٍ مركَّزة: الدفعة لا تمسّ السلّة فلا لقطة (فلا يُطمس ما تغيّر أثناءها). والنسخ لأن upd يعدّل البند في مكانه
+    laserSnap.current = a instanceof HTMLElement && a.closest('[data-laser-cart]')
+      ? { lines: cartRef.current.map(l => ({ ...l })), adds: cartAdds.current, ...laserLive.current } : null;
+  };
+  const laserRestore = () => {
+    const s = laserSnap.current;
+    laserSnap.current = null;
+    if (!s) return;
+    // سلّةٌ أُضيف إليها أو تغيّر شكلها أثناء الدفعة (حكم لوطٍ وصل، بندٌ حُذف) لم تغيّرها حروف القارئ: تبقى كما هي
+    const shape = (rows: any[]) => rows.map(l => `${l.saleItemId ?? ''}|${lotLineKey(l)}`).join(',');
+    if (cartAdds.current === s.adds && shape(cartRef.current) === shape(s.lines)) { cartRef.current = s.lines; setLines(s.lines); }
+    const cur = laserLive.current;
+    if (cur.signatures !== s.signatures) { setSignatures(s.signatures); setSigDropped(s.sigDropped); setSigPadKey(k => k + 1); }
+    if (cur.msg !== s.msg) setMsg(s.msg);
+    if (cur.lotNote !== s.lotNote) setLotNote(s.lotNote);
+  };
+  // المستمع العام وحقل القارئ يعملان معاً أو يسكتان معاً (الحقل لا يُركَّب والمستمع مطفأ)
+  const laserActive = !showScanner && !pickSale && !loading && !laserBlocked;
+  useLaserScanner((code) => { laserRestore(); onLaser(code); }, laserActive, { onBurstStart: laserBurstStart, onBurstAbort: laserRestore });
 
   // حدود صلاحيات المندوب (تُفرض أيضاً في الخادم كحارس نهائي)
   const maxDisc = perms?.maxDiscountPct ?? 0;
@@ -2935,7 +2995,16 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           onClose={() => setShowScanner(false)}
           onProceed={() => { setShowScanner(false); setShowCart(true); }}
           itemCount={lines.length}
+          onUseLaser={() => { writeLaserPref(true); setLaserOn(true); setShowScanner(false); }}
         />
+      )}
+      {laserFlash && (
+        <div role="status" aria-live="polite"
+          className={`fixed top-3 inset-x-3 z-[65] rounded-xl px-4 py-2.5 flex items-center gap-2 text-white shadow-lg ${laserFlash.pending ? 'bg-[#6B5E4E]' : laserFlash.ok ? 'bg-[#1E7A52]' : 'bg-[#C0392B]'}`}>
+          {/* الحكم المعلّق (رصيد السيارة) محايدٌ لا أحمر: لم يفشل شيءٌ بعد */}
+          {laserFlash.pending ? <RefreshCw size={16} className="animate-spin" /> : laserFlash.ok ? <Check size={16} /> : <X size={16} />}
+          <span className="text-sm font-semibold truncate">{laserFlash.label}</span>
+        </div>
       )}
       <div className={`${isReturn ? 'bg-amber-700' : 'bg-[#1F1A13]'} text-white p-4 flex items-center gap-3`}>
         <button onClick={() => showCart ? setShowCart(false) : onClose()}><ArrowRight size={20} /></button>
@@ -2996,8 +3065,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                       <div className="bg-white border border-amber-200 rounded-xl p-2 space-y-2">
                         <div>
                           <label className="text-[10px] text-gray-500 block mb-1">{tr('رقم الفاتورة الأصلية')} *</label>
+                          {/* data-laser-ignore: رقم فاتورةٍ يُمسح من ورقتها يُكتب هنا كما هو — لا يلتقطه المستمع العام صنفاً فيمحوه */}
                           <input dir="ltr" maxLength={RETURN_REF_MAX} value={manualNo} onChange={e => setManualNo(e.target.value)}
-                            placeholder="INV-0001" className="input !py-1.5 text-sm" />
+                            placeholder="INV-0001" data-laser-ignore="" className="input !py-1.5 text-sm" />
                         </div>
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-[11px] text-gray-600">{tr('طريقة الدفع في الفاتورة الأصلية')} *:</span>
@@ -3085,6 +3155,11 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
               </div>
             )}
             {/* «اشتراط اختيار فاتورة البيع للمرتجع»: لا بحث ولا ماسح قبل مصدر الفاتورة (returnBlock يمنع الإضافة أيضاً) */}
+            {/* «قارئ الليزر» مفعّلاً على هذا الجهاز: حقله المركَّز بدل زر الكاميرا (وفيه زر العودة إليها) — ولا يُركَّب إلا والمستمع
+              * العام يعمل (laserActive): لا حقل مركَّزاً خلف منتقي فاتورة البيع أو تحت غطاء الموقع يضيف أصنافاً لا تُرى */}
+            {!retSourceBlock && laserOn && laserActive && (
+              <LaserScanField onScan={onLaser} onUseCamera={() => { writeLaserPref(false); setLaserOn(false); setShowScanner(true); }} />
+            )}
             {!retSourceBlock && (
             <div className="mb-2 flex items-stretch gap-2">
               <div className="flex-1">
@@ -3097,10 +3172,12 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                   onChange={(v) => { const p = teamProducts.find(x => x.id === v); if (p) addProduct(p); }}
                 />
               </div>
+              {!laserOn && (
               <button type="button" onClick={() => setShowScanner(true)} title={tr('مسح الباركود')}
                 className="shrink-0 px-3 rounded-xl bg-[#1F1A13] text-white flex items-center justify-center">
                 <ScanLine size={18} />
               </button>
+              )}
             </div>
             )}
           </div>
@@ -3168,7 +3245,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           <div className="flex-1 overflow-y-auto p-4">
             {lines.map((l, i) => (
               // المفتاح بند البيع أو الصنف بوحدته: الصنف نفسه قد يُباع بكرتونٍ وحبّة في بندين
-              <div key={l.saleItemId ?? `${l.productId}:${l.unitId ?? ''}`} className="bg-white rounded-xl p-3 mb-2 border border-gray-100">
+              // data-laser-cart: مسحٌ يبدأ وخانةٌ هنا مركَّزة تُعاد بعده السلّة والتوقيع كما كانا (laserBurstStart)
+              <div key={l.saleItemId ?? `${l.productId}:${l.unitId ?? ''}`} data-laser-cart="" className="bg-white rounded-xl p-3 mb-2 border border-gray-100">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center overflow-hidden flex-shrink-0">
                     {l.image ? <img src={l.image} alt="" className="w-full h-full object-cover" /> : <ImageIcon size={16} className="text-gray-300" />}
@@ -5847,9 +5925,11 @@ export default function RepApp() {
               onOpenDoc={(doc) => { setDocBack('customerDetail'); setModal(null); setDocResult(doc); }} />
           ) : modal === 'createInvoice' && selectedCustomer ? (
             <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} perms={user} onPermsStale={() => { void refreshUser(); }} onCompanyStale={() => pullCompanyRef.current()} onClose={() => setModal('customerDetail')}
+              laserBlocked={gateShown || !!presence}
               onDone={(doc) => { setModal(null); setRefreshKey(k => k + 1); setDocResult(doc); }} />
           ) : modal === 'createReturn' && selectedCustomer ? (
             <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} mode="return" perms={user} onPermsStale={() => { void refreshUser(); }} onCompanyStale={() => pullCompanyRef.current()} onClose={() => setModal('customerDetail')}
+              laserBlocked={gateShown || !!presence}
               onDone={(doc) => { setModal(null); setRefreshKey(k => k + 1); setDocResult(doc); }} />
           ) : modal === 'createReceipt' && selectedCustomer ? (
             <CreateReceipt customer={selectedCustomer} repName={user.name} company={company} perms={user} onClose={() => setModal('customerDetail')}
