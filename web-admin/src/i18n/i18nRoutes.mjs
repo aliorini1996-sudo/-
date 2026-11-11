@@ -206,6 +206,41 @@ export function newClusterMembers(key, reg) {
   return newMembers(key, reg, LEGACY_FIXED_CODES[key] || []);
 }
 
+/**
+ * انضمام صفحة إلى عنقودها (نشرها الأول) — لـlastmod الخرائط: pagesSince[pageKey] إن أُضيفت الصفحة بعد نشر لغتها (صفحات
+ * الطبقة A للغات القديمة en وfr وtr وzh منذ ١١ نوفمبر ٢٠٢٦)، وإلا since اللغة (نشرها الأول) إن سجّله المستورد، وإلا
+ * contentDate (يساوي النشر الأول ما لم يتغيّر المحتوى بعده — والمستورد يكتب since حين يفترقان).
+ */
+export function pageSinceOf(loc, pageKey) {
+  return (loc && ((loc.pagesSince && loc.pagesSince[pageKey]) || loc.since || loc.contentDate)) || null;
+}
+
+/** آخر تغيّر في أعضاء عنقود: أحدث انضمام بين أعضائه الجدد (القدامى الثابتون سابقون للطبقة)، أو null بلا أعضاء */
+export function clusterChangedAt(key, reg) {
+  const pageKey = pageKeyOfCluster(key);
+  const skip = new Set(LEGACY_FIXED_CODES[key] || []);
+  let best = null;
+  for (const loc of (reg && reg.locales) || []) {
+    if (skip.has(loc.code) || !(loc.pages || []).includes(pageKey)) continue;
+    const d = pageSinceOf(loc, pageKey);
+    if (d && (!best || d > best)) best = d;
+  }
+  return best;
+}
+
+/**
+ * lastmod صفحة من الطبقة: أحدث تاريخ مسجّل لتغيّرٍ فيها — محتوى لغتها (contentDate)، أو نشرها الأول (pageSinceOf)، أو
+ * انضمام عضو جديد إلى عنقودها (روابط hreflang في رأسها تتغيّر). كانت contentDate وحدها، فحملت صفحات /en/features/ وأخواتها
+ * (نُشرت ١١ نوفمبر ٢٠٢٦) تاريخ ٨ نوفمبر، وبقيت خرائط اللغات التي تغيّرت بدائلها على تاريخها القديم ومعها الفهرس.
+ * لا «اليوم»: كلها تواريخ من السجل الملتزم، فلا تتجدّد بلا تغيير ولا تقع في المستقبل. بلا تاريخ ⇒ fallback.
+ */
+export function i18nLastmod(page, reg, fallback = null) {
+  const loc = ((reg && reg.locales) || []).find((l) => l.code === page.code);
+  const dates = [loc && loc.contentDate, pageSinceOf(loc, page.pageKey), page.clusterKey ? clusterChangedAt(page.clusterKey, reg) : null]
+    .filter(Boolean).sort();
+  return dates.pop() || fallback;
+}
+
 /** مفتاح عنقود الصفحات القديمة الممدَّدة: '/' ⇒ home · '/about' ⇒ about · '/contact' ⇒ contact */
 export function legacyClusterKey(arPath) {
   const p = String(arPath ?? '').replace(/\/+$/, '') || '/';

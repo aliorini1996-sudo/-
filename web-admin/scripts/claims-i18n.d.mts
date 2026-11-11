@@ -9,6 +9,10 @@ export const CERT_ALL: RegExp;
 export const ENGLISH_LEXIFIER: readonly string[];
 export function englishCopies(code: string, strings: Record<string, string>, enStrings: Record<string, string>): string[];
 export function certRuleFor(code: string): RegExp | null;
+export const DENSE_DESC_LANGS: readonly string[];
+export const DESC_BOUNDS: Readonly<{ default: readonly [number, number]; dense: readonly [number, number] }>;
+/** [الأدنى، الأعلى] لطول وصف meta بالمحارف بحسب كتابة اللغة */
+export function metaDescBounds(code: string): readonly [number, number];
 export function toAsciiDigits(s: string): string;
 export const YEAR_RE: RegExp;
 export const YEAR_KEYS: readonly string[];

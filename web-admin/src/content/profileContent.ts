@@ -38,8 +38,54 @@ export const PROFILE_LANG_LABEL: Record<ProfileLang, string> = {
   zh: '中文',
 };
 
-// وصف الحقول — يقود محرر المالك والصفحة معاً (المفتاح ثابت والنص حر)
-export const PROFILE_FIELDS: { key: string; label: string; multiline?: boolean; hint?: string }[] = [
+/**
+ * عنوان كل نسخة لغوية ووصفها — **مصدر واحد** للصفحة (useSeo في ProfilePage.tsx) وللتصيير المسبق
+ * (scripts/prerender.mjs: ‎/profile/‎ و‎/en/profile/‎ و‎/fr/profile/‎ و‎/tr/profile/‎ و‎/zh/profile/‎)، فلا يقرأ الزاحف
+ * عنواناً غير الذي يكتبه React بعد الإقلاع. كانت الصفحة رابطاً واحداً تتبدّل لغته داخلها ورأسه رأس الرئيسية
+ * (canonical «/») فلا تُفهرس أي لغة منها.
+ * والتموضع عالمي (شركات التوزيع في كل دول العالم) بلا سعر (لا سعر ظاهر في الموقع — قرار المالك ٢٧ أكتوبر ٢٠٢٦)،
+ * والوصف ≤155 حرفاً بكل لغة (جوجل يقتطع الأطول) — يحرسه profileContent.test.ts.
+ * quote: نصّ رابط «اطلب عرض سعر» في ملخّص الزاحف مكان بنود الاشتراك.
+ */
+export const PROFILE_SEO: Record<ProfileLang, { title: string; description: string; quote: string }> = {
+  ar: {
+    title: 'الملف التعريفي لفيلد سيلز | FieldSales',
+    description: 'الملف التعريفي لفيلد سيلز: منصّة سحابية لإدارة مناديب المبيعات والتوزيع لشركات التوزيع في كل دول العالم، مقرها الرياض. تصفّحه أو نزّله PDF.',
+    quote: 'اطلب عرض سعر',
+  },
+  en: {
+    title: 'FieldSales Company Profile',
+    description: 'Company profile of FieldSales, the Riyadh-based cloud platform for field sales and distribution teams in every country. View online or download the PDF.',
+    quote: 'Request a quote',
+  },
+  fr: {
+    title: 'Profil de l’entreprise FieldSales',
+    description: 'Profil de FieldSales, plateforme cloud basée à Riyad pour gérer les commerciaux terrain et la distribution dans tous les pays. À lire en ligne ou en PDF.',
+    quote: 'Demander un devis',
+  },
+  tr: {
+    title: 'FieldSales Şirket Tanıtımı',
+    description: 'FieldSales tanıtım dosyası: her ülkedeki dağıtımcılar için saha satış ve dağıtım yönetimi bulut platformu, merkezi Riyad. Görüntüleyin veya PDF indirin.',
+    quote: 'Teklif isteyin',
+  },
+  zh: {
+    title: 'FieldSales 公司简介',
+    description: 'FieldSales 公司简介：面向全球各国分销企业的外勤销售与分销管理云平台，总部位于利雅得。可在线浏览或下载 PDF。',
+    quote: '索取报价',
+  },
+};
+
+/**
+ * حقول تُقرأ **دائماً من المستودع** (PROFILE_DEFAULTS) لا من CMS: قسم الاشتراك (عنوانه وبنوده).
+ *
+ * لماذا (١١ نوفمبر ٢٠٢٦): صار ‎/profile/‎ مُفهرساً بلغاته الخمس، والصفحة تدمج profileV3 من CMS بعد الإقلاع — وفي CMS
+ * الحيّ بنود اشتراك قديمة بأسعار ظاهرة (299/399/599) و«باقتان/Two plans» والباقات ثلاث. وقرار المالك «لا سعر ظاهر في
+ * الموقع» (السعر بطلب عرض)، فيُثبَّت القسم على نصّ المستودع بلا رقم سعر، ولا يُكتب على CMS. والمحرّر يعرضه للقراءة فقط.
+ */
+export const PROFILE_REPO_KEYS: readonly string[] = ['model_title', 'model_items'];
+
+// وصف الحقول — يقود محرر المالك والصفحة معاً (المفتاح ثابت والنص حر). locked: من المستودع (PROFILE_REPO_KEYS)
+export const PROFILE_FIELDS: { key: string; label: string; multiline?: boolean; hint?: string; locked?: boolean }[] = [
   { key: 'cover_title', label: 'عنوان الغلاف' },
   { key: 'cover_promise', label: 'سطر الوعد تحت العنوان', multiline: true },
   { key: 'problem_title', label: 'المشكلة العنوان' },
@@ -56,8 +102,8 @@ export const PROFILE_FIELDS: { key: string; label: string; multiline?: boolean; 
   { key: 'why_body', label: 'لماذا نحن النص', multiline: true },
   { key: 'journey_title', label: 'الرحلة العنوان' },
   { key: 'journey_stations', label: 'الرحلة المحطات', multiline: true, hint: 'كل سطر التاريخ | الحدث' },
-  { key: 'model_title', label: 'الاشتراك العنوان' },
-  { key: 'model_items', label: 'الاشتراك البنود', multiline: true, hint: 'كل سطر بند مرقم' },
+  { key: 'model_title', label: 'الاشتراك العنوان', locked: true, hint: 'ثابت من المستودع: لا سعر ظاهر، والسعر بعرض سعر' },
+  { key: 'model_items', label: 'الاشتراك البنود', multiline: true, locked: true, hint: 'ثابتة من المستودع: لا سعر ظاهر، والسعر بعرض سعر' },
   { key: 'numbers_title', label: 'الارقام العنوان' },
   { key: 'numbers_items', label: 'الارقام', multiline: true, hint: 'كل سطر الرقم | الوصف' },
   { key: 'roadmap_title', label: 'القدرات الاضافية العنوان' },
@@ -554,10 +600,14 @@ export const sectionOn = (c: ProfileContent, section: string) => c.ar[showKey(se
  * يدمج ما حفظه المالك فوق الافتراضي — الحقل المحفوظ يفوز، والغائب يبقى افتراضياً.
  * والدمج يمرّ على `PROFILE_LANGS` لا على لغتين مكتوبتين بأيديهما: إضافة لغة سادسة
  * يوماً ما تصير سطراً في المصفوفة، لا صيداً لكل موضعٍ نُسي فيه اسمها.
+ * عدا PROFILE_REPO_KEYS: نصّ المستودع يفوز دائماً (قسم الاشتراك بلا سعر ظاهر) — المحفوظ فيها يُهمل.
  */
 export function mergeProfile(saved: Partial<ProfileContent> | null | undefined): ProfileContent {
   const out = {} as ProfileContent;
-  for (const l of PROFILE_LANGS) out[l] = { ...PROFILE_DEFAULTS[l], ...(saved?.[l] || {}) };
+  for (const l of PROFILE_LANGS) {
+    out[l] = { ...PROFILE_DEFAULTS[l], ...(saved?.[l] || {}) };
+    for (const k of PROFILE_REPO_KEYS) out[l][k] = PROFILE_DEFAULTS[l][k];
+  }
   return out;
 }
 

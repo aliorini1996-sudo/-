@@ -480,3 +480,26 @@ test('صفحات الكتالوج السعودية وأسواق المقاصّة
   assert.match(sa('en'), /Phase 2 integration with ZATCA’s Fatoora platform enabled, invoices \(standard and simplified\) and returns need a connection at the moment of issue/);
   assert.match(sa('fr'), /phase 2 avec la plateforme Fatoora est activée, factures \(standard et simplifiées\) et retours exigent une connexion à l’émission/);
 });
+
+/**
+ * الصفحات الجامعة (REGION، ٢٩ صفحة): جواب «هل يعمل النظام…» يصف الكيان فيتموضع عالمياً، و«بعملة العملة المحلية» تكرار
+ * لفظي في FAQ وHowTo (١١ نوفمبر ٢٠٢٦). وتاريخ تعديلها يتبع التغيير (lastmod وdateModified)، وصفحات الدول لا تتغيّر.
+ */
+test('الصفحات الجامعة: جواب التوافر عالمي بلا «بعملة العملة»، وتاريخ تعديلها يتبعه وحدها', () => {
+  const all = buildCatalog();
+  const region = all.filter((e) => !e.cc);
+  assert.equal(region.length, 29);
+  for (const e of all) {
+    for (const L of LANGS) {
+      const a = getArticle(e.slug, L) as { faq?: { q: string; a: string }[]; howto?: { text: string }[]; contentHtml: string } | null;
+      if (!a) continue;
+      const blob = JSON.stringify([a.faq, a.howto]) + a.contentHtml;
+      assert.ok(!/بعملة العملة/.test(blob), `${e.slug}.${L}: «بعملة العملة»`);
+      if (e.cc) continue;
+      const ans = (a.faq || []).find((f) => /هل يعمل النظام|Does it work|Fonctionne-t-il/.test(f.q))?.a || '';
+      assert.match(ans, L === 'ar' ? /في كل دول العالم/ : L === 'en' ? /in every country/ : /de tous les pays/, `${e.slug}.${L}: «${ans}»`);
+    }
+  }
+  assert.ok(region.every((e) => e.modified === '2026-11-11'), 'تاريخ تعديل الصفحات الجامعة لا يتبع التغيير');
+  assert.ok(all.filter((e) => e.cc).every((e) => e.modified < '2026-11-11'), 'صفحات الدول لم تتغيّر فلا يُرفع تاريخها');
+});

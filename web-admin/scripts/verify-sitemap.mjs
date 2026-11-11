@@ -63,7 +63,8 @@ const VERBOSE = argv.includes('--verbose');
  */
 const APP_ROUTES = [
   /^\/(?:(?:en|fr|tr|zh)\/)?subscribe-request\/?$/,
-  /^\/(?:signup|login|verify-email|tutorial|profile|rep|m|ax)\/?$/,
+  // ‎/profile/‎ ليست هنا منذ ١١ نوفمبر ٢٠٢٦: صارت صفحة مُصيَّرة بلغاتها الخمس، فغياب صفحتها عطل يُكشف
+  /^\/(?:signup|login|verify-email|tutorial|rep|m|ax)\/?$/,
   /^\/payment\/success\/?$/,
   /^\/app(?:\/.*)?$/,
   /^\/(?:c|pay|e)\/[^/]+(?:\/.*)?$/,

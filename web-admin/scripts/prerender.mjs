@@ -24,6 +24,7 @@ import { fetchPublicCms, postUrl } from './cms-content.mjs';
 // الذي يرسمه React حرفياً بعد الإقلاع (I18nMarketingPage.tsx) — لا نسخة ثانية هنا.
 import { i18nPages, clusterAlternates, canon as i18nCanon } from '../src/i18n/i18nRoutes.mjs';
 import { renderI18nPage, vatMapFrom } from '../src/i18n/marketingTemplate.mjs';
+import { SUPPORT_SCHEMA_LANG_NAMES } from '../src/content/entity-facts.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** JSON من المستودع نسبةً إلى web-admin/ (السجل المنشور وملفات المحتوى وقائمة الدول — يولّدها import-i18n وbuild-world-countries) */
@@ -376,7 +377,13 @@ async function main() {
     .replace(
       /("description"\s*:\s*")تجربة مجانية[^"]*(")/,
       `$1تجربة مجانية 10 أيام بلا بطاقة ائتمان. الاشتراك شهري لكل شركة لا لكل مستخدم: ${pricing.arSummary}.$2`,
-    );
+    )
+    // لغات التواصل في ContactPoint = لغات **فريق المبيعات والدعم** (CONTACT.supportLanguages في entity-facts.mjs) لا لغات
+    // الواجهة: من يردّ على الهاتف والبريد. مصدرها الواحد هناك يعدّله المالك، وما في index.html يُستبدل به في كل صفحة.
+    .replace(/("contactPoint"\s*:\s*\{[^{}]*?"availableLanguage"\s*:\s*)\[[^\]]*\]/, `$1${JSON.stringify(SUPPORT_SCHEMA_LANG_NAMES)}`);
+  if (!template.includes(JSON.stringify(SUPPORT_SCHEMA_LANG_NAMES))) {
+    throw new Error('prerender: لم أجد contactPoint.availableLanguage في كتلة JSON-LD بـindex.html (غيّر الاستبدال مع شكلها)');
+  }
   if (!fs.existsSync(path.join(DIST, 'index.html'))) { console.error('لا يوجد dist/index.html — شغّل vite build أولاً'); process.exit(0); }
   let n = 0;
 
@@ -493,12 +500,14 @@ async function main() {
   for (const L of LANGS) {
     const prefix = L === 'ar' ? '' : `/${L}`;
     const canonical = canon(`${ORIGIN}${prefix}/blog`);
-    const title = tr(L, 'المدوّنة | FieldSales — مقالات المبيعات الميدانية والتوزيع في الدول العربية',
-      'Blog | FieldSales — Field Sales & Distribution Articles across Arab Countries',
-      'Blog | FieldSales — Articles sur la vente terrain et la distribution dans les pays arabes');
-    const desc = tr(L, 'مئات المقالات والدلائل في إدارة المبيعات الميدانية والفوترة الإلكترونية والتوزيع لكل الدول العربية.',
-      'Hundreds of guides on field sales, e-invoicing and distribution for every Arab country.',
-      'Des centaines de guides sur la vente terrain, la facturation électronique et la distribution pour chaque pays arabe.');
+    // العنوان والوصف حرفياً كما في useSeo بـsrc/pages/BlogIndexPage.tsx — بلا حصر في «الدول العربية» (التموضع عالمي،
+    // قرار المالك ١١ نوفمبر): أدلّة الدول موضوعُ مقالاتها، والفهرس يصف المدوّنة لا سوقاً بعينها.
+    const title = tr(L, 'المدوّنة | FieldSales — مقالات المبيعات الميدانية والتوزيع',
+      'Blog | FieldSales — Field Sales & Distribution Articles',
+      'Blog | FieldSales — Articles sur la vente terrain et la distribution');
+    const desc = tr(L, 'مئات المقالات والدلائل في إدارة المبيعات الميدانية والفوترة الإلكترونية والتحصيل والتوزيع، وأدلّة خاصة بالدول.',
+      'Hundreds of guides on field sales, e-invoicing, collection and distribution, with country-specific guides.',
+      'Des centaines de guides sur la vente terrain, la facturation électronique, l’encaissement et la distribution, avec des guides par pays.');
     // المدموجة (P3) لا تُربط من الفهرس — كالصفحات غير القانونية من الكتالوج أدناه
     const manualLinks = L === 'fr' ? [] : manual
       .filter((p) => (L === 'ar' || p.en) && !consolidatedTarget(p.slug, L, exists))
@@ -625,6 +634,54 @@ ${enFaqHtml}
     writeRoute(`${prefix}/meeting`, buildPage({
       lang: L, title: t.seoTitle, description: t.seoDesc, canonical: canon(`${ORIGIN}${prefix}/meeting`),
       image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: meetingHreflang, bodyHtml: body,
+    }));
+    n++;
+  }
+
+  // 3ب٢) البروفايل بلغاته الخمس (١١ نوفمبر ٢٠٢٦) — كان رابطاً واحداً ‎/profile‎ تتبدّل لغته داخل الصفحة ورأسه رأس الرئيسية
+  // (canonical «/») فلا تُفهرس أي لغة منه. العنوان والوصف من PROFILE_SEO والنصوص من محتوى CMS المصحَّح مدموجاً
+  // بالافتراضي (mergeProfile) — المصدران نفساهما في ProfilePage.tsx — والعنقود خماسي كالخريطة (availableLangs).
+  // الجسم ملخّص دلالي للزاحف (كصفحات INFO) يستبدله React بالصفحة كاملة: الأقسام التي أظهرها المالك بعناوينها
+  // ونصوصها، وقسم الاشتراك بعنوانه ورابط «اطلب عرض سعر» **بلا بنوده**: لا سعر ظاهر في الموقع (قرار المالك ٢٧ أكتوبر،
+  // وverify-pricing يحجب سعر باقة في النصّ الظاهر). بنود الاشتراك في CMS ما زالت تحمل الأسعار — تُحدَّث من محرّر البروفايل.
+  const PROFILE_LANGS_5 = ['ar', 'en', 'fr', 'tr', 'zh'];
+  const prof = await loadTs('content/profileContent.ts');
+  const profContent = prof.mergeProfile(cms?.[prof.PROFILE_CMS_KEY]);
+  const profPartners = prof.readPartners(cms);
+  const profileHreflang = hreflangFor('/profile', PROFILE_LANGS_5);
+  const profOn = (k) => prof.sectionOn(profContent, k);
+  const ul = (lines) => (lines.length ? `<ul>${lines.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '');
+  const paras = (s) => prof.splitLines(s).map((x) => `<p>${esc(x)}</p>`).join('');
+  for (const L of PROFILE_LANGS_5) {
+    const t = profContent[L];
+    const seo = prof.PROFILE_SEO[L];
+    if (!t || !t.cover_title || !seo?.title || !seo?.description) throw new Error(`نصوص البروفايل ناقصة للغة ${L} في src/content/profileContent.ts`);
+    const prefix = L === 'ar' ? '' : `/${L}`;
+    const quote = L === 'ar' || L === 'en' || L === 'fr' ? quoteHref(L) : quoteHref('en'); // لا نموذج تركي ولا صيني
+    const parts = [`<h1>${esc(t.cover_title)}</h1>`, paras(t.cover_promise)];
+    if (profOn('problem')) parts.push(`<h2>${esc(t.problem_title)}</h2>${paras(t.problem_body)}`);
+    if (profOn('solution')) {
+      parts.push(`<h2>${esc(t.solution_title)}</h2><h3>${esc(t.solution_col1_title)}</h3>${ul(prof.splitLines(t.solution_col1))}`
+        + `<h3>${esc(t.solution_col2_title)}</h3>${ul(prof.splitLines(t.solution_col2))}`);
+    }
+    if (profOn('opportunity')) parts.push(`<h2>${esc(t.opportunity_title)}</h2>${paras(t.opportunity_intro)}${ul(prof.splitLines(t.opportunity_items))}`);
+    if (profOn('why')) parts.push(`<h2>${esc(t.why_title)}</h2>${paras(t.why_body)}`);
+    if (profOn('journey')) parts.push(`<h2>${esc(t.journey_title)}</h2>${ul(prof.splitPairs(t.journey_stations).map((p) => (p.a ? `${p.a} — ${p.b}` : p.b)))}`);
+    if (profOn('model')) parts.push(`<h2>${esc(t.model_title)}</h2><p><a href="${quote}">${esc(seo.quote)}</a></p>`);
+    if (profOn('numbers')) parts.push(`<h2>${esc(t.numbers_title)}</h2>${ul(prof.splitPairs(t.numbers_items).map((p) => (p.a ? `${p.a} ${p.b}` : p.b)))}`);
+    if (profOn('roadmap')) parts.push(`<h2>${esc(t.roadmap_title)}</h2>${ul(prof.splitLines(t.roadmap_items))}`);
+    if (profOn('ask')) parts.push(`<h2>${esc(t.ask_title)}</h2>${ul(prof.splitLines(t.ask_items))}`);
+    if (profOn('partners') && profPartners.some((p) => p.name)) parts.push(`<h2>${esc(t.partners_title)}</h2>${ul(profPartners.map((p) => p.name).filter(Boolean))}`);
+    if (profOn('contact')) {
+      parts.push(`<h2>${esc(t.closing_title)}</h2>${paras(t.closing_line)}`
+        + `<p>${esc(t.contact_website)} · <a href="mailto:${esc(t.contact_email)}">${esc(t.contact_email)}</a> · ${esc(t.contact_location)}</p>`);
+    }
+    // روابط النسخ الأخرى كما في مبدّل الصفحة (روابط حقيقية لا أزرار)
+    parts.push(`<nav>${PROFILE_LANGS_5.filter((x) => x !== L).map((x) => `<a href="${x === 'ar' ? '' : `/${x}`}/profile/" hreflang="${HREFLANG_CODE[x] || x}">${esc(prof.PROFILE_LANG_LABEL[x])}</a>`).join(' · ')}</nav>`);
+    writeRoute(`${prefix}/profile`, buildPage({
+      // غير العربية بلا كلمات القالب العربية (لا مقابل لها بلغة الصفحة)
+      lang: L, title: seo.title, description: seo.description, keywords: L === 'ar' ? undefined : false, canonical: canon(`${ORIGIN}${prefix}/profile`),
+      image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: profileHreflang, bodyHtml: `<main>${parts.filter(Boolean).join('\n')}</main>`,
     }));
     n++;
   }
@@ -825,7 +882,7 @@ ${pricingFaqHtml('fr')}`,
     },
     about: {
       ar: { t: about.ar.title, d: about.ar.description,
-        b: `<h1>عن منصّة FieldSales</h1><p>FieldSales منصّة سحابية عربية لإدارة المبيعات الميدانية والتوزيع: فواتير ضريبية منظّمة من الميدان، تحصيل وكشوف حساب، مخزون سيارة المندوب، تتبّع GPS، وتقارير لحظية — لشركات التوزيع في الدول العربية بواجهة عربية أصلية ودعم للإنجليزية والفرنسية.</p>\n${sectionsHtml(about.ar.sections)}` },
+        b: `<h1>عن منصّة FieldSales</h1><p>FieldSales منصّة سحابية لإدارة المبيعات الميدانية والتوزيع، بُنيت في الرياض: فواتير ضريبية منظّمة من الميدان، تحصيل وكشوف حساب، مخزون سيارة المندوب، تتبّع GPS، وتقارير لحظية — لشركات التوزيع في السعودية والخليج وكل دول العالم، وتطبيقاتها بالعربية والإنجليزية والفرنسية والتركية والصينية.</p>\n${sectionsHtml(about.ar.sections)}` },
       en: { t: about.en.title, d: about.en.description,
         b: `<h1>About FieldSales</h1><p>FieldSales is a SaaS platform for field sales and distribution, built in Riyadh: structured tax invoices from the field, collection and statements, van stock, GPS tracking and live reports — for distribution companies in Saudi Arabia, the Gulf and any other country, with apps in Arabic, English, French, Turkish and Chinese.</p>\n${sectionsHtml(about.en.sections)}` },
       fr: { t: about.fr.title, d: about.fr.description,
@@ -1170,9 +1227,9 @@ ${t.feat ? `<p>وللفهم الأعمق قبل الحساب: <a href="${t.feat[
     'rep-collection': 'برنامج تحصيل المناديب',
   };
   const homeAr = `<main>
-<h1>FieldSales — نظام إدارة مناديب المبيعات والتوزيع الميداني للأسواق العربية</h1>
-<p><strong>FieldSales</strong> منصّة سحابية عربية متكاملة لشركات التوزيع والمبيعات الميدانية. يُصدر المندوب من هاتفه فاتورة ضريبية منظّمة برمز QR (متوافقة مع ZATCA في السعودية) وطباعة حرارية فورية، ويسجّل التحصيل، ويدير مخزون سيارته — بينما تحصل الإدارة على صورة حيّة كاملة: مبيعات اليوم، التحصيل والذمم، حدود ائتمان العملاء مع تنبيهات التجاوز، مخزون كل سيارة، ومواقع المناديب وخطوط سيرهم عبر GPS.</p>
-<p>بواجهة عربية أصلية (RTL) ودعم للإنجليزية والفرنسية، تخدم FieldSales موزّعي المواد الغذائية والمشروبات والسلع الاستهلاكية في كل الدول العربية.</p>
+<h1>FieldSales — نظام إدارة مناديب المبيعات والتوزيع الميداني لكل دول العالم</h1>
+<p><strong>FieldSales</strong> منصّة سحابية متكاملة لشركات التوزيع والمبيعات الميدانية. يُصدر المندوب من هاتفه فاتورة ضريبية منظّمة برمز QR (متوافقة مع ZATCA في السعودية) وطباعة حرارية فورية، ويسجّل التحصيل، ويدير مخزون سيارته — بينما تحصل الإدارة على صورة حيّة كاملة: مبيعات اليوم، التحصيل والذمم، حدود ائتمان العملاء مع تنبيهات التجاوز، مخزون كل سيارة، ومواقع المناديب وخطوط سيرهم عبر GPS.</p>
+<p>بُنيت FieldSales في الرياض، وتخدم موزّعي المواد الغذائية والمشروبات والسلع الاستهلاكية في السعودية والخليج وكل دول العالم: تضبط كل شركة دولتها وعملتها ونسبة ضريبتها، وتطبيقاتها بالعربية والإنجليزية والفرنسية والتركية والصينية.</p>
 <h2>أبرز المزايا</h2>
 <ul>
 <li>فوترة ضريبية من الميدان برمز QR وطباعة حرارية 58مم</li>

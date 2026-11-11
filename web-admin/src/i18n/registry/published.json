@@ -16,10 +16,24 @@
    "slug": "van-sales-software",
    "pages": [
     "category",
-    "countries"
+    "countries",
+    "features",
+    "feature:offlineInvoicing",
+    "feature:vanStock",
+    "feature:routesVisits",
+    "apps",
+    "quote"
    ],
    "waLabel": "Chat on WhatsApp",
-   "contentDate": "2026-11-08"
+   "contentDate": "2026-11-08",
+   "pagesSince": {
+    "features": "2026-11-11",
+    "feature:offlineInvoicing": "2026-11-11",
+    "feature:vanStock": "2026-11-11",
+    "feature:routesVisits": "2026-11-11",
+    "apps": "2026-11-11",
+    "quote": "2026-11-11"
+   }
   },
   {
    "code": "fr",
@@ -34,10 +48,24 @@
    "slug": "logiciel-vente-en-tournee",
    "pages": [
     "category",
-    "countries"
+    "countries",
+    "features",
+    "feature:offlineInvoicing",
+    "feature:vanStock",
+    "feature:routesVisits",
+    "apps",
+    "quote"
    ],
    "waLabel": "Discuter sur WhatsApp",
-   "contentDate": "2026-11-08"
+   "contentDate": "2026-11-08",
+   "pagesSince": {
+    "features": "2026-11-11",
+    "feature:offlineInvoicing": "2026-11-11",
+    "feature:vanStock": "2026-11-11",
+    "feature:routesVisits": "2026-11-11",
+    "apps": "2026-11-11",
+    "quote": "2026-11-11"
+   }
   },
   {
    "code": "tr",
@@ -52,10 +80,24 @@
    "slug": "plasiyer-programi",
    "pages": [
     "category",
-    "countries"
+    "countries",
+    "features",
+    "feature:offlineInvoicing",
+    "feature:vanStock",
+    "feature:routesVisits",
+    "apps",
+    "quote"
    ],
    "waLabel": "WhatsApp’tan yazın",
-   "contentDate": "2026-11-08"
+   "contentDate": "2026-11-08",
+   "pagesSince": {
+    "features": "2026-11-11",
+    "feature:offlineInvoicing": "2026-11-11",
+    "feature:vanStock": "2026-11-11",
+    "feature:routesVisits": "2026-11-11",
+    "apps": "2026-11-11",
+    "quote": "2026-11-11"
+   }
   },
   {
    "code": "zh",
@@ -70,10 +112,24 @@
    "slug": "chexiao-ruanjian",
    "pages": [
     "category",
-    "countries"
+    "countries",
+    "features",
+    "feature:offlineInvoicing",
+    "feature:vanStock",
+    "feature:routesVisits",
+    "apps",
+    "quote"
    ],
    "waLabel": "WhatsApp 咨询",
-   "contentDate": "2026-11-08"
+   "contentDate": "2026-11-08",
+   "pagesSince": {
+    "features": "2026-11-11",
+    "feature:offlineInvoicing": "2026-11-11",
+    "feature:vanStock": "2026-11-11",
+    "feature:routesVisits": "2026-11-11",
+    "apps": "2026-11-11",
+    "quote": "2026-11-11"
+   }
   },
   {
    "code": "es",

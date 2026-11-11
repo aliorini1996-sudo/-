@@ -156,7 +156,7 @@
     <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/"/>
     <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/"/>
-    <lastmod>2026-11-08</lastmod>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/pl/system-do-vansellingu/</loc>
@@ -313,7 +313,7 @@
     <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/software-vendita-sin-tura/"/>
     <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/farkoyf-fun-vogn-program/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/van-sales-software/"/>
-    <lastmod>2026-11-08</lastmod>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/pl/countries/</loc>
@@ -470,7 +470,7 @@
     <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/countries/"/>
     <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/countries/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/countries/"/>
-    <lastmod>2026-11-08</lastmod>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/pl/about/</loc>
@@ -626,7 +626,7 @@
     <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/about/"/>
     <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/about/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/about/"/>
-    <lastmod>2026-11-08</lastmod>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/pl/contact/</loc>
@@ -782,10 +782,14 @@
     <xhtml:link rel="alternate" hreflang="rm" href="https://fieldsa.net/rm/contact/"/>
     <xhtml:link rel="alternate" hreflang="yi" href="https://fieldsa.net/yi/contact/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/contact/"/>
-    <lastmod>2026-11-08</lastmod>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/pl/features/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/features/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/features/"/>
+    <xhtml:link rel="alternate" hreflang="tr" href="https://fieldsa.net/tr/features/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://fieldsa.net/zh/features/"/>
     <xhtml:link rel="alternate" hreflang="es" href="https://fieldsa.net/es/features/"/>
     <xhtml:link rel="alternate" hreflang="pt" href="https://fieldsa.net/pt/features/"/>
     <xhtml:link rel="alternate" hreflang="id" href="https://fieldsa.net/id/features/"/>
@@ -794,11 +798,15 @@
     <xhtml:link rel="alternate" hreflang="pl" href="https://fieldsa.net/pl/features/"/>
     <xhtml:link rel="alternate" hreflang="ro" href="https://fieldsa.net/ro/features/"/>
     <xhtml:link rel="alternate" hreflang="ms" href="https://fieldsa.net/ms/features/"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/es/features/"/>
-    <lastmod>2026-11-08</lastmod>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/features/"/>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/pl/features/offline-invoicing/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/features/offline-invoicing/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/features/offline-invoicing/"/>
+    <xhtml:link rel="alternate" hreflang="tr" href="https://fieldsa.net/tr/features/offline-invoicing/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://fieldsa.net/zh/features/offline-invoicing/"/>
     <xhtml:link rel="alternate" hreflang="es" href="https://fieldsa.net/es/features/offline-invoicing/"/>
     <xhtml:link rel="alternate" hreflang="pt" href="https://fieldsa.net/pt/features/offline-invoicing/"/>
     <xhtml:link rel="alternate" hreflang="id" href="https://fieldsa.net/id/features/offline-invoicing/"/>
@@ -807,11 +815,15 @@
     <xhtml:link rel="alternate" hreflang="pl" href="https://fieldsa.net/pl/features/offline-invoicing/"/>
     <xhtml:link rel="alternate" hreflang="ro" href="https://fieldsa.net/ro/features/offline-invoicing/"/>
     <xhtml:link rel="alternate" hreflang="ms" href="https://fieldsa.net/ms/features/offline-invoicing/"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/es/features/offline-invoicing/"/>
-    <lastmod>2026-11-08</lastmod>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/features/offline-invoicing/"/>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/pl/features/van-stock/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/features/van-stock/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/features/van-stock/"/>
+    <xhtml:link rel="alternate" hreflang="tr" href="https://fieldsa.net/tr/features/van-stock/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://fieldsa.net/zh/features/van-stock/"/>
     <xhtml:link rel="alternate" hreflang="es" href="https://fieldsa.net/es/features/van-stock/"/>
     <xhtml:link rel="alternate" hreflang="pt" href="https://fieldsa.net/pt/features/van-stock/"/>
     <xhtml:link rel="alternate" hreflang="id" href="https://fieldsa.net/id/features/van-stock/"/>
@@ -820,11 +832,15 @@
     <xhtml:link rel="alternate" hreflang="pl" href="https://fieldsa.net/pl/features/van-stock/"/>
     <xhtml:link rel="alternate" hreflang="ro" href="https://fieldsa.net/ro/features/van-stock/"/>
     <xhtml:link rel="alternate" hreflang="ms" href="https://fieldsa.net/ms/features/van-stock/"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/es/features/van-stock/"/>
-    <lastmod>2026-11-08</lastmod>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/features/van-stock/"/>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/pl/features/routes-visits/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/features/routes-visits/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/features/routes-visits/"/>
+    <xhtml:link rel="alternate" hreflang="tr" href="https://fieldsa.net/tr/features/routes-visits/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://fieldsa.net/zh/features/routes-visits/"/>
     <xhtml:link rel="alternate" hreflang="es" href="https://fieldsa.net/es/features/routes-visits/"/>
     <xhtml:link rel="alternate" hreflang="pt" href="https://fieldsa.net/pt/features/routes-visits/"/>
     <xhtml:link rel="alternate" hreflang="id" href="https://fieldsa.net/id/features/routes-visits/"/>
@@ -833,11 +849,15 @@
     <xhtml:link rel="alternate" hreflang="pl" href="https://fieldsa.net/pl/features/routes-visits/"/>
     <xhtml:link rel="alternate" hreflang="ro" href="https://fieldsa.net/ro/features/routes-visits/"/>
     <xhtml:link rel="alternate" hreflang="ms" href="https://fieldsa.net/ms/features/routes-visits/"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/es/features/routes-visits/"/>
-    <lastmod>2026-11-08</lastmod>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/features/routes-visits/"/>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/pl/apps/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/apps/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/apps/"/>
+    <xhtml:link rel="alternate" hreflang="tr" href="https://fieldsa.net/tr/apps/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://fieldsa.net/zh/apps/"/>
     <xhtml:link rel="alternate" hreflang="es" href="https://fieldsa.net/es/apps/"/>
     <xhtml:link rel="alternate" hreflang="pt" href="https://fieldsa.net/pt/apps/"/>
     <xhtml:link rel="alternate" hreflang="id" href="https://fieldsa.net/id/apps/"/>
@@ -846,11 +866,15 @@
     <xhtml:link rel="alternate" hreflang="pl" href="https://fieldsa.net/pl/apps/"/>
     <xhtml:link rel="alternate" hreflang="ro" href="https://fieldsa.net/ro/apps/"/>
     <xhtml:link rel="alternate" hreflang="ms" href="https://fieldsa.net/ms/apps/"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/es/apps/"/>
-    <lastmod>2026-11-08</lastmod>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/apps/"/>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/pl/quote/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/quote/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/quote/"/>
+    <xhtml:link rel="alternate" hreflang="tr" href="https://fieldsa.net/tr/quote/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://fieldsa.net/zh/quote/"/>
     <xhtml:link rel="alternate" hreflang="es" href="https://fieldsa.net/es/quote/"/>
     <xhtml:link rel="alternate" hreflang="pt" href="https://fieldsa.net/pt/quote/"/>
     <xhtml:link rel="alternate" hreflang="id" href="https://fieldsa.net/id/quote/"/>
@@ -859,7 +883,7 @@
     <xhtml:link rel="alternate" hreflang="pl" href="https://fieldsa.net/pl/quote/"/>
     <xhtml:link rel="alternate" hreflang="ro" href="https://fieldsa.net/ro/quote/"/>
     <xhtml:link rel="alternate" hreflang="ms" href="https://fieldsa.net/ms/quote/"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/es/quote/"/>
-    <lastmod>2026-11-08</lastmod>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/quote/"/>
+    <lastmod>2026-11-11</lastmod>
   </url>
 </urlset>

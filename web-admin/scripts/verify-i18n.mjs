@@ -26,7 +26,7 @@ import {
 } from '../src/i18n/i18nRoutes.mjs';
 import {
   findI18nViolations, checkMarketingStrings, scriptProblems, contentHashOf, publishedEntry, certRuleFor, NO_CERT_RULE,
-  livePriceRe, toAsciiDigits, I18N_RULE_WHY, englishCopies,
+  livePriceRe, toAsciiDigits, I18N_RULE_WHY, englishCopies, metaDescBounds,
 } from './claims-i18n.mjs';
 import { RULES, findViolation } from './claims-rules.mjs';
 import { loadPricing } from './pricing-source.mjs';
@@ -374,8 +374,10 @@ if (distOk) {
     if (!desc.trim()) err('G1', `${page.path}: وصف meta فارغ`);
     if (!h1) err('G1', `${page.path}: <h1> فارغ`);
     if ([...title].length > 70) warn('G1', `${page.path}: العنوان ${[...title].length} حرفاً (> 70)`);
+    // الحدود بحسب الكتابة: الصينية واليابانية والكورية والكانتونية 25–90، والبقية 50–170 (metaDescBounds)
     const dl = [...desc].length;
-    if (desc && (dl < 50 || dl > 170)) warn('G1', `${page.path}: الوصف ${dl} حرفاً (خارج 50–170)`);
+    const [dMin, dMax] = metaDescBounds(page.code);
+    if (desc && (dl < dMin || dl > dMax)) warn('G1', `${page.path}: الوصف ${dl} حرفاً (خارج ${dMin}–${dMax})`);
 
     // G4: لغة النص وسمات الوسم
     const visible = stripTags(removeElements(removeElements(main, RE_LANGS_NAV), RE_COUNTRIES).replace(RE_LINKS, ' '));

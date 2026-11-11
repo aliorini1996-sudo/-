@@ -254,10 +254,16 @@ for (const l of languages) {
   let pages = [];
   let contentHash = null;
   let contentDate = null;
+  let since = null;
+  let pagesSince = null;
   let published = false;
   if (candidate) {
-    pages = legacy ? ['category', 'countries']
-      : [...BASE_PAGES, ...(l.tier === 'A' && complete.tierA ? TIER_A_PAGES : [])];
+    // اللغات القديمة (ar en fr tr zh): رئيسيتها وabout وcontact صفحاتها القائمة، فلا تُنشر لها إلا الفئة والدول —
+    // ومعهما صفحات الطبقة A (المزايا والتطبيقات وعرض السعر) حين تكتمل مفاتيحها: لا نظير قديم لها، وبلا الإنجليزية
+    // فيها كان x-default عناقيدها يقع على أول لغة في السجل (/es/) في ٤٨ صفحة (١١ نوفمبر ٢٠٢٦). مساراتها
+    // (/en/features/ وأخواتها) لا تصادم مساراً قائماً في App.tsx ولا dist (يفحصه G2 وverify-sitemap).
+    const tierA = l.tier === 'A' && complete.tierA ? TIER_A_PAGES : [];
+    pages = legacy ? ['category', 'countries', ...tierA] : [...BASE_PAGES, ...tierA];
     const derived = derivedFor(code, l.hreflang);
     const groups = ['tierB.', ...(complete.tierA ? ['tierA.'] : [])];
     const strings = {};
@@ -299,6 +305,17 @@ for (const l of languages) {
       contentHash = contentHashOf(strings);
       const prev = prevByCode.get(code);
       contentDate = prev && prev.contentHash === contentHash && prev.contentDate ? prev.contentDate : today;
+      // النشر الأول للغة ولصفحاتها (lastmod عناقيد hreflang في gen-sitemap — i18nLastmod في i18nRoutes.mjs): يُحفظ من
+      // السجل السابق، ويُكتب since حين يخالف contentDate، وpagesSince للصفحات التي أُضيفت بعد نشر اللغة وحدها (صفحات
+      // الطبقة A للغات القديمة: كانت تحمل contentDate الأقدم من نشرها، ١١ نوفمبر ٢٠٢٦).
+      const firstPub = prev?.published ? (prev.since || prev.contentDate || today) : today;
+      since = firstPub !== contentDate ? firstPub : null;
+      const ps = {};
+      for (const pk of pages) {
+        const d = prev?.pagesSince?.[pk] || (prev?.published && !(prev.pages || []).includes(pk) ? today : null);
+        if (d && d > firstPub) ps[pk] = d;
+      }
+      pagesSince = Object.keys(ps).length ? ps : null;
       files.set(code, {
         _meta: { code, hreflang: l.hreflang, dir: l.dir, quality: code === 'en' ? null : quality, contentDate, contentHash, simulated },
         _derived: derived,
@@ -314,6 +331,7 @@ for (const l of languages) {
     tier: l.tier, feasibility: l.feasibility, wave, legacy, markets: l.markets,
     ogLocale: ogLocaleOf(l), intlLocale: l.hreflang, slug,
     quality, complete, published, pages, reasons: [...new Set(reasons)], contentDate, contentHash,
+    ...(since ? { since } : {}), ...(pagesSince ? { pagesSince } : {}),
   });
 }
 

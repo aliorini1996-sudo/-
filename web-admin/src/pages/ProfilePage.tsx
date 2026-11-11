@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { PUBLIC_SITE_CONTENT_KEY, fetchPublicSiteContent } from '../content/publicSiteContent';
 import { Download } from 'lucide-react';
 import { BrandIcon } from '../components/BrandLogo';
-import { mergeProfile, splitLines, splitPairs, sectionOn, readPartners, PROFILE_CMS_KEY, PROFILE_LANGS, PROFILE_LANG_LABEL, ProfileLang, ProfileContent } from '../content/profileContent';
+import { mergeProfile, splitLines, splitPairs, sectionOn, readPartners, PROFILE_CMS_KEY, PROFILE_LANGS, PROFILE_LANG_LABEL, PROFILE_SEO, ProfileLang, ProfileContent } from '../content/profileContent';
+import { localeFromPath, pathForLocale, seoUrls } from '../i18n/locale';
+import { useSeo } from '../lib/seo';
 
 /**
  * «بروفايل» — الملف التعريفي التفاعلي fieldsa.net/profile
- * بنفس ترتيب ملف الـPDF قسما قسما، والمشاهد يبدل اللغة (عربي/انجليزي) كما يناسبه.
+ * بنفس ترتيب ملف الـPDF قسما قسما، بخمس لغات لكلٍّ رابطها: ‎/profile/‎ و‎/en/profile/‎ و‎/fr/profile/‎ و‎/tr/profile/‎
+ * و‎/zh/profile/‎ (مُصيَّرة مسبقاً في scripts/prerender.mjs). اللغة من المسار، والمبدّل ينتقل إلى رابط اللغة — كان رابطاً
+ * واحداً تتبدّل لغته داخل الصفحة ورأسه رأس الرئيسية (canonical «/») فلا تُفهرس أي لغة منه.
  * كل نص يُقرأ من CMS الموقع (siteContent.profile) فيعدّله المالك من لوحته بأي وقت.
  *
  * الصور في /media/profile/*.jpg بأسماء ثابتة — استبدال أي ملف بنسخة أعلى دقة
@@ -274,14 +279,15 @@ const UI: Record<string, Record<ProfileLang, string>> = {
     fr: 'Paiement sans contact sur le téléphone du commercial',
     tr: 'Temsilcinin telefonunda temassız ödeme', zh: '在业务员手机上完成刷卡支付',
   },
-  docTitle: {
-    ar: 'بروفايل Field Sales', en: 'Company Profile — Field Sales', fr: 'Profil — Field Sales',
-    tr: 'Tanıtım Dosyası — Field Sales', zh: '公司简介 — Field Sales',
-  },
 };
 
 export default function ProfilePage() {
-  const [lang, setLang] = useState<ProfileLang>('ar');
+  // اللغة من المسار (‎/en/profile/‎ ⇒ en)، والمبدّل ينتقل إلى رابط اللغة فيتبدّل الرأس وcanonical معها
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const lang = localeFromPath(pathname) as ProfileLang;
+  const profileHref = (l: ProfileLang) => `${pathForLocale('/profile', l)}/`;
+  const setLang = (l: ProfileLang) => { if (l !== lang) navigate(profileHref(l)); };
   const isAr = lang === 'ar';
   const dir = isAr ? 'rtl' : 'ltr';
 
@@ -395,9 +401,9 @@ export default function ProfilePage() {
     }
   }, [lang]);
 
-  useEffect(() => {
-    document.title = UI.docTitle[lang] || UI.docTitle.en;
-  }, [lang]);
+  const seo = PROFILE_SEO[lang];
+  const { canonical, alternates } = seoUrls('/profile', lang);
+  useSeo({ title: seo.title, description: seo.description, locale: lang, canonical, alternates, image: 'https://fieldsa.net/og-image.png' });
 
   /**
    * تسخين صور الصفحة بعد أول رسم.
@@ -502,7 +508,7 @@ export default function ProfilePage() {
             وهو الزرّ الوحيد الذي لا بديل عنه. فيلتفّ الرأس صفّين على الضيّق:
             العلامة والتنزيل معاً أولاً، واللغات تحتهما. */}
         <div className="max-w-6xl mx-auto px-3 sm:px-4 py-2 flex flex-wrap items-center gap-2">
-          <a href="/" className="flex items-center gap-2.5 shrink-0">
+          <a href={pathForLocale('/', lang)} className="flex items-center gap-2.5 shrink-0">
             <BrandIcon size={32} radius={0.28} />
             <span className="text-lg whitespace-nowrap"><Wordmark /></span>
           </a>
@@ -516,12 +522,19 @@ export default function ProfilePage() {
           <div className="order-3 sm:order-2 w-full sm:w-auto sm:ms-auto flex justify-center">
             {/* والمبدّل نفسه يمرّر أفقياً عند الحاجة فلا يقصّ لغةً مهما ضاقت الشاشة */}
             <div className="flex rounded-xl p-0.5 max-w-full overflow-x-auto" style={{ background: '#F3EDE3' }}>
+              {/* رابط حقيقي لكل لغة (href للزاحف ولفتح تبويب جديد)، والنقرة العادية تنقّل داخل التطبيق بلا إعادة تحميل */}
               {PROFILE_LANGS.map(l => (
-                <button key={l} onClick={() => setLang(l)} lang={l}
+                <a key={l} href={profileHref(l)} hrefLang={l === 'zh' ? 'zh-Hans' : l} lang={l}
+                  aria-current={lang === l ? 'page' : undefined}
+                  onClick={(e) => {
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                    e.preventDefault();
+                    setLang(l);
+                  }}
                   className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-colors whitespace-nowrap"
                   style={lang === l ? { background: '#fff', color: COLORS.coral, boxShadow: '0 1px 3px rgba(0,0,0,.08)' } : { color: COLORS.gray }}>
                   {PROFILE_LANG_LABEL[l]}
-                </button>
+                </a>
               ))}
             </div>
           </div>

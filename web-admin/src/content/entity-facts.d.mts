@@ -79,7 +79,11 @@ export const CONTACT: {
   email: { sales: string; support: string };
   phone: string;
   whatsapp: { number: string; redirect: string };
+  /** لغات فريق المبيعات والدعم (لا لغات الواجهة) — يعدّلها المالك */
+  supportLanguages: string[];
 };
+/** أسماء schema.org للغات فريق التواصل (ContactPoint.availableLanguage) */
+export const SUPPORT_SCHEMA_LANG_NAMES: string[];
 export function localePath(p: string, lang?: UiLang): string;
 
 export const SAME_AS: string[];

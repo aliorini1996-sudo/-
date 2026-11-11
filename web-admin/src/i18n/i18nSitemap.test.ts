@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  clusterAlternates, i18nPages, type Alternate, type PublishedLocale, type PublishedRegistry,
+  clusterAlternates, i18nPages, i18nLastmod, clusterChangedAt, TIER_A_PAGES, BASE_PAGES,
+  type Alternate, type PublishedLocale, type PublishedRegistry, type PageKey,
 } from './i18nRoutes.mjs';
 import {
   isSitemapIndex, childLocs, mergedUrlsetFromFile, mergedUrlsetFromGit, mergedUrlsetFromUrl, urlBlocks,
@@ -232,4 +233,58 @@ test('robots.txt مولَّد: مجموعة واحدة سليمة، والملت
   assert.match(txt, /^Sitemap: https:\/\/fieldsa\.net\/sitemap\.xml$/m);
   // لا قاعدة بادئة تحجب مسار لغة (/es/ و/ms/ و/mr/…): /m مقيّدة بـ$ و/m/
   assert.ok(!/^Disallow: \/m\s*$/m.test(txt));
+});
+
+/**
+ * lastmod الطبقة (١١ نوفمبر ٢٠٢٦): كان contentDate اللغة وحده، فحملت /en/features/ وأخواتها (نُشرت ١١ نوفمبر) تاريخ
+ * ٨ نوفمبر، وبقيت خرائط اللغات التي تغيّرت بدائلها وفهرسها على تاريخها القديم. الآن أحدث تاريخ مسجّل من ثلاثة: محتوى
+ * اللغة، ونشر الصفحة الأول (pagesSince/since)، وانضمام عضو إلى عنقودها — وتغيّر محتوى لغة أخرى لا يمسّه.
+ */
+test('lastmod الطبقة: نشر الصفحة وانضمام عضو إلى عنقودها يرفعانه، ومحتوى لغة أخرى لا يمسّه، ولا تاريخ مستقبلي', () => {
+  const since = Object.fromEntries(TIER_A_PAGES.map((p) => [p, '2026-11-11'])) as Partial<Record<PageKey, string>>;
+  const reg: PublishedRegistry = {
+    waveMax: 1, generatedAt: '2026-11-11', simulated: false,
+    locales: [
+      locale('en', { legacy: true, tier: 'A', pages: ['category', 'countries', ...TIER_A_PAGES], pagesSince: since }),
+      locale('es', { tier: 'A', slug: 'software-preventa-autoventa', pages: [...BASE_PAGES, ...TIER_A_PAGES] }),
+      // محتواها تغيّر ١٠ نوفمبر بعد نشرها ٨ نوفمبر (since يكتبه المستورد حين يفترقان)
+      locale('de', { since: '2026-11-08', contentDate: '2026-11-10' }),
+    ],
+  };
+  const pages = i18nPages(reg);
+  const at = (p: string) => {
+    const page = pages.find((x) => x.path === p);
+    assert.ok(page, `لا صفحة ${p}`);
+    return i18nLastmod(page!, reg, '2026-10-05');
+  };
+  assert.equal(at('/en/features/'), '2026-11-11', 'صفحة جديدة: تاريخ نشرها لا contentDate لغتها');
+  assert.equal(at('/en/van-sales-software/'), '2026-11-08', 'صفحة قائمة بلا تغيير تبقى على تاريخها');
+  assert.equal(at('/es/features/'), '2026-11-11', 'انضمّت /en/features/ إلى عنقودها فتغيّرت بدائلها');
+  assert.equal(at('/es/'), '2026-11-08', 'تغيّر محتوى de بعد نشرها لا يمسّ عنقود الرئيسيات');
+  assert.equal(at('/de/'), '2026-11-10', 'محتوى اللغة نفسها');
+  assert.equal(clusterChangedAt('home', reg), '2026-11-08');
+  assert.equal(clusterChangedAt('tierA:features', reg), '2026-11-11');
+  const newest = ['2026-11-08', '2026-11-10', '2026-11-11'].sort().pop()!;
+  for (const p of pages) assert.ok((i18nLastmod(p, reg) || '') <= newest, `${p.path}: تاريخ بعد كل تاريخ مسجّل`);
+});
+
+test('الخرائط الملتزمة: lastmod كل صفحة من الطبقة = i18nLastmod من السجل، والفهرس = أحدث ما في كل خريطة، ولا تاريخ مستقبلي', () => {
+  const reg = JSON.parse(read('src', 'i18n', 'registry', 'published.json')) as PublishedRegistry;
+  const dates = reg.locales.flatMap((l) => [l.contentDate, l.since, ...Object.values(l.pagesSince || {})]).filter(Boolean) as string[];
+  const newest = dates.sort().pop()!;
+  const idx = read('public', 'sitemap.xml');
+  const idxMod = new Map([...idx.matchAll(/<loc>[^<]*\/(sitemap-[^<]+\.xml)<\/loc><lastmod>([^<]+)<\/lastmod>/g)].map((m) => [m[1], m[2]]));
+  const byCode = new Map<string, ReturnType<typeof i18nPages>>();
+  for (const p of i18nPages(reg)) byCode.set(p.code, [...(byCode.get(p.code) || []), p]);
+  for (const [code, list] of byCode) {
+    const xml = read('public', `sitemap-${code}.xml`);
+    const mods = new Map(urlBlocks(xml).map((b) => [(b.match(/<loc>([^<]+)<\/loc>/) || [])[1], (b.match(/<lastmod>([^<]+)<\/lastmod>/) || [])[1]]));
+    for (const p of list) {
+      if (p.pageKey === 'languages') continue;
+      assert.equal(mods.get(`${ORIGIN}${encodeURI(p.path)}`) ?? mods.get(`${ORIGIN}${p.path}`), i18nLastmod(p, reg, '2026-10-05'), `${p.path}`);
+    }
+    const childNewest = [...mods.values()].filter(Boolean).sort().pop();
+    assert.equal(idxMod.get(`sitemap-${code}.xml`), childNewest, `الفهرس: sitemap-${code}.xml`);
+    for (const d of mods.values()) assert.ok(d <= newest, `sitemap-${code}.xml: ${d} بعد أحدث تاريخ في السجل ${newest}`);
+  }
 });

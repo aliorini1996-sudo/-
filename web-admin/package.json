@@ -9,7 +9,7 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test \"src/**/*.test.ts\" src/content/profileContent.test.ts",
-    "postbuild": "node scripts/prerender.mjs && node scripts/gen-llms-i18n.mjs && node scripts/verify-pricing.mjs && node scripts/verify-claims.mjs && node scripts/verify-schema.mjs && node scripts/verify-sitemap.mjs && node scripts/verify-i18n.mjs",
+    "postbuild": "node scripts/prerender.mjs && node scripts/gen-llms-i18n.mjs && node scripts/verify-pricing.mjs && node scripts/verify-claims.mjs && node scripts/verify-schema.mjs && node scripts/verify-sitemap.mjs && node scripts/verify-i18n.mjs && node scripts/verify-facts.mjs",
     "preview": "vite preview",
     "seo:sitemap": "node scripts/gen-sitemap.mjs",
     "seo:robots": "node scripts/gen-robots.mjs",

@@ -8,7 +8,7 @@ import {
   DEFAULT_CATEGORY_SLUG, BASE_PAGES, TIER_A_PAGES,
   type PublishedRegistry, type PublishedLocale, type PageKey,
 } from './i18nRoutes.mjs';
-import { certRuleFor, CERT_ALL, NO_CERT_RULE } from '../../scripts/claims-i18n.mjs';
+import { certRuleFor, CERT_ALL, NO_CERT_RULE, metaDescBounds, DESC_BOUNDS } from '../../scripts/claims-i18n.mjs';
 
 /**
  * حرّاس وحدة المسارات والعناقيد (spec-b §٣) — العقد المشترك بين prerender والخرائط وReact.
@@ -240,4 +240,29 @@ test('claims-i18n: لكل لغة في الموجة 1 قاعدة اعتماد غ�
   assert.ok(certRuleFor('es')?.test('certificado por ZATCA'));
   assert.ok(certRuleFor('fa')?.test('تأیید‌شده'), 'الفارسية بنصف مسافة (ZWNJ)');
   assert.ok(certRuleFor('sr')?.test('сертификован') && certRuleFor('sr')?.test('сертифицирован'), 'sr في مجموعتين');
+});
+
+/**
+ * حدود وصف meta بحسب الكتابة (G1 في verify-i18n، ١١ نوفمبر ٢٠٢٦): أوصاف zh الصحيحة (40–48 محرفاً) كانت تُحذَّر
+ * «أقصر من 50» — والمحرف الصيني يحمل ما تحمله الكلمة اللاتينية. الكتابات المكثّفة 25–90، والبقية 50–170 لا تضعف.
+ */
+test('حدود وصف meta: الصينية بنوعيها واليابانية والكورية والكانتونية 25–90، وغيرها 50–170', () => {
+  for (const c of ['zh', 'zh-hant', 'zh-Hans', 'ja', 'ko', 'yue']) assert.deepEqual([...metaDescBounds(c)], [25, 90], c);
+  for (const c of ['en', 'fr', 'tr', 'ar', 'es', 'de', 'vi', 'th', 'hi', 'ru', 'tl']) assert.deepEqual([...metaDescBounds(c)], [50, 170], c);
+  assert.deepEqual([...DESC_BOUNDS.default], [50, 170]);
+  // أوصاف المحتوى المنشور بالكتابات المكثّفة كلها ضمن حدودها، والقصيرة الصحيحة التي كانت تُحذَّر صارت داخلها
+  const reg = readJson<PublishedRegistry>('src', 'i18n', 'registry', 'published.json');
+  const dense = reg.locales.filter((l) => metaDescBounds(l.code) === DESC_BOUNDS.dense);
+  assert.deepEqual(dense.map((l) => l.code).sort(), ['ja', 'ko', 'yue', 'zh', 'zh-hant']);
+  const out: string[] = [];
+  for (const l of dense) {
+    const strings = readJson<{ strings: Record<string, string> }>('src', 'i18n', 'marketing', `${l.code}.json`).strings;
+    for (const [k, v] of Object.entries(strings)) {
+      if (!/\.description$/.test(k)) continue;
+      const n = [...v].length;
+      if (n < 25 || n > 90) out.push(`${l.code} ${k}: ${n}`);
+    }
+  }
+  assert.deepEqual(out, []);
+  assert.ok([...readJson<{ strings: Record<string, string> }>('src', 'i18n', 'marketing', 'zh.json').strings['tierA.featurePages.offlineInvoicing.description']].length < 50);
 });
