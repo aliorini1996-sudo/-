@@ -7,7 +7,9 @@
  *  - requireNear: لا تُعدّ المطابقة إصابة إلا إن وُجد نمط آخر قربها (مثل موعد أو رقم).
  *  - severity: 'warn' تحذير يُطبع ولا يُفشل البناء؛ غيابها = حاجبة.
  *  - cmsWarn: حاجبة لنصوص المستودع وتحذير لنصوص CMS — verify-claims يسند كل مطابقة بسياقها (fromCmsContext).
- *  - scope: 'head' (العنوان والوصف وH1) · 'raw' (HTML الخام) · الافتراضي النصّ المرئي.
+ *  - check(hay, m): حكم إضافي على كل مطابقة (hay مطبَّع) — false يُعفيها (gov-einvoice-abroad: govClaimAt).
+ *  - scope: 'head' (العنوان والوصف وH1) · 'raw' (HTML الخام) · 'blocks' (النصّ المرئي بحدود كتله أسطراً؛ من لا
+ *    يميّزه — verify-i18n وimport-i18n — يمرّر النصّ المرئي) · الافتراضي النصّ المرئي.
  *  - paths / exceptPaths: تقصر القاعدة في verify-claims على ملفات dist التي يطابق مسارها النسبي paths ولا يطابق
  *    exceptPaths (الفاصل / أو \). checkText في الاختبارات يطبّقها على أي نصّ بلا مسار.
  *
@@ -143,9 +145,288 @@ const COMPETITORS_LATIN = [
   'Bizom', 'Botree', 'Trackolap', 'SalesOn', 'SAMS\\s*Online', 'Softvirtue', 'Moneypex', 'HysabOne', 'Tarkie', 'Ivy\\s*Mobility', 'SimpliDOTS',
   'MileApp', 'Salesmania', 'HashMicro', 'iReap', 'MountainTop\\s*OrderIT', 'MySales\\s*Buddy', 'Ak[ıi]nsoft', 'MobiWork', 'MISA\\s*AMIS',
   'DMS\\s*NextX', 'Mobisale', 'Ecount',
+  // ١١ نوفمبر ٢٠٢٦ (خطة GEO البند ١٤): موردو تقرير المنافسين ودراسة تسويقهم (123 مُدخلاً) غير المدرجين أعلاه.
+  // فُحصت قبل الإضافة على المصادر (src وscripts وpublic وindex.html) وملفات الطبقة الـ152 وثلاث نسخ dist حديثة
+  // (مع نصوص CMS المصيَّرة): صفر مطابقة. المستبعد عمداً لأنه كلمة عامة أو تكامل محتمل:
+  //   Jobber (فعل نرويجي «يعمل» في no.json) · Outfield · Motive · Square · Toast · Lightspeed · Medusa · Cartwheel · VIP ·
+  //   Marn · Sahl · Mezan · Ai2 (زاحف AI2Bot) · AnyPOS (يلتبس بمعرّف anyPos) · Geidea (بوابة دفع) · Zoho بكل منتجاته
+  //   (خيار ربط في صفحة تكامل ERP) · Salesforce وحدها · QuickBooks · NetSuite · SYSPRO · Frappe/ERPNext.
+  // وما يلتبس بعبارة عامة يُطابَق بسياقه لا وحده: Al-Ameen · Edara · Advantage Route · Blue Link · Encompass · Silver Bullet ·
+  // Radley · Cybex · SAP DSD · Salesforce Consumer Goods Cloud.
+  // المورّدون العرب المحليون
+  'Al[-\\s]?Ameen\\s+(?:Software|ERP|Van\\s*Sales|Systems?)', 'Onyx\\s*Pro', 'Motakamel', 'YemenSoft', 'TrioSuite', 'TrioCashVan',
+  'Phenix\\s*Van\\s*Sales', 'PDAMAROC', 'THEYSOFT', 'Protid', 'TASSARUF', 'Vatoce', 'Bitrix24',
+  // المحاسبة وERP
+  'Wafeq', 'Rewaa', 'DEXEF', 'AccFlex', 'Elate\\s*ERP', 'Penieltech', 'Edara\\s*(?:ERP|Software)', 'TallyPrime', 'Datacor', 'Blue\\s*Link\\s*ERP',
+  'Tecsys', 'ebizframe', 'ArrowStream', 'Radley\\s+Corporation', 'Cybex\\s+Enterprise',
+  // فان-سيلز للشركات الصغيرة
+  'Lystloc', 'SalesJump', 'mSELL', 'Unolo', 'TrackoField', 'TrackoBit', 'TrackoMile', 'bMobile', 'Advantage\\s+Route\\s+(?:Systems|Software)',
+  'Al[-\\s]?Badr\\s+Sales', 'Infotas', 'SalesRabbit', 'Route4Me', 'RouteManager', 'WorkWave', 'Onfleet', 'Onsight',
+  // أتمتة قوة البيع للسوق المتوسط
+  'Repsly', 'SPOTIO', 'SimplyDepo', 'Pepperi', 'Advantive', 'Badger\\s*Maps', 'LeadSquared', 'SalesPort', 'Fieldproxy', 'Connecteam', 'Hubstaff',
+  'Timeero', 'Housecall\\s*Pro', 'ServiceTitan', 'SynTrack', 'Synergia\\s*Soft', 'RealSoft', 'Axolon', 'Veloxy', 'Jibble',
+  // التوزيع المؤسسي
+  'SAP\\s+DSD', 'Salesforce\\s+(?:Consumer\\s+Goods|CG)\\s+Cloud', 'Resco', 'xkzero', 'StayinFront', 'Vistex', 'eoStar',
+  'Encompass\\s+(?:Distribution|Technologies)', 'Silver\\s+Bullet\\s+(?:Suite|Technology)', 'SalesWorx', 'Focus\\s*Softnet',
+  // مفتوح المصدر وإضافات الفان-سيلز
+  'ERPGulf', 'FieldOpt', 'Netilligence', 'VanGo', 'Sellbee', 'TABSYST', 'Dolibarr', 'DoliCloud', 'EspoCRM', 'Tryton', 'Axelor', 'Vtiger',
+  // كاشير المطاعم
+  'Foodics', 'TapFood', 'Grubtech', 'Petpooja', 'Restroworks', 'Loyverse', 'LazyWait', 'SambaPOS', 'Ordable',
 ];
 /** بلا \b (حدّ الكلمة في JS لاتيني فقط): الصينية والكورية والروسية */
 const COMPETITORS_OTHER = ['勤策', '外勤365', '舟谱云', '纷享销客', '易订货', '易指快销', '세일즈덕', '샤플', '모두의거래', 'Агент\\s*Плюс'];
+
+/**
+ * ─── ربط حكومي خارج السعودية (gov-einvoice-abroad) — خطة GEO البند ١٤ ─────────────────────────────────
+ * قرار المالك: الربط الحكومي حيّ في السعودية وحدها (ZATCA ومنصة «فاتورة» — خارج هذه القائمة عمداً)، وغيرها
+ * «عند الطلب» بلا وعد. الممنوع **ادّعاء** الربط أو التكامل أو الدعم أو التوافق أو الامتثال منسوباً إلى FieldSales
+ * أو «نحن» أو منتجنا، مع اسم منظومة فوترة حكومية أو جهتها في الجملة نفسها. **الذكر الواقعي** مشروع بل مطلوب في
+ * صفحات الدول: «CFDI 4.0 إلزامي في المكسيك» و«يشترط SAT أن تتوافق الفاتورة مع CFDI» لا فاعل منّا فيهما.
+ *
+ * القائمة: خطة GEO (§٣ «أنظمة فوترة يُمنع ادعاء الربط بها») + منظومات D:/claude-work/country-facts/*.json وجهاتها
+ * + أشهر غيرها. لكل دولة نمطها بنظام كتابتها، والحدود بحروف النظام نفسه: «وSAT» العربية تُطابَق، و«SATURDAY» لا.
+ * الاختصارات بحالة أحرفها (SAT · BIR · ETA — لا «sat» ولا «bir» التركية ولا «eta» الباسكية).
+ *
+ * ⚠️ لا يدخلها مصطلح عامّ تُترجَم به «الفوترة الإلكترونية» نفسها: E-Rechnung (de.json) · e-fatura (التركية تقولها
+ * لـZATCA) · e-factura (nl وay وgn وqu وrm) · hóa đơn điện tử (vi.json) · 电子发票 (zh) · インボイス (ja) — ملفات الطبقة
+ * تستعملها في جملة «الربط الحكومي حيّ في السعودية وعند الطلب في غيرها» الصادقة. ولا Soliq (الأوزبكية: «ضريبة»).
+ * IRN رمز إيران ISO3 أيضاً في world-countries.json — يبقى لأنه رقم الفاتورة الهندي ولا يُدان إلا مع فعل ربط منسوب.
+ */
+export const GOV_EINVOICING = [
+  // الأمريكتان
+  { cc: ['MX', 'GT', 'BR'], latin: 'SAT' }, // المكسيك وغواتيمالا، وCF-e-SAT البرازيلي
+  { cc: ['MX'], latin: 'CFDI|Servicio\\s+de\\s+Administraci[oó]n\\s+Tributaria|Carta\\s+Porte' },
+  { cc: ['GT'], latin: 'FEL' },
+  { cc: ['CO'], latin: 'DIAN|RADIAN|CUFE' },
+  { cc: ['BR'], latin: 'SEFAZ|Sefaz|NFC-?e|NFS-?e|NF-?e|CT-?e|MDF-?e|CF-?e|SPED|DANFE|ENCAT|Receita\\s+Federal' },
+  { cc: ['CL', 'ES'], latin: 'SII' },
+  { cc: ['CL', 'SV'], latin: 'DTE' },
+  { cc: ['AR'], latin: 'ARCA|AFIP' },
+  { cc: ['PE'], latin: 'SUNAT' },
+  { cc: ['EC'], latin: 'SRI' },
+  { cc: ['UY', 'PA', 'MA', 'CI', 'CM', 'DZ'], latin: 'DGI' },
+  { cc: ['PY'], latin: 'SIFEN' },
+  { cc: ['BO'], latin: 'SIAT' },
+  { cc: ['DO'], latin: 'DGII|e-CF' },
+  { cc: ['VE'], latin: 'SENIAT' },
+  // أوروبا
+  { cc: ['PL'], latin: 'KSeF|Krajowy\\s+System\\s+e-Faktur' },
+  { cc: ['RO'], latin: 'ANAF|RO\\s*e-Factura' },
+  { cc: ['IT'], latin: 'SdI|SDI|Sistema\\s+di\\s+Interscambio|FatturaPA|Agenzia\\s+delle\\s+Entrate' },
+  { cc: ['FR'], latin: 'Chorus\\s*Pro|PPF|Portail\\s+[Pp]ublic\\s+de\\s+[Ff]acturation|DGFiP|Factur-X' },
+  { cc: ['DE'], latin: 'XRechnung|ZUGFeRD' },
+  { cc: ['ES'], latin: 'VERI\\*?FACTU|Veri\\*?[Ff]actu|TicketBAI|AEAT|FACe' },
+  { cc: ['PT'], latin: 'SAF-T|ATCUD|Autoridade\\s+Tribut[aá]ria' },
+  { cc: ['GR'], latin: 'myDATA|AADE' },
+  { cc: ['HU'], latin: 'Online\\s+Sz[aá]mla|NAV\\s+Online' },
+  { cc: ['RS'], latin: 'SEF' },
+  { cc: ['AE', 'SG', 'MY', 'JP', 'AU', 'NZ', 'BE'], latin: 'Peppol|PEPPOL|PINT-AE' },
+  // تركيا وآسيا الوسطى وروسيا
+  { cc: ['TR'], latin: 'GİB|GIB|Gelir\\s+[İI]daresi|e-Ar[şs]iv|e-[İI]rsaliye' },
+  { cc: ['KZ'], latin: 'ESF', cyrl: 'ЭСФ|КГД' },
+  { cc: ['RU'], cyrl: 'ФНС|ОФД|ЕГАИС|Честный\\s+(?:знак|ЗНАК)' },
+  // الشرق الأوسط وشمال أفريقيا
+  { cc: ['EG'], latin: 'ETA|Egyptian\\s+Tax\\s+Authority',
+    arab: 'مصلح[ةه]\\s*الضرائب|منظوم[ةه]\\s*(?:ال)?(?:فاتور[ةه]|[إا]يصال)\\s*(?:ال)?[إا]?لكتروني[ةه]?\\s*(?:ال)?مصري[ةه]|منظوم[ةه]\\s*(?:ال)?[إا]يصال\\s*(?:ال)?[إا]?لكتروني' },
+  { cc: ['AE'], latin: 'FTA|EmaraTax|Federal\\s+Tax\\s+Authority', arab: '(?:ال|لل)هيئ[ةه]\\s*(?:ال)?اتحادي[ةه]\\s*للضرائب' },
+  { cc: ['OM'], latin: 'Fawtara', arab: 'جهاز\\s*الضرائب' },
+  { cc: ['JO'], latin: 'JoFotara|ISTD', arab: 'دائر[ةه]\\s*ضريب[ةه]\\s*الدخل\\s*والمبيعات|جو\\s*فوتر[ةه]' },
+  { cc: ['BH', 'BD'], latin: 'NBR', arab: '(?:ال|لل)جهاز\\s*(?:ال)?وطني\\s*للإيرادات' },
+  { cc: ['TN'], latin: 'TTN|El[\\s-]?Fat(?:oo|ou)ra|Tunisie\\s+TradeNet', arab: '(?:ال|لل)[إا]دار[ةه]\\s*(?:ال)?عام[ةه]\\s*للأداءات' },
+  { cc: ['IQ', 'QA'], arab: '(?:ال|لل)هيئ[ةه]\\s*(?:ال)?عام[ةه]\\s*للضرائب' },
+  { cc: ['MA', 'DZ'], arab: '(?:ال|لل)مديري[ةه]\\s*(?:ال)?عام[ةه]\\s*للضرائب' },
+  { cc: ['IR'], latin: 'Moadian', arab: 'سامانه\\s*مودیان|مودیان' },
+  { cc: ['IL'], hebr: 'מספר\\s*הקצאה' }, // نظام أرقام التخصيص (قائمة الخطة) — لا يُضيف دولة
+  // آسيا
+  { cc: ['IN'], latin: 'IRP|GSTN|[Ee]-Way\\s+Bill' },
+  { cc: ['IN', 'NG'], latin: 'IRN' },
+  { cc: ['PK'], latin: 'FBR|PRAL|KPRA|Federal\\s+Board\\s+of\\s+Revenue' },
+  { cc: ['ID'], latin: 'DJP|Core[Tt]ax|e-Faktur|PJAP|Direktorat\\s+Jenderal\\s+Pajak' },
+  { cc: ['MY'], latin: 'LHDNM?|MyInvois|IRBM' },
+  { cc: ['SG'], latin: 'IRAS|InvoiceNow' },
+  { cc: ['PH'], latin: 'BIR|EIS' },
+  { cc: ['VN'], latin: 'T[ổô]ng\\s+c[ụu]c\\s+Thu[ếe]|h[óo]a\\s+đ[ơo]n\\s+đi[ệe]n\\s+t[ửu]\\s+c[óo]\\s+m[ãa]' },
+  { cc: ['TH'], latin: 'e-Tax\\s+Invoice', free: 'กรมสรรพากร' },
+  { cc: ['CN'], latin: 'Golden\\s+Tax', free: '全电发票|数电发票|金税|国家税务总局' },
+  { cc: ['KR'], latin: 'Home[Tt]ax|NTS', free: '국세청|홈택스|전자세금계산서' },
+  { cc: ['JP'], free: '適格請求書|インボイス制度|国税庁' },
+  // أفريقيا
+  { cc: ['KE'], latin: 'KRA|e?TIMS|iTax|OSCU|VSCU' },
+  { cc: ['TZ'], latin: 'TRA|VFD' },
+  { cc: ['TZ', 'ET'], latin: 'EFD' },
+  { cc: ['UG'], latin: 'URA|EFRIS' },
+  { cc: ['RW'], latin: 'RRA|EBM' },
+  { cc: ['ZM'], latin: 'ZRA' },
+  { cc: ['ZW'], latin: 'ZIMRA|FDMS' },
+  { cc: ['NG'], latin: 'FIRS|NRS(?:MBS)?|Merchant\\s+Buyer\\s+Solution|Nigeria\\s+Revenue\\s+Service' },
+  { cc: ['GH'], latin: 'GRA|E-VAT|VSDC|Ghana\\s+Revenue\\s+Authority' },
+  { cc: ['CI'], latin: 'FNE|RNE' },
+  { cc: ['SN'], latin: 'DGID' },
+  { cc: ['ZA'], latin: 'SARS' },
+  { cc: ['MU'], latin: 'MRA' },
+  { cc: ['BW'], latin: 'BURS' },
+];
+
+const govAlt = (key) => GOV_EINVOICING.filter((e) => e[key]).map((e) => e[key]).join('|');
+/**
+ * اسم منظومة أو جهة فوترة حكومية خارج السعودية (بلا حساسية حالة: الاختصارات بحالتها). الحدّ بحروف نظام الكتابة نفسه،
+ * والعربية تقبل سوابق الجر والعطف («ولمصلحة الضرائب»). الصينية والكورية واليابانية والتايلاندية بلا حدّ (لا مسافات).
+ */
+export const GOV_EINVOICING_RE = new RegExp([
+  `(?<![\\p{Script=Latin}\\p{N}])(?:${govAlt('latin')})(?![\\p{Script=Latin}\\p{N}])`,
+  `(?<![\\p{Script=Cyrillic}\\p{N}])(?:${govAlt('cyrl')})(?![\\p{Script=Cyrillic}\\p{N}])`,
+  `(?<![\\p{Script=Arabic}\\p{N}])[وبلفك]?(?:${govAlt('arab')})(?![\\p{Script=Arabic}])`,
+  `(?<![\\p{Script=Hebrew}])(?:${govAlt('hebr')})`,
+  `(?:${govAlt('free')})`,
+].join('|'), 'u');
+
+/** بداية كلمة: لا حرف ولا رقم قبلها (\b لاتيني فقط في JS) */
+const W = '(?<![\\p{L}\\p{N}])';
+const WE = '(?![\\p{L}\\p{N}])';
+
+/**
+ * فعل الربط/التكامل/الدعم/التوافق/الامتثال بلغات الموقع الخمس ولغات الطبقة الأوسع انتشاراً — يُقبل قبل الاسم أو بعده
+ * بحدّ ٥٠ حرفاً. الصفة العامة وحدها ليست ربطاً: «منصة متكاملة» و«an integrated platform» و«plataforma integrada»
+ * وصفٌ للمنتج، فالصفة تُشترط بحرف صلتها («متكامل مع» · «مرتبط بـ» · «integrated with» · «integrado con» · «intégrée à»).
+ * لا يكفي الفعل وحده: يُشترط فاعلٌ منّا (GOV_ATTRIB) أو صيغة بند بلا فاعل (GOV_LEAD).
+ */
+const GOV_LINK = new RegExp([
+  // الإنجليزية
+  `${W}(?:integrat(?:es?|ing|ions?)|integrated\\s+(?:with|into|to)|interfac\\p{L}*|connect(?:s|ed|ing|ions?|ors?)?|sync\\p{L}*|support(?:s|ed|ing)?|compatib\\p{L}*|complian\\p{L}*|conform\\p{L}*|homolog\\p{L}*|link(?:s|ed)?|plug(?:s|ged)?\\s+into|works?\\s+with|ready\\s+for|certified|approved|accredited|authori[sz]ed)${WE}`,
+  // الفرنسية
+  `${W}(?:int[èé]gr(?:e|es|ent|ons|er|ation|ations)|int[ée]gr[ée]e?s?\\s+(?:à|a|avec|au|aux|dans)|connexions?|reli[ée]e?s?|raccord\\p{L}*|synchronis\\p{L}*|certifi\\p{L}*|agr[ée]{2}\\p{L}*|(?:prend\\p{L}*|pris\\p{L}*|prenons)\\s+en\\s+charge)${WE}`,
+  // التركية
+  `${W}(?:entegr|bağlan|bağlant|destekl|uyum|onaylı|sertifikal)`,
+  // الإسبانية والبرتغالية والإيطالية
+  `${W}(?:integra(?:mos|n|r|ción|ciones|ção|ções|zione|zioni)?|integrad[oa]s?\\s+(?:con|com|a|al|ao|à|en|no|na)|integrat[oa]\\s+(?:con|a|al|nel|nella)|integr[ao]-se|vincul\\p{L}*|sincroniz\\p{L}*|cumpl\\p{L}*|soport\\p{L}*|admit\\p{L}*|certific\\p{L}*|autoriz\\p{L}*|compat[ií]v\\p{L}*|suport\\p{L}*|liga(?:ção|do|da|dos|das|mos)|collega\\p{L}*|connes\\p{L}*)${WE}`,
+  `${W}(?:conect|conex)`,
+  // الإندونيسية والملايوية والألمانية والبولندية والهولندية والروسية والأوكرانية والفيتنامية والسواحيلية والعبرية واليونانية والهندية
+  `${W}(?:terintegrasi\\s+(?:dengan|ke)|mengintegrasikan|integrasi|terhubung|menghubungkan|terkoneksi|koneksi|mendukung|didukung|menyokong|disokong|kompatib\\p{L}*|serasi|sesuai\\s+dengan|patuh|sinkron\\p{L}*|tersambung)${WE}`,
+  `${W}(?:angebunden|anbindung|verbunden|verbind|unterstütz|integriert(?!e)|konform|zertifiziert|połącz|obsług|wspier|zgodn|kompatyb|certyfik|koppel|gekoppeld|ondersteun)`,
+  `${W}(?:интегр|подключ|связ|поддерж|совмест|соответств|сертифиц|інтегр|підтрим|підключ)`,
+  `${W}(?:tích\\s+hợp|kết\\s+nối|hỗ\\s+trợ|tương\\s+thích|tuân\\s+thủ|đồng\\s+bộ|liên\\s+thông|unganish|inaunganisha|inaendana|inasaidia)`,
+  `${W}(?:משולב|אינטגרציה|מתממשק|תומך|תואם|מחובר|διασύνδεσ|συνδέ|υποστηρίζ|συμβατ|एकीकृत|इंटीग्रेट|जुड़|कनेक्ट|समर्थन|सपोर्ट|अनुपालन|संगत)`,
+  // العربية (والفارسية والأردية لما تشاركه) — الصفة بحرف صلتها: «متوافق مع» · «مرتبط بمنظومة»
+  `(?<![\\p{L}\\p{N}])[وف]?(?:ب|ل)?(?:ال|ل)?(?:ربط|يربط|تربط|نربط|ربطنا|يرتبط|ترتبط|نرتبط|ارتباط|تكامل|يتكامل|تتكامل|نتكامل|تكاملنا|يدعم|تدعم|ندعم|ندعمها|ندعمه|مدعوم[ةه]?|يتوافق|تتوافق|نتوافق|توافق|يمتثل|تمتثل|نمتثل|امتثال|يتصل|تتصل|نتصل|يزامن|نزامن|مزامن[ةه]|جاهز(?:ون|[ةه])?|معتمد[ةه]?|مرخص[ةه]?|مصادق[ةه]?|منسلک|پشتیبانی|یکپارچه|سازگار)(?![\\p{L}\\p{N}])`,
+  // «متكاملة لإدارة المناديب» وصفٌ لا صلة: اللام لـ«ممتثل لـ» وحدها
+  `(?<![\\p{L}\\p{N}])[وف]?(?:ال)?(?:(?:متكامل|متوافق|مربوط|مرتبط|متصل)(?:[ةه]|ون|ين)?\\s+(?:مع|ب\\p{L})|ممتثل(?:[ةه]|ون|ين)?\\s+(?:مع|ل\\p{L}))`,
+  // بلا مسافات: الصينية واليابانية والكورية والتايلاندية
+  '对接|集成|连接|接入|打通|支持|兼容|符合|合规|同步|认证|直连|連携|対応|準拠|接続|統合|연동|연계|지원|호환|준수|통합|연결|เชื่อมต่อ|รองรับ|บูรณาการ|สอดคล้อง',
+].join('|'), 'giu');
+
+/**
+ * فعل الإرسال/الإصدار/التوليد — أضعف دلالة («تصدر منصة FieldSales الفاتورة» صادقة)، فيُشترط أن يسبق الاسم بحدّ ٤٠ حرفاً،
+ * أي أن يكون الاسم مفعوله أو وجهته: «emite NF-e» · «sends invoices to KSeF» · «transmite las facturas a la DIAN».
+ * والنصوص العربية بلا ترقيم في الكتالوج («…مصلحة الضرائب المصرية … تصدر منصة FieldSales الفاتورة») لا تُدان به.
+ */
+const GOV_LINK_FWD = new RegExp([
+  `${W}(?:submit\\p{L}*|transmi\\p{L}*|sends?|sent|sending|reports?\\s+to|reported\\s+to|issu(?:e|es|ed|ing)|generat(?:e|es|ed|ing)|stamp(?:s|ed|ing)?|e-?fil(?:e|es|ed|ing)|upload\\p{L}*)${WE}`,
+  `${W}(?:transm[ei]t\\p{L}*|envo[iy]\\p{L}*|[ée]m(?:et|ett|is)\\p{L}*|g[ée]n[èé]r\\p{L}*|t[ée]l[ée]transm\\p{L}*|gönder\\p{L}*|aktar\\p{L}*|düzenl\\p{L}*|oluştur\\p{L}*|ilet\\p{L}*)${WE}`,
+  `${W}(?:timbr\\p{L}*|envi[aáoe]\\p{L}*|transmit\\p{L}*|report[ae]\\p{L}*|emit\\p{L}*|emis\\p{L}*|emiss\\p{L}*|gener(?:a|an|amos|ado|ada|ados|adas)|ger(?:a|am|amos|ado|ada)|trasmett\\p{L}*|invia\\p{L}*|mengirim\\p{L}*|menerbitkan|übermitt\\p{L}*|przesył\\p{L}*|wysył\\p{L}*|trimit\\p{L}*|переда\\p{L}*|отправл\\p{L}*|выгруж\\p{L}*)${WE}`,
+  `(?<![\\p{L}\\p{N}])[وف]?(?:ي|ت|ن)?(?:رسل|رفع|صدر)(?![\\p{L}\\p{N}])|(?<![\\p{L}\\p{N}])[وف]?(?:ب|ل)?(?:ال)?(?:إرسال|ارسال)(?![\\p{L}\\p{N}])`,
+  '上传|开具|送信|発行|전송|발행',
+].join('|'), 'giu');
+
+/** الفاعل منّا: الاسم، أو ضمير المتكلم وملكيته، أو فعل ربط بصيغة المتكلم (ندعم · integramos · destekliyoruz) */
+const GOV_ATTRIB = new RegExp([
+  'Field\\s*Sales|فيلد\\s*سيلز|fieldsa\\.net',
+  `(?<![\\p{L}\\p{N}])[وف]?(?:نحن|لدينا|عندنا|منصتنا|نظامنا|تطبيقنا|تطبيقاتنا|برنامجنا|حلنا|حلولنا|فواتيرنا|منتجنا|ندعم|ندعمها|ندعمه|نربط|ربطنا|نرتبط|نتكامل|تكاملنا|نتوافق|نمتثل|نتصل|نرسل|نرفع|نزامن|نصدر)(?![\\p{L}\\p{N}])`,
+  `${W}(?:we|we['’](?:re|ve|ll)|nous|biz|nosotros|nós|kami|wir|unser(?:e|er|en|em)?|noi|nostr[oaie]|мы|ми|sisi|chúng\\s+tôi)${WE}`,
+  `${W}(?:our|notre|nos|nuestr[oa]s?|noss[oa]s?)\\s+(?:[\\p{L}-]+\\s+){0,2}?(?:platform|plateforme|plataforma|app|apps|application|applications|aplicaci[oó]n|aplicativo|appli|software|logiciel|system|syst[èe]me|sistema|solution|soluci[oó]n|solução|product|produit|producto|produto|tool|outil|herramienta|ferramenta|invoices?|factures?|facturas?|faturas?)${WE}`,
+  `${W}the\\s+(?:rep|mobile|field|sales|van)\\s+app${WE}`,
+  `${W}(?:platformumuz|uygulamamız|yazılımımız|sistemimiz|çözümümüz|nasz\\p{L}*|наш\\p{L}*|integramos|conectamos|vinculamos|sincronizamos|soportamos|suportamos|admitimos|cumplimos|emitimos|enviamos|transmitimos|timbramos|generamos|geramos|reportamos|homologamos|int[ée]grons|connectons|transmettons|envoyons|[ée]mettons|relions|prenons\\s+en\\s+charge|integriamo|colleghiamo|supportiamo|trasmettiamo|inviamo|integrujemy|obsługujemy|wspieramy|łączymy|wysyłamy|przesyłamy|integrăm|conectăm|suportăm|transmitem|trimitem)${WE}`,
+  `${W}(?:destekliyoruz|destekleriz|bağlanıyoruz|bağlıyoruz|entegre\\s+(?:ediyoruz|ederiz|olduk)|gönderiyoruz|aktarıyoruz|düzenliyoruz)${WE}`,
+  '我们|我方|本平台|本系统|本软件|本应用|当社|弊社|私たち|저희|우리|เรา',
+  // الهندية بحروف العلة اللاحقة (\p{M}): «हम» داخل «हमेशا» ليست ضميراً
+  '(?<![\\p{L}\\p{M}])हम(?:ारा|ारी|ारे)?(?![\\p{L}\\p{M}])|(?<![\\p{Script=Hebrew}])(?:אנחנו|אנו)(?![\\p{Script=Hebrew}])',
+].join('|'), 'iu');
+
+/** صيغة بند بلا فاعل في أول الجملة الفرعية: «Integrates with SAT» · «Compatible con CFDI» · «متوافق مع ETA» · «支持全电发票» */
+const GOV_LEAD = new RegExp(`^(?:(?:integrat(?:es|ed)|supports?|supported|connect(?:s|ed)|sync(?:s|ed|hroni[sz]ed)?|compatible|compliant|certified|works\\s+with|ready\\s+for|linked|int[ée]gr[ée]e?s?|conforme|connect[ée]e?s?|reli[ée]e?s?|prend\\s+en\\s+charge|integrad[oa]s?|conectad[oa]s?|vinculad[oa]s?|homologad[oa]s?|certificad[oa]s?|cumple|soporta|admite|se\\s+integra|se\\s+conecta|integra-se|compat[ií]vel|suporta|integriert|kompatibel|angebunden|unterstützt|integrat[oa]|compatibile|collegat[oa]|terintegrasi|mendukung|terhubung|интегрирован\\p{L}*|поддерживает|совместим\\p{L}*|[وف]?(?:متوافق|مدعوم|مربوط|مرتبط|متكامل|متصل)[ةه]?)(?![\\p{L}\\p{N}])|支持|兼容|对接|集成|接入|打通)`, 'iu');
+
+/** نفي صادق داخل الجملة الفرعية: «لا نربط مع SAT» · «FieldSales is not integrated with SAT» · «no está integrado con el SAT» */
+const GOV_NEGATION = new RegExp([
+  `${W}(?:not|never|cannot|can['’]t|don['’]t|doesn['’]t|isn['’]t|aren['’]t|won['’]t|without)${WE}|${W}no\\s+(?:[\\p{L}-]+\\s+){0,2}?(?:integrations?|connections?|links?|support)${WE}`,
+  // «FieldSales n'émet ni FNE ni RNE» · «n'est aujourd'hui raccordé ni à la plateforme FNE» (صفحة ساحل العاج المراجَعة)
+  `${W}n(?:e\\s+|['’])[^.;:\\n]{0,40}?${W}(?:pas|ni|jamais|plus|aucun\\p{L}*|rien)${WE}|${W}(?:sans|aucun\\p{L}*)${WE}|${W}pas\\s+encore${WE}`,
+  // فكّ الصلة صراحةً: «La FNE s'émet par les canaux de la DGI, indépendamment de FieldSales»
+  `${W}(?:indépendamment|independently|independiente(?:mente)?|independente(?:mente)?|unabhängig|separately)\\s+(?:de|of|from|von|du|des)${WE}|(?:بمعزل|بشكل\\s*مستقل)\\s*عن|مستقل[ةه]?\\s*عن`,
+  `değil|desteklenmi|${W}\\p{L}+m(?:ıyor|iyor|uyor|üyor)(?:uz|ız|iz|üz)?${WE}|${W}yok${WE}`,
+  '尚未|不支持|未对接|暂不|没有|无法|不提供|不对接|未接入|ません|未対応|않|없|미지원|नहीं',
+  `غير\\s*(?:مبني|متاح|مدعوم|مربوط|مرتبط|منفذ|متكامل|متوافق|متصل)|(?<![\\p{L}])[وف]?لا\\s*(?:ندعم|نربط|يدعم|تدعم|يوجد|يتوفر|نتكامل|يتكامل|يرتبط|نرتبط|نوفر|يوفر|يتصل|نتصل|نرسل|يرسل|نصدر)|(?<![\\p{L}])[وف]?لم\\s*(?:نبن|ندعم|نربط|يتم|تنفذ|نتكامل|نفعل)|(?<![\\p{L}])[وف]?(?:ليس|ليست|لسنا)(?![\\p{L}])|(?:بلا|دون|بدون)\\s*(?:ربط|تكامل)`,
+  // «FieldSales no timbra CFDI» (صفحة المكسيك المراجَعة)
+  `${W}no\\s+(?:se\\s+|lo\\s+|la\\s+|los\\s+|las\\s+|le\\s+|les\\s+)?(?:\\p{L}+\\s+)?(?:integra|conecta|vincula|soporta|admite|ofrece|est[aá]|es|son|tiene|emite|timbra|sella|firma|valida|certifica|transmite|reporta|sube|carga|sustituye|reemplaza|cumple|env[ií]a|genera|incluye|hay|existe|act[uú]a|funciona|figura|forma)${WE}|${W}(?:todav[ií]a|a[uú]n)\\s+no${WE}|${W}sin\\s+(?:integraci[oó]n|conexi[oó]n)${WE}|${W}ningun\\p{L}*`,
+  `${W}(?:n[ãa]o|nenhum\\p{L}*|tidak|belum|tanpa|bukan|nicht|kein\\p{L}*|ohne|non|senza|nie|bez|не|нет|без|không|chưa|haina|bila)${WE}|${W}sem\\s+(?:integra[çc][ãa]o|conex[ãa]o)${WE}`,
+].join('|'), 'iu');
+
+/** «عند الطلب» بلا وعد (قرار المالك) — كما يعدّه verify-facts (ON_REQUEST) بلغات أوسع */
+const GOV_ON_REQUEST = new RegExp([
+  // «ويبقى ربط منظومة ETA الرسمية حسب متطلبات كل منشأة» (مقال مصر الاحتياطي في POSTS وفي CMS) إتاحةٌ لا ادّعاء
+  'عند\\s*الطلب|(?:ب)?حسب\\s*(?:الطلب|متطلبات|حاج[ةه])|selon\\s+les\\s+besoins',
+  `${W}(?:on|upon|by)\\s+request${WE}|${W}on\\s+demand${WE}|sur\\s+demande|[àa]\\s+la\\s+demande|talep\\s+(?:üzerine|halinde|edil\\p{L}*)`,
+  '按需|根据需求|可申请|要望に応じ|ご要望|요청\\s*시',
+  `${W}bajo\\s+(?:pedido|solicitud|demanda)|${W}a\\s+(?:pedido|solicitud)${WE}|por\\s+encargo|${W}sob\\s+(?:demanda|consulta|pedido|solicita[çc][ãa]o)|mediante\\s+(?:pedido|solicita\\p{L}*)`,
+  'atas\\s+permintaan|berdasarkan\\s+permintaan|auf\\s+Anfrage|su\\s+richiesta|na\\s+(?:żądanie|życzenie)|la\\s+cerere|по\\s+запросу|theo\\s+yêu\\s+cầu|kwa\\s+ombi',
+].join('|'), 'iu');
+
+/** فواصل الجملة: النقطة قبل مسافة (لا «CFDI 4.0») وعلامات الاستفهام والتعجب والسطر و« | » و« · » */
+const SENT_BREAK = /[.!?](?=\s|$)|[؟。！？\n]|\s[·•|]\s/gu;
+/** فواصل الجملة الفرعية: الفاصلة المنقوطة والنقطتان، و«، و» و«, and/but/while…» وما يقابلها، والشرطة الطويلة */
+const CLAUSE_BREAK = new RegExp([
+  '[;؛:：，；、]|\\s[—–]\\s',
+  '،\\s*(?=و)',
+  `,\\s*(?=(?:and|but|while|whereas|et|mais|tandis|y|pero|mientras|e|mas|enquanto|ve|ama|fakat|ancak|und|aber|während|ma|mentre|oraz|ale|а|но|dan|tetapi|sedangkan)${WE})`,
+  // الجملة الموصولة تصف المكان لا المنتج: «FieldSales منصة متكاملة لموزعي مصر، حيث منظومة ETA إلزامية»
+  `,\\s*(?=(?:where|which|whose|donde|où|onde|dove|wo|gdzie|que|qui)${WE})`,
+  `${W}(?:while|whereas|tandis\\s+que|mientras\\s+que|enquanto|whilst)${WE}|(?<![\\p{L}])(?:بينما|لكن|في\\s+حين|حيث)(?![\\p{L}])`,
+].join('|'), 'giu');
+
+/** حدود المقطع [s, e) حول [start, end) بفاصل breakRe، بحدّ cap حرفاً في كل جانب */
+function spanAround(hay, lo, hi, start, end, breakRe, cap) {
+  const from = Math.max(lo, start - cap);
+  let s = from;
+  for (const b of hay.slice(from, start).matchAll(breakRe)) s = from + b.index + b[0].length;
+  const to = Math.min(hi, end + cap);
+  const nb = new RegExp(breakRe.source, breakRe.flags.replace('g', '')).exec(hay.slice(end, to));
+  const e = nb ? end + nb.index + nb[0].length : to;
+  return { s, e };
+}
+
+/**
+ * حكم gov-einvoice-abroad على مطابقة واحدة لاسم منظومة (hay مطبَّع).
+ * يُدان إن اجتمع في **الجملة الفرعية** نفسها: فعل ربط على بعد ≤ ٥٠ حرفاً من الاسم (أو فعل إرسال/إصدار قبله بـ≤ ٤٠)، وفاعلٌ منّا (أو صيغة بند بلا فاعل)،
+ * بلا نفي، وفي جملة ليست سؤالاً ولا «عند الطلب».
+ */
+export function govClaimAt(hay, m) {
+  const start = m.index;
+  const end = start + m[0].length;
+  const sent = spanAround(hay, 0, hay.length, start, end, SENT_BREAK, 240);
+  const sText = hay.slice(sent.s, sent.e).trim();
+  if (/[?؟？]$/.test(sText) || sText.startsWith('¿')) return false;
+  if (GOV_ON_REQUEST.test(sText)) return false;
+  const cl = spanAround(hay, sent.s, sent.e, start, end, CLAUSE_BREAK, 240);
+  const cText = hay.slice(cl.s, cl.e);
+  if (GOV_NEGATION.test(cText)) return false;
+  const rs = start - cl.s;
+  const re = end - cl.s;
+  let link = false;
+  for (const l of cText.matchAll(GOV_LINK)) {
+    const ls = l.index;
+    const le = ls + l[0].length;
+    const gap = le <= rs ? rs - le : ls >= re ? ls - re : 0;
+    if (gap <= 50) { link = true; break; }
+  }
+  if (!link) {
+    for (const l of cText.matchAll(GOV_LINK_FWD)) {
+      const le = l.index + l[0].length;
+      if (le <= rs && rs - le <= 40) { link = true; break; }
+    }
+  }
+  if (!link) return false;
+  if (GOV_ATTRIB.test(cText)) return true;
+  const lead = cText.replace(/^[\s\-*•·✓✔–—>"'«“(]+/u, '');
+  return GOV_LEAD.test(lead) && rs - (cText.length - lead.length) <= 60;
+}
 
 export const RULES = [
   {
@@ -222,6 +503,17 @@ export const RULES = [
     re: near('(?:\\bETA\\b|منظومة\\s*الفاتورة\\s*الإلكترونية\\s*المصرية)'),
     unless: /(غير\s*(مبني|متاح|مدعوم)|not\s*(built|implemented|supported))/i,
     why: 'ادّعاء دعم ETA مصر — stub not_implemented (شرح اللائحة مسموح)',
+  },
+  {
+    id: 'gov-einvoice-abroad',
+    // اسم منظومة فوترة حكومية خارج السعودية (GOV_EINVOICING) + فعل ربط قريب + فاعل منّا في الجملة الفرعية نفسها
+    // ⇒ حاجبة. الحكم في govClaimAt: الذكر الواقعي والنفي والسؤال و«عند الطلب» تمرّ.
+    // نطاق «الكتل»: verify-claims يفصل الفقرات والعناوين والبنود أسطراً، فلا يصير «FieldSales» في عنوان H1
+    // فاعلاً لجملة واقعية في الفقرة بعده («FieldSales في المكسيك» + «يشترط SAT أن تتوافق الفاتورة مع CFDI»).
+    re: GOV_EINVOICING_RE,
+    check: govClaimAt,
+    scope: 'blocks',
+    why: 'ادّعاء ربط أو تكامل أو توافق مع منظومة فوترة حكومية خارج السعودية — الربط حيّ في السعودية وحدها، وغيرها «عند الطلب» بلا وعد',
   },
   {
     id: 'fake-certification',
@@ -324,6 +616,7 @@ export function findViolations(rule, haystack, limit = Infinity) {
       const w = hay.slice(Math.max(0, i - (rule.unlessBefore ?? 220)), i + (rule.unlessAfter ?? 220));
       if (rule.unless.test(w)) continue;
     }
+    if (rule.check && !rule.check(hay, m)) continue;
     if (rule.requireNear) {
       const w = hay
         .slice(Math.max(0, i - rule.requireNear.before), i + m[0].length + rule.requireNear.after)

@@ -1,0 +1,214 @@
+{
+  "code": "PH",
+  "languages": [
+    "en"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "en": {
+      "slugHint": "van-sales-software-philippines",
+      "title": "Van Sales Software for Distributors in the Philippines",
+      "description": "Van sales, pre-sales and collections for Philippine distributors: invoices printed from the rep's phone, 12% VAT set by you, works offline.",
+      "h1": "Van sales, pre-sales and collections software for Philippine distributors",
+      "intro": "FieldSales is a cloud platform for distribution and wholesale companies in the Philippines that run van sales, pre-sales order taking and field collections. Reps issue invoices on their phones and print them on a thermal printer, record collections, track customer balances and van stock, and log each store visit with location and photos, from sari-sari stores to supermarkets. The app keeps working offline and syncs later. Each company sets its own currency, VAT rate and payment methods, such as GCash or Maya.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "How distribution works in the Philippines",
+          "body": "Philippine distribution runs through several commercial hubs, including Metro Manila (NCR), Calabarzon (Cavite, Laguna, Batangas), Central Luzon (Pampanga, Bulacan), Metro Cebu and Davao City. Traditional trade revolves around the sari-sari store, a small family-run shop often operated from the owner's home, alongside carinderias (small eateries), while modern trade covers supermarkets and groceries. Routes may also take in public-market (palengke) vendors and drugstores. Published estimates of how many sari-sari stores operate vary widely, so plan coverage from your own customer list rather than a headline number. Many stores sell on credit to their regular customers (suki) and keep those debts in handwritten notebooks, and B2B ordering apps for sari-sari stores are emerging.\n\nPayment is still largely cash-based. A Bangko Sentral ng Pilipinas (BSP) roadmap published in 2020, using 2019 data, put cash at about 85% of business-to-business supplier payments by volume and described an economy that relies on cash and cheques. Those figures are dated, but they explain why field collection still matters. E-wallets such as GCash and Maya, both regulated by the BSP, are spreading fast and accept QR payments; InstaPay handles instant low-value bank transfers, PESONet handles batch transfers as an alternative to cheques, and QR Ph standardizes merchant QR codes.\n\nFieldSales is built for this mix: the same rep can sell from the van, take orders for later delivery and collect payment during a store visit."
+        },
+        {
+          "id": "tax",
+          "title": "VAT, TIN and what a Philippine invoice must show",
+          "body": "The Philippines levies Value-Added Tax (VAT), administered by the Bureau of Internal Revenue (BIR). The standard rate is 12%. A 0% rate applies to zero-rated transactions, including export sales by VAT-registered sellers, sales to bonded manufacturing warehouses of export enterprises, and goods and services zero-rated under special laws (per PwC). VAT-exempt transactions (Section 109) are a separate category: they are not zero-rated and give no input VAT credit. VAT registration is mandatory once gross sales over the past twelve months exceed the registration threshold, or are expected to exceed it over the next twelve months; businesses that are not VAT-registered are generally subject to Percentage Tax instead and issue non-VAT invoices.\n\nThe Taxpayer Identification Number (TIN) has nine digits followed by a five-digit branch code, and it is printed on the invoice after \"VAT Reg TIN\" or \"Non-VAT Reg TIN\", for example VAT Reg TIN 123-456-789-00000.\n\nUnder Revenue Regulations (RR) No. 7-2024, the invoice is the primary evidence of a sale. It must show the seller's registered name as shown in its BIR registration (COR), VAT or non-VAT status with TIN and branch code, the registered business address, the word \"Invoice\" (Sales Invoice, Cash Invoice, Charge Invoice and so on), the transaction date, a serial number, the quantity, unit cost and description of each item, space for the buyer's registered name, address and TIN (address and TIN are not required for sales to final consumers), and the total with VAT shown as a separate amount. Mixed sales need VATable, VAT-exempt and zero-rated sales and the VAT amount broken out. Sales to senior citizens and persons with disabilities need the buyer's ID number, the discount and VAT exemption details, and the buyer's signature. Under RR 6-2026, creditable withholding tax (CWT) must also appear as a separate line where applicable.\n\nManual invoices carry ATP details at the bottom, CRM and POS invoices carry the MIN and PTU numbers, and CAS invoices carry PTU or ACCN details. Registering your invoicing setup with the BIR is your company's responsibility. In FieldSales, your company admin sets the tax name (VAT) and the rate (12%) and enters the company details; review the printed invoice against the fields above with your tax adviser before your reps go live."
+        },
+        {
+          "id": "einvoicing",
+          "title": "BIR e-invoicing (EIS): where things stand",
+          "body": "The BIR's Electronic Invoicing System (EIS) is being phased in, and the mandate had not yet taken effect when this page was last checked. Under RR No. 11-2025, as amended by RR 26-2025, and the guidelines in Revenue Memorandum Circular (RMC) No. 98-2026, the following must be able to issue electronic invoices by 31 December 2026: taxpayers in e-commerce or online transactions classified as small, medium or large (micro taxpayers are exempt); taxpayers under the Large Taxpayers Service (LTS); Large Taxpayers as classified under the EOPT Act (RA 11976) and RR 8-2024; and users of CAS or CBA with accounting records and electronic invoicing, as well as users of other invoicing software. Micro taxpayers may issue e-invoices voluntarily or keep using registered manual invoices, CAS, CRM or POS.\n\nBefore issuing, a covered taxpayer needs a Permit to Issue Electronic Invoice (PTI) from the BIR, and e-invoices must be structured data that converts to the BIR's JSON format. Invoices typed in Word, Excel or Google Sheets do not count, and neither does a printed invoice from a system that cannot send it electronically to the buyer and report it. Issued e-invoices cannot be deleted or edited; corrections go through a credit note or a new invoice (BIR media release, 23 September 2026, and professional summaries of RMC 98-2026).\n\nA later wave, with no date set, will follow once the BIR's system is ready and separate regulations are issued, covering exporters, registered business enterprises with incentives, POS users and others the Commissioner names. Electronic sales reporting under Section 237-A, which means sending sales data to the EIS, is a separate obligation that has not been activated yet; RR 8-2022 had designed it as transmission within three calendar days of the transaction. Taxpayers may use an in-house or commercial e-invoicing solution or an Electronic Invoicing Service Provider (ESP); the BIR took ESP applications from 16 to 30 October 2026 under RMC 110-2026 (per Reyes Tacandong).\n\nUnder RR 6-2026, invoices must show creditable withholding tax separately where applicable. According to a Daily Tribune report on RMC 112-2026, covered e-invoicing systems have until 31 December 2026, and CRM, POS and other invoicing systems not yet covered by the e-invoicing mandate until 31 March 2027. No announcement of a further extension of the 31 December 2026 deadline had been found at the last check, but RR 26-2025 allows the Commissioner to extend it, so confirm the latest position with the BIR or your adviser.\n\nA note for distributors: a VAT-registered distributor that invoices from invoicing software may fall within the covered CAS/CBA and invoicing-software category, unless it is a micro taxpayer.\n\nWhere FieldSales stands: it does not transmit invoices or sales data to any Philippine government system today. Our only live government e-invoicing connection is in Saudi Arabia, where we support Phase 2 integration with ZATCA’s Fatoora platform. For the Philippines, a government e-invoicing connection is available on request: we would first study the country's requirements, and we make no promise of outcome, scope or timing. Your PTI, registration and e-invoicing obligations stay with your company."
+        },
+        {
+          "id": "collections",
+          "title": "Collections: cash, cheques, bank transfers and e-wallets",
+          "body": "Cash and cheques remain central to field collection, while e-wallets are spreading fast. In FieldSales, every payment a rep collects is recorded on a receipt with the payment method your company defines: Cash, Cheque, Bank transfer (InstaPay or PESONet), GCash, Maya, QR Ph, or any other method you add. These are methods for recording and reconciling collections. FieldSales does not connect to GCash, Maya, InstaPay, PESONet or QR Ph, so your team matches e-wallet and bank entries against its own statements.\n\nEach receipt reduces the customer's outstanding balance, so managers can see who owes what and what each rep has collected. Separately, the stock each rep carries in the van is tracked as custody and reconciled against what the system recorded.\n\nOne local rule to keep in mind: under the BIR's invoicing rules, a collection receipt or official receipt is a supplementary document, not proof of sale, and supplementary documents must carry the statement \"THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAX.\" The invoice remains the document that supports the sale."
+        },
+        {
+          "id": "how",
+          "title": "How FieldSales works for Philippine distributors",
+          "body": "Set up: in company settings, choose the Philippine peso (PHP, ₱) as your currency, name the tax VAT and set the rate to 12%, and add the payment methods your reps accept, such as GCash and Maya.\n\nOn the road: reps use the app on Android or iPhone to sell from the van, take pre-orders, issue invoices and print them on a thermal printer, record collections, and log visits with location and photos along the route. If the signal drops, they keep working offline and the app syncs when it reconnects.\n\nIn the office: managers follow routes, visits, sales, collections and van stock from the web dashboard.\n\nLanguages: the app interface is available in English, Arabic, French, Turkish and Chinese. There is no Filipino (Tagalog) interface.\n\nFieldSales is a cloud platform headquartered in Riyadh, Saudi Arabia."
+        }
+      ],
+      "faq": [
+        {
+          "q": "Can I use FieldSales for BIR electronic invoicing?",
+          "a": "Not as a government-connected e-invoicing system today. FieldSales issues and prints invoices from the rep's phone, but it does not transmit invoices or sales data to any Philippine government system. A government e-invoicing connection for the Philippines is available on request: we would first study the country's requirements, with no promise of outcome or timing. If your company falls within a covered category, confirm with your tax adviser how you will meet the requirement."
+        },
+        {
+          "q": "Do we still need our own BIR permits for invoicing?",
+          "a": "Yes. Permits for your invoicing setup, such as ATP for manual invoices, a Permit to Use (PTU) with ATP for computer-aided invoicing, the CAS acknowledgement (ACCN), or a Permit to Issue (PTI) for e-invoicing, are obtained by your company from the BIR. FieldSales does not hold these permits or obtain them for you."
+        },
+        {
+          "q": "Does the app work without mobile data?",
+          "a": "Yes. Reps keep selling, issuing and printing invoices, recording collections and logging visits while offline. Everything syncs to the cloud when the phone reconnects."
+        },
+        {
+          "q": "How do I record a GCash or Maya collection?",
+          "a": "Add GCash and Maya as payment methods in settings. When a rep collects, they choose the method on the receipt and the customer's balance updates. FieldSales records the method but does not connect to GCash or Maya, so your team reconciles those entries against the e-wallet statements."
+        },
+        {
+          "q": "Can I set the Philippine peso and 12% VAT?",
+          "a": "Yes. Your admin sets the currency to the Philippine peso (PHP, ₱), names the tax VAT and sets the rate to 12% in company settings, and reps' invoices use those settings."
+        },
+        {
+          "q": "Is the app available in Filipino?",
+          "a": "No. The interface is available in English, Arabic, French, Turkish and Chinese only, so Philippine teams would use the English version."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Sample structure of a Philippine sales invoice",
+        "note": "Structure example only, with no amounts. Field list based on the BIR invoicing rules (RR 7-2024 and RR 6-2026); confirm your final layout with your tax adviser.",
+        "fields": [
+          {
+            "label": "Seller's registered name",
+            "example": "Name as shown in the seller's BIR registration (COR), optionally with the registered business style"
+          },
+          {
+            "label": "VAT status and TIN",
+            "example": "VAT Reg TIN 123-456-789-00000 (TIN plus branch code)"
+          },
+          {
+            "label": "Registered business address",
+            "example": "Registered address of the branch issuing the invoice"
+          },
+          {
+            "label": "Document title",
+            "example": "SALES INVOICE (or CASH INVOICE / CHARGE INVOICE)"
+          },
+          {
+            "label": "Serial number",
+            "example": "Unique sequential invoice number"
+          },
+          {
+            "label": "Date",
+            "example": "Date of the transaction"
+          },
+          {
+            "label": "Buyer",
+            "example": "Buyer's registered name, address and TIN (address and TIN not required for sales to final consumers)"
+          },
+          {
+            "label": "Item lines",
+            "example": "Description, quantity and unit cost of each item"
+          },
+          {
+            "label": "VAT breakdown",
+            "example": "VATable sales, VAT-exempt sales, zero-rated sales and VAT amount shown separately"
+          },
+          {
+            "label": "Total amount due",
+            "example": "Total inclusive of VAT, in Philippine pesos"
+          },
+          {
+            "label": "Withholding tax",
+            "example": "Creditable withholding tax as a separate line, where applicable"
+          },
+          {
+            "label": "Senior citizen / PWD sales",
+            "example": "ID number, discount and VAT exemption details, buyer's signature"
+          },
+          {
+            "label": "Permit details (footer)",
+            "example": "Your company's BIR permit details, such as ATP, PTU or ACCN, as applicable"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "BIR Media Release — Electronic invoicing rules ahead of the 31 December 2026 deadline (23 September 2026)",
+          "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/PR101SEP2326.pdf"
+        },
+        {
+          "title": "BIR — Digest of Revenue Regulations No. 26-2025 (16 October 2025)",
+          "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RR%20No.%2026-2025%20Digest.pdf"
+        },
+        {
+          "title": "BIR — Digest of Revenue Regulations No. 11-2025 (27 February 2025)",
+          "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RR%2011-2025%20Digest.pdf"
+        },
+        {
+          "title": "BIR — Digest of Revenue Regulations No. 8-2022 (EIS and sales data transmission)",
+          "url": "https://bir-cdn.bir.gov.ph/local/pdf/RR%208-2022.pdf"
+        },
+        {
+          "title": "BIR — Digest of Revenue Regulations No. 7-2024 (invoicing under the EOPT Act)",
+          "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RR%207-2024%20(final).pdf"
+        },
+        {
+          "title": "Revenue Regulations No. 7-2024 — full text (third-party hosted copy)",
+          "url": "https://www.offshore-management.com.ph/blog/wordpress/wp-content/uploads/2024/05/RR-7-2024_Full.pdf"
+        },
+        {
+          "title": "BIR — Digest of RMC No. 77-2024 (invoicing clarifications)",
+          "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RMC%20No.%2077-2024%20Digest.pdf"
+        },
+        {
+          "title": "BIR — Digest of Revenue Regulations No. 8-2024 (taxpayer classification)",
+          "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RR%208-2024.pdf"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Philippines, Corporate: Other taxes",
+          "url": "https://taxsummaries.pwc.com/philippines/corporate/other-taxes"
+        },
+        {
+          "title": "Grant Thornton Philippines — BIR issues guidelines on electronic invoicing (24 September 2026)",
+          "url": "https://www.grantthornton.com.ph/technical-alerts/tax-alert/2026/bir-issues-guidelines-on-electronic-invoicing-retains-31-dec-2026-deadline/"
+        },
+        {
+          "title": "Grant Thornton Philippines — Invoices must now disclose creditable withholding tax (12 October 2026)",
+          "url": "https://www.grantthornton.com.ph/technical-alerts/tax-alert/2026/invoices-must-now-disclose-creditable-withholding-tax/"
+        },
+        {
+          "title": "Reyes Tacandong & Co. — RMC No. 98-2026: Electronic Invoicing Guidelines",
+          "url": "https://www.reyestacandong.com/rmc-no-98-2026-electronic-invoicing-guidelines/"
+        },
+        {
+          "title": "Reyes Tacandong & Co. — RMC No. 110-2026: ESP applications, 16–30 October 2026",
+          "url": "https://www.reyestacandong.com/bir-esp-accreditation-applications-2026/"
+        },
+        {
+          "title": "Daily Tribune — BIR extends deadlines for new CWT invoicing rules (23 October 2026)",
+          "url": "https://tribune.net.ph/2026/10/23/bir-extends-deadlines-for-new-cwt-invoicing-rules"
+        },
+        {
+          "title": "Bangko Sentral ng Pilipinas — Digital Payments Transformation Roadmap 2020–2023",
+          "url": "https://www.bsp.gov.ph/Media_And_Research/Primers%20Faqs/Digital%20Payments%20Transformation%20Roadmap%20Report.pdf"
+        },
+        {
+          "title": "Rest of World — Sari-sari stores and tech (10 July 2024)",
+          "url": "https://restofworld.org/2024/sari-sari-philippines-tech/"
+        }
+      ],
+      "lastVerifiedLabel": "Last verified: November 2026"
+    }
+  },
+  "notes": "صفحة إنجليزية جديدة للفلبين مبنية على حقائق PH.json المدقَّقة (audit بتاريخ 2026-11-11، الثقة medium). قرارات الصياغة: (1) حُذفت كل المبالغ الملاصقة للعملة، ومنها حدّ تسجيل VAT وحدّ 500 و1,000 بيزو وحدّ كبار المكلفين، التزاماً بقاعدة «لا مبلغ ملاصق لعملة»، واكتُفي بعبارة «registration threshold». (2) تجنّبتُ مفردات الاعتماد حتى في وصف إجراءات BIR: لم أذكر خطوة «EIS Certification»، وكتبتُ «ESP applications» بدل «accreditation»، وعدّلتُ عناوين المصادر التي فيها «compliance» أو «Accreditation» إلى عناوين وصفية مع إبقاء الروابط. (3) جميع localTerms فارغة عدا sari-sari store، فاستعملتُ المصطلحات الإنجليزية العامة (van sales, pre-sales, rep) ولم أنسب إلى السوق «van selling/booking/salesman» لأنها في uncertain. وذكرتُ palengke والصيدليات بصيغة «may» لأنها من المعرفة العامة. (4) لم أذكر عدد متاجر sari-sari ولا حصتها، ولا نسبة Percentage Tax، ولا ترتيب المراكز. (5) مواعيد CWT منسوبة صراحة إلى Daily Tribune، وعدم التمديد بصيغة «لم نجد إعلاناً». (6) لم تُسمَّ GrowSari وPackworks تجنباً لأسماء منصات قد تُعدّ منافسة، ولا أرقام مستخدمي GCash. (7) موقف FieldSales في الفوترة الإلكترونية جاء في فقرة منفصلة بلا تواريخ، تسبقها فقرة بلا تاريخ. ولا يجتمع في جملة واحدة اسم نظام حكومي فلبيني مع فعل ربط منسوب إلى FieldSales. (8) لم أدّعِ طباعة بلوتوث ولا تعدد نسب الضريبة لكل صنف، لأنهما ليسا في وصف المنتج المعطى. (9) استُبدلت «Certificate of Registration» و«Acknowledgement Certificate» بالاختصارين COR وACCN تجنباً لجذر certif. رابط مصدر Reyes Tacandong عن ESP يحوي في مساره كلمة accreditation، وأُبقي لأنه الرابط الفعلي للمصدر وليس ادعاءً. (10) الجملة الوحيدة التي التقطها الفحص (اسم EIS مع sending) تصف التزام الإبلاغ في اللائحة لا FieldSales. يُنصح بإعادة التحقق من موعد 31 ديسمبر 2026 قرب نهاية ديسمبر.",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish-with-notes",
+    "fixes": 9,
+    "issues": [
+      "الوصف (description): «GCash and Maya» في قائمة مزايا قد توحي بتكامل مباشر (ممنوع في honesty.mustNotSay)؛ استُبدلت بـ«12% VAT set by you, works offline».",
+      "قسم التوزيع: «B2B ordering apps that let store owners restock from their phones» إضافة تفصيل غير موجود في الحقائق؛ صارت «B2B ordering apps for sari-sari stores» كما في tradeChannels.",
+      "قسم الضريبة: شرط التسجيل في VAT ناقص؛ أُضيف «أو يُتوقع تجاوزه خلال الـ12 شهراً القادمة» وفق registrationThreshold، مع بقاء الحدّ بلا مبلغ.",
+      "قسم الفوترة الإلكترونية: الفئة الرابعة ضُيّقت إلى «CAS or CBA with electronic invoicing»؛ صُحّحت حرفياً إلى «with accounting records and electronic invoicing, as well as users of other invoicing software».",
+      "قسم الفوترة الإلكترونية: مهلة 31 مارس 2027 تخص أنظمة CRM/POS والفوترة «غير المشمولة بعد» بالإلزام؛ أُضيف القيد لئلا تُفهم شاملة.",
+      "جملة موقف FieldSales: «available on request, after we study…» قد تُقرأ أن الربط جاهز؛ أُعيدت صياغتها «available on request: we would first study… no promise of outcome, scope or timing» اتساقاً مع honesty.canSay (متاح للنقاش دون التزام بموعد أو نتيجة)، ووُحّد وصف السعودية بالعبارة المعتمدة «Phase 2 integration with ZATCA’s Fatoora platform».",
+      "السؤال الأول: نفس تعديل صياغة «متاح عند الطلب» وإضافة «no promise of outcome».",
+      "قسم التحصيل: «bank transfers … keep growing» ادعاء نموّ غير موجود في الحقائق (الحقائق تذكر انتشار المحافظ فقط)؛ حُذف.",
+      "قسم التحصيل: جملة جعلت سند القبض سبباً لمطابقة عهدة السيارة (تنقلب النية)؛ فُصلت في جملة مستقلة عن العهدة ومطابقتها.",
+      "ملاحظة غير معيقة: الصفحة لا تذكر خطوة EIS Certification خلال 6 أشهر من PTI تجنباً لجذر certif؛ إغفال مقبول لا خطأ.",
+      "ملاحظة غير معيقة: مواعيد RMC 112-2026 مصدرها الوحيد Daily Tribune وهي منسوبة إليه صراحة؛ وموعد 31 ديسمبر 2026 يجب إعادة التحقق منه قرب نهاية ديسمبر لاحتمال التمديد.",
+      "تحقّق: لا سعر ولا مبلغ ملاصق لعملة، ولا «free»، ولا كلمات اعتماد/امتثال (الوحيدة accreditation داخل رابط مصدر)، ولا أسماء منافسين ولا أرقام عملاء، ولغات الواجهة الخمس صادقة مع نفي الفلبينية، ولا تاريخ في جمل FieldSales أو بجوارها."
+    ]
+  }
+}

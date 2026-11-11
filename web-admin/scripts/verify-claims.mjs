@@ -9,6 +9,9 @@
  * كل قاعدة هنا مبرَّرة بحقيقة عن المنتج وقت الكتابة:
  *  - المبنيّ فعلاً: الفوترة الإلكترونية المرحلة الأولى (TLV/QR) + ربط المرحلة الثانية مع منصة فاتورة (مفعّل بعد اكتمال التفعيل الفعلي بقرار المالك).
  *  - غير المبنيّ: ETA مصر (stub).
+ *  - الربط الحكومي حيّ في السعودية وحدها ⇒ gov-einvoice-abroad يحجب ادّعاء الربط أو التكامل أو التوافق المنسوب إلينا مع
+ *    أي منظومة فوترة حكومية أخرى (SAT/CFDI · SEFAZ/NF-e · DIAN · KSeF · eTIMS · FIRS/NRS · Coretax · MyInvois…) — على
+ *    نطاق «الكتل» (stripBlocks أدناه)، والذكر الواقعي والنفي والسؤال و«عند الطلب» تمرّ.
  *  - الممنوع ولو بعد التفعيل: «معتمد/مصادق/مرخّص من الهيئة» · «شريك رسمي للهيئة» · أي موعد أو رقم مقرون بالمرحلة الثانية.
  *  - لا عملاء مرجعيون ولا SOC2/ISO ⇒ لا رقم ولا شهادة تُذكر.
  *  - تطبيق Play في الاختبار المغلق ويُرجع 404 ⇒ لا رابط متجر.
@@ -68,6 +71,32 @@ const stripHtml = (h) => (h
   .replace(/&nbsp;/g, ' ') + ' . ' + ldJsonText(h) + ' . ' + metaText(h))
   .replace(/\s+/g, ' ');
 
+// نطاق «الكتل» (scope: 'blocks' — gov-einvoice-abroad): النصّ نفسه لكن كل فقرة وعنوان وبند وخلية وقيمة JSON-LD وmeta
+// في سطر. stripHtml يلصق العنوان بأول جملة بعده («FieldSales في المكسيك» + «يشترط SAT…»)، فيصير اسم المنتج فاعلاً
+// لجملة واقعية لا يملكها.
+const BLOCK_END = /<\/(?:p|li|h[1-6]|div|td|th|tr|caption|section|article|header|footer|nav|aside|main|ul|ol|table|blockquote|dd|dt|dl|figcaption|title|button|label|summary|details|option)>|<(?:br|hr)\b[^>]*>/gi;
+const ldJsonLines = (h) => [...h.matchAll(/<script\b[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)]
+  .map((m) => {
+    const out = [];
+    const walk = (v) => {
+      if (typeof v === 'string') out.push(v);
+      else if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+    };
+    try { walk(JSON.parse(m[1])); } catch { return m[1].replace(/["{}\[\],]/g, '\n'); }
+    return out.join('\n');
+  })
+  .join('\n');
+const stripBlocks = (h) => (h
+  .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+  .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+  .replace(BLOCK_END, '\n')
+  .replace(/<[^>]+>/g, ' ')
+  .replace(/&nbsp;/g, ' ') + '\n' + ldJsonLines(h) + '\n' + metaText(h).split(' . ').join('\n'))
+  .replace(/[^\S\n]+/g, ' ')
+  .replace(/ ?\n[\s]*/g, '\n');
+const NEEDS_BLOCKS = RULES.some((r) => r.scope === 'blocks');
+
 function collect(dir, out = [], depth = 0) {
   if (depth > 6 || !fs.existsSync(dir)) return out;
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -123,6 +152,7 @@ for (const f of files) {
   if (ALLOW.some((a) => a.match.test(rel))) { skipped++; continue; }
   const raw = fs.readFileSync(f, 'utf8');
   const text = /\.html$/i.test(f) ? stripHtml(raw) : raw;
+  const blocks = NEEDS_BLOCKS && /\.html$/i.test(f) ? stripBlocks(raw) : raw;
   // نطاق «الرأس»: العنوان والوصف وH1 — ما يُبنى عليه الاستهداف فعلاً
   const head = [
     (raw.match(/<title>([\s\S]*?)<\/title>/i) || [])[1] || '',
@@ -134,7 +164,7 @@ for (const f of files) {
     // قواعد مقصورة على مسارات (arab-only-targeting: الصفحات غير العربية عدا مقالات المدوّنة)
     if (rule.paths && !rule.paths.test(rel)) continue;
     if (rule.exceptPaths && rule.exceptPaths.test(rel)) continue;
-    const haystack = rule.scope === 'head' ? head : rule.scope === 'raw' ? raw : text;
+    const haystack = rule.scope === 'head' ? head : rule.scope === 'raw' ? raw : rule.scope === 'blocks' ? blocks : text;
     if (rule.cmsWarn) {
       // اسم قصير يوجد في CMS ما دام المقال حيّاً ⇒ الإسناد بالسياق الملاصق لا بالنصّ وحده (fromCmsContext).
       // تعذّر جلب CMS ⇒ لا إسناد ⇒ تحذير في هذا البناء وحده (مصادر المستودع يحرسها claimsGuard.test.ts).

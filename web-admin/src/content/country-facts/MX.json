@@ -1,0 +1,439 @@
+{
+  "code": "MX",
+  "nameEn": "Mexico",
+  "pageLanguage": "es",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "MXN",
+    "symbol": "$",
+    "nameEn": "Mexican Peso",
+    "nameLocal": "peso mexicano",
+    "minorUnits": 2
+  },
+  "tax": {
+    "nameLocal": "Impuesto al Valor Agregado",
+    "nameEn": "Value Added Tax",
+    "abbr": "IVA",
+    "standardRate": 16,
+    "otherRates": [
+      {
+        "rate": 8,
+        "appliesTo": "Estímulo fiscal en la región fronteriza norte y sur: crédito del 50% del IVA que reduce la tasa efectiva de 16% a 8%. ليس نسبة عامة: لا يطبّقها إلا مكلّف موطنه الضريبي أو فرعه في البلديات الحدودية المحددة، ومسجّل في سجل المستفيدين لدى SAT بإشعار مسبق، وفي عمليات داخل تلك المنطقة؛ وتُستثنى منه بيوع العقارات والأصول غير الملموسة والمحتوى الرقمي. صلاحيته الحالية حتى 2026-12-31 بموجب مرسوم نُشر في DOF يوم 2025-12-31، ولم يتأكد تمديده لعام 2027."
+      },
+      {
+        "rate": 0,
+        "appliesTo": "Tasa 0% (المادة 2-A من Ley del IVA): بعض المواد الغذائية الأساسية، والأدوية، والصادرات من السلع وبعض الخدمات، والسلع والخدمات الزراعية، وبيع وتأجير الآلات الزراعية، والكتب والمجلات والصحف التي ينشرها المكلّف. أما ما يُستثنى من الغذاء من نسبة 0% فيخضع لـ16%، وتفاصيله لم تُتحقق من نص المادة 2-A (انظر uncertain)."
+      }
+    ],
+    "registrationThreshold": "لا يوجد حدّ أدنى للتسجيل في IVA: كل من يمارس نشاطاً خاضعاً أو يلزمه إصدار فواتير CFDI يجب أن يسجّل في RFC (المادة 27 من Código Fiscal de la Federación). الإقرار والسداد شهرياً.",
+    "authority": "Servicio de Administración Tributaria (SAT)",
+    "authorityUrl": "https://www.sat.gob.mx",
+    "sources": [
+      {
+        "url": "https://taxsummaries.pwc.com/mexico/corporate/other-taxes",
+        "title": "PwC Worldwide Tax Summaries — Mexico: Other taxes (IVA 16%، قائمة 0%، الإعفاءات، IEPS) — آخر مراجعة 2026-08-06",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxsummaries.pwc.com/mexico/corporate/tax-credits-and-incentives",
+        "title": "PwC Worldwide Tax Summaries — Mexico: Tax credits and incentives (حافز المنطقة الحدودية الشمالية: ائتمان 50% من IVA = 8%، والاستثناءات) — آخر مراجعة 2026-08-06",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://amcpdf.org.mx/?p=281908",
+        "title": "AMCP — Flash No. 55 de la Comisión de Comercio Exterior: decreto DOF 31-12-2025 يمدّد حوافز المنطقتين الحدوديتين الشمالية والجنوبية حتى 31-12-2026 — منشور 2026-01-09",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.tradelawcollege.edu.mx/single-post/actualización-de-estímulos-en-regiones-fronterizas-norte-y-sur-para-el-ejercicio-2026",
+        "title": "Trade Law College — Actualización de Estímulos en Regiones Fronterizas Norte y Sur para el Ejercicio 2026 (8% في المنطقتين، سجل المستفيدين، رأي الامتثال الإيجابي)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://idconline.mx/fiscal-contable/2026/09/29/senado-pide-actualizar-estimulos-fiscales-para-la-frontera-norte",
+        "title": "IDC Online — Senado pide actualizar estímulos fiscales para la frontera norte (الحوافز سارية حتى 31-12-2026 ومطالبة بتجديدها) — 2026-09-29",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://trykintsugi.com/sales-tax-guides/latam/mexico.md",
+        "title": "Kintsugi — Mexico VAT (IVA) Guide for 2026 (لا حدّ أدنى للتسجيل، 8% حدودي شمالاً وجنوباً، إقرار شهري حتى يوم 17) — تاريخا الصفحة متعارضان: يوليو/سبتمبر 2026",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.oecd.org/content/dam/oecd/en/topics/policy-issue-focus/aeoi/mexico-tin.pdf",
+        "title": "OECD — Mexico: Information on Tax Identification Numbers (إلزام التسجيل في RFC وفق المادة 27 من CFF)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "taxId": {
+    "label": "RFC (Registro Federal de Contribuyentes)",
+    "format": "شخص طبيعي (persona física): 13 خانة = 4 أحرف من الاسم + 6 أرقام لتاريخ الميلاد + 3 خانات تحقق (homoclave). شخص اعتباري (persona moral): 12 خانة = 3 أحرف من الاسم + 6 أرقام لتاريخ التأسيس + 3 خانات homoclave. للبيع لعامة الجمهور دون بيانات المشتري يُستعمل الـRFC العام XAXX010101000 في CFDI global.",
+    "sources": [
+      {
+        "url": "https://www.oecd.org/content/dam/oecd/en/topics/policy-issue-focus/aeoi/mexico-tin.pdf",
+        "title": "OECD — Mexico: Information on Tax Identification Numbers, Section II: TIN Structure (13 خانة للأفراد و12 للشركات)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://docs.invopop.com/compliance/mexico",
+        "title": "Invopop Docs — Mexico compliance (CFDI global إلى RFC XAXX010101000 بنظام 616 وUsoCFDI S01) — بلا تاريخ ظاهر",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "einvoicing": {
+    "status": "mandatory",
+    "systemName": "CFDI 4.0 (Comprobante Fiscal Digital por Internet)",
+    "authority": "Servicio de Administración Tributaria (SAT)",
+    "model": "clearance",
+    "scopeNow": "كل المكلّفين (أشخاصاً طبيعيين واعتباريين) ملزمون اليوم بإصدار CFDI 4.0 بصيغة XML لعمليات B2B وB2C وB2G. لا تصبح الفاتورة صالحة قانونياً إلا بعد التحقق منها وختمها (timbrado) لحظياً لدى Proveedor Autorizado de Certificación (PAC) معتمد من SAT يرسلها إلى SAT. البيع لعامة الجمهور الذين لا يطلبون فاتورة يُجمَع في CFDI global. البيع الآجل أو بالأقساط (PPD) يستلزم عند كل تحصيل لاحق إصدار CFDI بمكمّل الدفع (Complemento de Pago / REP) حتى اليوم الخامس من الشهر التالي للتحصيل. نقل البضائع يستلزم في حالات محددة CFDI بمكمّل Carta Porte. ومنذ إصلاح Código Fiscal de la Federación لعام 2026 يجب أن تستند الفاتورة إلى عملية حقيقية، وإلا جاز أن تُعدّ مزيفة (falsa) ويُشهَّر بمُصدرها.",
+    "keyDates": [
+      {
+        "date": "2011",
+        "event": "صار CFDI إلزامياً على كبار المكلّفين."
+      },
+      {
+        "date": "2014",
+        "event": "تعميم إلزام CFDI على جميع المكلّفين."
+      },
+      {
+        "date": "2022-01-01",
+        "event": "بدء إلزام فاتورة CFDI خاصة بنقل البضائع (مكمّل Carta Porte) تُبيّن نقطة المنشأ والنقاط الوسيطة والوجهة ووسيلة النقل."
+      },
+      {
+        "date": "2023-04-01",
+        "event": "CFDI 4.0 النسخة الوحيدة الصالحة، وانتهاء العمل بـ3.3."
+      },
+      {
+        "date": "2026-01-01",
+        "event": "إصلاح Código Fiscal de la Federación لعام 2026: يجب أن تستند الفواتير إلى عمليات حقيقية، وقد تُعدّ غيرها مزيفة ويُشهَّر بمُصدرها."
+      },
+      {
+        "date": "2026-04-24",
+        "event": "إلزام مكمّل Hidrocarburos y Petrolíferos لبائعي الوقود."
+      },
+      {
+        "date": "2026-05-01",
+        "event": "المادة 30-B: إلزام المنصات الرقمية بإتاحة اطّلاع SAT على بياناتها الضريبية والتشغيلية بشكل دائم (لا يخص موزّعي السلع عادةً)."
+      }
+    ],
+    "b2cReceipts": "النموذج في المكسيك هو الفوترة المختومة لحظياً عبر PAC (clearance)، ولم يرد في المصادر المفتوحة أي نظام أجهزة ضريبية (fiscal devices) للبيع بالتجزئة. إذا لم يطلب المشتري فاتورة باسمه، يُصدر البائع CFDI global للـRFC العام XAXX010101000 (نظام 616، UsoCFDI S01) بدورية: يومية (01) أو أسبوعية (02) أو نصف شهرية (03) أو شهرية (04) أو كل شهرين (05). وللمشتري أن يطلب CFDI باسمه وRFC الخاص به.",
+    "sources": [
+      {
+        "url": "https://invopop.com/coverage/mexico.md",
+        "title": "Invopop — Mexico e-invoicing coverage (Clearance لـB2B/B2C/B2G، تواريخ 2011 و2014 و2023-04-01، المادة 30-B) — آخر تحديث 2026-08-19",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://edicomgroup.com/blog/cfdi-electronic-invoicing-mexico",
+        "title": "EDICOM — Electronic Invoicing in Mexico (CFDI): التحقق اللحظي عبر PAC، الحقول الإلزامية، الإلغاء، مكمّل الدفع، تغييرات 2026 — محدَّث 11-05-2026",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://docs.invopop.com/compliance/mexico",
+        "title": "Invopop Docs — Mexico compliance (الحقول، CFDI global، PUE/PPD، مهلة REP وفق القاعدة 2.7.1.35 من RMF) — بلا تاريخ ظاهر",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxsummaries.pwc.com/mexico/corporate/tax-administration",
+        "title": "PwC Worldwide Tax Summaries — Mexico: Tax administration (Carta Porte منذ 2022-01-01، إصلاح CFF لعام 2026 بشأن الفواتير) — آخر مراجعة 2026-08-06",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "http://omawww.sat.gob.mx/tramitesyservicios/Paginas/documentos/PregFrecCFDIVer4_0.pdf",
+        "title": "SAT — Preguntas y respuestas sobre el Anexo 20 versión 4.0 (التحقق الوحيد ذو الأثر الضريبي هو تحقق PAC) — اطُّلع عليه عبر مقتطف بحث؛ تعذّر فتح موقع SAT مباشرة",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.sat.gob.mx/minisitio/Factura/proveedores_requisitos.htm",
+        "title": "SAT — Requisitos para ser proveedor de certificación (PAC) — اطُّلع عليه عبر مقتطف بحث؛ تعذّر فتح موقع SAT مباشرة",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "invoiceRequirements": [
+    "Version = \"4.0\" وفق Anexo 20 من SAT.",
+    "بيانات الباعث: RFC، والاسم أو الاسم التجاري، والنظام الضريبي (régimen fiscal).",
+    "بيانات المستلم: RFC، والاسم أو الاسم التجاري مطابقاً تماماً لسجلات SAT، والرمز البريدي لموطنه الضريبي، ونظامه الضريبي، واستخدام CFDI (UsoCFDI).",
+    "مكان الإصدار (LugarExpedicion برمز بريدي) وتاريخه.",
+    "Folio fiscal (UUID) وختم SAT الرقمي ورقم شهادة CSD للباعث، وكلها تنتج عن الختم (timbrado) لدى PAC.",
+    "لكل سطر: الكمية، والوحدة، والوصف، ورمز المنتج/الخدمة من كتالوج SAT (ClaveProdServ)، وقيمة الوحدة، والمبلغ، والضرائب المنقولة مفصّلة لكل سطر.",
+    "طريقة الدفع MetodoPago: PUE (دفعة واحدة) أو PPD (أقساط أو مؤجل)، وشكل الدفع FormaPago من كتالوج c_FormaPago (والرمز 99 «Por definir» لفواتير PPD).",
+    "العملة، وسعر الصرف (TipoCambio) إن لم تكن بالبيزو MXN.",
+    "مؤشر التصدير (Exportación)."
+  ],
+  "distribution": {
+    "hubs": [
+      "Ciudad de México y su zona metropolitana",
+      "Guadalajara",
+      "Monterrey"
+    ],
+    "tradeChannels": [
+      "tiendas de abarrotes / tienditas / misceláneas (canal tradicional، الدكاكين المستقلة الصغيرة)",
+      "tiendas de conveniencia (مثل سلسلة OXXO)",
+      "farmacias",
+      "restaurantes"
+    ],
+    "localTerms": {
+      "vanSales": "autoventa (venta en ruta desde la unidad) — تحذير: «autoventa» وحدها قد تُفهم في البحث والإعلانات على أنها بيع سيارات (autos)، فالأسلم «autoventa en ruta» أو «venta en ruta»",
+      "preSales": "preventa (toma de pedidos con entrega posterior)",
+      "salesRep": "vendedor de ruta",
+      "retailShop": "tienda de abarrotes / tiendita",
+      "routeAccounting": null
+    },
+    "collectionMethods": [
+      "efectivo (نقداً)",
+      "transferencia electrónica SPEI (تحويل بنكي لحظي يشغّله Banco de México، ويمكن التحقق منه بإيصال CEP من موقع Banxico)",
+      "pago en efectivo en OXXO con referencia (دفع نقدي في متاجر OXXO بقسيمة مرجعية)",
+      "tarjeta de débito/crédito"
+    ],
+    "notes": "السوق مجزّأ وفيه تجارة تقليدية ودكاكين صغيرة مستقلة كثيرة، ويرى قطاع الدكاكين (ANPEC) أن التجارة الصغيرة مصدر رزق خمسة ملايين مكسيكي. وتقع أهم المناطق الصناعية في مثلث مكسيكو سيتي–غوادالاخارا–مونتيري الذي تربطه شبكة الطرق السريعة، والنقل البري خارجه أصعب. النقد مهم في متاجر البقالة والمطاعم والصيدليات. أما SPEI فيعمل لحظياً منذ 2004، ويصدر Banxico إيصال CEP للتحقق من التحويل. وتتيح OXXO للعملاء الدفع نقداً بقسيمة مرجعية. نقاط ضريبية تهمّ الموزّع: (1) يخضع كثير مما يوزَّع إلى الدكاكين لضريبة IEPS إضافةً إلى IVA، منها المشروبات المنكّهة (3.0818 بيزو/لتر مع السكر، و1.5000 بيزو/لتر مع المحلّيات، يدفعها المنتج أو المستورد)، و«الأطعمة غير الصحية» 8%، والتبغ 200% مع حصة إضافية، والمشروبات الكحولية 26.5% أو 30% أو 53%. (2) يتطلب كل تحصيل لاحق لفاتورة PPD إصدار CFDI de pago (REP) حتى اليوم الخامس من الشهر التالي. (3) نسبة 8% الحدودية لا يطبّقها إلا المسجّلون في سجل المستفيدين، وصلاحيتها حتى 2026-12-31. (4) لنقل البضائع مكمّل Carta Porte في حالات محددة. (5) مصطلح ruteo يعني تخطيط خطوط السير.",
+    "sources": [
+      {
+        "url": "https://www.trade.gov/country-commercial-guides/mexico-distribution-and-sales-channels",
+        "title": "U.S. International Trade Administration — Mexico: Distribution and Sales Channels (مثلث مكسيكو سيتي–غوادالاخارا–مونتيري، سوق مجزّأ) — آخر نشر 2026-02-17",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.trade.gov/country-commercial-guides/mexico-trade-financing",
+        "title": "U.S. International Trade Administration — Mexico: Trade Financing (SPEI يشغّله البنك المركزي ويعمل لحظياً منذ أغسطس 2004) — آخر نشر 2026-02-17",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.trade.gov/country-commercial-guides/mexico-ecommerce",
+        "title": "U.S. International Trade Administration — Mexico: eCommerce (النقد مهم في متاجر البقالة والمطاعم والصيدليات، والبطاقات مفضّلة للشراء عبر الإنترنت) — آخر نشر 2023-11-05",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.banxico.org.mx/cep/",
+        "title": "Banco de México — Comprobante Electrónico de Pago (CEP) لمدفوعات SPEI",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://docs.stripe.com/payments/oxxo",
+        "title": "Stripe Docs — OXXO payments (سلسلة متاجر بقالة مكسيكية، الدفع نقداً بقسيمة مرجعية)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://anpec.com.mx/",
+        "title": "ANPEC — Alianza Nacional de Pequeños Comerciantes (التجارة الصغيرة / tienditas مصدر رزق خمسة ملايين مكسيكي)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://es.wikipedia.org/wiki/Tienda_de_abarrotes",
+        "title": "Wikipedia (es) — Tienda de abarrotes (مرادفات: tiendita، miscelánea، tienda de la esquina) — مصدر تكميلي لا وحيد",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxsummaries.pwc.com/mexico/corporate/other-taxes",
+        "title": "PwC Worldwide Tax Summaries — Mexico: Other taxes (نسب IEPS) — آخر مراجعة 2026-08-06",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "honesty": {
+    "canSay": [
+      "FieldSales تتيح ضبط العملة على البيزو المكسيكي (MXN) وإدخال نسبة الضريبة التي تطبّقها الشركة (مثل 16% أو 0%، أو 8% لمن ثبتت أهليته لحافز المنطقة الحدودية ما دام سارياً)، والعميل هو من يحدد النسبة الصحيحة لوضعه.",
+      "FieldSales تساعد شركات التوزيع على إدارة مناديب المبيعات وخطوط السير والبيع من السيارة وتسجيل التحصيل نقداً أو بالتحويل.",
+      "يمكن بحث الربط مع مزوّد PAC عند الطلب، دون التزام بموعد أو نتيجة.",
+      "الفواتير والإيصالات التي تُصدرها المنصة مستندات تشغيلية للمندوب والإدارة، ولا تغني عن CFDI 4.0 المختوم لدى PAC الذي تصدره الشركة عبر مزوّدها.",
+      "الربط الحكومي الحيّ للفوترة في FieldSales مقصور اليوم على السعودية (ZATCA)."
+    ],
+    "mustNotSay": [
+      "أن FieldSales تُصدر CFDI 4.0 أو تختم الفواتير (timbrado)، أو أنها PAC أو معتمدة من SAT.",
+      "أن FieldSales مربوطة أو متكاملة مع SAT أو مع أي PAC، أو «متوافقة مع CFDI 4.0 / Anexo 20».",
+      "أن FieldSales تُصدر Complemento de Pago (REP) أو CFDI global أو Carta Porte.",
+      "أن المنصة تطبّق نسبة 8% الحدودية تلقائياً أو تتحقق من أهلية الشركة لها، أو تقديم 8% نسبةً عامة أو دائمة.",
+      "أن المنصة تحسب IEPS أو تقدّم إقرارات IVA أو IEPS إلى SAT.",
+      "أن المنصة مربوطة مع SPEI أو CoDi أو OXXO Pay أو أي بنك مكسيكي.",
+      "نقل ادعاء الربط الحيّ مع ZATCA في السعودية إلى صفحة المكسيك، أو أي ادعاء امتثال ضريبي مكسيكي.",
+      "استعمال «autoventa» وحدها في العناوين والكلمات المفتاحية دون سياق المسار والتوزيع، لأنها توحي ببيع السيارات.",
+      "أن الربط مع SAT أو أي PAC «قريب» أو «قيد التطوير» أو له موعد، أو أن المنصة «جاهزة لـCFDI»؛ الربط يُبحث عند الطلب فقط بلا وعد.",
+      "أن الفواتير أو الإيصالات الصادرة من المنصة مستندات ضريبية صالحة في المكسيك (comprobante fiscal) أو تغني عن CFDI المختوم لدى PAC."
+    ]
+  },
+  "uncertain": [
+    "تعذّر فتح موقع SAT (sat.gob.mx وomawww.sat.gob.mx وwwwmat.sat.gob.mx) وموقع diputados.gob.mx (نص Ley del IVA وCFF) مباشرة من بيئة البحث (انتهاء المهلة أو رفض الاتصال)، فأُخذت الوقائع الرسمية من مصادر مهنية (PwC وEDICOM وInvopop وAMCP) ومن OECD. يلزم التحقق النهائي على sat.gob.mx قبل النشر. وفي التدقيق (2026-11-11) تكرّر التعذّر: sat.gob.mx وomawww.sat.gob.mx (رفض الاتصال/مهلة 504) وdiputados.gob.mx (مهلة) وdof.gob.mx (خطأ شهادة)، فلم يُطابَق أي رقم على نص رسمي.",
+    "حافز IVA 8% الحدودي سارٍ حتى 2026-12-31 فقط، أي بعد نحو سبعة أسابيع من تاريخ التحقق. ظهر في مقتطفات بحث فقط مقترح نيابي (Gaceta Parlamentaria، 2026-10-06) بتمديده حتى 2030 ومطالبة من مجلس الشيوخ بتجديده، ولم يتأكد نشر أي تمديد في DOF. على الصفحة ألا تذكر 8% نسبةً قائمة بعد 2026 دون تحقق جديد. في التدقيق: المصادر المفتوحة (AMCP 2026-01-09، وTrade Law College، وIDC Online 2026-09-29) كلها تقف عند 2026-12-31 ولا تذكر تمديداً لعام 2027، ولم يُتح بحث جديد في DOF لنفاد حصة البحث؛ يلزم فحص DOF في أواخر ديسمبر 2026.",
+    "تفاصيل استثناءات الغذاء من نسبة 0% (المشروبات غير الحليب، والأطعمة المحضّرة، وأغذية الحيوانات الأليفة…) لم تُقرأ من نص المادة 2-A مباشرة، ولم تُدرج قائمة الإعفاءات (exentos) في otherRates لأنها ليست نسبة.",
+    "تاريخا CFDI لعامَي 2011 و2014 صارا على مستوى السنة وحدها كما في Invopop (حُذف الشهر المفترض). وبدء سريان CFDI 4.0 في 2022-01-01 مع فترة تعايش مع 3.3 حتى 2023-03-31 متداول، لكنه لم يرد في أي صفحة فُتحت، فحُذف من keyDates وبقي تاريخ 2022-01-01 لـCarta Porte وحده (PwC). أما 2023-04-01 لانفراد CFDI 4.0 فمؤكد (Invopop).",
+    "انطباق Carta Porte على جولات البيع من السيارة داخل المدن، وما للمركبات الصغيرة والنقل المحلي من استثناءات، لم يُتحقق منه. المؤكد (PwC) أن نقل البضائع يستلزم CFDI خاصاً منذ 2022.",
+    "لم أجد مصدراً موثوقاً يعطي عدد tiendas de abarrotes أو حصة القناة التقليدية من المبيعات، فلم يُذكر رقم. Wikipedia وحدها لا تكفي، والرقم الوحيد المتاح (خمسة ملايين مكسيكي من ANPEC) يخص الأشخاص لا المتاجر.",
+    "المصطلحات autoventa وpreventa وruteo وvendedor de ruta واردة في المهمة وشائعة في القطاع، لكن لم يُفتح مصدر مستقل يوثّق استعمالها لدى الموزّعين المكسيكيين، إذ نفدت حصة البحث في هذه الجولة. وrouteAccounting ترك null، والمرشّح الشائع «liquidación de ruta» لم يُتحقق منه.",
+    "لم يُتحقق من مدى انتشار CoDi/DiMo والشيكات (cheque nominativo) في تحصيل الموزّعين، فلم تُدرج.",
+    "قائمة مراكز التوزيع تقتصر على مثلث مكسيكو سيتي–غوادالاخارا–مونتيري الوارد في trade.gov. مناطق مثل Bajío (Querétaro وLeón) وPuebla مهمة على الأرجح لكنها لم تُوثَّق هنا.",
+    "عدم وجود حدّ تسجيل في IVA ورد صراحة في Kintsugi (وتاريخا صفحته متعارضان)، وهو مستفاد من إلزام التسجيل في RFC (OECD/المادة 27 CFF). ولم يُفتح نص SAT مباشرة.",
+    "تاريخ تحديث مدونة EDICOM مكتوب «11.5.2026»، والمرجّح أنه 11 مايو 2026.",
+    "تاريخ 2026-04-24 لمكمّل Hidrocarburos y Petrolíferos مصدره EDICOM وحده، وتاريخ المادة 30-B (مايو 2026) من EDICOM (2026-05-01) وInvopop («May 2026») دون نص رسمي. وكلاهما لا يخص موزّعي السلع الاستهلاكية عادةً.",
+    "ظهر في IDC Online (2026-11-10) أن «Reforma Fiscal 2027» ما زالت «pendiente de publicación en el DOF»، ولم يذكر أي مصدر مفتوح تغييراً في نسبة IVA القياسية 16% لعام 2027؛ ويلزم إعادة الفحص بعد نشرها."
+  ],
+  "sources": [
+    {
+      "url": "https://taxsummaries.pwc.com/mexico/corporate/other-taxes",
+      "title": "PwC Worldwide Tax Summaries — Mexico: Other taxes — آخر مراجعة 2026-08-06",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxsummaries.pwc.com/mexico/corporate/tax-credits-and-incentives",
+      "title": "PwC Worldwide Tax Summaries — Mexico: Tax credits and incentives — آخر مراجعة 2026-08-06",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxsummaries.pwc.com/mexico/corporate/tax-administration",
+      "title": "PwC Worldwide Tax Summaries — Mexico: Tax administration — آخر مراجعة 2026-08-06",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://amcpdf.org.mx/?p=281908",
+      "title": "AMCP — Flash No. 55: decreto DOF 31-12-2025 (prórroga de estímulos fronterizos al 31-12-2026) — 2026-01-09",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.tradelawcollege.edu.mx/single-post/actualización-de-estímulos-en-regiones-fronterizas-norte-y-sur-para-el-ejercicio-2026",
+      "title": "Trade Law College — Estímulos en Regiones Fronterizas Norte y Sur 2026",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://idconline.mx/fiscal-contable/2026/09/29/senado-pide-actualizar-estimulos-fiscales-para-la-frontera-norte",
+      "title": "IDC Online — Senado pide actualizar estímulos fiscales para la frontera norte — 2026-09-29",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://trykintsugi.com/sales-tax-guides/latam/mexico.md",
+      "title": "Kintsugi — Mexico VAT (IVA) Guide for 2026",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.oecd.org/content/dam/oecd/en/topics/policy-issue-focus/aeoi/mexico-tin.pdf",
+      "title": "OECD — Mexico: Information on Tax Identification Numbers (RFC)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://invopop.com/coverage/mexico.md",
+      "title": "Invopop — Mexico e-invoicing and tax compliance coverage — آخر تحديث 2026-08-19",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://docs.invopop.com/compliance/mexico",
+      "title": "Invopop Docs — Mexico compliance (CFDI fields, global CFDI, PUE/PPD, REP)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://edicomgroup.com/blog/cfdi-electronic-invoicing-mexico",
+      "title": "EDICOM — Electronic Invoicing in Mexico (CFDI) — محدَّث 11-05-2026",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "http://omawww.sat.gob.mx/tramitesyservicios/Paginas/documentos/PregFrecCFDIVer4_0.pdf",
+      "title": "SAT — Preguntas y respuestas sobre el Anexo 20 versión 4.0 (عبر مقتطف بحث)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml",
+      "title": "SIX — ISO 4217 List One (MXN، الرمز 484، خانتان عشريتان) — منشور 2026-09-17",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/main/cldr-json/cldr-numbers-full/main/es-MX/currencies.json",
+      "title": "Unicode CLDR — es-MX currencies (MXN: «peso mexicano»، الرمز «$»)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.trade.gov/country-commercial-guides/mexico-distribution-and-sales-channels",
+      "title": "U.S. ITA — Mexico: Distribution and Sales Channels — 2026-02-17",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.trade.gov/country-commercial-guides/mexico-trade-financing",
+      "title": "U.S. ITA — Mexico: Trade Financing — 2026-02-17",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.trade.gov/country-commercial-guides/mexico-ecommerce",
+      "title": "U.S. ITA — Mexico: eCommerce — 2023-11-05",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.banxico.org.mx/cep/",
+      "title": "Banco de México — Comprobante Electrónico de Pago (SPEI)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://docs.stripe.com/payments/oxxo",
+      "title": "Stripe Docs — OXXO payments",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://anpec.com.mx/",
+      "title": "ANPEC — Alianza Nacional de Pequeños Comerciantes",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://es.wikipedia.org/wiki/Tienda_de_abarrotes",
+      "title": "Wikipedia (es) — Tienda de abarrotes (مصدر تكميلي)",
+      "accessed": "2026-11-11"
+    }
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "corrections": [
+      {
+        "field": "tax.otherRates[1].appliesTo",
+        "before": "للغذاء استثناءات (مثل الأطعمة المحضّرة) تخضع لـ16%.",
+        "after": "حُذف المثال غير الموثّق (الأطعمة المحضّرة) وأُحيلت تفاصيل الاستثناءات إلى uncertain.",
+        "source": "https://taxsummaries.pwc.com/mexico/corporate/other-taxes (آخر مراجعة 2026-08-06): يسرد فئات 0% ولا يذكر استثناء الأطعمة المحضّرة؛ وKintsugi لا يذكره كذلك."
+      },
+      {
+        "field": "einvoicing.keyDates[0].date",
+        "before": "2011-01",
+        "after": "2011",
+        "source": "https://invopop.com/coverage/mexico.md (آخر تحديث 2026-08-19): يذكر السنة وحدها لإلزام كبار المكلّفين؛ الشهر كان مفترضاً."
+      },
+      {
+        "field": "einvoicing.keyDates[1].date",
+        "before": "2014-01",
+        "after": "2014",
+        "source": "https://invopop.com/coverage/mexico.md (آخر تحديث 2026-08-19): يذكر السنة وحدها لتعميم الإلزام؛ الشهر كان مفترضاً."
+      },
+      {
+        "field": "einvoicing.keyDates[2].event",
+        "before": "بدء العمل بـCFDI 4.0 (مع فترة تعايش مع 3.3)، وبدء إلزام مكمّل Carta Porte لنقل البضائع.",
+        "after": "بدء إلزام فاتورة CFDI خاصة بنقل البضائع (مكمّل Carta Porte) تُبيّن نقطة المنشأ والنقاط الوسيطة والوجهة ووسيلة النقل.",
+        "source": "https://taxsummaries.pwc.com/mexico/corporate/tax-administration (آخر مراجعة 2026-08-06) يؤكد 2022-01-01 لفاتورة نقل البضائع فقط؛ بدء سريان CFDI 4.0 في 2022-01-01 لم يرد في أي صفحة فُتحت (Invopop لا يذكر 2022، وEDICOM لا يذكر تاريخاً) فنُقل إلى uncertain."
+      },
+      {
+        "field": "einvoicing.scopeNow",
+        "before": "ومنذ إصلاح 2026 يجب أن تستند الفاتورة إلى عمليات حقيقية وإلا عُدّت مزيفة.",
+        "after": "ومنذ إصلاح Código Fiscal de la Federación لعام 2026 يجب أن تستند الفاتورة إلى عملية حقيقية، وإلا جاز أن تُعدّ مزيفة (falsa) ويُشهَّر بمُصدرها.",
+        "source": "https://taxsummaries.pwc.com/mexico/corporate/tax-administration (آخر مراجعة 2026-08-06): «may be treated as false» لا «تُعدّ» حتماً، مع إمكان التشهير بالمُصدِر."
+      },
+      {
+        "field": "einvoicing.b2cReceipts",
+        "before": "لا تعتمد المكسيك على أجهزة ضريبية (fiscal devices)، فالنموذج هو الفوترة المختومة عبر PAC.",
+        "after": "النموذج في المكسيك هو الفوترة المختومة لحظياً عبر PAC (clearance)، ولم يرد في المصادر المفتوحة أي نظام أجهزة ضريبية (fiscal devices) للبيع بالتجزئة.",
+        "source": "https://invopop.com/coverage/mexico.md وhttps://edicomgroup.com/blog/cfdi-electronic-invoicing-mexico : يصفان نموذج clearance عبر PAC ولا يذكران أجهزة ضريبية؛ النفي المطلق كان بلا مصدر فصيغ بحدود ما في المصادر."
+      },
+      {
+        "field": "distribution.notes",
+        "before": "وأهم مثلث صناعي ولوجستي هو مكسيكو سيتي–غوادالاخارا–مونتيري.",
+        "after": "وتقع أهم المناطق الصناعية في مثلث مكسيكو سيتي–غوادالاخارا–مونتيري الذي تربطه شبكة الطرق السريعة، والنقل البري خارجه أصعب.",
+        "source": "https://www.trade.gov/country-commercial-guides/mexico-distribution-and-sales-channels (آخر نشر 2026-02-17): «main industrial areas located in the Mexico City-Guadalajara-Monterrey triangle»؛ وصفه بـ«اللوجستي» زيادة على المصدر."
+      },
+      {
+        "field": "honesty.canSay[0]",
+        "before": "(مثل 16% أو 8% أو 0%)",
+        "after": "(مثل 16% أو 0%، أو 8% لمن ثبتت أهليته لحافز المنطقة الحدودية ما دام سارياً)",
+        "source": "https://amcpdf.org.mx/?p=281908 وhttps://www.tradelawcollege.edu.mx/single-post/actualización-de-estímulos-en-regiones-fronterizas-norte-y-sur-para-el-ejercicio-2026: نسبة 8% حافز مشروط بسجل المستفيدين وسارٍ حتى 2026-12-31 فقط، فلا تُعرض خياراً عاماً."
+      },
+      {
+        "field": "honesty.mustNotSay",
+        "before": "8 بنود (لا تمنع صراحةً وعد «الربط قريباً» ولا تقديم مستندات المنصة فواتير ضريبية صالحة)",
+        "after": "10 بنود: أُضيف منع وعد موعد الربط مع SAT/PAC ومنع وصف مستندات المنصة بأنها comprobante fiscal صالح.",
+        "source": "قواعد المهمة: الربط الحكومي حيّ في السعودية وحدها، وخارجها «متاح عند الطلب» بلا وعد."
+      }
+    ],
+    "confidence": "medium",
+    "notes": "تحقق مستقل: IVA 16% وفئات 0% ونسب IEPS (PwC، آخر مراجعة 2026-08-06)؛ حافز 8% في المنطقتين الحدوديتين حتى 2026-12-31 بمرسوم DOF في 2025-12-31 (AMCP وTrade Law College) دون تمديد منشور لعام 2027 في المصادر المفتوحة؛ CFDI 4.0 إلزامي بنموذج clearance عبر PAC لـB2B/B2C/B2G ونسخة وحيدة منذ 2023-04-01 (Invopop، 2026-08-19؛ EDICOM 2026-05-11)؛ مهلة REP اليوم الخامس من الشهر التالي (Invopop Docs، القاعدة 2.7.1.35)؛ بنية RFC من 13/12 خانة والمادة 27 CFF (نص OECD المستخرج)؛ MXN رمز 484 وخانتان (SIX، 2026-09-17) والرمز «$» و«peso mexicano» (CLDR). الثقة متوسطة لا عالية لأن مواقع SAT وDOF وdiputados تعذّر فتحها، ولأن حافز 8% ينتهي بعد سبعة أسابيع، ولأن حصة البحث نفدت قبل فحص أي تمديد لعام 2027."
+  }
+}

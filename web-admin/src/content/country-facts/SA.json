@@ -1,0 +1,199 @@
+{
+  "code": "SA",
+  "nameEn": "Saudi Arabia",
+  "nameLocal": "المملكة العربية السعودية",
+  "pageLanguage": "ar",
+  "existingPage": "/blog/field-sales-software-sa/",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "SAR",
+    "isoNumeric": "682",
+    "symbol": "ر.س",
+    "officialSign": "⃁",
+    "symbolNote": "«ر.س» هو الاختصار الشائع في الفواتير. للريال رمز رسمي جديد أُدرج في يونيكود باسم SAUDI RIYAL SIGN (U+20C1)، لكن خطوطاً كثيرة لا تعرضه بعد؛ فالأسلم عرض «ر.س» أو «SAR» نصاً.",
+    "nameEn": "Saudi Riyal",
+    "nameLocal": "ريال سعودي",
+    "minorUnits": 2,
+    "minorUnitName": "هللة (100 هللة = 1 ريال)",
+    "sources": [
+      {"url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml", "title": "ISO 4217 List One (SIX, maintenance agency) — published 2026-09-17", "accessed": "2026-11-11"},
+      {"url": "https://www.unicode.org/Public/18.0.0/charts/PDF/U20A0.pdf", "title": "Unicode Currency Symbols chart (U+20A0–U+20CF) — 20C1 SAUDI RIYAL SIGN", "accessed": "2026-11-11"},
+      {"url": "https://zatca.gov.sa/en/HelpCenter/guidelines/Documents/Guideline-for-Tax-Invoicing-and-Records-under-VAT-Provisions.pdf", "title": "ZATCA — Guideline for Tax Invoicing and Records under VAT Provisions, Version 3, May 2026 (§4.2.4: الريال والهللة)", "accessed": "2026-11-11"}
+    ]
+  },
+  "tax": {
+    "nameLocal": "ضريبة القيمة المضافة",
+    "nameEn": "Value Added Tax",
+    "abbr": "VAT",
+    "standardRate": 15,
+    "otherRates": [
+      {"rate": 0, "appliesTo": "نسبة صفرية: صادرات السلع خارج دول المجلس، والخدمات لغير المقيمين في دول المجلس، والنقل الدولي للركاب والبضائع، والأدوية والمعدات الطبية المؤهلة (بتصنيف هيئة الغذاء والدواء)، والمعادن الاستثمارية بنقاء 99% فأكثر، وتوريدات عسكرية محددة"}
+    ],
+    "exempt": [
+      "خدمات مالية معيّنة يكون مقابلها هامشاً ضمنياً (كالفوائد والقروض والحسابات)",
+      "عقود التأمين على الحياة",
+      "تأجير العقارات السكنية (لا يشمل الفنادق والشقق المخدومة)"
+    ],
+    "history": [
+      {"date": "2018-01-01", "event": "بدء تطبيق ضريبة القيمة المضافة بنسبة 5%"},
+      {"date": "2020-07-01", "event": "رفع النسبة الأساسية إلى 15% (ما زالت سارية حتى تاريخ التحقق)"}
+    ],
+    "registrationThreshold": "إلزامي: إذا تجاوزت الإيرادات الخاضعة 375,000 ريال خلال 12 شهراً (فعلية سابقة أو متوقعة للأشهر الاثني عشر القادمة). اختياري: بين 187,500 و375,000 ريال. دون 187,500 ريال: لا تسجيل.",
+    "filing": "إقرار شهري لمن تتجاوز توريداته 40 مليون ريال خلال 12 شهراً، وربع سنوي لمن دون ذلك.",
+    "authority": "هيئة الزكاة والضريبة والجمارك (ZATCA)",
+    "authorityUrl": "https://zatca.gov.sa",
+    "sources": [
+      {"url": "https://zatca.gov.sa/en/HelpCenter/guidelines/Documents/(SMEs)%20Guidelines%20%E2%80%93%20Zatca%201.pdf", "title": "ZATCA — SMEs Guidelines (حدود التسجيل الإلزامي والاختياري، ونسبة 15%، ودورية الإقرار)", "accessed": "2026-11-11"},
+      {"url": "https://taxsummaries.pwc.com/saudi-arabia/corporate/other-taxes", "title": "PwC Worldwide Tax Summaries — Saudi Arabia, Other taxes (last reviewed 29 July 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.grantthornton.global/en/insights/indirect-tax-guide/indirect-tax---Saudi-Arabia/", "title": "Grant Thornton — Indirect tax guide: Saudi Arabia (dated 1 January 2025)", "accessed": "2026-11-11"},
+      {"url": "https://www.avalara.com/vatlive/en/country-guides/africa-and-middle-east/saudi-arabia/saudi-arabian-vat-rates.html", "title": "Avalara VATlive — Saudi Arabian VAT rates (no update date shown)", "accessed": "2026-11-11"},
+      {"url": "https://zatca.gov.sa/en/MediaCenter/News/Pages/default.aspx", "title": "ZATCA Media Center — News (page updated 21 Oct 2026; filing reminders for > SAR 40m monthly / quarterly)", "accessed": "2026-11-11"}
+    ]
+  },
+  "taxId": {
+    "label": "الرقم الضريبي (رقم التسجيل في ضريبة القيمة المضافة — VAT Registration Number)",
+    "format": "15 رقماً، أوله وآخره الرقم 3 (3XXXXXXXXXXXXX3). ينطبق الشرط نفسه على رقم المشتري المسجّل في الفاتورة غير التصديرية.",
+    "otherIds": "إن لم يكن المشتري مسجلاً في الضريبة تُذكر في الفاتورة الضريبية هوية بديلة بهذا الترتيب: رقم التعريف الضريبي TIN، السجل التجاري CR، رخصة وزارة الشؤون البلدية، رخصة وزارة الموارد البشرية، الرقم 700، رخصة الاستثمار، الهوية الوطنية، هوية خليجية، الإقامة، جواز السفر.",
+    "sources": [
+      {"url": "https://zatca.gov.sa/ar/E-Invoicing/SystemsDevelopers/Documents/20230519_ZATCA_Electronic_Invoice_XML_Implementation_Standard_%20vF.pdf", "title": "ZATCA — Electronic Invoice XML Implementation Standard v1.2 (2023-05-19), قاعدتا BR-KSA-40 وBR-KSA-44", "accessed": "2026-11-11"},
+      {"url": "https://zatca.gov.sa/en/HelpCenter/guidelines/Documents/Guideline-for-Tax-Invoicing-and-Records-under-VAT-Provisions.pdf", "title": "ZATCA — Guideline for Tax Invoicing and Records under VAT Provisions, Version 3, May 2026 (§4.2.3 بيانات المشتري)", "accessed": "2026-11-11"},
+      {"url": "https://www.fonoa.com/resources/country-tax-guides/saudi-arabia", "title": "Fonoa — Saudi Arabia VAT Guide (updated 16 July 2024): بنية الرقم ذي الخمسة عشر رقماً", "accessed": "2026-11-11"}
+    ]
+  },
+  "einvoicing": {
+    "status": "phased-mandatory",
+    "systemName": "فاتورة (FATOORA) — منصة الفوترة الإلكترونية",
+    "authority": "هيئة الزكاة والضريبة والجمارك (ZATCA)",
+    "model": "clearance",
+    "modelNote": "نموذج مزدوج: الفاتورة الضريبية (B2B/B2G) وإشعاراتها تُرسل للهيئة فتتحقق منها وتضع الختم التشفيري قبل مشاركتها مع المشتري (اعتماد/Clearance). الفاتورة الضريبية المبسطة (B2C) تُختم محلياً وتُبلَّغ للهيئة خلال مدة لا تتجاوز 24 ساعة من إصدارها (إبلاغ/Reporting). إن انقطع الاتصال يجوز أن يبقى الحل عاملاً وتُصفّ الفواتير والإشعارات ثم تُبلَّغ عند عودة الاتصال. الصيغة الإلزامية للإصدار والإرسال XML (بتسلسل UBL 2.1)، وصيغة PDF/A-3 المضمَّن فيها XML اختيارية لمشاركة الفاتورة مع العميل بصيغة مقروءة.",
+    "scopeNow": "المرحلة الأولى (الإصدار والحفظ): ملزمة منذ 4 ديسمبر 2021 لكل الخاضعين المقيمين ومن يصدر الفواتير نيابة عنهم؛ لا فواتير يدوية ولا جداول. المرحلة الثانية (الربط والتكامل): ملزمة لمن أبلغتهم الهيئة ضمن الموجات حتى الموجة 24، وآخرها شمل من تجاوزت إيراداته الخاضعة 375,000 ريال في 2022 أو 2023 أو 2024 بمهلة انتهت في 30 يونيو 2026. الموجة 25 (إيرادات خاضعة تتجاوز 187,500 ريال في أيٍّ من 2022–2025) أُعلنت في 24 يوليو 2026، وموعد ربطها المعلن 1 فبراير 2027 (النص العربي لبيان الهيئة: «ابتداءً من 1 فبراير 2027م»، والنص الإنجليزي: «by no later than February 1, 2027»؛ والعربي هو المرجّح عند الاختلاف)، فلم يحلّ موعد إلزامها بعد في 11 نوفمبر 2026. الإلزام في كل موجة يكون بإشعار مباشر من الهيئة قبل ستة أشهر على الأقل، ولم يُعلن عن موجة 26 حتى آخر تحديث لصفحة أخبار الهيئة (21 أكتوبر 2026).",
+    "keyDates": [
+      {"date": "2021-12-04", "event": "المرحلة الأولى (الإصدار) ملزمة لكل الخاضعين المقيمين"},
+      {"date": "2023-01-01", "event": "بدء المرحلة الثانية (الربط) بالموجة الأولى، ثم موجات متتالية"},
+      {"date": "2026-03-31", "event": "نهاية مهلة الموجة 23 (إيرادات > 750,000 ريال في 2022–2024)"},
+      {"date": "2026-06-30", "event": "نهاية مهلة الموجة 24 (إيرادات > 375,000 ريال في 2022–2024)"},
+      {"date": "2026-07-24", "event": "إعلان معايير الموجة 25"},
+      {"date": "2027-02-01", "event": "موعد ربط الموجة 25 (إيرادات > 187,500 ريال في 2022–2025): «ابتداءً من» في النص العربي و«by no later than» في الإنجليزي — لم يحن بعد"}
+    ],
+    "b2cReceipts": "لا توجد أجهزة ضريبية (fiscal devices) مستقلة؛ البيع للمستهلك يوثَّق بفاتورة ضريبية مبسطة تصدر إلكترونياً برمز QR وختم تشفيري محلي، وتُبلَّغ لمنصة فاتورة خلال 24 ساعة لمن شمله الربط. تُصدر المبسطة للتوريد الذي تقل قيمته عن 1,000 ريال، أو للشخص الطبيعي غير الخاضع للضريبة أياً كانت القيمة، وتصدر في تاريخ التوريد أو استلام المقابل أيهما أسبق.",
+    "volumeNote": "بحسب Arab News (نسختها الباكستانية arabnews.pk، 7 يناير 2026) نقلاً عن صحيفة الاقتصادية عن الهيئة: أكثر من 8.2 مليار فاتورة إلكترونية تبودلت عبر منصة فاتورة في 2025 بنمو 64% عن 2024. مصدر صحفي ثانوي، يُستعمل بنسبته إليه.",
+    "sources": [
+      {"url": "https://zatca.gov.sa/en/MediaCenter/News/Pages/Wave25-E-invoicing.aspx", "title": "ZATCA — Criteria for the Twenty-Fifth Wave of the Integration Phase (24 July 2026; النص الإنجليزي: by no later than February 1, 2027)", "accessed": "2026-11-11"},
+      {"url": "https://zatca.gov.sa/ar/MediaCenter/News/Pages/Wave25-E-invoicing.aspx", "title": "هيئة الزكاة والضريبة والجمارك — معايير المجموعة الخامسة والعشرين لمرحلة الربط (24 يوليه 2026؛ النص العربي: ابتداءً من 1 فبراير 2027م)", "accessed": "2026-11-11"},
+      {"url": "https://zatca.gov.sa/en/E-Invoicing/Introduction/Pages/Roll-out-phases.aspx", "title": "ZATCA — E-Invoicing Roll-out Phases (Last Update 01 Sep 2026)", "accessed": "2026-11-11"},
+      {"url": "https://zatca.gov.sa/en/E-Invoicing/Introduction/Pages/What-is-e-invoicing.aspx", "title": "ZATCA — What is E-Invoicing", "accessed": "2026-11-11"},
+      {"url": "https://zatca.gov.sa/en/E-Invoicing/Introduction/LawsAndRegulations/Documents/20230519_E-Invoicing%20Implementation%20Resolution%20English.pdf", "title": "ZATCA — E-Invoicing Implementation Resolution (Governor Decision No. 62738, amended 2023-05-19): الاعتماد والإبلاغ خلال 24 ساعة والعمل دون اتصال", "accessed": "2026-11-11"},
+      {"url": "https://zatca.gov.sa/en/MediaCenter/News/Pages/default.aspx", "title": "ZATCA Media Center — News (updated 21 Oct 2026; لا إعلان عن موجة 26)", "accessed": "2026-11-11"},
+      {"url": "https://taxnews.ey.com/news/2026-1705-saudi-arabia-announces-25th-wave-of-phase-2-e-invoicing-integration", "title": "EY Global Tax News — Saudi Arabia announces 25th wave of Phase 2 e-invoicing integration (10 August 2026)، مع ملخص الموجتين 23 و24", "accessed": "2026-11-11"},
+      {"url": "https://kpmg.com/us/en/taxnewsflash/news/2026/07/saudi-arabia-e-invoicing-mandatory-for-taxpayers-with-revenue-above-sar-187500.html", "title": "KPMG TaxNewsFlash — e-invoicing mandatory for taxpayers with revenue above SAR 187,500 (29 July 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.fonoa.com/resources/country-tax-guides/saudi-arabia/e-invoicing-and-digital-reporting", "title": "Fonoa — Saudi Arabia e-invoicing and digital reporting (updated 16 July 2024; بيانات الموجات فيه قديمة)", "accessed": "2026-11-11"},
+      {"url": "https://www.arabnews.pk/node/2628538", "title": "Arab News — Saudi Arabia's e-invoices soar to 8.2bn in 2025 (7 January 2026)", "accessed": "2026-11-11"}
+    ]
+  },
+  "invoiceRequirements": [
+    "عنوان المستند يبيّن نوعه: «فاتورة ضريبية» أو «فاتورة ضريبية مبسطة»",
+    "تاريخ الإصدار ووقته (YYYY-MM-DD وHH:mm:ss)، وتاريخ التوريد إن اختلف عن تاريخ الإصدار",
+    "رقم تسلسلي يميّز الفاتورة وفق اشتراطات لائحة الفوترة الإلكترونية",
+    "اسم المورد القانوني كما في شهادة التسجيل، وعنوانه داخل المملكة وفق العنوان الوطني، ورقمه الضريبي (15 رقماً) أو رقم المجموعة الضريبية",
+    "اسم المشتري وعنوانه ورقمه الضريبي إن كان مسجلاً؛ وإلا فمعرّف بديل بالترتيب المحدد (TIN، السجل التجاري، رخصة البلدية… الهوية، الإقامة، الجواز)",
+    "لكل بند: وصف السلعة أو الخدمة، سعر الوحدة، الكمية، الخصم، المبلغ قبل الضريبة، نسبة الضريبة، مبلغ الضريبة، الإجمالي شاملاً الضريبة",
+    "الإجماليات: الخصم على مستوى الفاتورة، المبلغ الخاضع لكل نسبة أو إعفاء، مبلغ الضريبة بالريال السعودي، إجمالي الفاتورة شاملاً الضريبة",
+    "عبارة «صادرة نيابة عن» إن أصدرها المشتري أو طرف ثالث عن المورد",
+    "عبارة تبيّن المعاملة الخاصة إن لم تُطبق النسبة الأساسية (توريد اعتباري، تصدير، فاتورة ملخصة)",
+    "رمز الاستجابة السريعة QR الذي تحدده الهيئة: إلزامي في الفاتورة المبسطة منذ المرحلة الأولى (4 ديسمبر 2021)، وفي الفاتورة الضريبية منذ يناير 2023",
+    "البيانات باللغة العربية إلزامياً مع جواز لغة أخرى، والعربية هي المعتمدة؛ وتُقبل الأرقام ورموز العملات والأسماء العَلَم بالحروف اللاتينية",
+    "مبلغ الضريبة بالريال مقرباً لأقرب هللة، ويُحوَّل أي مبلغ بعملة أخرى بسعر البنك المركزي السعودي اليومي",
+    "الفاتورة المبسطة كحد أدنى: تاريخ الإصدار، اسم المورد وعنوانه ورقمه الضريبي، بيان السلع أو الخدمات، المقابل المستحق، مبلغ الضريبة أو عبارة أن المبلغ يشمل ضريبة القيمة المضافة 15%",
+    "التوقيت: الفاتورة الضريبية خلال 15 يوماً من نهاية الشهر الذي حدث فيه التوريد؛ والمبسطة في تاريخ التوريد أو استلام المقابل أيهما أسبق",
+    "لمن شمله الربط: ملف XML بمعيار UBL 2.1 مع الختم التشفيري وتجزئة الفاتورة السابقة، ويُحفظ داخل المملكة 6 سنوات على الأقل"
+  ],
+  "invoiceRequirementsSources": [
+    {"url": "https://zatca.gov.sa/en/HelpCenter/guidelines/Documents/Guideline-for-Tax-Invoicing-and-Records-under-VAT-Provisions.pdf", "title": "ZATCA — Guideline for Tax Invoicing and Records under VAT Provisions, Version 3, May 2026 (§§4.2–4.5 والحفظ)", "accessed": "2026-11-11"},
+    {"url": "https://zatca.gov.sa/ar/E-Invoicing/SystemsDevelopers/Documents/20230519_ZATCA_Electronic_Invoice_XML_Implementation_Standard_%20vF.pdf", "title": "ZATCA — Electronic Invoice XML Implementation Standard v1.2 (2023-05-19)", "accessed": "2026-11-11"},
+    {"url": "https://www.fonoa.com/resources/country-tax-guides/saudi-arabia/e-invoicing-and-digital-reporting", "title": "Fonoa — Saudi Arabia e-invoicing (الصيغ والحفظ 6 سنوات داخل المملكة)", "accessed": "2026-11-11"}
+  ],
+  "distribution": {
+    "sourceStatus": "unverified-general-knowledge",
+    "hubs": ["الرياض", "جدة", "الدمام والمنطقة الشرقية", "مكة المكرمة والمدينة المنورة", "القصيم (بريدة)"],
+    "tradeChannels": ["بقالات وتموينات الأحياء", "ميني ماركت وسوبرماركت مستقلة", "سلاسل السوبرماركت والهايبرماركت", "المطاعم والمقاهي (HoReCa)", "الصيدليات", "متاجر محطات الوقود", "تجار الجملة وأسواق الجملة"],
+    "localTerms": {
+      "vanSales": "البيع من السيارة / مبيعات الفان (Van Sales)",
+      "preSales": "أخذ الطلبيات ثم التوصيل (Pre-sales)",
+      "salesRep": "مندوب مبيعات / مندوب",
+      "retailShop": "بقالة / تموينات",
+      "routeAccounting": "تسوية المندوب وإقفال اليوم: مطابقة النقدية والسندات وعهدة مخزون السيارة"
+    },
+    "collectionMethods": ["نقداً عند التسليم", "البيع الآجل بسقف ائتماني يُحصَّل لاحقاً بسند قبض", "التحويل البنكي", "الشيكات", "بطاقات مدى عبر أجهزة نقاط البيع"],
+    "notes": "ما يخص الامتثال هنا موثّق من الهيئة: في البيع من السيارة للمستهلك أو بقيمة أقل من 1,000 ريال تكفي الفاتورة المبسطة وتصدر لحظة التوريد أو التحصيل، ويجيز قرار الهيئة صفّها عند انقطاع الشبكة وإبلاغها حين يعود الاتصال (والأصل الإبلاغ خلال 24 ساعة من الإصدار). هذا ما يجيزه النظام لا وصفٌ لسلوك FieldSales: الأسئلة الشائعة في موقع المنصة تنص على أن الشركة المفعَّل لها ربط المرحلة الثانية تحتاج فيها الفواتير (القياسية والمبسطة) والمرتجعات اتصالاً لحظة الإصدار. أما البيع لمنشأة مسجلة بقيمة 1,000 ريال فأكثر فيحتاج فاتورة ضريبية برقم المشتري الضريبي (أو معرّف بديل) تُعتمد من منصة فاتورة قبل تسليمها للمشتري، فتحتاج اتصالاً. أما قوائم المدن والقنوات والمصطلحات ووسائل التحصيل فمن المعرفة العامة بالسوق ولم تُوثَّق بمصدر مُستجلب في هذه الجولة."
+  },
+  "honesty": {
+    "canSay": [
+      "ندعم ربط المرحلة الثانية مع منصة فاتورة.",
+      "يصدر المندوب الفاتورة من جواله بالعربية مع رمز QR.",
+      "العملة (الريال السعودي) ونسبة الضريبة (15%) يضبطهما العميل من إعدادات شركته.",
+      "تجمع المنصة البيع من السيارة والتحصيل وسندات القبض وخطوط السير ومتابعة عهدة المندوب ومخزون سيارته في نظام واحد.",
+      "واجهة عربية كاملة صُممت لشركات التوزيع في السوق السعودي."
+    ],
+    "mustNotSay": [
+      "«معتمد من هيئة الزكاة والضريبة والجمارك» أو «حل معتمد» أو «مصادق» أو «مرخّص» من الهيئة أو من منصة فاتورة، و«ZATCA-certified» و«شريك رسمي لـZATCA» و«بالشراكة مع الهيئة»، أو أي صيغة اعتماد أو شهادة أو توحي بأن الهيئة راجعت المنصة أو أدرجتها أو أوصت بها",
+      "أي ادعاء ربط يتجاوز الصيغة المعتمدة «ندعم ربط المرحلة الثانية مع منصة فاتورة»، كأن يقترن بموعد أو موجة أو مهلة أو رقم أو نسبة أو ضمان («منذ…»، «لـN شركة»، «قريباً»، «خلال أيام»)",
+      "أي مواعيد أو وعود زمنية للربط، مثل «نربطك قبل موعد موجتك» أو «جاهزون للموجة 25 قبل 1 فبراير 2027»",
+      "«امتثال 100%» أو «متوافق تماماً مع الهيئة» أو «نضمن عدم الغرامات» أو أي ضمان امتثال أو نصيحة ضريبية",
+      "أن الفاتورة الضريبية (B2B) تُعتمد من منصة فاتورة دون اتصال بالإنترنت",
+      "أن المندوب في شركة مفعَّل لها ربط المرحلة الثانية يصدر الفاتورة (الضريبية أو المبسطة) أو المرتجع دون اتصال، لأن المنصة تشترط الاتصال لحظة الإصدار لهذه الشركات",
+      "ربط مباشر مع مدى أو سداد أو سريع أو أي بنك، أو قبول البطاقات داخل تطبيق المندوب، ما لم يُفعَّل ذلك ويُتحقق منه",
+      "أرقام حول عدد العملاء المربوطين أو الفواتير المعتمدة عبر المنصة دون مصدر داخلي موثّق",
+      "إظهار أسعار الاشتراك في الصفحة (سياسة الموقع: «طلب عرض سعر» بدل السعر)"
+    ]
+  },
+  "uncertain": [
+    "قسم التوزيع (المدن، القنوات، المصطلحات المحلية، وسائل التحصيل) لم يُوثَّق بمصدر مُستجلب: نفدت حصة البحث في هذه الجولة، وفشلت محاولات جلب مواقع SAMA ومدى وسريع ومسح السكان والتجارة الأمريكية. المعلومات عامة ومنخفضة المخاطر لكنها بلا مصدر، فتُراجَع قبل نشرها حقائقَ، وتُتجنَّب فيها الأرقام والنسب.",
+    "نسبة 15%: تحقق منها المدقق في 11 نوفمبر 2026 من PwC (آخر مراجعة 29 يوليو 2026) ومن دليل الهيئة للفوترة (الإصدار 3، مايو 2026) ومن Grant Thornton وAvalara، ولا يظهر في أخبار الهيئة حتى 21 أكتوبر 2026 ما يغيّرها. لم يُجرَ بحث ويب مفتوح عن تغيير بين 21 أكتوبر و11 نوفمبر 2026 (نفدت حصة البحث)، فاحتمال تغيير في هذه الفترة القصيرة غير مستبعد نظرياً وإن كان بعيداً.",
+    "الموجة 25: بيان الهيئة بنسختيه يختلف في طبيعة تاريخ 1 فبراير 2027؛ العربي «ابتداءً من 1 فبراير 2027م» (بداية الإلزام، وبه أخذت EY)، والإنجليزي «by no later than February 1, 2027» (آخر أجل، وبه أخذت KPMG). لا نافذة ربط مفصّلة (بداية ونهاية) في البيان. في الحالتين لم يحن الموعد في 11 نوفمبر 2026. الموجة 26: لا إعلان حتى آخر تحديث لصفحة أخبار الهيئة (21 أكتوبر 2026)، وقد تُعلن بإشعار لا يقل عن ستة أشهر.",
+    "عتبتا الموجتين 23 (> 750,000 ريال، 1 يناير–31 مارس 2026) و24 (> 375,000 ريال، 1 أبريل–30 يونيو 2026) مأخوذتان من EY (10 أغسطس 2026)؛ صفحتا بيانَي الهيئة لهما لم تُعثر عليهما بالروابط المتوقعة، وجدول الموجات في صفحة الهيئة لم يظهر نصاً.",
+    "عتبة الموجة الأولى (يناير 2023) وعتبات الموجات 2–22 لم تُستخرج من مصدر رسمي هنا؛ جدول الموجات في صفحة الهيئة لم يظهر نصاً عند الجلب.",
+    "الرمز الرسمي الجديد للريال: إدراجه في يونيكود (U+20C1) مؤكد من جدول يونيكود، أما تاريخ إطلاقه من البنك المركزي السعودي وإرشادات استعماله في الفواتير فلم تُتحقق من موقع البنك.",
+    "صيغة رقم التعريف الضريبي TIN (المختلف عن رقم ضريبة القيمة المضافة) لم تُتحقق من مصدر رسمي؛ Fonoa تذكر لرقم الأفراد 12 رقماً دون تأكيد رسمي.",
+    "حد الفاتورة المبسطة: دليل الهيئة (مايو 2026) ينص على «أقل من 1,000 ريال»، وبعض المصادر الثانوية تقول «حتى 1,000 ريال»؛ المعتمد هنا نص الهيئة.",
+    "نسبة 0% على الأدوية والمعدات الطبية مشروطة بقوائم وضوابط (هيئة الغذاء والدواء)، وتختلف المصادر الثانوية في صياغتها؛ تُذكر عامةً دون تفصيل.",
+    "سلوك FieldSales دون اتصال: الأسئلة الشائعة في fieldsa.net تقول إن الشركة المفعَّل لها ربط المرحلة الثانية تحتاج اتصالاً لحظة إصدار الفواتير (القياسية والمبسطة) والمرتجعات، فلا تستفيد المنصة لهذه الشركات من رخصة الصفّ التي يجيزها قرار الهيئة. لم يُتحقق من ذلك في الكود في هذه المهمة؛ لذلك لم يُدرج «العمل دون اتصال» في الجمل المسموح بها للشركات المربوطة.",
+    "حُذفت «أخذ الطلبيات» (Pre-sales) من جملة الميزات في canSay لأن الصفحة الرئيسية لـfieldsa.net لا تذكرها ولم يُتحقق من وجودها في المنتج؛ تُعاد إن أكّدها الفريق.",
+    "ضريبة السلع الانتقائية والزكاة وضريبة التصرفات العقارية خارج نطاق هذا الملف."
+  ],
+  "sources": [
+    {"url": "https://zatca.gov.sa/en/MediaCenter/News/Pages/Wave25-E-invoicing.aspx", "title": "ZATCA — Wave 25 of the Integration Phase (24 July 2026)", "accessed": "2026-11-11"},
+    {"url": "https://zatca.gov.sa/en/E-Invoicing/Introduction/Pages/Roll-out-phases.aspx", "title": "ZATCA — E-Invoicing Roll-out Phases", "accessed": "2026-11-11"},
+    {"url": "https://zatca.gov.sa/en/E-Invoicing/Introduction/Pages/What-is-e-invoicing.aspx", "title": "ZATCA — What is E-Invoicing", "accessed": "2026-11-11"},
+    {"url": "https://zatca.gov.sa/en/E-Invoicing/Introduction/LawsAndRegulations/Documents/20230519_E-Invoicing%20Implementation%20Resolution%20English.pdf", "title": "ZATCA — E-Invoicing Implementation Resolution (2023-05-19)", "accessed": "2026-11-11"},
+    {"url": "https://zatca.gov.sa/ar/E-Invoicing/SystemsDevelopers/Documents/20230519_ZATCA_Electronic_Invoice_XML_Implementation_Standard_%20vF.pdf", "title": "ZATCA — Electronic Invoice XML Implementation Standard v1.2 (2023-05-19)", "accessed": "2026-11-11"},
+    {"url": "https://zatca.gov.sa/en/HelpCenter/guidelines/Documents/Guideline-for-Tax-Invoicing-and-Records-under-VAT-Provisions.pdf", "title": "ZATCA — Guideline for Tax Invoicing and Records under VAT Provisions, Version 3 (May 2026)", "accessed": "2026-11-11"},
+    {"url": "https://zatca.gov.sa/en/HelpCenter/guidelines/Documents/(SMEs)%20Guidelines%20%E2%80%93%20Zatca%201.pdf", "title": "ZATCA — SMEs Guidelines", "accessed": "2026-11-11"},
+    {"url": "https://zatca.gov.sa/en/MediaCenter/News/Pages/default.aspx", "title": "ZATCA Media Center — News (updated 21 Oct 2026)", "accessed": "2026-11-11"},
+    {"url": "https://taxsummaries.pwc.com/saudi-arabia/corporate/other-taxes", "title": "PwC Worldwide Tax Summaries — Saudi Arabia, Other taxes (last reviewed 29 July 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.grantthornton.global/en/insights/indirect-tax-guide/indirect-tax---Saudi-Arabia/", "title": "Grant Thornton — Indirect tax guide: Saudi Arabia (1 January 2025)", "accessed": "2026-11-11"},
+    {"url": "https://www.avalara.com/vatlive/en/country-guides/africa-and-middle-east/saudi-arabia/saudi-arabian-vat-rates.html", "title": "Avalara VATlive — Saudi Arabian VAT rates", "accessed": "2026-11-11"},
+    {"url": "https://taxnews.ey.com/news/2026-1705-saudi-arabia-announces-25th-wave-of-phase-2-e-invoicing-integration", "title": "EY Global Tax News — 25th wave of Phase 2 (10 August 2026)", "accessed": "2026-11-11"},
+    {"url": "https://kpmg.com/us/en/taxnewsflash/news/2026/07/saudi-arabia-e-invoicing-mandatory-for-taxpayers-with-revenue-above-sar-187500.html", "title": "KPMG TaxNewsFlash — revenue above SAR 187,500 (29 July 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.fonoa.com/resources/country-tax-guides/saudi-arabia/e-invoicing-and-digital-reporting", "title": "Fonoa — Saudi Arabia e-invoicing and digital reporting (16 July 2024)", "accessed": "2026-11-11"},
+    {"url": "https://www.fonoa.com/resources/country-tax-guides/saudi-arabia", "title": "Fonoa — Saudi Arabia VAT Guide (16 July 2024)", "accessed": "2026-11-11"},
+    {"url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml", "title": "ISO 4217 List One (published 2026-09-17)", "accessed": "2026-11-11"},
+    {"url": "https://www.unicode.org/Public/18.0.0/charts/PDF/U20A0.pdf", "title": "Unicode Currency Symbols chart — U+20C1 SAUDI RIYAL SIGN", "accessed": "2026-11-11"},
+    {"url": "https://www.arabnews.pk/node/2628538", "title": "Arab News — e-invoices 8.2bn in 2025 (7 January 2026)", "accessed": "2026-11-11"},
+    {"url": "https://zatca.gov.sa/ar/MediaCenter/News/Pages/Wave25-E-invoicing.aspx", "title": "هيئة الزكاة والضريبة والجمارك — معايير المجموعة الخامسة والعشرين لمرحلة الربط (24 يوليه 2026)", "accessed": "2026-11-11"},
+    {"url": "https://fieldsa.net/", "title": "FieldSales — الصفحة الرئيسية والأسئلة الشائعة (صيغة ادعاء المرحلة الثانية واشتراط الاتصال للشركات المربوطة) — مصدر داخلي للمنتج لا للحقائق الضريبية", "accessed": "2026-11-11"}
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "corrections": [
+      {"field": "einvoicing.scopeNow + einvoicing.keyDates[2027-02-01]", "before": "الموجة 25 «مهلة ربطها لا تتجاوز 1 فبراير 2027» و«الحد الأقصى لربط الموجة 25»", "after": "موعد ربط الموجة 25 هو 1 فبراير 2027 مع بيان اختلاف نسختي بيان الهيئة: العربي «ابتداءً من 1 فبراير 2027م» والإنجليزي «by no later than February 1, 2027»؛ والنتيجة واحدة: لم يحن الإلزام في 11 نوفمبر 2026", "source": "https://zatca.gov.sa/ar/MediaCenter/News/Pages/Wave25-E-invoicing.aspx ; https://zatca.gov.sa/en/MediaCenter/News/Pages/Wave25-E-invoicing.aspx ; EY (10 Aug 2026) «starting 1 February 2027» ; KPMG (29 Jul 2026) «by February 1, 2027»"},
+      {"field": "einvoicing.modelNote", "before": "الصيغة XML (UBL 2.1) أو PDF/A-3 مضمَّن فيه XML", "after": "الصيغة الإلزامية للإصدار والإرسال XML (بتسلسل UBL 2.1)، وPDF/A-3 المضمَّن فيه XML اختياري لمشاركة الفاتورة مع العميل", "source": "ZATCA E-Invoicing Implementation Resolution (2023-05-19)، جدول المتطلبات الإضافية: «XML (mandated for … generation and transmission)» و«PDF/A-3 with embedded XML file (optional human readable format…)»"},
+      {"field": "invoiceRequirements[QR]", "before": "رمز QR (للفاتورة الضريبية منذ يناير 2023)", "after": "QR إلزامي في الفاتورة المبسطة منذ المرحلة الأولى (4 ديسمبر 2021)، وفي الفاتورة الضريبية منذ يناير 2023", "source": "ZATCA Guideline for Tax Invoicing and Records, Version 3 (May 2026) §4.2.3 و§6.2: «Mandatory inclusion of a QR Code … Simplified Tax Invoice»"},
+      {"field": "einvoicing.volumeNote", "before": "بحسب ما نقلته Arab News عن الهيئة (يناير 2026)", "after": "بحسب Arab News (arabnews.pk، 7 يناير 2026) نقلاً عن صحيفة الاقتصادية عن الهيئة", "source": "https://www.arabnews.pk/node/2628538"},
+      {"field": "distribution.notes", "before": "ويجوز صفّها عند انقطاع الشبكة وإبلاغها حين يعود الاتصال (خلال 24 ساعة).", "after": "ويجيز قرار الهيئة صفّها وإبلاغها عند عودة الاتصال، مع التنبيه إلى أن هذا حكم نظامي لا وصف لسلوك FieldSales الذي يشترط الاتصال لحظة الإصدار للشركات المربوطة", "source": "قرار الهيئة لتطبيق الفوترة الإلكترونية (2023-05-19) ؛ الأسئلة الشائعة في https://fieldsa.net/"},
+      {"field": "honesty.canSay[3]", "before": "تجمع المنصة البيع من السيارة وأخذ الطلبيات والتحصيل…", "after": "تجمع المنصة البيع من السيارة والتحصيل… (حُذفت «أخذ الطلبيات» لعدم التحقق منها)", "source": "https://fieldsa.net/ (لا ذكر لأخذ الطلبيات/Pre-sales)"},
+      {"field": "honesty.mustNotSay", "before": "7 بنود؛ لا تشمل «مصادق/مرخّص/ZATCA-certified/بالشراكة مع الهيئة»، ولا قرن الربط بأرقام أو «منذ…»، ولا الإصدار دون اتصال للشركات المربوطة", "after": "أُضيفت هذه المحظورات صراحةً، ومنع أي ادعاء ربط يتجاوز الصيغة المعتمدة «ندعم ربط المرحلة الثانية مع منصة فاتورة»", "source": "دليل تفعيل ادعاء المرحلة الثانية الداخلي (17 سبتمبر 2026) ؛ https://fieldsa.net/ «والهيئة لا تعتمد مزوّدي البرمجيات»"},
+      {"field": "uncertain", "before": "«لم يُجرَ بحث مخصص عن أي تغيير في نسبة الضريبة» و«بداية نافذة الموجة 25 غير محددة… الحد الأقصى فقط»", "after": "تحديث البندين بنتيجة التحقق (15% مؤكدة من أربعة مصادر حتى 21 أكتوبر 2026؛ خلاف نسختي بيان الموجة 25)، وإضافة بند مصدر الموجتين 23 و24 (EY) وبند حذف «أخذ الطلبيات»", "source": "PwC (29 Jul 2026) ؛ دليل الهيئة (May 2026) ؛ Grant Thornton ؛ Avalara ؛ EY (10 Aug 2026)"}
+    ],
+    "confidence": "high"
+  }
+}

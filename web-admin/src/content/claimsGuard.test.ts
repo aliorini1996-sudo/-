@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { RULES, checkText, findViolation, findViolations, norm, PHASE2_CMS_CLEANED, cmsCorpus, fromCms } from '../../scripts/claims-rules.mjs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { RULES, checkText, findViolation, findViolations, norm, PHASE2_CMS_CLEANED, cmsCorpus, fromCms, GOV_EINVOICING_RE } from '../../scripts/claims-rules.mjs';
+import { checkMarketingStrings, govEinvoicingName } from '../../scripts/claims-i18n.mjs';
 import * as claimsRules from '../../scripts/claims-rules.mjs';
 import { buildCatalog, getArticle, LANGS } from '../blog/seo/catalog.mjs';
 import { PROFILE_DEFAULTS } from './profileContent';
@@ -259,6 +260,211 @@ test('أسماء منافسي الأسواق العالمية في القاعد�
   }
 });
 
+test('أسماء موردي تقرير المنافسين ودراسة تسويقهم (١١ نوفمبر) في القاعدة الحاجبة — والكلمات العامة منها خارجها أو بسياقها', () => {
+  const rule = RULES.find((r) => r.id === 'competitor-name')!;
+  for (const t of ['Bitrix24', 'Onyx Pro', 'Motakamel', 'TrioCashVan', 'Phenix Van Sales', 'PDAMAROC', 'TASSARUF TIJARI', 'Vatoce SalesUp',
+    'Al-Ameen Software', 'Wafeq', 'wafeq', 'Rewaa', 'DEXEF', 'AccFlex', 'Edara ERP', 'TallyPrime', 'Lystloc', 'SalesJump', 'mSELL', 'Unolo', 'TrackoField',
+    'bMobile', 'Advantage Route Systems', 'Al Badr Sales', 'SalesRabbit', 'Route4Me', 'Onfleet', 'Repsly', 'SPOTIO', 'SimplyDepo', 'Pepperi', 'Badger Maps',
+    'LeadSquared', 'Fieldproxy', 'Connecteam', 'Hubstaff', 'Timeero', 'Housecall Pro', 'ServiceTitan', 'SynTrack', 'SAP DSD', 'Salesforce Consumer Goods Cloud',
+    'Resco', 'xkzero', 'StayinFront', 'eoStar', 'Encompass Distribution Cloud', 'Silver Bullet Suite', 'SalesWorx', 'Focus Softnet', 'ERPGulf', 'Dolibarr',
+    'EspoCRM', 'Vtiger', 'Foodics', 'TapFood', 'Grubtech', 'Petpooja', 'Loyverse', 'SambaPOS', 'قارن FieldSales مع Foodics']) {
+    assert.ok(findViolation(rule, t), `مرّ اسم منافس: «${t}»`);
+  }
+  // كلمات عامة أو تكاملات: «jobber» فعل نرويجي في no.json، وZoho خيار ربط في صفحة تكامل ERP، وSalesforce وSAP وحدهما أنظمة تُربط
+  for (const t of ['Selgerne jobber ute hos kundene', 'Jobber', 'the outfield', 'Motive', 'Square', 'Toast', 'Lightspeed', 'Medusa', 'Marn', 'Sahl',
+    'Mezan', 'comezan a vender', 'Edara', 'pengedaran', 'Al-Ameen Street', 'take advantage: route planning', 'a blue link', 'to encompass all reps',
+    'there is no silver bullet', 'Creative Solutions', 'Zoho Books', 'Salesforce', 'SAP ERP', 'Geidea', 'anyPos', 'AI2Bot', 'Recordable', 'Related articles']) {
+    assert.equal(findViolation(rule, t), null, `إنذار كاذب: «${t}»`);
+  }
+});
+
+const GOV = 'gov-einvoice-abroad';
+
+test('ربط حكومي خارج السعودية: يُحجب ادّعاء الربط أو التكامل أو التوافق المنسوب إلينا بلغات الموقع ولغات الطبقة', () => {
+  for (const t of [
+    // لغات الموقع الخمس
+    'FieldSales integrates with SAT to stamp every CFDI.',
+    'Our platform supports Peppol e-invoicing in the UAE.',
+    'Our app sends invoices directly to KSeF.',
+    'We are fully compliant with LHDN MyInvois.',
+    'Integrates with KRA eTIMS.',
+    'FieldSales is connected to the FBR Digital Invoicing system via PRAL.',
+    'نربط فواتيرك مع منظومة ETA المصرية.',
+    'منصة FieldSales متوافقة مع منظومة الفاتورة الإلكترونية المصرية.',
+    'FieldSales هو الحل المتوافق مع JoFotara في الأردن.',
+    'FieldSales يرتبط مباشرة بالهيئة الاتحادية للضرائب.',
+    'FieldSales يصدر فواتير ETA مباشرة من الميدان.',
+    'نتكامل مع منظومة Fawtara في عُمان.',
+    'FieldSales est compatible avec Chorus Pro.',
+    'FieldSales est intégrée à la plateforme FNE de la DGI.',
+    'Nous prenons en charge la FNE de la DGI.',
+    'FieldSales, GİB e-Fatura sistemine entegre çalışır.',
+    'e-Arşiv faturalarını destekliyoruz.',
+    'FieldSales 支持全电发票。',
+    '支持数电发票与金税对接',
+    // لغات الطبقة
+    'FieldSales se integra con el SAT y timbra cada CFDI 4.0.',
+    'Integramos la facturación con el SAT.',
+    'Compatible con CFDI 4.0',
+    'FieldSales emite la factura electrónica validada por la DIAN.',
+    'FieldSales transmite las facturas a la DIAN.',
+    'O FieldSales emite NF-e autorizada pela SEFAZ.',
+    'O FieldSales é integrado à SEFAZ.',
+    'FieldSales terintegrasi dengan Coretax DJP.',
+    'FieldSales ist mit XRechnung kompatibel.',
+    'FieldSales는 국세청 전자세금계산서와 연동됩니다.',
+    'FieldSales подключён к ЭСФ.',
+    // صفحات الدول المراجَعة بعد حذف نفيها — الحارس يعضّ على الصيغة نفسها
+    'FieldSales est raccordé à la plateforme FNE et à son API.',
+    'FieldSales emite y timbra CFDI.',
+    'FieldSales sends invoices to KRA as electronic tax invoices.',
+    'FieldSales has a connection to FBR’s Digital Invoicing system.',
+    'O FieldSales substitui o emissor de NF-e da sua empresa.',
+  ]) assert.ok(checkText(t).includes(GOV), `مرّ ادّعاء ربط حكومي: «${t}»`);
+});
+
+test('ربط حكومي خارج السعودية: الذكر الواقعي والنفي والسؤال و«عند الطلب» وربط ZATCA تمرّ', () => {
+  for (const t of [
+    'CFDI 4.0 إلزامي في المكسيك.',
+    'CFDI 4.0 is mandatory in Mexico for B2B and B2C sales.',
+    'يشترط SAT أن تتوافق الفاتورة مع CFDI 4.0.',
+    'El SAT exige que cada factura sea compatible con CFDI 4.0.',
+    'In Kenya, KRA requires every VAT-registered business to transmit invoices through eTIMS.',
+    'Nigeria’s NRS runs the MBS platform, which connects taxpayers to the e-invoicing system.',
+    // سؤال
+    'Does FieldSales integrate with SAT?',
+    '¿FieldSales se integra con el SAT?',
+    'Puis-je émettre mes FNE avec FieldSales ?',
+    // نفي وفكّ صلة (من صفحات الدول المراجَعة)
+    'FieldSales does not integrate with SAT today.',
+    'FieldSales has no SAT integration yet.',
+    'FieldSales no está integrado con el SAT.',
+    'FieldSales no timbra CFDI; tu empresa lo sigue emitiendo con su PAC.',
+    'FieldSales no emite ni timbra CFDI.',
+    'لا نربط مع منظومة ETA حالياً.',
+    "FieldSales n'émet ni FNE ni RNE : ses factures et reçus sont des documents de gestion interne.",
+    "FieldSales n'est aujourd'hui raccordé ni à la plateforme FNE ni à son API.",
+    "La FNE, elle, s'émet par les canaux de la DGI, indépendamment de FieldSales.",
+    'FieldSales does not send invoices to KRA, and the invoices it prints are not electronic tax invoices.',
+    'FieldSales has no connection to FBR’s Digital Invoicing system today.',
+    // «عند الطلب» بلا وعد (قرار المالك)
+    'In Mexico, integration with SAT is available on request.',
+    'الربط مع SAT في المكسيك عند الطلب.',
+    'FieldSales ينظم فوترتك ويصدر فواتير برمز QR؛ ويبقى ربط منظومة ETA الرسمية حسب متطلبات كل منشأة.',
+    // الجملة الفرعية: الفاعل منّا في جملة والمنظومة في أخرى
+    'FieldSales issues invoices in Mexican pesos, while SAT requires CFDI-compliant XML stamped by a PAC.',
+    'FieldSales منصة متكاملة لموزعي مصر، حيث منظومة ETA إلزامية.',
+    // الصفة العامة ليست ربطاً، وفعل الإصدار لا يُدين اسماً قبله (نصوص الكتالوج العربية بلا ترقيم)
+    'FieldSales منصة متكاملة لإدارة المناديب في مصر وتشرف مصلحة الضرائب على الفاتورة',
+    'FieldSales is an integrated platform for distributors in Mexico and SAT requires CFDI',
+    'ضريبة القيمة المضافة ١٤٪ تشرف عليها مصلحة الضرائب المصرية والفاتورة والإيصال الإلكتروني إلزاميان تدريجيا تصدر منصة FieldSales الفاتورة وسند القبض',
+    // السعودية خارج القاعدة: الربط حيّ
+    'We support Phase 2 integration with ZATCA’s Fatoora platform.',
+    'ندعم ربط المرحلة الثانية مع منصة فاتورة.',
+    // المصطلح العام للفوترة الإلكترونية في لغات الطبقة ليس اسم منظومة
+    'FieldSales: Die Anbindung an ein staatliches E-Rechnung-System ist auf Anfrage verfügbar.',
+    'Devlet e-fatura entegrasyonu Suudi Arabistan’da canlıdır; FieldSales e-fatura sistemine bağlanır.',
+  ]) assert.ok(!checkText(t).includes(GOV), `إنذار كاذب: «${t}»`);
+});
+
+test('ربط حكومي خارج السعودية: نطاق «الكتل» يفصل العنوان عن الفقرة، والقاعدة حاجبة', () => {
+  const rule = RULES.find((r) => r.id === GOV)!;
+  assert.equal(rule.severity, undefined, 'القاعدة حاجبة');
+  assert.equal(rule.scope, 'blocks');
+  // عنوان H1 فيه الاسم، وفقرة واقعية بعده: النصّ المسطّح يلصقهما فيصير FieldSales فاعلاً لـ«compatible»
+  const flat = 'FieldSales en México El SAT exige que el software emisor sea compatible con CFDI 4.0';
+  const blocks = 'FieldSales en México\nEl SAT exige que el software emisor sea compatible con CFDI 4.0';
+  assert.ok(findViolation(rule, flat), 'النصّ المسطّح يُظهر سبب نطاق «الكتل»');
+  assert.equal(findViolation(rule, blocks), null, 'السطر حدّ جملة');
+  // «CFDI 4.0» ليست نهاية جملة: النقطة بين رقمين لا تقطع
+  assert.ok(findViolation(rule, 'Compatible with CFDI 4.0 and the SAT catalogs, FieldSales stamps every invoice.'));
+});
+
+/** منظومات الحقائق المدقّقة (D:/claude-work/country-facts، ١١ نوفمبر ٢٠٢٦) — systemName والجهة، كما كُتبت */
+const AUDITED_SYSTEMS: [string, string][] = [
+  ['AE', 'UAE Electronic Invoicing System – PINT-AE — Federal Tax Authority (FTA) · EmaraTax'],
+  ['BR', 'NF-e (Nota Fiscal Eletrônica, modelo 55) وNFC-e — Secretarias da Fazenda estaduais (SEFAZ)'],
+  ['CI', 'FNE — Facture Normalisée Électronique (و RNE) — Direction Générale des Impôts (DGI)'],
+  ['CM', 'Système de suivi de facturation électronique — Direction Générale des Impôts (DGI) — MINFI'],
+  ['CO', 'Sistema de Factura Electrónica (SFE) — RADIAN — Dirección de Impuestos y Aduanas Nacionales (DIAN)'],
+  ['EG', 'منظومة الفاتورة الإلكترونية (E-Invoice) — مصلحة الضرائب المصرية (ETA)'],
+  ['GH', 'E-VAT (Certified Invoicing System, CIS) عبر VSDC — Ghana Revenue Authority (GRA)'],
+  ['ID', 'e-Faktur (Faktur Pajak Elektronik) عبر Coretax DJP'],
+  ['KE', 'eTIMS (Electronic Tax Invoice Management System) / TIMS — Kenya Revenue Authority (KRA)'],
+  ['MA', 'Facturation électronique — plateforme nationale de la DGI'],
+  ['MX', 'CFDI 4.0 (Comprobante Fiscal Digital por Internet) — Servicio de Administración Tributaria (SAT)'],
+  ['NG', 'NRS Merchant Buyer Solution (NRSMBS / MBS) — Nigeria Revenue Service (NRS)'],
+  ['OM', 'Fawtara (فوترة) — جهاز الضرائب — سلطنة عُمان'],
+  ['PH', 'Electronic Invoicing System (EIS) — Bureau of Internal Revenue (BIR)'],
+  ['PK', 'FBR Digital Invoicing (DI) — Federal Board of Revenue (FBR) · PRAL'],
+  ['SN', 'Facturation électronique (art. 447-II du CGI) — DGID'],
+  ['ZA', 'SARS Digital VAT Model — South African Revenue Service (SARS)'],
+  ['IQ', 'الهيئة العامة للضرائب'],
+];
+
+test('كل منظومة في حقائق الدول المدقّقة يعرفها الحارس (وملفات src/content/country-facts إن وُجدت)', () => {
+  for (const [cc, s] of AUDITED_SYSTEMS) assert.ok(GOV_EINVOICING_RE.test(s), `${cc}: منظومة لا يعرفها gov-einvoice-abroad — «${s}»`);
+  // بعد دمج فرع صفحات الدول تُفحص ملفاته نفسها: دولة جديدة بمنظومة لا يعرفها الحارس تُفشل الاختبار حتى تُضاف
+  const dir = new URL('./country-facts/', import.meta.url);
+  if (!existsSync(dir)) return;
+  for (const f of readdirSync(dir).filter((x) => /^[A-Z]{2}\.json$/.test(x))) {
+    const j = JSON.parse(readFileSync(new URL(f, dir), 'utf8'));
+    const e = j.einvoicing || {};
+    if (j.code === 'SA' || (!e.systemName && !e.authority)) continue;
+    const s = `${e.systemName || ''} ${e.authority || ''} ${j.tax?.authority || ''}`;
+    assert.ok(GOV_EINVOICING_RE.test(s), `${f}: منظومة لا يعرفها gov-einvoice-abroad — «${s.slice(0, 160)}»`);
+  }
+});
+
+test('صفحات الدول المراجَعة (src/content/country-pages إن وُجدت) تمرّ من ربط الحكومي وأسماء المنافسين', () => {
+  const dir = new URL('./country-pages/', import.meta.url);
+  if (!existsSync(dir)) return;
+  const rules = RULES.filter((r) => [GOV, 'competitor-name', NAMES, 'eta-egypt-claim', APPROVED].includes(r.id));
+  const bad: string[] = [];
+  let n = 0;
+  for (const f of readdirSync(dir).filter((x) => /^[A-Z]{2}\.json$/.test(x))) {
+    const j = JSON.parse(readFileSync(new URL(f, dir), 'utf8'));
+    if (!['publish', 'publish-with-notes'].includes(j.review?.quality)) continue;
+    for (const [lang, c] of Object.entries(j.content || {})) {
+      const blocks: string[] = [];
+      const walk = (v: unknown): void => {
+        if (typeof v === 'string') blocks.push(v.replace(/<[^>]+>/g, ' '));
+        else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+      };
+      walk(c);
+      n += blocks.length;
+      const text = blocks.join('\n');
+      for (const r of rules) {
+        const v = findViolation(r, text);
+        if (v) bad.push(`${f} ${lang} [${r.id}] «${v.match}»`);
+      }
+    }
+  }
+  assert.ok(n > 100, `لم تُقرأ صفحات الدول (${n})`);
+  assert.deepEqual(bad, [], 'صفحة دولة مراجَعة يدينها الحارس');
+});
+
+test('مكافئ الطبقة: اسم منظومة حكومية في نصّ مترجم يُرفض، وملفات الطبقة المنشورة خالية منها', () => {
+  assert.equal(govEinvoicingName('La conexión con el SAT está disponible bajo pedido.'), 'SAT');
+  assert.equal(govEinvoicingName('Staatliche E-Rechnung: auf Anfrage.'), null, 'المصطلح العام ليس اسم منظومة');
+  const v = checkMarketingStrings({ 'tierB.home.faq.3.a': 'FieldSales ይዋሃዳል ከ CFDI ጋር።' }, { code: 'am' });
+  assert.ok(v.some((x) => x.id === 'i18n-gov-einvoicing' && x.key === 'tierB.home.faq.3.a'), 'اسم منظومة في ترجمة أمهرية مرّ');
+  const dir = new URL('../i18n/marketing/', import.meta.url);
+  const offenders: string[] = [];
+  let n = 0;
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+    const j = JSON.parse(readFileSync(new URL(f, dir), 'utf8'));
+    for (const [k, s] of Object.entries((j.strings || j) as Record<string, unknown>)) {
+      if (typeof s !== 'string') continue;
+      n++;
+      const name = govEinvoicingName(s);
+      if (name) offenders.push(`${f} ${k}: «${name}»`);
+    }
+  }
+  assert.ok(n > 10000, `لم تُقرأ ملفات الطبقة (${n})`);
+  assert.deepEqual(offenders, []);
+});
+
 test('حصر الاستهداف في «الأسواق العربية»: يُكشف في رأس الصفحات غير العربية ومقالاتها، ومقصور عليها', () => {
   const rule = RULES.find((r) => r.id === 'arab-only-targeting')! as typeof RULES[number] & { paths: RegExp; exceptPaths?: RegExp };
   assert.equal(rule.scope, 'head', 'العنوان والوصف وH1 لا المتن');
@@ -380,7 +586,7 @@ test('النصوص المصيَّرة للزاحف في المصادر الخا�
  * قواعد الامتثال وأسماء المنافسين — قاعدة «الرأس» (dead-keyword-targeting) تخصّ العنوان والوصف لا حقول keywords.
  * أسماء المنافسين هنا بلا إسناد: الكتالوج والبروفايل والنماذج نصوص مستودع، فالاسم فيها حاجب دائماً.
  */
-const COMPLIANCE_RULES = RULES.filter((r) => [APPROVED, DATED, STALE, 'eta-egypt-claim', 'competitor-name', NAMES].includes(r.id));
+const COMPLIANCE_RULES = RULES.filter((r) => [APPROVED, DATED, STALE, 'eta-egypt-claim', 'gov-einvoice-abroad', 'competitor-name', NAMES].includes(r.id));
 
 test('مقالات catalog المولّدة بلغاتها الثلاث والبروفايل وبنك النماذج بلا ادّعاء امتثال محظور ولا نفي قديم ولا اسم منافس', () => {
   // أكثر من ٣٠٠ مقال تُصيَّر للزاحف وللزائر من المستودع مباشرة — نفيٌ قديم فيها خطأ مستودع لا بند CMS

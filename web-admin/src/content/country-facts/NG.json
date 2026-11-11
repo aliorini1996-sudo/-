@@ -1,0 +1,231 @@
+{
+  "code": "NG",
+  "nameEn": "Nigeria",
+  "pageLanguage": "en",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "NGN",
+    "symbol": "₦",
+    "nameEn": "Nigerian Naira",
+    "nameLocal": "Naira",
+    "minorUnits": 2,
+    "notes": "الرمز الرقمي ISO 566، والعملة مقسّمة إلى 100 kobo. خانتا الكسور من قائمة ISO 4217 المنشورة في 2026-09-17، والرمز ₦ مستعمل في صفحة البنك المركزي CBN. وتقسيم الـnaira إلى 100 kobo منصوص عليه في صفحة تاريخ العملة على موقع CBN، وهو متّسق مع خانتي الكسور في ISO.",
+    "sources": [
+      {"url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml", "title": "ISO 4217 List One (SIX, maintenance agency) — published 2026-09-17 (NGN، 566، خانتا كسور)", "accessed": "2026-11-11"},
+      {"url": "https://www.cbn.gov.ng/Currency/", "title": "Central Bank of Nigeria — Currency (الرمز ₦)", "accessed": "2026-11-11"},
+      {"url": "https://www.cbn.gov.ng/currency/historycur.html", "title": "Central Bank of Nigeria — History of Nigerian currency (100 kobo = 1 naira)", "accessed": "2026-11-11"}
+    ]
+  },
+  "tax": {
+    "nameLocal": "Value Added Tax",
+    "nameEn": "Value Added Tax",
+    "abbr": "VAT",
+    "standardRate": 7.5,
+    "otherRates": [
+      {"rate": 0, "appliesTo": "التصفير (zero-rated) بموجب Nigeria Tax Act 2025: المواد الغذائية الأساسية، والمنتجات الطبية والدوائية، والخدمات والمعدات الطبية، والكتب والمواد التعليمية ورسوم التعليم من الحضانة إلى الجامعة، والأسمدة والمدخلات الزراعية والبذور والماشية الحية، وكهرباء التوليد والنقل إلى الشبكة، والسيارات الكهربائية وقطعها، والصادرات (عدا النفط والغاز)، والخدمات المصدَّرة. تُسترد ضريبة المدخلات على هذه التوريدات."},
+      {"rate": 0, "appliesTo": "الإعفاء (exempt)، وهو ليس تصفيراً، فلا تُسترد ضريبة المدخلات: صادرات النفط والغاز والنفط الخام، ونقل الركاب البري المشترك، والأراضي والمباني، والنقود والأوراق المالية، ومنتجات الأطفال والفوط الصحية النسائية المصنّعة محلياً، والأجهزة المساعِدة لذوي الإعاقة، وتوريدات البعثات الدبلوماسية، وتوريدات مناطق التجارة الحرة المعتمدة، والرخص الحكومية، وغيرها. والمنتجات البترولية ومعدات الطاقة المتجددة والغاز المضغوط CNG والمسال LPG معفاة كذلك ما لم يوجّه وزير المالية بخلاف ذلك (Streamsowers & Köhn، مايو 2026)."}
+    ],
+    "rateNotes": "بقيت النسبة 7.5% (المعمول بها منذ 1 فبراير 2020) في قانون الإصلاح الضريبي 2025، وأُسقط مقترح رفعها تدريجياً إلى 15%. منذ 1 يناير 2026 يحكم الضريبة Nigeria Tax Act 2025 وNigeria Tax Administration Act 2025، وتوقّف العمل بـVAT Act القديم بعد 31 ديسمبر 2025. وتوسّع حق خصم ضريبة المدخلات ليشمل الخدمات والأصول الثابتة المرتبطة بتوريدات خاضعة. وأحدث مصدر مهني مطّلع عليه (تقرير PwC المنشور في Daily Trust في 22 أكتوبر 2026) ما زال يذكر النسبة 7.5%. ويُقدَّم إقرار VAT الشهري في موعد أقصاه اليوم 21 من الشهر التالي ولو لم يكن هناك نشاط (PwC، Tax administration، آخر مراجعة 29 مايو 2026؛ وStreamsowers & Köhn استناداً إلى المادة 22 من NTAA).",
+    "registrationThreshold": "لا يرد في المصادر المهنية المطّلع عليها حدّ تسجيل نقدي عام. الشركة الصغيرة (small company) معفاة من فرض الضريبة وتقديم إقراراتها، ولها أن تختار الخروج من الإعفاء. تُعرَّف بإجمالي مبيعات سنوية لا تتجاوز ₦50 مليوناً بحسب نص NTA 2025 المنشور في الجريدة الرسمية (وبحسب NTAA وتصريح رئيس لجنة الإصلاح يصبح الحدّ ₦100 مليون، وأن ₦50 مليوناً خطأ في الصياغة)، وبأصول ثابتة لا تتجاوز ₦250 مليوناً، ولا يدخل في التعريف مقدّمو الخدمات المهنية. الرقم موضع تعارض؛ انظر قسم uncertain.",
+    "authority": "Nigeria Revenue Service (NRS) — سابقاً Federal Inland Revenue Service (FIRS)",
+    "authorityUrl": "https://www.nrs.gov.ng/",
+    "sources": [
+      {"url": "https://taxsummaries.pwc.com/nigeria/corporate/other-taxes", "title": "PwC Worldwide Tax Summaries — Nigeria, Corporate, Other taxes (last reviewed 29 May 2026)", "accessed": "2026-11-11"},
+      {"url": "https://taxsummaries.pwc.com/nigeria/corporate/tax-administration", "title": "PwC Worldwide Tax Summaries — Nigeria, Corporate, Tax administration (last reviewed 29 May 2026)", "accessed": "2026-11-11"},
+      {"url": "https://allafrica.com/stories/202610220111.html", "title": "allAfrica / Daily Trust — PwC report «VAT in Africa: Digital Services 2026»: 7.5% standard rate (22 Oct 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.forvismazars.com/ng/en/services/tax/nigeria-s-tax-reform-in-focus/2025-nta-vat-key-business-changes", "title": "Forvis Mazars Nigeria — VAT & Nigeria 2025 Tax Reforms: key changes (16 Mar 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.bdo.global/en-gb/insights/tax/indirect-tax/nigeria-new-legislation-includes-important-changes-to-vat-rules", "title": "BDO — Nigeria: new legislation includes important changes to VAT rules (31 Mar 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.legal500.com/intelligence/nigeria/tax/examination-of-the-value-added-tax-provisions-under-the-nigeria-tax-act-2025", "title": "Streamsowers & Köhn (Legal 500) — Examination of the VAT provisions under the Nigeria Tax Act 2025 (28 May 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.legal500.com/intelligence/nigeria/tax/updates-to-the-nigeria-tax-act-nta-2025", "title": "KPMG Nigeria (Legal 500) — Updates to the Nigeria Tax Act (NTA) 2025 (05 Aug 2025)", "accessed": "2026-11-11"},
+      {"url": "https://www.thecable.ng/spotted-nigeria-tax-act-contradicts-ntaa-on-turnover-cap-for-small-business/", "title": "TheCable — Nigeria Tax Act contradicts NTAA on turnover cap for small business (اطُّلع على ملخّصه عبر فهرس البحث فقط؛ الصفحة ردّت 403)", "accessed": "2026-11-11"}
+    ]
+  },
+  "taxId": {
+    "label": "Tax ID",
+    "format": "13 رقماً (Tax ID الموحّد). يُسترجع للأفراد برقم الهوية الوطنية NIN المكوّن من 11 رقماً، وللشركات برقم تسجيلها لدى CAC، ويُطلب من بوابتي taxid.jrb.gov.ng وtaxid.nrs.gov.ng.",
+    "notes": "منذ 1 يناير 2026 حلّ Tax ID الموحّد محلّ أرقام TIN السابقة، وفق إشعار مشترك من Joint Revenue Board (JRB) وNRS، واستناداً إلى المواد 6–8 من Nigeria Tax Administration Act 2025. وفي 18 مايو 2026 صدر إشعار ثانٍ بأن واجهة التحقق الجديدة ستحلّ محلّ TIN Validation API لدى الجهات الحكومية والمؤسسات المالية. ولا يزال المصطلح «TIN» شائعاً في النصوص والفواتير.",
+    "sources": [
+      {"url": "https://fctirs.gov.ng/?p=17962", "title": "FCT Internal Revenue Service — Public Notice: Nigerian Tax ID Portal goes live effective January 1, 2026 (JRB & NRS, 29 Dec 2025)", "accessed": "2026-11-11"},
+      {"url": "https://nairametrics.com/2025/12/29/how-to-retrieve-your-tax-id-using-nin-cac-number-from-january-2026/", "title": "Nairametrics — How to retrieve your Tax ID using NIN/CAC number from January 2026 (29 Dec 2025)", "accessed": "2026-11-11"},
+      {"url": "https://nairametrics.com/2026/05/18/nrs-introduces-unified-tax-id-system-for-all-taxable-persons-in-nigeria/", "title": "Nairametrics — NRS introduces unified Tax ID system for all taxable persons (18 May 2026)", "accessed": "2026-11-11"},
+      {"url": "https://resource.scp-law.com/2026/06/11/one-tax-identity-multiple-consequences-what-nigerias-new-tax-id-framework-means-for-your-business/", "title": "SCP Law — One tax identity, multiple consequences: Nigeria's new Tax ID framework (Jun 2026)", "accessed": "2026-11-11"}
+    ]
+  },
+  "einvoicing": {
+    "status": "phased-mandatory",
+    "systemName": "NRS Merchant Buyer Solution (NRSMBS / MBS) — E-Invoicing and Electronic Fiscal System (EFS)",
+    "authority": "Nigeria Revenue Service (NRS)",
+    "model": "clearance",
+    "modelNotes": "فواتير B2B وB2G تُرسل إلى NRS قبل وصولها إلى المشتري لتُعتمد، فتحصل على رقم مرجعي IRN (ويُسمّى أيضاً RIN) وختم تشفيري CSID مع رمز QR. أما فواتير B2C فتصدر بلا اعتماد مسبق، ثم يُبلَّغ عنها خلال 24 ساعة. والإرسال يتم عبر مزوّدي نقاط الوصول (Access Point Providers) أو عبر الربط المباشر من نظام المنشأة بواجهات API، والصيغة المنظَّمة مبنية على UBL/Peppol. الأساس القانوني: المادة 23 من NTAA 2025 والمادة 158 من NTA 2025.",
+    "scopeNow": "حتى 11 نوفمبر 2026، وبحسب الجدول المرحلي الذي أعلنته NRS في فبراير 2026: الإلزام قائم على كبار المكلّفين (Large taxpayers) الذين تبلغ مبيعاتهم السنوية ₦5 مليارات فأكثر، وقد أمهلتهم NRS حتى 31 يوليو 2026 لاستكمال الربط وبدء إرسال الفواتير، وتصبح الغرامات قابلة للتطبيق بعدها. ولم أجد مصدراً يؤكد فرض غرامات فعلياً حتى اليوم. وموعد التشغيل المعلن للمكلّفين المتوسطين (من ₦1 مليار إلى ₦5 مليارات) هو 1 يوليو 2026، فهم بحسب الجدول في مرحلة مراجعة ما بعد التشغيل (أكتوبر–نوفمبر 2026)، وإنفاذ العقوبات عليهم مقرّر في يناير–مارس 2027. لكن لم أجد مصدراً بعد 1 يوليو 2026 يؤكد أن تشغيلهم بدأ فعلاً في موعده؛ انظر قسم uncertain. أما المكلّفون الناشئون (أقل من ₦1 مليار)، ومنهم أغلب الموزّعين الصغار، فغير ملزمين بعد، وموعد تشغيلهم المعلن 1 يوليو 2027. ولم تحدّد NRS بعدُ متطلبات تشغيلية واضحة للموردين غير المقيمين (تقرير PwC، أكتوبر 2026).",
+    "keyDates": [
+      {"date": "2025-08-01", "event": "تشغيل منصة MBS لكبار المكلّفين (₦5 مليارات فأكثر)"},
+      {"date": "2025-11", "event": "تأجيل موعد السريان الفعلي لكبار المكلّفين إلى نوفمبر 2025 لإتاحة الربط"},
+      {"date": "2026-01-01", "event": "سريان Nigeria Tax Act 2025 وNigeria Tax Administration Act 2025، ومنهما المادة 158 (نظام الفوترة المالية) والمادة 23 (نشر التقنية)"},
+      {"date": "2026-02-17", "event": "إشعار عام من NRS بالجدول المرحلي للمكلّفين المتوسطين والناشئين"},
+      {"date": "2026-07-01", "event": "موعد التشغيل المعلن للمكلّفين المتوسطين (من ₦1 مليار إلى ₦5 مليارات)، ولم يتأكد بمصدر لاحق أنه بدأ فعلاً في موعده"},
+      {"date": "2026-07-31", "event": "آخر مهلة حدّدتها NRS لكبار المكلّفين لإكمال الربط وبدء إرسال الفواتير، بدلاً من 30 يونيو"},
+      {"date": "2026-10", "event": "بدء مراجعة ما بعد التشغيل للمكلّفين المتوسطين (أكتوبر–نوفمبر 2026). وفي منتصف أكتوبر طلبت غرفة لاغوس LCCI مهلة ستة أشهر بلا عقوبات"},
+      {"date": "2027-01", "event": "بدء نافذة إنفاذ العقوبات على المكلّفين المتوسطين (يناير–مارس 2027)"},
+      {"date": "2027-07-01", "event": "بدء التشغيل للمكلّفين الناشئين (أقل من ₦1 مليار) بعد تجربة في أبريل–يونيو 2027"},
+      {"date": "2028-01", "event": "بدء نافذة الإنفاذ على المكلّفين الناشئين (يناير–مارس 2028)"}
+    ],
+    "b2cReceipts": "لا يوجد اليوم نظام أجهزة ضريبية أو إيصالات (ETR) نافذ بالمعنى الكيني. فواتير B2C في نظام MBS تصدر بلا اعتماد مسبق، وتحمل رمز QR يتحقق به المشتري، ويجب الإبلاغ عنها إلى NRS خلال 24 ساعة. ويذكر بعض المصادر أن الإبلاغ يقتصر على المعاملة التي تتجاوز ₦50,000، ولم يتأكد ذلك من مستند رسمي. والمادة 158 من NTA 2025 تخوّل NRS نشر «نظام فوترة مالية إلكتروني» قد يشمل أجهزة أو برمجيات معتمدة.",
+    "penalties": "عدم تمرير التوريدات الخاضعة عبر نظام الفوترة المالية: غرامة ₦200,000، مضافاً إليها 100% من الضريبة المستحقة، وفائدة بسعر السياسة النقدية للبنك المركزي (PwC، Tax administration، مايو 2026؛ وForvis Mazars، مارس 2026). ومنع NRS من نشر تقنيتها: ₦1,000,000 عن اليوم الأول ثم ₦10,000 عن كل يوم لاحق (Forvis Mazars). وتنسب مصادر مكمّلة الغرامتين إلى المادتين 104 و103 من NTAA 2025. أما وصف الغرامة بأنها «₦200,000 عن كل معاملة غير ممتثلة» فمصدره تقرير BusinessDay (يوليو 2026) وحده. وقد لا تُقبل الفاتورة غير المُمرَّرة عبر المنصة لخصم ضريبة المدخلات أو كمصروف واجب الخصم (BusinessDay).",
+    "sources": [
+      {"url": "https://einvoice.nrs.gov.ng/", "title": "NRS Merchant Buyer Solution — official e-invoicing portal", "accessed": "2026-11-11"},
+      {"url": "https://einvoice.nrs.gov.ng/documents/Navigating-the-NRSMBS-(e-Invoice)-Portal.pdf", "title": "NRS — Taxpayer's Manual: Navigating the NRSMBS e-Invoice Portal, Version 0.3 (October 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.thisdaylive.com/2026/02/17/nrs-unveils-phased-implementation-of-e-invoicing-electronic-fiscal-system-regime/", "title": "ThisDay — NRS unveils phased implementation of e-invoicing / EFS regime (17 Feb 2026)", "accessed": "2026-11-11"},
+      {"url": "https://sovos.com/regulatory-updates/vat/nigeria-nrs-publishes-e-invoicing-timeline/", "title": "Sovos — Nigeria: NRS publishes e-invoicing implementation timeline (26 Feb 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.fonoa.com/resources/blog/nigeria-releases-phased-rollout-plan-for-e-invoicing", "title": "Fonoa — Nigeria releases phased rollout plan for e-invoicing (19 Feb 2026)", "accessed": "2026-11-11"},
+      {"url": "https://sovos.com/regulatory-updates/trr/nigeria-firs-to-launch-phased-e-invoicing-system-from-july-2025/", "title": "Sovos — Nigeria: FIRS to launch phased e-invoicing system (18 Mar 2025)", "accessed": "2026-11-11"},
+      {"url": "https://www.ey.com/en_gl/technical/tax-alerts/nigerias-federal-inland-revenue-service-rolls-out-e-invoicing-platform", "title": "EY Tax Alert — Nigeria's FIRS rolls out e-Invoicing platform (20 May 2025)", "accessed": "2026-11-11"},
+      {"url": "https://www.deloitte.com/ng/en/services/tax/perspectives/FIRS-announces-e-invoicing-mandate-for-large-taxpayers-in-Nigeria.html", "title": "Deloitte Nigeria — FIRS announces e-invoicing mandate for large taxpayers (public notice 9 Jul 2025)", "accessed": "2026-11-11"},
+      {"url": "https://businessday.ng/news/article/e-invoicing-nrs-issues-deadline-for-compliance/", "title": "BusinessDay — E-invoicing: NRS issues deadline for compliance (20 Jul 2026)", "accessed": "2026-11-11"},
+      {"url": "https://taxsummaries.pwc.com/nigeria/corporate/tax-administration", "title": "PwC Worldwide Tax Summaries — Nigeria, Tax administration: mandatory e-invoicing and penalty (last reviewed 29 May 2026)", "accessed": "2026-11-11"},
+      {"url": "https://resource.scp-law.com/2026/04/01/mandatory-e-invoicing-electronic-fiscal-system-efs-what-the-new-regime-means-for-taxpayers-tax-administration-and-compliance-risk/", "title": "SCP Law — Mandatory e-invoicing & Electronic Fiscal System (EFS) (Apr 2026)", "accessed": "2026-11-11"},
+      {"url": "https://allafrica.com/stories/202610220111.html", "title": "allAfrica / Daily Trust — Non-resident digital suppliers face uncertainty over Nigeria's e-invoicing (PwC report, 22 Oct 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.vatupdate.com/2026/10/16/lcci-urges-six-month-penalty-free-transition-as-nrs-e-invoicing-enforcement-approaches/", "title": "VATupdate — LCCI urges six-month penalty-free transition as NRS e-invoicing enforcement approaches (16 Oct 2026; العنوان فقط، الصفحة ردّت 403)", "accessed": "2026-11-11"},
+      {"url": "https://e-invoicing.org/nigeria/", "title": "e-invoicing.org — Nigeria mandate status (مصدر مكمّل؛ آخر تحديث مذكور 21 Oct 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.forvismazars.com/ng/en/services/tax/nigeria-s-tax-reform-in-focus/2025-nta-vat-key-business-changes", "title": "Forvis Mazars Nigeria — VAT & Nigeria 2025 Tax Reforms (16 Mar 2026)", "accessed": "2026-11-11"}
+    ]
+  },
+  "invoiceRequirements": [
+    "Supplier's Tax ID (TIN) — الرقم الضريبي للمورّد",
+    "Company incorporation or registration number (e.g. CAC RC number) — رقم تأسيس الشركة أو تسجيلها",
+    "Invoice number — رقم الفاتورة",
+    "Supplier's name and address — اسم المورّد وعنوانه",
+    "Date of supply — تاريخ التوريد",
+    "Purchaser's / client's name — اسم المشتري أو العميل",
+    "Gross amount of the transaction — إجمالي قيمة المعاملة",
+    "VAT charged and the rate — مبلغ الضريبة ونسبتها",
+    "لمن هو داخل نطاق MBS فقط: رقم IRN/RIN الصادر من NRS بعد الاعتماد، وختم CSID ورمز QR، والرقم الضريبي للمشتري في B2B، وبيانات بنود الفاتورة (الوصف والكمية وسعر الوحدة والضريبة والإجمالي)، ونوع المستند (فاتورة أو إشعار دائن أو مدين)، بصيغة منظَّمة UBL/Peppol BIS 3.0. والحقول الثمانية الأولى من المادة 153 من NTA 2025 بحسب Streamsowers & Köhn."
+  ],
+  "invoiceRequirementsSources": [
+    {"url": "https://www.legal500.com/intelligence/nigeria/tax/examination-of-the-value-added-tax-provisions-under-the-nigeria-tax-act-2025", "title": "Streamsowers & Köhn (Legal 500) — VAT provisions under NTA 2025, Section 153 invoice particulars (28 May 2026)", "accessed": "2026-11-11"},
+    {"url": "https://invoicequickly.com/blog/invoice-requirements-nigeria", "title": "Nigeria VAT invoice requirements 2026 (مصدر مكمّل غير مهني؛ مُحدَّث 4 Nov 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.ey.com/en_gl/technical/tax-alerts/nigerias-federal-inland-revenue-service-rolls-out-e-invoicing-platform", "title": "EY — FIRS e-Invoicing platform (UBL/Peppol, IRN) (20 May 2025)", "accessed": "2026-11-11"},
+    {"url": "https://e-invoicing.org/nigeria/", "title": "e-invoicing.org — Nigeria (حقول MBS؛ مصدر مكمّل)", "accessed": "2026-11-11"}
+  ],
+  "distribution": {
+    "hubs": ["Lagos", "Kano", "Abuja", "Port Harcourt"],
+    "tradeChannels": [
+      "major markets — الأسواق الكبرى التي يحتفظ فيها أغلب تجار الجملة بمستودعاتهم ويعيدون البيع منها (trade.gov)",
+      "wholesalers / merchants — تجار جملة لهم مستودعات داخل الأسواق الكبرى يعيدون البيع للموزعين وتجار التجزئة",
+      "distributors — موزعون ووكلاء محليون، وهي القناة المعتادة لدخول العلامات الأجنبية"
+    ],
+    "localTerms": {
+      "vanSales": null,
+      "preSales": null,
+      "salesRep": null,
+      "retailShop": null,
+      "routeAccounting": null
+    },
+    "collectionMethods": [
+      "Cash — نقد (الاقتصاد في طور التحوّل إلى الدفع غير النقدي)",
+      "Bank transfer via NIP (NIBSS Instant Payment) — تحويل بنكي فوري",
+      "POS terminals — أجهزة نقاط البيع",
+      "USSD — الدفع والتحقق برموز USSD",
+      "Cheques (NACS clearing) — شيكات"
+    ],
+    "notes": "مراكز الشحن الجوي الدولية: لاغوس وكانو وأبوجا وبورت هاركورت وكادونا وإينوغو، وميناءا Apapa وTin Can في لاغوس يستقبلان معظم الحاويات، والطرق السيئة والازدحام من أبرز تحديات النقل (trade.gov). نقطتان عمليتان للموزّع: (1) الموزّع الصغير الذي يقلّ دخله عن ₦1 مليار غير ملزم بالفوترة الإلكترونية قبل يوليو 2027، لكن من يبيع لمكلّفين كبار أو متوسطين قد يُطالَب بفواتير تحمل IRN صادراً من MBS؛ إذ يُطلب من كبار المكلّفين ألّا يقبلوا من مورّديهم إلا فواتير ممتثلة. (2) الشركة الصغيرة المعفاة من VAT لا يجوز لها إصدار فواتير تتضمن الضريبة ما لم تختر الخروج من الإعفاء (BDO). المصطلحات المحلية (لمندوب المبيعات والبيع من السيارة والمتاجر الصغيرة) ووسائل الدفع عبر محافظ الشركات المالية لم تُتحقق بمصدر؛ انظر قسم uncertain.",
+    "sources": [
+      {"url": "https://www.trade.gov/country-commercial-guides/nigeria-distribution-and-sales-channels", "title": "U.S. ITA Country Commercial Guide — Nigeria: Distribution and Sales Channels (2025-09-05)", "accessed": "2026-11-11"},
+      {"url": "https://www.trade.gov/country-commercial-guides/nigeria-ecommerce", "title": "U.S. ITA Country Commercial Guide — Nigeria: eCommerce (2025-09-05)", "accessed": "2026-11-11"},
+      {"url": "https://nibss-plc.com.ng/", "title": "NIBSS — Nigeria Inter-Bank Settlement System (NIP, NACS cheques, POS, USSD services)", "accessed": "2026-11-11"},
+      {"url": "https://businessday.ng/news/article/e-invoicing-nrs-issues-deadline-for-compliance/", "title": "BusinessDay — large taxpayers to accept only compliant e-invoices with valid IRNs (20 Jul 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.bdo.global/en-gb/insights/tax/indirect-tax/nigeria-new-legislation-includes-important-changes-to-vat-rules", "title": "BDO — small companies cannot issue VAT-inclusive invoices unless they opt out (31 Mar 2026)", "accessed": "2026-11-11"}
+    ]
+  },
+  "honesty": {
+    "canSay": [
+      "In FieldSales you set the currency (e.g. Nigerian Naira, NGN, ₦) and the tax rate (e.g. VAT at 7.5%) yourself; FieldSales does not decide how Nigerian VAT applies to your products.",
+      "FieldSales is a platform for managing field sales reps, van sales and collections for distribution companies, and distributors in Nigeria can use it.",
+      "Invoices printed from FieldSales can show your company details, an invoice number and the VAT amount; you remain responsible for making sure they carry the particulars Nigerian law requires (e.g. your Tax ID and registration number).",
+      "Integration with Nigeria's NRS e-invoicing platform (MBS) is available on request only: no such integration exists today, and no timeline or outcome is promised.",
+      "Invoices issued from FieldSales in Nigeria are commercial documents; if your business is in scope of NRS e-invoicing, you still need to clear or report them through the NRS MBS via a channel you choose."
+    ],
+    "mustNotSay": [
+      "أن FieldSales مربوطة أو مدمجة مع NRS Merchant Buyer Solution (MBS) أو منصة FIRSMBS أو einvoice.nrs.gov.ng",
+      "أن FieldSales مزوّد نقاط وصول معتمد (Access Point Provider) أو System Integrator أو «NRS-approved Service» لدى NRS، أو أنها معتمدة من NITDA",
+      "أن FieldSales «نظام فوترة مالية إلكتروني» (Electronic Fiscal System) أو جهاز أو برنامج ضريبي معتمد في نيجيريا",
+      "أن فواتير FieldSales تكفي وحدها لخصم ضريبة المدخلات، أو أن كبار المكلّفين يقبلونها دون تمريرها عبر MBS",
+      "أن FieldSales تطبّق التصفير أو الإعفاء آلياً وفق Nigeria Tax Act 2025، أو أنها تحدّد للعميل الضريبة المنطبقة على أصنافه",
+      "أن FieldSales تصدر فواتير مُعتمدة تحمل IRN/RIN أو ختم CSID أو رمز QR صادراً من NRS",
+      "أن FieldSales «متوافقة مع NRS/FIRS» أو «ممتثلة لـNigeria Tax Act 2025» أو «جاهزة للفوترة الإلكترونية في نيجيريا»",
+      "أن FieldSales تتحقق تلقائياً من Tax ID عبر JRB أو NRS، أو أنها مرتبطة بالـNIN أو بسجل CAC",
+      "أن FieldSales تقدّم إقرارات VAT أو تسدّدها إلى NRS نيابة عن العميل",
+      "أن FieldSales معتمدة لدى Peppol أو تُرسل فواتير عبر شبكة Peppol",
+      "أن المنشآت الصغيرة أو الموزّعين في نيجيريا معفيون نهائياً من الفوترة الإلكترونية (الإلزام مرحلي ويصل إلى من تقلّ مبيعاتهم عن ₦1 مليار في يوليو 2027)",
+      "نقل أي ادعاء عن الربط مع ZATCA أو عن الفوترة الإلكترونية السعودية إلى صفحة نيجيريا",
+      "ذكر نسبة VAT غير 7.5% أو ادعاء رفعها إلى 10% أو 15%"
+    ]
+  },
+  "uncertain": [
+    "حدّ «الشركة الصغيرة» المعفاة من VAT: نص NTA 2025 المنشور في الجريدة الرسمية يقول ₦50 مليوناً (KPMG، أغسطس 2025)، وNTAA يقول ₦100 مليون، وتقارير صحفية تنقل عن رئيس لجنة الإصلاح تايو أويديلي أن ₦100 مليون هو الصحيح. ولم أجد تعديلاً تشريعياً أو تعميماً رسمياً من NRS يحسم الأمر. وتعتمد Forvis Mazars (مارس 2026) رقم ₦100 مليون.",
+    "تصنيف الخدمات الصحية والتعليمية بين التصفير والإعفاء: PwC (مايو 2026) وBDO وStreamsowers & Köhn يصنّفونها مصفّرة، بينما نقلت BusinessDay عن أويديلي أنها معفاة. والقائمة المذكورة هنا مأخوذة من الملخصات المهنية لا من نص القانون مباشرة.",
+    "حدّ ₦50,000 لإبلاغ فواتير B2C خلال 24 ساعة ورد في مصادر مزوّدين ومواقع متابعة فقط، ولم يتأكد من مستند رسمي لـNRS.",
+    "موعد إنفاذ العقوبات على كبار المكلّفين متعارض في المصادر: «أبريل 2026» (Sovos) و«أبريل–يونيو 2026» (SCP)، ثم مهلة نهائية في 31 يوليو 2026 بدلاً من 30 يونيو (BusinessDay). ولم أجد مصدراً يؤكد بدء الإنفاذ أو فرض غرامات فعلياً بعد 31 يوليو 2026.",
+    "تشغيل المكلّفين المتوسطين: موعده المعلن 1 يوليو 2026 (ThisDay وFonoa وSovos، فبراير 2026). لكن BusinessDay (20 يوليو 2026) وصفهم بأنهم «متوقَّع» دخولهم في المرحلة التالية دون تاريخ، ولم أجد مصدراً مهنياً أو رسمياً بعد يوليو 2026 يؤكد بدء تشغيلهم أو يعلن تأجيله. ويسجّل موقع e-invoicing.org في 21 أكتوبر 2026 تغيير الحالة من «live» إلى «phasing» دون شرح. ونفدت حصة البحث في جلسة التدقيق، فلم يُستكمل التحقق من أخبار أكتوبر–نوفمبر 2026.",
+    "إنفاذ العقوبات على المكلّفين المتوسطين مقرّر في يناير–مارس 2027، لكن غرفة لاغوس LCCI طلبت في أكتوبر 2026 مهلة ستة أشهر بلا عقوبات، ولم أجد ردّاً رسمياً من NRS (صفحة VATupdate ردّت 403 للباحث وللمدقق، فالمعلومة من عنوانها فقط).",
+    "وصف الغرامة بأنها «₦200,000 عن كل معاملة» من BusinessDay وحده. أما الغرامة نفسها (₦200,000 مع 100% من الضريبة والفائدة) فتؤكدها PwC وForvis Mazars دون عبارة «عن كل معاملة»، ونسبتها إلى المادة 104 من NTAA من مصادر مكمّلة. ولم يُراجَع نص القانون مباشرة.",
+    "صيغة Tax ID المكوّن من 13 رقماً مأخوذة من إشعار JRB/NRS المنشور على موقع FCT-IRS ومن Nairametrics. موقعا nrs.gov.ng وtaxid.jrb.gov.ng يُعرضان بـJavaScript فلم أقرأ نص المواصفة الرسمية. وصيغة TIN القديمة (8 أرقام - 4 أرقام) غير مؤكدة، فلم أدرجها.",
+    "التاريخ الدقيق لتحوّل FIRS إلى Nigeria Revenue Service بموجب Nigeria Revenue Service (Establishment) Act 2025 لم يُتحقق منه بمصدر مباشر. المصادر المهنية منذ 2026 تستعمل اسم NRS.",
+    "واقع التوزيع: نفدت حصة البحث في هذه الجلسة، فلم أتحقق بمصدر موثوق من المصطلحات الشائعة للمتاجر الصغيرة (مثل provision store وkiosk وtable-top traders)، ولا من مصطلح pre-sales أو route accounting محلياً، ولا من أسماء الأسواق الأخرى (Idumota وTrade Fair في لاغوس، وDawanau وKurmi في كانو، وAriaria في آبا)، ولا من انتشار محافظ الشركات المالية (OPay وMoniepoint وPalmPay) ونقاط POS الوكيلة في التحصيل. لذلك تُركت كل حقول localTerms بقيمة null. وجعل المدقق vanSales وsalesRep أيضاً null، لأن «van sales» و«sales rep» مصطلحان إنجليزيان عامّان بلا مصدر يثبت أنهما المستعملان محلياً في نيجيريا.",
+    "حُذفت Onitsha من المراكز ومن أمثلة الأسواق، لأن مصدرها الوحيد كان ويكيبيديا. ولم يُتحقق بمصدر موثوق من أسماء الأسواق الكبرى. والمراكز الباقية (لاغوس وكانو وأبوجا وبورت هاركورت) يذكرها trade.gov مراكزَ شحن جوي وبحري، ولا يصفها صراحة بأنها مراكز توزيع.",
+    "موعد توريد ضريبة VAT للمكلّف العادي: موعد الإقرار هو اليوم 21 من الشهر التالي (PwC وStreamsowers & Köhn). أما موعد السداد فـStreamsowers تذكر «اليوم 14» بموجب NTA، بينما تربط PwC اليوم 14 بوكلاء حجز الضريبة (withholding VAT agents) وحدهم، فلم يُدرج موعد السداد.",
+    "بوابة einvoice.nrs.gov.ng تُعرض بـJavaScript، فلم يُقرأ منها إلا عنوانها ودليل المكلّف (الإصدار 0.3، أكتوبر 2026). ولا يحدّد الدليل جدولاً زمنياً أو حقولاً."
+  ],
+  "sources": [
+    {"url": "https://taxsummaries.pwc.com/nigeria/corporate/other-taxes", "title": "PwC Worldwide Tax Summaries — Nigeria, Corporate, Other taxes (last reviewed 29 May 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.forvismazars.com/ng/en/services/tax/nigeria-s-tax-reform-in-focus/2025-nta-vat-key-business-changes", "title": "Forvis Mazars Nigeria — VAT & Nigeria 2025 Tax Reforms (16 Mar 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.bdo.global/en-gb/insights/tax/indirect-tax/nigeria-new-legislation-includes-important-changes-to-vat-rules", "title": "BDO — Nigeria: new legislation includes important changes to VAT rules (31 Mar 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.legal500.com/intelligence/nigeria/tax/examination-of-the-value-added-tax-provisions-under-the-nigeria-tax-act-2025", "title": "Streamsowers & Köhn — VAT provisions under the Nigeria Tax Act 2025 (28 May 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.legal500.com/intelligence/nigeria/tax/updates-to-the-nigeria-tax-act-nta-2025", "title": "KPMG Nigeria — Updates to the Nigeria Tax Act 2025 (05 Aug 2025)", "accessed": "2026-11-11"},
+    {"url": "https://www.thecable.ng/spotted-nigeria-tax-act-contradicts-ntaa-on-turnover-cap-for-small-business/", "title": "TheCable — NTA contradicts NTAA on small business turnover cap (ملخّص فهرس البحث)", "accessed": "2026-11-11"},
+    {"url": "https://einvoice.nrs.gov.ng/", "title": "NRS Merchant Buyer Solution — official e-invoicing portal", "accessed": "2026-11-11"},
+    {"url": "https://einvoice.nrs.gov.ng/documents/Navigating-the-NRSMBS-(e-Invoice)-Portal.pdf", "title": "NRS — Taxpayer's Manual, NRSMBS e-Invoice Portal v0.3 (Oct 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.thisdaylive.com/2026/02/17/nrs-unveils-phased-implementation-of-e-invoicing-electronic-fiscal-system-regime/", "title": "ThisDay — NRS phased e-invoicing / EFS timeline (17 Feb 2026)", "accessed": "2026-11-11"},
+    {"url": "https://sovos.com/regulatory-updates/vat/nigeria-nrs-publishes-e-invoicing-timeline/", "title": "Sovos — NRS publishes e-invoicing timeline (26 Feb 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.fonoa.com/resources/blog/nigeria-releases-phased-rollout-plan-for-e-invoicing", "title": "Fonoa — Nigeria phased rollout plan for e-invoicing (19 Feb 2026)", "accessed": "2026-11-11"},
+    {"url": "https://sovos.com/regulatory-updates/trr/nigeria-firs-to-launch-phased-e-invoicing-system-from-july-2025/", "title": "Sovos — FIRS phased e-invoicing (clearance B2B/B2G, B2C 24h) (18 Mar 2025)", "accessed": "2026-11-11"},
+    {"url": "https://www.ey.com/en_gl/technical/tax-alerts/nigerias-federal-inland-revenue-service-rolls-out-e-invoicing-platform", "title": "EY — FIRS rolls out e-Invoicing platform (20 May 2025)", "accessed": "2026-11-11"},
+    {"url": "https://www.deloitte.com/ng/en/services/tax/perspectives/FIRS-announces-e-invoicing-mandate-for-large-taxpayers-in-Nigeria.html", "title": "Deloitte Nigeria — e-invoicing mandate for large taxpayers", "accessed": "2026-11-11"},
+    {"url": "https://businessday.ng/news/article/e-invoicing-nrs-issues-deadline-for-compliance/", "title": "BusinessDay — NRS e-invoicing compliance deadline 31 July (20 Jul 2026)", "accessed": "2026-11-11"},
+    {"url": "https://resource.scp-law.com/2026/04/01/mandatory-e-invoicing-electronic-fiscal-system-efs-what-the-new-regime-means-for-taxpayers-tax-administration-and-compliance-risk/", "title": "SCP Law — Mandatory e-invoicing & EFS (Apr 2026)", "accessed": "2026-11-11"},
+    {"url": "https://allafrica.com/stories/202610220111.html", "title": "allAfrica / Daily Trust — PwC report on non-resident suppliers and e-invoicing (22 Oct 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.vatupdate.com/2026/10/16/lcci-urges-six-month-penalty-free-transition-as-nrs-e-invoicing-enforcement-approaches/", "title": "VATupdate — LCCI urges six-month penalty-free transition (16 Oct 2026; العنوان فقط)", "accessed": "2026-11-11"},
+    {"url": "https://e-invoicing.org/nigeria/", "title": "e-invoicing.org — Nigeria (مصدر مكمّل)", "accessed": "2026-11-11"},
+    {"url": "https://fctirs.gov.ng/?p=17962", "title": "FCT-IRS — JRB/NRS Public Notice: Tax ID portal live 1 Jan 2026", "accessed": "2026-11-11"},
+    {"url": "https://nairametrics.com/2025/12/29/how-to-retrieve-your-tax-id-using-nin-cac-number-from-january-2026/", "title": "Nairametrics — Tax ID retrieval via NIN/CAC (29 Dec 2025)", "accessed": "2026-11-11"},
+    {"url": "https://nairametrics.com/2026/05/18/nrs-introduces-unified-tax-id-system-for-all-taxable-persons-in-nigeria/", "title": "Nairametrics — NRS unified Tax ID system (18 May 2026)", "accessed": "2026-11-11"},
+    {"url": "https://resource.scp-law.com/2026/06/11/one-tax-identity-multiple-consequences-what-nigerias-new-tax-id-framework-means-for-your-business/", "title": "SCP Law — Nigeria's new Tax ID framework (Jun 2026)", "accessed": "2026-11-11"},
+    {"url": "https://invoicequickly.com/blog/invoice-requirements-nigeria", "title": "Nigeria VAT invoice requirements 2026 (مصدر مكمّل)", "accessed": "2026-11-11"},
+    {"url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml", "title": "ISO 4217 List One (published 2026-09-17)", "accessed": "2026-11-11"},
+    {"url": "https://www.cbn.gov.ng/Currency/", "title": "Central Bank of Nigeria — Currency", "accessed": "2026-11-11"},
+    {"url": "https://www.cbn.gov.ng/currency/historycur.html", "title": "Central Bank of Nigeria — History of Nigerian currency (kobo)", "accessed": "2026-11-11"},
+    {"url": "https://taxsummaries.pwc.com/nigeria/corporate/tax-administration", "title": "PwC Worldwide Tax Summaries — Nigeria, Tax administration (last reviewed 29 May 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.trade.gov/country-commercial-guides/nigeria-distribution-and-sales-channels", "title": "trade.gov — Nigeria Distribution and Sales Channels (2025-09-05)", "accessed": "2026-11-11"},
+    {"url": "https://www.trade.gov/country-commercial-guides/nigeria-ecommerce", "title": "trade.gov — Nigeria eCommerce (2025-09-05)", "accessed": "2026-11-11"},
+    {"url": "https://nibss-plc.com.ng/", "title": "NIBSS — payment services (NIP, NACS, POS, USSD)", "accessed": "2026-11-11"}
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "corrections": [
+      {"field": "currency.notes / currency.sources", "before": "معلومة الـkobo من ويكيبيديا كمصدر مكمّل فقط", "after": "تقسيم الـnaira إلى 100 kobo منصوص عليه في صفحة تاريخ العملة على موقع CBN، وحُذف مصدر ويكيبيديا", "source": "https://www.cbn.gov.ng/currency/historycur.html"},
+      {"field": "tax.otherRates[1] (المنتجات البترولية والطاقة المتجددة وCNG وLPG)", "before": "فالضريبة عليها موقوفة حتى يقرّر وزير المالية خلاف ذلك", "after": "معفاة كذلك ما لم يوجّه وزير المالية بخلاف ذلك، مع إضافة الرخص الحكومية وتدقيق «الفوط الصحية المصنّعة محلياً»", "source": "https://www.legal500.com/intelligence/nigeria/tax/examination-of-the-value-added-tax-provisions-under-the-nigeria-tax-act-2025"},
+      {"field": "tax.rateNotes", "before": "لا يذكر موعد الإقرار ولا أحدث تأكيد للنسبة", "after": "أُضيف: النسبة 7.5% ما زالت في تقرير PwC (22 أكتوبر 2026)، وإقرار VAT الشهري مستحق في اليوم 21 من الشهر التالي", "source": "https://taxsummaries.pwc.com/nigeria/corporate/tax-administration ; https://allafrica.com/stories/202610220111.html"},
+      {"field": "einvoicing.scopeNow", "before": "…ثم بدأت رقابة الامتثال. وانضمّ المكلّفون المتوسطون … في 1 يوليو 2026، وهم الآن في مرحلة مراجعة ما بعد التشغيل… ولن يبدأ إنفاذ العقوبات عليهم قبل يناير–مارس 2027", "after": "الغرامات قابلة للتطبيق بعد 31 يوليو 2026 دون تأكيد لفرضها فعلياً؛ وتشغيل المتوسطين في 1 يوليو 2026 موعد معلن لم يتأكد بمصدر لاحق، وإنفاذهم «مقرّر» في يناير–مارس 2027", "source": "https://www.thisdaylive.com/2026/02/17/nrs-unveils-phased-implementation-of-e-invoicing-electronic-fiscal-system-regime/ ; https://businessday.ng/news/article/e-invoicing-nrs-issues-deadline-for-compliance/"},
+      {"field": "einvoicing.keyDates[2026-07-01]", "before": "بدء التشغيل الإلزامي للمكلّفين المتوسطين", "after": "موعد التشغيل المعلن للمكلّفين المتوسطين، ولم يتأكد بمصدر لاحق أنه بدأ فعلاً في موعده", "source": "https://businessday.ng/news/article/e-invoicing-nrs-issues-deadline-for-compliance/ (20 Jul 2026: medium taxpayers «expected» in the next phase)"},
+      {"field": "einvoicing.penalties", "before": "₦200,000 عن كل معاملة غير ممتثلة بحسب تقارير صحفية (المصدر الأول)", "after": "₦200,000 مع 100% من الضريبة والفائدة بحسب PwC وForvis Mazars، و₦1,000,000 ثم ₦10,000 يومياً لمنع نشر التقنية؛ وعبارة «عن كل معاملة» من BusinessDay وحده", "source": "https://taxsummaries.pwc.com/nigeria/corporate/tax-administration ; https://www.forvismazars.com/ng/en/services/tax/nigeria-s-tax-reform-in-focus/2025-nta-vat-key-business-changes"},
+      {"field": "invoiceRequirements[1..2]", "before": "Supplier's incorporation / business registration number (RC number) where applicable ؛ Invoice number from a sequential series — رقم فاتورة متسلسل", "after": "Company incorporation or registration number (e.g. CAC RC number) ؛ Invoice number — رقم الفاتورة (قائمة المادة 153 لا تذكر «متسلسل» ولا «عند وجوده»)", "source": "https://www.legal500.com/intelligence/nigeria/tax/examination-of-the-value-added-tax-provisions-under-the-nigeria-tax-act-2025"},
+      {"field": "distribution.hubs / distribution.tradeChannels[0]", "before": "Onitsha ضمن المراكز، و«open markets … مثل Onitsha Main Market»", "after": "حُذفت Onitsha لأن مصدرها الوحيد ويكيبيديا، وصارت القناة «major markets» بوصف trade.gov", "source": "https://www.trade.gov/country-commercial-guides/nigeria-distribution-and-sales-channels"},
+      {"field": "distribution.localTerms.vanSales / salesRep", "before": "\"van sales\" / \"sales rep\"", "after": "null (لا مصدر يثبت الاستعمال المحلي)", "source": "لا يوجد مصدر؛ نُقلت إلى uncertain"},
+      {"field": "honesty.canSay", "before": "configure VAT at 7.5% (or zero-rated/exempt items) yourself ؛ supports van sales, pre-orders, route planning… ؛ sequential invoice numbers ؛ Connecting to … MBS is available on request; it is not live today", "after": "العملة والنسبة يضبطهما العميل دون أن تقرّر المنصة انطباق الضريبة ؛ وصف عام للمنصة دون ميزات غير مؤكدة ؛ «an invoice number» ؛ «available on request only: no such integration exists today, and no timeline or outcome is promised»", "source": "قواعد المهمة: الربط الحكومي حيّ في السعودية وحدها، وفي غيرها «متاح عند الطلب» بلا وعد"},
+      {"field": "honesty.mustNotSay", "before": "10 بنود", "after": "أُضيف منع ادعاء «NRS-approved Service» أو اعتماد NITDA، أو أن المنصة نظام فوترة مالية (EFS) أو جهاز ضريبي معتمد، أو أن فواتيرها تكفي لخصم ضريبة المدخلات، أو أنها تطبّق التصفير والإعفاء آلياً", "source": "https://einvoice.nrs.gov.ng/documents/Navigating-the-NRSMBS-(e-Invoice)-Portal.pdf ; https://www.ey.com/en_gl/technical/tax-alerts/nigerias-federal-inland-revenue-service-rolls-out-e-invoicing-platform"},
+      {"field": "uncertain", "before": "«المؤكد أن الرقابة على الامتثال بدأت بعد يوليو 2026» ؛ تعارض موعد التوريد 21 مقابل 14", "after": "لا تأكيد لبدء الإنفاذ ؛ الإقرار في اليوم 21 مؤكد والتعارض في موعد السداد وحده ؛ بند جديد عن عدم تأكد تشغيل المتوسطين", "source": "https://taxsummaries.pwc.com/nigeria/corporate/tax-administration ; https://e-invoicing.org/nigeria/"}
+    ],
+    "confidence": "medium",
+    "notes": "تأكد المدقق بفتح المصادر مباشرة من: النسبة القياسية 7.5% (PwC مايو 2026، BDO، Streamsowers، تقرير PwC أكتوبر 2026)، واسم الضريبة VAT، والجهة NRS (دليل NRS نفسه أكتوبر 2026 وPwC)، والعملة NGN/566/خانتان (ملف ISO المنشور 2026-09-17) والرمز ₦ وkobo (CBN)، وTax ID من 13 رقماً منذ 1 يناير 2026 (إشعار JRB/NRS)، والجدول المرحلي للفوترة الإلكترونية (Sovos وFonoa وThisDay وSCP وBusinessDay)، والنموذج clearance وB2C خلال 24 ساعة (EY). الثقة عالية في هذه الحقائق، ومتوسطة في نطاق الفوترة الإلكترونية الفعلي اليوم، لأن حصة البحث نفدت فلم يُستكمل التحقق من أخبار أكتوبر–نوفمبر 2026، ولم يُعثر على مصدر لاحق ليوليو 2026 يؤكد تشغيل المكلّفين المتوسطين. موقع nrs.gov.ng محميّ بصفحة CAPTCHA، فلم يُقرأ ولم يُتجاوز."
+  }
+}

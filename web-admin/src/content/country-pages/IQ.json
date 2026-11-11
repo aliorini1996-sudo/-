@@ -1,0 +1,611 @@
+{
+  "code": "IQ",
+  "languages": [
+    "ar",
+    "en",
+    "fr"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "ar": {
+      "slugHint": null,
+      "title": "برنامج مناديب المبيعات والتوزيع في العراق | FieldSales",
+      "description": "FieldSales لشركات التوزيع في العراق: بيع من السيارة وأخذ طلبيات، فواتير تُطبع حرارياً، تحصيل بالدينار ومتابعة مديونيات، وعمل دون اتصال.",
+      "h1": "FieldSales لإدارة مناديب التوزيع والتحصيل في العراق",
+      "intro": "FieldSales منصة سحابية لشركات التوزيع والجملة في العراق تدير بها مناديبك في بغداد والبصرة وأربيل وسائر المحافظات: البيع من السيارة وأخذ الطلبيات، وفواتير تصدر من جوال المندوب وتُطبع على طابعة حرارية، وسندات قبض ومتابعة المديونيات، وعهدة سيارة التوزيع وتصفية حساب المندوب، وخط السير والزيارات بالموقع والصور. تعمل بالدينار العراقي، وتواصل العمل دون إنترنت ثم تزامن لاحقاً، على أندرويد وآيفون ولوحة ويب، وتضبط فيها الضريبة وطرق الدفع بنفسك.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "التوزيع في العراق: القنوات والمصطلحات وعادات الدفع",
+          "body": "تدخل البضائع إلى السوق العراقية عبر بوابات رئيسية: بغداد، والبصرة حيث ميناء أم قصر، وأربيل مدخلاً للبضائع إلى إقليم كردستان، ودهوك عبر منفذ إبراهيم الخليل مع تركيا. ومنها تتوزع على قنوات البيع الرئيسية: تجار الجملة وأسواق الجملة، والسوبرماركت والأسواق المركزية، والدكاكين ومحلات المواد الغذائية الصغيرة في الأحياء. ويعمل الموزعون بنمطين: البيع من السيارة، حيث يحمّل مندوب التوزيع سيارة التوزيع ويبيع ويسلّم في الزيارة نفسها، وأخذ الطلبيات، حيث يسجّل مندوب الطلبيات الطلب ليُسلَّم لاحقاً. وينتهي اليوم بتصفية حساب المندوب: مطابقة النقد المحصّل والبضاعة المتبقية في السيارة. والعربية والكردية لغتان رسميتان، فأسواق أربيل ودهوك والسليمانية تعمل بالكردية إلى جانب العربية. أما التحصيل فالنقد بالدينار العراقي هو السائد، إلى جانب بطاقات الدفع المحلية ومحافظ الهاتف النقال."
+        },
+        {
+          "id": "tax",
+          "title": "ضريبة المبيعات والرقم الضريبي وحقول الفاتورة",
+          "body": "لا توجد في العراق ضريبة قيمة مضافة عامة؛ فضريبة المبيعات انتقائية تُفرض على سلع وخدمات محددة، وتديرها الهيئة العامة للضرائب التابعة لوزارة المالية الاتحادية. ومن نسبها المنشورة: 300% على المشروبات الكحولية والسجائر ومنتجات التبغ، و15% على السيارات، وكلتاهما تُستوفى عند الاستيراد، و10% على خدمات المرافق السياحية من مطاعم وفنادق (وتختلف المصادر في درجات التصنيف المشمولة)، و15% على تذاكر السفر وفق PwC. وأصدرت الهيئة تعميماً بضريبة مبيعات على السلع المباعة في المولات ومراكز التسوق (عدا مفردات البطاقة التموينية) دون ذكر نسبة، ولم نتحقق من سريانه اليوم؛ كما أن ضريبة كارتات تعبئة الهاتف والإنترنت غير محسومة بعد أن ألغى مجلس الطعن قرار استقطاعها. لذلك لا يصح افتراض أن سلع التوزيع كلها بلا ضريبة، والمعاملة الضريبية تحددها كل شركة مع مستشارها. ويمنح قانون حماية المستهلك رقم 1 لسنة 2010 المستهلكَ حق الحصول على مستند يثبت الشراء ويبيّن القيمة والتاريخ والمواصفات والعدد والكمية والنوع والسعر. وتمنح الهيئة الرقم الضريبي (TIN) وتصدر به «الهوية الضريبية»، ولم نجد نصاً يلزم بإظهاره على الفاتورة. في FieldSales تضبط اسم الضريبة ونسبتها بنفسك: فواتير بلا ضريبة، أو بالنسبة التي تقررها وفق وضع شركتك، أو إيقاف الضريبة كلياً فلا يظهر لها ذكر في المستندات، مع إظهار رقمك الضريبي في رأس الفاتورة إن أردت. ولا تحسب المنصة ضرائب المبيعات الخاصة تلقائياً ولا تقدّم استشارة ضريبية."
+        },
+        {
+          "id": "einvoicing",
+          "title": "الفوترة الإلكترونية في العراق: لا إلزام حتى الآن",
+          "body": "وفق المصادر المتاحة حتى نوفمبر 2026 لا يوجد في العراق نظام فوترة إلكترونية حكومي، ولا إلزام بها في التعاملات بين الشركات أو مع الجهات الحكومية أو مع المستهلكين، ولا منصة حكومية تمرّ عبرها الفواتير؛ فالفاتورة الورقية أو بصيغة PDF أو الإلكترونية مقبولة باتفاق البائع والمشتري (Basware، مراجعة 31 يوليو 2026، والموقع الرسمي للهيئة العامة للضرائب الذي فُحص في نوفمبر 2026). ما أطلقته الهيئة أمران مختلفان: منصة تسجيل ضريبي إلكتروني برقم ضريبي موحّد بدأت مرحلتها الأولى في 9 أغسطس 2026 للشركات حديثة التأسيس فقط (Deloitte)، ونظام تقدير ضريبي إلكتروني لكبار المكلفين أُطلق في أكتوبر 2026 (Iraq Business News نقلاً عن وزارة المالية). وكلاهما إجراء إداري ضريبي وليس فوترة إلكترونية. أما FieldSales فإن صدر في العراق نظام فوترة إلكترونية حكومي، فالربط معه متاح عند الطلب بعد دراسة متطلباته، بلا وعد ولا موعد."
+        },
+        {
+          "id": "collections",
+          "title": "التحصيل: النقد أولاً، والبطاقات والمحافظ في سند القبض",
+          "body": "النقد بالدينار العراقي هو وسيلة التحصيل السائدة لدى الموزعين؛ فنحو 30% فقط من البالغين يملكون حساباً لدى مؤسسة مالية أو مزوّد نقود عبر الهاتف (البنك الدولي، Global Findex 2024). لكن الدفع الإلكتروني ينمو: فقيمة مدفوعات التجزئة بالبطاقات المحلية عبر أجهزة نقاط البيع ارتفعت 41% على أساس سنوي في الربع الثالث من 2025 وفق البنك المركزي العراقي. وإلى جانب البطاقات تقدّم شركات الدفع المدرجة في قائمة البنك المركزي محافظ الهاتف النقال، وتتيح المصارف التي أذن لها البنك المركزي بذلك الدفعَ برمز QR. في FieldSales يسجّل المندوب سند القبض بطريقة الدفع التي تضبطها أنت: نقد، أو بطاقة، أو محفظة جوال تسمّيها باسمها، أو تحويل مصرفي، فتعرف كيف قُبض كل مبلغ. ولا يرتبط FieldSales بمحفظة أو مصرف أو بوابة دفع عراقية بعينها؛ طريقة الدفع تسمية تضبطها لتسجيل ما قبضه المندوب. أما البيع الآجل فيُقيَّد ديناً على حساب العميل، وتتابع مديونية كل عميل وما سُدّد منها بسندات القبض."
+        },
+        {
+          "id": "how",
+          "title": "كيف يعمل FieldSales لموزّع في العراق",
+          "body": "تضبط العملة على الدينار العراقي (IQD)، واسم الضريبة ونسبتها، وطرق الدفع من الإعدادات مرة واحدة. يصدر المندوب الفاتورة من جواله ويطبعها على طابعة حرارية محمولة في المحل، ويواصل التطبيق العمل دون اتصال في الطرق الخارجية والمناطق ضعيفة التغطية، ثم يزامن الفواتير والسندات حين يعود الاتصال. تُحمَّل البضاعة على عهدة المندوب في سيارة التوزيع، وفي نهاية اليوم تُطابق المبيعات والبضاعة المتبقية والنقد المحصّل في تصفية حساب المندوب. ومن لوحة الويب تخطّط خط السير وتتابع الزيارات الموثّقة بالموقع والصور وترى مناديبك على الخريطة، بينما يعمل المناديب على أندرويد أو آيفون. وواجهة التطبيق متاحة بالعربية والإنجليزية والفرنسية والتركية والصينية فقط، ولا تشمل الكردية."
+        }
+      ],
+      "faq": [
+        {
+          "q": "هل يدعم FieldSales الفوترة الإلكترونية في العراق؟",
+          "a": "لا يوجد في العراق اليوم نظام فوترة إلكترونية حكومي إلزامي ولا منصة حكومية للفواتير؛ وما أطلقته الهيئة العامة للضرائب هو تسجيل ضريبي إلكتروني وتقدير ضريبي إلكتروني، وليس فوترة إلكترونية. وإن صدر نظام فوترة حكومي، فالربط معه في FieldSales متاح عند الطلب بعد دراسة متطلباته، بلا وعد ولا موعد."
+        },
+        {
+          "q": "هل أضيف ضريبة على فواتير التوزيع في العراق؟",
+          "a": "لا توجد في العراق ضريبة قيمة مضافة عامة، لكن ضريبة المبيعات الانتقائية تشمل سلعاً وخدمات محددة، ووضع بعضها غير محسوم؛ لذلك تحدد شركتك معاملتها الضريبية مع مستشارها. في FieldSales تضبط اسم الضريبة ونسبتها أو تصدر فواتيرك بلا ضريبة، والمنصة لا تحسب ضرائب المبيعات الخاصة تلقائياً ولا تقدّم استشارة ضريبية."
+        },
+        {
+          "q": "هل يعمل التطبيق دون إنترنت؟",
+          "a": "نعم. يصدر المندوب الفواتير وسندات القبض ويسجّل الزيارات دون اتصال، ثم يزامن التطبيق ما سجّله حين يعود الاتصال، وهذا ما يحتاجه المندوب في الطرق الخارجية والمناطق ضعيفة التغطية."
+        },
+        {
+          "q": "كيف أسجّل تحصيلاً عبر محفظة جوال أو بطاقة؟",
+          "a": "أضف طريقة الدفع في الإعدادات باسم المحفظة أو البطاقة التي يستخدمها عملاؤك، فيختارها المندوب عند تسجيل سند القبض. هذا تسجيل لما قبضه المندوب وليس ربطاً مباشراً بالمحفظة أو المصرف؛ فالدفع نفسه يجري في تطبيق المحفظة أو على جهاز نقاط البيع."
+        },
+        {
+          "q": "هل واجهة التطبيق متاحة بالكردية؟",
+          "a": "لا. واجهة FieldSales متاحة بالعربية والإنجليزية والفرنسية والتركية والصينية فقط، ويستطيع فريقك في إقليم كردستان العمل بالواجهة العربية أو الإنجليزية."
+        },
+        {
+          "q": "كيف تتم تصفية حساب المندوب نهاية اليوم؟",
+          "a": "تُحمَّل البضاعة على عهدة المندوب في سيارة التوزيع، وتُسجَّل المبيعات والمرتجعات والتحصيلات خلال اليوم من جواله، وفي النهاية تُطابق البضاعة المتبقية في السيارة والنقد المحصّل بسندات القبض مع ما سجّله التطبيق، فتظهر أي فروق قبل تسليم المندوب حسابه."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "مثال على بنية فاتورة مندوب توزيع في العراق",
+        "note": "مثال بنية لا مبالغ. يجمع البيانات التي يحق للمستهلك أن يجدها في مستند الشراء وفق قانون حماية المستهلك العراقي إلى جانب حقول التشغيل في FieldSales، ولا يغني عن مراجعة مستشارك.",
+        "fields": [
+          {
+            "label": "اسم الشركة الموزعة وعنوانها",
+            "example": "اسم شركتك وعنوانها وهاتفها كما تضبطها في إعدادات الطباعة"
+          },
+          {
+            "label": "الرقم الضريبي (اختياري)",
+            "example": "رقم الهوية الضريبية إن أردت إظهاره"
+          },
+          {
+            "label": "رقم الفاتورة",
+            "example": "رقم تسلسلي يصدر تلقائياً"
+          },
+          {
+            "label": "التاريخ والوقت",
+            "example": "تاريخ إصدار الفاتورة ووقته من جوال المندوب"
+          },
+          {
+            "label": "العميل",
+            "example": "اسم الدكان أو محل المواد الغذائية ومنطقته"
+          },
+          {
+            "label": "المندوب",
+            "example": "اسم مندوب التوزيع وسيارة التوزيع"
+          },
+          {
+            "label": "الصنف ومواصفاته",
+            "example": "اسم الصنف ووصفه كما في قائمة الأصناف"
+          },
+          {
+            "label": "النوع والوحدة",
+            "example": "كرتون أو علبة أو حبة"
+          },
+          {
+            "label": "العدد والكمية",
+            "example": "الكمية المباعة بالوحدة المختارة"
+          },
+          {
+            "label": "السعر",
+            "example": "سعر الوحدة بالدينار العراقي"
+          },
+          {
+            "label": "القيمة",
+            "example": "قيمة السطر: الكمية في سعر الوحدة"
+          },
+          {
+            "label": "الضريبة",
+            "example": "بلا ضريبة، أو اسم الضريبة ونسبتها كما تضبطها شركتك"
+          },
+          {
+            "label": "الإجمالي",
+            "example": "إجمالي الفاتورة بالدينار العراقي"
+          },
+          {
+            "label": "طريقة الدفع",
+            "example": "نقد، أو بطاقة، أو محفظة جوال، أو آجل على حساب العميل"
+          },
+          {
+            "label": "المدفوع والمتبقي",
+            "example": "ما دفعه العميل الآن وما بقي ديناً عليه"
+          },
+          {
+            "label": "توقيع المستلم (اختياري)",
+            "example": "توقيع صاحب المحل عند الاستلام"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "الهيئة العامة للضرائب – الموقع الرسمي (وزارة المالية الاتحادية)",
+          "url": "https://tax.mof.gov.iq/"
+        },
+        {
+          "title": "الهيئة العامة للضرائب – إعلان ضريبة المبيعات على السيارات والكحول والتبغ عند الاستيراد",
+          "url": "https://tax.mof.gov.iq/%d8%b6%d8%b1%d9%8a%d8%a8%d8%a9-%d8%a7%d9%84%d9%85%d8%a8%d9%8a%d8%b9%d8%a7%d8%aa/"
+        },
+        {
+          "title": "الهيئة العامة للضرائب – تعميم ضريبة المبيعات على السلع المباعة في المولات ومراكز التسوق والمرافق السياحية",
+          "url": "https://tax.mof.gov.iq/uploads/Najwan/pdfs/%D8%B6%D8%B1%D9%8A%D8%A8%D8%A9%20%D9%85%D8%A8%D9%8A%D8%B9%D8%A7%D8%AA%202.pdf"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries – العراق، الضرائب الأخرى",
+          "url": "https://taxsummaries.pwc.com/iraq/corporate/other-taxes"
+        },
+        {
+          "title": "PwC – جدول نسب ضريبة القيمة المضافة حول العالم (العراق: ضريبة مبيعات تختلف حسب السلعة أو الخدمة)",
+          "url": "https://taxsummaries.pwc.com/quick-charts/value-added-tax-vat-rates"
+        },
+        {
+          "title": "كوردستان 24 – القضاء يلغي استقطاع بطاقات التعبئة",
+          "url": "https://www.kurdistan24.net/ar/story/915184"
+        },
+        {
+          "title": "Basware – الفوترة الإلكترونية في العراق",
+          "url": "https://www.basware.com/en/compliance-map/iraq"
+        },
+        {
+          "title": "Deloitte – إطلاق منصة التسجيل الضريبي الإلكتروني للهيئة العامة للضرائب",
+          "url": "https://www.deloitte.com/middle-east/en/services/tax/perspectives/the-general-commission-for-taxes-federal-iraq-announced-the-launch-of-their-online-tax-registration-platform.html"
+        },
+        {
+          "title": "Iraq Business News – إطلاق نظام التقدير الضريبي الإلكتروني",
+          "url": "https://www.iraq-businessnews.com/2026/10/06/iraq-launches-digital-tax-assessment-system/"
+        },
+        {
+          "title": "قانون حماية المستهلك العراقي رقم 1 لسنة 2010 (FAOLEX)",
+          "url": "https://faolex.fao.org/docs/pdf/irq149741.pdf"
+        },
+        {
+          "title": "البنك المركزي العراقي – المؤسسات المدرجة لخدمات الدفع والتحصيل الإلكتروني",
+          "url": "https://cbi.iq/page/94"
+        },
+        {
+          "title": "البنك الدولي – Global Findex: ملكية الحسابات في العراق",
+          "url": "https://data.worldbank.org/indicator/FX.OWN.TOTL.ZS?locations=IQ"
+        },
+        {
+          "title": "Iraq Business News – نمو مدفوعات التجزئة بالبطاقات المحلية في الربع الثالث 2025",
+          "url": "https://www.iraq-businessnews.com/2025/12/20/retail-e-payments-via-local-cards-rise-in-q3-2025/"
+        },
+        {
+          "title": "إدارة التجارة الدولية الأمريكية – قنوات التوزيع والبيع في العراق",
+          "url": "https://www.trade.gov/country-commercial-guides/iraq-distribution-sales-channels"
+        },
+        {
+          "title": "دستور جمهورية العراق – المادتان 4 و28",
+          "url": "https://www.constituteproject.org/constitution/Iraq_2005"
+        }
+      ],
+      "lastVerifiedLabel": "آخر تحقق: نوفمبر 2026"
+    },
+    "en": {
+      "slugHint": null,
+      "title": "Field Sales & Van Sales Software in Iraq | FieldSales",
+      "description": "FieldSales for distributors in Iraq: van sales and order taking, thermal-printed invoices, IQD cash collections, receivables and offline mode.",
+      "h1": "FieldSales: sales rep and collections management for distributors in Iraq",
+      "intro": "FieldSales is a cloud platform for distribution and wholesale companies in Iraq that run sales reps across Baghdad, Basra, Erbil and the other governorates. It covers van sales and pre-sales (order taking), invoices issued from the rep's phone and printed on a thermal printer, receipt vouchers and customer receivables, van stock custody and end-of-day settlement, and route plans with visits stamped by location and photos. It works in Iraqi dinars, keeps running offline and syncs later, on Android, iPhone and a web dashboard.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "Distribution in Iraq: channels, local terms and payment habits",
+          "body": "Goods enter the Iraqi market through a handful of main gateways: Baghdad, Basra with the port of Umm Qasr, Erbil as the entry point for goods into the Kurdistan Region, and Duhok via the Ibrahim Khalil border crossing with Turkey. From there they reach the main trade channels: wholesalers and wholesale markets, supermarkets, and the small neighbourhood grocery shops known as the dukkan. Distributors work in two ways: van sales (البيع من السيارة), where the delivery rep loads the van and sells and delivers on the same visit, and pre-sales (أخذ الطلبيات), where an order-taking rep books the order for later delivery. The day ends with the rep's settlement (تصفية حساب المندوب): matching the cash collected and the stock left in the van. Arabic and Kurdish are both official languages, so markets in Erbil, Duhok and Sulaymaniyah run in Kurdish alongside Arabic. Cash in Iraqi dinars still dominates collections, alongside local payment cards and mobile wallets."
+        },
+        {
+          "id": "tax",
+          "title": "Sales tax, tax ID and invoice fields",
+          "body": "Iraq has no general VAT. Its sales tax is selective, levied on specified goods and services and administered by the General Commission for Taxes (GCT) under the federal Ministry of Finance. Published rates include 300% on alcoholic drinks, cigarettes and tobacco products and 15% on cars, both collected at import, 10% on tourist facilities such as restaurants and hotels (sources differ on which grades are covered), and 15% on travel tickets according to PwC. The GCT has also issued a circular imposing sales tax on goods sold in malls and shopping centres (excluding ration-card items) without stating a rate, and we have not confirmed whether it applies today; the tax on phone and internet top-up cards is likewise unsettled after the Appeals Board annulled the deduction. So it is not safe to assume that distribution goods carry no tax: each company decides its tax treatment with its own adviser. Consumer Protection Law No. 1 of 2010 gives consumers the right to a proof of purchase showing value, date, specifications, number, quantity, type and price. The GCT issues the Tax Identification Number (TIN) and a tax ID card, and we found no rule requiring the TIN on invoices. In FieldSales you set the tax name and rate yourself: invoice without tax, at the rate you decide for your company, or switch tax off entirely so it does not appear on documents, and show your TIN in the invoice header if you wish. FieldSales does not calculate Iraq's special sales taxes automatically and does not give tax advice."
+        },
+        {
+          "id": "einvoicing",
+          "title": "E-invoicing in Iraq: no mandate yet",
+          "body": "According to sources available up to November 2026, Iraq has no government e-invoicing system and no e-invoicing mandate for B2B, B2G or B2C transactions, and there is no government platform that invoices must pass through; paper, PDF or electronic invoices are accepted by agreement between seller and buyer (Basware, reviewed 31 July 2026; GCT official website checked in November 2026). What the GCT has launched is something else: an online tax registration platform with a unified TIN, whose first phase began on 9 August 2026 for newly established companies only (Deloitte), and a digital tax assessment system for large taxpayers launched in October 2026 (Iraq Business News, citing the Ministry of Finance). Both are tax administration steps, not e-invoicing. As for FieldSales, if Iraq introduces a government e-invoicing system, integration with it is available on request after studying its requirements, with no promise and no timeline."
+        },
+        {
+          "id": "collections",
+          "title": "Collections: cash first, cards and wallets on the receipt",
+          "body": "Cash in Iraqi dinars is still the main way distributors get paid: only about 30% of adults hold an account with a financial institution or a mobile money provider (World Bank Global Findex 2024). Electronic payments are growing, though: the value of retail payments with local cards through POS terminals rose 41% year on year in Q3 2025, according to the Central Bank of Iraq. Alongside cards, mobile wallets are offered by payment companies on the Central Bank's list, and banks permitted by the Central Bank accept QR code payments. In FieldSales the rep records each receipt voucher under the payment method you define: cash, card, a mobile wallet you name yourself, or bank transfer, so you know how every collection came in. FieldSales is not connected to any specific Iraqi wallet, bank or payment gateway; a payment method is simply a label you set to record what the rep received. Credit sales are posted to the customer's account, and you follow each customer's receivables and what has been settled through receipt vouchers."
+        },
+        {
+          "id": "how",
+          "title": "How FieldSales works for a distributor in Iraq",
+          "body": "You set the currency to Iraqi dinar (IQD), the tax name and rate, and your payment methods once in Settings. The rep issues the invoice on the phone and prints it on a portable thermal printer in the shop. The app keeps working offline on intercity roads and in low-coverage areas, then syncs invoices and receipts when the connection returns. Stock is loaded into the van under the rep's custody, and at the end of the day sales, remaining stock and cash collected are reconciled in the rep's settlement. From the web dashboard you plan routes, follow visits stamped with location and photos, and see your reps on the map, while reps work on Android or iPhone. The app interface is available in Arabic, English, French, Turkish and Chinese only; Kurdish is not among them."
+        }
+      ],
+      "faq": [
+        {
+          "q": "Does FieldSales support e-invoicing in Iraq?",
+          "a": "Iraq has no mandatory government e-invoicing system and no government invoice platform today; what the GCT has launched is online tax registration and digital tax assessment, not e-invoicing. If a government e-invoicing system is introduced, integration with it in FieldSales is available on request after studying its requirements, with no promise and no timeline."
+        },
+        {
+          "q": "Should I add tax to my distribution invoices in Iraq?",
+          "a": "Iraq has no general VAT, but its selective sales tax covers specified goods and services, and the status of some of them is unsettled, so your company should decide its tax treatment with its adviser. In FieldSales you set the tax name and rate or issue invoices without tax; the platform does not calculate special sales taxes automatically and does not give tax advice."
+        },
+        {
+          "q": "Does the app work without internet?",
+          "a": "Yes. The rep issues invoices and receipt vouchers and logs visits offline, and the app syncs everything once the connection returns, which is what reps need on intercity roads and in low-coverage areas."
+        },
+        {
+          "q": "How do I record a collection paid by mobile wallet or card?",
+          "a": "Add the payment method in Settings under the name of the wallet or card your customers use, and the rep picks it when recording the receipt voucher. This records what the rep received; it is not a direct connection to the wallet or bank, and the payment itself happens in the wallet app or on the POS terminal."
+        },
+        {
+          "q": "Is the app available in Kurdish?",
+          "a": "No. The FieldSales interface is available in Arabic, English, French, Turkish and Chinese only, so teams in the Kurdistan Region can work with the Arabic or English interface."
+        },
+        {
+          "q": "How does the end-of-day rep settlement work?",
+          "a": "Stock is loaded into the van under the rep's custody, and sales, returns and collections are recorded from the rep's phone during the day. At the end, the stock left in the van and the cash backed by receipt vouchers are matched against what the app recorded, so any difference shows up before the rep hands over the day's cash and stock."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Sample structure of a distribution rep's invoice in Iraq",
+        "note": "Structure only, no amounts. It combines the details a consumer is entitled to see on a proof of purchase under Iraq's Consumer Protection Law with FieldSales operating fields, and it does not replace advice from your own adviser.",
+        "fields": [
+          {
+            "label": "Distributor name and address",
+            "example": "Your company name, address and phone as set in print settings"
+          },
+          {
+            "label": "Tax ID (optional)",
+            "example": "Your TIN, if you choose to show it"
+          },
+          {
+            "label": "Invoice number",
+            "example": "Sequential number generated automatically"
+          },
+          {
+            "label": "Date and time",
+            "example": "Date and time the invoice was issued on the rep's phone"
+          },
+          {
+            "label": "Customer",
+            "example": "Name of the grocery shop (dukkan) and its area"
+          },
+          {
+            "label": "Sales rep",
+            "example": "Name of the delivery rep and van"
+          },
+          {
+            "label": "Item and specifications",
+            "example": "Item name and description from your product list"
+          },
+          {
+            "label": "Type and unit",
+            "example": "Carton, pack or piece"
+          },
+          {
+            "label": "Number and quantity",
+            "example": "Quantity sold in the selected unit"
+          },
+          {
+            "label": "Price",
+            "example": "Unit price in Iraqi dinars"
+          },
+          {
+            "label": "Value",
+            "example": "Line value: quantity times unit price"
+          },
+          {
+            "label": "Tax",
+            "example": "No tax, or the tax name and rate your company sets"
+          },
+          {
+            "label": "Total",
+            "example": "Invoice total in Iraqi dinars"
+          },
+          {
+            "label": "Payment method",
+            "example": "Cash, card, mobile wallet, or on credit to the customer's account"
+          },
+          {
+            "label": "Paid and outstanding",
+            "example": "What the customer paid now and what remains owed"
+          },
+          {
+            "label": "Receiver's signature (optional)",
+            "example": "Shop owner's signature on delivery"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "General Commission for Taxes – official website (Federal Ministry of Finance)",
+          "url": "https://tax.mof.gov.iq/"
+        },
+        {
+          "title": "General Commission for Taxes – sales tax announcement on cars, alcohol and tobacco at import (Arabic)",
+          "url": "https://tax.mof.gov.iq/%d8%b6%d8%b1%d9%8a%d8%a8%d8%a9-%d8%a7%d9%84%d9%85%d8%a8%d9%8a%d8%b9%d8%a7%d8%aa/"
+        },
+        {
+          "title": "General Commission for Taxes – circular on sales tax for goods sold in malls and shopping centres and tourist facilities (Arabic)",
+          "url": "https://tax.mof.gov.iq/uploads/Najwan/pdfs/%D8%B6%D8%B1%D9%8A%D8%A8%D8%A9%20%D9%85%D8%A8%D9%8A%D8%B9%D8%A7%D8%AA%202.pdf"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries – Iraq, Other taxes",
+          "url": "https://taxsummaries.pwc.com/iraq/corporate/other-taxes"
+        },
+        {
+          "title": "PwC – VAT rates quick chart (Iraq: sales tax varies by good or service)",
+          "url": "https://taxsummaries.pwc.com/quick-charts/value-added-tax-vat-rates"
+        },
+        {
+          "title": "Kurdistan24 – Court annuls deduction on top-up cards (Arabic)",
+          "url": "https://www.kurdistan24.net/ar/story/915184"
+        },
+        {
+          "title": "Basware – E-invoicing in Iraq",
+          "url": "https://www.basware.com/en/compliance-map/iraq"
+        },
+        {
+          "title": "Deloitte – GCT Federal Iraq launches online tax registration platform",
+          "url": "https://www.deloitte.com/middle-east/en/services/tax/perspectives/the-general-commission-for-taxes-federal-iraq-announced-the-launch-of-their-online-tax-registration-platform.html"
+        },
+        {
+          "title": "Iraq Business News – Iraq launches digital tax assessment system",
+          "url": "https://www.iraq-businessnews.com/2026/10/06/iraq-launches-digital-tax-assessment-system/"
+        },
+        {
+          "title": "Iraq Consumer Protection Law No. 1 of 2010 (FAOLEX)",
+          "url": "https://faolex.fao.org/docs/pdf/irq149741.pdf"
+        },
+        {
+          "title": "Central Bank of Iraq – listed electronic payment and collection institutions",
+          "url": "https://cbi.iq/page/94"
+        },
+        {
+          "title": "World Bank Global Findex – Account ownership, Iraq",
+          "url": "https://data.worldbank.org/indicator/FX.OWN.TOTL.ZS?locations=IQ"
+        },
+        {
+          "title": "Iraq Business News – Retail e-payments via local cards rise in Q3 2025",
+          "url": "https://www.iraq-businessnews.com/2025/12/20/retail-e-payments-via-local-cards-rise-in-q3-2025/"
+        },
+        {
+          "title": "U.S. International Trade Administration – Iraq distribution and sales channels",
+          "url": "https://www.trade.gov/country-commercial-guides/iraq-distribution-sales-channels"
+        },
+        {
+          "title": "Constitution of Iraq – Articles 4 and 28 (Constitute Project)",
+          "url": "https://www.constituteproject.org/constitution/Iraq_2005"
+        }
+      ],
+      "lastVerifiedLabel": "Last verified: November 2026"
+    },
+    "fr": {
+      "slugHint": null,
+      "title": "Logiciel de vente en tournée en Irak | FieldSales",
+      "description": "FieldSales pour les distributeurs en Irak : vente en tournée, prévente, factures imprimées, encaissements en dinars, créances et mode hors ligne.",
+      "h1": "FieldSales : gestion des commerciaux terrain et des encaissements en Irak",
+      "intro": "FieldSales est une plateforme cloud pour les sociétés de distribution et de gros en Irak qui gèrent des commerciaux terrain, de Bagdad à Bassora et Erbil. Elle couvre la vente en tournée et la prévente, les factures émises depuis le téléphone du commercial et imprimées sur imprimante thermique, les reçus d'encaissement et les créances, le stock confié au véhicule et son rapprochement, ainsi que les tournées et visites géolocalisées avec photos. Elle fonctionne en dinars irakiens, continue hors ligne et se synchronise ensuite, sur Android, iPhone et tableau de bord web.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "La distribution en Irak : circuits, termes locaux et paiements",
+          "body": "Les marchandises entrent sur le marché irakien par quelques grandes portes : Bagdad, Bassora avec le port d'Umm Qasr, Erbil, point d'entrée des biens vers la région du Kurdistan, et Dohuk par le poste frontière d'Ibrahim Khalil avec la Turquie. Elles rejoignent ensuite les principaux circuits de vente : grossistes et marchés de gros, supermarchés et petites épiceries de quartier, le « dukkan ». Les distributeurs travaillent selon deux modèles : la vente en tournée (البيع من السيارة), où le livreur-vendeur charge son véhicule, vend et livre lors de la même visite, et la prévente (أخذ الطلبيات), où un commercial prend la commande pour une livraison ultérieure. La journée se termine par la clôture de tournée du commercial (تصفية حساب المندوب) : le rapprochement de l'argent encaissé et du stock restant dans le véhicule. L'arabe et le kurde sont tous deux langues officielles ; à Erbil, Dohuk et Souleimaniye, le commerce se fait en kurde aux côtés de l'arabe. Les espèces en dinars irakiens dominent encore les encaissements, à côté des cartes de paiement locales et des portefeuilles mobiles."
+        },
+        {
+          "id": "tax",
+          "title": "Taxe sur les ventes, numéro fiscal et mentions de facture",
+          "body": "L'Irak n'applique pas de TVA générale. Sa taxe sur les ventes est sélective : elle vise des biens et services précis et relève de la Commission générale des impôts (GCT), rattachée au ministère fédéral des Finances. Parmi les taux publiés : 300 % sur les boissons alcoolisées, les cigarettes et les produits du tabac et 15 % sur les voitures, tous deux perçus à l'importation, 10 % sur les établissements touristiques comme les restaurants et les hôtels (les sources divergent sur les catégories concernées), et 15 % sur les billets de voyage selon PwC. La GCT a aussi publié une circulaire soumettant à la taxe sur les ventes les biens vendus dans les centres commerciaux (hors produits de la carte de rationnement), sans en préciser le taux, et nous n'avons pas pu vérifier si elle s'applique aujourd'hui ; la taxe sur les cartes de recharge téléphone et internet reste elle aussi incertaine après l'annulation du prélèvement par le Conseil des recours. On ne peut donc pas présumer que les produits distribués ne sont pas taxés : chaque entreprise fixe son traitement fiscal avec son conseiller. La loi n° 1 de 2010 sur la protection du consommateur donne au consommateur droit à un justificatif d'achat indiquant la valeur, la date, les caractéristiques, le nombre, la quantité, le type et le prix. La GCT attribue le numéro d'identification fiscale (TIN) et délivre une carte d'identité fiscale, et nous n'avons trouvé aucun texte imposant de le faire figurer sur la facture. Dans FieldSales, vous définissez vous-même le nom et le taux de la taxe : factures sans taxe, au taux retenu pour votre société, ou taxe entièrement désactivée pour qu'elle n'apparaisse sur aucun document, avec votre TIN en en-tête si vous le souhaitez. FieldSales ne calcule pas automatiquement les taxes spéciales irakiennes et ne fournit pas de conseil fiscal."
+        },
+        {
+          "id": "einvoicing",
+          "title": "Facturation électronique en Irak : pas d'obligation à ce jour",
+          "body": "D'après les sources disponibles jusqu'en novembre 2026, l'Irak n'a ni système public de facturation électronique ni obligation en B2B, B2G ou B2C, et aucune plateforme publique par laquelle les factures doivent transiter ; les factures papier, PDF ou électroniques sont acceptées d'un commun accord entre vendeur et acheteur (Basware, revue du 31 juillet 2026 ; site officiel de la GCT consulté en novembre 2026). La GCT a lancé autre chose : une plateforme d'immatriculation fiscale en ligne avec un TIN unifié, dont la première phase a démarré le 9 août 2026 pour les seules sociétés nouvellement créées (Deloitte), et un système d'évaluation fiscale numérique pour les grands contribuables lancé en octobre 2026 (Iraq Business News, citant le ministère des Finances). Ce sont des démarches d'administration fiscale, pas de la facturation électronique. Quant à FieldSales, si l'Irak met en place un système public de facturation électronique, le raccordement est disponible sur demande après étude de ses exigences, sans promesse ni calendrier."
+        },
+        {
+          "id": "collections",
+          "title": "Encaissements : les espèces d'abord, cartes et portefeuilles sur le reçu",
+          "body": "Les espèces en dinars irakiens restent le principal mode de paiement des distributeurs : environ 30 % seulement des adultes détiennent un compte auprès d'une institution financière ou d'un service de monnaie mobile (Banque mondiale, Global Findex 2024). Les paiements électroniques progressent toutefois : la valeur des paiements de détail par cartes locales sur terminaux de paiement a augmenté de 41 % sur un an au troisième trimestre 2025, selon la Banque centrale d'Irak. À côté des cartes, des portefeuilles mobiles sont proposés par des sociétés de paiement inscrites sur la liste de la Banque centrale, et des banques habilitées par celle-ci acceptent le paiement par QR code. Dans FieldSales, le commercial enregistre chaque reçu d'encaissement sous le mode de paiement que vous définissez : espèces, carte, portefeuille mobile que vous nommez vous-même ou virement, pour savoir comment chaque encaissement a été réglé. FieldSales n'est relié à aucun portefeuille, banque ou passerelle de paiement irakien en particulier ; un mode de paiement est un simple libellé que vous paramétrez pour enregistrer ce que le commercial a reçu. Les ventes à crédit sont portées au compte du client, et vous suivez les créances de chaque client et leurs règlements par reçus d'encaissement."
+        },
+        {
+          "id": "how",
+          "title": "Comment FieldSales fonctionne pour un distributeur en Irak",
+          "body": "Vous réglez une fois dans les paramètres la devise sur le dinar irakien (IQD), le nom et le taux de la taxe, ainsi que vos modes de paiement. Le commercial émet la facture sur son téléphone et l'imprime sur une imprimante thermique portable chez le commerçant. L'application continue de fonctionner hors ligne sur les routes interurbaines et dans les zones mal couvertes, puis synchronise factures et reçus au retour de la connexion. Le stock est chargé dans le véhicule sous la responsabilité du commercial, et en fin de journée les ventes, le stock restant et les espèces encaissées sont rapprochés lors de la clôture de tournée du commercial. Depuis le tableau de bord web, vous planifiez les tournées, suivez les visites horodatées avec position et photos et voyez vos commerciaux sur la carte, tandis que ceux-ci travaillent sur Android ou iPhone. L'interface de l'application est disponible uniquement en arabe, anglais, français, turc et chinois ; le kurde n'en fait pas partie."
+        }
+      ],
+      "faq": [
+        {
+          "q": "FieldSales prend-il en charge la facturation électronique en Irak ?",
+          "a": "L'Irak n'a aujourd'hui ni système public obligatoire de facturation électronique ni plateforme publique pour les factures ; la GCT a lancé l'immatriculation fiscale en ligne et l'évaluation fiscale numérique, pas la facturation électronique. Si un système public de facturation électronique voit le jour, le raccordement dans FieldSales est disponible sur demande après étude de ses exigences, sans promesse ni calendrier."
+        },
+        {
+          "q": "Dois-je ajouter une taxe sur mes factures de distribution en Irak ?",
+          "a": "L'Irak n'a pas de TVA générale, mais sa taxe sur les ventes sélective vise des biens et services précis, et le statut de certains reste incertain ; votre société fixe donc son traitement fiscal avec son conseiller. Dans FieldSales, vous définissez le nom et le taux de la taxe ou émettez vos factures sans taxe ; la plateforme ne calcule pas automatiquement les taxes spéciales et ne fournit pas de conseil fiscal."
+        },
+        {
+          "q": "L'application fonctionne-t-elle sans internet ?",
+          "a": "Oui. Le commercial émet factures et reçus d'encaissement et enregistre ses visites hors ligne, puis l'application synchronise le tout au retour de la connexion, ce dont il a besoin sur les routes interurbaines et dans les zones mal couvertes."
+        },
+        {
+          "q": "Comment enregistrer un encaissement par portefeuille mobile ou par carte ?",
+          "a": "Ajoutez le mode de paiement dans les paramètres sous le nom du portefeuille ou de la carte qu'utilisent vos clients, et le commercial le choisit en saisissant le reçu d'encaissement. Il s'agit d'enregistrer ce que le commercial a reçu, pas d'un raccordement direct au portefeuille ou à la banque : le paiement lui-même se fait dans l'application du portefeuille ou sur le terminal de paiement."
+        },
+        {
+          "q": "L'application est-elle disponible en kurde ?",
+          "a": "Non. L'interface de FieldSales est disponible uniquement en arabe, anglais, français, turc et chinois ; vos équipes de la région du Kurdistan peuvent travailler avec l'interface arabe ou anglaise."
+        },
+        {
+          "q": "Comment se fait la clôture de tournée du commercial en fin de journée ?",
+          "a": "Le stock est chargé dans le véhicule sous la responsabilité du commercial, et ventes, retours et encaissements sont saisis depuis son téléphone pendant la journée. En fin de tournée, le stock restant dans le véhicule et les espèces justifiées par les reçus d'encaissement sont rapprochés de ce que l'application a enregistré, si bien que tout écart apparaît avant la remise des comptes."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Exemple de structure d'une facture de commercial en Irak",
+        "note": "Structure uniquement, sans montants. Elle réunit les informations auxquelles le consommateur a droit sur un justificatif d'achat selon la loi irakienne sur la protection du consommateur et les champs opérationnels de FieldSales ; elle ne remplace pas l'avis de votre conseiller.",
+        "fields": [
+          {
+            "label": "Nom et adresse du distributeur",
+            "example": "Nom, adresse et téléphone de votre société tels que réglés dans les paramètres d'impression"
+          },
+          {
+            "label": "Numéro fiscal (facultatif)",
+            "example": "Votre TIN, si vous choisissez de l'afficher"
+          },
+          {
+            "label": "Numéro de facture",
+            "example": "Numéro séquentiel généré automatiquement"
+          },
+          {
+            "label": "Date et heure",
+            "example": "Date et heure d'émission sur le téléphone du commercial"
+          },
+          {
+            "label": "Client",
+            "example": "Nom de l'épicerie (dukkan) et son quartier"
+          },
+          {
+            "label": "Commercial",
+            "example": "Nom du livreur-vendeur et du véhicule"
+          },
+          {
+            "label": "Article et caractéristiques",
+            "example": "Nom et description de l'article tirés de votre catalogue"
+          },
+          {
+            "label": "Type et unité",
+            "example": "Carton, paquet ou pièce"
+          },
+          {
+            "label": "Nombre et quantité",
+            "example": "Quantité vendue dans l'unité choisie"
+          },
+          {
+            "label": "Prix",
+            "example": "Prix unitaire en dinars irakiens"
+          },
+          {
+            "label": "Valeur",
+            "example": "Valeur de la ligne : quantité multipliée par le prix unitaire"
+          },
+          {
+            "label": "Taxe",
+            "example": "Sans taxe, ou nom et taux de la taxe définis par votre société"
+          },
+          {
+            "label": "Total",
+            "example": "Total de la facture en dinars irakiens"
+          },
+          {
+            "label": "Mode de paiement",
+            "example": "Espèces, carte, portefeuille mobile ou crédit au compte du client"
+          },
+          {
+            "label": "Payé et restant dû",
+            "example": "Ce que le client a réglé et ce qu'il doit encore"
+          },
+          {
+            "label": "Signature du destinataire (facultatif)",
+            "example": "Signature du commerçant à la livraison"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "Commission générale des impôts – site officiel (ministère fédéral des Finances)",
+          "url": "https://tax.mof.gov.iq/"
+        },
+        {
+          "title": "Commission générale des impôts – annonce de la taxe sur les ventes à l'importation des voitures, de l'alcool et du tabac (en arabe)",
+          "url": "https://tax.mof.gov.iq/%d8%b6%d8%b1%d9%8a%d8%a8%d8%a9-%d8%a7%d9%84%d9%85%d8%a8%d9%8a%d8%b9%d8%a7%d8%aa/"
+        },
+        {
+          "title": "Commission générale des impôts – circulaire sur la taxe sur les ventes dans les centres commerciaux et les établissements touristiques (en arabe)",
+          "url": "https://tax.mof.gov.iq/uploads/Najwan/pdfs/%D8%B6%D8%B1%D9%8A%D8%A8%D8%A9%20%D9%85%D8%A8%D9%8A%D8%B9%D8%A7%D8%AA%202.pdf"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries – Irak, autres taxes",
+          "url": "https://taxsummaries.pwc.com/iraq/corporate/other-taxes"
+        },
+        {
+          "title": "PwC – tableau des taux de TVA (Irak : taxe sur les ventes variable selon le bien ou le service)",
+          "url": "https://taxsummaries.pwc.com/quick-charts/value-added-tax-vat-rates"
+        },
+        {
+          "title": "Kurdistan24 – la justice annule le prélèvement sur les cartes de recharge (en arabe)",
+          "url": "https://www.kurdistan24.net/ar/story/915184"
+        },
+        {
+          "title": "Basware – la facturation électronique en Irak",
+          "url": "https://www.basware.com/en/compliance-map/iraq"
+        },
+        {
+          "title": "Deloitte – lancement de la plateforme d'immatriculation fiscale en ligne de la GCT",
+          "url": "https://www.deloitte.com/middle-east/en/services/tax/perspectives/the-general-commission-for-taxes-federal-iraq-announced-the-launch-of-their-online-tax-registration-platform.html"
+        },
+        {
+          "title": "Iraq Business News – lancement du système d'évaluation fiscale numérique",
+          "url": "https://www.iraq-businessnews.com/2026/10/06/iraq-launches-digital-tax-assessment-system/"
+        },
+        {
+          "title": "Loi irakienne n° 1 de 2010 sur la protection du consommateur (FAOLEX)",
+          "url": "https://faolex.fao.org/docs/pdf/irq149741.pdf"
+        },
+        {
+          "title": "Banque centrale d'Irak – établissements de paiement et d'encaissement électroniques inscrits",
+          "url": "https://cbi.iq/page/94"
+        },
+        {
+          "title": "Banque mondiale, Global Findex – détention d'un compte en Irak",
+          "url": "https://data.worldbank.org/indicator/FX.OWN.TOTL.ZS?locations=IQ"
+        },
+        {
+          "title": "Iraq Business News – hausse des paiements de détail par cartes locales au troisième trimestre 2025",
+          "url": "https://www.iraq-businessnews.com/2025/12/20/retail-e-payments-via-local-cards-rise-in-q3-2025/"
+        },
+        {
+          "title": "U.S. International Trade Administration – circuits de distribution et de vente en Irak",
+          "url": "https://www.trade.gov/country-commercial-guides/iraq-distribution-sales-channels"
+        },
+        {
+          "title": "Constitution de l'Irak – articles 4 et 28 (Constitute Project)",
+          "url": "https://www.constituteproject.org/constitution/Iraq_2005"
+        }
+      ],
+      "lastVerifiedLabel": "Dernière vérification : novembre 2026"
+    }
+  },
+  "notes": "كُتب المحتوى بعد اكتمال تدقيق الحقائق (audit بتاريخ 2026-11-11، الثقة medium). slugHint=null للغات الثلاث لأن صفحة /blog/field-sales-software-iq/ قائمة. قرارات الصدق: (1) لا ضريبة قيمة مضافة عامة في العراق، وذُكرت ضريبة المبيعات الانتقائية بنسبها المدققة (300% و15% عند الاستيراد، 10% للمرافق السياحية بلا تحديد الدرجات، 15% لتذاكر السفر منسوبة إلى PwC)؛ وذُكر تعميم ضريبة المولات وضريبة كارتات التعبئة بصيغة «غير محسوم/لم نتحقق من سريانه» دون نسبة ولا جزم، وأُكد أن السلع ليست كلها بلا ضريبة وأن المنصة لا تحسب الضرائب الخاصة ولا تقدم استشارة. (2) الفوترة الإلكترونية: لا نظام ولا إلزام وفق المصادر حتى نوفمبر 2026، وفُصل التسجيل الضريبي الإلكتروني (9 أغسطس 2026) والتقدير الإلكتروني (أكتوبر 2026) بوصفهما ليسا فوترة، ثم جملة FieldSales منفصلة «متاح عند الطلب بلا وعد ولا موعد» وبلا سنة في جوارها. (3) لم تُذكر المبالغ المالية الواردة في الحقائق (قيمة مدفوعات البطاقات بالدينار، ورسم تذكرة السفر المقترح في مسودة موازنة 2027) تجنباً لأرقام ملاصقة للعملة، واكتُفي بنسبة النمو 41%. (4) لم تُذكر أسماء المحافظ (ZainCash وغيرها) لأنها في uncertain ولا تكامل معها، واستُعيض عن «المرخّصة/المجازة» بـ«المدرجة في قائمة البنك المركزي». (5) لغات الواجهة الخمس بصدق مع النص صراحة على أن الكردية غير متاحة. (6) حقول الفاتورة من قانون حماية المستهلك رقم 1 لسنة 2010 دون ادعاء استيفاء متطلبات الهيئة. (7) ذُكرت ميزة «إيقاف الضريبة كلياً» وتوقيع المستلم الاختياري وإظهار الرقم الضريبي في رأس الفاتورة بوصفها إعدادات قائمة في المنصة؛ إن أراد الدامج الاقتصار على وصف المنصة في المهمة فليحذف عبارة إيقاف الضريبة كلياً. (8) مراكز التوزيع من دليل التجارة الأمريكي (2021) والمصطلحات المحلية من الاستعمال الشائع غير الموثق بمصدر عراقي، فصيغت دون أرقام ولا ادعاءات حصص سوقية.",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish-with-notes",
+    "fixes": 9,
+    "issues": [
+      "قانون حماية المستهلك رقم 1 لسنة 2010 يمنح الحق في مستند الشراء «للمستهلك» لا لكل «مشترٍ»؛ والمشتري من الموزع غالباً محل تجاري. صُحّح في قسم الضريبة وملاحظة مثال الفاتورة باللغات الثلاث.",
+      "نسبة 10% على المطاعم والفنادق: الحقائق تقول إن الدرجات المشمولة غير محسومة (PwC: الممتازة والأولى؛ تعميم 2018: كل الدرجات)، فأُضيف قيد «تختلف المصادر في درجات التصنيف المشمولة» باللغات الثلاث بدل الإطلاق.",
+      "قسم التوزيع رتّب القنوات سلسلةً (الجملة ثم السوبرماركت ثم الدكاكين) وهو ما لا يرد في الحقائق التي تسرد القنوات فقط؛ أُعيدت صياغتها قائمةَ قنوات بلا تسلسل باللغات الثلاث.",
+      "نمو 41% في الحقائق يخص «قيمة» مدفوعات التجزئة بالبطاقات المحلية؛ أُضيفت «قيمة/the value/la valeur» حتى لا يُفهم أنه عدد العمليات.",
+      "الفرنسية: «règlement de compte(s)» تعني عرفاً تصفية الحسابات بالعنف (انقلاب نية)، فاستُبدلت بـ«clôture de tournée» في قسم التوزيع وقسم طريقة العمل وسؤال الأسئلة الشائعة.",
+      "العربية: جملة «وتقبل مصارف يسمح لها البنك بذلك الدفع برمز QR» ركيكة؛ أُعيدت صياغتها دون كلمة «مرخّصة» المحظورة.",
+      "الفرنسية: «hors ligne puis synchronisée» في المقدمة ركيكة؛ أُعيدت صياغتها.",
+      "الفرنسية: «dans le magasin» صارت «chez le commerçant» لأن الطباعة تتم عند العميل (المحل) لا في مستودع الموزع.",
+      "الإنجليزية: «before the rep hands over» ناقصة المفعول؛ صارت «hands over the day's cash and stock».",
+      "تحقُّق بلا تعديل: لا سعر ولا مبلغ ملاصق لعملة، ولا «مجاني/معتمد/مرخّص/certified/compliant/agréé»، ولا ذكر لـZATCA في صفحة العراق، ولا أسماء محافظ أو منافسين أو أعداد عملاء؛ جملة FieldSales للفوترة الإلكترونية منفصلة («متاح عند الطلب بعد دراسة متطلباته، بلا وعد ولا موعد») والجملة التي قبلها بلا تاريخ؛ لغات الواجهة الخمس صادقة مع النص على غياب الكردية؛ ضريبة الكارتات وضريبة المولات بصيغة «غير محسوم/لم نتحقق» كما في uncertain؛ 15% على تذاكر السفر منسوبة إلى PwC.",
+      "تحقُّق بلا تعديل: «إيقاف الضريبة كلياً» وتوقيع المستلم الاختياري وإظهار الرقم الضريبي في رأس الفاتورة إعدادات قائمة فعلاً في المنصة (مفتاح «إزالة الضريبة» وتوقيعا المستلم وإعدادات الطباعة)، فأُبقيت.",
+      "الأطوال: العنوان ar 54 / en 53 / fr 49 حرفاً (≤60)، والوصف ar 135 / en 142 / fr 145 (≤155)؛ وJSON صالح UTF-8 بلا BOM (node).",
+      "سبب «with-notes»: ثقة تدقيق الحقائق medium؛ والمصطلحات المحلية (دكان، مندوب توزيع، تصفية حساب المندوب) من الاستعمال الشائع بلا مصدر عراقي منشور، ومراكز التوزيع من دليل التجارة الأمريكي (2021)؛ وصياغتها في الصفحة بلا أرقام ولا حصص سوقية، فلا مانع من النشر مع المتابعة إن صدر جديد في ضريبة الكارتات أو ضريبة المولات أو الفوترة الإلكترونية."
+    ]
+  }
+}

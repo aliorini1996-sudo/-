@@ -1,0 +1,244 @@
+{
+  "code": "CI",
+  "nameEn": "Côte d'Ivoire (Ivory Coast)",
+  "pageLanguage": "fr",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "XOF",
+    "symbol": "FCFA",
+    "nameEn": "CFA Franc BCEAO (West African CFA franc)",
+    "nameLocal": "franc CFA (BCEAO)",
+    "minorUnits": 0,
+    "notes": "وفق قائمة ISO 4217 الرسمية (SIX) فإن XOF بلا كسور عشرية (CcyMnrUnts = 0)، لا 2 كما في القالب الافتراضي. وتكتب بلاغات DGI المبالغ بصيغة «francs CFA» و«FCFA».",
+    "sources": [
+      {"url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml", "title": "ISO 4217 List One (SIX, maintenance agency) — CÔTE D'IVOIRE: CFA Franc BCEAO, XOF, 952, minor units 0 — Pblshd 2026-09-17", "accessed": "2026-11-11"}
+    ]
+  },
+  "tax": {
+    "nameLocal": "Taxe sur la valeur ajoutée",
+    "nameEn": "Value Added Tax",
+    "abbr": "TVA",
+    "standardRate": 18,
+    "otherRates": [
+      {"rate": 9, "appliesTo": "taux réduit (رمز TVAB في دليل API الخاص بـFNE): منه وفق PwC الحليب (عدا الزبادي ومشتقات الحليب الأخرى)، وحليب الرضّع وأغذيتهم المحضّرة، والأرز الفاخر، واللحوم المستوردة من خارج ECOWAS، والمعكرونة من سميد القمح الصلب 100%"},
+      {"rate": 0, "appliesTo": "TVAC — exonération conventionnelle (إعفاء اتفاقي بنسبة 0%) كما يعرّفه دليل API الخاص بـFNE"},
+      {"rate": 0, "appliesTo": "TVAD — exonération légale (إعفاء قانوني بنسبة 0%)، ويقرنه دليل API صراحةً بمكلّفي TEE وRME («TVA exec leg de 0% pour TEE et RME»)"}
+    ],
+    "registrationThreshold": "لم نجد عتبة تسجيل مستقلة لـTVA؛ الخضوع مرتبط بنظام الضريبة. حصر بلاغ DGI المؤرخ 14 سبتمبر 2026 فوترة TVA في مكلّفي النظامين الحقيقيين RNI وRSI. ووفق PwC ينطبق RSI على رقم أعمال من 200 إلى 500 مليون XOF، وRNI على ما فوق 500 مليون، ويجوز لمؤسسات RME (50–200 مليون) التي يبلغ رقم أعمالها 100 مليون فأكثر اختيار RSI. أما TEE (5–50 مليون) فنظام جزافي.",
+    "authority": "Direction Générale des Impôts (DGI) — Ministère de l'Économie, des Finances et du Budget",
+    "authorityUrl": "https://www.dgi.gouv.ci",
+    "sources": [
+      {"url": "https://taxsummaries.pwc.com/ivory-coast/corporate/other-taxes", "title": "PwC Worldwide Tax Summaries — Ivory Coast, Corporate, Other taxes (VAT 18%; reduced 9%) — Last reviewed 09 September 2026", "accessed": "2026-11-11"},
+      {"url": "https://taxsummaries.pwc.com/ivory-coast/corporate/tax-administration", "title": "PwC Worldwide Tax Summaries — Ivory Coast, Corporate, Tax administration (taxation regimes and turnover thresholds) — Last reviewed 09 September 2026", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/documents/FNE-procedureapi.pdf", "title": "DGI — Procédure d'interfaçage des entreprises par API (mai 2025), Annexe 1 : codes TVA (TVA 18 %, TVAB 9 %, TVAC 0 %, TVAD 0 %)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_6aa92f4c0b766_COMMUNIQUE_MISE_EN_CONFORMITE_FNE.pdf", "title": "DGI — Communiqué du 14 septembre 2026 : Mise en conformité des solutions de génération des FNE par voie d'interfaçage API", "accessed": "2026-11-11"}
+    ]
+  },
+  "taxId": {
+    "label": "NCC (Numéro de Compte Contribuable)",
+    "format": "8 caractères alphanumériques sans espace : 7 chiffres suivis d'une lettre clé majuscule (exemple de structure : 1234567A)",
+    "notes": "الصيغة منصوصة في بلاغ DGI المؤرخ 14 سبتمبر 2026 بوصفها شرطاً لبيانات العميل في فواتير API. ويدخل الـNCC أيضاً في ترقيم الفاتورة: NCC + سنة الإصدار + تسلسل سنوي غير منقطع (المادة 5 من القرار 0337). وتذكر المادة 6 من القرار نفسه «l'identifiant unique» إلى جانب الـNCC دون أن تحدد صيغته. والـNCC إلزامي للعميل في فواتير B2B.",
+    "sources": [
+      {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_6aa92f4c0b766_COMMUNIQUE_MISE_EN_CONFORMITE_FNE.pdf", "title": "DGI — Communiqué du 14 septembre 2026 (format du NCC : 7 chiffres + lettre clé majuscule)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/documents/arrete_0337_modalites_fne_2025.pdf", "title": "Arrêté n°0337/MFB/DGI/DLCD/SDL/bke du 09 mai 2025 portant modalités de mise en œuvre du système de facturation normalisée électronique (art. 5 et 6)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/documents/FNE-procedureapi.pdf", "title": "DGI — Procédure d'interfaçage des entreprises par API (clientNcc obligatoire si template B2B)", "accessed": "2026-11-11"}
+    ]
+  },
+  "einvoicing": {
+    "status": "mandatory",
+    "systemName": "FNE — Facture Normalisée Électronique (و RNE — Reçu Normalisé Électronique)",
+    "authority": "Direction Générale des Impôts (DGI)",
+    "model": "clearance",
+    "modelNotes": "تُصدَر الفاتورة أو الإيصال من منصة DGI نفسها أو تمرّ بها (نقطة API ‎/external/invoices/sign) فتُوقَّع إلكترونياً قبل تسليمها. والتوقيع هو «sticker électronique»، ويتجسّد في ثلاثة عناصر: visuel FNE وQR Code وترقيم سنوي متسلسل غير منقطع. والصيغة الناتجة PDF.",
+    "scopeNow": "اليوم (11 نوفمبر 2026) يلتزم بالفوترة الإلكترونية كل المؤسسات أياً كان حجمها أو نظامها الضريبي: RNI وRSI وRME ونظام المقاول (TEE وTCE). والإعفاءات التي تعدّها الأسئلة الشائعة وعرض FNE (مارس 2025) استناداً إلى المادة 145 من LPF اثنا عشر: مؤسسات امتياز خدمة الماء والكهرباء والهاتف، والصيدليات، وصاحب امتياز تعريف الأشخاص، وشركات الطيران (وتشمل بيع التذاكر في وكالات السفر)، والشركات النفطية بعقود تقاسم الإنتاج، ومحطات الوقود في بيع الوقود وحده، وLa Poste de Côte d'Ivoire، والمصارف، وشركات التأمين، وأصحاب امتياز النقل في عمليات الامتياز، وشركات النقل غير الحاصلة على امتياز وغير المختارة للخضوع لـTVA، والمؤسسات التي لا منشأة مهنية لها في ساحل العاج. انتهى العمل بالفاتورة الورقية في 1 ديسمبر 2025 لـRNI وRSI، وفي 11 ديسمبر 2025 لـRME. وحُدّد لنظام المقاول (TCE وTEE) 22 ديسمبر 2025، ثم مُدّ لمكلّفي TEE وحدهم في عملياتهم بين المؤسسات أو مع الدولة إلى 13 فبراير 2026. ولا تُقبل منذ ذلك الحين لإثبات الأعباء وخصم TVA إلا فواتير FNE. وتجري حملة رقابة وطنية على إصدار FNE وRNE منذ 1 سبتمبر 2026، وتُظهر بوابة FNE الرسمية أنها مستمرة: بعثات مساندة لفرق الرقابة في المديريات الجهوية بين 27 سبتمبر و7 أكتوبر 2026، واجتماع مع المديرية العامة للتجارة الداخلية في 5 نوفمبر 2026 حول صعوبات أعوانها في رقابة FNE. تُصدَر FNE عبر منصة FNE أو تطبيقها للجوال (droit commun)، أو بربط API لمن يملك نظام فوترة بموافقة DGI. ويصدر RNE عبر أجهزة TERNE أو تطبيق RNE لمكلّفي النظام الجزافي (RME/TEE) ولمن يستعمل آلة تسجيل نقدية وللمتاجر متعددة الأقسام. وتذكر أسئلة المنصة الشائعة أن مكلّفي TCE غير المرتبطين بمركز ضرائب لا تدعمهم المنصة بعد.",
+    "keyDates": [
+      {"date": "2024-12-18", "event": "قانون المالية رقم 2024-1109 لموازنة 2025: المادة 6 من ملحقه الضريبي تعمّم التزام FNE"},
+      {"date": "2025-05-09", "event": "القرار رقم 0337/MFB يحدد كيفية تطبيق FNE وRNE: الإجراءات الثلاثة والبيانات الإلزامية والترقيم والمواعيد"},
+      {"date": "2025-05-19", "event": "فتح التسجيل في منصة FNE"},
+      {"date": "2025-05-26", "event": "فتح شراء الملصقات الإلكترونية والبدء الرسمي لإصدار الفواتير المصدَّقة (وفق «Faits marquants» في بوابة FNE)"},
+      {"date": "2025-06-01", "event": "بدء الإلزام لمؤسسات RNI في موعد أقصاه هذا التاريخ"},
+      {"date": "2025-07-01", "event": "بدء الإلزام لمؤسسات RSI في موعد أقصاه هذا التاريخ"},
+      {"date": "2025-08-01", "event": "بدء الإلزام لمؤسسات RME في موعد أقصاه هذا التاريخ"},
+      {"date": "2025-08-12", "event": "بلاغ DGI يضع إجراء اعتماد éditeurs et intégrateurs لحلول الربط API. من شروطه القيد في سجل المكلّفين لدى DGI والإقامة الضريبية في ساحل العاج (Attestation de Résidence fiscale) وشهادة السلامة الضريبية، ثم اختبارات مطابقة ورقابة تقنية في مقرّ المرشّح"},
+      {"date": "2025-09-01", "event": "بدء الإلزام لنظام المقاول (TCE وTEE) في موعد أقصاه هذا التاريخ"},
+      {"date": "2025-09-15", "event": "تحديد كلفة الملصقات الإلكترونية: FNE ‏20 F؛ RNE ‏0 F حتى 5,000 F و15 F فوقها، و25 F فوق 100,000 F إذا دُفعت نقداً"},
+      {"date": "2025-12-01", "event": "انتهاء الاستعمال الاستثنائي للفاتورة الورقية لـRNI وRSI (بعد تمديدين)"},
+      {"date": "2025-12-11", "event": "انتهاء الاستعمال الاستثنائي للفاتورة الورقية لـRME"},
+      {"date": "2025-12-22", "event": "الموعد الذي حدّده بلاغ 5 سبتمبر 2025 لانتهاء الفاتورة الورقية لنظام المقاول (TCE وTEE)، ثم مُدّ لـTEE في العمليات بين المؤسسات أو مع الدولة إلى 13 فبراير 2026"},
+      {"date": "2026-01-31", "event": "إقفال التسجيل في منصة FNE «délai de rigueur». والتسجيل شرط للحصول على شهادة السلامة الضريبية ARF"},
+      {"date": "2026-02-13", "event": "آخر موعد لاستعمال الفاتورة الورقية لدى مكلّفي TEE في العمليات بين المؤسسات أو مع الدولة"},
+      {"date": "2026-09-01", "event": "بدء عملية رقابة وطنية على استعمال FNE وRNE وإصدارهما، مع غرامات وفق LPF"},
+      {"date": "2026-09-14", "event": "بلاغ يُلزم من يصدر الفواتير عبر API ومحرّري الحلول المعتمدين بمطابقة المواصفات خلال 45 يوماً من توقيعه، أي قرابة 29 أكتوبر 2026 (وقد انقضت المهلة اليوم). ومن بقيت في بياناته مخالفات بعدها «s'exposeront à une suspension temporaire» لمفتاح API، دون إخلال بالعقوبات الضريبية"},
+      {"date": "2026-09-27", "event": "بعثات مساندة ميدانية «dans le cadre de l'opération de contrôle» في المديريات الجهوية حتى 7 أكتوبر 2026، شملت تدريب فرق الرقابة الضريبية (بوابة FNE، نُشر في 9 أكتوبر 2026)"},
+      {"date": "2026-11-05", "event": "اجتماع DGI مع المديرية العامة للتجارة الداخلية حول صعوبات أعوانها في رقابة FNE، فالرقابة مستمرة حتى هذا التاريخ (بوابة FNE، نُشر في 10 نوفمبر 2026)"}
+    ],
+    "b2cReceipts": "RNE (Reçu Normalisé Électronique): يصدر عبر أجهزة TERNE التي توفرها DGI مجاناً من خلال شركائها المعتمدين، أو عبر تطبيق RNE على الجوال. ويُلزم به مكلّفو النظام الجزافي (RME/TEE)، ومؤسسات النظام الحقيقي المستعملة لآلات التسجيل النقدية، والمتاجر متعددة الأقسام، وهذه الأخيرة ملزمة بإرفاق RNE بكل ticket de caisse. نصّت المادة 7 من القرار 0337 على ألا يلزم الجزافيين إلا للمشتريات من 5,000 FCFA فأكثر، ولا ينطبق هذا الحد على العمليات بين المهنيين. لكن أسئلة المنصة الشائعة تقول إن RNE إلزامي لـRME وTEE أياً كان المبلغ، مع ملصق مجاني حتى 5,000 FCFA. كلفة الملصق: 15 F لما فوق 5,000 F، و25 F لما فوق 100,000 F إذا دُفع نقداً. ولا يُعفي الملصق من timbre de quittance (المادتان 873 و879 من CGI).",
+    "sources": [
+      {"url": "https://www.fne.dgi.gouv.ci/documents/arrete_0337_modalites_fne_2025.pdf", "title": "Arrêté n°0337/MFB/DGI/DLCD/SDL/bke du 09 mai 2025 portant modalités de mise en œuvre du système de facturation normalisée électronique", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/documents/annexe-fiscale.pdf", "title": "DGI — Article 6 de l'annexe fiscale 2025 : aménagement des dispositions relatives à l'obligation de délivrance de la FNE (texte publié sur le portail FNE, intitulé « Projet d'annexe fiscale »)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_6858407318435_communique-fne.pdf", "title": "DGI — Communiqué : Inscription des entreprises sur la plateforme FNE (dates RNI/RSI/RME/entreprenant ; ouverture le 19 mai 2025)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_685812be90b18_usage.pdf", "title": "DGI — Communiqué du 13 juin 2025 : Prorogation de l'usage de la facture normalisée physique (jusqu'au 2 septembre 2025)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/COMMUNIQUE%20MISE%20EN%20OEUVRE%20DE%20LA%20FNE.pdf", "title": "DGI — Communiqué du 5 septembre 2025 : Prorogation de l'usage de la facture normalisée physique (RNI/RSI 1er déc., RME 11 déc., entreprenant 22 déc. 2025)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/COMMUNIQUE%20_COUT_STICKERS_FNE.pdf", "title": "DGI — Communiqué du 15 septembre 2025 : Coût des stickers électroniques", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_69444094471dc_FIN_DE_L_USAGE_DE_LA_FACT_NOR_PHYSIQUE.pdf", "title": "DGI — Communiqué du 18 décembre 2025 : Fin de l'usage de la facture normalisée physique", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_69793fb80d317_FIN_DE_L_USAGE_DE_LA_FACT_NOR_PHYSIQUE.pdf", "title": "DGI — Communiqué du 27 janvier 2026 : Fin de l'usage de la facture normalisée physique et date limite d'inscription (31 janvier 2026 ; TEE B2B/B2G 13 février 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_6a90297b2bf0b_communique_controle_fne_210826.pdf", "title": "DGI — Communiqué du 21 août 2026 : Opération de contrôle de la facturation normalisée électronique (à partir du 1er septembre 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_6aa92f4c0b766_COMMUNIQUE_MISE_EN_CONFORMITE_FNE.pdf", "title": "DGI — Communiqué du 14 septembre 2026 : Mise en conformité des solutions FNE par interfaçage API (délai de 45 jours)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/faq.php", "title": "Portail FNE — Foire aux questions (procédures, TERNE, exemptions art. 145 LPF, stickers, TCE)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/facturation.php", "title": "Portail FNE — Processus de génération de la facture (droit commun, API, TERNE)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/documents/FNE-Pr%C3%A9sentation.pdf", "title": "DGI — Présentation de la FNE (mars 2025)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/documents/entreprises_agrees_FNE.pdf", "title": "DGI — Liste des entreprises agréées pour le système de la FNE, période 2025-2026 (28 novembre 2025)", "accessed": "2026-11-11"},
+      {"url": "https://taxsummaries.pwc.com/ivory-coast/corporate/tax-administration", "title": "PwC Worldwide Tax Summaries — Ivory Coast, Tax administration (FNE fully implemented) — Last reviewed 09 September 2026", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_689ca778df072_communique_procedure_agrement_editeurs_solution_fne_12_08_25.pdf", "title": "DGI — Communiqué du 12 août 2025 : Procédure d'agrément des éditeurs et intégrateurs de solutions d'interfaçage (résidence fiscale en Côte d'Ivoire, ARF, tests)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_6858408c37d36_utilisation.pdf", "title": "DGI — Communiqué du 13 juin 2025 : Utilisation de la procédure d'exception (interfaçage)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/index.php", "title": "Portail FNE — Accueil, « Faits marquants » (inscriptions 19 mai 2025 ; achat des stickers et démarrage officiel 26 mai 2025 ; rappel des échéances RNI/RSI/RME/entreprenant)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/album_galerie.php?id=56", "title": "Portail FNE — Mission de formation et d'assistance pour l'inscription et le contrôle de la FNE (27 sept.–7 oct. 2026), publiée le 09/10/2026", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/album_galerie.php?id=57", "title": "Portail FNE — Rencontre DGI / Direction du Commerce intérieur du 5 novembre 2026 sur le contrôle de la FNE, publiée le 10/11/2026", "accessed": "2026-11-11"}
+    ]
+  },
+  "invoiceRequirements": [
+    "بيانات البائع بدقّة: raison sociale والأسماء والعنوان، ورقم القيد في السجل التجاري (RCCM)، والبيانات المصرفية، والـNCC، و«l'identifiant unique»، والنظام الضريبي، ومركز الضرائب التابع له (service des Impôts de rattachement) — المادة 6 من القرار 0337",
+    "بيانات العميل: الأسماء أو raison sociale والعناوين — المادة 6",
+    "NCC العميل في مشترياته المهنية من السلع والخدمات (إلزامي في B2B) — المادة 6 ودليل API",
+    "الرقم التسلسلي للفاتورة بصيغة NCC + سنة الإصدار + تسلسل سنوي غير منقطع. يسبق الرقمَ حرف A في facture d'avoir، وP في proforma، وB في bordereau — المادتان 5 و6",
+    "تاريخ إصدار FNE وساعته — المادة 6",
+    "وصف تفصيلي للسلع أو الخدمات المبيعة — المادة 6",
+    "أسعار السلع المسلَّمة أو الخدمات المقدَّمة — المادة 6",
+    "نسب الضريبة المطبَّقة إن وُجدت — المادة 6",
+    "المبلغ الإجمالي المدفوع وطريقة السداد: في API إحدى القيم cash أو card أو check أو mobile-money أو transfer أو deferred — المادة 6 ودليل API",
+    "الملصق الإلكتروني (sticker électronique) بعناصره الثلاثة: visuel FNE وQR Code وصيغة الترقيم الرسمية — المادة 4",
+    "في الإصدار عبر API: رقم هاتف العميل 10 أرقام يبدأ بـ01 أو 05 أو 07 أو 21 أو 25 أو 27 بلا +225. والبريد الإلكتروني والهاتف إلزاميان في B2B. وفي B2F تُذكر العملة وسعر الصرف. ولا تُقبل كميات أو قيم سالبة، ولا تُفوتر TVA إلا من مكلّفي RNI وRSI — بلاغ 14 سبتمبر 2026",
+    "حقول API الإلزامية الأخرى: نوع الفوترة (B2B أو B2C أو B2G أو B2F)، ونقطة البيع (pointOfSale)، والمنشأة (establishment)، ورمز TVA لكل صنف (TVA أو TVAB أو TVAC أو TVAD)، والكمية، وسعر الوحدة قبل الضريبة. واسم البائع (clientSellerName) اختياري — دليل API لمايو 2025"
+  ],
+  "distribution": {
+    "hubs": [
+      "Abidjan — الميناء الرئيسي، ومقرّ معظم بنية التوزيع: مقار الشركات والمصارف والمتاجر الكبرى وشبكات التجزئة",
+      "San-Pédro — الميناء الثاني ومركز الكاكاو ومركز حضري ناشئ",
+      "Yamoussoukro — العاصمة السياسية والطلب فيها ناشئ"
+    ],
+    "tradeChannels": [
+      "grossistes (تجار الجملة) — المسار التقليدي للسلع بعد الاستيراد عبر ميناء أبيدجان",
+      "marchés locaux (الأسواق الشعبية المحلية)",
+      "magasins spécialisés (المتاجر المتخصصة)",
+      "grande distribution / magasins à rayons multiples (المتاجر الكبرى متعددة الأقسام، الملزمة بإرفاق RNE بتذاكر الصندوق)",
+      "petits commerçants au régime forfaitaire (صغار التجار في TEE/RME الذين يصدرون RNE)",
+      "boutiques de quartier — قناة البقالات الحيّة شائعة، لكن لم نجد لها في هذا البحث مصدراً موثوقاً يصفها"
+    ],
+    "localTerms": {
+      "vanSales": "vente en tournée",
+      "preSales": "prévente (prise de commande)",
+      "salesRep": "commercial terrain / vendeur",
+      "retailShop": "boutique",
+      "routeAccounting": "arrêté de caisse / versement de fin de tournée"
+    },
+    "collectionMethods": [
+      "espèces (النقد) — لها أثر ضريبي: ملصق RNE بـ25 F للمبالغ النقدية فوق 100,000 FCFA",
+      "mobile money: Orange Money، MTN MoMo، Moov Money، Wave",
+      "chèque (الشيك)",
+      "virement bancaire (التحويل المصرفي)",
+      "carte bancaire (البطاقة المصرفية)",
+      "à terme / crédit (البيع الآجل): الآجال الشائعة للسلع الاستهلاكية 60–90 يوماً"
+    ],
+    "notes": "طرق السداد الست (cash وcard وcheck وmobile-money وtransfer وdeferred) هي القيم الرسمية لحقل paymentMethod في دليل API الخاص بـFNE، ويؤكد الدليل أن الفوترة الآجلة «à terme» مسار معترف به. وأسماء مشغّلي المحافظ مأخوذة من دليل trade.gov الذي يذكر Orange وMTN وMOOV وWAVE شركاتٍ للدفع عبر الجوال، ويقول إن انخفاض انتشار البطاقات يجعل المحافظ والدفع عند التسليم شائعين. وللبيع من السيارة: لا يقبل المشتري المهني لخصم TVA إلا FNE تحمل NCC الخاص به، ولذلك يحتاج المندوب في B2B إلى إصدار FNE وقت البيع عبر المنصة أو تطبيقها أو نظام مربوط بـAPI. وتشترط DGI لربط API اتصالاً مستقراً بالإنترنت. ويبقى timbre de quittance مستحقاً حيث ينطبق (المادتان 873 و879 من CGI)، ولا يغني عنه الملصق الإلكتروني. ومصطلحات localTerms فرنسية تجارية متداولة في قطاع التوزيع، لم نتحقق من مصدر يثبت أنها المستعملة فعلاً لدى الموزعين في ساحل العاج.",
+    "sources": [
+      {"url": "https://www.trade.gov/country-commercial-guides/cote-divoire-distribution-sales-channels", "title": "U.S. ITA Country Commercial Guide — Côte d'Ivoire: Distribution & Sales Channels (last published 2026-05-26)", "accessed": "2026-11-11"},
+      {"url": "https://www.trade.gov/country-commercial-guides/cote-divoire-selling-factors-techniques", "title": "U.S. ITA Country Commercial Guide — Côte d'Ivoire: Selling Factors & Techniques (credit terms; mobile money companies: Orange, MTN, MOOV, WAVE) (last published 2026-05-26)", "accessed": "2026-11-11"},
+      {"url": "https://www.trade.gov/country-commercial-guides/cote-divoire-ecommerce", "title": "U.S. ITA Country Commercial Guide — Côte d'Ivoire: eCommerce (mobile money, cash-on-delivery) (last published 2026-05-26)", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/documents/FNE-procedureapi.pdf", "title": "DGI — Procédure d'interfaçage des entreprises par API (mai 2025) : valeurs de paymentMethod", "accessed": "2026-11-11"},
+      {"url": "https://www.fne.dgi.gouv.ci/faq.php", "title": "Portail FNE — FAQ (TERNE pour forfaitaires, caisses enregistreuses et magasins à rayons multiples ; timbre de quittance)", "accessed": "2026-11-11"}
+    ]
+  },
+  "honesty": {
+    "canSay": [
+      "يضبط العميل في FieldSales العملة (الفرنك الأفريقي XOF / FCFA) ونسبة الضريبة (TVA 18%، أو غيرها حسب نشاطه) بنفسه من إعدادات الشركة.",
+      "يمكن لشركات التوزيع في ساحل العاج استعمال FieldSales لإدارة المناديب: البيع من السيارة (vente en tournée)، والطلبات المسبقة (prévente)، وزيارات النقاط (boutiques)، والتحصيل.",
+      "يسجّل FieldSales التحصيل نقداً أو بطرق دفع تعرّفها الشركة بنفسها، مثل Orange Money أو MTN MoMo أو Moov Money أو Wave، تسجيلاً داخلياً لمتابعة عهدة المندوب، من غير ربط مباشر بهذه المحافظ.",
+      "مستندات FieldSales (فاتورة المندوب وسند القبض) مستندات تشغيلية داخلية. والفاتورة الضريبية النظامية في ساحل العاج هي FNE أو RNE الصادرة عبر منصة DGI أو تطبيقها أو أجهزة TERNE أو حل ربط API مأذون.",
+      "لا ربط قائماً اليوم بين FieldSales ومنصة FNE. ويمكن دراسته عند الطلب بلا وعد ولا موعد. ويستلزم وفق DGI موافقة مسبقة من المدير العام للضرائب للشركة العميلة على إجراء الاستثناء (procédure d'interfaçage). وإذا تولّى الربط طرف خارجي فيلزم أن يكون «éditeur/intégrateur agréé»، ومن شروط هذا الاعتماد الإقامة الضريبية في ساحل العاج. ولم يحصل FieldSales على هذا الاعتماد."
+    ],
+    "mustNotSay": [
+      "أن FieldSales مربوط بمنصة FNE أو بـDGI، أو أنه «intégré à la FNE» أو «certifié/agréé DGI».",
+      "أن FieldSales «éditeur ou intégrateur agréé FNE»: ليس في قائمة DGI للمعتمدين لفترة 2025–2026 (المؤرخة 28 نوفمبر 2025).",
+      "أن فواتير FieldSales هي FNE أو RNE، أو أنها تحمل sticker électronique أو QR Code أو visuel FNE أو ترقيماً رسمياً.",
+      "أن فواتير FieldSales تكفي لإثبات الأعباء أو لخصم TVA لدى المشتري.",
+      "عبارات مثل «conforme FNE» أو «متوافق مع الفوترة الإلكترونية في ساحل العاج» أو «جاهز لحملة رقابة DGI».",
+      "أن FieldSales يغني عن منصة FNE أو تطبيقها أو أجهزة TERNE أو timbre de quittance.",
+      "أن FieldSales يتكامل أو يحصّل آلياً عبر Orange Money أو MTN MoMo أو Moov Money أو Wave.",
+      "نقل أي ادعاء من ربط ZATCA Fatoora (السعودية) إلى ساحل العاج، أو الإيحاء بأن ربطاً حكومياً حيّاً قائم هناك.",
+      "أن FieldSales يتولّى ربط API بمنصة FNE نيابة عن العميل، أو أنه يغني عن موافقة المدير العام للضرائب المسبقة أو عن اعتماد éditeur/intégrateur agréé.",
+      "أن FieldSales مطابق لمواصفات API في بلاغ 14 سبتمبر 2026، أو أنه بمنأى عن تعليق مفتاح API، فلا مفتاح API له أصلاً.",
+      "الإيحاء بأن لـFieldSales عملاء أو شريكاً محلياً معتمداً أو حضوراً ضريبياً في ساحل العاج، ما لم يثبت ذلك بمستند."
+    ]
+  },
+  "uncertain": [
+    "حملة الرقابة منذ 1 سبتمبر 2026: طالبت FENACCI ومنظمات التجار بتعليقها (30 أغسطس و5 سبتمبر 2026)، ولم نجد بلاغاً رسمياً بتعليقها أو تأجيلها. والمدقّق وجد في بوابة FNE ما يدل على استمرارها: بعثات رقابة ومساندة بين 27 سبتمبر و7 أكتوبر 2026، واجتماع في 5 نوفمبر 2026 حول صعوبات أعوان وزارة التجارة في رقابة FNE. آخر بلاغ في قائمة بلاغات البوابة منشور في 15 سبتمبر 2026. ولم يتسنَّ للمدقّق بحث إعلامي إضافي لنفاد حصة البحث، فقد توجد تطورات لم ترصدها البوابة.",
+    "مهلة الـ45 يوماً لمطابقة حلول API (بلاغ 14 سبتمبر 2026) انقضت قرابة 29 أكتوبر 2026، ولم نجد بلاغاً عن تطبيق التعليق أو تمديد المهلة.",
+    "هل يجوز لمنصة SaaS أجنبية أن تربط فواتير عملائها بـFNE دون اعتماد éditeur/intégrateur agréé؟ تقول الأسئلة الشائعة إن الشركة تربط نظامها «par ses propres développeurs ou un éditeur/intégrateur agréé»، ويشترط الاعتماد الإقامة الضريبية في ساحل العاج. ولم يتضح حكم المزوّد الأجنبي الذي يعمل لحساب العميل.",
+    "تعارض في حد 5,000 FCFA: المادة 7 من القرار 0337 تقصر إلزام الجزافيين على المشتريات من 5,000 FCFA فأكثر (عدا B2B)، والأسئلة الشائعة في المنصة تقول إن RNE إلزامي لـRME وTEE أياً كان المبلغ. يُرجَّح أن موقف المنصة الأحدث هو المعمول به، لكنه غير محسوم نصاً.",
+    "نص المادة 6 من الملحق الضريبي 2025 المنشور في بوابة FNE معنون «Projet d'annexe fiscale». اعتمدنا عليه مع القرار 0337 الذي يستند صراحة إلى القانون 2024-1109 ومادته 6، ولم نطّلع على النص المنشور في الجريدة الرسمية.",
+    "قائمة السلع الخاضعة لـ9% مأخوذة من PwC وقد لا تكون شاملة، ولم نطّلع على نص CGI الرسمي للنسب.",
+    "لم نجد عتبة تسجيل مستقلة لـTVA. الربط بين خضوع TVA والنظامين RNI وRSI مستنتج من بلاغ DGI (14 سبتمبر 2026) وجدول الأنظمة في PwC.",
+    "حال مكلّفي TCE (taxe communale de l'entreprenant): الأسئلة الشائعة تقول إن المنصة لا تدعمهم بعد، والقرار يُدخلهم في الإلزام. ولم يتضح أي القولين هو الحال اليوم.",
+    "مقدار timbre de quittance وشروطه في مستندات التحصيل: لم نتحقق منها من مصدر رسمي.",
+    "مصطلحات localTerms (vente en tournée، prévente، commercial terrain، arrêté de caisse): مصطلحات فرنسية تجارية متداولة، لم نتحقق من استعمالها الفعلي لدى الموزعين الإيفواريين.",
+    "قناة «boutiques de quartier» وحصّة التجارة التقليدية من التوزيع: لا مصدر موثوقاً لها في هذا البحث. وtrade.gov يذكر بالإنجليزية «wholesalers, modern retail chains, specialty shops, and local markets» دون لفظ boutique، والمقابلات الفرنسية (grossistes وغيرها) ترجمتنا لا لفظ المصدر.",
+    "مدن توزيع أخرى مثل Bouaké وKorhogo لم تُدرج لغياب مصدر موثوق في هذا البحث.",
+    "هل يعمل إصدار FNE أو RNE دون اتصال (مثلاً على أجهزة TERNE)؟ لم يتضح ذلك من المصادر. ودليل API يشترط اتصالاً مستقراً بالإنترنت.",
+    "XOF بلا كسور عشرية وفق ISO 4217: يلزم التأكد من أن عرض المبالغ في FieldSales يدعم صفر منازل عشرية لهذه العملة."
+  ],
+  "sources": [
+    {"url": "https://www.fne.dgi.gouv.ci/communiques.php", "title": "Portail FNE (DGI) — Liste des communiqués (dernier : 15/09/2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/textes.php", "title": "Portail FNE (DGI) — Textes réglementaires (annexe fiscale 2025 art. 6 ; arrêté n°0337 du 09 mai 2025 ; BODGI 2025)", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/documents/arrete_0337_modalites_fne_2025.pdf", "title": "Arrêté n°0337/MFB/DGI/DLCD/SDL/bke du 09 mai 2025", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/documents/annexe-fiscale.pdf", "title": "Annexe fiscale 2025 — Article 6 (FNE)", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/documents/FNE-procedureapi.pdf", "title": "DGI — Procédure d'interfaçage des entreprises par API (mai 2025)", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/faq.php", "title": "Portail FNE — FAQ", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/facturation.php", "title": "Portail FNE — Processus de génération de la facture", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_6a90297b2bf0b_communique_controle_fne_210826.pdf", "title": "DGI — Communiqué du 21 août 2026 : Opération de contrôle de la FNE", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_6aa92f4c0b766_COMMUNIQUE_MISE_EN_CONFORMITE_FNE.pdf", "title": "DGI — Communiqué du 14 septembre 2026 : Mise en conformité des solutions API", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_69793fb80d317_FIN_DE_L_USAGE_DE_LA_FACT_NOR_PHYSIQUE.pdf", "title": "DGI — Communiqué du 27 janvier 2026 : Fin de la facture normalisée physique et clôture des inscriptions", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_69444094471dc_FIN_DE_L_USAGE_DE_LA_FACT_NOR_PHYSIQUE.pdf", "title": "DGI — Communiqué du 18 décembre 2025 : Fin de la facture normalisée physique", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/COMMUNIQUE%20_COUT_STICKERS_FNE.pdf", "title": "DGI — Communiqué du 15 septembre 2025 : Coût des stickers électroniques", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/documents/entreprises_agrees_FNE.pdf", "title": "DGI — Liste des entreprises agréées FNE 2025-2026", "accessed": "2026-11-11"},
+    {"url": "https://taxsummaries.pwc.com/ivory-coast/corporate/other-taxes", "title": "PwC Worldwide Tax Summaries — Ivory Coast, Other taxes (Last reviewed 09 September 2026)", "accessed": "2026-11-11"},
+    {"url": "https://taxsummaries.pwc.com/ivory-coast/corporate/tax-administration", "title": "PwC Worldwide Tax Summaries — Ivory Coast, Tax administration (Last reviewed 09 September 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml", "title": "ISO 4217 List One (SIX)", "accessed": "2026-11-11"},
+    {"url": "https://www.trade.gov/country-commercial-guides/cote-divoire-distribution-sales-channels", "title": "U.S. ITA — Côte d'Ivoire Distribution & Sales Channels (2026-05-26)", "accessed": "2026-11-11"},
+    {"url": "https://www.trade.gov/country-commercial-guides/cote-divoire-selling-factors-techniques", "title": "U.S. ITA — Côte d'Ivoire Selling Factors & Techniques (2026-05-26)", "accessed": "2026-11-11"},
+    {"url": "https://www.trade.gov/country-commercial-guides/cote-divoire-ecommerce", "title": "U.S. ITA — Côte d'Ivoire eCommerce (2026-05-26)", "accessed": "2026-11-11"},
+    {"url": "https://www.koaci.com/article/2026/09/05/cote-divoire/economie/cote-divoire-facturation-normalisee-electronique-la-fenacci-lance-lon-fne-et-appelle-a-une-veritable-concertation_200226.html", "title": "Koaci (05/09/2026) — La FENACCI lance l'ON-FNE et appelle à une véritable concertation (سياق إعلامي فقط)", "accessed": "2026-11-11"},
+    {"url": "https://www.koaci.com/article/2026/08/30/cote-divoire/societe/cote-divoire-facturation-normalisee-electronique-la-fenacci-exige-la-suspension-des-controles-des-le-1er-septembre-et-rappelle-au-gouvernement-sa-promesse-de-concertation_200026.html", "title": "Koaci (30/08/2026) — La FENACCI exige la suspension des contrôles FNE (سياق إعلامي فقط)", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_689ca778df072_communique_procedure_agrement_editeurs_solution_fne_12_08_25.pdf", "title": "DGI — Communiqué du 12 août 2025 : Procédure d'agrément des éditeurs et intégrateurs de solutions d'interfaçage", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/actualites.php", "title": "Portail FNE — Actualités (dernière : 10/11/2026, rencontre DGI / Direction du Commerce intérieur sur le contrôle FNE)", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/album_galerie.php?id=56", "title": "Portail FNE — Mission d'assistance et de contrôle FNE (27 sept.–7 oct. 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/album_galerie.php?id=57", "title": "Portail FNE — Rencontre DGI / Commerce intérieur (5 nov. 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.fne.dgi.gouv.ci/documents/FNE-Pr%C3%A9sentation.pdf", "title": "DGI — Présentation de la FNE (mars 2025) : champ d'application et 12 cas dispensés ; application mobile FNE et application mobile RNE", "accessed": "2026-11-11"}
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "method": "تدقيق مستقل: أُعيد تنزيل كل وثيقة رسمية من بوابة FNE (لا من نسخ الباحث) وقُرئت نصاً أو صورة، وطوبقت النسبة القياسية والمخفضة مع PwC (Last reviewed 09 Sept 2026)، والعملة مع قائمة ISO 4217 لدى SIX (Pblshd 2026-09-17)، وحُدّثت قراءة قائمتي البلاغات والأخبار في البوابة حتى 10 نوفمبر 2026. نفدت حصة البحث العام في الويب أثناء التدقيق، فلم يُجرَ بحث إعلامي إضافي.",
+    "verifiedUnchanged": [
+      "TVA القياسية 18% والمخفضة 9% وقائمة سلعها — PwC (Last reviewed 09 Sept 2026) ودليل API (TVA 18%، TVAB 9%، TVAC وTVAD 0%)",
+      "اسم الضريبة Taxe sur la valeur ajoutée (TVA) والجهة DGI تحت Ministère de l'Économie, des Finances et du Budget (ترويسة بلاغات 2026)",
+      "FNE إلزامية وسارية اليوم لكل الأنظمة: القرار 0337 (9 مايو 2025) بمواعيده (1 يونيو و1 يوليو و1 أغسطس و1 سبتمبر 2025)، وانتهاء الورق (1 و11 ديسمبر 2025؛ TEE B2B/B2G في 13 فبراير 2026)، وإقفال التسجيل في 31 يناير 2026، والرقابة منذ 1 سبتمبر 2026",
+      "NCC: ثمانية رموز، سبعة أرقام وحرف مفتاح كبير (بلاغ 14 سبتمبر 2026، وتؤكده أرقام NCC في قائمة المعتمدين)",
+      "XOF / CFA Franc BCEAO / 952 / minor units 0",
+      "كلفة الملصقات (بلاغ 15 سبتمبر 2025)، والبيانات الإلزامية والترقيم (المادتان 5 و6)، وحد 5,000 FCFA (المادة 7) مقابل الأسئلة الشائعة"
+    ],
+    "corrections": [
+      {"field": "einvoicing.scopeNow", "before": "الاستثناءات الحصرية في المادة 145 من LPF هي: … ومن لا منشأة له في البلد، وغيرها", "after": "قائمة الإعفاءات الاثني عشر كاملة كما في الأسئلة الشائعة وعرض FNE، بلا «الحصرية … وغيرها» المتناقضة", "source": "https://www.fne.dgi.gouv.ci/faq.php ; https://www.fne.dgi.gouv.ci/documents/FNE-Pr%C3%A9sentation.pdf"},
+      {"field": "einvoicing.scopeNow", "before": "لا ذكر لموعد 22 ديسمبر 2025 لنظام المقاول، فبدا أن TCE لم يُحدَّد له موعد", "after": "TCE وTEE حتى 22 ديسمبر 2025، ثم TEE وحده (B2B/B2G) حتى 13 فبراير 2026", "source": "https://www.fne.dgi.gouv.ci/uploads/communiques/COMMUNIQUE%20MISE%20EN%20OEUVRE%20DE%20LA%20FNE.pdf ; https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_69793fb80d317_FIN_DE_L_USAGE_DE_LA_FACT_NOR_PHYSIQUE.pdf"},
+      {"field": "einvoicing.scopeNow / einvoicing.keyDates", "before": "حملة رقابة منذ 1 سبتمبر 2026، مع شك في تعليقها", "after": "الرقابة مستمرة وفق البوابة الرسمية: بعثات 27 سبتمبر–7 أكتوبر 2026، واجتماع 5 نوفمبر 2026 حول رقابة FNE", "source": "https://www.fne.dgi.gouv.ci/album_galerie.php?id=56 ; https://www.fne.dgi.gouv.ci/album_galerie.php?id=57"},
+      {"field": "einvoicing.keyDates[2026-09-14]", "before": "وإلا عُلّق مفتاح API مؤقتاً", "after": "يتعرّض المخالف بعد المهلة لتعليق مؤقت لمفتاح API («s'exposeront à une suspension temporaire»)، دون إخلال بالعقوبات الضريبية، والمهلة انقضت قرابة 29 أكتوبر 2026", "source": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_6aa92f4c0b766_COMMUNIQUE_MISE_EN_CONFORMITE_FNE.pdf"},
+      {"field": "einvoicing.keyDates", "before": "غياب 2025-05-26 و2025-08-12 و2025-12-22", "after": "أُضيفت: بدء شراء الملصقات والإصدار الرسمي، وإجراء اعتماد المحرّرين (بشرط الإقامة الضريبية في ساحل العاج)، وموعد نظام المقاول", "source": "https://www.fne.dgi.gouv.ci/index.php ; https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_689ca778df072_communique_procedure_agrement_editeurs_solution_fne_12_08_25.pdf"},
+      {"field": "tax.otherRates[TVAD].appliesTo", "before": "ويذكره دليل API لمكلّفي TEE وRME غير الخاضعين لـTVA", "after": "ويقرنه دليل API صراحةً بمكلّفي TEE وRME («TVA exec leg de 0% pour TEE et RME»)", "source": "https://www.fne.dgi.gouv.ci/documents/FNE-procedureapi.pdf"},
+      {"field": "honesty.canSay[1]", "before": "يساعد FieldSales شركات التوزيع في ساحل العاج على إدارة المناديب", "after": "يمكن لشركات التوزيع في ساحل العاج استعمال FieldSales لإدارة المناديب (لا إيحاء بعملاء قائمين هناك)", "source": "قاعدة الصدق في المهمة"},
+      {"field": "honesty.canSay[4]", "before": "الربط مع منصة FNE متاح للدراسة عند الطلب … ويستلزم أن تحصل الشركة العميلة على موافقة DGI", "after": "لا ربط قائماً اليوم، ويمكن دراسته عند الطلب بلا وعد. ويلزم الطرف الخارجي اعتماد éditeur/intégrateur agréé، ومن شروطه الإقامة الضريبية في ساحل العاج، ولم يحصل FieldSales عليه", "source": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_689ca778df072_communique_procedure_agrement_editeurs_solution_fne_12_08_25.pdf ; https://www.fne.dgi.gouv.ci/documents/entreprises_agrees_FNE.pdf"},
+      {"field": "honesty.mustNotSay", "before": "8 بنود", "after": "أُضيفت 3 بنود: لا ربط API نيابة عن العميل ولا إغناء عن موافقة DGI أو الاعتماد؛ لا ادعاء مطابقة لبلاغ 14 سبتمبر 2026؛ لا إيحاء بعملاء أو شريك معتمد أو حضور ضريبي محلي", "source": "قاعدة الصدق في المهمة + بلاغ 12 أغسطس 2025"},
+      {"field": "uncertain[trade.gov]", "before": "trade.gov يذكر grossistes والأسواق المحلية والمتاجر المتخصصة", "after": "trade.gov يذكر «wholesalers, modern retail chains, specialty shops, and local markets»، والمقابلات الفرنسية ترجمتنا", "source": "https://www.trade.gov/country-commercial-guides/cote-divoire-distribution-sales-channels"},
+      {"field": "uncertain", "before": "—", "after": "أُضيف بندان: انقضاء مهلة الـ45 يوماً دون بلاغ عن التطبيق، وحكم المزوّد الأجنبي في الربط دون اعتماد", "source": "بلاغا 14 سبتمبر 2026 و12 أغسطس 2025"},
+      {"field": "currency.sources[0].title", "before": "بلا تاريخ نشر", "after": "Pblshd 2026-09-17", "source": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml"}
+    ],
+    "confidence": "high"
+  }
+}

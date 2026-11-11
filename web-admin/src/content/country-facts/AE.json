@@ -1,0 +1,476 @@
+{
+  "code": "AE",
+  "nameEn": "United Arab Emirates",
+  "pageLanguage": "ar",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "AED",
+    "symbol": "د.إ",
+    "nameEn": "UAE Dirham",
+    "nameLocal": "درهم إماراتي",
+    "minorUnits": 2
+  },
+  "tax": {
+    "nameLocal": "ضريبة القيمة المضافة",
+    "nameEn": "Value Added Tax",
+    "abbr": "VAT",
+    "standardRate": 5,
+    "otherRates": [
+      {
+        "rate": 0,
+        "appliesTo": "النسبة الصفرية (zero-rated): صادرات السلع والخدمات إلى خارج دول مجلس التعاون المطبِّقة للضريبة، والنقل الدولي، وتوريد النفط الخام والغاز الطبيعي، وأول توريد للعقار السكني، وبعض خدمات الرعاية الصحية والتعليم، والمعادن الثمينة الاستثمارية (تفصيلها في المواد 30–41 من اللائحة التنفيذية؛ والتعليم والرعاية الصحية في المادتين 40 و41)."
+      },
+      {
+        "rate": null,
+        "appliesTo": "معفاة (exempt) وليست نسبة صفرية، فلا تُحتسب ضريبة ولا يُسترد ما يقابلها من ضريبة المدخلات: بعض الخدمات المالية، والتوريدات اللاحقة للعقار السكني، والأرض الفضاء (bare land)، والنقل المحلي للركاب (المادة 42 للخدمات المالية والمواد 43–45 لبقية الإعفاءات في اللائحة التنفيذية)."
+      }
+    ],
+    "registrationThreshold": "إلزامي: إذا تجاوزت التوريدات والواردات الخاضعة للضريبة 375,000 درهم خلال الأشهر الـ12 السابقة، أو يُتوقع تجاوزها خلال الـ30 يوماً التالية (ولا ينطبق هذا الحد على الشركات الأجنبية). اختياري: إذا تجاوزت التوريدات والواردات أو المصروفات الخاضعة للضريبة 187,500 درهم.",
+    "authority": "الهيئة الاتحادية للضرائب (Federal Tax Authority – FTA)",
+    "authorityUrl": "https://tax.gov.ae",
+    "sources": [
+      {
+        "url": "https://tax.gov.ae/en/taxes/Vat/vat.topics/registration.for.vat.aspx",
+        "title": "Registration for VAT – Federal Tax Authority (حدّا التسجيل 375,000 و187,500 درهم)",
+        "updated": "2026-04-06",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxsummaries.pwc.com/united-arab-emirates/corporate/other-taxes",
+        "title": "PwC Worldwide Tax Summaries – United Arab Emirates, Corporate – Other taxes (VAT 5%، النسبة الصفرية والإعفاءات)",
+        "updated": "2026-09-09",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://tax.gov.ae/Datafolder/Files/Legislation/2026/Law-No-8-of-2017-and-its-amendments--09-2026.pdf",
+        "title": "Executive Regulation of Federal Decree-Law No. 8 of 2017 on VAT and its amendments (نسخة مجمّعة تشمل قرار مجلس الوزراء 149 لسنة 2026 النافذ من 1 أكتوبر 2026)",
+        "updated": "2026-09",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "taxId": {
+    "label": "TRN – Tax Registration Number (رقم التسجيل الضريبي)",
+    "format": "15 رقماً تصدرها الهيئة الاتحادية للضرائب. وفي الفوترة الإلكترونية يُستعمل TIN (Tax Identification Number) وهو أول 10 أرقام من رقم TRN (تنص قائمة الحقول الإلزامية 1.1 على TRN ضريبة الشركات، وتقول الإرشادات 2.0 «الـTRN الصادر لك» لأي نوع ضريبة)، ومعرّف المشارك في Peppol = الرمز 0235 متبوعاً بالـTIN ذي العشرة أرقام. ومن هو في نطاق الفوترة الإلكترونية وغير ملزم بالتسجيل في ضريبة الشركات يسجّل لدى الهيئة للحصول على TIN.",
+    "sources": [
+      {
+        "url": "https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoice-Mandatory-Field-Requirements.pdf",
+        "title": "UAE Electronic Invoice Mandatory Fields, Version 1.1 – Ministry of Finance",
+        "updated": "2026-10-28",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoicing-Guidelines_En.pdf",
+        "title": "UAE Electronic Invoicing Guidelines, Version 2.0 – Ministry of Finance",
+        "updated": "2026-10-26",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "einvoicing": {
+    "status": "phased-mandatory",
+    "systemName": "نظام الفوترة الإلكترونية (UAE Electronic Invoicing System) – نموذج الزوايا الخمس DCTCE (Decentralized Continuous Transaction Control and Exchange) على شبكة Peppol بمواصفة PINT-AE",
+    "authority": "وزارة المالية (Ministry of Finance) جهة التشريع والاعتماد، والهيئة الاتحادية للضرائب (FTA) هي «الزاوية الخامسة» التي تستقبل البيانات الضريبية؛ ويجري التبادل والإبلاغ حصراً عبر مزوّدي خدمة معتمدين (Accredited Service Providers – ASP) يُختارون ويُربطون عبر منصة EmaraTax.",
+    "model": "real-time-reporting",
+    "scopeNow": "حتى 11 نوفمبر 2026 لا يوجد إلزام نافذ بإصدار فواتير إلكترونية: منذ 1 يوليو 2026 يعمل برنامج تجريبي (Pilot) بدعوة من الوزارة وبموافقة خطية، والتطبيق الاختياري متاح لأي شخص، ولا غرامات على المتطوّع. الالتزام القائم الوحيد الآن: من بلغت إيراداته 50 مليون درهم فأكثر كان عليه تعيين ASP حتى 30 أكتوبر 2026 (انقضى الموعد) ليبدأ إلزامياً في 1 يناير 2027. النطاق عند الإلزام: كل من يمارس أعمالاً في الدولة عن كل معاملة أعمال (B2B وB2G) أياً كان وضع تسجيله في ضريبة القيمة المضافة، وتصدر الفاتورة أو الإشعار الدائن الإلكتروني وتُرسل عبر النظام خلال 14 يوم عمل من تاريخ المعاملة، ويُبلّغ مزوّدا الخدمة الهيئة بالبيانات الضريبية بالتوازي. المستثنى: معاملات المستهلك الفرد (B2C) ومن يتعامل حصراً معه حتى قرار وزاري لاحق، وأعمال الجهات الحكومية السيادية، وتذاكر الطيران الدولية، والخدمات المالية المعفاة أو الصفرية، والشحن الجوي الدولي لـ24 شهراً، ومعاملات أعضاء المجموعة الضريبية الواحدة لـ24 شهراً من 1 يناير 2027. الغرامات (قرار مجلس الوزراء 173 لسنة 2026، أعلنته الوزارة في 30 أكتوبر 2026، ويسري من اليوم التالي لنشره في الجريدة الرسمية) لا تسري على التطبيق الطوعي (المادة 2(2))، وتقول الإرشادات 2.0 إنها لا تُطبّق إلا من تاريخ إلزام الشخص: منها 5,000 درهم لعدم التطبيق أو عدم تعيين ASP ثم 5,000 درهم عن كل شهر استمرار بسقف 50,000 درهم في 12 شهراً، و100 درهم عن كل فاتورة إلكترونية لم تُصدر وتُرسل عبر النظام بسقف 5,000 درهم شهرياً.",
+    "keyDates": [
+      {
+        "date": "2025-09-29",
+        "event": "نشر وزارة المالية القرارين الوزاريين 243 لسنة 2025 (نطاق النظام والتزاماته) و244 لسنة 2025 (مراحل التطبيق)، وسريان قرار مجلس الوزراء 100 لسنة 2025 المعدِّل للمادة 59 من اللائحة التنفيذية (لا فاتورة ضريبية مبسطة لمن يصدر فاتورته إلكترونياً)."
+      },
+      {
+        "date": "2026-05-10",
+        "event": "إعلان القرار الوزاري 66 لسنة 2026: تمديد موعد تعيين ASP للفئة الأولى (إيرادات 50 مليون درهم فأكثر) من 31 يوليو إلى 30 أكتوبر 2026 مع إبقاء الإلزام في 1 يناير 2027."
+      },
+      {
+        "date": "2026-07-01",
+        "event": "انطلاق البرنامج التجريبي (Pilot) وفتح باب التطبيق الاختياري لأي شخص."
+      },
+      {
+        "date": "2026-10-01",
+        "event": "سريان القرار الوزاري 197 لسنة 2026: مهلة الإصدار والإرسال 14 يوم عمل، واستثناء معاملات المجموعة الضريبية 24 شهراً من 1 يناير 2027، وإلغاء شرط تخزين البيانات داخل الدولة، وإلغاء أحكام «تعطل النظام»."
+      },
+      {
+        "date": "2026-10-26",
+        "event": "نشر إرشادات الفوترة الإلكترونية الإصدار 2.0 (وتُبقي الإلزام الأول في 1 يناير 2027)."
+      },
+      {
+        "date": "2026-10-28",
+        "event": "نشر قائمة الحقول الإلزامية للفاتورة الإلكترونية الإصدار 1.1 (51 حقلاً للفاتورة الضريبية)."
+      },
+      {
+        "date": "2026-10-30",
+        "event": "إعلان وزارة المالية قرار مجلس الوزراء 173 لسنة 2026 بالمخالفات والغرامات الإدارية للفوترة الإلكترونية (يحل محل القرار 106 لسنة 2025)؛ يسري من اليوم التالي لنشره في الجريدة الرسمية."
+      },
+      {
+        "date": "2026-10-30",
+        "event": "آخر موعد لتعيين ASP لمن إيراداته 50 مليون درهم فأكثر (انقضى)."
+      },
+      {
+        "date": "2027-01-01",
+        "event": "الإلزام للفئة الأولى: من إيراداته 50 مليون درهم فأكثر."
+      },
+      {
+        "date": "2027-03-31",
+        "event": "آخر موعد لتعيين ASP لمن إيراداته أقل من 50 مليون درهم وللجهات الحكومية."
+      },
+      {
+        "date": "2027-07-01",
+        "event": "الإلزام لمن إيراداته أقل من 50 مليون درهم."
+      },
+      {
+        "date": "2027-10-01",
+        "event": "الإلزام للجهات الحكومية."
+      }
+    ],
+    "b2cReceipts": "معاملات المستهلك الفرد (B2C) خارج نظام الفوترة الإلكترونية حتى يصدر قرار وزاري يحدد موعدها، ومن يتعامل حصراً مع المستهلكين ليس خاضعاً للنظام. يبقى على المسجّل في ضريبة القيمة المضافة إصدار فاتورة ضريبية وتسليمها، ويجوز أن تكون مبسطة إذا كان المستلم غير مسجل (المادة 59(5) من اللائحة التنفيذية) وتُصدر في تاريخ التوريد. لم نجد في المصادر الرسمية التي راجعناها نظام أجهزة ضريبية أو إيصالات مربوطة بالجهة الضريبية.",
+    "sources": [
+      {
+        "url": "https://mof.gov.ae/en/about-us/initiatives/einvoicing/",
+        "title": "UAE Electronic Invoicing – Ministry of Finance (صفحة البرنامج وقائمة القرارات)",
+        "updated": "2026-11-11",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://mof.gov.ae/wp-content/uploads/2025/09/Ministerial-Decision-no.-243-of-2025-on-the-Electronic-Invoicing-System.pdf",
+        "title": "Ministerial Decision No. 243 of 2025 on the Electronic Invoicing System",
+        "updated": "2025-09",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://mof.gov.ae/wp-content/uploads/2025/09/Ministerial-Decision-No.-244-of-2025-on-the-Implementation-of-the-Electronic-Invoicing-System.pdf",
+        "title": "Ministerial Decision No. 244 of 2025 on the Implementation of the Electronic Invoicing System",
+        "updated": "2025-09",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://mof.gov.ae/wp-content/uploads/2026/05/Ministerial-Resolution-No.-66-of-2026-Amending-Certain-Provisions-of-Ministerial-Resolution-No.-244-of-2025-Regarding-the-Implementation-of-the-Electronic-Invoicing-System-En-20260514.pdf",
+        "title": "Ministerial Decision No. 66 of 2026 amending MD 244 of 2025 (ASP appointment by 30 October 2026)",
+        "updated": "2026-05-14",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://mof.gov.ae/wp-content/uploads/2026/10/Ministerial-Decision-No.-197-of-2026-%E2%80%93-Amending-Certain-Provisions-of-Ministerial-Decision-No.-243-of-2025-on-the-Electronic-Invoicing-System_En.pdf",
+        "title": "Ministerial Decision No. 197 of 2026 amending MD 243 of 2025 (in force 1 October 2026)",
+        "updated": "2026-10",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://mof.gov.ae/wp-content/uploads/2026/10/Cabinet-Decision-No.-173-of-2026-On-the-Violations-and-Administrative-Penalties-Resulting-from-Violation-of-the-Legislation-Regulating-the-Electronic-Invoicing-System_En.pdf",
+        "title": "Cabinet Decision No. 173 of 2026 on eInvoicing violations and administrative penalties",
+        "updated": "2026-10",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoicing-Guidelines_En.pdf",
+        "title": "UAE Electronic Invoicing Guidelines, Version 2.0 (نموذج الزوايا الخمس، النطاق، المراحل)",
+        "updated": "2026-10-26",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://mof.gov.ae/en/news/ministry-of-finance-announces-targeted-amendments-to-einvoicing-system-decisions/",
+        "title": "Ministry of Finance announces targeted amendments to eInvoicing system decisions",
+        "updated": "2026-05-10",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://mof.gov.ae/en/news/ministry-of-finance-amends-electronic-invoicing-regulations-to-ease-the-burden-on-businesses/",
+        "title": "Ministry of Finance amends electronic invoicing regulations to ease the burden on businesses",
+        "updated": "2026-10-19",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxnews.ey.com/news/2025-1964-uae-ministry-of-finance-publishes-ministerial-decisions-on-e-invoicing",
+        "title": "EY Tax News – UAE Ministry of Finance publishes Ministerial Decisions on e-invoicing",
+        "updated": "2025-09-30",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.deloitte.com/middle-east/en/services/tax/perspectives/uae-e-invoicing-asp-appointment-deadline-extended-but-go-live-remains-01012027.html",
+        "title": "Deloitte – UAE e-invoicing: ASP appointment deadline extended, but go-live remains 1 January 2027",
+        "updated": null,
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://mof.gov.ae/en/news/mof-announces-updated-administrative-penalties-related-to-the-uae-einvoicing-system-to-enhance-clarity-and-support-business-compliance/",
+        "title": "MoF Announces Updated Administrative Penalties Related to the UAE eInvoicing System (إعلان قرار مجلس الوزراء 173 لسنة 2026)",
+        "updated": "2026-10-30",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "invoiceRequirements": [
+    "عبارة \"Tax Invoice\" (فاتورة ضريبية) ظاهرة بوضوح على الفاتورة.",
+    "اسم المورد المسجّل وعنوانه ورقم تسجيله الضريبي TRN.",
+    "اسم المستلم وعنوانه ورقم تسجيله الضريبي TRN إن كان مسجلاً.",
+    "رقم فاتورة تسلسلي أو رقم فريد يحدد الفاتورة وترتيبها في التسلسل.",
+    "تاريخ إصدار الفاتورة، وتاريخ التوريد إن اختلف عنه.",
+    "وصف السلع أو الخدمات المورَّدة.",
+    "لكل سلعة أو خدمة: سعر الوحدة، والكمية أو الحجم، ونسبة الضريبة، والمبلغ المستحق بالدرهم الإماراتي.",
+    "مبلغ أي خصم مقدَّم.",
+    "إجمالي المبلغ المستحق بالدرهم الإماراتي.",
+    "مبلغ الضريبة بالدرهم الإماراتي، مع سعر الصرف المطبَّق إذا صدرت الفاتورة بعملة أخرى؛ والتقريب على مستوى السطر لأقرب فلس.",
+    "في التوريدات الخاضعة للاحتساب العكسي: عبارة تفيد أن المستلم ملزم باحتساب الضريبة مع الإشارة إلى المادة ذات الصلة من المرسوم بقانون.",
+    "الفاتورة الضريبية المبسطة (المادة 59(2)): عبارة \"Tax Invoice\"، واسم المورد وعنوانه وTRN، وتاريخ الإصدار، والوصف، وإجمالي المقابل ومبلغ الضريبة بالدرهم؛ وتجوز إذا كان المستلم غير مسجل، أو مسجلاً والمقابل لا يتجاوز 10,000 درهم، وتُصدر في تاريخ التوريد. ولا تجوز لمن يصدر فاتورته الضريبية فاتورةً إلكترونية إلزاماً أو اختياراً (المادة 59(16)).",
+    "مهلة الإصدار: الفاتورة الضريبية الكاملة خلال 14 يوماً من تاريخ التوريد، والفاتورة الملخصة لعدة توريدات للشخص نفسه خلال 14 يوماً من نهاية الشهر.",
+    "بعد بدء الإلزام: الفاتورة الإلكترونية بصيغة XML وفق مواصفة PINT-AE، وتضم 51 حقلاً إلزامياً للفاتورة الضريبية، منها: رمز نوع الفاتورة، ورمز نوع المعاملة بثماني رايات (منطقة حرة، توريد مفترض، نظام الهامش، فاتورة ملخصة، توريد مستمر، فوترة وكيل مُفصَح عنه، تجارة إلكترونية، صادرات)، والعنوان الإلكتروني للبائع والمشتري (TIN بالرمز 0235)، ومعرّف التسجيل القانوني ونوعه (TL رخصة تجارية، EID هوية إماراتية، PAS جواز سفر، CD قرار مجلس وزراء)، وضريبة كل سطر ومبلغه بالدرهم؛ وتُصدر وتُرسل عبر النظام خلال 14 يوم عمل من تاريخ المعاملة."
+  ],
+  "distribution": {
+    "hubs": [
+      "دبي (ميناء جبل علي والمنطقة الحرة JAFZA)",
+      "أبوظبي (ميناء خليفة ومنطقة KIZAD الصناعية)",
+      "الشارقة (المنطقة الحرة بالحمرية والمناطق الصناعية)",
+      "عجمان ورأس الخيمة والفجيرة (الإمارات الشمالية)"
+    ],
+    "tradeChannels": [
+      "سوبرماركت وهايبرماركت السلاسل الكبرى (Carrefour، Lulu، Nesto، Spinneys)",
+      "الجمعيات التعاونية (Cooperatives)",
+      "بقالة (Baqala) وسوبرماركت الفئة C (C-class supermarkets & groceries)",
+      "تجار الجملة (Wholesale)",
+      "متاجر المولات (Shopping mall stores)"
+    ],
+    "localTerms": {
+      "vanSales": "Van sales / البيع بالسيارة (مبيعات الفان)",
+      "preSales": "Pre-sales / order booking – أخذ الطلبيات",
+      "salesRep": "Salesman / مندوب مبيعات",
+      "retailShop": "بقالة (Baqala) / Grocery",
+      "routeAccounting": "Route settlement / تسوية المندوب نهاية اليوم"
+    },
+    "collectionMethods": [
+      "نقد (كثير من المنشآت الصغيرة تقبل النقد وحده)",
+      "شيكات (أداة رئيسية في المبالغ الكبيرة وتُقاص رقمياً في اليوم نفسه)",
+      "تحويل بنكي عبر نظام UAEFTS برقم IBAN",
+      "بطاقات Visa وMastercard",
+      "محافظ رقمية (Apple Pay، Google Pay، Samsung Pay)"
+    ],
+    "notes": "وفق دليل trade.gov التجاري (أغسطس 2025) تستحوذ السوبرماركت على الحصة الأكبر من مبيعات التجزئة، تليها الجملة ثم متاجر المولات ثم سوبرماركت الفئة C والبقالات، ويجري التوزيع غالباً عبر موزع أو وكيل تجاري محلي لكل الدولة أو لإمارات بعينها بموجب قانون الوكالات التجارية (القانون الاتحادي 18 لسنة 1981 كما يذكره الدليل). أثر الفوترة الإلكترونية على البيع من السيارة: البيع لبقالة أو مطعم أو كافتيريا معاملة بين أعمال (B2B) تدخل النطاق مهما كان وضع المشتري الضريبي، فعند بدء إلزام المورّد (1 يناير 2027 لمن إيراده 50 مليون درهم فأكثر، و1 يوليو 2027 لغيره) يلزم إصدار الفاتورة الإلكترونية وإرسالها عبر مزوّد الخدمة المعتمد خلال 14 يوم عمل، وتسقط إمكانية الفاتورة المبسطة لهذه المبيعات، وتُصدر الإشعارات الدائنة الإلكترونية للمرتجعات والخصومات والإلغاء. البيع للمستهلك الفرد مستثنى حتى إشعار آخر."
+  },
+  "honesty": {
+    "canSay": [
+      "يضبط عميل FieldSales العملة على الدرهم الإماراتي (AED) ونسبة ضريبة القيمة المضافة على 5٪ بنفسه من الإعدادات.",
+      "يساعد FieldSales الموزعين في الإمارات على إدارة مناديب البيع من السيارة (Van sales) وأخذ الطلبيات وتسجيل التحصيل بطرق الدفع التي تحددها الشركة.",
+      "الربط الحكومي الحيّ للفوترة في FieldSales اليوم هو مع ZATCA في السعودية وحدها؛ ولا يوجد اليوم أي ربط بين FieldSales ومنظومة الفوترة الإلكترونية الإماراتية، وبحثه متاح عند الطلب بلا وعد بموعد أو نطاق.",
+      "وفق الجدول الذي أعلنته وزارة المالية حتى 11 نوفمبر 2026 (القرار الوزاري 244 لسنة 2025 وتعديله بالقرار 66 لسنة 2026): الفوترة الإلكترونية الإماراتية ليست إلزامية بعد؛ تبدأ إلزامياً في 1 يناير 2027 لمن تبلغ إيراداته 50 مليون درهم فأكثر، وفي 1 يوليو 2027 لمن دونه، وفي 1 أكتوبر 2027 للجهات الحكومية.",
+      "في النموذج الإماراتي يجري تبادل الفواتير الإلكترونية والإبلاغ عنها حصراً عبر مزوّدي خدمة معتمدين من وزارة المالية (ASP)، واختيار المزوّد قرار يتخذه الموزّع بنفسه.",
+      "مبيعات الموزع للبقالات والمطاعم معاملات بين أعمال (B2B) ستدخل نطاق الفوترة الإلكترونية، أما البيع للمستهلك الفرد فمستثنى حتى إشعار آخر."
+    ],
+    "mustNotSay": [
+      "أن FieldSales مرتبط أو متكامل مع منظومة الفوترة الإلكترونية الإماراتية أو مع الهيئة الاتحادية للضرائب أو منصة EmaraTax أو شبكة Peppol.",
+      "أن FieldSales مزوّد خدمة معتمد (ASP) أو نقطة وصول Peppol (Access Point) أو معتمد من وزارة المالية أو من الهيئة الاتحادية للضرائب.",
+      "أن FieldSales متوافق مع PINT-AE أو جاهز للفوترة الإلكترونية الإماراتية 2027 أو يضمن الامتثال لها، أو أنه يغني عن تعيين مزوّد خدمة معتمد.",
+      "أن الفوترة الإلكترونية إلزامية الآن في الإمارات؛ فهي حتى 11 نوفمبر 2026 تجريبية واختيارية فقط.",
+      "أن ربط ZATCA أو رمز QR السعودي أو «المرحلة الثانية» يسري على الإمارات، أو أن النموذج الإماراتي نظام مقاصّة بموافقة مسبقة مثل «فاتورة».",
+      "أن الفاتورة المبسطة تكفي لمبيعات الجملة للبقالات بعد بدء إلزام المورّد بالفوترة الإلكترونية.",
+      "أن الفوترة الإلكترونية الإماراتية تشمل حالياً فواتير المستهلك الفرد (B2C).",
+      "أن نسبة ضريبة القيمة المضافة في الإمارات 15٪ (هذه نسبة السعودية)، أو أي عدد لمزوّدي الخدمة المعتمدين لم يُؤخذ من قائمة وزارة المالية لحظة النشر.",
+      "أن FieldSales يُصدر «فواتير إلكترونية» بالمعنى الإماراتي، أو أن فواتيره بصيغة PDF أو المطبوعة أو المرسلة بالبريد تُعدّ فواتير إلكترونية (تنص وزارة المالية على أن ملفات PDF وWord والصور والنسخ الممسوحة والبريد ليست فواتير إلكترونية).",
+      "أن FieldSales «برنامج محاسبي ضريبي معتمد» لدى الهيئة الاتحادية للضرائب، أو أنه يقدّم إقرارات ضريبة القيمة المضافة أو يرفعها إلى EmaraTax نيابةً عن العميل.",
+      "أي شراكة أو تكامل جاهز بين FieldSales ومزوّد خدمة معتمد (ASP) بعينه، أو تسمية مزوّد على أنه شريك.",
+      "أن FieldSales يقي العميل من غرامات الفوترة الإلكترونية (قرار مجلس الوزراء 173 لسنة 2026) أو من غرامات الفاتورة الضريبية."
+    ]
+  },
+  "uncertain": [
+    "موعد تعيين ASP للفئة الأولى: نص القرار الوزاري 66 لسنة 2026 يقول 30 أكتوبر 2026، بينما جدول الإرشادات الإصدار 2.0 (26 أكتوبر 2026) يقول 31 أكتوبر 2026؛ اعتمدنا نص القرار. والموعد انقضى على أي حال.",
+    "لا تمديد جديد بعد 30 أكتوبر 2026 فيما تحققنا منه: صفحة الفوترة الإلكترونية لوزارة المالية (آخر تحديث 11 نوفمبر 2026) لا تذكر قراراً للمراحل بعد القرار 66 لسنة 2026، والإرشادات 2.0 (26 أكتوبر 2026) تُبقي 1 يناير 2027، وأخبار الوزارة حتى 6 نوفمبر 2026 بلا تمديد. لكن المدقّق لم يستطع إجراء بحث إخباري مستقل إضافي (نفدت حصة البحث)؛ يُعاد التحقق قبل النشر.",
+    "عدد مزوّدي الخدمة المعتمدين: أعلنت الوزارة 32 مزوّداً في 10 مايو 2026، وتذكر مصادر ثانوية 79–83 في أواخر أكتوبر وأوائل نوفمبر 2026؛ لم نتحقق من القائمة الرسمية، فلا يُذكر رقم.",
+    "قرار مجلس الوزراء 173 لسنة 2026: المبالغ مطابقة لنصه المنشور على موقع وزارة المالية، وتاريخ إعلانه 30 أكتوبر 2026 ثابت من خبر الوزارة؛ أما تاريخ نشره في الجريدة الرسمية (ومنه السريان في اليوم التالي) فلم نتحقق منه.",
+    "حقل model: النموذج الإماراتي DCTCE لامركزي بلا موافقة مسبقة، يُبلَّغ فيه مزوّدا الخدمة الهيئة بالبيانات الضريبية بالتوازي مع التبادل (تصفه الإرشادات بشبه لحظي)، فاخترنا real-time-reporting أقرب قيم المخطط؛ وتوقيت الإبلاغ للهيئة «وفق ما يحدده الوزير» (المادة 6(6) من القرار 243) ولم نجد له مهلة رقمية مستقلة.",
+    "رمز العملة: استعملنا «د.إ» الشائع؛ ولم نتحقق من رمز الدرهم الجديد الذي أعلنه المصرف المركزي ولا من دعمه في Unicode والخطوط.",
+    "عدم وجود أجهزة ضريبية أو نظام إيصالات مربوط بالهيئة لمبيعات B2C استنتاج من غياب ذكرها في المصادر الرسمية المراجَعة، لا من نص صريح.",
+    "المصطلحات المحلية (Van sales، Pre-sales/order booking، Salesman، Route settlement، بقالة) استعمال شائع في قطاع التوزيع الإماراتي، لكن لم نجد لها مصدراً رسمياً أو مهنياً.",
+    "الشيكات المؤجلة (Post-dated cheques) شائعة في التحصيل التجاري بالإمارات لكن لم نجد مصدراً موثوقاً يؤكدها فلم ندرجها؛ ويذكر دليل trade.gov أن الشيك المرتجع جريمة جنائية عادة، وهذا يبدو قديماً بعد تعديلات قانون المعاملات التجارية، فلم نعتمده.",
+    "مراكز التوزيع: دبي وأبوظبي والشارقة ومناطقها الحرة من دليل trade.gov؛ أما عجمان ورأس الخيمة والفجيرة فمن المعرفة الجغرافية العامة لا من مصدر توزيع متخصص.",
+    "قائمة الإعفاءات والنسبة الصفرية مأخوذة من ملخص PwC (آخر مراجعة 9 سبتمبر 2026) ومطابَقة مع عناوين المواد 30–45 من اللائحة التنفيذية المجمّعة، ولم تُطابق بنداً بنداً مع المادتين 45 و46 من المرسوم بقانون (ومنها النفط الخام والغاز الطبيعي الوارد في ملخص PwC لا في عناوين اللائحة).",
+    "قرار مجلس الوزراء 149 لسنة 2026 (نافذ من 1 أكتوبر 2026) عدّل بنوداً في اللائحة التنفيذية لضريبة القيمة المضافة؛ لم نراجع كل تعديلاته، والنسبة الأساسية 5٪ لم تتغير في 2026 وفق PwC والهيئة.",
+    "غرامة عدم تعيين ASP قبل الإلزام: يذكر بند المخالفة 1(أ) في القرار 173 «عدم تعيين مزوّد خدمة معتمد»، والموعد للفئة الأولى انقضى في 30 أكتوبر 2026، بينما تقول الإرشادات 2.0 إن الغرامات لا تُطبّق إلا من تاريخ الإلزام (1 يناير 2027). لم نجد نصاً صريحاً يحسم هل تُفرض الغرامة عن الفترة بين 30 أكتوبر و1 يناير؛ فلا يُذكر ذلك على الصفحة.",
+    "تعريف TIN: الإرشادات 2.0 (26 أكتوبر 2026) تقول أول 10 أرقام من «الـTRN الصادر لك» لأي نوع ضريبة، وقائمة الحقول الإلزامية 1.1 (28 أكتوبر 2026) تقول أول 10 أرقام من TRN ضريبة الشركات؛ يُفضّل في الصفحة الاكتفاء بـ«أول 10 أرقام من رقم التسجيل الضريبي TRN»."
+  ],
+  "sources": [
+    {
+      "url": "https://tax.gov.ae/en/taxes/Vat/vat.topics/registration.for.vat.aspx",
+      "title": "Registration for VAT – Federal Tax Authority",
+      "updated": "2026-04-06",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://tax.gov.ae/Datafolder/Files/Legislation/2026/Law-No-8-of-2017-and-its-amendments--09-2026.pdf",
+      "title": "Executive Regulation of Federal Decree-Law No. 8 of 2017 on VAT and its amendments – Article 59 (Tax invoices)",
+      "updated": "2026-09",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://tax.gov.ae/DataFolder/Files/Pdf/06-Tax-Invoices.pdf",
+      "title": "FTA VAT Public Clarification VATP006 – Tax Invoices (الفاتورة المبسطة، العملة الأجنبية، التقريب لأقرب فلس)",
+      "updated": null,
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxsummaries.pwc.com/united-arab-emirates/corporate/other-taxes",
+      "title": "PwC Worldwide Tax Summaries – United Arab Emirates, Corporate – Other taxes",
+      "updated": "2026-09-09",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://mof.gov.ae/en/about-us/initiatives/einvoicing/",
+      "title": "UAE Electronic Invoicing – Ministry of Finance",
+      "updated": "2026-11-11",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://mof.gov.ae/wp-content/uploads/2025/09/Ministerial-Decision-no.-243-of-2025-on-the-Electronic-Invoicing-System.pdf",
+      "title": "Ministerial Decision No. 243 of 2025 on the Electronic Invoicing System",
+      "updated": "2025-09",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://mof.gov.ae/wp-content/uploads/2025/09/Ministerial-Decision-No.-244-of-2025-on-the-Implementation-of-the-Electronic-Invoicing-System.pdf",
+      "title": "Ministerial Decision No. 244 of 2025 on the Implementation of the Electronic Invoicing System",
+      "updated": "2025-09",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://mof.gov.ae/wp-content/uploads/2026/05/Ministerial-Resolution-No.-66-of-2026-Amending-Certain-Provisions-of-Ministerial-Resolution-No.-244-of-2025-Regarding-the-Implementation-of-the-Electronic-Invoicing-System-En-20260514.pdf",
+      "title": "Ministerial Decision No. 66 of 2026 amending MD 244 of 2025",
+      "updated": "2026-05-14",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://mof.gov.ae/wp-content/uploads/2026/10/Ministerial-Decision-No.-197-of-2026-%E2%80%93-Amending-Certain-Provisions-of-Ministerial-Decision-No.-243-of-2025-on-the-Electronic-Invoicing-System_En.pdf",
+      "title": "Ministerial Decision No. 197 of 2026 amending MD 243 of 2025",
+      "updated": "2026-10",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://mof.gov.ae/wp-content/uploads/2026/10/Cabinet-Decision-No.-173-of-2026-On-the-Violations-and-Administrative-Penalties-Resulting-from-Violation-of-the-Legislation-Regulating-the-Electronic-Invoicing-System_En.pdf",
+      "title": "Cabinet Decision No. 173 of 2026 on eInvoicing violations and administrative penalties",
+      "updated": "2026-10",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoicing-Guidelines_En.pdf",
+      "title": "UAE Electronic Invoicing Guidelines, Version 2.0",
+      "updated": "2026-10-26",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoice-Mandatory-Field-Requirements.pdf",
+      "title": "UAE Electronic Invoice Mandatory Fields, Version 1.1",
+      "updated": "2026-10-28",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://mof.gov.ae/en/news/ministry-of-finance-announces-targeted-amendments-to-einvoicing-system-decisions/",
+      "title": "MoF announces targeted amendments to eInvoicing system decisions",
+      "updated": "2026-05-10",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://mof.gov.ae/en/news/ministry-of-finance-amends-electronic-invoicing-regulations-to-ease-the-burden-on-businesses/",
+      "title": "MoF amends electronic invoicing regulations to ease the burden on businesses",
+      "updated": "2026-10-19",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxnews.ey.com/news/2025-1964-uae-ministry-of-finance-publishes-ministerial-decisions-on-e-invoicing",
+      "title": "EY Tax News – UAE Ministry of Finance publishes Ministerial Decisions on e-invoicing",
+      "updated": "2025-09-30",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.deloitte.com/middle-east/en/services/tax/perspectives/uae-e-invoicing-asp-appointment-deadline-extended-but-go-live-remains-01012027.html",
+      "title": "Deloitte – UAE e-invoicing: ASP appointment deadline extended, but go-live remains 1 January 2027",
+      "updated": null,
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.trade.gov/country-commercial-guides/united-arab-emirates-distribution-sales-channels",
+      "title": "U.S. ITA Country Commercial Guide – UAE: Distribution and Sales Channels",
+      "updated": "2025-08-26",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.trade.gov/country-commercial-guides/united-arab-emirates-trade-financing",
+      "title": "U.S. ITA Country Commercial Guide – UAE: Trade Financing (methods of payment)",
+      "updated": "2025-08-25",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://mof.gov.ae/en/news/mof-announces-updated-administrative-penalties-related-to-the-uae-einvoicing-system-to-enhance-clarity-and-support-business-compliance/",
+      "title": "MoF Announces Updated Administrative Penalties Related to the UAE eInvoicing System (إعلان قرار مجلس الوزراء 173 لسنة 2026)",
+      "updated": "2026-10-30",
+      "accessed": "2026-11-11"
+    }
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "corrections": [
+      {
+        "field": "tax.otherRates[0].appliesTo",
+        "before": "(المواد 30–38 من اللائحة التنفيذية)",
+        "after": "(تفصيلها في المواد 30–41 من اللائحة التنفيذية؛ والتعليم والرعاية الصحية في المادتين 40 و41)",
+        "source": "https://tax.gov.ae/Datafolder/Files/Legislation/2026/Law-No-8-of-2017-and-its-amendments--09-2026.pdf (عناوين المواد 30–45 من اللائحة التنفيذية المجمّعة حتى قرار مجلس الوزراء 149 لسنة 2026)"
+      },
+      {
+        "field": "tax.otherRates[1].appliesTo",
+        "before": "بلا إحالة إلى مواد اللائحة",
+        "after": "إضافة الإحالة: المادة 42 والمواد 43–45 من اللائحة التنفيذية",
+        "source": "https://tax.gov.ae/Datafolder/Files/Legislation/2026/Law-No-8-of-2017-and-its-amendments--09-2026.pdf (عناوين المواد 30–45 من اللائحة التنفيذية المجمّعة حتى قرار مجلس الوزراء 149 لسنة 2026)"
+      },
+      {
+        "field": "taxId.format",
+        "before": "وهو أول 10 أرقام من TRN ضريبة الشركات",
+        "after": "وهو أول 10 أرقام من رقم TRN (تنص قائمة الحقول الإلزامية 1.1 على TRN ضريبة الشركات، وتقول الإرشادات 2.0 «الـTRN الصادر لك» لأي نوع ضريبة)",
+        "source": "https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoice-Mandatory-Field-Requirements.pdf (الإصدار 1.1، 28 أكتوبر 2026) ؛ https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoicing-Guidelines_En.pdf (الإصدار 2.0، 26 أكتوبر 2026)"
+      },
+      {
+        "field": "einvoicing.scopeNow",
+        "before": "الغرامات (قرار مجلس الوزراء 173 لسنة 2026) تبدأ من تاريخ الإلزام: منها",
+        "after": "الغرامات (قرار مجلس الوزراء 173 لسنة 2026، أعلنته الوزارة في 30 أكتوبر 2026، ويسري من اليوم التالي لنشره في الجريدة الرسمية) لا تسري على التطبيق الطوعي (المادة 2(2))، وتقول الإرشادات 2.0 إنها لا تُطبّق إلا من تاريخ إلزام الشخص: منها",
+        "source": "https://mof.gov.ae/wp-content/uploads/2026/10/Cabinet-Decision-No.-173-of-2026-On-the-Violations-and-Administrative-Penalties-Resulting-from-Violation-of-the-Legislation-Regulating-the-Electronic-Invoicing-System_En.pdf ؛ https://mof.gov.ae/en/news/mof-announces-updated-administrative-penalties-related-to-the-uae-einvoicing-system-to-enhance-clarity-and-support-business-compliance/ ؛ https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoicing-Guidelines_En.pdf (الإصدار 2.0، 26 أكتوبر 2026) (البند 8.2 والفصل 11)"
+      },
+      {
+        "field": "einvoicing.keyDates[date=2026-10]",
+        "before": "{\"date\":\"2026-10\",\"event\":\"صدور قرار مجلس الوزراء 173 لسنة 2026 بالمخالفات والغرامات الإدارية للفوترة الإلكترونية (يحل محل القرار 106 لسنة 2025)، ونشر الإرشادات الإصدار 2.0 (26 أكتوبر) وقائمة الحقول الإلزامية الإصدار 1.1 (28 أكتوبر).\"}",
+        "after": "[{\"date\":\"2026-10-26\",\"event\":\"نشر إرشادات الفوترة الإلكترونية الإصدار 2.0 (وتُبقي الإلزام الأول في 1 يناير 2027).\"},{\"date\":\"2026-10-28\",\"event\":\"نشر قائمة الحقول الإلزامية للفاتورة الإلكترونية الإصدار 1.1 (51 حقلاً للفاتورة الضريبية).\"},{\"date\":\"2026-10-30\",\"event\":\"إعلان وزارة المالية قرار مجلس الوزراء 173 لسنة 2026 بالمخالفات والغرامات الإدارية للفوترة الإلكترونية (يحل محل القرار 106 لسنة 2025)؛ يسري من اليوم التالي لنشره في الجريدة الرسمية.\"}]",
+        "source": "https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoicing-Guidelines_En.pdf (الإصدار 2.0، 26 أكتوبر 2026) ؛ https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoice-Mandatory-Field-Requirements.pdf (الإصدار 1.1، 28 أكتوبر 2026) ؛ https://mof.gov.ae/en/news/mof-announces-updated-administrative-penalties-related-to-the-uae-einvoicing-system-to-enhance-clarity-and-support-business-compliance/"
+      },
+      {
+        "field": "honesty.canSay[2]",
+        "before": "الربط الحكومي الحيّ للفوترة في FieldSales اليوم هو مع ZATCA في السعودية وحدها؛ أما الإمارات فالتكامل مع منظومة الفوترة الإلكترونية عبر مزوّد خدمة معتمد (ASP) متاح عند الطلب، بلا وعد بموعد.",
+        "after": "الربط الحكومي الحيّ للفوترة في FieldSales اليوم هو مع ZATCA في السعودية وحدها؛ ولا يوجد اليوم أي ربط بين FieldSales ومنظومة الفوترة الإلكترونية الإماراتية، وبحثه متاح عند الطلب بلا وعد بموعد أو نطاق.",
+        "source": "قواعد صدق المنصة: الربط الحكومي حيّ في السعودية وحدها، وفي غيرها «متاح عند الطلب» بلا وعد"
+      },
+      {
+        "field": "honesty.canSay[3]",
+        "before": "الفوترة الإلكترونية الإماراتية ليست إلزامية بعد: تبدأ إلزامياً في 1 يناير 2027 لمن تبلغ إيراداته 50 مليون درهم فأكثر، وفي 1 يوليو 2027 لمن دونه، وفي 1 أكتوبر 2027 للجهات الحكومية.",
+        "after": "وفق الجدول الذي أعلنته وزارة المالية حتى 11 نوفمبر 2026 (القرار الوزاري 244 لسنة 2025 وتعديله بالقرار 66 لسنة 2026): الفوترة الإلكترونية الإماراتية ليست إلزامية بعد؛ تبدأ إلزامياً في 1 يناير 2027 لمن تبلغ إيراداته 50 مليون درهم فأكثر، وفي 1 يوليو 2027 لمن دونه، وفي 1 أكتوبر 2027 للجهات الحكومية.",
+        "source": "https://mof.gov.ae/wp-content/uploads/2025/09/Ministerial-Decision-No.-244-of-2025-on-the-Implementation-of-the-Electronic-Invoicing-System.pdf ؛ https://mof.gov.ae/wp-content/uploads/2026/05/Ministerial-Resolution-No.-66-of-2026-Amending-Certain-Provisions-of-Ministerial-Resolution-No.-244-of-2025-Regarding-the-Implementation-of-the-Electronic-Invoicing-System-En-20260514.pdf"
+      },
+      {
+        "field": "honesty.mustNotSay",
+        "before": "8 بنود",
+        "after": "12 بنداً: أُضيف منع ادعاء إصدار فواتير إلكترونية إماراتية/PDF، واعتماد البرنامج المحاسبي لدى الهيئة، والشراكة مع ASP، والوقاية من الغرامات",
+        "source": "https://mof.gov.ae/en/about-us/initiatives/einvoicing/ (تعريف الفاتورة الإلكترونية: PDF والصور والبريد ليست فواتير إلكترونية)"
+      },
+      {
+        "field": "uncertain[تمديد]",
+        "before": "لم نجد حتى 11 نوفمبر 2026 أي تمديد جديد بعد 30 أكتوبر 2026، لكن ميزانية البحث نفدت قبل استقصاء الأخبار بعد هذا التاريخ استقصاءً كاملاً؛ يُعاد التحقق من صفحة وزارة المالية قبل النشر.",
+        "after": "لا تمديد جديد بعد 30 أكتوبر 2026 فيما تحققنا منه: صفحة الفوترة الإلكترونية لوزارة المالية (آخر تحديث 11 نوفمبر 2026) لا تذكر قراراً للمراحل بعد القرار 66 لسنة 2026، والإرشادات 2.0 (26 أكتوبر 2026) تُبقي 1 يناير 2027، وأخبار الوزارة حتى 6 نوفمبر 2026 بلا تمديد. لكن المدقّق لم يستطع إجراء بحث إخباري مستقل إضافي (نفدت حصة البحث)؛ يُعاد التحقق قبل النشر.",
+        "source": "https://mof.gov.ae/en/about-us/initiatives/einvoicing/ ؛ https://mof.gov.ae/en/news/ ؛ https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoicing-Guidelines_En.pdf (الإصدار 2.0، 26 أكتوبر 2026)"
+      },
+      {
+        "field": "uncertain[CD173]",
+        "before": "قرار مجلس الوزراء 173 لسنة 2026: المبالغ مأخوذة من نصه المنشور على موقع وزارة المالية، لكن تاريخ إعلانه (30 أكتوبر 2026 وفق تقارير ثانوية تنقل عن وام) وتاريخ نشره في الجريدة الرسمية وسريانه (اليوم التالي للنشر) لم نتحقق منهما مباشرة.",
+        "after": "قرار مجلس الوزراء 173 لسنة 2026: المبالغ مطابقة لنصه المنشور على موقع وزارة المالية، وتاريخ إعلانه 30 أكتوبر 2026 ثابت من خبر الوزارة؛ أما تاريخ نشره في الجريدة الرسمية (ومنه السريان في اليوم التالي) فلم نتحقق منه.",
+        "source": "https://mof.gov.ae/en/news/mof-announces-updated-administrative-penalties-related-to-the-uae-einvoicing-system-to-enhance-clarity-and-support-business-compliance/ ؛ https://mof.gov.ae/wp-content/uploads/2026/10/Cabinet-Decision-No.-173-of-2026-On-the-Violations-and-Administrative-Penalties-Resulting-from-Violation-of-the-Legislation-Regulating-the-Electronic-Invoicing-System_En.pdf"
+      },
+      {
+        "field": "uncertain[قائمة الإعفاءات]",
+        "before": "قائمة الإعفاءات والنسبة الصفرية مأخوذة من ملخص PwC (آخر مراجعة 9 سبتمبر 2026) ومن عناوين المواد 30–38 في اللائحة التنفيذية، ولم تُطابق بنداً بنداً مع المادتين 45 و46 من المرسوم بقانون.",
+        "after": "قائمة الإعفاءات والنسبة الصفرية مأخوذة من ملخص PwC (آخر مراجعة 9 سبتمبر 2026) ومطابَقة مع عناوين المواد 30–45 من اللائحة التنفيذية المجمّعة، ولم تُطابق بنداً بنداً مع المادتين 45 و46 من المرسوم بقانون (ومنها النفط الخام والغاز الطبيعي الوارد في ملخص PwC لا في عناوين اللائحة).",
+        "source": "https://tax.gov.ae/Datafolder/Files/Legislation/2026/Law-No-8-of-2017-and-its-amendments--09-2026.pdf (عناوين المواد 30–45 من اللائحة التنفيذية المجمّعة حتى قرار مجلس الوزراء 149 لسنة 2026)"
+      }
+    ],
+    "confidence": "high"
+  }
+}

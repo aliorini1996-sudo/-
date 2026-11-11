@@ -1,0 +1,198 @@
+{
+  "code": "CM",
+  "languages": [
+    "fr"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "fr": {
+      "slugHint": "logiciel-force-de-vente-cameroun",
+      "title": "Logiciel de force de vente pour distributeurs au Cameroun",
+      "description": "Factures sur mobile et impression thermique, encaissements en espèces, MoMo ou Orange Money, stock véhicule et tournées, même hors ligne.",
+      "h1": "FieldSales au Cameroun : vente en tournée, prise de commandes et recouvrement",
+      "intro": "FieldSales est une plateforme cloud qui équipe les commerciaux des grossistes, demi-grossistes et distributeurs au Cameroun. Sur le terrain, vos vendeurs pratiquent la vente directe depuis le véhicule ou prennent les commandes à l’avance, éditent la facture sur leur téléphone et l’impriment sur une imprimante thermique, puis enregistrent l’encaissement en espèces, par virement, par chèque, par MTN MoMo ou par Orange Money. L’application continue de fonctionner quand le réseau coupe en route et synchronise les données dès son retour. Au bureau, le stock du véhicule, les tournées, les visites géolocalisées avec photos et les créances clients se suivent depuis le tableau de bord web.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "La distribution au Cameroun : circuits, villes et encaissements",
+          "body": "Au Cameroun, la chaîne de distribution réunit les industriels et les importateurs, les importateurs-distributeurs, les grossistes et les demi-grossistes, jusqu’aux commerçants soumis à l’Impôt Général Synthétique (IGS), aux boutiques et aux stands des marchés. Douala reste le centre de gravité : selon le guide commercial publié sur trade.gov, plus de 70 % des importations du pays y arrivent, et la ville sert de porte d’entrée vers le Tchad et la Centrafrique. Yaoundé, capitale politique, forme avec Douala le principal pôle de revenus et de richesse, tandis que Kribi est aujourd’hui le plus grand et le plus récent port du pays. Le Code général des impôts désigne les représentants de commerce sous le terme de VRP (voyageur représentant placier). Sur le terrain, l’argent rentre en espèces, par virement bancaire, par chèque et par Mobile Money, avec MTN MoMo et Orange Money. Pour un distributeur, l’enjeu est double : servir chaque point de vente avec régularité, et savoir à tout moment ce que chaque commercial a vendu, encaissé et laissé à crédit."
+        },
+        {
+          "id": "tax",
+          "title": "TVA à 19,25 %, NIU et mentions de la facture",
+          "body": "La TVA s’applique au Cameroun au taux de 19,25 % : un taux principal de 17,5 % (CGI, art. 142) auquel s’ajoutent les centimes additionnels communaux, égaux à 10 % du principal (art. C 83). Il existe un taux réduit de 10 %, mais il est réservé au logement social et ne concerne pas la distribution ; les exportations relèvent du taux zéro. Seules les entreprises du régime du réel facturent la TVA : en dessous du seuil de chiffre d’affaires fixé par l’article 93 quater, le commerçant relève en principe de l’IGS et ne la facture pas. L’identifiant fiscal est le NIU (Numéro d’Identifiant Unique), attribué lors de l’immatriculation en ligne auprès de la Direction Générale des Impôts (DGI) ; il n’existe pas de numéro de TVA distinct. L’article 150 (5) du CGI impose sur la facture le NIU du fournisseur et celui du client, la date, la raison sociale, l’adresse complète et le RCCM du fournisseur, l’identité complète du client, la nature et le détail de l’opération, le prix hors taxe, le taux et le montant de la TVA, le total toutes taxes comprises et, le cas échéant, la mention « Exonérée » ou « prise en charge État » par produit. La TVA est exigible sur les acomptes encaissés avant livraison : ils donnent lieu à une facture d’acompte, qui indique le montant hors taxe et la TVA correspondante, puis à une facture définitive qui reprend le total de l’opération et déduit les acomptes déjà facturés. Les industriels, importateurs, grossistes et demi-grossistes opèrent en outre un précompte sur achats sur leurs ventes aux revendeurs : 2 % pour un client au régime du réel, 5 % pour un client à l’IGS et 10 % pour un client absent du fichier de tout centre des impôts (CGI, art. 21 et 22) ; ils doivent aussi tenir un registre des ventes et déposer une déclaration des ventes par client. Ce point est à traiter avec votre conseil fiscal. Dans FieldSales, c’est vous qui saisissez le nom de la taxe (TVA) et son taux de 19,25 % dans les paramètres de l’entreprise. Si vous relevez de l’IGS, l’option de suppression de la taxe retire la TVA de tous les écrans et documents."
+        },
+        {
+          "id": "einvoicing",
+          "title": "Facturation électronique : où en est la DGI ?",
+          "body": "Le Code général des impôts fait référence à un « système de suivi de facturation électronique de l’administration fiscale » (art. 8 bis et 143). Depuis la loi de finances pour 2025 (loi n°2024/013 du 23 décembre 2024), les charges justifiées par des factures émises en marge de ce système ne sont pas déductibles de l’impôt sur le revenu (art. 8 bis (2)). Dans l’édition 2026 du CGI, l’article 143 (1)(b) subordonne en outre la déduction de la TVA à une facture émise via ce système par un fournisseur du régime du réel, inscrit au fichier des contribuables actifs et mentionnant son NIU. Le Livre des procédures fiscales (art. L 8 bis) soumet par ailleurs la facturation et la production des entreprises à un suivi électronique, dans des conditions fixées par arrêté du ministre des Finances ; il vise notamment les boissons et toutes les entreprises relevant de la Direction des grandes entreprises, et prévoit une amende égale au montant des factures concernées en cas de manquement. La loi de finances pour 2026 a institué un régime de taxation en temps réel (LPF, art. L 8 sexies), juridiquement en vigueur depuis le 1er janvier 2026, qui prévoit une transmission instantanée et continue des données de facturation pour les entreprises qui y sont soumises. Selon la circulaire DGI n°008/MINFI/DGI/LRI/L du 2 mars 2026, ses modalités sont renvoyées à un arrêté du ministre des Finances, et le seul cas défini directement par le texte concerne la retenue à la source sur les produits pétroliers et le gaz à usage industriel. Selon EcoMatin (20 août 2026), la plateforme eBilling de la DGI est encore en construction : marché attribué en mars 2026, délai contractuel de réalisation fixé à octobre 2027, déploiement d’abord auprès des grandes entreprises, puis des moyennes. Nous n’avons trouvé publiés ni les arrêtés d’application des articles L 8 bis et L 8 sexies, ni une liste officielle de logiciels ou d’équipements habilités, ni une spécification technique. Le service OTP/E-billing du portail de la DGI sert au paiement des impôts en ligne et à la gestion des retenues à la source, pas à la facturation.\n\nCôté FieldSales : la seule liaison gouvernementale de facturation active aujourd’hui concerne l’Arabie saoudite, où nous prenons en charge l’intégration de la phase 2 avec la plateforme Fatoora de la ZATCA. Pour le Cameroun, une liaison avec les systèmes de la DGI est disponible sur demande, après étude des exigences du pays, sans promesse ni calendrier. Les factures émises dans FieldSales ne passent pas par le système de l’administration fiscale : elles ne le remplacent pas, et la déduction de la TVA chez vos clients reste soumise aux conditions de l’article 143 du CGI."
+        },
+        {
+          "id": "collections",
+          "title": "Encaissements et créances : espèces, virement, chèque, MoMo, Orange Money",
+          "body": "Les clients règlent en espèces, par virement bancaire, par chèque ou par Mobile Money, via MTN MoMo et Orange Money (qui propose aussi des comptes marchands OM Business). La fiscalité pousse les clients grossistes vers le virement et le chèque : à partir du seuil fixé par l’article 143 (1)(d) du CGI, un achat payé en espèces n’ouvre pas droit à déduction de la TVA, et la charge n’est pas déductible de l’impôt sur le revenu (art. 8 bis (1)). Dans FieldSales, vous créez vos propres modes de paiement (Espèces, Virement, Chèque, MTN MoMo, Orange Money…) et le commercial choisit le bon sur le reçu d’encaissement émis depuis son téléphone. FieldSales enregistre l’encaissement et son mode ; pour un virement, un chèque ou un paiement Mobile Money, l’argent transite par la banque ou l’opérateur, hors de l’application. Les ventes à crédit alimentent le solde de chaque client, chaque reçu peut être affecté aux factures qu’il règle, et vous suivez les créances par client ainsi que les sommes encaissées par chaque commercial jusqu’à leur versement. Enfin, certaines entités désignées par arrêté du ministre des Finances retiennent la TVA à la source lorsqu’elles paient leurs fournisseurs : tenez-en compte dans le suivi de leurs soldes."
+        },
+        {
+          "id": "how",
+          "title": "Comment FieldSales fonctionne chez un distributeur camerounais",
+          "body": "Tout se règle dans les paramètres de l’entreprise : la devise (franc CFA, XAF / FCFA), le nom et le taux de la taxe, les modes de paiement et les textes imprimés sur vos documents. Le commercial travaille sur Android ou iPhone : factures et reçus se créent sans connexion, restent sur le téléphone et se synchronisent dès que le réseau revient. Les documents s’impriment sur une imprimante thermique Bluetooth, et le stock confié à chaque véhicule se rapproche des ventes et des retours en fin de tournée. Au bureau, le tableau de bord web suit les tournées, les visites avec position et photos, le stock et les créances. L’interface est disponible en français, en anglais, en arabe, en turc et en chinois. FieldSales est une plateforme cloud ; son siège est à Riyad."
+        }
+      ],
+      "faq": [
+        {
+          "q": "FieldSales est-il relié au système de facturation électronique de la DGI ?",
+          "a": "Non. La seule liaison gouvernementale de facturation active aujourd’hui dans FieldSales concerne l’Arabie saoudite, avec l’intégration de la phase 2 sur la plateforme Fatoora de la ZATCA. Pour le Cameroun, une liaison avec la DGI est disponible sur demande, après étude des exigences du pays, sans promesse ni calendrier. Les factures FieldSales ne passent pas par le système de l’administration fiscale, et la déduction de la TVA chez vos clients reste soumise aux conditions de l’article 143 du CGI."
+        },
+        {
+          "q": "L’application fonctionne-t-elle sans internet pendant la tournée ?",
+          "a": "Oui. Le commercial établit ses factures et ses reçus hors connexion ; les données restent sur le téléphone et se synchronisent automatiquement dès que le réseau revient. Le tableau de bord se met à jour à la synchronisation."
+        },
+        {
+          "q": "Comment enregistrer un paiement MTN MoMo ou Orange Money ?",
+          "a": "Créez « MTN MoMo » et « Orange Money » comme modes de paiement dans les paramètres. Le commercial les sélectionne sur le reçu d’encaissement et le montant vient en déduction du solde du client. FieldSales enregistre l’encaissement : il ne déclenche pas lui-même de transaction Mobile Money."
+        },
+        {
+          "q": "Comment paramétrer la TVA à 19,25 % et le franc CFA ?",
+          "a": "Dans les paramètres de l’entreprise, choisissez le franc CFA (XAF) comme devise, nommez la taxe « TVA » et saisissez le taux de 19,25 %. Si votre entreprise relève de l’IGS et ne facture pas la TVA, activez la suppression de la taxe : elle disparaît des écrans et des documents."
+        },
+        {
+          "q": "Peut-on suivre le stock de chaque véhicule et les tournées ?",
+          "a": "Oui. Chaque véhicule a son stock embarqué, rapproché des ventes et des retours. Les tournées, les visites avec position GPS et photos, ainsi que les clients non visités sur une période, se consultent depuis le tableau de bord web."
+        },
+        {
+          "q": "L’application est-elle disponible en français ?",
+          "a": "Oui. L’interface de FieldSales est disponible en français, en anglais, en arabe, en turc et en chinois, sur Android, sur iPhone et dans le navigateur web."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Structure d’une facture de vente émise par le commercial",
+        "note": "Exemple de structure, sans montants. Les mentions reprennent l’article 150 (5) du CGI ; faites valider votre modèle par votre conseil fiscal.",
+        "fields": [
+          {
+            "label": "Fournisseur",
+            "example": "Raison sociale, adresse complète, numéro RCCM"
+          },
+          {
+            "label": "NIU du fournisseur",
+            "example": "Numéro d’Identifiant Unique de votre entreprise"
+          },
+          {
+            "label": "Client",
+            "example": "Nom ou raison sociale, adresse de la boutique"
+          },
+          {
+            "label": "NIU du client",
+            "example": "Numéro d’Identifiant Unique du client"
+          },
+          {
+            "label": "Date et numéro de facture",
+            "example": "Date d’émission, numéro de pièce, nom du commercial"
+          },
+          {
+            "label": "Détail des articles",
+            "example": "Désignation, quantité, unité, prix unitaire hors taxe"
+          },
+          {
+            "label": "Prix hors taxe",
+            "example": "Total hors taxe des lignes"
+          },
+          {
+            "label": "TVA",
+            "example": "Taux de 19,25 % et montant de la taxe"
+          },
+          {
+            "label": "Mention fiscale",
+            "example": "« Exonérée » ou « prise en charge État », le cas échéant, par produit"
+          },
+          {
+            "label": "Total TTC",
+            "example": "Montant toutes taxes comprises dû, en francs CFA"
+          },
+          {
+            "label": "Règlement",
+            "example": "Espèces, virement, chèque, MTN MoMo ou Orange Money"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "DGI — Code Général des Impôts, édition 2026 (art. 8 bis, 21, 22, 93 quater, 142, 143, 150, C 83 ; LPF art. L 8 bis et L 8 sexies)",
+          "url": "https://www.impots.cm/sites/default/files/documents/CODE%20GENERAL%20DES%20IMPOTS%202026%20SITE%20DGI%20VERSION%20FRANCAISE.pdf"
+        },
+        {
+          "title": "DGI — Circulaire n°008/MINFI/DGI/LRI/L du 2 mars 2026 (application de la loi de finances 2026)",
+          "url": "https://impots.cm/sites/default/files/publications/circulaire%20lf%202026%20VF%20%281%29-compress%C3%A9.pdf"
+        },
+        {
+          "title": "DGI — La Taxe sur la Valeur Ajoutée (TVA) : ce que vous devez savoir",
+          "url": "https://www.impots.cm/sites/default/files/documents/FICHE%20TVA.pdf"
+        },
+        {
+          "title": "DGI — Immatriculation et attribution du NIU",
+          "url": "https://www.impots.cm/fr/immatriculation"
+        },
+        {
+          "title": "Loi n°2024/013 du 23 décembre 2024 portant loi de finances pour l’exercice 2025 (FAOLEX)",
+          "url": "https://faolex.fao.org/docs/pdf/cmr235595.pdf"
+        },
+        {
+          "title": "MINFI — Arrêté fixant la liste des entités tenues d’opérer la retenue à la source de la TVA et de l’AIR (exercice 2026)",
+          "url": "https://www.impots.cm/sites/default/files/documents/arr%C3%AAt%C3%A9%20RTS%202026%20VF.pdf"
+        },
+        {
+          "title": "EcoMatin — Facturation électronique et plateforme eBilling de la DGI (20 août 2026)",
+          "url": "https://ecomatin.net/recettes-fiscales-le-cameroun-pourrait-capter-100-milliards-fcfa-de-plus-grace-a-la-facturation-electronique-bad"
+        },
+        {
+          "title": "DGI — OTP / E-billing : paiement des impôts en ligne et gestion des retenues à la source",
+          "url": "https://otp.dgi.cm"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Cameroon, Corporate: Other taxes",
+          "url": "https://taxsummaries.pwc.com/republic-of-cameroon/corporate/other-taxes"
+        },
+        {
+          "title": "U.S. International Trade Administration — Cameroon: Distribution & Sales Channels",
+          "url": "https://www.trade.gov/country-commercial-guides/cameroon-distribution-sales-channels"
+        },
+        {
+          "title": "U.S. International Trade Administration — Cameroon: Market Overview",
+          "url": "https://www.trade.gov/country-commercial-guides/cameroon-market-overview"
+        },
+        {
+          "title": "MTN Cameroon — MoMo (Mobile Money)",
+          "url": "https://mtn.cm/momo/"
+        },
+        {
+          "title": "Orange Cameroun — Orange Money",
+          "url": "https://orangemoney.orange.cm/fr"
+        }
+      ],
+      "lastVerifiedLabel": "Dernière vérification : novembre 2026"
+    }
+  },
+  "notes": "صفحة فرنسية جديدة للكاميرون مبنية على CM.json المدقَّق (audit بتاريخ 2026-11-11، ثقة medium). قرارات التحرير: (1) حُذفت كل المبالغ الملاصقة للعملة، فحدّ النقد (المادة 143-1-d) وحدّ IGS (المادة 93 quater) يُذكران بالمادة لا بالمبلغ، واستُبدل عنوان مصدر EcoMatin الأصلي لأنه يحوي مبلغاً بالفرنك. (2) المصطلحات المحلية vanSales/preSales/routeAccounting فارغة في الحقائق، فلم تُقدَّم «vente camion» أو «prévente» أو «commercial terrain» أو «bayam-sellam» بوصفها مصطلحات كاميرونية؛ استُعملت صياغات فرنسية وصفية عامة («vente directe depuis le véhicule»، «prise de commandes à l’avance»، «tournée»)، واستُعمل VRP وboutique لأنهما في الحقائق. (3) الفوترة الإلكترونية بحالة planned: ذُكرت المادتان 8 bis و143 وL 8 bis وL 8 sexies ودورية 008 ومنصة eBilling بمصادرها، دون القول إنها إلزامية على الجميع منذ يناير 2026، ودون خبر تجربة الجعة والإسمنت (مصدره غير رسمي). جملة موقف FieldSales منفصلة في فقرة خاصة بلا سنة ولا تاريخ، والجملة التي قبلها بلا تاريخ. (4) لم يُذكر أن FieldSales تحسب précompte أو الاقتطاع من المنبع آلياً؛ أُحيل الأمر إلى المستشار الضريبي. (5) ذُكر مفتاح «إزالة الضريبة» لمكلفي IGS وتقرير العملاء غير المزارين وإسناد سند القبض للفواتير وعهدة تحصيل المندوب لأنها ميزات حيّة في المنصة. (6) لم يُذكر الطابع الثنائي اللغة للكاميرون ولا مدن خارج Douala وYaoundé وKribi لأنها ليست في الحقائق. يجب إعادة التحقق بعد صدور قانون مالية 2027 (يناير 2027).",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish",
+    "fixes": 14,
+    "issues": [
+      "المقدمة: تكرار «vendeurs vendent» وعبارة توهم أن لوحة الويب تُتابَع «حتى حين تنقطع الشبكة»؛ فُصل العمل دون اتصال والمزامنة عن متابعة اللوحة، وأضيف أداة التعريف «une imprimante thermique».",
+      "قسم التوزيع: كان يفرض تسلسلاً لمرور البضاعة (من المستوردين إلى importateurs-distributeurs) غير وارد في الحقائق؛ صار سرداً لحلقات السلسلة كما في tradeChannels.",
+      "قسم التوزيع: «points de vente nombreux et dispersés» ادعاء سوقي بلا مصدر، و«donc» استنتاج بلا أساس؛ خُففت الجملة.",
+      "قسم الضريبة: «majoré de 10 %» قد يُقرأ زيادة عشر نقاط؛ صارت «centimes additionnels communaux égaux à 10 % du principal» (17.5 × 1.10 = 19.25).",
+      "قسم الضريبة: أُضيف «en principe» لأن المادة 93 quater (2)(b) تلحق بعض المكلفين بالنظام الحقيقي أياً كان رقم أعمالهم.",
+      "قسم الضريبة: فقرة الدفعة المقدمة أُكملت من الحقائق (TVA مستحقة على acomptes، وفاتورة الدفعة تُظهر HT وTVA، والنهائية تذكر الإجمالي).",
+      "قسم الضريبة: صياغة précompte «avec un registre…» ركيكة؛ صارت التزاماً صريحاً بمسك السجل وتقديم الإقرار.",
+      "قسم الفوترة الإلكترونية: «ni l’arrêté d’application» بالمفرد بعد ذكر مادتين؛ صارت «les arrêtés d’application des articles L 8 bis et L 8 sexies» كما في uncertain.",
+      "جملة موقف FieldSales: «ne garantissent pas à elles seules la déduction de la TVA» توحي بأن الفواتير تسهم في ضمان الخصم (ممنوع في mustNotSay)؛ صارت «ne passent pas par le système de l’administration fiscale… la déduction reste soumise à l’article 143».",
+      "جملة موقف FieldSales: الضمير «elle» كان يعود على «الربط الحيّ في السعودية»؛ صار «une liaison avec les systèmes de la DGI est disponible sur demande, après étude…» بلا سنة ولا تاريخ في الجملة أو جوارها.",
+      "قسم التحصيل: «au-delà du seuil» خطأ حدّي، فالقاعدة تشمل 100,000 FCFA فأكثر (143-1-d)؛ صارت «à partir du seuil» (المبلغ نفسه لم يُذكر).",
+      "قسم التحصيل: «l’argent transite par la banque ou l’opérateur» لا يصح على النقد؛ حُصر في التحويل والشيك وMobile Money.",
+      "قسم «كيف تعمل»: «une plateforme cloud dont le siège est à Riyad» (المنصة لا مقرّ لها)؛ أعيدت الصياغة.",
+      "الأسئلة: السؤال الأول كان عاماً وجوابه غير مباشر؛ صار «FieldSales est-il relié au système de facturation électronique de la DGI ?» وجوابه يبدأ بـ«Non.» مع الصياغة الصادقة نفسها.",
+      "فُحص: لا سعر ولا مبلغ ملاصق لعملة، ولا «gratuit» ولا «certifié/agréé/homologué/conforme» وصفاً للمنصة، ولا اسم منافس، ولا رقم عملاء، ولغات الواجهة الخمس صادقة، ولا ذكر لخبر تجربة الجعة والإسمنت غير الرسمي ولا لإلزام الجميع منذ يناير 2026.",
+      "ملاحظة باقية: المصطلحات المحلية vanSales/preSales فارغة في الحقائق، فاستُعملت صياغات فرنسية وصفية عامة؛ يُستحسن تأكيد «vente camion/prévente» من موزع كاميروني قبل إدراجها."
+    ]
+  }
+}

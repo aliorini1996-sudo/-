@@ -1,0 +1,201 @@
+{
+  "code": "ID",
+  "languages": [
+    "id"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "id": {
+      "slugHint": "aplikasi-sales-kanvas-indonesia",
+      "title": "Aplikasi Sales Kanvas & Penagihan Indonesia | FieldSales",
+      "description": "Kelola sales kanvas, taking order, piutang, dan stok mobil: nota dari ponsel, cetak thermal, catat tunai hingga QRIS, tetap jalan tanpa sinyal.",
+      "h1": "Aplikasi sales kanvas, taking order, dan penagihan untuk distributor di Indonesia",
+      "intro": "FieldSales adalah platform cloud untuk distributor dan grosir di Indonesia yang menjalankan sales kanvas, taking order, dan penagihan. Salesman membuat nota penjualan dari ponsel dan mencetaknya di printer thermal, mencatat penjualan tunai maupun tempo serta pembayaran lewat transfer atau QRIS, dan mengelola stok mobil kanvas dan kunjungan ke warung, toko kelontong, dan grosir lengkap dengan lokasi dan foto. Aplikasi tetap berjalan tanpa sinyal dan menyinkronkan data begitu online. Mata uang Rupiah dan tarif PPN Anda atur sendiri di pengaturan.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "Distribusi di Indonesia: warung, kanvas, dan taking order",
+          "body": "Distribusi barang konsumsi di Indonesia masih bertumpu pada perdagangan tradisional. Menurut data Kantar yang dikutip Databoks, perdagangan tradisional, yakni warung, toko kelontong, dan pasar tradisional, menyumbang 67% penjualan FMCG pada kuartal I 2025, dibanding 17% untuk minimarket dan toko kecil serta 6% untuk supermarket dan hypermarket. Baik di Jabodetabek maupun di kota seperti Surabaya, Medan, Semarang, Bandung, dan Makassar, distributor melayani outlet lewat dua pola. Pertama, kanvas atau canvassing: sales kanvas (canvasser) atau sales motoris membawa barang dengan kendaraan roda dua atau roda empat, lalu menjual dan menagih dalam satu kunjungan dan mengembalikan sisa barang ke gudang. Kedua, taking order (TO): salesman mengambil pesanan yang dikirim kemudian. Selain warung dan toko, distributor juga melayani grosir dan agen, sedangkan minimarket dan modern trade menjadi kanal tersendiri. Iklan lowongan di perusahaan distribusi pun mencantumkan pengalaman sebagai motoris, canvaser, atau taking order. Di lapangan, pembayaran bisa berupa tunai saat barang diturunkan, tempo yang dicatat sebagai piutang, transfer bank, atau QRIS."
+        },
+        {
+          "id": "tax",
+          "title": "PPN, NPWP, dan isi faktur pajak",
+          "body": "Pajak atas penyerahan barang dan jasa di Indonesia adalah Pajak Pertambahan Nilai (PPN), yang dikelola Direktorat Jenderal Pajak (DJP). Tarif umumnya 12%. Menurut EY dan PwC, sejak 1 Januari 2025 berdasarkan PMK 131/2024, tarif 12% untuk sebagian besar barang dan jasa non-mewah dikenakan atas DPP nilai lain sebesar 11/12 dari harga jual, sehingga beban efektifnya 11%; inilah kondisi mayoritas barang yang dijual distributor. Tarif 12% atas harga jual penuh berlaku untuk barang mewah yang dikenai PPnBM sejak 1 Februari 2025, sedangkan ekspor barang dikenai tarif 0%. Pengusaha wajib dikukuhkan sebagai Pengusaha Kena Pajak (PKP) bila omzet tahunannya melewati batas pengusaha kecil (PMK 81/2024); pengusaha kecil boleh mendaftar secara sukarela, dan hanya PKP yang menerbitkan faktur pajak. Identitas pajak memakai NPWP 16 digit: orang pribadi penduduk memakai NIK yang sudah diaktivasi sebagai NPWP, wajib pajak lama cukup menambahkan angka 0 di depan NPWP 15 digitnya, dan setiap lokasi usaha, baik pusat maupun cabang, memiliki NITKU 22 digit. Faktur pajak memuat antara lain nama, alamat, dan NPWP penjual; nama dan alamat pembeli beserta NPWP, NIK, atau nomor paspor; jenis barang, kuantitas, harga, dan potongan harga; PPN serta PPnBM bila ada; kode transaksi; kode dan nomor seri faktur; tanggal; tanda tangan elektronik; NITKU; dan kode QR dari DJP. Di FieldSales, Anda mengisi sendiri nama pajak (PPN) dan tarif yang berlaku untuk usaha Anda di pengaturan, umumnya tarif efektif 11%, lalu nota menampilkan PPN sesuai tarif tersebut. Perhitungan DPP nilai lain, kode transaksi, dan penerbitan faktur pajak tetap dilakukan di Coretax DJP atau melalui PJAP Anda."
+        },
+        {
+          "id": "einvoicing",
+          "title": "Faktur pajak elektronik: e-Faktur dan Coretax DJP",
+          "body": "Indonesia memakai model clearance. Setiap PKP wajib menerbitkan faktur pajak elektronik (e-Faktur) untuk setiap penyerahan yang terutang PPN, dan faktur itu divalidasi DJP sebelum sampai ke pembeli. Faktur dibuat di modul e-Faktur pada Coretax DJP, dengan input manual atau impor, atau melalui aplikasi host-to-host milik penyedia jasa aplikasi perpajakan (PJAP); faktur ditandatangani secara elektronik lalu memperoleh kode dan nomor seri 17 digit (kode transaksi, kode status, dan NSFP 13 digit dari DJP) serta kode QR. Menurut Sovos, e-Faktur diperkenalkan pada 2014, wajib bagi PKP di Jawa dan Bali sejak 1 Juli 2015, dan bagi seluruh PKP di Indonesia sejak 1 Juli 2016. Sejak 1 Januari 2025, Coretax DJP menjadi platform utama untuk faktur pajak dan pelaporan PPN (ASEAN Briefing; DDTCNews), dan DJP menegaskan bahwa penggantian serta pembatalan faktur pajak hanya dilakukan di Coretax (DDTCNews, 30 Januari 2026). PKP pedagang eceran yang menjual ke konsumen akhir boleh menerbitkan faktur pajak digunggung tanpa identitas pembeli, lalu merinci penjualan tersebut dalam file XML yang dilampirkan pada SPT Masa PPN; jika pembelinya pengusaha, bukan konsumen akhir, faktur pajak lengkap tetap diperlukan. Pengusaha kecil yang belum dikukuhkan sebagai PKP tidak menerbitkan faktur pajak.\n\nSaat ini FieldSales tidak terhubung ke sistem faktur pajak pemerintah Indonesia: nota dan kuitansi dari aplikasi adalah dokumen operasional, dan faktur pajak tetap diterbitkan oleh PKP sendiri. Koneksi semacam itu tersedia atas permintaan; kami mempelajari dulu kebutuhan perusahaan Anda dan aturan yang berlaku, tanpa janji jadwal maupun hasil."
+        },
+        {
+          "id": "collections",
+          "title": "Penagihan: tunai, tempo, transfer, dan QRIS",
+          "body": "Sales kanvas biasanya menagih tunai saat barang diturunkan, sedangkan penjualan tempo menjadi piutang yang ditagih kemudian. Pembayaran juga masuk lewat transfer bank dan QRIS, standar QR nasional dari Bank Indonesia yang bisa dibayar dari aplikasi bank maupun dompet digital. Menurut Bank Indonesia yang dikutip Republika, jumlah merchant QRIS mencapai 44,86 juta hingga Juni 2026, dan 96,68% di antaranya UMKM. Artinya, satu kunjungan bisa berakhir dengan uang tunai, bukti transfer, atau notifikasi QRIS. Di FieldSales, salesman membuat kuitansi penerimaan dari ponsel dan memilih metodenya dari daftar yang Anda tetapkan sendiri di pengaturan, misalnya tunai, transfer bank, QRIS, dompet digital tertentu, atau bilyet giro bila perusahaan Anda menerimanya. Setiap kuitansi mengurangi saldo piutang outlet, dan manajer melihat piutang per outlet dan per salesman serta uang tunai yang masih dibawa setiap salesman. FieldSales mencatat pembayaran, bukan memprosesnya: transaksi QRIS dan transfer tetap terjadi di aplikasi bank atau merchant Anda."
+        },
+        {
+          "id": "how",
+          "title": "Cara kerja FieldSales untuk distributor di Indonesia",
+          "body": "Saat memulai, Anda mengatur mata uang Rupiah (IDR), nama pajak PPN, dan tarifnya di menu pengaturan. Salesman bekerja dari aplikasi Android atau iPhone, sedangkan admin dan manajer memakai dasbor web. Barang dimuat dari gudang ke mobil kanvas; penjualan, retur, dan sisa barang yang dikembalikan tercatat per salesman, sehingga stok mobil bisa dicocokkan setiap hari. Untuk taking order, salesman mencatat pesanan outlet dari ponsel. Rute dan kunjungan tercatat dengan lokasi dan foto, jadi manajer tahu outlet mana yang sudah dikunjungi. Di daerah dengan sinyal lemah, nota dan kuitansi tetap bisa dibuat tanpa internet lalu tersinkron saat koneksi kembali, dan nota langsung dicetak ke printer thermal. Soal bahasa, antarmuka aplikasi tersedia dalam bahasa Arab, Inggris, Prancis, Turki, dan Mandarin, dan bahasa Indonesia tidak termasuk di dalamnya; nama barang, outlet, dan catatan tetap bisa Anda tulis dalam bahasa Indonesia."
+        }
+      ],
+      "faq": [
+        {
+          "q": "Apakah FieldSales bisa menerbitkan faktur pajak elektronik?",
+          "a": "Tidak. Nota penjualan dan kuitansi dari FieldSales adalah dokumen operasional dan tidak menggantikan faktur pajak maupun faktur pajak digunggung. Jika Anda PKP, faktur pajak tetap diterbitkan sendiri di Coretax DJP atau melalui aplikasi PJAP. Koneksi FieldSales ke sistem faktur pajak pemerintah Indonesia tersedia atas permintaan: kami mempelajari dulu kebutuhan perusahaan Anda dan aturan yang berlaku, tanpa janji jadwal maupun hasil. Satu-satunya koneksi faktur elektronik pemerintah yang sudah berjalan di FieldSales adalah di Arab Saudi: kami mendukung integrasi Fase 2 dengan platform Fatoora milik ZATCA."
+        },
+        {
+          "q": "Apakah aplikasi tetap bisa dipakai tanpa sinyal internet?",
+          "a": "Bisa. Salesman tetap dapat membuat nota, mencetaknya di printer thermal, dan mencatat kuitansi saat sinyal hilang di jalur kanvas. Data tersimpan di ponsel lalu tersinkron ke server begitu koneksi kembali."
+        },
+        {
+          "q": "Bagaimana mencatat pembayaran outlet lewat QRIS atau transfer bank?",
+          "a": "Di pengaturan, Anda menentukan metode pembayaran yang dipakai perusahaan, misalnya tunai, transfer bank, QRIS, atau dompet digital tertentu. Saat menagih, salesman membuat kuitansi dan memilih metodenya, lalu saldo piutang outlet berkurang. FieldSales mencatat pembayaran tersebut, bukan memprosesnya: transaksi QRIS atau transfer tetap terjadi di aplikasi bank atau merchant Anda."
+        },
+        {
+          "q": "PPN-nya 12% atau 11%? Bagaimana mengaturnya di aplikasi?",
+          "a": "Tarif umum PPN 12%, tetapi untuk sebagian besar barang non-mewah tarif itu dikenakan atas DPP nilai lain sebesar 11/12 dari harga jual, sehingga beban efektifnya 11%. Barang mewah yang dikenai PPnBM memakai 12% penuh, dan ekspor barang 0%. Di FieldSales, Anda mengisi sendiri nama pajak (PPN) dan tarif yang berlaku untuk usaha Anda di pengaturan, umumnya 11%. Aplikasi tidak menghitung DPP nilai lain (11/12) maupun kode transaksi faktur pajak secara otomatis, jadi tentukan tarif yang tepat bersama konsultan pajak Anda."
+        },
+        {
+          "q": "Apakah aplikasinya tersedia dalam bahasa Indonesia?",
+          "a": "Tidak. Antarmuka FieldSales tersedia dalam bahasa Arab, Inggris, Prancis, Turki, dan Mandarin. Data yang Anda masukkan, seperti nama barang, nama outlet, alamat, dan catatan kunjungan, tetap bisa ditulis dalam bahasa Indonesia dan tampil apa adanya di nota."
+        },
+        {
+          "q": "Bagaimana mengontrol stok di mobil kanvas?",
+          "a": "Setiap pemuatan dari gudang tercatat sebagai stok mobil salesman. Penjualan mengurangi stok itu dan retur dari outlet menambahnya, lalu sisa barang dikembalikan ke gudang di akhir rute. Dengan begitu, stok mobil dan uang yang dibawa salesman bisa dicocokkan setiap hari."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Contoh struktur nota penjualan kanvas di FieldSales",
+        "note": "Contoh susunan, tanpa angka. Nota ini dokumen operasional, bukan faktur pajak; faktur pajak tetap diterbitkan PKP di Coretax DJP atau melalui PJAP.",
+        "fields": [
+          {
+            "label": "Nama dan alamat penjual",
+            "example": "Nama perusahaan distribusi Anda dan alamat gudang atau kantor"
+          },
+          {
+            "label": "NPWP penjual",
+            "example": "NPWP perusahaan sesuai pengaturan"
+          },
+          {
+            "label": "Nomor dan tanggal nota",
+            "example": "Nomor urut nota, tanggal, dan jam transaksi"
+          },
+          {
+            "label": "Salesman",
+            "example": "Nama sales kanvas yang melayani outlet"
+          },
+          {
+            "label": "Pembeli",
+            "example": "Nama warung atau toko dan alamatnya; NPWP atau NIK bila pembeli memberikannya"
+          },
+          {
+            "label": "Daftar barang",
+            "example": "Nama barang, satuan (karton, pak, atau pcs), dan kuantitas"
+          },
+          {
+            "label": "Harga dan potongan harga",
+            "example": "Harga satuan dan potongan harga per baris"
+          },
+          {
+            "label": "PPN",
+            "example": "Nama pajak dan tarif sesuai pengaturan, misalnya PPN 11%"
+          },
+          {
+            "label": "Total",
+            "example": "Jumlah nota setelah potongan dan PPN"
+          },
+          {
+            "label": "Cara bayar",
+            "example": "Tunai, tempo (masuk piutang), transfer bank, atau QRIS"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "PwC Worldwide Tax Summaries – Indonesia: Other taxes (PPN)",
+          "url": "https://taxsummaries.pwc.com/Indonesia/Corporate/Other-taxes"
+        },
+        {
+          "title": "EY Indonesia – PMK-131: New Calculation of VAT Payable",
+          "url": "https://www.ey.com/en_id/technical/tax-alerts/PMK-131-New-Calculation-of-VAT-Payable"
+        },
+        {
+          "title": "DJP – PMK 131/2024: Tarif PPN Sebelas-Dua Belas",
+          "url": "https://www.pajak.go.id/id/artikel/pmk-1312024-tarif-ppn-sebelas-dua-belas"
+        },
+        {
+          "title": "DJP – Coretax DJP, Era NPWP 16 Digit",
+          "url": "https://www.pajak.go.id/id/artikel/coretax-djp-era-npwp-16-digit"
+        },
+        {
+          "title": "DDTCNews – Apa Itu NITKU",
+          "url": "https://news.ddtc.co.id/literasi/kamus/1811417/update-2025-apa-itu-nomor-identitas-tempat-kegiatan-usaha-nitku"
+        },
+        {
+          "title": "DDTCNews – Faktur Pajak Harus Penuhi Syarat Formal dan Material",
+          "url": "https://news.ddtc.co.id/berita/nasional/1804950/faktur-pajak-harus-penuhi-syarat-formal-dan-material-seperti-apa"
+        },
+        {
+          "title": "DDTCNews – PER-11/PJ/2025: Kode dan Nomor Seri Faktur Pajak",
+          "url": "https://news.ddtc.co.id/berita/nasional/1811127/per-11pj2025-pertegas-ketentuan-kode-dan-nomor-seri-faktur-pajak"
+        },
+        {
+          "title": "Sovos – E-Invoicing di Indonesia",
+          "url": "https://sovos.com/vat/tax-rules/e-invoicing-indonesia/"
+        },
+        {
+          "title": "ASEAN Briefing – Coretax Indonesia",
+          "url": "https://www.aseanbriefing.com/doing-business-guide/indonesia/taxation-and-accounting/coretax-indonesia"
+        },
+        {
+          "title": "DDTCNews – Ganti Faktur Pajak Tak Bisa Lagi Pakai e-Faktur Desktop",
+          "url": "https://news.ddtc.co.id/berita/nasional/1816987/ingat-ganti-faktur-pajak-tak-bisa-lagi-pakai-e-faktur-desktop"
+        },
+        {
+          "title": "DDTCNews – Coretax Wajibkan PKP Perinci Penyerahan Digunggung Pakai Template XML",
+          "url": "https://news.ddtc.co.id/berita/nasional/1807022/coretax-wajibkan-pkp-perinci-penyerahan-digunggung-pakai-template-xml"
+        },
+        {
+          "title": "Databoks – Lanskap Kanal Penjualan FMCG Indonesia Awal 2025 (data Kantar)",
+          "url": "https://databoks.katadata.co.id/en/consumer-durables-apparel/statistics/685967c3bb3c7/indonesias-fmcg-product-sales-channel-landscape-in-early-2025"
+        },
+        {
+          "title": "Bank Indonesia – QRIS (Quick Response Code Indonesian Standard)",
+          "url": "https://www.bi.go.id/id/fungsi-utama/sistem-pembayaran/ritel/kanal-layanan/qris/default.aspx"
+        },
+        {
+          "title": "Republika – BI Ungkap 96,68 Persen Merchant QRIS adalah UMKM",
+          "url": "https://ekonomi.republika.co.id/berita/tk4dix502/bi-ungkap-9668-persen-merchant-qris-adalah-umkm"
+        }
+      ],
+      "lastVerifiedLabel": "Terakhir diverifikasi: November 2026"
+    }
+  },
+  "notes": "صفحة جديدة بالإندونيسية مبنية على ID.json بعد اكتمال تدقيقه (audit.auditedAt 2026-11-11، الثقة high). المصطلحات: kanvas/canvassing وsales kanvas/canvasser وsales motoris وtaking order (TO) وsalesman وoutlet وwarung وtoko kelontong وgrosir/agen وtempo/piutang وtunai وtransfer bank وQRIS. لم يُستعمل «setoran» لأن routeAccounting=null. الضريبة: 12% قانونية و11% فعلية لأغلب السلع (وعاء DPP nilai lain 11/12)؛ وفي إعدادات FieldSales نُصح بإدخال «النسبة الفعلية 11%» مع التصريح بأن التطبيق لا يحسب تقسيم 11/12 ولا رموز المعاملات، التزاماً بما في uncertain وmustNotSay. حُذف عمداً: حدّ التسجيل بالأرقام (مبلغ ملاصق لعملة)، ورسوم QRIS بالروبية، ورقم 4.5 مليون نقطة بيع (تقدير قديم)، وأسماء المحافظ (GoPay/OVO…) لأنها في uncertain، وإعفاءات السلع الأساسية، وأي ذكر لـ e-Faktur Desktop قناةً قائمة، ومصدر DDTC لحد PKP لأن عنوانه ورابطه يحويان مبلغاً بالروبية، ومصدر iReap لأنه مورّد برمجيات. bilyet giro ذُكر بصيغة شرطية فقط («إن كانت شركتك تقبله») لا كحقيقة عن السوق. نقطة تحتاج قراراً: البيع المسبق (taking order) مذكور بوصفه قدرة في FieldSales وفق وصف المنتج في المهمة، لكن ملف الحقائق نقله إلى uncertain («لم يُتحقق منه في التدقيق»). إن رأى الفريق حذفه فهو في: description وh1 وintro وفقرة how («Untuk taking order…»). الفوترة الإلكترونية: جملة FieldSales منفصلة في فقرة مستقلة بلا أي اسم نظام حكومي وبلا سنة، وتسبقها جملة بلا تاريخ. ذكر السعودية (ZATCA/Fatoora) في FAQ الأول بوصفه الربط الحي الوحيد. لغات الواجهة مذكورة بصدق: العربية والإنجليزية والفرنسية والتركية والصينية، وليست الإندونيسية بينها.",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish-with-notes",
+    "fixes": 16,
+    "issues": [
+      "description: «tunai dan QRIS tercatat» ركيكة فصارت «catat tunai hingga QRIS» (143 حرفاً).",
+      "intro: «tempo» ليست طريقة دفع؛ صارت «penjualan tunai maupun tempo serta pembayaran lewat transfer atau QRIS».",
+      "distribution: نسبة 67% نُسبت صراحةً إلى «perdagangan tradisional» كما في الحقائق (Kantar/Databoks).",
+      "distribution: «sales motoris» كان مقصوراً على الدراجة؛ الحقائق تقول مركبة بعجلتين أو أربع فصُحّح.",
+      "distribution: حُذف ادعاء أن grosir/agen «فوق المنافذ ويشترون كميات أكبر» (استنتاج غير وارد في الحقائق).",
+      "distribution: «lazim» تعميم من إعلان وظيفة واحد فخُفّف، و«berkisar antara» أُصلحت صياغتها.",
+      "tax: تواريخ سريان النسبة (1 يناير و1 فبراير 2025) أُسندت إلى EY وPwC؛ وهي تواريخ ضريبية لا مواعيد إلزام فوترة، وبعيدة عن جملة FieldSales.",
+      "tax: «NPWP lama 15 digit diawali angka 0» توحي أن الرقم القديم يبدأ بصفر؛ صُحّح إلى إضافة 0 في أوله، وأُضيف شرط تفعيل NIK.",
+      "tax: هوية المشتري في faktur pajak تشمل الاسم والعنوان مع NPWP أو NIK أو رقم الجواز كما في الحقائق.",
+      "einvoicing: «badan usaha» أضيق من الحقيقة («منشأة لا مستهلك نهائي»)؛ صارت «pengusaha, bukan konsumen akhir».",
+      "einvoicing/FAQ1: «belum terhubung» و«Belum.» توحيان بوعد قادم؛ صارتا «tidak terhubung» و«Tidak.».",
+      "FAQ1: مواءمة جملة السعودية مع الصياغة المعتمدة (integrasi Fase 2 dengan platform Fatoora milik ZATCA) وحُذف «Saat ini» من جوارها.",
+      "collections: حُذف «outlet langganan sering membeli dengan tempo» (ادعاء تكرار بلا مصدر).",
+      "collections: طرق الدفع كلها يضبطها العميل في الإعدادات، لا ثلاث مدمجة وأخرى تُضاف.",
+      "how/FAQ5: «belum dalam bahasa Indonesia» و«Belum.» توحيان بوعد بالإندونيسية؛ صارتا نفياً صريحاً مع ذكر اللغات الخمس.",
+      "FAQ4: «Pemecahan DPP nilai lain» ركيكة؛ صارت «Aplikasi tidak menghitung DPP nilai lain (11/12) maupun kode transaksi … secara otomatis».",
+      "ملاحظة للفريق: taking order مذكور قدرةً لـFieldSales وفق وصف المنتج في المهمة، بينما نقله ملف الحقائق إلى uncertain؛ مواضعه: description وh1 وintro وفقرة how.",
+      "ملاحظة: hubs (المدن الست) مذكورة كمدن فقط دون ادعاء ترتيب، لأن الحقائق تصفها بلا مصدر مهني.",
+      "تحقُّق: لا سعر ولا مبلغ ملاصق لعملة (حدّ PKP ورسوم QRIS محذوفة)، لا «gratis»، لا اعتماد/امتثال، لا ادعاء ربط مع Coretax/e-Faktur أو QRIS، لا أسماء منافسين ولا أرقام عملاء، ولا ذكر لـ e-Faktur Desktop قناةً قائمة."
+    ]
+  }
+}

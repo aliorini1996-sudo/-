@@ -1,0 +1,502 @@
+{
+ "code": "SA",
+ "languages": [
+  "ar",
+  "en",
+  "fr"
+ ],
+ "basedOnFactsVerifiedAt": "2026-11-11",
+ "content": {
+  "ar": {
+   "slugHint": null,
+   "title": "برنامج مناديب المبيعات في السعودية | FieldSales",
+   "description": "فواتير بالعربية مع رمز QR من جوال المندوب، وسندات قبض ومديونيات، وعهدة السيارة وخط السير بالموقع. ندعم ربط المرحلة الثانية مع منصة فاتورة.",
+   "h1": "برنامج مناديب المبيعات والبيع من السيارة في السعودية",
+   "intro": "FieldSales منصة سحابية مقرّها الرياض لإدارة مناديب المبيعات والبيع من السيارة (Van Sales) والتحصيل في شركات التوزيع والجملة بالمملكة. يصدر المندوب الفاتورة من جواله بالعربية مع رمز QR ويطبعها على طابعة حرارية، ويسجّل سندات القبض ويتابع مديونيات عملائه، ويوثّق زياراته على خط السير بالموقع والصور، وتُطابَق عهدة سيارته في آخر اليوم. العملة (الريال السعودي) ونسبة الضريبة (15%) يضبطهما العميل من إعدادات شركته. ندعم ربط المرحلة الثانية مع منصة فاتورة.",
+   "sections": [
+    {
+     "id": "distribution",
+     "title": "التوزيع في السعودية: القنوات ولغة السوق",
+     "body": "يدور التوزيع في المملكة عادةً حول مراكز كبرى مثل الرياض وجدة، والدمام والمنطقة الشرقية، ومكة المكرمة والمدينة المنورة، والقصيم (بريدة)، ومنها تنطلق خطوط سير المناديب إلى الأحياء والمدن المحيطة. وتتنوع نقاط البيع بين بقالات وتموينات الأحياء، والميني ماركت والسوبرماركت المستقلة، وسلاسل السوبرماركت والهايبرماركت، والمطاعم والمقاهي (HoReCa)، والصيدليات، ومتاجر محطات الوقود، وتجار الجملة وأسواق الجملة.\n\nوفي لغة السوق يُسمّى النموذج الأشهر «البيع من السيارة» أو «مبيعات الفان» (Van Sales): يحمل المندوب البضاعة في سيارته فيبيع ويفوتر ويحصّل في الزيارة نفسها. والنموذج الآخر «أخذ الطلبيات ثم التوصيل» (Pre-sales). ويُختم يوم العمل عادةً بما يسمّيه الموزعون «تسوية المندوب» أو «إقفال اليوم»: مطابقة النقدية والسندات وعهدة مخزون السيارة.\n\nأما التحصيل فيجمع في الغالب بين النقد عند التسليم، والبيع الآجل بسقف ائتماني يُحصَّل لاحقاً بسند قبض، والتحويل البنكي، والشيكات، وبطاقات مدى عبر أجهزة نقاط البيع."
+    },
+    {
+     "id": "tax",
+     "title": "ضريبة القيمة المضافة والرقم الضريبي وحقول الفاتورة",
+     "body": "الضريبة المطبّقة على المبيعات هي ضريبة القيمة المضافة (VAT)، وتديرها هيئة الزكاة والضريبة والجمارك (ZATCA). بدأ تطبيقها في 1 يناير 2018 بنسبة 5%، ثم رُفعت النسبة الأساسية إلى 15% في 1 يوليو 2020، وهي السارية عند آخر تحقق. وتخضع لنسبة صفرية توريدات منها صادرات السلع خارج دول مجلس التعاون، والنقل الدولي، وأدوية ومعدات طبية مؤهلة وفق ضوابط محددة، بينما تُعفى خدمات مالية معيّنة والتأمين على الحياة وتأجير العقارات السكنية. ويحدد دليل الهيئة للمنشآت الصغيرة والمتوسطة حدّين للتسجيل: يصبح التسجيل إلزامياً متى تجاوزت الإيرادات الخاضعة خلال اثني عشر شهراً (فعلية سابقة أو متوقعة) حدَّ التسجيل الإلزامي، ويكون اختيارياً لمن تقع إيراداته بين حدّ التسجيل الاختياري والحدّ الإلزامي، ولا تسجيل لمن هو دون الحد الاختياري.\n\nالرقم الضريبي 15 رقماً يبدأ بالرقم 3 وينتهي به. وتتضمن الفاتورة الضريبية عنواناً يبيّن نوعها («فاتورة ضريبية» أو «فاتورة ضريبية مبسطة»)، وتاريخ الإصدار ووقته، ورقماً تسلسلياً مميزاً، واسم المورد القانوني وعنوانه الوطني ورقمه الضريبي، واسم المشتري وعنوانه ورقمه الضريبي إن كان مسجلاً، وإلا فمعرّفاً بديلاً بالترتيب الذي حدده دليل الهيئة (رقم التعريف الضريبي، ثم السجل التجاري، ثم رخصة البلدية… وصولاً إلى الهوية الوطنية أو الإقامة أو جواز السفر). ولكل بند: الوصف والكمية وسعر الوحدة والخصم والمبلغ قبل الضريبة ونسبتها ومبلغها والإجمالي شاملاً الضريبة. وتحمل الفاتورة رمز QR الذي تحدده الهيئة. ويُكتب مبلغ الضريبة بالريال مقرّباً لأقرب هللة، والبيانات بالعربية إلزامياً مع جواز لغة ثانية. وتكفي الفاتورة المبسطة عند البيع للمستهلك الفرد أو للتوريد الذي يقل عن الحد المذكور في دليل الهيئة للفوترة، وتصدر في تاريخ التوريد أو استلام المقابل أيهما أسبق؛ أما الفاتورة الضريبية فتصدر خلال 15 يوماً من نهاية الشهر الذي حدث فيه التوريد.\n\nفي FieldSales يضبط العميل العملة (الريال السعودي) ونسبة الضريبة (15%) واسمها «ضريبة القيمة المضافة» من إعدادات شركته، ويصدر المندوب الفاتورة من جواله بالعربية مع رمز QR. والاختصار الشائع للعملة في الفواتير «ر.س» أو SAR، وللريال رمز رسمي جديد أُدرج في يونيكود (U+20C1) لكن خطوطاً كثيرة لا تعرضه بعد."
+    },
+    {
+     "id": "einvoicing",
+     "title": "الفوترة الإلكترونية: منصة فاتورة ومرحلة الربط",
+     "body": "منظومة الفوترة الإلكترونية في المملكة اسمها «فاتورة» (FATOORA) وتديرها هيئة الزكاة والضريبة والجمارك، وطُبّقت على مرحلتين بحسب صفحة مراحل التطبيق في موقع الهيئة. المرحلة الأولى (الإصدار والحفظ) ملزمة منذ 4 ديسمبر 2021 لكل الخاضعين للضريبة المقيمين، فلا فواتير يدوية ولا جداول بيانات، ومعها صار رمز QR إلزامياً في الفاتورة المبسطة. والمرحلة الثانية (الربط والتكامل) بدأت في 1 يناير 2023 بموجات متتالية، ومنذ ذلك الشهر صار رمز QR إلزامياً في الفاتورة الضريبية أيضاً. وبحسب Arab News (7 يناير 2026) نقلاً عن صحيفة الاقتصادية عن الهيئة، تبودلت عبر منصة فاتورة أكثر من 8.2 مليار فاتورة إلكترونية في 2025.\n\nفي المرحلة الثانية تُرسل الفاتورة الضريبية (بين المنشآت ومع الجهات الحكومية) وإشعاراتها إلى الهيئة لتتحقق منها وتضع ختمها التشفيري قبل تسليمها للمشتري (نموذج Clearance)، أما الفاتورة المبسطة (للمستهلك) فتُختم محلياً وتُبلَّغ للهيئة خلال 24 ساعة من إصدارها (نموذج Reporting). ويجيز قرار الهيئة لتطبيق الفوترة الإلكترونية، عند انقطاع الاتصال، أن يبقى الحل عاملاً فتُصفّ الفواتير والإشعارات وتُبلَّغ حين يعود الاتصال؛ ويبقى الأصل أن الفاتورة الضريبية لا تصل إلى المشتري قبل أن تتحقق منها الهيئة وتختمها. والصيغة الإلزامية للإصدار والإرسال XML بمعيار UBL 2.1، أما PDF/A-3 المضمَّن فيه XML فاختياري لمشاركة نسخة مقروءة مع العميل.\n\nالنطاق اليوم: الربط ملزم لمن أبلغتهم الهيئة ضمن الموجات حتى الموجة 24، وآخرها بحسب ملخّص EY (10 أغسطس 2026) شمل من تجاوزت إيراداته الخاضعة حدَّ التسجيل الإلزامي في 2022 أو 2023 أو 2024، بمهلة انتهت في 30 يونيو 2026. وأعلنت الهيئة في 24 يوليو 2026 معايير الموجة 25: من تجاوزت إيراداته الخاضعة حدَّ التسجيل الاختياري في أي سنة من 2022 إلى 2025، وموعدها 1 فبراير 2027؛ والنص العربي لبيان الهيئة يقول «ابتداءً من 1 فبراير 2027م» والإنجليزي «by no later than February 1, 2027». وفي الحالتين لم يحن الموعد عند آخر تحقق (11 نوفمبر 2026)، ولم يُعلن عن موجة 26 حتى آخر تحديث لصفحة أخبار الهيئة (21 أكتوبر 2026). والإلزام في كل موجة يكون بإشعار مباشر من الهيئة قبل ستة أشهر على الأقل.\n\nموقف FieldSales: ندعم ربط المرحلة الثانية مع منصة فاتورة. وفي الشركة المفعَّل لها هذا الربط يحتاج إصدار الفواتير الضريبية والمبسطة والمرتجعات اتصالاً بالإنترنت لحظة الإصدار."
+    },
+    {
+     "id": "collections",
+     "title": "التحصيل وسندات القبض والمديونيات",
+     "body": "يسجّل المندوب كل تحصيل بسند قبض من جواله، ويختار طريقة الدفع من القائمة التي تضبطها الشركة: النقد، أو التحويل البنكي، أو الشيك، أو أي طريقة مخصّصة تضيفها، كطريقة باسم «مدى – جهاز نقاط البيع» لتسجيل ما يُدفع بالبطاقة على جهاز منفصل، أو محفظة جوال. وهذا تصنيف للمبلغ داخل السند، لا ربط مباشر مع مدى أو أي بنك.\n\nوفي البيع الآجل تُسجَّل الفاتورة على حساب العميل وتظهر في مديونياته، وتنقص المديونية بسندات القبض عند السداد، فيرى المدير ما على كل عميل وما حصّله كل مندوب. وفي آخر اليوم تُطابَق عهدة السيارة وما حصّله المندوب قبل إقفال يومه."
+    },
+    {
+     "id": "how",
+     "title": "كيف يعمل FieldSales في السعودية",
+     "body": "يعمل FieldSales على أندرويد وآيفون، مع لوحة ويب للإدارة. تضبط الشركة في إعداداتها العملة (الريال السعودي) ونسبة الضريبة (15%) واسمها وطرق الدفع، فتظهر في الفواتير والسندات. ويصدر المندوب الفاتورة من جواله بالعربية مع رمز QR ويطبعها على طابعة حرارية، ويسجّل زياراته على خط السير بالموقع والصور، وتُتابَع عهدة سيارته ومخزونها.\n\nيعمل التطبيق دون اتصال ويزامن ما سُجّل عند عودة الشبكة، مع استثناء واحد: في الشركة المفعَّل لها ربط المرحلة الثانية مع منصة فاتورة يحتاج إصدار الفواتير الضريبية والمبسطة والمرتجعات اتصالاً لحظة الإصدار.\n\nواجهة التطبيق متاحة بالعربية والإنجليزية والفرنسية والتركية والصينية، والواجهة العربية كاملة وصُممت لشركات التوزيع في السوق السعودي. ومقر FieldSales في الرياض."
+    }
+   ],
+   "faq": [
+    {
+     "q": "هل يدعم FieldSales ربط المرحلة الثانية مع منصة فاتورة؟",
+     "a": "نعم، ندعم ربط المرحلة الثانية مع منصة فاتورة. أما موعد إلزام منشأتك بالربط فتحدده الهيئة بإشعار مباشر منها، ولا نقدّم استشارات ضريبية."
+    },
+    {
+     "q": "هل يعمل تطبيق المندوب دون إنترنت؟",
+     "a": "نعم، يعمل دون اتصال ويزامن ما سُجّل عند عودة الشبكة. والاستثناء: في الشركة المفعَّل لها ربط المرحلة الثانية مع منصة فاتورة يحتاج إصدار الفواتير الضريبية والمبسطة والمرتجعات اتصالاً لحظة الإصدار."
+    },
+    {
+     "q": "كيف أضبط الريال وضريبة القيمة المضافة 15%؟",
+     "a": "من إعدادات الشركة: تختار العملة (الريال السعودي)، وتكتب نسبة الضريبة (15%) واسمها «ضريبة القيمة المضافة»، فتظهر في فواتير المناديب وسنداتهم. أما تحديد ما يخضع للنسبة الصفرية أو الإعفاء فمسألة ضريبية يؤكدها مستشارك."
+    },
+    {
+     "q": "هل يطبع المندوب الفاتورة عند العميل؟",
+     "a": "نعم، يصدر المندوب الفاتورة من جواله بالعربية مع رمز QR ويطبعها على طابعة حرارية في الزيارة نفسها."
+    },
+    {
+     "q": "كيف أسجّل التحصيل بالشيك أو التحويل أو بطاقة مدى؟",
+     "a": "بسند قبض من جوال المندوب يختار فيه طريقة الدفع: النقد أو التحويل البنكي أو الشيك، أو طريقة مخصّصة تضيفها مثل «مدى – جهاز نقاط البيع» لما يُدفع على جهاز منفصل. هذا تصنيف للتحصيل لا ربط مباشر مع مدى أو البنوك، وينعكس السند على مديونية العميل."
+    },
+    {
+     "q": "ماذا يلزم لإصدار فاتورة ضريبية لتموينات مسجلة في الضريبة؟",
+     "a": "اسمها وعنوانها ورقمها الضريبي (15 رقماً يبدأ بالرقم 3 وينتهي به). أما المشتري غير المسجل فيُكتب له معرّف بديل كالسجل التجاري. وإن كانت منشأتك مشمولة بربط المرحلة الثانية فالهيئة تتحقق من الفاتورة الضريبية وتختمها قبل تسليمها للمشتري، فيحتاج المندوب اتصالاً لحظة إصدارها."
+    }
+   ],
+   "sampleInvoice": {
+    "title": "مثال: فاتورة ضريبية مبسطة يصدرها المندوب من جواله",
+    "note": "مثال بنية لا مبالغ: الحقول التي يذكرها دليل الهيئة مع حقل طريقة الدفع، بلا أسعار ولا مبالغ.",
+    "fields": [
+     {
+      "label": "عنوان المستند",
+      "example": "فاتورة ضريبية مبسطة"
+     },
+     {
+      "label": "رقم الفاتورة",
+      "example": "رقم تسلسلي مميز، مثل INV-000245"
+     },
+     {
+      "label": "تاريخ الإصدار ووقته",
+      "example": "YYYY-MM-DD HH:mm:ss"
+     },
+     {
+      "label": "المورد",
+      "example": "الاسم القانوني المسجّل للضريبة، والعنوان الوطني داخل المملكة"
+     },
+     {
+      "label": "الرقم الضريبي للمورد",
+      "example": "3XXXXXXXXXXXXX3 (15 رقماً)"
+     },
+     {
+      "label": "العميل",
+      "example": "اسم البقالة أو التموينات؛ ورقمها الضريبي أو معرّف بديل في الفاتورة الضريبية"
+     },
+     {
+      "label": "البنود",
+      "example": "وصف الصنف، الكمية، سعر الوحدة، الخصم"
+     },
+     {
+      "label": "ضريبة القيمة المضافة",
+      "example": "النسبة 15% ومبلغها بالريال مقرّباً لأقرب هللة"
+     },
+     {
+      "label": "الإجمالي",
+      "example": "شاملاً ضريبة القيمة المضافة، بالريال السعودي"
+     },
+     {
+      "label": "طريقة الدفع",
+      "example": "نقدي أو آجل"
+     },
+     {
+      "label": "رمز QR",
+      "example": "بالصيغة التي تحددها الهيئة"
+     }
+    ]
+   },
+   "sources": [
+    {
+     "title": "هيئة الزكاة والضريبة والجمارك — مراحل تطبيق الفوترة الإلكترونية",
+     "url": "https://zatca.gov.sa/en/E-Invoicing/Introduction/Pages/Roll-out-phases.aspx"
+    },
+    {
+     "title": "هيئة الزكاة والضريبة والجمارك — معايير المجموعة الخامسة والعشرين لمرحلة الربط (24 يوليو 2026)",
+     "url": "https://zatca.gov.sa/ar/MediaCenter/News/Pages/Wave25-E-invoicing.aspx"
+    },
+    {
+     "title": "ZATCA — Criteria for the Twenty-Fifth Wave of the Integration Phase (24 July 2026)",
+     "url": "https://zatca.gov.sa/en/MediaCenter/News/Pages/Wave25-E-invoicing.aspx"
+    },
+    {
+     "title": "هيئة الزكاة والضريبة والجمارك — قرار تطبيق الفوترة الإلكترونية (المعدّل 19 مايو 2023)",
+     "url": "https://zatca.gov.sa/en/E-Invoicing/Introduction/LawsAndRegulations/Documents/20230519_E-Invoicing%20Implementation%20Resolution%20English.pdf"
+    },
+    {
+     "title": "هيئة الزكاة والضريبة والجمارك — دليل الفواتير الضريبية والسجلات وفق أحكام ضريبة القيمة المضافة، الإصدار 3 (مايو 2026)",
+     "url": "https://zatca.gov.sa/en/HelpCenter/guidelines/Documents/Guideline-for-Tax-Invoicing-and-Records-under-VAT-Provisions.pdf"
+    },
+    {
+     "title": "هيئة الزكاة والضريبة والجمارك — دليل المنشآت الصغيرة والمتوسطة",
+     "url": "https://zatca.gov.sa/en/HelpCenter/guidelines/Documents/(SMEs)%20Guidelines%20%E2%80%93%20Zatca%201.pdf"
+    },
+    {
+     "title": "هيئة الزكاة والضريبة والجمارك — معيار تطبيق الفاتورة الإلكترونية بصيغة XML، الإصدار 1.2",
+     "url": "https://zatca.gov.sa/ar/E-Invoicing/SystemsDevelopers/Documents/20230519_ZATCA_Electronic_Invoice_XML_Implementation_Standard_%20vF.pdf"
+    },
+    {
+     "title": "هيئة الزكاة والضريبة والجمارك — المركز الإعلامي، الأخبار (تحديث 21 أكتوبر 2026)",
+     "url": "https://zatca.gov.sa/en/MediaCenter/News/Pages/default.aspx"
+    },
+    {
+     "title": "PwC Worldwide Tax Summaries — Saudi Arabia, Other taxes (مراجعة 29 يوليو 2026)",
+     "url": "https://taxsummaries.pwc.com/saudi-arabia/corporate/other-taxes"
+    },
+    {
+     "title": "EY Global Tax News — إعلان الموجة 25 من ربط المرحلة الثانية (10 أغسطس 2026)",
+     "url": "https://taxnews.ey.com/news/2026-1705-saudi-arabia-announces-25th-wave-of-phase-2-e-invoicing-integration"
+    },
+    {
+     "title": "Arab News — Saudi Arabia’s e-invoices soar to 8.2bn in 2025 (7 يناير 2026)",
+     "url": "https://www.arabnews.pk/node/2628538"
+    }
+   ],
+   "lastVerifiedLabel": "آخر تحقق: نوفمبر 2026"
+  },
+  "en": {
+   "slugHint": null,
+   "title": "Van Sales Software for Saudi Distributors | FieldSales",
+   "description": "Arabic QR invoices from the rep’s phone, receipts and van stock for Saudi distributors. We support Phase 2 integration with ZATCA’s Fatoora platform.",
+   "h1": "Field sales and van sales software for distributors in Saudi Arabia",
+   "intro": "FieldSales is a cloud platform, headquartered in Riyadh, for managing sales reps, van sales and collections at distribution and wholesale companies in Saudi Arabia. Reps issue Arabic invoices with a QR code from their phones and print them on thermal printers, record receipt vouchers, track customer balances and log route visits with location and photos, and the van’s custody is reconciled at day end. Each company sets the currency (Saudi riyal) and VAT rate (15%) in its settings. We support Phase 2 integration with ZATCA’s Fatoora platform.",
+   "sections": [
+    {
+     "id": "distribution",
+     "title": "Distribution in Saudi Arabia: channels and local terms",
+     "body": "Distribution in the Kingdom typically runs out of major hubs such as Riyadh, Jeddah, Dammam and the Eastern Province, Makkah and Madinah, and Qassim (Buraidah), with reps’ routes fanning out to surrounding neighbourhoods and towns. Outlets range from neighbourhood baqalas and tamweenat (grocery stores) to mini-markets and independent supermarkets, supermarket and hypermarket chains, restaurants and cafés (HoReCa), pharmacies, fuel-station shops, and wholesalers and wholesale markets.\n\nIn the trade, van sales is called «البيع من السيارة» or simply “Van Sales”: the rep (mandoob) carries stock in the vehicle and sells, invoices and collects on the same visit. The other common model is pre-sales: take the order now, deliver later. The working day usually ends with the rep’s settlement, or day close: reconciling cash, receipt vouchers and the van’s stock custody.\n\nCollections usually combine cash on delivery, credit sales within a credit limit collected later against a receipt voucher, bank transfers, cheques, and mada cards taken on point-of-sale terminals."
+    },
+    {
+     "id": "tax",
+     "title": "VAT, the VAT number and invoice fields",
+     "body": "Sales are subject to Value Added Tax (VAT), administered by the Zakat, Tax and Customs Authority (ZATCA). VAT started on 1 January 2018 at 5%, and the standard rate rose to 15% on 1 July 2020; that was still the rate at our last check. Zero-rated supplies include exports of goods outside the GCC, international transport, and qualifying medicines and medical equipment under specific conditions, while certain margin-based financial services, life insurance and residential rents are exempt. ZATCA’s SME guidelines set two registration thresholds: registration becomes mandatory once taxable revenue over twelve months (past or expected) exceeds the mandatory registration threshold, is optional between the voluntary and mandatory thresholds, and is not available below the voluntary threshold.\n\nThe VAT registration number has 15 digits and starts and ends with 3. A tax invoice shows a title stating its type (“Tax Invoice” or “Simplified Tax Invoice”), the issue date and time, a unique sequential number, the supplier’s legal name, national address and VAT number, and the buyer’s name, address and VAT number if registered; otherwise an alternative identifier in the order ZATCA sets (TIN, commercial registration, municipal licence and so on, down to national ID, iqama or passport). Each line shows the description, quantity, unit price, discount, amount before VAT, VAT rate, VAT amount and total including VAT, and the invoice carries the QR code specified by ZATCA. VAT is stated in riyals rounded to the nearest halala, and the invoice must be in Arabic, with a second language allowed. A simplified tax invoice covers sales to individual consumers and supplies below the threshold set in ZATCA’s invoicing guideline, and is issued on the date of supply or payment, whichever comes first; a full tax invoice is due within 15 days after the end of the month of supply.\n\nIn FieldSales, each company sets the currency (Saudi riyal), the VAT rate (15%) and the tax name in its settings, and reps issue Arabic invoices with a QR code from their phones. The usual currency abbreviations on invoices are «ر.س» and SAR; the riyal also has a new official sign in Unicode (U+20C1), though many fonts don’t display it yet."
+    },
+    {
+     "id": "einvoicing",
+     "title": "E-invoicing: FATOORA and the integration phase",
+     "body": "Saudi e-invoicing runs on FATOORA, ZATCA’s e-invoicing platform, rolled out in two phases according to ZATCA’s roll-out phases page. Phase 1 (generation and storage) has applied since 4 December 2021 to all resident taxpayers, ending handwritten invoices and spreadsheets, and made the QR code mandatory on simplified invoices. Phase 2 (integration) began on 1 January 2023 in successive waves, and from that month the QR code also became mandatory on tax invoices. Arab News (7 January 2026), citing Al Eqtisadiah and ZATCA, reported more than 8.2 billion e-invoices exchanged through Fatoora in 2025.\n\nUnder Phase 2, tax invoices (B2B and B2G) and their credit and debit notes are sent to ZATCA, which validates them and applies its cryptographic stamp before they reach the buyer (clearance). Simplified invoices (B2C) are stamped locally and reported to ZATCA within 24 hours of issue (reporting). ZATCA’s e-invoicing implementation resolution allows a solution to keep running during a connectivity outage, queuing invoices and notes and reporting them once the connection returns; the rule remains that a tax invoice reaches the buyer only after ZATCA has validated and stamped it. XML in UBL 2.1 is mandatory for generation and transmission; PDF/A-3 with embedded XML is optional for sharing a readable copy.\n\nToday, integration is mandatory for taxpayers ZATCA has notified in waves up to Wave 24. According to EY’s summary (10 August 2026), Wave 24 covered taxpayers whose taxable revenue exceeded the mandatory registration threshold in 2022, 2023 or 2024, with a deadline of 30 June 2026. On 24 July 2026 ZATCA announced Wave 25, covering taxable revenue above the voluntary registration threshold in any year from 2022 to 2025, dated 1 February 2027: the Arabic announcement says “starting from” that date, the English one “by no later than February 1, 2027”. Either way it was not yet due at our last check (11 November 2026), and no Wave 26 had been announced as of the last update of ZATCA’s news page (21 October 2026). Taxpayers in each wave are notified directly by ZATCA at least six months in advance.\n\nWhere FieldSales stands: We support Phase 2 integration with ZATCA’s Fatoora platform. For companies with this integration switched on, issuing tax invoices, simplified invoices and returns requires an internet connection at the moment of issue."
+    },
+    {
+     "id": "collections",
+     "title": "Collections, receipt vouchers and receivables",
+     "body": "Reps record every collection with a receipt voucher on their phones and pick the payment method from the list the company sets up: cash, bank transfer, cheque, or any custom method you add, such as “mada (POS terminal)” for card payments taken on a separate terminal, or a mobile wallet. This labels the payment inside the receipt; it is not a direct connection to mada or any bank.\n\nCredit sales post to the customer’s account and show in their outstanding balance, which goes down as receipts come in, so managers can see what each customer owes and what each rep has collected. At day end, the van’s custody and the rep’s collections are reconciled before the day is closed."
+    },
+    {
+     "id": "how",
+     "title": "How FieldSales works in Saudi Arabia",
+     "body": "FieldSales runs on Android and iPhone, with a web dashboard for managers. In its settings, each company sets the currency (Saudi riyal), the VAT rate (15%), the tax name and its payment methods, which then appear on invoices and receipts. Reps issue Arabic invoices with a QR code from their phones and print them on thermal printers, log route visits with location and photos, and keep track of the van’s stock custody.\n\nThe app works offline and syncs once the network is back, with one exception: for companies with Phase 2 integration with ZATCA’s Fatoora platform switched on, tax invoices, simplified invoices and returns need a connection at the moment of issue.\n\nThe app interface is available in Arabic, English, French, Turkish and Chinese; the Arabic interface is complete and was designed for distribution companies in the Saudi market. FieldSales is headquartered in Riyadh."
+    }
+   ],
+   "faq": [
+    {
+     "q": "Does FieldSales support Phase 2 integration with Fatoora?",
+     "a": "Yes. We support Phase 2 integration with ZATCA’s Fatoora platform. When your business has to integrate is decided by ZATCA, which notifies each wave directly, and FieldSales does not give tax advice."
+    },
+    {
+     "q": "Does the rep app work without internet?",
+     "a": "Yes. It works offline and syncs what was recorded once the network is back. The exception: for companies with Phase 2 integration with ZATCA’s Fatoora platform switched on, tax invoices, simplified invoices and returns need a connection at the moment of issue."
+    },
+    {
+     "q": "How do I set up the riyal and 15% VAT?",
+     "a": "In your company settings: choose the currency (Saudi riyal) and enter the VAT rate (15%) and its name, “Value Added Tax”, and they carry through to your reps’ invoices and receipts. Which supplies are zero-rated or exempt is a tax question for your adviser to confirm."
+    },
+    {
+     "q": "Can reps print invoices at the customer’s shop?",
+     "a": "Yes. The rep issues the invoice from the phone in Arabic with a QR code and prints it on a thermal printer during the same visit."
+    },
+    {
+     "q": "How do I record payments by cheque, bank transfer or mada card?",
+     "a": "With a receipt voucher on the rep’s phone, choosing the payment method: cash, bank transfer, cheque, or a custom method you add, such as “mada (POS terminal)” for payments taken on a separate terminal. It labels the collection rather than connecting to mada or a bank, and the receipt reduces the customer’s outstanding balance."
+    },
+    {
+     "q": "What does a rep need to issue a tax invoice to a VAT-registered grocery?",
+     "a": "The buyer’s name, address and VAT number (15 digits, starting and ending with 3). For a buyer that isn’t registered, an alternative identifier such as the commercial registration is used instead. If your business is in scope for Phase 2 integration, ZATCA validates and stamps the tax invoice before it reaches the buyer, so the rep needs a connection when issuing it."
+    }
+   ],
+   "sampleInvoice": {
+    "title": "Example: a simplified tax invoice issued from the rep’s phone",
+    "note": "Structure example, no amounts: the fields listed in ZATCA’s guideline plus the payment method, without prices or totals.",
+    "fields": [
+     {
+      "label": "Document title",
+      "example": "فاتورة ضريبية مبسطة (Simplified Tax Invoice)"
+     },
+     {
+      "label": "Invoice number",
+      "example": "Unique sequential number, e.g. INV-000245"
+     },
+     {
+      "label": "Issue date and time",
+      "example": "YYYY-MM-DD HH:mm:ss"
+     },
+     {
+      "label": "Supplier",
+      "example": "Legal name as registered for VAT, national address in the Kingdom"
+     },
+     {
+      "label": "Supplier VAT number",
+      "example": "3XXXXXXXXXXXXX3 (15 digits)"
+     },
+     {
+      "label": "Customer",
+      "example": "Grocery (baqala) name; VAT number or alternative ID on a full tax invoice"
+     },
+     {
+      "label": "Line items",
+      "example": "Item description, quantity, unit price, discount"
+     },
+     {
+      "label": "VAT",
+      "example": "Rate 15% and VAT amount in riyals, rounded to the nearest halala"
+     },
+     {
+      "label": "Total",
+      "example": "Including VAT, in Saudi riyals"
+     },
+     {
+      "label": "Payment method",
+      "example": "Cash or credit"
+     },
+     {
+      "label": "QR code",
+      "example": "In the format set by ZATCA"
+     }
+    ]
+   },
+   "sources": [
+    {
+     "title": "ZATCA — E-Invoicing Roll-out Phases",
+     "url": "https://zatca.gov.sa/en/E-Invoicing/Introduction/Pages/Roll-out-phases.aspx"
+    },
+    {
+     "title": "ZATCA — Criteria for the Twenty-Fifth Wave of the Integration Phase (24 July 2026)",
+     "url": "https://zatca.gov.sa/en/MediaCenter/News/Pages/Wave25-E-invoicing.aspx"
+    },
+    {
+     "title": "ZATCA — Wave 25 announcement, Arabic version (24 July 2026)",
+     "url": "https://zatca.gov.sa/ar/MediaCenter/News/Pages/Wave25-E-invoicing.aspx"
+    },
+    {
+     "title": "ZATCA — E-Invoicing Implementation Resolution (amended 19 May 2023)",
+     "url": "https://zatca.gov.sa/en/E-Invoicing/Introduction/LawsAndRegulations/Documents/20230519_E-Invoicing%20Implementation%20Resolution%20English.pdf"
+    },
+    {
+     "title": "ZATCA — Guideline for Tax Invoicing and Records under VAT Provisions, Version 3 (May 2026)",
+     "url": "https://zatca.gov.sa/en/HelpCenter/guidelines/Documents/Guideline-for-Tax-Invoicing-and-Records-under-VAT-Provisions.pdf"
+    },
+    {
+     "title": "ZATCA — SMEs Guidelines",
+     "url": "https://zatca.gov.sa/en/HelpCenter/guidelines/Documents/(SMEs)%20Guidelines%20%E2%80%93%20Zatca%201.pdf"
+    },
+    {
+     "title": "ZATCA — Electronic Invoice XML Implementation Standard v1.2",
+     "url": "https://zatca.gov.sa/ar/E-Invoicing/SystemsDevelopers/Documents/20230519_ZATCA_Electronic_Invoice_XML_Implementation_Standard_%20vF.pdf"
+    },
+    {
+     "title": "ZATCA Media Center — News (updated 21 October 2026)",
+     "url": "https://zatca.gov.sa/en/MediaCenter/News/Pages/default.aspx"
+    },
+    {
+     "title": "PwC Worldwide Tax Summaries — Saudi Arabia, Other taxes (last reviewed 29 July 2026)",
+     "url": "https://taxsummaries.pwc.com/saudi-arabia/corporate/other-taxes"
+    },
+    {
+     "title": "EY Global Tax News — Saudi Arabia announces 25th wave of Phase 2 e-invoicing integration (10 August 2026)",
+     "url": "https://taxnews.ey.com/news/2026-1705-saudi-arabia-announces-25th-wave-of-phase-2-e-invoicing-integration"
+    },
+    {
+     "title": "Arab News — Saudi Arabia’s e-invoices soar to 8.2bn in 2025 (7 January 2026)",
+     "url": "https://www.arabnews.pk/node/2628538"
+    }
+   ],
+   "lastVerifiedLabel": "Last verified: November 2026"
+  },
+  "fr": {
+   "slugHint": null,
+   "title": "Logiciel de vente en tournée en Arabie saoudite | FieldSales",
+   "description": "Vente en tournée pour distributeurs saoudiens : factures en arabe avec QR depuis le mobile, reçus, créances, stock du véhicule et TVA à 15 %.",
+   "h1": "Logiciel de vente en tournée pour les distributeurs en Arabie saoudite",
+   "intro": "FieldSales, plateforme cloud basée à Riyad, pilote les commerciaux, la vente en tournée (van sales) et l’encaissement des distributeurs et grossistes saoudiens. Depuis son mobile, le commercial émet des factures en arabe avec code QR, les imprime sur imprimante thermique, saisit ses reçus, suit les créances et documente ses visites (position, photos) ; le stock du véhicule est rapproché le soir. Chaque entreprise règle la devise et la TVA (15 %) dans ses paramètres. Nous prenons en charge l’intégration de la phase 2 avec la plateforme Fatoora de la ZATCA.",
+   "sections": [
+    {
+     "id": "distribution",
+     "title": "La distribution en Arabie saoudite : canaux et vocabulaire",
+     "body": "La distribution s’organise généralement autour de grands pôles comme Riyad, Djeddah, Dammam et la Province orientale, La Mecque et Médine, ou la région d’Al-Qassim (Buraydah), d’où partent les tournées des commerciaux vers les quartiers et les villes voisines. Les points de vente vont des épiceries de quartier (baqala, tamweenat) aux mini-marchés et supermarchés indépendants, en passant par les chaînes de supermarchés et d’hypermarchés, les cafés et restaurants (CHR), les pharmacies, les boutiques de stations-service, les grossistes et les marchés de gros.\n\nDans le métier, la vente en tournée se dit « البيع من السيارة » ou tout simplement « Van Sales » : le commercial (mandoub) transporte la marchandise dans son véhicule, vend, facture et encaisse lors de la même visite. L’autre modèle courant est la prévente (pre-sales) : prise de commande, puis livraison. La journée se termine en général par l’arrêté de tournée, ou clôture de journée : rapprochement des espèces, des reçus et du stock confié au véhicule.\n\nCôté encaissement, on combine le plus souvent les espèces à la livraison, la vente à crédit dans la limite d’un plafond, réglée plus tard contre reçu, le virement bancaire, les chèques et les cartes mada sur terminal de paiement."
+    },
+    {
+     "id": "tax",
+     "title": "TVA, numéro de TVA et mentions de la facture",
+     "body": "Les ventes sont soumises à la taxe sur la valeur ajoutée (TVA), gérée par l’Autorité de la zakat, des impôts et des douanes (ZATCA). Introduite le 1er janvier 2018 au taux de 5 %, elle est passée au taux normal de 15 % le 1er juillet 2020, taux toujours en vigueur lors de notre dernière vérification. Relèvent notamment du taux zéro les exportations de biens hors des pays du CCG, le transport international et certains médicaments et équipements médicaux sous conditions ; certains services financiers rémunérés par une marge implicite, l’assurance vie et la location de logements sont exonérés. Le guide de la ZATCA destiné aux PME fixe deux seuils : l’immatriculation devient obligatoire dès que le chiffre d’affaires taxable sur douze mois (passé ou prévisionnel) dépasse le seuil d’immatriculation obligatoire, elle est facultative entre le seuil d’immatriculation facultative et ce seuil, et impossible en dessous du seuil facultatif.\n\nLe numéro de TVA compte 15 chiffres et commence et se termine par 3. La facture fiscale porte un intitulé indiquant sa nature (« facture fiscale » ou « facture fiscale simplifiée »), la date et l’heure d’émission, un numéro séquentiel unique, la raison sociale du fournisseur, son adresse nationale et son numéro de TVA, ainsi que le nom, l’adresse et le numéro de TVA de l’acheteur s’il est immatriculé ; à défaut, un autre identifiant dans l’ordre fixé par la ZATCA (TIN, registre du commerce, licence municipale… jusqu’à la carte d’identité, l’iqama ou le passeport). Chaque ligne précise la désignation, la quantité, le prix unitaire, la remise, le montant hors taxe, le taux et le montant de TVA et le total TTC ; la facture porte en outre le code QR défini par la ZATCA. La TVA est exprimée en riyals, arrondie à la halala la plus proche, et la facture doit être rédigée en arabe, une seconde langue étant autorisée. La facture simplifiée suffit pour les ventes aux particuliers et pour les opérations inférieures au seuil fixé par le guide de facturation de la ZATCA ; elle est émise à la date de livraison ou de paiement, selon celle qui intervient en premier. La facture fiscale complète doit être émise dans les 15 jours suivant la fin du mois de la livraison.\n\nDans FieldSales, chaque entreprise règle dans ses paramètres la devise (riyal saoudien), le taux de TVA (15 %) et le nom de la taxe, et le commercial émet depuis son mobile des factures en arabe avec code QR. Les abréviations usuelles sur les factures sont « ر.س » et SAR ; le riyal dispose aussi d’un nouveau signe officiel dans Unicode (U+20C1), que beaucoup de polices n’affichent pas encore."
+    },
+    {
+     "id": "einvoicing",
+     "title": "Facturation électronique : FATOORA et la phase d’intégration",
+     "body": "La facturation électronique repose sur FATOORA, la plateforme de la ZATCA, déployée en deux phases selon la page « Roll-out Phases » de l’autorité. La phase 1 (émission et conservation) s’applique depuis le 4 décembre 2021 à tous les assujettis résidents, qui ne peuvent plus utiliser de factures manuscrites ni de tableurs, et a rendu le code QR obligatoire sur les factures simplifiées. La phase 2 (intégration) a débuté le 1er janvier 2023 par vagues successives ; depuis ce même mois, le code QR est aussi obligatoire sur les factures fiscales. Selon Arab News (7 janvier 2026), citant Al Eqtisadiah et la ZATCA, plus de 8,2 milliards de factures électroniques ont transité par Fatoora en 2025.\n\nEn phase 2, les factures fiscales (B2B et B2G) et leurs avoirs et notes de débit sont transmis à la ZATCA, qui les contrôle et y appose son cachet cryptographique avant leur remise à l’acheteur (modèle « clearance »). Les factures simplifiées (B2C) sont scellées localement puis déclarées à la ZATCA dans les 24 heures suivant leur émission (modèle « reporting »). La résolution de mise en œuvre de la ZATCA permet, en cas de coupure, de poursuivre l’activité en mettant factures et notes en file d’attente, puis de les déclarer au retour de la connexion ; en principe, la facture fiscale ne parvient toutefois à l’acheteur qu’après contrôle et cachet de la ZATCA. Le format XML (UBL 2.1) est obligatoire pour l’émission et la transmission ; le PDF/A-3 avec XML intégré est facultatif pour partager une version lisible.\n\nAujourd’hui, l’intégration est obligatoire pour les assujettis notifiés par la ZATCA dans les vagues allant jusqu’à la 24e. Selon la synthèse d’EY (10 août 2026), la 24e vague visait les entreprises dont le chiffre d’affaires taxable a dépassé le seuil d’immatriculation obligatoire en 2022, 2023 ou 2024, avec une échéance au 30 juin 2026. Le 24 juillet 2026, la ZATCA a annoncé la 25e vague, qui vise un chiffre d’affaires taxable supérieur au seuil d’immatriculation facultative au cours de l’une des années 2022 à 2025, avec pour date le 1er février 2027 : le texte arabe de l’annonce dit « à partir de » cette date, le texte anglais « by no later than February 1, 2027 ». Dans les deux cas, l’échéance n’était pas atteinte lors de notre dernière vérification (11 novembre 2026), et aucune 26e vague n’était annoncée à la dernière mise à jour de la page d’actualités de la ZATCA (21 octobre 2026). Les entreprises de chaque vague sont notifiées directement par la ZATCA au moins six mois à l’avance.\n\nPosition de FieldSales : nous prenons en charge l’intégration de la phase 2 avec la plateforme Fatoora de la ZATCA. Pour les entreprises où cette intégration est activée, l’émission des factures fiscales, des factures simplifiées et des retours nécessite une connexion internet au moment de l’émission."
+    },
+    {
+     "id": "collections",
+     "title": "Encaissements, reçus et créances clients",
+     "body": "Le commercial enregistre chaque encaissement par un reçu depuis son mobile et choisit le mode de paiement dans la liste définie par l’entreprise : espèces, virement bancaire, chèque ou tout mode personnalisé que vous ajoutez, par exemple « mada (TPE) » pour les paiements par carte encaissés sur un terminal séparé, ou un portefeuille mobile. Il s’agit d’un libellé dans le reçu, pas d’une connexion directe avec mada ou une banque.\n\nLes ventes à crédit sont portées au compte du client et apparaissent dans ses créances, qui diminuent au fil des encaissements : le responsable voit ce que doit chaque client et ce qu’a encaissé chaque commercial. En fin de journée, le stock confié au véhicule et les encaissements du commercial sont rapprochés avant la clôture."
+    },
+    {
+     "id": "how",
+     "title": "Comment FieldSales fonctionne en Arabie saoudite",
+     "body": "FieldSales fonctionne sur Android et iPhone, avec un tableau de bord web pour les responsables. Dans ses paramètres, chaque entreprise définit la devise (riyal saoudien), le taux de TVA (15 %) et son libellé, ainsi que ses modes de paiement, repris ensuite sur les factures et les reçus. Le commercial émet depuis son mobile des factures en arabe avec code QR, les imprime sur imprimante thermique, enregistre les visites de sa tournée avec localisation et photos et suit le stock confié à son véhicule.\n\nL’application fonctionne hors connexion et se synchronise au retour du réseau, avec une exception : pour les entreprises où l’intégration de la phase 2 avec la plateforme Fatoora de la ZATCA est activée, les factures fiscales, les factures simplifiées et les retours exigent une connexion au moment de l’émission.\n\nL’interface de l’application existe en arabe, anglais, français, turc et chinois ; l’interface arabe est complète et a été conçue pour les sociétés de distribution du marché saoudien. FieldSales a son siège à Riyad."
+    }
+   ],
+   "faq": [
+    {
+     "q": "FieldSales prend-il en charge l’intégration de la phase 2 avec Fatoora ?",
+     "a": "Oui. Nous prenons en charge l’intégration de la phase 2 avec la plateforme Fatoora de la ZATCA. La date à laquelle votre entreprise doit s’intégrer est fixée par la ZATCA, qui notifie directement chaque vague ; FieldSales ne fournit pas de conseil fiscal."
+    },
+    {
+     "q": "L’application du commercial fonctionne-t-elle sans internet ?",
+     "a": "Oui. Elle fonctionne hors connexion et synchronise les saisies au retour du réseau. Exception : pour les entreprises où l’intégration de la phase 2 avec la plateforme Fatoora est activée, les factures fiscales, les factures simplifiées et les retours exigent une connexion au moment de l’émission."
+    },
+    {
+     "q": "Comment paramétrer le riyal et la TVA à 15 % ?",
+     "a": "Dans les paramètres de l’entreprise : choisissez la devise (riyal saoudien), saisissez le taux de TVA (15 %) et son libellé « taxe sur la valeur ajoutée » ; ils sont repris sur les factures et reçus de vos commerciaux. Savoir quelles opérations relèvent du taux zéro ou d’une exonération reste une question fiscale à confirmer avec votre conseiller."
+    },
+    {
+     "q": "Le commercial peut-il imprimer la facture chez le client ?",
+     "a": "Oui. Il émet la facture depuis son mobile, en arabe avec code QR, et l’imprime sur une imprimante thermique pendant la visite."
+    },
+    {
+     "q": "Comment enregistrer un paiement par chèque, virement ou carte mada ?",
+     "a": "Avec un reçu sur le mobile du commercial, en choisissant le mode de paiement : espèces, virement, chèque ou un mode personnalisé que vous ajoutez, comme « mada (TPE) » pour les paiements encaissés sur un terminal séparé. C’est un libellé d’encaissement, pas une connexion à mada ou à une banque, et le reçu vient réduire la créance du client."
+    },
+    {
+     "q": "Que faut-il pour facturer une épicerie immatriculée à la TVA ?",
+     "a": "Son nom, son adresse et son numéro de TVA (15 chiffres, commençant et se terminant par 3). Pour un acheteur non immatriculé, on indique à la place un autre identifiant, comme le registre du commerce. Si votre entreprise est concernée par l’intégration de la phase 2, la ZATCA contrôle et scelle la facture fiscale avant sa remise à l’acheteur : le commercial a donc besoin d’une connexion au moment de l’émettre."
+    }
+   ],
+   "sampleInvoice": {
+    "title": "Exemple : facture fiscale simplifiée émise depuis le mobile du commercial",
+    "note": "Exemple de structure, sans montants : les mentions prévues par le guide de la ZATCA, plus le mode de paiement, sans prix ni totaux.",
+    "fields": [
+     {
+      "label": "Intitulé du document",
+      "example": "فاتورة ضريبية مبسطة (facture fiscale simplifiée)"
+     },
+     {
+      "label": "Numéro de facture",
+      "example": "Numéro séquentiel unique, par ex. INV-000245"
+     },
+     {
+      "label": "Date et heure d’émission",
+      "example": "AAAA-MM-JJ HH:mm:ss"
+     },
+     {
+      "label": "Fournisseur",
+      "example": "Raison sociale enregistrée à la TVA, adresse nationale dans le Royaume"
+     },
+     {
+      "label": "Numéro de TVA du fournisseur",
+      "example": "3XXXXXXXXXXXXX3 (15 chiffres)"
+     },
+     {
+      "label": "Client",
+      "example": "Nom de l’épicerie (baqala) ; numéro de TVA ou identifiant de remplacement sur une facture fiscale complète"
+     },
+     {
+      "label": "Lignes",
+      "example": "Désignation, quantité, prix unitaire, remise"
+     },
+     {
+      "label": "TVA",
+      "example": "Taux de 15 % et montant de TVA en riyals, arrondi à la halala"
+     },
+     {
+      "label": "Total",
+      "example": "TTC, en riyals saoudiens"
+     },
+     {
+      "label": "Mode de paiement",
+      "example": "Espèces ou crédit"
+     },
+     {
+      "label": "Code QR",
+      "example": "Au format défini par la ZATCA"
+     }
+    ]
+   },
+   "sources": [
+    {
+     "title": "ZATCA — Phases de déploiement de la facturation électronique (E-Invoicing Roll-out Phases)",
+     "url": "https://zatca.gov.sa/en/E-Invoicing/Introduction/Pages/Roll-out-phases.aspx"
+    },
+    {
+     "title": "ZATCA — Critères de la 25e vague de la phase d’intégration, version anglaise (24 juillet 2026)",
+     "url": "https://zatca.gov.sa/en/MediaCenter/News/Pages/Wave25-E-invoicing.aspx"
+    },
+    {
+     "title": "ZATCA — Critères de la 25e vague, version arabe (24 juillet 2026)",
+     "url": "https://zatca.gov.sa/ar/MediaCenter/News/Pages/Wave25-E-invoicing.aspx"
+    },
+    {
+     "title": "ZATCA — Résolution de mise en œuvre de la facturation électronique (modifiée le 19 mai 2023)",
+     "url": "https://zatca.gov.sa/en/E-Invoicing/Introduction/LawsAndRegulations/Documents/20230519_E-Invoicing%20Implementation%20Resolution%20English.pdf"
+    },
+    {
+     "title": "ZATCA — Guide de la facturation fiscale et des registres en matière de TVA, version 3 (mai 2026)",
+     "url": "https://zatca.gov.sa/en/HelpCenter/guidelines/Documents/Guideline-for-Tax-Invoicing-and-Records-under-VAT-Provisions.pdf"
+    },
+    {
+     "title": "ZATCA — Guide destiné aux PME (SMEs Guidelines)",
+     "url": "https://zatca.gov.sa/en/HelpCenter/guidelines/Documents/(SMEs)%20Guidelines%20%E2%80%93%20Zatca%201.pdf"
+    },
+    {
+     "title": "ZATCA — Norme de mise en œuvre de la facture électronique XML, v1.2",
+     "url": "https://zatca.gov.sa/ar/E-Invoicing/SystemsDevelopers/Documents/20230519_ZATCA_Electronic_Invoice_XML_Implementation_Standard_%20vF.pdf"
+    },
+    {
+     "title": "ZATCA — Actualités (mise à jour du 21 octobre 2026)",
+     "url": "https://zatca.gov.sa/en/MediaCenter/News/Pages/default.aspx"
+    },
+    {
+     "title": "PwC Worldwide Tax Summaries — Saudi Arabia, Other taxes (revu le 29 juillet 2026)",
+     "url": "https://taxsummaries.pwc.com/saudi-arabia/corporate/other-taxes"
+    },
+    {
+     "title": "EY Global Tax News — annonce de la 25e vague d’intégration de la phase 2 (10 août 2026)",
+     "url": "https://taxnews.ey.com/news/2026-1705-saudi-arabia-announces-25th-wave-of-phase-2-e-invoicing-integration"
+    },
+    {
+     "title": "Arab News — Saudi Arabia’s e-invoices soar to 8.2bn in 2025 (7 janvier 2026)",
+     "url": "https://www.arabnews.pk/node/2628538"
+    }
+   ],
+   "lastVerifiedLabel": "Dernière vérification : novembre 2026"
+  }
+ },
+ "notes": "صفحة قائمة /blog/field-sales-software-sa/ بالعربية والإنجليزية والفرنسية؛ كُتب المحتوى كاملاً لكل لغة وslugHint=null ليأخذ الدامج منه قسم «حقائق محلية». المصدر الوحيد: country-facts/SA.json بعد التدقيق (auditedAt 2026-11-11، الثقة high). ادعاء الربط بالصيغة المعتمدة حرفياً («ندعم ربط المرحلة الثانية مع منصة فاتورة» / \"We support Phase 2 integration with ZATCA’s Fatoora platform\" / وترجمتها الفرنسية) وفي جملة مستقلة بلا سنة ولا موجة ولا نسبة، وما قبلها وما بعدها بلا تواريخ. تجنّباً لمبالغ ملاصقة للعملة: عُبّر عن عتبات الموجتين 24 و25 بـ«حد التسجيل الإلزامي» (375,000) و«حد التسجيل الاختياري» (187,500) لتطابقهما رقمياً مع حدَّي التسجيل في الملف، وعن حد الفاتورة المبسطة (أقل من 1,000) بـ«الحد المذكور في دليل الهيئة»، وعن دورية الإقرار لم يُذكر شيء. يراجع الدامج هذا إن أراد الأرقام. اختلاف نسختي بيان الموجة 25 («ابتداءً من» عربياً و«by no later than» إنجليزياً) مذكور صراحة في الصفحات الثلاث مع أن الموعد لم يحن في 11 نوفمبر 2026. عتبة الموجة 24 منسوبة إلى ملخص EY لأن بيان الهيئة لها لم يُعثر عليه. العمل دون اتصال: ذُكر مع الاستثناء الموثّق في الأسئلة الشائعة لـfieldsa.net — الشركة المفعَّل لها الربط تحتاج اتصالاً لحظة إصدار الفواتير الضريبية والمبسطة والمرتجعات — ولم يُذكر أن الفاتورة الضريبية تُعتمد دون اتصال. لم يُنسب «أخذ الطلبيات/Pre-sales» إلى FieldSales لأن التدقيق حذفه من الجمل المسموح بها؛ ورد مصطلحاً سوقياً فقط في قسم التوزيع. وكذلك لم يُذكر ربط مع مدى أو البنوك: مدى يظهر طريقةَ دفع مخصّصة لتسجيل التحصيل مع نفي الربط صراحة. قسم التوزيع (المدن والقنوات والمصطلحات ووسائل التحصيل) من معرفة عامة غير موثّقة بمصدر (مذكور في uncertain)، فصيغ بصيغة غير جازمة («عادةً»، «في الغالب») وبلا أرقام؛ يُراجع قبل النشر. نسبة 15% مؤكدة من أربعة مصادر حتى 21 أكتوبر 2026 وقيل فيها «السارية عند آخر تحقق». النسبة الصفرية للأدوية مذكورة عامةً «وفق ضوابط» كما يطلب الملف. إحصاء 8.2 مليار فاتورة منسوب إلى Arab News نقلاً عن الاقتصادية لأنه مصدر صحفي ثانوي. المثال الفاتوري بلا مبالغ ولا أسعار، والرقم الضريبي بصيغة 3 + 13×X + 3. لا أسعار ولا «مجاني» ولا أسماء منافسين ولا أرقام عملاء ولا مفردات اعتماد.",
+ "review": {
+  "reviewedAt": "2026-11-11",
+  "quality": "publish-with-notes",
+  "fixes": 34,
+  "issues": [
+   "حقيقة (ar/en/fr): «وامتد فيها إلزام رمز QR إلى الفاتورة الضريبية» ربطت إلزام QR في الفاتورة الضريبية بالمرحلة الثانية (أي بالمربوطين وحدهم)، والحقائق تقول «منذ يناير 2023» دون قيد → «ومنذ ذلك الشهر صار رمز QR إلزامياً في الفاتورة الضريبية أيضاً».",
+   "حقيقة (ar/en/fr): جملة رخصة الصفّ عند انقطاع الاتصال قد تُفهم أنها تشمل الفاتورة الضريبية → أُضيف من modelNote أن الحل يبقى عاملاً، وأن الأصل وصول الفاتورة الضريبية للمشتري بعد تحقق الهيئة وختمها (منسجم مع mustNotSay «لا اعتماد B2B دون اتصال»).",
+   "حقيقة (ar/en/fr): جملة التسجيل كانت دائرية («إلزامي متى تجاوزت حدّ التسجيل الإلزامي») → صارت تعرّف الحدّين من دليل المنشآت الصغيرة وتضيف من الحقائق «فعلية سابقة أو متوقعة» و«لا تسجيل دون الحد الاختياري»، دون أرقام ملاصقة للعملة؛ والحدّان هما ما تحيل إليه معايير الموجتين 24 و25.",
+   "حقيقة (ar/en/fr): ملاحظة المثال الفاتوري ادّعت أن كل الحقول من دليل الهيئة، و«طريقة الدفع» ليست منها → «الحقول التي يذكرها دليل الهيئة مع حقل طريقة الدفع».",
+   "منطق (ar/en/fr) FAQ 6: السؤال عن تموينات مسجلة والجواب خلط حالة غير المسجل، وأغفل الاسم والعنوان، وعمّم «في المرحلة الثانية» → صار: الاسم والعنوان والرقم الضريبي، ثم المعرّف البديل لغير المسجل، ثم «إن كانت منشأتك مشمولة بالربط».",
+   "ترتيب (ar/en/fr): إحصاء Arab News نُقل إلى فقرة المراحل، وصارت جملة «الإشعار قبل ستة أشهر» خاتمة فقرة النطاق مباشرة بعد خبر الموجة 26؛ وبقيت الجملة السابقة لفقرة موقف FieldSales بلا سنة ولا تاريخ.",
+   "لغة (ar): «نقداً، أو تحويل بنكي، أو شيك» خلط المنصوب بالمرفوع → «النقد، أو التحويل البنكي، أو الشيك» في قسم التحصيل وFAQ 5؛ و«نقداً أو آجل» → «نقدي أو آجل»؛ و«مع رمز QR» في آخر قائمة حقول البند → جملة مستقلة «وتحمل الفاتورة رمز QR الذي تحدده الهيئة».",
+   "لغة (en): «follow customer balances» → «track customer balances»؛ «the VAT rate (15%) and its name, and its payment methods» → «the VAT rate (15%), the tax name and its payment methods»؛ «alongside the QR code» → «the invoice carries the QR code specified by ZATCA»؛ «Each wave is notified» → «Taxpayers in each wave are notified».",
+   "لغة (fr) نية منقلبة: «le règlement du commercial» تعني بالفرنسية «دفعة المندوب» لا تسويته → «l’arrêté de tournée»؛ و«notes de crédit» منقولة عن الإنجليزية → «avoirs» مع تصحيح التطابق إلى «transmis»؛ و«paiements pris sur un terminal» → «encaissés»؛ و«les imprime en thermique» و«suit … ses visites géolocalisées» → صياغة سليمة (المقدمة 90 كلمة)؛ و«tandis que le stock … est suivi» → «et suit le stock…»؛ و«: Nous» → «: nous».",
+   "فُحص ولم يُعدَّل: ادعاء الربط بالصيغة المعتمدة حرفياً في جملة مستقلة بلا سنة ولا موجة؛ لا «معتمد/اعتماد/مرخّص/certified/compliant/approved/conforme/agréé» ولا «مجاني/free/gratuit»؛ لا سعر ولا مبلغ ملاصق لعملة (عتبات الموجات والفاتورة المبسطة بأسماء الحدود لا بالأرقام)؛ لا أسماء منافسين ولا أرقام عملاء؛ لا ربط مع مدى أو البنوك (نفي صريح)؛ لغات الواجهة الخمس صادقة؛ تواريخ الإلزام (2021، 2023، الموجتان 24 و25، 2027) في قسم الفوترة وحده بمصادرها، وتاريخا ضريبة القيمة المضافة (2018، 2020) تاريخ ضريبي في قسم الضريبة بعيداً عن جملة FieldSales؛ 15% و5% والموجات و24 ساعة وUBL 2.1 وPDF/A-3 وU+20C1 مطابقة للحقائق.",
+   "ملاحظة للمالك: «أخذ الطلبيات/Pre-sales» يرد مصطلحاً سوقياً فقط ولا يُنسب إلى FieldSales لأن تدقيق الحقائق حذفه من canSay، مع أن وصف المنصة الملزم يذكر pre-sales؛ يُضاف إن أكّده الفريق.",
+   "ملاحظة للمالك: قسم التوزيع (المدن والقنوات والمصطلحات ووسائل التحصيل) بلا مصدر مُستجلب بحسب uncertain، مصوغ بـ«عادةً/في الغالب» وبلا أرقام؛ ونسبة 15% مؤكدة حتى 21 أكتوبر 2026؛ والعتبات بلا أرقام فإن أراد الدامج الأرقام فهي مبالغ ملاصقة للعملة تخالف القاعدة."
+  ]
+ }
+}
