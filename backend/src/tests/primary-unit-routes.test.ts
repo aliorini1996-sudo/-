@@ -583,17 +583,14 @@ test('PUT /:id: إعادة تسمية الأساس تكتب صفّ سجلٍّ ب
   assert.equal(opIdx('product.update'), -1);
 });
 
-test('D20-ب: تسمية الأساس باسمٍ كان أساس الصنف قبل تحويله ⇒ 409 BASE_NAME_RETIRED بلا كتابة', async () => {
-  // تحويلٌ (كرتون ⇒ قارورة)، ثم حُذفت وحدة الكرتون، ثم محاولة تسمية الأساس «كرتون»
+test('D20-ب أُلغي (أمر المالك ١١ نوفمبر): تسمية الأساس باسمٍ كان أساس الصنف قبل تحويله تُقبل', async () => {
+  // تحويلٌ (كرتون ⇒ قارورة)، ثم حُذفت وحدة الكرتون، ثم تسمية الأساس «كرتون» — تُقبل وتُسجَّل إعادة تسمية بمعامل ١
   reset();
   const w = world({ units: [], baseConvertedAt: new Date('2026-10-01T00:00:00Z'), conversions: [{ fromUnit: ' كرتون', toUnit: 'قارورة', factor: 24 }] });
   const r = await call('PUT', '/api/products/p1', { unit: 'كرتون ', expectedBaseName: 'قارورة' });
-  assert.equal(r.status, 409, JSON.stringify(r.body));
-  assert.equal(r.body.code, 'BASE_NAME_RETIRED');
-  assert.match(r.body.message, /كان وحدة هذا الصنف قبل تحويله/);
-  assert.equal(opIdx('product.update'), -1);
-  assert.equal(opIdx('productBaseConversion.create'), -1);
-  assert.equal(w.product.unit, 'قارورة');
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.notEqual(opIdx('product.update'), -1);
+  assert.equal(w.product.unit.trim(), 'كرتون');
   // إعادة تسمية بمعامل ١ لا تُقاعد اسماً
   reset();
   world({ units: [], baseConvertedAt: new Date('2026-10-01T00:00:00Z'), conversions: [{ fromUnit: 'عبوة', toUnit: 'قارورة', factor: 1 }] });

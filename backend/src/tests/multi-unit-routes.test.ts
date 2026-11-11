@@ -784,19 +784,15 @@ test('التحويل ومفاتيح API نشطة (D19-أ): بلا إقرار ⇒
   assert.equal((await call('POST', '/api/products/p1/convert-base', { body: CONVERT })).status, 200);
 });
 
-test('D20-ب: التحويل إلى اسمٍ كان أساس الصنف قبل تحويلٍ سابق ⇒ 409 BASE_NAME_RETIRED بلا كتابة', async () => {
+test('D20-ب أُلغي (أمر المالك ١١ نوفمبر): التحويل إلى اسمٍ كان أساس الصنف قبل تحويلٍ سابق يُقبل', async () => {
   reset();
   const w = productWorld();
   w.product.baseConvertedAt = new Date('2026-09-01T00:00:00Z');
   w.conversions.push({ id: 'old', tenantId: TENANT, productId: 'p1', fromUnit: 'حبة ', toUnit: 'كرتون', factor: 6 });
   const r = await call('POST', '/api/products/p1/convert-base', { body: CONVERT });
-  assert.equal(r.status, 409, JSON.stringify(r.body));
-  assert.equal(r.body.code, 'BASE_NAME_RETIRED');
-  assert.equal(raws.some(x => x.kind === '$executeRaw'), false, 'كتابةٌ رغم الرفض');
-  assert.equal(w.conversions.length, 1);
-  // اسمٌ آخر يمرّ ويُكتب صفٌّ ثانٍ
-  assert.equal((await call('POST', '/api/products/p1/convert-base', { body: { ...CONVERT, newBaseName: 'قطعة' } })).status, 200);
-  assert.equal(w.conversions.length, 2);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.code, undefined);
+  assert.equal(w.conversions.length, 2, 'يُكتب صفّ التحويل');
 });
 
 test('I10: «قيد التحويل» يُسجَّل قبل المعاملة ويُحرَّر في finally — ولو رمت المعاملة', async () => {
