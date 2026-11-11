@@ -40,15 +40,17 @@ const OUT_DIR = path.dirname(OUT);
 const PUBLISHED_FILE = path.join(ROOT, 'src/i18n/registry/published.json');
 
 /**
- * الصفحات التسويقية المُصيَّرة. الرئيسية و«احجز اجتماعاً» بخمس لغات؛ والبقية بثلاث (ع/إ/فر) لأن prerender
+ * الصفحات التسويقية المُصيَّرة. الرئيسية و«احجز اجتماعاً» والبروفايل بخمس لغات؛ والبقية بثلاث (ع/إ/فر) لأن prerender
  * لا يصيّر لها نسخة تركية ولا صينية — كانت الخريطة تعلن /tr/about و/zh/pricing وأخواتها (16 رابطاً)
  * فيتسلّم الزاحف قوقعة الرئيسية بـcanonical «/». مطابقة لـavailableLangs في src/i18n/locale.ts.
  */
-const FIVE_LANG = new Set(['/', '/meeting']);
+const FIVE_LANG = new Set(['/', '/meeting', '/profile']);
 const I18N_ROUTES = [
   { p: '/', priority: '1.0', freq: 'weekly' },
   // lastmod تاريخ الصفحة نفسها (أُنشئت ٨ نوفمبر ٢٠٢٦) لا CONTENT_VERSION الأقدم منها
   { p: '/meeting', priority: '0.6', freq: 'monthly', lastmod: '2026-11-08' },
+  // البروفايل بخمس روابط مُصيَّرة منذ ١١ نوفمبر ٢٠٢٦ (كان رابطاً واحداً برأس الرئيسية فلا يُفهرس)
+  { p: '/profile', priority: '0.6', freq: 'monthly', lastmod: '2026-11-11' },
   { p: '/about', priority: '0.7', freq: 'monthly' },
   { p: '/contact', priority: '0.7', freq: 'monthly' },
   { p: '/calculator', priority: '0.9', freq: 'weekly' },

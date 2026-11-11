@@ -16,7 +16,13 @@
    "slug": "van-sales-software",
    "pages": [
     "category",
-    "countries"
+    "countries",
+    "features",
+    "feature:offlineInvoicing",
+    "feature:vanStock",
+    "feature:routesVisits",
+    "apps",
+    "quote"
    ],
    "waLabel": "Chat on WhatsApp",
    "contentDate": "2026-11-08"
@@ -34,7 +40,13 @@
    "slug": "logiciel-vente-en-tournee",
    "pages": [
     "category",
-    "countries"
+    "countries",
+    "features",
+    "feature:offlineInvoicing",
+    "feature:vanStock",
+    "feature:routesVisits",
+    "apps",
+    "quote"
    ],
    "waLabel": "Discuter sur WhatsApp",
    "contentDate": "2026-11-08"
@@ -52,7 +64,13 @@
    "slug": "plasiyer-programi",
    "pages": [
     "category",
-    "countries"
+    "countries",
+    "features",
+    "feature:offlineInvoicing",
+    "feature:vanStock",
+    "feature:routesVisits",
+    "apps",
+    "quote"
    ],
    "waLabel": "WhatsApp’tan yazın",
    "contentDate": "2026-11-08"
@@ -70,7 +88,13 @@
    "slug": "chexiao-ruanjian",
    "pages": [
     "category",
-    "countries"
+    "countries",
+    "features",
+    "feature:offlineInvoicing",
+    "feature:vanStock",
+    "feature:routesVisits",
+    "apps",
+    "quote"
    ],
    "waLabel": "WhatsApp 咨询",
    "contentDate": "2026-11-08"

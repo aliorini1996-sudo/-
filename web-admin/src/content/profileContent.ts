@@ -38,6 +38,42 @@ export const PROFILE_LANG_LABEL: Record<ProfileLang, string> = {
   zh: '中文',
 };
 
+/**
+ * عنوان كل نسخة لغوية ووصفها — **مصدر واحد** للصفحة (useSeo في ProfilePage.tsx) وللتصيير المسبق
+ * (scripts/prerender.mjs: ‎/profile/‎ و‎/en/profile/‎ و‎/fr/profile/‎ و‎/tr/profile/‎ و‎/zh/profile/‎)، فلا يقرأ الزاحف
+ * عنواناً غير الذي يكتبه React بعد الإقلاع. كانت الصفحة رابطاً واحداً تتبدّل لغته داخلها ورأسه رأس الرئيسية
+ * (canonical «/») فلا تُفهرس أي لغة منها.
+ * والتموضع عالمي (شركات التوزيع في كل دول العالم) بلا سعر (لا سعر ظاهر في الموقع — قرار المالك ٢٧ أكتوبر ٢٠٢٦).
+ * quote: نصّ رابط «اطلب عرض سعر» في ملخّص الزاحف مكان بنود الاشتراك.
+ */
+export const PROFILE_SEO: Record<ProfileLang, { title: string; description: string; quote: string }> = {
+  ar: {
+    title: 'الملف التعريفي لفيلد سيلز | FieldSales',
+    description: 'الملف التعريفي لفيلد سيلز: منصّة سحابية لإدارة مناديب المبيعات والتوزيع لشركات التوزيع في كل دول العالم، مقرها الرياض. تصفّحه أو نزّله PDF.',
+    quote: 'اطلب عرض سعر',
+  },
+  en: {
+    title: 'FieldSales Company Profile',
+    description: 'The FieldSales company profile: a cloud platform for managing field sales reps and distribution, for distributors in every country, based in Riyadh. View or download the PDF.',
+    quote: 'Request a quote',
+  },
+  fr: {
+    title: 'Profil de l’entreprise FieldSales',
+    description: 'Le profil de FieldSales : plateforme cloud de gestion des commerciaux terrain et de la distribution, pour les distributeurs de tous les pays, basée à Riyad. À lire ou en PDF.',
+    quote: 'Demander un devis',
+  },
+  tr: {
+    title: 'FieldSales Şirket Tanıtımı',
+    description: 'FieldSales tanıtım dosyası: her ülkedeki dağıtım şirketleri için saha satış temsilcisi ve dağıtım yönetimi bulut platformu, merkezi Riyad. Görüntüleyin veya PDF indirin.',
+    quote: 'Teklif isteyin',
+  },
+  zh: {
+    title: 'FieldSales 公司简介',
+    description: 'FieldSales 公司简介：面向全球各国分销企业的外勤销售与分销管理云平台，总部位于利雅得。可在线浏览或下载 PDF。',
+    quote: '索取报价',
+  },
+};
+
 // وصف الحقول — يقود محرر المالك والصفحة معاً (المفتاح ثابت والنص حر)
 export const PROFILE_FIELDS: { key: string; label: string; multiline?: boolean; hint?: string }[] = [
   { key: 'cover_title', label: 'عنوان الغلاف' },

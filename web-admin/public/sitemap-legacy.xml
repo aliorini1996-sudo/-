@@ -841,6 +841,56 @@
     <lastmod>2026-11-08</lastmod>
   </url>
   <url>
+    <loc>https://fieldsa.net/profile/</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/profile/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/profile/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/profile/"/>
+    <xhtml:link rel="alternate" hreflang="tr" href="https://fieldsa.net/tr/profile/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://fieldsa.net/zh/profile/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/profile/"/>
+    <lastmod>2026-11-11</lastmod>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/en/profile/</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/profile/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/profile/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/profile/"/>
+    <xhtml:link rel="alternate" hreflang="tr" href="https://fieldsa.net/tr/profile/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://fieldsa.net/zh/profile/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/profile/"/>
+    <lastmod>2026-11-11</lastmod>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/fr/profile/</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/profile/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/profile/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/profile/"/>
+    <xhtml:link rel="alternate" hreflang="tr" href="https://fieldsa.net/tr/profile/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://fieldsa.net/zh/profile/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/profile/"/>
+    <lastmod>2026-11-11</lastmod>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/tr/profile/</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/profile/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/profile/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/profile/"/>
+    <xhtml:link rel="alternate" hreflang="tr" href="https://fieldsa.net/tr/profile/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://fieldsa.net/zh/profile/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/profile/"/>
+    <lastmod>2026-11-11</lastmod>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/zh/profile/</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/profile/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/profile/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/profile/"/>
+    <xhtml:link rel="alternate" hreflang="tr" href="https://fieldsa.net/tr/profile/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://fieldsa.net/zh/profile/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/profile/"/>
+    <lastmod>2026-11-11</lastmod>
+  </url>
+  <url>
     <loc>https://fieldsa.net/about/</loc>
     <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/about/"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/about/"/>

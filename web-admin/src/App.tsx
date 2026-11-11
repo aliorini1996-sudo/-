@@ -310,20 +310,23 @@ export default function App() {
         <Route path="/en/privacy" element={<InfoPage pageKey="privacy" />} />
         <Route path="/en/contact" element={<ContactPage />} />
         <Route path="/en/meeting" element={<MeetingPage />} />
+        <Route path="/en/profile" element={<ProfilePage />} />
         <Route path="/en/subscribe-request" element={<SubscriptionRequestPage />} />
         <Route path="/en/calculator" element={<LeakCalculatorPage />} />
         <Route path="/en/invoice-generator" element={<InvoiceGeneratorPage />} />
         <Route path="/en/pricing" element={<PricingPage />} />
         <Route path="/en/blog" element={<BlogIndexPage />} />
         <Route path="/en/blog/:slug" element={<BlogPostPage />} />
-        {/* التركية والصينية: الرئيسية و«احجز اجتماعاً» وحدهما — الصفحتان المُصيَّرتان بهما فعلاً (routeLangs في
+        {/* التركية والصينية: الرئيسية و«احجز اجتماعاً» والبروفايل وحدها — الصفحات المُصيَّرة بهما فعلاً (routeLangs في
             i18n/locale.ts). أُزيلت /tr/about و/zh/pricing وأخواتها: لا صفحة مُصيَّرة لها فكان الخادم يردّ قوقعة
             الرئيسية العربية بـcanonical «/»؛ الآن تقع على NotFoundPage (noindex)، والروابط الداخلية تقود إلى
             نظيرها الإنجليزي (pathForLocale) والمبدّل إلى رئيسية اللغة (switchLocalePath). */}
         <Route path="/tr" element={<LandingPage />} />
         <Route path="/tr/meeting" element={<MeetingPage />} />
+        <Route path="/tr/profile" element={<ProfilePage />} />
         <Route path="/zh" element={<LandingPage />} />
         <Route path="/zh/meeting" element={<MeetingPage />} />
+        <Route path="/zh/profile" element={<ProfilePage />} />
         {/* النسخة الفرنسية على /fr مع hreflang */}
         <Route path="/fr" element={<LandingPage />} />
         <Route path="/fr/about" element={<InfoPage pageKey="about" />} />
@@ -332,6 +335,7 @@ export default function App() {
         <Route path="/fr/privacy" element={<InfoPage pageKey="privacy" />} />
         <Route path="/fr/contact" element={<ContactPage />} />
         <Route path="/fr/meeting" element={<MeetingPage />} />
+        <Route path="/fr/profile" element={<ProfilePage />} />
         <Route path="/fr/subscribe-request" element={<SubscriptionRequestPage />} />
         <Route path="/fr/calculator" element={<LeakCalculatorPage />} />
         <Route path="/fr/invoice-generator" element={<InvoiceGeneratorPage />} />

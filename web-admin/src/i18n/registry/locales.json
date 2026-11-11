@@ -60,7 +60,13 @@
    "published": true,
    "pages": [
     "category",
-    "countries"
+    "countries",
+    "features",
+    "feature:offlineInvoicing",
+    "feature:vanStock",
+    "feature:routesVisits",
+    "apps",
+    "quote"
    ],
    "reasons": [],
    "contentDate": "2026-11-08",
@@ -89,7 +95,13 @@
    "published": true,
    "pages": [
     "category",
-    "countries"
+    "countries",
+    "features",
+    "feature:offlineInvoicing",
+    "feature:vanStock",
+    "feature:routesVisits",
+    "apps",
+    "quote"
    ],
    "reasons": [],
    "contentDate": "2026-11-08",
@@ -118,7 +130,13 @@
    "published": true,
    "pages": [
     "category",
-    "countries"
+    "countries",
+    "features",
+    "feature:offlineInvoicing",
+    "feature:vanStock",
+    "feature:routesVisits",
+    "apps",
+    "quote"
    ],
    "reasons": [],
    "contentDate": "2026-11-08",
@@ -147,7 +165,13 @@
    "published": true,
    "pages": [
     "category",
-    "countries"
+    "countries",
+    "features",
+    "feature:offlineInvoicing",
+    "feature:vanStock",
+    "feature:routesVisits",
+    "apps",
+    "quote"
    ],
    "reasons": [],
    "contentDate": "2026-11-08",

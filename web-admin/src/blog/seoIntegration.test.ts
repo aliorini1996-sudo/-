@@ -115,14 +115,17 @@ test('الخريطة الملتزمة فهرس: sitemap.xml يشير إلى site
   }
 });
 
-test('الخريطة الملتزمة: tr/zh للرئيسية و«احجز اجتماعاً» وحدهما، ولا ‎-region‎، ولا رابط مدموج', () => {
+test('الخريطة الملتزمة: tr/zh للرئيسية و«احجز اجتماعاً» والبروفايل وحدها، ولا ‎-region‎، ولا رابط مدموج', () => {
   // الصفحات القائمة في sitemap-legacy.xml (صفحات الطبقة متعددة اللغات في sitemap-{code}.xml ويحرسها verify-i18n)
   const sm = fs.readFileSync(path.join(process.cwd(), 'public', 'sitemap-legacy.xml'), 'utf8');
   const locs = [...sm.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
   assert.ok(locs.length > 100);
   const trzh = locs.filter((u) => /^https:\/\/fieldsa\.net\/(tr|zh)\//.test(u));
-  // الصفحتان الخماسيتان وحدهما (availableLangs في i18n/locale.ts)
-  assert.deepEqual(trzh.sort(), ['https://fieldsa.net/tr/', 'https://fieldsa.net/tr/meeting/', 'https://fieldsa.net/zh/', 'https://fieldsa.net/zh/meeting/']);
+  // الصفحات الخماسية وحدها (availableLangs في i18n/locale.ts) — والبروفايل منها منذ ١١ نوفمبر ٢٠٢٦
+  assert.deepEqual(trzh.sort(), [
+    'https://fieldsa.net/tr/', 'https://fieldsa.net/tr/meeting/', 'https://fieldsa.net/tr/profile/',
+    'https://fieldsa.net/zh/', 'https://fieldsa.net/zh/meeting/', 'https://fieldsa.net/zh/profile/',
+  ]);
   assert.ok(!sm.includes('-region'), 'لا رابط ‎-region‎ في الخريطة');
   const merged = consolidatedFor('ar', existsWith([]));
   for (const slug of merged) assert.ok(!locs.includes(`https://fieldsa.net/blog/${slug}/`), `المدموج ${slug} في الخريطة`);

@@ -27,11 +27,11 @@ export function basePath(pathname: string): string {
 
 /**
  * الصفحات التسويقية المُصيَّرة بثلاث لغات (ع/إ/فر) — مطابقة لـI18N_ROUTES في scripts/gen-sitemap.mjs
- * وصفحات INFO في scripts/prerender.mjs. الرئيسية و«احجز اجتماعاً» بخمس لغات (نصوص MeetingPage خماسية
- * ومُصيَّرة بلغاتها كلها)، وما عداهما بلا نسخة تركية ولا صينية.
+ * وصفحات INFO في scripts/prerender.mjs. الرئيسية و«احجز اجتماعاً» والبروفايل بخمس لغات (نصوص MeetingPage
+ * وprofileContent خماسية ومُصيَّرة بلغاتها كلها)، وما عداها بلا نسخة تركية ولا صينية.
  */
 const TRILINGUAL_PATHS = new Set(['/about', '/contact', '/calculator', '/invoice-generator', '/pricing', '/terms', '/privacy', '/service-agreement', '/blog']);
-const FIVE_LANG_PATHS = new Set(['/', '/meeting']);
+const FIVE_LANG_PATHS = new Set(['/', '/meeting', '/profile']);
 
 const trimSlash = (p: string) => (p.length > 1 && p.endsWith('/') ? p.slice(0, -1) : p) || '/';
 

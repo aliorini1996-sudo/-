@@ -32,20 +32,22 @@ export default function BlogIndexPage() {
   const { canonical, alternates } = seoUrls('/blog', lang, ['ar', 'en', 'fr']);
 
   useSeo({
+    // العنوان والوصف حرفياً كما في فهرس المدوّنة بـscripts/prerender.mjs (ما يقرؤه الزاحف قبل JS) — بلا حصر في
+    // «الدول العربية» (التموضع عالمي، قرار المالك ١١ نوفمبر): أدلّة الدول موضوعُ مقالاتها لا وصفٌ للمدوّنة
     title: tr(
-      'المدونة | FieldSales مقالات إدارة المبيعات الميدانية والتوزيع في الدول العربية',
-      'Blog | FieldSales — Field Sales & Distribution Articles across Arab Countries',
-      'Blog | FieldSales — Articles sur la vente terrain et la distribution dans les pays arabes',
+      'المدوّنة | FieldSales — مقالات المبيعات الميدانية والتوزيع',
+      'Blog | FieldSales — Field Sales & Distribution Articles',
+      'Blog | FieldSales — Articles sur la vente terrain et la distribution',
     ),
     description: tr(
-      'مئات المقالات والدلائل العملية في إدارة المبيعات الميدانية الفوترة الإلكترونية التحصيل ومخزون التوزيع مخصصة لكل الدول العربية من فريق FieldSales',
-      'Hundreds of practical guides on field sales management, e-invoicing, collection and distribution — tailored to every Arab country by the FieldSales team.',
-      'Des centaines de guides pratiques sur la vente terrain, la facturation électronique, l\'encaissement et la distribution — pour chaque pays arabe, par FieldSales.',
+      'مئات المقالات والدلائل في إدارة المبيعات الميدانية والفوترة الإلكترونية والتحصيل والتوزيع، وأدلّة خاصة بالدول.',
+      'Hundreds of guides on field sales, e-invoicing, collection and distribution, with country-specific guides.',
+      'Des centaines de guides sur la vente terrain, la facturation électronique, l’encaissement et la distribution, avec des guides par pays.',
     ),
     keywords: tr(
-      'مدونة مبيعات ميدانية, مقالات إدارة مناديب, البيع المتنقل, التحصيل, التوزيع, الفوترة الإلكترونية, الدول العربية',
-      'field sales blog, distribution management articles, van sales, sales rep management, e-invoicing, Arab countries',
-      'blog vente terrain, articles distribution, van sales, gestion commerciaux, facturation électronique, pays arabes',
+      'مدونة مبيعات ميدانية, مقالات إدارة مناديب, البيع المتنقل, التحصيل, التوزيع, الفوترة الإلكترونية, أدلة الدول',
+      'field sales blog, distribution management articles, van sales, sales rep management, e-invoicing, country guides',
+      'blog vente terrain, articles distribution, van sales, gestion commerciaux, facturation électronique, guides par pays',
     ),
     locale: blogLang, canonical, alternates, image: 'https://fieldsa.net/og-image.png',
   });
@@ -55,9 +57,9 @@ export default function BlogIndexPage() {
     back: tr('العودة للرئيسية', 'Back to home', "Retour à l'accueil"),
     title: tr('مدونة FieldSales', 'FieldSales Blog', 'Blog FieldSales'),
     intro: tr(
-      'دلائل ومقالات عملية في إدارة المبيعات الميدانية الفوترة الإلكترونية والتوزيع لكل الدول العربية',
-      'Practical guides on field sales management, e-invoicing and distribution — for every Arab country.',
-      'Guides pratiques sur la vente terrain, la facturation électronique et la distribution — pour chaque pays arabe.',
+      'دلائل ومقالات عملية في إدارة المبيعات الميدانية والفوترة الإلكترونية والتوزيع، وأدلّة خاصة بالدول',
+      'Practical guides on field sales management, e-invoicing and distribution, with country-specific guides.',
+      'Guides pratiques sur la vente terrain, la facturation électronique et la distribution, avec des guides par pays.',
     ),
     read: tr('دقائق قراءة', 'min read', 'min de lecture'),
     cta: tr('اقرأ المقال', 'Read article', "Lire l'article"),

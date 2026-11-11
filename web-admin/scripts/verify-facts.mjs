@@ -18,6 +18,9 @@
  *  4. ui-languages — جملة تذكر لغات واجهة التطبيق بقائمة تخالف الحقائق (ar en fr tr zh)، في الرؤوس وJSON-LD
  *     وllms ومتن صفحات الكيان، وavailableLanguage/inLanguage حين تكون قائمة في عقدة التطبيق.
  *     جمل لغات الموقع والمقالات ولغات الفاتورة المطبوعة ليست لغات الواجهة فلا تُفحص.
+ *     أسماء اللغات من scripts/facts-langs.mjs: العامة (الإنجليزية والفرنسية والتركية والصينية والعربية) في كل صفحة،
+ *     وأسماء كل لغة منشورة (Intl.DisplayNames وقائمة لغات الواجهة المكتوبة في محتواها) في صفحات بادئتها وحدها —
+ *     «Ingles» في tl/ و«árabe» في es/. كانت جملة tl الصحيحة تُعدّ أربع لغات فتخرج ٧ مواضع زائفة.
  *  5. gov-einvoice-abroad — ادّعاء ربط بمنظومة فوترة حكومية خارج السعودية (ETA وPeppol وTTN وKSeF وCFDI…)
  *     أو «الربط الحكومي» عامةً، بلا «عند الطلب» ولا نفي: في الرؤوس وJSON-LD وllms ومتن صفحات الكيان.
  *  6. org-facts — عقدة ‎#organization‎: سنة التأسيس والمقر وصيغ الاسم والبريد والهاتف، وروابط تحميل التطبيق.
@@ -29,9 +32,12 @@
  *   --all-body   يمدّ فحصَي اللغات والربط الحكومي إلى متن كل الصفحات (تدقيق يدوي، لا بوابة بناء)
  *   --json       المخرج JSON
  *   --samples <N> عدد الأمثلة لكل مطابقة (الافتراضي 3)
- *   --probe "<نص>" يشرح حكم الحارس على نصّ واحد (الجمل والعبارات واللغات المكتشفة) ويخرج — لضبط الأنماط
+ *   --probe "<نص>" [--locale <رمز>] يشرح حكم الحارس على نصّ واحد (الجمل والعبارات واللغات المكتشفة) ويخرج — لضبط
+ *                الأنماط؛ --locale يضيف أسماء لغة الصفحة (tl وes…) كما في صفحات بادئتها
+ *   --verbose    كل الصيغ وكل الملفات في التقرير (بلا سقف)
  *
- * غير مربوط بـpackage.json بعد (خطة GEO: يُربط بـpostbuild بعد أن تُصلح المرحلة أ ما يكشفه اليوم).
+ * مربوط بـpostbuild في package.json بعد verify-i18n (١١ نوفمبر ٢٠٢٦): التناقض الحاجب يوقف البناء، والتحذيرات
+ * (support-languages وorg-name-form وsame-as) لا توقفه.
  * الخروج 1 إن وُجد بند حاجب، و0 إن لم يوجد إلا تحذيرات.
  */
 import fs from 'fs';
@@ -40,6 +46,9 @@ import { fileURLToPath } from 'url';
 import {
   getFacts, IDS, NAME, UI_LANGS, normalizeProfileUrl, storeUrls,
 } from '../src/content/entity-facts.mjs';
+import {
+  createLangDetector, docLocale, sentences, clauses, setStr, sameSet, UI,
+} from './facts-langs.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -56,7 +65,9 @@ const DIST = path.resolve(opt('--dist') || path.join(__dirname, '../dist'));
 const SITEMAP_N = Number(opt('--sitemap') || 0);
 const ALL_BODY = has('--all-body');
 const AS_JSON = has('--json');
-const SAMPLES = Number(opt('--samples') || 3);
+/** --verbose: كل الصيغ وكل الملفات في التقرير (بلا سقف الاثنتي عشرة صيغة وأمثلة الملفات) */
+const VERBOSE = has('--verbose');
+const SAMPLES = VERBOSE ? Infinity : Number(opt('--samples') || 3);
 const UA = 'Mozilla/5.0 (compatible; fieldsa-verify-facts/1.0; +https://fieldsa.net/llms.txt)';
 
 // ————————————————————————————————————————————————————————————————————————————————
@@ -79,6 +90,33 @@ const stripTags = (h) => String(h)
   .replace(/<(?:br|hr)\b[^>]*>/gi, '\n')
   .replace(/<\/(?:p|li|h[1-6]|div|td|th|tr|section|article|header|footer|ul|ol|table|blockquote|dd|dt|figcaption)>/gi, '\n')
   .replace(/<[^>]+>/g, ' ');
+
+// ————————————————————————————————————————————————————————————————————————————————
+// كاشف أسماء اللغات (scripts/facts-langs.mjs) بأسماء كل لغة منشورة
+// ————————————————————————————————————————————————————————————————————————————————
+
+/**
+ * اللغات المنشورة في الطبقة متعددة اللغات وقائمة لغات الواجهة بكل منها — من الملفات الملتزمة نفسها التي يبني منها
+ * prerender الصفحات (src/i18n/registry/published.json وsrc/i18n/marketing/<code>.json). تعذّر قراءتها ⇒ الأسماء العامة
+ * وحدها (كما كان الحارس قبلها) مع تنبيه.
+ */
+function publishedLocales() {
+  const root = path.join(__dirname, '..');
+  try {
+    const reg = JSON.parse(fs.readFileSync(path.join(root, 'src/i18n/registry/published.json'), 'utf8'));
+    return (reg.locales || []).map((l) => {
+      let ui = '';
+      try {
+        ui = JSON.parse(fs.readFileSync(path.join(root, `src/i18n/marketing/${l.code}.json`), 'utf8'))?._derived?.uiLanguages || '';
+      } catch { /* لغة بلا ملف محتوى: Intl وحده */ }
+      return { code: l.code, intl: l.intlLocale || l.hreflang || l.code, uiLanguages: norm(ui) };
+    });
+  } catch (e) {
+    console.error(`⚠️ تعذّرت قراءة سجل اللغات المنشورة (${e.message}) — أسماء اللغات العامة وحدها`);
+    return [];
+  }
+}
+const LANGS = createLangDetector(publishedLocales());
 
 // ————————————————————————————————————————————————————————————————————————————————
 // الأنماط
@@ -110,75 +148,6 @@ const ARAB_ENTITY = [
   new RegExp(`(?<!\\p{L})(?:[وبف]?(?:بال|لل|ال)|في\\s*ال)?(?:[أا]سواق|عالم|دول|بلدان|منطق[ةه])\\s*(?:ال)?عربي[ةه]?(?!\\p{L})`, 'gu'),
 ];
 
-/** أسماء اللغات بكل لغة كتابة — لكشف قوائم اللغات (الخمس وأشهر غيرها) */
-const LATIN_LANGS = {
-  ar: ['Arabic', 'arabe', 'Arapça'],
-  en: ['English', 'anglais', '[İI]ngilizce'],
-  fr: ['French', 'fran[çc]ais', 'Fransızca'],
-  tr: ['Turkish', 'turc', 'Türkçe'],
-  zh: ['Chinese', 'Mandarin', 'chinois', 'Çince'],
-  es: ['Spanish', 'espagnol', '[İI]spanyolca'],
-  pt: ['Portuguese', 'portugais', 'Portekizce'],
-  de: ['German', 'allemand', 'Almanca'],
-  ru: ['Russian', 'russe', 'Rusça'],
-  ja: ['Japanese', 'japonais', 'Japonca'],
-  ko: ['Korean', 'cor[ée]en', 'Korece'],
-  hi: ['Hindi', 'Hintçe'],
-  ur: ['Urdu', 'ourdou', 'Urduca'],
-  fa: ['Persian', 'Farsi', 'persan', 'Farsça'],
-  he: ['Hebrew', 'h[ée]breu', '[İI]branice'],
-  id: ['Indonesian', 'indon[ée]sien', 'Endonezce'],
-  it: ['Italian', 'italien', '[İI]talyanca'],
-};
-const CJK_LANGS = {
-  ar: ['阿拉伯语', '阿拉伯文'], en: ['英语', '英文'], fr: ['法语', '法文'], tr: ['土耳其语', '土耳其文'],
-  zh: ['中文', '汉语', '华语'], es: ['西班牙语'], pt: ['葡萄牙语'], de: ['德语'], ru: ['俄语'], ja: ['日语', '日文'],
-  ko: ['韩语', '朝鲜语'], hi: ['印地语'], ur: ['乌尔都语'], fa: ['波斯语'], he: ['希伯来语'], id: ['印尼语'], it: ['意大利语'],
-};
-/** الاسم العربي للغة صفةٌ بعد «ال»؛ ولا يُعدّ لغةً إن تلا اسماً مثل «الأسواق العربية» و«الجمهورية التركية» */
-const AR_STEMS = {
-  ar: 'عربي[ةه]', en: '[إا]ن[جك]ليزي[ةه]', fr: 'فرنسي[ةه]', tr: 'تركي[ةه]', zh: 'صيني[ةه]', es: '[إا]سباني[ةه]',
-  pt: 'برتغالي[ةه]', de: '[أا]لماني[ةه]', ru: 'روسي[ةه]', ja: 'ياباني[ةه]', ko: 'كوري[ةه]', hi: 'هندي[ةه]',
-  ur: '[أا]ردي[ةه]', fa: 'فارسي[ةه]', he: 'عبري[ةه]', id: '[إا]ندونيسي[ةه]', it: '[إا]يطالي[ةه]',
-};
-const AR_NOUN_BEFORE = '(?:[أا]سواق|سوق|دول|بلدان|منطق[ةه]|جامع[ةه]|مملك[ةه]|[إا]مارات|جمهوري[ةه]|شركات|شرك[ةه]|مدن|لير[ةه]|عمل[ةه]|حكوم[ةه]|هيئ[ةه]|منتجات|بضائع)';
-/** «arabe» صفةٌ في «monde arabe» و«pays arabes» لا اسم لغة */
-const FR_ARABE_NOT_LANG = '(?<!(?:monde|pays|march[ée]s?|r[ée]gion|Ligue|[ÉE]tats?|monarchies?)\\s)';
-const LANG_RES = Object.fromEntries(Object.keys(LATIN_LANGS).map((code) => [code, new RegExp([
-  `(?<![\\p{L}\\p{N}])(?:${LATIN_LANGS[code].map((w) => (w === 'arabe' ? FR_ARABE_NOT_LANG + w : w)).join('|')})(?![\\p{L}])`,
-  CJK_LANGS[code].join('|'),
-  `(?<!${AR_NOUN_BEFORE}\\s{1,3})(?<!\\p{L})[وف]?(?:بال|لل|ال)${AR_STEMS[code]}(?!\\p{L})`,
-  // «بواجهة عربية» و«الواجهة عربية»: اسم اللغة صفةٌ للواجهة نفسها
-  `واجه[ةه]\\s+(?:ال)?${AR_STEMS[code]}(?!\\p{L})`,
-].join('|'), 'iu')]));
-const LATIN_LANG_WORDS = Object.values(LATIN_LANGS).flat().join('|');
-
-const mentionedLangs = (s) => new Set(Object.keys(LANG_RES).filter((code) => LANG_RES[code].test(s)));
-/** موضع أول اسم لغة في النص (أو -1) */
-const firstLangIndex = (s) => {
-  let best = -1;
-  for (const re of Object.values(LANG_RES)) {
-    const i = s.search(re);
-    if (i >= 0 && (best < 0 || i < best)) best = i;
-  }
-  return best;
-};
-/** أقرب مسافة بين موضع i وأي مطابقة للنمط (Infinity إن لم يطابق) */
-const nearest = (re, s, i) => {
-  let best = Infinity;
-  for (const m of s.matchAll(new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`))) {
-    best = Math.min(best, Math.abs(m.index - i), Math.abs(m.index + m[0].length - i));
-  }
-  return best;
-};
-
-/** مفردات الواجهة والتطبيق، والإتاحة، والمحتوى (موقع ومقالات)، ولغات المستند المطبوع */
-const APP_KW = /(?<![\p{L}])(?:apps?|application|applications|interfaces?|UI|dashboards?|software|platform|system|product|appli|logiciel|plateforme|syst[èe]me|tableau\s+de\s+bord)(?![\p{L}])|uygulama\p{L}*|arayüz\p{L}*|yazılım\p{L}*|(?<![\p{L}])platform\p{L}*|(?<![\p{L}])sistem\p{L}*|应用|界面|软件|平台|系统|(?:ال)?تطبيق(?:ات)?|(?:ال)?واجه[ةه]|(?:ال)?نظام|(?:ال)?منص[ةه]|(?:ال)?برنامج|(?:ال)?لوح[ةه]/iu;
-const AVAIL_KW = /\b(?:available|runs?|works?|offered)\s+in\b|disponible\s+en|fonctionne\s+en|propos[ée]e?s?\s+en|kullanılabilir|mevcut|çalışır|支持|提供|متاح[ةه]?|متوفر[ةه]?|يعمل|تعمل|يدعم|تدعم|بلغات|باللغات/iu;
-const CONTENT_KW = /(?<![\p{L}])(?:website|web\s*site|site|blog|pages?|guides?|articles?|posts?|content|home\s*pages?)(?![\p{L}])|web\s*sitesi|sayfa\p{L}*|rehber\p{L}*|makale\p{L}*|网站|博客|页面|首页|指南|文章|(?:ال)?موقع|(?:ال)?مدون[ةه]|صفح[ةه]|صفحات|[أا]دل[ةه]|دليل|مقال(?:ات)?/iu;
-const DOC_KW = /bilingual|invoic\w*|receipts?|vouchers?|print\w*|templates?|\bPDF\b|statements?|\bquotes?\b|فاتور|فواتير|سند|ثنائي|طباع|يطبع|تطبع|نموذج|نماذج|كشف|عرض\s*سعر|factur\w*|re[çc]us?|bilingue|imprim\w*|mod[èe]les?|devis|fatura\p{L}*|makbuz\p{L}*|şablon\p{L}*|yazdır\p{L}*|发票|收据|双语|打印|模板|报价/iu;
-const ONLY_KW = /\bonly\b|\bexclusively\b|uniquement|seulement|sadece|yalnızca|仅|只有|فقط|وحده|وحدها/iu;
-
 /** ٥ — منظومات فوترة حكومية خارج السعودية (الاختصارات بحالة أحرفها، والعبارات بلا حساسية لها) */
 const GOV_NAMED = new RegExp([
   '\\bETA\\b', '\\bPeppol\\b|\\bPEPPOL\\b', '\\bTTN\\b', '\\bKSeF\\b', '\\bCFDI\\b', '\\bNF-?e\\b', '\\bSEFAZ\\b', '\\bDIAN\\b',
@@ -197,54 +166,7 @@ const APP_TYPES = new Set(['SoftwareApplication', 'MobileApplication', 'WebAppli
 const PROSE_SKIP = /^(?:url|sameAs|logo|image|item|mainEntityOfPage|downloadUrl|installUrl|email|telephone|contentUrl|thumbnailUrl|embedUrl|target|urlTemplate|@\w+|datePublished|dateModified|foundingDate|priceCurrency|price|lowPrice|highPrice|inLanguage|availableLanguage|addressCountry|addressLocality|postalCode)$/;
 const HEAD_META = new Set(['description', 'keywords', 'og:title', 'og:description', 'og:site_name', 'twitter:title', 'twitter:description']);
 
-// ————————————————————————————————————————————————————————————————————————————————
-// تقطيع الجمل والعبارات
-// ————————————————————————————————————————————————————————————————————————————————
-
-const sentences = (text) => String(text)
-  .split(/(?<=[.!?؟])\s+|(?<=[。！？])\s*|\n+|\s+[·•|]\s+/u)
-  .map((s) => s.trim().replace(/^(?:[-*>•]\s*)+/, ''))
-  .filter(Boolean);
-
-const CLAUSE_SPLIT = new RegExp([
-  // «…, and the apps are…» تُقطع، و«Arabic, English, and French» لا تُقطع (يليها اسم لغة)
-  `,\\s*(?:and|while|but|whereas|et|mais|tandis\\s+que|ve|ama|ancak|fakat)\\s+(?!(?:also\\s+|aussi\\s+|ayrıca\\s+)?(?:${LATIN_LANG_WORDS})(?![\\p{L}]))`,
-  '\\s+(?:while|whereas|tandis\\s+que|ancak|fakat)\\s+',
-  '\\s+(?:بينما|لكن|غير\\s+[أا]ن)\\s+',
-  '[，；;]',
-  // «Title: description» في llms، و«Languages: …»: النقطتان بمسافة بعدهما (لا «https://»)
-  '[:：]\\s+',
-  // «…، والتطبيقات…» تُقطع، و«بالعربية، والإنجليزية» لا تُقطع
-  `،\\s*(?=و(?!(?:بال|لل|ال)(?:${Object.values(AR_STEMS).join('|')})))`,
-].join('|'), 'iu');
-const clauses = (sentence) => sentence.split(CLAUSE_SPLIT).map((c) => c.trim()).filter(Boolean);
-
-const setStr = (s) => `{${[...s].sort().join(', ')}}`;
-const sameSet = (a, b) => a.size === b.size && [...a].every((x) => b.has(x));
-const UI = new Set(UI_LANGS);
-
-/** جمل تذكر لغات الواجهة بقائمة تخالف الحقائق */
-function languageClaims(text) {
-  const out = [];
-  for (const s of sentences(text)) {
-    if (s.length > 1200) continue; // كتلة بلا ترقيم (قائمة روابط) لا جملة
-    for (const c of clauses(s)) {
-      const langs = mentionedLangs(c);
-      if (!langs.size) continue;
-      const at = firstLangIndex(c);
-      const app = nearest(APP_KW, c, at);
-      const content = nearest(CONTENT_KW, c, at);
-      // قائمة اللغات تتبع أقرب موصوف لها: «guides in Arabic, English and French» لغات محتوى ولو ذُكرت المنصة قبلها
-      if (content < app) continue;
-      if (app === Infinity && !AVAIL_KW.test(c)) continue; // لا موصوف: تكفي عبارة إتاحة («Disponible en…»)
-      if (DOC_KW.test(c)) continue; // لغات المستند المطبوع لا لغات الواجهة
-      if (langs.size < 2 && !ONLY_KW.test(c)) continue;
-      if (sameSet(langs, UI)) continue;
-      out.push({ match: c, note: `اللغات ${setStr(langs)} ≠ الحقائق ${setStr(UI)}` });
-    }
-  }
-  return out;
-}
+// govClaims يقطع الجمل بـsentences نفسها من facts-langs.mjs (قاعدة ui-languages وكاشف اللغات هناك)
 
 /** جمل تدّعي ربطاً بمنظومة فوترة حكومية خارج السعودية */
 function govClaims(text) {
@@ -327,7 +249,7 @@ function parseHtml(name, html) {
   const { nodes, errors } = jsonLdNodes(html);
   const bodyHtml = (html.match(/<body\b[^>]*>([\s\S]*)<\/body>/i) || [, html])[1];
   const body = norm(stripTags(bodyHtml.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')));
-  return { name, kind: 'html', entityPage: isEntityPage(name), head, nodes, ldErrors: errors, body };
+  return { name, kind: 'html', loc: docLocale(name, LANGS), entityPage: isEntityPage(name), head, nodes, ldErrors: errors, body };
 }
 
 function parseLlms(name, text) {
@@ -335,7 +257,7 @@ function parseLlms(name, text) {
   const first = t.search(/^## /m);
   const pre = first < 0 ? t : t.slice(0, first);
   const entitySections = [...t.matchAll(/^## (?:Company|About|Key facts|الشركة|عن\s[^\n]*)\n[\s\S]*?(?=^## |(?![\s\S]))/gm)].map((m) => m[0]);
-  return { name, kind: 'llms', text: t, entityText: [pre, ...entitySections].join('\n') };
+  return { name, kind: 'llms', loc: docLocale(name, LANGS), text: t,entityText: [pre, ...entitySections].join('\n') };
 }
 
 // ————————————————————————————————————————————————————————————————————————————————
@@ -472,7 +394,7 @@ const schemaLang = (v) => {
   const s = String(typeof v === 'object' && v ? v.name || v.alternateName || '' : v).trim();
   const code = s.match(/^([a-z]{2,3})(?:-|$)/i);
   if (code) return code[1].toLowerCase();
-  const found = [...mentionedLangs(s)];
+  const found = [...LANGS.mentionedLangs(s)];
   return found[0] || s;
 };
 
@@ -484,7 +406,7 @@ function checkNodes(doc) {
       const surface = `${label}.${key}`;
       for (const h of regexHits(ARAB_SCOPE, text)) add('arab-scope', doc, surface, h.match, '', contextAround(text, h));
       if (n.entity) for (const h of regexHits(ARAB_ENTITY, text)) add('arab-scope-entity', doc, surface, h.match, '', contextAround(text, h));
-      for (const h of languageClaims(text)) add('ui-languages', doc, surface, h.match, h.note);
+      for (const h of LANGS.languageClaims(text, doc.loc)) add('ui-languages', doc, surface, h.match, h.note);
       for (const h of govClaims(text)) add('gov-einvoice-abroad', doc, surface, h.match, h.note);
     }
     const o = n.obj;
@@ -542,19 +464,19 @@ function checkDoc(doc) {
   if (doc.kind === 'llms') {
     for (const h of regexHits(ARAB_SCOPE, doc.text)) add('arab-scope', doc, 'llms', h.match, '', contextAround(doc.text, h));
     for (const h of regexHits(ARAB_ENTITY, doc.entityText)) add('arab-scope-entity', doc, 'llms:رأس الملف', h.match, '', contextAround(doc.entityText, h));
-    for (const h of languageClaims(doc.text)) add('ui-languages', doc, 'llms', h.match, h.note);
+    for (const h of LANGS.languageClaims(doc.text, doc.loc)) add('ui-languages', doc, 'llms', h.match, h.note);
     for (const h of govClaims(doc.text)) add('gov-einvoice-abroad', doc, 'llms', h.match, h.note);
     return;
   }
   for (const { surface, text } of doc.head) {
     for (const h of regexHits(ARAB_SCOPE, text)) add('arab-scope', doc, surface, h.match, '', contextAround(text, h));
     if (doc.entityPage) for (const h of regexHits(ARAB_ENTITY, text)) add('arab-scope-entity', doc, surface, h.match, '', contextAround(text, h));
-    for (const h of languageClaims(text)) add('ui-languages', doc, surface, h.match, h.note);
+    for (const h of LANGS.languageClaims(text, doc.loc)) add('ui-languages', doc, surface, h.match, h.note);
     for (const h of govClaims(text)) add('gov-einvoice-abroad', doc, surface, h.match, h.note);
   }
   checkNodes(doc);
   if (doc.entityPage || ALL_BODY) {
-    for (const h of languageClaims(doc.body)) add('ui-languages', doc, 'body', h.match, h.note);
+    for (const h of LANGS.languageClaims(doc.body, doc.loc)) add('ui-languages', doc, 'body', h.match, h.note);
     for (const h of govClaims(doc.body)) add('gov-einvoice-abroad', doc, 'body', h.match, h.note);
   }
 }
@@ -578,11 +500,14 @@ function contextAround(text, h) {
 const PROBE = opt('--probe');
 if (PROBE !== null) {
   const t = norm(PROBE);
+  // --locale <رمز>: لغة الصفحة (tl وes…) فتُضاف أسماء لغتها المحلية إلى الأسماء العامة
+  const loc = LANGS.has(String(opt('--locale') || '').toLowerCase()) ? String(opt('--locale')).toLowerCase() : null;
   const out = {
-    sentences: sentences(t).map((s) => ({ s, clauses: clauses(s).map((c) => ({ c, langs: [...mentionedLangs(c)] })) })),
+    locale: loc,
+    sentences: sentences(t).map((s) => ({ s, clauses: clauses(s).map((c) => ({ c, langs: [...LANGS.mentionedLangs(c, loc)] })) })),
     arabScope: regexHits(ARAB_SCOPE, t).map((h) => h.match),
     arabEntity: regexHits(ARAB_ENTITY, t).map((h) => h.match),
-    uiLanguages: languageClaims(t),
+    uiLanguages: LANGS.languageClaims(t, loc),
     govEinvoice: govClaims(t),
   };
   console.log(JSON.stringify(out, null, 2));
@@ -632,13 +557,13 @@ if (AS_JSON) {
     const occurrences = findings.filter((f) => f.rule === rule).length;
     const files = new Set(findings.filter((f) => f.rule === rule).map((f) => f.file)).size;
     console.log(`\n${level} [${rule}] ${RULES[rule]} — ${occurrences} موضعاً في ${files} ملفاً، ${g.length} صيغة مختلفة`);
-    for (const x of g.slice(0, 12)) {
+    for (const x of VERBOSE ? g : g.slice(0, 12)) {
       const sample = [...x.files].slice(0, SAMPLES).join(' · ');
       console.log(`  • «${x.match}»${x.note ? ` — ${x.note}` : ''} — ${x.count} موضعاً`);
       if (x.context && x.context !== x.match) console.log(`      مثال: ${x.context}`);
       console.log(`      ${[...x.surfaces].join('، ')} · ${x.files.size} ملفاً: ${sample}${x.files.size > SAMPLES ? ' …' : ''}`);
     }
-    if (g.length > 12) console.log(`  … و${g.length - 12} صيغة أخرى (--json للقائمة كاملة)`);
+    if (!VERBOSE && g.length > 12) console.log(`  … و${g.length - 12} صيغة أخرى (--json للقائمة كاملة)`);
   }
   console.log(blocking.length
     ? `\n✗ ${blocking.length} موضعاً حاجباً يناقض حقائق الكيان (src/content/entity-facts.mjs)`

@@ -256,8 +256,12 @@ for (const l of languages) {
   let contentDate = null;
   let published = false;
   if (candidate) {
-    pages = legacy ? ['category', 'countries']
-      : [...BASE_PAGES, ...(l.tier === 'A' && complete.tierA ? TIER_A_PAGES : [])];
+    // اللغات القديمة (ar en fr tr zh): رئيسيتها وabout وcontact صفحاتها القائمة، فلا تُنشر لها إلا الفئة والدول —
+    // ومعهما صفحات الطبقة A (المزايا والتطبيقات وعرض السعر) حين تكتمل مفاتيحها: لا نظير قديم لها، وبلا الإنجليزية
+    // فيها كان x-default عناقيدها يقع على أول لغة في السجل (/es/) في ٤٨ صفحة (١١ نوفمبر ٢٠٢٦). مساراتها
+    // (/en/features/ وأخواتها) لا تصادم مساراً قائماً في App.tsx ولا dist (يفحصه G2 وverify-sitemap).
+    const tierA = l.tier === 'A' && complete.tierA ? TIER_A_PAGES : [];
+    pages = legacy ? ['category', 'countries', ...tierA] : [...BASE_PAGES, ...tierA];
     const derived = derivedFor(code, l.hreflang);
     const groups = ['tierB.', ...(complete.tierA ? ['tierA.'] : [])];
     const strings = {};
