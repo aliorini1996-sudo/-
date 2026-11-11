@@ -55,6 +55,13 @@ export default function PaymentMethodsManager({ onClose }: { onClose: () => void
     queryFn: async () => (await companyApi.paymentMethods.get()).data as MethodsResponse,
     staleTime: 0,
   });
+  // الدفع الإلكتروني مطفأ للشركة ⇒ لا صفّ «دفع إلكتروني» هنا (طلب المالك ١١ نوفمبر) — كاش ['company'] نفسه، والإعداد يُحفظ كما هو
+  const companyQ = useQuery({
+    queryKey: ['company'],
+    queryFn: async () => (await companyApi.get()).data.data as { paylinkEnabled?: boolean } | null,
+    staleTime: 300_000,
+  });
+  const onlineOn = companyQ.data?.paylinkEnabled === true;
   const saved = useMemo(() => (q.data ? readPaymentMethodsConfig(q.data.data) : null), [q.data]);
   const baseline = useMemo(() => draftFromConfig(saved), [saved]);
   const [draft, setDraft] = useState<MethodsDraft | null>(null);
@@ -153,6 +160,7 @@ export default function PaymentMethodsManager({ onClose }: { onClose: () => void
                 <h3 className="text-sm font-bold text-[#1F1A13] mb-2">{tr('الطرق الأساسية')}</h3>
                 <div className="rounded-xl border border-[#F1EBDF] divide-y divide-[#F1EBDF]">
                   {draft.builtins.map((b, i) => {
+                    if (b.method === 'ONLINE' && !onlineOn) return null;
                     const err = issueOf(`builtins.${b.method}`);
                     const fallback = defaultMethodLabel(b.method, tr);
                     return (

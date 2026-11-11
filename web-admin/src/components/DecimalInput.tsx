@@ -32,18 +32,23 @@ interface Props {
 export default function DecimalInput({ value, onCommit, className, title, readOnly, placeholder, min }: Props) {
   const [txt, setTxt] = useState<string>(String(value ?? 0));
   const focused = useRef(false);
+  // ضغطةٌ أبلغت قيمةً للتوّ: تغيّر value في التصيير الذي يليها صداها (وقد قصّه الأب — أرضية السعر أو حدّ الخصم)
+  const typed = useRef(false);
 
-  // مزامنة من الخارج (إعادة حساب) — فقط حين لا يكتب المستخدم في الحقل
+  // مزامنة من الخارج (إعادة حساب، أو مسحُ قارئٍ زاد كمية البند والحقل مركَّز) — لا صدى ما يكتبه المستخدم: لا يُعاد نصّه أثناء كتابته
   useEffect(() => {
-    if (!focused.current) setTxt(String(value ?? 0));
+    if (!focused.current || !typed.current) setTxt(String(value ?? 0));
   }, [value]);
+  // الصدى يُستهلك بأول تصييرٍ بعد الضغطة (React يصيّر الحقل المتحكَّم به فور حدثه) — فتغيّرٌ لاحق من الخارج يظهر ولو والحقل مركَّز
+  useEffect(() => { typed.current = false; });
 
-  const handle = (raw: string) => {
+  // trusted: ضغطة المستخدم نفسه — أما حدثٌ اصطناعيّ (إرجاع قارئ الليزر قيمة الحقل) فليس كتابةً يُحمى صداها
+  const handle = (raw: string, trusted = true) => {
     const clean = normalize(raw);
     if (!/^\d*\.?\d*$/.test(clean)) return; // حرف دخيل — نتجاهل الضغطة ولا نمسح شيئاً
     setTxt(clean);
     const n = parseFloat(clean);
-    if (Number.isFinite(n) && (min === undefined || n >= min)) onCommit(n);
+    if (Number.isFinite(n) && (min === undefined || n >= min)) { typed.current = trusted; onCommit(n); }
   };
 
   return (
@@ -53,7 +58,7 @@ export default function DecimalInput({ value, onCommit, className, title, readOn
       value={txt}
       onFocus={() => { focused.current = true; }}
       onBlur={() => { focused.current = false; setTxt(String(value ?? 0)); }}
-      onChange={(e) => handle(e.target.value)}
+      onChange={(e) => handle(e.target.value, e.nativeEvent.isTrusted !== false)}
     />
   );
 }

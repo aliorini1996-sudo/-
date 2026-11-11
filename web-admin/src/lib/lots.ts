@@ -183,7 +183,7 @@ export interface VanLoadItemLotDto {
 export interface LotListParams {
   q?: string; productId?: string; status?: LotStatus; expiringWithinDays?: number; page?: number; limit?: number;
 }
-export interface LotCreateRequest { productId: string; lotNumber: string; productionDate?: string | null; expiryDate?: string | null; note?: string | null }
+export interface LotCreateRequest { productId: string; lotNumber?: string | null; productionDate?: string | null; expiryDate?: string | null; note?: string | null }
 /** updatedAt نسخةٌ يرفض الخادم ما يخالفها (LOT_CHANGED)، ومدّ الانتهاء للوط له حركات يلزمه reason */
 export interface LotUpdateRequest { productionDate?: string | null; expiryDate?: string | null; note?: string | null; reason?: string; updatedAt: string }
 export interface LotStatusRequest { status: LotStatus; blockKind?: LotBlockKind; reason: string; updatedAt: string }

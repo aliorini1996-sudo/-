@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import prisma from '../config/database';
 import { resolveDocTeam, supervisorViewerOf, teamMembershipSelectFor } from '../services/teams';
+import { REP_COLLECTED_CASH_SALE } from '../services/repCashCollection';
 import { authenticate, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, canAccessRep, existingInScope, SHAPE_INVOICE_RECEIPT, teamSupervisorIdOf, composeTeamCustodyWhere } from '../services/adminScope';
 import { AuthRequest } from '../types';
@@ -116,7 +117,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   } catch (err) { next(err); }
 });
 
-// رصيد التحصيل المتراكم لدى المندوب = مجموع سنداته النشطة − مجموع ما استلمه الأدمن منه.
+// رصيد التحصيل المتراكم لدى المندوب = مجموع سنداته النشطة + فواتيره النقدية المحسوبة تحصيلاً (services/repCashCollection.ts)
+// − مجموع ما استلمه الأدمن منه.
 // متاح للمندوب (يخصّ نفسه) وللإدارة (تمرّر salesRepId). لا يُصفَّر يوميًا — ينقص فقط بتسجيل استلام.
 router.get('/collection-balance', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -135,14 +137,19 @@ router.get('/collection-balance', async (req: AuthRequest, res: Response, next: 
       const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid }, select: { showCollectionBalance: true } });
       if (!rep?.showCollectionBalance) { res.json({ success: true, data: { enabled: false } }); return; }
     }
-    const [collected, settled] = await Promise.all([
-      prisma.receipt.aggregate({ where: { tenantId: tid, salesRepId: repId, status: 'ACTIVE', ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) }, _sum: { amount: true } }),
+    const docScope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
+    const [collected, cashSales, settled] = await Promise.all([
+      prisma.receipt.aggregate({ where: { tenantId: tid, salesRepId: repId, status: 'ACTIVE', ...docScope }, _sum: { amount: true } }),
+      // «البيع النقدي تحصيلٌ لدى المندوب»: نطاق المستند نفسه (الفاتورة والسند بشكلٍ واحد)
+      prisma.invoice.aggregate({ where: { tenantId: tid, salesRepId: repId, AND: [REP_COLLECTED_CASH_SALE, docScope] }, _sum: { paidAmt: true } }),
       // «الفرق»: سندات مشرف الفريق موسومةٌ بفرقه (scopedRecordWhere) — فاستلاماته كذلك، وإلا نقص الرصيد بما سلّمه فريقٌ آخر
       prisma.repSettlement.aggregate({ where: { tenantId: tid, salesRepId: repId, ...(isSalesRep ? {} : composeTeamCustodyWhere(await teamSupervisorIdOf(req))) }, _sum: { amount: true } }),
     ]);
-    const c = collected._sum.amount ?? 0;
+    const cash = cashSales._sum.paidAmt ?? 0;
+    const c = (collected._sum.amount ?? 0) + cash;
     const s = settled._sum.amount ?? 0;
-    res.json({ success: true, data: { enabled: true, collected: clean(c), settled: clean(s), outstanding: clean(c - s) } });
+    // collected يشمل النقدية المحسوبة، وcashSales جزؤها منه للعرض
+    res.json({ success: true, data: { enabled: true, collected: clean(c), cashSales: clean(cash), settled: clean(s), outstanding: clean(c - s) } });
   } catch (err) { next(err); }
 });
 

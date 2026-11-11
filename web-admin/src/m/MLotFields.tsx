@@ -124,7 +124,7 @@ export default function MLotFields({ productId, prod, mode, shelfOn, draft, onCh
       {draft.pick === 'NEW' && (
         <div className="space-y-2">
           <input className="input min-h-[44px]" dir="ltr" value={draft.lotNumber} maxLength={64}
-            placeholder={tr('رقم التشغيلة')} aria-label={tr('رقم التشغيلة')}
+            placeholder={tr('رقم التشغيلة (فارغ = تلقائي)')} aria-label={tr('رقم التشغيلة')}
             onChange={e => set({ lotNumber: e.target.value })} />
           <div className="grid grid-cols-2 gap-2">
             <label className="min-w-0">

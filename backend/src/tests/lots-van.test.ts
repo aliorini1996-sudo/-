@@ -486,9 +486,12 @@ test('D4 بلا مستودع: رقمٌ جديد ينشئ التشغيلة بمص
   // الرقم القائم بتاريخٍ آخر يُرفض، وبلا تاريخ يُستعمل
   const mism = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 1, lotNumber: 'AB-12', expiryDate: FAR2 }] });
   assert.deepEqual([mism.statusCode, codeOf(mism)], [409, 'LOT_DATES_MISMATCH']);
-  const none = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 2 }] });
-  assert.deepEqual([none.statusCode, codeOf(none)], [422, 'LOT_REQUIRED']);
-  assert.match(String(none.body!.message), /«عصير»/);
+  // بلا تشغيلة ⇒ لوطٌ جديد برقمٍ تلقائي LOT… (طلب المالك ١١ نوفمبر ٢٠٢٦ — بدل LOT_REQUIRED)
+  const none = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 2, expiryDate: FAR1 }] });
+  assert.equal(none.statusCode, 201, JSON.stringify(none.body));
+  const auto = S.lots.find((l) => /^LOT\d+$/.test(l.lotNumber))!;
+  assert.ok(auto, 'رقمٌ تلقائي');
+  assert.equal(auto.source, 'LOAD');
   const unk = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 2, lots: [{ lotId: null, qty: 2 }] }] });
   assert.equal(unk.statusCode, 201);
   assert.deepEqual(lotRowsOf(lastLoad().id)[0].map((r) => [r.lotId, r.certainty]), [[null, 'UNKNOWN']]);
@@ -497,7 +500,7 @@ test('D4 بلا مستودع: رقمٌ جديد ينشئ التشغيلة بمص
   assert.deepEqual([noExp.statusCode, codeOf(noExp)], [422, 'LOT_EXPIRY_REQUIRED']);
   assert.equal(S.lots.length, nLots);
   // تشغيلةٌ أُنشئت ثم رُفضت الحركة في السطر التالي لا تبقى (تراجع المعاملة)
-  const rolled = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 1, lotNumber: 'NEW-9' }, { productId: 'pB', qty: 1 }] });
+  const rolled = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 1, lotNumber: 'NEW-9' }, { productId: 'pB', qty: 1, lotNumber: 'NEW-10', expiryDate: '2027-13-01' }] });
   assert.equal(rolled.statusCode, 422);
   assert.ok(!S.lots.some((l) => l.lotNumber === 'NEW-9'));
   lot('lb', 'pB', FAR1, { status: 'BLOCKED', blockKind: 'HOLD' }); lot('le', 'pB', PAST);
@@ -639,8 +642,9 @@ test('التسوية بالزيادة: تشغيلةٌ قائمة أو رقمٌ �
   const c = await post({ salesRepId: 'r1', type: 'ADJUST', items: [{ productId: 'pB', qty: 1, lots: [{ lotId: null, qty: 1 }] }] });
   assert.equal(c.statusCode, 201);
   assert.deepEqual(lotRowsOf(lastLoad().id)[0].map((r) => [r.lotId, r.qty, r.certainty, r.viaWarehouse]), [[null, 1, 'UNKNOWN', false]]);
-  const d = await post({ salesRepId: 'r1', type: 'ADJUST', items: [{ productId: 'pB', qty: 1 }] });
-  assert.deepEqual([d.statusCode, codeOf(d)], [422, 'LOT_REQUIRED']);
+  // بلا أي حقل ⇒ لوطٌ جديد برقمٍ تلقائي (طلب المالك ١١ نوفمبر ٢٠٢٦)
+  const d = await post({ salesRepId: 'r1', type: 'ADJUST', items: [{ productId: 'pB', qty: 1, expiryDate: FAR1 }] });
+  assert.equal(d.statusCode, 201, JSON.stringify(d.body));
   const both = await post({ salesRepId: 'r1', type: 'ADJUST', items: [{ productId: 'pB', qty: 1, lotNumber: 'Z', lots: [{ lotId: null, qty: 1 }] }] });
   assert.deepEqual([both.statusCode, codeOf(both)], [422, 'LOT_QTY_INVALID'], 'رقمٌ وصفوفٌ معاً');
 });

@@ -311,7 +311,7 @@ export const SHARE_PHRASES: Record<string, { en: string; fr: string; tr: string;
   'رمز الاستجابة السريعة المختوم': { en: 'Stamped QR code', fr: 'QR code tamponné', tr: 'Damgalı QR kod', zh: '带签章二维码' },
   'امسح الرمز للتحقق من المستند في تطبيق الهيئة': { en: 'Scan the code to verify the document in the ZATCA app', fr: 'Scannez le code pour vérifier le document dans l’application de la ZATCA', tr: 'Belgeyi ZATCA uygulamasında doğrulamak için kodu okutun', zh: '扫描二维码可在 ZATCA 应用中验证该单据' },
   'تنزيل المستند الإلكتروني XML': { en: 'Download the XML e-document', fr: 'Télécharger le document électronique XML', tr: 'XML e-belgesini indir', zh: '下载 XML 电子单据' },
-  'هذه النسخة الإلكترونية هي المستند المعتمد لدى الهيئة': { en: 'This electronic copy is the document held by ZATCA', fr: 'Cette copie électronique est le document conservé par la ZATCA', tr: 'Bu elektronik kopya ZATCA nezdindeki belgedir', zh: '此电子副本即 ZATCA 存档的单据' },
+  'هذه النسخة الإلكترونية هي المستند المعتمد لدى الهيئة': { en: 'This electronic copy is the official document on record with ZATCA', fr: 'Cette copie électronique est le document conservé par la ZATCA', tr: 'Bu elektronik kopya ZATCA nezdindeki belgedir', zh: '此电子副本即 ZATCA 存档的单据' },
   'جاري التحميل': { en: 'Loading', fr: 'Chargement', tr: 'Yükleniyor', zh: '加载中' },
   'الرابط غير صحيح أو لم يعد متاحا': { en: 'This link is invalid or no longer available', fr: 'Ce lien est invalide ou n’est plus disponible', tr: 'Bu bağlantı geçersiz veya artık kullanılamıyor', zh: '该链接无效或已失效' },
   'تحقق من الرابط كاملا مع من أرسله لك': { en: 'Check the full link with whoever sent it to you', fr: 'Vérifiez le lien complet auprès de son expéditeur', tr: 'Bağlantının tamamını size gönderen kişiyle doğrulayın', zh: '请与发送者核对完整链接' },

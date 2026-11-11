@@ -323,7 +323,7 @@ function CreateLotModal({ onClose, onOpen }: { onClose: () => void; onOpen: (id:
   const expiryRequired = product?.shelfLifeEnabled === true;
   const create = useMutation({
     mutationFn: async () => (await lotsApi.create({
-      productId: product!.id, lotNumber, productionDate: production || null, expiryDate: expiry || null, note: note.trim() || null,
+      productId: product!.id, lotNumber: lotNumber.trim() || null, productionDate: production || null, expiryDate: expiry || null, note: note.trim() || null,
     })).data.data as ProductLotDto,
     onSuccess: (lot) => { qc.invalidateQueries({ queryKey: ['lots'] }); toast.success(tr('تم إنشاء التشغيلة')); onOpen(lot.id); },
     onError: (e) => {
@@ -335,7 +335,8 @@ function CreateLotModal({ onClose, onOpen }: { onClose: () => void; onOpen: (id:
   });
   const submit = () => {
     if (!product) { toast.error(tr('اختر الصنف')); return; }
-    if (!normalizeLotNumber(lotNumber)) { toast.error(tr('اكتب رقم التشغيلة')); return; }
+    // فارغٌ ⇒ رقمٌ تلقائي LOT… من الخادم (طلب المالك ١١ نوفمبر ٢٠٢٦)
+    if (lotNumber.trim() && !normalizeLotNumber(lotNumber)) { toast.error(tr('اكتب رقم التشغيلة')); return; }
     const p = lotDatesProblem(production || null, expiry || null, { expiryRequired });
     if (p === 'LOT_EXPIRY_REQUIRED') { toast.error(tr('تاريخ انتهاء التشغيلة إلزامي لصنف صلاحيته مفعلة')); return; }
     if (p) { toast.error(tr('تاريخ الإنتاج بعد تاريخ الانتهاء أو تاريخ غير صالح')); return; }
@@ -372,7 +373,7 @@ function CreateLotModal({ onClose, onOpen }: { onClose: () => void; onOpen: (id:
       </div>
       <div>
         <label className="label">{tr('رقم التشغيلة')} *</label>
-        <input className="input" dir="ltr" value={lotNumber} maxLength={LOT_NUMBER_MAX} onChange={(e) => setLotNumber(e.target.value)} />
+        <input className="input" dir="ltr" value={lotNumber} maxLength={LOT_NUMBER_MAX} placeholder={tr('فارغ = رقم تلقائي LOT')} onChange={(e) => setLotNumber(e.target.value)} />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>

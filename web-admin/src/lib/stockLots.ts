@@ -221,7 +221,8 @@ export function entryLotProblem(draft: EntryLotDraft, opts: { kind: EntryLotKind
   const d = normalizeEntryLot(draft, opts.kind);
   const over = opts.kind === 'DECREASE' && opts.sourceOver ? 'LOT_OVER_SOURCE' : null;
   if (d.mode === 'NEW') {
-    if (!normalizeLotNumber(d.lotNumber)) return 'LOT_REQUIRED';
+    // فارغٌ ⇒ رقمٌ تلقائي LOT… من الخادم (طلب المالك ١١ نوفمبر ٢٠٢٦)؛ والمكتوب غير الصالح يبقى خطأ
+    if ((d.lotNumber ?? '').trim() !== '' && !normalizeLotNumber(d.lotNumber)) return 'LOT_REQUIRED';
     return lotDatesProblem(d.productionDate || null, d.expiryDate || null, { expiryRequired: opts.expiryRequired });
   }
   if (d.mode === 'EXISTING') return d.lotId ? over : 'LOT_REQUIRED';
@@ -325,6 +326,8 @@ export function autoDecreasePreview(
 /** حقول التشغيلة في بند الطلب — AUTO لا يُرسل شيئاً (الخادم يسحب بالأقرب انتهاءً أولاً) */
 export function entryLotFields(d: EntryLotDraft): { lotId?: string | null; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null } {
   if (d.mode === 'NEW') {
+    // فارغٌ ⇒ بلا lotNumber فيولّد الخادم LOT… (طلب المالك ١١ نوفمبر ٢٠٢٦)
+    if ((d.lotNumber ?? '').trim() === '') return { productionDate: d.productionDate || null, expiryDate: d.expiryDate || null };
     return { lotNumber: normalizeLotNumber(d.lotNumber) ?? d.lotNumber.trim(), productionDate: d.productionDate || null, expiryDate: d.expiryDate || null };
   }
   if (d.mode === 'EXISTING') return { lotId: d.lotId };

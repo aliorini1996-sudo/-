@@ -333,7 +333,11 @@ export async function planVanMovementInTx(tx: LotTx, input: VanMovementPlanInput
     } else if (type === 'LOAD' && input.actor === 'REP') {
       throw new LotError('LOT_REQUIRED', 'تحميل الأصناف المتتبَّعة يتم من لوحة الإدارة', 422, { ...at, reason: 'REP_NO_WAREHOUSE' });
     } else {
-      throw lotErr('LOT_REQUIRED', { name: l.productName }, at);
+      // بلا رقمٍ ولا مرجع ⇒ لوطٌ جديد برقمٍ تلقائي LOT… (طلب المالك ١١ نوفمبر ٢٠٢٦ — بدل LOT_REQUIRED)
+      const { meta } = await resolveOrCreateLot(tx, tid, { id: l.productId, name: l.productName, shelfLifeOn: l.shelfLifeOn },
+        { lotNumber: null, productionDate: l.productionDate, expiryDate: l.expiryDate }, { source: 'LOAD', createdBy: input.createdBy, actor });
+      metas.set(meta.id, meta);
+      rows = [{ lotId: meta.id, qty: l.abs, certainty: 'CONFIRMED', flags: [], expiryDate: meta.expiryDate }];
     }
     for (const r of rows) {
       if (r.lotId == null) continue;

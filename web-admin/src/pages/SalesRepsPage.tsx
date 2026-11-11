@@ -639,7 +639,7 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
     queryKey: ['rep-collection', rep.id, teamId],
     queryFn: async () => {
       const r = await salesRepApi.collection(rep.id, teamId || undefined);
-      return r.data.data as { collected: number; settled: number; outstanding: number; teams?: CustodyTeam[]; teamScoped?: boolean; teamsEnabled?: boolean; totalOutstanding?: number };
+      return r.data.data as { collected: number; cashSales?: number; settled: number; outstanding: number; teams?: CustodyTeam[]; teamScoped?: boolean; teamsEnabled?: boolean; totalOutstanding?: number };
     },
   });
   // الفرق من أول ردٍّ حديث (لا من نسخةٍ مخبوءة تُجلب: فريقٌ أُضيف بعدها لا يُعرض). وفريقٌ واحد يُختار تلقائياً — العرض
@@ -834,6 +834,10 @@ function ReceiveCollectionModal({ rep, onClose, onDone }: { rep: SalesRep; onClo
                 <div className="bg-gray-50 rounded-xl p-3">
                   <p className="text-[11px] text-gray-500">{tr('إجمالي التحصيل')}</p>
                   <p className="font-bold text-sm text-gray-700 mt-1">{formatCurrency(data?.collected ?? 0)}</p>
+                  {/* «البيع النقدي تحصيلٌ لدى المندوب»: جزؤه من الفواتير النقدية المحسوبة بلا سند */}
+                  {Number(data?.cashSales ?? 0) > 0.0005 && (
+                    <p className="text-[10px] text-gray-400 mt-0.5">{tr('منها فواتير بيع نقدي')}: {formatCurrency(Number(data?.cashSales))}</p>
+                  )}
                 </div>
                 <div className="bg-gray-50 rounded-xl p-3">
                   <p className="text-[11px] text-gray-500">{tr('المستلم سابقا')}</p>

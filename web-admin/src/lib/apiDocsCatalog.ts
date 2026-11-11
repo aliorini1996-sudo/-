@@ -3596,10 +3596,11 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{ success: true, data: { enabled: true, collected, settled, outstanding } }. collected هو مجموع مبالغ سندات المندوب النشطة، وsettled مجموع ما سُجّل استلامه منه (repSettlement)، وoutstanding يساوي collected - settled. القيم مقرّبة",
+    "response": "{ success: true, data: { enabled: true, collected, cashSales, settled, outstanding } }. collected هو مجموع مبالغ سندات المندوب النشطة، ومعها فواتيره النقدية المحسوبة تحصيلاً (cashSales، وهو جزء من collected) حين يكون cashSaleCollected مفعّلاً له، وsettled مجموع ما سُجّل استلامه منه (repSettlement)، وoutstanding يساوي collected - settled. القيم مقرّبة",
     "rules": [
      "الرصيد لا يُصفَّر يومياً، وينقص فقط بتسجيل استلام من المندوب، وذلك خارج هذه المجموعة في /sales-reps",
      "علم showCollectionBalance يخص تطبيق المندوب فقط، ولا أثر له على طلب الإدارة أو المفتاح، فيعود enabled دائماً true",
+     "cashSales: مجموع paidAmt لفواتير البيع النقدي المختومة cashCollectedByRep (تُختم لحظة الإصدار لمندوبٍ مفعَّلٍ له cashSaleCollected فلا يدخل نقديّ ما قبل التفعيل). الملغاة إدارياً تخرج، والتي أبطلتها الهيئة واحتُفظ بتحصيلها تبقى، والمرتجع لا يُنقصه",
      "للمستخدم المقيَّد بالقوائم: collected يحسب سندات عملائه في النطاق فقط، أما settled فيحسب كل استلامات المندوب. ولمشرف الفرق (نطاق TEAMS): collected السندات الموسومة بفرقه، وsettled الاستلامات الموسومة بفرقه",
      "للمستخدم غير المقيَّد: معرّف مندوب غير موجود لا يعطي 404، بل أصفاراً"
     ],
@@ -3882,7 +3883,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[مندوب], pagination:{total, page, limit, pages}} مرتبة بالاسم تصاعدياً. حقول المندوب: id, name, phone, email, username, isActive, canCreateInvoice, canSellOnCredit, canSellOnInstallment, canSellInCash, canEditInvoice, canDeleteInvoice, canCancelInvoice, canChangePrice, maxDiscountPct, canSellBelowPrice, canChangePriceList, defaultPriceListId, allowedPriceTypes, canCreateReceipt, canEditReceipt, canCancelReceipt, canManageVanStock, canAddCustomer, canEditCustomer, canViewStatement, showCollectionBalance, requireCustomerProximity, requireLocationOn, requirePunchAtCustomer, proximityRadiusM, punchRadiusM, punchOutsideAction, requireBoundDevice, boundDeviceName, boundDeviceAt, requirePresenceCheck, showRouteOnMap, shiftStart, shiftEnd, shiftDays, locationId, createdAt",
+    "response": "{success:true, data:[مندوب], pagination:{total, page, limit, pages}} مرتبة بالاسم تصاعدياً. حقول المندوب: id, name, phone, email, username, isActive, canCreateInvoice, canSellOnCredit, canSellOnInstallment, canSellInCash, canEditInvoice, canDeleteInvoice, canCancelInvoice, canChangePrice, maxDiscountPct, canSellBelowPrice, canChangePriceList, defaultPriceListId, allowedPriceTypes, canCreateReceipt, canEditReceipt, canCancelReceipt, canManageVanStock, canAddCustomer, canEditCustomer, canViewStatement, showCollectionBalance, cashSaleCollected, requireCustomerProximity, requireLocationOn, requirePunchAtCustomer, proximityRadiusM, punchRadiusM, punchOutsideAction, requireBoundDevice, boundDeviceName, boundDeviceAt, requirePresenceCheck, showRouteOnMap, shiftStart, shiftEnd, shiftDays, locationId, createdAt",
     "rules": [
      "لا تُعاد كلمة المرور ولا حقول التتبع والموقع ولا canSellWithoutStock ولا canBeTracked",
      "pages = ceil(total/limit) من utils/helpers.ts",
@@ -4085,6 +4086,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "boolean",
       "required": false,
       "desc": "إظهار رصيد التحصيل المتراكم على شاشة المندوب، الافتراضي true"
+     },
+     {
+      "name": "cashSaleCollected",
+      "type": "boolean",
+      "required": false,
+      "desc": "احتساب البيع النقدي تحصيلاً بلا سند قبض: فاتورة البيع النقدي التي تصدر للمندوب تُحسب مبلغاً محصَّلاً في رصيد تحصيله والاستلام منه، وتسري على ما يصدر بعد التفعيل. الافتراضي false"
      },
      {
       "name": "requireCustomerProximity",
@@ -4436,9 +4443,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{collected, settled, outstanding, teams:[{id, name, archived, former?}], teamScoped, teamsEnabled, totalOutstanding?}}. teams فرق المندوب التي يراها صاحب المفتاح لاختيار فريق الاستلام: عضويته الحالية حين تكون الميزة مفعّلة (ولمشرف الفرق فرقه ولو أُطفئت)، ومعها كل فريق عليه عهدة لم تُستلم بعد، وformer = true إن لم يعد المندوب عضواً فيه، وarchived = true للمؤرشف. teamScoped = true لمشرف الفرق. totalOutstanding الرصيد الإجمالي، يأتي مع teamId لغير المشرف وحده",
+    "response": "{success:true, data:{collected, cashSales, settled, outstanding, teams:[{id, name, archived, former?}], teamScoped, teamsEnabled, totalOutstanding?}}. teams فرق المندوب التي يراها صاحب المفتاح لاختيار فريق الاستلام: عضويته الحالية حين تكون الميزة مفعّلة (ولمشرف الفرق فرقه ولو أُطفئت)، ومعها كل فريق عليه عهدة لم تُستلم بعد، وformer = true إن لم يعد المندوب عضواً فيه، وarchived = true للمؤرشف. teamScoped = true لمشرف الفرق. totalOutstanding الرصيد الإجمالي، يأتي مع teamId لغير المشرف وحده",
     "rules": [
-     "collected مجموع كل سندات القبض النشطة ACTIVE للمندوب منذ البداية وبكل طرق الدفع",
+     "collected مجموع كل سندات القبض النشطة ACTIVE للمندوب منذ البداية وبكل طرق الدفع، ومعها فواتيره النقدية المحسوبة تحصيلاً (cashSales جزء منه) — انظر cashSaleCollected",
      "settled مجموع الاستلامات المسجلة منه، و outstanding = collected - settled",
      "القيم مقرّبة إلى 6 منازل عشرية (clean)"
     ],

@@ -558,6 +558,11 @@ model SalesRep {
   // إظهار رصيد التحصيل المتراكم للمندوب على شاشته الرئيسية (يحدّده الأدمن لكل مندوب)
   showCollectionBalance Boolean @default(true)
 
+  // «البيع النقدي تحصيلٌ لدى المندوب» (طلب المالك ١٠ نوفمبر ٢٠٢٦): فاتورة البيع النقدي التي تصدر له تُحسب مبلغاً محصَّلاً في
+  // عهدته (رصيد التحصيل والاستلام منه) بلا سند قبض — تُختم الفاتورة لحظة صدورها (Invoice.cashCollectedByRep) فلا يمسّ التفعيلُ
+  // ولا الإطفاءُ ما صدر قبله. false افتراضاً = السلوك قبله حرفياً (رصيد التحصيل من السندات وحدها)
+  cashSaleCollected Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1214,6 +1219,9 @@ model Invoice {
   pricesIncludeTax Boolean @default(false)
   /// «إزالة الضريبة»: صدر المستند والشركة بلا ضريبة — يُطبع ويُعرض بلا أي ذكرٍ لها مهما تغيّر إعداد الشركة بعده (المستند القديم بضريبته كما صدر)
   taxFree          Boolean @default(false)
+  /// «البيع النقدي تحصيلٌ لدى المندوب»: ختمٌ لحظة الإصدار — فاتورةٌ نقدية لمندوبٍ مفعَّلٌ له SalesRep.cashSaleCollected ⇒ تُعدّ مبلغاً
+  /// محصَّلاً في عهدته (services/repCashCollection.ts). لا يحرّكه شيءٌ بعد الإصدار؛ والإلغاء يُخرجها بحالتها
+  cashCollectedByRep Boolean @default(false)
   subtotal         Float
   discountPct      Float   @default(0)
   discountAmt      Float   @default(0)

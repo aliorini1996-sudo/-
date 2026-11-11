@@ -40,6 +40,8 @@ const PAGE = 25;
 interface Creds { name: string; username: string; password: string }
 interface Collection {
   collected: number; settled: number; outstanding: number;
+  /** «البيع النقدي تحصيلٌ لدى المندوب»: جزء collected من فواتيره النقدية المحسوبة */
+  cashSales?: number;
   /** «الفرق»: فرق المندوب المرئية لاختيار فريق الاستلام، وهل العرض مقيَّد بفرق المشرف */
   teams?: { id: string; name: string; archived?: boolean; former?: boolean }[];
   teamScoped?: boolean;
@@ -665,7 +667,7 @@ function RepForm({ rep, onClose, onSaved }: {
 
 /* ═══════════════════════ الصلاحيات ═══════════════════════ */
 
-/** الصلاحيات المانحة — ثماني عشرة (منها «تبديل نوع السعر» لأنواع الأسعار)، والقيود المعكوسة أدناه خارجها */
+/** الصلاحيات المانحة — تسع عشرة (منها «تبديل نوع السعر» لأنواع الأسعار و«احتساب البيع النقدي تحصيلاً»)، والقيود المعكوسة أدناه خارجها */
 const GRANTS = [
   'canCreateInvoice', 'canSellOnCredit', 'canSellOnInstallment', 'canSellInCash',
   'canEditInvoice', 'canCancelInvoice', 'canDeleteInvoice',
@@ -673,7 +675,7 @@ const GRANTS = [
   'canCreateReceipt', 'canEditReceipt', 'canCancelReceipt',
   'canManageVanStock',
   'canAddCustomer', 'canEditCustomer', 'canViewStatement',
-  'showCollectionBalance',
+  'showCollectionBalance', 'cashSaleCollected',
 ] as const;
 
 type Grant = typeof GRANTS[number];
@@ -700,6 +702,7 @@ const PERM_DEFAULTS: PermState = {
   canManageVanStock: true,
   canAddCustomer: false, canEditCustomer: false, canViewStatement: true,
   showCollectionBalance: true,
+  cashSaleCollected: false,
   requireCustomerProximity: false,
   requireLocationOn: false,
   requirePunchAtCustomer: false,
@@ -727,6 +730,7 @@ const PERM_LABELS: Record<PermKey, string> = {
   canEditCustomer: 'تعديل بيانات العميل',
   canViewStatement: 'عرض كشف الحساب',
   showCollectionBalance: 'إظهار رصيد التحصيل المتراكم',
+  cashSaleCollected: 'احتساب البيع النقدي تحصيلا بلا سند قبض',
   requireCustomerProximity: 'البيع داخل نطاق العميل فقط',
   requireLocationOn: 'اشتراط تفعيل الموقع',
   requirePunchAtCustomer: 'بصمة الحضور بموقع عميل',
@@ -739,7 +743,7 @@ const PERM_GROUPS: { title: string; keys: Grant[] }[] = [
   { title: 'صلاحيات المبيعات', keys: ['canCreateInvoice', 'canSellOnCredit', 'canSellOnInstallment', 'canSellInCash', 'canEditInvoice', 'canCancelInvoice', 'canDeleteInvoice'] },
   // «تبديل نوع السعر» (أنواع الأسعار): بلاها يبيع المندوب بنوع سعر العميل وحده، ومعها يبدّل رقاقة النوع على فاتورته
   { title: 'صلاحيات التسعير', keys: ['canChangePrice', 'canSellBelowPrice', 'canChangePriceList'] },
-  { title: 'صلاحيات التحصيل', keys: ['canCreateReceipt', 'canEditReceipt', 'canCancelReceipt', 'showCollectionBalance'] },
+  { title: 'صلاحيات التحصيل', keys: ['canCreateReceipt', 'canEditReceipt', 'canCancelReceipt', 'showCollectionBalance', 'cashSaleCollected'] },
   { title: 'مخزون السيارة', keys: ['canManageVanStock'] },
   { title: 'صلاحيات العملاء', keys: ['canAddCustomer', 'canEditCustomer', 'canViewStatement'] },
 ];
@@ -756,7 +760,7 @@ const ACCOUNTING_PERMS = new Set<PermKey>([
   'canCreateInvoice', 'canSellOnCredit', 'canSellOnInstallment', 'canSellInCash',
   'canEditInvoice', 'canCancelInvoice', 'canDeleteInvoice',
   'canChangePrice', 'canSellBelowPrice', 'canChangePriceList',
-  'canCreateReceipt', 'canEditReceipt', 'canCancelReceipt', 'showCollectionBalance',
+  'canCreateReceipt', 'canEditReceipt', 'canCancelReceipt', 'showCollectionBalance', 'cashSaleCollected',
   'canManageVanStock', 'canViewStatement',
 ]);
 
@@ -1214,6 +1218,9 @@ function RepCollect({ rep, company, onClose }: { rep: SalesRep; company?: unknow
                   </div>
                   <MStat label={tr('إجمالي التحصيل')} value={formatCurrency(col.collected)} />
                   <MStat label={tr('المستلم سابقا')} value={formatCurrency(col.settled)} />
+                  {Number(col.cashSales ?? 0) > 0.0005 && (
+                    <p className="col-span-2 text-[11px] text-gray-500">{tr('منها فواتير بيع نقدي')}: <b>{formatCurrency(Number(col.cashSales))}</b></p>
+                  )}
                 </div>
 
                 <Group title={tr('تسجيل استلام')}>

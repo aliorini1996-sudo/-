@@ -89,7 +89,8 @@ test('lotDraftProblem: كل فرعٍ برسالته — مرآة الوارد و
   assert.equal(lotDraftProblem(draft({ pick: 'UNNAMED' }), 'OUT', { shelfOn: false }), null);
   // جديدة: لا في النقص، والرقم المطبَّع، والانتهاء الإلزامي مع الصلاحية، والترتيب
   assert.equal(lotDraftProblem(draft({ pick: 'NEW', lotNumber: 'L1' }), 'OUT', { shelfOn: false }), P.OUT_NEEDS_SOURCE);
-  assert.equal(lotDraftProblem(draft({ pick: 'NEW', lotNumber: '   ' }), 'IN', { shelfOn: false }), P.NUMBER);
+  // فارغٌ ⇒ رقمٌ تلقائي LOT… من الخادم (طلب المالك ١١ نوفمبر ٢٠٢٦)
+  assert.equal(lotDraftProblem(draft({ pick: 'NEW', lotNumber: '   ' }), 'IN', { shelfOn: false }), null);
   assert.equal(lotDraftProblem(draft({ pick: 'NEW', lotNumber: 'L1' }), 'IN_STRICT', { shelfOn: true }), P.EXPIRY_REQUIRED);
   assert.equal(lotDraftProblem(draft({ pick: 'NEW', lotNumber: 'L1', productionDate: '2026-05-02', expiryDate: '2026-05-01' }), 'IN', { shelfOn: false }), P.DATES);
   assert.equal(lotDraftProblem(draft({ pick: 'NEW', lotNumber: 'L1', expiryDate: '2026-02-30' }), 'IN', { shelfOn: false }), P.DATES);

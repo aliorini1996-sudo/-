@@ -75,15 +75,15 @@ const lastItems = () => world.items.filter((i) => i.entryId === world.entries[wo
 
 // ═══ الوارد ═══
 
-test('الوارد لصنفٍ متتبَّع بلا تشغيلة ⇒ 422 LOT_REQUIRED باسم الصنف، ولا حركة ولا لوط', async () => {
+test('الوارد لصنفٍ متتبَّع بلا تشغيلة ⇒ لوطٌ جديد برقمٍ تلقائي LOT1001 ثم LOT1002 (طلب المالك ١١ نوفمبر ٢٠٢٦)', async () => {
   fresh();
   const r = await post({ type: 'RECEIVE', items: [{ productId: 'P1', qty: 10 }] });
-  assert.equal(r.status, 422, JSON.stringify(r.body));
-  assert.equal(r.body.code, 'LOT_REQUIRED');
-  assert.match(r.body.message, /«ماء»/);
-  assert.equal(world.entries.length, 0);
-  assert.equal(world.lots.length, 0);
-  assert.ok(world.calls.some((c) => c.op === 'tx.rollback'));
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(world.entries.length, 1);
+  assert.deepEqual(world.lots.map((l) => l.lotNumber), ['LOT1001']);
+  const r2 = await post({ type: 'RECEIVE', items: [{ productId: 'P1', qty: 4 }] });
+  assert.equal(r2.status, 201, JSON.stringify(r2.body));
+  assert.deepEqual(world.lots.map((l) => l.lotNumber), ['LOT1001', 'LOT1002'], 'تشغيلةٌ جديدة لكل وارد بلا رقم');
 });
 
 test('الوارد: الانتهاء إلزامي مع الصلاحية (LOT_EXPIRY_REQUIRED)، والرقم مطبَّع، واللوط يُنشأ بمصدر RECEIVE مع LotEvent، والردّ يحمل lot', async () => {
@@ -318,8 +318,9 @@ test('النقص من غير المسمّى (null صريح): لا ينزل دو�
   assert.equal((await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: 5, lotId: null }] })).status, 201);
   assert.equal((await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: -3, lotId: null }] })).status, 201);
   assert.equal(world.warehouseUnknown('P3'), 0);
-  // والتسوية بالزيادة بلا أي حقل ⇒ LOT_REQUIRED (المصدر صريحٌ في الاتجاهين)
-  assert.equal((await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: 2 }] })).body.code, 'LOT_REQUIRED');
+  // والتسوية بالزيادة بلا أي حقل ⇒ لوطٌ جديد برقمٍ تلقائي (طلب المالك ١١ نوفمبر ٢٠٢٦) — لا يمسّ غير المسمّى
+  assert.equal((await post({ type: 'ADJUST', items: [{ productId: 'P3', qty: 2 }] })).status, 201);
+  assert.equal(world.warehouseUnknown('P3'), 0);
 });
 
 test('الإتلاف: النقص من لوطٍ موقوف أو منتهٍ مسموح (D27)، وبرقمٍ قائم يُحلّ، وبرقمٍ مجهول ⇒ 422 LOT_NOT_FOUND، وبلوط صنفٍ آخر ⇒ MISMATCH', async () => {

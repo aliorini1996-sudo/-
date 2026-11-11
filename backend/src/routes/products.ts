@@ -207,7 +207,6 @@ const PRIMARY_UNIT_INVALID_MSG = 'الوحدة الرئيسية يجب أن تك
 const PRIMARY_UNIT_CHANGED_MSG = 'تغيّرت الوحدة الرئيسية منذ فتحت الصنف — أعد فتحه';
 const PRIMARY_UNIT_IN_USE_MSG = 'هذه الوحدة الرئيسية للصنف — اجعل وحدة أخرى رئيسية أو ألغِ الرئيسية أولاً';
 const PRODUCT_UNITS_BUSY_MSG = 'يجري تحويل وحدات هذا الصنف — أعد المحاولة بعد قليل';
-const retiredBaseMsg = (name: string) => `اسم «${name}» كان وحدة هذا الصنف قبل تحويله — اختر اسماً آخر`;
 /** D19-أ: مفتاحٌ استُعمل في هذه المدة «نشط» — يلزم إقرار التحويل */
 const API_KEY_ACTIVE_DAYS = 30;
 
@@ -325,17 +324,6 @@ function assertExpectedBase(req: AuthRequest, locked: { unit?: string | null; ba
   }
 }
 
-/**
- * D20-ب: اسمٌ ظهر fromUnit في تحويلٍ سابق بمعامل > ١ لهذا الصنف «متقاعد» — لا يعود أساساً، فلا تلتقط سلسلة إعادة الرفع صفاً
- * خاطئاً. يُسأل السجلّ حين حُوِّل الصنف وحده (I8)، والمقارنة بـbaseNameKey على الطرفين (D20-أ).
- */
-async function isRetiredBaseName(db: Prisma.TransactionClient, tid: string, productId: string, baseConvertedAt: Date | null | undefined, name: string): Promise<boolean> {
-  if (baseConvertedAt == null) return false;
-  const rows = await db.productBaseConversion.findMany({ where: { tenantId: tid, productId, factor: { gt: 1 } }, select: { fromUnit: true } });
-  const key = baseNameKey(name);
-  return (rows ?? []).some((r) => baseNameKey(r.fromUnit) === key);
-}
-
 /** رسالة 409 BASE_NAME_RESERVED — توجيهٌ إلى «تحويل الأساس» أو الدعم بدل إعادة التسمية ثم الإضافة */
 const reservedBaseMsg = (name: string) =>
   `«${name}» كان وحدة أساس هذا الصنف وبه سُجّل رصيده وتاريخه — إضافته وحدةً أكبر تقلب معنى الرصيد كله. لإضافة وحدة أصغر استخدم «إضافة وحدة فرعية أصغر» (تحويل الأساس)، أو تواصل مع الدعم الفني`;
@@ -396,12 +384,10 @@ async function guardProductEdit(tx: Prisma.TransactionClient, req: AuthRequest, 
   const renames = baseNameKey(newBase) !== baseNameKey(locked.unit);
   const patch = o.guard.primaryUnit ?? null;
   if (renames) {
-    // ٤. اسم الأساس الجديد لا يساوي اسم وحدةٍ للصنف — على الصفّ المقفل وبعد رقعة الرئيسية، ثم الاسم المتقاعد (D20-ب)
+    // ٤. اسم الأساس الجديد لا يساوي اسم وحدةٍ للصنف — على الصفّ المقفل وبعد رقعة الرئيسية.
+    // والاسم الذي كان أساس الصنف قبل تحويله يُقبل (أمر المالك ١١ نوفمبر ٢٠٢٦ — أُلغي رفض D20-ب BASE_NAME_RETIRED)
     const names = locked.units.map((u) => (patch && u.id === patch.id && patch.name !== undefined ? patch.name : u.name).trim());
     if (names.includes(newBase.trim())) throw new UnitsRefusal(400, 'اسم وحدة الأساس مستخدم لوحدة أخرى لهذا الصنف');
-    if (await isRetiredBaseName(tx, tid, locked.id, locked.baseConvertedAt, newBase)) {
-      throw new UnitsRefusal(409, retiredBaseMsg(newBase.trim()), 'BASE_NAME_RETIRED');
-    }
   }
   // ٥. رقعة الرئيسية: الوحدة التي رآها النموذج هي الرئيسية الآن، والمدموج صالحٌ بين وحدات الصنف والأساس الجديد
   if (patch) {
@@ -1566,10 +1552,7 @@ async function convertBaseRefusalOn(db: Prisma.TransactionClient, tid: string,
   }
   const problem = baseConversionProblem(product, body);
   if (problem) throw new UnitsRefusal(400, problem);
-  // D20-ب: الاسم المتقاعد لا يعود أساساً (يُسأل السجلّ لصنفٍ حُوِّل وحده، I8)
-  if (await isRetiredBaseName(db, tid, product.id, product.baseConvertedAt, body.newBaseName)) {
-    throw new UnitsRefusal(409, retiredBaseMsg(body.newBaseName.trim()), 'BASE_NAME_RETIRED');
-  }
+  // D20-ب أُلغي (أمر المالك ١١ نوفمبر ٢٠٢٦): الاسم الذي كان أساس الصنف قبل تحويلٍ سابق يُقبل أساساً جديداً
   // لقطات التاريخ تُضرب بـF كالوحدات القائمة، وbaseConversionProblem يحدّ القائمة وحدها: وحدةٌ حُذفت أو تغيّر معاملها تبقى لقطتها
   // في الصفوف، فتتجاوز MAX_UNIT_FACTOR بعد الضرب ويرمي كل ما ينسخ اللقطة بعدها (إشعارٌ دائن بوحدة البند ⇒ 500 على فاتورةٍ قديمة)
   const over = await historyFactorOver(db, tid, product.id, Math.round(Number(body.factor)));
