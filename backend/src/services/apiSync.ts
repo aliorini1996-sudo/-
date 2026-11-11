@@ -107,6 +107,8 @@ const SALES_REP_COLS = [
   'canManageVanStock', 'canSellWithoutStock', 'canBeTracked', 'proximityRadiusM', 'punchRadiusM',
   'punchOutsideAction', 'requireBoundDevice', 'boundDeviceName', 'boundDeviceAt', 'shiftStart', 'shiftEnd', 'shiftDays',
   'requirePresenceCheck', 'showRouteOnMap',
+  // «البيع النقدي تحصيلٌ لدى المندوب»: فاتورته النقدية تُحسب في رصيد تحصيله بلا سند قبض
+  'cashSaleCollected',
   // «لوكيشن»: موقع المندوب الحاليّ (معرّف SalesLocation — null = بلا موقع)
   'locationId',
   // «أنواع الأسعار على مستوى المندوب»: نوعه الافتراضي (null = السعر الأساسي) والأنواع التي يبدّل بينها (null = كلها؛ وإلا
@@ -122,6 +124,8 @@ const INVOICE_COLS = [
   // «إزالة الضريبة»: ختم بلا ضريبة — true ⇒ صدر المستند والشركة بلا ضريبة (بنوده 0٪ وeinvoiceProvider 'none') فيُعرض بلا أي
   // ذكرٍ لها مهما تغيّر إعداد الشركة بعده؛ false ⇒ المستند كما صدر (والقديم بضريبته). عمود الفاتورة لا يحرّكه شيء بعد الإصدار
   'taxFree',
+  // «البيع النقدي تحصيلٌ لدى المندوب»: true ⇒ الفاتورة النقدية حُسبت مبلغاً محصَّلاً في عهدة مندوبها (ختم وقت الإصدار)
+  'cashCollectedByRep',
   // «أنواع الأسعار»: النوع الذي سُعّر به المستند وقت الإصدار (null = السعر الأساسي)
   'priceListId',
   'teamId',

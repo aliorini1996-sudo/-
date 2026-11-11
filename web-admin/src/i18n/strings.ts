@@ -1676,6 +1676,9 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'تعديل بيانات العميل': { en: 'Edit customer data', fr: 'Modifier les données du client', tr: 'Müşteri bilgilerini düzenleme', zh: '编辑客户资料' },
   'عرض كشف الحساب': { en: 'View statement', fr: 'Afficher le relevé', tr: 'Hesap ekstresi görüntüleme', zh: '查看对账单' },
   'إظهار رصيد التحصيل المتراكم': { en: 'Show accumulated collection balance', fr: 'Afficher le solde d encaissement cumulé', tr: 'Birikmiş tahsilat bakiyesini gösterme', zh: '显示累计收款余额' },
+  'احتساب البيع النقدي تحصيلا بلا سند قبض': { en: 'Count cash sales as collected (no receipt)', fr: 'Compter les ventes au comptant comme encaissées (sans reçu)', tr: 'Peşin satışı makbuzsuz tahsilat say', zh: '现金销售计为已收款（无需收据）' },
+  'فاتورة البيع النقدي التي تصدر للمندوب تحسب مبلغا استلمه في رصيد التحصيل والاستلام منه دون سند قبض، وتسري على الفواتير التي تصدر بعد التفعيل': { en: 'A cash sale invoice issued for the rep counts as money he received in his collection balance and handover, with no receipt. Applies to invoices issued after it is turned on', fr: 'Une facture de vente au comptant émise pour le commercial compte comme un montant encaissé dans son solde et sa remise, sans reçu. S applique aux factures émises après l activation', tr: 'Temsilci için kesilen peşin satış faturası, makbuz olmadan tahsilat bakiyesinde ve teslimde tahsil edilmiş tutar sayılır. Etkinleştirildikten sonra kesilen faturalara uygulanır', zh: '为该业务员开具的现金销售发票计入其收款余额和上交，无需收据。仅适用于启用后开具的发票' },
+  'منها فواتير بيع نقدي': { en: 'of which cash sale invoices', fr: 'dont factures de vente au comptant', tr: 'bunun peşin satış faturaları', zh: '其中现金销售发票' },
   'إضافة المندوب': { en: 'Add rep', fr: 'Ajouter le représentant', tr: 'Temsilciyi ekle', zh: '新增业务员' },
   // نافذة تفاصيل الفاتورة + كشف الحساب
   'فاتورة رقم': { en: 'Invoice No', fr: 'Facture n°', tr: 'Fatura No', zh: '发票编号' },

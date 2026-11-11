@@ -46,6 +46,7 @@ import type { KeyedAsyncMutex } from '../compliance/zatca/unitMutex';
 // ZATCA المرحلة الثانية (Z5.8، نقد 3/4 D11): قرار الانتقال — مستندٌ دون اتصال من قبل التفعيل يُرفع بعده
 import { cutoverDecision, type CutoverReason, type CutoverRecordInput, type CutoverStatus } from '../compliance/zatca/goLive';
 import { baseNameKey, unitFields } from '../services/units';
+import { cashCollectedStamp } from '../services/repCashCollection';
 // «تتبّع اللوط» (§٤.٩): أنواع الخطة والتوزيع ودمج صفوفه في البند — services/lots.ts نقيّة (لا قاعدة ولا Prisma)
 import {
   asLockBusy, invoiceItemLotColumns, lotErr,
@@ -635,6 +636,8 @@ export interface Phase2IssuanceContext {
   teamId?: string | null;
   /** «لوكيشن»: ختم موقع المندوب وقت الإصدار المحسوم في routes/invoices.ts (null = بلا موقع، أو الميزة مطفأة) */
   locationId?: string | null;
+  /** «البيع النقدي تحصيلٌ لدى المندوب»: إعداد المندوب كما قرأه routes/invoices.ts — النقدية تُختم cashCollectedByRep (غائب = لا) */
+  cashSaleCollected?: boolean;
   /** «أنواع الأسعار»: نوع السعر الذي سُعّر به المستند، المحسوم والمحروس في routes/invoices.ts (null = السعر الأساسي) */
   priceListId?: string | null;
   companyVat: number;
@@ -959,6 +962,8 @@ async function issueNow(
                 discountPct: ctx.body.discountPct ?? 0,
                 paidAmt: ctx.body.type === 'CASH' ? record.amounts.total : 0,
                 remainingAmt: ctx.body.type === 'CASH' ? 0 : record.amounts.total,
+                // «البيع النقدي تحصيلٌ لدى المندوب» — والإشعار اليدويّ مرتجعٌ لا يُختم (يكتب أعمدته بعده)
+                ...(!manual && cashCollectedStamp(ctx.body.type, { cashSaleCollected: ctx.cashSaleCollected })),
                 // الإشعار اليدويّ صفُّ مرتجعٍ كما يكتبه المسار القديم (السبب والعودة للمخزون، والمدفوع والمتبقّي صفران)
                 ...(manual && creditNoteLegacyColumns({ reasonCode: manual.reasonCode, returnToStock: manual.returnToStock })),
                 // أعمدة المرحلة الثانية والمرآة والمبالغ المخزَّنة (§2.4) — تغلب قيم المحرّك عمداً
