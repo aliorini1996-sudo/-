@@ -15,6 +15,8 @@ export interface LangDetector {
   has(loc: string): boolean;
 }
 
+/** الاسم اللاتيني بين start وend في s صفةٌ لموصوف قبله أو بعده («monde arabe» · «arab világ») */
+export const adjectiveUse: (s: string, start: number, end: number) => boolean;
 export function splitUiLanguages(list: string, intl?: string): string[] | null;
 export function localeLangNames(intl: string, uiLanguages?: string): Record<string, string[]>;
 export function createLangDetector(locales?: PublishedLocale[]): LangDetector;

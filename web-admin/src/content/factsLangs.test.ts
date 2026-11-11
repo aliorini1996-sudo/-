@@ -75,6 +75,50 @@ test('التناقض الحقيقي يبقى مكشوفاً بكل لغة: نا�
   assert.equal(det.languageClaims(`${five} The app also runs in Spanish and English.`, null).length, 1);
 });
 
+/**
+ * بعضُ الخمس بعد جملتها يُعذر تفصيلاً بشرط نفي أو استدراك أو تضمين صريح في عبارته (١١ نوفمبر ٢٠٢٦): كان يُعذر بلا شرط،
+ * فمرّت «ولوحة الإدارة متاحة بالعربية والإنجليزية» بعد جملة الخمس وهي قائمة ناقصة.
+ */
+test('التفصيل بعد جملة الخمس يُعذر بنفي أو استدراك أو تضمين وحده، والقائمة الناقصة بعدها تُدان', () => {
+  const ar5 = 'تطبيقات FieldSales بالعربية والإنجليزية والفرنسية والتركية والصينية.';
+  // تُدان: لا نفي ولا استدراك ولا تضمين
+  assert.equal(det.languageClaims(`${ar5} ولوحة الإدارة متاحة بالعربية والإنجليزية.`, null).length, 1);
+  assert.equal(det.languageClaims('The app interface is available in Arabic, English, French, Turkish and Chinese. The admin panel is available in Arabic and English.', null).length, 1);
+  // الحصر («لا … إلا») لا يعذره نفيه
+  assert.equal(det.languageClaims(`${ar5} ولا تعمل لوحة الإدارة إلا بالعربية والإنجليزية.`, null).length, 1);
+  // تمرّ: نفي وتضمين صريح
+  assert.deepEqual(det.languageClaims(`${ar5} ولا واجهة بالفولانية، والفرنسية والإنجليزية منها.`, null), []);
+  // صيغة المحتوى المنشور نفسها (ff: tierB.home.faq.4.a): «alaa» نفي و«kono» استدراك و«e majje» تضمين
+  if (det.has('ff')) {
+    const ff = marketing('ff').strings['tierB.home.faq.4.a'];
+    assert.match(ff, /kono Farayseere e Engeleere ina e majje/);
+    assert.deepEqual(det.languageClaims(ff, 'ff'), []);
+    assert.equal(det.languageClaims('Interface application FieldSales ina heɓoo e Aarabeere, Engeleere, Farayseere, Turkeere e Siineere. Interface hooreeɓe ina heɓoo e Farayseere e Engeleere.', 'ff').length, 1);
+  }
+});
+
+/**
+ * قيد الصفة على الأسماء المحلية (١١ نوفمبر ٢٠٢٦): «arabe» في fr/ اسم محلي من Intl، وكان يُعدّ لغةً في «monde arabe»
+ * فيكمّل جملةً أسقطت العربية خمساً فتمرّ. القيد نفسه للعامة والمحلية: بعد موصوف (الرومانسية والإندونيسية) أو قبله.
+ */
+test('قيد الصفة على الأسماء المحلية: «monde arabe» و«mundo árabe» و«dunia Arab» صفةٌ لا لغة', () => {
+  const fr = 'L’application pour le monde arabe est disponible en anglais, français, turc et chinois.';
+  assert.equal(langs(fr, 'fr'), 'en,fr,tr,zh');
+  assert.equal(det.languageClaims(fr, 'fr').length, 1);
+  assert.equal(det.languageClaims(fr, null).length, 1);
+  assert.deepEqual(det.languageClaims('L’application est disponible en arabe, anglais, français, turc et chinois.', 'fr'), []);
+  if (det.has('es')) {
+    assert.equal(det.languageClaims('La aplicación para el mundo árabe está disponible en inglés, francés, turco y chino.', 'es').length, 1);
+    assert.equal(langs('La Liga Árabe y el idioma árabe', 'es'), 'ar');
+  }
+  if (det.has('pt')) assert.equal(det.languageClaims('O app para a região árabe está disponível em inglês, francês, turco e chinês.', 'pt').length, 1);
+  if (det.has('it')) assert.equal(det.languageClaims('L’app per il mondo arabo è disponibile in inglese, francese, turco e cinese.', 'it').length, 1);
+  if (det.has('id')) {
+    assert.equal(langs('Aplikasi untuk dunia Arab dan kantor di Riyadh, Arab Saudi', 'id'), '');
+    assert.equal(det.languageClaims('App FieldSales untuk dunia Arab tersedia dalam bahasa Inggris, Prancis, Turki, dan Mandarin.', 'id').length, 1);
+  }
+});
+
 test('الأسماء المحلية محصورة بصفحات لغتها: «angle» و«Arab» كلمتان عاديتان في نصّ إنجليزي', () => {
   const s = 'The app works from every angle in the United Arab Emirates and in English.';
   assert.equal(langs(s, null), 'en');

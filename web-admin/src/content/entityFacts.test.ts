@@ -7,6 +7,7 @@ import { DICT } from '../i18n/strings';
 import {
   getFacts, countryRegistry, parseCountryRegistry, coverageFacts, einvoiceStatus, normalizeProfileUrl,
   UI_LANGS, LANG_NAMES, UI_LANGS_SENTENCE, SAME_AS, APPS, IDS, NAME, DESCRIPTION, COVERAGE,
+  CONTACT, SUPPORT_SCHEMA_LANG_NAMES,
 } from './entity-facts.mjs';
 
 /**
@@ -75,6 +76,18 @@ test('المعرّفات وsameAs والصيغ تطابق index.html', () => {
   const alternates = [...alt[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
   for (const a of alternates) assert.ok(NAME.alternates.includes(a), `صيغة اسم في index.html غير مسجّلة في الحقائق: ${a}`);
   for (const a of Object.values(APPS)) if ('url' in a && a.public && a.url) assert.ok(SAME_AS.includes(a.url), `تطبيق منشور غائب عن sameAs: ${a.url}`);
+});
+
+/**
+ * لغات ContactPoint لغات فريق المبيعات والدعم لا لغات الواجهة (١١ نوفمبر ٢٠٢٦): صارت الخمس فادّعت دعماً بالتركية
+ * والصينية لا فريق له. مصدرها CONTACT.supportLanguages، وindex.html مطابق له (prerender يحقنه في كل صفحة).
+ */
+test('لغات فريق التواصل من CONTACT.supportLanguages، وindex.html يطابقها', () => {
+  assert.deepEqual(CONTACT.supportLanguages, ['ar', 'en', 'fr']);
+  assert.deepEqual(SUPPORT_SCHEMA_LANG_NAMES, ['Arabic', 'English', 'French']);
+  const m = read('index.html').match(/"contactPoint"\s*:\s*\{[^{}]*?"availableLanguage"\s*:\s*(\[[^\]]*\])/);
+  assert.ok(m, 'contactPoint.availableLanguage غير موجود في index.html');
+  assert.deepEqual(JSON.parse(m[1]), SUPPORT_SCHEMA_LANG_NAMES);
 });
 
 test('الوصف القصير بلا «Arab markets» ولا «الأسواق العربية»', () => {

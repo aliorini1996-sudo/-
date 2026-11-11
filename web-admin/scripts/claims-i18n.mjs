@@ -189,6 +189,19 @@ export function certRuleFor(code) {
   return src ? new RegExp(`(?:${src})`, 'iu') : null;
 }
 
+/**
+ * حدود طول وصف meta بالمحارف (G1 في verify-i18n، تحذير). الكتابات المكثّفة — الصينية بنوعيها (zh وzh-hant) واليابانية
+ * والكورية والكانتونية — تقول في المحرف ما تقوله اللاتينية في كلمة، فوصفٌ صيني صحيح من ٤٠–٦٠ محرفاً يعادل ١٢٠–١٧٠
+ * لاتينياً، وجوجل يقتطعها قرب ٨٠–١٠٠ محرف. فحدّها 25–90 بدل 50–170 (كانت أوصاف zh الصحيحة تُحذَّر قصيرةً، ١١ نوفمبر
+ * ٢٠٢٦). اللغات الأخرى على 50–170 كما كانت. الرمز بلغته الأساسية (zh-hant ⇒ zh).
+ */
+export const DENSE_DESC_LANGS = Object.freeze(['zh', 'ja', 'ko', 'yue']);
+export const DESC_BOUNDS = Object.freeze({ default: Object.freeze([50, 170]), dense: Object.freeze([25, 90]) });
+export function metaDescBounds(code) {
+  const base = String(code ?? '').toLowerCase().split('-')[0];
+  return DENSE_DESC_LANGS.includes(base) ? DESC_BOUNDS.dense : DESC_BOUNDS.default;
+}
+
 /** أرقام أي نظام عشري (٢٠٢٦ · ۲۰۲۶ · २०२६) إلى لاتينية — كي لا تفلت سنة أو سعر بأرقام محلية */
 export function toAsciiDigits(s) {
   return String(s).replace(/\p{Nd}/gu, (d) => {
@@ -381,5 +394,8 @@ export function publishedEntry(loc, waLabel) {
     code: loc.code, hreflang: loc.hreflang, name: loc.name, nativeName: loc.nativeName, dir: loc.dir,
     legacy: !!loc.legacy, tier: loc.tier, ogLocale: loc.ogLocale, intlLocale: loc.intlLocale, slug: loc.slug,
     pages: [...(loc.pages || [])], waLabel: String(waLabel ?? ''), contentDate: loc.contentDate,
+    // تواريخ النشر الأول (lastmod عناقيد hreflang في gen-sitemap) — حين تخالف contentDate وحدها
+    ...(loc.since ? { since: loc.since } : {}),
+    ...(loc.pagesSince && Object.keys(loc.pagesSince).length ? { pagesSince: { ...loc.pagesSince } } : {}),
   };
 }

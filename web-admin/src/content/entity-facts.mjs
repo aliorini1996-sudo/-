@@ -6,8 +6,8 @@
  * (النقد ٦)، وحقل التجربة المجانية (النقد ١٩)، وعملة السعر (النقد ٢٠)، وجملة لغات الواجهة الثابتة (النقد ٢١).
  *
  * الحالة: **مسودة**، ونصوص الوصف والتغطية تنتظر إقرار المالك (القرار ١ في القسم ٧ من الخطة). الحارس
- * scripts/verify-facts.mjs يقرؤه في postbuild (حاجباً منذ ١١ نوفمبر ٢٠٢٦)، وprerender يأخذ منه SCHEMA_LANG_NAMES
- * وحدها (لغات ContactPoint في كل صفحة)؛ gen-llms لا يستورده بعد.
+ * scripts/verify-facts.mjs يقرؤه في postbuild (حاجباً منذ ١١ نوفمبر ٢٠٢٦)، وprerender يأخذ منه SUPPORT_SCHEMA_LANG_NAMES
+ * وحدها (لغات فريق التواصل في ContactPoint كل صفحة، من CONTACT.supportLanguages)؛ gen-llms لا يستورده بعد.
  *
  * قاعدة الملف: كل حقيقة هنا منقولة من الكود الفعلي، ومصدرها مكتوب بجانبها. ما لم يُعرف له مصدر
  * لا يُكتب، بل يبقى null بسبب مذكور. وعدد الدول **يُحسب** من سجل src/i18n/countries.ts وقت التشغيل
@@ -212,6 +212,10 @@ export const einvoiceStatus = (code) => (E_INVOICING.liveCountries.includes(Stri
  *  - واتساب: لا رقم في defaultContent*.ts (الحقل فارغ). الرقم ‎966581835269‎ احتياطي الخادم في
  *    backend/src/routes/analytics.ts (‎/go/wa‎، ما لم يضبط WHATSAPP_NUMBER في Render) ويطابق contact.whatsapp في CMS الحيّ.
  *    والزرّ في الموقع يمرّ بالمحوّل لا بـwa.me مباشرة (src/components/WhatsAppFab.tsx).
+ *  - supportLanguages: لغات **فريق المبيعات والدعم** (من يردّ على الهاتف والبريد وواتساب) — لا لغات واجهة التطبيق
+ *    (UI_LANGS). المصدر: ContactPoint.availableLanguage في index.html منذ يوليو ٢٠٢٦ (b1c2814): العربية والإنجليزية
+ *    والفرنسية. **يعدّلها المالك** حين يتغيّر الفريق؛ ويحقنها prerender في ContactPoint كل صفحة، ويطابقها حارس الحقائق
+ *    (قاعدة support-languages). كانت قد صارت لغات الواجهة الخمس (١١ نوفمبر ٢٠٢٦) فادّعت دعماً بالتركية والصينية لا فريق له.
  */
 export const CONTACT = {
   quotePath: '/subscribe-request/?type=quote',
@@ -222,7 +226,16 @@ export const CONTACT = {
     number: '+966581835269',
     redirect: 'https://api.fieldsa.net/api/analytics/go/wa',
   },
+  /** لغات فريق المبيعات والدعم (رموز BCP-47) — يعدّلها المالك؛ ليست لغات الواجهة */
+  supportLanguages: ['ar', 'en', 'fr'],
 };
+
+/**
+ * أسماء schema.org للغات فريق التواصل (ContactPoint.availableLanguage) — بالترتيب في CONTACT.supportLanguages.
+ * لغة خارج الخمس يضيفها المالك تأخذ اسمها الإنجليزي من Intl.DisplayNames.
+ */
+export const SUPPORT_SCHEMA_LANG_NAMES = CONTACT.supportLanguages.map((l) => LANG_NAMES[l]?.en
+  || new Intl.DisplayNames(['en'], { type: 'language' }).of(l));
 
 /** المسار بلغة: العربية بلا بادئة، وغيرها ‎/xx‎ (src/i18n/locale.ts: PREFIX) */
 export const localePath = (p, lang = 'ar') => (lang === 'ar' ? p : `/${lang}${p}`);

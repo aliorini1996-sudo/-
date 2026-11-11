@@ -70,7 +70,15 @@
    ],
    "reasons": [],
    "contentDate": "2026-11-08",
-   "contentHash": "01bd4d3553108000e30a7cb272f5794175fde6ba396f546e1334025923313d42"
+   "contentHash": "01bd4d3553108000e30a7cb272f5794175fde6ba396f546e1334025923313d42",
+   "pagesSince": {
+    "features": "2026-11-11",
+    "feature:offlineInvoicing": "2026-11-11",
+    "feature:vanStock": "2026-11-11",
+    "feature:routesVisits": "2026-11-11",
+    "apps": "2026-11-11",
+    "quote": "2026-11-11"
+   }
   },
   {
    "code": "fr",
@@ -105,7 +113,15 @@
    ],
    "reasons": [],
    "contentDate": "2026-11-08",
-   "contentHash": "38e227bab4680e4248aa4ee72338541732e1c4898a5ef6b1116e74bf76436af8"
+   "contentHash": "38e227bab4680e4248aa4ee72338541732e1c4898a5ef6b1116e74bf76436af8",
+   "pagesSince": {
+    "features": "2026-11-11",
+    "feature:offlineInvoicing": "2026-11-11",
+    "feature:vanStock": "2026-11-11",
+    "feature:routesVisits": "2026-11-11",
+    "apps": "2026-11-11",
+    "quote": "2026-11-11"
+   }
   },
   {
    "code": "tr",
@@ -140,7 +156,15 @@
    ],
    "reasons": [],
    "contentDate": "2026-11-08",
-   "contentHash": "45d1460d5bcadfcc53b1453a51153bfa6e5da3ff96f7ee061df61a5fd87eeb28"
+   "contentHash": "45d1460d5bcadfcc53b1453a51153bfa6e5da3ff96f7ee061df61a5fd87eeb28",
+   "pagesSince": {
+    "features": "2026-11-11",
+    "feature:offlineInvoicing": "2026-11-11",
+    "feature:vanStock": "2026-11-11",
+    "feature:routesVisits": "2026-11-11",
+    "apps": "2026-11-11",
+    "quote": "2026-11-11"
+   }
   },
   {
    "code": "zh",
@@ -175,7 +199,15 @@
    ],
    "reasons": [],
    "contentDate": "2026-11-08",
-   "contentHash": "c4857acf46d04af0294b0dcc18905fedf0a2d943847e8f328a3815b5939d2627"
+   "contentHash": "c4857acf46d04af0294b0dcc18905fedf0a2d943847e8f328a3815b5939d2627",
+   "pagesSince": {
+    "features": "2026-11-11",
+    "feature:offlineInvoicing": "2026-11-11",
+    "feature:vanStock": "2026-11-11",
+    "feature:routesVisits": "2026-11-11",
+    "apps": "2026-11-11",
+    "quote": "2026-11-11"
+   }
   },
   {
    "code": "es",

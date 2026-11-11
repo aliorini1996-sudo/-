@@ -218,8 +218,14 @@ const faqData = (c, L, topicId) => {
   const strike = (topicId && STRIKE_FAQ[topicId]) ? STRIKE_FAQ[topicId](c, L) : [];
   return [
     ...strike,
+    // الجواب يصف الكيان لا السوق: في الصفحة الجامعة (REGION) تموضعٌ عالمي — كان «تدعم شركات التوزيع في الأسواق العربية
+    // بعملة العملة المحلية» في ٢٩ صفحة وفي FAQPage، والكيان يخدم كل دول العالم (١١ نوفمبر ٢٠٢٦)
     { q: P(L, `هل يعمل النظام ${c.inAr}`, `Does it work ${c.inEn}?`, `Fonctionne-t-il ${c.inFr} ?`),
-      a: P(L, `نعم منصة FieldSales تدعم شركات التوزيع ${c.inAr} بعملة ${c.cur.ar} ومتطلباتها المحلية`,
+      a: c.code === 'REGION'
+        ? P(L, 'نعم منصة FieldSales تدعم شركات التوزيع في كل دول العالم ومنها الأسواق العربية بالعملة المحلية لكل شركة ونسبة ضريبتها ومتطلباتها المحلية',
+          'Yes, FieldSales supports distributors in every country, in each company’s local currency and tax rate, with local requirements.',
+          'Oui, FieldSales prend en charge les distributeurs de tous les pays, dans la monnaie et au taux de taxe de chaque entreprise, selon les exigences locales.')
+        : P(L, `نعم منصة FieldSales تدعم شركات التوزيع ${c.inAr} بعملة ${c.cur.ar} ومتطلباتها المحلية`,
           `Yes, FieldSales supports distributors ${c.inEn} with ${c.cur.en} and local requirements.`,
           `Oui, FieldSales prend en charge les distributeurs ${c.inFr} avec ${c.cur.fr} et les exigences locales.`) },
     { q: P(L, `هل يحتاج المندوب إلى جهاز خاص`, `Does the rep need special hardware?`, `Faut-il un matériel spécial ?`),
@@ -237,7 +243,8 @@ const faqData = (c, L, topicId) => {
 // خطوات عملية كبيانات منظّمة (تُغذّي HowTo schema) — تقتبسها محركات AI لأسئلة «كيف تبدأ»
 const howToData = (c, L) => [
   { name: P(L, 'هيئ أساسك', 'Set your base', 'Préparez la base'),
-    text: P(L, `أدخل منتجاتك وأسعارك وعملاءك بعملة ${c.cur.ar} وحدود ائتمانهم`,
+    // «بعملة العملة المحلية» في الصفحة الجامعة ⇒ «بالعملة المحلية»
+    text: P(L, `أدخل منتجاتك وأسعارك وعملاءك ${c.code === 'REGION' ? 'بالعملة المحلية' : `بعملة ${c.cur.ar}`} وحدود ائتمانهم`,
       `Add your products, prices in ${c.cur.en}, customers and their credit limits.`,
       `Ajoutez vos produits, prix en ${c.cur.fr}, clients et limites de crédit.`) },
   { name: P(L, 'جهز فريقك', 'Prepare your team', "Préparez l'équipe"),
@@ -1421,10 +1428,16 @@ const REVISED = {
   'van-stock-inventory': '2026-10-26',
   'einvoicing-compliance-sa': '2026-10-26',
 };
+/**
+ * تعديلٌ على الصفحات الجامعة (REGION) وحدها — مفتاحها معرّف الموضوع نفسه فلا يميّزها REVISED عن صفحات دوله.
+ * 2026-11-11: جواب «هل يعمل النظام…» بتموضع عالمي و«بالعملة المحلية» بدل «بعملة العملة المحلية» (FAQ وHowTo) في ٢٩ صفحة.
+ */
+const REGION_REVISED = '2026-11-11';
 export const modifiedOf = (date, cc, slug, topicId) => {
   const v = cc && PRIORITY_BRIEF[cc] ? PRIORITY_CONTENT_VERSION : CONTENT_VERSION;
   const r = (slug && REVISED[slug]) || (topicId && REVISED[topicId]) || '';
-  return [date, v, r].sort().pop();
+  const g = !cc || cc === 'REGION' ? REGION_REVISED : '';
+  return [date, v, r, g].sort().pop();
 };
 
 // slug المقال: عام = id، خاص بدولة = id-cc

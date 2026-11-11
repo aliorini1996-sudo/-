@@ -24,7 +24,7 @@ import { fetchPublicCms, postUrl } from './cms-content.mjs';
 // الذي يرسمه React حرفياً بعد الإقلاع (I18nMarketingPage.tsx) — لا نسخة ثانية هنا.
 import { i18nPages, clusterAlternates, canon as i18nCanon } from '../src/i18n/i18nRoutes.mjs';
 import { renderI18nPage, vatMapFrom } from '../src/i18n/marketingTemplate.mjs';
-import { SCHEMA_LANG_NAMES } from '../src/content/entity-facts.mjs';
+import { SUPPORT_SCHEMA_LANG_NAMES } from '../src/content/entity-facts.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** JSON من المستودع نسبةً إلى web-admin/ (السجل المنشور وملفات المحتوى وقائمة الدول — يولّدها import-i18n وbuild-world-countries) */
@@ -378,10 +378,10 @@ async function main() {
       /("description"\s*:\s*")تجربة مجانية[^"]*(")/,
       `$1تجربة مجانية 10 أيام بلا بطاقة ائتمان. الاشتراك شهري لكل شركة لا لكل مستخدم: ${pricing.arSummary}.$2`,
     )
-    // لغات التواصل في ContactPoint = لغات الواجهة الخمس من مصدرها الواحد (entity-facts.mjs) لا قائمة مكتوبة في
-    // index.html: كانت ["Arabic","English","French"] في ٢٠٧٥ صفحة تناقض الحقائق (verify-facts: support-languages).
-    .replace(/("contactPoint"\s*:\s*\{[^{}]*?"availableLanguage"\s*:\s*)\[[^\]]*\]/, `$1${JSON.stringify(SCHEMA_LANG_NAMES)}`);
-  if (!template.includes(JSON.stringify(SCHEMA_LANG_NAMES))) {
+    // لغات التواصل في ContactPoint = لغات **فريق المبيعات والدعم** (CONTACT.supportLanguages في entity-facts.mjs) لا لغات
+    // الواجهة: من يردّ على الهاتف والبريد. مصدرها الواحد هناك يعدّله المالك، وما في index.html يُستبدل به في كل صفحة.
+    .replace(/("contactPoint"\s*:\s*\{[^{}]*?"availableLanguage"\s*:\s*)\[[^\]]*\]/, `$1${JSON.stringify(SUPPORT_SCHEMA_LANG_NAMES)}`);
+  if (!template.includes(JSON.stringify(SUPPORT_SCHEMA_LANG_NAMES))) {
     throw new Error('prerender: لم أجد contactPoint.availableLanguage في كتلة JSON-LD بـindex.html (غيّر الاستبدال مع شكلها)');
   }
   if (!fs.existsSync(path.join(DIST, 'index.html'))) { console.error('لا يوجد dist/index.html — شغّل vite build أولاً'); process.exit(0); }

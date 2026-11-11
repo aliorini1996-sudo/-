@@ -24,6 +24,8 @@
  *  5. gov-einvoice-abroad — ادّعاء ربط بمنظومة فوترة حكومية خارج السعودية (ETA وPeppol وTTN وKSeF وCFDI…)
  *     أو «الربط الحكومي» عامةً، بلا «عند الطلب» ولا نفي: في الرؤوس وJSON-LD وllms ومتن صفحات الكيان.
  *  6. org-facts — عقدة ‎#organization‎: سنة التأسيس والمقر وصيغ الاسم والبريد والهاتف، وروابط تحميل التطبيق.
+ *  7. support-languages (تحذير) — ContactPoint.availableLanguage لغات فريق المبيعات والدعم (CONTACT.supportLanguages)،
+ *     لا لغات الواجهة: الفريق يردّ بالعربية والإنجليزية والفرنسية والتطبيق بخمس.
  *
  * التشغيل:
  *   node scripts/verify-facts.mjs [--dist <مجلد>]           بعد البناء (الافتراضي web-admin/dist)
@@ -367,7 +369,7 @@ const RULES = {
   'ui-languages': 'قائمة لغات الواجهة تخالف الحقائق',
   'gov-einvoice-abroad': 'ادّعاء ربط حكومي خارج السعودية — الحقيقة: حيّ في السعودية وحدها، وعند الطلب لغيرها',
   'org-facts': 'حقيقة في عقدة الكيان تخالف entity-facts',
-  'support-languages': 'لغات التواصل في ContactPoint تخالف لغات الواجهة (لغات الدعم لم يُقرّها المالك)',
+  'support-languages': 'لغات التواصل في ContactPoint تخالف لغات فريق المبيعات والدعم (CONTACT.supportLanguages في entity-facts.mjs)',
   'org-name-form': 'صيغة اسم الكيان ليست الرسمية وحدها (خطة GEO ٤.١)',
   'same-as': 'رابط sameAs غير مسجّل في الحقائق',
   'json-ld-parse': 'كتلة JSON-LD لا تُقرأ',
@@ -382,6 +384,8 @@ const add = (rule, doc, surface, match, note = '', context = '') => findings.pus
 });
 
 const PUBLIC_STORES = new Set(storeUrls().map(normalizeProfileUrl));
+/** لغات فريق المبيعات والدعم (CONTACT.supportLanguages) — مرجع ContactPoint.availableLanguage */
+const SUPPORT = new Set(FACTS.contact.supportLanguages);
 const SAME_AS_OK = new Set(FACTS.sameAs.map(normalizeProfileUrl));
 const NAMES_OK = new Set([NAME.official, ...NAME.alternates]);
 const EMAILS_OK = new Set(Object.values(FACTS.contact.email));
@@ -432,9 +436,11 @@ function checkNodes(doc) {
         if (!PUBLIC_STORES.has(normalizeProfileUrl(u))) add('org-facts', doc, `${label}.downloadUrl`, u, 'رابط تحميل لتطبيق غير منشور أو غير مسجّل في الحقائق');
       }
     }
-    if (n.types.includes('ContactPoint') && Array.isArray(o.availableLanguage)) {
-      const got = new Set(o.availableLanguage.map(schemaLang));
-      if (!sameSet(got, UI)) add('support-languages', doc, `${label}.availableLanguage`, JSON.stringify(o.availableLanguage), `${setStr(got)} مقابل الواجهة ${setStr(UI)}`);
+    // لغات فريق التواصل لا لغات الواجهة: تُقارن بـCONTACT.supportLanguages (يعدّلها المالك)، فلا تحذير ما دامتا متطابقتين
+    if (n.types.includes('ContactPoint') && o.availableLanguage !== undefined) {
+      const vals = [].concat(o.availableLanguage);
+      const got = new Set(vals.map(schemaLang));
+      if (!sameSet(got, SUPPORT)) add('support-languages', doc, `${label}.availableLanguage`, JSON.stringify(o.availableLanguage), `${setStr(got)} مقابل لغات فريق التواصل ${setStr(SUPPORT)}`);
     }
     if (n.types.includes('ContactPoint') || n.id === IDS.organization) {
       if (o.email && !EMAILS_OK.has(String(o.email).replace(/^mailto:/i, ''))) add('org-facts', doc, `${label}.email`, o.email, `المسجّل: ${[...EMAILS_OK].join('، ')}`);

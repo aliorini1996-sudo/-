@@ -547,7 +547,7 @@ export function aboutContent(lang) {
         },
         {
           h2: 'اللغات والأسواق',
-          paras: ['تطبيقاتنا بالعربية والإنجليزية والفرنسية والتركية والصينية. ونخدم شركات التوزيع في السعودية والخليج وكل دول العالم، والمبالغ تتبع عملة كل شركة وخاناتها ونسبة ضريبتها.'],
+          paras: ['واجهة تطبيقاتنا بخمس لغات: العربية والإنجليزية والفرنسية والتركية والصينية. وللموقع صفحات تعريفية بأكثر من 150 لغة. ونخدم شركات التوزيع في السعودية والخليج وكل دول العالم، والمبالغ تتبع عملة كل شركة وخاناتها ونسبة ضريبتها.'],
         },
         {
           h2: 'الفوترة الإلكترونية في السعودية',
@@ -584,7 +584,7 @@ export function aboutContent(lang) {
         },
         {
           h2: 'Languages and markets',
-          paras: ['The apps run in Arabic, English, French, Turkish and Chinese; the website is in Arabic, English and French, with Turkish and Chinese home pages. We serve distribution companies in Saudi Arabia, the Gulf and any other country, and amounts follow each company’s currency, decimals and tax rate.'],
+          paras: ['The app interface is in five languages: Arabic, English, French, Turkish and Chinese. The website has pages in more than 150 languages. We serve distribution companies in Saudi Arabia, the Gulf and any other country, and amounts follow each company’s currency, decimals and tax rate.'],
         },
         {
           h2: 'E-invoicing in Saudi Arabia',
@@ -620,7 +620,7 @@ export function aboutContent(lang) {
         },
         {
           h2: 'Langues et marchés',
-          paras: ['L’application fonctionne en arabe, anglais, français, turc et chinois ; le site est en arabe, anglais et français, avec des pages d’accueil en turc et en chinois. Nous servons les entreprises de distribution d’Arabie saoudite, du Golfe et de tous les autres pays ; les montants suivent la devise, les décimales et le taux de taxe de chaque entreprise.'],
+          paras: ['L’interface de l’application existe en cinq langues : arabe, anglais, français, turc et chinois. Le site propose des pages dans plus de 150 langues. Nous servons les entreprises de distribution d’Arabie saoudite, du Golfe et de tous les autres pays ; les montants suivent la devise, les décimales et le taux de taxe de chaque entreprise.'],
         },
         {
           h2: 'Facturation électronique en Arabie saoudite',

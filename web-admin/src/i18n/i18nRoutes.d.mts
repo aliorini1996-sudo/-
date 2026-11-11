@@ -14,6 +14,10 @@ export const TIER_A_PAGES: readonly PageKey[]; // features feature:offlineInvoic
 export interface PublishedLocale {
   code: string; hreflang: string; name: string; nativeName: string; dir: 'ltr' | 'rtl'; legacy: boolean; tier: 'A' | 'B';
   ogLocale: string; intlLocale: string; slug: string; pages: PageKey[]; waLabel: string; contentDate: string;
+  /** النشر الأول للغة — يكتبه المستورد حين يخالف contentDate (تغيّر المحتوى بعد النشر) */
+  since?: string;
+  /** النشر الأول لصفحات أُضيفت بعد نشر اللغة (صفحات الطبقة A للغات القديمة) */
+  pagesSince?: Partial<Record<PageKey, string>>;
 }
 export interface PublishedRegistry { waveMax: number; generatedAt: string; simulated: boolean; locales: PublishedLocale[] }
 export interface I18nPage {
@@ -28,6 +32,12 @@ export function i18nPages(reg: PublishedRegistry): I18nPage[];
 export function clusterOf(pageKey: PageKey): ClusterKey | null;
 export function clusterAlternates(key: ClusterKey, reg: PublishedRegistry): Alternate[];
 export function newClusterMembers(key: ClusterKey, reg: PublishedRegistry): Alternate[];
+/** نشر الصفحة الأول: pagesSince ثم since ثم contentDate */
+export function pageSinceOf(loc: PublishedLocale | undefined | null, pageKey: PageKey): string | null;
+/** أحدث انضمام بين أعضاء العنقود الجدد، أو null */
+export function clusterChangedAt(key: ClusterKey, reg: PublishedRegistry): string | null;
+/** lastmod صفحة الطبقة: أحدث contentDate ونشرها الأول وتغيّر عنقودها */
+export function i18nLastmod(page: I18nPage, reg: PublishedRegistry, fallback?: string | null): string | null;
 export function legacyClusterKey(arPath: string): 'home' | 'about' | 'contact' | null;
 export function i18nPageForPath(pathname: string, reg: PublishedRegistry): I18nPage | null;
 export function uiLangFor(code: string): 'ar' | 'en' | 'fr' | 'tr' | 'zh';

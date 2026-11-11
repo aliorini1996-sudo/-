@@ -21,7 +21,7 @@ import { fileURLToPath } from 'url';
 import { transformSync } from 'esbuild';
 import { buildCatalog, isIndexable, CONTENT_VERSION } from '../src/blog/seo/catalog.mjs';
 import { existsWith, consolidatedTarget, consolidationReport } from '../src/blog/consolidate.mjs';
-import { i18nPages, clusterAlternates, legacyClusterKey } from '../src/i18n/i18nRoutes.mjs';
+import { i18nPages, clusterAlternates, legacyClusterKey, i18nLastmod, clusterChangedAt } from '../src/i18n/i18nRoutes.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -174,8 +174,13 @@ async function main() {
     // بلا لغة جديدة منشورة مطابقٌ حرفياً لـalt() (i18nSitemap.test.ts). وما سواها بلا تغيير.
     const clusterKey = legacyClusterKey(r.p);
     const alternates = clusterKey ? xhtmlLines(clusterAlternates(clusterKey, I18N)) : alt(r.p, langs);
+    // وعنقودها الممدَّد يغيّر رأسها حين تنضمّ إليه لغة جديدة: lastmod أحدث انضمام مسجّل إن كان أحدث (clusterChangedAt)
+    const clusterMod = clusterKey ? clusterChangedAt(clusterKey, I18N) : null;
     const u = urlsOf(r.p);
-    for (const L of langs) urls.push(urlEntry(u[L], { lastmod: r.p === '/' && L === 'ar' ? homeArMod : (r.lastmod || CONTENT_VERSION), freq: r.freq, priority: r.priority, alternates }));
+    for (const L of langs) {
+      const own = r.p === '/' && L === 'ar' ? homeArMod : (r.lastmod || CONTENT_VERSION);
+      urls.push(urlEntry(u[L], { lastmod: [own, clusterMod].filter(Boolean).sort().pop(), freq: r.freq, priority: r.priority, alternates }));
+    }
   }
 
   // فهرس المدوّنة (عربي + /en + /fr مع hreflang)
@@ -248,15 +253,16 @@ async function main() {
   const newestLastmod = (entries) => entries.map((e) => (e.match(/<lastmod>([^<]+)<\/lastmod>/) || [])[1]).filter(Boolean).sort().pop() || CONTENT_VERSION;
 
   // ── الطبقة متعددة اللغات: خريطة لكل لغة منشورة، بالمسارات والعناقيد من i18nRoutes.mjs وحدها ──
-  // lastmod = contentDate اللغة (يتجدّد بتغيّر بصمة محتواها وحده)، و/languages/ = أحدثها بين المنشورة.
+  // lastmod = i18nLastmod (i18nRoutes.mjs): أحدث contentDate اللغة (بصمة محتواها) ونشر الصفحة الأول (pagesSince/since
+  // في السجل) وانضمام عضو جديد إلى عنقودها — كلها تواريخ مسجّلة، لا «اليوم». و/languages/ = أحدث contentDate بين المنشورة.
+  // وفهرس sitemap.xml يأخذ لكل خريطة أحدث lastmod فيها، فيتغيّر حين تتغيّر هي.
   const i18nAll = i18nPages(I18N);
-  const localeOf = new Map((I18N.locales || []).map((l) => [l.code, l]));
   const contentDates = (I18N.locales || []).map((l) => l.contentDate).filter(Boolean).sort();
   const newestContent = contentDates.pop() || CONTENT_VERSION;
   const byCode = new Map(); // بترتيب أول ظهور في i18nPages = ترتيب السجل (و/languages/ تحت en)
   for (const p of i18nAll) {
     if (!byCode.has(p.code)) byCode.set(p.code, []);
-    const lastmod = p.pageKey === 'languages' ? newestContent : (localeOf.get(p.code)?.contentDate || CONTENT_VERSION);
+    const lastmod = p.pageKey === 'languages' ? newestContent : i18nLastmod(p, I18N, CONTENT_VERSION);
     byCode.get(p.code).push(urlEntry(ORIGIN + p.path, {
       lastmod, alternates: p.clusterKey ? xhtmlLines(clusterAlternates(p.clusterKey, I18N)) : '',
     }));

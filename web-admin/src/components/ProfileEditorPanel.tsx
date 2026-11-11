@@ -230,13 +230,14 @@ export default function ProfileEditorPanel({ onClose }: { onClose: () => void })
                 {f.label}
                 {f.hint && <span className="font-normal text-[11px] text-[#9A8F7E] mr-2">({f.hint})</span>}
               </label>
+              {/* locked: نصّ المستودع يفوز دائماً (mergeProfile) — يُعرض للقراءة فلا يُعدَّل بلا أثر */}
               {f.multiline ? (
                 <textarea dir={lang === 'ar' ? 'rtl' : 'ltr'} rows={Math.min(6, Math.max(2, (content[lang][f.key] || '').split('\n').length + 1))}
-                  className="input w-full text-sm leading-relaxed" value={content[lang][f.key] || ''}
-                  onChange={e => setField(f.key, e.target.value)} />
+                  className={`input w-full text-sm leading-relaxed${f.locked ? ' bg-[#F4EFE6] text-[#7A705F] cursor-not-allowed' : ''}`} value={content[lang][f.key] || ''}
+                  readOnly={f.locked} onChange={e => { if (!f.locked) setField(f.key, e.target.value); }} />
               ) : (
-                <input dir={lang === 'ar' ? 'rtl' : 'ltr'} className="input w-full text-sm"
-                  value={content[lang][f.key] || ''} onChange={e => setField(f.key, e.target.value)} />
+                <input dir={lang === 'ar' ? 'rtl' : 'ltr'} className={`input w-full text-sm${f.locked ? ' bg-[#F4EFE6] text-[#7A705F] cursor-not-allowed' : ''}`}
+                  value={content[lang][f.key] || ''} readOnly={f.locked} onChange={e => { if (!f.locked) setField(f.key, e.target.value); }} />
               )}
             </div>
             ))}

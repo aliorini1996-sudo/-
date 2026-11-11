@@ -6,7 +6,7 @@ import {
   PROFILE_FIELDS, PROFILE_DEFAULTS, PROFILE_SECTIONS,
   mergeProfile, sectionOn, showKey, splitLines, splitPairs, PROFILE_CMS_KEY,
   readPartners, PROFILE_PARTNERS_KEY,
-  PROFILE_LANGS, PROFILE_LANG_LABEL,
+  PROFILE_LANGS, PROFILE_LANG_LABEL, PROFILE_REPO_KEYS, PROFILE_SEO,
 } from './profileContent';
 
 /**
@@ -284,6 +284,54 @@ test('عدد الباقات في العنوان يطابق عددها في ال�
       `${PROFILE_LANG_LABEL[l]}: العنوان يقول ${said} وأسطر الباقات ${paid}`);
     const priced = items.filter(line => /(299|399|599|٢٩٩|٣٩٩|٥٩٩)/.test(line));
     assert.deepEqual(priced, [], `${PROFILE_LANG_LABEL[l]}: سعر ظاهر في بنود الاشتراك`);
+  }
+});
+
+/**
+ * لا سعر ظاهر في البروفايل بأي لغة (قرار المالك: السعر بطلب عرض) — والبروفايل صار مُفهرساً بلغاته الخمس (١١ نوفمبر ٢٠٢٦).
+ * في CMS الحيّ (profileV3) بنود اشتراك قديمة بأسعار 299/399/599 و«باقتان/Two plans»، والصفحة تدمج CMS بعد الإقلاع.
+ * فقسم الاشتراك (PROFILE_REPO_KEYS) يُقرأ من المستودع دائماً، ويُفحص هنا بمحتوى CMS مُحاكًى يحمل الأسعار.
+ */
+const toAscii = (s: string) => s.replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, d => String(d.charCodeAt(0) - 0x06f0));
+/** رقم ملاصق لعملة أو لكلمة سعر/شهر، أو أرقام الباقات الحيّة */
+const PRICE_RE = /\d[\d,.\s]*\s*(?:SAR|SR|USD|EUR|GBP|AED|TRY|TL|CNY|RMB|ر\.?\s?س|ريال|درهم|دولار|\$|€|£|﷼|₺|¥|元|riyals?|dollars?|euros?|lira)|(?:SAR|SR|USD|EUR|ر\.?\s?س|ريال|\$|€|£|﷼|₺|¥)\s*\d|\d+\s*(?:\/|per|par|في|لكل|每)\s*(?:month|mois|ay|شهر|月)|(?<!\d)(?:299|399|599)(?!\d)/iu;
+
+test('قسم الاشتراك من المستودع دائماً: محتوى CMS بأسعار لا يصل إلى البروفايل بأي لغة', () => {
+  assert.deepEqual([...PROFILE_REPO_KEYS].sort(), ['model_items', 'model_title']);
+  const stale = Object.fromEntries(PROFILE_LANGS.map(l => [l, {
+    model_title: l === 'ar' ? 'باقتان تختار بينهما' : 'Two plans',
+    model_items: ['Starter 299 SAR / month', 'Growth 399 ر.س شهرياً', 'Advanced ٥٩٩ ريال'].join('\n'),
+    cover_title: `CMS ${l}`,
+  }]));
+  const m = mergeProfile(stale);
+  for (const l of PROFILE_LANGS) {
+    for (const k of PROFILE_REPO_KEYS) assert.equal(m[l][k], PROFILE_DEFAULTS[l][k], `${PROFILE_LANG_LABEL[l]}: ${k} أُخذ من CMS`);
+    // بقية الحقول ما زال المالك يعدّلها
+    assert.equal(m[l].cover_title, `CMS ${l}`);
+  }
+  // المحرّر يعرض حقلَي القسم للقراءة فقط (يُعدَّلان بلا أثر لولا القفل)
+  for (const k of PROFILE_REPO_KEYS) assert.ok(PROFILE_FIELDS.find(f => f.key === k)?.locked, `${k} غير مقفل في المحرّر`);
+  assert.match(panel, /readOnly=\{f\.locked\}/);
+});
+
+test('لا سعر ظاهر في أي نصّ من نصوص البروفايل ولا في عنوانه ووصفه بأي لغة', () => {
+  const bad: string[] = [];
+  for (const l of PROFILE_LANGS) {
+    const m = mergeProfile(null);
+    for (const [k, v] of Object.entries(m[l])) if (PRICE_RE.test(toAscii(v))) bad.push(`${l}.${k}: «${v.slice(0, 80)}»`);
+    for (const [k, v] of Object.entries(PROFILE_SEO[l])) if (PRICE_RE.test(toAscii(v))) bad.push(`${l}.seo.${k}: «${v}»`);
+  }
+  assert.deepEqual(bad, []);
+  // والمنظِّم نفسه يلتقط السعر (لا يمرّ الفحص فارغاً)
+  for (const s of ['299 SAR', '399 ر.س', 'SAR 599', '٢٩٩ ريال', '49 / month']) assert.ok(PRICE_RE.test(toAscii(s)), s);
+});
+
+/** وصف البروفايل في نتائج البحث يُقتطع بعد نحو ١٥٥ حرفاً — كل لغة ضمنه (لا وصف مبتور) */
+test('عنوان البروفايل ≤ 70 ووصفه ≤ 155 حرفاً بكل لغة', () => {
+  for (const l of PROFILE_LANGS) {
+    const { title, description } = PROFILE_SEO[l];
+    assert.ok([...title].length <= 70, `${l}: العنوان ${[...title].length}`);
+    assert.ok([...description].length <= 155, `${l}: الوصف ${[...description].length} حرفاً`);
   }
 });
 

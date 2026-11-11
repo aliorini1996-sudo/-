@@ -15,8 +15,12 @@
  * في نصّ إنجليزي («from every angle» و«United Arab Emirates»)، فلو عُمّمتا لاخترعتا لغات في جمل لا تذكرها.
  * والأسماء العامة (الإنجليزية والفرنسية والتركية والصينية والعربية) سارية في كل صفحة كما كانت.
  *
- * ولا يُضعف هذا كشف التناقض: الاسم المعروف يزيد ما يُرى من اللغات ولا ينقصه، فجملة تذكر ثلاث لغات بأي لغة تبقى
- * ثلاثاً تخالف الخمس، وجملة تضيف لغة سادسة («…et espagnol») تُكشف ما دام اسمها معروفاً بلغة صفحتها.
+ * والاسم المعروف سيفٌ ذو حدّين: يكشف اللغة الزائدة («…et espagnol» تُكشف ما دام اسمها معروفاً بلغة صفحتها)، لكنه
+ * **قد يُخفي الناقصة** إن عُدّت صفةٌ لغةً: «L’application pour le monde arabe est disponible en anglais, français, turc et
+ * chinois» تُسقط العربية، و«arabe» الموصوفة بـ«monde» كانت تكمّلها خمساً فتمرّ — كان قيد الصفة على «arabe» العامة وحدها،
+ * والمحلية («arabe» في fr/ و«árabe» في es/ و«Arab» في id/) بلا قيد (١١ نوفمبر ٢٠٢٦). فقيد الصفة واحد للأسماء العامة
+ * والمحلية معاً (ADJ_NOUNS_BEFORE وADJ_NOUNS_AFTER): الاسم بعد موصوف («monde arabe» · «mundo árabe» · «regione araba» ·
+ * «dunia Arab» · «świat arabski») أو قبله («arabiska världen» · «arab világ» · «Arab Saudi») صفةٌ لا لغة.
  *
  * وحدة نقية: بلا fs. البيانات (اللغات المنشورة وقوائمها) تُمرَّر إلى createLangDetector، فيستعملها الحارس والاختبار
  * src/content/factsLangs.test.ts بالمنطق نفسه.
@@ -62,10 +66,59 @@ export const AR_STEMS = {
   ur: '[أا]ردي[ةه]', fa: 'فارسي[ةه]', he: 'عبري[ةه]', id: '[إا]ندونيسي[ةه]', it: '[إا]يطالي[ةه]',
 };
 const AR_NOUN_BEFORE = '(?:[أا]سواق|سوق|دول|بلدان|منطق[ةه]|جامع[ةه]|مملك[ةه]|[إا]مارات|جمهوري[ةه]|شركات|شرك[ةه]|مدن|لير[ةه]|عمل[ةه]|حكوم[ةه]|هيئ[ةه]|منتجات|بضائع)';
-/** «arabe» صفةٌ في «monde arabe» و«pays arabes» لا اسم لغة */
-const FR_ARABE_NOT_LANG = '(?<!(?:monde|pays|march[ée]s?|r[ée]gion|Ligue|[ÉE]tats?|monarchies?)\\s)';
+/**
+ * قيد الصفة: اسم اللغة بالحرف اللاتيني صفةٌ لا اسم لغة إن تلا موصوفاً في اللغات التي تؤخّر الصفة (الفرنسية والإسبانية
+ * والبرتغالية والإيطالية والقطلونية والرومانية والإندونيسية والملايوية والبولندية): «monde arabe» و«pays arabe» و«Ligue
+ * arabe» و«mundo árabe» و«Liga Árabe» و«região árabe» و«regione araba» و«lumea arabă» و«dunia Arab» و«świat arabski».
+ * يسري على الأسماء العامة («arabe» الفرنسية وأخواتها) والمحلية (لكل لغة منشورة) معاً.
+ */
+const ADJ_NOUNS_BEFORE = [...new Set([
+  // fr
+  'monde', 'pays', 'march[ée]s?', 'r[ée]gions?', 'Ligue', '[ÉE]tats?', 'monarchies?', 'p[ée]ninsule', 'golfe', 'nations?',
+  'communaut[ée]s?', 'diaspora', 'peuples?', 'r[ée]publique', 'entreprises?', 'soci[ée]t[ée]s?', '[ÉE]mirats',
+  // es · pt · gl · ca
+  'mundo', 'pa[íi]s(?:es)?', 'mercados?', 'regi[óo]n(?:es)?', 'regi(?:ão|ões|ao|oes)', 'Liga', 'Estados?', 'monarqu[íi]as?',
+  'pen[íi]nsula', 'golfo', 'naci[óo]n(?:es)?', 'na(?:ção|ções|cao|coes)', 'comunidad(?:es)?', 'comunidades?', 'pueblos?', 'povos?',
+  'rep[úu]blica', 'empresas?', 'Emiratos', 'Emirados', 'm[óo]n', 'pa[ïi]sos', 'mercats?',
+  // it
+  'mondo', 'paes[ei]', 'mercat[oi]', 'region[ei]', 'Lega', 'Stat[oi]', 'monarchi[ae]', 'penisola', 'nazion[ei]', 'comunit[àa]',
+  'popol[oi]', 'repubblica', 'aziend[ae]', 'Emirati',
+  // ro
+  'lumea', 'lume', '[țţ][ăa]r(?:ile|i|a)', 'tar(?:ile|i)', 'pia[țţ]a', 'piata', 'regiunea',
+  // id · ms · jv · su
+  'dunia', 'negara(?:-negara)?', 'pasar', 'wilayah', 'kawasan', 'Emirat', 'jazirah', 'semenanjung', 'bangsa', 'Teluk',
+  // pl
+  '[śs]wiat', 'kraj(?:e|ów|ow)?', 'rynek', 'region', 'p[óo][łl]wysep',
+])];
+/**
+ * والمقابل في اللغات التي تقدّم الصفة (السويدية والدنماركية والنرويجية والهولندية والأفريكانية والمجرية والكرواتية
+ * والبوسنية والسلوفينية): «arabiska världen» و«arabisk verden» و«Arabisch wereld» و«arab világ» و«arapski svijet» —
+ * ومعها «Arab Saudi» الإندونيسية والملايوية (اسم الدولة لا اللغة).
+ */
+const ADJ_NOUNS_AFTER = [...new Set([
+  // sv · da · no · is · fo
+  'v[äe]rlden', 'verden(?:en)?', 'l[äa]nder(?:na)?', 'lande(?:ne)?', 'land(?:a|ene)', 'ligaen', 'ligan', 'regionen',
+  'marknad(?:en|er)?', 'marked(?:et|er)?', 'halv[öø]n', 'halv[øo]ya', 'halv[øo]en', 'emirater(?:ne)?', 'emiraten',
+  // nl · af · fy · lb
+  'wereld', 'landen', 'liga', 'regio', 'markt(?:en)?', 'staten', 'schiereiland',
+  // hu
+  'vil[áa]g\\p{L}*', 'orsz[áa]g\\p{L}*', 'lig[áa]\\p{L}*', 'r[ée]gi[óo]\\p{L}*', 'piac\\p{L}*', 'f[ée]lsziget\\p{L}*', 'emir[áa]tus\\p{L}*',
+  // hr · bs · sr · sl
+  'svijet\\p{L}*', 'svet\\p{L}*', 'zemlj\\p{L}*', 'dr[žz]av\\p{L}*', 'regij\\p{L}*', 'tr[žz]i[šs]t\\p{L}*', 'poluotok\\p{L}*',
+  // id · ms
+  'Saudi',
+])];
+/** نظرة خلفية للأسماء العامة: لا اسم لغة بعد موصوف (والموصوف كلمة كاملة) */
+const ADJ_LOOKBEHIND = `(?<!(?<![\\p{L}\\p{N}])(?:${ADJ_NOUNS_BEFORE.join('|')})\\s{1,3})`;
+/** ونظرة أمامية: لا اسم لغة قبل موصوف */
+const ADJ_LOOKAHEAD = `(?!\\s{1,3}(?:${ADJ_NOUNS_AFTER.join('|')})(?![\\p{L}]))`;
+const ADJ_BEFORE_RE = new RegExp(`(?<![\\p{L}\\p{N}])(?:${ADJ_NOUNS_BEFORE.join('|')})\\s{1,3}$`, 'iu');
+const ADJ_AFTER_RE = new RegExp(`^\\s{1,3}(?:${ADJ_NOUNS_AFTER.join('|')})(?![\\p{L}])`, 'iu');
+/** الاسم اللاتيني بين start وend في s صفةٌ لموصوف قبله أو بعده — قيد الصفة نفسه للأسماء المحلية */
+export const adjectiveUse = (s, start, end) => ADJ_BEFORE_RE.test(String(s).slice(Math.max(0, start - 40), start))
+  || ADJ_AFTER_RE.test(String(s).slice(end, end + 40));
 const GLOBAL_PARTS = Object.fromEntries(DETECT_CODES.map((code) => [code, [
-  `(?<![\\p{L}\\p{N}])(?:${LATIN_LANGS[code].map((w) => (w === 'arabe' ? FR_ARABE_NOT_LANG + w : w)).join('|')})(?![\\p{L}])`,
+  `(?<![\\p{L}\\p{N}])${ADJ_LOOKBEHIND}(?:${LATIN_LANGS[code].join('|')})(?![\\p{L}])${ADJ_LOOKAHEAD}`,
   CJK_LANGS[code].join('|'),
   `(?<!${AR_NOUN_BEFORE}\\s{1,3})(?<!\\p{L})[وف]?(?:بال|لل|ال)${AR_STEMS[code]}(?!\\p{L})`,
   // «بواجهة عربية» و«الواجهة عربية»: اسم اللغة صفةٌ للواجهة نفسها
@@ -217,6 +270,37 @@ const AVAIL_KW = /\b(?:available|runs?|works?|offered)\s+in\b|disponible\s+en|fo
 const CONTENT_KW = /(?<![\p{L}])(?:website|web\s*site|site|blog|pages?|guides?|articles?|posts?|content|home\s*pages?)(?![\p{L}])|web\s*sitesi|sayfa\p{L}*|rehber\p{L}*|makale\p{L}*|网站|博客|页面|首页|指南|文章|(?:ال)?موقع|(?:ال)?مدون[ةه]|صفح[ةه]|صفحات|[أا]دل[ةه]|دليل|مقال(?:ات)?/iu;
 const DOC_KW = /bilingual|invoic\w*|receipts?|vouchers?|print\w*|templates?|\bPDF\b|statements?|\bquotes?\b|فاتور|فواتير|سند|ثنائي|طباع|يطبع|تطبع|نموذج|نماذج|كشف|عرض\s*سعر|factur\w*|re[çc]us?|bilingue|imprim\w*|mod[èe]les?|devis|fatura\p{L}*|makbuz\p{L}*|şablon\p{L}*|yazdır\p{L}*|发票|收据|双语|打印|模板|报价/iu;
 const ONLY_KW = /\bonly\b|\bexclusively\b|uniquement|seulement|sadece|yalnızca|仅|只有|فقط|وحده|وحدها/iu;
+/**
+ * ما يجعل ذكرَ بعض الخمس بعد جملتها **تفصيلاً** لا قائمةً بديلة (استثناء states5 في languageClaims): نفيٌ أو استدراكٌ أو
+ * تضمينٌ صريح. صيغة المحتوى المنشور (ff): «Interface Pulaar alaa, kono Farayseere e Engeleere ina e majje» — «alaa» نفي
+ * و«kono» استدراك و«e majje» «منها». وعبارة بلا شيء منها («ولوحة الإدارة متاحة بالعربية والإنجليزية») قائمةٌ تُدان.
+ * لا «no» ولا «ma» ولا «mas» ولا «ni» ولا «pas» المفردة: «no» البرتغالية «في الـ» و«ma» عطفٌ في الماورية والملغاشية
+ * و«pas» الهولندية «فقط»، فتعذر عبارات ليست تفصيلاً.
+ */
+const QUALIFIER_KW = new RegExp([
+  // نفي
+  "(?<![\\p{L}])(?:not|none|neither|nor|without|never|aucune?|sans|jamais|sin|ning[úu]n[oa]?|nunca|n[ãa]o|nenhum[ao]?|non|senza|nessun[oa]?|nicht|kein\\p{L}*|ohne|yok|de[ğg]il|olmadan|tidak|bukan|tanpa|alaa)(?![\\p{L}])",
+  "n['’]t(?![\\p{L}])|(?<![\\p{L}])(?:ne|n['’])\\s*\\p{L}+\\s+(?:pas|plus|jamais)(?![\\p{L}])|(?<![\\p{L}])pas\\s+d['’e]",
+  // استدراك
+  '(?<![\\p{L}])(?:but|however|although|though|mais|cependant|toutefois|pourtant|pero|sin\\s+embargo|por[ée]m|contudo|per[òo]|tuttavia|aber|jedoch|ama|ancak|fakat|lakin|tetapi|namun|kono)(?![\\p{L}])',
+  // تضمين صريح
+  '(?<![\\p{L}])(?:among\\s+(?:them|these|those)|including|included|includes|parmi\\s+(?:elles|eux|celles-ci|ceux-ci|lesquelles)|y\\s+compris|notamment|entre\\s+(?:ellas|ellos|elas|eles|estas|estos|estes)|incluid[oa]s|inclu[íi]d[oa]s|incluindo|incluyendo|tra\\s+cui|tra\\s+queste|darunter|unter\\s+ihnen|aras[ıi]nda|dahil|termasuk|di\\s+antaranya|e\\s+majje)(?![\\p{L}])',
+  // الصينية واليابانية والكورية
+  '包括|其中|之一|在内|但是|不过|然而|没有|不支持|不提供|ありません|ではない|含む|含まれ|ただし|しかし|포함|하지만|그러나|없습니다|없으며|않습니다',
+  // العربية (بواو العطف أو فائه)
+  '(?<![\\p{L}])[وف]?(?:منها|بينها|ضمنها|لا|ليس|ليست|لم|لن|بلا|دون|بدون|لكن|لكنّ|لكنها|لكنه|من\\s+بينها|من\\s+ضمنها)(?![\\p{L}])',
+].join('|'), 'iu');
+/** الاستدراك الذي يبتلعه CLAUSE_SPLIT («…، لكن الفرنسية…» · «…, ancak…») — يُقرأ من آخر ما قبل العبارة في جملتها */
+const CONCESSIVE_TAIL = /(?<![\p{L}])(?:but|mais|ama|ancak|fakat|لكن|غير\s+[أا]ن)[\s,،]*$/iu;
+/** «لا … إلا» و«except» حصرٌ لا تفصيل: النفي فيها لا يعذر العبارة */
+const RESTRICT_KW = /(?<![\p{L}])(?:[إا]لا|سوى|except|excepting|sauf|excepto|exceto|tranne|au[sß]er|hari[çc]|d[ıi][şs][ıi]nda|kecuali|maliban)(?![\p{L}])|除了|以外|외에/iu;
+/** العبارة c من الجملة s فيها نفي أو استدراك أو تضمين صريح، بلا حصر */
+const qualified = (s, c) => {
+  if (RESTRICT_KW.test(c)) return false;
+  if (QUALIFIER_KW.test(c)) return true;
+  const i = s.indexOf(c);
+  return i > 0 && CONCESSIVE_TAIL.test(s.slice(Math.max(0, i - 24), i));
+};
 
 export const sentences = (text) => String(text)
   .split(/(?<=[.!?؟])\s+|(?<=[。！？])\s*|\n+|\s+[·•|]\s+/u)
@@ -288,7 +372,11 @@ export function createLangDetector(locales = []) {
     while ((x = m.re.exec(s))) {
       const gi = x.findIndex((g, i) => i > 0 && g !== undefined);
       const e = m.entries[gi - 1];
-      if (boundaryOk(e.name, s, x.index, x.index + x[0].length)) out.push({ code: e.code, index: x.index });
+      const end = x.index + x[0].length;
+      // قيد الصفة كالأسماء العامة: «monde arabe» في fr/ و«dunia Arab» في id/ صفةٌ لا لغة
+      if (boundaryOk(e.name, s, x.index, end) && !(LATIN.test(e.name) && adjectiveUse(s, x.index, end))) {
+        out.push({ code: e.code, index: x.index });
+      }
       m.re.lastIndex = x.index + 1; // مطابقة رُفضت حدودها لا تبتلع ما يبدأ داخلها
     }
     return out;
@@ -308,10 +396,12 @@ export function createLangDetector(locales = []) {
   };
   /**
    * جمل تذكر لغات الواجهة بقائمة تخالف الحقائق.
-   * استثناء واحد ضيّق: بعضٌ من الخمس (بلا لغة غيرها ولا «فقط») في جملةٍ فيها عبارةٌ تعدّ الخمس كلها، أو في الجملة التي
-   * تليها مباشرةً، تفصيلٌ لا قائمة — «…بالعربية والإنجليزية والفرنسية والتركية والصينية. لا واجهة بالفولانية، لكن
-   * الفرنسية والإنجليزية منها» (ff). والعبارة لا الجملة: «الواجهة عربية ومعها الإنجليزية والفرنسية، وللموقع صفحات
-   * بالتركية والصينية» تذكر الخمس في جملتها موزّعةً على عبارتين فلا تُعذر. واللغة الزائدة و«فقط» لا تُعذر أبداً.
+   * استثناء واحد ضيّق: بعضٌ من الخمس (بلا لغة غيرها ولا «فقط») في عبارةٍ **فيها نفي أو استدراك أو تضمين صريح**
+   * (qualified)، في جملةٍ فيها عبارةٌ تعدّ الخمس كلها أو في الجملة التي تليها مباشرةً، تفصيلٌ لا قائمة — «…بالعربية
+   * والإنجليزية والفرنسية والتركية والصينية. لا واجهة بالفولانية، لكن الفرنسية والإنجليزية منها» (ff). وبلا هذا الشرط
+   * كانت «تطبيقات FieldSales بالخمس. ولوحة الإدارة متاحة بالعربية والإنجليزية.» تمرّ (١١ نوفمبر ٢٠٢٦)، وهي قائمة
+   * ناقصة لا تفصيل. والعبارة لا الجملة: «الواجهة عربية ومعها الإنجليزية والفرنسية، وللموقع صفحات بالتركية والصينية»
+   * تذكر الخمس في جملتها موزّعةً على عبارتين فلا تُعذر. واللغة الزائدة و«فقط» والحصر («لا … إلا») لا تُعذر أبداً.
    */
   const languageClaims = (text, loc = null) => {
     const out = [];
@@ -337,7 +427,7 @@ export function createLangDetector(locales = []) {
         if (DOC_KW.test(c)) continue; // لغات المستند المطبوع لا لغات الواجهة
         if (langs.size < 2 && !ONLY_KW.test(c)) continue;
         if (sameSet(langs, UI)) continue;
-        if ([...langs].every((l) => UI.has(l)) && !ONLY_KW.test(c) && (states5(si) || states5(si - 1))) continue;
+        if ([...langs].every((l) => UI.has(l)) && !ONLY_KW.test(c) && qualified(s, c) && (states5(si) || states5(si - 1))) continue;
         out.push({ match: c, note: `اللغات ${setStr(langs)} ≠ الحقائق ${setStr(UI)}` });
       }
     }
