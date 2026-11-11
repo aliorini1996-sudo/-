@@ -949,8 +949,8 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
         customer: true,
         salesRep: { select: { id: true, name: true, phone: true } },
         installments: { orderBy: { seq: 'asc' } },
-        // «تتبّع اللوط»: صفوف التوزيع وتشغيلتها بمعامل withLots=1 وحده (D11)
-        items: { include: { product: { select: { id: true, name: true, code: true, unit: true, primaryUnitId: true, units: { select: { id: true, isActive: true } } } }, ...((await wantsLots(req, tid)) && ITEM_LOTS_INCLUDE) } },
+        // «تتبّع اللوط»: صفوف التوزيع وتشغيلتها بمعامل withLots=1 وحده (D11). وbarcode لعمود «الباركود» في النموذج المطبوع مسبقاً (إضافي)
+        items: { include: { product: { select: { id: true, name: true, code: true, barcode: true, unit: true, primaryUnitId: true, units: { select: { id: true, isActive: true } } } }, ...((await wantsLots(req, tid)) && ITEM_LOTS_INCLUDE) } },
         receiptItems: { include: { receipt: true } },
         signature: { select: { image: true, repImage: true, createdAt: true } },
       },

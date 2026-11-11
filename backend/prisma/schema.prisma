@@ -218,6 +218,9 @@ model Tenant {
   platformNotes         TenantNote[]
   platformDeal          TenantDeal?
 
+  // «النموذج المطبوع مسبقاً»: صور نماذج الشركة (علاقة عكسية فقط، بلا أعمدة)
+  printFormImages       PrintFormImage[]
+
   @@map("tenants")
 }
 
@@ -1531,6 +1534,37 @@ model CompanySettings {
   zatcaGoLiveArmedAt   DateTime? // Z5.8 (نقد 4): «تسليح» التفعيل — بعده يُرفض إصدار المرحلة الأولى لمستند أُنشئ على الجهاز بعد هذه اللحظة، وتُحسب مزامنة المناديب منها؛ NULL = غير مُسلَّح (لا أثر)
 
   @@map("company_settings")
+}
+
+/// صورة «النموذج المطبوع مسبقاً» للشركة (دليل التصميم وخلفية اختيارية) — بايتات خارج صف الشركة
+/// (routes/printForms.ts). إعدادات الطباعة تحمل مرجعها وحده { id, v, wPx, hPx }، فلا تكبر /api/company المخبّأة على أجهزة المناديب.
+/// جدولان جديدان بلا مساسٍ بغيرهما (db push إضافي)، وحذف الشركة يحذفهما (Cascade).
+model PrintFormImage {
+  id            String              @id @default(uuid())
+  tenantId      String
+  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  mime          String // image/jpeg | image/png | image/webp (مفحوص بالبايتات)
+  widthPx       Int
+  heightPx      Int
+  sizeBytes     Int
+  sha256        String
+  createdById   String?
+  createdByName String?
+  createdAt     DateTime            @default(now())
+  blob          PrintFormImageBlob?
+
+  @@index([tenantId])
+  @@map("print_form_images")
+}
+
+/// محتوى صورة النموذج منفصلاً عن وصفها — القائمة لا تقرأ البايتات، والصورة تُخدَم بتخزينٍ طويل (ETag بالبصمة)
+model PrintFormImageBlob {
+  id      String         @id @default(uuid())
+  imageId String         @unique
+  image   PrintFormImage @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  bytes   Bytes
+
+  @@map("print_form_image_blobs")
 }
 
 /// وحدة توليد الفوترة الإلكترونية (EGS) لـZATCA المرحلة الثانية — مفاتيح وشهادات الربط لكل شركة.

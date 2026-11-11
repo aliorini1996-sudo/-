@@ -2,7 +2,7 @@ import { Component, Suspense, lazy, useEffect, useMemo, useState, type ReactNode
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
-  AlertTriangle, Check, ChevronLeft, ChevronRight, Copy, FileText, Info, Pencil, PenTool, Plus, Printer, Receipt, RefreshCw, RotateCcw, Save, Scissors, Trash2, X,
+  AlertTriangle, Check, ChevronLeft, ChevronRight, Copy, FileText, Info, LayoutTemplate, Pencil, PenTool, Plus, Printer, Receipt, RefreshCw, RotateCcw, Save, Scissors, Trash2, X,
 } from 'lucide-react';
 import { companyApi, productApi } from '../../api/client';
 import { hasBigUnit } from '../../lib/adminUnits';
@@ -13,13 +13,14 @@ import {
   PAPER_PRESETS, PRESET_LABELS, PRINTER_HINTS, PRINTER_LABELS, PRINTER_SHORT, PRINTER_TYPES, PRINT_ISSUES, PRINT_LIMITS, PRINT_NOTES,
   PRINT_COPIES, QR_PANEL_NOTE, QR_REMOVED_BADGE, STAMPED_QR_CELLS, TEMPLATE_HINTS, TEMPLATE_LABELS,
   checkPrintSettings, isQrRemoved, layoutOf, duplicateProfile, isLegacyPrintSettings, isLegacyProfileId, legacyPrintSettings, maxPrintableDots, newProfile, normalizePrintSettings,
-  printSaveErrorMessage, printableMm, profileDisplayName, profileUsage, profileWarnings, qrPlan, routingAllowsPrinter, templatesFor,
+  printSaveErrorMessage, printableMm, profileDisplayName, profileUsage, profileWarnings, qrPlan, routingAllowsProfile, templatesFor,
   uniqueProfileName, withDpi, withPaper, withPreset, withPrinter, withProfile, withoutProfile,
-  DESIGN_HINTS, DESIGN_LABELS,
+  DESIGN_HINTS, DESIGN_LABELS, formDesignBlock, isFormProfile,
   type PaperFeed, type PrintIssue, type PrintOptions, type PrintProfile, type PrintSettingsResponse, type PrintSettingsV1, type PrinterDpi,
   type PrinterType, type TemplateId,
 } from '../../lib/print/printSettings';
-import PrintPreview, { GridThumb, LayoutFields, applyDesignCard, designCardSelected, designCards } from './PrintPreview';
+import PrintPreview, { FormThumb, GridThumb, LayoutFields, applyDesignCard, designCardId, designCardSelected, designCards } from './PrintPreview';
+import { formOf, formWarnings } from '../../lib/print/formModel';
 import PrintDeviceTools from './PrintDeviceTools';
 import PrintDesignTools, { CLASSIC_COPY_NAME, classicCopyFor, isClassicRoll } from './PrintDesignTools';
 import { PrintableInvoice, type Company } from '../../rep/RepDocuments';
@@ -50,6 +51,10 @@ const PRINTER_ICON: Record<PrinterType, typeof Printer> = { thermal: Receipt, im
 const STEPS = ['نوع الطابعة', 'مقاس الورق', 'التصميم', 'التفاصيل'] as const;
 /** «المصمم الحر» كسولاً: لا يدخل حزمة اللوحة، ويُحمَّل عند أول فتح (pd_spec C.(iv) — التركيب) */
 const loadDesigner = () => import('./designer/PrintDesigner');
+/** «تصميم النموذج» («نموذج الشركة المطبوع مسبقاً») كسولاً مثله — بدل المصمّم الحرّ لقالبٍ بهذا التصميم */
+const loadFormDesigner = () => import('./form/FormDesigner');
+/** مسار قاعدةٍ من قواعد مواضع النموذج — تُصلَح داخل مصمّم النموذج فلا تمنع فتحه */
+const FORM_ISSUE_PATH = /\.options\.layout\.form(\.|\[|$)/;
 
 export default function PrintSettingsPanel({ phase2 }: { phase2: boolean }) {
   const tr = useTr();
@@ -188,7 +193,8 @@ export default function PrintSettingsPanel({ phase2 }: { phase2: boolean }) {
                     <span className="label">{tr(DOC_KIND_LABELS[kind])}</span>
                     <select className="input" value={s.routing[kind] ?? ''} onChange={(e) => setRouting(kind, e.target.value)}>
                       <option value="">{tr('لا طباعة مباشرة')}</option>
-                      {s.profiles.filter((p) => routingAllowsPrinter(kind, p.printer) || p.id === s.routing[kind]).map((p) => (
+                      {/* «نموذج الشركة المطبوع مسبقاً» للفواتير وحدها (routingAllowsProfile) */}
+                      {s.profiles.filter((p) => routingAllowsProfile(kind, p) || p.id === s.routing[kind]).map((p) => (
                         <option key={p.id} value={p.id}>{profileDisplayName(p, tr)} — {tr(PRINTER_SHORT[p.printer])}</option>
                       ))}
                     </select>
@@ -199,7 +205,8 @@ export default function PrintSettingsPanel({ phase2 }: { phase2: boolean }) {
               <label className="block">
                 <span className="label">{tr('قالب ملف PDF')}</span>
                 <select className="input" value={s.pdfProfileId} onChange={(e) => setDraft({ ...s, pdfProfileId: e.target.value })}>
-                  {s.profiles.filter((p) => p.printer === 'page' || p.id === s.pdfProfileId).map((p) => (
+                  {/* «نموذج الشركة المطبوع مسبقاً» لا يكون قالب PDF: ملفٌّ بالبيانات وحدها بلا ورق الشركة */}
+                  {s.profiles.filter((p) => (p.printer === 'page' && !isFormProfile(p)) || p.id === s.pdfProfileId).map((p) => (
                     <option key={p.id} value={p.id}>{profileDisplayName(p, tr)}</option>
                   ))}
                 </select>
@@ -302,6 +309,9 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
   const [designerOpen, setDesignerOpen] = useState(false);
   const [designerAttempt, setDesignerAttempt] = useState(0);
   const Designer = useMemo(() => lazy(loadDesigner), [designerAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
+  // «تصميم النموذج» لقالب «نموذج الشركة المطبوع مسبقاً» — كسولٌ مثله وبالحاجز نفسه
+  const [formOpen, setFormOpen] = useState(false);
+  const FormDesigner = useMemo(() => lazy(loadFormDesigner), [designerAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
   // اختيار هذا الجهاز (الطريقة والرابط البطيء) — المفتاح نفسه الذي تقرؤه شاشة المستند
   const ident = useMemo(() => currentPrintIdentity(), []);
   const [deviceChoice, setDeviceChoice] = usePrintDeviceChoice(ident);
@@ -320,6 +330,10 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
   const detailedMinDots = p.paper.dpi !== null && p.printer === 'thermal' ? maxPrintableDots('thermal', PRINT_LIMITS.detailedMinMm, p.paper.dpi) : 0;
   const plan = qrPlan(p, STAMPED_QR_CELLS.typical);
   const mm = printableMm(p);
+  // «نموذج الشركة المطبوع مسبقاً»: مواضعه (null لغيره) — قواعدها تُصلَح داخل مصمّمه، وتنبيهاته بلا ما عرضته profileWarnings
+  const form = formOf(p);
+  const formBlocked = issues.some((i) => !FORM_ISSUE_PATH.test(i.path));
+  const formW: { warnings: string[]; notes: string[] } = form ? formWarnings(p, { taxFree: taxOff }) : { warnings: [], notes: [] };
 
   return (
     <div className="card">
@@ -420,18 +434,27 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {designCards(p).map((c) => {
                 const t = c.kind === 'template' ? c.t : null;
-                const blocked = t === 'roll_detailed' && (p.paper.printableDots ?? 0) < detailedMinDots;
-                const label = t ? TEMPLATE_LABELS[t] : DESIGN_LABELS.grid_bilingual;
+                // «نموذج الشركة المطبوع مسبقاً» (بطاقةٌ من designCards للطابعة العادية): يلزمه ورقٌ بطول صفحة
+                const isForm = c.kind === 'preprinted';
+                const detailBlocked = t === 'roll_detailed' && (p.paper.printableDots ?? 0) < detailedMinDots;
+                const noLength = isForm && p.paper.lengthMm === null;
+                // وما تمنعه قواعد الإعداد (قالب PDF، أو موجَّهٌ لغير الفواتير، أو 4 نماذج) — رسالة النواة نفسها التي يُرفض بها الحفظ
+                const formBlock = isForm && !noLength ? formDesignBlock(withProfile(settings, p, editor.index), p.id) : null;
+                const blocked = detailBlocked || noLength || formBlock !== null;
+                const label = isForm ? DESIGN_LABELS.preprinted : t ? TEMPLATE_LABELS[t] : DESIGN_LABELS.grid_bilingual;
                 const hint = templateHintFor(t, t ? TEMPLATE_HINTS[t] : DESIGN_HINTS.grid_bilingual ?? '', taxOff);
+                const cardKey = designCardId(c);
                 return (
-                  <button key={t ?? 'grid_bilingual'} type="button" disabled={blocked} onClick={() => update(applyDesignCard(p, c))}
-                    data-design-card={t ?? 'grid_bilingual'}
+                  <button key={cardKey} type="button" disabled={blocked} onClick={() => update(applyDesignCard(p, c))}
+                    data-design-card={cardKey}
                     className={`text-right rounded-2xl border-2 p-3 flex gap-3 transition-colors disabled:opacity-50 ${designCardSelected(p, c) ? 'border-[#E15A30] bg-[#FBEBE2]' : 'border-[#E9E1D3] bg-white hover:border-[#D8CDB9]'}`}>
-                    {t ? <TemplateThumb t={t} taxOff={taxOff} /> : <GridThumb taxOff={taxOff} />}
+                    {isForm ? <FormThumb taxOff={taxOff} /> : <>{t ? <TemplateThumb t={t} taxOff={taxOff} /> : <GridThumb taxOff={taxOff} />}</>}
                     <span className="min-w-0">
                       <span className="block font-bold text-[#1F1A13]">{tr(label)}</span>
-                      <span className="block text-xs text-[#6E6557] mt-1 leading-relaxed">{tr(hint)}</span>
-                      {blocked && <span className="block text-xs text-red-600 mt-1">{tr(PRINT_ISSUES.detailedWidth)}</span>}
+                      <span className="block text-xs text-[#6E6557] mt-1 leading-relaxed">{tr(isForm ? DESIGN_HINTS.preprinted ?? '' : hint)}</span>
+                      {detailBlocked && <span className="block text-xs text-red-600 mt-1">{tr(PRINT_ISSUES.detailedWidth)}</span>}
+                      {noLength && <span className="block text-xs text-red-600 mt-1">{tr('اختر ورقا بطول صفحة مثل A4 أولا')}</span>}
+                      {formBlock && <span className="block text-xs text-red-600 mt-1">{tr(formBlock)}</span>}
                     </span>
                   </button>
                 );
@@ -441,7 +464,37 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
 
           {editor.step === 4 && (
             <div className="space-y-3">
-              <Section title={tr('المحتوى')} open>
+              {/* «نموذج الشركة المطبوع مسبقاً»: البيانات وحدها في مواضعها — لا محتوى ولا تخطيط ولا أدوات تصميمٍ حرّ ولا خط؛ مصمّم النموذج مكانها */}
+              {form && (
+                <Section title={tr('نموذج الشركة المطبوع مسبقاً')} open>
+                  <div data-form-status="" className="text-xs text-[#44403a] leading-relaxed">
+                    {form.image ? tr('صورة النموذج مرفوعة') : tr('لم ترفع صورة النموذج بعد')}
+                    {' · '}{tr('الحقول')} <b dir="ltr">{form.fields.length}</b>
+                    {' · '}{tr('أعمدة الجدول')} <b dir="ltr">{form.table?.columns.length ?? 0}</b>
+                    {form.table && <>{' · '}{tr('صفوف كل ورقة')} <b dir="ltr">{form.table.rows}</b></>}
+                    {(form.dxMm !== 0 || form.dyMm !== 0) && <>{' · '}{tr('المعايرة')} <span dir="ltr">{form.dxMm} / {form.dyMm} mm</span></>}
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button type="button" className="btn-primary !py-1.5 !px-3 text-xs disabled:opacity-40" disabled={formBlocked} onClick={() => setFormOpen(true)}>
+                      <LayoutTemplate size={13} /> {tr('تصميم النموذج')}
+                    </button>
+                    <span className="text-[11px] text-[#9A8F7E]">{tr('ارفع صورة نموذجك الفارغ وضع الحقول على فراغاته ثم عاير الطابعة')}</span>
+                    {formBlocked && <span className="text-[11px] text-red-600">{tr('أصلح أخطاء القالب أولا')}</span>}
+                  </div>
+                  {(formW.warnings.some((w) => !warnings.includes(w)) || formW.notes.some((n) => !notes.includes(n))) && (
+                    <div className="space-y-1" data-form-warnings="">
+                      {formW.warnings.filter((w) => !warnings.includes(w)).map((w) => (
+                        <p key={w} className="text-[11px] flex items-start gap-1.5 text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5"><AlertTriangle size={12} className="mt-0.5 shrink-0" />{tr(w)}</p>
+                      ))}
+                      {formW.notes.filter((n) => !notes.includes(n)).map((n) => (
+                        <p key={n} className="text-[11px] flex items-start gap-1.5 text-[#6E6557]"><Info size={12} className="mt-0.5 shrink-0" />{tr(n)}</p>
+                      ))}
+                    </div>
+                  )}
+                </Section>
+              )}
+
+              {!form && (<Section title={tr('المحتوى')} open>
                 <Toggle label={tr('شعار الشركة')} checked={p.options.showLogo} onChange={(v) => setOpt('showLogo', v)} disabled={p.template === 'impact_preprinted'} />
                 <Toggle label={tr('العنوان والهاتف')} checked={p.options.showContact} onChange={(v) => setOpt('showContact', v)} />
                 <Toggle label={tr('اسم المندوب')} checked={p.options.showRepName} onChange={(v) => setOpt('showRepName', v)} />
@@ -454,11 +507,11 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
                     onChange={(e) => setOpt('footerText', e.target.value ? e.target.value : null)} />
                 </label>
                 {!taxOff && <p className="text-[11px] text-[#6E6557] flex items-start gap-1.5"><Info size={12} className="mt-0.5 shrink-0" />{tr(QR_PANEL_NOTE)}</p>}
-              </Section>
+              </Section>)}
 
-              <Section title={tr('التخطيط')} open><LayoutFields p={p} update={update} /></Section>
+              {!form && <Section title={tr('التخطيط')} open><LayoutFields p={p} update={update} /></Section>}
 
-              <Section title={tr('أدوات التصميم')} open>
+              {!form && (<Section title={tr('أدوات التصميم')} open>
                 <PrintDesignTools p={p} update={update} phase2={phase2} />
                 <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-[#F1EBDF]">
                   {isClassicRoll(p) ? (
@@ -479,9 +532,9 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
                   </span>
                   {issues.length > 0 && !isClassicRoll(p) && <span className="text-[11px] text-red-600">{tr('أصلح أخطاء القالب أولا')}</span>}
                 </div>
-              </Section>
+              </Section>)}
 
-              <Section title={tr('الخط')}>
+              {!form && (<Section title={tr('الخط')}>
                 {/* الصفحة والنقطية: حجم الخط في «التخطيط» — لا يُطبَّق عليهما إلا مع تخطيط (بلاه مطبوعة اليوم حرفياً) */}
                 {p.printer === 'thermal' && (
                   <div>
@@ -495,7 +548,7 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
                   </div>
                 )}
                 <Toggle label={tr('خط عريض للنص')} checked={p.options.boldBody} onChange={(v) => setOpt('boldBody', v)} />
-              </Section>
+              </Section>)}
 
               {/* «إزالة الضريبة»: لا رمز QR في أيّ مستندٍ لشركةٍ بلا ضريبة — فلا قسم لمقاسه */}
               {!taxOff && (<Section title={tr('رمز QR')}>
@@ -514,7 +567,8 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
                     )}
                     <p className="text-[11px] text-[#9A8F7E]">{tr('لا يصغر الرمز عن الحد الأدنى لدقة الطابعة')}</p>
                   </>
-                ) : <p className="text-xs text-[#6E6557]">{tr('مقاس الرمز في الصفحة كما هو اليوم')}</p>}
+                ) : form ? <p className="text-xs text-[#6E6557]">{tr('مقاس الرمز بمقاس حقله في مصمم النموذج')}</p>
+                  : <p className="text-xs text-[#6E6557]">{tr('مقاس الرمز في الصفحة كما هو اليوم')}</p>}
               </Section>)}
 
               <Section title={tr('النسخ')}>
@@ -533,11 +587,12 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
               <Section title={tr('الورق والمحاذاة')}>
                 <div className="grid grid-cols-2 gap-3">
                   {raster && <NumField label={tr('إزاحة أفقية')} suffix="mm" value={p.paper.offsetXmm} step={0.5} onChange={(v) => update(withPaper(p, { offsetXmm: v }))} />}
-                  <NumField label={tr('الهامش العلوي')} suffix="mm" value={p.paper.marginTopMm} step={0.5} onChange={(v) => update(withPaper(p, { marginTopMm: v }))} />
-                  {p.paper.feed !== 'roll' && <NumField label={tr('الهامش السفلي')} suffix="mm" value={p.paper.marginBottomMm} step={0.5} onChange={(v) => update(withPaper(p, { marginBottomMm: v }))} />}
+                  {!form && <NumField label={tr('الهامش العلوي')} suffix="mm" value={p.paper.marginTopMm} step={0.5} onChange={(v) => update(withPaper(p, { marginTopMm: v }))} />}
+                  {p.paper.feed !== 'roll' && !form && <NumField label={tr('الهامش السفلي')} suffix="mm" value={p.paper.marginBottomMm} step={0.5} onChange={(v) => update(withPaper(p, { marginBottomMm: v }))} />}
                   {p.printer === 'thermal' && <NumField label={tr('تغذية بعد الطباعة')} suffix="mm" value={p.options.feedAfterMm} step={1} onChange={(v) => setOpt('feedAfterMm', v)} />}
                 </div>
                 {p.printer === 'thermal' && <Toggle label={tr('قص الورق بعد الطباعة')} checked={p.options.cutAfter} onChange={(v) => setOpt('cutAfter', v)} />}
+                {form && <p className="text-[11px] text-[#6E6557] flex items-start gap-1.5"><Info size={12} className="mt-0.5 shrink-0" />{tr('مواضع النموذج من حافة الورقة بلا هوامش — اضبط إزاحة الطابعة من «المعايرة» في مصمم النموذج')}</p>}
                 {p.printer === 'impact' && (
                   <div>
                     <span className="label">{tr('جودة الرسم')}</span>
@@ -612,26 +667,38 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
           </Suspense>
         </DesignerBoundary>
       )}
+      {formOpen && form && (
+        <DesignerBoundary form onRetry={() => setDesignerAttempt((n) => n + 1)} onClose={() => setFormOpen(false)}>
+          <Suspense fallback={(
+            <div className="fixed inset-0 z-[1500] bg-[#FAF7F0]/80 flex items-center justify-center" role="status">
+              <span className="w-8 h-8 border-4 border-[#E15A30] border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}>
+            <FormDesigner profile={p} phase2={phase2} company={company} companyName={companyName} brandColor={brandColor}
+              onApply={update} onClose={() => setFormOpen(false)} />
+          </Suspense>
+        </DesignerBoundary>
+      )}
     </div>
   );
 }
 
 /** حاجز «المصمم الحر»: فشل تحميل حزمته (نُشر تحديثٌ والصفحة مفتوحة، أو انقطاع) لا يُسقط المحرّر ومسودته — لافتةٌ وإعادة محاولة */
-class DesignerBoundary extends Component<{ children: ReactNode; onRetry: () => void; onClose: () => void }, { failed: boolean }> {
+class DesignerBoundary extends Component<{ children: ReactNode; onRetry: () => void; onClose: () => void; form?: boolean }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
   retry = () => { this.setState({ failed: false }); this.props.onRetry(); };
   render(): ReactNode {
-    return this.state.failed ? <DesignerLoadError onRetry={this.retry} onClose={this.props.onClose} /> : this.props.children;
+    return this.state.failed ? <DesignerLoadError onRetry={this.retry} onClose={this.props.onClose} form={this.props.form} /> : this.props.children;
   }
 }
 
-function DesignerLoadError({ onRetry, onClose }: { onRetry: () => void; onClose: () => void }) {
+function DesignerLoadError({ onRetry, onClose, form }: { onRetry: () => void; onClose: () => void; form?: boolean }) {
   const tr = useTr();
   return (
     <div className="fixed inset-0 z-[1500] bg-[#FAF7F0]/90 flex items-center justify-center p-4" role="alertdialog" aria-modal="true">
       <div className="card max-w-sm w-full">
-        <p className="text-sm font-semibold text-[#8E2A1F] flex items-start gap-2"><AlertTriangle size={16} className="mt-0.5 shrink-0" />{tr('تعذر تحميل المصمم الحر')}</p>
+        <p className="text-sm font-semibold text-[#8E2A1F] flex items-start gap-2"><AlertTriangle size={16} className="mt-0.5 shrink-0" />{form ? tr('تعذر تحميل مصمم النموذج') : tr('تعذر تحميل المصمم الحر')}</p>
         <div className="mt-3 flex items-center gap-2 flex-wrap">
           <button type="button" className="btn-secondary" onClick={onRetry}><RefreshCw size={14} /> {tr('إعادة المحاولة')}</button>
           <button type="button" className="btn-secondary" onClick={onClose}><X size={14} /> {tr('إغلاق')}</button>

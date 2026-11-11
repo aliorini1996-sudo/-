@@ -281,8 +281,10 @@ test('سجلّ التراجع: 50 خطوة، والمساوي لا يُكتب، 
 
 const dir = path.join(process.cwd(), 'src', 'components', 'print', 'designer');
 const read = (f: string) => fs.readFileSync(path.join(dir, f), 'utf8').replace(/\r\n/g, '\n');
-const TSX = ['PrintDesigner.tsx', 'A4BandsCanvas.tsx', 'RollStrip.tsx', 'DesignInspector.tsx', 'SectionStyleFields.tsx'];
-const ALL = [...TSX, 'usePointerDrag.ts', 'designerMath.ts', 'stripModel.ts'];
+const TSX = ['PrintDesigner.tsx', 'A4BandsCanvas.tsx', 'RollStrip.tsx', 'DesignInspector.tsx', 'SectionStyleFields.tsx', '../form/FormUploadStep.tsx',
+  // «نموذج الشركة المطبوع مسبقاً» (١٠–١١ نوفمبر ٢٠٢٦): مصمّم النموذج ولوحته ومفتّشه تحت الحرّاس نفسها
+  '../form/FormDesigner.tsx', '../form/FormCanvas.tsx', '../form/FormInspector.tsx'];
+const ALL = [...TSX, 'usePointerDrag.ts', 'designerMath.ts', 'stripModel.ts', '../form/formCanvasMath.ts'];
 
 test('حارس: كل <button نوعه type="button" (المصمّم قد يُفتح من داخل نموذج)', () => {
   for (const f of TSX) {
@@ -296,7 +298,7 @@ test('حارس: كل <button نوعه type="button" (المصمّم قد يُف�
 });
 
 test('حارس: المقابض touch-action:none (اللمس لا يمرّر الصفحة)، والسحب بأحداث المؤشّر لا HTML5 DnD', () => {
-  for (const f of ['A4BandsCanvas.tsx', 'RollStrip.tsx']) {
+  for (const f of ['A4BandsCanvas.tsx', 'RollStrip.tsx', '../form/FormUploadStep.tsx', '../form/FormCanvas.tsx']) {
     const s = read(f);
     // الشريط: مقبض الشعار none، وكتله none متى حُدّدت وpan-y قبلها (تمرير الشريط الطويل بالإصبع — designerUx.test.ts)
     const n = (s.match(/touchAction: 'none'/g)?.length ?? 0) + (s.match(/touchAction: stripTouchAction\(isSel\)/g)?.length ?? 0);
@@ -328,6 +330,16 @@ test('حارس: لا مكتبة QR ولا zoom ولا filter في المصمّم
   assert.match(d, /role="dialog" aria-modal="true"/);
   assert.match(d, /createPortal\(body, document\.body\)/);
   assert.match(d, /beforeunload/);
+  // مصمّم النموذج: النافذة نفسها، والكتابة عبر محرّرات formModel، والصورة خلفيةٌ للشاشة بمُحمِّل صور النموذج (لا <img src="/api/…">)
+  const fd = read('../form/FormDesigner.tsx');
+  assert.match(fd, /role="dialog" aria-modal="true"/);
+  assert.match(fd, /createPortal\(body, document\.body\)/);
+  assert.match(fd, /beforeunload/);
+  assert.match(fd, /formIssues\(p\)/);
+  const fc = read('../form/FormCanvas.tsx');
+  assert.match(fc, /useFormImage\(form\.image\)/);
+  assert.doesNotMatch(fc, /src=["'{`]*\/api/);
+  for (const ed of ['withFormField(form, paper,', 'withFormColumn(form, paper,', 'withFormTable(form, paper,', 'moveFormField(', 'keyDelta(']) assert.ok(fc.includes(ed), ed);
 });
 
 /** ثوابت الحذف المشتركة التي يمرّرها المصمّم إلى tr() باسمها */
@@ -363,6 +375,16 @@ function designerPhrases(): string[] {
   const h = read('A4BandsCanvas.tsx');
   const block = h.slice(h.indexOf('const HANDLE_LABELS'), h.indexOf('/** المقاس الافتراضي'));
   for (const m of block.matchAll(/: '([^']+)'/g)) out.add(m[1]);
+  // مصمّم النموذج: ثوابته التي تُمرَّر إلى tr() باسمها، وتسميات خطواته ومقابضه
+  const formSrc = read('../form/FormDesigner.tsx') + read('../form/FormInspector.tsx');
+  for (const name of ['FORM_DISCARD_CONFIRM', 'FORM_RESET_CONFIRM', 'FORM_QR_MISSING_NOTE']) {
+    const m = formSrc.match(new RegExp(`export const ${name} = '([^']+)'`));
+    assert.ok(m, name);
+    out.add(m[1]);
+  }
+  for (const m of read('../form/FormDesigner.tsx').matchAll(/label: '([^']+)'/g)) out.add(m[1]);
+  const fc = read('../form/FormCanvas.tsx');
+  for (const m of fc.slice(fc.indexOf('const HANDLE_LABELS'), fc.indexOf('/** محاذاة القيمة')).matchAll(/: '([^']+)'/g)) out.add(m[1]);
   return [...out];
 }
 

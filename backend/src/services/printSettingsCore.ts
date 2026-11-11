@@ -104,8 +104,11 @@ export type GraphicsQuality = (typeof GRAPHICS_QUALITIES)[number];
 // ثنائي اللغة ليس TemplateId: هاتفٌ قديم يُهمل المفتاح المجهول فيطبع تصميم اليوم، بينما تصميمٌ مجهول في z.enum كان يُسقط إعداد
 // الشركة كله إلى الافتراضي.
 
-export const LAYOUT_DESIGNS = ['standard', 'grid_bilingual'] as const;
-/** standard = تصميم القالب اليوم · grid_bilingual = «كلاسيكي بإطارات — ثنائي اللغة» (للصفحة والنقطية وحدهما) */
+export const LAYOUT_DESIGNS = ['standard', 'grid_bilingual', 'preprinted'] as const;
+/**
+ * standard = تصميم القالب اليوم · grid_bilingual = «كلاسيكي بإطارات — ثنائي اللغة» (للصفحة والنقطية وحدهما) · preprinted = «نموذج
+ * الشركة المطبوع مسبقاً» (للطابعة العادية وحدها، بمفتاحه الحرّ form: القيم وحدها في مواضعها على ورق الشركة الجاهز)
+ */
 export type LayoutDesign = (typeof LAYOUT_DESIGNS)[number];
 export const LOGO_POSITIONS = ['start', 'center', 'end', 'none'] as const;
 /** start = يمين الورقة (اتجاه RTL) وهو مكان اليوم · none = بلا شعار */
@@ -175,6 +178,56 @@ export interface SectionStyle {
 export interface CanvasBox { id: CanvasBoxId; band: CanvasBand; x: number; y: number; w: number; h: number; align?: Align; fontPct?: number }
 export interface PrintCanvas { headerMm: number; footerMm: number; boxes: CanvasBox[] }
 
+// ─── «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦) — design = 'preprinted' ومفتاحه الحرّ form ───
+// كل شركة ترفع صورة نموذجها الفارغ (دليلٌ في الشاشة وخلفيةٌ اختيارية — بايتاتها في جدولٍ مستقل وهنا مرجعها وحده) وتضع الحقول
+// على فراغاته، فتطبع القيم وحدها في مواضعها بلا إطارات ولا عناوين ولا شعار. الأبعاد بالمم من الركن الأيسر الأعلى الفعلي للورقة
+// (x يميناً مهما كان اتجاه الواجهة) بخطوة 0.5 — لا صندوق المحتوى كاللوحتين — ومعايرة الطابعة dx/dy بعُشر مم. للطابعة العادية
+// وحدها في v1. المعرّفات قيمٌ في مصفوفات لا مفاتيح (حارس الأسماء يفحص المفاتيح). رمز QR حقلٌ لا يصغر عن 18 مم، ولازمٌ ما لم
+// تحذفه الشركة صراحةً (isQrRemoved — قرار المالك ٤ نوفمبر ٢٠٢٦). والإشعاران: الفاتورة الأصلية وسببه (BT-25/KSA-10) حقلان في الرأس.
+export const FORM_FIELD_IDS = [
+  'docNumber', 'docDate', 'docTime', 'paymentType', 'dueDate', 'deliveryDate', 'docTitle', 'originalRef', 'noteReason',
+  'customerName', 'customerBusiness', 'customerAddress', 'customerCity', 'customerPostal', 'customerPhone', 'customerVat', 'customerCr',
+  'sellerName', 'sellerAddress', 'sellerCity', 'sellerPostal', 'sellerPhone', 'sellerVat', 'sellerCr',
+  'repName', 'notes', 'subtotal', 'discount', 'vatAmount', 'totalDue', 'paidAmt', 'remainingAmt', 'pageNo', 'qr',
+] as const;
+export type FormFieldId = (typeof FORM_FIELD_IDS)[number];
+/** حقول الإجماليات: على الورقة الأخيرة وحدها — وغيرها (الرأس) يتكرّر في كل ورقة */
+export const FORM_LAST_SHEET_IDS: readonly FormFieldId[] = Object.freeze(['notes', 'subtotal', 'discount', 'vatAmount', 'totalDue', 'paidAmt', 'remainingAmt', 'qr'] as FormFieldId[]);
+export const FORM_COLUMN_IDS = ['sr', 'itemCode', 'barcode', 'description', 'qty', 'unit', 'unitPrice', 'discountPct', 'vatPct', 'lineTotal'] as const;
+export type FormColumnId = (typeof FORM_COLUMN_IDS)[number];
+/** لغة القيم المسمّاة (طريقة الدفع «نقدي/Cash» وعنوان المستند) — لا لغة الأرقام (latinDigits) */
+export const FORM_VALUE_LANGS = ['ar', 'en'] as const;
+export type FormValueLang = (typeof FORM_VALUE_LANGS)[number];
+export const FORM_BOUNDS = Object.freeze({
+  maxFields: 40, columns: [1, 12] as const, rows: [1, 60] as const, rowMm: [3, 25] as const,
+  fieldMinMm: 3, qrMinMm: 18, columnMinMm: 4, offsetMm: [-20, 20] as const, imagePx: [200, 10000] as const,
+});
+/** مرجع صورة النموذج: معرّف PrintFormImage (uuid) وبصمة sha256 (16 حرفاً فأكثر) لكسر الذاكرة المؤقتة */
+export const FORM_IMAGE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const FORM_IMAGE_V_RE = /^[0-9a-f]{8,64}$/;
+
+/** حقلٌ في موضعه: x,y,w,h بالمم من ركن الورقة الأيسر الأعلى — start = يمين الصندوق (RTL) */
+export interface FormField { id: FormFieldId; x: number; y: number; w: number; h: number; align?: Align; fontPct?: number; bold?: boolean }
+/** عمود جدول الأصناف: شريطٌ رأسي x,w بالمم */
+export interface FormColumn { id: FormColumnId; x: number; w: number; align?: Align }
+/** جدول الأصناف: أول صفٍّ عند y، وrows صفاً لكل ورقة بارتفاع rowMm (والزائد يكمل في ورقةٍ تالية) */
+export interface FormTable { y: number; rowMm: number; rows: number; fontPct?: number; columns: FormColumn[] }
+/** id = معرّف PrintFormImage، وv = بصمة sha256 (لكسر الذاكرة المؤقتة)، وأبعاد الصورة بالبكسل */
+export interface FormImageRef { id: string; v: string; wPx: number; hPx: number }
+export interface PrintForm {
+  image: FormImageRef | null;
+  /** معايرة الطابعة −20..+20 مم بعُشر مم — تُضاف إلى كل موضع */
+  dxMm: number;
+  dyMm: number;
+  /** ترسم صورة النموذج تحت القيم (ورقٌ أبيض أو تجربة) — false = القيم وحدها على الورق المطبوع */
+  background: boolean;
+  /** true = أرقام 0-9، وfalse = أرقام الشركة */
+  latinDigits: boolean;
+  valueLang: FormValueLang;
+  fields: FormField[];
+  table: FormTable | null;
+}
+
 export interface PrintLayout {
   design: LayoutDesign;
   logo: LogoPosition;
@@ -197,6 +250,8 @@ export interface PrintLayout {
    * الغياب أو true = اليوم. ليس في defaultPrintLayout عمداً
    */
   stamps?: boolean;
+  /** «نموذج الشركة المطبوع مسبقاً»: مواضع الحقول وجدول الأصناف على ورق الشركة — لازمٌ مع design = 'preprinted' وممنوعٌ مع غيره */
+  form?: PrintForm;
 }
 
 type HideLike = { sections?: Partial<Record<SectionId, { visible?: boolean } | undefined>>; stamps?: boolean } | null | undefined;
@@ -278,6 +333,8 @@ export const PRINT_LIMITS = Object.freeze({
    * 148 مم ⇒ ~0.35 مم للخلية، و58 مم كانت تعطي ~0.14 مم لا تُمسح. الرول الضيّق مكانه الطابعة الحرارية بخانة رمزٍ بنقاط صحيحة.
    */
   pageMinWidthMm: 148,
+  /** قوالب «النموذج المطبوع مسبقاً» في الشركة — مواضعها (~5 كيلوبايت لكلٍّ) تتّسع مع أسوأ التصاميم الحرّة تحت 48 كيلوبايت */
+  maxForms: 4,
 });
 export const PROFILE_ID_RE = /^[a-z0-9-]{3,24}$/;
 
@@ -306,6 +363,16 @@ export function impactRightDots(printableDots: number, offsetXmm: number, dpi: P
 /** هل يقبل نوع المستند طابعةً من هذا النوع — لا تصميم رول لكشف الحساب ومستندات المخزون في v1 */
 export function routingAllowsPrinter(kind: PrintDocKind, printer: PrinterType): boolean {
   return !(printer === 'thermal' && (kind === 'statement' || kind === 'notices'));
+}
+
+/** قالبٌ بـ«نموذج الشركة المطبوع مسبقاً» (design = 'preprinted') — للفواتير وحدها، ولا يكون قالب ملف PDF */
+export function isFormProfile(p: { options?: { layout?: { design?: string } | null } | null } | null | undefined): boolean {
+  return p?.options?.layout?.design === 'preprinted';
+}
+
+/** هل يقبل نوع المستند هذا القالب: طابعته (routingAllowsPrinter)، والنموذج المطبوع مسبقاً للفواتير وحدها */
+export function routingAllowsProfile(kind: PrintDocKind, p: Pick<PrintProfile, 'printer' | 'options'>): boolean {
+  return routingAllowsPrinter(kind, p.printer) && (kind === 'invoice' || !isFormProfile(p));
 }
 
 // ─── المقاسات الجاهزة (التصميم §1.4) — قيمٌ افتراضية تُعايَر؛ النقطية والـ85 مم تنتظر صفحة المعايرة على الجهاز الحقيقي ───
@@ -442,6 +509,35 @@ function makePrintSettingsSchema(strict: boolean) {
     fontPct: num.optional(),
   }, strict);
   const canvas = objectOf({ headerMm: num, footerMm: num, boxes: z.array(box).max(LAYOUT_BOUNDS.maxBoxes) }, strict);
+  /**
+   * عنصرٌ في مصفوفات النموذج — المتسامح يُسقطه وحده إن لم يفهمه (حقلٌ أو عمودٌ من نسخةٍ أحدث) فيصير undefined تحذفه الصورة
+   * القانونية (canonicalForm) قبل كل قاعدة؛ والنوع يبقى نوع العنصر عمداً (الصارم لا يُنتج undefined أبداً)
+   */
+  const item = <T extends z.ZodTypeAny>(t: T): T => (strict ? t : (t.optional().catch(undefined) as unknown as T));
+  const formField = objectOf({
+    id: z.enum(FORM_FIELD_IDS),
+    x: num,
+    y: num,
+    w: num,
+    h: num,
+    align: z.enum(ALIGNS).optional(),
+    fontPct: num.optional(),
+    bold: z.boolean().optional(),
+  }, strict);
+  const formColumn = objectOf({ id: z.enum(FORM_COLUMN_IDS), x: num, w: num, align: z.enum(ALIGNS).optional() }, strict);
+  const formTable = objectOf({ y: num, rowMm: num, rows: num, fontPct: num.optional(), columns: z.array(item(formColumn)) }, strict);
+  const formImage = objectOf({ id: z.string(), v: z.string(), wPx: num, hPx: num }, strict);
+  // العدد والحدود في القواعد (formFaults) برسائلها — والصورة دليلٌ لا غير: المتسامح يُسقط مرجعها المعطوب وحده (null)
+  const form = objectOf({
+    image: strict ? formImage.nullable() : formImage.nullable().catch(null),
+    dxMm: num,
+    dyMm: num,
+    background: z.boolean(),
+    latinDigits: z.boolean(),
+    valueLang: strict ? z.enum(FORM_VALUE_LANGS) : z.enum(FORM_VALUE_LANGS).catch('ar'),
+    fields: z.array(item(formField)),
+    table: formTable.nullable(),
+  }, strict);
   const layout = objectOf({
     design: z.enum(LAYOUT_DESIGNS),
     logo: z.enum(LOGO_POSITIONS),
@@ -455,6 +551,7 @@ function makePrintSettingsSchema(strict: boolean) {
     sections: free(sections),
     canvas: free(canvas),
     stamps: free(z.boolean()),
+    form: free(form),
   }, strict);
   const options = objectOf({
     showLogo: z.boolean(),
@@ -558,6 +655,22 @@ export const PRINT_ISSUES = Object.freeze({
   layoutCanvasBox: 'مربعٌ خارج حدود الورقة أو أصغر من 5 ملم أو مكرر',
   layoutCanvasFooterOnly: 'الإجماليات والتوقيعات في تذييل الورقة فقط (بعد الأصناف)',
   layoutCanvasQr: 'مربع رمز QR أصغر من الحد المقروء (47 ملم)',
+  // «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦)
+  layoutFormMissing: 'تصميم النموذج المطبوع مسبقاً بلا مواضع للحقول',
+  layoutFormDesign: 'مواضع الحقول لتصميم النموذج المطبوع مسبقاً وحده',
+  layoutFormPrinter: 'النموذج المطبوع مسبقاً لطابعات A4 فقط حالياً',
+  layoutFormField: 'حقل خارج حدود الورقة أو أصغر من 3 ملم أو مكرر',
+  layoutFormFieldsCount: 'حقول النموذج 40 على الأكثر',
+  layoutFormFont: 'حجم خط النموذج من 70 إلى 160 بالمئة',
+  layoutFormQr: 'مربع رمز QR في النموذج أصغر من 18 ملم',
+  layoutFormQrMissing: 'أضف حقل رمز QR أو احذف الرمز صراحة',
+  layoutFormTable: 'جدول الأصناف خارج حدود الورقة: الصفوف من 1 إلى 60 وارتفاع الصف من 3 إلى 25 ملم',
+  layoutFormColumn: 'أعمدة الجدول من 1 إلى 12 بلا تكرار وكل عمود داخل عرض الورقة ولا يضيق عن 4 ملم',
+  layoutFormOffset: 'معايرة النموذج بين سالب 20 وموجب 20 ملم',
+  layoutFormImage: 'صورة النموذج غير صالحة — ارفعها من جديد',
+  formsCount: 'قوالب النموذج المطبوع مسبقاً 4 على الأكثر',
+  routeForm: 'قالب النموذج المطبوع مسبقاً للفواتير وحدها',
+  pdfForm: 'ملف PDF يحتاج قالبا غير النموذج المطبوع مسبقاً',
 });
 
 export interface PrintIssue { path: string; message: string }
@@ -644,7 +757,7 @@ const inRangeL = (n: unknown, [lo, hi]: readonly [number, number]): boolean => t
 const EPS = 1e-9;
 
 /** عيبٌ في مفتاحٍ حرّ — key يحدّد ما يُسقطه الإصلاح المتسامح (والقسم المعيب وحده في sections) */
-interface FreeFault { key: 'logoMm' | 'logoAfter' | 'sections' | 'canvas'; section?: SectionId; path: string; message: string }
+interface FreeFault { key: 'logoMm' | 'logoAfter' | 'sections' | 'canvas' | 'form'; section?: SectionId; path: string; message: string }
 
 /**
  * قواعد المفاتيح الحرّة — فارغة بلا أيٍّ منها. لا قسم مقفلاً (قرار المالك ٤ نوفمبر ٢٠٢٦): إخفاء الأصناف ورمز QR خيار الشركة
@@ -696,7 +809,119 @@ function freeLayoutFaults(p: PrintProfile): FreeFault[] {
       });
     }
   }
+  if (l.form !== undefined) out.push(...formFaults(p, l, l.form));
   return out;
+}
+
+// ─── «نموذج الشركة المطبوع مسبقاً»: قواعد المفتاح form ───
+
+const isFin = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
+
+/** عطب حقلٍ على ورقٍ عرضه W وطوله L (null = سليم): أرقامٌ منتهية داخل الورقة، ≥ 3 مم ورمز QR ≥ 18، وخطٌّ في حدوده */
+function formFieldFault(f: FormField, W: number, L: number): string | null {
+  const F = FORM_BOUNDS;
+  if (![f.x, f.y, f.w, f.h].every(isFin) || f.x < -EPS || f.y < -EPS || f.w < F.fieldMinMm - EPS || f.h < F.fieldMinMm - EPS
+    || f.x + f.w > W + EPS || f.y + f.h > L + EPS) return PRINT_ISSUES.layoutFormField;
+  if (f.id === 'qr' && (f.w < F.qrMinMm - EPS || f.h < F.qrMinMm - EPS)) return PRINT_ISSUES.layoutFormQr;
+  if (f.fontPct !== undefined && !inRangeL(f.fontPct, LAYOUT_BOUNDS.fontPct)) return PRINT_ISSUES.layoutFormFont;
+  return null;
+}
+
+/** عمودٌ معطوب: خارج عرض الورقة أو أضيق من 4 مم */
+const formColumnBad = (c: FormColumn, W: number): boolean =>
+  !isFin(c.x) || !isFin(c.w) || c.x < -EPS || c.w < FORM_BOUNDS.columnMinMm - EPS || c.x + c.w > W + EPS;
+
+/** عطب الجدول على ورقٍ طوله L: صفوفٌ صحيحة 1–60 بارتفاع 3–25 مم تبدأ داخل الورقة وتنتهي قبل آخرها، وخطٌّ في حدوده */
+function formTableFault(t: FormTable, L: number): string | null {
+  const F = FORM_BOUNDS;
+  if (!inRangeL(t.rows, F.rows) || !Number.isInteger(t.rows) || !inRangeL(t.rowMm, F.rowMm) || !isFin(t.y) || t.y < -EPS
+    || t.y + t.rows * t.rowMm > L + EPS) return PRINT_ISSUES.layoutFormTable;
+  if (t.fontPct !== undefined && !inRangeL(t.fontPct, LAYOUT_BOUNDS.fontPct)) return PRINT_ISSUES.layoutFormFont;
+  return null;
+}
+
+const formImageOk = (m: FormImageRef): boolean =>
+  typeof m.id === 'string' && FORM_IMAGE_ID_RE.test(m.id) && typeof m.v === 'string' && FORM_IMAGE_V_RE.test(m.v)
+  && [m.wPx, m.hPx].every((n) => Number.isInteger(n) && inRangeL(n, FORM_BOUNDS.imagePx));
+
+/**
+ * قواعد النموذج (مفتاحٌ حرّ: الإصلاح المتسامح يُسقطه وحده، ثم يسقط التخطيط إن بقي التصميم بلا مواضع): لتصميمه وحده وللطابعة
+ * العادية بطول صفحة، والمعايرة ±20، ومرجع صورةٍ صالح، وحتى 40 حقلاً بلا تكرار داخل الورقة، ورمز QR حقلٌ ≥ 18 مم ما لم تحذفه
+ * الشركة صراحةً (isQrRemoved)، والجدول وأعمدته (1–12 بلا تكرار، كلٌّ ≥ 4 مم) داخل الورقة.
+ */
+function formFaults(p: PrintProfile, l: PrintLayout, f: PrintForm): FreeFault[] {
+  const out: FreeFault[] = [];
+  const fault = (path: string, message: string): void => { out.push({ key: 'form', path: path ? `form.${path}` : 'form', message }); };
+  if (l.design !== 'preprinted') { fault('', PRINT_ISSUES.layoutFormDesign); return out; }
+  const W = p.paper.widthMm;
+  const L = p.paper.lengthMm;
+  if (p.printer !== 'page' || L === null) { fault('', PRINT_ISSUES.layoutFormPrinter); return out; }
+  const F = FORM_BOUNDS;
+  if (!inRangeL(f.dxMm, F.offsetMm)) fault('dxMm', PRINT_ISSUES.layoutFormOffset);
+  if (!inRangeL(f.dyMm, F.offsetMm)) fault('dyMm', PRINT_ISSUES.layoutFormOffset);
+  if (f.image !== null && !formImageOk(f.image)) fault('image', PRINT_ISSUES.layoutFormImage);
+  if (f.fields.length > F.maxFields) fault('fields', PRINT_ISSUES.layoutFormFieldsCount);
+  const seen = new Set<FormFieldId>();
+  f.fields.forEach((x, i) => {
+    const m = formFieldFault(x, W, L) ?? (seen.has(x.id) ? PRINT_ISSUES.layoutFormField : null);
+    if (m) fault(`fields[${i}]`, m);
+    seen.add(x.id);
+  });
+  if (!seen.has('qr') && !isQrRemoved(l)) fault('fields', PRINT_ISSUES.layoutFormQrMissing);
+  const t = f.table;
+  if (t !== null) {
+    const tm = formTableFault(t, L);
+    if (tm) fault('table', tm);
+    if (t.columns.length < F.columns[0] || t.columns.length > F.columns[1]) fault('table.columns', PRINT_ISSUES.layoutFormColumn);
+    const cols = new Set<FormColumnId>();
+    t.columns.forEach((c, i) => {
+      if (formColumnBad(c, W) || cols.has(c.id)) fault(`table.columns[${i}]`, PRINT_ISSUES.layoutFormColumn);
+      cols.add(c.id);
+    });
+  }
+  return out;
+}
+
+/**
+ * القراءة المتسامحة للنموذج: الحقل أو العمود المعطوب (خارج الورقة أو مكرر أو أصغر من حدّه) يسقط وحده، والصفوف التي لا يتّسع
+ * لها طول الورقة تُقصّ، والمعايرة تُقصّ إلى ±20، والصورة المعطوبة تصير null (دليلٌ لا غير). وما بقي معطوباً (رمز QR لازمٌ غاب،
+ * جدولٌ لا صفّ له، طابعةٌ غير العادية) يُسقطه freeLayoutFaults كلّه — فيسقط التخطيط ويطبع القالب تصميم اليوم.
+ */
+function fitFormToPaper(f: PrintForm, p: PrintProfile): PrintForm {
+  const W = p.paper.widthMm;
+  const L = p.paper.lengthMm;
+  if (p.printer !== 'page' || L === null || !isFin(W) || !isFin(L)) return f;
+  const F = FORM_BOUNDS;
+  // حجم خطٍّ خارج حدوده يسقط وحده (100٪) — لا الحقل ولا الجدول
+  const pctOk = (v: number | undefined): boolean => v === undefined || inRangeL(v, LAYOUT_BOUNDS.fontPct);
+  const noPct = <T extends { fontPct?: number }>(o: T): T => {
+    const c = { ...o };
+    delete c.fontPct;
+    return c;
+  };
+  const seen = new Set<FormFieldId>();
+  const fields = f.fields.map((x) => (!x || pctOk(x.fontPct) ? x : noPct(x))).filter((x) => {
+    if (!x || seen.has(x.id) || formFieldFault(x, W, L) !== null) return false;
+    seen.add(x.id);
+    return true;
+  }).slice(0, F.maxFields);
+  let table = f.table;
+  if (table && !pctOk(table.fontPct)) table = noPct(table);
+  if (table) {
+    const cols = new Set<FormColumnId>();
+    const columns = table.columns.filter((c) => {
+      if (!c || cols.has(c.id) || formColumnBad(c, W)) return false;
+      cols.add(c.id);
+      return true;
+    }).slice(0, F.columns[1]);
+    let rows = table.rows;
+    if (inRangeL(table.rowMm, F.rowMm) && isFin(table.y) && table.y >= 0 && Number.isInteger(rows) && table.y + rows * table.rowMm > L + EPS) {
+      rows = Math.floor((L - table.y) / table.rowMm + 1e-9);
+    }
+    table = { ...table, rows, columns };
+  }
+  const clampOff = (v: number): number => (isFin(v) ? Math.min(F.offsetMm[1], Math.max(F.offsetMm[0], v)) : 0);
+  return { ...f, image: f.image !== null && !formImageOk(f.image) ? null : f.image, dxMm: clampOff(f.dxMm), dyMm: clampOff(f.dyMm), fields, table };
 }
 
 /**
@@ -732,7 +957,17 @@ export function layoutIssues(p: PrintProfile, at: string): PrintIssue[] {
   const roll = p.printer === 'thermal';
   // الرول بالتصميم القياسي وحده (layoutDesignPrinter كاليوم، وlayoutRoll معه) — والشعار بمواضعه الأربعة وأشكال الجدول الثلاثة
   // مقبولة فيه منذ التحرير الحرّ
-  if (roll && l.design !== 'standard') { add('design', PRINT_ISSUES.layoutDesignPrinter); add('design', PRINT_ISSUES.layoutRoll); }
+  // (والنموذج المطبوع مسبقاً برسالته — layoutFormPrinter من formFaults — لا برسالة ثنائي اللغة)
+  if (roll && l.design !== 'standard') {
+    if (l.design !== 'preprinted') add('design', PRINT_ISSUES.layoutDesignPrinter);
+    add('design', PRINT_ISSUES.layoutRoll);
+  }
+  // النموذج المطبوع مسبقاً لا يُطبع بلا مواضع حقوله (والمواضع على غيره يُسقطها formFaults) — وطابعته العادية بطول صفحة تُبلَغ هنا
+  // كذلك حين لا مواضع (ومع المواضع يبلغها formFaults)
+  if (l.design === 'preprinted' && l.form === undefined) {
+    add('form', PRINT_ISSUES.layoutFormMissing);
+    if (!roll && (p.printer !== 'page' || p.paper.lengthMm === null)) add('design', PRINT_ISSUES.layoutFormPrinter);
+  }
   if (l.accent !== null && !accentContrastOk(l.accent)) add('accent', PRINT_ISSUES.layoutAccent);
   for (const f of freeLayoutFaults(p)) add(f.path, f.message);
   const def = sectionsFor(p.printer, l.design);
@@ -758,6 +993,8 @@ function repairLayout(p: PrintProfile): PrintProfile {
   const layout: PrintLayout = { ...l, order: normalizeSectionOrder(l.order, p.printer, l.design) };
   // لوحتان أطول مما يتّسع له الورق القصير تُقصّان لا تسقطان (fitCanvasToPaper)
   if (layout.canvas !== undefined) layout.canvas = fitCanvasToPaper(layout.canvas, p.paper);
+  // والنموذج المطبوع مسبقاً: الحقل أو العمود المعطوب يسقط وحده (fitFormToPaper)
+  if (layout.form !== undefined) layout.form = fitFormToPaper(layout.form, p);
   // المفاتيح الحرّة أولاً: كل مفتاحٍ معيب يسقط وحده (والقسم المعيب وحده؛ وإخفاء الأصناف أو QR الصريح يبقى) — ثم قواعد اليوم
   const faults = freeLayoutFaults({ ...p, options: { ...p.options, layout } });
   if (faults.length) {
@@ -863,6 +1100,8 @@ export function printSettingsIssues(s: PrintSettingsV1): PrintIssue[] {
     if (key && names.has(key)) out.push({ path: `${at}.name`, message: PRINT_ISSUES.duplicateName });
     names.add(key);
   });
+  // النموذج المطبوع مسبقاً: 4 قوالب على الأكثر (حجم المواضع)، وللفواتير وحدها، ولا يكون قالب PDF
+  if (s.profiles.filter(isFormProfile).length > PRINT_LIMITS.maxForms) out.push({ path: 'profiles', message: PRINT_ISSUES.formsCount });
   const byId = new Map(s.profiles.map((p) => [p.id, p] as const));
   for (const kind of DOC_KINDS) {
     const id = s.routing[kind];
@@ -870,15 +1109,19 @@ export function printSettingsIssues(s: PrintSettingsV1): PrintIssue[] {
     const p = byId.get(id);
     if (!p) out.push({ path: `routing.${kind}`, message: PRINT_ISSUES.routeMissing });
     else if (!routingAllowsPrinter(kind, p.printer)) out.push({ path: `routing.${kind}`, message: PRINT_ISSUES.routeThermal });
+    else if (!routingAllowsProfile(kind, p)) out.push({ path: `routing.${kind}`, message: PRINT_ISSUES.routeForm });
   }
   const pdf = byId.get(s.pdfProfileId);
   if (!pdf) out.push({ path: 'pdfProfileId', message: PRINT_ISSUES.pdfMissing });
   else if (pdf.printer !== 'page') out.push({ path: 'pdfProfileId', message: PRINT_ISSUES.pdfNotPage });
+  else if (isFormProfile(pdf)) out.push({ path: 'pdfProfileId', message: PRINT_ISSUES.pdfForm });
   return out;
 }
 
 /** المم بخطوة 0.5 */
 const roundHalf = (n: number): number => Math.round(n * 2) / 2;
+/** جزءٌ من مئة — لارتفاع صفّ الجدول (خطوة 0.5 تتراكم عبر الصفوف: 23 صفاً × 0.15 = 3.5 مم في آخر الورقة) */
+const round2 = (n: number): number => Math.round(n * 100) / 100;
 /** التقريب داخل الحدود وحدها — ما خارجها يبقى كما أُرسل ليُرفض برسالته (5.9 لا تصير 6 فتُقبل) */
 const roundIn = (n: number, [lo, hi]: readonly [number, number], round: (v: number) => number): number => (n >= lo && n <= hi ? round(n) : n);
 const B_ = LAYOUT_BOUNDS;
@@ -912,6 +1155,45 @@ function canonicalCanvas(c: PrintCanvas): PrintCanvas {
   const rank = (b: CanvasBox): number => CANVAS_BANDS.indexOf(b.band) * 100 + CANVAS_BOX_IDS.indexOf(b.id);
   boxes.sort((a, b) => rank(a) - rank(b));
   return { headerMm: roundIn(c.headerMm, B_.headerMm, roundHalf), footerMm: roundIn(c.footerMm, B_.footerMm, roundHalf), boxes };
+}
+
+/**
+ * النموذج المطبوع مسبقاً: مفاتيح بترتيب ثابت بلا undefined، والمم بخطوة 0.5 (وارتفاع الصف بجزءٍ من مئة)، والمعايرة بعُشر مم،
+ * والحقول بترتيب FORM_FIELD_IDS والأعمدة من اليسار — والعنصر الذي أسقطه المتسامح (undefined) يُحذف هنا قبل كل قاعدة.
+ */
+function canonicalForm(f: PrintForm): PrintForm {
+  const F = FORM_BOUNDS;
+  const fields = f.fields.filter((x): x is FormField => !!x).map((x): FormField => {
+    const o: FormField = { id: x.id, x: roundHalf(x.x), y: roundHalf(x.y), w: roundHalf(x.w), h: roundHalf(x.h) };
+    if (x.align !== undefined) o.align = x.align;
+    if (x.fontPct !== undefined) o.fontPct = roundIn(x.fontPct, B_.fontPct, Math.round);
+    if (x.bold !== undefined) o.bold = x.bold;
+    return o;
+  });
+  fields.sort((a, b) => FORM_FIELD_IDS.indexOf(a.id) - FORM_FIELD_IDS.indexOf(b.id));
+  let table: FormTable | null = null;
+  if (f.table) {
+    const t = f.table;
+    const columns = t.columns.filter((c): c is FormColumn => !!c).map((c): FormColumn => {
+      const o: FormColumn = { id: c.id, x: roundHalf(c.x), w: roundHalf(c.w) };
+      if (c.align !== undefined) o.align = c.align;
+      return o;
+    });
+    columns.sort((a, b) => (a.x - b.x) || (FORM_COLUMN_IDS.indexOf(a.id) - FORM_COLUMN_IDS.indexOf(b.id)));
+    const head = { y: roundHalf(t.y), rowMm: roundIn(t.rowMm, F.rowMm, round2), rows: roundIn(t.rows, F.rows, Math.round) };
+    table = t.fontPct !== undefined ? { ...head, fontPct: roundIn(t.fontPct, B_.fontPct, Math.round), columns } : { ...head, columns };
+  }
+  const m = f.image;
+  return {
+    image: m === null ? null : { id: m.id, v: m.v, wPx: m.wPx, hPx: m.hPx },
+    dxMm: roundIn(f.dxMm, F.offsetMm, round1),
+    dyMm: roundIn(f.dyMm, F.offsetMm, round1),
+    background: f.background,
+    latinDigits: f.latinDigits,
+    valueLang: f.valueLang,
+    fields,
+    table,
+  };
 }
 
 /**
@@ -968,6 +1250,7 @@ export function canonicalPrintSettings(s: PrintSettingsV1): PrintSettingsV1 {
       }
       if (l.canvas !== undefined) layout.canvas = canonicalCanvas(l.canvas);
       if (l.stamps !== undefined) layout.stamps = l.stamps;
+      if (l.form !== undefined) layout.form = canonicalForm(l.form);
       options.layout = layout;
     }
     return { id: p.id, name: oneLine(p.name), printer: p.printer, template: p.template, paper, options };
@@ -1009,6 +1292,17 @@ function freeShapeMessage(path: ReadonlyArray<PropertyKey>, code: string): strin
   if (key === 'canvas') {
     if (code === 'unrecognized_keys') return null;
     return path[at + 2] === 'headerMm' || path[at + 2] === 'footerMm' ? PRINT_ISSUES.layoutCanvasBands : PRINT_ISSUES.layoutCanvasBox;
+  }
+  if (key === 'form') {
+    // المفتاح المجهول في أيّ مستوى من النموذج «حقل غير معروف»، والنوع الخاطئ لكائنه كله أو لمنطقيّاته «البنية غير صالحة»
+    if (code === 'unrecognized_keys') return null;
+    const sub = path[at + 2];
+    if (path[path.length - 1] === 'fontPct') return PRINT_ISSUES.layoutFormFont;
+    if (sub === 'image') return PRINT_ISSUES.layoutFormImage;
+    if (sub === 'dxMm' || sub === 'dyMm') return PRINT_ISSUES.layoutFormOffset;
+    if (sub === 'fields') return PRINT_ISSUES.layoutFormField;
+    if (sub === 'table') return path[at + 3] === 'columns' ? PRINT_ISSUES.layoutFormColumn : PRINT_ISSUES.layoutFormTable;
+    return null;
   }
   return null;
 }

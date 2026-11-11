@@ -4,6 +4,7 @@ import prisma from '../config/database';
 import { requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { isLegacyPrintSettings, isPrintSettingsReset, legacyPrintSettings, parsePrintSettings, storedPrintSettings } from '../services/printSettings';
+import { PRINT_FORM_LOCK_PREFIX, PRINT_FORM_MESSAGES, formImageRefMatches, formImageRefsOf, isFormImageId } from '../services/printForms';
 
 /**
  * «إعدادات الطباعة» (طلب المالك ٢٣ أكتوبر ٢٠٢٦) — مُركَّبٌ تحت /api/company/print-settings (routes/company.ts) بعد authenticate.
@@ -46,8 +47,30 @@ router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings')
       res.status(parsed.status).json({ success: false, code: parsed.code, message: parsed.message, issues: parsed.issues });
       return;
     }
-    // كتابة واحدة على صفّ الشركة — count 0 = لا صفّ بعد ⇒ 409 بلا إنشاء (لا اسم نخترعه للشركة)
-    const r = await prisma.companySettings.updateMany({ where: { tenantId: tid }, data: { printSettings: parsed.value as unknown as Prisma.InputJsonValue } });
+    // «النموذج المطبوع مسبقاً»: كل صورة يشير إليها قالبٌ (layout.form.image) محفوظةٌ للشركة نفسها ببصمتها وأبعادها (routes/printForms.ts)
+    // — النواة تفحص شكل المرجع وحده، فلا يُحفظ مرجعٌ يتيم أو لصورة شركة أخرى. الفحص والكتابة في معاملةٍ واحدة تحت قفل صور الشركة
+    // (قفل الرفع والحذف نفسه): حذفٌ أو جمعُ مهمَلٍ بينهما كان يترك المحفوظ يشير إلى صورةٍ زالت فيُرفض كل حفظٍ بعده.
+    // ولا قراءة ولا قفل بلا مراجع
+    const refs = formImageRefsOf(parsed.value);
+    let r: { count: number };
+    if (refs.length > 0) {
+      const out = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${PRINT_FORM_LOCK_PREFIX + tid}::text))`;
+        const ids = [...new Set(refs.map((x) => x.id))].filter(isFormImageId);
+        const rows = ids.length ? await tx.printFormImage.findMany({ where: { tenantId: tid, id: { in: ids } }, select: { id: true, sha256: true, widthPx: true, heightPx: true } }) : [];
+        const bad = refs.find((x) => !formImageRefMatches(x, rows.find((y) => y.id === x.id)));
+        if (bad) return { bad };
+        return { written: await tx.companySettings.updateMany({ where: { tenantId: tid }, data: { printSettings: parsed.value as unknown as Prisma.InputJsonValue } }) };
+      });
+      if (out.bad) {
+        res.status(400).json({ success: false, code: 'PRINT_FORM_IMAGE_MISSING', message: PRINT_FORM_MESSAGES.imageMissing, issues: [{ path: out.bad.path, message: PRINT_FORM_MESSAGES.imageMissing }] });
+        return;
+      }
+      r = out.written;
+    } else {
+      // كتابة واحدة على صفّ الشركة — count 0 = لا صفّ بعد ⇒ 409 بلا إنشاء (لا اسم نخترعه للشركة)
+      r = await prisma.companySettings.updateMany({ where: { tenantId: tid }, data: { printSettings: parsed.value as unknown as Prisma.InputJsonValue } });
+    }
     if (r.count === 0) {
       res.status(409).json({ success: false, code: 'COMPANY_SETTINGS_MISSING', message: COMPANY_SETTINGS_MISSING });
       return;

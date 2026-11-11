@@ -406,3 +406,27 @@ test('withStampsRemoved: true writes stamps=false, false deletes the key (byte-e
   assert.equal(withStampsRemoved(classic, true), classic);
   assert.ok(!('stamps' in defaultPrintLayout('page')), 'stamps is not in the default layout');
 });
+
+// ─── «نموذج الشركة المطبوع مسبقاً» (١٠–١١ نوفمبر ٢٠٢٦) ───
+
+test('النموذج المطبوع مسبقاً: freeIssues تعرض رسائل المواضع، ولا لوحتان فيه، وحذف رمز QR يزيل حقله والإعادة تعيده', () => {
+  const pre = withDesign(mk('page'), 'preprinted');
+  ok(pre, 'starter');
+  assert.deepEqual(freeIssues(pre), []);
+  const form = lay(pre)!.form!;
+  const broken = withLayout(pre, { form: { ...form, dxMm: 25, fields: form.fields.filter((f) => f.id !== 'qr') } });
+  assert.deepEqual(freeIssues(broken).sort(), [PRINT_ISSUES.layoutFormOffset, PRINT_ISSUES.layoutFormQrMissing].sort());
+  // اللوحتان للتصميم القياسي وحده
+  assert.equal(withCanvas(pre, starterCanvas(pre)), pre);
+  // الحذف الصريح يزيل الحقل ويُحفظ، والإعادة تعيده في موضعٍ خالٍ ويُحفظ
+  const removed = withQrRemoved(pre, true);
+  assert.ok(isQrRemoved(lay(removed)) && !lay(removed)!.form!.fields.some((f) => f.id === 'qr'));
+  ok(removed, 'removed');
+  const restored = withQrRemoved(removed, false);
+  assert.ok(!isQrRemoved(lay(restored)) && lay(restored)!.form!.fields.some((f) => f.id === 'qr'));
+  ok(restored, 'restored');
+  // والإعادة على نموذجٍ فيه الحقل لا تمسّه
+  assert.equal(withQrRemoved(pre, false), pre);
+  // وأختام الحالة كغيره
+  ok(withStampsRemoved(pre, true), 'stamps');
+});

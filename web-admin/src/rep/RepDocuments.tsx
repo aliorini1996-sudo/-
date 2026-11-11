@@ -35,6 +35,8 @@ import { LAYOUT_BOUNDS, type Align, type CanvasBoxId, type SectionId } from '../
 import { PrintCanvasSheet, canvasBoxLook } from './printCanvas';
 import { pdProps, usePrintDesignPreview, type PrintDesignPreview } from './printDesignContext';
 import { GridInvoice, GridReceipt } from './printGrid';
+import { FormInvoice } from './printPreprinted';
+import { formBackgroundRef, useFormImage } from '../lib/print/formImage';
 import { DocTextsContext, useDocTexts, usePrintTextsPreview } from './printTextsContext';
 import { printPageNode } from './printPage';
 import { announceDocOpen } from './companyRefresh';
@@ -160,6 +162,8 @@ export interface InvoiceDoc {
     code?: string | null;
     /** ضريبة السطر كما خزّنها الخادم — عمود «ضريبة القيمة المضافة» للسطر (وإلا تُشتقّ بـlineVat) */
     taxAmt?: number | null;
+    /** باركود الصنف (product.barcode) — عمود «الباركود» في «نموذج الشركة المطبوع مسبقاً» وحده؛ غيابه لا يضيف حقلاً */
+    barcode?: string | null;
   }[];
   subtotal: number;   // صافٍ قبل الضريبة دائما
   discount: number;   // صافٍ قبل الضريبة دائما
@@ -187,6 +191,10 @@ export interface InvoiceDoc {
    */
   billingReference?: string | null;
   noteReason?: string | null;
+  /** ملاحظات الفاتورة (Invoice.notes) — حقل «الملاحظات» في «نموذج الشركة المطبوع مسبقاً» وحده؛ لا يقرؤه قالبٌ آخر */
+  notes?: string;
+  /** تاريخ استحقاق الفاتورة (Invoice.dueDate) — حقل «تاريخ الاستحقاق» في «نموذج الشركة المطبوع مسبقاً» وحده */
+  dueDate?: string;
 }
 
 /** مرفق سند قبض — صورة إيصال تحويل أو شيك بصيغة data URL */
@@ -950,6 +958,13 @@ export const PrintableInvoice = forwardRef<HTMLDivElement, { doc: InvoiceDoc }>(
   if (layout?.design === 'grid_bilingual') {
     return (
       <GridInvoice ref={ref} doc={doc} facts={{ pt, zDecision, title: docTitle, inclusiveDoc, vatRate, noteRefs }} look={look} layout={layout} qr={qrShown} />
+    );
+  }
+  /* «نموذج الشركة المطبوع مسبقاً» (rep/printPreprinted.tsx، طلب المالك ١٠–١١ نوفمبر ٢٠٢٦): القيم وحدها في مواضعها على ورق الشركة
+   * الجاهز — بالقرار والعنوان والشمول والرمز المحروس أنفسها، فلا عنوان ولا رمز ولا ضريبة من صنع القالب الجديد */
+  if (layout?.design === 'preprinted') {
+    return (
+      <FormInvoice ref={ref} doc={doc} facts={{ pt, zDecision, title: docTitle, inclusiveDoc, vatRate, noteRefs }} look={look} layout={layout} qr={qrShown} />
     );
   }
 
@@ -2244,6 +2259,8 @@ export function invoiceDocFromDetail(inv: any, repName: string, company?: Compan
       // القالب ثنائي اللغة: رمز الصنف وضريبة السطر المخزّنة — غيابهما لا يضيف حقلاً (الشكل كما كان)
       ...(typeof it.product?.code === 'string' && it.product.code.trim() ? { code: it.product.code } : {}),
       ...(it.taxAmt != null && Number.isFinite(Number(it.taxAmt)) ? { taxAmt: Number(it.taxAmt) } : {}),
+      // «نموذج الشركة المطبوع مسبقاً»: باركود الصنف — غيابه لا يضيف حقلاً (الشكل كما كان)
+      ...(typeof it.product?.barcode === 'string' && it.product.barcode.trim() ? { barcode: it.product.barcode.trim() } : {}),
     })),
     pricesIncludeTax: inv.pricesIncludeTax ?? undefined,
     subtotal: Number(inv.subtotal),
@@ -2268,6 +2285,9 @@ export function invoiceDocFromDetail(inv: any, repName: string, company?: Compan
     // الإشعار الدائن: مرجع الفاتورة الأصلية (BT-25) وسببه (KSA-10) من صفّه — null لفاتورة البيع ومرتجع المرحلة الأولى
     billingReference: typeof inv.billingReference === 'string' ? inv.billingReference : null,
     noteReason: typeof inv.noteReason === 'string' ? inv.noteReason : null,
+    // «نموذج الشركة المطبوع مسبقاً»: ملاحظات الفاتورة وتاريخ استحقاقها — غيابهما لا يضيف حقلاً (الشكل كما كان)
+    ...(typeof inv.notes === 'string' && inv.notes.trim() ? { notes: inv.notes.trim() } : {}),
+    ...(inv.dueDate != null && inv.dueDate !== '' && !Number.isNaN(new Date(inv.dueDate).getTime()) ? { dueDate: String(inv.dueDate) } : {}),
   };
 }
 
@@ -2634,6 +2654,11 @@ export function DocumentResult({ doc: issued, onClose, showLotsStrip = false }: 
   const pdfLook = useMemo(() => lookFor(pdfProfile), [pdfProfile]);
   const pageProfile = directProfile !== null && directProfile.printer !== 'thermal' ? directProfile : null;
   const pageLook = useMemo(() => (pageProfile ? lookFor(pageProfile) : null), [pageProfile]);
+  /* «نموذج الشركة المطبوع مسبقاً» بخلفيته (ورقٌ أبيض أو تجربة): صورة النموذج تُجلب للطباعة (lib/print/formImage.ts) — وتعذّرها لا يمنع
+   * الطباعة: القيم وحدها، وتنبيهٌ هنا تحت زرّ الطباعة. بلا هذا التصميم أو بلا خلفية: لا جلب ولا تنبيه */
+  const formBg = useFormImage(formBackgroundRef(pageLook?.layout?.form));
+  // طُبعت ورقة النموذج قبل جهوز خلفيتها (المهلة في sheetReady) — فالتنبيه نفسه ولو بقيت قيد الجلب
+  const [formBgSkipped, setFormBgSkipped] = useState(false);
   // قالب الطباعة غير قالب الـPDF ⇒ نسخةٌ ثانية خارج الشاشة بمظهره؛ وإلا فالنسخة نفسها
   const separatePage = pageProfile !== null && pageProfile.id !== pdfProfile.id;
   const pageRef = useRef<HTMLDivElement>(null);
@@ -2690,6 +2715,9 @@ export function DocumentResult({ doc: issued, onClose, showLotsStrip = false }: 
         const copyLabels = docCopyLabels(doc, tr);
         if (port) sent.outcome = await bt.run((ui) => printNodeDirect(port, node, directProfile, copyLabels, ui), { ...directOpts(deviceChoice), label: title });
         else await printPageNode(node, directProfile, copyLabels);
+        // النموذج بخلفيته: خرجت الورقة والخلفية لم تجهز (قيد الجلب بعد المهلة أو تعذّرت) ⇒ تنبيه «بلا خلفية»
+        const formRoot = node.getAttribute('data-print-layout') === 'preprinted' ? node : node.querySelector('[data-print-layout="preprinted"]');
+        setFormBgSkipped(['loading', 'failed'].includes(formRoot?.getAttribute('data-form-bg') ?? ''));
       }
       if (sent.outcome === 'handed') setAppPrompt('soft');
       else if (sent.outcome) setStatus(sent.outcome === 'cancelled' ? tr('ألغيت الطباعة') : tr('✓ تم الإرسال إلى الطابعة'));
@@ -2848,6 +2876,11 @@ export function DocumentResult({ doc: issued, onClose, showLotsStrip = false }: 
               </div>
             )}
             {appPrompt === 'soft' && <AppUpdateHint />}
+            {(formBg.status === 'failed' || (formBgSkipped && formBg.status !== 'ready')) && (
+              <p data-form-bg-note="" role="status" className="text-[11px] text-amber-700 text-center leading-relaxed">
+                {tr('تعذر تحميل صورة النموذج فتطبع البيانات وحدها بلا خلفية')}
+              </p>
+            )}
             {customized && directProfile.printer === 'impact' && directTransport === 'system' && (
               <p className="text-[11px] text-gray-400 text-center leading-relaxed">
                 {tr(PRINT_NOTES.impactDesktop)}

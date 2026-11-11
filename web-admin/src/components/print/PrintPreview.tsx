@@ -10,6 +10,9 @@ import {
 import { sampleInvoiceDoc } from '../../lib/print/calibration';
 import { PrintableInvoice, PrintableReceipt, type Company, type InvoiceDoc, type ReceiptDoc } from '../../rep/RepDocuments';
 import { PrintLookContext, SHEET_WIDTH_PX, lookFor } from '../../rep/printLook';
+import {
+  FORM_COLUMN_LABELS, FORM_FIELD_LABELS, FORM_TAX_COLUMN_IDS, FORM_TAX_FIELD_IDS, fitForm, formOf, formSheetSize, formTableBox, printedBox, tableRowTop,
+} from '../../lib/print/formModel';
 import { thermalPreviewHtml } from '../../rep/thermal';
 import { isTaxOff } from '../../lib/taxMode';
 import { sampleWatermark, taxFreeInvoiceDoc, useTaxOffPrint } from './taxOffPrint';
@@ -40,6 +43,8 @@ export default function PrintPreview({ profile, companyName, brandColor, company
   const tr = useTr();
   const [view, setView] = useState<PreviewView>('design');
   const [kind, setKind] = useState<PreviewKind>('invoice');
+  // «نموذج الشركة المطبوع مسبقاً» للفواتير وحدها (قاعدة التوجيه في النواة) — فلا معاينة سند قبض عليه
+  const formOnly = isFormDesign(profile);
   const tab = (on: boolean): string =>
     `shrink-0 rounded-full border px-3 py-1 text-[11px] font-semibold ${on ? 'border-[#E15A30] bg-[#FBEBE2] text-[#C94E28]' : 'border-[#E9E1D3] bg-white text-[#44403a]'}`;
   return (
@@ -50,7 +55,7 @@ export default function PrintPreview({ profile, companyName, brandColor, company
             {v === 'design' ? tr('التصميم الفعلي') : tr('المقاس والهوامش')}
           </button>
         ))}
-        {view === 'design' && (
+        {view === 'design' && !formOnly && (
           <span className="ms-auto flex gap-1">
             {(['invoice', 'receipt'] as const).map((k) => (
               <button key={k} type="button" aria-pressed={kind === k} onClick={() => setKind(k)} className={tab(kind === k)}>
@@ -61,7 +66,7 @@ export default function PrintPreview({ profile, companyName, brandColor, company
         )}
       </div>
       {view === 'design'
-        ? <DesignPreview profile={profile} company={company} kind={kind} />
+        ? <DesignPreview profile={profile} company={company} kind={formOnly ? 'invoice' : kind} />
         : <PaperPreview profile={profile} companyName={companyName} brandColor={brandColor} />}
     </div>
   );
@@ -98,6 +103,15 @@ export function previewInvoiceDoc(company: Company | null | undefined, tr: Tr, n
   return taxOff ? taxFreeInvoiceDoc(doc) : doc;
 }
 
+/**
+ * فاتورة معاينة «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦): فاتورة المعاينة نفسها ومعها ما يملأ عمود «الباركود»
+ * وحقل «الملاحظات» في النموذج. مستندٌ جديد — فاتورة المعاينة والمستند التجريبيّ كما هما حرفاً (الحرّاس الذهبية).
+ */
+export function previewFormDoc(company: Company | null | undefined, tr: Tr, now: Date = new Date()): InvoiceDoc {
+  const d = previewInvoiceDoc(company, tr, now);
+  return { ...d, notes: tr('ملاحظة تجريبية'), items: d.items.map((it, i) => ({ ...it, barcode: `628100000${1001 + i}` })) };
+}
+
 /** سند المعاينة — مقابل فاتورة المعاينة، بلا رمز QR كاليوم */
 export function previewReceiptDoc(company: Company | null | undefined, tr: Tr, now: Date = new Date()): ReceiptDoc {
   const inv = previewInvoiceDoc(company, tr, now);
@@ -123,18 +137,28 @@ function Watermark({ size }: { size: number }) {
 
 function DesignPreview({ profile, company, kind }: { profile: PrintProfile; company?: Company | null; kind: PreviewKind }) {
   const tr = useTr();
-  const doc = useMemo(() => (kind === 'invoice' ? previewInvoiceDoc(company, tr) : previewReceiptDoc(company, tr)), [kind, company, tr]);
+  // النموذج المطبوع مسبقاً: فاتورته النموذجية بالباركود والملاحظة (previewFormDoc) — وغيره كما كان
+  const form = isFormDesign(profile);
+  const doc = useMemo(
+    () => (kind === 'invoice' ? (form ? previewFormDoc(company, tr) : previewInvoiceDoc(company, tr)) : previewReceiptDoc(company, tr)),
+    [kind, company, tr, form],
+  );
   if (profile.printer === 'thermal') return <RollPreview profile={profile} doc={doc} />;
   return <SheetPreview profile={profile} doc={doc} />;
 }
 
-/** ورقة الصفحة والنقطية: القالب الحقيقي بعرض 794 بكسل مصغّراً لعمود المعاينة، بمظهر القالب المفتوح */
+/**
+ * ورقة الصفحة والنقطية: القالب الحقيقي بعرض 794 بكسل مصغّراً لعمود المعاينة، بمظهر القالب المفتوح — وأوراق النموذج المطبوع مسبقاً
+ * بعرض الورق نفسه (بالمم)
+ */
 function SheetPreview({ profile, doc }: { profile: PrintProfile; doc: InvoiceDoc | ReceiptDoc }) {
   const look = useMemo(() => lookFor(profile), [profile]);
   const boxRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+  const formSheet = isFormDesign(profile) ? formSheetSize(profile.paper) : null;
+  const sheetPx = formSheet ? formSheet.widthMm * MM : SHEET_WIDTH_PX;
   const [boxW, setBoxW] = useState(0);
-  const [sheetH, setSheetH] = useState(1123);
+  const [sheetH, setSheetH] = useState(formSheet ? Math.round(formSheet.lengthMm * MM) : 1123);
   useLayoutEffect(() => {
     const box = boxRef.current;
     const sheet = sheetRef.current;
@@ -147,16 +171,16 @@ function SheetPreview({ profile, doc }: { profile: PrintProfile; doc: InvoiceDoc
     ro.observe(sheet);
     return () => ro.disconnect();
   }, []);
-  const scale = boxW > 0 ? Math.min(1, boxW / SHEET_WIDTH_PX) : 0.42;
+  const scale = boxW > 0 ? Math.min(1, boxW / sheetPx) : 0.42;
   return (
     <div ref={boxRef} className="w-full" data-preview="sheet">
-      <div className="relative mx-auto bg-white overflow-hidden" style={{ width: SHEET_WIDTH_PX * scale, height: sheetH * scale, boxShadow: '0 1px 6px rgba(31,26,19,0.18)', border: '1px solid #E9E1D3' }}>
-        <div ref={sheetRef} style={{ position: 'absolute', top: 0, left: 0, width: SHEET_WIDTH_PX, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
+      <div className="relative mx-auto bg-white overflow-hidden" style={{ width: sheetPx * scale, height: sheetH * scale, boxShadow: '0 1px 6px rgba(31,26,19,0.18)', border: '1px solid #E9E1D3' }}>
+        <div ref={sheetRef} style={{ position: 'absolute', top: 0, left: 0, width: sheetPx, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
           <PrintLookContext.Provider value={look}>
             {doc.kind === 'invoice' ? <PrintableInvoice doc={doc} /> : <PrintableReceipt doc={doc} />}
           </PrintLookContext.Provider>
         </div>
-        <Watermark size={Math.max(13, (SHEET_WIDTH_PX * scale) / 13)} />
+        <Watermark size={Math.max(13, (sheetPx * scale) / 13)} />
       </div>
     </div>
   );
@@ -260,11 +284,14 @@ export function PaperPreview({ profile, companyName, brandColor }: { profile: Pr
           {/* حدود الحزمة المطبوعة */}
           <div aria-hidden="true" style={{ position: 'absolute', top: 0, bottom: 0, left: bandL, width: bandW, borderLeft: '1px dashed #E15A30', borderRight: '1px dashed #E15A30' }} />
 
-          <div ref={contentRef} style={contentStyle}>
-            {raster
-              ? <RollOrImpactSample profile={profile} companyName={companyName} qrMm={qrMm} qrCells={qrCells} removed={removed} tr={tr} />
-              : <PageSample profile={profile} companyName={companyName} brandColor={mono ? '#000' : brandColor} mono={mono} qrMm={qrMm} qrCells={qrCells} removed={removed} tr={tr} />}
-          </div>
+          {/* «نموذج الشركة المطبوع مسبقاً»: مواضع الحقول والأعمدة على الورقة لا مستندٌ تخطيطيّ — البيانات وحدها تُطبع على ورق الشركة */}
+          {isFormDesign(profile) ? <FormSchematic profile={profile} tr={tr} taxOff={taxOff} /> : (
+            <div ref={contentRef} style={contentStyle}>
+              {raster
+                ? <RollOrImpactSample profile={profile} companyName={companyName} qrMm={qrMm} qrCells={qrCells} removed={removed} tr={tr} />
+                : <PageSample profile={profile} companyName={companyName} brandColor={mono ? '#000' : brandColor} mono={mono} qrMm={qrMm} qrCells={qrCells} removed={removed} tr={tr} />}
+            </div>
+          )}
 
           {/* العلامة المائية — كل معاينة واختبار «ليس مستندا ضريبيا» */}
           <div aria-hidden="true" className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -284,6 +311,34 @@ export function PaperPreview({ profile, companyName, brandColor }: { profile: Pr
 }
 
 type Tr = (s: string) => string;
+
+/**
+ * مخطّط «نموذج الشركة المطبوع مسبقاً» في «المقاس والهوامش»: مربعٌ متقطّع لكل حقلٍ وشريطٌ لكل عمودٍ بخطوط صفوفه، في موضعه المطبوع
+ * (بالإزاحة — كصفحة المعايرة) وباسمه. لشركةٍ بلا ضريبة لا حقول الضريبة وعمودها ولا مربع الرمز.
+ */
+function FormSchematic({ profile, tr, taxOff }: { profile: PrintProfile; tr: Tr; taxOff: boolean }) {
+  const raw = formOf(profile);
+  if (!raw) return null;
+  const form = fitForm(raw, profile.paper);
+  const at = (b: { x: number; y: number; w: number; h: number }): CSSProperties => ({ position: 'absolute', left: b.x * MM, top: b.y * MM, width: b.w * MM, height: b.h * MM });
+  const label: CSSProperties = { fontSize: 9, lineHeight: 1.15, color: '#C94E28', whiteSpace: 'nowrap', overflow: 'hidden', padding: '1px 2px' };
+  const t = form.table;
+  const tb = formTableBox(t);
+  const rowPx = t ? t.rowMm * MM : 0;
+  return (
+    <div data-form-schematic="" aria-hidden="true">
+      {form.fields.filter((f) => !(taxOff && (FORM_TAX_FIELD_IDS.includes(f.id) || f.id === 'qr'))).map((f) => (
+        <div key={f.id} data-field={f.id} style={{ ...at(printedBox(form, f)), border: '1px dashed #E15A30', ...label }}>{tr(FORM_FIELD_LABELS[f.id])}</div>
+      ))}
+      {t && tb && t.columns.filter((c) => !(taxOff && FORM_TAX_COLUMN_IDS.includes(c.id))).map((c) => (
+        <div key={c.id} data-column={c.id} style={{
+          ...at(printedBox(form, { x: c.x, y: tableRowTop(t, 0), w: c.w, h: tb.h })), borderLeft: '1px dashed #E15A30', borderRight: '1px dashed #E15A30',
+          backgroundImage: `repeating-linear-gradient(to bottom, transparent 0 ${rowPx - 1}px, #F3D5C8 ${rowPx - 1}px ${rowPx}px)`, ...label, textAlign: 'center',
+        }}>{tr(FORM_COLUMN_LABELS[c.id])}</div>
+      ))}
+    </div>
+  );
+}
 
 /** مربّع شطرنجي بمقاس الرمز وخلاياه — ليس رمزاً */
 function QrSlot({ mm, cells, tr }: { mm: number; cells: number; tr: Tr }) {
@@ -438,27 +493,49 @@ function PageSample({ profile, companyName, brandColor, mono, qrMm, qrCells, rem
 // دوالّ نقيّة فوق مساعدات lib/print/printSettings.ts — لا تحقّق هنا: القواعد في layoutIssues والقيود في canMoveSection/moveSection.
 // قالبٌ لم يُلمس تخطيطه يبقى بلا options.layout فيطبع اليوم حرفياً.
 
-/** بطاقة في خطوة «التصميم»: قالبٌ من قوالب الطابعة، أو «كلاسيكي بإطارات — ثنائي اللغة» (الصفحة والنقطية — ليس TemplateId) */
-export type DesignCard = { kind: 'template'; t: TemplateId } | { kind: 'grid' };
+/**
+ * بطاقة في خطوة «التصميم»: قالبٌ من قوالب الطابعة، أو «كلاسيكي بإطارات — ثنائي اللغة» (الصفحة والنقطية — ليس TemplateId)، أو
+ * «نموذج الشركة المطبوع مسبقاً» (الطابعة العادية بورقٍ له طول — طلب المالك ١٠–١١ نوفمبر ٢٠٢٦)
+ */
+export type DesignCard = { kind: 'template'; t: TemplateId } | { kind: 'grid' } | { kind: 'preprinted' };
 
 const isGridDesign = (p: PrintProfile): boolean => p.options.layout?.design === 'grid_bilingual';
+/** القالب على تصميم «نموذج الشركة المطبوع مسبقاً» */
+const isFormDesign = (p: PrintProfile): boolean => p.options.layout?.design === 'preprinted';
 
-/** قوالب الطابعة ثم البطاقة الثالثة ثنائية اللغة حيث يصحّ تصميمها (designsFor) */
+/**
+ * قوالب الطابعة ثم البطاقة الثالثة ثنائية اللغة حيث يصحّ تصميمها (designsFor)، ثم بطاقة النموذج المطبوع مسبقاً (الطابعة العادية) — وورقٌ
+ * بلا طول تعطّلها اللوحة برسالتها (withDesign لا يغيّر شيئاً بلا طول)
+ */
 export function designCards(p: PrintProfile): DesignCard[] {
   const cards: DesignCard[] = templatesFor(p.printer).map((t) => ({ kind: 'template' as const, t }));
-  return designsFor(p.printer).includes('grid_bilingual') ? [...cards, { kind: 'grid' }] : cards;
+  const designs = designsFor(p.printer);
+  if (designs.includes('grid_bilingual')) cards.push({ kind: 'grid' });
+  if (designs.includes('preprinted')) cards.push({ kind: 'preprinted' });
+  return cards;
 }
 
-/** المختارة: ثنائي اللغة بتصميمه في التخطيط، وغيره بقالبه ما دام التصميم ليس ثنائي اللغة */
+/** المفتاح الثابت لكل بطاقة (key وdata-design-card): القالب باسمه، والتصميمان باسميهما */
+export function designCardId(c: DesignCard): TemplateId | 'grid_bilingual' | 'preprinted' {
+  return c.kind === 'template' ? c.t : c.kind === 'grid' ? 'grid_bilingual' : 'preprinted';
+}
+
+/** المختارة: ثنائي اللغة والنموذج المطبوع مسبقاً بتصميمهما في التخطيط، وغيرهما بقالبه ما دام التصميم ليس أحدهما */
 export function designCardSelected(p: PrintProfile, c: DesignCard): boolean {
-  return c.kind === 'grid' ? isGridDesign(p) : !isGridDesign(p) && p.template === c.t;
+  if (c.kind === 'grid') return isGridDesign(p);
+  if (c.kind === 'preprinted') return isFormDesign(p);
+  return !isGridDesign(p) && !isFormDesign(p) && p.template === c.t;
 }
 
-/** الاختيار: ثنائي اللغة ⇒ withDesign (القالب الأحادي للطابعة وتخطيطه)، وقالبٌ بعده ⇒ يعود «التصميم الحالي» بذلك القالب */
+/**
+ * الاختيار: ثنائي اللغة ⇒ withDesign (القالب الأحادي للطابعة وتخطيطه)، والنموذج المطبوع مسبقاً ⇒ withDesign (page_plain بلا هامشين
+ * ومواضع البداية)، وقالبٌ بعد أحدهما ⇒ يعود «التصميم الحالي» بذلك القالب
+ */
 export function applyDesignCard(p: PrintProfile, c: DesignCard): PrintProfile {
   if (c.kind === 'grid') return withDesign(p, 'grid_bilingual');
+  if (c.kind === 'preprinted') return withDesign(p, 'preprinted');
   const next: PrintProfile = { ...p, template: c.t };
-  return isGridDesign(p) ? withDesign(next, 'standard') : next;
+  return isGridDesign(p) || isFormDesign(p) ? withDesign(next, 'standard') : next;
 }
 
 /** الافتراضيان والرول الكلاسيكي لا يحملان تخطيطاً (layoutClassic) — يُنسخ الافتراضي لتخصيصه كاليوم */
@@ -745,6 +822,32 @@ function AccentPicker({ value, onPick }: { value: string | null; onPick: (v: str
       {text !== '' && state === 'light' && <p className="text-xs text-red-600 mt-1">{tr(PRINT_ISSUES.layoutAccent)}</p>}
       {text !== '' && state === 'invalid' && <p className="text-[11px] text-[#9A8F7E] mt-1" dir="ltr">#RRGGBB</p>}
     </div>
+  );
+}
+
+/**
+ * مخطّط «نموذج الشركة المطبوع مسبقاً»: ورقة الشركة الجاهزة بإطاراتها الباهتة (المطبوع مسبقاً) وعليها القيم وحدها داكنةً في فراغاتها —
+ * رأس المستند، والطرفان، وصفوف الأصناف، والإجمالي، ومربع الرمز (لا مربع رمزٍ لشركةٍ بلا ضريبة)
+ */
+export function FormThumb({ taxOff = false }: { taxOff?: boolean }) {
+  const faint = '1px dashed #C9BCA6';
+  const ink = (w: string, ml = 0) => <span className="block" style={{ height: 2, width: w, marginInlineStart: ml, background: '#1F1A13' }} />;
+  return (
+    <span aria-hidden="true" data-thumb="preprinted" className="shrink-0 block relative bg-white border border-[#D8CDB9] rounded-md overflow-hidden" style={{ width: 56, height: 72, padding: 4 }}>
+      <span className="block mx-auto rounded-sm" style={{ width: 30, height: 6, border: faint }} />
+      <span className="block mt-[3px] space-y-[2px]" style={{ border: faint, padding: 2 }}>{ink('40%', 10)}{ink('30%', 10)}</span>
+      <span className="flex gap-[2px] mt-[2px]">
+        <span className="block flex-1" style={{ border: faint, padding: 2 }}>{ink('70%')}</span>
+        <span className="block flex-1" style={{ border: faint, padding: 2 }}>{ink('60%')}</span>
+      </span>
+      <span className="block mt-[2px] space-y-[3px]" style={{ border: faint, padding: '2px 2px 4px' }}>
+        {Array.from({ length: 3 }, (_, i) => <span key={i} className="flex gap-[3px]">{ink('6px')}{ink('16px')}{ink('8px')}</span>)}
+      </span>
+      <span className="flex items-end justify-between mt-[2px]">
+        {!taxOff ? <span className="block" style={{ width: 8, height: 8, background: 'repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0 / 3px 3px' }} /> : <span />}
+        <span className="block" style={{ border: faint, padding: 2, width: 22 }}>{ink('80%')}</span>
+      </span>
+    </span>
   );
 }
 

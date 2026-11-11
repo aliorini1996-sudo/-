@@ -15,9 +15,11 @@ import { PRINT_STATUS_TITLE_KEYS, PRINT_TEXT_CATALOG, PRINT_TEXT_WARNINGS, print
 import { PHRASES } from '../../i18n/strings';
 // حقول «التخطيط» ودوالّها في PrintPreview.tsx لا في اللوحة: اللوحة تستورد عميل الـAPI (import.meta.env وlocalStorage) فلا تُحمَّل هنا
 import PrintPreview, {
-  LAYOUT_FONT_SCALES, PaperPreview, accentInputState, applyDesignCard, designCardSelected, designCards, effectiveFontScale, layoutEditable, logoChoices,
-  orderIsDefault, previewInvoiceDoc, previewReceiptDoc, resetSectionOrder, sectionRows, withLayoutFontScale,
+  FormThumb, LAYOUT_FONT_SCALES, PaperPreview, accentInputState, applyDesignCard, designCardId, designCardSelected, designCards, effectiveFontScale, layoutEditable,
+  logoChoices, orderIsDefault, previewFormDoc, previewInvoiceDoc, previewReceiptDoc, resetSectionOrder, sectionRows, withLayoutFontScale,
 } from './PrintPreview';
+import { FORM_COLUMN_LABELS, FORM_FIELD_LABELS, formOf, withFormField } from '../../lib/print/formModel';
+import { TaxOffPrintContext } from './taxOffPrint';
 
 const root = process.cwd();
 const read = (...p: string[]) => fs.readFileSync(path.join(root, ...p), 'utf8').replace(/\r\n/g, '\n');
@@ -35,10 +37,12 @@ const van = () => prof('van-80', 'thermal', 'roll_compact', 'roll80');
 const valid = (p: PrintProfile) => assert.deepEqual(layoutIssues(p, 'p'), [], JSON.stringify(p.options.layout));
 
 test('بطاقات التصميم: الثالثة «ثنائي اللغة» للصفحة والنقطية وحدهما، واختيارها يضع القالب الأحادي وتخطيطه — والعودة لقالبٍ تعيد التصميم الحالي', () => {
-  const kinds = (p: PrintProfile) => designCards(p).map((c) => (c.kind === 'grid' ? 'grid' : c.t));
-  assert.deepEqual(kinds(page()), ['page_branded', 'page_plain', 'grid']);
+  // «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦): بطاقةٌ رابعة للطابعة العادية وحدها — تحديثٌ واعٍ للحارس
+  const kinds = (p: PrintProfile) => designCards(p).map((c) => (c.kind === 'template' ? c.t : c.kind));
+  assert.deepEqual(kinds(page()), ['page_branded', 'page_plain', 'grid', 'preprinted']);
   assert.deepEqual(kinds(mip()), ['impact_plain', 'impact_preprinted', 'grid']);
   assert.ok(!kinds(van()).includes('grid'), 'الرول بلا تصميم ثنائي اللغة');
+  assert.ok(!kinds(van()).includes('preprinted') && !kinds(mip()).includes('preprinted'), 'النموذج المطبوع مسبقاً للطابعة العادية وحدها');
 
   const grid = applyDesignCard(page(), { kind: 'grid' });
   assert.equal(grid.template, 'page_plain');
@@ -184,11 +188,16 @@ test('التوصيل: كتلة «التخطيط» في الخطوة الرابع
   const use = "<Section title={tr('التخطيط')} open><LayoutFields p={p} update={update} /></Section>";
   assert.ok(s.includes(use));
   assert.ok(s.indexOf(use) > s.indexOf('{editor.step === 4 && ('));
-  assert.ok(s.includes("import PrintPreview, { GridThumb, LayoutFields, applyDesignCard, designCardSelected, designCards } from './PrintPreview';"));
+  // «نموذج الشركة المطبوع مسبقاً»: اللوحة تستورد معها مصغّرة البطاقة الرابعة ومفتاحها (FormThumb وdesignCardId) — تحديثٌ واعٍ للحارس
+  const imp = /import PrintPreview, \{([^}]*)\} from '\.\/PrintPreview';/.exec(s);
+  assert.ok(imp, 'استيراد المعاينة');
+  for (const n of ['GridThumb', 'LayoutFields', 'applyDesignCard', 'designCardSelected', 'designCards']) assert.match(imp[1], new RegExp(`\\b${n}\\b`), n);
   assert.ok(s.includes('{designCards(p).map((c) => {'), 'بطاقات التصميم مع ثنائي اللغة');
   assert.ok(s.includes('onClick={() => update(applyDesignCard(p, c))}'));
   // «إزالة الضريبة» (E6): المصغّرتان بلا مربع الرمز لشركةٍ بلا ضريبة — تحديثٌ واعٍ للحارس
-  assert.ok(s.includes('{t ? <TemplateThumb t={t} taxOff={taxOff} /> : <GridThumb taxOff={taxOff} />}'));
+  // والمصغّرات كلها بعلم الشركة (FormThumb للبطاقة الرابعة إن وُصلت) — تحديثٌ واعٍ للحارس
+  assert.ok(s.includes('<TemplateThumb t={t} taxOff={taxOff} />') && s.includes('<GridThumb taxOff={taxOff} />'));
+  if (s.includes('<FormThumb')) assert.ok(s.includes('<FormThumb taxOff={taxOff} />'));
   const v = preview();
   const sec = v.slice(v.indexOf('export function LayoutFields('), v.indexOf('function AccentPicker('));
   assert.ok(sec.length > 1000);
@@ -286,4 +295,99 @@ test('مخطّط «المقاس والهوامش»: رمز QR وجدول الأ�
     assert.ok(noItems.includes(PRINT_SAMPLE_WATERMARK), `${p.id}: علامة الشاشة باقية`);
     assert.ok(paper(withLayout(p, { stamps: false })).includes(PRINT_SAMPLE_WATERMARK), `${p.id}: الأختام لا تمسّ علامة المعاينة`);
   }
+});
+
+// ─── «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦): البطاقة الرابعة ومصغّرتها ومعاينتها ومخطّطها ───
+
+test('بطاقة «نموذج الشركة المطبوع مسبقاً»: للطابعة العادية، واختيارها withDesign — والعودة منها لقالبٍ أو لثنائي اللغة تعيد الهامشين', () => {
+  const f = applyDesignCard(page(), { kind: 'preprinted' });
+  assert.equal(f.template, 'page_plain');
+  assert.equal(f.options.layout?.design, 'preprinted');
+  assert.ok(formOf(f), 'مواضع البداية');
+  assert.deepEqual([f.paper.marginTopMm, f.paper.marginBottomMm], [0, 0], 'المواضع من ركن الورقة الفعلي');
+  valid(f);
+  assert.ok(designCardSelected(f, { kind: 'preprinted' }));
+  assert.ok(!designCardSelected(f, { kind: 'grid' }));
+  assert.ok(!designCardSelected(f, { kind: 'template', t: 'page_plain' }), 'القالب الأساسي لا يبدو مختاراً تحت النموذج');
+  assert.ok(!designCardSelected(page(), { kind: 'preprinted' }));
+  // اختياره ثانيةً لا يمسّ المواضع
+  assert.equal(applyDesignCard(f, { kind: 'preprinted' }), f);
+  const back = applyDesignCard(f, { kind: 'template', t: 'page_branded' });
+  assert.equal(back.template, 'page_branded');
+  assert.notEqual(back.options.layout?.design, 'preprinted');
+  assert.ok(!back.options.layout || !('form' in back.options.layout), 'المواضع لا تنتقل إلى التصميم الحالي');
+  assert.deepEqual([back.paper.marginTopMm, back.paper.marginBottomMm], [page().paper.marginTopMm, page().paper.marginBottomMm]);
+  assert.ok(designCardSelected(back, { kind: 'template', t: 'page_branded' }));
+  const grid = applyDesignCard(f, { kind: 'grid' });
+  assert.equal(grid.options.layout?.design, 'grid_bilingual');
+  assert.ok(!('form' in grid.options.layout!));
+  valid(grid);
+  // ورقٌ بلا طول: البطاقة تُعرض (تعطّلها اللوحة برسالتها) واختيارها لا يغيّر شيئاً — لا يقبله النموذج
+  const endless: PrintProfile = { ...page(), paper: { ...page().paper, preset: 'custom', lengthMm: null } };
+  assert.ok(designCards(endless).some((c) => c.kind === 'preprinted'));
+  assert.equal(applyDesignCard(endless, { kind: 'preprinted' }), endless);
+  // المفتاح الثابت لكل بطاقة
+  assert.deepEqual(designCards(page()).map(designCardId), ['page_branded', 'page_plain', 'grid_bilingual', 'preprinted']);
+});
+
+test('فاتورة معاينة النموذج: فاتورة المعاينة نفسها بباركود كل صنفٍ وملاحظة — وفاتورة المعاينة والمستند التجريبيّ بلاهما كما هما', () => {
+  const now = new Date('2026-11-11T10:00:00Z');
+  const inv = previewInvoiceDoc(null, id, now);
+  const doc = previewFormDoc(null, id, now);
+  assert.deepEqual(doc.items.map((it) => it.barcode), ['6281000001001', '6281000001002']);
+  assert.equal(doc.notes, 'ملاحظة تجريبية');
+  const { notes: _n, items, ...rest } = doc;
+  const { items: invItems, ...invRest } = inv;
+  assert.deepEqual(rest, invRest);
+  assert.deepEqual(items.map(({ barcode: _b, ...it }) => it), invItems);
+  for (const it of inv.items) assert.ok(!('barcode' in it), 'فاتورة المعاينة بلا باركود (الحرّاس الذهبية)');
+  assert.ok(!('notes' in inv));
+  // بلا ضريبة: المستند نفسه بلا رقمٍ ضريبي ومختومٌ بلا ضريبة
+  const off = previewFormDoc({ name: 'شركة', taxDisabled: true }, id, now);
+  assert.equal(off.taxFree, true);
+  assert.ok(!off.customer.taxNumber && !off.company?.taxNumber);
+  assert.equal(off.items[0].barcode, '6281000001001');
+});
+
+test('معاينة النموذج: القالب الحقيقي بأوراقه بعرض الورق (بالمم) وفاتورته — بلا تبويب «سند قبض» — والعلامة المائية دائماً', () => {
+  const render = (p: PrintProfile) => renderToStaticMarkup(createElement(PrintPreview, { profile: p, companyName: 'شركة', brandColor: '#1e3a8a', company: null }));
+  const f = applyDesignCard(page(), { kind: 'preprinted' });
+  const h = render(f);
+  assert.ok(h.includes('data-preview="sheet"'));
+  assert.ok(h.includes('data-print-layout="preprinted"'), 'جذر النموذج في المعاينة');
+  assert.ok(h.includes(`width:${(210 * 96) / 25.4}px`), 'الورقة بعرض A4 بالمم');
+  assert.ok(!h.includes('سند قبض'), 'النموذج للفواتير وحدها');
+  assert.ok(h.includes('نموذج اختبار — ليس مستندا ضريبيا'));
+  // غير النموذج: التبويبان والعرض 794 كما كانا
+  const today = render(page());
+  assert.ok(today.includes('سند قبض') && today.includes('width:794px'));
+  const a5 = render(applyDesignCard(prof('a5', 'page', 'page_branded', 'a5'), { kind: 'preprinted' }));
+  assert.ok(a5.includes(`width:${(148 * 96) / 25.4}px`), 'A5 بعرضه');
+});
+
+test('مخطّط «المقاس والهوامش» للنموذج: مربعٌ لكل حقلٍ وشريطٌ لكل عمودٍ باسمه في موضعه — بلا مستندٍ تخطيطيّ، وبلا حقول الضريبة والرمز لشركةٍ بلا ضريبة', () => {
+  const f0 = applyDesignCard(page(), { kind: 'preprinted' });
+  let form = formOf(f0)!;
+  form = withFormField(form, f0.paper, { id: 'sellerVat' });
+  const f: PrintProfile = { ...f0, options: { ...f0.options, layout: { ...f0.options.layout!, form } } };
+  const paper = (p: PrintProfile, taxOff = false) => renderToStaticMarkup(createElement(TaxOffPrintContext.Provider, { value: taxOff },
+    createElement(PaperPreview, { profile: p, companyName: 'شركة', brandColor: '#1e3a8a' })));
+  const h = paper(f);
+  assert.ok(h.includes('data-form-schematic'));
+  for (const x of form.fields) assert.ok(h.includes(`data-field="${x.id}"`) && h.includes(FORM_FIELD_LABELS[x.id]), x.id);
+  for (const c of form.table!.columns) assert.ok(h.includes(`data-column="${c.id}"`) && h.includes(FORM_COLUMN_LABELS[c.id]), c.id);
+  assert.ok(!h.includes('صنف تجريبي') && !h.includes('فاتورة ضريبية مبسطة'), 'لا مستند تخطيطيّ فوق النموذج');
+  assert.ok(h.includes(PRINT_SAMPLE_WATERMARK));
+  const off = paper(f, true);
+  assert.ok(!off.includes('data-field="sellerVat"') && !off.includes('data-field="qr"'));
+  assert.ok(off.includes('data-field="docNumber"'));
+  // غير النموذج: المستند التخطيطيّ كما كان
+  assert.ok(!paper(page()).includes('data-form-schematic'));
+});
+
+test('مصغّرة النموذج: إطاراتٌ باهتة وقيمٌ داكنة، ومربع الرمز لشركةٍ بضريبتها وحدها', () => {
+  const t = renderToStaticMarkup(createElement(FormThumb, {}));
+  assert.ok(t.includes('data-thumb="preprinted"') && t.includes('aria-hidden="true"'));
+  assert.ok(t.includes('repeating-conic-gradient'));
+  assert.ok(!renderToStaticMarkup(createElement(FormThumb, { taxOff: true })).includes('repeating-conic-gradient'));
 });

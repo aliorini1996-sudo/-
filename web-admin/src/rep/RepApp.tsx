@@ -96,6 +96,7 @@ import { installGeoReconnect } from './geoReconnect';
 import RepTargetsCard from './RepTargetsCard';
 import { fetchMyTargets, markTargetsFetched, targetsFetchNeeded } from './repTargetsFetch';
 import type { RepTargetsData } from '../lib/repTargets';
+import { defaultFormImageLoader, formBackgroundRefsOf, prefetchFormImages } from '../lib/print/formImage';
 // داخل تطبيق أندرويد: كل طلبات الموقع تمرّ بمالكٍ يعيد فتح الاتصال إن سكت (عملية التطبيق ماتت والصفحة مفتوحة) — قبل أي طلب موقع
 installGeoReconnect();
 // المندوب الذكي كسول: لا تُحمَّل حزمته إلا لمن فُعّلت له الميزة وفتحها
@@ -1898,6 +1899,22 @@ function docItemCode(code: unknown): { code?: string } {
   return typeof code === 'string' && code.trim() ? { code: code.trim() } : {};
 }
 
+/**
+ * «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦): باركود الصنف من صفّ الكتالوج (عمود «الباركود» في النموذج)، وملاحظات
+ * الفاتورة من ردّ الخادم (حقل «الملاحظات») — ولا حقل بلا قيمة: الشكل كما كان لكل قالبٍ آخر
+ */
+function docItemBarcode(barcode: unknown): { barcode?: string } {
+  const b = typeof barcode === 'number' && Number.isFinite(barcode) ? String(barcode) : typeof barcode === 'string' ? barcode.trim() : '';
+  return b ? { barcode: b } : {};
+}
+function docNotes(notes: unknown): { notes?: string } {
+  return typeof notes === 'string' && notes.trim() ? { notes: notes.trim() } : {};
+}
+/** تاريخ الاستحقاق من ردّ الخادم (آخر قسطٍ في خطة الأقساط) — حقل «تاريخ الاستحقاق» على ورقة الإصدار كإعادة الفتح (invoiceDocFromDetail) */
+function docDueDate(due: unknown): { dueDate?: string } {
+  return typeof due === 'string' && due.trim() && !Number.isNaN(new Date(due).getTime()) ? { dueDate: due.trim() } : {};
+}
+
 /** العميل على الورقة برمزه البريدي (addrPostalCode في صفّ العميل) — يُضاف حين يوجد وحده، فيبقى العميل كما وصل لمن لا رمز له */
 function docCustomerOf<C>(c: C): C {
   const raw = c as { addrPostalCode?: unknown; postalCode?: unknown } | null | undefined;
@@ -2692,6 +2709,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       lineTotal: repCalc.items[i].lineTotal, taxAmt: repCalc.items[i].taxAmt,
       // رمز الصنف — عمود «رقم الصنف» في القالب ثنائي اللغة (كبانية إعادة الفتح)؛ غيابه لا يضيف حقلاً
       ...docItemCode(products.find(x => x.id === l.productId)?.code ?? l.code),
+      // باركود الصنف — عمود «الباركود» في «نموذج الشركة المطبوع مسبقاً»؛ غيابه لا يضيف حقلاً
+      ...docItemBarcode(products.find(x => x.id === l.productId)?.barcode),
       // المرتجع من فاتورة بيع: حالة الصلاحية كما عرضها الخادم (والخادم يقرّرها ويسجّلها عند الإصدار)
       ...(isReturn && l.shelfLife && l.expiresAt && { returnExpired: l.expiredToday ?? null, expiresAt: l.expiresAt }),
     }));
@@ -2729,6 +2748,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           paidAmt: Number(row.paidAmt ?? 0), remainingAmt: Number(row.remainingAmt ?? total),
           zatca: out.view,
           ...noteDoc(row),
+          ...docNotes(row.notes),
+          ...docDueDate(row.dueDate),
           // «إزالة الضريبة»: ختم الخادم (Invoice.taxFree) — الورقة بلا أي ذكرٍ للضريبة؛ غيابه = كما كانت
           ...(row.taxFree === true && { taxFree: true }),
         });
@@ -2788,6 +2809,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         zatca: zatcaDocView(inv),
         ...(notice && { buyerNotice: buyerNoticeText(notice, tr) }),
         ...noteDoc(inv),
+        ...docNotes(inv.notes),
+        ...docDueDate(inv.dueDate),
         // «إزالة الضريبة»: ورقة الإصدار بختم الخادم نفسه (Invoice.taxFree) كورقة إعادة الفتح (invoiceDocFromDetail)؛ غيابه = كما كانت
         ...(inv.taxFree === true && { taxFree: true }),
       });
@@ -5615,6 +5638,15 @@ export default function RepApp() {
     // تخزين دائم يقلّل طرد المتصفّح لبيانات الأوف‑لاين (أفضل جهد)
     requestPersistentStorage();
   }, [token]);
+
+  /* «نموذج الشركة المطبوع مسبقاً» بخلفيته: صورها تُجلب مسبقاً بعد إعدادات الشركة (IndexedDB بالبصمة) — فتجهز من أول طباعة وتُطبع
+   * أوف‑لاين. لا قالب بخلفية ⇒ لا جلب. والمفتاح البصمات وحدها فلا يُعاد الجلب مع كل تحديثٍ للإعدادات */
+  const formBgRefs = formBackgroundRefsOf(company?.printSettings);
+  const formBgKey = formBgRefs.map((r) => r.v).join(',');
+  useEffect(() => {
+    if (!token || !formBgKey) return;
+    void prefetchFormImages(defaultFormImageLoader(), formBgRefs);
+  }, [token, formBgKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // إعدادات الشركة تتجدّد عند العودة إلى التطبيق أو عودة الاتصال (Z5.0): مرة كل 5 دقائق على الأكثر، وفشلها صامت (يبقى الكاش)
   // وقت آخر جلب مشترك مع فتح المستند (D-G4)، والجلب نفسه مكشوف له بمرجع — خلفيّ دائماً لا ينتظره مسار طباعة

@@ -18,9 +18,13 @@ import {
   COMPLIANCE_HIDE_SECTIONS, areStampsRemoved, isItemsRemoved, isQrRemoved,
   QR_REMOVE_WARNING, ITEMS_REMOVE_WARNING, STAMPS_REMOVE_WARNING, QR_REMOVED_BADGE, QR_REMOVE_ACTION, QR_RESTORE_ACTION, STAMPS_LABEL, STAMPS_HINT,
   STAMPS_REMOVE_ACTION, STAMPS_RESTORE_ACTION, QR_FLOW_NOTE, QR_PANEL_NOTE, QR_ORPHAN_NOTE,
+  PRINT_FORM_IMAGE_MISSING_MSG, PRINT_LIMITS, deviceProfilesFor, formDesignBlock, isFormProfile, profileIssues, routingAllowsProfile, withPreset,
   type PrintProfile, type PrintSettingsV1,
 } from './printSettings';
 import * as printSettingsModule from './printSettings';
+import {
+  FORM_COLUMN_LABELS, FORM_FIELD_GROUPS, FORM_FIELD_LABELS, FORM_NOTES, FORM_VALUE_LANG_LABELS, FORM_WARNINGS, formIssues, starterForm,
+} from './formModel';
 import { PHRASES } from '../../i18n/strings';
 
 const root = process.cwd();
@@ -252,7 +256,9 @@ test('حارس (c): لا خيار طباعة يخفي أو يصغّر محتوى
   // التحرير الحرّ: خمسة مفاتيح اختيارية في مخطط التخطيط وحده. قرار المالك ٤ نوفمبر ٢٠٢٦ «كل شيء يُحذف»: رمز QR يُطبع ما لم تحذفه
   // الشركة صراحةً (sections.qr.visible = false)، ومثله الأصناف وأختام الحالة (stamps = false) — لا مفتاح «إخفاء» عامّ، والغياب = اليوم
   const layoutSchemaKeys = Object.keys((printSettingsV1Schema.shape.profiles.element.shape.options.shape.layout as unknown as { unwrap(): { shape: Record<string, unknown> } }).unwrap().shape);
-  assert.deepEqual(layoutSchemaKeys, [...layoutKeys, 'logoMm', 'logoAfter', 'sections', 'canvas', 'stamps']);
+  // و«نموذج الشركة المطبوع مسبقاً» (١٠–١١ نوفمبر ٢٠٢٦): مفتاحٌ حرّ سادس form بعد stamps — مواضع وحدها، ومعرّفات حقوله (docTitle وsellerVat…)
+  // قيمٌ في مصفوفاتٍ لا مفاتيح، فلا خيار فيه يخفي محتوىً إلزامياً (والضريبة على المعفى يقرّرها قرار الطباعة لا النموذج)
+  assert.deepEqual(layoutSchemaKeys, [...layoutKeys, 'logoMm', 'logoAfter', 'sections', 'canvas', 'stamps', 'form']);
   assert.ok(!('stamps' in defaultPrintLayout('page')) && !('stamps' in defaultPrintLayout('thermal')), 'الافتراضي بلا حذف');
   for (const k of [...schemaKeys, ...layoutSchemaKeys]) assert.ok(!FORBIDDEN.includes(k), `خيار محظور: ${k}`);
   for (const k of [...schemaKeys, ...layoutSchemaKeys]) assert.doesNotMatch(k, /qr(Hidden|Min|Off)|hide|title|tax|vat|notice|watermark|icv|uuid|seller|buyer/i, `خيار يمسّ محتوى إلزامياً: ${k}`);
@@ -282,6 +288,8 @@ test('كل تسمية ورسالة وتنبيه مترجم إلى اللغات �
     ...Object.values(ALIGN_LABELS), ...Object.values(CANVAS_BOX_LABELS), ...Object.values(CANVAS_BAND_LABELS),
     QR_REMOVE_WARNING, ITEMS_REMOVE_WARNING, STAMPS_REMOVE_WARNING, QR_REMOVED_BADGE, QR_REMOVE_ACTION, QR_RESTORE_ACTION, STAMPS_LABEL, STAMPS_HINT,
     STAMPS_REMOVE_ACTION, STAMPS_RESTORE_ACTION, QR_FLOW_NOTE, QR_PANEL_NOTE, QR_ORPHAN_NOTE,
+    PRINT_FORM_IMAGE_MISSING_MSG, ...Object.values(FORM_FIELD_LABELS), ...Object.values(FORM_COLUMN_LABELS), ...FORM_FIELD_GROUPS.map((g) => g.title),
+    ...Object.values(FORM_VALUE_LANG_LABELS), ...Object.values(FORM_WARNINGS), ...Object.values(FORM_NOTES),
   ].filter((s) => /[؀-ۿ]/.test(s));
   const missing: string[] = [];
   for (const ar of all) {
@@ -557,4 +565,106 @@ test('التنبيهات مع الحذف: رمزٌ محذوف بلا qrNoFit/pha
   }
   assert.ok(profileWarnings(narrow, { phase2: true }).warnings.includes(PRINT_WARNINGS.qrNoFit), 'بلا حذف: كما اليوم');
   assert.deepEqual(profileWarnings(withLayout(narrow, { logo: 'end' }), { phase2: true }), profileWarnings(narrow, { phase2: true }));
+});
+
+// ─── «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦) — المحرّرات والتوجيه في الواجهة ───
+
+const profileIssuesOf = (p: PrintProfile): string[] => profileIssues(p, 'p').map((i) => i.message);
+
+test('النموذج المطبوع مسبقاً: للطابعة العادية وحدها، وwithDesign يضع page_plain وورقاً بلا هامشين ومواضع البداية، والخروج يعيد الهامشين', () => {
+  assert.deepEqual([...designsFor('page')], ['standard', 'grid_bilingual', 'preprinted']);
+  assert.deepEqual([...designsFor('impact')], ['standard', 'grid_bilingual']);
+  assert.deepEqual([...designsFor('thermal')], ['standard']);
+  for (const p of [roleProfile('impact'), roleProfile('thermal'), ...legacyPrintSettings().profiles]) assert.equal(withDesign(p, 'preprinted'), p);
+  const office = profile('office', 'page', 'page_branded', 'a4');
+  const pre = withDesign(office, 'preprinted');
+  assert.equal(pre.template, 'page_plain', 'جهازٌ قديم يُسقط التخطيط فيطبع أحادياً بلا شعار');
+  assert.deepEqual([pre.paper.preset, pre.paper.widthMm, pre.paper.lengthMm, pre.paper.marginTopMm, pre.paper.marginBottomMm], ['a4', 210, 297, 0, 0]);
+  assert.equal(pre.options.layout!.design, 'preprinted');
+  assert.deepEqual(pre.options.layout!.form, starterForm(pre.paper));
+  assert.ok(pre.options.layout!.form!.fields.some((f) => f.id === 'qr'));
+  assert.ok(isFormProfile(pre) && !isFormProfile(office));
+  assert.deepEqual(profileIssuesOf(pre), []);
+  // اختياره ثانيةً لا يمسّ المواضع
+  assert.equal(withDesign(pre, 'preprinted'), pre);
+  // الخروج: هامشا المقاس الجاهز يعودان، ولا مواضع في غيره
+  for (const d of ['standard', 'grid_bilingual'] as const) {
+    const out = withDesign(pre, d);
+    assert.equal(out.options.layout!.design, d);
+    assert.ok(!('form' in out.options.layout!), d);
+    assert.deepEqual([out.paper.marginTopMm, out.paper.marginBottomMm], [10, 10], d);
+    assert.deepEqual(profileIssuesOf(out), [], d);
+  }
+  // withLayout: تصميمٌ آخر يُسقط المواضع، وتصميم النموذج بلا مواضع يأخذ مواضع البداية
+  assert.ok(!('form' in withLayout(pre, { design: 'standard' }).options.layout!));
+  assert.deepEqual(withLayout(office, { design: 'preprinted' }).options.layout!.form, starterForm(office.paper));
+  // حذف رمز QR الصريح وأختام الحالة ينتقلان إلى النموذج وحدهما (لا شعار ولا أقسام ولا لوحتان) — والبداية بلا حقل QR
+  const removed = withLayout(office, { sections: { qr: { visible: false }, info: { fontPct: 120 } }, stamps: false, logoMm: 30 });
+  const preR = withDesign(removed, 'preprinted');
+  const l = preR.options.layout!;
+  assert.deepEqual(l.sections, { qr: { visible: false } });
+  assert.equal(l.stamps, false);
+  assert.ok(!('logoMm' in l) && !('canvas' in l));
+  assert.ok(!l.form!.fields.some((f) => f.id === 'qr'));
+  assert.deepEqual(profileIssuesOf(preR), []);
+  // والعودة منه تُبقي الحذفين
+  const back = withDesign(preR, 'standard').options.layout;
+  assert.ok(isQrRemoved(back) && areStampsRemoved(back));
+  // وبلا حذفٍ ولا حقل QR: قاعدة النواة
+  const form = pre.options.layout!.form!;
+  const noQr = withLayout(pre, { form: { ...form, fields: form.fields.filter((f) => f.id !== 'qr') } });
+  assert.deepEqual(formIssues(noQr), [PRINT_ISSUES.layoutFormQrMissing]);
+});
+
+test('النموذج المطبوع مسبقاً: تغيير المقاس الجاهز يقيس المواضع بلا هامشين، وغير النموذج كما كان', () => {
+  const pre = withDesign(profile('office', 'page', 'page_branded', 'a4'), 'preprinted');
+  const a5 = withPreset(pre, 'a5');
+  assert.deepEqual([a5.paper.widthMm, a5.paper.lengthMm, a5.paper.marginTopMm, a5.paper.marginBottomMm], [148, 210, 0, 0]);
+  assert.deepEqual(profileIssuesOf(a5), []);
+  const f = a5.options.layout!.form!;
+  for (const x of f.fields) assert.ok(x.x + x.w <= 148 && x.y + x.h <= 210, x.id);
+  assert.ok(f.table && f.table.y + f.table.rows * f.table.rowMm <= 210 + 1e-9);
+  assert.deepEqual(profileIssuesOf(withPreset(a5, 'a4')), []);
+  assert.deepEqual(profileIssuesOf(withPreset(pre, 'letter')), []);
+  const std = profile('office', 'page', 'page_branded', 'a4');
+  assert.deepEqual(withPreset(std, 'a5').paper, presetPaper('a5'));
+});
+
+test('النموذج المطبوع مسبقاً: للفواتير وحدها في التوجيه واختيار الجهاز، ولا يكون PDF، و4 على الأكثر — formDesignBlock برسائل النواة', () => {
+  const pre = { ...withDesign(profile('murouj', 'page', 'page_branded', 'a4'), 'preprinted'), name: 'مروج' };
+  const s: PrintSettingsV1 = { ...fleet(), profiles: [...fleet().profiles, pre], routing: { ...fleet().routing, invoice: 'murouj' } };
+  assert.equal(checkPrintSettings(s, true).ok, true, JSON.stringify(checkPrintSettings(s, true)));
+  for (const kind of ['invoice', 'receipt', 'statement', 'notices'] as const) {
+    assert.equal(routingAllowsProfile(kind, pre), kind === 'invoice', kind);
+    assert.equal(deviceProfilesFor(s, kind).some((p) => p.id === 'murouj'), kind === 'invoice', kind);
+  }
+  // اختيار الجهاز: النموذج للفاتورة يُقبل، ولسند القبض يعود لتوجيه الشركة
+  const choose: PrintSettingsV1 = { ...s, repMayChoose: true };
+  assert.equal(profileFor(choose, 'invoice', { byKind: { invoice: 'murouj' } })?.id, 'murouj');
+  assert.equal(profileFor(choose, 'receipt', { byKind: { receipt: 'murouj' } })?.id, s.routing.receipt);
+  // الحفظ يرفض توجيهه لغير الفواتير وجعله قالب PDF
+  const bad = (x: PrintSettingsV1): string[] => { const r = checkPrintSettings(x, true); return r.ok ? [] : r.issues.map((i) => i.message); };
+  assert.ok(bad({ ...s, routing: { ...s.routing, receipt: 'murouj' } }).includes(PRINT_ISSUES.routeForm));
+  assert.ok(bad({ ...s, routing: { ...s.routing, statement: 'murouj' } }).includes(PRINT_ISSUES.routeForm));
+  assert.ok(bad({ ...s, pdfProfileId: 'murouj' }).includes(PRINT_ISSUES.pdfForm));
+  // formDesignBlock: ما يمنع اختيار التصميم قبل الحفظ — والقالب الذي هو نموذجٌ أصلاً لا يُمنع
+  assert.equal(formDesignBlock(s, 'murouj'), null);
+  assert.equal(formDesignBlock(s, 'office'), PRINT_ISSUES.pdfForm);
+  assert.equal(formDesignBlock(s, 'van-80'), PRINT_ISSUES.layoutFormPrinter);
+  assert.equal(formDesignBlock(s, 'mip480'), PRINT_ISSUES.layoutFormPrinter);
+  assert.equal(formDesignBlock(s, 'nope'), null);
+  const page2 = profile('page-2', 'page', 'page_plain', 'a4');
+  const s2: PrintSettingsV1 = { ...s, profiles: [...s.profiles, page2], routing: { ...s.routing, receipt: 'page-2' } };
+  assert.equal(formDesignBlock(s2, 'page-2'), PRINT_ISSUES.routeForm);
+  assert.equal(formDesignBlock({ ...s2, routing: { ...s2.routing, receipt: s.routing.receipt } }, 'page-2'), null);
+  // أربعة قوالب نموذج على الأكثر: الخامس يُمنع ويرفضه الحفظ
+  assert.equal(PRINT_LIMITS.maxForms, 4);
+  const forms = [1, 2, 3, 4].map((i) => ({ ...withDesign(profile(`form-${i}`, 'page', 'page_plain', 'a4'), 'preprinted'), name: `نموذج ${i}` }));
+  const four: PrintSettingsV1 = { ...s, profiles: [...fleet().profiles, ...forms, page2], routing: { ...fleet().routing, invoice: 'form-1' } };
+  assert.equal(checkPrintSettings(four, true).ok, true, JSON.stringify(checkPrintSettings(four, true)));
+  assert.equal(formDesignBlock(four, 'page-2'), PRINT_ISSUES.formsCount);
+  const five: PrintSettingsV1 = { ...four, profiles: four.profiles.map((p) => (p.id === 'page-2' ? withDesign(p, 'preprinted') : p)) };
+  assert.ok(bad(five).includes(PRINT_ISSUES.formsCount));
+  // ورسالة رفض مرجع الصورة من الخادم
+  assert.equal(printSaveErrorMessage({ response: { status: 400, data: { code: 'PRINT_FORM_IMAGE_MISSING', message: 'x' } } }), PRINT_FORM_IMAGE_MISSING_MSG);
 });

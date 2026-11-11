@@ -11,6 +11,7 @@ import { aiRepForRep } from '../ai-rep/access';
 import { cardPayTestMode, cardPayUsable } from '../services/cardPayment';
 import teamsRouter from './teams';
 import printSettingsRouter from './printSettings';
+import printFormsRouter from './printForms';
 import printTextsRouter from './printTexts';
 import returnPolicyRouter from './returnPolicy';
 import paymentMethodsConfigRouter from './paymentMethodsConfig';
@@ -24,6 +25,9 @@ router.use('/teams', teamsRouter);
 // «إعدادات الطباعة» — /api/company/print-settings (routes/printSettings.ts): القراءة لكل مسجّل والحفظ بصلاحية إعدادات الشركة.
 // مسارٌ مستقلّ لا حقلٌ في PUT /api/company — companySchema وقراءتا قفل ZATCA كما هي
 router.use('/print-settings', printSettingsRouter);
+// «النموذج المطبوع مسبقاً» — /api/company/print-forms (routes/printForms.ts): صورة نموذج الشركة الفارغ خارج صفّ الشركة؛ الرفع والحذف
+// بصلاحية «إعدادات الشركة» بلا مفتاح API، والصورة نفسها لكل مسجّل في الشركة (المندوب يطبع الخلفية). مسارٌ مستقلّ — PUT /api/company كما هو
+router.use('/print-forms', printFormsRouter);
 // «نصوص المطبوعات» — /api/company/print-texts (routes/printTexts.ts): صياغة نصوص الفاتورة والسند وإخفاؤها ولغتها الثانية.
 // مسارٌ مستقلّ كإعدادات الطباعة — PUT /api/company كما هو
 router.use('/print-texts', printTextsRouter);

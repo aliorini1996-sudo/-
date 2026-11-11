@@ -368,6 +368,20 @@ export const companyApi = {
   },
 };
 
+// «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦) — /api/company/print-forms: صورة النموذج الفارغ بعد تصحيحها
+// وقصّها في المتصفح (lib/print/formImageCompose.ts). الرفع خامٌ بنوعه (Content-Type صورة، لا base64) لمستخدم الشركة بصلاحية
+// إعدادات الشركة بلا مفتاح API: { id, v, wPx, hPx, sizeBytes } (201 جديدة، 200 الصورة نفسها مرفوعةً قبلاً) — والأخطاء برموزها
+// PRINT_FORM_TYPE/TOO_LARGE(413)/SIZE/LIMIT(409). القائمة بلا بايتات (inUse = يشير إليها قالب)، والحذف 409 PRINT_FORM_IN_USE
+// ما دام قالبٌ يشير إليها، والقراءة blob لكل مسجّل في الشركة (تخزينٌ طويل ووسم ETag بالبصمة؛ v اختياري يكسر ذاكرة المتصفح)
+export const printFormsApi = {
+  upload: (blob: Blob, mime: string, onUploadProgress?: (e: { loaded: number; total?: number }) => void) =>
+    api.post('/company/print-forms', blob, { headers: { 'Content-Type': mime }, onUploadProgress }),
+  list: () => api.get('/company/print-forms'),
+  remove: (id: string) => api.delete(`/company/print-forms/${encodeURIComponent(id)}`),
+  get: (id: string, v?: string) =>
+    api.get<Blob>(`/company/print-forms/${encodeURIComponent(id)}`, { responseType: 'blob', params: v ? { v } : undefined }),
+};
+
 // ربط فوترة ZATCA المرحلة الثانية (تبويب إعدادات الشركة) — OTP يُرسل في جسم الربط/التجديد وحدهما ولا يُحفظ في الواجهة
 export const zatcaApi = {
   overview: () => api.get('/zatca/overview'),

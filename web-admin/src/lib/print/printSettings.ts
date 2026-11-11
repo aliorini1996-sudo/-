@@ -12,15 +12,16 @@
  * zatcaPrintDecision في كل قالب، والحدّ الأدنى لكل دقة لا ينزل أبداً (حارس في الاختبار).
  */
 import {
-  DOC_KINDS, LEGACY_NAMES, LEGACY_PAGE_ID, LEGACY_THERMAL_ID, PRINT_ISSUES, TEMPLATES_BY_PRINTER, checkPrintSettings, defaultPrintLayout, defaultPrintOptions,
-  areStampsRemoved, dotsPerMm, isItemsRemoved, isLegacyPrintSettings, isQrRemoved,
-  legacyPrintSettings, legacyThermalProfile, maxPrintableDots, normalizeSectionOrder, presetPaper, routingAllowsPrinter,
+  DOC_KINDS, LEGACY_NAMES, LEGACY_PAGE_ID, LEGACY_THERMAL_ID, PRINT_ISSUES, PRINT_LIMITS, TEMPLATES_BY_PRINTER, checkPrintSettings, defaultPrintLayout, defaultPrintOptions,
+  areStampsRemoved, dotsPerMm, isFormProfile, isItemsRemoved, isLegacyPrintSettings, isQrRemoved,
+  legacyPrintSettings, legacyThermalProfile, maxPrintableDots, normalizeSectionOrder, presetPaper, routingAllowsProfile,
   sectionsFor,
   type Align, type CanvasBand, type CanvasBoxId, type SectionStyle,
   type LayoutDesign, type LogoPosition, type LogoSize, type Paper, type PaperFeed, type PaperPresetId, type PrintDocKind, type PrintLayout,
   type PrintOptions, type PrintProfile, type PrintSettingsV1, type PrinterDpi, type PrinterType, type QrSize, type SectionId, type TableStyle,
   type TemplateId,
 } from './printSettingsCore';
+import { scaleForm, starterForm } from './formModel';
 
 export * from './printSettingsCore';
 
@@ -60,9 +61,12 @@ export function printKindOf(docKind: string): PrintDocKind {
   return docKind === 'invoice' ? 'invoice' : docKind === 'receipt' ? 'receipt' : docKind === 'statement' ? 'statement' : 'notices';
 }
 
-/** القوالب التي يختار الجهاز بينها لنوع مستند — ما يصلح للنوع (لا رول لكشف الحساب ومستندات المخزون) */
+/**
+ * القوالب التي يختار الجهاز بينها لنوع مستند — ما يصلح للنوع (لا رول لكشف الحساب ومستندات المخزون، ولا «نموذج الشركة المطبوع
+ * مسبقاً» لغير الفواتير — routingAllowsProfile)
+ */
 export function deviceProfilesFor(s: PrintSettingsV1, kind: PrintDocKind): PrintProfile[] {
-  return s.profiles.filter((p) => routingAllowsPrinter(kind, p.printer));
+  return s.profiles.filter((p) => routingAllowsProfile(kind, p));
 }
 
 /** ردّ GET /company/print-settings — data خام تُطبَّع؛ stored = محفوظ صالح؛ hasCompany = صفّ الإعدادات موجود (الحفظ ممكن) */
@@ -129,7 +133,7 @@ export function profileFor(s: PrintSettingsV1, kind: PrintDocKind, device?: Devi
   const chosen = s.repMayChoose ? device?.byKind?.[kind] : undefined;
   if (typeof chosen === 'string') {
     const p = byId(chosen);
-    if (p && routingAllowsPrinter(kind, p.printer)) return p;
+    if (p && routingAllowsProfile(kind, p)) return p;
   }
   return byId(companyId);
 }
@@ -386,6 +390,8 @@ export const DOC_KIND_SHORT: Readonly<Record<PrintDocKind | 'pdf', string>> = Ob
 /** علامة كل نسخة اختبار أو معاينة (التصميم §4.14) — لا رمز ضريبي حقيقي يُطبع من الإعدادات */
 export const PRINT_SAMPLE_WATERMARK = 'نموذج اختبار — ليس مستندا ضريبيا';
 export const COMPANY_SETTINGS_MISSING_MSG = 'احفظ بيانات الشركة أولا';
+/** رفض الحفظ لمرجع صورة نموذجٍ غير محفوظةٍ للشركة (PRINT_FORM_IMAGE_MISSING من الخادم — نصّ رسالته نفسه) */
+export const PRINT_FORM_IMAGE_MISSING_MSG = 'صورة النموذج غير موجودة أو تغيّرت — ارفعها من جديد في مصمّم النموذج';
 
 /** اسم القالب للعرض: الافتراضيان منّا فيُترجمان، وما كتبته الشركة كما هو */
 export const profileDisplayName = (p: PrintProfile, tr: Tr): string => (isLegacyProfileId(p.id) || isDeviceRollId(p.id) ? tr(p.name) : p.name);
@@ -436,10 +442,18 @@ export function withPrinter(p: PrintProfile, printer: PrinterType): PrintProfile
   return { ...p, printer, template: DEFAULT_TEMPLATE[printer], paper: presetPaper(DEFAULT_PRESET[printer]) as Paper, options: { ...defaultPrintOptions(printer), footerText: p.options.footerText } };
 }
 
-/** مقاس جاهز: ورقه كاملاً — و«مخصص» يُبقي القيم الحالية بلا اسم مقاس */
+/**
+ * مقاس جاهز: ورقه كاملاً — و«مخصص» يُبقي القيم الحالية بلا اسم مقاس. و«نموذج الشركة المطبوع مسبقاً» يُقاس على الورق الجديد بنسبة
+ * العرض والطول (scaleForm) بلا هامشين (المواضع من ركن الورقة الفعلي). وتعديل العرض أو الطول يدوياً (withPaper) لا يقيس المواضع:
+ * الكتابة حرفاً حرفاً تمرّ بمقاساتٍ وسيطة — والحقل الخارج عن الورق تبلغه قاعدة النواة برسالتها.
+ */
 export function withPreset(p: PrintProfile, preset: PaperPresetId): PrintProfile {
   const paper = preset === 'custom' ? { ...p.paper, preset } : presetPaper(preset);
-  return paper ? { ...p, paper } : p;
+  if (!paper) return p;
+  const l = p.options.layout;
+  if (l?.design !== 'preprinted' || !l.form) return { ...p, paper };
+  const sheet: Paper = { ...paper, marginTopMm: 0, marginBottomMm: 0 };
+  return { ...p, paper: sheet, options: { ...p.options, layout: { ...l, form: scaleForm(l.form, p.paper, sheet) } } };
 }
 
 /** تعديل حقل ورق: العرض والطول يُخرجانه من المقاس الجاهز (يصير مخصصاً)، وغيرهما معايرةٌ تُبقي اسمه */
@@ -494,6 +508,7 @@ export function printSaveErrorMessage(err: unknown): string {
   const r = (err as { response?: { data?: { code?: string; message?: string } } } | null)?.response;
   if (r?.data?.code === 'COMPANY_SETTINGS_MISSING') return COMPANY_SETTINGS_MISSING_MSG;
   if (r?.data?.code === 'PRINT_SETTINGS_TOO_LARGE') return PRINT_ISSUES.tooLarge;
+  if (r?.data?.code === 'PRINT_FORM_IMAGE_MISSING') return PRINT_FORM_IMAGE_MISSING_MSG;
   const m = r?.data?.message;
   if (typeof m === 'string' && (Object.values(PRINT_ISSUES) as string[]).includes(m)) return m;
   return 'حدث خطأ في الحفظ';
@@ -504,9 +519,11 @@ export function printSaveErrorMessage(err: unknown): string {
 export const DESIGN_LABELS: Readonly<Record<LayoutDesign, string>> = Object.freeze({
   standard: 'التصميم الحالي',
   grid_bilingual: 'كلاسيكي بإطارات — ثنائي اللغة',
+  preprinted: 'نموذج الشركة المطبوع مسبقاً',
 });
 export const DESIGN_HINTS: Readonly<Partial<Record<LayoutDesign, string>>> = Object.freeze({
   grid_bilingual: 'إطارات كاملة وعناوين عربية وإنجليزية مثل فواتير أنظمة ERP',
+  preprinted: 'ارفع صورة نموذج فاتورتك الفارغ وضع الحقول على فراغاته فتطبع البيانات وحدها على ورقك الجاهز',
 });
 export const SECTION_LABELS: Readonly<Record<SectionId, string>> = Object.freeze({
   header: 'الترويسة',
@@ -541,8 +558,12 @@ export const CANVAS_BOX_LABELS: Readonly<Record<CanvasBoxId, string>> = Object.f
 });
 export const CANVAS_BAND_LABELS: Readonly<Record<CanvasBand, string>> = Object.freeze({ header: 'رأس الورقة', footer: 'تذييل الورقة' });
 
-/** التصاميم التي تُختار لنوع الطابعة — ثنائي اللغة للصفحة والنقطية وحدهما */
-export const designsFor = (printer: PrinterType): readonly LayoutDesign[] => (printer === 'thermal' ? ['standard'] : ['standard', 'grid_bilingual']);
+/**
+ * التصاميم التي تُختار لنوع الطابعة — ثنائي اللغة للصفحة والنقطية وحدهما، و«نموذج الشركة المطبوع مسبقاً» للطابعة العادية وحدها
+ * (layoutFormPrinter في النواة)
+ */
+export const designsFor = (printer: PrinterType): readonly LayoutDesign[] =>
+  (printer === 'thermal' ? ['standard'] : printer === 'page' ? ['standard', 'grid_bilingual', 'preprinted'] : ['standard', 'grid_bilingual']);
 
 /** تخطيط القالب الفعّال للتحرير — المحفوظ أو الافتراضي لتصميم اليوم (الغياب = مطبوعة اليوم) */
 export const layoutOf = (p: PrintProfile): PrintLayout => p.options.layout ?? defaultPrintLayout(p.printer);
@@ -562,34 +583,78 @@ export function withLayout(p: PrintProfile, patch: Partial<PrintLayout> | null):
   const merged: PrintLayout = { ...layoutOf(p), ...patch };
   const design: LayoutDesign = p.printer === 'thermal' ? 'standard' : merged.design;
   const layout: PrintLayout = { ...merged, design, order: normalizeSectionOrder(merged.order, p.printer, design) };
+  // مواضع «النموذج المطبوع مسبقاً» لتصميمه وحده (layoutFormDesign) — والمفتاح الغائب يبقى غائباً؛ وتصميمه بلا مواضع يأخذ مواضع
+  // البداية (starterForm، بلا حقل QR إن حذفته الشركة صراحةً) فلا ينتج تخطيطٌ لا يُحفظ (layoutFormMissing)
+  if (design !== 'preprinted' && 'form' in layout) delete layout.form;
+  if (design === 'preprinted' && !layout.form) layout.form = starterForm(p.paper, { withQr: !isQrRemoved(layout) });
   return { ...p, options: { ...p.options, layout } };
 }
 
 /**
  * اختيار التصميم: ثنائي اللغة يضع التصميم الأساسي للطابعة (page_plain أو impact_plain) وتخطيطه الافتراضي (شعار في الوسط وشبكة)؛
- * والعودة للتصميم الحالي تُبقي القالب ولونه وحجم شعاره بتخطيط اليوم. الرول تصميمٌ واحد فلا يتغيّر.
+ * و«نموذج الشركة المطبوع مسبقاً» (الطابعة العادية وحدها) يضع page_plain — فجهازٌ قديم لا يعرف التصميم يُسقط التخطيط ويطبع أحادياً
+ * بلا شعار — والورق بلا هامشين (المواضع من ركن الورقة الفعلي) ومواضع البداية (starterForm) بلا صورةٍ بعد، وبلا حقل رمز QR إن
+ * حذفته الشركة صراحةً؛ والعودة للتصميم الحالي تُبقي القالب ولونه وحجم شعاره بتخطيط اليوم (والخروج من النموذج يعيد هامشي المقاس
+ * الجاهز). الرول تصميمٌ واحد فلا يتغيّر.
  */
 export function withDesign(p: PrintProfile, design: LayoutDesign): PrintProfile {
   if (!designsFor(p.printer).includes(design) || isLegacyProfileId(p.id) || p.template === 'roll_classic') return p;
   const cur = p.options.layout;
+  const keep = cur ? { accent: cur.accent, logoSize: cur.logoSize } : {};
+  if (design === 'preprinted') {
+    if ((cur?.design === 'preprinted' && cur.form) || p.paper.lengthMm === null) return p;
+    const paper: Paper = { ...p.paper, marginTopMm: 0, marginBottomMm: 0 };
+    const layout = carryFree(cur, { ...defaultPrintLayout(p.printer, 'preprinted'), ...keep }, p.printer);
+    layout.form = starterForm(paper, { withQr: !isQrRemoved(layout) });
+    return { ...p, template: 'page_plain', paper, options: { ...p.options, layout } };
+  }
+  const paper = cur?.design === 'preprinted' ? paperMarginsOf(p) : p.paper;
   if (design === 'grid_bilingual') {
     const template: TemplateId = p.printer === 'impact' ? 'impact_plain' : 'page_plain';
-    const layout: PrintLayout = { ...defaultPrintLayout(p.printer, 'grid_bilingual'), ...(cur ? { accent: cur.accent, logoSize: cur.logoSize } : {}) };
-    return { ...p, template, options: { ...p.options, layout: carryFree(cur, layout, p.printer) } };
+    const layout: PrintLayout = { ...defaultPrintLayout(p.printer, 'grid_bilingual'), ...keep };
+    return { ...p, template, paper, options: { ...p.options, layout: carryFree(cur, layout, p.printer) } };
   }
   if (!cur || cur.design === 'standard') return p;
-  return { ...p, options: { ...p.options, layout: carryFree(cur, { ...defaultPrintLayout(p.printer, 'standard'), accent: cur.accent, logoSize: cur.logoSize }, p.printer) } };
+  return { ...p, paper, options: { ...p.options, layout: carryFree(cur, { ...defaultPrintLayout(p.printer, 'standard'), ...keep }, p.printer) } };
+}
+
+/**
+ * ما يمنع اختيار «نموذج الشركة المطبوع مسبقاً» لقالبٍ في هذا الإعداد (رسالة النواة نفسها التي يرفض بها الحفظ) — null إن جاز:
+ * الطابعة العادية بطول صفحة، ولا يكون قالب ملف PDF، ولا موجَّهاً لغير الفواتير، و4 قوالب نموذجٍ على الأكثر. القالب الذي هو نموذجٌ
+ * أصلاً لا يُمنع (فتحه للتعديل).
+ */
+export function formDesignBlock(s: PrintSettingsV1, profileId: string): string | null {
+  const p = s.profiles.find((x) => x.id === profileId);
+  if (!p || isFormProfile(p)) return null;
+  if (!designsFor(p.printer).includes('preprinted') || p.paper.lengthMm === null) return PRINT_ISSUES.layoutFormPrinter;
+  if (s.pdfProfileId === p.id) return PRINT_ISSUES.pdfForm;
+  if (DOC_KINDS.some((k) => k !== 'invoice' && s.routing[k] === p.id)) return PRINT_ISSUES.routeForm;
+  if (s.profiles.filter(isFormProfile).length >= PRINT_LIMITS.maxForms) return PRINT_ISSUES.formsCount;
+  return null;
+}
+
+/** هامشا المقاس الجاهز (أو المقاس الافتراضي للطابعة إن كان مخصصاً) — عند الخروج من «النموذج المطبوع مسبقاً» الذي يصفّرهما */
+function paperMarginsOf(p: PrintProfile): Paper {
+  const ref = presetPaper(p.paper.preset === 'custom' ? DEFAULT_PRESET[p.printer] : p.paper.preset) ?? presetPaper(DEFAULT_PRESET[p.printer]);
+  return ref ? { ...p.paper, marginTopMm: ref.marginTopMm, marginBottomMm: ref.marginBottomMm } : p.paper;
 }
 
 /**
  * التحرير الحرّ عبر تغيير التصميم: حجم الشعار يبقى، ومكانه المستقل وتنسيقات الأقسام تبقى ما صلحت لأقسام التصميم الجديد، واللوحتان
  * (المصمّم الحر) تسقطان — للتصميم القياسي وحده. والمفتاح الغائب يبقى غائباً (لا undefined). وحذف الشركة الصريح لرمز QR (قسمٌ
  * افتراضي في الصفحة والنقطية) ولأختام الحالة يبقى في كل تصميم — لا يعود ما حذفته الشركة بتغيير التصميم.
+ * و«نموذج الشركة المطبوع مسبقاً» لا شعار فيه ولا أقسام: يحمل الحذفين الصريحين وحدهما (رمز QR وأختام الحالة)، ومواضعه (form) لا
+ * تنتقل إلى تصميمٍ آخر ولا منه — يضعها withDesign.
  */
 function carryFree(cur: PrintLayout | undefined, next: PrintLayout, printer: PrinterType): PrintLayout {
   if (!cur) return next;
   const ids = sectionsFor(printer, next.design);
   const out: PrintLayout = { ...next };
+  if (next.design === 'preprinted') {
+    if (isQrRemoved(cur)) out.sections = { qr: { visible: false } };
+    if (cur.stamps !== undefined) out.stamps = cur.stamps;
+    return out;
+  }
   if (cur.logoMm !== undefined) out.logoMm = cur.logoMm;
   if (cur.logoAfter !== undefined && (cur.logoAfter === 'top' || ids.includes(cur.logoAfter))) out.logoAfter = cur.logoAfter;
   if (cur.sections) {

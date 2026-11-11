@@ -6,6 +6,8 @@ import {
 } from '../../lib/print/printSettings';
 import { DIRECT_PRINT_FALLBACK, DirectPrintError, PrintRefusedError } from '../../lib/print/printErrors';
 import { buildCalibrationDocument as buildCalibrationPage, sampleBannerHtml, sampleInvoiceDoc, type CalibrationOptions } from '../../lib/print/calibration';
+import { buildFormCalibration } from '../../lib/print/formCalibration';
+import { formOf } from '../../lib/print/formModel';
 import { directPath, isIosLink, linkPrinter, linkedPrinter, onLateHandoff, printerForJob, type DirectLink } from '../../lib/print/transport/direct';
 import {
   directAvailableFor, directHintFor, printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type DirectOutcome, type PrintTransport,
@@ -133,6 +135,12 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
   };
 
   const calibrate = (via: PrintTransport) => guarded(via, async (port) => {
+    /* «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦): مواضع الحقول وجدول الأصناف بالإزاحة الحالية على ورق النموذج
+     * نفسه بمسطرتين — نظام الطباعة وحده (للطابعة العادية وحدها). وغيره: صفحة المعايرة كما كانت */
+    if (!port && formOf(sysProfile)) {
+      await printHtmlDocument(buildFormCalibration(sysProfile, tr, { name, taxOff }), sysProfile.paper.widthMm);
+      return;
+    }
     if (port) return direct.run((ui) => printHtmlDirect(port, buildCalibrationDocument(profile, tr, { mode: 'raster', name }), profile, 'pages', ui), { ...directOpts(choice), label: tr('طباعة صفحة معايرة') });
     await printHtmlDocument(buildCalibrationDocument(sysProfile, tr, { mode: 'system', name }), sysProfile.paper.widthMm);
   });

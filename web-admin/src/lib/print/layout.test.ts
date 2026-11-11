@@ -13,6 +13,7 @@ import {
   type ResolvedLayout,
 } from './layout';
 import { defaultPrintOptions, legacyPrintSettings, newProfile, presetPaper, type PrintProfile } from './printSettings';
+import { fitForm, starterForm } from './formModel';
 
 const root = process.cwd();
 const read = (...p: string[]) => fs.readFileSync(path.join(root, ...p), 'utf8').replace(/\r\n/g, '\n');
@@ -150,7 +151,8 @@ test('local section defaults equal sectionsFor() in the core once it exports it'
   const ids = core.SECTION_IDS as readonly string[] | undefined;
   if (ids) for (const list of Object.values(DEFAULT_SECTIONS)) for (const id of list) assert.ok(ids.includes(id), id);
   const designs = core.LAYOUT_DESIGNS as readonly string[] | undefined;
-  if (designs) assert.deepEqual([...designs], ['standard', 'grid_bilingual']);
+  // «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦) — تصميمٌ ثالث بمواضعه (form)، ونسخته في المحرّك يحرسها ENGINE_CORE_COPIES
+  if (designs) assert.deepEqual([...designs], ['standard', 'grid_bilingual', 'preprinted']);
   const defaultPrintLayout = core.defaultPrintLayout as ((p: string, d?: string) => unknown) | undefined;
   if (typeof defaultPrintLayout === 'function') {
     // الافتراضي من النواة يمرّ في المحرّك كما هو
@@ -267,7 +269,7 @@ test('cssText: kebab-case, px for numbers except unitless props, skips empty val
 
 // ─── حرّاس المصدر ───
 
-test('layout.ts is framework-free, imports the core as types only (plus the hide reader from printSettings), and has no letterSpacing', () => {
+test('layout.ts is framework-free, imports the core as types only (plus the hide reader from printSettings and fitForm from formModel), and has no letterSpacing', () => {
   const src = read('src', 'lib', 'print', 'layout.ts');
   assert.ok(!/from 'react'|from "react"|document\.|window\./.test(src));
   assert.ok(!/letterSpacing|letter-spacing/.test(src.replace(/\/\/.*$/gm, '')));
@@ -275,6 +277,8 @@ test('layout.ts is framework-free, imports the core as types only (plus the hide
     if (m[2] === './printSettingsCore') assert.match(m[1], /^type /, 'النواة type-only');
     // قرار المالك ٤ نوفمبر ٢٠٢٦: خيار حذف الرمز يُقرأ بالمساعد الخالص وحده — لا قراءة يدوية لـsections.qr
     else if (m[2] === './printSettings') assert.equal(m[1], '{ isQrRemoved }');
+    // ومواضع «النموذج المطبوع مسبقاً» تُقصّ بالدالّة الخالصة نفسها التي يكتب بها المصمّم (fitForm)
+    else if (m[2] === './formModel') assert.equal(m[1], '{ fitForm }');
     else assert.equal(m[2], '../money');
   }
   // paper presets untouched by the engine (sanity: the helper we use in tests still exists)
@@ -503,4 +507,41 @@ test('resolveCanvas: bands, px, placed/hostOf, qr grown to qrMinMm with its band
 test('engine copies of the core free-editing constants equal printSettingsCore', async () => {
   const core = await import('./printSettingsCore') as Record<string, unknown>;
   for (const [k, v] of Object.entries(ENGINE_CORE_COPIES)) assert.deepEqual(JSON.parse(JSON.stringify(core[k])), JSON.parse(JSON.stringify(v)), k);
+});
+
+// ─── «نموذج الشركة المطبوع مسبقاً» (١٠–١١ نوفمبر ٢٠٢٦) ───
+
+test('resolveLayout: النموذج المطبوع مسبقاً يحمل مواضعه مقصوصةً (fitForm) — وبلا طابعةٍ عادية أو ورقٍ بطول أو مواضع صالحة فالتصميم القياسي', () => {
+  const form = starterForm(presetPaper('a4'));
+  const lay = (over: Record<string, unknown> = {}) => fullLayout({ design: 'preprinted', order: DEFAULT_SECTIONS.page, form, ...over });
+  const r = resolveLayout(profile('page', lay()))!;
+  assert.equal(r.design, 'preprinted');
+  assert.deepEqual(r.form, form);
+  // المواضع تُقصّ داخل الورقة كما يكتبها المصمّم، والمجهول يسقط
+  const messy = { ...form, dxMm: 99, fields: [...form.fields, { id: 'bogus', x: 1, y: 1, w: 9, h: 6 }, { ...form.fields[0], x: 500 }] };
+  const m = resolveLayout(profile('page', lay({ form: messy })))!;
+  assert.equal(m.design, 'preprinted');
+  assert.deepEqual(m.form, fitForm(messy as never, presetPaper('a4')));
+  assert.equal(m.form!.dxMm, 20);
+  assert.equal(m.form!.fields.length, form.fields.length);
+  // نموذجٌ بلا حقلٍ ولا جدول يبقى نموذجاً (أوراقٌ بلا قيم) — لا تُطبع فاتورة اليوم كاملةً فوق ورق الشركة المطبوع
+  const empty = resolveLayout(profile('page', lay({ form: { ...form, fields: [], table: null } })))!;
+  assert.equal(empty.design, 'preprinted');
+  assert.deepEqual([empty.form!.fields, empty.form!.table], [[], null]);
+  // بلا مواضع، أو مواضع معطوبة، أو على النقطية/الرول، أو على تصميمٍ آخر: لا نموذج
+  for (const [label, l, printer] of [
+    ['no form', lay({ form: undefined }), 'page'],
+    ['fields not array', lay({ form: { ...form, fields: 'x' } }), 'page'],
+    ['impact', lay(), 'impact'],
+    ['thermal', fullLayout({ design: 'preprinted', order: DEFAULT_SECTIONS.thermal, form }), 'thermal'],
+  ] as Array<[string, unknown, Printer]>) {
+    const x = resolveLayout(profile(printer, l))!;
+    assert.equal(x.design, 'standard', label);
+    assert.ok(!('form' in x), label);
+  }
+  const std = resolveLayout(profile('page', fullLayout({ form })))!;
+  assert.ok(!('form' in std), 'المواضع على التصميم القياسي لا تُحمل');
+  // ورقٌ بلا طول
+  const noLen = profile('page', lay());
+  assert.equal(resolveLayout({ ...noLen, paper: { ...noLen.paper, lengthMm: null } })!.design, 'standard');
 });

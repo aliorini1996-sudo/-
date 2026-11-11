@@ -21,6 +21,7 @@ import {
   type LayoutDesign, type PaperPresetId, type PrintLayout, type PrintProfile, type PrintSettingsV1, type PrinterType, type TemplateId,
 } from './printSettings';
 import * as printSettingsModule from './printSettings';
+import { starterForm } from './formModel';
 
 const root = process.cwd();
 const read = (...p: string[]) => fs.readFileSync(path.join(root, ...p), 'utf8').replace(/\r\n/g, '\n');
@@ -295,4 +296,37 @@ test('مستند «الربط البرمجي API» يوثّق الحذف الص�
   assert.ok(putS.rules.some((x) => x.startsWith('options.layout اختياري') && x.includes('stamps')), 'قاعدة الحفظ لا تذكر stamps');
   assert.ok(getT.rules.some((x) => x.includes('ورمز QR ليس عبارة') && x.includes('sections.qr.visible = false')), 'قاعدة النصوص تَعِد بأن الرمز يُطبع دائماً');
   assert.doesNotMatch(all, /لا يُحذف أبداً|ولا إخفاء لـitems|ولا يُخفى بها items/, 'وعدٌ بقفلٍ أزاله قرار المالك ٤ نوفمبر ٢٠٢٦');
+});
+
+// ─── «نموذج الشركة المطبوع مسبقاً» (١٠–١١ نوفمبر ٢٠٢٦): الحذوف الصريحة تُحفظ عليه كما على غيره، وحذف QR يُغني عن حقله ───
+
+test('النموذج المطبوع مسبقاً: الحفظ الصارم يقبل الحذوف الثلاثة (وبلا حقل QR مع حذفه)، والصورة القانونية ثابتة، والقراءة تُبقيها', () => {
+  const errors: string[] = [];
+  const pdf: PrintProfile = { id: 'pdf-a4', name: 'pdf', printer: 'page', template: 'page_plain', paper: presetPaper('a4')!, options: defaultPrintOptions('page') };
+  for (const h of HIDES) {
+    const paper = { ...presetPaper('a4')!, marginTopMm: 0, marginBottomMm: 0 };
+    const form = starterForm(paper, { withQr: !h.qr });
+    const p: PrintProfile = {
+      id: 'p-form', name: 'نموذج', printer: 'page', template: 'page_plain', paper,
+      options: { ...defaultPrintOptions('page'), layout: { ...defaultPrintLayout('page', 'preprinted'), ...h.extra, form } },
+    };
+    const s: PrintSettingsV1 = { version: 1, profiles: [p, pdf], routing: { invoice: p.id, receipt: null, statement: null, notices: null }, pdfProfileId: pdf.id, repMayChoose: true };
+    const r = checkPrintSettings(raw(s), true);
+    if (!r.ok) { errors.push(`${h.name}: رُفض ${JSON.stringify(r.issues)}`); continue; }
+    const l = layoutIn(r.value, p.id);
+    if (isQrRemoved(l) !== h.qr || isItemsRemoved(l) !== h.items || areStampsRemoved(l) !== h.stamps) errors.push(`${h.name}: الحذوف لم تُحمل`);
+    if (l?.order.includes('qr')) errors.push(`${h.name}: qr دخل الترتيب`);
+    if (Object.keys(l ?? {}).pop() !== 'form') errors.push(`${h.name}: form ليس آخر المفاتيح`);
+    const again = checkPrintSettings(raw(r.value), true);
+    if (!again.ok || JSON.stringify(again.value) !== JSON.stringify(r.value)) errors.push(`${h.name}: الصورة القانونية غير ثابتة`);
+    const read = readPrintSettings(raw(r.value)).settings;
+    if (JSON.stringify(layoutIn(read, p.id)) !== JSON.stringify(l)) errors.push(`${h.name}: القراءة ≠ الحفظ`);
+    // وبلا حذف QR ولا حقله ⇒ رفضٌ برسالته
+    if (!h.qr) {
+      const noQr = { ...p, options: { ...p.options, layout: { ...p.options.layout!, form: { ...form, fields: form.fields.filter((f) => f.id !== 'qr') } } } };
+      const bad = checkPrintSettings(raw({ ...s, profiles: [noQr, pdf] }), true);
+      if (bad.ok || !bad.issues.some((i) => i.message === PRINT_ISSUES.layoutFormQrMissing)) errors.push(`${h.name}: بلا QR ولا حذف قُبل`);
+    }
+  }
+  assert.deepEqual(errors, []);
 });

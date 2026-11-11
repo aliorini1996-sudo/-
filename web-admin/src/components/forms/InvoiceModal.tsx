@@ -97,6 +97,25 @@ function docGridFields(row: unknown, productId: string | null | undefined, code:
   return { ...(c ? { code: c } : {}), ...(tax !== null ? { taxAmt: tax } : {}) };
 }
 
+/**
+ * «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦): باركود الصنف من صفّ الصنف (عمود «الباركود» في النموذج)، وملاحظات
+ * الفاتورة (حقل «الملاحظات») من ردّ الخادم وإلا ممّا أُرسل — ما لا قيمة له لا يضيف حقلاً (الشكل كما كان لكل قالبٍ آخر)
+ */
+const docText = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+function docBarcode(barcode: unknown): { barcode?: string } {
+  const b = typeof barcode === 'number' && Number.isFinite(barcode) ? String(barcode) : docText(barcode);
+  return b ? { barcode: b } : {};
+}
+function docNotes(saved: unknown, sent: unknown): { notes?: string } {
+  const n = docText(saved) ?? docText(sent);
+  return n ? { notes: n } : {};
+}
+/** تاريخ الاستحقاق من ردّ الخادم (آخر قسطٍ في خطة الأقساط) — حقل «تاريخ الاستحقاق» كإعادة الفتح (invoiceDocFromDetail) */
+function docDueDate(due: unknown): { dueDate?: string } {
+  const d = docText(due);
+  return d && !Number.isNaN(new Date(d).getTime()) ? { dueDate: d } : {};
+}
+
 /** العميل على الورقة برمزه البريدي (addrPostalCode) — صندوق المشتري في القالب ثنائي اللغة؛ ولمن لا رمز له كما هو */
 function docCustomerOf(c: Customer): InvoiceDoc['customer'] {
   const raw = c as unknown as { addrPostalCode?: unknown; postalCode?: unknown };
@@ -480,6 +499,11 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
         const noteFields = typeof sent.noteReason === 'string'
           ? { billingReference: txt(inv.billingReference) ?? txt(sent.originalInvoiceRef) ?? txt(linked?.number), noteReason: txt(inv.noteReason) ?? txt(sent.noteReason) }
           : {};
+        /** صنف بند الردّ i (بموضعه، كرمز الصنف) — لباركوده في «نموذج الشركة المطبوع مسبقاً» */
+        const rowProduct = (i: number) => {
+          const pid = (Array.isArray(inv.items) ? (inv.items[i] as { productId?: string } | undefined) : undefined)?.productId;
+          return pid ? (products || []).find(p => p.id === pid) : undefined;
+        };
         const retDoc: InvoiceDoc = {
           ...noteFields,
           // InvoiceDoc.type بلا RETURN: المرتجع «آجل» بعلم isReturn كما تبنيه invoiceDocFromDetail
@@ -491,11 +515,13 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
             const row = Array.isArray(inv.items) ? inv.items[i] : undefined;
             const pid = (row as { productId?: string } | undefined)?.productId;
             return { ...it, ...docGridFields(row, pid, (products || []).find(p => p.id === pid)?.code) };
-          }),
+          }).map((it, i) => ({ ...it, ...docBarcode(rowProduct(i)?.barcode) })),
           pricesIncludeTax: inv.pricesIncludeTax === true,
           subtotal: Number(inv.subtotal), discount: Number(inv.discountAmt), tax: Number(inv.taxAmt), total: Number(inv.total),
           paidAmt: Number(inv.paidAmt ?? 0), remainingAmt: Number(inv.remainingAmt ?? 0),
           zatca: zatcaDocView(inv),
+          ...docNotes(inv.notes, notes),
+          ...docDueDate(inv.dueDate),
           // «إزالة الضريبة»: ختم المستند من ردّ الخادم (Invoice.taxFree) — الغائب = الورقة كما كانت
           ...(inv.taxFree === true && { taxFree: true }),
         };
@@ -520,13 +546,19 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
           ...(soldLots[i] && { lots: soldLots[i] }),
           // القالب ثنائي اللغة: رمز الصنف من السطر، وضريبة السطر من صفّه في الردّ (بموضعه وصنفه)
           ...docGridFields(Array.isArray(inv.items) ? inv.items[i] : undefined, l.productId, l.productCode),
+          // «نموذج الشركة المطبوع مسبقاً»: باركود الصنف من صفّه
+          ...docBarcode((products || []).find(p => p.id === l.productId)?.barcode),
         })),
         deliveryDate: deliveryDate || undefined,
         subtotal, discount: totalDiscount, tax: taxTotal, total,
         paidAmt: Number(inv.paidAmt), remainingAmt: Number(inv.remainingAmt),
+        // خطة الدفع من ردّ الخادم: «تقسيط» لا «آجل» على ورقة الحفظ كإعادة الفتح (invoiceDocFromDetail)
+        paymentPlan: inv.paymentPlan ?? null,
         /* فوترة ZATCA المرحلة الثانية (Z5.6b، نقد الخطة 6): مستند ما بعد الحفظ يُبنى هنا لا من
          * `invoiceDocFromDetail` — وبدونه تطبع اللوحة رمز المرحلة الأولى لفاتورة مختومة. */
         zatca: zatcaDocView(inv),
+        ...docNotes(inv.notes, notes),
+        ...docDueDate(inv.dueDate),
         // «إزالة الضريبة»: ختم المستند من ردّ الخادم (Invoice.taxFree) — الغائب = الورقة كما كانت
         ...(inv.taxFree === true && { taxFree: true }),
       };

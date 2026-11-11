@@ -349,8 +349,8 @@ test('التخطيط: كل قاعدة تُبلَغ برسالتها في الح�
     if (!parsed.ok) assert.equal(parsed.status, 400);
     reached.add(message);
   }
-  // قواعد المفاتيح الحرّة الأربعة في print-settings-free.test.ts
-  const all = Object.entries(PRINT_ISSUES).filter(([k]) => k.startsWith('layout') && !FREE_KEYS.has(k)).map(([, v]) => v);
+  // قواعد المفاتيح الحرّة الأربعة في print-settings-free.test.ts، وقواعد النموذج المطبوع مسبقاً (layoutForm*) في print-settings-form.test.ts
+  const all = Object.entries(PRINT_ISSUES).filter(([k]) => k.startsWith('layout') && !FREE_KEYS.has(k) && !k.startsWith('layoutForm')).map(([, v]) => v);
   assert.equal(all.length, 9);
   // التحرير الحرّ: الرول يقبل مواضع الشعار الأربعة وأشكال الجدول الثلاثة
   for (const logo of ['start', 'center', 'end', 'none'] as const) for (const tableStyle of ['lines', 'grid', 'striped'] as const) {
@@ -431,11 +431,21 @@ const stub = (r: string, exports: Record<string, unknown>): void => {
   const id = require.resolve(path.join(SRC, r));
   require.cache[id] = { id, filename: id, loaded: true, exports: { __esModule: true, ...exports }, children: [], paths: [] } as unknown as NodeJS.Module;
 };
-let st: { admin: Row | null; settings: Row | null };
+let st: { admin: Row | null; settings: Row | null; images: Row[] };
 let writes: Row[] = [];
+/** قراءات صور «النموذج المطبوع مسبقاً» (routes/printForms.ts) — الحفظ يتحقّق من كل مرجعٍ قبل الكتابة */
+let imageReads: Row[] = [];
+/** أقفال صور الشركة (pg_advisory_xact_lock) ومعاملاتها — الحفظ بمرجع صورة تحت قفل الرفع والحذف نفسه */
+let formLocks: string[] = [];
+let txDepth = 0;
+let lockedWrites = 0;
 function reset(): void {
   writes = [];
-  st = { admin: { isActive: true, canManageCompanySettings: true }, settings: { tenantId: T, name: 'شركة', printSettings: null } };
+  imageReads = [];
+  formLocks = [];
+  txDepth = 0;
+  lockedWrites = 0;
+  st = { admin: { isActive: true, canManageCompanySettings: true }, settings: { tenantId: T, name: 'شركة', printSettings: null }, images: [] };
 }
 reset();
 const db: Row = {
@@ -447,11 +457,30 @@ const db: Row = {
     },
     async updateMany(a: Row) {
       writes.push(a);
+      if (txDepth > 0 && formLocks.length > 0) lockedWrites++;
       if (!st.settings || a.where.tenantId !== st.settings.tenantId) return { count: 0 };
       // Prisma.DbNull = NULL في العمود (كما تكتبه قاعدة البيانات)
       Object.assign(st.settings, a.data, a.data.printSettings === Prisma.DbNull ? { printSettings: null } : {});
       return { count: 1 };
     },
+  },
+  printFormImage: {
+    async findMany(a: Row) {
+      imageReads.push(a);
+      return st.images
+        .filter((x) => x.tenantId === a.where.tenantId && (a.where.id.in as string[]).includes(x.id))
+        .map((x) => Object.fromEntries(Object.keys(a.select).map((k) => [k, x[k]])));
+    },
+  },
+  async $executeRaw(strings: TemplateStringsArray, ...values: unknown[]) {
+    assert.ok(txDepth > 0, 'القفل داخل المعاملة');
+    assert.match(strings.join('?'), /^SELECT pg_advisory_xact_lock\(hashtext\(\?::text\)\)$/);
+    formLocks.push(String(values[0]));
+    return 1;
+  },
+  async $transaction(fn: (tx: Row) => Promise<unknown>) {
+    txDepth++;
+    try { return await fn(db); } finally { txDepth--; }
   },
 };
 stub('config/database', { default: db });
@@ -563,6 +592,51 @@ test('حفظ كائنٍ يساوي الافتراضي: يُكتب كما هو ل
   assert.deepEqual([r.status, r.body.stored], [200, false]);
   assert.deepEqual((await call('get', {})).body, { success: true, data: legacyPrintSettings(), stored: false, hasCompany: true });
   assert.equal((await call('put', { body: fleet() })).body.stored, true);
+});
+
+test('«النموذج المطبوع مسبقاً» تشغيلاً: مرجع صورةٍ ليست للشركة (مجهولة، أو لشركةٍ أخرى، أو ببصمةٍ أو أبعادٍ أخرى) ⇒ 400 PRINT_FORM_IMAGE_MISSING بلا كتابة — والمحفوظة تمرّ، ولا قراءة بلا مرجع', async () => {
+  reset();
+  const IMG = '3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b';
+  const SHA = 'abcdef0123456789'.padEnd(64, '0');
+  const ref = { id: IMG, v: SHA.slice(0, 16), wPx: 1240, hPx: 1754 };
+  const formFleet = (image: unknown): PrintSettingsV1 => {
+    const form = {
+      image, dxMm: 0, dyMm: 0, background: false, latinDigits: true, valueLang: 'ar',
+      fields: [{ id: 'docNumber', x: 150, y: 40, w: 40, h: 6 }, { id: 'qr', x: 15, y: 250, w: 25, h: 25 }],
+      table: { y: 105, rowMm: 7, rows: 20, columns: [{ id: 'description', x: 30, w: 100 }] },
+    };
+    const p = withLayoutOf(profile({ id: 'murouj', name: 'مروج', printer: 'page', template: 'page_plain' }, 'a4'), { form } as unknown as Partial<PrintLayout>, 'preprinted' as LayoutDesign);
+    return { ...fleet(), profiles: [...fleet().profiles, p], routing: { ...fleet().routing, invoice: 'murouj' } };
+  };
+  // اليوم (بلا مرجع، أو نموذجٌ بلا صورة بعد): لا قراءة للصور
+  assert.equal((await call('put', { body: fleet() })).status, 200);
+  const noImage = await call('put', { body: formFleet(null) });
+  assert.equal(noImage.status, 200, JSON.stringify(noImage.body));
+  assert.deepEqual([imageReads.length, writes.length], [0, 2]);
+  const refused = async (why: string) => {
+    const r = await call('put', { body: formFleet(ref) });
+    assert.deepEqual([r.status, r.body.code], [400, 'PRINT_FORM_IMAGE_MISSING'], why);
+    assert.equal(r.body.issues[0].path, 'profiles[3].options.layout.form.image.id', why);
+  };
+  await refused('مجهولة');
+  st.images = [{ id: IMG, tenantId: 'T2', sha256: SHA, widthPx: 1240, heightPx: 1754 }];
+  await refused('لشركةٍ أخرى');
+  st.images = [{ id: IMG, tenantId: T, sha256: 'f'.repeat(64), widthPx: 1240, heightPx: 1754 }];
+  await refused('ببصمةٍ أخرى');
+  st.images = [{ id: IMG, tenantId: T, sha256: SHA, widthPx: 1754, heightPx: 1240 }];
+  await refused('بأبعادٍ أخرى');
+  assert.equal(writes.length, 2, 'لا كتابة عند الرفض');
+  st.images = [{ id: IMG, tenantId: T, sha256: SHA, widthPx: 1240, heightPx: 1754 }];
+  const ok = await call('put', { body: formFleet(ref) });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.deepEqual(ok.body.data.profiles[3].options.layout.form.image, ref);
+  assert.equal(writes.length, 3);
+  // قراءةٌ واحدة لكل حفظ، بالشركة وبالمعرّفات المشار إليها وحدها، بلا بايتات
+  assert.equal(imageReads.length, 5);
+  assert.deepEqual(imageReads[4], { where: { tenantId: T, id: { in: [IMG] } }, select: { id: true, sha256: true, widthPx: true, heightPx: true } });
+  // الفحص والكتابة تحت قفل صور الشركة (قفل الرفع والحذف في routes/printForms.ts) — فلا يُحذف بينهما ما يُحفظ مرجعه؛ وبلا مرجع لا قفل
+  assert.deepEqual(formLocks, Array(5).fill(`print-form:${T}`));
+  assert.equal(lockedWrites, 1, 'الكتابة بمرجعٍ داخل المعاملة المقفلة');
 });
 
 // ═══ حرّاس نصّية ═══

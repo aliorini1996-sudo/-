@@ -88,6 +88,72 @@ export function gridSheetHeightPx(p: PrintProfile): number | null {
 const GRID_SHEET_ATTR = 'data-print-layout';
 const isGridSheet = (el: Element): boolean => el.getAttribute(GRID_SHEET_ATTR) === 'grid_bilingual';
 
+// ─── «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦) ───
+// جذر القالب (FormInvoice في rep/printPreprinted.tsx، data-print-layout="preprinted") أوراقٌ بالمم من ركن الورقة الفعلي: تُطبع بمقاس
+// الورق نفسه بلا هوامش ولا تكبير (zoom 1)، بلا وسم «الأصل/نسخة» في التدفّق (ورق الشركة مطبوعٌ لا فراغ فيه له) ولا ضبط طول ورقة
+// ثنائي اللغة، والنسخ تكرّر الأوراق كلها كلٌّ في صفحاته. وثيقة كل ورقةٍ غيرها كما هي حرفاً (buildPageDocument وpagePrintGeom).
+
+/** قيمة سمة جذر النموذج المطبوع مسبقاً */
+export const FORM_SHEET_LAYOUT = 'preprinted';
+/** جذر عقدة القالب ورقةُ نموذجٍ مطبوعٍ مسبقاً */
+export const isFormSheet = (el: Pick<Element, 'getAttribute'>): boolean => el.getAttribute(GRID_SHEET_ATTR) === FORM_SHEET_LAYOUT;
+
+/** هندسة صفحة النموذج: مقاس الورقة نفسه بالمم (بلا طولٍ ⇒ 297) بلا هامشين ولا إزاحة ولا تكبير — المواضع من ركن الورقة الفعلي */
+export function formPrintGeom(p: PrintProfile): PagePrintGeom {
+  const w = r1(p.paper.widthMm);
+  const l = r1(p.paper.lengthMm ?? 297);
+  return { size: `${w}mm ${l}mm`, widthMm: w, leftMm: 0, marginTopMm: 0, marginBottomMm: 0, zoom: 1 };
+}
+
+/** @page النموذج: المقاس بالمم وهامشٌ صفر */
+export const formPageRule = (g: PagePrintGeom): string => `@page { size: ${g.size}; margin: 0; }`;
+
+/**
+ * وثيقة النموذج (نقيّة): الأنماط المنسوخة ثم @page بلا هامش ثم النسخ — كل نسخةٍ أوراق القالب كلها (فاصل الصفحة بين أوراقها من
+ * القالب نفسه) وتبدأ في صفحةٍ جديدة. بلا zoom ولا قاعدة «لا تقصّ الصفّ»: الأوراق بارتفاعٍ ثابت دون طول الصفحة.
+ */
+export function buildFormDocument(copies: readonly string[], g: PagePrintGeom, headHtml = ''): string {
+  return `<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"/>${headHtml}
+  <style>
+    ${formPageRule(g)}
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    html, body { margin: 0; padding: 0; background: #fff; }
+    .fs-form { width: ${g.widthMm}mm; margin: 0; padding: 0; }
+    .fs-copy + .fs-copy { break-before: page; page-break-before: always; }
+  </style></head><body><div class="fs-form">${copies.map((c) => `<div class="fs-copy">${c}</div>`).join('')}</div></body></html>`;
+}
+
+/** أسلوب صورة الخلفية في جذر النموذج (rep/printPreprinted.tsx — formBgCss) */
+const FORM_BG_CSS_RE = /<style data-form-bg-css="">[\s\S]*?<\/style>/g;
+
+/**
+ * صورة خلفية النموذج مرّةً في الوثيقة: أسلوبها (data URL) يُرفع من كل نسخةٍ إلى رأس الوثيقة — فلا يتكرّر الرابط بعدد النسخ (والأوراق
+ * طبقاتٌ فارغة تحمله أصلاً). بلا أسلوب: النسخ كما هي و'' (نقيّة).
+ */
+export function hoistFormBgCss(copies: readonly string[]): { copies: string[]; css: string } {
+  let css = '';
+  const out = copies.map((c) => c.replace(FORM_BG_CSS_RE, (m) => { if (!css) css = m; return ''; }));
+  return { copies: out, css };
+}
+
+/** رابط صورة الخلفية من أسلوبها المرفوع — لتُنتظر قبل الطباعة (لا <img> تنتظره settle) */
+export const formBgUrlOf = (css: string): string | null => /url\(\s*["']?(data:image\/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+)["']?\s*\)/.exec(css)?.[1] ?? null;
+
+/** صورة الخلفية قيد الجلب في عقدة النموذج (data-form-bg="loading" على الجذر) */
+const formBgLoading = (node: HTMLElement): boolean =>
+  node.getAttribute?.('data-form-bg') === 'loading' || !!node.querySelector?.('[data-print-layout="preprinted"][data-form-bg="loading"]');
+
+/**
+ * شريط «نموذج اختبار» على ورقة النموذج: مرساةٌ بلا ارتفاع أوّل الجذر والشريط فوقها مطلقاً أعلى الورقة الأولى — فلا يدفع الأوراق
+ * عن مواضعها ولا يفيض بالورقة إلى صفحةٍ ثانية كما يفعل الشريط في التدفّق.
+ */
+export const formBannerHtml = (bannerHtml: string): string =>
+  `<div data-form-banner="" style="position:relative;height:0;overflow:visible;z-index:2"><div style="position:absolute;top:1.5mm;left:0;right:0;display:flex;justify-content:center">${bannerHtml}</div></div>`;
+
+/** الشريط نفسه داخل شريط علامات القرار (data-form-marks) حين يوجد — سطرٌ أوّلٌ في تدفّقه فلا يتراكب النصّان */
+export const formMarksBannerHtml = (bannerHtml: string): string =>
+  `<div data-form-banner="" style="display:flex;justify-content:center">${bannerHtml}</div>`;
+
 export const pageRule = (g: PagePrintGeom): string =>
   `@page { size: ${g.size}; margin: ${r1(g.marginTopMm)}mm 0 ${r1(g.marginBottomMm)}mm 0; }`;
 
@@ -142,13 +208,15 @@ function headStyles(): string {
   return base + Array.from(document.querySelectorAll('head link[rel="stylesheet"], head style')).map((n) => n.outerHTML).join('');
 }
 
-async function settle(idoc: Document): Promise<void> {
+async function settle(idoc: Document, bgUrl: string | null = null): Promise<void> {
   const waitFor = (els: Array<HTMLLinkElement | HTMLImageElement>) => Promise.all(els.map((el) => new Promise<void>((resolve) => {
     el.addEventListener('load', () => resolve(), { once: true });
     el.addEventListener('error', () => resolve(), { once: true });
   })));
   const links = Array.from(idoc.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')).filter((l) => !l.sheet);
   const imgs = Array.from(idoc.images).filter((img) => !(img.complete && img.naturalWidth > 0));
+  // خلفية النموذج في أسلوبٍ لا في <img>: تُفكّ بصورةٍ خارج الوثيقة (المصدر نفسه من الذاكرة) فتُرسم قبل نافذة الطباعة
+  if (bgUrl) { const pre = idoc.createElement('img'); pre.src = bgUrl; if (!(pre.complete && pre.naturalWidth > 0)) imgs.push(pre); }
   await Promise.race([waitFor([...links, ...imgs]), new Promise<void>((resolve) => setTimeout(resolve, 2500))]);
   try { await idoc.fonts?.ready; } catch { /* خطّ النظام */ }
 }
@@ -163,7 +231,8 @@ export async function sheetReady(node: HTMLElement, timeoutMs = 4000): Promise<b
   for (;;) {
     const imgs = Array.from(node.querySelectorAll('img'));
     const qrPending = imgs.some((img) => img.alt === 'QR' && !loaded(img));
-    if (!qrPending && imgs.every(loaded)) return true;
+    // خلفية النموذج قيد الجلب (أول طباعةٍ بعد الفتح): تُنتظر في المهلة نفسها ثم يُمضى بدونها (القيم وحدها)
+    if (!qrPending && imgs.every(loaded) && !formBgLoading(node)) return true;
     if (Date.now() - start >= timeoutMs) return !qrPending;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -184,6 +253,16 @@ export function copyAnchorOf(root: Pick<ParentNode, 'children' | 'querySelector'
  */
 export function cloneWithLabel(node: HTMLElement, label: string | null, bannerHtml?: string | null, sheetHeightPx?: number | null): HTMLElement {
   const clone = node.cloneNode(true) as HTMLElement;
+  // النموذج المطبوع مسبقاً: الأوراق كما رُسمت — لا وسم في التدفّق ولا ضبط طول، والشريط التجريبيّ فوقها بلا ارتفاع
+  if (isFormSheet(clone)) {
+    if (bannerHtml) {
+      // شريط علامات القرار (data-form-marks) أعلى الورقة الأولى في موضع الشريط نفسه: الشريط داخله أوّلاً فوق العلامات لا عليها
+      const marks = clone.querySelector?.('[data-form-marks]') ?? null;
+      if (marks) marks.insertAdjacentHTML('afterbegin', formMarksBannerHtml(bannerHtml));
+      else clone.insertAdjacentHTML('afterbegin', formBannerHtml(bannerHtml));
+    }
+    return clone;
+  }
   if (sheetHeightPx && isGridSheet(clone)) clone.style.minHeight = `${sheetHeightPx}px`;
   // بعد الترويسة: المرساة الصريحة، وإلا أوّل عنصرٍ ليس أسلوب المظهر المحصور
   if (label) copyAnchorOf(clone)?.insertAdjacentHTML('afterend', copyLabelHtml(label));
@@ -199,10 +278,16 @@ export function cloneWithLabel(node: HTMLElement, label: string | null, bannerHt
  */
 export async function printPageNode(node: HTMLElement, p: PrintProfile, labels: readonly [string, string] | null, bannerHtml?: string | null): Promise<void> {
   if (!(await sheetReady(node))) throw new Error('sheet images');
-  const g = pagePrintGeom(p);
-  const sheetPx = gridSheetHeightPx(p);
+  // النموذج المطبوع مسبقاً: وثيقته بمقاس الورق بلا هوامش ولا zoom (formPrintGeom/buildFormDocument) — وغيره كما كان حرفاً
+  const form = isFormSheet(node);
+  const g = form ? formPrintGeom(p) : pagePrintGeom(p);
+  const sheetPx = form ? null : gridSheetHeightPx(p);
   const html = (label: string | null): string => cloneWithLabel(node, label, bannerHtml, sheetPx).outerHTML;
-  const doc = buildPageDocument(copiesOf(html, p.options.copies, p.options.copyLabels ? labels : null), g, headStyles());
+  // النموذج: صورة الخلفية مرّةً في رأس الوثيقة لا في كل نسخة (hoistFormBgCss)
+  const formCopies = form ? hoistFormBgCss(copiesOf(html, p.options.copies, null)) : null;
+  const doc = formCopies
+    ? buildFormDocument(formCopies.copies, g, headStyles() + formCopies.css)
+    : buildPageDocument(copiesOf(html, p.options.copies, p.options.copyLabels ? labels : null), g, headStyles());
   if (iosSystemPrintAvailable()) { await iosSystemPrint(doc, p.paper.widthMm, ''); return; }
 
   const iframe = document.createElement('iframe');
@@ -214,7 +299,7 @@ export async function printPageNode(node: HTMLElement, p: PrintProfile, labels: 
   const idoc = win?.document;
   if (!win || !idoc) { iframe.remove(); throw new Error('print frame'); }
   idoc.open(); idoc.write(doc); idoc.close();
-  await settle(idoc);
+  await settle(idoc, formCopies ? formBgUrlOf(formCopies.css) : null);
   const cleanup = () => setTimeout(() => iframe.remove(), 1000);
   win.addEventListener('afterprint', cleanup, { once: true });
   try { win.focus(); win.print(); } finally {

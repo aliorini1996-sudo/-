@@ -16,11 +16,15 @@
 //
 // الاستيراد من النواة type-only عمداً: لا يتوقف هذا الملف على ترتيب وصول حزم البناء، وقائمة الأقسام الافتراضية نسخة محلية
 // يحرسها layout.test.ts بمقارنتها مع sectionsFor() في النواة متى وُجدت.
+//
+// «نموذج الشركة المطبوع مسبقاً» (design = 'preprinted'، طلب المالك ١٠–١١ نوفمبر ٢٠٢٦): للطابعة العادية بطول صفحة وحدها، ومواضعه
+// (form) تُحمل كما يقصّها fitForm من lib/print/formModel داخل الورقة — وبلا مواضع صالحة يعود التصميم القياسي (كما يُسقطه الجهاز).
 // ============================================================================
 
-import type { PrintProfile, PrinterType, LayoutDesign, SectionId, Align, SectionStyle, CanvasBox, CanvasBoxId, CanvasBand, PrintCanvas } from './printSettingsCore';
+import type { PrintProfile, PrinterType, LayoutDesign, SectionId, Align, SectionStyle, CanvasBox, CanvasBoxId, CanvasBand, PrintCanvas, PrintForm } from './printSettingsCore';
 import { roundHalfUp } from '../money';
 import { isQrRemoved } from './printSettings';
+import { fitForm } from './formModel';
 
 export type CSSProps = Record<string, string | number>;
 
@@ -37,12 +41,17 @@ export interface ResolvedLayout {
   stamps?: boolean;
   /** سقف مجموع اللوحتين على ورقٍ قصير (A5، نصف الصفحة المتصلة) — يوجد مع canvas حين يقلّ عن 200 وحده (paperBandsTotal) */
   bandsTotalMm?: number;
+  /**
+   * «نموذج الشركة المطبوع مسبقاً»: مواضع الحقول وجدول الأصناف على ورق الشركة — يوجد مع design = 'preprinted' وحده (وبلا مواضع صالحة
+   * لا يكون التصميم 'preprinted' أبداً)
+   */
+  form?: PrintForm;
 }
 
 // ─── نسخ محلية من ثوابت النواة (C(i)) — يحرسها layout.test.ts مقابل printSettingsCore متى صدّرها ───
 
 const LEGACY_IDS: readonly string[] = ['legacy-58', 'legacy-a4'];
-const DESIGNS: readonly LayoutDesign[] = ['standard', 'grid_bilingual'] as LayoutDesign[];
+const DESIGNS: readonly LayoutDesign[] = ['standard', 'grid_bilingual', 'preprinted'] as LayoutDesign[];
 const LOGOS: readonly ResolvedLayout['logo'][] = ['start', 'center', 'end', 'none'];
 const SIZES: readonly ResolvedLayout['logoSize'][] = ['s', 'm', 'l'];
 const TABLES: readonly ResolvedLayout['tableStyle'][] = ['lines', 'grid', 'striped'];
@@ -63,7 +72,7 @@ const BOUNDS = Object.freeze({
 /** للحارس في layout.test.ts وحده — المستهلكون يستوردون الثوابت من النواة */
 export const ENGINE_CORE_COPIES = Object.freeze({
   ALIGNS: ALIGN_IDS, CANVAS_BANDS: BAND_IDS, CANVAS_BOX_IDS: BOX_IDS, CANVAS_FOOTER_ONLY: FOOTER_ONLY,
-  CANVAS_CONTENT_MM: CONTENT_MM, LAYOUT_BOUNDS: BOUNDS,
+  CANVAS_CONTENT_MM: CONTENT_MM, LAYOUT_BOUNDS: BOUNDS, LAYOUT_DESIGNS: DESIGNS,
 });
 
 /** ترتيب الأقسام الافتراضي لكل طابعة/تصميم — نسخة من sectionsFor() في النواة */
@@ -101,7 +110,10 @@ export function resolveLayout(profile: PrintProfile | null | undefined): Resolve
   const printer = profile.printer;
   const thermal = printer === 'thermal';
   // الرول: تصميم قياسي وحده (B2) — والشعار بمواضعه الأربعة وأشكال الجدول الثلاثة منذ التحرير الحرّ (pd_spec B.1/B.3)
-  const design: LayoutDesign = thermal ? 'standard' as LayoutDesign : pick(raw.design, DESIGNS, 'standard' as LayoutDesign);
+  let design: LayoutDesign = thermal ? 'standard' as LayoutDesign : pick(raw.design, DESIGNS, 'standard' as LayoutDesign);
+  // النموذج المطبوع مسبقاً: للطابعة العادية بطول صفحة ومواضع صالحة — وإلا فالتصميم القياسي (القالب يطبع تصميم اليوم)
+  const form = design === 'preprinted' ? resolveForm(raw.form, profile) : null;
+  if (design === 'preprinted' && !form) design = 'standard' as LayoutDesign;
   const grid = design === 'grid_bilingual';
   const logo = pick(raw.logo, LOGOS, grid || thermal ? 'center' : 'start');
   const tableStyle = grid ? 'grid' : pick(raw.tableStyle, TABLES, 'lines');
@@ -114,11 +126,25 @@ export function resolveLayout(profile: PrintProfile | null | undefined): Resolve
     printer,
   };
   resolveFreeKeys(out, raw as Record<string, unknown>);
+  if (form) out.form = form;
   if (out.canvas) {
     const total = paperBandsTotal((profile as { paper?: unknown }).paper);
     if (total < BOUNDS.bandsTotalMm) out.bandsTotalMm = total;
   }
   return out;
+}
+
+/**
+ * مواضع «النموذج المطبوع مسبقاً» للعرض والطباعة: الطابعة العادية بورقٍ له طول، وكائنٌ بمصفوفة حقول — مقصوصاً داخل الورقة على الشبكة
+ * (fitForm؛ متساوي القوى على ما تحفظه النواة). null ⇒ لا نموذج (التصميم القياسي). ونموذجٌ بلا حقلٍ ولا جدول يبقى نموذجاً (أوراقٌ
+ * بلا قيم): لا تُطبع فاتورة اليوم كاملةً بإطاراتها فوق ورق الشركة المطبوع.
+ */
+function resolveForm(raw: unknown, profile: PrintProfile): PrintForm | null {
+  if (profile.printer !== 'page' || !isObj(raw)) return null;
+  const paper = (profile as { paper?: unknown }).paper as { widthMm?: unknown; lengthMm?: unknown } | undefined;
+  if (!paper || !isNum(paper.widthMm) || !isNum(paper.lengthMm) || paper.widthMm <= 0 || paper.lengthMm <= 0) return null;
+  if (!Array.isArray(raw.fields)) return null;
+  return fitForm(raw as unknown as PrintForm, { widthMm: paper.widthMm, lengthMm: paper.lengthMm });
 }
 
 /**

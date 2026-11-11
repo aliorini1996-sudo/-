@@ -20,6 +20,7 @@ import {
   type PrintSettingsV1, type SectionId, type SectionStyle,
 } from './printSettings';
 import { clampBox, logoBox, logoMmBounds, resolveLayout, snapMm } from './layout';
+import { withFormField } from './formModel';
 
 /** ما يُحدَّد في المحرّر والمصمّم: قسم، أو الشعار، أو مربع في لوحة، أو لوحة */
 export type DesignSel = SectionId | 'logo' | `box:${CanvasBoxId}` | 'band:header' | 'band:footer';
@@ -128,6 +129,8 @@ export const resetSection = (p: PrintProfile, id: SectionId): PrintProfile => wi
  * والنقطية، ومدموجٌ مع تنسيق قسم الرول) ويزيل مربع QR من اللوحة إن وُجد؛ وfalse يحذف visible وحده (والنمط الفارغ يُزال). القسم
  * الحامل (الإجماليات/البيانات) لا يُمسّ أبداً — إخفاؤه وحده يُبقي الرمز يتيماً في مكانه التلقائي كاليوم. الكلاسيكي والافتراضيان كما هما.
  * الإعادة لا تعيد مربع اللوحة المحذوف: يعود الرمز إلى مكانه في التدفّق (مع الإجماليات).
+ * و«نموذج الشركة المطبوع مسبقاً»: الحذف يزيل حقل الرمز من النموذج كذلك، والإعادة تعيده بحجمه المقترح في أول موضعٍ خالٍ
+ * (withFormField) — فلزومه في النواة (layoutFormQrMissing) لا يمنع حفظ الإعادة؛ وتحريكه بعدها من المصمّم.
  */
 export function withQrRemoved(p: PrintProfile, removed: boolean): PrintProfile {
   if (!editable(p)) return p;
@@ -143,6 +146,8 @@ export function withQrRemoved(p: PrintProfile, removed: boolean): PrintProfile {
   if (Object.keys(sections).length) l.sections = sections;
   else delete l.sections;
   if (removed && l.canvas?.boxes.some((b) => b.id === 'qr')) l.canvas = { ...l.canvas, boxes: l.canvas.boxes.filter((b) => b.id !== 'qr') };
+  if (removed && l.form?.fields.some((f) => f.id === 'qr')) l.form = { ...l.form, fields: l.form.fields.filter((f) => f.id !== 'qr') };
+  if (!removed && l.design === 'preprinted' && l.form && !l.form.fields.some((f) => f.id === 'qr')) l.form = withFormField(l.form, p.paper, { id: 'qr' });
   return commit(p, l);
 }
 
@@ -403,9 +408,12 @@ export function editableClassicCopy(s: PrintSettingsV1, classicId: string, name?
 
 // ─── أخطاء المفاتيح الحرّة (للعرض بجوار الأداة) ───
 
-const FREE_PATH = /\.options\.layout\.(logoMm|logoAfter|sections|canvas|stamps)(\b|\.|\[|$)/;
+const FREE_PATH = /\.options\.layout\.(logoMm|logoAfter|sections|canvas|stamps|form)(\b|\.|\[|$)/;
 
-/** رسائل قواعد النواة للمفاتيح الحرّة وحدها (logoMm/logoAfter/sections/canvas/stamps، بلا تكرار) — [] للقالب السليم أو بلا تخطيط */
+/**
+ * رسائل قواعد النواة للمفاتيح الحرّة وحدها (logoMm/logoAfter/sections/canvas/stamps، ومواضع «النموذج المطبوع مسبقاً» form، بلا تكرار)
+ * — [] للقالب السليم أو بلا تخطيط
+ */
 export function freeIssues(p: PrintProfile): string[] {
   const out: string[] = [];
   for (const i of layoutIssues(p, 'p')) if (FREE_PATH.test(i.path) && !out.includes(i.message)) out.push(i.message);

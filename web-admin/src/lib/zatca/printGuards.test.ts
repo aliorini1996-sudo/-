@@ -455,11 +455,15 @@ test('القالب ثنائي اللغة (تخطيط المطبوعات): الق
   /* «التحرير الحرّ»: الرمز في الإجماليات مرّةً واحدة، ولا يُقطع منها (omitQr) إلا لأنّ مربع QR موضوعٌ في لوحة؛ وإن أُخفي القسم
    * الحامل ولم يوضع المربع ولم يُحذف الرمز طُبعت الكتلة نفسها يتيمةً بعد الأصناف (freeBody) */
   assert.equal((a4.match(/\{!o\?\.omitQr && qrShown\}/g) || []).length, 1, 'الرمز في القالب الحالي داخل الإجماليات مرّةً واحدة');
-  assert.equal((a4.match(/\bqrShown\b/g) || []).length, 6, 'qrShown: التعريف والثنائي والإجماليات (المحاذاة والكتلة وسقوط القسم الفارغ) واليتيم');
+  /* تحديثٌ مقصود («نموذج الشركة المطبوع مسبقاً»، طلب المالك ١٠–١١ نوفمبر ٢٠٢٦): فرعٌ سابع يمرّر البوابة نفسها إلى FormInvoice */
+  assert.equal((a4.match(/\bqrShown\b/g) || []).length, 7, 'qrShown: التعريف والثنائي والنموذج المطبوع مسبقاً والإجماليات (المحاذاة والكتلة وسقوط القسم الفارغ) واليتيم');
+  assert.match(a4, /<FormInvoice ref=\{ref\} doc=\{doc\} facts=\{\{ pt, zDecision, title: docTitle, inclusiveDoc, vatRate, noteRefs \}\} look=\{look\} layout=\{layout\} qr=\{qrShown\} \/>/);
   assert.equal((a4.match(/omitQr: [^,}]+/g) || []).join('|'), "omitQr: placed.has('qr')", 'الرمز يُقطع من الإجماليات بلا مربعٍ في لوحة');
   assert.match(a4, /\n\s*qr: qrShown,\n/);
   assert.match(s, /const orphan = isNode\(parts\.qr\) && !placed\.has\('qr'\) && \(!visible\.has\('totals'\) \|\| qrOrphan\(layout, printer, 'standard'\)\);/, 'الرمز اليتيم لا يُطبع إن أُخفيت الإجماليات');
   assert.match(s, /if \(id === 'items' && orphan\) \{/);
   const g = stripComments(read('rep/printGrid.tsx'));
   assert.doesNotMatch(g, /buildZatcaQr\s*\(|QRCode\.|data-qr-value|zatcaPrintDecision\(|buyerNotice/, 'القالب ثنائي اللغة يبني رمزاً أو قراراً');
+  const pf = stripComments(read('rep/printPreprinted.tsx'));
+  assert.doesNotMatch(pf, /buildZatcaQr\s*\(|QRCode\.|data-qr-value|zatcaPrintDecision\(|buyerNotice/, 'النموذج المطبوع مسبقاً يبني رمزاً أو قراراً');
 });
