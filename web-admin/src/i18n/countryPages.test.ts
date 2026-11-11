@@ -203,6 +203,10 @@ test('قاعدة السنة على مستوى الجملة: جملة الدول�
   assert.ok(checkCountryContent(content({ sampleInvoice: { title: 'x', fields: [{ label: 'Total', example: '$ 100' }] } }), opts)
     .some((v) => v.id === 'i18n-currency-number'), 'مثال الفاتورة بلا مبالغ');
   assert.ok(checkCountryContent(content({ intro: 'FieldSales está certificado por el SAT.' }), opts).some((v) => v.id === 'i18n-certification'));
+  // الروبية كما تُكتب في إندونيسيا («Rp») رمز عملة — لا «IDR» وحده
+  for (const s of ['Harga Rp 499.000 per bulan.', 'Harga Rp499.000.', 'Mulai 499.000 Rp.']) {
+    assert.ok(checkCountryContent(tax(s), { ...opts, code: 'id' }).some((v) => v.id === 'i18n-currency-number'), s);
+  }
   // ختم «آخر تحقق»: سنة التحقق وحدها (كما كان)
   assert.equal(stampProblem('Última verificación: noviembre de 2026', '2026-11-11'), null);
   assert.equal(stampProblem('Verificado el 11/11/2026', '2026-11-11'), null);
@@ -249,6 +253,17 @@ test('السنة أو التاريخ محجوب في كل جملة عن FieldSal
   assert.equal(selfYearViolations('O app vai emitir NF-e em 2027.', 'pt').length, 1);
   assert.equal(selfYearViolations('Kami akan terhubung ke DJP pada 2027.', 'id').length, 1);
   assert.equal(selfYearViolations('Aplikasi ini akan menerbitkan faktur pajak pada 2027.', 'id').length, 1);
+  // الاسم بفراغ أو شرطة، و«المنصة/التطبيق» مشاراً إليهما (الصفحات المنشورة تقول «A plataforma não calcula…» عن FieldSales)
+  for (const [code, s] of [
+    ['es', 'Field Sales emitirá CFDI desde 2027.'],
+    ['es', 'Field-Sales emitirá CFDI desde 2027.'],
+    ['es', 'La plataforma emitirá CFDI desde 2027.'],
+    ['es', 'La aplicación timbrará en marzo.'],
+    ['pt', 'A plataforma emitirá NF-e em 2027.'],
+    ['id', 'Platform ini akan mendukung Coretax pada 2027.'],
+  ] as const) assert.equal(selfYearViolations(s, code).length, 1, `${code}: ${s}`);
+  assert.equal(isSelfSentence('La plataforma del SAT opera desde 2014.', 'es'), false, 'منصة الجهة ليست FieldSales');
+  assert.equal(isSelfSentence('A plataforma da Receita Federal opera desde 2008.', 'pt'), false, 'منصة الجهة ليست FieldSales');
   // التاريخ بلا سنة موعدٌ أيضاً (اسم الشهر)، والتاريخ الرقمي بسنته؛ والكسر و«24/7» ليسا تاريخاً
   assert.equal(selfYearViolations('FieldSales llegará a Colombia en julio.', 'es').length, 1);
   assert.equal(selfYearViolations('O FieldSales emitirá NF-e a partir de 1/12/2027.', 'pt').length, 1);
@@ -287,7 +302,18 @@ test('ادّعاء ربط حكومي لـFieldSales خارج السعودية م
     ['pt', 'O FieldSales é credenciado pela Receita Federal.'],
     ['id', 'FieldSales terhubung langsung ke Coretax DJP.'],
     ['id', 'FieldSales adalah PJAP resmi DJP.'],
-  ] as const) assert.equal(govLinkViolations(s, code).length, 1, `${code}: ${s}`);
+    // الوعد بالربط (المستقبل والمصدر) ادّعاءٌ أيضاً
+    ['es', 'FieldSales se conectará con el SAT el próximo año.'],
+    ['es', 'Próximamente, FieldSales timbrará CFDI.'],
+    ['pt', 'O FieldSales vai se integrar à SEFAZ em breve.'],
+    ['es', 'Field Sales se conecta con el SAT.'],
+    // الجملة المدمجة عبر نقطة اختصار أو حرف واحد لا تستعير النفي أو السؤال من الجملة التالية
+    ['es', 'FieldSales se conecta con el SAT de la Fase A. No requiere instalación.'],
+    ['es', 'FieldSales es PAC de Empresa S.A. No requiere nada.'],
+    ['es', 'FieldSales se conecta con el SAT. no requiere nada'],
+    ['es', 'FieldSales se conecta con el SAT de la Fase A. ¿Y tú?'],
+    ['pt', 'O FieldSales se integra à SEFAZ na fase A. Não precisa instalar nada.'],
+  ] as const) assert.ok(govLinkViolations(s, code).length >= 1, `${code}: ${s}`);
   for (const [code, s] of [
     ['es', 'FieldSales no está conectado con la DIAN.'],
     ['es', 'La conexión de FieldSales con la DIAN está disponible bajo solicitud, sin fecha.'],

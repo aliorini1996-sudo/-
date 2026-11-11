@@ -230,11 +230,14 @@ function currencyCodes() {
   return currencyCodesCache;
 }
 
-/** رقم ملاصق (حتى 3 أحرف) لرمز عملة ISO 4217 أو لرمز $ € £ ¥ ₹ ₺ ﷼ ر.س — قبله أو بعده */
+/**
+ * رقم ملاصق (حتى 3 أحرف) لرمز عملة ISO 4217 أو لرمز $ € £ ¥ ₹ ₺ ﷼ ر.س أو Rp (الروبية كما تُكتب في إندونيسيا:
+ * «Rp 499.000» — IDR وحده كان يُفلتها عن صفحة إندونيسيا) — قبله أو بعده. «R$» يلتقطه «$».
+ */
 let currencyReCache = null;
 export function currencyNumberRe() {
   if (currencyReCache) return currencyReCache;
-  const cur = `(?:(?<![A-Za-z])(?:${currencyCodes().join('|')})(?![A-Za-z])|[$€£¥₹₺﷼]|ر\\.س)`;
+  const cur = `(?:(?<![A-Za-z])(?:${currencyCodes().join('|')}|Rp)(?![A-Za-z])|[$€£¥₹₺﷼]|ر\\.س)`;
   currencyReCache = new RegExp(`\\d[^\\n\\d]{0,3}?${cur}|${cur}[^\\n\\d]{0,3}?\\d`, 'u');
   return currencyReCache;
 }
@@ -372,7 +375,8 @@ export function checkCountryContent(c, opts = {}) {
 /**
  * لكل لغة صفحة دولة:
  *  self   — ما يجعل الجملة كلاماً عن FieldSales نفسها: الاسم، وضمير المتكلم وملكيّته، وصيغ المتكلمين (كل فعل
- *           بصيغة المتكلمين في es · pt — FIRST_PLURAL — والمستقبل وأفعال الربط)، و«التطبيق» مشاراً إليه («la app»).
+ *           بصيغة المتكلمين في es · pt — FIRST_PLURAL — والمستقبل وأفعال الربط)، و«التطبيق/المنصة» مشاراً إليهما
+ *           («la app» · «la aplicación» · «a plataforma» · «platform ini» — لا «… del SAT/da Receita»)، والاسم بفراغ.
  *  months — أسماء الشهور (التاريخ بلا سنة في جملة عن FieldSales موعدٌ أيضاً).
  *  link   — أفعال الربط والإرسال والتأهيل لدى جهة.
  *  auth   — الجهة الحكومية أو مستندها (لا ادّعاء ربط بلا جهة: «conectado a internet» ليس ادّعاءً).
@@ -380,16 +384,21 @@ export function checkCountryContent(c, opts = {}) {
  *  saudi  — الربط الحيّ الوحيد (السعودية) — ذكرها صادق.
  * لغةٌ بلا مدخل هنا لا تُنشر لها صفحة دولة (checkCountryContent يحجبها).
  */
+/** اسم المنصة كما قد يُكتب: «FieldSales» أو «Field Sales» أو «Field-Sales» — لا يفلت الاسم من القاعدة بفراغ */
+const SELF_NAME = 'Field[\\s\\u00a0-]?Sales';
+
 const COUNTRY_CLAIMS = Object.freeze({
   es: {
     self: [
-      'FieldSales', 'nosotr[oa]s', 'nuestr[oa]s?', '\\p{L}+(?:aremos|eremos|iremos)', 'vamos', 'conectamos', 'integramos', 'transmitimos', 'timbramos', 'enviamos', 'reportamos', 'somos',
-      '(?:la|esta)\\s+app(?!\\s+del?(?![\\p{L}\\p{N}]))',
+      SELF_NAME, 'nosotr[oa]s', 'nuestr[oa]s?', '\\p{L}+(?:aremos|eremos|iremos)', 'vamos', 'conectamos', 'integramos', 'transmitimos', 'timbramos', 'enviamos', 'reportamos', 'somos',
+      '(?:la|esta)\\s+(?:app|aplicaci[oó]n|plataforma)(?!\\s+del?(?![\\p{L}\\p{N}]))',
     ],
     months: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'se?ptiembre', 'octubre', 'noviembre', 'diciembre'],
     link: [
       'conectad[oa]s?\\s+(?:directamente\\s+)?(?:con|a|al)', '(?:se\\s+)?conecta(?:mos|n)?\\s+(?:directamente\\s+)?(?:con|a|al)',
       'integrad[oa]s?\\s+(?:directamente\\s+)?(?:con|a|al)', '(?:se\\s+)?integra(?:mos|n)?\\s+(?:directamente\\s+)?(?:con|a|al)',
+      // المستقبل والمصدر والشرطي («se conectará con» · «integrarse a» · «timbrará»): وعدٌ بالربط ادّعاءٌ أيضاً
+      '(?:se\\s+)?(?:conectar|integrar)\\p{L}*\\s+(?:directamente\\s+)?(?:con|a|al)', 'timbrar\\p{L}*',
       'transmit\\p{L}*', 'habilitad[oa]s?\\s+(?:por|ante)', 'autorizad[oa]s?\\s+(?:por|ante)', 'registrad[oa]s?\\s+ante',
       '(?:es|somos)\\s+(?:un\\s+)?(?:proveedor(?:es)?\\s+tecnol[oó]gicos?|PAC)', 'timbra(?:mos|n)?',
     ],
@@ -399,13 +408,15 @@ const COUNTRY_CLAIMS = Object.freeze({
   },
   pt: {
     self: [
-      'FieldSales', 'nós', 'noss[oa]s?', '\\p{L}+(?:aremos|eremos|iremos)', 'vamos', 'conectamos', 'integramos', 'transmitimos', 'enviamos', 'somos',
-      '(?:o|a|este|esta)\\s+(?:app|aplicativo)(?!\\s+d[eoa]s?(?![\\p{L}\\p{N}]))',
+      SELF_NAME, 'nós', 'noss[oa]s?', '\\p{L}+(?:aremos|eremos|iremos)', 'vamos', 'conectamos', 'integramos', 'transmitimos', 'enviamos', 'somos',
+      '(?:o|a|este|esta)\\s+(?:app|aplicativo|plataforma)(?!\\s+d[eoa]s?(?![\\p{L}\\p{N}]))',
     ],
     months: ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'],
     link: [
       'conectad[oa]s?\\s+(?:diretamente\\s+)?(?:com|[àa]o?s?)', '(?:se\\s+)?conecta(?:mos|m)?(?:-se)?\\s+(?:diretamente\\s+)?(?:com|[àa]o?s?)',
       'integrad[oa]s?\\s+(?:diretamente\\s+)?(?:com|[àa]o?s?)', '(?:se\\s+)?integra(?:mos|m)?(?:-se)?\\s+(?:diretamente\\s+)?(?:com|[àa]o?s?)',
+      // المستقبل والمصدر («vai se integrar à» · «se conectará com»): وعدٌ بالربط ادّعاءٌ أيضاً
+      '(?:se\\s+)?(?:conectar|integrar)\\p{L}*(?:-se)?\\s+(?:diretamente\\s+)?(?:com|[àa]o?s?)',
       'transmit\\p{L}*', 'credenciad[oa]s?', 'habilitad[oa]s?\\s+(?:pel[oa]s?|junto)', 'autorizad[oa]s?\\s+(?:pel[oa]s?|junto)',
       '(?:é|somos)\\s+(?:um\\s+)?provedor(?:es)?\\s+(?:tecnol[oó]gicos?|autorizad[oa]s?|credenciad[oa]s?)',
     ],
@@ -414,7 +425,7 @@ const COUNTRY_CLAIMS = Object.freeze({
     saudi: ['Ar[aá]bia\\s+Saudita', 'ZATCA'],
   },
   id: {
-    self: ['FieldSales', 'kami', 'kita', 'aplikasi\\s+ini'],
+    self: [SELF_NAME, 'kami', 'kita', '(?:aplikasi|platform)\\s+ini'],
     months: ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'],
     link: [
       'terhubung\\s+(?:langsung\\s+)?(?:ke|dengan)', 'terintegrasi\\s+(?:langsung\\s+)?(?:ke|dengan)', 'terkoneksi', 'tersambung\\s+(?:ke|dengan)',
@@ -511,14 +522,22 @@ export function selfYearViolations(text, code) {
 }
 
 /**
+ * تقطيع أدقّ لادّعاء الربط وحده: عند كل . ! ? … (وعلامة إغلاق اختيارية) يليها فراغ، بلا استثناء اختصار ولا حرف
+ * صغير. الجملة المدمجة عبر نقطة اختصار أو حرف واحد («…con el SAT de la Fase A. No requiere…» · «…S.A. ¿Y tú?»)
+ * تستعير النفي أو علامة السؤال أو ذكر السعودية من الجملة التالية فيمرّ الادّعاء — فيُفحص كل جزء أدقّ أيضاً.
+ * (للسنة الجملة المدمجة أحوط وحدها: كل جزء أدقّ داخل جملة مدمجة.)
+ */
+const fineSentencesOf = (text) => String(text ?? '').split(/(?<=[.!?…]["'»”’)\]]*)\s+|\n+/u).map((s) => s.trim()).filter(Boolean);
+
+/**
  * ادّعاء ربط حكومي: جملة عن FieldSales نفسها + فعل ربط أو تأهيل + جهة حكومية، بلا نفي ولا «عند الطلب» ولا ذكر
- * السعودية. السؤال (ينتهي بـ?) ليس ادّعاءً.
+ * السعودية. السؤال (ينتهي بـ?) ليس ادّعاءً. يُفحص في الجملة المدمجة (sentencesOf) وفي كل جزء أدقّ منها.
  */
 export function govLinkViolations(text, code) {
   const R = claimRes(code);
   if (!R) return [];
   const out = [];
-  for (const s of sentencesOf(text)) {
+  for (const s of new Set([...sentencesOf(text), ...fineSentencesOf(text)])) {
     if (/[?？]["'»”’)\]]*$/.test(s)) continue;
     if (R.self.test(s) && R.link.test(s) && R.auth.test(s) && !R.neg.test(s) && !R.saudi.test(s)) {
       out.push({ id: 'i18n-gov-link', match: s.slice(0, 60), why: I18N_RULE_WHY['i18n-gov-link'] });
