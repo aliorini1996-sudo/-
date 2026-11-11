@@ -6,6 +6,8 @@ export interface I18nViolation { id: string; match: string; why: string }
 export const NO_CERT_RULE: readonly string[];
 export const CERT_BY_LANG: Readonly<Record<string, string>>;
 export const CERT_ALL: RegExp;
+export const ENGLISH_LEXIFIER: readonly string[];
+export function englishCopies(code: string, strings: Record<string, string>, enStrings: Record<string, string>): string[];
 export function certRuleFor(code: string): RegExp | null;
 export function toAsciiDigits(s: string): string;
 export const YEAR_RE: RegExp;

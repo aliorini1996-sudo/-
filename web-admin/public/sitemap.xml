@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <sitemap><loc>https://fieldsa.net/sitemap-legacy.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
-  <sitemap><loc>https://fieldsa.net/sitemap-en.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-en.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-fr.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-tr.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-zh.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
@@ -71,6 +71,7 @@
   <sitemap><loc>https://fieldsa.net/sitemap-eu.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-gl.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-zu.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-pcm.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-yue.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-my.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-km.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
@@ -91,6 +92,18 @@
   <sitemap><loc>https://fieldsa.net/sitemap-jv.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-su.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-ceb.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-hmn.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-bo.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-dz.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-dv.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-tet.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-am.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-ha.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-yo.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-ig.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-so.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-om.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-ti.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-xh.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-st.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-tn.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
@@ -101,10 +114,43 @@
   <sitemap><loc>https://fieldsa.net/sitemap-ny.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-mg.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-rw.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-rn.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-lg.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-nyn.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-ach.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-ln.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-kg.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-lua.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-bem.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-loz.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-tum.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-wo.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-ff.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-bm.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-ak.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-ee.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-gaa.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-kri.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-zgh.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-mfe.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-crs.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
   <sitemap><loc>https://fieldsa.net/sitemap-ht.xml</loc><lastmod>2026-11-08</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-qu.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-gn.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-ay.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-mi.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-sm.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-to.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-bi.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-tpi.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-lb.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-fy.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-fo.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-kl.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-gd.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-br.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-oc.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-co.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-rm.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
+  <sitemap><loc>https://fieldsa.net/sitemap-yi.xml</loc><lastmod>2026-11-11</lastmod></sitemap>
 </sitemapindex>

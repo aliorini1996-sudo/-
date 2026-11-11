@@ -36,6 +36,9 @@ const VAT = vatMapFrom(COUNTRIES);
 
 /** حروف الكتابة العربية (تشمل الأردية والفارسية) */
 const ARABIC_SCRIPT = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+/** الفاصلة والفاصلة المنقوطة وعلامة الاستفهام العربية (، ؛ ؟) ترقيمُ خط ثانا المالديفي نفسه (Script_Extensions في يونيكود) */
+const SHARED_ARABIC_PUNCT = /[،؛؟]/g;
+const PUNCT_SHARING_SCRIPTS = new Set(['Thaa']);
 const AR_NAME = 'فيلد سيلز'; // الاسم العربي للعلامة — مسموح مرة في نبذة «من نحن»
 const withoutLangsNav = (html: string) => html.replace(/<nav data-i18n-langs[\s\S]*?<\/nav>/g, '');
 
@@ -412,7 +415,9 @@ test('كل صفحة منشورة تُصيَّر بلا خطأ: عنوان ووص
     const { types, keys } = ldScan(r.jsonld);
     assert.ok(!types.includes('Organization') && !types.some((t) => /Offer/.test(t)) && !keys.some((k) => /price/i.test(k)), `${where}: JSON-LD`);
     if (page.pageKey !== 'languages' && SCRIPTS.get(page.code) !== 'Arab') {
-      assert.doesNotMatch(withoutLangsNav(r.html).split(AR_NAME).join(''), ARABIC_SCRIPT, `${where}: حرف عربي خارج مبدّل اللغات`);
+      let text = withoutLangsNav(r.html).split(AR_NAME).join('');
+      if (PUNCT_SHARING_SCRIPTS.has(SCRIPTS.get(page.code)!)) text = text.replace(SHARED_ARABIC_PUNCT, '');
+      assert.doesNotMatch(text, ARABIC_SCRIPT, `${where}: حرف عربي خارج مبدّل اللغات`);
     }
     if (page.pageKey === 'countries') assert.equal((r.html.match(/<tr><th scope="row">/g) || []).length, 249, `${where}: صفوف الجدول`);
   }

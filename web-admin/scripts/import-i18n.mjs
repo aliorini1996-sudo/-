@@ -31,7 +31,7 @@ import {
   normalizeSlug, checkLocaleCode, i18nPages, requiredKeys, BASE_PAGES, TIER_A_PAGES, LEGACY, DEFAULT_CATEGORY_SLUG,
 } from '../src/i18n/i18nRoutes.mjs';
 import {
-  checkMarketingStrings, scriptProblems, contentHashOf, placeholdersOf, publishedEntry, NO_CERT_RULE, certRuleFor,
+  checkMarketingStrings, scriptProblems, contentHashOf, placeholdersOf, publishedEntry, NO_CERT_RULE, certRuleFor, englishCopies,
 } from './claims-i18n.mjs';
 import { RULES, findViolation } from './claims-rules.mjs';
 import { loadPricing } from './pricing-source.mjs';
@@ -266,9 +266,9 @@ for (const l of languages) {
     // قواعد المحتوى نفسها التي يطبّقها الحارس — مخالفة ⇒ لا نشر (عدا en: منشورة دائماً، فيُطبع تحذير صاخب)
     const contentReasons = [];
     if (code !== 'en') {
-      for (const k of Object.keys(strings)) {
-        if (k !== 'tierB.category.slugHint' && strings[k] === fill(en[k], derived)) contentReasons.push(`equals English: ${k}`);
-      }
+      // القاعدة نفسها في الحارس (G1) — englishCopies في claims-i18n.mjs، ومنها استثناء كريول المعجم الإنجليزي
+      const enFilled = Object.fromEntries(Object.keys(strings).map((k) => [k, fill(en[k], derived)]));
+      for (const k of englishCopies(code, strings, enFilled)) contentReasons.push(`equals English: ${k}`);
     }
     for (const v of checkMarketingStrings(strings, { code, livePrices: LIVE_PRICES })) {
       contentReasons.push(`${v.id}: ${v.key} «${v.match}»`);
