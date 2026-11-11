@@ -22,7 +22,7 @@ import * as claimsRules from './claims-rules.mjs';
 import { fetchPublicCms, postUrl } from './cms-content.mjs';
 // الطبقة متعددة اللغات (spec-b §٧): المسارات والعناقيد من i18nRoutes.mjs وحدها، وHTML الصفحة من القالب المشترك
 // الذي يرسمه React حرفياً بعد الإقلاع (I18nMarketingPage.tsx) — لا نسخة ثانية هنا.
-import { i18nPages, clusterAlternates, canon as i18nCanon } from '../src/i18n/i18nRoutes.mjs';
+import { i18nPages, clusterAlternates, canon as i18nCanon, withCountryPages, countryOfPageKey } from '../src/i18n/i18nRoutes.mjs';
 import { renderI18nPage, vatMapFrom } from '../src/i18n/marketingTemplate.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -353,7 +353,8 @@ function articleJsonLd(a, lang, canonical) {
 async function main() {
   // السجل المنشور للطبقة متعددة اللغات قبل أي كتابة: منه عناقيد الرئيسيات وabout وcontact (§٣) وصفحات القسم 3ج.
   // غيابه يوقف البناء هنا (ملف ملتزم يولّده scripts/import-i18n.mjs) بدل عناقيد تختلف عن الخريطة.
-  const I18N = readJson('src/i18n/registry/published.json');
+  // ومعه فهرس صفحات الدول (country-pages.json — import-country-i18n.mjs) مدموجاً بـwithCountryPages وحدها.
+  const I18N = withCountryPages(readJson('src/i18n/registry/published.json'), readJson('src/i18n/registry/country-pages.json'));
   // محتوى CMS أولاً وبمحاولات متكرّرة: تعذّره الكلّي يوقف البناء قبل أن يُكتب شيء في dist.
   // والمصحَّح لا الخام: كل ما يلي (المقالات وأسئلة الرئيسية) يقرأ النص المنشور نفسه الذي يرسمه React.
   const { data: cms, fixes: cmsFixes, version: fixesVersion } = await fetchCms();
@@ -643,11 +644,16 @@ ${enFaqHtml}
     return fileCache.get(code);
   };
   let i18nCount = 0;
+  let countryCount = 0;
   for (const page of i18nPages(I18N)) {
+    // صفحة دولة (country:<CC>): محتواها من src/content/country-pages/<CC>.json (نسخة حرفية من المصنع)
+    const cc = countryOfPageKey(page.pageKey);
     const r = renderI18nPage({
       page, reg: I18N, file: page.pageKey === 'languages' ? undefined : fileOf(page.code),
       world: page.pageKey === 'countries' ? i18nWorld : undefined, vatByCode,
+      country: cc ? readJson(`src/content/country-pages/${cc}.json`) : undefined,
     });
+    if (cc) countryCount++;
     // canonical ذاتي بشرطة أخيرة — القالب والمسارات من الوحدة نفسها، فاختلافهما عطل في أحدهما لا يُكتب صامتاً
     if (r.canonical !== i18nCanon(ORIGIN + page.path)) throw new Error(`canonical ${r.canonical} لا يطابق مسار الصفحة ${page.path}`);
     writeRoute(page.path, buildPage({
@@ -659,7 +665,7 @@ ${enFaqHtml}
     n++;
     i18nCount++;
   }
-  console.log(`  الطبقة متعددة اللغات: ${i18nCount} صفحة لـ${I18N.locales.length} لغة منشورة${I18N.simulated ? ' (⚠️ محاكاة — لا تُلتزم)' : ''}`);
+  console.log(`  الطبقة متعددة اللغات: ${i18nCount} صفحة (منها ${countryCount} صفحة دولة) لـ${I18N.locales.length} لغة منشورة${I18N.simulated ? ' (⚠️ محاكاة — لا تُلتزم)' : ''}`);
 
   // بيانات منظّمة للأدوات المجانية (WebApplication + FAQPage) — تُحقن في صفحتيهما الثابتتين لنتائج غنية وGEO
   const toolJsonLd = (L, name, url, faq) => ({

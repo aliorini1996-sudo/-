@@ -1,0 +1,200 @@
+{
+  "code": "MX",
+  "languages": [
+    "es"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "es": {
+      "slugHint": "software-preventa-venta-en-ruta-mexico",
+      "title": "Software de preventa y venta en ruta en México | FieldSales",
+      "description": "Preventa, venta en ruta y cobranza para distribuidoras en México: notas de venta desde el celular, impresión térmica, IVA configurable y modo sin conexión.",
+      "h1": "FieldSales para distribuidoras en México: preventa, venta en ruta y cobranza",
+      "intro": "FieldSales es una plataforma en la nube para distribuidoras y mayoristas en México que trabajan con vendedores de ruta: preventa, autoventa en ruta, cobranza y control del inventario de cada unidad. El vendedor levanta pedidos, emite notas de venta desde su celular, las imprime en impresora térmica y registra cobros en efectivo o por transferencia, incluso sin señal. Tú configuras el peso mexicano y la tasa de IVA que aplica tu empresa. FieldSales no timbra CFDI; tu empresa lo sigue emitiendo con su PAC.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "Así se distribuye en México: canal tradicional, rutas y efectivo",
+          "body": "El mercado mexicano está fragmentado y tiene un canal tradicional con muchas tiendas pequeñas e independientes: tiendas de abarrotes, tienditas y misceláneas. A ellas se suman las tiendas de conveniencia como OXXO, las farmacias y los restaurantes. Según la ANPEC, el pequeño comercio es el sustento de cinco millones de mexicanos. Las principales zonas industriales están en el triángulo Ciudad de México–Guadalajara–Monterrey, unido por la red de autopistas; fuera de él, el transporte terrestre es más complicado (U.S. International Trade Administration). En la venta en ruta se distinguen dos esquemas: la preventa, en la que el vendedor toma el pedido y la mercancía se entrega después, y la autoventa en ruta o venta en ruta, en la que el vendedor de ruta vende y entrega desde la unidad. El ruteo, es decir, la planeación de rutas, define qué clientes visita cada vendedor y en qué orden. En tiendas de abarrotes, restaurantes y farmacias el efectivo sigue pesando mucho, y conviven con él la transferencia SPEI, el pago en efectivo en OXXO con referencia y la tarjeta de débito o crédito."
+        },
+        {
+          "id": "tax",
+          "title": "IVA, RFC y datos de la factura en México",
+          "body": "En México, el Impuesto al Valor Agregado (IVA) lo administra el Servicio de Administración Tributaria (SAT) y se declara y paga mensualmente. La tasa general es 16%. La tasa 0% (artículo 2-A de la Ley del IVA) aplica a ciertos alimentos básicos, medicinas, exportación de bienes y algunos servicios, bienes y servicios del sector agropecuario, venta y arrendamiento de maquinaria agrícola, y libros, revistas y periódicos editados por el propio contribuyente; no todos los alimentos entran en la tasa 0%, y los que quedan fuera causan 16%. En la región fronteriza norte y sur existe un estímulo fiscal que acredita el 50% del IVA y deja una tasa efectiva de 8%: solo lo aplica el contribuyente con domicilio fiscal o sucursal en los municipios señalados, inscrito con aviso previo en el padrón de beneficiarios del SAT, y por operaciones realizadas en esa región; quedan fuera la enajenación de inmuebles, intangibles y contenidos digitales. Su vigencia actual llega al 31 de diciembre de 2026, según el decreto publicado en el DOF el 31 de diciembre de 2025, y hasta ahora no se ha confirmado una prórroga. Muchos productos que se distribuyen a las tienditas causan además el IEPS, entre ellos las bebidas saborizadas, los alimentos no básicos con alta densidad calórica (8%), los tabacos y las bebidas alcohólicas. El identificador fiscal es el RFC (Registro Federal de Contribuyentes): 13 caracteres para personas físicas y 12 para personas morales, formados por letras del nombre o razón social, la fecha de nacimiento o constitución y la homoclave; quien realiza actividades gravadas o debe emitir CFDI tiene que inscribirse (artículo 27 del Código Fiscal de la Federación). El CFDI 4.0 lleva, entre otros datos, el RFC, nombre y régimen fiscal del emisor; el RFC, nombre tal como aparece ante el SAT, código postal, régimen fiscal y uso del CFDI del receptor; la clave de producto o servicio por concepto; los impuestos trasladados desglosados; el método y la forma de pago, y la moneda. En FieldSales configuras la moneda (MXN), el nombre del impuesto (IVA) y la tasa que aplica tu empresa; determinar la tasa correcta para tu caso corresponde a tu empresa y a su contador. FieldSales no calcula el IEPS ni presenta declaraciones."
+        },
+        {
+          "id": "einvoicing",
+          "title": "Factura electrónica CFDI 4.0: lo que exige el SAT",
+          "body": "En México la factura electrónica es obligatoria. El CFDI 4.0 (Comprobante Fiscal Digital por Internet) funciona con un modelo de validación previa: todos los contribuyentes, personas físicas y morales, lo emiten en XML para operaciones entre empresas, con consumidores y con el gobierno, y la factura solo tiene validez fiscal cuando un PAC la valida, la timbra en tiempo real y la envía al SAT (EDICOM; Invopop). El CFDI fue obligatorio primero para grandes contribuyentes en 2011 y se generalizó a todos en 2014; desde el 1 de abril de 2023, la versión 4.0 es la única válida (Invopop). Desde 2022, el traslado de mercancías requiere en ciertos casos un CFDI con complemento Carta Porte, que indica origen, puntos intermedios, destino y medio de transporte (PwC); conviene confirmar con tu asesor si aplica a tus rutas. La reforma al Código Fiscal de la Federación para 2026 exige que cada factura ampare operaciones reales; de lo contrario puede considerarse falsa y su emisor puede ser exhibido (PwC). En ventas a crédito o en parcialidades (PPD), cada cobro posterior exige un CFDI con complemento de pago (REP) a más tardar el día 5 del mes siguiente al cobro (Invopop). Y cuando un cliente del público en general no pide factura, sus compras se agrupan en un CFDI global al RFC genérico XAXX010101000, con periodicidad diaria, semanal, quincenal, mensual o bimestral. FieldSales no emite ni timbra CFDI: sus notas de venta y recibos son documentos operativos para el vendedor y la oficina, y no sustituyen el CFDI 4.0 que tu empresa emite con su PAC. La integración de facturación electrónica para México está disponible bajo solicitud, después de estudiar los requisitos del país y sin compromiso de fecha. Hoy, la única integración gubernamental activa de FieldSales es la de Arabia Saudita."
+        },
+        {
+          "id": "collections",
+          "title": "Cobranza en ruta: efectivo, SPEI, OXXO y saldos de clientes",
+          "body": "En ruta el efectivo pesa mucho, pero también se cobra por transferencia SPEI, que opera Banco de México en tiempo real y se puede comprobar con el Comprobante Electrónico de Pago (CEP) en el sitio de Banxico, con pagos en efectivo en OXXO mediante referencia y con tarjeta de débito o crédito. En FieldSales das de alta estas formas de pago, incluidas formas personalizadas como «Transferencia SPEI» o «Pago en OXXO», y el vendedor elige la que corresponde al emitir el recibo de cobro. FieldSales registra el cobro y actualiza el saldo del cliente; el dinero se mueve por tu banco o por el comercio donde se paga. Así, la oficina consulta los saldos pendientes de cada cliente y lo cobrado por cada vendedor. Si vendes a crédito, recuerda que cada cobro de una factura PPD requiere un complemento de pago, que tu empresa emite con su PAC."
+        },
+        {
+          "id": "how",
+          "title": "Cómo funciona FieldSales en México",
+          "body": "En la configuración eliges la moneda (peso mexicano, MXN), el nombre del impuesto (IVA) y la tasa que aplica tu empresa, por ejemplo 16% o 0%; si tu empresa reúne los requisitos del estímulo fronterizo, puede capturar 8% mientras el estímulo esté vigente, pero FieldSales no valida esa elegibilidad ni aplica la tasa de forma automática. Cada vendedor trabaja desde la app en Android o iPhone: sigue su ruta, registra visitas con ubicación y fotos, toma pedidos de preventa o vende desde la unidad, y cobra. Si se queda sin señal, la app sigue funcionando y sincroniza cuando vuelve la conexión. Las notas de venta y los recibos se imprimen en impresora térmica desde el celular. El inventario cargado en cada unidad queda bajo la responsabilidad del vendedor y se concilia contra lo vendido. La oficina supervisa rutas, ventas, cobros y saldos desde el panel web. La interfaz de la aplicación está disponible en árabe, inglés, francés, turco y chino; no incluye español. FieldSales tiene su sede en Riad, Arabia Saudita."
+        }
+      ],
+      "faq": [
+        {
+          "q": "¿FieldSales emite CFDI 4.0 timbrado?",
+          "a": "No. FieldSales no emite ni timbra CFDI. Las notas de venta y los recibos que genera son documentos operativos y no sustituyen el CFDI 4.0 que tu empresa emite con su PAC. La integración de facturación electrónica para México está disponible bajo solicitud: primero estudiamos los requisitos del país, sin comprometernos con una fecha ni con un resultado."
+        },
+        {
+          "q": "¿La app funciona sin internet durante la ruta?",
+          "a": "Sí. El vendedor puede tomar pedidos, emitir notas de venta y registrar cobros sin conexión; la información se sincroniza en cuanto el celular recupera la señal."
+        },
+        {
+          "q": "¿Cómo registro un cobro por transferencia SPEI o un pago en OXXO?",
+          "a": "Das de alta formas de pago personalizadas, por ejemplo «Transferencia SPEI» o «Pago en OXXO», y el vendedor elige la que corresponde al emitir el recibo de cobro. FieldSales registra el cobro y actualiza el saldo del cliente; el pago en sí se hace por medio del banco o en la tienda OXXO."
+        },
+        {
+          "q": "Mi empresa está en la frontera norte o sur. ¿Puedo usar la tasa de IVA de 8%?",
+          "a": "Sí, mientras el estímulo esté vigente: puedes capturar 8% si tu empresa reúne los requisitos del estímulo fronterizo y está inscrita en el padrón de beneficiarios del SAT, y solo para operaciones realizadas en la región fronteriza. FieldSales no verifica la elegibilidad ni aplica la tasa automáticamente. Es un estímulo temporal, así que confirma su vigencia con tu contador antes de usarlo."
+        },
+        {
+          "q": "¿Sirve tanto para preventa como para autoventa en ruta?",
+          "a": "Sí. En preventa el vendedor levanta el pedido y la entrega se hace después; en autoventa en ruta vende y entrega desde la unidad. En ambos casos sigue su ruta y registra visitas con ubicación y fotos, así como los cobros; en autoventa en ruta, además, el inventario de la unidad se concilia contra lo vendido."
+        },
+        {
+          "q": "¿La aplicación está en español?",
+          "a": "No. La interfaz de FieldSales está disponible en árabe, inglés, francés, turco y chino; el español no está entre sus idiomas."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Estructura de referencia de un CFDI 4.0",
+        "note": "Ejemplo de estructura, sin importes. Este comprobante lo timbra el PAC de tu empresa; la nota de venta de FieldSales no lo sustituye.",
+        "fields": [
+          {
+            "label": "Versión",
+            "example": "4.0"
+          },
+          {
+            "label": "Emisor",
+            "example": "RFC, nombre o razón social y régimen fiscal"
+          },
+          {
+            "label": "Receptor",
+            "example": "RFC, nombre tal como aparece ante el SAT, código postal del domicilio fiscal, régimen fiscal y uso del CFDI"
+          },
+          {
+            "label": "Lugar y fecha de expedición",
+            "example": "Código postal del lugar de expedición y fecha de emisión"
+          },
+          {
+            "label": "Conceptos",
+            "example": "Cantidad, unidad, descripción, clave de producto o servicio (ClaveProdServ), valor unitario e importe"
+          },
+          {
+            "label": "Impuestos trasladados",
+            "example": "IVA desglosado por concepto, por ejemplo tasa 16%"
+          },
+          {
+            "label": "Método de pago",
+            "example": "PUE (pago en una sola exhibición) o PPD (pago en parcialidades o diferido)"
+          },
+          {
+            "label": "Forma de pago",
+            "example": "Clave del catálogo c_FormaPago; 99 «Por definir» en facturas PPD"
+          },
+          {
+            "label": "Moneda",
+            "example": "MXN; tipo de cambio si se factura en otra moneda"
+          },
+          {
+            "label": "Exportación",
+            "example": "Clave que indica si la operación es de exportación"
+          },
+          {
+            "label": "Timbre fiscal",
+            "example": "Folio fiscal (UUID), sello digital del SAT y número de CSD del emisor, generados al timbrar con el PAC"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "Servicio de Administración Tributaria (SAT)",
+          "url": "https://www.sat.gob.mx"
+        },
+        {
+          "title": "SAT — Preguntas y respuestas sobre el Anexo 20 versión 4.0",
+          "url": "http://omawww.sat.gob.mx/tramitesyservicios/Paginas/documentos/PregFrecCFDIVer4_0.pdf"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Mexico: Other taxes",
+          "url": "https://taxsummaries.pwc.com/mexico/corporate/other-taxes"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Mexico: Tax credits and incentives",
+          "url": "https://taxsummaries.pwc.com/mexico/corporate/tax-credits-and-incentives"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Mexico: Tax administration",
+          "url": "https://taxsummaries.pwc.com/mexico/corporate/tax-administration"
+        },
+        {
+          "title": "AMCP — Flash No. 55: decreto DOF 31-12-2025, estímulos fronterizos",
+          "url": "https://amcpdf.org.mx/?p=281908"
+        },
+        {
+          "title": "OECD — Mexico: Information on Tax Identification Numbers (RFC)",
+          "url": "https://www.oecd.org/content/dam/oecd/en/topics/policy-issue-focus/aeoi/mexico-tin.pdf"
+        },
+        {
+          "title": "Invopop — Mexico e-invoicing coverage",
+          "url": "https://invopop.com/coverage/mexico.md"
+        },
+        {
+          "title": "Invopop Docs — Mexico (CFDI)",
+          "url": "https://docs.invopop.com/compliance/mexico"
+        },
+        {
+          "title": "EDICOM — Electronic Invoicing in Mexico (CFDI)",
+          "url": "https://edicomgroup.com/blog/cfdi-electronic-invoicing-mexico"
+        },
+        {
+          "title": "U.S. International Trade Administration — Mexico: Distribution and Sales Channels",
+          "url": "https://www.trade.gov/country-commercial-guides/mexico-distribution-and-sales-channels"
+        },
+        {
+          "title": "U.S. International Trade Administration — Mexico: eCommerce",
+          "url": "https://www.trade.gov/country-commercial-guides/mexico-ecommerce"
+        },
+        {
+          "title": "Banco de México — Comprobante Electrónico de Pago (CEP)",
+          "url": "https://www.banxico.org.mx/cep/"
+        },
+        {
+          "title": "Stripe Docs — OXXO payments",
+          "url": "https://docs.stripe.com/payments/oxxo"
+        },
+        {
+          "title": "ANPEC — Alianza Nacional de Pequeños Comerciantes",
+          "url": "https://anpec.com.mx/"
+        }
+      ],
+      "lastVerifiedLabel": "Última verificación: noviembre de 2026"
+    }
+  },
+  "notes": "كُتب على الحقائق بعد اكتمال التدقيق (auditedAt 2026-11-11، الثقة medium)، وطُبّقت تصحيحاته: حذف مثال «الأطعمة المحضّرة» من استثناءات 0%، وذكر 2011 و2014 بالسنة وحدها، وحذف بدء CFDI 4.0 في 2022 وفترة التعايش مع 3.3 والإبقاء على 2023-04-01 وحده، ووصف Carta Porte (منذ 2022، PwC) بلا جزم بانطباقه على جولات المدن، و«puede considerarse falsa» بدل الجزم، وتسمية المثلث «مناطق صناعية» لا «لوجستية». نسبة 8% الحدودية: مذكورة في قسم الضريبة شرطاً لا نسبةً عامة، مع وقف سريانها في 31-12-2026 بمرسوم DOF المنشور في 31-12-2025 وعدم تأكد التمديد؛ وفي جمل FieldSales تُذكر بلا تاريخ مع «mientras el estímulo esté vigente». يلزم تحديث الصفحة بعد فحص DOF أواخر ديسمبر 2026. تجنّبت عمداً: مبالغ IEPS بالبيزو للتر (رقم ملاصق لعملة)، وتوسيع PAC إلى «Proveedor Autorizado de Certificación» وعبارة «certificado del CSD» (فيهما مفردات الاعتماد المحظورة)، وعبارة «لا حدّ أدنى للتسجيل» (مستنتجة لا منصوصة)، و«liquidación de ruta» (غير موثّقة)، وCoDi والشيكات، وتاريخَي Hidrocarburos و30-B لأنهما لا يخصان الموزّعين. المستندات التي يصدرها التطبيق سُمّيت «notas de venta» و«recibos de cobro» ووُصفت بأنها comprobantes operativos لا تغني عن CFDI؛ وموقف FieldSales من الفوترة الإلكترونية في جمل منفصلة بلا اسم نظام حكومي ولا سنة، مع «disponible bajo solicitud… sin compromiso de fecha». ومثال الفاتورة يعرض بنية CFDI 4.0 من invoiceRequirements بلا مبالغ. مواقع SAT وDOF وdiputados تعذّر فتحها في جمع الحقائق والتدقيق معاً، فكل الأرقام الرسمية من مصادر مهنية (PwC وEDICOM وInvopop وAMCP وOECD)؛ يُستحسن مطابقتها على sat.gob.mx قبل النشر. والواجهة مذكورة بصدق: عربية وإنجليزية وفرنسية وتركية وصينية، ولا إسبانية.",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish-with-notes",
+    "fixes": 16,
+    "issues": [
+      "توزيع: «gira en buena medida alrededor del canal tradicional» مبالغة على الحقيقة (سوق مجزّأ فيه دكاكين مستقلة كثيرة) فصيغت بحدودها؛ و«las distribuidoras suelen combinar dos esquemas» تعميم بلا مصدر فصار تعريفاً محايداً للمخططين.",
+      "ضريبة: «el impuesto al consumo es el IVA» غير دقيق مع وجود IEPS فحُذف الوصف؛ و«la tasa correcta para cada operación» قد يوحي بنسبة لكل سطر في التطبيق فصار «para tu caso» وفق canSay.",
+      "فوترة: تكرار «válida… valida» صُحّح إلى «tiene validez fiscal»؛ وجملة «las ventas… que no piden factura» صُحّحت نحوياً؛ وأُعيد ترتيب جملتَي REP وCFDI global فصارت الجملة المجاورة لجملة FieldSales بلا تاريخ، وأُسندت مهلة اليوم الخامس إلى Invopop.",
+      "«comprobantes operativos» في وصف مستندات المنصة قد تُقرأ «comprobante fiscal» (ممنوع في mustNotSay) فصارت «documentos operativos» في القسم والسؤال الأول.",
+      "تحصيل: «se cobra sobre todo en efectivo» مبالغة على «النقد مهم» فصارت «el efectivo pesa mucho»؛ و«la oficina ve en todo momento» تتعارض مع المزامنة اللاحقة دون اتصال فحُذفت «en todo momento».",
+      "الأسئلة: «descuenta el saldo del cliente» تعبير خاطئ فصار «actualiza el saldo»؛ وسؤال 8% صار «frontera norte o sur» مع شرط العمليات داخل المنطقة؛ وجواب preventa/autoventa كان يوحي بالتحصيل لحظة أخذ الطلب وبعهدة مخزون للبائع المسبق فقُصرت المطابقة على autoventa؛ و«no nos comprometemos a una fecha» صارت «sin comprometernos con una fecha».",
+      "مصادر: عنوان «Invopop Docs — Mexico compliance» صار «Invopop Docs — Mexico (CFDI)» لتفادي كلمة compliance في نص ظاهر.",
+      "ملاحظة باقية: تاريخا حافز 8% (31-12-2026 ومرسوم DOF 31-12-2025) مذكوران في قسم الضريبة لا الفوترة الإلكترونية عمداً، لأنهما سريان حافز لا موعد إلزام فوترة، وحذفهما يقدّم 8% نسبةً قائمة بلا حدّ؛ وليسا بجوار جملة FieldSales. يلزم تحديث الصفحة بعد فحص DOF أواخر ديسمبر 2026.",
+      "ملاحظة باقية: مواقع SAT وDOF وdiputados تعذّر فتحها في جمع الحقائق وتدقيقها (الثقة medium)، فكل الأرقام الرسمية من مصادر مهنية؛ يُستحسن مطابقتها على sat.gob.mx. والمصطلحات autoventa en ruta وpreventa وvendedor de ruta وruteo من localTerms غير موثّقة بمصدر مستقل.",
+      "تحقّق بلا تعديل: لا سعر ولا مبلغ ملاصق لعملة، لا «gratis»، لا ادعاء ربط أو اعتماد أو امتثال مع SAT/PAC/CFDI، لا وعد ولا موعد قرب جمل FieldSales، لغات الواجهة صادقة (لا إسبانية)، «autoventa» لا ترد إلا مع «en ruta»، العنوان 59 حرفاً والوصف 155."
+    ]
+  }
+}

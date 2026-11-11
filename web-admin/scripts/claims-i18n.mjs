@@ -278,6 +278,77 @@ export function checkMarketingStrings(strings, opts = {}) {
   return out;
 }
 
+// ─── صفحات الدول (نوع «country») ────────────────────────────────────────────────────────────
+//
+// قاعدة السنة على صفحة الدولة: التواريخ مسموحة في قسم الفوترة الإلكترونية **وحده** (حقائق حكومية بمصدر: مواعيد
+// الإلزام ومراحله)، وحاجبة في بقية الصفحة (العنوان والوصف وH1 والمقدمة والأقسام الأخرى والأسئلة ومثال الفاتورة
+// والمصادر). الاستثناء الآلي الوحيد خارجه ختم «آخر تحقق»: عنصر يفرضه القالب بتاريخ basedOnFactsVerifiedAt، فلا
+// تمرّ فيه إلا سنة ذلك التاريخ نفسها (أي سنة أخرى أو رقم آخر فيه يُحجب). قاعدة رقم+عملة والاعتماد والسعر الحيّ
+// حاجبة في كل الصفحة بلا استثناء، والقسم المسموح فيه بالتاريخ منها.
+
+/** القسم الوحيد الذي تُسمح فيه السنوات في صفحة الدولة */
+export const COUNTRY_YEAR_SECTION = 'einvoicing';
+
+/**
+ * نصوص محتوى لغة واحدة من ملف الدولة، كلٌّ بمساره ونطاق السنة فيه:
+ * year = 'allow' (قسم einvoicing) · 'stamp' (ختم آخر تحقق: سنة التحقق وحدها) · 'block' (البقية).
+ * slugHint والروابط (url) خارج الفحص: الأول يُطبَّع إلى مسار، والثانية عناوين لا نصّ.
+ */
+export function countryContentTexts(c) {
+  const out = [];
+  const add = (p, v, year = 'block') => { if (typeof v === 'string' && v.trim()) out.push({ path: p, text: v, year }); };
+  if (!c || typeof c !== 'object') return out;
+  add('title', c.title); add('description', c.description); add('h1', c.h1); add('intro', c.intro);
+  (Array.isArray(c.sections) ? c.sections : []).forEach((s, i) => {
+    const y = s && s.id === COUNTRY_YEAR_SECTION ? 'allow' : 'block';
+    add(`sections.${s && s.id ? s.id : i}.title`, s && s.title, y);
+    add(`sections.${s && s.id ? s.id : i}.body`, s && s.body, y);
+  });
+  (Array.isArray(c.faq) ? c.faq : []).forEach((f, i) => { add(`faq.${i}.q`, f && f.q); add(`faq.${i}.a`, f && f.a); });
+  const si = c.sampleInvoice || {};
+  add('sampleInvoice.title', si.title); add('sampleInvoice.note', si.note);
+  (Array.isArray(si.fields) ? si.fields : []).forEach((f, i) => { add(`sampleInvoice.fields.${i}.label`, f && f.label); add(`sampleInvoice.fields.${i}.example`, f && f.example); });
+  (Array.isArray(c.sources) ? c.sources : []).forEach((s, i) => {
+    for (const k of ['title', 'label', 'name']) add(`sources.${i}.${k}`, s && s[k]);
+  });
+  add('sourcesTitle', c.sourcesTitle);
+  add('lastVerifiedLabel', c.lastVerifiedLabel, 'stamp');
+  return out;
+}
+
+/**
+ * ختم «آخر تحقق»: لا يحمل إلا سنة تاريخ التحقق (أو لا سنة)، ولا رقماً آخر غير يوم/شهر/سنة ذلك التاريخ.
+ * يعيد null إن سلِم، وإلا وصف الخلل.
+ */
+export function stampProblem(text, verifiedAt) {
+  const m = String(verifiedAt ?? '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return `تاريخ التحقق «${verifiedAt}» ليس YYYY-MM-DD`;
+  const [, y, mo, d] = m;
+  const allowed = new Set([y, mo, d, String(Number(mo)), String(Number(d))]);
+  const nums = toAsciiDigits(text).match(/\d+/g) || [];
+  const bad = nums.filter((n) => !allowed.has(n));
+  if (bad.length) return `رقم «${bad[0]}» في ختم آخر تحقق ليس من تاريخ التحقق ${verifiedAt}`;
+  return null;
+}
+
+/**
+ * مخالفات قواعد الطبقة في محتوى لغة من ملف الدولة — يطبّقها المستورد (import-country-i18n) والحارس (verify-i18n G5)
+ * والاختبارات. opts: { code, livePrices, verifiedAt }.
+ */
+export function checkCountryContent(c, opts = {}) {
+  const out = [];
+  for (const t of countryContentTexts(c)) {
+    for (const v of findI18nViolations(t.text, { code: opts.code, livePrices: opts.livePrices, allowYear: t.year !== 'block' })) {
+      out.push({ ...v, path: t.path });
+    }
+    if (t.year === 'stamp') {
+      const p = stampProblem(t.text, opts.verifiedAt);
+      if (p) out.push({ id: 'i18n-year', match: t.text.slice(0, 60), why: `${I18N_RULE_WHY['i18n-year']} — ${p}`, path: t.path });
+    }
+  }
+  return out;
+}
+
 // ─── لغة النص ونظام كتابته (G4) ────────────────────────────────────────────────────────────
 
 /** العلامات المسموحة بأي لغة — تُحذف قبل حساب النسبة (الأطول أولاً) */

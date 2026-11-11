@@ -22,7 +22,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { transformSync } from 'esbuild';
-import { ORIGIN, i18nPages, canon, quoteHref, meetingHref } from '../src/i18n/i18nRoutes.mjs';
+import { ORIGIN, i18nPages, canon, quoteHref, meetingHref, withCountryPages, countryOfPageKey } from '../src/i18n/i18nRoutes.mjs';
 import { renderI18nPage, vatMapFrom } from '../src/i18n/marketingTemplate.mjs';
 import { RULES, findViolation } from './claims-rules.mjs';
 import { findI18nViolations, NO_CERT_RULE, I18N_RULE_WHY } from './claims-i18n.mjs';
@@ -54,7 +54,8 @@ async function loadTsModule(rel) {
 const pageFile = (p) => path.join(DIST, ...p.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean), 'index.html');
 
 async function main() {
-  const I18N = readJson('src/i18n/registry/published.json');
+  // ومعه صفحات الدول (country-pages.json) — روابطها في دليل لغتها كبقية صفحاتها
+  const I18N = withCountryPages(readJson('src/i18n/registry/published.json'), readJson('src/i18n/registry/country-pages.json'));
   const pages = i18nPages(I18N);
   const targets = (I18N.locales || []).filter((l) => !l.legacy && pages.some((p) => p.code === l.code));
   if (!targets.length) {
@@ -82,9 +83,13 @@ async function main() {
     };
     const own = pages.filter((p) => p.code === loc.code);
     // H1 كل صفحة كما يصيّره القالب نفسه (لا جدول مفاتيح ثانٍ هنا)
-    const h1Of = (page) => renderI18nPage({
-      page, reg: I18N, file, world: page.pageKey === 'countries' ? world : undefined, vatByCode,
-    }).h1;
+    const h1Of = (page) => {
+      const cc = countryOfPageKey(page.pageKey);
+      return renderI18nPage({
+        page, reg: I18N, file, world: page.pageKey === 'countries' ? world : undefined, vatByCode,
+        country: cc ? readJson(`src/content/country-pages/${cc}.json`) : undefined,
+      }).h1;
+    };
 
     const links = own.map((p) => ({ label: h1Of(p), href: canon(ORIGIN + p.path), path: p.path, form: false }));
     const quote = quoteHref(loc.code);

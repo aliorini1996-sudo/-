@@ -1,0 +1,426 @@
+{
+  "code": "CO",
+  "nameEn": "Colombia",
+  "pageLanguage": "es",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "COP",
+    "symbol": "$",
+    "nameEn": "Colombian Peso",
+    "nameLocal": "peso colombiano",
+    "minorUnits": 2
+  },
+  "tax": {
+    "nameLocal": "Impuesto sobre las Ventas (IVA)",
+    "nameEn": "Value Added Tax (VAT)",
+    "abbr": "IVA",
+    "standardRate": 19,
+    "otherRates": [
+      {
+        "rate": 5,
+        "appliesTo": "سلع وخدمات محددة في Estatuto Tributario، منها بعض المدخلات الزراعية والحبوب الصناعية والزيوت الخام (palma, soya, girasol) وبعض مواد الأعلاف والمعدات الزراعية وبعض السيارات الكهربائية والهجينة. وتشمل licores y vinos: رُفعت إلى 19% في 1 يناير 2026 بالمرسوم الطارئ 1474 de 2025 ثم عادت إلى 5% في 29 يناير 2026 بعد تعليق المحكمة الدستورية للمرسوم، وأُعلن عدم دستورية حالة الطوارئ في 9 أبريل 2026"
+      },
+      {
+        "rate": 0,
+        "appliesTo": "bienes y servicios exentos (نسبة 0% مع حق خصم ضريبة المدخلات واستردادها): اللحوم والبيض الطازج ومنتجات الألبان، والصادرات من السلع والخدمات، وبعض أنواع الوقود الحيوي، وخدمة الإنترنت السكنية لذوي الدخل المحدود والمتوسط"
+      },
+      {
+        "rate": 0,
+        "appliesTo": "bienes y servicios excluidos: خارج نطاق IVA أصلاً بلا حق خصم ضريبة المدخلات، فليست نسبة صفرية بالمعنى الفني. منها نقل البضائع والنقل العام للركاب والخدمات العامة (servicios públicos) وفوائد عمليات الائتمان"
+      }
+    ],
+    "registrationThreshold": "لا حدّ إيرادات يعفي الشركات، فالأشخاص الاعتبارية مسؤولة عن IVA كقاعدة عامة متى باعت سلعاً أو خدمات خاضعة. أما الشخص الطبيعي فيكون no responsable de IVA إذا استوفى كل شروط parágrafo 3 del artículo 437 del Estatuto Tributario، ومنها إيرادات خاضعة في السنة السابقة دون 3,500 UVT (183,309,000 COP لعام 2026 بقيمة UVT 52,374)، ومنشأة واحدة، وعدم الاستيراد، وعدم إبرام عقد خاضع يتجاوز 3,500 UVT، وإيداعات بنكية من النشاط الخاضع دون 3,500 UVT. ويرتفع الحد إلى 4,000 UVT لمن يقدّم خدمات للدولة",
+    "authority": "Dirección de Impuestos y Aduanas Nacionales (DIAN)",
+    "authorityUrl": "https://www.dian.gov.co",
+    "sources": [
+      {
+        "url": "https://taxsummaries.pwc.com/colombia/corporate/other-taxes",
+        "title": "PwC Worldwide Tax Summaries — Colombia, Corporate: Other taxes (آخر مراجعة 21 يوليو 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://accounter.co/noticias/editorial/accounter-no-responsables-del-iva-impoconsumo-e-impuestos-saludables-por-el-ano-gravable-2026",
+        "title": "Accounter — No responsables del IVA, impoconsumo e impuestos saludables por el año gravable 2026 (11 ديسمبر 2025)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://siemprealdia.co/colombia/impuestos/iva-en-licores/",
+        "title": "Siempre al Día — IVA en licores en Colombia: tarifa para 2026 (محدَّث 9 أبريل 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0238_2025.htm",
+        "title": "DIAN Normograma — Resolución 000238 de 2025 (15 ديسمبر 2025، نُشرت 17 ديسمبر): UVT 2026 = 52.374 COP",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "taxId": {
+    "label": "NIT (Número de Identificación Tributaria)",
+    "format": "رقم تمنحه DIAN مرة واحدة عند التسجيل في RUT (Registro Único Tributario)، وللشخص الطبيعي يطابق كقاعدة عامة رقم cédula de ciudadanía. يُكتب عادةً بالنقاط ومعه dígito de verificación (DV) بعد شرطة، مثل NIT الخاص بـ DIAN نفسها 800.197.268-4. يُحسب DV بخوارزمية modulo 11 بأوزان أولية (3، 7، 13، 17، 19…)، وتنص DIAN على أن DV لا يُعدّ جزءاً من رقم NIT",
+    "sources": [
+      {
+        "url": "https://normograma.dian.gov.co/dian/compilacion/docs/oficio_dian_26959_2018.htm",
+        "title": "DIAN — Oficio 26959 de 2018 (NIT ودِجيت التحقق وعلاقته برقم cédula)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.dian.gov.co/impuestos/RUT/Paginas/Conozca-el-RUT.aspx",
+        "title": "DIAN — Conozca el RUT",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://siemprealdia.co/colombia/impuestos/digito-de-verificacion-del-nit/",
+        "title": "Siempre al Día — Dígito de verificación del NIT: cómo calcularlo (محدَّث 26 مايو 2026)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "einvoicing": {
+    "status": "mandatory",
+    "systemName": "Sistema de Factura Electrónica (SFE) — factura electrónica de venta con validación previa، ويشمل documento soporte de adquisiciones a no obligados، documento equivalente electrónico (منه tiquete POS electrónico)، nómina electrónica، وRADIAN",
+    "authority": "Dirección de Impuestos y Aduanas Nacionales (DIAN)",
+    "model": "clearance",
+    "scopeNow": "كل من تلزمه الفوترة يصدر factura electrónica de venta بصيغة XML (UBL 2.1) موقّعة رقمياً وتحمل CUFE، ولا تُعدّ صادرة إلا بعد validación previa من DIAN وتسليمها للمشتري. الملزمون: responsables de IVA، وresponsables del impuesto nacional al consumo، والتجار ومقدمو الخدمات ومن يبيع للمستهلك النهائي، والمسجلون في régimen SIMPLE. ولا تلزم الفوترة: البنوك وcorporaciones financieras وcompañías de financiamiento، والتعاونيات وصناديق الموظفين في عملياتها المالية فقط، والأشخاص الطبيعيون الذين يستوفون كل شروط no responsable de IVA أو INC، والأشخاص الطبيعيون الذين يبيعون سلعاً مستبعدة أو يقدّمون خدمات غير خاضعة فقط بإيرادات إجمالية دون 3,500 UVT، وغيرهم مما يعدّده artículo 1.6.1.4.3 del Decreto 1625 de 2016. ومن يشتري من غير ملزم يصدر documento soporte electrónico. ونقاط البيع بنظام POS تصدر documento equivalente electrónico tiquete POS، وهو إلزامي منذ 2024 على ثلاث مجموعات. وعند تعطل نظام المُصدِر تُصدر فاتورة ورقية (de talonario o de papel) بترقيم معتمد، ثم تُنقل إلى DIAN بنسخها «factura tipo 3» خلال 48 ساعة من زوال العطل (artículo 37 numeral 1.1)",
+    "keyDates": [
+      {
+        "date": "2016-04-18",
+        "event": "إطلاق تجربة الفوترة الإلكترونية مع 58 شركة"
+      },
+      {
+        "date": "2019-01",
+        "event": "بدء الإلزام بالفوترة الإلكترونية بالتحقق المسبق على كبار المكلفين (grandes contribuyentes)"
+      },
+      {
+        "date": "2020-11",
+        "event": "اكتمال تعميم الإلزام على كل المسجلين في IVA"
+      },
+      {
+        "date": "2023-02",
+        "event": "بدء تطبيق حدّ 5 UVT على تذاكر POS الورقية على مراحل حتى يونيو 2023؛ ما فوقه يتطلب factura electrónica"
+      },
+      {
+        "date": "2023-11-01",
+        "event": "Resolución DIAN 000165 de 2023 (وُقّعت 1 نوفمبر ونُشرت في Diario Oficial 52.567 في 2 نوفمبر 2023، وتسري من نشرها وتلغي Resolución 000042 de 2020): الإطار الحالي للفوترة، واعتماد anexo técnico 1.9 للفاتورة وanexo 1.0 لـ documento equivalente electrónico"
+      },
+      {
+        "date": "2024-05-01",
+        "event": "tiquete POS electrónico إلزامي على المجموعة 1 (grandes contribuyentes) بحسب artículo 23 المعدّل بـ Resolución 000008 de 2024، وفيه أيضاً صار anexo técnico 1.9 de la factura electrónica de venta إلزامياً على كل الملزمين (parágrafo del artículo 62)"
+      },
+      {
+        "date": "2024-06-01",
+        "event": "tiquete POS electrónico إلزامي على المجموعة 2 (المصرّحون بضريبة الدخل من غير كبار المكلفين)"
+      },
+      {
+        "date": "2024-07-01",
+        "event": "tiquete POS electrónico إلزامي على المجموعة 3 (غير المصرّحين وبقية الملزمين)"
+      },
+      {
+        "date": "2025-03-31",
+        "event": "Resolución DIAN 000202 de 2025، سارية منذ نشرها في 1 أبريل 2025: لا يُطلب من المشتري إلا الاسم ونوع الهوية ورقمها والبريد عند الحاجة، ولا يُطلب شيء إن لم يطلب الفاتورة باسمه، فتُصدر باسم consumidor final"
+      },
+      {
+        "date": "2025-09-23",
+        "event": "Resolución DIAN 000227 de 2025 (Resolución Única en materia tributaria): تجميع قواعد نظام الفوترة في Título 5، فأصبحت المادة 11 من Resolución 165 هي المادة 1.5.1.2.2.1"
+      }
+    ],
+    "b2cReceipts": "منذ اكتمال جدول artículo 23 de la Resolución 165 de 2023 (المعدّل بـ Resolución 000008 de 2024) بين 1 مايو و1 يوليو 2024، صار tiquete de máquina registradora con sistema POS يصدر documento equivalente electrónico يُرسل إلى DIAN، ويجوز إصداره «independientemente del valor de la operación» بحسب artículo 16. أما حدّ 5 UVT قبل الضرائب (261,870 COP لعام 2026 بقيمة UVT 52,374) في parágrafo 2 del artículo 616-1 del Estatuto Tributario فكان يقيّد تذكرة POS الورقية قبل هذا التحوّل، ولا يُبقي artículo 40 مساراً للوثائق المعادلة الورقية بعد الجدول إلا إجراء التعطل في artículo 37. ولا يمنح DEE POS المشتري حق خصم IVA والتكاليف إلا إذا حُدّد فيه بالاسم أو razón social ورقم الهوية. ومن يحتاج الخصم بحكم نشاطه يطلب factura electrónica de venta",
+    "sources": [
+      {
+        "url": "https://micrositios.dian.gov.co/sistema-de-facturacion-electronica/",
+        "title": "DIAN — Sistema de Factura Electrónica (micrositio)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0165_2023.htm",
+        "title": "DIAN Normograma — Resolución 000165 de 2023 (مع ملاحظات التعديل والتجميع)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0202_2025.htm",
+        "title": "DIAN Normograma — Resolución 000202 de 2025",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0227_2025.htm",
+        "title": "DIAN Normograma — Resolución 000227 de 2025 (Resolución Única en Materia Tributaria)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://normograma.dian.gov.co/dian/compilacion/docs/decreto_0358_2020.htm",
+        "title": "DIAN Normograma — Decreto 358 de 2020 (sujetos obligados y no obligados a facturar)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://sovos.com/en-gb/vat/tax-rules/colombia-e-invoicing/",
+        "title": "Sovos — Colombia e-invoicing (التسلسل الزمني وصيغة UBL 2.1 والحفظ 5 سنوات)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "invoiceRequirements": [
+    "التسمية الصريحة: factura electrónica de venta",
+    "اسم البائع أو razón social ورقم NIT",
+    "هوية المشتري: الاسم أو razón social مع NIT، أو الاسم ورقم الهوية، أو «consumidor final» / الرقم 222222222222 إن لم يقدّم بياناته",
+    "عنوان مكان التسليم إذا تم البيع خارج منشأة البائع والمشتري معرّف بالاسم والهوية أو كمستهلك نهائي (لا يُشترط إذا كان التسليم خارج البلاد)",
+    "رقم تسلسلي ببادئة حتى أربعة محارف، مع رقم ترخيص الترقيم (autorización de numeración) وتاريخه ومدة سريانه",
+    "تاريخ الإنشاء ووقته (generación)",
+    "تاريخ الإصدار ووقته، وهو لحظة التحقق المسبق (validación previa)",
+    "تسليم المشتري الملف الإلكتروني بصيغته مع وثيقة التحقق «Documento validado por la DIAN» داخل الحاوية الإلكترونية",
+    "بيان البنود: عددها، والكمية، ووحدة القياس، والوصف المحدد، ورموز السلع أو الخدمات",
+    "القيمة الإجمالية للبيع",
+    "forma de pago: نقداً (contado) أو آجلاً (crédito) مع بيان الأجل",
+    "medio de pago عند البيع نقداً: نقد، بطاقة ائتمان، بطاقة خصم، تحويل…",
+    "صفة البائع حين تنطبق: agente retenedor de IVA أو autorretenedor de renta أو gran contribuyente أو contribuyente del régimen SIMPLE",
+    "تفصيل IVA وimpuesto nacional al consumo وضريبة الأكياس البلاستيكية وimpuestos saludables وغيرها من الضرائب، مع نسبها",
+    "التوقيع الرقمي للمُصدِر (firma digital)",
+    "CUFE (Código Único de Factura Electrónica)",
+    "رمز QR في النسخة المطبوعة (representación gráfica) يحمل رابط DIAN",
+    "اتباع anexo técnico de la factura electrónica de venta (صيغة XML UBL 2.1)",
+    "اسم مصنّع البرنامج أو razón social ورقم NIT له، واسم البرنامج، واسم proveedor tecnológico إن وُجد"
+  ],
+  "distribution": {
+    "hubs": [
+      "Bogotá",
+      "Medellín",
+      "Cali",
+      "Barranquilla",
+      "Cartagena"
+    ],
+    "tradeChannels": [
+      "tiendas de barrio (canal tradicional): متاجر الأحياء الصغيرة",
+      "mayoristas: تجار جملة تقليديون يموّنون المتاجر الصغيرة",
+      "supermercados y grandes superficies (canal moderno)"
+    ],
+    "localTerms": {
+      "vanSales": "autoventa",
+      "preSales": "preventa",
+      "salesRep": "vendedor / preventista",
+      "retailShop": "tienda de barrio (صاحبها: tendero)",
+      "routeAccounting": null
+    },
+    "collectionMethods": [
+      "efectivo: النقد والدفع عند التسليم ما زالا شائعين",
+      "Bre-B: تحويلات فورية بين البنوك والمحافظ عبر llaves أو QR، أعلن Banco de la República دخوله التشغيل في 23 سبتمبر 2025",
+      "Nequi: محفظة رقمية تقبل المدفوعات بـ QR Negocios",
+      "Daviplata: محفظة رقمية تقبل المدفوعات بـ QR وبـ llaves Bre-B",
+      "transferencia bancaria / PSE",
+      "tarjetas débito y crédito",
+      "venta a crédito: بيع آجل بأجل يُذكر في الفاتورة (forma de pago: crédito)"
+    ],
+    "notes": "ملاحظات تهم موزّعي السلع الاستهلاكية في كولومبيا: (1) في autoventa يجب أن تصدر factura electrónica وتتحقق منها DIAN لحظة البيع. وعند انقطاع الاتصال من جهة المُصدِر تنص القاعدة على فاتورة ورقية بترقيم معتمد تُنقل خلال 48 ساعة، وهذا التزام تنظيمي على الشركة لا ميزة في المنصة. (2) الفاتورة تذكر forma de pago (contado/crédito مع الأجل) وmedio de pago، وعنوان التسليم عند البيع خارج المنشأة. (3) ضرائب خاصة تمس السلع الاستهلاكية: ضريبة على الأغذية فائقة المعالجة الغنية بالسكر أو الصوديوم (10% منذ نوفمبر 2023، و15% في 2024، و20% منذ 2025)، وضريبة على المشروبات المحلاة بقيمة لكل مللتر، وكلتاهما تقع على المنتج أو المستورد. (4) يقتطع agentes retenedores من المشترين 15% من IVA المستحق (reteIVA)، وتفرض البلديات ضريبة ICA بين 0.2% و1% تقريباً. (5) ضريبة GMF (4x1000) على السحب والتحويل من الحسابات البنكية. (6) Bre-B سجّل في عامه الأول أكثر من 36 مليون مستخدم و1,700 مليون تحويل، و37% منها بـ QR (بحسب Banco de la República، أكتوبر 2026)"
+  },
+  "honesty": {
+    "canSay": [
+      "يضبط العميل في FieldSales العملة (peso colombiano, COP) ونسبة الضريبة بنفسه، كـ 19% أو 5% أو 0% بحسب حالته",
+      "تدير FieldSales المناديب وخطوط السير والبيع من السيارة (autoventa) والتحصيل",
+      "يمكن تعريف طرق التحصيل الشائعة محلياً بأسمائها، مثل efectivo وNequi وDaviplata وBre-B وtransferencia، ليسجّلها المندوب يدوياً، دون ربط مباشر بهذه الخدمات",
+      "الربط الحكومي المباشر للفوترة الإلكترونية حيّ اليوم في السعودية وحدها (ZATCA Fatoora). أما الربط مع DIAN في كولومبيا فيمكن بحثه عند الطلب، بلا التزام بموعد",
+      "المستندات التي تطبعها FieldSales لا تغني عن factura electrónica de venta المعتمدة من DIAN. تصدرها الشركة عبر proveedor tecnológico الذي تعتمده أو عبر خدمة الفوترة المجانية من DIAN"
+    ],
+    "mustNotSay": [
+      "أن FieldSales «proveedor tecnológico autorizado/habilitado por la DIAN» أو «software habilitado ante la DIAN»",
+      "أن FieldSales تصدر factura electrónica de venta بتحقق مسبق من DIAN، أو تولّد CUFE، أو ترسل XML UBL 2.1 إلى DIAN",
+      "أن FieldSales تصدر documento equivalente electrónico (tiquete POS electrónico) أو documento soporte electrónico أو nómina electrónica",
+      "«cumple con la Resolución 000165 de 2023 / Resolución Única 000227 de 2025» أو «100% conforme DIAN» أو أي شهادة امتثال كولومبية",
+      "أن وضع العمل دون اتصال في FieldSales يستوفي إجراء الطوارئ (contingencia) الذي تفرضه DIAN",
+      "الربط أو التكامل مع Nequi أو Daviplata أو Bre-B أو PSE أو RADIAN",
+      "أن FieldSales تُعدّ أو تقدّم إقرارات IVA (declaraciones) أو تحسب الاستقطاعات reteIVA أو reteICA أو retefuente، أو تحتسب ICA أو impuestos saludables",
+      "وجود عملاء أو شركاء توزيع أو مكتب لـ FieldSales في كولومبيا ما لم يثبت ذلك",
+      "أي صياغة توحي بربط قائم مع DIAN، مثل «integrado con la DIAN» أو «conectado a la DIAN» أو «facturación electrónica DIAN incluida» أو «envío automático a la DIAN»",
+      "أن FieldSales «facturador electrónico» مُهيّأ (habilitado) أو اجتاز set de pruebas لدى DIAN، أو أنها مسجلة في RADIAN",
+      "أي موعد أو التزام لإطلاق الربط مع DIAN في كولومبيا"
+    ]
+  },
+  "uncertain": [
+    "نفدت ميزانية البحث المشتركة (200 بحث لكل دورة) قبل التحقق من واقع التوزيع. لذا بقيت المصطلحات المحلية (autoventa، preventa، preventista، tendero) وتسمية tiendas de barrio بلا مصدر مهني مقروء، وهي من المعرفة العامة بالقطاع وتحتاج مراجعة قبل النشر. ودليل ITA الأمريكي (Distribution & Sales Channels، 17 مارس 2026) يذكر فقط قناة تجار جملة تقليديين يبيعون لمتاجر تقليدية تبيع للجمهور، مقابل المتاجر الكبرى والـ superstores",
+    "localTerms.routeAccounting = null: لم أجد مصدراً للمصطلح المحلي لتسوية حساب المندوب في نهاية الخط، والمرشحان المتداولان «liquidación de ruta» و«cuadre de caja» غير متحقق منهما",
+    "لم أتحقق من حصة القناة التقليدية (tiendas de barrio) من مبيعات السلع الاستهلاكية ولا من عدد المتاجر، فلا تُذكر أرقام في الصفحة",
+    "مراكز التوزيع مأخوذة من قائمة المراكز التجارية الكبرى في دليل ITA (Bogotá، Medellín، Cali، Barranquilla، Cartagena)، لا من بيانات لوجستية مخصصة",
+    "النسب الضريبية بحسب PwC (آخر مراجعة 21 يوليو 2026). لم أتحقق من أي مشروع إصلاح ضريبي بعد ذلك، كقانون تمويل لميزانية 2027 أو إجراءات الحكومة التي تولت في أغسطس 2026",
+    "حادثة IVA على المشروبات الكحولية (19% بين 1 و28 يناير 2026) منقولة من ناشر ضريبي متخصص وتقارير صحفية، ولم أقرأ نص حكم المحكمة الدستورية. ورقم الحكم C-079 de 2026 ورد في تقرير صحفي فقط فلم أذكره",
+    "حدّ 5 UVT وقيمته 261,870 COP مؤكَّدان (Resolución 000238 de 2025)، وإصدار DEE POS بأي مبلغ مؤكَّد بنص artículo 16. أما القول إنه لا مسار لتذكرة POS ورقية بعد جدول 2024 إلا التعطل فاستنتاج من artículos 37 و40 لا من مادة صريحة، ويُفضّل أن يراجعه محاسب كولومبي",
+    "تواريخ 2016 و2019-01 و2020-11 و2023-02 من صفحة Sovos لا من نص رسمي. والتواريخ الدقيقة لجدول Resolución 000042 de 2020 لم تُراجع",
+    "لم أتحقق من تاريخ إلزام documento soporte electrónico (Resolución 000167 de 2021)، ولا من إتاحة DIAN فعلياً لخدمة الملء الآلي لبيانات المشتري (artículo 70 المعدّل بـ Resolución 202 de 2025)",
+    "لم أتحقق من صدور anexo técnico أحدث من 1.9 خلال 2026، ولا من تفاصيل تحديثات 2026 الثانوية كالتحقق من الهوية في البحث عن الوثائق وقواعد RIPS الصحية، ومصدرها أخبار ثانوية فقط",
+    "مدة حفظ الفواتير 5 سنوات مذكورة في Sovos فقط ولم أقرأ النص الرسمي، لذا لم تُدرج في حقول الملف",
+    "رمز العملة «$» هو الاستعمال المحلي المتعارف (كما في كتابة المبالغ لدى ناشري الضرائب الكولومبيين)، لا من مصدر معياري. وISO 4217 يحدد للعملة COP وحدتين عشريتين، مع أن السنتافوس غير متداولة عملياً",
+    "شرط عنوان التسليم عند البيع خارج المنشأة تحقّق منه التدقيق في نص artículo 11 numeral 3 (يسري في حالتي 3.2 و3.3 فقط، أي حين لا يقدّم المشتري NIT، ولا يُشترط إن كان التسليم خارج البلاد). يبقى تفسيره العملي في autoventa مسألة لمحاسب كولومبي",
+    "تدقيق 11 نوفمبر 2026: نفدت ميزانية البحث قبل أي بحث مستقل عن تعديلات ضريبية بعد مراجعة PwC في 21 يوليو 2026. النسبة 19% مؤكدة بـ PwC حتى ذلك التاريخ، ولم تظهر في Normograma لـ Resolución 165 أو 227 أي ملاحظة تعديل من 2026 على مواد الفوترة، لكن هذا لا يستبعد قانوناً أو قراراً صدر بين أغسطس ونوفمبر 2026",
+    "لم يتمكن التدقيق من فتح نص artículo 468 del Estatuto Tributario من مصدر رسمي (خوادم secretariasenado غير متاحة)، فتأكيد 19% قائم على PwC وحده"
+  ],
+  "sources": [
+    {
+      "url": "https://www.dian.gov.co",
+      "title": "DIAN — Dirección de Impuestos y Aduanas Nacionales",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://micrositios.dian.gov.co/sistema-de-facturacion-electronica/",
+      "title": "DIAN — Sistema de Factura Electrónica (micrositio)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0165_2023.htm",
+      "title": "DIAN Normograma — Resolución 000165 de 2023",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0202_2025.htm",
+      "title": "DIAN Normograma — Resolución 000202 de 2025",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0227_2025.htm",
+      "title": "DIAN Normograma — Resolución 000227 de 2025",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://normograma.dian.gov.co/dian/compilacion/docs/decreto_0358_2020.htm",
+      "title": "DIAN Normograma — Decreto 358 de 2020",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://normograma.dian.gov.co/dian/compilacion/docs/oficio_dian_26959_2018.htm",
+      "title": "DIAN Normograma — Oficio 26959 de 2018 (NIT)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.dian.gov.co/impuestos/RUT/Paginas/Conozca-el-RUT.aspx",
+      "title": "DIAN — Conozca el RUT",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxsummaries.pwc.com/colombia/corporate/other-taxes",
+      "title": "PwC Worldwide Tax Summaries — Colombia: Other taxes (آخر مراجعة 21 يوليو 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://sovos.com/en-gb/vat/tax-rules/colombia-e-invoicing/",
+      "title": "Sovos — Colombia e-invoicing",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://accounter.co/noticias/editorial/accounter-no-responsables-del-iva-impoconsumo-e-impuestos-saludables-por-el-ano-gravable-2026",
+      "title": "Accounter — No responsables del IVA 2026 (11 ديسمبر 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://siemprealdia.co/colombia/impuestos/iva-en-licores/",
+      "title": "Siempre al Día — IVA en licores 2026 (محدَّث 9 أبريل 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://siemprealdia.co/colombia/impuestos/digito-de-verificacion-del-nit/",
+      "title": "Siempre al Día — Dígito de verificación del NIT (محدَّث 26 مايو 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml",
+      "title": "SIX — ISO 4217 Currency List One (نشر 17 سبتمبر 2026): COP، الرمز الرقمي 170، وحدتان عشريتان",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.trade.gov/country-commercial-guides/colombia-market-overview",
+      "title": "U.S. ITA Country Commercial Guide — Colombia: Market Overview (10 مارس 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.trade.gov/country-commercial-guides/colombia-distribution-sales-channels",
+      "title": "U.S. ITA Country Commercial Guide — Colombia: Distribution & Sales Channels (17 مارس 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.trade.gov/country-commercial-guides/colombia-ecommerce",
+      "title": "U.S. ITA Country Commercial Guide — Colombia: eCommerce (17 مارس 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.banrep.gov.co/es/bre-b",
+      "title": "Banco de la República — Bre-B (محدَّث 30 أكتوبر 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.nequi.com.co/",
+      "title": "Nequi — الموقع الرسمي (Nequi Negocios، QR Negocios)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.daviplata.com/",
+      "title": "DaviPlata — الموقع الرسمي (استقبال المدفوعات بـ QR وبـ llaves Bre-B)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0238_2025.htm",
+      "title": "DIAN Normograma — Resolución 000238 de 2025 (15 ديسمبر 2025، نُشرت 17 ديسمبر): UVT 2026 = 52.374 COP",
+      "accessed": "2026-11-11"
+    }
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "corrections": [
+      {
+        "field": "einvoicing.b2cReceipts",
+        "before": "تذكرة POS الورقية (tiquete de máquina registradora POS) لا تُصدر إلا لعملية لا تتجاوز 5 UVT قبل الضرائب (نحو 261,870 COP لعام 2026)، بحسب parágrafo 2 del artículo 616-1 del Estatuto Tributario. وإذا طلب المشتري فاتورة وجب إصدار factura electrónica. أما documento equivalente electrónico tiquete POS فيُرسل إلى DIAN، وبحسب حيثيات Resolución 165 de 2023 يجوز إصداره بأي مبلغ. ويصلح سنداً لخصم IVA والتكاليف إذا حُدّد فيه المشتري",
+        "after": "منذ اكتمال جدول artículo 23 de la Resolución 165 de 2023 (المعدّل بـ Resolución 000008 de 2024) بين 1 مايو و1 يوليو 2024، صار tiquete de máquina registradora con sistema POS يصدر documento equivalente electrónico يُرسل إلى DIAN، ويجوز إصداره «independientemente del valor de la operación» بحسب artículo 16. أما حدّ 5 UVT قبل الضرائب (261,870 COP لعام 2026 بقيمة UVT 52,374) في parágrafo 2 del artículo 616-1 del Estatuto Tributario فكان يقيّد تذكرة POS الورقية قبل هذا التحوّل، ولا يُبقي artículo 40 مساراً للوثائق المعادلة الورقية بعد الجدول إلا إجراء التعطل في artículo 37. ولا يمنح DEE POS المشتري حق خصم IVA والتكاليف إلا إذا حُدّد فيه بالاسم أو razón social ورقم الهوية. ومن يحتاج الخصم بحكم نشاطه يطلب factura electrónica de venta",
+        "source": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0165_2023.htm (artículos 16 و23 و37 و40، وحيثيات القرار)؛ https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0238_2025.htm (UVT 2026)"
+      },
+      {
+        "field": "einvoicing.scopeNow",
+        "before": "البنوك وشركات التمويل في عملياتها … ومن يبيع سلعاً مستبعدة فقط بإيرادات دون 3,500 UVT … ثم تُنقل إلكترونياً إلى DIAN خلال 48 ساعة من زوال العطل",
+        "after": "البنوك وcorporaciones financieras وcompañías de financiamiento (كلياً)، والتعاونيات وصناديق الموظفين في عملياتها المالية فقط … والأشخاص الطبيعيون الذين يبيعون سلعاً مستبعدة أو خدمات غير خاضعة فقط بإيرادات دون 3,500 UVT … تُنقل بنسخها «factura tipo 3» خلال 48 ساعة من زوال العطل",
+        "source": "https://normograma.dian.gov.co/dian/compilacion/docs/decreto_0358_2020.htm (artículo 1.6.1.4.3)؛ https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0165_2023.htm (artículo 37 numeral 1.1.2)"
+      },
+      {
+        "field": "einvoicing.keyDates[2023-11-01].event",
+        "before": "Resolución DIAN 000165 de 2023: الإطار الحالي للفوترة، واعتماد anexo técnico 1.9 للفاتورة وanexo 1.0 لـ documento equivalente electrónico",
+        "after": "Resolución DIAN 000165 de 2023 (وُقّعت 1 نوفمبر ونُشرت في Diario Oficial 52.567 في 2 نوفمبر 2023، وتسري من نشرها وتلغي Resolución 000042 de 2020): الإطار الحالي للفوترة، واعتماد anexo técnico 1.9 للفاتورة وanexo 1.0 لـ documento equivalente electrónico",
+        "source": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0165_2023.htm (الديباجة والمادة 72 Vigencia y derogatorias)"
+      },
+      {
+        "field": "einvoicing.keyDates[2024-05-01].event",
+        "before": "tiquete POS electrónico إلزامي على المجموعة 1 (grandes contribuyentes)، بحسب Resolución 000008 de 2024",
+        "after": "tiquete POS electrónico إلزامي على المجموعة 1 (grandes contribuyentes) بحسب artículo 23 المعدّل بـ Resolución 000008 de 2024، وفيه أيضاً صار anexo técnico 1.9 de la factura electrónica de venta إلزامياً على كل الملزمين (parágrafo del artículo 62)",
+        "source": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0165_2023.htm (artículos 23 و62)"
+      },
+      {
+        "field": "distribution.collectionMethods[Bre-B]",
+        "before": "Bre-B: تحويلات فورية بين البنوك والمحافظ عبر llaves أو QR، يعمل منذ سبتمبر 2025 (Banco de la República)",
+        "after": "Bre-B: تحويلات فورية بين البنوك والمحافظ عبر llaves أو QR، أعلن Banco de la República دخوله التشغيل في 23 سبتمبر 2025",
+        "source": "https://www.banrep.gov.co/es/bre-b (محدَّث 30 أكتوبر 2026)"
+      },
+      {
+        "field": "honesty.canSay[1]",
+        "before": "تدير FieldSales المناديب وخطوط السير والبيع من السيارة (autoventa) والطلبات المسبقة (preventa) والتحصيل",
+        "after": "تدير FieldSales المناديب وخطوط السير والبيع من السيارة (autoventa) والتحصيل",
+        "source": "وصف المنصة المعتمد في المهمة (إدارة المناديب والبيع من السيارة والتحصيل)؛ أُزيلت «preventa» لأنها قدرة غير مؤكدة في هذا التدقيق فلا يُوعد بها"
+      },
+      {
+        "field": "honesty.mustNotSay[reteIVA]",
+        "before": "أن FieldSales تحسب أو تقدّم إقرارات IVA أو reteIVA أو reteICA أو retefuente أو ICA أو impuestos saludables",
+        "after": "أن FieldSales تُعدّ أو تقدّم إقرارات IVA (declaraciones) أو تحسب الاستقطاعات reteIVA أو reteICA أو retefuente، أو تحتسب ICA أو impuestos saludables",
+        "source": "تدقيق اتساق داخلي: الصياغة السابقة «تحسب IVA» تناقض canSay الذي يقول إن العميل يضبط نسبة الضريبة فتُحتسب في المستند"
+      },
+      {
+        "field": "honesty.mustNotSay (إضافة)",
+        "before": null,
+        "after": "أي صياغة توحي بربط قائم مع DIAN، مثل «integrado con la DIAN» أو «conectado a la DIAN» أو «facturación electrónica DIAN incluida» أو «envío automático a la DIAN» | أن FieldSales «facturador electrónico» مُهيّأ (habilitado) أو اجتاز set de pruebas لدى DIAN، أو أنها مسجلة في RADIAN | أي موعد أو التزام لإطلاق الربط مع DIAN في كولومبيا",
+        "source": "قاعدة المهمة: لا ادعاء ربط أو اعتماد أو امتثال خارج السعودية؛ الربط في غيرها «متاح عند الطلب» بلا وعد"
+      },
+      {
+        "field": "tax.registrationThreshold (المصدر)",
+        "before": "قيمة UVT 52,374 مستنتجة من ناشر ثانوي (Accounter) بلا قرار رسمي",
+        "after": "مؤكَّدة بنص Resolución DIAN 000238 de 2025 (3,500 UVT = 183,309,000 COP، و4,000 UVT = 209,496,000 COP)",
+        "source": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0238_2025.htm"
+      },
+      {
+        "field": "uncertain[ITA]",
+        "before": "«traditional wholesalers supplying small shops» (بين علامتي اقتباس كأنه نص حرفي)",
+        "after": "إعادة صياغة بلا اقتباس: الدليل يصف تجار جملة تقليديين يبيعون لمتاجر تقليدية تبيع للجمهور",
+        "source": "https://www.trade.gov/country-commercial-guides/colombia-distribution-sales-channels"
+      }
+    ],
+    "confidence": "high",
+    "notes": "الثقة عالية في الحقائق الجوهرية: IVA 19% (PwC، 21 يوليو 2026)، وDIAN جهةً، وNIT مع DV (Oficio 26959 de 2018)، وCOP بوحدتين عشريتين (ISO 4217)، والفوترة الإلكترونية إلزامية سارية اليوم بنموذج validación previa (Resolución 165 de 2023 المجمّعة في Resolución 227 de 2025). جدول tiquete POS electrónico (1 مايو و1 يونيو و1 يوليو 2024) وخدمة DIAN المجانية (artículo 38) وقيمة UVT 2026 تحقّقت من النصوص الرسمية. الثقة متوسطة في قسم التوزيع (المصطلحات المحلية بلا مصدر مهني) وفي التواريخ التاريخية 2016-2020 المأخوذة من Sovos وحدها"
+  }
+}

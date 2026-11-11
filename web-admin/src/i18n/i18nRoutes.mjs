@@ -6,7 +6,7 @@
  * وتعطي الناتج نفسه حرفاً بحرف في الحالتين.
  *
  * مصدر الحقيقة الواحد:
- *  - المسارات: i18nPages() — لا تحسب أي وحدة أخرى مساراً بنفسها.
+ *  - المسارات: i18nPages() — لا تحسب أي وحدة أخرى مساراً بنفسها (ومنها صفحات الدول «country:<CC>» من reg.countryPages).
  *  - hreflang: clusterAlternates() — لا يكتب أحد عنقوداً بنفسه.
  *  - روابط الأزرار: quoteHref وmeetingHref وwaRedirectHref.
  *
@@ -65,6 +65,55 @@ const VISIT_TRACKER_SKIP = /^\/(app|platform|owner|staff|login|verify-email|acti
 
 const CODE_RE = /^[a-z]{2,3}(-[a-z]{2,4})?$/;
 
+// ─── صفحات الدول (نوع «country») ────────────────────────────────────────────────────────────
+// صفحة دولة واحدة بلغة سوقها (المكسيك وكولومبيا بالإسبانية، والبرازيل بالبرتغالية، وإندونيسيا بالإندونيسية)،
+// محتواها src/content/country-pages/<CC>.json وفهرسها المولَّد src/i18n/registry/country-pages.json
+// (scripts/import-country-i18n.mjs). مفتاحها «country:<CC>» ومسارها /<lang>/<slug>/، وعنقودها ذاتي: لا نظير لها
+// بلغة أخرى، فبدائلها نفسها وx-default نفسها.
+
+/** مفتاح صفحة الدولة */
+export const countryPageKey = (cc) => `country:${String(cc).toUpperCase()}`;
+/** رمز الدولة من مفتاح الصفحة، أو null لغير صفحات الدول */
+export function countryOfPageKey(pageKey) {
+  const m = String(pageKey ?? '').match(/^country:([A-Z]{2})$/);
+  return m ? m[1] : null;
+}
+/** هل المفتاح صفحة دولة */
+export const isCountryPageKey = (pageKey) => countryOfPageKey(pageKey) !== null;
+
+/**
+ * slug صفحة الدولة من slugHint بالتطبيع نفسه لـnormalizeSlug، لكن **بلا رجوع** إلى slug افتراضي:
+ * slug الفئة الافتراضي يصادم صفحة الفئة، فالناتج null (تُستثنى الدولة ويُذكر السبب) إن قصر عن 3 أحرف،
+ * أو خلا من حرف لاتيني، أو ساوى مقطعاً محجوزاً داخل اللغة أو مقطع صفحة من صفحاتها (features …).
+ */
+export function countrySlug(hint) {
+  if (hint == null || typeof hint !== 'string') return null;
+  const s = hint
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
+    .replace(/-+$/g, '');
+  if (s.length < 3 || !/[a-z]/.test(s) || SLUG_RESERVED.has(s) || s === DEFAULT_CATEGORY_SLUG) return null;
+  return s;
+}
+
+/** السجل مع فهرس صفحات الدول (country-pages.json) — كل مستهلك يقرأ الملفين ويدمجهما بهذه وحدها */
+export function withCountryPages(reg, index) {
+  const pages = index && Array.isArray(index.pages) ? index.pages : [];
+  return { ...(reg || {}), countryPages: pages };
+}
+
+/** مدخل الفهرس لصفحة دولة منشورة (أو null) */
+export function countryEntryOf(reg, code, pageKey) {
+  const cc = countryOfPageKey(pageKey);
+  if (!cc) return null;
+  return ((reg && reg.countryPages) || []).find((x) => x && x.cc === cc && x.code === code) || null;
+}
+
 /**
  * slug صفحة الفئة من slugHint المترجم: NFKD ← حذف العلامات ← أحرف صغيرة ← كل ما ليس [a-z0-9] شرطة ←
  * ضغط الشرطات وقصّ الطرفين ← القصر على 60 (ثم قصّ شرطة طرفية إن خلّفها القصر).
@@ -115,13 +164,22 @@ export function pagePath(code, pageKey, slug) {
     case 'apps': return `/${code}/apps/`;
     case 'quote': return `/${code}/quote/`;
     case 'languages': return '/languages/';
-    default: throw new Error(`pagePath: مفتاح صفحة غير معروف «${pageKey}»`);
+    default:
+      if (isCountryPageKey(pageKey)) {
+        if (!slug || countrySlug(slug) !== slug) throw new Error(`pagePath: slug صفحة الدولة «${slug}» غير صالح (${pageKey})`);
+        return `/${code}/${slug}/`;
+      }
+      throw new Error(`pagePath: مفتاح صفحة غير معروف «${pageKey}»`);
   }
 }
 
 const PAGE_ORDER = [...BASE_PAGES, ...TIER_A_PAGES];
 
-/** كل صفحات الطبقة المنشورة بترتيب السجل، ثم صفحة /languages/ — يرمي إن تكرّر مسار */
+/**
+ * كل صفحات الطبقة المنشورة بترتيب السجل، ثم صفحة /languages/ — يرمي إن تكرّر مسار.
+ * صفحات الدول (reg.countryPages) تلي صفحات لغتها بترتيب الفهرس، ولا تُضاف إلا للغة منشورة لها صفحة الدول
+ * (/<lang>/countries/ هي التي تربطها من صفّ الدولة).
+ */
 export function i18nPages(reg) {
   const out = [];
   const seen = new Set();
@@ -139,6 +197,15 @@ export function i18nPages(reg) {
         clusterKey: clusterOf(pageKey), hreflang: loc.hreflang, dir: loc.dir, legacy: !!loc.legacy,
       });
     }
+    if (!pages.has('countries')) continue;
+    for (const c of (reg && reg.countryPages) || []) {
+      if (!c || c.code !== loc.code) continue;
+      const pageKey = countryPageKey(c.cc);
+      push({
+        code: loc.code, pageKey, path: pagePath(loc.code, pageKey, c.slug),
+        clusterKey: clusterOf(pageKey), hreflang: loc.hreflang, dir: loc.dir, legacy: false,
+      });
+    }
   }
   push({ code: 'en', pageKey: 'languages', path: '/languages/', clusterKey: null, hreflang: 'en', dir: 'ltr', legacy: true });
   return out;
@@ -146,6 +213,7 @@ export function i18nPages(reg) {
 
 /** مفتاح عنقود hreflang للصفحة — صفحة اللغات خارج كل عنقود */
 export function clusterOf(pageKey) {
+  if (isCountryPageKey(pageKey)) return pageKey;
   if (BASE_PAGES.includes(pageKey)) return pageKey;
   if (TIER_A_PAGES.includes(pageKey)) return `tierA:${pageKey}`;
   return null;
@@ -195,6 +263,13 @@ function newMembers(key, reg, skipCodes) {
  * hreflangFor('/', خمس لغات) وtrilingualHreflang('/about'|'/contact') اليوم.
  */
 export function clusterAlternates(key, reg) {
+  if (isCountryPageKey(key)) {
+    // عنقود ذاتي: كل صفحة منشورة بهذا المفتاح (واحدة اليوم — لا نظير لها بلغة أخرى)، وx-default بالقاعدة نفسها
+    // (en ثم ar ثم الأول) ⇒ الصفحة نفسها. عضو واحد يكفي هنا: الإعلان الذاتي مقصود (canonical وhreflang متطابقان).
+    const own = i18nPages(reg).filter((p) => p.pageKey === key).map((p) => ({ hreflang: p.hreflang, href: canon(ORIGIN + p.path) }));
+    if (!own.length) return [];
+    return [...own, { hreflang: 'x-default', href: xDefaultOf(own, ['en', 'ar']).href }];
+  }
   const members = [...legacyMembers(key), ...newMembers(key, reg, LEGACY_FIXED_CODES[key] || [])];
   if (members.length < 2) return [];
   const xd = xDefaultOf(members, ['en', 'ar']);
@@ -274,6 +349,7 @@ export function waRedirectHref(page) {
 const COMMON_KEYS = ['tierB.home.cta.quote', 'tierB.home.cta.meeting', 'tierB.home.cta.whatsapp', 'tierB.home.uiLanguagesNote'];
 
 function prefixOf(pageKey) {
+  if (isCountryPageKey(pageKey)) return 'tierB.countries.h1'; // صفحة الدولة: محتواها من ملف الدولة، ومن ملف اللغة الأزرار وملاحظة الواجهة وعنوان صفحة الدول (مسار التنقّل)
   switch (pageKey) {
     case 'home': return 'tierB.home.';
     case 'category': return 'tierB.category.';

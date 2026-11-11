@@ -1,0 +1,205 @@
+{
+  "code": "CO",
+  "languages": [
+    "es"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "es": {
+      "slugHint": "software-preventa-autoventa-colombia",
+      "title": "Software de preventa y autoventa en Colombia | FieldSales",
+      "description": "Gestione preventa, autoventa, rutas, cobros y cartera desde el celular. Para distribuidores en Colombia: IVA y moneda configurables y modo sin conexión.",
+      "h1": "FieldSales para distribuidores en Colombia: preventa, autoventa y cobros en ruta",
+      "intro": "FieldSales es una plataforma en la nube para gestionar a los vendedores y preventistas de distribuidoras y mayoristas en Colombia. Desde el celular, el equipo toma pedidos de preventa, vende en autoventa (venta directa desde el vehículo de reparto), imprime comprobantes en impresora térmica, registra recibos de caja y lleva la cartera. La empresa sigue rutas, visitas con ubicación y fotos, y el inventario de cada vehículo. La app funciona sin conexión y sincroniza después; moneda, tarifa de IVA y medios de pago se configuran en los ajustes.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "La distribución en Colombia: tiendas de barrio, preventa y autoventa",
+          "body": "La distribución de consumo masivo en Colombia se mueve por dos canales. El canal tradicional son las tiendas de barrio, atendidas por el tendero, que se abastecen de mayoristas y distribuidores; el canal moderno lo forman los supermercados y las grandes superficies. Bogotá, Medellín, Cali, Barranquilla y Cartagena se cuentan entre los principales polos comerciales del país. Las distribuidoras suelen trabajar con dos modelos: la preventa, en la que el preventista visita la tienda, toma el pedido y el despacho llega después, y la autoventa, en la que el vendedor sale con el vehículo cargado, vende y entrega en la misma visita. En la calle, el efectivo y el pago contra entrega siguen siendo comunes, junto con la venta a crédito al tendero y los pagos digitales por transferencia, billetera o código QR."
+        },
+        {
+          "id": "tax",
+          "title": "IVA, NIT y datos de la factura",
+          "body": "El impuesto principal es el Impuesto sobre las Ventas (IVA), administrado por la Dirección de Impuestos y Aduanas Nacionales (DIAN). La tarifa general es del 19 %. Existe una tarifa del 5 % para bienes y servicios señalados en el Estatuto Tributario, como algunos insumos agrícolas, ciertos aceites crudos y algunos alimentos para animales. Los bienes exentos, como carnes, huevos frescos y productos lácteos, se gravan al 0 % con derecho a descontar el IVA de las compras y pedir su devolución; los excluidos, como el transporte de carga, quedan por fuera del IVA. Por regla general, las personas jurídicas que venden bienes o servicios gravados son responsables de IVA; una persona natural puede ser no responsable si reúne todas las condiciones del parágrafo 3 del artículo 437 del Estatuto Tributario. El identificador tributario es el NIT, que la DIAN asigna al inscribirse en el RUT: suele escribirse con puntos y con el dígito de verificación (DV) después de un guion, y en personas naturales suele coincidir con la cédula. La factura debe discriminar el IVA y los demás impuestos con sus tarifas, indicar la forma de pago (contado o crédito con su plazo) y, en las ventas de contado, el medio de pago. En FieldSales usted define el nombre del impuesto (IVA) y la tarifa que corresponde a su caso (19 %, 5 % o 0 %), y registra el NIT en los datos de su empresa y de sus clientes. FieldSales no calcula retenciones como reteIVA, reteICA o retefuente, ni el ICA municipal ni los impuestos saludables a ultraprocesados y bebidas azucaradas, y tampoco prepara declaraciones: esa parte sigue en manos de su contador."
+        },
+        {
+          "id": "einvoicing",
+          "title": "Facturación electrónica en Colombia: qué exige hoy la norma",
+          "body": "En Colombia la facturación electrónica es obligatoria y funciona con validación previa: el Sistema de Factura Electrónica (SFE) de la DIAN. Quien está obligado a facturar —responsables de IVA y del impuesto nacional al consumo, comerciantes, quienes venden al consumidor final y los inscritos en el régimen SIMPLE— expide la factura electrónica de venta en formato XML (UBL 2.1), con firma digital y CUFE, y esta solo se entiende expedida cuando la DIAN la valida y se entrega al comprador. El marco vigente es la Resolución 000165 de 2023, compilada en la Resolución Única en materia tributaria (Resolución 000227 de 2025). El tiquete POS electrónico, un documento equivalente electrónico, se volvió obligatorio por grupos entre el 1 de mayo y el 1 de julio de 2024 (Resolución 000165 de 2023, artículo 23, modificado por la Resolución 000008 de 2024). Con la Resolución 000202 de 2025, al comprador solo se le piden nombre, tipo y número de identificación y, si hace falta, correo electrónico; si no pide la factura a su nombre, se expide a «consumidor final». Si falla el sistema del emisor, la norma prevé una factura de talonario o de papel con un rango de numeración otorgado por la DIAN, que luego debe transmitirse a esa entidad dentro de las 48 horas siguientes a superar la falla. Si su empresa está obligada a facturar, cada venta en ruta debe quedar respaldada por la factura electrónica que ella expide a través de su proveedor tecnológico o del servicio de facturación de la propia DIAN. FieldSales no reemplaza ese documento: hoy no transmite facturas a ninguna autoridad tributaria fuera de Arabia Saudita. Para Colombia, esa conexión está disponible bajo solicitud, previo estudio de los requisitos técnicos del país, sin compromisos ni fechas."
+        },
+        {
+          "id": "collections",
+          "title": "Cobros en ruta y cartera",
+          "body": "En la ruta pesan el efectivo y el pago contra entrega, junto con la venta a crédito, cuyo plazo debe quedar indicado en la factura. Los pagos digitales ganan espacio: transferencias bancarias y PSE, tarjetas débito y crédito, billeteras como Nequi y Daviplata que reciben pagos con código QR, y Bre-B, el sistema de pagos inmediatos impulsado por el Banco de la República, que mueve dinero entre bancos y billeteras con llaves o códigos QR. En FieldSales usted crea estos medios como métodos de pago personalizados (efectivo, Nequi, Daviplata, Bre-B, transferencia, tarjeta) y el vendedor elige el que corresponda al registrar el recibo de caja. El registro es manual: FieldSales no se conecta con Nequi, Daviplata, Bre-B ni PSE, así que conviene confirmar que el pago llegó a su cuenta. Cada recibo de caja se aplica como abono y reduce el saldo del cliente, y la cartera por cliente y por vendedor queda a la vista en el panel web para hacer seguimiento a los saldos pendientes."
+        },
+        {
+          "id": "how",
+          "title": "Cómo funciona FieldSales en Colombia",
+          "body": "En los ajustes de su cuenta usted define la moneda (peso colombiano, COP), el nombre del impuesto (IVA), la tarifa que aplica a su operación y los medios de pago que acepta. El vendedor trabaja desde la app en Android o iPhone: sigue su ruta, registra visitas con ubicación y fotos, toma pedidos de preventa o vende desde el vehículo, imprime el comprobante en una impresora térmica y cobra con recibo de caja. Si se queda sin señal en carretera o en un barrio sin cobertura, la app sigue funcionando y sincroniza cuando vuelve la conexión; ese modo es operativo y no sustituye el procedimiento de contingencia que exige la facturación electrónica. Desde el panel web, el administrador controla el inventario cargado en cada vehículo, su conciliación al cierre de la ruta, la cartera y los reportes. Un dato importante: la interfaz de la aplicación está disponible en árabe, inglés, francés, turco y chino, y no incluye el español. Los datos que usted registra, como productos, clientes y medios de pago, pueden escribirse en español."
+        }
+      ],
+      "faq": [
+        {
+          "q": "¿FieldSales expide la factura electrónica de venta validada por la DIAN?",
+          "a": "No. Los comprobantes que imprime FieldSales sirven para la operación en ruta, pero no reemplazan la factura electrónica de venta. Su empresa la expide a través de su proveedor tecnológico o del servicio de facturación de la propia DIAN. La conexión directa de FieldSales con el sistema colombiano está disponible bajo solicitud: primero estudiamos los requisitos técnicos del país, sin compromisos ni fechas."
+        },
+        {
+          "q": "¿La app funciona sin internet en zonas sin señal?",
+          "a": "Sí. El vendedor puede registrar ventas, cobros y visitas sin conexión, y la app sincroniza todo cuando recupera la señal. Tenga en cuenta que este modo es operativo: no sustituye el procedimiento de contingencia que la norma de facturación electrónica le exige a su empresa."
+        },
+        {
+          "q": "¿Cómo registro un pago por Nequi, Daviplata o Bre-B?",
+          "a": "En los ajustes usted crea cada uno como método de pago personalizado. Al cobrar, el vendedor elige el método en el recibo de caja y el saldo del cliente se actualiza. El registro es manual: FieldSales no se conecta con Nequi, Daviplata, Bre-B ni PSE, por eso conviene verificar en su cuenta que el pago llegó."
+        },
+        {
+          "q": "¿Puedo trabajar en pesos colombianos con IVA del 19 %?",
+          "a": "Sí. La moneda (COP), el nombre del impuesto y la tarifa se configuran en los ajustes de su cuenta: 19 %, 5 % o 0 %, según su caso. Para bienes exentos o excluidos, o para retenciones como reteIVA, confirme el tratamiento con su contador; FieldSales no calcula retenciones ni ICA."
+        },
+        {
+          "q": "¿Sirve tanto para preventa como para autoventa?",
+          "a": "Sí. El preventista toma el pedido en la visita para despacho posterior, y el vendedor de autoventa vende y entrega desde el vehículo, con control del inventario cargado y conciliación al cierre de la ruta. En ambos casos quedan registradas las visitas con ubicación y fotos."
+        },
+        {
+          "q": "¿La aplicación está en español?",
+          "a": "No. La interfaz está disponible en árabe, inglés, francés, turco y chino. Los datos que usted registra, como productos, clientes y medios de pago, pueden escribirse en español."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Campos de una factura electrónica de venta en Colombia",
+        "note": "Ejemplo de estructura, sin montos. La firma digital, el CUFE y el código QR los genera el sistema de facturación electrónica de su empresa, y la validación previa la hace la DIAN; FieldSales no interviene en ese proceso.",
+        "fields": [
+          {
+            "label": "Tipo de documento",
+            "example": "Factura electrónica de venta"
+          },
+          {
+            "label": "Emisor",
+            "example": "Razón social de la distribuidora y NIT con dígito de verificación"
+          },
+          {
+            "label": "Calidad del emisor",
+            "example": "Gran contribuyente, agente retenedor de IVA, autorretenedor de renta o régimen SIMPLE, cuando aplique"
+          },
+          {
+            "label": "Numeración",
+            "example": "Prefijo de hasta cuatro caracteres y consecutivo, con número, fecha y vigencia de la resolución de numeración"
+          },
+          {
+            "label": "Fechas",
+            "example": "Fecha y hora de generación; fecha y hora de expedición (validación previa)"
+          },
+          {
+            "label": "Adquirente",
+            "example": "Razón social y NIT de la tienda, o nombre y número de identificación; si no se identifica, «consumidor final»"
+          },
+          {
+            "label": "Dirección de entrega",
+            "example": "Lugar de entrega cuando la venta se hace fuera del establecimiento y el comprador se identifica solo con nombre y documento o como consumidor final"
+          },
+          {
+            "label": "Detalle",
+            "example": "Número de líneas, cantidad, unidad de medida, descripción específica y código de cada producto"
+          },
+          {
+            "label": "Impuestos",
+            "example": "IVA discriminado con su tarifa y, cuando aplique, impuesto nacional al consumo u otros impuestos"
+          },
+          {
+            "label": "Valor total",
+            "example": "Valor total de la venta"
+          },
+          {
+            "label": "Forma de pago",
+            "example": "Contado o crédito, con el plazo"
+          },
+          {
+            "label": "Medio de pago",
+            "example": "Efectivo, tarjeta débito o crédito, transferencia u otro"
+          },
+          {
+            "label": "Firma y CUFE",
+            "example": "Firma digital del emisor y Código Único de Factura Electrónica"
+          },
+          {
+            "label": "Código QR",
+            "example": "En la representación gráfica, con el enlace de consulta de la DIAN"
+          },
+          {
+            "label": "Software",
+            "example": "Nombre y NIT del fabricante del software, nombre del software y del proveedor tecnológico, si lo hay"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "DIAN — Sistema de Factura Electrónica",
+          "url": "https://micrositios.dian.gov.co/sistema-de-facturacion-electronica/"
+        },
+        {
+          "title": "DIAN Normograma — Resolución 000165 de 2023",
+          "url": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0165_2023.htm"
+        },
+        {
+          "title": "DIAN Normograma — Resolución 000202 de 2025",
+          "url": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0202_2025.htm"
+        },
+        {
+          "title": "DIAN Normograma — Resolución 000227 de 2025 (Resolución Única en materia tributaria)",
+          "url": "https://normograma.dian.gov.co/dian/compilacion/docs/resolucion_dian_0227_2025.htm"
+        },
+        {
+          "title": "DIAN Normograma — Decreto 358 de 2020 (sujetos obligados a facturar)",
+          "url": "https://normograma.dian.gov.co/dian/compilacion/docs/decreto_0358_2020.htm"
+        },
+        {
+          "title": "DIAN — Conozca el RUT",
+          "url": "https://www.dian.gov.co/impuestos/RUT/Paginas/Conozca-el-RUT.aspx"
+        },
+        {
+          "title": "DIAN Normograma — Oficio 26959 de 2018 (NIT y dígito de verificación)",
+          "url": "https://normograma.dian.gov.co/dian/compilacion/docs/oficio_dian_26959_2018.htm"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Colombia: Other taxes",
+          "url": "https://taxsummaries.pwc.com/colombia/corporate/other-taxes"
+        },
+        {
+          "title": "Banco de la República — Bre-B",
+          "url": "https://www.banrep.gov.co/es/bre-b"
+        },
+        {
+          "title": "Nequi",
+          "url": "https://www.nequi.com.co/"
+        },
+        {
+          "title": "DaviPlata",
+          "url": "https://www.daviplata.com/"
+        },
+        {
+          "title": "U.S. ITA — Colombia: Distribution & Sales Channels",
+          "url": "https://www.trade.gov/country-commercial-guides/colombia-distribution-sales-channels"
+        }
+      ],
+      "lastVerifiedLabel": "Última verificación: noviembre de 2026"
+    }
+  },
+  "notes": "كُتبت الصفحة بالإسبانية الكولومبية (celular، tendero، recibo de caja، cartera) من CO.json بعد اكتمال تدقيقه (auditedAt 2026-11-11، ثقة عالية). قرارات الصدق: (1) لا تُسمّى مطبوعات FieldSales «factura» بل «comprobante»، ويُقال صراحة إنها لا تغني عن factura electrónica de venta التي تصدرها الشركة عبر proveedor tecnológico أو خدمة DIAN (حُذفت صفة «المجانية» التزاماً بمنع كلمة مجاني). (2) الربط مع DIAN «disponible bajo solicitud… sin promesa ni fecha» في جمل لا تذكر DIAN بالاسم ولا سنة بجوارها؛ وجملة الإرسال خلال 48 ساعة تخص التزام الشركة لا المنصة. (3) الوضع دون اتصال موصوف بأنه تشغيلي لا يغني عن إجراء contingencia (من mustNotSay). (4) Nequi وDaviplata وBre-B وPSE طرق دفع مخصّصة يسجّلها المندوب يدوياً مع نفي صريح للربط. (5) نفي حساب reteIVA وreteICA وretefuente وICA وimpuestos saludables والإقرارات. (6) لغة الواجهة: مذكور بصدق أنها لا تشمل الإسبانية. حذوف احترازية: تواريخ 2016-2020 (مصدرها Sovos وحده بحسب uncertain) فلم تُذكر؛ لا مبالغ UVT ولا قيم بالبيزو؛ لا نسب الضرائب الصحية بسنواتها؛ لا حادثة IVA الخمور؛ لا استنتاج «لا تذكرة POS ورقية إلا بالتعطل»؛ لا liquidación de ruta/cuadre de caja (routeAccounting=null) بل وصف «conciliación al cierre de la ruta»؛ لا أرقام حصص القنوات؛ المدن الخمس موصوفة بأنها «من أبرز المراكز التجارية» لا مراكز توزيع. تنبيهات للمراجع: (أ) المصطلحات autoventa/preventa/preventista/tendero بلا مصدر مهني بحسب uncertain وتحتاج نظرة ناطق كولومبي؛ وautoventa تأتي دائماً في سياق التوزيع ومشروحة أول مرة «venta directa desde el vehículo de reparto». (ب) أبقيتُ preventa لأن وصف المنصة في المهمة يذكر الطلب المسبق، مع أن تدقيق الحقائق حذفها من canSay احتياطاً؛ إن أراد المالك الحذر فلتُحذف من العنوان وFAQ 5. (ج) نسبة 19% مؤكدة بـPwC حتى يوليو 2026 فقط، والصفحة تحيل تفاصيل المعاملة الضريبية إلى المحاسب. (د) جملة «registra el NIT en los datos de su empresa y de sus clientes» تفترض وجود حقل الرقم الضريبي للعميل في المنصة. الفحص الآلي (tmp/CO_check.js): JSON صالح بلا BOM، العنوان 57 والوصف 155 والمقدمة 87 كلمة، لا رقم ملاصق لعملة، لا مفردات اعتماد أو مجانية، لا جملة تجمع اسم نظام حكومي وفعل ربط منسوباً إلى FieldSales، ولا سنة في جملة FieldSales أو بجوارها.",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish-with-notes",
+    "fixes": 13,
+    "issues": [
+      "لغة: «centros comerciales» تعني بالإسبانية مراكز التسوق (المولات) فانقلبت النية؛ صارت «polos comerciales» تطابق وصف ITA للمدن الخمس.",
+      "لغة: «convive en dos canales» ركيكة → «se mueve por dos canales»؛ و«IVA y pesos configurables» في الوصف → «IVA y moneda configurables»؛ و«registra recibos de caja y cartera» → «, registra recibos de caja y lleva la cartera»؛ و«descuenta el saldo» → «se aplica como abono y reduce el saldo» بمصطلح السوق. والوصف قُصّر إلى ≤155 بعد التعديل.",
+      "حقيقة: medio de pago لا يُشترط في الفاتورة إلا في البيع نقداً (invoiceRequirements) → أُضيف «en las ventas de contado».",
+      "حقيقة: مسؤولية الشخص الاعتباري عن IVA «كقاعدة عامة» في الحقائق → أُضيف «Por regla general»؛ وكتابة NIT بالنقاط و DV «عادةً» → «suele escribirse».",
+      "حقيقة: فاتورة التعطل «بترقيم معتمد» في الحقائق لا «numeración vigente» → «con un rango de numeración otorgado por la DIAN» (تجنّبتُ «autorizada» كي لا تلتبس بمفردات الاعتماد في الفحص الآلي).",
+      "حقيقة: «En la práctica, cada venta en ruta debe…» عمّمت الإلزام على كل بائع → قُيّدت بـ«Si su empresa está obligada a facturar».",
+      "حقيقة: ملاحظة نموذج الفاتورة نسبت validación previa إلى نظام الشركة، وهي تتم لدى DIAN → صُحّحت.",
+      "صياغة الربط: «sin promesa ni fecha» → «sin compromisos ni fechas» (أطبع بالإسبانية مع بقاء: لا وعد ولا موعد) في القسم وFAQ 1؛ لا سنة في جملة FieldSales ولا بجوارها.",
+      "ملاحظة للمالك: preventa باقية في العنوان وFAQ 5 لأن وصف المنصة الملزم يذكر pre-sales، مع أن تدقيق الحقائق حذفها من canSay احتياطاً.",
+      "ملاحظة للمالك: المصطلحات autoventa/preventa/preventista/tendero بلا مصدر مهني بحسب uncertain؛ autoventa مقرونة دائماً بـpreventa أو بشرح «venta directa desde el vehículo de reparto» فلا تُقرأ بيع سيارات. ونسبة 19% مؤكدة بـPwC حتى يوليو 2026 فقط.",
+      "فُحص ولم يُعدَّل: لا سعر ولا مبلغ ملاصق لعملة، لا «gratuito/certificado/homologado/habilitado/conforme»، لا ادعاء ربط مع DIAN أو Nequi/Daviplata/Bre-B/PSE، لغات الواجهة صادقة (لا إسبانية)، التواريخ (2024 وقرارات 2023/2025) في قسم الفوترة وحده بمصادرها، والأسئلة الست مباشرة ومفيدة."
+    ]
+  }
+}

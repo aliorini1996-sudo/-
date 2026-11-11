@@ -33,3 +33,11 @@ export function scriptProblems(text: string, opts?: { script?: string; code?: st
 export function contentHashOf(strings: Record<string, string>): string;
 export function placeholdersOf(s: string): string[];
 export function publishedEntry(loc: Record<string, unknown>, waLabel: string | undefined | null): Record<string, unknown>;
+
+// صفحات الدول: السنة مسموحة في قسم einvoicing وحده، وختم «آخر تحقق» بسنة تاريخ التحقق وحدها
+export const COUNTRY_YEAR_SECTION: 'einvoicing';
+export function countryContentTexts(c: unknown): { path: string; text: string; year: 'allow' | 'stamp' | 'block' }[];
+export function stampProblem(text: string, verifiedAt: string): string | null;
+export function checkCountryContent(c: unknown, opts?: {
+  code?: string; livePrices?: readonly string[]; verifiedAt?: string;
+}): (I18nViolation & { path: string })[];

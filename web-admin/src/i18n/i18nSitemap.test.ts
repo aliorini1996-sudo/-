@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  clusterAlternates, i18nPages, type Alternate, type PublishedLocale, type PublishedRegistry,
+  clusterAlternates, i18nPages, withCountryPages, type Alternate, type PublishedLocale, type PublishedRegistry, type CountryPagesIndex,
 } from './i18nRoutes.mjs';
 import {
   isSitemapIndex, childLocs, mergedUrlsetFromFile, mergedUrlsetFromGit, mergedUrlsetFromUrl, urlBlocks,
@@ -195,7 +195,11 @@ test('الخرائط الملتزمة: فهرس بأبناء موجودة، لك
   const kids = childLocs(idx);
   assert.ok(kids.length < 50000, `الفهرس ${kids.length} ابناً`);
   assert.equal(kids[0], `${ORIGIN}/sitemap-legacy.xml`, 'الابن الأول sitemap-legacy.xml');
-  const reg = JSON.parse(read('src', 'i18n', 'registry', 'published.json')) as PublishedRegistry;
+  // السجل المنشور ومعه فهرس صفحات الدول (withCountryPages) — كما يقرؤه gen-sitemap
+  const reg = withCountryPages(
+    JSON.parse(read('src', 'i18n', 'registry', 'published.json')) as PublishedRegistry,
+    JSON.parse(read('src', 'i18n', 'registry', 'country-pages.json')) as CountryPagesIndex,
+  );
   const codes = [...new Set(i18nPages(reg).map((p) => p.code))];
   assert.deepEqual(kids.slice(1), codes.map((c) => `${ORIGIN}/sitemap-${c}.xml`), 'أبناء اللغات لا تطابق السجل المنشور بترتيبه');
   for (const k of kids) {

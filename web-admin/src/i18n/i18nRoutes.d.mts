@@ -6,22 +6,38 @@ export const LEGACY: readonly ['ar', 'en', 'fr', 'tr', 'zh'];
 export const LEGACY_HREFLANG: { ar: 'ar'; en: 'en'; fr: 'fr'; tr: 'tr'; zh: 'zh-Hans' };
 export const DEFAULT_CATEGORY_SLUG: 'van-sales-software';
 export const RESERVED_SEGMENTS: readonly string[];
+export type CountryPageKey = `country:${string}`;   // صفحة دولة بلغة سوقها: country:MX …
 export type PageKey = 'home' | 'category' | 'countries' | 'about' | 'contact' | 'features'
-  | 'feature:offlineInvoicing' | 'feature:vanStock' | 'feature:routesVisits' | 'apps' | 'quote' | 'languages';
-export type ClusterKey = 'home' | 'about' | 'contact' | 'category' | 'countries' | `tierA:${string}`;
+  | 'feature:offlineInvoicing' | 'feature:vanStock' | 'feature:routesVisits' | 'apps' | 'quote' | 'languages' | CountryPageKey;
+export type ClusterKey = 'home' | 'about' | 'contact' | 'category' | 'countries' | `tierA:${string}` | CountryPageKey;
 export const BASE_PAGES: readonly PageKey[];   // home category countries about contact
 export const TIER_A_PAGES: readonly PageKey[]; // features feature:offlineInvoicing feature:vanStock feature:routesVisits apps quote
 export interface PublishedLocale {
   code: string; hreflang: string; name: string; nativeName: string; dir: 'ltr' | 'rtl'; legacy: boolean; tier: 'A' | 'B';
   ogLocale: string; intlLocale: string; slug: string; pages: PageKey[]; waLabel: string; contentDate: string;
 }
-export interface PublishedRegistry { waveMax: number; generatedAt: string; simulated: boolean; locales: PublishedLocale[] }
+/** مدخل فهرس صفحات الدول (src/i18n/registry/country-pages.json — يولّده scripts/import-country-i18n.mjs) */
+export interface CountryPageEntry {
+  cc: string; code: string; slug: string; h1: string;  // h1 = نصّ رابطها في قائمة صفحات اللغة وجدول الدول
+  contentDate: string; contentHash: string;           // contentDate = basedOnFactsVerifiedAt (آخر تحقق)
+}
+export interface CountryPagesIndex { pages: CountryPageEntry[]; excluded: { cc: string; code: string; reasons: string[] }[] }
+export interface PublishedRegistry {
+  waveMax: number; generatedAt: string; simulated: boolean; locales: PublishedLocale[];
+  countryPages?: CountryPageEntry[];                  // withCountryPages(published, index) — غائب = لا صفحات دول
+}
 export interface I18nPage {
   code: string; pageKey: PageKey; path: string;          // مسار مطلق بشرطة أخيرة، مثل '/es/' و'/es/software-preventa-autoventa/'
   clusterKey: ClusterKey | null; hreflang: string; dir: 'ltr' | 'rtl'; legacy: boolean;
 }
 export interface Alternate { hreflang: string; href: string }   // href مطلق بشرطة أخيرة
 export function normalizeSlug(hint: string | undefined | null): string;
+export function countryPageKey(cc: string): CountryPageKey;
+export function countryOfPageKey(pageKey: string | null | undefined): string | null;
+export function isCountryPageKey(pageKey: string | null | undefined): boolean;
+export function countrySlug(hint: string | undefined | null): string | null;   // null = لا يصلح (لا رجوع إلى slug افتراضي)
+export function withCountryPages<R extends PublishedRegistry>(reg: R, index: { pages?: CountryPageEntry[] } | null | undefined): R & { countryPages: CountryPageEntry[] };
+export function countryEntryOf(reg: PublishedRegistry, code: string, pageKey: string): CountryPageEntry | null;
 export function checkLocaleCode(code: string, extraReserved?: readonly string[]): string | null; // null = سليم، وإلا السبب
 export function pagePath(code: string, pageKey: PageKey, slug: string): string;
 export function i18nPages(reg: PublishedRegistry): I18nPage[];

@@ -1,0 +1,706 @@
+{
+  "code": "BR",
+  "nameEn": "Brazil",
+  "pageLanguage": "pt",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "BRL",
+    "symbol": "R$",
+    "nameEn": "Brazilian Real",
+    "nameLocal": "Real brasileiro",
+    "minorUnits": 2
+  },
+  "tax": {
+    "nameLocal": "ICMS – Imposto sobre Operações relativas à Circulação de Mercadorias e sobre Prestações de Serviços de Transporte Interestadual e Intermunicipal e de Comunicação (ولائي)، إلى جانب IPI وPIS/COFINS الاتحادية؛ وتحلّ محلها تدريجياً CBS وIBS (2026–2033)",
+    "nameEn": "State goods-and-services tax (ICMS) plus federal IPI and PIS/COFINS; being replaced by a dual VAT – CBS (federal) and IBS (state/municipal) – between 2026 and 2033",
+    "abbr": "ICMS",
+    "standardRate": null,
+    "otherRates": [
+      {
+        "rate": null,
+        "appliesTo": "لا توجد نسبة وطنية موحّدة: ICMS ضريبة ولائية تختلف نسبتها الداخلية (alíquota interna) بحسب الولاية والسلعة؛ تقول PwC (مراجعة 23 سبتمبر 2026) إنها «عموماً 17% إلى 20%»، مع 25% أو 12% لبعض السلع. لذلك تُترك standardRate فارغة، ويضبط العميل نسبه بنفسه في المنصة."
+      },
+      {
+        "rate": 18,
+        "appliesTo": "ICMS – النسبة الداخلية العامة في ولاية São Paulo (PwC)."
+      },
+      {
+        "rate": 12,
+        "appliesTo": "ICMS بين الولايات (interestadual): من الجنوب/الجنوب الشرقي إلى الجنوب/الجنوب الشرقي، ومن الشمال والشمال الشرقي والوسط الغربي إلى أي ولاية (PwC)."
+      },
+      {
+        "rate": 7,
+        "appliesTo": "ICMS بين الولايات: من الجنوب/الجنوب الشرقي إلى الشمال والشمال الشرقي والوسط الغربي، وإلى Espírito Santo (PwC)."
+      },
+      {
+        "rate": 4,
+        "appliesTo": "ICMS بين الولايات على السلع المستوردة (PwC)."
+      },
+      {
+        "rate": 1.65,
+        "appliesTo": "PIS – النظام غير التراكمي (não cumulativo)، ضريبة اتحادية على الإيراد؛ تُلغى مع دخول CBS بنسبتها الكاملة في 2027 (PwC، Sovos)."
+      },
+      {
+        "rate": 7.6,
+        "appliesTo": "COFINS – النظام غير التراكمي (não cumulativo)؛ تُلغى في 2027 مع PIS (PwC، Sovos)."
+      },
+      {
+        "rate": 0.65,
+        "appliesTo": "PIS – النظام التراكمي (cumulativo)، ومنه دافعو lucro presumido (PwC)."
+      },
+      {
+        "rate": 3,
+        "appliesTo": "COFINS – النظام التراكمي (cumulativo) (PwC)."
+      },
+      {
+        "rate": null,
+        "appliesTo": "IPI – ضريبة اتحادية على المنتجات الصناعية تُحدَّد نسبتها بجدول TIPI حسب رمز السلعة، «عادة نحو 5% إلى 30%» وقد تتجاوز 300% لبعض السلع (PwC)؛ تقع على المصنِّع والمستورد. وبحسب Sovos تُخفَّض إلى صفر في 2027 إلا للسلع المنافِسة لمنطقة Manaus الحرة."
+      },
+      {
+        "rate": 0.9,
+        "appliesTo": "CBS (Contribuição sobre Bens e Serviços) – نسبة الاختبار لسنة 2026 (المادة 346 من LC 214/2025 كما في NT 2025.002 وجدول نسب CBS في بوابة NF-e)؛ تُذكر في المستند، والاحتساب في 2026 «إعلامي بلا أثر ضريبي» لمن يفي بالالتزامات الإجرائية (Ato Conjunto RFB/CGIBS nº 1/2025)."
+      },
+      {
+        "rate": 0.1,
+        "appliesTo": "IBS (Imposto sobre Bens e Serviços) في 2026: الحصة الولائية (IBS UF) 0.1% والحصة البلدية (IBS Mun) 0% (المادة 343 من LC 214/2025)؛ وفي 2027–2028 تصبح 0.05% ولائية + 0.05% بلدية، أي 0.1% إجمالاً (المادة 344)، بحسب قواعد التحقق في NT 2025.002 v1.53."
+      },
+      {
+        "rate": null,
+        "appliesTo": "CBS ابتداءً من 2027: احتسب Tribunal de Contas da União (TCU) نسبة مرجعية 11.3% (Acórdão، جلسة 28/10/2026)، وتسلّم مجلس الشيوخ (Senado Federal) القرار في 10/11/2026 وعليه تحديد النسبة بقرار (resolução) حتى 15/12/2026؛ فهي غير محدَّدة نهائياً حتى 11/11/2026، وجدول نسب CBS في بوابة NF-e (مايو 2026) يقول عن 2027 «aguarda legislação». لذلك rate = null."
+      }
+    ],
+    "registrationThreshold": null,
+    "authority": "Secretarias da Fazenda estaduais (SEFAZ) لـICMS؛ Receita Federal do Brasil (RFB) لـIPI وPIS/COFINS وCBS؛ Comitê Gestor do IBS (CGIBS) لـIBS",
+    "authorityUrl": "https://www.gov.br/receitafederal/pt-br",
+    "sources": [
+      {
+        "url": "https://taxsummaries.pwc.com/brazil/corporate/other-taxes",
+        "title": "PwC Worldwide Tax Summaries – Brazil, Corporate – Other taxes (Last reviewed 23 September 2026): ICMS وIPI وPIS/COFINS وISS",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=BMcHSMEoepU=",
+        "title": "Portal Nacional da NF-e – Nota Técnica 2025.002-RTC v1.53 (publicada 30/10/2026): pCBS 0,9% e pIBSUF 0,1% em 2026, 0,05% em 2027–2028; cronograma CRT 3",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=LRksVAMl7nQ=",
+        "title": "Portal Nacional da NF-e – Tabela de Alíquotas da CBS (publicada 12/05/2026): 2026 = 0,009; 2027 = aguarda legislação",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.in.gov.br/en/web/dou/-/ato-conjunto-rfb/cgibs-n-1-de-22-de-dezembro-de-2025-677624586",
+        "title": "DOU – Ato Conjunto RFB/CGIBS nº 1, de 22/12/2025 (obrigações acessórias do IBS/CBS em 2026; apuração meramente informativa)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://sovos.com/taxapedia/?p=53",
+        "title": "Sovos Taxapedia – How do you get compliant for Brazil's tax reform? (last updated 22 September 2026): transição 2026–2033",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.reformatributaria.com/wp-content/uploads/2026/10/006.529-2026-7-VR-Aliquota-CBS-Reforma-Tributaria.pdf",
+        "title": "TCU – TC 006.529/2026-7, relatório e voto (sessão 28/10/2026): alíquota de referência da CBS para 2027 de 11,3% (cópia publicada por reformatributaria.com)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://globaltaxnews.ey.com/news/2026-0987-brazil-publishes-ibs-and-cbs-regulations-marking-start-of-operational-phase-of-indirect-tax-reform",
+        "title": "EY Global Tax News (4 May 2026) – Brazil publishes IBS and CBS regulations",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://kpmg.com/us/en/taxnewsflash/news/2026/01/brazil-amendments-indirect-tax-reform-adopted.html",
+        "title": "KPMG TaxNewsFlash (7 January 2026) – Brazil: Amendments to indirect tax reform adopted",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www12.senado.leg.br/noticias/materias/2026/11/10/senado-recebe-acordao-do-tcu-que-propoe-aliquota-de-11-3-para-a-cbs",
+        "title": "Agência Senado (10/11/2026) – Senado recebe acórdão do TCU que propõe alíquota de 11,3% para a CBS (prazo do Senado: 15 de dezembro)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "taxId": {
+    "label": "CNPJ (Cadastro Nacional da Pessoa Jurídica) للشركات؛ وCPF للأفراد؛ وInscrição Estadual (IE) لدافعي ICMS في كل ولاية",
+    "format": "CNPJ: 14 خانة بصيغة AA.AAA.AAA/AAAA-DV؛ أول 12 خانة أبجدية رقمية (0–9 وA–Z) للتسجيلات الجديدة منذ يوليو 2026، وآخر خانتين رقما تحقق رقميان (módulo 11). أرقام CNPJ الرقمية القائمة تبقى صالحة ويتعايش الشكلان. CPF: 11 رقماً. IE: يختلف شكلها بحسب الولاية (من 2 إلى 14 خانة في حقل NF-e).",
+    "sources": [
+      {
+        "url": "https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/cnpj/cnpj-alfanumerico.pdf",
+        "title": "Receita Federal – Perguntas e Respostas: CNPJ Alfanumérico (صيغة AA.AAA.AAA/AAAA-DV، بدء يوليو 2026، بقاء الأرقام القائمة)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.gov.br/receitafederal/pt-br/acesso-a-informacao/acoes-e-programas/programas-e-atividades/cnpj-alfanumerico",
+        "title": "Receita Federal – CNPJ Alfanumérico (IN RFB 2.229/2024؛ أول CNPJ أبجدي رقمي 31/07/2026؛ «exclusivamente a novas inscrições»)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=J%2BI%2Bv4eN00E%3D",
+        "title": "MOC 7.0 – Anexo I, Leiaute e Regras de Validação da NF-e e da NFC-e (CNPJ 14، CPF 11، IE 2–14)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "einvoicing": {
+    "status": "mandatory",
+    "systemName": "NF-e (Nota Fiscal Eletrônica, modelo 55) وNFC-e (Nota Fiscal de Consumidor Eletrônica, modelo 65)",
+    "authority": "Secretarias da Fazenda estaduais (SEFAZ) تمنح Autorização de Uso لكل مستند، ضمن النظام الوطني الذي ينسّقه ENCAT مع Receita Federal do Brasil؛ ومنذ 2026 تُعتمد المواصفات الفنية لحقول IBS/CBS بأفعال مشتركة RFB/CGIBS",
+    "model": "clearance",
+    "scopeNow": "NF-e (55) تحلّ محل الفاتورة الورقية modelo 1/1-A. الإلزام الوطني بموجب Protocolos ICMS 10/2007 و42/2009 يقوم على CNAE وعمليات محددة، ولغير المشمولين التطوع بها، وقد وسّعت ولايات الإلزام ومنحت أخرى إعفاءات (مثل إيراد أقل من R$ 360,000 في بعضها) بحسب الأسئلة الشائعة الرسمية. ثم صار إصدار المستندات الإلكترونية إلزاماً بموجب المادة 112 من لائحتي IBS وCBS (Ato Conjunto RFB/CGIBS nº 4/2026): NF-e وNFC-e من 3/8/2026 لغير Simples Nacional، ولخاضعي IBS/CBS غير المسجلين في ICMS من 1/12/2026، ولـSimples Nacional (ومنه MEI) وعمليات tributação monofásica من 1/1/2027. عملياً تُغطى بها مبيعات الموزِّع للمتاجر المسجلة في ICMS (فـNFC-e مرفوضة لمشترٍ مسجّل في ICMS، رفض 789). NFC-e (65) لبيع التجزئة للمستهلك النهائي. النموذج clearance: يُرسَل XML موقَّعاً رقمياً إلى SEFAZ ولا تتحرك البضاعة قبل Autorização de Uso، ويرافقها DANFE. حقول IBS/CBS ملزمة قانوناً لـRegime Normal (CRT 3) منذ 3/8/2026، لكن قاعدة الرفض الآلي للمستند الناقص (UB12-10) ما زالت «implementação futura» في NT 2025.002 v1.53 (30/10/2026). وتعرض البوابة الوطنية أكثر من 62.9 مليار NF-e معتمدة ونحو 2.915 مليون مُصدِر.",
+    "keyDates": [
+      {
+        "date": "2025-01-16",
+        "event": "نشر Lei Complementar 214/2025 التي أنشأت IBS وCBS وImposto Seletivo وألزمت بتكييف أنظمة المستندات الإلكترونية."
+      },
+      {
+        "date": "2025-12-22",
+        "event": "Ato Conjunto RFB/CGIBS nº 1: كل خاضع لـIBS/CBS يصدر مستنداً إلكترونياً (NF-e وNFC-e وNFS-e وCT-e وغيرها)؛ احتساب 2026 «meramente informativo, sem efeitos tributários» لمن يفي بالالتزامات؛ ولا غرامات على غياب حقول IBS/CBS حتى أول الشهر الرابع بعد نشر اللوائح."
+      },
+      {
+        "date": "2026-01-01",
+        "event": "بدء سنة الاختبار: CBS 0.9% وIBS الولائي 0.1% في المستندات. وفي São Paulo صارت NFC-e إلزامية لكل تجارة التجزئة بدلاً من CF-e-SAT (modelo 59)."
+      },
+      {
+        "date": "2026-04-29",
+        "event": "لائحة CBS (Decreto nº 12.955)، ثم لائحة IBS في 30/4/2026 (Resolução CGIBS nº 6)."
+      },
+      {
+        "date": "2026-07",
+        "event": "بدء إصدار CNPJ الأبجدي الرقمي للتسجيلات الجديدة (أول رقم 31/7/2026)؛ وعلى أنظمة الفوترة قبول الشكلين."
+      },
+      {
+        "date": "2026-08-03",
+        "event": "بدء إلزام NF-e وNFC-e (وCT-e وMDF-e وغيرها) بحقول IBS/CBS لغير Simples Nacional (Ato Conjunto RFB/CGIBS nº 4/2026). وفي اليوم نفسه أعلنت Receita Federal وCGIBS عدم رفض المستندات الناقصة لهذه الحقول مؤقتاً دون موعد جديد، مع بقاء الالتزام بحسب توضيح CGIBS."
+      },
+      {
+        "date": "2026-10-01",
+        "event": "إلزام NFS-e بحقول IBS/CBS لمعظم خدمات قائمة ISS (LC 116/2003) غير المذكورة في البنود الخاصة، وNFCom وDIR (Ato Conjunto RFB/CGIBS nº 4/2026)."
+      },
+      {
+        "date": "2026-11-16",
+        "event": "موعد الإنتاج المؤجَّل لعدة Notas Técnicas لـNF-e/NFC-e (منها 2025.002 v1.50 وv1.52 و2026.006 و2026.007 و2026.008) بحسب إعلان بوابة NF-e في 27/10/2026."
+      },
+      {
+        "date": "2026-12-01",
+        "event": "إلزام NF-e لخاضعي IBS/CBS غير المسجلين في ICMS (§4 من Ato Conjunto nº 4/2026)، وإلزام NFS-e لفئات محددة: المنصات الرقمية، والبنود 1.03 و1.05 و1.09 و16.01 من قائمة ISS، والسلع غير المادية خارج القائمة، ورسوم الشقق المشتركة، والإيجارات، والخدمات خارج قائمة ISS."
+      },
+      {
+        "date": "2027-01-01",
+        "event": "دخول Simples Nacional وMEI وعمليات tributação monofásica في إلزام المستندات بحقول IBS/CBS (Ato Conjunto nº 4/2026). وبحسب Sovos: CBS بنسبتها الكاملة وإلغاء PIS/COFINS، وتصفير IPI إلا لمنطقة Manaus الحرة، وبدء Imposto Seletivo؛ لكن نسبة CBS لـ2027 يحدّدها مجلس الشيوخ حتى 15/12/2026 (مقترح TCU 11.3%)، ونسب Imposto Seletivo وقائمة سلع Manaus التي تحتفظ بـIPI تنتظر تشريعاً بحسب TCU (أكتوبر 2026). وIBS في 2027–2028: 0.05% ولائي + 0.05% بلدي (NT 2025.002). ويبدأ كذلك تطبيق إجراءات Ajuste SINIEF 49/2025 لـNF-e (رفض الاستلام، عدم التسليم، تخفيض الكمية/القيمة) بحسب Thomson Reuters."
+      },
+      {
+        "date": "2029-01",
+        "event": "يبدأ رفع IBS تدريجياً مع خفض ICMS وISS حتى 2032 (Sovos، Fonoa)، ويبدأ cashback الخاص بـIBS في يناير 2029 (Sovos وحدها؛ Fonoa لا تذكره)."
+      },
+      {
+        "date": "2033-01-01",
+        "event": "إلغاء ICMS وISS؛ يبقى CBS وIBS وImposto Seletivo وحدها (Sovos)."
+      }
+    ],
+    "b2cReceipts": "NFC-e (modelo 65) هي إيصال المستهلك الإلكتروني الذي تعتمده SEFAZ لحظياً، ويُطبع له DANFE NFC-e برمز QR يتضمّن معرّف CSC (Código de Segurança do Contribuinte)، وله وضع طوارئ offline (contingência offline). في São Paulo صارت NFC-e منذ 1/1/2026 إلزامية لكل تجارة التجزئة بدلاً من CF-e-SAT (modelo 59) وNota Fiscal de Venda a Consumidor (modelo 02)؛ ومع NT 2026.002 يجوز إصدار NF-e (55) بـDANFE Simplificado Tipo 2 في عمليات تغطيها عادة NFC-e. هوية المستهلك اختيارية في NFC-e حتى سقف تحدده كل ولاية (افتراضياً R$ 10,000 بحسب القاعدة W16-40 في NT 2026.002)، ولا تُصدَر NFC-e لمشترٍ مسجّل في ICMS (indIEDest=9 إلزامي). ويسمح الـleiaute الوطني بـNFC-e في «operação presencial, fora do estabelecimento» (indPres=5) مع إلزام رمز بلدية الاستهلاك cMunFGIBS (NT 2025.002 v1.53، القاعدتان B25b-20 وB25b-70)، ومؤشر «entrega a domicílio» (indPres=4) قابل للتقييد من كل ولاية (رفض 785). أوضاع بقية الولايات لم تُفحص فرادى.",
+    "sources": [
+      {
+        "url": "https://www.in.gov.br/web/dou/-/ato-conjunto-rfb/cgibs-n-4-de-30-de-julho-de-2026-722697172",
+        "title": "DOU – Ato Conjunto RFB/CGIBS nº 4, de 30/07/2026 (datas de início da obrigatoriedade dos DF-e com IBS/CBS)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.in.gov.br/web/dou/-/ato-tecnico-conjunto-rfb/cgibs-n-1-de-31-de-julho-de-2026-722990495",
+        "title": "DOU – Ato Técnico Conjunto RFB/CGIBS nº 1, de 31/07/2026 (aprova NT 2025.002 v1.51 e ratifica documentação técnica)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.gov.br/fazenda/pt-br/assuntos/noticias/2026/agosto/receita-federal-e-cgibs-flexibilizarao-obrigatoriedade-de-informacoes-em-documentos-fiscais",
+        "title": "Ministério da Fazenda (03/08/2026) – Receita Federal e CGIBS flexibilizarão obrigatoriedade de informações em documentos fiscais",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://netcpa.com.br/colunas/receita-federal-e-cgibs-esclarecem-adiamento-das-regras-de-validacao-dos-documentos-fiscais-eletronicos/28246",
+        "title": "Portal CPA (27/08/2026) – Receita Federal e CGIBS esclarecem adiamento das regras de validação («não houve suspensão da obrigatoriedade»)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=BMcHSMEoepU=",
+        "title": "Portal Nacional da NF-e – NT 2025.002-RTC v1.53 (30/10/2026): «Preenchimento dos campos IBS/CBS não será exigido por regra de validação, porém permanece obrigatório»",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.nfe.fazenda.gov.br/portal/informe.aspx?ehCTG=false",
+        "title": "Portal Nacional da NF-e – Informes (27/10/2026: produção postergada para 16 de novembro; 30/10/2026: Ato Técnico Conjunto nº 10)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.nfe.fazenda.gov.br/portal/principal.aspx",
+        "title": "Portal Nacional da NF-e – página principal (ENCAT/RFB؛ 62,901 bilhões NF-e autorizadas؛ 2,915 milhões emissores)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.nfe.fazenda.gov.br/portal/perguntasFrequentes.aspx?tipoConteudo=4figqHYhYho=",
+        "title": "Portal Nacional da NF-e – Perguntas Frequentes: Conceito, uso e obrigatoriedade da NF-e (Protocolos ICMS 10/2007 e 42/2009)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://portal.fazenda.sp.gov.br/servicos/nfe/Paginas/Descri%c3%a7%c3%a3o-de-Modelo-Operacional.aspx",
+        "title": "SEFAZ-SP – NF-e: Descrição do Modelo Operacional (Autorização de Uso antes do trânsito; DANFE)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://portal.fazenda.sp.gov.br/servicos/nfce",
+        "title": "SEFAZ-SP – NFC-e: obrigatória para todo o varejo paulista a partir de 01/01/2026, em substituição ao CF-e-SAT (modelo 59)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://sovos.com/pt-br/blog/tributos/nf-e-e-nfc-e-com-ibs-e-cbs-na-reforma-tributaria/",
+        "title": "Sovos (28/08/2026) – NF-e e NFC-e com IBS e CBS: agosto marca uma nova etapa da Reforma Tributária",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://sovos.com/taxapedia/?p=53",
+        "title": "Sovos Taxapedia (updated 22 September 2026) – Brazil tax reform timeline",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://fonoa.com/resources/blog/brazil-tax-reform-e-invoicing-2026",
+        "title": "Fonoa (27 November 2025) – Brazil's 2026 Tax Reform: e-invoicing changes",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://europe.thomsonreuters.com/pt/compliance/regulatory-updates/brazil",
+        "title": "Thomson Reuters – Regulatory updates Brazil (20/08/2026 Simples Nacional em 2027؛ 03/09/2026 Ajuste SINIEF 49/2025 a partir de 2027)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www12.senado.leg.br/noticias/materias/2026/11/10/senado-recebe-acordao-do-tcu-que-propoe-aliquota-de-11-3-para-a-cbs",
+        "title": "Agência Senado (10/11/2026) – Senado recebe acórdão do TCU que propõe alíquota de 11,3% para a CBS (prazo do Senado: 15 de dezembro)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.in.gov.br/web/dou/-/ato-tecnico-conjunto-rfb/sufis/cgibs/diretoria-executiva-n-10-de-28-de-outubro-de-2026-741177669",
+        "title": "DOU (29/10/2026) – Ato Técnico Conjunto RFB/SUFIS/CGIBS nº 10, de 28/10/2026: aprova NT 2025.002 v1.53, NT 2026.005 (Simples Nacional), NT 2026.006 (split payment), NT 2026.007 e 2026.008",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=m8aACnFLK/Y=",
+        "title": "Portal NF-e – Nota Técnica 2026.002 v1.11 (setembro 2026): NFC-e/NF-e com DANFE Simplificado Tipo 2, contingência off-line, limite por UF para consumidor não identificado (R$ 10.000 padrão)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=HInG7WD5Sj8=",
+        "title": "Portal NF-e – Nota Técnica 2026.005 v1.00 (30/10/2026): Atualizações para o Simples Nacional na NF-e e NFC-e",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "invoiceRequirements": [
+    "مفتاح الوصول (chave de acesso) من 44 رقماً، والرقم والسلسلة (número/série)، وتاريخ ووقت الإصدار (dhEmi)، وطبيعة العملية (natOp)، ونوعها دخول/خروج، والموديل 55 أو 65.",
+    "بيانات المُصدِر: الاسم التجاري (razão social)، وCNPJ (أو CPF)، وInscrição Estadual (IE)، والعنوان، وCódigo de Regime Tributário (CRT: 1/2 = Simples Nacional، 3 = Regime Normal).",
+    "بيانات المشتري (destinatário): الاسم، وCNPJ أو CPF، والعنوان مع رمز البلدية من جدول IBGE، ومؤشر وضعه في ICMS (indIEDest) وIE إن كان مسجّلاً؛ إلزامية في NF-e (55) واختيارية في NFC-e (65).",
+    "لكل صنف: الرمز، والوصف، وGTIN/EAN أو «SEM GTIN»، ورمز NCM من 8 أرقام، وCFOP، والوحدة التجارية، والكمية، وسعر الوحدة، والإجمالي.",
+    "الضرائب لكل صنف: ICMS (CST أو CSOSN، والوعاء، والنسبة، والقيمة، وICMS-ST عند وجوده)، وIPI وPIS وCOFINS بحسب الحالة.",
+    "منذ 2026 مجموعة IBS/CBS لكل صنف: CST الخاص بـIBS/CBS ورمز cClassTrib والنسب (0.9% CBS و0.1% IBS الولائي و0% IBS البلدي في 2026)؛ إلزامية قانوناً لـRegime Normal منذ 3/8/2026 مع تأجيل رفض المستندات الناقصة (القاعدة UB12-10 «implementação futura» في الإنتاج)، ولـSimples Nacional من 1/1/2027.",
+    "إجماليات المستند (Total da NF-e).",
+    "بيانات النقل: modalidade do frete، والناقل، ولوحة المركبة وتاريخ/وقت الخروج إذا كانت معروفة قبل الإصدار.",
+    "بيانات التحصيل والدفع: الفاتورة وسندات duplicatas عند البيع الآجل، ووسيلة الدفع tPag من جدول رسمي (dinheiro، cheque، cartão، Duplicata Mercantil، Boleto Bancário، Pix ديناميكي/ثابت/Automático، TED، Pagamento Posterior…). وفي NFC-e (65) وحدها قاعدة اختيارية تفعّلها الولاية (YA03-10): يُرفض المستند إذا قلّ مجموع المدفوعات المعلنة عن إجماليه (رفض 865)؛ وليست قاعدة عامة على NF-e (55).",
+    "معلومات إضافية (informações complementares) حسب الحاجة.",
+    "التوقيع الرقمي بشهادة ICP-Brasil تحمل CNPJ المنشأة، وبروتوكول Autorização de Uso من SEFAZ؛ ويرافق البضاعةَ أثناء النقل DANFE (تمثيل مطبوع مبسّط بمفتاح الوصول وباركود) وهو مستند مساعد لا الفاتورة نفسها.",
+    "البيع الحضوري خارج المنشأة في NF-e (indPres=5، كالبيع من السيارة) يجب أن يُشير إلى المستند المرجعي (NF de remessa)، وإلا يُرفض (رفض 864)."
+  ],
+  "distribution": {
+    "hubs": [
+      "São Paulo (مع MG وSC تتركز فيها 52.3% من إيرادات المشاركين في Ranking ABAD 2026 بحسب ولاية المقر؛ ترتيبها الأول غير مؤكَّد نصاً)",
+      "Minas Gerais",
+      "Santa Catarina",
+      "Nordeste (يتصدّر إيرادات نموذج distribuidor com entrega وatacado de balcão)"
+    ],
+    "tradeChannels": [
+      "varejo tradicional / pequeno varejo (تغطية الجملة والتوزيع للتقليدي 95%)",
+      "mercearias",
+      "supermercados pequenos (Super Pequeno)",
+      "bares",
+      "Horecas (hotéis, restaurantes e cafeterias)",
+      "farmácias e perfumarias/cosméticos",
+      "atacarejo (cash & carry)",
+      "lojas de conveniência",
+      "bazar"
+    ],
+    "localTerms": {
+      "vanSales": "venda pronta entrega / venda fora do estabelecimento por meio de veículo (المستند: NF-e de remessa بـCFOP 5.904، ثم بيع بـCFOP 5.103 أو 5.104 «efetuada fora do estabelecimento»)",
+      "preSales": "distribuidor com entrega / atacado generalista com entrega (تسمية ABAD لنموذج العمل)؛ ويُستعمل شائعاً «pré-venda» لطلب يأخذه vendedor/RCA ويُسلَّم لاحقاً (غير موثّق هنا)",
+      "salesRep": "vendedor (vendedor CLT موظف) / RCA – representante comercial autônomo",
+      "retailShop": "PDV (ponto de venda) / pequeno varejo / mercearia",
+      "routeAccounting": "retorno de remessa (NF-e de entrada بـCFOP 1.904 لما لم يُبع ويعود بالسيارة) مع مطابقة الحمولة والنقد عند العودة؛ ويُسمّى عملياً «acerto» (غير موثّق هنا)"
+    },
+    "collectionMethods": [
+      "Pix (QR Code dinâmico/estático أو chave Pix؛ وPix Automático للمدفوعات المتكررة)",
+      "boleto bancário",
+      "duplicata mercantil (البيع الآجل)",
+      "dinheiro (نقد)",
+      "cheque",
+      "cartão de débito/crédito",
+      "TED / depósito bancário"
+    ],
+    "notes": "بحسب Ranking ABAD/NielsenIQ 2026 (بيانات 2025): يورّد قطاع الجملة والتوزيع (atacado distribuidor) نحو 56% من سوق السلع الاستهلاكية سريعة الدوران (mercado mercearil)، بإيرادات 616.6 مليار ريال، ويخدم 1,181,640 نقطة بيع، ولدى الشركات المشاركة في الاستطلاع (768 شركة) 37.3 ألف RCA (37,286) و28.2 ألف vendedor CLT، وأسطول 22.4 ألف مركبة خاصة و28 ألف مستأجرة؛ وتتركز 52.3% من الإيرادات في SP وMG وSC (بحسب ولاية المقر). أكثر نماذج العمل انتشاراً بين المشاركين: distribuidor com entrega (70.1%)، ثم atacado generalista com entrega (56.3%)، وatacado de balcão (31.5%)، وatacado generalista de autosserviço (12.4%)، وagente de serviços (9%). ضريبياً، البيع من السيارة في البرازيل ليس مجرد إيصال: تصدر NF-e de remessa للحمولة (CFOP 5.904 «inclusive por meio de veículos»)، ثم مستند لكل بيع خارج المنشأة يشير إليها، ثم NF-e de retorno (CFOP 1.904) لما يعود، وكل ذلك يمر عبر SEFAZ؛ ويوقّع المشتري عادة canhoto الـDANFE إثباتاً للاستلام (غرض تجاري لا ضريبي). وفي جدول وسائل الدفع الرسمي لـNF-e تظهر Pix (ديناميكي وثابت منذ 1/7/2024، وPix Automático منذ 4/5/2026) وboleto وduplicata وcheque ونقد. أطلق البنك المركزي Pix في 16/11/2020، ويعمل 24/7، واستخدمه أكثر من 150 مليون شخص طبيعي (BCB، بيانات سبتمبر 2026). تنبيه لغوي: «pronta entrega» وحدها تعني عموماً «جاهز للتسليم الفوري»، فيلزم قرنها بسياق التوزيع (venda/distribuidora/caminhão)."
+  },
+  "honesty": {
+    "canSay": [
+      "FieldSales منصة لإدارة مناديب المبيعات والبيع من السيارة (venda pronta entrega) والطلبات المسبقة وتحصيل المستحقات، موجّهة لشركات التوزيع.",
+      "العملة (BRL، R$) ونسبة الضريبة يضبطهما العميل بنفسه في إعدادات شركته؛ ولا تحتسب المنصة ICMS أو ICMS-ST أو DIFAL أو IBS/CBS آلياً بحسب الولاية.",
+      "يستطيع العميل تعريف أسماء طرق التحصيل التي يستعملها، مثل Pix وboleto والنقد والشيك، لتسجيل ما يحصّله المندوب ومتابعته، دون ربط مصرفي.",
+      "الربط المباشر مع SEFAZ لإصدار NF-e أو NFC-e غير متوفر اليوم في البرازيل، ويمكن دراسته عند الطلب دون التزام بموعد.",
+      "ما تطبعه المنصة من مستندات هو مستندات تشغيلية داخلية لا تحلّ محل NF-e أو NFC-e أو DANFE؛ ويبقى إصدار المستند الضريبي على نظام الفوترة المعتمد لدى العميل (ERP/emissor).",
+      "تتيح المنصة واجهة API لكل شركة يمكن أن يستعملها نظام العميل لتبادل الطلبات والفواتير، ويُبنى أي تكامل بحسب كل حالة."
+    ],
+    "mustNotSay": [
+      "«Integrado com a SEFAZ» أو «emissor de NF-e/NFC-e» أو «autorizado/homologado pela SEFAZ ou pela Receita Federal»: لا يوجد ربط ولا اعتماد.",
+      "«Pronto para a Reforma Tributária» أو «calcula IBS/CBS automaticamente» أو «split payment»: غير متحقق.",
+      "«Gera boletos» أو «gera QR Code Pix» أو «integrado ao Pix/Banco Central» أو «conciliação bancária automática»: لا تكامل مصرفي مُثبت.",
+      "«Cálculo automático de ICMS-ST, DIFAL ou IPI»: النسب يضبطها العميل بنفسه.",
+      "«Emite NF-e de remessa/retorno (CFOP 5.904/1.904)» أو «emite MDF-e/CT-e» أو «substitui o DANFE».",
+      "«Aceita CNPJ alfanumérico» قبل اختبار ذلك فعلياً في المنصة.",
+      "«Em conformidade com a LGPD» أو أي ادعاء امتثال أو اعتماد أو شهادة في البرازيل.",
+      "نقل مزايا السعودية (ZATCA/Fatoora، المرحلة الثانية، QR الفاتورة السعودية) إلى صفحة البرازيل أو الإيحاء بربط حكومي مماثل.",
+      "أرقام عملاء أو شركاء في البرازيل، أو شراكة/اعتماد من ABAD أو من مصنّعين، ما لم تكن موثقة.",
+      "استعمال «pronta entrega» وحدها عنواناً أو كلمة مفتاحية دون سياق التوزيع (venda/distribuidora/caminhão).",
+      "«Emita nota fiscal pelo celular/no caminhão» أو «NFC-e/NF-e offline (contingência)» أو أي إيحاء بأن فاتورة المنصة أو إيصالها مستند ضريبي صالح في البرازيل.",
+      "ذكر 11.3% نسبةً نهائية لـCBS في 2027: هي مقترح TCU، ويحدّدها مجلس الشيوخ حتى 15/12/2026.",
+      "«Sistema/aplicativo em português» أو «suporte em português» ما لم يُتحقق من توفّر الواجهة والدعم بالبرتغالية فعلاً."
+    ]
+  },
+  "uncertain": [
+    "standardRate = null عمداً: لا توجد نسبة ICMS وطنية موحدة، ولم أتحقق من النسبة الداخلية لكل ولاية على حدة؛ الاعتماد على نطاق PwC (عموماً 17–20%، وSP 18%).",
+    "registrationThreshold = null: لا يوجد حد تسجيل وطني بأسلوب VAT؛ التسجيل في ICMS (Inscrição Estadual) مرتبط بممارسة نشاط خاضع وفق قوانين الولايات، ولم أجلب مصدراً رسمياً لحدود Simples Nacional/MEI بعد نفاد ميزانية البحث.",
+    "CBS لعام 2027: مقترح TCU 11.3% (جلسة 28/10/2026) مؤكَّد الآن من Agência Senado (10/11/2026)، والنسخة الكاملة للقرار منسوخة على reformatributaria.com لا من موقع TCU؛ ومجلس الشيوخ لم يحدّد النسبة بعد ومهلته 15/12/2026. يجب تحديث الصفحة بعد ذلك التاريخ.",
+    "موعد تفعيل رفض NF-e/NFC-e الناقصة لحقول IBS/CBS: مؤجل دون تاريخ حتى NT 2025.002 v1.53 (30/10/2026). خبر وزارة المالية (3/8/2026) تحدث عن «suspensão da obrigatoriedade do preenchimento»، بينما توضيح CGIBS وNT يقولان إن الالتزام باقٍ وإنما أُجِّل الرفض الآلي؛ اعتمدنا الأخير.",
+    "مصطلحا «pré-venda» و«acerto» لم أجد لهما مصدراً موثقاً في هذه الجلسة (نفدت ميزانية البحث)؛ الموثَّق: «pronta entrega» في سياق التوزيع (ABAD، 30/6/2026)، و«distribuidor com entrega» و«RCA» و«vendedor CLT» و«pequeno varejo» و«PDV» (ABAD/NielsenIQ).",
+    "مراكز التوزيع على مستوى المدن (مثل Grande São Paulo أو Belo Horizonte/Contagem أو Uberlândia أو Recife) غير موثّقة هنا؛ الموثَّق تركّز الإيرادات في SP وMG وSC (52.3%) وريادة Nordeste في نموذج distribuidor com entrega.",
+    "boleto: لم أصل إلى مصدر رسمي مخصص (موقع Febraban لم يستجب)؛ وجوده مؤكد فقط كوسيلة دفع رسمية (الرمز 15) في جدول وسائل الدفع لـNF-e، ولم أتحقق من حصته الحالية مقابل Pix.",
+    "البيع من السيارة للمستهلك النهائي بـNFC-e: الـleiaute الوطني يسمح بـindPres=5 في NFC-e (NT 2025.002 v1.53)، لكن تطبيق كل ولاية، وقيود «entrega a domicílio»، ووضع NFC-e/SAT/MF-e خارج São Paulo لم تُفحص ولاية بولاية.",
+    "إحصاءات Pix من صفحة BCB (بيانات سبتمبر 2026): أكثر من 150 مليون شخص طبيعي؛ لم أتحقق من تفصيل المدفوعات بين الشركات (P2B/B2B).",
+    "إجراءات Ajuste SINIEF 49/2025 المؤجلة إلى 1/1/2027 مصدرها Thomson Reuters؛ لم أقرأ نص Ajuste SINIEF 27/2026 لأن موقع CONFAZ لم يستجب.",
+    "مرحلة 2029–2032 (رفع IBS وخفض ICMS/ISS) و2033 (إلغاؤهما) مأخوذة من Sovos وFonoa، ويؤيد TCU أن CBS تعوّض الضرائب الملغاة «de 2027 a 2033» وKPMG أن الانتقال يكتمل في 2033؛ لم يُفتح نص EC 132/2023 لأن planalto.gov.br حجب الطلب مجدداً أثناء التدقيق.",
+    "Imposto Seletivo في 2027: نسبه تنتظر قانوناً عادياً، وقائمة سلع Zona Franca de Manaus التي تحتفظ بـIPI لم تصدر بعد، بحسب تقرير TCU (أكتوبر 2026).",
+    "قاعدة الرفض 865 (مجموع المدفوعات أقل من الإجمالي) موثّقة في MOC 7.0 (2020) لـNFC-e فقط وبتطبيق اختياري للولاية؛ لم يُفحص إن غيّرتها Notas Técnicas لاحقة.",
+    "لم يُتحقق من أن BRL ضمن سجل الدول في المنصة (التدقيق ممنوع من لمس المستودع)؛ صياغة canSay تفترض ما أعلنه المالك من أن العملة والضريبة يضبطهما العميل.",
+    "نفدت ميزانية البحث (WebSearch) أثناء التدقيق؛ تحقّق المدقق بفتح المصادر الرسمية مباشرة، وبقي «pré-venda» و«acerto» دون مصدر."
+  ],
+  "sources": [
+    {
+      "url": "https://taxsummaries.pwc.com/brazil/corporate/other-taxes",
+      "title": "PwC Worldwide Tax Summaries – Brazil – Other taxes (Last reviewed 23 September 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.nfe.fazenda.gov.br/portal/principal.aspx",
+      "title": "Portal Nacional da Nota Fiscal Eletrônica (ENCAT/Receita Federal)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=BMcHSMEoepU=",
+      "title": "Nota Técnica 2025.002-RTC v1.53 (publicada 30/10/2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=J%2BI%2Bv4eN00E%3D",
+      "title": "MOC 7.0 – Anexo I, Leiaute e Regras de Validação da NF-e e da NFC-e",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=74KmX8poGpM=",
+      "title": "Portal NF-e – Tabela de CFOP (publicada 04/09/2026): 5.904 remessa para venda fora do estabelecimento «inclusive por meio de veículos»، 5.103/5.104، 1.904",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=uekMIW1ydFM=",
+      "title": "Portal NF-e – Tabela de Meios de Pagamento (publicada 06/03/2026): Boleto Bancário، Duplicata Mercantil، Pix dinâmico/estático/automático",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=LRksVAMl7nQ=",
+      "title": "Portal NF-e – Tabela de Alíquotas da CBS (publicada 12/05/2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.nfe.fazenda.gov.br/portal/perguntasFrequentes.aspx?tipoConteudo=7w14caCnJ6E=",
+      "title": "Portal NF-e – Perguntas Frequentes: DANFE (canhoto، placa do veículo، DANFE acompanha a mercadoria)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.in.gov.br/web/dou/-/ato-conjunto-rfb/cgibs-n-4-de-30-de-julho-de-2026-722697172",
+      "title": "DOU – Ato Conjunto RFB/CGIBS nº 4/2026",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.in.gov.br/en/web/dou/-/ato-conjunto-rfb/cgibs-n-1-de-22-de-dezembro-de-2025-677624586",
+      "title": "DOU – Ato Conjunto RFB/CGIBS nº 1/2025",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.gov.br/fazenda/pt-br/assuntos/noticias/2026/agosto/receita-federal-e-cgibs-flexibilizarao-obrigatoriedade-de-informacoes-em-documentos-fiscais",
+      "title": "Ministério da Fazenda (03/08/2026) – flexibilização das regras de validação de IBS/CBS",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://portal.fazenda.sp.gov.br/servicos/nfce",
+      "title": "SEFAZ-SP – NFC-e (obrigatória para todo o varejo paulista desde 01/01/2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://portal.fazenda.sp.gov.br/servicos/nfe/Paginas/Descri%c3%a7%c3%a3o-de-Modelo-Operacional.aspx",
+      "title": "SEFAZ-SP – NF-e: Descrição do Modelo Operacional",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/cnpj/cnpj-alfanumerico.pdf",
+      "title": "Receita Federal – Perguntas e Respostas: CNPJ Alfanumérico",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.bcb.gov.br/estabilidadefinanceira/pix",
+      "title": "Banco Central do Brasil – Pix (lançado em 16/11/2020؛ 24/7؛ estatísticas de setembro de 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml",
+      "title": "ISO 4217 List One (SIX, published 2026-09-17): BRL, Brazilian Real, 986, minor units 2",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://abad.com.br/indicadores/atacado-distribuidor-chega-a-r-6166-bilhoes-de-faturamento-e-reforca-protagonismo-nacional/",
+      "title": "ABAD (13/05/2026) – Atacado distribuidor chega a R$ 616,6 bilhões de faturamento (56% do mercado mercearil؛ 1.181.640 PDVs)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://abad.com.br/wp-content/uploads/2026/05/Apresentacao-NIQ-Ranking-ABAD-2026_v2_12.05.26.pdf",
+      "title": "Ranking ABAD NielsenIQ 2026 (ano base 2025) – apresentação: modelos de operação، RCA، vendedores CLT، frota، canais",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://abad.com.br/wp-content/uploads/2022/06/2022.06.07-ABAD-Digitalizacao-canal-indireto-convencaov-final-apresentado_QR-CODE.pdf",
+      "title": "ABAD – Digitalização no Canal Indireto (2022): Vendedor/RCA، pequeno varejo، PDV، canhoto de recebimento",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://distribuicao.abad.com.br/abad/discra-comemora-60-anos-com-premio-inedito-da-abad/",
+      "title": "Revista Distribuição/ABAD (30/06/2026) – «distribuição de biscoitos por pronta entrega»",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://sovos.com/taxapedia/?p=53",
+      "title": "Sovos Taxapedia – Brazil tax reform (last updated 22 September 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://sovos.com/pt-br/blog/tributos/nf-e-e-nfc-e-com-ibs-e-cbs-na-reforma-tributaria/",
+      "title": "Sovos (28/08/2026) – NF-e e NFC-e com IBS e CBS",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://fonoa.com/resources/blog/brazil-tax-reform-e-invoicing-2026",
+      "title": "Fonoa (27/11/2025) – Brazil's 2026 Tax Reform: e-invoicing",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://globaltaxnews.ey.com/news/2026-0987-brazil-publishes-ibs-and-cbs-regulations-marking-start-of-operational-phase-of-indirect-tax-reform",
+      "title": "EY Global Tax News (04/05/2026) – IBS and CBS regulations published",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://europe.thomsonreuters.com/pt/compliance/regulatory-updates/brazil",
+      "title": "Thomson Reuters – Regulatory updates: Brazil",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.reformatributaria.com/wp-content/uploads/2026/10/006.529-2026-7-VR-Aliquota-CBS-Reforma-Tributaria.pdf",
+      "title": "TCU – TC 006.529/2026-7 (alíquota de referência da CBS 2027: 11,3%)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www12.senado.leg.br/noticias/materias/2026/11/10/senado-recebe-acordao-do-tcu-que-propoe-aliquota-de-11-3-para-a-cbs",
+      "title": "Agência Senado (10/11/2026) – Senado recebe acórdão do TCU que propõe alíquota de 11,3% para a CBS (prazo do Senado: 15 de dezembro)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.in.gov.br/web/dou/-/ato-tecnico-conjunto-rfb/sufis/cgibs/diretoria-executiva-n-10-de-28-de-outubro-de-2026-741177669",
+      "title": "DOU (29/10/2026) – Ato Técnico Conjunto RFB/SUFIS/CGIBS nº 10, de 28/10/2026: aprova NT 2025.002 v1.53, NT 2026.005 (Simples Nacional), NT 2026.006 (split payment), NT 2026.007 e 2026.008",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=m8aACnFLK/Y=",
+      "title": "Portal NF-e – Nota Técnica 2026.002 v1.11 (setembro 2026): NFC-e/NF-e com DANFE Simplificado Tipo 2, contingência off-line, limite por UF para consumidor não identificado (R$ 10.000 padrão)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=HInG7WD5Sj8=",
+      "title": "Portal NF-e – Nota Técnica 2026.005 v1.00 (30/10/2026): Atualizações para o Simples Nacional na NF-e e NFC-e",
+      "accessed": "2026-11-11"
+    }
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "auditor": "تدقيق عدائي مستقل: أُعيد تنزيل المصادر الرسمية وقراءتها (Ato Conjunto 1/2025 و4/2026، Atos Técnicos 1 و10/2026، NT 2025.002 v1.53، NT 2026.002 v1.11، جدول نسب CBS، MOC 7.0، جداول CFOP ووسائل الدفع، Informes بوابة NF-e، Receita Federal CNPJ، ISO 4217، BCB Pix، Agência Senado، وثيقة TCU، PwC، Sovos، Fonoa، EY، KPMG، Thomson Reuters، ABAD).",
+    "verifiedUnchanged": [
+      "العملة BRL (986، خانتان) – ISO 4217 List One المنشورة 2026-09-17.",
+      "لا نسبة ICMS وطنية (عموماً 17–20%، SP 18%، بين الولايات 12/7/4%)، PIS/COFINS 1.65/7.6 و0.65/3، IPI بحسب TIPI – PwC (Last reviewed 23 September 2026).",
+      "CBS 0.9% وIBS UF 0.1% في 2026 واحتساب 2026 إعلامي – NT 2025.002 v1.53 وAto Conjunto 1/2025 وجدول نسب CBS.",
+      "تواريخ Ato Conjunto RFB/CGIBS nº 4/2026: 3/8/2026 لـNF-e/NFC-e، 1/12/2026 لغير مسجلي ICMS، 1/1/2027 لـSimples Nacional والـmonofásica.",
+      "تأجيل رفض المستندات الناقصة (UB12-10 implementação futura) مع بقاء الالتزام – NT 2025.002 v1.53 ووزارة المالية 3/8/2026 وتوضيح CGIBS.",
+      "تأجيل إنتاج عدة NTs إلى 16/11/2026 – Informe بوابة NF-e 27/10/2026.",
+      "CNPJ أبجدي رقمي AA.AAA.AAA/AAAA-DV للتسجيلات الجديدة من يوليو 2026 وبقاء الأرقام القائمة – Receita Federal.",
+      "CFOP 5.904/5.103/5.104/1.904 «inclusive por meio de veículo(s)»، ورفض 864 لـindPres=5 دون NF مرجعية – جدول CFOP وMOC 7.0.",
+      "أرقام ABAD/NielsenIQ 2026 (616.6 مليار، 56%، 1,181,640 PDV، تغطية التقليدي 95%) – ABAD."
+    ],
+    "corrections": [
+      {
+        "field": "tax.otherRates[IBS 0.1].appliesTo",
+        "before": "IBS (Imposto sobre Bens e Serviços) – الحصة الولائية (IBS UF) في 2026 (المادة 343 من LC 214/2025)؛ وتصبح 0.05% في 2027–2028 (المادة 344) وفق NT 2025.002 v1.53.",
+        "after": "IBS (Imposto sobre Bens e Serviços) في 2026: الحصة الولائية (IBS UF) 0.1% والحصة البلدية (IBS Mun) 0% (المادة 343 من LC 214/2025)؛ وفي 2027–2028 تصبح 0.05% ولائية + 0.05% بلدية، أي 0.1% إجمالاً (المادة 344)، بحسب قواعد التحقق في NT 2025.002 v1.53.",
+        "source": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=BMcHSMEoepU= (NT 2025.002-RTC v1.53، قواعد pIBSUF وpIBSMun، ص 43 وما بعدها)"
+      },
+      {
+        "field": "tax.otherRates[CBS 2027].appliesTo",
+        "before": "CBS ابتداءً من 2027: احتسب Tribunal de Contas da União (TCU) نسبة مرجعية 11.3% (جلسة 28/10/2026)، ويحدّدها مجلس الشيوخ (Senado Federal) بقرار؛ لم يُتحقق من صدور القرار حتى 11/11/2026، وجدول بوابة NF-e (مايو 2026) يقول عن 2027 «aguarda legislação».",
+        "after": "CBS ابتداءً من 2027: احتسب Tribunal de Contas da União (TCU) نسبة مرجعية 11.3% (Acórdão، جلسة 28/10/2026)، وتسلّم مجلس الشيوخ (Senado Federal) القرار في 10/11/2026 وعليه تحديد النسبة بقرار (resolução) حتى 15/12/2026؛ فهي غير محدَّدة نهائياً حتى 11/11/2026، وجدول نسب CBS في بوابة NF-e (مايو 2026) يقول عن 2027 «aguarda legislação». لذلك rate = null.",
+        "source": "https://www12.senado.leg.br/noticias/materias/2026/11/10/senado-recebe-acordao-do-tcu-que-propoe-aliquota-de-11-3-para-a-cbs (Agência Senado، 10/11/2026: «O Senado deve definir o valor de sua alíquota até o dia 15 de dezembro»)؛ https://www.reformatributaria.com/wp-content/uploads/2026/10/006.529-2026-7-VR-Aliquota-CBS-Reforma-Tributaria.pdf"
+      },
+      {
+        "field": "invoiceRequirements[المدفوعات/رفض 865]",
+        "before": "بيانات التحصيل والدفع: الفاتورة وسندات duplicatas عند البيع الآجل، ووسيلة الدفع tPag من جدول رسمي (dinheiro، cheque، cartão، Duplicata Mercantil، Boleto Bancário، Pix ديناميكي/ثابت/Automático، TED، Pagamento Posterior…)؛ ويُرفض المستند إذا قلّ مجموع المدفوعات المعلنة عن إجماليه (رفض 865).",
+        "after": "بيانات التحصيل والدفع: الفاتورة وسندات duplicatas عند البيع الآجل، ووسيلة الدفع tPag من جدول رسمي (dinheiro، cheque، cartão، Duplicata Mercantil، Boleto Bancário، Pix ديناميكي/ثابت/Automático، TED، Pagamento Posterior…). وفي NFC-e (65) وحدها قاعدة اختيارية تفعّلها الولاية (YA03-10): يُرفض المستند إذا قلّ مجموع المدفوعات المعلنة عن إجماليه (رفض 865)؛ وليست قاعدة عامة على NF-e (55).",
+        "source": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=J%2BI%2Bv4eN00E%3D (MOC 7.0 Anexo I، القاعدة YA03-10: الموديل 65، Facul.)"
+      },
+      {
+        "field": "invoiceRequirements[مجموعة IBS/CBS]",
+        "before": "منذ 2026 مجموعة IBS/CBS لكل صنف: CST الخاص بـIBS/CBS ورمز cClassTrib والنسب (0.9% CBS و0.1% IBS الولائي في 2026)؛ إلزامية قانوناً لـRegime Normal منذ 3/8/2026 مع تأجيل رفض المستندات الناقصة، ولـSimples Nacional من 1/1/2027.",
+        "after": "منذ 2026 مجموعة IBS/CBS لكل صنف: CST الخاص بـIBS/CBS ورمز cClassTrib والنسب (0.9% CBS و0.1% IBS الولائي و0% IBS البلدي في 2026)؛ إلزامية قانوناً لـRegime Normal منذ 3/8/2026 مع تأجيل رفض المستندات الناقصة (القاعدة UB12-10 «implementação futura» في الإنتاج)، ولـSimples Nacional من 1/1/2027.",
+        "source": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=BMcHSMEoepU="
+      },
+      {
+        "field": "einvoicing.scopeNow",
+        "before": "NF-e (55) إلزامية على دافعي ICMS/IPI في كل العمليات التي كانت تغطيها الفاتورة الورقية modelo 1/1-A، وفق Protocolos ICMS 10/2007 و42/2009 (بحسب CNAE) وتشريعات كل ولاية؛ عملياً هي فاتورة كل بيع سلع بين المنشآت، ومنه بيع الموزِّع للمتاجر، ويجوز لغير الملزَمين التطوع بها. NFC-e (65) لبيع التجزئة للمستهلك النهائي. النموذج clearance: يُرسَل XML موقَّعاً رقمياً إلى SEFAZ ولا تتحرك البضاعة قبل Autorização de Uso، ويرافقها DANFE. ومنذ 3/8/2026 يلزم دافعي Regime Normal (CRT 3) ملء حقول IBS/CBS في NF-e وNFC-e (Ato Conjunto RFB/CGIBS nº 4/2026)، لكن قاعدة الرفض الآلي للمستند الناقص (UB12-10) ما زالت «implementação futura» في NT 2025.002 v1.53 (30/10/2026)، مع بقاء الالتزام قانونياً. Simples Nacional وMEI ابتداءً من 1/1/2027. وتعرض البوابة الوطنية أكثر من 62.9 مليار NF-e معتمدة ونحو 2.915 مليون مُصدِر.",
+        "after": "NF-e (55) تحلّ محل الفاتورة الورقية modelo 1/1-A. الإلزام الوطني بموجب Protocolos ICMS 10/2007 و42/2009 يقوم على CNAE وعمليات محددة، ولغير المشمولين التطوع بها، وقد وسّعت ولايات الإلزام ومنحت أخرى إعفاءات (مثل إيراد أقل من R$ 360,000 في بعضها) بحسب الأسئلة الشائعة الرسمية. ثم صار إصدار المستندات الإلكترونية إلزاماً بموجب المادة 112 من لائحتي IBS وCBS (Ato Conjunto RFB/CGIBS nº 4/2026): NF-e وNFC-e من 3/8/2026 لغير Simples Nacional، ولخاضعي IBS/CBS غير المسجلين في ICMS من 1/12/2026، ولـSimples Nacional (ومنه MEI) وعمليات tributação monofásica من 1/1/2027. عملياً تُغطى بها مبيعات الموزِّع للمتاجر المسجلة في ICMS (فـNFC-e مرفوضة لمشترٍ مسجّل في ICMS، رفض 789). NFC-e (65) لبيع التجزئة للمستهلك النهائي. النموذج clearance: يُرسَل XML موقَّعاً رقمياً إلى SEFAZ ولا تتحرك البضاعة قبل Autorização de Uso، ويرافقها DANFE. حقول IBS/CBS ملزمة قانوناً لـRegime Normal (CRT 3) منذ 3/8/2026، لكن قاعدة الرفض الآلي للمستند الناقص (UB12-10) ما زالت «implementação futura» في NT 2025.002 v1.53 (30/10/2026). وتعرض البوابة الوطنية أكثر من 62.9 مليار NF-e معتمدة ونحو 2.915 مليون مُصدِر.",
+        "source": "https://www.nfe.fazenda.gov.br/portal/perguntasFrequentes.aspx?tipoConteudo=4figqHYhYho= (Perguntas Frequentes: الإلزام بحسب CNAE والتطوع لغيرهم والإعفاء الولائي)؛ https://www.in.gov.br/web/dou/-/ato-conjunto-rfb/cgibs-n-4-de-30-de-julho-de-2026-722697172 (§§1،2،4)؛ https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=J%2BI%2Bv4eN00E%3D (رفض 789)"
+      },
+      {
+        "field": "einvoicing.keyDates[2026-12-01].event",
+        "before": "إلزام NF-e لخاضعي IBS/CBS غير المسجلين في ICMS، ولمعظم أنواع NFS-e (المنصات الرقمية، الإيجارات، وغيرها).",
+        "after": "إلزام NF-e لخاضعي IBS/CBS غير المسجلين في ICMS (§4 من Ato Conjunto nº 4/2026)، وإلزام NFS-e لفئات محددة: المنصات الرقمية، والبنود 1.03 و1.05 و1.09 و16.01 من قائمة ISS، والسلع غير المادية خارج القائمة، ورسوم الشقق المشتركة، والإيجارات، والخدمات خارج قائمة ISS.",
+        "source": "https://www.in.gov.br/web/dou/-/ato-conjunto-rfb/cgibs-n-4-de-30-de-julho-de-2026-722697172 (المادة 1، البند III والفقرة 4)"
+      },
+      {
+        "field": "einvoicing.keyDates[2026-10-01]",
+        "before": null,
+        "after": "إلزام NFS-e بحقول IBS/CBS لمعظم خدمات قائمة ISS (LC 116/2003) غير المذكورة في البنود الخاصة، وNFCom وDIR (Ato Conjunto RFB/CGIBS nº 4/2026).",
+        "source": "https://www.in.gov.br/web/dou/-/ato-conjunto-rfb/cgibs-n-4-de-30-de-julho-de-2026-722697172 (المادة 1، البند III-d والبندان X وXV)"
+      },
+      {
+        "field": "einvoicing.keyDates[2027-01-01].event",
+        "before": "دخول Simples Nacional وMEI وعمليات tributação monofásica في إلزام المستندات بحقول IBS/CBS. وبحسب Sovos: CBS بنسبتها الكاملة وإلغاء PIS/COFINS، وتصفير IPI إلا لمنطقة Manaus الحرة، وبدء Imposto Seletivo؛ وIBS الولائي 0.05% في 2027–2028 (NT 2025.002). ويبدأ كذلك تطبيق إجراءات Ajuste SINIEF 49/2025 لـNF-e (رفض الاستلام، عدم التسليم، تخفيض الكمية/القيمة) بحسب Thomson Reuters.",
+        "after": "دخول Simples Nacional وMEI وعمليات tributação monofásica في إلزام المستندات بحقول IBS/CBS (Ato Conjunto nº 4/2026). وبحسب Sovos: CBS بنسبتها الكاملة وإلغاء PIS/COFINS، وتصفير IPI إلا لمنطقة Manaus الحرة، وبدء Imposto Seletivo؛ لكن نسبة CBS لـ2027 يحدّدها مجلس الشيوخ حتى 15/12/2026 (مقترح TCU 11.3%)، ونسب Imposto Seletivo وقائمة سلع Manaus التي تحتفظ بـIPI تنتظر تشريعاً بحسب TCU (أكتوبر 2026). وIBS في 2027–2028: 0.05% ولائي + 0.05% بلدي (NT 2025.002). ويبدأ كذلك تطبيق إجراءات Ajuste SINIEF 49/2025 لـNF-e (رفض الاستلام، عدم التسليم، تخفيض الكمية/القيمة) بحسب Thomson Reuters.",
+        "source": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=BMcHSMEoepU=؛ https://www12.senado.leg.br/noticias/materias/2026/11/10/senado-recebe-acordao-do-tcu-que-propoe-aliquota-de-11-3-para-a-cbs؛ https://www.reformatributaria.com/wp-content/uploads/2026/10/006.529-2026-7-VR-Aliquota-CBS-Reforma-Tributaria.pdf (الفقرة 33: نسب IS وقائمة ZFM غير محددة)"
+      },
+      {
+        "field": "einvoicing.keyDates[2029-01].event",
+        "before": "يبدأ رفع IBS تدريجياً مع خفض ICMS وISS حتى 2032، ويبدأ cashback الخاص بـIBS (Sovos، Fonoa).",
+        "after": "يبدأ رفع IBS تدريجياً مع خفض ICMS وISS حتى 2032 (Sovos، Fonoa)، ويبدأ cashback الخاص بـIBS في يناير 2029 (Sovos وحدها؛ Fonoa لا تذكره).",
+        "source": "https://sovos.com/taxapedia/?p=53؛ https://fonoa.com/resources/blog/brazil-tax-reform-e-invoicing-2026 (لا ذكر للـcashback)"
+      },
+      {
+        "field": "einvoicing.b2cReceipts",
+        "before": "NFC-e (modelo 65) هي إيصال المستهلك الإلكتروني الذي تعتمده SEFAZ لحظياً، ويُطبع له DANFE NFC-e برمز QR، ويتطلب رمز الأمان CSC من بوابة SEFAZ، وله وضع طوارئ offline (contingência offline). في São Paulo منذ 1/1/2026 هي المستند الوحيد لتجارة التجزئة بعد إلغاء CF-e-SAT (modelo 59) وNota Fiscal de Venda a Consumidor (modelo 02). هوية المستهلك اختيارية في NFC-e (indIEDest=9 دون IE)، ومؤشر «entrega a domicílio» (indPres=4) يخضع لقرار كل ولاية. أوضاع بقية الولايات لم تُفحص فرادى.",
+        "after": "NFC-e (modelo 65) هي إيصال المستهلك الإلكتروني الذي تعتمده SEFAZ لحظياً، ويُطبع له DANFE NFC-e برمز QR يتضمّن معرّف CSC (Código de Segurança do Contribuinte)، وله وضع طوارئ offline (contingência offline). في São Paulo صارت NFC-e منذ 1/1/2026 إلزامية لكل تجارة التجزئة بدلاً من CF-e-SAT (modelo 59) وNota Fiscal de Venda a Consumidor (modelo 02)؛ ومع NT 2026.002 يجوز إصدار NF-e (55) بـDANFE Simplificado Tipo 2 في عمليات تغطيها عادة NFC-e. هوية المستهلك اختيارية في NFC-e حتى سقف تحدده كل ولاية (افتراضياً R$ 10,000 بحسب القاعدة W16-40 في NT 2026.002)، ولا تُصدَر NFC-e لمشترٍ مسجّل في ICMS (indIEDest=9 إلزامي). ويسمح الـleiaute الوطني بـNFC-e في «operação presencial, fora do estabelecimento» (indPres=5) مع إلزام رمز بلدية الاستهلاك cMunFGIBS (NT 2025.002 v1.53، القاعدتان B25b-20 وB25b-70)، ومؤشر «entrega a domicílio» (indPres=4) قابل للتقييد من كل ولاية (رفض 785). أوضاع بقية الولايات لم تُفحص فرادى.",
+        "source": "https://portal.fazenda.sp.gov.br/servicos/nfce (يذكر استبدال mod 59 وmod 02)؛ https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=m8aACnFLK/Y= (W16-40، DANFE Simplificado Tipo 2)؛ https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=BMcHSMEoepU= (B25b-20/70)؛ https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=J%2BI%2Bv4eN00E%3D (785، 789)"
+      },
+      {
+        "field": "distribution.hubs[São Paulo]",
+        "before": "São Paulo (الولاية الأولى في إيرادات قطاع الجملة والتوزيع)",
+        "after": "São Paulo (مع MG وSC تتركز فيها 52.3% من إيرادات المشاركين في Ranking ABAD 2026 بحسب ولاية المقر؛ ترتيبها الأول غير مؤكَّد نصاً)",
+        "source": "https://abad.com.br/indicadores/atacado-distribuidor-chega-a-r-6166-bilhoes-de-faturamento-e-reforca-protagonismo-nacional/؛ https://abad.com.br/wp-content/uploads/2026/05/Apresentacao-NIQ-Ranking-ABAD-2026_v2_12.05.26.pdf (شريحة «Dados da Matriz: Estado» خريطة بلا ترتيب نصي)"
+      },
+      {
+        "field": "distribution.localTerms.preSales",
+        "before": "pré-venda (طلب يأخذه vendedor/RCA ويُسلَّم لاحقاً)؛ وتسمّي ABAD نموذج العمل «distribuidor com entrega» أو «atacado generalista com entrega»",
+        "after": "distribuidor com entrega / atacado generalista com entrega (تسمية ABAD لنموذج العمل)؛ ويُستعمل شائعاً «pré-venda» لطلب يأخذه vendedor/RCA ويُسلَّم لاحقاً (غير موثّق هنا)",
+        "source": "https://abad.com.br/indicadores/atacado-distribuidor-chega-a-r-6166-bilhoes-de-faturamento-e-reforca-protagonismo-nacional/ (لا ذكر لـpré-venda في مصادر ABAD المفحوصة)"
+      },
+      {
+        "field": "distribution.notes",
+        "before": "بحسب Ranking ABAD/NielsenIQ 2026 (بيانات 2025): يورّد قطاع الجملة والتوزيع (atacado distribuidor) نحو 56% من سوق السلع الاستهلاكية سريعة الدوران (mercado mercearil)، بإيرادات 616.6 مليار ريال، ويخدم 1,181,640 نقطة بيع، ويعمل فيه 37.3 ألف RCA و28.2 ألف vendedor CLT، وأسطول 22.4 ألف مركبة خاصة و28 ألف مستأجرة؛ وتتركز 52.3% من الإيرادات في SP وMG وSC. أكثر نماذج العمل انتشاراً بين المشاركين: distribuidor com entrega (70.1%)، ثم atacado generalista com entrega (56.3%)، وatacado de balcão (31.5%)، وatacado generalista de autosserviço (12.4%)، وagente de serviços (9%). ضريبياً، البيع من السيارة في البرازيل ليس مجرد إيصال: تصدر NF-e de remessa للحمولة (CFOP 5.904 «inclusive por meio de veículos»)، ثم مستند لكل بيع خارج المنشأة يشير إليها، ثم NF-e de retorno (CFOP 1.904) لما يعود، وكل ذلك يمر عبر SEFAZ؛ ويوقّع المشتري عادة canhoto الـDANFE إثباتاً للاستلام (غرض تجاري لا ضريبي). وفي جدول وسائل الدفع الرسمي لـNF-e تظهر Pix (منذ 2024 بثلاثة أنواع) وboleto وduplicata وcheque ونقد. أطلق البنك المركزي Pix في 16/11/2020، ويعمل 24/7، واستخدمه أكثر من 150 مليون شخص طبيعي (BCB، بيانات سبتمبر 2026). تنبيه لغوي: «pronta entrega» وحدها تعني عموماً «جاهز للتسليم الفوري»، فيلزم قرنها بسياق التوزيع (venda/distribuidora/caminhão).",
+        "after": "بحسب Ranking ABAD/NielsenIQ 2026 (بيانات 2025): يورّد قطاع الجملة والتوزيع (atacado distribuidor) نحو 56% من سوق السلع الاستهلاكية سريعة الدوران (mercado mercearil)، بإيرادات 616.6 مليار ريال، ويخدم 1,181,640 نقطة بيع، ولدى الشركات المشاركة في الاستطلاع (768 شركة) 37.3 ألف RCA (37,286) و28.2 ألف vendedor CLT، وأسطول 22.4 ألف مركبة خاصة و28 ألف مستأجرة؛ وتتركز 52.3% من الإيرادات في SP وMG وSC (بحسب ولاية المقر). أكثر نماذج العمل انتشاراً بين المشاركين: distribuidor com entrega (70.1%)، ثم atacado generalista com entrega (56.3%)، وatacado de balcão (31.5%)، وatacado generalista de autosserviço (12.4%)، وagente de serviços (9%). ضريبياً، البيع من السيارة في البرازيل ليس مجرد إيصال: تصدر NF-e de remessa للحمولة (CFOP 5.904 «inclusive por meio de veículos»)، ثم مستند لكل بيع خارج المنشأة يشير إليها، ثم NF-e de retorno (CFOP 1.904) لما يعود، وكل ذلك يمر عبر SEFAZ؛ ويوقّع المشتري عادة canhoto الـDANFE إثباتاً للاستلام (غرض تجاري لا ضريبي). وفي جدول وسائل الدفع الرسمي لـNF-e تظهر Pix (ديناميكي وثابت منذ 1/7/2024، وPix Automático منذ 4/5/2026) وboleto وduplicata وcheque ونقد. أطلق البنك المركزي Pix في 16/11/2020، ويعمل 24/7، واستخدمه أكثر من 150 مليون شخص طبيعي (BCB، بيانات سبتمبر 2026). تنبيه لغوي: «pronta entrega» وحدها تعني عموماً «جاهز للتسليم الفوري»، فيلزم قرنها بسياق التوزيع (venda/distribuidora/caminhão).",
+        "source": "https://abad.com.br/indicadores/atacado-distribuidor-chega-a-r-6166-bilhoes-de-faturamento-e-reforca-protagonismo-nacional/ («As empresas participantes somam… 28,2 mil vendedores registrados، 37,2 mil representantes»)؛ https://abad.com.br/wp-content/uploads/2026/05/Apresentacao-NIQ-Ranking-ABAD-2026_v2_12.05.26.pdf (37.286 / 28.203)؛ https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=uekMIW1ydFM= (dIniVig: 17 و20 = 2024-07-01، 23 = 2026-05-04)"
+      },
+      {
+        "field": "honesty.canSay[0]",
+        "before": "FieldSales منصة لإدارة مناديب المبيعات والبيع من السيارة (venda pronta entrega) والطلبات المسبقة (pré-venda) وتحصيل المستحقات لدى شركات التوزيع في البرازيل.",
+        "after": "FieldSales منصة لإدارة مناديب المبيعات والبيع من السيارة (venda pronta entrega) والطلبات المسبقة وتحصيل المستحقات، موجّهة لشركات التوزيع.",
+        "source": "تدقيق صدق: حُذف «pré-venda» (مصطلح غير موثّق) و«لدى شركات التوزيع في البرازيل» (توحي بعملاء قائمين في البرازيل)"
+      },
+      {
+        "field": "honesty.canSay[1]",
+        "before": "العملة (BRL، R$) ونِسب الضرائب يضبطها العميل بنفسه في المنصة، بما يناسب اختلاف نسب ICMS بين الولايات.",
+        "after": "العملة (BRL، R$) ونسبة الضريبة يضبطهما العميل بنفسه في إعدادات شركته؛ ولا تحتسب المنصة ICMS أو ICMS-ST أو DIFAL أو IBS/CBS آلياً بحسب الولاية.",
+        "source": "تدقيق صدق: «بما يناسب اختلاف نسب ICMS بين الولايات» توحي بدعم نسب متعددة بحسب الولاية/الوجهة لم يُتحقق منه"
+      },
+      {
+        "field": "honesty.canSay[2]",
+        "before": "يستطيع العميل تعريف طرق التحصيل التي يستعملها، مثل Pix وboleto والنقد والشيك، لتسجيل ما يحصّله المندوب ومتابعته.",
+        "after": "يستطيع العميل تعريف أسماء طرق التحصيل التي يستعملها، مثل Pix وboleto والنقد والشيك، لتسجيل ما يحصّله المندوب ومتابعته، دون ربط مصرفي.",
+        "source": "تدقيق صدق: توضيح أن Pix/boleto أسماء للتسجيل فقط لا تكامل مصرفي"
+      },
+      {
+        "field": "honesty.mustNotSay[+]",
+        "before": null,
+        "after": "«Emita nota fiscal pelo celular/no caminhão» أو «NFC-e/NF-e offline (contingência)» أو أي إيحاء بأن فاتورة المنصة أو إيصالها مستند ضريبي صالح في البرازيل.",
+        "source": "تدقيق صدق: لا ربط SEFAZ ولا دليل على واجهة برتغالية"
+      },
+      {
+        "field": "honesty.mustNotSay[+]",
+        "before": null,
+        "after": "ذكر 11.3% نسبةً نهائية لـCBS في 2027: هي مقترح TCU، ويحدّدها مجلس الشيوخ حتى 15/12/2026.",
+        "source": "تدقيق صدق: https://www12.senado.leg.br/noticias/materias/2026/11/10/senado-recebe-acordao-do-tcu-que-propoe-aliquota-de-11-3-para-a-cbs"
+      },
+      {
+        "field": "honesty.mustNotSay[+]",
+        "before": null,
+        "after": "«Sistema/aplicativo em português» أو «suporte em português» ما لم يُتحقق من توفّر الواجهة والدعم بالبرتغالية فعلاً.",
+        "source": "تدقيق صدق: لا ربط SEFAZ ولا دليل على واجهة برتغالية"
+      },
+      {
+        "field": "uncertain",
+        "before": [
+          "standardRate = null عمداً: لا توجد نسبة ICMS وطنية موحدة، ولم أتحقق من النسبة الداخلية لكل ولاية على حدة؛ الاعتماد على نطاق PwC (عموماً 17–20%، وSP 18%).",
+          "registrationThreshold = null: لا يوجد حد تسجيل وطني بأسلوب VAT؛ التسجيل في ICMS (Inscrição Estadual) مرتبط بممارسة نشاط خاضع وفق قوانين الولايات، ولم أجلب مصدراً رسمياً لحدود Simples Nacional/MEI بعد نفاد ميزانية البحث.",
+          "CBS لعام 2027: وثيقة TCU (جلسة 28/10/2026) تحسب نسبة مرجعية 11.3%، لكنها منسوخة على موقع إخباري (reformatributaria.com) لا من موقع TCU، ولم أتحقق من صدور قرار مجلس الشيوخ الذي يحدّد النسبة.",
+          "IBS البلدي: NT 2025.002 تذكر الحصة الولائية فقط (0.1% في 2026 و0.05% في 2027–2028)؛ قول Sovos إن IBS الإجمالي يبقى 0.1% في 2027 لم أؤكده من نص رسمي.",
+          "موعد تفعيل رفض NF-e/NFC-e الناقصة لحقول IBS/CBS: مؤجل دون تاريخ حتى NT 2025.002 v1.53 (30/10/2026). خبر وزارة المالية (3/8/2026) تحدث عن «suspensão da obrigatoriedade do preenchimento»، بينما توضيح CGIBS وNT يقولان إن الالتزام باقٍ وإنما أُجِّل الرفض الآلي؛ اعتمدنا الأخير.",
+          "مصطلحا «pré-venda» و«acerto» لم أجد لهما مصدراً موثقاً في هذه الجلسة (نفدت ميزانية البحث)؛ الموثَّق: «pronta entrega» في سياق التوزيع (ABAD، 30/6/2026)، و«distribuidor com entrega» و«RCA» و«vendedor CLT» و«pequeno varejo» و«PDV» (ABAD/NielsenIQ).",
+          "مراكز التوزيع على مستوى المدن (مثل Grande São Paulo أو Belo Horizonte/Contagem أو Uberlândia أو Recife) غير موثّقة هنا؛ الموثَّق تركّز الإيرادات في SP وMG وSC (52.3%) وريادة Nordeste في نموذج distribuidor com entrega.",
+          "boleto: لم أصل إلى مصدر رسمي مخصص (موقع Febraban لم يستجب)؛ وجوده مؤكد فقط كوسيلة دفع رسمية (الرمز 15) في جدول وسائل الدفع لـNF-e، ولم أتحقق من حصته الحالية مقابل Pix.",
+          "استعمال NFC-e في البيع من السيارة للمستهلك النهائي وفي «entrega a domicílio» يختلف بحسب الولاية، وكذلك وضع NFC-e/SAT/MF-e خارج São Paulo؛ لم أتحقق ولاية بولاية.",
+          "إحصاءات Pix من صفحة BCB (بيانات سبتمبر 2026): أكثر من 150 مليون شخص طبيعي؛ لم أتحقق من تفصيل المدفوعات بين الشركات (P2B/B2B).",
+          "إجراءات Ajuste SINIEF 49/2025 المؤجلة إلى 1/1/2027 مصدرها Thomson Reuters؛ لم أقرأ نص Ajuste SINIEF 27/2026 لأن موقع CONFAZ لم يستجب.",
+          "مرحلة 2029–2032 (رفع IBS وخفض ICMS/ISS) و2033 (إلغاؤهما) مأخوذة من Sovos وFonoa؛ لم أتمكن من فتح نص EC 132/2023 على planalto.gov.br (طلب محجوب)."
+        ],
+        "after": [
+          "standardRate = null عمداً: لا توجد نسبة ICMS وطنية موحدة، ولم أتحقق من النسبة الداخلية لكل ولاية على حدة؛ الاعتماد على نطاق PwC (عموماً 17–20%، وSP 18%).",
+          "registrationThreshold = null: لا يوجد حد تسجيل وطني بأسلوب VAT؛ التسجيل في ICMS (Inscrição Estadual) مرتبط بممارسة نشاط خاضع وفق قوانين الولايات، ولم أجلب مصدراً رسمياً لحدود Simples Nacional/MEI بعد نفاد ميزانية البحث.",
+          "CBS لعام 2027: مقترح TCU 11.3% (جلسة 28/10/2026) مؤكَّد الآن من Agência Senado (10/11/2026)، والنسخة الكاملة للقرار منسوخة على reformatributaria.com لا من موقع TCU؛ ومجلس الشيوخ لم يحدّد النسبة بعد ومهلته 15/12/2026. يجب تحديث الصفحة بعد ذلك التاريخ.",
+          "موعد تفعيل رفض NF-e/NFC-e الناقصة لحقول IBS/CBS: مؤجل دون تاريخ حتى NT 2025.002 v1.53 (30/10/2026). خبر وزارة المالية (3/8/2026) تحدث عن «suspensão da obrigatoriedade do preenchimento»، بينما توضيح CGIBS وNT يقولان إن الالتزام باقٍ وإنما أُجِّل الرفض الآلي؛ اعتمدنا الأخير.",
+          "مصطلحا «pré-venda» و«acerto» لم أجد لهما مصدراً موثقاً في هذه الجلسة (نفدت ميزانية البحث)؛ الموثَّق: «pronta entrega» في سياق التوزيع (ABAD، 30/6/2026)، و«distribuidor com entrega» و«RCA» و«vendedor CLT» و«pequeno varejo» و«PDV» (ABAD/NielsenIQ).",
+          "مراكز التوزيع على مستوى المدن (مثل Grande São Paulo أو Belo Horizonte/Contagem أو Uberlândia أو Recife) غير موثّقة هنا؛ الموثَّق تركّز الإيرادات في SP وMG وSC (52.3%) وريادة Nordeste في نموذج distribuidor com entrega.",
+          "boleto: لم أصل إلى مصدر رسمي مخصص (موقع Febraban لم يستجب)؛ وجوده مؤكد فقط كوسيلة دفع رسمية (الرمز 15) في جدول وسائل الدفع لـNF-e، ولم أتحقق من حصته الحالية مقابل Pix.",
+          "البيع من السيارة للمستهلك النهائي بـNFC-e: الـleiaute الوطني يسمح بـindPres=5 في NFC-e (NT 2025.002 v1.53)، لكن تطبيق كل ولاية، وقيود «entrega a domicílio»، ووضع NFC-e/SAT/MF-e خارج São Paulo لم تُفحص ولاية بولاية.",
+          "إحصاءات Pix من صفحة BCB (بيانات سبتمبر 2026): أكثر من 150 مليون شخص طبيعي؛ لم أتحقق من تفصيل المدفوعات بين الشركات (P2B/B2B).",
+          "إجراءات Ajuste SINIEF 49/2025 المؤجلة إلى 1/1/2027 مصدرها Thomson Reuters؛ لم أقرأ نص Ajuste SINIEF 27/2026 لأن موقع CONFAZ لم يستجب.",
+          "مرحلة 2029–2032 (رفع IBS وخفض ICMS/ISS) و2033 (إلغاؤهما) مأخوذة من Sovos وFonoa، ويؤيد TCU أن CBS تعوّض الضرائب الملغاة «de 2027 a 2033» وKPMG أن الانتقال يكتمل في 2033؛ لم يُفتح نص EC 132/2023 لأن planalto.gov.br حجب الطلب مجدداً أثناء التدقيق.",
+          "Imposto Seletivo في 2027: نسبه تنتظر قانوناً عادياً، وقائمة سلع Zona Franca de Manaus التي تحتفظ بـIPI لم تصدر بعد، بحسب تقرير TCU (أكتوبر 2026).",
+          "قاعدة الرفض 865 (مجموع المدفوعات أقل من الإجمالي) موثّقة في MOC 7.0 (2020) لـNFC-e فقط وبتطبيق اختياري للولاية؛ لم يُفحص إن غيّرتها Notas Técnicas لاحقة.",
+          "لم يُتحقق من أن BRL ضمن سجل الدول في المنصة (التدقيق ممنوع من لمس المستودع)؛ صياغة canSay تفترض ما أعلنه المالك من أن العملة والضريبة يضبطهما العميل.",
+          "نفدت ميزانية البحث (WebSearch) أثناء التدقيق؛ تحقّق المدقق بفتح المصادر الرسمية مباشرة، وبقي «pré-venda» و«acerto» دون مصدر."
+        ],
+        "source": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=BMcHSMEoepU= (حُسم IBS البلدي)؛ https://www12.senado.leg.br/noticias/materias/2026/11/10/senado-recebe-acordao-do-tcu-que-propoe-aliquota-de-11-3-para-a-cbs"
+      }
+    ],
+    "confidence": "high",
+    "confidenceNote": "الحقائق الجوهرية (العملة، بنية الضرائب، حالة الفوترة الإلكترونية ونموذجها ومواعيدها) مؤكَّدة من مصادر رسمية حتى 11/11/2026؛ يبقى غير محسوم: نسبة CBS لـ2027 (قرار مجلس الشيوخ حتى 15/12/2026) وموعد تفعيل رفض المستندات الناقصة لحقول IBS/CBS."
+  }
+}

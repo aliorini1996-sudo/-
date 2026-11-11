@@ -4,8 +4,8 @@ import { useSeo } from '../lib/seo';
 import { useLang, type Lang } from '../i18n/lang';
 import { COUNTRIES } from '../i18n/countries';
 import { PUBLISHED, i18nPageAt } from '../i18n/i18nPublished';
-import { renderI18nPage, vatMapFrom, type MarketingFile, type Rendered, type WorldCountries } from '../i18n/marketingTemplate.mjs';
-import type { I18nPage } from '../i18n/i18nRoutes.mjs';
+import { renderI18nPage, vatMapFrom, type MarketingFile, type Rendered, type WorldCountries, type CountryPageFile } from '../i18n/marketingTemplate.mjs';
+import { countryOfPageKey, type I18nPage } from '../i18n/i18nRoutes.mjs';
 
 /**
  * صفحات الطبقة التسويقية متعددة اللغات (spec-b §٦.٢) — مكوّن واحد لكل مسارات I18N_PAGES.
@@ -17,6 +17,7 @@ import type { I18nPage } from '../i18n/i18nRoutes.mjs';
  * الروابط داخل الصفحة `<a>` عادية عمداً: كل تنقّل تحميل كامل لصفحة مُصيَّرة بلغتها.
  */
 const files = import.meta.glob<{ default: MarketingFile }>('../i18n/marketing/*.json'); // حزمة لكل لغة
+const countryFiles = import.meta.glob<{ default: CountryPageFile }>('../content/country-pages/*.json'); // حزمة لكل صفحة دولة
 const VAT_BY_CODE = vatMapFrom(COUNTRIES);
 const OG_LOCALE: Record<Lang, string> = { ar: 'ar_SA', en: 'en_US', fr: 'fr_FR', tr: 'tr_TR', zh: 'zh_CN' };
 
@@ -76,7 +77,14 @@ export default function I18nMarketingPage() {
         const world = page.pageKey === 'countries'
           ? ((await import('../i18n/world-countries.json')).default as unknown as WorldCountries)
           : undefined;
-        const r = renderI18nPage({ page, reg: PUBLISHED, file, world, vatByCode: VAT_BY_CODE });
+        const cc = countryOfPageKey(page.pageKey);
+        let country: CountryPageFile | undefined;
+        if (cc) {
+          const loadCountry = countryFiles[`../content/country-pages/${cc}.json`];
+          if (!loadCountry) throw new Error(`لا ملف لصفحة الدولة ${cc}`);
+          country = (await loadCountry()).default;
+        }
+        const r = renderI18nPage({ page, reg: PUBLISHED, file, world, vatByCode: VAT_BY_CODE, country });
         if (live) setState({ path: page.path, r });
       } catch (err) {
         // تعذّر تحميل حزمة اللغة (شبكة أو نشر جديد): يبقى المحتوى المُصيَّر معروضاً بدل صفحة فارغة

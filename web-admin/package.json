@@ -24,6 +24,7 @@
     "geo:maintain": "node scripts/gen-llms.mjs && node scripts/geo-audit.mjs",
     "i18n:import": "node scripts/import-i18n.mjs",
     "i18n:countries": "node scripts/build-world-countries.mjs",
+    "i18n:country-pages": "node scripts/import-country-i18n.mjs",
     "i18n:verify": "node scripts/verify-i18n.mjs"
   },
   "dependencies": {

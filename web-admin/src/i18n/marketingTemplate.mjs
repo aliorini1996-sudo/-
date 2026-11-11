@@ -13,10 +13,24 @@
  */
 import {
   ORIGIN, LEGACY_HREFLANG, canon, clusterAlternates, i18nPages, pagePath, quoteHref, meetingHref, waRedirectHref,
+  isCountryPageKey, countryOfPageKey, countryEntryOf,
 } from './i18nRoutes.mjs';
 
-/** يُرفع عند تغيير بنية HTML أو JSON-LD — مرجع للمقارنة بين بناءين */
-export const TEMPLATE_VERSION = 1;
+/** يُرفع عند تغيير بنية HTML أو JSON-LD — مرجع للمقارنة بين بناءين (2: صفحات الدول وروابطها من جدول الدول) */
+export const TEMPLATE_VERSION = 2;
+
+/** أقسام صفحة الدولة بترتيبها الثابت — einvoicing وحده يحمل تواريخ حكومية (claims-i18n: COUNTRY_YEAR_SECTION) */
+export const COUNTRY_SECTION_IDS = Object.freeze(['distribution', 'tax', 'einvoicing', 'collections', 'how']);
+
+/**
+ * عناوين ثابتة قليلة لصفحة الدولة بلغتها (لا مفتاح لها في ملف الدولة): عنوان قائمة المصادر.
+ * ملف الدولة يغلبها إن حمل sourcesTitle. لغةٌ بلا عنوان هنا ولا في ملفها ⇒ يرمي (لا صفحة ناقصة بصمت).
+ */
+const COUNTRY_UI = Object.freeze({
+  es: { sources: 'Fuentes oficiales y de referencia' },
+  pt: { sources: 'Fontes oficiais e de referência' },
+  id: { sources: 'Sumber resmi dan rujukan' },
+});
 
 /** المنظّمة معرَّفة في كتلة القالب (index.html) ونوعها فريد عند verify-schema — فالصفحة تشير إليها بمعرّفها فقط */
 const ORG_REF = Object.freeze({ '@id': `${ORIGIN}/#organization` });
@@ -170,7 +184,7 @@ function pageBody(page, S, file, input, samePages) {
     parts.push(faqHtml(faq));
   } else if (k === 'countries') {
     parts.push(`<p>${e(S('tierB.countries.intro'))}</p>`);
-    parts.push(countriesTable(S, file, input));
+    parts.push(countriesTable(S, file, input, samePages));
     parts.push(`<p>${e(S('tierB.countries.taxNote'))}</p>`);
   } else if (k === 'about') {
     for (const i of range(3)) parts.push(`<p>${e(S(`tierB.about.body.${i}`))}</p>`);
@@ -205,7 +219,7 @@ function pageBody(page, S, file, input, samePages) {
  * الحقل يقول `eta` لمصر بينما الربط هناك غير مبني، فاشتقاق العمود منه ادّعاء كاذب.
  * (marketingTemplate.test.ts يفرض صف مصر «عند الطلب».)
  */
-function countriesTable(S, file, input) {
+function countriesTable(S, file, input, samePages) {
   const world = input.world;
   const vat = input.vatByCode;
   if (!world || !Array.isArray(world.countries)) throw new Error('renderI18nPage: صفحة الدول تحتاج world (world-countries.json)');
@@ -218,6 +232,8 @@ function countriesTable(S, file, input) {
   if (order.length !== byCode.size || order.some((c) => !byCode.has(c)) || new Set(order).size !== order.length) {
     throw new Error(`renderI18nPage: _derived.countryOrder (${order.length}) لا يطابق world-countries (${byCode.size})`);
   }
+  // صفّ الدولة التي لها صفحة بهذه اللغة يصير رابطاً إليها (نصّ الرابط اسم الدولة نفسه — الحارس يطابقه)
+  const countryHref = new Map((samePages || []).filter((p) => isCountryPageKey(p.pageKey)).map((p) => [countryOfPageKey(p.pageKey), p.path]));
   const live = S('tierB.countries.einvoicingLive');
   const onRequest = S('tierB.countries.einvoicingOnRequest');
   const rows = order.map((c) => {
@@ -226,7 +242,8 @@ function countriesTable(S, file, input) {
     const cur = (byCode.get(c).currencies || []).map((x) => (curNames[x] ? `${x} · ${curNames[x]}` : x)).join(' / ') || '—';
     const tax = vat[c] != null ? formatPercent(vat[c], d.percent) : '—';
     const einv = c === 'SA' ? live : onRequest; // ثابت بالرمز — انظر التعليق أعلاه
-    return `<tr><th scope="row">${e(name)}</th><td>${e(cur)}</td><td>${e(tax)}</td><td>${e(einv)}</td></tr>`;
+    const cell = countryHref.has(c) ? `<a href="${e(countryHref.get(c))}" data-country-link="${e(c)}">${e(name)}</a>` : e(name);
+    return `<tr><th scope="row">${cell}</th><td>${e(cur)}</td><td>${e(tax)}</td><td>${e(einv)}</td></tr>`;
   });
   const th = (key) => `<th scope="col">${e(S(`tierB.countries.columns.${key}`))}</th>`;
   // الحاوية تمنع التمرير الأفقي للصفحة على الجوال: الجدول وحده يتمرّر إن ضاق عرضه
@@ -235,11 +252,11 @@ function countriesTable(S, file, input) {
 }
 
 /** JSON-LD الصفحة: WebPage/AboutPage/ContactPage + FAQPage (إن وُجدت أسئلة) + BreadcrumbList — بلا Organization ولا عروض أسعار */
-function pageJsonLd({ page, title, description, h1, canonical, homeAbs, faq }) {
+function pageJsonLd({ page, title, description, h1, canonical, homeAbs, faq, crumbs, extra }) {
   const T = page.pageKey === 'about' ? 'AboutPage' : page.pageKey === 'contact' ? 'ContactPage' : 'WebPage';
   const graph = [{
     '@type': T, '@id': `${canonical}#webpage`, url: canonical, name: title, description,
-    inLanguage: page.hreflang, publisher: ORG_REF,
+    inLanguage: page.hreflang, publisher: ORG_REF, ...(extra || {}),
   }];
   if (faq.length) {
     graph.push({
@@ -252,7 +269,8 @@ function pageJsonLd({ page, title, description, h1, canonical, homeAbs, faq }) {
       '@type': 'BreadcrumbList',
       itemListElement: [
         { '@type': 'ListItem', position: 1, name: 'FieldSales', item: homeAbs },
-        { '@type': 'ListItem', position: 2, name: h1, item: canonical },
+        ...(crumbs || []).map((c, i) => ({ '@type': 'ListItem', position: i + 2, name: c.name, item: c.item })),
+        { '@type': 'ListItem', position: 2 + (crumbs || []).length, name: h1, item: canonical },
       ],
     });
   }
@@ -299,6 +317,117 @@ function renderLanguagesPage(page, reg) {
   };
 }
 
+/** نصّ غير فارغ من ملف الدولة، وإلا يرمي باسم الحقل */
+function need(v, where) {
+  if (typeof v !== 'string' || !v.trim()) throw new Error(`renderI18nPage: الحقل «${where}» ناقص أو فارغ في ملف الدولة`);
+  return v;
+}
+/** فقرات من نصّ متعدد الأسطر (كل سطر غير فارغ فقرة) */
+const paras = (text) => String(text).split(/\n+/).map((x) => x.trim()).filter(Boolean).map((x) => `<p>${e(x)}</p>`).join('');
+const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return String(url); } };
+
+/** محتوى لغة من ملف الدولة (يرمي إن غاب الملف أو لغته أو اختلف رمزه) */
+export function countryContentOf(country, code, cc) {
+  if (!country || typeof country !== 'object') throw new Error(`renderI18nPage: صفحة الدولة ${cc} تحتاج ملف الدولة (country)`);
+  if (country.code !== cc) throw new Error(`renderI18nPage: ملف الدولة «${country.code}» لا «${cc}»`);
+  const c = country.content && country.content[code];
+  if (!c || typeof c !== 'object') throw new Error(`renderI18nPage: لا محتوى «${code}» في ملف الدولة ${cc}`);
+  return c;
+}
+
+/**
+ * جسم صفحة الدولة من ملفها (src/content/country-pages/<CC>.json — نسخة حرفية من مصنع المحتوى): المقدمة، والأقسام
+ * الخمسة بترتيبها (data-country-section — einvoicing وحده يحمل تواريخ)، ومثال بنية الفاتورة **بلا مبالغ** (حقول
+ * وأمثلة نصية)، والأسئلة (FAQPage)، والمصادر، و«آخر تحقق» (time بتاريخ basedOnFactsVerifiedAt).
+ */
+function countryBody(c, country, code) {
+  const parts = [];
+  parts.push(`<p>${e(need(c.intro, 'intro'))}</p>`);
+  const sections = Array.isArray(c.sections) ? c.sections : [];
+  const ids = sections.map((x) => x && x.id).join(',');
+  if (ids !== COUNTRY_SECTION_IDS.join(',')) throw new Error(`renderI18nPage: أقسام ملف الدولة «${ids}» لا «${COUNTRY_SECTION_IDS.join(',')}»`);
+  for (const sec of sections) {
+    parts.push(`<section data-country-section="${e(sec.id)}"><h2>${e(need(sec.title, `sections.${sec.id}.title`))}</h2>${paras(need(sec.body, `sections.${sec.id}.body`))}</section>`);
+  }
+  const si = c.sampleInvoice || {};
+  const fields = Array.isArray(si.fields) ? si.fields : [];
+  if (!fields.length) throw new Error('renderI18nPage: sampleInvoice.fields فارغة في ملف الدولة');
+  const rows = fields.map((x, i) => `<tr><th scope="row">${e(need(x && x.label, `sampleInvoice.fields.${i}.label`))}</th><td>${e(need(x && x.example, `sampleInvoice.fields.${i}.example`))}</td></tr>`).join('');
+  parts.push(`<section data-country-sample><h2>${e(need(si.title, 'sampleInvoice.title'))}</h2>`
+    + `<div style="overflow-x:auto"><table data-country-sample-fields><tbody>${rows}</tbody></table></div>`
+    + `${typeof si.note === 'string' && si.note.trim() ? `<p>${e(si.note)}</p>` : ''}</section>`);
+  const faq = (Array.isArray(c.faq) ? c.faq : []).map((x, i) => ({ q: need(x && x.q, `faq.${i}.q`), a: need(x && x.a, `faq.${i}.a`) }));
+  if (!faq.length) throw new Error('renderI18nPage: faq فارغة في ملف الدولة');
+  parts.push(`<section data-country-faq>${faqHtml(faq)}</section>`);
+  // كل مصدر برابط http(s) يُعرض كما في ملفه (منها وثائق حكومية على http)، وواحدٌ https على الأقل شرط
+  const sources = (Array.isArray(c.sources) ? c.sources : []).filter((x) => x && /^https?:\/\//.test(String(x.url || '')));
+  if (!sources.some((x) => /^https:\/\//.test(String(x.url)))) throw new Error('renderI18nPage: لا مصدر https في ملف الدولة');
+  const srcTitle = (typeof c.sourcesTitle === 'string' && c.sourcesTitle.trim()) || (COUNTRY_UI[code] && COUNTRY_UI[code].sources);
+  if (!srcTitle) throw new Error(`renderI18nPage: لا عنوان لقائمة المصادر بلغة «${code}» (COUNTRY_UI أو sourcesTitle)`);
+  parts.push(`<section data-country-sources><h2>${e(srcTitle)}</h2><ul>${sources.map((x) => `<li><a href="${e(x.url)}" rel="noopener">${e(countrySourceLabel(x))}</a></li>`).join('')}</ul></section>`);
+  const verified = need(country.basedOnFactsVerifiedAt, 'basedOnFactsVerifiedAt');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(verified)) throw new Error(`renderI18nPage: basedOnFactsVerifiedAt «${verified}» ليس YYYY-MM-DD`);
+  parts.push(`<p data-country-verified><time datetime="${e(verified)}">${e(need(c.lastVerifiedLabel, 'lastVerifiedLabel'))}</time></p>`);
+  return { parts, faq, verified };
+}
+
+/** نصّ رابط المصدر: عنوانه في ملف الدولة (title أو label)، وإلا اسم نطاقه */
+export function countrySourceLabel(x) {
+  return (typeof x.title === 'string' && x.title.trim()) || (typeof x.label === 'string' && x.label.trim()) || (typeof x.name === 'string' && x.name.trim()) || hostOf(x.url);
+}
+
+/** صفحة دولة: محتواها من ملف الدولة، والأزرار وملاحظة لغات الواجهة وعنوان صفحة الدول (مسار التنقّل) من ملف اللغة */
+function renderCountryPage(input, page, loc, S, file) {
+  const { reg } = input;
+  const cc = countryOfPageKey(page.pageKey);
+  const c = countryContentOf(input.country, page.code, cc);
+  const title = need(c.title, 'title');
+  const description = need(c.description, 'description');
+  const h1 = need(c.h1, 'h1');
+  const canonical = canon(ORIGIN + page.path);
+  const homeHref = pagePath(page.code, 'home', loc.slug);
+  const homeAbs = canon(ORIGIN + homeHref);
+  const samePages = i18nPages(reg).filter((p) => p.code === page.code && p.pageKey !== 'languages');
+  const { parts, faq, verified } = countryBody(c, input.country, page.code);
+  const others = samePages.filter((p) => p.pageKey !== page.pageKey);
+  const countriesPage = samePages.find((p) => p.pageKey === 'countries');
+  const html = wrap(page, {
+    homeHref,
+    h1,
+    bodyParts: parts,
+    cta: ctaLine(page, { quote: S('tierB.home.cta.quote'), meeting: S('tierB.home.cta.meeting'), whatsapp: S('tierB.home.cta.whatsapp') }),
+    uiNote: S('tierB.home.uiLanguagesNote'),
+    pagesNav: pagesNavHtml(others, S, reg),
+    langs: langsNav(reg, page.code, false).html,
+  });
+  const countryName = file._derived && file._derived.countryNames && file._derived.countryNames[cc];
+  return {
+    title, description, h1, html, faq,
+    jsonld: pageJsonLd({
+      page, title, description, h1, canonical, homeAbs, faq,
+      crumbs: countriesPage ? [{ name: S('tierB.countries.h1'), item: canon(ORIGIN + countriesPage.path) }] : [],
+      extra: { dateModified: verified, ...(countryName ? { about: { '@type': 'Country', name: countryName } } : {}) },
+    }),
+    lang: page.hreflang,
+    dir: page.dir,
+    ogLocale: loc.ogLocale,
+    canonical,
+    alternates: clusterAlternates(page.clusterKey, reg),
+  };
+}
+
+/** روابط صفحات اللغة نفسها (data-i18n-pages) — صفحة الدولة بعنوانها (h1) من فهرس صفحات الدول */
+function pagesNavHtml(others, S, reg) {
+  if (!others.length) return '';
+  const label = (p) => {
+    if (!isCountryPageKey(p.pageKey)) return S(`${prefixOf(p.pageKey)}.h1`);
+    const entry = countryEntryOf(reg, p.code, p.pageKey);
+    if (!entry || typeof entry.h1 !== 'string' || !entry.h1.trim()) throw new Error(`renderI18nPage: لا h1 لصفحة ${p.path} في فهرس صفحات الدول`);
+    return entry.h1;
+  };
+  return `<nav data-i18n-pages><ul>${others.map((p) => `<li><a href="${e(p.path)}">${e(label(p))}</a></li>`).join('')}</ul></nav>`;
+}
+
 /**
  * يصيّر صفحة من الطبقة. يرمي إن نقص مفتاح تقرؤه الصفحة، أو غاب file لغير /languages/، أو world/vatByCode لصفحة الدول.
  * الناتج نفسه في Node والمتصفح: `html` يُحقن في #root ويُرسم في React حرفياً.
@@ -317,6 +446,7 @@ export function renderI18nPage(input) {
   if (!loc) throw new Error(`renderI18nPage: اللغة «${page.code}» غير منشورة في السجل`);
 
   const S = stringsReader(file, page.code);
+  if (isCountryPageKey(page.pageKey)) return renderCountryPage(input, page, loc, S, file);
   const P = prefixOf(page.pageKey);
   const title = S(`${P}.title`);
   const description = S(`${P}.description`);
@@ -330,9 +460,7 @@ export function renderI18nPage(input) {
   const { parts, faq } = pageBody(page, S, file, input, samePages);
 
   const others = samePages.filter((p) => p.pageKey !== page.pageKey);
-  const pagesNav = others.length
-    ? `<nav data-i18n-pages><ul>${others.map((p) => `<li><a href="${e(p.path)}">${e(S(`${prefixOf(p.pageKey)}.h1`))}</a></li>`).join('')}</ul></nav>`
-    : '';
+  const pagesNav = pagesNavHtml(others, S, reg);
 
   const html = wrap(page, {
     homeHref,

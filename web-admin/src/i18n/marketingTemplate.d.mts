@@ -9,12 +9,28 @@ export interface MarketingFile {
               percent: { before: string; after: string; decimal: string }; namesFallback: string | null };
   strings: Record<string, string>;
 }
+/** ملف صفحة الدولة (src/content/country-pages/<CC>.json — نسخة حرفية من مصنع المحتوى) — ما يقرؤه القالب منه */
+export interface CountryPageContent {
+  slugHint: string | null; title: string; description: string; h1: string; intro: string;
+  sections: { id: string; title: string; body: string }[];
+  faq: { q: string; a: string }[];
+  sampleInvoice: { title: string; note?: string; fields: { label: string; example: string }[] };
+  sources: { url: string; title?: string; label?: string; name?: string }[];
+  sourcesTitle?: string; lastVerifiedLabel: string;
+}
+export interface CountryPageFile {
+  code: string; languages: string[]; basedOnFactsVerifiedAt: string;
+  content: Record<string, CountryPageContent>;
+  review?: { quality?: string | null } & Record<string, unknown>;
+  [k: string]: unknown;
+}
 export interface WorldCountries { meta: Record<string, unknown>; countries: { code: string; alpha3: string; numeric: string; currencies: string[] }[] }
 export interface RenderInput {
   page: I18nPage; reg: PublishedRegistry;
   file?: MarketingFile;                 // مطلوب لكل صفحة عدا 'languages'
   world?: WorldCountries;               // مطلوب لـ'countries'
   vatByCode?: Record<string, number>;   // مطلوب لـ'countries' — vatMapFrom(COUNTRIES)
+  country?: CountryPageFile;            // مطلوب لصفحات الدول 'country:<CC>'
 }
 export interface Rendered {
   title: string; description: string; h1: string;
@@ -28,3 +44,6 @@ export function renderI18nPage(input: RenderInput): Rendered;   // يرمي إن
 export function vatMapFrom(countries: Record<string, { code: string; defaultVatPct: number }>): Record<string, number>; // بلا 'XX'
 export function escapeHtml(s: string): string;
 export const TEMPLATE_VERSION: number;
+export const COUNTRY_SECTION_IDS: readonly string[];
+export function countryContentOf(country: CountryPageFile, code: string, cc: string): CountryPageContent; // يرمي إن غاب
+export function countrySourceLabel(source: { url: string; title?: string; label?: string; name?: string }): string;

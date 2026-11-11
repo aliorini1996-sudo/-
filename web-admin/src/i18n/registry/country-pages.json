@@ -1,0 +1,55 @@
+{
+ "pages": [],
+ "excluded": [
+  {
+   "cc": "MX",
+   "code": "es",
+   "reasons": [
+    "i18n-year (sections.tax.body): «2026»",
+    "i18n-year (sources.5.title): «2025»"
+   ]
+  },
+  {
+   "cc": "CO",
+   "code": "es",
+   "reasons": [
+    "i18n-year (sources.1.title): «2023»",
+    "i18n-year (sources.2.title): «2025»",
+    "i18n-year (sources.3.title): «2025»",
+    "i18n-year (sources.4.title): «2020»",
+    "i18n-year (sources.6.title): «2018»"
+   ]
+  },
+  {
+   "cc": "BR",
+   "code": "pt",
+   "reasons": [
+    "i18n-year (sections.distribution.body): «2026»",
+    "i18n-year (sections.tax.body): «2026»",
+    "i18n-year (sections.collections.body): «2020»",
+    "i18n-year (sources.1.title): «2007»",
+    "i18n-year (sources.2.title): «2025»",
+    "i18n-year (sources.4.title): «2026»",
+    "i18n-year (sources.5.title): «2025»",
+    "i18n-year (sources.6.title): «2026»",
+    "i18n-year (sources.7.title): «2026»",
+    "i18n-year (sources.8.title): «2026»",
+    "i18n-year (sources.10.title): «2026»",
+    "i18n-year (sources.17.title): «2026»",
+    "i18n-year (sources.18.title): «2026»"
+   ]
+  },
+  {
+   "cc": "ID",
+   "code": "id",
+   "reasons": [
+    "i18n-year (sections.distribution.body): «2025»",
+    "i18n-year (sections.tax.body): «2025»",
+    "i18n-year (sections.collections.body): «2026»",
+    "i18n-year (sources.2.title): «2024»",
+    "i18n-year (sources.6.title): «2025»",
+    "i18n-year (sources.11.title): «2025»"
+   ]
+  }
+ ]
+}
