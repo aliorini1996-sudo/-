@@ -1872,6 +1872,8 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'تم إنشاء التشغيلة': { en: 'Lot created', fr: 'Lot créé', tr: 'Parti oluşturuldu', zh: '批次已创建' },
   'رقم التشغيلة مسجل لهذا الصنف': { en: 'This lot number is already registered for the product', fr: 'Ce numéro de lot est déjà enregistré pour ce produit', tr: 'Bu parti numarası ürün için zaten kayıtlı', zh: '该批号已为此商品登记' },
   'اكتب رقم التشغيلة': { en: 'Enter the lot number', fr: 'Saisissez le numéro de lot', tr: 'Parti numarasını yazın', zh: '请输入批号' },
+  'رقم التشغيلة (فارغ = تلقائي)': { en: 'Lot number (blank = automatic)', fr: 'N° de lot (vide = automatique)', tr: 'Parti no (boş = otomatik)', zh: '批号（留空 = 自动）' },
+  'فارغ = رقم تلقائي LOT': { en: 'Blank = automatic LOT number', fr: 'Vide = numéro LOT automatique', tr: 'Boş = otomatik LOT numarası', zh: '留空 = 自动 LOT 编号' },
   'ابحث عن صنف متتبع بـLOT': { en: 'Search for a lot-tracked product', fr: 'Rechercher un produit suivi par lot', tr: 'Partiyle takip edilen ürün arayın', zh: '搜索按批次追踪的商品' },
   'لا أصناف متتبعة بـLOT فعل التتبع من صفحة المنتجات': { en: 'No lot-tracked products — enable tracking from the Products page', fr: 'Aucun produit suivi par lot — activez le suivi depuis la page Produits', tr: 'Partiyle takip edilen ürün yok — takibi Ürünler sayfasından etkinleştirin', zh: '没有按批次追踪的商品，请在商品页面启用追踪' },
   'تم حذف التشغيلة': { en: 'Lot deleted', fr: 'Lot supprimé', tr: 'Parti silindi', zh: '批次已删除' },

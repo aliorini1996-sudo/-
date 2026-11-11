@@ -16,7 +16,7 @@ import {
   type AllocRow, type LotBalance, type LotWarning, type OutLine, type PlaceLotView,
 } from '../services/lots';
 import {
-  LOT_LOCK_TIMEOUT, acquireLotQueue, companyDay, lockLotProducts, lotMetaOf, placeViews, recordLotEvent, resolveOrCreateLot,
+  LOT_LOCK_TIMEOUT, acquireLotQueue, companyDay, lockLotProducts, lotMetaOf, lotNumberBlank, nextAutoLotNumber, placeViews, recordLotEvent, resolveOrCreateLot,
   type LotEventActor, type LotTx,
 } from '../services/lotsDb';
 import { relabelInTx } from '../services/lotsRelabel';
@@ -347,7 +347,8 @@ router.get('/health', async (req: AuthRequest, res: Response, next: NextFunction
 const dateField = z.string().max(32).nullable().optional();
 const createSchema = z.object({
   productId: z.string().min(1),
-  lotNumber: z.union([z.string().max(256), z.number()]),
+  // فارغٌ أو غائب ⇒ رقمٌ تلقائي LOT… (طلب المالك ١١ نوفمبر ٢٠٢٦)
+  lotNumber: z.union([z.string().max(256), z.number()]).nullish(),
   productionDate: dateField,
   expiryDate: dateField,
   note: z.string().max(500).nullable().optional(),
@@ -360,16 +361,17 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const body = createSchema.parse(req.body);
     const product = await prisma.product.findFirst({ where: { id: body.productId, tenantId: tid }, select: SHELF_SELECT });
     if (!product) { productGone(res); return; }
-    const lotNumber = normalizeLotNumber(body.lotNumber);
+    const autoNumber = lotNumberBlank(body.lotNumber);
+    const typed = autoNumber ? null : normalizeLotNumber(body.lotNumber);
     // رقمٌ أطول من الحدّ بعد التطبيع لا يُقصّ (القصّ يدمج تشغيلتين) — ورسالته غير «حدّد التشغيلة»
-    if (!lotNumber && String(body.lotNumber).trim()) { res.status(400).json({ success: false, message: `رقم التشغيلة ${LOT_NUMBER_MAX} حرفا على الأكثر` }); return; }
-    if (!lotNumber) throw lotErr('LOT_REQUIRED', { name: product.name }, { productId: product.id });
+    if (!autoNumber && !typed) { res.status(400).json({ success: false, message: `رقم التشغيلة ${LOT_NUMBER_MAX} حرفا على الأكثر` }); return; }
     const shelfLifeOn = shelfLifeOf(product) != null;
     const problem = lotDatesProblem(body.productionDate ?? null, body.expiryDate ?? null, { expiryRequired: shelfLifeOn });
-    if (problem) throw lotErr(problem, {}, { productId: product.id, lotNumber });
+    if (problem) throw lotErr(problem, {}, { productId: product.id, lotNumber: typed });
     const actor = lotActor(req);
     const lot = await inLotTx(tid, [product.id], async (tx) => {
       await lockLotProducts(tx, tid, [product.id]);
+      const lotNumber = typed ?? await nextAutoLotNumber(tx, tid);
       const taken = await tx.productLot.findUnique({ where: { tenantId_productId_lotNumber: { tenantId: tid, productId: product.id, lotNumber } }, select: { id: true } });
       if (taken) throw lotErr('LOT_NUMBER_TAKEN', {}, { id: taken.id, lotNumber });
       const r = await resolveOrCreateLot(tx, tid, { id: product.id, name: product.name, shelfLifeOn },

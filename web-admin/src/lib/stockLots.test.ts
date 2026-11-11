@@ -148,7 +148,10 @@ test('أوضاع تشغيلة السطر: الوارد بلا «غير مسمّ�
 
 test('مشكلة تشغيلة السطر: الرقم إلزامي، والتاريخان صالحان، والانتهاء مع الصلاحية، والنقص التلقائي لا يلزمه اختيار', () => {
   const d = (p: Partial<ReturnType<typeof emptyEntryLot>>) => ({ ...emptyEntryLot(), ...p });
-  assert.equal(entryLotProblem(d({ lotNumber: '  ' }), { kind: 'RECEIVE', expiryRequired: false }), 'LOT_REQUIRED');
+  // فارغٌ ⇒ رقمٌ تلقائي LOT… من الخادم (طلب المالك ١١ نوفمبر ٢٠٢٦) — لا مشكلة، والانتهاء مع الصلاحية يبقى إلزامياً
+  assert.equal(entryLotProblem(d({ lotNumber: '  ' }), { kind: 'RECEIVE', expiryRequired: false }), null);
+  assert.equal(entryLotProblem(d({ lotNumber: '' }), { kind: 'RECEIVE', expiryRequired: true }), 'LOT_EXPIRY_REQUIRED');
+  assert.deepEqual(entryLotFields({ ...d({ lotNumber: ' ' }), mode: 'NEW' } as Parameters<typeof entryLotFields>[0]), { productionDate: null, expiryDate: null }, 'بلا lotNumber');
   assert.equal(entryLotProblem(d({ lotNumber: 'x'.repeat(65) }), { kind: 'RECEIVE', expiryRequired: false }), 'LOT_REQUIRED', 'فوق ٦٤ حرفاً');
   assert.equal(entryLotProblem(d({ lotNumber: 'L1' }), { kind: 'RECEIVE', expiryRequired: false }), null);
   assert.equal(entryLotProblem(d({ lotNumber: 'L1' }), { kind: 'RECEIVE', expiryRequired: true }), 'LOT_EXPIRY_REQUIRED');
@@ -163,7 +166,8 @@ test('مشكلة تشغيلة السطر: الرقم إلزامي، والتار
   assert.equal(entryLotProblem(d({ mode: 'AUTO' }), { kind: 'DECREASE', expiryRequired: false, autoOver: true }), 'LOT_STOCK_INSUFFICIENT');
   assert.equal(entryLotProblem(d({ mode: 'NEW', lotNumber: '' }), { kind: 'DECREASE', expiryRequired: false }), null, '«رقم جديد» في النقص يُطبَّع تلقائياً');
   // الوارد لا يقبل «غير مسمّى»: يُقرأ رقماً جديداً فيلزمه الرقم
-  assert.equal(entryLotProblem(d({ mode: 'UNKNOWN' }), { kind: 'RECEIVE', expiryRequired: false }), 'LOT_REQUIRED');
+  // الوارد لا يقبل «غير مسمّى» فيصير جديداً بلا رقم ⇒ رقمٌ تلقائي من الخادم (طلب المالك ١١ نوفمبر ٢٠٢٦)
+  assert.equal(entryLotProblem(d({ mode: 'UNKNOWN' }), { kind: 'RECEIVE', expiryRequired: false }), null);
 });
 
 test('حقول تشغيلة بند الوارد (عقد warehouse.ts): الرقم مطبَّعاً وتاريخاه، أو lotId، أو null صريح، والتلقائي بلا حقل', () => {

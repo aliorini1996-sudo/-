@@ -109,7 +109,8 @@ export function lotDraftProblem(d: LotDraft, mode: LotDraftMode, opts: { shelfOn
   if (d.pick === 'UNNAMED') return mode === 'IN_STRICT' ? LOT_DRAFT_PROBLEMS.RECEIVE_NEEDS_LOT : null;
   if (d.pick === 'NEW') {
     if (mode === 'OUT') return LOT_DRAFT_PROBLEMS.OUT_NEEDS_SOURCE;
-    if (!normalizeLotNumber(d.lotNumber)) return LOT_DRAFT_PROBLEMS.NUMBER;
+    // فارغٌ ⇒ رقمٌ تلقائي LOT… من الخادم (طلب المالك ١١ نوفمبر ٢٠٢٦)؛ والمكتوب غير الصالح يبقى خطأ
+    if ((d.lotNumber ?? '').trim() !== '' && !normalizeLotNumber(d.lotNumber)) return LOT_DRAFT_PROBLEMS.NUMBER;
     const p = lotDatesProblem(d.productionDate || null, d.expiryDate || null, { expiryRequired: opts.shelfOn });
     if (p === 'LOT_EXPIRY_REQUIRED') return LOT_DRAFT_PROBLEMS.EXPIRY_REQUIRED;
     if (p) return LOT_DRAFT_PROBLEMS.DATES;
@@ -123,6 +124,7 @@ export function entryLotFields(d: LotDraft): { lotId?: string | null; lotNumber?
   if (d.pick === '') return {};
   if (d.pick === 'UNNAMED') return { lotId: null };
   if (d.pick === 'NEW') {
+    if ((d.lotNumber ?? '').trim() === '') return { productionDate: d.productionDate || null, expiryDate: d.expiryDate || null };
     return { lotNumber: normalizeLotNumber(d.lotNumber) ?? d.lotNumber.trim(), productionDate: d.productionDate || null, expiryDate: d.expiryDate || null };
   }
   return { lotId: d.pick };
@@ -135,6 +137,7 @@ export function entryLotFields(d: LotDraft): { lotId?: string | null; lotNumber?
 export function loadLotFields(d: LotDraft, baseQty: number): { lots?: LotRef[]; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null } {
   if (d.pick === '') return {};
   if (d.pick === 'NEW') {
+    if ((d.lotNumber ?? '').trim() === '') return { productionDate: d.productionDate || null, expiryDate: d.expiryDate || null };
     return { lotNumber: normalizeLotNumber(d.lotNumber) ?? d.lotNumber.trim(), productionDate: d.productionDate || null, expiryDate: d.expiryDate || null };
   }
   return { lots: [{ lotId: d.pick === 'UNNAMED' ? null : d.pick, qty: roundLot(baseQty) }] };

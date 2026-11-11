@@ -245,9 +245,9 @@ export async function planWarehouseEntryInTx(tx: LotTx, input: WarehouseEntryPla
     const hasId = typeof l.lotId === 'string' && l.lotId.length > 0;
     const hasNumber = !blank(l.lotNumber);
     if (!hasId && !hasNumber) {
-      // التسوية بالزيادة تقبل غير المسمّى صراحةً (null)؛ والوارد يلزمه لوط
+      // التسوية بالزيادة تقبل غير المسمّى صراحةً (null)؛ وغيرها بلا رقم ⇒ لوطٌ جديد برقمٍ تلقائي LOT… في resolveOrCreateLot
+      // (طلب المالك ١١ نوفمبر ٢٠٢٦ — بدل LOT_REQUIRED)
       if (input.type === 'ADJUST' && l.lotId === null && input.allowUnknown) { lotIdByLine.set(l.idx, null); continue; }
-      throw lotErr('LOT_REQUIRED', { name: l.productName }, { productId: l.productId, idx: l.idx });
     }
     const production = blank(l.productionDate) ? null : String(l.productionDate);
     const expiry = blank(l.expiryDate) ? null : String(l.expiryDate);

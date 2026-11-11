@@ -159,6 +159,9 @@ function lotStore(seed: LotRec[] = []) {
   const tx = {
     productLot: {
       findFirst: async ({ where }: { where: { id: string; tenantId: string } }) => { const l = lots.find((x) => x.id === where.id && x.tenantId === where.tenantId); return l ? pick(l) : null; },
+      // «الرقم التلقائي»: أرقام الشركة التي تبدأ بالبادئة
+      findMany: async ({ where }: { where: { tenantId: string; lotNumber: { startsWith: string } } }) =>
+        lots.filter((x) => x.tenantId === where.tenantId && x.lotNumber.startsWith(where.lotNumber.startsWith)).map((x) => ({ lotNumber: x.lotNumber })),
       findUnique: async ({ where }: { where: { tenantId_productId_lotNumber: { tenantId: string; productId: string; lotNumber: string } } }) => {
         const w = where.tenantId_productId_lotNumber;
         const l = lots.find((x) => x.tenantId === w.tenantId && x.productId === w.productId && x.lotNumber === w.lotNumber);
@@ -209,11 +212,17 @@ test('resolveOrCreateLot: بالرقم المطبَّع — القائم بتو�
   assert.deepEqual([s.events[0].kind, s.events[0].lotId, s.events[0].actorType, s.events[0].actorName], ['CREATE', made.meta.id, 'ADMIN', 'أحمد']);
 });
 
-test('resolveOrCreateLot: رقمٌ فارغ LOT_REQUIRED، وتاريخٌ فاسد LOT_DATES_INVALID، والانتهاء إلزامي مع الصلاحية للجديد وحده', async () => {
+test('resolveOrCreateLot: رقمٌ فارغ ⇒ رقمٌ تلقائي LOT… متسلسل (طلب المالك ١١ نوفمبر)، وتاريخٌ فاسد LOT_DATES_INVALID، والانتهاء إلزامي مع الصلاحية للجديد وحده', async () => {
   const s = lotStore([{ ...existing, expiryDate: null, status: 'ACTIVE' }]);
+  // بلا رقم وبلا انتهاء لصنفٍ بصلاحية ⇒ الانتهاء إلزاميّ للجديد كالمكتوب
+  await assert.rejects(resolveOrCreateLot(s.tx, 't1', P, {}, META), (e: unknown) => e instanceof LotError && e.code === 'LOT_EXPIRY_REQUIRED');
+  const nums: string[] = [];
   for (const ref of [{}, { lotNumber: '   ' }, { lotNumber: null }]) {
-    await assert.rejects(resolveOrCreateLot(s.tx, 't1', P, ref, META), (e: unknown) => e instanceof LotError && e.code === 'LOT_REQUIRED' && /«حليب»/.test(e.message));
+    const r = await resolveOrCreateLot(s.tx, 't1', P, { ...ref, expiryDate: '2027-04-01' }, META);
+    assert.equal(r.created, true, 'لوطٌ جديد دائماً');
+    nums.push(r.meta.lotNumber);
   }
+  assert.deepEqual(nums, ['LOT1001', 'LOT1002', 'LOT1003']);
   await assert.rejects(resolveOrCreateLot(s.tx, 't1', P, { lotNumber: 'Z', expiryDate: '2027-13-01' }, META), (e: unknown) => e instanceof LotError && e.code === 'LOT_DATES_INVALID');
   await assert.rejects(resolveOrCreateLot(s.tx, 't1', P, { lotNumber: 'Z', productionDate: '2027-05-01', expiryDate: '2027-01-01' }, META), (e: unknown) => e instanceof LotError && e.code === 'LOT_DATES_INVALID');
   await assert.rejects(resolveOrCreateLot(s.tx, 't1', P, { lotNumber: 'Z' }, META), (e: unknown) => e instanceof LotError && e.code === 'LOT_EXPIRY_REQUIRED');

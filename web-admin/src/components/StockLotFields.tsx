@@ -195,7 +195,7 @@ export function EntryLotFields({ productId, kind, value, onChange, expiryRequire
       </div>
       {mode === 'NEW' && (
         <div className="grid grid-cols-3 gap-1.5">
-          <input className="input py-1 text-xs" list={listId} maxLength={64} placeholder={tr('رقم التشغيلة')} aria-label={tr('رقم التشغيلة')}
+          <input className="input py-1 text-xs" list={listId} maxLength={64} placeholder={tr('رقم التشغيلة (فارغ = تلقائي)')} aria-label={tr('رقم التشغيلة')}
             value={d.lotNumber} onChange={(e) => onChange({ ...d, lotNumber: e.target.value })}
             onBlur={() => onChange(withKnownLotDates(d, known))} />
           <datalist id={listId}>{known.map((l) => <option key={l.id} value={l.lotNumber} />)}</datalist>

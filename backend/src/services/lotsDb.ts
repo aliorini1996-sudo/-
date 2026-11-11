@@ -630,6 +630,28 @@ export async function recordLotEvent(tx: LotTx, ev: LotEventInput): Promise<void
   });
 }
 
+/**
+ * «رقم التشغيلة التلقائي» (طلب المالك ١١ نوفمبر ٢٠٢٦): واردٌ لصنفٍ متتبَّع بلا رقمٍ مكتوب ⇒ LOT ثم رقمٌ متسلسل على مستوى الشركة
+ * (LOT1001، LOT1002…) — والرقم المكتوب أو المرسَل من نظام الشركة (Odoo) يبقى كما هو. التسلسل = أكبر LOT<أرقام> في الشركة + ١.
+ * المستدعي يمسك قفل الصنف (resolveOrCreateLot) فلا يتكرّر رقمٌ لصنفٍ واحد، والمعاملة نفسها ترى ما أنشأته قبله؛ ولا قفل جديد
+ * (موضع أقفال اللوط واحدٌ بترتيبه — lockLotProducts)، فإصداران متزامنان لصنفين مختلفين قد يتشاركان رقماً — مسموحٌ (الفرادة لكل صنف).
+ */
+export const AUTO_LOT_PREFIX = 'LOT';
+const AUTO_LOT_START = 1000;
+const AUTO_LOT_RE = /^LOT(\d{1,15})$/;
+export async function nextAutoLotNumber(tx: LotTx, tid: string): Promise<string> {
+  const rows = await tx.productLot.findMany({ where: { tenantId: tid, lotNumber: { startsWith: AUTO_LOT_PREFIX } }, select: { lotNumber: true } });
+  let max = AUTO_LOT_START;
+  for (const r of rows ?? []) {
+    const m = AUTO_LOT_RE.exec(r.lotNumber);
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `${AUTO_LOT_PREFIX}${max + 1}`;
+}
+
+/** رقمٌ غير مكتوب (غائب أو فراغ) — يُولَّد له رقم تلقائي؛ والمكتوب غير الصالح (أطول من الحدّ) يبقى خطأً لا يُستبدل */
+export const lotNumberBlank = (v: unknown): boolean => v == null || (typeof v === 'string' && v.trim() === '');
+
 /** مرجع اللوط في الطلب: لوطٌ قائم بمعرّفه، أو رقمٌ (وتواريخ) لحلّه أو إنشائه */
 export interface LotRefInput { lotId?: string | null; lotNumber?: string | null; productionDate?: string | null; expiryDate?: string | null }
 export interface LotCreateMeta { source: LotSource; sourceEntryId?: string | null; createdBy?: string | null; note?: string | null; actor: LotEventActor }
@@ -649,7 +671,13 @@ export async function resolveOrCreateLot(tx: LotTx, tid: string, product: { id: 
     if (row.productId !== product.id) throw lotErr('LOT_PRODUCT_MISMATCH', { lot: row.lotNumber, name: product.name }, { lotId: row.id, productId: product.id });
     return { meta: lotMetaOf(row), created: false };
   }
-  const lotNumber = normalizeLotNumber(ref.lotNumber);
+  // بلا رقمٍ مكتوب ⇒ رقمٌ تلقائي LOT… (طلب المالك ١١ نوفمبر ٢٠٢٦) — لوطٌ جديد دائماً لا يلتقط لوطاً قائماً للصنف
+  let lotNumber: string | null;
+  if (lotNumberBlank(ref.lotNumber)) {
+    let n = Number((await nextAutoLotNumber(tx, tid)).slice(AUTO_LOT_PREFIX.length));
+    for (let i = 0; i < 1000 && await tx.productLot.findUnique({ where: { tenantId_productId_lotNumber: { tenantId: tid, productId: product.id, lotNumber: `${AUTO_LOT_PREFIX}${n}` } }, select: { id: true } }); i++) n++;
+    lotNumber = `${AUTO_LOT_PREFIX}${n}`;
+  } else lotNumber = normalizeLotNumber(ref.lotNumber);
   if (!lotNumber) throw lotErr('LOT_REQUIRED', { name: product.name }, { productId: product.id });
   const production = ref.productionDate || null;
   const expiry = ref.expiryDate || null;
