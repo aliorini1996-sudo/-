@@ -84,6 +84,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
       canViewStatement: true,
       canAddCustomer: false,
       showCollectionBalance: true,
+      cashSaleCollected: false,
       requireCustomerProximity: false,
       requireLocationOn: false,
       requirePunchAtCustomer: false,
@@ -379,7 +380,9 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
             <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('صلاحيات التحصيل')}</h3>
             <div className="grid grid-cols-2 gap-3">
               <PermToggle label={tr('إظهار رصيد التحصيل المتراكم')} {...register('showCollectionBalance')} />
+              <PermToggle label={tr('احتساب البيع النقدي تحصيلا بلا سند قبض')} {...register('cashSaleCollected')} />
             </div>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">{tr('فاتورة البيع النقدي التي تصدر للمندوب تحسب مبلغا استلمه في رصيد التحصيل والاستلام منه دون سند قبض، وتسري على الفواتير التي تصدر بعد التفعيل')}</p>
           </div>
           )}
 

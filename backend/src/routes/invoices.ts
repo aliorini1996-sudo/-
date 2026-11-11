@@ -63,6 +63,7 @@ import {
 } from './invoicesNotes';
 import { withdrawPhase2Invoice } from '../services/invoiceVoid';
 import { reissuePhase2Invoice } from '../services/invoiceReissue';
+import { cashCollectedStamp } from '../services/repCashCollection';
 import { retryPhase2Document } from '../services/zatcaSubmit';
 import {
   postInvoiceEntries,
@@ -1709,6 +1710,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         teamId: docTeamId,
         locationId: docLocationId,
         priceListId: docListId,
+        // «البيع النقدي تحصيلٌ لدى المندوب»: إعداد المندوب لحظة الإصدار يُختم على الفاتورة (services/repCashCollection.ts)
+        cashSaleCollected: rep.cashSaleCollected === true,
         companyVat,
         engine: calc,
         items: finalItems,
@@ -2018,6 +2021,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           total: priced.total,
           paidAmt: isReturn ? 0 : (body.type === 'CASH' ? priced.total : 0),
           remainingAmt: isReturn ? 0 : (body.type === 'CASH' ? 0 : priced.total),
+          // «البيع النقدي تحصيلٌ لدى المندوب»: النقدية لمندوبٍ مفعَّلٍ له الإعداد تُعدّ محصَّلةً في عهدته — ختمٌ لا يتحرّك بعد الإصدار
+          ...cashCollectedStamp(body.type, rep),
           einvoiceProvider,
           einvoiceStatus,
           // «إزالة الضريبة»: ختم المستند «بلا ضريبة» — يحكم عرضه وطباعته أبداً (المستند بضريبته لا يُكتب له المفتاح فيبقى كما كان)

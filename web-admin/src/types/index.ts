@@ -444,6 +444,7 @@ export interface SalesRep {
   canEditCustomer: boolean;
   canViewStatement: boolean;
   showCollectionBalance?: boolean;
+  cashSaleCollected?: boolean; // «البيع النقدي تحصيلٌ لدى المندوب»: فاتورته النقدية تُحسب محصَّلةً لديه بلا سند قبض
   requireCustomerProximity?: boolean; // «البيع داخل نطاق العميل» — تقييديّ: true يعني مقيَّد
   requireLocationOn?: boolean; // «اشتراط تفعيل الموقع» — تقييديّ: والموقع مطفأ لا يعمل المندوب شيئاً
   requirePunchAtCustomer?: boolean; // «بصمة الحضور بموقع عميل» — تقييديّ: لا بصمة إلا داخل مسافته من عميل

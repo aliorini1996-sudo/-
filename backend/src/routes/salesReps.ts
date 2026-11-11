@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId, actorOf } from '../middleware/auth';
 import { auditActorName } from '../services/attendanceEdit';
+import { REP_COLLECTED_CASH_SALE } from '../services/repCashCollection';
 import { adminRepFilter, adminCustomerFilter, scopedRecordWhere, SHAPE_INVOICE_RECEIPT, teamSupervisorIdOf, composeTeamCustodyWhere } from '../services/adminScope';
 import { settlementTeamOf, teamMembershipSelectFor } from '../services/teams';
 import { noStaffCredentials, refuseStaffCredentials } from '../services/platformAccess';
@@ -60,6 +61,8 @@ const repSchema = z.object({
   canEditCustomer: z.boolean().optional(),
   canViewStatement: z.boolean().optional(),
   showCollectionBalance: z.boolean().optional(),
+  // «البيع النقدي تحصيلٌ لدى المندوب»: فاتورته النقدية تُحسب مبلغاً محصَّلاً لديه بلا سند قبض (يسري على ما يصدر بعده)
+  cashSaleCollected: z.boolean().optional(),
   requireCustomerProximity: z.boolean().optional(),
   requireLocationOn: z.boolean().optional(),
   requirePunchAtCustomer: z.boolean().optional(),
@@ -91,6 +94,7 @@ const repSelect = {
   canManageVanStock: true,
   canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
   showCollectionBalance: true,
+  cashSaleCollected: true,
   requireCustomerProximity: true,
   requireLocationOn: true,
   requirePunchAtCustomer: true,
@@ -554,16 +558,20 @@ router.put('/:id/customers', async (req: AuthRequest, res: Response, next: NextF
   } catch (err) { next(err); }
 });
 
-// رصيد التحصيل لدى المندوب = مجموع سنداته النشطة − مجموع ما استلمه الأدمن منه.
-// «الفرق»: `teamWhere` (composeTeamCustodyWhere) على الطرفين معاً — رصيد الفريق = سنداته الموسومة − استلاماته الموسومة
+// رصيد التحصيل لدى المندوب = مجموع سنداته النشطة + فواتيره النقدية المحسوبة تحصيلاً (services/repCashCollection.ts)
+// − مجموع ما استلمه الأدمن منه.
+// «الفرق»: `teamWhere` (composeTeamCustodyWhere) على الأطراف الثلاثة معاً — رصيد الفريق = سنداته ونقديّه الموسومة − استلاماته الموسومة
 async function repCollection(tid: string, repId: string, teamWhere: Record<string, unknown> = {}) {
-  const [collected, settled] = await Promise.all([
+  const [collected, cashSales, settled] = await Promise.all([
     prisma.receipt.aggregate({ where: { tenantId: tid, salesRepId: repId, status: 'ACTIVE', ...teamWhere }, _sum: { amount: true } }),
+    prisma.invoice.aggregate({ where: { tenantId: tid, salesRepId: repId, AND: [REP_COLLECTED_CASH_SALE, teamWhere] }, _sum: { paidAmt: true } }),
     prisma.repSettlement.aggregate({ where: { tenantId: tid, salesRepId: repId, ...teamWhere }, _sum: { amount: true } }),
   ]);
-  const c = collected._sum.amount ?? 0;
+  const cash = cashSales._sum.paidAmt ?? 0;
+  const c = (collected._sum.amount ?? 0) + cash;
   const s = settled._sum.amount ?? 0;
-  return { collected: clean(c), settled: clean(s), outstanding: clean(c - s) };
+  // collected يشمل النقدية المحسوبة، وcashSales جزؤها منه للعرض
+  return { collected: clean(c), cashSales: clean(cash), settled: clean(s), outstanding: clean(c - s) };
 }
 
 /** الفريق المطلوب لعرض العهدة (`?teamId=`) — نصٌّ غير فارغ وإلا لا طلب */
@@ -575,12 +583,15 @@ const requestedTeam = (v: unknown): string | null => (typeof v === 'string' && v
  * وللمشرف فرقه منها وحدها.
  */
 async function custodyTeamsOf(tid: string, repId: string, sup: string | null): Promise<{ id: string; name: string; isActive: boolean }[]> {
-  const [r, s] = await Promise.all([
+  const [r, cs, s] = await Promise.all([
     prisma.receipt.groupBy({ by: ['teamId'], where: { tenantId: tid, salesRepId: repId, status: 'ACTIVE', teamId: { not: null } }, _sum: { amount: true } }),
+    // «البيع النقدي تحصيلٌ لدى المندوب»: نقديّه المحسوب عهدةٌ لفريقه كسنداته
+    prisma.invoice.groupBy({ by: ['teamId'], where: { tenantId: tid, salesRepId: repId, teamId: { not: null }, AND: [REP_COLLECTED_CASH_SALE] }, _sum: { paidAmt: true } }),
     prisma.repSettlement.groupBy({ by: ['teamId'], where: { tenantId: tid, salesRepId: repId, teamId: { not: null } }, _sum: { amount: true } }),
   ]);
   const bal = new Map<string, number>();
   for (const x of r) if (x.teamId) bal.set(x.teamId, (bal.get(x.teamId) ?? 0) + Number(x._sum.amount ?? 0));
+  for (const x of cs) if (x.teamId) bal.set(x.teamId, (bal.get(x.teamId) ?? 0) + Number(x._sum.paidAmt ?? 0));
   for (const x of s) if (x.teamId) bal.set(x.teamId, (bal.get(x.teamId) ?? 0) - Number(x._sum.amount ?? 0));
   const ids = [...bal].filter(([, v]) => clean(v) !== 0).map(([id]) => id);
   if (!ids.length) return [];
