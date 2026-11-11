@@ -104,7 +104,8 @@ async function main() {
   const cards = cardCatalog();
   let n = 0, skipped = 0;
   for (const card of cards) {
-    for (const L of LANGS) {
+    // دليل دولة بلغة سوقها وحدها (card.langs) لا بطاقة له بغيرها
+    for (const L of card.langs || LANGS) {
       const out = path.join(OUT, `${card.slug}-${L}.jpg`);
       if (!force && fs.existsSync(out)) { skipped++; continue; }
       const svg = buildSvg(card, L);

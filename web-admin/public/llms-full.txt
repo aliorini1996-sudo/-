@@ -1,4 +1,4 @@
-# FieldSales (فيلد سيلز): full index of canonical pages (updated 2026-11-08)
+# FieldSales (فيلد سيلز): full index of canonical pages (updated 2026-11-11)
 
 > Every canonical page on fieldsa.net, a field sales platform for distribution companies in any country: product pages, generated guides in Arabic, English and French with a direct answer each, and blog posts. Curated overview: https://fieldsa.net/llms.txt
 
@@ -449,6 +449,14 @@ Product pages in other languages describe FieldSales for information; the app in
 
 ## Articles (English)
 
+- [Field Sales Management Software in Pakistan](https://fieldsa.net/en/blog/field-sales-software-pk/)
+  FieldSales is a cloud platform for distribution and wholesale companies that run van sales, pre-sales order taking and collections, and distributors in Pakistan can use it as anywhere else. Sales reps take orders, record receipts against customer balances, reconcile the stock on their vans and follow routes with visits logged by location and photo, even offline, on Android, iPhone and a web dashboard. You set the rupee, Sales Tax at 18% and your payment methods in settings. Sales-tax-registered businesses still issue their tax invoices from their FBR-integrated system.
+- [Field Sales Management Software in Nigeria](https://fieldsa.net/en/blog/field-sales-software-ng/)
+  FieldSales is a cloud platform for Nigerian distributors and wholesalers that run van sales, pre-sales order-taking and collections. Your sales reps raise invoices on their phones and print them on a thermal printer, record receipts against customer balances, reconcile the stock on their vans, and follow routes with visits logged by location and photo. It keeps working offline and syncs later, on Android, iPhone and a web dashboard. You set the naira, VAT at 7.5% and your payment methods yourself in settings.
+- [Field Sales Management Software in South Africa](https://fieldsa.net/en/blog/field-sales-software-za/)
+  FieldSales is a cloud platform for South African distributors and wholesalers running van sales, pre-sales (order taking) and collections. Sales reps issue invoices from their phones and print them on a thermal printer, record receipts and customer balances, reconcile van stock and log GPS-stamped visits with photos along their route. Invoices and receipts can be issued without signal and sync later. You set the currency to rand (ZAR) and VAT to 15% in your own settings, and run it on Android, iPhone and a web dashboard.
+- [Field Sales Management Software in Kenya](https://fieldsa.net/en/blog/field-sales-software-ke/)
+  FieldSales is cloud software for Kenyan distributors and wholesalers that run van sales, pre-sales order taking and collections. Reps invoice dukas, kiosks and stockists from an Android or iPhone app, print on Bluetooth thermal printers and record cash, M-Pesa or bank-transfer receipts, even with no network, syncing later. Managers follow routes, visits, van stock and customer balances on a web dashboard. You set the currency, VAT and payment methods in your own settings. Electronic tax invoices for KRA still go through your own eTIMS solution.
 - [Field Sales Management Software worldwide](https://fieldsa.net/en/blog/field-sales-software/)
   Field sales management software runs the rep's whole selling cycle from a phone: visiting the customer, issuing and printing the invoice on the spot, collecting cash or recording credit, and deducting the sale from van stock in real time. Unlike general accounting software, data is captured in the field, so management sees sales, collection and location as they happen. Run this way worldwide, routes link your capital with Lagos, and amounts are recorded in the local currency. Invoicing requirements differ by country, so check what currently applies with the local tax authority before settling on a configuration.
 - [Collection & Receivables in Qatar](https://fieldsa.net/en/blog/collection-receivables-qa/)
@@ -706,6 +714,10 @@ Product pages in other languages describe FieldSales for information; the app in
 
 ## Articles (Français)
 
+- [Logiciel de gestion des ventes terrain en Côte d’Ivoire](https://fieldsa.net/fr/blog/field-sales-software-ci/)
+  FieldSales est une plateforme cloud avec laquelle les grossistes et les distributeurs en Côte d'Ivoire peuvent piloter leurs commerciaux terrain. Depuis son téléphone, le vendeur prend les commandes en prévente ou vend en tournée à bord de son véhicule, imprime la facture sur une imprimante thermique, encaisse en espèces ou en mobile money et suit les créances de ses clients. Le superviseur suit l'itinéraire, les visites géolocalisées avec photos et le stock du véhicule ; ce qui est saisi sans réseau se synchronise dès que la connexion revient. La FNE, facture légale, reste émise via les canaux de la DGI.
+- [Logiciel de gestion des ventes terrain au Sénégal](https://fieldsa.net/fr/blog/field-sales-software-sn/)
+  FieldSales est une plateforme cloud pour les distributeurs et grossistes sénégalais qui travaillent avec des commerciaux terrain. En vente en tournée, le vendeur établit la facture sur son téléphone et l'imprime sur imprimante thermique ; en prévente, il saisit la commande. Il enregistre les encaissements en espèces, Wave ou Orange Money et suit le crédit de chaque boutiquier. Stock du camion, itinéraire et visites géolocalisées se pilotent depuis un tableau de bord web. Vous paramétrez vous-même le franc CFA et la TVA à 18 %, et l'application fonctionne sans réseau.
 - [Logiciel de gestion des ventes terrain partout dans le monde](https://fieldsa.net/fr/blog/field-sales-software/)
   Un logiciel de gestion des ventes terrain exécute tout le cycle du commercial depuis son téléphone : visite du client, facture émise et imprimée sur place, encaissement comptant ou à crédit, et déduction du stock du véhicule en temps réel. Contrairement à un logiciel comptable généraliste, les données sont saisies sur le terrain, pas ressaisies au bureau. Ainsi organisées partout dans le monde, les tournées relient votre capitale à Casablanca, et les montants sont enregistrés en la monnaie locale. Les exigences de facturation varient selon les pays ; vérifiez ce qui s'applique auprès de l'autorité fiscale locale.
 - [Recouvrement de créances et encaissement terrain au Qatar](https://fieldsa.net/fr/blog/collection-receivables-qa/)

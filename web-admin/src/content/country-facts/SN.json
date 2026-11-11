@@ -1,0 +1,211 @@
+{
+  "code": "SN",
+  "nameEn": "Senegal",
+  "pageLanguage": "fr",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "XOF",
+    "symbol": "F CFA",
+    "nameEn": "CFA Franc BCEAO",
+    "nameLocal": "franc CFA (Franc de la Communauté Financière Africaine, F.CFA)",
+    "minorUnits": 0,
+    "sources": [
+      {"url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml", "title": "ISO 4217 List One (SIX, published 2026-09-17): SENEGAL — CFA Franc BCEAO, XOF, 952, minor unit 0", "accessed": "2026-11-11"},
+      {"url": "https://www.bceao.int/fr/content/presentation-du-franc-cfa", "title": "BCEAO — Présentation du franc CFA (F.CFA)", "accessed": "2026-11-11"}
+    ]
+  },
+  "tax": {
+    "nameLocal": "Taxe sur la valeur ajoutée",
+    "nameEn": "Value Added Tax",
+    "abbr": "TVA",
+    "standardRate": 18,
+    "otherRates": [
+      {"rate": 10, "appliesTo": "الخدمات التي تقدّمها منشآت الإيواء السياحي المعتمدة (établissements d'hébergement touristique agréés: فنادق، موتيلات، قرى عطلات، نُزُل، شقق مفروشة…) — المادة 369 من CGI (Loi n° 2015-06)"},
+      {"rate": 0, "appliesTo": "ليست نسبة صفرية بل إعفاءات (exonérations) بالمادة 361 من CGI، أهمها لموزّعي السلع: المنتجات الغذائية غير المصنّعة والأساسية المحددة بالقرار n° 3517 لسنة 2013 (الحبوب عدا «الأرز الفاخر»، الخضار والدرنات، الفول السوداني والبقول، اللحوم والأحشاء الطازجة/المبرّدة/المجمّدة، البيض بقشره، السمك غير المصنّع، الحليب غير المصنّع)، والأدوية، والكتب والصحف، وغاز البوتان المنزلي في عبوات ≤ 38 كغ، والصادرات المباشرة"},
+      {"rate": 17, "appliesTo": "ليست TVA: ضريبة خاصة على الأنشطة المالية (البنوك، تحويل الأموال، الفوائد، الوساطة المالية) تُطبَّق بدلاً من TVA — حسب PwC"}
+    ],
+    "registrationThreshold": "لا عتبة رقمية عامة للأشخاص الاعتباريين: كل من يمارس نشاطاً اقتصادياً مستقلاً خاضع لـTVA (المادة 354 من CGI). أما الأشخاص الطبيعيون الذين لا يتجاوز رقم أعمالهم السنوي 50 مليون فرنك CFA شاملاً الضرائب فيخضعون لنظام Contribution Globale Unique (CGU) الذي يحلّ محل TVA وضرائب أخرى (المادتان 134–135)، ولا يجوز لهم إظهار مبلغ TVA في فواتيرهم بل تُحرَّر TTC (المادة 448). الإقرار شهري ويُستحق في 15 من الشهر التالي لمكلّفي النظام الحقيقي العادي (réel normal)، أما مكلّفو النظام الحقيقي المبسّط (réel simplifié: الأشخاص الاعتباريون برقم أعمال سنوي TTC أقل من 100 مليون فرنك، والأشخاص الطبيعيون بين 50 و100 مليون) فيقدّمون إقراراً فصلياً قبل 15 أبريل ويوليو وأكتوبر ويناير (المادة 449-3، والمادتان 28 و130 من CGI).",
+    "authority": "Direction Générale des Impôts et des Domaines (DGID) — Ministère de l'Économie, des Finances et du Plan (MEFP)",
+    "authorityUrl": "https://www.dgid.sn/",
+    "sources": [
+      {"url": "https://www.dgid.sn/storage/docs/CGI-2025.pdf", "title": "DGID — Code Général des Impôts annoté (mis à jour janvier 2025): art. 28, 130, 134–136, 354, 361, 369, 446–449", "accessed": "2026-11-11"},
+      {"url": "https://www.dgid.sn/entreprises", "title": "DGID — Entreprises: principales obligations fiscales (TVA, taux normal 18%)", "accessed": "2026-11-11"},
+      {"url": "https://www.dgid.sn/loi-reglement#taux-impots", "title": "DGID — Lois et règlements, Taux d'imposition: «TVA (taux normal) 18 %» (consulté 11 novembre 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.dgid.sn/", "title": "DGID — page d'accueil (échéance TVA le 15 de chaque mois)", "accessed": "2026-11-11"},
+      {"url": "https://taxsummaries.pwc.com/senegal/corporate/other-taxes", "title": "PwC Worldwide Tax Summaries — Senegal, Corporate, Other taxes (last reviewed 07 August 2026)", "accessed": "2026-11-11"}
+    ]
+  },
+  "taxId": {
+    "label": "NINEA (Numéro d'Identification Nationale des Entreprises et Associations)",
+    "format": null,
+    "notes": "الـNINEA هو رقم التعريف الضريبي (numéro d'identification fiscale) ويجب أن يملكه كل مكلّف بضريبة غير مباشرة، وكل مكلّف يجب أن يملك NINEA صالحاً قبل مزاولة أي نشاط خاضع لتصريح ضريبي ولو كان معفى (المادة 446 والمادة 633-IV من CGI). يُطلب من centre des services fiscaux التابع للموطن الضريبي، أو عبر APIX/ADEPME، ويُسلَّم خلال نحو 3 أيام مجاناً سوى طابع 2000 فرنك. لم نجد مصدراً رسمياً يحدد صيغته (عدد الخانات ورمز COFI) فتُرك format = null. ملاحظة: المادة 446 تسمّيه «Numéro d'Immatriculation National des Entreprises et des Associations» بينما المادة 447 ومواد أخرى تقول «Numéro d'Identification national des Entreprises et Associations»؛ الاختصار NINEA واحد.",
+    "sources": [
+      {"url": "https://www.dgid.sn/fiches/ninea", "title": "DGID — Fiche NINEA / RCCM", "accessed": "2026-11-11"},
+      {"url": "https://www.dgid.sn/storage/docs/CGI-2025.pdf", "title": "DGID — CGI annoté janvier 2025, art. 446 (Identification au Sénégal) et art. 447", "accessed": "2026-11-11"}
+    ]
+  },
+  "einvoicing": {
+    "status": "planned",
+    "systemName": "Facturation électronique (art. 447-II du CGI) — portail public de facturation / plateforme de dématérialisation de l'administration, ou machines électroniques de facturation autorisées (لم يُطلق أيٌّ منها بعد)",
+    "authority": "DGID — Direction Générale des Impôts et des Domaines",
+    "model": "none",
+    "modelNotes": "لا نموذج مطبَّق اليوم (فواتير ورقية/PDF تخضع للتدقيق اللاحق). النص القانوني يتحدث عن إصدار ونقل واستلام عبر بوابة عامة أو منصة للإدارة أو آلات فوترة مرخّصة مع إرسال البيانات للإدارة، دون تحديد هل هو clearance أو إبلاغ لحظي أو دوري.",
+    "scopeNow": "لا أحد ملزَم فعلياً اليوم. النص القانوني قائم منذ قانون المالية 2025 (Loi n° 2025-02 du 6 janvier 2025) الذي أضاف الفقرة II إلى المادة 447: على كل مكلّف (assujetti) إصدار الفاتورة ونقلها واستلامها إلكترونياً عبر بوابة عامة أو منصة تضعها الإدارة، أو عبر machines électroniques de facturation مرخّصة، مع إرسال بيانات الفوترة إلى الإدارة. لكن الفقرة II-5 تحيل شروط التطبيق وكيفياته إلى قرار من وزير المالية (arrêté)، ولم يُنشر هذا القرار ولا المنصة ولا الصيغة التقنية ولا الجدول الزمني حتى آخر المصادر (أكتوبر 2026)، ولا يعرض موقع DGID أي إعلان بشأنها في 11 نوفمبر 2026. مشروع قانون المالية 2027 (المودَع في 12 أكتوبر 2026) يتحدث عن «déploiement progressif» و«généralisation» للفوترة الإلكترونية دون تاريخ. غرامة المادة 667-IV (25% من TVA المفوترة بحد 5 ملايين فرنك لكل فاتورة) منصوص عليها، ولم تعلن DGID موعد سريانها. تنبيه: SENTAX منصة إقرار ودفع إلكتروني وليست فوترة إلكترونية.",
+    "keyDates": [
+      {"date": "2025-01-06", "event": "Loi n° 2025-02 portant LFI 2025: إضافة «II- Facturation électronique» إلى المادة 447 من CGI وغرامة المادة 667-IV؛ التطبيق معلّق على arrêté وزاري لم يصدر بعد"},
+      {"date": "2026-07-31", "event": "شركة الكهرباء Senelec تُلزم مورّديها بإدخال فواتيرهم على منصتها الخاصة «e-invoice» — اشتراط تجاري لشركة واحدة وليس إلزاماً وطنياً"},
+      {"date": "2026-09-01", "event": "SENTAX إلزامية لإقرارات ومدفوعات مكلّفي Direction des Grandes Entreprises (إقرار ودفع إلكتروني، ليست فوترة إلكترونية)"},
+      {"date": "2026-10-01", "event": "فتح SENTAX لمكلّفي CME1 وCME2 وCPR (إقرار ودفع، ليست فوترة إلكترونية)"},
+      {"date": "2026-10-12", "event": "إيداع مشروع قانون المالية 2027 في البرلمان، ويذكر التعميم التدريجي للفوترة الإلكترونية دون موعد أو نطاق محدد"}
+    ],
+    "b2cReceipts": "لا يوجد اليوم إلزام وطني مؤكَّد بأجهزة ضريبية (fiscal POS) أو إيصالات بـQR أو إبلاغ لحظي لمبيعات المستهلكين. المادة 447-II تسمح للإدارة بالترخيص لـmachines électroniques de facturation دون أن تصدر قواعدها بعد. منفصل عن الفوترة: «marquage fiscal» (الوسم الضريبي للمنتجات) مقرَّر أن يدخل حيّز التنفيذ في 2027 على خمس فئات: المشروبات المحلّاة، المشروبات الكحولية، منتجات التبغ، السجائر، والمياه المعدنية في قوارير أو أكياس — حسب عرض أسباب مشروع قانون المالية 2027 (لم يُعتمد بعد)، ولم نتحقق من نص أساسه القانوني.",
+    "sources": [
+      {"url": "https://www.dgid.sn/storage/docs/CGI-2025.pdf", "title": "DGID — CGI annoté janvier 2025: art. 447 (I Facturation, II Facturation électronique) et art. 667-IV", "accessed": "2026-11-11"},
+      {"url": "https://www.dgid.sn/", "title": "DGID — communiqués SENTAX (1er septembre et 1er octobre 2026); aucun communiqué sur la facturation électronique", "accessed": "2026-11-11"},
+      {"url": "https://www.dgid.sn/communication", "title": "DGID — Actualités: 25 communiqués (le plus récent 30 septembre 2026), aucun sur la facturation électronique; événement «Facturation électronique normalisée : le Sénégal séduit par le modèle béninois» (30 août 2023)", "accessed": "2026-11-11"},
+      {"url": "https://taxsummaries.pwc.com/senegal/corporate/significant-developments", "title": "PwC Worldwide Tax Summaries — Senegal, Significant developments (last reviewed 07 August 2026)", "accessed": "2026-11-11"},
+      {"url": "https://dddinvoices.com/learn/e-invoicing-in-senegal", "title": "DDD Invoices — E-Invoicing in Senegal (updated 28 October 2026): go-live date not published", "accessed": "2026-11-11"},
+      {"url": "https://dddinvoices.com/learn/fiscalization-and-real-time-reporting-in-senegal", "title": "DDD Invoices — Senegal Fiscalization Rules: POS and Reporting Status 2026 (28 September 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.einvoicestudio.com/compliance-map/sn", "title": "EInvoiceStudio — Senegal E-Invoicing compliance map (last verified 2026-05-19)", "accessed": "2026-11-11"},
+      {"url": "https://www.sage.com/fr-ma/blog/senegal-les-nouvelles-obligations-de-la-facturation-electronique/", "title": "Sage — Sénégal : les nouvelles obligations de la facturation électronique (4 juillet 2025)", "accessed": "2026-11-11"},
+      {"url": "https://www.vie-publique.sn/docs/8ff2ab7d-c73b-43d4-8843-c6ff36ec8906/projet-loi-finances-2027-senegal.pdf", "title": "Gouvernement du Sénégal — Projet de Loi de Finances pour l'année 2027 (exposé des motifs: facturation électronique, marquage fiscal)", "accessed": "2026-11-11"},
+      {"url": "https://reganvanrooy.com/senegals-draft-finance-law-for-2027-digital-services-property-and-fewer-exemptions/", "title": "Regan van Rooy — Senegal's Draft Finance Law for 2027 (10 November 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.financialafrik.com/en/2026/06/25/senegal-senelec-imposes-e-invoicing-on-its-suppliers/", "title": "Financial Afrik — Senegal: Senelec imposes e-invoicing on its suppliers (25 June 2026)", "accessed": "2026-11-11"}
+    ]
+  },
+  "invoiceRequirements": [
+    "اسم المورّد (المكلّف) وعنوانه الدقيقان مع رقم NINEA الخاص به",
+    "رقم فريد مبني على تسلسل زمني متصل (numéro unique, séquence chronologique et continue)",
+    "ضرائب رقم الأعمال المستحقة على العملية (TVA) مع بيان النسبة",
+    "الضريبة الخاصة (taxe spécifique) المستحقة على العملية عند الاقتضاء مع بيان نسبتها",
+    "السعر شاملاً جميع الضرائب (prix toutes taxes comprises, TTC)",
+    "عند الإعفاء أو عندما يكون العميل هو المدين بالضريبة (TVA pour compte) أو عند تطبيق régime de la marge: الإشارة إلى نص CGI الذي يبرّر ذلك",
+    "تُصدر الفاتورة في موعد أقصاه عند تمام التسليم أو أداء الخدمة",
+    "كل مستند يعدّل الفاتورة الأصلية (مثل facture d'avoir) يشير إليها صراحة ويُعامَل كفاتورة بكامل الحقول الإلزامية",
+    "مكلّفو CGU: تستوفي فاتورتهم حقول المادة 447 لكن يُمنع عليهم إظهار مبلغ TVA وتُحرَّر TTC (المادة 448)",
+    "المكلّف المستلِم مسؤول عن التأكد من مطابقة الفواتير التي تُسلَّم له (المادة 447-I-2)، والتصريح الشهري يُرفق بكشف بالإعفاءات يذكر رقم الفاتورة ومبلغها وهوية العميل وسبب الإعفاء (المادة 449)"
+  ],
+  "distribution": {
+    "hubs": ["Dakar (ميناء دكار يستقبل تقريباً كل الواردات؛ يضم نحو 22% من السكان و80% من النشاط الاقتصادي)", "Diamniadio (منطقة اقتصادية خاصة تتطور كمركز صناعي ولوجستي)", "Thiès", "Touba", "Kaolack"],
+    "tradeChannels": ["boutiques de quartier (البقالة/الدكان الحيّ)", "marchés (الأسواق المفتوحة في دكار والمدن)", "grossistes et demi-grossistes (تجار الجملة ونصف الجملة)", "centres commerciaux (بدأت تظهر في دكار)", "commerce en ligne (Jumia، TafTaf)"],
+    "localTerms": {
+      "vanSales": "vente en tournée / vente camion",
+      "preSales": "prévente (prévendeur)",
+      "salesRep": "commercial terrain / vendeur",
+      "retailShop": "boutique (boutiquier)",
+      "routeAccounting": "arrêté de caisse / bilan de tournée (versement du vendeur)"
+    },
+    "collectionMethods": ["espèces (نقداً) — السائد في قطاع غير رسمي يشغّل نحو 80% من القوى العاملة", "Wave", "Orange Money (وتطبيق Max It)", "virement bancaire (تحويل بنكي)", "crédit fournisseur (بيع آجل؛ المنافسون الأجانب يمنحون 60–90 يوماً للسلع الاستهلاكية)"],
+    "notes": "المال المحمول (Orange Money وWave) يؤدي دوراً كبيراً في المدفوعات حسب الدليل التجاري الأمريكي (مارس 2026)، وتقبل DGID نفسها دفع الضرائب عبر تطبيق Max It من Orange منذ 17 يوليو 2026. Wave Business: أول 20,000 فرنك من المدفوعات يومياً مجانية ثم 1%. تنبيه ضريبي متغيّر: بموجب Loi 2025-17 (سبتمبر 2025) يذكر جدول «Taux d'imposition» في موقع DGID: «taxe sur les transferts d'argent» بنسبة 0.5% (بحد أقصى 2,000 فرنك)، و«prélèvement sur les paiements reçus par transfert d'argent» بنسبة 0.5%، و«droit de timbre sur les quittances» بنسبة 1%. مشروع قانون المالية التعديلي 2026 (n° 40/2026) يقترح إلغاء الأوليين واستبدالهما بـ«contribution de solidarité économique» على رقم أعمال المشغّلين (8–10%) وإعفاء الإيصالات حتى 100,000 فرنك من الطابع، لكن لجنة المالية رفضته في القراءتين (آخرهما 30 أكتوبر 2026) ووضعه النهائي غير مؤكد. الوسم الضريبي (marquage fiscal) مقرَّر أن يبدأ 2027 على المشروبات المحلّاة والكحولية والتبغ والسجائر والمياه المعبأة حسب مشروع قانون المالية 2027 — يهم موزّعي هذه الفئات. نسبة كبيرة من البوتيكات أفراد تحت عتبة CGU (≤ 50 مليون فرنك) فلا يُظهرون TVA. اللغة التجارية الفرنسية، والإعلان بالفرنسية أو الولوفية.",
+    "sources": [
+      {"url": "https://www.trade.gov/country-commercial-guides/senegal-distribution-sales-channels", "title": "ITA Country Commercial Guide — Senegal: Distribution & Sales Channels (last published 2026-03-30)", "accessed": "2026-11-11"},
+      {"url": "https://www.trade.gov/country-commercial-guides/senegal-ecommerce", "title": "ITA Country Commercial Guide — Senegal: eCommerce (last published 2026-03-30)", "accessed": "2026-11-11"},
+      {"url": "https://www.trade.gov/country-commercial-guides/senegal-selling-factors-techniques", "title": "ITA Country Commercial Guide — Senegal: Selling Factors & Techniques (last published 2026-03-30)", "accessed": "2026-11-11"},
+      {"url": "https://www.dgid.sn/articles/mise-en-service-du-paiement-en-ligne-dans-lapplication-mon-espace-perso-mep", "title": "DGID — Mise en service du paiement en ligne dans Mon Espace Perso via Max It (17 juillet 2026)", "accessed": "2026-11-11"},
+      {"url": "https://www.wave.com/fr/business/", "title": "Wave — Wave Business (tarifs marchands et paiements de masse)", "accessed": "2026-11-11"},
+      {"url": "https://www.orange.sn/", "title": "Orange Sénégal — Orange Money, paiement marchand, Max It", "accessed": "2026-11-11"},
+      {"url": "https://www.vie-publique.sn/docs/6ad65351-baec-42ff-bf84-a21cb92c4f3f/rapport-commission-projet-loi-40-2026-lfr-loi-finances-rectificative-2026.pdf", "title": "Assemblée nationale — Rapport de la Commission des finances sur le projet de loi n° 40/2026 (LFR 2026), 27 octobre 2026", "accessed": "2026-11-11"},
+      {"url": "https://www.vie-publique.sn/documents/14575/rapport-commission-projet-loi-40-2026-lfr-loi-finances-rectificative-2026-second-passage", "title": "vie-publique.sn — Rapport Commission des Finances du 30 octobre 2026 (second passage): rejet du projet de loi n° 40/2026 et des deux amendements du Gouvernement", "accessed": "2026-11-11"},
+      {"url": "https://www.dgid.sn/loi-reglement#taux-impots", "title": "DGID — Taux d'imposition, Mesures fiscales récentes (Loi 2025-17: transferts d'argent 0,5 % plafond 2 000 F; paiements reçus par transfert 0,5 %; timbre des quittances 1 %)", "accessed": "2026-11-11"},
+      {"url": "https://www.vie-publique.sn/docs/8ff2ab7d-c73b-43d4-8843-c6ff36ec8906/projet-loi-finances-2027-senegal.pdf", "title": "Projet de Loi de Finances pour l'année 2027 — marquage fiscal en 2027", "accessed": "2026-11-11"}
+    ]
+  },
+  "honesty": {
+    "canSay": [
+      "FieldSales تدير المناديب والبيع من السيارة (vente en tournée) والتحصيل لشركات التوزيع في السنغال، والعميل يضبط العملة (XOF / F CFA بلا كسور) ونسبة الضريبة بنفسه، مثل TVA 18%.",
+      "يمكن للشركة إعداد قالب فاتورتها المطبوعة بحيث يظهر اسمها وعنوانها ورقم NINEA ورقم فاتورة متسلسل والسعر TTC، والمسؤولية عن مطابقة المادة 447 تبقى على الشركة ومحاسبها.",
+      "للمكلّفين بنظام CGU الذين يُمنع عليهم إظهار TVA، يمكن تشغيل وضع «إزالة الضريبة» فلا تظهر الضريبة في الشاشات والمستندات؛ وتبقى مطابقة الفاتورة للمادتين 447 و448 مسؤولية الشركة.",
+      "يسجّل المندوب التحصيل نقداً أو بطرق دفع يعرّفها العميل يدوياً (مثل Wave أو Orange Money) مع سند قبض ومتابعة الأرصدة الآجلة للبوتيكات.",
+      "الفواتير وسندات القبض تعمل دون اتصال وتُزامَن عند عودة الشبكة، وهذا مفيد في الجولات خارج المدن.",
+      "الفوترة الإلكترونية في السنغال منصوص عليها قانوناً لكنها لم تُفعَّل بعد؛ ربط FieldSales بها يمكن دراسته عند الطلب بعد صدور القواعد الرسمية، دون التزام بموعد."
+    ],
+    "mustNotSay": [
+      "أن FieldSales مربوطة أو متكاملة مع منصة الفوترة الإلكترونية لـDGID أو «portail public de facturation» (لا توجد منصة مُطلقة أصلاً)",
+      "أن FieldSales معتمدة أو مرخّصة من DGID أو مصنّفة «machine électronique de facturation» مرخّصة",
+      "أن FieldSales «متوافقة مع المادة 447-II» أو «جاهزة للفوترة الإلكترونية السنغالية» أو تضمن الامتثال الضريبي",
+      "أن الفوترة الإلكترونية إلزامية الآن في السنغال أو ذكر موعد إلزام محدد (لم يصدر أي arrêté)",
+      "أي ربط مع SENTAX أو eTax أو Mon Espace Perso أو SenTimbre",
+      "ربط مباشر أو API مع Wave أو Orange Money أو Max It أو تحصيل آلي عبرها",
+      "التحقق الآلي من رقم NINEA لدى DGID أو ANSD",
+      "التوافق مع الوسم الضريبي (marquage fiscal) أو تتبّعه",
+      "أي إشارة إلى ZATCA أو Fatoura في صفحة السنغال، أو تعميم الربط السعودي عليها",
+      "أن فواتير FieldSales «factures normalisées» أو تحمل رمز QR/توقيعاً/رقم تحقق صادراً عن DGID أو تُرسَل بياناتها إلى الإدارة الضريبية",
+      "أن FieldSales تحتسب أو تقتطع أو تصرّح عن ضرائب تحويلات المال الإلكتروني أو timbre des quittances أو CSE نيابةً عن العميل"
+    ]
+  },
+  "uncertain": [
+    "صيغة NINEA (عدد الخانات ورمز COFI الملحق): لم نجد مصدراً رسمياً يحددها؛ صفحة DGID لا تذكر الصيغة وموقع ANSD تعذّر الوصول إليه (خطأ شهادة)، فتُرك format = null.",
+    "تاريخ القانون 2025-02: الـCGI المشروح المنشور على موقع DGID يذكر «Loi 2025-02 du 06 janvier 2025»، بينما مقالة Sage تذكر 28 ديسمبر 2024؛ اعتمدنا تاريخ DGID.",
+    "نموذج الفوترة الإلكترونية المستقبلي (clearance أم إبلاغ لحظي أم دوري) غير محدد رسمياً؛ بعض المتتبّعين (EInvoiceStudio) يتوقعون clearance على نموذج بنين e-MECeF دون تأكيد، لذلك model = none اليوم.",
+    "الـCGI المشروح المعتمد هنا محدّث حتى يناير 2025؛ لم نراجع نص قانون المالية 2026 (المعتمد في ديسمبر 2025) مباشرة، لكن جدول «Taux d'imposition» الحالي في موقع DGID (11 نوفمبر 2026) يذكر «TVA (taux normal) 18 %»، وPwC (مراجعة 7 أغسطس 2026) يذكر 18% و10%، ولم نجد ما يدل على تغيير عتبة CGU (50 مليون) أو عتبة réel simplifié (100 مليون).",
+    "وضع ضريبة المال الإلكتروني: جدول DGID يؤكد نسب Loi 2025-17 (0.5% على التحويلات بحد 2,000 فرنك، و0.5% على المدفوعات المستلمة بالتحويل). مشروع القانون التعديلي 2026 يستبدلها بـCSE على المشغّلين، لكن لجنة المالية رفضته في القراءة الأولى (تقرير 27 أكتوبر 2026) ثم في القراءة الثانية (30 أكتوبر 2026)؛ مشروع قانون المالية 2027 (المودَع 12 أكتوبر قبل الرفض) يتحدث عن CSE كأنها «instituée par la LFR 2026». لم نجد ما يثبت تصويت الجلسة العامة أو صدور القانون، فالوضع النهائي غير مؤكد.",
+    "الوسم الضريبي (marquage fiscal): مشروع قانون المالية 2027 يقول إنه «institué en 2026» ويدخل حيّز التنفيذ في 2027، بينما وردت «obligation de marquage fiscal» (مع غرامة 200,000 فرنك) ضمن مشروع LFR 2026 الذي رفضته لجنة المالية؛ لم نتحقق من النص القانوني الذي أسّسه فعلاً.",
+    "المصطلحات الميدانية (vente en tournée، prévente/prévendeur، commercial terrain، arrêté de caisse، bilan de tournée) شائعة في التوزيع بالدول الفرنكوفونية لكن لم نجد مصدراً مهنياً سنغالياً موثّقاً لها في هذه الجلسة.",
+    "قناة «boutiques de quartier» وقناة «marchés» وأهمية Thiès وTouba وKaolack كمراكز توزيع: معروفة عامةً لكن صفحة ITA للتوزيع (2026-03-30) تذكر فقط دكار وDiamniadio وSandiara والتوزيع الحديث والتقليدي وتجار الجملة والتجزئة وبدء ظهور المراكز التجارية في دكار، ولا تذكر الأسواق المفتوحة ولا السوبرماركت؛ لم نتمكن من توثيق البقية.",
+    "حصص السوق بين Wave وOrange Money وFree Money (Mixx by Yas) غير موثّقة، ولم نتحقق من حضور Free Money الحالي في التحصيل التجاري؛ ذكرنا فقط أن Orange Money وWave يؤديان دوراً كبيراً حسب ITA. الشيكات كوسيلة تحصيل لم تُوثَّق فاستُبعدت.",
+    "الإعفاءات تُعامَل كـexonération وليست نسبة صفرية؛ لم نتحقق من حق الخصم المرتبط بالصادرات.",
+    "اقتراح إعفاء طابع الإيصالات (timbre des quittances) حتى 100,000 فرنك ضمن مشروع LFR 2026 غير نافذ مؤكداً، ولم ندرجه في متطلبات الإيصالات.",
+    "جمل canSay عن قدرات FieldSales (قالب الطباعة الحر، وضع «إزالة الضريبة»، العمل دون اتصال، طرق الدفع اليدوية) مبنية على ذاكرة المشروع لا على فحص الكود في هذه المهمة؛ يُستحسن تأكيدها قبل النشر.",
+    "نفدت ميزانية البحث على الويب أثناء الجلسة، فاعتمدت الأقسام الأخيرة (التوزيع والتحصيل) على جلب مباشر لصفحات معروفة فقط."
+  ],
+  "sources": [
+    {"url": "https://www.dgid.sn/storage/docs/CGI-2025.pdf", "title": "DGID — Code Général des Impôts annoté (janvier 2025)", "accessed": "2026-11-11"},
+    {"url": "https://www.dgid.sn/", "title": "DGID — Direction Générale des Impôts et des Domaines (accueil, communiqués SENTAX, échéances)", "accessed": "2026-11-11"},
+    {"url": "https://www.dgid.sn/entreprises", "title": "DGID — Entreprises: obligations fiscales", "accessed": "2026-11-11"},
+    {"url": "https://www.dgid.sn/loi-reglement#taux-impots", "title": "DGID — Lois et règlements: Taux d'imposition et mesures fiscales récentes", "accessed": "2026-11-11"},
+    {"url": "https://www.dgid.sn/communication", "title": "DGID — Actualités et communiqués (liste au 11 novembre 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.vie-publique.sn/documents/14575/rapport-commission-projet-loi-40-2026-lfr-loi-finances-rectificative-2026-second-passage", "title": "Rapport Commission des Finances — LFR 2026, second passage (30 octobre 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.dgid.sn/fiches/ninea", "title": "DGID — Fiche NINEA / RCCM", "accessed": "2026-11-11"},
+    {"url": "https://www.dgid.sn/articles/mise-en-service-du-paiement-en-ligne-dans-lapplication-mon-espace-perso-mep", "title": "DGID — Paiement en ligne via Max It (17 juillet 2026)", "accessed": "2026-11-11"},
+    {"url": "https://taxsummaries.pwc.com/senegal/corporate/other-taxes", "title": "PwC Worldwide Tax Summaries — Senegal, Other taxes (last reviewed 07 August 2026)", "accessed": "2026-11-11"},
+    {"url": "https://taxsummaries.pwc.com/senegal/corporate/significant-developments", "title": "PwC Worldwide Tax Summaries — Senegal, Significant developments (last reviewed 07 August 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.vie-publique.sn/docs/8ff2ab7d-c73b-43d4-8843-c6ff36ec8906/projet-loi-finances-2027-senegal.pdf", "title": "Projet de Loi de Finances pour l'année 2027 (Sénégal)", "accessed": "2026-11-11"},
+    {"url": "https://www.vie-publique.sn/documents/14572/projet-loi-40-2026-lfr-loi-finances-rectificative-2026", "title": "vie-publique.sn — Projet de loi n° 40/2026 portant LFR 2026", "accessed": "2026-11-11"},
+    {"url": "https://www.vie-publique.sn/docs/6ad65351-baec-42ff-bf84-a21cb92c4f3f/rapport-commission-projet-loi-40-2026-lfr-loi-finances-rectificative-2026.pdf", "title": "Rapport de la Commission des finances — LFR 2026 (27 octobre 2026)", "accessed": "2026-11-11"},
+    {"url": "https://dddinvoices.com/learn/e-invoicing-in-senegal", "title": "DDD Invoices — E-Invoicing in Senegal (28 October 2026)", "accessed": "2026-11-11"},
+    {"url": "https://dddinvoices.com/learn/fiscalization-and-real-time-reporting-in-senegal", "title": "DDD Invoices — Senegal Fiscalization Rules (28 September 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.einvoicestudio.com/compliance-map/sn", "title": "EInvoiceStudio — Senegal E-Invoicing (verified 2026-05-19)", "accessed": "2026-11-11"},
+    {"url": "https://www.sage.com/fr-ma/blog/senegal-les-nouvelles-obligations-de-la-facturation-electronique/", "title": "Sage — Sénégal : nouvelles obligations de la facturation électronique (4 juillet 2025)", "accessed": "2026-11-11"},
+    {"url": "https://reganvanrooy.com/senegals-draft-finance-law-for-2027-digital-services-property-and-fewer-exemptions/", "title": "Regan van Rooy — Senegal's Draft Finance Law for 2027 (10 November 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.financialafrik.com/en/2026/06/25/senegal-senelec-imposes-e-invoicing-on-its-suppliers/", "title": "Financial Afrik — Senelec imposes e-invoicing on its suppliers (25 June 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.trade.gov/country-commercial-guides/senegal-distribution-sales-channels", "title": "ITA — Senegal: Distribution & Sales Channels (2026-03-30)", "accessed": "2026-11-11"},
+    {"url": "https://www.trade.gov/country-commercial-guides/senegal-ecommerce", "title": "ITA — Senegal: eCommerce (2026-03-30)", "accessed": "2026-11-11"},
+    {"url": "https://www.trade.gov/country-commercial-guides/senegal-selling-factors-techniques", "title": "ITA — Senegal: Selling Factors & Techniques (2026-03-30)", "accessed": "2026-11-11"},
+    {"url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml", "title": "ISO 4217 List One (published 2026-09-17)", "accessed": "2026-11-11"},
+    {"url": "https://www.bceao.int/fr/content/presentation-du-franc-cfa", "title": "BCEAO — Présentation du franc CFA", "accessed": "2026-11-11"},
+    {"url": "https://www.wave.com/fr/business/", "title": "Wave — Wave Business", "accessed": "2026-11-11"},
+    {"url": "https://www.orange.sn/", "title": "Orange Sénégal — Orange Money / Max It", "accessed": "2026-11-11"}
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "corrections": [
+      {"field": "tax.authority", "before": "Direction Générale des Impôts et des Domaines (DGID) — Ministère des Finances et du Budget", "after": "Direction Générale des Impôts et des Domaines (DGID) — Ministère de l'Économie, des Finances et du Plan (MEFP)", "source": "https://www.dgid.sn/ (ترويسة الموقع: «Ministère de l'Économie, des Finances et du Plan (MEFP)») + تقرير لجنة المالية عن LFR 2026 (الوزير Cheikh DIBA، ministre de l'Économie, des Finances et du Plan)"},
+      {"field": "tax.registrationThreshold (دورية الإقرار)", "before": "الإقرار شهري ويُستحق في 15 من كل شهر.", "after": "شهري (15 من الشهر التالي) لـréel normal، وفصلي (قبل 15 أبريل/يوليو/أكتوبر/يناير) لـréel simplifié: أشخاص اعتباريون برقم أعمال TTC < 100 مليون، وطبيعيون بين 50 و100 مليون", "source": "https://www.dgid.sn/storage/docs/CGI-2025.pdf — art. 449-3، art. 28، art. 130"},
+      {"field": "distribution.notes + uncertain (ضريبة المال الإلكتروني)", "before": "«prélèvement sur les paiements par code marchand» منذ سبتمبر 2025؛ «نسبة 0.5% ... غير مؤكدة من نص رسمي»", "after": "مؤكدة رسمياً: taxe sur les transferts d'argent 0.5% (حد 2,000 فرنك)، prélèvement sur les paiements reçus par transfert d'argent 0.5%، droit de timbre sur les quittances 1% — Loi 2025-17", "source": "https://www.dgid.sn/loi-reglement#taux-impots"},
+      {"field": "distribution.notes + uncertain (وضع LFR 2026)", "before": "رفضته لجنة المالية في أكتوبر 2026؛ تقرير قراءة ثانية في 30 أكتوبر 2026 لم نطّلع عليه", "after": "رفضته لجنة المالية في القراءتين، والثانية في 30 أكتوبر 2026 (رفض المشروع والتعديلين الحكوميين)؛ الوضع النهائي غير مؤكد", "source": "https://www.vie-publique.sn/documents/14575/rapport-commission-projet-loi-40-2026-lfr-loi-finances-rectificative-2026-second-passage"},
+      {"field": "einvoicing.b2cReceipts + distribution.notes (marquage fiscal)", "before": "يدخل حيّز التنفيذ في 2027 / يبدأ 2027", "after": "مقرَّر أن يدخل حيّز التنفيذ في 2027 حسب مشروع قانون المالية 2027 (غير معتمد بعد)، وأساسه القانوني لم يُتحقق منه — نُقل إلى uncertain", "source": "https://www.vie-publique.sn/docs/8ff2ab7d-c73b-43d4-8843-c6ff36ec8906/projet-loi-finances-2027-senegal.pdf (ص 8) + تقرير لجنة المالية عن LFR 2026 (البند v)"},
+      {"field": "distribution.tradeChannels", "before": "centres commerciaux et supermarchés (ناشئة في دكار)", "after": "centres commerciaux (بدأت تظهر في دكار)", "source": "https://www.trade.gov/country-commercial-guides/senegal-distribution-sales-channels (2026-03-30): «shopping centers are beginning to spring up in Dakar» دون ذكر السوبرماركت"},
+      {"field": "honesty.mustNotSay", "before": "9 بنود", "after": "أُضيف منع ادعاء «factures normalisées»/QR/توقيع DGID أو إرسال البيانات للإدارة، ومنع ادعاء احتساب أو التصريح عن ضرائب المال الإلكتروني أو timbre des quittances أو CSE", "source": "تدقيق داخلي لسياسة الصدق: لا ربط ولا اعتماد ولا امتثال خارج السعودية"},
+      {"field": "honesty.canSay[2]", "before": "يمكن تشغيل وضع «إزالة الضريبة» فلا تظهر الضريبة في الشاشات والمستندات.", "after": "أُضيف: «وتبقى مطابقة الفاتورة للمادتين 447 و448 مسؤولية الشركة» حتى لا تُفهم الجملة وعداً بالامتثال", "source": "https://www.dgid.sn/storage/docs/CGI-2025.pdf — art. 447، art. 448"}
+    ],
+    "verified": [
+      "TVA 18% قياسية و10% لمنشآت الإيواء السياحي المعتمدة: CGI art. 369 + جدول DGID الحالي (18%) + PwC (مراجعة 07-08-2026)؛ لا تغيير في 2026 حسب هذه المصادر.",
+      "17% ضريبة خاصة على الأنشطة المالية بدلاً من TVA: PwC؛ وCGI art. 361-6 يعفي العمليات المالية «imposables à une taxation spécifique».",
+      "الإعفاءات (art. 361): المنتجات الغذائية الأساسية حسب Arrêté 3517 (11-03-2013)، الأدوية، الكتب والصحف، غاز البوتان المنزلي ≤ 38 كغ، الصادرات المباشرة — مطابقة لنص CGI.",
+      "CGU للأشخاص الطبيعيين ≤ 50 مليون TTC وحظر إظهار TVA (art. 134–135، 448): مطابق.",
+      "حقول الفاتورة الإلزامية (art. 447-I) ونص الفوترة الإلكترونية (art. 447-II بقانون 2025-02 بتاريخ 06-01-2025) والإحالة إلى arrêté وزاري (447-II-5) وغرامة 25% بحد 5 ملايين لكل فاتورة (art. 667-IV): مطابقة حرفياً لـCGI المنشور على DGID.",
+      "حالة الفوترة الإلكترونية اليوم 2026-11-11: غير مفعّلة — لا arrêté ولا منصة ولا موعد؛ لا بلاغ لـDGID بشأنها (آخر بلاغ 30-09-2026 عن SENTAX)، وDDD Invoices (28-10-2026) «Implementation date: To be announced»، وEInvoiceStudio (19-05-2026) «Announced»، ومشروع قانون المالية 2027 (أودع 12-10-2026) يتحدث عن «déploiement progressif» بلا تاريخ. status = planned وmodel = none صحيحان.",
+      "SENTAX: إلزامية لـDGE منذ 01-09-2026 ومفتوحة لـCME1/CME2/CPR منذ 01-10-2026 (بلاغ 30-09-2026) — إقرار ودفع لا فوترة.",
+      "Senelec: منصة «e-invoice» لمورّديها اعتباراً من 31 يوليو (مذكرة 22 يونيو 2026) — Financial Afrik 25-06-2026.",
+      "NINEA: art. 446 وart. 633-IV؛ صفحة DGID: نحو 3 أيام، مجاني سوى طابع 2,000 فرنك، دون صيغة للرقم.",
+      "العملة XOF، رقم 952، minor unit 0: قائمة ISO 4217 من SIX (منشورة 17-09-2026)؛ BCEAO تسمّيها «Franc de la Communauté Financière Africaine (F.CFA)» دون ذكر لاستبدالها بالـECO.",
+      "Wave Business: «Les premiers 20 000 CFA de paiement sont gratuits pour vous chaque jour, avec des frais de 1 %»؛ ITA: 22% من السكان و80% من النشاط في دكار، 80% من القوى العاملة في القطاع غير الرسمي، ائتمان 60–90 يوماً، الإعلان بالفرنسية أو الولوفية، Orange Money وWave «outsized role»."
+    ],
+    "notVerified": [
+      "نص قانون المالية 2026 نفسه (لم يُراجع مباشرة؛ الاعتماد على جدول DGID الحالي وPwC).",
+      "قدرات FieldSales الواردة في canSay لم تُفحص في الكود ضمن هذا التدقيق.",
+      "ميزانية البحث على الويب نفدت في هذه الجلسة؛ اقتصر التدقيق على جلب مباشر للمصادر المذكورة وملفات DGID وvie-publique.sn."
+    ],
+    "confidence": "high"
+  }
+}

@@ -1,0 +1,445 @@
+{
+  "code": "CM",
+  "nameEn": "Cameroon",
+  "pageLanguage": "fr",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "XAF",
+    "symbol": "FCFA",
+    "nameEn": "Central African CFA franc (CFA Franc BEAC)",
+    "nameLocal": "franc CFA (BEAC)",
+    "minorUnits": 0,
+    "note": "قائمة ISO 4217 الرسمية (منشورة 2026-09-17) تعطي XAF صفراً من الكسور العشرية (CcyMnrUnts=0)، فالمبالغ تُكتب أعداداً صحيحة. الرمز المتداول في النصوص الرسمية «F CFA» أو «FCFA»."
+  },
+  "tax": {
+    "nameLocal": "Taxe sur la Valeur Ajoutée",
+    "nameEn": "Value Added Tax",
+    "abbr": "TVA",
+    "standardRate": 19.25,
+    "rateNote": "19.25% هي النسبة الفعلية المطبقة: المعدل الأصلي في المادة 142 من CGI هو 17.5% يُضاف إليه centimes additionnels communaux (CAC) بنسبة 10% من أصل الضريبة (المادة C 83 من CGI)، أي 17.5 × 1.10 = 19.25%. الفواتير وجداول الاقتطاع الرسمية تستعمل 19.25%.",
+    "otherRates": [
+      {
+        "rate": 10,
+        "appliesTo": "taux réduit منذ 1 يناير 2026 (المادة 142(3) من CGI، LF 2026) حصراً على: فوائد القروض العقارية لشراء أول مسكن اجتماعي لشخص طبيعي، وبيع المساكن الاجتماعية لأشخاص طبيعيين لأول مسكن (بشرط quitus fiscal)، وإيجار المساكن الاجتماعية من المطورين العموميين أو شبه العموميين. لا يخص تجارة التوزيع. يجب أن تحمل الفاتورة عبارة « TVA au taux réduit de 10 % – Article 142(3) du CGI »."
+      },
+      {
+        "rate": 0,
+        "appliesTo": "الصادرات (taux zéro)."
+      }
+    ],
+    "registrationThreshold": "لا يفوتر TVA إلا المكلفون في النظام الحقيقي (régime du réel). الحد (المادة 93 quater من CGI): رقم أعمال سنوي خارج الضريبة 50,000,000 FCFA للأنشطة التجارية والصناعية والحرفية والزراعية الرعوية؛ ومن دونه يخضع المكلف لـ Impôt Général Synthétique (IGS). منذ LF 2026 صار حد المهن الحرة 30,000,000 FCFA. وتُلحق بالنظام الحقيقي أياً كان رقم أعمالها، بحسب المادة 93 quater (2)(b) من CGI 2026: الملزمون الجدد في قطاعات النفط والتعدين والغاز والائتمان والتمويل الأصغر والتأمين والهاتف المحمول، وحاملو اعتماد Ordonnance n°2025/002 للحوافز الاستثمارية، وأصحاب charges notariales، وكذلك الملزمون الجدد ذوو برنامج استثمار معتمد أو طلبية تتجاوز 100,000,000 FCFA بإذن صريح من المدير العام للضرائب. أما fiche TVA الصادرة عن DGI في أبريل 2025 فتضيف إلى القائمة القطاع المصرفي والطلبيات العمومية.",
+    "authority": "Direction Générale des Impôts (DGI) — Ministère des Finances (MINFI)",
+    "authorityUrl": "https://www.impots.cm",
+    "sources": [
+      {
+        "url": "https://www.impots.cm/sites/default/files/documents/FICHE%20TVA.pdf",
+        "title": "DGI — La Taxe sur la Valeur Ajoutée (TVA) : Ce que vous devez savoir (fiche PDF, créée le 2025-04-02)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.impots.cm/sites/default/files/documents/CODE%20GENERAL%20DES%20IMPOTS%202026%20SITE%20DGI%20VERSION%20FRANCAISE.pdf",
+        "title": "DGI — Code Général des Impôts, Édition 2026 (mis à jour au 1er janvier 2026) : art. 142, 143, 150, C 82–C 83, 93 ter",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://impots.cm/sites/default/files/publications/circulaire%20lf%202026%20VF%20%281%29-compress%C3%A9.pdf",
+        "title": "DGI — Circulaire n°008/MINFI/DGI/LRI/L du 02 mars 2026 précisant les modalités d'application des dispositions fiscales de la LF 2026 (§154–158, §388–397)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxsummaries.pwc.com/republic-of-cameroon/corporate/other-taxes",
+        "title": "PwC Worldwide Tax Summaries — Cameroon, Corporate: Other taxes (Last reviewed 14 August 2026)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "taxId": {
+    "label": "NIU (Numéro d'Identifiant Unique)",
+    "format": null,
+    "notes": "يُمنح NIU آلياً عند التسجيل الضريبي الذي يتم إلكترونياً حصراً على موقع DGI خلال 15 يوم عمل من بدء النشاط، ويُثبت بـ attestation d'immatriculation. يجب أن يظهر NIU على الفواتير وكل مستند إداري ومحاسبي (المادة 12 من المرسوم 2012/3731/PM)، وتشترط المادة 150(5) من CGI ذكر NIU المورد والعميل معاً. لا يوجد رقم TVA منفصل عن NIU.",
+    "sources": [
+      {
+        "url": "https://www.impots.cm/fr/immatriculation",
+        "title": "DGI — Immatriculation (attribution automatique du NIU, immatriculation exclusivement en ligne)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.impots.cm/sites/default/files/documents/CODE%20GENERAL%20DES%20IMPOTS%202026%20SITE%20DGI%20VERSION%20FRANCAISE.pdf",
+        "title": "DGI — CGI Édition 2026 : art. 150(5) et annexe « Décret n°2012/3731/PM du 13 novembre 2012 » (art. 8 et 12 : NIU obligatoire sur les factures)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "einvoicing": {
+    "status": "planned",
+    "systemName": "« Système de suivi de facturation électronique de l'administration fiscale » (CGI art. 8 bis et 143)؛ ومنصة eBilling قيد الإنشاء لدى DGI؛ و« Régime de taxation en temps réel » (LPF art. L 8 sexies، LF 2026)؛ و« système de suivi électronique de la facturation et de la production des entreprises » (LPF art. L 8 bis)",
+    "authority": "Direction Générale des Impôts (DGI) — MINFI",
+    "model": "real-time-reporting",
+    "scopeNow": "قانونياً: (1) المادة L 8 bis من LPF تُخضع فوترة المؤسسات وإنتاجها «لتتبّع إلكتروني» من الإدارة الضريبية «وفق شروط يحددها قرار من وزير المالية»، وتسمّي «خصوصاً» قطاعات تقنية المعلومات والاتصالات والتجارة الإلكترونية والكهرباء وألعاب الحظ والتأمين والمشروبات (boissons) والمنتجات الزيتية والباقات الرقمية، وكل مؤسسات Direction des Grandes Entreprises. وتنص الفقرة (2) على أن المؤسسات «أياً كان وضعها أو طبيعتها» ملزمة بالامتثال لهذا النظام، والإخلال يُعاقب بغرامة تساوي مبلغ الفواتير المعنية. (2) منذ LF 2025 لا تُخصم من ضريبة الدخل الأعباء المثبتة بفواتير صادرة «en marge du système de suivi de facturation électronique» (المادة 8 مكرر(2))، ولا تُخصم TVA إلا إذا وردت على فاتورة صادرة عبر هذا النظام من مورد في النظام الحقيقي ومسجّل في ملف المكلفين النشطين ويذكر NIU (المادة 143(1)(b)). (3) نظام taxation en temps réel (L 8 sexies) نافذ قانوناً منذ 1 يناير 2026، ويُلزم من يُدرَج فيه ببرمجيات أو أجهزة معتمدة من DGI وبإرسال فوري ومستمر لبيانات الفوترة. لكن تحديد من يُدرَج وطرق التطبيق مُحالان إلى قرار من وزير المالية، والحالة الوحيدة التي يحددها النص مباشرة هي الاقتطاع من المنبع في قطاع البترول (المصبّ) والغاز الطبيعي للاستخدام الصناعي عبر SCDP وSONARA وشركات الغاز. عملياً: لم أجد القرارات الوزارية المنفّذة للمادتين L 8 bis وL 8 sexies، ولا قائمة برمجيات معتمدة، ولا مواصفات تقنية (صيغة أو API) منشورة. ومنصة eBilling الخاصة بالفوترة ما زالت قيد الإنشاء (EcoMatin، أغسطس 2026)، وتستهدف أولاً المؤسسات الكبرى (DGE) ثم المتوسطة. وللتنبيه: خدمة «OTP/E_billing» الموجودة اليوم في بوابة DGI (otp.dgi.cm) تخص دفع الضرائب إلكترونياً وإدارة الاقتطاع من المنبع («Gérez vos retenues à la source»)، لا الفوترة. الخلاصة: الإطار القانوني يفرض التزامات قائمة وقد يشمل نصاً موزعي المشروبات، لكن لم أجد آلية ربط تقنية منشورة يستطيع موزع عادي الانضمام إليها اليوم.",
+    "keyDates": [
+      {
+        "date": "2024-12-23",
+        "event": "Loi n°2024/013 (LF 2025): المادة 8 مكرر(2) تمنع خصم الأعباء المثبتة بفواتير صادرة خارج «système de suivi de facturation électronique» لدى DGI (نافذة على سنة 2025 المالية)."
+      },
+      {
+        "date": "2025-12-17",
+        "event": "صدور قانون مالية 2026 (Loi n°2025/012 حسب CGI 2026 وقرار MINFI؛ وتذكره الدورية برقم 2025/013) ومعه المادة L 8 sexies: نظام taxation en temps réel."
+      },
+      {
+        "date": "2026-01-01",
+        "event": "سريان LF 2026: الأساس القانوني لـ taxation en temps réel، ومعدل TVA المخفض 10% للسكن الاجتماعي، واستحقاق TVA على الدفعات المقدمة (acomptes)."
+      },
+      {
+        "date": "2026-03-02",
+        "event": "دورية DGI رقم 008/MINFI/DGI/LRI/L: طرق تطبيق L 8 sexies مُحالة إلى قرار من وزير المالية، والتطبيق في المنتجات البترولية والغاز الصناعي بالاقتطاع من المنبع (SCDP وSONARA وشركات الغاز)."
+      },
+      {
+        "date": "2026-03",
+        "event": "إرساء صفقة منصة eBilling لدى DGI بقيمة تقديرية 1.216 مليار FCFA (مصدر صحفي: EcoMatin)."
+      },
+      {
+        "date": "2027-10",
+        "event": "الأجل التعاقدي لإنجاز منصة eBilling (مصدر صحفي: EcoMatin)؛ النشر يبدأ بالمؤسسات الكبرى ثم المتوسطة ثم بقية الفئات تدريجياً."
+      }
+    ],
+    "b2cReceipts": "لم أجد نظام إيصالات أو أجهزة ضريبية (fiscal devices) عاماً ومطبّقاً على تجارة التجزئة. المادة L 8 sexies تلزم من يُدرَج في نظام taxation en temps réel باستعمال «équipements, logiciels ou dispositifs électroniques agréés» وإصدار فواتير أو مستندات إلكترونية، لكن لم تُنشر قائمة أجهزة أو برمجيات معتمدة. أما تجار IGS (رقم أعمال دون 50 مليون FCFA) فلا يفوترون TVA أصلاً.",
+    "sources": [
+      {
+        "url": "https://www.impots.cm/sites/default/files/documents/CODE%20GENERAL%20DES%20IMPOTS%202026%20SITE%20DGI%20VERSION%20FRANCAISE.pdf",
+        "title": "DGI — CGI Édition 2026 : art. 8 bis (2), art. 143 (1)(b), LPF art. L 8 bis (suivi électronique de la facturation et de la production), L 8 sexies et L 105 quinquies (amende 500 000 F CFA par infraction)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://impots.cm/sites/default/files/publications/circulaire%20lf%202026%20VF%20%281%29-compress%C3%A9.pdf",
+        "title": "DGI — Circulaire n°008/MINFI/DGI/LRI/L du 02 mars 2026, §507–511 (Article L 8 sexies : institution du régime de taxation en temps réel)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://bstp-cameroun.cm/assets/files/articlefile/125-0.pdf",
+        "title": "DGI (Division de la Législation et des Relations Fiscales Internationales) — Mesures fiscales nouvelles de la Loi de finances 2026, mesure n°19",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://faolex.fao.org/docs/pdf/cmr235595.pdf",
+        "title": "Loi n°2024/013 du 23 décembre 2024 portant loi de finances pour l'exercice 2025 (copie certifiée, FAOLEX) — art. 8 bis (2)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://ecomatin.net/recettes-fiscales-le-cameroun-pourrait-capter-100-milliards-fcfa-de-plus-grace-a-la-facturation-electronique-bad",
+        "title": "EcoMatin — Recettes fiscales : le Cameroun pourrait capter 100 milliards FCFA de plus grâce à la facturation électronique (BAD) (20 août 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://ecomatin.net/cameroun-letat-vise-40-milliards-fcfa-des-2026-grace-a-la-taxation-en-temps-reel-des-telecoms-des-jeux-de-la-biere-et-du-ciment",
+        "title": "EcoMatin — L'État vise 40 milliards FCFA dès 2026 grâce à la taxation en temps réel des télécoms, des jeux, de la bière et du ciment (13 juillet 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://otp.dgi.cm",
+        "title": "DGI — Online Tax Payment (OTP) / E-billing : « Payez vos impôts en ligne » ; E-billing « Gérez vos retenues à la source » (خدمة دفع واقتطاع، لا فوترة إلكترونية)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.impots.cm/fr",
+        "title": "DGI — الصفحة الرئيسية: قائمة E-services (Télédéclaration، OTP/E_billing…) ولا خدمة باسم facturation électronique",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "invoiceRequirements": [
+    "le numéro d'identifiant unique (NIU) du fournisseur et du client — CGI art. 150(5)",
+    "la date de la facturation — CGI art. 150(5)",
+    "le nom, la raison sociale, l'adresse complète et le numéro du registre de commerce (RCCM) du fournisseur — CGI art. 150(5)",
+    "l'identité complète du client — CGI art. 150(5)",
+    "la nature, l'objet et le détail de la transaction — CGI art. 150(5)",
+    "le prix hors taxe — CGI art. 150(5)",
+    "le taux et le montant de la taxe correspondante — CGI art. 150(5)",
+    "le montant total toutes taxes comprises dû par le client — CGI art. 150(5)",
+    "la mention « Exonérée » ou « prise en charge État » le cas échéant, par produit — CGI art. 150(5)",
+    "عند تطبيق المعدل المخفض: « TVA au taux réduit de 10 % – Article 142(3) du CGI » مع ذكر طبيعة العملية — Circulaire LF 2026 §396",
+    "شرط خصم TVA لدى المشتري: فاتورة صادرة عبر système de suivi de facturation électronique لدى DGI من مورد في النظام الحقيقي ومسجّل في ملف المكلفين النشطين ويذكر NIU — CGI art. 143(1)(b)",
+    "الفواتير التي تنقصها بيانات المادة 150(5) لا تُخصم أعباؤها من ضريبة الدخل (عدا فواتير الموردين الأجانب) — CGI art. 8 bis (2)",
+    "facture d'acompte: منذ 1 يناير 2026 تستحق TVA على الدفعات المقدمة قبل تسليم البضاعة في حدود المبلغ المقبوض، ويجب إصدار فاتورة دفعة مقدمة تُظهر المبلغ خارج الضريبة وTVA المقابلة، ثم فاتورة نهائية تذكر إجمالي الصفقة وتخصم الدفعات المفوترة سابقاً — CGI art. 134 (1-a) / Circulaire LF 2026 §380–384 و§387"
+  ],
+  "distribution": {
+    "hubs": [
+      "Douala — العاصمة الاقتصادية والميناء التجاري الرئيسي (أكثر من 70% من واردات البلاد حسب trade.gov) وبوابة تشاد وجمهورية أفريقيا الوسطى",
+      "Yaoundé — العاصمة السياسية، وهي مع Douala مركز تركّز الدخل والثروة",
+      "Kribi — ميناء بنته China Harbour Engineering Company، وهو اليوم أكبر موانئ البلاد وأحدثها، وأُضيفت إليه في توسعة فبراير 2025 خمس رافعات فتضاعفت طاقته للحاويات ثلاث مرات (حسب trade.gov)"
+    ],
+    "tradeChannels": [
+      "industriels / importateurs (المصنّعون والمستوردون)",
+      "grossistes",
+      "demi-grossistes",
+      "importateurs-distributeurs",
+      "commerçants à l'IGS (صغار التجار دون 50 مليون FCFA)",
+      "boutiques et stands des marchés (محلات وأكشاك الأسواق البلدية، CGI art. C 98)"
+    ],
+    "localTerms": {
+      "vanSales": null,
+      "preSales": null,
+      "salesRep": "VRP — voyageur représentant placier (المصطلح القانوني في CGI)",
+      "retailShop": "boutique",
+      "routeAccounting": null
+    },
+    "collectionMethods": [
+      "espèces (نقد)",
+      "virement bancaire",
+      "chèque",
+      "MTN Mobile Money (MoMo)",
+      "Orange Money"
+    ],
+    "notes": "1) النقد وحدّ 100,000 FCFA: العمليات بقيمة 100,000 FCFA فأكثر المدفوعة نقداً لا يُخصم معها TVA (CGI 143(1)(d)) ولا تُخصم الأعباء من ضريبة الدخل (CGI 8 bis (1))، وهذا يدفع عملاء الجملة نحو التحويل والشيك. 2) Précompte sur achats (CGI art. 21-22): يقتطعه المورد (industriels وimportateurs وgrossistes وdemi-grossistes) من مشتري البضاعة للبيع: 2% لتجار النظام الحقيقي و5% لتجار IGS و10% لمن لا يرد في ملف أي مركز ضرائب (و10% أيضاً على واردات تجار IGS)، ويُحسب دون centimes additionnels ولا يُسترد من السعر، ويلزم الموزعين مسك سجل مبيعات وتقديم «déclaration des ventes par client». 3) Retenue à la source: قرار MINFI رقم 00001 بتاريخ 5 يناير 2026 يسمّي شركات وجهات تقتطع TVA بنسبة 19.25% عند سداد فواتير مورديها. 4) المحفظتان MTN MoMo وOrange Money تعملان في الكاميرون (تحويل وسحب ودفع فواتير وحسابات تجارية OM Business وOM Asso لصغار التجار)، ويستعمل القانون الضريبي مصطلح «opérateurs de téléphonie mobile» و«établissements de paiement» في سداد الضرائب. 5) العملة XAF مشتركة في منطقة CEMAC/BEAC.",
+    "sources": [
+      {
+        "url": "https://www.trade.gov/country-commercial-guides/cameroon-distribution-sales-channels",
+        "title": "U.S. International Trade Administration — Cameroon Country Commercial Guide: Distribution & Sales Channels (last published 13 April 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.trade.gov/country-commercial-guides/cameroon-market-overview",
+        "title": "U.S. International Trade Administration — Cameroon Country Commercial Guide: Market Overview (last published 10 April 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.impots.cm/sites/default/files/documents/CODE%20GENERAL%20DES%20IMPOTS%202026%20SITE%20DGI%20VERSION%20FRANCAISE.pdf",
+        "title": "DGI — CGI Édition 2026 : art. 8 bis (1), 21, 22, 143 (1)(d), C 98 (boutiques des marchés), VRP",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.impots.cm/sites/default/files/documents/arr%C3%AAt%C3%A9%20RTS%202026%20VF.pdf",
+        "title": "MINFI — Arrêté n°00001/MINFI/DGI du 05 janvier 2026 fixant la liste des entités tenues d'opérer la retenue à la source de la TVA et de l'AIR (exercice 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://mtn.cm/momo/",
+        "title": "MTN Cameroon — MoMo (Mobile Money)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://orangemoney.orange.cm/fr",
+        "title": "Orange Cameroun — Orange Money",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "honesty": {
+    "canSay": [
+      "FieldSales تدير المناديب والبيع من السيارة والطلبات المسبقة والتحصيل وخطوط السير لشركات التوزيع العاملة في الكاميرون.",
+      "يضبط العميل بنفسه العملة (الفرنك الأفريقي XAF / FCFA) ونسبة TVA مثل 19.25% في إعدادات الشركة.",
+      "يمكن تسجيل التحصيل بطرق دفع يعرّفها العميل مثل النقد والشيك والتحويل وMTN MoMo وOrange Money بوصفها طرق تسجيل داخل المنصة، لا تكاملاً مع المحافظ.",
+      "الربط مع أنظمة الفوترة لدى DGI الكاميرونية متاح للنقاش عند الطلب، دون وعد بموعد أو نتيجة.",
+      "الربط الحكومي الحيّ للفوترة في FieldSales موجود اليوم في السعودية وحدها (ZATCA Fatoora المرحلة الثانية)."
+    ],
+    "mustNotSay": [
+      "أن FieldSales «logiciel agréé» أو «homologué» أو معتمدة من DGI أو MINFI بأي صيغة.",
+      "أن FieldSales مربوطة بـ «système de suivi de facturation électronique» أو بمنصة eBilling أو بنظام «taxation en temps réel» (L 8 sexies).",
+      "أن فواتير FieldSales تضمن للمشتري خصم TVA أو خصم الأعباء، لأن الخصم مشروط قانوناً بإصدار الفاتورة عبر نظام DGI.",
+      "«Conforme DGI» أو «conforme à la loi de finances 2026» أو «factures normalisées» وصفاً لمستندات المنصة.",
+      "أن الفوترة الإلكترونية إلزامية على جميع الشركات منذ 1 يناير 2026، فهذا غير دقيق مقارنةً بدورية DGI.",
+      "أن المنصة تستقبل الدفع مباشرة عبر MTN MoMo أو Orange Money أو مربوطة بواجهاتهما البرمجية (API).",
+      "أن المنصة تحتسب précompte sur achats أو retenue à la source للـTVA آلياً وفق القانون الكاميروني (لم يُتحقق من ذلك).",
+      "أن FieldSales مربوطة بـ «système de suivi électronique de la facturation et de la production» (LPF art. L 8 bis) أو تحقق الامتثال له، ولو لموزعي المشروبات أو مؤسسات DGE.",
+      "أن FieldSales مربوطة ببوابة DGI أو بخدمة OTP/E_billing أو بـ Télédéclaration، أو أنها تُصدر «attestation de retenue à la source» (التي لا تصح إلا من النظام المعلوماتي للإدارة الضريبية).",
+      "أن FieldSales «prête pour eBilling» أو «en cours d'agrément/homologation» أو «partenaire technique de la DGI»، أو أن فواتيرها «certifiées» أو «sécurisées» أو «fiscalisées» أو «électroniques au sens de la loi».",
+      "أي ادعاء ربط أو اعتماد أو امتثال ضريبي في الكاميرون أو في دول CEMAC الأخرى. الربط الحكومي الحيّ في FieldSales موجود في السعودية وحدها."
+    ]
+  },
+  "uncertain": [
+    "الوضع التشغيلي للفوترة الإلكترونية في 2026-11-11: المادتان 8 مكرر و143 تشترطان صدور الفاتورة عبر «système de suivi de facturation électronique»، لكن لم أجد في موقع DGI وصفاً لهذا النظام ولا لطريقة الانضمام إليه اليوم. وأحدث خبر وجدته (EcoMatin، 20 أغسطس 2026) يقول إن منصة eBilling ما زالت قيد الإنشاء. لذلك اخترت الحالة «planned» مع أن الأساس القانوني قائم.",
+    "لم أجد قرار وزير المالية (arrêté) المنفّذ للمادة L 8 sexies، ولا قائمة البرمجيات أو الأجهزة المعتمدة، ولا مواصفات تقنية. خبر EcoMatin (13 يوليو 2026) عن تجربة taxation en temps réel في الاتصالات والجعة والإسمنت والألعاب في 2026 مصدره «معلومات حصرية» للصحيفة لا نص رسمي.",
+    "مصادر ثانوية (VATupdate وeinvoicestudio وLappa وBTN Advisory) تقول إن الفوترة الإلكترونية الفورية صارت إلزامية على كل المكلفين وكل العمليات منذ 1 يناير 2026. هذا يتعارض مع دورية DGI رقم 008 التي تحيل التطبيق إلى قرار وزاري ولا تذكر إلا قطاع البترول والغاز، فلم أعتمده. ولم أصل إلى نص VATupdate (رد بخطأ 403).",
+    "تاريخ إدخال شرط «système de suivi de facturation électronique» في المادة 143 غير مؤكد. المؤكد أنه موجود في fiche TVA الصادرة عن DGI (أبريل 2025) وفي CGI 2026.",
+    "رقم قانون مالية 2026 يختلف بين الوثائق الرسمية: «2025/012» في CGI 2026 وفي قرار MINFI رقم 00001، و«2025/013» في دورية DGI رقم 008. والتاريخ واحد في الحالتين (17 ديسمبر 2025).",
+    "المعدل المخفض 10%: لم أجد نصاً صريحاً يقول هل تُضاف إليه centimes additionnels communaux (فيصبح 11% فعلياً بحسب المادة C 83). لذلك سجلت 10% كما وردت في المادة 142 وعند PwC.",
+    "صيغة NIU (format) جعلتها null. يقول موقع Lappa (Lovat) إنه 14 حرفاً أبجدياً رقمياً، لكنني لم أجد ذلك في مصدر من DGI أو من المصادر المهنية المعتمدة.",
+    "لم يتضح هل يؤدي حد 30 مليون FCFA الجديد للمهن الحرة (LF 2026) إلى إخضاعها لـTVA تلقائياً. الثابت فقط أنها تُلحق بالنظام الحقيقي.",
+    "المصطلحات المحلية لـ vanSales وpreSales وrouteAccounting جعلتها null لأني لم أجد مصدراً كاميرونياً موثوقاً. المصطلحات الفرنسية الشائعة في التوزيع في أفريقيا الفرنكوفونية مثل «vente camion / vente itinérante» و«prévente» و«commercial terrain» و«tournée» و«point de caisse / versement» تحتاج تأكيداً من موزع محلي قبل استعمالها في الصفحة. وكذلك المصطلحات الشعبية مثل «bayam-sellam» و«call-box».",
+    "المراكز الإقليمية خارج Douala وYaoundé وKribi (مثل Bafoussam وGaroua وNgaoundéré وBamenda) لم أتحقق منها بمصدر موثوق، فلم أدرجها.",
+    "لا أملك إحصاءات موثوقة عن حصص MTN MoMo وOrange Money أو عن نسبة استعمال المحافظ في تحصيل الموزعين، ولم أتحقق هل يُعدّ الدفع بالمحفظة دفعاً «غير نقدي» في قاعدة 100,000 FCFA.",
+    "نفدت حصة البحث على الويب أثناء البحث وأثناء التدقيق معاً. في التدقيق رجعت مباشرة إلى نصوص DGI (CGI 2026 وملحق الدورية رقم 008 داخله، وfiche TVA، وقرار RTS 2026، وإجراءات LF 2026)، وإلى LF 2025 من FAOLEX، وصفحتي PwC (آخر مراجعة 14 أغسطس 2026)، وقائمة ISO 4217. وجرّبت صفحات Fonoa (رد 404) وVATCalc (رد 403) وAvalara (رد 404) للكاميرون فلم أصل إلى أي منها. أما Sovos وKPMG وEY فلم أبحث فيها.",
+    "المادة L 8 bis من LPF (التتبّع الإلكتروني للفوترة والإنتاج) لم أجد تاريخ إدخالها، وهي غير واردة في LF 2025 فهي أقدم منه. ولم أجد قرار وزير المالية الذي يحدد شروط تطبيقها، ولا ما إذا كان موزعو المشروبات العاديون مشمولين فعلاً اليوم. ولم أجد ما يربطها بمنصة eBilling الجديدة.",
+    "المادة 143(1)(b) تشترط لخصم TVA فاتورة صادرة عبر «système de suivi de facturation electronique»، وfiche TVA (أبريل 2025) تقول «factures conformes générées à partir du système de facturation de l'administration fiscale». لم أجد كيف يُطبَّق هذا الشرط عملياً اليوم مع أن منصة eBilling قيد الإنشاء، ولا هل يوجد نظام سابق أو انتقالي يؤدي هذا الدور.",
+    "نموذج الفوترة الإلكترونية: أبقيت «real-time-reporting» لأن نص L 8 sexies ينص على «transmission instantanée et continue des données de facturation». لكن نموذج منصة eBilling نفسها (مقاصّة مسبقة clearance أم إبلاغ) لم يُنشر رسمياً، وموقع eInvoice Studio يصفه بأنه «Clearance (CTC)» دون مصدر رسمي.",
+    "Kribi: عبارتا «ميناء المياه العميقة منذ 2018» و«مركز لوجستي متعدد الوسائط» من صياغة الباحث الأولى لا تؤكدهما صفحتا trade.gov المذكورتان، فحُذفتا من hubs إلى أن يُعثر على مصدر موثوق.",
+    "Marché Mboppi في Douala بوصفه سوق جملة لم يرد له مصدر إلا ويكيبيديا، فحُذف من tradeChannels.",
+    "المادة 141 من CGI تنص على أن «la base imposable est arrondie au millier de F CFA inférieur» عند حساب TVA. لم يتضح هل يُطبَّق هذا التقريب على مستوى الفاتورة أم على مستوى الإقرار الشهري فقط، ولذلك لم يُستعمل في الصفحة.",
+    "قائمة القطاعات المُلحقة بالنظام الحقيقي تختلف بين fiche TVA (أبريل 2025)، وفيها القطاع المصرفي والطلبيات العمومية والنفط في المنبع، وبين المادة 93 quater من CGI 2026، وفيها الملزمون الجدد وحاملو اعتماد الاستثمار. اعتمدت نص CGI 2026.",
+    "قانون مالية 2027 لم يصدر بعد حتى 2026-11-11، وقد صدر قانونا 2025 و2026 في أواخر ديسمبر (23 ديسمبر 2024 و17 ديسمبر 2025). يجب إعادة التحقق من النسبة والحدود وأحكام الفوترة الإلكترونية في يناير 2027."
+  ],
+  "sources": [
+    {
+      "url": "https://www.impots.cm/sites/default/files/documents/CODE%20GENERAL%20DES%20IMPOTS%202026%20SITE%20DGI%20VERSION%20FRANCAISE.pdf",
+      "title": "DGI — Code Général des Impôts, Édition 2026 (version française)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://impots.cm/sites/default/files/publications/circulaire%20lf%202026%20VF%20%281%29-compress%C3%A9.pdf",
+      "title": "DGI — Circulaire n°008/MINFI/DGI/LRI/L du 02 mars 2026 (application de la LF 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.impots.cm/fr/actualites/circulaire-lf-2026",
+      "title": "DGI — Actualité : CIRCULAIRE LF 2026",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.impots.cm/sites/default/files/documents/FICHE%20TVA.pdf",
+      "title": "DGI — Fiche TVA : Ce que vous devez savoir",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.impots.cm/fr/immatriculation",
+      "title": "DGI — Immatriculation / NIU",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.impots.cm/sites/default/files/documents/arr%C3%AAt%C3%A9%20RTS%202026%20VF.pdf",
+      "title": "MINFI — Arrêté n°00001/MINFI/DGI du 05 janvier 2026 (retenue à la source TVA/AIR)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://bstp-cameroun.cm/assets/files/articlefile/125-0.pdf",
+      "title": "DGI — Mesures fiscales nouvelles de la Loi de finances 2026",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://faolex.fao.org/docs/pdf/cmr235595.pdf",
+      "title": "Loi n°2024/013 du 23 décembre 2024 portant loi de finances 2025 (FAOLEX)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxsummaries.pwc.com/republic-of-cameroon/corporate/other-taxes",
+      "title": "PwC Worldwide Tax Summaries — Cameroon: Other taxes (Last reviewed 14 August 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxsummaries.pwc.com/republic-of-cameroon/corporate/tax-administration",
+      "title": "PwC Worldwide Tax Summaries — Cameroon: Tax administration (Last reviewed 14 August 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://blog.avocats.deloitte.fr/cameroun-les-principales-mesures-importantes-de-la-loi-de-finances-pour-2025/",
+      "title": "Deloitte Société d'Avocats — Cameroun : les principales mesures de la loi de finances pour 2025 (21 mars 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://ecomatin.net/recettes-fiscales-le-cameroun-pourrait-capter-100-milliards-fcfa-de-plus-grace-a-la-facturation-electronique-bad",
+      "title": "EcoMatin — facturation électronique / eBilling (20 août 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://ecomatin.net/cameroun-letat-vise-40-milliards-fcfa-des-2026-grace-a-la-taxation-en-temps-reel-des-telecoms-des-jeux-de-la-biere-et-du-ciment",
+      "title": "EcoMatin — taxation en temps réel (13 juillet 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.einvoicestudio.com/compliance-map/cm",
+      "title": "eInvoice Studio — Cameroon e-invoicing compliance map (last verified 2026-05-19; ادعاءاته مخالفة لدورية DGI ولم تُعتمد)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml",
+      "title": "ISO 4217 Maintenance Agency (SIX) — List One, published 2026-09-17 (XAF, minor units 0)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.trade.gov/country-commercial-guides/cameroon-distribution-sales-channels",
+      "title": "trade.gov — Cameroon: Distribution & Sales Channels (13 April 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.trade.gov/country-commercial-guides/cameroon-market-overview",
+      "title": "trade.gov — Cameroon: Market Overview (10 April 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://mtn.cm/momo/",
+      "title": "MTN Cameroon — MoMo",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://orangemoney.orange.cm/fr",
+      "title": "Orange Cameroun — Orange Money",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://otp.dgi.cm",
+      "title": "DGI — OTP / E-billing (paiement en ligne et gestion des retenues à la source)",
+      "accessed": "2026-11-11"
+    }
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "corrections": [
+      {
+        "field": "tax.registrationThreshold",
+        "before": "قطاعات معينة (النفط والغاز والتعدين والبنوك والاتصالات والائتمان والتمويل الأصغر والتأمين والتوثيق والطلبيات العامة) تُلحق بالنظام الحقيقي أياً كان رقم أعمالها.",
+        "after": "وتُلحق بالنظام الحقيقي أياً كان رقم أعمالها، بحسب المادة 93 quater (2)(b) من CGI 2026: الملزمون الجدد في قطاعات النفط والتعدين والغاز والائتمان والتمويل الأصغر والتأمين والهاتف المحمول، وحاملو اعتماد Ordonnance n°2025/002 للحوافز الاستثمارية، وأصحاب charges notariales، وكذلك الملزمون الجدد ذوو برنامج استثمار معتمد أو طلبية تتجاوز 100,000,000 FCFA بإذن صريح من المدير العام للضرائب. أما fiche TVA الصادرة عن DGI في أبريل 2025 فتضيف إلى القائمة القطاع المصرفي والطلبيات العمومية.",
+        "source": "https://www.impots.cm/sites/default/files/documents/CODE%20GENERAL%20DES%20IMPOTS%202026%20SITE%20DGI%20VERSION%20FRANCAISE.pdf (art. 93 quater (2)(b), p. 430 ; Circulaire LF 2026 §157–160) ; https://www.impots.cm/sites/default/files/documents/FICHE%20TVA.pdf"
+      },
+      {
+        "field": "einvoicing.systemName",
+        "before": "« Système de suivi de facturation électronique de l'administration fiscale » (CGI art. 8 bis et 143)؛ ومنصة eBilling قيد الإنشاء لدى DGI؛ و« Régime de taxation en temps réel » (LPF art. L 8 sexies، LF 2026)",
+        "after": "« Système de suivi de facturation électronique de l'administration fiscale » (CGI art. 8 bis et 143)؛ ومنصة eBilling قيد الإنشاء لدى DGI؛ و« Régime de taxation en temps réel » (LPF art. L 8 sexies، LF 2026)؛ و« système de suivi électronique de la facturation et de la production des entreprises » (LPF art. L 8 bis)",
+        "source": "https://www.impots.cm/sites/default/files/documents/CODE%20GENERAL%20DES%20IMPOTS%202026%20SITE%20DGI%20VERSION%20FRANCAISE.pdf (LPF art. L 8 bis (1)-(2), p. 185)"
+      },
+      {
+        "field": "einvoicing.scopeNow",
+        "before": "ولا إلزاماً منشوراً يفرض على موزع عادي الربط بنظام حكومي اليوم / والتطبيق المعلن رسمياً حتى الآن هو الاقتطاع من المنبع في قطاع المنتجات البترولية والغاز الصناعي (دون ذكر المادة L 8 bis من LPF)",
+        "after": "أُضيفت المادة L 8 bis من LPF (تتبّع إلكتروني للفوترة والإنتاج، ومن قطاعاتها المسمّاة المشروبات وكل مؤسسات DGE، وإلزام كل المؤسسات بالامتثال، وغرامة تساوي مبلغ الفواتير). وصارت عبارة الإلزام: «الإطار القانوني يفرض التزامات قائمة لكن لم أجد آلية ربط تقنية منشورة». وصارت حالة البترول والغاز «الحالة الوحيدة التي يحددها النص مباشرة» لا «التطبيق المعلن». وأُضيف أن OTP/E_billing في بوابة DGI خدمة دفع واقتطاع لا فوترة.",
+        "source": "https://www.impots.cm/sites/default/files/documents/CODE%20GENERAL%20DES%20IMPOTS%202026%20SITE%20DGI%20VERSION%20FRANCAISE.pdf (LPF art. L 8 bis, p. 185 ; L 8 sexies, p. 445 ; Circulaire LF 2026 §507–511, p. 843) ; https://otp.dgi.cm ; https://www.impots.cm/fr"
+      },
+      {
+        "field": "invoiceRequirements[facture d'acompte]",
+        "before": "facture d'acompte: منذ 2026 تستحق TVA على الدفعات المقدمة قبل التسليم في حدود المبلغ المقبوض — CGI art. 134 / Circulaire LF 2026 §386–387",
+        "after": "facture d'acompte: منذ 1 يناير 2026 تستحق TVA على الدفعات المقدمة قبل تسليم البضاعة في حدود المبلغ المقبوض، ويجب إصدار فاتورة دفعة مقدمة تُظهر المبلغ خارج الضريبة وTVA المقابلة، ثم فاتورة نهائية تذكر إجمالي الصفقة وتخصم الدفعات المفوترة سابقاً — CGI art. 134 (1-a) / Circulaire LF 2026 §380–384 و§387",
+        "source": "https://www.impots.cm/sites/default/files/documents/CODE%20GENERAL%20DES%20IMPOTS%202026%20SITE%20DGI%20VERSION%20FRANCAISE.pdf (Circulaire LF 2026 §377–387, pp. 828–829)"
+      },
+      {
+        "field": "distribution.hubs[Kribi]",
+        "before": "Kribi — ميناء المياه العميقة (منذ 2018) مع مركز لوجستي متعدد الوسائط",
+        "after": "Kribi — ميناء بنته China Harbour Engineering Company، وهو اليوم أكبر موانئ البلاد وأحدثها، وأُضيفت إليه في توسعة فبراير 2025 خمس رافعات فتضاعفت طاقته للحاويات ثلاث مرات (حسب trade.gov)",
+        "source": "https://www.trade.gov/country-commercial-guides/cameroon-distribution-sales-channels (last published 2026-04-13). عبارتا «منذ 2018» و«مركز لوجستي متعدد الوسائط» بلا مصدر موثوق، فنُقلتا إلى uncertain"
+      },
+      {
+        "field": "distribution.tradeChannels[marchés] + distribution.sources",
+        "before": "boutiques et stands des marchés (مثل Marché Mboppi في Douala حيث يغلب البيع بالجملة)",
+        "after": "boutiques et stands des marchés (محلات وأكشاك الأسواق البلدية، CGI art. C 98) — وحُذف مصدر ويكيبيديا لأنه كان المصدر الوحيد لمثال Marché Mboppi، ونُقل المثال إلى uncertain",
+        "source": "https://www.impots.cm/sites/default/files/documents/CODE%20GENERAL%20DES%20IMPOTS%202026%20SITE%20DGI%20VERSION%20FRANCAISE.pdf (art. C 98)"
+      },
+      {
+        "field": "distribution.notes (2) précompte sur achats",
+        "before": "2% لتجار النظام الحقيقي و5% لتجار IGS و10% لغير المسجلين في ملف DGI",
+        "after": "2% لتجار النظام الحقيقي و5% لتجار IGS و10% لمن لا يرد في ملف أي مركز ضرائب (و10% أيضاً على واردات تجار IGS)، ويُحسب دون centimes additionnels ولا يُسترد من السعر",
+        "source": "https://www.impots.cm/sites/default/files/documents/CODE%20GENERAL%20DES%20IMPOTS%202026%20SITE%20DGI%20VERSION%20FRANCAISE.pdf (art. 21 (3) et 22 (1), pp. 28–30)"
+      },
+      {
+        "field": "honesty.mustNotSay",
+        "before": "7 بنود",
+        "after": "11 بنود: أُضيف منع ادعاء الربط بنظام L 8 bis وبوابة DGI وOTP/E_billing وattestation de retenue، ومنع «prête pour eBilling» و«en cours d'agrément» و«factures certifiées»، ومنع أي ادعاء امتثال في الكاميرون وCEMAC",
+        "source": "https://www.impots.cm/sites/default/files/documents/CODE%20GENERAL%20DES%20IMPOTS%202026%20SITE%20DGI%20VERSION%20FRANCAISE.pdf (LPF L 8 bis ; CGI art. 22 (3), 143 (1)(b)) ; https://otp.dgi.cm"
+      },
+      {
+        "field": "uncertain[précompte]",
+        "before": "نسب précompte sur achats (2% و5% و10%) قرأتها من نص CGI 2026 المنسق على عمودين في ملف PDF، وتحتاج مراجعة على النص الرسمي قبل نشرها.",
+        "after": "(حُذف البند من uncertain) تحققت النسب 2% و5% و10% في نص المادة 21 (3) من CGI 2026",
+        "source": "https://www.impots.cm/sites/default/files/documents/CODE%20GENERAL%20DES%20IMPOTS%202026%20SITE%20DGI%20VERSION%20FRANCAISE.pdf (art. 21 (3), pp. 29–30)"
+      }
+    ],
+    "confidence": "medium",
+    "checkedOk": [
+      "currency: XAF وminorUnits=0 — ISO 4217 List One المنشورة 2026-09-17 (CAMEROON / CFA Franc BEAC / 950 / 0)",
+      "tax.standardRate 19.25 = 17.5% (CGI art. 142 (1)(a)) + CAC 10% (CGI art. C 83 (1)) — fiche TVA DGI (2025-04-02) وPwC (Last reviewed 14 August 2026): «The total VAT in Cameroon is 19.25%»",
+      "tax.otherRates: 10% منذ LF 2026 للسكن الاجتماعي حصراً (Circulaire §388–397، PwC) و0% للصادرات (art. 142 (5))",
+      "tax.registrationThreshold: 50,000,000 FCFA و30,000,000 FCFA للمهن الحرة منذ LF 2026 (art. 93 quater، Circulaire §157–158)، وPwC: «VAT is invoiced only by … turnover … equal to or above XAF 50 million»",
+      "tax.authority: DGI / MINFI",
+      "taxId: NIU يُمنح آلياً وبتسجيل إلكتروني حصراً خلال 15 يوم عمل (impots.cm/fr/immatriculation)، وإلزامه على الفواتير (Décret 2012/3731/PM art. 12 وCGI art. 150 (5))",
+      "einvoicing: L 8 sexies نافذ منذ 2026-01-01 وطرق تطبيقه مُحالة إلى قرار وزاري (Circulaire §507–511)؛ وeBilling أُرسيت صفقتها في مارس 2026 وموعدها التعاقدي أكتوبر 2027 وما زالت قيد الإنشاء (EcoMatin 2026-08-20)؛ وLF 2025 = Loi n°2024/013 du 23 décembre 2024 وفيها art. 8 bis (2)",
+      "invoiceRequirements: البيانات الإلزامية في CGI art. 150 (5)، وعبارة المعدل المخفض في Circulaire §396، وشرط الخصم في art. 143 (1)(b)، وحد 100,000 FCFA نقداً في art. 143 (1)(d) وart. 8 bis (1)",
+      "distribution: Douala تستقبل أكثر من 70% من الواردات وهي بوابة تشاد وأفريقيا الوسطى (trade.gov 2026-04-13)؛ وتركّز الدخل والثروة في Yaoundé وDouala (trade.gov 2026-04-10)؛ وقرار RTS رقم 00001 بتاريخ 2026-01-05 ونسبة الاقتطاع 19.25%؛ وVRP في CGI؛ وصفحتا MTN MoMo وOrange Money (OM Business وOM Asso) قائمتان",
+      "honesty.canSay لا يعد بربط أو اعتماد أو موعد، ويحصر الربط الحكومي الحيّ في السعودية"
+    ],
+    "method": "تدقيق مستقل: نُزّلت النصوص الرسمية من جديد إلى CM_audit_dl (CGI 2026، fiche TVA، قرار RTS 2026، إجراءات LF 2026، LF 2025 من FAOLEX، ISO 4217) وقُرئت مباشرة. ونص الدورية 008 مصوَّر لا يُستخرج منه نص، فقُرئت نسختها المضمّنة في ملحق CGI 2026. وفُتحت صفحات PwC وEcoMatin وtrade.gov وDGI وOTP وMTN وOrange. نفدت حصة البحث على الويب، فلم يُجرَ بحث مستقل عن أخبار بعد أغسطس 2026."
+  }
+}

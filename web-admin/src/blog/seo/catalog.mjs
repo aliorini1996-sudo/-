@@ -10,6 +10,13 @@
 // المحتوى يذكّر القارئ بمراجعة مستشار محلي. لا يُروَّج لأي ميزة غير موجودة فعلاً.
 // ============================================================================
 
+import {
+  NEW_GUIDES, UPGRADED_GUIDES, GUIDE_DATE, GUIDE_TOPIC, guideSlug, newGuideOf, upgradedGuideOf, guideContent, guideFaq,
+  faqHtml, introHtml, localFactsHtml, newGuideBodyHtml, sourcesHtml, sourcesHeading, stripBrand, introText, countryGuideOf, countryGuideReady, loadCountryGuide,
+} from './countryGuides.mjs';
+
+export { NEW_GUIDES, UPGRADED_GUIDES, countryGuideOf, countryGuideReady, loadCountryGuide };
+
 export const LANGS = /** @type {const} */ (['ar', 'en', 'fr']);
 export const ORIGIN = 'https://fieldsa.net';
 
@@ -216,23 +223,29 @@ const faqData = (c, L, topicId) => {
       : vatAbroad;
   // أسئلة الضربة أولاً: تطابق استعلاماً حقيقياً، وتتصدّر كتلة FAQ فتراها محرّكات AI أوّلاً.
   const strike = (topicId && STRIKE_FAQ[topicId]) ? STRIKE_FAQ[topicId](c, L) : [];
-  return [
-    ...strike,
-    { q: P(L, `هل يعمل النظام ${c.inAr}`, `Does it work ${c.inEn}?`, `Fonctionne-t-il ${c.inFr} ?`),
-      a: P(L, `نعم منصة FieldSales تدعم شركات التوزيع ${c.inAr} بعملة ${c.cur.ar} ومتطلباتها المحلية`,
-          `Yes, FieldSales supports distributors ${c.inEn} with ${c.cur.en} and local requirements.`,
-          `Oui, FieldSales prend en charge les distributeurs ${c.inFr} avec ${c.cur.fr} et les exigences locales.`) },
-    { q: P(L, `هل يحتاج المندوب إلى جهاز خاص`, `Does the rep need special hardware?`, `Faut-il un matériel spécial ?`),
-      a: P(L, `يكفي هاتف ذكي مع طابعة حرارية اختيارية للفواتير في الميدان`,
-          `No — a smartphone and an optional thermal printer are enough for field invoicing.`,
-          `Non : un smartphone et une imprimante thermique optionnelle suffisent.`) },
-    { q: P(L, `هل يصدر فواتير متوافقة ضريبيا`, `Does it issue tax-compliant invoices?`, `Émet-il des factures conformes ?`), a: taxA },
-    { q: P(L, `هل توجد تجربة مجانية`, `Is there a free trial?`, `Y a-t-il un essai gratuit ?`),
-      a: P(L, `نعم تجربة مجانية 10 أيام تبدأ خلال دقائق دون بطاقة`,
-          `Yes — a free 10-day trial that starts in minutes, no card required.`,
-          `Oui — un essai gratuit de 10 jours qui démarre en quelques minutes, sans carte.`) },
-  ];
+  const g = genericFaq(c, L);
+  return [...strike, g.works, g.device, { q: P(L, `هل يصدر فواتير متوافقة ضريبيا`, `Does it issue tax-compliant invoices?`, `Émet-il des factures conformes ?`), a: taxA }, g.trial];
 };
+
+/**
+ * أسئلة القالب التي لا تخصّ دولة بعينها. صفحة الدولة المرقّاة بملف محتوى مراجَع تُبقي منها سؤالَي الجهاز والتجربة
+ * وحدهما بعد أسئلة ملفها: سؤالا «هل يعمل في الدولة» و«الفواتير المتوافقة» يغطيهما الملف بحقائق مدقّقة، وجواب
+ * القالب الثاني قد يناقضها (لا تُكرَّر الإجابة بصياغتين).
+ */
+const genericFaq = (c, L) => ({
+  works: { q: P(L, `هل يعمل النظام ${c.inAr}`, `Does it work ${c.inEn}?`, `Fonctionne-t-il ${c.inFr} ?`),
+    a: P(L, `نعم منصة FieldSales تدعم شركات التوزيع ${c.inAr} بعملة ${c.cur.ar} ومتطلباتها المحلية`,
+      `Yes, FieldSales supports distributors ${c.inEn} with ${c.cur.en} and local requirements.`,
+      `Oui, FieldSales prend en charge les distributeurs ${c.inFr} avec ${c.cur.fr} et les exigences locales.`) },
+  device: { q: P(L, `هل يحتاج المندوب إلى جهاز خاص`, `Does the rep need special hardware?`, `Faut-il un matériel spécial ?`),
+    a: P(L, `يكفي هاتف ذكي مع طابعة حرارية اختيارية للفواتير في الميدان`,
+      `No — a smartphone and an optional thermal printer are enough for field invoicing.`,
+      `Non : un smartphone et une imprimante thermique optionnelle suffisent.`) },
+  trial: { q: P(L, `هل توجد تجربة مجانية`, `Is there a free trial?`, `Y a-t-il un essai gratuit ?`),
+    a: P(L, `نعم تجربة مجانية 10 أيام تبدأ خلال دقائق دون بطاقة`,
+      `Yes — a free 10-day trial that starts in minutes, no card required.`,
+      `Oui — un essai gratuit de 10 jours qui démarre en quelques minutes, sans carte.`) },
+});
 
 // خطوات عملية كبيانات منظّمة (تُغذّي HowTo schema) — تقتبسها محركات AI لأسئلة «كيف تبدأ»
 const howToData = (c, L) => [
@@ -865,7 +878,7 @@ const S = {
       'النسب والمتطلبات إرشادية وتتغير بقرارات محلية راجعها مع مستشار ضريبي في بلدك قبل الاعتماد عليها',
       'Rates and requirements are indicative and change by local decree — confirm them with a local tax advisor before relying on them.',
       'Les taux et exigences sont indicatifs et évoluent — confirmez-les auprès d’un conseiller fiscal local.');
-    return `<h2>${title}</h2>\n<p>${intro}</p>\n<table><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>\n<p><em>${note}</em></p>`;
+    return `<h2>${title}</h2>\n<p>${intro}</p>\n<table><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>\n<p><em>${note}</em></p>${guidesList(L)}`;
   },
 
   // قسم المقارنة: معايير قابلة للفحص قبل الشراء ووقائع يمكن التحقق منها — لا تتويج ذاتي ولا اسم منافس ولا سعر
@@ -1420,10 +1433,18 @@ const REVISED = {
   'van-sales-best-practices': '2026-10-26',
   'van-stock-inventory': '2026-10-26',
   'einvoicing-compliance-sa': '2026-10-26',
+  // 2026-11-11: صفحات الدول المرقّاة بقسم «حقائق محلية» من محتوى مراجَع (countryGuides.mjs)
+  ...Object.fromEntries(UPGRADED_GUIDES.map((cc) => [guideSlug(cc), GUIDE_DATE])),
 };
+/**
+ * تعديل صفحة بعينها حين يساوي slug معرّف موضوعها (الصفحة الجامعة): مفتاح REVISED بمعرّف الموضوع يسري على كل
+ * دوله، فلا يوضع هنا ما يخصّ الجامعة وحدها.
+ * 2026-11-11: الجامعة الإنجليزية والفرنسية تربط أدلة الدول الجديدة بلغتها (guidesList).
+ */
+const REVISED_PAGE = { [GUIDE_TOPIC]: GUIDE_DATE };
 export const modifiedOf = (date, cc, slug, topicId) => {
   const v = cc && PRIORITY_BRIEF[cc] ? PRIORITY_CONTENT_VERSION : CONTENT_VERSION;
-  const r = (slug && REVISED[slug]) || (topicId && REVISED[topicId]) || '';
+  const r = (slug && (REVISED_PAGE[slug] || REVISED[slug])) || (topicId && REVISED[topicId]) || '';
   return [date, v, r].sort().pop();
 };
 
@@ -1498,6 +1519,77 @@ const TOPIC_BY_ID = Object.fromEntries(TOPICS.map((t) => [t.id, t]));
 const countryByCode = (cc) => COUNTRIES.find((k) => k.code === cc);
 const inKey = (L) => (L === 'ar' ? 'inAr' : L === 'en' ? 'inEn' : 'inFr');
 const inOf = (c, L) => c[inKey(L)];
+
+/**
+ * أدلة الدول الجديدة بلغة L (countryGuides.mjs) — قائمة في الصفحة الجامعة بلغتها، وعناوينها عناوين الفهرس نفسها
+ * (titleOf) فلا تنتظر ملف المحتوى في المتصفح.
+ */
+function guidesList(L) {
+  const list = NEW_GUIDES.filter((g) => g.lang === L);
+  if (!list.length) return '';
+  const topic = TOPIC_BY_ID[GUIDE_TOPIC];
+  const head = P(L, 'أدلة دول أخرى', 'More country guides', 'Autres guides par pays');
+  const intro = P(L, '',
+    'Local guides for markets where buyers read in English: VAT, e-invoicing, collection methods and how FieldSales works there, each with its sources.',
+    'Des guides locaux pour les marchés francophones : TVA, facturation électronique, modes d’encaissement et fonctionnement de FieldSales sur place, avec leurs sources.');
+  const items = list.map((g) => `<li><a href="${blogBase(L)}/${guideSlug(g.code)}/">${titleOf(topic, g, L)}</a></li>`).join('');
+  return `\n<h2>${head}</h2>\n<p>${intro}</p>\n<ul>${items}</ul>`;
+}
+
+/** روابط صفحة دليل جديد: الصفحة الجامعة بلغتها، والتعريف العام، وأدلة اللغة نفسها الأخرى — قانونية كلها */
+function guideRelatedLinks(g, L) {
+  const base = blogBase(L);
+  const topic = TOPIC_BY_ID[GUIDE_TOPIC];
+  const items = [
+    [`${base}/${GUIDE_TOPIC}/`, `${topic.label[L]} ${inOf(REGION, L)}`],
+    [`${base}/what-is-field-sales-management/`, P(L, 'ما هو نظام إدارة المبيعات الميدانية', 'What is field sales software?', "Qu'est-ce qu'un logiciel de vente terrain ?")],
+    ...NEW_GUIDES.filter((o) => o.lang === L && o.code !== g.code).map((o) => [`${base}/${guideSlug(o.code)}/`, titleOf(topic, o, L)]),
+  ];
+  const head = P(L, 'مقالات ذات صلة', 'Related articles', 'Articles liés');
+  return `<h2>${head}</h2><ul>${items.map(([h, t]) => `<li><a href="${h}">${t}</a></li>`).join('')}</ul>`;
+}
+
+/** لغات دليل جديد، أو null لمقالات الكتالوج الثلاثية (prerender وgen-sitemap وBlogPostPage) */
+export const articleLangs = (slug) => {
+  const g = newGuideOf(slug);
+  return g ? [g.lang] : null;
+};
+
+/**
+ * مدخل الفهرس لدليل جديد. العنوان والمقتطف من السجلّ وحده (بلا ملف المحتوى) فيتطابق فهرس المدوّنة في المتصفح
+ * وprerender؛ والوصف وصف الصفحة نفسها من ملفها حين يكون محمَّلاً (node دائماً) — لا يرسمه الفهرس الظاهر،
+ * ويقرؤه gen-llms واختبار تطابق وصف القائمة والمقال.
+ */
+const guideListItem = (g, L) => {
+  const topic = TOPIC_BY_ID[GUIDE_TOPIC];
+  const lp = guideContent(g.code, L);
+  return {
+    slug: guideSlug(g.code), lang: L, date: GUIDE_DATE, modified: GUIDE_DATE, readMinutes: topic.rm,
+    countryCode: g.code,
+    title: titleOf(topic, g, L),
+    excerpt: excerptOf(topic, g, L),
+    keywords: topic.kw(g, L) + ', ' + EXTRA_KW(g, L),
+    description: lp && lp.description ? lp.description : descOf(topic, g, L),
+  };
+};
+
+/** المقال الكامل لدليل جديد من ملف محتواه (null إن لم يُحمَّل بعد في المتصفح أو لم تُجزه المراجعة) */
+function guideArticle(g, L) {
+  if (g.lang !== L) return null;
+  const lp = guideContent(g.code, L);
+  if (!lp) return null;
+  const topic = TOPIC_BY_ID[GUIDE_TOPIC];
+  const slug = guideSlug(g.code);
+  const faq = guideFaq(lp);
+  const contentHtml = `${newGuideBodyHtml(lp, L)}\n${faqHtml(faq, L)}\n${sourcesHtml(lp, L, sourcesHeading.new(L))}\n${cta(L)}\n${guideRelatedLinks(g, L)}`;
+  return {
+    slug, title: stripBrand(lp.title), h1: lp.h1 || stripBrand(lp.title), description: lp.description,
+    keywords: topic.kw(g, L) + ', ' + EXTRA_KW(g, L), excerpt: excerptOf(topic, g, L), contentHtml,
+    date: GUIDE_DATE, modified: GUIDE_DATE, readMinutes: topic.rm,
+    image: `${ORIGIN}/og/${slug}-${L}.jpg`, imagePath: `/og/${slug}-${L}.jpg`,
+    faq, howto: [], countryCode: g.code, isSeo: true, langs: [g.lang],
+  };
+}
 
 // روابط المنصة العربية (صفحات الميزات والقطاعات وبنك النماذج) لكل موضوع — عربية وحدها لأن هذه الصفحات عربية
 // وحدها. المسارات عقد يحرسه src/blog/seo/catalog.links.test.ts (كل مسار يقابل slug في FEATURES وSECTORS وTEMPLATES).
@@ -1623,12 +1715,16 @@ export function listArticles(L) {
       description: descOf(topic, country, L),
     });
   }
+  // أدلة الدول الجديدة بلغتها وحدها
+  for (const g of NEW_GUIDES) if (g.lang === L) out.push(guideListItem(g, L));
   // ترتيب بالأحدث
   return out.sort((a, b) => b.date.localeCompare(a.date));
 }
 
 // يعرض المقال كاملاً (HTML) عند فتحه فقط
 export function getArticle(slug, L) {
+  const guide = newGuideOf(slug);
+  if (guide) return guideArticle(guide, L);
   const hit = index().get(slug);
   if (!hit) return null;
   const { topic, country, date } = hit;
@@ -1660,6 +1756,23 @@ export function getArticle(slug, L) {
     ...(isCountryPage ? [] : genericDeep),
     'faq',
   ].filter((k) => !coreKeys.includes(k));
+  // صفحة دولة مرقّاة (countryGuides.mjs): ملف المحتوى المراجَع يحلّ محلّ المقدّمة والأقسام القالبية — لماذا،
+  // والفوترة من الجوال، والضريبة، والتحصيل، وقائمة التحقق، وكيف تبدأ، والبيئة التنظيمية، وبطاقة السوق — لأنها
+  // تكرّر أقسامه بصياغة عامة أو تناقضها (وعد «فاتورة متوافقة» أو «تحتاج الفاتورة اتصالاً» حيث لا ربط حكومياً).
+  // تبقى كتلة الإجابة (يقتبسها llms) وسؤالا الجهاز والتجربة والدعوة والروابط. بلا ملف (أو قبل وصوله في المتصفح)
+  // تبقى الصفحة القالبية كما كانت.
+  const lp = upgradedGuideOf(slug) ? guideContent(c.code, L) : null;
+  if (lp) {
+    const g = genericFaq(c, L);
+    const faq = [...guideFaq(lp), g.device, g.trial];
+    const contentHtml = `${answerBlock(topic, c, L)}\n${introHtml(lp)}\n${localFactsHtml(lp, L, c[L])}\n${faqHtml(faq, L)}\n${sourcesHtml(lp, L, sourcesHeading.upgraded(L))}\n${cta(L)}\n${relatedLinks(topic, c, L)}`;
+    return {
+      slug, title: t, description: descOf(topic, c, L), keywords: topic.kw(c, L) + ', ' + EXTRA_KW(c, L),
+      excerpt: excerptOf(topic, c, L), contentHtml, date, modified: modifiedOf(date, c.code, slug, topic.id), readMinutes: topic.rm,
+      image: `${ORIGIN}/og/${slug}-${L}.jpg`, imagePath: `/og/${slug}-${L}.jpg`,
+      faq, howto: howToData(c, L), countryCode: c.code, isSeo: true,
+    };
+  }
   const body = [...coreKeys, ...universal].map((k) => S[k](c, L, topic)).join('\n');
   // كتلة الإجابة تسبق المقدّمة عمداً: محرّك التوليد يقتبس أوّل فقرة تُجيب
   // السؤال قائمةً بذاتها، والمقدّمة التسويقية ليست كذلك مهما جوّدناها.
@@ -1725,12 +1838,22 @@ export function buildCatalog() {
     const canon = canonicalSlug(slug);
     out.push({ slug, date, modified: modifiedOf(date, cc, slug, topic.id), cc, canonical: canon, isCanonical: canon === slug, trilingual: true, fr: cc ? FRANCOPHONE.has(cc) : false });
   }
+  // أدلة الدول الجديدة: لغة سوقها وحدها (langs)، canonical لنفسها، وhreflang ذاتي في التصيير والخريطة
+  for (const g of NEW_GUIDES) {
+    const slug = guideSlug(g.code);
+    out.push({ slug, date: GUIDE_DATE, modified: GUIDE_DATE, cc: g.code, canonical: slug, isCanonical: true, trilingual: false, fr: g.lang === 'fr', langs: [g.lang] });
+  }
   return out;
 }
 
 // الإجابة المختصرة نصّاً صرفاً — تُستهلَك في llms-full.txt الذي يقرؤه محرّك
 // التوليد مباشرةً. الفصل عن answerBlock مقصود: هناك HTML للصفحة، وهنا نصّ للآلة.
 export function shortAnswer(slug, L) {
+  const guide = newGuideOf(slug);
+  if (guide) {
+    const lp = guide.lang === L ? guideContent(guide.code, L) : null;
+    return lp ? introText(lp) : '';
+  }
   const hit = index().get(slug);
   if (!hit) return '';
   const { topic, country } = hit;
@@ -1742,7 +1865,7 @@ export function shortAnswer(slug, L) {
 }
 
 export function hasArticle(slug) {
-  return index().has(slug);
+  return index().has(slug) || !!newGuideOf(slug);
 }
 
 // لوحة ألوان ثانوية متناسقة مع الهوية (لتمييز بطاقات الدول بصرياً)
@@ -1759,6 +1882,14 @@ export function cardCatalog() {
       label: topic.label,                                   // { ar, en, fr }
       country: topic.cs ? { ar: country.ar, en: country.en, fr: country.fr } : null,
       accent: ACCENTS[i % ACCENTS.length],
+    });
+    i++;
+  }
+  // أدلة الدول الجديدة: بطاقة بلغة سوقها وحدها (langs)
+  for (const g of NEW_GUIDES) {
+    out.push({
+      slug: guideSlug(g.code), cc: g.code, label: TOPIC_BY_ID[GUIDE_TOPIC].label,
+      country: { ar: g.ar, en: g.en, fr: g.fr }, accent: ACCENTS[i % ACCENTS.length], langs: [g.lang],
     });
     i++;
   }

@@ -1,0 +1,554 @@
+{
+  "code": "EG",
+  "nameEn": "Egypt",
+  "pageLanguage": "ar",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "EGP",
+    "symbol": "ج.م",
+    "nameEn": "Egyptian Pound",
+    "nameLocal": "جنيه مصري",
+    "minorUnits": 2,
+    "notes": "الرمز والعدد 818 ووحدتا الكسر (2) من قائمة ISO 4217 المنشورة في 2026-09-17. الجنيه يُقسَّم إلى 100 قرش. الرمز «ج.م» (ويُكتب بالإنجليزية E£) عُرفٌ متداول؛ ISO لا يحدد رموزاً."
+  },
+  "tax": {
+    "nameLocal": "الضريبة على القيمة المضافة",
+    "nameEn": "Value Added Tax",
+    "abbr": "VAT",
+    "standardRate": 14,
+    "otherRates": [
+      {
+        "rate": 5,
+        "appliesTo": "الآلات والمعدات المستخدمة في إنشاء خطوط الإنتاج (عدا الحافلات وسيارات الركوب)"
+      },
+      {
+        "rate": 0,
+        "appliesTo": "صادرات السلع والخدمات بشروط، ومنها الخدمات المؤدّاة عن بُعد غير المرتبطة بعقار أو حضور مادي في مصر (تعليمات المصلحة رقم 45 لسنة 2025)"
+      }
+    ],
+    "registrationThreshold": "500,000 جنيه مصري من رقم الأعمال السنوي الخاضع للضريبة (التسجيل إلزامي عند تجاوزه) — حسب PwC، آخر مراجعة 17 أغسطس 2026",
+    "authority": "مصلحة الضرائب المصرية (Egyptian Tax Authority – ETA)، وزارة المالية",
+    "authorityUrl": "https://www.eta.gov.eg",
+    "notes": "السعر العام 14% ثابت منذ 1 يوليو 2017 (قانون 67 لسنة 2016). تعديلات حديثة لم تغيّر السعر العام: القانون 157 لسنة 2025 (نافذ 18 يوليو 2025) نقل أعمال المقاولات والإعلانات إلى 14%، والقرارات الوزارية 417 و418 لسنة 2025 (نافذة 24 أكتوبر 2025)، والقانون 149 لسنة 2026 ضمن حزمة التسهيلات الضريبية الثانية (القوانين 148–155 لسنة 2026، نافذة 29 يوليو و3 أغسطس 2026) التي نقلت بعض السلع (كالجبس والصابون والمنظفات) إلى 14% ووسّعت بعض الإعفاءات. توجد إلى جانب ذلك «ضريبة الجدول» على سلع وخدمات محددة (مثل السجائر والمشروبات الكحولية والبترول الخام) وقد تُفرض مع الـ14% على بعضها، وقائمة سلع وخدمات معفاة لا يُسترد عنها ضريبة المدخلات. الإقرار شهري.",
+    "sources": [
+      {
+        "url": "https://taxsummaries.pwc.com/egypt/corporate/other-taxes",
+        "title": "PwC Worldwide Tax Summaries — Egypt: Corporate – Other taxes (Last reviewed 17 August 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxsummaries.pwc.com/egypt/corporate/significant-developments",
+        "title": "PwC Worldwide Tax Summaries — Egypt: Significant developments (Last reviewed 17 August 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxsummaries.pwc.com/egypt/corporate/tax-administration",
+        "title": "PwC Worldwide Tax Summaries — Egypt: Tax administration (Last reviewed 17 August 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxnews.ey.com/news/2025-2316-egypt-introduces-significant-updates-to-vat-provisions",
+        "title": "EY Tax News 2025-2316 — Egypt introduces significant updates to VAT provisions (18 November 2025)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "taxId": {
+    "label": "رقم التسجيل الضريبي (Tax Registration Number)، ويُعرف أيضاً بـ«الرقم الضريبي» — المدوَّن في البطاقة الضريبية، ويُسمّى في مواصفات منظومتي الفاتورة والإيصال الإلكترونيين registration number (الحقل rin في الإيصال)",
+    "format": "9 أرقام، تُكتب عادةً في ثلاث مجموعات XXX-XXX-XXX",
+    "notes": "الرقم نفسه يُستخدم معرّفاً للمُصدِر في الفاتورة والإيصال الإلكترونيين (الحقل issuer.id / seller.rin). للمشتري الفرد يُستخدم الرقم القومي، وللأجنبي رقمه الضريبي في بلده. البطاقة الضريبية المؤقتة المستحدثة بالقانون 150 لسنة 2026 (صالحة ثمانية أشهر لإجراءات التأسيس والترخيص) لا يجوز استخدامها لإصدار فواتير أو إيصالات إلكترونية.",
+    "sources": [
+      {
+        "url": "https://arthurdejong.org/python-stdnum/doc/stdnum.eg.tn",
+        "title": "python-stdnum — stdnum.eg.tn (Egypt Tax Number: 9 digits, XXX-XXX-XXX)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://sdk.invoicing.eta.gov.eg/documents/receipt-v1-2/",
+        "title": "ETA SDK — Receipt v1.2 (seller.rin: registration number; example 9 digits)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://sdk.invoicing.eta.gov.eg/documents/invoice-v1-0/",
+        "title": "ETA SDK — Invoice v1.0 (issuer/receiver id: registration number, national ID, or foreign VAT ID)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxsummaries.pwc.com/egypt/corporate/tax-administration",
+        "title": "PwC Worldwide Tax Summaries — Egypt: Tax administration (temporary tax card)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "einvoicing": {
+    "status": "mandatory",
+    "systemName": "منظومة الفاتورة الإلكترونية (E-Invoice) لتعاملات المنشآت والحكومة، ومنظومة الإيصال الإلكتروني (E-Receipt) لمبيعات المستهلك النهائي",
+    "authority": "مصلحة الضرائب المصرية (ETA)",
+    "model": "clearance",
+    "scopeNow": "الفاتورة الإلكترونية (B2B/B2G): بحسب الأسئلة الشائعة لمصلحة الضرائب أصبح جميع ممولي المصلحة ملزمين بالانضمام إلى المنظومة (مع استثناء جهات سيادية معيّنة) بموجب قرار المرحلة الثامنة رقم 323 لسنة 2022 الذي اكتملت آخر مجموعاته في 15 ديسمبر 2022، ويلتزم كل ممول بإصدار فاتورة إلكترونية أو إيصال إلكتروني عن كل عملية بيع. تُرسَل الفاتورة موقّعةً بختم إلكتروني إلى بوابة المصلحة فتتحقق منها وتمنحها معرّفاً فريداً (UUID)، ولا تُقبل الفاتورة الورقية لخصم ضريبة المدخلات. الإيصال الإلكتروني (B2C): ليس عاماً بعد؛ يلتزم به فقط الممولون الواردة أسماؤهم في قوائم قرارات الإلزام المتتابعة، وآخر قرار منشور في قائمة المصلحة الرسمية حتى 2026-11-11 هو 361 لسنة 2025 (المرحلة الفرعية الأولى من المرحلة الرئيسية التاسعة) اعتباراً من 15 نوفمبر 2025، ولا تُظهر عناوين أخبار المصلحة من أكتوبر 2025 حتى 5 نوفمبر 2026 قرار إلزام لاحقاً، ويُشترط أن يكون الممول منضماً لمنظومة الفاتورة الإلكترونية أولاً. يُتحقق من إلزام أي منشأة برقم تسجيلها عبر خدمة الاستعلام في موقع المصلحة.",
+    "keyDates": [
+      {
+        "date": "2020-11-15",
+        "event": "بدء الإلزام بالفاتورة الإلكترونية للمرحلة الأولى: 134 شركة كبرى (قرار 386 لسنة 2020)"
+      },
+      {
+        "date": "2021-02-15",
+        "event": "المرحلة الثانية: 347 شركة إضافية (قرار 518 لسنة 2020)"
+      },
+      {
+        "date": "2022-01",
+        "event": "عدم قبول الفاتورة الورقية لخصم ضريبة المدخلات (القرار الوزاري 125 لسنة 2021، مع استثناء محدود) — حسب TMF Group"
+      },
+      {
+        "date": "2022-07-01",
+        "event": "بدء نطاق الإيصال الإلكتروني للمستهلك النهائي (B2C) بمراحل؛ الأساس قرار وزير المالية 230 لسنة 2022 وأول قرار مرحلة 289 لسنة 2022"
+      },
+      {
+        "date": "2022-09-15",
+        "event": "بدء المرحلة الثامنة للفاتورة الإلكترونية (قرار 323 لسنة 2022) بممولي مأموريات الإسكندرية والبحيرة ومطروح، ثم الشرقية والغربية وكفر الشيخ والمنوفية ودمياط في 15 أكتوبر، ثم الدقهلية وبورسعيد والإسماعيلية والسويس وشمال وجنوب سيناء في 15 نوفمبر 2022"
+      },
+      {
+        "date": "2022-12-15",
+        "event": "آخر مجموعات المرحلة الثامنة: الفيوم وأسيوط وسوهاج والمنيا وقنا وبني سويف والوادي الجديد والأقصر وأسوان والبحر الأحمر، إضافةً إلى جميع الممولين المسجلين بكل المحافظات ممن لم يشملهم قرار إلزام سابق"
+      },
+      {
+        "date": "2023-07",
+        "event": "حسب PwC (استناداً إلى القرار الوزاري 188 لسنة 2020): إلزام جميع الممولين بالفاتورة الإلكترونية اعتباراً من يوليو 2023، والاعتداد بها وحدها مستنداً للتكاليف واجبة الخصم"
+      },
+      {
+        "date": "2025-07-15",
+        "event": "الإيصال الإلكتروني: قرار 225 لسنة 2025 (المرحلة الفرعية الأولى من الرئيسية الثامنة) للأسماء الواردة في القائمة المرفقة"
+      },
+      {
+        "date": "2025-09-15",
+        "event": "الإيصال الإلكتروني: قرار 281 لسنة 2025 (المرحلة الفرعية الثانية من الرئيسية الثامنة)"
+      },
+      {
+        "date": "2025-11-15",
+        "event": "الإيصال الإلكتروني: قرار 361 لسنة 2025 (المرحلة الفرعية الأولى من الرئيسية التاسعة) — آخر قرار ظاهر في قائمة المصلحة عند التحقق"
+      }
+    ],
+    "b2cReceipts": "منظومة الإيصال الإلكتروني (E-Receipt) تخص البيع للمستهلك النهائي، وتُطبَّق بقرارات إلزام تسمّي الممولين بأسمائهم في قوائم مرفقة (لا بحدّ رقم أعمال عام). يُصدَر الإيصال في بيئة التشغيل الفعلي من نقطة بيع (POS) أو نظام مسجَّل لدى المصلحة (تنشر المصلحة قائمة موردي أجهزة POS المعتمدين وتسجَّل الأجهزة عبر pos.eta.gov.eg)، ويُرسَل بصيغة JSON عبر واجهة الإيصال الإلكتروني، ويُلزَم الممولون المشمولون أيضاً بالتسجيل في بوابة برنامج الحوافز «فاتورتك حمايتك وجايزتك». حقول الإيصال الإلزامية وفق مواصفة Receipt v1.2: الترويسة (تاريخ ووقت الإصدار، رقم الإيصال، UUID، UUID السابق، العملة وسعر الصرف لغير الجنيه)، رقم تسجيل البائع، بيانات المشتري (إلزامية للمنشأة، وللفرد عند بلوغ الإجمالي قيمة مُهيّأة مثالها في المواصفة 150,000 جنيه)، بنود الأصناف، الإجماليات، وطريقة الدفع.",
+    "sources": [
+      {
+        "url": "https://eta.gov.eg/ar/alasylt-alshayt",
+        "title": "مصلحة الضرائب المصرية — الأسئلة الشائعة (الإلزام بالفاتورة الإلكترونية وشروط الإيصال الإلكتروني)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://eta.gov.eg/ar/content/qrarat-alalzam-bmnzwmt-alfatwrt-alalktrwnyt",
+        "title": "مصلحة الضرائب المصرية — قرارات الإلزام بمنظومة الفاتورة الإلكترونية",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://eta.gov.eg/ar/news/sdwr-qrar-almrhlt-althamnt-lmnzwmt-alfatwrt-alalktrwnyt-rqm-323-lsnt-2022-almtdmn-alan-aljdwl",
+        "title": "مصلحة الضرائب المصرية — صدور قرار المرحلة الثامنة رقم 323 لسنة 2022 (26 يوليو 2022)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.eta.gov.eg/ar/content/qrarat-alalzam-baltaml-balaysal-alalktrwny",
+        "title": "مصلحة الضرائب المصرية — قرارات الإلزام بالتعامل بالإيصال الإلكتروني",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.eta.gov.eg/ar/news/sdwr-qrar-rqm-225-lsnt-2025-alkhas-balmrhlt-alfryt-alawly-mn-almrhlt-alryysyt-althamnt-lmnzwmt",
+        "title": "مصلحة الضرائب المصرية — صدور قرار رقم 225 لسنة 2025 (10 يونيو 2025)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.eta.gov.eg/ar/news/sdwr-qrar-rqm-281-lsnt-2025-alkhas-balmrhlt-alfryt-althanyt-mn-almrhlt-alryysyt-althamnt",
+        "title": "مصلحة الضرائب المصرية — صدور قرار رقم 281 لسنة 2025 (26 يوليو 2025)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.alborsaanews.com/?p=1917563",
+        "title": "جريدة البورصة — قرار 361 لسنة 2025 للمرحلة التاسعة من الإيصال الإلكتروني اعتباراً من 15 نوفمبر 2025 (25 سبتمبر 2025)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://eta.gov.eg/ar/content/e-receipt-services",
+        "title": "مصلحة الضرائب المصرية — دليلك للتعامل مع منظومة الإيصال الإلكتروني",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.eta.gov.eg/ar/eta-rewards",
+        "title": "مصلحة الضرائب المصرية — منظومة التحفيز «فاتورتك حمايتك وجايزتك»",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://sdk.invoicing.eta.gov.eg/documents/receipt-v1-2/",
+        "title": "ETA SDK — Receipt v1.2 document structure",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://sovos.com/regulatory-updates/global-vat/egypt-tax-authority-extends-e-receipt-obligations-for-b2c-transactions/",
+        "title": "Sovos — Egypt: Tax Authority extends e-receipt obligations for B2C transactions (6 August 2025)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.fonoa.com/resources/country-tax-guides/egypt/e-invoicing-and-digital-reporting",
+        "title": "Fonoa — Egypt e-invoicing and digital reporting (Last updated 16 March 2023)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.avalara.com/us/en/vatlive/country-guides/africa-and-middle-east/egypt-vat/egyptian-e-invoicing.html",
+        "title": "Avalara VATLive — E-invoicing in Egypt (pre-clearance model, UUID)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.tmf-group.com/en/news-insights/articles/doing-business-in/new-e-invoicing-requirements-egypt/",
+        "title": "TMF Group — New e-invoicing requirements in Egypt (19 January 2022)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxsummaries.pwc.com/egypt/corporate/other-taxes",
+        "title": "PwC Worldwide Tax Summaries — Egypt: Other taxes (e-invoicing note; Last reviewed 17 August 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.eta.gov.eg/ar/news",
+        "title": "مصلحة الضرائب المصرية — الأخبار (عناوين من أكتوبر 2025 حتى 5 نوفمبر 2026؛ لا قرار إلزام إيصال جديد)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "invoiceRequirements": [
+    "رقم الفاتورة وتاريخ إصدارها",
+    "اسم المورّد وعنوانه ورقم تسجيله الضريبي",
+    "اسم المشتري وعنوانه ورقم تسجيله الضريبي إن وُجد (أو الرقم القومي للفرد/الرقم الضريبي الأجنبي في الفاتورة الإلكترونية حسب نوع المستلم)",
+    "وصف السلعة أو الخدمة والكمية ووحدة القياس وسعر الوحدة",
+    "الكود الموحّد للسلعة أو الخدمة (GS1 أو EGS)",
+    "قيمة الضريبة والمبلغ الإجمالي المستحق",
+    "العملة (رمز ISO 4217) وسعر الصرف إلى الجنيه يوم الإصدار إذا كانت الفاتورة بعملة غير الجنيه (حقل currencyExchangeRate إلزامي في مواصفة ETA ويُعرَّف بأنه سعر البنك المصري يوم الفوترة)",
+    "كود النشاط الضريبي للمنشأة (taxpayerActivityCode) وكود الفرع المُصدِر",
+    "التوقيع الإلكتروني للمُصدِر في الفاتورة الإلكترونية بصيغة CADES-BES، بشهادة ختم إلكتروني (eSeal) معتمدة أو شهادة توقيع شخص طبيعي معتمدة في مصر صادرة للممول أو لممثله",
+    "المعرّف الفريد (UUID) الذي تمنحه منظومة المصلحة عند قبول المستند"
+  ],
+  "distribution": {
+    "hubs": [
+      "القاهرة الكبرى (القاهرة والجيزة والقليوبية)",
+      "الإسكندرية",
+      "مدينة السادس من أكتوبر والشيخ زايد (غرب القاهرة)",
+      "مدينة العاشر من رمضان (الشرقية)"
+    ],
+    "tradeChannels": [
+      "متاجر التجزئة التقليدية الصغيرة (mom-and-pop stores)",
+      "تجار الجملة",
+      "الفنادق والمطاعم والمقاهي (HoReCa)",
+      "منصات B2B الرقمية لتوريد تجار التجزئة (مثل MaxAB وCartona)"
+    ],
+    "localTerms": {
+      "vanSales": null,
+      "preSales": null,
+      "salesRep": "مندوب مبيعات",
+      "retailShop": null,
+      "routeAccounting": null
+    },
+    "collectionMethods": [
+      "النقد (كاش) — الغالب في التوزيع المحلي",
+      "التحويل اللحظي عبر InstaPay (شبكة المدفوعات اللحظية، EBC)",
+      "المحافظ الإلكترونية على الجوال (مثل Vodafone Cash)",
+      "شبكات الدفع والإيداع النقدي (مثل Fawry وAman)",
+      "التحويل البنكي"
+    ],
+    "notes": "مؤشرات من مصادر الشركات: تعلن Edita (من كبار منتجي الأغذية المعبأة في مصر) عن 26 مركز توزيع تغطي 27 محافظة، ونحو 900 مندوب مبيعات ضمن قوة بيع 1,977، وأسطول توزيع 1,191، ونسبة جملة إلى تجزئة 50:50، وسياسة نقدية لـ97% من مبيعاتها المحلية؛ أي أن التوزيع المباشر بأساطيل المناديب والتحصيل النقدي هما السائدان. منصات B2B مثل MaxAB وCartona تخدم تجار التجزئة التقليديين وتقدم آجلاً/تمويلاً (BNPL) ومحافظ وتحصيل. حدود InstaPay: 70,000 جنيه للعملية و120,000 يومياً لكل بنك؛ وVodafone Cash: 60,000 جنيه يومياً و200,000 شهرياً. ملاحظة تشغيلية مهمة: بيع الموزّع لمحل تجاري (B2B) يستلزم فاتورة إلكترونية مُصدَرة عبر منظومة ETA عن كل عملية بيع، والبيع للمستهلك النهائي يستلزم إيصالاً إلكترونياً لمن شمله قرار إلزام؛ فمستند المندوب الميداني وحده لا يكفي ضريبياً.",
+    "sources": [
+      {
+        "url": "https://ir.edita.com.eg/en/company-profile",
+        "title": "Edita Food Industries — Investor Relations: Company Profile (distribution centers, fleet, sales force, cash policy)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://cartona.com/",
+        "title": "Cartona — B2B marketplace for traditional trade in Egypt",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://maxab.io/",
+        "title": "MaxAB — B2B e-commerce and fintech for retailers (Egypt)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.instapay.eg/",
+        "title": "InstaPay by EBC — Instant transfers, limits and fees",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://web.vodafone.com.eg/ar/vodafone-cash",
+        "title": "Vodafone Egypt — Vodafone Cash (limits; cash-in via Fawry and Aman)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://eta.gov.eg/ar/alasylt-alshayt",
+        "title": "مصلحة الضرائب المصرية — الأسئلة الشائعة (فاتورة أو إيصال إلكتروني عن كل عملية بيع)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "honesty": {
+    "canSay": [
+      "يتيح FieldSales لكل شركة ضبط العملة على الجنيه المصري (EGP) وضبط نسبة ضريبة القيمة المضافة (14% أو ما تحدده الشركة) من الإعدادات.",
+      "يدير FieldSales مناديب المبيعات الميدانيين في مصر: البيع من السيارة، وأخذ الطلبيات، وخطوط السير والزيارات، وتحصيل المديونيات، بواجهة عربية كاملة.",
+      "يمكن للشركة تعريف طرق التحصيل التي تستخدمها (نقد، تحويل InstaPay، محفظة إلكترونية…) كطرق دفع داخل النظام لتسجيل التحصيل عليها، دون ربط مباشر بتلك الشبكات.",
+      "الربط مع منظومتي الفاتورة الإلكترونية والإيصال الإلكتروني لمصلحة الضرائب المصرية (ETA) غير مُفعّل اليوم، ويمكن بحثه عند الطلب دون وعد بموعد أو نتيجة.",
+      "مستندات المندوب في FieldSales مستندات تشغيلية للمتابعة والتحصيل؛ أما الفاتورة الضريبية الإلكترونية أو الإيصال الإلكتروني المطلوبان قانوناً في مصر فتصدرهما الشركة عبر بوابة ETA أو نظامها المحاسبي/ERP المربوط بالمنظومة."
+    ],
+    "mustNotSay": [
+      "أن FieldSales «متوافق» أو «ممتثل» مع منظومة الفاتورة الإلكترونية المصرية أو منظومة الإيصال الإلكتروني (ETA E-Invoice / E-Receipt).",
+      "أن FieldSales «مربوط» بمصلحة الضرائب المصرية أو «يرسل الفواتير» إلى بوابة ETA أو يحصل لها على UUID.",
+      "أن FieldSales «معتمد من مصلحة الضرائب المصرية» أو «مزوّد خدمة فاتورة إلكترونية معتمد» أو «نقطة بيع (POS) معتمدة» لمنظومة الإيصال الإلكتروني.",
+      "أن فواتير FieldSales المطبوعة أو PDF صالحة لخصم ضريبة المدخلات أو تُغني عن الفاتورة الإلكترونية الرسمية.",
+      "أن FieldSales يوقّع المستندات بالختم الإلكتروني (eSeal) أو يُصدر رمز QR معتمداً من ETA.",
+      "أن FieldSales مربوط تقنياً مع InstaPay أو Fawry أو Vodafone Cash أو غيرها من شبكات الدفع المصرية.",
+      "إسقاط خبرة الربط مع ZATCA في السعودية على مصر بعبارات مثل «جاهز للفوترة الإلكترونية في مصر كما في السعودية».",
+      "أن الإيصال الإلكتروني إلزامي على جميع المنشآت في مصر، أو أنه غير مطلوب؛ فالإلزام فيه بقرارات تسمّي الممولين بأسمائهم.",
+      "أن FieldSales «يدعم» أو «جاهز لـ» الفاتورة الإلكترونية أو الإيصال الإلكتروني المصري، أو أن الربط مع ETA «قريب» أو له موعد محدد.",
+      "أن FieldSales يُصدر للمستهلك النهائي «إيصالاً إلكترونياً» بالمعنى القانوني المصري، أو أنه مُدرج ضمن موردي أجهزة/أنظمة نقاط البيع المعتمدين لدى المصلحة.",
+      "أن FieldSales يحتسب «ضريبة الجدول» المصرية أو يطبّق تلقائياً النسب الخاصة والإعفاءات المصرية؛ فالنسبة يضبطها العميل بنفسه."
+    ]
+  },
+  "uncertain": [
+    "حد التسجيل في ضريبة القيمة المضافة: PwC (مراجعة 17 أغسطس 2026) تذكر 500,000 جنيه، بينما تزعم مصادر تجارية ثانوية (مثل Cygnet) خفضه إلى 250,000 جنيه مع مهلة تسجيل حتى 31 مارس 2026؛ لم أجد ذلك في نص رسمي من المصلحة أو الجريدة الرسمية، ولا في تحديثات EY/PwC، فاعتمدتُ 500,000 مع هذا التحفّظ.",
+    "يذكر دليل VATit «القرار 189/2026» كتعديل لجدول الفوترة الإلكترونية، لكن نتائج البحث تُرجِعه إلى قرار عُماني (جهاز الضرائب في عُمان) لا مصري؛ لم يُعتمد.",
+    "قرارات إلزام الإيصال الإلكتروني في 2026: تحقّق المدقق في 2026-11-11 من قائمة القرارات الرسمية (آخرها 361 لسنة 2025، ولا قرار بعنوان 2026) ومن عناوين أخبار المصلحة من أكتوبر 2025 حتى 5 نوفمبر 2026 (لا خبر عن قرار إلزام جديد). يبقى احتمال قرار لم يُدرج بعد في القائمة أو لم يُعلن خبراً، فيُراجَع رابط القائمة قبل النشر. ملاحظة: مسار أحد ملفات القائمة يحمل «2026-02» وهو تاريخ رفع ملف لا تاريخ قرار.",
+    "مهلة إرسال الفاتورة الإلكترونية: Fonoa (2023) تذكر الإرسال في يوم الإصدار منذ 1 يناير 2023، وVATit تذكر حداً أقصى 7 أيام «يُلغى تدريجياً»؛ ومهلة إرسال الإيصال المُصدَر دون اتصال تُذكر 24 ساعة في دليل ثانوي و72 ساعة في آخر؛ لم يُحسم من مصدر رسمي فلم تُدرَج.",
+    "حدّ إلزام بيانات المستلم الفرد في الفاتورة الإلكترونية لم تذكره مواصفة Invoice v1.0 رقماً؛ ورقم 150,000 جنيه في مواصفة الإيصال «قيمة مُهيّأة» قد تتغير.",
+    "صيغة رقم التسجيل الضريبي (9 أرقام XXX-XXX-XXX) مأخوذة من مكتبة مفتوحة المصدر (python-stdnum) ومثال في مواصفة ETA، لا من نص قاعدة رسمي.",
+    "تاريخ رفض الفاتورة الورقية لخصم ضريبة المدخلات: TMF يذكر يناير 2022 (قرار 125 لسنة 2021)، وPwC يذكر يوليو 2023 لإلزام جميع الممولين والاعتداد بالفاتورة الإلكترونية وحدها للتكاليف؛ أُدرج الاثنان كما وردا.",
+    "المصطلحات المحلية للبيع من السيارة والبيع المسبق ومحل التجزئة وتسوية عهدة المندوب لم أوثّقها بمصدر منشور في هذه الجولة (نفد حدّ البحث وحُجبت مواقع الوظائف)، فتُركت null. مرشّحات تحتاج تحققاً بشرياً: «فان سيلز / البيع من العربية»، «بري سيلز / أخذ الطلبيات»، «بقالة» و«كشك»، «خط السير»، «تقفيل اليومية / تسوية العهدة».",
+    "الشيكات (ومنها الآجلة) شائعة في التعامل التجاري المصري بحسب المعرفة العامة، لكن لم أجد مصدراً موثوقاً لنسبتها فلم تُدرج ضمن طرق التحصيل.",
+    "قائمة مراكز التوزيع مستندة جزئياً إلى مواقع Edita (مركز لوجستي في الشيخ زايد، مصانع في السادس من أكتوبر والعاشر من رمضان) وإلى تجميع المصلحة للقاهرة والجيزة والقليوبية في قرار واحد، لا إلى دراسة توزيع شاملة.",
+    "رمز العملة «ج.م» عُرف محلي غير مقنّن في ISO 4217.",
+    "أرقام Edita (26 مركز توزيع، 900 مندوب، 97% نقداً) غير مؤرخة صراحةً في الصفحة (أقرب مرجع نهاية 2024).",
+    "يزعم دليل Avalara VATLive أن مصر وسّعت الفاتورة الإلكترونية إلى B2C في يناير 2025، وهذا لا يتسق مع قرارات الإيصال الإلكتروني الرسمية المتتابعة منذ 2022 (قرار 230 لسنة 2022 وما بعده) ولا مع Fonoa (بدء نطاق B2C في 1 يوليو 2022)؛ لم يُعتمد هذا التاريخ.",
+    "بحث المدقق المستقل استنفد حدّ البحث العام، فاعتمد على الجلب المباشر لصفحات المصلحة وPwC وEY وSovos وFonoa وAvalara وTMF؛ لم يُتحقق بحثاً مستقلاً من حدّ التسجيل البديل 250,000 جنيه ولا من المصطلحات المحلية."
+  ],
+  "sources": [
+    {
+      "url": "https://www.eta.gov.eg/ar",
+      "title": "مصلحة الضرائب المصرية — الموقع الرسمي",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://eta.gov.eg/ar/alasylt-alshayt",
+      "title": "مصلحة الضرائب المصرية — الأسئلة الشائعة",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://eta.gov.eg/ar/content/qrarat-alalzam-bmnzwmt-alfatwrt-alalktrwnyt",
+      "title": "مصلحة الضرائب المصرية — قرارات الإلزام بمنظومة الفاتورة الإلكترونية",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.eta.gov.eg/ar/content/qrarat-alalzam-baltaml-balaysal-alalktrwny",
+      "title": "مصلحة الضرائب المصرية — قرارات الإلزام بالتعامل بالإيصال الإلكتروني",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://eta.gov.eg/ar/news/sdwr-qrar-almrhlt-althamnt-lmnzwmt-alfatwrt-alalktrwnyt-rqm-323-lsnt-2022-almtdmn-alan-aljdwl",
+      "title": "مصلحة الضرائب المصرية — قرار المرحلة الثامنة 323 لسنة 2022",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.eta.gov.eg/ar/news/sdwr-qrar-rqm-225-lsnt-2025-alkhas-balmrhlt-alfryt-alawly-mn-almrhlt-alryysyt-althamnt-lmnzwmt",
+      "title": "مصلحة الضرائب المصرية — قرار 225 لسنة 2025",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.eta.gov.eg/ar/news/sdwr-qrar-rqm-281-lsnt-2025-alkhas-balmrhlt-alfryt-althanyt-mn-almrhlt-alryysyt-althamnt",
+      "title": "مصلحة الضرائب المصرية — قرار 281 لسنة 2025",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://eta.gov.eg/ar/content/e-receipt-services",
+      "title": "مصلحة الضرائب المصرية — دليل منظومة الإيصال الإلكتروني",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.eta.gov.eg/ar/eta-rewards",
+      "title": "مصلحة الضرائب المصرية — «فاتورتك حمايتك وجايزتك»",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://sdk.invoicing.eta.gov.eg/documents/invoice-v1-0/",
+      "title": "ETA SDK — Invoice v1.0",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://sdk.invoicing.eta.gov.eg/documents/receipt-v1-2/",
+      "title": "ETA SDK — Receipt v1.2",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxsummaries.pwc.com/egypt/corporate/other-taxes",
+      "title": "PwC Worldwide Tax Summaries — Egypt: Other taxes (Last reviewed 17 August 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxsummaries.pwc.com/egypt/corporate/significant-developments",
+      "title": "PwC Worldwide Tax Summaries — Egypt: Significant developments (Last reviewed 17 August 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxsummaries.pwc.com/egypt/corporate/tax-administration",
+      "title": "PwC Worldwide Tax Summaries — Egypt: Tax administration (Last reviewed 17 August 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxnews.ey.com/news/2025-2316-egypt-introduces-significant-updates-to-vat-provisions",
+      "title": "EY — Egypt introduces significant updates to VAT provisions (18 November 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://sovos.com/regulatory-updates/global-vat/egypt-tax-authority-extends-e-receipt-obligations-for-b2c-transactions/",
+      "title": "Sovos — Egypt extends e-receipt obligations for B2C (6 August 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.fonoa.com/resources/country-tax-guides/egypt/e-invoicing-and-digital-reporting",
+      "title": "Fonoa — Egypt e-invoicing and digital reporting (Last updated 16 March 2023)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.avalara.com/us/en/vatlive/country-guides/africa-and-middle-east/egypt-vat/egyptian-e-invoicing.html",
+      "title": "Avalara VATLive — E-invoicing in Egypt",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.tmf-group.com/en/news-insights/articles/doing-business-in/new-e-invoicing-requirements-egypt/",
+      "title": "TMF Group — New e-invoicing requirements in Egypt (19 January 2022)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://vatit.com/e-invoicing-guide/egypt/",
+      "title": "VATit — Egypt e-Invoicing Mandate (undated)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.alborsaanews.com/?p=1917563",
+      "title": "جريدة البورصة — قرار 361 لسنة 2025 (25 سبتمبر 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml",
+      "title": "ISO 4217 Currency List One (SIX, published 2026-09-17) — EGP, 818, minor unit 2",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://arthurdejong.org/python-stdnum/doc/stdnum.eg.tn",
+      "title": "python-stdnum — Egypt Tax Number",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://ir.edita.com.eg/en/company-profile",
+      "title": "Edita Food Industries — Company Profile",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://cartona.com/",
+      "title": "Cartona",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://maxab.io/",
+      "title": "MaxAB",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.instapay.eg/",
+      "title": "InstaPay by EBC",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://web.vodafone.com.eg/ar/vodafone-cash",
+      "title": "Vodafone Cash — Vodafone Egypt",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.eta.gov.eg/ar/news",
+      "title": "مصلحة الضرائب المصرية — الأخبار (عناوين من أكتوبر 2025 حتى 5 نوفمبر 2026؛ لا قرار إلزام إيصال جديد)",
+      "accessed": "2026-11-11"
+    }
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "corrections": [
+      {
+        "field": "einvoicing.keyDates[2022-09-15].event",
+        "before": "بدء المرحلة الثامنة للفاتورة الإلكترونية (قرار 323 لسنة 2022) بالإسكندرية والبحيرة ومطروح، ثم بقية المحافظات في 15 أكتوبر و15 نوفمبر",
+        "after": "بدء المرحلة الثامنة للفاتورة الإلكترونية (قرار 323 لسنة 2022) بممولي مأموريات الإسكندرية والبحيرة ومطروح، ثم الشرقية والغربية وكفر الشيخ والمنوفية ودمياط في 15 أكتوبر، ثم الدقهلية وبورسعيد والإسماعيلية والسويس وشمال وجنوب سيناء في 15 نوفمبر 2022",
+        "source": "https://eta.gov.eg/ar/news/sdwr-qrar-almrhlt-althamnt-lmnzwmt-alfatwrt-alalktrwnyt-rqm-323-lsnt-2022-almtdmn-alan-aljdwl (خبر المصلحة 26-07-2022): موعد 15 أكتوبر و15 نوفمبر لمحافظات محددة لا «بقية المحافظات»؛ البقية في 15 ديسمبر"
+      },
+      {
+        "field": "einvoicing.keyDates[2022-12-15].event",
+        "before": "آخر مجموعات المرحلة الثامنة: جميع الممولين المسجلين بكل المحافظات ممن لم يشملهم قرار سابق",
+        "after": "آخر مجموعات المرحلة الثامنة: الفيوم وأسيوط وسوهاج والمنيا وقنا وبني سويف والوادي الجديد والأقصر وأسوان والبحر الأحمر، إضافةً إلى جميع الممولين المسجلين بكل المحافظات ممن لم يشملهم قرار إلزام سابق",
+        "source": "https://eta.gov.eg/ar/news/sdwr-qrar-almrhlt-althamnt-lmnzwmt-alfatwrt-alalktrwnyt-rqm-323-lsnt-2022-almtdmn-alan-aljdwl (خبر المصلحة 26-07-2022)"
+      },
+      {
+        "field": "einvoicing.keyDates[2023-07].event",
+        "before": "حسب PwC: إلزام جميع الممولين بالفاتورة الإلكترونية، والاعتداد بها وحدها مستنداً للتكاليف واجبة الخصم",
+        "after": "حسب PwC (استناداً إلى القرار الوزاري 188 لسنة 2020): إلزام جميع الممولين بالفاتورة الإلكترونية اعتباراً من يوليو 2023، والاعتداد بها وحدها مستنداً للتكاليف واجبة الخصم",
+        "source": "https://taxsummaries.pwc.com/egypt/corporate/other-taxes (Last reviewed 17 August 2026): «the Ministry of Finance issued Decree No. 188 of 2020 … Effective July 2023, all taxpayers…»"
+      },
+      {
+        "field": "einvoicing.scopeNow",
+        "before": "وآخر قرار منشور في قائمة المصلحة هو 361 لسنة 2025 (المرحلة الفرعية الأولى من المرحلة الرئيسية التاسعة) اعتباراً من 15 نوفمبر 2025،",
+        "after": "وآخر قرار منشور في قائمة المصلحة الرسمية حتى 2026-11-11 هو 361 لسنة 2025 … ولا تُظهر عناوين أخبار المصلحة من أكتوبر 2025 حتى 5 نوفمبر 2026 قرار إلزام لاحقاً،",
+        "source": "https://www.eta.gov.eg/ar/content/qrarat-alalzam-baltaml-balaysal-alalktrwny (آخر بند: قرار رئيس المصلحة 361 لسنة 2025، لا قرار بعنوان 2026) + https://www.eta.gov.eg/ar/news (الصفحات 1–7)"
+      },
+      {
+        "field": "invoiceRequirements[exchangeRate]",
+        "before": "سعر الصرف المعلن من البنك المركزي المصري يوم الإصدار إذا كانت الفاتورة بعملة أجنبية",
+        "after": "العملة (رمز ISO 4217) وسعر الصرف إلى الجنيه يوم الإصدار إذا كانت الفاتورة بعملة غير الجنيه (حقل currencyExchangeRate إلزامي في مواصفة ETA ويُعرَّف بأنه سعر البنك المصري يوم الفوترة)",
+        "source": "https://sdk.invoicing.eta.gov.eg/documents/invoice-v1-0/ — «Exchange rate of the Egyptian bank on the day of invoicing»؛ لا تذكر المواصفة «البنك المركزي» صراحةً"
+      },
+      {
+        "field": "invoiceRequirements[signature]",
+        "before": "التوقيع الإلكتروني للمُصدِر (ختم إلكتروني eSeal بصيغة CAdES-BES) في الفاتورة الإلكترونية",
+        "after": "التوقيع الإلكتروني للمُصدِر في الفاتورة الإلكترونية بصيغة CADES-BES، بشهادة ختم إلكتروني (eSeal) معتمدة أو شهادة توقيع شخص طبيعي معتمدة في مصر صادرة للممول أو لممثله",
+        "source": "https://sdk.invoicing.eta.gov.eg/documents/invoice-v1-0/ — «approved eSeal or natural person signature certificates in Egypt»"
+      },
+      {
+        "field": "taxId.label",
+        "before": "رقم التسجيل الضريبي (Tax Registration Number) — المدوَّن في البطاقة الضريبية، ويُسمّى في مواصفات منظومة الإيصال الإلكتروني RIN",
+        "after": "رقم التسجيل الضريبي (Tax Registration Number)، ويُعرف أيضاً بـ«الرقم الضريبي» — المدوَّن في البطاقة الضريبية، ويُسمّى في مواصفات منظومتي الفاتورة والإيصال الإلكترونيين registration number (الحقل rin في الإيصال)",
+        "source": "https://arthurdejong.org/python-stdnum/doc/stdnum.eg.tn («Tax Registration Number (الرقم الضريبي)») + https://sdk.invoicing.eta.gov.eg/documents/receipt-v1-2/"
+      },
+      {
+        "field": "taxId.notes",
+        "before": "البطاقة الضريبية المؤقتة (صالحة ثمانية أشهر) لا يجوز استخدامها لإصدار فواتير أو إيصالات إلكترونية.",
+        "after": "البطاقة الضريبية المؤقتة المستحدثة بالقانون 150 لسنة 2026 (صالحة ثمانية أشهر لإجراءات التأسيس والترخيص) لا يجوز استخدامها لإصدار فواتير أو إيصالات إلكترونية.",
+        "source": "https://taxsummaries.pwc.com/egypt/corporate/tax-administration (Last reviewed 17 August 2026): «temporary tax card valid for eight months» under Law No. 150 of 2026؛ وخبر المصلحة 10-09-2026 عن البطاقات المؤقتة لمدة 8 أشهر"
+      },
+      {
+        "field": "uncertain[e-receipt 2026]",
+        "before": "لم أتحقق من صدور أي قرار إلزام بالإيصال الإلكتروني خلال 2026: قائمة المصلحة كما جُلبت تنتهي بالقرار 361 لسنة 2025، ونفد حدّ البحث قبل التأكد من أخبار 2026؛ يُراجَع رابط قائمة القرارات قبل النشر.",
+        "after": "قرارات إلزام الإيصال الإلكتروني في 2026: تحقّق المدقق في 2026-11-11 من قائمة القرارات الرسمية (آخرها 361 لسنة 2025، ولا قرار بعنوان 2026) ومن عناوين أخبار المصلحة من أكتوبر 2025 حتى 5 نوفمبر 2026 (لا خبر عن قرار إلزام جديد). يبقى احتمال قرار لم يُدرج بعد في القائمة أو لم يُعلن خبراً، فيُراجَع رابط القائمة قبل النشر. ملاحظة: مسار أحد ملفات القائمة يحمل «2026-02» وهو تاريخ رفع ملف لا تاريخ قرار.",
+        "source": "https://www.eta.gov.eg/ar/content/qrarat-alalzam-baltaml-balaysal-alalktrwny + https://www.eta.gov.eg/ar/news?page=0..6"
+      },
+      {
+        "field": "honesty.mustNotSay",
+        "before": "8 عبارات",
+        "after": "11 عبارات (أُضيف منع ادعاء «الدعم/الجاهزية/قرب الربط»، ومنع ادعاء إصدار إيصال إلكتروني قانوني أو اعتماد POS، ومنع ادعاء احتساب ضريبة الجدول)",
+        "source": "سياسة المنصة: الربط الحكومي حيّ في السعودية وحدها، وفي غيرها «متاح عند الطلب» بلا وعد"
+      }
+    ],
+    "verified": [
+      "النسبة القياسية 14% منذ 1 يوليو 2017 (القانون 67 لسنة 2016، سابقاً 13%) — PwC Other taxes، مراجعة 17 أغسطس 2026؛ ولم تتغير في 2025 أو 2026.",
+      "النسبة المخفّضة 5% للآلات والمعدات (عدا الحافلات وسيارات الركوب) والصفرية للصادرات وتعليمات 45 لسنة 2025 للخدمات المصدّرة — PwC، وخبر المصلحة 27-11-2025.",
+      "حد التسجيل 500,000 جنيه — PwC.",
+      "القانون 157 لسنة 2025 نافذ 18 يوليو 2025 (المقاولات إلى 14%) — EY 18 نوفمبر 2025؛ والإعلانات إلى 14% — PwC. القراران 417 و418 لسنة 2025 نافذان 24 أكتوبر 2025 — EY.",
+      "القانون 149 لسنة 2026 (28 يوليو 2026) نقل الجبس والصابون والمنظفات الصناعية المنزلية إلى 14% ووسّع إعفاءات؛ القوانين 148–154 نافذة 29 يوليو 2026 و155 في 3 أغسطس 2026 — PwC.",
+      "الإقرار الشهري — PwC Tax administration.",
+      "الجهة: مصلحة الضرائب المصرية eta.gov.eg.",
+      "الفاتورة الإلكترونية إلزامية على جميع الممولين (قرار 323 لسنة 2022، استثناء جهات سيادية) وفاتورة أو إيصال عن كل عملية بيع — الأسئلة الشائعة للمصلحة.",
+      "الإيصال الإلكتروني بقرارات تسمّي الممولين؛ 225/2025 (15 يوليو 2025) و281/2025 (15 سبتمبر 2025) من أخبار المصلحة، و361/2025 (15 نوفمبر 2025) من جريدة البورصة 25 سبتمبر 2025 ومن قائمة القرارات الرسمية.",
+      "نموذج المقاصة/التخليص المسبق وUUID — Fonoa وAvalara.",
+      "رقم التسجيل 9 أرقام (python-stdnum ومثال 200173707 في مواصفة Receipt v1.2)، وحدّ بيانات المشتري الفرد 150,000 جنيه «قيمة مُهيّأة» في المواصفة.",
+      "العملة EGP، الرقم 818، وحدتا كسر — قائمة ISO 4217 من SIX المنشورة 2026-09-17.",
+      "حدود InstaPay (70,000 للعملية، 120,000 يومياً لكل بنك) وVodafone Cash (60,000 يومياً، 200,000 شهرياً) وأرقام Edita — من مواقعها الرسمية."
+    ],
+    "confidence": "high"
+  }
+}

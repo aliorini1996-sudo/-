@@ -1,0 +1,441 @@
+{
+  "code": "MA",
+  "nameEn": "Morocco",
+  "pageLanguage": "fr",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "MAD",
+    "symbol": "DH",
+    "nameEn": "Moroccan Dirham",
+    "nameLocal": "الدرهم المغربي / dirham marocain",
+    "minorUnits": 2
+  },
+  "tax": {
+    "nameLocal": "Taxe sur la Valeur Ajoutée (TVA) — الضريبة على القيمة المضافة",
+    "nameEn": "Value Added Tax",
+    "abbr": "TVA",
+    "standardRate": 20,
+    "otherRates": [
+      {
+        "rate": 10,
+        "appliesTo": "النسبة المخفّضة الوحيدة منذ 1 يناير 2026 (المادة 99-B من CGI) مع حق الخصم، ومنها: الإيواء والمطاعم والمقاهي، الزيوت الغذائية السائلة عدا زيت النخيل، ملح الطعام، الأرز المصنّع، العجائن الغذائية غير المعفاة، السكر المكرّر أو المكتّل، أعلاف الماشية والدواجن، غاز البترول، العمليات البنكية والائتمانية، النقل الحضري والنقل الطرقي للمسافرين والبضائع، الماء الموجّه إلى شبكات التوزيع العامة وخدمات التطهير وكراء عدّاد الماء (أما الماء المخصّص للاستعمال المنزلي الذي تسلّمه هيئات التوزيع العامة فمعفى مع حق الخصم بالمادة 92-I-55°)، الألواح الشمسية وسخانات الماء الشمسية، «السيارة الاقتصادية» (voiture économique) وبعض المعدات الفلاحية ومعدات الصيد البحري. تغيّر في 1 يناير 2026 بانتهاء المرحلة الانتقالية (المادة 247-XXXXI): السكر المكرّر من 9% إلى 10%، والنقل الحضري والنقل الطرقي للمسافرين والبضائع من 12% إلى 10%؛ بينما ارتفعت الكهرباء من 18% إلى 20% وكراء عدّاد الكهرباء من 15% إلى 20% وباقي عمليات النقل من 18% إلى 20%. وتخضع الكهرباء المنتجة من الطاقات المتجددة لـ10%."
+      },
+      {
+        "rate": 10,
+        "appliesTo": "نسبة 10% بلا حق خصم (المادة 99-B-2°): خدمات وكلاء ووسطاء التأمين عن العقود التي يجلبونها لشركات التأمين."
+      },
+      {
+        "rate": 0,
+        "appliesTo": "إعفاء مع حق الخصم (المادة 92، exonération avec droit à déduction) ومنه: السلع المسلّمة والخدمات المقدّمة للتصدير، وأصناف أخرى يعدّدها النص. أضاف قانون المالية 2026 الأسمدة ووسائط الزراعة والدم ومشتقاته."
+      },
+      {
+        "rate": 0,
+        "appliesTo": "إعفاء بلا حق خصم (المادة 91، exonération sans droit à déduction) ويهمّ موزّعي المواد الغذائية: الخبز والكسكس والسميد والدقيق والعجائن القصيرة غير المطبوخة وغير المحشوة (أُضيفت بقانون المالية 2026)، الحليب والزبدة المشتقة منه، الحليب المجفّف، السكر الخام، التمور المغربية المعبّأة، منتجات الصيد الطازجة أو المجمّدة، اللحوم الطازجة أو المجمّدة، زيت الزيتون ومخلّفات عصر الزيتون المصنوعة في الوحدات التقليدية (نص المادة 91-I-A-7°: « l'huile d'olive et les sous-produits de la trituration des olives fabriqués par les unités artisanales »)، معلّبات السردين، صابون الغسيل، الشموع."
+      }
+    ],
+    "registrationThreshold": "لا عتبة موحّدة. حسب المادة 89 من CGI يخضع لـTVA وجوباً: المصنّعون، وتجار الجملة (commerçants grossistes) أياً كان رقم معاملاتهم، والتجار الذين بلغ رقم معاملاتهم الخاضع في السنة السابقة 2,000,000 درهم أو أكثر. وتُعفى (المادة 91-II-3°) مبيعات وخدمات المصنّعين ومقدّمي الخدمات الأشخاص الذاتيين الذين لا يتجاوز رقم معاملاتهم السنوي 500,000 درهم. ويصرّح شهرياً من بلغ رقم معاملاته الخاضع 1,000,000 درهم فأكثر، وإلا فثلاثياً (المادة 108).",
+    "authority": "Direction Générale des Impôts (DGI) — المديرية العامة للضرائب",
+    "authorityUrl": "https://www.tax.gov.ma",
+    "sources": [
+      {
+        "url": "https://www.tax.gov.ma/wps/wcm/connect/08712531-1e81-4e28-a38b-2bd9edf8e09e/CGI+2026+FR.pdf?MOD=AJPERES",
+        "title": "DGI — Code Général des Impôts, édition 2026 (intègre la loi de finances n° 50-25) : art. 89, 91, 92, 99, 108, 247-XXXXI",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxsummaries.pwc.com/morocco/corporate/other-taxes",
+        "title": "PwC Worldwide Tax Summaries — Morocco, Corporate, Other taxes (last reviewed 30 April 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxsummaries.pwc.com/morocco/corporate/significant-developments",
+        "title": "PwC Worldwide Tax Summaries — Morocco, Significant developments (last reviewed 30 April 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://blog.avocats.deloitte.fr/maroc-les-principales-mesures-de-la-loi-de-finances-pour-2026/",
+        "title": "Deloitte Société d'Avocats — Maroc : les principales mesures de la loi de finances pour 2026 (7 avril 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.upsilon-consulting.com/plf-2027-mesures-fiscales-cles/",
+        "title": "Upsilon Consulting — PLF 2027 Maroc : mesures fiscales clés (3 novembre 2026 ; aucune modification de taux de TVA annoncée)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "taxId": {
+    "label": "ICE (Identifiant Commun de l'Entreprise) + IF (Identifiant Fiscal)",
+    "format": "ICE: 15 رقماً = 9 للمنشأة + 4 للمؤسسة الفرعية (établissement) + 2 رمزا تحقق، مثال رسمي: 123456789000057. أما IF فلا مصدر رسمي يحدد طوله (انظر uncertain).",
+    "sources": [
+      {
+        "url": "https://www.ice.gov.ma/ICE/Guide_ICE.pdf",
+        "title": "Portail ICE (DGI/OMPIC) — Guide d'utilisation de la plateforme ICE : « L'ICE est un identifiant composé de 15 positions »",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.ice.gov.ma/ICE/Depliant_ICE.pdf",
+        "title": "Portail ICE — Dépliant « Adhérons à l'Identifiant Commun de l'Entreprise » (août 2015) : composition et exemples",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.tax.gov.ma/wps/wcm/connect/08712531-1e81-4e28-a38b-2bd9edf8e09e/CGI+2026+FR.pdf?MOD=AJPERES",
+        "title": "DGI — CGI 2026, art. 145-III, 145-VII et 145-VIII (IF, numéro d'article de taxe professionnelle, ICE sur les factures)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "einvoicing": {
+    "status": "planned",
+    "systemName": "Facturation électronique — plateforme nationale de la DGI (لم يُعلَن اسم رسمي للمنصة في نص منشور)",
+    "authority": "Direction Générale des Impôts (DGI)",
+    "model": "clearance",
+    "scopeNow": "حتى 2026-11-11 لا يُلزَم أحد في المغرب بإرسال فواتيره إلى منصة DGI أو بالحصول على مصادقتها. الأساس القانوني موجود منذ قانون المالية 2018 في المادة 145-IX من CGI: على الخاضعين للضريبة على الشركات (IS)، والضريبة على الدخل المهني بنظام النتيجة الصافية الحقيقية أو المبسّطة، والخاضعين لـTVA أن يتزوّدوا بنظام فوترة معلوماتي يستوفي معايير تقنية تحددها الإدارة، على أن تُحدَّد الكيفيات بنص تنظيمي حسب القطاعات؛ وهذا المرسوم التطبيقي لم يُنشر في الجريدة الرسمية (Bulletin officiel) بعد. الملزم به اليوم فعلياً هو المادة 145-III: فواتير مرقّمة من سلسلة متصلة، ورقية أو صادرة عن نظام معلوماتي، بالبيانات الإلزامية. وفحصنا أعداد الجريدة الرسمية (النشرة العامة بالعربية) من العدد 7500 (16 أبريل 2026) إلى العدد 7556 مكرر (30 أكتوبر 2026، آخر عدد منشور على موقع الأمانة العامة للحكومة يوم التحقق) فلم نجد مرسوماً للفوترة الإلكترونية ولا نصاً تطبيقياً للمادة 145-IX. أما النموذج المعلن فليس نصاً نافذاً: إطلاق تدريجي حسب حجم المقاولات يبدأ بمعاملات B2B ثم يمتد إلى B2C (تصريحات المدير العام للضرائب كما نقلها Le360 في 20 أبريل 2026)، وتصديق مسبق (clearance) بملف UBL مهيكل وتوقيع إلكتروني مؤهل (Challenge.ma، 1 يونيو 2026، نقلاً عن DGI)، والبدء بالشركات الكبرى (Upsilon Consulting، لا نص رسمي). المستثنون من المادة 145 كلها عدا البريد الإلكتروني: المقاول الذاتي (auto-entrepreneur) والخاضعون للمساهمة المهنية الموحدة CPU (المادة 145-XI).",
+    "keyDates": [
+      {
+        "date": "2018-01-01",
+        "event": "قانون المالية 2018 (القانون 68-17) يُدخل المادة 145-IX من CGI: إلزام مبدئي باعتماد نظام فوترة معلوماتي وفق معايير تقنية تحددها الإدارة، مع إحالة الكيفيات إلى نص تنظيمي."
+      },
+      {
+        "date": "2025-12-16",
+        "event": "نشر قانون المالية 2026 (القانون 50-25) في الجريدة الرسمية عدد 7465 مكرر؛ عزّز إلزام مسك المحاسبة بصيغة إلكترونية (المادة 145-I) — وليس هذا إلزاماً بالفوترة الإلكترونية."
+      },
+      {
+        "date": "2026-04-20",
+        "event": "المدير العام للضرائب (Younes Idrissi Kaitouni) يعلن، حسب Le360 نقلاً عن Assabah، دخول الفوترة الإلكترونية حيز التنفيذ «ابتداءً من هذه السنة» بنهج تدريجي: إلزامية أولاً في المعاملات بين المقاولات (B2B) ثم الفواتير الموجّهة للأفراد (B2C)، وتدرّجاً حسب حجم المقاولة؛ ومشروع مرسوم أُحيل على الأمانة العامة للحكومة؛ ونظام مجاني للمقاولات الصغيرة جداً والصغرى والمتوسطة. (لم يرد في المقال تحديد «الشركات الكبرى» ولا UBL ولا clearance.)"
+      },
+      {
+        "date": "2026-09-28",
+        "event": "حسب Upsilon Consulting لم يُنشر أي مرسوم أو قرار تطبيقي للمادة 145-IX في الجريدة الرسمية، ولم يتحقق الإطلاق المعلن لسنة 2026."
+      },
+      {
+        "date": "2026-10-30",
+        "event": "آخر عدد من الجريدة الرسمية (النشرة العامة بالعربية) منشور على موقع SGG يوم التحقق: العدد 7556 مكرر. لا مرسوم للفوترة الإلكترونية ولا نص تطبيقي للمادة 145-IX في الأعداد 7500–7556 مكرر (16 أبريل – 30 أكتوبر 2026)، ولا في الطبعة الفرنسية للترجمة الرسمية حتى العدد 7554 مكرر (22 أكتوبر 2026)."
+      },
+      {
+        "date": "2026-11-11",
+        "event": "تاريخ التحقق: لا إعلان عن الفوترة الإلكترونية على الصفحة الرئيسية لبوابة DGI، ومشروع قانون المالية 2027 (أكتوبر 2026) لا يتضمن تدبيراً للفوترة الإلكترونية حسب ملخص Upsilon. لا موعد إلزام نافذ."
+      }
+    ],
+    "b2cReceipts": "المادة 145-III من CGI: عند بيع الشركات منتجات أو بضائع لأفراد يجوز أن يقوم ticket de caisse مقام الفاتورة، بحد أدنى: تاريخ العملية، هوية البائع أو مقدّم الخدمة، تعيين المنتج أو الخدمة، الكمية وسعر البيع مع ذكر TVA عند الاقتضاء. لم نجد في CGI 2026 إلزاماً بأجهزة ضريبية أو صناديق تسجيل معتمدة، ومرحلة B2C في مشروع الفوترة الإلكترونية معلنة لمرحلة لاحقة بلا تاريخ.",
+    "sources": [
+      {
+        "url": "https://www.tax.gov.ma/wps/wcm/connect/08712531-1e81-4e28-a38b-2bd9edf8e09e/CGI+2026+FR.pdf?MOD=AJPERES",
+        "title": "DGI — Code Général des Impôts 2026, art. 145 (I, III, IX, X, XI)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.tax.gov.ma/wps/portal/DGI/Accueil",
+        "title": "Portail de la DGI — page d'accueil (aucune annonce de facturation électronique visible au 11/11/2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.upsilon-consulting.com/en/electronic-invoicing-morocco-2026/",
+        "title": "Upsilon Consulting — Electronic Invoicing in Morocco 2026 (statut au 28 septembre 2026, revu le 5 novembre 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.challenge.ma/facturation-electronique-les-entreprises-face-a-la-grande-bascule-320792/",
+        "title": "Challenge.ma — Facturation électronique : les entreprises face à la grande bascule (1er juin 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://fr.le360.ma/politique/facturation-electronique-une-reforme-progressive-pour-plus-de-transparence_2YMA34TSIRFQBEYTNPOL3UTSRU/",
+        "title": "Le360 — Facturation électronique : une réforme progressive pour plus de transparence (20 avril 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.upsilon-consulting.com/plf-2027-mesures-fiscales-cles/",
+        "title": "Upsilon Consulting — PLF 2027 Maroc : mesures fiscales clés (3 novembre 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://sovos.com/guides/e-invoicing/",
+        "title": "Sovos — E-invoicing guide (mis à jour 11 décembre 2024) : au Maroc, émettre des e-factures sans consultation préalable de l'administration fiscale n'est pas recommandé",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.sgg.gov.ma/arabe/BulletinOfficiel.aspx",
+        "title": "Secrétariat Général du Gouvernement — Bulletin officiel (édition générale arabe n° 7500 à 7556 bis, 16/04–30/10/2026 ; édition de traduction officielle française jusqu'au n° 7554 bis du 22/10/2026) : aucun décret de facturation électronique",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://europe.thomsonreuters.com/compliance/regulatory-updates/morocco",
+        "title": "Thomson Reuters (ex-Pagero) — Regulatory updates: Morocco (mises à jour du 13/01/2025 et du 30/04/2026 ; aucune date d'obligation fixée)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "invoiceRequirements": [
+    "فاتورة أو مذكّرة (facture ou mémoire) مرقّمة مسبقاً من سلسلة متصلة، أو صادرة عن نظام معلوماتي بسلسلة متصلة (CGI 145-III).",
+    "هوية البائع (identité du vendeur).",
+    "المعرّف الضريبي IF الذي يمنحه المكتب المحلي للضرائب، ورقم المادة في الرسم المهني (numéro d'article d'imposition à la taxe professionnelle) (145-III-2°).",
+    "ICE البائع على الفاتورة وعلى كل وثيقة تقوم مقامها (145-VIII).",
+    "تاريخ العملية.",
+    "اسم المشتري أو اسمه التجاري (raison sociale) وعنوانه وICE الخاص به (145-III-4°).",
+    "الأسعار والكميات وطبيعة البضائع المبيعة أو الأشغال أو الخدمات.",
+    "مبلغ TVA بشكل منفصل، مضافاً إلى السعر أو مشمولاً فيه؛ وفي العمليات المعفاة أو الموقوفة (المواد 91 و92 و94) يُذكر الإعفاء أو النظام الموقوف بدل مبلغ الضريبة.",
+    "مراجع الأداء وطريقته (références et mode de paiement).",
+    "كل بيان آخر تفرضه النصوص القانونية.",
+    "في البيع المباشر بالجولات (tournées) لعملاء خاضعين للرسم المهني: ذكر رقم مادة الرسم المهني للعميل على الفاتورة أو الوثيقة التي تقوم مقامها، إلا إذا كانت الشركة تودع «état des ventes par client» المنصوص عليه في المادتين 20-I و82-I (145-V).",
+    "البيع لأفراد: يجوز ticket de caisse بدل الفاتورة بحد أدنى: التاريخ، هوية البائع، تعيين المنتج، الكمية والسعر مع ذكر TVA عند الاقتضاء (145-III)."
+  ],
+  "distribution": {
+    "hubs": [
+      "Casablanca",
+      "Tanger",
+      "Rabat-Salé",
+      "Fès",
+      "Marrakech"
+    ],
+    "tradeChannels": [
+      "épiceries de proximité (commerce de proximité)",
+      "supérettes",
+      "commerçants grossistes et distributeurs"
+    ],
+    "localTerms": {
+      "vanSales": "vente directe en tournée (صيغة المادة 145-V من CGI: « contribuables qui pratiquent des tournées en vue de la vente directe »)",
+      "preSales": null,
+      "salesRep": null,
+      "retailShop": "épicerie",
+      "routeAccounting": null
+    },
+    "collectionMethods": [
+      "espèces (نقداً)",
+      "chèque (وchèque barré non endossable لما يتجاوز 5,000 درهم يومياً لكل مورد)",
+      "effet de commerce / lettre de change normalisée (LCN)",
+      "virement bancaire",
+      "carte bancaire (moyen magnétique de paiement)"
+    ],
+    "notes": "1) وفق المادة 106-II من CGI لا يستطيع المشتري خصم TVA على مشترياته التي تتجاوز 5,000 درهم في اليوم لكل مورد (في حدود 50,000 درهم شهرياً لكل مورد) إن لم تُسدَّد بشيك مسطّر غير قابل للتظهير أو كمبيالة (effet de commerce) أو وسيلة دفع مغناطيسية أو تحويل بنكي أو وسيلة إلكترونية أو مقاصة موثقة؛ لذلك يهمّ الموزّع الذي يبيع لعملاء خاضعين لـTVA أن يسجّل المندوب طريقة التحصيل ومرجعها. 2) تاجر الجملة خاضع لـTVA أياً كان رقم معاملاته، بينما كثير من البقالات الصغيرة دون عتبة 2,000,000 درهم فلا تخضع (المادة 89). 3) فاتورة الموزّع الغذائي غالباً متعددة النسب: أصناف معفاة (خبز، دقيق، حليب، سكر خام، سردين معلّب...) وأصناف 10% (زيت المائدة، السكر المكرّر، الأرز، الملح، العجائن غير المعفاة) والباقي 20%. 4) المادة 145-V تخص صراحة البيع بالجولات وتشترط رقم الرسم المهني للعميل ما لم تُودَع قائمة المبيعات حسب العميل. 5) Bank Al-Maghrib يعدّ الشيك والتحويل والبطاقة والكمبيالة (ومنها LCN) والاقتطاع وسائل دفع كتابية خاضعة لرقابته. 6) اختيار مراكز التوزيع اجتهاد تحريري بحسب الحجم الاقتصادي والموانئ، لا رقم إحصائي موثّق في هذا البحث."
+  },
+  "honesty": {
+    "canSay": [
+      "العملة ونسبة الضريبة يضبطهما العميل بنفسه في إعدادات شركته على FieldSales: يمكن اختيار الدرهم المغربي (MAD) وإدخال نسبة TVA التي تنطبق على نشاطه (القياسية في المغرب 20%، والمخفّضة 10%).",
+      "FieldSales منصة لإدارة مناديب المبيعات والبيع المباشر من السيارة في الجولات (vente directe en tournée) والتحصيل الميداني لشركات التوزيع.",
+      "يمكن تعريف طرق الدفع التي تستعملها الشركة (نقداً، شيك، LCN، تحويل) وتسجيل التحصيل ميدانياً بسندات قبض.",
+      "تعمل فواتير المندوب وسندات القبض دون اتصال ثم تتزامن عند عودة الشبكة.",
+      "الربط الحكومي للفوترة الإلكترونية حيّ في FieldSales اليوم في السعودية وحدها (ZATCA Fatoora، المرحلة الثانية). في المغرب لا يوجد ربط مع DGI، وهو «متاح عند الطلب» دون وعد بموعد أو نطاق.",
+      "حتى آخر عدد منشور من الجريدة الرسمية عند التحقق (العدد 7556 مكرر، 30 أكتوبر 2026) لم يصدر المرسوم التطبيقي للمادة 145-IX من CGI، فالفوترة الإلكترونية في المغرب ليست إلزامية بعد (يُعاد التحقق قبل كل نشر)."
+    ],
+    "mustNotSay": [
+      "أن FieldSales «conforme DGI» أو «homologué/agréé/certifié par la DGI» أو متوافق مع الفوترة الإلكترونية المغربية.",
+      "أن FieldSales «système informatique de facturation» يستوفي المعايير التقنية للمادة 145-IX — هذه المعايير لم تُنشر أصلاً.",
+      "أي ربط أو API أو تكامل مع منصة DGI أو بوابة SIMPL أو منصة ICE (ice.gov.ma) أو OMPIC أو CNSS.",
+      "«جاهز للتصديق المسبق (clearance)» أو «يُصدر UBL معتمداً» أو «توقيع إلكتروني مؤهل» للفواتير المغربية.",
+      "التحقق التلقائي من صحة ICE أو IF لدى الإدارة.",
+      "مواعيد إلزام أو عتبات أو غرامات غير منشورة (مثل «إلزامية للجميع في 2026»، «PME من سبتمبر 2026»، «عتبة 500,000 درهم»، «غرامة 500 درهم لكل فاتورة»).",
+      "أن FieldSales مزوّد خدمة معتمد (CSP/PDP) في المغرب.",
+      "عرض نسب TVA الملغاة 7% أو 14% كنسب سارية في 2026.",
+      "أن ICE يغني عن IF أو رقم السجل التجاري أو رقم CNSS — الدليل الرسمي ينص على أنه لا يحل محلها.",
+      "أن فاتورة FieldSales «مطابقة للمادة 145 من CGI» أو تتضمّن تلقائياً كل البيانات الإلزامية (IF ورقم TP وICE البائع والمشتري ومراجع الأداء) — لم يُتحقق من ذلك.",
+      "أي ربط أو تكامل مع بوابة الفوترة المجانية المعلنة (ومنها النطاق المتداول fatourati.gov.ma) أو مع منصة Fatourati للأداء.",
+      "أن FieldSales «يحمي من غرامات DGI» أو «مقبول لدى الإدارة الضريبية» أو يضمن حق خصم TVA للعميل.",
+      "أن الفوترة الإلكترونية في المغرب «إلزامية الآن» أو «تبدأ في تاريخ كذا» قبل نشر المرسوم التطبيقي في الجريدة الرسمية."
+    ]
+  },
+  "uncertain": [
+    "الفوترة الإلكترونية: فحصنا الجريدة الرسمية حتى العدد 7556 مكرر (30 أكتوبر 2026) فلم نجد المرسوم التطبيقي للمادة 145-IX؛ أعداد 31 أكتوبر – 11 نوفمبر 2026 لم تكن منشورة على موقع SGG يوم التحقق، ومشروع المرسوم محال على الأمانة العامة للحكومة منذ أبريل 2026، فقد يُنشر في أي عدد قادم. يُعاد التحقق قبل النشر وعند كل تحديث للصفحة.",
+    "نموذج clearance وملف UBL والتوقيع الإلكتروني المؤهل والتدرّج (B2B أولاً ثم B2C، وحسب حجم المقاولة): مصدرها تصريحات DGI كما نقلتها الصحافة (Le360 في 20 أبريل 2026، Challenge.ma في 1 يونيو 2026) وملخّصات مهنية (Thomson Reuters: «التحقق الآني من الفواتير» في تحديث 30 أبريل 2026)، لا نص قانوني. اخترنا model=clearance لأنه النموذج المعلن، بينما الوضع القانوني الفعلي اليوم فاتورة ورقية أو معلوماتية تخضع للمراقبة اللاحقة. (تصحيح: صفحة Sovos المذكورة لا تصنّف المغرب post-audit؛ تقول فقط إن إصدار فواتير إلكترونية دون استشارة الإدارة الضريبية مسبقاً غير مستحسن. أما تصنيف post-audit فورد في ملخص Thomson Reuters بتاريخ 13 يناير 2025.)",
+    "مرحلة تجريبية (pilot) B2B ومزوّدو خدمة معتمدون (CSP) لاحقاً: وردت في مقال VATCalc (تعذّر فتحه، 403)، وفي ملخص Thomson Reuters (13 يناير 2025: «مرحلة تجريبية بالتوازي مع الإطلاق الرسمي في 2026»)، وفي Challenge.ma (CSP «قد ينضمّون لاحقاً»)؛ لا نص رسمي ولا تاريخ، فلم تُدرج كحقيقة.",
+    "اسم البوابة المجانية المعلنة للمقاولات الصغيرة: ذكرت Challenge.ma النطاق «fatourati.gov.ma» دون مصدر رسمي، ولم نتحقق منه لدى DGI، فلم يُذكر في الصفحة.",
+    "مشروع قانون المالية 2027 (أكتوبر 2026) ما زال أمام البرلمان؛ لا تغيير معلن لنسب TVA حسب Upsilon، لكن يجب التحقق بعد نشره في الجريدة الرسمية (عادةً أواخر ديسمبر).",
+    "صيغة IF (المعرّف الضريبي): لم نجد مصدراً رسمياً يحدد عدد أرقامه، فتُرك بلا صيغة.",
+    "ذكر رقم السجل التجاري (RC) ورقم CNSS ورأس المال على الفاتورة شائع عملياً ومصدره قانون التجارة لا CGI؛ لم نتحقق منه في هذا البحث فلم يُدرج في الحقول الإلزامية.",
+    "المصطلحات المحلية: «moul hanout / مول الحانوت» للبقال، و«prévente»، و«autovente / autovendeur»، و«prévendeur»، والبيع بالدَّين في «الكارني» (carnet/kridi)، وسوق الجملة «درب عمر» بالدار البيضاء — شائعة في الاستعمال لكن لم نجد لها مصدراً موثوقاً قبل نفاد حصة البحث، فبقيت preSales وsalesRep وrouteAccounting = null. ومصدر «épicerie» و«supérettes» و«grossistes/distributeurs» صفحات شركات محلية (Inyad وChari) لا جهات رسمية، أما «commerçants grossistes» فواردة في CGI.",
+    "الدفع عبر المحفظة الإلكترونية (m-wallet) ورموز QR: موجودة لدى بعض المزوّدين (Chari يذكر QR والبطاقة ورابط الدفع للبقالات) لكن لم نتحقق من انتشارها لدى الموزّعين فلم تُدرج في collectionMethods.",
+    "مراكز التوزيع الخمسة اختيار تحريري بلا مصدر إحصائي في هذا البحث.",
+    "تحقّق مع فريق المنتج قبل النشر: هل تدعم فاتورة FieldSales نسب TVA متعددة في الفاتورة الواحدة (معفى + 10% + 20%)؟ وهل يمكن طباعة ICE وIF ورقم TP للبائع وICE للعميل؟ وهل واجهة التطبيق متاحة بالفرنسية؟ لم تُكتب هذه في canSay لعدم التحقق."
+  ],
+  "sources": [
+    {
+      "url": "https://www.tax.gov.ma/wps/wcm/connect/08712531-1e81-4e28-a38b-2bd9edf8e09e/CGI+2026+FR.pdf?MOD=AJPERES",
+      "title": "DGI — Code Général des Impôts, édition 2026 (intègre la loi de finances n° 50-25, BO n° 7465 bis du 16 décembre 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.tax.gov.ma/wps/portal/DGI/Accueil",
+      "title": "Portail de la Direction Générale des Impôts — page d'accueil",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.ice.gov.ma/ICE/Guide_ICE.pdf",
+      "title": "Portail ICE — Guide d'utilisation de la plateforme ICE",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.ice.gov.ma/ICE/Depliant_ICE.pdf",
+      "title": "Portail ICE — Dépliant « Adhérons à l'ICE » (août 2015)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml",
+      "title": "ISO 4217 (SIX, mainteneur officiel) — Morocco: Moroccan Dirham, MAD, 504, minor units 2",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxsummaries.pwc.com/morocco/corporate/other-taxes",
+      "title": "PwC Worldwide Tax Summaries — Morocco, Other taxes (last reviewed 30 April 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxsummaries.pwc.com/morocco/corporate/significant-developments",
+      "title": "PwC Worldwide Tax Summaries — Morocco, Significant developments (last reviewed 30 April 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://blog.avocats.deloitte.fr/maroc-les-principales-mesures-de-la-loi-de-finances-pour-2026/",
+      "title": "Deloitte Société d'Avocats — Maroc : principales mesures de la loi de finances 2026 (7 avril 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.upsilon-consulting.com/en/electronic-invoicing-morocco-2026/",
+      "title": "Upsilon Consulting — Electronic Invoicing in Morocco 2026 (statut au 28/09/2026, revu le 05/11/2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.upsilon-consulting.com/plf-2027-mesures-fiscales-cles/",
+      "title": "Upsilon Consulting — PLF 2027 : mesures fiscales clés (3 novembre 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.challenge.ma/facturation-electronique-les-entreprises-face-a-la-grande-bascule-320792/",
+      "title": "Challenge.ma — Facturation électronique : les entreprises face à la grande bascule (1er juin 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://fr.le360.ma/politique/facturation-electronique-une-reforme-progressive-pour-plus-de-transparence_2YMA34TSIRFQBEYTNPOL3UTSRU/",
+      "title": "Le360 — Facturation électronique : une réforme progressive pour plus de transparence (20 avril 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://sovos.com/guides/e-invoicing/",
+      "title": "Sovos — E-invoicing guide (mis à jour 11 décembre 2024)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.bkam.ma/Systemes-et-moyens-de-paiement/Moyens-de-paiement-scripturaux-et-leur-surveillance/Moyens-de-paiement-scripturaux",
+      "title": "Bank Al-Maghrib — Moyens de paiement scripturaux (chèque, carte, virement, prélèvement, lettre de change)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.bkam.ma/Systemes-et-moyens-de-paiement/Moyens-de-paiement-scripturaux-et-leur-surveillance/Surveillance-des-moyens-de-paiement/Lettres-de-change",
+      "title": "Bank Al-Maghrib — Lettres de change (dont lettres de change normalisées, LCN)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://inyad.com/fr/",
+      "title": "Inyad (logiciel de caisse marocain) — segments « Épicerie & supérette », « Fabricants, distributeurs & grossistes » (source commerciale, faible)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.chari.ma/",
+      "title": "Chari (fintech marocaine) — offre « pour les commerçants et épiceries » (source commerciale, faible)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.sgg.gov.ma/arabe/BulletinOfficiel.aspx",
+      "title": "Secrétariat Général du Gouvernement — Bulletin officiel (édition générale arabe n° 7500 à 7556 bis, 16/04–30/10/2026 ; édition de traduction officielle française jusqu'au n° 7554 bis du 22/10/2026) : aucun décret de facturation électronique",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://europe.thomsonreuters.com/compliance/regulatory-updates/morocco",
+      "title": "Thomson Reuters (ex-Pagero) — Regulatory updates: Morocco (mises à jour du 13/01/2025 et du 30/04/2026 ; aucune date d'obligation fixée)",
+      "accessed": "2026-11-11"
+    }
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "method": "تدقيق مستقل: نص CGI 2026 الرسمي (PDF من tax.gov.ma) للمواد 89 و91 و92 و99 و106 و108 و145 و247-XXXXI؛ مسح نصّي لأعداد الجريدة الرسمية بالعربية 7500–7556 مكرر وبالفرنسية حتى 7554 مكرر (موقع SGG)؛ قائمة ISO 4217 من SIX (منشورة 2026-09-17)؛ دليل ICE ومطويته الرسميان؛ PwC (مراجعة 30 أبريل 2026)؛ Deloitte (7 أبريل 2026)؛ Upsilon (مراجعة 5 نوفمبر 2026)؛ Thomson Reuters (30 أبريل 2026)؛ Le360 وChallenge.ma. تعذّر بحث الويب (نفاد الحصة) فاعتمدنا الجلب المباشر للمصادر.",
+    "verified": [
+      "النسبة القياسية 20% والمخفّضة الوحيدة 10% منذ 1 يناير 2026 (CGI art. 99 و247-XXXXI)، ولا قانون مالية معدِّل ولا تغيير لنسب TVA في الجريدة الرسمية حتى 30 أكتوبر 2026، ومشروع قانون المالية 2027 لا يغيّرها (Upsilon، 5 نوفمبر 2026).",
+      "اسم الضريبة Taxe sur la valeur ajoutée / الضريبة على القيمة المضافة، والجهة DGI (tax.gov.ma).",
+      "الفوترة الإلكترونية غير إلزامية اليوم: المادة 145-IX بلا نص تطبيقي منشور حتى العدد 7556 مكرر (30 أكتوبر 2026)؛ status=planned صحيح.",
+      "ICE من 15 خانة (9+4+2) ولا يحل محل IF وRC وCNSS (Guide ICE ومطوية أغسطس 2015)؛ IF ورقم TP وICE على الفاتورة (CGI 145-III و145-VIII).",
+      "العملة MAD، الرقم 504، خانتان عشريتان (ISO 4217، قائمة SIX المنشورة 2026-09-17).",
+      "عتبات المادة 89 (2,000,000 درهم للتجار وتجار الجملة دون عتبة)، والمادة 91-II-3° (500,000 درهم)، والمادة 108 (1,000,000 درهم للتصريح الشهري)، والمادة 106-II (5,000 درهم يومياً و50,000 شهرياً لكل مورد)، والمادة 145-V (البيع بالجولات)، و145-XI (CPU والمقاول الذاتي)، وإعفاءات المادة 91 الغذائية وإضافات قانون المالية 2026 (الأسمدة، الدم، العجائن القصيرة).",
+      "قانون المالية 2026 رقم 50-25 منشور في الجريدة الرسمية عدد 7465 مكرر بتاريخ 16 ديسمبر 2025."
+    ],
+    "corrections": [
+      {
+        "field": "tax.otherRates[0].appliesTo",
+        "before": "الماء الموزّع عبر الشبكات العامة (ولا ذكر لتغيّرات 2026)",
+        "after": "الماء الموجّه إلى شبكات التوزيع العامة وخدمات التطهير وكراء عدّاد الماء (أما الماء المخصّص للاستعمال المنزلي الذي تسلّمه هيئات التوزيع العامة فمعفى مع حق الخصم بالمادة 92-I-55°) + إضافة انتقالات 1 يناير 2026 (السكر المكرّر 9%→10%، النقل الطرقي 12%→10%، الكهرباء 18%→20%)",
+        "source": "DGI — CGI 2026, art. 99-B-1°, 92-I-55° et 247-XXXXI (A–H) : https://www.tax.gov.ma/wps/wcm/connect/08712531-1e81-4e28-a38b-2bd9edf8e09e/CGI+2026+FR.pdf?MOD=AJPERES"
+      },
+      {
+        "field": "tax.otherRates[3].appliesTo",
+        "before": "زيت الزيتون الحرفي",
+        "after": "زيت الزيتون ومخلّفات عصر الزيتون المصنوعة في الوحدات التقليدية (نص المادة 91-I-A-7°: « l'huile d'olive et les sous-produits de la trituration des olives fabriqués par les unités artisanales »)",
+        "source": "DGI — CGI 2026, art. 91-I-A-7° : https://www.tax.gov.ma/wps/wcm/connect/08712531-1e81-4e28-a38b-2bd9edf8e09e/CGI+2026+FR.pdf?MOD=AJPERES"
+      },
+      {
+        "field": "einvoicing.scopeNow",
+        "before": "والنموذج المعلن (تصديق مسبق clearance بملف UBL مهيكل، يبدأ بالشركات الكبرى في B2B ثم الصغرى والمتوسطة، وB2C لاحقاً) مصدره تصريحات المدير العام للضرائب في أبريل 2026 والصحافة، لا نصّ نافذ.",
+        "after": "وفحصنا أعداد الجريدة الرسمية (النشرة العامة بالعربية) من العدد 7500 (16 أبريل 2026) إلى العدد 7556 مكرر (30 أكتوبر 2026، آخر عدد منشور على موقع الأمانة العامة للحكومة يوم التحقق) فلم نجد مرسوماً للفوترة الإلكترونية ولا نصاً تطبيقياً للمادة 145-IX. أما النموذج المعلن فليس نصاً نافذاً: إطلاق تدريجي حسب حجم المقاولات يبدأ بمعاملات B2B ثم يمتد إلى B2C (تصريحات المدير العام للضرائب كما نقلها Le360 في 20 أبريل 2026)، وتصديق مسبق (clearance) بملف UBL مهيكل وتوقيع إلكتروني مؤهل (Challenge.ma، 1 يونيو 2026، نقلاً عن DGI)، والبدء بالشركات الكبرى (Upsilon Consulting، لا نص رسمي).",
+        "source": "SGG — Bulletin officiel (édition générale, arabe) n° 7500 à 7556 bis : https://www.sgg.gov.ma/arabe/BulletinOfficiel.aspx ; Le360 (20/04/2026) : https://fr.le360.ma/politique/facturation-electronique-une-reforme-progressive-pour-plus-de-transparence_2YMA34TSIRFQBEYTNPOL3UTSRU/ ; Challenge.ma (01/06/2026) : https://www.challenge.ma/facturation-electronique-les-entreprises-face-a-la-grande-bascule-320792/"
+      },
+      {
+        "field": "einvoicing.keyDates[2026-04]",
+        "before": "{\"date\":\"2026-04\",\"event\":\"المدير العام للضرائب يعلن إطلاقاً تدريجياً «خلال 2026» يبدأ بالشركات الكبرى في B2B، ومشروع المرسوم التطبيقي محال على الأمانة العامة للحكومة (SGG)، مع بوابة مجانية معلنة للمقاولات الصغيرة جداً والصغرى والمتوسطة.\"}",
+        "after": "{\"date\":\"2026-04-20\",\"event\":\"المدير العام للضرائب (Younes Idrissi Kaitouni) يعلن، حسب Le360 نقلاً عن Assabah، دخول الفوترة الإلكترونية حيز التنفيذ «ابتداءً من هذه السنة» بنهج تدريجي: إلزامية أولاً في المعاملات بين المقاولات (B2B) ثم الفواتير الموجّهة للأفراد (B2C)، وتدرّجاً حسب حجم المقاولة؛ ومشروع مرسوم أُحيل على الأمانة العامة للحكومة؛ ونظام مجاني للمقاولات الصغيرة جداً والصغرى والمتوسطة. (لم يرد في المقال تحديد «الشركات الكبرى» ولا UBL ولا clearance.)\"}",
+        "source": "Le360 — 20 avril 2026 : https://fr.le360.ma/politique/facturation-electronique-une-reforme-progressive-pour-plus-de-transparence_2YMA34TSIRFQBEYTNPOL3UTSRU/"
+      },
+      {
+        "field": "einvoicing.keyDates (إضافة)",
+        "before": null,
+        "after": "{\"date\":\"2026-10-30\",\"event\":\"آخر عدد من الجريدة الرسمية (النشرة العامة بالعربية) منشور على موقع SGG يوم التحقق: العدد 7556 مكرر. لا مرسوم للفوترة الإلكترونية ولا نص تطبيقي للمادة 145-IX في الأعداد 7500–7556 مكرر (16 أبريل – 30 أكتوبر 2026)، ولا في الطبعة الفرنسية للترجمة الرسمية حتى العدد 7554 مكرر (22 أكتوبر 2026).\"}",
+        "source": "SGG — Bulletin officiel, éditions arabe et française 2026 : https://www.sgg.gov.ma/arabe/BulletinOfficiel.aspx"
+      },
+      {
+        "field": "uncertain[Sovos]",
+        "before": "Sovos يصنّف المغرب post-audit في صفحة محدّثة في ديسمبر 2024",
+        "after": "صفحة Sovos (dateModified 2024-12-11) لا تصنّف المغرب post-audit؛ التصنيف ورد في ملخص Thomson Reuters (13/01/2025)",
+        "source": "https://sovos.com/guides/e-invoicing/ ; https://europe.thomsonreuters.com/compliance/regulatory-updates/morocco"
+      },
+      {
+        "field": "uncertain[e-invoicing]",
+        "before": "الفوترة الإلكترونية: المرسوم التطبيقي للمادة 145-IX غير منشور حتى آخر مصدر (28 سبتمبر 2026، وصفحة Upsilon مراجعة في 5 نوفمبر 2026)، ولم نستطع فحص الجريدة الرسمية لشهري أكتوبر ونوفمبر 2026 مباشرة. يُعاد التحقق قبل النشر.",
+        "after": "الفوترة الإلكترونية: فحصنا الجريدة الرسمية حتى العدد 7556 مكرر (30 أكتوبر 2026) فلم نجد المرسوم التطبيقي للمادة 145-IX؛ أعداد 31 أكتوبر – 11 نوفمبر 2026 لم تكن منشورة على موقع SGG يوم التحقق، ومشروع المرسوم محال على الأمانة العامة للحكومة منذ أبريل 2026، فقد يُنشر في أي عدد قادم. يُعاد التحقق قبل النشر وعند كل تحديث للصفحة.",
+        "source": "SGG — Bulletin officiel : https://www.sgg.gov.ma/arabe/BulletinOfficiel.aspx"
+      },
+      {
+        "field": "uncertain[pilot]",
+        "before": "مرحلة تجريبية (pilot) B2B في 2025/2026 ومزوّدو خدمة معتمدون لاحقاً: وردت في مقال VATCalc تعذّر فتحه (403)، فلم تُدرج كحقيقة.",
+        "after": "مرحلة تجريبية (pilot) B2B ومزوّدو خدمة معتمدون (CSP) لاحقاً: وردت في مقال VATCalc (تعذّر فتحه، 403)، وفي ملخص Thomson Reuters (13 يناير 2025: «مرحلة تجريبية بالتوازي مع الإطلاق الرسمي في 2026»)، وفي Challenge.ma (CSP «قد ينضمّون لاحقاً»)؛ لا نص رسمي ولا تاريخ، فلم تُدرج كحقيقة.",
+        "source": "https://europe.thomsonreuters.com/compliance/regulatory-updates/morocco ; https://www.challenge.ma/facturation-electronique-les-entreprises-face-a-la-grande-bascule-320792/"
+      },
+      {
+        "field": "uncertain[portal]",
+        "before": "اسم البوابة المجانية المعلنة للمقاولات الصغيرة: ذكرت Challenge.ma نطاقاً لم نتحقق منه رسمياً، فلم يُذكر.",
+        "after": "اسم البوابة المجانية المعلنة للمقاولات الصغيرة: ذكرت Challenge.ma النطاق «fatourati.gov.ma» دون مصدر رسمي، ولم نتحقق منه لدى DGI، فلم يُذكر في الصفحة.",
+        "source": "https://www.challenge.ma/facturation-electronique-les-entreprises-face-a-la-grande-bascule-320792/"
+      },
+      {
+        "field": "honesty.canSay[0]",
+        "before": "يمكن لمدير الشركة في FieldSales ضبط العملة على الدرهم المغربي (MAD) وإدخال نسب TVA المعمول بها في المغرب (20% و10% والإعفاء)؛ العميل هو من يضبط العملة والضريبة.",
+        "after": "العملة ونسبة الضريبة يضبطهما العميل بنفسه في إعدادات شركته على FieldSales: يمكن اختيار الدرهم المغربي (MAD) وإدخال نسبة TVA التي تنطبق على نشاطه (القياسية في المغرب 20%، والمخفّضة 10%).",
+        "source": "تعليمات المهمة: «العملة والضريبة يضبطهما العميل» — دعم نسب متعددة (معفى + 10% + 20%) في الفاتورة الواحدة غير متحقق منه فحُذف «والإعفاء» من الوعد"
+      },
+      {
+        "field": "honesty.canSay[4]",
+        "before": "الربط الحكومي للفوترة الإلكترونية حيّ في FieldSales اليوم في السعودية وحدها (ZATCA)؛ وفي المغرب يمكن بحث الربط مع منظومة DGI عند الطلب بعد صدور نصوصها التطبيقية، دون التزام بموعد.",
+        "after": "الربط الحكومي للفوترة الإلكترونية حيّ في FieldSales اليوم في السعودية وحدها (ZATCA Fatoora، المرحلة الثانية). في المغرب لا يوجد ربط مع DGI، وهو «متاح عند الطلب» دون وعد بموعد أو نطاق.",
+        "source": "تعليمات المهمة: الربط خارج السعودية «متاح عند الطلب» بلا وعد"
+      },
+      {
+        "field": "honesty.canSay[5]",
+        "before": "حتى نوفمبر 2026 لم يصبح مشروع الفوترة الإلكترونية في المغرب إلزامياً: المرسوم التطبيقي للمادة 145-IX من CGI لم يُنشر في الجريدة الرسمية بعد.",
+        "after": "حتى آخر عدد منشور من الجريدة الرسمية عند التحقق (العدد 7556 مكرر، 30 أكتوبر 2026) لم يصدر المرسوم التطبيقي للمادة 145-IX من CGI، فالفوترة الإلكترونية في المغرب ليست إلزامية بعد (يُعاد التحقق قبل كل نشر).",
+        "source": "SGG — Bulletin officiel : https://www.sgg.gov.ma/arabe/BulletinOfficiel.aspx"
+      },
+      {
+        "field": "honesty.mustNotSay (إضافة)",
+        "before": null,
+        "after": "أن فاتورة FieldSales «مطابقة للمادة 145 من CGI» أو تتضمّن تلقائياً كل البيانات الإلزامية (IF ورقم TP وICE البائع والمشتري ومراجع الأداء) — لم يُتحقق من ذلك. | أي ربط أو تكامل مع بوابة الفوترة المجانية المعلنة (ومنها النطاق المتداول fatourati.gov.ma) أو مع منصة Fatourati للأداء. | أن FieldSales «يحمي من غرامات DGI» أو «مقبول لدى الإدارة الضريبية» أو يضمن حق خصم TVA للعميل. | أن الفوترة الإلكترونية في المغرب «إلزامية الآن» أو «تبدأ في تاريخ كذا» قبل نشر المرسوم التطبيقي في الجريدة الرسمية.",
+        "source": "تعليمات المهمة: منع أي ادعاء ربط/اعتماد/امتثال خارج السعودية"
+      }
+    ],
+    "confidence": "high"
+  }
+}

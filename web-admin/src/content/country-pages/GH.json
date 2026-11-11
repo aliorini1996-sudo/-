@@ -1,0 +1,225 @@
+{
+  "code": "GH",
+  "languages": [
+    "en"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "en": {
+      "slugHint": "van-sales-software-ghana",
+      "title": "Van Sales & Pre-Sales Software for Ghana | FieldSales",
+      "description": "Van sales and pre-sales software for distributors in Ghana: invoices from the rep's phone, thermal printing, MoMo and cash collections, offline sync.",
+      "h1": "Van sales and pre-sales software for distributors in Ghana",
+      "intro": "FieldSales is a cloud platform for distributors and wholesalers in Ghana that run sales reps on van sales or pre-sales routes. Reps issue invoices from their phones and print them on a thermal printer, record cash, cheque and Mobile Money collections, and keep track of customer balances, van stock and route visits with location and photos. The app runs on Android and iPhone, works offline and syncs later, and managers follow everything from a web dashboard. You set the Ghana cedi, your tax rate and your payment methods yourself.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "How distribution works in Ghana",
+          "body": "Goods reach the market through wholesalers, retail outlets and agents or distributors, according to the U.S. International Trade Administration's country guide. Imports come in through the ports of Tema and Takoradi or Kotoka airport in Accra. Greater Accra, home to Accra and Tema and more than 5.4 million people, and Kumasi, with about 2.1 million, are the largest population centres, followed by Takoradi, Tamale and Sunyani. Business is built face to face, and agents usually carry several product lines, so exclusivity is hard to win and regular visits matter. For a distributor, that means sales reps on the road every day: on van sales routes, the rep sells and delivers straight from the vehicle's stock; on pre-sales routes, the rep takes the order and delivery follows. Mobile Money (MoMo) and debit cards are used more than credit cards, and GhIPSS services link wallets with bank accounts and give merchants GhQR. With the higher VAT registration threshold for goods suppliers, many small retail shops are not registered for VAT, while a VAT-registered distributor must charge the effective 20% rate on taxable supplies."
+        },
+        {
+          "id": "tax",
+          "title": "VAT, NHIL and GETFund: what goes on your invoice",
+          "body": "Value Added Tax (VAT) in Ghana is administered by the Ghana Revenue Authority (GRA). Since 1 January 2026, under the Value Added Tax Act, 2025 (Act 1151), taxable supplies carry VAT at 15% plus the National Health Insurance Levy (NHIL) at 2.5% and the GETFund Levy at 2.5%, all calculated on the same base, for an effective combined rate of 20%. The COVID-19 Health Recovery Levy was abolished, and NHIL and GETFund can now be claimed as input tax. Exports of goods and certain services are zero-rated, and appointed withholding agents withhold 7% of the taxable value when they pay for standard-rated supplies. Suppliers of goods must register once their annual taxable supplies pass the threshold, which Act 1151 raised, while service providers must register within 30 days of starting taxable activity, whatever their turnover. A VAT invoice shows the supplier's TIN and, when the customer is a taxable person, the customer's TIN as well; for individuals, the Ghana Card PIN, in the format GHA-123456789-1, is the TIN. GRA requires computerised invoices to list NHIL, GETFund and VAT on separate lines, each with its rate and amount. In FieldSales, you enter the tax name and rate in your company settings, for example the combined effective rate of 20%, and you can store each customer's TIN or Ghana Card PIN on their profile. Check with your tax adviser how your printed documents should present the three taxes before you use them as VAT invoices."
+        },
+        {
+          "id": "einvoicing",
+          "title": "E-VAT: Ghana's electronic invoicing today",
+          "body": "Ghana's electronic invoicing system is E-VAT, run by the Ghana Revenue Authority. It follows a clearance model: GRA validates each invoice through the Virtual Sales Data Controller (VSDC) before it is issued, and the invoice comes back with a QR code, an invoice signature, a verification engine ID and a timestamp. Under GRA's E-VAT guidelines (GRA/AG/2024/005, June 2024), invoices can be issued offline for up to 24 hours, after which GRA's system must be updated. Businesses join either by connecting their own ERP or POS through an API after testing by GRA, or by using GRA's own invoicing software for desktop, Android or the web. E-VAT started as a pilot in 2022. GRA's Phase Two notice of September 2024 set out the onboarding of around 2,000 more VAT-registered taxpayers, more than 3,000 taxpayers were live by June 2025 according to Graphic Online, and in May 2026 GRA invited 1,217 E-VAT taxpayers to training workshops in Accra. PwC's Worldwide Tax Summaries (last reviewed 27 October 2026) state that taxable or VAT-registered persons should issue tax invoices or sales receipts through E-VAT or a fiscal electronic device (FED) respectively. In practice, GRA brings VAT-registered taxpayers on board in batches set by the Commissioner-General, and we found no official list showing who is still outside the system; businesses that are not registered for VAT are not covered. On fiscal electronic devices, Parliament adopted a Finance Committee report on 28 July 2026 allowing a service provider to be engaged, and the Commissioner-General said in September 2026 that rollout was planned for the fourth quarter of 2026 (MyJoyOnline); at our last check, we had found no official GRA notice of the start date or scope. GRA's VAT page still tells buyers to ask for either a regular VAT invoice or an E-VAT invoice. FieldSales is not part of this system: documents issued in FieldSales are not validated by GRA and do not carry GRA's QR code or signature. A connection to Ghana's government e-invoicing platform is available on request, after we study the country's requirements, with no promise of a date or an outcome."
+        },
+        {
+          "id": "collections",
+          "title": "Collections: cash, MoMo, GhQR and customer balances",
+          "body": "Distributors in Ghana collect in cash, through Mobile Money such as MTN MoMo and Telecel Cash, by GhQR, by GhIPSS Instant Pay (GIP) or bank transfer, by cheque, and by debit card on gh-link or e-zwich. In FieldSales, you define the payment methods your company accepts, including custom methods such as MoMo or GhQR, and the rep picks one when issuing a receipt to the customer. These are records inside FieldSales, not an automatic link to MTN, Telecel or GhIPSS, so you still confirm the money on your wallet or bank account as usual. Every receipt reduces the customer's outstanding balance, which lets managers see who owes what and plan follow-ups on credit customers before the rep's next visit. Receipts sync to the web dashboard, so the office sees what each rep has collected without waiting for paper books."
+        },
+        {
+          "id": "how",
+          "title": "How FieldSales works for a Ghanaian distributor",
+          "body": "You set your company currency to the Ghana cedi (GHS) and enter your tax name and rate in settings; nothing is hard-coded for you. Reps work on Android phones or iPhones: they issue invoices, returns and receipts at the outlet and print them on a portable thermal printer. The app keeps working without a connection and syncs when the signal comes back, so a weak signal does not have to stop a sale. The stock on each van is assigned to the rep and reconciled when the vehicle returns, and reps follow a planned route with each visit logged with location and photos. Managers track sales, stock and collections from the web dashboard. The interface is available in English, Arabic, French, Turkish and Chinese, and only in those five languages."
+        }
+      ],
+      "faq": [
+        {
+          "q": "Are FieldSales invoices the same as GRA E-VAT invoices?",
+          "a": "No. Invoices and receipts from FieldSales are not validated by GRA and do not carry GRA's QR code, invoice signature or verification engine ID, so they do not replace an E-VAT invoice where GRA has brought you onto the system. FieldSales is not a fiscal electronic device either. A connection to Ghana's government e-invoicing platform is available on request, after we study the country's requirements, with no promise of a date or an outcome. Our only live government e-invoicing integration is in Saudi Arabia: We support Phase 2 integration with ZATCA’s Fatoora platform."
+        },
+        {
+          "q": "How do I set VAT, NHIL and GETFund in FieldSales?",
+          "a": "Enter the tax name and rate in your company settings, for example the combined effective rate of 20% made up of VAT at 15%, NHIL at 2.5% and the GETFund Levy at 2.5%. FieldSales applies the rate you configure; it does not set tax rates for you. GRA requires computerised invoices to show the three taxes on separate lines, so ask your tax adviser how your documents should present them."
+        },
+        {
+          "q": "Does the app work without internet on the route?",
+          "a": "Yes. Reps can issue invoices and receipts and log visits with no connection. Everything is stored on the phone and syncs to the cloud as soon as the signal returns, so the office sees the day's sales and collections without re-entering anything."
+        },
+        {
+          "q": "How do reps record a MoMo payment from a shop?",
+          "a": "Add Mobile Money, for example MTN MoMo or Telecel Cash, as a payment method in your settings. When a customer pays, the rep issues a receipt, selects that method, and the customer's balance updates straight away. It is a record in FieldSales, not an automatic connection to the wallet provider, so confirm the payment on your MoMo account as you normally would."
+        },
+        {
+          "q": "Can I keep a customer's TIN or Ghana Card PIN on file?",
+          "a": "Yes. You can store each customer's TIN, or the Ghana Card PIN for individuals, on their customer profile. GRA asks for the customer's TIN on invoices to taxable customers, and under section 49(5) of Act 1151 a VAT-registered buyer who does not give a TIN when buying from a fiscal device user may lose the right to deduct input tax."
+        },
+        {
+          "q": "Which languages is FieldSales available in?",
+          "a": "The Android and iPhone apps and the web dashboard are available in English, Arabic, French, Turkish and Chinese. These are the only interface languages today."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "What a Ghana VAT invoice shows",
+        "note": "Structure only, with no amounts. Based on GRA's E-VAT guidelines (June 2024) and GRA's VAT page; updated guidance under Act 1151 may change the list. The E-VAT elements are produced only by GRA's system.",
+        "fields": [
+          {
+            "label": "Supplier",
+            "example": "Your company name, address and GRA TIN (or Ghana Card PIN)"
+          },
+          {
+            "label": "Invoice number",
+            "example": "Next number in an unbroken sequence"
+          },
+          {
+            "label": "Date and time of supply",
+            "example": "When the goods were handed over at the outlet"
+          },
+          {
+            "label": "Customer",
+            "example": "Name or trading name, address, and TIN if the customer is a taxable person"
+          },
+          {
+            "label": "Transaction type",
+            "example": "Sale (other types: hire or lease, exchange, own supplies)"
+          },
+          {
+            "label": "Item lines",
+            "example": "Product description, quantity and unit, such as cartons or crates"
+          },
+          {
+            "label": "Line value",
+            "example": "Value of each item before tax"
+          },
+          {
+            "label": "Total before tax",
+            "example": "Invoice total, excluding tax"
+          },
+          {
+            "label": "Discount",
+            "example": "Discount rate, if offered to all buyers on the same terms"
+          },
+          {
+            "label": "NHIL",
+            "example": "National Health Insurance Levy at 2.5%, on its own line"
+          },
+          {
+            "label": "GETFund Levy",
+            "example": "GETFund Levy at 2.5%, on its own line"
+          },
+          {
+            "label": "VAT",
+            "example": "Value Added Tax at 15%, on its own line"
+          },
+          {
+            "label": "Total tax",
+            "example": "NHIL, GETFund Levy and VAT added together"
+          },
+          {
+            "label": "Total including tax",
+            "example": "Invoice total, tax inclusive"
+          },
+          {
+            "label": "E-VAT elements",
+            "example": "QR code, invoice signature, verification engine ID and timestamp, issued by GRA's system on E-VAT invoices only"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "GRA — Value Added Tax (VAT Reforms 2026)",
+          "url": "https://gra.gov.gh/domestic-tax/tax-types/vat/"
+        },
+        {
+          "title": "GRA — E-VAT",
+          "url": "https://gra.gov.gh/e-vat/"
+        },
+        {
+          "title": "GRA — E-VAT Guidelines, GRA/AG/2024/005 (18 June 2024)",
+          "url": "https://gra.gov.gh/wp-content/uploads/2024/07/E-VAT-GUIDELINES_20240222.pdf"
+        },
+        {
+          "title": "GRA Public Notice — Electronic Invoicing of VAT: Phase Two (4 September 2024)",
+          "url": "https://gra.gov.gh/implementation-of-electronic-invoicing-of-value-added-tax-phase-two/"
+        },
+        {
+          "title": "GRA — E-VAT Taxpayer Training Workshop (4–8 May 2026)",
+          "url": "https://gra.gov.gh/e-vat-taxpayer-training-workshop-4th-to-8th-may-2026/"
+        },
+        {
+          "title": "GRA — TIN",
+          "url": "https://gra.gov.gh/tin/"
+        },
+        {
+          "title": "EY Tax News — Ghana's Parliament enacts several indirect tax-related laws effective 1 January 2026 (12 January 2026)",
+          "url": "https://taxnews.ey.com/news/2026-0163-ghanas-parliament-enacts-several-indirect-tax-related-laws-effective-1-january-2026"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Ghana: Corporate, Other taxes (last reviewed 27 October 2026)",
+          "url": "https://taxsummaries.pwc.com/ghana/corporate/other-taxes"
+        },
+        {
+          "title": "Information Services Department — GRA clarifies new digital VAT collection system will not introduce additional 20% tax (14 October 2026)",
+          "url": "https://www.isd.gov.gh/gra-clarifies-new-digital-vat-collection-system-will-not-introduce-additional-20-tax/"
+        },
+        {
+          "title": "Graphic Online — E-VAT system: GRA signs on 3,000 businesses (2 June 2025)",
+          "url": "https://www.graphic.com.gh/news/general-news/ghana-news-e-vat-system-gra-signs-on-3-000-businesses-5-000-more-prepare-to-onboard.html"
+        },
+        {
+          "title": "Parliament of Ghana — Finance Committee report on Fiscal Electronic Device adopted (28 July 2026)",
+          "url": "https://parliament.gh/news?CO=320"
+        },
+        {
+          "title": "MyJoyOnline — GRA to roll out fiscal devices in Q4 (15 September 2026)",
+          "url": "https://www.myjoyonline.com/gra-to-roll-out-fiscal-and-accounting-devices-in-q4-to-improve-vat-compliance/"
+        },
+        {
+          "title": "U.S. ITA Country Commercial Guide — Ghana: Distribution and Sales Channels (6 August 2025)",
+          "url": "https://www.trade.gov/country-commercial-guides/ghana-distribution-and-sales-channels"
+        },
+        {
+          "title": "U.S. ITA Country Commercial Guide — Ghana: Selling Factors and Techniques (6 August 2025)",
+          "url": "https://www.trade.gov/country-commercial-guides/ghana-selling-factors-and-techniques"
+        },
+        {
+          "title": "GhIPSS — Ghana Interbank Payment and Settlement Systems",
+          "url": "https://www.ghipss.net/"
+        },
+        {
+          "title": "Bank of Ghana — Overview of Payment Systems in Ghana",
+          "url": "https://www.bog.gov.gh/banking-and-payments-system/overview-of-payment-systems-in-ghana/"
+        }
+      ],
+      "lastVerifiedLabel": "Last verified: November 2026"
+    }
+  },
+  "notes": "صفحة إنجليزية جديدة لغانا مبنية على حقائق مدقَّقة (audit بتاريخ 2026-11-11، ثقة medium). (1) حُذف مبلغ حد التسجيل للسلع لأنه رقم ملاصق لعملة، واكتُفي بأن Act 1151 رفعه. (2) لم يُستعمل الاسم الرسمي «Certified Invoicing System» ولا عناوين مصادر تحويه أو تحوي compliance، واستُعمل E-VAT وVSDC بدلاً منه، ومثلها عنوان مصدر MyJoyOnline المختصر (الرابط يحوي الكلمة). (3) لم نزعم أن فواتير FieldSales تعرض NHIL وGETFund وVAT في سطور منفصلة (غير متحقق في المنتج)؛ نُبّه القارئ إلى مراجعة مستشاره، ونموذج الفاتورة مقدَّم كمتطلبات GRA لا كمخرجات FieldSales. (4) استُبعد تقرير توسيع E-VAT إلى Tier-2 في نوفمبر 2026 لأنه غير مؤكد، وذُكر موعد FED (الربع الأخير 2026) بصفته تصريحاً صحفياً مع غياب إشعار رسمي. (5) لم تُذكر صيغة TIN للمنشآت (C00…) لأنها من مصدر 2021 غير مؤكد، ولا مصطلحات provision store/table-top لعدم التحقق. (6) عبارة السعودية الحرفية عن ZATCA/Fatoora مذكورة في جواب FAQ الأول فقط. (7) يُنصح بإعادة التحقق بعد عرض ميزانية غانا 2027 ومن أي إشعار GRA بشأن FED.",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish-with-notes",
+    "fixes": 15,
+    "issues": [
+      "توزيع: «largest markets» حُوّلت إلى «largest population centres» مع ذكر أن Greater Accra تضم أكرا وتيما، لأن الحقائق تتحدث عن التجمعات السكانية لا الأسواق.",
+      "توزيع: «used far more than credit cards» مبالغة؛ الحقائق تقول «أكثر» فقط، فحُذفت «far».",
+      "توزيع: «small shops sit below the threshold» صارت «many small retail shops are not registered for VAT» كما في الحقائق، مع النسبة الفعلية 20% للموزع المسجّل.",
+      "ضريبة: حُذف «main indirect tax» لأنه وصف غير موجود في الحقائق.",
+      "ضريبة: صيغة Ghana Card PIN «GHA-XXXXXXXXX-X» تفرض 9 أرقام والحقائق تقول 8 أو 9، فاستُبدل بها مثال الحقائق GHA-123456789-1.",
+      "ضريبة وFAQ: «GRA expects» صارت «GRA requires» لأن الحقائق تقول إن GRA تشترط سطوراً منفصلة لـNHIL وGETFund وVAT منذ 2026-01-01.",
+      "ضريبة: «VAT at the combined 20% rate» مضلل (VAT نفسه 15%) فصار «the combined effective rate of 20%».",
+      "فوترة إلكترونية: «trained 1,217 taxpayers» صارت «invited 1,217 ... to training workshops» لأن الحقائق تثبت الدعوة لا الحضور؛ و«added around 2,000» صارت إعلان ضمّهم بحسب إشعار المرحلة الثانية.",
+      "فوترة إلكترونية: «GRA had not published an official notice» نفي جازم؛ الحقائق تقول «لم نجد» (غياب دليل)، فصيغت كذلك.",
+      "تشغيل: «a weak network never stops a sale» وعد مطلق خُفّف؛ وجملة «route plans and visits are logged with location and photos» غير دقيقة (الصور للزيارات لا لخطة السير) وعبارة «held as the rep's custody» ركيكة، فأعيدت صياغتهما.",
+      "المقدمة: «works offline and syncs later on Android and iPhone» ملتبسة فأعيد ترتيبها.",
+      "نموذج الفاتورة: أُضيف حقل «Total before tax» الوارد في invoiceRequirements وكان ناقصاً.",
+      "ملاحظة باقية: لم يُتحقق في المنتج من عرض NHIL وGETFund وVAT في سطور منفصلة؛ الصفحة لا تدّعي ذلك وتحيل إلى المستشار الضريبي، ونموذج الفاتورة معروض كمتطلبات GRA لا كمخرجات FieldSales.",
+      "ملاحظة باقية: مصطلحات van sales/pre-sales/sales rep عامة غير متحقق من تداولها محلياً في غانا (uncertain في الحقائق)، ويُنصح بإعادة التحقق من وضع FED وتوسيع E-VAT بعد ميزانية 2027.",
+      "تحقق: لا سعر ولا مبلغ ملاصق لعملة، لا «free/certified/compliant/approved»، لا ادعاء ربط مع GRA/VSDC أو MoMo/GhIPSS، عبارة ZATCA الحرفية في FAQ الأول وحده، ولا تاريخ بجوار جمل ما تقدمه FieldSales، ولغات الواجهة الخمس مذكورة بصدق."
+    ]
+  }
+}

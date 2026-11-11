@@ -1,0 +1,350 @@
+{
+  "code": "PK",
+  "nameEn": "Pakistan",
+  "pageLanguage": "en",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "PKR",
+    "symbol": "Rs",
+    "nameEn": "Pakistan Rupee",
+    "nameLocal": null,
+    "minorUnits": 2,
+    "notes": "بحسب قائمة ISO 4217 المنشورة في 2026-09-17، رمز العملة PKR ورقمها 586، وفيها خانتان عشريتان (تحقق المدقق من الملف نفسه). والرمز «Rs» هو المستعمل في النصوص الرسمية، ومنها «Rs. 10 million» في SRO 69(I)/2025 و«Rs. 380.00» في الجريدة الرسمية التي نشرت قانون المالية 2026. وتُرك الاسم الأردي null لأن موقع البنك المركزي (SBP) رفض الطلب (403) ولم نجد مصدراً رسمياً آخر (انظر uncertain)."
+  },
+  "tax": {
+    "nameLocal": "Sales Tax",
+    "nameEn": "Sales Tax (federal sales tax on goods under the Sales Tax Act, 1990)",
+    "abbr": "ST",
+    "standardRate": 18,
+    "otherRates": [
+      {"rate": 0, "type": "zero-rated", "appliesTo": "الصادرات وسلع الجدول الخامس (Fifth Schedule)، بموجب القسم 4 (Lookuptax). ويقابلها في نظام الفوترة الرقمية السيناريو SN007 «Goods at zero-rate»."},
+      {"rate": 18, "type": "retail-price-basis", "appliesTo": "سلع الجدول الثالث (Third Schedule): تُحسب الضريبة 18% من سعر التجزئة المطبوع لا من سعر البيع، بموجب القسم 3(2)(a) (بحسب Lookuptax). وهذه حال كثير من السلع الاستهلاكية سريعة التداول (FMCG). وقد وسّع قانون المالية 2026 (القسم 4(17)، سارٍ من 1 يوليو 2026) هذا الجدول بالبنود 56–75، ومنها في عبوات التجزئة: الزيوت والدهون، والحلويات السكرية، والمعكرونة، والصلصات والتوابل، والحليب ومستحضرات الرضّع، ومستحضرات الشعر والتجميل، والمناديل الورقية، والمربّيات، والأواني المنزلية. وما أُخطر بنسبة تزيد على 18% يبقى على نسبته بعد إدراجه. وفي نظام الفوترة الرقمية حقل fixedNotifiedValueOrRetailPrice والسيناريو SN008، وهو مدرج لكل أنشطة الموزّع (Distributor) في جدول السيناريوهات بحسب النشاط في مواصفة DI API."},
+      {"rate": 4, "type": "further-tax", "appliesTo": "ضريبة إضافية (further tax) فوق النسبة المعتادة. تقول PwC إنها على التوريدات إلى المكلّفين غير النشطين (inactive taxpayers) بشروط، ويقول Lookuptax إنها على المشتري غير المسجَّل أو غير النشط، وإنها تنطبق حتى على التوريدات بنسبة الصفر (القسم 3(1A))."},
+      {"rate": 3, "type": "value-addition-on-imports", "appliesTo": "ضريبة مبيعات إضافية بنسبة 3% على الواردات التجارية من السلع (PwC؛ والجدول الثاني عشر بحسب Lookuptax)."},
+      {"rate": 7, "type": "reduced", "appliesTo": "الآلات الزراعية، من الجدول الثامن (Eighth Schedule) الذي يحدد النسب المخفّضة صنفاً صنفاً (بحسب Lookuptax). وفي الجدول نفسه 10% على الخلايا والألواح الشمسية."},
+      {"rate": 5, "type": "retailer-electricity-bill", "appliesTo": "تجار التجزئة دون فئة Tier-1: يدفعون ضريبة المبيعات مع فاتورة الكهرباء الشهرية، 5% إذا كانت الفاتورة حتى 20,000 روبية و7.5% فيما زاد. وهو إبراء نهائي بموجب القسمين 3(9) و3(7A) (بحسب Lookuptax)."},
+      {"rate": 15, "type": "provincial-services", "appliesTo": "ضريبة المبيعات على الخدمات، وهي غير ضريبة السلع الفيدرالية: تفرضها هيئة إيرادات السند (SRB) وهيئة إيرادات خيبر بختونخوا (KPRA)، ويفرضها FBR في إقليم العاصمة إسلام آباد (ICT) بنسب محددة بنداً بنداً. المصدر Lookuptax، أما PwC فتذكر مدى 15–16% فقط."},
+      {"rate": 16, "type": "provincial-services", "appliesTo": "ضريبة المبيعات على الخدمات في البنجاب (Punjab Revenue Authority — PRA) منذ 1 يوليو 2025 (بحسب Lookuptax، ولم تتأكد نسبة 2026-27). ونسبة بلوشستان (BRA) غير مؤكدة."}
+    ],
+    "exemptSupplies": [
+      "سلع الجدول السادس (Sixth Schedule) معفاة بموجب القسم 13. ومنذ SRO 69(I)/2025 يجب أن تصدر فواتير السلع المعفاة أيضاً عبر النظام المربوط بـFBR (القاعدة 150R(9))."
+    ],
+    "registrationThreshold": "لا حدّ عاماً لرقم الأعمال في ضريبة السلع؛ فالتسجيل إلزامي بحسب الفئة (القسم 14(1)). ومن الفئات المصنّعون عدا الصناعات المنزلية، والمستوردون، وتجار الجملة والوكلاء والموزّعون (wholesaler, dealer, distributor)، وتجار التجزئة الخاضعون للضريبة ومنهم Tier-1، والمصدّرون طالبو الاسترداد. وتُستثنى الصناعة المنزلية (cottage industry) إذا لم يتجاوز رقم أعمالها السنوي 8 ملايين روبية وتحققت ثلاثة شروط أخرى (القسم 2(5AB)). المصدر Lookuptax، وتؤكد Avalara أنه لا حد عام بالإيراد وحده وأن الموزّعين ملزمون بالتسجيل.",
+    "authority": "Federal Board of Revenue (FBR) — Inland Revenue، لضريبة السلع الفيدرالية ولخدمات إقليم العاصمة. أما ضريبة الخدمات فتتولاها في الأقاليم PRA وSRB وKPRA وBRA.",
+    "authorityUrl": "https://www.fbr.gov.pk/",
+    "notes": "تؤكد PwC (آخر مراجعة 24 أغسطس 2026، أي بعد قانون المالية 2026 الساري من 1 يوليو 2026) أن النسبة القياسية 18%. ولم نجد في المصادر تغييراً عليها في 2026. ويذكر Lookuptax أن قانون المالية 2026 لم يغيّر النسب. وقرأ المدقق نص القانون (Act No. XLIII of 2026، الجريدة الرسمية 26 يونيو 2026، سارٍ من 1 يوليو 2026)، فوجد أن تعديلاته على Sales Tax Act في قسمه الرابع لم تمسّ القسم 3، فالنسبة 18% باقية. ومن تدابير ضريبة الدخل المرتبطة بالربط في القانون نفسه: رصيد ضريبي قدره 10% مما أُنفق فعلاً على الموارد الإلكترونية في سنة تركيبها وربطها، لمن يلزمه الربط لمراقبة الإنتاج أو الإبلاغ عن المبيعات في الوقت الحقيقي (القسم 64D)، وعدم قبول 3% من المصروفات المطالَب بها لمن لم يُربط كما يلزمه القانون (القسم 21(r)). وتقول PwC إن النسبة الأخيرة كانت 8%. وتُقدَّم الإقرارات الشهرية عبر بوابة IRIS، ويُعبّأ الملحق C (Annexure-C) آلياً من الفواتير الإلكترونية (القاعدة 150R(5)).",
+    "sources": [
+      {"url": "https://taxsummaries.pwc.com/pakistan/corporate/other-taxes", "title": "PwC Worldwide Tax Summaries — Pakistan, Corporate: Other taxes (sales tax 18%; further tax 4%; services 15–16%; 3% on commercial imports) — Last reviewed 24 August 2026", "accessed": "2026-11-11"},
+      {"url": "https://taxsummaries.pwc.com/pakistan/corporate/significant-developments", "title": "PwC Worldwide Tax Summaries — Pakistan, Corporate: Significant developments (Finance Act 2026: 10% integration tax credit; non-integration disallowance 8%→3%) — Last reviewed 24 August 2026", "accessed": "2026-11-11"},
+      {"url": "https://lookuptax.com/docs/country/pakistan", "title": "Lookuptax — Pakistan Sales Tax guide (rates, provincial services rates, registration, cottage industry, Tier-1, invoice rules), last updated 29 September 2026", "accessed": "2026-11-11"},
+      {"url": "https://www.avalara.com/us/en/vatlive/country-guides/asia/pakistan/pakistani-sales-tax-registration.html", "title": "Avalara VATLive — Pakistani GST registration (no universal turnover threshold; distributors must register) — undated", "accessed": "2026-11-11"},
+      {"url": "https://www.avalara.com/us/en/vatlive/country-guides/asia/pakistan/pakistani-sales-tax-rates-and-sales-tax-compliance.html", "title": "Avalara VATLive — Pakistani GST rates and compliance (18% standard; services ~13–16% by province) — undated", "accessed": "2026-11-11"},
+      {"url": "https://download1.fbr.gov.pk/Docs/20266291261044366FinanceAct2026.pdf", "title": "FBR — Finance Act, 2026 (Act No. XLIII of 2026; Gazette of Pakistan Extraordinary, 26 June 2026; in force 1 July 2026). Read directly by the auditor: s.4 Sales Tax Act amendments (s.3 not amended; s.2(43A)(gb) Tier-1 retailer > Rs 200m; s.23 FBR invoice number; s.33 S.No.25 penalty; Third Schedule S.Nos. 56–75); s.5 ITO s.21(r) 3% and s.64D 10% credit", "accessed": "2026-11-11"}
+    ]
+  },
+  "taxId": {
+    "label": "NTN (National Tax Number) و STRN (Sales Tax Registration Number)",
+    "format": "NTN من 7 خانات للشركات وجمعيات الأشخاص (AOP)، أما الفرد فرقمه CNIC من 13 رقماً (Lookuptax). وفي مستند رسمي لـFBR (Sales Tax General Order No. 33 of 2026، بتاريخ 6 نوفمبر 2026) يظهر NTN قديم بسبعة أرقام ورقم تحقق بعد شرطة (#######-#)، وNTN جديد من سبع خانات يبدأ بحرف (X######)، وSTRN من 13 رقماً. ونظام الفوترة الرقمية يقبل sellerNTNCNIC وbuyerNTNCNIC بـ7 أو 13 خانة، مع أن رمز الخطأ 0002 يذكر NTN بـ7 أو 9 أرقام. ولم نجد مواصفة رسمية منشورة لصيغة STRN.",
+    "notes": "لا يُصدر NTN إلا بعد التسجيل الإلكتروني في بوابة IRIS. ويتحقق المشتري من حال البائع في قائمة دافعي الضرائب النشطين (ATL / STATL). ونظام الفوترة الرقمية يوفّر واجهتي STATL وGet_Reg_Type لمعرفة إن كان المشتري مسجّلاً ونشطاً. وإذا ورّد مصنّع أو مستورد إلى موزّع غير مسجّل، وجب أن تحمل الفاتورة CNIC أو NTN ذلك الموزّع (القسم 23(1)(b) كما في أسئلة FBR الشائعة).",
+    "sources": [
+      {"url": "https://download1.fbr.gov.pk/Docs/20257301172130815TechnicalDocumentationforDIAPIV1.12.pdf", "title": "PRAL/FBR — Technical Specification for DI API, v1.12 (last update 24 July 2025): sellerNTNCNIC/buyerNTNCNIC 7 or 13 digits; STATL & Get_Reg_Type APIs", "accessed": "2026-11-11"},
+      {"url": "https://lookuptax.com/docs/tax-identification-number/pakistan-tax-id-guide", "title": "Lookuptax — Pakistan Tax ID guide (NTN 7 digits for companies/AOPs; CNIC 13 digits for individuals), last updated 22 October 2026", "accessed": "2026-11-11"},
+      {"url": "https://www.avalara.com/us/en/vatlive/country-guides/asia/pakistan/pakistani-sales-tax-registration.html", "title": "Avalara VATLive — STRN issued via IRIS, typically based on NTN, no standardised format — undated", "accessed": "2026-11-11"},
+      {"url": "https://fbr.gov.pk/faqs/173967/173969", "title": "FBR — Digital Invoicing FAQs (unregistered distributor's NIC/NTN on the invoice under s.23(1)(b))", "accessed": "2026-11-11"},
+      {"url": "https://download1.fbr.gov.pk/Docs/202611611114727217STGO33of2026.pdf", "title": "FBR — Sales Tax General Order No. 33 of 2026 (6 November 2026): official table showing NTN in the forms #######-# and X###### and a 13-digit STRN", "accessed": "2026-11-11"}
+    ]
+  },
+  "einvoicing": {
+    "status": "mandatory",
+    "systemName": "FBR Digital Invoicing (DI) — Sales Tax electronic invoicing under Chapter XIV of the Sales Tax Rules, 2006",
+    "authority": "Federal Board of Revenue (FBR)، ومعها شركتها التقنية PRAL (Pakistan Revenue Automation (Pvt.) Ltd)",
+    "model": "clearance",
+    "modelNote": "يرسل البائع بيانات الفاتورة في الوقت الحقيقي، بصيغة JSON عبر واجهة PRAL ‏(gw.fbr.gov.pk)، ثم يتسلّم «رقم فاتورة FBR» الفريد، ويطبع على الفاتورة رمز QR مبنياً على هذا الرقم مع شعار نظام الفوترة الرقمية. والفاتورة التي تفشل في التحقق تُرفض. ويُسمح بإصدار الفواتير دون اتصال عند انقطاع الإنترنت أو الكهرباء، على أن تُعلَّم بذلك وتُرفع خلال 24 ساعة (القاعدة 150XC). ولا يجوز الربط إلا عبر مُدمِج مرخّص (licensed integrator) أو PRAL. التصنيف «clearance» اجتهاد منّا، وEDICOM تصفه كذلك. ولا علاقة للنموذج بـPeppol أو UBL.",
+    "scopeNow": "منذ 31 ديسمبر 2025، وهو آخر مواعيد SRO 1852(I)/2025، يُلزَم كل شخص مسجَّل في ضريبة المبيعات (sales tax registered person) بأمرين: أن يربط برامجه وأجهزته بنظام FBR عبر مُدمِج مرخّص أو PRAL، وأن يصدر فواتير إلكترونية. ويشمل ذلك البيع لمشترٍ مسجّل أو غير مسجّل، وفواتير السلع المعفاة، وإشعارات المدين والدائن. ومنذ SRO 1666(I)/2026 (29 سبتمبر 2026) تسري أحكام الفصل نفسه على مقدمي الخدمات الخاضعة لضريبة خدمات إقليم العاصمة إسلام آباد، وعلى من يلزمه قانون ضريبة الإنتاج الفيدرالية (FED) بالفوترة الإلكترونية أو الربط بالقدر الذي يحدده ذلك القانون، ومن كان مربوطاً لا يلزمه ربط تقني جديد. وإذا اجتمعت على المعاملة الواحدة ضريبة المبيعات وFED وضريبة الخدمات كفت فاتورة إلكترونية واحدة تبيّن كل ضريبة. ولا يجوز للمسجَّل الملزم أي توريد إلا عبر منافذ أو أجهزة أو برامج فوترة مربوطة (القاعدة 150R(3))، ويدخل في ذلك كل برنامج يصدر فواتير لتحصيل النقد أو البطاقات، ثابتاً كان أو محمولاً (القاعدة 150XE(3)). وخارج النطاق غير المسجّلين في ضريبة المبيعات، ومنهم تجار التجزئة دون Tier-1 الذين يدفعون عبر فاتورة الكهرباء. وضرائب الخدمات في الأقاليم (PRA وSRB وKPRA وBRA) لا تحكمها قواعد FBR هذه، ولم نتحقق من متطلبات الفوترة لديها (انظر uncertain).",
+    "keyDates": [
+      {"date": "2019-12-01", "event": "بدء إلزام تجار التجزئة من فئة Tier-1 بربط نقاط البيع (POS) بنظام FBR، بحسب Lookuptax نقلاً عن القاعدة 150ZEA(2) السابقة."},
+      {"date": "2025-01-29", "event": "صدور SRO 69(I)/2025، وقد استبدل الفصل XIV من قواعد ضريبة المبيعات 2006 (القواعد 150Q–150XQ) بإجراءات الترخيص وإصدار الفواتير الإلكترونية وربط المسجّلين، وألغى الفصلين XIV-AA وXIV-BB. ومن ربط POS من قبل يُعدّ مربوطاً."},
+      {"date": "2025-04-07", "event": "إصدار PRAL الأول للمواصفة الفنية لواجهة الفوترة الرقمية (DI API). آخر تحديث للإصدار 1.12 في 24 يوليو 2025."},
+      {"date": "2025-04-22", "event": "صدور SRO 709(I)/2025، وقد حدد موعدين للربط: 1 مايو 2025 للمسجّلين من الشركات، و1 يونيو 2025 لغيرهم."},
+      {"date": "2025-06-20", "event": "خطاب FBR رقم F. No. 1(141) ST-L&P/2025/77394-R بتمديد آخر: 1 يوليو 2025 للشركات و1 أغسطس 2025 لغيرها."},
+      {"date": "2025-08-01", "event": "صدور SRO 1413(I)/2025 بجدول جديد، ثم نسخه SRO 1852 (لم نقرأ نصه، والتاريخ بحسب نص SRO 1852)."},
+      {"date": "2025-09-24", "event": "صدور SRO 1852(I)/2025، وقد وضع جدول التسجيل والاختبار والإصدار لكل فئة، وهو الجدول النافذ."},
+      {"date": "2025-11-01", "event": "بدء الإلزام لأربع فئات: الشركات العامة كلها، والشركات الأخرى التي يتجاوز رقم أعمالها مليار روبية، والمستوردون كلهم، والأفراد وجمعيات الأشخاص الذين يتجاوز رقم أعمالهم 100 مليون روبية. ويُقاس رقم الأعمال بما صُرّح به في إقرارات آخر 12 شهراً."},
+      {"date": "2025-11-03", "event": "صدور SRO 2071(I)/2025، وقد أضاف القاعدة 150Q(3): يلزم بالربط تاجرُ التجزئة الذي تتجاوز الضريبة المحجوزة منه بموجب القسمين 236G أو 236H من قانون ضريبة الدخل 100,000 روبية أو 500,000 روبية بحسب الحال، لأغراض البند (g) من تعريف Tier-1. ثم حذف قانون المالية 2026 البند (g) وأضاف البند (gb)، ولم نتحقق من أثر ذلك على القاعدة."},
+      {"date": "2025-11-15", "event": "بدء الإلزام للشركات التي يتراوح رقم أعمالها بين 100 مليون ومليار روبية."},
+      {"date": "2025-12-01", "event": "بدء الإلزام للشركات التي لا يتجاوز رقم أعمالها 100 مليون روبية."},
+      {"date": "2025-12-31", "event": "بدء الإلزام لسائر المسجّلين في ضريبة المبيعات، وهي آخر مراحل SRO 1852."},
+      {"date": "2026-07-01", "event": "سريان قانون المالية 2026 (Act No. XLIII of 2026، صدّق عليه الرئيس في 26 يونيو 2026)، وقد قرأنا نصه. فيه عقوبة لمن يلزمه الربط فلم يسجّل أو لم يربط في المهلة التي يعلنها المجلس: حتى مليون روبية، ثم حتى 5 ملايين إذا استمرت المخالفة شهراً بعد العقوبة الأولى، ويجوز إغلاق المنشأة مع العقوبة أو دونها (القسم 33، البند 25). وأضاف إلى تعريف Tier-1 (القسم 2(43A)) فئة جديدة هي تاجر التجزئة الذي يتجاوز رقم أعماله 200 مليون روبية في آخر 12 شهراً، بالإقرار أو بما يُستنتج من الضريبة المحجوزة بموجب القسمين 236G و236H من قانون ضريبة الدخل، وقصر فئة تاجر الجملة والتجزئة (wholesaler-cum-retailer) على من يتجاوز رقم أعماله 200 مليون، وحذف البندين (f) و(g). وأوجب القسم 23 أن تحمل كل فاتورة ضريبية، ومنها فاتورة الدفعة المقدمة وفاتورة التوريد المعفى، رقم فاتورة FBR فريداً قابلاً للتحقق، من تاريخ يعلنه المجلس. ووسّع الجدول الثالث بالبنود 56–75."},
+      {"date": "2026-09-29", "event": "صدور SRO 1666(I)/2026، وقد مدّ أحكام الفصل XIV إلى مقدمي خدمات إقليم العاصمة إسلام آباد، وإلى من يلزمه قانون FED بالفوترة الإلكترونية أو الربط بالقدر الذي يحدده ذلك القانون، وأضاف ستة حقول لـFED، وأوجب إصدار فاتورة الدفعة المقدمة وإشعارات المدين والدائن إلكترونياً."},
+      {"date": "2026-11-05", "event": "صدور SRO 2063(I)/2026، وقد استبدل القاعدة 160: فاتورة دفعة مقدمة (advance receipt invoice) عند كل دفعة، مربوطة إلكترونياً بالفاتورة النهائية."},
+      {"date": "2026-11-20", "event": "موعد قطع (cut-off) أعلنته FBR في خطاب بتاريخ 5 نوفمبر 2026 عن «Sales Tax Electronic Invoice Management System»: منه تُعالَج كل الحالات والشكاوى المتعلقة بالفوترة الرقمية عبر البوابة الجديدة، ولا تُقبل طلبات حذف الفواتير من الخلفية (back-end deletion). لم يحِن بعد في 2026-11-11."}
+    ],
+    "b2cReceipts": "يُلزَم تجار التجزئة من فئة Tier-1 بربط منافذهم بنظام POS لدى FBR وإصدار فاتورة ضريبية موحّدة (standardized tax invoice، وفق SRO 1006(I)/2021) تحمل رقم فاتورة FBR وQR. ورسم الخدمة روبية واحدة على كل فاتورة POS (SRO 1279(I)/2021)، وللمشترين خطة جوائز (prize scheme). ومنذ 1 يوليو 2026 صار من فئات Tier-1 أيضاً كل تاجر تجزئة يتجاوز رقم أعماله 200 مليون روبية في آخر 12 شهراً (قانون المالية 2026، القسم 2(43A)(gb))، إلى جانب الفئات الأخرى في التعريف. ورسم الروبية الواحدة ثابت في نص SRO 1279(I)/2021. ولا يُسجَّل اسم المشتري في فاتورة POS إلا إذا كان مكلّفاً أو تجاوزت الفاتورة 100,000 روبية. أما تجار التجزئة دون Tier-1 فيدفعون الضريبة مع فاتورة الكهرباء ولا يصدرون فواتير إلكترونية. وفي نظام الفوترة الرقمية سيناريوهات البيع للمستهلك النهائي SN026–SN028، ولا تنطبق إلا على من سُجّل تاجر تجزئة في ملفه الضريبي. ولا يُشترط على تاجر التجزئة الذي يبيع للجمهور ذكر extra tax وfurther tax وFED ورقم SRO (القاعدة 150R(13))، ما لم يكن مصنّعاً أو مستورداً يبيع بالتجزئة.",
+    "sources": [
+      {"url": "https://download1.fbr.gov.pk/SROs/2025924149054920SRO1852.pdf", "title": "FBR — S.R.O. 1852(I)/2025 dated 24 September 2025 (phase table: registration, testing, e-invoicing dates 1 Nov – 31 Dec 2025), supersedes S.R.O. 1413(I)/2025", "accessed": "2026-11-11"},
+      {"url": "https://download1.fbr.gov.pk/SROs/2025129141598258SRO69(I)2025.pdf", "title": "FBR — S.R.O. 69(I)/2025 dated 29 January 2025: Chapter XIV of Sales Tax Rules 2006 (rules 150Q–150XQ: integration, invoice particulars, offline mode, licensed integrators, PRAL)", "accessed": "2026-11-11"},
+      {"url": "https://download1.fbr.gov.pk/SROs/2025423124414622SRO709dated22April,2025.pdf", "title": "FBR — S.R.O. 709(I)/2025 dated 22 April 2025 (corporate 1 May 2025; non-corporate 1 June 2025)", "accessed": "2026-11-11"},
+      {"url": "https://download1.fbr.gov.pk/Docs/2025621176112478ExtensionDateIntegration.pdf", "title": "FBR — Electronic Integration of Taxpayers: Extension, F. No. 1(141) ST-L&P/2025/77394-R dated 20 June 2025 (corporate 1 July 2025; non-corporate 1 August 2025)", "accessed": "2026-11-11"},
+      {"url": "https://download1.fbr.gov.pk/SROs/202693089244653SRO1666dated29-09-2026.pdf", "title": "FBR — S.R.O. 1666(I)/2026 dated 29 September 2026 (e-invoicing extended to FED and ICT services; FED invoice fields)", "accessed": "2026-11-11"},
+      {"url": "https://download1.fbr.gov.pk/SROs/202611512115850979SRO2063dated5-11-2026.pdf", "title": "FBR — S.R.O. 2063(I)/2026 dated 5 November 2026 (rule 160: advance receipt invoices linked electronically)", "accessed": "2026-11-11"},
+      {"url": "https://download1.fbr.gov.pk/SROs/202511413114246831SRO2071(1).pdf", "title": "FBR — S.R.O. 2071(I)/2025 dated 3 November 2025 (rule 150Q(3): retailers with s.236G/236H withholding above Rs 100,000 / Rs 500,000 must integrate)", "accessed": "2026-11-11"},
+      {"url": "https://download1.fbr.gov.pk/Docs/20261151611157507SalesTaxManual.pdf", "title": "FBR (IT&DT Wing) — letter of 5 November 2026: user manuals and implementation of the Sales Tax Electronic Invoice Management System; cut-off date 20 November 2026", "accessed": "2026-11-11"},
+      {"url": "https://download1.fbr.gov.pk/Docs/20266291261044366FinanceAct2026.pdf", "title": "FBR — Finance Act, 2026 (s.33 S.No.25 penalty; s.23 FBR invoice number; s.2(43A)(gb) Tier-1) — read directly", "accessed": "2026-11-11"},
+      {"url": "https://fbr.gov.pk/di-legal-provisions/173967/173968", "title": "FBR — Digital Invoicing: Legal Provisions (SRO 69, SRO 709, extension)", "accessed": "2026-11-11"},
+      {"url": "https://fbr.gov.pk/faqs/173967/173969", "title": "FBR — Digital Invoicing FAQs (mandatory for corporate and non-corporate registered persons; PRAL free integration; penalties s.33) — shows superseded deadlines", "accessed": "2026-11-11"},
+      {"url": "https://fbr.gov.pk/list-of-license-interprator/173967/173971", "title": "FBR — List of Licensed Integrators (8 listed incl. PRAL; undated)", "accessed": "2026-11-11"},
+      {"url": "https://download1.fbr.gov.pk/Docs/20257301172130815TechnicalDocumentationforDIAPIV1.12.pdf", "title": "PRAL/FBR — Technical Specification for DI API v1.12 (real-time JSON API; FBR invoice number in response; QR & logo printing; scenarios by business activity)", "accessed": "2026-11-11"},
+      {"url": "https://fbr.gov.pk/pos-legal-provisions/163085/163086", "title": "FBR — Point of Sale (POS): Legal Provisions (Tier-1 retailers; SRO 1006(I)/2021 standardized invoice; SRO 1279(I)/2021 Rs 1 service charge; prize scheme)", "accessed": "2026-11-11"},
+      {"url": "https://lookuptax.com/docs/country/pakistan", "title": "Lookuptax — Pakistan Sales Tax guide: e-invoicing status as of 29 September 2026; Finance Act 2026 changes; Tier-1 & POS", "accessed": "2026-11-11"},
+      {"url": "https://lookuptax.com/tax-changes/pakistan/sales-tax-act-expansion-2026-correction", "title": "Lookuptax — Pakistan penalises failure to integrate with the FBR system (Finance Act 2026, s.33 S.No.25), medium confidence", "accessed": "2026-11-11"},
+      {"url": "https://lookuptax.com/tax-changes/pakistan/sro-1666-2026-einvoicing-fed-ict-services", "title": "Lookuptax — S.R.O. 1666(I)/2026 e-invoicing extended to FED & ICT services (29 Sept 2026)", "accessed": "2026-11-11"},
+      {"url": "https://edicomgroup.com/electronic-invoicing/pakistan", "title": "EDICOM — Pakistan e-invoicing (describes centralized real-time clearance; its phase list differs from SRO 1852) — undated", "accessed": "2026-11-11"},
+      {"url": "https://www.avalara.com/us/en/vatlive/country-guides/asia/pakistan/pakistani-e-invoicing.html", "title": "Avalara VATLive — E-invoicing in Pakistan (FBR invoice number and QR; Tier-1 real-time e-receipts) — undated", "accessed": "2026-11-11"}
+    ]
+  },
+  "invoiceRequirements": [
+    "القسم 23(1) من Sales Tax Act 1990 (بحسب Lookuptax): اسم المورّد وعنوانه ورقم تسجيله.",
+    "اسم المستلم وعنوانه ورقم تسجيله. وفي توريد المصنّع أو المستورد إلى موزّع غير مسجّل يُذكر CNIC أو NTN للموزّع (أسئلة FBR الشائعة؛ القسم 23(1)(b)).",
+    "تاريخ الإصدار، ووصف السلع وكميتها، والقيمة دون الضريبة، ومبلغ ضريبة المبيعات، والقيمة شاملة الضريبة.",
+    "تُكتب الفاتورة بالأردية أو بالإنجليزية، ولا تصدر لكل توريد خاضع إلا فاتورة ضريبية واحدة (بحسب Lookuptax).",
+    "إذا نُقلت البضاعة وجب توليد الفاتورة الضريبية وربطها بـe-Bilty، وهو حكم أضافه قانون المالية 2025 (بحسب Lookuptax).",
+    "بيانات الفاتورة الإلكترونية في القاعدة 150R(13) كما في SRO 69(I)/2025: رقم فاتورة FBR الفريد (XXXXXX-DDMMYYHHMMSS-0001)، ورمز QR فريد قابل للتحقق بمقاس 7×7 مم، ورقم تسجيل برنامج الفوترة أو POS، وشعار نظام الفوترة الرقمية لـFBR.",
+    "ومن بيانات القاعدة 150R(13) أيضاً: اسم البائع وعنوانه ورقم تسجيله، واسم المستلم وعنوانه ورقم تسجيله، وتاريخ الإصدار، والفترة الضريبية، والوصف، والكمية، ووحدة القياس، ورمز HS.",
+    "ومنها كذلك: القيمة دون الضريبة، ونسبة الضريبة ومبلغها، والضريبة المحجوزة من المنبع (sales tax withheld at source)، وextra tax، وfurther tax، وFED المستحقة بنمط ضريبة المبيعات، وإجمالي الخصم، ورقم مرجع الفاتورة، ورقم SRO والبند. ويُعفى تاجر التجزئة الذي يبيع للجمهور من extra tax وfurther tax وFED ورقم SRO، إلا إذا كان مصنّعاً أو مستورداً يبيع بالتجزئة.",
+    "أضاف SRO 1666(I)/2026 ستة حقول لـFED: النوع، والنسبة، والسعر للوحدة، والمبلغ المستحق خارج نمط ضريبة المبيعات، ومرجع SRO أو الجدول، ورقم البند. وإذا اجتمعت على المعاملة الواحدة ضريبة المبيعات وFED وضريبة الخدمات كفت فاتورة إلكترونية واحدة تبيّن كل ضريبة على حدة.",
+    "تصدر إلكترونياً عبر النظام المربوط فاتورة الدفعة المقدمة (advance receipt invoice)، وإشعارات المدين والدائن (debit/credit notes)، وفواتير السلع المعفاة (القاعدتان 150R(9) و150S). وتُحفظ ست سنوات.",
+    "عند كل دفعة مقدمة تصدر فاتورة دفعة مقدمة تحمل بيانات القسم 23، وتُربط إلكترونياً بما قبلها وبالفاتورة النهائية (القاعدة 160 بعد SRO 2063(I)/2026، 5 نوفمبر 2026).",
+    "الفاتورة الصادرة أثناء تعطل البرنامج أو انقطاع الإنترنت أو الكهرباء تُعلَّم بوضوح أنها «offline mode»، وتُرفع خلال 24 ساعة من عودة الخدمة (القاعدة 150XC).",
+    "تشترط مواصفة DI API v1.12 طباعة شعار «FBR Digital Invoicing System» ورمز QR بالإصدار 2.0 (25×25) بمقاس 1×1 بوصة. وهذا المقاس يخالف 7×7 مم في القاعدة 150R(13)(b).",
+    "يعلّق المسجَّل المربوط في كل منفذ أو نقطة بيع لوحة بشعار FBR وعبارة «Integrated with FBR»، ومعها رقم تسجيل برنامج الفوترة (القاعدة 150R(11)).",
+    "صار رقم فاتورة FBR الفريد القابل للتحقق شرطاً في كل فاتورة ضريبية بنص القسم 23 بعد قانون المالية 2026، من تاريخ يعلنه المجلس (تحقق المدقق من النص). ولم نجد إعلاناً بذلك في صفحة FBR الرئيسية في 2026-11-11، ويصف Lookuptax تاريخ السريان بـ«To be confirmed»."
+  ],
+  "distribution": {
+    "hubs": [
+      "Karachi (مركز التوزيع الرئيسي لتجارة الجملة)",
+      "Lahore",
+      "Islamabad / Rawalpindi",
+      "Faisalabad",
+      "Multan"
+    ],
+    "tradeChannels": [
+      "متاجر التجزئة التقليدية الصغيرة. يذكر ITA أن في باكستان أكثر من 2.5 مليون متجر، وأن معظمها يبيع السلع الأساسية. وتسمية «kiryana» لم نجدها في مصدر موثوق اطلعنا عليه.",
+      "تجار الجملة في الأسواق الشعبية (bazaars): بين 3,000 و4,500 تاجر جملة كبير، وكراتشي مركزهم الرئيسي.",
+      "التجارة الحديثة: السوبرماركت والهايبرماركت مثل Metro وCarrefour، وتتركز في كراتشي ولاهور وإسلام آباد.",
+      "المحلات المتخصصة بسلعة واحدة في مناطق البازار.",
+      "تجار التجزئة من فئة Tier-1، وهم السلاسل والمنافذ الكبيرة المربوطة بنظام POS لدى FBR."
+    ],
+    "localTerms": {
+      "vanSales": null,
+      "preSales": null,
+      "salesRep": null,
+      "retailShop": "retailer، وهو المصطلح القانوني في Sales Tax Act. وتجار التجزئة الكبار المربوطون بـPOS يُسمَّون «Tier-1 retailer».",
+      "routeAccounting": null
+    },
+    "collectionMethods": [
+      "النقد، وهو الغالب. يذكر ITA أن معظم المعاملات نقدية، وأن الموزّعين يبيعون للتجار الصغار نقداً.",
+      "ائتمان قصير الأجل يمنحه الموزّعون لتجار التجزئة الكبار سريعي الدوران، وائتمان من 30 إلى 90 يوماً شائع في تجارة الجملة (ITA).",
+      "المحافظ والخدمات المصرفية عبر الجوال، مثل EasyPaisa وJazzCash وuPaisa، ويقول ITA إن انتشار أي منها ليس مرتفعاً.",
+      "الحوالات المصرفية (bank drafts) وأوامر الدفع (pay orders) للمعاملات الكبيرة جداً (ITA).",
+      "يجوز لـFBR أن تُلزم المسجَّل المربوط بتوفير الدفع بالبطاقات أو QR أو غيرها من وسائل الدفع الرقمي في نقاط البيع، ولا يرفض البيع بها عادة (القاعدة 150R(7))."
+    ],
+    "notes": "مراكز التوزيع مأخوذة من ITA: كراتشي مركز الجملة الرئيسي، والمراكز التجارية الكبرى في كراتشي ولاهور وإسلام آباد، ولشبكات الامتياز فروع في حيدر آباد وفيصل آباد وإسلام آباد وراولبندي وملتان وبيشاور. ولم نجد مصدراً يرتّب المدن بحجم توزيع السلع الاستهلاكية. ويضيف ITA أن الموزّعين في المدن يعملون غالباً بعقود حصرية، وأن معظم الشركات لا تمنح الموزّعين ائتماناً. ومن أثر الضريبة على الموزّعين: (1) التسجيل في ضريبة المبيعات إلزامي على تجار الجملة والموزّعين، ومن سُجّل منهم صار ملزماً بالفوترة الإلكترونية منذ 31 ديسمبر 2025 على الأكثر. (2) في مواصفة DI API جدول «Applicable Scenarios based on Business Activity» يلي سيناريوهات اختبار الـsandbox، وفيه لموزّع FMCG السيناريو SN008 (سلع الجدول الثالث بسعر التجزئة) وSN026–SN028 (البيع للمستهلك النهائي)، ولم نتحقق إن كان يقيّد الإصدار الفعلي أم الاختبار وحده. وقد اتسع الجدول الثالث في 2026 ليشمل سلعاً استهلاكية كثيرة يوزّعها موزّعو FMCG. (3) على البيع لغير المسجّل أو غير النشط further tax 4%، وتختلف المصادر في نطاقها. والمصطلحات الميدانية للمندوب والبيع من السيارة وتسوية خط السير تُركت null لغياب مصدر موثوق (انظر uncertain)."
+  },
+  "honesty": {
+    "canSay": [
+      "FieldSales منصة لإدارة مناديب المبيعات والبيع من السيارة وأخذ الطلبات المسبقة والتحصيل، ويمكن لشركات التوزيع في باكستان استخدامها كما في أي بلد.",
+      "يضبط العميل في FieldSales العملة على الروبية الباكستانية (PKR) ونسبة ضريبة المبيعات من إعدادات الشركة، ومنها النسبة القياسية 18%، دون نسخة خاصة بالبلد.",
+      "الفوترة الإلكترونية لدى FBR إلزامية اليوم على كل مسجَّل في ضريبة المبيعات، فآخر مراحل SRO 1852(I)/2025 كان في 31 ديسمبر 2025. ولا تتم إلا عبر مُدمِج مرخّص (licensed integrator) أو PRAL، وFieldSales ليس منهما.",
+      "على العميل المسجَّل في ضريبة المبيعات أن يصدر الفاتورة الضريبية من نظامه المربوط بـFBR. ويمكن أن يعمل FieldSales إلى جانب ذلك النظام أداةً للطلبات وخطوط السير والتحصيل ومتابعة المناديب، دون أن يحلّ محلّه في إصدار الفاتورة الضريبية.",
+      "لا يوجد اليوم ربط بين FieldSales ونظام الفوترة الرقمية لـFBR. ويمكن بحث الربط عند الطلب مع كل عميل على حدة، دون وعد بإمكانه أو بموعده، والقانون لا يجيزه إلا عبر مُدمِج مرخّص أو PRAL.",
+      "المستند الذي يطبعه FieldSales ليس فاتورة ضريبية معتمدة لدى FBR: لا يحمل رقم فاتورة FBR ولا رمز QR الصادر منها."
+    ],
+    "mustNotSay": [
+      "أن FieldSales مربوط أو متكامل مع نظام الفوترة الرقمية لـFBR (Digital Invoicing / DI API) أو مع PRAL أو IRIS.",
+      "أن FieldSales «licensed integrator» لدى FBR، أو أنه مدرج في قائمة المُدمِجين المرخّصين، أو معتمد من FBR أو PRAL بأي صورة.",
+      "أن فواتير FieldSales تحمل رقم فاتورة FBR الفريد، أو رمز QR قابلاً للتحقق لدى FBR، أو شعار «FBR Digital Invoicing System»، أو عبارة «Integrated with FBR».",
+      "أن فاتورة المندوب من FieldSales تكفي فاتورةً ضريبية لمورّد مسجَّل في ضريبة المبيعات. فالقاعدة 150R(3) تمنع المسجَّل الملزم من التوريد إلا عبر نظام مربوط، والقاعدة 150XE(3) تشمل البرامج الثابتة والمحمولة التي تصدر فواتير لتحصيل النقد.",
+      "أن FieldSales يضمن امتثال العميل لـSRO 1852(I)/2025 أو للفصل XIV، أو يجنّبه عقوبات عدم الربط (حتى 5 ملايين روبية وإغلاق المنشأة بحسب قانون المالية 2026).",
+      "أن الفوترة الإلكترونية في باكستان اختيارية أو قادمة مستقبلاً؛ فهي إلزامية الآن على كل المسجّلين في ضريبة المبيعات.",
+      "أن FieldSales مربوط بنظام POS لتجار Tier-1، أو بأنظمة PRA أو SRB أو KPRA أو BRA، أو بـe-Bilty.",
+      "أن FieldSales يحسب تلقائياً ضريبة الجدول الثالث على سعر التجزئة المطبوع أو further tax 4% أو FED، ما لم يُتحقق من ذلك في المنتج.",
+      "أن FieldSales يستقبل التحصيل عبر JazzCash أو EasyPaisa أو Raast، أو أنه مربوط بها.",
+      "نقل ادعاءات ربط ZATCA السعودي (المرحلة الثانية) إلى صفحة باكستان، أو الإيحاء بأن الربط مع ZATCA يعني جاهزية لـFBR.",
+      "أن FieldSales «FBR-compliant» أو «FBR-approved» أو «FBR-ready» أو «جاهز للفوترة الإلكترونية في باكستان»، أو أي عبارة توحي بالامتثال أو الاعتماد.",
+      "أن FieldSales تقدّم بطلب ترخيص مُدمِج لدى FBR، أو أن له شراكة مع أحد المُدمِجين المرخّصين أو مع PRAL.",
+      "أن وضع العمل دون اتصال في FieldSales هو «offline mode» المعترف به في القاعدة 150XC، أو أن فواتيره دون اتصال تُرفع إلى FBR.",
+      "أن FieldSales يصدر فاتورة الدفعة المقدمة (advance receipt invoice) أو إشعارات المدين والدائن بالصيغة الإلكترونية التي تشترطها FBR، أو أنه مربوط ببوابة Sales Tax Electronic Invoice Management System.",
+      "أن FieldSales مربوط بالفوترة الإلكترونية لـFED أو لضريبة خدمات إقليم العاصمة إسلام آباد."
+    ]
+  },
+  "uncertain": [
+    "تعذّر البحث على الويب في جلستي البحث والتدقيق لأن حصة البحث نفدت. اكتفينا بجلب صفحات معروفة مباشرة من FBR وPwC وLookuptax وITA، وقرأ المدقق نصوص SRO 69 و709 و1852 لسنة 2025، وSRO 2071(I)/2025، وSRO 1666 و2063 لسنة 2026، وقانون المالية 2026. وبقيت بعض الحقائق الثانوية بمصدر ثانوي واحد، وتُرك ما لم نجد له مصدراً null.",
+    "نسب ضريبة الخدمات في كل إقليم (السند 15%، خيبر بختونخوا 15%، إقليم العاصمة 15%، البنجاب 16%) من Lookuptax وحده. فمواقع PRA وSRB وKPRA وBRA رفضت الاتصال أو فشلت شهادتها، وPwC تذكر مدى 15–16% فقط. ونسبة بلوشستان غير مؤكدة، وكذلك نسبة البنجاب لسنة 2026-27.",
+    "تحقق المدقق من نص قانون المالية 2026 في عقوبة عدم الربط، وفئة Tier-1 الجديدة (رقم أعمال يتجاوز 200 مليون روبية)، وشرط رقم فاتورة FBR في القسم 23، وتوسيع الجدول الثالث. أما نسبة 8% السابقة للمصروفات غير المقبولة فمن PwC وحدها. وصفحة Lookuptax «Sales tax act expansion» التي ذكرت التعليق والإدراج في قائمة سوداء صارت منسوخة بتصحيح لاحق.",
+    "تختلف المصادر في نطاق further tax 4%: تقول PwC إنها على التوريد إلى المكلّفين غير النشطين، ويقول Lookuptax إنها على غير المسجّل أو غير النشط.",
+    "حد الصناعات المنزلية (8 ملايين روبية) والنسب المخفضة (7% و10%) ونسبتا تجار التجزئة في فاتورة الكهرباء (5% و7.5%) من Lookuptax وحده.",
+    "نص القسم 23 وشرطا اللغة وe-Bilty من Lookuptax. ولم نقرأ نسخة FBR المحدّثة من Sales Tax Act بعد قانوني المالية 2025 و2026.",
+    "لم نجد صيغة رسمية لـSTRN. وصيغة NTN من مواصفة DI API وLookuptax، والمواصفة نفسها تتناقض: 7 أو 13 رقماً في موضع، و7 أو 9 أرقام في رمز الخطأ 0002.",
+    "صفحة الأسئلة الشائعة في FBR لا تزال تذكر موعدي 1 يونيو و1 يوليو 2025، ويذكر EDICOM جدولاً آخر (1 سبتمبر – 1 ديسمبر 2025). واعتمدنا SRO 1852(I)/2025 الأصلي.",
+    "لم نقرأ نص SRO 1413(I)/2025، وهو منسوخ. وفحص المدقق في 2026-11-11 أحدث ما في صفحة FBR الرئيسية (SRO 2063 و2085 و2086 و2088 و2097–2099 لسنة 2026)، فلم يجد فيها ما يغيّر نطاق الفوترة الإلكترونية أو مواعيدها؛ فـ2085 عن التقييم دون حضور (faceless assessment)، و2086 عن قيم التقييم. وتعذّر البحث في كل ما صدر بين يناير وسبتمبر 2026، ولم نجد ما ينسخ SRO 1852، ويقول Lookuptax في 29 سبتمبر 2026 إن كل المواعيد مضت.",
+    "مقاس QR متعارض: 7×7 مم في القاعدة 150R(13)(b)، و1×1 بوصة في مواصفة DI API v1.12.",
+    "قائمة المُدمِجين المرخّصين (8 أسماء منها PRAL) غير مؤرّخة، وقد تكون تغيّرت.",
+    "بدء ربط POS في 1 ديسمبر 2019، وحد 100,000 روبية لذكر اسم المشتري، من Lookuptax وحده. أما رسم الروبية الواحدة على فاتورة POS فقرأه المدقق في نص SRO 1279(I)/2021 (سبتمبر 2021).",
+    "مصطلحات التوزيع الشائعة في الممارسة لم نجد لها مصدراً موثوقاً متاحاً، فتُركت حقولها null. ومنها: kiryana/karyana store للمتجر، وorder booker لمن يأخذ الطلب المسبق، وsalesman أو delivery salesman للمندوب، وPJP (permanent journey plan) لخط السير، وrecovery للتحصيل، وvan sales أو spot sale للبيع من السيارة، وdaily settlement لتسوية خط السير. والمطلوب التحقق منها مع موزّعين محليين.",
+    "لم ندرج Raast، نظام الدفع الفوري للبنك المركزي، ولا حصص الشيكات، لأن موقع SBP رفض الطلب (403). ولم نجد في مصادر ITA ذكراً للشيكات.",
+    "الاسم الأردي للعملة («پاکستانی روپیہ» في الاستعمال العام) تُرك null، وحُذفت الصيغة الأردية لاسم الضريبة («سیلز ٹیکس») من nameLocal، لغياب مصدر رسمي متاح؛ فموقع SBP رفض الطلب (403). أما الرمز «Rs» فثابت في نصوص FBR والجريدة الرسمية.",
+    "يظهر في مستند FBR رقم NTN جديد يبدأ بحرف، ومواصفة DI API v1.12 تتحدث عن 7 أرقام. ولم نتحقق من طريقة قبول الواجهة لرقم NTN يبدأ بحرف.",
+    "حُذفت من scopeNow عبارة «لدى السند ربط POS خاص بها» لأنها بلا مصدر. ولم نتحقق من متطلبات الفوترة أو POS لدى PRA وSRB وKPRA وBRA.",
+    "أثر SRO 2071(I)/2025 بعد أن حذف قانون المالية 2026 البند (g) من تعريف Tier-1 غير واضح.",
+    "قرأنا خطاب FBR المؤرخ 5 نوفمبر 2026 عن «Sales Tax Electronic Invoice Management System» وموعد القطع في 20 نوفمبر 2026، ولم نقرأ أدلة المستخدم المرفقة به.",
+    "لم نتحقق من أن FieldSales قادر على احتساب ضريبة الجدول الثالث على سعر التجزئة المطبوع (وقد اتسع الجدول في 2026 ليشمل سلعاً استهلاكية كثيرة)، أو further tax، أو FED، أو على إصدار فاتورة الدفعة المقدمة.",
+    "مسألة قانونية لم يحسمها مصدر: هل يُعدّ تطبيق المندوب الذي يصدر فاتورة في البيع من السيارة «electronic invoice issuing machine» يجب ربطه وتسجيله منفذاً؟ ظاهر القاعدتين 150R(3) و150XE(3) يشمله إذا كان البائع مسجَّلاً."
+  ],
+  "sources": [
+    {"url": "https://www.fbr.gov.pk/", "title": "Federal Board of Revenue — home (Finance Act 2026 link; Digital Invoicing; recent SROs 2063, 2085, 2086 of 5 November 2026)", "accessed": "2026-11-11"},
+    {"url": "https://download1.fbr.gov.pk/SROs/2025924149054920SRO1852.pdf", "title": "FBR — S.R.O. 1852(I)/2025 (24 Sep 2025): e-invoicing phase table", "accessed": "2026-11-11"},
+    {"url": "https://download1.fbr.gov.pk/SROs/2025129141598258SRO69(I)2025.pdf", "title": "FBR — S.R.O. 69(I)/2025 (29 Jan 2025): Chapter XIV, Sales Tax Rules 2006", "accessed": "2026-11-11"},
+    {"url": "https://download1.fbr.gov.pk/SROs/2025423124414622SRO709dated22April,2025.pdf", "title": "FBR — S.R.O. 709(I)/2025 (22 Apr 2025)", "accessed": "2026-11-11"},
+    {"url": "https://download1.fbr.gov.pk/Docs/2025621176112478ExtensionDateIntegration.pdf", "title": "FBR — Electronic Integration of Taxpayers: Extension (20 Jun 2025)", "accessed": "2026-11-11"},
+    {"url": "https://download1.fbr.gov.pk/SROs/202693089244653SRO1666dated29-09-2026.pdf", "title": "FBR — S.R.O. 1666(I)/2026 (29 Sep 2026)", "accessed": "2026-11-11"},
+    {"url": "https://download1.fbr.gov.pk/SROs/202611512115850979SRO2063dated5-11-2026.pdf", "title": "FBR — S.R.O. 2063(I)/2026 (5 Nov 2026): advance receipt invoices", "accessed": "2026-11-11"},
+    {"url": "https://fbr.gov.pk/di-legal-provisions/173967/173968", "title": "FBR — Digital Invoicing: Legal Provisions", "accessed": "2026-11-11"},
+    {"url": "https://fbr.gov.pk/faqs/173967/173969", "title": "FBR — Digital Invoicing FAQs", "accessed": "2026-11-11"},
+    {"url": "https://fbr.gov.pk/list-of-license-interprator/173967/173971", "title": "FBR — List of Licensed Integrators", "accessed": "2026-11-11"},
+    {"url": "https://fbr.gov.pk/pos-legal-provisions/163085/163086", "title": "FBR — POS Legal Provisions (Tier-1 retailers)", "accessed": "2026-11-11"},
+    {"url": "https://download1.fbr.gov.pk/Docs/20257301172130815TechnicalDocumentationforDIAPIV1.12.pdf", "title": "PRAL/FBR — Technical Specification for DI API v1.12 (24 Jul 2025)", "accessed": "2026-11-11"},
+    {"url": "https://taxsummaries.pwc.com/pakistan/corporate/other-taxes", "title": "PwC Worldwide Tax Summaries — Pakistan: Other taxes (last reviewed 24 Aug 2026)", "accessed": "2026-11-11"},
+    {"url": "https://taxsummaries.pwc.com/pakistan/corporate/significant-developments", "title": "PwC Worldwide Tax Summaries — Pakistan: Significant developments (last reviewed 24 Aug 2026)", "accessed": "2026-11-11"},
+    {"url": "https://lookuptax.com/docs/country/pakistan", "title": "Lookuptax — Pakistan Sales Tax guide (last updated 29 Sep 2026)", "accessed": "2026-11-11"},
+    {"url": "https://lookuptax.com/tax-changes/pakistan/sales-tax-act-expansion-2026-correction", "title": "Lookuptax — Finance Act 2026 integration penalties", "accessed": "2026-11-11"},
+    {"url": "https://lookuptax.com/tax-changes/pakistan/sro-1666-2026-einvoicing-fed-ict-services", "title": "Lookuptax — S.R.O. 1666(I)/2026", "accessed": "2026-11-11"},
+    {"url": "https://lookuptax.com/docs/tax-identification-number/pakistan-tax-id-guide", "title": "Lookuptax — Pakistan Tax ID guide (last updated 22 Oct 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.avalara.com/us/en/vatlive/country-guides/asia/pakistan/pakistani-sales-tax-registration.html", "title": "Avalara VATLive — Pakistani GST registration", "accessed": "2026-11-11"},
+    {"url": "https://www.avalara.com/us/en/vatlive/country-guides/asia/pakistan/pakistani-sales-tax-rates-and-sales-tax-compliance.html", "title": "Avalara VATLive — Pakistani GST rates and compliance", "accessed": "2026-11-11"},
+    {"url": "https://www.avalara.com/us/en/vatlive/country-guides/asia/pakistan/pakistani-e-invoicing.html", "title": "Avalara VATLive — E-invoicing in Pakistan", "accessed": "2026-11-11"},
+    {"url": "https://edicomgroup.com/electronic-invoicing/pakistan", "title": "EDICOM — Pakistan e-invoicing", "accessed": "2026-11-11"},
+    {"url": "https://www.trade.gov/country-commercial-guides/pakistan-distribution-and-sales-channels", "title": "U.S. International Trade Administration — Pakistan Country Commercial Guide: Distribution and Sales Channels (last published 2026-03-04)", "accessed": "2026-11-11"},
+    {"url": "https://www.trade.gov/country-commercial-guides/pakistan-ecommerce", "title": "U.S. International Trade Administration — Pakistan Country Commercial Guide: eCommerce (payment methods; last published 2026-03-04)", "accessed": "2026-11-11"},
+    {"url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml", "title": "SIX — ISO 4217 List One (published 2026-09-17): PKR, 586, minor units 2", "accessed": "2026-11-11"},
+    {"url": "https://download1.fbr.gov.pk/Docs/20266291261044366FinanceAct2026.pdf", "title": "FBR — Finance Act, 2026 (Act No. XLIII of 2026; Gazette 26 June 2026; in force 1 July 2026) — read directly by the auditor", "accessed": "2026-11-11"},
+    {"url": "https://download1.fbr.gov.pk/SROs/202511413114246831SRO2071(1).pdf", "title": "FBR — S.R.O. 2071(I)/2025 (3 Nov 2025): rule 150Q(3)", "accessed": "2026-11-11"},
+    {"url": "https://download1.fbr.gov.pk/SROs/202110110104124427SRO1279-2021.pdf", "title": "FBR — S.R.O. 1279(I)/2021 (Sep 2021): Re 1 service charge per POS invoice", "accessed": "2026-11-11"},
+    {"url": "https://download1.fbr.gov.pk/Docs/202611611114727217STGO33of2026.pdf", "title": "FBR — Sales Tax General Order No. 33 of 2026 (6 Nov 2026): NTN/STRN forms in an official table", "accessed": "2026-11-11"},
+    {"url": "https://download1.fbr.gov.pk/Docs/20261151611157507SalesTaxManual.pdf", "title": "FBR (IT&DT Wing) — letter of 5 Nov 2026: Sales Tax Electronic Invoice Management System; cut-off 20 Nov 2026", "accessed": "2026-11-11"},
+    {"url": "https://lookuptax.com/tax-changes/pakistan", "title": "Lookuptax — Pakistan tax changes index (4 items, latest S.R.O. 1666(I)/2026)", "accessed": "2026-11-11"}
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "corrections": [
+      {
+        "field": "currency.nameLocal",
+        "before": "پاکستانی روپیہ",
+        "after": null,
+        "source": "لا مصدر رسمي متاح: sbp.org.pk أعاد 403؛ والاسم من الاستعمال العام فقط"
+      },
+      {
+        "field": "tax.nameLocal",
+        "before": "Sales Tax (سیلز ٹیکس)",
+        "after": "Sales Tax",
+        "source": "Sales Tax Act, 1990 كما في قانون المالية 2026 وSRO 69(I)/2025؛ الصيغة الأردية بلا مصدر رسمي"
+      },
+      {
+        "field": "tax.otherRates[retail-price-basis]",
+        "before": "لا ذكر لتوسيع الجدول الثالث، و«SN008 مدرج لكل موزّع FMCG»",
+        "after": "إضافة البنود 56–75 للجدول الثالث من 1 يوليو 2026، وصياغة أدق لجدول السيناريوهات",
+        "source": "https://download1.fbr.gov.pk/Docs/20266291261044366FinanceAct2026.pdf (القسم 4(17)) و DI API v1.12 القسم 10"
+      },
+      {
+        "field": "tax.notes",
+        "before": "رصيد ضريبي 10% للمنشآت الملزمة بالربط (PwC)",
+        "after": "10% مما أُنفق فعلاً على الموارد الإلكترونية (القسم 64D)، و3% مصروفات غير مقبولة (القسم 21(r))، والقسم 3 لم يُعدَّل فالنسبة 18% باقية",
+        "source": "https://download1.fbr.gov.pk/Docs/20266291261044366FinanceAct2026.pdf (القسمان 4 و5)؛ https://taxsummaries.pwc.com/pakistan/corporate/significant-developments"
+      },
+      {
+        "field": "tax.sources[Finance Act 2026]",
+        "before": "file exceeds 10MB and was not read directly (details via Lookuptax)",
+        "after": "read directly by the auditor",
+        "source": "https://download1.fbr.gov.pk/Docs/20266291261044366FinanceAct2026.pdf"
+      },
+      {
+        "field": "taxId.format",
+        "before": "NTN من 7 أرقام ... ولم نجد لـSTRN صيغة رسمية منشورة",
+        "after": "NTN من 7 خانات، والجديد قد يبدأ بحرف (X######) والقديم يُكتب برقم تحقق (#######-#)، وSTRN يظهر من 13 رقماً في مستند FBR",
+        "source": "https://download1.fbr.gov.pk/Docs/202611611114727217STGO33of2026.pdf"
+      },
+      {
+        "field": "einvoicing.scopeNow",
+        "before": "صار ملزمو FED ومقدمو خدمات إسلام آباد مشمولين ... ولدى السند ربط POS خاص بها",
+        "after": "FED بالقدر الذي يحدده قانونه فقط؛ وحُذفت عبارة السند لأنها بلا مصدر",
+        "source": "https://download1.fbr.gov.pk/SROs/202693089244653SRO1666dated29-09-2026.pdf (القاعدة 150Q(4)-(5))"
+      },
+      {
+        "field": "einvoicing.keyDates[2026-07-01]",
+        "before": "صار حد Tier-1 رقم أعمال يتجاوز 200 مليون روبية (بحسب Lookuptax)",
+        "after": "أُضيفت إلى تعريف Tier-1 فئة تاجر التجزئة الذي يتجاوز رقم أعماله 200 مليون روبية (2(43A)(gb))، مع بقاء الفئات الأخرى، وحُذف البندان (f) و(g)",
+        "source": "https://download1.fbr.gov.pk/Docs/20266291261044366FinanceAct2026.pdf (القسم 4(1)(e))"
+      },
+      {
+        "field": "einvoicing.b2cReceipts",
+        "before": "صار حد Tier-1 منذ 1 يوليو 2026 رقم أعمال يتجاوز 200 مليون روبية",
+        "after": "صار من فئات Tier-1 أيضاً كل تاجر تجزئة يتجاوز رقم أعماله 200 مليون روبية، إلى جانب الفئات الأخرى",
+        "source": "https://download1.fbr.gov.pk/Docs/20266291261044366FinanceAct2026.pdf"
+      },
+      {
+        "field": "einvoicing.keyDates[2026-09-29]",
+        "before": "مدّ قواعد الفوترة الإلكترونية إلى ملزمي FED",
+        "after": "إلى من يلزمه قانون FED بالفوترة الإلكترونية أو الربط بالقدر الذي يحدده ذلك القانون؛ مع إشعارات المدين والدائن",
+        "source": "https://download1.fbr.gov.pk/SROs/202693089244653SRO1666dated29-09-2026.pdf"
+      },
+      {
+        "field": "einvoicing.keyDates",
+        "before": null,
+        "after": "إضافة 2025-11-03 (SRO 2071(I)/2025) و2026-11-20 (موعد قطع بوابة Sales Tax Electronic Invoice Management System، لم يحِن بعد)",
+        "source": "https://download1.fbr.gov.pk/SROs/202511413114246831SRO2071(1).pdf ; https://download1.fbr.gov.pk/Docs/20261151611157507SalesTaxManual.pdf"
+      },
+      {
+        "field": "distribution.notes",
+        "before": "موزّع FMCG مقصور على SN008 وSN026–SN028",
+        "after": "الجدول يلي سيناريوهات اختبار الـsandbox، ولم نتحقق إن كان يقيّد الإصدار الفعلي",
+        "source": "https://download1.fbr.gov.pk/Docs/20257301172130815TechnicalDocumentationforDIAPIV1.12.pdf (القسمان 9 و10)"
+      },
+      {
+        "field": "honesty.canSay[4]",
+        "before": "ربط FieldSales بنظام FBR ... متاح عند الطلب",
+        "after": "لا يوجد اليوم ربط؛ ويمكن بحثه عند الطلب دون وعد بإمكانه أو بموعده",
+        "source": "سياسة المنصة: الربط الحكومي حيّ في السعودية وحدها"
+      },
+      {
+        "field": "honesty.canSay[5]",
+        "before": "يمكن تخصيص المستند المطبوع ليعرض NTN/STRN ونسبة الضريبة وقيمتها",
+        "after": "المستند المطبوع ليس فاتورة ضريبية معتمدة لدى FBR (حُذف وعد القدرة غير المتحقق منه)",
+        "source": "SRO 69(I)/2025، القاعدتان 150R(3) و150XE(3)"
+      },
+      {
+        "field": "honesty.canSay[0,3]",
+        "before": "«يدير ... لشركات التوزيع العاملة في باكستان» و«يعمل إلى جانبه»",
+        "after": "صياغة لا توحي بعملاء قائمين في باكستان، وتنص على أنه لا يحلّ محل النظام المربوط في الفاتورة الضريبية",
+        "source": "سياسة المنصة"
+      },
+      {
+        "field": "honesty.mustNotSay",
+        "before": "10 بنود",
+        "after": "15 بنداً: أُضيف منع عبارات FBR-compliant/approved/ready، وادعاء طلب الترخيص أو الشراكة مع مُدمِج، وخلط وضع العمل دون اتصال بـ«offline mode» في القاعدة 150XC، وادعاء فواتير الدفعة المقدمة والإشعارات الإلكترونية، والربط بفوترة FED أو خدمات إسلام آباد",
+        "source": "SRO 69(I)/2025 (150XC)؛ SRO 1666(I)/2026؛ SRO 2063(I)/2026"
+      },
+      {
+        "field": "invoiceRequirements[last]",
+        "before": "ولم نجد إعلاناً بذلك حتى 29 سبتمبر 2026 (بحسب Lookuptax)",
+        "after": "تحقق المدقق من نص القسم 23؛ ولا إعلان بتاريخ السريان في صفحة FBR الرئيسية في 2026-11-11",
+        "source": "https://download1.fbr.gov.pk/Docs/20266291261044366FinanceAct2026.pdf (القسم 4(7)) ؛ https://www.fbr.gov.pk/"
+      },
+      {
+        "field": "uncertain",
+        "before": "بنود عن قانون المالية 2026 من Lookuptax وحده، ورسم POS دون قراءة النص، وعدم فحص ما بعد 5 نوفمبر 2026",
+        "after": "تحديثها بعد قراءة النصوص الأصلية، وإضافة خمسة بنود جديدة",
+        "source": "انظر sources"
+      }
+    ],
+    "confidence": "high"
+  }
+}

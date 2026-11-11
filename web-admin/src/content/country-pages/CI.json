@@ -1,0 +1,212 @@
+{
+  "code": "CI",
+  "languages": [
+    "fr"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "fr": {
+      "slugHint": "logiciel-vente-en-tournee-cote-divoire",
+      "title": "Logiciel de vente en tournée en Côte d'Ivoire | FieldSales",
+      "description": "Commerciaux terrain en Côte d'Ivoire : vente en tournée, prévente, encaissements en francs CFA et mobile money, TVA paramétrable, mode hors ligne.",
+      "h1": "Vente en tournée et prévente pour les distributeurs ivoiriens",
+      "intro": "FieldSales est une plateforme cloud avec laquelle les grossistes et les distributeurs en Côte d'Ivoire peuvent piloter leurs commerciaux terrain. Depuis son téléphone, le vendeur prend les commandes en prévente ou vend en tournée à bord de son véhicule, imprime la facture sur une imprimante thermique, encaisse en espèces ou en mobile money et suit les créances de ses clients. Le superviseur suit l'itinéraire, les visites géolocalisées avec photos et le stock du véhicule ; ce qui est saisi sans réseau se synchronise dès que la connexion revient. La FNE, facture légale, reste émise via les canaux de la DGI.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "La distribution en Côte d'Ivoire, du port d'Abidjan au point de vente",
+          "body": "Abidjan concentre l'essentiel de l'infrastructure de distribution du pays : port principal, sièges d'entreprises, banques, grandes surfaces et réseaux de détail. San-Pédro (deuxième port, pôle du cacao et centre urbain émergent) et Yamoussoukro (capitale politique) sont des marchés où la demande se développe. Le circuit traditionnel passe par les grossistes, relais des marchandises importées par le port d'Abidjan ; les autres canaux sont les marchés locaux, les magasins spécialisés, la grande distribution et les petits commerçants au régime forfaitaire. Deux modèles d'organisation permettent de couvrir ces points de vente : la vente en tournée, où le vendeur livre et facture depuis son véhicule, et la prévente (prise de commande), où la livraison suit la commande. En fin de journée, l'arrêté de caisse et le versement de fin de tournée rapprochent les ventes et les encaissements, tandis que le stock restant dans le véhicule est contrôlé au retour. Côté paiement, le guide commercial du département américain du Commerce (trade.gov) indique que les délais de crédit courants pour les biens de consommation sont de 60 à 90 jours et que, les cartes bancaires étant peu répandues, le mobile money et le paiement à la livraison sont répandus."
+        },
+        {
+          "id": "tax",
+          "title": "TVA, NCC et mentions obligatoires de la facture",
+          "body": "La taxe sur la valeur ajoutée (TVA) relève de la Direction Générale des Impôts (DGI), rattachée au Ministère de l'Économie, des Finances et du Budget. Le taux normal est de 18 %. Un taux réduit de 9 % s'applique notamment, selon PwC, au lait (hors yaourts et autres produits dérivés du lait), aux laits et aliments préparés pour nourrissons, au riz de luxe, aux viandes importées hors CEDEAO et aux pâtes 100 % blé dur. Les codes TVA de la DGI prévoient en outre deux cas à 0 % : l'exonération conventionnelle (TVAC) et l'exonération légale (TVAD). D'après la DGI, seuls les contribuables des régimes réels, RNI et RSI, facturent la TVA. L'identifiant fiscal est le NCC (Numéro de Compte Contribuable) : sept chiffres suivis d'une lettre clé majuscule ; celui du client est obligatoire sur les factures entre professionnels (B2B). Selon l'arrêté n° 0337, la facture doit notamment indiquer la raison sociale, l'adresse, le RCCM, les coordonnées bancaires, le NCC, le régime d'imposition et le service des impôts de rattachement du vendeur, le nom ou la raison sociale et l'adresse du client, le numéro de la facture, la date et l'heure, le détail des biens ou services, les prix, les taux de taxe appliqués, le total payé et le mode de paiement. Dans FieldSales, c'est l'entreprise qui saisit dans ses paramètres le nom de la taxe (TVA) et le taux correspondant à son activité, 18 % ou un autre taux."
+        },
+        {
+          "id": "einvoicing",
+          "title": "Facturation électronique : la FNE est obligatoire",
+          "body": "La facture normalisée électronique (FNE) et le reçu normalisé électronique (RNE) sont obligatoires en Côte d'Ivoire. Le dispositif est piloté par la DGI et encadré par l'arrêté n° 0337 du 9 mai 2025, pris en application de l'article 6 de l'annexe fiscale à la loi de finances n° 2024-1109 pour 2025. Chaque FNE est émise sur la plateforme de la DGI ou transmise à celle-ci, qui la signe électroniquement avant sa remise au client : ce sticker électronique comprend le visuel FNE, un QR code et une numérotation annuelle continue (NCC, année, séquence). L'obligation a démarré au plus tard le 1er juin 2025 pour les RNI, le 1er juillet 2025 pour les RSI, le 1er août 2025 pour les RME et le 1er septembre 2025 pour les entreprenants. L'usage de la facture normalisée papier a pris fin le 1er décembre 2025 pour les RNI et les RSI, le 11 décembre 2025 pour les RME et le 22 décembre 2025 pour les entreprenants, avec un report au 13 février 2026 pour les seuls TEE dans leurs opérations avec les entreprises ou l'État. Toutes les entreprises sont désormais concernées, quel que soit leur régime, hors douze cas de dispense énumérés par la DGI au titre de l'article 145 du LPF (banques, assurances, pharmacies, stations-service pour la vente de carburant, entre autres). Seule une FNE permet à l'acheteur de justifier une charge et de déduire la TVA. La FNE s'émet sur la plateforme FNE, via son application mobile ou par interfaçage API après accord préalable du Directeur général des Impôts ; le RNE, émis par les terminaux TERNE ou l'application RNE, vise les forfaitaires, les utilisateurs de caisses enregistreuses et les magasins à rayons multiples. Selon le communiqué de la DGI du 21 août 2026, une opération nationale de contrôle est menée depuis le 1er septembre 2026, avec les sanctions prévues par le LPF ; le portail FNE relate encore une rencontre tenue le 5 novembre 2026 avec la Direction du Commerce intérieur sur les difficultés de ses agents dans le contrôle de la FNE. Un communiqué du 14 septembre 2026 a laissé 45 jours aux émetteurs par API et aux éditeurs de solutions pour aligner leurs solutions sur les spécifications de la DGI ; en cas d'anomalies persistantes, ils s'exposent à une suspension temporaire de leur clé API, sans préjudice des sanctions fiscales. Tout éditeur ou intégrateur tiers doit par ailleurs figurer sur la liste tenue par la DGI, ce qui suppose notamment une résidence fiscale en Côte d'Ivoire. En vente en tournée entre professionnels, le vendeur doit donc pouvoir remettre au client, au moment de la vente, une FNE portant le NCC de ce dernier.\n\nFieldSales n'émet ni FNE ni RNE : ses factures et reçus sont des documents de gestion interne, sans sticker électronique ni QR code de la DGI, et ne remplacent ni la FNE ni le timbre de quittance. FieldSales n'est aujourd'hui raccordé ni à la plateforme FNE ni à son API, et ne figure pas sur la liste des éditeurs et intégrateurs tenue par la DGI. Ce raccordement peut être étudié sur demande, après analyse des exigences du pays, sans promesse ni calendrier."
+        },
+        {
+          "id": "collections",
+          "title": "Encaissements : espèces, mobile money et créances clients",
+          "body": "Sur le terrain, l'encaissement se fait en espèces, par mobile money (Orange Money, MTN MoMo, Moov Money, Wave), par chèque, par virement bancaire ou par carte, et une partie des ventes est consentie à terme. La procédure d'interfaçage API de la FNE retient d'ailleurs six modes de règlement : espèces, carte, chèque, mobile money, virement et paiement à terme. Dans FieldSales, l'entreprise crée ses propres modes de paiement, par exemple « Orange Money » ou « Wave », et le vendeur choisit le bon mode sur chaque reçu d'encaissement. Il s'agit d'un enregistrement interne qui sert à suivre la caisse de chaque vendeur et à préparer l'arrêté de caisse : FieldSales n'est pas connecté aux portefeuilles mobiles et ne déclenche aucun paiement. Les ventes à terme alimentent le solde du client, et le superviseur suit les créances par client ainsi que les encaissements par vendeur avant le versement de fin de tournée."
+        },
+        {
+          "id": "how",
+          "title": "Comment FieldSales fonctionne en Côte d'Ivoire",
+          "body": "À la mise en route, l'entreprise choisit dans les paramètres sa devise, le franc CFA (XOF), ainsi que le nom et le taux de la taxe ; ses documents reprennent ensuite ces réglages. L'application du vendeur fonctionne hors connexion : ventes, commandes, encaissements et visites sont enregistrés sur le téléphone puis synchronisés au retour du réseau. Factures et reçus s'impriment sur une imprimante thermique depuis le téléphone. Sur le tableau de bord web, le superviseur suit l'itinéraire, les visites avec position et photos, ainsi que le stock confié à chaque véhicule et son rapprochement en fin de tournée. FieldSales fonctionne sur Android, iPhone et navigateur web. L'interface est disponible en français, ainsi qu'en arabe, en anglais, en turc et en chinois. Le mode hors ligne concerne les documents internes de FieldSales ; l'émission de la FNE suit les canaux propres de la DGI. FieldSales a son siège à Riyad, en Arabie saoudite."
+        }
+      ],
+      "faq": [
+        {
+          "q": "Puis-je émettre mes FNE avec FieldSales ?",
+          "a": "Non. FieldSales sert à gérer les tournées, les commandes, le stock du véhicule et les encaissements ; ses factures sont des documents internes, sans sticker électronique ni QR code de la DGI. La FNE s'émet sur la plateforme FNE, via son application mobile ou par interfaçage API après accord préalable du Directeur général des Impôts. FieldSales n'est aujourd'hui raccordé ni à la plateforme FNE ni à son API ; ce raccordement peut être étudié sur demande, après analyse des exigences du pays, sans promesse ni calendrier."
+        },
+        {
+          "q": "L'application fonctionne-t-elle sans internet pendant la tournée ?",
+          "a": "Oui. Le vendeur crée ses factures, commandes, reçus d'encaissement et visites hors connexion ; tout est conservé sur le téléphone puis synchronisé dès que le réseau revient. La FNE, elle, s'émet par les canaux de la DGI, indépendamment de FieldSales."
+        },
+        {
+          "q": "Comment enregistrer un encaissement Orange Money, MTN MoMo, Moov Money ou Wave ?",
+          "a": "Créez dans les paramètres un mode de paiement pour chaque portefeuille utilisé. Sur le reçu d'encaissement, le vendeur choisit ce mode et saisit la somme reçue, qui s'ajoute à sa caisse du jour. C'est un enregistrement interne : FieldSales n'est pas connecté aux portefeuilles mobiles et ne prélève rien automatiquement."
+        },
+        {
+          "q": "Puis-je facturer en francs CFA avec une TVA à 18 % ?",
+          "a": "Oui. L'entreprise choisit le franc CFA (XOF) comme devise, puis saisit le nom de la taxe (TVA) et son taux dans les paramètres. Si votre activité relève d'un autre taux, comme le taux réduit de 9 %, vous saisissez celui qui s'applique. Rappel : d'après la DGI, seules les entreprises des régimes réels (RNI et RSI) facturent la TVA. Ces factures restent des documents internes : la facture fiscale est la FNE."
+        },
+        {
+          "q": "L'interface est-elle disponible en français ?",
+          "a": "Oui. L'application du vendeur et le tableau de bord web sont disponibles en français, ainsi qu'en arabe, en anglais, en turc et en chinois."
+        },
+        {
+          "q": "Comment contrôler le stock du véhicule et l'arrêté de caisse en fin de tournée ?",
+          "a": "Le stock chargé dans chaque véhicule est suivi comme un stock confié au vendeur : les ventes le font baisser, et le rapprochement de fin de tournée compare le stock restant dans le véhicule au stock attendu après les ventes de la journée. Les reçus d'encaissement, avec leur mode de paiement, servent ensuite à préparer l'arrêté de caisse et le versement de fin de tournée."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Structure d'une facture de vente en tournée dans FieldSales",
+        "note": "Exemple de structure, sans montants. Document de gestion interne : il ne remplace pas la FNE.",
+        "fields": [
+          {
+            "label": "En-tête du vendeur",
+            "example": "Raison sociale, adresse à Abidjan, RCCM, NCC, régime d'imposition"
+          },
+          {
+            "label": "Client",
+            "example": "Nom de la boutique, quartier, téléphone"
+          },
+          {
+            "label": "NCC du client",
+            "example": "Sept chiffres et une lettre clé (vente entre professionnels)"
+          },
+          {
+            "label": "Numéro et date",
+            "example": "Numéro interne FieldSales, date et heure de la vente"
+          },
+          {
+            "label": "Commercial terrain",
+            "example": "Nom du vendeur, véhicule, tournée du jour"
+          },
+          {
+            "label": "Lignes d'articles",
+            "example": "Désignation, unité, quantité, prix unitaire hors taxe"
+          },
+          {
+            "label": "Taxe",
+            "example": "TVA au taux paramétré par l'entreprise (par exemple 18 %)"
+          },
+          {
+            "label": "Total et règlement",
+            "example": "Total en francs CFA ; espèces, mobile money, chèque, virement ou à terme"
+          },
+          {
+            "label": "Mention",
+            "example": "Document interne : la FNE est émise via les canaux de la DGI"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "Portail FNE (DGI) — Foire aux questions",
+          "url": "https://www.fne.dgi.gouv.ci/faq.php"
+        },
+        {
+          "title": "Arrêté n° 0337/MFB/DGI du 9 mai 2025 portant modalités de mise en œuvre de la facturation normalisée électronique",
+          "url": "https://www.fne.dgi.gouv.ci/documents/arrete_0337_modalites_fne_2025.pdf"
+        },
+        {
+          "title": "DGI — Présentation de la FNE (mars 2025)",
+          "url": "https://www.fne.dgi.gouv.ci/documents/FNE-Pr%C3%A9sentation.pdf"
+        },
+        {
+          "title": "DGI — Procédure d'interfaçage des entreprises par API (mai 2025)",
+          "url": "https://www.fne.dgi.gouv.ci/documents/FNE-procedureapi.pdf"
+        },
+        {
+          "title": "DGI — Communiqué du 12 août 2025 : procédure applicable aux éditeurs et intégrateurs de solutions d'interfaçage",
+          "url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_689ca778df072_communique_procedure_agrement_editeurs_solution_fne_12_08_25.pdf"
+        },
+        {
+          "title": "DGI — Communiqué du 5 septembre 2025 : prorogation de l'usage de la facture normalisée physique",
+          "url": "https://www.fne.dgi.gouv.ci/uploads/communiques/COMMUNIQUE%20MISE%20EN%20OEUVRE%20DE%20LA%20FNE.pdf"
+        },
+        {
+          "title": "DGI — Communiqué du 18 décembre 2025 : fin de l'usage de la facture normalisée physique",
+          "url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_69444094471dc_FIN_DE_L_USAGE_DE_LA_FACT_NOR_PHYSIQUE.pdf"
+        },
+        {
+          "title": "DGI — Communiqué du 27 janvier 2026 : fin de la facture normalisée physique et date limite d'inscription",
+          "url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_69793fb80d317_FIN_DE_L_USAGE_DE_LA_FACT_NOR_PHYSIQUE.pdf"
+        },
+        {
+          "title": "DGI — Communiqué du 21 août 2026 : opération de contrôle de la FNE",
+          "url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_6a90297b2bf0b_communique_controle_fne_210826.pdf"
+        },
+        {
+          "title": "DGI — Communiqué du 14 septembre 2026 : solutions FNE par interfaçage API (délai de 45 jours)",
+          "url": "https://www.fne.dgi.gouv.ci/uploads/communiques/pdf_6aa92f4c0b766_COMMUNIQUE_MISE_EN_CONFORMITE_FNE.pdf"
+        },
+        {
+          "title": "Portail FNE — Rencontre DGI / Direction du Commerce intérieur sur le contrôle de la FNE (5 novembre 2026)",
+          "url": "https://www.fne.dgi.gouv.ci/album_galerie.php?id=57"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Côte d'Ivoire : autres taxes (TVA)",
+          "url": "https://taxsummaries.pwc.com/ivory-coast/corporate/other-taxes"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Côte d'Ivoire : administration fiscale",
+          "url": "https://taxsummaries.pwc.com/ivory-coast/corporate/tax-administration"
+        },
+        {
+          "title": "U.S. ITA (trade.gov) — Côte d'Ivoire : Distribution & Sales Channels",
+          "url": "https://www.trade.gov/country-commercial-guides/cote-divoire-distribution-sales-channels"
+        },
+        {
+          "title": "U.S. ITA (trade.gov) — Côte d'Ivoire : Selling Factors & Techniques",
+          "url": "https://www.trade.gov/country-commercial-guides/cote-divoire-selling-factors-techniques"
+        },
+        {
+          "title": "U.S. ITA (trade.gov) — Côte d'Ivoire : eCommerce",
+          "url": "https://www.trade.gov/country-commercial-guides/cote-divoire-ecommerce"
+        },
+        {
+          "title": "ISO 4217 (SIX) — liste des codes de devises",
+          "url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml"
+        }
+      ],
+      "lastVerifiedLabel": "Dernière vérification : novembre 2026"
+    }
+  },
+  "notes": "صفحة فرنسية جديدة لساحل العاج مبنية على حقائق مدقّقة (audit بتاريخ 2026-11-11، ثقة عالية). قرارات الصياغة: (1) مستندات FieldSales وُصفت صراحةً بأنها داخلية لا تحمل sticker ولا QR من DGI ولا تغني عن FNE ولا عن timbre de quittance، والفاتورة الضريبية هي FNE عبر قنوات DGI؛ وجملة موقف FieldSales منفصلة في فقرة مستقلة بلا تاريخ، ويسبقها جملة بلا تاريخ. (2) لم تُستعمل كلمة agréé/agrément/conformité ولا غيرها من مفردات الاعتماد؛ عُبّر عن المحرّرين المعتمدين بـ«la liste tenue par la DGI»، وأُعيدت صياغة عناوين مصدرين يحويان «agrément» و«mise en conformité» مع إبقاء روابطهما. (3) حُذفت كل المبالغ الملاصقة للعملة: كلفة الملصقات، وحد 5,000 FCFA، وعتبات رقم الأعمال للأنظمة. (4) ما في uncertain لم يُذكر جازماً: boutiques de quartier لم تُوصف كقناة سائدة، ووضع TCE لم يُفصَّل، وعمل FNE دون اتصال لم يُذكر، ولم يُدَّعَ أن FieldSales يعرض XOF بلا كسور (يُستحسن التحقق من ذلك في المنتج). (5) مصطلحات localTerms (vente en tournée، prévente/prise de commande، commercial terrain، arrêté de caisse، versement de fin de tournée) استُعملت مفرداتٍ وصفية دون ادعاء أنها لغة الموزعين الإيفواريين. (6) المحافظ (Orange Money وMTN MoMo وMoov Money وWave) طرق دفع مخصّصة بتسجيل داخلي، مع نفي صريح للربط بها. (7) حملة الرقابة ذُكرت بمصدرها (بلاغ 21 أغسطس 2026 واجتماع 5 نوفمبر 2026)، ومهلة الـ45 يوماً بلا ادعاء أن التعليق طُبّق. (8) لغات الواجهة الخمس مذكورة بصدق والفرنسية منها.",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish-with-notes",
+    "fixes": 18,
+    "issues": [
+      "المقدمة: «qui aide les grossistes et les distributeurs de Côte d'Ivoire» توحي بعملاء قائمين في البلد، وهي الصيغة نفسها التي صحّحها التدقيق في honesty.canSay[1]؛ صارت «avec laquelle … peuvent piloter». وصُقلت الجملة التالية (depuis…depuis، «le document»، «remontent … même après une journée sans réseau»).",
+      "التوزيع: جملة «تمرّ السلع بتجار الجملة قبل أن تصل إلى … الأسواق الكبرى» سلسلة تدفّق غير واردة في الحقائق (القنوات مذكورة متوازية، والجملة هي المسار التقليدي بعد الاستيراد)؛ أُعيدت صياغتها بلا تسلسل مُضاف، وضُبط وصف San-Pédro وYamoussoukro على نص الحقائق.",
+      "التوزيع: arrêté de caisse وversement يطابقان النقد لا المخزون؛ فُصلت مطابقة المخزون عنهما كي لا ينقلب معنى المصطلح.",
+      "التوزيع: صياغة فرنسية ركيكة («se pratique couramment à 60 à 90 jours» وتكرار courants) صُحّحت، وأُضيف مصدر trade.gov eCommerce الذي تستند إليه جملة الدفع عند التسليم.",
+      "الضريبة: «obligatoire pour le client» ملتبسة (كأن العميل ملزم بالحصول عليه) فصارت «NCC العميل إلزامي في فواتير B2B»؛ و«l'identité du client» عُيّنت بنص المادة 6 (الاسم أو raison sociale والعنوان)، وأُضيف رقم الفاتورة ونُسبت البيانات إلى القرار 0337.",
+      "الفوترة: «validée par elle» لا تطابق الحقائق (المنصة توقّع الفاتورة إلكترونياً، والتوقيع هو sticker)؛ صارت «transmise … qui la signe électroniquement»، و«Chaque facture» صارت «Chaque FNE».",
+      "الفوترة: سقط موعد 22 ديسمبر 2025 لنظام المقاول (TCE وTEE)، وهو الإغفال نفسه الذي صحّحه التدقيق، فبدا أن المقاولين بقوا على الورق حتى فبراير؛ أُضيف بمصدره (بلاغ 5 سبتمبر 2025).",
+      "الفوترة: «fait encore état, le 5 novembre» تجعل 5 نوفمبر تاريخ النشر لا تاريخ الاجتماع (نُشر في 10 نوفمبر)، وموضوع الاجتماع بنص الحقائق صعوبات أعوان التجارة في الرقابة.",
+      "الفوترة: مهلة الـ45 يوماً لمطابقة الحلول للمواصفات لا «لتصحيح البيانات» فقط؛ ضُبطت، وأُضيف «دون إخلال بالعقوبات الضريبية» كما في البلاغ، بلا ادعاء أن التعليق طُبّق.",
+      "الفوترة: «portant son NCC» ملتبسة بين NCC البائع وNCC العميل، والمقصود NCC المشتري.",
+      "فقرة FieldSales: «aucun raccordement de ce type» تحيل إلى شيء غير مذكور في الفقرة؛ صار النفي صريحاً (لا ربط بمنصة FNE ولا بـAPI، وليس في قائمة DGI) بلا تاريخ.",
+      "التحصيل: القيم الست مصدرها دليل API لا «FNE» عموماً؛ نُسبت إليه.",
+      "التحصيل: تكرار «chaque client» صُقل.",
+      "طريقة العمل: FieldSales منصة لا «société»؛ صارت «a son siège à Riyad».",
+      "س1: نفي الربط صار صريحاً بدل «de ce type».",
+      "س4: «Oui» دون تنبيه إلى أن TVA لا يفوترها إلا RNI وRSI قد يضلّل صغار التجار؛ أُضيف التنبيه من الحقائق، وأُزيل تكرار «reste».",
+      "س6: «compare le stock restant aux ventes» مقارنة غير منطقية (المخزون الفعلي يقارن بالمتوقع بعد المبيعات)، و«dotation» غير مألوفة لعهدة السيارة؛ والسؤال ذكر arrêté de caisse ولم يجب عنه.",
+      "الضريبة: «hors yaourts et autres dérivés» ناقصة المرجع؛ صارت «autres produits dérivés du lait» كما في الحقائق.",
+      "ملاحظة (بلا تعديل): مصطلحات localTerms مستعملة مفرداتٍ وصفية، ولم يُتحقق من تداولها الفعلي لدى الموزعين الإيفواريين (uncertain).",
+      "ملاحظة (بلا تعديل): وضع TCE وحد 5,000 FCFA وعمل FNE دون اتصال غير محسومة في الحقائق ولم تُذكر في الصفحة، وهذا صحيح.",
+      "ملاحظة للمنتج: XOF بلا كسور عشرية (ISO 4217)؛ يُستحسن التحقق من أن FieldSales يعرض الفرنك بلا منازل عشرية قبل النشر.",
+      "فُحص: لا سعر ولا مبلغ ملاصق لعملة، ولا agréé/certifié/conforme/gratuit، ولا ادعاء ربط بـFNE أو بالمحافظ، ولا تاريخ في فقرة FieldSales ولا في الجملة السابقة لها، ولغات الواجهة الخمس صادقة."
+    ]
+  }
+}

@@ -2959,7 +2959,7 @@
     <image:image>
       <image:loc>https://fieldsa.net/og/field-sales-software-ar.jpg</image:loc>
     </image:image>
-    <lastmod>2026-10-05</lastmod>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/en/blog/field-sales-software/</loc>
@@ -2970,7 +2970,7 @@
     <image:image>
       <image:loc>https://fieldsa.net/og/field-sales-software-en.jpg</image:loc>
     </image:image>
-    <lastmod>2026-10-05</lastmod>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/fr/blog/field-sales-software/</loc>
@@ -2981,7 +2981,7 @@
     <image:image>
       <image:loc>https://fieldsa.net/og/field-sales-software-fr.jpg</image:loc>
     </image:image>
-    <lastmod>2026-10-05</lastmod>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/blog/field-sales-software-sa/</loc>
@@ -3190,7 +3190,7 @@
     <image:image>
       <image:loc>https://fieldsa.net/og/field-sales-software-om-ar.jpg</image:loc>
     </image:image>
-    <lastmod>2026-10-05</lastmod>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/en/blog/field-sales-software-om/</loc>
@@ -3201,7 +3201,7 @@
     <image:image>
       <image:loc>https://fieldsa.net/og/field-sales-software-om-en.jpg</image:loc>
     </image:image>
-    <lastmod>2026-10-05</lastmod>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/fr/blog/field-sales-software-om/</loc>
@@ -3212,7 +3212,7 @@
     <image:image>
       <image:loc>https://fieldsa.net/og/field-sales-software-om-fr.jpg</image:loc>
     </image:image>
-    <lastmod>2026-10-05</lastmod>
+    <lastmod>2026-11-11</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/blog/distribution-management-system/</loc>
@@ -7140,5 +7140,59 @@
       <image:loc>https://fieldsa.net/og/best-field-sales-software-om-fr.jpg</image:loc>
     </image:image>
     <lastmod>2026-10-05</lastmod>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/en/blog/field-sales-software-pk/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog/field-sales-software-pk/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/blog/field-sales-software-pk/"/>
+    <image:image>
+      <image:loc>https://fieldsa.net/og/field-sales-software-pk-en.jpg</image:loc>
+    </image:image>
+    <lastmod>2026-11-11</lastmod>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/en/blog/field-sales-software-ng/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog/field-sales-software-ng/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/blog/field-sales-software-ng/"/>
+    <image:image>
+      <image:loc>https://fieldsa.net/og/field-sales-software-ng-en.jpg</image:loc>
+    </image:image>
+    <lastmod>2026-11-11</lastmod>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/en/blog/field-sales-software-za/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog/field-sales-software-za/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/blog/field-sales-software-za/"/>
+    <image:image>
+      <image:loc>https://fieldsa.net/og/field-sales-software-za-en.jpg</image:loc>
+    </image:image>
+    <lastmod>2026-11-11</lastmod>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/en/blog/field-sales-software-ke/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog/field-sales-software-ke/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/blog/field-sales-software-ke/"/>
+    <image:image>
+      <image:loc>https://fieldsa.net/og/field-sales-software-ke-en.jpg</image:loc>
+    </image:image>
+    <lastmod>2026-11-11</lastmod>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/fr/blog/field-sales-software-ci/</loc>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/blog/field-sales-software-ci/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/fr/blog/field-sales-software-ci/"/>
+    <image:image>
+      <image:loc>https://fieldsa.net/og/field-sales-software-ci-fr.jpg</image:loc>
+    </image:image>
+    <lastmod>2026-11-11</lastmod>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/fr/blog/field-sales-software-sn/</loc>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/blog/field-sales-software-sn/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/fr/blog/field-sales-software-sn/"/>
+    <image:image>
+      <image:loc>https://fieldsa.net/og/field-sales-software-sn-fr.jpg</image:loc>
+    </image:image>
+    <lastmod>2026-11-11</lastmod>
   </url>
 </urlset>

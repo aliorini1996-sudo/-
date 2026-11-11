@@ -16,6 +16,8 @@ export interface SeoListItem {
 export interface SeoArticle {
   slug: string;
   title: string;
+  /** عنوان H1 حين يختلف عن العنوان (أدلة الدول الجديدة من ملف محتواها) */
+  h1?: string;
   description: string;
   keywords: string;
   excerpt: string;
@@ -28,6 +30,8 @@ export interface SeoArticle {
   howto: { name: string; text: string }[];
   countryCode: string | null;
   isSeo: true;
+  /** لغات دليل دولة جديد (لغة سوقها وحدها) */
+  langs?: SeoLang[];
 }
 
 export interface SeoCardMeta {
@@ -36,6 +40,8 @@ export interface SeoCardMeta {
   label: { ar: string; en: string; fr: string };
   country: { ar: string; en: string; fr: string } | null;
   accent: string;
+  /** بطاقة دليل دولة جديد بلغة سوقه وحدها */
+  langs?: SeoLang[];
 }
 
 export interface SeoCatalogEntry {
@@ -48,6 +54,8 @@ export interface SeoCatalogEntry {
   isCanonical: boolean;
   trilingual: boolean;
   fr: boolean;
+  /** دليل دولة جديد: لغة سوقه وحدها (hreflang ذاتي) — غيابه = ع/إ/فر */
+  langs?: SeoLang[];
 }
 
 export interface SeoCountry {
@@ -66,3 +74,23 @@ export function buildCatalog(): SeoCatalogEntry[];
 export function hasArticle(slug: string): boolean;
 export function canonicalSlug(slug: string): string;
 export function cardCatalog(): SeoCardMeta[];
+
+/** دليل دولة جديد بلغة سوقه وحدها (src/blog/seo/countryGuides.mjs) */
+export interface SeoNewGuide {
+  code: string;
+  lang: SeoLang;
+  ar: string; en: string; fr: string;
+  inAr: string; inEn: string; inFr: string;
+}
+export const NEW_GUIDES: SeoNewGuide[];
+/** صفحات الدول القائمة المرقّاة بقسم «حقائق محلية» */
+export const UPGRADED_GUIDES: string[];
+/** رمز الدولة التي يُرسم المقال بلغته من ملف محتواها (فينتظره المتصفح)، أو null */
+export function countryGuideOf(slug: string, lang: string): string | null;
+/** هل وصل ملف محتوى الدولة (في node دائماً نعم) */
+export function countryGuideReady(cc: string): boolean;
+/** يحمّل ملف محتوى الدولة كسولاً في المتصفح (لا يرفض) */
+export function loadCountryGuide(cc: string): Promise<unknown>;
+/** لغات دليل دولة جديد، أو null لمقالات الكتالوج الثلاثية */
+export function articleLangs(slug: string): SeoLang[] | null;
+export function isIndexable(cc: string | null, lang: string): boolean;

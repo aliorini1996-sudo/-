@@ -26,7 +26,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { transformSync } from 'esbuild';
-import { buildCatalog, listArticles, shortAnswer, isIndexable, CONTENT_VERSION, COUNTRIES } from '../src/blog/seo/catalog.mjs';
+import { buildCatalog, listArticles, shortAnswer, isIndexable, CONTENT_VERSION, COUNTRIES, NEW_GUIDES } from '../src/blog/seo/catalog.mjs';
 import { existsWith, consolidatedFor } from '../src/blog/consolidate.mjs';
 import { textOf, faqProblemWith } from '../src/blog/extractFaq.mjs';
 import { FREE_TOOLS, FREE_INDEX, OFFICIAL_LINKS } from '../src/blog/clusters.mjs';
@@ -300,7 +300,7 @@ Key facts:
 - Core features: tax invoices with a QR code and returns from the rep’s phone, receipt vouchers linked to the invoices they settle, customer balances and statements, van stock per item, visit proof with location and photos, routes drawn on roads, thermal printing, team permissions, product catalog and price tiers, ERP integration.
 - Markets: distribution companies in any country. Each company picks its country from a registry of ${registry.count} countries that presets the currency, its decimals and the default VAT rate (all editable)${registry.hasOther ? ', or chooses “Other country” and sets the currency and tax rate by hand' : ''}.
 - Government e-invoicing: Saudi Arabia is the only country where a government integration is live (see Saudi e-invoicing below). In every other country invoices are standard invoices in the company’s currency and tax rate, and connection to the national e-invoicing platform is arranged on request.
-- Country guides (blog): currently ${COUNTRIES.length} countries in the Middle East and Africa, each with currency, VAT rate and tax authority.
+- Country guides (blog): currently ${COUNTRIES.length + NEW_GUIDES.length} countries in the Middle East, Africa and Asia, each with currency, VAT rate and tax authority.
 - Languages: the apps run in Arabic (right to left), English, French, Turkish and Chinese, and only in these five. The website is in Arabic, English and French, with Turkish and Chinese home pages${i18nNew.length ? `, and product pages in ${i18nNew.length} more languages for information (see Languages below)` : ''}.
 - Pricing: ${PRICING_LINE} No setup fees. Free 10-day trial, no credit card; sign-up form: ${ORIGIN}/signup/
 - Rep app: runs in any smartphone browser and is on Google Play and the App Store; a thermal printer is optional.
@@ -372,6 +372,14 @@ Key facts:
   const pillarsEn = en.filter((a) => !cc(a) && !a.slug.startsWith('best-'));
   const hubsEn = en.filter((a) => a.slug.startsWith('field-sales-software-'));
   const hubsAr = ar.filter((a) => a.slug.startsWith('field-sales-software-'));
+  // أدلة الدول الجديدة (countryGuides.mjs) بلغة سوقها وحدها (إنجليزية أو فرنسية): سطر واحد بأسماء الدول وروابطها —
+  // llms.txt مُنسَّق قرب 40 ألف حرف (geo-audit)، ومقدّمة كل دليل في llms-full.txt.
+  const guideSet = new Set(NEW_GUIDES.map((g) => `field-sales-software-${g.code.toLowerCase()}`));
+  const guideLinks = NEW_GUIDES
+    .map((g) => [g, (g.lang === 'en' ? en : fr).find((a) => a.slug === `field-sales-software-${g.code.toLowerCase()}`)])
+    .filter(([, a]) => a)
+    .map(([g, a]) => `[${g.en}${g.lang === 'fr' ? ' (French)' : ''}](${blogUrl(a.slug, g.lang)})`);
+  const guidesLine = guideLinks.length ? `- In the market’s own language only: ${guideLinks.join(' · ')}\n` : '';
   const bestEn = en.filter((a) => a.slug.startsWith('best-field-sales-software'));
   add(`
 ## Guides (pillar articles)
@@ -379,7 +387,7 @@ Key facts:
 ${pillarsEn.map((a) => catalogLine(a, 'en')).join('')}
 ## Country guides (English)
 
-${hubsEn.map((a) => catalogLine(a, 'en', 'last')).join('')}
+${hubsEn.filter((a) => !guideSet.has(a.slug)).map((a) => catalogLine(a, 'en', 'last')).join('')}${guidesLine}
 ## أدلة الدول بالعربية
 
 ${hubsAr.map((a) => catalogLine(a, 'ar', 'last')).join('')}

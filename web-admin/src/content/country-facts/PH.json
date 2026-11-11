@@ -1,0 +1,533 @@
+{
+  "code": "PH",
+  "nameEn": "Philippines",
+  "pageLanguage": "en",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "PHP",
+    "symbol": "₱",
+    "nameEn": "Philippine Peso",
+    "nameLocal": null,
+    "minorUnits": 2
+  },
+  "tax": {
+    "nameLocal": "Value-Added Tax",
+    "nameEn": "Value-Added Tax",
+    "abbr": "VAT",
+    "standardRate": 12,
+    "otherRates": [
+      {
+        "rate": 0,
+        "appliesTo": "Zero-rated: مبيعات التصدير من المسجّلين في VAT، والمبيعات إلى bonded manufacturing warehouses لمؤسسات التصدير، والسلع والخدمات الخاضعة لـ0% بقوانين خاصة (وفق PwC). أما المعاملات المعفاة VAT-exempt (Section 109) فليست نسبة صفرية ولا يُخصم عنها ضريبة مدخلات."
+      }
+    ],
+    "registrationThreshold": "التسجيل في VAT إلزامي إذا تجاوزت المبيعات الإجمالية 3,000,000 بيزو خلال آخر 12 شهراً أو يُتوقع تجاوزها خلال الـ12 شهراً القادمة (PwC، آخر مراجعة 1 أغسطس 2026). غير المسجّل في VAT يخضع عادةً لـPercentage Tax بدلاً منها (انظر uncertain).",
+    "authority": "Bureau of Internal Revenue (BIR)",
+    "authorityUrl": "https://www.bir.gov.ph",
+    "sources": [
+      {
+        "url": "https://taxsummaries.pwc.com/philippines/corporate/other-taxes",
+        "title": "PwC Worldwide Tax Summaries — Philippines, Corporate: Other taxes (last reviewed 01 August 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RR%208-2024.pdf",
+        "title": "BIR — Digest of Revenue Regulations No. 8-2024 (taxpayer classification: Micro < ₱3M, Small ₱3M–<₱20M, Medium ₱20M–<₱1B, Large ≥ ₱1B), issued 11 April 2024",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://cloudsmd.www.bir.gov.ph/index.php/tax-information/percentage-tax.html",
+        "title": "BIR — Percentage Tax (tax information page; older page, 3% for non-VAT persons) — تعذّر الوصول في تدقيق 2026-11-11 (فشل DNS)، ولا يُعتمد عليه وحده",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxsummaries.pwc.com/philippines/corporate/significant-developments",
+        "title": "PwC Worldwide Tax Summaries — Philippines, Corporate: Significant developments (last reviewed 01 August 2026; no VAT rate change listed)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "taxId": {
+    "label": "TIN (Taxpayer Identification Number)",
+    "format": "9 أرقام للـTIN يليها Branch Code من 5 أرقام، ويُكتب على الفاتورة بالصيغة NNN-NNN-NNN-NNNNN مسبوقاً بعبارة «VAT Reg TIN» أو «Non-VAT Reg TIN» (مثال اللائحة: VAT Reg TIN 123-456-789-00000).",
+    "sources": [
+      {
+        "url": "https://www.offshore-management.com.ph/blog/wordpress/wp-content/uploads/2024/05/RR-7-2024_Full.pdf",
+        "title": "Revenue Regulations No. 7-2024 — full text (copy hosted by a third party; Sections 3(B) and 6(B))",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RR%207-2024%20(final).pdf",
+        "title": "BIR — Digest of Revenue Regulations No. 7-2024 (registration procedures and invoicing requirements under the EOPT Act), issued 11 April 2024",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "einvoicing": {
+    "status": "phased-mandatory",
+    "systemName": "Electronic Invoicing System (EIS) — Electronic Invoicing/Receipting System",
+    "authority": "Bureau of Internal Revenue (BIR)",
+    "model": "real-time-reporting",
+    "scopeNow": "حتى اليوم (11 نوفمبر 2026) لم يبدأ الإلزام فعلياً بعد؛ موعده 31 ديسمبر 2026 (بعد نحو سبعة أسابيع). يجب أن تكون الفئات التالية قادرة على إصدار فواتير إلكترونية في موعد أقصاه 31 ديسمبر 2026 (RR 11-2025 المعدّلة بـRR 26-2025، وتعليمات RMC 98-2026): (1) دافعو الضرائب في التجارة الإلكترونية أو المعاملات عبر الإنترنت المصنّفون Small وMedium وLarge، ويُعفى Micro؛ (2) الخاضعون لـLarge Taxpayers Service (LTS)؛ (3) المصنّفون Large Taxpayers وفق قانون EOPT (RA 11976) وRR 8-2024، أي مبيعات سنوية لا تقل عن مليار بيزو؛ (4) مستخدمو CAS أو CBA مع سجلات محاسبية وفوترة إلكترونية، ومستخدمو برامج فوترة أخرى (other invoicing software). يُعفى من الإلزام كل Micro taxpayer (مبيعات سنوية أقل من 3 ملايين بيزو)، ويجوز له الإصدار الطوعي أو الاستمرار في الفواتير اليدوية المسجّلة أو CAS أو CRM أو POS. قبل الإصدار يلزم الحصول على PTI (Permit to Issue Electronic Invoice)، ثم EIS Certification خلال 6 أشهر من صدوره وإلا جاز سحب الإذن. الفواتير المعدّة في Word أو Excel أو Google Sheets ليست فواتير إلكترونية، ولا تُعدّ كذلك أي فاتورة مطبوعة من نظام لا يستطيع إرسالها إلكترونياً إلى المشتري والإبلاغ عنها. موجة لاحقة بلا موعد محدد، تبدأ بعد جاهزية نظام BIR وبلوائح منفصلة: المصدّرون، والمؤسسات المسجّلة بحوافز (RBEs)، ومستخدمو POS، وغيرهم ممن يحدّدهم المفوّض. أما الإبلاغ الإلكتروني عن المبيعات (Electronic Sales Reporting, Section 237-A)، أي إرسال بيانات JSON إلى EIS، فهو التزام منفصل لم يُفعَّل بعد، وينتظر لوائح وتوجيهاً من المفوّض. تصميم RR 8-2022 يشترط الإرسال خلال 3 أيام تقويمية من المعاملة، ومن هنا جاء وصف النموذج بـreal-time-reporting، وهو ليس نموذج clearance. يجوز للمكلّف استخدام حل فوترة إلكترونية داخلي أو تجاري أو خدمات Electronic Invoicing Service Provider (ESP). صدرت قواعد اعتماد ESP في RMC 110-2026، وفُتح باب الطلبات من 16 إلى 30 أكتوبر 2026 (وفق Reyes Tacandong).",
+    "keyDates": [
+      {
+        "date": "2022-06-30",
+        "event": "صدور RR 8-2022 التي نظّمت إصدار الفواتير والإيصالات الإلكترونية عبر نظام EIS الذي أنشأه BIR، وألزمت به المصدّرين والتجارة الإلكترونية وخاضعي LTS. أما إرسال بيانات المبيعات (Section 237-A) فألزمت به المصدّرين وخاضعي LTS دون التجارة الإلكترونية: بصيغة JSON فوراً أو شبه فوري، وخلال 3 أيام تقويمية كحدّ أقصى، بعد الحصول على EIS CERT وPermit to Transmit (PTT)."
+      },
+      {
+        "date": "2024-01-22",
+        "event": "نفاذ قانون Ease of Paying Taxes (EOPT, RA 11976)، وإلغاء رسم التسجيل السنوي 500 بيزو."
+      },
+      {
+        "date": "2024-04-27",
+        "event": "نفاذ أحكام الفوترة في RR 7-2024: الفاتورة (Invoice) أصبحت الدليل الرئيسي لبيع السلع والخدمات، و«Official Receipt» صار مستنداً تكميلياً لا يصلح لخصم ضريبة المدخلات."
+      },
+      {
+        "date": "2025-02-27",
+        "event": "صدور RR 11-2025 تنفيذاً للمادتين 237 و237-A بعد تعديلهما بقانون CREATE MORE (RA 12066). حدّدت الفئات الملزمة بالفوترة الإلكترونية، وأعفت Micro، ومنحت مهلة سنة من النفاذ."
+      },
+      {
+        "date": "2025-10-16",
+        "event": "صدور RR 26-2025 التي مدّدت مهلة إصدار الفواتير الإلكترونية للفئات الأربع الأولى حتى 31 ديسمبر 2026، مع جواز تمديد المفوّض للمواعيد."
+      },
+      {
+        "date": "2026-09-22",
+        "event": "صدور RMC 98-2026 (نافذ فوراً) بالتعليمات التنفيذية: PTI قبل الإصدار، وEIS Certification خلال 6 أشهر، وصيغة JSON، وفصل الفوترة الإلكترونية عن الإبلاغ عن المبيعات. أعلن عنه BIR في 23 سبتمبر 2026."
+      },
+      {
+        "date": "2026-10-01",
+        "event": "نشر RR 6-2026 على موقع BIR: تعديل Section 6(B) من RR 7-2024 لإلزام إظهار ضريبة الاستقطاع CWT بنداً مستقلاً في الفاتورة حيث ينطبق (وفق Grant Thornton، 12 أكتوبر 2026)."
+      },
+      {
+        "date": "2026-10-16",
+        "event": "فتح باب طلبات اعتماد مزوّدي خدمة الفوترة الإلكترونية (Electronic Invoicing Service Provider, ESP) وفق RMC 110-2026، من 16 إلى 30 أكتوبر 2026، لدى ESP Accreditation Board Secretariat في BIR (وفق Reyes Tacandong، 21 أكتوبر 2026). الاعتماد للمزوّد الراغب في العمل ESP، وليس شرطاً على كل نظام فوترة."
+      },
+      {
+        "date": "2026-10-22",
+        "event": "صدور RMC 112-2026 حول إظهار ضريبة الاستقطاع CWT في الفواتير (تنفيذاً لـRR 6-2026): أنظمة الفوترة الإلكترونية المشمولة حتى 31 ديسمبر 2026، وأجهزة POS وCRM وأنظمة الفوترة الأخرى غير المشمولة بعد حتى 31 مارس 2027 (وفق Daily Tribune)."
+      },
+      {
+        "date": "2026-12-31",
+        "event": "الموعد النهائي لقدرة الفئات المشمولة (التجارة الإلكترونية عدا Micro، وLTS، وLarge Taxpayers وفق EOPT، ومستخدمو CAS/CBA وبرامج الفوترة) على إصدار فواتير إلكترونية متوافقة."
+      },
+      {
+        "date": "2027-03-31",
+        "event": "مهلة تعديل أجهزة POS وCRM وأنظمة الفوترة الأخرى غير المشمولة بالفوترة الإلكترونية لإظهار حقل CWT (ما لم يحدد BIR موعداً آخر)."
+      }
+    ],
+    "b2cReceipts": "لم نجد في اللوائح التي راجعناها اشتراطاً لجهاز ضريبي بذاكرة مالية (fiscal device) على غرار ETR في كينيا، لكن الفواتير الصادرة من أجهزة CRM وPOS لا تُعتدّ بها ضريبياً إلا إذا كانت الأجهزة «duly accredited and registered» لدى BIR وتحمل رقم MIN (RR 8-2022). منذ EOPT يجب على المسجّل في VAT إصدار فاتورة مسجّلة (VAT Invoice) لكل بيع مهما كان مبلغه. غير المسجّل يصدرها للمعاملة التي تبلغ 500 بيزو فأكثر، أو عند طلب المشتري، أو عندما يبلغ مجموع مبيعات اليوم الصغيرة 500 بيزو (فاتورة واحدة بالمجموع). يُعدَّل حد 500 بيزو كل 3 سنوات وفق مؤشر الأسعار. أجهزة CRM وPOS يجب تسجيلها لدى BIR بـPermit to Use (PTU)، وتحمل فواتيرها رقم MIN والرقم التسلسلي للجهاز. مستخدمو POS ليسوا ضمن موجة الفوترة الإلكترونية الأولى. في البيع للمستهلك النهائي (B2C) لا يلزم ذكر عنوان المشتري ولا TIN. وفي بيع المسنين وذوي الإعاقة وفئات أخرى يلزم إثبات رقم الهوية وتفصيل الخصم (5% أو 20%) وإعفاء VAT 12% وتوقيع المشتري.",
+    "sources": [
+      {
+        "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/PR101SEP2326.pdf",
+        "title": "BIR Media Release — BIR sets electronic invoicing rules ahead of December 31 compliance deadline (23 September 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RR%20No.%2026-2025%20Digest.pdf",
+        "title": "BIR — Digest of Revenue Regulations No. 26-2025 (extends e-invoicing compliance to 31 December 2026), issued 16 October 2025",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RR%2011-2025%20Digest.pdf",
+        "title": "BIR — Digest of Revenue Regulations No. 11-2025 (Sections 237/237-A as amended by RA 12066 CREATE MORE), issued 27 February 2025",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://bir-cdn.bir.gov.ph/local/pdf/RR%208-2022.pdf",
+        "title": "BIR — Digest of Revenue Regulations No. 8-2022 (EIS, Sales Data Transmission within 3 calendar days, JSON), issued 30 June 2022",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RMC%20No.%2098-2026%20redacted.pdf",
+        "title": "BIR — RMC No. 98-2026 full text (scanned PDF; content taken from the BIR media release and professional summaries)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.grantthornton.com.ph/technical-alerts/tax-alert/2026/bir-issues-guidelines-on-electronic-invoicing-retains-31-dec-2026-deadline/",
+        "title": "Grant Thornton Philippines — BIR issues guidelines on electronic invoicing; retains 31 Dec 2026 deadline (24 September 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.reyestacandong.com/rmc-no-98-2026-electronic-invoicing-guidelines/",
+        "title": "Reyes Tacandong & Co. — RMC No. 98-2026: Electronic Invoicing Guidelines (posted 2026-10-01)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://tribune.net.ph/2026/10/23/bir-extends-deadlines-for-new-cwt-invoicing-rules",
+        "title": "Daily Tribune — BIR extends deadlines for new CWT invoicing rules (RMC 112-2026), 23 October 2026",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RMC%20No.%2077-2024%20Digest.pdf",
+        "title": "BIR — Digest of RMC No. 77-2024 (clarifies invoicing under RR 7-2024 as amended by RR 11-2024), issued 11 July 2024",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.reyestacandong.com/bir-esp-accreditation-applications-2026/",
+        "title": "Reyes Tacandong & Co. — BIR Opens ESP Accreditation Applications (RMC No. 110-2026; window 16–30 October 2026), posted 2026-10-21",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.grantthornton.com.ph/technical-alerts/tax-alert/2026/invoices-must-now-disclose-creditable-withholding-tax/",
+        "title": "Grant Thornton Philippines — Invoices must now disclose creditable withholding tax (RR No. 6-2026), 12 October 2026",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "invoiceRequirements": [
+    "اسم البائع المسجّل كما في BIR Certificate of Registration (COR)، مع جواز إضافة الاسم التجاري المسجّل لدى DTI أو SEC.",
+    "عبارة تفيد أن البائع مسجّل أو غير مسجّل في VAT، يليها TIN البائع وBranch Code، مثل «VAT Reg TIN 123-456-789-00000».",
+    "العنوان التجاري المسجّل الذي تُستخدم فيه الفاتورة.",
+    "كلمة «Invoice» مطبوعة بوضوح (Sales Invoice أو Cash Invoice أو Charge/Credit Invoice أو Service Invoice أو Billing Invoice…). منذ نفاذ RR 7-2024 في 27 أبريل 2024 يُعامَل «Official Receipt» مستنداً تكميلياً لا دليلاً على البيع ولا يصلح لخصم ضريبة المدخلات، وإصداره بدل الفاتورة بعد الفترة الانتقالية يُعدّ عدم إصدار للفاتورة. كانت مهلة إعادة ضبط أنظمة CRM وPOS وCAS حتى 31 ديسمبر 2024 (RMC 77-2024).",
+    "تاريخ المعاملة.",
+    "رقم تسلسلي مطبوع بوضوح.",
+    "الكمية، وسعر الوحدة (unit cost)، ووصف السلعة أو طبيعة الخدمة.",
+    "مساحة لاسم المشتري المسجّل وعنوانه التجاري المسجّل وTIN. في البيع للمستهلك النهائي (B2C) لا يلزم العنوان ولا TIN. وتنص Section 3(B) على ذكر اسم المشتري وعنوانه وTIN إذا كان مسجّلاً في VAT وبلغ البيع 1,000 بيزو فأكثر.",
+    "المبلغ الإجمالي للبيع شاملاً VAT، ومبلغ VAT بنداً مستقلاً.",
+    "في المعاملات المختلطة: تفصيل VATable Sales وVAT Amount وZero-Rated Sales وVAT-Exempt Sales، أو فواتير منفصلة تحمل عبارة «VAT-Exempt Sale» أو «Zero-Rated Sale».",
+    "عند البيع للمسنين (Senior Citizens) وذوي الإعاقة (PWD) والرياضيين الوطنيين والوالد المنفرد وحاملي Medal of Valor: رقم الهوية، وتفصيل الخصم (5% أو 20%) وإعفاء VAT 12%، وتوقيع المشتري (لا يلزم التوقيع في الشراء عبر الإنترنت أو التطبيق).",
+    "الفواتير اليدوية: أسفل الفاتورة رقم ATP/OCN وتاريخه، وBIR Permit Number للفواتير loose-leaf، والأرقام التسلسلية المعتمدة.",
+    "فواتير CRM/POS والأجهزة أو البرامج المماثلة: في الأعلى رقم MIN والرقم التسلسلي للجهاز أو رقم ترخيص البرنامج، وكلمة «REPRINT» عند إعادة الطباعة؛ وفي الأسفل رقم PTU.",
+    "فواتير أنظمة CAS/CBA: في الأسفل رقم PTU أو ACCN (Acknowledgement Certificate Control Number)، ونطاق السلسلة المستخدمة وتاريخ الإصدار.",
+    "المستندات التكميلية (Official Receipt وDelivery Receipt وCollection Receipt وOrder Slip وغيرها): تُطبع عليها بخط عريض عبارة «THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAX.».",
+    "حيث ينطبق: إظهار ضريبة الاستقطاع (Creditable Withholding Tax, CWT) بنداً مستقلاً في الفاتورة. أضافتها RR 6-2026 بتعديل Section 6(B) من RR 7-2024، ونُشرت على موقع BIR في 1 أكتوبر 2026 (وفق Grant Thornton). وحدّدت RMC 112-2026 الصادرة في 22 أكتوبر 2026 المهلة (وفق Daily Tribune): 31 ديسمبر 2026 لأنظمة الفوترة الإلكترونية المشمولة بالإلزام، و31 مارس 2027 لأجهزة CRM وPOS وأنظمة الفوترة الأخرى غير المشمولة بعد. في الفترة الانتقالية تُختم الفواتير غير المستخدمة بعبارة «Less: Withholding Tax».",
+    "الفاتورة الإلكترونية للفئات المشمولة: بيانات منظَّمة قابلة للتحويل إلى صيغة JSON التي يحدّدها BIR، مستمدة أساساً من الحد الأدنى لبيانات الفاتورة في Section 113 وRR 7-2024، مع عناصر كالخصومات والاستقطاعات. لا تُحذف الفاتورة المصدرة ولا تُعدَّل، ويكون التصحيح بإشعار دائن (Credit Note/Memo) أو فاتورة جديدة."
+  ],
+  "distribution": {
+    "hubs": [
+      "Metro Manila (NCR)",
+      "Calabarzon (Cavite / Laguna / Batangas)",
+      "Central Luzon (Pampanga / Bulacan)",
+      "Metro Cebu (Central Visayas)",
+      "Davao City (Davao Region)"
+    ],
+    "tradeChannels": [
+      "sari-sari stores",
+      "carinderias (small eateries)",
+      "public market vendors (palengke)",
+      "supermarkets and groceries (modern trade)",
+      "drugstores / pharmacies",
+      "B2B ordering apps for sari-sari stores (e.g., GrowSari)"
+    ],
+    "localTerms": {
+      "vanSales": null,
+      "preSales": null,
+      "salesRep": null,
+      "retailShop": "sari-sari store",
+      "routeAccounting": null
+    },
+    "collectionMethods": [
+      "Cash",
+      "Checks (cheques)",
+      "GCash",
+      "Maya",
+      "Bank transfer via InstaPay / PESONet",
+      "QR Ph"
+    ],
+    "notes": "التوزيع التقليدي في الفلبين يدور حول sari-sari store، وهو متجر عائلي صغير يُدار غالباً من منزل صاحبه. يُقدَّر عدد هذه المتاجر بين نحو 800 ألف و1.3 مليون بحسب المصدر، وتُنسب إليها حصة كبيرة من مبيعات السلع المصنّعة (نحو 70% في مقال رأي استشهد به Rest of World). تبيع هذه المتاجر بالآجل للزبائن الدائمين (suki) وتسجّل الديون في دفاتر يدوية. تظهر منصات توريد رقمية مثل GrowSari، التي تقول إنها تصل إلى أكثر من 50 ألف متجر بأسعار الموزعين، وPackworks. الدفع ما زال نقدياً في الغالب: وثيقة BSP لعام 2020، استناداً إلى بيانات BTCA لعام 2019، ذكرت أن نحو 85% من مدفوعات الموردين بين الشركات (B2B) بالحجم تتم نقداً، وأن الاقتصاد يعتمد على النقد والشيكات. هذه أرقام قديمة لكنها تفسّر أهمية التحصيل الميداني. المحافظ الإلكترونية تنتشر بسرعة: GCash (G-Xchange, Inc.) يذكر أن 94 مليون فلبيني استخدموه وأن عليه 6 ملايين تاجر وبائع، وMaya (Maya Philippines وMaya Bank) يخضع لرقابة BSP، وكلاهما يدعم الدفع بـQR. تحت إطار NRPS تعمل InstaPay للتحويل الفوري صغير القيمة وPESONet للتحويل الدفعي بديلاً عن الشيكات، ويوحّد QR Ph رموز الدفع للتجار. قائمة hubs تضم المراكز الحضرية والتجارية الرئيسية؛ ترتيبها حسب الناتج الإقليمي غير مُتحقَّق منه بمصدر رسمي (موقع PSA رفض الوصول)، فلا يُعرض ترتيباً مؤكداً. ملاحظة عملية للمنصة: الموزع المسجّل في VAT الذي يصدر فواتيره من برنامج فوترة (other invoicing software) قد يقع ضمن فئة CAS/CBA وبرامج الفوترة المشمولة بالفوترة الإلكترونية بحلول 31 ديسمبر 2026، ما لم يكن Micro. كما تشترط RR 7-2024 تسجيل الأنظمة لدى BIR (ATP للفواتير اليدوية، وPermit to Use مع ATP للإصدار بمساعدة الحاسوب، وAcknowledgement Certificate لأنظمة CAS). لذلك تبقى مسؤولية التسجيل والامتثال على العميل."
+  },
+  "honesty": {
+    "canSay": [
+      "يمكن لشركات التوزيع في الفلبين استخدام FieldSales لإدارة مناديب المبيعات والبيع من السيارة (van sales) وأخذ الطلبات والتحصيل الميداني، بما في ذلك خدمة متاجر sari-sari.",
+      "يضبط العميل العملة (PHP ₱) ونسبة الضريبة (مثل VAT 12%) بنفسه داخل المنصة.",
+      "يمكن تسجيل التحصيل حسب طريقة الدفع التي يحددها العميل، مثل النقد والشيكات والتحويل البنكي وGCash وMaya، كطرق تحصيل تُسجَّل في النظام دون ربط مباشر بتلك الخدمات.",
+      "الربط مع أنظمة BIR للفوترة الإلكترونية (EIS) متاح للنقاش عند الطلب، دون التزام بموعد أو نتيجة.",
+      "الربط الحكومي الحيّ للفوترة في FieldSales موجود اليوم في السعودية وحدها (ZATCA Fatoora المرحلة الثانية)، وليس في الفلبين.",
+      "تسجيل نظام الفوترة لدى BIR (ATP أو PTU أو CAS أو PTI) والامتثال لمتطلبات الفاتورة والفوترة الإلكترونية مسؤولية الشركة المستخدمة، وننصح بمراجعة مستشارها الضريبي."
+    ],
+    "mustNotSay": [
+      "أن FieldSales «BIR-accredited» أو «BIR-registered» أو «BIR-approved» أو أنه يحمل Permit to Use (PTU) أو Acknowledgement Certificate (AC/ACCN) أو أنه نظام CAS مسجّل.",
+      "أن FieldSales «EIS-certified» أو «connected to BIR EIS» أو يرسل بيانات المبيعات إلى BIR تلقائياً، أو أنه يملك أو يستخرج للعميل Permit to Issue Electronic Invoice (PTI) أو Permit to Transmit (PTT).",
+      "أنه يصدر فواتير إلكترونية صالحة لدى BIR أو أنه «compliant with RR 11-2025 / RMC 98-2026» أو «ready for the 31 December 2026 e-invoicing deadline».",
+      "أنه Electronic Invoicing Service Provider (ESP/EISP) معتمد لدى BIR، أو أنه تقدّم أو يتقدّم لاعتماد ESP وفق RMC 110-2026.",
+      "أنه يغني عن جهاز POS أو CRM المسجّل لدى BIR، أو أن فواتيره تصلح تلقائياً لخصم ضريبة المدخلات (input VAT).",
+      "أنه يصدر «Official Receipt» دليلاً على البيع؛ فمنذ EOPT صار Official Receipt مستنداً تكميلياً فقط.",
+      "أي تكامل مباشر أو شراكة مع GCash أو Maya أو InstaPay أو PESONet أو QR Ph أو GrowSari أو Packworks.",
+      "أرقام عن عدد متاجر sari-sari أو حصتها السوقية بصيغة الحقيقة المؤكدة، فالتقديرات متضاربة.",
+      "أي ادعاء امتثال أو اعتماد أو ربط حكومي في الفلبين يشبه وصف ربط ZATCA في السعودية.",
+      "أي وصف عام مثل «BIR-compliant» أو «BIR-ready» أو «e-invoicing ready» أو «CWT-ready» أو أن فواتير FieldSales تستوفي RR 7-2024 أو RR 6-2026 تلقائياً.",
+      "أن لدى FieldSales عملاء أو شركاء أو مكتباً أو حضوراً في الفلبين، ما لم يكن ذلك موثَّقاً."
+    ]
+  },
+  "uncertain": [
+    "نص RMC 98-2026 الكامل وRMC 112-2026 ممسوحان ضوئياً ولم يُقرآ مباشرة. تفاصيل RMC 98-2026 (مهلة تقييم PTI 20 يوم عمل، وEIS Certification خلال 6 أشهر، وصيغة JSON، والتصحيح بإشعار دائن، والفواتير اليدوية وقت تعطّل النظام) مأخوذة من بيان BIR في 23 سبتمبر 2026 (قُرئ نصّه في التدقيق) ومن ملخصَي Grant Thornton وReyes Tacandong. RR 6-2026 تأكّدت من Grant Thornton (12 أكتوبر 2026). أما مواعيد RMC 112-2026 (31 ديسمبر 2026 و31 مارس 2027) فمصدرها الوحيد تقرير صحفي (Daily Tribune).",
+    "تعليمات ESP: صدرت RMC 110-2026 وفُتح باب الاعتماد 16–30 أكتوبر 2026 (وفق Reyes Tacandong). لم يُقرأ نص RMC 110-2026 ولا تاريخ إصداره، ولا معايير الاعتماد التفصيلية.",
+    "لم يُعثر على أي تمديد جديد لموعد 31 ديسمبر 2026: قائمة تنبيهات Grant Thornton حتى 9 نوفمبر 2026 والصفحة الرئيسية لـReyes Tacandong لا تذكران تمديداً. لكن RR 26-2025 تجيز للمفوّض تمديد المواعيد، ولم يُجرَ في التدقيق بحث ويب عام لأن حصة البحث نفدت. يجب إعادة التحقق قرب نهاية ديسمبر 2026.",
+    "النص الكامل لـRR 7-2024 مأخوذ من نسخة منشورة لدى طرف ثالث (offshore-management.com.ph) تطابق بنية الملخص الرسمي في BIR. التعديلات اللاحقة (RR 11-2024 وRMC 77-2024) تخص المواعيد الانتقالية والتوضيحات أساساً، وقد يكون هناك تعديل لاحق على قائمة حقول الفاتورة لم أطّلع عليه.",
+    "يوجد تعارض ظاهري داخل RR 7-2024 حول بيانات المشتري. Section 3(B) تشترط ذكر اسم المشتري وعنوانه وTIN للمبيعات من 1,000 بيزو فأكثر لمشترٍ مسجّل في VAT، بينما Section 6(B) تشترط «مساحة» لهذه البيانات وتعفي البيع للمستهلك من العنوان وTIN.",
+    "نموذج الفوترة الإلكترونية: صنّفته real-time-reporting بناءً على RR 8-2022 (إرسال خلال 3 أيام تقويمية)، لكن هذا الإبلاغ (Section 237-A) لم يُفعَّل بعد. الالتزام النافذ في 31 ديسمبر 2026 هو القدرة على الإصدار الإلكتروني فقط، وليس نموذج clearance.",
+    "لم أتحقق بمصدر من هذه الجلسة من تفاصيل التجربة الأولى لنظام EIS منذ يوليو 2022 (نحو 100 من كبار المكلفين، حسب تقارير صحفية تعذّر فتحها)، لذا لم تُدرج في keyDates. ولم أتحقق كذلك من تاريخ توقيع قانون CREATE MORE (RA 12066)، المرجّح أواخر 2024.",
+    "Percentage Tax لغير المسجّلين في VAT: صفحة BIR التي استُشهد بها (3%) تعذّر الوصول إليها في التدقيق (فشل DNS، والمسار البديل 404). وتذكر مصادر ثانوية أن النسبة خُفّضت إلى 1% من 1 يوليو 2020 حتى 30 يونيو 2023 ثم عادت إلى 3%. لم يُتحقق من النسبة بمصدر رسمي حديث، فلا تُدرج في otherRates لأنها ليست VAT. أما مبدأ خضوع غير المسجّل لـPercentage Tax فتؤكده RR 7-2024 (تعريف Non-VAT Invoice وSection 6(B.17)).",
+    "المصطلحات المحلية للبيع من السيارة والبيع المسبق ومندوب المبيعات ومحاسبة خط السير تُركت null لأني لم أجد لها مصدراً موثوقاً، إذ حُجبت مواقع الوظائف. المتداول عادةً، وهو غير مُتحقَّق منه هنا: «van selling» أو «ex-truck selling» للبيع من السيارة، و«booking» أو «pre-selling» للبيع المسبق، و«salesman» للمندوب، وكذلك «route».",
+    "قائمة hubs مبنية على الناتج المحلي الإقليمي لعام 2025 كما ينقله مقال ويكيبيديا عن PSA، لأن موقع PSA رفض الوصول (403). مصطلح «palengke» وقناة الصيدليات وتقسيم القنوات عامةً من المعرفة العامة وليست من مصدر توزيع متخصص.",
+    "عدد متاجر sari-sari متضارب: نحو 800 ألف (Magna Kultura عبر ويكيبيديا) مقابل أكثر من 1.3 مليون (Rest of World 2024، بلا مصدر محدد). نسبة 70% من مبيعات السلع المصنّعة منسوبة إلى مقال رأي.",
+    "بيانات الدفع النقدي من خارطة طريق BSP للمدفوعات الرقمية 2020–2023 تعتمد على بيانات 2019، وهي قديمة. لم أصل إلى تقارير BSP الأحدث عن حصة المدفوعات الرقمية. وسقف InstaPay المذكور فيها (50,000 بيزو) قد يكون تغيّر.",
+    "currency.nameLocal جُعل null في التدقيق: «Piso» هو الاسم المتداول بالفلبينية والمطبوع على العملة، لكن لم يُفتح مصدر موثوق يثبته. قائمة ISO 4217 (SIX، 2026-09-17) تذكر «Philippine Peso» فقط. الرمز ₱ أيضاً لم يُتحقق منه بمصدر رسمي مفتوح، وإن كان يظهر في نصوص BIR الرسمية (مثل RR 8-2024).",
+    "حدّ التسجيل في VAT (3 ملايين بيزو) مأخوذ من PwC (آخر مراجعة 1 أغسطس 2026)، وصفحة Percentage Tax في BIR التي قيل إنها تؤكده تعذّر الوصول إليها في التدقيق. ويتّسق الحدّ مع حدّ Micro Taxpayer في RR 8-2024 (أقل من 3 ملايين). لم يُقرأ نص Section 109(CC) أو 236(G) الرسمي مباشرة.",
+    "حدود التدقيق (2026-11-11): نفدت حصة البحث في الويب، فاقتصر التحقق على فتح المصادر مباشرة. النسبة 12% تؤكدها PwC (آخر مراجعة 1 أغسطس 2026)، وصفحة Significant developments لا تذكر تغييراً في نسبة VAT. لم يُجرَ بحث مستقل عن أي تعديل تشريعي على النسبة بين أغسطس ونوفمبر 2026."
+  ],
+  "sources": [
+    {
+      "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/PR101SEP2326.pdf",
+      "title": "BIR Media Release — Electronic invoicing rules ahead of 31 December 2026 deadline (23 September 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RR%20No.%2026-2025%20Digest.pdf",
+      "title": "BIR — RR No. 26-2025 Digest (16 October 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RR%2011-2025%20Digest.pdf",
+      "title": "BIR — RR No. 11-2025 Digest (27 February 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://bir-cdn.bir.gov.ph/local/pdf/RR%208-2022.pdf",
+      "title": "BIR — RR No. 8-2022 Digest (30 June 2022)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RR%207-2024%20(final).pdf",
+      "title": "BIR — RR No. 7-2024 Digest (11 April 2024)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.offshore-management.com.ph/blog/wordpress/wp-content/uploads/2024/05/RR-7-2024_Full.pdf",
+      "title": "RR No. 7-2024 full text (third-party hosted copy)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RMC%20No.%2077-2024%20Digest.pdf",
+      "title": "BIR — RMC No. 77-2024 Digest (11 July 2024)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RR%208-2024.pdf",
+      "title": "BIR — RR No. 8-2024 Digest, taxpayer classification (11 April 2024)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://bir-cdn.bir.gov.ph/BIR/pdf/RMC%20No.%2098-2026%20redacted.pdf",
+      "title": "BIR — RMC No. 98-2026 (scanned full text)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxsummaries.pwc.com/philippines/corporate/other-taxes",
+      "title": "PwC Worldwide Tax Summaries — Philippines Corporate Other taxes (last reviewed 01 August 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.grantthornton.com.ph/technical-alerts/tax-alert/2026/bir-issues-guidelines-on-electronic-invoicing-retains-31-dec-2026-deadline/",
+      "title": "Grant Thornton Philippines — Tax alert on RMC 98-2026 (24 September 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.reyestacandong.com/rmc-no-98-2026-electronic-invoicing-guidelines/",
+      "title": "Reyes Tacandong & Co. — RMC No. 98-2026 Electronic Invoicing Guidelines (2026-10-01)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://tribune.net.ph/2026/10/23/bir-extends-deadlines-for-new-cwt-invoicing-rules",
+      "title": "Daily Tribune — BIR extends deadlines for new CWT invoicing rules (23 October 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://cloudsmd.www.bir.gov.ph/index.php/tax-information/percentage-tax.html",
+      "title": "BIR — Percentage Tax information page — تعذّر الوصول في تدقيق 2026-11-11 (فشل DNS)، ولا يُعتمد عليه وحده",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml",
+      "title": "ISO 4217 List One (SIX, published 2026-09-17) — Philippine Peso PHP 608, minor unit 2",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.bsp.gov.ph/Media_And_Research/Primers%20Faqs/Digital%20Payments%20Transformation%20Roadmap%20Report.pdf",
+      "title": "Bangko Sentral ng Pilipinas — Digital Payments Transformation Roadmap 2020–2023 (cash/cheque reliance, InstaPay, PESONet, QR Ph)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.gcash.com/",
+      "title": "GCash (G-Xchange, Inc., regulated by BSP) — homepage figures: 94M users, 6M merchants and social sellers",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.maya.ph/",
+      "title": "Maya (Maya Philippines, Inc. and Maya Bank, Inc., regulated by BSP) — homepage",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://restofworld.org/2024/sari-sari-philippines-tech/",
+      "title": "Rest of World — Sari-sari stores and tech (10 July 2024)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://tribune.net.ph/2024/01/marikina-variety-stores-carinderias-get-boost",
+      "title": "Daily Tribune — Marikina variety stores (sari-sari) and carinderias get boost (25 January 2024)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://growsari.com/",
+      "title": "GrowSari — B2B ordering app for sari-sari stores (distributor-priced items; reach of 50,000+ stores)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Sari-sari_store",
+      "title": "Wikipedia — Sari-sari store (secondary; used only alongside other sources)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Economy_of_the_Philippines",
+      "title": "Wikipedia — Economy of the Philippines, Regional accounts (PSA GRDP 2025; secondary)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.reyestacandong.com/bir-esp-accreditation-applications-2026/",
+      "title": "Reyes Tacandong & Co. — BIR Opens ESP Accreditation Applications (RMC No. 110-2026; window 16–30 October 2026), posted 2026-10-21",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.grantthornton.com.ph/technical-alerts/tax-alert/2026/invoices-must-now-disclose-creditable-withholding-tax/",
+      "title": "Grant Thornton Philippines — Invoices must now disclose creditable withholding tax (RR No. 6-2026), 12 October 2026",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxsummaries.pwc.com/philippines/corporate/significant-developments",
+      "title": "PwC Worldwide Tax Summaries — Philippines, Corporate: Significant developments (last reviewed 01 August 2026; no VAT rate change listed)",
+      "accessed": "2026-11-11"
+    }
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "corrections": [
+      {
+        "field": "currency.nameLocal",
+        "before": "Piso",
+        "after": null,
+        "source": "لم يُعثر على مصدر موثوق مفتوح يثبت الاسم المحلي؛ قائمة ISO 4217 (SIX، منشورة 2026-09-17) تذكر «Philippine Peso» فقط (PHP، 608، منزلتان عشريتان). صفحة BSP المجرَّبة أعادت 404."
+      },
+      {
+        "field": "einvoicing.keyDates[2022-06-30].event",
+        "before": "صدور RR 8-2022 التي أنشأت EIS لإصدار الفواتير والإيصالات الإلكترونية للمصدّرين والتجارة الإلكترونية وخاضعي LTS. تنص على إرسال بيانات المبيعات بصيغة JSON فوراً أو شبه فوري، وخلال 3 أيام تقويمية كحدّ أقصى، بعد الحصول على EIS CERT وPermit to Transmit.",
+        "after": "صدور RR 8-2022 التي نظّمت إصدار الفواتير والإيصالات الإلكترونية عبر نظام EIS الذي أنشأه BIR، وألزمت به المصدّرين والتجارة الإلكترونية وخاضعي LTS. أما إرسال بيانات المبيعات (Section 237-A) فألزمت به المصدّرين وخاضعي LTS دون التجارة الإلكترونية: بصيغة JSON فوراً أو شبه فوري، وخلال 3 أيام تقويمية كحدّ أقصى، بعد الحصول على EIS CERT وPermit to Transmit (PTT).",
+        "source": "BIR — RR 8-2022 Digest: «The BIR, as mandated, established an EIS»، و237-A يلزم المذكورين «except for the taxpayers engaged in e-commerce» — https://bir-cdn.bir.gov.ph/local/pdf/RR%208-2022.pdf"
+      },
+      {
+        "field": "invoiceRequirements[Invoice/Official Receipt]",
+        "before": "كلمة «Invoice» مطبوعة بوضوح (Sales Invoice أو Cash Invoice أو Charge/Credit Invoice أو Service Invoice أو Billing Invoice…). منذ 27 أبريل 2024 لا يُقبل «Official Receipt» دليلاً على البيع.",
+        "after": "كلمة «Invoice» مطبوعة بوضوح (Sales Invoice أو Cash Invoice أو Charge/Credit Invoice أو Service Invoice أو Billing Invoice…). منذ نفاذ RR 7-2024 في 27 أبريل 2024 يُعامَل «Official Receipt» مستنداً تكميلياً لا دليلاً على البيع ولا يصلح لخصم ضريبة المدخلات، وإصداره بدل الفاتورة بعد الفترة الانتقالية يُعدّ عدم إصدار للفاتورة. كانت مهلة إعادة ضبط أنظمة CRM وPOS وCAS حتى 31 ديسمبر 2024 (RMC 77-2024).",
+        "source": "BIR — RMC 77-2024 Digest (11 July 2024): «Upon effectivity of RR No. 7-2024, Official Receipt is treated as a supplementary document»، والنفاذ 27 أبريل 2024، ومهلة الأنظمة 31 ديسمبر 2024 — https://bir-cdn.bir.gov.ph/BIR/pdf/RMC%20No.%2077-2024%20Digest.pdf"
+      },
+      {
+        "field": "invoiceRequirements[CWT]",
+        "before": "حيث ينطبق: إظهار ضريبة الاستقطاع (Creditable Withholding Tax, CWT) بنداً مستقلاً في الفاتورة (RR 6-2026 وRMC 112-2026 وفق Daily Tribune). المهلة 31 ديسمبر 2026 لأنظمة الفوترة الإلكترونية و31 مارس 2027 لأجهزة POS وCRM.",
+        "after": "حيث ينطبق: إظهار ضريبة الاستقطاع (Creditable Withholding Tax, CWT) بنداً مستقلاً في الفاتورة. أضافتها RR 6-2026 بتعديل Section 6(B) من RR 7-2024، ونُشرت على موقع BIR في 1 أكتوبر 2026 (وفق Grant Thornton). وحدّدت RMC 112-2026 الصادرة في 22 أكتوبر 2026 المهلة (وفق Daily Tribune): 31 ديسمبر 2026 لأنظمة الفوترة الإلكترونية المشمولة بالإلزام، و31 مارس 2027 لأجهزة CRM وPOS وأنظمة الفوترة الأخرى غير المشمولة بعد. في الفترة الانتقالية تُختم الفواتير غير المستخدمة بعبارة «Less: Withholding Tax».",
+        "source": "Grant Thornton Philippines — Invoices must now disclose creditable withholding tax (12 Oct 2026) https://www.grantthornton.com.ph/technical-alerts/tax-alert/2026/invoices-must-now-disclose-creditable-withholding-tax/ ؛ Daily Tribune (23 Oct 2026)"
+      },
+      {
+        "field": "einvoicing.b2cReceipts",
+        "before": "لا يوجد جهاز ضريبي خاص (fiscal device) على غرار ETR.",
+        "after": "لم نجد في اللوائح التي راجعناها اشتراطاً لجهاز ضريبي بذاكرة مالية (fiscal device) على غرار ETR في كينيا، لكن الفواتير الصادرة من أجهزة CRM وPOS لا تُعتدّ بها ضريبياً إلا إذا كانت الأجهزة «duly accredited and registered» لدى BIR وتحمل رقم MIN (RR 8-2022).",
+        "source": "BIR — RR 8-2022 Digest, Section 5(e)(ii): «Duly accredited and registered CRM/POS with Machine Identification Number (MIN)»؛ النفي المطلق في النص السابق بلا مصدر."
+      },
+      {
+        "field": "einvoicing.keyDates",
+        "before": "لا يوجد بندان لـRR 6-2026 وRMC 110-2026",
+        "after": "أُضيف بندا 2026-10-01 (RR 6-2026) و2026-10-16 (نافذة اعتماد ESP وفق RMC 110-2026)",
+        "source": "Grant Thornton (12 Oct 2026)؛ Reyes Tacandong — BIR Opens ESP Accreditation Applications (21 Oct 2026) https://www.reyestacandong.com/bir-esp-accreditation-applications-2026/"
+      },
+      {
+        "field": "einvoicing.scopeNow",
+        "before": "(نهاية النص بلا ذكر ESP)",
+        "after": "يجوز للمكلّف استخدام حل فوترة إلكترونية داخلي أو تجاري أو خدمات Electronic Invoicing Service Provider (ESP). صدرت قواعد اعتماد ESP في RMC 110-2026، وفُتح باب الطلبات من 16 إلى 30 أكتوبر 2026 (وفق Reyes Tacandong).",
+        "source": "BIR Media Release (23 Sep 2026)؛ Reyes Tacandong (21 Oct 2026)"
+      },
+      {
+        "field": "honesty.canSay[0]",
+        "before": "FieldSales يدير مناديب المبيعات والبيع من السيارة (van sales) وأخذ الطلبات والتحصيل الميداني لشركات التوزيع في الفلبين، ومنها خدمة متاجر sari-sari.",
+        "after": "يمكن لشركات التوزيع في الفلبين استخدام FieldSales لإدارة مناديب المبيعات والبيع من السيارة (van sales) وأخذ الطلبات والتحصيل الميداني، بما في ذلك خدمة متاجر sari-sari.",
+        "source": "الصياغة السابقة قد توحي بوجود عملاء حاليين للمنصة في الفلبين دون إثبات؛ عُدّلت إلى وصف قدرة لا ادعاء حضور."
+      },
+      {
+        "field": "honesty.mustNotSay[EIS]",
+        "before": "أن FieldSales «EIS-certified» أو «connected to BIR EIS» أو يرسل بيانات المبيعات إلى BIR تلقائياً أو يملك Permit to Transmit.",
+        "after": "أن FieldSales «EIS-certified» أو «connected to BIR EIS» أو يرسل بيانات المبيعات إلى BIR تلقائياً، أو أنه يملك أو يستخرج للعميل Permit to Issue Electronic Invoice (PTI) أو Permit to Transmit (PTT).",
+        "source": "BIR Media Release (23 Sep 2026)؛ Reyes Tacandong RMC 98-2026: PTI يُطلب من المكلّف لدى RDO/LTO."
+      },
+      {
+        "field": "honesty.mustNotSay[ESP]",
+        "before": "أنه Electronic Invoicing Service Provider (EISP) معتمد لدى BIR.",
+        "after": "أنه Electronic Invoicing Service Provider (ESP/EISP) معتمد لدى BIR، أو أنه تقدّم أو يتقدّم لاعتماد ESP وفق RMC 110-2026.",
+        "source": "Reyes Tacandong (21 Oct 2026): RMC 110-2026 ونافذة الاعتماد 16–30 أكتوبر 2026."
+      },
+      {
+        "field": "honesty.mustNotSay",
+        "before": "(بلا منع للادعاءات العامة ولا لادعاء الحضور المحلي)",
+        "after": "أي وصف عام مثل «BIR-compliant» أو «BIR-ready» أو «e-invoicing ready» أو «CWT-ready» أو أن فواتير FieldSales تستوفي RR 7-2024 أو RR 6-2026 تلقائياً. | أن لدى FieldSales عملاء أو شركاء أو مكتباً أو حضوراً في الفلبين، ما لم يكن ذلك موثَّقاً.",
+        "source": "تدقيق 2026-11-11: سدّ ثغرات صياغة عامة توحي بالامتثال أو الحضور."
+      },
+      {
+        "field": "distribution.notes[GRDP ranking]",
+        "before": "مراكز النشاط الاقتصادي الأكبر حسب الناتج الإقليمي (PSA 2025 عبر ويكيبيديا): NCR ثم Calabarzon ثم Central Luzon ثم Central Visayas ثم Davao Region.",
+        "after": "قائمة hubs تضم المراكز الحضرية والتجارية الرئيسية؛ ترتيبها حسب الناتج الإقليمي غير مُتحقَّق منه بمصدر رسمي (موقع PSA رفض الوصول)، فلا يُعرض ترتيباً مؤكداً.",
+        "source": "القاعدة: لا ويكيبيديا مصدراً وحيداً؛ psa.gov.ph/statistics/grdp أعاد 403 في 2026-11-11."
+      },
+      {
+        "field": "tax.sources / sources[BIR Percentage Tax]",
+        "before": "BIR — Percentage Tax (tax information page…)",
+        "after": "أُضيف للعنوان: تعذّر الوصول في تدقيق 2026-11-11 (فشل DNS)",
+        "source": "WebFetch: getaddrinfo ENOTFOUND cloudsmd.www.bir.gov.ph؛ و www.bir.gov.ph/index.php/tax-information/percentage-tax.html أعاد 404."
+      },
+      {
+        "field": "uncertain[RMC scanned]",
+        "before": "نص RMC 98-2026 الكامل وRMC 112-2026 ممسوحان ضوئياً ولم أقرأهما مباشرة. تفاصيل RMC 98-2026 (مهلة تقييم PTI 20 يوم عمل، وEIS Certification خلال 6 أشهر، وصيغة JSON، والتصحيح بإشعار دائن، والفواتير اليدوية وقت تعطّل النظام) مأخوذة من بيان BIR في 23 سبتمبر 2026 ومن ملخصات Grant Thornton وReyes Tacandong. وتفاصيل RMC 112-2026 وRR 6-2026 (حقل CWT ومهلتا 31 ديسمبر 2026 و31 مارس 2027) مصدرها تقرير صحفي (Daily Tribune) وملخص بحث، لا النص الرسمي.",
+        "after": "نص RMC 98-2026 الكامل وRMC 112-2026 ممسوحان ضوئياً ولم يُقرآ مباشرة. تفاصيل RMC 98-2026 (مهلة تقييم PTI 20 يوم عمل، وEIS Certification خلال 6 أشهر، وصيغة JSON، والتصحيح بإشعار دائن، والفواتير اليدوية وقت تعطّل النظام) مأخوذة من بيان BIR في 23 سبتمبر 2026 (قُرئ نصّه في التدقيق) ومن ملخصَي Grant Thornton وReyes Tacandong. RR 6-2026 تأكّدت من Grant Thornton (12 أكتوبر 2026). أما مواعيد RMC 112-2026 (31 ديسمبر 2026 و31 مارس 2027) فمصدرها الوحيد تقرير صحفي (Daily Tribune).",
+        "source": "Grant Thornton (12 Oct 2026)؛ BIR PR101SEP2326"
+      },
+      {
+        "field": "uncertain[EISP]",
+        "before": "أعلن BIR في 23 سبتمبر 2026 أنه سيصدر «خلال الشهر» تعليمات منفصلة لمزوّدي خدمة الفوترة الإلكترونية (EISP). لم أتحقق هل صدرت أم لا.",
+        "after": "تعليمات ESP: صدرت RMC 110-2026 وفُتح باب الاعتماد 16–30 أكتوبر 2026 (وفق Reyes Tacandong). لم يُقرأ نص RMC 110-2026 ولا تاريخ إصداره، ولا معايير الاعتماد التفصيلية.",
+        "source": "Reyes Tacandong (21 Oct 2026)"
+      },
+      {
+        "field": "uncertain[extension]",
+        "before": "لم أجد أي تمديد جديد لموعد 31 ديسمبر 2026 حتى تاريخ التحقق، لكن RR 26-2025 تجيز للمفوّض تمديد المواعيد. يجب إعادة التحقق قرب نهاية ديسمبر 2026.",
+        "after": "لم يُعثر على أي تمديد جديد لموعد 31 ديسمبر 2026: قائمة تنبيهات Grant Thornton حتى 9 نوفمبر 2026 والصفحة الرئيسية لـReyes Tacandong لا تذكران تمديداً. لكن RR 26-2025 تجيز للمفوّض تمديد المواعيد، ولم يُجرَ في التدقيق بحث ويب عام لأن حصة البحث نفدت. يجب إعادة التحقق قرب نهاية ديسمبر 2026.",
+        "source": "grantthornton.com.ph/technical-alerts (2026-11-11)؛ RR 26-2025 Digest"
+      },
+      {
+        "field": "uncertain[Percentage Tax]",
+        "before": "Percentage Tax لغير المسجّلين في VAT: صفحة BIR (قديمة) تذكر 3%. وتذكر مصادر ثانوية أن النسبة خُفّضت إلى 1% من 1 يوليو 2020 حتى 30 يونيو 2023 ثم عادت إلى 3%. لم أتحقق من ذلك بمصدر رسمي حديث، فلم أُدرجها في otherRates لأنها ليست VAT.",
+        "after": "Percentage Tax لغير المسجّلين في VAT: صفحة BIR التي استُشهد بها (3%) تعذّر الوصول إليها في التدقيق (فشل DNS، والمسار البديل 404). وتذكر مصادر ثانوية أن النسبة خُفّضت إلى 1% من 1 يوليو 2020 حتى 30 يونيو 2023 ثم عادت إلى 3%. لم يُتحقق من النسبة بمصدر رسمي حديث، فلا تُدرج في otherRates لأنها ليست VAT. أما مبدأ خضوع غير المسجّل لـPercentage Tax فتؤكده RR 7-2024 (تعريف Non-VAT Invoice وSection 6(B.17)).",
+        "source": "RR 7-2024 full text (Sections 2 و6(B.17))"
+      },
+      {
+        "field": "uncertain[Piso]",
+        "before": "nameLocal للعملة «Piso» من المعرفة العامة (المطبوع على الأوراق النقدية)، ولم أتحقق منه بمصدر فتحته في هذه الجلسة. قائمة ISO 4217 تذكر «Philippine Peso» فقط.",
+        "after": "currency.nameLocal جُعل null في التدقيق: «Piso» هو الاسم المتداول بالفلبينية والمطبوع على العملة، لكن لم يُفتح مصدر موثوق يثبته. قائمة ISO 4217 (SIX، 2026-09-17) تذكر «Philippine Peso» فقط. الرمز ₱ أيضاً لم يُتحقق منه بمصدر رسمي مفتوح، وإن كان يظهر في نصوص BIR الرسمية (مثل RR 8-2024).",
+        "source": "SIX ISO 4217 List One (2026-09-17)؛ RR 8-2024 Digest يستخدم ₱"
+      },
+      {
+        "field": "uncertain[VAT threshold]",
+        "before": "حدّ التسجيل في VAT (3 ملايين بيزو) مأخوذ من PwC وتؤكده صفحة Percentage Tax في BIR. لم أقرأ نص Section 109(CC) أو 236(G) الرسمي مباشرة.",
+        "after": "حدّ التسجيل في VAT (3 ملايين بيزو) مأخوذ من PwC (آخر مراجعة 1 أغسطس 2026)، وصفحة Percentage Tax في BIR التي قيل إنها تؤكده تعذّر الوصول إليها في التدقيق. ويتّسق الحدّ مع حدّ Micro Taxpayer في RR 8-2024 (أقل من 3 ملايين). لم يُقرأ نص Section 109(CC) أو 236(G) الرسمي مباشرة.",
+        "source": "PwC Corporate Other taxes (01 Aug 2026)؛ RR 8-2024 Digest"
+      },
+      {
+        "field": "uncertain",
+        "before": "(لا بند لحدود التدقيق)",
+        "after": "حدود التدقيق (2026-11-11): نفدت حصة البحث في الويب، فاقتصر التحقق على فتح المصادر مباشرة. النسبة 12% تؤكدها PwC (آخر مراجعة 1 أغسطس 2026)، وصفحة Significant developments لا تذكر تغييراً في نسبة VAT. لم يُجرَ بحث مستقل عن أي تعديل تشريعي على النسبة بين أغسطس ونوفمبر 2026.",
+        "source": "PwC Significant developments (01 Aug 2026)"
+      },
+      {
+        "field": "sources",
+        "before": "(بلا مصادر RMC 110-2026 وRR 6-2026 وPwC Significant developments)",
+        "after": "أُضيفت ثلاثة مصادر",
+        "source": "انظر الروابط المضافة"
+      }
+    ],
+    "confidence": "medium"
+  }
+}
