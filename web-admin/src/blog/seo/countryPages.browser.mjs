@@ -6,6 +6,10 @@
  * صفحة دولته، وBlogPostPage يُبقي المحتوى المُصيَّر ظاهراً (ssrHoldHtml) حتى يصل الملف، ثم يرسم من المصدر
  * نفسه الذي صيّر منه prerender (countryGuides.mjs) فلا يختلف ما يراه الزائر عمّا قرأه الزاحف.
  *
+ * ما يُحزَم من الملف ما يرسمه العرض وحده: التحويل country-pages-lean في vite.config.ts (leanCountryPage في
+ * countryPageLean.mjs) يُسقط الملاحظات التحريرية الداخلية (notes وreview.issues وreview.fixes) قبل الحزم، فلا تُنشر
+ * في dist/assets؛ وreview.quality باقٍ لبوابة guideContent.
+ *
  * الحقائق المدقّقة (country-facts) لا تُحمَّل هنا: لا يُبنى منها نصّ ظاهر، وبوابتها فحص بناء واختبار في node.
  * الواجهة نفسها في countryPages.node.mjs.
  */

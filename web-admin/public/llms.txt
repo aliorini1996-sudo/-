@@ -119,6 +119,7 @@ Key facts:
 - [Field Sales Management Software in Qatar](https://fieldsa.net/en/blog/field-sales-software-qa/): Invoicing requirements differ by country, so check what currently applies with the General Tax Authority before settling on a configuration.
 - [Field Sales Management Software in Bahrain](https://fieldsa.net/en/blog/field-sales-software-bh/): VAT in Bahrain is charged at 10% and shown as a separate line on the invoice; check current rules with the National Bureau for Revenue (NBR).
 - [Field Sales Management Software in Oman](https://fieldsa.net/en/blog/field-sales-software-om/): VAT in Oman is charged at 5% and shown as a separate line on the invoice; check current rules with the Oman Tax Authority.
+- [Field Sales Management Software in Iraq](https://fieldsa.net/en/blog/field-sales-software-iq/): Invoicing requirements differ by country, so check what currently applies with the General Commission for Taxes before settling on a configuration.
 - In the market’s own language only: [Pakistan](https://fieldsa.net/en/blog/field-sales-software-pk/) · [Nigeria](https://fieldsa.net/en/blog/field-sales-software-ng/) · [South Africa](https://fieldsa.net/en/blog/field-sales-software-za/) · [Kenya](https://fieldsa.net/en/blog/field-sales-software-ke/) · [Côte d’Ivoire (French)](https://fieldsa.net/fr/blog/field-sales-software-ci/) · [Senegal (French)](https://fieldsa.net/fr/blog/field-sales-software-sn/)
 
 ## أدلة الدول بالعربية
@@ -130,6 +131,7 @@ Key facts:
 - [برنامج إدارة مناديب المبيعات الميدانية في قطر](https://fieldsa.net/blog/field-sales-software-qa/): تختلف متطلبات الفوترة بين الدول فتحقق من الساري لدى الهيئة العامة للضرائب قبل اعتماد أي إعداد
 - [برنامج إدارة مناديب المبيعات الميدانية في البحرين](https://fieldsa.net/blog/field-sales-software-bh/): وتحتسب ضريبة القيمة المضافة في البحرين بنسبة 10% وتظهر مفصلة في الفاتورة مع مراجعة الساري لدى الجهاز الوطني للإيرادات NBR.
 - [برنامج إدارة مناديب المبيعات الميدانية في عمان](https://fieldsa.net/blog/field-sales-software-om/): وتحتسب ضريبة القيمة المضافة في عمان بنسبة 5% وتظهر مفصلة في الفاتورة مع مراجعة الساري لدى جهاز الضرائب.
+- [برنامج إدارة مناديب المبيعات الميدانية في العراق](https://fieldsa.net/blog/field-sales-software-iq/): تختلف متطلبات الفوترة بين الدول فتحقق من الساري لدى الهيئة العامة للضرائب قبل اعتماد أي إعداد
 
 ## Best / comparison guides (buyer intent)
 
@@ -215,5 +217,5 @@ Product pages in other languages describe FieldSales for information; the app in
 
 ## Optional
 
-- [Full index](https://fieldsa.net/llms-full.txt): every canonical guide in Arabic, English and French with its direct answer (387 pages), plus every blog post.
+- [Full index](https://fieldsa.net/llms-full.txt): every canonical guide in Arabic, English and French with its direct answer (390 pages), plus every blog post.
 - [Sitemap](https://fieldsa.net/sitemap.xml)

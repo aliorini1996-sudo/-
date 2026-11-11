@@ -248,7 +248,8 @@ async function main() {
     const seoAlt = a.langs ? selfAlt(p, a.langs[0]) : alt(p, langs);
     const u = urlsOf(p);
     for (const L of langs) {
-      urls.push(urlEntry(u[L], { lastmod: a.modified, freq: 'monthly', priority: '0.6', alternates: seoAlt, image: `${ORIGIN}/og/${a.slug}-${L}.jpg` }));
+      // lastmod نسخة اللغة نفسها (modifiedByLang = dateModified في الصفحة): تعديل يخصّ لغة لا يجدّد أخواتها
+      urls.push(urlEntry(u[L], { lastmod: (a.modifiedByLang && a.modifiedByLang[L]) || a.modified, freq: 'monthly', priority: '0.6', alternates: seoAlt, image: `${ORIGIN}/og/${a.slug}-${L}.jpg` }));
       seoUrlCount++;
     }
   }

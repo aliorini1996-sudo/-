@@ -63,6 +63,16 @@ const cta = (L) => P(L,
   `<p><a href="/signup"><strong>ابدأ تجربتك المجانية 10 أيام مع منصة FieldSales</strong></a> فواتير ضريبية تحصيل مخزون سيارة وتقارير لحظية من تطبيق واحد للمندوب </p>`,
   `<p><a href="/signup"><strong>Start your free 10-day trial with FieldSales</strong></a> — tax invoices, collection, van stock and live reports from one rep app.</p>`,
   `<p><a href="/signup"><strong>Commencez votre essai gratuit de 10 jours avec FieldSales</strong></a> — factures, encaissement, stock du véhicule et rapports en temps réel depuis une seule application.</p>`);
+/**
+ * دعوة أدلة الدول (countryGuides.mjs: الجديدة والمرقّاة) — محايدة بلا «ضريبية/tax» كالفرنسية أعلاه. ملف الدولة
+ * المراجَع يقول ما يصدره FieldSales فيها فعلاً، ووعد «فواتير ضريبية» في ذيله يناقضه: في باكستان تصدر فاتورة
+ * المسجَّل من نظامه المربوط بـFBR، وفي كينيا ليست فواتيره ضريبية إلكترونية، والعراق بلا ضريبة قيمة مضافة
+ * (honesty.mustNotSay في الحقائق المدقّقة). يحرسه countryGuides.test.ts.
+ */
+const guideCta = (L) => P(L,
+  `<p><a href="/signup"><strong>ابدأ تجربتك المجانية 10 أيام مع منصة FieldSales</strong></a> فواتير وتحصيل ومخزون سيارة وتقارير لحظية من تطبيق واحد للمندوب </p>`,
+  `<p><a href="/signup"><strong>Start your free 10-day trial with FieldSales</strong></a> — invoices, collection, van stock and live reports from one rep app.</p>`,
+  `<p><a href="/signup"><strong>Commencez votre essai gratuit de 10 jours avec FieldSales</strong></a> — factures, encaissement, stock du véhicule et rapports en temps réel depuis une seule application.</p>`);
 
 // جملة الضريبة/الفوترة حسب الدولة (تتكيّف مع وجود/غياب ضريبة القيمة المضافة)
 const taxLine = (c, L) => {
@@ -1437,14 +1447,23 @@ const REVISED = {
   ...Object.fromEntries(UPGRADED_GUIDES.map((cc) => [guideSlug(cc), GUIDE_DATE])),
 };
 /**
- * تعديل صفحة بعينها حين يساوي slug معرّف موضوعها (الصفحة الجامعة): مفتاح REVISED بمعرّف الموضوع يسري على كل
- * دوله، فلا يوضع هنا ما يخصّ الجامعة وحدها.
- * 2026-11-11: الجامعة الإنجليزية والفرنسية تربط أدلة الدول الجديدة بلغتها (guidesList).
+ * تعديل صفحة بعينها **بلغة بعينها** حين يساوي slug معرّف موضوعها (الصفحة الجامعة): مفتاح REVISED بمعرّف الموضوع
+ * يسري على كل دوله ولغاته، فلا يوضع هنا ما يخصّ الجامعة وحدها. slug → { لغة: تاريخ }.
+ * 2026-11-11: الجامعة تربط أدلة الدول الجديدة بلغتها (guidesList) — الإنجليزية والفرنسية وحدهما (لا دليل عربياً)،
+ *             فالجامعة العربية لم يتغيّر نصّها ويبقى تاريخها كما كان.
  */
-const REVISED_PAGE = { [GUIDE_TOPIC]: GUIDE_DATE };
-export const modifiedOf = (date, cc, slug, topicId) => {
+const REVISED_PAGE = {
+  [GUIDE_TOPIC]: Object.fromEntries([...new Set(NEW_GUIDES.map((g) => g.lang))].map((L) => [L, GUIDE_DATE])),
+};
+/**
+ * آخر تعديل جوهري للصفحة (lastmod وdateModified). L: لغة النسخة — تعديل REVISED_PAGE يخصّ لغاته وحدها؛ وبلا L
+ * (مدخل الكتالوج العام) يؤخذ أحدثها، وتواريخ كل لغة في modifiedByLang من buildCatalog.
+ */
+export const modifiedOf = (date, cc, slug, topicId, L) => {
   const v = cc && PRIORITY_BRIEF[cc] ? PRIORITY_CONTENT_VERSION : CONTENT_VERSION;
-  const r = (slug && (REVISED_PAGE[slug] || REVISED[slug])) || (topicId && REVISED[topicId]) || '';
+  const byLang = (slug && REVISED_PAGE[slug]) || null;
+  const page = byLang ? (L ? byLang[L] : Object.values(byLang).sort().pop()) : '';
+  const r = page || (slug && REVISED[slug]) || (topicId && REVISED[topicId]) || '';
   return [date, v, r].sort().pop();
 };
 
@@ -1469,16 +1488,31 @@ function index() {
 }
 
 /**
- * الرابط الأساسي (canonical) للمقال: صفحة دولة **غير ذات أولوية** تُشير إلى الصفحة الجامعة
- * لتجميع إشارات الترتيب بدل تشتيتها؛ وما عداها يُشير إلى نفسه.
- * تبقى الصفحة حيّة للزائر — التغيير إشارة لمحركات البحث فقط.
+ * هدف الدمج وحده: صفحة دولة **غير ذات أولوية** إلى الصفحة الجامعة، وما عداها إلى نفسه. يستعمله canonicalSlug،
+ * و«مقالات ذات صلة» ليبقى رابط الجامعة في صفحة دولة مرقّاة غير ذات أولوية كما كان.
  */
-export function canonicalSlug(slug) {
+function mergedSlug(slug) {
   const hit = index().get(slug);
   if (!hit || !hit.topic.cs) return slug;
   const cc = hit.country.code;
   if (cc === 'REGION' || PRIORITY_MARKETS.has(cc)) return slug;
   return pillarSlug(hit.topic.id);
+}
+
+/**
+ * الرابط الأساسي (canonical) للمقال: صفحة دولة **غير ذات أولوية** تُشير إلى الصفحة الجامعة
+ * لتجميع إشارات الترتيب بدل تشتيتها؛ وما عداها يُشير إلى نفسه.
+ * تبقى الصفحة حيّة للزائر — التغيير إشارة لمحركات البحث فقط.
+ *
+ * ما عدا صفحات الدول المرقّاة (countryGuides.mjs: UPGRADED_GUIDES): أساسية لنفسها ولو لم تكن الدولة من أسواق
+ * الأولوية. علّة الدمج أن الصفحة القالبية نسخة من جامعتها؛ والمرقّاة تحمل حقائق مراجَعة تخصّ دولتها وحدها،
+ * فإعلانها نسخةً من الجامعة canonical غير مطابق يتجاهله جوجل أو يُسقط به الصفحة — والأدلة الجديدة لأسواق غير
+ * ذات أولوية أساسية لنفسها للعلّة نفسها. فتدخل المرقّاة عنقود hreflang الثلاثي والخريطة وفهرس المدوّنة.
+ * السجلّ ثابت (لا ينتظر ملف المحتوى)، فيتطابق canonical في المتصفح وprerender.
+ */
+export function canonicalSlug(slug) {
+  if (upgradedGuideOf(slug)) return slug;
+  return mergedSlug(slug);
 }
 
 const titleOf = (topic, c, L) => (topic.cs ? `${topic.label[L]} ${c[`in${L === 'ar' ? 'Ar' : L === 'en' ? 'En' : 'Fr'}`]}` : topic.label[L]);
@@ -1556,6 +1590,15 @@ export const articleLangs = (slug) => {
 };
 
 /**
+ * كلمات أدلة الدول (الجديدة والمرقّاة): كلمات الموضوع بلا «فاتورة ضريبية/tax invoice» — لا يَعِد بها الرأس حيث لا
+ * يقولها ملف الدولة (انظر guideCta)؛ والفرنسية بلا ضريبة أصلاً («facturation»).
+ */
+const guideKw = (c, L) => P(L,
+  `برنامج مبيعات ميدانية ${c.ar}, نظام إدارة مناديب ${c.ar}, برنامج توزيع, فواتير, تحصيل`,
+  `field sales software ${c.en}, sales rep management ${c.en}, distribution software, invoicing, collection`,
+  `logiciel de vente terrain ${c.fr}, gestion des commerciaux ${c.fr}, distribution, facturation`) + ', ' + EXTRA_KW(c, L);
+
+/**
  * مدخل الفهرس لدليل جديد. العنوان والمقتطف من السجلّ وحده (بلا ملف المحتوى) فيتطابق فهرس المدوّنة في المتصفح
  * وprerender؛ والوصف وصف الصفحة نفسها من ملفها حين يكون محمَّلاً (node دائماً) — لا يرسمه الفهرس الظاهر،
  * ويقرؤه gen-llms واختبار تطابق وصف القائمة والمقال.
@@ -1568,7 +1611,7 @@ const guideListItem = (g, L) => {
     countryCode: g.code,
     title: titleOf(topic, g, L),
     excerpt: excerptOf(topic, g, L),
-    keywords: topic.kw(g, L) + ', ' + EXTRA_KW(g, L),
+    keywords: guideKw(g, L),
     description: lp && lp.description ? lp.description : descOf(topic, g, L),
   };
 };
@@ -1581,10 +1624,10 @@ function guideArticle(g, L) {
   const topic = TOPIC_BY_ID[GUIDE_TOPIC];
   const slug = guideSlug(g.code);
   const faq = guideFaq(lp);
-  const contentHtml = `${newGuideBodyHtml(lp, L)}\n${faqHtml(faq, L)}\n${sourcesHtml(lp, L, sourcesHeading.new(L))}\n${cta(L)}\n${guideRelatedLinks(g, L)}`;
+  const contentHtml = `${newGuideBodyHtml(lp, L)}\n${faqHtml(faq, L)}\n${sourcesHtml(lp, L, sourcesHeading.new(L))}\n${guideCta(L)}\n${guideRelatedLinks(g, L)}`;
   return {
     slug, title: stripBrand(lp.title), h1: lp.h1 || stripBrand(lp.title), description: lp.description,
-    keywords: topic.kw(g, L) + ', ' + EXTRA_KW(g, L), excerpt: excerptOf(topic, g, L), contentHtml,
+    keywords: guideKw(g, L), excerpt: excerptOf(topic, g, L), contentHtml,
     date: GUIDE_DATE, modified: GUIDE_DATE, readMinutes: topic.rm,
     image: `${ORIGIN}/og/${slug}-${L}.jpg`, imagePath: `/og/${slug}-${L}.jpg`,
     faq, howto: [], countryCode: g.code, isSeo: true, langs: [g.lang],
@@ -1648,9 +1691,10 @@ function relatedLinks(topic, c, L) {
     ['distribution-management-system', 'van-sales-app', 'collection-receivables', 'einvoicing-compliance', 'sales-rep-management', 'gps-rep-tracking']
       .filter((id) => id !== topic.id).slice(0, 4)
       .forEach((id) => add(...canonLink(id, c, L)));
-    // صفحة دولة غير ذات أولوية تُشير بـcanonical إلى الجامعة — فتربطها بها صراحةً أيضاً
-    const canonSelf = canonicalSlug(self);
-    if (canonSelf !== self) add(canonSelf, `${topic.label[L]} ${inOf(REGION, L)}`);
+    // صفحة دولة غير ذات أولوية تُدمَج في الجامعة — فتربطها بها صراحةً أيضاً (والمرقّاة منها، الأساسية لنفسها، تُبقي
+    // الرابط كما كان: mergedSlug لا canonicalSlug)
+    const merged = mergedSlug(self);
+    if (merged !== self) add(merged, `${topic.label[L]} ${inOf(REGION, L)}`);
     // عنقود الخدمة: نفس الخدمة في أسواق بارزة (رابطان) — قانونية وحدها، فإن سقطت دولة أُخذت التالية
     let n = 0;
     for (const oc of ['SA', 'EG', 'AE', 'MA', 'KW', 'QA', 'BH', 'OM']) {
@@ -1707,11 +1751,12 @@ export function listArticles(L) {
   const out = [];
   for (const [slug, { topic, country, date }] of index()) {
     out.push({
-      slug, lang: L, date, modified: modifiedOf(date, topic.cs ? country.code : null, slug, topic.id), readMinutes: topic.rm,
+      slug, lang: L, date, modified: modifiedOf(date, topic.cs ? country.code : null, slug, topic.id, L), readMinutes: topic.rm,
       countryCode: topic.cs ? country.code : null,
       title: titleOf(topic, country, L),
       excerpt: excerptOf(topic, country, L),
-      keywords: topic.kw(country, L) + ', ' + EXTRA_KW(country, L),
+      // صفحة دولة مرقّاة: كلمات الأدلة (guideKw) كما في getArticle
+      keywords: upgradedGuideOf(slug) ? guideKw(country, L) : topic.kw(country, L) + ', ' + EXTRA_KW(country, L),
       description: descOf(topic, country, L),
     });
   }
@@ -1765,10 +1810,10 @@ export function getArticle(slug, L) {
   if (lp) {
     const g = genericFaq(c, L);
     const faq = [...guideFaq(lp), g.device, g.trial];
-    const contentHtml = `${answerBlock(topic, c, L)}\n${introHtml(lp)}\n${localFactsHtml(lp, L, c[L])}\n${faqHtml(faq, L)}\n${sourcesHtml(lp, L, sourcesHeading.upgraded(L))}\n${cta(L)}\n${relatedLinks(topic, c, L)}`;
+    const contentHtml = `${answerBlock(topic, c, L)}\n${introHtml(lp)}\n${localFactsHtml(lp, L, c[L])}\n${faqHtml(faq, L)}\n${sourcesHtml(lp, L, sourcesHeading.upgraded(L))}\n${guideCta(L)}\n${relatedLinks(topic, c, L)}`;
     return {
-      slug, title: t, description: descOf(topic, c, L), keywords: topic.kw(c, L) + ', ' + EXTRA_KW(c, L),
-      excerpt: excerptOf(topic, c, L), contentHtml, date, modified: modifiedOf(date, c.code, slug, topic.id), readMinutes: topic.rm,
+      slug, title: t, description: descOf(topic, c, L), keywords: guideKw(c, L),
+      excerpt: excerptOf(topic, c, L), contentHtml, date, modified: modifiedOf(date, c.code, slug, topic.id, L), readMinutes: topic.rm,
       image: `${ORIGIN}/og/${slug}-${L}.jpg`, imagePath: `/og/${slug}-${L}.jpg`,
       faq, howto: howToData(c, L), countryCode: c.code, isSeo: true,
     };
@@ -1779,7 +1824,7 @@ export function getArticle(slug, L) {
   const contentHtml = `${answerBlock(topic, c, L)}\n${intro}\n${body}\n${cta(L)}\n${relatedLinks(topic, c, L)}`;
   return {
     slug, title: t, description: descOf(topic, c, L), keywords: topic.kw(c, L) + ', ' + EXTRA_KW(c, L),
-    excerpt: excerptOf(topic, c, L), contentHtml, date, modified: modifiedOf(date, topic.cs ? c.code : null, slug, topic.id), readMinutes: topic.rm,
+    excerpt: excerptOf(topic, c, L), contentHtml, date, modified: modifiedOf(date, topic.cs ? c.code : null, slug, topic.id, L), readMinutes: topic.rm,
     image: `${ORIGIN}/og/${slug}-${L}.jpg`, imagePath: `/og/${slug}-${L}.jpg`,
     faq: faqData(c, L, topic.id),
     howto: howToData(c, L),
@@ -1836,12 +1881,14 @@ export function buildCatalog() {
     // REGION ليست دولة — الصفحة الجامعة تُعامَل كعامّة (cc=null) في التقليم والخرائط
     const cc = topic.cs && country.code !== 'REGION' ? country.code : null;
     const canon = canonicalSlug(slug);
-    out.push({ slug, date, modified: modifiedOf(date, cc, slug, topic.id), cc, canonical: canon, isCanonical: canon === slug, trilingual: true, fr: cc ? FRANCOPHONE.has(cc) : false });
+    // modified = أحدث تعديل بأي لغة (gen-llms)، وmodifiedByLang = lastmod كل نسخة في الخريطة (= dateModified في getArticle)
+    const modifiedByLang = Object.fromEntries(LANGS.map((L) => [L, modifiedOf(date, cc, slug, topic.id, L)]));
+    out.push({ slug, date, modified: modifiedOf(date, cc, slug, topic.id), modifiedByLang, cc, canonical: canon, isCanonical: canon === slug, trilingual: true, fr: cc ? FRANCOPHONE.has(cc) : false });
   }
   // أدلة الدول الجديدة: لغة سوقها وحدها (langs)، canonical لنفسها، وhreflang ذاتي في التصيير والخريطة
   for (const g of NEW_GUIDES) {
     const slug = guideSlug(g.code);
-    out.push({ slug, date: GUIDE_DATE, modified: GUIDE_DATE, cc: g.code, canonical: slug, isCanonical: true, trilingual: false, fr: g.lang === 'fr', langs: [g.lang] });
+    out.push({ slug, date: GUIDE_DATE, modified: GUIDE_DATE, modifiedByLang: { [g.lang]: GUIDE_DATE }, cc: g.code, canonical: slug, isCanonical: true, trilingual: false, fr: g.lang === 'fr', langs: [g.lang] });
   }
   return out;
 }

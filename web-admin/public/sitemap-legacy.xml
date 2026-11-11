@@ -2959,7 +2959,7 @@
     <image:image>
       <image:loc>https://fieldsa.net/og/field-sales-software-ar.jpg</image:loc>
     </image:image>
-    <lastmod>2026-11-11</lastmod>
+    <lastmod>2026-10-05</lastmod>
   </url>
   <url>
     <loc>https://fieldsa.net/en/blog/field-sales-software/</loc>
@@ -3211,6 +3211,39 @@
     <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/blog/field-sales-software-om/"/>
     <image:image>
       <image:loc>https://fieldsa.net/og/field-sales-software-om-fr.jpg</image:loc>
+    </image:image>
+    <lastmod>2026-11-11</lastmod>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/blog/field-sales-software-iq/</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/blog/field-sales-software-iq/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog/field-sales-software-iq/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/blog/field-sales-software-iq/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/blog/field-sales-software-iq/"/>
+    <image:image>
+      <image:loc>https://fieldsa.net/og/field-sales-software-iq-ar.jpg</image:loc>
+    </image:image>
+    <lastmod>2026-11-11</lastmod>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/en/blog/field-sales-software-iq/</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/blog/field-sales-software-iq/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog/field-sales-software-iq/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/blog/field-sales-software-iq/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/blog/field-sales-software-iq/"/>
+    <image:image>
+      <image:loc>https://fieldsa.net/og/field-sales-software-iq-en.jpg</image:loc>
+    </image:image>
+    <lastmod>2026-11-11</lastmod>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/fr/blog/field-sales-software-iq/</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/blog/field-sales-software-iq/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/blog/field-sales-software-iq/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/blog/field-sales-software-iq/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/blog/field-sales-software-iq/"/>
+    <image:image>
+      <image:loc>https://fieldsa.net/og/field-sales-software-iq-fr.jpg</image:loc>
     </image:image>
     <lastmod>2026-11-11</lastmod>
   </url>

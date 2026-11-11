@@ -6,6 +6,7 @@ import { buildCatalog, getArticle, listArticles, LANGS, canonicalSlug, hasArticl
 import type { SeoLang } from './catalog.mjs';
 import * as guides from './countryGuides.mjs';
 import * as rules from '../../../scripts/claims-rules.mjs';
+import { leanCountryPage, isCountryPageModule } from './countryPageLean.mjs';
 
 /**
  * أدلة الدول (countryGuides.mjs): البوابة، وصفحة واحدة لكل دولة جديدة بلغة سوقها، وFAQPage ومصادر لكل صفحة،
@@ -118,12 +119,22 @@ test('مثال بنية الفاتورة في كل الأدلة بلا مبال�
   assert.deepEqual(bad, []);
 });
 
-test('الصفحات المرقّاة: قسم «حقائق محلية» بلغاتها الثلاث، وأسئلة الملف أولاً في FAQPage، وcanonical كما كان', () => {
-  // canonical قبل الترقية: أسواق الأولوية لنفسها، والبقية إلى الصفحة الجامعة (لا يتغيّر)
+test('الصفحات المرقّاة: قسم «حقائق محلية» بلغاتها الثلاث، وأسئلة الملف أولاً في FAQPage، وcanonical لنفسها', () => {
+  // canonical لنفسها ولو لم تكن الدولة من أسواق الأولوية (العراق): محتواها حقائق دولتها لا نسخة من الصفحة الجامعة،
+  // وإعلانها نسخةً منها canonical غير مطابق — كانت الترقية لا تصل البحث (بلا hreflang وغائبة عن الخريطة)
   const priority = new Set(['SA', 'AE', 'QA', 'KW', 'BH', 'OM', 'EG']);
+  const cat = buildCatalog();
   for (const cc of G.UPGRADED_GUIDES) {
     const slug = G.guideSlug(cc);
-    assert.equal(canonicalSlug(slug), priority.has(cc) ? slug : 'field-sales-software', `${slug}: canonical`);
+    assert.equal(canonicalSlug(slug), slug, `${slug}: canonical`);
+    const e = cat.find((x) => x.slug === slug)!;
+    assert.equal(e.isCanonical, true, `${slug}: أساسية في الكتالوج (الخريطة وhreflang)`);
+    assert.equal(e.langs, undefined, `${slug}: ثلاثية اللغة`);
+    for (const L of G.UPGRADE_LANGS) {
+      // صفحة دولة غير ذات أولوية تُبقي رابط الجامعة في «مقالات ذات صلة» كما كان قبل أن تصير أساسية
+      const pillarHref = `${L === 'ar' ? '' : `/${L}`}/blog/field-sales-software/`;
+      if (!priority.has(cc)) assert.ok(getArticle(slug, L)!.contentHtml.includes(`href="${pillarHref}"`), `${slug}.${L}: رابط الجامعة`);
+    }
     for (const L of G.UPGRADE_LANGS) {
       const a = getArticle(slug, L)!;
       const c = countryPage(cc)!.content[L];
@@ -174,4 +185,87 @@ test('الملفات المنسوخة في المستودع صالحة ولكل 
   const files = new Set(readdirSync(PAGES_DIR).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)));
   for (const g of G.registeredGuides()) assert.ok(files.has(g.cc), `${g.cc}.json غائب`);
   for (const cc of NEW_CODES) assert.ok(!G.UPGRADED_GUIDES.includes(cc));
+});
+
+test('أدلة الدول بلا وعد «فاتورة ضريبية» من القالب: الدعوة والكلمات المفتاحية والوصف، وفي المتن ما يقوله الملف وحده', () => {
+  // الدعوة المشتركة (cta) تَعِد بـ«tax invoices / فواتير ضريبية»، وكانت تُلحق بالمحتوى المراجَع فتناقضه: باكستان
+  // (فاتورة المسجَّل من نظامه المربوط بـFBR)، وكينيا (ليست فواتير ضريبية إلكترونية)، والعراق (بلا قيمة مضافة؛
+  // honesty.mustNotSay). المتن قد يذكر العبارة حيث يشرحها الملف نفسه (عُمان وجنوب أفريقيا وباكستان) — فالشرط
+  // أن ما في الصفحة منها هو ما في الملف عدداً، لا زيادة من القالب.
+  const TAX = /tax[\s-]+invoic|فواتير ضريبي|فاتورة ضريبي|الفاتورة الضريبي|الفواتير الضريبي|factures? fiscales?/gi;
+  const count = (s: string) => (s.match(TAX) || []).length;
+  const bad: string[] = [];
+  for (const g of G.registeredGuides()) {
+    for (const L of g.langs) {
+      const a = getArticle(g.slug, L)!;
+      const c = countryPage(g.cc)!.content[L];
+      const own = [
+        c.intro, ...c.sections.flatMap((s) => [s.title, s.body]), ...c.faq.flatMap((f) => [f.q, f.a]),
+        c.sampleInvoice.title, c.sampleInvoice.note || '', ...c.sampleInvoice.fields.flatMap((f) => [f.label, f.example]),
+        ...c.sources.map((s) => s.title || ''), c.lastVerifiedLabel,
+      ].join('\n');
+      const extra = count(textOf(a.contentHtml)) - count(textOf(own));
+      if (extra) bad.push(`${g.slug}.${L}: ${extra} من القالب في المتن`);
+      if (count(a.keywords)) bad.push(`${g.slug}.${L}: الكلمات المفتاحية`);
+      if (g.kind === 'upgraded' && count(a.description)) bad.push(`${g.slug}.${L}: وصف القالب`);
+      for (const it of listArticles(L)) if (it.slug === g.slug && count(it.keywords)) bad.push(`${g.slug}.${L}: كلمات الفهرس`);
+    }
+  }
+  assert.deepEqual(bad, []);
+});
+
+test('حزمة المتصفح من ملف الدولة: ما يرسمه العرض كاملاً، بلا الملاحظات التحريرية الداخلية', () => {
+  for (const g of G.registeredGuides()) {
+    const full = countryPage(g.cc)!;
+    const lean = leanCountryPage(full)!;
+    const json = JSON.stringify(lean);
+    // لا notes ولا review.issues ولا review.fixes (مفاتيحها ولا نصوصها)
+    assert.deepEqual(Object.keys(lean).sort(), ['code', 'content', 'languages', 'review'], `${g.cc}: مفاتيح الحزمة`);
+    assert.deepEqual(lean.review, { quality: full.review!.quality }, `${g.cc}: review`);
+    for (const k of ['notes', 'issues', 'fixes', 'mustNotSay']) assert.ok(!json.includes(`"${k}"`), `${g.cc}: «${k}» في الحزمة`);
+    for (const note of [full.notes, (full.review as { issues?: unknown }).issues, (full.review as { fixes?: unknown }).fixes]) {
+      for (const s of JSON.stringify(note ?? []).match(/"[^"]{40,}"/g) || []) {
+        if (!JSON.stringify(full.content).includes(s)) assert.ok(!json.includes(s), `${g.cc}: نصّ ملاحظة داخلية في الحزمة — ${s.slice(0, 60)}`);
+      }
+    }
+    // ما يرسمه countryGuides.mjs لا يتغيّر بالتنحيف: البوابة ولغاتها وكل حقل مرسوم
+    assert.equal(G.isPublishable(lean), G.isPublishable(full), `${g.cc}: البوابة`);
+    assert.deepEqual(lean.languages, full.languages);
+    for (const L of g.langs) {
+      const f = full.content[L], l = lean.content[L];
+      for (const k of ['title', 'description', 'h1', 'intro', 'lastVerifiedLabel'] as const) assert.equal(l[k], f[k], `${g.cc}.${L}.${k}`);
+      assert.deepEqual(l.sections, f.sections.map(({ id, title, body }) => ({ id, title, body })), `${g.cc}.${L}: الأقسام`);
+      assert.deepEqual(l.faq, f.faq.map(({ q, a }) => ({ q, a })), `${g.cc}.${L}: الأسئلة`);
+      assert.deepEqual(l.sources, f.sources.map(({ title, url }) => (title === undefined ? { url } : { title, url })), `${g.cc}.${L}: المصادر`);
+      const si = f.sampleInvoice;
+      assert.deepEqual(l.sampleInvoice, { title: si.title, ...(si.note === undefined ? {} : { note: si.note }), fields: si.fields.map(({ label, example }) => ({ label, example })) }, `${g.cc}.${L}: مثال الفاتورة`);
+    }
+  }
+  // التحويل في vite.config.ts يطابق ملفات المحتوى وحدها
+  assert.equal(isCountryPageModule('D:/x/web-admin/src/content/country-pages/IQ.json'), true);
+  assert.equal(isCountryPageModule('/x/src/content/country-pages/OM.json?import'), true);
+  assert.equal(isCountryPageModule('/x/src/content/country-facts/IQ.json'), false);
+  assert.equal(isCountryPageModule('/x/src/content/country-pages/IQ.ts'), false);
+});
+
+test('تاريخ التعديل بلغته: الجامعة العربية لم تتغيّر فلا يتجدّد تاريخها، والخريطة تطابق dateModified كل نسخة', () => {
+  const pillar = (L: SeoLang) => getArticle('field-sales-software', L)!.modified!;
+  const guideLangs = new Set(NEW.map((g) => g.lang));
+  for (const L of LANGS) {
+    if (guideLangs.has(L)) assert.equal(pillar(L), G.GUIDE_DATE, `الجامعة ${L}: تربط أدلة لغتها`);
+    else assert.ok(pillar(L) < G.GUIDE_DATE, `الجامعة ${L}: ${pillar(L)} — لا دليل بلغتها فلم يتغيّر نصّها`);
+  }
+  // lastmod في الخريطة (modifiedByLang) = modified الفهرس = dateModified المقال، لكل نسخة
+  const cat = buildCatalog();
+  for (const L of LANGS) {
+    const listed = new Map(listArticles(L).map((x) => [x.slug, x.modified]));
+    for (const e of cat) {
+      if (e.langs && !e.langs.includes(L)) continue;
+      assert.equal(e.modifiedByLang[L], listed.get(e.slug), `${e.slug}.${L}: الخريطة والفهرس`);
+    }
+  }
+  for (const slug of ['field-sales-software', ...G.registeredGuides().map((g) => g.slug)]) {
+    const e = cat.find((x) => x.slug === slug)!;
+    for (const L of e.langs || LANGS) assert.equal(getArticle(slug, L)!.modified, e.modifiedByLang[L], `${slug}.${L}: الخريطة والمقال`);
+  }
 });

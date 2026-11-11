@@ -5,6 +5,8 @@ export interface SeoListItem {
   slug: string;
   lang: SeoLang;
   date: string;
+  /** آخر تعديل جوهري لهذه النسخة (lastmod) */
+  modified?: string;
   readMinutes: number;
   countryCode: string | null;
   title: string;
@@ -23,6 +25,8 @@ export interface SeoArticle {
   excerpt: string;
   contentHtml: string;
   date: string;
+  /** آخر تعديل جوهري لهذه النسخة (dateModified) */
+  modified?: string;
   readMinutes: number;
   image: string;
   imagePath: string;
@@ -47,9 +51,12 @@ export interface SeoCardMeta {
 export interface SeoCatalogEntry {
   slug: string;
   date: string;
+  /** أحدث تعديل بأي لغة */
   modified: string;
+  /** آخر تعديل كل نسخة لغة (lastmod في الخريطة = dateModified في getArticle) */
+  modifiedByLang: Partial<Record<SeoLang, string>>;
   cc: string | null;
-  /** الرابط الأساسي: صفحة الدولة غير ذات الأولوية تُشير إلى صفحتها الجامعة */
+  /** الرابط الأساسي: صفحة الدولة غير ذات الأولوية تُشير إلى صفحتها الجامعة (والمرقّاة بمحتوى مراجَع لنفسها) */
   canonical: string;
   isCanonical: boolean;
   trilingual: boolean;
