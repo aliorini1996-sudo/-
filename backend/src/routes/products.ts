@@ -1624,7 +1624,8 @@ async function convertBasePreview(tid: string, productId: string, body: z.infer<
     prisma.lotRelabel.count({ where: { tenantId: tid, productId: pid } }),
     prisma.priceListItem.count({ where: { tenantId: tid, productId: pid } }),
     prisma.priceListRule.count({ where: { tenantId: tid, productId: pid, basePrice: { not: null } } }),
-    prisma.repTarget.count({ where: { tenantId: tid, productId: pid } }),
+    // «هدف الشهر»: الهدف بالصنف الأول أو صنفاً إضافياً فيه (هدفٌ بعدة أصناف)
+    prisma.repTarget.count({ where: { tenantId: tid, OR: [{ productId: pid }, { extraProducts: { some: { productId: pid } } }] } }),
     shifts ? primaryRulesCount(prisma, tid, pid) : 0,
   ]);
   return {
@@ -1804,6 +1805,9 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
        * تعديله «حبّة» فبدّل معناه بلا أن يطلب أحد. والشركة والصنف شرطٌ في الجملتين */
       const repTargets = await tx.repTarget.updateMany({ where: { tenantId: tid, productId: pid }, data: { unitFactor: { multiply: F } } });
       await tx.repTarget.updateMany({ where: { tenantId: tid, productId: pid, unitId: null }, data: { unitId: oldBaseUnit.id } });
+      // والصنف نفسه صنفاً إضافياً في هدفٍ بعدة أصناف — اللقطة نفسها والمعاملة نفسها
+      const repTargetExtras = await tx.repTargetProduct.updateMany({ where: { tenantId: tid, productId: pid }, data: { unitFactor: { multiply: F } } });
+      await tx.repTargetProduct.updateMany({ where: { tenantId: tid, productId: pid, unitId: null }, data: { unitId: oldBaseUnit.id } });
 
       // ٤. الأسعار المخزَّنة لوحدة الأساس تصير للحبة: ÷ F — بلا تقريب، فسعر العميل × ٢٤ يعود سعر كرتونه بالفلس.
       // وحدود الشرائح بالأساس × F؛ والشريحة التي لم يملأها الترحيل بعد (baseMinQty = 0 وminQty ≠ 0) تُحسب من القديم.
@@ -1867,7 +1871,7 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
           ...(priceListItems.count > 0 && { priceListItems: priceListItems.count }),
           ...(priceListRules.count > 0 && { priceListRules: priceListRules.count }),
           // «هدف الشهر»: حين مسّ التحويل أهدافاً وحدها
-          ...(repTargets.count > 0 && { repTargets: repTargets.count }),
+          ...(repTargets.count + repTargetExtras.count > 0 && { repTargets: repTargets.count + repTargetExtras.count }),
           conversionId: log.id,
         },
       };

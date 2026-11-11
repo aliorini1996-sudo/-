@@ -102,8 +102,12 @@ test('findArchivedProducts: المؤرشفة وحدها، بتوأمها ورص�
   assert.deepEqual(await findArchivedProducts(memDb({}) as never, 't1', { vanBalances }), []);
 });
 
-// «هدف الشهر» (RepTarget): هدف كمية الصنف يتبعه إلى توأمه كبنود فواتيره — فيبقى تقدّمه يُقاس على ما صار باسم B
-const REPOINT = ['GlMoveLine', 'InvoiceItem', 'InvoiceItemLot', 'LotEvent', 'LotRelabel', 'ProductLot', 'RepStockRequestItem', 'RepTarget', 'VanLoadItem', 'VanLoadItemLot', 'WarehouseEntryItem'];
+// «هدف الشهر» (RepTarget): هدف كمية الصنف يتبعه إلى توأمه كبنود فواتيره — فيبقى تقدّمه يُقاس على ما صار باسم B،
+// وكذا صنفه الإضافي في هدفٍ بعدة أصناف (RepTargetProduct — طلب المالك ١١ نوفمبر ٢٠٢٦)
+const REPOINT = [
+  'GlMoveLine', 'InvoiceItem', 'InvoiceItemLot', 'LotEvent', 'LotRelabel', 'ProductLot', 'RepStockRequestItem', 'RepTarget', 'RepTargetProduct',
+  'VanLoadItem', 'VanLoadItemLot', 'WarehouseEntryItem',
+];
 
 test('خطة الجداول من نموذج Prisma: التاريخ والحركات تُوجَّه إلى B، والإعداد لا يُوجَّه أبداً', () => {
   const plan = mergePlanModels();
@@ -111,7 +115,7 @@ test('خطة الجداول من نموذج Prisma: التاريخ والحرك�
   assert.deepEqual(plan.unhandled, []);
   for (const t of plan.repoint) assert.ok(!CONFIG_MODELS.has(t.model), t.model);
   const kind = Object.fromEntries(plan.repoint.map((t) => [t.model, t.kind]));
-  for (const m of ['InvoiceItem', 'VanLoadItem', 'WarehouseEntryItem', 'RepStockRequestItem', 'ProductLot', 'RepTarget']) assert.equal(kind[m], 'FK', m);
+  for (const m of ['InvoiceItem', 'VanLoadItem', 'WarehouseEntryItem', 'RepStockRequestItem', 'ProductLot', 'RepTarget', 'RepTargetProduct']) assert.equal(kind[m], 'FK', m);
   for (const m of ['VanLoadItemLot', 'InvoiceItemLot', 'LotRelabel', 'LotEvent', 'GlMoveLine']) assert.equal(kind[m], 'PLAIN', m);
   const special = Object.fromEntries(plan.repoint.map((t) => [t.model, t.special]));
   assert.equal(special.ProductLot, 'LOTS');
@@ -124,6 +128,7 @@ test('خطة الجداول من نموذج Prisma: التاريخ والحرك�
   assert.equal(scoped.InvoiceItem, false);
   assert.equal(scoped.ProductLot, true);
   assert.equal(scoped.LotEvent, true);
+  assert.equal(scoped.RepTargetProduct, true);
 });
 
 test('خطة الجداول: جدول حركاتٍ جديد بقيدٍ فريد على productId بلا معالجة ⇒ unhandled (حارس تغيّر المخطط)', () => {

@@ -17,14 +17,20 @@ import { tenantTz } from './invoiceExpiry';
 import { addMonths, daysInMonth, todayLocal, zonedStartOfDay } from './gl/dates';
 import { cleanMoney, isReturnInvoice, netSales } from './netSales';
 import { baseQtyOf, factorOf, roundQty, type UnitSnapshot } from './units';
+import { asVisitLike, mergeVisitsByRep } from './workDay';
 
-export const TARGET_KINDS = ['SALES_AMOUNT', 'PRODUCT_QTY', 'COLLECTION_PCT'] as const;
+// VISITS_COUNT وNEW_CUSTOMERS (طلب المالك ١١ نوفمبر ٢٠٢٦): عدد زيارات الشهر، وعملاء جدد نشطون فتحهم المندوب في الشهر
+export const TARGET_KINDS = ['SALES_AMOUNT', 'PRODUCT_QTY', 'COLLECTION_PCT', 'VISITS_COUNT', 'NEW_CUSTOMERS'] as const;
 export type TargetKind = typeof TARGET_KINDS[number];
 export const REWARD_KINDS = ['COMMISSION_SALES_PCT', 'SALARY_PCT', 'FIXED_AMOUNT'] as const;
 export type RewardKind = typeof REWARD_KINDS[number];
 
 /** حدّ قيمة الهدف لكل نوع (أكبر من صفر دائماً): مبلغ، كمية بوحدة الهدف، نسبة */
-export const TARGET_VALUE_MAX: Readonly<Record<TargetKind, number>> = { SALES_AMOUNT: 1e12, PRODUCT_QTY: 1e9, COLLECTION_PCT: 100 };
+export const TARGET_VALUE_MAX: Readonly<Record<TargetKind, number>> = {
+  SALES_AMOUNT: 1e12, PRODUCT_QTY: 1e9, COLLECTION_PCT: 100, VISITS_COUNT: 1e6, NEW_CUSTOMERS: 1e6,
+};
+/** أصناف هدف الكمية الواحد (الأول + الإضافية) */
+export const MAX_TARGET_PRODUCTS = 20;
 /** حدّ قيمة المكافأة لكل نوع (أكبر من صفر دائماً): نسبة من المبيعات، نسبة من الراتب، مبلغ */
 export const REWARD_VALUE_MAX: Readonly<Record<RewardKind, number>> = { COMMISSION_SALES_PCT: 100, SALARY_PCT: 1000, FIXED_AMOUNT: 1e9 };
 /** أهداف المندوب في الشهر الواحد — سقفٌ يحمي الرئيسية من الازدحام */
@@ -40,6 +46,9 @@ export const TARGET_MESSAGES = Object.freeze({
   TARGET_PRODUCT_INVALID: 'اختر صنفاً صحيحاً',
   TARGET_UNIT_INVALID: 'وحدة الصنف غير صحيحة',
   TARGET_LIMIT: `وصلت للحد الأعلى من الأهداف لهذا الشهر (${MAX_TARGETS_PER_MONTH})`,
+  TARGET_PRODUCT_DUPLICATE: 'الصنف مكرر في الهدف',
+  TARGET_COMBO_INVALID: 'اختر هدفين أو أكثر لنفس المندوب في نفس الشهر',
+  TARGET_IN_COMBO: 'أحد الأهداف مدمج مع أهداف أخرى افصله أولا',
 });
 export type TargetCode = keyof typeof TARGET_MESSAGES;
 
@@ -158,25 +167,40 @@ export interface TargetProgress {
 }
 export interface TargetReward { kind: string; value: number; amount: number | null; earned: boolean }
 
-/** ما يحتاجه حساب التقدّم من الشهر: صافي المبيعات، وصافي كمية كل صنف بالأساس، وتحصيل الديون السابقة */
+/** ما يحتاجه حساب التقدّم من الشهر: صافي المبيعات، وصافي كمية كل صنف بالأساس، وتحصيل الديون السابقة، والزيارات والعملاء الجدد */
 export interface ProgressContext {
   monthNetSales: number;
   productBase: ReadonlyMap<string, number>;
   collection: { base: number; collected: number };
+  /** وقفات الزيارة بعد الدمج (تعريف «أداء المندوب» نفسه — services/workDay.ts mergeVisitsByRep) */
+  visits?: number;
+  /** عملاء أضافهم المندوب في الشهر ولهم فاتورة بيع مؤكَّدة حتى نهايته */
+  newCustomers?: number;
 }
 
 /** النسبة بلا سقف (الواجهة تقصّ الشريط عند ١٠٠) — وبلا هدفٍ موجب لا نسبة */
 export const pctOf = (achieved: number, goal: number): number | null => (goal > 0 ? round1((achieved / goal) * 100) : null);
 const isDone = (achieved: number, goal: number): boolean => goal > 0 && achieved >= goal - DONE_EPS;
 
-export type TargetLike = Pick<RepTarget, 'kind' | 'targetValue' | 'productId' | 'unitFactor' | 'rewardKind' | 'rewardValue'>;
+/** صنفٌ إضافي في هدف الكمية (RepTargetProduct) كما يحتاجه الحساب */
+export type TargetExtraProduct = { productId: string | null; unitFactor: number };
+export type TargetLike = Pick<RepTarget, 'kind' | 'targetValue' | 'productId' | 'unitFactor' | 'rewardKind' | 'rewardValue'> & {
+  extraProducts?: readonly TargetExtraProduct[] | null;
+};
 
 export function targetProgress(t: TargetLike, ctx: ProgressContext): TargetProgress {
   const goalValue = Number(t.targetValue) || 0;
   if (t.kind === 'PRODUCT_QTY') {
-    if (!t.productId) return { state: 'PRODUCT_DELETED', achieved: 0, goal: goalValue, pct: null, done: false };
+    // هدفٌ بعدة أصناف (الأول + الإضافية): المُنجَز = Σ صافي أساس كل صنفٍ ÷ معامل وحدته. والمحذوف (productId فارغ) لا يُعدّ،
+    // وكلّها محذوفة ⇒ PRODUCT_DELETED
+    const parts = [{ productId: t.productId, unitFactor: t.unitFactor }, ...(t.extraProducts ?? [])].filter((p) => !!p.productId);
+    if (!parts.length) return { state: 'PRODUCT_DELETED', achieved: 0, goal: goalValue, pct: null, done: false };
     // الهدف بالأساس = القيمة × المعامل، فالمحقَّق بوحدة الهدف = صافي الأساس ÷ المعامل
-    const achieved = round4((ctx.productBase.get(t.productId) ?? 0) / factorOf({ unitFactor: t.unitFactor }));
+    const achieved = round4(parts.reduce((s, p) => s + (ctx.productBase.get(p.productId as string) ?? 0) / factorOf({ unitFactor: p.unitFactor }), 0));
+    return { state: 'OK', achieved, goal: goalValue, pct: pctOf(achieved, goalValue), done: isDone(achieved, goalValue) };
+  }
+  if (t.kind === 'VISITS_COUNT' || t.kind === 'NEW_CUSTOMERS') {
+    const achieved = (t.kind === 'VISITS_COUNT' ? ctx.visits : ctx.newCustomers) ?? 0;
     return { state: 'OK', achieved, goal: goalValue, pct: pctOf(achieved, goalValue), done: isDone(achieved, goalValue) };
   }
   if (t.kind === 'COLLECTION_PCT') {
@@ -202,23 +226,52 @@ export function targetReward(t: TargetLike, monthNetSales: number, done: boolean
   return { kind: t.rewardKind, value, amount, earned: done };
 }
 
+/** صنفٌ في هدف الكمية كما يُعرض: الأول ثم الإضافية بترتيبها */
+export interface TargetProductView { productId: string | null; productName: string | null; unitId: string | null; unitName: string | null; unitFactor: number }
+export type RepTargetRow = RepTarget & { extraProducts?: ReadonlyArray<TargetProductView & { sortOrder?: number }> | null };
+
 export interface RepTargetView {
   id: string; month: string; kind: string; targetValue: number;
   productId: string | null; productName: string | null; unitId: string | null; unitName: string | null; unitFactor: number;
+  /** هدف الكمية: كل أصنافه (الأول أولاً) — وغيره فارغ */
+  products: TargetProductView[];
+  /** «دمج الأهداف»: معرّف الهدف المدمج (null = مستقل) — ومكافأة العضو تُستحق بتحقق الأعضاء كلهم */
+  comboId: string | null;
   rewardKind: string; rewardValue: number; note: string | null; createdByName: string | null; createdAt: Date; updatedAt: Date;
   progress: TargetProgress;
   reward: TargetReward;
 }
 
-export function toTargetView(t: RepTarget, ctx: ProgressContext): RepTargetView {
+export function toTargetView(t: RepTargetRow, ctx: ProgressContext): RepTargetView {
   const progress = targetProgress(t, ctx);
+  const extras = t.kind === 'PRODUCT_QTY' ? [...(t.extraProducts ?? [])].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)) : [];
   return {
     id: t.id, month: t.month, kind: t.kind, targetValue: t.targetValue,
     productId: t.productId, productName: t.productName, unitId: t.unitId, unitName: t.unitName, unitFactor: t.unitFactor,
+    products: t.kind === 'PRODUCT_QTY'
+      ? [{ productId: t.productId, productName: t.productName, unitId: t.unitId, unitName: t.unitName, unitFactor: t.unitFactor },
+        ...extras.map((e) => ({ productId: e.productId, productName: e.productName, unitId: e.unitId, unitName: e.unitName, unitFactor: e.unitFactor }))]
+      : [],
     rewardKind: t.rewardKind, rewardValue: t.rewardValue, note: t.note, createdByName: t.createdByName, createdAt: t.createdAt, updatedAt: t.updatedAt,
+    comboId: t.comboId ?? null,
     progress,
     reward: targetReward(t, ctx.monthNetSales, progress.done),
   };
+}
+
+/**
+ * «دمج الأهداف»: مكافأة الهدف المدمج واحدة تُستحق بتحقق أعضائه كلهم — فيُكتب `earned` لكل عضوٍ بحال المجموعة. والعضو الوحيد
+ * (حُذف الباقون) كالمستقل. صرفةٌ على عروضٍ محسوبة.
+ */
+export function applyCombos(views: RepTargetView[]): RepTargetView[] {
+  const byCombo = new Map<string, RepTargetView[]>();
+  for (const v of views) if (v.comboId) byCombo.set(v.comboId, [...(byCombo.get(v.comboId) ?? []), v]);
+  return views.map((v) => {
+    const group = v.comboId ? byCombo.get(v.comboId) ?? [v] : [v];
+    if (group.length < 2) return v;
+    const allDone = group.every((m) => m.progress.done);
+    return { ...v, reward: { ...v.reward, earned: allDone } };
+  });
 }
 
 // ═══ المحمّل (قاعدة البيانات) ═══
@@ -227,12 +280,17 @@ export function toTargetView(t: RepTarget, ctx: ProgressContext): RepTargetView 
  * سياق التقدّم لمندوبٍ في شهر — ما تحتاجه أهدافه وحدها: صافي المبيعات دائماً (هدف المبيعات والعمولة وسطر الملخّص)، وبنود
  * أصناف أهداف الكمية في استعلامٍ واحد، والديون السابقة مرةً واحدة لكل أهداف التحصيل.
  */
-export async function loadProgressContext(tid: string, repId: string, win: Pick<MonthWindow, 'from' | 'to'>, targets: readonly Pick<RepTarget, 'kind' | 'productId'>[]): Promise<ProgressContext> {
+export async function loadProgressContext(tid: string, repId: string, win: Pick<MonthWindow, 'from' | 'to'>,
+  targets: readonly (Pick<RepTarget, 'kind' | 'productId'> & { extraProducts?: ReadonlyArray<{ productId: string | null }> | null })[]): Promise<ProgressContext> {
   const { from, to } = win;
   const docs = { tenantId: tid, salesRepId: repId, status: 'CONFIRMED' };
-  const productIds = [...new Set(targets.filter((t) => t.kind === 'PRODUCT_QTY' && t.productId).map((t) => t.productId as string))];
+  const productIds = [...new Set(targets.filter((t) => t.kind === 'PRODUCT_QTY')
+    .flatMap((t) => [t.productId, ...(t.extraProducts ?? []).map((e) => e.productId)])
+    .filter((x): x is string => !!x))];
   const needsCollection = targets.some((t) => t.kind === 'COLLECTION_PCT');
-  const [sales, returns, items, credit] = await Promise.all([
+  const needsVisits = targets.some((t) => t.kind === 'VISITS_COUNT');
+  const needsCustomers = targets.some((t) => t.kind === 'NEW_CUSTOMERS');
+  const [sales, returns, items, credit, visitRows, newCustomers] = await Promise.all([
     prisma.invoice.aggregate({ where: { ...docs, type: { not: 'RETURN' }, invoiceDate: { gte: from, lt: to } }, _sum: { total: true } }),
     prisma.invoice.aggregate({ where: { ...docs, type: 'RETURN', invoiceDate: { gte: from, lt: to } }, _sum: { total: true } }),
     productIds.length
@@ -265,11 +323,30 @@ export async function loadProgressContext(tid: string, repId: string, win: Pick<
         },
       })
       : Promise.resolve([]),
+    // زيارات الشهر: كل سجلّات المندوب ثم الدمج إلى وقفات (الزيارة المؤقّتة وملاحظتها وقفةٌ واحدة) — كتقرير أداء المندوب
+    needsVisits
+      ? prisma.repVisit.findMany({
+        where: { tenantId: tid, salesRepId: repId, createdAt: { gte: from, lt: to } },
+        select: { salesRepId: true, customerId: true, createdAt: true, startedAt: true, durationSec: true, lat: true, lng: true, customer: { select: { name: true } } },
+        orderBy: { createdAt: 'asc' }, take: 20000,
+      })
+      : Promise.resolve([]),
+    // عملاء جدد نشطون: أضافهم المندوب في الشهر، ولكلٍّ فاتورة بيعٍ مؤكَّدة حتى نهاية الشهر (لا يُعدّ عميلٌ أُضيف ولم يشترِ)
+    needsCustomers
+      ? prisma.customer.count({
+        where: {
+          tenantId: tid, createdBySalesRepId: repId, createdAt: { gte: from, lt: to }, status: { not: 'DELETED' },
+          invoices: { some: { status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { lt: to } } },
+        },
+      })
+      : Promise.resolve(0),
   ]);
   return {
     monthNetSales: netSales(sales._sum.total, returns._sum.total),
     productBase: productNetBaseQty(items),
     collection: needsCollection ? collectionFold(credit, from, to) : { base: 0, collected: 0 },
+    ...(needsVisits && { visits: mergeVisitsByRep(visitRows.map(asVisitLike)).length }),
+    ...(needsCustomers && { newCustomers }),
   };
 }
 
@@ -290,17 +367,24 @@ export async function repTargetsMonth(tid: string, repId: string, month?: string
   const targets = await prisma.repTarget.findMany({
     where: { tenantId: tid, salesRepId: repId, month: win.month },
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    include: { extraProducts: { orderBy: { sortOrder: 'asc' } } },
   });
   const ctx = await loadProgressContext(tid, repId, win, targets);
   return {
     month: win.month, from: win.from.toISOString(), to: win.to.toISOString(), isCurrent: win.isCurrent, daysLeft: win.daysLeft,
     monthNetSales: ctx.monthNetSales,
-    targets: targets.map((t) => toTargetView(t, ctx)),
+    targets: applyCombos(targets.map((t) => toTargetView(t, ctx))),
   };
 }
 
 /** هدفٌ واحد محسوبٌ لشهره (ردّ الإنشاء والتعديل) */
-export async function repTargetViewOf(tid: string, target: RepTarget, now: Date = new Date()): Promise<RepTargetView> {
+export async function repTargetViewOf(tid: string, target: RepTargetRow, now: Date = new Date()): Promise<RepTargetView> {
+  // عضوٌ في هدفٍ مدمج: مكافأته تُستحق بتحقق الأعضاء كلهم (applyCombos) — فيُقرأ من شهره كما يقرؤه GET
+  if (target.comboId) {
+    const month = await repTargetsMonth(tid, target.salesRepId, target.month, now);
+    const hit = month.targets.find((v) => v.id === target.id);
+    if (hit) return hit;
+  }
   const tz = await tenantTz(tid);
   const win = monthWindow(target.month, tz, now);
   const ctx = await loadProgressContext(tid, target.salesRepId, win, [target]);

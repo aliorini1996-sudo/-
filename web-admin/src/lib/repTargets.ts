@@ -18,7 +18,9 @@ import type { UnitChoice } from '../rep/repUnits';
 type Tr = (ar: string) => string;
 type Fmt = (n: number) => string;
 
-export type RepTargetKind = 'SALES_AMOUNT' | 'PRODUCT_QTY' | 'COLLECTION_PCT';
+// VISITS_COUNT وNEW_CUSTOMERS (طلب المالك ١١ نوفمبر ٢٠٢٦): عدد زيارات الشهر (وقفاتٌ بعد الدمج كتقرير الأداء)، وعملاء جدد نشطون
+// (أضافهم المندوب في الشهر ولهم فاتورة بيع مؤكَّدة حتى نهايته)
+export type RepTargetKind = 'SALES_AMOUNT' | 'PRODUCT_QTY' | 'COLLECTION_PCT' | 'VISITS_COUNT' | 'NEW_CUSTOMERS';
 export type RepRewardKind = 'COMMISSION_SALES_PCT' | 'SALARY_PCT' | 'FIXED_AMOUNT';
 /** OK · NO_BASE (لا ديون مفتوحة بداية الشهر لهدف التحصيل) · PRODUCT_DELETED (حُذف صنف هدف الكمية) */
 export type RepTargetState = 'OK' | 'NO_BASE' | 'PRODUCT_DELETED';
@@ -45,6 +47,15 @@ export interface RepTargetReward {
   earned: boolean;
 }
 
+/** صنفٌ في هدف الكمية (الأول ثم الإضافية — «كمية صنف» بعدة أصناف) */
+export interface RepTargetProductView {
+  productId: string | null;
+  productName: string | null;
+  unitId: string | null;
+  unitName: string | null;
+  unitFactor: number;
+}
+
 /** هدفٌ كما يردّه الخادم (GET /rep-targets/rep/:repId و/mine، ونتيجة POST/PUT) */
 export interface RepTargetView {
   id: string;
@@ -56,6 +67,10 @@ export interface RepTargetView {
   unitId: string | null;
   unitName: string | null;
   unitFactor: number;
+  /** هدف الكمية: كل أصنافه بالترتيب (الأول = productId أعلاه)؛ وغيره فارغ. خادمٌ أقدم بلا الحقل ⇒ الصنف الواحد أعلاه */
+  products?: RepTargetProductView[];
+  /** «دمج الأهداف»: معرّف الهدف المدمج (null = مستقل) — مكافأة العضو منسوخةٌ على الأعضاء وتُستحق بتحقق كلهم */
+  comboId?: string | null;
   rewardKind: RepRewardKind;
   rewardValue: number;
   note: string | null;
@@ -87,15 +102,26 @@ export interface RepTargetInput {
   unitId: string | null;
   /** هدف الكمية: اسم وحدة الصنف الصغرى (الأساس) كما رآها النموذج — تحوّلت منذ تحميل الأصناف ⇒ 400 UNIT_INVALID لا هدفٌ ×F صامت */
   baseUnitName?: string | null;
+  /** هدف الكمية بعدة أصناف: القائمة كاملةً بالترتيب (الأول = productId/unitId أعلاه) — تُرسل حين يكون فيها أكثر من صنف */
+  products?: { productId: string; unitId: string | null; baseUnitName?: string | null }[];
   rewardKind: RepRewardKind;
   rewardValue: number;
   note: string | null;
+}
+
+/** جسم POST /rep-targets/combo — دمج أهدافٍ مستقلة للمندوب في الشهر نفسه بمكافأةٍ واحدة */
+export interface RepTargetComboInput {
+  targetIds: string[];
+  rewardKind: RepRewardKind;
+  rewardValue: number;
 }
 
 export const TARGET_KINDS: ReadonlyArray<{ kind: RepTargetKind; label: string }> = [
   { kind: 'SALES_AMOUNT', label: 'مبيعات بمبلغ' },
   { kind: 'PRODUCT_QTY', label: 'كمية صنف' },
   { kind: 'COLLECTION_PCT', label: 'تحصيل نسبة من الديون' },
+  { kind: 'VISITS_COUNT', label: 'عدد زيارات' },
+  { kind: 'NEW_CUSTOMERS', label: 'عملاء جدد نشطون' },
 ];
 
 export const REWARD_KINDS: ReadonlyArray<{ kind: RepRewardKind; label: string }> = [
@@ -105,7 +131,9 @@ export const REWARD_KINDS: ReadonlyArray<{ kind: RepRewardKind; label: string }>
 ];
 
 /** سقف قيمة الهدف لكل نوع — مرآة zod الخادم (والحدّ الأدنى أكبر من صفر للجميع) */
-export const TARGET_MAX: Record<RepTargetKind, number> = { SALES_AMOUNT: 1e12, PRODUCT_QTY: 1e9, COLLECTION_PCT: 100 };
+export const TARGET_MAX: Record<RepTargetKind, number> = { SALES_AMOUNT: 1e12, PRODUCT_QTY: 1e9, COLLECTION_PCT: 100, VISITS_COUNT: 1e6, NEW_CUSTOMERS: 1e6 };
+/** أقصى أصناف هدف الكمية الواحد (الأول + الإضافية) — مرآة الخادم MAX_TARGET_PRODUCTS */
+export const MAX_TARGET_PRODUCTS = 20;
 /** سقف قيمة المكافأة لكل نوع */
 export const REWARD_MAX: Record<RepRewardKind, number> = { COMMISSION_SALES_PCT: 100, SALARY_PCT: 1000, FIXED_AMOUNT: 1e9 };
 export const TARGET_NOTE_MAX = 300;
@@ -114,6 +142,9 @@ export const MAX_TARGETS_PER_MONTH = 20;
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
+/** صنفٌ إضافي في نموذج هدف الكمية (بعد الأول) */
+export interface DraftExtraProduct { productId: string | null; unitId: string | null }
+
 /** خانات نموذج الهدف كما كُتبت — الأرقام نصوصٌ من الخانات */
 export interface TargetDraft {
   month: string;
@@ -121,20 +152,25 @@ export interface TargetDraft {
   targetValue: string;
   productId: string | null;
   unitId: string | null;
+  /** هدف الكمية بعدة أصناف: الأصناف بعد الأول، لكلٍّ وحدته */
+  extraProducts: DraftExtraProduct[];
   rewardKind: RepRewardKind;
   rewardValue: string;
   note: string;
 }
 
 export function emptyDraft(month: string): TargetDraft {
-  return { month, kind: 'SALES_AMOUNT', targetValue: '', productId: null, unitId: null, rewardKind: 'COMMISSION_SALES_PCT', rewardValue: '', note: '' };
+  return { month, kind: 'SALES_AMOUNT', targetValue: '', productId: null, unitId: null, extraProducts: [], rewardKind: 'COMMISSION_SALES_PCT', rewardValue: '', note: '' };
 }
 
 /** نموذج التعديل من هدفٍ قائم */
 export function draftOf(t: RepTargetView): TargetDraft {
+  const product = t.kind === 'PRODUCT_QTY';
   return {
     month: t.month, kind: t.kind, targetValue: String(t.targetValue),
-    productId: t.kind === 'PRODUCT_QTY' ? t.productId : null, unitId: t.kind === 'PRODUCT_QTY' ? t.unitId : null,
+    productId: product ? t.productId : null, unitId: product ? t.unitId : null,
+    // الصنف الإضافي المحذوف (productId فارغ) لا يدخل النموذج — الحفظ يُسقطه من الهدف بدل صفٍّ فارغ يمنع الحفظ
+    extraProducts: product ? (t.products ?? []).slice(1).filter(p => !!p.productId).map(p => ({ productId: p.productId, unitId: p.unitId })) : [],
     rewardKind: t.rewardKind, rewardValue: String(t.rewardValue), note: t.note ?? '',
   };
 }
@@ -166,11 +202,15 @@ const VALUE_ZERO: Record<RepTargetKind, string> = {
   SALES_AMOUNT: 'مبلغ الهدف رقم أكبر من صفر',
   PRODUCT_QTY: 'كمية الهدف رقم أكبر من صفر',
   COLLECTION_PCT: 'نسبة التحصيل أكبر من صفر وحتى 100',
+  VISITS_COUNT: 'عدد الزيارات رقم أكبر من صفر',
+  NEW_CUSTOMERS: 'عدد العملاء رقم أكبر من صفر',
 };
 const VALUE_BIG: Record<RepTargetKind, string> = {
   SALES_AMOUNT: 'مبلغ الهدف كبير جدا',
   PRODUCT_QTY: 'كمية الهدف كبيرة جدا',
   COLLECTION_PCT: 'نسبة التحصيل أكبر من صفر وحتى 100',
+  VISITS_COUNT: 'العدد كبير جدا',
+  NEW_CUSTOMERS: 'العدد كبير جدا',
 };
 const REWARD_ZERO: Record<RepRewardKind, string> = {
   COMMISSION_SALES_PCT: 'نسبة العمولة أكبر من صفر وحتى 100',
@@ -190,7 +230,14 @@ const REWARD_BIG: Record<RepRewardKind, string> = {
 export function draftProblem(d: TargetDraft): string | null {
   if (!MONTH_RE.test(String(d.month ?? ''))) return 'الشهر غير صحيح';
   if (!TARGET_KINDS.some(k => k.kind === d.kind)) return 'نوع الهدف غير صحيح';
-  if (d.kind === 'PRODUCT_QTY' && !d.productId) return 'اختر صنفاً صحيحاً';
+  if (d.kind === 'PRODUCT_QTY') {
+    if (!d.productId) return 'اختر صنفاً صحيحاً';
+    const extras = d.extraProducts ?? [];
+    if (extras.some(e => !e.productId)) return 'اختر صنفاً صحيحاً';
+    const ids = [d.productId, ...extras.map(e => e.productId)];
+    if (new Set(ids).size !== ids.length) return 'الصنف مكرر في الهدف';
+    if (ids.length > MAX_TARGET_PRODUCTS) return 'أصناف الهدف 20 على الأكثر';
+  }
   const v = readNum(d.targetValue);
   if (v === null || Number.isNaN(v) || v <= 0) return VALUE_ZERO[d.kind];
   if (v > TARGET_MAX[d.kind]) return VALUE_BIG[d.kind];
@@ -208,9 +255,18 @@ export function draftProblem(d: TargetDraft): string | null {
  * و`baseUnitName` أساس الصنف كما في قائمة الأصناف المحمَّلة (يُرسل لهدف الكمية حين يُعرف — الخادم يقارنه بأساس الصنف الآن).
  * وغير هدف الكمية بلا صنفٍ ولا وحدة.
  */
-export function toTargetInput(d: TargetDraft, unit: UnitChoice | null, baseUnitName?: string | null): RepTargetInput {
+export function toTargetInput(d: TargetDraft, unit: UnitChoice | null, baseUnitName?: string | null,
+  /** الأصناف الإضافية بترتيبها: معرّفها ووحدتها المحلولة واسم أساسها كما في القائمة المحمَّلة */
+  extras: ReadonlyArray<{ productId: string; unit: UnitChoice | null; baseUnitName?: string | null }> = []): RepTargetInput {
   const product = d.kind === 'PRODUCT_QTY';
   const base = product ? String(baseUnitName ?? '').trim() : '';
+  const lines = product && extras.length && d.productId
+    ? [{ productId: d.productId, unitId: unit?.id ?? null, ...(base ? { baseUnitName: base } : {}) },
+      ...extras.map(e => {
+        const b = String(e.baseUnitName ?? '').trim();
+        return { productId: e.productId, unitId: e.unit?.id ?? null, ...(b ? { baseUnitName: b } : {}) };
+      })]
+    : null;
   return {
     month: d.month,
     kind: d.kind,
@@ -218,6 +274,7 @@ export function toTargetInput(d: TargetDraft, unit: UnitChoice | null, baseUnitN
     productId: product ? d.productId : null,
     unitId: product ? (unit?.id ?? null) : null,
     ...(base ? { baseUnitName: base } : {}),
+    ...(lines ? { products: lines } : {}),
     rewardKind: d.rewardKind,
     rewardValue: Number(readNum(d.rewardValue)),
     note: String(d.note ?? '').trim() || null,
@@ -237,14 +294,33 @@ export function pctText(pct: number | null | undefined, locale: string): string 
   return new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 }).format(Number(pct) / 100);
 }
 
-/** عنوان الهدف: «مبيعات الشهر» · «{الصنف} — {الوحدة}» · «تحصيل {pct}% من الديون السابقة» */
-export function targetTitle(t: Pick<RepTargetView, 'kind' | 'targetValue' | 'productName' | 'unitName'>, tr: Tr, num: Fmt = String): string {
+/** وحدة هدف الكمية المشتركة بين أصنافه (للعرض «١٢ كرتون») — أصنافٌ بوحداتٍ مختلفة ⇒ '' (رقمٌ بلا وحدة) */
+export function targetUnitText(t: Pick<RepTargetView, 'unitName'> & { products?: ReadonlyArray<Pick<RepTargetProductView, 'unitName'>> | null }): string {
+  const list = t.products && t.products.length ? t.products.map(p => (p.unitName ?? '').trim()) : [(t.unitName ?? '').trim()];
+  return list.every(u => u && u === list[0]) ? list[0] : '';
+}
+
+/**
+ * عنوان الهدف: «مبيعات الشهر» · «{الصنف} — {الوحدة}» (وبعدة أصناف أسماؤها بفاصلة، والوحدة المشتركة وحدها) ·
+ * «تحصيل {pct}% من الديون السابقة» · «زيارات الشهر» · «عملاء جدد نشطون»
+ */
+export function targetTitle(t: Pick<RepTargetView, 'kind' | 'targetValue' | 'productName' | 'unitName'> & { products?: ReadonlyArray<Pick<RepTargetProductView, 'productName' | 'unitName'> & { productId?: string | null }> | null }, tr: Tr, num: Fmt = String): string {
   if (t.kind === 'PRODUCT_QTY') {
-    const name = (t.productName ?? '').trim() || tr('صنف محذوف');
-    const unit = (t.unitName ?? '').trim();
+    const list = t.products && t.products.length > 1 ? t.products : null;
+    // صنفٌ حُذف من هدفٍ بعدة أصناف: اسمه (اللقطة) موسومٌ «(محذوف)» — مبيعاته لم تعد تُحسب في الهدف
+    const name = list
+      ? list.map(p => {
+        const n = (p.productName ?? '').trim();
+        if (!n) return tr('صنف محذوف');
+        return p.productId === null ? `${n} (${tr('محذوف')})` : n;
+      }).join('، ')
+      : (t.productName ?? '').trim() || tr('صنف محذوف');
+    const unit = targetUnitText(t);
     return unit ? `${name} — ${unit}` : name;
   }
   if (t.kind === 'COLLECTION_PCT') return tr('تحصيل {pct}% من الديون السابقة').replace('{pct}', () => num(Number(t.targetValue)));
+  if (t.kind === 'VISITS_COUNT') return tr('زيارات الشهر');
+  if (t.kind === 'NEW_CUSTOMERS') return tr('عملاء جدد نشطون');
   return tr('مبيعات الشهر');
 }
 
@@ -256,14 +332,42 @@ export const rewardKindLabel = (k: RepRewardKind) => REWARD_KINDS.find(x => x.ki
  * قيمةٌ من قيم الهدف (المُنجَز أو الهدف أو المتبقي) بشكلها: مالٌ للمبيعات والتحصيل، وكميةٌ ومعها اسم وحدة الهدف للصنف
  * («١٢٫٥ كرتون») — رقمٌ بلا وحدةٍ يُقرأ حبّاتٍ وهو كراتين.
  */
-export function targetAmountText(t: Pick<RepTargetView, 'kind' | 'unitName'>, value: number, money: Fmt, num: Fmt = String): string {
+export function targetAmountText(t: Pick<RepTargetView, 'kind' | 'unitName'> & { products?: ReadonlyArray<Pick<RepTargetProductView, 'unitName'>> | null }, value: number, money: Fmt, num: Fmt = String): string {
   const v = Number(value) || 0;
   if (t.kind === 'PRODUCT_QTY') {
-    const unit = (t.unitName ?? '').trim();
+    const unit = targetUnitText(t);
     return unit ? `${num(v)} ${unit}` : num(v);
   }
+  // العدّ (زيارات وعملاء) رقمٌ بلا عملة
+  if (t.kind === 'VISITS_COUNT' || t.kind === 'NEW_CUSTOMERS') return num(v);
   return money(v);
 }
+
+/** هدفٌ مستقل أو هدفٌ مدمج (أعضاؤه بترتيب ظهورهم) — للعرض في النافذة وبطاقة المندوب */
+export type TargetGroup = { kind: 'single'; target: RepTargetView } | { kind: 'combo'; comboId: string; members: RepTargetView[] };
+
+/**
+ * أهداف الشهر مجمّعةً: كل هدفٍ مدمج (comboId مشترك بين اثنين فأكثر) مجموعةٌ واحدة في موضع أول أعضائه، والباقي مستقل.
+ * عضوٌ وحيد بمعرّف دمج (حُذف الباقي) يُعرض مستقلاً.
+ */
+export function groupTargets(targets: readonly RepTargetView[]): TargetGroup[] {
+  const members = new Map<string, RepTargetView[]>();
+  for (const t of targets) if (t.comboId) members.set(t.comboId, [...(members.get(t.comboId) ?? []), t]);
+  const out: TargetGroup[] = [];
+  const seen = new Set<string>();
+  for (const t of targets) {
+    const m = t.comboId ? members.get(t.comboId) : undefined;
+    if (t.comboId && m && m.length > 1) {
+      if (seen.has(t.comboId)) continue;
+      seen.add(t.comboId);
+      out.push({ kind: 'combo', comboId: t.comboId, members: m });
+    } else out.push({ kind: 'single', target: t });
+  }
+  return out;
+}
+
+/** الهدف المدمج تحقق: كل أعضائه تحققوا */
+export const comboDone = (members: readonly Pick<RepTargetView, 'progress'>[]): boolean => members.length > 0 && members.every(m => m.progress.done);
 
 /** الباقي حتى الهدف (لا سالب) — يُعرض «متبقي {x}» ما لم يتحقق */
 export function targetRemaining(p: Pick<RepTargetProgress, 'achieved' | 'goal'>): number {
@@ -339,6 +443,9 @@ export const TARGET_ERRORS: Record<string, string> = {
   TARGET_PRODUCT_INVALID: 'اختر صنفاً صحيحاً',
   TARGET_UNIT_INVALID: 'وحدة الصنف غير صحيحة',
   TARGET_LIMIT: 'وصلت للحد الأعلى من الأهداف لهذا الشهر (20)',
+  TARGET_PRODUCT_DUPLICATE: 'الصنف مكرر في الهدف',
+  TARGET_COMBO_INVALID: 'اختر هدفين أو أكثر لنفس المندوب في نفس الشهر',
+  TARGET_IN_COMBO: 'أحد الأهداف مدمج مع أهداف أخرى افصله أولا',
   // حارس أساس الصنف (backend services/baseGuard): كاش أصنافٍ قديم (400) أو تحويلٌ التزم أثناء الحفظ (409) — والنافذة تعيد جلب الأصناف
   UNIT_INVALID: 'تغيرت وحدات الصنف راجع الوحدة ثم احفظ',
   PRODUCT_UNITS_CHANGED: 'تغيرت وحدات الصنف راجع الوحدة ثم احفظ',
@@ -387,6 +494,11 @@ export const REP_TARGET_TEXTS: readonly string[] = [
   'صنف محذوف',
   'تحصيل {pct}% من الديون السابقة',
   'مبيعات الشهر',
+  'محذوف',
+  'زيارات الشهر',
+  'عملاء جدد نشطون',
+  'الصنف مكرر في الهدف',
+  'أصناف الهدف 20 على الأكثر',
   'لا توجد ديون سابقة مفتوحة في بداية الشهر',
   'الصنف محذوف',
   'عمولة {v}% من المبيعات',

@@ -6,6 +6,9 @@
 //   • الإنشاء بلقطة الصنف والوحدة والمنشئ تحت قفلٍ استشاري للمندوب، وسقف ٢٠ هدفاً في الشهر (409 TARGET_LIMIT).
 //   • التعديل والحذف داخل الشركة وحدها (404 TARGET_NOT_FOUND لهدف شركةٍ أخرى بلا كتابة)، والمنشئ يبقى.
 //   • الردّ محسوبٌ بحدود الشهر بتوقيت الشركة: صافي المبيعات، والكمية باستعلامٍ واحد، والتحصيل من الديون السابقة.
+//   • (١١ نوفمبر ٢٠٢٦) عدد الزيارات والعملاء الجدد بشرط الشركة والمندوب والشهر؛ وهدف الكمية بعدة أصناف (صفوف RepTargetProduct
+//     بترتيبها، والمكرّر 400 TARGET_PRODUCT_DUPLICATE، وحارس الأساس على كل صنف)؛ و«دمج الأهداف» (POST/DELETE /combo، ونسخ
+//     المكافأة على الأعضاء، والخروج بالنقل، والفكّ حين يبقى عضوٌ واحد) — والرفض كله بلا كتابة.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -149,28 +152,47 @@ const PRODUCTS = [
 ];
 type Row = Record<string, any>;
 let targets: Row[] = [];
+/** صفوف RepTargetProduct (الأصناف الإضافية لهدف الكمية) */
+let targetProducts: Row[] = [];
 let accountingEnabled = true;
 let money = { sales: 0, returns: 0 };
 let items: Row[] = [];
 let creditRows: Row[] = [];
+let visitRows: Row[] = [];
+let newCustomerCount = 0;
 let seq = 0;
+let tpSeq = 0;
 
 const T0 = Date.parse('2026-11-02T08:00:00Z');
 function targetRow(o: Row): Row {
   seq += 1;
   return {
     id: `t-${seq}`, tenantId: TENANT, salesRepId: 'r1', month: '2026-11', kind: 'SALES_AMOUNT', targetValue: 10000,
-    productId: null, productName: null, unitId: null, unitName: null, unitFactor: 1,
+    productId: null, productName: null, unitId: null, unitName: null, unitFactor: 1, comboId: null,
     rewardKind: 'FIXED_AMOUNT', rewardValue: 500, note: null, createdById: 'admin-1', createdByName: 'مدير',
     createdAt: new Date(T0 + seq * 1000), updatedAt: new Date(T0 + seq * 1000), ...o,
   };
 }
-const match = (r: Row, where: Row): boolean => Object.entries(where).every(([k, v]) => r[k] === v);
+function extraRow(o: Row): Row {
+  tpSeq += 1;
+  return { id: `tp-${tpSeq}`, tenantId: TENANT, productId: null, productName: null, unitId: null, unitName: null, unitFactor: 1, sortOrder: 0, ...o };
+}
+/** شرطٌ بقيمٍ صريحة أو {in: [...]} — وأي شكلٍ آخر لا يطابق (فلا يمرّ شرطٌ لم يحسبه المزيّف) */
+const match = (r: Row, where: Row): boolean => Object.entries(where).every(([k, v]) =>
+  (v !== null && typeof v === 'object' && !(v instanceof Date) ? Array.isArray(v.in) && v.in.includes(r[k]) : r[k] === v));
+/**
+ * صفٌّ مقروء كما يردّه Prisma: نسخةٌ لا مرجع الصفّ المخزَّن (فلا تعدّله كتابةٌ لاحقة في المعاملة نفسها — كـtarget.comboId
+ * بعد updateMany)، وinclude: { extraProducts } صفوف الهدف بترتيب sortOrder
+ */
+const withIncludes = (t: Row, args: Row): Row => (args?.include?.extraProducts
+  ? { ...t, extraProducts: targetProducts.filter((e) => e.targetId === t.id).sort((a, b) => a.sortOrder - b.sortOrder).map((e) => ({ ...e })) }
+  : { ...t });
 
 function reset(user: User = ADMIN): void {
-  calls = []; raws = []; inTx = false; currentUser = user; seq = 0; lockedRows = []; lockThrows = null;
+  calls = []; raws = []; inTx = false; currentUser = user; seq = 0; tpSeq = 0; lockedRows = []; lockThrows = null;
   for (const k of Object.keys(seen)) delete seen[k];
-  targets = []; accountingEnabled = true; money = { sales: 0, returns: 0 }; items = []; creditRows = [];
+  targets = []; targetProducts = []; accountingEnabled = true; money = { sales: 0, returns: 0 }; items = []; creditRows = [];
+  visitRows = []; newCustomerCount = 0;
   scripted = {
     'tenant.findUnique': () => ({ accountingEnabled }),
     // صفّ مستخدم الشركة لحارس الصلاحية ولوضع النطاق
@@ -188,20 +210,22 @@ function reset(user: User = ADMIN): void {
       if (scopeAdmin && !(SCOPES[scopeAdmin] ?? []).includes(rep.id)) return null;
       return { id: rep.id };
     },
-    'product.findFirst': (args) => {
+    // أصناف الهدف كلها باستعلامٍ واحد: {id: {in}} بشرط الشركة (الغائب لا يطابق شيئاً) وبلا المؤرشف
+    'product.findMany': (args) => {
       const w = args?.where ?? {};
-      const p = PRODUCTS.find((x) => x.id === w.id && x.tenantId === w.tenantId && (w.deletedAt === null ? x.deletedAt === null : true));
-      if (!p) return null;
+      const ids: unknown[] = Array.isArray(w.id?.in) ? w.id.in : [];
       const uw = args?.select?.units?.where ?? {};
-      return {
-        id: p.id, name: p.name, unit: p.unit, baseConvertedAt: (p as { baseConvertedAt?: Date }).baseConvertedAt ?? null,
-        units: p.units.filter((u) => match(u, uw)).map(({ id, name, factor }) => ({ id, name, factor })),
-      };
+      return PRODUCTS.filter((x) => ids.includes(x.id) && x.tenantId === w.tenantId && (w.deletedAt === null ? x.deletedAt === null : true))
+        .map((p) => ({
+          id: p.id, name: p.name, unit: p.unit, baseConvertedAt: (p as { baseConvertedAt?: Date }).baseConvertedAt ?? null,
+          units: p.units.filter((u) => match(u, uw)).map(({ id, name, factor }) => ({ id, name, factor })),
+        }));
     },
     'repTarget.findMany': (args) => targets.filter((t) => match(t, args.where))
-      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || String(a.id).localeCompare(String(b.id))),
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || String(a.id).localeCompare(String(b.id)))
+      .map((t) => withIncludes(t, args)),
     'repTarget.count': (args) => targets.filter((t) => match(t, args.where)).length,
-    'repTarget.findFirst': (args) => targets.find((t) => match(t, args.where)) ?? null,
+    'repTarget.findFirst': (args) => { const t = targets.find((x) => match(x, args.where)); return t ? withIncludes(t, args) : null; },
     'repTarget.create': (args) => { const row = targetRow({ ...args.data }); targets.push(row); return row; },
     'repTarget.updateMany': (args) => {
       const hit = targets.filter((t) => match(t, args.where));
@@ -211,14 +235,25 @@ function reset(user: User = ADMIN): void {
     'repTarget.deleteMany': (args) => {
       const before = targets.length;
       targets = targets.filter((t) => !match(t, args.where));
+      // onDelete: Cascade — أصناف الهدف المحذوف تذهب معه
+      targetProducts = targetProducts.filter((e) => targets.some((t) => t.id === e.targetId));
       return { count: before - targets.length };
+    },
+    'repTargetProduct.createMany': (args) => { for (const d of args.data) targetProducts.push(extraRow(d)); return { count: args.data.length }; },
+    'repTargetProduct.deleteMany': (args) => {
+      const before = targetProducts.length;
+      targetProducts = targetProducts.filter((e) => !match(e, args.where));
+      return { count: before - targetProducts.length };
     },
     'invoice.aggregate': (args) => ({ _sum: { total: args.where.type === 'RETURN' ? money.returns : money.sales } }),
     'invoiceItem.findMany': (args) => items.filter((i) => (args.where.productId.in as string[]).includes(i.productId)),
     'invoice.findMany': () => creditRows,
+    'repVisit.findMany': () => visitRows,
+    'customer.count': () => newCustomerCount,
   };
 }
-const writes = () => calls.filter((c) => /^repTarget\.(create|update|updateMany|delete|deleteMany)/.test(c));
+/** كل كتابةٍ على الأهداف وأصنافها */
+const writes = () => calls.filter((c) => /^repTarget(Product)?\.(create|update|delete)/.test(c));
 const BODY = { month: '2026-11', kind: 'SALES_AMOUNT', targetValue: 10000, rewardKind: 'COMMISSION_SALES_PCT', rewardValue: 2 };
 
 // ═══ (١) الأدوار ═══
@@ -347,9 +382,12 @@ test('صنف هدف الكمية: الغائب والمؤرشف وصنف شرك�
     assert.equal(r.status, 400, `${why}: ${JSON.stringify(r.body)}`);
     assert.deepEqual(r.body, { success: false, code: 'TARGET_PRODUCT_INVALID', message: 'اختر صنفاً صحيحاً' }, why);
   }
-  assert.deepEqual(seen['product.findFirst'].map((a: Row) => a.where), [
-    { id: 'p-other', tenantId: TENANT, deletedAt: null }, { id: 'p-arch', tenantId: TENANT, deletedAt: null }, { id: 'nope', tenantId: TENANT, deletedAt: null },
+  assert.deepEqual(seen['product.findMany'].map((a: Row) => a.where), [
+    { id: { in: ['p-other'] }, tenantId: TENANT, deletedAt: null }, { id: { in: ['p-arch'] }, tenantId: TENANT, deletedAt: null },
+    { id: { in: ['nope'] }, tenantId: TENANT, deletedAt: null },
   ], 'بشرط الشركة وبلا المؤرشف — والغائب بلا استعلام');
+  // ووحدات الصنف من الشركة نفسها والنشطة وحدها
+  for (const a of seen['product.findMany']) assert.deepEqual(a.select.units.where, { tenantId: TENANT, isActive: true });
   for (const [why, unitId] of [['وحدة صنفٍ آخر', 'u-p2'], ['وحدة موقوفة', 'u-old'], ['وحدة مجهولة', 'u-x']] as const) {
     const r = await call('POST', '/api/rep-targets/rep/r1', { ...qty, productId: 'p1', unitId });
     assert.equal(r.status, 400, `${why}: ${JSON.stringify(r.body)}`);
@@ -374,16 +412,23 @@ test('الإنشاء: لقطة الصنف ووحدته والمنشئ تحت ق�
     { productId: row.productId, productName: row.productName, unitId: row.unitId, unitName: row.unitName, unitFactor: row.unitFactor, salesRepId: row.salesRepId, tenantId: row.tenantId },
     { productId: 'p1', productName: 'ماء', unitId: 'u-ct', unitName: 'كرتون', unitFactor: 24, salesRepId: 'r1', tenantId: TENANT },
   );
-  assert.deepEqual([row.createdById, row.createdByName], ['admin-1', 'مدير']);
+  assert.deepEqual([row.createdById, row.createdByName, row.comboId], ['admin-1', 'مدير', null]);
   // القفل الاستشاري للمندوب داخل المعاملة قبل العدّ والإنشاء
   const lock = raws.find((x) => x.sql.includes('pg_advisory_xact_lock'));
   assert.ok(lock && lock.inTx, 'القفل داخل المعاملة');
   assert.deepEqual(lock!.values, ['rep-targets:r1']);
   assert.ok(calls.indexOf('$executeRaw') < calls.indexOf('repTarget.count@tx') && calls.indexOf('repTarget.count@tx') < calls.indexOf('repTarget.create@tx'));
+  // صنفٌ واحد (بلا products): لا صفوف إضافية، والردّ يُقرأ بعد الإنشاء داخل المعاملة بشرط الشركة
+  assert.equal(calls.includes('repTargetProduct.createMany@tx'), false);
+  assert.deepEqual(targetProducts, []);
+  assert.ok(calls.indexOf('repTarget.create@tx') < calls.indexOf('repTarget.findFirst@tx'));
+  assert.deepEqual(seen['repTarget.findFirst'].at(-1).where, { id: row.id, tenantId: TENANT });
   // الردّ: ٦٠ حبّة = ٢٫٥ كرتون من هدف ٢، والمكافأة مستحقّة
   const d = r.body.data;
   assert.deepEqual(d.progress, { state: 'OK', achieved: 2.5, goal: 2, pct: 125, done: true });
   assert.deepEqual(d.reward, { kind: 'FIXED_AMOUNT', value: 300, amount: 300, earned: true });
+  assert.deepEqual(d.products, [{ productId: 'p1', productName: 'ماء', unitId: 'u-ct', unitName: 'كرتون', unitFactor: 24 }]);
+  assert.equal(d.comboId, null);
   assert.equal('tenantId' in d || 'salesRepId' in d || 'createdById' in d, false, 'حقول العقد وحدها');
   assert.deepEqual(seen['invoiceItem.findMany'][0].where.productId, { in: ['p1'] });
   assert.equal(seen['invoiceItem.findMany'][0].where.invoice.salesRepId, 'r1');
@@ -503,7 +548,8 @@ test('التعديل والحذف داخل الشركة وحدها: هدف شر�
   assert.deepEqual(writes(), []);
   assert.equal(foreign.targetValue, 10000);
   assert.equal((await call('PUT', '/api/rep-targets/t-none', BODY)).body.code, 'TARGET_NOT_FOUND');
-  // التعديل: النوع يتغيّر إلى مبيعات ⇒ لا صنف ولا وحدة، والمنشئ كما كان، وبشرط الشركة
+  // التعديل: النوع يتغيّر إلى مبيعات ⇒ لا صنف ولا وحدة ولا أصناف إضافية، والمنشئ كما كان، وبشرط الشركة
+  targetProducts.push(extraRow({ targetId: mine.id, productId: 'p2', productName: 'عصير', unitName: 'علبة', sortOrder: 1 }));
   money = { sales: 12000, returns: 2000 };
   const put = await call('PUT', `/api/rep-targets/${mine.id}`, { ...BODY, targetValue: 8000, note: 'الهدف الجديد' });
   assert.equal(put.status, 200, JSON.stringify(put.body));
@@ -512,6 +558,11 @@ test('التعديل والحذف داخل الشركة وحدها: هدف شر�
     [mine.kind, mine.targetValue, mine.productId, mine.productName, mine.unitId, mine.unitName, mine.unitFactor, mine.note, mine.createdById, mine.createdByName],
     ['SALES_AMOUNT', 8000, null, null, null, null, 1, 'الهدف الجديد', 'admin-9', 'الأول'],
   );
+  assert.deepEqual(seen['repTargetProduct.deleteMany'].map((a: Row) => a.where), [{ tenantId: TENANT, targetId: mine.id }]);
+  assert.deepEqual(targetProducts, []);
+  assert.equal(calls.includes('repTargetProduct.createMany@tx'), false);
+  assert.deepEqual(put.body.data.products, []);
+  assert.equal(seen['repTarget.updateMany'].length, 1, 'هدفٌ مستقل: لا نسخ مكافأةٍ على غيره');
   assert.ok(raws.some((x) => x.sql.includes('pg_advisory_xact_lock') && x.inTx && x.values[0] === 'rep-targets:r1'));
   assert.deepEqual(put.body.data.progress, { state: 'OK', achieved: 10000, goal: 8000, pct: 125, done: true });
   assert.deepEqual(put.body.data.reward, { kind: 'COMMISSION_SALES_PCT', value: 2, amount: 200, earned: true });
@@ -554,6 +605,10 @@ test('الردّ: حدود الشهر بتوقيت الشركة في كل است
   assert.equal(d.monthNetSales, 12000);
   assert.deepEqual(d.targets.map((t: Row) => t.id), ['t-1', 't-2', 't-3', 't-4', 't-5', 't-6'], 'بترتيب الإنشاء');
   assert.deepEqual(seen['repTarget.findMany'][0].orderBy, [{ createdAt: 'asc' }, { id: 'asc' }]);
+  assert.deepEqual(seen['repTarget.findMany'][0].include, { extraProducts: { orderBy: { sortOrder: 'asc' } } }, 'الأصناف الإضافية بترتيبها');
+  // بلا أهداف زيارات أو عملاء جدد: لا استعلام لهما
+  assert.equal(seen['repVisit.findMany'], undefined);
+  assert.equal(seen['customer.count'], undefined);
   const [sales, ct, juice, gone, half, full] = d.targets;
   assert.deepEqual(sales.progress, { state: 'OK', achieved: 12000, goal: 20000, pct: 60, done: false });
   assert.deepEqual(sales.reward, { kind: 'COMMISSION_SALES_PCT', value: 1.5, amount: 180, earned: false });
@@ -601,4 +656,347 @@ test('الردّ: حدود الشهر بتوقيت الشركة في كل است
   const empty = await call('GET', '/api/rep-targets/rep/r1?month=2027-02');
   assert.equal(empty.status, 200);
   assert.deepEqual([empty.body.data.targets, empty.body.data.isCurrent, empty.body.data.daysLeft], [[], false, 28]);
+});
+
+// ═══ (٦) عدد الزيارات والعملاء الجدد (طلب المالك ١١ نوفمبر ٢٠٢٦) ═══
+
+test('الزيارات والعملاء الجدد: الزيارات وقفاتٌ بعد الدمج بحدود الشهر، والعملاء الجدد أضافهم المندوب في الشهر ولهم بيعٌ مؤكَّد حتى نهايته — بشرط الشركة والمندوب', async () => {
+  reset(ADMIN);
+  targets.push(targetRow({ kind: 'VISITS_COUNT', targetValue: 2 }), targetRow({ kind: 'NEW_CUSTOMERS', targetValue: 5, rewardKind: 'SALARY_PCT', rewardValue: 5 }));
+  const at = (iso: string) => new Date(iso);
+  visitRows = [
+    // زيارةٌ مؤقّتة وملاحظتها بعد دقائق = وقفةٌ واحدة (تعريف «أداء المندوب»)، وزيارةٌ لعميلٍ آخر وقفةٌ ثانية
+    { salesRepId: 'r1', customerId: 'c1', createdAt: at('2026-11-03T09:00:00Z'), startedAt: at('2026-11-03T09:00:00Z'), durationSec: 600, lat: null, lng: null, customer: { name: 'أ' } },
+    { salesRepId: 'r1', customerId: 'c1', createdAt: at('2026-11-03T09:08:00Z'), startedAt: null, durationSec: null, lat: 24.7, lng: 46.7, customer: { name: 'أ' } },
+    { salesRepId: 'r1', customerId: 'c2', createdAt: at('2026-11-04T11:00:00Z'), startedAt: null, durationSec: null, lat: null, lng: null, customer: { name: 'ب' } },
+  ];
+  newCustomerCount = 3;
+  const r = await call('GET', '/api/rep-targets/rep/r1?month=2026-11');
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const [visits, custs] = r.body.data.targets;
+  assert.deepEqual(visits.progress, { state: 'OK', achieved: 2, goal: 2, pct: 100, done: true }, 'ثلاثة سجلّات = وقفتان');
+  assert.deepEqual(custs.progress, { state: 'OK', achieved: 3, goal: 5, pct: 60, done: false });
+  assert.deepEqual(custs.reward, { kind: 'SALARY_PCT', value: 5, amount: null, earned: false });
+  assert.deepEqual([visits.products, custs.products], [[], []]);
+  const from = '2026-10-31T21:00:00.000Z';
+  const to = '2026-11-30T21:00:00.000Z';
+  assert.equal(seen['repVisit.findMany'].length, 1);
+  const vw = seen['repVisit.findMany'][0].where;
+  assert.deepEqual([vw.tenantId, vw.salesRepId, vw.createdAt.gte.toISOString(), vw.createdAt.lt.toISOString()], [TENANT, 'r1', from, to]);
+  assert.equal(seen['customer.count'].length, 1);
+  const cw = seen['customer.count'][0].where;
+  assert.deepEqual(
+    [cw.tenantId, cw.createdBySalesRepId, cw.createdAt.gte.toISOString(), cw.createdAt.lt.toISOString(), cw.status],
+    [TENANT, 'r1', from, to, { not: 'DELETED' }],
+  );
+  // «نشط»: فاتورة بيعٍ مؤكَّدة (لا مرتجع) حتى نهاية الشهر — لا عميلٌ أُضيف ولم يشترِ
+  const sale = cw.invoices.some;
+  assert.deepEqual([sale.status, sale.type, sale.invoiceDate.lt.toISOString()], ['CONFIRMED', { not: 'RETURN' }, to]);
+  // ولا كمية ولا تحصيل بلا أهدافهما
+  assert.equal(seen['invoiceItem.findMany'], undefined);
+  assert.equal(seen['invoice.findMany'], undefined);
+  // النوعان الجديدان يُنشآن بحدّ قيمتهما (١٠^٦) وبلا صنف
+  const ok = await call('POST', '/api/rep-targets/rep/r1', { ...BODY, kind: 'VISITS_COUNT', targetValue: 1e6, productId: 'p1', unitId: 'u-ct' });
+  assert.equal(ok.status, 201, JSON.stringify(ok.body));
+  assert.deepEqual([targets[2].kind, targets[2].productId, targets[2].unitId, targets[2].unitFactor], ['VISITS_COUNT', null, null, 1]);
+  assert.equal((await call('POST', '/api/rep-targets/rep/r1', { ...BODY, kind: 'NEW_CUSTOMERS', targetValue: 1e6 + 1 })).status, 400);
+});
+
+// ═══ (٧) هدف الكمية بعدة أصناف ═══
+
+test('كمية عدة أصناف: الأول في صفّ الهدف والباقي صفوف RepTargetProduct بترتيبها 1.. ولقطة وحدة كلٍّ، وقفل أساس الأصناف كلها، والردّ بمجموعها، والتعديل يستبدل القائمة', async () => {
+  reset(ADMIN);
+  items = [
+    { productId: 'p1', qty: 2, unitName: 'كرتون', unitFactor: 24, baseQty: 48, invoice: { type: 'CREDIT' } },
+    { productId: 'p2', qty: 2, unitName: 'صندوق', unitFactor: 12, baseQty: 24, invoice: { type: 'CASH' } },
+    { productId: 'p-conv', qty: 6, unitName: 'حبة', unitFactor: 1, baseQty: 6, invoice: { type: 'CASH' } },
+  ];
+  const products = [
+    { productId: 'p1', unitId: 'u-ct', baseUnitName: 'حبة' },
+    { productId: 'p2', unitId: 'u-p2', baseUnitName: 'علبة' },
+    { productId: 'p-conv', unitId: null, baseUnitName: 'حبة' },
+  ];
+  const r = await call('POST', '/api/rep-targets/rep/r1', {
+    ...BODY, kind: 'PRODUCT_QTY', productId: 'p1', unitId: 'u-ct', products, targetValue: 10, rewardKind: 'FIXED_AMOUNT', rewardValue: 400,
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  // الأصناف كلها باستعلامٍ واحد بشرط الشركة وبلا المؤرشف
+  assert.deepEqual(seen['product.findMany'].map((a: Row) => a.where), [{ id: { in: ['p1', 'p2', 'p-conv'] }, tenantId: TENANT, deletedAt: null }]);
+  const row = targets[0];
+  assert.deepEqual([row.productId, row.productName, row.unitId, row.unitName, row.unitFactor], ['p1', 'ماء', 'u-ct', 'كرتون', 24], 'الأول في صفّ الهدف');
+  assert.deepEqual(targetProducts.map(({ id: _id, ...e }) => e), [
+    { tenantId: TENANT, targetId: row.id, productId: 'p2', productName: 'عصير', unitId: 'u-p2', unitName: 'صندوق', unitFactor: 12, sortOrder: 1 },
+    { tenantId: TENANT, targetId: row.id, productId: 'p-conv', productName: 'حليب', unitId: null, unitName: 'حبة', unitFactor: 1, sortOrder: 2 },
+  ]);
+  // الكتابة داخل المعاملة بعد إنشاء الهدف وقبل قراءة الردّ
+  assert.ok(calls.indexOf('repTarget.create@tx') < calls.indexOf('repTargetProduct.createMany@tx'));
+  assert.ok(calls.indexOf('repTargetProduct.createMany@tx') < calls.indexOf('repTarget.findFirst@tx'));
+  // قفل أساس الأصناف كلها (الأول والإضافية) داخل المعاملة بعد قفل المندوب
+  const lockAt = raws.findIndex((x) => x.sql.includes('FOR KEY SHARE'));
+  assert.ok(lockAt > 0 && raws[lockAt].inTx);
+  assert.deepEqual(raws[lockAt].values, [TENANT, ['p-conv', 'p1', 'p2']]);
+  assert.ok(raws.findIndex((x) => x.sql.includes('pg_advisory_xact_lock')) < lockAt);
+  // الردّ: ٤٨ ÷ ٢٤ + ٢٤ ÷ ١٢ + ٦ ÷ ١ = ١٠ من ١٠، والأصناف بترتيبها
+  const d = r.body.data;
+  assert.deepEqual(d.products, [
+    { productId: 'p1', productName: 'ماء', unitId: 'u-ct', unitName: 'كرتون', unitFactor: 24 },
+    { productId: 'p2', productName: 'عصير', unitId: 'u-p2', unitName: 'صندوق', unitFactor: 12 },
+    { productId: 'p-conv', productName: 'حليب', unitId: null, unitName: 'حبة', unitFactor: 1 },
+  ]);
+  assert.deepEqual(d.progress, { state: 'OK', achieved: 10, goal: 10, pct: 100, done: true });
+  assert.deepEqual(seen['invoiceItem.findMany'].map((a: Row) => a.where.productId), [{ in: ['p1', 'p2', 'p-conv'] }], 'استعلامٌ واحد لكل الأصناف');
+
+  // القراءة: أصناف كل هدفٍ من صفوفه، وبنود كل أهداف الكمية باستعلامٍ واحد بلا تكرار
+  targets.push(targetRow({ kind: 'PRODUCT_QTY', productId: 'p2', productName: 'عصير', unitName: 'علبة', unitFactor: 1, targetValue: 24 }));
+  const g = await call('GET', '/api/rep-targets/rep/r1?month=2026-11');
+  assert.equal(g.status, 200, JSON.stringify(g.body));
+  assert.deepEqual(g.body.data.targets.map((t: Row) => t.products.map((p: Row) => p.productId)), [['p1', 'p2', 'p-conv'], ['p2']]);
+  assert.deepEqual(g.body.data.targets.map((t: Row) => t.progress.achieved), [10, 24]);
+  assert.deepEqual(seen['invoiceItem.findMany'].at(-1).where.productId, { in: ['p1', 'p2', 'p-conv'] });
+
+  // التعديل يستبدل القائمة كلها: p2 أولاً ثم p1 بالأساس — والقديمة تُحذف بشرط الشركة والهدف
+  const put = await call('PUT', `/api/rep-targets/${row.id}`, {
+    ...BODY, kind: 'PRODUCT_QTY', targetValue: 100, products: [{ productId: 'p2', unitId: 'u-p2' }, { productId: 'p1', unitId: null }],
+  });
+  assert.equal(put.status, 200, JSON.stringify(put.body));
+  assert.deepEqual([row.productId, row.unitId, row.unitName, row.unitFactor], ['p2', 'u-p2', 'صندوق', 12]);
+  assert.deepEqual(seen['repTargetProduct.deleteMany'].at(-1).where, { tenantId: TENANT, targetId: row.id });
+  assert.deepEqual(targetProducts.map((e) => [e.targetId, e.productId, e.unitId, e.unitName, e.unitFactor, e.sortOrder]), [[row.id, 'p1', null, 'حبة', 1, 1]]);
+  assert.ok(calls.lastIndexOf('repTargetProduct.deleteMany@tx') < calls.lastIndexOf('repTargetProduct.createMany@tx'));
+  // ٢٤ ÷ ١٢ + ٤٨ ÷ ١ = ٥٠ من ١٠٠
+  assert.deepEqual(put.body.data.products.map((p: Row) => p.productId), ['p2', 'p1']);
+  assert.deepEqual(put.body.data.progress, { state: 'OK', achieved: 50, goal: 100, pct: 50, done: false });
+  // والعودة لصنفٍ واحد (بلا products) تمحو الإضافية
+  const single = await call('PUT', `/api/rep-targets/${row.id}`, { ...BODY, kind: 'PRODUCT_QTY', productId: 'p1', unitId: 'u-ct', targetValue: 3 });
+  assert.equal(single.status, 200, JSON.stringify(single.body));
+  assert.deepEqual(targetProducts, []);
+  assert.deepEqual(single.body.data.products.map((p: Row) => p.productId), ['p1']);
+});
+
+test('كمية عدة أصناف — الرفض بلا كتابة: المكرّر 400 TARGET_PRODUCT_DUPLICATE قبل أي استعلام، وصنفٌ إضافي من شركةٍ أخرى أو مؤرشف، ووحدته لصنفٍ آخر، وأساسه القديم 400، وتحويله المتزامن 409، والانتظار 503', async () => {
+  reset(ADMIN);
+  const qty = { ...BODY, kind: 'PRODUCT_QTY', targetValue: 10 };
+  const mine = targetRow({ kind: 'PRODUCT_QTY', productId: 'p1', productName: 'ماء', unitName: 'حبة', unitFactor: 1, targetValue: 5 });
+  targets.push(mine);
+  targetProducts.push(extraRow({ targetId: mine.id, productId: 'p2', productName: 'عصير', unitName: 'علبة', sortOrder: 1 }));
+  const snapshot = () => JSON.stringify({ targets, targetProducts });
+  const before = snapshot();
+  const both = [['POST', '/api/rep-targets/rep/r1'], ['PUT', `/api/rep-targets/${mine.id}`]] as const;
+  // المكرّر — ولو اختلفت وحدته أو أحاطته مسافات
+  for (const [m, url] of both) {
+    for (const products of [
+      [{ productId: 'p1', unitId: 'u-ct' }, { productId: 'p2' }, { productId: 'p1', unitId: null }],
+      [{ productId: 'p2' }, { productId: ' p2 ', unitId: 'u-p2' }],
+    ]) {
+      const r = await call(m, url, { ...qty, products });
+      assert.equal(r.status, 400, `${m}: ${JSON.stringify(r.body)}`);
+      assert.deepEqual(r.body, { success: false, code: 'TARGET_PRODUCT_DUPLICATE', message: 'الصنف مكرر في الهدف' });
+    }
+  }
+  assert.equal(seen['product.findMany'], undefined, 'الرفض قبل أي استعلام');
+  // صنفٌ إضافي لا يصلح، أو وحدته لا تخصّه
+  for (const [why, products, code] of [
+    ['صنف شركة أخرى إضافياً', [{ productId: 'p1' }, { productId: 'p-other' }], 'TARGET_PRODUCT_INVALID'],
+    ['صنف مؤرشف إضافياً', [{ productId: 'p1' }, { productId: 'p-arch' }], 'TARGET_PRODUCT_INVALID'],
+    ['صنف مجهول إضافياً', [{ productId: 'p1' }, { productId: 'nope' }], 'TARGET_PRODUCT_INVALID'],
+    ['وحدة صنفٍ آخر للإضافي', [{ productId: 'p1' }, { productId: 'p2', unitId: 'u-ct' }], 'TARGET_UNIT_INVALID'],
+    ['وحدة موقوفة للإضافي', [{ productId: 'p2' }, { productId: 'p1', unitId: 'u-old' }], 'TARGET_UNIT_INVALID'],
+  ] as const) {
+    for (const [m, url] of both) {
+      const r = await call(m, url, { ...qty, products });
+      assert.equal(r.status, 400, `${why} ${m}: ${JSON.stringify(r.body)}`);
+      assert.equal(r.body.code, code, `${why} ${m}`);
+    }
+  }
+  // التحقّق: معرّفٌ فارغ، وفوق ٢٠ صنفاً
+  assert.equal((await call('POST', '/api/rep-targets/rep/r1', { ...qty, products: [{ productId: 'p1' }, { productId: '  ' }] })).status, 400);
+  const many = Array.from({ length: 21 }, (_, i) => ({ productId: `x${i}` }));
+  assert.equal((await call('POST', '/api/rep-targets/rep/r1', { ...qty, products: many })).status, 400);
+  // كاشٌ قديم لصنفٍ إضافي حُوِّل أساسه: رفضٌ ظاهر قبل المعاملة
+  const stale = await call('POST', '/api/rep-targets/rep/r1', {
+    ...qty, products: [{ productId: 'p1', unitId: 'u-ct', baseUnitName: 'حبة' }, { productId: 'p-conv', unitId: null, baseUnitName: 'كرتون' }],
+  });
+  assert.equal(stale.status, 400, JSON.stringify(stale.body));
+  assert.equal(stale.body.code, 'UNIT_INVALID');
+  assert.match(stale.body.message, /حليب/);
+  assert.equal(raws.some((x) => x.sql.includes('FOR KEY SHARE')), false, 'الرفض الحيّ قبل المعاملة');
+  // تحويلٌ التزم بين اللقطة والقفل على الصنف الإضافي وحده ⇒ 409 بلا إنشاء ولا تعديل
+  lockedRows = [{ id: 'p1', unit: 'حبة' }, { id: 'p2', unit: 'كرتون' }];
+  for (const [m, url] of both) {
+    const r = await call(m, url, { ...qty, products: [{ productId: 'p1' }, { productId: 'p2' }] });
+    assert.equal(r.status, 409, `${m}: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body.code, 'PRODUCT_UNITS_CHANGED');
+  }
+  // انتظار قفل الأصناف تجاوز المهلة ⇒ 503
+  lockedRows = [];
+  lockThrows = Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' });
+  const busy = await call('POST', '/api/rep-targets/rep/r1', { ...qty, products: [{ productId: 'p1' }, { productId: 'p2' }] });
+  assert.equal(busy.status, 503, JSON.stringify(busy.body));
+  assert.equal(busy.body.code, 'PRODUCT_UNITS_BUSY');
+  assert.deepEqual(writes(), []);
+  assert.equal(snapshot(), before, 'الهدف وأصنافه كما كانت');
+});
+
+// ═══ (٨) «دمج الأهداف» ═══
+
+test('دمج الأهداف: معرّفٌ واحد ومكافأةٌ واحدة تُنسخ على الأعضاء تحت قفل المندوب بشرط الشركة، والاستحقاق بتحقّق الأعضاء كلهم، والفكّ يعيدها مستقلة', async () => {
+  reset(ADMIN);
+  const sales = targetRow({ kind: 'SALES_AMOUNT', targetValue: 10000, rewardKind: 'FIXED_AMOUNT', rewardValue: 500 });
+  const qty = targetRow({
+    kind: 'PRODUCT_QTY', productId: 'p1', productName: 'ماء', unitId: 'u-ct', unitName: 'كرتون', unitFactor: 24, targetValue: 2, rewardKind: 'SALARY_PCT', rewardValue: 10,
+  });
+  const solo = targetRow({ kind: 'SALES_AMOUNT', targetValue: 5000, rewardKind: 'FIXED_AMOUNT', rewardValue: 100 });
+  targets.push(sales, qty, solo);
+  const r = await call('POST', '/api/rep-targets/combo', { targetIds: [sales.id, qty.id], rewardKind: 'FIXED_AMOUNT', rewardValue: 1500 });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const comboId = r.body.data.comboId;
+  assert.match(comboId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  assert.deepEqual([sales, qty].map((t) => [t.comboId, t.rewardKind, t.rewardValue]), [[comboId, 'FIXED_AMOUNT', 1500], [comboId, 'FIXED_AMOUNT', 1500]]);
+  assert.deepEqual([solo.comboId, solo.rewardKind, solo.rewardValue], [null, 'FIXED_AMOUNT', 100], 'غير الأعضاء لا تُمسّ');
+  assert.deepEqual([qty.targetValue, qty.kind], [2, 'PRODUCT_QTY'], 'الدمج لا يمسّ الأهداف نفسها');
+  // بشرط الشركة قبل المعاملة وتحت القفل، والكتابة بعد قفل المندوب وإعادة القراءة
+  assert.deepEqual(seen['repTarget.findMany'].map((a: Row) => a.where), [
+    { tenantId: TENANT, id: { in: [sales.id, qty.id] } }, { tenantId: TENANT, id: { in: [sales.id, qty.id] } },
+  ]);
+  assert.deepEqual(seen['repTarget.updateMany'].map((a: Row) => a.where), [{ tenantId: TENANT, id: { in: [sales.id, qty.id] } }]);
+  const lock = raws.find((x) => x.sql.includes('pg_advisory_xact_lock'));
+  assert.ok(lock && lock.inTx, 'القفل داخل المعاملة');
+  assert.deepEqual(lock!.values, ['rep-targets:r1']);
+  assert.ok(calls.indexOf('$executeRaw') < calls.indexOf('repTarget.findMany@tx') && calls.indexOf('repTarget.findMany@tx') < calls.indexOf('repTarget.updateMany@tx'));
+
+  // الاستحقاق: صافي ١٢٠٠٠ يحقّق المبيعات، وكرتونٌ واحد من ٢ لا ⇒ لا مكافأة لعضوٍ منهما؛ والمستقل بتقدّمه وحده
+  money = { sales: 12000, returns: 0 };
+  items = [{ productId: 'p1', qty: 1, unitName: 'كرتون', unitFactor: 24, baseQty: 24, invoice: { type: 'CREDIT' } }];
+  const byId = async (): Promise<Record<string, Row>> => {
+    const g = await call('GET', '/api/rep-targets/rep/r1?month=2026-11');
+    assert.equal(g.status, 200, JSON.stringify(g.body));
+    return Object.fromEntries(g.body.data.targets.map((t: Row) => [t.id, t]));
+  };
+  let v = await byId();
+  assert.deepEqual([v[sales.id].progress.done, v[qty.id].progress.done, v[solo.id].progress.done], [true, false, true]);
+  assert.deepEqual([v[sales.id].reward.earned, v[qty.id].reward.earned, v[solo.id].reward.earned], [false, false, true]);
+  assert.deepEqual([v[sales.id].comboId, v[qty.id].comboId, v[solo.id].comboId], [comboId, comboId, null]);
+  assert.deepEqual(v[sales.id].reward, { kind: 'FIXED_AMOUNT', value: 1500, amount: 1500, earned: false });
+  // تحقّق الشريك ⇒ تُستحق للعضوين
+  items.push({ productId: 'p1', qty: 1, unitName: 'كرتون', unitFactor: 24, baseQty: 24, invoice: { type: 'CASH' } });
+  v = await byId();
+  assert.deepEqual([v[sales.id].reward.earned, v[qty.id].reward.earned], [true, true]);
+
+  // الفكّ: يعود كل عضوٍ مستقلاً بمكافأته المنسوخة — بشرط الشركة
+  const un = await call('DELETE', `/api/rep-targets/combo/${comboId}`);
+  assert.equal(un.status, 200, JSON.stringify(un.body));
+  assert.deepEqual(un.body, { success: true });
+  assert.deepEqual(seen['repTarget.findFirst'].at(-1).where, { tenantId: TENANT, comboId });
+  assert.deepEqual(seen['repTarget.updateMany'].at(-1), { where: { tenantId: TENANT, comboId }, data: { comboId: null } });
+  assert.deepEqual([sales, qty].map((t) => [t.comboId, t.rewardKind, t.rewardValue]), [[null, 'FIXED_AMOUNT', 1500], [null, 'FIXED_AMOUNT', 1500]]);
+  const again = await call('DELETE', `/api/rep-targets/combo/${comboId}`);
+  assert.equal(again.status, 404, 'فكٌّ ثانٍ');
+  assert.equal(again.body.code, 'TARGET_NOT_FOUND');
+});
+
+test('دمج الأهداف — الرفض بلا كتابة: هدفٌ واحد 400، وشهرٌ أو مندوبٌ آخر 400 TARGET_COMBO_INVALID، ومدمجٌ سلفاً 409 TARGET_IN_COMBO، وهدف شركةٍ أخرى 404، وخارج النطاق 404، والمندوب 403', async () => {
+  reset(ADMIN);
+  const a = targetRow({});
+  const b = targetRow({});
+  const dec = targetRow({ month: '2026-12' });
+  const other = targetRow({ salesRepId: 'r2' });
+  const foreign = targetRow({ tenantId: 'T2', salesRepId: 'rX', comboId: 'combo-foreign' });
+  const c1 = targetRow({ comboId: 'combo-old' });
+  const c2 = targetRow({ comboId: 'combo-old' });
+  targets.push(a, b, dec, other, foreign, c1, c2);
+  const before = JSON.stringify(targets);
+  const R = { rewardKind: 'FIXED_AMOUNT', rewardValue: 900 };
+  const combo = (targetIds: string[], reward: Row = R) => call('POST', '/api/rep-targets/combo', { targetIds, ...reward });
+  // هدفٌ واحد: بالمخطّط، والمكرّر هدفٌ واحد برمزه
+  const one = await combo([a.id]);
+  assert.equal(one.status, 400);
+  assert.equal(one.body.success, false);
+  assert.deepEqual((await combo([a.id, a.id])).body, { success: false, code: 'TARGET_COMBO_INVALID', message: 'اختر هدفين أو أكثر لنفس المندوب في نفس الشهر' });
+  for (const [why, ids] of [['شهرٌ آخر', [a.id, dec.id]], ['مندوبٌ آخر', [a.id, other.id]]] as const) {
+    const x = await combo([...ids]);
+    assert.equal(x.status, 400, why);
+    assert.equal(x.body.code, 'TARGET_COMBO_INVALID', why);
+  }
+  // هدفٌ مدمجٌ سلفاً — يُفكّ أولاً
+  const inCombo = await combo([a.id, c1.id]);
+  assert.equal(inCombo.status, 409);
+  assert.deepEqual(inCombo.body, { success: false, code: 'TARGET_IN_COMBO', message: 'أحد الأهداف مدمج مع أهداف أخرى افصله أولا' });
+  assert.equal((await combo([c1.id, c2.id])).body.code, 'TARGET_IN_COMBO');
+  // هدف شركةٍ أخرى أو مجهول: 404 ولا يُكشف
+  for (const ids of [[a.id, foreign.id], [a.id, 't-none']]) {
+    const x = await combo(ids);
+    assert.equal(x.status, 404);
+    assert.equal(x.body.code, 'TARGET_NOT_FOUND');
+  }
+  // المكافأة بحدودها
+  for (const bad of [{ rewardKind: 'COMMISSION_SALES_PCT', rewardValue: 101 }, { rewardKind: 'FIXED_AMOUNT', rewardValue: 0 }, { rewardKind: 'BONUS', rewardValue: 5 }]) {
+    assert.equal((await combo([a.id, b.id], bad)).status, 400, JSON.stringify(bad));
+  }
+  // فكّ دمجٍ في شركةٍ أخرى أو مجهول
+  assert.equal((await call('DELETE', '/api/rep-targets/combo/combo-foreign')).body.code, 'TARGET_NOT_FOUND');
+  assert.equal((await call('DELETE', '/api/rep-targets/combo/nope')).status, 404);
+  assert.deepEqual(seen['repTarget.findFirst'].map((x: Row) => x.where.tenantId), [TENANT, TENANT]);
+  // المقيَّد النطاق (r2 وحده): مندوب الأهداف خارج نطاقه 404 في الدمج والفكّ
+  currentUser = SCOPED;
+  assert.deepEqual((await combo([a.id, b.id])).body, { success: false, code: 'REP_NOT_FOUND', message: 'المندوب غير موجود' });
+  assert.equal((await call('DELETE', '/api/rep-targets/combo/combo-old')).body.code, 'REP_NOT_FOUND');
+  // المندوب، وبلا صلاحية إدارة المناديب: 403
+  for (const u of [REP_USER, NO_PERM]) {
+    currentUser = u;
+    assert.equal((await combo([a.id, b.id])).status, 403, u.id);
+    assert.equal((await call('DELETE', '/api/rep-targets/combo/combo-old')).status, 403, u.id);
+  }
+  assert.deepEqual(writes(), []);
+  assert.equal(JSON.stringify(targets), before, 'لا هدف تغيّر');
+});
+
+test('دمج الأهداف مع التعديل والحذف: مكافأة العضو تُنسخ على أعضاء دمجه وحدهم، ونقله لشهرٍ آخر يُخرجه ويفكّ ما بقي وحيداً، وحذف عضوٍ من اثنين يفكّ الدمج', async () => {
+  reset(ADMIN);
+  const [a, b, c] = [1, 2, 3].map(() => targetRow({ comboId: 'k1', rewardKind: 'FIXED_AMOUNT', rewardValue: 800 }));
+  const [x, y] = [1, 2].map(() => targetRow({ comboId: 'k2' }));
+  const [p, q, s] = [1, 2, 3].map(() => targetRow({ comboId: 'k3' }));
+  // معرّف الدمج نفسه في شركةٍ أخرى — لا يُمسّ أبداً
+  const foreign = targetRow({ tenantId: 'T2', salesRepId: 'rX', comboId: 'k1', rewardKind: 'FIXED_AMOUNT', rewardValue: 800 });
+  targets.push(a, b, c, x, y, p, q, s, foreign);
+
+  // (أ) تعديل مكافأة عضو ⇒ تُنسخ على أعضاء دمجه بشرط الشركة، وقيمة الهدف له وحده
+  const put = await call('PUT', `/api/rep-targets/${a.id}`, { ...BODY, targetValue: 9000, rewardKind: 'COMMISSION_SALES_PCT', rewardValue: 3 });
+  assert.equal(put.status, 200, JSON.stringify(put.body));
+  assert.deepEqual([a, b, c].map((t) => [t.comboId, t.rewardKind, t.rewardValue]), Array(3).fill(['k1', 'COMMISSION_SALES_PCT', 3]));
+  assert.deepEqual([a.targetValue, b.targetValue, c.targetValue], [9000, 10000, 10000]);
+  assert.deepEqual(seen['repTarget.updateMany'].map((u: Row) => u.where), [{ id: a.id, tenantId: TENANT }, { tenantId: TENANT, comboId: 'k1' }]);
+  assert.deepEqual(seen['repTarget.updateMany'][1].data, { rewardKind: 'COMMISSION_SALES_PCT', rewardValue: 3 });
+  assert.deepEqual([foreign.rewardKind, foreign.rewardValue, x.rewardValue], ['FIXED_AMOUNT', 800, 500]);
+  assert.equal(put.body.data.comboId, 'k1');
+
+  // (ب) نقل عضوٍ من ثلاثة لشهرٍ آخر ⇒ يخرج وحده بمكافأته، ويبقى الاثنان مدمجين
+  const move = await call('PUT', `/api/rep-targets/${c.id}`, { ...BODY, month: '2026-12' });
+  assert.equal(move.status, 200, JSON.stringify(move.body));
+  assert.deepEqual([c.month, c.comboId, c.rewardKind, c.rewardValue], ['2026-12', null, 'COMMISSION_SALES_PCT', 2]);
+  assert.deepEqual([a, b].map((t) => [t.comboId, t.rewardValue]), [['k1', 3], ['k1', 3]], 'مكافأة المنقول لا تُنسخ على من بقي');
+  assert.equal(move.body.data.comboId, null);
+  // (ج) نقل عضوٍ من اثنين ⇒ الباقي وحيدٌ فيعود مستقلاً
+  assert.equal((await call('PUT', `/api/rep-targets/${b.id}`, { ...BODY, month: '2026-12' })).status, 200);
+  assert.deepEqual([a.comboId, b.comboId], [null, null]);
+  assert.equal(foreign.comboId, 'k1', 'معرّف الدمج نفسه في شركةٍ أخرى لا يُمسّ');
+  for (const w of seen['repTarget.count'].map((u: Row) => u.where).filter((u: Row) => 'comboId' in u)) assert.equal(w.tenantId, TENANT);
+
+  // (د) حذف عضوٍ من اثنين ⇒ يُفكّ الدمج في المعاملة نفسها بعد الحذف
+  const del = await call('DELETE', `/api/rep-targets/${x.id}`);
+  assert.equal(del.status, 200, JSON.stringify(del.body));
+  assert.equal(y.comboId, null);
+  assert.deepEqual(seen['repTarget.count'].at(-1).where, { tenantId: TENANT, comboId: 'k2' });
+  assert.deepEqual(seen['repTarget.updateMany'].at(-1), { where: { tenantId: TENANT, comboId: 'k2' }, data: { comboId: null } });
+  assert.ok(calls.lastIndexOf('repTarget.deleteMany@tx') < calls.lastIndexOf('repTarget.count@tx'));
+  assert.ok(calls.lastIndexOf('repTarget.count@tx') < calls.lastIndexOf('repTarget.updateMany@tx'));
+  // (هـ) حذف عضوٍ من ثلاثة ⇒ يبقى الاثنان مدمجين بلا كتابةٍ عليهما
+  const updatesBefore = seen['repTarget.updateMany'].length;
+  assert.equal((await call('DELETE', `/api/rep-targets/${p.id}`)).status, 200);
+  assert.deepEqual([q.comboId, s.comboId], ['k3', 'k3']);
+  assert.equal(seen['repTarget.updateMany'].length, updatesBefore);
+  // وحذف هدفٍ مستقل لا يعدّ دمجاً
+  const countsBefore = seen['repTarget.count'].length;
+  assert.equal((await call('DELETE', `/api/rep-targets/${a.id}`)).status, 200);
+  assert.equal(seen['repTarget.count'].length, countsBefore);
+  assert.deepEqual(targets.map((t) => t.id).sort(), [b, c, y, q, s, foreign].map((t) => t.id).sort());
 });

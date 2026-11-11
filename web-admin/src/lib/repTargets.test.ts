@@ -1,13 +1,15 @@
 // «هدف الشهر» (طلب المالك ٩ نوفمبر ٢٠٢٦) — منطقه الصرف (lib/repTargets.ts) وحرّاسٌ نصّية على توصيله: أيقونة صفحة المناديب
 // بعَلَم المحاسبة ونافذتها، وبطاقة رئيسية المندوب بنسختها المحفوظة، والقاموس بلغاته الأربع لكل عبارة.
+// وتوسعة ١١ نوفمبر ٢٠٢٦: نوعا «عدد زيارات» و«عملاء جدد نشطون»، و«كمية صنف» بعدة أصناف، و«دمج الأهداف» بمكافأةٍ واحدة.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  MAX_TARGETS_PER_MONTH, REP_TARGET_TEXTS, REWARD_KINDS, TARGET_ERRORS, TARGET_KINDS, barPct, cleanDecimal, daysLeftText, draftOf, draftProblem,
-  emptyDraft, monthLabel, pctText, readNum, rewardText, shiftMonth, targetAmountText, targetErrorCode, targetErrorMessage, targetRemaining, targetStateText,
-  targetTitle, targetsFetchDue, toTargetInput, type RepTargetView, type TargetDraft,
+  MAX_TARGET_PRODUCTS, MAX_TARGETS_PER_MONTH, REP_TARGET_TEXTS, REWARD_KINDS, TARGET_ERRORS, TARGET_KINDS, TARGET_MAX, barPct, cleanDecimal, comboDone,
+  daysLeftText, draftOf, draftProblem, emptyDraft, groupTargets, monthLabel, pctText, readNum, rewardText, shiftMonth, targetAmountText, targetErrorCode,
+  targetErrorMessage, targetKindLabel, targetRemaining, targetStateText, targetTitle, targetUnitText, targetsFetchDue, toTargetInput,
+  type RepTargetProductView, type RepTargetView, type TargetDraft,
 } from './repTargets';
 import type { UnitChoice } from '../rep/repUnits';
 import { PHRASES } from '../i18n/strings';
@@ -30,6 +32,159 @@ const view = (over: Partial<RepTargetView> = {}): RepTargetView => ({
 
 const carton: UnitChoice = { id: 'u-carton', name: 'كرتون', factor: 24, price: null };
 const piece: UnitChoice = { id: null, name: 'حبة', factor: 1, price: null };
+
+/** صنفٌ في هدف الكمية كما يردّه الخادم */
+const prod = (productId: string | null, productName: string | null, unitName: string | null, unitId: string | null = null, unitFactor = 1): RepTargetProductView =>
+  ({ productId, productName, unitId, unitName, unitFactor });
+/** هدفٌ بتقدّمٍ محقَّق أو لا وبمعرّف دمج */
+const member = (id: string, comboId: string | null, done = false): RepTargetView =>
+  view({ id, comboId, progress: { state: 'OK', achieved: done ? 50000 : 20000, goal: 50000, pct: done ? 100 : 40, done } });
+
+test('الأنواع الخمسة: المبيعات والكمية والتحصيل ثم الزيارات والعملاء الجدد، بسقوفها ووسومها', () => {
+  assert.deepEqual(TARGET_KINDS.map(k => k.kind), ['SALES_AMOUNT', 'PRODUCT_QTY', 'COLLECTION_PCT', 'VISITS_COUNT', 'NEW_CUSTOMERS']);
+  assert.equal(targetKindLabel('VISITS_COUNT'), 'عدد زيارات');
+  assert.equal(targetKindLabel('NEW_CUSTOMERS'), 'عملاء جدد نشطون');
+  assert.equal(TARGET_MAX.VISITS_COUNT, 1e6);
+  assert.equal(TARGET_MAX.NEW_CUSTOMERS, 1e6);
+  assert.equal(MAX_TARGET_PRODUCTS, 20);
+  for (const k of TARGET_KINDS) assert.ok(TARGET_MAX[k.kind] > 0, k.kind);
+});
+
+test('emptyDraft بلا أصنافٍ إضافية، وdraftOf يأخذ ما بعد الأول من products لهدف الكمية وحده', () => {
+  assert.deepEqual(emptyDraft('2026-11').extraProducts, []);
+  const multi = view({
+    kind: 'PRODUCT_QTY', productId: 'p1', productName: 'ماء', unitId: 'u-carton', unitName: 'كرتون', unitFactor: 24, targetValue: 30,
+    products: [prod('p1', 'ماء', 'كرتون', 'u-carton', 24), prod('p2', 'عصير', 'كرتون', 'u-c2', 12), prod('p3', 'حليب', 'حبة')],
+  });
+  const d = draftOf(multi);
+  assert.equal(d.productId, 'p1', 'الأول في productId كما كان');
+  assert.equal(d.unitId, 'u-carton');
+  assert.deepEqual(d.extraProducts, [{ productId: 'p2', unitId: 'u-c2' }, { productId: 'p3', unitId: null }], 'الإضافية بترتيبها ووحداتها');
+  assert.deepEqual(draftOf(view({ kind: 'PRODUCT_QTY', productId: 'p1', productName: 'ماء' })).extraProducts, [], 'خادمٌ أقدم بلا products ⇒ صنفٌ واحد');
+  assert.deepEqual(draftOf(view({ kind: 'PRODUCT_QTY', productId: 'p1', products: [prod('p1', 'ماء', 'حبة')] })).extraProducts, []);
+  // غير الكمية: لا صنف ولا إضافيات حتى لو حملها الردّ
+  const visits = draftOf(view({ kind: 'VISITS_COUNT', targetValue: 40, productId: 'x', products: [prod('x', 'س', null), prod('y', 'ص', null)] }));
+  assert.equal(visits.kind, 'VISITS_COUNT');
+  assert.equal(visits.productId, null);
+  assert.deepEqual(visits.extraProducts, []);
+  assert.equal(visits.targetValue, '40');
+});
+
+test('draftProblem لهدف الكمية بعدة أصناف وللنوعين الجديدين', () => {
+  const qty = (over: Partial<TargetDraft> = {}) => draft({ kind: 'PRODUCT_QTY', productId: 'p1', targetValue: '10', ...over });
+  assert.equal(draftProblem(qty({ extraProducts: [{ productId: 'p2', unitId: null }, { productId: 'p3', unitId: 'u' }] })), null);
+  assert.equal(draftProblem(qty({ extraProducts: [{ productId: null, unitId: null }] })), 'اختر صنفاً صحيحاً', 'سطرٌ إضافي بلا صنف');
+  assert.equal(draftProblem(qty({ extraProducts: [{ productId: 'p1', unitId: 'u' }] })), 'الصنف مكرر في الهدف', 'الإضافي يكرر الأول');
+  assert.equal(draftProblem(qty({ extraProducts: [{ productId: 'p2', unitId: null }, { productId: 'p2', unitId: 'u' }] })), 'الصنف مكرر في الهدف',
+    'إضافيان مكرران ولو بوحدتين');
+  assert.equal(draftProblem(qty({ productId: null, extraProducts: [{ productId: 'p2', unitId: null }] })), 'اختر صنفاً صحيحاً', 'الأول مطلوب');
+  const many = (n: number) => Array.from({ length: n }, (_, i) => ({ productId: `x${i}`, unitId: null }));
+  assert.equal(draftProblem(qty({ extraProducts: many(MAX_TARGET_PRODUCTS - 1) })), null, '٢٠ صنفاً بالأول مقبولة');
+  assert.equal(draftProblem(qty({ extraProducts: many(MAX_TARGET_PRODUCTS) })), 'أصناف الهدف 20 على الأكثر');
+  // الأصناف الإضافية لا تُفحص في غير الكمية (بقايا نموذجٍ بُدّل نوعه)
+  assert.equal(draftProblem(draft({ extraProducts: [{ productId: null, unitId: null }] })), null);
+
+  // عدد الزيارات والعملاء الجدد: عددٌ > 0 و≤ ١٠٠٠٠٠٠ بلا صنف
+  for (const kind of ['VISITS_COUNT', 'NEW_CUSTOMERS'] as const) {
+    assert.equal(draftProblem(draft({ kind, targetValue: '40' })), null, `${kind} بلا صنف`);
+    assert.equal(draftProblem(draft({ kind, targetValue: '1000000' })), null, `${kind} السقف نفسه`);
+    assert.equal(draftProblem(draft({ kind, targetValue: '1000001' })), 'العدد كبير جدا', kind);
+  }
+  for (const v of ['0', '', '-1', 'abc']) {
+    assert.equal(draftProblem(draft({ kind: 'VISITS_COUNT', targetValue: v })), 'عدد الزيارات رقم أكبر من صفر', v);
+    assert.equal(draftProblem(draft({ kind: 'NEW_CUSTOMERS', targetValue: v })), 'عدد العملاء رقم أكبر من صفر', v);
+  }
+  assert.equal(draftProblem(draft({ kind: 'VISITS_COUNT', targetValue: '٤٠' })), null, 'الأرقام الهندية');
+});
+
+test('toTargetInput بعدة أصناف: products القائمة كاملةً (الأول أولاً) حين توجد إضافيات وحدها، ولكل سطرٍ أساسه', () => {
+  const d = draft({ kind: 'PRODUCT_QTY', productId: 'p1', unitId: 'u-carton', targetValue: '30',
+    extraProducts: [{ productId: 'p2', unitId: null }, { productId: 'p3', unitId: 'u-box' }] });
+  const box: UnitChoice = { id: 'u-box', name: 'علبة', factor: 6, price: null };
+  const body = toTargetInput(d, carton, 'حبة', [
+    { productId: 'p2', unit: piece, baseUnitName: ' حبة ' },
+    { productId: 'p3', unit: box, baseUnitName: null },
+  ]);
+  assert.equal(body.productId, 'p1', 'الأول في productId/unitId كما كان');
+  assert.equal(body.unitId, 'u-carton');
+  assert.equal(body.baseUnitName, 'حبة');
+  assert.equal(body.targetValue, 30, 'الكمية كما كُتبت');
+  assert.deepEqual(body.products, [
+    { productId: 'p1', unitId: 'u-carton', baseUnitName: 'حبة' },
+    { productId: 'p2', unitId: null, baseUnitName: 'حبة' },
+    { productId: 'p3', unitId: 'u-box' },
+  ], 'وحدة الأساس null، والأساس المجهول بلا الحقل');
+  // صنفٌ واحد ⇒ بلا products (الجسم كما كان قبل التوسعة)
+  assert.equal('products' in toTargetInput(d, carton, 'حبة'), false);
+  assert.equal('products' in toTargetInput(d, carton, 'حبة', []), false);
+  // الأول بلا أساسٍ معروف ⇒ سطره بلا الحقل
+  assert.deepEqual(toTargetInput(d, carton, null, [{ productId: 'p2', unit: null }]).products,
+    [{ productId: 'p1', unitId: 'u-carton' }, { productId: 'p2', unitId: null }]);
+  // غير الكمية لا يحمل أصنافاً ولو مُرّرت
+  const visits = toTargetInput(draft({ kind: 'VISITS_COUNT', targetValue: '٤٠', productId: 'p1' }), carton, 'حبة', [{ productId: 'p2', unit: piece }]);
+  assert.equal('products' in visits, false);
+  assert.equal(visits.productId, null);
+  assert.equal(visits.unitId, null);
+  assert.equal(visits.targetValue, 40);
+  // نموذج التعديل يعود بالأصناف نفسها
+  const t = view({ kind: 'PRODUCT_QTY', productId: 'p1', productName: 'ماء', unitId: 'u-carton', unitName: 'كرتون', unitFactor: 24, targetValue: 30,
+    products: [prod('p1', 'ماء', 'كرتون', 'u-carton', 24), prod('p2', 'عصير', 'حبة'), prod('p3', 'حليب', 'علبة', 'u-box', 6)] });
+  assert.deepEqual(draftOf(t).extraProducts.map(e => e.productId), ['p2', 'p3']);
+});
+
+test('targetUnitText: الوحدة المشتركة بين الأصناف، ووحداتٌ مختلفة أو مجهولة ⇒ رقمٌ بلا وحدة', () => {
+  assert.equal(targetUnitText({ unitName: 'كرتون' }), 'كرتون', 'خادمٌ أقدم بلا products');
+  assert.equal(targetUnitText({ unitName: ' كرتون ' }), 'كرتون');
+  assert.equal(targetUnitText({ unitName: null }), '');
+  assert.equal(targetUnitText({ unitName: 'كرتون', products: [] }), 'كرتون', 'قائمةٌ فارغة ⇒ الصنف الواحد');
+  assert.equal(targetUnitText({ unitName: 'كرتون', products: [{ unitName: 'كرتون' }, { unitName: ' كرتون' }] }), 'كرتون');
+  assert.equal(targetUnitText({ unitName: 'كرتون', products: [{ unitName: 'كرتون' }, { unitName: 'حبة' }] }), '', 'كراتين وحبّات لا تُجمع بوحدةٍ واحدة');
+  assert.equal(targetUnitText({ unitName: 'كرتون', products: [{ unitName: 'كرتون' }, { unitName: null }] }), '');
+});
+
+test('targetTitle وقيم الهدف للأنواع الجديدة وبعدة أصناف: العدّ بلا عملة، والأسماء بفاصلة والوحدة المشتركة', () => {
+  assert.equal(targetTitle(view({ kind: 'VISITS_COUNT', targetValue: 40 }), arTr), 'زيارات الشهر');
+  assert.equal(targetTitle(view({ kind: 'NEW_CUSTOMERS', targetValue: 5 }), arTr), 'عملاء جدد نشطون');
+  const same = view({ kind: 'PRODUCT_QTY', productName: 'ماء', unitName: 'كرتون', products: [prod('p1', 'ماء', 'كرتون'), prod('p2', 'عصير', 'كرتون')] });
+  assert.equal(targetTitle(same, arTr), 'ماء، عصير — كرتون');
+  const mixed = view({ kind: 'PRODUCT_QTY', productName: 'ماء', unitName: 'كرتون', products: [prod('p1', 'ماء', 'كرتون'), prod(null, null, 'حبة')] });
+  assert.equal(targetTitle(mixed, arTr), 'ماء، صنف محذوف', 'وحداتٌ مختلفة ⇒ الأسماء وحدها، والمحذوف باسمه البديل');
+  assert.equal(targetTitle(view({ kind: 'PRODUCT_QTY', productName: 'ماء', unitName: 'كرتون', products: [prod('p1', 'ماء', 'كرتون')] }), arTr), 'ماء — كرتون',
+    'صنفٌ واحد في القائمة كما كان');
+
+  // العدّ رقمٌ بمنسّق الأرقام لا مال
+  const n = (x: number) => `#${x}`;
+  assert.equal(targetAmountText(view({ kind: 'VISITS_COUNT' }), 12, money), '12');
+  assert.equal(targetAmountText(view({ kind: 'NEW_CUSTOMERS' }), 3, money, n), '#3');
+  assert.equal(targetAmountText(view({ kind: 'VISITS_COUNT' }), Number.NaN, money), '0');
+  assert.equal(targetAmountText(same, 7.5, money), '7.5 كرتون', 'الوحدة المشتركة');
+  assert.equal(targetAmountText(mixed, 7.5, money), '7.5', 'وحداتٌ مختلفة ⇒ رقمٌ بلا وحدة');
+  assert.equal(targetAmountText(view({ kind: 'SALES_AMOUNT' }), 1500, money, n), '1500.00 ر.س', 'المبيعات مالٌ كما كانت');
+});
+
+test('groupTargets: المدمج مجموعةٌ واحدة في موضع أول أعضائه، والمستقل كما هو، وعضوٌ وحيد بمعرّف دمج مستقل', () => {
+  const a = member('a', null), b = member('b', 'c1'), c = member('c', null), d = member('d', 'c1'), e = member('e', 'c2'), f = member('f', 'c3'), g = member('g', 'c3');
+  const groups = groupTargets([a, b, c, d, e, f, g]);
+  assert.deepEqual(groups.map(x => x.kind === 'combo' ? `combo:${x.comboId}[${x.members.map(m => m.id).join(',')}]` : x.target.id),
+    ['a', 'combo:c1[b,d]', 'c', 'e', 'combo:c3[f,g]'], 'ترتيب الإنشاء محفوظ، والعضو الوحيد (c2) مستقل');
+  assert.deepEqual(groupTargets([]), []);
+  assert.deepEqual(groupTargets([a, c]).map(x => x.kind), ['single', 'single'], 'بلا دمج ⇒ كما كانت');
+  // comboId غائب (خادمٌ أقدم — view() بلا الحقل) أو null سواء
+  assert.equal('comboId' in view(), false);
+  assert.deepEqual(groupTargets([view({ id: 'old' }), view({ id: 'old2' })]).map(x => x.kind), ['single', 'single']);
+  const combo = groupTargets([member('x', 'k'), member('y', 'k'), member('z', 'k')])[0];
+  assert.ok(combo.kind === 'combo' && combo.members.length === 3, 'ثلاثة أعضاء');
+});
+
+test('comboDone: المدمج يتحقق بتحقق كل أعضائه، والفارغ لا يتحقق', () => {
+  assert.equal(comboDone([member('a', 'k', true), member('b', 'k', true)]), true);
+  assert.equal(comboDone([member('a', 'k', true), member('b', 'k', false)]), false, 'عضوٌ واحد ناقص يحبس المكافأة');
+  assert.equal(comboDone([member('a', 'k', false), member('b', 'k', false)]), false);
+  assert.equal(comboDone([]), false);
+  // رموز رفض الدمج والأصناف مترجمة
+  for (const code of ['TARGET_PRODUCT_DUPLICATE', 'TARGET_COMBO_INVALID', 'TARGET_IN_COMBO']) assert.ok(TARGET_ERRORS[code], code);
+  assert.equal(targetErrorMessage({ response: { data: { code: 'TARGET_PRODUCT_DUPLICATE' } } }, arTr, 'ف'), 'الصنف مكرر في الهدف');
+});
 
 test('draftProblem مرآة حدود الخادم: الشهر YYYY-MM، والقيمة أكبر من صفر حتى سقف نوعها، والمكافأة كذلك، والملاحظة ٣٠٠', () => {
   assert.equal(draftProblem(draft()), null, 'هدف مبيعاتٍ سليم');
@@ -199,14 +354,17 @@ test('القاموس: كل عبارةٍ تنتجها الوحدة وكل tr في
   let literals = 0;
   for (const f of files) for (const m of f.matchAll(/\btr\('((?:[^'\\]|\\.)*)'\)/g)) { keys.add(m[1]); literals += 1; }
   assert.ok(literals > 40, `قُرئت ${literals} عبارة فقط`);
+  // تُجمع النواقص كلها في رسالةٍ واحدة (لا أوّلها فقط) فتُضاف ترجماتها دفعةً واحدة
+  const problems: string[] = [];
   for (const k of keys) {
     const e = PHRASES[k];
-    assert.ok(e, `غير موجودة في القاموس: ${k}`);
+    if (!e) { problems.push(`غير موجودة في القاموس: ${k}`); continue; }
     for (const lang of LANGS) {
-      assert.ok(e[lang]?.trim(), `${k} بلا ${lang}`);
-      for (const ph of k.match(/\{\w+\}/g) ?? []) assert.ok(e[lang].includes(ph), `${k} (${lang}) بلا ${ph}`);
+      if (!e[lang]?.trim()) { problems.push(`${k} بلا ${lang}`); continue; }
+      for (const ph of k.match(/\{\w+\}/g) ?? []) if (!e[lang].includes(ph)) problems.push(`${k} (${lang}) بلا ${ph}`);
     }
   }
+  assert.deepEqual(problems, [], problems.join('\n'));
   // لا ذكر للضريبة في الميزة (وضع «إزالة الضريبة»)
   for (const k of keys) assert.doesNotMatch(k, /ضريب/, k);
 });
@@ -224,13 +382,14 @@ test('صفحة المناديب: أيقونة «هدف الشهر» أوّل ا�
   // النافذة: مفاتيح react-query وإبطالها، وحذفٌ بتأكيد، وإغلاق الخلفية الآمن
   const modal = read('components', 'RepTargetsModal.tsx');
   assert.ok(modal.includes("queryKey: ['rep-targets', rep.id, month],"));
-  assert.equal(modal.match(/qc\.invalidateQueries\(\{ queryKey: \['rep-targets', rep\.id\] \}\)/g)?.length, 2, 'الحفظ والحذف يبطلان أشهر المندوب');
+  // الحفظ والحذف (ومعهما الدمج وفكّه) يبطلان أشهر المندوب
+  assert.ok((modal.match(/qc\.invalidateQueries\(\{ queryKey: \['rep-targets', rep\.id\] \}\)/g)?.length ?? 0) >= 2, 'الحفظ والحذف يبطلان أشهر المندوب');
   assert.ok(modal.includes('{...backdropClose(onClose)}'));
   assert.ok(modal.includes('<ConfirmDialog'));
   assert.ok(modal.includes("queryKey: ['products-min'],"), 'كاش الأصناف المشترك');
   assert.ok(modal.includes('choiceById(product, d.unitId)') && modal.includes('defaultChoice(p).id'), 'وحدة الصنف من repUnits');
-  // أساس الصنف المحمَّل يُرسل مع هدف الكمية، ورفض الحارس يعيد جلب الأصناف
-  assert.ok(modal.includes('onSave(toTargetInput(d, choice, product?.unit ?? null));'));
+  // أساس الصنف المحمَّل يُرسل مع هدف الكمية (ومعه الأصناف الإضافية إن وُجدت)، ورفض الحارس يعيد جلب الأصناف
+  assert.ok(modal.includes('onSave(toTargetInput(d, choice, product?.unit ?? null'));
   assert.ok(modal.includes("if (isStaleUnitsError(e)) void qc.invalidateQueries({ queryKey: ['products-min'] });"));
   // تعذّر قائمة الأصناف (بلا صلاحية الأصناف) يُقال تحت المنتقي لا قائمةٌ فارغة صامتة
   assert.ok(modal.includes("prodStatus === 403 ? tr('اختيار الصنف يحتاج صلاحية إدارة الأصناف')"));
@@ -239,9 +398,23 @@ test('صفحة المناديب: أيقونة «هدف الشهر» أوّل ا�
   assert.ok(modal.includes("if (editing && editing !== 'new' && data && !q.isPlaceholderData && !data.targets.some(t => t.id === editing)) setEditing(null);"));
   const client = read('api', 'client.ts');
   assert.ok(client.includes('export const repTargetsApi = {'));
-  for (const s of ["api.get(`/rep-targets/rep/${repId}`", "api.post(`/rep-targets/rep/${repId}`, body)", "api.put(`/rep-targets/${id}`, body)", "api.delete(`/rep-targets/${id}`)"]) {
+  for (const s of ["api.get(`/rep-targets/rep/${repId}`", "api.post(`/rep-targets/rep/${repId}`, body)", "api.put(`/rep-targets/${id}`, body)", "api.delete(`/rep-targets/${id}`)",
+    "combine: (body: RepTargetComboInput) => api.post('/rep-targets/combo', body)", 'uncombine: (comboId: string) => api.delete(`/rep-targets/combo/${comboId}`)']) {
     assert.ok(client.includes(s), s);
   }
+});
+
+test('بطاقة المندوب: الأهداف مجمّعةً بـgroupTargets، والمدمج كتلةٌ واحدة بمكافأةٍ تُستحق بتحقق كل أعضائه', () => {
+  const card = read('rep', 'RepTargetsCard.tsx');
+  assert.ok(card.includes('groupTargets(data.targets).map('), 'لا تُرسم الأهداف واحداً واحداً');
+  assert.ok(card.includes("g.kind === 'combo'"));
+  assert.ok(card.includes("tr('هدف مدمج')") && card.includes("tr('يتحقق بتحقق كل الأهداف')"));
+  assert.ok(card.includes('const done = comboDone(members);'));
+  assert.ok(card.includes('<RewardLine t={members[0]} earned={done} />'), 'مكافأةٌ واحدة للمدمج (منسوخةٌ على أعضائه) بتحقق الجميع');
+  assert.ok(card.includes('<RewardLine t={t} earned={t.reward.earned} />'), 'والمستقل بمكافأته كما كان');
+  // العناوين والقيم من الوحدة (الأصناف المتعددة والزيارات والعملاء الجدد) لا نصٌّ محلي
+  assert.ok(card.includes('targetTitle(t, tr, num)') && card.includes('targetAmountText(t, p.achieved, money, num)'));
+  assert.doesNotMatch(card, /ضريب/);
 });
 
 test('تطبيق المندوب: بطاقة «هدف الشهر» في الرئيسية بعد خط السير، تُحفظ وتُعرض بلا اتصال، ومحروسةٌ بالمحاسبة', () => {

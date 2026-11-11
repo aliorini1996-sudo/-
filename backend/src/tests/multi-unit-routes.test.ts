@@ -543,7 +543,8 @@ test('التحويل dryRun: لا معاملة ولا قفل ولا كتابة،
     vanLoadItemLots: 2, invoiceItemLots: 1, lotRelabels: 1, repTargets: 1,
   });
   assert.deepEqual(counted.invoiceItem, { productId: 'p1', invoice: { tenantId: TENANT } });
-  assert.deepEqual(counted.repTarget, { tenantId: TENANT, productId: 'p1' }, '«هدف الشهر» بشرط الشركة والصنف');
+  // والصنف صنفاً إضافياً في هدفٍ بعدة أصناف (طلب المالك ١١ نوفمبر ٢٠٢٦)
+  assert.deepEqual(counted.repTarget, { tenantId: TENANT, OR: [{ productId: 'p1' }, { extraProducts: { some: { productId: 'p1' } } }] }, '«هدف الشهر» بشرط الشركة والصنف');
   assert.deepEqual(counted.vanLoadItem, { productId: 'p1', vanLoad: { tenantId: TENANT } });
   assert.deepEqual(counted.customerPrice, { productId: 'p1', product: { tenantId: TENANT } });
   assert.deepEqual(counted.vanLoadItemLot, { tenantId: TENANT, productId: 'p1' });

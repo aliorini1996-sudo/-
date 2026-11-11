@@ -6,7 +6,7 @@ import { removeUnitParams } from './unitParams';
 import type { PrintSettingsV1 } from '../lib/print/printSettingsCore';
 import type { PrintTextsV1 } from '../lib/print/printTextsCore';
 import type { PaymentMethodsConfigInput } from '../lib/paymentMethodsCore';
-import type { RepTargetInput } from '../lib/repTargets';
+import type { RepTargetComboInput, RepTargetInput } from '../lib/repTargets';
 import type {
   LotCreateRequest, LotListParams, LotRef, LotRelabelRequest, LotStatusRequest, LotTrackingRequest, LotUpdateRequest,
 } from '../lib/lots';
@@ -233,6 +233,9 @@ export const repTargetsApi = {
   create: (repId: string, body: RepTargetInput) => api.post(`/rep-targets/rep/${repId}`, body),
   update: (id: string, body: RepTargetInput) => api.put(`/rep-targets/${id}`, body),
   remove: (id: string) => api.delete(`/rep-targets/${id}`),
+  // «دمج الأهداف» (طلب المالك ١١ نوفمبر ٢٠٢٦): أهدافٌ للمندوب في الشهر نفسه بمكافأةٍ واحدة، وفكّه
+  combine: (body: RepTargetComboInput) => api.post('/rep-targets/combo', body),
+  uncombine: (comboId: string) => api.delete(`/rep-targets/combo/${comboId}`),
 };
 
 // شرائح البروفايل — قراءة عامّة وكتابة لمالك المنصّة

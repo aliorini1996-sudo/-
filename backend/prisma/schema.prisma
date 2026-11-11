@@ -894,6 +894,8 @@ model Product {
   lots                ProductLot[]
   /// «هدف الشهر» بكمية هذا الصنف — SetNull: حذف الصنف يُبقي الهدف بلقطة اسمه (productName)
   repTargets          RepTarget[]
+  // «هدف الشهر»: أصناف هدف الكمية الإضافية (هدفٌ بعدة أصناف — طلب المالك ١١ نوفمبر ٢٠٢٦)
+  repTargetProducts   RepTargetProduct[]
 
 
   // ZATCA المرحلة الثانية — الفئة الضريبية
@@ -2027,7 +2029,7 @@ model RepTarget {
   salesRepId    String
   salesRep      SalesRep  @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
   month         String // 'YYYY-MM' بتوقيت الشركة
-  kind          String // SALES_AMOUNT | PRODUCT_QTY | COLLECTION_PCT
+  kind          String // SALES_AMOUNT | PRODUCT_QTY | COLLECTION_PCT | VISITS_COUNT | NEW_CUSTOMERS
   targetValue   Float // مبلغ | كمية بوحدة الهدف | نسبة 0-100
   productId     String?
   product       Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
@@ -2042,10 +2044,35 @@ model RepTarget {
   createdByName String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  /// هدف الكمية بعدة أصناف: الأصناف بعد الأول (الأول في productId أعلاه) — الكمية المستهدفة مجموعُها كلٌّ بوحدته
+  extraProducts RepTargetProduct[]
+  /// «دمج الأهداف» (طلب المالك ١١ نوفمبر ٢٠٢٦): أهداف المندوب في الشهر نفسه بمعرّف دمجٍ واحد هدفٌ مدمج — مكافأةٌ واحدة
+  /// (منسوخةٌ على كل عضو) لا تُستحق إلا بتحقق الأعضاء كلهم. null = هدفٌ مستقل
+  comboId       String?
 
   @@index([tenantId, salesRepId, month])
   @@index([productId])
   @@map("rep_targets")
+}
+
+/// صنفٌ إضافي في هدف «كمية صنف» (طلب المالك ١١ نوفمبر ٢٠٢٦): لقطة اسمه ووحدته ومعاملها كالصنف الأول في RepTarget —
+/// والمُنجَز = Σ (صافي كمية كل صنفٍ بالأساس ÷ معامل وحدته). «تحويل الأساس» يضرب معاملها بـF كالأول (routes/products.ts)
+model RepTargetProduct {
+  id          String    @id @default(uuid())
+  tenantId    String
+  targetId    String
+  target      RepTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  productId   String?
+  product     Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName String?
+  unitId      String?
+  unitName    String?
+  unitFactor  Float     @default(1)
+  sortOrder   Int       @default(0)
+
+  @@index([targetId])
+  @@index([productId])
+  @@map("rep_target_products")
 }
 
 /// وارد مخزون الشركة (المستودع المركزيّ) — استلام/شراء أو تسوية. مرتبطٌ بمخزون
