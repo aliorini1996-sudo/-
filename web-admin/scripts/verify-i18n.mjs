@@ -28,7 +28,7 @@ import {
   findI18nViolations, checkMarketingStrings, scriptProblems, contentHashOf, publishedEntry, certRuleFor, NO_CERT_RULE,
   livePriceRe, toAsciiDigits, I18N_RULE_WHY, englishCopies,
 } from './claims-i18n.mjs';
-import { RULES, findViolation } from './claims-rules.mjs';
+import { RULES, findViolation, jsonLdLines } from './claims-rules.mjs';
 import { loadPricing } from './pricing-source.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -114,7 +114,8 @@ const claimsText = (h) => {
 const BLOCK_END = /<\/(?:p|li|h[1-6]|div|td|th|tr|caption|section|article|header|footer|nav|aside|main|ul|ol|table|blockquote|dd|dt|dl|figcaption|title|button|label|summary|details|option)>|<(?:br|hr)\b[^>]*>/gi;
 const claimsBlocks = (h) => {
   const body = decode(String(h).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(BLOCK_END, '\n').replace(/<[^>]+>/g, ' '));
-  const ld = ldBlocks(h).map((s) => s.replace(/["{}[\],]/g, '\n')).join('\n');
+  // قيم JSON-LD سطراً لكل قيمة (jsonLdLines) لا تقسيماً عند كل فاصلة: جواب FAQPage يبقى جملة واحدة كما في verify-claims
+  const ld = ldBlocks(h).map(jsonLdLines).join('\n');
   const metas = tagsOf(h, 'meta').filter((a) => /^(?:description|og:description|twitter:description|og:title|twitter:title)$/i.test(a.name || a.property || ''))
     .map((a) => a.content || '').join('\n');
   return `${body}\n${ld}\n${metas}`.replace(/[^\S\n]+/g, ' ').replace(/ ?\n\s*/g, '\n');

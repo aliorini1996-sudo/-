@@ -35,6 +35,7 @@ export const RULES: ClaimRule[];
 export const GOV_EINVOICING: { cc: string[]; latin?: string; cyrl?: string; arab?: string; hebr?: string; free?: string }[];
 export const GOV_EINVOICING_RE: RegExp;
 export function govClaimAt(hay: string, m: RegExpMatchArray): boolean;
+export function jsonLdLines(src: string): string;
 export function findViolation(rule: ClaimRule, haystack: string): { index: number; match: string } | null;
 export function findViolations(rule: ClaimRule, haystack: string, limit?: number): { index: number; match: string }[];
 export function checkText(text: string): string[];

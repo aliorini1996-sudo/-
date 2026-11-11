@@ -28,7 +28,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { RULES, findViolation, findViolations, PHASE2_CMS_CLEANED, cmsCorpus, fromCms, fromCmsContext } from './claims-rules.mjs';
+import { RULES, findViolation, findViolations, PHASE2_CMS_CLEANED, cmsCorpus, fromCms, fromCmsContext, jsonLdLines } from './claims-rules.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -76,16 +76,7 @@ const stripHtml = (h) => (h
 // لجملة واقعية لا يملكها.
 const BLOCK_END = /<\/(?:p|li|h[1-6]|div|td|th|tr|caption|section|article|header|footer|nav|aside|main|ul|ol|table|blockquote|dd|dt|dl|figcaption|title|button|label|summary|details|option)>|<(?:br|hr)\b[^>]*>/gi;
 const ldJsonLines = (h) => [...h.matchAll(/<script\b[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)]
-  .map((m) => {
-    const out = [];
-    const walk = (v) => {
-      if (typeof v === 'string') out.push(v);
-      else if (Array.isArray(v)) v.forEach(walk);
-      else if (v && typeof v === 'object') Object.values(v).forEach(walk);
-    };
-    try { walk(JSON.parse(m[1])); } catch { return m[1].replace(/["{}\[\],]/g, '\n'); }
-    return out.join('\n');
-  })
+  .map((m) => jsonLdLines(m[1]))
   .join('\n');
 const stripBlocks = (h) => (h
   .replace(/<script[\s\S]*?<\/script>/gi, ' ')
