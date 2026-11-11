@@ -10,9 +10,9 @@
     "ar": {
       "slugHint": null,
       "title": "برنامج مناديب المبيعات والتوزيع في مصر | FieldSales",
-      "description": "FieldSales لشركات التوزيع والجملة في مصر: فاتورة المندوب من الجوال وطباعتها، تحصيل نقدي وInstaPay ومحافظ، خط سير وزيارات، ويعمل دون إنترنت.",
+      "description": "FieldSales لشركات التوزيع والجملة في مصر: فاتورة المندوب من الجوال وطباعتها، تحصيل نقدي وInstaPay ومحافظ، خط سير، وزيارات وسندات قبض تعمل دون إنترنت.",
       "h1": "FieldSales في مصر: إدارة مناديب المبيعات والتوزيع والتحصيل",
-      "intro": "FieldSales منصة سحابية لشركات التوزيع والجملة في مصر تدير مناديب المبيعات في الميدان: البيع من السيارة وأخذ الطلبيات المسبقة، وإصدار فاتورة المندوب من الجوال وطباعتها على طابعة حرارية، وسندات القبض ومتابعة المديونيات، وعهدة السيارة ومطابقتها، وخط السير والزيارات بالموقع والصور. تضبط شركتك العملة على الجنيه المصري ونسبة ضريبة القيمة المضافة وطرق التحصيل من الإعدادات، ويعمل التطبيق دون اتصال ثم يزامن لاحقاً، على أندرويد وآيفون مع لوحة ويب للإدارة.",
+      "intro": "FieldSales منصة سحابية لشركات التوزيع والجملة في مصر تدير مناديب المبيعات في الميدان: البيع من السيارة وأخذ الطلبيات المسبقة، وإصدار فاتورة المندوب من الجوال وطباعتها على طابعة حرارية، وسندات القبض ومتابعة المديونيات، وعهدة السيارة ومطابقتها، وخط السير والزيارات بالموقع والصور. تضبط شركتك العملة على الجنيه المصري ونسبة ضريبة القيمة المضافة وطرق التحصيل من الإعدادات. ويعمل التطبيق على أندرويد وآيفون مع لوحة ويب للإدارة؛ تحتاج الفاتورة والمرتجع اتصالاً لحظة الإصدار، بينما تبقى سندات القبض والزيارات متاحة بلا إنترنت ثم تُزامَن لاحقاً.",
       "sections": [
         {
           "id": "distribution",
@@ -37,7 +37,7 @@
         {
           "id": "how",
           "title": "كيف يعمل FieldSales في شركتك بمصر",
-          "body": "تبدأ بضبط العملة على الجنيه المصري، واسم الضريبة ونسبتها، وطرق التحصيل، وبيانات منشأتك على المطبوعات. يعمل المندوب على تطبيق أندرويد أو آيفون: يفتح خط سيره، ويزور العملاء مع تسجيل الموقع والصور، ويبيع من مخزون السيارة أو يأخذ طلبية مسبقة، ثم يطبع الفاتورة على طابعة حرارية ويحصّل ويُصدر سند القبض. وإن انقطع الإنترنت في الطريق يستمر العمل دون اتصال، وتُزامَن البيانات حين تعود الشبكة. وتتابع الإدارة من لوحة الويب المبيعات والتحصيل والمديونيات وعهدة كل سيارة ومطابقتها. واجهة التطبيق متاحة بالعربية والإنجليزية والفرنسية والتركية والصينية. ومقر FieldSales في الرياض، والمنصة متاحة لشركات التوزيع والجملة في مختلف الدول."
+          "body": "تبدأ بضبط العملة على الجنيه المصري، واسم الضريبة ونسبتها، وطرق التحصيل، وبيانات منشأتك على المطبوعات. يعمل المندوب على تطبيق أندرويد أو آيفون: يفتح خط سيره، ويزور العملاء مع تسجيل الموقع والصور، ويبيع من مخزون السيارة أو يأخذ طلبية مسبقة، ثم يطبع الفاتورة على طابعة حرارية ويحصّل ويُصدر سند القبض. وفي الطريق تحتاج الفاتورة والمرتجع اتصالاً لحظة الإصدار، بينما تبقى سندات القبض والزيارات متاحة بلا إنترنت إن انقطعت الشبكة، وتُزامَن البيانات حين تعود. وتتابع الإدارة من لوحة الويب المبيعات والتحصيل والمديونيات وعهدة كل سيارة ومطابقتها. واجهة التطبيق متاحة بالعربية والإنجليزية والفرنسية والتركية والصينية. ومقر FieldSales في الرياض، والمنصة متاحة لشركات التوزيع والجملة في مختلف الدول."
         }
       ],
       "faq": [
@@ -47,7 +47,7 @@
         },
         {
           "q": "هل يعمل التطبيق دون إنترنت؟",
-          "a": "نعم. يبيع المندوب ويُصدر الفواتير وسندات القبض ويطبعها على الطابعة الحرارية دون اتصال، ثم تُزامَن البيانات عند عودة الشبكة."
+          "a": "جزئياً. في مصر تحتاج الفاتورة والمرتجع اتصالاً لحظة الإصدار، بينما تبقى سندات القبض والزيارات متاحة بلا إنترنت: يُصدر المندوب سند القبض ويطبعه على الطابعة الحرارية دون اتصال، ثم تُزامَن البيانات عند عودة الشبكة."
         },
         {
           "q": "كيف أسجّل تحصيلاً وصلني عبر InstaPay أو فودافون كاش؟",
@@ -167,9 +167,9 @@
     "en": {
       "slugHint": null,
       "title": "Field Sales & Van Sales Software in Egypt | FieldSales",
-      "description": "FieldSales for distributors and wholesalers in Egypt: rep invoicing with thermal printing, cash, InstaPay and wallet collections, routes, offline mode.",
+      "description": "FieldSales for distributors and wholesalers in Egypt: rep invoicing with thermal printing, cash, InstaPay and wallet collections, routes, offline receipts.",
       "h1": "FieldSales in Egypt: field sales, van sales and collections for distributors",
-      "intro": "FieldSales is a cloud platform that helps distribution and wholesale companies in Egypt run their field sales teams: van sales and pre-sales order taking, invoices issued from the sales rep's phone and printed on a thermal printer, receipt vouchers and receivables, van stock custody and reconciliation, and routes and visits logged with location and photos. Each company sets the Egyptian pound, its VAT rate and its collection methods in settings. The app works offline and syncs later, on Android and iPhone, with a web dashboard for managers.",
+      "intro": "FieldSales is a cloud platform that helps distribution and wholesale companies in Egypt run their field sales teams: van sales and pre-sales order taking, invoices issued from the sales rep's phone and printed on a thermal printer, receipt vouchers and receivables, van stock custody and reconciliation, and routes and visits logged with location and photos. Each company sets the Egyptian pound, its VAT rate and its collection methods in settings. The app runs on Android and iPhone, with a web dashboard for managers; invoices and returns need a connection at the moment of issue, while receipts and visits keep working offline and sync later.",
       "sections": [
         {
           "id": "distribution",
@@ -194,7 +194,7 @@
         {
           "id": "how",
           "title": "How FieldSales works for your team in Egypt",
-          "body": "Setup starts with the currency (Egyptian pound), the tax name and rate, your collection methods and your company details on printouts. Reps work on Android or iPhone: they open their route, visit customers with location and photos logged, sell from van stock or take a pre-sales order, print the invoice on a thermal printer, then collect and issue a receipt voucher. If the connection drops on the road, work continues offline and data syncs once the network is back. Managers follow sales, collections, receivables and each van's custody and reconciliation from the web dashboard. The app interface is available in Arabic, English, French, Turkish and Chinese. FieldSales is headquartered in Riyadh and is available to distribution and wholesale companies in any country."
+          "body": "Setup starts with the currency (Egyptian pound), the tax name and rate, your collection methods and your company details on printouts. Reps work on Android or iPhone: they open their route, visit customers with location and photos logged, sell from van stock or take a pre-sales order, print the invoice on a thermal printer, then collect and issue a receipt voucher. On the road, invoices and returns need a connection at the moment of issue, while receipts and visits keep working offline if the network drops, and data syncs once it is back. Managers follow sales, collections, receivables and each van's custody and reconciliation from the web dashboard. The app interface is available in Arabic, English, French, Turkish and Chinese. FieldSales is headquartered in Riyadh and is available to distribution and wholesale companies in any country."
         }
       ],
       "faq": [
@@ -204,7 +204,7 @@
         },
         {
           "q": "Does the app work without internet?",
-          "a": "Yes. Reps can sell, issue invoices and receipt vouchers, and print on a thermal printer while offline; data syncs once the connection returns."
+          "a": "Partly. In Egypt, invoices and returns need a connection at the moment of issue, while receipts and visits keep working offline: reps can issue a receipt voucher and print it on a thermal printer while offline, and data syncs once the connection returns."
         },
         {
           "q": "How do I record a collection paid by InstaPay or Vodafone Cash?",
@@ -324,9 +324,9 @@
     "fr": {
       "slugHint": null,
       "title": "Logiciel de vente terrain en Égypte | FieldSales",
-      "description": "FieldSales pour distributeurs et grossistes en Égypte : factures du commercial imprimées, encaissements espèces, InstaPay et wallets, tournées, hors ligne.",
+      "description": "FieldSales pour distributeurs et grossistes en Égypte : factures imprimées, encaissements espèces, InstaPay et wallets, tournées, reçus hors ligne.",
       "h1": "FieldSales en Égypte : vente terrain, vente en tournée et recouvrement",
-      "intro": "FieldSales est une plateforme cloud qui aide les distributeurs et grossistes en Égypte à piloter leurs commerciaux terrain : vente en tournée (van sales) et prévente, factures émises depuis le téléphone et imprimées sur imprimante thermique, reçus d'encaissement et créances, stock confié au véhicule et rapprochement, tournées et visites avec position et photos. Chaque société règle la livre égyptienne, son taux de TVA et ses modes d'encaissement dans les paramètres. L'application fonctionne hors ligne puis se synchronise, sur Android et iPhone, avec un tableau de bord web.",
+      "intro": "FieldSales est une plateforme cloud qui aide les distributeurs et grossistes en Égypte à piloter leurs commerciaux terrain : vente en tournée (van sales) et prévente, factures émises depuis le téléphone et imprimées sur imprimante thermique, reçus d'encaissement et créances, stock confié au véhicule et rapprochement, tournées et visites avec position et photos. Chaque société règle la livre égyptienne, son taux de TVA et ses modes d'encaissement dans les paramètres. L'application fonctionne sur Android et iPhone, avec un tableau de bord web ; les factures et les avoirs exigent une connexion au moment de l’émission, tandis que les reçus et les visites restent disponibles hors ligne, puis se synchronisent.",
       "sections": [
         {
           "id": "distribution",
@@ -351,7 +351,7 @@
         {
           "id": "how",
           "title": "Comment FieldSales fonctionne pour votre équipe en Égypte",
-          "body": "La mise en route commence par la devise (livre égyptienne), le nom et le taux de la taxe, vos modes d'encaissement et les coordonnées de votre société sur les impressions. Le commercial travaille sur Android ou iPhone : il ouvre sa tournée, visite ses clients avec position et photos enregistrées, vend sur le stock du véhicule ou prend une commande en prévente, imprime la facture sur imprimante thermique, puis encaisse et émet le reçu. Si le réseau coupe en route, le travail continue hors ligne et les données se synchronisent au retour de la connexion. La direction suit depuis le tableau de bord web les ventes, les encaissements, les créances, ainsi que le stock confié à chaque véhicule et son rapprochement. L'interface de l'application est disponible en arabe, anglais, français, turc et chinois. FieldSales a son siège à Riyad et s'adresse aux sociétés de distribution et de gros de tous les pays."
+          "body": "La mise en route commence par la devise (livre égyptienne), le nom et le taux de la taxe, vos modes d'encaissement et les coordonnées de votre société sur les impressions. Le commercial travaille sur Android ou iPhone : il ouvre sa tournée, visite ses clients avec position et photos enregistrées, vend sur le stock du véhicule ou prend une commande en prévente, imprime la facture sur imprimante thermique, puis encaisse et émet le reçu. En tournée, les factures et les avoirs exigent une connexion au moment de l’émission, tandis que les reçus et les visites restent disponibles hors ligne si le réseau coupe, et les données se synchronisent au retour de la connexion. La direction suit depuis le tableau de bord web les ventes, les encaissements, les créances, ainsi que le stock confié à chaque véhicule et son rapprochement. L'interface de l'application est disponible en arabe, anglais, français, turc et chinois. FieldSales a son siège à Riyad et s'adresse aux sociétés de distribution et de gros de tous les pays."
         }
       ],
       "faq": [
@@ -361,7 +361,7 @@
         },
         {
           "q": "L'application fonctionne-t-elle sans internet ?",
-          "a": "Oui. Le commercial vend, émet factures et reçus et imprime sur imprimante thermique hors ligne ; les données se synchronisent dès que la connexion revient."
+          "a": "En partie. En Égypte, les factures et les avoirs exigent une connexion au moment de l’émission, tandis que les reçus et les visites restent disponibles hors ligne : le commercial émet et imprime le reçu sur imprimante thermique sans connexion, et les données se synchronisent dès que la connexion revient."
         },
         {
           "q": "Comment enregistrer un encaissement reçu par InstaPay ou Vodafone Cash ?",
@@ -495,6 +495,17 @@
       "صياغة (ar FAQ5): «بينما» → «لكن» لوضوح الاستدراك؛ و(fr) «stock du camion» → «stock du véhicule» اتساقاً مع بقية النص.",
       "فُحص ولم يُعدَّل: النسب 14% و5% والصفرية، ضريبة الجدول، الإقرار الشهري، أرقام المرحلة الأولى والثامنة، القرار 361 لسنة 2025، أرقام Edita منسوبة بلا تسمية وبصيغة «يذكر في ملفه»، طرق التحصيل بلا ادعاء ربط، جملة FieldSales عن الربط الحكومي «متاح عند الطلب… دون وعد ولا موعد» ولا تاريخ في جملتها ولا في الجملة السابقة لها، لغات الواجهة الخمس، لا سعر ولا مبلغ ملاصق لعملة ولا «مجاني» ولا «معتمد/compliant/certified» ولا أسماء منافسين.",
       "ملاحظة للنشر: حسب uncertain يُراجَع رابط قائمة قرارات الإيصال الإلكتروني قبل النشر تحسباً لقرار إلزام بعد 361 لسنة 2025؛ والنص يقيّد ذلك بـ«عند تحققنا في نوفمبر 2026». أرقام Edita غير مؤرخة صراحةً. حدّ التسجيل في VAT لم يُذكر رقماً (خلاف 500,000/250,000 ومنع المبالغ)."
-    ]
+    ],
+    "fix2": {
+      "at": "2026-11-11",
+      "changes": [
+        "حارس (ج) قيد الاتصال في مصر (ETA مقاصّة لحظية): أُضيفت صيغة القيد المطابقة باللغات الثلاث في المقدمة (intro) وفي قسم «كيف يعمل» (sections[4]) وفي جواب سؤال العمل دون إنترنت (faq[1]): «تحتاج الفاتورة والمرتجع اتصالاً لحظة الإصدار، بينما تبقى سندات القبض والزيارات متاحة بلا إنترنت» / \"invoices and returns need a connection at the moment of issue, while receipts and visits keep working offline\" / «les factures et les avoirs exigent une connexion au moment de l’émission, tandis que les reçus et les visites restent disponibles hors ligne».",
+        "تصحيح وعد إصدار الفاتورة دون اتصال (ar/en/fr) في faq[1]: كان «نعم. يبيع المندوب ويُصدر الفواتير وسندات القبض… دون اتصال» / \"Yes. Reps can sell, issue invoices… while offline\" / «Oui. Le commercial vend, émet factures et reçus… hors ligne»؛ صار «جزئياً/Partly/En partie» مع القيد، وبقي إصدار سند القبض وطباعته دون اتصال.",
+        "المقدمة وsections[4] (ar/en/fr): حُذف التعميم «ويعمل التطبيق دون اتصال ثم يزامن لاحقاً» و«يستمر العمل دون اتصال» / \"works offline\", \"work continues offline\" / «fonctionne hors ligne», «le travail continue hors ligne»، وحلّت محلّها صيغة القيد مع بقاء المزامنة عند عودة الشبكة.",
+        "الوصف (description) تقليصاً لنطاق العمل دون اتصال إلى ما يصحّ: ar «ويعمل دون إنترنت» ← «وزيارات وسندات قبض تعمل دون إنترنت» (149)؛ en \"offline mode\" ← \"offline receipts\" (155)؛ fr «hors ligne» ← «reçus hors ligne» مع «factures du commercial imprimées» ← «factures imprimées» للبقاء ضمن 155 (147).",
+        "فحص حارس (أ): لا يرد نمط الحارس (أ) (عبارة الربط الخاصة بالمرحلة الثانية للفوترة بأيٍّ من اللغات الثلاث) في أي نص من الصفحة ولا في المصادر، قبل التعديل وبعده؛ فلم يُعدَّل شيء لأجله.",
+        "لم تُمسّ الحقائق ولا بقية النص؛ لا «يضمن ألا تتوقف المبيعات» ولا ما يشبهه في الصفحة. الفرنسية تبقي المسافة غير المنكسرة الضيقة قبل : و;، وجاءت «l’émission» بالفاصلة المقلوبة كما في صيغة الحارس."
+      ]
+    }
   }
 }

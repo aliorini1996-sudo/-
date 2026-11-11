@@ -41,7 +41,7 @@
       "faq": [
         {
           "q": "Are FieldSales invoices the same as GRA E-VAT invoices?",
-          "a": "No. Invoices and receipts from FieldSales are not validated by GRA and do not carry GRA's QR code, invoice signature or verification engine ID, so they do not replace an E-VAT invoice where GRA has brought you onto the system. FieldSales is not a fiscal electronic device either. A connection to Ghana's government e-invoicing platform is available on request, after we study the country's requirements, with no promise of a date or an outcome. Our only live government e-invoicing integration is in Saudi Arabia: We support Phase 2 integration with ZATCA’s Fatoora platform."
+          "a": "No. Invoices and receipts from FieldSales are not validated by GRA and do not carry GRA's QR code, invoice signature or verification engine ID, so they do not replace an E-VAT invoice where GRA has brought you onto the system. FieldSales is not a fiscal electronic device either. A connection to Ghana's government e-invoicing platform is available on request, after we study the country's requirements, with no promise of a date or an outcome. FieldSales’ only live government e-invoicing link today is in Saudi Arabia (ZATCA’s Fatoora platform)."
         },
         {
           "q": "How do I set VAT, NHIL and GETFund in FieldSales?",
@@ -220,6 +220,12 @@
       "ملاحظة باقية: لم يُتحقق في المنتج من عرض NHIL وGETFund وVAT في سطور منفصلة؛ الصفحة لا تدّعي ذلك وتحيل إلى المستشار الضريبي، ونموذج الفاتورة معروض كمتطلبات GRA لا كمخرجات FieldSales.",
       "ملاحظة باقية: مصطلحات van sales/pre-sales/sales rep عامة غير متحقق من تداولها محلياً في غانا (uncertain في الحقائق)، ويُنصح بإعادة التحقق من وضع FED وتوسيع E-VAT بعد ميزانية 2027.",
       "تحقق: لا سعر ولا مبلغ ملاصق لعملة، لا «free/certified/compliant/approved»، لا ادعاء ربط مع GRA/VSDC أو MoMo/GhIPSS، عبارة ZATCA الحرفية في FAQ الأول وحده، ولا تاريخ بجوار جمل ما تقدمه FieldSales، ولغات الواجهة الخمس مذكورة بصدق."
-    ]
+    ],
+    "fix2": {
+      "at": "2026-11-11",
+      "changes": [
+        "الحارس (أ): في إجابة FAQ الأول حُذفت جملة الربط السعودي التي ذكرت «المرحلة الثانية» بالإنجليزية، ووُضعت مكانها الصيغة المعتمدة «FieldSales’ only live government e-invoicing link today is in Saudi Arabia (ZATCA’s Fatoora platform).»؛ الحقيقة نفسها باقية، ولم يُمسّ شيء آخر في الصفحة."
+      ]
+    }
   }
 }

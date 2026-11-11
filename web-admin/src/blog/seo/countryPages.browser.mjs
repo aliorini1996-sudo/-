@@ -18,7 +18,7 @@
  * منسوخة في المستودع، ولو شملها النمط لصارت حزماً منشورة في dist/assets بنصوصها التي حجبها الحارس. Vite يشترط
  * نمطاً حرفياً، فالقائمة مكرّرة هنا ويطابقها countryGuides.test.ts بالسجلّ.
  */
-const LOADERS = import.meta.glob('../../content/country-pages/{IQ,OM,PK,NG,ZA,KE,CI,SN}.json', { import: 'default' });
+const LOADERS = import.meta.glob('../../content/country-pages/{SA,AE,EG,MA,IQ,OM,PK,NG,ZA,KE,CI,SN,PH,GH,CM}.json', { import: 'default' });
 const keyOf = (cc) => `../../content/country-pages/${String(cc || '').toUpperCase()}.json`;
 
 export const COUNTRY_PAGES_EAGER = false;

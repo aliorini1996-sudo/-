@@ -29,19 +29,15 @@ export const GUIDE_DATE = '2026-11-11';
 export const PUBLISHABLE_QUALITY = new Set(['publish', 'publish-with-notes']);
 
 /**
- * المستثناة من النشر (١١ نوفمبر ٢٠٢٦) — ملفاتها مراجَعة ومنسوخة، لكن حارساً قائماً يحجب نصّاً منها، والحارس لا يُضعَف.
- * تُضاف إلى السجلّ أدناه — وإلى نمط المحمّل الكسول في countryPages.browser.mjs — حين يُصحَّح نصّها في مصدره (أو
- * يقرّر المالك غير ذلك في الحارس نفسه):
- *   - SA: عنوان مصدر EY بالعربية والفرنسية («إعلان الموجة 25 من ربط المرحلة الثانية (10 أغسطس 2026)») يقرن عبارة
- *     الربط بموجة وتاريخ ⇒ zatca-phase2-dated (scripts/claims-rules.mjs؛ verify-claims وclaimsGuard.test.ts).
- *   - AE وMA (ع/إ/فر) وPH وGH (إ) وCM (فر): جملة «ندعم ربط المرحلة الثانية مع منصة فاتورة» في صفحة دولة غير السعودية
- *     ⇒ «جملة الربط في صفحة دولة غير السعودية» (catalog.links.test.ts).
- *   - EG وAE: «يعمل دون اتصال» بلا قيد «تحتاج الفاتورة اتصالاً لحظة الإصدار» في سوق مقاصّة لحظية
- *     ⇒ claimsGuard.test.ts (صفحات الكتالوج السعودية وأسواق المقاصّة اللحظية).
+ * أُضيفت ١١ نوفمبر ٢٠٢٦ بعد تصحيح نصّها في مصدره (D:/claude-work/country-pages) — كانت مستثناة لأن حارساً قائماً يحجب
+ * نصّاً منها، والحارس لم يُضعَف: SA (عنوان مصدر EY بموجة وتاريخ ← zatca-phase2-dated)، وAE وMA وPH وGH وCM (جملة
+ * ربط المرحلة الثانية في صفحة دولة غير السعودية ← catalog.links.test.ts)، وEG وAE («دون اتصال» بلا قيد الاتصال في
+ * سوق مقاصّة لحظية ← claimsGuard.test.ts). دولة يحجب حارسٌ نصّها تبقى خارج السجلّ (وخارج نمط المحمّل الكسول في
+ * countryPages.browser.mjs) حتى يُصحَّح مصدرها.
  */
 
 /** صفحات الدول القائمة المرقّاة بقسم «حقائق محلية» (ع/إ/فر) */
-export const UPGRADED_GUIDES = ['IQ', 'OM'];
+export const UPGRADED_GUIDES = ['SA', 'AE', 'EG', 'MA', 'IQ', 'OM'];
 export const UPGRADE_LANGS = ['ar', 'en', 'fr'];
 
 /**
@@ -55,6 +51,10 @@ export const NEW_GUIDES = [
   { code: 'KE', lang: 'en', ar: 'كينيا', en: 'Kenya', fr: 'Kenya', inAr: 'في كينيا', inEn: 'in Kenya', inFr: 'au Kenya' },
   { code: 'CI', lang: 'fr', ar: 'ساحل العاج', en: 'Côte d’Ivoire', fr: 'Côte d’Ivoire', inAr: 'في ساحل العاج', inEn: 'in Côte d’Ivoire', inFr: 'en Côte d’Ivoire' },
   { code: 'SN', lang: 'fr', ar: 'السنغال', en: 'Senegal', fr: 'Sénégal', inAr: 'في السنغال', inEn: 'in Senegal', inFr: 'au Sénégal' },
+  // أُلحقت بآخر السجلّ لا بترتيب الأسواق: موضع الدليل يحدّد لون بطاقته (cardCatalog)، وبطاقات ما قبلها مولَّدة
+  { code: 'PH', lang: 'en', ar: 'الفلبين', en: 'Philippines', fr: 'Philippines', inAr: 'في الفلبين', inEn: 'in the Philippines', inFr: 'aux Philippines' },
+  { code: 'GH', lang: 'en', ar: 'غانا', en: 'Ghana', fr: 'Ghana', inAr: 'في غانا', inEn: 'in Ghana', inFr: 'au Ghana' },
+  { code: 'CM', lang: 'fr', ar: 'الكاميرون', en: 'Cameroon', fr: 'Cameroun', inAr: 'في الكاميرون', inEn: 'in Cameroon', inFr: 'au Cameroun' },
 ];
 
 /** موضوع الأدلة الوحيد */

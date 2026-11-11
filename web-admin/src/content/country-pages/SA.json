@@ -37,7 +37,7 @@
     {
      "id": "how",
      "title": "كيف يعمل FieldSales في السعودية",
-     "body": "يعمل FieldSales على أندرويد وآيفون، مع لوحة ويب للإدارة. تضبط الشركة في إعداداتها العملة (الريال السعودي) ونسبة الضريبة (15%) واسمها وطرق الدفع، فتظهر في الفواتير والسندات. ويصدر المندوب الفاتورة من جواله بالعربية مع رمز QR ويطبعها على طابعة حرارية، ويسجّل زياراته على خط السير بالموقع والصور، وتُتابَع عهدة سيارته ومخزونها.\n\nيعمل التطبيق دون اتصال ويزامن ما سُجّل عند عودة الشبكة، مع استثناء واحد: في الشركة المفعَّل لها ربط المرحلة الثانية مع منصة فاتورة يحتاج إصدار الفواتير الضريبية والمبسطة والمرتجعات اتصالاً لحظة الإصدار.\n\nواجهة التطبيق متاحة بالعربية والإنجليزية والفرنسية والتركية والصينية، والواجهة العربية كاملة وصُممت لشركات التوزيع في السوق السعودي. ومقر FieldSales في الرياض."
+     "body": "يعمل FieldSales على أندرويد وآيفون، مع لوحة ويب للإدارة. تضبط الشركة في إعداداتها العملة (الريال السعودي) ونسبة الضريبة (15%) واسمها وطرق الدفع، فتظهر في الفواتير والسندات. ويصدر المندوب الفاتورة من جواله بالعربية مع رمز QR ويطبعها على طابعة حرارية، ويسجّل زياراته على خط السير بالموقع والصور، وتُتابَع عهدة سيارته ومخزونها.\n\nيعمل التطبيق دون اتصال ويزامن ما سُجّل عند عودة الشبكة، مع استثناء واحد: في الشركة المفعَّل لها ربط المرحلة الثانية مع منصة فاتورة، تحتاج الفاتورة والمرتجع اتصالاً لحظة الإصدار، بينما تبقى سندات القبض والزيارات متاحة بلا إنترنت.\n\nواجهة التطبيق متاحة بالعربية والإنجليزية والفرنسية والتركية والصينية، والواجهة العربية كاملة وصُممت لشركات التوزيع في السوق السعودي. ومقر FieldSales في الرياض."
     }
    ],
    "faq": [
@@ -47,7 +47,7 @@
     },
     {
      "q": "هل يعمل تطبيق المندوب دون إنترنت؟",
-     "a": "نعم، يعمل دون اتصال ويزامن ما سُجّل عند عودة الشبكة. والاستثناء: في الشركة المفعَّل لها ربط المرحلة الثانية مع منصة فاتورة يحتاج إصدار الفواتير الضريبية والمبسطة والمرتجعات اتصالاً لحظة الإصدار."
+     "a": "نعم، يعمل دون اتصال ويزامن ما سُجّل عند عودة الشبكة. والاستثناء: في الشركة المفعَّل لها ربط المرحلة الثانية مع منصة فاتورة، تحتاج الفاتورة والمرتجع اتصالاً لحظة الإصدار، بينما تبقى سندات القبض والزيارات متاحة بلا إنترنت."
     },
     {
      "q": "كيف أضبط الريال وضريبة القيمة المضافة 15%؟",
@@ -154,7 +154,7 @@
      "url": "https://taxsummaries.pwc.com/saudi-arabia/corporate/other-taxes"
     },
     {
-     "title": "EY Global Tax News — إعلان الموجة 25 من ربط المرحلة الثانية (10 أغسطس 2026)",
+     "title": "EY Global Tax News — إعلان الموجة 25 من مرحلة الربط والتكامل (10 أغسطس 2026)",
      "url": "https://taxnews.ey.com/news/2026-1705-saudi-arabia-announces-25th-wave-of-phase-2-e-invoicing-integration"
     },
     {
@@ -194,7 +194,7 @@
     {
      "id": "how",
      "title": "How FieldSales works in Saudi Arabia",
-     "body": "FieldSales runs on Android and iPhone, with a web dashboard for managers. In its settings, each company sets the currency (Saudi riyal), the VAT rate (15%), the tax name and its payment methods, which then appear on invoices and receipts. Reps issue Arabic invoices with a QR code from their phones and print them on thermal printers, log route visits with location and photos, and keep track of the van’s stock custody.\n\nThe app works offline and syncs once the network is back, with one exception: for companies with Phase 2 integration with ZATCA’s Fatoora platform switched on, tax invoices, simplified invoices and returns need a connection at the moment of issue.\n\nThe app interface is available in Arabic, English, French, Turkish and Chinese; the Arabic interface is complete and was designed for distribution companies in the Saudi market. FieldSales is headquartered in Riyadh."
+     "body": "FieldSales runs on Android and iPhone, with a web dashboard for managers. In its settings, each company sets the currency (Saudi riyal), the VAT rate (15%), the tax name and its payment methods, which then appear on invoices and receipts. Reps issue Arabic invoices with a QR code from their phones and print them on thermal printers, log route visits with location and photos, and keep track of the van’s stock custody.\n\nThe app works offline and syncs once the network is back, with one exception: for companies with Phase 2 integration with ZATCA’s Fatoora platform switched on, tax invoices, simplified invoices and returns need a connection at the moment of issue, while receipts and visits keep working offline.\n\nThe app interface is available in Arabic, English, French, Turkish and Chinese; the Arabic interface is complete and was designed for distribution companies in the Saudi market. FieldSales is headquartered in Riyadh."
     }
    ],
    "faq": [
@@ -204,7 +204,7 @@
     },
     {
      "q": "Does the rep app work without internet?",
-     "a": "Yes. It works offline and syncs what was recorded once the network is back. The exception: for companies with Phase 2 integration with ZATCA’s Fatoora platform switched on, tax invoices, simplified invoices and returns need a connection at the moment of issue."
+     "a": "Yes. It works offline and syncs what was recorded once the network is back. The exception: for companies with Phase 2 integration with ZATCA’s Fatoora platform switched on, tax invoices, simplified invoices and returns need a connection at the moment of issue, while receipts and visits keep working offline."
     },
     {
      "q": "How do I set up the riyal and 15% VAT?",
@@ -351,7 +351,7 @@
     {
      "id": "how",
      "title": "Comment FieldSales fonctionne en Arabie saoudite",
-     "body": "FieldSales fonctionne sur Android et iPhone, avec un tableau de bord web pour les responsables. Dans ses paramètres, chaque entreprise définit la devise (riyal saoudien), le taux de TVA (15 %) et son libellé, ainsi que ses modes de paiement, repris ensuite sur les factures et les reçus. Le commercial émet depuis son mobile des factures en arabe avec code QR, les imprime sur imprimante thermique, enregistre les visites de sa tournée avec localisation et photos et suit le stock confié à son véhicule.\n\nL’application fonctionne hors connexion et se synchronise au retour du réseau, avec une exception : pour les entreprises où l’intégration de la phase 2 avec la plateforme Fatoora de la ZATCA est activée, les factures fiscales, les factures simplifiées et les retours exigent une connexion au moment de l’émission.\n\nL’interface de l’application existe en arabe, anglais, français, turc et chinois ; l’interface arabe est complète et a été conçue pour les sociétés de distribution du marché saoudien. FieldSales a son siège à Riyad."
+     "body": "FieldSales fonctionne sur Android et iPhone, avec un tableau de bord web pour les responsables. Dans ses paramètres, chaque entreprise définit la devise (riyal saoudien), le taux de TVA (15 %) et son libellé, ainsi que ses modes de paiement, repris ensuite sur les factures et les reçus. Le commercial émet depuis son mobile des factures en arabe avec code QR, les imprime sur imprimante thermique, enregistre les visites de sa tournée avec localisation et photos et suit le stock confié à son véhicule.\n\nL’application fonctionne hors connexion et se synchronise au retour du réseau, avec une exception : pour les entreprises où l’intégration de la phase 2 avec la plateforme Fatoora de la ZATCA est activée, les factures et les avoirs exigent une connexion au moment de l’émission, tandis que les reçus et les visites restent disponibles hors ligne.\n\nL’interface de l’application existe en arabe, anglais, français, turc et chinois ; l’interface arabe est complète et a été conçue pour les sociétés de distribution du marché saoudien. FieldSales a son siège à Riyad."
     }
    ],
    "faq": [
@@ -361,7 +361,7 @@
     },
     {
      "q": "L’application du commercial fonctionne-t-elle sans internet ?",
-     "a": "Oui. Elle fonctionne hors connexion et synchronise les saisies au retour du réseau. Exception : pour les entreprises où l’intégration de la phase 2 avec la plateforme Fatoora est activée, les factures fiscales, les factures simplifiées et les retours exigent une connexion au moment de l’émission."
+     "a": "Oui. Elle fonctionne hors connexion et synchronise les saisies au retour du réseau. Exception : pour les entreprises où l’intégration de la phase 2 avec la plateforme Fatoora est activée, les factures et les avoirs exigent une connexion au moment de l’émission, tandis que les reçus et les visites restent disponibles hors ligne."
     },
     {
      "q": "Comment paramétrer le riyal et la TVA à 15 % ?",
@@ -468,7 +468,7 @@
      "url": "https://taxsummaries.pwc.com/saudi-arabia/corporate/other-taxes"
     },
     {
-     "title": "EY Global Tax News — annonce de la 25e vague d’intégration de la phase 2 (10 août 2026)",
+     "title": "EY Global Tax News — annonce de la 25e vague de la phase d’intégration (10 août 2026)",
      "url": "https://taxnews.ey.com/news/2026-1705-saudi-arabia-announces-25th-wave-of-phase-2-e-invoicing-integration"
     },
     {
@@ -497,6 +497,18 @@
    "فُحص ولم يُعدَّل: ادعاء الربط بالصيغة المعتمدة حرفياً في جملة مستقلة بلا سنة ولا موجة؛ لا «معتمد/اعتماد/مرخّص/certified/compliant/approved/conforme/agréé» ولا «مجاني/free/gratuit»؛ لا سعر ولا مبلغ ملاصق لعملة (عتبات الموجات والفاتورة المبسطة بأسماء الحدود لا بالأرقام)؛ لا أسماء منافسين ولا أرقام عملاء؛ لا ربط مع مدى أو البنوك (نفي صريح)؛ لغات الواجهة الخمس صادقة؛ تواريخ الإلزام (2021، 2023، الموجتان 24 و25، 2027) في قسم الفوترة وحده بمصادرها، وتاريخا ضريبة القيمة المضافة (2018، 2020) تاريخ ضريبي في قسم الضريبة بعيداً عن جملة FieldSales؛ 15% و5% والموجات و24 ساعة وUBL 2.1 وPDF/A-3 وU+20C1 مطابقة للحقائق.",
    "ملاحظة للمالك: «أخذ الطلبيات/Pre-sales» يرد مصطلحاً سوقياً فقط ولا يُنسب إلى FieldSales لأن تدقيق الحقائق حذفه من canSay، مع أن وصف المنصة الملزم يذكر pre-sales؛ يُضاف إن أكّده الفريق.",
    "ملاحظة للمالك: قسم التوزيع (المدن والقنوات والمصطلحات ووسائل التحصيل) بلا مصدر مُستجلب بحسب uncertain، مصوغ بـ«عادةً/في الغالب» وبلا أرقام؛ ونسبة 15% مؤكدة حتى 21 أكتوبر 2026؛ والعتبات بلا أرقام فإن أراد الدامج الأرقام فهي مبالغ ملاصقة للعملة تخالف القاعدة."
-  ]
+  ],
+  "fix2": {
+   "at": "2026-11-11",
+   "changes": [
+    "الحارس (ب) ar.sources[9].title: «إعلان الموجة 25 من ربط المرحلة الثانية (10 أغسطس 2026)» → «إعلان الموجة 25 من مرحلة الربط والتكامل (10 أغسطس 2026)»؛ أُبقي التاريخ ورقم الموجة وأُزيلت عبارة الربط من العنوان.",
+    "الحارس (ب) fr.sources[9].title: «annonce de la 25e vague d’intégration de la phase 2 (10 août 2026)» → «annonce de la 25e vague de la phase d’intégration (10 août 2026)»، على نسق عنوان المصدر fr.sources[1].",
+    "الحارس (ب) فُحص ولم يُعدَّل: en.sources[9].title لا يطابق النمط (Phase 2 e-invoicing integration)، وكل جمل الصفحة بالعربية والإنجليزية والفرنسية التي فيها عبارة الربط خالية من تاريخ أو سنة أو رقم موجة أو عدد.",
+    "الحارس (ج) ar.sections[4].body وar.faq[1].a: «يحتاج إصدار الفواتير الضريبية والمبسطة والمرتجعات اتصالاً لحظة الإصدار» → «، تحتاج الفاتورة والمرتجع اتصالاً لحظة الإصدار، بينما تبقى سندات القبض والزيارات متاحة بلا إنترنت»؛ والقيد ما يزال مقصوراً على الشركة المفعَّل لها الربط، وتفصيل الفواتير الضريبية والمبسطة باقٍ في قسم الفوترة.",
+    "الحارس (ج) en.sections[4].body وen.faq[1].a: أُلحق بجملة الاستثناء «, while receipts and visits keep working offline» فصارت تتضمن الصيغة المطابقة حرفياً مع بقاء «tax invoices, simplified invoices».",
+    "الحارس (ج) fr.sections[4].body وfr.faq[1].a: «les factures fiscales, les factures simplifiées et les retours exigent une connexion au moment de l’émission» → «les factures et les avoirs exigent une connexion au moment de l’émission, tandis que les reçus et les visites restent disponibles hors ligne».",
+    "لم يُمسّ: العنوان والوصف وh1 والمقدمة والحقائق والتواريخ والمصادر الأخرى؛ ولا وعد بإصدار فاتورة دون اتصال ولا «يضمن ألا تتوقف المبيعات»."
+   ]
+  }
  }
 }
