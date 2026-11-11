@@ -8,7 +8,7 @@
     "en": {
       "slugHint": "van-sales-software-nigeria",
       "title": "Van Sales & Collections Software for Nigeria | FieldSales",
-      "description": "Van sales, pre-sales and collections app for Nigerian distributors: invoices from the rep's phone with VAT, thermal printing, receipts and offline mode.",
+      "description": "Van sales app with pre-sales and collections for Nigerian distributors: invoices from the rep's phone with VAT, thermal printing, receipts and offline mode.",
       "h1": "Van sales and collections software for distributors in Nigeria",
       "intro": "FieldSales is a cloud platform for Nigerian distributors and wholesalers that run van sales, pre-sales order-taking and collections. Your sales reps raise invoices on their phones and print them on a thermal printer, record receipts against customer balances, reconcile the stock on their vans, and follow routes with visits logged by location and photo. It keeps working offline and syncs later, on Android, iPhone and a web dashboard. You set the naira, VAT at 7.5% and your payment methods yourself in settings.",
       "sections": [
@@ -189,6 +189,12 @@
       "عنوان مصدر BusinessDay كان محاكاة لعنوان المقال بكلمات مختلفة، فصار وصفاً صريحاً: «NRS e-invoicing deadline for large taxpayers (July 2026)».",
       "تحقّق بلا تعديل: النسبة 7.5% والجهة NRS (سابقاً FIRS)، وقائمة المادة 153، والإقرار في اليوم 21، والنموذج clearance وB2C خلال 24 ساعة، ومواعيد المتوسطين والناشئين بصيغة «معلن» وعدم تأكيد فرض الغرامات، كلها مطابقة للحقائق؛ لا مبلغ ملاصق لعملة، ولا «free/certified/compliant/approved»، ولا ادعاء ربط مع MBS، وجمل FieldSales في قسم الفوترة بعيدة عن آخر جملة مؤرَّخة بجملتين بلا تاريخ.",
       "ملاحظة: كل حقول localTerms بقيمة null، فاستُعملت عبارات إنجليزية عامة (van sales وpre-sales order-taking وsales rep) لوصف المنتج فقط؛ ولم تُذكر مصطلحات أو محافظ ممّا في uncertain."
-    ]
+    ],
+    "fix3": {
+      "at": "2026-11-11",
+      "changes": [
+        "قاموس en ‏[glossary-en-01]: «van sales» منفردةً في الرأس (يليها فاصلة فلا سياق) تجلب مبيعات الفانات التجارية؛ صارت مركّبة بالصيغة المفضّلة «van sales app»: content.en.description «Van sales, pre-sales and collections app for Nigerian distributors: invoices from the rep's phone with VAT, thermal printing, receipts and offline mode.» ← «Van sales app with pre-sales and collections for Nigerian distributors: invoices from the rep's phone with VAT, thermal printing, receipts and offline mode.». لم يُمسّ غيره."
+      ]
+    }
   }
 }

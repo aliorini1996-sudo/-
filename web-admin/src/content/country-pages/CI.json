@@ -8,7 +8,7 @@
     "fr": {
       "slugHint": "logiciel-vente-en-tournee-cote-divoire",
       "title": "Logiciel de vente en tournée en Côte d'Ivoire | FieldSales",
-      "description": "Commerciaux terrain en Côte d'Ivoire : vente en tournée, prévente, encaissements en francs CFA et mobile money, TVA paramétrable, mode hors ligne.",
+      "description": "Commerciaux terrain en Côte d'Ivoire : logiciel de vente en tournée, prévente, encaissements en francs CFA et mobile money, TVA paramétrable, mode hors ligne.",
       "h1": "Vente en tournée et prévente pour les distributeurs ivoiriens",
       "intro": "FieldSales est une plateforme cloud avec laquelle les grossistes et les distributeurs en Côte d'Ivoire peuvent piloter leurs commerciaux terrain. Depuis son téléphone, le vendeur prend les commandes en prévente ou vend en tournée à bord de son véhicule, imprime la facture sur une imprimante thermique, encaisse en espèces ou en mobile money et suit les créances de ses clients. Le superviseur suit l'itinéraire, les visites géolocalisées avec photos et le stock du véhicule ; ce qui est saisi sans réseau se synchronise dès que la connexion revient. La FNE, facture légale, reste émise via les canaux de la DGI.",
       "sections": [
@@ -207,6 +207,12 @@
       "ملاحظة (بلا تعديل): وضع TCE وحد 5,000 FCFA وعمل FNE دون اتصال غير محسومة في الحقائق ولم تُذكر في الصفحة، وهذا صحيح.",
       "ملاحظة للمنتج: XOF بلا كسور عشرية (ISO 4217)؛ يُستحسن التحقق من أن FieldSales يعرض الفرنك بلا منازل عشرية قبل النشر.",
       "فُحص: لا سعر ولا مبلغ ملاصق لعملة، ولا agréé/certifié/conforme/gratuit، ولا ادعاء ربط بـFNE أو بالمحافظ، ولا تاريخ في فقرة FieldSales ولا في الجملة السابقة لها، ولغات الواجهة الخمس صادقة."
-    ]
+    ],
+    "fix3": {
+      "at": "2026-11-11",
+      "changes": [
+        "قاموس fr ‏[glossary-fr-04]: «vente en tournée» منفردةً في الرأس تنقلب إلى الجولات الفنية والباعة المتجولين؛ صارت مركّبة بالصيغة المفضّلة «logiciel de vente en tournée»: content.fr.description «Commerciaux terrain en Côte d'Ivoire : vente en tournée, prévente, encaissements en francs CFA et mobile money, TVA paramétrable, mode hors ligne.» ← «Commerciaux terrain en Côte d'Ivoire : logiciel de vente en tournée, prévente, encaissements en francs CFA et mobile money, TVA paramétrable, mode hors ligne.». لم يُمسّ غيره."
+      ]
+    }
   }
 }

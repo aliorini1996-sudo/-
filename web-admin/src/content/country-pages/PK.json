@@ -8,7 +8,7 @@
     "en": {
       "slugHint": "van-sales-software-pakistan",
       "title": "Van Sales & Collections Software for Pakistan | FieldSales",
-      "description": "Van sales, pre-sales and collections app for distributors in Pakistan: rupee pricing, 18% Sales Tax settings, receipts, routes and offline use.",
+      "description": "Van sales app with pre-sales and collections for distributors in Pakistan: rupee pricing, 18% Sales Tax settings, receipts, routes and offline use.",
       "h1": "Van sales and collections software for distributors in Pakistan",
       "intro": "FieldSales is a cloud platform for distribution and wholesale companies that run van sales, pre-sales order taking and collections, and distributors in Pakistan can use it as anywhere else. Sales reps take orders, record receipts against customer balances, reconcile the stock on their vans and follow routes with visits logged by location and photo, even offline, on Android, iPhone and a web dashboard. You set the rupee, Sales Tax at 18% and your payment methods in settings. Sales-tax-registered businesses still issue their tax invoices from their FBR-integrated system.",
       "sections": [
@@ -222,6 +222,12 @@
       "ملاحظة باقية: مصطلحات السوق المحلية (kiryana، order booker، PJP، recovery) لم تُستعمل لأنها null أو في uncertain؛ يُنصح بالتحقق منها مع موزّعين محليين قبل إضافتها لقيمتها في البحث.",
       "ملاحظة باقية: نطاق further tax 4% ونسب خدمات الأقاليم ونطاق شمول تطبيق المندوب بالقاعدتين 150R(3) و150XE(3) مذكورة بصيغة محاطة بالتحفّظ ومحالة إلى المستشار الضريبي، كما في uncertain.",
       "فُحص: لا سعر ولا مبلغ ملاصق لعملة، ولا «free/certified/compliant/approved»، ولا ادعاء ربط بـFBR أو PRAL أو POS أو المحافظ، ولا تاريخ في جمل FieldSales أو بجوارها، ولغات الواجهة صادقة، والعنوان 58 حرفاً والوصف ضمن 155."
-    ]
+    ],
+    "fix3": {
+      "at": "2026-11-11",
+      "changes": [
+        "قاموس en ‏[glossary-en-01]: «van sales» منفردةً في الرأس (يليها فاصلة فلا سياق) تجلب مبيعات الفانات التجارية؛ صارت مركّبة بالصيغة المفضّلة «van sales app»: content.en.description «Van sales, pre-sales and collections app for distributors in Pakistan: rupee pricing, 18% Sales Tax settings, receipts, routes and offline use.» ← «Van sales app with pre-sales and collections for distributors in Pakistan: rupee pricing, 18% Sales Tax settings, receipts, routes and offline use.». لم يُمسّ غيره."
+      ]
+    }
   }
 }

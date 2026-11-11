@@ -8,7 +8,7 @@
     "en": {
       "slugHint": "van-sales-software-kenya",
       "title": "Van Sales Software for Distributors in Kenya | FieldSales",
-      "description": "Van sales, pre-sales and collections software for Kenyan distributors: rep invoicing on the phone, cash and M-Pesa receipts, van stock, routes, offline.",
+      "description": "Van sales software with pre-sales and collections for Kenyan distributors: rep invoicing on the phone, cash and M-Pesa receipts, van stock, routes, offline.",
       "h1": "Van sales and field sales software for distributors in Kenya",
       "intro": "FieldSales is cloud software for Kenyan distributors and wholesalers that run van sales, pre-sales order taking and collections. Reps invoice dukas, kiosks and stockists from an Android or iPhone app, print on Bluetooth thermal printers and record cash, M-Pesa or bank-transfer receipts, even with no network, syncing later. Managers follow routes, visits, van stock and customer balances on a web dashboard. You set the currency, VAT and payment methods in your own settings. Electronic tax invoices for KRA still go through your own eTIMS solution.",
       "sections": [
@@ -207,6 +207,12 @@
       "الأسئلة: «would normally use it in English» يوحي باستعمال فعلي لدى عملاء؛ صار «can use it in English»",
       "مثال الفاتورة: «KRA PIN (starts with P0)» جازمة والحقائق تقول «يبدأ عادة» وللكيانات فقط؛ صارت «company PINs usually start with P0»",
       "تحقق دون تعديل: لا سعر ولا مبلغ ملاصق لعملة، ولا «free/certified/compliant/approved»، ولا ادعاء ربط مع eTIMS/TIMS/iTax أو M-Pesa، وفقرة موقف FieldSales من الربط مستقلة بلا تاريخ، ولغات الواجهة الخمس مذكورة بصدق مع نفي السواحيلية، ونسبة 8% على الوقود منسوبة ومتحفّظ فيها، وكل المصادر في الصفحة موجودة في ملف الحقائق؛ العنوان 57 حرفاً والوصف 152"
-    ]
+    ],
+    "fix3": {
+      "at": "2026-11-11",
+      "changes": [
+        "قاموس en ‏[glossary-en-01]: «van sales» منفردةً في الرأس (يليها فاصلة فلا سياق) تجلب مبيعات الفانات التجارية؛ صارت مركّبة بالصيغة المفضّلة «van sales software»: content.en.description «Van sales, pre-sales and collections software for Kenyan distributors: rep invoicing on the phone, cash and M-Pesa receipts, van stock, routes, offline.» ← «Van sales software with pre-sales and collections for Kenyan distributors: rep invoicing on the phone, cash and M-Pesa receipts, van stock, routes, offline.». لم يُمسّ غيره."
+      ]
+    }
   }
 }

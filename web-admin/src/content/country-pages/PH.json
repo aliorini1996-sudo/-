@@ -8,8 +8,8 @@
     "en": {
       "slugHint": "van-sales-software-philippines",
       "title": "Van Sales Software for Distributors in the Philippines",
-      "description": "Van sales, pre-sales and collections for Philippine distributors: invoices printed from the rep's phone, 12% VAT set by you, works offline.",
-      "h1": "Van sales, pre-sales and collections software for Philippine distributors",
+      "description": "Van sales app with pre-sales and collections for Philippine distributors: invoices printed from the rep's phone, 12% VAT set by you, works offline.",
+      "h1": "Van sales software with pre-sales and collections for Philippine distributors",
       "intro": "FieldSales is a cloud platform for distribution and wholesale companies in the Philippines that run van sales, pre-sales order taking and field collections. Reps issue invoices on their phones and print them on a thermal printer, record collections, track customer balances and van stock, and log each store visit with location and photos, from sari-sari stores to supermarkets. The app keeps working offline and syncs later. Each company sets its own currency, VAT rate and payment methods, such as GCash or Maya.",
       "sections": [
         {
@@ -214,6 +214,13 @@
       "at": "2026-11-11",
       "changes": [
         "الحارس (أ): في قسم الفوترة الإلكترونية (einvoicing) استُبدلت جملة «Our only live government e-invoicing connection is in Saudi Arabia, where we support Phase 2 integration with ZATCA’s Fatoora platform.» بالصيغة المعتمدة «FieldSales’ only live government e-invoicing link today is in Saudi Arabia (ZATCA’s Fatoora platform).» فلم يعد النمط «Phase 2 integration» في أي موضع من نص الصفحة (ولا في المصادر)؛ الحقيقة نفسها باقية، ولم يُمسّ غير هذه الجملة."
+      ]
+    },
+    "fix3": {
+      "at": "2026-11-11",
+      "changes": [
+        "قاموس en ‏[glossary-en-01]: «van sales» منفردةً في الرأس (يليها فاصلة فلا سياق) تجلب مبيعات الفانات التجارية؛ صارت مركّبة بالصيغة المفضّلة «van sales app»: content.en.description «Van sales, pre-sales and collections for Philippine distributors: invoices printed from the rep's phone, 12% VAT set by you, works offline.» ← «Van sales app with pre-sales and collections for Philippine distributors: invoices printed from the rep's phone, 12% VAT set by you, works offline.». لم يُمسّ غيره.",
+        "قاموس en ‏[glossary-en-01]: «van sales» منفردةً في الرأس (يليها فاصلة فلا سياق) تجلب مبيعات الفانات التجارية؛ صارت مركّبة بالصيغة المفضّلة «van sales software»: content.en.h1 «Van sales, pre-sales and collections software for Philippine distributors» ← «Van sales software with pre-sales and collections for Philippine distributors». لم يُمسّ غيره."
       ]
     }
   }

@@ -8,7 +8,7 @@
     "en": {
       "slugHint": "van-sales-software-south-africa",
       "title": "Van Sales & Pre-Sales Software in South Africa | FieldSales",
-      "description": "Van sales, pre-sales and collections software for South African distributors: invoices with VAT from the rep’s phone, thermal printing, offline routes.",
+      "description": "Van sales software with pre-sales and collections for South African distributors: invoices with VAT from the rep’s phone, thermal printing, offline routes.",
       "h1": "Van sales and pre-sales software for South African distributors",
       "intro": "FieldSales is a cloud platform for South African distributors and wholesalers running van sales, pre-sales (order taking) and collections. Sales reps issue invoices from their phones and print them on a thermal printer, record receipts and customer balances, reconcile van stock and log GPS-stamped visits with photos along their route. Invoices and receipts can be issued without signal and sync later. You set the currency to rand (ZAR) and VAT to 15% in your own settings, and run it on Android, iPhone and a web dashboard.",
       "sections": [
@@ -180,6 +180,12 @@
       "«built and supported from its head office in Riyadh» صارت «has its head office in Riyadh» (المعطى: المقر الرياض فقط).",
       "ملاحظة للنشر: حدّا الفاتورة الكاملة والفاتورة الضريبية وُصفا بلا مبالغ التزاماً بمنع المبالغ الملاصقة للعملة؛ ليس خطأ لكنه يقلّل الفائدة للقارئ. حقل notes الداخلي يذكر R2.3 مليون وهو غير منشور.",
       "تحقق: لا سعر ولا «free» ولا certified/compliant/approved/accredited، ولا اسم منافس ولا أرقام عملاء؛ جملة FieldSales في قسم الفوترة الإلكترونية بلا سنة وما قبلها جملتان بلا سنوات؛ لغات الواجهة الخمس صادقة مع نفي الأفريكانية والزولو؛ النسبة 15% والجهة SARS والمراحل وسنواتها ومصدرها (الفصل 8) مطابقة."
-    ]
+    ],
+    "fix3": {
+      "at": "2026-11-11",
+      "changes": [
+        "قاموس en ‏[glossary-en-01]: «van sales» منفردةً في الرأس (يليها فاصلة فلا سياق) تجلب مبيعات الفانات التجارية؛ صارت مركّبة بالصيغة المفضّلة «van sales software»: content.en.description «Van sales, pre-sales and collections software for South African distributors: invoices with VAT from the rep’s phone, thermal printing, offline routes.» ← «Van sales software with pre-sales and collections for South African distributors: invoices with VAT from the rep’s phone, thermal printing, offline routes.». لم يُمسّ غيره."
+      ]
+    }
   }
 }

@@ -9,7 +9,7 @@
       "slugHint": "logiciel-force-de-vente-cameroun",
       "title": "Logiciel de force de vente pour distributeurs au Cameroun",
       "description": "Factures sur mobile et impression thermique, encaissements en espèces, MoMo ou Orange Money, stock véhicule et tournées, même hors ligne.",
-      "h1": "FieldSales au Cameroun : vente en tournée, prise de commandes et recouvrement",
+      "h1": "FieldSales au Cameroun : logiciel de vente en tournée, de prise de commandes et de recouvrement",
       "intro": "FieldSales est une plateforme cloud qui équipe les commerciaux des grossistes, demi-grossistes et distributeurs au Cameroun. Sur le terrain, vos vendeurs pratiquent la vente directe depuis le véhicule ou prennent les commandes à l’avance, éditent la facture sur leur téléphone et l’impriment sur une imprimante thermique, puis enregistrent l’encaissement en espèces, par virement, par chèque, par MTN MoMo ou par Orange Money. L’application continue de fonctionner quand le réseau coupe en route et synchronise les données dès son retour. Au bureau, le stock du véhicule, les tournées, les visites géolocalisées avec photos et les créances clients se suivent depuis le tableau de bord web.",
       "sections": [
         {
@@ -200,6 +200,12 @@
         "الحارس (أ): قسم الفوترة الإلكترونية (einvoicing) — حُذفت الإشارة إلى «la phase 2» في جملة موقف FieldSales، وصارت «La seule liaison active de FieldSales avec une plateforme publique de facturation électronique est aujourd’hui en Arabie saoudite (plateforme Fatoora de la ZATCA).» (وسقطت «Côté FieldSales :» لئلا يتكرر الاسم).",
         "الحارس (أ): جواب السؤال الأول في faq — حُذفت الإشارة إلى «la phase 2» وصار «Non. La seule liaison active de FieldSales avec une plateforme publique de facturation électronique est aujourd’hui en Arabie saoudite (plateforme Fatoora de la ZATCA).»",
         "لم يُمسّ غير هاتين الجملتين؛ ما بعدهما (ربط مع DGI عند الطلب بعد دراسة متطلبات البلد بلا وعد ولا موعد، وخصم TVA وفق المادة 143) كما هو."
+      ]
+    },
+    "fix3": {
+      "at": "2026-11-11",
+      "changes": [
+        "قاموس fr ‏[glossary-fr-04]: «vente en tournée» منفردةً في الرأس تنقلب إلى الجولات الفنية والباعة المتجولين؛ صارت مركّبة بالصيغة المفضّلة «logiciel de vente en tournée»: content.fr.h1 «FieldSales au Cameroun : vente en tournée, prise de commandes et recouvrement» ← «FieldSales au Cameroun : logiciel de vente en tournée, de prise de commandes et de recouvrement». لم يُمسّ غيره."
       ]
     }
   }
