@@ -112,6 +112,11 @@
     {
       "term": "VRP",
       "why": "صفة قانونية لعقد عمل المندوب في فرنسا، لا اسم فئة برمجيات"
+    },
+    {
+      "term": "logiciel van sales",
+      "why": "مصطلح إنجليزي داخل صفحة فرنسية كـ«application van sales» (كان في ذيل الكلمات المفتاحية المشترك لكل مقال فرنسي)؛ يحلّ محله «logiciel de vente en tournée» أو «logiciel de vente terrain»، و«van sales» تأتي شرحاً بين قوسين فقط",
+      "scope": "text"
     }
   ],
   "keep": [

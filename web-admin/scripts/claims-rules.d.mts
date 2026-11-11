@@ -24,6 +24,16 @@ export interface ClaimRule {
   glossary?: 'ar' | 'en' | 'fr' | 'tr' | 'zh';
   /** كلمة القاموس الحرفية لقاعدة القاموس */
   term?: string;
+  /** طيّ النصّ بطول ثابت قبل المطابقة (قواعد التركية: trFold) — المطابقة المُعادة من النصّ الأصلي */
+  fold?: (s: string) => string;
+}
+
+/** نصّ صفحة لـruleHaystack: الرأس (العنوان والوصف وH1 كلٌّ في سطره) والنصّ المرئي وHTML الخام والكلمات المفتاحية */
+export interface PageText {
+  head: string;
+  text: string;
+  raw: string;
+  kw: string;
 }
 
 /** بند avoid في قاموس المصطلحات */
@@ -49,6 +59,12 @@ export const GLOSSARY_AVOID: Record<'ar' | 'en' | 'fr' | 'tr' | 'zh', GlossaryAv
 export const GLOSSARY_RULES: ClaimRule[];
 export const GLOSSARY_PATHS: Record<'ar' | 'en' | 'fr' | 'tr' | 'zh', RegExp>;
 export function glossaryPattern(code: string, literal: string): string;
+export function trFold(s: string): string;
+export const FIELD_SEP: string;
+export const decodeAttr: (s: string) => string;
+export function pageHead(html: string): string;
+export const pageKeywords: (html: string) => string;
+export function ruleHaystack(rule: ClaimRule, page: PageText): string;
 export function checkGlossary(text: string, code: string): string[];
 export function findViolation(rule: ClaimRule, haystack: string): { index: number; match: string } | null;
 export function findViolations(rule: ClaimRule, haystack: string, limit?: number): { index: number; match: string }[];

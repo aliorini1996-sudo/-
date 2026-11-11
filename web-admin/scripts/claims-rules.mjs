@@ -181,6 +181,7 @@ export const GLOSSARY_AVOID = {
     {"term":"prévendeur","why":"مسمّى وظيفي (إعلانات emploitic في الجزائر)؛ وحدها عنواناً أو بنداً في الكلمات المفتاحية تجلب الوظائف","scope":"alone"},
     {"term":"commerciaux terrain","why":"وحدها عنواناً أو بنداً يُرجَّح أنها تُرجع إعلانات وظائف (فرضية)؛ تأتي مع «application/logiciel/gestion des»","scope":"alone"},
     {"term":"VRP","why":"صفة قانونية لعقد عمل المندوب في فرنسا، لا اسم فئة برمجيات"},
+    {"term":"logiciel van sales","why":"مصطلح إنجليزي داخل صفحة فرنسية كـ«application van sales» (كان في ذيل الكلمات المفتاحية المشترك لكل مقال فرنسي)؛ يحلّ محله «logiciel de vente en tournée» أو «logiciel de vente terrain»، و«van sales» تأتي شرحاً بين قوسين فقط","scope":"text"},
   ],
   tr: [
     {"term":"araç satış","why":"تعني بيع السيارات وبرامج معارضها (فرضية لم يُتحقق منها ببحث، والمصنع يتجنّبها)؛ الصحيح «araçtan satış» مقروناً بـ«plasiyer»","scope":"text"},
@@ -219,25 +220,49 @@ export const GLOSSARY_AVOID = {
  * «منفردة» = بلا سياق unlessWith في الجملة نفسها: كلمة من القائمة قبلها أو بعدها في نافذة GLOSSARY_WINDOW حرفاً لا تعبرها
  * فاصلة أو نقطة أو «|» (فلا يُعفي «application» في بند كلمات مفتاحية سابق البندَ التالي). الإعفاء بنظرة خلفية **بعد**
  * مطابقة الكلمة لا قبلها، فلا يتكرّر ثمنها على كل موضع في النصوص الطويلة.
- * الحدود: العربية بسوابق الجر والعطف و«ال» على كل كلمة والتاء المربوطة هاءً والهمزات؛ التركية بلواحقها (plasiyerler،
- * araç satışı)؛ الإنجليزية والفرنسية بجمعها (apps، distributeurs)؛ الصينية بلا حدود (لا مسافات فيها).
+ * الحدود: العربية بسوابق الجر والعطف و«ال» على كل كلمة والتاء المربوطة هاءً والهمزات وجمع المؤنث (السيارة/السيارات)؛
+ * التركية بلواحقها (plasiyerler، araç satışı)؛ الإنجليزية والفرنسية بجمعها (apps، distributeurs)؛ الصينية بلا حدود.
+ *
+ * ⚠️ التركية: علَم i وحده لا يطابق İ/i ولا I/ı (حالتا الحرف في التركية غير حالتيه في الإنجليزية، ولا يجمعهما طيّ
+ * الحالة البسيط ولو بعلَم u)، فكانت «PLASİYER» و«SICAK SATIŞ» و«ARAÇ SATIŞ» تمرّ. لذا يُطوى نصّ قواعد التركية بـ
+ * toLocaleLowerCase('tr') قبل المطابقة (trFold، بطول ثابت فلا تنزاح مواضع المطابقة)، والأنماط تقبل i وı معاً
+ * (حرف I اللاتيني بلا نقطة في «PLASIYER» المكتوبة بلوحة غير تركية يُطوى ı). وكل أنماط القاموس بعلَمي iu.
  */
 const GLOSSARY_LATIN = 'A-Za-z0-9\\u00C0-\\u024F';
 const GLOSSARY_SEP = '[^,.;|\\n،؛!?؟。，；！？]';
 const GLOSSARY_WINDOW = { zh: 15 };
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** طيّ التركية: toLocaleLowerCase('tr') حرفاً حرفاً (İ→i · I→ı) دون تغيير الطول — v.index يبقى على النصّ الأصلي */
+let trFoldMemo = { src: null, out: '' };
+export function trFold(s) {
+  if (trFoldMemo.src !== s) {
+    trFoldMemo = { src: s, out: s.replace(/\p{Lu}/gu, (ch) => { const l = ch.toLocaleLowerCase('tr'); return l.length === ch.length ? l : ch; }) };
+  }
+  return trFoldMemo.out;
+}
+
 /** نصّ حرفي من القاموس ← نمط بحدود كتابة لغته (نصّ القاموس يُطبَّع بـnorm كما يُطبَّع النص المفحوص) */
 export function glossaryPattern(code, literal) {
   const words = norm(literal).trim().split(/\s+/).filter(Boolean);
   if (code === 'ar') {
-    const core = words.map((w) => `(?:ال)?${escRe(w.length > 3 ? w.replace(/^ال/, '') : w)
-      .replace(/[إأآا]/g, '[إأآا]').replace(/[ةه]$/, '[ةه]').replace(/[يى]$/, '[يى]')}`).join('\\s+');
+    const alef = (s) => escRe(s).replace(/[إأآا]/g, '[إأآا]');
+    const core = words.map((w) => {
+      const stem = w.length > 3 ? w.replace(/^ال/, '') : w;
+      // المفرد المؤنث وجمعه (السيارة ↔ السيارات · المركبة ↔ المركبات) والتاء المربوطة هاءً
+      if (stem.length > 3 && stem.endsWith('ة')) return `(?:ال)?${alef(stem.slice(0, -1))}(?:[ةه]|ات)`;
+      if (stem.length > 3 && stem.endsWith('ات')) return `(?:ال)?${alef(stem.slice(0, -2))}(?:ات|[ةه])`;
+      return `(?:ال)?${alef(stem).replace(/[ةه]$/, '[ةه]').replace(/[يى]$/, '[يى]')}`;
+    }).join('\\s+');
     return `(?<![${AR}])(?:[وف]?[بكل]?ل?)?${core}(?![${AR}])`;
   }
   if (code === 'zh') return words.map(escRe).join('\\s*');
+  if (code === 'tr') {
+    // النصّ يُطوى بـtrFold قبل المطابقة، فالنمط من الصيغة المطويّة نفسها، وi/ı متكافئتان فيه
+    const body = words.map((w) => escRe(trFold(w)).replace(/[iı]/g, '[iı]')).join('\\s+');
+    return `(?<![${GLOSSARY_LATIN}])${body}`; // اللواحق التركية تلتصق بالجذر
+  }
   const body = words.map(escRe).join('\\s+');
-  if (code === 'tr') return `(?<![${GLOSSARY_LATIN}])${body}`; // اللواحق التركية تلتصق بالجذر
   return `(?<![${GLOSSARY_LATIN}])${body}s?(?![${GLOSSARY_LATIN}])`;
 }
 
@@ -280,7 +305,8 @@ function glossaryRule(code, entry, i) {
       : 'منفردةً في العنوان أو الوصف أو H1 أو الكلمات المفتاحية';
   return {
     id: `glossary-${code}-${String(i + 1).padStart(2, '0')}`,
-    re: new RegExp(source, 'i'),
+    re: new RegExp(source, 'iu'),
+    ...(code === 'tr' ? { fold: trFold } : {}),
     ...(entry.scope === 'text' ? {} : { scope: 'head' }),
     keywords: true,
     paths: GLOSSARY_PATHS[code],
@@ -464,22 +490,25 @@ export function findViolation(rule, haystack) {
 /** كل المطابقات المُدانة (حتى limit) — لحصر بنود CMS كاملةً لا أول مطابقة في كل ملف */
 export function findViolations(rule, haystack, limit = Infinity) {
   const hay = norm(haystack);
-  if (rule.pre && !rule.pre.test(hay)) return [];
+  // fold (قواعد التركية: trFold) يطوي النصّ بطول ثابت قبل المطابقة، والمطابقة المُعادة من النصّ الأصلي بالموضع نفسه
+  // (fromCmsContext يبحث عن نصّها في CMS كما كُتب)
+  const probe = rule.fold ? rule.fold(hay) : hay;
+  if (rule.pre && !rule.pre.test(probe)) return [];
   const flags = rule.re.flags.includes('g') ? rule.re.flags : `${rule.re.flags}g`;
   const out = [];
-  for (const m of hay.matchAll(new RegExp(rule.re.source, flags))) {
+  for (const m of probe.matchAll(new RegExp(rule.re.source, flags))) {
     const i = m.index;
     if (rule.unless) {
-      const w = hay.slice(Math.max(0, i - (rule.unlessBefore ?? 220)), i + (rule.unlessAfter ?? 220));
+      const w = probe.slice(Math.max(0, i - (rule.unlessBefore ?? 220)), i + (rule.unlessAfter ?? 220));
       if (rule.unless.test(w)) continue;
     }
     if (rule.requireNear) {
-      const w = hay
+      const w = probe
         .slice(Math.max(0, i - rule.requireNear.before), i + m[0].length + rule.requireNear.after)
         .replace(new RegExp(PHASE2, 'gi'), ' '); // «2» في «المرحلة 2» ليس رقماً
       if (!rule.requireNear.re.test(w)) continue;
     }
-    out.push({ index: i, match: m[0] });
+    out.push({ index: i, match: hay.slice(i, i + m[0].length) });
     if (out.length >= limit) break;
   }
   return out;
@@ -497,6 +526,43 @@ export function checkText(text) {
 /** قواعد قاموس لغة واحدة المُدانة في نصّ (كأنه رأس صفحة من صفحاتها) — للاختبار ولفحص ترجمة قبل نشرها */
 export function checkGlossary(text, code) {
   return RULES.filter((r) => r.glossary === code && findViolation(r, text)).map((r) => r.id);
+}
+
+/* ─── نصّ الصفحة الذي تُفحص عليه كل قاعدة (verify-claims، ويختبره glossary.test.ts بالتركيب نفسه) ─── */
+
+/**
+ * فاصل صلب بين حقول الرأس (العنوان · الوصف · H1) والكلمات المفتاحية: سطر جديد. كان الرأس يُجمع بمسافة، فـ:
+ *  - نطاق alone لا يرى آخر العنوان حدّاً: «FieldSales | Plasiyer» يليها الوصف فلا تكون الكلمة «وحدها» فتمرّ؛
+ *  - ونافذة unlessWith تعبر من حقل لآخر: «application» في آخر العنوان تُعفي «vente en camion» في أول الوصف.
+ * السطر الجديد حدّ مقطع لـalone (GLOSSARY_SEG) وحاجز لنافذة السياق (GLOSSARY_SEP) ولسياق fromCmsContext — فكل حقل
+ * يُفحص وحده. وداخل الحقل تُطوى المسافات (ومنها أسطر HTML) إلى مسافة واحدة، فلا حدّ إلا بين حقلين.
+ */
+export const FIELD_SEP = '\n';
+
+/** فكّ كيانات السمات والنصوص التي يكتبها prerender (esc) والقالب */
+export const decodeAttr = (s) => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+/** حقل واحد: بلا وسوم، وكياناته مفكوكة («d&#39;aide» لا تقطع نافذة السياق بفاصلتها المنقوطة)، ومسافاته مطويّة */
+const pageField = (s) => decodeAttr(String(s || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/g, ' ')).replace(/\s+/g, ' ').trim();
+
+/** رأس الصفحة: العنوان والوصف وH1 — ما يُبنى عليه الاستهداف فعلاً — كلٌّ في سطره */
+export function pageHead(html) {
+  return [
+    (html.match(/<title>([\s\S]*?)<\/title>/i) || [])[1],
+    (html.match(/<meta name="description" content="([^"]*)"/i) || [])[1],
+    (html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) || [])[1],
+  ].map(pageField).join(FIELD_SEP);
+}
+
+/** محتوى <meta name="keywords"> — استهدافٌ صريح كالعنوان (قواعد keywords: قاموس المصطلحات) */
+export const pageKeywords = (html) => pageField((html.match(/<meta name="keywords" content="([^"]*)"/i) || [])[1]);
+
+/**
+ * النصّ الذي تُفحص عليه قاعدة في صفحة: نطاقها (head · raw · النصّ المرئي)، ثم الكلمات المفتاحية في سطر مستقلّ
+ * للقواعد التي تطلبها (keywords). page = { head, text, raw, kw }.
+ */
+export function ruleHaystack(rule, page) {
+  const base = rule.scope === 'head' ? page.head : rule.scope === 'raw' ? page.raw : page.text;
+  return rule.keywords && page.kw ? `${base}${FIELD_SEP}${page.kw}` : base;
 }
 
 /**

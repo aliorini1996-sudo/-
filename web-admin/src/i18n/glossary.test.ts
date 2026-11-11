@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { RULES, GLOSSARY_AVOID, GLOSSARY_PATHS, checkGlossary, checkText } from '../../scripts/claims-rules.mjs';
+import {
+  RULES, GLOSSARY_AVOID, GLOSSARY_PATHS, FIELD_SEP, checkGlossary, checkText, findViolation, pageHead, pageKeywords, ruleHaystack, trFold,
+} from '../../scripts/claims-rules.mjs';
+import { listArticles } from '../blog/seo/catalog.mjs';
 
 /**
  * قواميس المصطلحات (src/i18n/glossary) وقاعدتها في حارس الادّعاءات — بند ٢٢ في خطة SEO.
@@ -105,4 +108,68 @@ test('الكلمة المنفردة تُكشف، والمركّبة أو الت�
 
 test('checkText لا يطبّق قواعد القاموس: «van sales» و«مندوب مبيعات» شرحاً في المتن صحيحتان', () => {
   assert.deepEqual(checkText('Van sales means the rep sells from stock carried in the van. يعمل مندوب مبيعات التوزيع بالسيارة.'), []);
+});
+
+test('التركية: İ/i وI/ı — العناوين بالأحرف الكبيرة لا تفلت (طيّ trFold قبل المطابقة، وأنماط iu)', () => {
+  // toLocaleLowerCase('tr') بطول ثابت: الموضع لا ينزاح، والمطابقة المُعادة بنصّها الأصلي (إسناد CMS يبحث عنه كما كُتب)
+  assert.equal(trFold('PLASİYER SICAK SATIŞ'), 'plasiyer sıcak satış');
+  const plasiyer = RULES.find((r) => r.glossary === 'tr' && r.term === 'plasiyer')!;
+  assert.deepEqual(findViolation(plasiyer, 'Xx | PLASİYER'), { index: 5, match: 'PLASİYER' });
+  for (const r of RULES.filter((x) => x.glossary)) assert.equal(r.re.flags, 'iu', r.id);
+  const hits = [
+    'PLASİYER | İş ilanları',
+    'PLASIYER | Is ilanlari', // I لاتينية بلا نقطة من لوحة غير تركية
+    'SICAK SATIŞ TEKNİKLERİ',
+    'Sicak satış teknikleri',
+    'İKİNCİ EL ARAÇ SATIŞI',
+    'ARAÇ TAKİP SİSTEMİ',
+    'SATIŞ ÖNCESİ DESTEK',
+  ];
+  for (const t of hits) assert.ok(checkGlossary(t, 'tr').length, `tr: مرّت «${t}»`);
+  for (const t of ['PLASİYER PROGRAMI: ARAÇTAN SICAK SATIŞ | FieldSales', 'PLASİYERLERİNİZİ VE İHTİYAÇLARINIZI ANLATIN', 'ARAÇTAN SATIŞ VE ÖN SİPARİŞ (SOĞUK SATIŞ)']) {
+    assert.deepEqual(checkGlossary(t, 'tr'), [], `tr: إنذار كاذب على «${t}»`);
+  }
+});
+
+test('العربية: التعريف والتنكير والإفراد والجمع لكلمات avoid', () => {
+  for (const t of ['البيع من السيارات', 'بيع من سيارة', 'للبيع من السيارات المستعملة', 'تتبع المركبة', 'تتبع مركبات الشركة']) {
+    assert.ok(checkGlossary(t, 'ar').length, `ar: مرّت «${t}»`);
+  }
+  for (const t of ['برنامج البيع من السيارات لمناديب التوزيع', 'تتبع مركبات التوزيع ومناديبها']) {
+    assert.deepEqual(checkGlossary(t, 'ar'), [], `ar: إنذار كاذب على «${t}»`);
+  }
+});
+
+test('رأس الصفحة في verify-claims: كل حقل وحده — لا يعبر السياق حقلاً، وآخر العنوان حدٌّ لنطاق alone', () => {
+  const html = (title: string, desc: string, h1: string, kw?: string) => `<html><head><title>${title}</title>`
+    + `<meta name="description" content="${desc}" />${kw == null ? '' : `<meta name="keywords" content="${kw}" />`}</head>`
+    + `<body><main><h1>${h1}</h1><p>Corps de la page.</p></main></body></html>`;
+  const hits = (code: string, raw: string) => {
+    const page = { raw, text: 'Corps de la page.', head: pageHead(raw), kw: pageKeywords(raw) };
+    return RULES.filter((r) => r.glossary === code && findViolation(r, ruleHaystack(r, page))).map((r) => r.term);
+  };
+  // الحقول في أسطر مستقلّة، بكياناتها مفكوكة ومسافاتها مطويّة
+  assert.equal(pageHead(html('A &amp; B', 'Qu&#39;est-ce', '<span>X</span>\n  Y')), ['A & B', "Qu'est-ce", 'X Y'].join(FIELD_SEP));
+  // alone: الكلمة آخر العنوان يليها الوصف — كانت تمرّ حين جُمع الرأس بمسافة
+  assert.deepEqual(hits('tr', html('FieldSales | Plasiyer', 'Saha satış ekibiniz için program', 'Saha satış programı')), ['plasiyer']);
+  assert.ok(hits('en', html('FieldSales | Van Sales Reps', 'Jobs in Accra and Tema', 'Careers')).includes('van sales rep'));
+  // unlessWith: «application» آخر العنوان لا تُعفي «vente en camion» أول الوصف
+  assert.deepEqual(hits('fr', html('Guide FieldSales — application', 'Vente en camion : les bonnes pratiques', 'Guide')), ['vente en camion']);
+  // وداخل الحقل الواحد يبقى السياق: والكيان لا يقطعه («d&#39;» كانت فاصلتها المنقوطة حدّاً)
+  assert.deepEqual(hits('fr', html('Logiciel d&#39;aide à la vente en camion | FieldSales', 'Factures et stock du véhicule', 'Logiciel')), []);
+  // الكلمات المفتاحية تُفحص لقواعد الرأس وقواعد الصفحة كلها معاً، وبندها حقل مستقلّ
+  assert.deepEqual(hits('fr', html('FieldSales', 'Logiciel de vente terrain', 'FieldSales', 'DSD Maroc, logiciel van sales Maroc')), ['logiciel van sales']);
+  assert.deepEqual(hits('fr', html('FieldSales — application', 'Logiciel de vente terrain', 'FieldSales', 'vente en camion Maroc')), ['vente en camion']);
+});
+
+test('مقالات الكتالوج بلغاتها الثلاث: العنوان والوصف والكلمات المفتاحية (ومنها الذيل المشترك EXTRA_KW) تمرّ بقاموس لغتها', () => {
+  for (const L of ['ar', 'en', 'fr'] as const) {
+    const bad = listArticles(L)
+      .map((a) => [a.slug, checkGlossary([a.title, a.description, a.keywords].join(FIELD_SEP), L)] as const)
+      .filter(([, ids]) => ids.length)
+      .map(([slug, ids]) => `${slug}: ${ids.join('، ')}`);
+    assert.deepEqual(bad, [], L);
+  }
+  const en = listArticles('en').find((a) => a.slug === 'van-sales-best-practices')!;
+  assert.equal(en.title, 'Van Sales Best Practices for Distributors');
 });
