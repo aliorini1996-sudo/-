@@ -1,0 +1,467 @@
+{
+  "code": "ID",
+  "nameEn": "Indonesia",
+  "pageLanguage": "id",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "IDR",
+    "symbol": "Rp",
+    "nameEn": "Indonesian Rupiah",
+    "nameLocal": "Rupiah",
+    "minorUnits": 2
+  },
+  "tax": {
+    "nameLocal": "Pajak Pertambahan Nilai",
+    "nameEn": "Value Added Tax",
+    "abbr": "PPN",
+    "standardRate": 12,
+    "otherRates": [
+      {
+        "rate": 11,
+        "appliesTo": "النسبة الفعلية لمعظم السلع والخدمات غير الفاخرة منذ 1 يناير 2025: تُطبَّق 12% على وعاء «DPP nilai lain» يساوي 11/12 من سعر البيع أو المقابل أو قيمة الاستيراد (PMK 131/2024)، فتكون الضريبة الفعلية 11% من السعر. هذا هو الحال العملي لأغلب سلع شركات التوزيع."
+      },
+      {
+        "rate": 12,
+        "appliesTo": "12% كاملة على كامل سعر البيع للسلع الفاخرة الخاضعة لضريبة PPnBM (سيارات فاخرة، مساكن فاخرة بقيمة 30 مليار روبية فأكثر، طائرات ومروحيات ويخوت خاصة، أسلحة نارية خاصة…) اعتباراً من 1 فبراير 2025؛ وفي يناير 2025 كانت فعلياً 11%."
+      },
+      {
+        "rate": 0,
+        "appliesTo": "تصدير السلع (zero-rated)، وكذلك الخدمات المصدَّرة ضمن الحدود التي تحددها وزارة المالية."
+      }
+    ],
+    "registrationThreshold": "يلزم التسجيل كـ PKP (Pengusaha Kena Pajak) عند تجاوز رقم الأعمال السنوي Rp4.800.000.000 (4.8 مليار روبية)؛ من دون ذلك يُعدّ «pengusaha kecil» ولا يلزمه تحصيل PPN، ويجوز له التسجيل طوعاً (PMK 81/2024؛ وتستشهد DDTCNews بالمادة 61 ayat (1) لواجب الإبلاغ لدى KPP). ولا يُصدر faktur pajak إلا PKP.",
+    "authority": "Direktorat Jenderal Pajak (DJP) – Kementerian Keuangan Republik Indonesia",
+    "authorityUrl": "https://www.pajak.go.id",
+    "sources": [
+      {
+        "url": "https://taxsummaries.pwc.com/Indonesia/Corporate/Other-taxes",
+        "title": "PwC Worldwide Tax Summaries – Indonesia, Corporate – Other taxes (آخر مراجعة 11 يونيو 2026): النسبة 12% بوعاء Other Value 11/12 فعلياً 11%، و12% فعلية للسلع الفاخرة، والتصدير بنسبة صفر، وإمكان تعديل النسبة بين 5% و15% بلائحة حكومية",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.ey.com/en_id/technical/tax-alerts/PMK-131-New-Calculation-of-VAT-Payable",
+        "title": "EY Indonesia Tax Alert – PMK-131: New Calculation of VAT Payable (4 يناير 2025)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.pajak.go.id/id/artikel/pmk-1312024-tarif-ppn-sebelas-dua-belas",
+        "title": "pajak.go.id – PMK 131/2024: Tarif PPN Sebelas-Dua Belas (6 يناير 2025؛ مقال موظف في DJP يعبّر عن رأيه الشخصي)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.cnnindonesia.com/ekonomi/20260911053756-532-1402615/purbaya-ogah-pangkas-tarif-ppn-nanti-saya-enggak-bisa-kasih-subsidi",
+        "title": "CNN Indonesia – Purbaya Ogah Pangkas Tarif PPN (11 سبتمبر 2026): لا خطة حالياً لخفض نسبة PPN",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://news.ddtc.co.id/berita/nasional/1809782/omzet-rp48-miliar-wajib-pajak-dikukuhkan-jadi-pkp-di-kpp-terdaftar",
+        "title": "DDTCNews – Omzet > Rp4,8 Miliar, Wajib Pajak Dikukuhkan Jadi PKP (30 مارس 2025، PMK 81/2024 المادة 61)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "taxId": {
+    "label": "NPWP (Nomor Pokok Wajib Pajak)",
+    "format": "16 خانة رقمية. للأفراد المقيمين: رقم الهوية الوطنية NIK (16 خانة) يُستعمل بوصفه NPWP بعد تفعيله. للشركات والأفراد غير المقيمين والجهات الحكومية: NPWP من 16 خانة، وللمسجَّلين سابقاً = الرقم القديم ذو 15 خانة مسبوقاً بـ 0. ولكل موقع نشاط (المركز والفروع) رقم NITKU من 22 خانة = 16 خانة NPWP/NIK + 6 خانات تسلسلية للفرع، ويُستعمل في faktur pajak لتعيين عنوان البائع والمشتري. نظام Coretax يعمل بصيغة 16 خانة وحدها منذ يناير 2025.",
+    "sources": [
+      {
+        "url": "https://www.pajak.go.id/id/artikel/coretax-djp-era-npwp-16-digit",
+        "title": "pajak.go.id – Coretax DJP, Era NPWP 16 digit (28 فبراير 2025؛ مقال موظف في DJP)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://news.ddtc.co.id/literasi/kamus/1811417/update-2025-apa-itu-nomor-identitas-tempat-kegiatan-usaha-nitku",
+        "title": "DDTCNews – Update 2025: Apa Itu NITKU? (13 يونيو 2025): NITKU من 22 خانة",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "einvoicing": {
+    "status": "mandatory",
+    "systemName": "e-Faktur (Faktur Pajak Elektronik) عبر Coretax DJP",
+    "authority": "Direktorat Jenderal Pajak (DJP)",
+    "model": "clearance",
+    "scopeNow": "كل PKP (المسجَّل في PPN، إلزامياً فوق 4.8 مليار روبية سنوياً أو طوعياً دونها) يجب أن يُصدر لكل تسليم خاضع لـ PPN «faktur pajak» إلكترونياً يعتمده DJP قبل وصوله إلى المشتري: يُنشأ في وحدة e-Faktur في Coretax (إدخالاً أو استيراداً) أو عبر تطبيق host-to-host لمزوّد PJAP، ويوقَّع إلكترونياً، ويحصل على رمز ورقم تسلسلي من 17 خانة (رمز المعاملة 2 + رمز الحالة 2 + NSFP من 13 خانة يمنحها DJP آلياً) ورمز QR. يشمل ذلك البيع بين الشركات وللجهات الحكومية المحصِّلة (الرمز 02) والتسليمات المعفاة أو ذات التسهيلات (الرمزان 07 و08)، والفواتير البديلة (faktur pengganti). القناة الأساسية منذ 1 يناير 2025 هي Coretax DJP، أو تطبيقات مزوّدي PJAP المربوطة به (host-to-host). الاستبدال والإلغاء وإقرار SPT Masa PPN لا تتم إلا في Coretax. الاستثناء العملي: الـ PKP بائع التجزئة (pedagang eceran) الذي يبيع للمستهلك النهائي يجوز له «faktur pajak digunggung» بلا هوية المشتري (إيصال/فاتورة بيع عادية)، ولا يُعتمد كل منها منفرداً، بل تُفصَّل هذه المبيعات بملف XML مرفق بإقرار SPT Masa PPN في Coretax. والمنشآت الصغيرة غير المسجَّلة لا تُصدر faktur pajak أصلاً.",
+    "keyDates": [
+      {
+        "date": "2014-07",
+        "event": "إطلاق e-Faktur أول مرة"
+      },
+      {
+        "date": "2015-07-01",
+        "event": "إلزام e-Faktur للمسجَّلين في PPN في جاوة وبالي"
+      },
+      {
+        "date": "2016-07-01",
+        "event": "تعميم إلزام e-Faktur على كل المسجَّلين في PPN في عموم إندونيسيا"
+      },
+      {
+        "date": "2025-01-01",
+        "event": "تشغيل Coretax DJP منصةً رئيسية لإصدار faktur pajak وإقرارات PPN، وسريان PMK 131/2024 (12% بوعاء 11/12)"
+      },
+      {
+        "date": "2025-02-01",
+        "event": "تطبيق 12% كاملة على سعر البيع أو قيمة الاستيراد للسلع الفاخرة الخاضعة لـ PPnBM (وفي يناير 2025 حُسبت بوعاء 11/12)"
+      },
+      {
+        "date": "2025-02-12",
+        "event": "KEP-54/PJ/2025: السماح لكل PKP مجدداً باستخدام تطبيق e-Faktur client desktop وhost-to-host بجانب Coretax (عدا الـ PKP المسجَّل بعد 1 يناير 2025 ومن يركّز PPN في فرع، ومعاملات الرمزين 06 و07 التي تبقى في Coretax أو host-to-host)، مع بقاء المرتجعات والإلغاء وSPT Masa PPN في Coretax"
+      },
+      {
+        "date": "2025-11-08",
+        "event": "توقّف المزامنة الآلية لما يُستبدل أو يُلغى عبر e-Faktur Desktop إلى Coretax؛ الاستبدال والإلغاء عبر Coretax وحده"
+      },
+      {
+        "date": "2026-01-30",
+        "event": "تذكير DJP (عبر DDTCNews) بأن التطبيق القديم e-Faktur Desktop «sudah ditutup dan tidak beroperasi» وأن الاستبدال والإلغاء عبر Coretax فقط"
+      }
+    ],
+    "b2cReceipts": "لا يوجد نظام وطني لأجهزة ضريبية أو إيصالات مربوطة للبيع بالتجزئة على مستوى PPN. الـ PKP بائع التجزئة للمستهلك النهائي يُصدر «faktur pajak digunggung» (قد يكون إيصالاً أو فاتورة نقدية) دون هوية المشتري ودون اسم البائع وتوقيعه (PMK 18/2021 المادة 80(1)، وأكد DJP بقاءها بعد PMK 81/2024)، ثم يفصِّل هذه المبيعات بقالب XML (رمز المعاملة، نوع ورقم هوية المشتري اختيارياً، رمز السلعة/الخدمة، التاريخ، DPP، DPP nilai lain، PPN) يُرفع ضمن SPT Masa PPN في Coretax. ضريبة faktur digunggung لا يخصمها المشتري ضريبةَ مدخلات. فإن كان المشتري منشأة (ليس مستهلكاً نهائياً) فلا يجوز digunggung ويلزم faktur pajak كامل.",
+    "sources": [
+      {
+        "url": "https://sovos.com/vat/tax-rules/e-invoicing-indonesia/",
+        "title": "Sovos – Indonesia E-Invoicing (نموذج clearance، التواريخ 2014/2015/2016، رمز QR من DGT، غرامة 1% من الوعاء)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.comarch.com/trade-and-services/data-management/legal-regulation-changes/indonesias-coretax-system-full-e-invoicing-enforcement-by-dec-31/",
+        "title": "Comarch – Indonesia's Coretax System: Full E-Invoicing Enforcement by Dec 31 (15 ديسمبر 2025؛ مورّد برمجيات)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://news.ddtc.co.id/berita/nasional/1808837/seluruh-pkp-kini-bisa-pakai-aplikasi-e-faktur-ini-catatan-pentingnya",
+        "title": "DDTCNews – Seluruh PKP Kini Bisa Pakai Aplikasi e-Faktur, Ini Catatan Pentingnya (14 فبراير 2025؛ KEP-54/PJ/2025 وPENG-13/PJ.09/2025)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://pajak.go.id/en/node/115238",
+        "title": "pajak.go.id – e-Faktur Desktop Kembali Bisa Digunakan, Apa yang Harus Diperhatikan? (14 أبريل 2025؛ مقال موظف في DJP)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://news.ddtc.co.id/berita/nasional/1816987/ingat-ganti-faktur-pajak-tak-bisa-lagi-pakai-e-faktur-desktop",
+        "title": "DDTCNews – Ingat! Ganti Faktur Pajak Tak Bisa Lagi Pakai e-Faktur Desktop (30 يناير 2026، نقلاً عن DJP)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://news.ddtc.co.id/berita/nasional/1807022/coretax-wajibkan-pkp-perinci-penyerahan-digunggung-pakai-template-xml",
+        "title": "DDTCNews – Coretax Wajibkan PKP Perinci Penyerahan Digunggung Pakai Template XML (21 نوفمبر 2024)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://news.ddtc.co.id/berita/nasional/1807903/kolom-nama-nik-pembeli-di-xml-faktur-pajak-digunggung-tak-wajib-diisi",
+        "title": "DDTCNews – Kolom Nama & NIK Pembeli di XML Faktur Pajak Digunggung Tak Wajib Diisi (31 ديسمبر 2024)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://news.ddtc.co.id/berita/nasional/1811127/per-11pj2025-pertegas-ketentuan-kode-dan-nomor-seri-faktur-pajak",
+        "title": "DDTCNews – PER-11/PJ/2025 Pertegas Ketentuan Kode dan Nomor Seri Faktur Pajak (1 يونيو 2025): NSFP من 17 خانة ورموز المعاملات 01–10",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.aseanbriefing.com/doing-business-guide/indonesia/taxation-and-accounting/coretax-indonesia",
+        "title": "ASEAN Briefing (Dezan Shira) – Coretax Indonesia: الإطلاق الرسمي 1 يناير 2025",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "invoiceRequirements": [
+    "اسم البائع (PKP) وعنوانه ورقم NPWP الخاص به",
+    "هوية المشتري: الاسم والعنوان مع NPWP، أو NIK للفرد المقيم، أو رقم جواز السفر للفرد الأجنبي؛ وللكيان الأجنبي أو غير الخاضع الاسم والعنوان فقط",
+    "نوع السلعة أو الخدمة، وكمية/قيمة سعر البيع أو المقابل، والخصم (potongan harga)",
+    "مبلغ PPN المحصَّل",
+    "مبلغ PPnBM المحصَّل (إن وُجد)",
+    "رمز الفاتورة ورقمها التسلسلي وتاريخ إصدارها: في Coretax «kode dan NSFP» من 17 خانة = رمز المعاملة (خانتان) + رمز الحالة (خانتان) + NSFP من 13 خانة يمنحها DJP آلياً عند الاعتماد",
+    "اسم وتوقيع الشخص المخوَّل بالتوقيع (توقيع إلكتروني في e-Faktur)",
+    "رمز المعاملة الصحيح من 01 إلى 10 (مثلاً 01 للتسليم العادي، 02 للجهات الحكومية المحصِّلة، 04 للتسليم بوعاء DPP nilai lain وفق المادة 8A(1) من قانون PPN، 07 للتسهيلات، 08 للمعفى)",
+    "NITKU لتعيين موقع نشاط البائع والمشتري في Coretax",
+    "رمز QR الذي يمنحه DJP بعد الاعتماد دليلاً على صحة الفاتورة",
+    "استثناء: فاتورة بائع التجزئة للمستهلك النهائي (faktur pajak digunggung) يجوز أن تخلو من هوية المشتري ومن اسم البائع وتوقيعه"
+  ],
+  "distribution": {
+    "hubs": [
+      "Jakarta (Jabodetabek)",
+      "Surabaya",
+      "Medan",
+      "Semarang",
+      "Bandung",
+      "Makassar"
+    ],
+    "tradeChannels": [
+      "warung",
+      "toko kelontong",
+      "pasar tradisional (الأسواق التقليدية وأكشاكها)",
+      "grosir / agen (تجار الجملة والوكلاء)",
+      "minimarket (Indomaret, Alfamart وأمثالها)",
+      "modern trade: supermarket / hypermarket"
+    ],
+    "localTerms": {
+      "vanSales": "kanvas / canvassing (sales kanvas، canvasser)؛ ويُقال «sales motoris» لمندوب يبيع من مركبة بعجلتين أو أربع",
+      "preSales": "taking order (TO) / sales taking order",
+      "salesRep": "salesman / sales",
+      "retailShop": "warung / toko kelontong (ويُسمّى «outlet» في لغة الموزعين)",
+      "routeAccounting": null
+    },
+    "collectionMethods": [
+      "tunai (نقداً عند التسليم في الكانفاس)",
+      "tempo / kredit (بيع آجل يُتابَع ذمماً piutang)",
+      "transfer bank (تحويل بنكي)",
+      "QRIS (رمز QR الوطني من Bank Indonesia يقبله أي تطبيق بنكي أو محفظة مرخّصة)",
+      "bilyet giro / cek (للعملاء الأكبر؛ انظر uncertain)"
+    ],
+    "notes": "التجارة التقليدية (أكشاك وأسواق تقليدية تشمل warung وtoko kelontong) استحوذت على 67% من مبيعات السلع الاستهلاكية سريعة الدوران في الربع الأول 2025 مقابل 17% للمتاجر الصغيرة والـ minimarket و6% للمتاجر الكبرى (Kantar عبر Databoks، 23 يونيو 2025). وقُدِّر عدد نقاط البيع الوطنية بنحو 4.5 مليون، قرابة 80% منها تقليدية (تقدير 2021). يميّز الموزعون بين «kanvas/canvassing» حيث يحمل المندوب البضاعة ويبيع ويحصّل في الزيارة نفسها ثم يُعيد ما تبقّى للمستودع، و«taking order» حيث يأخذ الطلب ليُسلَّم لاحقاً؛ وإعلانات وظائف التوزيع تطلب خبرة «motoris, canvaser, taking order» (مايو 2026). QRIS منتشر جداً لدى المنشآت الصغيرة: 44.86 مليون تاجر حتى يونيو 2026، 96.68% منهم مشروعات صغيرة ومتوسطة (UMKM)، ورسم التاجر المتناهي الصغر 0% حتى Rp500.000 للمعاملة؛ والحد الأقصى Rp10.000.000 للمعاملة. المبالغ بالروبية كبيرة الأرقام (آلاف وملايين)، والفاصل العشري في الكتابة الإندونيسية فاصلة والآلاف نقطة (Rp1.000.000)."
+  },
+  "honesty": {
+    "canSay": [
+      "FieldSales تدير مناديب البيع من السيارة (kanvas/canvassing) وزياراتهم الميدانية لنقاط البيع مثل warung وtoko kelontong وgrosir.",
+      "يتتبّع النظام مخزون سيارة المندوب من التحميل في المستودع إلى البيع والمرتجع وإعادة الباقي، ويسجّل التحصيل النقدي والذمم الآجلة (tempo) لكل مندوب.",
+      "العملة والضريبة يضبطهما العميل بنفسه: يمكن العمل بالروبية (IDR) وإدخال نسبة PPN التي تنطبق على نشاطه (مثل النسبة الفعلية 11% لأغلب السلع).",
+      "يمكن للعميل تعريف طرق الدفع التي يتعامل بها لتسجيل التحصيل (مثل tunai أو transfer أو QRIS) دون ربط مباشر بمزوّدي الدفع.",
+      "لا يوجد اليوم ربط بين FieldSales وأنظمة الفوترة الحكومية في إندونيسيا (e-Faktur/Coretax)؛ الربط «متاح عند الطلب» بمعنى أنه يُدرَس لكل عميل دون وعد بموعد أو نتيجة، علماً بأن الربط host-to-host مع DJP يتم عبر مزوّد PJAP مرخّص. والربط الحكومي الحيّ اليوم في السعودية وحدها (ZATCA Fatoora المرحلة الثانية).",
+      "مستندات البيع التي تصدرها FieldSales مستندات تشغيلية داخلية، ويبقى إصدار faktur pajak الرسمي مسؤولية الـ PKP عبر Coretax DJP أو مزوّد PJAP معتمد."
+    ],
+    "mustNotSay": [
+      "أن FieldSales مرتبطة أو متكاملة (terintegrasi) مع Coretax DJP أو e-Faktur أو أي نظام لـ Direktorat Jenderal Pajak.",
+      "أن FieldSales تُصدر faktur pajak إلكترونياً معتمداً، أو تحصل على رقم NSFP أو رمز QR من DJP، أو أن فواتيرها صالحة لخصم ضريبة المدخلات (pajak masukan).",
+      "أن FieldSales مزوّد معتمد PJAP (Penyedia Jasa Aplikasi Perpajakan) أو شريك رسمي لـ DJP أو Kementerian Keuangan.",
+      "أن FieldSales «متوافقة» مع PMK 131/2024 أو PER-11/PJ/2025 أو تحسب PPN بوعاء DPP nilai lain 11/12 أو رموز المعاملات آلياً.",
+      "أن FieldSales تقدّم إقرار SPT Masa PPN أو ملف XML للمبيعات digunggung نيابةً عن العميل.",
+      "أن FieldSales تتحقق آلياً من صحة NPWP أو NIK أو NITKU لدى DJP.",
+      "أن FieldSales مدمجة مع QRIS أو مرخّصة من Bank Indonesia أو تستقبل المدفوعات عبر QRIS أو المحافظ الرقمية.",
+      "أي ادعاء امتثال أو اعتماد أو شهادة ضريبية في إندونيسيا، أو أسماء عملاء/قصص نجاح إندونيسية غير موثّقة.",
+      "أن الربط مع Coretax/e-Faktur «متاح الآن» أو «قريباً» أو بموعد محدد، أو أن FieldSales مدرجة في قائمة PJAP لدى DJP أو تتصل بها host-to-host.",
+      "أن مستندات FieldSales تقوم مقام faktur pajak (ولا faktur pajak digunggung) أو تُعفي الـ PKP من إصدارها في Coretax، أو أن ضريبتها قابلة للخصم لدى المشتري."
+    ]
+  },
+  "uncertain": [
+    "وضع تطبيق e-Faktur client desktop لإصدار فواتير جديدة في 2026 غير محسوم: KEP-54/PJ/2025 سمح به لكل PKP منذ 12 فبراير 2025؛ ونقلت DDTCNews (30 يناير 2026) عن منشور DJP على إنستغرام أن التطبيق «sudah ditutup dan tidak beroperasi» وأن ما يُستبدل أو يُلغى عبره منذ 8 نوفمبر 2025 لا يُزامَن مع Coretax، دون ذكر تاريخ إغلاق؛ بينما تقول ASEAN Briefing (بلا تاريخ) إنه يعمل بالتوازي لفئات محددة، وComarch (15 ديسمبر 2025) إن كبار المصدِرين يحتفظون بقنوات H2H أو Desktop؛ وصفحة efaktur.pajak.go.id ما زالت تعرض التنزيل بلا إعلان مؤرَّخ. المؤكد أن Coretax هو القناة الأساسية وأن الاستبدال والإلغاء وSPT Masa PPN فيه وحده؛ فلا تذكر الصفحة e-Faktur Desktop قناةً قائمة.",
+    "Comarch (15 ديسمبر 2025، مورّد برمجيات بلا رقم لائحة) تقول إن Coretax يصبح «fully enforceable» لكل PKP تقريباً بحلول 31 ديسمبر 2025 مع بقاء قنوات H2H/Desktop لكبار المصدِرين، لا أنه يحل محل e-Faktur كلياً؛ وصفحة VATCalc لم تُقرأ مباشرة (403).",
+    "تاريخ سريان PER-11/PJ/2025 (ذُكر 22 مايو 2025 في ملخصات ثانوية) لم أتحقق منه من نص اللائحة؛ والمقال المقروء من DDTC (1 يونيو 2025) لا يذكره.",
+    "الإعفاءات من PPN للسلع الأساسية (مثل الأرز والبيض والخضار وفق PP 49/2022) ومبالغ PPN «besaran tertentu» الخاصة (PMK 11/2025) لم أتحقق منها بمصدر مقروء لنفاد حصة البحث؛ وهي مهمة لموزعي المواد الغذائية الأساسية ولم تُدرج في otherRates.",
+    "مقالات pajak.go.id المستشهد بها مكتوبة من موظفي DJP وتنص على أنها رأي شخصي لا موقف رسمي للجهة؛ دُعِّمت بمصادر EY وPwC وDDTC.",
+    "النسبة القانونية 12% مع نسبة فعلية 11% لأغلب السلع: آخر مراجعة لـ PwC في 11 يونيو 2026 وتصريح وزير المالية في 11 سبتمبر 2026 بعدم خفضها؛ لم أجد ما يدل على تغيير حتى 11 نوفمبر 2026، لكن الحكومة تمنح حوافز PPN DTP موجَّهة (السكن، تذاكر الطيران) لا تمس التوزيع عادة.",
+    "minorUnits = 2 وفق قائمة ISO 4217 (SIX، المنشورة 17 سبتمبر 2026)، لكن العملات الفرعية (sen) غير متداولة عملياً وتُعرض المبالغ غالباً بلا كسور؛ لم أجد مصدراً رسمياً مقروءاً لهذه الممارسة. كما أن مشروع قانون إعادة تسمية الروبية (حذف ثلاثة أصفار) مدرج في PMK 70/2025 بهدف إنجازه في 2027 دون موعد تطبيق (CNBC Indonesia، 7 نوفمبر 2025).",
+    "مراكز التوزيع (hubs) مبنية على كونها أكبر المدن والموانئ في البلاد، ولم أجد مصدراً مهنياً مقروءاً يرتّبها لقطاع التوزيع.",
+    "routeAccounting جُعل null: المصطلح المتداول لتسوية المندوب اليومية (يُرجَّح «setoran» لتسليم حصيلة البيع مع إعادة باقي مخزون الكانفاس) لم أتحقق منه بمصدر مقروء.",
+    "شيوع bilyet giro/cek وأسماء المحافظ الرقمية (GoPay وOVO وDANA وShopeePay) في تحصيل الموزعين لم أتحقق منه بمصدر مقروء؛ المؤكد بالمصادر: النقد والآجل (iReap) وQRIS (Bank Indonesia).",
+    "رقم 4.5 مليون نقطة بيع و80% تقليدية تقدير قديم (Liputan6، نوفمبر 2021)؛ والرقم الأحدث المعتمد هو حصة 67% من مبيعات FMCG للتجارة التقليدية (Kantar، الربع الأول 2025).",
+    "لم أتحقق (وليس من نطاقي) من دعم واجهة FieldSales للغة الإندونيسية، ولا من عرض الروبية بلا كسور، ولا من قدرة محرّر الضريبة على تمثيل وعاء 11/12؛ إن لم تُدعم فليُكتب في الصفحة «نسبة فعلية 11%» لا «12% على 11/12».",
+    "نفدت حصة البحث على الويب أثناء العمل، فبُنيت البنود الأخيرة على الصفحات المقروءة فقط.",
+    "حُذف «التصدير» من نطاق e-Faktur في scopeNow: تصدير السلع يُوثَّق عادةً بوثيقة جمركية PEB تُعامل معاملة faktur pajak لا بـ e-Faktur في Coretax، ولم أجد مصدراً مقروءاً يحسم ذلك في التدقيق.",
+    "الرمز 04 مصدره «DPP nilai lain وفق المادة 8A(1)»؛ أما أن تسليمات PMK 131/2024 العادية (وعاء 11/12) تُصدَر بالرمز 04 لا 01 فشائع في الممارسة لكن لم أتحقق منه من نص رسمي.",
+    "حُذف من tax.otherRates ومن keyDates قيد «للتسليم للمستهلك النهائي» لنسبة 12% الكاملة على السلع الفاخرة لأن EY وPwC لا تذكرانه؛ وقد يكون للفترة الانتقالية في يناير 2025 صياغة خاصة في نص PMK 131 لم تُقرأ.",
+    "دعم FieldSales للبيع المسبق (taking order) لم يُتحقق منه في التدقيق؛ إن أكده فريق المنتج فليُضَف إلى canSay.",
+    "تدقيق 11 نوفمبر 2026: نفدت حصة البحث على الويب للجولة كلها، فتم التحقق بفتح المصادر المذكورة مباشرة (PwC وEY وSovos وDDTCNews وpajak.go.id وBank Indonesia وSIX وغيرها) لا ببحث مستقل جديد؛ لم يظهر في أي مصدر مقروء تغيير في نسبة PPN أو في إلزام e-Faktur حتى تاريخه."
+  ],
+  "sources": [
+    {
+      "url": "https://taxsummaries.pwc.com/Indonesia/Corporate/Other-taxes",
+      "title": "PwC Worldwide Tax Summaries – Indonesia: Other taxes (VAT) – last reviewed 11 June 2026",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.ey.com/en_id/technical/tax-alerts/PMK-131-New-Calculation-of-VAT-Payable",
+      "title": "EY – PMK-131 New Calculation of VAT Payable (4 Jan 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.pajak.go.id/id/artikel/pmk-1312024-tarif-ppn-sebelas-dua-belas",
+      "title": "DJP pajak.go.id – PMK 131/2024: Tarif PPN Sebelas-Dua Belas (6 Jan 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.cnnindonesia.com/ekonomi/20260911053756-532-1402615/purbaya-ogah-pangkas-tarif-ppn-nanti-saya-enggak-bisa-kasih-subsidi",
+      "title": "CNN Indonesia – Purbaya Ogah Pangkas Tarif PPN (11 Sep 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://news.ddtc.co.id/berita/nasional/1809782/omzet-rp48-miliar-wajib-pajak-dikukuhkan-jadi-pkp-di-kpp-terdaftar",
+      "title": "DDTCNews – Omzet Rp4,8 Miliar, Wajib Pajak Dikukuhkan Jadi PKP (30 Mar 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.pajak.go.id/id/artikel/coretax-djp-era-npwp-16-digit",
+      "title": "DJP pajak.go.id – Coretax DJP, Era NPWP 16 digit (28 Feb 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://news.ddtc.co.id/literasi/kamus/1811417/update-2025-apa-itu-nomor-identitas-tempat-kegiatan-usaha-nitku",
+      "title": "DDTCNews – Apa Itu NITKU (13 Jun 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://sovos.com/vat/tax-rules/e-invoicing-indonesia/",
+      "title": "Sovos – E-Invoicing in Indonesia",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.comarch.com/trade-and-services/data-management/legal-regulation-changes/indonesias-coretax-system-full-e-invoicing-enforcement-by-dec-31/",
+      "title": "Comarch – Indonesia's Coretax System: Full E-Invoicing Enforcement by Dec 31 (15 Dec 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://news.ddtc.co.id/berita/nasional/1808837/seluruh-pkp-kini-bisa-pakai-aplikasi-e-faktur-ini-catatan-pentingnya",
+      "title": "DDTCNews – Seluruh PKP Kini Bisa Pakai Aplikasi e-Faktur (14 Feb 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://pajak.go.id/en/node/115238",
+      "title": "DJP pajak.go.id – e-Faktur Desktop Kembali Bisa Digunakan (14 Apr 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://news.ddtc.co.id/berita/nasional/1816987/ingat-ganti-faktur-pajak-tak-bisa-lagi-pakai-e-faktur-desktop",
+      "title": "DDTCNews – Ganti Faktur Pajak Tak Bisa Lagi Pakai e-Faktur Desktop (30 Jan 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://news.ddtc.co.id/berita/nasional/1811127/per-11pj2025-pertegas-ketentuan-kode-dan-nomor-seri-faktur-pajak",
+      "title": "DDTCNews – PER-11/PJ/2025: Kode dan Nomor Seri Faktur Pajak (1 Jun 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://news.ddtc.co.id/berita/nasional/1807022/coretax-wajibkan-pkp-perinci-penyerahan-digunggung-pakai-template-xml",
+      "title": "DDTCNews – Coretax Wajibkan PKP Perinci Penyerahan Digunggung (21 Nov 2024)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://news.ddtc.co.id/berita/nasional/1807903/kolom-nama-nik-pembeli-di-xml-faktur-pajak-digunggung-tak-wajib-diisi",
+      "title": "DDTCNews – Kolom Nama & NIK Pembeli di XML Faktur Pajak Digunggung Tak Wajib Diisi (31 Dec 2024)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://news.ddtc.co.id/berita/nasional/1804950/faktur-pajak-harus-penuhi-syarat-formal-dan-material-seperti-apa",
+      "title": "DDTCNews – Faktur Pajak Harus Penuhi Syarat Formal dan Material (22 Aug 2024): محتويات Pasal 13 ayat (5) UU PPN",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.aseanbriefing.com/doing-business-guide/indonesia/taxation-and-accounting/coretax-indonesia",
+      "title": "ASEAN Briefing – Coretax Indonesia",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml",
+      "title": "SIX – ISO 4217 List One (published 2026-09-17): IDR, 360, minor unit 2",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.cnbcindonesia.com/news/20251107082239-4-683073/rencana-besar-purbaya-ubah-rp1000-jadi-rp1-aturan-rampung-2026",
+      "title": "CNBC Indonesia – Rencana Redenominasi Rupiah dalam PMK 70/2025 (7 Nov 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://databoks.katadata.co.id/en/consumer-durables-apparel/statistics/685967c3bb3c7/indonesias-fmcg-product-sales-channel-landscape-in-early-2025",
+      "title": "Databoks (Katadata) – Indonesia's FMCG Sales Channel Landscape in Early 2025 (Kantar data, 23 Jun 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.liputan6.com/lifestyle/read/4649979/mensinergikan-tim-lapangan-dan-perusahaan-di-industri-fmcg-dalam-satu-platform",
+      "title": "Liputan6 – Mensinergikan Tim Lapangan dan Perusahaan di Industri FMCG (2 Nov 2021)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://ireappos.com/en/how-to-ireappos-pro/distribution-of-goods-through-sales-motorists-and-canvassing-using-ireap-pos-pro.php",
+      "title": "iREAP POS – Distribution of Goods through Sales Motorists and Canvassing",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.kitalulus.com/lowongan/detail/sales-taking-order-cawang-skod",
+      "title": "KitaLulus – Lowongan Sales Taking Order (diperbarui 22 May 2026): خبرة motoris, canvaser, taking order",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.bi.go.id/id/fungsi-utama/sistem-pembayaran/ritel/kanal-layanan/qris/default.aspx",
+      "title": "Bank Indonesia – Quick Response Code Indonesian Standard (QRIS)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://ekonomi.republika.co.id/berita/tk4dix502/bi-ungkap-9668-persen-merchant-qris-adalah-umkm",
+      "title": "Republika – BI Ungkap 96,68 Persen Merchant QRIS adalah UMKM (21 Aug 2026)",
+      "accessed": "2026-11-11"
+    }
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "corrections": [
+      {
+        "field": "tax.otherRates[1].appliesTo",
+        "before": "اعتباراً من 1 فبراير 2025 للتسليم للمستهلك النهائي؛",
+        "after": "اعتباراً من 1 فبراير 2025؛",
+        "source": "EY Indonesia Tax Alert PMK-131 (4 يناير 2025): «Starting 1 February 2025, the VAT payable is calculated using the VAT rate of 12% of the sales value or import value» دون قصرها على المستهلك النهائي"
+      },
+      {
+        "field": "tax.registrationThreshold",
+        "before": "(PMK 81/2024 المادتان 60–61)",
+        "after": "(PMK 81/2024؛ وتستشهد DDTCNews بالمادة 61 ayat (1) لواجب الإبلاغ لدى KPP)",
+        "source": "DDTCNews 30 مارس 2025 (news.ddtc.co.id/…/1809782): تذكر المادة 61 ayat (1) وحدها؛ المادة 60 لم تُتحقق"
+      },
+      {
+        "field": "einvoicing.scopeNow",
+        "before": "يُرفع بصيغة XML ويوقَّع إلكترونياً ويحصل على رقم تسلسلي NSFP من 17 خانة ورمز QR.",
+        "after": "يُنشأ في وحدة e-Faktur في Coretax (إدخالاً أو استيراداً) أو عبر تطبيق host-to-host لمزوّد PJAP، ويوقَّع إلكترونياً، ويحصل على رمز ورقم تسلسلي من 17 خانة (رمز المعاملة 2 + رمز الحالة 2 + NSFP من 13 خانة يمنحها DJP آلياً) ورمز QR.",
+        "source": "DDTCNews 1 يونيو 2025 (PER-11/PJ/2025): «kode dan NSFP terdiri atas 17 digit» وNSFP نفسه 13 خانة يمنحها DJP عند الرفع عبر وحدة e-Faktur في Coretax؛ Sovos: client desktop وweb وhost-to-host"
+      },
+      {
+        "field": "einvoicing.scopeNow",
+        "before": "يشمل ذلك البيع بين الشركات وللجهات الحكومية والتصدير والإشعارات المصحِّحة.",
+        "after": "يشمل ذلك البيع بين الشركات وللجهات الحكومية المحصِّلة (الرمز 02) والتسليمات المعفاة أو ذات التسهيلات (الرمزان 07 و08)، والفواتير البديلة (faktur pengganti).",
+        "source": "DDTCNews 1 يونيو 2025 (رموز المعاملات 01–10) وDDTCNews 30 يناير 2026 (الاستبدال والإلغاء عبر Coretax وحده)؛ ذكر «التصدير» بلا مصدر نُقل إلى uncertain"
+      },
+      {
+        "field": "einvoicing.keyDates[2025-02-01].event",
+        "before": "تطبيق 12% كاملة على السلع الفاخرة الخاضعة لـ PPnBM عند البيع للمستهلك النهائي",
+        "after": "تطبيق 12% كاملة على سعر البيع أو قيمة الاستيراد للسلع الفاخرة الخاضعة لـ PPnBM (وفي يناير 2025 حُسبت بوعاء 11/12)",
+        "source": "EY Indonesia Tax Alert PMK-131 (4 يناير 2025)"
+      },
+      {
+        "field": "einvoicing.keyDates[2025-02-12].event",
+        "before": "(عدا من سُجِّل بعد 1 يناير 2025 ومعاملات الرمز 07)",
+        "after": "(عدا الـ PKP المسجَّل بعد 1 يناير 2025 ومن يركّز PPN في فرع، ومعاملات الرمزين 06 و07 التي تبقى في Coretax أو host-to-host)",
+        "source": "pajak.go.id/en/node/115238 (14 أبريل 2025): الرمزان 06 و07 والـ PKP المركِّز في فرع والمسجَّل بعد 1 يناير 2025 عبر Coretax أو H2H؛ DDTCNews 14 فبراير 2025 (KEP-54/PJ/2025 يسري منذ 12 فبراير 2025)"
+      },
+      {
+        "field": "invoiceRequirements[5]",
+        "before": "في Coretax رقم NSFP من 17 خانة = رمز المعاملة (خانتان) + رمز الحالة (خانتان) + 13 خانة يمنحها DJP آلياً عند الاعتماد",
+        "after": "في Coretax «kode dan NSFP» من 17 خانة = رمز المعاملة (خانتان) + رمز الحالة (خانتان) + NSFP من 13 خانة يمنحها DJP آلياً عند الاعتماد",
+        "source": "DDTCNews 1 يونيو 2025 (PER-11/PJ/2025 المادة 37(1))"
+      },
+      {
+        "field": "invoiceRequirements[7]",
+        "before": "04 للوعاء nilai lain 11/12 الذي تخضع له أغلب السلع منذ 2025",
+        "after": "04 للتسليم بوعاء DPP nilai lain وفق المادة 8A(1) من قانون PPN",
+        "source": "DDTCNews 1 يونيو 2025: الرمز 04 = «DPP nilai lain» وفق Pasal 8A ayat (1) UU PPN؛ ربطه صراحةً بتسليمات PMK 131 العادية لم يُتحقق من نص رسمي فنُقل إلى uncertain"
+      },
+      {
+        "field": "honesty.canSay[0]",
+        "before": "FieldSales تدير مناديب البيع من السيارة (kanvas/canvassing) ومناديب أخذ الطلبات (taking order) وزياراتهم المجدولة لنقاط البيع مثل warung وtoko kelontong وgrosir.",
+        "after": "FieldSales تدير مناديب البيع من السيارة (kanvas/canvassing) وزياراتهم الميدانية لنقاط البيع مثل warung وtoko kelontong وgrosir.",
+        "source": "تدقيق: دعم البيع المسبق (taking order) قدرة منتج لم يتحقق منها التدقيق؛ نُقلت إلى uncertain حتى يؤكدها فريق المنتج"
+      },
+      {
+        "field": "honesty.canSay[4]",
+        "before": "الربط مع أنظمة الفوترة الحكومية في إندونيسيا (e-Faktur/Coretax) متاح عند الطلب ويُدرَس لكل عميل، دون وعد بموعد أو نتيجة؛ والربط الحكومي الحيّ اليوم في السعودية وحدها (ZATCA Fatoora المرحلة الثانية).",
+        "after": "لا يوجد اليوم ربط بين FieldSales وأنظمة الفوترة الحكومية في إندونيسيا (e-Faktur/Coretax)؛ الربط «متاح عند الطلب» بمعنى أنه يُدرَس لكل عميل دون وعد بموعد أو نتيجة، علماً بأن الربط host-to-host مع DJP يتم عبر مزوّد PJAP مرخّص. والربط الحكومي الحيّ اليوم في السعودية وحدها (ZATCA Fatoora المرحلة الثانية).",
+        "source": "pajak.go.id/en/node/115238 (14 أبريل 2025): host-to-host من «penyedia jasa aplikasi» المرخّص؛ قاعدة المنصة: لا ربط حيّ خارج السعودية"
+      },
+      {
+        "field": "honesty.mustNotSay",
+        "before": "8 بنود",
+        "after": "10 بنود (أُضيف: منع ادعاء ربط حاضر/قريب أو إدراج PJAP، ومنع ادعاء أن مستندات المنصة تقوم مقام faktur pajak)",
+        "source": "قاعدة المهمة: لا ادعاء ربط أو اعتماد أو امتثال خارج السعودية"
+      },
+      {
+        "field": "uncertain[0]",
+        "before": "وضع تطبيق e-Faktur client desktop لإصدار فواتير جديدة في 2026 متضارب: KEP-54/PJ/2025 سمح به لكل PKP منذ 12 فبراير 2025، بينما نقلت DDTCNews عن DJP في 30 يناير 2026 أن التطبيق القديم «sudah ditutup dan tidak beroperasi» في سياق الاستبدال والإلغاء، وتقول مصادر تجارية إنه ما زال يعمل. المؤكد أن Coretax هو القناة الأساسية وأن الاستبدال والإلغاء وSPT Masa PPN فيه وحده. لم أجد نصاً رسمياً من DJP يحسم ذلك.",
+        "after": "وضع تطبيق e-Faktur client desktop لإصدار فواتير جديدة في 2026 غير محسوم: KEP-54/PJ/2025 سمح به لكل PKP منذ 12 فبراير 2025؛ ونقلت DDTCNews (30 يناير 2026) عن منشور DJP على إنستغرام أن التطبيق «sudah ditutup dan tidak beroperasi» وأن ما يُستبدل أو يُلغى عبره منذ 8 نوفمبر 2025 لا يُزامَن مع Coretax، دون ذكر تاريخ إغلاق؛ بينما تقول ASEAN Briefing (بلا تاريخ) إنه يعمل بالتوازي لفئات محددة، وComarch (15 ديسمبر 2025) إن كبار المصدِرين يحتفظون بقنوات H2H أو Desktop؛ وصفحة efaktur.pajak.go.id ما زالت تعرض التنزيل بلا إعلان مؤرَّخ. المؤكد أن Coretax هو القناة الأساسية وأن الاستبدال والإلغاء وSPT Masa PPN فيه وحده؛ فلا تذكر الصفحة e-Faktur Desktop قناةً قائمة.",
+        "source": "DDTCNews 30 يناير 2026؛ ASEAN Briefing؛ Comarch 15 ديسمبر 2025؛ efaktur.pajak.go.id/login"
+      },
+      {
+        "field": "uncertain[1]",
+        "before": "مصادر مهنية (Comarch، وVATCalc عبر VATupdate) تقول إن Coretax يحل محل e-Faktur كلياً بحلول 31 ديسمبر 2025؛ صفحة VATCalc نفسها رفضت الوصول (403) فلم أقرأها مباشرة.",
+        "after": "Comarch (15 ديسمبر 2025، مورّد برمجيات بلا رقم لائحة) تقول إن Coretax يصبح «fully enforceable» لكل PKP تقريباً بحلول 31 ديسمبر 2025 مع بقاء قنوات H2H/Desktop لكبار المصدِرين، لا أنه يحل محل e-Faktur كلياً؛ وصفحة VATCalc لم تُقرأ مباشرة (403).",
+        "source": "Comarch – Indonesia's Coretax System: Full E-Invoicing Enforcement by Dec 31 (15 ديسمبر 2025)"
+      }
+    ],
+    "confidence": "high"
+  }
+}

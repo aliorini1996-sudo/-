@@ -10,6 +10,7 @@
  * ⚠️ المصدر الإنجليزي خالٍ من كل مفردات الاعتماد، فالمنع الشامل آمن: أي ظهور في ترجمة يُراجَع لا يُستثنى.
  */
 import crypto from 'node:crypto';
+import { GOV_EINVOICING_RE } from './claims-rules.mjs';
 
 /** مفردات الاعتماد والشهادة لكل لغة (حساسة لحالة الأحرف بلا تمييز). ZWNJ مقبول بين الكلمتين في الفارسية والأردية */
 const CERT_GROUPS = [
@@ -258,7 +259,21 @@ export const I18N_RULE_WHY = Object.freeze({
   'i18n-year': 'سنة في نص جديد — لا مواعيد (المسموح سنة التأسيس في وصف «من نحن» وفقرته الأولى)',
   'i18n-live-price': 'سعر باقة حيّ أو سنويّ — قرار المالك: لا سعر ظاهر (طلب عرض سعر مكانه)',
   'i18n-currency-number': 'رقم ملاصق لرمز عملة — لا أسعار في صفحات الطبقة',
+  'i18n-gov-einvoicing': 'اسم منظومة فوترة حكومية خارج السعودية في نصّ مترجم — المصدر الإنجليزي لا يسمّي أياً منها، والربط فيها «عند الطلب» بلا وعد',
 });
+
+/**
+ * مكافئ gov-einvoice-abroad للطبقة (خطة GEO البند ١٤): القاعدة العامة (RULES) تُطبَّق على صفحات الطبقة كما هي، لكن أفعال
+ * الربط فيها بلغات الموقع الخمس وأوسع لغات الطبقة انتشاراً فقط — وفي لغة أخرى (الأمهرية مثلاً) يمرّ «FieldSales + CFDI + فعل
+ * ربط محلي». فهنا المنع الشامل على **نصوص ملفات المحتوى** (marketing/<code>.json) وحدها: المصدر الإنجليزي (en.json) لا يذكر
+ * أي منظومة غير ZATCA/Fatoora، فظهور اسمٍ منها في ترجمة إضافةٌ من المترجم لا تُنشر (قِيس ١١ نوفمبر: صفر في ١٣٦٤٠ سلسلة).
+ * ولا يُطبَّق على نصّ الصفحة كلها (findI18nViolations): صفحات الدول تذكر منظوماتها ذكراً واقعياً مشروعاً.
+ * القائمة GOV_EINVOICING في claims-rules.mjs بلا المصطلحات العامة (E-Rechnung · e-factura · hóa đơn điện tử · 电子发票).
+ */
+export function govEinvoicingName(text) {
+  const m = String(text ?? '').match(GOV_EINVOICING_RE);
+  return m ? m[0] : null;
+}
 
 /**
  * مخالفات قواعد الطبقة في نصّ واحد.
@@ -287,6 +302,8 @@ export function checkMarketingStrings(strings, opts = {}) {
   for (const [key, value] of Object.entries(strings || {})) {
     if (key === 'tierB.category.slugHint') continue;
     for (const v of findI18nViolations(value, { ...opts, allowYear: YEAR_KEYS.includes(key) })) out.push({ ...v, key });
+    const gov = govEinvoicingName(value);
+    if (gov) out.push({ id: 'i18n-gov-einvoicing', match: gov.slice(0, 60), why: I18N_RULE_WHY['i18n-gov-einvoicing'], key });
   }
   return out;
 }

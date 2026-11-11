@@ -19,6 +19,7 @@ export const YEAR_KEYS: readonly string[];
 export function livePriceRe(livePrices: readonly string[]): RegExp | null;
 export function currencyNumberRe(): RegExp;
 export const I18N_RULE_WHY: Readonly<Record<string, string>>;
+export function govEinvoicingName(text: string): string | null;
 export function findI18nViolations(text: string, opts?: {
   code?: string; livePrices?: readonly string[]; allowYear?: boolean; skipCurrency?: boolean;
 }): I18nViolation[];

@@ -12,7 +12,9 @@ export interface ClaimRule {
   /** مرشّح مسبق: لا يُشغَّل re على نصّ لا يطابقه (يجب أن يكون أوسع من re) */
   pre?: RegExp;
   severity?: 'warn';
-  scope?: 'head' | 'raw';
+  scope?: 'head' | 'raw' | 'blocks';
+  /** حكم إضافي على كل مطابقة (النص مطبَّع) — false يُعفيها */
+  check?: (hay: string, m: RegExpMatchArray) => boolean;
   /** verify-claims يطبّقها على ملفات dist التي يطابق مسارها النسبي paths ولا يطابق exceptPaths */
   paths?: RegExp;
   exceptPaths?: RegExp;
@@ -66,6 +68,10 @@ export function pageHead(html: string): string;
 export const pageKeywords: (html: string) => string;
 export function ruleHaystack(rule: ClaimRule, page: PageText): string;
 export function checkGlossary(text: string, code: string): string[];
+export const GOV_EINVOICING: { cc: string[]; latin?: string; cyrl?: string; arab?: string; hebr?: string; free?: string }[];
+export const GOV_EINVOICING_RE: RegExp;
+export function govClaimAt(hay: string, m: RegExpMatchArray): boolean;
+export function jsonLdLines(src: string): string;
 export function findViolation(rule: ClaimRule, haystack: string): { index: number; match: string } | null;
 export function findViolations(rule: ClaimRule, haystack: string, limit?: number): { index: number; match: string }[];
 export function checkText(text: string): string[];

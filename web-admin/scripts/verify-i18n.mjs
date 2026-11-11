@@ -28,7 +28,7 @@ import {
   findI18nViolations, checkMarketingStrings, scriptProblems, contentHashOf, publishedEntry, certRuleFor, NO_CERT_RULE,
   livePriceRe, toAsciiDigits, I18N_RULE_WHY, englishCopies, metaDescBounds,
 } from './claims-i18n.mjs';
-import { RULES, findViolation } from './claims-rules.mjs';
+import { RULES, findViolation, jsonLdLines } from './claims-rules.mjs';
 import { loadPricing } from './pricing-source.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -109,6 +109,16 @@ const claimsText = (h) => {
   const metas = tagsOf(h, 'meta').filter((a) => /^(?:description|og:description|twitter:description|og:title|twitter:title)$/i.test(a.name || a.property || ''))
     .map((a) => a.content || '').join(' . ');
   return `${stripTags(h)} . ${ld} . ${metas}`.replace(/\s+/g, ' ');
+};
+/** نطاق «الكتل» (scope: 'blocks' — gov-einvoice-abroad): النص نفسه وكل فقرة وعنوان وبند وخلية في سطر، كما في verify-claims */
+const BLOCK_END = /<\/(?:p|li|h[1-6]|div|td|th|tr|caption|section|article|header|footer|nav|aside|main|ul|ol|table|blockquote|dd|dt|dl|figcaption|title|button|label|summary|details|option)>|<(?:br|hr)\b[^>]*>/gi;
+const claimsBlocks = (h) => {
+  const body = decode(String(h).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(BLOCK_END, '\n').replace(/<[^>]+>/g, ' '));
+  // قيم JSON-LD سطراً لكل قيمة (jsonLdLines) لا تقسيماً عند كل فاصلة: جواب FAQPage يبقى جملة واحدة كما في verify-claims
+  const ld = ldBlocks(h).map(jsonLdLines).join('\n');
+  const metas = tagsOf(h, 'meta').filter((a) => /^(?:description|og:description|twitter:description|og:title|twitter:title)$/i.test(a.name || a.property || ''))
+    .map((a) => a.content || '').join('\n');
+  return `${body}\n${ld}\n${metas}`.replace(/[^\S\n]+/g, ' ').replace(/ ?\n\s*/g, '\n');
 };
 const fileForPath = (p) => {
   let d = String(p);
@@ -390,11 +400,13 @@ if (distOk) {
     // G5: القواعد العامة كما يطبّقها verify-claims (نصوص المستودع ⇒ كلها حاجبة هنا)
     const relp = path.relative(DIST, file);
     const text = claimsText(html);
+    let blocks = null;
     const headScope = [title, desc, h1].join(' ');
     for (const rule of RULES) {
       if (rule.paths && !rule.paths.test(relp)) continue;
       if (rule.exceptPaths && rule.exceptPaths.test(relp)) continue;
-      const v = findViolation(rule, rule.scope === 'head' ? headScope : rule.scope === 'raw' ? html : text);
+      if (rule.scope === 'blocks' && blocks === null) blocks = claimsBlocks(html);
+      const v = findViolation(rule, rule.scope === 'head' ? headScope : rule.scope === 'raw' ? html : rule.scope === 'blocks' ? blocks : text);
       if (v) err('G5', `${page.path}: [${rule.id}] «${v.match.slice(0, 50)}» — ${rule.why}`);
     }
     // G5: قواعد الطبقة على النص الظاهر (بلا جدول الدول للرقم الملاصق للعملة)
