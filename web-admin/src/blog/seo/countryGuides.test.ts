@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { buildCatalog, getArticle, listArticles, LANGS, canonicalSlug, hasArticle, cardCatalog } from './catalog.mjs';
+import { buildCatalog, getArticle, listArticles, LANGS, canonicalSlug, hasArticle, cardCatalog, modifiedOf } from './catalog.mjs';
 import type { SeoLang } from './catalog.mjs';
 import * as guides from './countryGuides.mjs';
 import * as rules from '../../../scripts/claims-rules.mjs';
@@ -168,10 +168,27 @@ test('نصوص الأدلة كما تُصيَّر (المتن وFAQPage والر
     for (const L of g.langs) {
       const a = getArticle(g.slug, L)!;
       const text = R.norm(`${a.h1 || a.title} ${textOf(a.contentHtml)} . ${a.title} ${a.description} . ${a.faq.map((f) => `${f.q} ${f.a}`).join(' ')}`);
-      for (const r of blocking) if (R.findViolation(r, text)) bad.push(`${g.slug}.${L}: ${r.id}`);
+      // قواعد القاموس كما يطبّقها verify-claims (وcheckText يستثنيها): لصفحات لغتها وحدها (paths على مسار dist)، وعلى
+      // الرأس — العنوان والوصف وH1 كلٌّ في سطره — والكلمات المفتاحية؛ إلا scope «text» فعلى الصفحة كلها. «van sales» في
+      // متن إنجليزي شرحاً أو «vente en tournée» في جملة فرنسية صحيحتان، ونسخة عربية لا تُحاسَب بقاموس الإنجليزية.
+      const rel = `${L === 'ar' ? '' : `${L}/`}blog/${g.slug}/index.html`;
+      const page = { text, raw: text, head: [a.title, a.description, a.h1 || a.title].join(R.FIELD_SEP), kw: a.keywords };
+      for (const r of blocking) {
+        if (r.glossary && ((r.paths && !r.paths.test(rel)) || (r.exceptPaths && r.exceptPaths.test(rel)))) continue;
+        if (R.findViolation(r, r.glossary ? R.ruleHaystack(r, page) : text)) bad.push(`${g.slug}.${L}: ${r.id}`);
+      }
     }
   }
   assert.deepEqual(bad, []);
+  // قواعد القاموس ما زالت تُطبَّق هنا: رأس دليل بالصيغة المنفردة يُحجب (ما صحّحه review.fix3 في ملفات المحتوى)
+  const glossaryHits = (L: SeoLang, head: string, kw = '') => R.RULES
+    .filter((r) => r.glossary && r.severity !== 'warn' && (!r.paths || r.paths.test(`${L === 'ar' ? '' : `${L}/`}blog/x/index.html`)))
+    .filter((r) => R.findViolation(r, R.ruleHaystack(r, { text: head, raw: head, head, kw })))
+    .map((r) => r.id);
+  assert.deepEqual(glossaryHits('en', 'Van Sales Software for Kenya\nVan sales, pre-sales and collections for Kenyan distributors.\nKenya'), ['glossary-en-01']);
+  assert.deepEqual(glossaryHits('fr', 'Logiciel\nFieldSales\nFieldSales au Cameroun : vente en tournée, prise de commandes'), ['glossary-fr-04']);
+  assert.deepEqual(glossaryHits('en', 'Van sales app with pre-sales and collections for distributors in Kenya'), []);
+  assert.deepEqual(glossaryHits('fr', 'FieldSales au Cameroun : logiciel de vente en tournée, de prise de commandes'), []);
 });
 
 test('المحمّل الكسول في المتصفح يحزم دول السجلّ وحدها (لا حزمة في dist لدولة مستثناة)', () => {
@@ -248,15 +265,30 @@ test('حزمة المتصفح من ملف الدولة: ما يرسمه العر
   assert.equal(isCountryPageModule('/x/src/content/country-pages/IQ.ts'), false);
 });
 
-test('تاريخ التعديل بلغته: الجامعة العربية لم تتغيّر فلا يتجدّد تاريخها، والخريطة تطابق dateModified كل نسخة', () => {
-  const pillar = (L: SeoLang) => getArticle('field-sales-software', L)!.modified!;
+test('تاريخ التعديل بلغته: ربط الأدلة لا يرفع تاريخ الجامعة بلغة بلا دليل (العربية يرفعها تعديل الجامعات REGION_REVISED وحده)، والخريطة تطابق dateModified كل نسخة', () => {
+  const pillar = (L: SeoLang) => getArticle(G.GUIDE_TOPIC, L)!.modified!;
   const guideLangs = new Set(NEW.map((g) => g.lang));
+  const cat = buildCatalog();
+  const { date } = cat.find((x) => x.slug === G.GUIDE_TOPIC)!;
   for (const L of LANGS) {
+    // تاريخ الجامعة بلا تعديل الصفحة بلغتها (REVISED_PAGE): بلا slug يبقى كل ما سواه — النشر والقالب وREVISED بمعرّف
+    // الموضوع وREGION_REVISED (cc جامع null كما في buildCatalog)
+    const withoutPage = modifiedOf(date, null, null, G.GUIDE_TOPIC, L);
     if (guideLangs.has(L)) assert.equal(pillar(L), G.GUIDE_DATE, `الجامعة ${L}: تربط أدلة لغتها`);
-    else assert.ok(pillar(L) < G.GUIDE_DATE, `الجامعة ${L}: ${pillar(L)} — لا دليل بلغتها فلم يتغيّر نصّها`);
+    else assert.equal(pillar(L), withoutPage, `الجامعة ${L}: ${pillar(L)} — لا دليل بلغتها فلا يرفع ربطُ الأدلة تاريخها (${withoutPage} من غيره)`);
+  }
+  // الجامعة العربية ٢٠٢٦-١١-١١ صادق: تعديل F9 (REGION_REVISED) غيّر جواب «هل يعمل النظام…» في الصفحات الجامعة بلغاتها
+  // الثلاث يومها — لا ربط الأدلة
+  assert.equal(pillar('ar'), '2026-11-11');
+  assert.match(getArticle(G.GUIDE_TOPIC, 'ar')!.faq.find((f) => /هل يعمل النظام/.test(f.q))?.a || '', /في كل دول العالم/);
+  // آلية التعديل بلغته معزولةً عن REGION_REVISED (cc غير جامع فلا يدخل): REVISED_PAGE يرفع لغات الأدلة وحدها، فلغة بلا
+  // دليل يبقى تاريخها دون GUIDE_DATE — يتساوى التاريخان اليوم في الصفحة الحقيقية فلا يُرى الفرق إلا هكذا
+  for (const L of LANGS) {
+    const d = modifiedOf(date, 'XX', G.GUIDE_TOPIC, null, L);
+    if (guideLangs.has(L)) assert.equal(d, G.GUIDE_DATE, `REVISED_PAGE ${L}: تربط أدلة لغتها`);
+    else assert.ok(d < G.GUIDE_DATE, `REVISED_PAGE ${L}: ${d} — لا دليل بلغتها فلا يُرفع تاريخها`);
   }
   // lastmod في الخريطة (modifiedByLang) = modified الفهرس = dateModified المقال، لكل نسخة
-  const cat = buildCatalog();
   for (const L of LANGS) {
     const listed = new Map(listArticles(L).map((x) => [x.slug, x.modified]));
     for (const e of cat) {

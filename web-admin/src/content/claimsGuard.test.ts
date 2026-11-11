@@ -5,6 +5,7 @@ import { RULES, checkText, findViolation, findViolations, norm, PHASE2_CMS_CLEAN
 import { checkMarketingStrings, govEinvoicingName } from '../../scripts/claims-i18n.mjs';
 import * as claimsRules from '../../scripts/claims-rules.mjs';
 import { buildCatalog, getArticle, LANGS } from '../blog/seo/catalog.mjs';
+import { registeredGuides, GUIDE_DATE } from '../blog/seo/countryGuides.mjs';
 import { PROFILE_DEFAULTS } from './profileContent';
 import { TEMPLATES } from './templates';
 import { defaultContent } from '../landing/defaultContent';
@@ -863,7 +864,8 @@ test('صفحات الكتالوج السعودية وأسواق المقاصّة
 
 /**
  * الصفحات الجامعة (REGION، ٢٩ صفحة): جواب «هل يعمل النظام…» يصف الكيان فيتموضع عالمياً، و«بعملة العملة المحلية» تكرار
- * لفظي في FAQ وHowTo (١١ نوفمبر ٢٠٢٦). وتاريخ تعديلها يتبع التغيير (lastmod وdateModified)، وصفحات الدول لا تتغيّر.
+ * لفظي في FAQ وHowTo (١١ نوفمبر ٢٠٢٦). وتاريخ تعديلها يتبع التغيير (lastmod وdateModified)، وصفحات الدول لا يرفعها هذا
+ * التعديل — إلا أدلة الدول (countryGuides.mjs) التي تغيّر نصّها هي نفسها اليوم ذاته من ملفات محتواها المراجَعة.
  */
 test('الصفحات الجامعة: جواب التوافر عالمي بلا «بعملة العملة»، وتاريخ تعديلها يتبعه وحدها', () => {
   const all = buildCatalog();
@@ -881,5 +883,11 @@ test('الصفحات الجامعة: جواب التوافر عالمي بلا �
     }
   }
   assert.ok(region.every((e) => e.modified === '2026-11-11'), 'تاريخ تعديل الصفحات الجامعة لا يتبع التغيير');
-  assert.ok(all.filter((e) => e.cc).every((e) => e.modified < '2026-11-11'), 'صفحات الدول لم تتغيّر فلا يُرفع تاريخها');
+  // أدلة الدول تغيّر محتواها هي (قسم «حقائق محلية» والأدلة الجديدة) فتاريخها GUIDE_DATE صادق؛ وما سواها من صفحات الدول
+  // لا يرفعه تعديل الجامعات (REGION_REVISED لا يسري على صفحة دولة)
+  const guides = new Set(registeredGuides().map((g) => g.slug));
+  assert.ok(all.filter((e) => guides.has(e.slug)).every((e) => e.cc && e.modified === GUIDE_DATE), 'أدلة الدول: تاريخها تاريخ محتواها');
+  const countries = all.filter((e) => e.cc && !guides.has(e.slug));
+  assert.ok(countries.length > 250, `لم تُقرأ صفحات الدول (${countries.length})`);
+  assert.ok(countries.every((e) => e.modified < '2026-11-11'), 'صفحات الدول لم تتغيّر فلا يُرفع تاريخها');
 });

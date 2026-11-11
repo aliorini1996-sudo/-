@@ -81,6 +81,8 @@ export function buildCatalog(): SeoCatalogEntry[];
 export function hasArticle(slug: string): boolean;
 export function canonicalSlug(slug: string): string;
 export function cardCatalog(): SeoCardMeta[];
+/** آخر تعديل جوهري (lastmod وdateModified): L لغة النسخة — بلاها يؤخذ أحدث تعديلات الصفحة بلغاتها */
+export function modifiedOf(date: string, cc: string | null, slug?: string | null, topicId?: string | null, L?: SeoLang): string;
 
 /** دليل دولة جديد بلغة سوقه وحدها (src/blog/seo/countryGuides.mjs) */
 export interface SeoNewGuide {
