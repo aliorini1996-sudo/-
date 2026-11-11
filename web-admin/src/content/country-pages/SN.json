@@ -1,0 +1,193 @@
+{
+  "code": "SN",
+  "languages": [
+    "fr"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "fr": {
+      "slugHint": "logiciel-vente-en-tournee-senegal",
+      "title": "Logiciel de vente en tournée au Sénégal | FieldSales",
+      "description": "Distributeurs au Sénégal : vente en tournée et prévente, factures imprimées, suivi des encaissements (espèces, Wave, Orange Money), même hors ligne.",
+      "h1": "Logiciel de vente en tournée et de prévente pour distributeurs au Sénégal",
+      "intro": "FieldSales est une plateforme cloud pour les distributeurs et grossistes sénégalais qui travaillent avec des commerciaux terrain. En vente en tournée, le vendeur établit la facture sur son téléphone et l'imprime sur imprimante thermique ; en prévente, il saisit la commande. Il enregistre les encaissements en espèces, Wave ou Orange Money et suit le crédit de chaque boutiquier. Stock du camion, itinéraire et visites géolocalisées se pilotent depuis un tableau de bord web. Vous paramétrez vous-même le franc CFA et la TVA à 18 %, et l'application fonctionne sans réseau.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "La distribution au Sénégal : tournées, prévente et boutiquiers",
+          "body": "Dakar concentre l'essentiel des flux : son port reçoit la quasi-totalité des importations, et on y trouve environ 22 % de la population et 80 % de l'activité économique, tandis que Diamniadio, zone économique spéciale, se développe comme pôle industriel et logistique (guide commercial de l'International Trade Administration américaine). La distribution y combine circuits modernes et traditionnels : grossistes, demi-grossistes, détaillants, et des centres commerciaux qui commencent à apparaître à Dakar. On distingue la vente en tournée (ou vente camion), où le vendeur livre et facture dans la foulée, de la prévente, où le prévendeur prend la commande pour une livraison ultérieure. Le secteur informel occupe près de 80 % de la population active : les espèces restent la règle, mais Orange Money et Wave jouent un rôle majeur dans les paiements. Le crédit fournisseur est courant, et les concurrents étrangers accordent 60 à 90 jours sur les biens de consommation. La langue des affaires est le français ; la publicité se fait en français ou en wolof."
+        },
+        {
+          "id": "tax",
+          "title": "TVA, NINEA et mentions obligatoires de la facture",
+          "body": "La taxe sur la valeur ajoutée (TVA) s'applique au taux normal de 18 % ; un taux réduit de 10 % s'applique aux prestations de certains établissements d'hébergement touristique (art. 369 du CGI). Les exonérations (art. 361 du CGI) concernent notamment les produits alimentaires de base non transformés fixés par arrêté (céréales hors riz de luxe, légumes et tubercules, arachide et légumineuses, viandes et abats frais, réfrigérés ou congelés, œufs en coquille, poisson et lait non transformés), les médicaments, les livres et journaux, le gaz butane domestique en bouteilles de 38 kg au plus et les exportations directes. Les personnes physiques placées sous la Contribution globale unique (CGU, art. 134 et 135) ne font pas apparaître la TVA : leurs factures sont établies TTC (art. 448). La déclaration de TVA est mensuelle, au plus tard le 15 du mois suivant, au réel normal, et trimestrielle au réel simplifié. L'identifiant fiscal est le NINEA (Numéro d'identification national des entreprises et associations), à obtenir avant d'exercer toute activité soumise à déclaration. Selon l'article 447, la facture mentionne le nom, l'adresse exacte et le NINEA du fournisseur, un numéro unique dans une séquence chronologique continue, la TVA et son taux, la taxe spécifique éventuelle et son taux, le prix TTC et, en cas d'exonération, le texte du CGI qui la justifie ; elle est émise au plus tard à la livraison ou à l'exécution du service, et une facture d'avoir renvoie à la facture d'origine. Dans FieldSales, vous saisissez vous-même le nom de la taxe et son taux, et vous composez le modèle d'impression avec votre raison sociale, votre adresse, votre NINEA, une numérotation continue et le total TTC. Si votre entreprise relève de la CGU, le mode « suppression de la taxe » retire toute mention de taxe des écrans et des documents. Dans tous les cas, le respect des articles 447 et 448 du CGI reste de votre responsabilité et de celle de votre comptable."
+        },
+        {
+          "id": "einvoicing",
+          "title": "Facturation électronique : où en est le Sénégal ?",
+          "body": "Le Sénégal a inscrit la facturation électronique dans la loi sans l'avoir encore mise en œuvre. La loi de finances pour 2025 (loi n° 2025-02) a ajouté un paragraphe II à l'article 447 du CGI : tout assujetti devra émettre, transmettre et recevoir ses factures par voie électronique, via un portail public ou une plateforme de l'administration, ou au moyen de machines électroniques de facturation dont l'administration doit fixer les règles, avec transmission des données à la DGID (CGI annoté publié par la DGID). Les modalités doivent être fixées par arrêté du ministre des Finances (art. 447-II-5) : ni cet arrêté, ni la plateforme, ni le format technique, ni le calendrier n'ont été publiés, et le site de la DGID ne comportait aucun communiqué sur le sujet au 11 novembre 2026. Le CGI prévoit une amende de 25 % de la TVA facturée, plafonnée par facture (art. 667-IV), dont la DGID n'a pas annoncé l'entrée en application. Le projet de loi de finances pour 2027, déposé le 12 octobre 2026, évoque un « déploiement progressif » sans date ni périmètre (projet de loi publié sur vie-publique.sn). La Senelec, société d'électricité, impose à ses propres fournisseurs, à partir du 31 juillet 2026, de déposer leurs factures sur sa plateforme : c'est l'exigence commerciale d'une entreprise, pas une obligation nationale (Financial Afrik). Quant à SENTAX, obligatoire pour les contribuables de la Direction des grandes entreprises depuis le 1er septembre 2026, puis ouvert à ceux des CME1, CME2 et CPR le 1er octobre 2026, c'est un service de déclaration et de paiement, pas de facturation électronique (communiqués de la DGID). Le modèle technique, validation préalable ou simple transmission des données, n'est pas encore défini. Côté FieldSales, un raccordement à ce futur dispositif est disponible sur demande, après étude des exigences officielles une fois publiées, sans promesse de réalisation ni de date."
+        },
+        {
+          "id": "collections",
+          "title": "Encaissements et créances : espèces, Wave, Orange Money",
+          "body": "Sur une tournée, l'argent rentre surtout en espèces, mais Orange Money (et son application Max It) et Wave tiennent une place majeure ; s'y ajoutent le virement bancaire et le crédit fournisseur accordé aux boutiquiers. Dans FieldSales, vous créez vos propres modes de paiement, par exemple « Wave », « Orange Money » ou « Virement », et le commercial choisit le mode utilisé en établissant le reçu. C'est un enregistrement de l'encaissement : FieldSales n'est pas connecté aux opérateurs de mobile money et ne déclenche aucun paiement. Chaque reçu met à jour le solde du client, ce qui vous permet de suivre les créances par boutique et par commercial, de repérer les impayés à relancer et de préparer l'arrêté de caisse : en fin de tournée, vous savez ce que chaque vendeur doit verser."
+        },
+        {
+          "id": "how",
+          "title": "FieldSales au quotidien sur vos tournées",
+          "body": "Dans les paramètres, vous choisissez le franc CFA (XOF), affiché sans décimales, le nom de la taxe et son taux. Le commercial travaille sur Android ou iPhone : factures, reçus et visites fonctionnent sans réseau et se synchronisent dès que la connexion revient, ce qui compte sur les tournées éloignées des grandes villes. Les factures s'impriment sur place sur une imprimante thermique portable. Le stock du camion est suivi tout au long de la journée et rapproché au retour, pour un bilan de tournée clair. Chaque commercial suit son itinéraire, ses visites sont enregistrées avec la position GPS et des photos, et les responsables pilotent l'ensemble depuis le tableau de bord web. L'interface est disponible en français, en anglais, en arabe, en turc et en chinois ; elle n'existe pas en wolof."
+        }
+      ],
+      "faq": [
+        {
+          "q": "La facturation électronique de la DGID est-elle déjà possible avec FieldSales ?",
+          "a": "Non. Il n'existe pas encore de plateforme à laquelle se raccorder : l'arrêté d'application de l'article 447-II du CGI n'a pas été publié. Si votre entreprise en a besoin, ce raccordement est disponible sur demande, après étude des exigences officielles une fois publiées, sans promesse de réalisation ni de date."
+        },
+        {
+          "q": "Peut-on rapprocher le stock du camion et l'argent encaissé en fin de tournée ?",
+          "a": "Oui. Le stock chargé dans le camion est suivi au fil des ventes et rapproché au retour, et les reçus enregistrés par le commercial indiquent ce qu'il doit verser : vous préparez ainsi l'arrêté de caisse et le bilan de tournée."
+        },
+        {
+          "q": "L'application fonctionne-t-elle sans réseau pendant la tournée ?",
+          "a": "Oui. Le commercial établit ses factures et ses reçus et enregistre ses visites hors connexion ; tout se synchronise dès que le téléphone retrouve le réseau, ce qui est utile sur les tournées éloignées des grandes villes."
+        },
+        {
+          "q": "Comment enregistrer un paiement reçu par Wave ou Orange Money ?",
+          "a": "Créez dans les paramètres des modes de paiement personnalisés, par exemple « Wave » et « Orange Money ». Le commercial sélectionne le mode utilisé en établissant le reçu, et le solde du client est mis à jour. FieldSales enregistre l'encaissement mais n'est pas connecté aux opérateurs : le paiement lui-même se fait dans l'application de l'opérateur."
+        },
+        {
+          "q": "Mon entreprise relève de la CGU : puis-je facturer sans faire apparaître la TVA ?",
+          "a": "Oui. Le mode « suppression de la taxe » retire toute mention de taxe des écrans et des documents. Faites valider le contenu de vos factures par votre comptable au regard des articles 447 et 448 du CGI."
+        },
+        {
+          "q": "Mon NINEA peut-il figurer sur les factures imprimées ?",
+          "a": "Oui : vous l'ajoutez au modèle d'impression avec votre raison sociale et votre adresse. FieldSales ne vérifie pas automatiquement les numéros NINEA auprès de l'administration ; c'est à vous de saisir des numéros exacts."
+        },
+        {
+          "q": "L'application est-elle disponible en wolof ?",
+          "a": "Non. L'interface est proposée en français, en anglais, en arabe, en turc et en chinois. Vos commerciaux au Sénégal peuvent donc l'utiliser en français."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Exemple de structure de facture en vente en tournée",
+        "note": "Exemple de structure, sans montants : il reprend les mentions de l'article 447 du CGI et ajoute des champs pratiques de tournée. Faites valider votre modèle par votre comptable.",
+        "fields": [
+          {
+            "label": "Fournisseur",
+            "example": "Raison sociale, adresse exacte et NINEA"
+          },
+          {
+            "label": "Numéro de facture",
+            "example": "Numéro unique dans une séquence chronologique continue"
+          },
+          {
+            "label": "Date",
+            "example": "Date d'émission, au plus tard à la livraison"
+          },
+          {
+            "label": "Client",
+            "example": "Nom de la boutique ou du grossiste, quartier, ville"
+          },
+          {
+            "label": "Commercial et tournée",
+            "example": "Nom du vendeur et du circuit du jour"
+          },
+          {
+            "label": "Lignes d'articles",
+            "example": "Désignation, quantité, unité (carton ou pièce), prix unitaire"
+          },
+          {
+            "label": "TVA",
+            "example": "Taux appliqué (18 %) et montant de la taxe"
+          },
+          {
+            "label": "Taxe spécifique",
+            "example": "Le cas échéant, avec son taux"
+          },
+          {
+            "label": "Total TTC",
+            "example": "Prix toutes taxes comprises"
+          },
+          {
+            "label": "Mention d'exonération",
+            "example": "Article du CGI qui justifie l'exonération, le cas échéant"
+          },
+          {
+            "label": "Mode de paiement",
+            "example": "Espèces, Wave, Orange Money, virement ou crédit avec échéance"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "DGID — Code général des impôts annoté (janvier 2025) : art. 134-135, 361, 369, 446-449, 667",
+          "url": "https://www.dgid.sn/storage/docs/CGI-2025.pdf"
+        },
+        {
+          "title": "DGID — Lois et règlements : taux d'imposition",
+          "url": "https://www.dgid.sn/loi-reglement#taux-impots"
+        },
+        {
+          "title": "DGID — Fiche NINEA / RCCM",
+          "url": "https://www.dgid.sn/fiches/ninea"
+        },
+        {
+          "title": "DGID — Actualités et communiqués (SENTAX)",
+          "url": "https://www.dgid.sn/communication"
+        },
+        {
+          "title": "Gouvernement du Sénégal — Projet de loi de finances pour l'année 2027",
+          "url": "https://www.vie-publique.sn/docs/8ff2ab7d-c73b-43d4-8843-c6ff36ec8906/projet-loi-finances-2027-senegal.pdf"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Senegal, Other taxes",
+          "url": "https://taxsummaries.pwc.com/senegal/corporate/other-taxes"
+        },
+        {
+          "title": "DDD Invoices — E-Invoicing in Senegal",
+          "url": "https://dddinvoices.com/learn/e-invoicing-in-senegal"
+        },
+        {
+          "title": "Financial Afrik — Senegal: Senelec imposes e-invoicing on its suppliers",
+          "url": "https://www.financialafrik.com/en/2026/06/25/senegal-senelec-imposes-e-invoicing-on-its-suppliers/"
+        },
+        {
+          "title": "ITA — Senegal: Distribution & Sales Channels",
+          "url": "https://www.trade.gov/country-commercial-guides/senegal-distribution-sales-channels"
+        },
+        {
+          "title": "ITA — Senegal: Selling Factors & Techniques",
+          "url": "https://www.trade.gov/country-commercial-guides/senegal-selling-factors-techniques"
+        },
+        {
+          "title": "BCEAO — Présentation du franc CFA",
+          "url": "https://www.bceao.int/fr/content/presentation-du-franc-cfa"
+        }
+      ],
+      "lastVerifiedLabel": "Dernière vérification : novembre 2026"
+    }
+  },
+  "notes": "صفحة فرنسية جديدة للسنغال مبنية على الحقائق المدقَّقة (audit بتاريخ 2026-11-11). استُبعد عمداً: كل مبلغ ملاصق للعملة (عتبة CGU، سقف غرامة 667-IV، رسوم Wave، طابع NINEA)؛ ذكر ZATCA/Fatoura التزاماً بـhonesty.mustNotSay الخاص بالسنغال؛ مراكز Thiès وTouba وKaolack وقناتا «boutiques de quartier» و«marchés» كحقائق جازمة لأنها في uncertain (استُعمل boutiquier مصطلحاً فقط)؛ الوسم الضريبي marquage fiscal وضرائب المال الإلكتروني لأنها غير مؤكدة ولا تخص قدرات FieldSales؛ تاريخ القانون 2025-02 الدقيق لتعارض المصادر؛ صيغة NINEA (null). موقف FieldSales من الفوترة الإلكترونية في جملة منفصلة بلا سنة ولا اسم نظام. قدرات FieldSales المذكورة (قالب الطباعة، وضع «إزالة الضريبة»، دون اتصال، طرق الدفع اليدوية) مأخوذة من canSay ونبّه التدقيق إلى أنها لم تُفحص في الكود.",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish-with-notes",
+    "fixes": 14,
+    "issues": [
+      "description: «encaissements espèces, Wave, Orange Money» صيغة ركيكة قد تُفهم تحصيلاً آلياً عبر المحافظ → «suivi des encaissements (…)»، وطولها صار ≤155",
+      "intro: كانت تقول إن المندوب في الـprévente يصدر الفاتورة ويطبعها لحظة الطلب؛ فُصل البيع من السيارة (فاتورة وطباعة) عن الطلب المسبق (إدخال الطلب)، وقُصّت إلى ≤90 كلمة",
+      "distribution: «la région rassemble 22 %» تفسير غير وارد في الحقائق (تقول Dakar) → صيغة محايدة؛ وتعريف ITA للقارئ وإضافة أن Diamniadio منطقة اقتصادية خاصة كما في الحقائق",
+      "distribution: «Sur le terrain, on parle de…» ادعاء جازم باستعمال المصطلحات في السنغال وهي في uncertain → صيغة تعريفية «On distingue…»",
+      "tax: «10 % vise l'hébergement touristique» أوسع من الحقيقة (منشآت إيواء سياحي معتمدة، المادة 369) → «certains établissements d'hébergement touristique (art. 369)»",
+      "tax: الإعفاءات «viandes fraîches, œufs» أضيق من الحقيقة وتوهم أن المجمّد غير معفى → «viandes et abats frais, réfrigérés ou congelés, œufs en coquille»",
+      "tax: موعد الفاتورة «au plus tard à la livraison» ناقص → أضيف «ou à l'exécution du service»",
+      "tax: جملة المسؤولية كانت عن المادة 447 وحدها وتسبق وضع إزالة الضريبة؛ نُقلت بعده وشملت المادتين 447 و448 كما في canSay",
+      "einvoicing: نطاق SENTAX «grandes entreprises / d'autres centres» غير دقيق → مكلّفو Direction des grandes entreprises ثم CME1 وCME2 وCPR",
+      "einvoicing: «Le modèle technique retenu» توحي بقرار متّخذ → «n'est pas encore défini»؛ وتعريف Senelec بأنها شركة الكهرباء",
+      "einvoicing + FAQ: «sans engagement ni calendrier» تنقلب نيتها بالفرنسية التسويقية (تعني «بلا التزام تعاقدي على العميل») → «sans promesse de réalisation ni de date»",
+      "collections: «relancer les impayés» قد تُفهم ميزة تذكير آلي → «repérer les impayés à relancer»",
+      "how: «L'itinéraire … enregistré avec … des photos» صياغة غير منطقية → خط السير يتبعه المندوب والزيارات تُسجَّل بالموقع والصور",
+      "faq: أضيف سؤال مفيد للموزعين عن مطابقة عهدة السيارة والنقد آخر الجولة (arrêté de caisse / bilan de tournée) من وصف المنتج",
+      "ملاحظة باقية: قدرات FieldSales (قالب الطباعة الحر، وضع «suppression de la taxe» واسمه في الواجهة الفرنسية، العمل دون اتصال للزيارات، طرق الدفع اليدوية) مأخوذة من canSay ووصف المنتج ولم تُفحص في الكود حسب audit.notVerified؛ يُستحسن تأكيد الاسم الفرنسي للوضع قبل النشر"
+    ]
+  }
+}

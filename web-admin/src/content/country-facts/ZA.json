@@ -1,0 +1,234 @@
+{
+  "code": "ZA",
+  "nameEn": "South Africa",
+  "pageLanguage": "en",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "ZAR",
+    "symbol": "R",
+    "nameEn": "South African rand",
+    "nameLocal": "Rand",
+    "minorUnits": 2
+  },
+  "tax": {
+    "nameLocal": "Value-Added Tax",
+    "nameEn": "Value-Added Tax",
+    "abbr": "VAT",
+    "standardRate": 15,
+    "otherRates": [
+      {
+        "rate": 0,
+        "appliesTo": "التوريدات بالنسبة الصفرية (zero-rated): الصادرات؛ سلة أغذية أساسية (basic foodstuffs) منها brown bread وbrown bread flour وmaize meal وsamp وdried mealies والأرز والفاصوليا المجففة والعدس وبيض الدجاج والخضار والفواكه الطازجة وpilchards المعلّبة وزيت الطبخ النباتي (عدا زيت الزيتون) والحليب ومسحوقه؛ الوقود الخاضع لـfuel levy؛ illuminating paraffin؛ بعض مستلزمات الزراعة؛ بيع المنشأة كمنشأة مستمرة (going concern). يلزم توريد النسبة الصفرية فاتورة ضريبية كاملة مهما كان مبلغه."
+      }
+    ],
+    "exemptSupplies": "توريدات معفاة (exempt) وليست نسبة صفرية: الخدمات المالية (عدا القائمة على رسوم فتخضع لـ15%)، والإيجار السكني، ونقل الركاب المحلي بالطرق والسكك، والخدمات التعليمية؛ وتوريدات المدارس معفاة منذ 1 يناير 2026، إلا المدارس التي هي منظمات رعاية (welfare organisations) في أنشطة الرعاية المعتمدة (VAT Connect Issue 21).",
+    "rateNote": "النسبة 15% سارية اليوم. أعلنت ميزانية 12 مارس 2025 رفعها إلى 15.5% من 1 مايو 2025، ثم سُحب الرفع في 24 أبريل 2025 وأكدت SARS بقاء 15% (بيان 25 أبريل 2025). ثم ثبّت القانون Rates and Monetary Amounts and Amendment of Revenue Laws Act 3 of 2026 (صودق عليه 31 مارس 2026، الجريدة الرسمية 54446 في 1 أبريل 2026) أن الرفع لا يسري، بأثر من 1 مايو 2025. لم تغيّر ميزانية 25 فبراير 2026 النسبة، وصفحة SARS للـVAT تذكر 15%.",
+    "registrationThreshold": "التسجيل الإلزامي: توريدات خاضعة تتجاوز R2.3 مليون خلال 12 شهراً، ترفعاً من R1 مليون، اعتباراً من 1 أبريل 2026. أعلنتها ميزانية 25 فبراير 2026، وتطبّقها SARS إدارياً على طلبات التسجيل وإلغائه منذ 1 أبريل 2026، لكن نصها التشريعي في Rates Bill [B34—2026] الذي قُدّم للبرلمان في 21 أكتوبر 2026 ولم نتحقق من إقراره. التسجيل الطوعي: من R120 000 (كان R50 000)، ولن تبدأ SARS إلغاء تسجيل من هم دونها إلا بعد إقرار التشريع وإخطارهم.",
+    "authority": "South African Revenue Service (SARS)",
+    "authorityUrl": "https://www.sars.gov.za/",
+    "sources": [
+      {"url": "https://www.sars.gov.za/types-of-tax/value-added-tax/", "title": "SARS — Value-Added Tax", "accessed": "2026-11-11"},
+      {"url": "https://www.sars.gov.za/media-release/practical-implication-on-finance-ministers-decision-to-reverse-vat/", "title": "SARS media release — Practical implication of the Finance Minister's decision to reverse VAT (25 April 2025)", "accessed": "2026-11-11", "pageDate": "2025-04-25"},
+      {"url": "https://www.sars.gov.za/wp-content/uploads/Legal/AmendActs/Legal-LPrim-AA-2026-01-Rates-and-Monetary-Amounts-and-Amendment-of-Revenue-Laws-Act-3-of-2026-GG-54446-1-April-2026.pdf", "title": "Rates and Monetary Amounts and Amendment of Revenue Laws Act 3 of 2026 (GG 54446, s.13: prevention of VAT rate increase)", "accessed": "2026-11-11", "pageDate": "2026-04-01"},
+      {"url": "https://www.sars.gov.za/about/sars-tax-and-customs-system/budget/budget-2026-frequently-asked-questions/", "title": "SARS — Budget 2026 Frequently Asked Questions (VAT registration thresholds)", "accessed": "2026-11-11"},
+      {"url": "https://www.sars.gov.za/businesses-and-employers/my-business-and-tax/vat-connect-issue-21-september-2026/", "title": "SARS — VAT Connect Issue 21 (September 2026)", "accessed": "2026-11-11", "pageDate": "2026-09"},
+      {"url": "https://www.accountingweekly.com/sars-updates/three-2026-tax-bills-introduced-in-parliament-on-21-october", "title": "Accounting Weekly — Three 2026 tax bills introduced in Parliament on 21 October", "accessed": "2026-11-11", "pageDate": "2026-10-27"},
+      {"url": "https://taxsummaries.pwc.com/south-africa/corporate/other-taxes", "title": "PwC Worldwide Tax Summaries — South Africa, Corporate, Other taxes", "accessed": "2026-11-11", "pageDate": "2026-05-29"},
+      {"url": "https://www.sars.gov.za/legal-pub-guide-vat404-vat-404-guide-for-vendors", "title": "SARS — VAT 404 Guide for Vendors, Issue 15 (6.3 Zero-rated supplies)", "accessed": "2026-11-11", "pageDate": "2024-12-17"}
+    ]
+  },
+  "taxId": {
+    "label": "VAT registration number (VAT vendor number)",
+    "format": "10 أرقام تبدأ بالرقم 4 (4XXXXXXXXX) بلا بادئة حرفية — مستنتج من أمثلة SARS في VAT 404 ومن نموذج VAT102 الذي يطبع الرقم 4 مسبقاً؛ والتحقق الرسمي عبر VAT Vendor Search في SARS eFiling.",
+    "sources": [
+      {"url": "https://www.sars.gov.za/legal-pub-guide-vat404-vat-404-guide-for-vendors", "title": "SARS — VAT 404 Guide for Vendors, Issue 15 (examples: VAT Registration No: 4321123450)", "accessed": "2026-11-11", "pageDate": "2024-12-17"},
+      {"url": "https://www.sars.gov.za/vat102-application-for-separate-registration-vat-external-form", "title": "SARS — VAT102 Application for separate registration (field: Main enterprise VAT registration number 4…)", "accessed": "2026-11-11"},
+      {"url": "https://www.sars.gov.za/types-of-tax/value-added-tax/", "title": "SARS — Value-Added Tax (VAT Vendor Search link)", "accessed": "2026-11-11"}
+    ]
+  },
+  "einvoicing": {
+    "status": "planned",
+    "systemName": "SARS Digital VAT Model (مقترح، غير نافذ): e-Invoicing + Interoperability Framework + e-Reporting بنموذج Decentralised Continuous Transaction Control and Exchange (DCTCE) خماسي الأركان",
+    "authority": "South African Revenue Service (SARS)",
+    "model": "post-audit",
+    "scopeNow": "لا يُلزَم أحد اليوم بالفوترة الإلكترونية ولا بالإبلاغ اللحظي. النظام القائم تصريحي بأثر رجعي (post-audit): يصدر المسجّل فاتورة ضريبية ورقية أو إلكترونية دون موافقة مسبقة من SARS، ويقدّم إقرارات VAT دورية. منذ 1 أبريل 2026 أُضيفت إلى قانون VAT تعريفات e-invoice وe-credit note وe-debit note وinteroperability framework وe-Reporting، وصلاحية تتيح للوائح تحديد نظام e-reporting طوعي، ولم تصدر لوائحه بعد. وتقترح ورقة التشاور (17 أغسطس 2026) فواتير مهيكلة وفق معيار يُحدَّد لاحقاً، وتذكر أمثلة منها EN16931 CIUS وUN/CEFACT CII وPeppol PINT BIS. تمرّ الفواتير عبر مزوّدي خدمة معتمدين (access points) مع إبلاغ شبه لحظي، وتبدأ باختبار وتجربة طوعيين، ثم تطبيق مرحلي يُتوقع أن يبدأ خلال سنة 2030 ويمتد نحو 36 شهراً. وحتى كبار المكلّفين يُتوقع أن يتبنّوه طوعاً أولاً، ثم يُفرض الإلزام لاحقاً وفق حدود دخل لم تُعلن. كل ذلك جدول استرشادي قابل للتغيير.",
+    "keyDates": [
+      {"date": "2026-04-01", "event": "سريان تعريفات e-invoice وe-Reporting في قانون VAT وصلاحية لوائح نظام e-reporting طوعي (دون لوائح نافذة بعد)"},
+      {"date": "2026-08-17", "event": "نشر SARS ورقة التشاور SARS Consultation Paper on VAT Modernisation: E-Invoicing, Interoperability Framework and E-Reporting"},
+      {"date": "2026-10-16", "event": "آخر موعد لتعليقات العموم على ورقة التشاور (انقضى)"},
+      {"date": "2026-04", "event": "المرحلة 1 (Preparation): السنة المالية 2026/2027 لنحو 12 شهراً، تشمل نشر مسودة لوائح VAT — الشهر غير محدد والتاريخ هنا بداية السنة المالية"},
+      {"date": "2027-04", "event": "المرحلة 2 (Solution Development): 2027/2028 لنحو 12 شهراً، تشمل إصدار اللوائح نهائياً — تقديري"},
+      {"date": "2028-04", "event": "المرحلة 3 (Validation/QA testing) مع مشاركين طوعيين: 2028/2029 لنحو 6 أشهر — تقديري"},
+      {"date": "2029-04", "event": "المرحلة 4 (Pilot) طوعية لقطاعات ذات أولوية: 2029/2030 لنحو 6 أشهر — تقديري"},
+      {"date": "2030-01", "event": "المرحلة 5 (Phased Implementation): يُتوقع بدؤها خلال سنة 2030 (الشهر غير محدد) وتمتد نحو 36 شهراً؛ 5a كبار المكلّفين B2B، 5b B2G، 5c المنشآت الصغيرة والمتوسطة B2B، 5d B2C. يتبنّاها كبار المكلّفين طوعاً أولاً ثم يأتي الإلزام لاحقاً بحدود دخل لم تُعلن؛ فبداية المرحلة ليست بداية الإلزام"}
+    ],
+    "b2cReceipts": "لم نجد في المصادر المراجعة نظام أجهزة ضريبية (fiscal device/ETR) للبيع بالتجزئة. القواعد الحالية: إذا زاد المقابل على R50 تلزم فاتورة ضريبية خلال 21 يوماً؛ وحتى R5 000 شاملة الضريبة تكفي abridged tax invoice ما لم يكن التوريد بنسبة صفرية؛ وما كان R50 فأقل لا يلزمه فاتورة ضريبية ويكفي till slip أو sales docket يبيّن الضريبة. مرحلة B2C (5d) في الخطة المقترحة تأتي بعد 2030 بلا موعد.",
+    "sources": [
+      {"url": "https://www.sars.gov.za/vat-modernisation-consultation-paper-august-2026/", "title": "SARS Consultation Paper on VAT Modernisation: E-Invoicing, Interoperability Framework and E-Reporting (August 2026), ch. 5 and 8", "accessed": "2026-11-11", "pageDate": "2026-08"},
+      {"url": "https://www.sars.gov.za/media-release/sars-invites-public-input-on-a-new-digital-vat-model-to-modernise-vat-administration/", "title": "SARS media release — SARS invites public input on a new Digital VAT Model (17 August 2026)", "accessed": "2026-11-11", "pageDate": "2026-08-17"},
+      {"url": "https://www.sars.gov.za/types-of-tax/value-added-tax/vat-modernisation/frequently-asked-questions-on-vat-modernisation/", "title": "SARS — Frequently asked questions on VAT modernisation", "accessed": "2026-11-11"},
+      {"url": "https://www.sars.gov.za/businesses-and-employers/my-business-and-tax/vat-connect-issue-21-september-2026/", "title": "SARS — VAT Connect Issue 21 (September 2026): e-invoice definitions and s.74 voluntary e-reporting", "accessed": "2026-11-11", "pageDate": "2026-09"},
+      {"url": "https://kpmg.com/us/en/taxnewsflash/news/2026/08/tnf-south-africa-public-consultation-on-e-invoicing-and-digital-reporting.html", "title": "KPMG TaxNewsFlash — South Africa: Public consultation on e-invoicing and digital reporting", "accessed": "2026-11-11", "pageDate": "2026-08-20"},
+      {"url": "https://sovos.com/regulatory-updates/vat/south-africa-sars-announces-public-consultation-on-model-for-e-invoicing-and-e-reporting/", "title": "Sovos — South Africa: SARS announces public consultation on model for e-invoicing and e-reporting", "accessed": "2026-11-11", "pageDate": "2026-08-20"},
+      {"url": "https://www.sars.gov.za/legal-pub-guide-vat404-vat-404-guide-for-vendors", "title": "SARS — VAT 404 Guide for Vendors, Issue 15 (ch. 13: tax invoice rules; 13.9 electronic tax invoices)", "accessed": "2026-11-11", "pageDate": "2024-12-17"}
+    ]
+  },
+  "invoiceRequirements": [
+    "إحدى العبارات \"Tax Invoice\" أو \"VAT Invoice\" أو \"Invoice\"",
+    "اسم المورّد وعنوانه وVAT registration number",
+    "اسم المشتري وعنوانه، ورقمه الضريبي إن كان مسجلاً (vendor) — في الفاتورة الكاملة (full tax invoice) فقط",
+    "رقم تسلسلي (serial number) وتاريخ الإصدار",
+    "وصف كامل ودقيق للسلع أو الخدمات، مع الإشارة إلى السلع المستعملة (second-hand goods) إن وُجدت",
+    "الكمية أو الحجم المورَّد — في الفاتورة الكاملة",
+    "القيمة والضريبة والمقابل بإحدى الطرق الثلاث المعتمدة: إظهار كل المبالغ، أو المقابل الإجمالي مع نسبة الضريبة، أو المقابل الإجمالي مع مبلغ الضريبة",
+    "الفاتورة الكاملة إلزامية إذا زاد المقابل على R5 000 شاملاً الضريبة، وفي كل توريد بنسبة صفرية مهما كان مبلغه؛ ودون ذلك تجوز abridged tax invoice التي لا تشترط بيانات المشتري ولا الكمية",
+    "تُصدر بعملة جنوب أفريقيا (ZAR)، إلا في توريدات النسبة الصفرية (كالصادرات)، وفي بعض توريدات الخدمات الإلكترونية من موردين غير مقيمين (VAT 404، الفصل 13)",
+    "تُصدر خلال 21 يوماً من التوريد متى زاد المقابل على R50 (طلبها المشتري أم لا)، ويُحتفظ بالسجلات خمس سنوات على الأقل"
+  ],
+  "distribution": {
+    "hubs": ["Johannesburg (Gauteng)", "Durban (eThekwini)", "Cape Town", "Pretoria (Tshwane)", "Gqeberha (Nelson Mandela Bay)"],
+    "tradeChannels": ["spaza shops", "general dealers", "independent grocers", "taverns / shebeens", "liquor outlets", "health & beauty speciality stores", "wholesalers"],
+    "localTerms": {
+      "vanSales": "van sales",
+      "preSales": "pre-sales (pre-selling / order taking)",
+      "salesRep": "sales rep",
+      "retailShop": "spaza shop",
+      "routeAccounting": "route accounting"
+    },
+    "collectionMethods": ["Cash", "EFT (electronic funds transfer)", "Card payments via point-of-sale devices"],
+    "notes": "التجارة التقليدية (traditional trade) قناة كبيرة: تقدّر NIQ (12 مايو 2026) نحو 190 ألف منفذ (spaza وindependent grocers وliquor outlets وtaverns) تمر عبرها نحو R170 مليار من مبيعات السلع الاستهلاكية سنوياً، ويتسوّق منها نحو 80% من الأسر بانتظام، وتنمو أسرع من التجزئة الحديثة. وفي دراسة BCG (2019، ميدانها 2018) نحو 30% من مشتريات الجنوب أفريقيين بالقيمة تتم في المتاجر التقليدية، وكثير من شركات FMCG تخدمها بصورة غير مباشرة عبر wholesalers، وكثير من المتاجر يشتري بضاعته من متاجر حديثة. كما أن قرابة 80% من الـspaza يعمل فيها أقل من شخصين، و90% منها مبيعاتها الشهرية دون R45 000. سجّلت البلديات نحو 82 ألف spaza حتى إغلاق التسجيل في 28 فبراير 2025، وتحقق منها 44 696، ونحو 15 ألفاً فقط تحمل تصاريح أو رخص تجارة (بيان حكومي 29 مايو 2026). ويموّل Spaza Shop Support Fund (R500 مليون) شراء المخزون وأجهزة نقاط البيع للمتاجر المملوكة لجنوب أفريقيين. وكثير من سلع الموزعين الغذائية الأساسية (maize meal والأرز وزيت الطبخ وpilchards والحليب) بنسبة صفرية، فتحتاج الفاتورة إلى نسب مختلفة بحسب الصنف."
+  },
+  "honesty": {
+    "canSay": [
+      "تضبط الشركة العملة ونسبة الضريبة في FieldSales بنفسها، فيمكنها العمل بالراند (ZAR) ونسبة VAT 15%.",
+      "تدعم FieldSales البيع من السيارة (van sales) وإدارة المناديب وزياراتهم الميدانية بالموقع، وتحصيل المدفوعات بسندات قبض.",
+      "يستطيع المندوب إصدار الفواتير والسندات دون اتصال، وتُزامَن لاحقاً، وهذا مفيد في مسارات الأحياء (townships) ضعيفة التغطية.",
+      "تستطيع الشركة تخصيص نصوص الفاتورة المطبوعة وتخطيطها لتُظهر بياناتها مثل VAT registration number.",
+      "لا تُلزم جنوب أفريقيا اليوم بالفوترة الإلكترونية، ونموذج SARS الرقمي ما زال مقترحاً في مرحلة التشاور، فلا يوجد بعدُ نظام حكومي للفوترة يُربط به. أي ربط مستقبلي يُبحث عند الطلب، بلا وعد بموعد ولا بنتيجة."
+    ],
+    "mustNotSay": [
+      "أي ادعاء بربط FieldSales مع SARS أو eFiling أو تقديمها إقرارات VAT201 آلياً.",
+      "أن FieldSales «معتمدة من SARS» أو «SARS-certified/approved/compliant» أو أنها accredited service provider أو access point أو Peppol access point في جنوب أفريقيا.",
+      "أن FieldSales «جاهزة لـ» أو «متوافقة مع» Digital VAT Model / DCTCE، فالمعيار واللوائح لم تُحدَّد بعد.",
+      "أن الفوترة الإلكترونية إلزامية الآن في جنوب أفريقيا، أو أن 2030 موعد نهائي مقرّر؛ فهو جدول استرشادي في ورقة تشاور.",
+      "أن نسبة VAT 15.5% أو 16%، أو أن عتبة التسجيل الإلزامي R1 مليون كقيمة مطبّقة اليوم، أو أن عتبة R2.3 مليون نافذة تشريعياً بصورة نهائية (تطبّقها SARS إدارياً ريثما يُقرّ Rates Bill [B34—2026]).",
+      "أن فواتير FieldSales «فواتير ضريبية صالحة» أو «مستوفية لمتطلبات section 20 من قانون VAT» تلقائياً؛ فاستيفاء البيانات الإلزامية مسؤولية الشركة وإعداداتها.",
+      "أن المنصة تصنّف تلقائياً أصناف النسبة الصفرية (zero-rated basic foodstuffs) أو تحسم المعاملة الضريبية نيابة عن العميل.",
+      "أي ربط مع بوابات دفع أو أنظمة جنوب أفريقية (مثل PayShap أو بنوك محلية) لم يُبنَ فعلاً.",
+      "نقل ادعاءات ZATCA/Fatoora السعودية إلى صفحة جنوب أفريقيا أو الإيحاء بأنها تنطبق عليها."
+    ]
+  },
+  "uncertain": [
+    "عتبة R2.3 مليون: تطبّقها SARS إدارياً منذ 1 أبريل 2026، لكن Rates Bill [B34—2026] الذي يقنّنها قُدّم في 21 أكتوبر 2026، ولم نتحقق من إقراره حتى 11 نوفمبر 2026. وصفحة PwC (آخر مراجعة 29 مايو 2026) تصفها بأنها متوقعة رهن الإصدار.",
+    "مراحل الفوترة الإلكترونية وسنواتها استرشادية في ورقة تشاور قابلة للتعديل. انتهى أجل التعليقات في 16 أكتوبر 2026 ولم نجد نتيجة منشورة. معيار الفاتورة وجهة إدارة الشبكة لم يُختارا (تذكر الورقة أمثلة فقط)، وكذلك حدود الدخل والعقوبات.",
+    "تواريخ keyDates للمراحل 1–4 (YYYY-04) تمثّل بداية السنوات المالية المذكورة في الورقة، لا أشهراً محددة، و2030-01 يعني «خلال سنة 2030».",
+    "صيغة الرقم الضريبي (10 أرقام تبدأ بـ4) مستنتجة من أمثلة VAT 404 ونموذج VAT102، لا من مواصفة رسمية، وخوارزمية رقم التحقق (check digit) غير مؤكدة.",
+    "حد الفاتورة الكاملة: نص VAT 404 وصفحة SARS يقولان «أكثر من R5 000»، بينما جدول VAT 404 يقول «R5 000 or more»، فاعتمدنا «أكثر من R5 000».",
+    "VAT 404 Issue 15 (17 ديسمبر 2024) سابق لتغيير العتبات ولإعفاء المدارس، فلم نعتمد عليه في العتبات.",
+    "عدم وجود نظام أجهزة ضريبية (fiscal device/ETR) استنتاج من غيابه في مصادر SARS المراجعة، لا نص صريح بالنفي.",
+    "مراكز التوزيع (hubs): المدن الخمس مثبتة بلدياتٍ حضرية كبرى (metropolitan municipalities) في gov.za، لكن ترتيبها مراكزَ توزيع غير مقيس بمصدر. وتعذّر الوصول إلى موقع Transnet.",
+    "المصطلحات المحلية (van sales وpre-sales وsales rep وroute accounting) إنجليزية صناعية عامة، ولم نتحقق منها من مصادر موزعين جنوب أفريقيين. أما spaza shop وgeneral dealers وtaverns/shebeens فموثّقة من BCG وNIQ.",
+    "وسائل التحصيل: لا نسبة كمية لمزيج الدفع بين الموزعين والمتاجر. EFT والبطاقات مذكورة في صفحة SARB أدواتِ دفع، وأجهزة نقاط البيع في دعم Spaza Fund، أما النقد فممارسة شائعة غير مقاسة هنا. ولم نتحقق من PayShap (الدفع الفوري) ولا من شيوع البيع الآجل للمتاجر.",
+    "قد تتغيّر نسبة VAT في ميزانية فبراير 2027؛ ومشروع TLAB [B32—2026] يقترح آلية تسري فيها تغييرات النسبة المعلنة في الميزانية من تاريخ يحدده الوزير لمدة 12 شهراً رهن التشريع.",
+    "مقال Fonoa (آخر تحديث 11 فبراير 2026) توقّع طرحاً في 2026–2027 وتشغيلاً كاملاً نحو 2028، وقد تجاوزته ورقة SARS في أغسطس 2026 فأهملناه.",
+    "في التدقيق (11 نوفمبر 2026) آخر تحديث لصفحة VAT modernisation في SARS هو 22 سبتمبر 2026، ولا شيء فيها بعد انقضاء أجل التعليقات (16 أكتوبر 2026): لا تمديد ولا نتيجة ولا مسودة لوائح. ونفدت حصة البحث العام أثناء التدقيق، فلم نتحقق من إقرار Rates Bill [B34—2026] ولا من أي إعلان بعد 27 أكتوبر 2026.",
+    "حقل einvoicing.model قيمته post-audit لأنها تصف النظام النافذ اليوم. أما النموذج المقترح فشبكة لامركزية من مزوّدي خدمة معتمدين يتحققون من الفواتير ويمرّرونها إلى SARS شبه لحظياً (DCTCE). ويصفه Sovos بالتخليص (clearance)، وتسمّيه ورقة SARS continuous transaction controls."
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "corrections": [
+      {
+        "field": "einvoicing.scopeNow",
+        "before": "...وتبدأ بتجربة طوعية ثم إلزام مرحلي يُتوقع أن يبدأ في 2030.",
+        "after": "...ثم تطبيق مرحلي يُتوقع أن يبدأ خلال سنة 2030 ويمتد نحو 36 شهراً. وحتى كبار المكلّفين يُتوقع أن يتبنّوه طوعاً أولاً، ثم يُفرض الإلزام لاحقاً وفق حدود دخل لم تُعلن. كل ذلك جدول استرشادي قابل للتغيير.",
+        "source": "SARS Consultation Paper on VAT Modernisation (17 Aug 2026), §8.5 p.16–17: Large taxpayers are expected to adopt voluntarily at first, with mandatory adoption introduced later; implementation expected to commence during the 2030 calendar year — https://www.sars.gov.za/vat-modernisation-consultation-paper-august-2026/"
+      },
+      {
+        "field": "einvoicing.keyDates[2030-01].event",
+        "before": "...5d B2C. الإلزام بحدود دخل لم تُعلن",
+        "after": "...5d B2C. يتبنّاها كبار المكلّفين طوعاً أولاً ثم يأتي الإلزام لاحقاً بحدود دخل لم تُعلن؛ فبداية المرحلة ليست بداية الإلزام",
+        "source": "SARS Consultation Paper on VAT Modernisation (17 Aug 2026), §8.5 — https://www.sars.gov.za/vat-modernisation-consultation-paper-august-2026/"
+      },
+      {
+        "field": "invoiceRequirements[currency]",
+        "before": "تُصدر بالراند (ZAR)، إلا لتوريدات النسبة الصفرية كالصادرات وبعض الخدمات الإلكترونية من موردين غير مقيمين",
+        "after": "تُصدر بعملة جنوب أفريقيا (ZAR)، إلا في توريدات النسبة الصفرية (كالصادرات)، وفي بعض توريدات الخدمات الإلكترونية من موردين غير مقيمين (VAT 404، الفصل 13)",
+        "source": "SARS VAT 404 Guide for Vendors, Issue 15, ch. 13 p.119: A tax invoice must be in South African currency, except for a zero-rated supply ... or certain supplies of electronic services by non-resident suppliers — https://www.sars.gov.za/legal-pub-guide-vat404-vat-404-guide-for-vendors"
+      },
+      {
+        "field": "tax.exemptSupplies",
+        "before": "والمدارس معفاة منذ 1 يناير 2026 (عدا أنشطة الرعاية).",
+        "after": "وتوريدات المدارس معفاة منذ 1 يناير 2026، إلا المدارس التي هي منظمات رعاية (welfare organisations) في أنشطة الرعاية المعتمدة (VAT Connect Issue 21).",
+        "source": "SARS VAT Connect Issue 21 (September 2026) — https://www.sars.gov.za/businesses-and-employers/my-business-and-tax/vat-connect-issue-21-september-2026/"
+      },
+      {
+        "field": "tax.registrationThreshold",
+        "before": "التسجيل الطوعي: من R120 000 (كان R50 000).",
+        "after": "التسجيل الطوعي: من R120 000 (كان R50 000)، ولن تبدأ SARS إلغاء تسجيل من هم دونها إلا بعد إقرار التشريع وإخطارهم.",
+        "source": "SARS Budget 2026 FAQ and VAT Connect Issue 21 — https://www.sars.gov.za/about/sars-tax-and-customs-system/budget/budget-2026-frequently-asked-questions/"
+      },
+      {
+        "field": "honesty.canSay[4]",
+        "before": "...والربط الحكومي فيها متاح عند الطلب بلا وعد بموعد.",
+        "after": "...فلا يوجد بعدُ نظام حكومي للفوترة يُربط به. أي ربط مستقبلي يُبحث عند الطلب، بلا وعد بموعد ولا بنتيجة.",
+        "source": "SARS VAT modernisation page (last updated 22 Sep 2026) and FAQ: proposal stage, pilot and voluntary participation first — https://www.sars.gov.za/types-of-tax/value-added-tax/vat-modernisation/frequently-asked-questions-on-vat-modernisation/"
+      },
+      {
+        "field": "honesty.mustNotSay[rate/threshold]",
+        "before": "أن نسبة VAT 15.5%، أو أن عتبة التسجيل الإلزامي R1 مليون كقيمة حالية.",
+        "after": "أن نسبة VAT 15.5% أو 16%، أو أن عتبة التسجيل الإلزامي R1 مليون كقيمة مطبّقة اليوم، أو أن عتبة R2.3 مليون نافذة تشريعياً بصورة نهائية (تطبّقها SARS إدارياً ريثما يُقرّ Rates Bill [B34—2026]).",
+        "source": "SARS Value-Added Tax page (last updated 8 Sep 2026: 15% current; 15.5%/16% increases reversed); PwC Tax Summaries (reviewed 29 May 2026: R2.3m expected once legislation is promulgated) — https://www.sars.gov.za/types-of-tax/value-added-tax/"
+      },
+      {
+        "field": "honesty.mustNotSay (new item)",
+        "before": null,
+        "after": "أن فواتير FieldSales «فواتير ضريبية صالحة» أو «مستوفية لمتطلبات section 20 من قانون VAT» تلقائياً؛ فاستيفاء البيانات الإلزامية مسؤولية الشركة وإعداداتها.",
+        "source": "سياسة الصدق في المهمة: لا ادعاء امتثال خارج السعودية؛ ومتطلبات الفاتورة الضريبية في SARS Tax Invoices — https://www.sars.gov.za/businesses-and-employers/tax-invoices/"
+      },
+      {
+        "field": "uncertain[hubs] + sources",
+        "before": "مراكز التوزيع (hubs) معرفة عامة بلا مصدر موثّق في هذه الجلسة...",
+        "after": "المدن الخمس مثبتة بلدياتٍ حضرية كبرى في gov.za، وترتيبها مراكزَ توزيع غير مقيس بمصدر.",
+        "source": "Government of South Africa — Local government (metropolitan municipalities) — https://www.gov.za/about-government/government-system/local-government"
+      }
+    ],
+    "verified": [
+      "النسبة القياسية 15%: صفحة SARS للـVAT (آخر تحديث 8 سبتمبر 2026)، وVAT 404، وPwC (29 مايو 2026). والمادة 13 من Act 3 of 2026 (صودق عليه 31 مارس 2026، الجريدة الرسمية 54446 في 1 أبريل 2026) تمنع رفع 12 مارس 2025 بأثر من 1 مايو 2025.",
+      "اسم الضريبة Value-Added Tax والجهة SARS: صفحة SARS.",
+      "العملة: ZAR بالرقم 710 وخانتين عشريتين في قائمة SIX ISO 4217 (17 سبتمبر 2026).",
+      "الفوترة الإلكترونية غير إلزامية اليوم: ورقة التشاور (17 أغسطس 2026) وصفحة FAQ وKPMG وSovos (20 أغسطس 2026). ومراحلها 1–5 وسنواتها مطابقة للفصل 8 من الورقة، وأجل التعليقات 16 أكتوبر 2026 في الفصل 10.",
+      "تعريفات e-invoice وصلاحية e-reporting الطوعي في s.74 سارية منذ 1 أبريل 2026 ضمن قوانين 2026 (Acts 3–5 of 2026)، ولا لوائح بعد: VAT Connect Issue 21.",
+      "الرقم الضريبي: أمثلة VAT 404 (4321123450 و4111252081)، كلاهما 10 أرقام تبدأ بـ4.",
+      "متطلبات الفاتورة (R5 000 وR50 و21 يوماً والعملة والسجلات خمس سنوات): VAT 404 الفصل 13 وصفحة SARS Tax Invoices.",
+      "سلة الأغذية بالنسبة الصفرية والتوريدات المعفاة: VAT 404 الفقرتان 6.3.1 و7.1.",
+      "أرقام NIQ وBCG وبيان gov.za (29 مايو 2026) وصفحة SARB: مطابقة لما في الملف."
+    ],
+    "confidence": "high"
+  },
+  "sources": [
+    {"url": "https://www.sars.gov.za/types-of-tax/value-added-tax/", "title": "SARS — Value-Added Tax", "accessed": "2026-11-11"},
+    {"url": "https://www.sars.gov.za/media-release/practical-implication-on-finance-ministers-decision-to-reverse-vat/", "title": "SARS media release — reversal of the 0.5% VAT increase", "accessed": "2026-11-11", "pageDate": "2025-04-25"},
+    {"url": "https://www.sars.gov.za/wp-content/uploads/Legal/AmendActs/Legal-LPrim-AA-2026-01-Rates-and-Monetary-Amounts-and-Amendment-of-Revenue-Laws-Act-3-of-2026-GG-54446-1-April-2026.pdf", "title": "Rates and Monetary Amounts and Amendment of Revenue Laws Act 3 of 2026 (GG 54446)", "accessed": "2026-11-11", "pageDate": "2026-04-01"},
+    {"url": "https://www.sars.gov.za/latest-news/legal-counsel-primary-legislation-amendment-acts-6/", "title": "SARS — Amendment Acts (Act 3 of 2026 promulgated 1 April 2026)", "accessed": "2026-11-11"},
+    {"url": "https://www.sars.gov.za/about/sars-tax-and-customs-system/budget/budget-2026-frequently-asked-questions/", "title": "SARS — Budget 2026 Frequently Asked Questions", "accessed": "2026-11-11"},
+    {"url": "https://www.sars.gov.za/businesses-and-employers/my-business-and-tax/vat-connect-issue-21-september-2026/", "title": "SARS — VAT Connect Issue 21 (September 2026)", "accessed": "2026-11-11", "pageDate": "2026-09"},
+    {"url": "https://www.accountingweekly.com/sars-updates/three-2026-tax-bills-introduced-in-parliament-on-21-october", "title": "Accounting Weekly — Three 2026 tax bills introduced in Parliament on 21 October", "accessed": "2026-11-11", "pageDate": "2026-10-27"},
+    {"url": "https://taxsummaries.pwc.com/south-africa/corporate/other-taxes", "title": "PwC Worldwide Tax Summaries — South Africa: Other taxes", "accessed": "2026-11-11", "pageDate": "2026-05-29"},
+    {"url": "https://www.sars.gov.za/legal-pub-guide-vat404-vat-404-guide-for-vendors", "title": "SARS — VAT 404 Guide for Vendors, Issue 15", "accessed": "2026-11-11", "pageDate": "2024-12-17"},
+    {"url": "https://www.sars.gov.za/businesses-and-employers/tax-invoices/", "title": "SARS — Tax Invoices", "accessed": "2026-11-11"},
+    {"url": "https://www.sars.gov.za/vat102-application-for-separate-registration-vat-external-form", "title": "SARS — VAT102 form", "accessed": "2026-11-11"},
+    {"url": "https://www.sars.gov.za/vat-modernisation-consultation-paper-august-2026/", "title": "SARS Consultation Paper on VAT Modernisation (August 2026)", "accessed": "2026-11-11", "pageDate": "2026-08"},
+    {"url": "https://www.sars.gov.za/media-release/sars-invites-public-input-on-a-new-digital-vat-model-to-modernise-vat-administration/", "title": "SARS media release — Digital VAT Model consultation (17 August 2026)", "accessed": "2026-11-11", "pageDate": "2026-08-17"},
+    {"url": "https://www.sars.gov.za/types-of-tax/value-added-tax/vat-modernisation/frequently-asked-questions-on-vat-modernisation/", "title": "SARS — FAQs on VAT modernisation", "accessed": "2026-11-11"},
+    {"url": "https://kpmg.com/us/en/taxnewsflash/news/2026/08/tnf-south-africa-public-consultation-on-e-invoicing-and-digital-reporting.html", "title": "KPMG TaxNewsFlash — South Africa public consultation on e-invoicing", "accessed": "2026-11-11", "pageDate": "2026-08-20"},
+    {"url": "https://sovos.com/regulatory-updates/vat/south-africa-sars-announces-public-consultation-on-model-for-e-invoicing-and-e-reporting/", "title": "Sovos — SARS public consultation on e-invoicing and e-reporting", "accessed": "2026-11-11", "pageDate": "2026-08-20"},
+    {"url": "https://www.fonoa.com/resources/blog/south-africa-e-invoicing-real-time-vat-reporting", "title": "Fonoa — South Africa advances toward mandatory e-invoicing (superseded by SARS August 2026 paper)", "accessed": "2026-11-11", "pageDate": "2026-02-11"},
+    {"url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml", "title": "SIX — ISO 4217 currency list (ZAR, 710, minor units 2)", "accessed": "2026-11-11", "pageDate": "2026-09-17"},
+    {"url": "https://nielseniq.com/global/en/insights/analysis/2026/why-street-level-retail-visibility-matters-more-than-ever-in-south-africa/", "title": "NIQ — Traditional trade in South Africa", "accessed": "2026-11-11", "pageDate": "2026-05-12"},
+    {"url": "https://www.bcg.com/publications/2019/routes-growth-south-africa-through-traditional-trade", "title": "BCG — Routes to Growth in South Africa Through Traditional Trade", "accessed": "2026-11-11", "pageDate": "2019-08-28"},
+    {"url": "https://www.gov.za/news/media-statements/small-business-development-and-trade-industry-and-competition-update-spaza", "title": "Government of South Africa — Update on Spaza Shop Support Fund (29 May 2026)", "accessed": "2026-11-11", "pageDate": "2026-05-29"},
+    {"url": "https://www.resbank.co.za/en/home/what-we-do/payments-and-settlements", "title": "South African Reserve Bank — Payments and settlements (EFT and cards as electronic payment instruments)", "accessed": "2026-11-11"},
+    {"url": "https://www.gov.za/about-government/government-system/local-government", "title": "Government of South Africa — Local government (eight metropolitan municipalities incl. Johannesburg, eThekwini/Durban, Cape Town, Tshwane/Pretoria, Nelson Mandela Bay/Gqeberha)", "accessed": "2026-11-11"},
+    {"url": "https://www.sars.gov.za/types-of-tax/value-added-tax/vat-modernisation/", "title": "SARS — VAT Modernisation (last updated 22 Sep 2026; no update after the 16 Oct 2026 comment deadline)", "accessed": "2026-11-11", "pageDate": "2026-09-22"}
+  ]
+}

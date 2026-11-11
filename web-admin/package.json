@@ -3,6 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "imports": {
+    "#country-pages": {
+      "browser": "./src/blog/seo/countryPages.browser.mjs",
+      "default": "./src/blog/seo/countryPages.node.mjs"
+    }
+  },
   "scripts": {
     "dev": "vite",
     "prebuild": "node scripts/gen-robots.mjs && node scripts/gen-sitemap.mjs && node scripts/gen-llms.mjs",

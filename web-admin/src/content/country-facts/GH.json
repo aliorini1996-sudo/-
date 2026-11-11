@@ -1,0 +1,513 @@
+{
+  "code": "GH",
+  "nameEn": "Ghana",
+  "pageLanguage": "en",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "GHS",
+    "symbol": "GH₵",
+    "nameEn": "Ghana cedi",
+    "nameLocal": "Ghana cedi",
+    "minorUnits": 2,
+    "notes": "الرمز الرقمي ISO 4217 هو 936 وعدد الخانات العشرية 2 (قائمة ISO 4217 المنشورة في 2026-09-17). النصوص الرسمية والصحفية تكتب الرمز غالباً «GH¢» أو «GHS»."
+  },
+  "tax": {
+    "nameLocal": "Value Added Tax (VAT), National Health Insurance Levy (NHIL), Ghana Education Trust Fund Levy (GETFund Levy)",
+    "nameEn": "Value Added Tax",
+    "abbr": "VAT",
+    "standardRate": 15,
+    "otherRates": [
+      {
+        "rate": 2.5,
+        "appliesTo": "NHIL: ضريبة إضافية على التوريدات الخاضعة. منذ 2026-01-01 تُحتسب على وعاء VAT نفسه دون تراكم، ويحق خصمها كضريبة مدخلات (Input tax)."
+      },
+      {
+        "rate": 2.5,
+        "appliesTo": "GETFund Levy: ضريبة إضافية على التوريدات الخاضعة. منذ 2026-01-01 تُحتسب على وعاء VAT نفسه، ويحق خصمها كضريبة مدخلات."
+      },
+      {
+        "rate": 20,
+        "appliesTo": "العبء الفعلي المجمّع على التوريدات الخاضعة منذ 2026-01-01، وهو VAT 15% مع NHIL 2.5% وGETFund 2.5%، كلها على الوعاء نفسه. كان قبل الإصلاح نحو 21.9%. مثال GRA: سلعة بـGHS 1,000 تصبح GHS 1,200."
+      },
+      {
+        "rate": 0,
+        "appliesTo": "التوريدات الصفرية: صادرات السلع وبعض الخدمات (الجدول الثاني من Act 1151)، والفوط الصحية المصنّعة محلياً، والمنسوجات المصنّعة محلياً حتى 2028-12-31. ولا يُحتسب عليها NHIL ولا GETFund."
+      },
+      {
+        "rate": 7,
+        "appliesTo": "استقطاع VAT (VAT withholding): وكلاء الاستقطاع المعيّنون يستقطعون 7% من القيمة الخاضعة عند الدفع مقابل توريدات بنسبة 15%. هذه آلية استقطاع وليست نسبة توريد مستقلة."
+      }
+    ],
+    "registrationThreshold": "لموردي السلع: GHS 750,000 من التوريدات الخاضعة سنوياً، وقد ارتفع من GHS 200,000 في 2026-01-01. لمقدّمي الخدمات: لا حد، والتسجيل واجب خلال 30 يوماً من بدء النشاط الخاضع.",
+    "authority": "Ghana Revenue Authority (GRA)",
+    "authorityUrl": "https://gra.gov.gh",
+    "reform2026": "دخل Value Added Tax Act, 2025 (Act 1151) حيز النفاذ في 2026-01-01 وحلّ محل Act 870. وأهم ما جاء به: (1) إلغاء COVID-19 Health Recovery Levy البالغ 1%. (2) جعل NHIL وGETFund قابلتين للخصم كضريبة مدخلات واحتسابهما على وعاء VAT نفسه، فانخفض العبء الفعلي من نحو 21.9% إلى 20%. (3) إلغاء مخطط Flat Rate البالغ 3% على توريدات السلع من تجار التجزئة المؤهلين و5% على العقار المؤهل، فصار عليهم تحصيل النسبة القياسية. (4) رفع حد التسجيل للسلع إلى GHS 750,000 وإلغاء الحد للخدمات. (5) تشديد غرامة عدم التسجيل إلى ثلاثة أضعاف الضريبة كحد أدنى.",
+    "sources": [
+      {
+        "url": "https://gra.gov.gh/domestic-tax/tax-types/vat/",
+        "title": "GRA — VAT (قسم VAT Reforms – 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxnews.ey.com/news/2026-0163-ghanas-parliament-enacts-several-indirect-tax-related-laws-effective-1-january-2026",
+        "title": "EY Tax News 2026-0163 — Ghana's Parliament enacts several indirect tax-related laws effective 1 January 2026 (12 January 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxsummaries.pwc.com/ghana/corporate/other-taxes",
+        "title": "PwC Worldwide Tax Summaries — Ghana: Corporate, Other taxes (last reviewed 27 October 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.trade.gov/market-intelligence/ghana-finance-value-added-tax-changes",
+        "title": "U.S. International Trade Administration — Ghana Finance: Value Added Tax Changes (26 February 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.graphic.com.gh/business/business-news/gra-announces-overhaul-vat-rate-cut-flat-rate-scheme-scrapped-covid-levy-abolished-from-jan-1.html",
+        "title": "Graphic Online — GRA announces overhaul: VAT rate cut, flat rate scheme scrapped, COVID levy abolished from Jan 1 (30 December 2025)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "taxId": {
+    "label": "TIN (Taxpayer Identification Number). للأفراد: Ghana Card PIN",
+    "format": "للمنشآت: GRA TIN من 11 خانة حرفية رقمية، تدل بادئته على الفئة: C00 للشركات المسجلة لدى Registrar-General's Department، وG00 للجهات الحكومية، وQ00 للبعثات الأجنبية وموظفيها، وV00 للمؤسسات العامة والأمانات والتعاونيات، وP00 للأفراد غير المؤهلين لبطاقة غانا. للأفراد: منذ 2021-04-01 صار رقم Ghana Card PIN الصادر عن National Identification Authority هو الـTIN، وهو 15 خانة بالصيغة GHA-123456789-1، أي رمز الدولة الثلاثي ثم 8 أو 9 أرقام ثم خانة تحقق، مفصولة بشرطات.",
+    "notes": "تشترط إرشادات E-VAT ذكر TIN (بما في ذلك Ghana Card PIN) للمورّد وللعميل الخاضع. وبحسب المادة 49(5) من Act 1151، على المشتري المسجّل الذي يشتري من مستخدم FED أن يقدّم TIN للبائع، وإلا فقد يفقد حق خصم ضريبة المدخلات. ويتيح موقع GRA أداة للتحقق من الرقم.",
+    "sources": [
+      {
+        "url": "https://www.oecd.org/tax/automatic-exchange/crs-implementation-and-assistance/tax-identification-numbers/Ghana-TIN.pdf",
+        "title": "OECD — Ghana: Information on Tax Identification Numbers (ملف بتاريخ ديسمبر 2021)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://gra.gov.gh/tin/",
+        "title": "GRA — TIN",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://gra.gov.gh/wp-content/uploads/2024/07/E-VAT-GUIDELINES_20240222.pdf",
+        "title": "GRA — Guidelines on Certified Invoicing System (E-VAT), GRA/AG/2024/005 (18 June 2024)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxnews.ey.com/news/2026-0163-ghanas-parliament-enacts-several-indirect-tax-related-laws-effective-1-january-2026",
+        "title": "EY Tax News 2026-0163 (12 January 2026) — المادة 49(5) وTIN عند الشراء من مستخدمي FED",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "einvoicing": {
+    "status": "phased-mandatory",
+    "systemName": "E-VAT (Certified Invoicing System, CIS) عبر Virtual Sales Data Controller (VSDC)، إضافة إلى Fiscal Electronic Devices (FED) المخطط لطرحها",
+    "authority": "Ghana Revenue Authority (GRA)",
+    "model": "clearance",
+    "modelNotes": "تصادق منظومة GRA على كل فاتورة عبر VSDC قبل إصدارها، وتعيد QR code وتوقيع الفاتورة وverification engine ID والختم الزمني. يُسمح بالإصدار دون اتصال حتى 24 ساعة بمفتاح توقيع، ثم يجب تحديث منظومة GRA بالمعاملات. وأمام المكلف طريقتان: ربط ERP/POS الخاص به عبر API مع اختبار وموافقة من GRA (نحو شهر)، أو برنامج GRA المجاني بنسخ سطح المكتب وAndroid والويب (نحو أسبوعين).",
+    "scopeNow": "من الناحية القانونية، تقول PwC (مراجعة 27-10-2026) إن على الأشخاص الخاضعين أو المسجلين في VAT إصدار الفواتير الضريبية أو إيصالات البيع عبر CIS أو FED على التوالي، وإن CIS يتطلب ربط نظام المكلف بنظام GRA. ويقرّ Act 1151 في المادة 43(9) بالإيصال الضريبي الصادر من FED، بحسب EY. أما عملياً فتضم GRA المكلفين المسجلين في VAT على دفعات يحددها المفوض العام، وتستطيع أن تختار المكلف أو يطلب هو الانضمام أو يُضم عند التسجيل. بدأ النظام عام 2022 بمرحلة تجريبية (pilot). وأضافت المرحلة الثانية (سبتمبر 2024) نحو 2,000 مكلف. وبلغ عدد المكلفين الحيّين أكثر من 3,000 حتى يونيو 2025، ودعت GRA في مايو 2026 نحو 1,217 مكلفاً من مكلفي E-VAT إلى التدريب. ولا تزال صفحة GRA للـVAT تطلب من الجمهور المطالبة بفاتورة VAT تقليدية أو فاتورة E-VAT، فالفاتورة التقليدية لم تُلغَ. لم نجد قائمة رسمية حديثة تحدد اليوم بدقة من بقي خارج النظام. والمكلف غير المسجل في VAT، ومنه تجار السلع دون حد GHS 750,000، لا تشمله هذه الالتزامات.",
+    "keyDates": [
+      {
+        "date": "2022",
+        "event": "إطلاق E-VAT بمرحلة تجريبية (pilot)، بموجب تعديلات Act 870 (Act 1082 وAct 1087 لسنة 2022)."
+      },
+      {
+        "date": "2024-06-18",
+        "event": "إصدار GRA إرشادات Certified Invoicing System (E-VAT) رقم GRA/AG/2024/005: حقول الفاتورة، وطرق الضم، والعمل دون اتصال."
+      },
+      {
+        "date": "2024-09",
+        "event": "المرحلة الثانية: إشعار GRA بضم 2,000 مكلف إضافي مسجّل في VAT."
+      },
+      {
+        "date": "2025-06",
+        "event": "إعلان GRA تجاوز عدد المكلفين الحيّين على E-VAT 3,000 مكلف، مع أكثر من 5,000 آخرين في طور التهيئة."
+      },
+      {
+        "date": "2026-01-01",
+        "event": "نفاذ Act 1151: إلغاء COVID-19 levy، وظهور الضرائب الثلاث على الفاتورة (VAT 15% وNHIL 2.5% وGETFund 2.5%)، ويُعدّ الإيصال الضريبي الصادر من FED مستوفياً لشرط الفاتورة (المادة 43(9))."
+      },
+      {
+        "date": "2026-05",
+        "event": "ورش GRA التدريبية لـ1,217 مكلفاً من مكلفي E-VAT في أكرا (من 4 إلى 8 مايو 2026)."
+      },
+      {
+        "date": "2026-07-28",
+        "event": "اعتماد البرلمان تقرير لجنة المالية الذي يجيز التعاقد مع مزوّد خدمة لتنفيذ سياسة Fiscal Electronic Device (FED)."
+      },
+      {
+        "date": "2026-Q4",
+        "event": "موعد مخطط، غير مؤكد التنفيذ: صرّح المفوض العام لـGRA في سبتمبر 2026 بأن تطبيق الأجهزة الضريبية سيبدأ في الربع الأخير من 2026."
+      }
+    ],
+    "b2cReceipts": "يجوز بإذن المفوض العام إصدار إيصال بيع (sales receipt) بدلاً من الفاتورة الضريبية في التوريدات منخفضة القيمة عالية الحجم، شرط إصداره من النظام المعتمد. يُطبع الإيصال أو يُرسل برسالة SMS أو بالبريد الإلكتروني، ويحمل QR code والتوقيع والختم الزمني. ولا يصلح إيصال يخلو من اسم المشتري وTIN لخصم ضريبة المدخلات. ويُعدّ الإيصال الضريبي الصادر من Fiscal Electronic Device (FED) مستوفياً لشرط الفاتورة أو الإيصال (المادة 43(9) من Act 1151). والأساس القانوني للأجهزة هو Taxation (Use of Fiscal Electronic Device) Act, 2018 (Act 966)، بحسب EY. ولم نجد حتى تاريخ التحقق إشعاراً رسمياً من GRA ببدء تطبيق إلزام الأجهزة أو بتحديد نطاقه. فالبرلمان أجاز في يوليو 2026 الاستعانة بمزوّد خدمة، وصرّح المفوض العام في سبتمبر 2026 بأن التطبيق مخطط للربع الأخير من 2026.",
+    "sources": [
+      {
+        "url": "https://gra.gov.gh/e-vat/",
+        "title": "GRA — E-VAT",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://gra.gov.gh/wp-content/uploads/2024/07/E-VAT-GUIDELINES_20240222.pdf",
+        "title": "GRA — Guidelines on Certified Invoicing System (E-VAT), GRA/AG/2024/005 (18 June 2024)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://gra.gov.gh/implementation-of-electronic-invoicing-of-value-added-tax-phase-two/",
+        "title": "GRA Public Notice — Implementation of Electronic Invoicing of Value Added Tax: Phase Two (4 September 2024)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://gra.gov.gh/e-vat-taxpayer-training-workshop-4th-to-8th-may-2026/",
+        "title": "GRA — E-VAT Taxpayer Training Workshop, 4th to 8th May 2026",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxsummaries.pwc.com/ghana/corporate/other-taxes",
+        "title": "PwC Worldwide Tax Summaries — Ghana: Corporate, Other taxes (last reviewed 27 October 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxnews.ey.com/news/2026-0163-ghanas-parliament-enacts-several-indirect-tax-related-laws-effective-1-january-2026",
+        "title": "EY Tax News 2026-0163 (12 January 2026) — FED في Act 1151",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.graphic.com.gh/news/general-news/ghana-news-e-vat-system-gra-signs-on-3-000-businesses-5-000-more-prepare-to-onboard.html",
+        "title": "Graphic Online — E-VAT system: GRA signs on 3,000 businesses, 5,000 more prepare to onboard (2 June 2025)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://parliament.gh/news?CO=320",
+        "title": "Parliament of Ghana — Parliament adopts Finance Committee report on Fiscal Electronic Device (28 July 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.myjoyonline.com/gra-to-roll-out-fiscal-and-accounting-devices-in-q4-to-improve-vat-compliance/",
+        "title": "MyJoyOnline — GRA to roll out fiscal and accounting devices in Q4 to improve VAT compliance (15 September 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.fonoa.com/resources/blog/ghana-e-vat-e-invoicing-2026",
+        "title": "Fonoa — Ghana E-Invoicing: What Businesses Need to Know About the E-VAT Mandate (last update 16 July 2026)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "invoiceRequirements": [
+    "اسم المورّد الخاضع وعنوانه وTIN (بما في ذلك Ghana Card PIN)",
+    "تاريخ التوريد ووقته",
+    "رقم الفاتورة من سلسلة متتابعة",
+    "اسم العميل أو اسمه التجاري وعنوانه وTIN (بما في ذلك Ghana Card PIN) إذا كان شخصاً خاضعاً",
+    "وصف كافٍ لتحديد السلع أو الخدمات، مع الكمية ووحدة القياس (وزن، طول، صناديق…)",
+    "نوع المعاملة: sale؛ hire purchase/hire/lease/rental؛ exchange؛ أو supplies from own supplies",
+    "نسبة كل ضريبة إضافية ومبلغها في سطر مستقل. منذ 2026-01-01 تشترط GRA في الفواتير المحوسبة سطوراً منفصلة لـNHIL 2.5% وGETFund 2.5% وVAT 15%، ولم يعد COVID-19 HRL يُذكر بعد إلغائه",
+    "القيمة غير شاملة الضريبة لكل صنف أو خدمة",
+    "نسبة الضريبة",
+    "إجمالي الفاتورة غير شامل الضريبة",
+    "نسبة أي خصم (تعترف GRA بالخصم إذا كان غير تمييزي ومتاحاً لكل المشترين، وتُحتسب الضريبة على القيمة بعد الخصم)",
+    "إجمالي الضريبة المحتسبة: مجموع NHIL وGETFund وVAT إلزامي على الفاتورة",
+    "الإجمالي شاملاً الضريبة (total tax inclusive value)",
+    "في فاتورة E-VAT: QR code، وinvoice signature، وverification engine ID، وencrypted data، وtime stamp، وكلها تصدرها منظومة GRA/VSDC",
+    "إشعار دائن أو مدين (tax credit note / tax debit note): يذكر TIN ورقم الفاتورة الأصلية، مع عناصر E-VAT ذاتها",
+    "إيصال البيع (sales receipt) في التوريدات منخفضة القيمة عالية الحجم يحمل الحقول نفسها تقريباً، وبيانات المشتري فيه اختيارية، لكن الإيصال الذي يخلو من اسم المشتري وTIN لا يصلح لخصم ضريبة المدخلات"
+  ],
+  "distribution": {
+    "hubs": [
+      "Accra",
+      "Tema",
+      "Kumasi",
+      "Takoradi",
+      "Tamale"
+    ],
+    "tradeChannels": [
+      "wholesalers",
+      "retail outlets",
+      "agents / distributors"
+    ],
+    "localTerms": {
+      "vanSales": "van sales",
+      "preSales": "pre-sales",
+      "salesRep": "sales rep",
+      "retailShop": null,
+      "routeAccounting": null
+    },
+    "collectionMethods": [
+      "cash",
+      "Mobile Money (MoMo) — مثل MTN MoMo وTelecel Cash",
+      "GhQR",
+      "GhIPSS Instant Pay (GIP) / تحويل بنكي",
+      "cheques",
+      "debit cards (gh-link) / e-zwich"
+    ],
+    "notes": "الإنجليزية لغة الأعمال الرسمية، فالمصطلحات المعتمدة هنا هي مصطلحات صناعة التوزيع الإنجليزية العامة، ولم نتحقق من بدائل محلية خاصة بغانا. تدخل كل السلع المستوردة عبر ميناءي Tema وTakoradi أو مطار Kotoka في أكرا. أكبر التجمعات السكانية: أكرا وتيما (منطقة Greater Accra أكثر من 5.4 مليون نسمة)، ثم كوماسي (نحو 2.1 مليون)، ثم Takoradi وTamale وSunyani. يفضّل السوق التعامل وجهاً لوجه لبناء العلاقات التجارية، والوكلاء يحملون عادة خطوط منتجات متعددة فيصعب الحصول على حصرية. يُستخدم Mobile Money وبطاقات الخصم أكثر من بطاقات الائتمان. أُلغي E-Levy البالغ 1% على تحويلات Mobile Money في 2025-04-02 (Act 1128). وتتيح خدمات GhIPSS قابلية التشغيل البيني بين المحافظ والحسابات وGhQR للتجار، ومقاصة الشيكات (Cheque Codeline Clearing). والتسعير بالدولار محظور، لكنه لا يزال شائعاً في إعلانات العقار والسيارات وبيعها، بحسب دليل U.S. ITA (Trade Financing). ومن آثار رفع حد التسجيل للسلع إلى GHS 750,000 أن كثيراً من محلات التجزئة الصغيرة غير مسجّلة في VAT، أما الموزع المسجّل فيلزمه احتساب 20% فعلياً على التوريدات الخاضعة.",
+    "sources": [
+      {
+        "url": "https://www.trade.gov/country-commercial-guides/ghana-distribution-and-sales-channels",
+        "title": "U.S. ITA Country Commercial Guide — Ghana: Distribution and Sales Channels (last published 6 August 2025)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.trade.gov/country-commercial-guides/ghana-selling-factors-and-techniques",
+        "title": "U.S. ITA Country Commercial Guide — Ghana: Selling Factors and Techniques (last published 6 August 2025)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.trade.gov/country-commercial-guides/ghana-ecommerce",
+        "title": "U.S. ITA Country Commercial Guide — Ghana: eCommerce (last published 6 August 2025)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.trade.gov/country-commercial-guides/ghana-trade-financing",
+        "title": "U.S. ITA Country Commercial Guide — Ghana: Trade Financing (last published 6 August 2025)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.ghipss.net/",
+        "title": "Ghana Interbank Payment and Settlement Systems (GhIPSS) — الخدمات: MMI وGIP وGhQR وgh-link وe-zwich ومقاصة الشيكات",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxnews.ey.com/news/2025-0844-ghanas-parliament-amends-tax-laws-following-the-2025-budget-statement-presentation",
+        "title": "EY Tax News 2025-0844 — Ghana's Parliament amends tax laws following the 2025 Budget (9 April 2025), إلغاء E-Levy",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.graphic.com.gh/business/business-news/mtn-ghana-abolishes-1-e-levy-as-new-tax-reforms-take-effect.html",
+        "title": "Graphic Online — MTN Ghana abolishes 1% E-Levy as new tax reforms take effect (3 April 2025)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://telecel.com.gh/",
+        "title": "Telecel Ghana — Telecel Cash",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.bog.gov.gh/banking-and-payments-system/overview-of-payment-systems-in-ghana/",
+        "title": "Bank of Ghana — Overview of Payment Systems in Ghana",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "honesty": {
+    "canSay": [
+      "FieldSales منصة لإدارة مناديب المبيعات والبيع من السيارة (van sales) والطلبات المسبقة (pre-sales) والتحصيل، موجهة لشركات التوزيع في غانا.",
+      "يضبط العميل العملة بنفسه، ومنها الـcedi الغاني (GHS)، ويضبط نسبة الضريبة كذلك، ومنها العبء الفعلي 20% الساري منذ 1 يناير 2026 (VAT 15% وNHIL 2.5% وGETFund 2.5%).",
+      "يسجّل المندوب التحصيلات بطريقة الدفع التي يحددها العميل، كالنقد أو الشيك أو Mobile Money، تسجيلاً داخل المنصة لا ربطاً آلياً بمزوّد الدفع.",
+      "يمكن حفظ الرقم الضريبي للعميل (TIN أو Ghana Card PIN) ضمن بياناته، لأن GRA تشترطه على فاتورة المشتري الخاضع ولخصم ضريبة المدخلات.",
+      "الربط مع منظومة الفوترة الحكومية GRA E-VAT متاح عند الطلب، دون أي وعد بموعد أو باعتماد من GRA أو بنتيجة."
+    ],
+    "mustNotSay": [
+      "أن FieldSales مربوطة أو متكاملة مع GRA E-VAT أو VSDC أو أي منظومة لدى Ghana Revenue Authority.",
+      "أن FieldSales «Certified Invoicing System» معتمد من GRA، أو أنها تحمل E-VAT decal أو موافقة GRA.",
+      "أن فواتير FieldSales أو إيصالاتها «GRA-compliant» أو متوافقة مع Act 1151 أو مع إرشادات GRA، أو أنها تغني عن فاتورة E-VAT أو فاتورة VAT الرسمية.",
+      "أن فواتير FieldSales أو إيصالاتها تحمل QR code أو توقيعاً أو verification engine ID صادراً عن GRA، أو أنها تمرّ بتحقق VSDC، أو أن FieldSales «E-VAT ready» أو جاهزة للانضمام إلى E-VAT.",
+      "أن الربط مع GRA متاح فوراً أو بموعد محدد، أو أن اعتماد GRA له مضمون.",
+      "أن FieldSales جهاز Fiscal Electronic Device (FED) أو بديل عنه.",
+      "أن فواتير FieldSales تعرض NHIL وGETFund وVAT في سطور منفصلة كما تشترط GRA، ما لم يُتحقق من ذلك في المنتج.",
+      "أن FieldSales متكاملة مع MTN MoMo أو Telecel Cash أو GhQR أو GhIPSS لتحصيل آلي.",
+      "ذكر COVID-19 levy أو النسبة 21.9% أو مخطط Flat Rate 3% أو E-Levy على أنها سارية، فكلها أُلغيت.",
+      "القول إن كل المسجلين في VAT ملزمون بـE-VAT ابتداءً من تاريخ محدد (مثل 1 نوفمبر 2026)، أو إن FED صار إلزامياً الآن.",
+      "ادعاء عملاء أو شركاء أو مكتب أو وكيل لـFieldSales في غانا دون دليل."
+    ]
+  },
+  "uncertain": [
+    "إرشادات GRA الخاصة بـAct 1151 (VAT-Guidelines-for-VAT-ACT-1151.pdf، يناير 2026) ملف ممسوح ضوئياً لم نستطع استخراج نصه. لذا أُخذت حقول الفاتورة من إرشادات E-VAT لسنة 2024 الصادرة في ظل Act 870، مع إسقاط COVID-19 HRL بحسب صفحة GRA للـVAT. قد تكون المادة 43 من Act 1151 وجدولها عدّلت قائمة الحقول.",
+    "النطاق الفعلي لإلزام E-VAT اليوم غير محدد رسمياً. نُشرت أعداد المنضمين (أكثر من 3,000 حتى يونيو 2025، و1,217 في تدريب مايو 2026)، لكن لم نجد قائمة أو موعداً رسمياً يلزم جميع المسجلين.",
+    "تقرير منشور في 29 أكتوبر 2026 (fiscal-requirements.com) عن نية GRA توسيع إلزام E-VAT إلى Tier-2 medium enterprises ابتداءً من 2026-11-01 يصرّح هو نفسه بأنه غير مؤكد ببيان رسمي من GRA، فلم يُدرج في keyDates.",
+    "تطبيق Fiscal Electronic Devices: لم نجد إشعاراً رسمياً من GRA بموعد البدء أو بالقطاعات المشمولة. موعد «الربع الأخير من 2026» مصدره تصريح صحفي (MyJoyOnline، سبتمبر 2026)، ولم يُتحقق من رقم 40,000 جهاز الوارد في تقارير صحفية.",
+    "وصف النموذج بـclearance مأخوذ من Fonoa وإرشادات GRA (تصادق GRA على كل فاتورة عبر VSDC). وصفحة Fonoa (تحديث 16 يوليو 2026) تتضمن عبارات متقادمة، منها أن GRA لم تؤكد موعد الإصلاح، لذا لم نعتمد عليها إلا في وصف النموذج.",
+    "مخطط Flat Rate: أُلغي بنص Act 1151 بحسب EY وGRA، لكن صفحة GRA تذكر أن مكلفي المخطط الحاليين دون الحد يبقون مسجلين حتى يلغي المفوض العام تسجيلهم، ولا يزال رابط إقرار «VAT – Flat Rate (3%)» ظاهراً. الوضع الانتقالي غير واضح.",
+    "قائمة التوريدات المعفاة (First Schedule من Act 1151) لم تُستخرج تفصيلاً.",
+    "صيغة GRA TIN للمنشآت (11 خانة بادئة C00 وغيرها) مصدرها وثيقة OECD لسنة 2021، ولم نجد تأكيداً أحدث على موقع GRA.",
+    "قنوات التجارة التقليدية والمصطلحات المحلية: لم نجد ضمن ميزانية البحث مصدراً مهنياً موثوقاً يوثّق مصطلحات شائعة مثل provision store/provision shop وtable-top sellers وkiosks والأسواق المفتوحة (Makola في أكرا وKejetia في كوماسي)، لذا تُركت retailShop وrouteAccounting بقيمة null، واقتصرت tradeChannels على ما ورد في دليل U.S. ITA. وvanSales وpreSales وsalesRep مصطلحات صناعة إنجليزية عامة لم يُتحقق من تداولها بهذه الصيغة لدى موزعي غانا. ويُنصح بالتحقق قبل النشر.",
+    "AT Money (AirtelTigo سابقاً) لم يُتحقق منه بمصدر، فلم يُذكر صراحة. ودليل U.S. ITA يستخدم أسماء قديمة (Vodafone وAirtelTigo)، وVodafone Ghana صار Telecel.",
+    "لم نجد مصدراً حديثاً من Bank of Ghana بإحصاءات Mobile Money لعام 2026، لأن وثيقة استراتيجية أنظمة الدفع 2025–2029 ممسوحة ضوئياً.",
+    "لم نتحقق مما إذا كانت FieldSales تدعم عرض الضرائب الثلاث (NHIL وGETFund وVAT) في سطور منفصلة على الفاتورة كما تشترط GRA. فإن كانت المنصة تدعم نسبة واحدة فقط فلا يجوز الإيحاء بالتوافق، ويلزم التحقق من المنتج.",
+    "رمز العملة: النصوص الرسمية تستخدم «GH¢» و«GHS» أكثر من «GH₵». اخترنا «GH₵» (حرف السيدي في Unicode)، ولم نجد مصدراً رسمياً من Bank of Ghana يحدد رمزاً واحداً.",
+    "(تدقيق 2026-11-11) وُصفت المرحلة الأولى من E-VAT (2022) سابقاً بأنها «لكبار المكلفين»، ولم نجد لذلك مصدراً موثوقاً. فاكتفينا بوصفها مرحلة تجريبية (pilot) كما في Graphic Online (2 يونيو 2025).",
+    "(تدقيق 2026-11-11) عبارة «أو ما يعادله شهرياً أو ربع سنوياً» في حد التسجيل لم نجد لها نصاً في صفحة GRA ولا في EY ولا في U.S. ITA ولا في Graphic، فحُذفت. وما إذا كان Act 1151 يقرر حداً شهرياً أو ربع سنوي مكافئاً غير محسوم.",
+    "(تدقيق 2026-11-11) عبارة «تُلغى دفاتر VAT اليدوية تدريجياً» لم نجد لها مصدراً في صفحات GRA المطّلع عليها، فحُذفت.",
+    "(تدقيق 2026-11-11) نفدت ميزانية البحث المستقل في الويب، فاقتصر التحقق من مستجدات أكتوبر ونوفمبر 2026 على صفحات GRA (الرئيسية وNews وE-VAT وVAT). لم تُظهر هذه الصفحات أي إشعار بتوسيع E-VAT إلى Tier-2 أو ببدء تطبيق FED حتى 2026-11-11، وهذا غياب دليل لا دليل نفي. ويؤكد بيان GRA في 14 أكتوبر 2026 (عبر ISD) أن العبء الفعلي لا يزال 20% (VAT 15% وNHIL 2.5% وGETFund 2.5%). يُنصح بإعادة التحقق قبل النشر، وبعد عرض ميزانية 2027."
+  ],
+  "sources": [
+    {
+      "url": "https://gra.gov.gh/domestic-tax/tax-types/vat/",
+      "title": "GRA — VAT (VAT Reforms – 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://gra.gov.gh/e-vat/",
+      "title": "GRA — E-VAT",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://gra.gov.gh/wp-content/uploads/2024/07/E-VAT-GUIDELINES_20240222.pdf",
+      "title": "GRA — Guidelines on Certified Invoicing System (E-VAT), GRA/AG/2024/005 (18 June 2024)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://gra.gov.gh/implementation-of-electronic-invoicing-of-value-added-tax-phase-two/",
+      "title": "GRA Public Notice — E-VAT Phase Two (4 September 2024)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://gra.gov.gh/e-vat-taxpayer-training-workshop-4th-to-8th-may-2026/",
+      "title": "GRA — E-VAT Taxpayer Training Workshop (4–8 May 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://gra.gov.gh/practice-notes/",
+      "title": "GRA — Practice Notes and Guidelines (منها VAT Guidelines for VAT Act 1151، يناير 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://gra.gov.gh/tin/",
+      "title": "GRA — TIN",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.oecd.org/tax/automatic-exchange/crs-implementation-and-assistance/tax-identification-numbers/Ghana-TIN.pdf",
+      "title": "OECD — Ghana: Information on Tax Identification Numbers (ديسمبر 2021)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxnews.ey.com/news/2026-0163-ghanas-parliament-enacts-several-indirect-tax-related-laws-effective-1-january-2026",
+      "title": "EY Tax News 2026-0163 (12 January 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxnews.ey.com/news/2025-0844-ghanas-parliament-amends-tax-laws-following-the-2025-budget-statement-presentation",
+      "title": "EY Tax News 2025-0844 (9 April 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxsummaries.pwc.com/ghana/corporate/other-taxes",
+      "title": "PwC Worldwide Tax Summaries — Ghana: Other taxes (last reviewed 27 October 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.fonoa.com/resources/blog/ghana-e-vat-e-invoicing-2026",
+      "title": "Fonoa — Ghana E-VAT Mandate (last update 16 July 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.fiscal-requirements.com/news/6142-ghana-clarifies-digital-vat-collection-rules-as-further-e-vat-expansion-is-reported-for-november-2026",
+      "title": "Fiscal Solutions — Ghana clarifies digital VAT collection rules as further E-VAT expansion is reported for November 2026 (29 October 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.trade.gov/market-intelligence/ghana-finance-value-added-tax-changes",
+      "title": "U.S. ITA — Ghana Finance: Value Added Tax Changes (26 February 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.trade.gov/country-commercial-guides/ghana-distribution-and-sales-channels",
+      "title": "U.S. ITA — Ghana: Distribution and Sales Channels (6 August 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.trade.gov/country-commercial-guides/ghana-ecommerce",
+      "title": "U.S. ITA — Ghana: eCommerce (6 August 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.ghipss.net/",
+      "title": "GhIPSS — Services",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://parliament.gh/news?CO=320",
+      "title": "Parliament of Ghana — FED Finance Committee report adopted (28 July 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.myjoyonline.com/gra-to-roll-out-fiscal-and-accounting-devices-in-q4-to-improve-vat-compliance/",
+      "title": "MyJoyOnline — GRA to roll out fiscal devices in Q4 (15 September 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.graphic.com.gh/news/general-news/ghana-news-e-vat-system-gra-signs-on-3-000-businesses-5-000-more-prepare-to-onboard.html",
+      "title": "Graphic Online — GRA signs on 3,000 businesses to E-VAT (2 June 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.graphic.com.gh/business/business-news/gra-announces-overhaul-vat-rate-cut-flat-rate-scheme-scrapped-covid-levy-abolished-from-jan-1.html",
+      "title": "Graphic Online — GRA announces VAT overhaul from Jan 1 (30 December 2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml",
+      "title": "ISO 4217 Currency List One (SIX, published 2026-09-17) — GHS 936, minor units 2",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.isd.gov.gh/gra-clarifies-new-digital-vat-collection-system-will-not-introduce-additional-20-tax/",
+      "title": "Information Services Department — GRA clarifies new digital VAT collection system will not introduce additional 20% tax (14 October 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.trade.gov/country-commercial-guides/ghana-trade-financing",
+      "title": "U.S. ITA Country Commercial Guide — Ghana: Trade Financing (6 August 2025)",
+      "accessed": "2026-11-11"
+    }
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "corrections": [
+      {
+        "field": "tax.registrationThreshold",
+        "before": "GHS 750,000 من التوريدات الخاضعة سنوياً (أو ما يعادله شهرياً أو ربع سنوياً)",
+        "after": "GHS 750,000 من التوريدات الخاضعة سنوياً، وحُذف المعادل الشهري والربع السنوي لعدم وجود مصدر، ونُقل إلى uncertain",
+        "source": "https://gra.gov.gh/domestic-tax/tax-types/vat/ ; https://taxnews.ey.com/news/2026-0163-ghanas-parliament-enacts-several-indirect-tax-related-laws-effective-1-january-2026"
+      },
+      {
+        "field": "tax.reform2026",
+        "before": "إلغاء مخطط Flat Rate البالغ 3% لتجار التجزئة والجملة و5% للعقار",
+        "after": "إلغاء مخطط Flat Rate البالغ 3% على توريدات السلع من تجار التجزئة المؤهلين و5% على العقار المؤهل",
+        "source": "https://taxnews.ey.com/news/2026-0163-ghanas-parliament-enacts-several-indirect-tax-related-laws-effective-1-january-2026 ; https://www.trade.gov/market-intelligence/ghana-finance-value-added-tax-changes"
+      },
+      {
+        "field": "einvoicing.scopeNow",
+        "before": "من الناحية القانونية، يُلزم Act 1151 الخاضعين بإصدار الفاتورة الضريبية أو إيصال البيع عبر CIS أو FED، بحسب PwC",
+        "after": "تقول PwC إن على الخاضعين أو المسجلين إصدار الفواتير أو الإيصالات عبر CIS أو FED «على التوالي» دون أن تنسب ذلك صراحة إلى Act 1151 في الجملة نفسها، وأُضيفت المادة 43(9) من Act 1151 بحسب EY",
+        "source": "https://taxsummaries.pwc.com/ghana/corporate/other-taxes ; https://taxnews.ey.com/news/2026-0163-ghanas-parliament-enacts-several-indirect-tax-related-laws-effective-1-january-2026"
+      },
+      {
+        "field": "einvoicing.scopeNow + einvoicing.keyDates[2022]",
+        "before": "بدأ النظام عام 2022 مع كبار المكلفين / إطلاق E-VAT بمرحلة أولى لكبار المكلفين",
+        "after": "بدأ النظام عام 2022 بمرحلة تجريبية (pilot)، وصف «كبار المكلفين» بلا مصدر فنُقل إلى uncertain",
+        "source": "https://www.graphic.com.gh/news/general-news/ghana-news-e-vat-system-gra-signs-on-3-000-businesses-5-000-more-prepare-to-onboard.html"
+      },
+      {
+        "field": "einvoicing.scopeNow",
+        "before": "وتُلغى دفاتر VAT اليدوية تدريجياً",
+        "after": "حُذفت العبارة لعدم وجود مصدر، وأُبقي ما تثبته صفحة GRA من أن فاتورة VAT التقليدية لا تزال مقبولة إلى جانب فاتورة E-VAT",
+        "source": "https://gra.gov.gh/domestic-tax/tax-types/vat/"
+      },
+      {
+        "field": "einvoicing.b2cReceipts",
+        "before": "أما إلزام الأجهزة نفسها فلم يبدأ تطبيقه العام حتى تاريخ التحقق: البرلمان أجاز التعاقد مع مزوّد في يوليو 2026",
+        "after": "لم نجد حتى تاريخ التحقق إشعاراً رسمياً من GRA ببدء التطبيق، فصيغ الأمر غياب دليل لا نفياً قاطعاً. والبرلمان أجاز «الاستعانة بمزوّد خدمة» لا عقداً نهائياً، وأُضيف الأساس القانوني Act 966 (2018)",
+        "source": "https://parliament.gh/news?CO=320 ; https://www.myjoyonline.com/gra-to-roll-out-fiscal-and-accounting-devices-in-q4-to-improve-vat-compliance/ ; https://taxnews.ey.com/news/2026-0163-ghanas-parliament-enacts-several-indirect-tax-related-laws-effective-1-january-2026"
+      },
+      {
+        "field": "distribution.notes",
+        "before": "ويُحظر قانوناً التسعير بالدولار رغم انتشاره.",
+        "after": "والتسعير بالدولار محظور، لكنه لا يزال شائعاً في إعلانات العقار والسيارات وبيعها، بحسب دليل U.S. ITA (Trade Financing).",
+        "source": "https://www.trade.gov/country-commercial-guides/ghana-trade-financing"
+      },
+      {
+        "field": "honesty.mustNotSay",
+        "before": "لا يمنع صراحة ادعاء حمل QR/توقيع GRA أو «E-VAT ready» أو التوافق مع Act 1151 أو ضمان موعد الربط",
+        "after": "أُضيف منع صريح لادعاء التوافق مع Act 1151 أو إرشادات GRA، وحمل QR code أو توقيع GRA أو المرور بـVSDC، و«E-VAT ready»، وادعاء موعد للربط أو ضمان اعتماده",
+        "source": "قاعدة المهمة: الربط الحكومي حيّ في السعودية وحدها"
+      },
+      {
+        "field": "honesty.canSay[4]",
+        "before": "متاح عند الطلب، دون التزام بموعد أو باعتماد.",
+        "after": "متاح عند الطلب، دون أي وعد بموعد أو باعتماد من GRA أو بنتيجة.",
+        "source": "قاعدة المهمة: «متاح عند الطلب» بلا وعد"
+      }
+    ],
+    "confidence": "medium"
+  }
+}

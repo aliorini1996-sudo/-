@@ -1,0 +1,617 @@
+{
+  "code": "KE",
+  "nameEn": "Kenya",
+  "pageLanguage": "en",
+  "verifiedAt": "2026-11-11",
+  "currency": {
+    "iso": "KES",
+    "symbol": "KSh",
+    "nameEn": "Kenyan shilling",
+    "nameLocal": null,
+    "minorUnits": 2,
+    "sources": [
+      {
+        "url": "https://www.centralbank.go.ke/currency/",
+        "title": "Central Bank of Kenya — Currency (Kenya shilling, coins of 5/10/25/50 cents)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml",
+        "title": "ISO 4217 List One (SIX, published 2026-09-17): KENYA — Kenyan Shilling, KES, 404, minor units 2",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.centralbank.go.ke/national-payments-system/mobile-payments/",
+        "title": "Central Bank of Kenya — Mobile Payments (values shown in \"KSh billions\"; to September 2026)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "tax": {
+    "nameLocal": "Value Added Tax",
+    "nameEn": "Value Added Tax",
+    "abbr": "VAT",
+    "standardRate": 16,
+    "otherRates": [
+      {
+        "rate": 0,
+        "appliesTo": "التوريدات الخاضعة للنسبة الصفرية (zero-rated) المدرجة في Second Schedule لقانون VAT Act 2013. وعدّل Finance Act 2026 (ساري من 2026-07-01) بعض بنودها، ومنها حصر النسبة الصفرية للدراجات الكهربائية في البند الجمركي 8712.00.00 ولبطاريات الطاقة الشمسية والليثيوم في البند 8507.60.00 — لا قصر النسبة الصفرية عموماً"
+      },
+      {
+        "rate": 0,
+        "appliesTo": "التوريدات المعفاة (exempt) في First Schedule: لا ضريبة عليها ولا يُخصم عنها ضريبة المدخلات (ليست نسبة صفرية)"
+      },
+      {
+        "rate": 8,
+        "appliesTo": "تخفيض مؤقت على المنتجات البترولية (البنزين والديزل والكيروسين): من 16% إلى 13% بـLegal Notice 69 ثم إلى 8% بـLegal Notice 70 لسنة 2026، بدءاً من 14 أبريل 2026 لتسعين يوماً أولية (حتى 14 يوليو 2026) مع جواز التمديد بقرار من وزير الخزانة؛ ثم مُدّد العمل بنسبة 8% تسعين يوماً أخرى بقانون Tax Laws (Amendment) Act 2026 الذي وقّعه الرئيس نحو 16 أكتوبر 2026. الأرجح أنها سارية في 2026-11-11، لكن تاريخ سريان التمديد الأخير وانتهائه غير مؤكدين، وهي نسبة مؤقتة قابلة للإلغاء"
+      }
+    ],
+    "registrationThreshold": "KES 5,000,000 من التوريدات الخاضعة خلال 12 شهراً (يجوز التسجيل الطوعي دونها؛ ولا حدّ لغير المقيمين مورّدي الخدمات الرقمية)",
+    "authority": "Kenya Revenue Authority (KRA)",
+    "authorityUrl": "https://www.kra.go.ke",
+    "sources": [
+      {
+        "url": "https://www.kra.go.ke/individual/filing-paying/types-of-taxes/value-added-tax",
+        "title": "KRA — Value Added Tax (VAT): rates 16%/0%/exempt, KES 5m threshold, filing by the 20th",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://taxsummaries.pwc.com/kenya/corporate/other-taxes",
+        "title": "PwC Worldwide Tax Summaries — Kenya: Other taxes (last reviewed 17 July 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.ey.com/en_gl/technical/tax-alerts/kenya-enacts-finance-act-2026",
+        "title": "EY Tax Alert — Kenya enacts Finance Act, 2026 (8 July 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.grantthornton.co.ke/insights/temporary-reduction-of-vat-on-petroleum-products-in-kenya/",
+        "title": "Grant Thornton Kenya — Temporary reduction of VAT on petroleum products (April 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.dawan.africa/news/kenya-extends-8percent-fuel-vat-for-90-days",
+        "title": "Dawan Africa — Kenya extends 8% fuel VAT for 90 days (16 October 2026)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "taxId": {
+    "label": "KRA PIN",
+    "format": "11 خانة: حرف أول A للأفراد أو P لغير الأفراد (الشركات وغيرها)، ثم 9 أرقام، ثم حرف أخير — النمط ^[AP][0-9]{9}[A-Z]$؛ وتذكر KRA أن رقم الفرد يبدأ عادة بـ A0 ورقم الكيان بـ P0",
+    "sources": [
+      {
+        "url": "https://www.kra.go.ke/news-center/blog/2132-tax-compliance-101-what-you-need-to-know",
+        "title": "KRA Blog — Tax Compliance 101: What you need to know about PIN Registration (10/09/2024)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://arthurdejong.org/python-stdnum/doc/stdnum.ke.pin",
+        "title": "python-stdnum — stdnum.ke.pin (Kenya PIN format: 11 characters, A/P + 9 digits + letter)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "einvoicing": {
+    "status": "mandatory",
+    "systemName": "eTIMS (Electronic Tax Invoice Management System) / TIMS",
+    "authority": "Kenya Revenue Authority (KRA)",
+    "model": "real-time-reporting",
+    "scopeNow": "الإلزام ساري اليوم (2026-11-11) بلا مرحلة مؤجلة: كل شخص يمارس نشاطاً تجارياً في كينيا — مسجّلاً في VAT أم لا (شركات، شراكات، منشآت فردية، جمعيات وصناديق ائتمانية، مهنيون، خاضعو Turnover Tax، مؤجرو العقارات، القطاع غير الرسمي) — ملزم بموجب المادة 23A من Tax Procedures Act 2015 (أدخلها Finance Act 2023) ولائحة Tax Procedures (Electronic Tax Invoice) Regulations 2024 بتسجيل كل عملية بيع وإصدار فاتورة ضريبية إلكترونية ونقلها إلى KRA عبر TIMS أو eTIMS. الحلول: eTIMS Lite (ويب عبر eCitizen، وUSSD ‎*222#‎، وتطبيق للجوال) للصغار غير المسجّلين في VAT، وeTIMS Client (ويندوز/أندرويد/تابلت/PDA) لمن لا يملك نظام فوترة، وOnline Portal لمورّدي الخدمات وحدها بما لا يزيد على 10 فواتير شهرياً، وتكامل نظام-لنظام عبر OSCU (أنظمة متصلة دائماً) أو VSCU (فوترة بالجملة وأنظمة لا تكون متصلة دائماً) بعد تطوير واختبار في بيئة KRA التجريبية وتدقيق واعتماد. إذا كان البائع صغيراً (رقم أعمال سنوي حتى KES 5 ملايين) يصدر المشتري الفاتورة نيابة عنه (Buyer Initiated Invoicing)، وهناك أيضاً Reverse Invoicing. ويجوز للمسجّلين في VAT الذين اعتمدوا أجهزة TIMS ETR الاستمرار في استعمالها. المستثنى: الرواتب الخاضعة لـPAYE، واستيراد السلع، والخدمات المستوردة، ورسوم المؤسسات المالية عن أنشطتها الأساسية، والمعاملات الخاضعة لضريبة استقطاع نهائية، ومعاملات investment allowance، وتذاكر الطيران، والقيود المحاسبية الداخلية، وما يستثنيه المفوض. ومنذ 2026-01-01 يتحقق iTax عند تقديم إقرارات ضريبة الدخل من مطابقتها لبيانات eTIMS/TIMS والاستقطاع والجمارك، فالمصروف غير المؤيَّد بفاتورة eTIMS معرّض لعدم القبول. وفي 7 سبتمبر 2026 أعلنت KRA وظيفة إدارة المخزون في TIMS/eTIMS دون موعد إلزام محدد.",
+    "keyDates": [
+      {
+        "date": "2005",
+        "event": "بدء نظام أجهزة ETR (Electronic Tax Register) لضريبة القيمة المضافة"
+      },
+      {
+        "date": "2020-09-25",
+        "event": "نشر VAT (Electronic Tax Invoice) Regulations 2020 (Legal Notice 189) التي أسست TIMS"
+      },
+      {
+        "date": "2021-08-01",
+        "event": "بدء إلزام المسجّلين في VAT بأجهزة ETR متوافقة مع TIMS مع فترة انتقالية حتى 2022-07-31"
+      },
+      {
+        "date": "2023-07",
+        "event": "Finance Act 2023 يُدخل المادة 23A في Tax Procedures Act ويمدّ الإلزام إلى كل من يمارس نشاطاً تجارياً"
+      },
+      {
+        "date": "2023-09-01",
+        "event": "بحسب إشعار KRA العام (27 ديسمبر 2023): إلزام كل الأنشطة التجارية، ومنها غير المسجّلة في VAT، بإصدار الفواتير الإلكترونية ونقلها إلى KRA عبر eTIMS اعتباراً من هذا التاريخ"
+      },
+      {
+        "date": "2024-01-01",
+        "event": "المصروفات غير المؤيَّدة بفاتورة ضريبية إلكترونية لا تُقبل في خصم ضريبة الدخل"
+      },
+      {
+        "date": "2024-03-31",
+        "event": "مهلة تسجيل الأنشطة غير المسجّلة في VAT على eTIMS بحسب إشعار KRA العام (27 ديسمبر 2023)، دون فرض غرامات عدم إصدار الفاتورة الإلكترونية خلال فترة التسجيل، مع إلزامها بإدخال الفواتير اليدوية الصادرة منذ 2024-01-01 حتى تاريخ تسجيلها"
+      },
+      {
+        "date": "2024-05-03",
+        "event": "نشر Tax Procedures (Electronic Tax Invoice) Regulations 2024 (Legal Notice 64 المؤرخة 25 مارس 2024) في الجريدة الرسمية؛ وبحسب EY ألغت «Electronic Tax Invoicing Regulations 2023»، أما مصير VAT (Electronic Tax Invoice) Regulations 2020 فلم يثبت"
+      },
+      {
+        "date": "2025-06-30",
+        "event": "الموعد الأصلي لتطبيق eTIMS Fuel Station System في محطات الوقود، والإنفاذ على غير الممتثلين بعد 2025-12-31"
+      },
+      {
+        "date": "2026-01-01",
+        "event": "iTax يتحقق من إقرارات ضريبة الدخل عند تقديمها مقابل بيانات eTIMS/TIMS والاستقطاع والجمارك"
+      },
+      {
+        "date": "2026-06-23",
+        "event": "موافقة الرئيس على Finance Act 2026: غرامة عدم إصدار الفاتورة الإلكترونية (المادة 86 من Tax Procedures Act) تصبح — بعد إشعار يطلب الأسباب — الأعلى من 5% من الضريبة المستحقة أو KES 100,000 للشركات (KES 10,000 للأفراد)، وتمكين المفوض من إصدار إقرارات معبّأة مسبقاً من المعلومات المتاحة لدى KRA (المادة 75)؛ ولم يحدد تنبيه EY تاريخ نفاذ تعديلات Tax Procedures Act"
+      },
+      {
+        "date": "2026-09-07",
+        "event": "إشعار KRA العام بتطبيق وظيفة إدارة المخزون (stock management) في الفوترة الإلكترونية: على مستخدمي TIMS/eTIMS الاحتفاظ بسجلات مخزون دقيقة ومحدّثة (المشتراة والمستلمة والمباعة والمحوَّلة والمرتجعة والمسوّاة)، مع جلسات تشاور تبدأ في سبتمبر 2026؛ ولم يحدد الإشعار موعد إلزام"
+      }
+    ],
+    "b2cReceipts": "لا تفرقة في الإلزام بين B2B وB2C: كل عملية بيع تُسجَّل وتصدر لها فاتورة عبر TIMS (أجهزة ETR متوافقة، ما زال مسموحاً بها للمسجّلين في VAT) أو eTIMS. تحمل الفاتورة رمز QR ويمكن التحقق منها بمسحه أو عبر Invoice Number Checker في iTax. رقم KRA PIN للمشتري يُدرَج فقط إذا أراد المشتري خصم المصروف أو ضريبة المدخلات. لمحطات الوقود نظام خاص (eTIMS Fuel Station System).",
+    "sources": [
+      {
+        "url": "https://www.kra.go.ke/business/etims-electronic-tax-invoice-management-system/learn-about-etims/what-is-etims",
+        "title": "KRA — What is eTIMS",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.kra.go.ke/helping-tax-payers/faqs/learn-about-etims",
+        "title": "KRA — Learn about eTIMS (FAQs)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.kra.go.ke/images/publications/eTIMS-Taxpayer-Guidelines_2024.pdf",
+        "title": "KRA — Public Guidelines to Taxpayers on eTIMS Onboarding (2024)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.kra.go.ke/component/kra_faq/faq/657",
+        "title": "KRA FAQ — What are the options available to onboard onto eTIMS?",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.kra.go.ke/business/etims-electronic-tax-invoice-management-system/learn-about-etims/buyer-initiated-invoicing",
+        "title": "KRA — Buyer Initiated Invoicing",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.kra.go.ke/business/etims-electronic-tax-invoice-management-system/learn-about-etims/reverse-invoicing",
+        "title": "KRA — Reverse Invoicing",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.kra.go.ke/images/publications/Implementation-of-ETI-Updated-Mrach-2022.pdf",
+        "title": "KRA — Implementation of the Electronic Tax Invoice, Taxpayer Education (March 2022)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.kra.go.ke/news-center/public-notices/2331-reminder-on-implementation-of-electronic-tax-invoicing-for-fuel-stations",
+        "title": "KRA Public Notice — Reminder on Implementation of Electronic Tax Invoicing for Fuel Stations (25/11/2025)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.ey.com/en_gl/technical/tax-alerts/kenya-gazettes-tax-procedures-electronic-tax-invoice-regulations-2024",
+        "title": "EY Tax Alert — Kenya gazettes Tax Procedures (Electronic Tax Invoice) Regulations, 2024 (8 May 2024)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://assets.kpmg.com/content/dam/kpmgsites/ke/pdf/thought_leaderships/tax/2026/eTIMS.pdf.coredownload.inline.pdf",
+        "title": "KPMG Kenya Tax Alert — eTIMS and the Shift to Data-Driven Income and Expense Validation (2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.ey.com/en_gl/technical/tax-alerts/kenya-enacts-finance-act-2026",
+        "title": "EY Tax Alert — Kenya enacts Finance Act, 2026 (8 July 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.kra.go.ke/news-center/public-notices/2077-electronic-tax-invoicing-for-non-vat-registered-persons",
+        "title": "KRA Public Notice — Electronic Tax Invoicing for Non-VAT Registered Persons (27/12/2023): from 1 Sept 2023; onboarding by 31 March 2024",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.kra.go.ke/news-center/public-notices/2390-implementation-of-the-stock-management-functionality-for-electronic-invoicing",
+        "title": "KRA Public Notice — Implementation of the Stock Management Functionality for Electronic Invoicing (07/09/2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.kra.go.ke/business/etims-electronic-tax-invoice-management-system/learn-about-etims/etims-system-to-system-integration",
+        "title": "KRA — eTIMS System to System Integration (OSCU/VSCU, sandbox, testing, vetting and certification, approved integrators list)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "invoiceRequirements": [
+    "KRA PIN للبائع (Seller's PIN)",
+    "تاريخ ووقت الإصدار",
+    "الرقم التسلسلي للفاتورة (invoice serial number)",
+    "KRA PIN للمشتري إذا كان ينوي خصم المصروف أو ضريبة المدخلات",
+    "إجمالي المبلغ الإجمالي (total gross amount) وإجمالي الضريبة حيث ينطبق",
+    "رمز الصنف لدى KRA (item code) ووصفه والكمية",
+    "وحدة القياس ونسبة الضريبة المطبّقة على كل صنف",
+    "معرّف فريد للنظام/وحدة التحكم (unique system identifier) ومعرّف فريد للفاتورة (unique invoice identifier)",
+    "رمز QR للتحقق",
+    "أي بيانات أخرى يحددها المفوض (Commissioner)",
+    "إشعارات الدائن والمدين (credit/debit notes) تُشير إلى رقم الفاتورة الأصلية (لائحة 2024)، وبحسب المادة 15(6) من VAT Act تكون مرقّمة تسلسلياً وتتضمن اسم من صدرت له وعنوانه ورقم PIN الخاص به وما يكفي لتحديد الفاتورة الضريبية الأصلية",
+    "منذ Finance Act 2026: لا يُظهر ضريبة VAT على الفاتورة إلا عن توريد خاضع (المادة 42 من VAT Act)",
+    "بحسب PwC، يُفهم من تعديل Finance Act 2025 للمادة 42 من VAT Act أن على كل مسجّل في VAT إصدار فاتورة ضريبية وقت التوريد سواء كان التوريد خاضعاً أم لا"
+  ],
+  "distribution": {
+    "hubs": [
+      "Nairobi",
+      "Mombasa",
+      "Kisumu",
+      "Nakuru",
+      "Eldoret"
+    ],
+    "tradeChannels": [
+      "duka (maduka)",
+      "kiosk",
+      "market stall",
+      "hawkers",
+      "stockists / wholesalers",
+      "sub-distributors",
+      "supermarkets (modern trade)"
+    ],
+    "localTerms": {
+      "vanSales": "van sales",
+      "preSales": null,
+      "salesRep": null,
+      "retailShop": "duka / kiosk",
+      "routeAccounting": null
+    },
+    "collectionMethods": [
+      "نقد (cash) يجمعه السائق/المندوب",
+      "M-Pesa (Lipa na M-Pesa: Paybill وBuy Goods Till)",
+      "تحويل بنكي",
+      "البيع الآجل (credit) لتجار الجملة والـstockists"
+    ],
+    "notes": "التجارة التقليدية غير الرسمية هي القناة الغالبة لسلع FMCG: قدّرت TechnoServe (2020) أن القطاع غير الرسمي يستحوذ على نحو 80% من مبيعات FMCG ونحو 70% من التجزئة، بينما نقل مقال في Africa.com (أكتوبر 2026) عن The Thread Group أن 58.2% من التجزئة في كينيا تمر عبر التجارة التقليدية — مقياسان مختلفان لا يُقارنان مباشرة. يصف مقال Business Daily (مايو 2026) الشراء المتكرر بكميات صغيرة من duka أو kiosk أو بسطة السوق، ويذكر عن Economic Survey 2026 أن القطاع غير الرسمي يوظف 18.1 مليون شخص. السلسلة الشائعة: manufacturer → agent → distributor → stockist → customer، مع موزعين كبار لهم مستودعات إقليمية وsub-distributors. أساطيل التوزيع تتراوح بين الشاحنات والبيك أب والدراجات النارية، وتحدّي البيع من السيارة (van sales) هو الوصول إلى المتجر أولاً ومتابعة المخزون والنقد المحصّل (أكثر من 60 ألف منفذ تجزئة غير رسمي بحسب مقال 2019). الدفع عبر المحفظة الجوالة واسع جداً: 97.04 مليون حساب مسجّل و568,518 وكيلاً نشطاً (البنك المركزي الكيني، سبتمبر 2026). أثر eTIMS على التوزيع: كل بيعة من السيارة يجب أن تُفوتر عبر حل eTIMS (مثل eTIMS Client على أندرويد/PDA، أو تكامل VSCU المناسب للأنظمة غير المتصلة دائماً)، والمشتري (الدكان أو تاجر الجملة) يحتاج فاتورة eTIMS لخصم مصروفه. والتكامل مع OSCU/VSCU — ذاتياً أو عبر مُدمِج خارجي — يمرّ بحسب KRA بالتطوير والاختبار في بيئتها التجريبية ثم التدقيق والاعتماد (certification)، وتنشر KRA قائمة المُدمِجين المعتمدين. وفي 7 سبتمبر 2026 أعلنت KRA وظيفة إدارة المخزون في TIMS/eTIMS التي تطلب سجلات مخزون تشمل البضائع المشتراة والمباعة والمحوَّلة والمرتجعة والمسوّاة، دون موعد إلزام محدد ودون ذكر سيارات التوزيع تحديداً.",
+    "sources": [
+      {
+        "url": "https://frontierview.com/insights/win-kenyas-dynamic-consumer-market/",
+        "title": "FrontierView — Win Kenya's dynamic consumer market (2017, updated 2021): Nairobi plus Kisumu, Nakuru, Eldoret",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.howwemadeitinafrica.com/p/consumer-goods-steps-to-effectively-access-the-kenyan-market",
+        "title": "How we made it in Africa — Consumer goods: steps to effectively access the Kenyan market (27 Feb 2015)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.bizcommunity.com/Article/196/553/194579.html",
+        "title": "Bizcommunity — Route optimisation and line of sight are key to maximising van sales in the main market (21 Aug 2019)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.mwanaspoti.co.tz/bd/opinion-analysis/columnists/informal-traders-are-key-to-market-dominance-5474110",
+        "title": "Business Daily — Rethinking FMCG growth: Informal traders are key to market dominance (26 May 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://africa.com/featuresopinion/africas-fmcg-boom-is-outpacing-its-distribution-infrastructure",
+        "title": "Africa.com — Africa's FMCG boom is outpacing its distribution infrastructure (20 Oct 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.technoserve.org/wp-content/uploads/2020/11/Smart-Duka-Developing-Kenyas-Micro-Retail-Sector.pdf",
+        "title": "TechnoServe — Smart Duka: Developing Kenya's Micro-Retail Sector (2020)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.centralbank.go.ke/national-payments-system/mobile-payments/",
+        "title": "Central Bank of Kenya — Mobile Payments statistics (to September 2026)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.kra.go.ke/images/publications/eTIMS-Taxpayer-Guidelines_2024.pdf",
+        "title": "KRA — Public Guidelines to Taxpayers on eTIMS Onboarding (2024)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.kra.go.ke/business/etims-electronic-tax-invoice-management-system/learn-about-etims/etims-system-to-system-integration",
+        "title": "KRA — eTIMS System to System Integration (OSCU/VSCU, sandbox, testing, vetting and certification, approved integrators list)",
+        "accessed": "2026-11-11"
+      },
+      {
+        "url": "https://www.kra.go.ke/news-center/public-notices/2390-implementation-of-the-stock-management-functionality-for-electronic-invoicing",
+        "title": "KRA Public Notice — Implementation of the Stock Management Functionality for Electronic Invoicing (07/09/2026)",
+        "accessed": "2026-11-11"
+      }
+    ]
+  },
+  "honesty": {
+    "canSay": [
+      "FieldSales يدير المناديب والبيع من السيارة (van sales) وأخذ الطلبات والتحصيل لشركات التوزيع التي تخدم الدكاكين (dukas) والأكشاك وتجار الجملة في كينيا",
+      "العملة (KES) ونسبة الضريبة (مثل 16% أو نسب أخرى) يضبطهما العميل بنفسه في إعدادات المنصة",
+      "يمكن للشركة تعريف طرق التحصيل التي تستعملها (مثل النقد أو M-Pesa أو التحويل البنكي) وتسجيل ما يحصّله كل مندوب تحتها",
+      "متابعة الزيارات الميدانية بالموقع وخطوط السير ومخزون السيارة وأرصدة العملاء الآجلة",
+      "الربط مع KRA eTIMS غير مفعَّل حالياً، ويمكن بحثه عند الطلب دون التزام بموعد أو نتيجة",
+      "FieldSales لا يغني عن eTIMS: تبقى الشركة مسؤولة عن إصدار الفاتورة الضريبية الإلكترونية عبر حل eTIMS الخاص بها (eTIMS Client أو OSCU/VSCU أو غيره)"
+    ],
+    "mustNotSay": [
+      "أن FieldSales متكامل مع KRA eTIMS أو TIMS أو iTax، أو أنه يرسل الفواتير إلى KRA",
+      "أن FieldSales مُدمِج معتمد من KRA (certified third-party integrator) أو معتمد/مرخّص من KRA بأي صفة",
+      "أن فواتير FieldSales فواتير ضريبية إلكترونية صالحة (eTIMS-compliant) أو أنها تكفي لخصم المصروفات أو ضريبة المدخلات",
+      "أن FieldSales يغني عن جهاز ETR أو عن حل eTIMS",
+      "أن رمز QR في مطبوعات FieldSales قابل للتحقق في iTax Invoice Checker",
+      "أن FieldSales متكامل مع M-Pesa أو Daraja أو Paybill/Till، أو أنه يسوّي مدفوعات M-Pesa تلقائياً",
+      "أن FieldSales ممتثل (compliant) لقوانين الضريبة الكينية أو يضمن تجنّب غرامات KRA",
+      "أن FieldSales يحدّث نسب الضريبة تلقائياً (مثل التخفيض المؤقت 8% على الوقود)",
+      "أن FieldSales ينفّذ وظيفة إدارة المخزون في eTIMS (stock management) أو يرسل بيانات المخزون أو تحويلات مخزون السيارات إلى KRA",
+      "أن FieldSales يصدر فواتير Buyer Initiated أو Reverse Invoicing، أو يصدر الفاتورة الضريبية نيابة عن العميل أو المورّد",
+      "أن FieldSales مسجّل أو مُختبَر في بيئة eTIMS التجريبية (sandbox) أو مدرج في قائمة المُدمِجين المعتمدين لدى KRA",
+      "أن ربط FieldSales مع eTIMS «قريب» أو له موعد إطلاق، أو أن الامتثال لـeTIMS «مضمون» عند الاشتراك"
+    ]
+  },
+  "uncertain": [
+    "نسبة 8% على الوقود: مصادرها مهنية وصحفية (Grant Thornton Kenya وDawan Africa، وPwC تذكر «8% for fuel» دون تفصيل)؛ لم يُطّلع على نص Tax Laws (Amendment) Act 2026 ولا على الجريدة الرسمية ولا على Legal Notices 69 و70، ولم يثبت تمديد يوليو 2026 نصاً، فتاريخ سريان التمديد الأخير وانتهائه (نحو منتصف يناير 2027 إن حُسبت التسعون يوماً من منتصف أكتوبر 2026) غير مؤكدين. وصفحة KRA عن VAT ما زالت تقول إن Finance Act 2023 حذف نسبة 8%، أي أنها لم تُحدَّث بعد تخفيض 2026.",
+    "تفاصيل تعديلات Finance Act 2026 على VAT مأخوذة من تنبيه EY؛ وتاريخ نفاذ كثير منها (ومنها غرامة المادة 86 الجديدة) لم يُحدَّد فيه، والقاعدة العامة عنده 2026-07-01 أو 2027-01-01.",
+    "تصنيف النموذج 'real-time-reporting' اجتهاد: OSCU يتحقق متصلاً قبل الإصدار (قريب من clearance)، وVSCU يسمح بالعمل غير المتصل ثم النقل، والإرث هو أجهزة ETR الضريبية (fiscal-device).",
+    "تاريخ دخول المادة 23A حيّز النفاذ مذكور بالشهر فقط (2023-07، تاريخ نفاذ Finance Act 2023 عموماً)؛ وحسم إشعار KRA العام المؤرخ 27 ديسمبر 2023 أن إلزام غير المسجّلين في VAT يسري من 1 سبتمبر 2023 مع مهلة تسجيل بلا غرامات حتى 31 مارس 2024.",
+    "ربط شهادة الامتثال الضريبي (TCC) بالتسجيل في eTIMS منذ أكتوبر 2025: ظهر في نتائج بحث تنسبه إلى إشعار KRA مؤرخ 24 أكتوبر 2025، لكن صفحة المصدر أعادت 403 فلم يُدرَج.",
+    "تفاصيل M-Pesa التجارية (Paybill وBuy Goods Till): صفحات Safaricom أعادت 403، فلم أتحقق منها من مصدر رسمي؛ الثابت بمصدر رسمي هو انتشار المحافظ الجوالة (البنك المركزي الكيني). لم أتحقق كذلك من Airtel Money ولا من شيوع الشيكات.",
+    "localTerms: preSales وsalesRep وrouteAccounting جُعلت null لعدم وجود مصدر موثوق يوثّق المصطلح المحلي المستعمل فعلاً لدى الموزعين؛ و'van sales' مصدره مقال رأي 2019.",
+    "Mombasa ضمن المراكز بوصفها الميناء الرئيسي ومركز الساحل، دون مصدر جُلب في هذا البحث (صفحة هيئة الموانئ لم تُفتح لخطأ شهادة)؛ Nairobi وKisumu وNakuru وEldoret من FrontierView (2017، حُدّث 2021).",
+    "نسبة 80% من مبيعات FMCG عبر القطاع غير الرسمي مقتبسة من نتيجة بحث تعرض نص تقرير TechnoServe 2020 (الملف كبير ولم يُقرأ كاملاً).",
+    "الاسم المحلي للعملة جُعل null: الاسم السواحيلي (shilingi) لم يرد في صفحة البنك المركزي المجلوبة ولا في مصدر مهني؛ أما الرمز KSh فثابت من صفحة المدفوعات الجوالة في البنك المركزي، والرمز KES والخانتان العشريتان من قائمة ISO 4217.",
+    "حقول الفاتورة مأخوذة من ملخص EY للائحة 2024 لا من نصها الرسمي (Kenya Law لم يستجب أثناء التدقيق)، ولم يُتحقق من البنود الإضافية في المادة 42 من VAT Act (مثل الاسم والعنوان). وحُذفت عبارة «تصدر إشعارات الدائن خلال ستة أشهر من الفاتورة الأصلية» لعدم وجود مصدر لها.",
+    "نفدت ميزانية البحث على الويب أثناء البحث الأصلي وأثناء التدقيق أيضاً، فاعتمد التدقيق على فتح المصادر مباشرة (KRA وPwC وEY وKPMG وGrant Thornton والبنك المركزي وISO 4217)؛ ولم تُستكمل مراجعة Sovos/VATCalc/Fonoa لكينيا (VATCalc أعاد 403).",
+    "حُذف من keyDates تاريخ 2022-11-30 («الموعد النهائي المُمدَّد لامتثال المسجّلين في VAT لنظام TIMS») لأنه لا يرد في أي مصدر مُدرج ولا في قائمة إشعارات KRA لسنة 2022؛ الثابت هو الفترة الانتقالية 2021-08-01 إلى 2022-07-31.",
+    "هل ألغت لائحة 2024 (Legal Notice 64) لائحة VAT (Electronic Tax Invoice) Regulations 2020؟ ينصّ تنبيه EY على إلغاء «Electronic Tax Invoicing Regulations 2023» فقط؛ ولم يُطّلع على نص اللائحة.",
+    "طول رقم KRA PIN (11 خانة) ونمطه ^[AP][0-9]{9}[A-Z]$ مصدرهما مكتبة python-stdnum مفتوحة المصدر لا وثيقة رسمية؛ الثابت رسمياً من KRA أن رقم الفرد يبدأ بـA0 ورقم الكيان بـP0.",
+    "كون الصادرات ضمن التوريدات الصفرية صحيح عرفاً لكن صفحتي KRA وPwC المجلوبتين لا تذكرانه نصاً، فحُذف من tax.otherRates[0].",
+    "إشعار KRA عن وظيفة إدارة المخزون (7 سبتمبر 2026) لم يحدد موعد إلزام ولا الأساس القانوني ولا ذكر OSCU/VSCU أو الموزعين؛ قد يصدر موعد إلزام بعد جلسات التشاور."
+  ],
+  "sources": [
+    {
+      "url": "https://www.kra.go.ke/individual/filing-paying/types-of-taxes/value-added-tax",
+      "title": "KRA — Value Added Tax (VAT)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.kra.go.ke/business/etims-electronic-tax-invoice-management-system/learn-about-etims/what-is-etims",
+      "title": "KRA — What is eTIMS",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.kra.go.ke/helping-tax-payers/faqs/learn-about-etims",
+      "title": "KRA — Learn about eTIMS (FAQs)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.kra.go.ke/images/publications/eTIMS-Taxpayer-Guidelines_2024.pdf",
+      "title": "KRA — Public Guidelines to Taxpayers on eTIMS Onboarding (2024)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.kra.go.ke/component/kra_faq/faq/657",
+      "title": "KRA FAQ — Options to onboard onto eTIMS",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.kra.go.ke/business/etims-electronic-tax-invoice-management-system/learn-about-etims/buyer-initiated-invoicing",
+      "title": "KRA — Buyer Initiated Invoicing",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.kra.go.ke/business/etims-electronic-tax-invoice-management-system/learn-about-etims/reverse-invoicing",
+      "title": "KRA — Reverse Invoicing",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.kra.go.ke/images/publications/Implementation-of-ETI-Updated-Mrach-2022.pdf",
+      "title": "KRA — Implementation of the Electronic Tax Invoice (March 2022)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.kra.go.ke/news-center/public-notices/2331-reminder-on-implementation-of-electronic-tax-invoicing-for-fuel-stations",
+      "title": "KRA Public Notice — eTIMS for fuel stations (25/11/2025)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.kra.go.ke/news-center/blog/2132-tax-compliance-101-what-you-need-to-know",
+      "title": "KRA Blog — PIN Registration (10/09/2024)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.kra.go.ke/business/companies-partnerships/companies-partnerships-pin-taxes/companies-partnerships-file-pay",
+      "title": "KRA — Filing & Paying Taxes (companies): VAT payable via any mobile money transfer platform",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://taxsummaries.pwc.com/kenya/corporate/other-taxes",
+      "title": "PwC Worldwide Tax Summaries — Kenya: Other taxes (last reviewed 17 July 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.ey.com/en_gl/technical/tax-alerts/kenya-enacts-finance-act-2026",
+      "title": "EY — Kenya enacts Finance Act, 2026 (8 July 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.ey.com/en_gl/technical/tax-alerts/kenya-gazettes-tax-procedures-electronic-tax-invoice-regulations-2024",
+      "title": "EY — Kenya gazettes Tax Procedures (Electronic Tax Invoice) Regulations, 2024 (8 May 2024)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://assets.kpmg.com/content/dam/kpmgsites/ke/pdf/thought_leaderships/tax/2026/eTIMS.pdf.coredownload.inline.pdf",
+      "title": "KPMG Kenya — eTIMS and the Shift to Data-Driven Income and Expense Validation (2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.grantthornton.co.ke/insights/temporary-reduction-of-vat-on-petroleum-products-in-kenya/",
+      "title": "Grant Thornton Kenya — Temporary reduction of VAT on petroleum products (2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.dawan.africa/news/kenya-extends-8percent-fuel-vat-for-90-days",
+      "title": "Dawan Africa — Kenya extends 8% fuel VAT for 90 days (16 Oct 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://arthurdejong.org/python-stdnum/doc/stdnum.ke.pin",
+      "title": "python-stdnum — Kenya PIN format",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.centralbank.go.ke/currency/",
+      "title": "Central Bank of Kenya — Currency",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.centralbank.go.ke/national-payments-system/mobile-payments/",
+      "title": "Central Bank of Kenya — Mobile Payments (to Sept 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://frontierview.com/insights/win-kenyas-dynamic-consumer-market/",
+      "title": "FrontierView — Win Kenya's dynamic consumer market",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.howwemadeitinafrica.com/p/consumer-goods-steps-to-effectively-access-the-kenyan-market",
+      "title": "How we made it in Africa — Accessing the Kenyan consumer goods market (2015)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.bizcommunity.com/Article/196/553/194579.html",
+      "title": "Bizcommunity — Maximising van sales in the main market (2019)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.mwanaspoti.co.tz/bd/opinion-analysis/columnists/informal-traders-are-key-to-market-dominance-5474110",
+      "title": "Business Daily — Informal traders are key to market dominance (26 May 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://africa.com/featuresopinion/africas-fmcg-boom-is-outpacing-its-distribution-infrastructure",
+      "title": "Africa.com — Africa's FMCG boom is outpacing its distribution infrastructure (20 Oct 2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.technoserve.org/wp-content/uploads/2020/11/Smart-Duka-Developing-Kenyas-Micro-Retail-Sector.pdf",
+      "title": "TechnoServe — Smart Duka (2020)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml",
+      "title": "ISO 4217 List One (SIX, published 2026-09-17): KENYA — Kenyan Shilling, KES, 404, minor units 2",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.kra.go.ke/news-center/public-notices/2077-electronic-tax-invoicing-for-non-vat-registered-persons",
+      "title": "KRA Public Notice — Electronic Tax Invoicing for Non-VAT Registered Persons (27/12/2023): from 1 Sept 2023; onboarding by 31 March 2024",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.kra.go.ke/news-center/public-notices/2390-implementation-of-the-stock-management-functionality-for-electronic-invoicing",
+      "title": "KRA Public Notice — Implementation of the Stock Management Functionality for Electronic Invoicing (07/09/2026)",
+      "accessed": "2026-11-11"
+    },
+    {
+      "url": "https://www.kra.go.ke/business/etims-electronic-tax-invoice-management-system/learn-about-etims/etims-system-to-system-integration",
+      "title": "KRA — eTIMS System to System Integration (OSCU/VSCU, sandbox, testing, vetting and certification, approved integrators list)",
+      "accessed": "2026-11-11"
+    }
+  ],
+  "audit": {
+    "auditedAt": "2026-11-11",
+    "corrections": [
+      {
+        "field": "currency.nameLocal",
+        "before": "Shilingi ya Kenya",
+        "after": null,
+        "source": "لا مصدر رسمي أو مهني مُطّلع عليه يذكر الاسم السواحيلي؛ صفحة البنك المركزي https://www.centralbank.go.ke/currency/ لا تذكره (نُقل إلى uncertain)"
+      },
+      {
+        "field": "currency.sources",
+        "before": "مصدر واحد (صفحة العملة في البنك المركزي) لا يثبت الرمز KSh ولا الخانتين العشريتين",
+        "after": "أُضيفت قائمة ISO 4217 (KES، 404، خانتان عشريتان) وصفحة المدفوعات الجوالة في البنك المركزي التي تستعمل «KSh»",
+        "source": "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml ; https://www.centralbank.go.ke/national-payments-system/mobile-payments/"
+      },
+      {
+        "field": "tax.otherRates[0].appliesTo",
+        "before": "التوريدات الخاضعة للنسبة الصفرية (zero-rated) المدرجة في Second Schedule لقانون VAT Act 2013، ومنها الصادرات؛ وقصر Finance Act 2026 النسبة الصفرية على بنود تعريفة محددة اعتباراً من 2026-07-01",
+        "after": "التوريدات الخاضعة للنسبة الصفرية (zero-rated) المدرجة في Second Schedule لقانون VAT Act 2013. وعدّل Finance Act 2026 (ساري من 2026-07-01) بعض بنودها، ومنها حصر النسبة الصفرية للدراجات الكهربائية في البند الجمركي 8712.00.00 ولبطاريات الطاقة الشمسية والليثيوم في البند 8507.60.00 — لا قصر النسبة الصفرية عموماً",
+        "source": "https://www.ey.com/en_gl/technical/tax-alerts/kenya-enacts-finance-act-2026 (zero-rating will only apply to items specified under the specific tariff heading — للدراجات الكهربائية والبطاريات وحدها) ; وعبارة «ومنها الصادرات» حُذفت لأن صفحتي KRA وPwC لا تذكرانها نصاً"
+      },
+      {
+        "field": "tax.otherRates[2].appliesTo",
+        "before": "تخفيض مؤقت على البنزين والديزل والكيروسين: من 16% إلى 13% ثم 8% منذ 14 أبريل 2026 (Legal Notices 69 و70 لسنة 2026)، ومُدّد أكثر من مرة وآخره بقانون Tax Laws (Amendment) Act 2026 في أكتوبر 2026 لتسعين يوماً؛ تاريخ الانتهاء الدقيق غير مؤكد",
+        "after": "تخفيض مؤقت على المنتجات البترولية (البنزين والديزل والكيروسين): من 16% إلى 13% بـLegal Notice 69 ثم إلى 8% بـLegal Notice 70 لسنة 2026، بدءاً من 14 أبريل 2026 لتسعين يوماً أولية (حتى 14 يوليو 2026) مع جواز التمديد بقرار من وزير الخزانة؛ ثم مُدّد العمل بنسبة 8% تسعين يوماً أخرى بقانون Tax Laws (Amendment) Act 2026 الذي وقّعه الرئيس نحو 16 أكتوبر 2026. الأرجح أنها سارية في 2026-11-11، لكن تاريخ سريان التمديد الأخير وانتهائه غير مؤكدين، وهي نسبة مؤقتة قابلة للإلغاء",
+        "source": "https://www.grantthornton.co.ke/insights/temporary-reduction-of-vat-on-petroleum-products-in-kenya/ (14 أبريل 2026، 90 يوماً حتى 14 يوليو، جواز التمديد) ; https://www.dawan.africa/news/kenya-extends-8percent-fuel-vat-for-90-days (16 أكتوبر 2026، تمديد 90 يوماً دون تاريخي بدء وانتهاء) — عبارة «مُدّد أكثر من مرة» لم يثبتها أي من المصدرين نصاً"
+      },
+      {
+        "field": "einvoicing.scopeNow",
+        "before": "نص يذكر Online Portal «للخدمات فقط» وBuyer Initiated Invoicing «للمورّد الصغير» دون حدود، ويُغفل إشعار المخزون واستثناء investment allowance",
+        "after": "أُضيف: حدّ 10 فواتير شهرياً للبوابة، وحدّ KES 5 ملايين للبائع الصغير في Buyer Initiated، واستمرار أجهزة TIMS ETR، واختبار واعتماد التكامل، واستثناء investment allowance، وإشعار إدارة المخزون (7 سبتمبر 2026)، والنص على أن الإلزام ساري اليوم",
+        "source": "https://www.kra.go.ke/images/publications/eTIMS-Taxpayer-Guidelines_2024.pdf ; https://www.kra.go.ke/helping-tax-payers/faqs/learn-about-etims ; https://www.kra.go.ke/business/etims-electronic-tax-invoice-management-system/learn-about-etims/what-is-etims ; https://www.kra.go.ke/business/etims-electronic-tax-invoice-management-system/learn-about-etims/etims-system-to-system-integration ; https://www.kra.go.ke/news-center/public-notices/2390-implementation-of-the-stock-management-functionality-for-electronic-invoicing ; https://assets.kpmg.com/content/dam/kpmgsites/ke/pdf/thought_leaderships/tax/2026/eTIMS.pdf.coredownload.inline.pdf"
+      },
+      {
+        "field": "einvoicing.keyDates[2022-11-30]",
+        "before": "الموعد النهائي المُمدَّد لامتثال المسجّلين في VAT لنظام TIMS",
+        "after": null,
+        "source": "لا يرد في أي مصدر مُدرج؛ قائمة إشعارات KRA العامة لسنة 2022 (https://www.kra.go.ke/news-center/public-notices) لا تتضمن تمديداً بهذا التاريخ، ووثيقة KRA (مارس 2022) تذكر الفترة الانتقالية حتى 31 يوليو 2022 فقط (نُقل إلى uncertain)"
+      },
+      {
+        "field": "einvoicing.keyDates[2023-09-01]",
+        "before": null,
+        "after": "بحسب إشعار KRA العام (27 ديسمبر 2023): إلزام كل الأنشطة التجارية، ومنها غير المسجّلة في VAT، بإصدار الفواتير الإلكترونية ونقلها إلى KRA عبر eTIMS اعتباراً من هذا التاريخ",
+        "source": "https://www.kra.go.ke/news-center/public-notices/2077-electronic-tax-invoicing-for-non-vat-registered-persons"
+      },
+      {
+        "field": "einvoicing.keyDates[2024-03-31].event",
+        "before": "مهلة امتثال كل الأنشطة التجارية لـeTIMS بحسب إشعار KRA في الجريدة الرسمية",
+        "after": "مهلة تسجيل الأنشطة غير المسجّلة في VAT على eTIMS بحسب إشعار KRA العام (27 ديسمبر 2023)، دون فرض غرامات عدم إصدار الفاتورة الإلكترونية خلال فترة التسجيل، مع إلزامها بإدخال الفواتير اليدوية الصادرة منذ 2024-01-01 حتى تاريخ تسجيلها",
+        "source": "https://www.kra.go.ke/news-center/public-notices/2077-electronic-tax-invoicing-for-non-vat-registered-persons — إشعار عام على موقع KRA لا إشعار في الجريدة الرسمية كما ورد"
+      },
+      {
+        "field": "einvoicing.keyDates[2024-05-03].event",
+        "before": "نشر Tax Procedures (Electronic Tax Invoice) Regulations 2024 (Legal Notice 64) التي ألغت لائحة 2020",
+        "after": "نشر Tax Procedures (Electronic Tax Invoice) Regulations 2024 (Legal Notice 64 المؤرخة 25 مارس 2024) في الجريدة الرسمية؛ وبحسب EY ألغت «Electronic Tax Invoicing Regulations 2023»، أما مصير VAT (Electronic Tax Invoice) Regulations 2020 فلم يثبت",
+        "source": "https://www.ey.com/en_gl/technical/tax-alerts/kenya-gazettes-tax-procedures-electronic-tax-invoice-regulations-2024 («has revoked the Electronic Tax Invoicing Regulations 2023»؛ لا ذكر لإلغاء لائحة 2020)"
+      },
+      {
+        "field": "einvoicing.keyDates[2026-06-23].event",
+        "before": "إقرار Finance Act 2026: غرامة عدم إصدار فاتورة إلكترونية تصبح الأعلى من 5% من الضريبة المستحقة أو KES 100,000 للشركات (KES 10,000 للأفراد) بعد إشعار يطلب الأسباب، وتمكين KRA من إقرارات معبّأة مسبقاً من بيانات eTIMS",
+        "after": "موافقة الرئيس على Finance Act 2026: غرامة عدم إصدار الفاتورة الإلكترونية (المادة 86 من Tax Procedures Act) تصبح — بعد إشعار يطلب الأسباب — الأعلى من 5% من الضريبة المستحقة أو KES 100,000 للشركات (KES 10,000 للأفراد)، وتمكين المفوض من إصدار إقرارات معبّأة مسبقاً من المعلومات المتاحة لدى KRA (المادة 75)؛ ولم يحدد تنبيه EY تاريخ نفاذ تعديلات Tax Procedures Act",
+        "source": "https://www.ey.com/en_gl/technical/tax-alerts/kenya-enacts-finance-act-2026 — لا يقول التنبيه إن الإقرارات المعبّأة مسبقاً مصدرها eTIMS"
+      },
+      {
+        "field": "einvoicing.keyDates[2026-09-07]",
+        "before": null,
+        "after": "إشعار KRA العام بتطبيق وظيفة إدارة المخزون (stock management) في الفوترة الإلكترونية: على مستخدمي TIMS/eTIMS الاحتفاظ بسجلات مخزون دقيقة ومحدّثة (المشتراة والمستلمة والمباعة والمحوَّلة والمرتجعة والمسوّاة)، مع جلسات تشاور تبدأ في سبتمبر 2026؛ ولم يحدد الإشعار موعد إلزام",
+        "source": "https://www.kra.go.ke/news-center/public-notices/2390-implementation-of-the-stock-management-functionality-for-electronic-invoicing"
+      },
+      {
+        "field": "invoiceRequirements[credit/debit notes]",
+        "before": "إشعارات الدائن والمدين (credit/debit notes) تُشير إلى رقم الفاتورة الأصلية؛ وتصدر إشعارات الدائن خلال ستة أشهر من الفاتورة الأصلية",
+        "after": "إشعارات الدائن والمدين (credit/debit notes) تُشير إلى رقم الفاتورة الأصلية (لائحة 2024)، وبحسب المادة 15(6) من VAT Act تكون مرقّمة تسلسلياً وتتضمن اسم من صدرت له وعنوانه ورقم PIN الخاص به وما يكفي لتحديد الفاتورة الضريبية الأصلية",
+        "source": "https://www.ey.com/en_gl/technical/tax-alerts/kenya-gazettes-tax-procedures-electronic-tax-invoice-regulations-2024 (لا ذكر لمهلة ستة أشهر) ; https://www.kra.go.ke/images/publications/Implementation-of-ETI-Updated-Mrach-2022.pdf (نص المادة 15(6))"
+      },
+      {
+        "field": "invoiceRequirements[+Finance Act 2025]",
+        "before": null,
+        "after": "بحسب PwC، يُفهم من تعديل Finance Act 2025 للمادة 42 من VAT Act أن على كل مسجّل في VAT إصدار فاتورة ضريبية وقت التوريد سواء كان التوريد خاضعاً أم لا",
+        "source": "https://taxsummaries.pwc.com/kenya/corporate/other-taxes (last reviewed 17 July 2026)"
+      },
+      {
+        "field": "distribution.notes",
+        "before": "أي تكامل ذاتي أو عبر طرف ثالث مع OSCU/VSCU يتطلب اعتماد KRA للمُدمِج، وتنشر KRA قائمة المُدمِجين المعتمدين.",
+        "after": "والتكامل مع OSCU/VSCU — ذاتياً أو عبر مُدمِج خارجي — يمرّ بحسب KRA بالتطوير والاختبار في بيئتها التجريبية ثم التدقيق والاعتماد (certification)، وتنشر KRA قائمة المُدمِجين المعتمدين. وفي 7 سبتمبر 2026 أعلنت KRA وظيفة إدارة المخزون في TIMS/eTIMS التي تطلب سجلات مخزون تشمل البضائع المشتراة والمباعة والمحوَّلة والمرتجعة والمسوّاة، دون موعد إلزام محدد ودون ذكر سيارات التوزيع تحديداً.",
+        "source": "https://www.kra.go.ke/business/etims-electronic-tax-invoice-management-system/learn-about-etims/etims-system-to-system-integration ; https://www.kra.go.ke/news-center/public-notices/2390-implementation-of-the-stock-management-functionality-for-electronic-invoicing"
+      },
+      {
+        "field": "honesty.mustNotSay",
+        "before": "8 بنود لا تغطي وظيفة المخزون في eTIMS ولا Buyer Initiated/Reverse Invoicing ولا بيئة الاختبار ولا الوعد بموعد ربط",
+        "after": "أُضيفت 4 بنود تمنع هذه الادعاءات",
+        "source": "https://www.kra.go.ke/news-center/public-notices/2390-implementation-of-the-stock-management-functionality-for-electronic-invoicing ; https://www.kra.go.ke/business/etims-electronic-tax-invoice-management-system/learn-about-etims/etims-system-to-system-integration"
+      }
+    ],
+    "confidence": "high",
+    "notes": "الحقائق الجوهرية ثابتة من مصادر رسمية: VAT بنسبة 16% (KRA وPwC، مراجعة 17 يوليو 2026)، والجهة KRA، والرقم KRA PIN (A0/P0)، والعملة KES (ISO 4217 والبنك المركزي)، وeTIMS إلزامي اليوم لكل من يمارس نشاطاً تجارياً (KRA). أضعف نقطة هي نسبة 8% المؤقتة على الوقود: مصادرها مهنية وصحفية وتاريخ انتهائها غير مؤكد. لا يُدّعى أي ربط أو اعتماد أو امتثال في كينيا."
+  }
+}

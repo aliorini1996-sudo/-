@@ -1,0 +1,537 @@
+{
+  "code": "AE",
+  "languages": [
+    "ar",
+    "en",
+    "fr"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "ar": {
+      "slugHint": null,
+      "title": "برنامج مناديب المبيعات والبيع بالسيارة في الإمارات",
+      "description": "FieldSales لموزعي الإمارات: فواتير بضريبة القيمة المضافة 5٪ من جوال المندوب، البيع بالسيارة وأخذ الطلبيات، المديونيات، وسندات القبض والزيارات دون اتصال.",
+      "h1": "FieldSales في الإمارات: البيع بالسيارة وأخذ الطلبيات والتحصيل",
+      "intro": "FieldSales منصة سحابية لإدارة مناديب المبيعات في شركات التوزيع والجملة بالإمارات: يُصدر المندوب الفاتورة من جواله ويطبعها حرارياً عند البقالة أو الكافتيريا، ويسجّل التحصيل نقداً أو بشيك أو بتحويل في سند قبض، وتتابع الإدارة من لوحة الويب المديونيات وعهدة السيارة وخط السير والزيارات بالموقع والصور. تضبط شركتك بنفسها العملة على الدرهم الإماراتي ونسبة ضريبة القيمة المضافة على 5٪ من الإعدادات، ويعمل التطبيق على أندرويد وآيفون، وفيه تحتاج الفاتورة والمرتجع اتصالاً لحظة الإصدار، بينما تبقى سندات القبض والزيارات متاحة بلا إنترنت ثم تُزامن لاحقاً.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "التوزيع في الإمارات: القنوات ولغة السوق",
+          "body": "تصل البضائع إلى السوق الإماراتي في الغالب عبر موزّع أو وكيل تجاري محلي يغطي الدولة كلها أو إمارات بعينها بموجب قانون الوكالات التجارية، بحسب الدليل التجاري القُطري الصادر عن إدارة التجارة الدولية الأمريكية (trade.gov). وتستحوذ سلاسل السوبرماركت والهايبرماركت الكبرى على الحصة الأكبر من مبيعات التجزئة، تليها تجارة الجملة ثم متاجر المولات ثم سوبرماركت الفئة C والبقالات، إلى جانب الجمعيات التعاونية. ومن أبرز مراكز التوزيع ميناء جبل علي ومنطقة جافزا في دبي، وميناء خليفة ومنطقة كيزاد في أبوظبي، والحمرية في الشارقة، وتمتد شبكات التوزيع إلى الإمارات الشمالية. وفي لغة السوق: «Van sales» أو البيع بالسيارة حين يحمل المندوب البضاعة فيفوتر ويسلّم في الزيارة نفسها، و«Pre-sales» أو أخذ الطلبيات (order booking) حين يسجّل المندوب (Salesman) الطلبية وتُسلَّم البضاعة لاحقاً، و«Route settlement» وهي تسوية المندوب نهاية اليوم. ويجمع FieldSales النمطين في التطبيق نفسه، فتدير مناديب البيع بالسيارة ومناديب الطلبيات من لوحة واحدة."
+        },
+        {
+          "id": "tax",
+          "title": "ضريبة القيمة المضافة 5٪ وحقول الفاتورة الضريبية",
+          "body": "تفرض الإمارات ضريبة القيمة المضافة (VAT)، وتديرها الهيئة الاتحادية للضرائب (FTA)، ونسبتها الأساسية 5٪. وتُطبَّق النسبة الصفرية على فئات منها الصادرات إلى خارج دول مجلس التعاون المطبّقة للضريبة والنقل الدولي، وتُعفى فئات أخرى منها بعض الخدمات المالية والتوريدات اللاحقة للعقار السكني، وتفصيل ذلك في المواد 30 إلى 45 من اللائحة التنفيذية. ويحمل المسجّل رقم تسجيل ضريبي (TRN) من 15 رقماً تصدره الهيئة. وتشترط المادة 59 من اللائحة أن تحمل الفاتورة الضريبية عبارة «Tax Invoice»، واسم المورد وعنوانه ورقمه الضريبي، واسم المستلم وعنوانه ورقمه الضريبي إن كان مسجّلاً، ورقماً تسلسلياً، وتاريخ الإصدار وتاريخ التوريد إن اختلف، ولكل بند: الوصف وسعر الوحدة والكمية ونسبة الضريبة والمبلغ المستحق بالدرهم، ثم أي خصم، والإجمالي، ومبلغ الضريبة بالدرهم مع سعر الصرف إن صدرت الفاتورة بعملة أخرى. ويُقرَّب مبلغ الضريبة على مستوى السطر لأقرب فلس. وتُصدر الفاتورة الضريبية الكاملة خلال 14 يوماً من التوريد، ويجوز إصدار فاتورة ضريبية مبسطة إذا كان المستلم غير مسجّل. في FieldSales تضبط شركتك من الإعدادات العملة (AED) واسم الضريبة «ضريبة القيمة المضافة» ونسبتها 5٪، فتُحتسب الضريبة على كل فاتورة يصدرها المندوب وتظهر في النسخة المطبوعة، أما التأكد من اكتمال الحقول الإلزامية في قالب فاتورتك فيبقى مع محاسبك."
+        },
+        {
+          "id": "einvoicing",
+          "title": "الفوترة الإلكترونية في الإمارات: أين تقف اليوم؟",
+          "body": "بنت وزارة المالية نظام الفوترة الإلكترونية الإماراتي على نموذج «الزوايا الخمس» اللامركزي (DCTCE) فوق شبكة Peppol وبمواصفة PINT-AE: تصدر الفاتورة بصيغة XML، ويجري تبادلها والإبلاغ عنها حصراً عبر مزوّدي خدمة (ASP) من القائمة التي تنشرها الوزارة ويُختارون عبر منصة EmaraTax، والهيئة الاتحادية للضرائب هي «الزاوية الخامسة» التي تستقبل البيانات الضريبية. ووفق ما أعلنته الوزارة حتى 11 نوفمبر 2026 لا يوجد إلزام نافذ بعد: منذ 1 يوليو 2026 يعمل برنامج تجريبي بدعوة من الوزارة، والتطبيق الاختياري متاح لأي منشأة. وبحسب القرار الوزاري 244 لسنة 2025 المعدَّل بالقرار الوزاري 66 لسنة 2026 يبدأ الإلزام في 1 يناير 2027 لمن تبلغ إيراداته 50 مليوناً فأكثر (وكان آخر موعد لتعيينه مزوّد الخدمة 30 أكتوبر 2026)، وفي 1 يوليو 2027 لمن هم دون ذلك (ويعيّنون المزوّد حتى 31 مارس 2027)، وفي 1 أكتوبر 2027 للجهات الحكومية. ويشمل النظام عند الإلزام المعاملات بين الأعمال (B2B) ومع الجهات الحكومية (B2G) أياً كان وضع المشتري في ضريبة القيمة المضافة، باستثناءات محددة، فالبيع بالسيارة لبقالة أو مطعم يدخل النطاق متى بدأ إلزام المورّد. وتُصدر الفاتورة أو الإشعار الدائن الإلكتروني وتُرسل خلال 14 يوم عمل من تاريخ المعاملة (القرار الوزاري 197 لسنة 2026)، ولا تجوز الفاتورة الضريبية المبسطة لمن يصدر فاتورته إلكترونياً (المادة 59(16) من اللائحة التنفيذية). أما البيع للمستهلك الفرد (B2C) فخارج النظام حتى يصدر قرار وزاري يحدد موعده. وتنص وزارة المالية على أن ملفات PDF والصور والفواتير المرسلة بالبريد الإلكتروني ليست فواتير إلكترونية. وحدّد قرار مجلس الوزراء 173 لسنة 2026 المخالفات والغرامات، وهي لا تسري على التطبيق الطوعي، وتقول الإرشادات (الإصدار 2.0) إنها تُطبَّق من تاريخ إلزام المنشأة. واختيار مزوّد الخدمة قرار يتخذه الموزّع بنفسه.\n\nموقف FieldSales: لا يوجد اليوم أي ربط بين FieldSales ومنظومة الفوترة الإلكترونية الإماراتية. والربط الحكومي الحيّ للفوترة الإلكترونية في FieldSales هو اليوم في السعودية وحدها (منصة فاتورة لدى هيئة الزكاة والضريبة والجمارك). وبحث الربط في الإمارات متاح عند الطلب بعد دراسة متطلبات البلد، بلا وعد بموعد أو نطاق."
+        },
+        {
+          "id": "collections",
+          "title": "التحصيل: نقد وشيكات وتحويلات ومحافظ رقمية",
+          "body": "النقد وسيلة دفع شائعة، وكثير من المنشآت الصغيرة لا تقبل غيره. وفي المبالغ الكبيرة يظل الشيك أداة رئيسية، وتُقاص الشيكات رقمياً في اليوم نفسه، إلى جانب التحويل البنكي عبر نظام UAEFTS برقم IBAN، والدفع ببطاقات Visa وMastercard، والمحافظ الرقمية مثل Apple Pay وGoogle Pay وSamsung Pay. في FieldSales تعرّف شركتك طرق الدفع التي تقبلها من الإعدادات، ومنها طرق مخصّصة تسمّيها بنفسها مثل «شيك» أو «تحويل بنكي» أو «Apple Pay»، فيختار المندوب الطريقة حين يُصدر سند القبض من جواله. وتتحدّث مديونية كل عميل مع كل فاتورة آجلة وكل سند قبض، فترى الإدارة من لوحة الويب المستحق على كل عميل، وتطابق في تسوية نهاية اليوم عهدة السيارة مع ما سجّله المندوب."
+        },
+        {
+          "id": "how",
+          "title": "كيف يعمل FieldSales في الإمارات",
+          "body": "تبدأ بضبط الإعدادات مرة واحدة: العملة درهم إماراتي (AED)، واسم الضريبة «ضريبة القيمة المضافة» ونسبتها 5٪، وطرق الدفع التي تقبلها شركتك. بعدها يعمل المندوب من تطبيق أندرويد أو آيفون: يتبع خط سيره، ويسجّل الزيارة بالموقع والصور، ويُصدر الفاتورة في البيع بالسيارة أو يأخذ الطلبية في الطلب المسبق، ويطبع الفاتورة على طابعة حرارية محمولة. وإن انقطعت الشبكة في منطقة صناعية أو داخل مستودع يواصل تسجيل سندات القبض والزيارات دون اتصال، أما الفاتورة والمرتجع فيحتاجان اتصالاً لحظة الإصدار، ثم تُزامن البيانات حين يعود الاتصال. وتتابع الإدارة من لوحة الويب المبيعات والتحصيل وعهدة السيارة ومطابقتها. واجهة التطبيق متاحة بخمس لغات فقط: العربية والإنجليزية والفرنسية والتركية والصينية. وFieldSales منصة سحابية مقرها الرياض."
+        }
+      ],
+      "faq": [
+        {
+          "q": "هل يربط FieldSales فواتيري بنظام الفوترة الإلكترونية في الإمارات؟",
+          "a": "لا يوجد اليوم أي ربط بين FieldSales ومنظومة الفوترة الإلكترونية الإماراتية. والربط الحكومي الحيّ في FieldSales هو في السعودية وحدها مع منصة فاتورة. بحث الربط في الإمارات متاح عند الطلب بعد دراسة متطلبات البلد، بلا وعد بموعد. وفي النموذج الإماراتي يجري تبادل الفواتير الإلكترونية حصراً عبر مزوّد خدمة (ASP) تختاره منشأتك بنفسها."
+        },
+        {
+          "q": "هل الفوترة الإلكترونية إلزامية الآن في الإمارات؟",
+          "a": "ليست إلزامية بعد عند آخر تحقق لنا: يعمل برنامج تجريبي والتطبيق الاختياري متاح، والإلزام يبدأ على مراحل بحسب حجم إيرادات المنشأة وفق جدول وزارة المالية المبيّن في قسم الفوترة الإلكترونية أعلاه. والبيع للمستهلك الفرد مستثنى حتى قرار لاحق، أما بيعك للبقالات والمطاعم فمعاملات بين أعمال ستدخل النطاق متى بدأ إلزام منشأتك."
+        },
+        {
+          "q": "هل يعمل تطبيق المندوب دون إنترنت؟",
+          "a": "جزئياً: تحتاج الفاتورة والمرتجع اتصالاً لحظة الإصدار، بينما تبقى سندات القبض والزيارات متاحة بلا إنترنت، وتُزامن البيانات مع لوحة الويب حين يعود الاتصال."
+        },
+        {
+          "q": "كيف أسجّل تحصيلاً بشيك أو تحويل بنكي أو Apple Pay؟",
+          "a": "أضف طرق الدفع التي تقبلها شركتك في الإعدادات، ومنها طرق مخصّصة تسمّيها بنفسك مثل «شيك» أو «تحويل بنكي» أو «Apple Pay». يختار المندوب الطريقة في سند القبض، فتنخفض مديونية العميل ويظهر السند للإدارة في لوحة الويب."
+        },
+        {
+          "q": "هل أضبط ضريبة القيمة المضافة 5٪ والدرهم بنفسي؟",
+          "a": "نعم. العملة ونسبة الضريبة واسمها تُضبط من إعدادات شركتك، فتُحتسب الضريبة على فواتير المناديب وتظهر في الفاتورة المطبوعة. وتحقّق مع محاسبك من اكتمال حقول الفاتورة الضريبية التي تشترطها المادة 59 من اللائحة التنفيذية، ومنها عبارة «Tax Invoice» ورقم التسجيل الضريبي TRN."
+        },
+        {
+          "q": "بأي لغات تتوفر واجهة التطبيق؟",
+          "a": "بخمس لغات فقط: العربية والإنجليزية والفرنسية والتركية والصينية."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "بنية فاتورة ضريبية لمبيعات المندوب في الإمارات",
+        "note": "مثال بنية لا مبالغ: الحقول التي تشترطها المادة 59 من اللائحة التنفيذية لضريبة القيمة المضافة.",
+        "fields": [
+          {
+            "label": "عنوان المستند",
+            "example": "Tax Invoice / فاتورة ضريبية"
+          },
+          {
+            "label": "المورد",
+            "example": "اسم شركة التوزيع وعنوانها"
+          },
+          {
+            "label": "رقم التسجيل الضريبي للمورد (TRN)",
+            "example": "رقم من 15 خانة"
+          },
+          {
+            "label": "المستلم",
+            "example": "اسم البقالة وعنوانها، ورقمها الضريبي إن كانت مسجّلة"
+          },
+          {
+            "label": "رقم الفاتورة",
+            "example": "رقم تسلسلي فريد"
+          },
+          {
+            "label": "التواريخ",
+            "example": "تاريخ الإصدار، وتاريخ التوريد إن اختلف"
+          },
+          {
+            "label": "البنود",
+            "example": "الوصف، سعر الوحدة، الكمية، نسبة الضريبة 5٪، المبلغ المستحق بالدرهم"
+          },
+          {
+            "label": "الخصم",
+            "example": "قيمة أي خصم مقدَّم"
+          },
+          {
+            "label": "مبلغ الضريبة",
+            "example": "بالدرهم الإماراتي، مع سعر الصرف إن صدرت الفاتورة بعملة أخرى"
+          },
+          {
+            "label": "الإجمالي المستحق",
+            "example": "بالدرهم الإماراتي"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "اللائحة التنفيذية لضريبة القيمة المضافة وتعديلاتها – الهيئة الاتحادية للضرائب (المادة 59)",
+          "url": "https://tax.gov.ae/Datafolder/Files/Legislation/2026/Law-No-8-of-2017-and-its-amendments--09-2026.pdf"
+        },
+        {
+          "title": "التوضيح العام VATP006: الفواتير الضريبية – الهيئة الاتحادية للضرائب",
+          "url": "https://tax.gov.ae/DataFolder/Files/Pdf/06-Tax-Invoices.pdf"
+        },
+        {
+          "title": "التسجيل في ضريبة القيمة المضافة – الهيئة الاتحادية للضرائب",
+          "url": "https://tax.gov.ae/en/taxes/Vat/vat.topics/registration.for.vat.aspx"
+        },
+        {
+          "title": "ملخصات PwC الضريبية: الإمارات – الضرائب الأخرى",
+          "url": "https://taxsummaries.pwc.com/united-arab-emirates/corporate/other-taxes"
+        },
+        {
+          "title": "الفوترة الإلكترونية في الإمارات – وزارة المالية",
+          "url": "https://mof.gov.ae/en/about-us/initiatives/einvoicing/"
+        },
+        {
+          "title": "القرار الوزاري 244 لسنة 2025 بشأن تطبيق نظام الفوترة الإلكترونية",
+          "url": "https://mof.gov.ae/wp-content/uploads/2025/09/Ministerial-Decision-No.-244-of-2025-on-the-Implementation-of-the-Electronic-Invoicing-System.pdf"
+        },
+        {
+          "title": "القرار الوزاري 66 لسنة 2026 المعدِّل للقرار 244 لسنة 2025",
+          "url": "https://mof.gov.ae/wp-content/uploads/2026/05/Ministerial-Resolution-No.-66-of-2026-Amending-Certain-Provisions-of-Ministerial-Resolution-No.-244-of-2025-Regarding-the-Implementation-of-the-Electronic-Invoicing-System-En-20260514.pdf"
+        },
+        {
+          "title": "القرار الوزاري 197 لسنة 2026 المعدِّل للقرار 243 لسنة 2025",
+          "url": "https://mof.gov.ae/wp-content/uploads/2026/10/Ministerial-Decision-No.-197-of-2026-%E2%80%93-Amending-Certain-Provisions-of-Ministerial-Decision-No.-243-of-2025-on-the-Electronic-Invoicing-System_En.pdf"
+        },
+        {
+          "title": "إرشادات الفوترة الإلكترونية الإماراتية، الإصدار 2.0 – وزارة المالية",
+          "url": "https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoicing-Guidelines_En.pdf"
+        },
+        {
+          "title": "الحقول الإلزامية للفاتورة الإلكترونية، الإصدار 1.1 – وزارة المالية",
+          "url": "https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoice-Mandatory-Field-Requirements.pdf"
+        },
+        {
+          "title": "وزارة المالية تعلن الغرامات الإدارية المحدَّثة لنظام الفوترة الإلكترونية (قرار مجلس الوزراء 173 لسنة 2026)",
+          "url": "https://mof.gov.ae/en/news/mof-announces-updated-administrative-penalties-related-to-the-uae-einvoicing-system-to-enhance-clarity-and-support-business-compliance/"
+        },
+        {
+          "title": "الدليل التجاري القُطري للإمارات: التوزيع وقنوات البيع – trade.gov",
+          "url": "https://www.trade.gov/country-commercial-guides/united-arab-emirates-distribution-sales-channels"
+        },
+        {
+          "title": "الدليل التجاري القُطري للإمارات: تمويل التجارة وطرق الدفع – trade.gov",
+          "url": "https://www.trade.gov/country-commercial-guides/united-arab-emirates-trade-financing"
+        }
+      ],
+      "lastVerifiedLabel": "آخر تحقق: نوفمبر 2026"
+    },
+    "en": {
+      "slugHint": null,
+      "title": "Van Sales & Field Sales Software in the UAE | FieldSales",
+      "description": "FieldSales for UAE distributors: 5% VAT invoices from the salesman's phone, van sales and order booking, customer balances, offline receipts and visits.",
+      "h1": "FieldSales in the UAE: van sales, order booking and collections",
+      "intro": "FieldSales is a cloud platform for managing the sales reps of distribution and wholesale companies in the UAE. The salesman issues the invoice on his phone, prints it on a thermal printer at the baqala or cafeteria, and records cash, cheque or bank-transfer collections on a receipt. From the web dashboard, management tracks customer balances, van stock, routes and geotagged visits with photos. You set AED as the currency and VAT at 5% yourself in settings, and on the Android and iPhone apps, invoices and returns need a connection at the moment of issue, while receipts and visits keep working offline and sync later.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "Distribution in the UAE: channels and trade terms",
+          "body": "Goods typically reach the UAE market through a local distributor or commercial agent covering the whole country or specific emirates under the commercial agencies law, according to the U.S. International Trade Administration's country commercial guide (trade.gov). Supermarket and hypermarket chains hold the largest share of retail sales, followed by wholesale, mall stores, then C-class supermarkets and baqalas, alongside the cooperatives. Key distribution hubs include Jebel Ali Port and JAFZA in Dubai, Khalifa Port and KIZAD in Abu Dhabi, and Hamriyah in Sharjah, with distribution networks reaching into the northern emirates. In the trade's own words, van sales means the salesman carries the stock, invoices and delivers on the same visit; pre-sales or order booking means he books the order for later delivery; and route settlement is the salesman's end-of-day reconciliation. FieldSales runs both models in the same app, so van salesmen and order bookers are managed from one dashboard."
+        },
+        {
+          "id": "tax",
+          "title": "5% VAT and tax invoice fields",
+          "body": "The UAE levies Value Added Tax (VAT), administered by the Federal Tax Authority (FTA), at a standard rate of 5%. A zero rate applies to categories such as exports outside the GCC states implementing VAT and international transport, while others are exempt, including certain financial services and subsequent supplies of residential property; the details are in Articles 30 to 45 of the Executive Regulation. Registered businesses hold a 15-digit Tax Registration Number (TRN) issued by the FTA. Article 59 of the Executive Regulation requires a tax invoice to show the words “Tax Invoice”; the supplier's name, address and TRN; the recipient's name, address and TRN if registered; a sequential number; the date of issue and the date of supply if different; and, for each line, the description, unit price, quantity, tax rate and amount payable in AED, followed by any discount, the total, and the VAT amount in AED with the exchange rate if the invoice is issued in another currency. Tax is rounded at line level to the nearest fils. A full tax invoice is due within 14 days of supply, and a simplified tax invoice is allowed when the recipient is not registered. In FieldSales you set the currency (AED), the tax name “VAT” and the 5% rate in settings, so tax is calculated on every invoice your salesmen issue and shown on the printout; checking that your invoice template carries every mandatory field stays with your accountant."
+        },
+        {
+          "id": "einvoicing",
+          "title": "UAE e-invoicing: where it stands today",
+          "body": "The Ministry of Finance has built the UAE Electronic Invoicing System on a decentralized five-corner model (DCTCE) over the Peppol network, using the PINT-AE specification: invoices are issued as XML, then exchanged and reported exclusively through service providers (ASPs) on the Ministry's published list, chosen via the EmaraTax platform, with the FTA acting as the “fifth corner” that receives tax data. As announced by the Ministry up to 11 November 2026, no mandate is in force yet: a pilot programme has run by Ministry invitation since 1 July 2026, and voluntary adoption is open to any business. Under Ministerial Decision 244 of 2025, as amended by Ministerial Decision 66 of 2026, the mandate starts on 1 January 2027 for businesses with revenue of 50 million or more (whose deadline to appoint an ASP was 30 October 2026), on 1 July 2027 for all other businesses (ASP appointment by 31 March 2027), and on 1 October 2027 for government entities. Once the mandate applies, the system covers B2B and B2G transactions regardless of the buyer's VAT status, subject to specific exclusions, so a van sale to a baqala or restaurant falls in scope as soon as the supplier's mandate starts. The e-invoice or e-credit note must be issued and transmitted within 14 business days of the transaction (Ministerial Decision 197 of 2026), and a business that issues its tax invoices electronically can no longer use simplified tax invoices (Article 59(16) of the Executive Regulation). Sales to individual consumers (B2C) stay outside the system until a later ministerial decision sets a date. The Ministry states that PDFs, images and invoices sent by email are not e-invoices. Cabinet Decision 173 of 2026 sets the violations and penalties; they do not apply to voluntary adopters, and the Guidelines (version 2.0) say they apply from the date a business falls under the mandate. Choosing an ASP is the distributor's own decision.\n\nWhere FieldSales stands: there is no connection today between FieldSales and the UAE e-invoicing system. FieldSales' only live government e-invoicing link today is in Saudi Arabia (ZATCA’s Fatoora platform). A connection in the UAE is available on request after studying the country's requirements, with no promise of timing or scope."
+        },
+        {
+          "id": "collections",
+          "title": "Collections: cash, cheques, transfers and wallets",
+          "body": "Cash is a common payment method, and many small outlets accept nothing else. For larger amounts the cheque is still a key instrument, and cheques are cleared digitally on the same day, alongside bank transfers through UAEFTS using an IBAN, Visa and Mastercard cards, and digital wallets such as Apple Pay, Google Pay and Samsung Pay. In FieldSales your company defines the payment methods it accepts in settings, including custom ones you name yourself, such as “Cheque”, “Bank transfer” or “Apple Pay”, and the salesman picks the method when he issues a receipt from his phone. Each customer's balance updates with every credit sale and every receipt, so management sees what each customer owes from the web dashboard and, at route settlement, reconciles the stock held on the van with what the salesman recorded."
+        },
+        {
+          "id": "how",
+          "title": "How FieldSales works in the UAE",
+          "body": "You configure it once: currency AED, tax name “VAT” at 5%, and the payment methods your company accepts. From then on the salesman works from the Android or iPhone app: he follows his route, logs each visit with location and photos, issues the invoice on a van sale or books the order on a pre-sale, and prints the invoice on a portable thermal printer. If the signal drops in an industrial area or inside a warehouse, he keeps recording receipts and visits offline, but invoices and returns need a connection at the moment of issue; the data syncs once he is back online. Management follows sales, collections, van stock custody and its reconciliation from the web dashboard. The app interface is available in five languages only: Arabic, English, French, Turkish and Chinese. FieldSales is a cloud platform headquartered in Riyadh."
+        }
+      ],
+      "faq": [
+        {
+          "q": "Does FieldSales connect my invoices to the UAE e-invoicing system?",
+          "a": "There is no connection today between FieldSales and the UAE e-invoicing system. FieldSales' only live government link is in Saudi Arabia, with ZATCA’s Fatoora platform. A UAE connection is available on request after studying the country's requirements, with no promise of timing. Under the UAE model, e-invoices are exchanged exclusively through a service provider (ASP) that your business chooses itself."
+        },
+        {
+          "q": "Is e-invoicing mandatory in the UAE right now?",
+          "a": "Not yet, as of our last check: a pilot is running and voluntary adoption is open, and the mandate starts in phases by business revenue, following the Ministry of Finance timetable set out in the e-invoicing section above. Sales to individual consumers are excluded until a later decision, but your sales to baqalas and restaurants are business-to-business transactions and will fall within scope once your mandate starts."
+        },
+        {
+          "q": "Does the salesman app work without internet?",
+          "a": "Partly: invoices and returns need a connection at the moment of issue, while receipts and visits keep working offline, and the data syncs with the web dashboard once the connection is back."
+        },
+        {
+          "q": "How do I record a collection by cheque, bank transfer or Apple Pay?",
+          "a": "Add the payment methods your company accepts in settings, including custom ones you name yourself, such as “Cheque”, “Bank transfer” or “Apple Pay”. The salesman picks the method on the receipt, the customer's balance goes down, and management sees the receipt on the web dashboard."
+        },
+        {
+          "q": "Can I set 5% VAT and the dirham myself?",
+          "a": "Yes. The currency, tax rate and tax name are set in your company settings, so VAT is calculated on your salesmen's invoices and shown on the printout. Check with your accountant that your invoice carries all the tax invoice fields required by Article 59 of the Executive Regulation, including the words “Tax Invoice” and your TRN."
+        },
+        {
+          "q": "Which languages is the app interface available in?",
+          "a": "Five languages only: Arabic, English, French, Turkish and Chinese."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Tax invoice structure for a salesman's sale in the UAE",
+        "note": "A structure example with no amounts: the fields required by Article 59 of the VAT Executive Regulation.",
+        "fields": [
+          {
+            "label": "Document heading",
+            "example": "Tax Invoice / فاتورة ضريبية"
+          },
+          {
+            "label": "Supplier",
+            "example": "Distribution company name and address"
+          },
+          {
+            "label": "Supplier TRN",
+            "example": "15-digit Tax Registration Number"
+          },
+          {
+            "label": "Recipient",
+            "example": "Baqala name and address, plus its TRN if registered"
+          },
+          {
+            "label": "Invoice number",
+            "example": "Unique sequential number"
+          },
+          {
+            "label": "Dates",
+            "example": "Date of issue, and date of supply if different"
+          },
+          {
+            "label": "Lines",
+            "example": "Description, unit price, quantity, tax rate (5%), amount payable in AED"
+          },
+          {
+            "label": "Discount",
+            "example": "Any discount granted"
+          },
+          {
+            "label": "VAT amount",
+            "example": "In AED, with the exchange rate if issued in another currency"
+          },
+          {
+            "label": "Total payable",
+            "example": "In AED"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "Executive Regulation of the VAT Decree-Law and its amendments – FTA (Article 59)",
+          "url": "https://tax.gov.ae/Datafolder/Files/Legislation/2026/Law-No-8-of-2017-and-its-amendments--09-2026.pdf"
+        },
+        {
+          "title": "VAT Public Clarification VATP006: Tax Invoices – FTA",
+          "url": "https://tax.gov.ae/DataFolder/Files/Pdf/06-Tax-Invoices.pdf"
+        },
+        {
+          "title": "Registration for VAT – Federal Tax Authority",
+          "url": "https://tax.gov.ae/en/taxes/Vat/vat.topics/registration.for.vat.aspx"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries – UAE, Corporate, Other taxes",
+          "url": "https://taxsummaries.pwc.com/united-arab-emirates/corporate/other-taxes"
+        },
+        {
+          "title": "UAE Electronic Invoicing – Ministry of Finance",
+          "url": "https://mof.gov.ae/en/about-us/initiatives/einvoicing/"
+        },
+        {
+          "title": "Ministerial Decision No. 244 of 2025 on the Implementation of the Electronic Invoicing System",
+          "url": "https://mof.gov.ae/wp-content/uploads/2025/09/Ministerial-Decision-No.-244-of-2025-on-the-Implementation-of-the-Electronic-Invoicing-System.pdf"
+        },
+        {
+          "title": "Ministerial Decision No. 66 of 2026 amending Ministerial Decision No. 244 of 2025",
+          "url": "https://mof.gov.ae/wp-content/uploads/2026/05/Ministerial-Resolution-No.-66-of-2026-Amending-Certain-Provisions-of-Ministerial-Resolution-No.-244-of-2025-Regarding-the-Implementation-of-the-Electronic-Invoicing-System-En-20260514.pdf"
+        },
+        {
+          "title": "Ministerial Decision No. 197 of 2026 amending Ministerial Decision No. 243 of 2025",
+          "url": "https://mof.gov.ae/wp-content/uploads/2026/10/Ministerial-Decision-No.-197-of-2026-%E2%80%93-Amending-Certain-Provisions-of-Ministerial-Decision-No.-243-of-2025-on-the-Electronic-Invoicing-System_En.pdf"
+        },
+        {
+          "title": "UAE Electronic Invoicing Guidelines, Version 2.0 – Ministry of Finance",
+          "url": "https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoicing-Guidelines_En.pdf"
+        },
+        {
+          "title": "UAE Electronic Invoice Mandatory Fields, Version 1.1 – Ministry of Finance",
+          "url": "https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoice-Mandatory-Field-Requirements.pdf"
+        },
+        {
+          "title": "MoF announces updated administrative penalties for the UAE eInvoicing System (Cabinet Decision No. 173 of 2026)",
+          "url": "https://mof.gov.ae/en/news/mof-announces-updated-administrative-penalties-related-to-the-uae-einvoicing-system-to-enhance-clarity-and-support-business-compliance/"
+        },
+        {
+          "title": "UAE Country Commercial Guide: Distribution and Sales Channels – trade.gov",
+          "url": "https://www.trade.gov/country-commercial-guides/united-arab-emirates-distribution-sales-channels"
+        },
+        {
+          "title": "UAE Country Commercial Guide: Trade Financing – trade.gov",
+          "url": "https://www.trade.gov/country-commercial-guides/united-arab-emirates-trade-financing"
+        }
+      ],
+      "lastVerifiedLabel": "Last verified: November 2026"
+    },
+    "fr": {
+      "slugHint": null,
+      "title": "Logiciel de vente en tournée aux Émirats | FieldSales",
+      "description": "FieldSales pour distributeurs aux EAU : factures avec TVA à 5 %, vente en tournée, prise de commandes, soldes clients, reçus et visites même hors ligne.",
+      "h1": "FieldSales aux Émirats arabes unis : vente en tournée, prise de commandes et encaissements",
+      "intro": "FieldSales est une plateforme cloud de gestion des vendeurs terrain pour les distributeurs et grossistes des Émirats. Le vendeur établit la facture sur son téléphone, l'imprime sur une imprimante thermique chez le client (baqala, cafétéria), puis enregistre l'encaissement en espèces, par chèque ou par virement sur un reçu. Depuis le tableau de bord web, la direction suit les soldes clients, le stock du véhicule, les tournées et les visites géolocalisées avec photos. Vous réglez vous-même la devise (AED) et la TVA à 5 % ; dans l'application Android et iPhone, les factures et les avoirs exigent une connexion au moment de l’émission, tandis que les reçus et les visites restent disponibles hors ligne.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "La distribution aux Émirats : circuits et vocabulaire du métier",
+          "body": "Les marchandises arrivent en général sur le marché émirien par un distributeur ou un agent commercial local qui couvre tout le pays ou certains émirats en vertu de la loi sur les agences commerciales, selon le guide commercial pays de l'International Trade Administration américaine (trade.gov). Les chaînes de supermarchés et d'hypermarchés réalisent la plus grande part des ventes au détail, suivies du commerce de gros, des magasins de centres commerciaux, puis des supermarchés de catégorie C et des baqalas (épiceries de quartier), sans oublier les coopératives. Parmi les principaux pôles de distribution figurent le port de Jebel Ali et la JAFZA à Dubaï, le port Khalifa et KIZAD à Abou Dhabi, et Hamriyah à Charjah ; les réseaux de distribution s'étendent aussi aux émirats du Nord. Dans le jargon local, on parle de « van sales » pour la vente en tournée, où le vendeur transporte la marchandise, facture et livre lors de la même visite ; de « pre-sales » ou « order booking » pour la prise de commandes livrées ensuite ; et de « route settlement » pour le règlement de tournée en fin de journée. FieldSales réunit les deux modes dans la même application, et vous pilotez vendeurs en tournée et preneurs de commandes depuis un seul tableau de bord."
+        },
+        {
+          "id": "tax",
+          "title": "TVA à 5 % et mentions de la facture fiscale",
+          "body": "Aux Émirats, la taxe sur la valeur ajoutée (TVA, VAT en anglais) est gérée par l'Autorité fédérale des impôts (FTA) et son taux normal est de 5 %. Un taux zéro s'applique à certaines catégories, dont les exportations hors des États du Golfe appliquant la TVA et le transport international, tandis que d'autres sont exonérées, dont certains services financiers et les livraisons ultérieures de logements ; le détail figure aux articles 30 à 45 du règlement d'exécution. Les entreprises enregistrées disposent d'un numéro d'enregistrement fiscal (TRN) à 15 chiffres délivré par la FTA. L'article 59 du règlement d'exécution impose que la facture fiscale porte la mention « Tax Invoice », le nom, l'adresse et le TRN du fournisseur, le nom, l'adresse et le TRN du client s'il est enregistré, un numéro séquentiel, la date d'émission et la date de livraison si elle diffère, et pour chaque ligne la désignation, le prix unitaire, la quantité, le taux de TVA et le montant dû en dirhams, puis toute remise, le total et le montant de TVA en dirhams, avec le taux de change si la facture est émise dans une autre devise. La TVA est arrondie ligne par ligne au fils le plus proche. La facture fiscale complète doit être émise dans les 14 jours suivant la livraison, et une facture fiscale simplifiée est admise lorsque le client n'est pas enregistré. Dans FieldSales, vous définissez dans les paramètres la devise (AED), le nom de la taxe « TVA » et le taux de 5 % : la taxe est calculée sur chaque facture émise par vos vendeurs et figure sur l'impression. Vérifier que votre modèle de facture contient toutes les mentions obligatoires reste du ressort de votre comptable."
+        },
+        {
+          "id": "einvoicing",
+          "title": "Facturation électronique aux Émirats : où en est-on ?",
+          "body": "Le ministère des Finances a bâti le système émirien de facturation électronique sur un modèle décentralisé à cinq coins (DCTCE), adossé au réseau Peppol et à la spécification PINT-AE : la facture est émise au format XML, puis échangée et déclarée exclusivement par des prestataires de services (ASP) figurant sur la liste publiée par le ministère et choisis via la plateforme EmaraTax ; la FTA constitue le « cinquième coin » qui reçoit les données fiscales. Selon les annonces du ministère jusqu'au 11 novembre 2026, aucune obligation n'est encore en vigueur : un programme pilote fonctionne sur invitation du ministère depuis le 1er juillet 2026, et l'adoption volontaire est ouverte à toute entreprise. En vertu de la décision ministérielle 244 de 2025, modifiée par la décision ministérielle 66 de 2026, l'obligation s'applique le 1er janvier 2027 aux entreprises dont le chiffre d'affaires atteint 50 millions ou plus (elles devaient désigner leur ASP au plus tard le 30 octobre 2026), le 1er juillet 2027 aux autres entreprises (désignation de l'ASP avant le 31 mars 2027) et le 1er octobre 2027 aux entités publiques. Une fois l'obligation applicable, le système couvre les transactions B2B et B2G, quel que soit le statut TVA de l'acheteur et sous réserve d'exclusions précises : une vente en tournée à une baqala ou à un restaurant y entre donc dès que l'obligation du fournisseur prend effet. La facture ou l'avoir électronique doit être émis et transmis dans les 14 jours ouvrables suivant la transaction (décision ministérielle 197 de 2026), et une entreprise qui émet ses factures par voie électronique ne peut plus recourir à la facture fiscale simplifiée (article 59(16) du règlement d'exécution). Les ventes aux particuliers (B2C) restent hors du système jusqu'à une décision ministérielle ultérieure qui en fixera la date. Le ministère précise que les PDF, les images et les factures envoyées par courriel ne sont pas des factures électroniques. La décision du Conseil des ministres 173 de 2026 fixe les infractions et les sanctions ; elles ne s'appliquent pas à l'adoption volontaire et, selon les lignes directrices (version 2.0), elles ne s'appliquent qu'à partir de la date d'obligation de l'entreprise. Le choix de l'ASP appartient au distributeur lui-même.\n\nLa position de FieldSales : il n'existe aujourd'hui aucune connexion entre FieldSales et le système émirien de facturation électronique. La seule liaison active de FieldSales avec une plateforme publique de facturation électronique est aujourd'hui en Arabie saoudite (plateforme Fatoora de la ZATCA). Une connexion aux Émirats est disponible sur demande, après étude des exigences du pays, sans promesse de délai ni de périmètre."
+        },
+        {
+          "id": "collections",
+          "title": "Encaissements : espèces, chèques, virements et portefeuilles",
+          "body": "Les espèces sont un moyen de paiement courant, et beaucoup de petits commerces n'acceptent rien d'autre. Pour les montants importants, le chèque demeure un instrument majeur, avec une compensation numérique le jour même, aux côtés du virement bancaire via UAEFTS avec un IBAN, des cartes Visa et Mastercard et des portefeuilles numériques comme Apple Pay, Google Pay et Samsung Pay. Dans FieldSales, votre entreprise définit dans les paramètres les moyens de paiement qu'elle accepte, y compris des moyens personnalisés que vous nommez vous-même, comme « Chèque », « Virement bancaire » ou « Apple Pay », et le vendeur choisit le moyen utilisé en émettant le reçu depuis son téléphone. Le solde de chaque client se met à jour à chaque vente à crédit et à chaque reçu : la direction voit ce que doit chaque client depuis le tableau de bord web et, au règlement de tournée, rapproche le stock confié au véhicule de ce que le vendeur a enregistré."
+        },
+        {
+          "id": "how",
+          "title": "Comment FieldSales fonctionne aux Émirats",
+          "body": "Le paramétrage se fait une seule fois : devise AED, taxe « TVA » à 5 % et moyens de paiement acceptés par votre entreprise. Ensuite, le vendeur travaille depuis l'application Android ou iPhone : il suit sa tournée, enregistre chaque visite avec la position et des photos, émet la facture en vente en tournée ou saisit la commande en prise de commandes, et imprime la facture sur une imprimante thermique portable. Si le réseau coupe dans une zone industrielle ou au fond d'un entrepôt, il continue d'enregistrer reçus et visites hors ligne, mais les factures et les avoirs exigent une connexion au moment de l'émission ; les données se synchronisent dès le retour de la connexion. La direction suit les ventes, les encaissements, le stock du véhicule et son rapprochement depuis le tableau de bord web. L'interface de l'application existe en cinq langues seulement : arabe, anglais, français, turc et chinois. FieldSales est une plateforme cloud dont le siège est à Riyad."
+        }
+      ],
+      "faq": [
+        {
+          "q": "FieldSales relie-t-il mes factures au système émirien de facturation électronique ?",
+          "a": "Il n'existe aujourd'hui aucune connexion entre FieldSales et le système émirien de facturation électronique. La seule liaison gouvernementale active de FieldSales se trouve en Arabie saoudite, avec la plateforme Fatoora de la ZATCA. Une connexion aux Émirats est disponible sur demande après étude des exigences du pays, sans promesse de délai. Dans le modèle émirien, les factures électroniques s'échangent exclusivement par un prestataire de services (ASP) que votre entreprise choisit elle-même."
+        },
+        {
+          "q": "La facturation électronique est-elle déjà obligatoire aux Émirats ?",
+          "a": "Pas encore, à notre dernière vérification : un programme pilote est en cours et l'adoption volontaire est ouverte, et l'obligation entre en vigueur par étapes selon le chiffre d'affaires, d'après le calendrier du ministère des Finances présenté dans la section sur la facturation électronique ci-dessus. Les ventes aux particuliers sont exclues jusqu'à une décision ultérieure, mais vos ventes aux baqalas et aux restaurants sont des transactions entre entreprises et y entreront dès que votre obligation prendra effet."
+        },
+        {
+          "q": "L'application du vendeur fonctionne-t-elle sans Internet ?",
+          "a": "En partie : les factures et les avoirs exigent une connexion au moment de l’émission, tandis que les reçus et les visites restent disponibles hors ligne, et les données se synchronisent avec le tableau de bord web dès le retour de la connexion."
+        },
+        {
+          "q": "Comment enregistrer un encaissement par chèque, virement ou Apple Pay ?",
+          "a": "Ajoutez dans les paramètres les moyens de paiement acceptés par votre entreprise, y compris des moyens personnalisés que vous nommez vous-même, comme « Chèque », « Virement bancaire » ou « Apple Pay ». Le vendeur choisit le moyen sur le reçu, le solde du client diminue et la direction voit le reçu dans le tableau de bord web."
+        },
+        {
+          "q": "Puis-je régler moi-même la TVA à 5 % et le dirham ?",
+          "a": "Oui. La devise, le taux et le nom de la taxe se règlent dans les paramètres de votre entreprise : la TVA est calculée sur les factures de vos vendeurs et figure sur l'impression. Vérifiez avec votre comptable que votre facture comporte toutes les mentions exigées par l'article 59 du règlement d'exécution, dont « Tax Invoice » et votre TRN."
+        },
+        {
+          "q": "Dans quelles langues l'interface de l'application est-elle disponible ?",
+          "a": "En cinq langues seulement : arabe, anglais, français, turc et chinois."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Structure d'une facture fiscale de vente en tournée aux Émirats",
+        "note": "Exemple de structure sans montants : les mentions exigées par l'article 59 du règlement d'exécution de la TVA.",
+        "fields": [
+          {
+            "label": "Intitulé du document",
+            "example": "Tax Invoice / فاتورة ضريبية"
+          },
+          {
+            "label": "Fournisseur",
+            "example": "Nom et adresse de la société de distribution"
+          },
+          {
+            "label": "TRN du fournisseur",
+            "example": "Numéro d'enregistrement fiscal à 15 chiffres"
+          },
+          {
+            "label": "Client",
+            "example": "Nom et adresse de la baqala, et son TRN si elle est enregistrée"
+          },
+          {
+            "label": "Numéro de facture",
+            "example": "Numéro séquentiel unique"
+          },
+          {
+            "label": "Dates",
+            "example": "Date d'émission, et date de livraison si elle diffère"
+          },
+          {
+            "label": "Lignes",
+            "example": "Désignation, prix unitaire, quantité, taux de TVA (5 %), montant dû en dirhams"
+          },
+          {
+            "label": "Remise",
+            "example": "Toute remise accordée"
+          },
+          {
+            "label": "Montant de TVA",
+            "example": "En dirhams, avec le taux de change si la facture est émise dans une autre devise"
+          },
+          {
+            "label": "Total à payer",
+            "example": "En dirhams"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "Règlement d'exécution du décret-loi sur la TVA et ses modifications – FTA (article 59)",
+          "url": "https://tax.gov.ae/Datafolder/Files/Legislation/2026/Law-No-8-of-2017-and-its-amendments--09-2026.pdf"
+        },
+        {
+          "title": "Clarification publique VATP006 : factures fiscales – FTA",
+          "url": "https://tax.gov.ae/DataFolder/Files/Pdf/06-Tax-Invoices.pdf"
+        },
+        {
+          "title": "Enregistrement à la TVA – Autorité fédérale des impôts (FTA)",
+          "url": "https://tax.gov.ae/en/taxes/Vat/vat.topics/registration.for.vat.aspx"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries – Émirats arabes unis, autres taxes",
+          "url": "https://taxsummaries.pwc.com/united-arab-emirates/corporate/other-taxes"
+        },
+        {
+          "title": "Facturation électronique aux Émirats – ministère des Finances",
+          "url": "https://mof.gov.ae/en/about-us/initiatives/einvoicing/"
+        },
+        {
+          "title": "Décision ministérielle n° 244 de 2025 sur la mise en œuvre du système de facturation électronique",
+          "url": "https://mof.gov.ae/wp-content/uploads/2025/09/Ministerial-Decision-No.-244-of-2025-on-the-Implementation-of-the-Electronic-Invoicing-System.pdf"
+        },
+        {
+          "title": "Décision ministérielle n° 66 de 2026 modifiant la décision n° 244 de 2025",
+          "url": "https://mof.gov.ae/wp-content/uploads/2026/05/Ministerial-Resolution-No.-66-of-2026-Amending-Certain-Provisions-of-Ministerial-Resolution-No.-244-of-2025-Regarding-the-Implementation-of-the-Electronic-Invoicing-System-En-20260514.pdf"
+        },
+        {
+          "title": "Décision ministérielle n° 197 de 2026 modifiant la décision n° 243 de 2025",
+          "url": "https://mof.gov.ae/wp-content/uploads/2026/10/Ministerial-Decision-No.-197-of-2026-%E2%80%93-Amending-Certain-Provisions-of-Ministerial-Decision-No.-243-of-2025-on-the-Electronic-Invoicing-System_En.pdf"
+        },
+        {
+          "title": "Lignes directrices de la facturation électronique, version 2.0 – ministère des Finances",
+          "url": "https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoicing-Guidelines_En.pdf"
+        },
+        {
+          "title": "Champs obligatoires de la facture électronique, version 1.1 – ministère des Finances",
+          "url": "https://mof.gov.ae/wp-content/uploads/2026/10/UAE-Electronic-Invoice-Mandatory-Field-Requirements.pdf"
+        },
+        {
+          "title": "Le ministère des Finances annonce les sanctions administratives mises à jour (décision du Conseil des ministres n° 173 de 2026)",
+          "url": "https://mof.gov.ae/en/news/mof-announces-updated-administrative-penalties-related-to-the-uae-einvoicing-system-to-enhance-clarity-and-support-business-compliance/"
+        },
+        {
+          "title": "Guide commercial pays – Émirats : distribution et canaux de vente (trade.gov)",
+          "url": "https://www.trade.gov/country-commercial-guides/united-arab-emirates-distribution-sales-channels"
+        },
+        {
+          "title": "Guide commercial pays – Émirats : financement du commerce et moyens de paiement (trade.gov)",
+          "url": "https://www.trade.gov/country-commercial-guides/united-arab-emirates-trade-financing"
+        }
+      ],
+      "lastVerifiedLabel": "Dernière vérification : novembre 2026"
+    }
+  },
+  "notes": "صفحة قائمة (/blog/field-sales-software-ae/) فـslugHint=null في اللغات الثلاث، والمحتوى كامل ليأخذ الدامج منه قسم «حقائق محلية». بُني على حقائق AE المدقَّقة (audit بتاريخ 2026-11-11، ثقة high). حُذفت عمداً كل المبالغ الملاصقة للدرهم (حدّا التسجيل 375,000/187,500، وحدّ الفاتورة المبسطة، ومبالغ غرامات القرار 173) تجنباً لقاعدة «لا رقم ملاصق لعملة»، وحدّ الفئة الأولى ورد «50 مليوناً» بلا اسم العملة بعد المراجعة (قاعدة لا مبلغ ملاصق لعملة). سُمّي ASP «مزوّد خدمة من القائمة التي تنشرها وزارة المالية» بدل «معتمد/Accredited» تفادياً لمفردات الاعتماد، وتُرك «free zone» بالإنجليزية واكتُفي بأسماء المناطق (JAFZA، KIZAD، Hamriyah). مواعيد الإلزام وردت في قسم einvoicing وحده، وجملة موقف FieldSales منفصلة في فقرة بلا سنة ولا تاريخ؛ أسئلة FAQ تحيل إلى القسم دون تواريخ. لم يُذكر: عدد مزوّدي الخدمة، والشيكات المؤجلة، وفرض غرامة قبل الإلزام، ورمز الدرهم الجديد، وأسماء السلاسل التجارية (تجنباً لأي لبس). المصطلحات المحلية (Van sales/Pre-sales/Salesman/Route settlement/بقالة) استُعملت مفرداتٍ لا حقائق لأنها في uncertain بلا مصدر رسمي، والإمارات الشمالية ذُكرت بلا جزم بمصدر. تنبيه قبل النشر: الحقائق تطلب إعادة التحقق من عدم وجود تمديد جديد لمواعيد الفوترة الإلكترونية بعد 30 أكتوبر 2026، ومن تاريخ نشر القرار 173 في الجريدة الرسمية.",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish-with-notes",
+    "fixes": 28,
+    "issues": [
+      "مبلغ ملاصق لعملة: «50 مليون درهم / 50 million dirhams / 50 millions de dirhams» في جدول الإلزام خالف قاعدة «لا مبلغ ملاصق لعملة»؛ صار «50 مليوناً / 50 million / 50 millions» بلا اسم العملة (ar/en/fr).",
+      "مبالغة في النطاق: «يشمل النظام كل معاملة B2B وB2G» مع أن ملف الحقائق يذكر استثناءات (الجهات السيادية، تذاكر الطيران الدولية، الخدمات المالية المعفاة/الصفرية، الشحن الجوي الدولي، المجموعة الضريبية)؛ أُضيف «عند الإلزام… باستثناءات محددة» (ar/en/fr).",
+      "زمن ينقلب معناه: «البيع بالسيارة لبقالة داخل النطاق» و«تدخل النطاق» بصيغة الحاضر قد تُفهم إلزاماً نافذاً الآن (يخالف mustNotSay)؛ صارت «يدخل النطاق متى بدأ إلزام المورّد» وفي FAQ «ستدخل النطاق متى بدأ إلزام منشأتك» (ar/en/fr).",
+      "حقيقة مضافة: «تنطلق خطوط السير من ميناء جبل علي…» ليست في الحقائق (هي مراكز توزيع لا منطلق خطوط المناديب)؛ صارت «من أبرز مراكز التوزيع…» (ar/en/fr).",
+      "تشديد غير مسنود: «يصل معظم البضائع» مقابل «غالباً» في الحقائق؛ صارت «في الغالب / typically / en général» (ar/en/fr).",
+      "حقيقة مضافة: «النقد حاضر بقوة في خطوط البقالات / Cash remains central on baqala routes» استنتاج غير وارد؛ صارت «النقد وسيلة دفع شائعة» مع إبقاء «كثير من المنشآت الصغيرة لا تقبل غيره» من الحقائق (ar/en/fr).",
+      "نسبة خاطئة: تقريب الضريبة لأقرب فلس عُطف على ما «تشترطه المادة 59» وهو من التوضيح العام VATP006؛ فُصل في جملة مستقلة (ar/en/fr).",
+      "لغة: «حين يسجّل الـSalesman الطلبية ويُسلَّم لاحقاً» (فاعل مبهم) صارت «حين يسجّل المندوب (Salesman) الطلبية وتُسلَّم البضاعة لاحقاً» (ar).",
+      "كلمة تنقلب نيتها: «credit invoice» قد تُفهم إشعاراً دائناً؛ صارت «credit sale»، و«facture à crédit» صارت «vente à crédit» (en/fr).",
+      "لغة: «van stock custody» ركيكة؛ صارت «the stock held on the van» (en).",
+      "مصطلح: «note de crédit» استعمال بلجيكي/كندي؛ صار «avoir» المعتمد في الفرنسية التجارية، مع تصحيح التطابق «émis et transmis» (fr).",
+      "وضوح: «chez la baqala» في المقدمة قبل شرح الكلمة صارت «chez le client (baqala, cafétéria)»، و«Depuis le web» صارت «Depuis le tableau de bord web» (fr).",
+      "فُحص ولا مشكلة: لا ادعاء ربط/اعتماد/امتثال خارج السعودية؛ جملة موقف FieldSales في فقرة مستقلة بلا سنة ولا تاريخ؛ عبارة السعودية مطابقة للصيغة المقرّرة؛ «متاح عند الطلب بعد دراسة متطلبات البلد بلا وعد بموعد أو نطاق»؛ لغات الواجهة الخمس صادقة؛ لا سعر ولا «مجاني» ولا منافسين ولا أرقام عملاء؛ النسب (5٪، المواد 30–45، 59، 59(16)، 14 يوماً، 14 يوم عمل، TRN 15 رقماً) والجهات والقرارات (244/66/197/173) والمواعيد مطابقة لملف الحقائق ومحصورة في قسم الفوترة الإلكترونية.",
+      "ملاحظة قبل النشر (من uncertain في الحقائق): يُعاد التحقق من عدم صدور تمديد لمواعيد الفوترة الإلكترونية بعد 30 أكتوبر 2026؛ وتاريخ نشر القرار 173 في الجريدة الرسمية غير متحقق ولم يُذكر في الصفحة."
+    ],
+    "fix2": {
+      "at": "2026-11-11",
+      "changes": [
+        "ar.sections.2.body: حارس (أ): حُذفت الصيغة السعودية للربط واستُبدلت بها الصيغة البديلة «الربط الحكومي الحيّ للفوترة الإلكترونية ... في السعودية وحدها (منصة فاتورة لدى هيئة الزكاة والضريبة والجمارك)»",
+        "en.sections.2.body: guard (a): Saudi integration wording replaced with \"only live government e-invoicing link today is in Saudi Arabia (ZATCA’s Fatoora platform)\"",
+        "fr.sections.2.body: garde (a) : formulation saoudienne remplacée par « la seule liaison active de FieldSales avec une plateforme publique de facturation électronique est aujourd'hui en Arabie saoudite (plateforme Fatoora de la ZATCA) »",
+        "ar.description: حارس (ج): الوصف لم يعد يربط العمل دون اتصال بالفواتير؛ صار لسندات القبض والزيارات",
+        "en.description: guard (c): description no longer ties offline to invoices; offline now applies to receipts and visits",
+        "fr.description: garde (c) : la description ne lie plus le hors-ligne aux factures ; il porte sur les reçus et les visites",
+        "ar.intro: حارس (ج): أُضيفت صيغة القيد الحرفية «تحتاج الفاتورة والمرتجع اتصالاً لحظة الإصدار، بينما تبقى سندات القبض والزيارات متاحة بلا إنترنت»",
+        "en.intro: guard (c): exact restriction wording added (\"invoices and returns need a connection at the moment of issue, while receipts and visits keep working offline\")",
+        "fr.intro: garde (c) : formulation exacte de la restriction ajoutée (« les factures et les avoirs exigent une connexion au moment de l’émission, tandis que les reçus et les visites restent disponibles hors ligne »)",
+        "ar.sections.4.body: حارس (ج): «يواصل عمله دون اتصال» صارت مقصورة على سندات القبض والزيارات مع ذكر حاجة الفاتورة والمرتجع إلى اتصال",
+        "en.sections.4.body: guard (c): \"keeps working offline\" narrowed to receipts and visits, with invoices and returns needing a connection",
+        "fr.sections.4.body: garde (c) : « il continue hors ligne » limité aux reçus et aux visites, les factures et avoirs exigeant une connexion",
+        "ar.faq.2.a: حارس (ج): حُذف وعد إصدار الفواتير دون اتصال من جواب FAQ ووُضعت صيغة القيد الحرفية",
+        "en.faq.2.a: guard (c): FAQ answer no longer promises offline invoicing; exact restriction wording used",
+        "fr.faq.2.a: garde (c) : la réponse FAQ ne promet plus l'émission de factures hors ligne ; formulation exacte de la restriction",
+        "مراجعة مستقلة (ar.intro): «ويعمل التطبيق على أندرويد وآيفون: تحتاج الفاتورة…» → «ويعمل التطبيق على أندرويد وآيفون، وفيه تحتاج الفاتورة…» لسلاسة الربط؛ صيغة القيد الحرفية باقية كما هي."
+      ]
+    }
+  }
+}

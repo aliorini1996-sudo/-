@@ -1,0 +1,227 @@
+{
+  "code": "PK",
+  "languages": [
+    "en"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "en": {
+      "slugHint": "van-sales-software-pakistan",
+      "title": "Van Sales & Collections Software for Pakistan | FieldSales",
+      "description": "Van sales, pre-sales and collections app for distributors in Pakistan: rupee pricing, 18% Sales Tax settings, receipts, routes and offline use.",
+      "h1": "Van sales and collections software for distributors in Pakistan",
+      "intro": "FieldSales is a cloud platform for distribution and wholesale companies that run van sales, pre-sales order taking and collections, and distributors in Pakistan can use it as anywhere else. Sales reps take orders, record receipts against customer balances, reconcile the stock on their vans and follow routes with visits logged by location and photo, even offline, on Android, iPhone and a web dashboard. You set the rupee, Sales Tax at 18% and your payment methods in settings. Sales-tax-registered businesses still issue their tax invoices from their FBR-integrated system.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "Distribution in Pakistan: bazaars, wholesalers and the corner shop",
+          "body": "Pakistan has more than two and a half million retail shops, most of them selling everyday basics, according to the U.S. International Trade Administration (ITA). Karachi is the main wholesale hub, the largest commercial centres are Karachi, Lahore and Islamabad, and franchise chains also have branches in cities such as Hyderabad, Faisalabad, Rawalpindi, Multan and Peshawar. Between 3,000 and 4,500 large wholesalers trade from the bazaars, alongside shops that specialise in a single product line, while modern trade, meaning supermarkets and hypermarkets, is concentrated in Karachi, Lahore and Islamabad. In the cities, distributors often work under exclusive contracts, and most principals do not extend them credit. Distributors usually sell to small retailers for cash and give short-term credit to large, fast-moving retailers, and credit of 30 to 90 days is common in the wholesale trade. Most transactions are still settled in cash, with mobile wallets such as EasyPaisa, JazzCash and uPaisa used alongside it, although ITA notes that none of them has high penetration. For a distributor serving these shops, FieldSales puts van sales, pre-sales order taking and collections on the sales rep's phone, with visits logged along each rep's route."
+        },
+        {
+          "id": "tax",
+          "title": "Sales Tax in Pakistan and how to set it up in FieldSales",
+          "body": "Pakistan's federal Sales Tax on goods is levied under the Sales Tax Act, 1990 and administered by the Federal Board of Revenue (FBR) through Inland Revenue, at a standard rate of 18% (PwC). Exports and goods in the Fifth Schedule are zero-rated, and goods in the Sixth Schedule are exempt. For goods in the Third Schedule, which covers many fast-moving consumer goods, the 18% is charged on the printed retail price rather than the sale price, and the Finance Act 2026 added more retail-packed items to it, including oils and fats, sugar confectionery, pasta, sauces and condiments, milk and infant preparations, hair and beauty products, tissues and jams. A further tax of 4% applies on top of the normal rate on certain supplies to buyers who are unregistered or inactive, although PwC and Lookuptax describe its scope differently. Sales tax on services is a separate, provincial tax collected by the Punjab, Sindh, Khyber Pakhtunkhwa and Balochistan revenue authorities, and by FBR for Islamabad Capital Territory, with PwC citing rates of 15–16%. There is no general turnover threshold for sales tax on goods: registration depends on the type of business, and wholesalers, dealers and distributors must register (Lookuptax, Avalara). Businesses are identified by a National Tax Number (NTN), which has seven characters for companies and associations of persons (individuals use their 13-digit CNIC), and registered businesses also hold a Sales Tax Registration Number (STRN), shown as 13 digits in an FBR general order. Buyers can check whether a supplier is active on FBR's Active Taxpayers List. According to Lookuptax's summary of section 23, a sales tax invoice shows the names, addresses and registration numbers of the supplier and the recipient, the date, a description and the quantity of the goods, the value excluding tax, the sales tax and the value including tax, and it is written in Urdu or English. When a manufacturer or importer supplies an unregistered distributor, the distributor's CNIC or NTN goes on the invoice. Rule 150R(13) of the Sales Tax Rules adds further fields for electronic invoices, such as the HS code, the unit of measure and the FBR invoice number with its QR code, as described in the next section. In FieldSales you enter the tax name (Sales Tax) and the rate, such as 18%, in your company settings, with no country-specific version required. FieldSales does not decide how sales tax applies to each product, and retail-price-based tax, further tax and federal excise duty (FED) follow their own rules, so agree your treatment with a tax adviser."
+        },
+        {
+          "id": "einvoicing",
+          "title": "E-invoicing in Pakistan: FBR Digital Invoicing",
+          "body": "E-invoicing for sales tax is already mandatory in Pakistan. Under Chapter XIV of the Sales Tax Rules, 2006, as replaced by SRO 69(I)/2025, the Federal Board of Revenue (FBR) runs Digital Invoicing with its technology company PRAL: the seller sends each invoice in real time through PRAL's API, receives a unique FBR invoice number, and prints a QR code based on that number together with the Digital Invoicing logo, while an invoice that fails validation is rejected. Integration can only be carried out by PRAL or by one of the integrators on FBR's published list. SRO 1852(I)/2025 phased the obligation in from 1 November 2025, starting with public companies, importers and other businesses above set turnover thresholds, and its final phase on 31 December 2025 brought in every remaining sales-tax-registered person, which includes registered wholesalers and distributors. The obligation covers sales to registered and unregistered buyers, invoices for exempt goods, and debit and credit notes. Rule 150R(3) bars a registered person who must integrate from making any supply except through integrated invoicing outlets, devices or software, and under rule 150XE(3) this includes any fixed or mobile software that issues invoices to collect cash or card payments; on a plain reading, that appears to cover a sales rep's app that issues invoices in van sales when the seller is registered, a point to confirm with your tax adviser. Rule 150XC allows invoices to be issued during a software failure or an internet or power outage, provided they are clearly marked as offline and uploaded within 24 hours of service being restored. The Finance Act 2026, in force from 1 July 2026, added a penalty for failing to register or integrate on time, which rises if the default continues and can come with sealing of the business premises, and amended section 23 so that every tax invoice must carry a verifiable FBR invoice number from a date the Board announces. SRO 1666(I)/2026 of 29 September 2026 extended the same rules to Islamabad Capital Territory services and to FED where that law requires e-invoicing, SRO 2063(I)/2026 of 5 November 2026 requires an advance receipt invoice for each advance payment, linked electronically to the final invoice, and an FBR letter of 5 November 2026 set 20 November 2026 as the cut-off from which digital invoicing cases and complaints go through the new Sales Tax Electronic Invoice Management System. Tier-1 retailers, such as chains and large outlets, must also connect their outlets to FBR's POS system and issue a standardised invoice with an FBR invoice number and QR code. Businesses that are not registered for sales tax, including retailers below Tier-1 who pay sales tax through their electricity bills, fall outside the e-invoicing obligation. FieldSales has no connection to FBR's Digital Invoicing system today and is not among the firms allowed to provide one. A connection can be studied on request for an individual customer after we review the requirements, with no promise that it will be possible or of any timeline. A sales-tax-registered distributor therefore issues its tax invoices from its own integrated system, and FieldSales can run alongside it for orders, routes, collections and rep tracking."
+        },
+        {
+          "id": "collections",
+          "title": "Collections: cash, mobile wallets and customer balances",
+          "body": "Cash is still the main way shops pay their distributors, and ITA reports that distributors sell to small retailers for cash while extending short-term credit to larger, fast-moving outlets. Other payments come through mobile wallets such as EasyPaisa, JazzCash and uPaisa, and very large ones by bank draft or pay order. In FieldSales the rep records each payment as a receipt on the customer's account and picks one of the payment methods you define in settings, such as cash, pay order or bank draft; you can also add a custom method for each mobile wallet or bank account you use. FieldSales records the payment the customer has made; it does not receive the money or connect to the wallet itself. Every receipt reduces the customer's outstanding balance, so managers can see on the web dashboard who owes what and check what each rep has collected during the day."
+        },
+        {
+          "id": "how",
+          "title": "How FieldSales works for a distributor in Pakistan",
+          "body": "You set the Pakistan Rupee (PKR, Rs) as your currency, enter the tax name and rate, and define your payment methods in settings; none of this is tied to one country. Sales reps work on Android or iPhone, and managers use the web dashboard. The app keeps working without a network connection: orders, receipts and visits are saved on the phone and sync once the signal returns. This is FieldSales' own offline capability, not the offline mode defined in Pakistan's e-invoicing rules. Invoices and receipts print on a portable thermal printer at the customer's shop. For a business registered for sales tax, that printout carries no FBR invoice number or QR code, so it does not replace the tax invoice from your integrated system. Each van carries its own stock, which you load, sell from and reconcile, and each rep follows a route with visits recorded by location and photo. The interface is available in English, Arabic, French, Turkish and Chinese only, with no Urdu, so teams in Pakistan would use the English interface. FieldSales is headquartered in Riyadh."
+        }
+      ],
+      "faq": [
+        {
+          "q": "Can I issue my FBR sales tax invoices from FieldSales?",
+          "a": "No. In Pakistan a sales-tax-registered business must issue its tax invoices through a system integrated with FBR, carrying an FBR invoice number and QR code, and only PRAL or one of the integrators on FBR's published list can set up that integration. FieldSales is not among them and has no connection to FBR's system. A connection can be studied on request for an individual customer after we review the requirements, with no promise that it will be possible or of any timeline."
+        },
+        {
+          "q": "My company is registered for sales tax. Can our reps still use FieldSales?",
+          "a": "Yes, alongside your integrated invoicing system rather than in place of it. Reps can use FieldSales for pre-sales orders, routes and visits, van stock, collections and customer balances. The tax invoice itself comes from your FBR-integrated system. On a plain reading of rules 150R(3) and 150XE(3), mobile software that issues invoices to collect cash appears to be covered when the seller is registered, so agree with your tax adviser which documents your reps should print."
+        },
+        {
+          "q": "Does FieldSales work without internet?",
+          "a": "Yes. Reps can take orders, record receipts and log visits with no connection; everything is stored on the phone and syncs to the web dashboard once the network returns. This is separate from the offline mode defined in the e-invoicing rules for integrated systems."
+        },
+        {
+          "q": "How do I record a collection received through EasyPaisa or JazzCash?",
+          "a": "Add each wallet as a custom payment method in settings. The rep then creates a receipt for the customer and picks that method, and the receipt reduces the customer's outstanding balance. FieldSales records the payment; it does not receive the money or connect to the wallet."
+        },
+        {
+          "q": "Can I set Sales Tax at 18% and work in rupees?",
+          "a": "Yes. You set PKR as the currency and enter the tax name and rate in your company settings. FieldSales does not decide which products are zero-rated, exempt or in the Third Schedule, where tax is charged on the printed retail price, and further tax and FED follow their own rules, so agree your treatment with a tax adviser."
+        },
+        {
+          "q": "Is the app available in Urdu?",
+          "a": "No. The interface is available in English, Arabic, French, Turkish and Chinese only, so teams in Pakistan would use the English interface."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Sample sales tax invoice layout for Pakistan",
+        "note": "Structure only, with no amounts. The fields follow section 23 of the Sales Tax Act as summarised by Lookuptax and rule 150R(13) of the Sales Tax Rules; confirm them with your tax adviser. For a registered supplier, this invoice must come from an FBR-integrated system, which receives the FBR invoice number and prints the QR code. FieldSales does not issue these.",
+        "fields": [
+          {
+            "label": "Supplier name and address",
+            "example": "Your company name, street and city"
+          },
+          {
+            "label": "Supplier NTN and STRN",
+            "example": "Your NTN and your STRN"
+          },
+          {
+            "label": "Buyer name and address",
+            "example": "Shop or business name, street and city"
+          },
+          {
+            "label": "Buyer registration number",
+            "example": "Buyer's NTN or STRN, or an unregistered distributor's CNIC or NTN"
+          },
+          {
+            "label": "Date of issue and tax period",
+            "example": "Invoice date and the month of the return"
+          },
+          {
+            "label": "Items",
+            "example": "Description, HS code, quantity and unit of measure"
+          },
+          {
+            "label": "Value excluding tax",
+            "example": "Value before sales tax, in rupees"
+          },
+          {
+            "label": "Sales tax rate and amount",
+            "example": "18% or the rate that applies, with the tax in rupees"
+          },
+          {
+            "label": "Further tax, extra tax and FED",
+            "example": "Shown where they apply; not required on a retailer's sales to the public unless the retailer is a manufacturer or importer"
+          },
+          {
+            "label": "SRO number and serial",
+            "example": "The SRO and item behind a reduced or exempt rate, where relevant"
+          },
+          {
+            "label": "Value including tax",
+            "example": "Invoice total in rupees"
+          },
+          {
+            "label": "FBR invoice number",
+            "example": "Returned by FBR to your integrated system"
+          },
+          {
+            "label": "QR code and Digital Invoicing logo",
+            "example": "Printed by your integrated system"
+          },
+          {
+            "label": "Invoicing software registration number",
+            "example": "Registration number of your integrated software or POS"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "FBR — S.R.O. 69(I)/2025: Chapter XIV of the Sales Tax Rules, 2006",
+          "url": "https://download1.fbr.gov.pk/SROs/2025129141598258SRO69(I)2025.pdf"
+        },
+        {
+          "title": "FBR — S.R.O. 1852(I)/2025: e-invoicing phase table",
+          "url": "https://download1.fbr.gov.pk/SROs/2025924149054920SRO1852.pdf"
+        },
+        {
+          "title": "FBR — Finance Act, 2026 (Act No. XLIII of 2026)",
+          "url": "https://download1.fbr.gov.pk/Docs/20266291261044366FinanceAct2026.pdf"
+        },
+        {
+          "title": "FBR — S.R.O. 1666(I)/2026: e-invoicing for ICT services and FED",
+          "url": "https://download1.fbr.gov.pk/SROs/202693089244653SRO1666dated29-09-2026.pdf"
+        },
+        {
+          "title": "FBR — S.R.O. 2063(I)/2026: advance receipt invoices",
+          "url": "https://download1.fbr.gov.pk/SROs/202611512115850979SRO2063dated5-11-2026.pdf"
+        },
+        {
+          "title": "FBR — Letter on the Sales Tax Electronic Invoice Management System",
+          "url": "https://download1.fbr.gov.pk/Docs/20261151611157507SalesTaxManual.pdf"
+        },
+        {
+          "title": "FBR — Digital Invoicing: Legal Provisions",
+          "url": "https://fbr.gov.pk/di-legal-provisions/173967/173968"
+        },
+        {
+          "title": "FBR — Digital Invoicing FAQs",
+          "url": "https://fbr.gov.pk/faqs/173967/173969"
+        },
+        {
+          "title": "FBR — Digital Invoicing: list of integrators",
+          "url": "https://fbr.gov.pk/list-of-license-interprator/173967/173971"
+        },
+        {
+          "title": "FBR — Point of Sale (POS): Legal Provisions",
+          "url": "https://fbr.gov.pk/pos-legal-provisions/163085/163086"
+        },
+        {
+          "title": "FBR — Sales Tax General Order No. 33 of 2026 (NTN and STRN formats)",
+          "url": "https://download1.fbr.gov.pk/Docs/202611611114727217STGO33of2026.pdf"
+        },
+        {
+          "title": "PRAL/FBR — Technical Specification for DI API, v1.12",
+          "url": "https://download1.fbr.gov.pk/Docs/20257301172130815TechnicalDocumentationforDIAPIV1.12.pdf"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Pakistan, Corporate: Other taxes",
+          "url": "https://taxsummaries.pwc.com/pakistan/corporate/other-taxes"
+        },
+        {
+          "title": "Lookuptax — Pakistan Sales Tax guide",
+          "url": "https://lookuptax.com/docs/country/pakistan"
+        },
+        {
+          "title": "Lookuptax — Pakistan Tax ID guide",
+          "url": "https://lookuptax.com/docs/tax-identification-number/pakistan-tax-id-guide"
+        },
+        {
+          "title": "Avalara VATLive — Pakistani sales tax registration",
+          "url": "https://www.avalara.com/us/en/vatlive/country-guides/asia/pakistan/pakistani-sales-tax-registration.html"
+        },
+        {
+          "title": "U.S. International Trade Administration — Pakistan: Distribution and Sales Channels",
+          "url": "https://www.trade.gov/country-commercial-guides/pakistan-distribution-and-sales-channels"
+        },
+        {
+          "title": "U.S. International Trade Administration — Pakistan: eCommerce",
+          "url": "https://www.trade.gov/country-commercial-guides/pakistan-ecommerce"
+        }
+      ],
+      "lastVerifiedLabel": "Last verified: November 2026"
+    }
+  },
+  "notes": "صفحة إنجليزية جديدة لباكستان مبنية على حقائق PK.json بعد اكتمال التدقيق (audit بتاريخ 2026-11-11، ثقة عالية). أهم ما يميّزها: الفوترة الإلكترونية لدى FBR إلزامية اليوم على كل مسجَّل في ضريبة المبيعات (آخر مراحل SRO 1852(I)/2025 في 31 ديسمبر 2025) ولا يجوز الربط إلا عبر PRAL أو المُدمِجين المدرجين في قائمة FBR، فكتبتُ بصدق أن FieldSales ليس منهم ولا ربط له اليوم، وأن الربط يُبحث عند الطلب لكل عميل دون وعد بإمكانه أو بموعده، وأن الموزّع المسجَّل يصدر فاتورته الضريبية من نظامه المربوط ويعمل FieldSales إلى جانبه للطلبات وخطوط السير والتحصيل ومتابعة المناديب (honesty.canSay[3]). وذكرتُ أن المطبوع من FieldSales لا يحمل رقم فاتورة FBR ولا QR، وأن العمل دون اتصال في FieldSales ليس «offline mode» في القاعدة 150XC. ومسألة شمول تطبيق المندوب بالقاعدتين 150R(3) و150XE(3) (في uncertain) صيغت «على ظاهر القراءة… يبدو» مع الإحالة إلى المستشار الضريبي. تجنّبتُ لفظ «licensed» (في قائمة المفردات الممنوعة «مرخّص») فاستعملتُ «integrators on FBR's published list»، وغيّرتُ عنوان مصدر قائمة المُدمِجين إلى «list of integrators» (الكلمة باقية في مسار URL فقط). لم أذكر أي مبلغ ملاصق لعملة: حدود رقم الأعمال في مراحل SRO 1852 وعقوبة عدم الربط وحد Tier-1 ورسم POS وُصفت دون أرقام. حقول localTerms كلها null عدا retailShop، فاستعملتُ عبارات عامة (van sales وpre-sales order taking وsales rep) لوصف المنتج فقط، ولم أذكر kiryana أو order booker أو PJP أو recovery لأنها في uncertain؛ وأوصي بالتحقق منها مع موزّعين محليين لأنها مصطلحات بحث قوية. لم أذكر Raast ولا الشيكات ولا النسب المخفّضة 7%/10% ولا e-Bilty ولا نسب الخدمات لكل إقليم (مصدر واحد)؛ وذُكرت نسبة خدمات الأقاليم بمدى PwC ‏15–16%. نطاق further tax 4% مذكور مع التنبيه إلى اختلاف PwC وLookuptax، وبيانات القسم 23 منسوبة إلى ملخص Lookuptax. لم أذكر Metro وCarrefour احتياطاً. المحافظ (EasyPaisa وJazzCash وuPaisa) طرق دفع مخصّصة في سندات القبض مع التصريح بأن FieldSales لا يستقبل المال ولا يرتبط بالمحفظة. مواعيد الإلزام في قسم einvoicing وحده، وجمل FieldSales فيه تسبقها جملتان بلا تاريخ. واجهة التطبيق بلا أردية، وقيل ذلك صراحة.",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish-with-notes",
+    "fixes": 16,
+    "issues": [
+      "حقيقة محرّفة: «distribution networks also reach Rawalpindi, Faisalabad, Multan, Hyderabad and Peshawar» والمصدر (ITA في distribution.notes) يقول إن لشبكات الامتياز فروعاً في هذه المدن؛ صُحّحت إلى «franchise chains also have branches in…».",
+      "دقة مراحل SRO 1852: «businesses with the largest declared turnover» غير دقيقة (الأفراد وجمعيات الأشخاص فوق 100 مليون بدؤوا في 1 نوفمبر قبل شركات 100 مليون–مليار في 15 نوفمبر)؛ صارت «other businesses above set turnover thresholds».",
+      "بنود الجدول الثالث: «cooking oils» و«sauces» و«milk» لا تطابق الحقائق؛ صارت «oils and fats» و«sauces and condiments» و«milk and infant preparations».",
+      "وعد ضمني: «Until then, a sales-tax-registered distributor…» توحي بأن الربط آتٍ؛ صارت «A sales-tax-registered distributor therefore issues…». وجواب السؤال الأول «Not today.» صار «No.» للسبب نفسه، وأُصلحت ركاكة «or of when» إلى «or of any timeline» في الموضعين.",
+      "إيحاء بعملاء قائمين: «teams in Pakistan work in English» صارت «teams in Pakistan would use the English interface» في قسم how وفي سؤال الأردية.",
+      "القاعدة 150XC: أُضيف تعطل البرنامج وأن مهلة 24 ساعة تبدأ من عودة الخدمة؛ وصياغة 150XE(3) صارت «includes» بدل «extends this to» مطابقةً للحقائق؛ وموعد القطع «from which» بدل «after which».",
+      "مبالغة منتج: «with each visit tied to a planned route» صارت «with visits logged along each rep's route».",
+      "الوصف: «offline mode» صارت «offline use» كي لا تختلط بمصطلح «offline mode» القانوني في القاعدة 150XC؛ وفي قسم how أُعيدت صياغة «This offline working belongs to FieldSales itself» إلى جملة سليمة.",
+      "لغة: جملة NTN/STRN كانت ملتبسة نحوياً فأُعيد بناؤها؛ وFED استُعمل اختصاراً دون تعريف فصار «federal excise duty (FED)» عند أول ذكر؛ وجملة طرق الدفع في قسم التحصيل أُعيدت صياغتها.",
+      "نموذج الفاتورة: حقل further tax/extra tax/FED أُكمل باستثناء تاجر التجزئة المصنّع أو المستورد كما في القاعدة 150R(13).",
+      "ملاحظة باقية: مصطلحات السوق المحلية (kiryana، order booker، PJP، recovery) لم تُستعمل لأنها null أو في uncertain؛ يُنصح بالتحقق منها مع موزّعين محليين قبل إضافتها لقيمتها في البحث.",
+      "ملاحظة باقية: نطاق further tax 4% ونسب خدمات الأقاليم ونطاق شمول تطبيق المندوب بالقاعدتين 150R(3) و150XE(3) مذكورة بصيغة محاطة بالتحفّظ ومحالة إلى المستشار الضريبي، كما في uncertain.",
+      "فُحص: لا سعر ولا مبلغ ملاصق لعملة، ولا «free/certified/compliant/approved»، ولا ادعاء ربط بـFBR أو PRAL أو POS أو المحافظ، ولا تاريخ في جمل FieldSales أو بجوارها، ولغات الواجهة صادقة، والعنوان 58 حرفاً والوصف ضمن 155."
+    ]
+  }
+}

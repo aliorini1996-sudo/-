@@ -80,7 +80,7 @@ export function consolidationEntries() {
  * - مقال كتالوج: موجود إن كان canonical لنفسه وقابلاً للفهرسة بتلك اللغة (isIndexable إن مُرِّر).
  * - مقال يدوي: العربية دائماً، والإنجليزية إن كان له نسخة en (أو bilingual في الخريطة).
  * - الهدف المدموج هو نفسه لا يُقبل (لا سلاسل دمج).
- * @param {{ catalog?: Array<{slug: string, cc?: string|null, isCanonical?: boolean}>,
+ * @param {{ catalog?: Array<{slug: string, cc?: string|null, isCanonical?: boolean, langs?: string[]}>,
  *           isIndexable?: (cc: string|null, L: string) => boolean,
  *           manual?: Array<{slug: string, en?: {title?: string}, bilingual?: boolean}> }} src
  * @returns {(slug: string, L: string) => boolean}
@@ -94,6 +94,8 @@ export function targetExistsFrom({ catalog = [], isIndexable: indexable, manual 
     if (c) {
       if (c.isCanonical === false) return false;
       if (L !== 'ar' && L !== 'en' && L !== 'fr') return false;
+      // دليل دولة بلغة سوقها وحدها (countryGuides.mjs): لا نسخة له بغيرها
+      if (Array.isArray(c.langs) && !c.langs.includes(L)) return false;
       return typeof indexable === 'function' ? !!indexable(c.cc ?? null, L) : true;
     }
     const m = man.get(slug);

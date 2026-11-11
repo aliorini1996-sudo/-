@@ -131,6 +131,16 @@ const alt = (arPath, langs = langsFor(arPath)) => {
   return [...langs.map((L) => line[L]), `    <xhtml:link rel="alternate" hreflang="x-default" href="${u[xDefaultOf(langs)]}"/>`].join('\n');
 };
 
+/**
+ * عنقود ذاتي لصفحة بلغة واحدة لا نظيرة لها (أدلة الدول الجديدة، src/blog/seo/countryGuides.mjs): لغتها وx-default
+ * إليها — مطابق لـselfHreflang في prerender.mjs. لا يُستعمل لغيرها: صفحات اللغة الواحدة الأخرى بلا عنقود كما كانت.
+ */
+const selfAlt = (arPath, L) => {
+  const href = urlsOf(arPath)[L];
+  return [`    <xhtml:link rel="alternate" hreflang="${L === 'zh' ? 'zh-Hans' : L}" href="${href}"/>`,
+    `    <xhtml:link rel="alternate" hreflang="x-default" href="${href}"/>`].join('\n');
+};
+
 /** بدائل عنقود من clusterAlternates (i18nRoutes.mjs) بالصيغة الحرفية نفسها لأسطر alt() أعلاه */
 const xhtmlLines = (alternates) => alternates
   .map((a) => `    <xhtml:link rel="alternate" hreflang="${a.hreflang}" href="${a.href}"/>`).join('\n');
@@ -240,11 +250,13 @@ async function main() {
     if (!a.isCanonical) continue;
     // تقليم الفهرسة: الإنجليزية لأسواق بلا طلب إنجليزي مُعلَّمة noindex في التصيير ⇒
     // تُحذف من الخريطة ومن عنقود hreflang معاً (رابط noindex داخل خريطة = إشارة متناقضة).
-    const langs = isIndexable(a.cc, 'en') ? ['ar', 'en', 'fr'] : ['ar', 'fr'];
-    const seoAlt = alt(p, langs);
+    // دليل الدولة بلغة سوقها وحدها (a.langs): عنقود ذاتي — لغته وx-default إليه، كما في الصفحة المُصيَّرة.
+    const langs = a.langs || (isIndexable(a.cc, 'en') ? ['ar', 'en', 'fr'] : ['ar', 'fr']);
+    const seoAlt = a.langs ? selfAlt(p, a.langs[0]) : alt(p, langs);
     const u = urlsOf(p);
     for (const L of langs) {
-      urls.push(urlEntry(u[L], { lastmod: a.modified, freq: 'monthly', priority: '0.6', alternates: seoAlt, image: `${ORIGIN}/og/${a.slug}-${L}.jpg` }));
+      // lastmod نسخة اللغة نفسها (modifiedByLang = dateModified في الصفحة): تعديل يخصّ لغة لا يجدّد أخواتها
+      urls.push(urlEntry(u[L], { lastmod: (a.modifiedByLang && a.modifiedByLang[L]) || a.modified, freq: 'monthly', priority: '0.6', alternates: seoAlt, image: `${ORIGIN}/og/${a.slug}-${L}.jpg` }));
       seoUrlCount++;
     }
   }

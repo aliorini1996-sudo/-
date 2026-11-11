@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { transformSync } from 'esbuild';
 import { buildCatalog, getArticle, listArticles, COUNTRIES, isIndexable, canonicalSlug } from '../src/blog/seo/catalog.mjs';
+import { registeredGuides, guideProblems } from '../src/blog/seo/countryGuides.mjs';
 import { loadPricing, repsCap } from './pricing-source.mjs';
 import { SECTORS } from './sectors-data.mjs';
 import { FEATURES } from '../src/content/features.mjs';
@@ -303,6 +304,12 @@ const hreflangFor = (blogPath, langs = LANGS) => (langs.length < 2 ? '' : langs
   .join('') + `\n    <link rel="alternate" hreflang="x-default" href="${langUrl(xDefaultOf(langs), blogPath)}" data-seo-alt="1"/>`);
 const trilingualHreflang = (blogPath) => hreflangFor(blogPath, LANGS);
 /**
+ * دليل دولة بلغة سوقها وحدها (countryGuides.mjs): hreflang ذاتي وx-default ذاتي — لا نظيرة له بلغة أخرى. مطابق لما
+ * تكتبه gen-sitemap له ولما يكتبه BlogPostPage بعد الإقلاع (verify-sitemap البند 3 يقارنها).
+ */
+const selfHreflang = (blogPath, L) => `\n    <link rel="alternate" hreflang="${HREFLANG_CODE[L] || L}" href="${langUrl(L, blogPath)}" data-seo-alt="1"/>`
+  + `\n    <link rel="alternate" hreflang="x-default" href="${langUrl(L, blogPath)}" data-seo-alt="1"/>`;
+/**
  * بدائل جاهزة [{hreflang, href}] (clusterAlternates في src/i18n/i18nRoutes.mjs، وx-default آخرها) بصيغة hreflangFor
  * الحرفية — عناقيد الرئيسية وabout وcontact الممدَّدة وصفحات الطبقة متعددة اللغات. بلا لغة جديدة منشورة يطابق
  * ناتجها hreflangFor('/', خمس لغات) وtrilingualHreflang حرفاً بحرف (i18nSitemap.test.ts).
@@ -421,25 +428,39 @@ async function main() {
     if (mergedPages.length) console.log(`  ونسخ مدموجة تغيّر نصّها (خارج الخريطة): ${mergedPages.join(' · ')}`);
   }
 
+  // 0) بوابة أدلة الدول (countryGuides.mjs): دولة في السجلّ بلا محتوى مراجَع للنشر أو بلا حقائق مدقّقة توقف البناء
+  //    قبل أي كتابة للمقالات — بدل صفحة قالبية صامتة أو رابط في الخريطة بلا صفحة.
+  {
+    const bad = registeredGuides().map((g) => ({ ...g, why: guideProblems(g.cc, g.langs) })).filter((g) => g.why.length);
+    if (bad.length) {
+      for (const g of bad) console.error(`  ✗ دليل ${g.cc} (${g.slug}): ${g.why.join('؛ ')}`);
+      console.error('✗ أدلة الدول في السجلّ بلا محتوى صالح للنشر — أخرجها من countryGuides.mjs أو أكمل ملفاتها.');
+      process.exit(1);
+    }
+    const reg = registeredGuides();
+    console.log(`  أدلة الدول: ${reg.filter((g) => g.kind === 'upgraded').length} صفحة مرقّاة و${reg.filter((g) => g.kind === 'new').length} جديدة بلغة سوقها`);
+  }
+
   // 1) المقالات المولَّدة (~966) — محتوى كامل + وسوم + JSON-LD
-  for (const { slug, cc, canonical: canonSlug, isCanonical } of buildCatalog()) {
+  for (const { slug, cc, canonical: canonSlug, isCanonical, langs: guideLangs } of buildCatalog()) {
     for (const L of LANGS) {
       const a = getArticle(slug, L);
       if (!a) continue;
       const prefix = L === 'ar' ? '' : `/${L}`;
       // الدمج: صفحة دولة غير ذات أولوية تُشير إلى صفحتها الجامعة لتجميع إشارات الترتيب
       const canonical = canon(`${ORIGIN}${prefix}/blog/${canonSlug}`);
-      const body = `<main><article><h1>${esc(a.title)}</h1><img src="${a.imagePath}" alt="${esc(a.title)}" width="1200" height="630"/>${a.contentHtml}</article></main>`;
+      // H1 الدليل من ملف محتواه (a.h1) وإلا العنوان — كما يرسمه BlogPostPage
+      const body = `<main><article><h1>${esc(a.h1 || a.title)}</h1><img src="${a.imagePath}" alt="${esc(a.title)}" width="1200" height="630"/>${a.contentHtml}</article></main>`;
       // تقليم الفهرسة: الإنجليزية لأسواق بلا طلب إنجليزي تبقى حيّة للزائر لكن noindex،
       // وتُستثنى من عنقود hreflang (صفحة noindex داخل عنقود = إشارة متناقضة لجوجل).
       const indexable = isIndexable(cc, L);
-      const langs = isIndexable(cc, 'en') ? LANGS : LANGS.filter((x) => x !== 'en');
+      const langs = guideLangs || (isIndexable(cc, 'en') ? LANGS : LANGS.filter((x) => x !== 'en'));
       const html = buildPage({
         // «| FieldSales» بدل «| مدوّنة FieldSales»، وتسقط إن جاوز العنوان بها 70 حرفاً (clusters.mjs، ومثله BlogPostPage)
         lang: L, title: blogTitle(a.title), description: a.description, keywords: a.keywords,
         canonical, image: a.image, ogType: 'article',
         // hreflang يُصدَر للصفحة الأساسية فقط — عنقود على صفحة مدموجة/noindex إشارة متناقضة
-        hreflang: indexable && isCanonical ? hreflangFor(`/blog/${slug}`, langs) : '',
+        hreflang: !(indexable && isCanonical) ? '' : guideLangs ? selfHreflang(`/blog/${slug}`, L) : hreflangFor(`/blog/${slug}`, langs),
         robots: indexable ? '' : 'noindex, follow',
         jsonLd: articleJsonLd(a, L, canonical), bodyHtml: body,
       });

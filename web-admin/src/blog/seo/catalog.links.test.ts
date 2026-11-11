@@ -31,11 +31,14 @@ const KNOWN_PATHS = new Set<string>([
 ]);
 
 const BLOG_HREF = /^\/(?:(en|fr)\/)?blog\/([^/?#]+)\/$/;
+/** المحتوى بلا قائمة مصادر أدلة الدول (روابطها الخارجية إلى المراجع مقصودة، ويفحصها countryGuides.test.ts) */
+const withoutSources = (html: string) => html.replace(/<ol class="sources">[\s\S]*?<\/ol>/g, '');
 
 const allArticles = () => {
   const out: { slug: string; cc: string | null; L: SeoLang; a: NonNullable<ReturnType<typeof getArticle>> }[] = [];
   for (const e of buildCatalog()) {
-    for (const L of LANGS) {
+    // دليل دولة جديد بلغة سوقه وحدها (countryGuides.mjs)
+    for (const L of e.langs || LANGS) {
       const a = getArticle(e.slug, L);
       assert.ok(a, `${e.slug}.${L}: المقال غير موجود`);
       out.push({ slug: e.slug, cc: e.cc, L, a });
@@ -75,7 +78,7 @@ test('روابط المنصة (مزايا وقطاعات ونماذج وأسعا
   const bad: string[] = [];
   let n = 0;
   for (const { slug, L, a } of ARTICLES) {
-    for (const [, href] of a.contentHtml.matchAll(/href="([^"]+)"/g)) {
+    for (const [, href] of withoutSources(a.contentHtml).matchAll(/href="([^"]+)"/g)) {
       if (BLOG_HREF.test(href)) continue;
       n++;
       if (!href.startsWith('/')) bad.push(`${slug}.${L} → ${href} (رابط خارجي في الكتالوج)`);

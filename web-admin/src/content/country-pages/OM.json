@@ -1,0 +1,584 @@
+{
+  "code": "OM",
+  "languages": [
+    "ar",
+    "en",
+    "fr"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "ar": {
+      "slugHint": null,
+      "title": "برنامج مناديب المبيعات والتوزيع في عُمان | FieldSales",
+      "description": "FieldSales لموزعي عُمان: فاتورة ضريبة القيمة المضافة من جوال المندوب، مبيعات الفان والطلبات المسبقة، التحصيل وعهدة السيارة، ويعمل دون اتصال.",
+      "h1": "FieldSales في سلطنة عُمان: مبيعات الفان والطلبات المسبقة والتحصيل",
+      "intro": "FieldSales منصة سحابية مقرّها الرياض لإدارة مناديب المبيعات في شركات التوزيع والجملة بسلطنة عُمان: مبيعات الفان (البيع من السيارة)، وأخذ الطلبات المسبقة، والتحصيل. يصدر المندوب الفاتورة الضريبية بالعربية من جواله ويطبعها على طابعة حرارية، ويسجّل سندات القبض والمديونيات، ويطابق عهدة السيارة في تسوية خط السير اليومية، ويوثّق زياراته بالموقع والصور، حتى دون اتصال بالإنترنت. وتضبط الشركة الريال العماني وضريبة القيمة المضافة بنسبة 5% من إعداداتها، دون نسخة خاصة بالبلد.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "التوزيع في عُمان: القنوات والمصطلحات",
+          "body": "من محاور الحركة اللوجستية في السلطنة مسقط العاصمة، والمناطق الحرة والاقتصادية التي تشرف عليها الهيئة العامة للمناطق الاقتصادية الخاصة والمناطق الحرة: المنطقة الحرة بمطار مسقط، وصحار وصلالة بميناءيهما ومنطقتيهما الحرتين، والمنطقة الاقتصادية الخاصة بالدقم، ومدينة خزائن الاقتصادية. ومن قنوات البيع الشائعة في توزيع السلع الاستهلاكية بالخليج عموماً: البقالات ومحلات الأحياء، والسوبرماركت والهايبرماركت، ومتاجر محطات الوقود، والمطاعم والمقاهي (HoReCa)، والصيدليات. وفي الميدان نمطان معروفان: مبيعات الفان (Van Sales)، أي أن يبيع المندوب من السيارة ويسلّم ويفوتر في الزيارة نفسها، وأخذ الطلبات المسبقة (Pre-sales / Order Taking) ثم التسليم لاحقاً. ويُختم اليوم بتسوية خط السير، وهي التسوية اليومية لبضاعة المندوب ونقديته. ويُقسَّم الريال العماني إلى ألف بيسة، فخاناته العشرية ثلاث لا اثنتان، والاختصار الشائع له في الفواتير «ر.ع.». أما التحصيل فيمرّ بالنقد والشيكات والتحويلات البنكية وبطاقات الخصم والمدفوعات بالجوال."
+        },
+        {
+          "id": "tax",
+          "title": "ضريبة القيمة المضافة والفاتورة الضريبية",
+          "body": "تفرض عُمان ضريبة القيمة المضافة بنسبة أساسية 5% (المادة 36 من قانون الضريبة الصادر بالمرسوم السلطاني 121/2020)، ويديرها جهاز الضرائب. وتخضع بعض التوريدات لنسبة الصفر بموجب المادتين 51 و52، منها سلع غذائية يحددها قرار من رئيس الجهاز، والأدوية والتجهيزات الطبية، وتصدير السلع إلى خارج دول مجلس التعاون. ووسّع الجهاز قائمة نسبة الصفر بثلاثة قرارات نافذة منذ 1 أكتوبر 2026 تشمل فئات من الأغذية الأساسية، والأدوية والأغذية الطبية، والأدوية والمستلزمات البيطرية، والعبرة بالرموز الجمركية في ملاحق القرارات، فراجعها قبل تصنيف أي صنف. وتُعفى توريدات أخرى كالخدمات المالية وخدمات الرعاية الصحية والتعليم. وتهمّ الموزعين أيضاً الضريبة الانتقائية: 100% على التبغ ومشروبات الطاقة، و50% على المشروبات الغازية والمحلّاة بالسكر (بحسب PwC).\n\nرقم التعريف الضريبي للقيمة المضافة (VATIN) غير رقم البطاقة الضريبية وغير رقم السجل التجاري، ويمكن التحقق منه في بوابة جهاز الضرائب. وتوجب المادة 144 من اللائحة التنفيذية أن تحمل الفاتورة الضريبية: عبارة «فاتورة ضريبية»، ورقماً تسلسلياً، وتواريخ الإصدار والتوريد والسداد، والاسم الكامل للمورد وعنوانه ورقم تعريفه الضريبي، والاسم الكامل للعميل وعنوانه ورقم تعريفه الضريبي، ووصف السلع وكميتها، والمقابل دون الضريبة، ومعدل الضريبة المطبق، والخصومات، والقيمة الخاضعة للضريبة، وقيمة الضريبة المستحقة. وتُصدر بالعربية، ويجوز إصدارها بالإنجليزية بشرط توفير ترجمة عربية إذا طلبها الجهاز، في مهلة أقصاها 15 يوماً من التوريد (المادة 143). وتجوز الفاتورة الضريبية المبسطة، بلا بيانات العميل، للتوريدات التي تقل عن حدّ القيمة في المادة 146، كما تجوز فاتورة ملخّصة شهرية لتوريدات العميل نفسه (المادة 150).\n\nفي FieldSales تضبط الشركة اسم الضريبة «ضريبة القيمة المضافة» ونسبتها 5% من الإعدادات، ويمكن تخصيص الفاتورة المطبوعة بالعربية لتعرض بيانات المورد والعميل ورقم التعريف الضريبي ونسبة الضريبة وقيمتها. ولا يطبّق FieldSales نسبة الصفر أو الإعفاء على الأصناف من تلقاء نفسه؛ فتصنيف الأصناف ونسبتها يضبطه العميل، ويبقى عليه التحقق من مطابقة الفاتورة لمتطلبات جهاز الضرائب."
+        },
+        {
+          "id": "einvoicing",
+          "title": "الفوترة الإلكترونية في عُمان (فوترة)",
+          "body": "منظومة الفوترة الإلكترونية في عُمان اسمها «فوترة» (Fawtara)، ويديرها جهاز الضرائب. وحتى نوفمبر 2026 لا يُلزَم أي مكلّف بها. فالقرار 189/2026 بتعديل اللائحة التنفيذية، المنشور في الجريدة الرسمية (العدد 1660) في 9 أغسطس 2026، يوجب إصدار الفاتورة بصيغة إلكترونية مؤمّنة تحمل رقماً فريداً لكل فاتورة، على موعدين: من 1 أبريل 2027 لكبار المكلّفين الذين تتجاوز توريداتهم السنوية حدّ المرحلة الأولى، ومن 1 أكتوبر 2027 لبقية المسجّلين في ضريبة القيمة المضافة (المادة الثالثة من القرار، والسؤال 5 في الأسئلة الشائعة لجهاز الضرائب، وفيه قيمة الحد وطريقة قياس التوريدات). وكان قد أُعلن تطبيق تجريبي غير ملزم لشركات كبيرة اختارها الجهاز موعده أغسطس 2026، ولم نجد إعلاناً رسمياً بانطلاقه الفعلي. والتطبيق المبكر الاختياري متاح لغير المشمولين بالمرحلة الأولى. وإلى أن يحلّ موعد كل فئة تبقى قواعد الفاتورة الضريبية القائمة سارية، ومنها مهلة الإصدار البالغة 15 يوماً.\n\nويصف الجهاز نموذجاً خماسي الأطراف: المورد، ومزوّد خدمته، ومزوّد خدمة المشتري، والمشتري، وجهاز الضرائب. وتذكر Fonoa وEDICOM أن التبادل يجري عبر شبكة Peppol بصيغة PINT OM، والمواصفات الفنية النهائية قد تتغير. ويُلزم القرارُ الجهازَ بإعلان الشركات التي تقدّم خدمات الفوترة الإلكترونية (المادة 143 مكرراً).\n\nأما FieldSales فلا يرسل اليوم أي فاتورة إلى منظومة الفواتير الإلكترونية العمانية، والربط الحكومي الحيّ فيه هو في السعودية وحدها. والربط مع أحد مزوّدي خدمة الفواتير الإلكترونية في عُمان متاح عند الطلب بعد دراسة متطلبات البلد، بلا وعد بموعد أو نتيجة."
+        },
+        {
+          "id": "collections",
+          "title": "التحصيل وسندات القبض والمديونيات",
+          "body": "بحسب صفحات أنظمة الدفع في البنك المركزي العماني، يمكن أن يمرّ التحصيل الميداني بالنقد؛ والشيكات التي تُقاصّ إلكترونياً عبر نظام ECC وتتراجع أحجامها باستمرار؛ والتحويلات البنكية عبر نظام المقاصة الآلية ACH؛ وبطاقات الخصم في نقاط البيع عبر شبكة OmanNet؛ والمدفوعات بالجوال ورموز QR عبر نظام MPCSS. في FieldSales تُنشئ الشركة من الإعدادات طرق الدفع التي تتعامل بها فعلاً، كالنقد والشيك والتحويل البنكي وبطاقة الخصم والدفع بالجوال أو QR، ويختار المندوب الطريقة في سند القبض عند التحصيل. وهذا تسجيل للدفعة في السند، لا اتصال مباشر بالبنوك أو بأنظمة الدفع. وتنعكس السندات على مديونية العميل، فيعرف المدير ما على كل بقالة وما حصّله كل مندوب قبل تسوية خط السير."
+        },
+        {
+          "id": "how",
+          "title": "كيف يعمل FieldSales في عُمان",
+          "body": "تبدأ من إعدادات الشركة: العملة الريال العماني، واسم الضريبة «ضريبة القيمة المضافة» ونسبتها 5%، وطرق الدفع التي تستعملها. ثم تضيف الأصناف والعملاء وخطوط السير، وتسلّم كل مندوب عهدة سيارته. وفي الميدان يصدر المندوب الفاتورة من تطبيقه على أندرويد أو آيفون ويطبعها على طابعة حرارية، ويسجّل سند القبض، ويوثّق الزيارة بالموقع والصور. وإن انقطعت الشبكة في طريق بعيد واصل عمله دون اتصال، ويزامن التطبيق ما سجّله حين يعود الاتصال. وفي نهاية اليوم تُطابَق عهدة السيارة مع المبيعات والتحصيل في تسوية خط السير، ويتابع المدير ذلك كله من لوحة الويب. واجهة التطبيق متاحة بالعربية والإنجليزية والفرنسية والتركية والصينية."
+        }
+      ],
+      "faq": [
+        {
+          "q": "هل تلزمني الفوترة الإلكترونية في عُمان الآن، وما موقف FieldSales منها؟",
+          "a": "حتى آخر تحقق من هذه الصفحة لم تصبح الفوترة الإلكترونية (فوترة) إلزامية بعد، ومواعيد الإلزام ومصادرها في قسم الفوترة الإلكترونية أعلاه. ولا يرسل FieldSales اليوم أي فاتورة إلى منظومة الفواتير الإلكترونية العمانية. والربط مع أحد مزوّدي خدمة الفواتير الإلكترونية في عُمان متاح عند الطلب بعد دراسة متطلبات البلد، بلا وعد بموعد أو نتيجة."
+        },
+        {
+          "q": "هل يعمل تطبيق المندوب دون إنترنت؟",
+          "a": "نعم. يصدر المندوب الفواتير وسندات القبض ويسجّل الزيارات دون اتصال، ويزامن التطبيق ما سجّله مع لوحة الويب حين يعود الاتصال، فلا يتوقف البيع في الطرق البعيدة أو في المستودعات ضعيفة التغطية."
+        },
+        {
+          "q": "كيف أسجّل تحصيل الشيكات والتحويلات البنكية والدفع بالجوال؟",
+          "a": "أضف من إعدادات الشركة طرق الدفع التي تتعامل بها، مثل النقد والشيك والتحويل البنكي وبطاقة الخصم والدفع بالجوال أو QR، ثم يختار المندوب الطريقة في سند القبض. هذا تسجيل للدفعة على حساب العميل ينعكس على مديونيته، لا اتصال مباشر بالبنك أو بأنظمة الدفع."
+        },
+        {
+          "q": "هل أستطيع ضبط الريال العماني وضريبة القيمة المضافة بنسبة 5%؟",
+          "a": "نعم. من إعدادات الشركة تضبط العملة على الريال العماني، واسم الضريبة ونسبتها 5%، دون الحاجة إلى نسخة خاصة بعُمان. ويمكن تخصيص الفاتورة المطبوعة بالعربية لتعرض رقم التعريف الضريبي ونسبة الضريبة وقيمتها، ويبقى التحقق من مطابقتها لمتطلبات جهاز الضرائب عليك."
+        },
+        {
+          "q": "هل يطبّق FieldSales نسبة الصفر على الأغذية الأساسية تلقائياً؟",
+          "a": "لا. لا يصنّف FieldSales الأصناف ضمن نسبة الصفر أو الإعفاء من تلقاء نفسه؛ فتصنيف الأصناف ونسبتها يضبطه العميل. وقد وسّع جهاز الضرائب قائمة نسبة الصفر لفئات من الأغذية والأدوية والمستلزمات البيطرية، والعبرة بالرموز الجمركية في ملاحق القرارات، فراجعها مع محاسبك قبل ضبط أصنافك."
+        },
+        {
+          "q": "هل يطبع المندوب الفاتورة بالعربية من جواله؟",
+          "a": "نعم. يطبع المندوب الفاتورة على طابعة حرارية من جواله، ويمكن تخصيص قالبها بالعربية. وتنص المادة 144 من اللائحة التنفيذية على إصدار الفاتورة الضريبية بالعربية، وتجيز إصدارها بالإنجليزية بشرط توفير ترجمة عربية إذا طلبها الجهاز. ويبقى على الشركة التحقق من مطابقة قالبها لمتطلبات جهاز الضرائب."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "مثال على بنية فاتورة ضريبية يصدرها المندوب في عُمان",
+        "note": "مثال بنية بلا مبالغ، مرتّب على بيانات المادة 144 من اللائحة التنفيذية. تخصّص الشركة قالب الطباعة، ويبقى عليها التحقق من مطابقته لمتطلبات جهاز الضرائب.",
+        "fields": [
+          {
+            "label": "عنوان المستند",
+            "example": "فاتورة ضريبية"
+          },
+          {
+            "label": "رقم الفاتورة",
+            "example": "رقم تسلسلي وفق تسلسل فواتير الشركة"
+          },
+          {
+            "label": "تاريخ الإصدار وتاريخ التوريد",
+            "example": "تاريخ الزيارة التي سُلّمت فيها البضاعة"
+          },
+          {
+            "label": "تاريخ السداد",
+            "example": "عند الاستلام نقداً، أو تاريخ الاستحقاق في البيع الآجل"
+          },
+          {
+            "label": "المورد",
+            "example": "الاسم الكامل لشركة التوزيع وعنوانها"
+          },
+          {
+            "label": "رقم التعريف الضريبي للمورد (VATIN)",
+            "example": "الرقم الذي يمنحه جهاز الضرائب للشركة عند تسجيلها في ضريبة القيمة المضافة"
+          },
+          {
+            "label": "العميل",
+            "example": "الاسم الكامل للبقالة أو المتجر وعنوانه"
+          },
+          {
+            "label": "رقم التعريف الضريبي للعميل",
+            "example": "يُذكر إن كان العميل مسجّلاً في الضريبة"
+          },
+          {
+            "label": "وصف الصنف والكمية",
+            "example": "سائل جلي الصحون — عدد الكراتين المسلّمة"
+          },
+          {
+            "label": "المقابل دون الضريبة",
+            "example": "مجموع الأسطر قبل الضريبة بالريال العماني"
+          },
+          {
+            "label": "الخصومات",
+            "example": "أي خصم لم يُدرج في المقابل دون الضريبة"
+          },
+          {
+            "label": "معدل الضريبة المطبق",
+            "example": "5%"
+          },
+          {
+            "label": "القيمة الخاضعة للضريبة وقيمة الضريبة المستحقة",
+            "example": "تُحسب من أسطر الفاتورة وتُطبع في ذيلها"
+          },
+          {
+            "label": "طريقة الدفع",
+            "example": "نقد أو شيك أو تحويل بنكي أو آجل، كما ضبطتها الشركة"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "القرار 189/2026 بتعديل اللائحة التنفيذية لقانون ضريبة القيمة المضافة (الجريدة الرسمية، العدد 1660)",
+          "url": "https://qanoon.om/p/2026/ta20260189/"
+        },
+        {
+          "title": "جهاز الضرائب — الفوترة الإلكترونية (فوترة)",
+          "url": "https://tms.taxoman.gov.om/portal/e-invoicing"
+        },
+        {
+          "title": "جهاز الضرائب — الأسئلة الشائعة عن الفوترة الإلكترونية",
+          "url": "https://tms.taxoman.gov.om/portal/e-invoicing-faq"
+        },
+        {
+          "title": "قانون ضريبة القيمة المضافة — المرسوم السلطاني 121/2020",
+          "url": "https://qanoon.om/p/2020/rd2020121/"
+        },
+        {
+          "title": "اللائحة التنفيذية لقانون ضريبة القيمة المضافة — القرار 53/2021",
+          "url": "https://qanoon.om/p/2021/ta20210053/"
+        },
+        {
+          "title": "القرار 456/2022 بتعديل المادتين 143 و146 من اللائحة التنفيذية",
+          "url": "https://qanoon.om/p/2022/ta20220456/"
+        },
+        {
+          "title": "جهاز الضرائب — ثلاثة قرارات بتوسيع قائمة نسبة الصفر",
+          "url": "https://tms.taxoman.gov.om/portal/web/taxportal/-/the-tax-authority-issues-three-new-decisions-expanding-the-0-vat-rate-list-to-cover-essential-goods-and-healthcare-products."
+        },
+        {
+          "title": "جهاز الضرائب — خدمة التحقق من البيانات الضريبية",
+          "url": "https://tms.taxoman.gov.om/portal/vatin-validation"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Oman, Other taxes",
+          "url": "https://taxsummaries.pwc.com/oman/corporate/other-taxes"
+        },
+        {
+          "title": "KPMG — تعديل اللائحة التنفيذية لتطبيق الفوترة الإلكترونية في عُمان",
+          "url": "https://kpmg.com/us/en/taxnewsflash/news/2026/08/oman-vat-executive-regulations-amended-e-invoicing-implementation.html"
+        },
+        {
+          "title": "Fonoa — الفوترة الإلكترونية في عُمان",
+          "url": "https://www.fonoa.com/resources/blog/oman-e-invoicing"
+        },
+        {
+          "title": "EDICOM — متطلبات الفوترة الإلكترونية في عُمان",
+          "url": "https://edicomgroup.com/blog/oman-electronic-invoicing"
+        },
+        {
+          "title": "البنك المركزي العماني — تطور أنظمة الدفع",
+          "url": "https://cbo.gov.om/Pages/PaymentSystemReforms.aspx"
+        },
+        {
+          "title": "البنك المركزي العماني — إحصاءات المدفوعات بين البنوك",
+          "url": "https://cbo.gov.om/Pages/PaymentSystemsOverview.aspx"
+        },
+        {
+          "title": "الهيئة العامة للمناطق الاقتصادية الخاصة والمناطق الحرة (أوباز)",
+          "url": "https://opaz.gov.om/en/"
+        }
+      ],
+      "lastVerifiedLabel": "آخر تحقق: نوفمبر 2026"
+    },
+    "en": {
+      "slugHint": null,
+      "title": "Field Sales & Van Sales Software in Oman | FieldSales",
+      "description": "FieldSales for Oman distributors: VAT invoices from the rep's phone, van sales, pre-sales, collections and van stock checks, even offline.",
+      "h1": "FieldSales in Oman: van sales, pre-sales and collections for distributors",
+      "intro": "FieldSales is a cloud platform, headquartered in Riyadh, for managing sales reps at distribution and wholesale companies in Oman: van sales, pre-sales (order taking) and collections. Reps issue Arabic tax invoices from their phones and print them on a thermal printer, record receipts against customer balances, reconcile van stock in the daily route settlement, and log visits with location and photos, even without a connection. Each company sets the Omani rial and 5% VAT in its own settings, with no Oman-specific version needed.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "Distribution in Oman: channels and local terms",
+          "body": "Oman's logistics hubs include Muscat, the capital, and the zones overseen by OPAZ, the authority for special economic zones: the Muscat Airport zone, Sohar and Salalah with their ports and trade zones, the Duqm Special Economic Zone and Khazaen Economic City. Common channels in Gulf consumer-goods distribution generally include baqalas (neighbourhood groceries) and small shops, supermarkets and hypermarkets, fuel-station stores, HoReCa (restaurants and cafés) and pharmacies. Field teams work in two familiar modes: van sales, where the rep sells, delivers and invoices from the van on the same visit, and pre-sales (order taking), where the order is delivered later. The day closes with the route settlement, the daily reconciliation of each rep's stock and cash. The Omani rial is divided into a thousand baisa, so amounts carry three decimal places, and Arabic invoices commonly abbreviate it as “ر.ع.”. Collections run through cash, cheques, bank transfers, debit cards and mobile payments."
+        },
+        {
+          "id": "tax",
+          "title": "VAT and the tax invoice in Oman",
+          "body": "Oman levies Value Added Tax (VAT) at a standard rate of 5% (Article 36 of the VAT Law, Royal Decree 121/2020), administered by the Oman Tax Authority. Articles 51 and 52 zero-rate certain supplies, including foodstuffs specified by decision of the Authority's chairman, medicines and medical equipment, and exports of goods outside the GCC. Three decisions in force since 1 October 2026 extended the zero-rated list to categories of basic foods, medicines and medical foods, and veterinary medicines and supplies; the customs codes in the decisions' annexes are what count, so check them before classifying any item. Other supplies are exempt, such as financial services, healthcare and education. Distributors should also note excise tax: 100% on tobacco and energy drinks, and 50% on carbonated and sugar-sweetened drinks (per PwC).\n\nThe VAT identification number (VATIN) is separate from the tax card number and the commercial registration number, and can be checked on the Tax Authority portal. Article 144 of the Executive Regulations requires a tax invoice to show: the words \"Tax Invoice\", a serial number, the dates of issue, supply and payment, the supplier's full name, address and VATIN, the customer's full name, address and VATIN, a description and quantity of the goods, the total excluding VAT, the rate applied, any discounts, the taxable value and the VAT due. Invoices are issued in Arabic, or in English provided an Arabic translation is supplied if the Authority asks, within 15 days of the supply (Article 143). A simplified tax invoice without customer details is allowed below the value threshold in Article 146, and a monthly summary invoice for the same customer is allowed under Article 150.\n\nIn FieldSales, the company sets the tax name and the 5% rate in its settings, and the printed Arabic invoice can be customised to show supplier and customer details, the VATIN, the VAT rate and the VAT amount. FieldSales does not apply zero-rating or exemptions to items on its own: item classification and rates are set by the customer, who remains responsible for checking the invoice against the Tax Authority's requirements."
+        },
+        {
+          "id": "einvoicing",
+          "title": "E-invoicing in Oman (Fawtara)",
+          "body": "Oman's e-invoicing system is called Fawtara (فوترة) and is run by the Oman Tax Authority. As of November 2026, no taxpayer is required to use it yet. Decision 189/2026, which amends the VAT Executive Regulations and was published in Official Gazette issue 1660 on 9 August 2026, requires invoices to be issued in a secured electronic format carrying a unique number per invoice, in two waves: from 1 April 2027 for large taxpayers whose annual supplies exceed the first-phase threshold, and from 1 October 2027 for all other VAT-registered businesses (Article 3 of the decision; question 5 of the Tax Authority's e-invoicing FAQ, which gives the threshold and how supplies are measured). A voluntary pilot for large companies selected by the Authority had been announced for August 2026; we found no official announcement that it actually went live. Voluntary early adoption is open to businesses outside the first phase. Until each group's date arrives, the current tax invoice rules still apply, including the 15-day issue deadline.\n\nThe Authority describes a five-corner model: the supplier, the supplier's service provider, the buyer's service provider, the buyer and the Tax Authority. Fonoa and EDICOM report that the exchange runs over the Peppol network in the PINT OM format, and the final technical specifications may still change. The Authority is required to announce the companies that provide e-invoicing services (Article 143 bis).\n\nFieldSales does not currently send any invoice to Oman's e-invoicing system, and its live government integration is in Saudi Arabia only. Connecting with an e-invoicing service provider in Oman is available on request, after studying the country's requirements, with no promise of a date or outcome."
+        },
+        {
+          "id": "collections",
+          "title": "Collections, receipts and customer balances",
+          "body": "According to the Central Bank of Oman's payment-system pages, field collections can run through cash; cheques, which are cleared electronically through the ECC system and keep falling in volume; bank transfers through the ACH automated clearing system; debit cards at the point of sale over the OmanNet network; and mobile and QR payments through the MPCSS system. In FieldSales, the company creates the payment methods it actually uses in its settings, such as cash, cheque, bank transfer, debit card and mobile or QR payment, and the rep picks the method on the receipt voucher when collecting. This records the payment on the voucher; it is not a direct connection to banks or payment systems. Receipts are reflected in the customer's outstanding balance, so managers can see what each shop owes and what each rep has collected before the route settlement."
+        },
+        {
+          "id": "how",
+          "title": "How FieldSales works in Oman",
+          "body": "Setup starts in the company settings: the Omani rial as currency, the tax name (for example \"ضريبة القيمة المضافة\" or \"VAT\") with a 5% rate, and the payment methods you use. You then add items, customers and routes, and assign each rep the stock loaded on their van. In the field, the rep issues invoices from the app on Android or iPhone, prints them on a thermal printer, records receipts and logs each visit with location and photos. If the signal drops on a remote route, the rep keeps working offline and the app syncs once the connection returns. At the end of the day, van stock is reconciled against sales and collections in the route settlement, and managers follow it all from the web dashboard. The app interface is available in Arabic, English, French, Turkish and Chinese."
+        }
+      ],
+      "faq": [
+        {
+          "q": "Do I need e-invoicing in Oman now, and where does FieldSales stand?",
+          "a": "As of the last check of this page, Fawtara e-invoicing is not yet mandatory; the mandate dates and their sources are in the e-invoicing section above. FieldSales does not currently send any invoice to Oman's e-invoicing system. Connecting with an e-invoicing service provider in Oman is available on request, after studying the country's requirements, with no promise of a date or outcome."
+        },
+        {
+          "q": "Does the rep app work without internet?",
+          "a": "Yes. Reps issue invoices and receipts and log visits offline, and the app syncs everything to the web dashboard when the connection returns, so selling does not stop on remote routes or in warehouses with weak coverage."
+        },
+        {
+          "q": "How do I record cheque, bank transfer or mobile payments?",
+          "a": "Add the payment methods you use in the company settings, for example cash, cheque, bank transfer, debit card and mobile or QR payment, and the rep selects one on the receipt voucher. This records the payment against the customer's balance; it is not a direct connection to your bank or to payment systems."
+        },
+        {
+          "q": "Can I set up the Omani rial and 5% VAT?",
+          "a": "Yes. In the company settings you set the currency to the Omani rial and the tax name and rate to VAT at 5%, with no Oman-specific version needed. The printed Arabic invoice can be customised to show the VATIN, the VAT rate and the VAT amount; checking it against the Tax Authority's requirements remains your responsibility."
+        },
+        {
+          "q": "Will FieldSales apply zero-rating to basic foods automatically?",
+          "a": "No. FieldSales does not classify items as zero-rated or exempt on its own; item classification and rates are set by the customer. The Tax Authority has extended the zero-rated list to categories of foods, medicines and veterinary products, and the customs codes in the decisions' annexes are what count, so review them with your accountant before setting up your items."
+        },
+        {
+          "q": "Can reps print Arabic invoices from their phones?",
+          "a": "Yes. Reps print invoices on a thermal printer from their phone, and the template can be customised in Arabic. Article 144 of the Executive Regulations requires tax invoices in Arabic and allows English provided an Arabic translation is supplied if the Authority requests it. Checking your template against the Tax Authority's requirements remains your responsibility."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Sample structure of a rep-issued tax invoice in Oman",
+        "note": "A structure example with no amounts, ordered on the Article 144 details. The company customises the print template and remains responsible for checking it against the Tax Authority's requirements.",
+        "fields": [
+          {
+            "label": "Document title",
+            "example": "Tax Invoice (فاتورة ضريبية)"
+          },
+          {
+            "label": "Invoice number",
+            "example": "Serial number following the company's invoice sequence"
+          },
+          {
+            "label": "Issue date and supply date",
+            "example": "Date of the visit on which the goods were delivered"
+          },
+          {
+            "label": "Payment date",
+            "example": "Cash on delivery, or the due date for credit sales"
+          },
+          {
+            "label": "Supplier",
+            "example": "Full name and address of the distribution company"
+          },
+          {
+            "label": "Supplier VATIN",
+            "example": "The number assigned to the company on its VAT registration with the Tax Authority"
+          },
+          {
+            "label": "Customer",
+            "example": "Full name and address of the baqala or store"
+          },
+          {
+            "label": "Customer VATIN",
+            "example": "Shown when the customer is VAT-registered"
+          },
+          {
+            "label": "Item description and quantity",
+            "example": "Dishwashing liquid, number of cartons delivered"
+          },
+          {
+            "label": "Total excluding VAT",
+            "example": "Sum of the lines before VAT, in Omani rials"
+          },
+          {
+            "label": "Discounts",
+            "example": "Any discount not already included in the total excluding VAT"
+          },
+          {
+            "label": "VAT rate applied",
+            "example": "5%"
+          },
+          {
+            "label": "Taxable value and VAT due",
+            "example": "Calculated from the invoice lines and printed in the footer"
+          },
+          {
+            "label": "Payment method",
+            "example": "Cash, cheque, bank transfer or credit, as set up by the company"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "Decision 189/2026 amending the VAT Executive Regulations (Official Gazette issue 1660)",
+          "url": "https://qanoon.om/p/2026/ta20260189/"
+        },
+        {
+          "title": "Oman Tax Authority — E-invoicing (Fawtara)",
+          "url": "https://tms.taxoman.gov.om/portal/e-invoicing"
+        },
+        {
+          "title": "Oman Tax Authority — E-invoicing FAQs",
+          "url": "https://tms.taxoman.gov.om/portal/e-invoicing-faq"
+        },
+        {
+          "title": "VAT Law — Royal Decree 121/2020",
+          "url": "https://qanoon.om/p/2020/rd2020121/"
+        },
+        {
+          "title": "VAT Executive Regulations — Decision 53/2021",
+          "url": "https://qanoon.om/p/2021/ta20210053/"
+        },
+        {
+          "title": "Decision 456/2022 amending Articles 143 and 146 of the Executive Regulations",
+          "url": "https://qanoon.om/p/2022/ta20220456/"
+        },
+        {
+          "title": "Oman Tax Authority — Three new decisions expanding the 0% VAT list",
+          "url": "https://tms.taxoman.gov.om/portal/web/taxportal/-/the-tax-authority-issues-three-new-decisions-expanding-the-0-vat-rate-list-to-cover-essential-goods-and-healthcare-products."
+        },
+        {
+          "title": "Oman Tax Authority — Tax data validation",
+          "url": "https://tms.taxoman.gov.om/portal/vatin-validation"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Oman, Other taxes",
+          "url": "https://taxsummaries.pwc.com/oman/corporate/other-taxes"
+        },
+        {
+          "title": "KPMG — Oman VAT executive regulations amended for e-invoicing implementation",
+          "url": "https://kpmg.com/us/en/taxnewsflash/news/2026/08/oman-vat-executive-regulations-amended-e-invoicing-implementation.html"
+        },
+        {
+          "title": "Fonoa — E-invoicing in Oman",
+          "url": "https://www.fonoa.com/resources/blog/oman-e-invoicing"
+        },
+        {
+          "title": "EDICOM — Oman e-invoicing requirements",
+          "url": "https://edicomgroup.com/blog/oman-electronic-invoicing"
+        },
+        {
+          "title": "Central Bank of Oman — Payment system evolution",
+          "url": "https://cbo.gov.om/Pages/PaymentSystemReforms.aspx"
+        },
+        {
+          "title": "Central Bank of Oman — Interbank payment statistics",
+          "url": "https://cbo.gov.om/Pages/PaymentSystemsOverview.aspx"
+        },
+        {
+          "title": "OPAZ — Public Authority for Special Economic Zones",
+          "url": "https://opaz.gov.om/en/"
+        }
+      ],
+      "lastVerifiedLabel": "Last verified: November 2026"
+    },
+    "fr": {
+      "slugHint": null,
+      "title": "Logiciel de vente terrain à Oman | FieldSales",
+      "description": "FieldSales pour les distributeurs à Oman : factures TVA depuis le mobile du commercial, vente itinérante, prévente et encaissements, même hors ligne.",
+      "h1": "FieldSales à Oman : vente itinérante, prévente et encaissements",
+      "intro": "FieldSales est une plateforme cloud, basée à Riyad, pour piloter les commerciaux terrain des distributeurs et grossistes à Oman : vente itinérante (van sales), prévente (prise de commande) et encaissements. Le commercial émet la facture fiscale en arabe depuis son mobile et l'imprime sur imprimante thermique, enregistre reçus et créances, rapproche le stock du véhicule à la clôture de tournée et documente ses visites par géolocalisation et photos, même hors connexion. Chaque société règle le rial omanais et la TVA à 5 % dans ses paramètres.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "La distribution à Oman : canaux et usages",
+          "body": "Parmi les pôles logistiques du sultanat figurent Mascate, la capitale, et les zones supervisées par l'OPAZ, l'autorité des zones économiques spéciales et des zones franches : la zone franche de l'aéroport de Mascate, Sohar et Salalah avec leur port et leur zone franche, la zone économique spéciale de Duqm et la cité économique de Khazaen. Dans la distribution de produits de grande consommation du Golfe, les canaux courants sont en général les baqalas (épiceries de quartier) et petits commerces, les supermarchés et hypermarchés, les boutiques de stations-service, la restauration (HoReCa) et les pharmacies. Sur le terrain, deux modes coexistent : la vente itinérante (van sales), où le commercial vend, livre et facture depuis son véhicule lors de la même visite, et la prévente (pre-sales), où la commande est livrée plus tard. La journée se termine par la clôture de tournée, le rapprochement quotidien du stock et de la caisse de chaque commercial. Le rial omanais se divise en mille baïsas : les montants comptent donc trois décimales, et les factures arabes l'abrègent couramment en « ر.ع. ». Les encaissements passent par les espèces, les chèques, les virements, les cartes de débit et les paiements mobiles."
+        },
+        {
+          "id": "tax",
+          "title": "TVA et facture fiscale à Oman",
+          "body": "Oman applique une taxe sur la valeur ajoutée (TVA) au taux normal de 5 % (article 36 de la loi sur la TVA, décret royal 121/2020), gérée par l'Autorité fiscale d'Oman (Oman Tax Authority). Les articles 51 et 52 soumettent certaines livraisons au taux zéro, dont des denrées alimentaires fixées par décision du président de l'Autorité, les médicaments et équipements médicaux, et les exportations de biens hors du Conseil de coopération du Golfe. Trois décisions en vigueur depuis le 1er octobre 2026 ont étendu la liste du taux zéro à des catégories d'aliments de base, de médicaments et aliments médicaux, et de médicaments et fournitures vétérinaires ; seuls les codes douaniers des annexes font foi, à vérifier avant de classer un article. D'autres opérations sont exonérées, comme les services financiers, la santé et l'éducation. Les distributeurs sont aussi concernés par la taxe d'accise : 100 % sur le tabac et les boissons énergisantes, 50 % sur les boissons gazeuses et sucrées (selon PwC).\n\nLe numéro d'identification fiscale TVA (VATIN) est distinct du numéro de carte fiscale et du numéro de registre du commerce ; il se vérifie sur le portail de l'Autorité fiscale. L'article 144 du règlement d'application impose sur la facture fiscale : la mention « facture fiscale », un numéro séquentiel, les dates d'émission, de livraison et de paiement, le nom complet, l'adresse et le VATIN du fournisseur, ceux du client, la description et la quantité des biens, le total hors taxe, le taux appliqué, les remises, la base imposable et la TVA due. La facture est émise en arabe, ou en anglais à condition de fournir une traduction arabe si l'Autorité la demande, au plus tard 15 jours après la livraison (article 143). Une facture fiscale simplifiée, sans données client, est admise sous le seuil de valeur de l'article 146, et une facture récapitulative mensuelle pour un même client est admise par l'article 150.\n\nDans FieldSales, la société règle le nom de la taxe et le taux de 5 % dans ses paramètres, et la facture imprimée en arabe peut être personnalisée pour afficher les données du fournisseur et du client, le VATIN, le taux et le montant de TVA. FieldSales n'applique pas de lui-même le taux zéro ni les exonérations aux articles : la classification des articles et leur taux sont réglés par le client, à qui il revient de vérifier que la facture répond aux exigences de l'Autorité fiscale."
+        },
+        {
+          "id": "einvoicing",
+          "title": "La facturation électronique à Oman (Fawtara)",
+          "body": "Le système omanais de facturation électronique s'appelle Fawtara (فوترة) et relève de l'Autorité fiscale d'Oman. En novembre 2026, aucun contribuable n'y est encore tenu. La décision 189/2026, qui modifie le règlement d'application de la TVA et a été publiée au Journal officiel (n° 1660) le 9 août 2026, impose l'émission des factures dans un format électronique sécurisé portant un numéro unique par facture, en deux vagues : à partir du 1er avril 2027 pour les grandes entreprises dont les livraisons annuelles dépassent le seuil de première phase, puis à partir du 1er octobre 2027 pour tous les autres assujettis à la TVA (article 3 de la décision ; question 5 de la FAQ de l'Autorité sur la facturation électronique, qui précise ce seuil et la façon de mesurer les livraisons). Un pilote volontaire pour de grandes entreprises choisies par l'Autorité avait été annoncé pour août 2026 ; nous n'avons trouvé aucune annonce officielle de son lancement effectif. L'adoption anticipée volontaire est ouverte aux entreprises hors première phase. Jusqu'à l'échéance de chaque catégorie, les règles actuelles de la facture fiscale restent applicables, dont le délai d'émission de 15 jours.\n\nL'Autorité décrit un modèle à cinq coins : le fournisseur, le prestataire du fournisseur, le prestataire de l'acheteur, l'acheteur et l'Autorité fiscale. Selon Fonoa et EDICOM, les échanges passent par le réseau Peppol au format PINT OM, et les spécifications techniques définitives peuvent encore évoluer. L'Autorité doit annoncer les sociétés qui fournissent des services de facturation électronique (article 143 bis).\n\nFieldSales n'envoie aujourd'hui aucune facture au système omanais de facturation électronique, et sa seule intégration gouvernementale active concerne l'Arabie saoudite. Une connexion avec un prestataire de facturation électronique à Oman est possible sur demande, après étude des exigences du pays, sans promesse de date ni de résultat."
+        },
+        {
+          "id": "collections",
+          "title": "Encaissements, reçus et créances clients",
+          "body": "Selon les pages de la Banque centrale d'Oman consacrées aux systèmes de paiement, les encaissements terrain peuvent passer par les espèces ; les chèques, compensés électroniquement via le système ECC et en recul constant en volume ; les virements via la chambre de compensation automatisée ACH ; les cartes de débit en point de vente sur le réseau OmanNet ; et les paiements mobiles et par QR code via le système MPCSS. Dans FieldSales, la société crée dans ses paramètres les modes de paiement qu'elle utilise réellement, par exemple espèces, chèque, virement, carte de débit et paiement mobile ou QR, et le commercial choisit le mode sur le reçu d'encaissement. Il s'agit d'un enregistrement du paiement sur le reçu, pas d'une connexion directe aux banques ni aux systèmes de paiement. Les reçus se reflètent dans l'encours du client : le responsable voit ce que doit chaque point de vente et ce que chaque commercial a encaissé avant la clôture de tournée."
+        },
+        {
+          "id": "how",
+          "title": "Comment FieldSales fonctionne à Oman",
+          "body": "Tout commence dans les paramètres de la société : le rial omanais comme devise, le nom de la taxe (par exemple « ضريبة القيمة المضافة » ou « TVA ») avec un taux de 5 %, et vos modes de paiement. Vous ajoutez ensuite articles, clients et tournées, et confiez à chaque commercial le stock chargé dans son véhicule. Sur le terrain, le commercial émet ses factures depuis l'application Android ou iPhone, les imprime sur une imprimante thermique, enregistre les encaissements et documente chaque visite par géolocalisation et photos. Si le réseau coupe sur une tournée éloignée, il continue de travailler hors ligne et l'application synchronise dès le retour de la connexion. En fin de journée, le stock du véhicule est rapproché des ventes et des encaissements lors de la clôture de tournée, et le responsable suit l'ensemble depuis le tableau de bord web. L'interface de l'application est disponible en arabe, anglais, français, turc et chinois."
+        }
+      ],
+      "faq": [
+        {
+          "q": "Dois-je passer à la facturation électronique à Oman dès maintenant, et quelle est la position de FieldSales ?",
+          "a": "À la date de la dernière vérification de cette page, la facturation électronique Fawtara n'est pas encore obligatoire ; les échéances et leurs sources figurent dans la section sur la facturation électronique ci-dessus. FieldSales n'envoie aujourd'hui aucune facture au système omanais de facturation électronique. Une connexion avec un prestataire de facturation électronique à Oman est possible sur demande, après étude des exigences du pays, sans promesse de date ni de résultat."
+        },
+        {
+          "q": "L'application du commercial fonctionne-t-elle sans internet ?",
+          "a": "Oui. Le commercial émet factures et reçus et enregistre ses visites hors ligne, puis l'application synchronise tout avec le tableau de bord web au retour de la connexion : la vente ne s'arrête pas sur les tournées éloignées ni dans les entrepôts mal couverts."
+        },
+        {
+          "q": "Comment enregistrer un chèque, un virement ou un paiement mobile ?",
+          "a": "Ajoutez dans les paramètres de la société les modes de paiement que vous utilisez, par exemple espèces, chèque, virement, carte de débit et paiement mobile ou QR, puis le commercial en choisit un sur le reçu d'encaissement. Le paiement est ainsi enregistré sur le compte du client et se reflète dans son encours ; il ne s'agit pas d'une connexion directe à votre banque ni aux systèmes de paiement."
+        },
+        {
+          "q": "Puis-je régler le rial omanais et la TVA à 5 % ?",
+          "a": "Oui. Dans les paramètres de la société, vous choisissez le rial omanais comme devise, puis le nom de la taxe et son taux de 5 %, sans version propre à Oman. La facture imprimée en arabe peut être personnalisée pour afficher le VATIN, le taux et le montant de TVA ; vérifier qu'elle répond aux exigences de l'Autorité fiscale reste à votre charge."
+        },
+        {
+          "q": "FieldSales applique-t-il automatiquement le taux zéro aux aliments de base ?",
+          "a": "Non. FieldSales ne classe pas de lui-même les articles au taux zéro ou en exonération ; la classification des articles et leur taux sont réglés par le client. L'Autorité fiscale a étendu la liste du taux zéro à des catégories d'aliments, de médicaments et de produits vétérinaires, et seuls les codes douaniers des annexes font foi : vérifiez-les avec votre comptable avant de paramétrer vos articles."
+        },
+        {
+          "q": "Le commercial peut-il imprimer des factures en arabe depuis son mobile ?",
+          "a": "Oui. Le commercial imprime la facture sur une imprimante thermique depuis son mobile, et le modèle peut être personnalisé en arabe. L'article 144 du règlement d'application impose la facture fiscale en arabe et admet l'anglais à condition de fournir une traduction arabe si l'Autorité la demande. Il vous revient de vérifier que votre modèle répond aux exigences de l'Autorité fiscale."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Exemple de structure d'une facture fiscale émise par le commercial à Oman",
+        "note": "Exemple de structure sans montants, ordonné selon les mentions de l'article 144. La société personnalise le modèle d'impression et reste chargée de vérifier qu'il répond aux exigences de l'Autorité fiscale.",
+        "fields": [
+          {
+            "label": "Titre du document",
+            "example": "Facture fiscale (فاتورة ضريبية)"
+          },
+          {
+            "label": "Numéro de facture",
+            "example": "Numéro séquentiel suivant la numérotation de la société"
+          },
+          {
+            "label": "Date d'émission et date de livraison",
+            "example": "Date de la visite au cours de laquelle la marchandise a été livrée"
+          },
+          {
+            "label": "Date de paiement",
+            "example": "Comptant à la livraison, ou date d'échéance pour une vente à crédit"
+          },
+          {
+            "label": "Fournisseur",
+            "example": "Nom complet et adresse de la société de distribution"
+          },
+          {
+            "label": "VATIN du fournisseur",
+            "example": "Numéro attribué à la société lors de son enregistrement à la TVA auprès de l'Autorité fiscale"
+          },
+          {
+            "label": "Client",
+            "example": "Nom complet et adresse de la baqala ou du magasin"
+          },
+          {
+            "label": "VATIN du client",
+            "example": "Indiqué si le client est enregistré à la TVA"
+          },
+          {
+            "label": "Désignation et quantité",
+            "example": "Liquide vaisselle, nombre de cartons livrés"
+          },
+          {
+            "label": "Total hors taxe",
+            "example": "Somme des lignes avant TVA, en rials omanais"
+          },
+          {
+            "label": "Remises",
+            "example": "Toute remise non incluse dans le total hors taxe"
+          },
+          {
+            "label": "Taux de TVA appliqué",
+            "example": "5 %"
+          },
+          {
+            "label": "Base imposable et TVA due",
+            "example": "Calculées à partir des lignes et imprimées en pied de facture"
+          },
+          {
+            "label": "Mode de paiement",
+            "example": "Espèces, chèque, virement ou crédit, selon le paramétrage de la société"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "Décision 189/2026 modifiant le règlement d'application de la TVA (Journal officiel n° 1660, en arabe)",
+          "url": "https://qanoon.om/p/2026/ta20260189/"
+        },
+        {
+          "title": "Autorité fiscale d'Oman — Facturation électronique (Fawtara)",
+          "url": "https://tms.taxoman.gov.om/portal/e-invoicing"
+        },
+        {
+          "title": "Autorité fiscale d'Oman — FAQ sur la facturation électronique",
+          "url": "https://tms.taxoman.gov.om/portal/e-invoicing-faq"
+        },
+        {
+          "title": "Loi sur la TVA — décret royal 121/2020 (en arabe)",
+          "url": "https://qanoon.om/p/2020/rd2020121/"
+        },
+        {
+          "title": "Règlement d'application de la TVA — décision 53/2021 (en arabe)",
+          "url": "https://qanoon.om/p/2021/ta20210053/"
+        },
+        {
+          "title": "Décision 456/2022 modifiant les articles 143 et 146 du règlement d'application (en arabe)",
+          "url": "https://qanoon.om/p/2022/ta20220456/"
+        },
+        {
+          "title": "Autorité fiscale d'Oman — Trois décisions étendant la liste du taux zéro",
+          "url": "https://tms.taxoman.gov.om/portal/web/taxportal/-/the-tax-authority-issues-three-new-decisions-expanding-the-0-vat-rate-list-to-cover-essential-goods-and-healthcare-products."
+        },
+        {
+          "title": "Autorité fiscale d'Oman — Vérification des données fiscales",
+          "url": "https://tms.taxoman.gov.om/portal/vatin-validation"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Oman, Other taxes",
+          "url": "https://taxsummaries.pwc.com/oman/corporate/other-taxes"
+        },
+        {
+          "title": "KPMG — Modification du règlement d'application de la TVA pour la facturation électronique à Oman",
+          "url": "https://kpmg.com/us/en/taxnewsflash/news/2026/08/oman-vat-executive-regulations-amended-e-invoicing-implementation.html"
+        },
+        {
+          "title": "Fonoa — La facturation électronique à Oman",
+          "url": "https://www.fonoa.com/resources/blog/oman-e-invoicing"
+        },
+        {
+          "title": "EDICOM — Exigences de facturation électronique à Oman",
+          "url": "https://edicomgroup.com/blog/oman-electronic-invoicing"
+        },
+        {
+          "title": "Banque centrale d'Oman — Évolution des systèmes de paiement",
+          "url": "https://cbo.gov.om/Pages/PaymentSystemReforms.aspx"
+        },
+        {
+          "title": "Banque centrale d'Oman — Statistiques des paiements interbancaires",
+          "url": "https://cbo.gov.om/Pages/PaymentSystemsOverview.aspx"
+        },
+        {
+          "title": "OPAZ — Autorité des zones économiques spéciales et des zones franches",
+          "url": "https://opaz.gov.om/en/"
+        }
+      ],
+      "lastVerifiedLabel": "Dernière vérification : novembre 2026"
+    }
+  },
+  "notes": "صفحة مدونة قائمة (/blog/field-sales-software-om/) فـslugHint=null في اللغات الثلاث. بُني المحتوى على الحقائق بعد التدقيق (audit.auditedAt=2026-11-11، الثقة high). قرارات تحريرية: (1) حُذفت كل الحدود المالية المقرونة بالعملة التزاماً بمنع «مبلغ ملاصق لعملة»: حدّ المرحلة الأولى للفوترة الإلكترونية (التوريدات السنوية فوق خمسة ملايين)، وحدّ الفاتورة المبسطة (المادة 146)، وحدّا التسجيل؛ فوُصفت بالإحالة إلى القرار والمادة دون أرقام. إن أراد الدامج ذكر حدّ الخمسة ملايين فليكن في قسم الفوترة الإلكترونية وحده وبمصدره (القرار 189/2026 والسؤال 5). (2) لم يُذكر عدد شركات المرحلة التجريبية (100 أو 150 أو 153 متعارضة) ولا انطلاقها الفعلي، ولا صيغة VATIN (taxId.format=null)، ولا تفاصيل B2C وغرامات فوترة (مصادر ثانوية)، ولا أصناف بعينها من توسعة نسبة الصفر؛ ذُكرت فئاتها العامة بحسب خبر الجهاز مع الإحالة إلى الرموز الجمركية. (3) Peppol وPINT OM منسوبتان صراحة إلى Fonoa وEDICOM لأن صفحة الجهاز لا تسمّي Peppol، ولا جملة تنسب إلى FieldSales توافقاً معهما. (4) قنوات البيع والمصطلحات المحلية مصوغة «شائعة في الخليج عموماً» لأنها في uncertain، ومراكز التوزيع بلا ترتيب. (5) ذُكر أن الريال بثلاث خانات عشرية حقيقةً عن العملة فقط، دون أي ادعاء بأن فاتورة FieldSales تعرض البيسة بثلاث خانات؛ يُستحسن التحقق داخلياً قبل إضافة ذلك. (6) الضريبة الانتقائية ذُكرت حقيقةً للموزعين دون ادعاء أن FieldSales يحسبها. (7) لم تُستعمل في أي نص المفردات الممنوعة في قائمة المهمة، ولا الكلمة الإنجليزية التي قد تُفهم سعراً حتى في أسماء المناطق الحرة (صيغت «trade zones» واسم أوباز مختصراً)، وفي الفرنسية «zone franche» لا إشكال فيها؛ ومزوّدو الخدمة وُصفوا بأنهم «يعلنهم الجهاز» لا بصفة تُفهم إذناً رسمياً. (8) جملة FieldSales في قسم الفوترة الإلكترونية لا تسمّي فوترة ولا جهاز الضرائب، وتصرّح بأن الربط الحكومي الحيّ في السعودية وحدها ولا يمتد إلى عُمان، والربط مع مزوّد خدمة عُماني «متاح عند الطلب» بلا وعد ولا موعد. (9) مواعيد الإلزام في قسم einvoicing وحده؛ الأسئلة الشائعة تحيل إليه دون تواريخ.",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish",
+    "fixes": 15,
+    "issues": [
+      "ar/en/fr einvoicing: حُذف أن حدّ المرحلة الأولى «محدد في القرار» ونُسب الحد وطريقة قياسه إلى السؤال 5 في الأسئلة الشائعة الرسمية، وهو المصدر الصريح في ملف الحقائق (دون ذكر المبلغ التزاماً بمنع المبلغ الملاصق للعملة).",
+      "ar einvoicing: «ويعلن الجهاز الشركات...» صيغة تقرير لفعل قائم؛ الحقيقة أن القرار يُلزم الجهاز بإعلانها (المادة 143 مكرراً)، فصُحّحت كما في en/fr.",
+      "ar/en/fr tax: مهلة 15 يوماً جاءت عقب ذكر المادة 144 فبدت منسوبة إليها؛ أُضيف «(المادة 143)» وهي مصدرها في الحقائق.",
+      "ar/en/fr sampleInvoice: مثال الصنف «مياه شرب معبأة» مع معدل 5% قد يوحي بنسبة صنف غذائي بعينه، وملف الحقائق يمنع ذكر أي صنف قبل الرجوع إلى ملاحق قرارات نسبة الصفر؛ استُبدل بسائل جلي الصحون (غير غذائي).",
+      "ar sampleInvoice: «الرقم الوارد في شهادة تسجيل الشركة» حقيقة غير واردة في الحقائق؛ صارت «الرقم الذي يمنحه جهاز الضرائب للشركة عند تسجيلها» مطابقة لـen.",
+      "ar/en/fr FAQ الطباعة بالعربية: جملة المادة 144 جاورت قدرة FieldSales دون تحفّظ فقد تُقرأ ادعاء مطابقة (ممنوع في honesty.mustNotSay)؛ أُضيف أن التحقق من مطابقة القالب على الشركة.",
+      "en distribution: علامتا «» الفرنسيتان حول «ر.ع.» في نص إنجليزي استُبدلتا بعلامتي تنصيص إنجليزيتين.",
+      "تحقق بلا تغيير: النسبة 5% ونسبة الصفر (المادتان 51 و52 وقرارات 1 أكتوبر 2026) والإعفاءات والضريبة الانتقائية منسوبة إلى PwC، وبيانات المادة 144، والقرار 189/2026 (العدد 1660، 9 أغسطس 2026، موعدا 1 أبريل و1 أكتوبر 2027، المادة الثالثة)، وعدم انطلاق التجريبي رسمياً دون عدد شركات، وPeppol/PINT OM منسوبتان إلى Fonoa وEDICOM، ووسائل التحصيل من البنك المركزي، ولغات الواجهة الخمس — كلها مطابقة لملف الحقائق.",
+      "تحقق بلا تغيير: لا سعر ولا مبلغ ملاصق لعملة، ولا «مجاني/free/gratuit»، ولا «معتمد/مرخّص/certified/compliant/agréé/conforme»، ولا ادعاء ربط مع فوترة أو جهاز الضرائب؛ الربط الحيّ في السعودية وحدها والربط مع مزوّد عُماني «متاح عند الطلب» بلا وعد ولا موعد، ولا سنة في جمل FieldSales ولا بجوارها (مواعيد الإلزام في قسم einvoicing وحده).",
+      "ملاحظة للدامج: تاريخ 1 أكتوبر 2026 لتوسيع نسبة الصفر مذكور في قسم الضريبة لأنه تاريخ سريان ضريبي لا موعد إلزام بالفوترة الإلكترونية، وهو في فقرة مستقلة عن فقرة FieldSales ومنسوب إلى خبر جهاز الضرائب."
+    ]
+  }
+}

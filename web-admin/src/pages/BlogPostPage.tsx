@@ -25,6 +25,8 @@ const { getArticle, canonicalSlug, isIndexable } = catalog as unknown as {
   canonicalSlug: (slug: string) => string;
   isIndexable: (cc: string | null, L: string) => boolean;
 };
+// أدلة الدول (countryGuides.mjs): ملف المحتوى المراجَع يصل كسولاً في المتصفح، فتنتظره الصفحة والمحتوى المُصيَّر ظاهر
+const { countryGuideOf, countryGuideReady, loadCountryGuide, articleLangs } = catalog;
 // المصدر الواحد للدمج (P3) وللأسئلة الظاهرة (P2) — نفسه في prerender.mjs فلا يتغيّر canonical ولا FAQPage بعد الإقلاع
 const { existsWith, consolidatedTarget, consolidatedUrl } = consolidateMod as {
   existsWith: (manual: { slug: string; en?: { title?: string } }[]) => Exists;
@@ -110,6 +112,17 @@ export default function BlogPostPage() {
 
   // اختر المصدر: مقال يدوي (ع/إ) أو مقال SEO مولّد (ع/إ/فر) — التركية تسقط للإنجليزية (لا مدونة تركية)
   const blogLang = (lang === 'tr' || lang === 'zh' ? 'en' : lang);
+  // دليل دولة يُرسم من ملف محتواه: حتى يصل (حزمة كسولة) يبقى المحتوى المُصيَّر ظاهراً (ssrHoldHtml) — فلا يرى الزائر
+  // الصفحة القالبية أو التحويل إلى الفهرس ثم يتبدّل المحتوى. وبعد وصوله يرسم الكتالوج ما صيّره prerender حرفياً.
+  const guideCc = countryGuideOf(slug || '', blogLang);
+  const [, setGuideTick] = useState(0);
+  const guideReady = !guideCc || countryGuideReady(guideCc);
+  useEffect(() => {
+    if (!guideCc || countryGuideReady(guideCc)) return;
+    let alive = true;
+    loadCountryGuide(guideCc).then(() => { if (alive) setGuideTick((n) => n + 1); });
+    return () => { alive = false; };
+  }, [guideCc]);
   const useHand = !!hand && lang !== 'fr' && !handUnavailableEn;
   const seo = useHand ? null : getArticle(slug || '', blogLang);
 
@@ -134,10 +147,14 @@ export default function BlogPostPage() {
   if (seo) {
     const cSlug = canonicalSlug(slug || '');
     const cc = seo.countryCode;
-    const langs: Lang[] = isIndexable(cc, 'en') ? ['ar', 'en', 'fr'] : ['ar', 'fr'];
+    // دليل دولة بلغة سوقها وحدها: عنقود ذاتي (لغتها وx-default إليها) كما في prerender.mjs والخريطة
+    const guideLangs = articleLangs(slug || '');
+    const langs: Lang[] = guideLangs || (isIndexable(cc, 'en') ? ['ar', 'en', 'fr'] : ['ar', 'fr']);
     const u = seoUrls(`/blog/${cSlug}`, lang, langs);
     canonical = u.canonical;
-    if (cSlug === slug && isIndexable(cc, lang)) alternates = u.alternates;
+    // (التركية والصينية تعرضان الإنجليزية احتياطاً، فلا عنقود ذاتي لهما: الصفحة ليست بلغتهما)
+    if (guideLangs) alternates = langs.includes(lang) ? [{ hreflang: lang, href: canonical }, { hreflang: 'x-default', href: canonical }] : [];
+    else if (cSlug === slug && isIndexable(cc, lang)) alternates = u.alternates;
   } else {
     const L = lang === 'en' ? 'en' : 'ar';
     const target = hand ? consolidatedTarget(hand.slug, L, exists) : null;
@@ -194,7 +211,7 @@ export default function BlogPostPage() {
   const relLang: 'ar' | 'en' = lang === 'en' ? 'en' : 'ar';
   const related: RelatedLink[] = useHand && hand ? relatedFor(hand.slug, relLang, posts, exists) : [];
 
-  useSeo(view ? {
+  useSeo(!guideReady ? { title: document.title } : view ? {
     // «| FieldSales» وتسقط إن جاوز العنوان بها 70 حرفاً — مطابق لما يصيّره prerender.mjs
     title: blogTitle(view.title),
     description: view.description,
@@ -209,6 +226,12 @@ export default function BlogPostPage() {
 
   // إنجليزي يدوي غير متوفّر → وجّه للعربية
   if (handUnavailableEn) return <Navigate to={`/blog/${slug}`} replace />;
+  // ملف دليل الدولة لم يصل بعد: المحتوى المُصيَّر كما هو (لا تحويل إلى الفهرس ولا صفحة قالبية مؤقتة)
+  if (!guideReady) {
+    const hold = ssrHoldHtml();
+    if (hold) return <div data-ssr-hold="" dir={rtl ? 'rtl' : 'ltr'} className="min-h-screen" dangerouslySetInnerHTML={{ __html: hold }} />;
+    return <div className="min-h-screen flex items-center justify-center bg-[#FAF7F0] text-[#9A8F7E]">{tr('جار التحميل', 'Loading…', 'Chargement…')}</div>;
+  }
   // أثناء جلب محتوى الـCMS قد لا يكون المقال اليدوي جاهزاً بعد — لا نُعيد التوجيه قبل اكتمال التحميل
   if (!view && isLoading) {
     const hold = ssrHoldHtml();
@@ -274,7 +297,7 @@ export default function BlogPostPage() {
 
       <main className="max-w-3xl mx-auto px-5 py-12">
         <article>
-          <h1 className="text-3xl lg:text-[40px] font-extrabold tracking-tight leading-tight">{view.title}</h1>
+          <h1 className="text-3xl lg:text-[40px] font-extrabold tracking-tight leading-tight">{seo?.h1 || view.title}</h1>
           <div className="flex items-center gap-4 mt-4 text-xs text-[#9A8F7E] border-b border-[#E9E1D3] pb-6">
             <span className="flex items-center gap-1"><Calendar size={13} /> {view.date}</span>
             <span className="flex items-center gap-1"><Clock size={13} /> {view.readMinutes} {t.read}</span>

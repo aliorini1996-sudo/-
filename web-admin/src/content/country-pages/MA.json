@@ -1,0 +1,497 @@
+{
+  "code": "MA",
+  "languages": [
+    "ar",
+    "en",
+    "fr"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "fr": {
+      "slugHint": null,
+      "title": "Logiciel de vente en tournée au Maroc | FieldSales",
+      "description": "Factures et reçus depuis le mobile du commercial, hors ligne, impression thermique, dirham et TVA réglables : FieldSales pour les distributeurs au Maroc.",
+      "h1": "FieldSales au Maroc : vente directe en tournée, commandes et encaissements",
+      "intro": "FieldSales est une plateforme cloud de gestion des commerciaux terrain pour les distributeurs et grossistes au Maroc : vente directe en tournée depuis le camion, prise de commandes pour livraison ultérieure, factures émises depuis le mobile du commercial et imprimées sur imprimante thermique, reçus d'encaissement et suivi des créances clients. Le stock du véhicule, l'itinéraire et les visites géolocalisées avec photos se suivent depuis un tableau de bord web. Vous réglez le dirham et votre taux de TVA dans vos paramètres, et l'application continue de fonctionner sans réseau.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "Distribution au Maroc : tournées, épiceries et grossistes",
+          "body": "Les distributeurs marocains approvisionnent le commerce de proximité — épiceries de quartier et supérettes — ainsi que les commerçants grossistes et distributeurs, à partir de grands pôles comme Casablanca, Tanger, Rabat-Salé, Fès ou Marrakech. Le Code général des impôts (CGI) nomme lui-même cette pratique : il vise les « contribuables qui pratiquent des tournées en vue de la vente directe ». Pour ces ventes en tournée à des clients soumis à la taxe professionnelle, l'article 145-V demande d'indiquer sur la facture, ou sur le document qui en tient lieu, le numéro d'article de taxe professionnelle du client, sauf si l'entreprise dépose l'« état des ventes par client » prévu aux articles 20-I et 82-I. Autre réalité du terrain : le commerçant grossiste est assujetti à la TVA quel que soit son chiffre d'affaires, alors que beaucoup de petites épiceries restent sous le seuil d'assujettissement de l'article 89 ; un même commercial peut donc servir des clients assujettis et non assujettis dans la même tournée. Les encaissements se font en espèces, par chèque, par effet de commerce (dont la lettre de change normalisée, LCN), par virement ou par carte bancaire."
+        },
+        {
+          "id": "tax",
+          "title": "TVA au Maroc : taux, ICE, IF et mentions de facture",
+          "body": "La taxe sur la valeur ajoutée (TVA), gérée par la Direction générale des impôts (DGI), a un taux normal de 20 %. Le CGI ne prévoit plus qu'un seul taux réduit, 10 % (article 99-B), qui vise notamment les huiles alimentaires liquides hors huile de palme, le sel de table, le riz usiné, le sucre raffiné ou aggloméré, les pâtes alimentaires non exonérées et les aliments pour bétail et volailles. Plusieurs produits de base de la distribution alimentaire sont exonérés sans droit à déduction (article 91) : pain, couscous, semoules et farines, lait, sucre brut, conserves de sardines, viandes et produits de la pêche frais ou congelés, savon de ménage, bougies. Les exportations sont exonérées avec droit à déduction (article 92). L'identifiant fiscal (IF) est attribué par le service local des impôts, et l'Identifiant commun de l'entreprise (ICE) compte 15 chiffres (9 pour l'entreprise, 4 pour l'établissement, 2 de contrôle) ; l'ICE ne remplace ni l'IF, ni le numéro de registre du commerce, ni le numéro CNSS. La facture doit être numérotée dans une série continue et porter notamment l'identité du vendeur, son IF, son numéro d'article de taxe professionnelle et son ICE, la date de l'opération, le nom ou la raison sociale, l'adresse et l'ICE de l'acheteur, les quantités, les prix et la nature des marchandises, le montant de la TVA indiqué séparément (ou la mention de l'exonération) ainsi que le mode et les références de paiement (articles 145-III et 145-VIII). Dans FieldSales, c'est vous qui réglez le taux de TVA applicable à votre activité, dans les paramètres de votre société. Si votre catalogue mélange produits exonérés, produits à 10 % et produits à 20 %, voyez avec notre équipe le paramétrage adapté avant de démarrer. Les mentions légales de vos factures restent sous la responsabilité de votre entreprise et de votre comptable."
+        },
+        {
+          "id": "einvoicing",
+          "title": "Facturation électronique au Maroc : où en est-on ?",
+          "body": "Le principe existe depuis la loi de finances 2018 : l'article 145-IX du CGI prévoit que les sociétés soumises à l'IS, les contribuables à l'IR selon le régime du résultat net réel ou simplifié et les assujettis à la TVA s'équipent d'un système de facturation informatique répondant à des normes techniques fixées par l'administration, les modalités devant être précisées par voie réglementaire, secteur par secteur. Selon Le360 (20 avril 2026), le directeur général des impôts a annoncé une entrée en vigueur progressive, d'abord pour les transactions entre entreprises (B2B) puis pour les factures aux particuliers (B2C), en fonction de la taille des entreprises, avec un projet de décret transmis au Secrétariat général du gouvernement. Challenge.ma (1er juin 2026), citant la DGI, évoque une validation préalable (clearance) avec un fichier structuré UBL et une signature électronique qualifiée : c'est un modèle annoncé, pas un texte en vigueur. Nous n'avons trouvé aucun décret d'application au Bulletin officiel jusqu'au numéro 7556 bis du 30 octobre 2026 ; l'obligation applicable reste donc celle de l'article 145-III, soit des factures numérotées dans une série continue, sur papier ou issues d'un système informatique, un ticket de caisse pouvant en tenir lieu pour les ventes aux particuliers. L'auto-entrepreneur et les contribuables à la contribution professionnelle unique (CPU) échappent à l'essentiel de l'article 145 (article 145-XI). La publication de ce décret changerait la donne ; nous revérifions la situation à chaque mise à jour de cette page. La seule liaison active de FieldSales avec une plateforme publique de facturation électronique est aujourd'hui en Arabie saoudite (plateforme Fatoora de la ZATCA) ; pour le Maroc, elle est disponible sur demande, après étude des exigences du pays, sans engagement de notre part ni calendrier."
+        },
+        {
+          "id": "collections",
+          "title": "Encaissements : espèces, chèques, LCN et créances clients",
+          "body": "Sur le terrain, le commercial encaisse en espèces, par chèque, par effet de commerce (dont la LCN), par virement ou par carte bancaire. Dans FieldSales, vous définissez vous-même la liste de vos modes de paiement, y compris des modes personnalisés, et chaque encaissement donne lieu à un reçu émis depuis le mobile du commercial et imputé au compte du client. Le mode de paiement compte aussi pour vos clients assujettis : selon l'article 106-II du CGI, au-delà d'un plafond journalier par fournisseur, l'acheteur ne peut déduire la TVA sur ses achats que s'ils sont réglés par chèque barré non endossable, effet de commerce, moyen magnétique de paiement, virement bancaire, procédé électronique ou compensation documentée. Les ventes à crédit s'ajoutent au solde de chaque client : vous suivez les créances client par client, et les soldes se mettent à jour dès que le mobile du commercial se synchronise."
+        },
+        {
+          "id": "how",
+          "title": "Comment FieldSales fonctionne au Maroc",
+          "body": "Dans les paramètres de votre société, vous choisissez le dirham marocain (MAD) comme devise, saisissez votre taux de TVA et listez les modes de paiement que vous acceptez. Le commercial travaille sur Android ou iPhone : il prend en charge le stock de son véhicule, suit son itinéraire, enregistre ses visites avec position GPS et photos, prend des commandes ou vend directement depuis le camion, émet la facture et l'imprime sur une imprimante thermique, puis encaisse contre un reçu. Factures et reçus fonctionnent hors connexion et se synchronisent au retour du réseau, si bien qu'une zone mal couverte ne bloque pas la tournée. En fin de tournée, le stock du véhicule est rapproché, et vous suivez l'ensemble depuis le tableau de bord web. L'interface est disponible en arabe, en français et en anglais, ainsi qu'en turc et en chinois."
+        }
+      ],
+      "faq": [
+        {
+          "q": "FieldSales gère-t-il la facturation électronique marocaine ?",
+          "a": "Pas aujourd'hui. Le seul raccordement à une plateforme gouvernementale de facturation électronique en service chez FieldSales concerne l'Arabie saoudite. Pour le Maroc, il est disponible sur demande, après étude des exigences du pays, sans engagement de notre part ni calendrier."
+        },
+        {
+          "q": "La facturation électronique est-elle déjà obligatoire au Maroc ?",
+          "a": "Pas à notre dernière vérification : le décret d'application de l'article 145-IX du CGI n'avait pas été publié au Bulletin officiel. L'obligation en vigueur reste celle de l'article 145-III, soit des factures numérotées dans une série continue, sur papier ou informatiques, avec les mentions obligatoires. Le détail et les sources figurent dans la section consacrée à la facturation électronique."
+        },
+        {
+          "q": "Puis-je facturer en dirhams avec la TVA marocaine ?",
+          "a": "Oui. Dans les paramètres de votre société, vous choisissez le dirham marocain (MAD) et saisissez le taux de TVA qui s'applique à votre activité : 20 % pour le taux normal, 10 % pour le taux réduit. Si vous vendez à la fois des produits exonérés et des produits à 10 % et à 20 %, voyez avec notre équipe le paramétrage adapté avant de démarrer."
+        },
+        {
+          "q": "L'application fonctionne-t-elle sans connexion pendant la tournée ?",
+          "a": "Oui. Le commercial émet ses factures et ses reçus d'encaissement hors connexion, et tout se synchronise dès que le réseau revient."
+        },
+        {
+          "q": "Comment enregistrer un paiement par chèque ou par LCN ?",
+          "a": "Vous créez vos modes de paiement dans les paramètres : espèces, chèque, LCN, virement, carte ou tout mode personnalisé. Au moment de l'encaissement, le commercial émet un reçu depuis son mobile en choisissant le mode utilisé, et le solde du client est mis à jour."
+        },
+        {
+          "q": "L'application est-elle disponible en français et en arabe ?",
+          "a": "Oui. L'interface est proposée en arabe, en français et en anglais, ainsi qu'en turc et en chinois ; ce sont les cinq langues disponibles."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Structure d'une facture de vente en tournée au Maroc",
+        "note": "Exemple de structure, sans montants, établi d'après les articles 145-III, 145-V et 145-VIII du CGI. Les mentions réellement imprimées dépendent de votre modèle de facture : faites-les valider par votre comptable.",
+        "fields": [
+          {
+            "label": "Numéro de facture",
+            "example": "Numéro unique d'une série continue"
+          },
+          {
+            "label": "Date de l'opération",
+            "example": "Date de la vente"
+          },
+          {
+            "label": "Vendeur",
+            "example": "Raison sociale et adresse du distributeur"
+          },
+          {
+            "label": "IF du vendeur",
+            "example": "Identifiant fiscal attribué par le service local des impôts"
+          },
+          {
+            "label": "Taxe professionnelle du vendeur",
+            "example": "Numéro d'article d'imposition à la taxe professionnelle"
+          },
+          {
+            "label": "ICE du vendeur",
+            "example": "15 chiffres : 9 pour l'entreprise, 4 pour l'établissement, 2 de contrôle"
+          },
+          {
+            "label": "Client",
+            "example": "Nom ou raison sociale et adresse de l'épicerie"
+          },
+          {
+            "label": "ICE du client",
+            "example": "Identifiant commun de l'entreprise cliente"
+          },
+          {
+            "label": "Taxe professionnelle du client (vente en tournée)",
+            "example": "Numéro d'article TP du client, sauf dépôt de l'état des ventes par client (art. 145-V)"
+          },
+          {
+            "label": "Désignation, quantités, prix",
+            "example": "Nature des marchandises, quantités et prix unitaires"
+          },
+          {
+            "label": "TVA",
+            "example": "Montant indiqué séparément, ajouté au prix ou inclus dans celui-ci, ou mention de l'exonération"
+          },
+          {
+            "label": "Mode et références de paiement",
+            "example": "Espèces, chèque, LCN, virement ou carte"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "DGI — Code général des impôts, édition 2026 (art. 89, 91, 92, 99, 106, 145)",
+          "url": "https://www.tax.gov.ma/wps/wcm/connect/08712531-1e81-4e28-a38b-2bd9edf8e09e/CGI+2026+FR.pdf?MOD=AJPERES"
+        },
+        {
+          "title": "Portail de la Direction générale des impôts",
+          "url": "https://www.tax.gov.ma/wps/portal/DGI/Accueil"
+        },
+        {
+          "title": "Portail ICE — Guide d'utilisation de la plateforme ICE",
+          "url": "https://www.ice.gov.ma/ICE/Guide_ICE.pdf"
+        },
+        {
+          "title": "Secrétariat général du gouvernement — Bulletin officiel",
+          "url": "https://www.sgg.gov.ma/arabe/BulletinOfficiel.aspx"
+        },
+        {
+          "title": "Le360 — Facturation électronique : une réforme progressive pour plus de transparence (20 avril 2026)",
+          "url": "https://fr.le360.ma/politique/facturation-electronique-une-reforme-progressive-pour-plus-de-transparence_2YMA34TSIRFQBEYTNPOL3UTSRU/"
+        },
+        {
+          "title": "Challenge.ma — Facturation électronique : les entreprises face à la grande bascule (1er juin 2026)",
+          "url": "https://www.challenge.ma/facturation-electronique-les-entreprises-face-a-la-grande-bascule-320792/"
+        },
+        {
+          "title": "Bank Al-Maghrib — Moyens de paiement scripturaux",
+          "url": "https://www.bkam.ma/Systemes-et-moyens-de-paiement/Moyens-de-paiement-scripturaux-et-leur-surveillance/Moyens-de-paiement-scripturaux"
+        },
+        {
+          "title": "Bank Al-Maghrib — Lettres de change (dont LCN)",
+          "url": "https://www.bkam.ma/Systemes-et-moyens-de-paiement/Moyens-de-paiement-scripturaux-et-leur-surveillance/Surveillance-des-moyens-de-paiement/Lettres-de-change"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Morocco, Other taxes",
+          "url": "https://taxsummaries.pwc.com/morocco/corporate/other-taxes"
+        }
+      ],
+      "lastVerifiedLabel": "Dernière vérification : novembre 2026"
+    },
+    "en": {
+      "slugHint": null,
+      "title": "Van Sales & Field Sales Software in Morocco | FieldSales",
+      "description": "Invoices and receipts from the rep's phone, offline mode, thermal printing, dirham and VAT set by you: FieldSales for distributors in Morocco.",
+      "h1": "FieldSales in Morocco: van sales, order taking and collections",
+      "intro": "FieldSales is a cloud platform for managing field sales teams at distributors and wholesalers in Morocco: direct van sales on route (vente directe en tournée), order taking for later delivery, invoices issued from the rep's phone and printed on a thermal printer, payment receipts and customer debt tracking. Van stock, routes and geotagged visits with photos are followed from a web dashboard. You set the dirham and your VAT rate in your settings, and the app keeps working without a network connection.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "Distribution in Morocco: routes, épiceries and wholesalers",
+          "body": "Moroccan distributors supply neighbourhood retail — épiceries (corner grocery shops) and supérettes — as well as wholesale traders and distributors, from major hubs such as Casablanca, Tangier, Rabat-Salé, Fez and Marrakech. The General Tax Code (CGI) names the practice itself, referring to taxpayers who make sales rounds for direct selling (\"tournées en vue de la vente directe\"). For these route sales to customers subject to the business tax (taxe professionnelle), article 145-V requires the customer's business-tax article number on the invoice or on the document that replaces it, unless the company files the statement of sales by customer (état des ventes par client) provided for in articles 20-I and 82-I. Another field reality: a wholesale trader is liable for VAT whatever its turnover, while many small épiceries stay below the article 89 registration threshold, so a single rep may serve VAT-registered and non-registered customers on the same route. Payments are collected in cash, by cheque, by bill of exchange (including the standardised bill of exchange, LCN), by bank transfer or by bank card."
+        },
+        {
+          "id": "tax",
+          "title": "VAT in Morocco: rates, ICE, IF and invoice details",
+          "body": "Value added tax (TVA), administered by the Direction Générale des Impôts (DGI), has a standard rate of 20%. The CGI now provides a single reduced rate of 10% (article 99-B), which covers among others liquid edible oils other than palm oil, table salt, milled rice, refined or cube sugar, non-exempt pasta and livestock and poultry feed. Several staples of food distribution are exempt without right of deduction (article 91): bread, couscous, semolina and flour, milk, raw sugar, canned sardines, fresh or frozen meat and fish, household soap and candles. Exports are exempt with right of deduction (article 92). The tax identifier (IF) is issued by the local tax office, and the Common Business Identifier (ICE) has 15 digits (9 for the company, 4 for the establishment, 2 check digits); the ICE does not replace the IF, the trade register number or the CNSS number. Invoices must be numbered in a continuous series and show, among other things, the seller's identity, IF, business-tax article number and ICE, the transaction date, the buyer's name or company name, address and ICE, the quantities, prices and nature of the goods, the VAT amount stated separately (or the exemption reference) and the payment method and references (articles 145-III and 145-VIII). In FieldSales you set the VAT rate that applies to your business in your company settings. If your catalogue mixes exempt, 10% and 20% products, check the right setup with our team before you start. The legal details on your invoices remain the responsibility of your company and its accountant."
+        },
+        {
+          "id": "einvoicing",
+          "title": "E-invoicing in Morocco: where things stand",
+          "body": "The principle dates back to the 2018 Finance Act: article 145-IX of the CGI requires companies subject to corporate income tax, income-tax payers under the real or simplified net-income regime and VAT payers to use a computerised invoicing system that meets technical standards set by the tax administration, with the details to be laid down by regulation, sector by sector. According to Le360 (20 April 2026), the Director General of Taxes announced a phased entry into force, first for business-to-business (B2B) transactions and then for invoices to individuals (B2C), by company size, with a draft decree sent to the General Secretariat of the Government. Challenge.ma (1 June 2026), citing the DGI, described prior validation (clearance) using a structured UBL file and a qualified electronic signature: an announced model, not a law in force. We found no implementing decree in the Bulletin officiel up to issue 7556 bis of 30 October 2026, so the obligation that applies today is still article 145-III: invoices numbered in a continuous series, on paper or produced by a computer system, with a till receipt (ticket de caisse) allowed in place of an invoice for sales to individuals. Auto-entrepreneurs and taxpayers under the single professional contribution (CPU) fall outside most of article 145 (article 145-XI). Publication of the decree would change this, and we re-check the situation at every update of this page. FieldSales’ only live government e-invoicing link today is in Saudi Arabia (ZATCA’s Fatoora platform); for Morocco it is available on request, after a study of the country's requirements, with no commitment and no timeline."
+        },
+        {
+          "id": "collections",
+          "title": "Collections: cash, cheques, LCN and customer balances",
+          "body": "In the field, reps collect cash, cheques, bills of exchange (including LCN), bank transfers and card payments. In FieldSales you define your own list of payment methods, including custom ones, and every collection produces a receipt issued from the rep's phone and posted to the customer's account. The payment method also matters to your VAT-registered customers: under article 106-II of the CGI, above a daily cap per supplier, a buyer can deduct VAT on purchases only if they are paid by crossed non-endorsable cheque, bill of exchange, magnetic payment means, bank transfer, electronic means or documented set-off. Credit sales are added to each customer's balance, so you can follow outstanding debts customer by customer, and balances update as soon as the rep's phone syncs."
+        },
+        {
+          "id": "how",
+          "title": "How FieldSales works in Morocco",
+          "body": "In your company settings you pick the Moroccan dirham (MAD) as your currency, enter your VAT rate and list the payment methods you accept. Reps work on Android or iPhone: they take custody of their van stock, follow their route, log visits with GPS location and photos, take orders or sell straight from the van, issue the invoice and print it on a thermal printer, then collect payment against a receipt. Invoices and receipts work offline and sync when the network returns, so a poorly covered area does not hold up the route. At the end of the route, van stock is reconciled, and you follow it all from the web dashboard. The interface is available in Arabic, French and English, as well as Turkish and Chinese."
+        }
+      ],
+      "faq": [
+        {
+          "q": "Does FieldSales handle Moroccan e-invoicing?",
+          "a": "Not today. The only live government e-invoicing connection at FieldSales is in Saudi Arabia. For Morocco it is available on request, after a study of the country's requirements, with no commitment and no timeline."
+        },
+        {
+          "q": "Is e-invoicing already mandatory in Morocco?",
+          "a": "Not as of our last check: the implementing decree for article 145-IX of the CGI had not been published in the Bulletin officiel. The obligation in force is still article 145-III, meaning invoices numbered in a continuous series, on paper or computer-generated, with the mandatory details. The full picture and sources are in the e-invoicing section above."
+        },
+        {
+          "q": "Can I invoice in dirhams with Moroccan VAT?",
+          "a": "Yes. In your company settings you choose the Moroccan dirham (MAD) and enter the VAT rate that applies to your business: 20% for the standard rate or 10% for the reduced rate. If you sell exempt products alongside 10% and 20% products, check the right setup with our team before you start."
+        },
+        {
+          "q": "Does the app work without internet during the route?",
+          "a": "Yes. Reps issue invoices and payment receipts offline, and everything syncs once the network is back."
+        },
+        {
+          "q": "How do I record a payment by cheque or LCN?",
+          "a": "You create your payment methods in the settings: cash, cheque, LCN, bank transfer, card or any custom method. When collecting, the rep issues a receipt from the phone and picks the method used, and the customer's balance is updated."
+        },
+        {
+          "q": "Is the app available in French and Arabic?",
+          "a": "Yes. The interface is available in Arabic, French and English, as well as Turkish and Chinese; those are the five interface languages."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Structure of a route-sales invoice in Morocco",
+        "note": "Structure example with no amounts, based on articles 145-III, 145-V and 145-VIII of the CGI. What actually prints depends on your invoice template, so have it reviewed by your accountant.",
+        "fields": [
+          {
+            "label": "Invoice number",
+            "example": "Unique number from a continuous series"
+          },
+          {
+            "label": "Transaction date",
+            "example": "Date of sale"
+          },
+          {
+            "label": "Seller",
+            "example": "Distributor's company name and address"
+          },
+          {
+            "label": "Seller's IF",
+            "example": "Tax identifier issued by the local tax office"
+          },
+          {
+            "label": "Seller's business-tax number",
+            "example": "Taxe professionnelle article number"
+          },
+          {
+            "label": "Seller's ICE",
+            "example": "15 digits: 9 for the company, 4 for the establishment, 2 check digits"
+          },
+          {
+            "label": "Customer",
+            "example": "Name or company name and address of the épicerie"
+          },
+          {
+            "label": "Customer's ICE",
+            "example": "Common Business Identifier of the customer"
+          },
+          {
+            "label": "Customer's business-tax number (route sales)",
+            "example": "Required unless the statement of sales by customer is filed (art. 145-V)"
+          },
+          {
+            "label": "Description, quantities, prices",
+            "example": "Nature of the goods, quantities and unit prices"
+          },
+          {
+            "label": "VAT",
+            "example": "Amount stated separately, added to or included in the price, or the exemption reference"
+          },
+          {
+            "label": "Payment method and references",
+            "example": "Cash, cheque, LCN, bank transfer or card"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "DGI — General Tax Code (Code général des impôts), 2026 edition (art. 89, 91, 92, 99, 106, 145)",
+          "url": "https://www.tax.gov.ma/wps/wcm/connect/08712531-1e81-4e28-a38b-2bd9edf8e09e/CGI+2026+FR.pdf?MOD=AJPERES"
+        },
+        {
+          "title": "Direction Générale des Impôts — official portal",
+          "url": "https://www.tax.gov.ma/wps/portal/DGI/Accueil"
+        },
+        {
+          "title": "ICE portal — ICE platform user guide",
+          "url": "https://www.ice.gov.ma/ICE/Guide_ICE.pdf"
+        },
+        {
+          "title": "General Secretariat of the Government — Bulletin officiel",
+          "url": "https://www.sgg.gov.ma/arabe/BulletinOfficiel.aspx"
+        },
+        {
+          "title": "Le360 — Facturation électronique : une réforme progressive pour plus de transparence (20 April 2026)",
+          "url": "https://fr.le360.ma/politique/facturation-electronique-une-reforme-progressive-pour-plus-de-transparence_2YMA34TSIRFQBEYTNPOL3UTSRU/"
+        },
+        {
+          "title": "Challenge.ma — Facturation électronique : les entreprises face à la grande bascule (1 June 2026)",
+          "url": "https://www.challenge.ma/facturation-electronique-les-entreprises-face-a-la-grande-bascule-320792/"
+        },
+        {
+          "title": "Bank Al-Maghrib — Non-cash means of payment",
+          "url": "https://www.bkam.ma/Systemes-et-moyens-de-paiement/Moyens-de-paiement-scripturaux-et-leur-surveillance/Moyens-de-paiement-scripturaux"
+        },
+        {
+          "title": "Bank Al-Maghrib — Bills of exchange (including LCN)",
+          "url": "https://www.bkam.ma/Systemes-et-moyens-de-paiement/Moyens-de-paiement-scripturaux-et-leur-surveillance/Surveillance-des-moyens-de-paiement/Lettres-de-change"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Morocco, Other taxes",
+          "url": "https://taxsummaries.pwc.com/morocco/corporate/other-taxes"
+        }
+      ],
+      "lastVerifiedLabel": "Last verified: November 2026"
+    },
+    "ar": {
+      "slugHint": null,
+      "title": "برنامج المناديب والبيع بالجولات في المغرب | FieldSales",
+      "description": "فواتير وسندات قبض من جوال المندوب، وعمل دون اتصال، وطباعة حرارية، والدرهم ونسبة الضريبة تضبطها بنفسك: FieldSales لشركات التوزيع في المغرب.",
+      "h1": "FieldSales في المغرب: البيع المباشر بالجولات والطلبيات والتحصيل",
+      "intro": "FieldSales منصة سحابية لإدارة مناديب المبيعات لدى شركات التوزيع وتجار الجملة في المغرب: البيع المباشر من السيارة في الجولات (vente directe en tournée)، وأخذ الطلبيات لتسليمها لاحقاً، وإصدار الفواتير من جوال المندوب وطباعتها على طابعة حرارية، وسندات القبض ومتابعة مديونيات العملاء. وتتابع الإدارة عهدة السيارة وخط السير والزيارات بالموقع والصور من لوحة ويب. تضبط الدرهم المغربي ونسبة الضريبة في إعدادات شركتك، ويواصل التطبيق العمل دون اتصال بالإنترنت.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "التوزيع في المغرب: الجولات والبقالات وتجار الجملة",
+          "body": "تخدم شركات التوزيع المغربية تجارة القرب، أي محلات البقالة (épiceries) والأسواق الصغيرة (supérettes)، إلى جانب تجار الجملة والموزعين، انطلاقاً من مراكز كبرى مثل الدار البيضاء وطنجة والرباط-سلا وفاس ومراكش. والمدونة العامة للضرائب (CGI) نفسها تسمّي هذا النشاط، إذ تذكر صراحة الخاضعين للضريبة الذين يقومون بجولات بغرض البيع المباشر (« tournées en vue de la vente directe »). وفي البيع بالجولات لعملاء خاضعين للرسم المهني، تشترط المادة 145-V ذكر رقم مادة الرسم المهني للعميل على الفاتورة أو على الوثيقة التي تقوم مقامها، إلا إذا أودعت الشركة قائمة المبيعات حسب العميل (état des ventes par client) المنصوص عليها في المادتين 20-I و82-I. ومن واقع الميدان أيضاً أن تاجر الجملة خاضع للضريبة على القيمة المضافة أياً كان رقم معاملاته، بينما يبقى كثير من البقالات الصغيرة دون عتبة الخضوع في المادة 89، فقد يخدم المندوب الواحد في جولته عملاء خاضعين وغير خاضعين. ويجري التحصيل نقداً، أو بالشيك، أو بالورقة التجارية (ومنها الكمبيالة الموحّدة LCN)، أو بالتحويل البنكي، أو بالبطاقة البنكية."
+        },
+        {
+          "id": "tax",
+          "title": "الضريبة على القيمة المضافة في المغرب: النسب وICE وIF وبيانات الفاتورة",
+          "body": "الضريبة على القيمة المضافة (TVA) تديرها المديرية العامة للضرائب (DGI)، ونسبتها العادية 20%. ولم تعد المدونة العامة للضرائب تنص إلا على نسبة مخفّضة واحدة هي 10% (المادة 99-B)، وتشمل من بين ما تشمل: زيوت المائدة السائلة عدا زيت النخيل، وملح الطعام، والأرز المصنّع، والسكر المكرّر أو المكتّل، والعجائن الغذائية غير المعفاة، وأعلاف الماشية والدواجن. وتُعفى دون حق الخصم (المادة 91) أصناف أساسية في التوزيع الغذائي، منها: الخبز والكسكس والسميد والدقيق، والحليب، والسكر الخام، ومعلّبات السردين، واللحوم ومنتجات الصيد الطازجة أو المجمّدة، وصابون الغسيل، والشموع. وتُعفى الصادرات مع حق الخصم (المادة 92). ويمنح المكتبُ المحلي للضرائب المعرّفَ الضريبي (IF)، أما المعرّف الموحّد للمقاولة (ICE) فيتكوّن من 15 رقماً (9 للمقاولة و4 للمؤسسة و2 للتحقق)، ولا يحل ICE محل المعرّف الضريبي ولا رقم السجل التجاري ولا رقم CNSS. ويجب أن تكون الفاتورة مرقّمة من سلسلة متصلة وأن تتضمن، من بين ما تتضمن: هوية البائع ومعرّفه الضريبي ورقم مادته في الرسم المهني وICE الخاص به، وتاريخ العملية، واسم المشتري أو اسمه التجاري وعنوانه وICE الخاص به، والكميات والأسعار وطبيعة البضائع، ومبلغ الضريبة مستقلاً (أو ذكر الإعفاء)، وطريقة الأداء ومراجعه (المادتان 145-III و145-VIII). في FieldSales تضبط أنت نسبة الضريبة التي تنطبق على نشاطك من إعدادات شركتك. وإن كانت أصنافك تجمع بين المعفى وما يخضع لنسبة 10% ونسبة 20%، فراجع الإعداد المناسب مع فريقنا قبل البدء. وتبقى البيانات القانونية في فواتيرك من مسؤولية شركتك ومحاسبها."
+        },
+        {
+          "id": "einvoicing",
+          "title": "الفوترة الإلكترونية في المغرب: أين وصلت؟",
+          "body": "المبدأ قائم منذ قانون المالية لسنة 2018: تنص المادة 145-IX من المدونة العامة للضرائب على أن يتزوّد الخاضعون للضريبة على الشركات، والخاضعون للضريبة على الدخل بنظام النتيجة الصافية الحقيقية أو المبسّطة، والخاضعون للضريبة على القيمة المضافة، بنظام فوترة معلوماتي يستوفي معايير تقنية تحددها الإدارة، على أن تُحدَّد الكيفيات بنص تنظيمي حسب القطاعات. وحسب ما نقله موقع Le360 في 20 أبريل 2026، أعلن المدير العام للضرائب دخول الفوترة الإلكترونية حيز التنفيذ بشكل تدريجي: أولاً في المعاملات بين المقاولات (B2B) ثم في الفواتير الموجّهة للأفراد (B2C)، وتدرّجاً حسب حجم المقاولة، مع إحالة مشروع مرسوم على الأمانة العامة للحكومة. وذكر موقع Challenge.ma في 1 يونيو 2026، نقلاً عن المديرية العامة للضرائب، تصديقاً مسبقاً (clearance) بملف UBL مهيكل وتوقيع إلكتروني مؤهل، وهذا نموذج مُعلن لا نص نافذ. ولم نجد مرسوماً تطبيقياً في الجريدة الرسمية حتى العدد 7556 مكرر الصادر في 30 أكتوبر 2026، فالواجب اليوم هو ما تنص عليه المادة 145-III: فواتير مرقّمة من سلسلة متصلة، ورقية أو صادرة عن نظام معلوماتي، ويجوز في البيع للأفراد أن تقوم تذكرة الصندوق (ticket de caisse) مقام الفاتورة. ويقع المقاول الذاتي والخاضعون للمساهمة المهنية الموحدة (CPU) خارج معظم أحكام المادة 145 (المادة 145-XI). وإذا نُشر المرسوم تغيّر هذا الوضع، ونعيد التحقق منه عند كل تحديث لهذه الصفحة. أما في FieldSales فالربط الحكومي الحيّ للفوترة الإلكترونية اليوم في السعودية وحدها (منصة فاتورة لدى هيئة الزكاة والضريبة والجمارك)، وهو في المغرب متاح عند الطلب بعد دراسة متطلبات البلد، بلا وعد ولا موعد."
+        },
+        {
+          "id": "collections",
+          "title": "التحصيل: النقد والشيكات وLCN ومديونيات العملاء",
+          "body": "يحصّل المندوب في الميدان نقداً، أو بالشيك، أو بالورقة التجارية (ومنها LCN)، أو بالتحويل البنكي، أو بالبطاقة البنكية. وفي FieldSales تحدّد أنت قائمة طرق الدفع لديك، ومنها طرق مخصّصة، ويصدر عن كل تحصيل سند قبض من جوال المندوب يُقيَّد في حساب العميل. ولطريقة الدفع أهمية لدى عملائك الخاضعين للضريبة أيضاً: فحسب المادة 106-II من المدونة العامة للضرائب، لا يحق للمشتري، فوق سقف يومي لكل مورد، خصم الضريبة على القيمة المضافة عن مشترياته إلا إذا سُدّدت بشيك مسطّر غير قابل للتظهير، أو بورقة تجارية، أو بوسيلة أداء مغناطيسية، أو بتحويل بنكي، أو بوسيلة إلكترونية، أو بمقاصة موثّقة. والبيع الآجل يُضاف إلى رصيد كل عميل، فتتابع المديونية عميلاً عميلاً، وتتحدّث الأرصدة بمجرد مزامنة جوال المندوب."
+        },
+        {
+          "id": "how",
+          "title": "كيف يعمل FieldSales في المغرب",
+          "body": "من إعدادات شركتك تختار الدرهم المغربي (MAD) عملةً، وتُدخل نسبة الضريبة، وتعرّف طرق الدفع التي تقبلها. ويعمل المندوب على أندرويد أو آيفون: يستلم عهدة السيارة، ويتبع خط سيره، ويسجّل زياراته بالموقع والصور، ويأخذ الطلبيات أو يبيع مباشرة من السيارة، ويصدر الفاتورة ويطبعها على طابعة حرارية، ثم يحصّل بسند قبض. وتعمل الفواتير وسندات القبض دون اتصال وتتزامن عند عودة الشبكة، فلا تتوقف الجولة في منطقة ضعيفة التغطية. وفي نهاية الجولة تُطابَق عهدة السيارة، وتتابع ذلك كله من لوحة الويب. وواجهة التطبيق متاحة بالعربية والفرنسية والإنجليزية، وكذلك بالتركية والصينية."
+        }
+      ],
+      "faq": [
+        {
+          "q": "هل يدعم FieldSales الفوترة الإلكترونية المغربية؟",
+          "a": "ليس اليوم. الربط الحكومي الحيّ للفوترة الإلكترونية في FieldSales موجود في السعودية وحدها. أما في المغرب فهو متاح عند الطلب بعد دراسة متطلبات البلد، بلا وعد ولا موعد."
+        },
+        {
+          "q": "هل أصبحت الفوترة الإلكترونية إلزامية في المغرب؟",
+          "a": "ليس عند آخر تحقق لنا: لم يُنشر المرسوم التطبيقي للمادة 145-IX من المدونة العامة للضرائب في الجريدة الرسمية. والواجب الساري هو ما تنص عليه المادة 145-III: فواتير مرقّمة من سلسلة متصلة، ورقية أو معلوماتية، بالبيانات الإلزامية. والتفاصيل ومصادرها في قسم الفوترة الإلكترونية أعلاه."
+        },
+        {
+          "q": "هل أستطيع الفوترة بالدرهم وبالضريبة على القيمة المضافة المغربية؟",
+          "a": "نعم. من إعدادات شركتك تختار الدرهم المغربي (MAD) وتُدخل نسبة الضريبة التي تنطبق على نشاطك: 20% للنسبة العادية أو 10% للنسبة المخفّضة. وإن كنت تبيع أصنافاً معفاة وأخرى بنسبة 10% ونسبة 20% معاً، فراجع الإعداد المناسب مع فريقنا قبل البدء."
+        },
+        {
+          "q": "هل يعمل التطبيق دون إنترنت أثناء الجولة؟",
+          "a": "نعم. يصدر المندوب الفواتير وسندات القبض دون اتصال، وتتزامن عند عودة الشبكة."
+        },
+        {
+          "q": "كيف أسجّل تحصيلاً بشيك أو بكمبيالة LCN؟",
+          "a": "تعرّف طرق الدفع في الإعدادات: النقد، والشيك، وLCN، والتحويل، والبطاقة، أو أي طريقة مخصّصة. وعند التحصيل يصدر المندوب سند قبض من جواله ويختار الطريقة المستعملة، فيتحدّث رصيد العميل."
+        },
+        {
+          "q": "هل التطبيق متاح بالعربية والفرنسية؟",
+          "a": "نعم. الواجهة متاحة بالعربية والفرنسية والإنجليزية، وكذلك بالتركية والصينية، وهذه هي لغات الواجهة الخمس."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "بنية فاتورة البيع بالجولات في المغرب",
+        "note": "مثال بنية بلا مبالغ، مستخلص من المواد 145-III و145-V و145-VIII من المدونة العامة للضرائب. البيانات التي تُطبع فعلاً تتوقف على قالب فاتورتك، فراجعها مع محاسبك.",
+        "fields": [
+          {
+            "label": "رقم الفاتورة",
+            "example": "رقم فريد من سلسلة متصلة"
+          },
+          {
+            "label": "تاريخ العملية",
+            "example": "تاريخ البيع"
+          },
+          {
+            "label": "البائع",
+            "example": "الاسم التجاري للموزّع وعنوانه"
+          },
+          {
+            "label": "المعرّف الضريبي للبائع (IF)",
+            "example": "يمنحه المكتب المحلي للضرائب"
+          },
+          {
+            "label": "الرسم المهني للبائع",
+            "example": "رقم المادة في الرسم المهني"
+          },
+          {
+            "label": "ICE البائع",
+            "example": "15 رقماً: 9 للمقاولة و4 للمؤسسة و2 للتحقق"
+          },
+          {
+            "label": "العميل",
+            "example": "اسم البقالة أو اسمها التجاري وعنوانها"
+          },
+          {
+            "label": "ICE العميل",
+            "example": "المعرّف الموحّد لمقاولة العميل"
+          },
+          {
+            "label": "الرسم المهني للعميل (البيع بالجولات)",
+            "example": "رقم مادة العميل في الرسم المهني، ما لم تُودَع قائمة المبيعات حسب العميل (المادة 145-V)"
+          },
+          {
+            "label": "الأصناف والكميات والأسعار",
+            "example": "طبيعة البضائع وكمياتها وأسعار الوحدات"
+          },
+          {
+            "label": "الضريبة على القيمة المضافة",
+            "example": "مبلغها مستقلاً، مضافاً إلى السعر أو مشمولاً فيه، أو ذكر الإعفاء"
+          },
+          {
+            "label": "طريقة الأداء ومراجعه",
+            "example": "نقد أو شيك أو LCN أو تحويل أو بطاقة"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "المديرية العامة للضرائب — المدونة العامة للضرائب، طبعة 2026 (المواد 89 و91 و92 و99 و106 و145)",
+          "url": "https://www.tax.gov.ma/wps/wcm/connect/08712531-1e81-4e28-a38b-2bd9edf8e09e/CGI+2026+FR.pdf?MOD=AJPERES"
+        },
+        {
+          "title": "بوابة المديرية العامة للضرائب",
+          "url": "https://www.tax.gov.ma/wps/portal/DGI/Accueil"
+        },
+        {
+          "title": "بوابة ICE — دليل استعمال منصة المعرّف الموحّد للمقاولة",
+          "url": "https://www.ice.gov.ma/ICE/Guide_ICE.pdf"
+        },
+        {
+          "title": "الأمانة العامة للحكومة — الجريدة الرسمية",
+          "url": "https://www.sgg.gov.ma/arabe/BulletinOfficiel.aspx"
+        },
+        {
+          "title": "Le360 — Facturation électronique : une réforme progressive pour plus de transparence (20 أبريل 2026)",
+          "url": "https://fr.le360.ma/politique/facturation-electronique-une-reforme-progressive-pour-plus-de-transparence_2YMA34TSIRFQBEYTNPOL3UTSRU/"
+        },
+        {
+          "title": "Challenge.ma — Facturation électronique : les entreprises face à la grande bascule (1 يونيو 2026)",
+          "url": "https://www.challenge.ma/facturation-electronique-les-entreprises-face-a-la-grande-bascule-320792/"
+        },
+        {
+          "title": "بنك المغرب — وسائل الأداء الكتابية",
+          "url": "https://www.bkam.ma/Systemes-et-moyens-de-paiement/Moyens-de-paiement-scripturaux-et-leur-surveillance/Moyens-de-paiement-scripturaux"
+        },
+        {
+          "title": "بنك المغرب — الكمبيالات (ومنها LCN)",
+          "url": "https://www.bkam.ma/Systemes-et-moyens-de-paiement/Moyens-de-paiement-scripturaux-et-leur-surveillance/Surveillance-des-moyens-de-paiement/Lettres-de-change"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Morocco, Other taxes",
+          "url": "https://taxsummaries.pwc.com/morocco/corporate/other-taxes"
+        }
+      ],
+      "lastVerifiedLabel": "آخر تحقق: نوفمبر 2026"
+    }
+  },
+  "notes": "صفحة قائمة (/blog/field-sales-software-ma/) فـslugHint=null في اللغات الثلاث، والمحتوى كامل ليأخذ الدامج منه قسم «حقائق محلية». | المصدر الوحيد MA.json المدقَّق (audit بتاريخ 2026-11-11، ثقة high). لم تُضف أي حقيقة من خارجه. | المبالغ: حُذفت كل العتبات المقرونة بالدرهم (المادة 89 و106-II و108) وكُتبت بصيغة «عتبة/سقف تحدده المادة كذا» حتى لا يلاصق رقم عملة. | المصطلحات: استعملت «vente directe en tournée» (نص المادة 145-V) و«épicerie/supérettes/commerçants grossistes». تجنّبت prévente وautovente وmoul hanout والكارني/kridi ودرب عمر لأنها في uncertain بلا مصدر؛ ووصفت الطلب المسبق بعبارة عامة (prise de commandes / order taking / أخذ الطلبيات). | المحافظ الإلكترونية وQR لم تُذكر كممارسة مغربية (uncertain)؛ ذُكرت فقط «طرق مخصّصة» يعرّفها العميل. | لم أَعِد بدعم نسب TVA متعددة في الفاتورة الواحدة ولا بطباعة ICE/IF/TP تلقائياً (uncertain: يحتاج تأكيد فريق المنتج)؛ بدلها: «راجع الإعداد مع فريقنا قبل البدء» ومسؤولية البيانات القانونية على الشركة ومحاسبها. مثال الفاتورة مقدَّم كبنية قانونية من المادة 145 لا كادعاء عن مخرجات FieldSales. | الفوترة الإلكترونية: status=planned؛ الأساس 145-IX منذ قانون مالية 2018، إعلان المدير العام (Le360، 20 أبريل 2026)، نموذج clearance/UBL «مُعلن لا نص نافذ» (Challenge.ma، 1 يونيو 2026)، ولا مرسوم حتى الجريدة الرسمية 7556 مكرر (30 أكتوبر 2026). جملة موقف FieldSales منفصلة بلا تاريخ ولا اسم نظام مغربي، تسبقها جملتان بلا تواريخ. يُعاد التحقق من الجريدة الرسمية قبل النشر لأن المرسوم قد يصدر في أي عدد. | حُذف وصف كلفة النظام المعلن للمقاولات الصغيرة لأن اللفظ من المفردات الممنوعة؛ ولم يُذكر نطاق fatourati.gov.ma ولا منصة Fatourati. | المصادر المعروضة رسمية أو صحفية أو PwC فقط؛ استُبعدت Inyad وChari وSovos وThomson Reuters (Pagero) وUpsilon Consulting لأنها جهات تجارية قد تُعدّ منافسة أو بائعة حلول. ادعاءا Upsilon (عدم تحقق إطلاق 2026، وخلو مشروع مالية 2027) استُغني عنهما بفحص الجريدة الرسمية. | لغات الواجهة: ذُكرت الخمس بصدق (عربية، فرنسية، إنجليزية، تركية، صينية) استناداً إلى وصف المنتج في المهمة. | فحص node: JSON صالح UTF-8 بلا BOM، العناوين ≤60 والأوصاف ≤155، المقدمة 50–90 كلمة، لا رقم ملاصق لعملة، لا شيء من المفردات الممنوعة، لا اسم نظام حكومي مغربي مع فعل ربط في جملة واحدة، ولا سنة خارج قسم الفوترة الإلكترونية ولا في جملة FieldSales أو بجوارها.",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish-with-notes",
+    "fixes": 27,
+    "issues": [
+      "استنتاج غير موجود في الحقائق: «sert donc / often serves / فيخدم» صار احتمالاً («peut donc servir / may serve / فقد يخدم») لخدمة عملاء خاضعين وغير خاضعين في الجولة نفسها (fr/en/ar).",
+      "تعميم غير مسنود «Chaque entreprise dispose d'un IF et d'un ICE / Each business holds / لكل مقاولة»: استُبدل بما في الحقائق (IF يمنحه المكتب المحلي للضرائب، وICE من 15 رقماً 9+4+2) (fr/en/ar).",
+      "نسبة تاريخ 20 أبريل 2026 إلى التصريح نفسه: هو تاريخ مقال Le360 لا تاريخ التصريح، فصارت «Selon Le360 (20 avril 2026) / According to Le360 (20 April 2026) / حسب ما نقله موقع Le360 في 20 أبريل 2026» (fr/en/ar).",
+      "«Cette situation changera à la publication du décret / This will change once… / سيتغير بمجرد نشر المرسوم» تفترض صدور المرسوم حتماً (وهو في uncertain): صارت صيغة شرطية (fr/en/ar).",
+      "نية منقلبة في الفرنسية: «sans engagement» تُفهم تسويقياً «بلا التزام على العميل» فتبدو عرضاً متاحاً؛ صارت «sans engagement de notre part ni calendrier» في قسم الفوترة وفي السؤال الأول.",
+      "«ventes à crédit aux épiceries / Credit sales to épiceries / البيع الآجل للبقالات» تقدّم البيع بالدَّين للبقالات كحقيقة سوقية، وهي في uncertain (الكارني/kridi): حُذف القيد وبقيت ميزة الرصيد عامة (fr/en/ar).",
+      "تفصيل منتج غير متحقق «تُطابَق عهدة السيارة من لوحة الويب»: صار «تُطابَق العهدة وتتابع ذلك من لوحة الويب» (fr/en/ar)، و«تُسوّى» صارت «تُطابَق» بمصطلح المنتج.",
+      "صياغة: EN «run route tours» ركيكة وعلامات « » في نص إنجليزي → «make sales rounds for direct selling» بعلامات إنجليزية؛ EN «individuals taxed» → «income-tax payers» مطابقة لنص 145-IX؛ EN «take charge of» → «take custody of» (العهدة)؛ FR «commandes à livrer» → «pour livraison ultérieure»؛ AR «المتاجر الصغيرة (supérettes)» → «الأسواق الصغيرة» تمييزاً لها عن البقالة؛ AR قائمة طرق الدفع بخلط الحال والاسم («نقداً، أو شيك») صُحّحت في السؤال الخامس ومثال الفاتورة.",
+      "تحقّق بلا تعديل: النسب 20% و10% (المادة 99-B) وإعفاءات 91 و92 مطابقة؛ بيانات الفاتورة 145-III و145-V و145-VIII مطابقة؛ لا مبلغ ملاصق لعملة؛ لا «معتمد/conforme/certifié/gratuit»؛ لا ربط مع DGI أو fatourati أو ICE؛ جملة FieldSales في قسم الفوترة بلا سنة ولا تاريخ فيها ولا في الجملتين المجاورتين؛ لغات الواجهة الخمس صادقة؛ title ≤60 وdescription ≤155 في اللغات الثلاث؛ JSON صالح UTF-8 بلا BOM.",
+      "ملاحظات للنشر (لا تمنعه): المراكز الخمسة (الدار البيضاء، طنجة، الرباط-سلا، فاس، مراكش) اختيار تحريري بلا مصدر إحصائي حسب uncertain، وصيغتها «comme/such as/مثل» بلا ترتيب فأُبقيت؛ حالة الفوترة الإلكترونية مبنية على الجريدة الرسمية حتى العدد 7556 مكرر (30 أكتوبر 2026) فيجب فحص الأعداد اللاحقة قبل النشر لأن مشروع المرسوم محال على الأمانة العامة للحكومة؛ دعم نسب TVA متعددة في الفاتورة الواحدة وطباعة ICE وIF وTP غير متحقق لدى فريق المنتج، والصفحة لا تعد بهما."
+    ],
+    "fix2": {
+      "at": "2026-11-11",
+      "changes": [
+        "الحارس (أ) fr: content.fr.sections[id=einvoicing].body — حُذف الاقتباس التسويقي عن مرحلة الربط مع ZATCA (بين « ») وصارت الجملة «La seule liaison active de FieldSales avec une plateforme publique de facturation électronique est aujourd'hui en Arabie saoudite (plateforme Fatoora de la ZATCA)»، و«il est disponible» → «elle est disponible» لتوافق «liaison».",
+        "الحارس (أ) en: content.en.sections[id=einvoicing].body — حُذف الاقتباس التسويقي عن مرحلة الربط مع ZATCA (بين “ ”) وصارت الجملة “FieldSales’ only live government e-invoicing link today is in Saudi Arabia (ZATCA’s Fatoora platform)”.",
+        "الحارس (أ) ar: content.ar.sections[id=einvoicing].body — حُذف الاقتباس التسويقي عن مرحلة الربط مع منصة فاتورة (بين « ») وصارت الجملة «فالربط الحكومي الحيّ للفوترة الإلكترونية اليوم في السعودية وحدها (منصة فاتورة لدى هيئة الزكاة والضريبة والجمارك)».",
+        "الحقيقة نفسها باقية (الربط الحيّ في السعودية وحدها، والمغرب عند الطلب بلا وعد ولا موعد)؛ لا تغيير آخر في الصفحة."
+      ]
+    }
+  }
+}

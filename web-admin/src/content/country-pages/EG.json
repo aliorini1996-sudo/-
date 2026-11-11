@@ -1,0 +1,511 @@
+{
+  "code": "EG",
+  "languages": [
+    "ar",
+    "en",
+    "fr"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "ar": {
+      "slugHint": null,
+      "title": "برنامج مناديب المبيعات والتوزيع في مصر | FieldSales",
+      "description": "FieldSales لشركات التوزيع والجملة في مصر: فاتورة المندوب من الجوال وطباعتها، تحصيل نقدي وInstaPay ومحافظ، خط سير، وزيارات وسندات قبض تعمل دون إنترنت.",
+      "h1": "FieldSales في مصر: إدارة مناديب المبيعات والتوزيع والتحصيل",
+      "intro": "FieldSales منصة سحابية لشركات التوزيع والجملة في مصر تدير مناديب المبيعات في الميدان: البيع من السيارة وأخذ الطلبيات المسبقة، وإصدار فاتورة المندوب من الجوال وطباعتها على طابعة حرارية، وسندات القبض ومتابعة المديونيات، وعهدة السيارة ومطابقتها، وخط السير والزيارات بالموقع والصور. تضبط شركتك العملة على الجنيه المصري ونسبة ضريبة القيمة المضافة وطرق التحصيل من الإعدادات. ويعمل التطبيق على أندرويد وآيفون مع لوحة ويب للإدارة؛ تحتاج الفاتورة والمرتجع اتصالاً لحظة الإصدار، بينما تبقى سندات القبض والزيارات متاحة بلا إنترنت ثم تُزامَن لاحقاً.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "التوزيع في مصر: القنوات والمناديب ووسائل التحصيل",
+          "body": "من أبرز مراكز التوزيع في مصر القاهرة الكبرى (القاهرة والجيزة والقليوبية) والإسكندرية، ومدينتا السادس من أكتوبر والشيخ زايد غرب القاهرة، ومدينة العاشر من رمضان في الشرقية. وتشمل قنوات البيع الرئيسية متاجر التجزئة التقليدية الصغيرة وتجار الجملة والفنادق والمطاعم والمقاهي (HoReCa)، إلى جانب منصات B2B رقمية تورّد لتجار التجزئة التقليديين. والنمط السائد هو التوزيع المباشر عبر أساطيل المناديب، والنقد هو الغالب في التحصيل: أحد كبار منتجي الأغذية المعبأة في مصر يذكر في ملفه المنشور للمستثمرين نحو 900 مندوب مبيعات و26 مركز توزيع تغطي 27 محافظة، وسياسة بيع نقدي لـ97% من مبيعاته المحلية. وإلى جانب الكاش يحصّل الموزعون عبر التحويل اللحظي InstaPay، والمحافظ الإلكترونية على الجوال مثل Vodafone Cash، وشبكات الدفع والإيداع النقدي مثل فوري (Fawry) وأمان (Aman)، والتحويل البنكي."
+        },
+        {
+          "id": "tax",
+          "title": "ضريبة القيمة المضافة في مصر وضبطها في FieldSales",
+          "body": "تخضع المبيعات في مصر لـ«الضريبة على القيمة المضافة» (VAT) التي تديرها مصلحة الضرائب المصرية. السعر العام 14%، وهناك سعر 5% على الآلات والمعدات المستخدمة في إنشاء خطوط الإنتاج (عدا الحافلات وسيارات الركوب)، وسعر صفري لصادرات السلع والخدمات بشروط. وتُفرض «ضريبة الجدول» على سلع وخدمات محددة كالسجائر، وقد تجتمع مع الـ14% على بعضها، وتوجد قائمة سلع وخدمات معفاة. التسجيل إلزامي عند تجاوز حدّ محدد لرقم الأعمال السنوي الخاضع للضريبة، والإقرار شهري. يُعرَّف البائع برقم التسجيل الضريبي («الرقم الضريبي») المدوَّن في بطاقته الضريبية، ويُعرَّف المشتري الفرد في الفاتورة الإلكترونية برقمه القومي. وتتضمن الفاتورة رقمها وتاريخها، واسم المورّد وعنوانه ورقم تسجيله، وبيانات المشتري، ووصف الصنف وكميته ووحدة قياسه وسعر الوحدة، والكود الموحّد للسلعة (GS1 أو EGS)، وقيمة الضريبة والإجمالي المستحق، والعملة وسعر الصرف إلى الجنيه إن صدرت بعملة أخرى. في FieldSales تضبط من الإعدادات العملة على الجنيه المصري (EGP)، واسم الضريبة «ضريبة القيمة المضافة»، ونسبتها 14% أو ما تحدده شركتك، فتظهر على فاتورة المندوب المطبوعة وفي التقارير. النسبة يضبطها العميل بنفسه، فالمعاملات الخاصة كالإعفاءات وضريبة الجدول تُراجَع مع محاسبك."
+        },
+        {
+          "id": "einvoicing",
+          "title": "الفاتورة الإلكترونية والإيصال الإلكتروني في مصر",
+          "body": "تدير مصلحة الضرائب المصرية منظومتين: «الفاتورة الإلكترونية» لتعاملات المنشآت والجهات الحكومية (B2B وB2G)، و«الإيصال الإلكتروني» للبيع للمستهلك النهائي (B2C). وتعمل الفاتورة الإلكترونية بنموذج التحقق المسبق (Clearance): تُرسَل الفاتورة موقّعة بختم إلكتروني إلى بوابة المصلحة فتتحقق منها وتمنحها معرّفاً فريداً (UUID). بحسب قرارات الإلزام المنشورة في موقع المصلحة، بدأ الإلزام بالفاتورة الإلكترونية في 15 نوفمبر 2020 بمرحلة أولى من 134 شركة كبرى (القرار 386 لسنة 2020)، وتوالت المراحل حتى المرحلة الثامنة (القرار 323 لسنة 2022) التي بدأت في 15 سبتمبر 2022 بالإسكندرية والبحيرة ومطروح واكتملت آخر مجموعاتها في 15 ديسمبر 2022 بجميع الممولين المسجلين ممن لم يشملهم قرار سابق. وتنص الأسئلة الشائعة للمصلحة على أن جميع الممولين صاروا ملزمين بالانضمام (مع استثناء جهات سيادية معيّنة)، وعلى كل ممول إصدار فاتورة إلكترونية أو إيصال إلكتروني عن كل عملية بيع. ولا تُقبل الفاتورة الورقية لخصم ضريبة المدخلات، وتذكر PwC أن الفاتورة الإلكترونية صارت وحدها المستند المعتدّ به للتكاليف واجبة الخصم اعتباراً من يوليو 2023. أما الإيصال الإلكتروني فيُطبَّق منذ 1 يوليو 2022 (على أساس قرار وزير المالية 230 لسنة 2022) بمراحل تسمّي الممولين بأسمائهم في قوائم مرفقة بقرارات الإلزام، لا بحدّ عام لرقم الأعمال؛ وآخر قرار في قائمة المصلحة الرسمية عند تحققنا في نوفمبر 2026 هو القرار 361 لسنة 2025 الساري من 15 نوفمبر 2025. ويُصدَر الإيصال من نقطة بيع أو نظام مسجَّل لدى المصلحة، ويُشترط أن يكون الممول منضماً لمنظومة الفاتورة الإلكترونية أولاً. معنى ذلك للموزّع أن بيعه لمحل تجاري يستلزم فاتورة إلكترونية عن كل عملية، ويمكنه التحقق من إلزام منشأته بالإيصال برقم تسجيلها عبر خدمة الاستعلام في موقع المصلحة. مستندات المندوب في FieldSales مستندات تشغيلية للبيع والتحصيل والمتابعة. أما الفاتورة الإلكترونية أو الإيصال الإلكتروني الرسمي فتصدره منشأتك عبر بوابة المصلحة أو نظامها المحاسبي. والربط الحكومي للفوترة الإلكترونية في مصر متاح عند الطلب بعد دراسة متطلبات البلد، دون وعد ولا موعد."
+        },
+        {
+          "id": "collections",
+          "title": "التحصيل وسندات القبض والمديونيات",
+          "body": "يسجّل المندوب كل تحصيل في سند قبض من جواله، ويختار طريقة الدفع التي عرّفتها شركتك: نقداً، أو تحويل InstaPay، أو محفظة إلكترونية مثل Vodafone Cash، أو إيداعاً عبر فوري أو أمان، أو تحويلاً بنكياً. هذه طرق دفع تُضاف في الإعدادات لتصنيف التحصيل ومطابقته، دون ربط تقني بتلك الشبكات، فتطابق الإدارة ما سجّله المندوب مع كشف البنك أو المحفظة. ويُخصم كل سند من رصيد العميل فيظهر المتبقي عليه، وتتابع الإدارة المديونيات لكل عميل ولكل مندوب، وتُطابَق نقدية المندوب وعهدة سيارته في نهاية اليوم."
+        },
+        {
+          "id": "how",
+          "title": "كيف يعمل FieldSales في شركتك بمصر",
+          "body": "تبدأ بضبط العملة على الجنيه المصري، واسم الضريبة ونسبتها، وطرق التحصيل، وبيانات منشأتك على المطبوعات. يعمل المندوب على تطبيق أندرويد أو آيفون: يفتح خط سيره، ويزور العملاء مع تسجيل الموقع والصور، ويبيع من مخزون السيارة أو يأخذ طلبية مسبقة، ثم يطبع الفاتورة على طابعة حرارية ويحصّل ويُصدر سند القبض. وفي الطريق تحتاج الفاتورة والمرتجع اتصالاً لحظة الإصدار، بينما تبقى سندات القبض والزيارات متاحة بلا إنترنت إن انقطعت الشبكة، وتُزامَن البيانات حين تعود. وتتابع الإدارة من لوحة الويب المبيعات والتحصيل والمديونيات وعهدة كل سيارة ومطابقتها. واجهة التطبيق متاحة بالعربية والإنجليزية والفرنسية والتركية والصينية. ومقر FieldSales في الرياض، والمنصة متاحة لشركات التوزيع والجملة في مختلف الدول."
+        }
+      ],
+      "faq": [
+        {
+          "q": "هل يُصدر FieldSales الفاتورة الإلكترونية أو الإيصال الإلكتروني الرسمي المطلوب في مصر؟",
+          "a": "ليس اليوم. مستندات المندوب في FieldSales مستندات تشغيلية للبيع والتحصيل والمتابعة. أما الفاتورة الإلكترونية أو الإيصال الإلكتروني الرسمي فتصدره منشأتك عبر بوابة مصلحة الضرائب المصرية أو نظامها المحاسبي. والربط الحكومي للفوترة الإلكترونية في مصر متاح عند الطلب بعد دراسة متطلبات البلد، دون وعد ولا موعد."
+        },
+        {
+          "q": "هل يعمل التطبيق دون إنترنت؟",
+          "a": "جزئياً. في مصر تحتاج الفاتورة والمرتجع اتصالاً لحظة الإصدار، بينما تبقى سندات القبض والزيارات متاحة بلا إنترنت: يُصدر المندوب سند القبض ويطبعه على الطابعة الحرارية دون اتصال، ثم تُزامَن البيانات عند عودة الشبكة."
+        },
+        {
+          "q": "كيف أسجّل تحصيلاً وصلني عبر InstaPay أو فودافون كاش؟",
+          "a": "أضف InstaPay وVodafone Cash (أو أي محفظة تقبلها) طرقَ دفع في الإعدادات، فيختار المندوب الطريقة في سند القبض، وتطابقها الإدارة مع كشف البنك أو المحفظة. لا يوجد ربط تقني بين FieldSales وهذه الشبكات."
+        },
+        {
+          "q": "هل أستطيع ضبط ضريبة القيمة المضافة 14% والعملة على الجنيه المصري؟",
+          "a": "نعم. تضبط كل شركة العملة واسم الضريبة ونسبتها من الإعدادات، فتظهر على فواتير المندوب وفي التقارير. وإن كانت بعض أصنافك تخضع لمعاملة مختلفة كالإعفاء أو ضريبة الجدول، فراجع مع محاسبك طريقة التعامل معها قبل بدء التشغيل."
+        },
+        {
+          "q": "هل الإيصال الإلكتروني إلزامي على كل المنشآت في مصر؟",
+          "a": "لا. يُفرض الإلزام بالإيصال بقرارات تسمّي الممولين بأسمائهم في قوائم مرفقة، لكن على كل ممول أن يُصدر فاتورة إلكترونية أو إيصالاً إلكترونياً عن كل عملية بيع. تحقّق من وضع منشأتك برقم تسجيلها عبر خدمة الاستعلام في موقع مصلحة الضرائب."
+        },
+        {
+          "q": "بأي لغات تتوفر واجهة التطبيق؟",
+          "a": "بالعربية والإنجليزية والفرنسية والتركية والصينية، فيعمل فريقك الميداني بالعربية بينما تستخدم الإدارة الإنجليزية أو الفرنسية إن شاءت."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "بنية الفاتورة الضريبية في مصر",
+        "note": "مثال بنية بلا مبالغ. الحقلان الأخيران يخصّان الفاتورة الإلكترونية الرسمية المُصدَرة عبر منظومة مصلحة الضرائب، ولا يحملهما مستند المندوب.",
+        "fields": [
+          {
+            "label": "رقم الفاتورة وتاريخ الإصدار",
+            "example": "تسلسل الفاتورة — اليوم/الشهر/السنة والوقت"
+          },
+          {
+            "label": "المورّد",
+            "example": "اسم شركة التوزيع وعنوانها ورقم تسجيلها الضريبي"
+          },
+          {
+            "label": "المشتري",
+            "example": "اسم المحل وعنوانه ورقم تسجيله الضريبي إن وُجد، أو الرقم القومي للفرد"
+          },
+          {
+            "label": "بنود الأصناف",
+            "example": "وصف الصنف، الكمية، وحدة القياس، سعر الوحدة"
+          },
+          {
+            "label": "الكود الموحّد للصنف",
+            "example": "كود GS1 أو EGS"
+          },
+          {
+            "label": "ضريبة القيمة المضافة",
+            "example": "النسبة (14%) وقيمة الضريبة"
+          },
+          {
+            "label": "الإجمالي المستحق",
+            "example": "الإجمالي بالجنيه المصري شاملاً الضريبة"
+          },
+          {
+            "label": "العملة وسعر الصرف",
+            "example": "رمز العملة وسعر الصرف إلى الجنيه يوم الإصدار، إن صدرت الفاتورة بعملة أخرى"
+          },
+          {
+            "label": "كود النشاط وكود الفرع",
+            "example": "كود النشاط الضريبي للمنشأة وكود الفرع المُصدِر"
+          },
+          {
+            "label": "التوقيع الإلكتروني والمعرّف الفريد (UUID)",
+            "example": "توقيع المُصدِر، ومعرّف تمنحه المنظومة عند قبول المستند"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "مصلحة الضرائب المصرية — الأسئلة الشائعة",
+          "url": "https://eta.gov.eg/ar/alasylt-alshayt"
+        },
+        {
+          "title": "مصلحة الضرائب المصرية — قرارات الإلزام بمنظومة الفاتورة الإلكترونية",
+          "url": "https://eta.gov.eg/ar/content/qrarat-alalzam-bmnzwmt-alfatwrt-alalktrwnyt"
+        },
+        {
+          "title": "مصلحة الضرائب المصرية — صدور قرار المرحلة الثامنة رقم 323 لسنة 2022",
+          "url": "https://eta.gov.eg/ar/news/sdwr-qrar-almrhlt-althamnt-lmnzwmt-alfatwrt-alalktrwnyt-rqm-323-lsnt-2022-almtdmn-alan-aljdwl"
+        },
+        {
+          "title": "مصلحة الضرائب المصرية — قرارات الإلزام بالتعامل بالإيصال الإلكتروني",
+          "url": "https://www.eta.gov.eg/ar/content/qrarat-alalzam-baltaml-balaysal-alalktrwny"
+        },
+        {
+          "title": "جريدة البورصة — قرار 361 لسنة 2025 للإيصال الإلكتروني",
+          "url": "https://www.alborsaanews.com/?p=1917563"
+        },
+        {
+          "title": "مصلحة الضرائب المصرية — دليل منظومة الإيصال الإلكتروني",
+          "url": "https://eta.gov.eg/ar/content/e-receipt-services"
+        },
+        {
+          "title": "مصلحة الضرائب المصرية — مواصفة الفاتورة الإلكترونية Invoice v1.0",
+          "url": "https://sdk.invoicing.eta.gov.eg/documents/invoice-v1-0/"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — مصر: الضرائب الأخرى",
+          "url": "https://taxsummaries.pwc.com/egypt/corporate/other-taxes"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — مصر: الإدارة الضريبية",
+          "url": "https://taxsummaries.pwc.com/egypt/corporate/tax-administration"
+        },
+        {
+          "title": "إيديتا للصناعات الغذائية — ملف الشركة لعلاقات المستثمرين",
+          "url": "https://ir.edita.com.eg/en/company-profile"
+        },
+        {
+          "title": "InstaPay — شبكة المدفوعات اللحظية",
+          "url": "https://www.instapay.eg/"
+        },
+        {
+          "title": "فودافون مصر — Vodafone Cash",
+          "url": "https://web.vodafone.com.eg/ar/vodafone-cash"
+        }
+      ],
+      "lastVerifiedLabel": "آخر تحقق: نوفمبر 2026"
+    },
+    "en": {
+      "slugHint": null,
+      "title": "Field Sales & Van Sales Software in Egypt | FieldSales",
+      "description": "FieldSales for distributors and wholesalers in Egypt: rep invoicing with thermal printing, cash, InstaPay and wallet collections, routes, offline receipts.",
+      "h1": "FieldSales in Egypt: field sales, van sales and collections for distributors",
+      "intro": "FieldSales is a cloud platform that helps distribution and wholesale companies in Egypt run their field sales teams: van sales and pre-sales order taking, invoices issued from the sales rep's phone and printed on a thermal printer, receipt vouchers and receivables, van stock custody and reconciliation, and routes and visits logged with location and photos. Each company sets the Egyptian pound, its VAT rate and its collection methods in settings. The app runs on Android and iPhone, with a web dashboard for managers; invoices and returns need a connection at the moment of issue, while receipts and visits keep working offline and sync later.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "Distribution in Egypt: channels, sales reps and collections",
+          "body": "Major distribution hubs include Greater Cairo (Cairo, Giza and Qalyubia) and Alexandria, along with 6th of October City and Sheikh Zayed west of Cairo and 10th of Ramadan City in Sharqia. The main sales channels are small traditional retail shops, wholesalers and hotels, restaurants and cafés (HoReCa), alongside digital B2B platforms that supply traditional retailers. Direct distribution through fleets of sales reps (mandoub mabi'at, مندوب مبيعات) is the dominant model, and cash dominates collections: one of Egypt's largest packaged-food producers reports in its published investor profile about 900 sales reps, 26 distribution centers covering 27 governorates, and a cash policy for 97% of its domestic sales. Besides cash, distributors collect through InstaPay instant transfers, mobile wallets such as Vodafone Cash, cash payment and deposit networks such as Fawry and Aman, and bank transfers."
+        },
+        {
+          "id": "tax",
+          "title": "VAT in Egypt and how to set it up in FieldSales",
+          "body": "Sales in Egypt are subject to Value Added Tax (VAT), administered by the Egyptian Tax Authority (ETA). The standard rate is 14%; a 5% rate applies to machinery and equipment used to set up production lines (excluding buses and passenger cars), and a 0% rate applies to exports of goods and services under conditions. A separate Table Tax applies to specific goods and services such as cigarettes, in some cases on top of the 14%, and a list of goods and services is exempt. Registration is mandatory once annual taxable turnover exceeds a set threshold, and returns are filed monthly. The seller is identified by the tax registration number shown on its tax card; on e-invoices, an individual buyer is identified by national ID number. A tax invoice shows the invoice number and date, the supplier's name, address and registration number, the buyer's details, item description, quantity, unit of measure and unit price, the unified item code (GS1 or EGS), the VAT amount and total due, and the currency and exchange rate to the pound when issued in another currency. In FieldSales you set the currency to Egyptian pound (EGP), the tax name to VAT and the rate to 14% or whatever your company applies, and they appear on the rep's printed invoice and in reports. You set the rate yourself, so special treatments such as exemptions or the Table Tax should be reviewed with your accountant."
+        },
+        {
+          "id": "einvoicing",
+          "title": "E-invoices and e-receipts in Egypt",
+          "body": "The Egyptian Tax Authority runs two systems: the E-Invoice system for business and government transactions (B2B and B2G), and the E-Receipt system for sales to final consumers (B2C). E-invoicing follows a clearance model: each invoice is signed with an electronic seal and submitted to the ETA portal, which validates it and assigns a unique identifier (UUID). According to the mandate decisions published on the ETA website, e-invoicing started on 15 November 2020 with a first phase of 134 large companies (Decision 386 of 2020) and rolled out in phases up to Phase 8 (Decision 323 of 2022), which began on 15 September 2022 in Alexandria, Beheira and Matrouh and completed its last groups on 15 December 2022, covering all registered taxpayers not included in an earlier decision. The ETA FAQ states that all taxpayers are now required to join (with certain sovereign entities excepted) and that every sale must be covered by an e-invoice or an e-receipt. Paper invoices are not accepted for input VAT deduction, and PwC adds that from July 2023 the e-invoice became the only document accepted to support deductible costs. E-receipts have been rolled out since 1 July 2022 (on the basis of Minister of Finance Decision 230 of 2022) through decisions that name the obligated taxpayers in attached lists rather than through a general turnover threshold; when we checked the ETA's official list in November 2026, the latest decision was Decision 361 of 2025, effective 15 November 2025. E-receipts are issued from a POS or system registered with the ETA, and a taxpayer must join the E-Invoice system first. In practice, a distributor selling to a shop needs an e-invoice for every sale, and you can check whether your business is obligated for e-receipts through the inquiry service on the ETA website using your registration number. Sales rep documents in FieldSales are operational documents for selling, collecting and follow-up. Your company issues the official e-invoice or e-receipt through the ETA portal or its accounting system. Government e-invoicing connectivity for Egypt is available on request after we study the country's requirements, with no promise and no timeline."
+        },
+        {
+          "id": "collections",
+          "title": "Collections, receipt vouchers and receivables",
+          "body": "Reps record every collection on a receipt voucher from their phone and choose one of the payment methods your company has defined: cash, an InstaPay transfer, a mobile wallet such as Vodafone Cash, a deposit through Fawry or Aman, or a bank transfer. These are payment methods you add in settings to label and reconcile collections; FieldSales has no technical connection to those networks, so managers match what the rep recorded against the bank or wallet statement. Each receipt reduces the customer's outstanding balance, managers track receivables by customer and by rep, and the rep's cash and van custody are reconciled at the end of the day."
+        },
+        {
+          "id": "how",
+          "title": "How FieldSales works for your team in Egypt",
+          "body": "Setup starts with the currency (Egyptian pound), the tax name and rate, your collection methods and your company details on printouts. Reps work on Android or iPhone: they open their route, visit customers with location and photos logged, sell from van stock or take a pre-sales order, print the invoice on a thermal printer, then collect and issue a receipt voucher. On the road, invoices and returns need a connection at the moment of issue, while receipts and visits keep working offline if the network drops, and data syncs once it is back. Managers follow sales, collections, receivables and each van's custody and reconciliation from the web dashboard. The app interface is available in Arabic, English, French, Turkish and Chinese. FieldSales is headquartered in Riyadh and is available to distribution and wholesale companies in any country."
+        }
+      ],
+      "faq": [
+        {
+          "q": "Does FieldSales issue the official e-invoices and e-receipts required in Egypt?",
+          "a": "Not today. Rep documents in FieldSales are operational documents for selling, collecting and follow-up. Your company issues the official e-invoice or e-receipt through the Egyptian Tax Authority portal or its accounting system. Government e-invoicing connectivity for Egypt is available on request after we study the country's requirements, with no promise and no timeline."
+        },
+        {
+          "q": "Does the app work without internet?",
+          "a": "Partly. In Egypt, invoices and returns need a connection at the moment of issue, while receipts and visits keep working offline: reps can issue a receipt voucher and print it on a thermal printer while offline, and data syncs once the connection returns."
+        },
+        {
+          "q": "How do I record a collection paid by InstaPay or Vodafone Cash?",
+          "a": "Add InstaPay and Vodafone Cash (or any wallet you accept) as payment methods in settings. The rep selects the method on the receipt voucher, and you reconcile against your bank or wallet statement. FieldSales has no technical connection to these networks."
+        },
+        {
+          "q": "Can I set 14% VAT and the Egyptian pound?",
+          "a": "Yes. Each company sets its currency, tax name and rate in settings, and they appear on rep invoices and in reports. If some of your items fall under a different treatment, such as an exemption or the Table Tax, review with your accountant how to handle them before going live."
+        },
+        {
+          "q": "Are e-receipts mandatory for every business in Egypt?",
+          "a": "No. E-receipt obligations are imposed through decisions that name taxpayers in attached lists, while every taxpayer must cover each sale with either an e-invoice or an e-receipt. Check your business's status with its registration number through the inquiry service on the ETA website."
+        },
+        {
+          "q": "Which languages is the app interface available in?",
+          "a": "Arabic, English, French, Turkish and Chinese, so your field team can work in Arabic while head office uses English or French."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Structure of a tax invoice in Egypt",
+        "note": "A structural example with no amounts. The last two fields belong to the official e-invoice issued through the Egyptian Tax Authority's system and do not appear on the rep's document.",
+        "fields": [
+          {
+            "label": "Invoice number and issue date",
+            "example": "Invoice sequence — day/month/year and time"
+          },
+          {
+            "label": "Supplier",
+            "example": "Distributor name, address and tax registration number"
+          },
+          {
+            "label": "Buyer",
+            "example": "Shop name, address and tax registration number if any, or national ID for an individual"
+          },
+          {
+            "label": "Line items",
+            "example": "Item description, quantity, unit of measure, unit price"
+          },
+          {
+            "label": "Unified item code",
+            "example": "GS1 or EGS code"
+          },
+          {
+            "label": "VAT",
+            "example": "Rate (14%) and tax amount"
+          },
+          {
+            "label": "Total due",
+            "example": "Total in Egyptian pounds, VAT included"
+          },
+          {
+            "label": "Currency and exchange rate",
+            "example": "Currency code and exchange rate to the pound on the issue date, if issued in another currency"
+          },
+          {
+            "label": "Activity and branch codes",
+            "example": "Taxpayer activity code and issuing branch code"
+          },
+          {
+            "label": "Electronic signature and UUID",
+            "example": "Issuer's signature, and the identifier assigned by the system when the document is accepted"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "Egyptian Tax Authority — FAQ (Arabic)",
+          "url": "https://eta.gov.eg/ar/alasylt-alshayt"
+        },
+        {
+          "title": "Egyptian Tax Authority — E-invoice mandate decisions (Arabic)",
+          "url": "https://eta.gov.eg/ar/content/qrarat-alalzam-bmnzwmt-alfatwrt-alalktrwnyt"
+        },
+        {
+          "title": "Egyptian Tax Authority — Phase 8 Decision 323 of 2022 (Arabic)",
+          "url": "https://eta.gov.eg/ar/news/sdwr-qrar-almrhlt-althamnt-lmnzwmt-alfatwrt-alalktrwnyt-rqm-323-lsnt-2022-almtdmn-alan-aljdwl"
+        },
+        {
+          "title": "Egyptian Tax Authority — E-receipt mandate decisions (Arabic)",
+          "url": "https://www.eta.gov.eg/ar/content/qrarat-alalzam-baltaml-balaysal-alalktrwny"
+        },
+        {
+          "title": "Al Borsa News — Decision 361 of 2025 on e-receipts (Arabic)",
+          "url": "https://www.alborsaanews.com/?p=1917563"
+        },
+        {
+          "title": "Egyptian Tax Authority — E-receipt system guide (Arabic)",
+          "url": "https://eta.gov.eg/ar/content/e-receipt-services"
+        },
+        {
+          "title": "Egyptian Tax Authority SDK — Invoice v1.0 document structure",
+          "url": "https://sdk.invoicing.eta.gov.eg/documents/invoice-v1-0/"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Egypt: Other taxes",
+          "url": "https://taxsummaries.pwc.com/egypt/corporate/other-taxes"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Egypt: Tax administration",
+          "url": "https://taxsummaries.pwc.com/egypt/corporate/tax-administration"
+        },
+        {
+          "title": "Edita Food Industries — Investor Relations company profile",
+          "url": "https://ir.edita.com.eg/en/company-profile"
+        },
+        {
+          "title": "InstaPay — Instant Payment Network",
+          "url": "https://www.instapay.eg/"
+        },
+        {
+          "title": "Vodafone Egypt — Vodafone Cash (Arabic)",
+          "url": "https://web.vodafone.com.eg/ar/vodafone-cash"
+        }
+      ],
+      "lastVerifiedLabel": "Last verified: November 2026"
+    },
+    "fr": {
+      "slugHint": null,
+      "title": "Logiciel de vente terrain en Égypte | FieldSales",
+      "description": "FieldSales pour distributeurs et grossistes en Égypte : factures imprimées, encaissements espèces, InstaPay et wallets, tournées, reçus hors ligne.",
+      "h1": "FieldSales en Égypte : vente terrain, vente en tournée et recouvrement",
+      "intro": "FieldSales est une plateforme cloud qui aide les distributeurs et grossistes en Égypte à piloter leurs commerciaux terrain : vente en tournée (van sales) et prévente, factures émises depuis le téléphone et imprimées sur imprimante thermique, reçus d'encaissement et créances, stock confié au véhicule et rapprochement, tournées et visites avec position et photos. Chaque société règle la livre égyptienne, son taux de TVA et ses modes d'encaissement dans les paramètres. L'application fonctionne sur Android et iPhone, avec un tableau de bord web ; les factures et les avoirs exigent une connexion au moment de l’émission, tandis que les reçus et les visites restent disponibles hors ligne, puis se synchronisent.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "La distribution en Égypte : circuits, commerciaux et encaissement",
+          "body": "Parmi les principaux pôles de distribution figurent le Grand Caire (Le Caire, Gizeh et Qalyubiya) et Alexandrie, ainsi que les villes du 6-Octobre et de Cheikh Zayed à l'ouest du Caire et la ville du 10-Ramadan dans la province de Charqiya. Les principaux circuits de vente sont le commerce traditionnel de proximité, les grossistes et l'hôtellerie-restauration (CHR, ou HoReCa), aux côtés de plateformes B2B numériques qui alimentent les détaillants traditionnels. La distribution directe par des flottes de commerciaux terrain (mandoub mabi'at, مندوب مبيعات) reste le modèle dominant, et les espèces dominent l'encaissement : l'un des plus grands producteurs égyptiens d'aliments emballés indique dans son profil investisseurs publié environ 900 commerciaux, 26 centres de distribution couvrant 27 gouvernorats et une politique de vente au comptant pour 97 % de ses ventes locales. Outre les espèces, les distributeurs encaissent par virement instantané InstaPay, par portefeuille mobile comme Vodafone Cash, via les réseaux de paiement et de dépôt d'espèces comme Fawry et Aman, et par virement bancaire."
+        },
+        {
+          "id": "tax",
+          "title": "La TVA en Égypte et son paramétrage dans FieldSales",
+          "body": "En Égypte, les ventes sont soumises à la taxe sur la valeur ajoutée (TVA), gérée par l'Administration fiscale égyptienne (Egyptian Tax Authority, ETA). Le taux normal est de 14 % ; un taux de 5 % s'applique aux machines et équipements servant à créer des lignes de production (hors autobus et voitures particulières), et un taux zéro aux exportations de biens et de services sous conditions. Une « taxe du tableau » (Table Tax) frappe en outre certains biens et services comme les cigarettes, parfois en plus des 14 %, et une liste de biens et services est exonérée. L'immatriculation est obligatoire au-delà d'un seuil de chiffre d'affaires annuel taxable, et la déclaration est mensuelle. Le vendeur est identifié par le numéro d'enregistrement fiscal porté sur sa carte fiscale ; sur la facture électronique, l'acheteur particulier l'est par son numéro national d'identité. Une facture fiscale mentionne le numéro et la date de la facture, le nom, l'adresse et le numéro d'enregistrement du fournisseur, les coordonnées de l'acheteur, la désignation, la quantité, l'unité de mesure et le prix unitaire, le code article unifié (GS1 ou EGS), le montant de la TVA et le total dû, ainsi que la devise et le taux de change en livres si elle est émise dans une autre devise. Dans FieldSales, vous réglez dans les paramètres la devise sur la livre égyptienne (EGP), le nom de la taxe (TVA) et son taux, 14 % ou celui que votre société applique ; ils figurent sur la facture imprimée du commercial et dans les rapports. C'est vous qui fixez le taux : les traitements particuliers comme les exonérations ou la taxe du tableau se valident avec votre comptable."
+        },
+        {
+          "id": "einvoicing",
+          "title": "Facture électronique et reçu électronique en Égypte",
+          "body": "L'Administration fiscale égyptienne gère deux systèmes : la facture électronique (E-Invoice) pour les transactions entre entreprises et avec l'État (B2B et B2G), et le reçu électronique (E-Receipt) pour les ventes au consommateur final (B2C). La facture électronique repose sur un modèle de validation préalable (clearance) : chaque facture, signée par un cachet électronique, est transmise au portail de l'ETA, qui la contrôle et lui attribue un identifiant unique (UUID). Selon les décisions d'obligation publiées sur le site de l'ETA, la facturation électronique a démarré le 15 novembre 2020 avec une première phase de 134 grandes entreprises (décision 386 de 2020), puis s'est étendue par phases jusqu'à la phase 8 (décision 323 de 2022), lancée le 15 septembre 2022 à Alexandrie, Beheira et Matrouh et achevée le 15 décembre 2022 avec tous les contribuables enregistrés non visés par une décision antérieure. D'après la FAQ de l'ETA, tous les contribuables sont désormais tenus d'y adhérer (sauf certaines entités souveraines) et chaque vente doit donner lieu à une facture ou à un reçu électronique. La facture papier n'est pas acceptée pour la déduction de la TVA d'amont et, selon PwC, depuis juillet 2023, seule la facture électronique justifie les charges déductibles. Le reçu électronique est déployé depuis le 1er juillet 2022 (sur la base de la décision 230 de 2022 du ministre des Finances) au moyen de décisions qui désignent nommément les contribuables concernés dans des listes annexées, et non selon un seuil général de chiffre d'affaires ; lors de notre vérification de la liste officielle de l'ETA en novembre 2026, la dernière décision était la décision 361 de 2025, en vigueur depuis le 15 novembre 2025. Le reçu est émis depuis un terminal de point de vente ou un système enregistré auprès de l'ETA, et le contribuable doit d'abord avoir adhéré au système de facture électronique. Concrètement, un distributeur qui vend à un commerce doit émettre une facture électronique pour chaque vente, et vous pouvez vérifier si votre entreprise est soumise au reçu électronique grâce au service de consultation du site de l'ETA, avec votre numéro d'enregistrement. Les documents du commercial dans FieldSales sont des documents opérationnels de vente, d'encaissement et de suivi. La facture ou le reçu électronique officiel est émis par votre société via le portail de l'ETA ou son logiciel comptable. La connexion gouvernementale pour la facturation électronique en Égypte est disponible sur demande, après étude des exigences du pays, sans promesse ni calendrier."
+        },
+        {
+          "id": "collections",
+          "title": "Encaissements, reçus et créances",
+          "body": "Le commercial enregistre chaque encaissement sur un reçu depuis son téléphone et choisit l'un des modes de paiement définis par votre société : espèces, virement InstaPay, portefeuille mobile comme Vodafone Cash, dépôt via Fawry ou Aman, ou virement bancaire. Ce sont des modes de paiement que vous créez dans les paramètres pour classer et rapprocher les encaissements ; FieldSales n'a pas de liaison technique avec ces réseaux, et la direction rapproche ce que le commercial a saisi du relevé bancaire ou du portefeuille. Chaque reçu vient en déduction du solde du client, la direction suit les créances par client et par commercial, et la caisse du commercial comme le stock confié au véhicule sont rapprochés en fin de journée."
+        },
+        {
+          "id": "how",
+          "title": "Comment FieldSales fonctionne pour votre équipe en Égypte",
+          "body": "La mise en route commence par la devise (livre égyptienne), le nom et le taux de la taxe, vos modes d'encaissement et les coordonnées de votre société sur les impressions. Le commercial travaille sur Android ou iPhone : il ouvre sa tournée, visite ses clients avec position et photos enregistrées, vend sur le stock du véhicule ou prend une commande en prévente, imprime la facture sur imprimante thermique, puis encaisse et émet le reçu. En tournée, les factures et les avoirs exigent une connexion au moment de l’émission, tandis que les reçus et les visites restent disponibles hors ligne si le réseau coupe, et les données se synchronisent au retour de la connexion. La direction suit depuis le tableau de bord web les ventes, les encaissements, les créances, ainsi que le stock confié à chaque véhicule et son rapprochement. L'interface de l'application est disponible en arabe, anglais, français, turc et chinois. FieldSales a son siège à Riyad et s'adresse aux sociétés de distribution et de gros de tous les pays."
+        }
+      ],
+      "faq": [
+        {
+          "q": "FieldSales émet-il les factures et reçus électroniques officiels exigés en Égypte ?",
+          "a": "Pas aujourd'hui. Les documents du commercial dans FieldSales sont des documents opérationnels de vente, d'encaissement et de suivi. Votre société émet la facture ou le reçu électronique officiel via le portail de l'Administration fiscale égyptienne ou son logiciel comptable. La connexion gouvernementale pour la facturation électronique en Égypte est disponible sur demande, après étude des exigences du pays, sans promesse ni calendrier."
+        },
+        {
+          "q": "L'application fonctionne-t-elle sans internet ?",
+          "a": "En partie. En Égypte, les factures et les avoirs exigent une connexion au moment de l’émission, tandis que les reçus et les visites restent disponibles hors ligne : le commercial émet et imprime le reçu sur imprimante thermique sans connexion, et les données se synchronisent dès que la connexion revient."
+        },
+        {
+          "q": "Comment enregistrer un encaissement reçu par InstaPay ou Vodafone Cash ?",
+          "a": "Créez InstaPay et Vodafone Cash (ou tout autre portefeuille accepté) comme modes de paiement dans les paramètres. Le commercial choisit le mode sur le reçu, et vous rapprochez avec votre relevé bancaire ou de portefeuille. FieldSales n'a pas de liaison technique avec ces réseaux."
+        },
+        {
+          "q": "Puis-je régler la TVA à 14 % et la livre égyptienne ?",
+          "a": "Oui. Chaque société règle sa devise, le nom et le taux de la taxe dans les paramètres ; ils apparaissent sur les factures du commercial et dans les rapports. Si certains articles relèvent d'un traitement différent, comme une exonération ou la taxe du tableau, voyez avec votre comptable comment les gérer avant le démarrage."
+        },
+        {
+          "q": "Le reçu électronique est-il obligatoire pour toutes les entreprises en Égypte ?",
+          "a": "Non. L'obligation est fixée par des décisions qui désignent nommément les contribuables dans des listes annexées, tandis que chaque contribuable doit couvrir chaque vente par une facture ou un reçu électronique. Vérifiez la situation de votre entreprise avec son numéro d'enregistrement via le service de consultation du site de l'ETA."
+        },
+        {
+          "q": "Dans quelles langues l'interface est-elle disponible ?",
+          "a": "En arabe, anglais, français, turc et chinois : vos équipes terrain peuvent travailler en arabe pendant que le siège utilise le français ou l'anglais."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Structure d'une facture fiscale en Égypte",
+        "note": "Exemple de structure, sans montants. Les deux derniers champs concernent la facture électronique officielle émise via le système de l'Administration fiscale égyptienne et ne figurent pas sur le document du commercial.",
+        "fields": [
+          {
+            "label": "Numéro et date de la facture",
+            "example": "Numéro de séquence — jour/mois/année et heure"
+          },
+          {
+            "label": "Fournisseur",
+            "example": "Nom, adresse et numéro d'enregistrement fiscal du distributeur"
+          },
+          {
+            "label": "Acheteur",
+            "example": "Nom et adresse du commerce et son numéro d'enregistrement fiscal le cas échéant, ou numéro national d'identité pour un particulier"
+          },
+          {
+            "label": "Lignes d'articles",
+            "example": "Désignation, quantité, unité de mesure, prix unitaire"
+          },
+          {
+            "label": "Code article unifié",
+            "example": "Code GS1 ou EGS"
+          },
+          {
+            "label": "TVA",
+            "example": "Taux (14 %) et montant de la taxe"
+          },
+          {
+            "label": "Total dû",
+            "example": "Total en livres égyptiennes, TVA comprise"
+          },
+          {
+            "label": "Devise et taux de change",
+            "example": "Code de la devise et taux de change en livres à la date d'émission, si la facture est libellée dans une autre devise"
+          },
+          {
+            "label": "Codes d'activité et d'établissement",
+            "example": "Code d'activité fiscale du contribuable et code de l'établissement émetteur"
+          },
+          {
+            "label": "Signature électronique et UUID",
+            "example": "Signature de l'émetteur, et identifiant attribué par le système à l'acceptation du document"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "Administration fiscale égyptienne — FAQ (en arabe)",
+          "url": "https://eta.gov.eg/ar/alasylt-alshayt"
+        },
+        {
+          "title": "Administration fiscale égyptienne — Décisions d'obligation, facture électronique (en arabe)",
+          "url": "https://eta.gov.eg/ar/content/qrarat-alalzam-bmnzwmt-alfatwrt-alalktrwnyt"
+        },
+        {
+          "title": "Administration fiscale égyptienne — Décision 323 de 2022, phase 8 (en arabe)",
+          "url": "https://eta.gov.eg/ar/news/sdwr-qrar-almrhlt-althamnt-lmnzwmt-alfatwrt-alalktrwnyt-rqm-323-lsnt-2022-almtdmn-alan-aljdwl"
+        },
+        {
+          "title": "Administration fiscale égyptienne — Décisions d'obligation, reçu électronique (en arabe)",
+          "url": "https://www.eta.gov.eg/ar/content/qrarat-alalzam-baltaml-balaysal-alalktrwny"
+        },
+        {
+          "title": "Al Borsa News — Décision 361 de 2025 sur le reçu électronique (en arabe)",
+          "url": "https://www.alborsaanews.com/?p=1917563"
+        },
+        {
+          "title": "Administration fiscale égyptienne — Guide du reçu électronique (en arabe)",
+          "url": "https://eta.gov.eg/ar/content/e-receipt-services"
+        },
+        {
+          "title": "SDK de l'Administration fiscale égyptienne — Invoice v1.0",
+          "url": "https://sdk.invoicing.eta.gov.eg/documents/invoice-v1-0/"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Egypt: Other taxes",
+          "url": "https://taxsummaries.pwc.com/egypt/corporate/other-taxes"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Egypt: Tax administration",
+          "url": "https://taxsummaries.pwc.com/egypt/corporate/tax-administration"
+        },
+        {
+          "title": "Edita Food Industries — Profil de la société (relations investisseurs)",
+          "url": "https://ir.edita.com.eg/en/company-profile"
+        },
+        {
+          "title": "InstaPay — Réseau de paiements instantanés",
+          "url": "https://www.instapay.eg/"
+        },
+        {
+          "title": "Vodafone Égypte — Vodafone Cash (en arabe)",
+          "url": "https://web.vodafone.com.eg/ar/vodafone-cash"
+        }
+      ],
+      "lastVerifiedLabel": "Dernière vérification : novembre 2026"
+    }
+  },
+  "notes": "الصفحة قائمة (/blog/field-sales-software-eg/) فـslugHint=null في اللغات الثلاث، والمحتوى مكتوب كاملاً ليأخذ الدامج منه قسم «حقائق محلية». كُتب بعد اكتمال التدقيق (audit.auditedAt=2026-11-11، الثقة high) وروعيت تصحيحاته: سعر الصرف «إلى الجنيه يوم الإصدار» لا «البنك المركزي»، وتفاصيل المرحلة الثامنة (بدء 15 سبتمبر 2022 واكتمال 15 ديسمبر 2022)، وإضافة PwC عن يوليو 2023، وآخر قرار إيصال 361 لسنة 2025 مع ذكر أن التحقق في نوفمبر 2026. حُذفت كل المبالغ الملاصقة للعملة: حدّ التسجيل (500,000 ومحل خلاف مع 250,000 في uncertain) صار «حدّ محدد لرقم الأعمال» بلا رقم، وحدود InstaPay وVodafone Cash لم تُذكر، وحدّ بيانات المشتري في الإيصال لم يُذكر. المصطلحات المحلية كلها null عدا «مندوب مبيعات»، فلم يُنسب للسوق المصري أي مصطلح آخر (لا «فان سيلز» ولا «بقالة» ولا «تقفيل اليومية»)؛ وفي en/fr كُتب المصطلح بالحروف اللاتينية مع أصله العربي. لم تُذكر صيغة رقم التسجيل (9 أرقام) لأنها في uncertain من مصدر غير رسمي، ولم تُذكر الشيكات، ولم يُذكر تاريخ رفض الفاتورة الورقية (خلاف TMF/PwC) بل الحكم وحده من الأسئلة الشائعة للمصلحة. لم تُسمَّ منصات B2B (MaxAB وCartona) تجنّباً لأسماء قد تُعدّ منافسة، وأرقام Edita نُسبت إلى «أحد كبار منتجي الأغذية المعبأة» في المتن مع ذكر الشركة في المصادر فقط، وصيغتها «يذكر في ملفه المنشور» لأنها غير مؤرخة. موقف FieldSales من الفوترة الحكومية في جمل مستقلة لا تذكر اسم المنظومة أو الجهة مع فعل ربط، ويفصلها عن آخر تاريخ جملة بلا تاريخ (خدمة الاستعلام). سؤال FAQ صيغ «هل يُصدر FieldSales الفاتورة الإلكترونية الرسمية» بدل «هل يدعم…» تجنّباً لاسم الجهة مع فعل دعم. روعيت قائمة mustNotSay المضافة في التدقيق: لا «يدعم/جاهز» للفوترة المصرية، ولا ادعاء إيصال إلكتروني قانوني أو POS، ولا احتساب ضريبة الجدول (نُصّ أن النسبة يضبطها العميل والمعاملات الخاصة تُراجَع مع المحاسب). الفرنسية مضبوطة طباعياً بمسافات غير منكسرة قبل : ; ? ! % وداخل « ». مصدر Avalara لم يُدرج لأن ادعاءه عن B2C في يناير 2025 مرفوض في uncertain.",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish-with-notes",
+    "fixes": 20,
+    "issues": [
+      "مبالغة غير موثقة (ar/en/fr): «يمرّ معظم البيع عبر…» / «Most volume…» / «L'essentiel des volumes…» — الحقائق تسرد قنوات البيع ولا تقول «معظم»؛ صارت «تشمل قنوات البيع الرئيسية…».",
+      "ادعاء ضمني بقاعدة عملاء (ar/en/fr): «يخدم شركات التوزيع في دول عديدة» / «serves… across many countries» / «accompagne… dans de nombreux pays» — صار «متاحة لشركات التوزيع والجملة في مختلف الدول» تجنباً لما يشبه أرقام العملاء.",
+      "إسناد غير دقيق (ar/en/fr): عدم قبول الفاتورة الورقية لخصم ضريبة المدخلات كان منسوباً إلى الأسئلة الشائعة للمصلحة، بينما تاريخه موضع خلاف TMF/PwC في uncertain؛ فُصل في جملة مستقلة بلا إسناد إلى الأسئلة الشائعة وبلا تاريخ.",
+      "موعد بلا سند صريح (ar/en/fr): بدء الإيصال الإلكتروني في 1 يوليو 2022 أُضيف إليه أساسه من الحقائق (قرار وزير المالية 230 لسنة 2022) ليُذكر الموعد بمصدره.",
+      "صياغة (ar): «ضريبة المبيعات في مصر هي الضريبة على القيمة المضافة» ملتبسة لأن «ضريبة المبيعات» اسم الضريبة الملغاة قبل 2016؛ صارت «تخضع المبيعات في مصر لـ…»، وكذلك en/fr.",
+      "صياغة (ar): «نموذج التخليص المسبق» يوحي بالتخليص الجمركي في مصر؛ صار «نموذج التحقق المسبق (Clearance)» مع تحديد أنه للفاتورة الإلكترونية لا للمنظومتين معاً، وكذلك en/fr (فاعل «It/Il s'agit» الملتبس).",
+      "صياغة (ar): «التوزيع المباشر بأسطول يقوده مندوب المبيعات» ركيكة؛ صارت «عبر أساطيل المناديب» كما في الحقائق.",
+      "صياغة (ar FAQ5): «بينما» → «لكن» لوضوح الاستدراك؛ و(fr) «stock du camion» → «stock du véhicule» اتساقاً مع بقية النص.",
+      "فُحص ولم يُعدَّل: النسب 14% و5% والصفرية، ضريبة الجدول، الإقرار الشهري، أرقام المرحلة الأولى والثامنة، القرار 361 لسنة 2025، أرقام Edita منسوبة بلا تسمية وبصيغة «يذكر في ملفه»، طرق التحصيل بلا ادعاء ربط، جملة FieldSales عن الربط الحكومي «متاح عند الطلب… دون وعد ولا موعد» ولا تاريخ في جملتها ولا في الجملة السابقة لها، لغات الواجهة الخمس، لا سعر ولا مبلغ ملاصق لعملة ولا «مجاني» ولا «معتمد/compliant/certified» ولا أسماء منافسين.",
+      "ملاحظة للنشر: حسب uncertain يُراجَع رابط قائمة قرارات الإيصال الإلكتروني قبل النشر تحسباً لقرار إلزام بعد 361 لسنة 2025؛ والنص يقيّد ذلك بـ«عند تحققنا في نوفمبر 2026». أرقام Edita غير مؤرخة صراحةً. حدّ التسجيل في VAT لم يُذكر رقماً (خلاف 500,000/250,000 ومنع المبالغ)."
+    ],
+    "fix2": {
+      "at": "2026-11-11",
+      "changes": [
+        "حارس (ج) قيد الاتصال في مصر (ETA مقاصّة لحظية): أُضيفت صيغة القيد المطابقة باللغات الثلاث في المقدمة (intro) وفي قسم «كيف يعمل» (sections[4]) وفي جواب سؤال العمل دون إنترنت (faq[1]): «تحتاج الفاتورة والمرتجع اتصالاً لحظة الإصدار، بينما تبقى سندات القبض والزيارات متاحة بلا إنترنت» / \"invoices and returns need a connection at the moment of issue, while receipts and visits keep working offline\" / «les factures et les avoirs exigent une connexion au moment de l’émission, tandis que les reçus et les visites restent disponibles hors ligne».",
+        "تصحيح وعد إصدار الفاتورة دون اتصال (ar/en/fr) في faq[1]: كان «نعم. يبيع المندوب ويُصدر الفواتير وسندات القبض… دون اتصال» / \"Yes. Reps can sell, issue invoices… while offline\" / «Oui. Le commercial vend, émet factures et reçus… hors ligne»؛ صار «جزئياً/Partly/En partie» مع القيد، وبقي إصدار سند القبض وطباعته دون اتصال.",
+        "المقدمة وsections[4] (ar/en/fr): حُذف التعميم «ويعمل التطبيق دون اتصال ثم يزامن لاحقاً» و«يستمر العمل دون اتصال» / \"works offline\", \"work continues offline\" / «fonctionne hors ligne», «le travail continue hors ligne»، وحلّت محلّها صيغة القيد مع بقاء المزامنة عند عودة الشبكة.",
+        "الوصف (description) تقليصاً لنطاق العمل دون اتصال إلى ما يصحّ: ar «ويعمل دون إنترنت» ← «وزيارات وسندات قبض تعمل دون إنترنت» (149)؛ en \"offline mode\" ← \"offline receipts\" (155)؛ fr «hors ligne» ← «reçus hors ligne» مع «factures du commercial imprimées» ← «factures imprimées» للبقاء ضمن 155 (147).",
+        "فحص حارس (أ): لا يرد نمط الحارس (أ) (عبارة الربط الخاصة بالمرحلة الثانية للفوترة بأيٍّ من اللغات الثلاث) في أي نص من الصفحة ولا في المصادر، قبل التعديل وبعده؛ فلم يُعدَّل شيء لأجله.",
+        "لم تُمسّ الحقائق ولا بقية النص؛ لا «يضمن ألا تتوقف المبيعات» ولا ما يشبهه في الصفحة. الفرنسية تبقي المسافة غير المنكسرة الضيقة قبل : و;، وجاءت «l’émission» بالفاصلة المقلوبة كما في صيغة الحارس."
+      ]
+    }
+  }
+}

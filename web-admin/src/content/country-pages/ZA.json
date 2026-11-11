@@ -1,0 +1,185 @@
+{
+  "code": "ZA",
+  "languages": [
+    "en"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "en": {
+      "slugHint": "van-sales-software-south-africa",
+      "title": "Van Sales & Pre-Sales Software in South Africa | FieldSales",
+      "description": "Van sales, pre-sales and collections software for South African distributors: invoices with VAT from the rep’s phone, thermal printing, offline routes.",
+      "h1": "Van sales and pre-sales software for South African distributors",
+      "intro": "FieldSales is a cloud platform for South African distributors and wholesalers running van sales, pre-sales (order taking) and collections. Sales reps issue invoices from their phones and print them on a thermal printer, record receipts and customer balances, reconcile van stock and log GPS-stamped visits with photos along their route. Invoices and receipts can be issued without signal and sync later. You set the currency to rand (ZAR) and VAT to 15% in your own settings, and run it on Android, iPhone and a web dashboard.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "Distribution in South Africa: spaza shops, general dealers and the traditional trade",
+          "body": "Traditional trade is a channel no South African distributor can ignore. NIQ estimates around 190,000 outlets — spaza shops, independent grocers, liquor outlets and taverns — and reports that about 80% of households shop there regularly, with the channel growing faster than modern retail. Most spaza shops are very small: roughly 80% have fewer than two people working in them. BCG’s research found that many FMCG suppliers reach these stores indirectly through wholesalers, and that many store owners buy their stock from modern retailers. Around 82,000 spaza shops registered with municipalities, but only about 15,000 hold permits or trading licences, according to a government update; the Spaza Shop Support Fund helps South African-owned spazas buy stock and point-of-sale devices. Whether your depot is in Johannesburg, Durban, Cape Town, Pretoria or Gqeberha, a typical day for a sales rep on van sales or pre-sales (order taking) means calling on spaza shops, general dealers, taverns and shebeens, liquor outlets, independent grocers and health & beauty speciality stores, and supplying wholesalers. Payment at the drop can be cash, EFT or a card on a point-of-sale device, so route accounting has to bring orders, deliveries, van stock and money back together at the end of the day."
+        },
+        {
+          "id": "tax",
+          "title": "VAT in South Africa and how to set it up in FieldSales",
+          "body": "South Africa levies Value-Added Tax (VAT), administered by the South African Revenue Service (SARS). The standard rate is 15%; a previously announced increase was reversed in law, and the rate remains 15%. Exports and a basket of basic foodstuffs are zero-rated — including brown bread, maize meal, samp, dried mealies, rice, dried beans, lentils, chicken eggs, fresh fruit and vegetables, tinned pilchards, vegetable cooking oil (not olive oil), and milk and milk powder — so a grocery distributor’s invoice often carries standard-rated and zero-rated lines side by side. Some supplies, such as financial services other than fee-based ones, and residential rent, are exempt rather than zero-rated. A vendor’s VAT registration number (VAT vendor number) appears in SARS examples as a 10-digit number beginning with 4, and SARS offers a VAT Vendor Search on eFiling to check one. A full tax invoice carries the words “Tax Invoice”, “VAT Invoice” or “Invoice”; the supplier’s name, address and VAT number; the buyer’s name, address and VAT number if the buyer is registered; a serial number and date of issue; a full description of the goods and the quantity supplied; and the value, VAT and total consideration. Above a value threshold set by SARS, and for every zero-rated supply, a full tax invoice is required; below it, an abridged tax invoice without buyer details and quantity is allowed. Once a sale is above a small minimum value set by SARS, a tax invoice must be issued within 21 days of the supply, whether or not the buyer asks for one, and in South African currency except for zero-rated supplies such as exports. Records must be kept for at least five years. In FieldSales, your company sets the currency to ZAR, names the tax VAT and enters the rate in its own settings. You can also edit the printed invoice texts and layout so your VAT registration number and the “Tax Invoice” wording appear on every slip. Making sure each invoice carries every mandatory detail, and deciding which products are zero-rated, stays with your business and your tax adviser — FieldSales does not classify products or decide their tax treatment for you."
+        },
+        {
+          "id": "einvoicing",
+          "title": "E-invoicing in South Africa: where SARS stands",
+          "body": "E-invoicing is not mandatory in South Africa today, and no business is required to report invoices in real time. The current VAT system works after the fact: registered vendors issue paper or electronic tax invoices themselves and file periodic VAT returns, without SARS clearing each invoice in advance (SARS VAT 404 Guide for Vendors). Since 1 April 2026 the VAT Act defines e-invoices, e-credit notes, e-debit notes, an interoperability framework and e-reporting, and allows regulations for a voluntary e-reporting system; no such regulations have been issued yet (SARS VAT Connect, Issue 21). On 17 August 2026 SARS published a consultation paper on a proposed Digital VAT Model: structured e-invoices exchanged through third-party service providers (access points), with near-real-time reporting to SARS, on a standard still to be chosen — the paper cites EN 16931, UN/CEFACT CII and Peppol PINT BIS only as examples. Public comments closed on 16 October 2026. The paper’s indicative roadmap runs through preparation and draft regulations (2026/27), solution development and final regulations (2027/28), testing with voluntary participants (2028/29) and a voluntary pilot (2029/30), then a phased rollout expected to begin during 2030 and run for about 36 months: large businesses B2B first, then B2G, SME B2B and finally B2C (SARS Consultation Paper on VAT Modernisation, chapter 8). Even large taxpayers are expected to adopt voluntarily at first, with mandatory adoption introduced later at turnover thresholds that have not been announced. The whole timetable is indicative and may change. The invoice standard, the network operator and any penalties have not been decided either. There is no live government e-invoicing system in South Africa for FieldSales to connect to yet; a future connection is available on request after studying the final requirements with you, with no promise of timing or outcome."
+        },
+        {
+          "id": "collections",
+          "title": "Collections: cash, EFT, card and customer balances",
+          "body": "Every payment a rep takes is recorded on a receipt voucher from the phone, printed for the customer on the spot and synced to head office. Your company defines its own payment methods in settings — cash, EFT, card on a point-of-sale device, or any other method you name — so each receipt shows exactly how the money came in. If you sell to some customers on account, receipts can be allocated against their open invoices, and each customer’s outstanding balance is visible to the rep before the next delivery and to managers on the web dashboard. At the end of the route you can see what each rep collected by payment method and reconcile it against the van stock they sold. FieldSales records each payment; the money itself moves through your own bank account or card machine, and FieldSales is not linked to South African banks or payment systems."
+        },
+        {
+          "id": "how",
+          "title": "How FieldSales works for South African distributors",
+          "body": "Set up once: choose ZAR as your currency, name the tax VAT, enter 15% as the rate and add the payment methods you accept. Reps use the Android or iPhone app; managers and office staff work in the web dashboard. Invoices and receipts can be issued with no signal and sync when the phone reconnects — useful on township and rural routes with patchy coverage. Reps print invoices and receipts on a Bluetooth thermal printer straight from the phone, using texts and a layout your company controls. Van stock is loaded against each rep and reconciled at the end of the day, while route plans and GPS-stamped visits with photos show managers where the team has been. The app interface is available in English, Arabic, French, Turkish and Chinese only; there is no Afrikaans or isiZulu version. FieldSales has its head office in Riyadh."
+        }
+      ],
+      "faq": [
+        {
+          "q": "Is e-invoicing mandatory in South Africa yet?",
+          "a": "No. Today you issue your own tax invoices and file VAT returns as usual. SARS has only consulted on a proposed Digital VAT Model, and its roadmap is indicative — the e-invoicing section above sets out the published phases and their source. There is no live government e-invoicing system for FieldSales to connect to yet; if your business needs such a connection later, it is available on request after studying the final requirements, with no promised timeline."
+        },
+        {
+          "q": "Can my reps keep invoicing on township routes with no mobile data?",
+          "a": "Yes. Reps can issue invoices and receipts and print them with no connection at all. They are stored on the phone and sync to the web dashboard as soon as the signal comes back."
+        },
+        {
+          "q": "How do I record EFT or card payments on a receipt?",
+          "a": "Add EFT, card or any other method you accept as a payment method in your settings. The rep picks it when issuing the receipt, and reports show collections by method for each rep. FieldSales records the payment; the money itself moves through your own bank or card machine."
+        },
+        {
+          "q": "Can the printed invoice show our VAT registration number and the words “Tax Invoice”?",
+          "a": "Yes. Your company edits the printed invoice texts and layout, so you can show your VAT registration number, the “Tax Invoice” heading and your other company details. Checking that each invoice carries every detail SARS requires remains your responsibility, ideally with your tax adviser."
+        },
+        {
+          "q": "Does FieldSales work for pre-sales (order taking) as well as van sales?",
+          "a": "Yes. Reps can sell and deliver straight from the van, or take orders on a pre-sales call for later delivery, and both feed the same customer balances, stock and reports."
+        },
+        {
+          "q": "Is the app available in Afrikaans or isiZulu?",
+          "a": "No. The interface is available in English, Arabic, French, Turkish and Chinese only."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "What a South African van sales tax invoice from FieldSales can contain",
+        "note": "Structure example only — no amounts.",
+        "fields": [
+          {
+            "label": "Document title",
+            "example": "Tax Invoice"
+          },
+          {
+            "label": "Supplier details",
+            "example": "Your registered company name and trading address"
+          },
+          {
+            "label": "Supplier VAT registration number",
+            "example": "Your VAT vendor number as registered with SARS"
+          },
+          {
+            "label": "Invoice number and date",
+            "example": "Sequential serial number (e.g. INV-000123) and date of issue"
+          },
+          {
+            "label": "Customer details",
+            "example": "Spaza shop or general dealer name and address"
+          },
+          {
+            "label": "Customer VAT number",
+            "example": "Only if the customer is a registered VAT vendor (full tax invoice)"
+          },
+          {
+            "label": "Description and quantity",
+            "example": "Full product description, e.g. maize meal, 10 kg bag, with the quantity delivered"
+          },
+          {
+            "label": "Value, VAT and total",
+            "example": "Shown using one of the SARS methods: all amounts, or the total with the VAT rate or the VAT amount"
+          },
+          {
+            "label": "Payment method",
+            "example": "Cash, EFT, card or on account"
+          },
+          {
+            "label": "Sales rep",
+            "example": "Name of the rep who issued the invoice"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "SARS — Value-Added Tax",
+          "url": "https://www.sars.gov.za/types-of-tax/value-added-tax/"
+        },
+        {
+          "title": "SARS — Tax Invoices",
+          "url": "https://www.sars.gov.za/businesses-and-employers/tax-invoices/"
+        },
+        {
+          "title": "SARS — VAT 404 Guide for Vendors",
+          "url": "https://www.sars.gov.za/legal-pub-guide-vat404-vat-404-guide-for-vendors"
+        },
+        {
+          "title": "Rates and Monetary Amounts and Amendment of Revenue Laws Act 3 of 2026",
+          "url": "https://www.sars.gov.za/wp-content/uploads/Legal/AmendActs/Legal-LPrim-AA-2026-01-Rates-and-Monetary-Amounts-and-Amendment-of-Revenue-Laws-Act-3-of-2026-GG-54446-1-April-2026.pdf"
+        },
+        {
+          "title": "SARS — VAT Connect Issue 21 (September 2026)",
+          "url": "https://www.sars.gov.za/businesses-and-employers/my-business-and-tax/vat-connect-issue-21-september-2026/"
+        },
+        {
+          "title": "SARS Consultation Paper on VAT Modernisation: E-Invoicing, Interoperability Framework and E-Reporting (August 2026)",
+          "url": "https://www.sars.gov.za/vat-modernisation-consultation-paper-august-2026/"
+        },
+        {
+          "title": "SARS — SARS invites public input on a new Digital VAT Model (17 August 2026)",
+          "url": "https://www.sars.gov.za/media-release/sars-invites-public-input-on-a-new-digital-vat-model-to-modernise-vat-administration/"
+        },
+        {
+          "title": "SARS — Frequently asked questions on VAT modernisation",
+          "url": "https://www.sars.gov.za/types-of-tax/value-added-tax/vat-modernisation/frequently-asked-questions-on-vat-modernisation/"
+        },
+        {
+          "title": "NIQ — Traditional trade in South Africa",
+          "url": "https://nielseniq.com/global/en/insights/analysis/2026/why-street-level-retail-visibility-matters-more-than-ever-in-south-africa/"
+        },
+        {
+          "title": "BCG — Routes to Growth in South Africa Through Traditional Trade",
+          "url": "https://www.bcg.com/publications/2019/routes-growth-south-africa-through-traditional-trade"
+        },
+        {
+          "title": "Government of South Africa — Update on the Spaza Shop Support Fund",
+          "url": "https://www.gov.za/news/media-statements/small-business-development-and-trade-industry-and-competition-update-spaza"
+        },
+        {
+          "title": "South African Reserve Bank — Payments and settlements",
+          "url": "https://www.resbank.co.za/en/home/what-we-do/payments-and-settlements"
+        }
+      ],
+      "lastVerifiedLabel": "Last verified: November 2026"
+    }
+  },
+  "notes": "صفحة إنجليزية جديدة لجنوب أفريقيا مبنية حصراً على country-facts/ZA.json بعد اكتمال التدقيق (audit بتاريخ 2026-11-11، الثقة high). قرارات الصدق: (1) لم يُذكر أي مبلغ بالراند إطلاقاً، فحدّا الفاتورة الكاملة والفاتورة خلال 21 يوماً وُصفا بـ«حد القيمة الذي تحدده SARS» دون أرقام، وحُذفت عتبة التسجيل (R2.3 مليون غير مُقرّة تشريعياً) ومبالغ NIQ وصندوق Spaza. (2) نسبة 15% وحدها مع ذكر أن الرفع أُلغي قانوناً، بلا 15.5%. (3) صيغة الرقم الضريبي (10 أرقام تبدأ بـ4) صيغت «كما في أمثلة SARS» لأنها مستنتجة. (4) قسم الفوترة الإلكترونية: غير إلزامية اليوم، النموذج مقترح، المراحل وسنواتها استرشادية بمصدرها (ورقة التشاور الفصل 8)، وبداية 2030 ليست بداية الإلزام؛ وجملة FieldSales منفصلة بلا سنة ولا اسم نظام حكومي، وتفصلها عن جمل التواريخ جملتان بلا سنوات. (5) لم يُدّعَ تصنيف تلقائي لأصناف النسبة الصفرية ولا دعم نسب متعددة لكل صنف (غير مثبت في المعطيات)؛ وصرّحنا بأن استيفاء بيانات الفاتورة مسؤولية الشركة. (6) لم يُذكر PayShap ولا أي ربط بنكي، وصرّحنا بأن FieldSales يسجّل الدفعات ولا يعالجها. (7) النقد لم يوصف بالغالب لأنه غير مقيس؛ والبيع الآجل صيغ شرطياً «إن كنت تبيع بالآجل». (8) المدن الخمس ذُكرت مواقعَ محتملة للمستودع لا ترتيباً لمراكز التوزيع. (9) لغات الواجهة الخمس مذكورة بصدق مع نفي الأفريكانية والزولو. (10) سؤال FAQ عن الفوترة صيغ بلا اسم SARS مع FieldSales في جملة واحدة.",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish-with-notes",
+    "fixes": 15,
+    "issues": [
+      "الوصف: «VAT invoices» قد يوحي بفواتير ضريبية صالحة تلقائياً (من mustNotSay) فصارت «invoices with VAT».",
+      "المقدمة: «Everything keeps working without signal» مبالغة؛ حُصرت في الفواتير والسندات كما في honesty.canSay، وصُحّحت صياغة ضبط العملة والضريبة.",
+      "التوزيع: «trading permits» صارت «permits or trading licences» مطابقةً للحقائق؛ وحُذف وصف الصندوق بأنه «الحكومي» لأنه غير مذكور في ملف الحقائق.",
+      "الضريبة: «eggs» صارت «chicken eggs» (الحقائق: بيض الدجاج)؛ «most financial services» صارت «financial services other than fee-based ones» (الحقائق: عدا القائمة على رسوم)؛ «على نفس التوصيلة» صارت «الفاتورة تحمل بنوداً بنسبتين» مطابقةً لملاحظة الحقائق.",
+      "الضريبة: جملة الـ21 يوماً أطلقت الإلزام على كل فاتورة دون شرط تجاوز الحد الأدنى (R50 في الحقائق، أُبقي بلا مبلغ)، وضيّقت استثناء العملة إلى «الصادرات» بينما هو لكل توريدات النسبة الصفرية؛ صُحّحت الجملة.",
+      "الفوترة الإلكترونية: «there is no real-time invoice reporting» صارت «no business is required to report invoices in real time» (الحقائق تنفي الإلزام لا الوجود)، و«nothing sent to SARS invoice by invoice» صارت «without SARS clearing each invoice in advance» (تجنّباً لكلمة approval في الصفحة) مطابقةً لـscopeNow.",
+      "التحصيل: «it does not process card or EFT payments itself» نفي عام قد يتعارض مع ميزات دفع بالبطاقة في المنصة خارج جنوب أفريقيا؛ صيغ: المال يمر عبر حساب الشركة البنكي أو جهاز البطاقة، ولا ربط ببنوك أو أنظمة دفع جنوب أفريقية.",
+      "دون اتصال: حُذفت «returns» من قسم how والسؤال الثاني لأن المرتجعات دون اتصال غير مثبتة في honesty.canSay (الفواتير والسندات فقط)، و«Everything is stored» صارت «They are stored».",
+      "«built and supported from its head office in Riyadh» صارت «has its head office in Riyadh» (المعطى: المقر الرياض فقط).",
+      "ملاحظة للنشر: حدّا الفاتورة الكاملة والفاتورة الضريبية وُصفا بلا مبالغ التزاماً بمنع المبالغ الملاصقة للعملة؛ ليس خطأ لكنه يقلّل الفائدة للقارئ. حقل notes الداخلي يذكر R2.3 مليون وهو غير منشور.",
+      "تحقق: لا سعر ولا «free» ولا certified/compliant/approved/accredited، ولا اسم منافس ولا أرقام عملاء؛ جملة FieldSales في قسم الفوترة الإلكترونية بلا سنة وما قبلها جملتان بلا سنوات؛ لغات الواجهة الخمس صادقة مع نفي الأفريكانية والزولو؛ النسبة 15% والجهة SARS والمراحل وسنواتها ومصدرها (الفصل 8) مطابقة."
+    ]
+  }
+}

@@ -1,0 +1,212 @@
+{
+  "code": "KE",
+  "languages": [
+    "en"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "en": {
+      "slugHint": "van-sales-software-kenya",
+      "title": "Van Sales Software for Distributors in Kenya | FieldSales",
+      "description": "Van sales, pre-sales and collections software for Kenyan distributors: rep invoicing on the phone, cash and M-Pesa receipts, van stock, routes, offline.",
+      "h1": "Van sales and field sales software for distributors in Kenya",
+      "intro": "FieldSales is cloud software for Kenyan distributors and wholesalers that run van sales, pre-sales order taking and collections. Reps invoice dukas, kiosks and stockists from an Android or iPhone app, print on Bluetooth thermal printers and record cash, M-Pesa or bank-transfer receipts, even with no network, syncing later. Managers follow routes, visits, van stock and customer balances on a web dashboard. You set the currency, VAT and payment methods in your own settings. Electronic tax invoices for KRA still go through your own eTIMS solution.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "How goods reach dukas and kiosks in Kenya",
+          "body": "Everyday consumer goods in Kenya still move mostly through traditional trade: dukas, kiosks, market stalls and hawkers, supplied by stockists, wholesalers and sub-distributors, while supermarkets carry the modern-trade share. A common chain runs from manufacturer to agent, distributor, stockist and then the shop, with larger distributors operating regional depots and working through sub-distributors. Key hubs include Nairobi, Kisumu, Nakuru and Eldoret (FrontierView). Fleets range from trucks and pick-ups to motorbikes. Shoppers buy little and often from the duka, kiosk or market stall (Business Daily). For van sales teams, the challenge is getting to the shop first and keeping tight control of the stock on the van and the cash collected (Bizcommunity). Retailers pay in cash, by mobile money such as M-Pesa (the Central Bank of Kenya counts more than 97 million registered mobile money accounts) or by bank transfer, and wholesalers and stockists also buy on credit."
+        },
+        {
+          "id": "tax",
+          "title": "VAT, KRA PIN and what goes on an invoice",
+          "body": "Kenya charges Value Added Tax (VAT), administered by the Kenya Revenue Authority (KRA). The standard rate is 16%. Zero-rated supplies listed in the Second Schedule of the VAT Act are taxed at 0%, while exempt supplies in the First Schedule carry no VAT and give no input tax deduction. Advisers such as Grant Thornton Kenya have reported a temporary reduced rate of 8% on petrol, diesel and kerosene; its current end date is not confirmed, so check KRA's latest notice before applying it. Registration is compulsory once taxable supplies over 12 months reach the registration threshold, and voluntary below it (KRA). Taxpayers are identified by their KRA PIN: KRA notes that PINs for companies and other non-individuals usually start with P0, and those for individuals with A0. As summarised by EY, the electronic tax invoice rules require the seller's PIN, date and time, a serial number, the buyer's PIN where the buyer wants to claim the expense or input VAT, the KRA item code, description, quantity, unit of measure and tax rate per item, the gross total and total tax where applicable, unique system and invoice identifiers, and a QR code. Credit and debit notes must refer to the original invoice, and VAT should only be shown on a taxable supply. In FieldSales you set the tax name (VAT), the rate and the currency (KES) in your settings, and you can show your KRA PIN on printed documents. FieldSales does not change tax rates automatically, so when KRA announces a change you update the setting yourself."
+        },
+        {
+          "id": "einvoicing",
+          "title": "eTIMS: electronic tax invoicing in Kenya",
+          "body": "Kenya's electronic tax invoicing runs through eTIMS (Electronic Tax Invoice Management System), operated by the Kenya Revenue Authority alongside the older TIMS, which works through TIMS-enabled ETR devices. Under section 23A of the Tax Procedures Act, added by the Finance Act 2023, and the Tax Procedures (Electronic Tax Invoice) Regulations 2024, every person carrying on business, VAT-registered or not, must record each sale, issue an electronic tax invoice and transmit it to KRA through TIMS or eTIMS (KRA). There is no B2B or B2C split, and each invoice carries a QR code that can be checked by scanning it or through the Invoice Number Checker on iTax. KRA's public notice of 27 December 2023 applied the requirement to businesses not registered for VAT from 1 September 2023, with onboarding due by 31 March 2024. Since 1 January 2024, expenses not supported by an electronic tax invoice are not allowed as income tax deductions (KRA), and from 1 January 2026 iTax checks income tax returns against eTIMS/TIMS data (KPMG). The Finance Act 2026, assented to on 23 June 2026, revises the penalty for failing to issue an electronic tax invoice: after a notice asking for reasons, it becomes the higher of 5% of the tax due or a fixed minimum amount. EY's alert does not state when this change takes effect. On 7 September 2026 KRA announced a stock management function in TIMS/eTIMS under which users keep accurate, up-to-date records of goods purchased, received, sold, transferred, returned and adjusted; consultation sessions were to begin in September 2026, and the notice sets no mandatory date (KRA). KRA offers several routes onto the system: eTIMS Lite (web through eCitizen, USSD *222# and a mobile app) for small businesses not registered for VAT, eTIMS Client for Windows, Android, tablets and PDAs, an online portal for service-only suppliers issuing up to 10 invoices a month, and system-to-system integration through OSCU for always-online systems or VSCU for bulk invoicing and systems that are not always connected; these are developed and tested in KRA's sandbox and then vetted by KRA before go-live. VAT-registered businesses already using TIMS ETR devices may keep using them. For a distributor, this means every van sale needs an eTIMS or TIMS invoice, and the duka or wholesaler buying from you needs that invoice to deduct the expense.\n\nFieldSales does not send invoices to KRA, and the invoices it prints are commercial documents, not electronic tax invoices. A direct connection to Kenya's government e-invoicing is available on request: we would study the country's requirements first, with no promise of an outcome or a date."
+        },
+        {
+          "id": "collections",
+          "title": "Collections: cash, M-Pesa, bank transfer and credit",
+          "body": "On a Kenyan route, the rep both sells and collects. Reps take cash at dukas and kiosks, receive M-Pesa payments, follow up with stockists and wholesalers who buy on credit, and some customers settle by bank transfer. In FieldSales you define the payment methods your company actually uses, for example Cash, M-Pesa and Bank transfer, and every collection receipt a rep issues is recorded under one of them. Receipts reduce the customer's outstanding balance, so managers can see who owes what by customer and by rep, and how much each rep is holding before the van returns. Credit sales stay on the customer's account until they are collected. FieldSales does not pull payments from M-Pesa automatically: the receipt records what the rep collected, and your office matches it against your own M-Pesa records."
+        },
+        {
+          "id": "how",
+          "title": "How FieldSales works for a Kenyan distributor",
+          "body": "Set it up once: choose KES as your currency, name the tax VAT and enter the rate, then add your payment methods, products and units, price lists, customers and routes. Reps work from the Android or iPhone app and managers from the web dashboard. The app keeps working without network coverage: invoices and receipts are saved on the phone and sync when the connection returns, which matters on rural routes. Reps print invoices and receipts on Bluetooth thermal printers. Stock loaded onto each van is held in the rep's custody and reconciled when the van comes back. Visits along the route are logged with GPS location and photos, so supervisors can see which outlets were covered. The interface is available in English, Arabic, French, Turkish and Chinese; Swahili is not offered. FieldSales is headquartered in Riyadh, Saudi Arabia."
+        }
+      ],
+      "faq": [
+        {
+          "q": "Does FieldSales replace our eTIMS invoicing or ETR device?",
+          "a": "No. FieldSales does not send invoices to KRA, and the invoices it prints are not electronic tax invoices. Each sale still needs a tax invoice issued through your own eTIMS solution, such as eTIMS Client or a system-to-system setup, or through a TIMS ETR device. A direct connection to Kenya's government e-invoicing is available on request: we would study the requirements first, with no commitment on outcome or timing."
+        },
+        {
+          "q": "Will the rep app work on routes with no network?",
+          "a": "Yes. Reps can issue invoices and collection receipts and print them with no connection. Everything is stored on the phone and syncs to the web dashboard when the network returns."
+        },
+        {
+          "q": "How does a rep record an M-Pesa payment from a duka?",
+          "a": "Add M-Pesa as a payment method in your settings. When a customer pays, the rep issues a collection receipt and selects M-Pesa, and the payment comes off that customer's balance. FieldSales does not read M-Pesa transactions itself, so your office matches the receipts against your own M-Pesa records."
+        },
+        {
+          "q": "Can we sell on credit to stockists and track what they owe?",
+          "a": "Yes. Credit invoices stay on the customer's account, collection receipts reduce the balance, and managers can follow outstanding balances by customer and by rep from the dashboard."
+        },
+        {
+          "q": "Can we work in Kenyan shillings with VAT at 16%?",
+          "a": "Yes. The currency (KES), the tax name (VAT) and the rate are your own settings. FieldSales does not change rates automatically, so if KRA changes a rate, for example a temporary rate on fuel, you update the setting yourself."
+        },
+        {
+          "q": "Is the app available in Swahili?",
+          "a": "Not at the moment. The interface is available in English, Arabic, French, Turkish and Chinese, so Kenyan teams can use it in English."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Sample layout of a FieldSales sales invoice in Kenya",
+        "note": "Layout example only, with no amounts. This is the rep's commercial document; the electronic tax invoice for KRA is issued through your eTIMS solution.",
+        "fields": [
+          {
+            "label": "Seller",
+            "example": "Your company name, address and KRA PIN (company PINs usually start with P0)"
+          },
+          {
+            "label": "Invoice number",
+            "example": "Sequential number generated by the app"
+          },
+          {
+            "label": "Date and time",
+            "example": "Date and time of the sale"
+          },
+          {
+            "label": "Customer",
+            "example": "Duka or stockist name and area"
+          },
+          {
+            "label": "Customer KRA PIN",
+            "example": "Optional, when the customer provides one"
+          },
+          {
+            "label": "Sales rep and route",
+            "example": "Rep name, van and route of the day"
+          },
+          {
+            "label": "Items",
+            "example": "Item code, description, quantity and unit (carton, piece)"
+          },
+          {
+            "label": "Tax",
+            "example": "Tax name and rate from your settings, e.g. VAT 16%"
+          },
+          {
+            "label": "Totals",
+            "example": "Subtotal, VAT and total, calculated by the app"
+          },
+          {
+            "label": "Payment",
+            "example": "Cash, M-Pesa, bank transfer or credit"
+          },
+          {
+            "label": "Signatures",
+            "example": "Customer and rep signatures, if enabled"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "KRA: Value Added Tax (VAT)",
+          "url": "https://www.kra.go.ke/individual/filing-paying/types-of-taxes/value-added-tax"
+        },
+        {
+          "title": "KRA: What is eTIMS",
+          "url": "https://www.kra.go.ke/business/etims-electronic-tax-invoice-management-system/learn-about-etims/what-is-etims"
+        },
+        {
+          "title": "KRA: Learn about eTIMS (FAQs)",
+          "url": "https://www.kra.go.ke/helping-tax-payers/faqs/learn-about-etims"
+        },
+        {
+          "title": "KRA: Public guidelines to taxpayers on eTIMS onboarding (2024)",
+          "url": "https://www.kra.go.ke/images/publications/eTIMS-Taxpayer-Guidelines_2024.pdf"
+        },
+        {
+          "title": "KRA: eTIMS system-to-system integration (OSCU/VSCU)",
+          "url": "https://www.kra.go.ke/business/etims-electronic-tax-invoice-management-system/learn-about-etims/etims-system-to-system-integration"
+        },
+        {
+          "title": "KRA public notice: Electronic tax invoicing for non-VAT registered persons (27 Dec 2023)",
+          "url": "https://www.kra.go.ke/news-center/public-notices/2077-electronic-tax-invoicing-for-non-vat-registered-persons"
+        },
+        {
+          "title": "KRA public notice: Stock management functionality for electronic invoicing (7 Sep 2026)",
+          "url": "https://www.kra.go.ke/news-center/public-notices/2390-implementation-of-the-stock-management-functionality-for-electronic-invoicing"
+        },
+        {
+          "title": "KRA blog: What you need to know about PIN registration",
+          "url": "https://www.kra.go.ke/news-center/blog/2132-tax-compliance-101-what-you-need-to-know"
+        },
+        {
+          "title": "EY: Kenya gazettes Tax Procedures (Electronic Tax Invoice) Regulations, 2024",
+          "url": "https://www.ey.com/en_gl/technical/tax-alerts/kenya-gazettes-tax-procedures-electronic-tax-invoice-regulations-2024"
+        },
+        {
+          "title": "EY: Kenya enacts Finance Act, 2026",
+          "url": "https://www.ey.com/en_gl/technical/tax-alerts/kenya-enacts-finance-act-2026"
+        },
+        {
+          "title": "KPMG Kenya: eTIMS and the shift to data-driven income and expense validation",
+          "url": "https://assets.kpmg.com/content/dam/kpmgsites/ke/pdf/thought_leaderships/tax/2026/eTIMS.pdf.coredownload.inline.pdf"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries: Kenya, other taxes",
+          "url": "https://taxsummaries.pwc.com/kenya/corporate/other-taxes"
+        },
+        {
+          "title": "Grant Thornton Kenya: Temporary reduction of VAT on petroleum products",
+          "url": "https://www.grantthornton.co.ke/insights/temporary-reduction-of-vat-on-petroleum-products-in-kenya/"
+        },
+        {
+          "title": "Central Bank of Kenya: Mobile payments statistics",
+          "url": "https://www.centralbank.go.ke/national-payments-system/mobile-payments/"
+        },
+        {
+          "title": "FrontierView: Win Kenya's dynamic consumer market",
+          "url": "https://frontierview.com/insights/win-kenyas-dynamic-consumer-market/"
+        },
+        {
+          "title": "Business Daily: Informal traders are key to market dominance",
+          "url": "https://www.mwanaspoti.co.tz/bd/opinion-analysis/columnists/informal-traders-are-key-to-market-dominance-5474110"
+        },
+        {
+          "title": "Bizcommunity: Route optimisation and line of sight are key to maximising van sales",
+          "url": "https://www.bizcommunity.com/Article/196/553/194579.html"
+        }
+      ],
+      "lastVerifiedLabel": "Last verified: November 2026"
+    }
+  },
+  "notes": "صفحة إنجليزية جديدة لكينيا مبنية على حقائق KE.json بعد اكتمال التدقيق (audit بتاريخ 2026-11-11، ثقة عالية). المصطلحات المحلية المستعملة: van sales وduka/kiosk وstockists وsub-distributors؛ لم يُنسب أي مصطلح محلي لـpre-sales أو للمندوب لأنها null في الحقائق. التزمت بقائمة mustNotSay: لا ربط ولا تكامل مع eTIMS/TIMS/iTax أو M-Pesa، ولا ادعاء أن مطبوعات FieldSales فواتير ضريبية إلكترونية، ولا تحديث تلقائي لنسب الضريبة، ولا ذكر لوظيفة المخزون في eTIMS بوصفها ميزة لـFieldSales؛ وموقف FieldSales من الربط في فقرة مستقلة بلا تاريخ: «متاح عند الطلب» بعد دراسة المتطلبات بلا وعد، ولا يرد اسم أي نظام حكومي في جملة تنسب إلى FieldSales ربطاً. حُذفت كل المبالغ الملاصقة للعملة (حدّ التسجيل في VAT، وحدّ Buyer Initiated، ومبالغ الغرامة) واكتُفي بوصفها. ما كان في uncertain لم يُذكر جازماً: نسبة 8% على الوقود منسوبة إلى Grant Thornton مع التنبيه إلى أن تاريخ انتهائها غير مؤكد؛ وطول رقم PIN (11 خانة) لم يُذكر واكتُفي بأن رقم الشركة يبدأ عادة بـP0 والفرد بـA0 (KRA)؛ وMombasa لم تُذكر مركزاً لافتقارها إلى مصدر؛ وتفاصيل Paybill/Till وAirtel Money والشيكات لم تُذكر؛ ونسبة 80% من TechnoServe لم تُذكر. لغات الواجهة مذكورة بصدق مع التصريح بأن السواحيلية غير متاحة. تجنّبت مفردات الاعتماد (certified/approved/compliant/compliance) حتى في وصف إجراءات KRA، فاستُعمل «tests ... and vets»، وأُعيدت صياغة عناوين المصادر التي تحويها. ملاحظة: حقل توقيعَي العميل والمندوب ورقم PIN للعميل في مثال الفاتورة مبنيان على ميزات قائمة في المنصة (التوقيع اختياري).",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish-with-notes",
+    "fixes": 13,
+    "issues": [
+      "التوزيع: فُصل ربط «المستودعات الإقليمية» بالمدن الأربع (الحقائق تذكر المدن مراكزَ استهلاك من FrontierView والمستودعات الإقليمية للموزعين الكبار دون ربط بينهما) ونُسبت المدن إلى FrontierView",
+      "التوزيع: أُزيلت السببية المضافة بين الشراء بكميات صغيرة (Business Daily) وسباق الوصول إلى المتجر، ونُسب التحدي إلى Bizcommunity كما في الحقائق",
+      "التوزيع: «M-Pesa and other mobile money» صارت «mobile money such as M-Pesa» لأن Airtel Money وغيرها غير متحقق منها (uncertain)، و«often buy on credit» صارت «also buy on credit» لأن الحقائق لا تذكر نسبة أو تكراراً",
+      "الضريبة: حُذف «the threshold in the VAT Act» لأن الحقائق تنسب الحدّ إلى KRA لا إلى نص القانون",
+      "الضريبة: «company PINs» عُمّمت إلى الشركات وغير الأفراد (الحرف P لكل غير الأفراد بحسب الحقائق)، و«Every business» صارت «Taxpayers»",
+      "الضريبة: «item code» صارت «KRA item code» و«total tax where applicable» مطابقةً لحقول الفاتورة في الحقائق",
+      "الفوترة الإلكترونية (خطأ حقيقة): «raises the penalty» تدّعي زيادة الغرامة والحقائق لا تذكر الغرامة السابقة؛ صارت «revises» مع وصف الغرامة الجديدة (الأعلى من 5% أو حدّ أدنى ثابت) بلا مبلغ ملاصق للعملة",
+      "الفوترة الإلكترونية: «consultations under way» ادعاء حالي غير مثبت؛ صار «consultation sessions were to begin in September 2026» مع أن الإشعار لا يحدد موعد إلزام، وأُضيفت «received» و«up-to-date» من نص الحقائق",
+      "الفوترة الإلكترونية: «which KRA tests in its sandbox» غير دقيق (المطوّر يطوّر ويختبر في بيئة KRA ثم تدقّق KRA)، فأعيدت الصياغة دون كلمة certification",
+      "التحصيل: «collecting is half the job» ادعاء كمّي بلا مصدر صار «the rep both sells and collects»، وصُحّح «follow up stockists» إلى «follow up with»",
+      "طريقة العمل: «developed by a team based in Riyadh» صارت «headquartered in Riyadh» مطابقةً للمعطى (المقر الرياض)",
+      "الأسئلة: «would normally use it in English» يوحي باستعمال فعلي لدى عملاء؛ صار «can use it in English»",
+      "مثال الفاتورة: «KRA PIN (starts with P0)» جازمة والحقائق تقول «يبدأ عادة» وللكيانات فقط؛ صارت «company PINs usually start with P0»",
+      "تحقق دون تعديل: لا سعر ولا مبلغ ملاصق لعملة، ولا «free/certified/compliant/approved»، ولا ادعاء ربط مع eTIMS/TIMS/iTax أو M-Pesa، وفقرة موقف FieldSales من الربط مستقلة بلا تاريخ، ولغات الواجهة الخمس مذكورة بصدق مع نفي السواحيلية، ونسبة 8% على الوقود منسوبة ومتحفّظ فيها، وكل المصادر في الصفحة موجودة في ملف الحقائق؛ العنوان 57 حرفاً والوصف 152"
+    ]
+  }
+}

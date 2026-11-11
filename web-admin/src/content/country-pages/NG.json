@@ -1,0 +1,194 @@
+{
+  "code": "NG",
+  "languages": [
+    "en"
+  ],
+  "basedOnFactsVerifiedAt": "2026-11-11",
+  "content": {
+    "en": {
+      "slugHint": "van-sales-software-nigeria",
+      "title": "Van Sales & Collections Software for Nigeria | FieldSales",
+      "description": "Van sales, pre-sales and collections app for Nigerian distributors: invoices from the rep's phone with VAT, thermal printing, receipts and offline mode.",
+      "h1": "Van sales and collections software for distributors in Nigeria",
+      "intro": "FieldSales is a cloud platform for Nigerian distributors and wholesalers that run van sales, pre-sales order-taking and collections. Your sales reps raise invoices on their phones and print them on a thermal printer, record receipts against customer balances, reconcile the stock on their vans, and follow routes with visits logged by location and photo. It keeps working offline and syncs later, on Android, iPhone and a web dashboard. You set the naira, VAT at 7.5% and your payment methods yourself in settings.",
+      "sections": [
+        {
+          "id": "distribution",
+          "title": "Distribution in Nigeria: markets, wholesalers and the route to the shop",
+          "body": "Most Nigerian wholesalers keep their warehouses in the major markets and resell from there to distributors and retailers, and for foreign brands, local distributors and agents are the usual way into the market. International air cargo comes in through Lagos, Kano, Abuja, Port Harcourt, Kaduna and Enugu, the Apapa and Tin Can ports in Lagos handle most containers, and poor roads and congestion are among the biggest transport challenges. Cash is still used for collections as the economy moves towards cashless payments, alongside instant bank transfers over NIP, payments at POS terminals, USSD and cheques. For a distributor serving retailers, FieldSales puts van sales, pre-sales order-taking and collections on the sales rep's phone, with each rep's route and visits recorded by location and photo."
+        },
+        {
+          "id": "tax",
+          "title": "VAT in Nigeria and how to set it up in FieldSales",
+          "body": "Nigeria's Value Added Tax (VAT) has a standard rate of 7.5% and is administered by the Nigeria Revenue Service (NRS), formerly the Federal Inland Revenue Service (FIRS). The Nigeria Tax Act 2025 kept that rate and, together with the Nigeria Tax Administration Act 2025, replaced the old VAT Act. Professional summaries of the Act list zero-rated supplies such as basic food items, medical and pharmaceutical products, fertiliser and other agricultural inputs, and exports other than oil and gas, while exempt supplies, such as land and buildings or money and securities, carry no VAT and give no right to recover input VAT. Small companies within the Act's turnover and fixed-asset limits are exempt from charging VAT unless they opt out, but the published texts disagree on the exact turnover limit, so confirm your position with a tax adviser. VAT returns are filed monthly, by the 21st of the following month, even when there has been no activity. Businesses now use a unified Tax ID, which a joint notice from the Joint Revenue Board (JRB) and NRS describes as 13 digits, although the term 'TIN' is still common on documents and invoices. Under Section 153 of the Act, a VAT invoice should show the supplier's Tax ID, name and address, the company's incorporation or registration number (such as its CAC RC number), an invoice number, the date of supply, the buyer's name, the gross amount, and the VAT charged with its rate. In FieldSales you enter the tax name (VAT) and the rate yourself, and printed invoices can show your company details, an invoice number and the VAT amount. FieldSales does not decide how VAT applies to your products, and you remain responsible for making sure every invoice carries the particulars Nigerian law requires, such as your Tax ID and registration number."
+        },
+        {
+          "id": "einvoicing",
+          "title": "E-invoicing in Nigeria: the NRS Merchant Buyer Solution (MBS)",
+          "body": "Nigeria is phasing in mandatory e-invoicing through the NRS Merchant Buyer Solution (MBS), part of its e-invoicing and Electronic Fiscal System (EFS), on the basis of Section 23 of the Nigeria Tax Administration Act 2025 and Section 158 of the Nigeria Tax Act 2025. It is a clearance model: B2B and B2G invoices go to NRS before they reach the buyer and come back with a reference number (IRN), a cryptographic stamp (CSID) and a QR code, while B2C invoices are issued without prior clearance and reported to NRS within 24 hours (EY). Invoices are transmitted through Access Point Providers or by direct API from the business's own system, in a structured format based on UBL/Peppol. The rollout began with large taxpayers, and BusinessDay reported in July 2026 that NRS gave them until 31 July 2026 to complete integration and start transmitting invoices, after which penalties can apply, although the reports reviewed for this page do not confirm that penalties have actually been imposed. Under the phased timeline NRS announced in February 2026 (reported by ThisDay, Sovos and Fonoa), medium taxpayers had an announced go-live date of 1 July 2026, with penalty enforcement scheduled for January to March 2027, although later reports reviewed for this page do not confirm that their go-live happened on schedule. Emerging taxpayers, the smallest turnover band and the one where most small distributors sit, have an announced go-live date of 1 July 2027 after a pilot in April to June 2027, with enforcement planned for January to March 2028. PwC and Forvis Mazars describe a fixed penalty, plus 100% of the tax due and interest, for failing to pass taxable supplies through the system, and BusinessDay reported that an invoice kept off the platform may not be accepted for input VAT recovery or as a deductible expense. Large taxpayers are also expected to accept only invoices that carry a valid IRN, so a small distributor that supplies them may be asked for one before its own phase begins. FieldSales issues and prints commercial invoices from the rep's phone today. A government e-invoicing connection for Nigeria is available on request only, after we study the country's requirements: no such connection exists today, and we promise no timeline or outcome. If your business is in scope, the invoices concerned still have to be cleared or reported through the government platform by a channel you choose."
+        },
+        {
+          "id": "collections",
+          "title": "Collections: cash, transfers, POS and customer balances",
+          "body": "Cash is still used for collections in Nigeria even as the economy shifts towards cashless payments, and customers also pay by instant bank transfer over NIP (NIBSS Instant Payment), at POS terminals, by USSD, or by cheque cleared through NACS. In FieldSales you define the payment methods in settings, for example cash, bank transfer, POS, USSD and cheque, plus custom methods such as a specific bank account or a mobile wallet. The rep records each payment as a receipt on the customer's account and picks the method used. Every receipt reduces the customer's outstanding balance, so managers can see who owes what on the web dashboard and follow what each rep has collected during the day."
+        },
+        {
+          "id": "how",
+          "title": "How FieldSales works for a Nigerian distributor",
+          "body": "You set the Nigerian naira (NGN, ₦) as your currency, enter the tax name and rate, and define your payment methods in settings; none of this is fixed to one country. Sales reps work on Android or iPhone, and managers use the web dashboard. The app keeps working without a network connection: invoices, receipts and visits are saved on the phone and sync once the signal returns. Invoices print on a portable thermal printer at the customer's shop. Each van carries its own stock, which you load, sell from and reconcile, and each rep follows a route with visits recorded by location and photo. The app interface is available in English, Arabic, French, Turkish and Chinese only. FieldSales is headquartered in Riyadh."
+        }
+      ],
+      "faq": [
+        {
+          "q": "Does FieldSales work without internet?",
+          "a": "Yes. Reps can raise invoices, record receipts and log visits with no connection. Everything is stored on the phone and syncs to the web dashboard once the network is back."
+        },
+        {
+          "q": "Where does FieldSales stand on NRS e-invoicing (MBS)?",
+          "a": "Today FieldSales issues commercial invoices from the rep's phone and prints them on a thermal printer. A government e-invoicing connection for Nigeria is available on request only, once we have studied the requirements; no such connection exists today, and there is no promised timeline or outcome. If your business falls within an e-invoicing phase, the invoices concerned still need to be cleared or reported through the government platform by a channel you choose."
+        },
+        {
+          "q": "I'm a small distributor. Do I need e-invoicing now?",
+          "a": "For most small distributors, not yet: they fall in the emerging-taxpayer band, which NRS has scheduled for a later phase than large and medium taxpayers, and the e-invoicing section above lists the announced dates with their sources. Large taxpayers are expected to accept only invoices that carry a valid IRN, so if you supply them you may be asked for one sooner."
+        },
+        {
+          "q": "Can I set VAT at 7.5% in FieldSales?",
+          "a": "Yes. You enter the tax name and rate in settings. FieldSales does not decide which of your products are standard-rated, zero-rated or exempt, and a small company that qualifies for the VAT exemption and has not opted out should not charge VAT at all, so confirm your treatment with a tax adviser before you enter your tax settings."
+        },
+        {
+          "q": "How do I record a POS or NIP bank transfer collection?",
+          "a": "Create a receipt for the customer and pick the payment method you have set up for it, such as POS, bank transfer or USSD. Payment methods are defined in settings, so you can also add your own, for example a particular bank account or a mobile wallet, and each receipt reduces the customer's outstanding balance."
+        },
+        {
+          "q": "What should my VAT invoice show?",
+          "a": "Section 153 of the Nigeria Tax Act lists the supplier's Tax ID, name and address, the company's incorporation or registration number (such as the CAC RC number), an invoice number, the date of supply, the buyer's name, the gross amount, and the VAT charged with its rate. Invoices printed from FieldSales can show your company details, an invoice number and the VAT amount, and you remain responsible for making sure each one carries the particulars the law requires."
+        }
+      ],
+      "sampleInvoice": {
+        "title": "Sample VAT invoice layout for Nigeria",
+        "note": "Structure only, with no amounts. The fields follow the Section 153 particulars as summarised by Streamsowers & Köhn, plus the buyer's Tax ID and item lines used for invoices in e-invoicing scope; confirm them with your tax adviser.",
+        "fields": [
+          {
+            "label": "Supplier name and address",
+            "example": "Your company name, street, city and state"
+          },
+          {
+            "label": "Supplier Tax ID (TIN)",
+            "example": "Your Tax ID"
+          },
+          {
+            "label": "Company registration number",
+            "example": "Your CAC RC number"
+          },
+          {
+            "label": "Invoice number",
+            "example": "e.g. INV-000123"
+          },
+          {
+            "label": "Date of supply",
+            "example": "Date the goods were delivered"
+          },
+          {
+            "label": "Customer",
+            "example": "Shop or business name, plus its Tax ID on B2B invoices in e-invoicing scope"
+          },
+          {
+            "label": "Items",
+            "example": "Product, quantity, unit and unit price"
+          },
+          {
+            "label": "VAT rate",
+            "example": "7.5%, zero-rated or exempt"
+          },
+          {
+            "label": "VAT charged",
+            "example": "VAT amount in naira"
+          },
+          {
+            "label": "Gross amount",
+            "example": "Invoice total in naira"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "title": "PwC Worldwide Tax Summaries — Nigeria, Corporate, Other taxes",
+          "url": "https://taxsummaries.pwc.com/nigeria/corporate/other-taxes"
+        },
+        {
+          "title": "PwC Worldwide Tax Summaries — Nigeria, Corporate, Tax administration",
+          "url": "https://taxsummaries.pwc.com/nigeria/corporate/tax-administration"
+        },
+        {
+          "title": "Forvis Mazars Nigeria — VAT and Nigeria's 2025 tax reforms: key changes",
+          "url": "https://www.forvismazars.com/ng/en/services/tax/nigeria-s-tax-reform-in-focus/2025-nta-vat-key-business-changes"
+        },
+        {
+          "title": "BDO — Nigeria: new legislation includes important changes to VAT rules",
+          "url": "https://www.bdo.global/en-gb/insights/tax/indirect-tax/nigeria-new-legislation-includes-important-changes-to-vat-rules"
+        },
+        {
+          "title": "Streamsowers & Köhn (Legal 500) — VAT provisions under the Nigeria Tax Act 2025",
+          "url": "https://www.legal500.com/intelligence/nigeria/tax/examination-of-the-value-added-tax-provisions-under-the-nigeria-tax-act-2025"
+        },
+        {
+          "title": "FCT-IRS — Public notice: Nigerian Tax ID portal (JRB and NRS)",
+          "url": "https://fctirs.gov.ng/?p=17962"
+        },
+        {
+          "title": "NRS Merchant Buyer Solution — e-invoicing portal",
+          "url": "https://einvoice.nrs.gov.ng/"
+        },
+        {
+          "title": "ThisDay — NRS unveils phased implementation of e-invoicing / EFS regime",
+          "url": "https://www.thisdaylive.com/2026/02/17/nrs-unveils-phased-implementation-of-e-invoicing-electronic-fiscal-system-regime/"
+        },
+        {
+          "title": "Sovos — Nigeria: NRS publishes e-invoicing implementation timeline",
+          "url": "https://sovos.com/regulatory-updates/vat/nigeria-nrs-publishes-e-invoicing-timeline/"
+        },
+        {
+          "title": "Fonoa — Nigeria releases phased rollout plan for e-invoicing",
+          "url": "https://www.fonoa.com/resources/blog/nigeria-releases-phased-rollout-plan-for-e-invoicing"
+        },
+        {
+          "title": "EY Tax Alert — Nigeria rolls out e-invoicing platform",
+          "url": "https://www.ey.com/en_gl/technical/tax-alerts/nigerias-federal-inland-revenue-service-rolls-out-e-invoicing-platform"
+        },
+        {
+          "title": "BusinessDay — NRS e-invoicing deadline for large taxpayers (July 2026)",
+          "url": "https://businessday.ng/news/article/e-invoicing-nrs-issues-deadline-for-compliance/"
+        },
+        {
+          "title": "U.S. Commercial Service — Nigeria: Distribution and Sales Channels",
+          "url": "https://www.trade.gov/country-commercial-guides/nigeria-distribution-and-sales-channels"
+        },
+        {
+          "title": "NIBSS — Nigeria Inter-Bank Settlement System",
+          "url": "https://nibss-plc.com.ng/"
+        }
+      ],
+      "lastVerifiedLabel": "Last verified: November 2026"
+    }
+  },
+  "notes": "صفحة إنجليزية جديدة لنيجيريا مبنية على حقائق NG.json بعد اكتمال التدقيق (audit بتاريخ 2026-11-11، ثقة متوسطة). طُبّقت تصحيحات المدقق كلها: حُذفت Onitsha وصار الحديث عن «major markets» بوصف trade.gov؛ وجميع حقول localTerms صارت null فاستُعملت عبارات إنجليزية عامة (van sales وpre-sales وsales rep) لوصف المنتج فقط دون الادعاء بأنها المصطلحات المحلية، ولم أذكر provision store أو محافظ OPay/Moniepoint/PalmPay لأنها في uncertain؛ وحقول الفاتورة وفق المادة 153 بصيغتها المصحّحة («an invoice number» دون «متسلسل»، ورقم التسجيل مثل CAC RC number)؛ وعبارة canSay الجديدة بأن FieldSales لا تقرّر انطباق الضريبة على الأصناف، فلم أدّعِ ضبط التصفير أو الإعفاء آلياً. في الفوترة الإلكترونية: تشغيل المتوسطين في 1 يوليو 2026 مذكور «موعداً معلناً» مع التصريح بعدم وجود مصدر لاحق يؤكده، والغرامات «قابلة للتطبيق» بعد 31 يوليو 2026 دون ادعاء فرضها فعلاً، وحُذف طلب غرفة لاغوس LCCI لأن مصدره عنوان صفحة ردّت 403. لم أذكر أي مبلغ ملاصق لعملة: حدود شرائح المكلّفين (₦1 مليار و₦5 مليارات) وحدّ الشركة الصغيرة المتعارض وقيم الغرامات وُصفت دون أرقام، وأُحيل القارئ إلى المصادر. صيغة Tax ID من 13 رقماً منسوبة إلى إشعار JRB/NRS لأنها ما زالت في uncertain. مواعيد الإلزام في قسم einvoicing وحده، وجمل FieldSales خالية من السنوات ومن أسماء الأنظمة الحكومية، ويفصلها عن آخر جملة مؤرَّخة جملتان بلا تاريخ. الجملة الصادقة عن الربط: «متاح عند الطلب فقط بعد دراسة المتطلبات، ولا ربط اليوم، ولا وعد بموعد أو نتيجة». تنبيه للمدقق الآلي: رابط BusinessDay يحوي الكلمة compliance في مسار URL فقط، لا في نص الصفحة.",
+  "review": {
+    "reviewedAt": "2026-11-11",
+    "quality": "publish",
+    "fixes": 10,
+    "issues": [
+      "قسم التوزيع: «with every visit tied to a planned route» ادعاء ميزة أدق مما في وصف المنتج، فصارت «each rep’s route and visits recorded by location and photo»، و«shops from those markets» صارت «retailers».",
+      "«a good deal of cash» و«everyday collections» مبالغة فوق الحقائق (النقد وسيلة تحصيل والاقتصاد يتحوّل إلى غير النقدي)، فصارت «Cash is still used for collections».",
+      "قسم الضريبة: فُكّ اختصار JRB (Joint Revenue Board)، و«many invoices still label it TIN» صارت بصيغة الحقائق: المصطلح ما زال شائعاً في المستندات والفواتير.",
+      "خطأ حقيقة: «الجدول المرحلي المعلن في فبراير 2026 يبدأ بكبار المكلّفين» — إشعار فبراير خاص بالمتوسطين والناشئين، وكبار المكلّفين بدؤوا قبله؛ أعيدت الصياغة: بدأ التطبيق بكبار المكلّفين، ثم جدول فبراير للمتوسطين والناشئين. وأُضيف «and start transmitting invoices» وفق scopeNow.",
+      "«may be refused for input VAT» صيغة ركيكة، فصارت «may not be accepted for input VAT recovery or as a deductible expense».",
+      "قسم التحصيل: سرد cash/POS/USSD/cheque كأنها طرق مدمجة جاهزة، بينما طرق الدفع يضبطها العميل في الإعدادات؛ أعيدت الصياغة بأنك تعرّفها ثم يختار المندوب الطريقة.",
+      "سؤال POS/NIP: التعديل نفسه — اختيار الطريقة التي أعددتها في الإعدادات.",
+      "«so Nigerian teams work in English» افتراض غير موجود في ملف الحقائق، فحُذف وبقي التصريح الصادق بلغات الواجهة الخمس.",
+      "سؤال VAT: «set up your account to match» يوحي بضبط التصفير والإعفاء لكل صنف (مما يمنعه mustNotSay)، فصار «confirm your treatment with a tax adviser before you enter your tax settings»، مع «qualifies for the VAT exemption».",
+      "عنوان مصدر BusinessDay كان محاكاة لعنوان المقال بكلمات مختلفة، فصار وصفاً صريحاً: «NRS e-invoicing deadline for large taxpayers (July 2026)».",
+      "تحقّق بلا تعديل: النسبة 7.5% والجهة NRS (سابقاً FIRS)، وقائمة المادة 153، والإقرار في اليوم 21، والنموذج clearance وB2C خلال 24 ساعة، ومواعيد المتوسطين والناشئين بصيغة «معلن» وعدم تأكيد فرض الغرامات، كلها مطابقة للحقائق؛ لا مبلغ ملاصق لعملة، ولا «free/certified/compliant/approved»، ولا ادعاء ربط مع MBS، وجمل FieldSales في قسم الفوترة بعيدة عن آخر جملة مؤرَّخة بجملتين بلا تاريخ.",
+      "ملاحظة: كل حقول localTerms بقيمة null، فاستُعملت عبارات إنجليزية عامة (van sales وpre-sales order-taking وsales rep) لوصف المنتج فقط؛ ولم تُذكر مصطلحات أو محافظ ممّا في uncertain."
+    ]
+  }
+}
