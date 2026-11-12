@@ -3,7 +3,7 @@ import {
 } from 'lucide-react';
 import { computeInvoiceTotals, roundDecimal, priceFromLineTotal } from './invoiceCalc';
 import { cartBadge, cartCount, choiceById, defaultChoice, hasUnitChoice, invoiceItemUnit, lineUnitOf, linkedLineUnit, primaryChoice, rebaseCustPrices, rebaseRow, refreshLineUnit, sameUnit, unitChoices, unitsText, type UnitChoice, type UnitProduct } from './repUnits';
-import { allowedPriceTypesOf, baseLabelOf, defaultPriceTypeOf, priceListsOf } from '../lib/priceLists';
+import { allowedPriceTypesOf, baseLabelOf, cashOnlyListOf, CASH_ONLY_NOTE, defaultPriceTypeOf, effectiveSaleType, PRICE_LIST_CASH_ONLY_MSG, priceListsOf } from '../lib/priceLists';
 import {
   listIdOf, repBaseQtyByProduct, repCachedNamesOf, repCustomerListOf, repDefaultListOf, repInvoiceListOf, repKeptPrice, repListMissing, repListRulesOf,
   repNamesOf, repPriceCacheStale, repPriceRulesOf, repPricesMoved, repPricesSeenAt, repPricingDay, repProductBaseQty, repQtyKey, repRepriceLines,
@@ -2150,6 +2150,24 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const docDefault = defaultPriceTypeOf(custListId, repListId);
   const allowedTypes = allowedPriceTypesOf(perms.allowedPriceTypes);
   const listId = repInvoiceListOf(docDefault, pickedList, canSwitchList, allowedTypes);
+  /* «بيع نقدي فقط» (طلب المالك ١٢ نوفمبر ٢٠٢٦): قائمة الفاتورة (listId — التي تُسعَّر بها البنود، ويقرؤها الخادم docListId) مفعَّلٌ فيها
+   * القيد ⇒ لا آجل ولا تقسيط بها: النوع الفعّال «نقدي» والخطة «فوري» أيّاً كان المختار، فلا يحمل الجسم — المتصل والصندوق الأوف‑لاين —
+   * آجلاً لقائمةٍ نقدية أبداً (الخادم يردّه 409 PRICE_LIST_CASH_ONLY متصلاً، ويقبل إعادة الرفع كما هي لأن البضاعة سُلّمت). يُقرأ من
+   * أسماء القوائم نفسها (كاش 'pricelists:names' ⇐ priceListsOf يحمل cashOnly) فيعمل دون اتصال منذ أن يتجدّد الكاش. والمرتجع لا نوع
+   * بيعٍ له فلا قيد ولا تنبيه */
+  const cashOnlyList = isReturn ? null : cashOnlyListOf(listInfo, listId);
+  const cashOnly = cashOnlyList != null;
+  const saleType = effectiveSaleType(type, cashOnly);
+  const salePlan: 'IMMEDIATE' | 'INSTALLMENT' = cashOnly ? 'IMMEDIATE' : plan;
+  // التبديل إلى قائمةٍ نقدية (رقاقة، أو أسماءٌ أحدث وصلت بالقيد) والمختار آجلٌ أو تقسيط: يُقلب الاختيار نفسه إلى «نقدي» فوري — فما
+  // تُظهره الأزرار هو ما يُرسل، ولا يعود الآجل صامتاً إن رجع المندوب إلى قائمةٍ بلا قيد (يختاره من جديد بيده).
+  // إلا مندوباً بلا «البيع النقدي»: لا نوع مسموحاً له على القائمة النقدية أصلاً (النوع الفعّال نقديٌّ والإصدار ممنوعٌ في submit برسالته)،
+  // فلا يُقلب اختياره — وإلا رجع بالتبديل إلى قائمةٍ عادية و«نقدي» معطَّلٌ مختار، فلا زرّ مضاء ويُردّ الإصدار برسالة النقدي بلا قيد
+  useEffect(() => {
+    if (!cashOnly || !canSellInCash) return;
+    if (type !== 'CASH') setType('CASH');
+    if (plan !== 'IMMEDIATE') setPlan('IMMEDIATE');
+  }, [cashOnly, canSellInCash, type, plan]);
   const listMissing = repListMissing(listId, listRows);
   const listPrices = useMemo<Record<string, number>>(() => listPricesOf(listRows, listId, products), [listRows, listId, products]);
   // قواعد قائمة الفاتورة على أساس الكتالوج (قاعدة سعر الصنف الثابت يُعاد أساسها كبنود القائمة) — بلا قائمة أو بلا قواعد: مصفوفةٌ ثابتة
@@ -2563,7 +2581,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
 
   // معاينة جدول الأقساط من الإجمالي المحليّ — والخادم يكتب الجدول الحقيقي
   // من إجماليّه هو، فتتطابق المعاينة معه ما دام الإجمالي واحداً
-  const insPreview = plan === 'INSTALLMENT'
+  const insPreview = salePlan === 'INSTALLMENT'
     ? previewInstallments(total, insCount, insFirst, insPeriod, dec)
     : [];
 
@@ -2673,7 +2691,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     }
     if (perms.canCreateInvoice === false) { setMsg(tr('لا تملك صلاحية إنشاء فاتورة')); return; }
     if (!isReturn && !canSellAnyType) { setMsg(tr('لا تملك صلاحية البيع النقدي أو الآجل')); return; }
-    if (!isReturn && type === 'CREDIT' && !canSellOnCredit) { setMsg(tr('لا تملك صلاحية البيع الآجل')); return; }
+    // النوع الفعّال (saleType/salePlan) لا المختار: قائمةٌ «بيع نقدي فقط» تثبّته نقدياً فوريّاً ولو سبق المؤثّرَ ضغطُ «إصدار»
+    if (!isReturn && saleType === 'CREDIT' && !canSellOnCredit) { setMsg(tr('لا تملك صلاحية البيع الآجل')); return; }
     // «قيود المندوب»: سلّةٌ بُنيت قبل تحديث الكتالوج (قيدٌ أُضيف للصنف) تُقال الآن — لا تُصفّ دون اتصال ثم يرفضها الخادم.
     // بند فاتورة البيع يحكمه الخادم في /returnable (returnBlocked) فلا يُعاد هنا
     for (const l of lines) {
@@ -2682,8 +2701,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       const why = lp ? repLineBlockKey(lp, repAction, Number(l.unitFactor ?? 1)) : null;
       if (why) { setMsg(`${l.name}: ${tr(why)}`); return; }
     }
-    if (!isReturn && type === 'CASH' && !canSellInCash) { setMsg(tr('لا تملك صلاحية البيع النقدي')); return; }
-    if (!isReturn && plan === 'INSTALLMENT') {
+    // ومندوبٌ بلا «البيع النقدي» على قائمةٍ «بيع نقدي فقط»: لا نوع بيعٍ مسموحاً له بها — يُمنع هنا (ومن يملك تبديل القائمة يبدّلها)
+    if (!isReturn && saleType === 'CASH' && !canSellInCash) { setMsg(tr('لا تملك صلاحية البيع النقدي')); return; }
+    if (!isReturn && salePlan === 'INSTALLMENT') {
       if (!canSellOnInstallment) { setMsg(tr('لا تملك صلاحية البيع بالتقسيط')); return; }
       if (insPreview.length === 0) { setMsg(tr('المبلغ لا يكفي لتقسيمه على هذا العدد من الأقساط')); return; }
       // فاتورة التقسيط عقدٌ بتواريخ ومبالغ يخرج بيد العميل ورقةً. والأوف-لاين
@@ -2711,7 +2731,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     // عميل أُنشئ أوف‑لاين (بلا id خادمي بعد) يُشار إليه بـ customerClientRef فيحلّه الخادم
     const custRef = customer._offline ? { customerClientRef: customer.clientRef } : { customerId: customer.id };
     const body = {
-      ...custRef, type: isReturn ? 'RETURN' : type, discountPct: 0,
+      ...custRef, type: isReturn ? 'RETURN' : saleType, discountPct: 0,
       ...(isReturn && { returnReason }),
       // الفرق: الفريق الذي يعمل له المندوب الآن (المرتجع من فاتورة بيعٍ يرث فريقها في الخادم)
       ...(activeTeam && { teamId: activeTeam }),
@@ -2740,7 +2760,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       // يُهمَلان في الخادم إن أُطفئت الميزة
       ...(signatureOn && signatures.recipient && { recipientSignature: signatures.recipient.png }),
       ...(signatureOn && signatures.rep && { repSignature: signatures.rep.png }),
-      ...(!isReturn && plan === 'INSTALLMENT' && {
+      ...(!isReturn && salePlan === 'INSTALLMENT' && {
         paymentPlan: 'INSTALLMENT' as const,
         installmentPlan: { count: insCount, firstDueDate: insFirst, period: insPeriod },
       }),
@@ -2800,7 +2820,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         const row = out.row as any;
         onDone({
           kind: 'invoice', number: String(row.number), date: row.invoiceDate ?? clientCreatedAt,
-          deliveryDate: row.deliveryDate ?? (deliveryDate || undefined), type, isReturn,
+          deliveryDate: row.deliveryDate ?? (deliveryDate || undefined), type: saleType, isReturn,
           recipientSignature: signatureOn && signatures.recipient ? signatures.recipient.png : null,
           repSignature: signatureOn && signatures.rep ? signatures.rep.png : null,
           company, customer: docBuyer, repName, items: printItems,
@@ -2819,7 +2839,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       // حارس نشرٍ حقيقيّ: زود يجرّد الحقول التي لا يعرفها بصمت، فواجهةٌ جديدة
       // على خادم قديم تُصدر فاتورة آجلة بلا أقساط بلا خطأ. لا تُطبع ورقة أقساط
       // كاذبة — يُخطَر المندوب قبل أن يسلّم الورقة للعميل.
-      if (plan === 'INSTALLMENT' && (inv.installments?.length ?? 0) !== insCount) {
+      if (salePlan === 'INSTALLMENT' && (inv.installments?.length ?? 0) !== insCount) {
         setLoading(false);
         setMsg(tr('صدرت الفاتورة آجلة بلا جدول أقساط — راجع الإدارة قبل تسليم الورقة'));
         return;
@@ -2854,7 +2874,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
       // فكّ القيد (طلب المالك ٣١ أكتوبر ٢٠٢٦): منشأة ناقصة البيانات صدرت لها مبسطة — يُقال على شاشة النتيجة لا على الورقة
       const notice = buyerNoticeOf(res.data, isReturn ? 'note' : 'invoice');
       onDone({
-        kind: 'invoice', number: inv.number, date: inv.invoiceDate, deliveryDate: inv.deliveryDate ?? (deliveryDate || undefined), type, isReturn,
+        kind: 'invoice', number: inv.number, date: inv.invoiceDate, deliveryDate: inv.deliveryDate ?? (deliveryDate || undefined), type: saleType, isReturn,
         recipientSignature: inv.signature?.image ?? null,
         repSignature: inv.signature?.repImage ?? null,
         paymentPlan: inv.paymentPlan ?? null,
@@ -2900,9 +2920,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         }
         const localNumber = 'محلي-' + clientRef.slice(0, 8).toUpperCase();
         await outboxAdd({ clientRef, repId: currentRepId(), kind: 'invoice', payload, status: 'queued', clientCreatedAt, localNumber });
-        const paid = type === 'CASH' && !isReturn ? total : 0;
+        const paid = saleType === 'CASH' && !isReturn ? total : 0;
         onDone({
-          kind: 'invoice', number: localNumber, offline: true, date: clientCreatedAt, deliveryDate: deliveryDate || undefined, type, isReturn,
+          kind: 'invoice', number: localNumber, offline: true, date: clientCreatedAt, deliveryDate: deliveryDate || undefined, type: saleType, isReturn,
           recipientSignature: signatureOn && signatures.recipient ? signatures.recipient.png : null,
           repSignature: signatureOn && signatures.rep ? signatures.rep.png : null,
           company, customer: docBuyer, repName, items: offlineItems,
@@ -2933,6 +2953,10 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         // نوعٍ للشركة بعد كاش الأسماء، أو بدّل نوع المندوب الافتراضي وأنواعه المسموحة — نوع العميل وأسعاره من الخادم الآن، وصلاحيات
         // المندوب من /auth/me (onPermsStale)، فتُعاد البنود غير المعدَّلة ويعيد المندوب الإصدار
         if (err?.response?.status === 403 && !saleRef && (!err?.response?.data?.code || err.response.data.code === 'PRICE_LIST_FORBIDDEN')) { void loadPriceLists(true); onPermsStale?.(); }
+        // «بيع نقدي فقط» (409 PRICE_LIST_CASH_ONLY): كاش أسماء القوائم في الجهاز (حتى ٥ دقائق) لم يعرف القيد بعد، أو نقل المدير العميل إلى
+        // قائمةٍ نقدية — رسالة الخادم بعبارة القاموس بلغة المندوب (PRICE_LIST_CASH_ONLY_MSG حرفُ رسالة الخادم، كفاتورة الإدارة و/m)، والأسماء
+        // ونوع العميل من الخادم الآن فيُقلب النوع إلى «نقدي» ويعيد المندوب الإصدار
+        if (err?.response?.data?.code === 'PRICE_LIST_CASH_ONLY' && !saleRef) { void loadPriceLists(true); setMsg(tr(PRICE_LIST_CASH_ONLY_MSG)); setLoading(false); return; }
         // «اشتراط اختيار فاتورة البيع للمرتجع» ورقم الأصل اليدويّ (RETURN_LINK_REQUIRED، ZATCA_RETURN_REF_INVALID،
         // ZATCA_RETURN_REF_IN_SYSTEM): عبارة القاموس بلغة المندوب — الإعداد تغيّر بعد تحميل الشاشة، أو رقمٌ يُردّ
         if (isReturn && RETURN_POLICY_CODES.has(err?.response?.data?.code)) { setMsg(tr(returnIssueError(err).message)); setLoading(false); return; }
@@ -3122,12 +3146,21 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
             ) : (
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xs text-gray-600">{tr('النوع')}:</span>
-                <button disabled={!canSellOnCredit} onClick={() => { setType('CREDIT'); setPlan('IMMEDIATE'); }} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${type === 'CREDIT' && plan !== 'INSTALLMENT' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'}`}>{tr('آجل')}</button>
-                <button disabled={!canSellInCash} onClick={() => { setType('CASH'); setPlan('IMMEDIATE'); }} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${type === 'CASH' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'}`}>{tr('نقدي')}</button>
+                {/* «بيع نقدي فقط»: قائمة الفاتورة نقدية ⇒ الآجل والتقسيط معطّلان، والمضاء النوع الفعّال (saleType/salePlan) لا المختار */}
+                <button disabled={!canSellOnCredit || cashOnly} onClick={() => { setType('CREDIT'); setPlan('IMMEDIATE'); }} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${saleType === 'CREDIT' && salePlan !== 'INSTALLMENT' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600'}`}>{tr('آجل')}</button>
+                <button disabled={!canSellInCash} onClick={() => { setType('CASH'); setPlan('IMMEDIATE'); }} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${saleType === 'CASH' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'}`}>{tr('نقدي')}</button>
                 {/* تقسيط: بيعٌ آجل بجدول سداد — يرسل type=CREDIT مع خطة أقساط */}
-                <button disabled={!canSellOnInstallment} onClick={() => { setType('CREDIT'); setPlan('INSTALLMENT'); }} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${plan === 'INSTALLMENT' ? 'bg-[#5B4B9C] text-white' : 'bg-gray-100 text-gray-600'}`}>{tr('تقسيط')}</button>
+                <button disabled={!canSellOnInstallment || cashOnly} onClick={() => { setType('CREDIT'); setPlan('INSTALLMENT'); }} className={`px-3 py-1 rounded-full text-xs disabled:bg-gray-100 disabled:text-gray-300 ${salePlan === 'INSTALLMENT' ? 'bg-[#5B4B9C] text-white' : 'bg-gray-100 text-gray-600'}`}>{tr('تقسيط')}</button>
               </div>
             )}
+            {/* «بيع نقدي فقط»: سبب تعطيل الآجل والتقسيط تحت الأزرار — اسم القائمة بيانات الشركة (لا tr) — ومندوبٌ بلا «البيع النقدي» يُقال له
+              * إنه لا يبيع بها (الإصدار ممنوعٌ في submit بالرسالة نفسها؛ وبلا أي نوعٍ أصلاً فالسطر العامّ تحته وحده). المرتجع: cashOnlyList null فلا سطر */}
+            {cashOnlyList && (
+              <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mb-2 leading-5" role="status" data-rep-cash-only="">
+                {`«${cashOnlyList.name}» — ${tr(CASH_ONLY_NOTE)}`}
+              </p>
+            )}
+            {cashOnlyList && !canSellInCash && canSellAnyType && <p className="text-[11px] text-red-500 mb-2">{tr('لا تملك صلاحية البيع النقدي')}.</p>}
             {!isReturn && !canSellAnyType && <p className="text-[11px] text-red-500 mb-2">{tr('لا تملك صلاحية البيع النقدي أو الآجل')}.</p>}
             {/* «تتبّع اللوط»: منع الإضافة فوق المتاح في السيارة يُقال على الشبكة نفسها */}
             {!isReturn && lotNote && <p className="text-[11px] text-red-500 mb-2 text-center" role="status">{lotNote}</p>}
@@ -3419,7 +3452,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                   clearLabel={tr('مسح التوقيع')} placeholder={sigWho === 'recipient' ? tr('وقع هنا') : tr('توقيع المندوب هنا')} />
               </div>
             )}
-            {!isReturn && plan === 'INSTALLMENT' && (
+            {!isReturn && salePlan === 'INSTALLMENT' && (
               <div className="bg-white rounded-xl p-3 mt-2 border border-[#D6CFEA]">
                 <p className="text-[11px] font-bold text-[#5B4B9C] mb-2">{tr('جدولة الأقساط')}</p>
                 <div className="grid grid-cols-3 gap-2">

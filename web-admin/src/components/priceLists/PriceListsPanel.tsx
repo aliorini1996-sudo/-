@@ -6,7 +6,7 @@ import { priceListApi } from '../../api/client';
 import type { PriceList } from '../../types';
 import { useTr } from '../../i18n/strings';
 import { formatNumber } from '../../utils/format';
-import { DEFAULT_BASE_PRICE_LABEL, PRICE_LIST_NAME_MAX, priceListInUseMessage, priceListNameProblem, priceListsOf } from '../../lib/priceLists';
+import { CASH_ONLY_LABEL, DEFAULT_BASE_PRICE_LABEL, PRICE_LIST_NAME_MAX, priceListInUseMessage, priceListNameProblem, priceListsOf } from '../../lib/priceLists';
 import { priceListCountsText } from '../../lib/priceListEditor';
 import ConfirmDialog from '../ConfirmDialog';
 import PriceListEditor from './PriceListEditor';
@@ -166,7 +166,15 @@ export default function PriceListsPanel({ onDirtyChange }: {
                   </form>
                 ) : (
                   <div className="min-w-0 flex-1 basis-40">
-                    <p className="font-semibold text-[#1F1A13] truncate">{l.name}</p>
+                    {/* «بيع نقدي فقط» (طلب المالك ١٢ نوفمبر ٢٠٢٦): شارةٌ على صفّ القائمة — والمفتاح نفسه في «الأسعار والقواعد» */}
+                    <p className="font-semibold text-[#1F1A13] flex items-center gap-1.5 min-w-0">
+                      <span className="truncate">{l.name}</span>
+                      {l.cashOnly && (
+                        <span className="shrink-0 rounded-full bg-green-50 border border-green-200 px-1.5 text-[10px] font-bold text-[#1E7A52]" data-cash-only-badge="">
+                          {tr(CASH_ONLY_LABEL)}
+                        </span>
+                      )}
+                    </p>
                     <p className="text-xs text-[#6E6557] mt-0.5">{priceListCountsText(l, tr, formatNumber)}</p>
                   </div>
                 )}

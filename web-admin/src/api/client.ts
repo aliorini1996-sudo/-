@@ -143,8 +143,10 @@ export const priceListApi = {
   list: () => api.get('/price-lists'),
   /** مع عدّادات الأصناف والقواعد لكل قائمة (لوحة القوائم وحدها — بقية الشاشات لا تحتاجها) */
   listWithCounts: () => api.get('/price-lists', { params: { counts: 1 } }),
-  create: (name: string) => api.post('/price-lists', { name }),
-  update: (id: string, data: { name?: string; sortOrder?: number }) => api.put(`/price-lists/${id}`, data),
+  /** `extra.cashOnly`: «بيع نقدي فقط» من الإنشاء (طلب المالك ١٢ نوفمبر ٢٠٢٦) — بلاه الجسم { name } كما كان */
+  create: (name: string, extra: { cashOnly?: boolean } = {}) => api.post('/price-lists', { name, ...extra }),
+  /** `cashOnly`: «بيع نقدي فقط» — لا يُباع بالقائمة آجلاً ولا تقسيطاً (الخادم يردّ الآجل بها 409 PRICE_LIST_CASH_ONLY) */
+  update: (id: string, data: { name?: string; sortOrder?: number; cashOnly?: boolean }) => api.put(`/price-lists/${id}`, data),
   remove: (id: string) => api.delete(`/price-lists/${id}`),
   setBaseLabel: (label: string | null) => api.put('/price-lists/base-label', { label }),
   /* «قوائم الأسعار» بقواعدها (طلب المالك ٥ نوفمبر ٢٠٢٦) — جدول أسعار القائمة وقواعدها (لمن يملك صلاحية الأصناف) */

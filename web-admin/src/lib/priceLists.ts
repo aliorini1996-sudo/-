@@ -32,6 +32,8 @@ export function priceListsOf(data: unknown): PriceListsInfo {
       // عدّا أصناف القائمة وقواعدها (لصفّها في اللوحة) — خادمٌ قبلهما بلا مفتاح
       ...(l.itemsCount != null && { itemsCount: Number(l.itemsCount) || 0 }),
       ...(l.rulesCount != null && { rulesCount: Number(l.rulesCount) || 0 }),
+      // «بيع نقدي فقط»: true الصريحة وحدها — خادمٌ أقدم أو غيابها ⇒ لا مفتاح (القائمة لكل أنواع البيع كما كانت)
+      ...((l as { cashOnly?: unknown }).cashOnly === true && { cashOnly: true }),
     }))
     // ثابتٌ على ترتيب الخادم (sortOrder ثم الاسم) — المتساويان يبقيان كما ردّهما
     .sort((a, b) => a.sortOrder - b.sortOrder);
@@ -42,6 +44,30 @@ export function priceListsOf(data: unknown): PriceListsInfo {
     basePriceLabel: label, lists,
     ...(typeof d.timezone === 'string' && d.timezone.trim() !== '' && { timezone: d.timezone }),
   };
+}
+
+// ─── «بيع نقدي فقط» (طلب المالك ١٢ نوفمبر ٢٠٢٦) ───
+// قائمةٌ مفعَّلٌ فيها «بيع نقدي فقط» لا يُصدر بها بيعٌ آجل ولا تقسيط: الشاشات الثلاث (تطبيق المندوب، فاتورة الويب، /m) تثبّت نوع البيع
+// على «نقدي» وتعطّل الآجل والتقسيط ما دامت قائمة المستند كذلك، والخادم يرفض الآجل بها (409 PRICE_LIST_CASH_ONLY) إلا لإعادة رفع
+// الصندوق (بضاعةٌ سُلّمت) ومفتاح API (التكامل حرّ). المرتجع لا نوع بيعٍ له فلا يمسّه القيد.
+
+/** نصّ القيد تحت أزرار نوع البيع وعلى شارة القائمة (يُترجم بـtr؛ اسم القائمة بيانات الشركة يُضاف قبله) */
+export const CASH_ONLY_NOTE = 'هذه القائمة للبيع النقدي فقط — لا يباع بها آجل ولا تقسيط';
+/** اسم الخيار في محرّر القائمة وشارتها في لوحة القوائم */
+export const CASH_ONLY_LABEL = 'بيع نقدي فقط';
+/** رسالة الخادم نفسها (PRICE_LIST_MESSAGES.PRICE_LIST_CASH_ONLY في backend/src/services/priceLists.ts — مطابقةٌ حرفاً) */
+export const PRICE_LIST_CASH_ONLY_MSG = 'قائمة الأسعار هذه للبيع النقدي فقط — لا يباع بها آجل ولا تقسيط';
+
+/** قائمة المستند إن كانت «بيع نقدي فقط» (للاسم في التنبيه) وإلا null — null/الأساس/قائمةٌ مجهولة ⇒ null (لا قيد) */
+export function cashOnlyListOf(info: Pick<PriceListsInfo, 'lists'> | null | undefined, listId: string | null | undefined): PriceList | null {
+  if (!listId) return null;
+  const l = info?.lists?.find((x) => x.id === listId);
+  return l?.cashOnly === true ? l : null;
+}
+
+/** نوع البيع الفعّال: القائمة النقدية تثبّته «نقدي» أيّاً كان المختار، وغيرها كما اختير حرفاً */
+export function effectiveSaleType<T extends 'CASH' | 'CREDIT'>(chosen: T, cashOnly: boolean): T | 'CASH' {
+  return cashOnly ? 'CASH' : chosen;
 }
 
 /** اسم الرقاقة الأولى: ما سمّته الشركة كما هو (بيانات)، وإلا «السعر الأساسي» مترجماً */

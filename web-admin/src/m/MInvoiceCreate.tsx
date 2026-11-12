@@ -18,7 +18,9 @@ import {
 } from './mUnits';
 import { isTaxOff, TAX_MODE_MESSAGES, type TaxModeCompany } from '../lib/taxMode';
 import { requestCompanyRefetch, taxModeChangedOf } from './mTaxMode';
-import { baseLabelOf, priceListsOf, defaultPriceTypeOf } from '../lib/priceLists';
+import {
+  baseLabelOf, priceListsOf, defaultPriceTypeOf, cashOnlyListOf, effectiveSaleType, CASH_ONLY_NOTE, PRICE_LIST_CASH_ONLY_MSG,
+} from '../lib/priceLists';
 import { adminListHintOf, docLinePricerOf, docPricingDayOf, docQtyKey, type DocPriceRule } from '../lib/invoiceModalRepPrice';
 import {
   lotErrorOf, lotFlagsOf, lotWarningsOf, LOT_WARNING_LABELS, type LotWarning, type VanLotSnapshotDto,
@@ -158,6 +160,15 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
   const docDefault: string | null = defaultPriceTypeOf(custListId, repListId);
   const listId: string | null = !listsOn ? null : listChoice !== undefined ? listChoice : docDefault;
   const listHint = adminListHintOf(listId, custListId, repListId, custListId !== undefined);
+  /* «بيع نقدي فقط» (طلب المالك ١٢ نوفمبر ٢٠٢٦): قائمة الفاتورة (الرقاقة ⇐ العميل ⇐ المندوب، كالخادم) نقديةٌ ⇒ «نقدي» وحده — «آجل»
+   * و«تقسيط» معطّلان والتنبيه باسمها تحت أزرار النوع وفي صندوق القائمة. والجسم والمراجعة بالنوع الفعّال (effectiveSaleType) فلا يُرسل
+   * آجلٌ بها ولو سبقت نقرةٌ الأثرَ الذي ينقل الحالة إلى النقدي (فتعود القائمة العادية بالنقدي لا بآجلٍ صامت) */
+  const cashOnlyList = cashOnlyListOf(priceInfoQ.data, listId);
+  const saleType = effectiveSaleType(type, !!cashOnlyList);
+  const salePlan: 'IMMEDIATE' | 'INSTALLMENT' = cashOnlyList ? 'IMMEDIATE' : plan;
+  useEffect(() => {
+    if (cashOnlyList && (type !== 'CASH' || plan !== 'IMMEDIATE')) { setType('CASH'); setPlan('IMMEDIATE'); }
+  }, [cashOnlyList, type, plan]);
   // افتراضيّ الفاتورة (نوع العميل أو المندوب) غائبٌ عن الأسماء المخبّأة (أُنشئ بعدها): تُقرأ من جديد مرّةً لكل نوع — وإلا لا رقاقة
   // ولا مفتاح، فيسعّر الخادم بالافتراضي (المفتاح غائب) والبنود مقترحةٌ بالسعر الأساسي
   const namesRetried = useRef<string | null>(null);
@@ -245,8 +256,8 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
   const totals = useMemo(() => invoiceTotals(lines, discountPct, taxCo), [lines, discountPct, taxCo]);
   // معاينة جدول الأقساط — والخادم يكتب الحقيقي من إجماليّه
   const insPreview = useMemo(
-    () => (plan === 'INSTALLMENT' ? previewInstallments(totals.total, insCount, insFirst, insPeriod) : []),
-    [plan, totals.total, insCount, insFirst, insPeriod],
+    () => (salePlan === 'INSTALLMENT' ? previewInstallments(totals.total, insCount, insFirst, insPeriod) : []),
+    [salePlan, totals.total, insCount, insFirst, insPeriod],
   );
 
   /** إضافة الصنف بوحدة (الافتراض «الوحدة الرئيسية» وإلّا أكبر وحدة — defaultChoice): بندٌ قائم بالوحدة نفسها يزيد واحداً — والسعر ⚠️ **قبل** الضريبة (mUnits.invoiceLine) بسعر العميل أو القائمة بكمية الصنف بعد الإضافة */
@@ -314,12 +325,13 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
   const save = useMutation({
     mutationFn: async () => {
       const res = await invoiceApi.create({
-        customerId, salesRepId, type, discountPct,
+        // «بيع نقدي فقط»: النوع والخطة الفعّالان — قائمةٌ نقدية ⇒ CASH بلا خطة أقساط، وغيرها كما اختير حرفاً
+        customerId, salesRepId, type: saleType, discountPct,
         // «أنواع الأسعار»: النوع الذي سُعّرت به البنود (null = السعر الأساسي) — والشركة بلا أنواع بلا مفتاح كما كان الجسم
         ...(listsOn && { priceListId: listId }),
         ...(notes.trim() && { notes: notes.trim() }),
         ...(invoiceDate && { invoiceDate }),
-        ...(plan === 'INSTALLMENT' && {
+        ...(salePlan === 'INSTALLMENT' && {
           paymentPlan: 'INSTALLMENT',
           installmentPlan: { count: insCount, firstDueDate: insFirst, period: insPeriod },
         }),
@@ -371,6 +383,13 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
         }));
         return;
       }
+      // «بيع نقدي فقط»: القائمة صارت نقديةً بعد آخر قراءةٍ لها (409 PRICE_LIST_CASH_ONLY) — تُقرأ القوائم فوراً فيثبت النقدي ويظهر
+      // التنبيه، والرسالة رسالة الخادم نفسها بلغة الواجهة
+      if (data?.code === 'PRICE_LIST_CASH_ONLY') {
+        qc.invalidateQueries({ queryKey: ['m-price-lists'] });
+        toast.error(tr(PRICE_LIST_CASH_ONLY_MSG));
+        return;
+      }
       toast.error(data?.message || tr('تعذر الإصدار'));
     },
   });
@@ -399,21 +418,27 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
             <Field label={tr('نوع الفاتورة')}>
               <div className="flex gap-2">
                 {(['CREDIT', 'CASH', 'INSTALLMENT'] as const).map(k => {
-                  const on = k === 'INSTALLMENT' ? plan === 'INSTALLMENT' : (type === k && plan !== 'INSTALLMENT');
+                  const on = k === 'INSTALLMENT' ? salePlan === 'INSTALLMENT' : (saleType === k && salePlan !== 'INSTALLMENT');
+                  // «بيع نقدي فقط»: قائمة الفاتورة نقديةٌ ⇒ «آجل» و«تقسيط» معطّلان
+                  const blocked = !!cashOnlyList && k !== 'CASH';
                   return (
-                    <button key={k} onClick={() => {
+                    <button key={k} disabled={blocked} onClick={() => {
                       if (k === 'INSTALLMENT') { setType('CREDIT'); setPlan('INSTALLMENT'); }
                       else { setType(k); setPlan('IMMEDIATE'); }
                     }}
-                      className={`flex-1 py-3 rounded-xl font-semibold text-sm min-h-[48px] border ${on ? (k === 'INSTALLMENT' ? 'bg-[#5B4B9C] text-white border-[#5B4B9C]' : 'bg-[#E15A30] text-white border-[#E15A30]') : 'bg-white text-[#6E6557] border-[#E9E1D3]'}`}>
+                      className={`flex-1 py-3 rounded-xl font-semibold text-sm min-h-[48px] border disabled:opacity-40 ${on ? (k === 'INSTALLMENT' ? 'bg-[#5B4B9C] text-white border-[#5B4B9C]' : 'bg-[#E15A30] text-white border-[#E15A30]') : 'bg-white text-[#6E6557] border-[#E9E1D3]'}`}>
                       {k === 'CREDIT' ? tr('آجل') : k === 'CASH' ? tr('نقدي') : tr('تقسيط')}
                     </button>
                   );
                 })}
               </div>
+              {/* اسم القائمة بيانات الشركة (لا tr) قبل نصّ القيد */}
+              {cashOnlyList && (
+                <p className="text-[11px] text-[#8A6D1F] mt-1.5 leading-relaxed" data-cash-only-note="">«{cashOnlyList.name}» — {tr(CASH_ONLY_NOTE)}</p>
+              )}
             </Field>
 
-            {plan === 'INSTALLMENT' && (
+            {salePlan === 'INSTALLMENT' && (
               <Field label={tr('جدولة الأقساط')}>
                 <div className="grid grid-cols-3 gap-2">
                   <input type="number" min={2} max={MAX_INSTALLMENTS} inputMode="numeric"
@@ -501,6 +526,10 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
                 {/* تنبيه الخروج عن الافتراضي بقاعدة اللوحة نفسها: نوع المندوب حين يأتي الافتراضي منه (العميل بلا نوع)، وإلا نوع العميل */}
                 {listHint && (
                   <p className="text-[10px] text-[#8A6D1F]">{tr(listHint === 'rep' ? 'ليست قائمة المندوب' : 'ليست قائمة العميل')}</p>
+                )}
+                {/* «بيع نقدي فقط»: أزرار النوع في الخطوة الأولى — فالرقاقة النقدية تقول هنا إن الفاتورة صارت نقدية */}
+                {cashOnlyList && (
+                  <p className="text-[10px] text-[#8A6D1F]" data-cash-only-note="">«{cashOnlyList.name}» — {tr(CASH_ONLY_NOTE)}</p>
                 )}
               </div>
             )}
@@ -637,7 +666,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
             <div className="rounded-2xl border border-[#F1EBDF] bg-white p-4 space-y-1.5 text-sm">
               <Row k={tr('العميل')} v={customer?.name || '—'} />
               <Row k={tr('المندوب')} v={repsQ.data?.find(r => r.id === salesRepId)?.name || '—'} />
-              <Row k={tr('النوع')} v={plan === 'INSTALLMENT' ? tr('تقسيط') : (type === 'CASH' ? tr('نقدي') : tr('آجل'))} />
+              <Row k={tr('النوع')} v={salePlan === 'INSTALLMENT' ? tr('تقسيط') : (saleType === 'CASH' ? tr('نقدي') : tr('آجل'))} />
               {listsOn && (
                 <Row k={tr('قائمة الأسعار')} v={priceLists.find(l => l.id === listId)?.name ?? baseLabelOf(priceInfoQ.data, tr)} />
               )}

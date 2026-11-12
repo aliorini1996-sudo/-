@@ -40,7 +40,7 @@ import SearchableSelect from '../SearchableSelect';
 import { useLaserScanner, scanFeedback } from '../../lib/useLaserScanner';
 import { findByScan } from '../../lib/laserScanner';
 import PriceTypeChips from '../PriceTypeChips';
-import { baseLabelOf, priceListsOf } from '../../lib/priceLists';
+import { CASH_ONLY_LABEL, CASH_ONLY_NOTE, PRICE_LIST_CASH_ONLY_MSG, baseLabelOf, cashOnlyListOf, priceListsOf } from '../../lib/priceLists';
 import {
   adminInvoiceListOf, adminListHintOf, docBaseQty, docLinePricerOf, docPricingDayOf, docQtyKey, pickOptionsAtQty, repriceDocLines, type AdminListChoice,
 } from '../../lib/invoiceModalRepPrice';
@@ -257,6 +257,13 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   const repDefaultListId = salesReps?.find(r => r.id === salesRepId)?.defaultPriceListId ?? null;
   const priceListId = adminInvoiceListOf(priceListOn, listChoice, custListId, repDefaultListId);
   const listHint = adminListHintOf(priceListId, custListId, repDefaultListId, !!selectedCustomer);
+  /* «بيع نقدي فقط» (طلب المالك ١٢ نوفمبر ٢٠٢٦): قائمة المستند (المختارة ⇐ العميل ⇐ المندوب، كالخادم) نقديةٌ ⇒ البيع «نقدي» وحده:
+   * «آجل» و«تقسيط» معطّلان والتنبيه باسمها تحت طريقة الدفع، والتبديل إليها وعلى الفاتورة آجلٌ أو تقسيط ينقل إلى النقدي (الأثر أدناه)
+   * — لا يُرسل آجلٌ صامتاً أبداً. والمرتجع لا نوع بيعٍ له فلا يمسّه (null)، وحالة البيع المحفوظة تُصحَّح عند العودة إليه */
+  const cashOnlyList = isReturn ? null : cashOnlyListOf(priceInfo, priceListId);
+  useEffect(() => {
+    if (cashOnlyList && (type !== 'CASH' || plan !== 'IMMEDIATE')) { setType('CASH'); setPlan('IMMEDIATE'); }
+  }, [cashOnlyList, type, plan]);
   // أسعار العميل الخاصة — كانت النافذة تقترح سعر الصنف لعميلٍ له سعرٌ متّفق عليه
   const { data: custRows } = useQuery({
     queryKey: ['customer-prices', customerId],
@@ -614,6 +621,13 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
       // 400 UNIT_INVALID: وحدات صنفٍ تغيّرت منذ حُمّلت القائمة (أُوقفت أو حُوّل أساسه) — تُحدَّث القائمة، والمدير يراجع البند.
       // ومثله 409 PRODUCT_UNITS_CHANGED: تحويلٌ سبق الإصدار تحت القفل (§3) — الكتالوج تغيّر فعلاً
       if (data?.code === 'UNIT_INVALID' || data?.code === 'PRODUCT_UNITS_CHANGED') qc.invalidateQueries({ queryKey: ['products-all'] });
+      /* «بيع نقدي فقط»: القائمة صارت نقديةً بعد أن قرأتها النافذة (409 PRICE_LIST_CASH_ONLY) — تُقرأ القوائم من جديد فيثبت النقدي
+       * ويظهر التنبيه تحت طريقة الدفع، والرسالة رسالة الخادم نفسها بلغة الواجهة */
+      if (data?.code === 'PRICE_LIST_CASH_ONLY') {
+        void qc.invalidateQueries({ queryKey: ['price-lists'] });
+        toast.error(tr(PRICE_LIST_CASH_ONLY_MSG), { duration: 8000 });
+        return;
+      }
       toast.error(data?.message || tr('خطأ'));
     },
   });
@@ -758,6 +772,13 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     if (!customerId) { toast.error(tr('اختر العميل')); return; }
     if (!salesRepId) { toast.error(tr('اختر المندوب')); return; }
     if (lines.length === 0) { toast.error(tr('أضف صنفا على الأقل')); return; }
+    // «بيع نقدي فقط»: الأثر أعلاه ينقل إلى النقدي فور تبدّل القائمة — وهذا لنقرةٍ سبقته: آجلٌ أو تقسيطٌ بقائمةٍ نقدية لا يُرسل أبداً،
+    // بل يُنقل إلى النقدي ويُقال لماذا، ثم يُصدر المدير بنقرةٍ ثانية وهو يرى النوع
+    if (cashOnlyList && (type !== 'CASH' || plan !== 'IMMEDIATE')) {
+      setType('CASH'); setPlan('IMMEDIATE');
+      toast.error(`«${cashOnlyList.name}» — ${tr(CASH_ONLY_NOTE)}`);
+      return;
+    }
     if (plan === 'INSTALLMENT' && insPreview.length === 0) {
       toast.error(tr('المبلغ لا يكفي لتقسيمه على هذا العدد من الأقساط')); return;
     }
@@ -862,17 +883,22 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
             ) : (
               <div>
                 <label className="label">{tr('طريقة الدفع')}</label>
+                {/* «بيع نقدي فقط»: قائمة المستند نقديةٌ ⇒ «نقدي» معروضاً وحده (ولو قبل أن ينقل الأثر الحالة) و«آجل» و«تقسيط» معطّلان */}
                 <select className="input"
-                  value={plan === 'INSTALLMENT' ? 'INSTALLMENT' : type}
+                  value={cashOnlyList ? 'CASH' : plan === 'INSTALLMENT' ? 'INSTALLMENT' : type}
                   onChange={e => {
                     const v = e.target.value;
                     if (v === 'INSTALLMENT') { setType('CREDIT'); setPlan('INSTALLMENT'); }
                     else { setType(v as 'CASH' | 'CREDIT'); setPlan('IMMEDIATE'); }
                   }}>
-                  <option value="CREDIT">{tr('آجل')}</option>
+                  <option value="CREDIT" disabled={!!cashOnlyList}>{tr('آجل')}</option>
                   <option value="CASH">{tr('نقدي')}</option>
-                  <option value="INSTALLMENT">{tr('تقسيط')}</option>
+                  <option value="INSTALLMENT" disabled={!!cashOnlyList}>{tr('تقسيط')}</option>
                 </select>
+                {/* اسم القائمة بيانات الشركة (لا tr) قبل نصّ القيد */}
+                {cashOnlyList && (
+                  <p className="text-[11px] text-amber-700 mt-1 leading-snug" data-cash-only-note="">«{cashOnlyList.name}» — {tr(CASH_ONLY_NOTE)}</p>
+                )}
               </div>
             )}
             {/* الإشعار الدائن (المرحلة الثانية) يُصدَر بتاريخ لحظته على الخادم — حقل تاريخٍ يُهمَل كذبٌ في الواجهة */}
@@ -1107,6 +1133,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                   disabled={mutation.isPending} />
                 {listHint === 'customer' && <span className="text-[11px] text-amber-700">{tr('ليست قائمة العميل')}</span>}
                 {listHint === 'rep' && <span className="text-[11px] text-amber-700">{tr('ليست قائمة المندوب')}</span>}
+                {/* القائمة المختارة نقدية: يُقال هنا أيضاً — تبديل الرقاقة إليها نقل طريقة الدفع أعلاه إلى «نقدي» */}
+                {cashOnlyList && <span className="text-[11px] font-semibold text-[#1E7A52]" data-cash-only-chip="">{tr(CASH_ONLY_LABEL)}</span>}
               </div>
             )}
             <div className="flex items-center justify-between mb-2">

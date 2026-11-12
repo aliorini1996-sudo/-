@@ -1095,6 +1095,9 @@ model PriceList {
   tenant    Tenant   @relation(fields: [tenantId], references: [id])
   name      String
   sortOrder Int      @default(0)
+  /// «بيع نقدي فقط» (طلب المالك ١٢ نوفمبر ٢٠٢٦): بيعٌ مسعَّرٌ بهذه القائمة نقديٌّ وحده — الآجل والتقسيط يُرفضان 409
+  /// PRICE_LIST_CASH_ONLY في POST /invoices (routes/invoices.ts). عمودٌ إضافيّ بافتراضٍ مطفأ (db push آمن، والقوائم القائمة كما هي)
+  cashOnly  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
