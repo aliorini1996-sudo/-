@@ -41,6 +41,8 @@ export const PRICE_LIST_MESSAGES = Object.freeze({
   BASE_UNIT_REQUIRED: 'أرسل expectedBaseName اسم وحدة الأساس الحالية للصنف مع السعر',
   BASE_UNIT_CHANGED: 'تغيرت وحدات الصنف منذ فتحت القائمة أعد فتحها قبل الحفظ',
   PRIMARY_UNIT_CHANGED: 'تغيرت الوحدة الرئيسية للصنف منذ فتحت القائمة أعد فتحها قبل الحفظ',
+  // «بيع نقدي فقط» (طلب المالك ١٢ نوفمبر ٢٠٢٦): 409 في POST /invoices لبيعٍ آجل أو بالتقسيط بقائمةٍ cashOnly (routes/invoices.ts)
+  PRICE_LIST_CASH_ONLY: 'قائمة الأسعار هذه للبيع النقدي فقط — لا يباع بها آجل ولا تقسيط',
 });
 /** وسم reason في ردّ 403 PRICE_LIST_FORBIDDEN: القائمة خارج القوائم المسموحة لا الصلاحية (غيابه = بلا «تبديل قائمة الأسعار») */
 export const PRICE_TYPE_NOT_ALLOWED_REASON = 'NOT_ALLOWED';

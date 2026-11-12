@@ -1146,6 +1146,22 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         docListId = defaultListId;
       }
     }
+    /* «بيع نقدي فقط» (طلب المالك ١٢ نوفمبر ٢٠٢٦ — PriceList.cashOnly): قائمة المستند المحسومة أعلاه (المختارة، وإلا قائمة العميل، وإلا
+     * قائمة المندوب الافتراضية؛ والسعر الأساسي بلا قائمةٍ ولا قيد) لا يُباع بها آجل ولا تقسيط (التقسيط CREDIT بخطة) ⇒ 409 قبل أي كتابة،
+     * للمندوب ولوحة الإدارة و/m. النقدي والمرتجع يمرّان بلا استعلام زائد، والقراءة واحدة لعمودٍ واحد حين البيع آجلٌ وللمستند قائمة.
+     * ويُعفى منه:
+     *  • إعادة رفع صندوق المندوب (X-FS-Replay بجلسة SALES_REP — cashReplay، كـtaxRepReplay وrepReplay أدناه): مستندٌ سُلّمت بضاعته
+     *    يُعدَم في الصندوق بأي 4xx، فيُقبل كما أُرسل. والصندوق لتطبيق المندوب وحده (rep/offlineSync.ts)، فالترويسة نفسها من مستخدمي
+     *    الشركة (لوحة الإدارة و/m بلا صندوق) إصدارٌ حيّ يُرفض — وإلا فتحت ترويسةٌ واحدة الآجل لمن لا يملك إطفاء العلم.
+     *  • مفتاح API: الربط حرّ («الخادم لا يرفض شيئاً في النقل» — Odoo وأمثاله)، فيُقبل كما أُرسل.
+     * والإشعاران الدائن والمدين وإلغاء الفاتورة وإعادة المخزون مساراتٌ أخرى لا تمرّ هنا، والفواتير القائمة لا تُمسّ */
+    const cashReplay = listReplay && req.user!.role === 'SALES_REP';
+    if (docListId && body.type === 'CREDIT' && !cashReplay && !req.user?.apiKeyId) {
+      const docList = await prisma.priceList.findFirst({ where: { id: docListId, tenantId: tid }, select: { cashOnly: true } });
+      if (docList?.cashOnly === true) {
+        res.status(409).json({ success: false, code: 'PRICE_LIST_CASH_ONLY', message: PRICE_LIST_MESSAGES.PRICE_LIST_CASH_ONLY }); return;
+      }
+    }
     /* ما تقوله قائمة المستند (طلب المالك ٥ نوفمبر ٢٠٢٦ — services/priceRules.ts): سعر الصنف الثابت فيها لوحدة الأساس (PriceListItem —
      * صافٍ، «قاعدة صنفٍ» بلا شرط)، وقواعدها (PriceListRule: صنفٌ أو فئةٌ أو كل الأصناف، سعرٌ ثابت أو نسبة، بحدٍّ أدنى للكمية وفترة) — لأصناف
      * المستند وفئاتها وحدها. وبلا قائمةٍ لا استعلام زائد، وبها استعلامان متوازيان. وما لا تقول فيه القائمة شيئاً يُسعَّر بسلّم اليوم كما هو.

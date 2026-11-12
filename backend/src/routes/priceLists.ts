@@ -27,6 +27,8 @@ import { paginationMeta } from '../utils/helpers';
  * - **القائمة التي عليها عملاء لا تُحذف** (409 PRICE_LIST_IN_USE): الحذف يفرّغ قائمتهم (SetNull) فيسقط سعرهم إلى الأساس بصمت.
  *   ولا التي هي افتراضيّة مندوبٍ أو ضمن قوائمه المسموحة (طلب المالك ٢ نوفمبر ٢٠٢٦، repsCount في الردّ).
  *   وأسعارها وقواعدها تُحذف معها (Cascade)، والفواتير المختومة بها يُفرَّغ ختمها.
+ * - **«بيع نقدي فقط»** (cashOnly، طلب المالك ١٢ نوفمبر ٢٠٢٦): إعدادٌ للقائمة لا قاعدةٌ فيها — يُكتب في POST / وPUT /:id ويُقرأ في GET /
+ *   لكل الأدوار، وحارسه في POST /invoices (409 PRICE_LIST_CASH_ONLY لبيعٍ آجل أو بالتقسيط بها).
  *
  * ═══ قواعد القائمة وجدول أسعارها (طلب المالك ٥ نوفمبر ٢٠٢٦ — على نسق Odoo) ═══
  * - **سعر الصنف الثابت** (PriceListItem) يُدخل بالوحدة الرئيسية صافياً ويُخزَّن لوحدة الأساس بستّ منازل (listBasePriceOf) تحت حارس
@@ -86,7 +88,9 @@ function replyWriteError(res: Response, err: unknown): boolean {
 
 // الاسم يُقصّ ويُفحص طوله في priceListName — المخطّط يقبل نصاً معقولاً فقط فلا تصل رسالة zod الإنجليزية
 const nameSchema = z.string().max(PRICE_LIST_NAME_MAX * 4);
-const LIST_SELECT = { id: true, name: true, sortOrder: true } as const;
+/** صفّ القائمة في الردود — و`cashOnly` («بيع نقدي فقط»، ١٢ نوفمبر ٢٠٢٦) في GET / لكل الأدوار: منه يعرف تطبيق المندوب و/m وفاتورة
+ * الإدارة أن القائمة لا يُباع بها آجل (ويصل كاش المندوب فيعمل القيد دون اتصال)، والخادم يحرسه في POST /invoices */
+const LIST_SELECT = { id: true, name: true, sortOrder: true, cashOnly: true } as const;
 const LIST_ORDER = [{ sortOrder: 'asc' as const }, { name: 'asc' as const }];
 /** العملاء الأحياء — المحذوف (status DELETED) صفٌّ باقٍ لأسماء فواتيره لا يُحسب «مستخدماً» ولا يمنع الحذف */
 const LIVE_CUSTOMER = { status: { not: 'DELETED' } } as const;
@@ -512,16 +516,16 @@ router.delete('/rules/:ruleId', ...manage, async (req: AuthRequest, res: Respons
 
 // ═══ القوائم ═══
 
-// قائمةٌ جديدة في آخر الترتيب
+// قائمةٌ جديدة في آخر الترتيب — و`cashOnly` اختياريّ (غيابه = مطفأ بافتراض العمود)
 router.post('/', ...manage, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const body = z.object({ name: nameSchema }).parse(req.body);
+    const body = z.object({ name: nameSchema, cashOnly: z.boolean().optional() }).parse(req.body);
     const name = priceListName(body.name);
     if (!name) { refuse(res, 400, 'PRICE_LIST_NAME_INVALID'); return; }
     const last = await prisma.priceList.findFirst({ where: { tenantId: tid }, orderBy: { sortOrder: 'desc' }, select: { sortOrder: true } });
     const list = await prisma.priceList.create({
-      data: { tenantId: tid, name, sortOrder: (last?.sortOrder ?? -1) + 1 },
+      data: { tenantId: tid, name, sortOrder: (last?.sortOrder ?? -1) + 1, ...(body.cashOnly !== undefined && { cashOnly: body.cashOnly }) },
       select: LIST_SELECT,
     });
     res.status(201).json({ success: true, data: { ...list, customersCount: 0 } });
@@ -531,20 +535,26 @@ router.post('/', ...manage, async (req: AuthRequest, res: Response, next: NextFu
   }
 });
 
-// إعادة تسمية قائمةٍ أو نقلها في الترتيب — اسمها في ملفات العملاء والفواتير يتبعها (مرجعٌ لا لقطة اسم)
+/**
+ * إعادة تسمية قائمةٍ أو نقلها في الترتيب — اسمها في ملفات العملاء والفواتير يتبعها (مرجعٌ لا لقطة اسم). و`cashOnly` («بيع نقدي فقط»،
+ * طلب المالك ١٢ نوفمبر ٢٠٢٦) يُشغَّل ويُطفأ هنا: يحكم ما يصدر بعده وحده — الفواتير القائمة لا تُمسّ
+ */
 router.put('/:id', ...manage, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const body = z.object({ name: nameSchema.optional(), sortOrder: z.number().int().min(0).max(100_000).optional() }).parse(req.body);
+    const body = z.object({
+      name: nameSchema.optional(), sortOrder: z.number().int().min(0).max(100_000).optional(), cashOnly: z.boolean().optional(),
+    }).parse(req.body);
     const exists = await prisma.priceList.findFirst({ where: { id: String(req.params.id), tenantId: tid }, select: { id: true } });
     if (!exists) { refuse(res, 404, 'PRICE_LIST_INVALID'); return; }
-    const data: { name?: string; sortOrder?: number } = {};
+    const data: { name?: string; sortOrder?: number; cashOnly?: boolean } = {};
     if (body.name !== undefined) {
       const name = priceListName(body.name);
       if (!name) { refuse(res, 400, 'PRICE_LIST_NAME_INVALID'); return; }
       data.name = name;
     }
     if (body.sortOrder !== undefined) data.sortOrder = body.sortOrder;
+    if (body.cashOnly !== undefined) data.cashOnly = body.cashOnly;
     const list = await prisma.priceList.update({ where: { id: exists.id }, data, select: LIST_SELECT });
     const counts = await customersCountOf(tid);
     res.json({ success: true, data: { ...list, customersCount: counts.get(list.id) ?? 0 } });
