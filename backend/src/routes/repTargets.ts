@@ -2,7 +2,8 @@
 // «هدف الشهر» — أهداف المندوب الشهرية (طلب المالك ٩ نوفمبر ٢٠٢٦). الحساب كله في services/repTargets.ts.
 //
 // المندوب يقرأ أهدافه وحدها (GET /mine) ليراها دائماً في رئيسية تطبيقه، والإدارة تضبطها من صفحة «المناديب» بصلاحية
-// إدارة المناديب (canManageSalesReps) — ومستخدم الشركة المقيَّد النطاق لا يبلغ إلا مناديب نطاقه (404 لغيرهم).
+// إدارة المناديب (canManageSalesReps) — ومستخدم الشركة المقيَّد النطاق لا يبلغ إلا مناديب نطاقه (404 لغيرهم)، وأرقامهم له بنطاق
+// المستند (docScopeOf) لا كاملة، ويقول الردّ ذلك (scoped) فتنبّه النافذة أنها قد تخالف ما يراه المندوب.
 // وخلف «النظام المحاسبي» كله: بلا المحاسبة لا أرقام مالية تُعرض للمندوب أصلاً.
 // ============================================================================
 import { randomUUID } from 'crypto';
@@ -12,17 +13,19 @@ import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { authenticate, requireAccounting, requireAdmin, requireAdminPermission, tenantId, actorOf } from '../middleware/auth';
 import { auditActorName } from '../services/attendanceEdit';
-import { adminRepFilter } from '../services/adminScope';
+import {
+  SHAPE_INVOICE_RECEIPT, SHAPE_VISIT, adminCustomerFilter, adminRepFilter, adminScopeEnabled, scopedRecordWhere,
+} from '../services/adminScope';
 import { UnitInvalidError } from '../services/warehouseStock';
 // «الوحدة الرئيسية» §2.9: أساس صنف هدف الكمية كما رآه العميل يُقارن حيّاً، ثم تحت قفل صفّ الصنف (FOR KEY SHARE) في المعاملة
 import {
-  BASE_GUARD_TX, ProductUnitsBusyError, ProductUnitsChangedError, baseGuardReply, expectedBasesOf, lockBases, staleClientBase,
-  type ExpectedBases,
+  BASE_GUARD_TX, ProductUnitsBusyError, ProductUnitsChangedError, baseGuardReply, baseUnitRequiredReply, expectedBasesOf, lockBases,
+  missingBaseForApi, staleClientBase, type ExpectedBases,
 } from '../services/baseGuard';
 import { AuthRequest } from '../types';
 import {
   MAX_TARGETS_PER_MONTH, MAX_TARGET_PRODUCTS, MONTH_RE, NOTE_MAX, REWARD_KINDS, REWARD_VALUE_MAX, TARGET_KINDS, TARGET_MESSAGES, TARGET_VALUE_MAX,
-  repTargetViewOf, repTargetsMonth, type TargetCode,
+  repTargetViewOf, repTargetsMonth, type RepTargetDocScope, type RepTargetView, type TargetCode,
 } from '../services/repTargets';
 
 const router = Router();
@@ -60,6 +63,8 @@ const targetInputSchema = z.object({
   rewardKind: z.enum(REWARD_KINDS),
   rewardValue: z.number().finite().positive(),
   note: z.preprocess((v) => (typeof v === 'string' ? (v.trim() || null) : v), z.string().max(NOTE_MAX).nullish()),
+  // التعديل وحده: true = اعتمد معامل الوحدة الحالي لسطرٍ لم يتغيّر صنفه ولا وحدته؛ وغيابه يُبقي لقطته المحفوظة (keepStoredUnits)
+  refreshUnitFactor: z.boolean().nullish(),
 }).superRefine((v, ctx) => {
   if (v.targetValue > TARGET_VALUE_MAX[v.kind]) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['targetValue'], message: `قيمة الهدف لا تتجاوز ${TARGET_VALUE_MAX[v.kind]}` });
@@ -74,11 +79,16 @@ type TargetInput = z.infer<typeof targetInputSchema>;
 class TargetRefusal extends Error {
   constructor(readonly status: number, readonly code: TargetCode) { super(TARGET_MESSAGES[code]); }
 }
+/** D19-ب: مفتاح API على صنفٍ حُوِّل أساسه بلا baseUnitName — يُردّ بردّ baseGuard الموحّد لكل كتّاب الكميات */
+class BaseUnitRequired extends Error {
+  constructor(readonly productName: string) { super(productName); }
+}
 const refuse = (res: Response, status: number, code: TargetCode): void => {
   res.status(status).json({ success: false, code, message: TARGET_MESSAGES[code] });
 };
 const fail = (err: unknown, res: Response, next: NextFunction): void => {
   if (err instanceof TargetRefusal) { refuse(res, err.status, err.code); return; }
+  if (err instanceof BaseUnitRequired) { const r = baseUnitRequiredReply(err.productName); res.status(r.status).json(r.body); return; }
   // تغيّر أساس الصنف أثناء الحفظ (baseGuard): 409 PRODUCT_UNITS_CHANGED، وانتظار قفل صفّه 503 PRODUCT_UNITS_BUSY
   const guard = err instanceof ProductUnitsChangedError || err instanceof ProductUnitsBusyError ? baseGuardReply(err, false) : null;
   if (guard) { res.status(guard.status).json(guard.body); return; }
@@ -91,9 +101,10 @@ const NO_PRODUCT: TargetSnapshot = { productId: null, productName: null, unitId:
 /**
  * أصناف هدف الكمية ولقطة وحدة كلٍّ (null = الأساس بمعامل ١): الأول في صفّ الهدف و`extras` بعده (RepTargetProduct)؛ وغير الكمية
  * بلا صنفٍ ولا وحدة. و`bases` أساس كل صنفٍ كما قُرئ هنا — تُقفل عليه المعاملة (lockBases) فلا تُكتب لقطةٌ حُلّت على أساسٍ بدّله
- * تحويلٌ التزم بين القراءة والكتابة (×F صامت). والصنف المكرّر في القائمة ⇒ 400 TARGET_PRODUCT_DUPLICATE
+ * تحويلٌ التزم بين القراءة والكتابة (×F صامت). والصنف المكرّر في القائمة ⇒ 400 TARGET_PRODUCT_DUPLICATE.
+ * ومفتاح API (`isApiKey`) على صنفٍ حُوِّل أساسه بلا baseUnitName ⇒ 400 BASE_UNIT_REQUIRED كبقية كتّاب الكميات (D19-ب)
  */
-async function productSnapshot(tid: string, body: TargetInput): Promise<{ snap: TargetSnapshot; extras: TargetSnapshot[]; bases: ExpectedBases | null }> {
+async function productSnapshot(tid: string, body: TargetInput, isApiKey: boolean): Promise<{ snap: TargetSnapshot; extras: TargetSnapshot[]; bases: ExpectedBases | null }> {
   if (body.kind !== 'PRODUCT_QTY') return { snap: NO_PRODUCT, extras: [], bases: null };
   const lines = body.products && body.products.length
     ? body.products
@@ -108,6 +119,9 @@ async function productSnapshot(tid: string, body: TargetInput): Promise<{ snap: 
     },
   });
   if (products.length !== lines.length) throw new TargetRefusal(400, 'TARGET_PRODUCT_INVALID');
+  // مكاملٌ على وثيقته القديمة: «١٠٠» بلا وحدة على صنفٍ صار أساسه الحبّة تُقرأ ١٠٠ حبّة صامتةً (أسهل ×F) — فيُطلب الأساس صراحةً
+  const noBase = missingBaseForApi(isApiKey, lines, new Map(products.map((p) => [p.id, { name: p.name, baseConvertedAt: p.baseConvertedAt }])));
+  if (noBase) throw new BaseUnitRequired(noBase);
   const bases = expectedBasesOf(products);
   // كاش أصنافٍ قديم: «١٠٠ كرتون» بالأساس (unitId فارغ) والأساس صار حبّة ⇒ رفضٌ ظاهر لا هدف ١٠٠ حبّة صامت
   const stale = staleClientBase(lines.map((l) => ({ productId: l.productId, baseUnitName: l.baseUnitName })), bases,
@@ -122,6 +136,49 @@ async function productSnapshot(tid: string, body: TargetInput): Promise<{ snap: 
     return { productId: product.id, productName: product.name, unitId: unit.id, unitName: unit.name, unitFactor: factor };
   });
   return { snap: snaps[0], extras: snaps.slice(1), bases };
+}
+
+/** معاملان متساويان رغم ضجيج الفاصلة العائمة (convert-base يضرب اللقطة ومعامل الوحدة كليهما بـF) */
+const sameFactor = (a: number, b: number): boolean => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+
+type StoredUnit = { productId: string | null; unitId: string | null; unitName: string | null; unitFactor: number };
+
+/**
+ * تعديل الهدف لا يغيّر معناه بصمت: سطرٌ بقي صنفه ووحدته كما هما يُبقي لقطته المحفوظة (الاسم والمعامل) وإن عُدّل معامل الوحدة
+ * بعد إنشائه (كرتون ٢٤ صار ١٢) — فلا يصير «١٠٠ كرتون» ١٢٠٠ حبّة بتعديل الملاحظة. ومن غيّر الصنف أو الوحدة يأخذ الحالية،
+ * ومن أراد الحالية لسطرٍ لم يتغيّر يرسل refreshUnitFactor صراحةً (المستدعي لا يمرّ هنا حينها)
+ */
+function keepStoredUnits(snaps: readonly TargetSnapshot[], stored: readonly StoredUnit[]): TargetSnapshot[] {
+  return snaps.map((s) => {
+    const old = s.productId ? stored.find((o) => o.productId === s.productId && o.unitId === s.unitId) : undefined;
+    if (!old || !Number.isFinite(old.unitFactor) || old.unitFactor <= 0 || sameFactor(old.unitFactor, s.unitFactor)) return s;
+    return { ...s, unitName: old.unitName, unitFactor: old.unitFactor };
+  });
+}
+
+type AdminProductView = RepTargetView['products'][number] & { currentUnitFactor: number | null };
+type AdminTargetView = Omit<RepTargetView, 'products'> & { products: AdminProductView[] };
+
+/**
+ * ردود الإدارة: لكل سطرٍ في هدف الكمية معامل وحدته الحالي حين يخالف لقطته (وإلا null) — فتنبّه النافذة أن الهدف محسوبٌ بكرتون
+ * ٢٤ والكرتون الآن ١٢، ولا تُعتمد الحالية إلا بـrefreshUnitFactor. الأساس (unitId فارغ) معامله ١ دائماً، والموقوفة لا تُعتمد
+ * (كما يقرأ productSnapshot). استعلامٌ واحد لكل الردّ، ولا شيء منه في /mine
+ */
+async function withCurrentUnitFactors(tid: string, views: readonly RepTargetView[]): Promise<AdminTargetView[]> {
+  const unitIds = [...new Set(views.flatMap((v) => v.products.map((p) => p.unitId)).filter((x): x is string => !!x))];
+  const units = unitIds.length
+    ? await prisma.productUnit.findMany({ where: { tenantId: tid, id: { in: unitIds }, isActive: true }, select: { id: true, productId: true, factor: true } })
+    : [];
+  const byId = new Map(units.map((u) => [u.id, u] as const));
+  return views.map((v) => ({
+    ...v,
+    products: v.products.map((p) => {
+      const u = p.unitId ? byId.get(p.unitId) : undefined;
+      const f = Number(u?.factor);
+      const differs = !!u && u.productId === p.productId && Number.isFinite(f) && f > 0 && !sameFactor(f, p.unitFactor);
+      return { ...p, currentUnitFactor: differs ? f : null };
+    }),
+  }));
 }
 
 /** «دمج الأهداف»: أهدافٌ للمندوب نفسه في الشهر نفسه تصير هدفاً واحداً بمكافأةٍ واحدة */
@@ -153,6 +210,27 @@ async function repInScope(req: AuthRequest, tid: string, repId: string): Promise
   return rep !== null;
 }
 
+/**
+ * نطاق المستند لأرقام الإدارة: المندوب في النطاق لا يكفي — مشرف الفرق يرى ما وُسم بفرقه، والمقيَّد بالقوائم عملاءه ومناديبه، كـGET
+ * /sales-reps/:id/stats وتقرير أداء المناديب؛ وإلا كشف «صافي مبيعات الشهر» عمل الفريق الآخر لمندوبٍ مشترك. غير المقيَّد وجلسة
+ * المالك بلا نطاق (undefined = الأرقام كاملة) باستعلامٍ واحد، و/mine لا يمرّ هنا: المندوب يرى عمله كله
+ */
+async function docScopeOf(req: AuthRequest): Promise<RepTargetDocScope | undefined> {
+  if (!(await adminScopeEnabled(req))) return undefined;
+  const [doc, visit, customer] = await Promise.all([
+    scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT), scopedRecordWhere(req, SHAPE_VISIT), adminCustomerFilter(req),
+  ]);
+  return { doc, visit, customer };
+}
+
+/**
+ * هل حُسبت أرقام الردّ بنطاق المستخدم؟ (`scoped` في ردود الإدارة): المندوب يرى عمله كله في /mine، والمشرف يرى ما في نطاقه وحده —
+ * فقد يرى «لم يتحقق» وعمولةً أقل لهدفٍ يراه المندوب محقّقاً بمكافأةٍ مستحقة، والمكافأة تُصرف يدوياً من الإدارة. فيقولها الردّ صراحةً
+ * وتنبّه النافذة. ونطاقٌ كل قيوده فارغة لا يقيّد شيئاً فليس «مقيَّداً»
+ */
+const scopedBy = (scope: RepTargetDocScope | undefined): boolean =>
+  !!scope && [scope.doc, scope.visit, scope.customer].some((w) => !!w && Object.keys(w).length > 0);
+
 /** أهداف المندوب في الشهر تمرّ واحدةً واحدة: فلا يتجاوز طلبان متزامنان السقف */
 const lockRepTargets = (tx: Prisma.TransactionClient, repId: string) =>
   tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'rep-targets:' + repId}))`;
@@ -178,7 +256,9 @@ router.get('/rep/:repId', async (req: AuthRequest, res: Response, next: NextFunc
     const repId = String(req.params.repId);
     const { month } = monthQuerySchema.parse(req.query);
     if (!(await repInScope(req, tid, repId))) { refuse(res, 404, 'REP_NOT_FOUND'); return; }
-    res.json({ success: true, data: await repTargetsMonth(tid, repId, month) });
+    const scope = await docScopeOf(req);
+    const data = await repTargetsMonth(tid, repId, month, undefined, scope);
+    res.json({ success: true, data: { ...data, scoped: scopedBy(scope), targets: await withCurrentUnitFactors(tid, data.targets) } });
   } catch (err) { next(err); }
 });
 
@@ -188,7 +268,7 @@ router.post('/rep/:repId', async (req: AuthRequest, res: Response, next: NextFun
     const repId = String(req.params.repId);
     if (!(await repInScope(req, tid, repId))) { refuse(res, 404, 'REP_NOT_FOUND'); return; }
     const body = targetInputSchema.parse(req.body);
-    const { snap, extras, bases } = await productSnapshot(tid, body);
+    const { snap, extras, bases } = await productSnapshot(tid, body, !!req.user?.apiKeyId);
     const created = await prisma.$transaction(async (tx) => {
       await lockRepTargets(tx, repId);
       // بعد قفل المندوب: أساس أصناف هدف الكمية تحت قفل صفوفها — تحويلٌ التزم بعد اللقطة أعلاه ⇒ 409 بلا كتابة
@@ -206,7 +286,8 @@ router.post('/rep/:repId', async (req: AuthRequest, res: Response, next: NextFun
       return tx.repTarget.findFirst({ where: { id: row.id, tenantId: tid }, include: WITH_EXTRAS });
     }, BASE_GUARD_TX);
     if (!created) { refuse(res, 404, 'TARGET_NOT_FOUND'); return; }
-    res.status(201).json({ success: true, data: await repTargetViewOf(tid, created) });
+    const scope = await docScopeOf(req);
+    res.status(201).json({ success: true, data: { ...(await repTargetViewOf(tid, created, undefined, scope)), scoped: scopedBy(scope) } });
   } catch (err) { fail(err, res, next); }
 });
 
@@ -224,14 +305,25 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const target = await targetInScope(req, res, tid, String(req.params.id));
     if (!target) return;
     const body = targetInputSchema.parse(req.body);
-    const { snap, extras, bases } = await productSnapshot(tid, body);
+    const fresh = await productSnapshot(tid, body, !!req.user?.apiKeyId);
+    const { bases } = fresh;
     const updated = await prisma.$transaction(async (tx) => {
       await lockRepTargets(tx, target.salesRepId);
-      // تحت القفل: الدمج والشهر كما هما الآن — دمجٌ أو نقلٌ متزامن التزم بين القراءة والقفل يُرى (لا عضوٌ وحيدٌ يتيم)
-      const cur = await tx.repTarget.findFirst({ where: { id: target.id, tenantId: tid }, select: { comboId: true, month: true } });
+      // تحت القفل: الدمج والشهر ولقطة الوحدات كما هي الآن — دمجٌ أو نقلٌ متزامن التزم بين القراءة والقفل يُرى (لا عضوٌ وحيدٌ يتيم)
+      const unitCols = { productId: true, unitId: true, unitName: true, unitFactor: true } as const;
+      const cur = await tx.repTarget.findFirst({
+        where: { id: target.id, tenantId: tid },
+        select: { comboId: true, month: true, ...unitCols, extraProducts: { select: unitCols } },
+      });
       if (!cur) throw new TargetRefusal(404, 'TARGET_NOT_FOUND');
-      // كالإنشاء: لقطةٌ حُلّت على أساسٍ بدّله تحويلٌ متزامن لا تُكتب فوق ما أعاد التحويل كتابته
+      // كالإنشاء: لقطةٌ حُلّت على أساسٍ بدّله تحويلٌ متزامن لا تُكتب فوق ما أعاد التحويل كتابته (واللقطة المقروءة أعلاه بعد
+      // productSnapshot: تحويلٌ التزم بينهما يُردّ هنا 409، فلا تُبقى لقطةٌ قبل التحويل على أساسٍ بعده)
       if (bases) await lockBases(tx, tid, bases);
+      // سطرٌ لم يتغيّر صنفه ولا وحدته يُبقي لقطته — إلا بطلب اعتماد المعامل الحالي صراحةً
+      const stored = [cur, ...(cur.extraProducts ?? [])];
+      const [snap, ...extras] = body.kind === 'PRODUCT_QTY' && body.refreshUnitFactor !== true
+        ? keepStoredUnits([fresh.snap, ...fresh.extras], stored)
+        : [fresh.snap, ...fresh.extras];
       // النقل إلى شهرٍ آخر يُعدّ على سقف ذلك الشهر
       if (body.month !== cur.month) {
         const count = await tx.repTarget.count({ where: { tenantId: tid, salesRepId: target.salesRepId, month: body.month } });
@@ -258,7 +350,8 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       return tx.repTarget.findFirst({ where: { id: target.id, tenantId: tid }, include: WITH_EXTRAS });
     }, BASE_GUARD_TX);
     if (!updated) { refuse(res, 404, 'TARGET_NOT_FOUND'); return; }
-    res.json({ success: true, data: await repTargetViewOf(tid, updated) });
+    const scope = await docScopeOf(req);
+    res.json({ success: true, data: { ...(await repTargetViewOf(tid, updated, undefined, scope)), scoped: scopedBy(scope) } });
   } catch (err) { fail(err, res, next); }
 });
 

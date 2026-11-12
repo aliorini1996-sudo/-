@@ -27,6 +27,7 @@ import { patchSessionOutlet } from '../ai-rep/session';
 import { UnitInvalidError } from '../services/warehouseStock';
 import { PRICE_LIST_MESSAGES } from '../services/priceLists';
 import { CUSTOMER_PHONE_MAX } from '../services/importMatch';
+import { DEVICE_NOW_HEADER, headerText, offlineInvoiceDate } from '../services/offlineInvoiceDate';
 // «الوحدة الرئيسية» §2.10: أسعار العميل لوحدة الأساس تُكتب تحت قفل صفّ الصنف مقارنةً بالأساس الذي كُتبت له
 import {
   ProductUnitsBusyError, ProductUnitsChangedError, baseGuardReply, lockBases, missingBaseForApi, staleClientBase, type ExpectedBases,
@@ -143,6 +144,27 @@ async function priceListOwned(tid: string, priceListId: string | null | undefine
 }
 const priceListInvalid = (res: Response) =>
   res.status(400).json({ success: false, code: 'PRICE_LIST_INVALID', message: PRICE_LIST_MESSAGES.PRICE_LIST_INVALID });
+
+/**
+ * R6 (تدقيق «هدف الشهر»، F7): لحظة إضافة عميلٍ أنشأه المندوب دون اتصال. «عملاء جدد» يعدّ العميل بـcreatedAt في نافذة الشهر، وكان
+ * يُكتب بلحظة المزامنة: عميلٌ أُضيف وبيع له ٢٢:٠٠ آخر يوم ورُفع صباح الغد يسقط من شهره وفاتورتُه فيه (D11). فإعادة رفع صندوق المندوب
+ * (X-FS-Replay، لا مفتاح API) تُؤرَّخ بلحظة إضافته على الجهاز (clientCreatedAt) بحصر فاتورته حرفياً — offlineInvoiceDate: مصحَّحةً
+ * بانحراف ساعته عبر X-FS-Device-Now، لا مستقبل ولا أقدم من سبعة أيام. **وبمرحلة الشركة الثانية كالفاتورة**: العميل ليس مستنداً
+ * ضريبياً، لكنّ العدّ يشترط له بيعاً مؤكَّداً حتى نهاية الشهر، وفاتورته الأولى بعد التفعيل تؤرَّخ بلحظة ختمها على الخادم — فلو أُرّخ هو
+ * بلحظة جهازه وقع في شهرٍ وفاتورته في التالي فسقط من الشهرين. فالعميل وفاتورته الأولى يتّحدان تأريخاً دائماً.
+ * وإلا null ⇒ ساعة الخادم كما كان: الإنشاء المتصل (ساعة جهازٍ منحرفة لا تنقل عميلاً أُنشئ متصلاً)، والإدارة ومفتاح API.
+ * وclientCreatedAt يُخزَّن كما أُرسل في كل الأحوال. ولا استعلام إلا لإعادة رفع مندوبٍ بلحظة جهاز
+ */
+export async function replayCustomerCreatedAt(req: AuthRequest, tid: string, clientCreatedAt: string | null | undefined): Promise<Date | null> {
+  const replay = String(req.headers['x-fs-replay'] || '') === '1';
+  if (!replay || req.user?.role !== 'SALES_REP' || req.user?.apiKeyId) return null;
+  if (typeof clientCreatedAt !== 'string' || clientCreatedAt.trim() === '') return null;
+  const company = await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { zatcaPhase2StartedAt: true } });
+  return offlineInvoiceDate({
+    replay, role: req.user!.role, viaApiKey: false, bodyInvoiceDate: null, clientCreatedAt,
+    deviceNow: headerText(req.headers[DEVICE_NOW_HEADER]), phase2StartedAt: company?.zatcaPhase2StartedAt ?? null, now: new Date(),
+  });
+}
 /**
  * نوعٌ حُذف بين priceListOwned والكتابة: حذفه يقفل صفّه (routes/priceLists.ts) فيفشل مفتاح العميل الأجنبي بعده (P2003) — رفضٌ
  * مفهوم لا عطل 500. وP2003 على مفتاحٍ آخر يبقى كما كان
@@ -322,6 +344,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const geo = await resolveLocationUrl(locationUrl, { googleOnly: true });
       if (geo) { rest.lat = geo.lat; rest.lng = geo.lng; }
     }
+    // R6: عميل صندوق المندوب بلحظة إضافته على الجهاز (replayCustomerCreatedAt) — وغيره ساعة الخادم كما كان
+    const addedAt = await replayCustomerCreatedAt(req, tid, clientCreatedAt);
     // idempotency على مستوى التطبيق (لا قيد فريد على clientRef في customers — انظر المخطّط).
     // المزامنة متسلسلة على جهاز واحد فلا تكرار متزامن؛ والفحص أعلاه يمنع إعادة الرفع.
     const customer = await prisma.customer.create({
@@ -330,6 +354,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         ...rest, phone: rest.phone ?? '', email: data.email || null, channel: data.channel || null, outletType: data.outletType || null, aiPlaceId: data.aiPlaceId || null, tenantId: tid,
         ...(data.priceListId !== undefined && { priceListId: data.priceListId || null }),
         clientCreatedAt: clientCreatedAt && !Number.isNaN(new Date(clientCreatedAt).getTime()) ? new Date(clientCreatedAt) : undefined, // تاريخ الجهاز التالف يُهمل لا 500
+        ...(addedAt && { createdAt: addedAt }),
         ...(creatorRepId && { createdBySalesRepId: creatorRepId }),
       } as any,
     });
@@ -418,12 +443,15 @@ async function createMissingOnPut(
   }
   // لحظة الإنشاء على الجهاز: تاريخٌ لا يُقرأ يُهمل لا يُسقط العميل
   const createdAtDevice = clientCreatedAt ? new Date(clientCreatedAt) : null;
+  // R6: وإنشاءٌ هنا من صندوق المندوب يُؤرَّخ كـPOST حرفياً (replayCustomerCreatedAt) — وغيره ساعة الخادم
+  const addedAt = await replayCustomerCreatedAt(req, tid, clientCreatedAt);
   const customer = await prisma.customer.create({
     data: {
       ...(keepId && { id: requestedId }),
       ...rest, phone: rest.phone ?? '', email: rest.email || null, channel: rest.channel || null, outletType: rest.outletType || null, tenantId: tid,
       ...(rest.priceListId !== undefined && { priceListId: rest.priceListId || null }),
       clientCreatedAt: createdAtDevice && !Number.isNaN(createdAtDevice.getTime()) ? createdAtDevice : undefined,
+      ...(addedAt && { createdAt: addedAt }),
       ...(creatorRepId && { createdBySalesRepId: creatorRepId }),
     } as any,
   }).catch((err: unknown) => {

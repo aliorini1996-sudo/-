@@ -389,8 +389,10 @@ test('صفحة المناديب: أيقونة «هدف الشهر» أوّل ا�
   assert.ok(modal.includes("queryKey: ['products-min'],"), 'كاش الأصناف المشترك');
   assert.ok(modal.includes('choiceById(product, d.unitId)') && modal.includes('defaultChoice(p).id'), 'وحدة الصنف من repUnits');
   // أساس الصنف المحمَّل يُرسل مع هدف الكمية (ومعه الأصناف الإضافية إن وُجدت)، ورفض الحارس يعيد جلب الأصناف
-  assert.ok(modal.includes('onSave(toTargetInput(d, choice, product?.unit ?? null'));
-  assert.ok(modal.includes("if (isStaleUnitsError(e)) void qc.invalidateQueries({ queryKey: ['products-min'] });"));
+  // ومعه اعتماد حجم الوحدة الحالي بقرارٍ صريح وحده (F4)
+  assert.ok(modal.includes('onSave({ ...toTargetInput(d, choice, product?.unit ?? null, extras), ...unitRefreshFlag(drifts, refreshUnits) });'));
+  assert.match(modal, /if \(isStaleUnitsError\(e\)\) \{\n\s*void qc\.invalidateQueries\(\{ queryKey: \['products-min'\] \}\);\n\s*void qc\.invalidateQueries\(\{ queryKey: \['rep-target-product-search'\] \}\);/,
+    'رفض الحارس يعيد جلب الأصناف ونتائج البحث');
   // تعذّر قائمة الأصناف (بلا صلاحية الأصناف) يُقال تحت المنتقي لا قائمةٌ فارغة صامتة
   assert.ok(modal.includes("prodStatus === 403 ? tr('اختيار الصنف يحتاج صلاحية إدارة الأصناف')"));
   assert.ok(modal.includes('{productsError && ('));

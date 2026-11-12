@@ -993,6 +993,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   try {
     const tid = tenantId(req);
     const body = createInvoiceSchema.parse(req.body);
+    // F1 (تدقيق «هدف الشهر»): التاريخ الصريح (invoiceDate) للوحة الإدارة ومفتاح API وحدهما — بتوكن المندوب يختار شهر بيعه فيقلب
+    // هدفاً منتهياً «متحقّقاً» ويرفع عمولته، وتطبيقات المندوب لا ترسله أصلاً. يُمحى هنا قبل كل قارئ (التأريخ والرقم وحدّ المرتجع
+    // وتاريخ التوريد في المرحلة الثانية)، فيبقى للمندوب تأريخ الصندوق المحصور وحده (offlineInvoiceDate: لا مستقبل ولا أقدم من سبعة أيام)
+    if (req.user!.role === 'SALES_REP' && !req.user?.apiKeyId) body.invoiceDate = undefined;
 
     // idempotency: إن سبق رفع هذه الفاتورة (نفس clientRef) نعيد القائمة بدل إنشاء مكرّرة.
     // يحمي من إعادة المحاولة والشبكة المتقطّعة في مسار العمل دون اتصال — قبل أي منطق أو قيد.

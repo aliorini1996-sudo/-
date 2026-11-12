@@ -184,7 +184,7 @@ const match = (r: Row, where: Row): boolean => Object.entries(where).every(([k, 
  * صفٌّ مقروء كما يردّه Prisma: نسخةٌ لا مرجع الصفّ المخزَّن (فلا تعدّله كتابةٌ لاحقة في المعاملة نفسها — كـtarget.comboId
  * بعد updateMany)، وinclude: { extraProducts } صفوف الهدف بترتيب sortOrder
  */
-const withIncludes = (t: Row, args: Row): Row => (args?.include?.extraProducts
+const withIncludes = (t: Row, args: Row): Row => (args?.include?.extraProducts || args?.select?.extraProducts
   ? { ...t, extraProducts: targetProducts.filter((e) => e.targetId === t.id).sort((a, b) => a.sortOrder - b.sortOrder).map((e) => ({ ...e })) }
   : { ...t });
 

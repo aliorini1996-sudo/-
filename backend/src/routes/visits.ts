@@ -9,6 +9,9 @@ import { canAccessCustomer } from '../services/customerScope';
 import { computeVisitDuration } from '../services/visitDuration';
 import { mergeVisits, countStopsByRep, asVisitLike } from '../services/workDay';
 import { readLivePoint } from '../middleware/repLiveLocation';
+import {
+  DEVICE_CLOCK_SKEW_TOLERANCE_MS, DEVICE_NOW_HEADER, OFFLINE_INVOICE_DATE_MAX_AGE_MS, deviceClockSkewMs, headerText,
+} from '../services/offlineInvoiceDate';
 
 /**
  * الزيارات الميدانية — يسجّلها المندوب عند العميل (ملاحظة + صور + موقع GPS)، وتراها
@@ -78,6 +81,35 @@ async function refuseVisitWithoutLocation(res: Response, tid: string, salesRepId
   return false;
 }
 
+/**
+ * نافذة لحظة زيارة المندوب: لا أقدم من سبعة أيام قبل ساعة الخادم (OFFLINE_INVOICE_DATE_MAX_AGE_MS — حدّ تأريخ فاتورته دون اتصال)
+ * ولا بعدها بأكثر من خمس دقائق (DEVICE_CLOCK_SKEW_TOLERANCE_MS — ساعة جهازٍ متقدّمة قليلاً تُقبل كما كانت). نقيّة.
+ */
+export function inRepVisitWindow(t: number, now: Date): boolean {
+  const n = now.getTime();
+  return Number.isFinite(t) && t >= n - OFFLINE_INVOICE_DATE_MAX_AGE_MS && t <= n + DEVICE_CLOCK_SKEW_TOLERANCE_MS;
+}
+
+/**
+ * R4 (تدقيق «هدف الشهر»): لحظة زيارة المندوب (body.createdAt) كانت تُكتب كما أرسلها أيّاً كانت، و«عدد الزيارات» يعدّ الزيارات
+ * بـcreatedAt في نافذة الشهر — فبتوكنه يؤرّخ زيارات اليوم في شهرٍ منتهٍ أو قادم فيقلب هدفه «متحقّقاً» وتُستحق مكافأته.
+ * فلحظة الجهاز تُقبل داخل النافذة وحدها (inRepVisitWindow) **بلا اشتراط X-FS-Replay**: زيارة المقيَّد بـ«اشتراط تفعيل الموقع»
+ * المحفوظة «بانتظار الاتصال» تُعاد حيّةً لاحقاً بلا الترويسة (visitPending.ts) ولحظتُها الحقيقية لحظة انتهائها، فتبقى كما هي.
+ * وداخل النافذة تُكتب خاماً كما كانت (لا تصحيح بانحراف الساعة: زيارةٌ بصورٍ تُرفع دقائق على شبكةٍ بطيئة فيبدو زمن رفعها انحرافاً
+ * فتُزاح وحدها عن مؤقّتها فلا تندمج به في وقفةٍ واحدة — services/workDay.ts mergeVisits).
+ * وخارجها: ساعة جهازٍ منحرفة ⇒ تُصحَّح بـX-FS-Device-Now كالفاتورة (deviceClockSkewMs) إن أعادها ذلك إلى النافذة، وإلا ساعة الخادم
+ * الآن. وshiftMs ما نُقلت به اللحظة — يُنقل به طابعا المؤقّت معها فتبقى مدّتها وترتيبها مع ملاحظتها كما سُجّلا.
+ * createdAt null ⇒ غائبةٌ أو تالفة: ساعة الخادم (افتراض العمود) كما كانت الغائبة. نقيّة.
+ */
+export function repVisitMoment(sent: unknown, deviceNow: string | null, now: Date): { createdAt: Date | null; shiftMs: number } {
+  const raw = typeof sent === 'string' && sent.trim() !== '' ? new Date(sent).getTime() : NaN;
+  if (!Number.isFinite(raw)) return { createdAt: null, shiftMs: 0 };
+  if (inRepVisitWindow(raw, now)) return { createdAt: new Date(raw), shiftMs: 0 };
+  const skew = deviceClockSkewMs(deviceNow, now);
+  if (skew !== 0 && inRepVisitWindow(raw + skew, now)) return { createdAt: new Date(raw + skew), shiftMs: skew };
+  return { createdAt: new Date(now.getTime()), shiftMs: now.getTime() - raw };
+}
+
 // المندوب يسجّل زيارة (مع صورها) — أو الإدارة نيابةً بتحديد المندوب
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -134,6 +166,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       return;
     }
 
+    // R4: لحظة زيارة المندوب بنافذتها (repVisitMoment) — والإدارة ومفتاح API كما كانا (لحظتهما كما أُرسلت). null ⇒ ليست للمندوب
+    const clockNow = new Date();
+    const moment = req.user!.role === 'SALES_REP' && !req.user?.apiKeyId
+      ? repVisitMoment(body.createdAt, headerText(req.headers[DEVICE_NOW_HEADER]), clockNow) : null;
+    const visitCreatedAt = moment ? moment.createdAt : (body.createdAt ? new Date(body.createdAt) : null);
+
     // مدّة الزيارة تُحسب على الخادم من الطابعين — لا يُوثَق برقم العميل.
     // إن غاب أحد الطابعين فهي زيارة ملاحظة عادية بلا توقيت.
     let startedAt: Date | null = null;
@@ -143,9 +181,14 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const d = computeVisitDuration({
         startedAt: body.startedAt, endedAt: body.endedAt, clientDurationSec: body.clientDurationSec,
       });
-      if (d.ok) {
-        startedAt = new Date(body.startedAt);
-        endedAt = new Date(body.endedAt);
+      // المندوب: الطابعان يُنقلان مع لحظة الزيارة (المدّة لا تتغيّر) ويُحصران بنافذتها — وإلا نقل مؤقّتٌ بطابعين يختارهما زيارتَه
+      // إلى شهرٍ آخر في تقارير الساعات (حقل التجميع startedAt) فيُهمل كالمدّة الفاسدة
+      const shift = moment?.shiftMs ?? 0;
+      const s = new Date(new Date(body.startedAt).getTime() + shift);
+      const e = new Date(new Date(body.endedAt).getTime() + shift);
+      if (d.ok && (!moment || (inRepVisitWindow(s.getTime(), clockNow) && inRepVisitWindow(e.getTime(), clockNow)))) {
+        startedAt = s;
+        endedAt = e;
         durationSec = d.durationSec;
       }
       // مدّة غير معقولة (سالبة/فاسدة) تُهمَل بصمت: تُحفَظ الزيارة بلا توقيت
@@ -171,7 +214,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         startedAt,
         endedAt,
         durationSec,
-        ...(body.createdAt ? { createdAt: new Date(body.createdAt) } : {}),
+        ...(visitCreatedAt && { createdAt: visitCreatedAt }),
         photos: body.photos?.length ? { create: body.photos.map((data) => ({ data })) } : undefined,
       },
       include: { _count: { select: { photos: true } } },

@@ -97,7 +97,7 @@ import { OUTLET_TYPE_OPTIONS } from './aiRepLogic';
 import { dayMinutes, nextPunch, shiftMinutes, shiftsOf, type AttendanceState } from './attendanceDay';
 import { installGeoReconnect } from './geoReconnect';
 import RepTargetsCard from './RepTargetsCard';
-import { fetchMyTargets, markTargetsFetched, targetsFetchNeeded } from './repTargetsFetch';
+import { fetchMyTargets, markTargetsFetched, resetTargetsFetch, targetsFetchNeeded, targetsSession } from './repTargetsFetch';
 import type { RepTargetsData } from '../lib/repTargets';
 import { defaultFormImageLoader, formBackgroundRefsOf, prefetchFormImages } from '../lib/print/formImage';
 // داخل تطبيق أندرويد: كل طلبات الموقع تمرّ بمالكٍ يعيد فتح الاتصال إن سكت (عملية التطبيق ماتت والصفحة مفتوحة) — قبل أي طلب موقع
@@ -923,6 +923,9 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
   const [targets, setTargets] = useState<RepTargetsData | null>(null);
   const [targetsStale, setTargetsStale] = useState<number | null>(null);
   const loadTargets = useCallback(async (force = false) => {
+    // ردٌّ لجلسةٍ خرجت أو تبدّلت أثناء الطلب لا يُعتمد ولا يُخزَّن (كجلب لقطة السيارة) — F13
+    const me = currentRepId(), gen = targetsSession();
+    const gone = () => gen !== targetsSession() || currentRepId() !== me;
     const cached = await cacheGet<RepTargetsData>('rep-targets');
     const due = force || !cached?.data || targetsFetchNeeded(refreshKey);
     // المحفوظة تُعرض فوراً — وما دام جلبها الجديد جارياً فهي موسومةٌ بزمنها (شبكةٌ ضعيفة قد تطيل الانتظار): لا يُقرأ تقدّم الأمس
@@ -931,10 +934,12 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
     if (!due) return;
     try {
       const data = await fetchMyTargets();
+      if (gone()) return;
       markTargetsFetched(refreshKey);
       setTargets(data); setTargetsStale(null);
       if (data) { try { await cacheSet('rep-targets', data); } catch { /* التخزين المحلي اختياري */ } }
     } catch (e) {
+      if (gone()) return;
       const status = (e as { response?: { status?: number } })?.response?.status;
       if (status === 403 || status === 404 || !cached?.data) { setTargets(null); setTargetsStale(null); return; }
       setTargetsStale(cached?.updatedAt ?? Date.now());
@@ -5812,6 +5817,7 @@ export default function RepApp() {
   // المخزّنة (عملاء/أصناف) — وإلا ظهرت له قائمة عملاء زميله عند أول تعذّر شبكة.
   // الصفّ الصادر لا يُمسح (مستندات لم تُرفع بعد)، بل يُرفَع كلٌّ بجلسة صاحبه.
   const login = async (t: string, u: RepUser) => {
+    resetTargetsFetch(); // «هدف الشهر»: الداخل يجلب أهدافه فوراً، وردٌّ معلّق لجلسةٍ سابقة لا يُعتمد
     const prev = currentRepId();
     if (prev && prev !== u.id) { await refClear(); clearAiSession(); vanLotsRef.current = null; setVanLots(null); }
     // عملية بطاقةٍ معلّقة لمندوبٍ آخر (خرج قسراً فلم تُمسح) لا تُعرض لمن دخل بعده — فاتورتها ومبلغها ليسا له
@@ -5839,6 +5845,7 @@ export default function RepApp() {
     // زيارة جارية عند تسجيل الخروج تُنهى وتُرفع أولاً كي لا تضيع مدّتها
     const t = getVisitTimer();
     if (t) await finalizeVisit(t);
+    resetTargetsFetch(); // «هدف الشهر»: جلبٌ معلّق لا يكتب أهدافه بعد المسح، ولا حدّ جلبٍ يرثه من يدخل بعده
     await refClear();
     clearAiSession();
     resetLive(); // حكم الموقع لا يرثه من يدخل بعده

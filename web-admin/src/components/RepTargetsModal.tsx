@@ -17,8 +17,9 @@ import { choiceById, defaultChoice, unitChoices, type UnitChoice } from '../rep/
 import { isStaleUnitsError } from '../lib/stockRequest';
 import {
   MAX_TARGET_PRODUCTS, MAX_TARGETS_PER_MONTH, REWARD_KINDS, REWARD_MAX, TARGET_KINDS, TARGET_NOTE_MAX, barPct, cleanDecimal, comboDone, daysLeftText,
-  draftOf, draftProblem, emptyDraft, groupTargets, monthLabel, pctText, readNum, rewardText, shiftMonth, targetAmountText, targetErrorCode,
-  targetErrorMessage, targetKindLabel, targetStateText, targetTitle, targetUnitText, toTargetInput, type DraftExtraProduct, type RepRewardKind,
+  draftOf, draftProblem, emptyDraft, groupTargets, monthLabel, pctText, pickerSearchDropped, productPickerOptions, readNum, rewardText, shiftMonth,
+  targetAmountText, targetErrorCode, targetErrorMessage, targetKindLabel, targetStateText, targetTitle, targetUnitText, toTargetInput, unitDriftText,
+  unitFactorDrifts, unitRefreshFlag, type DraftExtraProduct, type RepRewardKind,
   type RepTargetComboInput, type RepTargetInput, type RepTargetKind, type RepTargetProductView, type RepTargetView, type RepTargetsData, type TargetDraft,
 } from '../lib/repTargets';
 import ConfirmDialog from './ConfirmDialog';
@@ -29,6 +30,9 @@ interface ProductPick {
   id: string; name: string; code?: string; unit: string; status?: string;
   units?: UnitDef[] | null; primaryUnitId?: string | null;
 }
+
+/** حجم صفحة الأصناف المحمَّلة (الكاش المشترك) — قائمةٌ بلغته ناقصةٌ فيُبحث في الخادم (F12) */
+const PRODUCTS_PAGE = 1000;
 
 /** سطر صنفٍ في نموذج هدف الكمية بعد حلّه: الصنف من القائمة المحمَّلة (أو null) ووحدته، واسم لقطة الهدف المعدَّل حين يغيب عنها */
 interface ProductLineState { productId: string | null; product: ProductPick | null; choice: UnitChoice | null; snapName: string | null }
@@ -78,7 +82,7 @@ export default function RepTargetsModal({ rep, onClose }: { rep: SalesRep; onClo
   // الأصناف لنموذج «كمية صنف» — تُطلب حين يُفتح النموذج وحده (الكاش المشترك مع شاشات الإدارة)
   const prodQ = useQuery({
     queryKey: ['products-min'],
-    queryFn: async () => (await productApi.list({ limit: 1000 })).data.data as ProductPick[],
+    queryFn: async () => (await productApi.list({ limit: PRODUCTS_PAGE })).data.data as ProductPick[],
     enabled: editing !== null,
     staleTime: 60_000,
   });
@@ -102,8 +106,11 @@ export default function RepTargetsModal({ rep, onClose }: { rep: SalesRep; onClo
     },
     onError: (e: unknown) => {
       toast.error(targetErrorMessage(e, tr, tr('تعذر الحفظ')));
-      // وحدات الصنف تغيّرت منذ حُمّلت القائمة ⇒ تُجلب من جديد فيرى النموذج أساسه الحالي ووحداته
-      if (isStaleUnitsError(e)) void qc.invalidateQueries({ queryKey: ['products-min'] });
+      // وحدات الصنف تغيّرت منذ حُمّلت القائمة ⇒ تُجلب من جديد (ونتائج البحث معها) فيرى النموذج أساسه الحالي ووحداته
+      if (isStaleUnitsError(e)) {
+        void qc.invalidateQueries({ queryKey: ['products-min'] });
+        void qc.invalidateQueries({ queryKey: ['rep-target-product-search'] });
+      }
       // الهدف حُذف من مكانٍ آخر ⇒ تُعاد القائمة فيُغلق نموذجه (الأثر أدناه)
       if (targetErrorCode(e) === 'TARGET_NOT_FOUND') void q.refetch();
     },
@@ -251,6 +258,12 @@ export default function RepTargetsModal({ rep, onClose }: { rep: SalesRep; onClo
                   </p>
                 </div>
               </div>
+              {/* R1: أرقام المشرف والمقيَّد بنطاقه (scoped) والمندوب يرى عمله كله — فلا يُحكم على «تحقق» أو مكافأةٍ دون علم */}
+              {data.scoped && (
+                <p className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3 py-2">
+                  {tr('الأرقام ضمن نطاقك وقد تختلف عما يراه المندوب')}
+                </p>
+              )}
 
               {targets.length === 0 && editing !== 'new' && (
                 <div className="text-center py-8 px-4 border-2 border-dashed border-[#E9E1D3] rounded-2xl">
@@ -357,10 +370,10 @@ function TargetCard({ t, busy, compact, onEdit, onDelete }: { t: RepTargetView; 
               <bdi className="font-bold">{targetAmountText(t, p.achieved, money, num)}</bdi>
               <span className="text-[#9A8F7E]"> / <bdi>{targetAmountText(t, p.goal, money, num)}</bdi></span>
             </p>
-            <bdi className={`text-sm font-extrabold ${p.done ? 'text-[#1E7A52]' : 'text-[#E15A30]'}`}>{pctText(p.pct, activeLocale())}</bdi>
+            <bdi className={`text-sm font-extrabold ${p.done ? 'text-[#1E7A52]' : 'text-[#E15A30]'}`}>{pctText(p.pct, activeLocale(), p.done)}</bdi>
           </div>
-          <div className="mt-1.5 h-2.5 rounded-full bg-[#F1EBDF] overflow-hidden" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(barPct(p.pct))}>
-            <div className={`h-full rounded-full transition-all ${p.done ? 'bg-[#2F855A]' : 'bg-[#E15A30]'}`} style={{ width: `${barPct(p.pct)}%` }} />
+          <div className="mt-1.5 h-2.5 rounded-full bg-[#F1EBDF] overflow-hidden" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={barPct(p.pct, p.done)}>
+            <div className={`h-full rounded-full transition-all ${p.done ? 'bg-[#2F855A]' : 'bg-[#E15A30]'}`} style={{ width: `${barPct(p.pct, p.done)}%` }} />
           </div>
           {t.kind === 'COLLECTION_PCT' && p.base != null && (
             <p className="text-[11px] text-[#6E6557] mt-1.5">{tr('الديون المفتوحة بداية الشهر')}: <bdi className="font-semibold">{formatCurrency(p.base)}</bdi></p>
@@ -486,25 +499,70 @@ function RewardFields({ kind, value, onChange, note }: {
   );
 }
 
+/** خيار الصنف في المنتقي: الاسم، ثم الكود والوحدة و«موقوف» */
+const productOption = (p: ProductPick, tr: (s: string) => string): SelectOption => ({
+  value: p.id,
+  label: p.name,
+  hint: [p.code, productUnitLabel(p, num), p.status === 'INACTIVE' ? tr('موقوف') : ''].filter(Boolean).join(' · '),
+});
+
 /**
  * سطر صنفٍ في هدف الكمية: المنتقي ووحدة الصنف بجانبه (وزرّ إزالةٍ للإضافي). الوحدة من الصنف المحمَّل (unitChoices)، وبلا صنفٍ
  * محمَّل لقطة الهدف المعدَّل نصّاً — ووحدةٌ أُوقفت بعد إنشاء الهدف لا تُستبدل صامتةً: «اختر الوحدة» حتى يختارها المستخدم.
+ * و`searchable` قائمةٌ محمَّلة ناقصة (F12): ما يُكتب يُبحث به في الخادم (لكل سطرٍ بحثه)، والصنف المختار منه يُردّ بصفّه.
  */
-function ProductLine({ line, options, loading, first, onPick, onUnit, onRemove }: {
-  line: ProductLineState; options: SelectOption[]; loading: boolean; first: boolean;
-  onPick: (id: string) => void; onUnit: (unitId: string | null) => void; onRemove?: () => void;
+function ProductLine({ line, loaded, taken, searchable, loading, first, onPick, onUnit, onRemove }: {
+  line: ProductLineState; loaded: SelectOption[]; taken: ReadonlySet<string>; searchable: boolean; loading: boolean; first: boolean;
+  onPick: (id: string, row?: ProductPick) => void; onUnit: (unitId: string | null) => void; onRemove?: () => void;
 }) {
   const tr = useTr();
   const { product, choice } = line;
   const choices = product ? unitChoices(product) : [];
   const prim = product ? primaryUnitOf(product) : null;
+
+  // بحث الخادم بمهلة ٣٠٠ms كمنتقي قوائم الأسعار — وحتى يصل ردّه تُصفّى القائمة المحمَّلة محلياً
+  const [typed, setTyped] = useState('');
+  const [q, setQ] = useState('');
+  useEffect(() => {
+    const v = typed.trim();
+    if (v === q) return;
+    const t = setTimeout(() => setQ(v), 300);
+    return () => clearTimeout(t);
+  }, [typed, q]);
+  // R7: إغلاق المنتقي بنقرةٍ خارجه يفرّغ حقل بحثه ولا يُبلغنا — فيُصفَّر البحث هنا معه، وإلا صفّى القائمة عند إعادة فتحها بنصٍّ خفيّ.
+  // طور الالتقاط: يُقرأ المنتقي مفتوحاً قبل معالج إغلاقه (فقاعةٌ على document يُرسم بعدها مغلقاً قبل أن يصلنا دورنا)
+  const pickerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (typed === '') return;
+    const h = (e: MouseEvent) => { if (pickerSearchDropped(pickerRef.current, e.target)) { setTyped(''); setQ(''); } };
+    document.addEventListener('mousedown', h, true);
+    return () => document.removeEventListener('mousedown', h, true);
+  }, [typed]);
+  const searchQ = useQuery({
+    queryKey: ['rep-target-product-search', q],
+    queryFn: async () => (await productApi.list({ search: q, limit: 50 })).data.data as ProductPick[],
+    enabled: searchable && q !== '',
+    staleTime: 60_000,
+  });
+  const live = searchable && q !== '' && q === typed.trim() && Array.isArray(searchQ.data) ? searchQ.data : null;
+  // صنف السطر نفسه في المنتقي ولو خارج القائمة: المحمَّل أو المختار من البحث، وإلّا اسم لقطة الهدف المعدَّل
+  const current: SelectOption | null = product ? productOption(product, tr)
+    : line.productId && line.snapName ? { value: line.productId, label: line.snapName } : null;
+  const options = productPickerOptions(loaded, searchable ? typed : '', live ? live.map(p => productOption(p, tr)) : null, taken, current);
+  const waiting = searchable && typed.trim() !== '' && !live && !searchQ.isError;
+  const pick = (id: string) => {
+    setTyped(''); setQ('');
+    onPick(id, live?.find(p => p.id === id));
+  };
   return (
     <div>
       <div className={`grid gap-2 items-end ${onRemove ? 'grid-cols-[minmax(0,1fr)_7.5rem_auto]' : 'grid-cols-[minmax(0,1fr)_7.5rem]'}`}>
         <div className="min-w-0">
           {first && <p className="label">{tr('الصنف')}</p>}
-          <SearchableSelect options={options} value={line.productId ?? ''} onChange={onPick} loading={loading}
-            placeholder={tr('اختر الصنف')} searchPlaceholder={tr('اكتب اسم/كود الصنف')} />
+          <div ref={pickerRef}>
+            <SearchableSelect options={options} value={line.productId ?? ''} onChange={pick} loading={loading || (waiting && options.length === 0)}
+              onSearchChange={searchable ? setTyped : undefined} placeholder={tr('اختر الصنف')} searchPlaceholder={tr('اكتب اسم/كود الصنف')} />
+          </div>
         </div>
         <div className="min-w-0">
           {first && <p className="label">{tr('الوحدة')}</p>}
@@ -527,9 +585,6 @@ function ProductLine({ line, options, loading, first, onPick, onUnit, onRemove }
             title={tr('حذف الصنف')} aria-label={tr('حذف الصنف')}><Trash2 size={15} /></button>
         )}
       </div>
-      {!product && line.snapName && !loading && (
-        <p className="text-[11px] text-[#9A8F7E] mt-1">{line.snapName}</p>
-      )}
     </div>
   );
 }
@@ -548,6 +603,10 @@ function TargetForm({ initial, original, inCombo, products, productsLoading, pro
   const tr = useTr();
   const [d, setD] = useState<TargetDraft>(initial);
   const [tried, setTried] = useState(false);
+  // F4: «اعتمد حجم الوحدة الحالي» — بلا هذا القرار الصريح يبقى الهدف بالحجم المحفوظ
+  const [refreshUnits, setRefreshUnits] = useState(false);
+  // أصنافٌ اختيرت من بحث الخادم خارج القائمة المحمَّلة (F12) — بها تُحلّ وحدتها وأساسها كالمحمَّلة
+  const [found, setFound] = useState<Record<string, ProductPick>>({});
   const set = (patch: Partial<TargetDraft>) => setD(prev => ({ ...prev, ...patch }));
   const setExtra = (i: number, patch: Partial<DraftExtraProduct>) =>
     setD(prev => ({ ...prev, extraProducts: prev.extraProducts.map((e, j) => (j === i ? { ...e, ...patch } : e)) }));
@@ -561,34 +620,32 @@ function TargetForm({ initial, original, inCombo, products, productsLoading, pro
   [original]);
   const snapOf = (id: string | null) => (id ? snaps.find(s => s.productId === id) ?? null : null);
 
-  const product = products.find(p => p.id === d.productId) ?? null;
+  const productOf = (id: string | null): ProductPick | null => (id ? products.find(p => p.id === id) ?? found[id] ?? null : null);
+  const product = productOf(d.productId);
   const mainSnap = product ? null : snapOf(d.productId);
   /* وحدة الهدف: من الصنف المحمَّل، وإلّا (القائمة لم تصل أو الصنف خارجها) لقطة الهدف المعدَّل نفسه — والخادم يتحقق ثانيةً.
      ووحدةٌ أُوقفت بعد إنشاء الهدف لا تُستبدل صامتةً بغيرها: «١٠ كرتون» ليست «١٠ حبة» */
   const choice: UnitChoice | null = product ? choiceById(product, d.unitId) : snapChoice(mainSnap);
   // الأصناف الإضافية بالمنطق نفسه، كلٌّ بوحدته
   const extraLines: ProductLineState[] = d.extraProducts.map(e => {
-    const p = e.productId ? products.find(x => x.id === e.productId) ?? null : null;
+    const p = productOf(e.productId);
     const snap = p ? null : snapOf(e.productId);
     return { productId: e.productId, product: p, choice: p ? choiceById(p, e.unitId) : snapChoice(snap), snapName: snap?.productName ?? null };
   });
   const lines: ProductLineState[] = [{ productId: d.productId, product, choice, snapName: mainSnap?.productName ?? null }, ...extraLines];
 
-  const options = useMemo(() => products.map(p => ({
-    value: p.id,
-    label: p.name,
-    hint: [p.code, productUnitLabel(p, num), p.status === 'INACTIVE' ? tr('موقوف') : ''].filter(Boolean).join(' · '),
-  })), [products, tr]);
+  const options = useMemo(() => products.map(p => productOption(p, tr)), [products, tr]);
+  // القائمة المحمَّلة بلغت حجم صفحتها ⇒ قد تنقصها أصناف: البحث في الخادم (F12)
+  const searchable = products.length >= PRODUCTS_PAGE;
   // منتقي كل سطرٍ بلا الأصناف المختارة في الأسطر الأخرى (الصنف لا يتكرر في الهدف)
-  const optionsFor = (idx: number) => {
-    const taken = new Set(lines.filter((l, i) => i !== idx && l.productId).map(l => l.productId));
-    return taken.size ? options.filter(o => !taken.has(o.value)) : options;
-  };
+  const takenFor = (idx: number): ReadonlySet<string> => new Set(lines.flatMap((l, i) => (i !== idx && l.productId ? [l.productId] : [])));
 
   const productKind = d.kind === 'PRODUCT_QTY';
   // صنفٌ بلا وحدةٍ قابلة للحلّ (أي سطر) يُرفض كالأول
   const unitMissing = productKind && lines.some(l => l.productId && !l.choice);
   const problem = draftProblem(d) ?? (unitMissing ? 'وحدة الصنف غير صحيحة' : null);
+  // F4: أسطرٌ بقي صنفها ووحدتها وتغيّر حجم وحدتها بعد إنشاء الهدف — تنبيهٌ صريح، والخادم يُبقي المحفوظ ما لم يُعتمد الحالي
+  const drifts = productKind ? unitFactorDrifts(snaps, [{ productId: d.productId, unitId: d.unitId }, ...d.extraProducts]) : [];
   const submit = () => {
     setTried(true);
     if (problem) return;
@@ -596,15 +653,23 @@ function TargetForm({ initial, original, inCombo, products, productsLoading, pro
     const extras = productKind
       ? extraLines.flatMap(l => (l.productId ? [{ productId: l.productId, unit: l.choice, baseUnitName: l.product?.unit ?? null }] : []))
       : [];
-    onSave(toTargetInput(d, choice, product?.unit ?? null, extras));
+    onSave({ ...toTargetInput(d, choice, product?.unit ?? null, extras), ...unitRefreshFlag(drifts, refreshUnits) });
   };
 
-  const pickProduct = (id: string) => {
-    const p = products.find(x => x.id === id);
+  // صفّ نتيجة البحث يُحفظ لصنفٍ خارج القائمة المحمَّلة (والأحدث يحلّ محلّ الأقدم: وحداتٌ تغيّرت منذ اختياره)
+  const remember = (id: string, row?: ProductPick): ProductPick | null => {
+    if (row && !products.some(x => x.id === id)) setFound(prev => ({ ...prev, [id]: row }));
+    return products.find(x => x.id === id) ?? row ?? found[id] ?? null;
+  };
+  // الصنف نفسه ثانيةً (لقطته في المنتقي أو نتيجة بحثٍ أحدث) لا يبدّل وحدته
+  const pickProduct = (id: string, row?: ProductPick) => {
+    const p = remember(id, row);
+    if (id === d.productId) return;
     set({ productId: id, unitId: p ? defaultChoice(p).id : null });
   };
-  const pickExtra = (i: number, id: string) => {
-    const p = products.find(x => x.id === id);
+  const pickExtra = (i: number, id: string, row?: ProductPick) => {
+    const p = remember(id, row);
+    if (id === d.extraProducts[i]?.productId) return;
     setExtra(i, { productId: id, unitId: p ? defaultChoice(p).id : null });
   };
   const addExtra = () => setD(prev => ({ ...prev, extraProducts: [...prev.extraProducts, { productId: null, unitId: null }] }));
@@ -655,11 +720,12 @@ function TargetForm({ initial, original, inCombo, products, productsLoading, pro
         <div className="space-y-3">
           {/* الأصناف: الأول ثم الإضافية، لكلٍّ وحدته — والكمية واحدةٌ مجموعها */}
           <div className="space-y-2">
-            <ProductLine line={lines[0]} options={optionsFor(0)} loading={productsLoading} first
+            <ProductLine line={lines[0]} loaded={options} taken={takenFor(0)} searchable={searchable} loading={productsLoading} first
               onPick={pickProduct} onUnit={unitId => set({ unitId })} />
             {extraLines.map((line, i) => (
-              <ProductLine key={line.productId ?? `row-${i}`} line={line} options={optionsFor(i + 1)} loading={productsLoading} first={false}
-                onPick={id => pickExtra(i, id)} onUnit={unitId => setExtra(i, { unitId })} onRemove={() => removeExtra(i)} />
+              <ProductLine key={line.productId ?? `row-${i}`} line={line} loaded={options} taken={takenFor(i + 1)} searchable={searchable}
+                loading={productsLoading} first={false}
+                onPick={(id, row) => pickExtra(i, id, row)} onUnit={unitId => setExtra(i, { unitId })} onRemove={() => removeExtra(i)} />
             ))}
             {productsError && (
               <p className="text-[11px] text-red-600 flex items-center gap-2">
@@ -676,6 +742,17 @@ function TargetForm({ initial, original, inCombo, products, productsLoading, pro
               </button>
             )}
           </div>
+          {drifts.length > 0 && (
+            <div className="rounded-xl bg-amber-50 border border-amber-200 text-amber-900 px-3 py-2.5 text-xs space-y-1.5">
+              <p className="font-semibold">{tr('تغير حجم الوحدة بعد إنشاء الهدف')}</p>
+              {drifts.map(x => <p key={x.productId}>{unitDriftText(x, tr, num, productOf(x.productId)?.unit)}</p>)}
+              <p className="text-amber-800">{tr('يبقى الهدف بالحجم القديم ما لم تعتمد الحجم الحالي')}</p>
+              <label className="flex items-center gap-2 font-semibold cursor-pointer pt-0.5">
+                <input type="checkbox" className="w-4 h-4 shrink-0 accent-[#E15A30]" checked={refreshUnits} onChange={e => setRefreshUnits(e.target.checked)} />
+                {tr('اعتمد حجم الوحدة الحالي')}
+              </label>
+            </div>
+          )}
           <div>
             <p className="label">{tr('الكمية المستهدفة')}</p>
             <NumField value={d.targetValue} onChange={x => set({ targetValue: x })} suffix={qtyUnit || undefined} ariaLabel={tr('الكمية المستهدفة')} />

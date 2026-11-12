@@ -25,3 +25,19 @@ export function targetsFetchNeeded(refreshKey: number): boolean {
 export function markTargetsFetched(refreshKey: number): void {
   lastFetch = { at: Date.now(), key: refreshKey };
 }
+
+/*
+ * جيل الجلسة (F13): يزيد مع كل خروجٍ أو دخول — ردٌّ بدأ قبله لمندوبٍ خرج لا يُعرض ولا يُخزَّن ولا يُحسب جلباً، وإلّا كتب أهداف
+ * المندوب السابق في الكاش بعد مسحه فظهرت لمن دخل بعده كأنها طازجة (الحدّ ٣٠ ثانية لم ينقضِ).
+ */
+let session = 0;
+
+export function targetsSession(): number {
+  return session;
+}
+
+/** الخروج والدخول: لا حدّ جلبٍ موروث (يجلب الداخل فوراً) ولا ردٌّ معلّق يُعتمد */
+export function resetTargetsFetch(): void {
+  lastFetch = null;
+  session += 1;
+}

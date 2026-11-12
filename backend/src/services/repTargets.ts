@@ -10,9 +10,11 @@
 // التقدّم يُحسب حيّاً ولا يُخزَّن، من المستندات المؤكَّدة وحدها (الملغى لا يُعدّ أبداً)، وحدود الشهر بتوقيت الشركة
 // (tenantTz) لا بتوقيت الخادم ولا الجهاز — فيرى المدير والمندوب الرقم نفسه. والطيّات صرفةٌ تُختبر بلا قاعدة؛ والمحمّل
 // (repTargetsMonth / repTargetViewOf) يجمع صفوفها في ثلاثة استعلاماتٍ متوازية على الأكثر لكل ردّ.
+// ومسارات الإدارة تمرّر نطاق المستخدم (RepTargetDocScope) فيرى المقيَّد ومشرف الفرق ما في نطاقه وحده؛ و/mine بلا نطاق.
 // ============================================================================
 import type { RepTarget } from '@prisma/client';
 import prisma from '../config/database';
+import { currencyDecimalsOf, getCountryTax } from '../config/countries';
 import { tenantTz } from './invoiceExpiry';
 import { addMonths, daysInMonth, todayLocal, zonedStartOfDay } from './gl/dates';
 import { cleanMoney, isReturnInvoice, netSales } from './netSales';
@@ -59,6 +61,16 @@ const DONE_EPS = 1e-6;
 /** تقريبٌ لمنزلة واحدة، و‎-0 صفر */
 export const round1 = (n: number): number => (Math.round(n * 10) / 10) || 0;
 const round4 = (n: number): number => (Math.round(n * 1e4) / 1e4) || 0;
+
+/**
+ * تقريبٌ لأعلى إلى خانات العملة بعد نقص غبار العائمة بـtoPrecision(12) كـroundHalfUp (lib/money.ts): ١٦٦٫٦٦٥ ⇒ ١٦٦٫٦٧ —
+ * فهدف التحصيل المعروض هو العتبة نفسها، ومن حصّله بلغ النسبة
+ */
+export function ceilToDecimals(n: number, decimals: number): number {
+  if (!Number.isFinite(n)) return n;
+  const f = 10 ** decimals;
+  return (Math.ceil(Number((n * f).toPrecision(12))) / f) || 0;
+}
 
 // ═══ نافذة الشهر ═══
 
@@ -112,8 +124,9 @@ export function productNetBaseQty(rows: readonly TargetItemRow[]): Map<string, n
 export interface CollectionInvoiceRow {
   total: number;
   receiptItems: ReadonlyArray<{ amount: number; receipt: { receiptDate: Date; status?: string | null } }>;
-  /** الإشعارات الدائنة المؤكَّدة عليها قبل بداية الشهر (المستدعي يرشّحها؛ وغير المؤكَّد/غير المرتجع يُهمل هنا أيضاً) */
-  adjustments: ReadonlyArray<{ total: number; status?: string | null; type?: string | null }>;
+  /** الإشعارات الدائنة المؤكَّدة عليها قبل بداية الشهر، ومرتجعات المرحلة الأولى المرتبطة بها (withLinkedReturns) — المستدعي
+   *  يرشّحها؛ وغير المؤكَّد/غير المرتجع يُهمل هنا أيضاً */
+  adjustments: ReadonlyArray<{ id?: string; total: number; status?: string | null; type?: string | null }>;
 }
 
 /**
@@ -152,6 +165,37 @@ export function collectionFold(rows: readonly CollectionInvoiceRow[], S: Date, E
   return { base: cleanMoney(base), collected: cleanMoney(collected) };
 }
 
+/** بند مرتجعٍ مرتبط بفاتورة بيع في المرحلة الأولى (returnOfItemId = بند البيع) بفاتورته المؤكَّدة قبل الشهر */
+export interface LinkedReturnLine {
+  returnOfItemId: string | null;
+  invoice: { id: string; total: number; status?: string | null; type?: string | null };
+}
+
+/**
+ * مرتجع المرحلة الأولى المرتبط لا يُنقص باقي فاتورة البيع ولا يكتب originalInvoiceId، فلم يكن يُطرح من افتتاحيّها بينما إشعار
+ * المرحلة الثانية الدائن (adjustments) يُطرح — فتضخّم الأساس لكل شركةٍ خارج المرحلة الثانية. يُضاف هنا إلى إشعاراتها فتتّفق
+ * المرحلتان: إجمالي كل مرتجعٍ مرةً واحدة على فاتورة بيعه (المرتجع المرتبط من فاتورةٍ واحدة؛ وبنودٌ على أكثر من فاتورة تُنسب
+ * للأولى فلا يُطرح مرتين)، ومستندٌ قُرئ إشعاراً لا يتكرّر. أما ائتمان العميل بلا فاتورة (مرتجعٌ حرّ، إشعارٌ بلا أصل، سندٌ يفيض
+ * عن الفواتير) فلا فاتورة يُنسب إليها فيبقى خارج الأساس. صرفةٌ.
+ */
+export function withLinkedReturns<T extends CollectionInvoiceRow & { items?: ReadonlyArray<{ id: string }> | null }>(
+  rows: readonly T[], lines: readonly LinkedReturnLine[],
+): T[] {
+  const rowOfItem = new Map<string, number>();
+  rows.forEach((r, i) => { for (const it of r.items ?? []) rowOfItem.set(it.id, i); });
+  const added = new Map<number, CollectionInvoiceRow['adjustments'][number][]>();
+  const taken = new Set<string>();
+  for (const l of lines) {
+    const i = l.returnOfItemId != null ? rowOfItem.get(l.returnOfItemId) : undefined;
+    if (i === undefined || taken.has(l.invoice.id)) continue;
+    taken.add(l.invoice.id);
+    const own = rows[i].adjustments;
+    if (own.some((a) => a.id === l.invoice.id)) continue;
+    added.set(i, [...(added.get(i) ?? []), { id: l.invoice.id, total: l.invoice.total, status: l.invoice.status, type: l.invoice.type }]);
+  }
+  return rows.map((r, i) => (added.has(i) ? { ...r, adjustments: [...r.adjustments, ...added.get(i)!] } : r));
+}
+
 // ═══ التقدّم والمكافأة ═══
 
 export type ProgressState = 'OK' | 'NO_BASE' | 'PRODUCT_DELETED';
@@ -176,11 +220,19 @@ export interface ProgressContext {
   visits?: number;
   /** عملاء أضافهم المندوب في الشهر ولهم فاتورة بيع مؤكَّدة حتى نهايته */
   newCustomers?: number;
+  /** خانات عملة الشركة — يُقرَّب بها هدف التحصيل لأعلى (الغائب = ٢) */
+  currencyDecimals?: number;
 }
 
-/** النسبة بلا سقف (الواجهة تقصّ الشريط عند ١٠٠) — وبلا هدفٍ موجب لا نسبة */
-export const pctOf = (achieved: number, goal: number): number | null => (goal > 0 ? round1((achieved / goal) * 100) : null);
 const isDone = (achieved: number, goal: number): boolean => goal > 0 && achieved >= goal - DONE_EPS;
+/** أعلى نسبةٍ تُعرض لهدفٍ لم يتحقق: round1 كان يرفع ٩٩٫٩٥٪ فما فوق إلى ١٠٠٪ بلا شارة التحقق */
+const PCT_NOT_DONE_MAX = 99.9;
+/** النسبة بلا سقف (الواجهة تقصّ الشريط عند ١٠٠) إلا أنها دون ١٠٠ ما لم يتحقق الهدف — وبلا هدفٍ موجب لا نسبة */
+export const pctOf = (achieved: number, goal: number): number | null => {
+  if (!(goal > 0)) return null;
+  const p = round1((achieved / goal) * 100);
+  return p >= 100 && !isDone(achieved, goal) ? PCT_NOT_DONE_MAX : p;
+};
 
 /** صنفٌ إضافي في هدف الكمية (RepTargetProduct) كما يحتاجه الحساب */
 export type TargetExtraProduct = { productId: string | null; unitFactor: number };
@@ -205,11 +257,14 @@ export function targetProgress(t: TargetLike, ctx: ProgressContext): TargetProgr
   }
   if (t.kind === 'COLLECTION_PCT') {
     const { base, collected } = ctx.collection;
-    const goal = cleanMoney(base * goalValue / 100);
+    // لأعلى بخانات العملة: ٥٠٪ من ٣٣٣٫٣٣ = ١٦٦٫٦٧ لا ١٦٦٫٦٦٥ — المعروض هو ما يحقّق الهدف، والتحقق بالنسبة الصارمة كما هو.
+    // ولا يتجاوز الأساس: المحصَّل لا يفوقه أبداً (Σ min(الافتتاحي، المحصَّل))، فأساسٌ بكسرٍ أدق من خانات العملة (سند ١٠٠٠٫٥
+    // بالدينار العراقي، أو ثلاث خانات بالريال عبر API) كان يُرفع فوقه فيستحيل «تحصيل ١٠٠٪» ومكافأته
+    const goal = Math.min(ceilToDecimals(cleanMoney(base * goalValue / 100), ctx.currencyDecimals ?? 2), cleanMoney(base));
     if (base <= BASE_EPS) return { state: 'NO_BASE', achieved: collected, goal, pct: null, done: false, base, collectedPct: null };
     return {
       state: 'OK', achieved: collected, goal, pct: pctOf(collected, goal), done: isDone(collected, goal),
-      base, collectedPct: round1((collected / base) * 100),
+      base, collectedPct: pctOf(collected, base),
     };
   }
   // SALES_AMOUNT (وأيّ نوعٍ مجهول يُقرأ مبيعاتٍ فلا يُسقط الشاشة)
@@ -277,20 +332,39 @@ export function applyCombos(views: RepTargetView[]): RepTargetView[] {
 // ═══ المحمّل (قاعدة البيانات) ═══
 
 /**
+ * نطاق المستند لقراءة الإدارة: قيود Prisma يبنيها المسار من نطاق المستخدم، فيرى المقيَّد بالقوائم ومشرف الفرق أرقام المندوب فيما
+ * يقع في نطاقه وحده — كـGET /sales-reps/:id/stats وتقرير أداء المناديب (وإلا كشف «صافي مبيعات الشهر» عمل الفريق الآخر).
+ * الغائب أو {} = بلا قيد (المدير غير المقيَّد، و/mine: المندوب يرى عمله كله).
+ *   • doc — scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT): البيع والمرتجع، وبنود الكمية، والآجلة (أساس التحصيل)، وبيع العميل الجديد.
+ *   • visit — scopedRecordWhere(req, SHAPE_VISIT): زيارات الشهر.
+ *   • customer — adminCustomerFilter(req): العملاء الجدد (مشرف الفرق {}: العملاء مشتركون بين الفرق).
+ * كلٌّ يُنثر في شرطه كما يردّه مساعده (مفتاح AND واحد أو adminScopes) — فلا يحمل OR في مستواه الأعلى، والمحمّل ينثر OR بعده.
+ * وتخصيصات السندات والإشعارات والمرتجعات على آجلةٍ في النطاق تُقرأ بلا قيد عمداً: الدين دين الفاتورة وباقيها ظاهرٌ لمن يراها،
+ * وقصّها بنطاق السند يُبقي سداداً تمّ قبل الشهر ديناً فيضخّم الأساس.
+ */
+export interface RepTargetDocScope {
+  doc?: Record<string, unknown>;
+  visit?: Record<string, unknown>;
+  customer?: Record<string, unknown>;
+}
+
+/**
  * سياق التقدّم لمندوبٍ في شهر — ما تحتاجه أهدافه وحدها: صافي المبيعات دائماً (هدف المبيعات والعمولة وسطر الملخّص)، وبنود
- * أصناف أهداف الكمية في استعلامٍ واحد، والديون السابقة مرةً واحدة لكل أهداف التحصيل.
+ * أصناف أهداف الكمية في استعلامٍ واحد، والديون السابقة مرةً واحدة لكل أهداف التحصيل. `scope` لمسارات الإدارة (RepTargetDocScope).
  */
 export async function loadProgressContext(tid: string, repId: string, win: Pick<MonthWindow, 'from' | 'to'>,
-  targets: readonly (Pick<RepTarget, 'kind' | 'productId'> & { extraProducts?: ReadonlyArray<{ productId: string | null }> | null })[]): Promise<ProgressContext> {
+  targets: readonly (Pick<RepTarget, 'kind' | 'productId'> & { extraProducts?: ReadonlyArray<{ productId: string | null }> | null })[],
+  scope?: RepTargetDocScope | null): Promise<ProgressContext> {
   const { from, to } = win;
-  const docs = { tenantId: tid, salesRepId: repId, status: 'CONFIRMED' };
+  const docScope = scope?.doc ?? {};
+  const docs = { tenantId: tid, salesRepId: repId, status: 'CONFIRMED', ...docScope };
   const productIds = [...new Set(targets.filter((t) => t.kind === 'PRODUCT_QTY')
     .flatMap((t) => [t.productId, ...(t.extraProducts ?? []).map((e) => e.productId)])
     .filter((x): x is string => !!x))];
   const needsCollection = targets.some((t) => t.kind === 'COLLECTION_PCT');
   const needsVisits = targets.some((t) => t.kind === 'VISITS_COUNT');
   const needsCustomers = targets.some((t) => t.kind === 'NEW_CUSTOMERS');
-  const [sales, returns, items, credit, visitRows, newCustomers] = await Promise.all([
+  const [sales, returns, items, credit, visitRows, newCustomers, company] = await Promise.all([
     prisma.invoice.aggregate({ where: { ...docs, type: { not: 'RETURN' }, invoiceDate: { gte: from, lt: to } }, _sum: { total: true } }),
     prisma.invoice.aggregate({ where: { ...docs, type: 'RETURN', invoiceDate: { gte: from, lt: to } }, _sum: { total: true } }),
     productIds.length
@@ -311,6 +385,7 @@ export async function loadProgressContext(tid: string, repId: string, win: Pick<
           ],
         },
         select: {
+          id: true,
           total: true,
           receiptItems: {
             where: { receipt: { status: 'ACTIVE', receiptDate: { lt: to } } },
@@ -318,35 +393,53 @@ export async function loadProgressContext(tid: string, repId: string, win: Pick<
           },
           adjustments: {
             where: { status: 'CONFIRMED', type: 'RETURN', invoiceDate: { lt: from } },
-            select: { total: true, status: true, type: true },
+            select: { id: true, total: true, status: true, type: true },
           },
+          // بنودها: يُربط بها مرتجع المرحلة الأولى (returnOfItemId) — withLinkedReturns
+          items: { select: { id: true } },
         },
       })
       : Promise.resolve([]),
     // زيارات الشهر: كل سجلّات المندوب ثم الدمج إلى وقفات (الزيارة المؤقّتة وملاحظتها وقفةٌ واحدة) — كتقرير أداء المندوب
     needsVisits
       ? prisma.repVisit.findMany({
-        where: { tenantId: tid, salesRepId: repId, createdAt: { gte: from, lt: to } },
+        where: { tenantId: tid, salesRepId: repId, createdAt: { gte: from, lt: to }, ...(scope?.visit ?? {}) },
         select: { salesRepId: true, customerId: true, createdAt: true, startedAt: true, durationSec: true, lat: true, lng: true, customer: { select: { name: true } } },
         orderBy: { createdAt: 'asc' }, take: 20000,
       })
       : Promise.resolve([]),
-    // عملاء جدد نشطون: أضافهم المندوب في الشهر، ولكلٍّ فاتورة بيعٍ مؤكَّدة حتى نهاية الشهر (لا يُعدّ عميلٌ أُضيف ولم يشترِ)
+    // عملاء جدد نشطون: أضافهم المندوب في الشهر، ولكلٍّ فاتورة بيعٍ مؤكَّدة حتى نهاية الشهر (لا يُعدّ عميلٌ أُضيف ولم يشترِ).
+    // والعدّ بـcreatedAt وحده: إعادة المندوب دون اتصال (X-FS-Replay) تكتبه عند الإنشاء بلحظة جهازه المحصورة المصحَّحة الانحراف
+    // (routes/customers.ts)، فعميل ٢٢:٠٠ آخر الشهر المرفوع صباحاً في شهره — ولا تأريخ بلحظة الجهاز هنا: clientCreatedAt يُرسل مع
+    // كل إنشاء ولو متصلاً وبلا تصحيح ساعة، فكان يُسقط عميلاً من الشهرين
     needsCustomers
       ? prisma.customer.count({
         where: {
-          tenantId: tid, createdBySalesRepId: repId, createdAt: { gte: from, lt: to }, status: { not: 'DELETED' },
-          invoices: { some: { status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { lt: to } } },
+          tenantId: tid, createdBySalesRepId: repId, createdAt: { gte: from, lt: to }, status: { not: 'DELETED' }, ...(scope?.customer ?? {}),
+          invoices: { some: { status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: { lt: to }, ...docScope } },
         },
       })
       : Promise.resolve(0),
+    // خانات العملة لهدف التحصيل (كحساب الفاتورة: عملة الشركة وإلا عملة دولتها)
+    needsCollection
+      ? prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { currency: true, countryCode: true } })
+      : Promise.resolve(null),
   ]);
+  // مرتجعات المرحلة الأولى المرتبطة ببنود الآجلة المرشَّحة — بعد قراءتها، ولا استعلام بلا بنود
+  const saleItemIds = needsCollection ? [...new Set(credit.flatMap((r) => (r.items ?? []).map((i) => i.id)))] : [];
+  const linkedReturns: LinkedReturnLine[] = saleItemIds.length
+    ? await prisma.invoiceItem.findMany({
+      where: { returnOfItemId: { in: saleItemIds }, invoice: { tenantId: tid, status: 'CONFIRMED', type: 'RETURN', invoiceDate: { lt: from } } },
+      select: { returnOfItemId: true, invoice: { select: { id: true, total: true, status: true, type: true } } },
+    })
+    : [];
   return {
     monthNetSales: netSales(sales._sum.total, returns._sum.total),
     productBase: productNetBaseQty(items),
-    collection: needsCollection ? collectionFold(credit, from, to) : { base: 0, collected: 0 },
+    collection: needsCollection ? collectionFold(withLinkedReturns(credit, linkedReturns), from, to) : { base: 0, collected: 0 },
     ...(needsVisits && { visits: mergeVisitsByRep(visitRows.map(asVisitLike)).length }),
     ...(needsCustomers && { newCustomers }),
+    ...(needsCollection && { currencyDecimals: currencyDecimalsOf(company?.currency ?? getCountryTax(company?.countryCode).currency) }),
   };
 }
 
@@ -360,8 +453,9 @@ export interface RepTargetsMonth {
   targets: RepTargetView[];
 }
 
-/** أهداف المندوب في شهرٍ بتقدّمها ومكافآتها (الشهر الغائب = الجاري بتوقيت الشركة)، بترتيب إنشائها */
-export async function repTargetsMonth(tid: string, repId: string, month?: string | null, now: Date = new Date()): Promise<RepTargetsMonth> {
+/** أهداف المندوب في شهرٍ بتقدّمها ومكافآتها (الشهر الغائب = الجاري بتوقيت الشركة)، بترتيب إنشائها — و`scope` لمسارات الإدارة */
+export async function repTargetsMonth(tid: string, repId: string, month?: string | null, now: Date = new Date(),
+  scope?: RepTargetDocScope | null): Promise<RepTargetsMonth> {
   const tz = await tenantTz(tid);
   const win = monthWindow(month || currentMonthOf(now, tz), tz, now);
   const targets = await prisma.repTarget.findMany({
@@ -369,7 +463,7 @@ export async function repTargetsMonth(tid: string, repId: string, month?: string
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     include: { extraProducts: { orderBy: { sortOrder: 'asc' } } },
   });
-  const ctx = await loadProgressContext(tid, repId, win, targets);
+  const ctx = await loadProgressContext(tid, repId, win, targets, scope);
   return {
     month: win.month, from: win.from.toISOString(), to: win.to.toISOString(), isCurrent: win.isCurrent, daysLeft: win.daysLeft,
     monthNetSales: ctx.monthNetSales,
@@ -377,16 +471,17 @@ export async function repTargetsMonth(tid: string, repId: string, month?: string
   };
 }
 
-/** هدفٌ واحد محسوبٌ لشهره (ردّ الإنشاء والتعديل) */
-export async function repTargetViewOf(tid: string, target: RepTargetRow, now: Date = new Date()): Promise<RepTargetView> {
+/** هدفٌ واحد محسوبٌ لشهره (ردّ الإنشاء والتعديل) — و`scope` نطاق المستخدم كما في GET */
+export async function repTargetViewOf(tid: string, target: RepTargetRow, now: Date = new Date(),
+  scope?: RepTargetDocScope | null): Promise<RepTargetView> {
   // عضوٌ في هدفٍ مدمج: مكافأته تُستحق بتحقق الأعضاء كلهم (applyCombos) — فيُقرأ من شهره كما يقرؤه GET
   if (target.comboId) {
-    const month = await repTargetsMonth(tid, target.salesRepId, target.month, now);
+    const month = await repTargetsMonth(tid, target.salesRepId, target.month, now, scope);
     const hit = month.targets.find((v) => v.id === target.id);
     if (hit) return hit;
   }
   const tz = await tenantTz(tid);
   const win = monthWindow(target.month, tz, now);
-  const ctx = await loadProgressContext(tid, target.salesRepId, win, [target]);
+  const ctx = await loadProgressContext(tid, target.salesRepId, win, [target], scope);
   return toTargetView(target, ctx);
 }

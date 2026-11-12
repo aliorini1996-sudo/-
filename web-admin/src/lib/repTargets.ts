@@ -54,6 +54,8 @@ export interface RepTargetProductView {
   unitId: string | null;
   unitName: string | null;
   unitFactor: number;
+  /** ردّ الإدارة وحده: حجم الوحدة الآن حين يخالف لقطة الهدف (F4) — الحفظ يُبقي اللقطة ما لم يُرسل refreshUnitFactor */
+  currentUnitFactor?: number | null;
 }
 
 /** هدفٌ كما يردّه الخادم (GET /rep-targets/rep/:repId و/mine، ونتيجة POST/PUT) */
@@ -79,6 +81,8 @@ export interface RepTargetView {
   updatedAt: string;
   progress: RepTargetProgress;
   reward: RepTargetReward;
+  /** ردّ الإنشاء والتعديل في الإدارة وحده: كـ`RepTargetsData.scoped` (الأهداف داخل GET بلا الحقل — العلم على الشهر) */
+  scoped?: boolean;
 }
 
 /** ردّ GET: الشهر بحدوده بتوقيت الشركة، وأهدافه بترتيب الإنشاء */
@@ -91,6 +95,11 @@ export interface RepTargetsData {
   daysLeft: number;
   monthNetSales: number;
   targets: RepTargetView[];
+  /**
+   * ردّ الإدارة (R1): true = الأرقام محسوبةٌ بنطاق المستخدم (مشرف الفرق بوسم فرقه، والمقيَّد بعملائه ومناديبه) — فقد يرى «لم يتحقق»
+   * وعمولةً أقل لهدفٍ يراه المندوب محقّقاً في رئيسيته. /mine وخادمٌ أقدم بلا الحقل ⇒ أرقامٌ كاملة
+   */
+  scoped?: boolean;
 }
 
 /** جسم POST/PUT */
@@ -107,6 +116,8 @@ export interface RepTargetInput {
   rewardKind: RepRewardKind;
   rewardValue: number;
   note: string | null;
+  /** PUT وحده: اعتماد حجم الوحدة الحالي للأسطر التي بقي صنفها ووحدتها — بقرارٍ صريح من المدير لا غير (`unitRefreshFlag`) */
+  refreshUnitFactor?: boolean;
 }
 
 /** جسم POST /rep-targets/combo — دمج أهدافٍ مستقلة للمندوب في الشهر نفسه بمكافأةٍ واحدة */
@@ -166,11 +177,14 @@ export function emptyDraft(month: string): TargetDraft {
 /** نموذج التعديل من هدفٍ قائم */
 export function draftOf(t: RepTargetView): TargetDraft {
   const product = t.kind === 'PRODUCT_QTY';
+  // الصنف المحذوف (productId فارغ) لا يدخل النموذج — الحفظ يُسقطه من الهدف بدل صفٍّ فارغ يمنع الحفظ. والأول كغيره (F11):
+  // حُذف ⇒ يصعد أول باقٍ بوحدته نفسها إلى السطر الأول، فلا يتغيّر معنى «١٠ كرتون»
+  const lines = !product ? []
+    : (t.products?.length ? t.products : [{ productId: t.productId, unitId: t.unitId }]).filter(p => !!p.productId);
   return {
     month: t.month, kind: t.kind, targetValue: String(t.targetValue),
-    productId: product ? t.productId : null, unitId: product ? t.unitId : null,
-    // الصنف الإضافي المحذوف (productId فارغ) لا يدخل النموذج — الحفظ يُسقطه من الهدف بدل صفٍّ فارغ يمنع الحفظ
-    extraProducts: product ? (t.products ?? []).slice(1).filter(p => !!p.productId).map(p => ({ productId: p.productId, unitId: p.unitId })) : [],
+    productId: lines[0]?.productId ?? null, unitId: lines[0]?.unitId ?? null,
+    extraProducts: lines.slice(1).map(p => ({ productId: p.productId, unitId: p.unitId })),
     rewardKind: t.rewardKind, rewardValue: String(t.rewardValue), note: t.note ?? '',
   };
 }
@@ -281,17 +295,103 @@ export function toTargetInput(d: TargetDraft, unit: UnitChoice | null, baseUnitN
   };
 }
 
-/** عرض الشريط ٠–١٠٠ (النسبة غير مسقوفة من الخادم، وnull ⇒ ٠) */
-export function barPct(pct: number | null | undefined): number {
-  const n = Number(pct);
-  if (pct == null || !Number.isFinite(n)) return 0;
-  return Math.min(100, Math.max(0, n));
+/** سطرٌ في الهدف المعدَّل بقي صنفه ووحدته كما حُفظا، وتغيّر حجم وحدته بعد إنشاء الهدف (F4: «كرتون» كان ٢٤ حبة وصار ١٢) */
+export interface UnitFactorDrift {
+  productId: string;
+  productName: string | null;
+  unitName: string | null;
+  /** الحجم المحفوظ في لقطة الهدف — به يُقاس ما لم يُعتمد الحالي */
+  savedFactor: number;
+  currentFactor: number;
 }
 
-/** النسبة بلغة العرض («٨٥٫٥٪»)، و«—» بلا نسبة */
-export function pctText(pct: number | null | undefined, locale: string): string {
-  if (pct == null || !Number.isFinite(Number(pct))) return '—';
-  return new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 }).format(Number(pct) / 100);
+/**
+ * أسطر النموذج التي تغيّر حجم وحدتها (`currentUnitFactor` من ردّ الإدارة يخالف اللقطة). سطرٌ غيّر صنفه أو وحدته خارجها: الخادم
+ * يلتقط له الحجم الحالي على أي حال فلا تنبيه. وخادمٌ أقدم بلا الحقل ⇒ لا شيء.
+ */
+export function unitFactorDrifts(snaps: readonly RepTargetProductView[], lines: ReadonlyArray<{ productId: string | null; unitId: string | null }>): UnitFactorDrift[] {
+  const out: UnitFactorDrift[] = [];
+  for (const l of lines) {
+    if (!l.productId) continue;
+    const s = snaps.find(x => x.productId === l.productId);
+    if (!s || (s.unitId ?? null) !== (l.unitId ?? null)) continue;
+    const cur = s.currentUnitFactor;
+    if (typeof cur !== 'number' || !Number.isFinite(cur) || cur <= 0) continue;
+    const saved = Number(s.unitFactor) || 1;
+    if (Math.abs(cur - saved) < 1e-9) continue;
+    out.push({ productId: l.productId, productName: s.productName, unitName: s.unitName, savedFactor: saved, currentFactor: cur });
+  }
+  return out;
+}
+
+/** «ماء: كرتون كان ٢٤ حبة وأصبح ١٢ حبة» — والأساس مجهول (الصنف لم يُحمَّل) ⇒ الأرقام وحدها */
+export function unitDriftText(x: UnitFactorDrift, tr: Tr, num: Fmt = String, baseUnitName?: string | null): string {
+  const base = String(baseUnitName ?? '').trim();
+  const size = (f: number) => (base ? `${num(f)} ${base}` : num(f));
+  return tr('{product}: {unit} كان {old} وأصبح {new}')
+    .replace('{product}', () => (x.productName ?? '').trim())
+    .replace('{unit}', () => (x.unitName ?? '').trim())
+    .replace('{old}', () => size(x.savedFactor))
+    .replace('{new}', () => size(x.currentFactor));
+}
+
+/** `refreshUnitFactor` في جسم PUT بقرار المدير الصريح وحين يوجد ما يُعتمد — وإلّا لا يُرسل أبداً فيبقى الحجم المحفوظ */
+export function unitRefreshFlag(drifts: readonly UnitFactorDrift[], accepted: boolean): { refreshUnitFactor?: true } {
+  return accepted && drifts.length > 0 ? { refreshUnitFactor: true } : {};
+}
+
+/**
+ * خيارات منتقي صنف هدف الكمية (F12): القائمة المحمَّلة (أول ١٠٠٠ بالاسم) تُصفّى محلياً بما كُتب، ونتائج بحث الخادم (`remote` لما
+ * كُتب نفسه) تُضاف بعدها حين تصل فلا يغيب صنفٌ بعد الألف — تُضاف ولا تحلّ محلّها (R2): بحث الخادم حسّاسٌ لحالة الأحرف ولا يبحث في
+ * الوحدة ولا «موقوف»، فـ«pepsi» يردّ [] و«Pepsi 330» ظاهرٌ محلياً؛ والمحلية أولاً فلا تقفز القائمة حين يصل الردّ، وبلا تكرار
+ * (الصنف في الاثنين بصفّه المحمَّل). وأصناف الأسطر الأخرى لا تُعرض (الصنف لا يتكرر في الهدف)، وصنف السطر نفسه أولاً إن غاب عنها
+ * (لقطة هدفٍ معدَّل خارج القائمة) — فيظهر اسمه في المنتقي لا «اختر الصنف».
+ */
+export function productPickerOptions<T extends { value: string; label: string; hint?: string }>(
+  loaded: readonly T[], typed: string, remote: readonly T[] | null, taken: ReadonlySet<string>, current: T | null,
+): T[] {
+  const q = String(typed ?? '').trim().toLowerCase();
+  const local = q ? loaded.filter(o => o.label.toLowerCase().includes(q) || (o.hint ?? '').toLowerCase().includes(q)) : loaded;
+  const pool = [...local];
+  const known = new Set(local.map(o => o.value));
+  for (const o of remote ?? []) if (!known.has(o.value)) { known.add(o.value); pool.push(o); }
+  const out = pool.filter(o => !taken.has(o.value));
+  return current && !out.some(o => o.value === current.value) ? [current, ...out] : out;
+}
+
+/**
+ * منتقي الصنف (R7): SearchableSelect يُغلق بنقرةٍ خارجه فيفرّغ حقل بحثه ولا يُبلغ onSearchChange — فيبقى نصّ السطر (typed) يُصفّي
+ * القائمة عند إعادة فتحها بنصٍّ لا يظهر في الحقل («لا توجد نتائج» بلا سبب ظاهر). فهذه مرآة شرط إغلاقه نفسه ليُصفَّر نصّ السطر معه:
+ * منتقٍ مفتوح (حقل بحثه مرسوم — لا يُرسم إلا مفتوحاً) ونقرةٌ خارجه. وإغلاقه بزرّه يُبقي النصّ في حقله فيبقى في السطر كذلك.
+ * `root` غلافُ المنتقي وحده، ويُقرأ قبل أن يُغلقه معالجه (المستدعي يستمع في طور الالتقاط)
+ */
+export function pickerSearchDropped(
+  root: { contains(node: unknown): boolean; querySelector(selector: string): unknown } | null, target: unknown,
+): boolean {
+  return !!root && root.querySelector('input') != null && !root.contains(target);
+}
+
+/**
+ * النسبة المعروضة: هدفٌ لم يتحقق (`done` = false) لا تبلغ نسبته ١٠٠ — ٩٩٫٩٦٪ تُقرَّب «١٠٠٪» بمنزلةٍ واحدة فيظنّ المندوب أنه
+ * حقّقه (F2). مرآة pctOf في الخادم، وحارسٌ لنسخةٍ محفوظة قبل إصلاحه. و`done` غائب ⇒ النسبة كما هي، وnull/NaN ⇒ null.
+ */
+export function shownPct(pct: number | null | undefined, done?: boolean): number | null {
+  const n = Number(pct);
+  if (pct == null || !Number.isFinite(n)) return null;
+  return done === false && n > 99.9 ? 99.9 : n;
+}
+
+/** عرض الشريط ٠–١٠٠ (النسبة غير مسقوفة من الخادم، وnull ⇒ ٠) — ولا يمتلئ لهدفٍ لم يتحقق (`shownPct`) */
+export function barPct(pct: number | null | undefined, done?: boolean): number {
+  const n = shownPct(pct, done);
+  return n == null ? 0 : Math.min(100, Math.max(0, n));
+}
+
+/** النسبة بلغة العرض («٨٥٫٥٪»)، و«—» بلا نسبة — ولا «١٠٠٪» لهدفٍ لم يتحقق (`shownPct`) */
+export function pctText(pct: number | null | undefined, locale: string, done?: boolean): string {
+  const n = shownPct(pct, done);
+  if (n == null) return '—';
+  return new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 }).format(n / 100);
 }
 
 /** وحدة هدف الكمية المشتركة بين أصنافه (للعرض «١٢ كرتون») — أصنافٌ بوحداتٍ مختلفة ⇒ '' (رقمٌ بلا وحدة) */
@@ -401,12 +501,12 @@ export function rewardText(t: Pick<RepTargetView, 'rewardKind' | 'rewardValue' |
 
 /**
  * «متبقي {n} يوم» — بالعربية بتمييز العدد («يوم واحد»، «يومان»، «٥ أيام»، «١٢ يوماً»)، وبغيرها ترجمة العبارة والعدد
- * بأرقام العرض. الصفر (شهرٌ مضى) لا نصّ له.
+ * بأرقام العرض، وللواحد عبارةٌ مفردة (F14: «1 days left» و«1 jours restants» في آخر يومٍ من الشهر). الصفر (شهرٌ مضى) لا نصّ له.
  */
 export function daysLeftText(n: number, lang: string, tr: Tr, num: Fmt = String): string {
   const k = Math.max(0, Math.trunc(Number(n) || 0));
   if (k === 0) return '';
-  if (lang !== 'ar') return tr('متبقي {n} يوم').replace('{n}', () => num(k));
+  if (lang !== 'ar') return tr(k === 1 ? 'متبقي يوم واحد' : 'متبقي {n} يوم').replace('{n}', () => num(k));
   const r = k % 100;
   const count = k === 1 ? 'يوم واحد' : k === 2 ? 'يومان' : r >= 3 && r <= 10 ? `${num(k)} أيام` : r >= 11 ? `${num(k)} يوماً` : `${num(k)} يوم`;
   return `متبقي ${count}`;
@@ -506,5 +606,7 @@ export const REP_TARGET_TEXTS: readonly string[] = [
   'يستحق {v}% من الراتب',
   'مكافأة {amount}',
   'متبقي {n} يوم',
+  'متبقي يوم واحد',
+  '{product}: {unit} كان {old} وأصبح {new}',
   ...new Set(Object.values(TARGET_ERRORS)),
 ];

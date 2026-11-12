@@ -61,7 +61,7 @@ function TargetBlock({ t, first }: { t: RepTargetView; first: boolean }) {
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm font-bold text-[#1F1A13] leading-snug break-words min-w-0">{targetTitle(t, tr, num)}</p>
         {!stateText && (
-          <bdi className={`shrink-0 text-base font-extrabold ${p.done ? 'text-green-600' : 'text-[#E15A30]'}`}>{pctText(p.pct, activeLocale())}</bdi>
+          <bdi className={`shrink-0 text-base font-extrabold ${p.done ? 'text-green-600' : 'text-[#E15A30]'}`}>{pctText(p.pct, activeLocale(), p.done)}</bdi>
         )}
       </div>
 
@@ -70,7 +70,7 @@ function TargetBlock({ t, first }: { t: RepTargetView; first: boolean }) {
       ) : (
         <>
           <div className="mt-2 h-2.5 bg-[#F1EBDF] rounded-full overflow-hidden">
-            <div className={`h-full rounded-full transition-all ${p.done ? 'bg-green-500' : 'bg-[#E15A30]'}`} style={{ width: `${barPct(p.pct)}%` }} />
+            <div className={`h-full rounded-full transition-all ${p.done ? 'bg-green-500' : 'bg-[#E15A30]'}`} style={{ width: `${barPct(p.pct, p.done)}%` }} />
           </div>
           <div className="mt-1.5 flex items-center justify-between gap-2 text-xs">
             <span className="text-[#1F1A13]">
@@ -137,7 +137,7 @@ function ComboMember({ t }: { t: RepTargetView }) {
       <div className="flex items-start justify-between gap-3">
         <p className="text-[13px] font-semibold text-[#1F1A13] leading-snug break-words min-w-0">{targetTitle(t, tr, num)}</p>
         {!stateText && (
-          <bdi className={`shrink-0 text-sm font-extrabold ${p.done ? 'text-green-600' : 'text-[#E15A30]'}`}>{pctText(p.pct, activeLocale())}</bdi>
+          <bdi className={`shrink-0 text-sm font-extrabold ${p.done ? 'text-green-600' : 'text-[#E15A30]'}`}>{pctText(p.pct, activeLocale(), p.done)}</bdi>
         )}
       </div>
       {stateText ? (
@@ -145,7 +145,7 @@ function ComboMember({ t }: { t: RepTargetView }) {
       ) : (
         <>
           <div className="mt-1.5 h-2 bg-[#F1EBDF] rounded-full overflow-hidden">
-            <div className={`h-full rounded-full transition-all ${p.done ? 'bg-green-500' : 'bg-[#E15A30]'}`} style={{ width: `${barPct(p.pct)}%` }} />
+            <div className={`h-full rounded-full transition-all ${p.done ? 'bg-green-500' : 'bg-[#E15A30]'}`} style={{ width: `${barPct(p.pct, p.done)}%` }} />
           </div>
           <div className="mt-1 flex items-center justify-between gap-2 text-[11px]">
             <span className="text-[#1F1A13]">

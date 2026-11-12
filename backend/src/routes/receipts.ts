@@ -182,6 +182,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   try {
     const tid = tenantId(req);
     const body = receiptSchema.parse(req.body);
+    // F1 (تدقيق «هدف الشهر»): التاريخ الصريح (receiptDate) للوحة الإدارة ومفتاح API وحدهما — بتوكن المندوب يختار شهر تحصيله فيحرّك
+    // هدف التحصيل، وتطبيقات المندوب لا ترسله أصلاً. يُمحى قبل كل قارئ، فيبقى له تأريخ الصندوق المحصور وحده (offlineInvoiceDate)
+    if (req.user!.role === 'SALES_REP' && !req.user?.apiKeyId) body.receiptDate = undefined;
 
     // idempotency: سند سبق رفعه (نفس clientRef) يُعاد بدل إنشاء مكرّر — قبل أي منطق
     if (body.clientRef) {

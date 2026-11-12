@@ -6541,6 +6541,15 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'يستحق {v}% من الراتب': { en: 'Earns {v}% of salary', fr: 'Donne droit à {v} % du salaire', tr: 'Maaşın %{v} kadarını hak eder', zh: '可获得工资的 {v}%' },
   'مكافأة {amount}': { en: 'Bonus {amount}', fr: 'Prime de {amount}', tr: '{amount} ödül', zh: '奖励 {amount}' },
   'متبقي {n} يوم': { en: '{n} days left', fr: '{n} jours restants', tr: '{n} gün kaldı', zh: '剩余 {n} 天' },
+  // صيغة المفرد لآخر يومٍ في الشهر (F14) — {n} في الترجمة وحدها: يُكتب العدد بأرقام العرض كالجمع
+  'متبقي يوم واحد': { en: '{n} day left', fr: '{n} jour restant', tr: '{n} gün kaldı', zh: '剩余 {n} 天' },
+  // حجم وحدةٍ تغيّر بعد إنشاء هدف الكمية (F4) — الهدف يبقى بالمحفوظ إلا بقرارٍ صريح
+  'تغير حجم الوحدة بعد إنشاء الهدف': { en: 'The unit size changed after the target was created', fr: 'La taille de l’unité a changé après la création de l’objectif', tr: 'Hedef oluşturulduktan sonra birim boyutu değişti', zh: '创建目标后单位规格已更改' },
+  '{product}: {unit} كان {old} وأصبح {new}': { en: '{product}: {unit} was {old} and is now {new}', fr: '{product} : {unit} valait {old} et vaut maintenant {new}', tr: '{product}: {unit} önceden {old} idi, şimdi {new}', zh: '{product}：{unit} 原为 {old}，现为 {new}' },
+  'يبقى الهدف بالحجم القديم ما لم تعتمد الحجم الحالي': { en: 'The target keeps the old size unless you adopt the current one', fr: 'L’objectif garde l’ancienne taille, sauf si vous adoptez la taille actuelle', tr: 'Mevcut boyutu benimsemediğiniz sürece hedef eski boyutta kalır', zh: '除非采用当前规格，目标将保持原规格' },
+  'اعتمد حجم الوحدة الحالي': { en: 'Adopt the current unit size', fr: 'Adopter la taille actuelle de l’unité', tr: 'Mevcut birim boyutunu benimse', zh: '采用当前单位规格' },
+  // أرقام المستخدم المقيَّد ومشرف الفرق بنطاقه (R1) — والمندوب يرى عمله كله في رئيسيته
+  'الأرقام ضمن نطاقك وقد تختلف عما يراه المندوب': { en: 'Figures are limited to your scope and may differ from what the rep sees', fr: 'Les chiffres sont limités à votre périmètre et peuvent différer de ce que voit le commercial', tr: 'Rakamlar kapsamınızla sınırlıdır ve temsilcinin gördüğünden farklı olabilir', zh: '数据仅限于您的权限范围，可能与业务员看到的不同' },
   'متبقي {x}': { en: '{x} to go', fr: 'Reste {x}', tr: '{x} kaldı', zh: '还差 {x}' },
   'الهدف غير موجود': { en: 'Target not found', fr: 'Objectif introuvable', tr: 'Hedef bulunamadı', zh: '未找到目标' },
   'اختر صنفاً صحيحاً': { en: 'Choose a valid item', fr: 'Choisissez un article valide', tr: 'Geçerli bir ürün seçin', zh: '请选择有效的商品' },
