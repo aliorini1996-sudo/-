@@ -47,6 +47,12 @@ export interface UnvisitedRow {
   /** آخر زيارة قبل بداية الفترة — null: لم يُزر قط قبلها */
   lastVisitAt: Date | null;
   createdAt: Date;
+  /**
+   * فواتير البيع في الفترة بلا زيارة (طلب المالك ١٣ نوفمبر ٢٠٢٦ — services/unvisitedInvoicesDb.ts): عددها وتاريخ آخرها.
+   * 0/null: لم تُزر ولم يُصدر لها شيء — والفرق بين الحالين هو علامة التقرير
+   */
+  invoicesCount: number;
+  lastInvoiceAt: Date | null;
 }
 
 /**
@@ -56,15 +62,18 @@ export function buildUnvisitedRows(
   customers: UnvisitedCustomerIn[],
   visitedIds: Iterable<string>,
   lastVisitBefore: Map<string, Date>,
+  invoiceStats: Map<string, { count: number; lastAt: Date | null }> = new Map(),
 ): UnvisitedRow[] {
   const visited = new Set(visitedIds);
   const rows: UnvisitedRow[] = [];
   for (const c of customers) {
     if (visited.has(c.id)) continue;
     const reps = [...new Set(c.assignments.map(a => a.salesRep?.name?.trim() || '').filter(Boolean))];
+    const inv = invoiceStats.get(c.id);
     rows.push({
       id: c.id, name: c.name, businessName: c.businessName, phone: c.phone, city: c.city,
       reps, lastVisitAt: lastVisitBefore.get(c.id) ?? null, createdAt: c.createdAt,
+      invoicesCount: inv?.count ?? 0, lastInvoiceAt: inv?.lastAt ?? null,
     });
   }
   rows.sort((a, b) => {

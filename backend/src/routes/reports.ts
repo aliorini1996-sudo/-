@@ -19,6 +19,7 @@ import { companyDay, loadLotMetas } from '../services/lotsDb';
 import { cleanMoney, isReturnInvoice, netSales, signedAmount } from '../services/netSales';
 import { buildUnvisitedRows, unvisitedRange } from '../services/unvisitedCustomers';
 import { lastVisitBeforeMap, visitedCustomerIds } from '../services/unvisitedCustomersDb';
+import { saleInvoiceStatsMap } from '../services/unvisitedInvoicesDb';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
@@ -836,10 +837,15 @@ router.get('/unvisited-customers', async (req: AuthRequest, res: Response, next:
     // من زِير في الفترة: من زيارات الشركة كلها (لا نطاق المستخدم ولا الفريق) — والاستعلامان في خدمةٍ (unvisitedCustomersDb)
     const visitedIds = await visitedCustomerIds(tid, fromDate, toEnd);
     const pendingIds = customers.filter(c => !visitedIds.has(c.id)).map(c => c.id);
-    // آخر زيارة قبل الفترة لمن لم يُزر فيها — وبلا «من» فلا «قبل»
-    const lastVisitBefore = hasFrom && pendingIds.length ? await lastVisitBeforeMap(tid, pendingIds, fromDate) : new Map<string, Date>();
-    const rows = buildUnvisitedRows(customers, visitedIds, lastVisitBefore);
-    res.json({ success: true, data: { totalCustomers: customers.length, count: rows.length, customers: rows } });
+    // آخر زيارة قبل الفترة لمن لم يُزر فيها — وبلا «من» فلا «قبل». ومعها فواتير البيع في الفترة نفسها لمن لم يُزر (علامة «فواتير بلا
+    // زيارة» — طلب المالك ١٣ نوفمبر ٢٠٢٦، services/unvisitedInvoicesDb.ts): من أي مندوب أو مستخدم في الشركة كالزيارات
+    const [lastVisitBefore, invoiceStats] = await Promise.all([
+      hasFrom && pendingIds.length ? lastVisitBeforeMap(tid, pendingIds, fromDate) : Promise.resolve(new Map<string, Date>()),
+      pendingIds.length ? saleInvoiceStatsMap(tid, pendingIds, fromDate, toEnd) : Promise.resolve(new Map<string, { count: number; lastAt: Date | null }>()),
+    ]);
+    const rows = buildUnvisitedRows(customers, visitedIds, lastVisitBefore, invoiceStats);
+    const invoicedCount = rows.filter(r => r.invoicesCount > 0).length;
+    res.json({ success: true, data: { totalCustomers: customers.length, count: rows.length, invoicedCount, customers: rows } });
   } catch (err) { next(err); }
 });
 

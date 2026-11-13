@@ -6783,6 +6783,10 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'هذه القائمة للبيع النقدي فقط — لا يباع بها آجل ولا تقسيط': { en: 'This price list is for cash sales only — no credit or installment sales with it', fr: 'Cette liste de prix est réservée à la vente au comptant — ni vente à crédit ni paiement échelonné', tr: 'Bu fiyat listesi yalnızca nakit satış içindir — vadeli veya taksitli satış yapılamaz', zh: '此价格表仅限现金销售——不可赊销或分期' },
   'بيع نقدي فقط': { en: 'Cash sales only', fr: 'Vente au comptant uniquement', tr: 'Yalnızca nakit satış', zh: '仅限现金销售' },
   'قائمة الأسعار هذه للبيع النقدي فقط — لا يباع بها آجل ولا تقسيط': { en: 'This price list is for cash sales only — credit and installment sales are not allowed with it', fr: 'Cette liste de prix est réservée à la vente au comptant — vente à crédit et paiement échelonné interdits', tr: 'Bu fiyat listesi yalnızca nakit satış içindir — vadeli ve taksitli satış yapılamaz', zh: '此价格表仅限现金销售——不允许赊销或分期' },
+  // علامة تقرير «العملاء الذين لم تتم زيارتهم» (طلب المالك ١٣ نوفمبر ٢٠٢٦): بيع له بلا زيارة، أو لا زيارة ولا فواتير
+  'فواتير بلا زيارة': { en: 'Invoiced without a visit', fr: 'Facturé sans visite', tr: 'Ziyaretsiz faturalandı', zh: '未拜访但已开票' },
+  'لا زيارة ولا فواتير': { en: 'No visit and no invoices', fr: 'Ni visite ni facture', tr: 'Ziyaret de fatura da yok', zh: '既未拜访也未开票' },
+  'آخر فاتورة': { en: 'Last invoice', fr: 'Dernière facture', tr: 'Son fatura', zh: '最近发票' },
 };
 
 // ثابتة الهوية ما لم تتغيّر اللغة — كـuseT (انظر سببه هناك)

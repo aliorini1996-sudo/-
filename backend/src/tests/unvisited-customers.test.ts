@@ -75,3 +75,33 @@ test('الوصل: المسار محروس بصلاحية التقارير، وي
   const visits = r.slice(r.indexOf("router.get('/customer-visits'"), r.indexOf("router.get('/unvisited-customers'"));
   assert.match(visits, /const toEnd = to \? new Date\(new Date\(to\)\.getTime\(\) \+ 24 \* 60 \* 60 \* 1000\) : new Date\(\);/);
 });
+
+test('علامة «فواتير بلا زيارة» (١٣ نوفمبر): عدد فواتير البيع وآخرها لكل صفّ، و0/null لمن لا زيارة له ولا فواتير', () => {
+  const rows = buildUnvisitedRows(
+    [cust('a', 'بقالة النور'), cust('b', 'تموينات الخير'), cust('c', 'سوبر ماركت')],
+    ['c'],
+    new Map(),
+    new Map([['a', { count: 3, lastAt: new Date('2026-11-10T08:00:00Z') }], ['c', { count: 9, lastAt: new Date('2026-11-11T08:00:00Z') }]]),
+  );
+  assert.deepEqual(rows.map(r => [r.id, r.invoicesCount, r.lastInvoiceAt?.toISOString() ?? null]), [
+    ['a', 3, '2026-11-10T08:00:00.000Z'],
+    ['b', 0, null],
+  ], 'a بفواتير بلا زيارة، وb بلا زيارة ولا فواتير، وc زِير فاستُبعد ولو كانت له فواتير');
+  // الاستدعاء القديم بلا إحصاء الفواتير: كل الصفوف 0/null والترتيب كما كان
+  assert.deepEqual(buildUnvisitedRows([cust('x', 'س')], [], new Map()).map(r => [r.invoicesCount, r.lastInvoiceAt]), [[0, null]]);
+});
+
+test('علامة «فواتير بلا زيارة»: فواتير البيع المؤكَّدة وحدها في المدى نفسه، لمن لم يُزر وحده، وinvoicedCount في الردّ', () => {
+  const r = src('routes', 'reports.ts');
+  const route = r.slice(r.indexOf("router.get('/unvisited-customers'"), r.indexOf("router.get('/rep-receivables'"));
+  assert.match(route, /pendingIds\.length \? saleInvoiceStatsMap\(tid, pendingIds, fromDate, toEnd\)/, 'لمن لم يُزر وحده وبالمدى نفسه');
+  assert.match(route, /buildUnvisitedRows\(customers, visitedIds, lastVisitBefore, invoiceStats\)/);
+  assert.match(route, /const invoicedCount = rows\.filter\(r => r\.invoicesCount > 0\)\.length;/);
+  assert.match(route, /data: \{ totalCustomers: customers\.length, count: rows\.length, invoicedCount, customers: rows \}/);
+  assert.doesNotMatch(route, /invoice\.(groupBy|count|findMany)\(/, 'الاستعلام في الخدمة لا الموجّه');
+  const inv = src('services', 'unvisitedInvoicesDb.ts');
+  assert.match(inv, /prisma\.invoice\.groupBy\(\{\s*by: \['customerId'\],/);
+  assert.match(inv, /type: \{ in: \['CASH', 'CREDIT'\] \}, status: 'CONFIRMED', invoiceDate: \{ gte: fromDate, lt: toEnd \}/, 'بيعٌ مؤكَّد في المدى: لا مسودة ولا ملغاة ولا مرتجع');
+  assert.match(inv, /customerId: \{ in: customerIds\.slice\(i, i \+ 5000\) \}/, 'على دفعات');
+  assert.doesNotMatch(inv, /repVisit/, 'لا زيارات في خدمة الفواتير');
+});

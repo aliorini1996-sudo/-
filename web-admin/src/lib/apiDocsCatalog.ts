@@ -8138,7 +8138,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
    {
     "method": "GET",
     "path": "/reports/unvisited-customers",
-    "purpose": "العملاء الذين لم تتم زيارتهم: العملاء النشطون بلا أي زيارة في المدى، مع مناديبهم المسندين وآخر زيارة قبل المدى",
+    "purpose": "العملاء الذين لم تتم زيارتهم: العملاء النشطون بلا أي زيارة في المدى، مع مناديبهم المسندين وآخر زيارة قبل المدى وعلامة من صدرت له فواتير بلا زيارة",
     "permission": "canViewReports",
     "gates": [
      "requireAdmin",
@@ -8161,12 +8161,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{totalCustomers, count, customers:[{id, name, businessName, phone, city, reps:[اسم المندوب], lastVisitAt, createdAt}]}} من لم يُزر قط أولاً ثم الأقدم زيارة",
+    "response": "{success:true, data:{totalCustomers, count, invoicedCount, customers:[{id, name, businessName, phone, city, reps:[اسم المندوب], lastVisitAt, createdAt, invoicesCount, lastInvoiceAt}]}} من لم يُزر قط أولاً ثم الأقدم زيارة",
     "rules": [
      "مكمّل GET /reports/customer-visits بتعريف المدى نفسه: عميل له زيارة واحدة في المدى من أي مندوب لا يظهر",
      "العملاء النشطون (status=ACTIVE) الموجودون قبل نهاية المدى وحدهم، وtotalCustomers عددهم",
      "lastVisitAt آخر زيارة قبل from، وnull إن لم يُزر قبلها أو غاب from",
      "reps أسماء المناديب النشطين المسندين للعميل داخل نطاق المستخدم، ومصفوفة فارغة إن لم يوجد",
+     "invoicesCount عدد فواتير البيع المؤكدة (CASH وCREDIT بحالة CONFIRMED، بلا مسودة ولا ملغاة ولا مرتجع) للعميل في المدى نفسه على invoiceDate من أي مندوب أو مستخدم، وlastInvoiceAt تاريخ آخرها أو null: فوق الصفر تعني بيعا بلا زيارة، والصفر لا زيارة ولا فواتير",
+     "invoicedCount عدد الصفوف التي invoicesCount فيها فوق الصفر",
      "لا يقبل teamId: العملاء مشتركون بين الفرق",
      "تاريخ بغير صيغة YYYY-MM-DD أو from بعد to يرجع 400"
     ],

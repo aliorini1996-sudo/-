@@ -15,7 +15,7 @@ import { filterFlat, filterNested } from '../lib/reportSearch';
 import { groupCollectionsByRep, collectionTotals, CollReceiptLike, CollRepGroup } from '../lib/collectionsByRep';
 import { companyMethodLabel } from '../lib/paymentMethodsConfig';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Download, TrendingUp, Users, UserCheck, UserX, MapPin, FileText, Search, X, Wallet, AlertTriangle, Pencil, Upload } from 'lucide-react';
+import { Download, TrendingUp, Users, UserCheck, UserX, MapPin, FileText, Search, X, Wallet, AlertTriangle, Pencil, Upload, Receipt } from 'lucide-react';
 import { shareOrDownloadExcel, num, ExcelSheet } from '../utils/excel';
 import { mergeRuns } from '../lib/mergeRuns';
 import { attendanceDayCells, breakOf, compactMinutes, periodsOf, punchDetailRows, punchInUrl, punchOutUrl, periodOutside, placeLabel, entryLabel, type WorkPeriodLike } from '../lib/workPeriods';
@@ -92,7 +92,11 @@ const plainQty = (n: number) => String(Number(n.toFixed(3)));
 interface ReturnsSummary { count: number; total: number; salesTotal: number; returnRate: number | null; byReason: Record<string, { count: number; total: number }>; expiredLines: number }
 const RETURN_REASON_LABELS: Record<string, string> = { NORMAL: 'مرتجع عادي', DAMAGED: 'بضاعة تالفة', EXCHANGE: 'استبدال' };
 /** «العملاء الذين لم تتم زيارتهم» — صفّ الخادم (/reports/unvisited-customers): آخر زيارة قبل الفترة، null = لم يُزر قبلها */
-interface UnvisitedCust { id: string; name: string; businessName: string | null; phone: string; city: string | null; reps: string[]; lastVisitAt: string | null; createdAt: string }
+interface UnvisitedCust {
+  id: string; name: string; businessName: string | null; phone: string; city: string | null; reps: string[]; lastVisitAt: string | null; createdAt: string;
+  /** فواتير البيع في الفترة بلا زيارة (علامة طلب المالك ١٣ نوفمبر ٢٠٢٦) — غيابها من خادمٍ أقدم = 0 */
+  invoicesCount?: number; lastInvoiceAt?: string | null;
+}
 interface CustGroup { customerId: string; customerName: string; visitsCount: number; avgDurationSec: number | null; lastVisit: string; visits: CustVisit[] }
 /* سند القبض وتجميعةُ المندوب: أنواع وحدة `lib/collectionsByRep` نفسها —
    نسخةٌ ثانية منهما تنحرف عن الحساب الذي تختبره وحدتُه. */
@@ -486,6 +490,11 @@ export default function ReportsPage() {
   );
   // بلا آخر زيارة: «قبل الفترة» إن حُدّد «من»، و«حتى نهاية الفترة» إن حُدّد «إلى» وحده (قد يكون زِير بعدها)، و«قط» بلا تواريخ
   const fmtLastVisit = (iso: string | null) => iso ? fmtDay(iso) : (from ? tr('لم يُزر قبل الفترة') : to ? tr('لم يُزر حتى نهاية الفترة') : tr('لم يُزر قط'));
+  /* علامة «فواتير بلا زيارة» (طلب المالك ١٣ نوفمبر ٢٠٢٦): من لم يُزر في الفترة نوعان — بيع له بلا زيارة (فاتورةٌ مؤكَّدة في الفترة نفسها)،
+   * أو لا زيارة ولا فواتير (الأحوج للمتابعة). والعدّ من الصفوف المعروضة بعد البحث كي يطابق الجدول */
+  const unvisitedInvoiced = useMemo(() => unvisitedRows.filter(c => (c.invoicesCount ?? 0) > 0).length, [unvisitedRows]);
+  const unvisitedMarkText = (c: UnvisitedCust) => ((c.invoicesCount ?? 0) > 0
+    ? `${tr('فواتير بلا زيارة')} (${c.invoicesCount})` : tr('لا زيارة ولا فواتير'));
   // تجميع الزيارات بالعميل: صفّ لكل عميل (عدد الزيارات + متوسط المدّة)، والتوسيع يُظهر كل زياراته
   const custGroups = useMemo<CustGroup[]>(() => {
     const map = new Map<string, CustVisit[]>();
@@ -747,9 +756,11 @@ export default function ReportsPage() {
       })), colWidths: multi ? [28, 14, 12, 24, 16] : [28, 14, 16] }];
       fname = tr('تقارير المبيعات');
     } else if (tab === 'balances' && custType === 'unvisited' && unvisitedRows.length) {
-      sheets = [{ name: tr('العملاء الذين لم تتم زيارتهم'), colWidths: [26, 22, 16, 14, 24, 18], rows: unvisitedRows.map(c => ({
+      sheets = [{ name: tr('العملاء الذين لم تتم زيارتهم'), colWidths: [26, 22, 16, 14, 24, 22, 14, 18], rows: unvisitedRows.map(c => ({
         [tr('العميل')]: c.name, [tr('النشاط التجاري')]: c.businessName || '', [tr('الجوال')]: customerPhoneText(c.phone),
-        [tr('المدينة')]: c.city || '', [tr('المندوب')]: c.reps.join('، '), [tr('آخر زيارة')]: fmtLastVisit(c.lastVisitAt),
+        [tr('المدينة')]: c.city || '', [tr('المندوب')]: c.reps.join('، '),
+        [tr('الحالة')]: unvisitedMarkText(c), [tr('آخر فاتورة')]: c.lastInvoiceAt ? fmtDay(c.lastInvoiceAt) : '',
+        [tr('آخر زيارة')]: fmtLastVisit(c.lastVisitAt),
       })) }];
       fname = tr('العملاء الذين لم تتم زيارتهم');
     } else if (tab === 'balances' && custType === 'visits' && visitRows?.length) {
@@ -1757,6 +1768,16 @@ export default function ReportsPage() {
             <span className="text-[#9A8F7E]">•</span>
             <span className="text-[#6E6557]">{tr('من أصل')} {unvisitedData.totalCustomers} {tr('عميل نشط')}</span>
             {!from && !to && <span className="text-[12px] text-[#9A8F7E]">({tr('بلا تحديد مدة: من لم يُزر قط')})</span>}
+            {unvisitedRows.length > 0 && (
+              <span className="flex items-center gap-2 flex-wrap ms-auto" data-unvisited-marks="">
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 px-2 py-0.5 text-[12px] font-semibold">
+                  <Receipt size={12} /> {tr('فواتير بلا زيارة')}: {unvisitedInvoiced}
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#FBEAE7] border border-[#F2C9C2] text-[#B42318] px-2 py-0.5 text-[12px] font-semibold">
+                  <UserX size={12} /> {tr('لا زيارة ولا فواتير')}: {unvisitedRows.length - unvisitedInvoiced}
+                </span>
+              </span>
+            )}
           </div>
           {unvisitedRows.length === 0 ? (
             <div className="flex items-center justify-center h-24 text-gray-400 text-sm">
@@ -1766,7 +1787,7 @@ export default function ReportsPage() {
           <div className="table-wrapper">
             <table className="table">
               <thead>
-                <tr><th>#</th><th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('المدينة')}</th><th>{tr('المندوب')}</th><th>{tr('آخر زيارة')}</th></tr>
+                <tr><th>#</th><th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('المدينة')}</th><th>{tr('المندوب')}</th><th>{tr('الحالة')}</th><th>{tr('آخر زيارة')}</th></tr>
               </thead>
               <tbody>
                 {unvisitedRows.map((c, i) => (
@@ -1779,6 +1800,21 @@ export default function ReportsPage() {
                     <td className="font-mono text-sm text-gray-500">{customerPhoneText(c.phone)}</td>
                     <td className="text-gray-500">{c.city || '—'}</td>
                     <td className="text-gray-600">{c.reps.length ? c.reps.join('، ') : '—'}</td>
+                    {/* العلامة: بيع له بلا زيارة (كهرماني، بعدد فواتير الفترة وتاريخ آخرها) أو لا زيارة ولا فواتير (أحمر) */}
+                    <td data-unvisited-mark={(c.invoicesCount ?? 0) > 0 ? 'invoiced' : 'none'}>
+                      {(c.invoicesCount ?? 0) > 0 ? (
+                        <>
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap">
+                            <Receipt size={11} /> {tr('فواتير بلا زيارة')} · {c.invoicesCount}
+                          </span>
+                          {c.lastInvoiceAt && <span className="block text-[11px] text-[#9A8F7E] mt-0.5 whitespace-nowrap">{tr('آخر فاتورة')}: {fmtDay(c.lastInvoiceAt)}</span>}
+                        </>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[#FBEAE7] border border-[#F2C9C2] text-[#B42318] px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap">
+                          {tr('لا زيارة ولا فواتير')}
+                        </span>
+                      )}
+                    </td>
                     <td className={c.lastVisitAt ? 'text-gray-500 text-sm' : 'text-[#B42318] text-sm'}>{fmtLastVisit(c.lastVisitAt)}</td>
                   </tr>
                 ))}

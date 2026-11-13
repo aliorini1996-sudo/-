@@ -111,6 +111,8 @@ interface CustVisit {
 interface UnvisitedCust {
   id: string; name: string; businessName: string | null; phone: string; city: string | null;
   reps: string[]; lastVisitAt: string | null; createdAt: string;
+  /** فواتير البيع في المدى بلا زيارة (علامة طلب المالك ١٣ نوفمبر ٢٠٢٦) — غيابها من خادمٍ أقدم = 0 */
+  invoicesCount?: number; lastInvoiceAt?: string | null;
 }
 /** تجميع الزيارات بالعميل — يُشتقّ على الجهاز (الخادم يرسلها مسطّحة) */
 interface CustGroup {
@@ -867,6 +869,8 @@ function UnvisitedReport({ from, to }: { from: string; to: string }) {
   });
   const rows = useMemo(() => q.data?.customers ?? [], [q.data]);
   const { limit, onScroll, hidden } = useWindowed(`${from}|${to}`, rows.length);
+  // علامة «فواتير بلا زيارة» (طلب المالك ١٣ نوفمبر ٢٠٢٦): من بِيع له في المدى بلا زيارة، والباقي لا زيارة ولا فواتير
+  const invoiced = useMemo(() => rows.filter(c => (c.invoicesCount ?? 0) > 0).length, [rows]);
 
   if (bad) return <Pane><div className="h-[260px]"><MEmpty text={tr('تاريخ البداية بعد تاريخ النهاية')} icon={UserX} /></div></Pane>;
   return (
@@ -875,6 +879,8 @@ function UnvisitedReport({ from, to }: { from: string; to: string }) {
         <div className="grid grid-cols-2 gap-2.5">
           <MStat label={tr('عملاء لم تتم زيارتهم')} value={formatNumber(rows.length)} icon={UserX} />
           <MStat label={tr('العملاء النشطون')} value={formatNumber(q.data?.totalCustomers ?? 0)} icon={Users} />
+          <MStat label={tr('فواتير بلا زيارة')} value={formatNumber(invoiced)} icon={Receipt} tone="warn" />
+          <MStat label={tr('لا زيارة ولا فواتير')} value={formatNumber(rows.length - invoiced)} icon={UserX} tone="bad" />
         </div>
         <MCard>
           {rows.slice(0, limit).map(c => (
@@ -882,6 +888,9 @@ function UnvisitedReport({ from, to }: { from: string; to: string }) {
               leading={<Initial name={c.name} />}
               title={c.name || tr('عميل بلا اسم')}
               subtitle={[c.reps.join('، '), c.city].filter(Boolean).join(' · ') || c.phone}
+              note={(c.invoicesCount ?? 0) > 0
+                ? <span className="text-[#B7791F]" data-unvisited-mark="invoiced">{tr('فواتير بلا زيارة')} · {formatNumber(c.invoicesCount ?? 0)}{c.lastInvoiceAt ? ` — ${tr('آخر فاتورة')}: ${formatDate(c.lastInvoiceAt)}` : ''}</span>
+                : <span className="text-[#C0392B]" data-unvisited-mark="none">{tr('لا زيارة ولا فواتير')}</span>}
               trailing={<Amount value={c.lastVisitAt ? formatDate(c.lastVisitAt) : (from ? tr('لم يُزر قبل الفترة') : to ? tr('لم يُزر حتى نهاية الفترة') : tr('لم يُزر قط'))}
                 tone={c.lastVisitAt ? 'default' : 'bad'} />} />
           ))}
