@@ -1,4 +1,5 @@
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { gregorianLocale } from '../utils/format';
 
 export interface HistPoint { t: string; total: number; reps: number; admins: number }
 
@@ -11,15 +12,15 @@ export interface HistPoint { t: string; total: number; reps: number; admins: num
 export default function LiveHistoryChart({ points, bucket }: { points: HistPoint[]; bucket: string }) {
   const fmtX = (iso: string): string => {
     const d = new Date(iso);
-    if (bucket === 'day') return d.toLocaleDateString('ar', { month: '2-digit', day: '2-digit' });
-    if (bucket === 'hour') return d.toLocaleString('ar', { day: '2-digit', hour: '2-digit' });
-    return d.toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' });
+    if (bucket === 'day') return d.toLocaleDateString(gregorianLocale('ar'), { month: '2-digit', day: '2-digit' });
+    if (bucket === 'hour') return d.toLocaleString(gregorianLocale('ar'), { day: '2-digit', hour: '2-digit' });
+    return d.toLocaleTimeString(gregorianLocale('ar'), { hour: '2-digit', minute: '2-digit' });
   };
   const fmtFull = (iso: string): string => {
     const d = new Date(iso);
-    const date = d.toLocaleDateString('ar', { year: 'numeric', month: '2-digit', day: '2-digit' });
+    const date = d.toLocaleDateString(gregorianLocale('ar'), { year: 'numeric', month: '2-digit', day: '2-digit' });
     if (bucket === 'day') return date;
-    const time = d.toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' });
+    const time = d.toLocaleTimeString(gregorianLocale('ar'), { hour: '2-digit', minute: '2-digit' });
     return `${date} — ${time}`;
   };
 

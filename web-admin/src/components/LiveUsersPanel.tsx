@@ -5,6 +5,7 @@ import { X, RefreshCw, Radio, Truck, Users, Building2, TrendingUp, Activity, Che
 import type { HistPoint } from './LiveHistoryChart';
 import { backdropClose } from '../lib/backdropClose';
 import { usePlatformAccess } from '../lib/platformAccess';
+import { gregorianLocale } from '../utils/format';
 
 // المؤشّرات البيانيّة (recharts الثقيلة) — كسولاً كي لا تُثقل إقلاع لوحة المالك
 const LiveHistoryChart = lazy(() => import('./LiveHistoryChart'));
@@ -139,7 +140,7 @@ const REQ_RANGES: { key: string; label: string }[] = [
 const nf = (n: number): string => n.toLocaleString('en-US');
 const fmtClock = (s?: string): string => {
   if (!s) return '—';
-  return new Date(s).toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return new Date(s).toLocaleTimeString(gregorianLocale('ar'), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 };
 // «آخر ظهور» نسبيّاً (للمتصلين الآن — دائماً خلال ٥ دقائق)
 const fmtAgo = (s?: string | null): string => {

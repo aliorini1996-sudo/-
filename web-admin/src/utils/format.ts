@@ -23,11 +23,36 @@ export function getActiveNumerals() { return activeNumerals; }
  */
 function locale(): string {
   const l = useLang.getState().lang;
-  if (l === 'en') return 'en-US';
-  if (l === 'fr') return 'fr-FR';
-  if (l === 'tr') return 'tr-TR';
-  if (l === 'zh') return 'zh-CN';
-  return activeNumerals === 'latin' ? 'ar-SA-u-nu-latn' : 'ar-SA-u-nu-arab';
+  if (l === 'en') return 'en-US-u-ca-gregory';
+  if (l === 'fr') return 'fr-FR-u-ca-gregory';
+  if (l === 'tr') return 'tr-TR-u-ca-gregory';
+  if (l === 'zh') return 'zh-CN-u-ca-gregory';
+  // `ca-gregory` صريحاً (طلب المالك ١٣ نوفمبر ٢٠٢٦: «التاريخ الميلادي في جميع الصفحات بلا استثناء، وأزل الهجري نهائياً»):
+  // ar-SA تقويمه الافتراضي في Safari/iOS وبعض WebView أندرويد أمّ القرى الهجري، فبلا المفتاح يظهر «١٤٤٨ هـ» على جوالات المناديب
+  return activeNumerals === 'latin' ? 'ar-SA-u-ca-gregory-nu-latn' : 'ar-SA-u-ca-gregory-nu-arab';
+}
+
+/**
+ * locale بتقويمٍ ميلادي صريح — لكل تنسيق تاريخ أو وقت خارج هذا الملف (toLocaleDateString/toLocaleTimeString/Intl.DateTimeFormat
+ * و toLocaleString على تاريخ). يضع `ca-gregory` في امتداد -u- ويستبدل أي تقويمٍ آخر (islamic-umalqura وأمثاله)، ويحفظ ما سواه
+ * (نظام الترقيم nu). وبلا locale (لغة الجهاز): لغة الجهاز نفسها بتقويمٍ ميلادي — فإعداد «التقويم الهجري» في الجوال لا يتسرّب.
+ */
+export function gregorianLocale(loc?: string | null): string {
+  let base = (loc ?? '').trim();
+  if (!base) {
+    try { base = new Intl.DateTimeFormat().resolvedOptions().locale || 'ar'; } catch { base = 'ar'; }
+  }
+  const i = base.toLowerCase().indexOf('-u-');
+  if (i < 0) return `${base}-u-ca-gregory`;
+  const head = base.slice(0, i);
+  // مفاتيح الامتداد أزواج «مفتاح-قيمة(ـقيم)»: يُسقط ca بقيمه ثم يوضع ca-gregory أولاً
+  const parts = base.slice(i + 3).split('-');
+  const kept: string[] = [];
+  for (let k = 0; k < parts.length; k++) {
+    if (parts[k].toLowerCase() === 'ca') { while (k + 1 < parts.length && parts[k + 1].length > 2) k++; continue; }
+    kept.push(parts[k]);
+  }
+  return `${head}-u-ca-gregory${kept.length ? `-${kept.join('-')}` : ''}`;
 }
 
 /** الـlocale نفسه للاستعمال خارج هذا الملف (شاشات تنسّق بنفسها) */

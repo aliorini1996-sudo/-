@@ -6,6 +6,7 @@ import {
   RefreshCw, Users, ArrowRight,
 } from 'lucide-react';
 import { backdropClose } from '../lib/backdropClose';
+import { gregorianLocale } from '../utils/format';
 
 interface Thread {
   phone: string; name: string | null; stage: string; stageAr: string;
@@ -40,7 +41,7 @@ const STAGE_CLS: Record<string, string> = {
 
 /** وقت مقروء بتوقيت الرياض — البوت يعمل بتوقيت عملائه لا بتوقيت الخادم */
 const when = (iso: string) =>
-  new Date(iso).toLocaleString('ar-SA-u-nu-latn', {
+  new Date(iso).toLocaleString(gregorianLocale('ar-SA-u-nu-latn'), {
     timeZone: 'Asia/Riyadh', month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit',
   });

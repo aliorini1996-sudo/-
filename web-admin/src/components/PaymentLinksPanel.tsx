@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { backdropClose } from '../lib/backdropClose';
 import { LinkPaymentTenantDialog } from './AffiliatesPanel';
 import { usePlatformAccess } from '../lib/platformAccess';
+import { gregorianLocale } from '../utils/format';
 
 interface PayLink {
   id: string; tenantId: string | null; tenantName: string | null;
@@ -15,7 +16,7 @@ interface PayLink {
 }
 
 const fmtSar = (halalas: number) => `${(halalas / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })} ر.س`;
-const fmtDT = (s: string) => new Date(s).toLocaleString('ar', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+const fmtDT = (s: string) => new Date(s).toLocaleString(gregorianLocale('ar'), { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 
 const STATUS: Record<string, { label: string; cls: string; icon: React.ElementType }> = {
   paid: { label: 'مدفوع', cls: 'bg-green-50 text-green-700', icon: CheckCircle2 },

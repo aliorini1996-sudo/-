@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { dashboardApi, companyApi } from '../api/client';
-import { formatCurrency, formatDate, statusLabels } from '../utils/format';
+import { formatCurrency, formatDate, statusLabels, gregorianLocale } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { DashboardStats } from '../types';
 import {
@@ -74,7 +74,7 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <div className="page-header">
         <h1 className="page-title">{tr('لوحة التحكم')}</h1>
-        <p className="text-sm text-gray-500">{new Intl.DateTimeFormat('ar-SA', { dateStyle: 'full' }).format(new Date())}</p>
+        <p className="text-sm text-gray-500">{new Intl.DateTimeFormat(gregorianLocale('ar-SA'), { dateStyle: 'full' }).format(new Date())}</p>
       </div>
 
       {/* Today Stats */}

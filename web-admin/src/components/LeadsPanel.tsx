@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { leadApi } from '../api/client';
 import { Lead, LeadActivity, LeadStats, LeadStage } from '../types';
-import { formatDate } from '../utils/format';
+import { formatDate, gregorianLocale } from '../utils/format';
 import {
   X, Search, Plus, Download, Upload, Radar, Trophy, Bell, Target,
   Phone, Globe2, MapPin, Trash2, Sparkles, PhoneCall, StickyNote, ArrowRightLeft, RefreshCw, Mail, MessageCircle, Wand2, Repeat, Users, Smartphone,
@@ -999,7 +999,7 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
     try {
       const res = await leadApi.huntRun();
       const d = res.data.data as { country: string; keywords: string[]; found: number; imported: number; enrichedEmail: number };
-      setLog((l) => [`${new Date().toLocaleTimeString()} · ${d.country}: +${d.imported} عميل (${d.keywords.join('، ')})`, ...l].slice(0, 25));
+      setLog((l) => [`${new Date().toLocaleTimeString(gregorianLocale())} · ${d.country}: +${d.imported} عميل (${d.keywords.join('، ')})`, ...l].slice(0, 25));
       qc.invalidateQueries({ queryKey: ['leads'] });
       qc.invalidateQueries({ queryKey: ['lead-stats'] });
       onDone();
@@ -1039,7 +1039,7 @@ function AutoHuntModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
           <div className="flex gap-4 mt-2 text-xs text-slate-300">
             <span>دفعات <b className="text-white">{cfg.totalRuns}</b></span>
             <span>مضاف عبر الصيد <b className="text-[#E15A30]">{cfg.totalImported}</b></span>
-            <span>آخر تشغيل {cfg.lastRunAt ? new Date(cfg.lastRunAt).toLocaleString() : '—'}</span>
+            <span>آخر تشغيل {cfg.lastRunAt ? new Date(cfg.lastRunAt).toLocaleString(gregorianLocale()) : '—'}</span>
           </div>
         </div>
 
@@ -1153,7 +1153,7 @@ function AutoEmailModal({ onClose, onDone }: { onClose: () => void; onDone: () =
     try {
       const res = await leadApi.autoEmailRun();
       const d = res.data.data as { sent: number; failed: number; followUps?: number; remainingToday: number; targeted: number; errors?: string[] };
-      setLog((l) => [`${new Date().toLocaleTimeString()} أرسل ${d.sent}${d.followUps ? ` (منها ${d.followUps} متابعة)` : ''}${d.failed ? ` فشل ${d.failed}` : ''} متبق اليوم ${d.remainingToday}`, ...l].slice(0, 25));
+      setLog((l) => [`${new Date().toLocaleTimeString(gregorianLocale())} أرسل ${d.sent}${d.followUps ? ` (منها ${d.followUps} متابعة)` : ''}${d.failed ? ` فشل ${d.failed}` : ''} متبق اليوم ${d.remainingToday}`, ...l].slice(0, 25));
       if (d.errors && d.errors.length) setLog((l) => [`⚠️ ${d.errors!.join(' | ')}`, ...l].slice(0, 25));
       qc.invalidateQueries({ queryKey: ['leads'] });
       qc.invalidateQueries({ queryKey: ['lead-stats'] });
@@ -1306,7 +1306,7 @@ function CommunityHuntModal({ onClose, onDone }: { onClose: () => void; onDone: 
     try {
       const res = await leadApi.communityRun();
       const d = res.data.data as { country: string; keywords: string[]; found: number; imported: number };
-      setLog((l) => [`${new Date().toLocaleTimeString()} · ${d.country}: +${d.imported} قروب/مجتمع`, ...l].slice(0, 25));
+      setLog((l) => [`${new Date().toLocaleTimeString(gregorianLocale())} · ${d.country}: +${d.imported} قروب/مجتمع`, ...l].slice(0, 25));
       qc.invalidateQueries({ queryKey: ['leads'] });
       qc.invalidateQueries({ queryKey: ['lead-stats'] });
       onDone();

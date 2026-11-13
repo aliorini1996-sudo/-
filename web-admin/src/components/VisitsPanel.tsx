@@ -5,6 +5,7 @@ import { X, Users, Globe2, TrendingUp, MapPin, Link2, FileText, Clock, RefreshCw
 import { backdropClose } from '../lib/backdropClose';
 import { visitChannelLabel } from '../lib/visitChannels';
 import { buildEngineCountryMatrix, type AiEngineCountryItem } from '../lib/aiEngineCountry';
+import { gregorianLocale } from '../utils/format';
 
 interface Row { at: string; path: string; referrer: string; country: string | null; city: string | null; countryCode: string | null }
 interface Item { label: string; count: number }
@@ -34,8 +35,8 @@ const flag = (cc?: string | null): string => {
 const fmtDT = (s: string): { date: string; time: string } => {
   const d = new Date(s);
   return {
-    date: d.toLocaleDateString('ar', { year: 'numeric', month: '2-digit', day: '2-digit' }),
-    time: d.toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' }),
+    date: d.toLocaleDateString(gregorianLocale('ar'), { year: 'numeric', month: '2-digit', day: '2-digit' }),
+    time: d.toLocaleTimeString(gregorianLocale('ar'), { hour: '2-digit', minute: '2-digit' }),
   };
 };
 

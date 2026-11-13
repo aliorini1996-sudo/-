@@ -15,6 +15,7 @@ import type { PriceList, PriceListItemRow, PriceListItemWrite, PriceListRule, Pr
 import { roundHalfUp } from './money';
 import { listPriceInput, listShownPrice } from './priceLists';
 import { PRICE_RULE_LIMITS, PRICE_RULE_MESSAGES, isPriceRuleDay, priceRuleProblem, type PriceRuleScope } from './priceRules';
+import { gregorianLocale } from '../utils/format';
 
 type Tr = (s: string) => string;
 type Fmt = (n: number) => string;
@@ -406,10 +407,11 @@ export function ruleDatesText(
   const year = now.getFullYear();
   const needYear = [s, e].some((x) => x !== null && Number(x.slice(0, 4)) !== year);
   let fmt: Intl.DateTimeFormat;
+  // تقويمٌ ميلادي صريح أيّاً كان الـlocale الوارد (ar-SA في Safari/iOS هجريٌّ افتراضاً)
   try {
-    fmt = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', ...(needYear && { year: 'numeric' }) });
+    fmt = new Intl.DateTimeFormat(gregorianLocale(locale), { day: 'numeric', month: 'short', ...(needYear && { year: 'numeric' }) });
   } catch {
-    fmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', ...(needYear && { year: 'numeric' }) });
+    fmt = new Intl.DateTimeFormat(gregorianLocale(), { day: 'numeric', month: 'short', ...(needYear && { year: 'numeric' }) });
   }
   if (s && e) {
     if (s === e) return fmt.format(dayDate(s));

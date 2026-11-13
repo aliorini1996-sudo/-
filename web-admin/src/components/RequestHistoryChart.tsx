@@ -1,4 +1,5 @@
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { gregorianLocale } from '../utils/format';
 
 export interface ReqPoint { day: string; requests: number; reps: number; admins: number }
 
@@ -12,11 +13,11 @@ const nf = (n: number): string => n.toLocaleString('en-US');
 export default function RequestHistoryChart({ points }: { points: ReqPoint[] }) {
   const fmtX = (day: string): string => {
     const d = new Date(day + 'T00:00:00');
-    return d.toLocaleDateString('ar', { month: '2-digit', day: '2-digit' });
+    return d.toLocaleDateString(gregorianLocale('ar'), { month: '2-digit', day: '2-digit' });
   };
   const fmtFull = (day: string): string => {
     const d = new Date(day + 'T00:00:00');
-    return d.toLocaleDateString('ar', { year: 'numeric', month: '2-digit', day: '2-digit' });
+    return d.toLocaleDateString(gregorianLocale('ar'), { year: 'numeric', month: '2-digit', day: '2-digit' });
   };
   const interval = Math.max(0, Math.floor(points.length / 8));
 

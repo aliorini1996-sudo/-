@@ -14,6 +14,7 @@
  * وكل عبارةٍ عربية تُنتجها في `REP_TARGET_TEXTS` (حارس القاموس في الاختبار). ولا ذكر للضريبة في أي نصّ (وضع «إزالة الضريبة»).
  */
 import type { UnitChoice } from '../rep/repUnits';
+import { gregorianLocale } from '../utils/format';
 
 type Tr = (ar: string) => string;
 type Fmt = (n: number) => string;
@@ -208,7 +209,8 @@ export function periodLabel(p: Pick<RepTargetPeriod, 'from' | 'to'>, locale: str
   const a = new Date(dayMs(p.from));
   const b = new Date(dayMs(p.to));
   try {
-    const f = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+    // تقويمٌ ميلادي صريح أيّاً كان الـlocale الوارد (ar-SA في Safari/iOS هجريٌّ افتراضاً)
+    const f = new Intl.DateTimeFormat(gregorianLocale(locale), { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
     const fr = (f as Intl.DateTimeFormat & { formatRange?: (x: Date, y: Date) => string }).formatRange;
     return p.from === p.to ? f.format(a) : fr ? fr.call(f, a, b) : `${f.format(a)} – ${f.format(b)}`;
   } catch {
@@ -241,7 +243,7 @@ export function periodStatusText(p: RepTargetPeriod, lang: string, tr: Tr, local
   if (p.state === 'ENDED') return tr('انتهت الفترة');
   if (p.state === 'UPCOMING') {
     let day = p.from;
-    try { day = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(dayMs(p.from))); } catch { /* */ }
+    try { day = new Intl.DateTimeFormat(gregorianLocale(locale), { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(dayMs(p.from))); } catch { /* */ }
     return tr('تبدأ {d}').replace('{d}', () => day);
   }
   return daysLeftText(p.daysLeft, lang, tr, num);
@@ -642,7 +644,7 @@ export function monthLabel(month: string, locale: string): string {
   if (!MONTH_RE.test(String(month ?? ''))) return String(month ?? '');
   const [y, mo] = month.split('-').map(Number);
   try {
-    return new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(y, mo - 1, 1)));
+    return new Intl.DateTimeFormat(gregorianLocale(locale), { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(y, mo - 1, 1)));
   } catch {
     return month;
   }
