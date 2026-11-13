@@ -119,7 +119,8 @@ export interface OutboxDoc {
   // مالك المستند: الخادم ينسب المستند لصاحب التوكن وقت الرفع لا لحمولته، فلو رُفع
   // مستند مندوب بجهاز زميله لنُسب للزميل. نختمه هنا ولا نرفع إلا مستندات صاحب الجلسة.
   repId?: string;
-  kind: 'customer' | 'invoice' | 'receipt' | 'visit' | 'dailyReport' | 'aiOutcome';
+  // customerDocs: صور وثائق عميلٍ جديد (استديو العميل) — منفصلةً عن العميل نفسه وآخر الصفّ، فلا تحبس ميغابايتاتُها الفواتير
+  kind: 'customer' | 'invoice' | 'receipt' | 'visit' | 'dailyReport' | 'aiOutcome' | 'customerDocs';
   payload: unknown;               // حمولة POST كما تُرسل للخادم
   status: 'queued' | 'sent' | 'rejected';
   clientCreatedAt: string;        // ISO

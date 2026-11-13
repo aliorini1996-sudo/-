@@ -21,13 +21,14 @@ const QUALITY = 0.7;
  * يرفض الوعد عند ملفٍ تالف أو غير صورة — والمستدعي يتجاهله بصمت عادةً، فملفٌ
  * واحدٌ فاسد بين ثمانية لا يجوز أن يُسقط الاختيار كلّه.
  */
-export function compressImage(file: File): Promise<string> {
+export function compressImage(file: File, opts?: { maxDim?: number; quality?: number }): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
-        const max = MAX_DIM;
+        // صور الوثائق (استديو العميل) أوضح قليلاً: lib/customerDocs.ts → DOC_COMPRESS — وغيرها بالحدّين الأصليين حرفياً
+        const max = opts?.maxDim ?? MAX_DIM;
         let { width, height } = img;
         if (width > max || height > max) {
           const s = Math.min(max / width, max / height);
@@ -39,8 +40,10 @@ export function compressImage(file: File): Promise<string> {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         if (!ctx) { reject(new Error('canvas')); return; }
+        // وثيقةٌ PNG شفافة تصير JPEG بخلفية سوداء فيضيع نصّها — صور الوثائق على خلفية بيضاء (وغيرها كما كان)
+        if (opts) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, width, height); }
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', QUALITY));
+        resolve(canvas.toDataURL('image/jpeg', opts?.quality ?? QUALITY));
       };
       img.onerror = () => reject(new Error('img'));
       img.src = reader.result as string;

@@ -5,6 +5,10 @@
 // «أثبت تواجدي» خلال دقيقتين، فيُؤخذ موقعه بقراءةٍ طازجة ويظهر للإدارة: في الوقت، أو متأخراً، أو بلا ردّ، ومعه موقعه ومسافة
 // أقرب عملائه وجهازه. الضغط شرط (لا ردٌّ تلقائي): جوالٌ متروك على طاولةٍ عند العميل لا يجيب عن صاحبه.
 //
+// «بين الحضور والانصراف وحدهما، وفي ساعات الدوام إن حُدّدت» (طلب المالك ١٣ نوفمبر ٢٠٢٦): لا طلب قبل بصمة الحضور ولا بعد
+// الانصراف (الإرسال يشترط نوبةً مفتوحة)، ولا قبل بداية الدوام ولا بعد نهايته ولا في غير أيامه حين تُضبط ساعاته للتنبيهات، ولا
+// يومٌ جديد لنوبةٍ منسيّة مفتوحة من أمس (بلا بصمة حضورٍ اليوم لا طلب).
+//
 // المواعيد تُخطَّط على الخادم عند أول نوبةٍ مفتوحة في يوم المندوب، ولا تصل التطبيق قبل وقتها — فلا يُتنبّأ بها: كل موعدٍ
 // يُسحب مستقلاً (crypto) على نافذة الدوام كلها بفاصلٍ أدنى قصير، وعددها (٢ أو ٣) سرّ — فلا «فترة آمنة» بعد طلبٍ ولا يُعرف
 // أن اليوم انتهى من توقيت الثاني. وموعدٌ يحلّ والنوبة مغلقة (استراحة) يُؤجَّل عشوائياً داخل نافذته، فإن لم يبقَ منها شيء
@@ -81,16 +85,20 @@ export function planTimes(start: number, end: number, count: number, rand: Rand 
 }
 
 const localDay = (t: number, tz: number) => new Date(t + tz * MIN).toISOString().slice(0, 10);
+/** يوم عملٍ في أيام دوامه (بتات الأحد=1 … السبت=64) */
+const isWorkday = (day: string, shiftDays: number) => (shiftDays & (1 << new Date(`${day}T00:00:00.000Z`).getUTCDay())) !== 0;
 const dayStartUtc = (day: string, tz: number) => Date.parse(`${day}T00:00:00.000Z`) - tz * MIN;
 
-export interface PresenceRep { shiftStart: string | null; shiftEnd: string | null; tzOffsetMin: number | null }
+export interface PresenceRep { shiftStart: string | null; shiftEnd: string | null; tzOffsetMin: number | null; shiftDays?: number | null }
 
 /**
- * نافذة تحقّقات نوبة المندوب: من الحضور (بعد عشرين دقيقة) أو الآن، إلى نهاية دوامه (قبلها بعشرين دقيقة). وبلا موعد نهاية (أو
- * حضورٍ بعد موعده): تسع ساعات من الحضور لا تتجاوز الحادية عشرة ليلاً. ويوم المندوب بتوقيت جواله — وفي الدوام الليلي (البداية
- * بعد النهاية) حضورٌ بعد منتصف الليل من ليلة أمس.
+ * نافذة تحقّقات نوبة المندوب: من الحضور (بعد عشرين دقيقة) أو الآن، إلى نهاية دوامه (قبلها بعشرين دقيقة). وبلا موعد نهاية:
+ * تسع ساعات من الحضور لا تتجاوز الحادية عشرة ليلاً. ويوم المندوب بتوقيت جواله — وفي الدوام الليلي (البداية بعد النهاية) حضورٌ
+ * بعد منتصف الليل من ليلة أمس.
+ * ساعات الدوام مضبوطة (للتنبيهات) ⇒ النافذة داخلها وحدها (طلب المالك ١٣ نوفمبر ٢٠٢٦): لا قبل بدايته (`floor`) ولا بعد نهايته —
+ * فحضورٌ بعد نهاية الدوام (عملٌ إضافي) أو في غير أيامه نافذته فارغة.
  */
-export function presenceWindow(rep: PresenceRep, checkInAt: Date, now: Date): { day: string; start: number; end: number; windowEndAt: number } {
+export function presenceWindow(rep: PresenceRep, checkInAt: Date, now: Date): { day: string; start: number; end: number; windowEndAt: number; floor: number } {
   const tz = rep.tzOffsetMin ?? DEFAULT_TZ_MIN;
   const inAt = checkInAt.getTime();
   const endMin = parseHM(rep.shiftEnd);
@@ -98,15 +106,18 @@ export function presenceWindow(rep: PresenceRep, checkInAt: Date, now: Date): { 
   const overnight = endMin != null && startMin != null && endMin <= startMin;
   const minuteOfDay = Math.floor((((inAt + tz * MIN) % DAY) + DAY) % DAY / MIN);
   const day = overnight && minuteOfDay < endMin! + 180 ? localDay(inAt - DAY, tz) : localDay(inAt, tz);
-  const start = Math.max(now.getTime() + 5 * MIN, inAt + PRESENCE_EDGE_MS);
+  // بداية الدوام المضبوطة حدٌّ أدنى: حضورٌ مبكر لا يُطلب منه قبل موعد دوامه
+  const floor = startMin != null ? dayStartUtc(day, tz) + startMin * MIN : -Infinity;
+  const start = Math.max(now.getTime() + 5 * MIN, inAt + PRESENCE_EDGE_MS, floor);
   const cap = minuteOfDay >= EVENING_START_MIN ? Infinity : dayStartUtc(localDay(inAt, tz), tz) + NO_END_CAP_MIN * MIN;
   let endAt = Math.min(inAt + PRESENCE_NO_END_MS, cap);
   if (endMin != null) {
-    // حضورٌ قبل نهاية دوامه (ولو في دقائقه الأخيرة) نافذته إلى نهايته — مسار «بلا نهاية» لحضورٍ بعدها وحده
-    const at = dayStartUtc(day, tz) + endMin * MIN + (overnight ? DAY : 0);
-    if (at > inAt) endAt = at;
+    // نهاية الدوام المضبوطة حدٌّ أعلى دائماً: حضورٌ بعدها (عملٌ إضافي) نافذته فارغة — لا «تسع ساعات» خارج الدوام
+    endAt = dayStartUtc(day, tz) + endMin * MIN + (overnight ? DAY : 0);
   }
-  return { day, start, end: endAt - PRESENCE_EDGE_MS, windowEndAt: endAt };
+  // يومٌ ليس من أيام دوامه وساعاته مضبوطة ⇒ لا تحقّق فيه
+  if ((startMin != null || endMin != null) && rep.shiftDays != null && !isWorkday(day, rep.shiftDays)) endAt = Math.min(endAt, inAt);
+  return { day, start, end: endAt - PRESENCE_EDGE_MS, windowEndAt: endAt, floor };
 }
 
 /** حكم الردّ بلحظته (لحظة الضغط إن سُجّلت): في الوقت، أو متأخر، أو فات (null) */
@@ -150,8 +161,6 @@ export function presencePayload(lang: string | null | undefined, checkId?: strin
   return { title: tx.title, body: tx.body, url: '/rep?screen=presence', tag: 'presence', ...(checkId ? { checkId } : {}) };
 }
 
-/** يوم عملٍ في أيام دوامه (بتات الأحد=1 … السبت=64) */
-const isWorkday = (day: string, shiftDays: number) => (shiftDays & (1 << new Date(`${day}T00:00:00.000Z`).getUTCDay())) !== 0;
 
 /** المندوب المؤهّل الآن: القيد مفعّل، نشط، وشركته فعّلت البصمة وما زالت نشطة */
 const ELIGIBLE_REP = { requirePresenceCheck: true, isActive: true, tenant: { attendanceEnabled: true, isActive: true } } as const;
@@ -190,8 +199,6 @@ async function planDays(now: Date, rand: Rand): Promise<number> {
     const open = rep.attendance[0];
     if (!open) continue;
     const w = presenceWindow(rep, open.checkInAt, now);
-    const tz = rep.tzOffsetMin ?? DEFAULT_TZ_MIN;
-    const today = localDay(now.getTime(), tz);
 
     if (now.getTime() < w.windowEndAt) {
       // نوبةٌ جارية في نافذتها — تُعالَج مرّةً
@@ -209,7 +216,7 @@ async function planDays(now: Date, rand: Rand): Promise<number> {
         const longBreak = lastOut?.checkOutAt != null && open.checkInAt.getTime() - lastOut.checkOutAt.getTime() >= PRESENCE_REPLAN_BREAK_MS;
         if (pending.length && longBreak) {
           // من الآن لا من الحضور + عشرين دقيقة: هامشٌ بعد كل عودة «فترةٌ آمنة» مضمونة يُستغلّ بحضورٍ وانصرافٍ متناوبين
-          const times = planTimes(Math.max(now.getTime() + MIN, open.checkInAt.getTime()), w.end, pending.length, rand);
+          const times = planTimes(Math.max(now.getTime() + MIN, open.checkInAt.getTime(), w.floor), w.end, pending.length, rand);
           for (let k = 0; k < times.length; k++) {
             await prisma.presenceCheck.updateMany({
               where: { id: pending[k].id, status: { in: ['SCHEDULED', 'SKIPPED'] } },
@@ -223,13 +230,8 @@ async function planDays(now: Date, rand: Rand): Promise<number> {
       continue;
     }
 
-    // نوبةٌ مفتوحة انتهت نافذتها (نسي الانصراف): يومُ عملٍ جديد مرّةً (مفتاح pc:plan:<مندوب>:<يوم>)
-    if (!isWorkday(today, rep.shiftDays)) continue;
-    const startMin = parseHM(rep.shiftStart) ?? Math.floor(((open.checkInAt.getTime() + tz * MIN) % DAY) / MIN);
-    const anchor = dayStartUtc(today, tz) + startMin * MIN;
-    if (now.getTime() < anchor) continue;
-    if (await prisma.presenceCheck.count({ where: { salesRepId: rep.id, day: today } })) continue;
-    planned += await writePlan(rep, presenceWindow(rep, new Date(anchor), now), rand);
+    // نوبةٌ مفتوحة انتهت نافذتها (نسي الانصراف): لا يوم عملٍ جديد يُخطَّط لها — التحقق بين بصمة الحضور والانصراف وحدهما
+    // (طلب المالك ١٣ نوفمبر ٢٠٢٦)، فبلا بصمة حضورٍ اليوم لا طلب. وما بقي من خطّة يومها يسقط بانتهاء نافذته (dispatchDue)
   }
   return planned;
 }

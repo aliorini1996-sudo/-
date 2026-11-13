@@ -164,7 +164,7 @@ export function isLiveGuardedRequest(method: string | undefined, url: string | u
 }
 /** أنواع الصفّ الصادر التي تعمل على عميل — لا تُصفّ للمقيَّد دون اتصال (التقرير اليومي ونتيجة المندوب الذكي تُصفّ) */
 export function isLiveGuardedKind(kind: string): boolean {
-  return kind === 'customer' || kind === 'invoice' || kind === 'receipt' || kind === 'visit';
+  return kind === 'customer' || kind === 'invoice' || kind === 'receipt' || kind === 'visit' || kind === 'customerDocs';
 }
 
 /**

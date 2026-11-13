@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useQuery } from '@tanstack/react-query';
 import { Customer } from '../../types';
@@ -6,14 +6,16 @@ import { useTr } from '../../i18n/strings';
 import { priceListApi } from '../../api/client';
 import { baseLabelOf, priceListsOf } from '../../lib/priceLists';
 import { SALES_CHANNELS } from '../../lib/channels';
-import { X, MapPin } from 'lucide-react';
+import { X, MapPin, Images } from 'lucide-react';
+import CustomerDocsPicker from '../CustomerDocsPicker';
+import { PickedDoc, docsPayload } from '../../lib/customerDocs';
 import BuyerDataFields from '../BuyerDataFields';
 import { BUYER_PHASE2_FIELDS, BuyerRowLike } from '../../lib/zatca/buyerData';
 import { BuyerFormValues, buyerFormHints, buyerFormValues, buyerRelaxWarnings } from '../../lib/zatca/buyerForm';
 import { CUSTOMER_PHONE_MAX, trimCustomerPhone } from '../../lib/customerPhoneField';
 
 // locationUrl حقل إدخال فقط (يحلّه الخادم إلى lat/lng) — ليس حقلاً مخزّناً
-type CustomerForm = Partial<Customer> & { locationUrl?: string };
+type CustomerForm = Partial<Customer> & { locationUrl?: string; documents?: PickedDoc[] };
 
 interface Props {
   customer: Customer | null;
@@ -28,13 +30,15 @@ interface Props {
   buyerRelax?: boolean;
   /** «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): الشركة بلا ضريبة (isTaxOff) — لا خانة الرقم الضريبي، والمحفوظ يُرسل كما هو بلا تغيير */
   taxOff?: boolean;
+  /** «استديو العميل» (١٣ نوفمبر ٢٠٢٦): في التعديل تُدار الوثائق من الاستديو — زرٌّ يفتحه */
+  onOpenStudio?: () => void;
 }
 
 /** حقول المرحلة الثانية من الحالة المحكومة (الرقم الضريبي والسجل والمدينة والحي والاسم من حقول النموذج المسجّلة). */
 const pickPhase2 = (b: BuyerFormValues): Partial<BuyerFormValues> =>
   Object.fromEntries(BUYER_PHASE2_FIELDS.map(f => [f, b[f]])) as Partial<BuyerFormValues>;
 
-export default function CustomerModal({ customer, onClose, onSave, loading, accountingOn = true, buyerRelax = false, taxOff = false, zatcaCollect = false }: Props) {
+export default function CustomerModal({ customer, onClose, onSave: save, loading, onOpenStudio, accountingOn = true, buyerRelax = false, taxOff = false, zatcaCollect = false }: Props) {
   const tr = useTr();
   const { register, handleSubmit, watch } = useForm<CustomerForm>({
     defaultValues: customer || { status: 'ACTIVE', creditLimit: 0, paymentDays: 30 },
@@ -43,6 +47,21 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
   // بيانات المشتري (Z5.1a): حالة محكومة تُدمج في الحمولة للشركة الجامعة وحدها (مع الرقم الضريبي والسجل والاسم والمدينة والحي من
   // النموذج نفسه). غير الجامعة: الحمولة كما اليوم حرفياً
   const [buyer, setBuyer] = useState<BuyerFormValues>(() => buyerFormValues(customer as BuyerRowLike | null));
+  // «صور الوثائق» مع العميل الجديد (طلب المالك ١٣ نوفمبر ٢٠٢٦) — تُرسل في جسم الإنشاء نفسه فتُحفظ معه
+  const [docs, setDocs] = useState<PickedDoc[]>([]);
+  // الوثائق تُضاف عند الحفظ نفسه (العميل الجديد وحده) — فتبقى حمولة submit أدناه كما هي حرفياً لكل حالة
+  // الصور تُضغط على الجهاز قبل أن تُضاف: «إضافة العميل» في أثنائه ينتظرها ثم يحفظ وحده — وإلا حُفظ العميل بلا ما لم يُجهَّز منها
+  const [docsBusy, setDocsBusy] = useState(false);
+  const [pendingSave, setPendingSave] = useState<CustomerForm | null>(null);
+  const onSave = (d: CustomerForm) => {
+    if (!customer && docsBusy) { setPendingSave(d); return; }
+    save(customer ? d : { ...d, ...docsPayload(docs) });
+  };
+  useEffect(() => {
+    if (docsBusy || !pendingSave) return;
+    setPendingSave(null);
+    save({ ...pendingSave, ...docsPayload(docs) });
+  }, [docsBusy, pendingSave, docs, save]);
   const watched = zatcaCollect ? watch() : null;
   const buyerValues = watched ? { ...buyerFormValues(watched as BuyerRowLike), ...pickPhase2(buyer) } : null;
   // «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): قواعد الخادم تلميحٌ حيّ في القسم لا يمنع الإرسال — والخادم يُهمل حقل المرحلة
@@ -194,6 +213,24 @@ export default function CustomerModal({ customer, onClose, onSave, loading, acco
               )}
             </div>
           </div>
+
+          {/* صور الوثائق: مع العميل الجديد تصويراً أو من الجهاز، وفي التعديل من «استديو العميل» */}
+          {(!customer || onOpenStudio) && (
+          <div>
+            <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase flex items-center gap-1.5"><Images size={15} /> {tr('صور الوثائق')}</h3>
+            {customer ? (
+              <button type="button" onClick={onOpenStudio}
+                className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#8A6D1F] border border-[#EDE3CF] bg-[#FBF7EF] rounded-lg px-3 py-2 hover:border-[#8A6D1F]/50">
+                <Images size={15} /> {tr('فتح استديو العميل')}
+              </button>
+            ) : (
+              <>
+                <CustomerDocsPicker docs={docs} onChange={setDocs} taxOff={taxOff} onBusy={setDocsBusy} />
+                {pendingSave && <p className="text-[11px] text-[#8A6D1F] mt-1">{tr('يحفظ العميل حين تجهز الصور')}</p>}
+              </>
+            )}
+          </div>
+          )}
 
           {/* Financial — الحد الائتماني ومدة السداد ماليّان: يُحذف القسم كلّه مع
               المحاسبة. وعدم تسجيل الحقلين يُبقي قيمتيهما المحفوظتين كما هما،

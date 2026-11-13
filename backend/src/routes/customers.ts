@@ -27,7 +27,11 @@ import { patchSessionOutlet } from '../ai-rep/session';
 import { UnitInvalidError } from '../services/warehouseStock';
 import { PRICE_LIST_MESSAGES } from '../services/priceLists';
 import { CUSTOMER_PHONE_MAX } from '../services/importMatch';
+import { findPhoneDuplicate, phoneDupBody, phoneDupExempt } from '../services/customerPhoneDup';
+import { findLocationDuplicate, locationDupBody, validPoint } from '../services/customerLocationDup';
 import { DEVICE_NOW_HEADER, headerText, offlineInvoiceDate } from '../services/offlineInvoiceDate';
+import { parseCustomerDocs, droppedDocsWarning, docCreateRows, docsBatchRef } from '../services/customerDocs';
+import { customerStudioRouter } from './customerStudio';
 // «الوحدة الرئيسية» §2.10: أسعار العميل لوحدة الأساس تُكتب تحت قفل صفّ الصنف مقارنةً بالأساس الذي كُتبت له
 import {
   ProductUnitsBusyError, ProductUnitsChangedError, baseGuardReply, lockBases, missingBaseForApi, staleClientBase, type ExpectedBases,
@@ -229,6 +233,8 @@ router.get('/locations', async (req: AuthRequest, res: Response, next: NextFunct
 
 // قائمة بيانات الفوترة + «اعتماد التصنيف المقترح» + نقطة الفوترة الضيّقة للمندوب (Q3) — قبل /:id وإلا التُقطت كمعرّف عميل
 router.use(createCustomerBuyerDataRouter(buyerDataDeps));
+// «استديو العميل» (طلب المالك ١٣ نوفمبر ٢٠٢٦): وثائقه وصور زياراته ومرفقات سنداته — لمستخدمي الشركة وحدهم (routes/customerStudio.ts)
+router.use(customerStudioRouter);
 
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -264,6 +270,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     data.name = customerNameFallback(data);
     const ref = customerRefOf(req.body);
     if (ref) data.code = ref; else delete data.code;
+    // «استديو العميل»: صور الوثائق مع الإنشاء نفسه (ذرّياً مع العميل — والصفّ دون اتصال يحملها معه). ما لا يصلح يُسقط بتحذير ولا يرفض العميل
+    const docsIn = parseCustomerDocs(req.body?.documents);
+    const docsWarning = droppedDocsWarning(docsIn.dropped);
+    const docsRef = typeof data.clientRef === 'string' && data.clientRef ? docsBatchRef(data.clientRef) : null;
+    const docsCreate = docsIn.docs.length > 0 ? { documents: { create: docCreateRows(tid, docsIn.docs, req, docsRef) } } : {};
 
     // المندوب الذي ينشئ العميل (إن كان الطالب مندوباً) — يُوثَّق ويُسنَد له العميل تلقائياً
     const creatorRepId = req.user?.role === 'SALES_REP' ? req.user.id : null;
@@ -330,7 +341,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
             ...(upd.priceListId !== undefined && { priceListId: upd.priceListId || null }),
           } as any,
         });
-        res.status(200).json({ success: true, data: updated, existing: true, updated: true, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });
+        // عميلٌ قائم بالرقم المرجعي (مزامنة نظامٍ خارجي): الوثائق لا تُضاف هنا — كل مزامنة كانت ستكرّرها بلا سقف ولا نطاق.
+        // تُرفع من «استديو العميل» (بقفل الصفّ وسقف العميل)
+        const ignoredDocs = docsIn.docs.length + docsIn.dropped;
+        const updWarnings = [...(buyerGate.warnings ?? []), ...(ignoredDocs > 0 ? [{ code: 'CUSTOMER_DOCS_IGNORED', ignored: ignoredDocs, message: 'العميل قائم بالرقم المرجعي فلم تُضف صور الوثائق — ارفعها من استديو العميل' }] : [])];
+        res.status(200).json({ success: true, data: updated, existing: true, updated: true, ...(updWarnings.length > 0 && { warnings: updWarnings }) });
         return;
       }
       if (byRef) {
@@ -344,6 +359,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const geo = await resolveLocationUrl(locationUrl, { googleOnly: true });
       if (geo) { rest.lat = geo.lat; rest.lng = geo.lng; }
     }
+    // «منع تكرار الجوال داخل الشركة» (طلب المالك ١٣ نوفمبر ٢٠٢٦): جوالٌ مسجَّلٌ لعميلٍ آخر ⇒ 409 CUSTOMER_PHONE_EXISTS —
+    // إلا مفتاح API وإعادة رفع صندوق المندوب (services/customerPhoneDup.ts)
+    if (!phoneDupExempt(req)) {
+      const dup = await findPhoneDuplicate(tid, rest.phone);
+      if (dup) { res.status(409).json(phoneDupBody(dup, await canAccessCustomer(req, tid, dup.id))); return; }
+      // «منع تكرار الموقع داخل الشركة» (طلب المالك ١٣ نوفمبر ٢٠٢٦): عميلٌ آخر ضمن ٣٠ متراً ⇒ 409 CUSTOMER_LOCATION_EXISTS
+      const near = await findLocationDuplicate(tid, rest.lat, rest.lng);
+      if (near) { res.status(409).json(locationDupBody(near, await canAccessCustomer(req, tid, near.id))); return; }
+    }
     // R6: عميل صندوق المندوب بلحظة إضافته على الجهاز (replayCustomerCreatedAt) — وغيره ساعة الخادم كما كان
     const addedAt = await replayCustomerCreatedAt(req, tid, clientCreatedAt);
     // idempotency على مستوى التطبيق (لا قيد فريد على clientRef في customers — انظر المخطّط).
@@ -356,6 +380,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         clientCreatedAt: clientCreatedAt && !Number.isNaN(new Date(clientCreatedAt).getTime()) ? new Date(clientCreatedAt) : undefined, // تاريخ الجهاز التالف يُهمل لا 500
         ...(addedAt && { createdAt: addedAt }),
         ...(creatorRepId && { createdBySalesRepId: creatorRepId }),
+        ...docsCreate,
       } as any,
     });
     // العميل الذي يفتحه المندوب يظهر له فوراً (سجلّ إسناد تلقائي؛ للإدارة نزعه لاحقاً)
@@ -370,6 +395,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       catch (e) { console.error('[ai-rep] ربط التحويل تعذّر:', (e as Error)?.message); }
     }
     const postWarnings = [...(buyerGate.warnings ?? []), ...(refWarning ? [refWarning] : [])];
+    if (docsWarning) postWarnings.push(docsWarning); // صور وثائق أُسقطت — العميل نفسه حُفظ
     res.status(201).json({ success: true, data: customer, ...(postWarnings.length > 0 && { warnings: postWarnings }) });
   } catch (err) {
     if (isPriceListFkFail(err)) { priceListInvalid(res); return; }
@@ -529,6 +555,12 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       }
     }
     void _cr; void _cc; void _ap; // معرّف مكان Google يُربط عند الإنشاء وحده
+    // «منع تكرار الجوال داخل الشركة»: جوالٌ تغيّر إلى رقم عميلٍ آخر ⇒ 409 (الجوال نفسه بلا تغيير لا يُفحص — تكرارٌ قديم لا يمنع تعديلاً)
+    if (typeof data.phone === 'string' && data.phone.trim() && !phoneDupExempt(req)
+      && data.phone.trim() !== String(exists.phone ?? '').trim()) {
+      const dup = await findPhoneDuplicate(tid, data.phone, req.params.id);
+      if (dup) { res.status(409).json(phoneDupBody(dup, await canAccessCustomer(req, tid, dup.id))); return; }
+    }
     // «تعديل بيانات العميل» للمندوب يشمل البيانات الوصفية لا الشروط المالية: الحدّ الائتمانيّ
     // وفترة السداد وحالة العميل قرارُ الإدارة — وإلا رفع المندوب حدّ عميله ليتجاوز ضابط الائتمان
     if (req.user?.role === 'SALES_REP') {
@@ -550,6 +582,12 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (locationUrl) {
       const geo = await resolveLocationUrl(locationUrl, { googleOnly: true });
       if (geo) { data.lat = geo.lat; data.lng = geo.lng; }
+    }
+    // «منع تكرار الموقع داخل الشركة»: موقعٌ تحرّك إلى ٣٠ متراً من عميلٍ آخر ⇒ 409 — والموقع نفسه بلا تغيير (صدى النموذج) لا يُمنع:
+    // findLocationDuplicate يقرأ صفّ العميل نفسه في الاستعلام ذاته فيعرف أنه لم يتحرّك (تكرارٌ قديم لا يمنع تعديلاً)
+    if (validPoint(data.lat, data.lng) && !phoneDupExempt(req)) {
+      const near = await findLocationDuplicate(tid, data.lat, data.lng, req.params.id);
+      if (near) { res.status(409).json(locationDupBody(near, await canAccessCustomer(req, tid, near.id))); return; }
     }
     let customer = await prisma.customer.update({
       where: { id: req.params.id },

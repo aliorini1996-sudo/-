@@ -218,6 +218,9 @@ model Tenant {
   platformNotes         TenantNote[]
   platformDeal          TenantDeal?
 
+  // «استديو العميل» (طلب المالك ١٣ نوفمبر ٢٠٢٦): وثائق العملاء وصورهم (علاقة عكسية فقط)
+  customerDocuments     CustomerDocument[]
+
   // «النموذج المطبوع مسبقاً»: صور نماذج الشركة (علاقة عكسية فقط، بلا أعمدة)
   printFormImages       PrintFormImage[]
 
@@ -1032,6 +1035,7 @@ model Customer {
   adminScopes    AdminCustomerScope[]
   paymentLinks   CustomerPaymentLink[]
   cardPayments   CardPayment[]
+  documents      CustomerDocument[] // «استديو العميل»: وثائقه وصوره المرفوعة
 
 
   // ZATCA المرحلة الثانية — بيانات المشتري (اختيارية؛ countryCode بلا قيمة افتراضية كي لا تُوسَم عملاء دول أخرى SA — المُطابِق يعامل null كـSA)
@@ -2363,6 +2367,31 @@ model RepVisit {
   @@index([tenantId, customerId])
   @@index([tenantId, teamId, createdAt]) // تقارير الفرق
   @@map("rep_visits")
+}
+
+// وثيقة العميل أو صورته (طلب المالك ١٣ نوفمبر ٢٠٢٦ — «استديو العميل»): السجل التجاري والهوية والشهادة الضريبية وصورة المحل…
+// تُرفع مع إضافة العميل (لوحة الشركة وتطبيق المندوب، ودون اتصال مع العميل في الصفّ) ومن الاستديو نفسه. تُخزَّن data URL مضغوطةً
+// على الجهاز كصور الزيارة، في جدولٍ منفصل لا تُحمَّل في قوائم العملاء — وتُطلب صورةً صورة عند عرضها. حذفها حقيقيّ، ومع العميل
+model CustomerDocument {
+  id             String   @id @default(uuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId     String
+  customer       Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  kind           String   @default("OTHER") // CR | VAT | ID | SHOP | CONTRACT | OTHER (services/customerDocs.ts)
+  data           String // data:image/jpeg|png|webp;base64,… مفحوصة بالبايتات
+  sizeBytes      Int
+  uploadedByKind String // ADMIN | REP | API
+  uploadedById   String?
+  uploadedByName String?
+  // مفتاح دفعة الرفع من صفّ المندوب دون اتصال («<clientRef العميل>:docs») — إعادة الإرسال لا تكرّر الصور. لا قيد فريد
+  // (دفعةٌ صورٌ عدّة بالمفتاح نفسه)، والمزامنة متسلسلة على الجهاز
+  clientRef      String?
+  createdAt      DateTime @default(now())
+
+  @@index([tenantId, customerId, createdAt])
+  @@index([tenantId, clientRef])
+  @@map("customer_documents")
 }
 
 // صورة زيارة (رفّ/منتج/عرض) — تُخزَّن base64 (مضغوطة على العميل) في جدول منفصل
