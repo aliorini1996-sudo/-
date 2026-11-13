@@ -11,7 +11,8 @@ test('تقرير المرتجع: المؤكَّدة من نوع المرتجع �
   assert.ok(i > 0, 'المسار غائب');
   const h = src.slice(i, src.indexOf("router.get('/collections'"));
   // نطاق المستخدم ومعه فلتر الفريق — في النطاق نفسه فيطبَّق على المرتجعات وعلى مبيعات النسبة معاً
-  assert.match(h, /const scope = \{ \.\.\.\(await scopedRecordWhere\(req, SHAPE_INVOICE_RECEIPT\)\), \.\.\.teamDocWhere\(reportTeamOf\(req\.query\.teamId\)\) \};/, 'نطاق المستخدم والفريق');
+  // وفلاتر المندوب والعميل والموقع (١٣ نوفمبر ٢٠٢٦) معهما: نسبة مرتجع المندوب على مبيعاته هو
+  assert.match(h, /const scope = \{ \.\.\.\(await scopedRecordWhere\(req, SHAPE_INVOICE_RECEIPT\)\), \.\.\.teamDocWhere\(reportTeamOf\(req\.query\.teamId\)\), \.\.\.picks \};/, 'نطاق المستخدم والفريق');
   assert.match(h, /where: \{ tenantId: tid, \.\.\.scope, status: 'CONFIRMED', type: 'RETURN', invoiceDate: dateFilter \}/, 'المرتجعات المؤكَّدة');
   assert.match(h, /where: \{ tenantId: tid, \.\.\.scope, status: 'CONFIRMED', type: \{ not: 'RETURN' \}, invoiceDate: dateFilter \}/, 'مبيعات المدى نفسه');
   assert.match(h, /returnRate: salesTotal > 0 \?/, 'لا قسمة على صفر');

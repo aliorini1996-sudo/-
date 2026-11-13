@@ -2,10 +2,19 @@ import { useState, useEffect, useMemo, Fragment, ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   TrendingUp, Receipt, Users, UserCheck, Wallet, Clock, MapPin, UserX,
-  RefreshCw, ChevronLeft, AlertTriangle, Package, CalendarDays, UserRound,
+  RefreshCw, ChevronLeft, ChevronDown, AlertTriangle, Package, CalendarDays, UserRound,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { reportApi, attendanceAdminApi } from '../api/client';
+import { reportApi, attendanceAdminApi, salesRepApi, teamsApi, locationsApi } from '../api/client';
+import { useAuthStore } from '../store/authStore';
+import { can } from './perms';
+import {
+  PRESETS, DEFAULT_PRESET, presetRange, activePreset, NO_FILTERS, filterKeysFor, filterParams, clientPick, ignoredFilters,
+  viewRows, sortOf, effectiveThenBy, thenByChoices, salesParams, isNested, viewNested, salesAccess, shareOf,
+  type PresetId, type FilterKey, type FilterAvail, type FilterPick, type ReportFilters, type RowAccess, type SortId,
+  type SortOption, type SalesRowLike, type NestedView,
+} from './mReportFilters';
+import { FilterBar, PickerSheet, ListTools, type RepLite, type NamedLite } from './MReportFilterBar';
 import { presenceByRepDay, presenceSummary, type PresenceRow } from '../lib/presenceReport';
 import { formatCurrency, formatNumber, formatDate, formatDateTime, formatDayOnly, formatTime } from '../utils/format';
 import { useTr } from '../i18n/strings';
@@ -34,6 +43,11 @@ import { breakOf, compactMinutes, formatPeriods, hasPunchLocation, periodsOf, pu
  *
  * **وكل رقمٍ هنا يأتي من الخادم كما هو** — لا حقل مُخترَع، والمشتقّ الوحيد
  * مجاميعُ الصفوف المعروضة نفسها (فتتّسق البطاقة مع القائمة تحتها دائماً).
+ *
+ * **والمصافي (طلب المالك ١٣ نوفمبر ٢٠٢٦):** مديات جاهزة و«هذا الشهر» افتراضاً، وشرائح المندوب والعميل والفريق
+ * والموقع لِما يقرؤه كل تقرير وحده، وبحثٌ وترتيب داخل النتائج، و«ثم حسب» في المبيعات (كم باع كل مندوب من كل صنف).
+ * القرار كلّه في `mReportFilters.ts` (مختبَراً وحده) والرسم في `MReportFilterBar.tsx`. والبحث أداة إيجاد في القائمة لا
+ * مصفاة: البطاقات تبقى مجاميع التقرير بمصافيه، ويُذكر عدد ما يُرى من الكل.
  */
 
 // ═══════════════ أشكال استجابات الخادم (مطابقة لـ routes/reports.ts) ═══════════════
@@ -48,6 +62,9 @@ interface SalesRow {
   baseQty?: number; unit?: string; units?: UnitDef[];
   /** «الوحدة الرئيسية» للصنف (reports.ts §2.17) — الكمية «52 كرتون و2 قارورة» (R1)، والمجموع «بالوحدات الصغرى» (R3) */
   primaryUnitId?: string | null;
+  /** مع التجميع الثاني (thenBy) وحده: مفتاح الصفّ («—» بلا مندوب، «unknown» صنف محذوف) وصفوفه الفرعية بالشكل نفسه */
+  key?: string;
+  sub?: SalesRowLike[];
 }
 
 interface ReceiptRow {
@@ -110,7 +127,7 @@ interface CustVisit {
 /** «العملاء الذين لم تتم زيارتهم» — /reports/unvisited-customers: آخر زيارة قبل المدى، null = لم يُزر قبله */
 interface UnvisitedCust {
   id: string; name: string; businessName: string | null; phone: string; city: string | null;
-  reps: string[]; lastVisitAt: string | null; createdAt: string;
+  reps: string[]; repIds?: string[]; lastVisitAt: string | null; createdAt: string;
   /** فواتير البيع في المدى بلا زيارة (علامة طلب المالك ١٣ نوفمبر ٢٠٢٦) — غيابها من خادمٍ أقدم = 0 */
   invoicesCount?: number; lastInvoiceAt?: string | null;
 }
@@ -148,42 +165,35 @@ const methodLabel = (m: string, tr: Tr, company?: CompanyWithMethods, key?: stri
 const params = (o: Record<string, string>): Record<string, string> =>
   Object.fromEntries(Object.entries(o).filter(([, v]) => v !== ''));
 
+/* المديات الجاهزة (اليوم … هذه السنة) وحسابها بتوقيت الجهاز لا UTC في mReportFilters.ts (presetRange) — مختبَرةً وحدها:
+ * `toISOString().slice(0,10)` يعطي يوم UTC، ففي الرياض (+3) تقرأ الساعةُ الواحدة ليلاً «أمس». */
+
+/** لا نتيجة للبحث في قائمةٍ غير فارغة — سطرٌ لا حالة فراغٍ كاملة: البطاقات فوقه ما زالت صحيحة */
+function NoMatch() {
+  const tr = useTr();
+  return <p className="text-center text-xs text-[#9A8F7E] py-6">{tr('لا نتائج')}</p>;
+}
+
 /**
- * YYYY-MM-DD **بتوقيت الجهاز** لا UTC.
- *
- * `toISOString().slice(0,10)` هو الشائع في المستودع، لكنه يعطي يوم UTC: في
- * الرياض (+3) تقرأ الساعةُ الواحدة ليلاً «أمس»، فيضغط المشرف «اليوم» ويرى
- * مبيعات يومٍ مضى. واليومُ هنا يوم المستخدم لا يوم الخادم.
+ * البحث والترتيب داخل قائمة تقرير (طلب المالك ١٣ نوفمبر ٢٠٢٦): الحالة محلّية للتقرير (تبديل التقرير يبدأ من جديد)، والخيار
+ * الأول هو البداية — وهو ترتيب الخادم نفسه حيث يكون، فلا تتغيّر قائمةٌ لم يلمسها المشرف. `acc` ثابتٌ على مستوى الوحدة.
  */
-const ymd = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-type QuickId = 'today' | 'week' | 'month' | 'lastMonth';
-const QUICKS: { id: QuickId; label: string }[] = [
-  { id: 'today', label: 'اليوم' },
-  { id: 'week', label: 'هذا الأسبوع' },
-  { id: 'month', label: 'هذا الشهر' },
-  { id: 'lastMonth', label: 'الشهر الماضي' },
-];
-
-function quickRange(kind: QuickId): { from: string; to: string } {
-  const now = new Date();
-  if (kind === 'today') { const t = ymd(now); return { from: t, to: t }; }
-  if (kind === 'week') {
-    // أسبوع العمل في السوق الخليجي يبدأ **السبت** (getDay: الأحد 0 … السبت 6)
-    const back = (now.getDay() + 1) % 7;
-    const s = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back);
-    return { from: ymd(s), to: ymd(now) };
-  }
-  if (kind === 'month') {
-    return { from: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), to: ymd(now) };
-  }
-  // اليوم صفر من الشهر الحالي = آخر يوم في الشهر الماضي
+function useListView<T>(rows: T[], options: ReadonlyArray<SortOption>, acc: RowAccess<T>) {
+  const [q, setQ] = useState('');
+  const [sortRaw, setSort] = useState<SortId>(options[0].id);
+  const sort = sortOf(options, sortRaw);
+  const view = useMemo(() => viewRows(rows, q, sort, acc), [rows, q, sort, acc]);
   return {
-    from: ymd(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
-    to: ymd(new Date(now.getFullYear(), now.getMonth(), 0)),
+    view,
+    /** يدخل مفتاح نافذة العرض: بحثٌ أو ترتيبٌ جديد يبدأ من أول الصفحة */
+    viewKey: `${q}|${sort}`,
+    tools: <ListTools q={q} onQ={setQ} sort={sort} onSort={setSort} options={options} shown={view.length} total={rows.length} />,
   };
 }
+
+/** خيارا المبلغ — مشتركان بين التقارير المالية */
+const BY_AMOUNT: SortOption[] = [{ id: 'valueDesc', label: 'الأعلى مبلغا' }, { id: 'valueAsc', label: 'الأقل مبلغا' }];
+const BY_NAME: SortOption = { id: 'name', label: 'الاسم' };
 
 /**
  * نافذة عرض تراكميّة بالتمرير — لا ترقيم صفحات على الجوال.
@@ -359,13 +369,64 @@ export default function MReports({ onBack, accountingOn = true, company }: {
 }) {
   const tr = useTr();
   const qc = useQueryClient();
+  const user = useAuthStore(s => s.user);
   const [id, setId] = useState<ReportId>('sales');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  /* «هذا الشهر» عند أوّل فتح (طلب المالك ١٣ نوفمبر ٢٠٢٦) — كان «بلا مدى» فيقصّ الخادم المبيعات صامتاً على آخر تسعين
+   * يوماً والساعات على آخر سبعة، ويُقرأ الرقم على أنه «كل التاريخ». */
+  const [initialRange] = useState(() => presetRange(DEFAULT_PRESET));
+  const [from, setFrom] = useState(initialRange.from);
+  const [to, setTo] = useState(initialRange.to);
+  // آخر مدىً جاهز نُقر — يبقى مضيئاً حين يتطابق مديان (أول الشهر: «اليوم» و«هذا الشهر» يومٌ واحد)
+  const [preset, setPreset] = useState<PresetId | null>(DEFAULT_PRESET);
+  const [customOpen, setCustomOpen] = useState(false);
   const [groupBy, setGroupBy] = useState<GroupBy>('rep');
+  const [thenBy, setThenBy] = useState<GroupBy | ''>('');
+  const [filters, setFilters] = useState<ReportFilters>(NO_FILTERS);
+  const [picker, setPicker] = useState<FilterKey | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
 
   useBackClose(!!detail, () => setDetail(null));
+  useBackClose(!!picker, () => setPicker(null));
+
+  /* ─── المصافي: ما يتاح للمستخدم والشركة ───
+   * المندوب بصلاحية المناديب (قائمتهم /sales-reps) والعميل بصلاحية العملاء — بلاها لا قائمة يُختار منها فلا شريحة.
+   * والفريق حين فعّلت الشركة الفرق ولها فرق، والموقع حين فعّل المالك «لوكيشن» والمحاسبة مفعّلة (/locations ٤٠٣ دونهما). */
+  const co = (company ?? null) as { teamsEnabled?: boolean; locationsEnabled?: boolean } | null;
+  const teamsFeature = co?.teamsEnabled === true;
+  const locFeature = accountingOn && co?.locationsEnabled === true;
+  const canReps = can(user, 'canManageSalesReps');
+  const teamsQ = useQuery({
+    queryKey: ['m-report-teams'],
+    queryFn: async () => expectArray<NamedLite>((await teamsApi.list()).data?.data, 'الفرق'),
+    enabled: teamsFeature, staleTime: 5 * 60_000, retry: false,
+  });
+  const locsQ = useQuery({
+    queryKey: ['m-report-locations'],
+    queryFn: async () => expectArray<NamedLite>((await locationsApi.list()).data?.data, 'المواقع'),
+    enabled: locFeature, staleTime: 5 * 60_000, retry: false,
+  });
+  const avail: FilterAvail = {
+    rep: canReps,
+    customer: can(user, 'canManageCustomers'),
+    team: teamsFeature && (teamsQ.data?.length ?? 0) > 0,
+    location: locFeature && (locsQ.data?.length ?? 0) > 0,
+  };
+  // «مديونيات المناديب» تُصفّى بالموقع على الجهاز بموقع كل مندوبٍ من قائمتهم — بلا صلاحية المناديب لا قائمة فلا مصفاة
+  const availOf = (r: ReportId): FilterAvail => (r === 'receivables' ? { ...avail, location: avail.location && canReps } : avail);
+  /** معاملات الخادم لتقرير — المختار المنطبق وحده (والفارغ لا يُرسل) */
+  const fp = (r: ReportId) => filterParams(r, filters, availOf(r));
+  /** المختار الذي يُطبَّق على الجهاز لتقرير */
+  const pick = (r: ReportId, k: FilterKey) => clientPick(r, filters, availOf(r), k);
+  const needRepLoc = id === 'receivables' && !!pick('receivables', 'location');
+  const repsQ = useQuery({
+    queryKey: ['m-report-reps'],
+    queryFn: async () => expectArray<RepLite>((await salesRepApi.list({ limit: 1000 })).data?.data, 'المناديب'),
+    enabled: canReps && (picker === 'rep' || needRepLoc),
+    staleTime: 5 * 60_000,
+  });
+  // تجميعٌ أول يساوي الثاني يُسقط الثاني — لا يعود فجأةً حين يتبدّل الأول
+  const changeGroupBy = (g: GroupBy) => { setGroupBy(g); if (g === thenBy) setThenBy(''); };
+  const setFilter = (k: FilterKey, v: FilterPick | null) => setFilters(f => ({ ...f, [k]: v }));
 
   const reports = useMemo(
     () => (accountingOn ? [...REPORTS] : REPORTS.filter(r => !MONEY_REPORTS.has(r.id))),
@@ -376,10 +437,14 @@ export default function MReports({ onBack, accountingOn = true, company }: {
    * تقريرٍ غير ماليّ بدل أن يبقى معلّقاً على تقريرٍ محذوف. */
   const shown: ReportId = reports.some(r => r.id === id) ? id : reports[0].id;
   const meta = reports.find(r => r.id === shown) ?? reports[0];
-  const activeQuick = QUICKS.find(k => {
-    const r = quickRange(k.id);
-    return r.from === from && r.to === to;
-  })?.id;
+  const activeQuick = activePreset(from, to, preset);
+  // حقلا «من/إلى» يظهران بطلب «مخصص» أو حين المدى لا يطابق مدىً جاهزاً — فلا يختفي مدىً مكتوبٌ يدوياً عن العين
+  const showCustom = customOpen || (!activeQuick && !!(from || to));
+  /* المدى في الترويسة: المديات الجاهزة نسبية («هذا الشهر»)، فالتاريخان صريحين يمنعان قراءة شهرٍ مضى على أنه الحالي */
+  const rangeText = !meta.dated ? ''
+    : from && to ? (from === to ? formatDayOnly(from) : `${formatDayOnly(from)} – ${formatDayOnly(to)}`)
+      : from ? `${tr('من')} ${formatDayOnly(from)}` : to ? `${tr('إلى')} ${formatDayOnly(to)}` : '';
+  const av = availOf(shown);
 
   // التحديث يُبطل مفاتيح هذا التقرير وحده: إبطال الكلّ يُعيد جلب ستّة تقارير
   // لا ينظر إليها أحد على باقة بياناتٍ محدودة.
@@ -395,10 +460,10 @@ export default function MReports({ onBack, accountingOn = true, company }: {
   if (openDetail) return <DetailPane detail={openDetail} onClose={() => setDetail(null)} />;
 
   return (
-    <div className="h-full flex flex-col bg-[#FAF7F0]">
+    <div className="relative h-full flex flex-col bg-[#FAF7F0]">
       <MHeader
         title={tr('التقارير')}
-        subtitle={tr(meta.label)}
+        subtitle={rangeText ? `${tr(meta.label)} · ${rangeText}` : tr(meta.label)}
         onBack={onBack}
         action={
           <button onClick={refresh} aria-label={tr('تحديث')}
@@ -422,31 +487,38 @@ export default function MReports({ onBack, accountingOn = true, company }: {
       {meta.dated ? (
         <div className="flex-shrink-0 bg-white border-b border-[#F1EBDF] px-3 py-2 space-y-2">
           <div className="flex gap-1.5 overflow-x-auto overscroll-x-contain">
-            {QUICKS.map(k => (
+            {PRESETS.map(k => (
               <button key={k.id}
-                onClick={() => { const r = quickRange(k.id); setFrom(r.from); setTo(r.to); }}
+                onClick={() => { const r = presetRange(k.id); setFrom(r.from); setTo(r.to); setPreset(k.id); setCustomOpen(false); }}
                 className={`flex-shrink-0 px-3 min-h-[36px] rounded-lg text-[11px] font-semibold whitespace-nowrap border
                   ${activeQuick === k.id ? 'bg-[#FBEBE2] border-[#E15A30] text-[#C94E28]' : 'bg-white border-[#E9E1D3] text-[#6E6557]'}`}>
                 {tr(k.label)}
               </button>
             ))}
+            <button onClick={() => setCustomOpen(o => !o)} aria-expanded={showCustom}
+              className={`flex-shrink-0 flex items-center gap-1 px-3 min-h-[36px] rounded-lg text-[11px] font-semibold whitespace-nowrap border
+                ${showCustom ? 'bg-[#FBEBE2] border-[#E15A30] text-[#C94E28]' : 'bg-white border-[#E9E1D3] text-[#6E6557]'}`}>
+              <CalendarDays size={13} />{tr('مخصص')}
+            </button>
             {(from || to) && (
-              <button onClick={() => { setFrom(''); setTo(''); }}
+              <button onClick={() => { setFrom(''); setTo(''); setPreset(null); setCustomOpen(false); }}
                 className="flex-shrink-0 px-3 min-h-[36px] rounded-lg text-[11px] font-semibold whitespace-nowrap border border-[#E9E1D3] bg-white text-[#9A8F7E]">
                 {tr('إلغاء المدى')}
               </button>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <CalendarDays size={15} className="text-[#9A8F7E] flex-shrink-0" />
-            {/* flex-1 + min-w-0: صنف `input` هو w-full، وحقلان بعرضٍ كامل داخل
-                صفٍّ مرن يطفحان خارج شاشة 400px بدل أن يقتسماها */}
-            <input type="date" value={from} max={to || undefined} onChange={e => setFrom(e.target.value)}
-              aria-label={tr('من')} className="input flex-1 min-w-0 min-h-[44px] text-xs" />
-            <span className="text-[11px] text-[#9A8F7E] flex-shrink-0">{tr('إلى')}</span>
-            <input type="date" value={to} min={from || undefined} onChange={e => setTo(e.target.value)}
-              aria-label={tr('إلى')} className="input flex-1 min-w-0 min-h-[44px] text-xs" />
-          </div>
+          {showCustom && (
+            <div className="flex items-center gap-2">
+              <CalendarDays size={15} className="text-[#9A8F7E] flex-shrink-0" />
+              {/* flex-1 + min-w-0: صنف `input` هو w-full، وحقلان بعرضٍ كامل داخل
+                  صفٍّ مرن يطفحان خارج شاشة 400px بدل أن يقتسماها */}
+              <input type="date" value={from} max={to || undefined} onChange={e => setFrom(e.target.value)}
+                aria-label={tr('من')} className="input flex-1 min-w-0 min-h-[44px] text-xs" />
+              <span className="text-[11px] text-[#9A8F7E] flex-shrink-0">{tr('إلى')}</span>
+              <input type="date" value={to} min={from || undefined} onChange={e => setTo(e.target.value)}
+                aria-label={tr('إلى')} className="input flex-1 min-w-0 min-h-[44px] text-xs" />
+            </div>
+          )}
         </div>
       ) : (
         <p className="flex-shrink-0 bg-white border-b border-[#F1EBDF] px-4 py-2.5 text-[11px] text-[#9A8F7E]">
@@ -454,14 +526,28 @@ export default function MReports({ onBack, accountingOn = true, company }: {
         </p>
       )}
 
-      {shown === 'sales' && <SalesReport from={from} to={to} groupBy={groupBy} onGroupBy={setGroupBy} />}
-      {shown === 'collections' && <CollectionsReport from={from} to={to} company={company as CompanyWithMethods} />}
-      {shown === 'balances' && <BalancesReport />}
-      {shown === 'performance' && <PerformanceReport from={from} to={to} onOpen={setDetail} />}
-      {shown === 'receivables' && <ReceivablesReport onOpen={setDetail} />}
-      {shown === 'hours' && <HoursReport from={from} to={to} onOpen={setDetail} />}
-      {shown === 'visits' && <VisitsReport from={from} to={to} onOpen={setDetail} />}
-      {shown === 'unvisited' && <UnvisitedReport from={from} to={to} />}
+      {/* المصافي — شرائح ما ينطبق على هذا التقرير وحده (mReportFilters.FILTER_MODES)، وما اختير ولا ينطبق يُذكر صراحةً */}
+      <FilterBar keys={filterKeysFor(shown, av)} filters={filters} ignored={ignoredFilters(shown, filters, av)}
+        onOpen={setPicker} onClear={k => setFilter(k, null)} onClearAll={() => setFilters(NO_FILTERS)} />
+
+      {shown === 'sales' && <SalesReport from={from} to={to} fq={fp('sales')} groupBy={groupBy} onGroupBy={changeGroupBy}
+        thenBy={thenBy} onThenBy={setThenBy} />}
+      {shown === 'collections' && <CollectionsReport from={from} to={to} fq={fp('collections')} company={company as CompanyWithMethods} />}
+      {shown === 'balances' && <BalancesReport customer={pick('balances', 'customer')} />}
+      {shown === 'performance' && <PerformanceReport from={from} to={to} fq={fp('performance')} onOpen={setDetail} />}
+      {shown === 'receivables' && <ReceivablesReport fq={fp('receivables')} rep={pick('receivables', 'rep')}
+        location={pick('receivables', 'location')} reps={repsQ} onOpen={setDetail} />}
+      {shown === 'hours' && <HoursReport from={from} to={to} fq={fp('hours')} onOpen={setDetail} />}
+      {shown === 'visits' && <VisitsReport from={from} to={to} fq={fp('visits')} onOpen={setDetail} />}
+      {shown === 'unvisited' && <UnvisitedReport from={from} to={to} rep={pick('unvisited', 'rep')} customer={pick('unvisited', 'customer')} />}
+
+      {picker && (
+        <PickerSheet kind={picker} value={filters[picker]}
+          reps={{ data: repsQ.data, status: repsQ.status, refetch: () => { void repsQ.refetch(); } }}
+          teams={teamsQ.data ?? []} locations={locsQ.data ?? []}
+          onPick={p => { setFilter(picker, p); setPicker(null); }}
+          onClose={() => setPicker(null)} />
+      )}
     </div>
   );
 }
@@ -480,17 +566,68 @@ const GROUPS: { id: GroupBy; label: string }[] = [
  * ونُرسل `groupBy` **دائماً**: مسار «بلا تجميع» يُرجع كل الفواتير ببنودها في
  * استجابة واحدة — حمولةٌ لا معنى لها على شاشة 400px وباقة جوال.
  */
-function SalesReport({ from, to, groupBy, onGroupBy }: {
-  from: string; to: string; groupBy: GroupBy; onGroupBy: (g: GroupBy) => void;
+/** سطر كمية الصنف بالأساس — مفكّكةً بوحدات `owner` لصنفٍ له وحدة أكبر («٢ كرتون و٣ حبة»)، وإلا الرقم و«وحدة» كما كان حرفاً.
+ *  `owner` الصفّ نفسه للصنف، وصنفه الأب لصفّ مندوبٍ/عميلٍ تحت «حسب الصنف» (كميته من ذلك الصنف بوحدته) */
+function qtyLine(r: SalesRowLike, owner: SalesRowLike, tr: Tr): string {
+  return hasBigUnit(owner.units)
+    ? qtyText(r.baseQty ?? r.qty ?? 0, owner, formatNumber)
+    : `${formatNumber(r.qty ?? 0)} ${tr('وحدة')}`;
+}
+
+/** اسم صفٍّ في التجميعين: «—» بلا مندوب، و«unknown» صنف محذوف — بلغة الواجهة لا كما كتبها الخادم */
+function levelName(r: SalesRowLike, level: GroupBy, tr: Tr): string {
+  if (r.key === '—' && level === 'rep') return tr('بلا مندوب');
+  if (r.key === 'unknown' && level === 'product') return tr('صنف محذوف');
+  return r.name;
+}
+
+/** ترتيب المبيعات: المبلغ (ترتيب الخادم) ثم العدد — الكمية للصنف وعدد الفواتير للمندوب والعميل */
+const salesSorts = (g: GroupBy): SortOption[] => [
+  ...BY_AMOUNT,
+  { id: 'count', label: g === 'product' ? 'الأكبر كمية' : 'الأكثر فواتير' },
+  BY_NAME,
+];
+const SALES_ACC: Record<GroupBy, RowAccess<SalesRowLike>> = {
+  rep: salesAccess('rep'), customer: salesAccess('customer'), product: salesAccess('product'),
+};
+
+function SalesReport({ from, to, fq, groupBy, onGroupBy, thenBy: thenByRaw, onThenBy }: {
+  from: string; to: string; fq: Record<string, string>; groupBy: GroupBy; onGroupBy: (g: GroupBy) => void;
+  thenBy: GroupBy | ''; onThenBy: (g: GroupBy | '') => void;
 }) {
   const tr = useTr();
+  // «ثم حسب» (طلب المالك ١٣ نوفمبر ٢٠٢٦): «كم باع كل مندوب من كل صنف» — المطابق للتجميع الأول يسقط
+  const thenBy = effectiveThenBy(groupBy, thenByRaw);
   const q = useQuery({
-    queryKey: ['m-report', 'sales', from, to, groupBy],
+    queryKey: ['m-report', 'sales', from, to, groupBy, thenBy, fq],
     queryFn: async () => expectArray<SalesRow>(
-      (await reportApi.sales(params({ from, to, groupBy }))).data?.data, 'تقرير المبيعات'),
+      (await reportApi.sales(params({ from, to, ...salesParams(groupBy, thenBy), ...fq }))).data?.data, 'تقرير المبيعات'),
   });
   const rows = useMemo(() => q.data ?? [], [q.data]);
-  const { limit, onScroll, hidden } = useWindowed(`${from}|${to}|${groupBy}`, rows.length);
+  // خادمٌ أقدم يُهمل thenBy فيردّ صفوفاً بلا sub — تُعرض مسطّحةً كما كانت
+  const nested = !!thenBy && isNested(rows);
+
+  const [search, setSearch] = useState('');
+  const options = useMemo(() => salesSorts(groupBy), [groupBy]);
+  const [sortRaw, setSort] = useState<SortId>('valueDesc');
+  const sort = sortOf(options, sortRaw);
+  const flat = useMemo(() => (nested ? [] : viewRows(rows, search, sort, SALES_ACC[groupBy])), [nested, rows, search, sort, groupBy]);
+  const tree = useMemo<NestedView<SalesRow>[]>(
+    () => (nested && thenBy ? viewNested(rows, search, sort, groupBy, thenBy) : []),
+    [nested, rows, search, sort, groupBy, thenBy]);
+  const shownCount = nested ? tree.length : flat.length;
+  const fKey = JSON.stringify(fq);
+  const { limit, onScroll, hidden } = useWindowed(`${from}|${to}|${groupBy}|${thenBy}|${fKey}|${search}|${sort}`, shownCount);
+
+  /* الصفّ مطويٌّ افتراضاً، ومفتوحٌ افتراضاً حين طابق البحثُ فروعه وحدها — و`flipped` يقلب الافتراض لكل صفٍّ نُقر،
+   * فيُطوى المفتوح بالبحث ويُفتح المطويّ بضغطةٍ واحدة. وأيّ تغيّرٍ في الاستعلام أو البحث يعيد الافتراض. */
+  const [flipped, setFlipped] = useState<Set<string>>(() => new Set());
+  useEffect(() => { setFlipped(new Set()); }, [from, to, groupBy, thenBy, fKey, search]);
+  const keyOf = (r: SalesRow, i: number) => r.key ?? `${r.name}-${i}`;
+  const isOpen = (v: NestedView<SalesRow>, i: number) => v.subs.length > 0 && v.bySub !== flipped.has(keyOf(v.row, i));
+  const allOpen = tree.length > 0 && tree.every((v, i) => v.subs.length === 0 || isOpen(v, i));
+  const toggle = (k: string) => setFlipped(s => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const setAll = (open: boolean) => setFlipped(new Set(tree.flatMap((v, i) => (v.bySub !== open ? [keyOf(v.row, i)] : []))));
 
   const sum = useMemo(() => rows.reduce(
     (a, r) => ({ total: a.total + r.total, count: a.count + (r.count ?? 0), qty: a.qty + (r.qty ?? 0) }),
@@ -500,6 +637,7 @@ function SalesReport({ from, to, groupBy, onGroupBy }: {
   // إجمالي الكمية عبر الأصناف بالأساس: يُسمّى كذلك حين لصنفٍ وحدةٌ أكبر — وبلا وحداتٍ يبقى كما كان حرفاً
   const anyMulti = byProduct && rows.some(r => hasBigUnit(r.units));
   const rowsLabel = byProduct ? tr('عدد الأصناف') : groupBy === 'rep' ? tr('عدد المناديب') : tr('عدد العملاء');
+  const groupLabel = (g: GroupBy) => tr(GROUPS.find(x => x.id === g)?.label ?? '');
 
   return (
     <Pane onScroll={onScroll}>
@@ -509,6 +647,17 @@ function SalesReport({ from, to, groupBy, onGroupBy }: {
             className={`flex-1 min-h-[44px] rounded-xl text-xs font-semibold transition-colors
               ${groupBy === g.id ? 'bg-[#FBEBE2] text-[#C94E28] border border-[#E15A30]' : 'bg-white text-[#6E6557] border border-[#F1EBDF]'}`}>
             {tr('حسب')} {tr(g.label)}
+          </button>
+        ))}
+      </div>
+      {/* التجميع الثاني: «بلا» أو أحد المستويين الآخرين */}
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11px] font-semibold text-[#9A8F7E] flex-shrink-0 px-0.5">{tr('ثم حسب')}</span>
+        {(['', ...thenByChoices(groupBy)] as Array<GroupBy | ''>).map(t => (
+          <button key={t || 'none'} onClick={() => onThenBy(t)}
+            className={`flex-1 min-h-[36px] rounded-lg text-[11px] font-semibold border transition-colors
+              ${thenBy === t ? 'bg-[#FBEBE2] text-[#C94E28] border-[#E15A30]' : 'bg-white text-[#6E6557] border-[#F1EBDF]'}`}>
+            {t ? groupLabel(t) : tr('بلا')}
           </button>
         ))}
       </div>
@@ -534,35 +683,114 @@ function SalesReport({ from, to, groupBy, onGroupBy }: {
               : (sum.count ? sum.total / sum.count : 0))} />
         </div>
 
-        <MCard>
-          {rows.slice(0, limit).map((r, i) => (
-            <MRow key={`${r.name}-${i}`}
-              title={r.name}
-              subtitle={byProduct
-                ? [r.code, hasBigUnit(r.units)
-                    ? qtyText(r.baseQty ?? r.qty ?? 0, r, formatNumber)
-                    : `${formatNumber(r.qty ?? 0)} ${tr('وحدة')}`].filter(Boolean).join(' · ')
-                : `${formatNumber(r.count ?? 0)} ${tr('فاتورة')}`}
-              trailing={<Amount value={formatCurrency(r.total)} />} />
-          ))}
-        </MCard>
+        <ListTools q={search} onQ={setSearch} sort={sort} onSort={setSort} options={options} shown={shownCount} total={rows.length} />
+        {nested && tree.some(v => v.subs.length > 0) && (
+          <div className="flex justify-end -mt-1">
+            <button type="button" onClick={() => setAll(!allOpen)}
+              className="text-[11px] font-semibold text-[#C94E28] px-1 min-h-[32px]">
+              {allOpen ? tr('طي الكل') : tr('توسيع الكل')}
+            </button>
+          </div>
+        )}
+
+        {shownCount === 0 ? <NoMatch /> : (
+          <MCard>
+            {nested && thenBy
+              /* Fragment لا div: فاصلُ MRow هو `last:border-0`، ولفُّ كل صفٍّ في عنصرٍ يجعله «الابن الأخير» في غلافه */
+              ? tree.slice(0, limit).map((v, i) => {
+                const k = keyOf(v.row, i);
+                const open = isOpen(v, i);
+                return (
+                  <Fragment key={k}>
+                    <MRow
+                      title={levelName(v.row, groupBy, tr)}
+                      subtitle={salesLine(v.row, groupBy, v.row, tr)}
+                      trailing={
+                        <span className="flex items-center gap-1 flex-shrink-0">
+                          <Amount value={formatCurrency(v.row.total)} />
+                          {v.subs.length > 0 && (
+                            <ChevronDown size={15} className={`text-[#C9BFB0] transition-transform ${open ? 'rotate-180' : ''}`} />
+                          )}
+                        </span>}
+                      onClick={v.subs.length > 0 ? () => toggle(k) : undefined} />
+                    {open && (
+                      <div className="bg-[#FDFBF7] border-b border-[#F1EBDF] last:border-0 ps-6 pe-3.5 py-2 space-y-2">
+                        {v.subs.map((s, j) => (
+                          <SubLine key={s.key ?? `${s.name}-${j}`} s={s} level={thenBy} parent={v.row} parentLevel={groupBy} />
+                        ))}
+                      </div>
+                    )}
+                  </Fragment>
+                );
+              })
+              : flat.slice(0, limit).map((r, i) => (
+                <MRow key={`${r.name}-${i}`}
+                  title={r.name}
+                  subtitle={salesLine(r, groupBy, r, tr)}
+                  trailing={<Amount value={formatCurrency(r.total)} />} />
+              ))}
+          </MCard>
+        )}
         <More hidden={hidden} />
       </State>
     </Pane>
   );
 }
 
+/**
+ * سطر الصفّ الثاني: الصنف رمزه وكميته (كما كانت صفوف «حسب الصنف» حرفاً)، والمندوب/العميل عدد فواتيره — وتحت الصنف
+ * (groupBy=product) كميته من ذلك الصنف بوحدة الصنف الأب ومعها عدد فواتيره.
+ */
+function salesLine(r: SalesRowLike, level: GroupBy, owner: SalesRowLike, tr: Tr): string {
+  if (level === 'product') return [r.code, qtyLine(r, r, tr)].filter(Boolean).join(' · ');
+  const inv = `${formatNumber(r.count ?? 0)} ${tr('فاتورة')}`;
+  return owner !== r ? [qtyLine(r, owner, tr), r.count != null ? inv : ''].filter(Boolean).join(' · ') : inv;
+}
+
+/** صفٌّ فرعي داخل صفٍّ مفتوح: الاسم وسطره، والمبلغ وحصّته من الأب */
+function SubLine({ s, level, parent, parentLevel }: {
+  s: SalesRowLike; level: GroupBy; parent: SalesRow; parentLevel: GroupBy;
+}) {
+  const tr = useTr();
+  const share = shareOf(s.total, parent.total);
+  // تحت الصنف: كمية ذلك الصنف عند المندوب/العميل بوحدة الأب — وإلا الصفّ بسطره هو
+  const line = parentLevel === 'product' && level !== 'product' ? salesLine(s, level, parent, tr) : salesLine(s, level, s, tr);
+  return (
+    <div className="flex items-center gap-2 text-[11px]">
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[#1F1A13] font-semibold text-xs">{levelName(s, level, tr)}</span>
+        <span className="block truncate text-[#9A8F7E] mt-0.5">{line}</span>
+      </span>
+      <span className="flex flex-col items-end flex-shrink-0">
+        <span className="text-xs font-bold tabular-nums whitespace-nowrap text-[#1F1A13]">{formatCurrency(s.total)}</span>
+        {share != null && <span className="text-[10px] tabular-nums text-[#9A8F7E]">{formatNumber(share)}%</span>}
+      </span>
+    </div>
+  );
+}
+
 // ═══════════════ ٢) التحصيل ═══════════════
 
-function CollectionsReport({ from, to, company }: { from: string; to: string; company?: CompanyWithMethods }) {
+/** السندات: ترتيب الخادم الأقدم أولاً (receiptDate تصاعدياً)، والبحث باسم العميل ورقم السند واسم المندوب */
+const COLL_SORTS: SortOption[] = [
+  { id: 'default', label: 'الأقدم' }, { id: 'recent', label: 'الأحدث' }, ...BY_AMOUNT, BY_NAME,
+];
+const COLL_ACC: RowAccess<ReceiptRow> = {
+  name: r => r.customer.name, extra: r => [r.number, r.salesRep?.name], value: r => r.amount, date: r => r.receiptDate,
+};
+
+function CollectionsReport({ from, to, fq, company }: {
+  from: string; to: string; fq: Record<string, string>; company?: CompanyWithMethods;
+}) {
   const tr = useTr();
   const q = useQuery({
-    queryKey: ['m-report', 'collections', from, to],
+    queryKey: ['m-report', 'collections', from, to, fq],
     queryFn: async () => expectObject<CollectionsRes>(
-      (await reportApi.collections(params({ from, to }))).data?.data, 'تقرير التحصيل'),
+      (await reportApi.collections(params({ from, to, ...fq }))).data?.data, 'تقرير التحصيل'),
   });
   const receipts = useMemo(() => q.data?.receipts ?? [], [q.data]);
-  const { limit, onScroll, hidden } = useWindowed(`${from}|${to}`, receipts.length);
+  const lv = useListView(receipts, COLL_SORTS, COLL_ACC);
+  const { limit, onScroll, hidden } = useWindowed(`${from}|${to}|${JSON.stringify(fq)}|${lv.viewKey}`, lv.view.length);
   const summary = q.data?.summary;
   /* التوزيع بالطريقة كما تعرفها الشركة (summary.methods: المضافة سطرٌ بمفتاحها) — وخادمٌ أقدم بلاها: byMethod بالأساس كما اليوم.
    * كل سندٍ في سطرٍ واحد في الحالتين، فالنسب تجمع ١٠٠٪ */
@@ -592,8 +820,9 @@ function CollectionsReport({ from, to, company }: { from: string; to: string; co
             </MCard>
 
             <p className="text-[11px] font-semibold text-[#6E6557] px-1 pt-1">{tr('السندات')}</p>
-            <MCard>
-              {receipts.slice(0, limit).map(r => (
+            {lv.tools}
+            {lv.view.length === 0 ? <NoMatch /> : <MCard>
+              {lv.view.slice(0, limit).map(r => (
                 <MRow key={r.id}
                   leading={<Initial name={r.customer.name} />}
                   title={r.customer.name}
@@ -601,7 +830,7 @@ function CollectionsReport({ from, to, company }: { from: string; to: string; co
                   note={r.salesRep ? `${tr('المندوب')}: ${r.salesRep.name}` : undefined}
                   trailing={<Amount value={formatCurrency(r.amount)} tone="good" />} />
               ))}
-            </MCard>
+            </MCard>}
             <More hidden={hidden} />
           </>
         )}
@@ -612,16 +841,26 @@ function CollectionsReport({ from, to, company }: { from: string; to: string; co
 
 // ═══════════════ ٣) أرصدة العملاء ═══════════════
 
-/** المدينون وحدهم (`type=overdue`) — من رصيده صفر ليس بنداً في تقرير مديونية */
-function BalancesReport() {
+const BAL_SORTS: SortOption[] = [...BY_AMOUNT, BY_NAME];
+const BAL_ACC: RowAccess<BalanceRow> = { name: c => c.name, extra: c => [c.phone], value: c => c.balance };
+
+/**
+ * المدينون وحدهم (`type=overdue`) — من رصيده صفر ليس بنداً في تقرير مديونية.
+ * ومصفاة العميل على الجهاز (صفٌّ لكل عميل، والخادم لا يقرؤها) — والمجاميع من الصفوف المصفّاة فتتّسق مع القائمة.
+ */
+function BalancesReport({ customer }: { customer: FilterPick | null }) {
   const tr = useTr();
   const q = useQuery({
     queryKey: ['m-report', 'balances'],
     queryFn: async () => expectArray<BalanceRow>(
       (await reportApi.balances({ type: 'overdue' })).data?.data, 'أرصدة العملاء'),
   });
-  const rows = useMemo(() => q.data ?? [], [q.data]);
-  const { limit, onScroll, hidden } = useWindowed('balances', rows.length);
+  const rows = useMemo(() => {
+    const all = q.data ?? [];
+    return customer ? all.filter(c => c.id === customer.id) : all;
+  }, [q.data, customer]);
+  const lv = useListView(rows, BAL_SORTS, BAL_ACC);
+  const { limit, onScroll, hidden } = useWindowed(`balances|${customer?.id ?? ''}|${lv.viewKey}`, lv.view.length);
 
   const sum = useMemo(() => ({
     total: rows.reduce((s, c) => s + c.balance, 0),
@@ -632,7 +871,8 @@ function BalancesReport() {
     <Pane onScroll={onScroll}>
       <State q={q} empty={rows.length === 0} emptyText={tr('لا عملاء مدينين')} emptyIcon={Users}>
         <div className="grid grid-cols-2 gap-2.5">
-          <MStat label={tr('إجمالي مديونية الشركة')} value={formatCurrency(sum.total)} tone="bad" icon={Wallet} />
+          {/* مصفّاةً بعميلٍ لم تعد «مديونية الشركة» */}
+          <MStat label={customer ? tr('إجمالي المديونية') : tr('إجمالي مديونية الشركة')} value={formatCurrency(sum.total)} tone="bad" icon={Wallet} />
           <MStat label={tr('العملاء المدينون')} value={formatNumber(rows.length)} icon={Users} />
           <MStat label={tr('متجاوزو الحد الائتماني')} value={formatNumber(sum.exceeded)}
             tone={sum.exceeded > 0 ? 'bad' : 'default'} icon={AlertTriangle} />
@@ -640,8 +880,9 @@ function BalancesReport() {
             value={formatCurrency(rows.length ? sum.total / rows.length : 0)} />
         </div>
 
-        <MCard>
-          {rows.slice(0, limit).map(c => {
+        {lv.tools}
+        {lv.view.length === 0 ? <NoMatch /> : <MCard>
+          {lv.view.slice(0, limit).map(c => {
             const over = c.creditLimit > 0 && c.balance > c.creditLimit;
             return (
               <MRow key={c.id}
@@ -653,7 +894,7 @@ function BalancesReport() {
                 trailing={<Amount value={formatCurrency(c.balance)} tone={over ? 'bad' : 'warn'} />} />
             );
           })}
-        </MCard>
+        </MCard>}
         <More hidden={hidden} />
       </State>
     </Pane>
@@ -662,17 +903,22 @@ function BalancesReport() {
 
 // ═══════════════ ٤) أداء المناديب ═══════════════
 
-function PerformanceReport({ from, to, onOpen }: {
-  from: string; to: string; onOpen: (d: Detail) => void;
+const PERF_SORTS: SortOption[] = [...BY_AMOUNT, { id: 'count', label: 'الأكثر فواتير' }, BY_NAME];
+const PERF_ACC: RowAccess<PerfRow> = { name: r => r.name, value: r => r.salesTotal, count: r => r.invoicesCount };
+
+/** المندوب والموقع (موقع المندوب الحالي) والفريق في الخادم — صفّ المندوب المختار وحده، أو مناديب الموقع */
+function PerformanceReport({ from, to, fq, onOpen }: {
+  from: string; to: string; fq: Record<string, string>; onOpen: (d: Detail) => void;
 }) {
   const tr = useTr();
   const q = useQuery({
-    queryKey: ['m-report', 'performance', from, to],
+    queryKey: ['m-report', 'performance', from, to, fq],
     queryFn: async () => expectArray<PerfRow>(
-      (await reportApi.repPerformance(params({ from, to }))).data?.data, 'أداء المناديب'),
+      (await reportApi.repPerformance(params({ from, to, ...fq }))).data?.data, 'أداء المناديب'),
   });
   const rows = useMemo(() => q.data ?? [], [q.data]);
-  const { limit, onScroll, hidden } = useWindowed(`${from}|${to}`, rows.length);
+  const lv = useListView(rows, PERF_SORTS, PERF_ACC);
+  const { limit, onScroll, hidden } = useWindowed(`${from}|${to}|${JSON.stringify(fq)}|${lv.viewKey}`, lv.view.length);
 
   const sum = useMemo(() => rows.reduce((a, r) => ({
     sales: a.sales + r.salesTotal,
@@ -697,8 +943,9 @@ function PerformanceReport({ from, to, onOpen }: {
           <MStat label={tr('المناديب')} value={formatNumber(rows.length)} icon={UserCheck} />
         </div>
 
-        <MCard>
-          {rows.slice(0, limit).map(r => (
+        {lv.tools}
+        {lv.view.length === 0 ? <NoMatch /> : <MCard>
+          {lv.view.slice(0, limit).map(r => (
             <MRow key={r.id}
               leading={<Initial name={r.name} />}
               title={r.name}
@@ -706,7 +953,7 @@ function PerformanceReport({ from, to, onOpen }: {
               trailing={<Amount value={formatCurrency(r.salesTotal)} chevron />}
               onClick={() => onOpen({ kind: 'perf', row: r })} />
           ))}
-        </MCard>
+        </MCard>}
         <More hidden={hidden} />
       </State>
     </Pane>
@@ -722,19 +969,39 @@ function PerformanceReport({ from, to, onOpen }: {
  * تحت كلٍّ منهما، فمجموع أعمدة المناديب يتضخّم بالتكرار ولا يساوي مديونية
  * الشركة. نُظهر المتمايز كبيراً ونُصرّح بمجموع الأعمدة تحته لا العكس.
  */
-function ReceivablesReport({ onOpen }: { onOpen: (d: Detail) => void }) {
+const RECV_SORTS: SortOption[] = [...BY_AMOUNT, { id: 'count', label: 'الأكثر مدينين' }, BY_NAME];
+const RECV_ACC: RowAccess<RecvRow> = { name: r => r.name, value: r => r.totalBalance, count: r => r.debtorsCount };
+
+/**
+ * المصافي (طلب المالك ١٣ نوفمبر ٢٠٢٦): الفريق في الخادم، والمندوب والموقع على الجهاز — صفٌّ لكل مندوب، وموقعه الحالي
+ * (SalesRep.locationId) من قائمة المناديب؛ حتى تصل القائمة تبقى الدوّارة لا قائمةٌ غير مصفّاة.
+ */
+function ReceivablesReport({ fq, rep, location, reps, onOpen }: {
+  fq: Record<string, string>; rep: FilterPick | null; location: FilterPick | null;
+  reps: QLike & { data?: RepLite[] }; onOpen: (d: Detail) => void;
+}) {
   const tr = useTr();
   const live = useIsLive();
   const q = useQuery({
-    queryKey: ['m-report', 'receivables'],
+    queryKey: ['m-report', 'receivables', fq],
     queryFn: async () => expectArray<RecvRow>(
-      (await reportApi.repReceivables()).data?.data, 'مديونيات المناديب'),
+      (await reportApi.repReceivables(params({ ...fq }))).data?.data, 'مديونيات المناديب'),
     // التقرير الوحيد الذي يستحقّ استطلاعاً: رصيدٌ لحظيّ يتغيّر بكل سند قبض
     // يُصدره مندوبٌ في الميدان الآن. والبقيّة تقاريرُ مدىً لا تتحرّك وحدها.
     refetchInterval: livePoll(60000, live),
   });
-  const rows = useMemo(() => q.data ?? [], [q.data]);
-  const { limit, onScroll, hidden } = useWindowed('receivables', rows.length);
+  const repLoc = useMemo(() => new Map((reps.data ?? []).map(r => [r.id, r.locationId ?? null])), [reps.data]);
+  const rows = useMemo(() => {
+    let all = q.data ?? [];
+    if (rep) all = all.filter(r => r.id === rep.id);
+    if (location) all = all.filter(r => repLoc.get(r.id) === location.id);
+    return all;
+  }, [q.data, rep, location, repLoc]);
+  // مصفاة الموقع تنتظر قائمة المناديب: حالتها (تحميل أو خطأ بإعادة محاولة) قبل حالة التقرير
+  const gate: QLike = location && reps.status !== 'success' ? reps : q;
+  const filtered = !!(rep || location);
+  const lv = useListView(rows, RECV_SORTS, RECV_ACC);
+  const { limit, onScroll, hidden } = useWindowed(`receivables|${JSON.stringify(fq)}|${rep?.id ?? ''}|${location?.id ?? ''}|${lv.viewKey}`, lv.view.length);
 
   const sum = useMemo(() => {
     const bal = new Map<string, number>();        // العميل → رصيده مرّة واحدة
@@ -754,8 +1021,8 @@ function ReceivablesReport({ onOpen }: { onOpen: (d: Detail) => void }) {
 
   return (
     <Pane onScroll={onScroll}>
-      <State q={q} empty={!rows.some(r => r.customersCount > 0)}
-        emptyText={tr('لا عملاء مسندين للمناديب بعد أسندهم من صفحة المناديب')} emptyIcon={Wallet}>
+      <State q={gate} empty={filtered ? rows.length === 0 : !rows.some(r => r.customersCount > 0)}
+        emptyText={filtered ? tr('لا نتائج') : tr('لا عملاء مسندين للمناديب بعد أسندهم من صفحة المناديب')} emptyIcon={Wallet}>
         <div className="grid grid-cols-2 gap-2.5">
           <MStat label={tr('مديونية المسندين بلا تكرار')} value={formatCurrency(sum.receivable)}
             tone={sum.receivable > 0 ? 'bad' : 'good'} icon={Wallet} />
@@ -771,8 +1038,9 @@ function ReceivablesReport({ onOpen }: { onOpen: (d: Detail) => void }) {
           </Note>
         )}
 
-        <MCard>
-          {rows.slice(0, limit).map(r => (
+        {lv.tools}
+        {lv.view.length === 0 ? <NoMatch /> : <MCard>
+          {lv.view.slice(0, limit).map(r => (
             <MRow key={r.id}
               leading={<Initial name={r.name} />}
               title={r.name}
@@ -782,7 +1050,7 @@ function ReceivablesReport({ onOpen }: { onOpen: (d: Detail) => void }) {
                 tone={r.totalBalance > 0 ? 'bad' : 'good'} chevron={r.customersCount > 0} />}
               onClick={r.customersCount > 0 ? () => onOpen({ kind: 'recv', row: r }) : undefined} />
           ))}
-        </MCard>
+        </MCard>}
         <More hidden={hidden} />
       </State>
     </Pane>
@@ -791,16 +1059,23 @@ function ReceivablesReport({ onOpen }: { onOpen: (d: Detail) => void }) {
 
 // ═══════════════ ٦) ساعات العمل ═══════════════
 
-function HoursReport({ from, to, onOpen }: {
-  from: string; to: string; onOpen: (d: Detail) => void;
+const HOURS_SORTS: SortOption[] = [
+  { id: 'valueDesc', label: 'الأطول وقتا' }, { id: 'valueAsc', label: 'الأقصر وقتا' },
+  { id: 'count', label: 'الأكثر زيارات' }, BY_NAME,
+];
+const HOURS_ACC: RowAccess<WorkHoursRow> = { name: r => r.name, value: r => r.fieldMinutesTotal, count: r => r.visitsTotal };
+
+/** المندوب والموقع (موقع المندوب الحالي) والفريق في الخادم */
+function HoursReport({ from, to, fq, onOpen }: {
+  from: string; to: string; fq: Record<string, string>; onOpen: (d: Detail) => void;
 }) {
   const tr = useTr();
   const q = useQuery({
-    queryKey: ['m-report', 'hours', from, to],
+    queryKey: ['m-report', 'hours', from, to, fq],
     queryFn: async () => {
       // إزاحة الجهاز تُمرَّر للخادم: «اليوم» يوم المندوب لا يوم الخادم
       const res = await reportApi.workHours(
-        params({ from, to, tz: String(-new Date().getTimezoneOffset()) }));
+        params({ from, to, tz: String(-new Date().getTimezoneOffset()), ...fq }));
       return {
         rows: expectArray<WorkHoursRow>(res.data?.data, 'ساعات العمل'),
         // الخادم يقصّ المدى عند ٣١ يوماً ويُعلن ذلك — تجاهلُه يجعل المشرف
@@ -810,7 +1085,8 @@ function HoursReport({ from, to, onOpen }: {
     },
   });
   const rows = useMemo(() => q.data?.rows ?? [], [q.data]);
-  const { limit, onScroll, hidden } = useWindowed(`${from}|${to}`, rows.length);
+  const lv = useListView(rows, HOURS_SORTS, HOURS_ACC);
+  const { limit, onScroll, hidden } = useWindowed(`${from}|${to}|${JSON.stringify(fq)}|${lv.viewKey}`, lv.view.length);
 
   const sum = useMemo(() => rows.reduce((a, r) => ({
     field: a.field + r.fieldMinutesTotal,
@@ -839,8 +1115,9 @@ function HoursReport({ from, to, onOpen }: {
         <Hint>{tr('إجمالي وقت العمل يقاس من أول أثر مرصود في اليوم إلى آخره ونشاط التطبيق هو الوقت الذي كان فيه التطبيق مفتوحا ومتصلا فقط')}
           {' '}{tr('ومع بصمة الحضور والانصراف يسجل كل دخول وكل خروج فترة عمل ويحسب الإجمالي من مجموع الفترات بلا ما بينها')}</Hint>
 
-        <MCard>
-          {rows.slice(0, limit).map(r => (
+        {lv.tools}
+        {lv.view.length === 0 ? <NoMatch /> : <MCard>
+          {lv.view.slice(0, limit).map(r => (
             <MRow key={r.id}
               leading={<Initial name={r.name} />}
               title={r.name}
@@ -848,7 +1125,7 @@ function HoursReport({ from, to, onOpen }: {
               trailing={<Amount value={fmtMin(r.fieldMinutesTotal, tr)} chevron />}
               onClick={() => onOpen({ kind: 'hours', row: r })} />
           ))}
-        </MCard>
+        </MCard>}
         <More hidden={hidden} />
       </State>
     </Pane>
@@ -857,8 +1134,21 @@ function HoursReport({ from, to, onOpen }: {
 
 // ═══════════════ ٨) العملاء الذين لم تتم زيارتهم (طلب المالك ٩ نوفمبر ٢٠٢٦) ═══════════════
 
-/** مكمّل «زيارات العملاء» بالمدى نفسه: عملاء نشطون بلا أي زيارة فيه، من لم يُزر قط أولاً ثم الأقدم زيارة (ترتيب الخادم) */
-function UnvisitedReport({ from, to }: { from: string; to: string }) {
+const UNVISITED_SORTS: SortOption[] = [
+  { id: 'default', label: 'الأقدم زيارة' }, { id: 'count', label: 'الأكثر فواتير' }, BY_NAME,
+];
+const UNVISITED_ACC: RowAccess<UnvisitedCust> = {
+  name: c => c.name, extra: c => [c.businessName, c.phone, c.city, ...c.reps], count: c => c.invoicesCount ?? 0,
+};
+
+/**
+ * مكمّل «زيارات العملاء» بالمدى نفسه: عملاء نشطون بلا أي زيارة فيه، من لم يُزر قط أولاً ثم الأقدم زيارة (ترتيب الخادم).
+ * ومصفاتا العميل والمندوب على الجهاز (الخادم لا يقرؤهما): العميل بمعرّفه، والمندوب بين أسماء مناديبه المسندين — «من لم
+ * يُزر من عملاء أحمد». وعدد «العملاء النشطون» للشركة كلها يُخفى مصفّىً: لا يقابل القائمة المصفّاة.
+ */
+function UnvisitedReport({ from, to, rep, customer }: {
+  from: string; to: string; rep: FilterPick | null; customer: FilterPick | null;
+}) {
   const tr = useTr();
   const bad = !!from && !!to && from > to;
   const q = useQuery({
@@ -867,23 +1157,28 @@ function UnvisitedReport({ from, to }: { from: string; to: string }) {
       (await reportApi.unvisitedCustomers(params({ from, to }))).data?.data, 'عملاء لم تتم زيارتهم'),
     enabled: !bad,
   });
-  const rows = useMemo(() => q.data?.customers ?? [], [q.data]);
-  const { limit, onScroll, hidden } = useWindowed(`${from}|${to}`, rows.length);
+  const filtered = !!(rep || customer);
+  const rows = useMemo(() => (q.data?.customers ?? []).filter(c =>
+    // المندوب بمعرّفه (repIds)، وخادمٌ أقدم بلا المعرّفات ⇒ بالاسم مقصوصاً
+    (!customer || c.id === customer.id) && (!rep || (c.repIds ? c.repIds.includes(rep.id) : c.reps.includes(rep.name.trim())))), [q.data, rep, customer]);
+  const lv = useListView(rows, UNVISITED_SORTS, UNVISITED_ACC);
+  const { limit, onScroll, hidden } = useWindowed(`${from}|${to}|${rep?.id ?? ''}|${customer?.id ?? ''}|${lv.viewKey}`, lv.view.length);
   // علامة «فواتير بلا زيارة» (طلب المالك ١٣ نوفمبر ٢٠٢٦): من بِيع له في المدى بلا زيارة، والباقي لا زيارة ولا فواتير
   const invoiced = useMemo(() => rows.filter(c => (c.invoicesCount ?? 0) > 0).length, [rows]);
 
   if (bad) return <Pane><div className="h-[260px]"><MEmpty text={tr('تاريخ البداية بعد تاريخ النهاية')} icon={UserX} /></div></Pane>;
   return (
     <Pane onScroll={onScroll}>
-      <State q={q} empty={rows.length === 0} emptyText={tr((q.data?.totalCustomers ?? 0) === 0 ? 'لا يوجد عملاء نشطون لهذه الفترة' : 'كل العملاء تمت زيارتهم في هذه الفترة')} emptyIcon={UserX}>
+      <State q={q} empty={rows.length === 0} emptyText={filtered ? tr('لا نتائج') : tr((q.data?.totalCustomers ?? 0) === 0 ? 'لا يوجد عملاء نشطون لهذه الفترة' : 'كل العملاء تمت زيارتهم في هذه الفترة')} emptyIcon={UserX}>
         <div className="grid grid-cols-2 gap-2.5">
           <MStat label={tr('عملاء لم تتم زيارتهم')} value={formatNumber(rows.length)} icon={UserX} />
-          <MStat label={tr('العملاء النشطون')} value={formatNumber(q.data?.totalCustomers ?? 0)} icon={Users} />
+          {!filtered && <MStat label={tr('العملاء النشطون')} value={formatNumber(q.data?.totalCustomers ?? 0)} icon={Users} />}
           <MStat label={tr('فواتير بلا زيارة')} value={formatNumber(invoiced)} icon={Receipt} tone="warn" />
           <MStat label={tr('لا زيارة ولا فواتير')} value={formatNumber(rows.length - invoiced)} icon={UserX} tone="bad" />
         </div>
-        <MCard>
-          {rows.slice(0, limit).map(c => (
+        {lv.tools}
+        {lv.view.length === 0 ? <NoMatch /> : <MCard>
+          {lv.view.slice(0, limit).map(c => (
             <MRow key={c.id}
               leading={<Initial name={c.name} />}
               title={c.name || tr('عميل بلا اسم')}
@@ -894,7 +1189,7 @@ function UnvisitedReport({ from, to }: { from: string; to: string }) {
               trailing={<Amount value={c.lastVisitAt ? formatDate(c.lastVisitAt) : (from ? tr('لم يُزر قبل الفترة') : to ? tr('لم يُزر حتى نهاية الفترة') : tr('لم يُزر قط'))}
                 tone={c.lastVisitAt ? 'default' : 'bad'} />} />
           ))}
-        </MCard>
+        </MCard>}
         <More hidden={hidden} />
       </State>
     </Pane>
@@ -903,14 +1198,21 @@ function UnvisitedReport({ from, to }: { from: string; to: string }) {
 
 // ═══════════════ ٧) زيارات العملاء ═══════════════
 
-function VisitsReport({ from, to, onOpen }: {
-  from: string; to: string; onOpen: (d: Detail) => void;
+/** العملاء المزارون: الأكثر زيارات ثم الأحدث (ترتيب الشاشة)، والبحث باسم العميل ومن زاره */
+const VISIT_SORTS: SortOption[] = [{ id: 'default', label: 'الأكثر زيارات' }, { id: 'recent', label: 'الأحدث' }, BY_NAME];
+const VISIT_ACC: RowAccess<CustGroup> = {
+  name: g => g.customerName, extra: g => [...new Set(g.visits.map(v => v.repName))], date: g => g.lastVisit,
+};
+
+/** المندوب والعميل والفريق في الخادم — الزيارة لا تُختم بموقع فلا مصفاة موقع */
+function VisitsReport({ from, to, fq, onOpen }: {
+  from: string; to: string; fq: Record<string, string>; onOpen: (d: Detail) => void;
 }) {
   const tr = useTr();
   const q = useQuery({
-    queryKey: ['m-report', 'visits', from, to],
+    queryKey: ['m-report', 'visits', from, to, fq],
     queryFn: async () => expectObject<{ count: number; visits: CustVisit[] }>(
-      (await reportApi.customerVisits(params({ from, to }))).data?.data, 'زيارات العملاء'),
+      (await reportApi.customerVisits(params({ from, to, ...fq }))).data?.data, 'زيارات العملاء'),
   });
   const visits = useMemo(() => q.data?.visits ?? [], [q.data]);
 
@@ -937,7 +1239,8 @@ function VisitsReport({ from, to, onOpen }: {
     return out;
   }, [visits]);
 
-  const { limit, onScroll, hidden } = useWindowed(`${from}|${to}`, groups.length);
+  const lv = useListView(groups, VISIT_SORTS, VISIT_ACC);
+  const { limit, onScroll, hidden } = useWindowed(`${from}|${to}|${JSON.stringify(fq)}|${lv.viewKey}`, lv.view.length);
   const avgAll = useMemo(() => {
     const durs = visits.map(v => v.durationSec).filter((d): d is number => typeof d === 'number' && d > 0);
     return durs.length ? Math.round(durs.reduce((s, d) => s + d, 0) / durs.length) : null;
@@ -954,8 +1257,9 @@ function VisitsReport({ from, to, onOpen }: {
             value={formatNumber(groups.length ? Math.round((visits.length / groups.length) * 10) / 10 : 0)} />
         </div>
 
-        <MCard>
-          {groups.slice(0, limit).map(g => (
+        {lv.tools}
+        {lv.view.length === 0 ? <NoMatch /> : <MCard>
+          {lv.view.slice(0, limit).map(g => (
             <MRow key={g.customerId}
               leading={<Initial name={g.customerName} />}
               title={g.customerName || tr('عميل بلا اسم')}
@@ -963,7 +1267,7 @@ function VisitsReport({ from, to, onOpen }: {
               trailing={<Amount value={fmtSec(g.avgDurationSec, tr) ?? tr('بلا توقيت')} chevron />}
               onClick={() => onOpen({ kind: 'cust', group: g })} />
           ))}
-        </MCard>
+        </MCard>}
         <More hidden={hidden} />
       </State>
     </Pane>

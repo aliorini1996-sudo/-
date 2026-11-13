@@ -37,13 +37,15 @@ export function unvisitedRange(from: unknown, to: unknown, now: Date = new Date(
 
 export interface UnvisitedCustomerIn {
   id: string; name: string; businessName: string | null; phone: string; city: string | null; createdAt: Date;
-  assignments: { salesRep: { name: string } | null }[];
+  assignments: { salesRep: { id?: string; name: string } | null }[];
 }
 
 export interface UnvisitedRow {
   id: string; name: string; businessName: string | null; phone: string; city: string | null;
   /** المناديب المُسنَدون للعميل (من أضافه أو أسندته الإدارة) — فارغ لعميلٍ بلا إسناد */
   reps: string[];
+  /** معرّفات المناديب المُسنَدين (فلتر المندوب بالمعرّف) */
+  repIds: string[];
   /** آخر زيارة قبل بداية الفترة — null: لم يُزر قط قبلها */
   lastVisitAt: Date | null;
   createdAt: Date;
@@ -69,10 +71,12 @@ export function buildUnvisitedRows(
   for (const c of customers) {
     if (visited.has(c.id)) continue;
     const reps = [...new Set(c.assignments.map(a => a.salesRep?.name?.trim() || '').filter(Boolean))];
+    // معرّفات المناديب المُسنَدين — فلتر المندوب في /m يطابق بها لا بالاسم (اسمٌ بمسافة زائدة أو مندوبان بالاسم نفسه)
+    const repIds = [...new Set(c.assignments.map(a => a.salesRep?.id || '').filter(Boolean))];
     const inv = invoiceStats.get(c.id);
     rows.push({
       id: c.id, name: c.name, businessName: c.businessName, phone: c.phone, city: c.city,
-      reps, lastVisitAt: lastVisitBefore.get(c.id) ?? null, createdAt: c.createdAt,
+      reps, repIds, lastVisitAt: lastVisitBefore.get(c.id) ?? null, createdAt: c.createdAt,
       invoicesCount: inv?.count ?? 0, lastInvoiceAt: inv?.lastAt ?? null,
     });
   }
