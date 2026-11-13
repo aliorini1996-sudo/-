@@ -27,6 +27,7 @@ import { patchSessionOutlet } from '../ai-rep/session';
 import { UnitInvalidError } from '../services/warehouseStock';
 import { PRICE_LIST_MESSAGES } from '../services/priceLists';
 import { CUSTOMER_PHONE_MAX } from '../services/importMatch';
+import { findPhoneDuplicate, phoneDupBody, phoneDupExempt } from '../services/customerPhoneDup';
 import { DEVICE_NOW_HEADER, headerText, offlineInvoiceDate } from '../services/offlineInvoiceDate';
 // «الوحدة الرئيسية» §2.10: أسعار العميل لوحدة الأساس تُكتب تحت قفل صفّ الصنف مقارنةً بالأساس الذي كُتبت له
 import {
@@ -344,6 +345,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const geo = await resolveLocationUrl(locationUrl, { googleOnly: true });
       if (geo) { rest.lat = geo.lat; rest.lng = geo.lng; }
     }
+    // «منع تكرار الجوال داخل الشركة» (طلب المالك ١٣ نوفمبر ٢٠٢٦): جوالٌ مسجَّلٌ لعميلٍ آخر ⇒ 409 CUSTOMER_PHONE_EXISTS —
+    // إلا مفتاح API وإعادة رفع صندوق المندوب (services/customerPhoneDup.ts)
+    if (!phoneDupExempt(req)) {
+      const dup = await findPhoneDuplicate(tid, rest.phone);
+      if (dup) { res.status(409).json(phoneDupBody(dup, await canAccessCustomer(req, tid, dup.id))); return; }
+    }
     // R6: عميل صندوق المندوب بلحظة إضافته على الجهاز (replayCustomerCreatedAt) — وغيره ساعة الخادم كما كان
     const addedAt = await replayCustomerCreatedAt(req, tid, clientCreatedAt);
     // idempotency على مستوى التطبيق (لا قيد فريد على clientRef في customers — انظر المخطّط).
@@ -529,6 +536,12 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       }
     }
     void _cr; void _cc; void _ap; // معرّف مكان Google يُربط عند الإنشاء وحده
+    // «منع تكرار الجوال داخل الشركة»: جوالٌ تغيّر إلى رقم عميلٍ آخر ⇒ 409 (الجوال نفسه بلا تغيير لا يُفحص — تكرارٌ قديم لا يمنع تعديلاً)
+    if (typeof data.phone === 'string' && data.phone.trim() && !phoneDupExempt(req)
+      && data.phone.trim() !== String(exists.phone ?? '').trim()) {
+      const dup = await findPhoneDuplicate(tid, data.phone, req.params.id);
+      if (dup) { res.status(409).json(phoneDupBody(dup, await canAccessCustomer(req, tid, dup.id))); return; }
+    }
     // «تعديل بيانات العميل» للمندوب يشمل البيانات الوصفية لا الشروط المالية: الحدّ الائتمانيّ
     // وفترة السداد وحالة العميل قرارُ الإدارة — وإلا رفع المندوب حدّ عميله ليتجاوز ضابط الائتمان
     if (req.user?.role === 'SALES_REP') {
