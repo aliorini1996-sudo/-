@@ -6,6 +6,7 @@ import { tenantApi } from '../api/client';
 import type { Tenant } from '../types';
 import { useTr } from '../i18n/strings';
 import { backdropClose } from '../lib/backdropClose';
+import { gregorianLocale } from '../utils/format';
 
 /**
  * «حالة الصفقة» و«الملاحظات» لكل شركة في لوحة المنصة (طلب المالك ٩ نوفمبر ٢٠٢٦).
@@ -75,7 +76,7 @@ type NotesData = { notes: Note[]; deal: { stage: string; updatedAt: string; upda
 
 const fmtDateTime = (iso: string) => {
   try {
-    return new Date(iso).toLocaleString('ar-SA-u-nu-latn', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return new Date(iso).toLocaleString(gregorianLocale('ar-SA-u-nu-latn'), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   } catch { return iso; }
 };
 

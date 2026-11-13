@@ -96,7 +96,8 @@
       var r=v.receipt||{};
       var d=r.date?new Date(r.date):(v.paidAt?new Date(v.paidAt):null);
       var dstr='';
-      if(d){try{dstr=d.toLocaleDateString('ar-SA',{year:'numeric',month:'long',day:'numeric'})+' '+d.toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit'});}catch(e){dstr=d.toISOString().slice(0,16).replace('T',' ');}}
+      // ميلاديٌّ صريحاً: ar-SA وحدها تقويمها أمّ القرى في Safari/iOS
+      if(d){try{dstr=d.toLocaleDateString('ar-SA-u-ca-gregory',{year:'numeric',month:'long',day:'numeric'})+' '+d.toLocaleTimeString('ar-SA-u-ca-gregory',{hour:'2-digit',minute:'2-digit'});}catch(e){dstr=d.toISOString().slice(0,16).replace('T',' ');}}
       h='<div class="brand">'+(v.company&&v.company.logo?'<img class="logo" alt="" src="'+esc(v.company.logo)+'">':'<span class="logo-ph" style="background:'+esc(brand)+'">🏢</span>')+'<p class="cname">'+esc(v.company&&v.company.name)+'</p></div>';
       h+='<div class="rcp"><div class="rcp-head" style="background:#1E7A52"><div class="ok">✓</div><div class="tt">تم الدفع بنجاح</div></div>';
       h+='<div class="rcp-body">';

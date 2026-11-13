@@ -7,6 +7,7 @@ import {
   Settings, LogIn, Ban, CalendarClock, KeyRound, RefreshCw, Save, FileText,
 } from 'lucide-react';
 import { LANDING_FIELDS, LANDING_DEFAULTS } from './landingContent';
+import { gregorianLocale } from '../utils/format';
 
 // ============ الأنواع ============
 
@@ -639,7 +640,7 @@ function fmtDate(iso?: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('ar', { year: 'numeric', month: 'short', day: 'numeric' });
+  return d.toLocaleDateString(gregorianLocale('ar'), { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 /** `YYYY-MM-DD` لحقل input[type=date] (بالتوقيت المحلي لا UTC). */

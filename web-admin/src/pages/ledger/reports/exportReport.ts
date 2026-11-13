@@ -17,6 +17,7 @@
  * كل نصّ جديد يمرّ بـ`tr('…')`: المُستدعي يمرّر `tr` من `useTr()`.
  */
 import { num } from '../../../utils/excel';
+import { gregorianLocale } from '../../../utils/format';
 import type { ExcelSheet } from '../../../utils/excel';
 import { rowsToPagedPdf, type PagedPdfColumn, type PagedPdfRow } from '../../../rep/pdfPaged';
 
@@ -350,7 +351,7 @@ export function reportMetaRows(input: ReportMetaInput): { label: string; value: 
   const { data, tr } = input;
   const now = input.now ?? new Date();
   const printed = (() => {
-    try { return now.toLocaleString(input.locale ?? 'ar-SA'); } catch { return now.toISOString().slice(0, 16).replace('T', ' '); }
+    try { return now.toLocaleString(gregorianLocale(input.locale ?? 'ar-SA')); } catch { return now.toISOString().slice(0, 16).replace('T', ' '); }
   })();
   const out: { label: string; value: string }[] = [];
   if (input.company && input.company.trim() !== '') out.push({ label: tr('الشركة'), value: input.company.trim() });

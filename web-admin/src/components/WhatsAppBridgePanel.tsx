@@ -19,6 +19,7 @@ import { leadApi } from '../api/client';
 import { Lead } from '../types';
 import { backdropClose } from '../lib/backdropClose';
 import { usePlatformAccess } from '../lib/platformAccess';
+import { gregorianLocale } from '../utils/format';
 
 interface Session {
   status: 'DISCONNECTED' | 'QR' | 'CONNECTED' | 'AUTH_FAILED';
@@ -309,7 +310,7 @@ export default function WhatsAppBridgePanel({ onClose }: { onClose: () => void }
                               m.status === 'FAILED' ? <AlertTriangle size={10} className="text-red-500" /> :
                               <CheckCheck size={10} className="text-[#25D366]" />
                             )}
-                            {new Date(m.createdAt).toLocaleString('ar-SA', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}
+                            {new Date(m.createdAt).toLocaleString(gregorianLocale('ar-SA'), { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}
                             {m.error && <span className="text-red-500">· {m.error}</span>}
                           </div>
                         </div>

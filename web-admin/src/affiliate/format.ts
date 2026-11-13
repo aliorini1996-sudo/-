@@ -49,7 +49,8 @@ const dayFormatters = new Map<Lang, Intl.DateTimeFormat>();
 function dayFormatter(lang: Lang): Intl.DateTimeFormat {
   let f = dayFormatters.get(lang);
   if (!f) {
-    f = new Intl.DateTimeFormat(AX_LOCALE[lang] ?? AX_LOCALE.ar, { timeZone: 'Asia/Riyadh', day: 'numeric', month: 'long', year: 'numeric' });
+    // calendar صريحاً فوق ca-gregory في AX_LOCALE: ميلاديٌّ بكل لغة ولو كان تقويم الجهاز هجرياً، والوحدة باقية بلا تبعيّات
+    f = new Intl.DateTimeFormat(AX_LOCALE[lang] ?? AX_LOCALE.ar, { calendar: 'gregory', timeZone: 'Asia/Riyadh', day: 'numeric', month: 'long', year: 'numeric' });
     dayFormatters.set(lang, f);
   }
   return f;

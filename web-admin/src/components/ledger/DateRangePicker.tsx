@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTr } from '../../i18n/strings';
 import { useDir } from '../../i18n/lang';
-import { activeLocale, formatDayOnly } from '../../utils/format';
+import { activeLocale, formatDayOnly, gregorianLocale } from '../../utils/format';
 
 /**
  * منتقي فترة الدفاتر (§8.3): فترات جاهزة وأسهم تزيح الفترة بطولها، وتقويم يبدأ أسبوعه حسب
@@ -106,7 +106,7 @@ export function DateRangePicker({ value, onChange, weekStartsOn = 0, minDate, ma
   ];
 
   const weekdays = useMemo(() => {
-    const fmt = new Intl.DateTimeFormat(locale, { weekday: 'narrow', timeZone: 'UTC' });
+    const fmt = new Intl.DateTimeFormat(gregorianLocale(locale), { weekday: 'narrow', timeZone: 'UTC' });
     // 2023-01-01 أحد
     return Array.from({ length: 7 }, (_, i) => fmt.format(new Date(Date.UTC(2023, 0, 1 + ((weekStartsOn + i) % 7)))));
   }, [locale, weekStartsOn]);
@@ -119,7 +119,7 @@ export function DateRangePicker({ value, onChange, weekStartsOn = 0, minDate, ma
   }, [cursor, weekStartsOn]);
 
   const monthName = (y: number, m: number, style: 'long' | 'short' = 'long') =>
-    new Intl.DateTimeFormat(locale, { month: style, year: style === 'long' ? 'numeric' : undefined, timeZone: 'UTC' }).format(new Date(Date.UTC(y, m, 1)));
+    new Intl.DateTimeFormat(gregorianLocale(locale), { month: style, year: style === 'long' ? 'numeric' : undefined, timeZone: 'UTC' }).format(new Date(Date.UTC(y, m, 1)));
   const dayNum = (d: string) => new Intl.NumberFormat(locale).format(parts(d).d);
 
   const pick = (d: string) => {

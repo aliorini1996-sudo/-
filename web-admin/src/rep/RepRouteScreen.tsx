@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { CheckCircle2, Circle, MapPin, ChevronRight, Repeat, CalendarDays, Route as RouteIcon } from 'lucide-react';
 import repApi from './repApi';
 import { useTr } from '../i18n/strings';
+import { gregorianLocale } from '../utils/format';
 
 /**
  * خط سير اليوم في تطبيق المندوب — العملاء بالترتيب، وعلامةٌ خضراء لمن زاره.
@@ -128,7 +129,7 @@ export default function RepRouteScreen({ onBack }: { onBack: () => void }) {
                   {s.note && <span className="block text-[11px] text-[#B7791F] mt-0.5">{s.note}</span>}
                   {s.done && s.doneAt && (
                     <span className="block text-[10px] text-green-700 mt-0.5">
-                      {tr('زرته')} {new Date(s.doneAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {tr('زرته')} {new Date(s.doneAt).toLocaleTimeString(gregorianLocale(), { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   )}
                 </span>

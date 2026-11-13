@@ -1,4 +1,5 @@
 import QRCode from 'qrcode';
+import { gregorianLocale } from '../utils/format';
 
 /**
  * طباعة الفاتورة الضريبية التي تُصدرها المنصّة لمشتركها.
@@ -108,7 +109,8 @@ export async function printPlatformInvoice(inv: PrintableInvoice, seller: Seller
   const qrDataUrl = await QRCode.toDataURL(inv.qrBase64, { width: 180, margin: 1 }).catch(() => '');
 
   const issued = new Date(inv.issuedAt);
-  const dateStr = issued.toLocaleDateString('ar-SA-u-nu-latn', { timeZone: 'Asia/Riyadh', year: 'numeric', month: 'long', day: 'numeric' });
+  // ميلاديٌّ صريحاً: ar-SA في Safari/iOS تقويمه أمّ القرى
+  const dateStr = issued.toLocaleDateString(gregorianLocale('ar-SA-u-nu-latn'), { timeZone: 'Asia/Riyadh', year: 'numeric', month: 'long', day: 'numeric' });
 
   const w = window.open('', '_blank', 'width=820,height=900');
   if (!w) return;

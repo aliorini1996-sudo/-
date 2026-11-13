@@ -8,7 +8,7 @@ import { presenceByRepDay, presenceSummary, type PresenceRow } from '../lib/pres
 import { splitSheetsByTeam } from '../lib/teamReport';
 import { customerPhoneText } from '../lib/customerPhoneField';
 import RepRankingBoard, { RANKING_LABELS, type RankingData, type RankingMetric } from '../components/reports/RepRankingBoard';
-import { formatCurrency, activeLocale, formatDayOnly, formatNumber } from '../utils/format';
+import { formatCurrency, activeLocale, formatDayOnly, formatNumber, gregorianLocale } from '../utils/format';
 import {
   appliedRangeOf, truncationOf, periodText, defaultedRangeNote, truncationNote, customerStatusLabel, customerStatusBadge,
   hasCustomerStatus, perfHasCash, rateBarWidth, listTotals, type AppliedRange, type Truncation,
@@ -395,7 +395,7 @@ export default function ReportsPage() {
   const fmtDuration = (h: number, m: number) => `${h} ${tr('س')} ${m} ${tr('د')}`;
   const fmtDateTime = (iso: string | null) => iso ? new Date(iso).toLocaleString(activeLocale(), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
   const fmtDay = (iso: string) => new Date(iso).toLocaleDateString(activeLocale(), { year: 'numeric', month: '2-digit', day: '2-digit' });
-  const fmtClock = (iso: string) => new Date(iso).toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' });
+  const fmtClock = (iso: string) => new Date(iso).toLocaleTimeString(gregorianLocale('ar'), { hour: '2-digit', minute: '2-digit' });
   const fmtMin = (min: number) => fmtDuration(Math.floor(min / 60), min % 60);
   // مدة الزيارة بالثواني — بنفس تدرّج خريطة التتبّع حتى يتطابق المعروضان
   const fmtVisitDur = (sec: number | null) => sec == null || sec <= 0 ? null
