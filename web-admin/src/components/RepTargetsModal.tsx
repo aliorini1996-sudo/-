@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
-  Check, ChevronLeft, ChevronRight, Coins, HandCoins, Layers, MapPin, Package, Pencil, Percent, Plus, Target, Trash2, TrendingUp, Trophy, Unlink,
-  UserPlus, Wallet, X,
+  CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, Coins, HandCoins, Layers, MapPin, Package, Pencil, Percent, Plus, Target, Trash2,
+  TrendingUp, Trophy, Unlink, UserPlus, Wallet, X,
 } from 'lucide-react';
 import { productApi, repTargetsApi } from '../api/client';
 import type { SalesRep } from '../types';
@@ -17,7 +17,8 @@ import { choiceById, defaultChoice, unitChoices, type UnitChoice } from '../rep/
 import { isStaleUnitsError } from '../lib/stockRequest';
 import {
   MAX_TARGET_PRODUCTS, MAX_TARGETS_PER_MONTH, REWARD_KINDS, REWARD_MAX, TARGET_KINDS, TARGET_NOTE_MAX, barPct, cleanDecimal, comboDone, daysLeftText,
-  draftOf, draftProblem, emptyDraft, groupTargets, monthLabel, pctText, pickerSearchDropped, productPickerOptions, readNum, rewardText, shiftMonth,
+  draftOf, draftProblem, emptyDraft, groupTargets, monthLabel, pctText, periodDays, periodDaysText, periodLabel, periodProblem, periodStatusText,
+  pickerSearchDropped, productPickerOptions, readNum, rewardText, shiftMonth, targetInMonth, windowKeyOf,
   targetAmountText, targetErrorCode, targetErrorMessage, targetKindLabel, targetStateText, targetTitle, targetUnitText, toTargetInput, unitDriftText,
   unitFactorDrifts, unitRefreshFlag, type DraftExtraProduct, type RepRewardKind,
   type RepTargetComboInput, type RepTargetInput, type RepTargetKind, type RepTargetProductView, type RepTargetView, type RepTargetsData, type TargetDraft,
@@ -99,9 +100,15 @@ export default function RepTargetsModal({ rep, onClose }: { rep: SalesRep; onClo
 
   const save = useMutation({
     mutationFn: ({ id, body }: { id: string | null; body: RepTargetInput }) => (id ? repTargetsApi.update(id, body) : repTargetsApi.create(rep.id, body)),
-    onSuccess: async () => {
+    onSuccess: async (res) => {
       toast.success(tr('تم حفظ الهدف'));
       setEditing(null);
+      // «مدة الهدف»: هدفٌ حُفظ بفترةٍ لا تمسّ الشهر المعروض (يُحفظ في شهر بدايته) لا يختفي بصمت — تنتقل النافذة إليه
+      const saved = (res as { data?: { data?: RepTargetView } })?.data?.data;
+      if (saved?.month && data?.month && !targetInMonth(saved, data.month)) {
+        toast(tr('ظهر الهدف في شهر بدايته {m}').replace('{m}', () => monthLabel(saved.month, activeLocale())));
+        goMonth(saved.month);
+      }
       await qc.invalidateQueries({ queryKey: ['rep-targets', rep.id] });
     },
     onError: (e: unknown) => {
@@ -163,8 +170,8 @@ export default function RepTargetsModal({ rep, onClose }: { rep: SalesRep; onClo
   const targets = data?.targets ?? [];
   // المستقل والمدمج بترتيب الإنشاء (المدمج في موضع أول أعضائه)
   const groups = groupTargets(targets);
-  // الأهداف المستقلة (خارج أي هدفٍ مدمج) — وحدها تُدمج
-  const standalone = groups.flatMap(g => (g.kind === 'single' && !g.target.comboId ? [g.target] : []));
+  // الأهداف المستقلة (خارج أي هدفٍ مدمج) — وحدها تُدمج، ومن شهرها هذا وحده: فترةٌ بدأت في شهرٍ سابق تظهر هنا ولا تُدمج معه
+  const standalone = groups.flatMap(g => (g.kind === 'single' && !g.target.comboId && g.target.month === data?.month ? [g.target] : []));
   const canMerge = standalone.length >= 2;
   const busy = editing !== null || merging;
 
@@ -184,7 +191,8 @@ export default function RepTargetsModal({ rep, onClose }: { rep: SalesRep; onClo
   }, [merging]);
 
   const doneCount = targets.filter(t => t.progress.done).length;
-  const atLimit = targets.length >= MAX_TARGETS_PER_MONTH;
+  // السقف بشهر بداية الهدف (الخادم كذلك) — الفترات الممتدة من شهرٍ سابق لا تُعدّ عليه
+  const atLimit = targets.filter(t => t.month === data?.month).length >= MAX_TARGETS_PER_MONTH;
   const future = !!data && !data.isCurrent && data.daysLeft > 0;
   const monthNote = !data ? '' : data.isCurrent ? daysLeftText(data.daysLeft, lang, tr, num) : future ? tr('لم يبدأ الشهر بعد') : tr('انتهى الشهر');
   const products = prodQ.data ?? [];
@@ -320,7 +328,7 @@ export default function RepTargetsModal({ rep, onClose }: { rep: SalesRep; onClo
         <ConfirmDialog
           danger
           title={tr('حذف الهدف')}
-          message={`«${targetTitle(deleting, tr, num)}» — ${tr('سيحذف هذا الهدف ولن يظهر للمندوب بعد الآن')}`}
+          message={`«${targetTitle(deleting, tr, num)}»${deleting.period?.custom ? ` (${periodLabel(deleting.period, activeLocale())})` : ''} — ${tr('سيحذف هذا الهدف ولن يظهر للمندوب بعد الآن')}`}
           confirmLabel={tr('حذف')}
           loading={remove.isPending}
           onConfirm={() => remove.mutate(deleting.id)}
@@ -337,8 +345,10 @@ export default function RepTargetsModal({ rep, onClose }: { rep: SalesRep; onClo
  */
 function TargetCard({ t, busy, compact, onEdit, onDelete }: { t: RepTargetView; busy: boolean; compact?: boolean; onEdit: () => void; onDelete: () => void }) {
   const tr = useTr();
+  const lang = useLang(s => s.lang);
   const p = t.progress;
-  const stateText = targetStateText(p);
+  const custom = !!t.period?.custom;
+  const stateText = targetStateText(p, custom);
   const KindIcon = KIND_ICONS[t.kind] ?? Target;
   return (
     <div className={`border ${compact ? 'rounded-xl p-3' : 'rounded-2xl p-4'} ${p.done ? 'border-[#BFE0CD] bg-[#F6FBF8]' : 'border-[#E9E1D3] bg-white'}`}>
@@ -349,6 +359,13 @@ function TargetCard({ t, busy, compact, onEdit, onDelete }: { t: RepTargetView; 
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-[#1F1A13] leading-snug break-words">{targetTitle(t, tr, num)}</p>
           <p className="text-[11px] text-[#9A8F7E] mt-0.5">{tr(targetKindLabel(t.kind))}</p>
+          {custom && t.period && (
+            <p className="text-[11px] text-[#8A6D1F] mt-1 flex items-center gap-1 flex-wrap" data-target-period="">
+              <CalendarRange size={12} className="shrink-0" />
+              <bdi className="font-semibold">{periodLabel(t.period, activeLocale())}</bdi>
+              {periodStatusText(t.period, lang, tr, activeLocale(), num) && <span className="text-[#9A8F7E]">· {periodStatusText(t.period, lang, tr, activeLocale(), num)}</span>}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
           {p.done && (
@@ -376,7 +393,7 @@ function TargetCard({ t, busy, compact, onEdit, onDelete }: { t: RepTargetView; 
             <div className={`h-full rounded-full transition-all ${p.done ? 'bg-[#2F855A]' : 'bg-[#E15A30]'}`} style={{ width: `${barPct(p.pct, p.done)}%` }} />
           </div>
           {t.kind === 'COLLECTION_PCT' && p.base != null && (
-            <p className="text-[11px] text-[#6E6557] mt-1.5">{tr('الديون المفتوحة بداية الشهر')}: <bdi className="font-semibold">{formatCurrency(p.base)}</bdi></p>
+            <p className="text-[11px] text-[#6E6557] mt-1.5">{tr(custom ? 'الديون المفتوحة بداية الفترة' : 'الديون المفتوحة بداية الشهر')}: <bdi className="font-semibold">{formatCurrency(p.base)}</bdi></p>
           )}
         </div>
       )}
@@ -454,8 +471,10 @@ function NumField({ value, onChange, suffix, ariaLabel, autoFocus, integer }: {
 }
 
 /** المكافأة: نوعها ثلاثة أزرار ثم قيمتها بوحدتها وشرحها — لنموذج الهدف ونموذج الدمج. و`note` سطرٌ إضافي تحتها */
-function RewardFields({ kind, value, onChange, note }: {
+function RewardFields({ kind, value, onChange, note, custom = false }: {
   kind: RepRewardKind; value: string; onChange: (kind: RepRewardKind, value: string) => void; note?: string;
+  /** «مدة الهدف»: فترةٌ مخصّصة — العمولة من مبيعات الفترة لا الشهر */
+  custom?: boolean;
 }) {
   const tr = useTr();
   const currency = getActiveCurrency();
@@ -478,7 +497,7 @@ function RewardFields({ kind, value, onChange, note }: {
         {kind === 'COMMISSION_SALES_PCT' && (
           <>
             <NumField value={value} onChange={x => onChange(kind, x)} suffix="%" ariaLabel={tr('نسبة العمولة')} />
-            <p className="text-[11px] text-[#9A8F7E] mt-1">{tr('من صافي مبيعات المندوب في الشهر كله وتستحق عند تحقق الهدف')}</p>
+            <p className="text-[11px] text-[#9A8F7E] mt-1">{tr(custom ? 'من صافي مبيعات المندوب في الفترة كلها وتستحق عند تحقق الهدف' : 'من صافي مبيعات المندوب في الشهر كله وتستحق عند تحقق الهدف')}</p>
           </>
         )}
         {kind === 'SALARY_PCT' && (
@@ -641,6 +660,11 @@ function TargetForm({ initial, original, inCombo, products, productsLoading, pro
   const takenFor = (idx: number): ReadonlySet<string> => new Set(lines.flatMap((l, i) => (i !== idx && l.productId ? [l.productId] : [])));
 
   const productKind = d.kind === 'PRODUCT_QTY';
+  const lang = useLang(s => s.lang);
+  // «مدة الهدف»: التلميحات والعمولة بالفترة حين تُخصَّص، وعضو المدمج تخرجه مدةٌ أخرى (تنبيهٌ قبل الحفظ)
+  const custom = d.periodMode === 'CUSTOM';
+  const windowChanged = !!original && (custom !== !!original.period?.custom
+    || (custom && (d.periodFrom !== original.period?.from || d.periodTo !== original.period?.to)));
   // صنفٌ بلا وحدةٍ قابلة للحلّ (أي سطر) يُرفض كالأول
   const unitMissing = productKind && lines.some(l => l.productId && !l.choice);
   const problem = draftProblem(d) ?? (unitMissing ? 'وحدة الصنف غير صحيحة' : null);
@@ -681,7 +705,8 @@ function TargetForm({ initial, original, inCombo, products, productsLoading, pro
 
   const v = readNum(d.targetValue);
   const preview = !problem ? {
-    title: targetTitle({ kind: d.kind, targetValue: Number(v), productName: lineViews?.[0]?.productName ?? null, unitName: choice?.name ?? null, products: lineViews }, tr, num),
+    title: targetTitle({ kind: d.kind, targetValue: Number(v), productName: lineViews?.[0]?.productName ?? null, unitName: choice?.name ?? null, products: lineViews, period: { custom: d.periodMode === 'CUSTOM' } }, tr, num),
+    period: d.periodMode === 'CUSTOM' ? periodLabel({ from: d.periodFrom, to: d.periodTo }, activeLocale()) : null,
     goal: d.kind === 'COLLECTION_PCT' ? null : targetAmountText({ kind: d.kind, unitName: choice?.name ?? null, products: lineViews }, Number(v), money, num),
     reward: rewardText({ rewardKind: d.rewardKind, rewardValue: Number(readNum(d.rewardValue)), reward: { kind: d.rewardKind, value: 0, amount: d.rewardKind === 'FIXED_AMOUNT' ? Number(readNum(d.rewardValue)) : null, earned: false } }, tr, money, num),
   } : null;
@@ -708,12 +733,55 @@ function TargetForm({ initial, original, inCombo, products, productsLoading, pro
         </div>
       </div>
 
+      {/* مدة الهدف (طلب المالك ١٣ نوفمبر ٢٠٢٦): الشهر كله أو فترةٌ مخصّصة أقصر من شهر أو أطول — حتى سنة */}
+      <div data-target-period-field="">
+        <p className="label">{tr('مدة الهدف')}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" aria-pressed={d.periodMode === 'MONTH'} onClick={() => set({ periodMode: 'MONTH' })} className={pickClass(d.periodMode === 'MONTH')}>
+            <CalendarDays size={18} />
+            <span className="leading-tight text-center">{tr('الشهر كاملا')}</span>
+            <span className="text-[10px] font-normal opacity-80">{monthLabel(d.month, activeLocale())}</span>
+          </button>
+          <button type="button" aria-pressed={d.periodMode === 'CUSTOM'} onClick={() => set({ periodMode: 'CUSTOM' })} className={pickClass(d.periodMode === 'CUSTOM')}>
+            <CalendarRange size={18} />
+            <span className="leading-tight text-center">{tr('فترة محددة')}</span>
+          </button>
+        </div>
+        {d.periodMode === 'CUSTOM' && (
+          <div className="mt-2 space-y-1.5">
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block">
+                <span className="text-[11px] text-[#6E6557]">{tr('من')}</span>
+                <input type="date" className="input" dir="ltr" value={d.periodFrom} max={d.periodTo || undefined}
+                  onChange={e => set({ periodFrom: e.target.value })} aria-label={tr('بداية الفترة')} />
+              </label>
+              <label className="block">
+                <span className="text-[11px] text-[#6E6557]">{tr('إلى')}</span>
+                <input type="date" className="input" dir="ltr" value={d.periodTo} min={d.periodFrom || undefined}
+                  onChange={e => set({ periodTo: e.target.value })} aria-label={tr('نهاية الفترة')} />
+              </label>
+            </div>
+            <p className="text-[11px] text-[#9A8F7E] leading-relaxed">
+              {!periodProblem(d.periodFrom, d.periodTo) && (
+                <><bdi className="font-semibold text-[#6E6557]">{periodLabel({ from: d.periodFrom, to: d.periodTo }, activeLocale())}</bdi>
+                  {' · '}{periodDaysText(periodDays(d.periodFrom, d.periodTo), lang, tr, num)}{' — '}</>
+              )}
+              {tr('أقل من شهر أو أكثر حتى سنة وتحسب أرقام الهدف كلها داخل الفترة')}
+            </p>
+          </div>
+        )}
+        {/* عضو الهدف المدمج: أعضاؤه بنافذةٍ واحدة — تغيير مدته يخرجه منه (الخادم: sameWindow) */}
+        {inCombo && original && windowChanged && (
+          <p className="mt-2 text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3 py-2">{tr('تغيير مدة الهدف يخرجه من الهدف المدمج')}</p>
+        )}
+      </div>
+
       {/* قيمة الهدف بشكل نوعه */}
       {d.kind === 'SALES_AMOUNT' && (
         <div>
           <p className="label">{tr('مبلغ الهدف')}</p>
           <NumField value={d.targetValue} onChange={x => set({ targetValue: x })} suffix={currency} ariaLabel={tr('مبلغ الهدف')} />
-          <p className="text-[11px] text-[#9A8F7E] mt-1">{tr('صافي مبيعات المندوب في الشهر بعد خصم المرتجع')}</p>
+          <p className="text-[11px] text-[#9A8F7E] mt-1">{tr(custom ? 'صافي مبيعات المندوب في الفترة بعد خصم المرتجع' : 'صافي مبيعات المندوب في الشهر بعد خصم المرتجع')}</p>
         </div>
       )}
       {d.kind === 'PRODUCT_QTY' && (
@@ -758,8 +826,8 @@ function TargetForm({ initial, original, inCombo, products, productsLoading, pro
             <NumField value={d.targetValue} onChange={x => set({ targetValue: x })} suffix={qtyUnit || undefined} ariaLabel={tr('الكمية المستهدفة')} />
             <p className="text-[11px] text-[#9A8F7E] mt-1 leading-relaxed">
               {extraLines.length
-                ? tr('مجموع صافي ما يبيعه المندوب من الأصناف المختارة في الشهر بعد خصم المرتجع كل صنف بوحدته')
-                : tr('صافي ما يبيعه المندوب من الصنف في الشهر بعد خصم المرتجع بالوحدة المختارة')}
+                ? tr(custom ? 'مجموع صافي ما يبيعه المندوب من الأصناف المختارة في الفترة بعد خصم المرتجع كل صنف بوحدته' : 'مجموع صافي ما يبيعه المندوب من الأصناف المختارة في الشهر بعد خصم المرتجع كل صنف بوحدته')
+                : tr(custom ? 'صافي ما يبيعه المندوب من الصنف في الفترة بعد خصم المرتجع بالوحدة المختارة' : 'صافي ما يبيعه المندوب من الصنف في الشهر بعد خصم المرتجع بالوحدة المختارة')}
             </p>
           </div>
         </div>
@@ -768,27 +836,27 @@ function TargetForm({ initial, original, inCombo, products, productsLoading, pro
         <div>
           <p className="label">{tr('نسبة التحصيل')}</p>
           <NumField value={d.targetValue} onChange={x => set({ targetValue: x })} suffix="%" ariaLabel={tr('نسبة التحصيل')} />
-          <p className="text-[11px] text-[#9A8F7E] mt-1 leading-relaxed">{tr('من ديون مبيعات المندوب الآجلة المفتوحة في بداية الشهر ويحتسب ما يحصل منها خلال الشهر')}</p>
+          <p className="text-[11px] text-[#9A8F7E] mt-1 leading-relaxed">{tr(custom ? 'من ديون مبيعات المندوب الآجلة المفتوحة في بداية الفترة ويحتسب ما يحصل منها خلال الفترة' : 'من ديون مبيعات المندوب الآجلة المفتوحة في بداية الشهر ويحتسب ما يحصل منها خلال الشهر')}</p>
         </div>
       )}
       {d.kind === 'VISITS_COUNT' && (
         <div>
           <p className="label">{tr('عدد الزيارات')}</p>
           <NumField integer value={d.targetValue} onChange={x => set({ targetValue: x })} ariaLabel={tr('عدد الزيارات')} />
-          <p className="text-[11px] text-[#9A8F7E] mt-1 leading-relaxed">{tr('عدد زيارات المندوب للعملاء خلال الشهر وتحسب الزيارة المؤقتة وملاحظتها زيارة واحدة')}</p>
+          <p className="text-[11px] text-[#9A8F7E] mt-1 leading-relaxed">{tr(custom ? 'عدد زيارات المندوب للعملاء خلال الفترة وتحسب الزيارة المؤقتة وملاحظتها زيارة واحدة' : 'عدد زيارات المندوب للعملاء خلال الشهر وتحسب الزيارة المؤقتة وملاحظتها زيارة واحدة')}</p>
         </div>
       )}
       {d.kind === 'NEW_CUSTOMERS' && (
         <div>
           <p className="label">{tr('عدد العملاء')}</p>
           <NumField integer value={d.targetValue} onChange={x => set({ targetValue: x })} ariaLabel={tr('عدد العملاء')} />
-          <p className="text-[11px] text-[#9A8F7E] mt-1 leading-relaxed">{tr('عملاء يضيفهم المندوب خلال الشهر ولهم فاتورة بيع مؤكدة حتى نهايته')}</p>
+          <p className="text-[11px] text-[#9A8F7E] mt-1 leading-relaxed">{tr(custom ? 'عملاء يضيفهم المندوب خلال الفترة ولهم فاتورة بيع مؤكدة حتى نهايتها' : 'عملاء يضيفهم المندوب خلال الشهر ولهم فاتورة بيع مؤكدة حتى نهايته')}</p>
         </div>
       )}
 
       {/* المكافأة — عضو الهدف المدمج يعدّلها للأعضاء كلهم */}
-      <RewardFields kind={d.rewardKind} value={d.rewardValue} onChange={(rewardKind, rewardValue) => set({ rewardKind, rewardValue })}
-        note={inCombo ? tr('المكافأة مشتركة بين الأهداف المدمجة وتعديلها يسري عليها كلها') : undefined} />
+      <RewardFields kind={d.rewardKind} value={d.rewardValue} onChange={(rewardKind, rewardValue) => set({ rewardKind, rewardValue })} custom={custom}
+        note={inCombo && !windowChanged ? tr('المكافأة مشتركة بين الأهداف المدمجة وتعديلها يسري عليها كلها') : undefined} />
 
       {/* ملاحظة للمندوب */}
       <div>
@@ -802,6 +870,7 @@ function TargetForm({ initial, original, inCombo, products, productsLoading, pro
         <div className="rounded-xl bg-[#FAF7F0] border border-[#F1EBDF] px-3 py-2.5 text-xs">
           <p className="text-[#9A8F7E] mb-1">{tr('يظهر للمندوب')}</p>
           <p className="font-bold text-[#1F1A13]">{preview.title}{preview.goal && <> · <bdi>{preview.goal}</bdi></>}</p>
+          {preview.period && <p className="text-[#8A6D1F] mt-0.5 flex items-center gap-1.5"><CalendarRange size={13} /> <bdi>{preview.period}</bdi></p>}
           <p className="text-[#6E6557] mt-0.5 flex items-center gap-1.5"><Trophy size={13} className="text-[#E15A30]" /> {preview.reward}</p>
         </div>
       )}
@@ -842,6 +911,9 @@ function ComboForm({ targets, saving, onCancel, onSave }: {
 
   // المختارة بترتيب القائمة — وما اختفى منها (حُذف أو دُمج من مكانٍ آخر) لا يُرسل
   const ids = targets.filter(t => picked.has(t.id)).map(t => t.id);
+  // «مدة الهدف»: أعضاء المدمج بنافذةٍ واحدة — بعد أول اختيارٍ تُعطَّل الأهداف بمدةٍ أخرى (والخادم: TARGET_COMBO_PERIOD)
+  const firstPicked = targets.find(t => picked.has(t.id));
+  const lockedKey = firstPicked ? windowKeyOf(firstPicked) : null;
   const r = readNum(rewardValue);
   const rewardOk = r !== null && !Number.isNaN(r) && r > 0 && r <= REWARD_MAX[rewardKind];
   const problem = ids.length < 2 ? tr('اختر هدفين أو أكثر للدمج')
@@ -869,16 +941,19 @@ function ComboForm({ targets, saving, onCancel, onSave }: {
         <div className="space-y-2">
           {targets.map(t => {
             const on = picked.has(t.id);
+            const off = !on && lockedKey !== null && windowKeyOf(t) !== lockedKey;
             const KindIcon = KIND_ICONS[t.kind] ?? Target;
             return (
-              <label key={t.id} className={`flex items-center gap-3 rounded-xl border-2 px-3 py-2.5 cursor-pointer transition-colors ${on ? 'border-[#E15A30] bg-[#FBEBE2]' : 'border-[#E9E1D3] bg-white hover:border-[#F0B9A5]'}`}>
-                <input type="checkbox" className="w-4 h-4 shrink-0 accent-[#E15A30]" checked={on} onChange={() => toggle(t.id)} />
+              <label key={t.id} title={off ? tr('يدمج مع أهداف بالمدة نفسها فقط') : undefined}
+                className={`flex items-center gap-3 rounded-xl border-2 px-3 py-2.5 transition-colors ${off ? 'opacity-45 cursor-not-allowed border-[#E9E1D3] bg-white' : on ? 'cursor-pointer border-[#E15A30] bg-[#FBEBE2]' : 'cursor-pointer border-[#E9E1D3] bg-white hover:border-[#F0B9A5]'}`}>
+                <input type="checkbox" className="w-4 h-4 shrink-0 accent-[#E15A30]" checked={on} disabled={off} onChange={() => toggle(t.id)} />
                 <KindIcon size={16} className="shrink-0 text-[#E15A30]" />
                 <span className="flex-1 min-w-0">
                   <span className="block text-sm font-semibold text-[#1F1A13] leading-snug break-words">{targetTitle(t, tr, num)}</span>
                   <span className="block text-[11px] text-[#9A8F7E] mt-0.5">
                     {tr(targetKindLabel(t.kind))}
                     {t.kind !== 'COLLECTION_PCT' && <> · <bdi>{targetAmountText(t, t.targetValue, money, num)}</bdi></>}
+                    {t.period?.custom && <> · <bdi>{periodLabel(t.period, activeLocale())}</bdi></>}
                   </span>
                 </span>
               </label>

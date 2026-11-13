@@ -1000,3 +1000,47 @@ test('دمج الأهداف مع التعديل والحذف: مكافأة ال�
   assert.equal(seen['repTarget.count'].length, countsBefore);
   assert.deepEqual(targets.map((t) => t.id).sort(), [b, c, y, q, s, foreign].map((t) => t.id).sort());
 });
+
+test('مدة الهدف: فترةٌ مخصّصة تُحفظ وشهر الهدف شهر بدايتها، والناقصة والمقلوبة والأطول من سنة 400، والتعديل بلا فترة يعيده للشهر كله', async () => {
+  reset(ADMIN);
+  for (const [why, body] of [
+    ['بداية بلا نهاية', { ...BODY, periodFrom: '2026-11-05' }],
+    ['نهاية قبل البداية', { ...BODY, periodFrom: '2026-11-15', periodTo: '2026-11-14' }],
+    ['أطول من سنة', { ...BODY, periodFrom: '2026-01-01', periodTo: '2027-01-02' }],
+    ['يومٌ لا يوجد', { ...BODY, periodFrom: '2026-02-30', periodTo: '2026-03-10' }],
+  ] as Array<[string, Row]>) {
+    const r = await call('POST', '/api/rep-targets/rep/r1', body);
+    assert.equal(r.status, 400, `${why}: ${JSON.stringify(r.body)}`);
+  }
+  assert.deepEqual(writes(), []);
+  // فترةٌ تبدأ في ديسمبر والجسم يقول نوفمبر ⇒ شهر الهدف ديسمبر (شهر البداية)
+  const r = await call('POST', '/api/rep-targets/rep/r1', { ...BODY, periodFrom: '2026-12-05', periodTo: '2027-01-20' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([targets[0].month, targets[0].periodFrom, targets[0].periodTo], ['2026-12', '2026-12-05', '2027-01-20']);
+  assert.equal(seen['repTarget.count'].at(-1).where.month, '2026-12', 'السقف بشهر البداية');
+  assert.equal(r.body.data.period.custom, true);
+  // التعديل بلا فترة: الشهر كله كما في الجسم
+  const put = await call('PUT', `/api/rep-targets/${targets[0].id}`, BODY);
+  assert.equal(put.status, 200, JSON.stringify(put.body));
+  assert.deepEqual([targets[0].month, targets[0].periodFrom, targets[0].periodTo], ['2026-11', null, null]);
+  assert.equal(put.body.data.period.custom, false);
+});
+
+test('مدة الهدف والدمج: أعضاء المدمج بنافذةٍ واحدة (400 TARGET_COMBO_PERIOD)، وتغيير مدة عضوٍ يخرجه من المدمج ويعود شريكه الوحيد مستقلاً', async () => {
+  reset(ADMIN);
+  const whole = targetRow({ kind: 'SALES_AMOUNT' });
+  const span = targetRow({ kind: 'VISITS_COUNT', targetValue: 40, periodFrom: '2026-11-20', periodTo: '2026-12-31' });
+  targets.push(whole, span);
+  const bad = await call('POST', '/api/rep-targets/combo', { targetIds: [whole.id, span.id], rewardKind: 'FIXED_AMOUNT', rewardValue: 100 });
+  assert.equal(bad.status, 400, JSON.stringify(bad.body));
+  assert.equal(bad.body.code, 'TARGET_COMBO_PERIOD');
+  assert.deepEqual([whole.comboId, span.comboId], [null, null]);
+  // نافذةٌ واحدة تُدمج، ثم تغيير مدة عضوٍ يخرجه
+  const other = targetRow({ kind: 'SALES_AMOUNT', targetValue: 5000 });
+  targets.push(other);
+  const ok = await call('POST', '/api/rep-targets/combo', { targetIds: [whole.id, other.id], rewardKind: 'FIXED_AMOUNT', rewardValue: 100 });
+  assert.equal(ok.status, 201, JSON.stringify(ok.body));
+  const put = await call('PUT', `/api/rep-targets/${whole.id}`, { ...BODY, periodFrom: '2026-11-01', periodTo: '2026-11-15' });
+  assert.equal(put.status, 200, JSON.stringify(put.body));
+  assert.deepEqual([whole.comboId, other.comboId], [null, null], 'خرج العضو وعاد شريكه الوحيد مستقلاً');
+});

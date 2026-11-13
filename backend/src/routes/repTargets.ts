@@ -24,8 +24,8 @@ import {
 } from '../services/baseGuard';
 import { AuthRequest } from '../types';
 import {
-  MAX_TARGETS_PER_MONTH, MAX_TARGET_PRODUCTS, MONTH_RE, NOTE_MAX, REWARD_KINDS, REWARD_VALUE_MAX, TARGET_KINDS, TARGET_MESSAGES, TARGET_VALUE_MAX,
-  repTargetViewOf, repTargetsMonth, type RepTargetDocScope, type RepTargetView, type TargetCode,
+  MAX_TARGETS_PER_MONTH, MAX_TARGET_PRODUCTS, MONTH_RE, NOTE_MAX, PERIOD_MAX_DAYS, REWARD_KINDS, REWARD_VALUE_MAX, TARGET_KINDS, TARGET_MESSAGES,
+  TARGET_VALUE_MAX, repTargetViewOf, repTargetsMonth, sameWindow, validPeriod, type RepTargetDocScope, type RepTargetView, type TargetCode,
 } from '../services/repTargets';
 
 const router = Router();
@@ -65,7 +65,16 @@ const targetInputSchema = z.object({
   note: z.preprocess((v) => (typeof v === 'string' ? (v.trim() || null) : v), z.string().max(NOTE_MAX).nullish()),
   // التعديل وحده: true = اعتمد معامل الوحدة الحالي لسطرٍ لم يتغيّر صنفه ولا وحدته؛ وغيابه يُبقي لقطته المحفوظة (keepStoredUnits)
   refreshUnitFactor: z.boolean().nullish(),
+  // «مدة الهدف» (١٣ نوفمبر ٢٠٢٦): فترةٌ مخصّصة 'YYYY-MM-DD' شاملةً بتوقيت الشركة — كلاهما أو لا شيء (الغائبان = الشهر كله)،
+  // وشهر الهدف حينها شهر بدايتها (periodOf) لا `month`
+  periodFrom: z.string().max(10).nullish(),
+  periodTo: z.string().max(10).nullish(),
 }).superRefine((v, ctx) => {
+  if (!!v.periodFrom !== !!v.periodTo) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['periodTo'], message: 'حدد بداية الفترة ونهايتها معا' });
+  } else if (v.periodFrom && !validPeriod(v.periodFrom, v.periodTo)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['periodTo'], message: `فترة الهدف من يوم إلى ${PERIOD_MAX_DAYS} يوما والنهاية بعد البداية` });
+  }
   if (v.targetValue > TARGET_VALUE_MAX[v.kind]) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['targetValue'], message: `قيمة الهدف لا تتجاوز ${TARGET_VALUE_MAX[v.kind]}` });
   }
@@ -74,6 +83,11 @@ const targetInputSchema = z.object({
   }
 });
 type TargetInput = z.infer<typeof targetInputSchema>;
+
+/** شهر الهدف وفترته: المخصّصة ⇒ شهر أول يومٍ فيها (السقف والدمج والقائمة بشهر البداية)، وإلا `month` والشهر كله */
+const periodOf = (b: TargetInput): { month: string; periodFrom: string | null; periodTo: string | null } =>
+  (b.periodFrom && b.periodTo ? { month: b.periodFrom.slice(0, 7), periodFrom: b.periodFrom, periodTo: b.periodTo }
+    : { month: b.month, periodFrom: null, periodTo: null });
 
 /** رفضٌ برمزه ورسالته العربية */
 class TargetRefusal extends Error {
@@ -268,16 +282,18 @@ router.post('/rep/:repId', async (req: AuthRequest, res: Response, next: NextFun
     const repId = String(req.params.repId);
     if (!(await repInScope(req, tid, repId))) { refuse(res, 404, 'REP_NOT_FOUND'); return; }
     const body = targetInputSchema.parse(req.body);
+    const period = periodOf(body);
     const { snap, extras, bases } = await productSnapshot(tid, body, !!req.user?.apiKeyId);
     const created = await prisma.$transaction(async (tx) => {
       await lockRepTargets(tx, repId);
       // بعد قفل المندوب: أساس أصناف هدف الكمية تحت قفل صفوفها — تحويلٌ التزم بعد اللقطة أعلاه ⇒ 409 بلا كتابة
       if (bases) await lockBases(tx, tid, bases);
-      const count = await tx.repTarget.count({ where: { tenantId: tid, salesRepId: repId, month: body.month } });
+      const count = await tx.repTarget.count({ where: { tenantId: tid, salesRepId: repId, month: period.month } });
       if (count >= MAX_TARGETS_PER_MONTH) throw new TargetRefusal(409, 'TARGET_LIMIT');
       const row = await tx.repTarget.create({
         data: {
-          tenantId: tid, salesRepId: repId, month: body.month, kind: body.kind, targetValue: body.targetValue, ...snap,
+          tenantId: tid, salesRepId: repId, month: period.month, periodFrom: period.periodFrom, periodTo: period.periodTo,
+          kind: body.kind, targetValue: body.targetValue, ...snap,
           rewardKind: body.rewardKind, rewardValue: body.rewardValue, note: body.note ?? null,
           createdById: actorOf(req), createdByName: auditActorName(req),
         },
@@ -305,6 +321,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const target = await targetInScope(req, res, tid, String(req.params.id));
     if (!target) return;
     const body = targetInputSchema.parse(req.body);
+    const period = periodOf(body);
     const fresh = await productSnapshot(tid, body, !!req.user?.apiKeyId);
     const { bases } = fresh;
     const updated = await prisma.$transaction(async (tx) => {
@@ -313,7 +330,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       const unitCols = { productId: true, unitId: true, unitName: true, unitFactor: true } as const;
       const cur = await tx.repTarget.findFirst({
         where: { id: target.id, tenantId: tid },
-        select: { comboId: true, month: true, ...unitCols, extraProducts: { select: unitCols } },
+        select: { comboId: true, month: true, periodFrom: true, periodTo: true, ...unitCols, extraProducts: { select: unitCols } },
       });
       if (!cur) throw new TargetRefusal(404, 'TARGET_NOT_FOUND');
       // كالإنشاء: لقطةٌ حُلّت على أساسٍ بدّله تحويلٌ متزامن لا تُكتب فوق ما أعاد التحويل كتابته (واللقطة المقروءة أعلاه بعد
@@ -324,17 +341,18 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       const [snap, ...extras] = body.kind === 'PRODUCT_QTY' && body.refreshUnitFactor !== true
         ? keepStoredUnits([fresh.snap, ...fresh.extras], stored)
         : [fresh.snap, ...fresh.extras];
-      // النقل إلى شهرٍ آخر يُعدّ على سقف ذلك الشهر
-      if (body.month !== cur.month) {
-        const count = await tx.repTarget.count({ where: { tenantId: tid, salesRepId: target.salesRepId, month: body.month } });
+      // النقل إلى شهرٍ آخر (أو فترةٍ تبدأ في شهرٍ آخر) يُعدّ على سقف ذلك الشهر
+      if (period.month !== cur.month) {
+        const count = await tx.repTarget.count({ where: { tenantId: tid, salesRepId: target.salesRepId, month: period.month } });
         if (count >= MAX_TARGETS_PER_MONTH) throw new TargetRefusal(409, 'TARGET_LIMIT');
       }
-      // «دمج الأهداف»: النقل لشهرٍ آخر يُخرجه من الهدف المدمج؛ وإلا فمكافأته مكافأة الأعضاء كلهم (تُنسخ عليهم)
-      const leaving = cur.comboId != null && body.month !== cur.month;
+      // «دمج الأهداف»: النقل لشهرٍ آخر — أو تغيير مدته (الشهر كله ⇄ فترة، أو فترةٌ أخرى) — يُخرجه من الهدف المدمج (أعضاؤه بنافذةٍ
+      // واحدة)؛ وإلا فمكافأته مكافأة الأعضاء كلهم (تُنسخ عليهم)
+      const leaving = cur.comboId != null && !sameWindow(cur, period);
       const r = await tx.repTarget.updateMany({
         where: { id: target.id, tenantId: tid },
         data: {
-          month: body.month, kind: body.kind, targetValue: body.targetValue, ...snap,
+          month: period.month, periodFrom: period.periodFrom, periodTo: period.periodTo, kind: body.kind, targetValue: body.targetValue, ...snap,
           rewardKind: body.rewardKind, rewardValue: body.rewardValue, note: body.note ?? null,
           ...(leaving && { comboId: null }),
         },
@@ -383,18 +401,25 @@ router.post('/combo', async (req: AuthRequest, res: Response, next: NextFunction
     const body = comboSchema.parse(req.body);
     const ids = [...new Set(body.targetIds)];
     if (ids.length < 2) throw new TargetRefusal(400, 'TARGET_COMBO_INVALID');
-    const rows = await prisma.repTarget.findMany({ where: { tenantId: tid, id: { in: ids } }, select: { id: true, salesRepId: true, month: true, comboId: true } });
+    const rows = await prisma.repTarget.findMany({
+      where: { tenantId: tid, id: { in: ids } }, select: { id: true, salesRepId: true, month: true, periodFrom: true, periodTo: true, comboId: true },
+    });
     if (rows.length !== ids.length) throw new TargetRefusal(404, 'TARGET_NOT_FOUND');
     const repId = rows[0].salesRepId;
     if (rows.some((r) => r.salesRepId !== repId || r.month !== rows[0].month)) throw new TargetRefusal(400, 'TARGET_COMBO_INVALID');
+    // «مدة الهدف»: أعضاء المدمج بنافذةٍ واحدة (الشهر كله، أو الفترة نفسها)
+    if (rows.some((r) => !sameWindow(r, rows[0]))) throw new TargetRefusal(400, 'TARGET_COMBO_PERIOD');
     if (!(await repInScope(req, tid, repId))) { refuse(res, 404, 'REP_NOT_FOUND'); return; }
     const comboId = randomUUID();
     await prisma.$transaction(async (tx) => {
       await lockRepTargets(tx, repId);
       // تحت القفل: ما زالت للمندوب والشهر نفسيهما ومستقلة
-      const fresh = await tx.repTarget.findMany({ where: { tenantId: tid, id: { in: ids } }, select: { salesRepId: true, month: true, comboId: true } });
+      const fresh = await tx.repTarget.findMany({
+        where: { tenantId: tid, id: { in: ids } }, select: { salesRepId: true, month: true, periodFrom: true, periodTo: true, comboId: true },
+      });
       if (fresh.length !== ids.length) throw new TargetRefusal(404, 'TARGET_NOT_FOUND');
       if (fresh.some((r) => r.salesRepId !== repId || r.month !== rows[0].month)) throw new TargetRefusal(400, 'TARGET_COMBO_INVALID');
+      if (fresh.some((r) => !sameWindow(r, rows[0]))) throw new TargetRefusal(400, 'TARGET_COMBO_PERIOD');
       if (fresh.some((r) => r.comboId)) throw new TargetRefusal(409, 'TARGET_IN_COMBO');
       await tx.repTarget.updateMany({ where: { tenantId: tid, id: { in: ids } }, data: { comboId, rewardKind: body.rewardKind, rewardValue: body.rewardValue } });
     });
