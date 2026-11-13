@@ -4,6 +4,10 @@
 <dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>يستخدم التطبيق موقعك لالتقاط موقع العميل عند إضافته أو تعديله.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>يستخدم التطبيق الكاميرا لتصوير فاتورة المشتريات أو إيصال الإيداع عند إرفاقهما.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>يتيح التطبيق اختيار صور من مكتبتك لإرفاقها بفاتورة المشتريات أو إيصال الإيداع.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

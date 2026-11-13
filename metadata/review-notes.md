@@ -58,10 +58,16 @@ Core functionality (beyond a website):
 • Customers: search, details, account statements, create/edit, and capture the
   customer's location on a map.
 • Rep tracking: live team locations, each rep's daily route, and their field visits.
+• Warehouse: receive goods and attach the supplier's purchase invoice (photo or PDF);
+  record a rep's bank deposit with a photo of the deposit receipt.
 
 Permissions:
 • Location — used only when a manager taps "capture location" while adding or editing
   a customer. There is no background tracking of the manager's own device.
+• Camera — used only when a manager taps "Take photo" to attach a purchase-invoice
+  photo when receiving goods, or a deposit-receipt photo.
+• Photo Library — to pick an existing invoice or deposit-receipt image to attach.
+• No microphone.
 
 The app has no user-generated public content, no social features, and no in-app
 purchases. It is distributed to a company's own management staff.
