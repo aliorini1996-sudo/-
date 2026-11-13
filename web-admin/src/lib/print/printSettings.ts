@@ -21,7 +21,7 @@ import {
   type PrintOptions, type PrintProfile, type PrintSettingsV1, type PrinterDpi, type PrinterType, type QrSize, type SectionId, type TableStyle,
   type TemplateId,
 } from './printSettingsCore';
-import { scaleForm, starterForm } from './formModel';
+import { formPaperOf, scaleForm, starterForm } from './formModel';
 
 export * from './printSettingsCore';
 
@@ -343,7 +343,9 @@ export const TEMPLATE_LABELS: Readonly<Record<TemplateId, string>> = Object.free
   roll_compact: 'شريط مختصر',
   roll_detailed: 'شريط مفصل بجدول',
   impact_plain: 'نقطي واضح',
-  impact_preprinted: 'على نموذج مطبوع مسبقا',
+  // قرار المالك ١٣ نوفمبر ٢٠٢٦ (س٣): «على ورق بترويسة مطبوعة» بدل «على نموذج مطبوع مسبقا» — فلا يلتبس على النقطية بتصميم
+  // «نموذج الشركة المطبوع مسبقاً» (DESIGN_LABELS.preprinted) الذي يملأ فراغات نموذج الشركة
+  impact_preprinted: 'على ورق بترويسة مطبوعة',
   page_branded: 'بهوية الشركة',
   page_plain: 'بسيط موفر للحبر',
 });
@@ -352,7 +354,7 @@ export const TEMPLATE_HINTS: Readonly<Record<TemplateId, string>> = Object.freez
   roll_compact: 'كل بند في سطرين بأي عرض مع شعار وتذييل اختياريين',
   roll_detailed: 'جدول كمية وسعر وإجمالي مع ملخص الضريبة — من 72 مم',
   impact_plain: 'بلا تظليل بخطوط سوداء وخط عريض ورمز QR أكبر',
-  impact_preprinted: 'بلا شعار ولا زخرفة مع إزاحة علوية — اسم البائع ورقمه الضريبي وعنوان المستند تطبع دائما',
+  impact_preprinted: 'يترك أعلى الورقة لترويسة شركتك ويطبع الفاتورة كاملة تحتها — لملء فراغات نموذجك اختر «نموذج الشركة المطبوع مسبقاً»',
   page_branded: 'ترويسة الشركة ولونها كملف PDF اليوم',
   page_plain: 'أبيض وأسود بلا تعبئة لونية',
 });
@@ -444,8 +446,9 @@ export function withPrinter(p: PrintProfile, printer: PrinterType): PrintProfile
 
 /**
  * مقاس جاهز: ورقه كاملاً — و«مخصص» يُبقي القيم الحالية بلا اسم مقاس. و«نموذج الشركة المطبوع مسبقاً» يُقاس على الورق الجديد بنسبة
- * العرض والطول (scaleForm) بلا هامشين (المواضع من ركن الورقة الفعلي). وتعديل العرض أو الطول يدوياً (withPaper) لا يقيس المواضع:
- * الكتابة حرفاً حرفاً تمرّ بمقاساتٍ وسيطة — والحقل الخارج عن الورق تبلغه قاعدة النواة برسالتها.
+ * العرض والطول (scaleForm) بلا هامشين (المواضع من ركن الورقة الفعلي) — وعلى النقطية يُزاح أفقياً بنصف فرق العرض ويُقاس طولاً داخل
+ * ما تبلغه الإبرة (formPaperOf). وتعديل العرض أو الطول يدوياً (withPaper) لا يقيس المواضع: الكتابة حرفاً حرفاً تمرّ بمقاساتٍ وسيطة
+ * — والحقل الخارج عن الورق تبلغه قاعدة النواة برسالتها.
  */
 export function withPreset(p: PrintProfile, preset: PaperPresetId): PrintProfile {
   const paper = preset === 'custom' ? { ...p.paper, preset } : presetPaper(preset);
@@ -453,7 +456,7 @@ export function withPreset(p: PrintProfile, preset: PaperPresetId): PrintProfile
   const l = p.options.layout;
   if (l?.design !== 'preprinted' || !l.form) return { ...p, paper };
   const sheet: Paper = { ...paper, marginTopMm: 0, marginBottomMm: 0 };
-  return { ...p, paper: sheet, options: { ...p.options, layout: { ...l, form: scaleForm(l.form, p.paper, sheet) } } };
+  return { ...p, paper: sheet, options: { ...p.options, layout: { ...l, form: scaleForm(l.form, formPaperOf(p), formPaperOf({ printer: p.printer, paper: sheet })) } } };
 }
 
 /** تعديل حقل ورق: العرض والطول يُخرجانه من المقاس الجاهز (يصير مخصصاً)، وغيرهما معايرةٌ تُبقي اسمه */
@@ -559,11 +562,11 @@ export const CANVAS_BOX_LABELS: Readonly<Record<CanvasBoxId, string>> = Object.f
 export const CANVAS_BAND_LABELS: Readonly<Record<CanvasBand, string>> = Object.freeze({ header: 'رأس الورقة', footer: 'تذييل الورقة' });
 
 /**
- * التصاميم التي تُختار لنوع الطابعة — ثنائي اللغة للصفحة والنقطية وحدهما، و«نموذج الشركة المطبوع مسبقاً» للطابعة العادية وحدها
- * (layoutFormPrinter في النواة)
+ * التصاميم التي تُختار لنوع الطابعة — ثنائي اللغة و«نموذج الشركة المطبوع مسبقاً» للصفحة والنقطية وحدهما (الرول تصميمٌ واحد —
+ * layoutFormPrinter في النواة). والنقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦، MIP480) بقيودها: ما تبلغه الإبرة، ورمز QR ≥ 55 مم، وبلا خلفية
  */
 export const designsFor = (printer: PrinterType): readonly LayoutDesign[] =>
-  (printer === 'thermal' ? ['standard'] : printer === 'page' ? ['standard', 'grid_bilingual', 'preprinted'] : ['standard', 'grid_bilingual']);
+  (printer === 'thermal' ? ['standard'] : ['standard', 'grid_bilingual', 'preprinted']);
 
 /** تخطيط القالب الفعّال للتحرير — المحفوظ أو الافتراضي لتصميم اليوم (الغياب = مطبوعة اليوم) */
 export const layoutOf = (p: PrintProfile): PrintLayout => p.options.layout ?? defaultPrintLayout(p.printer);
@@ -584,49 +587,69 @@ export function withLayout(p: PrintProfile, patch: Partial<PrintLayout> | null):
   const design: LayoutDesign = p.printer === 'thermal' ? 'standard' : merged.design;
   const layout: PrintLayout = { ...merged, design, order: normalizeSectionOrder(merged.order, p.printer, design) };
   // مواضع «النموذج المطبوع مسبقاً» لتصميمه وحده (layoutFormDesign) — والمفتاح الغائب يبقى غائباً؛ وتصميمه بلا مواضع يأخذ مواضع
-  // البداية (starterForm، بلا حقل QR إن حذفته الشركة صراحةً) فلا ينتج تخطيطٌ لا يُحفظ (layoutFormMissing)
+  // البداية (starterForm، بلا حقل QR إن حذفته الشركة صراحةً؛ وعلى النقطية داخل ما تبلغه الإبرة — formPaperOf) فلا ينتج تخطيطٌ لا
+  // يُحفظ (layoutFormMissing)
   if (design !== 'preprinted' && 'form' in layout) delete layout.form;
-  if (design === 'preprinted' && !layout.form) layout.form = starterForm(p.paper, { withQr: !isQrRemoved(layout) });
+  if (design === 'preprinted' && !layout.form) layout.form = starterForm(formPaperOf(p), { withQr: !isQrRemoved(layout) });
   return { ...p, options: { ...p.options, layout } };
 }
 
 /**
  * اختيار التصميم: ثنائي اللغة يضع التصميم الأساسي للطابعة (page_plain أو impact_plain) وتخطيطه الافتراضي (شعار في الوسط وشبكة)؛
- * و«نموذج الشركة المطبوع مسبقاً» (الطابعة العادية وحدها) يضع page_plain — فجهازٌ قديم لا يعرف التصميم يُسقط التخطيط ويطبع أحادياً
- * بلا شعار — والورق بلا هامشين (المواضع من ركن الورقة الفعلي) ومواضع البداية (starterForm) بلا صورةٍ بعد، وبلا حقل رمز QR إن
- * حذفته الشركة صراحةً؛ والعودة للتصميم الحالي تُبقي القالب ولونه وحجم شعاره بتخطيط اليوم (والخروج من النموذج يعيد هامشي المقاس
- * الجاهز). الرول تصميمٌ واحد فلا يتغيّر.
+ * و«نموذج الشركة المطبوع مسبقاً» يضع page_plain على العادية وimpact_preprinted على النقطية — فجهازٌ قديم لا يعرف التصميم (أو لا
+ * يقبله على النقطية) يُسقط التخطيط ويطبع أحادياً بلا شعار — والورق بلا هامشين (المواضع من ركن الورقة الفعلي؛ وعلى النقطية بلا
+ * offsetXmm كذلك: يُهمَل لقوالب النموذج والمعايرة dx/dy وحدها) ومواضع البداية (starterForm على formPaperOf: داخل ما تبلغه الإبرة
+ * ورمز QR بحدّه 55 مم) بلا صورةٍ بعد، وبلا حقل رمز QR إن حذفته الشركة صراحةً؛ والعودة للتصميم الحالي تُبقي القالب ولونه وحجم شعاره
+ * بتخطيط اليوم (والخروج من النموذج يعيد هامشي المقاس الجاهز، وعلى النقطية impact_plain بدل impact_preprinted). الرول تصميمٌ واحد
+ * فلا يتغيّر، ولا نقطيةٌ بورقٍ لا يتّسع لمربع الرمز بحدّه (formQrNoRoom — formDesignBlock يمنع بطاقتها): لا قالب نموذجٍ لا يُحفظ.
  */
 export function withDesign(p: PrintProfile, design: LayoutDesign): PrintProfile {
   if (!designsFor(p.printer).includes(design) || isLegacyProfileId(p.id) || p.template === 'roll_classic') return p;
   const cur = p.options.layout;
   const keep = cur ? { accent: cur.accent, logoSize: cur.logoSize } : {};
+  const impact = p.printer === 'impact';
   if (design === 'preprinted') {
-    if ((cur?.design === 'preprinted' && cur.form) || p.paper.lengthMm === null) return p;
-    const paper: Paper = { ...p.paper, marginTopMm: 0, marginBottomMm: 0 };
+    if ((cur?.design === 'preprinted' && cur.form) || p.paper.lengthMm === null || formQrNoRoom(p)) return p;
+    const paper: Paper = impact ? { ...p.paper, marginTopMm: 0, marginBottomMm: 0, offsetXmm: 0 } : { ...p.paper, marginTopMm: 0, marginBottomMm: 0 };
     const layout = carryFree(cur, { ...defaultPrintLayout(p.printer, 'preprinted'), ...keep }, p.printer);
-    layout.form = starterForm(paper, { withQr: !isQrRemoved(layout) });
-    return { ...p, template: 'page_plain', paper, options: { ...p.options, layout } };
+    layout.form = starterForm(formPaperOf({ printer: p.printer, paper }), { withQr: !isQrRemoved(layout) });
+    return { ...p, template: impact ? 'impact_preprinted' : 'page_plain', paper, options: { ...p.options, layout } };
   }
   const paper = cur?.design === 'preprinted' ? paperMarginsOf(p) : p.paper;
   if (design === 'grid_bilingual') {
-    const template: TemplateId = p.printer === 'impact' ? 'impact_plain' : 'page_plain';
+    const template: TemplateId = impact ? 'impact_plain' : 'page_plain';
     const layout: PrintLayout = { ...defaultPrintLayout(p.printer, 'grid_bilingual'), ...keep };
     return { ...p, template, paper, options: { ...p.options, layout: carryFree(cur, layout, p.printer) } };
   }
   if (!cur || cur.design === 'standard') return p;
-  return { ...p, paper, options: { ...p.options, layout: carryFree(cur, { ...defaultPrintLayout(p.printer, 'standard'), ...keep }, p.printer) } };
+  // الخروج من نموذج النقطية: impact_preprinted (احتياط الجهاز القديم) يعود impact_plain — لا تُطبع الفاتورة بإزاحة الترويسة
+  const template: TemplateId = impact && cur.design === 'preprinted' && p.template === 'impact_preprinted' ? 'impact_plain' : p.template;
+  return { ...p, template, paper, options: { ...p.options, layout: carryFree(cur, { ...defaultPrintLayout(p.printer, 'standard'), ...keep }, p.printer) } };
+}
+
+/**
+ * النقطية: هل يضيق ما تبلغه الإبرة أو طول الصفحة عن مربع رمز QR بحدّه (55 مم — formQrMinMm)؟ ورقٌ مخصّص يقبله profileIssues (طولٌ
+ * 50–54.5 مم أو حزمةٌ 256–389 نقطة على 180) يقصّ فيه starterForm مربع الرمز دون حدّه فيرفض الحفظ القالبَ (layoutFormQrImpact) ولا
+ * يصلحه المصمّم (يعيده القصّ تحت الحدّ) — فالحساب بمواضع البداية نفسها لا بتقديرٍ مستقل. ورمزٌ حذفته الشركة صراحةً لا يمنع شيئاً.
+ */
+function formQrNoRoom(p: PrintProfile): boolean {
+  if (p.printer !== 'impact' || p.paper.lengthMm === null || isQrRemoved(layoutOf(p))) return false;
+  const paper = formPaperOf(p);
+  if (!paper.reach) return false;
+  const qr = starterForm(paper).fields.find((f) => f.id === 'qr');
+  return !qr || Math.min(qr.w, qr.h) < paper.reach.qrMinMm - 1e-9;
 }
 
 /**
  * ما يمنع اختيار «نموذج الشركة المطبوع مسبقاً» لقالبٍ في هذا الإعداد (رسالة النواة نفسها التي يرفض بها الحفظ) — null إن جاز:
- * الطابعة العادية بطول صفحة، ولا يكون قالب ملف PDF، ولا موجَّهاً لغير الفواتير، و4 قوالب نموذجٍ على الأكثر. القالب الذي هو نموذجٌ
- * أصلاً لا يُمنع (فتحه للتعديل).
+ * الطابعة العادية أو النقطية بطول صفحة (لا الرول — designsFor)، ولا يكون قالب ملف PDF، ولا موجَّهاً لغير الفواتير، و4 قوالب نموذجٍ
+ * على الأكثر. القالب الذي هو نموذجٌ أصلاً لا يُمنع (فتحه للتعديل). وعلى النقطية: ورقٌ يتّسع لمربع الرمز بحدّه (formQrNoRoom)
  */
 export function formDesignBlock(s: PrintSettingsV1, profileId: string): string | null {
   const p = s.profiles.find((x) => x.id === profileId);
   if (!p || isFormProfile(p)) return null;
   if (!designsFor(p.printer).includes('preprinted') || p.paper.lengthMm === null) return PRINT_ISSUES.layoutFormPrinter;
+  if (formQrNoRoom(p)) return PRINT_ISSUES.layoutFormQrImpact;
   if (s.pdfProfileId === p.id) return PRINT_ISSUES.pdfForm;
   if (DOC_KINDS.some((k) => k !== 'invoice' && s.routing[k] === p.id)) return PRINT_ISSUES.routeForm;
   if (s.profiles.filter(isFormProfile).length >= PRINT_LIMITS.maxForms) return PRINT_ISSUES.formsCount;

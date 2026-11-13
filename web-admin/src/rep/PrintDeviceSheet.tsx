@@ -4,7 +4,7 @@ import { useTr } from '../i18n/strings';
 import { backdropClose } from '../lib/backdropClose';
 import { useBackClose } from '../lib/useBackClose';
 import {
-  DEVICE_ROLL_WIDTHS, DOC_KIND_LABELS, PRESET_LABELS, PRINTER_SHORT, TEMPLATE_LABELS, deviceProfilesFor, profileDisplayName,
+  DESIGN_LABELS, DEVICE_ROLL_WIDTHS, DOC_KIND_LABELS, PRESET_LABELS, PRINTER_SHORT, TEMPLATE_LABELS, deviceProfilesFor, isFormProfile, profileDisplayName,
   type DevicePrintChoice, type PrintDocKind, type PrintProfile, type PrintSettingsV1,
 } from '../lib/print/printSettings';
 import PrintDeviceTools from '../components/print/PrintDeviceTools';
@@ -72,7 +72,8 @@ export default function PrintDeviceSheet({ settings, kind, current, deviceRoll =
       </button>
     );
   };
-  const hintOf = (p: PrintProfile) => `${tr(PRINTER_SHORT[p.printer])} · ${tr(PRESET_LABELS[p.paper.preset])} · ${tr(TEMPLATE_LABELS[p.template])}`;
+  // قالب «نموذج الشركة المطبوع مسبقاً» باسم تصميمه (كقائمة القوالب في الإعدادات) — قالبه احتياطٌ للأجهزة القديمة لا ما يُطبع
+  const hintOf = (p: PrintProfile) => `${tr(PRINTER_SHORT[p.printer])} · ${tr(PRESET_LABELS[p.paper.preset])} · ${tr(isFormProfile(p) ? DESIGN_LABELS.preprinted : TEMPLATE_LABELS[p.template])}`;
 
   return (
     <div className="fixed inset-0 z-[1250] bg-black/40 flex items-end sm:items-center justify-center" {...backdropClose(onClose)}>

@@ -19,11 +19,12 @@ import {
   QR_REMOVE_WARNING, ITEMS_REMOVE_WARNING, STAMPS_REMOVE_WARNING, QR_REMOVED_BADGE, QR_REMOVE_ACTION, QR_RESTORE_ACTION, STAMPS_LABEL, STAMPS_HINT,
   STAMPS_REMOVE_ACTION, STAMPS_RESTORE_ACTION, QR_FLOW_NOTE, QR_PANEL_NOTE, QR_ORPHAN_NOTE,
   PRINT_FORM_IMAGE_MISSING_MSG, PRINT_LIMITS, deviceProfilesFor, formDesignBlock, isFormProfile, profileIssues, routingAllowsProfile, withPreset,
+  formReachX,
   type PrintProfile, type PrintSettingsV1,
 } from './printSettings';
 import * as printSettingsModule from './printSettings';
 import {
-  FORM_COLUMN_LABELS, FORM_FIELD_GROUPS, FORM_FIELD_LABELS, FORM_NOTES, FORM_VALUE_LANG_LABELS, FORM_WARNINGS, formIssues, starterForm,
+  FORM_COLUMN_LABELS, FORM_FIELD_GROUPS, FORM_FIELD_LABELS, FORM_NOTES, FORM_VALUE_LANG_LABELS, FORM_WARNINGS, formIssues, formPaperOf, starterForm,
 } from './formModel';
 import { PHRASES } from '../../i18n/strings';
 
@@ -571,11 +572,12 @@ test('التنبيهات مع الحذف: رمزٌ محذوف بلا qrNoFit/pha
 
 const profileIssuesOf = (p: PrintProfile): string[] => profileIssues(p, 'p').map((i) => i.message);
 
-test('النموذج المطبوع مسبقاً: للطابعة العادية وحدها، وwithDesign يضع page_plain وورقاً بلا هامشين ومواضع البداية، والخروج يعيد الهامشين', () => {
+test('النموذج المطبوع مسبقاً: للعادية والنقطية لا الرول، وwithDesign يضع page_plain وورقاً بلا هامشين ومواضع البداية، والخروج يعيد الهامشين', () => {
   assert.deepEqual([...designsFor('page')], ['standard', 'grid_bilingual', 'preprinted']);
-  assert.deepEqual([...designsFor('impact')], ['standard', 'grid_bilingual']);
+  // طلب المالك ١٣ نوفمبر ٢٠٢٦: والنقطية (MIP480) كذلك — بقيودها في النواة (ما تبلغه الإبرة، QR ≥ 55، بلا خلفية)
+  assert.deepEqual([...designsFor('impact')], ['standard', 'grid_bilingual', 'preprinted']);
   assert.deepEqual([...designsFor('thermal')], ['standard']);
-  for (const p of [roleProfile('impact'), roleProfile('thermal'), ...legacyPrintSettings().profiles]) assert.equal(withDesign(p, 'preprinted'), p);
+  for (const p of [roleProfile('thermal'), ...legacyPrintSettings().profiles]) assert.equal(withDesign(p, 'preprinted'), p);
   const office = profile('office', 'page', 'page_branded', 'a4');
   const pre = withDesign(office, 'preprinted');
   assert.equal(pre.template, 'page_plain', 'جهازٌ قديم يُسقط التخطيط فيطبع أحادياً بلا شعار');
@@ -630,6 +632,91 @@ test('النموذج المطبوع مسبقاً: تغيير المقاس الج
   assert.deepEqual(withPreset(std, 'a5').paper, presetPaper('a5'));
 });
 
+// ─── النموذج على النقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦، MIP480) ───
+
+const IMPACT_PRESETS = PAPER_PRESETS.filter((x) => x.printer === 'impact').map((x) => x.id);
+
+test('النموذج على النقطية: withDesign يضع impact_preprinted وورقاً بلا هامشين ولا offsetXmm، ومواضع بدايةٍ صالحة صارماً على كل مقاسٍ نقطي، والخروج يعيد impact_plain والهامشين', () => {
+  assert.deepEqual(IMPACT_PRESETS, ['cut_a4', 'ff_a4', 'ff_95x11', 'ff_95x12', 'ff_85x11', 'ff_95x55']);
+  for (const id of IMPACT_PRESETS) {
+    // إزاحةٌ أفقية مضبوطة وهامشا المقاس: قالب النموذج يُهملهما ويصفّرهما (المعايرة dx/dy وحدها)
+    const base: PrintProfile = { ...profile(`mip-${id.replace(/_/g, '-')}`, 'impact', 'impact_plain', id), paper: { ...presetPaper(id)!, offsetXmm: 4 } };
+    const pre = withDesign(base, 'preprinted');
+    assert.equal(pre.template, 'impact_preprinted', `${id}: جهازٌ قديم يُسقط التخطيط فيطبع بلا شعار`);
+    assert.deepEqual([pre.paper.preset, pre.paper.marginTopMm, pre.paper.marginBottomMm, pre.paper.offsetXmm], [id, 0, 0, 0], id);
+    assert.equal(pre.options.layout!.design, 'preprinted');
+    const form = pre.options.layout!.form!;
+    assert.deepEqual(form, starterForm(formPaperOf(pre)), id);
+    assert.equal(form.background, false);
+    const qr = form.fields.find((f) => f.id === 'qr')!;
+    assert.deepEqual([qr.w, qr.h], [55, 55], `${id}: رمز QR بحدّ النقطية`);
+    assert.equal(form.table!.rows, 16, id);
+    // داخل ما تبلغه الإبرة وداخل الورقة
+    const [x0, x1] = formReachX(pre)!;
+    for (const f of form.fields) assert.ok(f.x >= x0 - 1e-9 && f.x + f.w <= x1 + 1e-9 && f.y >= 0 && f.y + f.h <= pre.paper.lengthMm! + 1e-9, `${id} ${f.id}`);
+    for (const c of form.table!.columns) assert.ok(c.x >= x0 - 1e-9 && c.x + c.w <= x1 + 1e-9, `${id} ${c.id}`);
+    assert.deepEqual(profileIssuesOf(pre), [], id);
+    const saved = checkPrintSettings(withOne(pre), true);
+    assert.equal(saved.ok, true, `${id} ${JSON.stringify(saved)}`);
+    // اختياره ثانيةً لا يمسّ المواضع
+    assert.equal(withDesign(pre, 'preprinted'), pre);
+    // الخروج: impact_plain (لا إزاحة ترويسة الاحتياط) وهامشا المقاس الجاهز، ولا مواضع
+    const ref = presetPaper(id)!;
+    for (const d of ['standard', 'grid_bilingual'] as const) {
+      const out = withDesign(pre, d);
+      assert.equal(out.template, 'impact_plain', `${id} ${d}`);
+      assert.equal(out.options.layout!.design, d);
+      assert.deepEqual([out.paper.marginTopMm, out.paper.marginBottomMm], [ref.marginTopMm, ref.marginBottomMm], `${id} ${d}`);
+      assert.ok(!('form' in out.options.layout!), `${id} ${d}`);
+      assert.deepEqual(profileIssuesOf(out), [], `${id} ${d}`);
+    }
+  }
+  // قالب impact_preprinted القديم (بلا نموذج) لا يتغيّر بالعودة للتصميم الحالي
+  const old = withLayout(profile('old', 'impact', 'impact_preprinted', 'cut_a4'), { accent: '#1D4ED8' });
+  assert.equal(withDesign(old, 'standard'), old);
+  // withLayout على النقطية: مواضع البداية داخل ما تبلغه الإبرة
+  const viaLayout = withLayout(roleProfile('impact'), { design: 'preprinted' });
+  assert.deepEqual(viaLayout.options.layout!.form, starterForm(formPaperOf(viaLayout)));
+  assert.deepEqual(profileIssuesOf(viaLayout), []);
+  // وبلا حقل QR لمن حذفه صراحةً
+  const removed = withDesign(withLayout(roleProfile('impact'), { sections: { qr: { visible: false } } }), 'preprinted');
+  assert.ok(!removed.options.layout!.form!.fields.some((f) => f.id === 'qr'));
+  assert.deepEqual(profileIssuesOf(removed), []);
+});
+
+test('النموذج على النقطية: تغيير المقاس الجاهز يُزيح المواضع أفقياً (ff_a4 ⇒ ff_95x11 بـ+15.5) ويقيسها طولاً — صالحٌ بين كل مقاسين نقطيين', () => {
+  const pre = withDesign(roleProfile('impact'), 'preprinted');
+  const wide = withPreset(pre, 'ff_95x11');
+  assert.deepEqual([wide.paper.widthMm, wide.paper.lengthMm, wide.paper.marginTopMm, wide.paper.marginBottomMm], [241, 279.4, 0, 0]);
+  assert.deepEqual(profileIssuesOf(wide), []);
+  const a = pre.options.layout!.form!;
+  const b = wide.options.layout!.form!;
+  assert.deepEqual(b.fields.map((f) => f.id), a.fields.map((f) => f.id));
+  for (const f of a.fields) {
+    const g = b.fields.find((x) => x.id === f.id)!;
+    assert.equal(g.x, f.x + 15.5, `${f.id}: إزاحة لا قياس`);
+    assert.equal(g.w, f.w, f.id);
+  }
+  assert.deepEqual(b.table!.columns.map((c) => [c.id, c.x, c.w]), a.table!.columns.map((c) => [c.id, c.x + 15.5, c.w]));
+  assert.equal(b.table!.rows, 16);
+  const qr = b.fields.find((f) => f.id === 'qr')!;
+  assert.deepEqual([qr.w, qr.h], [55, 55], 'لا يصغر رمز QR بقياس الطول');
+  // والعودة: −15.5
+  const back = withPreset(wide, 'ff_a4');
+  assert.deepEqual(back.options.layout!.form!.fields.map((f) => f.x), a.fields.map((f) => f.x));
+  assert.deepEqual(profileIssuesOf(back), []);
+  // بين كل مقاسين نقطيين جاهزين (ومنها نصف الصفحة ff_95x55) يبقى النموذج صالحاً صارماً
+  for (const from of IMPACT_PRESETS) {
+    const p0 = withDesign(profile(`mip-${from.replace(/_/g, '-')}`, 'impact', 'impact_plain', from), 'preprinted');
+    for (const to of IMPACT_PRESETS) {
+      const p1 = withPreset(p0, to);
+      assert.deepEqual([p1.paper.preset, p1.paper.marginTopMm, p1.paper.marginBottomMm], [to, 0, 0], `${from} ⇒ ${to}`);
+      assert.deepEqual(profileIssuesOf(p1), [], `${from} ⇒ ${to}`);
+      assert.ok(p1.options.layout!.form!.fields.find((f) => f.id === 'qr')!.w >= 55, `${from} ⇒ ${to}`);
+    }
+  }
+});
+
 test('النموذج المطبوع مسبقاً: للفواتير وحدها في التوجيه واختيار الجهاز، ولا يكون PDF، و4 على الأكثر — formDesignBlock برسائل النواة', () => {
   const pre = { ...withDesign(profile('murouj', 'page', 'page_branded', 'a4'), 'preprinted'), name: 'مروج' };
   const s: PrintSettingsV1 = { ...fleet(), profiles: [...fleet().profiles, pre], routing: { ...fleet().routing, invoice: 'murouj' } };
@@ -651,7 +738,8 @@ test('النموذج المطبوع مسبقاً: للفواتير وحدها ف
   assert.equal(formDesignBlock(s, 'murouj'), null);
   assert.equal(formDesignBlock(s, 'office'), PRINT_ISSUES.pdfForm);
   assert.equal(formDesignBlock(s, 'van-80'), PRINT_ISSUES.layoutFormPrinter);
-  assert.equal(formDesignBlock(s, 'mip480'), PRINT_ISSUES.layoutFormPrinter);
+  // النقطية بطول صفحة تقبل النموذج منذ ١٣ نوفمبر ٢٠٢٦ (والقالب غير موجَّهٍ لغير الفواتير ولا PDF)
+  assert.equal(formDesignBlock(s, 'mip480'), null);
   assert.equal(formDesignBlock(s, 'nope'), null);
   const page2 = profile('page-2', 'page', 'page_plain', 'a4');
   const s2: PrintSettingsV1 = { ...s, profiles: [...s.profiles, page2], routing: { ...s.routing, receipt: 'page-2' } };
@@ -667,4 +755,45 @@ test('النموذج المطبوع مسبقاً: للفواتير وحدها ف
   assert.ok(bad(five).includes(PRINT_ISSUES.formsCount));
   // ورسالة رفض مرجع الصورة من الخادم
   assert.equal(printSaveErrorMessage({ response: { status: 400, data: { code: 'PRINT_FORM_IMAGE_MISSING', message: 'x' } } }), PRINT_FORM_IMAGE_MISSING_MSG);
+});
+
+test('النموذج على النقطية: ورقٌ مخصّص لا يتّسع لمربع الرمز بحدّه (55 مم) تُمنع بطاقته برسالة النواة ولا ينتج withDesign قالباً لا يُحفظ', () => {
+  const mip = profile('mip-narrow', 'impact', 'impact_plain', 'cut_a4');
+  const strictOk = (p: PrintProfile) => checkPrintSettings(withOne(p), true);
+  // الحالتان المبلَّغ عنهما: طول 52 مم، وحزمة 360 نقطة (≈ 50.8 مم على 180) — يقبلهما profileIssues
+  for (const patch of [{ lengthMm: 52 }, { printableDots: 360 }]) {
+    const at = JSON.stringify(patch);
+    const p = withPaper(mip, patch);
+    assert.deepEqual(profileIssuesOf(p), [], at);
+    assert.equal(formDesignBlock(withOne(p), p.id), PRINT_ISSUES.layoutFormQrImpact, at);
+    assert.equal(withDesign(p, 'preprinted'), p, `${at}: لا قالب نموذجٍ يرفضه الحفظ`);
+    // رمزٌ حذفته الشركة صراحةً: لا مربع فلا منع، ومواضع البداية تُحفظ
+    const removed = withLayout(p, { sections: { qr: { visible: false } } });
+    assert.equal(formDesignBlock(withOne(removed), p.id), null, at);
+    const pre = withDesign(removed, 'preprinted');
+    assert.equal(pre.options.layout?.design, 'preprinted', at);
+    assert.equal(strictOk(pre).ok, true, `${at} ${JSON.stringify(strictOk(pre))}`);
+  }
+  // كل ورقٍ نقطيٍّ يقبله profileIssues: إمّا تُمنع بطاقته (برسالة الرمز) ولا يتغيّر القالب، وإمّا تُحفظ مواضع بدايته صارماً
+  let blocked = 0;
+  let saved = 0;
+  for (const widthMm of [100, 160, 210, 241]) for (const lengthMm of [50, 54.5, 55, 55.5, 60, 140]) for (const printableDots of [256, 389, 390, 391, 700, 1440]) {
+    const p = withPaper(mip, { widthMm, lengthMm, printableDots });
+    if (profileIssuesOf(p).length) continue;
+    const at = `${widthMm}×${lengthMm} @${printableDots}`;
+    const block = formDesignBlock(withOne(p), p.id);
+    const pre = withDesign(p, 'preprinted');
+    if (block !== null) {
+      assert.equal(block, PRINT_ISSUES.layoutFormQrImpact, at);
+      assert.ok((printableDots * 25.4) / 180 < 55 || lengthMm < 55, `${at}: يتّسع للرمز ومع ذلك مُنع`);
+      assert.equal(pre, p, at);
+      blocked++;
+    } else {
+      assert.equal(strictOk(pre).ok, true, `${at} ${JSON.stringify(strictOk(pre))}`);
+      saved++;
+    }
+  }
+  assert.ok(blocked > 0 && saved > 0, `${blocked} ${saved}`);
+  // المقاسات النقطية الجاهزة كلها تتّسع للرمز
+  for (const id of IMPACT_PRESETS) assert.equal(formDesignBlock(withOne(profile(`mip-${id.replace(/_/g, '-')}`, 'impact', 'impact_plain', id)), `mip-${id.replace(/_/g, '-')}`), null, id);
 });

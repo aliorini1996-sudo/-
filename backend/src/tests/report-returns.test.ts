@@ -11,8 +11,9 @@ test('تقرير المرتجع: المؤكَّدة من نوع المرتجع �
   assert.ok(i > 0, 'المسار غائب');
   const h = src.slice(i, src.indexOf("router.get('/collections'"));
   // نطاق المستخدم ومعه فلتر الفريق — في النطاق نفسه فيطبَّق على المرتجعات وعلى مبيعات النسبة معاً
-  assert.match(h, /const scope = \{ \.\.\.\(await scopedRecordWhere\(req, SHAPE_INVOICE_RECEIPT\)\), \.\.\.teamDocWhere\(reportTeamOf\(req\.query\.teamId\)\) \};/, 'نطاق المستخدم والفريق');
-  // شرطٌ واحد للقائمة ولملخّصها المجمَّع في القاعدة (دقّة التقارير، البند ٧): القائمة والتجميع بالسبب والبنود المنتهية
+  // وفلاتر المندوب والعميل والموقع (١٣ نوفمبر ٢٠٢٦) معهما: نسبة مرتجع المندوب على مبيعاته هو
+  assert.match(h, /const scope = \{ \.\.\.\(await scopedRecordWhere\(req, SHAPE_INVOICE_RECEIPT\)\), \.\.\.teamDocWhere\(reportTeamOf\(req\.query\.teamId\)\), \.\.\.picks \};/, 'نطاق المستخدم والفريق');
+  // شرطٌ واحد للقائمة ولملخّصها المجمَّع في القاعدة (دقّة التقارير، البند ٧): القائمة والتجميع بالسبب والبنود المنتهية — والفلاتر فيه عبر scope
   assert.match(h, /const returnsWhere: Prisma\.InvoiceWhereInput = \{ tenantId: tid, \.\.\.scope, status: 'CONFIRMED', type: 'RETURN', invoiceDate: dateFilter \};/, 'المرتجعات المؤكَّدة');
   assert.equal(h.split('where: returnsWhere').length - 1, 2, 'القائمة والتجميع بالسبب على الشرط نفسه');
   assert.match(h, /prisma\.invoiceItem\.count\(\{ where: \{ returnExpired: true, invoice: returnsWhere \} \}\)/, 'البنود المنتهية من كل مرتجعات المدى');

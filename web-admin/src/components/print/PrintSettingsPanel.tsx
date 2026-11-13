@@ -252,8 +252,9 @@ export default function PrintSettingsPanel({ phase2 }: { phase2: boolean }) {
                         {isQrRemoved(layoutOf(p)) && !taxOff && <span data-qr-removed="" className="text-[10px] font-bold text-white bg-[#B42318] rounded-full px-2 py-0.5">{tr(QR_REMOVED_BADGE)}</span>}
                         {shownWarnings.length > 0 && <span title={shownWarnings.map((x) => tr(x)).join(' · ')}><AlertTriangle size={14} className="text-amber-600" /></span>}
                       </p>
+                      {/* قالب النموذج باسم تصميمه — قالبه (page_plain، وعلى النقطية impact_preprinted) احتياطٌ للأجهزة القديمة وحدها */}
                       <p className="text-xs text-[#6E6557] mt-0.5">
-                        {tr(PRINTER_SHORT[p.printer])} · {tr(PRESET_LABELS[p.paper.preset])} · {tr(TEMPLATE_LABELS[p.template])}
+                        {tr(PRINTER_SHORT[p.printer])} · {tr(PRESET_LABELS[p.paper.preset])} · {tr(isFormProfile(p) ? DESIGN_LABELS.preprinted : TEMPLATE_LABELS[p.template])}
                         {mm !== null && <> · {tr('عرض الطباعة')} <span dir="ltr">{mm}</span> {tr('مم')}</>}
                       </p>
                     </div>
@@ -434,7 +435,7 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {designCards(p).map((c) => {
                 const t = c.kind === 'template' ? c.t : null;
-                // «نموذج الشركة المطبوع مسبقاً» (بطاقةٌ من designCards للطابعة العادية): يلزمه ورقٌ بطول صفحة
+                // «نموذج الشركة المطبوع مسبقاً» (بطاقةٌ من designCards للعادية والنقطية): يلزمه ورقٌ بطول صفحة (للنقطية طولٌ دائماً)
                 const isForm = c.kind === 'preprinted';
                 const detailBlocked = t === 'roll_detailed' && (p.paper.printableDots ?? 0) < detailedMinDots;
                 const noLength = isForm && p.paper.lengthMm === null;
@@ -534,7 +535,9 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
                 </div>
               </Section>)}
 
-              {!form && (<Section title={tr('الخط')}>
+              {/* والنموذج كذلك: «خط عريض للنص» يجعل كل قيمه عريضة (جذر الورقة data-print-look="bold" — افتراضيٌّ للنقطية) فيظهر هنا ليُطفأ،
+                * والمصمّم يرسم القيم بالوزن نفسه (boldAll) — وحجم خطّه لكل حقلٍ في مصمّم النموذج */}
+              <Section title={tr('الخط')}>
                 {/* الصفحة والنقطية: حجم الخط في «التخطيط» — لا يُطبَّق عليهما إلا مع تخطيط (بلاه مطبوعة اليوم حرفياً) */}
                 {p.printer === 'thermal' && (
                   <div>
@@ -548,11 +551,17 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
                   </div>
                 )}
                 <Toggle label={tr('خط عريض للنص')} checked={p.options.boldBody} onChange={(v) => setOpt('boldBody', v)} />
-              </Section>)}
+              </Section>
 
               {/* «إزالة الضريبة»: لا رمز QR في أيّ مستندٍ لشركةٍ بلا ضريبة — فلا قسم لمقاسه */}
+              {/* النموذج أولاً (العادية والنقطية): الرمز يُرسم داخل حقله بمقاسه (على النقطية formQrSlotPx) — لا مقاس الطابعة ولا qrSize */}
               {!taxOff && (<Section title={tr('رمز QR')}>
-                {raster ? (
+                {form ? (
+                  <>
+                    <p className="text-xs text-[#6E6557]">{tr('مقاس الرمز بمقاس حقله في مصمم النموذج')}</p>
+                    {raster && <p className="text-[11px] text-[#9A8F7E]">{tr('لا يصغر مربع رمز QR عن 55 ملم على الطابعة النقطية')}</p>}
+                  </>
+                ) : raster ? (
                   <>
                     <div className="flex gap-1.5">
                       {(['auto', 'large'] as const).map((z) => (
@@ -567,8 +576,7 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
                     )}
                     <p className="text-[11px] text-[#9A8F7E]">{tr('لا يصغر الرمز عن الحد الأدنى لدقة الطابعة')}</p>
                   </>
-                ) : form ? <p className="text-xs text-[#6E6557]">{tr('مقاس الرمز بمقاس حقله في مصمم النموذج')}</p>
-                  : <p className="text-xs text-[#6E6557]">{tr('مقاس الرمز في الصفحة كما هو اليوم')}</p>}
+                ) : <p className="text-xs text-[#6E6557]">{tr('مقاس الرمز في الصفحة كما هو اليوم')}</p>}
               </Section>)}
 
               <Section title={tr('النسخ')}>
@@ -586,7 +594,8 @@ function ProfileEditor({ editor, setEditor, settings, phase2, companyName, brand
 
               <Section title={tr('الورق والمحاذاة')}>
                 <div className="grid grid-cols-2 gap-3">
-                  {raster && <NumField label={tr('إزاحة أفقية')} suffix="mm" value={p.paper.offsetXmm} step={0.5} onChange={(v) => update(withPaper(p, { offsetXmm: v }))} />}
+                  {/* قالب النموذج: offsetXmm مُهمَلٌ على كل مسار (الإبرة في وسط الورقة) — معايرته dx/dy في مصمّم النموذج وحدها */}
+                  {raster && !form && <NumField label={tr('إزاحة أفقية')} suffix="mm" value={p.paper.offsetXmm} step={0.5} onChange={(v) => update(withPaper(p, { offsetXmm: v }))} />}
                   {!form && <NumField label={tr('الهامش العلوي')} suffix="mm" value={p.paper.marginTopMm} step={0.5} onChange={(v) => update(withPaper(p, { marginTopMm: v }))} />}
                   {p.paper.feed !== 'roll' && !form && <NumField label={tr('الهامش السفلي')} suffix="mm" value={p.paper.marginBottomMm} step={0.5} onChange={(v) => update(withPaper(p, { marginBottomMm: v }))} />}
                   {p.printer === 'thermal' && <NumField label={tr('تغذية بعد الطباعة')} suffix="mm" value={p.options.feedAfterMm} step={1} onChange={(v) => setOpt('feedAfterMm', v)} />}

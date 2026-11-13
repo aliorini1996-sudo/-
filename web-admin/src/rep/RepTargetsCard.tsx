@@ -1,9 +1,10 @@
-import { Check, Layers, Target, Trophy } from 'lucide-react';
+import { CalendarRange, Check, Layers, Target, Trophy } from 'lucide-react';
 import { useTr } from '../i18n/strings';
 import { useLang } from '../i18n/lang';
 import { activeLocale, formatCurrency, formatDate } from '../utils/format';
 import {
-  barPct, comboDone, daysLeftText, groupTargets, monthLabel, pctText, rewardText, targetAmountText, targetRemaining, targetStateText, targetTitle,
+  barPct, comboDone, daysLeftText, groupTargets, monthLabel, pctText, periodLabel, periodStatusText, rewardText, targetAmountText, targetRemaining,
+  targetStateText, targetTitle,
   type RepTargetView, type RepTargetsData,
 } from '../lib/repTargets';
 
@@ -52,10 +53,26 @@ export default function RepTargetsCard({ data, stale, onRetry }: { data: RepTarg
   );
 }
 
+/** «مدة الهدف» (١٣ نوفمبر ٢٠٢٦): فترة الهدف المخصّصة وحالها اليوم — «٨ – ١٤ نوفمبر · متبقي ٥ أيام» — والشهر كله بلا سطر */
+function PeriodLine({ t }: { t: RepTargetView }) {
+  const tr = useTr();
+  const lang = useLang(s => s.lang);
+  if (!t.period?.custom) return null;
+  const status = periodStatusText(t.period, lang, tr, activeLocale(), num);
+  return (
+    <p className="mt-1 text-[11px] text-[#8A6D1F] flex items-center gap-1 flex-wrap" data-target-period="">
+      <CalendarRange size={12} className="shrink-0" />
+      <bdi className="font-semibold">{periodLabel(t.period, activeLocale())}</bdi>
+      {status && <span className="text-gray-400">· {status}</span>}
+    </p>
+  );
+}
+
 function TargetBlock({ t, first }: { t: RepTargetView; first: boolean }) {
   const tr = useTr();
   const p = t.progress;
-  const stateText = targetStateText(p);
+  const custom = !!t.period?.custom;
+  const stateText = targetStateText(p, custom);
   return (
     <div className={first ? '' : 'pt-4 border-t border-[#F1EBDF]'}>
       <div className="flex items-start justify-between gap-3">
@@ -64,6 +81,7 @@ function TargetBlock({ t, first }: { t: RepTargetView; first: boolean }) {
           <bdi className={`shrink-0 text-base font-extrabold ${p.done ? 'text-green-600' : 'text-[#E15A30]'}`}>{pctText(p.pct, activeLocale(), p.done)}</bdi>
         )}
       </div>
+      <PeriodLine t={t} />
 
       {stateText ? (
         <p className="mt-2 text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3 py-2">{tr(stateText)}</p>
@@ -84,7 +102,7 @@ function TargetBlock({ t, first }: { t: RepTargetView; first: boolean }) {
             )}
           </div>
           {t.kind === 'COLLECTION_PCT' && p.base != null && (
-            <p className="text-[11px] text-gray-400 mt-1">{tr('الديون المفتوحة بداية الشهر')}: <bdi>{formatCurrency(p.base)}</bdi></p>
+            <p className="text-[11px] text-gray-400 mt-1">{tr(custom ? 'الديون المفتوحة بداية الفترة' : 'الديون المفتوحة بداية الشهر')}: <bdi>{formatCurrency(p.base)}</bdi></p>
           )}
         </>
       )}
@@ -131,7 +149,7 @@ function ComboBlock({ members, first }: { members: RepTargetView[]; first: boole
 function ComboMember({ t }: { t: RepTargetView }) {
   const tr = useTr();
   const p = t.progress;
-  const stateText = targetStateText(p);
+  const stateText = targetStateText(p, !!t.period?.custom);
   return (
     <div>
       <div className="flex items-start justify-between gap-3">
@@ -140,6 +158,7 @@ function ComboMember({ t }: { t: RepTargetView }) {
           <bdi className={`shrink-0 text-sm font-extrabold ${p.done ? 'text-green-600' : 'text-[#E15A30]'}`}>{pctText(p.pct, activeLocale(), p.done)}</bdi>
         )}
       </div>
+      <PeriodLine t={t} />
       {stateText ? (
         <p className="mt-1.5 text-[11px] bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-2.5 py-1.5">{tr(stateText)}</p>
       ) : (

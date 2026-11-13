@@ -6,11 +6,15 @@
 //
 // الأبعاد بالمم من الركن الأيسر الأعلى الفعلي للورقة (x يميناً مهما كان اتجاه الواجهة) — والقواعد في النواة (printSettingsCore
 // formFaults) والخادم يتحقّق منها ثانيةً. لا يستورد هذا الملف إلا النواة (لا دورة مع printSettings.ts الذي يستعمل starterForm).
+//
+// والطابعة النقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦، MIP480): الإبرة لا تبلغ إلا حزمةً في وسط الورقة (formReachX) ولا تطبع فوق أول سطرٍ
+// لها — فورق النموذج النقطي يحمل reach (formPaperOf)، وكل محرّرٍ يقصّ المواضع داخل ما تبلغه الإبرة **بعد المعايرة** (formReachBox)
+// ورمز QR لا يصغر عن 55 مم، والبداية والمقاس الجديد يُزاحان أفقياً لا يُقاسان (الحزمة بعرضٍ ثابت). وبلا reach كل شيءٍ كما كان حرفياً.
 // ============================================================================
 
 import {
   ALIGNS, FORM_BOUNDS, FORM_COLUMN_IDS, FORM_FIELD_IDS, FORM_IMAGE_ID_RE, FORM_IMAGE_V_RE, FORM_LAST_SHEET_IDS, FORM_VALUE_LANGS, LAYOUT_BOUNDS,
-  isQrRemoved, layoutIssues,
+  formQrMinMm, formReachX, isQrRemoved, layoutIssues,
   type FormColumn, type FormColumnId, type FormField, type FormFieldId, type FormImageRef, type FormTable, type FormValueLang, type Paper,
   type PrintForm, type PrintProfile,
 } from './printSettingsCore';
@@ -60,8 +64,16 @@ const sortColumns = (list: FormColumn[]): FormColumn[] => list.sort((a, b) => (a
 
 // ─── الورقة ───
 
-/** ما يلزم من الورق: عرضه وطوله (null = بلا طول — لا يقبله النموذج، ويُحسب كـA4) */
-export type FormPaper = Pick<Paper, 'widthMm' | 'lengthMm'>;
+/**
+ * ما تبلغه إبرة النقطية من عرض الورقة [x0, x1] بالمم من حافتها اليسرى (formReachX: في الوسط، بلا offsetXmm ولا هوامش) وأصغر
+ * مربعٍ لرمز QR عليها (formQrMinMm: 55 مم)
+ */
+export interface FormReach { x0: number; x1: number; qrMinMm: number }
+/**
+ * ما يلزم من الورق: عرضه وطوله (null = بلا طول — لا يقبله النموذج، ويُحسب كـA4)، وما تبلغه النقطية منه (reach — الغياب أو null =
+ * الورقة كلها كاليوم حرفياً: الطابعة العادية وكل مستدعٍ قديم)
+ */
+export type FormPaper = Pick<Paper, 'widthMm' | 'lengthMm'> & { reach?: FormReach | null };
 export interface FormSheetSize { widthMm: number; lengthMm: number }
 /** مرجع المواضع المقترحة: A4 عمودياً — وغيره يُقاس عليه */
 export const FORM_REF_SHEET: Readonly<FormSheetSize> = Object.freeze({ widthMm: 210, lengthMm: 297 });
@@ -71,6 +83,17 @@ export function formSheetSize(paper: FormPaper | null | undefined): FormSheetSiz
   const w = paper && fin(paper.widthMm) && paper.widthMm > 0 ? paper.widthMm : FORM_REF_SHEET.widthMm;
   const l = paper && fin(paper.lengthMm) && paper.lengthMm > 0 ? paper.lengthMm : FORM_REF_SHEET.lengthMm;
   return { widthMm: w, lengthMm: l };
+}
+
+/** ما تبلغه النقطية من ورق هذا القالب وحدّ رمز QR عليها (formReachX + formQrMinMm من النواة) — null لغير النقطية أو لورقٍ بلا نقاط صالحة */
+export function formReachOf(p: Pick<PrintProfile, 'printer' | 'paper'>): FormReach | null {
+  const r = p?.paper ? formReachX(p) : null;
+  return r ? { x0: r[0], x1: r[1], qrMinMm: formQrMinMm(p.printer) } : null;
+}
+
+/** ورق النموذج لقالب: عرضه وطوله وما تبلغه النقطية منه — ما يُمرَّر لكل محرّرٍ هنا (والعادية reach: null فكل شيءٍ كاليوم) */
+export function formPaperOf(p: Pick<PrintProfile, 'printer' | 'paper'>): FormPaper {
+  return { widthMm: p.paper.widthMm, lengthMm: p.paper.lengthMm, reach: formReachOf(p) };
 }
 
 /** دقة صورة النموذج بعد التصحيح والقصّ (A4 = 1240 × 1754 بكسل) */
@@ -94,6 +117,24 @@ export function printedBox(form: Pick<PrintForm, 'dxMm' | 'dyMm'>, b: FormBox): 
   const dx = fin(form.dxMm) ? form.dxMm : 0;
   const dy = fin(form.dyMm) ? form.dyMm : 0;
   return { x: round2(b.x + dx), y: round2(b.y + dy), w: b.w, h: b.h };
+}
+
+/**
+ * ما تبلغه النقطية من المواضع **المحفوظة** (قبل المعايرة): [x0 − dx, x1 − dx] × [−dy, L − dy] مقطوعاً بالورقة — فالموضع المطبوع
+ * (printedBox) داخل [x0, x1] × [0, L] كما تفحصه النواة (layoutFormReach). بلا تقريب (حدوده قد تقع بين خطوتي الشبكة؛ المحرّرات تلصق
+ * داخلها). null بلا reach (الطابعة العادية: الورقة كلها).
+ */
+export function formReachBox(form: Pick<PrintForm, 'dxMm' | 'dyMm'>, paper: FormPaper | null | undefined): FormBox | null {
+  const r = paper?.reach;
+  if (!r || !fin(r.x0) || !fin(r.x1)) return null;
+  const S = formSheetSize(paper);
+  const dx = fin(form?.dxMm) ? form.dxMm : 0;
+  const dy = fin(form?.dyMm) ? form.dyMm : 0;
+  const x = Math.max(0, r.x0 - dx);
+  const y = Math.max(0, -dy);
+  const right = Math.min(S.widthMm, r.x1 - dx);
+  const bottom = Math.min(S.lengthMm, S.lengthMm - dy);
+  return { x, y, w: Math.max(0, right - x), h: Math.max(0, bottom - y) };
 }
 
 /** أعلى الصفّ i (من 0) في الجدول — بلا المعايرة */
@@ -151,8 +192,32 @@ export function formSheets<T>(items: readonly T[] | null | undefined, rows: numb
 
 // ─── القصّ داخل الورقة (الشبكة 0.5 مم وحدود النواة) ───
 
-/** أصغر ضلعٍ للحقل: رمز QR 18 مم، وغيره 3 */
-export const formFieldMinMm = (id: FormFieldId): number => (id === 'qr' ? F.qrMinMm : F.fieldMinMm);
+/** أصغر ضلعٍ للحقل: رمز QR 18 مم (55 على ورق النقطية — paper.reach)، وغيره 3 */
+export const formFieldMinMm = (id: FormFieldId, paper?: FormPaper | null): number => (id === 'qr' ? (paper?.reach?.qrMinMm ?? F.qrMinMm) : F.fieldMinMm);
+
+/**
+ * حدود القصّ: الورقة، وما تبلغه النقطية منها بعد معايرة النموذج (box — null = الورقة كلها كاليوم)، وأصغر مربعٍ لرمز QR. ما يمرّ
+ * بالمحرّرات كلها، فلا يخرج منها موضعٌ ترفضه النواة.
+ */
+interface Frame { S: FormSheetSize; box: FormBox | null; qrMin: number }
+const frameOf = (paper: FormPaper | null | undefined, form: Pick<PrintForm, 'dxMm' | 'dyMm'> | null): Frame => ({
+  S: formSheetSize(paper),
+  box: formReachBox(form ?? { dxMm: 0, dyMm: 0 }, paper),
+  qrMin: formFieldMinMm('qr', paper),
+});
+
+/**
+ * المدى على الشبكة: [x0, x1] × [y0, y1] بمضاعفات 0.5 (للداخل)، وbottom آخر ما يبلغه الجدول بلا تقريب (صفوفه لا تلزم الشبكة).
+ * بلا box: الورقة من 0 إلى حافتها (floorStep) — وهو حساب اليوم نفسه (floorStep(W − w) = floorStep(W) − w لعرضٍ على الشبكة).
+ */
+function gridOf(fr: Frame): { x0: number; x1: number; y0: number; y1: number; bottom: number } {
+  const b = fr.box;
+  if (!b) return { x0: 0, x1: floorStep(fr.S.widthMm), y0: 0, y1: floorStep(fr.S.lengthMm), bottom: fr.S.lengthMm };
+  // ceilStep(0) = −0 (Math.ceil(−1e-9)) — والموضع يُكتب 0 لا −0
+  const x0 = ceilStep(b.x) || 0;
+  const y0 = ceilStep(b.y) || 0;
+  return { x0, x1: Math.max(x0, floorStep(b.x + b.w)), y0, y1: Math.max(y0, floorStep(b.y + b.h)), bottom: b.y + b.h };
+}
 
 /** خطٌّ نظيف: عدد صحيح في حدوده، و100 لا يُكتب */
 function cleanPct(v: unknown): number | undefined {
@@ -161,15 +226,16 @@ function cleanPct(v: unknown): number | undefined {
   return p === 100 ? undefined : p;
 }
 
-/** الحقل داخل الورقة على الشبكة بأبعاد ≥ حدّه — والقيم الافتراضية (100٪، غير عريض) لا تُكتب */
-function clampField(f: FormField, S: FormSheetSize): FormField {
-  const W = floorStep(S.widthMm);
-  const L = floorStep(S.lengthMm);
-  const min = ceilStep(formFieldMinMm(f.id));
+/** الحقل داخل الورقة (وعلى النقطية داخل ما تبلغه الإبرة) على الشبكة بأبعاد ≥ حدّه — والقيم الافتراضية (100٪، غير عريض) لا تُكتب */
+function clampField(f: FormField, fr: Frame): FormField {
+  const g = gridOf(fr);
+  const W = g.x1 - g.x0;
+  const L = g.y1 - g.y0;
+  const min = ceilStep(f.id === 'qr' ? fr.qrMin : F.fieldMinMm);
   const w = clamp(snap(fin(f.w) ? f.w : min), Math.min(min, W), W);
   const h = clamp(snap(fin(f.h) ? f.h : min), Math.min(min, L), L);
-  const x = clamp(snap(fin(f.x) ? f.x : 0), 0, floorStep(S.widthMm - w));
-  const y = clamp(snap(fin(f.y) ? f.y : 0), 0, floorStep(S.lengthMm - h));
+  const x = clamp(snap(fin(f.x) ? f.x : 0), g.x0, g.x1 - w);
+  const y = clamp(snap(fin(f.y) ? f.y : 0), g.y0, g.y1 - h);
   const out: FormField = { id: f.id, x, y, w, h };
   if (isAlign(f.align)) out.align = f.align;
   const pct = cleanPct(f.fontPct);
@@ -178,24 +244,25 @@ function clampField(f: FormField, S: FormSheetSize): FormField {
   return out;
 }
 
-function clampColumn(c: FormColumn, S: FormSheetSize): FormColumn {
-  const W = floorStep(S.widthMm);
+function clampColumn(c: FormColumn, fr: Frame): FormColumn {
+  const g = gridOf(fr);
+  const W = g.x1 - g.x0;
   const min = ceilStep(F.columnMinMm);
   const w = clamp(snap(fin(c.w) ? c.w : min), Math.min(min, W), W);
-  const x = clamp(snap(fin(c.x) ? c.x : 0), 0, floorStep(S.widthMm - w));
+  const x = clamp(snap(fin(c.x) ? c.x : 0), g.x0, g.x1 - w);
   const out: FormColumn = { id: c.id, x, w };
   if (isAlign(c.align)) out.align = c.align;
   return out;
 }
 
 /** أعمدةٌ معروفة بلا تكرار، 12 على الأكثر، مقصوصة ومرتّبة من اليسار */
-function clampColumns(list: readonly FormColumn[] | null | undefined, S: FormSheetSize): FormColumn[] {
+function clampColumns(list: readonly FormColumn[] | null | undefined, fr: Frame): FormColumn[] {
   const seen = new Set<FormColumnId>();
   const out: FormColumn[] = [];
   for (const c of Array.isArray(list) ? list : []) {
     if (!c || !isColumnId(c.id) || seen.has(c.id)) continue;
     seen.add(c.id);
-    out.push(clampColumn(c, S));
+    out.push(clampColumn(c, fr));
     if (out.length >= F.columns[1]) break;
   }
   return sortColumns(out);
@@ -210,22 +277,25 @@ function rowsThatFit(y: number, rowMm: number, L: number): number {
 
 /**
  * الجدول داخل الورقة: ارتفاع الصف 3–25 مم (بجزءٍ من مئة)، والصفوف 1–60. keepRows: تحريك الكتلة — الصفوف كما هي وأعلاه يُقصّ؛ وإلا
- * (تغيير الصفوف أو ارتفاعها، أو القصّ العام) يبقى أعلاه وتُقصّ الصفوف إلى ما يتّسع.
+ * (تغيير الصفوف أو ارتفاعها، أو القصّ العام) يبقى أعلاه وتُقصّ الصفوف إلى ما يتّسع. وعلى النقطية: من أول ما تبلغه الإبرة بعد
+ * المعايرة (top) إلى آخره (L − dy).
  */
-function clampTable(t: FormTable, S: FormSheetSize, keepRows: boolean): FormTable {
-  const L = S.lengthMm;
+function clampTable(t: FormTable, fr: Frame, keepRows: boolean): FormTable {
+  const g = gridOf(fr);
+  const top = g.y0;
+  const L = g.bottom;
   const rowMm = round2(clamp(fin(t.rowMm) ? t.rowMm : 7, F.rowMm[0], F.rowMm[1]));
   let rows = clamp(Math.round(fin(t.rows) ? t.rows : 1), F.rows[0], F.rows[1]);
-  rows = Math.min(rows, rowsThatFit(0, rowMm, L));
+  rows = Math.min(rows, rowsThatFit(top, rowMm, L));
   let y: number;
   if (keepRows) {
-    y = clamp(snap(fin(t.y) ? t.y : 0), 0, floorStep(L - rows * rowMm));
+    y = clamp(snap(fin(t.y) ? t.y : 0), top, floorStep(L - rows * rowMm));
   } else {
-    y = clamp(snap(fin(t.y) ? t.y : 0), 0, floorStep(L - rowMm));
+    y = clamp(snap(fin(t.y) ? t.y : 0), top, floorStep(L - rowMm));
     rows = Math.min(rows, rowsThatFit(y, rowMm, L));
   }
   const pct = cleanPct(t.fontPct);
-  const columns = clampColumns(t.columns, S);
+  const columns = clampColumns(t.columns, fr);
   // ترتيب المفاتيح كما كان: y ثم rowMm ثم rows ثم fontPct (إن وُجد) ثم columns
   return pct !== undefined ? { y, rowMm, rows, fontPct: pct, columns } : { y, rowMm, rows, columns };
 }
@@ -242,28 +312,32 @@ const cleanOffset = (v: unknown): number => (fin(v) ? round1(clamp(v, F.offsetMm
  * نموذجٌ صالحٌ بقواعد النواة على هذا الورق من أيّ مدخل: الحقول المعروفة بلا تكرار (40 على الأكثر) مقصوصةً داخل الورقة على الشبكة،
  * والجدول بأعمدته (والجدول بلا عمودٍ صالح يسقط)، والمعايرة ±20 بعُشر مم، ومرجع الصورة الصالح وحده — بترتيب النواة القانوني.
  * لا يضيف حقل QR: لزومه (ما لم تحذفه الشركة) قاعدةٌ يعرضها المصمّم (formQrMissing).
+ * وعلى ورق النقطية (paper.reach): المعايرة تُقصّ أولاً، ثم كل موضعٍ داخل ما تبلغه الإبرة بعدها (formReachBox) ورمز QR ≥ 55 مم،
+ * والخلفية false (لا تطبعها النقطية — layoutFormBgImpact).
  */
 export function fitForm(form: PrintForm, paper: FormPaper | null | undefined): PrintForm {
-  const S = formSheetSize(paper);
+  const dxMm = cleanOffset(form?.dxMm);
+  const dyMm = cleanOffset(form?.dyMm);
+  const fr = frameOf(paper, { dxMm, dyMm });
   const seen = new Set<FormFieldId>();
   const fields: FormField[] = [];
   for (const f of Array.isArray(form?.fields) ? form.fields : []) {
     if (!f || !isFieldId(f.id) || seen.has(f.id)) continue;
     seen.add(f.id);
-    fields.push(clampField(f, S));
+    fields.push(clampField(f, fr));
     if (fields.length >= F.maxFields) break;
   }
   let table: FormTable | null = null;
   if (form?.table && typeof form.table === 'object') {
-    const t = clampTable(form.table, S, false);
+    const t = clampTable(form.table, fr, false);
     table = t.columns.length ? t : null;
   }
   const image = imageOk(form?.image) ? { id: form.image.id, v: form.image.v, wPx: form.image.wPx, hPx: form.image.hPx } : null;
   return {
     image,
-    dxMm: cleanOffset(form?.dxMm),
-    dyMm: cleanOffset(form?.dyMm),
-    background: form?.background === true,
+    dxMm,
+    dyMm,
+    background: fr.box === null && form?.background === true,
     latinDigits: form?.latinDigits !== false,
     valueLang: form?.valueLang === 'en' ? 'en' : 'ar',
     fields: sortFields(fields),
@@ -305,46 +379,73 @@ const STARTER_TABLE: Readonly<FormTable> = Object.freeze({
   ] as FormColumn[],
 });
 
-/** قياس صندوقٍ بحافّتيه (فتبقى الأعمدة المتلاصقة متلاصقة بعد اللصق بالشبكة) */
-function scaleSpan(at: number, len: number, k: number): [number, number] {
-  const a = snap(at * k);
-  return [a, Math.max(0, snap((at + len) * k) - a)];
+/**
+ * النقطية: جدول البداية بستة عشر صفاً (من 105 إلى 217 مم على A4) ومربع QR بحدّه (55 مم) تحته في الركن الأيسر — فرمز المرحلة
+ * الثانية المختوم (حتى 93 خلية) يتّسع بأربع نقاطٍ للخلية ولا يقع على الجدول ولا على الخصم والإجمالي.
+ */
+const STARTER_IMPACT_ROWS = 16;
+const STARTER_IMPACT_QR: Readonly<Pick<FormField, 'x' | 'y'>> = Object.freeze({ x: 12, y: 226 });
+
+/** قياس صندوقٍ بحافّتيه (فتبقى الأعمدة المتلاصقة متلاصقة بعد اللصق بالشبكة) — ثم إزاحته t مم (النقطية؛ 0 لغيرها) */
+function scaleSpan(at: number, len: number, k: number, t = 0): [number, number] {
+  const a = snap(at * k + t);
+  return [a, Math.max(0, snap((at + len) * k + t) - a)];
 }
 
-function scaleField(f: FormField, sx: number, sy: number): FormField {
+/** قياس حقل (وإزاحته أفقياً tx على النقطية) — ومربع QR بضلعٍ واحد لا يصغر عن حدّه (qrMin: 18، و55 على النقطية) */
+function scaleField(f: FormField, sx: number, sy: number, tx = 0, qrMin: number = F.qrMinMm): FormField {
   if (f.id === 'qr') {
-    const side = Math.max(F.qrMinMm, snap(Math.min(f.w * sx, f.h * sy)));
-    return { ...f, x: snap(f.x * sx), y: snap(f.y * sy), w: side, h: side };
+    const side = Math.max(qrMin, snap(Math.min(f.w * sx, f.h * sy)));
+    return { ...f, x: snap(f.x * sx + tx), y: snap(f.y * sy), w: side, h: side };
   }
-  const [x, w] = scaleSpan(f.x, f.w, sx);
+  const [x, w] = scaleSpan(f.x, f.w, sx, tx);
   const [y, h] = scaleSpan(f.y, f.h, sy);
   return { ...f, x, y, w, h };
 }
 
-function scaleTable(t: FormTable, sx: number, sy: number): FormTable {
+function scaleTable(t: FormTable, sx: number, sy: number, tx = 0): FormTable {
   const columns = t.columns.map((c): FormColumn => {
-    const [x, w] = scaleSpan(c.x, c.w, sx);
+    const [x, w] = scaleSpan(c.x, c.w, sx, tx);
     return { ...c, x, w };
   });
   return { ...t, y: snap(t.y * sy), rowMm: round2(t.rowMm * sy), columns };
 }
 
+/**
+ * القياس من ورقٍ إلى آخر: بنسبة العرض والطول — وعلى ورق النقطية (to.reach) تُزاح المواضع أفقياً بنصف فرق العرض ولا تُقاس عرضاً:
+ * الإبرة تبلغ حزمةً بعرضٍ ثابت في وسط الورقة، فقياس العرض (210 ⇒ 241) يدفع الأطراف خارجها. والطول بنسبته في كلٍّ.
+ */
+function scaleOf(from: FormSheetSize, to: FormPaper | null | undefined): { sx: number; sy: number; tx: number } {
+  const b = formSheetSize(to);
+  const sy = b.lengthMm / from.lengthMm;
+  return to?.reach ? { sx: 1, sy, tx: (b.widthMm - from.widthMm) / 2 } : { sx: b.widthMm / from.widthMm, sy, tx: 0 };
+}
+
+/** جدول البداية (قبل القصّ) على هذا الورق: 23 صفاً بنسبة العرض والطول، و16 مُزاحاً على النقطية */
+function starterTable(paper: FormPaper | null | undefined): FormTable {
+  const { sx, sy, tx } = scaleOf(FORM_REF_SHEET, paper);
+  const base = paper?.reach ? { ...STARTER_TABLE, rows: STARTER_IMPACT_ROWS } : STARTER_TABLE;
+  return scaleTable(base as FormTable, sx, sy, tx);
+}
+
 /** جدول البداية على هذا الورق (أعمدته الثمانية) */
 export function defaultFormTable(paper: FormPaper | null | undefined): FormTable {
-  const S = formSheetSize(paper);
-  return clampTable(scaleTable(STARTER_TABLE as FormTable, S.widthMm / FORM_REF_SHEET.widthMm, S.lengthMm / FORM_REF_SHEET.lengthMm), S, false);
+  return clampTable(starterTable(paper), frameOf(paper, null), false);
 }
 
 /**
  * النموذج المقترح لورقٍ جديد: بيانات المستند أعلى الورقة، والعميل يميناً والبائع يساراً، وجدول أصنافٍ بثمانية أعمدة (23 صفاً
  * من 7 مم على A4 من y = 105)، والخصم والإجمالي أسفل، ورمز QR في الركن الأيسر الأسفل (withQr: false بلا حقله — للشركة التي حذفت
  * الرمز صراحةً). بلا صورةٍ بعد، والمعايرة صفر، وأرقام لاتينية، وقيم عربية. مقيسٌ على غير A4 بنسبة العرض والطول.
+ * وعلى ورق النقطية (paper.reach): مواضع A4 مُزاحةً أفقياً بنصف فرق العرض (وسط الورقة حيث الإبرة) ومقيسةً طولاً، والجدول 16 صفاً،
+ * ومربع QR بحدّه (55 مم) عند (12، 226) تحت الجدول — صالحةٌ بقواعد النواة الصارمة على كل مقاسٍ نقطي جاهز (ونصف الصفحة ff_95x55
+ * يُنزل المربع إلى آخر الورقة بجوار الجدول فيظهر تنبيه التداخل ليعدّله المستخدم).
  */
 export function starterForm(paper: FormPaper | null | undefined, opts: { withQr?: boolean } = {}): PrintForm {
-  const S = formSheetSize(paper);
-  const sx = S.widthMm / FORM_REF_SHEET.widthMm;
-  const sy = S.lengthMm / FORM_REF_SHEET.lengthMm;
+  const { sx, sy, tx } = scaleOf(FORM_REF_SHEET, paper);
+  const qrMin = formFieldMinMm('qr', paper);
   const withQr = opts.withQr !== false;
+  const base = (f: FormField): FormField => (paper?.reach && f.id === 'qr' ? { ...f, ...STARTER_IMPACT_QR, w: qrMin, h: qrMin } : f);
   return fitForm({
     image: null,
     dxMm: 0,
@@ -352,8 +453,8 @@ export function starterForm(paper: FormPaper | null | undefined, opts: { withQr?
     background: false,
     latinDigits: true,
     valueLang: 'ar',
-    fields: STARTER_FIELDS.filter((f) => withQr || f.id !== 'qr').map((f) => scaleField(f, sx, sy)),
-    table: scaleTable(STARTER_TABLE as FormTable, sx, sy),
+    fields: STARTER_FIELDS.filter((f) => withQr || f.id !== 'qr').map((f) => scaleField(base(f), sx, sy, tx, qrMin)),
+    table: starterTable(paper),
   }, paper);
 }
 
@@ -363,14 +464,15 @@ export function resetFormPositions(form: PrintForm, paper: FormPaper | null | un
   return commitForm(form, fitForm({ ...s, image: form.image, dxMm: form.dxMm, dyMm: form.dyMm, background: form.background, latinDigits: form.latinDigits, valueLang: form.valueLang }, paper));
 }
 
-/** نقل النموذج إلى ورقٍ بمقاسٍ آخر: المواضع بنسبة العرض والطول ثم القصّ داخله (تغيير A4 إلى A5 مثلاً) */
+/**
+ * نقل النموذج إلى ورقٍ بمقاسٍ آخر: المواضع بنسبة العرض والطول ثم القصّ داخله (تغيير A4 إلى A5 مثلاً). وعلى ورق النقطية
+ * (to.reach): إزاحةٌ أفقية بنصف فرق العرض (ff_a4 ⇒ ff_95x11: +15.5) وقياسٌ طولاً، ومربع QR لا يصغر عن حدّه (55 مم)
+ */
 export function scaleForm(form: PrintForm, from: FormPaper | null | undefined, to: FormPaper | null | undefined): PrintForm {
-  const a = formSheetSize(from);
-  const b = formSheetSize(to);
-  const sx = b.widthMm / a.widthMm;
-  const sy = b.lengthMm / a.lengthMm;
-  if (Math.abs(sx - 1) < EPS && Math.abs(sy - 1) < EPS) return commitForm(form, fitForm(form, to));
-  return fitForm({ ...form, fields: form.fields.map((f) => scaleField(f, sx, sy)), table: form.table ? scaleTable(form.table, sx, sy) : null }, to);
+  const { sx, sy, tx } = scaleOf(formSheetSize(from), to);
+  if (Math.abs(sx - 1) < EPS && Math.abs(sy - 1) < EPS && Math.abs(tx) < EPS) return commitForm(form, fitForm(form, to));
+  const qrMin = formFieldMinMm('qr', to);
+  return fitForm({ ...form, fields: form.fields.map((f) => scaleField(f, sx, sy, tx, qrMin)), table: form.table ? scaleTable(form.table, sx, sy, tx) : null }, to);
 }
 
 // ─── القالب ───
@@ -381,11 +483,14 @@ export function formOf(p: PrintProfile | null | undefined): PrintForm | null {
   return l?.design === 'preprinted' && l.form ? l.form : null;
 }
 
-/** كتابة النموذج في القالب (مقصوصاً داخل ورقه) — لتصميم النموذج المطبوع مسبقاً وحده؛ والقالب نفسه إن لم يتغيّر شيء */
+/**
+ * كتابة النموذج في القالب (مقصوصاً داخل ورقه، وعلى النقطية داخل ما تبلغه الإبرة بعد المعايرة — formPaperOf) — لتصميم النموذج
+ * المطبوع مسبقاً وحده؛ والقالب نفسه إن لم يتغيّر شيء
+ */
 export function withForm(p: PrintProfile, form: PrintForm): PrintProfile {
   const l = p.options.layout;
   if (!l || l.design !== 'preprinted') return p;
-  const next = fitForm(form, p.paper);
+  const next = fitForm(form, formPaperOf(p));
   if (l.form && stable(l.form) === stable(next)) return p;
   return { ...p, options: { ...p.options, layout: { ...l, form: next } } };
 }
@@ -419,25 +524,33 @@ const FIELD_SIZE: Readonly<Partial<Record<FormFieldId, readonly [number, number]
 const overlaps = (a: FormBox, b: FormBox): boolean =>
   a.x < b.x + b.w - EPS && b.x < a.x + a.w - EPS && a.y < b.y + b.h - EPS && b.y < a.y + a.h - EPS;
 
-/** حقلٌ جديد بحجمه المقترح في أول موضعٍ خالٍ وسط الورقة من أعلاها (لا فوق حقلٍ ولا فوق الجدول) — وإلا أعلى الوسط */
-export function defaultFormField(form: Pick<PrintForm, 'fields' | 'table'>, paper: FormPaper | null | undefined, id: FormFieldId): FormField {
+/**
+ * حقلٌ جديد بحجمه المقترح في أول موضعٍ خالٍ وسط الورقة من أعلاها (لا فوق حقلٍ ولا فوق الجدول) — وإلا أعلى الوسط. وعلى ورق النقطية:
+ * وسط ما تبلغه الإبرة بعد معايرة النموذج (dxMm/dyMm إن مُرِّرا)، ومربع QR بحدّه [55، 55]
+ */
+export function defaultFormField(
+  form: Pick<PrintForm, 'fields' | 'table'> & Partial<Pick<PrintForm, 'dxMm' | 'dyMm'>>, paper: FormPaper | null | undefined, id: FormFieldId,
+): FormField {
   const S = formSheetSize(paper);
-  const [w0, h0] = FIELD_SIZE[id] ?? [45, 6];
-  const w = Math.min(w0, floorStep(S.widthMm));
-  const h = Math.min(h0, floorStep(S.lengthMm));
-  const x = floorStep((S.widthMm - w) / 2);
+  const fr = frameOf(paper, { dxMm: form.dxMm ?? 0, dyMm: form.dyMm ?? 0 });
+  const g = gridOf(fr);
+  const [w0, h0]: readonly [number, number] = id === 'qr' && fr.box ? [fr.qrMin, fr.qrMin] : (FIELD_SIZE[id] ?? [45, 6]);
+  const w = Math.min(w0, g.x1 - g.x0);
+  const h = Math.min(h0, g.y1 - g.y0);
+  const x = fr.box ? g.x0 + floorStep((g.x1 - g.x0 - w) / 2) : floorStep((S.widthMm - w) / 2);
+  const bottom = fr.box ? g.bottom : S.lengthMm;
   const taken: FormBox[] = form.fields.filter((f) => f.id !== id).map((f) => ({ x: f.x, y: f.y, w: f.w, h: f.h }));
   const tb = formTableBox(form.table);
   if (tb) taken.push(tb);
-  for (let y = 10; y + h <= S.lengthMm - 5 + EPS; y += 2) {
-    if (!taken.some((b) => overlaps({ x, y, w, h }, b))) return clampField({ id, x, y, w, h }, S);
+  for (let y = Math.max(10, g.y0); y + h <= bottom - 5 + EPS; y += 2) {
+    if (!taken.some((b) => overlaps({ x, y, w, h }, b))) return clampField({ id, x, y, w, h }, fr);
   }
-  return clampField({ id, x, y: 10, w, h }, S);
+  return clampField({ id, x, y: Math.max(10, g.y0), w, h }, fr);
 }
 
 /**
  * إضافة حقل أو تعديله: patch يُدمج فوق المحفوظ (أو المقترح لحقلٍ جديد)، وقيمة undefined تحذف مفتاحها (المحاذاة والخط والعريض)،
- * ثم يُلصق بالشبكة ويُقصّ داخل الورقة بحدّه (QR 18 مم). الحقل الحادي والأربعون لا يُضاف.
+ * ثم يُلصق بالشبكة ويُقصّ داخل الورقة بحدّه (QR 18 مم، و55 داخل ما تبلغه الإبرة على النقطية). الحقل الحادي والأربعون لا يُضاف.
  */
 export function withFormField(form: PrintForm, paper: FormPaper | null | undefined, patch: Partial<FormField> & { id: FormFieldId }): PrintForm {
   if (!patch || !isFieldId(patch.id)) return form;
@@ -448,7 +561,7 @@ export function withFormField(form: PrintForm, paper: FormPaper | null | undefin
     if (v === undefined) delete merged[k];
     else merged[k] = v;
   }
-  const next = clampField(merged as unknown as FormField, formSheetSize(paper));
+  const next = clampField(merged as unknown as FormField, frameOf(paper, form));
   const fields = cur ? form.fields.map((f) => (f.id === patch.id ? next : f)) : [...form.fields, next];
   return commitForm(form, { ...form, fields: sortFields(fields) });
 }
@@ -459,16 +572,19 @@ export function withoutFormField(form: PrintForm, id: FormFieldId): PrintForm {
   return { ...form, fields: form.fields.filter((f) => f.id !== id) };
 }
 
-/** تحريك حقلٍ بالمم (x فعلي من اليسار — المصمّم يعكس الأسهم في RTL) أو تغيير حجمه من ركنه الأيمن الأسفل (resize) — داخل الورقة دائماً */
+/**
+ * تحريك حقلٍ بالمم (x فعلي من اليسار — المصمّم يعكس الأسهم في RTL) أو تغيير حجمه من ركنه الأيمن الأسفل (resize) — داخل الورقة دائماً
+ * (وعلى النقطية داخل ما تبلغه الإبرة)
+ */
 export function moveFormField(form: PrintForm, paper: FormPaper | null | undefined, id: FormFieldId, dxMm: number, dyMm: number, resize = false): PrintForm {
   const f = form.fields.find((x) => x.id === id);
   if (!f) return form;
   const dx = fin(dxMm) ? dxMm : 0;
   const dy = fin(dyMm) ? dyMm : 0;
   if (!resize) return withFormField(form, paper, { id, x: f.x + dx, y: f.y + dy });
-  const S = formSheetSize(paper);
-  // التكبير لا يزيح الحقل: يقف عند حافة الورقة
-  return withFormField(form, paper, { id, w: Math.min(f.w + dx, floorStep(S.widthMm - f.x)), h: Math.min(f.h + dy, floorStep(S.lengthMm - f.y)) });
+  const g = gridOf(frameOf(paper, form));
+  // التكبير لا يزيح الحقل: يقف عند حافة الورقة (أو آخر ما تبلغه الإبرة) — floorStep(W − x) = floorStep(W) − x لموضعٍ على الشبكة
+  return withFormField(form, paper, { id, w: Math.min(f.w + dx, Math.max(0, g.x1 - f.x)), h: Math.min(f.h + dy, Math.max(0, g.y1 - f.y)) });
 }
 
 export type FormTablePatch = Partial<Pick<FormTable, 'y' | 'rowMm' | 'rows' | 'fontPct'>>;
@@ -487,7 +603,7 @@ export function withFormTable(form: PrintForm, paper: FormPaper | null | undefin
     else merged[k] = v;
   }
   const moveOnly = 'y' in patch && !('rows' in patch) && !('rowMm' in patch);
-  const t = clampTable(merged as unknown as FormTable, formSheetSize(paper), moveOnly);
+  const t = clampTable(merged as unknown as FormTable, frameOf(paper, form), moveOnly);
   if (!t.columns.length) return form;
   return commitForm(form, { ...form, table: t });
 }
@@ -503,35 +619,44 @@ const COLUMN_W: Readonly<Record<FormColumnId, number>> = Object.freeze({
   sr: 8, itemCode: 18, barcode: 30, description: 50, qty: 12, unit: 15, unitPrice: 20, discountPct: 12, vatPct: 12, lineTotal: 25,
 });
 
-/** عمودٌ جديد بعرضه المقترح بعد آخر عمودٍ إن اتّسع، وإلا في أول فراغٍ يسعه، وإلا من يسار الورقة */
-export function defaultFormColumn(table: Pick<FormTable, 'columns'> | null | undefined, paper: FormPaper | null | undefined, id: FormColumnId): FormColumn {
+/**
+ * عمودٌ جديد بعرضه المقترح بعد آخر عمودٍ إن اتّسع، وإلا في أول فراغٍ يسعه، وإلا من يسار الورقة — وعلى ورق النقطية داخل ما تبلغه
+ * الإبرة بعد المعايرة (offsets: dxMm/dyMm النموذج إن مُرِّرا)
+ */
+export function defaultFormColumn(
+  table: Pick<FormTable, 'columns'> | null | undefined, paper: FormPaper | null | undefined, id: FormColumnId,
+  offsets: Pick<PrintForm, 'dxMm' | 'dyMm'> | null = null,
+): FormColumn {
   const S = formSheetSize(paper);
-  const w = Math.min(COLUMN_W[id] ?? 15, floorStep(S.widthMm));
+  const fr = frameOf(paper, offsets);
+  const g = gridOf(fr);
+  const w = Math.min(COLUMN_W[id] ?? 15, g.x1 - g.x0);
   const cols = [...(table?.columns ?? [])].filter((c) => c.id !== id).sort((a, b) => a.x - b.x);
   const align: FormColumn['align'] = id === 'description' ? 'start' : 'center';
-  const end = cols.length ? Math.max(...cols.map((c) => c.x + c.w)) : 10;
-  if (end + w <= S.widthMm + EPS) return clampColumn({ id, x: end, w, align }, S);
-  let cursor = 0;
+  const end = cols.length ? Math.max(...cols.map((c) => c.x + c.w)) : Math.max(10, g.x0);
+  if (end + w <= (fr.box ? g.x1 : S.widthMm) + EPS) return clampColumn({ id, x: end, w, align }, fr);
+  let cursor = g.x0;
   for (const c of cols) {
-    if (c.x - cursor >= w - EPS) return clampColumn({ id, x: cursor, w, align }, S);
+    if (c.x - cursor >= w - EPS) return clampColumn({ id, x: cursor, w, align }, fr);
     cursor = Math.max(cursor, c.x + c.w);
   }
-  return clampColumn({ id, x: 0, w, align }, S);
+  return clampColumn({ id, x: g.x0, w, align }, fr);
 }
 
 /** إضافة عمود أو تعديله (x وw والمحاذاة) — بلا جدولٍ يُنشأ جدول البداية بهذا العمود وحده؛ والعمود الثالث عشر لا يُضاف */
 export function withFormColumn(form: PrintForm, paper: FormPaper | null | undefined, patch: Partial<FormColumn> & { id: FormColumnId }): PrintForm {
   if (!patch || !isColumnId(patch.id)) return form;
-  const S = formSheetSize(paper);
-  const table: FormTable = form.table ?? { ...defaultFormTable(paper), columns: [] };
+  const fr = frameOf(paper, form);
+  // جدول البداية يُقصّ بمعايرة هذا النموذج (على النقطية: داخل ما تبلغه الإبرة بعدها) — وعلى العادية هو defaultFormTable نفسه
+  const table: FormTable = form.table ?? { ...clampTable(starterTable(paper), fr, false), columns: [] };
   const cur = table.columns.find((c) => c.id === patch.id);
   if (!cur && table.columns.length >= F.columns[1]) return form;
-  const merged: Record<string, unknown> = { ...(cur ?? defaultFormColumn(table, paper, patch.id)) };
+  const merged: Record<string, unknown> = { ...(cur ?? defaultFormColumn(table, paper, patch.id, form)) };
   for (const [k, v] of Object.entries(patch)) {
     if (v === undefined) delete merged[k];
     else merged[k] = v;
   }
-  const next = clampColumn(merged as unknown as FormColumn, S);
+  const next = clampColumn(merged as unknown as FormColumn, fr);
   const columns = cur ? table.columns.map((c) => (c.id === patch.id ? next : c)) : [...table.columns, next];
   return commitForm(form, { ...form, table: { ...table, columns: sortColumns(columns) } });
 }
@@ -543,13 +668,13 @@ export function withoutFormColumn(form: PrintForm, id: FormColumnId): PrintForm 
   return { ...form, table: { ...t, columns: t.columns.filter((c) => c.id !== id) } };
 }
 
-/** تحريك عمودٍ أفقياً بالمم أو تغيير عرضه من حافته اليمنى (resize) — داخل عرض الورقة */
+/** تحريك عمودٍ أفقياً بالمم أو تغيير عرضه من حافته اليمنى (resize) — داخل عرض الورقة (وعلى النقطية داخل ما تبلغه الإبرة) */
 export function moveFormColumn(form: PrintForm, paper: FormPaper | null | undefined, id: FormColumnId, dxMm: number, resize = false): PrintForm {
   const c = form.table?.columns.find((x) => x.id === id);
   if (!c) return form;
   const dx = fin(dxMm) ? dxMm : 0;
   if (!resize) return withFormColumn(form, paper, { id, x: c.x + dx });
-  return withFormColumn(form, paper, { id, w: Math.min(c.w + dx, floorStep(formSheetSize(paper).widthMm - c.x)) });
+  return withFormColumn(form, paper, { id, w: Math.min(c.w + dx, Math.max(0, gridOf(frameOf(paper, form)).x1 - c.x)) });
 }
 
 /**
@@ -573,7 +698,7 @@ export function reorderFormColumn(form: PrintForm, paper: FormPaper | null | und
     cursor += c.w;
     return o;
   });
-  return commitForm(form, { ...form, table: { ...t, columns: clampColumns(packed, formSheetSize(paper)) } });
+  return commitForm(form, { ...form, table: { ...t, columns: clampColumns(packed, frameOf(paper, form)) } });
 }
 
 export type FormPropsPatch = Partial<Pick<PrintForm, 'image' | 'dxMm' | 'dyMm' | 'background' | 'latinDigits' | 'valueLang'>>;
@@ -670,6 +795,10 @@ export const FORM_WARNINGS = Object.freeze({
 export const FORM_NOTES = Object.freeze({
   pageNo: 'الأصناف الزائدة عن صفوف الجدول تكمل في ورقة تالية — أضف حقل رقم الصفحة ليظهر 1/2',
   taxFree: 'حقول الضريبة لا تطبع على المستند المعفى من الضريبة',
+  // النقطية: أول سطرٍ تطبعه الإبرة يختلف بين الطابعات وطريقة تحميل الورق — فالمعايرة (dx/dy) قبل أول فاتورة
+  impactCalibrate: 'اطبع «صفحة معايرة» على ورق النموذج قبل أول فاتورة — أول سطر تطبعه النقطية يختلف بين الطابعات وطريقة تحميل الورق',
+  // قرار المالك ١٣ نوفمبر ٢٠٢٦ (س٢): الورق المقطع مقبول للفاتورة الطويلة، والطابعة تنتظر إدخال الورقة التالية يدوياً — مع هذه النصيحة
+  impactCutSheet: 'على الورق المقطع تنتظر النقطية إدخال كل ورقة تالية يدويا — للفواتير الطويلة اختر الورق المتصل',
 });
 
 /** أزواج الحقول المتداخلة (ومع مستطيل الجدول 'table') — للتنبيه وتلوين المصمّم */
@@ -688,15 +817,20 @@ export function formOverlaps(form: Pick<PrintForm, 'fields' | 'table'>): Array<[
  * تنبيهات النموذج (لا تمنع الحفظ) — فارغة لغير تصميمه: بلا صورة، والخلفية مطبوعة، وبلا جدول، وبلا رقم المستند أو الإجمالي أو
  * العنوان (المرتجع على ورق الفاتورة)، وحقولٌ متداخلة. والملاحظات: رقم الصفحة للأوراق المتعددة، وحقول الضريبة على المعفى (ctx.taxFree).
  * وحذف رمز QR الصريح تنبيهه في profileWarnings، ولزوم حقله قاعدةٌ في النواة (formQrMissing).
+ * وعلى النقطية (formReachOf): ملاحظة «صفحة المعايرة» أولاً، والورق المقطع بجدولٍ ينصح بالمتصل للفواتير الطويلة — ولا تنبيه خلفية
+ * (لا تطبعها النقطية أصلاً: النواة ترفضها والقراءة تُطفئها).
  */
 export function formWarnings(p: PrintProfile, ctx: { taxFree?: boolean } = {}): { warnings: string[]; notes: string[] } {
   const f = formOf(p);
   const warnings: string[] = [];
   const notes: string[] = [];
   if (!f) return { warnings, notes };
+  const reach = formReachOf(p);
   const ids = new Set(f.fields.map((x) => x.id));
+  if (reach) notes.push(FORM_NOTES.impactCalibrate);
+  if (reach && p.paper.feed === 'sheet' && f.table) notes.push(FORM_NOTES.impactCutSheet);
   if (!f.image) warnings.push(FORM_WARNINGS.imageMissing);
-  if (f.background) warnings.push(FORM_WARNINGS.background);
+  if (f.background && !reach) warnings.push(FORM_WARNINGS.background);
   if (!f.table) warnings.push(FORM_WARNINGS.noTable);
   if (!ids.has('docNumber')) warnings.push(FORM_WARNINGS.noNumber);
   if (!ids.has('totalDue')) warnings.push(FORM_WARNINGS.noTotal);

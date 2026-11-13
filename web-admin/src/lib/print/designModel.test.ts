@@ -14,6 +14,7 @@ import {
 import {
   LAYOUT_BOUNDS, PRINT_ISSUES, areStampsRemoved, defaultPrintLayout, isItemsRemoved, isQrRemoved, legacyPrintSettings, newProfile, presetPaper,
   printSettingsIssues, profileIssues, withDesign, withLayout, type CanvasBox, type PrintCanvas, type PrintLayout, type PrintProfile, type PrinterType, type SectionId,
+  formReachX,
 } from './printSettings';
 
 const mk = (printer: PrinterType, over: Partial<PrintProfile> = {}): PrintProfile => ({ ...newProfile(printer, 'تجربة', []), ...over });
@@ -429,4 +430,25 @@ test('النموذج المطبوع مسبقاً: freeIssues تعرض رسائل
   assert.equal(withQrRemoved(pre, false), pre);
   // وأختام الحالة كغيره
   ok(withStampsRemoved(pre, true), 'stamps');
+});
+
+test('النموذج على النقطية (١٣ نوفمبر ٢٠٢٦): حذف رمز QR يزيل حقله، والإعادة تعيده بحدّ النقطية 55 مم داخل ما تبلغه الإبرة — ويُحفظ صارماً', () => {
+  for (const preset of ['ff_a4', 'cut_a4', 'ff_95x11', 'ff_95x55'] as const) {
+    const pre = withDesign(mk('impact', { paper: presetPaper(preset)! }), 'preprinted');
+    ok(pre, `${preset} starter`);
+    assert.deepEqual(freeIssues(pre), []);
+    const removed = withQrRemoved(pre, true);
+    assert.ok(isQrRemoved(lay(removed)) && !lay(removed)!.form!.fields.some((f) => f.id === 'qr'), preset);
+    ok(removed, `${preset} removed`);
+    const restored = withQrRemoved(removed, false);
+    const qr = lay(restored)!.form!.fields.find((f) => f.id === 'qr');
+    assert.ok(qr, `${preset}: الإعادة تعيد الحقل`);
+    assert.deepEqual([qr.w, qr.h], [55, 55], `${preset}: بحدّ النقطية لا بـ22 مم`);
+    const [x0, x1] = formReachX(restored)!;
+    assert.ok(qr.x >= x0 - 1e-9 && qr.x + qr.w <= x1 + 1e-9, `${preset}: داخل ما تبلغه الإبرة`);
+    ok(restored, `${preset} restored`);
+  }
+  // اللوحتان للتصميم القياسي وحده — والنموذج النقطي كالعادي
+  const pre = withDesign(mk('impact'), 'preprinted');
+  assert.equal(withCanvas(pre, starterCanvas(pre)), pre);
 });

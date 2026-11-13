@@ -71,11 +71,13 @@ export function taxOffProfileWarnings<T extends { warnings: string[]; notes: str
   return { ...r, warnings: r.warnings.filter((w) => !TAX_OFF_DROPPED_NOTES.has(w)), notes: r.notes.filter((n) => !TAX_OFF_DROPPED_NOTES.has(n)) };
 }
 
-/** وصف القوالب بلا «ملخص الضريبة» ولا «رقمه الضريبي» ولا «رمز QR» */
+/**
+ * وصف القوالب بلا «ملخص الضريبة» ولا «رقمه الضريبي» ولا «رمز QR». وimpact_preprinted بلا بديل: وصفه الجديد «على ورق بترويسة مطبوعة»
+ * (قرار المالك ١٣ نوفمبر ٢٠٢٦، س٣) لا يذكر الضريبة أصلاً — فيُعرض كما هو للشركة بلا ضريبة
+ */
 export const TAX_OFF_TEMPLATE_HINTS: Readonly<Partial<Record<TemplateId, string>>> = Object.freeze({
   roll_detailed: 'جدول كمية وسعر وإجمالي — من 72 مم',
   impact_plain: 'بلا تظليل بخطوط سوداء وخط عريض',
-  impact_preprinted: 'بلا شعار ولا زخرفة مع إزاحة علوية — اسم البائع وعنوان المستند تطبع دائما',
 });
 
 /** وصف القالب (عربي يُمرَّر إلى tr): بديل الشركة بلا ضريبة إن وُجد، وإلا الوصف كما هو */

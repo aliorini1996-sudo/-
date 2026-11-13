@@ -264,7 +264,10 @@ export default function FormUploadStep({ paper, current, onDone, onCancel, onPen
       : s === 'encode' ? tr('جار ضغط الصورة') : tr('جار رفع الصورة'));
 
   const btn = 'inline-flex items-center gap-1 rounded-lg border border-[#E9E1D3] bg-white px-3 py-1.5 text-xs text-[#44403a] disabled:opacity-40';
-  const sizeNote = tr('يصحح النظام الميل ويقص الورقة إلى مقاس القالب {w} × {h} مم ({px} بكسل) — والصورة دليل للتصميم على الشاشة وخلفية اختيارية للطباعة')
+  // النقطية (paper.reach): لا خلفية تُطبع (layoutFormBgImpact — والقراءة تُطفئها) فالصورة دليلٌ على الشاشة وحدها، لا «خلفية اختيارية»
+  const sizeNote = (paper?.reach
+    ? tr('يصحح النظام الميل ويقص الورقة إلى مقاس القالب {w} × {h} مم ({px} بكسل) — والصورة دليل للتصميم على الشاشة وحدها')
+    : tr('يصحح النظام الميل ويقص الورقة إلى مقاس القالب {w} × {h} مم ({px} بكسل) — والصورة دليل للتصميم على الشاشة وخلفية اختيارية للطباعة'))
     .replace('{w}', String(sheet.widthMm)).replace('{h}', String(sheet.lengthMm)).replace('{px}', `${raster.wPx} × ${raster.hPx}`);
 
   return (

@@ -21,6 +21,7 @@ import { buildUnvisitedRows, unvisitedRange } from '../services/unvisitedCustome
 import { lastVisitBeforeMap, visitedCustomerIds } from '../services/unvisitedCustomersDb';
 import { saleInvoiceStatsMap } from '../services/unvisitedInvoicesDb';
 import { NEWEST_FIRST, VISIT_RAW_CEILING, olderThan, readNewestFirst, utcAppliedRange, utcDay, type AppliedRange } from '../services/reportBatches';
+import { locationDocWhere, locationFilterOf } from '../services/locations';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
@@ -143,6 +144,160 @@ export function productQtyByRep(rows: ReadonlyArray<{ qty: number; baseQty?: num
     if (rep) out.set(rep, (out.get(rep) ?? 0) + (isReturnInvoice(r.invoice) ? -1 : 1) * baseQtyOf(r));
   }
   return out;
+}
+
+// ═══ فلاتر التقارير وتجميعان متداخلان (طلب المالك ١٣ نوفمبر ٢٠٢٦: فلاتر تطبيق الإدارة) ═══
+
+/**
+ * معرّف فلترٍ في تقرير (مندوب/عميل/موقع): نصٌّ يُقصّ طرفاه وطوله ٦٤ على الأكثر. الغائب والفارغ undefined (بلا فلتر)،
+ * وكائن qs أو مصفوفة أو نصٌّ أطول false — يُرفض بـ400 ولا يُسقَط فلترُه صامتاً فيُقرأ تقريرٌ شامل على أنه مصفّى.
+ * ومعرّفٌ من شركةٍ أخرى لا يطابق شيئاً: الشركة شرطٌ في كل استعلام، والفلتر يضيّق ولا يوسّع.
+ */
+export const reportIdOf = (v: unknown): string | undefined | false => {
+  if (v === undefined) return undefined;
+  if (typeof v !== 'string') return false;
+  const s = v.trim();
+  if (!s) return undefined;
+  return s.length <= 64 ? s : false;
+};
+
+/** فلاتر المعرّفات المطلوبة من الاستعلام دفعةً واحدة — null إن فسد أحدها (فيردّ المسار 400) */
+export function reportIdFilters<K extends string>(q: Record<string, unknown>, keys: readonly K[]): Partial<Record<K, string>> | null {
+  const out: Partial<Record<K, string>> = {};
+  for (const k of keys) {
+    const v = reportIdOf(q[k]);
+    if (v === false) return null;
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
+const badFilter = (res: Response): void => { res.status(400).json({ success: false, message: 'معامل غير صالح' }); };
+
+/** معرّفات أصناف بنود مستندات — لوحداتها النشطة (activeUnitsByProduct) */
+const productIdsIn = (docs: ReadonlyArray<{ items: ReadonlyArray<{ product: { id: string } | null }> }>): string[] =>
+  [...new Set(docs.flatMap(inv => inv.items.map(i => i.product?.id).filter((x): x is string => !!x)))];
+
+/** مستوى تجميعٍ يقبل مستوىً ثانياً تحته */
+export type SalesLevel = 'rep' | 'customer' | 'product';
+const SALES_LEVELS: readonly SalesLevel[] = ['rep', 'customer', 'product'];
+const isSalesLevel = (v: unknown): v is SalesLevel => typeof v === 'string' && (SALES_LEVELS as readonly string[]).includes(v);
+
+/**
+ * التجميع الثاني `thenBy`: صالحٌ حين يكون التجميعان كلاهما من rep|customer|product ومختلفين — وإلا undefined فيبقى
+ * ردّ التجميع الواحد كما كان حرفاً (thenBy مجهول أو مطابق للأول أو تحت قناة/منطقة/فريق يُهمل).
+ */
+export function thenByOf(groupBy: unknown, thenBy: unknown): SalesLevel | undefined {
+  return isSalesLevel(groupBy) && isSalesLevel(thenBy) && groupBy !== thenBy ? thenBy : undefined;
+}
+
+/**
+ * صفّ مستوى في التجميعين المتداخلين. مستوى المندوب/العميل يحمل `count` (فواتير البيع وحدها — المرتجع لا يُعدّ) و`total`
+ * صافياً من المرتجع كالتجميعات المفردة. ومستوى الصنف يحمل حقول صفّ salesByProduct نفسها: الكمية بالأساس صافيةً
+ * ووحداته و«الوحدة الرئيسية» للعارض. وتحت الصنف (groupBy=product) صفّ المندوب/العميل كميةُ **ذلك الصنف** عنده
+ * ومبلغه وعدد فواتير بيعه التي فيها الصنف، ووحدته وحدة الصنف الأب.
+ */
+export interface SalesSubRow {
+  key: string; name: string; total: number;
+  count?: number;
+  code?: string; qty?: number; baseQty?: number; unit?: string; units?: ReportUnit[]; primaryUnitId?: string | null;
+}
+export interface SalesTwoLevelRow extends SalesSubRow { sub: SalesSubRow[] }
+
+/** مستند البيع/المرتجع كما يقرؤه التجميعان المتداخلان — شكل salesInclude في GET /sales */
+export interface TwoLevelDoc {
+  total: unknown;
+  salesRep: { id: string; name: string } | null;
+  customer: { id: string; name: string } | null;
+  items: ReadonlyArray<SalesItemRow>;
+}
+
+type PartyLevel = Exclude<SalesLevel, 'product'>;
+/** صاحب المستند في مستوى المندوب/العميل — المندوب المحذوف (salesRepId فارغ) تحت «بلا مندوب» كتجميع المندوب المفرد */
+const partyOf = (level: PartyLevel, d: TwoLevelDoc): { key: string; name: string } =>
+  level === 'rep'
+    ? { key: d.salesRep?.id ?? '—', name: d.salesRep?.name ?? 'بلا مندوب' }
+    : { key: d.customer?.id ?? '—', name: d.customer?.name ?? '—' };
+
+type Party = { key: string; name: string; sales: TwoLevelDoc[]; returns: TwoLevelDoc[] };
+/** شرائح المستندات بصاحبها — بترتيب الظهور (البيع ثم المرتجع) كالتجميعات المفردة */
+function partitionBy(level: PartyLevel, sales: ReadonlyArray<TwoLevelDoc>, returns: ReadonlyArray<TwoLevelDoc>): Map<string, Party> {
+  const out = new Map<string, Party>();
+  const slot = (d: TwoLevelDoc): Party => {
+    const p = partyOf(level, d);
+    let g = out.get(p.key);
+    if (!g) out.set(p.key, (g = { ...p, sales: [], returns: [] }));
+    return g;
+  };
+  for (const d of sales) slot(d).sales.push(d);
+  for (const d of returns) slot(d).returns.push(d);
+  return out;
+}
+
+/** صفّ المندوب/العميل: العدد للبيع وحده، والمبلغ صافٍ — بالجمع نفسه (بيعٌ ثم مرتجع بالترتيب) فلا يختلف رقمٌ عن التجميع المفرد */
+const partyRow = (g: Party): SalesSubRow => {
+  let total = 0;
+  for (const d of g.sales) total += Number(d.total);
+  for (const d of g.returns) total += -Number(d.total);
+  return { key: g.key, name: g.name, count: g.sales.length, total: cleanMoney(total) };
+};
+
+const productRowOf = (p: ReturnType<typeof salesByProduct>[number]): SalesSubRow => ({
+  key: p.productId ?? 'unknown', name: p.name, code: p.code, qty: p.qty, baseQty: p.baseQty,
+  unit: p.unit, units: p.units, primaryUnitId: p.primaryUnitId, total: p.total,
+});
+
+const byTotalDesc = (a: { total: number }, b: { total: number }) => b.total - a.total;
+
+/**
+ * تجميعان متداخلان — «كم باع كل مندوب من كل صنف» وأخواتها بين المندوب والعميل والصنف. صرفٌ ليُختبر وحده.
+ * مستوى الصنف يمرّ بـsalesByProduct نفسه على شريحة صاحبه (الكمية بالأساس والمرتجع مطروح)، وتحت الصنف تُقلب الشرائح:
+ * لكل مندوب/عميل صفّ ذلك الصنف من شريحته. الصفوف والصفوف الفرعية من الأكبر مبلغاً.
+ */
+export function salesTwoLevel(
+  groupBy: SalesLevel,
+  thenBy: SalesLevel,
+  sales: ReadonlyArray<TwoLevelDoc>,
+  returns: ReadonlyArray<TwoLevelDoc> = [],
+  unitsOf: ReadonlyMap<string, ReportUnit[]> = new Map(),
+): SalesTwoLevelRow[] {
+  // المندوب/العميل أولاً: شريحةٌ لكل صاحب، وتحته أصنافه (salesByProduct على شريحته) أو الطرف الآخر
+  if (groupBy !== 'product') {
+    return [...partitionBy(groupBy, sales, returns).values()]
+      .map((g) => ({
+        ...partyRow(g),
+        sub: thenBy === 'product'
+          ? salesByProduct(g.sales, unitsOf, g.returns).map(productRowOf)
+          : thenBy === groupBy
+            ? []
+            : [...partitionBy(thenBy, g.sales, g.returns).values()].map(partyRow).sort(byTotalDesc),
+      }))
+      .sort(byTotalDesc);
+  }
+
+  // الصنف أولاً: صفوفه من المستندات كلها، وتحته المندوب/العميل بقلب الشرائح — صفّ الصنف من شريحة كل صاحب
+  const parents = salesByProduct(sales, unitsOf, returns).map(productRowOf);
+  if (thenBy === 'product') return parents.map((r) => ({ ...r, sub: [] }));
+  const head = new Map(parents.map((r) => [r.key, r]));
+  const subs = new Map<string, SalesSubRow[]>();
+  for (const g of partitionBy(thenBy, sales, returns).values()) {
+    // فواتير البيع في الشريحة التي فيها بندٌ من الصنف — الفاتورة مرّةً للصنف ولو تكرّر بنده
+    const invoicesOf = new Map<string, number>();
+    for (const d of g.sales) {
+      for (const k of new Set(d.items.map((i) => i.product?.id ?? 'unknown'))) invoicesOf.set(k, (invoicesOf.get(k) ?? 0) + 1);
+    }
+    for (const p of salesByProduct(g.sales, unitsOf, g.returns)) {
+      const key = p.productId ?? 'unknown';
+      const parent = head.get(key);
+      const list = subs.get(key) ?? [];
+      list.push({
+        key: g.key, name: g.name, count: invoicesOf.get(key) ?? 0, qty: p.qty, baseQty: p.baseQty,
+        unit: parent?.unit ?? p.unit, units: parent?.units ?? p.units, primaryUnitId: parent?.primaryUnitId ?? p.primaryUnitId, total: p.total,
+      });
+      subs.set(key, list);
+    }
+  }
+  return parents.map((r) => ({ ...r, sub: (subs.get(r.key) ?? []).sort(byTotalDesc) }));
 }
 
 // ═══ «تتبّع اللوط» (المواصفة §٥.١–٥.٢، B8) — قراءةٌ خالصة: لا قفل ولا كتابة ولا مساس بأي رصيد ═══
@@ -298,7 +453,11 @@ const cleanRows = <T extends { total: number }>(rows: T[]): T[] => rows.map((r) 
 router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const { from, to, salesRepId, customerId, groupBy } = req.query as Record<string, string>;
+    const { from, to, groupBy } = req.query as Record<string, string>;
+    // فلاتر المعرّفات نصوصٌ مقصوصة بحدّ ٦٤ — والموقع بختم الفاتورة وقت إصدارها (Invoice.locationId، و`none` = «بلا موقع» كقائمة الفواتير)
+    const f = reportIdFilters(req.query, ['salesRepId', 'customerId', 'locationId']);
+    if (!f) { badFilter(res); return; }
+    const { salesRepId, customerId } = f;
     const team = reportTeamOf(req.query.teamId); // «الفرق»: فلتر الفريق (بوسم المستند)
     /**
      * نطاق شامل ليوم «إلى» كاملاً (حتى منتصف ليلته) — يُصلح التصفية ليوم واحد وآخر يوم.
@@ -334,6 +493,8 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
       invoiceDate: dateFilter,
       ...(salesRepId && { salesRepId }),
       ...(customerId && { customerId }),
+      // مفتاحٌ عدديّ واحد (locationId) لا AND/OR — فلا يمحو مفتاح النطاق (AND) عند النشر؛ والمرتجع يرث ختم أصله فيُطرح معه
+      ...locationDocWhere(locationFilterOf(f.locationId)),
       ...teamDocWhere(team),
     };
     const salesInclude = {
@@ -356,8 +517,19 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
     // البيع بإشارة موجبة والمرتجع سالبة — يُعدّ البيع وحده في «العدد»
     const signed = [...invoices, ...returns].map((inv) => ({ inv, sign: isReturnInvoice(inv) ? -1 : 1 }));
 
+    // تجميعان متداخلان (thenBy): المندوب ثم الصنف — كم باع كل مندوب من كل صنف — وأخواتها بين المندوب والعميل والصنف.
+    // thenBy غائب أو غير صالح أو مطابق للأول أو تحت تجميعٍ آخر ⇒ الردود أدناه كما كانت حرفاً
+    const thenBy = thenByOf(groupBy, req.query.thenBy);
+    if (thenBy) {
+      const units = groupBy === 'product' || thenBy === 'product'
+        ? await activeUnitsByProduct(tid, productIdsIn([...invoices, ...returns]))
+        : new Map<string, ReportUnit[]>();
+      res.json({ success: true, data: salesTwoLevel(groupBy as SalesLevel, thenBy, invoices, returns, units), meta });
+      return;
+    }
+
     if (groupBy === 'product') {
-      const ids = [...new Set([...invoices, ...returns].flatMap(inv => inv.items.map(i => i.product?.id).filter((x): x is string => !!x)))];
+      const ids = productIdsIn([...invoices, ...returns]);
       res.json({ success: true, data: salesByProduct(invoices, await activeUnitsByProduct(tid, ids), returns), meta });
       return;
     }
@@ -460,6 +632,9 @@ router.get('/orders', async (req: AuthRequest, res: Response, next: NextFunction
   try {
     const tid = tenantId(req);
     const { from, to } = req.query as Record<string, string>;
+    // فلاتر المندوب والعميل والموقع (ختم الفاتورة) — كتقرير المبيعات
+    const f = reportIdFilters(req.query, ['salesRepId', 'customerId', 'locationId']);
+    if (!f) { badFilter(res); return; }
     // كتقرير المبيعات: الطرف الغائب بلا حدّ، وغيابهما معاً يُقصَر على مدىً افتراضيّ
     const DEFAULT_DAYS = 90;
     const rangeApplied = !!(from || to);
@@ -476,10 +651,14 @@ router.get('/orders', async (req: AuthRequest, res: Response, next: NextFunction
       status: { not: 'CANCELLED' },
       // الشرط الذي يصنع التقرير: تاريخ تسليمٍ محدَّد
       deliveryDate: { not: null, ...deliveryFilter },
+      ...(f.salesRepId && { salesRepId: f.salesRepId }),
+      ...(f.customerId && { customerId: f.customerId }),
+      ...locationDocWhere(locationFilterOf(f.locationId)),
       ...teamDocWhere(reportTeamOf(req.query.teamId)),
     };
     // القائمة مقصوصةٌ بسقفٍ مُعلَن، والملخّص تجميعٌ في القاعدة على كل طلبات المدى (البند ٧) — كان يُجمع من القائمة المقصوصة
-    // صامتاً، والترتيب التصاعدي يُبقي أقدم التسليمات ويُسقط القادمة منها
+    // صامتاً، والترتيب التصاعدي يُبقي أقدم التسليمات ويُسقط القادمة منها. والشرط واحدٌ للاثنين، فالملخّص يتبع فلاتر
+    // المندوب والعميل والموقع كما تتبعها القائمة
     const [found, totals] = await Promise.all([
       prisma.invoice.findMany({
         where: ordersWhere,
@@ -529,6 +708,8 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
   try {
     const tid = tenantId(req);
     const { from, to } = req.query as Record<string, string>;
+    const f = reportIdFilters(req.query, ['salesRepId', 'customerId', 'locationId']);
+    if (!f) { badFilter(res); return; }
     const DEFAULT_DAYS = 90;
     const rangeApplied = !!(from || to);
     const dateFilter = rangeApplied
@@ -537,9 +718,15 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
         ...(to ? { lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) } : {}),
       }
       : { gte: new Date(Date.now() - DEFAULT_DAYS * 24 * 60 * 60 * 1000) };
-    // «الفرق»: الفريق جزءٌ من النطاق نفسه — فيطبَّق على المرتجعات وعلى مبيعات النسبة معاً
-    const scope = { ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)), ...teamDocWhere(reportTeamOf(req.query.teamId)) };
-    // مستندات المرتجع في المدى — شرطٌ واحد للقائمة وللملخّص، فلا يختلف ما يُعدّ عمّا يُعرض إلا بالسقف المُعلَن
+    // «الفرق»: الفريق جزءٌ من النطاق نفسه — فيطبَّق على المرتجعات وعلى مبيعات النسبة معاً. وكذا فلاتر المندوب والعميل والموقع:
+    // نسبة مرتجع مندوبٍ على مبيعاته هو. مفاتيح عددية منفصلة لا تمحو مفتاح النطاق (AND)
+    const picks = {
+      ...(f.salesRepId && { salesRepId: f.salesRepId }),
+      ...(f.customerId && { customerId: f.customerId }),
+      ...locationDocWhere(locationFilterOf(f.locationId)),
+    };
+    const scope = { ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)), ...teamDocWhere(reportTeamOf(req.query.teamId)), ...picks };
+    // مستندات المرتجع في المدى — شرطٌ واحد للقائمة وللملخّص (ومعه الفلاتر في scope)، فلا يختلف ما يُعدّ عمّا يُعرض إلا بالسقف المُعلَن
     const returnsWhere: Prisma.InvoiceWhereInput = { tenantId: tid, ...scope, status: 'CONFIRMED', type: 'RETURN', invoiceDate: dateFilter };
 
     /* الملخّص تجميعٌ في القاعدة على **كل** مرتجعات المدى (البند ٧): كان يُحسب من القائمة المقصوصة عند ٥٬٠٠٠ صامتاً، فينقص
@@ -648,7 +835,11 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
 router.get('/collections', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const { from, to, salesRepId, paymentMethod, paymentMethodKey } = req.query as Record<string, string>;
+    const { from, to, paymentMethod, paymentMethodKey } = req.query as Record<string, string>;
+    // فلترا المندوب والعميل — ولا فلتر موقع: السند بلا ختم موقع (Receipt بلا locationId، «لوكيشن» يختم الفواتير والتحميلات وحدها)
+    const f = reportIdFilters(req.query, ['salesRepId', 'customerId']);
+    if (!f) { badFilter(res); return; }
+    const { salesRepId, customerId } = f;
     // نطاق شامل ليوم «إلى» كاملاً (حتى منتصف ليلته) — يُصلح التصفية ليوم واحد وآخر يوم
     // طرفٌ واحد يكفي (راجع تقرير المبيعات): الغائب = بلا حدّ، لا إلغاءَ للفلتر
     const dateFilter = (from || to) ? {
@@ -664,6 +855,7 @@ router.get('/collections', async (req: AuthRequest, res: Response, next: NextFun
           status: 'ACTIVE',
           ...(dateFilter && { receiptDate: dateFilter }),
           ...(salesRepId && { salesRepId }),
+          ...(customerId && { customerId }),
           // paymentMethod يصفّي بالأساس كما اليوم (ومعه المخصّصة التي تُعامل مثله)؛ وpaymentMethodKey بطريقة مخصّصة بعينها
           ...(paymentMethod && { paymentMethod: paymentMethod as 'CASH' | 'BANK_TRANSFER' | 'POS' | 'CHEQUE' }),
           ...(typeof paymentMethodKey === 'string' && CUSTOM_METHOD_KEY_RE.test(paymentMethodKey) && { paymentMethodKey }),
@@ -727,6 +919,12 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
   try {
     const tid = tenantId(req);
     const { from, to } = req.query as Record<string, string>;
+    // فلترا المندوب (صفّه وحده) والموقع (مناديبه الحاليّون: SalesRep.locationId) — يضيّقان قائمة المناديب داخل النطاق والفريق
+    const f = reportIdFilters(req.query, ['salesRepId', 'locationId']);
+    if (!f) { badFilter(res); return; }
+    const repPick = { ...(f.salesRepId && { id: f.salesRepId }), ...locationDocWhere(locationFilterOf(f.locationId)) };
+    // مندوبٌ بعينه: جلساته وزياراته وحدها تُقرأ (سقف الزيارات لا تستهلكه زيارات غيره)
+    const repOnly = f.salesRepId ? { salesRepId: f.salesRepId } : {};
     // نطاق شامل ليوم «إلى» كاملاً (حتى منتصف ليلته) — يُصلح التصفية ليوم واحد وآخر يوم
     const dateFilter = from && to ? { gte: new Date(from), lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) } : undefined;
 
@@ -739,10 +937,11 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
     // ومجاميع المندوب بنطاق المستند نفسه (docScope): مندوبٌ مشترك لا تظهر لمشرف فريقٍ مبيعاتُ فريقه الآخر
     const team = reportTeamOf(req.query.teamId);
     const docScope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
-    const visitWhere: Prisma.RepVisitWhereInput = { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req, SHAPE_VISIT)), ...teamDocWhere(team) };
+    // ومندوبٌ بعينه (repOnly): زياراته وحدها تُقرأ — فحدّ أمان الدفعات لا تستهلكه زيارات غيره
+    const visitWhere: Prisma.RepVisitWhereInput = { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...repOnly, ...(await scopedRecordWhere(req, SHAPE_VISIT)), ...teamDocWhere(team) };
     const [reps, sessions, visitRead, cashSaleGroups] = await Promise.all([
       prisma.salesRep.findMany({
-        where: { tenantId: tid, isActive: true, AND: [await adminRepFilter(req), teamRepOrDocsWhere(team)] },
+        where: { tenantId: tid, isActive: true, ...repPick, AND: [await adminRepFilter(req), teamRepOrDocsWhere(team)] },
         select: {
           id: true, name: true,
           // البيع والمرتجع معاً بنوعهما — المرتجع يُطرح من المبيعات والخصم (services/netSales.ts)
@@ -758,7 +957,7 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
       }),
       // ساعات العمل من جلسات الحضور
       prisma.repSession.findMany({
-        where: { tenantId: tid, startedAt: { gte: fromDate, lt: toEnd }, ...(await scopedRepRecordWhere(req)) },
+        where: { tenantId: tid, startedAt: { gte: fromDate, lt: toEnd }, ...repOnly, ...(await scopedRepRecordWhere(req)) },
         select: { salesRepId: true, startedAt: true, lastBeatAt: true },
       }),
       /* كلّ الزيارات — لا العدّ الخام (groupBy) ولا ذوات الإحداثيّات وحدها.
@@ -778,10 +977,11 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
        * تدخل المقام (صافي المبيعات) ولا تدخل البسط (السندات) — ومندوبٌ نقديٌّ كلّه يظهر بنسبة ٠٪ حمراء. والشرط هو
        * COLLECTED_CASH_SALE حرفياً (صفحة «طرق الدفع»، القرار ١): النقدية المؤكَّدة وما أبطلته الهيئة واحتُفظ بتحصيله، وpaidAmt
        * (= الإجمالي في النقدية). بلا ختم العهدة cashCollectedByRep: البيع النقدي محصَّلٌ عند البيع أيّاً كان من يحمل النقد.
-       * بالمدى والنطاق والفريق أنفسها — والشرط فيه OR فيُجمع مع النطاق والفريق في AND كصفحة «طرق الدفع» */
+       * بالمدى والنطاق والفريق أنفسها — والشرط فيه OR فيُجمع مع النطاق والفريق في AND كصفحة «طرق الدفع».
+       * وفلتر المندوب (repOnly) كالجلسات والزيارات؛ وفلتر الموقع يضيّق قائمة المناديب (reps) فلا يُقرأ إلا صفّ مناديبه */
       prisma.invoice.groupBy({
         by: ['salesRepId'],
-        where: { tenantId: tid, ...(dateFilter && { invoiceDate: dateFilter }), AND: [COLLECTED_CASH_SALE, teamDocWhere(team), docScope] },
+        where: { tenantId: tid, ...(dateFilter && { invoiceDate: dateFilter }), ...repOnly, AND: [COLLECTED_CASH_SALE, teamDocWhere(team), docScope] },
         _sum: { paidAmt: true },
       }),
     ]);
@@ -845,13 +1045,20 @@ router.get('/customer-visits', async (req: AuthRequest, res: Response, next: Nex
   try {
     const tid = tenantId(req);
     const { from, to } = req.query as Record<string, string>;
+    // فلترا المندوب الزائر والعميل — مفتاحان عدديان لا يمحوان مفتاح النطاق (AND)
+    const f = reportIdFilters(req.query, ['salesRepId', 'customerId']);
+    if (!f) { badFilter(res); return; }
     const fromDate = from ? new Date(from) : new Date(0);
     const toEnd = to ? new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) : new Date();
     // كل زيارات المدى دفعاتٍ حتى تنفد (البند ٧، services/reportBatches.ts): كان سقفٌ صامت عند ٥٬٠٠٠ سجلّ يُسقط ما قبل
-    // آخر أيام المدى، فيختفي عميلٌ زِير أوله من هنا ومن «لم تتم زيارتهم» معاً (ذاك يرى كل الزيارات). حدّ الأمان وحده مُعلَن
+    // آخر أيام المدى، فيختفي عميلٌ زِير أوله من هنا ومن «لم تتم زيارتهم» معاً (ذاك يرى كل الزيارات). حدّ الأمان وحده مُعلَن.
+    // وفلترا المندوب والعميل في شرط كل دفعة — فحدّ الأمان يُحسب على زيارات المصفّى وحده
     const visitScope = await scopedRecordWhere(req, SHAPE_VISIT);
     const visitRead = await readNewestFirst((after, take) => prisma.repVisit.findMany({
-      where: { AND: [{ tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...visitScope, ...teamDocWhere(reportTeamOf(req.query.teamId)) }, olderThan(after)] },
+      where: { AND: [{
+        tenantId: tid, createdAt: { gte: fromDate, lt: toEnd },
+        ...(f.salesRepId && { salesRepId: f.salesRepId }), ...(f.customerId && { customerId: f.customerId }),
+        ...visitScope, ...teamDocWhere(reportTeamOf(req.query.teamId)) }, olderThan(after)] },
       select: {
         id: true, salesRepId: true, customerId: true, createdAt: true, startedAt: true,
         note: true, lat: true, lng: true, durationSec: true,
@@ -899,7 +1106,7 @@ router.get('/unvisited-customers', async (req: AuthRequest, res: Response, next:
       select: {
         id: true, name: true, businessName: true, phone: true, city: true, createdAt: true,
         // أسماء المناديب: النشطون وداخل نطاق المستخدم وحدهم — عميلٌ ظاهر لا يكشف اسم مندوبٍ خارج النطاق (قاعدة AND)
-        assignments: { where: { salesRep: { isActive: true, ...repScope } }, select: { salesRep: { select: { name: true } } } },
+        assignments: { where: { salesRep: { isActive: true, ...repScope } }, select: { salesRep: { select: { id: true, name: true } } } },
       },
     });
     // من زِير في الفترة: من زيارات الشركة كلها (لا نطاق المستخدم ولا الفريق) — والاستعلامان في خدمةٍ (unvisitedCustomersDb)
@@ -997,6 +1204,11 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
   try {
     const tid = tenantId(req);
     const { from, to } = req.query as Record<string, string>;
+    // فلترا المندوب والموقع كأداء المندوب: يضيّقان قائمة المناديب، ومندوبٌ بعينه تُقرأ جلساته وزياراته وحدها
+    const f = reportIdFilters(req.query, ['salesRepId', 'locationId']);
+    if (!f) { badFilter(res); return; }
+    const repPick = { ...(f.salesRepId && { id: f.salesRepId }), ...locationDocWhere(locationFilterOf(f.locationId)) };
+    const repOnly = f.salesRepId ? { salesRepId: f.salesRepId } : {};
     // إزاحة توقيت المتصفّح بالدقائق شرقي UTC (الرياض 180) — «اليوم» يوم المندوب لا الخادم
     const tzOffsetMin = Math.max(-840, Math.min(840, parseInt(req.query.tz as string) || 0));
 
@@ -1017,14 +1229,16 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
 
     // «الفرق»: المناديب بعضويتهم (الساعات والحضور لا تنقسم)، وزياراتهم بوسمها
     const team = reportTeamOf(req.query.teamId);
-    const repWhere = { tenantId: tid, isActive: true, AND: [await adminRepFilter(req), teamRepWhere(team)] };
+    const repWhere = { tenantId: tid, isActive: true, ...repPick, AND: [await adminRepFilter(req), teamRepWhere(team)] };
     // الفلتر يُوائم حقل التجميع (at = startedAt || createdAt): الفلتر على
     // createdAt وحده كان يُدخل زيارةً بدأت قبل المدى (startedAt قديم لزيارةٍ
     // عالقة أُنشئ سجلّها داخله) فتُنسب ليوم بدايتها خارج ما حدّده المشرف،
     // ويُسقط زيارةً بدأت في آخر يومٍ وأُنشئ سجلُّها بعد منتصف ليله.
-    // النطاق عنصرٌ في مصفوفة AND نفسها: نثرُه بجانب مفتاح AND كان يُكتب فوقه فيسقط قيد عملاء المستخدم المقيّد
+    // النطاق عنصرٌ في مصفوفة AND نفسها: نثرُه بجانب مفتاح AND كان يُكتب فوقه فيسقط قيد عملاء المستخدم المقيّد.
+    // ومندوبٌ بعينه (repOnly): زياراته وحدها في كل دفعة
     const visitWhere: Prisma.RepVisitWhereInput = {
       tenantId: tid,
+      ...repOnly,
       ...teamDocWhere(team),
       AND: [await scopedRecordWhere(req, SHAPE_VISIT), { OR: [
         { startedAt: { gte: fromDate, lt: toEnd } },
@@ -1034,7 +1248,7 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
     const [reps, sessions, visitRead, pingRows, attendance] = await Promise.all([
       prisma.salesRep.findMany({ where: repWhere, select: { id: true, name: true } }),
       prisma.repSession.findMany({
-        where: { tenantId: tid, startedAt: { gte: fromDate, lt: toEnd }, ...(await scopedRepRecordWhere(req)) },
+        where: { tenantId: tid, startedAt: { gte: fromDate, lt: toEnd }, ...repOnly, ...(await scopedRepRecordWhere(req)) },
         select: { salesRepId: true, startedAt: true, lastBeatAt: true },
       }),
       // كل زيارات المدى دفعاتٍ حتى تنفد (البند ٧، services/reportBatches.ts): كان سقفٌ صامت عند ١٠٬٠٠٠ تصاعدياً يُسقط

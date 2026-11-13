@@ -7,13 +7,16 @@
  * بالسحب + FormInspector) ٣ المعايرة (إزاحة الطابعة dx/dy مع المواضع المطبوعة متقطّعةً). يعدّل نسخةً من القالب المفتوح ويعيدها
  * بـonApply عند «تطبيق» — فالحفظ إلى الخادم يبقى زرّ «حفظ إعدادات الطباعة». تراجعٌ وإعادة 50 خطوة، و«إلغاء» يتجاهل كل شيء،
  * و«تطبيق» معطّلٌ ما دامت قواعد النموذج (formIssues) غير مستوفاة.
+ *
+ * للطابعة العادية والنقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦، MIP480): ورق النموذج formPaperOf(p) — وعلى النقطية يحمل ما تبلغه الإبرة (reach)
+ * فترسم اللوحة شرائط ما لا تبلغه وتقيّد السحب داخله، والمفتّش يرفع حدّ مربع QR إلى 55 مم ويخفي «طباعة الخلفية» ويعرض معايرة النقطية.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, Check, Info, Maximize2, Redo2, Undo2, X } from 'lucide-react';
 import { useTr } from '../../../i18n/strings';
 import { useDir } from '../../../i18n/lang';
-import { formIssues, formOf, withForm, withFormProps, type FormImageRef, type PrintForm } from '../../../lib/print/formModel';
+import { formIssues, formOf, formPaperOf, withForm, withFormProps, type FormImageRef, type PrintForm } from '../../../lib/print/formModel';
 import type { PrintProfile } from '../../../lib/print/printSettings';
 import { pushHistory, redoHistory, undoHistory, type History } from '../designer/designerMath';
 import { useTaxOffPrint } from '../taxOffPrint';
@@ -66,6 +69,8 @@ export default function FormDesigner({ profile, onApply, onClose }: FormDesigner
   const p = hist.cur;
   const form = formOf(p);
   const sel = liveSel(form, selected);
+  // ورق النموذج للوحة والرفع: عرضه وطوله، وعلى النقطية ما تبلغه الإبرة (reach) — كائنٌ ثابتٌ ما لم تتغيّر الطابعة أو الورق
+  const paper = useMemo(() => formPaperOf({ printer: p.printer, paper: p.paper }), [p.printer, p.paper]);
 
   const update = useCallback((next: PrintProfile) => setHist((h) => pushHistory(h, next, sameProfile)), []);
   /** النموذج بعد تعديلٍ واحد من اللوحة — على القالب الحالي في السجلّ */
@@ -224,15 +229,15 @@ export default function FormDesigner({ profile, onApply, onClose }: FormDesigner
       ) : step === 1 ? (
         <main className="flex-1 min-h-0 overflow-auto p-3" data-form-step="1">
           <div className="mx-auto max-w-3xl">
-            <FormUploadStep paper={p.paper} current={form.image} onDone={uploaded} onCancel={() => setStep(2)} onPendingChange={setUploadPending} onLimit={freeUploads} />
+            <FormUploadStep paper={paper} current={form.image} onDone={uploaded} onCancel={() => setStep(2)} onPendingChange={setUploadPending} onLimit={freeUploads} />
           </div>
         </main>
       ) : (
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row" data-form-step={step}>
           <main className="flex-1 min-w-0 min-h-0 overflow-auto p-3"
             onClick={(e) => { if (e.target === e.currentTarget) setSelected(null); }}>
-            <FormCanvas form={form} paper={p.paper} onChange={setForm} selected={step === 2 ? sel : null} onSelect={setSelected}
-              zoom={zoom} mode={step === 3 ? 'calibrate' : 'edit'} hideQr={taxOff} />
+            <FormCanvas form={form} paper={paper} onChange={setForm} selected={step === 2 ? sel : null} onSelect={setSelected}
+              zoom={zoom} mode={step === 3 ? 'calibrate' : 'edit'} hideQr={taxOff} boldAll={p.options.boldBody === true} />
           </main>
           <aside className="lg:w-[340px] shrink-0 max-h-[45vh] lg:max-h-none overflow-auto border-t lg:border-t-0 lg:border-s border-[#E9E1D3] bg-white p-3">
             <FormInspector p={p} update={update} selected={sel} onSelect={setSelected} mode={step === 3 ? 'calibrate' : 'fields'} onUpload={() => setStep(1)} />

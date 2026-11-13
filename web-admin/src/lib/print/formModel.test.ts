@@ -8,6 +8,7 @@ import {
   FORM_BASE_FONT_PT, FORM_BOUNDS, FORM_COLUMN_IDS, FORM_COLUMN_LABELS, FORM_FIELD_GROUPS, FORM_FIELD_IDS, FORM_FIELD_LABELS, FORM_IMAGE_DPI,
   FORM_LAST_SHEET_IDS, FORM_NOTES, FORM_REF_SHEET, FORM_TAX_COLUMN_IDS, FORM_TAX_FIELD_IDS, FORM_VALUE_LANG_LABELS, FORM_WARNINGS,
   defaultFormColumn, defaultFormField, defaultFormTable, fitForm, formFieldMinMm, formFontPt, formIssues, formOf, formOverlaps, formQrMissing,
+  formPaperOf, formReachBox, formReachOf,
   formRasterPx, formSheetSize, formSheets, formTableBox, formWarnings, isLastSheetField, moveFormColumn, moveFormField, moveFormTable,
   printedBox, reorderFormColumn, resetFormPositions, scaleForm, sheetFields, starterForm, tableRowTop, withForm, withFormColumn, withFormField,
   withFormProps, withFormTable, withoutFormColumn, withoutFormField,
@@ -42,6 +43,20 @@ function valid(p: PrintProfile, why = ''): void {
   assert.equal(JSON.stringify(saved(p)), JSON.stringify(p.options.layout!.form), `${why}: ليس قانونياً`);
 }
 const onGrid = (v: number): boolean => Math.abs(v * 2 - Math.round(v * 2)) < 1e-9;
+
+// النقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦، MIP480): ورق النموذج يحمل ما تبلغه الإبرة (formPaperOf)
+const FF_A4 = presetPaper('ff_a4') as Paper;
+const CUT_A4 = presetPaper('cut_a4') as Paper;
+const FF_WIDE = presetPaper('ff_95x11') as Paper;
+const FF_85 = presetPaper('ff_85x11') as Paper;
+const FF_HALF = presetPaper('ff_95x55') as Paper;
+const IMPACT_PAPERS: readonly Paper[] = ['cut_a4', 'ff_a4', 'ff_95x11', 'ff_95x12', 'ff_85x11', 'ff_95x55'].map((id) => presetPaper(id as Paper['preset']) as Paper);
+/** ورق النموذج النقطي (بلا هامشين كما يضعه withDesign) */
+const ip = (paper: Paper = FF_A4) => formPaperOf({ printer: 'impact', paper: { ...paper, marginTopMm: 0, marginBottomMm: 0 } });
+/** قالب نقطي بتصميم النموذج على هذا الورق */
+const impactProfile = (paper: Paper = FF_A4): PrintProfile => withDesign({ ...newProfile('impact', 'نقطي', []), paper }, 'preprinted');
+const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-9;
+const box6 = (b: { x: number; y: number; w: number; h: number } | null) => (b ? [b.x, b.y, b.w, b.h].map((v) => Math.round(v * 1e6) / 1e6) : b);
 
 // ─── الورقة والأوراق ───
 
@@ -368,6 +383,231 @@ test('كل محرّرٍ يُخرج نموذجاً صالحاً قانونياً 
       valid(p, `${paper.preset} step ${step}`);
     }
   }
+});
+
+// ─── النقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦، MIP480): ما تبلغه الإبرة ورمز QR ≥ 55 ولا خلفية ───
+
+test('النقطية: formReachOf / formPaperOf / formReachBox / formFieldMinMm — الحزمة في الوسط بلا offsetXmm، والعادية بلا reach', () => {
+  assert.equal(formReachOf({ printer: 'page', paper: A4 }), null);
+  assert.equal(formReachOf({ printer: 'thermal', paper: presetPaper('roll80') as Paper }), null);
+  const r = formReachOf({ printer: 'impact', paper: FF_A4 })!;
+  assert.ok(near(r.x0, 3.4) && near(r.x1, 206.6) && r.qrMinMm === 55, JSON.stringify(r));
+  const w = formReachOf({ printer: 'impact', paper: FF_WIDE })!;
+  assert.ok(near(w.x0, 18.9) && near(w.x1, 222.1), JSON.stringify(w));
+  const n = formReachOf({ printer: 'impact', paper: FF_85 })!;
+  assert.ok(near(n.x0, 12.75) && near(n.x1, 203.25), JSON.stringify(n));
+  // offsetXmm والهامشان لا يمسّان الحزمة (المعايرة dx/dy وحدها)
+  assert.deepEqual(formReachOf({ printer: 'impact', paper: { ...FF_A4, offsetXmm: 10, marginTopMm: 30 } }), r);
+  assert.deepEqual(formPaperOf({ printer: 'page', paper: A4 }), { widthMm: 210, lengthMm: 297, reach: null });
+  assert.deepEqual(formPaperOf({ printer: 'impact', paper: FF_A4 }), { widthMm: 210, lengthMm: 297, reach: r });
+  // حدّ رمز QR بالورق: 18 على العادية (وبلا ورق كاليوم)، و55 على النقطية — وغيره 3 في كلٍّ
+  assert.equal(formFieldMinMm('qr'), FORM_BOUNDS.qrMinMm);
+  assert.equal(formFieldMinMm('qr', formPaperOf({ printer: 'page', paper: A4 })), 18);
+  assert.equal(formFieldMinMm('qr', ip()), 55);
+  assert.equal(formFieldMinMm('docNumber', ip()), FORM_BOUNDS.fieldMinMm);
+  // ما تبلغه الإبرة من المواضع المحفوظة: [x0 − dx, x1 − dx] × [−dy, L − dy] مقطوعاً بالورقة
+  assert.equal(formReachBox({ dxMm: 0, dyMm: 0 }, A4), null, 'بلا reach');
+  assert.equal(formReachBox({ dxMm: 0, dyMm: 0 }, formPaperOf({ printer: 'page', paper: A4 })), null);
+  assert.equal(formReachBox({ dxMm: 0, dyMm: 0 }, null), null);
+  assert.deepEqual(box6(formReachBox({ dxMm: 0, dyMm: 0 }, ip())), [3.4, 0, 203.2, 297]);
+  assert.deepEqual(box6(formReachBox({ dxMm: 2, dyMm: -3 }, ip())), [1.4, 3, 203.2, 294]);
+  assert.deepEqual(box6(formReachBox({ dxMm: -5, dyMm: 4 }, ip())), [8.4, 0, 201.6, 293], 'الحافة اليمنى عند حافة الورقة');
+  assert.deepEqual(box6(formReachBox({ dxMm: 5, dyMm: Number.NaN }, ip())), [0, 0, 201.6, 297], 'اليسرى عند حافة الورقة، وغير المنتهي 0');
+  assert.deepEqual(box6(formReachBox({ dxMm: 0, dyMm: 0 }, ip(FF_WIDE))), [18.9, 0, 203.2, 279.4]);
+});
+
+test('النقطية: starterForm — مواضع A4 مُزاحة أفقياً ومقيسة طولاً، 16 صفاً، ورمز QR بحدّه 55 تحت الجدول — صالحٌ قانونيٌّ على كل مقاسٍ نقطي', () => {
+  const page = starterForm(A4);
+  const f = starterForm(ip(FF_A4));
+  assert.deepEqual([f.image, f.dxMm, f.dyMm, f.background, f.latinDigits, f.valueLang], [null, 0, 0, false, true, 'ar']);
+  assert.deepEqual(f.fields.find((x) => x.id === 'qr'), { id: 'qr', x: 12, y: 226, w: 55, h: 55 });
+  assert.deepEqual(f.fields.filter((x) => x.id !== 'qr'), page.fields.filter((x) => x.id !== 'qr'), 'الرأس والإجماليات كمواضع A4');
+  assert.deepEqual([f.table!.y, f.table!.rowMm, f.table!.rows], [105, 7, 16], 'الجدول ينتهي عند 217 قبل مربع QR');
+  assert.deepEqual(f.table!.columns, page.table!.columns);
+  assert.deepEqual(formOverlaps(f), []);
+  assert.deepEqual(defaultFormTable(ip(FF_A4)), f.table);
+  // 241 مم: إزاحةٌ بنصف فرق العرض (+15.5) لا قياس، والطول بنسبته
+  const wide = starterForm(ip(FF_WIDE));
+  for (const x of page.fields.filter((q) => q.id !== 'qr')) {
+    const y = wide.fields.find((q) => q.id === x.id)!;
+    assert.deepEqual([y.x, y.w], [x.x + 15.5, x.w], x.id);
+  }
+  assert.deepEqual(wide.table!.columns.map((c) => [c.x, c.w]), page.table!.columns.map((c) => [c.x + 15.5, c.w]));
+  const wq = wide.fields.find((q) => q.id === 'qr')!;
+  assert.deepEqual([wq.x, wq.w, wq.h], [27.5, 55, 55]);
+  assert.equal(wide.table!.rows, 16);
+  for (const paper of IMPACT_PAPERS) {
+    const p = impactProfile(paper);
+    const form = p.options.layout!.form!;
+    assert.deepEqual(form, starterForm(ip(paper)), paper.preset);
+    valid(p, paper.preset);
+    const reach = formReachOf(p)!;
+    for (const x of form.fields) {
+      assert.ok([x.x, x.y, x.w, x.h].every(onGrid), `${paper.preset} ${x.id}`);
+      assert.ok(x.x >= reach.x0 - 1e-9 && x.x + x.w <= reach.x1 + 1e-9, `${paper.preset} ${x.id}`);
+    }
+    assert.deepEqual(form.fields.filter((x) => x.id === 'qr').map((x) => [x.w, x.h]), [[55, 55]], paper.preset);
+    // نصف الصفحة: المربع يُنزَل إلى آخر الورقة بجوار الجدول فيظهر تنبيه التداخل ليعدّله المستخدم — وغيره بلا تداخل
+    if (paper.preset === 'ff_95x55') assert.ok(formOverlaps(form).some(([a, b]) => a === 'qr' && b === 'table'));
+    else assert.deepEqual(formOverlaps(form), [], paper.preset);
+  }
+  assert.ok(!starterForm(ip(), { withQr: false }).fields.some((x) => x.id === 'qr'));
+  // العادية بـformPaperOf كما بالورق وحده حرفياً
+  assert.deepEqual(starterForm(formPaperOf({ printer: 'page', paper: A5 })), starterForm(A5));
+});
+
+test('النقطية: fitForm يقصّ داخل ما تبلغه الإبرة بعد المعايرة (المقصوصة أولاً)، ورمز QR ≥ 55، والخلفية false — متساوي القوى', () => {
+  const paper = ip();
+  const raw = {
+    ...starterForm(paper), dxMm: 4, dyMm: -6, background: true,
+    fields: [
+      { id: 'docNumber', x: 0, y: 0, w: 30, h: 6 },
+      { id: 'totalDue', x: 190, y: 295, w: 40, h: 6 },
+      { id: 'qr', x: 150, y: 250, w: 22, h: 22 },
+    ],
+    table: { y: 0, rowMm: 7, rows: 60, columns: [{ id: 'sr', x: 0, w: 8 }, { id: 'lineTotal', x: 195, w: 25 }] },
+  } as unknown as PrintForm;
+  const f = fitForm(raw, paper);
+  // dx 4 ⇒ المحفوظ من 0 (3.4 − 4 خارج الورقة) إلى 202.5 (206.6 − 4 للأسفل على الشبكة)؛ dy −6 ⇒ من 6 إلى 297
+  assert.deepEqual([f.dxMm, f.dyMm, f.background], [4, -6, false]);
+  assert.deepEqual(f.fields, [
+    { id: 'totalDue', x: 162.5, y: 291, w: 40, h: 6 },
+    { id: 'docNumber', x: 0, y: 6, w: 30, h: 6 },
+    { id: 'qr', x: 147.5, y: 242, w: 55, h: 55 },
+  ].sort((a, b) => FORM_FIELD_IDS.indexOf(a.id as FormFieldId) - FORM_FIELD_IDS.indexOf(b.id as FormFieldId)));
+  assert.deepEqual(f.table, { y: 6, rowMm: 7, rows: 41, columns: [{ id: 'sr', x: 0, w: 8 }, { id: 'lineTotal', x: 177.5, w: 25 }] });
+  assert.deepEqual(fitForm(f, paper), f, 'متساوي القوى');
+  valid(withF(impactProfile(), f), 'impact fit');
+  // معايرةٌ خارج ±20 تُقصّ أولاً ثم تُقاس بها الحزمة
+  const far = fitForm({ ...raw, dxMm: 40 }, paper);
+  assert.equal(far.dxMm, 20);
+  for (const x of far.fields) assert.ok(x.x + 20 >= 3.4 - 1e-9 && x.x + 20 + x.w <= 206.6 + 1e-9, x.id);
+  valid(withF(impactProfile(), far), 'dx 20');
+  // المدخل نفسه على العادية: كما كان (الخلفية تبقى ورمز QR 22)
+  const pf = fitForm(raw, A4);
+  assert.equal(pf.background, true);
+  assert.deepEqual(pf.fields.find((x) => x.id === 'qr'), { id: 'qr', x: 150, y: 250, w: 22, h: 22 });
+  assert.deepEqual(pf.fields.find((x) => x.id === 'docNumber'), { id: 'docNumber', x: 0, y: 0, w: 30, h: 6 });
+});
+
+test('النقطية: scaleForm يُزيح أفقياً بنصف فرق العرض ويقيس طولاً، ورمز QR لا يصغر عن 55 — والمقاس نفسه بلا تغيير', () => {
+  const a = starterForm(ip(FF_A4));
+  const b = scaleForm(a, ip(FF_A4), ip(FF_WIDE));
+  for (const x of a.fields) {
+    const y = b.fields.find((q) => q.id === x.id)!;
+    assert.deepEqual([y.x, y.w], [x.x + 15.5, x.w], x.id);
+  }
+  assert.deepEqual(b.table!.columns.map((c) => c.x), a.table!.columns.map((c) => c.x + 15.5));
+  assert.deepEqual(b.fields.filter((x) => x.id === 'qr').map((x) => [x.w, x.h]), [[55, 55]]);
+  valid(withF(impactProfile(FF_WIDE), b), 'ff_95x11');
+  // والعودة: −15.5
+  const back = scaleForm(b, ip(FF_WIDE), ip(FF_A4));
+  assert.deepEqual(back.fields.map((x) => x.x), a.fields.map((x) => x.x));
+  valid(withF(impactProfile(FF_A4), back), 'ff_a4 again');
+  // الورق المقطع والمتصل بالمقاس نفسه: النموذج نفسه
+  assert.equal(scaleForm(a, ip(FF_A4), ip(CUT_A4)), a);
+  // نصف الصفحة: الطول بنسبته ورمز QR بحدّه داخل الورقة
+  const half = scaleForm(a, ip(FF_A4), ip(FF_HALF));
+  valid(withF(impactProfile(FF_HALF), half), 'ff_95x55');
+  assert.deepEqual(half.fields.filter((x) => x.id === 'qr').map((x) => [x.w, x.h]), [[55, 55]]);
+});
+
+test('النقطية: المحرّرات — حقل QR الجديد بـ55 داخل الحزمة، والتحريك والتكبير يقفان عند حدّها بعد المعايرة، وكل ناتجٍ صالح', () => {
+  const paper = ip();
+  const p0 = impactProfile();
+  const f0 = formOf(p0)!;
+  const noQr = withoutFormField(f0, 'qr');
+  const d = defaultFormField(noQr, paper, 'qr');
+  assert.deepEqual([d.w, d.h], [55, 55]);
+  assert.ok(d.x >= 3.4 && d.x + d.w <= 206.6);
+  const f1 = withFormField(noQr, paper, { id: 'qr' });
+  assert.deepEqual(f1.fields.filter((x) => x.id === 'qr').map((x) => [x.w, x.h]), [[55, 55]]);
+  valid(withF(p0, f1), 'qr restored');
+  assert.equal(withFormField(f1, paper, { id: 'qr', w: 30, h: 30 }), f1, 'لا يصغر عن 55');
+  // التحريك: يقف عند أول ما تبلغه الإبرة (3.4 ⇒ 3.5 على الشبكة) وآخره (206.6 ⇒ 206.5)
+  const get = (f: PrintForm, id: FormFieldId) => f.fields.find((x) => x.id === id)!;
+  assert.equal(get(moveFormField(f1, paper, 'docNumber', -500, 0), 'docNumber').x, 3.5);
+  assert.equal(get(moveFormField(f1, paper, 'docNumber', 500, 0), 'docNumber').x, 206.5 - 90);
+  assert.equal(get(moveFormField(f1, paper, 'docNumber', 500, 0, true), 'docNumber').w, 206.5 - 60, 'التكبير يقف عند الحزمة');
+  // بالمعايرة: dx = 3 ⇒ المحفوظ من 0.5 (0.4 للأعلى على الشبكة)، وdy = −10 ⇒ لا شيء فوق 10
+  const shifted = withFormProps(f1, { dxMm: 3, dyMm: -10 });
+  assert.equal(get(moveFormField(shifted, paper, 'docNumber', -500, 0), 'docNumber').x, 0.5);
+  assert.equal(get(moveFormField(shifted, paper, 'docTitle', 0, -500), 'docTitle').y, 10);
+  assert.equal(moveFormTable(shifted, paper, -500).table!.y, 10);
+  assert.equal(moveFormTable(f1, paper, -500).table!.y, 0);
+  // الأعمدة
+  const col = (f: PrintForm, id: FormColumnId) => f.table!.columns.find((c) => c.id === id)!;
+  assert.equal(col(moveFormColumn(f1, paper, 'sr', -500), 'sr').x, 3.5);
+  assert.equal(col(moveFormColumn(f1, paper, 'lineTotal', 500), 'lineTotal').x, 206.5 - 29.5);
+  assert.equal(col(moveFormColumn(f1, paper, 'lineTotal', 500, true), 'lineTotal').w, 206.5 - 170.5);
+  // الصفوف تُقصّ إلى ما يتّسع بعد المعايرة الرأسية (L − dy)
+  const tall = withFormTable(withFormProps(f1, { dyMm: 15 }), paper, { rows: 60 });
+  assert.ok(tall.table!.y + 15 + tall.table!.rows * tall.table!.rowMm <= 297 + 1e-9);
+  // جدولٌ جديد بعمودٍ واحد، وعمودٌ مقترح داخل الحزمة
+  const bare = withFormTable(f1, paper, null);
+  const one = withFormColumn(bare, paper, { id: 'qty' });
+  assert.ok(one.table && one.table.rows === 16 && one.table.columns.length === 1);
+  const dc = defaultFormColumn({ columns: [] }, paper, 'qty');
+  assert.ok(dc.x >= 3.4 && dc.x + dc.w <= 206.6);
+  for (const [why, f] of [['moved', moveFormField(f1, paper, 'docNumber', -500, 0)], ['tall', tall], ['one column', one],
+    ['shifted', fitForm(shifted, paper)], ['reordered', reorderFormColumn(f1, paper, 'lineTotal', 0)]] as Array<[string, PrintForm]>) {
+    valid(withF(p0, f), why);
+  }
+});
+
+test('النقطية: كل محرّرٍ يُخرج نموذجاً صالحاً قانونياً داخل ما تبلغه الإبرة على كل مقاسٍ نقطي — مشيٌ عشوائي', () => {
+  const fieldIds = FORM_FIELD_IDS.filter((id) => id !== 'qr');
+  for (const sheet of [FF_A4, FF_WIDE, FF_85, FF_HALF]) {
+    const p0 = impactProfile(sheet);
+    const paper = formPaperOf(p0);
+    let f = formOf(p0)!;
+    let seed = 1311;
+    const rnd = (n: number): number => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+    const mm = (): number => (rnd(4001) - 2000) / 10;
+    for (let step = 0; step < 300; step++) {
+      const fid = fieldIds[rnd(fieldIds.length)];
+      const cid = FORM_COLUMN_IDS[rnd(FORM_COLUMN_IDS.length)];
+      let props = false;
+      switch (rnd(14)) {
+        case 0: f = withFormField(f, paper, { id: fid }); break;
+        case 1: f = withoutFormField(f, fid); break;
+        case 2: f = moveFormField(f, paper, rnd(5) ? fid : 'qr', mm(), mm()); break;
+        case 3: f = moveFormField(f, paper, rnd(5) ? fid : 'qr', mm(), mm(), true); break;
+        case 4: f = withFormField(f, paper, { id: rnd(6) ? fid : 'qr', align: (['start', 'center', 'end', undefined] as const)[rnd(4)], fontPct: 60 + rnd(120), bold: rnd(2) === 0 }); break;
+        case 5: f = withFormTable(f, paper, { rows: rnd(70), rowMm: rnd(300) / 10 }); break;
+        case 6: f = moveFormTable(f, paper, mm()); break;
+        case 7: f = withFormColumn(f, paper, { id: cid }); break;
+        case 8: f = withoutFormColumn(f, cid); break;
+        case 9: f = moveFormColumn(f, paper, cid, mm(), rnd(2) === 0); break;
+        case 10: f = reorderFormColumn(f, paper, cid, rnd(12)); break;
+        case 11: f = withFormProps(f, { dxMm: mm() / 5, dyMm: mm() / 5, background: rnd(2) === 0, valueLang: rnd(2) ? 'ar' : 'en' }); props = true; break;
+        case 12: f = rnd(8) ? f : withFormTable(f, paper, null); break;
+        default: f = withFormTable(f, paper, { y: rnd(400), fontPct: rnd(2) ? undefined : 70 + rnd(91) });
+      }
+      const p = withForm(p0, f);
+      // المعايرة والخلفية تُكتبان بلا ورق (withFormProps) فيقصّهما withForm كما يفعل المصمّم؛ وغيرهما يخرج مقصوصاً بالفعل
+      if (props) f = formOf(p)!;
+      else assert.deepEqual(formOf(p), f, `${sheet.preset} step ${step}: withForm يحفظ ما أخرجه المحرّر كما هو`);
+      assert.equal(f.background, false);
+      valid(p, `${sheet.preset} step ${step}`);
+    }
+  }
+});
+
+test('النقطية: formWarnings — ملاحظة «صفحة المعايرة»، والورق المقطع ينصح بالمتصل، ولا تنبيه خلفية — والعادية كما كانت', () => {
+  const p = impactProfile(FF_A4);
+  assert.deepEqual(formWarnings(p), { warnings: [FORM_WARNINGS.imageMissing], notes: [FORM_NOTES.impactCalibrate, FORM_NOTES.pageNo] });
+  const cut = impactProfile(CUT_A4);
+  assert.deepEqual(formWarnings(cut).notes, [FORM_NOTES.impactCalibrate, FORM_NOTES.impactCutSheet, FORM_NOTES.pageNo]);
+  // بلا جدولٍ ورقةٌ واحدة: لا نصيحة بالمتصل
+  assert.deepEqual(formWarnings(withForm(cut, withFormTable(formOf(cut)!, ip(CUT_A4), null))).notes, [FORM_NOTES.impactCalibrate]);
+  // خلفيةٌ وصلت بلا قصّ (صفٌّ قديم): لا تنبيه خلفية — النقطية لا تطبعها أصلاً
+  const bg = withF(p, { ...formOf(p)!, background: true });
+  assert.ok(!formWarnings(bg).warnings.includes(FORM_WARNINGS.background));
+  // withForm يُطفئها
+  assert.equal(formOf(withForm(p, withFormProps(formOf(p)!, { background: true })))!.background, false);
+  // العادية: لا ملاحظة نقطية
+  assert.ok(!formWarnings(formProfile()).notes.includes(FORM_NOTES.impactCalibrate));
 });
 
 // ─── التسميات والتنبيهات ───

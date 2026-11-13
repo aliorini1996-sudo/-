@@ -20,7 +20,7 @@ import {
   type PrintSettingsV1, type SectionId, type SectionStyle,
 } from './printSettings';
 import { clampBox, logoBox, logoMmBounds, resolveLayout, snapMm } from './layout';
-import { withFormField } from './formModel';
+import { formPaperOf, withFormField } from './formModel';
 
 /** ما يُحدَّد في المحرّر والمصمّم: قسم، أو الشعار، أو مربع في لوحة، أو لوحة */
 export type DesignSel = SectionId | 'logo' | `box:${CanvasBoxId}` | 'band:header' | 'band:footer';
@@ -130,7 +130,8 @@ export const resetSection = (p: PrintProfile, id: SectionId): PrintProfile => wi
  * الحامل (الإجماليات/البيانات) لا يُمسّ أبداً — إخفاؤه وحده يُبقي الرمز يتيماً في مكانه التلقائي كاليوم. الكلاسيكي والافتراضيان كما هما.
  * الإعادة لا تعيد مربع اللوحة المحذوف: يعود الرمز إلى مكانه في التدفّق (مع الإجماليات).
  * و«نموذج الشركة المطبوع مسبقاً»: الحذف يزيل حقل الرمز من النموذج كذلك، والإعادة تعيده بحجمه المقترح في أول موضعٍ خالٍ
- * (withFormField) — فلزومه في النواة (layoutFormQrMissing) لا يمنع حفظ الإعادة؛ وتحريكه بعدها من المصمّم.
+ * (withFormField) — فلزومه في النواة (layoutFormQrMissing) لا يمنع حفظ الإعادة؛ وتحريكه بعدها من المصمّم. وعلى النقطية بحدّه 55 مم
+ * داخل ما تبلغه الإبرة (formPaperOf).
  */
 export function withQrRemoved(p: PrintProfile, removed: boolean): PrintProfile {
   if (!editable(p)) return p;
@@ -147,7 +148,7 @@ export function withQrRemoved(p: PrintProfile, removed: boolean): PrintProfile {
   else delete l.sections;
   if (removed && l.canvas?.boxes.some((b) => b.id === 'qr')) l.canvas = { ...l.canvas, boxes: l.canvas.boxes.filter((b) => b.id !== 'qr') };
   if (removed && l.form?.fields.some((f) => f.id === 'qr')) l.form = { ...l.form, fields: l.form.fields.filter((f) => f.id !== 'qr') };
-  if (!removed && l.design === 'preprinted' && l.form && !l.form.fields.some((f) => f.id === 'qr')) l.form = withFormField(l.form, p.paper, { id: 'qr' });
+  if (!removed && l.design === 'preprinted' && l.form && !l.form.fields.some((f) => f.id === 'qr')) l.form = withFormField(l.form, formPaperOf(p), { id: 'qr' });
   return commit(p, l);
 }
 

@@ -16,7 +16,7 @@ import type { RepTarget } from '@prisma/client';
 import prisma from '../config/database';
 import { currencyDecimalsOf, getCountryTax } from '../config/countries';
 import { tenantTz } from './invoiceExpiry';
-import { addMonths, daysInMonth, todayLocal, zonedStartOfDay } from './gl/dates';
+import { addDays, addMonths, daysInMonth, diffDays, isLocalDate, todayLocal, zonedStartOfDay } from './gl/dates';
 import { cleanMoney, isReturnInvoice, netSales } from './netSales';
 import { baseQtyOf, factorOf, roundQty, type UnitSnapshot } from './units';
 import { asVisitLike, mergeVisitsByRep } from './workDay';
@@ -51,6 +51,9 @@ export const TARGET_MESSAGES = Object.freeze({
   TARGET_PRODUCT_DUPLICATE: 'الصنف مكرر في الهدف',
   TARGET_COMBO_INVALID: 'اختر هدفين أو أكثر لنفس المندوب في نفس الشهر',
   TARGET_IN_COMBO: 'أحد الأهداف مدمج مع أهداف أخرى افصله أولا',
+  // «مدة الهدف»: أعضاء الهدف المدمج بنافذةٍ واحدة (الشهر كله، أو الفترة المخصّصة نفسها) — وإلا ظهر عضوٌ ممتدٌّ وحده في شهرٍ
+  // لاحق بمكافأةٍ «مستحقة» بتحققه وحده، واختلفت عمولة المدمج بحسب ترتيب أعضائه
+  TARGET_COMBO_PERIOD: 'الأهداف المدمجة يجب أن تكون بنفس المدة',
 });
 export type TargetCode = keyof typeof TARGET_MESSAGES;
 
@@ -100,6 +103,64 @@ export function monthWindow(month: string, tz: string, now: Date): MonthWindow {
   const daysLeft = isCurrent ? total - Number(today.slice(8, 10)) + 1 : month < current ? 0 : total;
   return { month, from, to, isCurrent, daysLeft };
 }
+
+// ═══ مدة الهدف: الشهر كله أو فترةٌ مخصّصة (طلب المالك ١٣ نوفمبر ٢٠٢٦) ═══
+
+/** أطول فترةٍ مخصّصة بالأيام (سنةٌ كبيسة) — وأقصرها يومٌ واحد */
+export const PERIOD_MAX_DAYS = 366;
+
+export type PeriodState = 'UPCOMING' | 'ACTIVE' | 'ENDED';
+/** فترة الهدف كما تُعرض: أول يومٍ وآخره شاملاً بتوقيت الشركة، ومخصّصةٌ أم الشهر، وحالها اليوم */
+export interface TargetPeriod {
+  from: string;
+  to: string;
+  custom: boolean;
+  state: PeriodState;
+  /** الجارية: الأيام الباقية مع اليوم · المقبلة: أيامها كلها · المنتهية ٠ */
+  daysLeft: number;
+}
+/** نافذة الحساب [from, to) وفترة العرض */
+export interface TargetWindow { from: Date; to: Date; period: TargetPeriod }
+
+/** نافذة فترةٍ من يومٍ إلى يوم (شاملاً) بتوقيت الشركة — صرفةٌ (المنطقة والساعة مُدخلان) */
+export function periodWindow(fromDate: string, toDate: string, tz: string, now: Date, custom = true): TargetWindow {
+  const today = todayLocal(now, tz);
+  const total = diffDays(fromDate, toDate) + 1;
+  const state: PeriodState = today < fromDate ? 'UPCOMING' : today > toDate ? 'ENDED' : 'ACTIVE';
+  const daysLeft = state === 'ACTIVE' ? diffDays(today, toDate) + 1 : state === 'UPCOMING' ? total : 0;
+  return {
+    from: zonedStartOfDay(fromDate, tz),
+    to: zonedStartOfDay(addDays(toDate, 1), tz),
+    period: { from: fromDate, to: toDate, custom, state, daysLeft },
+  };
+}
+
+/** الشهر كله نافذةً (فترة غير مخصّصة) */
+export function monthPeriod(month: string, tz: string, now: Date): TargetWindow {
+  const first = `${month}-01`;
+  return periodWindow(first, addDays(addMonths(first, 1), -1), tz, now, false);
+}
+
+/** فترةٌ مخصّصة صالحة: يومان حقيقيان، البداية قبل النهاية أو هي، وحتى PERIOD_MAX_DAYS — وإلا null (مُدخلٌ من الجسم) */
+export function validPeriod(from: unknown, to: unknown): { from: string; to: string } | null {
+  if (!isLocalDate(from) || !isLocalDate(to) || from > to) return null;
+  const y = Number(from.slice(0, 4));
+  if (y < 2000 || Number(to.slice(0, 4)) > 2100) return null;
+  return diffDays(from, to) + 1 <= PERIOD_MAX_DAYS ? { from, to } : null;
+}
+
+/** النافذة نفسها: الشهر كله في الشهر نفسه، أو الفترة المخصّصة نفسها — شرط أعضاء الهدف المدمج */
+export const sameWindow = (a: { month: string; periodFrom?: string | null; periodTo?: string | null },
+  b: { month: string; periodFrom?: string | null; periodTo?: string | null }): boolean =>
+  a.month === b.month && (a.periodFrom ?? null) === (b.periodFrom ?? null) && (a.periodTo ?? null) === (b.periodTo ?? null);
+
+/** سقف صفوف الزيارات المقروءة لنافذة: ٢٠٠٠٠ لكل ٣١ يوماً (الشهر كما كان) — فلا تُقصّ فترةٌ طويلة عند حدّ الشهر */
+export const visitRowsCap = (from: Date, to: Date): number =>
+  Math.min(240_000, 20_000 * Math.max(1, Math.ceil((to.getTime() - from.getTime()) / 86_400_000 / 31)));
+
+/** فترة الهدف المخصّصة المحفوظة، أو null (الشهر كله) */
+export const customPeriodOf = (t: { periodFrom?: string | null; periodTo?: string | null }): { from: string; to: string } | null =>
+  (t.periodFrom && t.periodTo ? validPeriod(t.periodFrom, t.periodTo) : null);
 
 // ═══ الطيّات الصرفة ═══
 
@@ -288,6 +349,8 @@ export type RepTargetRow = RepTarget & { extraProducts?: ReadonlyArray<TargetPro
 
 export interface RepTargetView {
   id: string; month: string; kind: string; targetValue: number;
+  /** مدة الهدف: الشهر كله (custom=false) أو فترته المخصّصة — بحالها اليوم. والأرقام كلها محسوبةٌ داخلها */
+  period?: TargetPeriod;
   productId: string | null; productName: string | null; unitId: string | null; unitName: string | null; unitFactor: number;
   /** هدف الكمية: كل أصنافه (الأول أولاً) — وغيره فارغ */
   products: TargetProductView[];
@@ -298,7 +361,7 @@ export interface RepTargetView {
   reward: TargetReward;
 }
 
-export function toTargetView(t: RepTargetRow, ctx: ProgressContext): RepTargetView {
+export function toTargetView(t: RepTargetRow, ctx: ProgressContext, period?: TargetPeriod): RepTargetView {
   const progress = targetProgress(t, ctx);
   const extras = t.kind === 'PRODUCT_QTY' ? [...(t.extraProducts ?? [])].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)) : [];
   return {
@@ -310,6 +373,7 @@ export function toTargetView(t: RepTargetRow, ctx: ProgressContext): RepTargetVi
       : [],
     rewardKind: t.rewardKind, rewardValue: t.rewardValue, note: t.note, createdByName: t.createdByName, createdAt: t.createdAt, updatedAt: t.updatedAt,
     comboId: t.comboId ?? null,
+    ...(period && { period }),
     progress,
     reward: targetReward(t, ctx.monthNetSales, progress.done),
   };
@@ -421,7 +485,7 @@ export async function loadProgressContext(tid: string, repId: string, win: Pick<
       ? prisma.repVisit.findMany({
         where: { tenantId: tid, salesRepId: repId, createdAt: { gte: from, lt: to }, ...(scope?.visit ?? {}) },
         select: { salesRepId: true, customerId: true, createdAt: true, startedAt: true, durationSec: true, lat: true, lng: true, customer: { select: { name: true } } },
-        orderBy: { createdAt: 'asc' }, take: 20000,
+        orderBy: { createdAt: 'asc' }, take: visitRowsCap(from, to),
       })
       : Promise.resolve([]),
     // عملاء جدد نشطون: أضافهم المندوب في الشهر، ولكلٍّ فاتورة بيعٍ مؤكَّدة حتى نهاية الشهر (لا يُعدّ عميلٌ أُضيف ولم يشترِ).
@@ -469,21 +533,43 @@ export interface RepTargetsMonth {
   targets: RepTargetView[];
 }
 
-/** أهداف المندوب في شهرٍ بتقدّمها ومكافآتها (الشهر الغائب = الجاري بتوقيت الشركة)، بترتيب إنشائها — و`scope` لمسارات الإدارة */
+/**
+ * أهداف المندوب في شهرٍ بتقدّمها ومكافآتها (الشهر الغائب = الجاري بتوقيت الشركة)، بترتيب إنشائها — و`scope` لمسارات الإدارة.
+ * «مدة الهدف»: أهداف الشهر (شهرها هذا: الشهر كله أو فترةٌ تبدأ فيه)، ومعها فتراتٌ مخصّصة بدأت قبله وتمتد إليه — وكل هدفٍ يُحسب
+ * في نافذته: سياقٌ لكل فترةٍ مختلفة (بالتسلسل، فلا تتضاعف استعلامات القاعدة المتوازية)، وسياق الشهر دائماً (صافي مبيعاته للملخّص)
+ */
 export async function repTargetsMonth(tid: string, repId: string, month?: string | null, now: Date = new Date(),
   scope?: RepTargetDocScope | null): Promise<RepTargetsMonth> {
   const tz = await tenantTz(tid);
   const win = monthWindow(month || currentMonthOf(now, tz), tz, now);
-  const targets = await prisma.repTarget.findMany({
-    where: { tenantId: tid, salesRepId: repId, month: win.month },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    include: { extraProducts: { orderBy: { sortOrder: 'asc' } } },
-  });
-  const ctx = await loadProgressContext(tid, repId, win, targets, scope);
+  const orderBy = [{ createdAt: 'asc' as const }, { id: 'asc' as const }];
+  const include = { extraProducts: { orderBy: { sortOrder: 'asc' as const } } };
+  const [own, spanning] = await Promise.all([
+    prisma.repTarget.findMany({ where: { tenantId: tid, salesRepId: repId, month: win.month }, orderBy, include }),
+    // فتراتٌ مخصّصة بدأت في شهرٍ سابق وما زالت تمسّ هذا الشهر (شهر الهدف = شهر أول يومٍ في فترته) — أحدثها حتى سقف الشهر،
+    // فلا يزدحم شهرٌ بفترات أشهرٍ كثيرة سابقة (ولا تتكاثر سياقات الحساب)
+    prisma.repTarget.findMany({
+      where: { tenantId: tid, salesRepId: repId, month: { lt: win.month }, periodTo: { gte: `${win.month}-01` } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: MAX_TARGETS_PER_MONTH, include,
+    }),
+  ]);
+  const targets = [...own, ...spanning.filter((t) => customPeriodOf(t))]
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  // نافذة كل هدف: فترته المخصّصة أو الشهر — والأهداف بالنافذة نفسها تتشارك سياقاً واحداً
+  const monthWin = monthPeriod(win.month, tz, now);
+  const keyOf = (t: RepTargetRow): string => { const p = customPeriodOf(t); return p ? `${p.from}~${p.to}` : ''; };
+  const windows = new Map<string, { win: TargetWindow; rows: RepTargetRow[] }>([['', { win: monthWin, rows: [] }]]);
+  for (const t of targets) {
+    const k = keyOf(t);
+    if (!windows.has(k)) { const p = customPeriodOf(t)!; windows.set(k, { win: periodWindow(p.from, p.to, tz, now), rows: [] }); }
+    windows.get(k)!.rows.push(t);
+  }
+  const ctxs = new Map<string, ProgressContext>();
+  for (const [k, w] of windows) ctxs.set(k, await loadProgressContext(tid, repId, w.win, w.rows, scope));
   return {
     month: win.month, from: win.from.toISOString(), to: win.to.toISOString(), isCurrent: win.isCurrent, daysLeft: win.daysLeft,
-    monthNetSales: ctx.monthNetSales,
-    targets: applyCombos(targets.map((t) => toTargetView(t, ctx))),
+    monthNetSales: ctxs.get('')!.monthNetSales,
+    targets: applyCombos(targets.map((t) => { const k = keyOf(t); return toTargetView(t, ctxs.get(k)!, windows.get(k)!.win.period); })),
   };
 }
 
@@ -497,7 +583,8 @@ export async function repTargetViewOf(tid: string, target: RepTargetRow, now: Da
     if (hit) return hit;
   }
   const tz = await tenantTz(tid);
-  const win = monthWindow(target.month, tz, now);
+  const p = customPeriodOf(target);
+  const win = p ? periodWindow(p.from, p.to, tz, now) : monthPeriod(target.month, tz, now);
   const ctx = await loadProgressContext(tid, target.salesRepId, win, [target], scope);
-  return toTargetView(target, ctx);
+  return toTargetView(target, ctx, win.period);
 }

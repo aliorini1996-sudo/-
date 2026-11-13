@@ -4,17 +4,19 @@ import { test } from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { directAvailableFor, directHintFor, encodeForProfile, impactLeftDots, send, supportsDirect, transportFor } from './printDirect';
-import { decodeBridgePayload } from '../lib/print/transport/bridgePayload';
+import { directAvailableFor, directHintFor, encodeForProfile, formRasterPages, impactLeftDots, send, supportsDirect, transportFor } from './printDirect';
+import { decodeBridgePayload, encodeBridgePayload } from '../lib/print/transport/bridgePayload';
+import { MAX_PAYLOAD_CHARS } from '../lib/print/transport/bridgeContract';
 import { TSPL_CANCEL } from '../lib/print/tspl';
 import { DEFAULT_PRINT_LOOK, impactQrSlotPx, lookFor, qrSlotStyle } from './printLook';
 import {
-  STAMPED_QR_CELLS, defaultPrintOptions, dotsPerMm, geometry, legacyPageProfile, legacyThermalProfile, presetPaper,
+  STAMPED_QR_CELLS, defaultPrintOptions, dotsPerMm, formReachX, geometry, legacyPageProfile, legacyThermalProfile, presetPaper,
   type PaperPresetId, type PrintProfile, type PrinterType, type TemplateId,
 } from '../lib/print/printSettings';
-import { PAGE_CUT_SEARCH_MM, createBitmap, fillRect, paginate, type RasterPage } from '../lib/print/raster';
+import { PAGE_CUT_SEARCH_MM, createBitmap, fillRect, formSheetRaster, paginate, type RasterPage } from '../lib/print/raster';
 import { ESCPOS_CANCEL } from '../lib/print/escpos';
-import { ESCP24_CANCEL, ESCP24_CANCEL_CONTINUOUS } from '../lib/print/escp24';
+import { ESCP24_CANCEL, ESCP24_CANCEL_CONTINUOUS, encodeEscP24 } from '../lib/print/escp24';
+import { dummyQrValue } from '../lib/print/calibration';
 
 const profile = (printer: PrinterType, template: TemplateId, preset: PaperPresetId, patch?: Partial<PrintProfile['options']>): PrintProfile => ({
   id: 'p-1', name: 'p', printer, template, paper: presetPaper(preset)!, options: { ...defaultPrintOptions(printer), ...patch },
@@ -240,6 +242,167 @@ test('التحرير الحرّ — النقطية: لوحة تذييلٍ بإط
   const { job, kind } = encodeForProfile(p, [kept]);
   assert.equal(kind, 'escp24');
   assert.ok(job.bytes.length > 0, 'سطر 1440 بلا حبرٍ وراءه');
+});
+
+// ─── «نموذج الشركة المطبوع مسبقاً» على النقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦): مهمة النموذج بلا هامشٍ ولا إزاحة وأشرطةٌ مقسّمة ───
+
+/** صفحة نموذج (بعرض الحزمة) بحبرٍ في الصفّ 0 عند العمود 0 وعند العمود 900 */
+const formPage = (h = 48, w = 1440): RasterPage => { const b = createBitmap(w, h); fillRect(b, 0, 0, 3, 24, true); fillRect(b, 900, 0, 3, 24, true); return { bitmap: b, qrRows: [] }; };
+const countOf = (s: string, needle: string): number => s.split(needle).length - 1;
+
+test('النموذج — encodeForProfile({ form: true }): لا تغذية علوية وESC $ من 0 ولو كان للقالب هامشٌ وإزاحة، وأشرطةٌ مقسّمة على فجواتها', () => {
+  const p = profile('impact', 'impact_preprinted', 'ff_a4');
+  p.paper.offsetXmm = 2;
+  p.paper.marginTopMm = 5;
+  p.paper.printableDots = 1424; // صورةٌ أضيق من السطر: الإزاحة 2 مم (14 ⇒ 15 نقطة) تتسع لها بلا الخيار
+  const narrow = (): RasterPage => formPage(48, 1424);
+  const form = hex(encodeForProfile(p, [[narrow()]], {}, { form: true }).job.bytes);
+  const HEAD = '1b 40 1b 28 55 01 00 0a 1b 28 43 02 00 71 10 1b 28 55 01 00 3c';
+  assert.ok(form.startsWith(`${HEAD} 1b 24 00 00 1b 2a 27 03 00`), form.slice(0, 120));
+  assert.ok(form.includes(' 1b 24 2c 01 1b 2a 27 03 00 '), 'المقطع الثاني عند 900 ⇒ ESC $ 300 (بلا أعمدةٍ بيضاء بينهما)');
+  // والمهمة نفسها بلا الخيار كما كانت: تغذية 5 مم = 35 نقطة وإزاحة 15 نقطة وشريطٌ واحد
+  const plain = hex(encodeForProfile(p, [[narrow()]]).job.bytes);
+  assert.ok(plain.startsWith(`${HEAD} 1b 4a 23 1b 24 05 00 1b 2a 27 87 03`), plain.slice(0, 120));
+  assert.deepEqual(encodeForProfile(p, [[narrow()]], {}, {}).job.bytes, encodeForProfile(p, [[narrow()]]).job.bytes, 'خياراتٌ فارغة = اليوم');
+});
+
+test('النموذج — الورق المتصل: ESC ( C بطول الورقة (279.4 مم = 3960)، وFF لكل ورقة، والنسخ تكرّر الأوراق كلها — والمقطع بلا طول وإلغاؤه ESC @ ثم FF', () => {
+  const p = profile('impact', 'impact_preprinted', 'ff_95x11');
+  const sheets = [formPage(), formPage(72)];
+  const one = encodeForProfile(p, [sheets], {}, { form: true });
+  const two = encodeForProfile(p, [sheets, sheets], {}, { form: true });
+  const s1 = hex(one.job.bytes);
+  assert.ok(s1.startsWith('1b 40 1b 28 55 01 00 0a 1b 28 43 02 00 78 0f 1b 28 55 01 00 3c 1b 24 00 00'));
+  assert.equal(countOf(s1, ' 0c'), 2, 'FF لكل ورقة');
+  assert.ok(s1.endsWith('0c'));
+  assert.deepEqual(one.cancel, ESCP24_CANCEL_CONTINUOUS);
+  const head = 21; // ESC @ + أوامر طول الصفحة
+  const body = one.job.bytes.subarray(head);
+  assert.equal(two.job.bytes.length, head + 2 * body.length, 'النسخة الثانية تكرارٌ حرفيّ للأولى');
+  assert.deepEqual(two.job.bytes.subarray(head + body.length), body);
+  const cut = encodeForProfile(profile('impact', 'impact_preprinted', 'cut_a4'), [sheets], {}, { form: true });
+  assert.ok(hex(cut.job.bytes).startsWith('1b 40 1b 24 00 00'), 'المقطع: لا طول صفحة ولا هامش');
+  assert.deepEqual(cut.cancel, ESCP24_CANCEL);
+});
+
+test('النموذج — الخيار للنقطية وحدها: على الحرارية أو العادية خطأٌ برمجيّ لا طباعة', () => {
+  assert.throws(() => encodeForProfile(profile('thermal', 'roll_compact', 'roll80'), [[page(576, 24)]], {}, { form: true }), /non-impact/);
+  assert.throws(() => encodeForProfile(legacyPageProfile(), [[page(576, 24)]], {}, { form: true }), /non-impact/);
+});
+
+test('النموذج — send(…, { form: true }) يمرّر الخيار إلى المُرمِّز (الحمولة كما رمّزها encodeForProfile بالخيار)', async () => {
+  const p = profile('impact', 'impact_preprinted', 'ff_a4');
+  p.paper.marginTopMm = 5;
+  const copies = [[formPage()]];
+  await withIosWindow(async (posted) => {
+    assert.equal(await send({ via: 'fs-ios', name: null }, p, copies, { pageLabel: () => '' }, { form: true }), 'done');
+    assert.equal(await send({ via: 'fs-ios', name: null }, p, copies, { pageLabel: () => '' }), 'done');
+    const [form, plain] = await Promise.all(posted.map((m) => decodeBridgePayload(m.payload as string)));
+    assert.equal(form.kind, 'escp24');
+    assert.deepEqual(form.bytes, encodeForProfile(p, copies, {}, { form: true }).job.bytes);
+    assert.deepEqual(plain.bytes, encodeForProfile(p, copies).job.bytes, 'بلا الخيار كما كان');
+    assert.notDeepEqual(form.bytes, plain.bytes);
+  });
+});
+
+test('النموذج — formRasterPages: للنقطية بحزمةٍ وحدها، وبلا أوراقٍ خطأ، وشريط «نموذج اختبار» من الجذر إلى أوّل الورقة الأولى', async () => {
+  const ui = { pageLabel: () => '' };
+  const rootOf = (sheets: unknown[], children: unknown[] = []) => ({ querySelectorAll: () => sheets, children }) as unknown as HTMLElement;
+  await assert.rejects(formRasterPages(rootOf([]), profile('page', 'page_plain', 'a4'), ui), /impact/);
+  await assert.rejects(formRasterPages(rootOf([]), profile('impact', 'impact_preprinted', 'ff_a4'), ui), /no form sheets/);
+  // المرساة (formBannerHtml) خارج الأوراق لا يلتقطها التقاط الورقة: تُنقل أوّلها — والإلغاء قبل الالتقاط لا يرسم شيئاً
+  const moved: unknown[] = [];
+  const first = { firstChild: 'first-child', insertBefore: (n: unknown, ref: unknown) => { moved.push(n, ref); } };
+  const banner = { hasAttribute: (a: string) => a === 'data-form-banner' };
+  const other = { hasAttribute: () => false };
+  const ctrl = new AbortController();
+  ctrl.abort();
+  const pages = await formRasterPages(rootOf([first, {}], [other, banner]), profile('impact', 'impact_preprinted', 'ff_a4'), { ...ui, signal: ctrl.signal });
+  assert.deepEqual(pages, []);
+  assert.deepEqual(moved, [banner, 'first-child']);
+});
+
+test('النموذج — حرّاس المصدر: printNodeDirect يتفرّع للنقطية بورقة نموذج إلى formRasterPages ومهمة { form: true } — والفرع العام كما هو', () => {
+  const src = fs.readFileSync(path.join(process.cwd(), 'src/rep/printDirect.ts'), 'utf8');
+  const node = src.slice(src.indexOf('export async function printNodeDirect('));
+  const branch = node.indexOf("if (p.printer === 'impact' && isFormSheet(node)) {");
+  assert.ok(branch > 0 && branch < node.indexOf('const want = copiesOf((label) => label ?? \'\', p.options.copies, p.options.copyLabels ? labels : null);'));
+  assert.ok(node.includes('pages = await formRasterPages(clone, p, ui);'));
+  assert.ok(node.includes('return send(port, p, Array.from({ length: n }, () => pages), ui, { form: true });'));
+  assert.ok(node.includes('copies.push(await rasterPages(clone, p, ui));'), 'الفرع العام بلا تغيير');
+  assert.ok(node.trimEnd().endsWith('return send(port, p, copies, ui);\n}'));
+  const html = src.slice(src.indexOf('export async function printFormHtmlDirect('), src.indexOf('export async function printNodeDirect('));
+  assert.ok(html.includes('const pages = await formRasterPages(idoc.body, p, ui);') && html.includes('return await send(port, p, [pages], ui, { form: true });'));
+  // لا rasterPages ولا paginate في مسار النموذج (لا تصغير ولا ترقيم ولا تخطّي بياض)
+  const fr = src.slice(src.indexOf('export async function formRasterPages('), src.indexOf('/**', src.indexOf('export async function formRasterPages(')));
+  assert.ok(!/rasterPages\(|paginate\(|textStrip\(/.test(fr));
+  assert.ok(fr.includes('captureElement(sheets[i], sheetDots)'));
+});
+
+/** مولّدٌ حتميّ (mulberry32) — الصورة نفسها في كل تشغيل */
+function rng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** «نصٌّ» عريض في صندوقٍ بالمم على ورقةٍ بنقاطها: حروفٌ بعرض 6–14 نقطة بخطوطٍ رأسية وأفقية بسماكة 3 نقاط (11pt عريض ≈ 21 نقطة ارتفاعاً) */
+function textBox(b: ReturnType<typeof createBitmap>, r: () => number, s: number, x: number, y: number, w: number, h: number, fill: number): void {
+  const top = Math.round((y + h / 2) * s) - 10;
+  const x1 = Math.round((x + w) * s) - 4;
+  let gx = x1 - Math.round(w * s * fill);
+  while (gx < x1) {
+    const gw = 6 + Math.floor(r() * 9);
+    fillRect(b, gx, top + 16, gw, 3, true);
+    for (let k = 0; k < 1 + Math.floor(r() * 3); k++) {
+      const vh = 8 + Math.floor(r() * 12);
+      fillRect(b, gx + Math.floor(r() * (gw - 3)), top + 19 - vh, 3, vh, true);
+    }
+    if (r() < 0.4) fillRect(b, gx + 2, top + 22, 2, 2, true);
+    gx += gw + 2 + (r() < 0.15 ? 8 : 0);
+  }
+}
+
+/** ميزانية حمولة ورقة نموذجٍ كثيفة على جسر أندرويد (محارف، بعد deflate-raw وbase64) — تقديرٌ يُراجع بالاختبار الميدانيّ (SPEC §5.8، §13) */
+const FORM_SHEET_PAYLOAD_BUDGET = 65_536;
+
+test('النموذج — حمولة ورقة A4 كثيفة (رأسٌ و23 صفّاً ورمز 55 مم): التقسيم أصغر، والحمولة المضغوطة لكل ورقة في ميزانيتها (3 أوراق لكل مهمة جسر)', async (t) => {
+  const p = profile('impact', 'impact_preprinted', 'ff_a4');
+  const dpm = dotsPerMm(180);
+  const sheetDots = Math.round(210 * dpm);
+  const s = sheetDots / 210;
+  const r = rng(13112026);
+  const sheet = createBitmap(sheetDots, Math.ceil(296.5 * dpm));
+  // الرأس: 20 حقلاً بعرض 50–80 مم
+  for (let i = 0; i < 20; i++) textBox(sheet, r, s, i % 2 ? 110 : 20, 30 + Math.floor(i / 2) * 7, 50 + (i % 3) * 15, 6, 0.6 + r() * 0.35);
+  // الجدول: 23 صفّاً × 7 أعمدة (70–200 مم) والرمز 55 مم يساره (12، 226)، و4 حقول إجماليات تحت الجدول
+  const colsMm: Array<[number, number]> = [[70, 7], [77, 15], [92, 25], [117, 35], [152, 10], [162, 12], [174, 26]];
+  for (let row = 0; row < 23; row++) for (const [x, w] of colsMm) textBox(sheet, r, s, x, 105 + row * 7, w, 7, 0.4 + r() * 0.5);
+  for (let i = 0; i < 4; i++) textBox(sheet, r, s, 150, 268 + i * 7, 45, 6, 0.7);
+  const qrSide = 55 * s;
+  const page = formSheetRaster(
+    { bitmap: sheet, slots: [{ value: dummyQrValue(), ec: 'L', rect: { x: 12 * s, y: 226 * s, w: qrSide, h: qrSide } }] },
+    { x0: Math.round(formReachX(p)![0] * dpm), dots: 1440, maxRows: Math.floor(297 * dpm + 1e-9) },
+    { dpi: 180, size: 'auto' },
+  );
+  const seg = encodeForProfile(p, [[page]], {}, { form: true }).job;
+  // المهمة نفسها بلا تقسيم (شريطٌ من أوّل حبرٍ إلى آخره) للمقارنة
+  const flat = encodeEscP24({ copies: [[page]], continuous: true, pageLengthMm: 297, topDots: 0, leftDots: 0, draft: false });
+  const chars = async (bytes: Uint8Array, marks: number[]) => (await encodeBridgePayload({ kind: 'escp24', bytes, marks, cancel: [...ESCP24_CANCEL_CONTINUOUS], slow: false, label: '' })).length;
+  const segChars = await chars(seg.bytes, seg.marks);
+  const flatChars = await chars(flat.bytes, flat.marks);
+  t.diagnostic(`A4 كثيفة: خام ${seg.bytes.length} بايت مقسّمةً مقابل ${flat.bytes.length}؛ حمولة الجسر ${segChars} محرفاً مقابل ${flatChars} (السقف ${MAX_PAYLOAD_CHARS})`);
+  // التقسيم يوفّر البايتات الخام (Web Serial بلا ضغط، وذاكرة الطابعة) — أما حمولة الجسر المضغوطة فتكاد تتساوى: deflate يضغط الأعمدة
+  // البيضاء أصلاً، فلا يُشترط إلا ألّا تكبر بأكثر من 10٪
+  assert.ok(seg.bytes.length < flat.bytes.length, 'التقسيم أصغر خاماً');
+  assert.ok(segChars <= flatChars * 1.1, `حمولة الجسر مقسّمةً ${segChars} مقابل ${flatChars}`);
+  assert.ok(segChars <= FORM_SHEET_PAYLOAD_BUDGET, `ميزانية الورقة ${FORM_SHEET_PAYLOAD_BUDGET}: ${segChars}`);
+  assert.ok(3 * FORM_SHEET_PAYLOAD_BUDGET <= MAX_PAYLOAD_CHARS, 'ثلاث أوراقٍ (أوراقٌ × نسخ) في مهمة جسرٍ واحدة');
 });
 
 test('التحرير الحرّ — rasterPages يمرّر مدى اللوحات (keep من captureElement) إلى paginate', () => {

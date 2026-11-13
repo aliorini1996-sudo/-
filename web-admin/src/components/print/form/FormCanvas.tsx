@@ -10,6 +10,10 @@
  *
  * السحب حيٌّ في الطبقة وحدها، والالتزام عند الإفلات بمحرّرات formModel (تلصق بالشبكة وتقصّ داخل الورقة) فيُكتب سجلّ تراجعٍ واحد.
  * الإحداثيات ملّيمترات من الركن الأيسر الأعلى الفعلي للورقة (x يميناً مهما كان اتجاه الواجهة) — الأسهم مادّية.
+ *
+ * والطابعة النقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦، MIP480 — ورقٌ يحمل reach من formPaperOf): شرائط مخطّطة بلا تفاعل «لا تبلغه الطابعة
+ * النقطية» حيث لا تصل الإبرة — في التحرير ما خارج formReachBox (المواضع المحفوظة بعد المعايرة)، وفي المعايرة ما خارج [x0, x1]
+ * (المواضع المطبوعة) — والسحب مقيّدٌ داخل ما تبلغه (formDragLimits). وبلا reach لا شرائط والقيد الورقة كلها كما كان.
  */
 import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { AlertTriangle, GripHorizontal, ImageOff } from 'lucide-react';
@@ -23,8 +27,8 @@ import { useFormImage } from '../../../lib/print/formImage';
 import { HANDLES, PX_PER_MM, handleHitPx, isCoarsePointer, keyDelta, type Guide, type Handle, type Rect } from '../designer/designerMath';
 import { usePointerDrag } from '../designer/usePointerDrag';
 import {
-  columnDragSpan, columnSel, fieldDragRect, fieldSel, fieldSnapOthers, formTouchAction, ptToScreenPx, rowMmCapped, rowMmFromDrag, rowMmKeyDelta, selColumn,
-  selField, tableDragY, touchMayDrag, type ColumnEdge, type FormSel,
+  columnDragSpan, columnSel, fieldDragRect, fieldSel, fieldSnapOthers, formDragLimits, formTouchAction, ptToScreenPx, reachStrips, rowMmCapped, rowMmFromDrag,
+  rowMmKeyDelta, selColumn, selField, tableDragY, touchMayDrag, type ColumnEdge, type FormSel,
 } from './formCanvasMath';
 
 export interface FormCanvasProps {
@@ -40,12 +44,19 @@ export interface FormCanvasProps {
   mode?: 'edit' | 'calibrate';
   /** «إزالة الضريبة» (شركةٌ بلا ضريبة): لا يُرسم حقل رمز QR — لا رمز على مستنداتها */
   hideQr?: boolean;
+  /**
+   * «خط عريض للنص» للقالب (options.boldBody — افتراضيٌّ للنقطية): الورقة تطبع كل القيم عريضةً (جذرها data-print-look="bold") فتُرسم
+   * هنا عريضةً كذلك — لا تبدو عاديةً على الشاشة ثم تُقصّ أعرض على الورق
+   */
+  boldAll?: boolean;
 }
 
 /**
- * طبقات اللوحة: الجدول (2) < الحقل وشريط العمود (3) < لسان الجدول ومقبضه (4) < المحدَّد ومقابضه (6) < خطوط الالتقاط (9). غلاف الجدول
- * بلا z-index (لا سياق تكديسٍ له) فتتنافس أبناؤه — اللسان والمقبض والعمود المحدَّد — مع الحقول في سياق الورقة نفسه.
+ * طبقات اللوحة: شرائط ما لا تبلغه النقطية (1) < الجدول (2) < الحقل وشريط العمود (3) < لسان الجدول ومقبضه (4) < المحدَّد ومقابضه (6) <
+ * خطوط الالتقاط (9). غلاف الجدول بلا z-index (لا سياق تكديسٍ له) فتتنافس أبناؤه — اللسان والمقبض والعمود المحدَّد — مع الحقول في
+ * سياق الورقة نفسه.
  */
+export const FORM_REACH_Z = 1;
 export const FORM_TABLE_Z = 2;
 export const FORM_FIELD_Z = 3;
 export const FORM_GRIP_Z = 4;
@@ -68,13 +79,18 @@ const HANDLE_LABELS: Readonly<Record<Handle, string>> = Object.freeze({
 /** محاذاة القيمة في صندوقها على الورقة (start = يمين الصندوق كالورقة العربية) */
 export const formTextAlign = (a: FormField['align']): 'left' | 'center' | 'right' => (a === 'center' ? 'center' : a === 'end' ? 'left' : 'right');
 
+/** تخطيط شرائط ما لا تبلغه الطابعة النقطية (ومربّع مفتاحها تحت اللوحة) */
+export const FORM_REACH_HATCH = 'repeating-linear-gradient(135deg, rgba(142,42,31,0.20) 0 3px, rgba(255,255,255,0.55) 3px 7px)';
+/** أقلّ سُمكٍ على الشاشة (بكسل) تُكتب فيه التسمية داخل الشريط — وإلا المخطّط وحده ومفتاحه تحت اللوحة */
+const REACH_LABEL_MIN_PX = 12;
+
 // ─── اللوحة ───
 
 type LiveField = { id: FormFieldId; rect: Rect; guides: Guide[] };
 type LiveCol = { id: FormColumn['id']; x: number; w: number; guide: number | null };
 type LiveTable = { y: number; rowMm: number };
 
-export default function FormCanvas({ form, paper, onChange, selected, onSelect, zoom, mode = 'edit', hideQr = false }: FormCanvasProps) {
+export default function FormCanvas({ form, paper, onChange, selected, onSelect, zoom, mode = 'edit', hideQr = false, boldAll = false }: FormCanvasProps) {
   const tr = useTr();
   const begin = usePointerDrag();
   const [coarse] = useState(isCoarsePointer);
@@ -83,6 +99,15 @@ export default function FormCanvas({ form, paper, onChange, selected, onSelect, 
   // صورة النموذج للشاشة وحدها: مُحمِّل صور النموذج المشترك (ذاكرةٌ بالبصمة مع المعاينة والطباعة) — والفشل لا يمنع التصميم
   const img = useFormImage(form.image);
   const edit = mode === 'edit';
+  // حدود السحب: الورقة كلها، وعلى النقطية ما تبلغه الإبرة من المواضع المحفوظة بعد المعايرة (كقصّ formModel عند الالتزام)
+  const lim = useMemo(() => formDragLimits({ dxMm: form.dxMm, dyMm: form.dyMm }, paper), [form.dxMm, form.dyMm, paper]);
+  const reach = paper.reach ?? null;
+  // الشرائط: التحرير بالمواضع المحفوظة (ما خارج formReachBox)، والمعايرة بالمطبوعة (+ dx/dy) فما خارج [x0, x1] بطول الورقة
+  const strips = useMemo(
+    () => reachStrips(!reach ? null : edit ? lim.box : { x: reach.x0, y: 0, w: reach.x1 - reach.x0, h: sheet.lengthMm }, sheet),
+    [reach, edit, lim.box, sheet],
+  );
+  const reachLabel = tr('لا تبلغه الطابعة النقطية');
 
   const boxRef = useRef<HTMLDivElement>(null);
   const [boxW, setBoxW] = useState(0);
@@ -122,7 +147,7 @@ export default function FormCanvas({ form, paper, onChange, selected, onSelect, 
     if (h === null && !touchMayDrag(e.pointerType, selF === f.id)) return;
     const start: Rect = { x: f.x, y: f.y, w: f.w, h: f.h };
     const others = fieldSnapOthers(shown, f.id);
-    const at = (dx: number, dy: number) => fieldDragRect(start, h, dx / PX_PER_MM / scale, dy / PX_PER_MM / scale, others, sheet, f.id);
+    const at = (dx: number, dy: number) => fieldDragRect(start, h, dx / PX_PER_MM / scale, dy / PX_PER_MM / scale, others, sheet, f.id, lim);
     onSelect(fieldSel(f.id));
     begin(e, {
       onMove: (dx, dy) => { const r = at(dx, dy); setLiveField({ id: f.id, rect: r.rect, guides: r.guides }); },
@@ -142,7 +167,7 @@ export default function FormCanvas({ form, paper, onChange, selected, onSelect, 
     if (!t) return;
     if (edge === 'move' && !touchMayDrag(e.pointerType, selC === c.id)) return;
     const others = t.columns.filter((o) => o.id !== c.id).map((o) => ({ x: o.x, w: o.w }));
-    const at = (dx: number) => columnDragSpan({ x: c.x, w: c.w }, edge, dx / PX_PER_MM / scale, others, sheet.widthMm);
+    const at = (dx: number) => columnDragSpan({ x: c.x, w: c.w }, edge, dx / PX_PER_MM / scale, others, lim);
     onSelect(columnSel(c.id));
     begin(e, {
       onMove: (dx) => { const s = at(dx); setLiveCol({ id: c.id, x: s.x, w: s.w, guide: s.guide }); },
@@ -165,7 +190,7 @@ export default function FormCanvas({ form, paper, onChange, selected, onSelect, 
     const t = form.table;
     if (!t) return;
     onSelect('table');
-    const yAt = (dy: number): number => tableDragY(t.y, dy / PX_PER_MM / scale, t.rows, t.rowMm, sheet.lengthMm);
+    const yAt = (dy: number): number => tableDragY(t.y, dy / PX_PER_MM / scale, t.rows, t.rowMm, lim.bottom, lim.y0);
     begin(e, {
       onMove: (_dx, dy) => setLiveTable({ y: yAt(dy), rowMm: t.rowMm }),
       onCommit: (_dx, dy) => { const y = yAt(dy); setLiveTable(null); onChange(withFormTable(form, paper, { y })); },
@@ -177,7 +202,7 @@ export default function FormCanvas({ form, paper, onChange, selected, onSelect, 
     const t = form.table;
     if (!t) return;
     onSelect('table');
-    const rAt = (dy: number): number => rowMmFromDrag(t.rowMm, t.rows, t.y, dy / PX_PER_MM / scale, sheet.lengthMm);
+    const rAt = (dy: number): number => rowMmFromDrag(t.rowMm, t.rows, t.y, dy / PX_PER_MM / scale, lim.bottom);
     begin(e, {
       onMove: (_dx, dy) => setLiveTable({ y: t.y, rowMm: rAt(dy) }),
       onCommit: (_dx, dy) => { const rowMm = rAt(dy); setLiveTable(null); onChange(withFormTable(form, paper, { rowMm })); },
@@ -196,15 +221,15 @@ export default function FormCanvas({ form, paper, onChange, selected, onSelect, 
     const d = rowMmKeyDelta(e.key, e.shiftKey);
     if (!t || d === null) return;
     e.preventDefault();
-    // بحدّ ما يُبقي الصفوف كما هي (كالسحب) — لا يُنقص withFormTable عددها بصمت عند أسفل الورقة
-    onChange(withFormTable(form, paper, { rowMm: rowMmCapped(t.rowMm + d, t.rows, t.y, sheet.lengthMm) }));
+    // بحدّ ما يُبقي الصفوف كما هي (كالسحب) — لا يُنقص withFormTable عددها بصمت عند أسفل الورقة (أو آخر ما تبلغه النقطية)
+    onChange(withFormTable(form, paper, { rowMm: rowMmCapped(t.rowMm + d, t.rows, t.y, lim.bottom) }));
   };
 
   // ─── الرسم ───
 
   const valueText = (label: string, fontPct: number | undefined, align: FormField['align'], bold?: boolean) => (
     <span className="block w-full overflow-hidden px-0.5 text-[#1F1A13]/70" style={{
-      fontSize: ptToScreenPx(formFontPt(fontPct), scale), fontWeight: bold ? 700 : 400, textAlign: formTextAlign(align),
+      fontSize: ptToScreenPx(formFontPt(fontPct), scale), fontWeight: bold || boldAll ? 700 : 400, textAlign: formTextAlign(align),
       whiteSpace: 'nowrap', textOverflow: 'ellipsis', lineHeight: 1.15,
     }}>{label}</span>
   );
@@ -383,6 +408,18 @@ export default function FormCanvas({ form, paper, onChange, selected, onSelect, 
             backgroundImage: 'linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px)',
             backgroundSize: `${fiveMm}px ${fiveMm}px`,
           }} />
+          {/* النقطية: ما لا تبلغه الإبرة — مخطّطٌ بلا تفاعل (النقر يمرّ إلى الورقة)، وتسميته داخله إن اتّسع */}
+          {strips.map((s) => {
+            const side = s.side === 'left' || s.side === 'right';
+            return (
+              <div key={s.side} aria-hidden="true" data-form-reach-strip={s.side} className="absolute flex items-center justify-center overflow-hidden"
+                style={{ left: mm(s.x), top: mm(s.y), width: mm(s.w), height: mm(s.h), background: FORM_REACH_HATCH, pointerEvents: 'none', zIndex: FORM_REACH_Z }}>
+                {(side ? mm(s.w) : mm(s.h)) >= REACH_LABEL_MIN_PX && (
+                  <span className="text-[9px] font-semibold text-[#8E2A1F] whitespace-nowrap" style={side ? { writingMode: 'vertical-rl' } : undefined}>{reachLabel}</span>
+                )}
+              </div>
+            );
+          })}
           {edit ? (
             <>
               {renderTable()}
@@ -397,6 +434,11 @@ export default function FormCanvas({ form, paper, onChange, selected, onSelect, 
           ) : renderPrinted()}
         </div>
       </div>
+      {reach && (
+        <p className="mt-2 text-[11px] text-[#6E6557] flex items-center gap-1.5" role="note" data-form-reach-legend="">
+          <span aria-hidden="true" className="inline-block w-4 h-3 shrink-0 rounded-sm border border-[#8E2A1F]/30" style={{ background: FORM_REACH_HATCH }} />{reachLabel}
+        </p>
+      )}
       {edit && overlapIds.size > 0 && (
         <p className="mt-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1 flex items-center gap-1" role="note">
           <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />{tr(FORM_WARNINGS.overlap)}

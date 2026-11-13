@@ -17,14 +17,15 @@
 // الاستيراد من النواة type-only عمداً: لا يتوقف هذا الملف على ترتيب وصول حزم البناء، وقائمة الأقسام الافتراضية نسخة محلية
 // يحرسها layout.test.ts بمقارنتها مع sectionsFor() في النواة متى وُجدت.
 //
-// «نموذج الشركة المطبوع مسبقاً» (design = 'preprinted'، طلب المالك ١٠–١١ نوفمبر ٢٠٢٦): للطابعة العادية بطول صفحة وحدها، ومواضعه
-// (form) تُحمل كما يقصّها fitForm من lib/print/formModel داخل الورقة — وبلا مواضع صالحة يعود التصميم القياسي (كما يُسقطه الجهاز).
+// «نموذج الشركة المطبوع مسبقاً» (design = 'preprinted'، طلب المالك ١٠–١١ نوفمبر ٢٠٢٦): للطابعة العادية والنقطية بطول صفحة (لا
+// الرول)، ومواضعه (form) تُحمل كما يقصّها fitForm من lib/print/formModel داخل الورقة — وعلى النقطية (١٣ نوفمبر ٢٠٢٦) داخل ما تبلغه
+// الإبرة بعد المعايرة وبلا خلفية، ومعها formReach — وبلا مواضع صالحة يعود التصميم القياسي (كما يُسقطه الجهاز).
 // ============================================================================
 
 import type { PrintProfile, PrinterType, LayoutDesign, SectionId, Align, SectionStyle, CanvasBox, CanvasBoxId, CanvasBand, PrintCanvas, PrintForm } from './printSettingsCore';
 import { roundHalfUp } from '../money';
 import { isQrRemoved } from './printSettings';
-import { fitForm } from './formModel';
+import { fitForm, formPaperOf } from './formModel';
 
 export type CSSProps = Record<string, string | number>;
 
@@ -46,6 +47,11 @@ export interface ResolvedLayout {
    * لا يكون التصميم 'preprinted' أبداً)
    */
   form?: PrintForm;
+  /**
+   * ما تبلغه إبرة النقطية من عرض الورقة [x0, x1] بالمم من حافتها اليسرى (formReachX، في الوسط بلا offsetXmm) — يوجد مع form على
+   * النقطية وحدها (والعادية بلا هذا المفتاح كما كانت): الطباعة تقصّ شريط العلامات داخله وترفض حبراً خارجه
+   */
+  formReach?: { x0: number; x1: number };
 }
 
 // ─── نسخ محلية من ثوابت النواة (C(i)) — يحرسها layout.test.ts مقابل printSettingsCore متى صدّرها ───
@@ -111,8 +117,9 @@ export function resolveLayout(profile: PrintProfile | null | undefined): Resolve
   const thermal = printer === 'thermal';
   // الرول: تصميم قياسي وحده (B2) — والشعار بمواضعه الأربعة وأشكال الجدول الثلاثة منذ التحرير الحرّ (pd_spec B.1/B.3)
   let design: LayoutDesign = thermal ? 'standard' as LayoutDesign : pick(raw.design, DESIGNS, 'standard' as LayoutDesign);
-  // النموذج المطبوع مسبقاً: للطابعة العادية بطول صفحة ومواضع صالحة — وإلا فالتصميم القياسي (القالب يطبع تصميم اليوم)
-  const form = design === 'preprinted' ? resolveForm(raw.form, profile) : null;
+  // النموذج المطبوع مسبقاً: للطابعة العادية أو النقطية بطول صفحة ومواضع صالحة — وإلا فالتصميم القياسي (القالب يطبع تصميم اليوم)
+  const resolved = design === 'preprinted' ? resolveForm(raw.form, profile) : null;
+  const form = resolved?.form ?? null;
   if (design === 'preprinted' && !form) design = 'standard' as LayoutDesign;
   const grid = design === 'grid_bilingual';
   const logo = pick(raw.logo, LOGOS, grid || thermal ? 'center' : 'start');
@@ -127,6 +134,7 @@ export function resolveLayout(profile: PrintProfile | null | undefined): Resolve
   };
   resolveFreeKeys(out, raw as Record<string, unknown>);
   if (form) out.form = form;
+  if (form && resolved?.reach) out.formReach = { x0: resolved.reach.x0, x1: resolved.reach.x1 };
   if (out.canvas) {
     const total = paperBandsTotal((profile as { paper?: unknown }).paper);
     if (total < BOUNDS.bandsTotalMm) out.bandsTotalMm = total;
@@ -135,16 +143,19 @@ export function resolveLayout(profile: PrintProfile | null | undefined): Resolve
 }
 
 /**
- * مواضع «النموذج المطبوع مسبقاً» للعرض والطباعة: الطابعة العادية بورقٍ له طول، وكائنٌ بمصفوفة حقول — مقصوصاً داخل الورقة على الشبكة
- * (fitForm؛ متساوي القوى على ما تحفظه النواة). null ⇒ لا نموذج (التصميم القياسي). ونموذجٌ بلا حقلٍ ولا جدول يبقى نموذجاً (أوراقٌ
- * بلا قيم): لا تُطبع فاتورة اليوم كاملةً بإطاراتها فوق ورق الشركة المطبوع.
+ * مواضع «النموذج المطبوع مسبقاً» للعرض والطباعة: الطابعة العادية أو النقطية بورقٍ له طول، وكائنٌ بمصفوفة حقول — مقصوصاً داخل الورقة
+ * على الشبكة (fitForm؛ متساوي القوى على ما تحفظه النواة). null ⇒ لا نموذج (التصميم القياسي). ونموذجٌ بلا حقلٍ ولا جدول يبقى نموذجاً
+ * (أوراقٌ بلا قيم): لا تُطبع فاتورة اليوم كاملةً بإطاراتها فوق ورق الشركة المطبوع. وعلى النقطية (formPaperOf: reach) داخل ما تبلغه
+ * الإبرة بعد المعايرة، والخلفية false دائماً (لا تطبعها النقطية) — ومعها reach لـformReach.
  */
-function resolveForm(raw: unknown, profile: PrintProfile): PrintForm | null {
-  if (profile.printer !== 'page' || !isObj(raw)) return null;
+function resolveForm(raw: unknown, profile: PrintProfile): { form: PrintForm; reach: { x0: number; x1: number } | null } | null {
+  if ((profile.printer !== 'page' && profile.printer !== 'impact') || !isObj(raw)) return null;
   const paper = (profile as { paper?: unknown }).paper as { widthMm?: unknown; lengthMm?: unknown } | undefined;
   if (!paper || !isNum(paper.widthMm) || !isNum(paper.lengthMm) || paper.widthMm <= 0 || paper.lengthMm <= 0) return null;
   if (!Array.isArray(raw.fields)) return null;
-  return fitForm(raw as unknown as PrintForm, { widthMm: paper.widthMm, lengthMm: paper.lengthMm });
+  const fp = formPaperOf(profile);
+  const form = fitForm(raw as unknown as PrintForm, fp);
+  return fp.reach ? { form: { ...form, background: false }, reach: fp.reach } : { form, reach: null };
 }
 
 /**
