@@ -29,6 +29,8 @@ import { PRICE_LIST_MESSAGES } from '../services/priceLists';
 import { CUSTOMER_PHONE_MAX } from '../services/importMatch';
 import { findPhoneDuplicate, phoneDupBody, phoneDupExempt } from '../services/customerPhoneDup';
 import { DEVICE_NOW_HEADER, headerText, offlineInvoiceDate } from '../services/offlineInvoiceDate';
+import { parseCustomerDocs, droppedDocsWarning, docCreateRows, docsBatchRef } from '../services/customerDocs';
+import { customerStudioRouter } from './customerStudio';
 // «الوحدة الرئيسية» §2.10: أسعار العميل لوحدة الأساس تُكتب تحت قفل صفّ الصنف مقارنةً بالأساس الذي كُتبت له
 import {
   ProductUnitsBusyError, ProductUnitsChangedError, baseGuardReply, lockBases, missingBaseForApi, staleClientBase, type ExpectedBases,
@@ -230,6 +232,8 @@ router.get('/locations', async (req: AuthRequest, res: Response, next: NextFunct
 
 // قائمة بيانات الفوترة + «اعتماد التصنيف المقترح» + نقطة الفوترة الضيّقة للمندوب (Q3) — قبل /:id وإلا التُقطت كمعرّف عميل
 router.use(createCustomerBuyerDataRouter(buyerDataDeps));
+// «استديو العميل» (طلب المالك ١٣ نوفمبر ٢٠٢٦): وثائقه وصور زياراته ومرفقات سنداته — لمستخدمي الشركة وحدهم (routes/customerStudio.ts)
+router.use(customerStudioRouter);
 
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -265,6 +269,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     data.name = customerNameFallback(data);
     const ref = customerRefOf(req.body);
     if (ref) data.code = ref; else delete data.code;
+    // «استديو العميل»: صور الوثائق مع الإنشاء نفسه (ذرّياً مع العميل — والصفّ دون اتصال يحملها معه). ما لا يصلح يُسقط بتحذير ولا يرفض العميل
+    const docsIn = parseCustomerDocs(req.body?.documents);
+    const docsWarning = droppedDocsWarning(docsIn.dropped);
+    const docsRef = typeof data.clientRef === 'string' && data.clientRef ? docsBatchRef(data.clientRef) : null;
+    const docsCreate = docsIn.docs.length > 0 ? { documents: { create: docCreateRows(tid, docsIn.docs, req, docsRef) } } : {};
 
     // المندوب الذي ينشئ العميل (إن كان الطالب مندوباً) — يُوثَّق ويُسنَد له العميل تلقائياً
     const creatorRepId = req.user?.role === 'SALES_REP' ? req.user.id : null;
@@ -331,7 +340,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
             ...(upd.priceListId !== undefined && { priceListId: upd.priceListId || null }),
           } as any,
         });
-        res.status(200).json({ success: true, data: updated, existing: true, updated: true, ...(buyerGate.warnings && { warnings: buyerGate.warnings }) });
+        // عميلٌ قائم بالرقم المرجعي (مزامنة نظامٍ خارجي): الوثائق لا تُضاف هنا — كل مزامنة كانت ستكرّرها بلا سقف ولا نطاق.
+        // تُرفع من «استديو العميل» (بقفل الصفّ وسقف العميل)
+        const ignoredDocs = docsIn.docs.length + docsIn.dropped;
+        const updWarnings = [...(buyerGate.warnings ?? []), ...(ignoredDocs > 0 ? [{ code: 'CUSTOMER_DOCS_IGNORED', ignored: ignoredDocs, message: 'العميل قائم بالرقم المرجعي فلم تُضف صور الوثائق — ارفعها من استديو العميل' }] : [])];
+        res.status(200).json({ success: true, data: updated, existing: true, updated: true, ...(updWarnings.length > 0 && { warnings: updWarnings }) });
         return;
       }
       if (byRef) {
@@ -363,6 +376,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         clientCreatedAt: clientCreatedAt && !Number.isNaN(new Date(clientCreatedAt).getTime()) ? new Date(clientCreatedAt) : undefined, // تاريخ الجهاز التالف يُهمل لا 500
         ...(addedAt && { createdAt: addedAt }),
         ...(creatorRepId && { createdBySalesRepId: creatorRepId }),
+        ...docsCreate,
       } as any,
     });
     // العميل الذي يفتحه المندوب يظهر له فوراً (سجلّ إسناد تلقائي؛ للإدارة نزعه لاحقاً)
@@ -377,6 +391,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       catch (e) { console.error('[ai-rep] ربط التحويل تعذّر:', (e as Error)?.message); }
     }
     const postWarnings = [...(buyerGate.warnings ?? []), ...(refWarning ? [refWarning] : [])];
+    if (docsWarning) postWarnings.push(docsWarning); // صور وثائق أُسقطت — العميل نفسه حُفظ
     res.status(201).json({ success: true, data: customer, ...(postWarnings.length > 0 && { warnings: postWarnings }) });
   } catch (err) {
     if (isPriceListFkFail(err)) { priceListInvalid(res); return; }

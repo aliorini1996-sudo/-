@@ -80,6 +80,11 @@ export const customerApi = {
   buyerData: (params?: Record<string, string | number>) => api.get('/customers/zatca-buyer-data', { params }),
   applySuggestedType: (ids: string[]) => api.post('/customers/zatca-buyer-data/apply-suggested', { ids }),
   updateBuyerData: (id: string, data: unknown) => api.patch(`/customers/${id}/buyer-data`, data),
+  // «استديو العميل» (١٣ نوفمبر ٢٠٢٦): القائمة بلا الصور، ثم الصورة وحدها عند ظهورها؛ ورفع الوثائق وحذفها
+  studio: (id: string) => api.get(`/customers/${id}/studio`),
+  studioItem: (id: string, source: string, itemId: string) => api.get(`/customers/${id}/studio/${source}/${itemId}`),
+  addDocuments: (id: string, documents: { kind: string; data: string }[]) => api.post(`/customers/${id}/documents`, { documents }),
+  removeDocument: (id: string, docId: string) => api.delete(`/customers/${id}/documents/${docId}`),
 };
 
 export const productApi = {

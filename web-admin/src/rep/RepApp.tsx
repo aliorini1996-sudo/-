@@ -17,6 +17,8 @@ import { RETURN_POLICY_CODES, noteReasonProblem, repReturnPolicyFields, returnIs
 import { NOTE_REASON_MAX, RETURN_REF_MAX, isPhase2Company, manualReturnRefAllowed, normalizeReturnRef, returnLinkRequired } from '../lib/returnPolicy';
 import type { UnitDef } from '../lib/units';
 import { compressImage } from './imageCompress';
+import CustomerDocsPicker from '../components/CustomerDocsPicker';
+import { PickedDoc, docsPayload, docsBatchRef } from '../lib/customerDocs';
 import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
 import { useBackClose } from '../lib/useBackClose';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
@@ -3947,6 +3949,10 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
   const { pin, capturePin, pastePinLink } = useRepPin(prefill);
   // المندوب الذكي: نوع المنفذ (أساس التوقّع للمحلات المشابهة) — معبّأ من المحل المقترح
   const [outletType, setOutletType] = useState(prefill?.outletType ?? '');
+  // «صور الوثائق» (طلب المالك ١٣ نوفمبر ٢٠٢٦): تصويرٌ أو من استديو الجوال — في جسم العميل نفسه، فدون اتصال تبقى معه في الصفّ
+  const [docs, setDocs] = useState<PickedDoc[]>([]);
+  const [docsBusy, setDocsBusy] = useState(false); // الضغط جارٍ: «حفظ العميل» ينتظر الصور ثم يحفظ وحده (waitDocs)
+  const [waitDocs, setWaitDocs] = useState(false);
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -3973,10 +3979,15 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
       ...(outletType && { outletType }),
       ...(prefill?.aiPlaceId && { aiPlaceId: prefill.aiPlaceId }),
       ...(zatcaCollect ? buyerCreatePayload(buyer) : {}),
+      ...docsPayload(docs),
     };
     attempt.current = attemptClientRef(attempt.current, body, newClientRef);
     const clientRef = attempt.current.ref;
     const payload = { ...body, clientRef, clientCreatedAt };
+    // دون اتصال: صور الوثائق مدخلٌ مستقلّ آخر الصفّ (customerDocs) — العميل يُصفّ خفيفاً فيُرفع أولاً وتمرّ فواتيره وسنداته بعده
+    // بلا انتظار ميغابايتات الصور على شبكة ضعيفة. ومفتاح الدفعة واحد مع الإرسال المباشر (docsBatchRef) فلا تتكرّر إن كان الخادم
+    // قد حفظها قبل انقطاع الردّ
+    const { documents: queuedDocs, ...custPayload } = payload;
     try {
       const res = await repApi.post('/customers', payload);
       onCreated(res.data.data);
@@ -3985,16 +3996,31 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
       // فاتورته/سنده لاحقاً يشيران إليه بـ customerClientRef فيحلّه الخادم عند الرفع.
       // إلا المقيَّد بـ«اشتراط تفعيل الموقع» (القفل الكامل): لا عميل دون اتصال — يعيد الإضافة متصلاً بالمفتاح نفسه
       if (isNetworkError(err) && !strictRepNow()) {
-        await outboxAdd({ clientRef, repId: currentRepId(), kind: 'customer', payload, status: 'queued', clientCreatedAt });
+        await outboxAdd({ clientRef, repId: currentRepId(), kind: 'customer', payload: custPayload, status: 'queued', clientCreatedAt });
         // العميل المحلي يُعرض باسم الخادم البديل نفسه حين يُترك الاسم فارغاً (الطابور يرسل الفارغ كما هو والخادم يملؤه)
         const shownName = payload.name || payload.businessName || payload.phone || 'عميل';
-        onCreated({ ...payload, name: shownName, id: 'local-' + clientRef, clientRef, _offline: true, balance: 0, creditLimit: payload.creditLimit ?? 0, status: 'ACTIVE' });
+        if (queuedDocs?.length) {
+          const docsRef = docsBatchRef(clientRef);
+          await outboxAdd({
+            clientRef: docsRef, repId: currentRepId(), kind: 'customerDocs', status: 'queued', clientCreatedAt,
+            payload: { customerClientRef: clientRef, clientRef: docsRef, customerName: shownName, documents: queuedDocs },
+          });
+        }
+        onCreated({ ...custPayload, name: shownName, id: 'local-' + clientRef, clientRef, _offline: true, balance: 0, creditLimit: payload.creditLimit ?? 0, status: 'ACTIVE' });
       } else {
         setMsg(err?.response?.data?.message || tr('تعذر إضافة العميل'));
         setLoading(false);
       }
     }
   };
+
+  // «حفظ» ضُغط والصور تُجهَّز: يُحفظ حين تنتهي — بالصور كلها (والإرسال نفسه بلا فحصٍ يسبقه كما كان)
+  const requestSave = () => { if (docsBusy) { setWaitDocs(true); return; } void submit(); };
+  useEffect(() => {
+    if (docsBusy || !waitDocs) return;
+    setWaitDocs(false);
+    void submit();
+  }, [docsBusy, waitDocs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const field = (label: string, key: string, opts?: { required?: boolean; type?: string; ltr?: boolean; maxLength?: number }) => (
     <div>
@@ -4038,6 +4064,11 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
           <div className="mt-3">{field(tr('العنوان التفصيلي'), 'address')}</div>
         </div>
 
+        <div>
+          <p className="text-xs font-semibold text-gray-400 mb-2">{tr('صور الوثائق')}</p>
+          <CustomerDocsPicker docs={docs} onChange={setDocs} taxOff={taxOff} onBusy={setDocsBusy} />
+        </div>
+
         {outletTypes && (
           <div>
             <p className="text-xs font-semibold text-gray-400 mb-2">{tr('نوع المحل')}</p>
@@ -4078,7 +4109,8 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
 
       <div className="p-4 border-t bg-white">
         {/* أثناء التقاط الموقع لا حفظ — وإلا حُفظ العميل بلا الموقع الذي ينتظره المندوب */}
-        <button onClick={submit} disabled={loading || pin.gps === 'getting'} className="w-full bg-[#E15A30] text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
+        {waitDocs && <p className="text-[11px] text-[#8A6D1F] text-center mb-2">{tr('يحفظ العميل حين تجهز الصور')}</p>}
+        <button onClick={requestSave} disabled={loading || pin.gps === 'getting'} className="w-full bg-[#E15A30] text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={16} />}
           {tr('حفظ العميل')}
         </button>
@@ -4957,7 +4989,7 @@ function OutboxPanel({ onClose, onSync, syncing }: { onClose: () => void; onSync
   const load = () => outboxDocs().then(setDocs);
   useEffect(() => { load(); const off = onOutboxChange(load); const iv = window.setInterval(load, 4000); return () => { off(); window.clearInterval(iv); }; }, []);
 
-  const kindLabel = (k: OutboxDoc['kind']) => k === 'invoice' ? tr('فاتورة') : k === 'receipt' ? tr('سند قبض') : k === 'visit' ? tr('زيارة') : k === 'dailyReport' ? tr('تقرير يومي') : k === 'aiOutcome' ? tr('نتيجة زيارة محل') : tr('عميل');
+  const kindLabel = (k: OutboxDoc['kind']) => k === 'invoice' ? tr('فاتورة') : k === 'receipt' ? tr('سند قبض') : k === 'visit' ? tr('زيارة') : k === 'dailyReport' ? tr('تقرير يومي') : k === 'aiOutcome' ? tr('نتيجة زيارة محل') : k === 'customerDocs' ? tr('صور وثائق عميل') : tr('عميل');
   const custName = (d: OutboxDoc) => (d.payload as any)?.name || (d.payload as any)?.customerName || '';
   const pendingList = docs.filter(d => d.status === 'queued');
   const rejectedList = docs.filter(d => d.status === 'rejected');

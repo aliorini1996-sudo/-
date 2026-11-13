@@ -6,12 +6,13 @@ import { Customer } from '../types';
 import { formatCurrency, formatDate, statusLabels } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { SALES_CHANNELS, channelLabel } from '../lib/channels';
-import { Plus, Search, Edit, FileText, FileBarChart2, Trash2, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { Plus, Search, Edit, FileText, FileBarChart2, Trash2, ChevronLeft, ChevronRight, Download, Images } from 'lucide-react';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/authStore';
 import ConfirmDialog from '../components/ConfirmDialog';
 import CustomerModal from '../components/forms/CustomerModal';
+import CustomerStudioModal from '../components/CustomerStudioModal';
 import CustomerStatementModal from '../components/forms/CustomerStatementModal';
 import DocumentModal from '../components/DocumentModal';
 import { useAccountingOn } from '../components/AccountingGate';
@@ -47,6 +48,8 @@ export default function CustomersPage() {
   const [docResult, setDocResult] = useState<StatementDoc | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Customer | null>(null);
+  // «استديو العميل» (طلب المالك ١٣ نوفمبر ٢٠٢٦): وثائقه وصور زياراته ومرفقات سنداته
+  const [studioFor, setStudioFor] = useState<{ id: string; name: string } | null>(null);
   const [buyerBucket, setBuyerBucket] = useState<BuyerBucket>('');
   const [bucketCursors, setBucketCursors] = useState<(string | null)[]>([null]);
   const [picked, setPicked] = useState<string[]>([]);
@@ -126,9 +129,12 @@ export default function CustomersPage() {
   const saveMutation = useMutation({
     mutationFn: (values: Partial<Customer>) =>
       selected ? customerApi.update(selected.id, values) : customerApi.create(values),
-    onSuccess: () => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['customers'] });
       toast.success(selected ? tr('تم تحديث العميل') : tr('تم إضافة العميل'));
+      // صور وثائق لم تصلح فأسقطها الخادم — العميل نفسه حُفظ («بلا قيود على العميل»)
+      const warns = (res as { data?: { warnings?: { code?: string }[] } })?.data?.warnings ?? [];
+      if (warns.some(w => w?.code === 'CUSTOMER_DOCS_DROPPED')) toast.error(tr('لم تحفظ بعض صور الوثائق لأنها ليست صورا صالحة'));
       setShowModal(false);
       setSelected(null);
     },
@@ -399,6 +405,10 @@ export default function CustomersPage() {
                       <button onClick={() => openEditRow(c)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('تعديل')}>
                         <Edit size={14} />
                       </button>
+                      <button onClick={() => setStudioFor({ id: c.id, name: c.name })} className="p-1.5 hover:bg-amber-50 rounded text-[#8A6D1F]"
+                        title={tr('استديو العميل')} aria-label={tr('استديو العميل')} data-customer-studio="">
+                        <Images size={14} />
+                      </button>
                       {/* كشف الحساب فعلٌ محاسبي: زرّاه يختفيان مع المحاسبة */}
                       {accountingOn && !bucketMode && (
                         <button onClick={() => openStatement(c)} className="p-1.5 hover:bg-green-50 rounded text-green-600" title={tr('كشف حساب عرض')}>
@@ -459,6 +469,7 @@ export default function CustomersPage() {
           buyerRelax={buyerRelax}
           taxOff={taxOff}
           customer={selected}
+          onOpenStudio={selected ? () => setStudioFor({ id: selected.id, name: selected.name }) : undefined}
           onClose={() => { setShowModal(false); setSelected(null); }}
           onSave={saveMutation.mutate}
           loading={saveMutation.isPending}
@@ -470,6 +481,8 @@ export default function CustomersPage() {
       )}
 
       {docResult && <DocumentModal doc={docResult} onClose={() => setDocResult(null)} />}
+
+      {studioFor && <CustomerStudioModal customer={studioFor} taxOff={taxOff} onClose={() => setStudioFor(null)} />}
 
       {deleting && (
         <ConfirmDialog

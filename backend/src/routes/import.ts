@@ -1646,6 +1646,8 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
               routeStops: await tx.repRouteStop.count({ where: { customerId: cid, tenantId: tid } }),
               // Cascade يمحو الإسناد مع العميل بصمت: المندوب يفقد عميله بلا سبب ظاهر
               assignments: await tx.customerAssignment.count({ where: { customerId: cid, tenantId: tid } }),
+              // «استديو العميل»: وثائقه المرفوعة Cascade مع العميل — تمنع التراجع ولا تُمحى بصمت
+              documents: await tx.customerDocument.count({ where: { customerId: cid, tenantId: tid } }),
               // البند 33: حركات الدفاتر تُفحص بعدها (استعلاماها لا يُنفَّذان إن كفى سبب قائم)
             }) ?? await customerLedgerBlockReason(tx, tid, cid);
             if (reason) return { status: 'blocked' as const, reason };

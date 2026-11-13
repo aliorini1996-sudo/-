@@ -60,10 +60,11 @@ export async function syncOutbox(): Promise<SyncResult> {
   let sent = 0, rejected = 0, stopped = false, sentInvoices = 0;
   try {
     // ترتيب التبعية: العميل قبل فاتورته/سنده/زيارته — يضمن حلّ customerClientRef على الخادم
-    const rank = (k: OutboxDoc['kind']) => (k === 'customer' ? 0 : k === 'invoice' ? 1 : k === 'receipt' ? 2 : k === 'visit' ? 3 : k === 'aiOutcome' ? 4 : 5);
+    // صور وثائق العميل الجديد آخر الصفّ (6): ميغابايتاتها على شبكةٍ ضعيفة لا تحبس فواتير اليوم وسنداته خلفها — والعميل نفسه خفيفٌ أولها
+    const rank = (k: OutboxDoc['kind']) => (k === 'customer' ? 0 : k === 'invoice' ? 1 : k === 'receipt' ? 2 : k === 'visit' ? 3 : k === 'aiOutcome' ? 4 : k === 'customerDocs' ? 6 : 5);
     const endpointOf = (k: OutboxDoc['kind']) =>
       k === 'customer' ? '/customers' : k === 'invoice' ? '/invoices' : k === 'receipt' ? '/receipts'
-      : k === 'visit' ? '/visits' : k === 'aiOutcome' ? '/ai-rep/rep/outcomes' : '/daily-reports';
+      : k === 'visit' ? '/visits' : k === 'aiOutcome' ? '/ai-rep/rep/outcomes' : k === 'customerDocs' ? '/customers/rep-documents' : '/daily-reports';
     const startedAt = Date.now();
     const queued = (await outboxAll())
       .filter((d) => d.status === 'queued' && ownedByCurrentRep(d) && reviewRecheckDue(d, startedAt))

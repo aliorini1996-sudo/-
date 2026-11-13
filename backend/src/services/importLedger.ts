@@ -613,6 +613,8 @@ export interface CustomerFootprint {
   routeStops?: number;
   /** البند 17: إسناد العميل لمندوب (CustomerAssignment) — Cascade يمحوه بصمت مع العميل */
   assignments?: number;
+  /** «استديو العميل» (١٣ نوفمبر ٢٠٢٦): وثائق رُفعت للعميل (CustomerDocument، Cascade) — عمل مستخدمٍ لا يُمحى بصمت مع التراجع */
+  documents?: number;
   /**
    * البند 17 (الإغلاقة): نطاقات مستخدمي الشركة على العميل (AdminCustomerScope، Cascade).
    * **ليست سبب منع**: النطاق أثر صلاحيات لا بيانات عمل — يُحذف صراحةً ويُعدّ في `removedScopes` بالرد.
@@ -636,6 +638,7 @@ export function customerBlockReason(f: CustomerFootprint): string | null {
   if ((f.prices ?? 0) > 0) return 'للعميل أسعار خاصة، تراجع عن دفعة الأسعار أو احذفها أولاً';
   if ((f.routeStops ?? 0) > 0) return 'للعميل محطات في خطوط سير المناديب';
   if ((f.assignments ?? 0) > 0) return 'العميل مُسنَد لمندوب، أزل الإسناد أولاً';
+  if ((f.documents ?? 0) > 0) return 'للعميل وثائق مرفوعة في استديو العميل';
   // f.scopes (نطاقات مستخدمي الشركة) لا تمنع: أثر صلاحيات يُحذف ويُعدّ في removedScopes
   return null;
 }
