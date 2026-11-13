@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { warehouseApi } from '../api/client';
 import { compressImage } from '../rep/imageCompress';
 import { useTr } from '../i18n/strings';
+import { NO_CAMERA_HINT, NO_CAMERA_MSG, cameraCaptureCrashes } from '../lib/appCamera';
 import { useBackClose } from '../lib/useBackClose';
 import { formatDate, formatNumber } from '../utils/format';
 import {
@@ -154,10 +155,17 @@ export function MPurchaseAttachPicker({ items, onChange, existing = 0, onBusy, d
       )}
       {!full && (
         <div className="grid grid-cols-3 gap-2">
-          <label className={btn}>
-            <Camera size={17} /> {tr('تصوير')}
-            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onPick} disabled={off} />
-          </label>
+          {cameraCaptureCrashes() ? (
+            // تطبيق «إدارة» 1.0.x على الآيفون بلا إذن كاميرا: فتحها يُغلق التطبيق (lib/appCamera.ts) — رسالةٌ بدل الكاميرا
+            <button type="button" className={btn} onClick={() => setMsg(tr(NO_CAMERA_MSG))} disabled={off}>
+              <Camera size={17} /> {tr('تصوير')}
+            </button>
+          ) : (
+            <label className={btn}>
+              <Camera size={17} /> {tr('تصوير')}
+              <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onPick} disabled={off} />
+            </label>
+          )}
           <label className={btn}>
             <ImagePlus size={17} /> {tr('من الاستديو')}
             <input type="file" accept="image/*" multiple className="hidden" onChange={onPick} disabled={off} />
@@ -168,6 +176,7 @@ export function MPurchaseAttachPicker({ items, onChange, existing = 0, onBusy, d
           </label>
         </div>
       )}
+      {!full && cameraCaptureCrashes() && <p className="text-[10px] text-[#B4561F] px-0.5">{tr(NO_CAMERA_HINT)}</p>}
       <p className="text-[10px] text-[#9A8F7E] px-0.5 flex items-center justify-between gap-2">
         <span className="flex items-center gap-1 min-w-0">
           {working && <Loader2 size={11} className="animate-spin flex-shrink-0" />}

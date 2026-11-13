@@ -1680,6 +1680,9 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'فاتورة المشتريات': { en: 'Purchase invoice', fr: 'Facture d achat', tr: 'Satın alma faturası', zh: '采购发票' },
   'ملف PDF': { en: 'PDF file', fr: 'Fichier PDF', tr: 'PDF dosyası', zh: 'PDF 文件' },
   'صورة الفاتورة أو ملف PDF': { en: 'Invoice photo or PDF file', fr: 'Photo de la facture ou fichier PDF', tr: 'Fatura fotoğrafı veya PDF dosyası', zh: '发票照片或 PDF 文件' },
+  // تطبيق «إدارة» 1.0.x على الآيفون بلا إذن كاميرا (lib/appCamera.ts — بلاغ المالك ١٣ نوفمبر ٢٠٢٦)
+  'التصوير غير متاح في هذه النسخة من تطبيق الإدارة على الآيفون — صوّر بكاميرا الجوال ثم من «من الاستديو» اختر «مكتبة الصور»': { en: 'The camera is not available in this version of the admin app on iPhone. Take the photo with the phone camera, then tap From gallery and choose Photo Library', fr: 'La caméra n’est pas disponible dans cette version de l’application d’administration sur iPhone. Prenez la photo avec l’appareil photo du téléphone, puis touchez Depuis la galerie et choisissez Photothèque', tr: 'Kamera, iPhone yönetim uygulamasının bu sürümünde kullanılamıyor. Fotoğrafı telefon kamerasıyla çekin, ardından Galeriden seçeneğine dokunup Fotoğraf Arşivi’ni seçin', zh: '此版本的 iPhone 管理应用无法使用相机。请先用手机相机拍照，再点“从相册”并选择“照片图库”' },
+  'في هذه النسخة من تطبيق الآيفون اختر «مكتبة الصور» لا «التقاط صورة»': { en: 'In this version of the iPhone app, choose Photo Library, not Take Photo', fr: 'Dans cette version de l’application iPhone, choisissez Photothèque et non Prendre une photo', tr: 'iPhone uygulamasının bu sürümünde Fotoğraf Çek değil Fotoğraf Arşivi’ni seçin', zh: '在此版本的 iPhone 应用中，请选择“照片图库”，不要选择“拍照”' },
   'إضافة مرفقات': { en: 'Add attachments', fr: 'Ajouter des pièces jointes', tr: 'Ek ekle', zh: '添加附件' },
   'حذف المرفق': { en: 'Delete attachment', fr: 'Supprimer la pièce jointe', tr: 'Eki sil', zh: '删除附件' },
   'فتح الملف': { en: 'Open file', fr: 'Ouvrir le fichier', tr: 'Dosyayı aç', zh: '打开文件' },

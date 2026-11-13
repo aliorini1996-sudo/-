@@ -44,6 +44,8 @@ const TARGETS = {
     MIC: 'قد يستخدم التطبيق الميكروفون عند التقاط الوسائط بناءً على طلبك.',
     LOCATION: 'يستخدم التطبيق موقعك لتسجيل مواقع الزيارات الميدانية وتتبّع مسار المندوب أثناء العمل.',
     PHOTOS: true,
+    UA_EXTRA: '',
+    VERSION: '1.0.0',
   },
   admin: {
     APP: 'FieldSalesAdmin',
@@ -53,13 +55,20 @@ const TARGETS = {
     DEST: path.join(ROOT, 'ios-admin-app'),
     ICON: { bg: '#1F1A13', stroke: '#E15A30', dot: '#FAF7F0' },
     PROGRESS: { r: 225, g: 90, b: 48 },
-    // src/m calls navigator.geolocation only (customer location capture) — no camera, no mic,
-    // no photo library. Those keys are removed rather than left with template text.
+    // src/m captures the customer location, and (since 13 Nov 2026) uploads purchase-invoice photos/PDFs
+    // and deposit-receipt photos through <input type=file capture>. Without NSCameraUsageDescription iOS
+    // kills the app the moment the page opens the camera (owner report, 13 Nov 2026) — so 1.0.1 declares
+    // camera + photo library (no mic, no getUserMedia grant: /m never calls it).
+    // UA_EXTRA ' FSCam/1' tells the web (web-admin/src/lib/appCamera.ts) that this build may open the camera;
+    // 1.0.0 lacks it and gets a message instead of the camera.
     MEDIA_CAPTURE: false,
-    CAMERA: null,
+    CAMERA: 'يستخدم التطبيق الكاميرا لتصوير فاتورة المشتريات أو إيصال الإيداع عند إرفاقهما.',
     MIC: null,
     LOCATION: 'يستخدم التطبيق موقعك لالتقاط موقع العميل عند إضافته أو تعديله.',
     PHOTOS: false,
+    PHOTO_LIBRARY: 'يتيح التطبيق اختيار صور من مكتبتك لإرفاقها بفاتورة المشتريات أو إيصال الإيداع.',
+    UA_EXTRA: ' FSCam/1',
+    VERSION: '1.0.1',
   },
 };
 
@@ -72,7 +81,7 @@ if (!CFG) {
 const { APP, BUNDLE_ID, ROOT_URL, DEST, PROGRESS } = CFG;
 const URL_HOST = 'fieldsa.net';
 const APP_BOUND = ['fieldsa.net', 'api.fieldsa.net'];   // WKAppBoundDomains: host-only (enables service worker / offline)
-const MARKETING_VERSION = '1.0.0';
+const MARKETING_VERSION = CFG.VERSION;
 fs.mkdirSync(DEST, { recursive: true });
 console.log(`▶ target: ${TARGET_NAME}  (${APP} / ${BUNDLE_ID} -> ${ROOT_URL})`);
 
@@ -185,7 +194,7 @@ edit(`${APP}/ViewController.swift`, [
 ]);
 
 // WebView: brand the UA tag, and (rep only) grant camera/mic to web getUserMedia.
-edit(`${APP}/WebView.swift`, [['Safari/604.1 PWAShell', `Safari/604.1 ${APP}`]]);
+edit(`${APP}/WebView.swift`, [['Safari/604.1 PWAShell', `Safari/604.1 ${APP}${CFG.UA_EXTRA}`]]);
 if (CFG.MEDIA_CAPTURE) {
   edit(`${APP}/WebView.swift`, [
     ['extension ViewController: WKUIDelegate, WKDownloadDelegate {',
@@ -212,6 +221,13 @@ plistPairs.push(CFG.MIC
 if (CFG.PHOTOS) {
   plistPairs.push(['<key>CFBundleDevelopmentRegion</key>',
     '<key>NSPhotoLibraryUsageDescription</key>\n\t<string>يتيح التطبيق اختيار صور من مكتبتك لإرفاقها بزيارات العملاء.</string>\n\t<key>NSPhotoLibraryAddUsageDescription</key>\n\t<string>يحفظ التطبيق المستندات والصور في مكتبتك عند طلبك.</string>\n\t<key>CFBundleDevelopmentRegion</key>']);
+}
+// Admin: photo library only (no PhotoLibraryAdd — /m never saves to the library), right after location.
+if (CFG.PHOTO_LIBRARY) {
+  plistPairs.push(['<key>CFBundleDevelopmentRegion</key>',
+    `<key>NSPhotoLibraryUsageDescription</key>
+	<string>${CFG.PHOTO_LIBRARY}</string>
+	<key>CFBundleDevelopmentRegion</key>`]);
 }
 edit(`${APP}/Info.plist`, plistPairs);
 log('✓ compatibility fixes applied (permission purposes + build fix)');
