@@ -36,7 +36,7 @@ test('الحارس موصول في الإنشاء قبل الكتابة، وفي
   assert.ok(post > 0 && post < s.indexOf('const customer = await prisma.customer.create({', post), 'قبل الإنشاء');
   assert.ok(s.includes("&& data.phone.trim() !== String(exists.phone ?? '').trim()) {"), 'التعديل: الجوال نفسه لا يُفحص');
   assert.ok(s.includes('const dup = await findPhoneDuplicate(tid, data.phone, req.params.id);'), 'التعديل يستثني العميل نفسه');
-  assert.equal((s.match(/!phoneDupExempt\(req\)/g) ?? []).length, 2);
+  assert.ok((s.match(/!phoneDupExempt\(req\)/g) ?? []).length >= 2);
   const svc = fs.readFileSync(path.join(__dirname, '..', 'services', 'customerPhoneDup.ts'), 'utf8');
   assert.match(svc, /"tenantId" = \$\{tid\} AND status <> 'DELETED'/, 'داخل الشركة، والمحذوف لا يُعدّ');
 });

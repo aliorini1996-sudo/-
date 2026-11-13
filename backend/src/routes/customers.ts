@@ -28,6 +28,7 @@ import { UnitInvalidError } from '../services/warehouseStock';
 import { PRICE_LIST_MESSAGES } from '../services/priceLists';
 import { CUSTOMER_PHONE_MAX } from '../services/importMatch';
 import { findPhoneDuplicate, phoneDupBody, phoneDupExempt } from '../services/customerPhoneDup';
+import { findLocationDuplicate, locationDupBody, validPoint } from '../services/customerLocationDup';
 import { DEVICE_NOW_HEADER, headerText, offlineInvoiceDate } from '../services/offlineInvoiceDate';
 import { parseCustomerDocs, droppedDocsWarning, docCreateRows, docsBatchRef } from '../services/customerDocs';
 import { customerStudioRouter } from './customerStudio';
@@ -363,6 +364,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (!phoneDupExempt(req)) {
       const dup = await findPhoneDuplicate(tid, rest.phone);
       if (dup) { res.status(409).json(phoneDupBody(dup, await canAccessCustomer(req, tid, dup.id))); return; }
+      // «منع تكرار الموقع داخل الشركة» (طلب المالك ١٣ نوفمبر ٢٠٢٦): عميلٌ آخر ضمن ٣٠ متراً ⇒ 409 CUSTOMER_LOCATION_EXISTS
+      const near = await findLocationDuplicate(tid, rest.lat, rest.lng);
+      if (near) { res.status(409).json(locationDupBody(near, await canAccessCustomer(req, tid, near.id))); return; }
     }
     // R6: عميل صندوق المندوب بلحظة إضافته على الجهاز (replayCustomerCreatedAt) — وغيره ساعة الخادم كما كان
     const addedAt = await replayCustomerCreatedAt(req, tid, clientCreatedAt);
@@ -578,6 +582,12 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (locationUrl) {
       const geo = await resolveLocationUrl(locationUrl, { googleOnly: true });
       if (geo) { data.lat = geo.lat; data.lng = geo.lng; }
+    }
+    // «منع تكرار الموقع داخل الشركة»: موقعٌ تحرّك إلى ٣٠ متراً من عميلٍ آخر ⇒ 409 — والموقع نفسه بلا تغيير (صدى النموذج) لا يُمنع:
+    // findLocationDuplicate يقرأ صفّ العميل نفسه في الاستعلام ذاته فيعرف أنه لم يتحرّك (تكرارٌ قديم لا يمنع تعديلاً)
+    if (validPoint(data.lat, data.lng) && !phoneDupExempt(req)) {
+      const near = await findLocationDuplicate(tid, data.lat, data.lng, req.params.id);
+      if (near) { res.status(409).json(locationDupBody(near, await canAccessCustomer(req, tid, near.id))); return; }
     }
     let customer = await prisma.customer.update({
       where: { id: req.params.id },
