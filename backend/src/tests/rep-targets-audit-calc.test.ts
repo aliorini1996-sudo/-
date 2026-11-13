@@ -350,6 +350,84 @@ test('النطاق يمرّ في repTargetsMonth وrepTargetViewOf (المستق
   reset(scripts(combo));
   const v = await repTargetViewOf(TENANT, combo[0], NOW, SCOPE);
   assert.equal(v.id, 'a');
-  assert.equal(seen['repTarget.findMany'].length, 1, 'من شهره');
+  // من شهره: أهدافه، وفتراتٌ مخصّصة بدأت قبله وتمتد إليه («مدة الهدف» ١٣ نوفمبر ٢٠٢٦)
+  assert.equal(seen['repTarget.findMany'].length, 2, 'من شهره');
+  assert.deepEqual(seen['repTarget.findMany'][1].where, { tenantId: TENANT, salesRepId: REP, month: { lt: '2026-11' }, periodTo: { gte: '2026-11-01' } });
   assert.deepEqual(seen['invoice.aggregate'][0].where.AND, TEAM_AND);
+});
+
+// ═══ «مدة الهدف» (طلب المالك ١٣ نوفمبر ٢٠٢٦): فترةٌ مخصّصة أقصر من شهر أو أطول ═══
+
+test('مدة الهدف — النافذة بتوقيت الشركة: الحال والأيام الباقية، والشهر كله نافذة الشهر نفسها، والفترة الصالحة يومٌ إلى ٣٦٦', () => {
+  const { periodWindow, monthPeriod, validPeriod } = svc;
+  // اليوم ١٠ نوفمبر بتوقيت الرياض
+  const active = periodWindow('2026-11-05', '2026-11-15', RIYADH, NOW);
+  assert.deepEqual(active.period, { from: '2026-11-05', to: '2026-11-15', custom: true, state: 'ACTIVE', daysLeft: 6 });
+  assert.equal(active.from.toISOString(), '2026-11-04T21:00:00.000Z');
+  assert.equal(active.to.toISOString(), '2026-11-15T21:00:00.000Z', 'آخر يومٍ شاملاً');
+  assert.deepEqual(periodWindow('2026-11-20', '2026-12-31', RIYADH, NOW).period.state, 'UPCOMING');
+  assert.equal(periodWindow('2026-11-20', '2026-12-31', RIYADH, NOW).period.daysLeft, 42, 'المقبلة: أيامها كلها');
+  assert.deepEqual([periodWindow('2026-10-01', '2026-11-09', RIYADH, NOW).period.state, periodWindow('2026-10-01', '2026-11-09', RIYADH, NOW).period.daysLeft], ['ENDED', 0]);
+  const m = monthPeriod('2026-11', RIYADH, NOW);
+  assert.deepEqual([m.from.toISOString(), m.to.toISOString()], [NOV.from.toISOString(), NOV.to.toISOString()]);
+  assert.deepEqual(m.period, { from: '2026-11-01', to: '2026-11-30', custom: false, state: 'ACTIVE', daysLeft: 21 });
+  assert.deepEqual(validPeriod('2026-11-10', '2026-11-10'), { from: '2026-11-10', to: '2026-11-10' }, 'يومٌ واحد');
+  assert.ok(validPeriod('2026-01-01', '2026-12-31'));
+  assert.equal(validPeriod('2026-01-01', '2027-01-02'), null, 'أكثر من ٣٦٦ يوماً');
+  assert.equal(validPeriod('2026-11-15', '2026-11-14'), null, 'النهاية قبل البداية');
+  assert.equal(validPeriod('2026-02-30', '2026-03-05'), null, 'يومٌ لا يوجد');
+  assert.equal(validPeriod('2026-11-01', null), null);
+});
+
+test('مدة الهدف — المحمّل: كل هدفٍ في نافذته (الشهر، فترةٌ داخله، فترةٌ بدأت قبله وتمتد إليه)، والعمولة من مبيعات فترته، وملخّص الشهر بالشهر', async () => {
+  const monthT = row({ id: 'm', createdAt: new Date('2026-11-01T08:00:00Z'), targetValue: 1000 });
+  const inner = row({ id: 'c', createdAt: new Date('2026-11-02T08:00:00Z'), periodFrom: '2026-11-08', periodTo: '2026-11-14', targetValue: 300, rewardKind: 'COMMISSION_SALES_PCT', rewardValue: 10 } as Partial<RepTargetRow>);
+  const spanning = row({ id: 's', month: '2026-10', createdAt: new Date('2026-10-20T08:00:00Z'), periodFrom: '2026-10-25', periodTo: '2026-11-05', targetValue: 100 } as Partial<RepTargetRow>);
+  // بيع كل نافذةٍ برقمٍ يميّزها من بدايتها
+  const salesFrom: Record<string, number> = {
+    [NOV.from.toISOString()]: 1000,
+    '2026-11-07T21:00:00.000Z': 400,
+    '2026-10-24T21:00:00.000Z': 250,
+  };
+  reset({
+    'repTarget.findMany': (a: any) => (typeof a.where.month === 'string' ? [monthT, inner] : [spanning]),
+    'invoice.aggregate': (a: any) => ({ _sum: { total: a.where.type === 'RETURN' ? 0 : salesFrom[a.where.invoiceDate.gte.toISOString()] ?? -1 } }),
+  });
+  const r = await repTargetsMonth(TENANT, REP, '2026-11', NOW);
+  // الترتيب بالإنشاء: الممتدّ من أكتوبر أولاً
+  assert.deepEqual(r.targets.map((t) => t.id), ['s', 'm', 'c']);
+  const by = Object.fromEntries(r.targets.map((t) => [t.id, t]));
+  assert.deepEqual([by.m.progress.achieved, by.c.progress.achieved, by.s.progress.achieved], [1000, 400, 250]);
+  assert.deepEqual([by.m.period?.custom, by.c.period?.custom, by.s.period?.custom], [false, true, true]);
+  assert.deepEqual([by.c.period?.from, by.c.period?.to, by.c.period?.state, by.c.period?.daysLeft], ['2026-11-08', '2026-11-14', 'ACTIVE', 5]);
+  assert.deepEqual([by.s.period?.state, by.s.period?.daysLeft], ['ENDED', 0]);
+  // العمولة ١٠٪ من مبيعات فترتها (٤٠٠) لا الشهر
+  assert.equal(by.c.reward.amount, 40);
+  assert.equal(r.monthNetSales, 1000, 'ملخّص الشهر بالشهر كله');
+  // الاستعلامان: أهداف الشهر، وفتراتٌ بدأت قبله وتمتد إليه
+  assert.deepEqual(seen['repTarget.findMany'].map((a: any) => a.where), [
+    { tenantId: TENANT, salesRepId: REP, month: '2026-11' },
+    { tenantId: TENANT, salesRepId: REP, month: { lt: '2026-11' }, periodTo: { gte: '2026-11-01' } },
+  ]);
+  // صفٌّ ممتدٌّ بلا فترةٍ صالحة لا يدخل (الشهر لا يمسّه)
+  reset({ 'repTarget.findMany': (a: any) => (typeof a.where.month === 'string' ? [] : [row({ id: 'x', month: '2026-10' })]) });
+  assert.deepEqual((await repTargetsMonth(TENANT, REP, '2026-11', NOW)).targets, []);
+});
+
+test('مدة الهدف — ردّ الإنشاء والتعديل يحسب الهدف المخصّص في فترته', async () => {
+  const t = row({ id: 'c', periodFrom: '2026-11-08', periodTo: '2026-11-14' } as Partial<RepTargetRow>);
+  reset({ 'invoice.aggregate': (a: any) => ({ _sum: { total: a.where.type === 'RETURN' ? 0 : 77 } }) });
+  const v = await repTargetViewOf(TENANT, t, NOW);
+  assert.equal(seen['invoice.aggregate'][0].where.invoiceDate.gte.toISOString(), '2026-11-07T21:00:00.000Z');
+  assert.equal(seen['invoice.aggregate'][0].where.invoiceDate.lt.toISOString(), '2026-11-14T21:00:00.000Z');
+  assert.deepEqual([v.progress.achieved, v.period?.custom, v.period?.daysLeft], [77, true, 5]);
+});
+
+test('مدة الهدف — سقف صفوف الزيارات يتّسع بطول النافذة (٢٠٠٠٠ لكل ٣١ يوماً) فلا تُقصّ فترةٌ طويلة، والشهر كما كان', () => {
+  const { visitRowsCap, periodWindow, sameWindow } = svc;
+  assert.equal(visitRowsCap(NOV.from, NOV.to), 20000);
+  const year = periodWindow('2026-01-01', '2026-12-31', RIYADH, NOW);
+  assert.equal(visitRowsCap(year.from, year.to), 240000);
+  assert.equal(sameWindow({ month: '2026-11' }, { month: '2026-11', periodFrom: null, periodTo: null }), true);
+  assert.equal(sameWindow({ month: '2026-11' }, { month: '2026-11', periodFrom: '2026-11-01', periodTo: '2026-11-30' }), false, 'الشهر كله غير فترةٍ بحدوده');
 });

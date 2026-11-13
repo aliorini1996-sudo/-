@@ -439,3 +439,59 @@ test('تطبيق المندوب: بطاقة «هدف الشهر» في الرئ�
   const fetcher = read('rep', 'repTargetsFetch.ts');
   assert.ok(fetcher.includes("repApi.get('/rep-targets/mine', { background: true })"), 'طلبٌ خلفيّ لا يُخرج المندوب');
 });
+
+// ═══ «مدة الهدف» (طلب المالك ١٣ نوفمبر ٢٠٢٦): الشهر كله أو فترةٌ مخصّصة ═══
+
+test('مدة الهدف — النموذج: الشهر كله افتراضاً بلا حقلي الفترة في الجسم، والمخصّصة شهرها شهر بدايتها، وتُرفض الناقصة والمقلوبة والأطول من سنة', async () => {
+  const L = await import('./repTargets');
+  const d0 = draft();
+  assert.deepEqual([d0.periodMode, d0.periodFrom, d0.periodTo], ['MONTH', '2026-11-01', '2026-11-30'], 'الفترة المقترحة الشهر المعروض');
+  const body = toTargetInput(d0, null);
+  assert.equal('periodFrom' in body || 'periodTo' in body, false, 'الشهر كله: الجسم كما كان');
+  assert.equal(body.month, '2026-11');
+  const custom = toTargetInput(draft({ periodMode: 'CUSTOM', periodFrom: '2026-12-05', periodTo: '2027-01-20' }), null);
+  assert.deepEqual([custom.month, custom.periodFrom, custom.periodTo], ['2026-12', '2026-12-05', '2027-01-20']);
+  assert.equal(draftProblem(draft({ periodMode: 'CUSTOM', periodFrom: '2026-11-15', periodTo: '2026-11-14' })), 'نهاية الفترة قبل بدايتها');
+  assert.equal(draftProblem(draft({ periodMode: 'CUSTOM', periodFrom: '2026-01-01', periodTo: '2027-01-02' })), 'فترة الهدف سنة على الأكثر');
+  assert.equal(draftProblem(draft({ periodMode: 'CUSTOM', periodFrom: '', periodTo: '2026-11-14' })), 'حدد بداية الفترة ونهايتها');
+  assert.equal(draftProblem(draft({ periodMode: 'CUSTOM', periodFrom: '2026-02-30', periodTo: '2026-03-04' })), 'حدد بداية الفترة ونهايتها');
+  assert.equal(draftProblem(draft({ periodMode: 'CUSTOM', periodFrom: '2026-11-10', periodTo: '2026-11-10' })), null, 'يومٌ واحد');
+  assert.equal(L.periodDays('2026-11-08', '2026-11-14'), 7);
+  // التعديل يعيد الفترة كما حُفظت، والشهر كله يقترح حدود شهره
+  const p = { from: '2026-11-08', to: '2026-11-14', custom: true, state: 'ACTIVE' as const, daysLeft: 5 };
+  assert.deepEqual([draftOf(view({ period: p })).periodMode, draftOf(view({ period: p })).periodFrom], ['CUSTOM', '2026-11-08']);
+  assert.equal(draftOf(view()).periodMode, 'MONTH', 'خادمٌ أقدم بلا period ⇒ الشهر كله');
+});
+
+test('مدة الهدف — العرض: «مبيعات الفترة» للمخصّصة، وحالها (متبقي/تبدأ/انتهت)، ونصّ «لا ديون» بالفترة، وكل عبارةٍ مترجمة', async () => {
+  const L = await import('./repTargets');
+  const p = { from: '2026-11-08', to: '2026-11-14', custom: true, state: 'ACTIVE' as const, daysLeft: 5 };
+  assert.equal(targetTitle(view({ period: p }), arTr), 'مبيعات الفترة');
+  assert.equal(targetTitle(view({ kind: 'VISITS_COUNT', period: p }), arTr), 'زيارات الفترة');
+  assert.equal(targetTitle(view({ period: { ...p, custom: false } }), arTr), 'مبيعات الشهر');
+  assert.equal(L.periodStatusText(p, 'ar', arTr, 'ar-SA-u-nu-latn', String), 'متبقي 5 أيام');
+  assert.equal(L.periodStatusText({ ...p, state: 'ENDED', daysLeft: 0 }, 'ar', arTr, 'ar-SA'), 'انتهت الفترة');
+  assert.match(L.periodStatusText({ ...p, state: 'UPCOMING', daysLeft: 7 }, 'ar', arTr, 'en-US'), /^تبدأ November 8$/);
+  assert.match(L.periodLabel(p, 'en-US'), /Nov(ember)?\s+8\s*[–-]\s*14,\s*2026/);
+  assert.equal(targetStateText({ state: 'NO_BASE' }, true), 'لا توجد ديون سابقة مفتوحة في بداية الفترة');
+  assert.equal(targetStateText({ state: 'NO_BASE' }), 'لا توجد ديون سابقة مفتوحة في بداية الشهر');
+  for (const k of ['مدة الهدف', 'الشهر كاملا', 'فترة محددة', 'الديون المفتوحة بداية الفترة', '{n} يوما', 'أقل من شهر أو أكثر حتى سنة وتحسب أرقام الهدف كلها داخل الفترة']) {
+    for (const l of LANGS) assert.ok(PHRASES[k]?.[l], `${k} ${l}`);
+  }
+  // النافذة وبطاقة المندوب تعرضان الفترة، والنموذج يعرض خانتيها
+  assert.match(read('components', 'RepTargetsModal.tsx'), /data-target-period-field=""/);
+  assert.match(read('rep', 'RepTargetsCard.tsx'), /<PeriodLine t=\{t\} \/>/);
+});
+
+test('مدة الهدف — طول الفترة بتمييز العدد، والهدف في الشهر المعروض (لينتقل إليه بعد الحفظ)، ومفتاح النافذة للدمج', async () => {
+  const L = await import('./repTargets');
+  assert.deepEqual([1, 2, 7, 15, 100].map(n => L.periodDaysText(n, 'ar', arTr, String)), ['يوم واحد', 'يومان', '7 أيام', '15 يوماً', '100 يوم']);
+  assert.equal(L.periodDaysText(1, 'en', (s: string) => (PHRASES[s]?.en ?? s), String), '1 day');
+  assert.equal(L.periodDaysText(5, 'en', (s: string) => (PHRASES[s]?.en ?? s), String), '5 days');
+  const p = (from: string, to: string) => ({ from, to, custom: true, state: 'ACTIVE' as const, daysLeft: 1 });
+  assert.equal(L.targetInMonth({ month: '2026-11', period: p('2026-11-20', '2027-01-10') }, '2026-12'), true, 'الممتدّة تُرى في ديسمبر');
+  assert.equal(L.targetInMonth({ month: '2026-12', period: p('2026-12-05', '2026-12-20') }, '2026-11'), false, 'حُفظت في ديسمبر من نافذة نوفمبر');
+  assert.equal(L.targetInMonth({ month: '2026-11' }, '2026-11'), true);
+  assert.notEqual(L.windowKeyOf({ month: '2026-11' }), L.windowKeyOf({ month: '2026-11', period: p('2026-11-01', '2026-11-30') }));
+  assert.ok(TARGET_ERRORS.TARGET_COMBO_PERIOD && PHRASES[TARGET_ERRORS.TARGET_COMBO_PERIOD]?.en);
+});

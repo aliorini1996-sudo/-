@@ -58,10 +58,25 @@ export interface RepTargetProductView {
   currentUnitFactor?: number | null;
 }
 
+/**
+ * «مدة الهدف» (طلب المالك ١٣ نوفمبر ٢٠٢٦): الشهر كله (custom=false) أو فترةٌ مخصّصة من يومٍ إلى يوم (شاملاً، بتوقيت الشركة) —
+ * أقصر من شهر أو أطول حتى سنة. أرقام الهدف كلها داخلها، وحالها اليوم: مقبلة/جارية/منتهية
+ */
+export interface RepTargetPeriod {
+  from: string;
+  to: string;
+  custom: boolean;
+  state: 'UPCOMING' | 'ACTIVE' | 'ENDED';
+  /** الجارية: الأيام الباقية مع اليوم · المقبلة: أيامها كلها · المنتهية ٠ */
+  daysLeft: number;
+}
+
 /** هدفٌ كما يردّه الخادم (GET /rep-targets/rep/:repId و/mine، ونتيجة POST/PUT) */
 export interface RepTargetView {
   id: string;
   month: string;
+  /** مدة الهدف — خادمٌ أقدم بلا الحقل ⇒ الشهر كله */
+  period?: RepTargetPeriod;
   kind: RepTargetKind;
   targetValue: number;
   productId: string | null;
@@ -118,6 +133,9 @@ export interface RepTargetInput {
   note: string | null;
   /** PUT وحده: اعتماد حجم الوحدة الحالي للأسطر التي بقي صنفها ووحدتها — بقرارٍ صريح من المدير لا غير (`unitRefreshFlag`) */
   refreshUnitFactor?: boolean;
+  /** فترةٌ مخصّصة (كلاهما) — والغائبان = الشهر كله (والتعديل بلا فترة يعيده للشهر). شهر الهدف حينها شهر بدايتها */
+  periodFrom?: string;
+  periodTo?: string;
 }
 
 /** جسم POST /rep-targets/combo — دمج أهدافٍ مستقلة للمندوب في الشهر نفسه بمكافأةٍ واحدة */
@@ -152,6 +170,82 @@ export const TARGET_NOTE_MAX = 300;
 export const MAX_TARGETS_PER_MONTH = 20;
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+const DATE_RE = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
+/** أطول فترةٍ مخصّصة بالأيام — مرآة الخادم PERIOD_MAX_DAYS (وأقصرها يومٌ واحد) */
+export const PERIOD_MAX_DAYS = 366;
+
+/** يومٌ حقيقيّ 'YYYY-MM-DD' (لا ٣٠ فبراير) */
+export function isDay(s: string | null | undefined): s is string {
+  const m = DATE_RE.exec(String(s ?? ''));
+  if (!m) return false;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return d.getUTCDate() === Number(m[3]) && d.getUTCMonth() === Number(m[2]) - 1;
+}
+const dayMs = (s: string) => Date.UTC(Number(s.slice(0, 4)), Number(s.slice(5, 7)) - 1, Number(s.slice(8, 10)));
+/** أيام الفترة شاملةً طرفيها */
+export const periodDays = (from: string, to: string): number => Math.round((dayMs(to) - dayMs(from)) / 86_400_000) + 1;
+
+/** أول يومٍ في الشهر وآخره */
+export function monthBounds(month: string): { from: string; to: string } {
+  const [y, m] = month.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { from: `${month}-01`, to: `${month}-${String(last).padStart(2, '0')}` };
+}
+
+/** سبب رفض الفترة المخصّصة (مفتاح القاموس) أو null — مرآة validPeriod في الخادم */
+export function periodProblem(from: string, to: string): string | null {
+  if (!isDay(from) || !isDay(to)) return 'حدد بداية الفترة ونهايتها';
+  if (from > to) return 'نهاية الفترة قبل بدايتها';
+  if (Number(from.slice(0, 4)) < 2000 || Number(to.slice(0, 4)) > 2100) return 'حدد بداية الفترة ونهايتها';
+  if (periodDays(from, to) > PERIOD_MAX_DAYS) return 'فترة الهدف سنة على الأكثر';
+  return null;
+}
+
+/** «٨ – ١٤ نوفمبر ٢٠٢٦» بلغة العرض (formatRange يختصر المشترك) — بتوقيت UTC فلا ينزلق اليوم */
+export function periodLabel(p: Pick<RepTargetPeriod, 'from' | 'to'>, locale: string): string {
+  if (!isDay(p.from) || !isDay(p.to)) return `${p.from} – ${p.to}`;
+  const a = new Date(dayMs(p.from));
+  const b = new Date(dayMs(p.to));
+  try {
+    const f = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+    const fr = (f as Intl.DateTimeFormat & { formatRange?: (x: Date, y: Date) => string }).formatRange;
+    return p.from === p.to ? f.format(a) : fr ? fr.call(f, a, b) : `${f.format(a)} – ${f.format(b)}`;
+  } catch {
+    return `${p.from} – ${p.to}`;
+  }
+}
+
+/** طول الفترة: «يوم واحد»، «يومان»، «٧ أيام»، «١٥ يوماً» — وبغير العربية ترجمة العبارة (المفرد لليوم الواحد) */
+export function periodDaysText(n: number, lang: string, tr: Tr, num: Fmt = String): string {
+  const k = Math.max(0, Math.trunc(Number(n) || 0));
+  if (lang !== 'ar') return tr(k === 1 ? 'يوم واحد' : '{n} يوما').replace('{n}', () => num(k));
+  const r = k % 100;
+  return k === 1 ? 'يوم واحد' : k === 2 ? 'يومان' : r >= 3 && r <= 10 ? `${num(k)} أيام` : r >= 11 ? `${num(k)} يوماً` : `${num(k)} يوم`;
+}
+
+/** نافذة الهدف مفتاحاً: الشهر كله أو الفترة المخصّصة — أعضاء الهدف المدمج بمفتاحٍ واحد (مرآة sameWindow في الخادم) */
+export const windowKeyOf = (t: Pick<RepTargetView, 'month' | 'period'>): string =>
+  (t.period?.custom ? `${t.period.from}~${t.period.to}` : `M:${t.month}`);
+
+/** هل يظهر الهدف في الشهر المعروض؟ شهره نفسه، أو فترته المخصّصة تمسّه — وإلا انتقلت النافذة بعد حفظه إلى شهر بدايته */
+export function targetInMonth(t: Pick<RepTargetView, 'month' | 'period'>, month: string): boolean {
+  if (t.month === month) return true;
+  if (!t.period?.custom || !MONTH_RE.test(String(month ?? ''))) return false;
+  const b = monthBounds(month);
+  return t.period.from <= b.to && t.period.to >= b.from;
+}
+
+/** حال الفترة المخصّصة اليوم: «متبقي ٥ أيام» · «تبدأ ٢٠ نوفمبر» · «انتهت الفترة» */
+export function periodStatusText(p: RepTargetPeriod, lang: string, tr: Tr, locale: string, num: Fmt = String): string {
+  if (p.state === 'ENDED') return tr('انتهت الفترة');
+  if (p.state === 'UPCOMING') {
+    let day = p.from;
+    try { day = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(dayMs(p.from))); } catch { /* */ }
+    return tr('تبدأ {d}').replace('{d}', () => day);
+  }
+  return daysLeftText(p.daysLeft, lang, tr, num);
+}
 
 /** صنفٌ إضافي في نموذج هدف الكمية (بعد الأول) */
 export interface DraftExtraProduct { productId: string | null; unitId: string | null }
@@ -159,6 +253,10 @@ export interface DraftExtraProduct { productId: string | null; unitId: string | 
 /** خانات نموذج الهدف كما كُتبت — الأرقام نصوصٌ من الخانات */
 export interface TargetDraft {
   month: string;
+  /** مدة الهدف: الشهر كله أو فترةٌ مخصّصة (من/إلى، 'YYYY-MM-DD') */
+  periodMode: 'MONTH' | 'CUSTOM';
+  periodFrom: string;
+  periodTo: string;
   kind: RepTargetKind;
   targetValue: string;
   productId: string | null;
@@ -171,7 +269,12 @@ export interface TargetDraft {
 }
 
 export function emptyDraft(month: string): TargetDraft {
-  return { month, kind: 'SALES_AMOUNT', targetValue: '', productId: null, unitId: null, extraProducts: [], rewardKind: 'COMMISSION_SALES_PCT', rewardValue: '', note: '' };
+  // الفترة المخصّصة تبدأ مقترحةً بالشهر المعروض كله — يقصّرها المدير أو يمدّها
+  const b = MONTH_RE.test(String(month ?? '')) ? monthBounds(month) : { from: '', to: '' };
+  return {
+    month, periodMode: 'MONTH', periodFrom: b.from, periodTo: b.to,
+    kind: 'SALES_AMOUNT', targetValue: '', productId: null, unitId: null, extraProducts: [], rewardKind: 'COMMISSION_SALES_PCT', rewardValue: '', note: '',
+  };
 }
 
 /** نموذج التعديل من هدفٍ قائم */
@@ -181,8 +284,11 @@ export function draftOf(t: RepTargetView): TargetDraft {
   // حُذف ⇒ يصعد أول باقٍ بوحدته نفسها إلى السطر الأول، فلا يتغيّر معنى «١٠ كرتون»
   const lines = !product ? []
     : (t.products?.length ? t.products : [{ productId: t.productId, unitId: t.unitId }]).filter(p => !!p.productId);
+  const custom = !!t.period?.custom;
+  const b = MONTH_RE.test(String(t.month ?? '')) ? monthBounds(t.month) : { from: '', to: '' };
   return {
     month: t.month, kind: t.kind, targetValue: String(t.targetValue),
+    periodMode: custom ? 'CUSTOM' : 'MONTH', periodFrom: custom ? t.period!.from : b.from, periodTo: custom ? t.period!.to : b.to,
     productId: lines[0]?.productId ?? null, unitId: lines[0]?.unitId ?? null,
     extraProducts: lines.slice(1).map(p => ({ productId: p.productId, unitId: p.unitId })),
     rewardKind: t.rewardKind, rewardValue: String(t.rewardValue), note: t.note ?? '',
@@ -242,7 +348,10 @@ const REWARD_BIG: Record<RepRewardKind, string> = {
  * أكبر من صفر حتى سقف نوعها، وهدف الكمية بصنف، والملاحظة ٣٠٠ حرف. ووحدة الصنف يحكمها المنتقي (choiceById) والخادم.
  */
 export function draftProblem(d: TargetDraft): string | null {
-  if (!MONTH_RE.test(String(d.month ?? ''))) return 'الشهر غير صحيح';
+  if (d.periodMode === 'CUSTOM') {
+    const pp = periodProblem(d.periodFrom, d.periodTo);
+    if (pp) return pp;
+  } else if (!MONTH_RE.test(String(d.month ?? ''))) return 'الشهر غير صحيح';
   if (!TARGET_KINDS.some(k => k.kind === d.kind)) return 'نوع الهدف غير صحيح';
   if (d.kind === 'PRODUCT_QTY') {
     if (!d.productId) return 'اختر صنفاً صحيحاً';
@@ -281,8 +390,11 @@ export function toTargetInput(d: TargetDraft, unit: UnitChoice | null, baseUnitN
         return { productId: e.productId, unitId: e.unit?.id ?? null, ...(b ? { baseUnitName: b } : {}) };
       })]
     : null;
+  // فترةٌ مخصّصة: شهر الهدف شهر بدايتها (والخادم يشتقّه كذلك) — والشهر كله بلا الحقلين
+  const custom = d.periodMode === 'CUSTOM';
   return {
-    month: d.month,
+    month: custom ? d.periodFrom.slice(0, 7) : d.month,
+    ...(custom ? { periodFrom: d.periodFrom, periodTo: d.periodTo } : {}),
     kind: d.kind,
     targetValue: Number(readNum(d.targetValue)),
     productId: product ? d.productId : null,
@@ -404,7 +516,8 @@ export function targetUnitText(t: Pick<RepTargetView, 'unitName'> & { products?:
  * عنوان الهدف: «مبيعات الشهر» · «{الصنف} — {الوحدة}» (وبعدة أصناف أسماؤها بفاصلة، والوحدة المشتركة وحدها) ·
  * «تحصيل {pct}% من الديون السابقة» · «زيارات الشهر» · «عملاء جدد نشطون»
  */
-export function targetTitle(t: Pick<RepTargetView, 'kind' | 'targetValue' | 'productName' | 'unitName'> & { products?: ReadonlyArray<Pick<RepTargetProductView, 'productName' | 'unitName'> & { productId?: string | null }> | null }, tr: Tr, num: Fmt = String): string {
+export function targetTitle(t: Pick<RepTargetView, 'kind' | 'targetValue' | 'productName' | 'unitName'> & { products?: ReadonlyArray<Pick<RepTargetProductView, 'productName' | 'unitName'> & { productId?: string | null }> | null; period?: Pick<RepTargetPeriod, 'custom'> | null }, tr: Tr, num: Fmt = String): string {
+  const custom = !!t.period?.custom;
   if (t.kind === 'PRODUCT_QTY') {
     const list = t.products && t.products.length > 1 ? t.products : null;
     // صنفٌ حُذف من هدفٍ بعدة أصناف: اسمه (اللقطة) موسومٌ «(محذوف)» — مبيعاته لم تعد تُحسب في الهدف
@@ -419,9 +532,10 @@ export function targetTitle(t: Pick<RepTargetView, 'kind' | 'targetValue' | 'pro
     return unit ? `${name} — ${unit}` : name;
   }
   if (t.kind === 'COLLECTION_PCT') return tr('تحصيل {pct}% من الديون السابقة').replace('{pct}', () => num(Number(t.targetValue)));
-  if (t.kind === 'VISITS_COUNT') return tr('زيارات الشهر');
+  // فترةٌ مخصّصة: «مبيعات الفترة» و«زيارات الفترة» — فلا يُقرأ هدف أسبوعين «مبيعات الشهر»
+  if (t.kind === 'VISITS_COUNT') return tr(custom ? 'زيارات الفترة' : 'زيارات الشهر');
   if (t.kind === 'NEW_CUSTOMERS') return tr('عملاء جدد نشطون');
-  return tr('مبيعات الشهر');
+  return tr(custom ? 'مبيعات الفترة' : 'مبيعات الشهر');
 }
 
 /** وسم نوع الهدف ونوع المكافأة (مفتاح القاموس) */
@@ -476,8 +590,8 @@ export function targetRemaining(p: Pick<RepTargetProgress, 'achieved' | 'goal'>)
 }
 
 /** نصّ الحالة التي لا شريط لها، أو null للحالة العادية */
-export function targetStateText(p: Pick<RepTargetProgress, 'state'>): string | null {
-  if (p.state === 'NO_BASE') return 'لا توجد ديون سابقة مفتوحة في بداية الشهر';
+export function targetStateText(p: Pick<RepTargetProgress, 'state'>, custom = false): string | null {
+  if (p.state === 'NO_BASE') return custom ? 'لا توجد ديون سابقة مفتوحة في بداية الفترة' : 'لا توجد ديون سابقة مفتوحة في بداية الشهر';
   if (p.state === 'PRODUCT_DELETED') return 'الصنف محذوف';
   return null;
 }
@@ -546,6 +660,7 @@ export const TARGET_ERRORS: Record<string, string> = {
   TARGET_PRODUCT_DUPLICATE: 'الصنف مكرر في الهدف',
   TARGET_COMBO_INVALID: 'اختر هدفين أو أكثر لنفس المندوب في نفس الشهر',
   TARGET_IN_COMBO: 'أحد الأهداف مدمج مع أهداف أخرى افصله أولا',
+  TARGET_COMBO_PERIOD: 'الأهداف المدمجة يجب أن تكون بنفس المدة',
   // حارس أساس الصنف (backend services/baseGuard): كاش أصنافٍ قديم (400) أو تحويلٌ التزم أثناء الحفظ (409) — والنافذة تعيد جلب الأصناف
   UNIT_INVALID: 'تغيرت وحدات الصنف راجع الوحدة ثم احفظ',
   PRODUCT_UNITS_CHANGED: 'تغيرت وحدات الصنف راجع الوحدة ثم احفظ',
@@ -607,6 +722,17 @@ export const REP_TARGET_TEXTS: readonly string[] = [
   'مكافأة {amount}',
   'متبقي {n} يوم',
   'متبقي يوم واحد',
+  // «مدة الهدف» (١٣ نوفمبر ٢٠٢٦)
+  'يوم واحد',
+  '{n} يوما',
+  'حدد بداية الفترة ونهايتها',
+  'نهاية الفترة قبل بدايتها',
+  'فترة الهدف سنة على الأكثر',
+  'انتهت الفترة',
+  'تبدأ {d}',
+  'مبيعات الفترة',
+  'زيارات الفترة',
+  'لا توجد ديون سابقة مفتوحة في بداية الفترة',
   '{product}: {unit} كان {old} وأصبح {new}',
   ...new Set(Object.values(TARGET_ERRORS)),
 ];
