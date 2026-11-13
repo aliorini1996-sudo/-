@@ -21,6 +21,8 @@
  *   مرشّح الأبيض والأسود للمظهر يمسّ <img> وحدها.
  * · ما لا يُحذف بحذف حقله (كالقالب ثنائي اللغة): علامة البروفة وتنبيه سند التسليم من قرار الطباعة (ما لم تُحذف الأختام صراحةً —
  *   areStampsRemoved)، والفاتورة الأصلية وسبب الإشعار (BT-25/KSA-10) ما لم يوضع حقلاهما — في شريطٍ أعلى كل ورقة (data-form-marks).
+ * · الطابعة النقطية (layout.formReach، ١٣ نوفمبر ٢٠٢٦): الشريط داخل ما تبلغه الإبرة (formMarksBand)، وكل ورقةٍ تُرسم صفحةً نقطية
+ *   بمواضعها (rep/printDirect.ts — formRasterPages)، وخانة الرمز بمقاس حقله (rep/printLook.ts — formQrSlotPx). وغير ذلك كما هو.
  */
 import { forwardRef, type CSSProperties, type ReactNode } from 'react';
 import type { InvoiceDoc } from './RepDocuments';
@@ -242,10 +244,16 @@ const valueNode = (v: FormValue): ReactNode => (v.ltr
   ? <span dir="ltr" style={{ unicodeBidi: 'isolate' }}>{v.text}</span>
   : <span dir="auto" style={{ unicodeBidi: 'isolate' }}>{v.text}</span>);
 
-/** رمز QR في مربعه: الصورة بضلع min(w,h) بلا حشوةٍ ولا إطار — وما تحتها (التعليق) يُقصّ بحدود المربع. بلا علامات اقتباس (نصّ <style> لا يُهرَّب) */
-const qrCss = (side: number): string => [
+/**
+ * رمز QR في مربعه: الصورة بضلع min(w,h) بلا حشوةٍ ولا إطار — وما تحتها (التعليق) يُقصّ بحدود المربع. بلا علامات اقتباس (نصّ <style> لا يُهرَّب).
+ * impact (layout.formReach): قاعدةٌ ثالثة أخصّ (0,3,2 — بلا «>» ولا اقتباس) من قاعدة الـ92٪ في PRINT_LOOK_CSS (0,3,1 — تُكتب بعدها فتغلب الثانية بالترتيب):
+ * عبر تعريف Windows كانت الصورة 0.92 × 55 = 50.6 مم فتنزل الخلية (95 بالهامش) عن 4 نقاط على 180 — حدّ FORM_IMPACT_QR_MIN_MM نفسه.
+ * فالصورة بضلع الحقل كاملاً (55 / 95 ≈ 4.1 نقطة). والطابعة العادية بلا القاعدة: أسلوبها كما كان حرفاً.
+ */
+const qrCss = (side: number, impact = false): string => [
   '[data-print-layout=preprinted] [data-form-qr] div { padding: 0 !important; margin: 0 !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; max-width: none !important; }',
   `[data-print-layout=preprinted] [data-form-qr] img[alt=QR] { display: block !important; width: ${r2(side)}mm !important; height: ${r2(side)}mm !important; max-width: none !important; }`,
+  ...(impact ? [`[data-print-layout=preprinted] [data-form-qr] div img[alt=QR] { width: ${r2(side)}mm !important; height: ${r2(side)}mm !important; }`] : []),
 ].join('\n');
 
 /**
@@ -258,6 +266,18 @@ export const formBgCss = (src: string): string =>
 
 /** شريط ما لا يُحذف بحذف حقله: أعلى الورقة بين هامشين 8 مم (بالمعايرة)، والسطور تلتفّ ولا تُقصّ */
 const MARKS_BAND = Object.freeze({ x: 8, y: 2, pt: 8 });
+
+/**
+ * شريط العلامات على النقطية (layout.formReach — طلب المالك ١٣ نوفمبر ٢٠٢٦): أفقياً داخل ما تبلغه الإبرة بمليمترٍ من كل جانب
+ * [x0 + 1, x1 − 1]، وأعلاه لا يعلو أوّل سطرٍ تطبعه (≥ 0 بعد المعايرة) — شريطٌ بعرض الورقة ناقص 8 مم كان يقع خارج الحزمة على ورق
+ * 241 مم فتُرفض الطباعة، ومعايرةٌ سالبة كانت تقصّ علامة البروفة أعلى الورقة. وبلا formReach (الطابعة العادية) الصندوق كما هو حرفاً.
+ */
+export function formMarksBand(b: FormBox, reach: { x0: number; x1: number } | null | undefined): FormBox {
+  if (!reach) return b;
+  const left = Math.max(b.x, reach.x0 + 1);
+  const right = Math.min(b.x + b.w, reach.x1 - 1);
+  return { x: left, y: Math.max(0, b.y), w: Math.max(0, right - left), h: b.h };
+}
 
 export interface FormMark { key: string; text: string; bold?: boolean }
 
@@ -314,7 +334,7 @@ export const FormInvoice = forwardRef<HTMLDivElement, FormInvoiceProps>(({ doc, 
   const qrField = form.fields.find((f) => f.id === 'qr');
   const qrPrinted = !!qrField && qr !== null && qr !== undefined && qr !== false;
   const marks = formMarks(facts, form, layout, k);
-  const band = printedBox(form, { x: MARKS_BAND.x, y: MARKS_BAND.y, w: Math.max(10, S.widthMm - 2 * MARKS_BAND.x), h: 0 });
+  const band = formMarksBand(printedBox(form, { x: MARKS_BAND.x, y: MARKS_BAND.y, w: Math.max(10, S.widthMm - 2 * MARKS_BAND.x), h: 0 }), layout.formReach);
   const marksNode = marks.length ? (
     <div data-form-marks="" style={{
       position: 'absolute', left: mm(band.x), top: mm(band.y), width: mm(band.w), boxSizing: 'border-box', padding: `0.5mm ${PAD_MM}mm`,
@@ -383,7 +403,7 @@ export const FormInvoice = forwardRef<HTMLDivElement, FormInvoiceProps>(({ doc, 
         </div>
       ))}
       {bgSrc ? <style data-form-bg-css="">{formBgCss(bgSrc)}</style> : null}
-      {qrPrinted && qrField ? <style>{qrCss(Math.min(qrField.w, qrField.h))}</style> : null}
+      {qrPrinted && qrField ? <style>{qrCss(Math.min(qrField.w, qrField.h), !!layout.formReach)}</style> : null}
       {lookNeedsCss(look) ? <style>{PRINT_LOOK_CSS}</style> : null}
     </div>
   );

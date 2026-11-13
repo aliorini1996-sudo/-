@@ -61,3 +61,17 @@ test('طبقة الأركان: SVG بفضاء الصورة، يعتّم ما خ�
   const bad = renderToStaticMarkup(createElement(FormQuadOverlay, { quad, w: 100, h: 150, bad: true }));
   assert.match(bad, /stroke-dasharray="6 4"/);
 });
+
+test('النقطية (paper.reach): ملاحظة المقاس بلا «خلفية اختيارية للطباعة» — الصورة دليلٌ على الشاشة وحدها، والعادية كما كانت', () => {
+  const reach = { x0: 3.4, x1: 206.6, qrMinMm: 55 };
+  const impact = renderToStaticMarkup(createElement(FormUploadStep, { paper: { widthMm: 210, lengthMm: 297, reach }, onDone: noop }));
+  assert.match(impact, /والصورة دليل للتصميم على الشاشة وحدها/);
+  assert.doesNotMatch(impact, /خلفية اختيارية للطباعة/);
+  assert.match(impact, /210 × 297/);
+  assert.match(impact, /1240 × 1754/);
+  for (const paper of [{ widthMm: 210, lengthMm: 297 }, { widthMm: 210, lengthMm: 297, reach: null }]) {
+    const page = renderToStaticMarkup(createElement(FormUploadStep, { paper, onDone: noop }));
+    assert.match(page, /والصورة دليل للتصميم على الشاشة وخلفية اختيارية للطباعة/);
+    assert.doesNotMatch(page, /على الشاشة وحدها/);
+  }
+});

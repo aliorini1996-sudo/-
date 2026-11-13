@@ -8,8 +8,8 @@ import path from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
-  ACCENT_PALETTE, PRINT_SAMPLE_WATERMARK, defaultPrintOptions, layoutIssues, legacyPageProfile, legacyThermalProfile, presetPaper, sectionsFor,
-  withLayout, type PrintProfile,
+  ACCENT_PALETTE, PRINT_SAMPLE_WATERMARK, TEMPLATE_HINTS, TEMPLATE_LABELS, defaultPrintOptions, layoutIssues, legacyPageProfile, legacyThermalProfile,
+  presetPaper, sectionsFor, withDesign, withLayout, type PrintProfile,
 } from '../../lib/print/printSettings';
 import { PRINT_STATUS_TITLE_KEYS, PRINT_TEXT_CATALOG, PRINT_TEXT_WARNINGS, printTextEntry } from '../../lib/print/printTextsCore';
 import { PHRASES } from '../../i18n/strings';
@@ -18,8 +18,8 @@ import PrintPreview, {
   FormThumb, LAYOUT_FONT_SCALES, PaperPreview, accentInputState, applyDesignCard, designCardId, designCardSelected, designCards, effectiveFontScale, layoutEditable,
   logoChoices, orderIsDefault, previewFormDoc, previewInvoiceDoc, previewReceiptDoc, resetSectionOrder, sectionRows, withLayoutFontScale,
 } from './PrintPreview';
-import { FORM_COLUMN_LABELS, FORM_FIELD_LABELS, formOf, withFormField } from '../../lib/print/formModel';
-import { TaxOffPrintContext } from './taxOffPrint';
+import { FORM_COLUMN_LABELS, FORM_FIELD_LABELS, formOf, formReachOf, printedBox, withFormField } from '../../lib/print/formModel';
+import { TAX_OFF_TEMPLATE_HINTS, TaxOffPrintContext, templateHintFor } from './taxOffPrint';
 
 const root = process.cwd();
 const read = (...p: string[]) => fs.readFileSync(path.join(root, ...p), 'utf8').replace(/\r\n/g, '\n');
@@ -37,12 +37,13 @@ const van = () => prof('van-80', 'thermal', 'roll_compact', 'roll80');
 const valid = (p: PrintProfile) => assert.deepEqual(layoutIssues(p, 'p'), [], JSON.stringify(p.options.layout));
 
 test('بطاقات التصميم: الثالثة «ثنائي اللغة» للصفحة والنقطية وحدهما، واختيارها يضع القالب الأحادي وتخطيطه — والعودة لقالبٍ تعيد التصميم الحالي', () => {
-  // «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦): بطاقةٌ رابعة للطابعة العادية وحدها — تحديثٌ واعٍ للحارس
+  // «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦): بطاقةٌ رابعة للطابعة العادية — وللنقطية أيضاً منذ ١٣ نوفمبر
+  // ٢٠٢٦ (MIP480) — تحديثٌ واعٍ للحارس
   const kinds = (p: PrintProfile) => designCards(p).map((c) => (c.kind === 'template' ? c.t : c.kind));
   assert.deepEqual(kinds(page()), ['page_branded', 'page_plain', 'grid', 'preprinted']);
-  assert.deepEqual(kinds(mip()), ['impact_plain', 'impact_preprinted', 'grid']);
+  assert.deepEqual(kinds(mip()), ['impact_plain', 'impact_preprinted', 'grid', 'preprinted']);
   assert.ok(!kinds(van()).includes('grid'), 'الرول بلا تصميم ثنائي اللغة');
-  assert.ok(!kinds(van()).includes('preprinted') && !kinds(mip()).includes('preprinted'), 'النموذج المطبوع مسبقاً للطابعة العادية وحدها');
+  assert.ok(!kinds(van()).includes('preprinted'), 'النموذج المطبوع مسبقاً للعادية والنقطية — لا الرول');
 
   const grid = applyDesignCard(page(), { kind: 'grid' });
   assert.equal(grid.template, 'page_plain');
@@ -390,4 +391,92 @@ test('مصغّرة النموذج: إطاراتٌ باهتة وقيمٌ داكن
   assert.ok(t.includes('data-thumb="preprinted"') && t.includes('aria-hidden="true"'));
   assert.ok(t.includes('repeating-conic-gradient'));
   assert.ok(!renderToStaticMarkup(createElement(FormThumb, { taxOff: true })).includes('repeating-conic-gradient'));
+});
+
+// ─── النموذج على الطابعة النقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦، Tally Dascom MIP480) ───
+
+test('بطاقة النموذج على النقطية: impact_preprinted بلا هامشين ولا إزاحة أفقية وصالحٌ صارماً — والخروج منها لأيّ قالبٍ يبقيه كما اختير', () => {
+  const m0: PrintProfile = { ...mip(), paper: { ...mip().paper, offsetXmm: 4 } };
+  const f = applyDesignCard(m0, { kind: 'preprinted' });
+  assert.equal(f.template, 'impact_preprinted', 'احتياط الجهاز القديم: بلا شعار');
+  assert.equal(f.options.layout?.design, 'preprinted');
+  assert.deepEqual([f.paper.marginTopMm, f.paper.marginBottomMm, f.paper.offsetXmm], [0, 0, 0]);
+  valid(f);
+  assert.ok(designCardSelected(f, { kind: 'preprinted' }));
+  assert.ok(!designCardSelected(f, { kind: 'template', t: 'impact_preprinted' }), 'القالب الاحتياطي لا يبدو مختاراً تحت النموذج');
+  assert.equal(applyDesignCard(f, { kind: 'preprinted' }), f);
+  // «نقطي واضح» ⇒ impact_plain، و«على ورق بترويسة مطبوعة» يبقى كما اختير (الخروج يعيد الاحتياط impact_plain قبل القالب المختار)
+  for (const t of ['impact_plain', 'impact_preprinted'] as const) {
+    const back = applyDesignCard(f, { kind: 'template', t });
+    assert.equal(back.template, t, t);
+    assert.notEqual(back.options.layout?.design, 'preprinted');
+    assert.ok(!back.options.layout || !('form' in back.options.layout), `${t}: المواضع لا تنتقل`);
+    assert.deepEqual([back.paper.marginTopMm, back.paper.marginBottomMm], [mip().paper.marginTopMm, mip().paper.marginBottomMm], `${t}: هامشا المقاس`);
+    assert.ok(designCardSelected(back, { kind: 'template', t }), t);
+    valid(back);
+  }
+  const grid = applyDesignCard(f, { kind: 'grid' });
+  assert.equal(grid.template, 'impact_plain');
+  valid(grid);
+  // العادية والنقطية بلا احتياطه: الخروج لقالبٍ هو نفسه حرفاً بالترتيب القديم (القالب ثم الخروج)
+  const pf = applyDesignCard(page(), { kind: 'preprinted' });
+  const pg = applyDesignCard(page(), { kind: 'grid' });
+  for (const [from, t] of [[pf, 'page_branded'], [pf, 'page_plain'], [pg, 'page_branded'], [grid, 'impact_preprinted']] as const) {
+    const old = withDesign({ ...from, template: t }, 'standard');
+    assert.equal(JSON.stringify(applyDesignCard(from, { kind: 'template', t })), JSON.stringify(old), `${from.options.layout?.design} ⇒ ${t}`);
+  }
+});
+
+test('قرار المالك (س٣): القالب النقطي القديم «على ورق بترويسة مطبوعة» بوصفٍ يدلّ على البطاقة الجديدة — ووصفه للشركة بلا ضريبة هو نفسه', () => {
+  assert.equal(TEMPLATE_LABELS.impact_preprinted, 'على ورق بترويسة مطبوعة');
+  assert.ok(TEMPLATE_HINTS.impact_preprinted.includes('«نموذج الشركة المطبوع مسبقاً»'));
+  assert.ok(!('impact_preprinted' in TAX_OFF_TEMPLATE_HINTS), 'لا بديل — الوصف بلا ضريبة أصلاً');
+  assert.equal(templateHintFor('impact_preprinted', TEMPLATE_HINTS.impact_preprinted, true), TEMPLATE_HINTS.impact_preprinted);
+  assert.doesNotMatch(TEMPLATE_HINTS.impact_preprinted, /ضريب|QR/);
+  for (const ar of [TEMPLATE_LABELS.impact_preprinted, TEMPLATE_HINTS.impact_preprinted]) {
+    const t = PHRASES[ar];
+    assert.ok(t, ar);
+    for (const lang of ['en', 'fr', 'tr', 'zh'] as const) assert.ok(t[lang] && !/[؀-ۿ]/.test(t[lang]), `«${ar}» ${lang}`);
+  }
+});
+
+test('مخطّط «المقاس والهوامش» للنموذج على النقطية: الحقول في مواضعها المطبوعة داخل ما تبلغه الإبرة (حدود الطباعة) — على 241 مم أيضاً', () => {
+  const paper = (p: PrintProfile) => renderToStaticMarkup(createElement(PaperPreview, { profile: p, companyName: 'شركة', brandColor: '#1e3a8a' }));
+  for (const preset of ['ff_a4', 'cut_a4', 'ff_95x11'] as const) {
+    const f = applyDesignCard(prof(`mip-${preset.replace(/_/g, '-')}`, 'impact', 'impact_plain', preset), { kind: 'preprinted' });
+    valid(f);
+    const reach = formReachOf(f)!;
+    assert.ok(reach && reach.qrMinMm === 55, preset);
+    const h = paper(f);
+    assert.ok(h.includes('data-form-schematic'), preset);
+    assert.ok(!h.includes('صنف تجريبي'), `${preset}: لا مستند تخطيطيّ فوق النموذج`);
+    const form = formOf(f)!;
+    for (const x of form.fields) {
+      assert.ok(h.includes(`data-field="${x.id}"`), `${preset}: ${x.id}`);
+      const b = printedBox(form, x);
+      assert.ok(b.x >= reach.x0 - 1e-9 && b.x + b.w <= reach.x1 + 1e-9, `${preset}: ${x.id} داخل ما تبلغه الإبرة`);
+    }
+    const qr = form.fields.find((x) => x.id === 'qr')!;
+    assert.deepEqual([qr.w, qr.h], [55, 55], `${preset}: مربع QR بحدّه`);
+  }
+});
+
+test('اللوحة للنموذج على النقطية: «رمز QR» برسالة حقله قبل مقاس الطابعة، و«إزاحة أفقية» مخفيّةٌ لقوالب النموذج، والقائمة وورقة الجهاز باسم التصميم', () => {
+  const s = panel();
+  const qr = s.slice(s.indexOf("{!taxOff && (<Section title={tr('رمز QR')}>"), s.indexOf("<Section title={tr('النسخ')}>"));
+  assert.ok(qr.length > 200);
+  const formMsg = qr.indexOf("tr('مقاس الرمز بمقاس حقله في مصمم النموذج')");
+  assert.ok(formMsg > 0 && formMsg < qr.indexOf("setOpt('qrSize', z)"), 'النموذج قبل مقاس الطابعة (النقطية + النموذج لا ترى qrSize)');
+  assert.ok(qr.indexOf('{form ? (') < qr.indexOf(') : raster ? ('));
+  assert.ok(qr.includes("{raster && <p className=\"text-[11px] text-[#9A8F7E]\">{tr('لا يصغر مربع رمز QR عن 55 ملم على الطابعة النقطية')}</p>}"));
+  // offsetXmm مُهمَلٌ لقوالب النموذج على كل مسار — المعايرة dx/dy في مصمّمه وحدها
+  assert.ok(s.includes("{raster && !form && <NumField label={tr('إزاحة أفقية')}"));
+  assert.equal(s.split("<NumField label={tr('إزاحة أفقية')}").length - 1, 1);
+  // قالب النموذج باسم تصميمه لا باسم قالبه الاحتياطي
+  const label = 'tr(isFormProfile(p) ? DESIGN_LABELS.preprinted : TEMPLATE_LABELS[p.template])';
+  assert.ok(s.includes(`{${label}}`));
+  assert.ok(!s.includes('{tr(TEMPLATE_LABELS[p.template])}'));
+  const sheet = read('src', 'rep', 'PrintDeviceSheet.tsx');
+  assert.ok(sheet.includes(`\${${label}}`));
+  assert.ok(!sheet.includes('${tr(TEMPLATE_LABELS[p.template])}'));
 });

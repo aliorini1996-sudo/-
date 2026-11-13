@@ -93,7 +93,7 @@ export type GraphicsQuality = (typeof GRAPHICS_QUALITIES)[number];
 export const LAYOUT_DESIGNS = ['standard', 'grid_bilingual', 'preprinted'] as const;
 /**
  * standard = تصميم القالب اليوم · grid_bilingual = «كلاسيكي بإطارات — ثنائي اللغة» (للصفحة والنقطية وحدهما) · preprinted = «نموذج
- * الشركة المطبوع مسبقاً» (للطابعة العادية وحدها، بمفتاحه الحرّ form: القيم وحدها في مواضعها على ورق الشركة الجاهز)
+ * الشركة المطبوع مسبقاً» (للطابعة العادية والنقطية بطول صفحة، بمفتاحه الحرّ form: القيم وحدها في مواضعها على ورق الشركة الجاهز)
  */
 export type LayoutDesign = (typeof LAYOUT_DESIGNS)[number];
 export const LOGO_POSITIONS = ['start', 'center', 'end', 'none'] as const;
@@ -168,8 +168,9 @@ export interface PrintCanvas { headerMm: number; footerMm: number; boxes: Canvas
 // كل شركة ترفع صورة نموذجها الفارغ (دليلٌ في الشاشة وخلفيةٌ اختيارية — بايتاتها في جدولٍ مستقل وهنا مرجعها وحده) وتضع الحقول
 // على فراغاته، فتطبع القيم وحدها في مواضعها بلا إطارات ولا عناوين ولا شعار. الأبعاد بالمم من الركن الأيسر الأعلى الفعلي للورقة
 // (x يميناً مهما كان اتجاه الواجهة) بخطوة 0.5 — لا صندوق المحتوى كاللوحتين — ومعايرة الطابعة dx/dy بعُشر مم. للطابعة العادية
-// وحدها في v1. المعرّفات قيمٌ في مصفوفات لا مفاتيح (حارس الأسماء يفحص المفاتيح). رمز QR حقلٌ لا يصغر عن 18 مم، ولازمٌ ما لم
-// تحذفه الشركة صراحةً (isQrRemoved — قرار المالك ٤ نوفمبر ٢٠٢٦). والإشعاران: الفاتورة الأصلية وسببه (BT-25/KSA-10) حقلان في الرأس.
+// والنقطية بطول صفحة (طلب المالك ١٣ نوفمبر ٢٠٢٦: MIP480)، لا الحرارية. المعرّفات قيمٌ في مصفوفات لا مفاتيح (حارس الأسماء يفحص
+// المفاتيح). رمز QR حقلٌ لا يصغر عن 18 مم (55 على النقطية — formQrMinMm)، ولازمٌ ما لم تحذفه الشركة صراحةً (isQrRemoved — قرار
+// المالك ٤ نوفمبر ٢٠٢٦). والإشعاران: الفاتورة الأصلية وسببه (BT-25/KSA-10) حقلان في الرأس.
 export const FORM_FIELD_IDS = [
   'docNumber', 'docDate', 'docTime', 'paymentType', 'dueDate', 'deliveryDate', 'docTitle', 'originalRef', 'noteReason',
   'customerName', 'customerBusiness', 'customerAddress', 'customerCity', 'customerPostal', 'customerPhone', 'customerVat', 'customerCr',
@@ -188,6 +189,33 @@ export const FORM_BOUNDS = Object.freeze({
   maxFields: 40, columns: [1, 12] as const, rows: [1, 60] as const, rowMm: [3, 25] as const,
   fieldMinMm: 3, qrMinMm: 18, columnMinMm: 4, offsetMm: [-20, 20] as const, imagePx: [200, 10000] as const,
 });
+/**
+ * أصغر حقل رمز QR في نموذج النقطية: الرمز المختوم للمرحلة الثانية حتى 93 خلية + 4 للهامش الصامت، × 4 نقاط للخلية (أدنى ما تقبله
+ * الطباعة على 180 — لا يصغر الرمز عنه) = 388 نقطة (386 بسماحية الخانة) ≈ 54.5 مم — فحقلٌ أصغر يقبله الحفظ ثم تُرفض طباعته
+ * (qrNoFit). FORM_BOUNDS لا يتغيّر (عقدٌ مثبَّت للطابعة العادية)، والتخفيف لاحقاً آمن (قرار المالك ١٣ نوفمبر ٢٠٢٦: 55 إلزامي).
+ */
+export const FORM_IMPACT_QR_MIN_MM = 55;
+
+/** أصغر ضلعٍ لحقل رمز QR في النموذج على هذه الطابعة: 55 للنقطية، و18 لغيرها (FORM_BOUNDS.qrMinMm) */
+export function formQrMinMm(printer: PrinterType): number {
+  return printer === 'impact' ? FORM_IMPACT_QR_MIN_MM : FORM_BOUNDS.qrMinMm;
+}
+
+/**
+ * ما تبلغه إبرة النقطية من الورقة [x0, x1] بالمم من حافتها اليسرى: حزمة printableDots في **منتصف** الورقة — بلا offsetXmm ولا
+ * هوامش (يُهملان في قوالب النموذج على كل مسار؛ المعايرة dxMm/dyMm وحدها). بلا تقريب (المقارنات بـEPS): A4 على 1440 ⇒
+ * [3.4, 206.6]، و241 ⇒ [18.9, 222.1]، و216 على 1350 ⇒ [12.75, 203.25]. null لغير النقطية أو بدقةٍ أو نقاطٍ غائبة أو غير صالحة —
+ * والقالب النقطي الصالح (profileIssues) لا يكون null أبداً.
+ */
+export function formReachX(p: Pick<PrintProfile, 'printer' | 'paper'>): readonly [number, number] | null {
+  if (p.printer !== 'impact') return null;
+  const { widthMm: W, dpi, printableDots: dots } = p.paper;
+  if (typeof W !== 'number' || !Number.isFinite(W) || W <= 0 || dpi === null || !(PRINTER_DPIS as readonly number[]).includes(dpi)) return null;
+  if (typeof dots !== 'number' || !Number.isInteger(dots) || dots <= 0) return null;
+  const w = dots / dotsPerMm(dpi);
+  const x0 = (W - w) / 2;
+  return [x0, x0 + w];
+}
 /** مرجع صورة النموذج: معرّف PrintFormImage (uuid) وبصمة sha256 (16 حرفاً فأكثر) لكسر الذاكرة المؤقتة */
 export const FORM_IMAGE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const FORM_IMAGE_V_RE = /^[0-9a-f]{8,64}$/;
@@ -644,11 +672,15 @@ export const PRINT_ISSUES = Object.freeze({
   // «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦)
   layoutFormMissing: 'تصميم النموذج المطبوع مسبقاً بلا مواضع للحقول',
   layoutFormDesign: 'مواضع الحقول لتصميم النموذج المطبوع مسبقاً وحده',
-  layoutFormPrinter: 'النموذج المطبوع مسبقاً لطابعات A4 فقط حالياً',
+  layoutFormPrinter: 'النموذج المطبوع مسبقاً للطابعة العادية والنقطية فقط',
   layoutFormField: 'حقل خارج حدود الورقة أو أصغر من 3 ملم أو مكرر',
   layoutFormFieldsCount: 'حقول النموذج 40 على الأكثر',
   layoutFormFont: 'حجم خط النموذج من 70 إلى 160 بالمئة',
   layoutFormQr: 'مربع رمز QR في النموذج أصغر من 18 ملم',
+  // النموذج على النقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦) — layoutFormReach هي أيضاً رسالة رفض الطباعة حين يقع حبرٌ خارج ما تبلغه الإبرة
+  layoutFormReach: 'حقل أو عمود خارج ما تبلغه الطابعة النقطية من الورقة — قرّبه من وسط الورقة أو راجع المعايرة',
+  layoutFormQrImpact: 'مربع رمز QR في نموذج الطابعة النقطية أصغر من 55 ملم',
+  layoutFormBgImpact: 'الطابعة النقطية لا تطبع خلفية النموذج — أطفئ «طباعة الخلفية»',
   layoutFormQrMissing: 'أضف حقل رمز QR أو احذف الرمز صراحة',
   layoutFormTable: 'جدول الأصناف خارج حدود الورقة: الصفوف من 1 إلى 60 وارتفاع الصف من 3 إلى 25 ملم',
   layoutFormColumn: 'أعمدة الجدول من 1 إلى 12 بلا تكرار وكل عمود داخل عرض الورقة ولا يضيق عن 4 ملم',
@@ -803,12 +835,37 @@ function freeLayoutFaults(p: PrintProfile): FreeFault[] {
 
 const isFin = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
 
-/** عطب حقلٍ على ورقٍ عرضه W وطوله L (null = سليم): أرقامٌ منتهية داخل الورقة، ≥ 3 مم ورمز QR ≥ 18، وخطٌّ في حدوده */
-function formFieldFault(f: FormField, W: number, L: number): string | null {
+/**
+ * ما تبلغه النقطية من الورقة (formReachX) مع معايرة النموذج dx/dy — null للطابعة العادية (قيدها حدود الورقة وحدها). الإبرة لا
+ * تطبع خارج حزمتها ولا فوق أول سطرٍ تطبعه، فالموضع **بعد المعايرة** هو ما يُفحص: داخل [x0, x1] أفقياً و[0, L] رأسياً.
+ */
+interface FormZone { x0: number; x1: number; dx: number; dy: number }
+
+function formZoneOf(p: Pick<PrintProfile, 'printer' | 'paper'>, dx: number, dy: number): FormZone | null {
+  const r = formReachX(p);
+  return r ? { x0: r[0], x1: r[1], dx, dy } : null;
+}
+
+/** صندوقٌ (حقلٌ بأرقامٍ منتهية) خارج ما تبلغه الإبرة بعد المعايرة */
+const fieldOutOfReach = (f: FormField, L: number, z: FormZone): boolean =>
+  f.x + z.dx < z.x0 - EPS || f.x + z.dx + f.w > z.x1 + EPS || f.y + z.dy < -EPS || f.y + z.dy + f.h > L + EPS;
+
+/** عمودٌ خارج حزمة الإبرة أفقياً بعد المعايرة (طوله طول الجدول، يُفحص معه) */
+const columnOutOfReach = (c: FormColumn, z: FormZone): boolean => c.x + z.dx < z.x0 - EPS || c.x + z.dx + c.w > z.x1 + EPS;
+
+/** جدولٌ (سليم الحدود) يبدأ فوق أول سطرٍ تطبعه الإبرة أو ينتهي بعد طول الصفحة بعد المعايرة */
+const tableOutOfReach = (t: FormTable, L: number, z: FormZone): boolean => t.y + z.dy < -EPS || t.y + z.dy + t.rows * t.rowMm > L + EPS;
+
+/**
+ * عطب حقلٍ على ورقٍ عرضه W وطوله L (null = سليم): أرقامٌ منتهية داخل الورقة، ≥ 3 مم ورمز QR ≥ qrMin (18، و55 على النقطية —
+ * formQrMinMm)، وعلى النقطية داخل ما تبلغه الإبرة بعد المعايرة (zone)، وخطٌّ في حدوده
+ */
+function formFieldFault(f: FormField, W: number, L: number, qrMin: number = FORM_BOUNDS.qrMinMm, zone: FormZone | null = null): string | null {
   const F = FORM_BOUNDS;
   if (![f.x, f.y, f.w, f.h].every(isFin) || f.x < -EPS || f.y < -EPS || f.w < F.fieldMinMm - EPS || f.h < F.fieldMinMm - EPS
     || f.x + f.w > W + EPS || f.y + f.h > L + EPS) return PRINT_ISSUES.layoutFormField;
-  if (f.id === 'qr' && (f.w < F.qrMinMm - EPS || f.h < F.qrMinMm - EPS)) return PRINT_ISSUES.layoutFormQr;
+  if (f.id === 'qr' && (f.w < qrMin - EPS || f.h < qrMin - EPS)) return qrMin === F.qrMinMm ? PRINT_ISSUES.layoutFormQr : PRINT_ISSUES.layoutFormQrImpact;
+  if (zone && fieldOutOfReach(f, L, zone)) return PRINT_ISSUES.layoutFormReach;
   if (f.fontPct !== undefined && !inRangeL(f.fontPct, LAYOUT_BOUNDS.fontPct)) return PRINT_ISSUES.layoutFormFont;
   return null;
 }
@@ -832,8 +889,11 @@ const formImageOk = (m: FormImageRef): boolean =>
 
 /**
  * قواعد النموذج (مفتاحٌ حرّ: الإصلاح المتسامح يُسقطه وحده، ثم يسقط التخطيط إن بقي التصميم بلا مواضع): لتصميمه وحده وللطابعة
- * العادية بطول صفحة، والمعايرة ±20، ومرجع صورةٍ صالح، وحتى 40 حقلاً بلا تكرار داخل الورقة، ورمز QR حقلٌ ≥ 18 مم ما لم تحذفه
- * الشركة صراحةً (isQrRemoved)، والجدول وأعمدته (1–12 بلا تكرار، كلٌّ ≥ 4 مم) داخل الورقة.
+ * العادية أو النقطية بطول صفحة (لا الحرارية)، والمعايرة ±20، ومرجع صورةٍ صالح، وحتى 40 حقلاً بلا تكرار داخل الورقة، ورمز QR
+ * حقلٌ ≥ 18 مم (≥ 55 على النقطية) ما لم تحذفه الشركة صراحةً (isQrRemoved)، والجدول وأعمدته (1–12 بلا تكرار، كلٌّ ≥ 4 مم) داخل
+ * الورقة. وعلى النقطية فوق ذلك: كل حقلٍ وعمودٍ والجدول بعد المعايرة داخل ما تبلغه الإبرة (layoutFormReach — والطباعة ترفض لا تقصّ
+ * حبراً خارجه)، ولا خلفية (layoutFormBgImpact: صورةٌ ممسوحة تصير بقعاً سوداء تُتلف الشريط وتتجاوز حدّ الجسر). صفحة النموذج على
+ * الطابعة العادية تُفحص كما كانت حرفياً (لا منطقة لها).
  */
 function formFaults(p: PrintProfile, l: PrintLayout, f: PrintForm): FreeFault[] {
   const out: FreeFault[] = [];
@@ -841,27 +901,32 @@ function formFaults(p: PrintProfile, l: PrintLayout, f: PrintForm): FreeFault[] 
   if (l.design !== 'preprinted') { fault('', PRINT_ISSUES.layoutFormDesign); return out; }
   const W = p.paper.widthMm;
   const L = p.paper.lengthMm;
-  if (p.printer !== 'page' || L === null) { fault('', PRINT_ISSUES.layoutFormPrinter); return out; }
+  if (p.printer === 'thermal' || L === null) { fault('', PRINT_ISSUES.layoutFormPrinter); return out; }
   const F = FORM_BOUNDS;
   if (!inRangeL(f.dxMm, F.offsetMm)) fault('dxMm', PRINT_ISSUES.layoutFormOffset);
   if (!inRangeL(f.dyMm, F.offsetMm)) fault('dyMm', PRINT_ISSUES.layoutFormOffset);
   if (f.image !== null && !formImageOk(f.image)) fault('image', PRINT_ISSUES.layoutFormImage);
+  // المنطقة بالمعايرة كما أُرسلت (غير المنتهية 0 — ورسالتها layoutFormOffset أعلاه)؛ null للطابعة العادية
+  const zone = formZoneOf(p, isFin(f.dxMm) ? f.dxMm : 0, isFin(f.dyMm) ? f.dyMm : 0);
+  const qrMin = formQrMinMm(p.printer);
+  if (zone && f.background === true) fault('background', PRINT_ISSUES.layoutFormBgImpact);
   if (f.fields.length > F.maxFields) fault('fields', PRINT_ISSUES.layoutFormFieldsCount);
   const seen = new Set<FormFieldId>();
   f.fields.forEach((x, i) => {
-    const m = formFieldFault(x, W, L) ?? (seen.has(x.id) ? PRINT_ISSUES.layoutFormField : null);
+    const m = formFieldFault(x, W, L, qrMin, zone) ?? (seen.has(x.id) ? PRINT_ISSUES.layoutFormField : null);
     if (m) fault(`fields[${i}]`, m);
     seen.add(x.id);
   });
   if (!seen.has('qr') && !isQrRemoved(l)) fault('fields', PRINT_ISSUES.layoutFormQrMissing);
   const t = f.table;
   if (t !== null) {
-    const tm = formTableFault(t, L);
+    const tm = formTableFault(t, L) ?? (zone && tableOutOfReach(t, L, zone) ? PRINT_ISSUES.layoutFormReach : null);
     if (tm) fault('table', tm);
     if (t.columns.length < F.columns[0] || t.columns.length > F.columns[1]) fault('table.columns', PRINT_ISSUES.layoutFormColumn);
     const cols = new Set<FormColumnId>();
     t.columns.forEach((c, i) => {
       if (formColumnBad(c, W) || cols.has(c.id)) fault(`table.columns[${i}]`, PRINT_ISSUES.layoutFormColumn);
+      else if (zone && columnOutOfReach(c, zone)) fault(`table.columns[${i}]`, PRINT_ISSUES.layoutFormReach);
       cols.add(c.id);
     });
   }
@@ -869,14 +934,15 @@ function formFaults(p: PrintProfile, l: PrintLayout, f: PrintForm): FreeFault[] 
 }
 
 /**
- * القراءة المتسامحة للنموذج: الحقل أو العمود المعطوب (خارج الورقة أو مكرر أو أصغر من حدّه) يسقط وحده، والصفوف التي لا يتّسع
- * لها طول الورقة تُقصّ، والمعايرة تُقصّ إلى ±20، والصورة المعطوبة تصير null (دليلٌ لا غير). وما بقي معطوباً (رمز QR لازمٌ غاب،
- * جدولٌ لا صفّ له، طابعةٌ غير العادية) يُسقطه freeLayoutFaults كلّه — فيسقط التخطيط ويطبع القالب تصميم اليوم.
+ * القراءة المتسامحة للنموذج: الحقل أو العمود المعطوب (خارج الورقة أو مكرر أو أصغر من حدّه، وعلى النقطية خارج ما تبلغه الإبرة
+ * بعد المعايرة المقصوصة) يسقط وحده، والصفوف التي لا يتّسع لها طول الورقة (بعد المعايرة على النقطية) تُقصّ، والمعايرة تُقصّ إلى
+ * ±20، والصورة المعطوبة تصير null (دليلٌ لا غير)، والخلفية على النقطية false. وما بقي معطوباً (رمز QR لازمٌ غاب أو أصغر من حدّ
+ * النقطية، جدولٌ لا صفّ له، طابعةٌ حرارية) يُسقطه freeLayoutFaults كلّه — فيسقط التخطيط ويطبع القالب تصميم اليوم.
  */
 function fitFormToPaper(f: PrintForm, p: PrintProfile): PrintForm {
   const W = p.paper.widthMm;
   const L = p.paper.lengthMm;
-  if (p.printer !== 'page' || L === null || !isFin(W) || !isFin(L)) return f;
+  if (p.printer === 'thermal' || L === null || !isFin(W) || !isFin(L)) return f;
   const F = FORM_BOUNDS;
   // حجم خطٍّ خارج حدوده يسقط وحده (100٪) — لا الحقل ولا الجدول
   const pctOk = (v: number | undefined): boolean => v === undefined || inRangeL(v, LAYOUT_BOUNDS.fontPct);
@@ -885,9 +951,15 @@ function fitFormToPaper(f: PrintForm, p: PrintProfile): PrintForm {
     delete c.fontPct;
     return c;
   };
+  // المعايرة أولاً: منطقة النقطية تُقاس بها بعد القصّ — فما يبقى من الحقول والأعمدة يُطبع حيث يُفحص
+  const clampOff = (v: number): number => (isFin(v) ? Math.min(F.offsetMm[1], Math.max(F.offsetMm[0], v)) : 0);
+  const dxMm = clampOff(f.dxMm);
+  const dyMm = clampOff(f.dyMm);
+  const zone = formZoneOf(p, dxMm, dyMm);
+  const qrMin = formQrMinMm(p.printer);
   const seen = new Set<FormFieldId>();
   const fields = f.fields.map((x) => (!x || pctOk(x.fontPct) ? x : noPct(x))).filter((x) => {
-    if (!x || seen.has(x.id) || formFieldFault(x, W, L) !== null) return false;
+    if (!x || seen.has(x.id) || formFieldFault(x, W, L, qrMin, zone) !== null) return false;
     seen.add(x.id);
     return true;
   }).slice(0, F.maxFields);
@@ -896,18 +968,20 @@ function fitFormToPaper(f: PrintForm, p: PrintProfile): PrintForm {
   if (table) {
     const cols = new Set<FormColumnId>();
     const columns = table.columns.filter((c) => {
-      if (!c || cols.has(c.id) || formColumnBad(c, W)) return false;
+      if (!c || cols.has(c.id) || formColumnBad(c, W) || (zone !== null && columnOutOfReach(c, zone))) return false;
       cols.add(c.id);
       return true;
     }).slice(0, F.columns[1]);
     let rows = table.rows;
-    if (inRangeL(table.rowMm, F.rowMm) && isFin(table.y) && table.y >= 0 && Number.isInteger(rows) && table.y + rows * table.rowMm > L + EPS) {
-      rows = Math.floor((L - table.y) / table.rowMm + 1e-9);
+    // آخر ما يُطبع منه: طول الورقة، وعلى النقطية طولها ناقص المعايرة الرأسية (L − dy) إن كانت موجبة
+    const bottom = zone ? Math.min(L, L - zone.dy) : L;
+    if (inRangeL(table.rowMm, F.rowMm) && isFin(table.y) && table.y >= 0 && Number.isInteger(rows) && table.y + rows * table.rowMm > bottom + EPS) {
+      rows = Math.floor((bottom - table.y) / table.rowMm + 1e-9);
     }
     table = { ...table, rows, columns };
   }
-  const clampOff = (v: number): number => (isFin(v) ? Math.min(F.offsetMm[1], Math.max(F.offsetMm[0], v)) : 0);
-  return { ...f, image: f.image !== null && !formImageOk(f.image) ? null : f.image, dxMm: clampOff(f.dxMm), dyMm: clampOff(f.dyMm), fields, table };
+  // النقطية لا تطبع الخلفية (layoutFormBgImpact): القراءة تُطفئها ولا تُسقط النموذج
+  return { ...f, image: f.image !== null && !formImageOk(f.image) ? null : f.image, background: zone ? false : f.background, dxMm, dyMm, fields, table };
 }
 
 /**
@@ -948,11 +1022,11 @@ export function layoutIssues(p: PrintProfile, at: string): PrintIssue[] {
     if (l.design !== 'preprinted') add('design', PRINT_ISSUES.layoutDesignPrinter);
     add('design', PRINT_ISSUES.layoutRoll);
   }
-  // النموذج المطبوع مسبقاً لا يُطبع بلا مواضع حقوله (والمواضع على غيره يُسقطها formFaults) — وطابعته العادية بطول صفحة تُبلَغ هنا
-  // كذلك حين لا مواضع (ومع المواضع يبلغها formFaults)
+  // النموذج المطبوع مسبقاً لا يُطبع بلا مواضع حقوله (والمواضع على غيره يُسقطها formFaults) — وورقه بطول صفحة (العادية أو
+  // النقطية) يُبلَغ هنا كذلك حين لا مواضع (ومع المواضع يبلغه formFaults؛ والحرارية رسالتها layoutRoll أعلاه)
   if (l.design === 'preprinted' && l.form === undefined) {
     add('form', PRINT_ISSUES.layoutFormMissing);
-    if (!roll && (p.printer !== 'page' || p.paper.lengthMm === null)) add('design', PRINT_ISSUES.layoutFormPrinter);
+    if (!roll && p.paper.lengthMm === null) add('design', PRINT_ISSUES.layoutFormPrinter);
   }
   if (l.accent !== null && !accentContrastOk(l.accent)) add('accent', PRINT_ISSUES.layoutAccent);
   for (const f of freeLayoutFaults(p)) add(f.path, f.message);

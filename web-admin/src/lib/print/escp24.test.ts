@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ESCP24_CANCEL, ESCP24_CANCEL_CONTINUOUS, ESCP24_LINE_DOTS, band24Columns, band24Draft, encodeEscP24, escp24Cancel, escpPageLength, units360,
+  FORM_SEGMENT_GAP_DOTS,
 } from './escp24';
 import { createBitmap, fillRect, type Bitmap } from './raster';
 import { PRINT_ISSUES, PRINT_WARNINGS } from './printSettings';
@@ -118,4 +119,64 @@ test('الإلغاء: المقطع ESC @ ثم FF، والمتصل ESC U 0 ثم F
     assert.ok(!hex(c).includes('1b 28 43'), 'لا طول صفحة جديد');
     assert.equal(c[c.length - 1], 0x0c, 'FF آخره: رأس النموذج التالي');
   }
+});
+
+// ─── «نموذج الشركة المطبوع مسبقاً» على النقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦): مقاطع الشريط على فجواته البيضاء — بمفتاحٍ للنموذج وحده ───
+
+/** أعمدةٌ بيضاء ثم سوداء كاملة الارتفاع (3 بايتات لكلٍّ) */
+const cols = (white: number, black: number): string => [...Array(white).fill('00 00 00'), ...Array(black).fill('ff ff ff')].join(' ');
+/** شريطٌ بثلاث كتل: 10–12 و700–705 و1430–1439 (آخر عمودٍ في السطر) */
+const sparse = (): Bitmap => ink(1440, 24, [[10, 0, 3, 24], [700, 0, 6, 24], [1430, 0, 10, 24]]);
+
+test('النموذج — بلا segmentGapDots (أو undefined) بايتات اليوم حرفاً: شريطٌ واحد من أوّل حبرٍ إلى آخره', () => {
+  assert.equal(FORM_SEGMENT_GAP_DOTS, 36);
+  const today = job([{ bitmap: sparse() }]);
+  assert.deepEqual(job([{ bitmap: sparse() }], { segmentGapDots: undefined }).bytes, today.bytes);
+  assert.deepEqual(job([{ bitmap: sparse() }], { segmentGapDots: 0 }).bytes, today.bytes, 'صفرٌ = بلا تقسيم');
+  // 9..1439 = 1431 عموداً (0x597) بأعمدتها البيضاء
+  assert.ok(hex(today.bytes).startsWith('1b 40 1b 24 03 00 1b 2a 27 97 05'));
+  assert.equal(today.bytes.length, 2 + 4 + 5 + 1431 * 3 + 1);
+});
+
+test('النموذج — segmentGapDots: زوج ESC $ / ESC * 39 لكل كتلة في موضعها بالضبط (البداية لمضاعف 3)، والفجوة الأقصر تُدمج', () => {
+  const { bytes, marks } = job([{ bitmap: sparse() }], { segmentGapDots: FORM_SEGMENT_GAP_DOTS });
+  const want = [
+    '1b 40',
+    `1b 24 03 00 1b 2a 27 04 00 ${cols(1, 3)}`,     // 10..12 من 9 (ESC $ 3)
+    `1b 24 e9 00 1b 2a 27 07 00 ${cols(1, 6)}`,     // 700..705 من 699 (ESC $ 233)
+    `1b 24 dc 01 1b 2a 27 0c 00 ${cols(2, 10)}`,    // 1430..1439 من 1428 (ESC $ 476)
+    '0c',
+  ].join(' ');
+  assert.equal(hex(bytes), want);
+  assert.deepEqual(marks, [2, bytes.length - 1, bytes.length], 'نقطة إلغاءٍ بعد الشريط كله لا بعد كل مقطع');
+  // فجوة 35 عموداً (أقصر من 36) ⇒ مقطعٌ واحد؛ و36 ⇒ مقطعان
+  const near = (gap: number) => hex(job([{ bitmap: ink(300, 24, [[30, 0, 3, 24], [33 + gap, 0, 3, 24]]) }], { segmentGapDots: 36 }).bytes);
+  assert.equal((near(35).match(/1b 24/g) || []).length, 1);
+  assert.equal((near(36).match(/1b 24/g) || []).length, 2);
+  // الإزاحة (لو مُرّرت) تُضاف لكل مقطع كما للشريط: (6 + 30) / 3 = 12، و(6 + 198) / 3 = 68
+  const shifted = hex(job([{ bitmap: ink(300, 24, [[30, 0, 3, 24], [200, 0, 3, 24]]) }], { segmentGapDots: 36, leftDots: 6 }).bytes);
+  assert.ok(shifted.startsWith('1b 40 1b 24 0c 00 1b 2a 27 03 00') && shifted.includes(' 1b 24 44 00 1b 2a 27 05 00 '), shifted.slice(0, 80));
+});
+
+test('النموذج — segmentGapDots: المسودة ESC * 33 لكل مقطع بثلثي أعمدته وموضعه بـ1/60، وأشرطة الرمز باتجاهٍ واحد و39 كما كانت', () => {
+  const s = hex(job([{ bitmap: sparse() }], { segmentGapDots: 36, draft: true }).bytes);
+  assert.ok(s.startsWith('1b 40 1b 24 03 00 1b 2a 21 03 00'), '4 أعمدة ⇒ 3 بـ120');
+  assert.ok(s.includes('1b 24 e9 00 1b 2a 21 05 00'), '7 ⇒ 5');
+  assert.ok(s.includes('1b 24 dc 01 1b 2a 21 08 00'), '12 ⇒ 8');
+  // شريطان: الأول عادي والثاني رمز — ESC U 1 قبل الثاني مرّة وESC U 0 قبل FF، ومقاطعه بجودة 180
+  const two = ink(1440, 48, [[10, 0, 3, 24], [10, 24, 3, 24], [700, 24, 6, 24]]);
+  const q = hex(job([{ bitmap: two, qrRows: [[24, 48]] }], { segmentGapDots: 36, draft: true }).bytes);
+  assert.equal((q.match(/1b 55 01/g) || []).length, 1);
+  assert.ok(q.indexOf('1b 55 01') < q.indexOf('1b 2a 27 04 00') && q.indexOf('1b 2a 27 04 00') < q.indexOf('1b 2a 27 07 00'));
+  assert.ok(q.endsWith('1b 55 00 0c'));
+  assert.equal((q.match(/1b 2a 21/g) || []).length, 1, 'المسودة للشريط العادي وحده');
+});
+
+test('النموذج — segmentGapDots: الرفض بآخر حبرٍ في الشريط كله كما كان (سطر الطباعة، ورسالة الرمز لشريطه)', () => {
+  const wide = ink(1500, 24, [[10, 0, 3, 24], [1440, 0, 1, 24]]);
+  assert.throws(() => job([{ bitmap: wide }], { segmentGapDots: 36 }), (e: unknown) => e instanceof PrintRefusedError && e.message === PRINT_ISSUES.impactLine);
+  assert.throws(() => job([{ bitmap: wide, qrRows: [[0, 24]] }], { segmentGapDots: 36 }), (e: unknown) => e instanceof PrintRefusedError && e.message === PRINT_WARNINGS.qrNoFit);
+  // الإزاحة 15 ⇒ آخر عمودٍ مسموح 1424 كما بلا تقسيم
+  assert.doesNotThrow(() => job([{ bitmap: ink(1440, 24, [[10, 0, 3, 24], [1400, 0, 25, 24]]) }], { segmentGapDots: 36, leftDots: 15 }));
+  assert.throws(() => job([{ bitmap: ink(1440, 24, [[10, 0, 3, 24], [1400, 0, 26, 24]]) }], { segmentGapDots: 36, leftDots: 15 }), PrintRefusedError);
 });

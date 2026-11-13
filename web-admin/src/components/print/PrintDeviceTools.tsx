@@ -10,7 +10,8 @@ import { buildFormCalibration } from '../../lib/print/formCalibration';
 import { formOf } from '../../lib/print/formModel';
 import { directPath, isIosLink, linkPrinter, linkedPrinter, onLateHandoff, printerForJob, type DirectLink } from '../../lib/print/transport/direct';
 import {
-  directAvailableFor, directHintFor, printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type DirectOutcome, type PrintTransport,
+  directAvailableFor, directHintFor, printFormHtmlDirect, printHtmlDirect, printNodeDirect, supportsDirect, transportFor, type DirectOutcome,
+  type PrintTransport,
 } from '../../rep/printDirect';
 import { printHtmlDocument, printPageNode } from '../../rep/printPage';
 import { printThermalInvoice } from '../../rep/thermal';
@@ -136,11 +137,16 @@ export default function PrintDeviceTools({ profile, systemProfile, name, company
 
   const calibrate = (via: PrintTransport) => guarded(via, async (port) => {
     /* «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦): مواضع الحقول وجدول الأصناف بالإزاحة الحالية على ورق النموذج
-     * نفسه بمسطرتين — نظام الطباعة وحده (للطابعة العادية وحدها). وغيره: صفحة المعايرة كما كانت */
+     * نفسه بمسطرتين — بنظام الطباعة للعادية وللنقطية (مشغّل ويندوز)، وصفحتها النقطية داخل ما تبلغه الإبرة (formReachOf). وغيره:
+     * صفحة المعايرة كما كانت */
     if (!port && formOf(sysProfile)) {
       await printHtmlDocument(buildFormCalibration(sysProfile, tr, { name, taxOff }), sysProfile.paper.widthMm);
       return;
     }
+    /* والنقطية بالبلوتوث المباشر (طلب المالك ١٣ نوفمبر ٢٠٢٦): صفحة معايرة النموذج نفسها تُرسم نقاطاً بدقة الطابعة (ورقة نموذج:
+     * بلا هامشٍ ولا offsetXmm، ورفضٌ لا قصّ لما خارج الحزمة) — لا صفحة المعايرة العامة التي لا تقول شيئاً عن فراغات النموذج. وdirect:
+     * تعليماتها بلا سطر «100٪» (لا نافذة طباعة هنا) — وفرع نظام الطباعة أعلاه يحمله (مشغّل ويندوز) */
+    if (port && profile.printer === 'impact' && formOf(profile)) return direct.run((ui) => printFormHtmlDirect(port, buildFormCalibration(profile, tr, { name, taxOff, direct: true }), profile, ui), { ...directOpts(choice), label: tr('طباعة صفحة معايرة') });
     if (port) return direct.run((ui) => printHtmlDirect(port, buildCalibrationDocument(profile, tr, { mode: 'raster', name }), profile, 'pages', ui), { ...directOpts(choice), label: tr('طباعة صفحة معايرة') });
     await printHtmlDocument(buildCalibrationDocument(sysProfile, tr, { mode: 'system', name }), sysProfile.paper.widthMm);
   });

@@ -13,7 +13,7 @@
  * والرمز والجداول). وhtml2canvas يقرأ النمط المحسوب فيلتقط الـPDF المظهرَ نفسه.
  */
 import { createContext, useContext, type CSSProperties } from 'react';
-import { STAMPED_QR_CELLS, qrPlan, type Paper, type PrintProfile } from '../lib/print/printSettings';
+import { STAMPED_QR_CELLS, qrPlan, type Paper, type PrintForm, type PrintProfile } from '../lib/print/printSettings';
 import { resolveLayout, type ResolvedLayout } from '../lib/print/layout';
 
 /** عرض قوالب الصفحة الطبيعيّ (PAGE في RepDocuments.tsx = عرض A4 بـ96 بكسل/بوصة) */
@@ -79,6 +79,23 @@ export function impactQrSlotPx(p: PrintProfile): number | null {
   return Math.ceil((slotDots * SHEET_WIDTH_PX) / dots);
 }
 
+/** بكسل CSS لكل مم (96 بكسل/بوصة) */
+export const CSS_PX_PER_MM = 96 / 25.4;
+
+/**
+ * خانة رمز QR في «نموذج الشركة المطبوع مسبقاً» على النقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦) = ضلع حقل الرمز min(w,h) ببكسل CSS بلا
+ * تقريب — لا impactQrSlotPx (269 بكسل ≈ 71 مم): حقلٌ بضلع 55 مم كانت خانته تفيض عنه، فيمسح الرسم النقطيّ (drawQr) ما حوله من قيم،
+ * وتكبر صورة الرمز عبر تعريف Windows (قاعدة 92٪ في PRINT_LOOK_CSS) فيقصّها الحقل. الخانة ركن الحقل الأعلى (flex-start) فيُرسم
+ * الرمز داخله تماماً: 55 مم ≈ 389.8 نقطة ≥ (93 + 4) × 4. وعبر تعريف Windows لا تُصغّر قاعدة الـ92٪ صورته (0.92 × 55 تنزل بالخلية عن
+ * 4 نقاط): قاعدةٌ أخصّ في qrCss (rep/printPreprinted.tsx) تجعلها بضلع الحقل كاملاً. null بلا حقل رمز.
+ */
+export function formQrSlotPx(form: Pick<PrintForm, 'fields'> | null | undefined): number | null {
+  const f = form?.fields?.find((x) => x.id === 'qr');
+  if (!f) return null;
+  const side = Math.min(f.w, f.h);
+  return Number.isFinite(side) && side > 0 ? side * CSS_PX_PER_MM : null;
+}
+
 /** a4/a5/letter باسمها، وغيرها «العرض×الطول» بالمم (يحوّلها pdf.ts نقاطاً) */
 export function pdfFormatOfPaper(paper: Paper): string {
   const near = (a: number, b: number) => Math.abs(a - b) < 0.6;
@@ -110,7 +127,8 @@ export function lookFor(p: PrintProfile): PrintLook {
     boldBody: o.boldBody,
     pagePadding: impact ? 16 : 40,
     pdfFormat: pdfFormatOfPaper(p.paper),
-    qrSlotPx: impact ? impactQrSlotPx(p) : null,
+    // نموذج الشركة على النقطية: الخانة بمقاس حقل الرمز (formQrSlotPx) — وغيره كما كان
+    qrSlotPx: impact ? (layout?.design === 'preprinted' && layout.form ? formQrSlotPx(layout.form) : impactQrSlotPx(p)) : null,
     ...(layout ? { layout } : {}),
   };
 }

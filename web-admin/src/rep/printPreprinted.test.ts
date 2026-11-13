@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createElement, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { FormInvoice, formSheetOfLook, type FormInvoiceFacts } from './printPreprinted';
+import { FormInvoice, formMarksBand, formSheetOfLook, type FormInvoiceFacts } from './printPreprinted';
 import { PrintableInvoice, invoiceDocFromDetail, type InvoiceDoc } from './RepDocuments';
 import { DEFAULT_PRINT_LOOK, PrintLookContext, lookFor, type PrintLook } from './printLook';
 import { zatcaPrintDecision, type ZatcaPrintDecision } from '../lib/zatca/docPrint';
@@ -446,6 +446,92 @@ test('invoiceDocFromDetail: الباركود والملاحظات وتاريخ �
   const bare = invoiceDocFromDetail({ ...row, notes: null, dueDate: null, items: [{ ...row.items[0], product: { name: 'أ' } }] }, 'م');
   assert.ok(!('notes' in bare) && !('dueDate' in bare) && !('barcode' in bare.items[0]));
   assert.ok(!('dueDate' in invoiceDocFromDetail({ ...row, dueDate: 'not a date' }, 'م')));
+});
+
+// ─── الطابعة النقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦، SPEC §5.1–5.2) ───
+
+test('النقطية: شريط العلامات داخل ما تبلغه الإبرة [x0 + 1, x1 − 1] وأعلاه ≥ 0 بعد المعايرة — والعادية (بلا formReach) كما هي حرفاً', () => {
+  const doc = inv({ items: [item(1)] as InvoiceDoc['items'] });
+  const facts = factsFor(doc, { watermark: 'بروفة — ليست فاتورة' } as Partial<ZatcaPrintDecision>);
+  const el = (layout: ResolvedLayout, look: PrintLook = DEFAULT_PRINT_LOOK) => renderToStaticMarkup(createElement(FormInvoice, { doc, facts, look, layout, qr: null }));
+  // 241 مم بمعايرة (−20، −5): الشريط 8 − 20 = −12 حتى 213 ⇒ [19.9، 213]، وأعلاه 2 − 5 = −3 ⇒ 0
+  const wide = { ...FORM, dxMm: -20, dyMm: -5 };
+  const look241 = { ...DEFAULT_PRINT_LOOK, pdfFormat: '241x279.4' };
+  const impact = el({ ...layoutOf(wide), printer: 'impact', formReach: { x0: 18.9, x1: 222.1 } } as ResolvedLayout, look241);
+  assert.match(boxOf(impact, 'data-form-marks=""')!, /left:19\.9mm;top:0mm;width:193\.1mm;/);
+  const page = el(layoutOf(wide), look241);
+  assert.match(boxOf(page, 'data-form-marks=""')!, /left:-12mm;top:-3mm;width:225mm;/, 'العادية: الصندوق كما كان');
+  // A4 بمعايرة الاختبار (1.5، −2): الشريط [9.5، 203.5] داخل [4.4، 205.6] أصلاً ⇒ لا يتغيّر شيء
+  const a4 = el({ ...layoutOf(), printer: 'impact', formReach: { x0: 3.4, x1: 206.6 } } as ResolvedLayout);
+  assert.equal(a4, el(layoutOf()), 'داخل الحزمة: الورقة نفسها حرفاً');
+  // الدالة نقيّة: بلا حزمة الصندوق نفسه
+  const b = { x: -12, y: -3, w: 225, h: 0 };
+  assert.equal(formMarksBand(b, null), b);
+  assert.equal(formMarksBand(b, undefined), b);
+  assert.deepEqual(formMarksBand({ x: 30, y: 4, w: 100, h: 0 }, { x0: 18.9, x1: 222.1 }), { x: 30, y: 4, w: 100, h: 0 });
+});
+
+test('النقطية: نموذج الشركة في PrintableInvoice — خانة الرمز بمقاس حقله (55 مم ≈ 207.87 بكسل) لا خانة النقطية العامة 269', () => {
+  const base: PrintProfile = {
+    id: 'mip-form', name: 'نموذج نقطي', printer: 'impact', template: 'impact_plain', paper: presetPaper('ff_a4')!, options: defaultPrintOptions('impact'),
+  };
+  const p = withDesign(base, 'preprinted');
+  const look = lookFor(p);
+  assert.equal(look.layout?.design, 'preprinted');
+  assert.ok(look.layout?.formReach);
+  const html = renderToStaticMarkup(createElement(PrintLookContext.Provider, { value: look }, createElement(PrintableInvoice, { doc: inv() })));
+  assert.match(html, /^<div[^>]*data-print-layout="preprinted"/);
+  const qrField = boxOf(html, 'data-form-qr')!;
+  assert.match(qrField, /width:55mm;height:55mm;overflow:hidden/);
+  const slot = /<div style="([^"]*)" data-qr-value="[^"]+" data-qr-ec="M">/.exec(html);
+  assert.ok(slot, 'الخانة تحمل قيمة الرمز (الرسم النقطيّ يعيد رسمه فيها)');
+  const px = (k: string) => Number(new RegExp(`(?:^|;)${k}:([0-9.]+)px`).exec(slot[1])?.[1]);
+  assert.ok(Math.abs(px('width') - (55 * 96) / 25.4) < 1e-6, slot[1]);
+  assert.ok(Math.abs(px('height') - (55 * 96) / 25.4) < 1e-6, slot[1]);
+});
+
+/** خصوصية محدِّدٍ بسيط (سماتٌ وأنواع، بلا معرّفٍ ولا صنف) — [السمات، الأنواع] */
+const specificity = (sel: string): [number, number] => {
+  const attrs = (sel.match(/\[[^\]]*\]/g) ?? []).length;
+  const types = (sel.replace(/\[[^\]]*\]/g, ' ').match(/(?:^|[\s>+~])[a-z][a-z0-9]*/gi) ?? []).length;
+  return [attrs, types];
+};
+
+test('النقطية عبر تعريف Windows: صورة رمز النموذج بضلع حقله كاملاً (55 مم ≈ 4.1 نقطة للخلية) — تغلب قاعدة الـ92٪ بالخصوصية، والعادية بأسلوبها كما كان', () => {
+  const css = (html: string): string[] => [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)]
+    .flatMap((m) => m[1].replace(/&quot;/g, '"').replace(/&gt;/g, '>').split('\n'));
+  const rule = (r: string) => ({ sel: r.slice(0, r.indexOf('{')).trim(), body: r.slice(r.indexOf('{')) });
+  /** قواعد عرض صورة الرمز في الورقة بترتيبها — والفائزة: الأخصّ، ثم الأخيرة عند التساوي (كلّها !important) */
+  const imgWidth = (html: string, applies: (sel: string) => boolean): string => {
+    const rules = css(html).filter((r) => r.includes('img[alt') && /width:/.test(r)).map(rule).filter((r) => applies(r.sel));
+    let win = rules[0];
+    for (const r of rules.slice(1)) {
+      const [a, b] = specificity(r.sel); const [wa, wb] = specificity(win.sel);
+      if (a > wa || (a === wa && b >= wb)) win = r;
+    }
+    return /width: ([^ ;!]+)/.exec(win.body)![1];
+  };
+  const base: PrintProfile = {
+    id: 'mip-form', name: 'نموذج نقطي', printer: 'impact', template: 'impact_plain', paper: presetPaper('ff_a4')!, options: defaultPrintOptions('impact'),
+  };
+  const p = withDesign(base, 'preprinted');
+  const look = lookFor(p);
+  const html = renderToStaticMarkup(createElement(PrintLookContext.Provider, { value: look }, createElement(PrintableInvoice, { doc: inv() })));
+  // الصورة ابنة الخانة (data-qr-value) داخل حقل الرمز: قواعد qrCss الثلاث وقاعدة الـ92٪ كلها تنطبق عليها
+  assert.match(html, /data-form-qr=""[^>]*><div[^>]*><div style="[^"]*" data-qr-value="[^"]+" data-qr-ec="M"><img [^>]*alt="QR"/);
+  const all = css(html).filter((r) => r.includes('img[alt') && /width:/.test(r)).map(rule);
+  assert.ok(all.some((r) => r.body.includes('width: 92%')), 'قاعدة الـ92٪ في الورقة (المظهر أحادي)');
+  assert.ok(all.some((r) => r.sel === '[data-print-layout=preprinted] [data-form-qr] div img[alt=QR]' && r.body.includes('width: 55mm !important; height: 55mm !important;')));
+  assert.deepEqual(specificity('[data-print-layout=preprinted] [data-form-qr] div img[alt=QR]'), [3, 2]);
+  assert.deepEqual(specificity('[data-print-look] [data-qr-value] > img[alt="QR"]'), [3, 1]);
+  assert.equal(imgWidth(html, () => true), '55mm', 'الصورة بضلع الحقل — لا 0.92 × 55 = 50.6 مم (3.77 نقطة للخلية)');
+  // 55 مم على 95 خلية (93 + هامش 1 × 2) على 180 dpi ≥ 4 نقاط للخلية
+  assert.ok((55 / 95) * (180 / 25.4) >= 4);
+  // والعادية: قاعدتا qrCss وحدهما (الأسلوب كما كان حرفاً) — ولا خانة data-qr-value="…" فلا تنطبق قاعدة الـ92٪ (نصّها في الأسلوب وحده)
+  const page = withDesign({ ...base, id: 'office', printer: 'page', template: 'page_plain', paper: presetPaper('a4')!, options: defaultPrintOptions('page') }, 'preprinted');
+  const pageHtml = renderToStaticMarkup(createElement(PrintLookContext.Provider, { value: lookFor(page) }, createElement(PrintableInvoice, { doc: inv() })));
+  assert.ok(!pageHtml.includes('data-qr-value="') && pageHtml.includes('[data-print-layout=preprinted] [data-form-qr] img[alt=QR] { display: block !important; width: 22mm !important; height: 22mm !important; max-width: none !important; }'));
+  assert.ok(!pageHtml.includes('[data-form-qr] div img[alt=QR]'), 'العادية بلا القاعدة النقطية');
 });
 
 test('حرّاس المصدر: لا بناء رمز ولا قيمة رمز ولا قرار ولا تباعد أحرف ولا استيراد تشغيليّ من RepDocuments', () => {

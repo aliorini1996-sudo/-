@@ -11,7 +11,8 @@ import { sampleInvoiceDoc } from '../../lib/print/calibration';
 import { PrintableInvoice, PrintableReceipt, type Company, type InvoiceDoc, type ReceiptDoc } from '../../rep/RepDocuments';
 import { PrintLookContext, SHEET_WIDTH_PX, lookFor } from '../../rep/printLook';
 import {
-  FORM_COLUMN_LABELS, FORM_FIELD_LABELS, FORM_TAX_COLUMN_IDS, FORM_TAX_FIELD_IDS, fitForm, formOf, formSheetSize, formTableBox, printedBox, tableRowTop,
+  FORM_COLUMN_LABELS, FORM_FIELD_LABELS, FORM_TAX_COLUMN_IDS, FORM_TAX_FIELD_IDS, fitForm, formOf, formPaperOf, formSheetSize, formTableBox, printedBox,
+  tableRowTop,
 } from '../../lib/print/formModel';
 import { thermalPreviewHtml } from '../../rep/thermal';
 import { isTaxOff } from '../../lib/taxMode';
@@ -314,12 +315,13 @@ type Tr = (s: string) => string;
 
 /**
  * مخطّط «نموذج الشركة المطبوع مسبقاً» في «المقاس والهوامش»: مربعٌ متقطّع لكل حقلٍ وشريطٌ لكل عمودٍ بخطوط صفوفه، في موضعه المطبوع
- * (بالإزاحة — كصفحة المعايرة) وباسمه. لشركةٍ بلا ضريبة لا حقول الضريبة وعمودها ولا مربع الرمز.
+ * (بالإزاحة — كصفحة المعايرة) وباسمه. لشركةٍ بلا ضريبة لا حقول الضريبة وعمودها ولا مربع الرمز. والنقطية بورق النموذج نفسه الذي تطبع
+ * به (formPaperOf — داخل ما تبلغه الإبرة، وهي حدود الطباعة المرسومة فوقه)؛ والعادية كما كانت (reach: null).
  */
 function FormSchematic({ profile, tr, taxOff }: { profile: PrintProfile; tr: Tr; taxOff: boolean }) {
   const raw = formOf(profile);
   if (!raw) return null;
-  const form = fitForm(raw, profile.paper);
+  const form = fitForm(raw, formPaperOf(profile));
   const at = (b: { x: number; y: number; w: number; h: number }): CSSProperties => ({ position: 'absolute', left: b.x * MM, top: b.y * MM, width: b.w * MM, height: b.h * MM });
   const label: CSSProperties = { fontSize: 9, lineHeight: 1.15, color: '#C94E28', whiteSpace: 'nowrap', overflow: 'hidden', padding: '1px 2px' };
   const t = form.table;
@@ -495,7 +497,7 @@ function PageSample({ profile, companyName, brandColor, mono, qrMm, qrCells, rem
 
 /**
  * بطاقة في خطوة «التصميم»: قالبٌ من قوالب الطابعة، أو «كلاسيكي بإطارات — ثنائي اللغة» (الصفحة والنقطية — ليس TemplateId)، أو
- * «نموذج الشركة المطبوع مسبقاً» (الطابعة العادية بورقٍ له طول — طلب المالك ١٠–١١ نوفمبر ٢٠٢٦)
+ * «نموذج الشركة المطبوع مسبقاً» (الطابعة العادية والنقطية بورقٍ له طول — طلب المالك ١٠–١١ نوفمبر ٢٠٢٦، والنقطية ١٣ نوفمبر)
  */
 export type DesignCard = { kind: 'template'; t: TemplateId } | { kind: 'grid' } | { kind: 'preprinted' };
 
@@ -504,8 +506,8 @@ const isGridDesign = (p: PrintProfile): boolean => p.options.layout?.design === 
 const isFormDesign = (p: PrintProfile): boolean => p.options.layout?.design === 'preprinted';
 
 /**
- * قوالب الطابعة ثم البطاقة الثالثة ثنائية اللغة حيث يصحّ تصميمها (designsFor)، ثم بطاقة النموذج المطبوع مسبقاً (الطابعة العادية) — وورقٌ
- * بلا طول تعطّلها اللوحة برسالتها (withDesign لا يغيّر شيئاً بلا طول)
+ * قوالب الطابعة ثم البطاقة الثالثة ثنائية اللغة حيث يصحّ تصميمها (designsFor)، ثم بطاقة النموذج المطبوع مسبقاً (العادية والنقطية) —
+ * وورقٌ بلا طول تعطّلها اللوحة برسالتها (withDesign لا يغيّر شيئاً بلا طول)
  */
 export function designCards(p: PrintProfile): DesignCard[] {
   const cards: DesignCard[] = templatesFor(p.printer).map((t) => ({ kind: 'template' as const, t }));
@@ -528,14 +530,16 @@ export function designCardSelected(p: PrintProfile, c: DesignCard): boolean {
 }
 
 /**
- * الاختيار: ثنائي اللغة ⇒ withDesign (القالب الأحادي للطابعة وتخطيطه)، والنموذج المطبوع مسبقاً ⇒ withDesign (page_plain بلا هامشين
- * ومواضع البداية)، وقالبٌ بعد أحدهما ⇒ يعود «التصميم الحالي» بذلك القالب
+ * الاختيار: ثنائي اللغة ⇒ withDesign (القالب الأحادي للطابعة وتخطيطه)، والنموذج المطبوع مسبقاً ⇒ withDesign (page_plain، وعلى
+ * النقطية impact_preprinted، بلا هامشين ومواضع البداية)، وقالبٌ بعد أحدهما ⇒ يعود «التصميم الحالي» بذلك القالب
  */
 export function applyDesignCard(p: PrintProfile, c: DesignCard): PrintProfile {
   if (c.kind === 'grid') return withDesign(p, 'grid_bilingual');
   if (c.kind === 'preprinted') return withDesign(p, 'preprinted');
-  const next: PrintProfile = { ...p, template: c.t };
-  return isGridDesign(p) || isFormDesign(p) ? withDesign(next, 'standard') : next;
+  // الخروج من التصميم أولاً ثم القالب المختار: الخروج من نموذج النقطية يعيد احتياطه (impact_preprinted) إلى impact_plain — فبطاقة
+  // «على ورق بترويسة مطبوعة» المختارة صراحةً تبقى كما اختيرت. والنتيجة على العادية هي نفسها حرفاً (withDesign لا يقرأ القالب)
+  if (isGridDesign(p) || isFormDesign(p)) return { ...withDesign(p, 'standard'), template: c.t };
+  return { ...p, template: c.t };
 }
 
 /** الافتراضيان والرول الكلاسيكي لا يحملان تخطيطاً (layoutClassic) — يُنسخ الافتراضي لتخصيصه كاليوم */

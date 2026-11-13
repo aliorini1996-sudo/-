@@ -12,8 +12,8 @@ import {
   sectionCss, sectionCssText, sectionLook, snapMm, visibleOrder,
   type ResolvedLayout,
 } from './layout';
-import { defaultPrintOptions, legacyPrintSettings, newProfile, presetPaper, type PrintProfile } from './printSettings';
-import { fitForm, starterForm } from './formModel';
+import { defaultPrintOptions, formReachX, legacyPrintSettings, newProfile, presetPaper, type PrintProfile } from './printSettings';
+import { fitForm, formPaperOf, starterForm } from './formModel';
 
 const root = process.cwd();
 const read = (...p: string[]) => fs.readFileSync(path.join(root, ...p), 'utf8').replace(/\r\n/g, '\n');
@@ -269,7 +269,7 @@ test('cssText: kebab-case, px for numbers except unitless props, skips empty val
 
 // ─── حرّاس المصدر ───
 
-test('layout.ts is framework-free, imports the core as types only (plus the hide reader from printSettings and fitForm from formModel), and has no letterSpacing', () => {
+test('layout.ts is framework-free, imports the core as types only (plus the hide reader from printSettings and fitForm/formPaperOf from formModel), and has no letterSpacing', () => {
   const src = read('src', 'lib', 'print', 'layout.ts');
   assert.ok(!/from 'react'|from "react"|document\.|window\./.test(src));
   assert.ok(!/letterSpacing|letter-spacing/.test(src.replace(/\/\/.*$/gm, '')));
@@ -277,8 +277,9 @@ test('layout.ts is framework-free, imports the core as types only (plus the hide
     if (m[2] === './printSettingsCore') assert.match(m[1], /^type /, 'النواة type-only');
     // قرار المالك ٤ نوفمبر ٢٠٢٦: خيار حذف الرمز يُقرأ بالمساعد الخالص وحده — لا قراءة يدوية لـsections.qr
     else if (m[2] === './printSettings') assert.equal(m[1], '{ isQrRemoved }');
-    // ومواضع «النموذج المطبوع مسبقاً» تُقصّ بالدالّة الخالصة نفسها التي يكتب بها المصمّم (fitForm)
-    else if (m[2] === './formModel') assert.equal(m[1], '{ fitForm }');
+    // ومواضع «النموذج المطبوع مسبقاً» تُقصّ بالدالّة الخالصة نفسها التي يكتب بها المصمّم (fitForm) على ورقه نفسه (formPaperOf:
+    // وعلى النقطية ما تبلغه الإبرة)
+    else if (m[2] === './formModel') assert.equal(m[1], '{ fitForm, formPaperOf }');
     else assert.equal(m[2], '../money');
   }
   // paper presets untouched by the engine (sanity: the helper we use in tests still exists)
@@ -511,12 +512,13 @@ test('engine copies of the core free-editing constants equal printSettingsCore',
 
 // ─── «نموذج الشركة المطبوع مسبقاً» (١٠–١١ نوفمبر ٢٠٢٦) ───
 
-test('resolveLayout: النموذج المطبوع مسبقاً يحمل مواضعه مقصوصةً (fitForm) — وبلا طابعةٍ عادية أو ورقٍ بطول أو مواضع صالحة فالتصميم القياسي', () => {
+test('resolveLayout: النموذج المطبوع مسبقاً يحمل مواضعه مقصوصةً (fitForm) — وبلا طابعةٍ عادية أو نقطية أو ورقٍ بطول أو مواضع صالحة فالتصميم القياسي', () => {
   const form = starterForm(presetPaper('a4'));
   const lay = (over: Record<string, unknown> = {}) => fullLayout({ design: 'preprinted', order: DEFAULT_SECTIONS.page, form, ...over });
   const r = resolveLayout(profile('page', lay()))!;
   assert.equal(r.design, 'preprinted');
   assert.deepEqual(r.form, form);
+  assert.ok(!('formReach' in r), 'العادية بلا formReach — الورقة كلها كما كانت');
   // المواضع تُقصّ داخل الورقة كما يكتبها المصمّم، والمجهول يسقط
   const messy = { ...form, dxMm: 99, fields: [...form.fields, { id: 'bogus', x: 1, y: 1, w: 9, h: 6 }, { ...form.fields[0], x: 500 }] };
   const m = resolveLayout(profile('page', lay({ form: messy })))!;
@@ -528,11 +530,11 @@ test('resolveLayout: النموذج المطبوع مسبقاً يحمل موا�
   const empty = resolveLayout(profile('page', lay({ form: { ...form, fields: [], table: null } })))!;
   assert.equal(empty.design, 'preprinted');
   assert.deepEqual([empty.form!.fields, empty.form!.table], [[], null]);
-  // بلا مواضع، أو مواضع معطوبة، أو على النقطية/الرول، أو على تصميمٍ آخر: لا نموذج
+  // بلا مواضع، أو مواضع معطوبة، أو على الرول، أو على تصميمٍ آخر: لا نموذج (والنقطية تقبله منذ ١٣ نوفمبر ٢٠٢٦ — الاختبار التالي)
   for (const [label, l, printer] of [
     ['no form', lay({ form: undefined }), 'page'],
     ['fields not array', lay({ form: { ...form, fields: 'x' } }), 'page'],
-    ['impact', lay(), 'impact'],
+    ['impact without form', lay({ form: undefined }), 'impact'],
     ['thermal', fullLayout({ design: 'preprinted', order: DEFAULT_SECTIONS.thermal, form }), 'thermal'],
   ] as Array<[string, unknown, Printer]>) {
     const x = resolveLayout(profile(printer, l))!;
@@ -544,4 +546,43 @@ test('resolveLayout: النموذج المطبوع مسبقاً يحمل موا�
   // ورقٌ بلا طول
   const noLen = profile('page', lay());
   assert.equal(resolveLayout({ ...noLen, paper: { ...noLen.paper, lengthMm: null } })!.design, 'standard');
+});
+
+test('resolveLayout: النموذج على النقطية (١٣ نوفمبر ٢٠٢٦) — مواضعه داخل ما تبلغه الإبرة بعد المعايرة وبلا خلفية، ومعه formReach؛ والعادية كما كانت', () => {
+  const ip = profile('impact');
+  const paper = formPaperOf(ip);
+  assert.ok(paper.reach, 'ورق النقطية يحمل ما تبلغه الإبرة');
+  const form = starterForm(paper);
+  const lay = (over: Record<string, unknown> = {}) => fullLayout({ design: 'preprinted', order: DEFAULT_SECTIONS.page, form, ...over });
+  const r = resolveLayout(profile('impact', lay()))!;
+  assert.equal(r.design, 'preprinted');
+  assert.equal(r.printer, 'impact');
+  assert.deepEqual(r.form, form);
+  const [x0, x1] = formReachX(ip)!;
+  assert.deepEqual(r.formReach, { x0, x1 }, 'الحزمة في وسط الورقة بلا offsetXmm');
+  assert.ok(Math.abs(x0 - 3.4) < 1e-9 && Math.abs(x1 - 206.6) < 1e-9, `${x0} ${x1}`);
+  // والإزاحة الأفقية للورق (offsetXmm) لا تمسّ الحزمة على قوالب النموذج
+  const shifted = profile('impact', lay());
+  assert.deepEqual(resolveLayout({ ...shifted, paper: { ...shifted.paper, offsetXmm: 6 } })!.formReach, { x0, x1 });
+  // الخلفية لا تُطبع على النقطية أبداً
+  assert.equal(resolveLayout(profile('impact', lay({ form: { ...form, background: true } })))!.form!.background, false);
+  // حقلٌ خارج ما تبلغه الإبرة يُقصّ داخلها بعد المعايرة، ومربع QR أصغر من 55 يُكبَّر إليه
+  const messy = {
+    ...form, dxMm: 5,
+    fields: form.fields.map((f) => (f.id === 'qr' ? { ...f, x: 0, w: 22, h: 22 } : f.id === 'docTitle' ? { ...f, x: 200 } : f)),
+  };
+  const m = resolveLayout(profile('impact', lay({ form: messy })))!;
+  assert.equal(m.design, 'preprinted');
+  assert.deepEqual(m.form, fitForm(messy as never, paper));
+  const qr = m.form!.fields.find((f) => f.id === 'qr')!;
+  assert.deepEqual([qr.w, qr.h], [55, 55]);
+  for (const f of m.form!.fields) assert.ok(f.x + 5 >= x0 - 1e-9 && f.x + 5 + f.w <= x1 + 1e-9, f.id);
+  // العادية: بلا formReach، والخلفية كما حفظتها الشركة
+  const pageForm = starterForm(presetPaper('a4'));
+  const pg = resolveLayout(profile('page', fullLayout({ design: 'preprinted', order: DEFAULT_SECTIONS.page, form: { ...pageForm, background: true } })))!;
+  assert.equal(pg.form!.background, true);
+  assert.ok(!('formReach' in pg));
+  // التصميم القياسي على النقطية: لا مواضع ولا formReach
+  const std = resolveLayout(profile('impact', fullLayout({ form })))!;
+  assert.ok(!('form' in std) && !('formReach' in std));
 });

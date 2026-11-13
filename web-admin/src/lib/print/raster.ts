@@ -19,7 +19,7 @@
  */
 import QRCode from 'qrcode';
 import html2canvas from 'html2canvas';
-import { PRINT_WARNINGS, QR_DOTS_PER_CELL, dotsPerMm, qrDotsPerCell, type PrinterDpi, type QrSize } from './printSettings';
+import { PRINT_ISSUES, PRINT_WARNINGS, QR_DOTS_PER_CELL, dotsPerMm, qrDotsPerCell, type PrinterDpi, type QrSize } from './printSettings';
 import { PrintRefusedError } from './printErrors';
 
 // ─── الصورة أحادية اللون ───
@@ -291,6 +291,104 @@ export function applyQrSlots(bm: Bitmap, slots: readonly QrSlotRef[], q: { dpi: 
     const quiet = QR_QUIET_CELLS * d;
     return [Math.max(0, at.y - quiet), Math.min(bm.height, at.y + at.side + quiet)] as [number, number];
   });
+}
+
+// ─── «نموذج الشركة المطبوع مسبقاً» على النقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦) ───
+//
+// كل ورقة نموذجٍ تُلتقط بعرض الورقة كاملاً بنقاط الطابعة (لا تصغيرٌ إلى الحزمة كما في rasterPages — 3.2٪ كانت تُزيح الحقل 6.5 مم
+// عند x = 200)، ثم تُقصّ إلى ما تبلغه الإبرة: الأعمدة [x0, x0 + النقاط) والصفوف حتى طول الورقة. وحبرٌ خارج ذلك **يُرفض لا يُقصّ**
+// (كسطر الطباعة في escp24.ts): القصّ الصامت كان يُسقط اسم البائع أو رقمه الضريبي أو طرف الرمز من ورقةٍ تبدو سليمة.
+
+/** الأعمدة [x0, x0 + width) من الصورة في صورةٍ جديدة — وما وراء حدّها (يساراً أو يميناً) أبيض. الحشوة بعد العرض صفرٌ دائماً */
+export function cropColumns(bm: Bitmap, x0: number, width: number): Bitmap {
+  const out = createBitmap(width, bm.height);
+  if (out.rowBytes === 0) return out;
+  const from = Math.round(x0);
+  // بايتٌ مزاحٌ بـs بتّاً: البايت j من الناتج = ذيل البايت (base + j) ورأس الذي يليه — صفٌّ بصفّ بلا بتٍّ بتّ (هاتف المندوب)
+  const s = ((from % 8) + 8) % 8;
+  const base = (from - s) / 8;
+  const tail = out.width & 7;
+  const tailMask = tail ? (0xff << (8 - tail)) & 0xff : 0xff;
+  for (let y = 0; y < bm.height; y++) {
+    const src = y * bm.rowBytes;
+    const dst = y * out.rowBytes;
+    for (let j = 0; j < out.rowBytes; j++) {
+      const i = base + j;
+      const hi = i >= 0 && i < bm.rowBytes ? bm.data[src + i] : 0;
+      if (s === 0) { out.data[dst + j] = hi; continue; }
+      const lo = i + 1 >= 0 && i + 1 < bm.rowBytes ? bm.data[src + i + 1] : 0;
+      out.data[dst + j] = ((hi << s) | (lo >> (8 - s))) & 0xff;
+    }
+    out.data[dst + out.rowBytes - 1] &= tailMask;
+  }
+  return out;
+}
+
+/** هل في الصورة حبرٌ في الأعمدة [0, x0) أو [x1, العرض) — في أيّ صفّ */
+export function inkOutsideColumns(bm: Bitmap, x0: number, x1: number): boolean {
+  const span = inkColumns(bm, 0, bm.height);
+  return span !== null && (span[0] < x0 || span[1] >= x1);
+}
+
+/**
+ * مقاطع الحبر في الصفوف [y0, y1): [أوّل عمود، آخر عمود] لكل مقطع، والفجوة البيضاء الداخلية الأقصر من minGap تُدمج (مقطعٌ واحد).
+ * أوّل المقاطع يبدأ وآخرها ينتهي حيث inkColumns تماماً — [] للشريط الأبيض. (escp24.ts: segmentGapDots)
+ */
+export function inkRuns(bm: Bitmap, y0: number, y1: number, minGap: number): Array<[number, number]> {
+  const acc = new Uint8Array(bm.rowBytes);
+  for (let y = Math.max(0, y0); y < Math.min(bm.height, y1); y++) {
+    const at = y * bm.rowBytes;
+    for (let i = 0; i < bm.rowBytes; i++) acc[i] |= bm.data[at + i];
+  }
+  const gap = Math.max(1, Math.floor(minGap) || 1);
+  const runs: Array<[number, number]> = [];
+  let start = -1;
+  let last = -1;
+  for (let i = 0; i < acc.length; i++) {
+    const v = acc[i];
+    if (!v) continue;
+    for (let b = 0; b < 8; b++) {
+      if (!(v & (0x80 >> b))) continue;
+      const x = i * 8 + b;
+      if (x >= bm.width) break;
+      if (start < 0) start = x;
+      else if (x - last - 1 >= gap) { runs.push([start, last]); start = x; }
+      last = x;
+    }
+  }
+  if (start >= 0) runs.push([start, last]);
+  return runs;
+}
+
+/**
+ * ورقة نموذجٍ ملتقطة (بعرض الورقة كاملاً) ⇒ صفحة نقطية واحدة:
+ *  1. حبرٌ خارج الأعمدة [x0, x0 + dots) أو في صفٍّ من maxRows فما بعده (طول الورقة) ⇒ PrintRefusedError(layoutFormReach) — قبل أيّ بايت؛
+ *  2. القصّ إلى الحزمة (عمود 0 = أوّل ما تبلغه الإبرة) وإلى min(الارتفاع، maxRows) صفّاً؛
+ *  3. خانات QR تُزاح −x0 — وخانةٌ تخرج من الحزمة (أكثر من سماح التقريب) رفضٌ بالرسالة نفسها: الرمز لا يُرسم فوق قيمٍ مجاورة؛
+ *  4. applyQrSlots يمسح الخانة ويرسم الرمز بنقاطٍ صحيحة داخلها (حقل الرمز ≥ 55 مم يتسع للمختوم بأربع نقاط للخلية).
+ * لا paginate ولا سطر ترقيم: الورقة صفحتها، ورقم الصفحة حقلٌ في النموذج نفسه.
+ */
+export function formSheetRaster(
+  cap: { bitmap: Bitmap; slots: readonly QrSlotRef[] },
+  band: { x0: number; dots: number; maxRows: number },
+  q: { dpi: PrinterDpi; size: QrSize },
+): RasterPage {
+  const bm = cap.bitmap;
+  const x0 = Math.round(band.x0);
+  const dots = Math.max(0, Math.floor(band.dots));
+  const maxRows = Math.max(0, Math.floor(band.maxRows));
+  const refused = (): PrintRefusedError => new PrintRefusedError(PRINT_ISSUES.layoutFormReach);
+  if (inkOutsideColumns(bm, x0, x0 + dots)) throw refused();
+  if (inkColumns(bm, maxRows, bm.height) !== null) throw refused();
+  const out = cropColumns(sliceRows(bm, 0, Math.min(bm.height, maxRows)), x0, dots);
+  const slots = cap.slots.map((s) => {
+    const rect = { ...s.rect, x: s.rect.x - x0 };
+    const outside = rect.x < -SLOT_SLACK_DOTS || rect.y < -SLOT_SLACK_DOTS
+      || rect.x + rect.w > dots + SLOT_SLACK_DOTS || rect.y + rect.h > maxRows + SLOT_SLACK_DOTS;
+    if (outside) throw refused();
+    return { ...s, rect };
+  });
+  return { bitmap: out, qrRows: applyQrSlots(out, slots, q) };
 }
 
 // ─── الالتقاط في المتصفح ───

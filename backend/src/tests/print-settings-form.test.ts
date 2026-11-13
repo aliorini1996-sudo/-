@@ -5,10 +5,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  FORM_BOUNDS, FORM_COLUMN_IDS, FORM_FIELD_IDS, FORM_LAST_SHEET_IDS, FORM_VALUE_LANGS, LAYOUT_DESIGNS, PRINT_ISSUES, PRINT_LIMITS, CANVAS_BOX_IDS,
-  checkPrintSettings, defaultPrintLayout, defaultPrintOptions, isFormProfile, layoutIssues, legacyPrintSettings, parsePrintSettings, presetPaper,
-  printSettingsBytes, routingAllowsProfile, sectionsFor, storedPrintSettings,
-  type FormField, type LayoutDesign, type PrintForm, type PrintLayout, type PrintProfile, type PrintSettingsV1,
+  FORM_BOUNDS, FORM_COLUMN_IDS, FORM_FIELD_IDS, FORM_IMPACT_QR_MIN_MM, FORM_LAST_SHEET_IDS, FORM_VALUE_LANGS, LAYOUT_DESIGNS, PRINT_ISSUES, PRINT_LIMITS,
+  CANVAS_BOX_IDS, checkPrintSettings, defaultPrintLayout, defaultPrintOptions, formQrMinMm, formReachX, isFormProfile, layoutIssues, legacyPrintSettings,
+  parsePrintSettings, presetPaper, printSettingsBytes, routingAllowsProfile, sectionsFor, storedPrintSettings,
+  type FormColumn, type FormField, type LayoutDesign, type PrintForm, type PrintLayout, type PrintProfile, type PrintSettingsV1,
 } from '../services/printSettings';
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -66,13 +66,42 @@ const accepts = (p: PrintProfile, label: string): PrintSettingsV1 => {
   assert.ok(r.ok, `${label}: ${JSON.stringify(!r.ok && r.issues)}`);
   return (r as { value: PrintSettingsV1 }).value;
 };
-const withField = (patch: Partial<FormField> & { id: FormField['id'] }): PrintForm => {
-  const f = baseForm();
+const withField = (patch: Partial<FormField> & { id: FormField['id'] }, base: PrintForm = baseForm()): PrintForm => {
+  const f = base;
   const i = f.fields.findIndex((x) => x.id === patch.id);
   if (i >= 0) f.fields[i] = { ...f.fields[i], ...patch };
   else f.fields.push({ x: 10, y: 10, w: 20, h: 6, ...patch });
   return f;
 };
+
+// ─── النموذج على النقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦: Tally Dascom MIP480) ───
+/**
+ * نموذجٌ نقطيّ صالح على ورقٍ عرضه W وطوله L كبداية المصمّم: مواضع A4 (x من 10 إلى 200) مُزاحةً أفقياً بـ(W − 210)/2 — لا تُكبَّر،
+ * فالحزمة 203.2 مم في منتصف كل ورق — ومقيسةً رأسياً بـL/297، والجدول 16 صفاً (105 ⇒ 217) ورمز QR 55 مم تحته
+ */
+const impactForm = (W = 210, L = 297): PrintForm => {
+  const tx = (W - 210) / 2;
+  const sy = L / 297;
+  return {
+    image: null, dxMm: 0, dyMm: 0, background: false, latinDigits: true, valueLang: 'ar',
+    fields: [
+      { id: 'docNumber', x: 150 + tx, y: 40 * sy, w: 40, h: 6 },
+      { id: 'docDate', x: 150 + tx, y: 47 * sy, w: 40, h: 6, align: 'center' },
+      { id: 'totalDue', x: 140 + tx, y: 230 * sy, w: 50, h: 6, bold: true },
+      { id: 'qr', x: 12 + tx, y: 226 * sy, w: 55, h: 55 },
+    ],
+    table: { y: 105 * sy, rowMm: 7, rows: 16, columns: [{ id: 'description', x: 70 + tx, w: 50, align: 'start' }, { id: 'qty', x: 120 + tx, w: 10 }] },
+  };
+};
+/** قالب النموذج على النقطية كما يبنيه withDesign: impact_preprinted، والهامشان والإزاحة الأفقية صفر */
+const impactp = (form: PrintForm | null = impactForm(), preset: Parameters<typeof presetPaper>[0] = 'ff_a4', over: Partial<PrintLayout> = {}, id = 'mip-form'): PrintProfile => {
+  const p = profile({ id, name: id, printer: 'impact', template: 'impact_preprinted' }, preset);
+  const layout: PrintLayout = { ...defaultPrintLayout('impact', 'preprinted'), ...over };
+  if (form !== null) layout.form = form;
+  return { ...p, paper: { ...p.paper, marginTopMm: 0, marginBottomMm: 0, offsetXmm: 0 }, options: { ...p.options, layout } };
+};
+const withImpactField = (patch: Partial<FormField> & { id: FormField['id'] }): PrintForm => withField(patch, impactForm());
+const impactCols = (columns: FormColumn[]): PrintForm => ({ ...impactForm(), table: { ...impactForm().table!, columns } });
 
 test('النموذج: الثوابت كما في العقد — تصميمٌ ثالث، ومعرّفاتٌ قيمٌ لا مفاتيح، والحدود، و4 قوالب، والافتراضي بلا نموذج', () => {
   assert.deepEqual([...LAYOUT_DESIGNS], ['standard', 'grid_bilingual', 'preprinted']);
@@ -100,7 +129,8 @@ test('النموذج: الثوابت كما في العقد — تصميمٌ ث�
     assert.equal(routingAllowsProfile(kind, fleet().profiles[2]), true, kind);
   }
   for (const k of ['layoutFormMissing', 'layoutFormDesign', 'layoutFormPrinter', 'layoutFormField', 'layoutFormFieldsCount', 'layoutFormFont', 'layoutFormQr',
-    'layoutFormQrMissing', 'layoutFormTable', 'layoutFormColumn', 'layoutFormOffset', 'layoutFormImage', 'formsCount', 'routeForm', 'pdfForm'] as const) {
+    'layoutFormQrMissing', 'layoutFormTable', 'layoutFormColumn', 'layoutFormOffset', 'layoutFormImage', 'formsCount', 'routeForm', 'pdfForm',
+    'layoutFormReach', 'layoutFormQrImpact', 'layoutFormBgImpact'] as const) {
     assert.equal(typeof PRINT_ISSUES[k], 'string', k);
   }
 });
@@ -129,12 +159,21 @@ test('النموذج: كل حدٍّ يُرفض 400 برسالته العربية
   rejects(formp(null), I.layoutFormMissing, 'preprinted without form');
   rejects(formp(baseForm(), {}, 'standard'), I.layoutFormDesign, 'form on standard');
   rejects(formp(baseForm(), {}, 'grid_bilingual'), I.layoutFormDesign, 'form on grid');
-  // الطابعة العادية بطول صفحة
+  // الطابعة العادية أو النقطية بطول صفحة (طلب المالك ١٣ نوفمبر ٢٠٢٦) — النقطية تُقبل بقواعدها (نموذج الصفحة بمربع QR 22 مم يُرفض
+  // برسالة حدّ النقطية لا برسالة الطابعة، وبلا مواضع برسالة المواضع وحدها)، والحرارية مرفوضة كما كانت ولو بورق A4
   const imp = profile({ id: 'mip-2', printer: 'impact', template: 'impact_plain' }, 'ff_a4');
-  rejects({ ...imp, options: { ...imp.options, layout: formLayout() } }, I.layoutFormPrinter, 'impact');
-  rejects({ ...imp, options: { ...imp.options, layout: formLayout(null) } }, I.layoutFormPrinter, 'impact without form');
+  const impPage = { ...imp, options: { ...imp.options, layout: formLayout() } };
+  rejects(impPage, I.layoutFormQrImpact, 'impact: page qr 22');
+  assert.ok(!messages(fleetWith(impPage)).all.includes(I.layoutFormPrinter), 'impact: not a printer fault');
+  const impNone = { ...imp, options: { ...imp.options, layout: formLayout(null) } };
+  rejects(impNone, I.layoutFormMissing, 'impact without form');
+  assert.ok(!messages(fleetWith(impNone)).all.includes(I.layoutFormPrinter), 'impact without form: not a printer fault');
+  accepts(impactp(), 'impact');
   const roll = profile({ id: 'van-2', printer: 'thermal', template: 'roll_compact' }, 'roll80');
   rejects({ ...roll, options: { ...roll.options, layout: { ...formLayout(), order: [...sectionsFor('thermal', 'standard')] } } }, I.layoutRoll, 'thermal');
+  rejects({ ...roll, options: { ...roll.options, layout: { ...formLayout(), order: [...sectionsFor('thermal', 'standard')] } } }, I.layoutFormPrinter, 'thermal form');
+  const rollA4 = profile({ id: 'van-a4', printer: 'thermal', template: 'roll_compact' }, 'roll_a4');
+  rejects({ ...rollA4, options: { ...rollA4.options, layout: { ...formLayout(), order: [...sectionsFor('thermal', 'standard')] } } }, I.layoutFormPrinter, 'thermal A4 sheet');
   // اللوحتان لا تجتمعان مع النموذج
   rejects(formp(baseForm(), { canvas: { headerMm: 50, footerMm: 50, boxes: [] } }), I.layoutCanvasPrinter, 'canvas');
   assert.ok(CANVAS_BOX_IDS.length > 0);
@@ -318,14 +357,26 @@ test('النموذج: القراءة المتسامحة تُسقط الحقل أ
   ] as Array<[string, (f: Record<string, any>, l: Record<string, any>) => void]>) {
     assert.equal(readBack(mut), undefined, label);
   }
-  // ورقٌ تغيّر في نسخةٍ أحدث (طابعةٌ غير العادية) — التخطيط يسقط وحده
-  const raw = clone(good());
-  raw.profiles[3] = { ...raw.profiles[3], printer: 'impact', template: 'impact_plain', paper: presetPaper('ff_a4')! };
-  raw.profiles[3].options = { ...defaultPrintOptions('impact'), layout: raw.profiles[3].options.layout };
-  raw.routing.invoice = 'murouj';
-  const back = storedPrintSettings(raw);
-  assert.equal(back.stored, true);
-  assert.ok(!('layout' in back.settings.profiles[3].options));
+  // طابعةٌ تغيّرت في نسخةٍ أحدث (طلب المالك ١٣ نوفمبر ٢٠٢٦: النقطية تقبل النموذج بقواعدها): نموذج الصفحة نفسه على النقطية
+  // بمربع QR 22 مم أصغر من حدّها (55) — يسقط الرمز ولم يُحذف صراحةً فيسقط التخطيط وحده؛ وبمربع 55 داخل الحزمة يبقى النموذج كله
+  // وتُطفأ خلفيته؛ وعلى الحرارية (ولو بورق A4) يسقط التخطيط كما كان
+  const moved = (printer: 'impact' | 'thermal', template: PrintProfile['template'], preset: Parameters<typeof presetPaper>[0], mut?: (f: Record<string, any>) => void): PrintLayout | undefined => {
+    const raw = clone(good());
+    if (mut) mut(raw.profiles[3].options.layout!.form as unknown as Record<string, any>);
+    raw.profiles[3] = { ...raw.profiles[3], printer, template, paper: presetPaper(preset)! };
+    raw.profiles[3].options = { ...defaultPrintOptions(printer), layout: raw.profiles[3].options.layout };
+    raw.routing.invoice = 'murouj';
+    const back = storedPrintSettings(raw);
+    assert.equal(back.stored, true, `${printer}/${preset}`);
+    assert.equal(back.settings.profiles[3].printer, printer);
+    return back.settings.profiles[3].options.layout;
+  };
+  assert.equal(moved('impact', 'impact_plain', 'ff_a4'), undefined, 'impact: qr 22 < 55');
+  const kept = moved('impact', 'impact_plain', 'ff_a4', (f) => { f.fields[3] = { id: 'qr', x: 12, y: 226, w: 55, h: 55 }; f.background = true; });
+  assert.deepEqual(ids(kept), base, 'impact: qr 55 inside the band');
+  assert.equal(kept!.form!.background, false, 'impact: background off');
+  assert.deepEqual(kept!.form!.image, IMG);
+  for (const preset of ['roll80', 'roll_a4'] as const) assert.equal(moved('thermal', 'roll_compact', preset), undefined, `thermal ${preset}`);
   // والمواضع على تصميمٍ آخر (نسخةٌ أحدث غيّرت التصميم) تسقط وحدها والتصميم يبقى
   const other = readBack((_f, l) => { l.design = 'standard'; });
   assert.equal(other!.design, 'standard');
@@ -373,4 +424,143 @@ test('النموذج: الحجم — أربعة نماذج بأسوأ حالات
   const r = parsePrintSettings(full);
   assert.ok(r.ok, JSON.stringify(!r.ok && r.issues.slice(0, 3)));
   assert.ok(bytes < PRINT_LIMITS.maxBytes, `${bytes}`);
+});
+
+// ─── النموذج على النقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦): حزمة الإبرة في منتصف الورقة، ورمز QR ≥ 55، ولا خلفية ───
+
+test('النموذج على النقطية: formReachX حزمة الإبرة في منتصف الورقة بلا إزاحة ولا هوامش، وحدّ رمز QR 55 مم', () => {
+  const near = (got: readonly [number, number] | null, want: [number, number], label: string): void => {
+    assert.ok(got, `${label}: null`);
+    assert.ok(Math.abs(got![0] - want[0]) < 1e-9 && Math.abs(got![1] - want[1]) < 1e-9, `${label}: ${JSON.stringify(got)}`);
+  };
+  const impact = (preset: Parameters<typeof presetPaper>[0], over: Record<string, unknown> = {}): Pick<PrintProfile, 'printer' | 'paper'> =>
+    ({ printer: 'impact', paper: { ...presetPaper(preset)!, ...over } }) as unknown as Pick<PrintProfile, 'printer' | 'paper'>;
+  near(formReachX(impact('ff_a4')), [3.4, 206.6], 'A4 @1440');
+  near(formReachX(impact('cut_a4')), [3.4, 206.6], 'cut A4');
+  near(formReachX(impact('ff_95x11')), [18.9, 222.1], '241 mm');
+  near(formReachX(impact('ff_95x55')), [18.9, 222.1], '241 mm half page');
+  near(formReachX(impact('ff_85x11')), [12.75, 203.25], '216 mm @1350');
+  // الإزاحة الأفقية والهامشان لا أثر لها (المعايرة dxMm/dyMm وحدها)، وحزمةٌ أضيق تبقى في المنتصف
+  near(formReachX(impact('ff_a4', { offsetXmm: 5, marginTopMm: 20, marginBottomMm: 20 })), [3.4, 206.6], 'offset and margins ignored');
+  near(formReachX(impact('ff_a4', { printableDots: 1080 })), [28.8, 181.2], '1080 dots (152.4 mm) centred');
+  // غير النقطية، أو بلا دقةٍ أو نقاطٍ صالحة: null
+  assert.equal(formReachX({ printer: 'page', paper: presetPaper('a4')! }), null);
+  assert.equal(formReachX({ printer: 'thermal', paper: presetPaper('roll_a4')! }), null);
+  assert.equal(formReachX({ printer: 'thermal', paper: presetPaper('roll80')! }), null);
+  for (const [label, over] of [
+    ['dpi null', { dpi: null }], ['dpi 150', { dpi: 150 }], ['dots null', { printableDots: null }], ['dots 0', { printableDots: 0 }],
+    ['dots 1440.5', { printableDots: 1440.5 }], ['width NaN', { widthMm: NaN }], ['width 0', { widthMm: 0 }],
+  ] as Array<[string, Record<string, unknown>]>) assert.equal(formReachX(impact('ff_a4', over)), null, label);
+  assert.equal(FORM_IMPACT_QR_MIN_MM, 55);
+  assert.deepEqual([formQrMinMm('impact'), formQrMinMm('page'), formQrMinMm('thermal')], [55, FORM_BOUNDS.qrMinMm, FORM_BOUNDS.qrMinMm]);
+  assert.equal(FORM_BOUNDS.qrMinMm, 18, 'FORM_BOUNDS لا يتغيّر');
+});
+
+test('النموذج على النقطية: الصالح يُحفظ على كل ورق MIP480 — والقراءة المتسامحة تعيده كما هو', () => {
+  for (const preset of ['ff_a4', 'cut_a4', 'ff_95x11', 'ff_95x12', 'ff_85x11'] as const) {
+    const { widthMm, lengthMm } = presetPaper(preset)!;
+    const v = accepts(impactp(impactForm(widthMm, lengthMm!), preset), preset);
+    const l = v.profiles[3].options.layout!;
+    assert.equal(l.design, 'preprinted', preset);
+    assert.deepEqual(l.form!.fields.map((x) => x.id), ['docNumber', 'docDate', 'totalDue', 'qr'], preset);
+    assert.equal(l.form!.table!.rows, 16, preset);
+    const read = storedPrintSettings(clone(v));
+    assert.equal(read.stored, true, preset);
+    assert.equal(JSON.stringify(read.settings), JSON.stringify(v), `${preset}: القراءة = الحفظ`);
+  }
+  // نصف الصفحة المتصلة (139.7 مم): نموذجٌ مضغوط برمز 55
+  const half: PrintForm = {
+    ...impactForm(),
+    fields: [{ id: 'docNumber', x: 170, y: 10, w: 40, h: 6 }, { id: 'qr', x: 20, y: 80, w: 55, h: 55 }],
+    table: { y: 30, rowMm: 6, rows: 8, columns: [{ id: 'description', x: 80, w: 80 }, { id: 'qty', x: 165, w: 15 }] },
+  };
+  accepts(impactp(half, 'ff_95x55'), 'ff_95x55');
+  // بقالب impact_plain كذلك (النواة لا تشترط القالب)، وبصورةٍ دليلاً بلا خلفية، وبمعايرةٍ تُبقي كل شيءٍ في الحزمة
+  accepts({ ...impactp(), template: 'impact_plain' }, 'impact_plain');
+  accepts(impactp({ ...impactForm(), image: IMG }), 'image as a guide');
+  accepts(impactp({ ...impactForm(), dxMm: -8.6, dyMm: 12 }), 'offsets inside the band');
+  // بلا رمز QR مع الحذف الصريح، والحقل حتى طرف الحزمة تماماً بعد المعايرة
+  accepts(impactp({ ...impactForm(), fields: impactForm().fields.filter((f) => f.id !== 'qr') }, 'ff_a4', { sections: { qr: { visible: false } } }), 'qr removed');
+  accepts(impactp(withImpactField({ id: 'docNumber', x: 160, w: 46.5 })), 'right edge 206.5');
+  // والصفحة كما كانت: رمز 18 صالح، وحقلٌ فوق أول سطرٍ بعد المعايرة لا قيد عليه
+  accepts(formp(withField({ id: 'qr', w: 18, h: 18 })), 'page qr 18');
+  accepts(formp({ ...withField({ id: 'docNumber', y: 1 }), dyMm: -2 }), 'page: y + dy < 0');
+  accepts(formp(withField({ id: 'docNumber', x: 1 })), 'page: x 1');
+});
+
+test('النموذج على النقطية: كل حدٍّ جديد يُرفض 400 برسالته — ما لا تبلغه الإبرة بعد المعايرة، ورمز QR دون 55، والخلفية', () => {
+  const I = PRINT_ISSUES;
+  // رمز QR: 54.5 مرفوض على النقطية (و18 صالحٌ على الصفحة أعلاه)
+  rejects(impactp(withImpactField({ id: 'qr', w: 54.5, h: 54.5 })), I.layoutFormQrImpact, 'qr 54.5');
+  rejects(impactp(withImpactField({ id: 'qr', h: 54.5 })), I.layoutFormQrImpact, 'qr h 54.5');
+  rejects(impactp(withImpactField({ id: 'qr', w: 22, h: 22 })), I.layoutFormQrImpact, 'qr 22');
+  // حقلٌ خارج الحزمة: x = 2 على A4 (الحزمة من 3.4)، وطرفه الأيمن 207 (داخل الورقة 210)
+  rejects(impactp(withImpactField({ id: 'docNumber', x: 2 })), I.layoutFormReach, 'x 2');
+  rejects(impactp(withImpactField({ id: 'docNumber', x: 170, w: 37 })), I.layoutFormReach, 'right edge 207');
+  // حقلٌ داخل الحزمة تُخرجه المعايرة الأفقية: 160 + 46 = 206 ثم +1
+  accepts(impactp(withImpactField({ id: 'docNumber', x: 160, w: 46 })), 'in band at 206');
+  rejects(impactp({ ...withImpactField({ id: 'docNumber', x: 160, w: 46 }), dxMm: 1 }), I.layoutFormReach, 'pushed right by dx');
+  rejects(impactp({ ...impactForm(), dxMm: -9 }), I.layoutFormReach, 'qr pushed left by dx (12 − 9 < 3.4)');
+  // فوق أول سطرٍ تطبعه الإبرة (y + dy < 0) أو بعد طول الصفحة بعد المعايرة
+  accepts(impactp(withImpactField({ id: 'docNumber', y: 1 })), 'y 1');
+  rejects(impactp({ ...withImpactField({ id: 'docNumber', y: 1 }), dyMm: -2 }), I.layoutFormReach, 'y + dy < 0');
+  rejects(impactp({ ...impactForm(), dyMm: 17 }), I.layoutFormReach, 'qr past L after dy (226 + 55 + 17)');
+  // الأعمدة: خارج الحزمة يساراً أو يميناً أو بالمعايرة — وخارج الورقة برسالتها كما كانت
+  rejects(impactp(impactCols([{ id: 'description', x: 2, w: 50 }, { id: 'qty', x: 120, w: 10 }])), I.layoutFormReach, 'column x 2');
+  rejects(impactp(impactCols([{ id: 'description', x: 70, w: 50 }, { id: 'qty', x: 200, w: 8 }])), I.layoutFormReach, 'column right edge 208');
+  rejects(impactp({ ...impactCols([{ id: 'description', x: 4, w: 50 }]), dxMm: -1 }), I.layoutFormReach, 'column pushed left by dx');
+  rejects(impactp(impactCols([{ id: 'qty', x: 205, w: 6 }])), I.layoutFormColumn, 'column off the paper');
+  // الجدول: آخره بعد طول الصفحة بعد المعايرة، أو أوله فوق أول سطر
+  const low = (): PrintForm => ({ ...impactForm(), table: { ...impactForm().table!, y: 200, rows: 13 } });
+  accepts(impactp(low()), 'table ends at 291');
+  rejects(impactp({ ...low(), dyMm: 7 }), I.layoutFormReach, 'table past L after dy');
+  rejects(impactp({ ...impactForm(), dyMm: -20, table: { ...impactForm().table!, y: 10 } }), I.layoutFormReach, 'table above the first line');
+  // الخلفية: النقطية لا تطبعها
+  rejects(impactp({ ...impactForm(), background: true }), I.layoutFormBgImpact, 'background');
+  rejects(impactp({ ...impactForm(), image: IMG, background: true }), I.layoutFormBgImpact, 'background with image');
+  // المسار لكل رسالة (للعرض بجوار الأداة) — ورسالة الطابعة لا تظهر للنقطية
+  const at = (p: PrintProfile) => layoutIssues(p, 'p');
+  assert.deepEqual(at(impactp({ ...impactForm(), background: true })), [{ path: 'p.options.layout.form.background', message: I.layoutFormBgImpact }]);
+  assert.deepEqual(at(impactp(withImpactField({ id: 'docNumber', x: 2 }))), [{ path: 'p.options.layout.form.fields[0]', message: I.layoutFormReach }]);
+  assert.deepEqual(at(impactp(withImpactField({ id: 'qr', w: 54.5 }))), [{ path: 'p.options.layout.form.fields[3]', message: I.layoutFormQrImpact }]);
+  assert.deepEqual(at(impactp(impactCols([{ id: 'description', x: 70, w: 50 }, { id: 'qty', x: 200, w: 8 }]))), [{ path: 'p.options.layout.form.table.columns[1]', message: I.layoutFormReach }]);
+  assert.deepEqual(at(impactp({ ...low(), dyMm: 7 })), [{ path: 'p.options.layout.form.table', message: I.layoutFormReach }]);
+  assert.deepEqual(at(impactp(null)), [{ path: 'p.options.layout.form', message: I.layoutFormMissing }]);
+  assert.deepEqual(at(impactp()), []);
+});
+
+test('النموذج على النقطية: القراءة المتسامحة تُسقط ما لا تبلغه الإبرة وحده وتُطفئ الخلفية — ورمز QR دون 55 يُسقط التخطيط', () => {
+  const good = (): PrintSettingsV1 => fleetWith(impactp({ ...impactForm(), image: IMG }));
+  accepts(impactp({ ...impactForm(), image: IMG }), 'good');
+  const readBack = (mut: (f: Record<string, any>) => void): PrintLayout | undefined => {
+    const raw = clone(good()) as unknown as { profiles: Array<{ options: { layout: Record<string, any> } }> };
+    mut(raw.profiles[3].options.layout.form);
+    assert.equal(checkPrintSettings(raw, true).ok, false, 'الحفظ يرفضه');
+    const read = storedPrintSettings(raw);
+    assert.equal(read.stored, true, 'الإعداد كله يبقى');
+    assert.equal(read.settings.routing.invoice, 'mip-form');
+    return read.settings.profiles[3].options.layout;
+  };
+  const ids = (l: PrintLayout | undefined): string[] => l!.form!.fields.map((x) => x.id);
+  const base = impactForm().fields.map((x) => x.id);
+  // حقلٌ خارج الحزمة يسقط وحده والتخطيط يبقى
+  assert.deepEqual(ids(readBack((f) => { f.fields[0].x = 2; })), base.filter((id) => id !== 'docNumber'));
+  // الخلفية تصير false والنموذج كله يبقى
+  const bg = readBack((f) => { f.background = true; });
+  assert.equal(bg!.form!.background, false);
+  assert.deepEqual(ids(bg), base);
+  assert.deepEqual(bg!.form!.image, IMG);
+  // عمودٌ خارج الحزمة يسقط وحده
+  assert.deepEqual(readBack((f) => { f.table.columns[1].x = 200; f.table.columns[1].w = 8; })!.form!.table!.columns.map((c: FormColumn) => c.id), ['description']);
+  // المعايرة تُقصّ أولاً ثم تُقاس بها الحزمة: dx 50 ⇒ 20، فيسقط ما يتجاوز 206.6 بعدها ويبقى رمز QR والعمودان
+  const shifted = readBack((f) => { f.dxMm = 50; });
+  assert.equal(shifted!.form!.dxMm, 20);
+  assert.deepEqual(ids(shifted), ['qr']);
+  assert.deepEqual(shifted!.form!.table!.columns.map((c) => c.id), ['description', 'qty']);
+  // الصفوف تُقصّ بالمعايرة الرأسية: من 200 بـ13 صفاً (291) ومعايرة +7 ⇒ floor((297 − 7 − 200) / 7) = 12
+  assert.equal(readBack((f) => { f.table.y = 200; f.table.rows = 13; f.dyMm = 7; })!.form!.table!.rows, 12);
+  // وما بقي معطوباً يُسقط التخطيط وحده: رمز QR دون 55 (نموذج الصفحة القديم) أو خارج الحزمة، ولم يُحذف صراحةً
+  assert.equal(readBack((f) => { f.fields[3].w = 22; f.fields[3].h = 22; }), undefined, 'qr 22');
+  assert.equal(readBack((f) => { f.fields[3].w = 54.5; }), undefined, 'qr 54.5');
+  assert.equal(readBack((f) => { f.fields[3].x = 2; }), undefined, 'qr outside the band');
 });

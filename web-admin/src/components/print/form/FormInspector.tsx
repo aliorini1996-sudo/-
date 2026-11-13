@@ -10,12 +10,16 @@
  *
  * رمز QR لازمٌ ما لم تحذفه الشركة صراحةً (قاعدة النواة): متى غاب حقله ظهر المساعد «أضف حقل QR» / «لا أحتاج رمز QR» — والثاني
  * دالة الحذف الصريح نفسها (withQrRemoved) بتأكيدها. كل كتابةٍ تمرّ بمحرّرات formModel.
+ *
+ * والطابعة النقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦، MIP480): كل محرّرٍ هنا على ورق النموذج formPaperOf(p) — فالمواضع والمقاسات داخل ما
+ * تبلغه الإبرة (formDragLimits)، ومربع QR لا يصغر عن 55 مم بتلميحه، و«طباعة الخلفية» مخفيّةٌ بملاحظةٍ مكانها (لا تطبعها النقطية)،
+ * وخطوات المعايرة لورق النقطية محمّلاً كما ستطبع الفواتير. وبلا reach (الطابعة العادية) كل شيءٍ كما كان حرفياً.
  */
 import { ArrowLeft, ArrowRight, Bold, ImageUp, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import { useTr } from '../../../i18n/strings';
 import {
   FORM_BOUNDS, FORM_COLUMN_IDS, FORM_COLUMN_LABELS, FORM_FIELD_GROUPS, FORM_FIELD_LABELS, FORM_NOTES, FORM_TAX_COLUMN_IDS, FORM_TAX_FIELD_IDS,
-  FORM_VALUE_LANGS, FORM_VALUE_LANG_LABELS, formFieldMinMm, formOf, formQrMissing, formSheetSize, formWarnings, isLastSheetField, reorderFormColumn,
+  FORM_VALUE_LANGS, FORM_VALUE_LANG_LABELS, formFieldMinMm, formOf, formPaperOf, formQrMissing, formWarnings, isLastSheetField, reorderFormColumn,
   resetFormPositions, withForm, withFormColumn, withFormField, withFormProps, withFormTable, withoutFormColumn, withoutFormField,
   type FormColumnId, type FormFieldId, type PrintForm,
 } from '../../../lib/print/formModel';
@@ -24,7 +28,7 @@ import { withQrRemoved } from '../../../lib/print/designModel';
 import { AlignChips, NumInput, QrRemoveField, chipCls, clampFontPct } from '../designer/SectionStyleFields';
 import { snapGrid } from '../designer/designerMath';
 import { useTaxOffPrint } from '../taxOffPrint';
-import { columnSel, fieldSel, rowMmCapped, selColumn, selField, type FormSel } from './formCanvasMath';
+import { columnSel, fieldSel, formDragLimits, rowMmCapped, selColumn, selField, type FormSel } from './formCanvasMath';
 
 export interface FormInspectorProps {
   p: PrintProfile;
@@ -59,7 +63,7 @@ export default function FormInspector({ p, update, selected, onSelect, mode, onU
   const form = formOf(p);
   if (!form) return null;
   const setForm = (next: PrintForm): void => update(withForm(p, next));
-  if (mode === 'calibrate') return <CalibrationPanel form={form} setForm={setForm} />;
+  if (mode === 'calibrate') return <CalibrationPanel form={form} setForm={setForm} impact={!!formPaperOf(p).reach} />;
 
   const fid = selField(selected);
   const field = fid ? form.fields.find((f) => f.id === fid) : undefined;
@@ -84,7 +88,8 @@ function QrHelper({ p, update, form, taxOff, onSelect }: { p: PrintProfile; upda
   const tr = useTr();
   if (!formQrMissing(p)) return null;
   const addQr = (): void => {
-    update(withForm(p, withFormField(form, p.paper, { id: 'qr' })));
+    // على النقطية: داخل ما تبلغه الإبرة وبحدّه 55 مم (formPaperOf)
+    update(withForm(p, withFormField(form, formPaperOf(p), { id: 'qr' })));
     onSelect(fieldSel('qr'));
   };
   const noQr = (): void => {
@@ -125,21 +130,26 @@ function FieldPanel({ p, form, setForm, id, onSelect }: { p: PrintProfile; form:
   const tr = useTr();
   const f = form.fields.find((x) => x.id === id);
   if (!f) return null;
-  const S = formSheetSize(p.paper);
-  const min = formFieldMinMm(id);
-  const set = (patch: Parameters<typeof withFormField>[2]): void => setForm(withFormField(form, p.paper, patch));
+  // الورقة كلها (0..العرض × 0..الطول كما كان)، وعلى النقطية ما تبلغه الإبرة بعد المعايرة ومربع QR بحدّه 55 مم
+  const paper = formPaperOf(p);
+  const lim = formDragLimits(form, paper);
+  const min = formFieldMinMm(id, paper);
+  const set = (patch: Parameters<typeof withFormField>[2]): void => setForm(withFormField(form, paper, patch));
+  // «خط عريض للنص» للقالب (options.boldBody — افتراضيٌّ للنقطية): الورقة تطبع كل القيم عريضةً، فالشريحة مضغوطةٌ معطّلة بملاحظتها
+  // (لا تُوهم بحقلٍ يُطبع عادياً) — وبدونه العريض لكل حقلٍ كما كان
+  const boldAll = p.options.boldBody === true;
   return (
     <div data-form-inspector={`field:${id}`}>
       <h3 className={head}>{tr(FORM_FIELD_LABELS[id])}</h3>
       <div className={row}>
         <span className={lab}>{tr('الموضع')}</span>
-        <NumInput value={f.x} label={tr('من اليسار')} suffix="x" clampFn={(v) => snapGrid(clamp(v, 0, S.widthMm - f.w))} onCommit={(x) => set({ id, x })} />
-        <NumInput value={f.y} label={tr('من الأعلى')} suffix="y" clampFn={(v) => snapGrid(clamp(v, 0, S.lengthMm - f.h))} onCommit={(y) => set({ id, y })} />
+        <NumInput value={f.x} label={tr('من اليسار')} suffix="x" clampFn={(v) => snapGrid(clamp(v, lim.x0, lim.x1 - f.w))} onCommit={(x) => set({ id, x })} />
+        <NumInput value={f.y} label={tr('من الأعلى')} suffix="y" clampFn={(v) => snapGrid(clamp(v, lim.y0, lim.y1 - f.h))} onCommit={(y) => set({ id, y })} />
       </div>
       <div className={row}>
         <span className={lab}>{tr('المقاس')}</span>
-        <NumInput value={f.w} label={tr('العرض')} suffix="w" clampFn={(v) => snapGrid(clamp(v, min, S.widthMm))} onCommit={(w) => set({ id, w })} />
-        <NumInput value={f.h} label={tr('الارتفاع')} suffix="h" clampFn={(v) => snapGrid(clamp(v, min, S.lengthMm))} onCommit={(h) => set({ id, h })} />
+        <NumInput value={f.w} label={tr('العرض')} suffix="w" clampFn={(v) => snapGrid(clamp(v, min, lim.x1 - lim.x0))} onCommit={(w) => set({ id, w })} />
+        <NumInput value={f.h} label={tr('الارتفاع')} suffix="h" clampFn={(v) => snapGrid(clamp(v, min, lim.y1 - lim.y0))} onCommit={(h) => set({ id, h })} />
         <span className="text-[11px] text-[#9A8F7E]" dir="ltr">mm</span>
       </div>
       <div className={row}>
@@ -149,13 +159,15 @@ function FieldPanel({ p, form, setForm, id, onSelect }: { p: PrintProfile; form:
       <FontRow value={f.fontPct} onCommit={(v) => set({ id, fontPct: v === 100 ? undefined : v })} />
       <div className={row}>
         <span className={lab}>{tr('خط عريض')}</span>
-        <button type="button" aria-pressed={f.bold === true} onClick={() => set({ id, bold: f.bold ? undefined : true })} className={`${chipCls(f.bold === true)} inline-flex items-center gap-1`}>
-          <Bold className="w-3 h-3" aria-hidden="true" />{f.bold ? tr('عريض') : tr('عادي')}
+        <button type="button" aria-pressed={boldAll || f.bold === true} disabled={boldAll} onClick={() => set({ id, bold: f.bold ? undefined : true })} className={`${chipCls(boldAll || f.bold === true)} inline-flex items-center gap-1`}>
+          <Bold className="w-3 h-3" aria-hidden="true" />{boldAll || f.bold ? tr('عريض') : tr('عادي')}
         </button>
       </div>
+      {boldAll && <p className="text-[11px] text-[#9A8F7E]" data-form-bold-all="">{tr('كل القيم تطبع بخط عريض من «خط عريض للنص» في إعدادات القالب')}</p>}
       <ul className="mt-1 space-y-0.5 text-[11px] text-[#9A8F7E] list-none">
         <li>{isLastSheetField(id) ? tr('يطبع في الورقة الأخيرة وحدها') : tr('يتكرر في كل ورقة')}</li>
-        {id === 'qr' && <li>{tr('لا يصغر مربع رمز QR عن 18 ملم')}</li>}
+        {/* النقطية: رمز المرحلة الثانية المختوم (حتى 93 خلية) بأربع نقاطٍ للخلية على 180 dpi يلزمه 55 مم (FORM_IMPACT_QR_MIN_MM) */}
+        {id === 'qr' && <li data-form-qr-min={min}>{paper.reach ? tr('لا يصغر مربع رمز QR عن 55 ملم على الطابعة النقطية') : tr('لا يصغر مربع رمز QR عن 18 ملم')}</li>}
         {FORM_TAX_FIELD_IDS.includes(id) && <li>{tr(FORM_NOTES.taxFree)}</li>}
       </ul>
       <div className="mt-2 pt-2 border-t border-[#F1EBDF]">
@@ -172,6 +184,7 @@ function ColumnsList({ p, form, setForm, onSelect, taxOff }: { p: PrintProfile; 
   const tr = useTr();
   const t = form.table;
   if (!t) return null;
+  const paper = formPaperOf(p);
   const cols = [...t.columns].sort((a, b) => a.x - b.x);
   const placed = new Set(cols.map((c) => c.id));
   const addable = FORM_COLUMN_IDS.filter((id) => !placed.has(id) && !(taxOff && FORM_TAX_COLUMN_IDS.includes(id)));
@@ -186,11 +199,11 @@ function ColumnsList({ p, form, setForm, onSelect, taxOff }: { p: PrintProfile; 
               {tr(FORM_COLUMN_LABELS[c.id])} <span dir="ltr" className="font-normal text-[#9A8F7E]">{c.w} mm</span>
             </button>
             <button type="button" aria-label={tr('انقل العمود يسارا')} title={tr('انقل العمود يسارا')} disabled={i === 0}
-              onClick={() => setForm(reorderFormColumn(form, p.paper, c.id, i - 1))} className={iconBtn}>
+              onClick={() => setForm(reorderFormColumn(form, paper, c.id, i - 1))} className={iconBtn}>
               <ArrowLeft className="w-3 h-3" aria-hidden="true" />
             </button>
             <button type="button" aria-label={tr('انقل العمود يمينا')} title={tr('انقل العمود يمينا')} disabled={i === cols.length - 1}
-              onClick={() => setForm(reorderFormColumn(form, p.paper, c.id, i + 1))} className={iconBtn}>
+              onClick={() => setForm(reorderFormColumn(form, paper, c.id, i + 1))} className={iconBtn}>
               <ArrowRight className="w-3 h-3" aria-hidden="true" />
             </button>
             <button type="button" aria-label={tr('حذف العمود')} title={tr('حذف العمود')} disabled={cols.length <= 1}
@@ -205,7 +218,7 @@ function ColumnsList({ p, form, setForm, onSelect, taxOff }: { p: PrintProfile; 
         <div className="flex flex-wrap items-center gap-1" role="group" aria-label={tr('أضف عمودا')}>
           <span className="text-[11px] text-[#6E6557]">{tr('أضف عمودا')}:</span>
           {addable.map((id) => (
-            <button type="button" key={id} disabled={full} onClick={() => { setForm(withFormColumn(form, p.paper, { id })); onSelect(columnSel(id)); }}
+            <button type="button" key={id} disabled={full} onClick={() => { setForm(withFormColumn(form, paper, { id })); onSelect(columnSel(id)); }}
               className="inline-flex items-center gap-0.5 rounded-full border border-[#E9E1D3] bg-white px-2 py-0.5 text-[11px] text-[#44403a] hover:border-[#E15A30] disabled:opacity-40">
               <Plus className="w-3 h-3" aria-hidden="true" />{tr(FORM_COLUMN_LABELS[id])}
             </button>
@@ -220,22 +233,24 @@ function TablePanel({ p, form, setForm, onSelect, taxOff }: { p: PrintProfile; f
   const tr = useTr();
   const t = form.table;
   if (!t) return null;
-  const S = formSheetSize(p.paper);
+  // من أعلى الورقة إلى آخرها (كما كان)، وعلى النقطية من أول ما تبلغه الإبرة إلى آخره بعد المعايرة
+  const paper = formPaperOf(p);
+  const lim = formDragLimits(form, paper);
   const [r0, r1] = FORM_BOUNDS.rows;
   const [h0, h1] = FORM_BOUNDS.rowMm;
-  const rowsFit = Math.max(r0, Math.floor((S.lengthMm - t.y) / t.rowMm + 1e-9));
-  const set = (patch: Parameters<typeof withFormTable>[2]): void => setForm(withFormTable(form, p.paper, patch));
+  const rowsFit = Math.max(r0, Math.floor((lim.bottom - t.y) / t.rowMm + 1e-9));
+  const set = (patch: Parameters<typeof withFormTable>[2]): void => setForm(withFormTable(form, paper, patch));
   return (
     <div data-form-inspector="table" className="space-y-1">
       <h3 className={head}>{tr('جدول الأصناف')}</h3>
       <div className={row}>
         <span className={lab}>{tr('أول صف من الأعلى')}</span>
-        <NumInput value={t.y} label={tr('أول صف من الأعلى')} suffix="mm" clampFn={(v) => snapGrid(clamp(v, 0, Math.max(0, S.lengthMm - t.rows * t.rowMm)))} onCommit={(y) => set({ y })} />
+        <NumInput value={t.y} label={tr('أول صف من الأعلى')} suffix="mm" clampFn={(v) => snapGrid(clamp(v, lim.y0, Math.max(lim.y0, lim.bottom - t.rows * t.rowMm)))} onCommit={(y) => set({ y })} />
       </div>
       <div className={row}>
         <span className={lab}>{tr('ارتفاع الصف')}</span>
-        {/* بحدّ ما يُبقي «صفوف كل ورقة» كما هي (كسحب المقبض) — لا يُنقصها withFormTable بصمت عند أسفل الورقة */}
-        <NumInput value={t.rowMm} label={tr('ارتفاع الصف')} suffix="mm" clampFn={(v) => rowMmCapped(round2(clamp(v, h0, h1)), t.rows, t.y, S.lengthMm)} onCommit={(rowMm) => set({ rowMm })} />
+        {/* بحدّ ما يُبقي «صفوف كل ورقة» كما هي (كسحب المقبض) — لا يُنقصها withFormTable بصمت عند أسفل الورقة (أو آخر ما تبلغه النقطية) */}
+        <NumInput value={t.rowMm} label={tr('ارتفاع الصف')} suffix="mm" clampFn={(v) => rowMmCapped(round2(clamp(v, h0, h1)), t.rows, t.y, lim.bottom)} onCommit={(rowMm) => set({ rowMm })} />
       </div>
       <div className={row}>
         <span className={lab}>{tr('صفوف كل ورقة')}</span>
@@ -247,7 +262,7 @@ function TablePanel({ p, form, setForm, onSelect, taxOff }: { p: PrintProfile; f
         <ColumnsList p={p} form={form} setForm={setForm} onSelect={onSelect} taxOff={taxOff} />
       </div>
       <div className="mt-2 pt-2 border-t border-[#F1EBDF]">
-        <button type="button" onClick={() => { setForm(withFormTable(form, p.paper, null)); onSelect(null); }} className="inline-flex items-center gap-1 text-[11px] text-[#B42318] hover:underline">
+        <button type="button" onClick={() => { setForm(withFormTable(form, paper, null)); onSelect(null); }} className="inline-flex items-center gap-1 text-[11px] text-[#B42318] hover:underline">
           <Trash2 className="w-3 h-3" aria-hidden="true" />{tr('حذف جدول الأصناف')}
         </button>
       </div>
@@ -260,17 +275,19 @@ function ColumnPanel({ p, form, setForm, id, onSelect }: { p: PrintProfile; form
   const t = form.table;
   const c = t?.columns.find((x) => x.id === id);
   if (!t || !c) return null;
-  const S = formSheetSize(p.paper);
+  // عرض الورقة كله (كما كان)، وعلى النقطية ما تبلغه الإبرة بعد المعايرة
+  const paper = formPaperOf(p);
+  const lim = formDragLimits(form, paper);
   const cols = [...t.columns].sort((a, b) => a.x - b.x);
   const i = cols.findIndex((x) => x.id === id);
-  const set = (patch: Parameters<typeof withFormColumn>[2]): void => setForm(withFormColumn(form, p.paper, patch));
+  const set = (patch: Parameters<typeof withFormColumn>[2]): void => setForm(withFormColumn(form, paper, patch));
   return (
     <div data-form-inspector={`col:${id}`}>
       <h3 className={head}>{tr(FORM_COLUMN_LABELS[id])} <span className="text-[11px] font-normal text-[#9A8F7E]">· {tr('عمود في جدول الأصناف')}</span></h3>
       <div className={row}>
         <span className={lab}>{tr('الموضع')}</span>
-        <NumInput value={c.x} label={tr('من اليسار')} suffix="x" clampFn={(v) => snapGrid(clamp(v, 0, S.widthMm - c.w))} onCommit={(x) => set({ id, x })} />
-        <NumInput value={c.w} label={tr('العرض')} suffix="w" clampFn={(v) => snapGrid(clamp(v, FORM_BOUNDS.columnMinMm, S.widthMm))} onCommit={(w) => set({ id, w })} />
+        <NumInput value={c.x} label={tr('من اليسار')} suffix="x" clampFn={(v) => snapGrid(clamp(v, lim.x0, lim.x1 - c.w))} onCommit={(x) => set({ id, x })} />
+        <NumInput value={c.w} label={tr('العرض')} suffix="w" clampFn={(v) => snapGrid(clamp(v, FORM_BOUNDS.columnMinMm, lim.x1 - lim.x0))} onCommit={(w) => set({ id, w })} />
         <span className="text-[11px] text-[#9A8F7E]" dir="ltr">mm</span>
       </div>
       <div className={row}>
@@ -280,11 +297,11 @@ function ColumnPanel({ p, form, setForm, id, onSelect }: { p: PrintProfile; form
       <div className={row}>
         <span className={lab}>{tr('الترتيب')}</span>
         <button type="button" aria-label={tr('انقل العمود يسارا')} title={tr('انقل العمود يسارا')} disabled={i <= 0}
-          onClick={() => setForm(reorderFormColumn(form, p.paper, id, i - 1))} className={iconBtn}>
+          onClick={() => setForm(reorderFormColumn(form, paper, id, i - 1))} className={iconBtn}>
           <ArrowLeft className="w-3 h-3" aria-hidden="true" />
         </button>
         <button type="button" aria-label={tr('انقل العمود يمينا')} title={tr('انقل العمود يمينا')} disabled={i >= cols.length - 1}
-          onClick={() => setForm(reorderFormColumn(form, p.paper, id, i + 1))} className={iconBtn}>
+          onClick={() => setForm(reorderFormColumn(form, paper, id, i + 1))} className={iconBtn}>
           <ArrowRight className="w-3 h-3" aria-hidden="true" />
         </button>
       </div>
@@ -305,6 +322,8 @@ function FormPanel({ p, update, form, setForm, onSelect, onUpload, taxOff }: {
 }) {
   const tr = useTr();
   const qrRemoved = isQrRemoved(layoutOf(p));
+  // ورق النموذج لكل محرّر (على النقطية بما تبلغه الإبرة — reach)
+  const paper = formPaperOf(p);
   const placed = new Set(form.fields.map((f) => f.id));
   // لا رمز QR بعد حذفه الصريح (يُعاد أولاً)، ولا حقول ضريبة ولا رمز لشركةٍ بلا ضريبة (إلا ما وُضع فيُحذف)
   const offered = (id: FormFieldId): boolean => placed.has(id)
@@ -312,7 +331,7 @@ function FormPanel({ p, update, form, setForm, onSelect, onUpload, taxOff }: {
   const { warnings, notes } = formWarnings(p, { taxFree: taxOff });
   const reset = (): void => {
     if (!window.confirm(tr(FORM_RESET_CONFIRM))) return;
-    setForm(resetFormPositions(form, p.paper, { withQr: !qrRemoved }));
+    setForm(resetFormPositions(form, paper, { withQr: !qrRemoved }));
     onSelect(null);
   };
   return (
@@ -340,7 +359,7 @@ function FormPanel({ p, update, form, setForm, onSelect, onUpload, taxOff }: {
                     </span>
                   ) : (
                     <button type="button" key={id} aria-pressed="false"
-                      onClick={() => { setForm(withFormField(form, p.paper, { id })); onSelect(fieldSel(id)); }}
+                      onClick={() => { setForm(withFormField(form, paper, { id })); onSelect(fieldSel(id)); }}
                       className="inline-flex items-center gap-0.5 rounded-full border border-[#E9E1D3] bg-white px-2 py-0.5 text-[11px] text-[#44403a] hover:border-[#E15A30]">
                       <Plus className="w-3 h-3" aria-hidden="true" />{tr(FORM_FIELD_LABELS[id])}
                     </button>
@@ -362,7 +381,7 @@ function FormPanel({ p, update, form, setForm, onSelect, onUpload, taxOff }: {
             <button type="button" onClick={() => onSelect('table')} className={chipCls(false)}>{tr('تعديل الجدول')}</button>
           </div>
         ) : (
-          <button type="button" onClick={() => { setForm(withFormTable(form, p.paper, {})); onSelect('table'); }}
+          <button type="button" onClick={() => { setForm(withFormTable(form, paper, {})); onSelect('table'); }}
             className="inline-flex items-center gap-1 rounded-full border border-[#E9E1D3] bg-white px-2.5 py-0.5 text-[11px] text-[#44403a] hover:border-[#E15A30]">
             <Plus className="w-3 h-3" aria-hidden="true" />{tr('أضف جدول الأصناف')}
           </button>
@@ -392,14 +411,19 @@ function FormPanel({ p, update, form, setForm, onSelect, onUpload, taxOff }: {
 
       <div className="pt-2 border-t border-[#F1EBDF] space-y-1">
         <h3 className={head}>{tr('خيارات الطباعة')}</h3>
-        <label className={`flex items-start gap-2 ${form.image ? 'cursor-pointer' : 'opacity-50'}`}>
-          <input type="checkbox" className="w-4 h-4 mt-0.5 accent-[#E15A30]" checked={form.background && !!form.image} disabled={!form.image}
-            onChange={(e) => setForm(withFormProps(form, { background: e.target.checked }))} />
-          <span>
-            <span className="block text-xs text-[#1F1A13]">{tr('طباعة الخلفية')}</span>
-            <span className="block text-[11px] text-[#9A8F7E]">{tr('ترسم صورة النموذج تحت البيانات — للورق الأبيض والتجربة')}</span>
-          </span>
-        </label>
+        {/* النقطية لا تطبع الخلفية (صورةٌ كثيفة النقاط بطيئةٌ تُتلف الشريط — layoutFormBgImpact، والقراءة تُطفئها): ملاحظةٌ بدل المفتاح */}
+        {paper.reach ? (
+          <p className="text-[11px] text-[#9A8F7E]" data-form-bg-impact="">{tr('الطابعة النقطية تطبع القيم وحدها بلا خلفية')}</p>
+        ) : (
+          <label className={`flex items-start gap-2 ${form.image ? 'cursor-pointer' : 'opacity-50'}`}>
+            <input type="checkbox" className="w-4 h-4 mt-0.5 accent-[#E15A30]" checked={form.background && !!form.image} disabled={!form.image}
+              onChange={(e) => setForm(withFormProps(form, { background: e.target.checked }))} />
+            <span>
+              <span className="block text-xs text-[#1F1A13]">{tr('طباعة الخلفية')}</span>
+              <span className="block text-[11px] text-[#9A8F7E]">{tr('ترسم صورة النموذج تحت البيانات — للورق الأبيض والتجربة')}</span>
+            </span>
+          </label>
+        )}
         <label className="flex items-start gap-2 cursor-pointer">
           <input type="checkbox" className="w-4 h-4 mt-0.5 accent-[#E15A30]" checked={form.latinDigits}
             onChange={(e) => setForm(withFormProps(form, { latinDigits: e.target.checked }))} />
@@ -442,18 +466,32 @@ function FormPanel({ p, update, form, setForm, onSelect, onUpload, taxOff }: {
   );
 }
 
-/** المعايرة: إزاحة كل المواضع على هذه الطابعة — تُقاس من «صفحة معايرة النموذج» مطبوعةً على الورق المطبوع مسبقاً */
-function CalibrationPanel({ form, setForm }: { form: PrintForm; setForm(f: PrintForm): void }) {
+/**
+ * المعايرة: إزاحة كل المواضع على هذه الطابعة — تُقاس من «صفحة معايرة النموذج» مطبوعةً على الورق المطبوع مسبقاً. وimpact (ورق
+ * النقطية): أول سطرٍ تطبعه الإبرة يتبع طريقة تحميل الورق، فالخطوات بورق النموذج محمّلاً كالفواتير وإشارة الإزاحة (dx/dy المعايرة
+ * الوحيدة على النقطية: offsetXmm والهوامش مُهمَلةٌ لقوالب النموذج) — و«100%» لنافذة الطباعة وحدها (مشغّل ويندوز، SPEC §5.9): تصغيرٌ
+ * إلى مساحة المشغّل يكبر خطؤه على طول الورقة فلا تصلحه إزاحةٌ واحدة؛ والبلوتوث المباشر يرسم النقاط بمقاسها فلا يعنيه
+ */
+function CalibrationPanel({ form, setForm, impact }: { form: PrintForm; setForm(f: PrintForm): void; impact: boolean }) {
   const tr = useTr();
   const zero = form.dxMm === 0 && form.dyMm === 0;
   return (
     <div className="space-y-3" data-form-inspector="calibrate">
       <h3 className={head}>{tr('المعايرة')}</h3>
-      <ol className="list-decimal ps-4 space-y-1 text-[11px] text-[#44403a] leading-relaxed">
-        <li>{tr('طبق التصميم ثم اطبع «صفحة معايرة» من «الطباعة على هذا الجهاز» على ورقك المطبوع مسبقا')}</li>
-        <li>{tr('اطبع بالحجم الفعلي 100% دون ملاءمة الصفحة')}</li>
-        <li>{tr('قس بالمسطرة كم تبعد الإطارات المتقطعة عن فراغات النموذج ثم أدخل الإزاحة هنا')}</li>
-      </ol>
+      {impact ? (
+        <ol className="list-decimal ps-4 space-y-1 text-[11px] text-[#44403a] leading-relaxed" data-form-calibrate-impact="">
+          <li>{tr('طبّق التصميم ثم اطبع «صفحة معايرة» من «الطباعة على هذا الجهاز» على ورق النموذج محمّلاً كما ستطبع الفواتير')}</li>
+          <li>{tr('إن طبعت من نافذة الطباعة (مشغّل ويندوز) فاطبعها بالحجم الفعلي 100% دون ملاءمة الصفحة')}</li>
+          <li>{tr('قس بالمسطرة كم تبعد الإطارات المتقطعة عن فراغات النموذج ثم أدخل الإزاحة هنا')}</li>
+          <li>{tr('إن نزلت كل المواضع عن فراغاتها فاجعل الإزاحة الرأسية بالسالب، وإن انزاحت يميناً فاجعل الأفقية بالسالب')}</li>
+        </ol>
+      ) : (
+        <ol className="list-decimal ps-4 space-y-1 text-[11px] text-[#44403a] leading-relaxed">
+          <li>{tr('طبق التصميم ثم اطبع «صفحة معايرة» من «الطباعة على هذا الجهاز» على ورقك المطبوع مسبقا')}</li>
+          <li>{tr('اطبع بالحجم الفعلي 100% دون ملاءمة الصفحة')}</li>
+          <li>{tr('قس بالمسطرة كم تبعد الإطارات المتقطعة عن فراغات النموذج ثم أدخل الإزاحة هنا')}</li>
+        </ol>
+      )}
       <div className={row}>
         <span className={lab}>{tr('إزاحة أفقية')}</span>
         <NumInput value={form.dxMm} label={tr('إزاحة أفقية')} suffix="mm" clampFn={clampOffsetMm} onCommit={(dxMm) => setForm(withFormProps(form, { dxMm }))} />

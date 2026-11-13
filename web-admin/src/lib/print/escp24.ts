@@ -15,6 +15,7 @@
  *   ESC $ nL nH                             بداية الحبر بعد قصّ الأعمدة البيضاء يساراً (1/60 بوصة = 3 نقاط، فتُقرَّب لأسفل لمضاعف 3)
  *   ESC * 39 nL nH <3 بايت لكل عمود>        180 نقطة/بوصة، البت الأعلى للإبرة العليا — حتى آخر عمودٍ فيه حبر
  *   (المسودة: ESC * 33 بـ120 نقطة/بوصة والأعمدة ثلثاها — ثلث بيانات أقل؛ وأشرطة الرمز تبقى 39 دائماً كي يُمسح)
+ *   [نموذج الشركة وحده — segmentGapDots] زوج ESC $ / ESC * لكل مقطع حبرٍ بين فجواتٍ بيضاء عريضة، والشريط غير ذلك كما هو
  *   ثم تقدّم 24 يُدمج في التغذية المعلّقة (ESC J تطبع ما في ذاكرة السطر ثم تتقدّم)
  * نهاية الصفحة: [ESC U 0] ثم FF — للمتصل: إلى رأس الصفحة التالية بطولها المحدّد؛ وللمقطع: إخراج الورقة. والتغذية المعلّقة
  * بعد آخر شريطٍ تُهمل (FF يكفيها).
@@ -32,7 +33,7 @@
  * رأس الصفحة (Epson ESC/P2). فطول المهمة يبقى، وFF يطبع ما في ذاكرة السطر ثم يقف على رأس النموذج التالي.
  */
 import { ByteSink, feedCommands, type EncodedJob } from './byteSink';
-import { dotAt, inkColumns, type Bitmap } from './raster';
+import { dotAt, inkColumns, inkRuns, type Bitmap } from './raster';
 import { PRINT_ISSUES, PRINT_WARNINGS } from './printSettings';
 import { PrintRefusedError } from './printErrors';
 
@@ -44,6 +45,12 @@ export const ESCP24_LINE_DOTS = 1440;
 export const ESCP24_CANCEL: readonly number[] = Object.freeze([0x1b, 0x40, 0x0c]);
 /** إلغاء الورق المتصل: إلغاء الاتجاه الواحد ثم FF — بلا ESC @ يمحو طول الصفحة (انظر رأس الملف) */
 export const ESCP24_CANCEL_CONTINUOUS: readonly number[] = Object.freeze([0x1b, 0x55, 0x00, 0x0c]);
+/**
+ * «نموذج الشركة المطبوع مسبقاً» على النقطية (طلب المالك ١٣ نوفمبر ٢٠٢٦): فجوةٌ بيضاء من 36 نقطة (~5 مم) فأكثر داخل الشريط تقسمه
+ * مقاطع — دونها أمرا ESC $ وESC * (≈ 9 بايتات) أغلى من أعمدتها البيضاء (3 بايتات لكل عمود). قيم النموذج متفرّقة على عرض الورقة،
+ * فالشريط من أوّل حبرٍ إلى آخره كان يرسل مئات الأعمدة البيضاء بين حقلين (الحمولة وسقف جسر أندرويد ووقت البلوتوث).
+ */
+export const FORM_SEGMENT_GAP_DOTS = 36;
 
 const ESC = 0x1b;
 const FF = 0x0c;
@@ -117,6 +124,11 @@ export interface EscP24Job {
   /** إزاحة الحزمة يميناً بالنقاط — تُقرَّب لمضاعف 3 (وحدة ESC $) */
   leftDots: number;
   draft: boolean;
+  /**
+   * مهام «نموذج الشركة» وحدها (printDirect.ts — EncodeOpts.form): كل مقطع حبرٍ بين فجواتٍ بيضاء بهذا العرض فأكثر (inkRuns) يُرسل
+   * بـESC $ وESC * مستقلّين. غيابه = شريطٌ واحد من أوّل حبرٍ إلى آخره — بايتات اليوم حرفاً (الحرّاس الذهبية وraster-bytes.json)
+   */
+  segmentGapDots?: number;
 }
 
 export function encodeEscP24(job: EscP24Job): EncodedJob {
@@ -126,6 +138,8 @@ export function encodeEscP24(job: EscP24Job): EncodedJob {
   sink.mark();
   const left = Math.max(0, Math.min(ESCP24_LINE_DOTS - 3, Math.round(job.leftDots / 3) * 3));
   const lastCol = ESCP24_LINE_DOTS - 1 - left;
+  // فجوة التقسيم 3 نقاط على الأقل (وحدة ESC $): بداية المقطع تُقرَّب لأسفل لمضاعف 3 فلا تعود على آخر عمودٍ من المقطع قبله
+  const segGap = job.segmentGapDots && job.segmentGapDots > 0 ? Math.max(3, Math.floor(job.segmentGapDots)) : 0;
   for (const pages of job.copies) {
     for (const page of pages) {
       const bm = page.bitmap;
@@ -139,16 +153,19 @@ export function encodeEscP24(job: EscP24Job): EncodedJob {
         if (span[1] > lastCol) throw new PrintRefusedError(qr ? PRINT_WARNINGS.qrNoFit : PRINT_ISSUES.impactLine);
         if (pending) { sink.push(...feedCommands(pending)); pending = 0; }
         if (qr !== uni) { sink.push(ESC, 0x55, qr ? 1 : 0); uni = qr; }
-        const start = Math.floor(span[0] / 3) * 3;
-        sink.push(...escpAbsX((left + start) / 3));
-        if (job.draft && !qr) {
-          const data = band24Draft(bm, y, start, span[1]);
-          const n = data.length / 3;
-          sink.push(ESC, 0x2a, 33, n & 0xff, (n >> 8) & 0xff).append(data);
-        } else {
-          const data = band24Columns(bm, y, start, span[1]);
-          const n = data.length / 3;
-          sink.push(ESC, 0x2a, 39, n & 0xff, (n >> 8) & 0xff).append(data);
+        // النموذج (segGap): مقطعٌ لكل كتلة حبر — والرفض أعلاه بآخر عمودٍ في الشريط كله، والاتجاه الواحد للشريط كله كما كان
+        for (const [a, b] of segGap ? inkRuns(bm, y, y + ESCP24_BAND_ROWS, segGap) : [span]) {
+          const start = Math.floor(a / 3) * 3;
+          sink.push(...escpAbsX((left + start) / 3));
+          if (job.draft && !qr) {
+            const data = band24Draft(bm, y, start, b);
+            const n = data.length / 3;
+            sink.push(ESC, 0x2a, 33, n & 0xff, (n >> 8) & 0xff).append(data);
+          } else {
+            const data = band24Columns(bm, y, start, b);
+            const n = data.length / 3;
+            sink.push(ESC, 0x2a, 39, n & 0xff, (n >> 8) & 0xff).append(data);
+          }
         }
         sink.mark();
         pending = ESCP24_BAND_ROWS;
