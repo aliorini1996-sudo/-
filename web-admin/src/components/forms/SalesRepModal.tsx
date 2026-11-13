@@ -341,7 +341,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
             <div className="grid grid-cols-1 gap-3 mt-3">
               <PermToggle label={tr('التحقق العشوائي من التواجد')} {...register('requirePresenceCheck')} />
             </div>
-            <p className="text-xs text-gray-400 mt-2 leading-relaxed">{tr('عند التفعيل يصل المندوب اشعار اثبت تواجدك مرتين الى ثلاث مرات في اليوم باوقات عشوائية اثناء نوبته، ويفتح التطبيق ويضغط اثبت تواجدي خلال دقيقتين فيسجل موقعه، وتظهر النتائج في تقرير ساعات العمل')}</p>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">{tr('عند التفعيل يصل المندوب اشعار اثبت تواجدك مرتين الى ثلاث مرات في اليوم باوقات عشوائية بين بصمة الحضور وبصمة الانصراف فقط وضمن ساعات وأيام الدوام ان حددت، ويفتح التطبيق ويضغط اثبت تواجدي خلال دقيقتين فيسجل موقعه، وتظهر النتائج في تقرير ساعات العمل')}</p>
             <div className="grid grid-cols-1 gap-3 mt-3">
               <PermToggle label={tr('عرض خط السير على الخريطة')} {...register('showRouteOnMap')} />
             </div>

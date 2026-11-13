@@ -197,8 +197,19 @@ test('النافذة: بعد الحضور بعشرين دقيقة إلى قبل 
   assert.equal(w.windowEndAt, +riyadh(17));
   const free = pc.presenceWindow({ ...rep, shiftEnd: null }, riyadh(8), riyadh(8, 1));
   assert.equal(free.windowEndAt, +riyadh(17), 'تسع ساعات من الحضور');
+  // ساعات الدوام مضبوطة ⇒ داخلها وحدها (طلب المالك ١٣ نوفمبر ٢٠٢٦): حضورٌ بعد نهاية الدوام (إضافي) نافذته فارغة
   const overtime = pc.presenceWindow(rep, riyadh(18), riyadh(18, 1));
-  assert.equal(overtime.windowEndAt, +riyadh(18) + 9 * 60 * MIN, 'حضورٌ مسائي بعد موعد النهاية: تسع ساعات');
+  assert.equal(overtime.windowEndAt, +riyadh(17), 'حضورٌ بعد موعد النهاية: لا تحقّق خارج الدوام');
+  assert.ok(overtime.end <= overtime.start, 'نافذةٌ فارغة');
+  // وحضورٌ مبكر قبل بداية الدوام: لا طلب قبل موعده
+  const early = pc.presenceWindow(rep, riyadh(6), riyadh(6, 1));
+  assert.equal(early.start, +riyadh(8), 'من بداية الدوام لا من الحضور');
+  assert.equal(early.floor, +riyadh(8));
+  // ويومٌ ليس من أيام دوامه (الخميس ٢٢ أكتوبر خارج «الأحد فقط») ⇒ فارغة؛ وفي يومه كما هو
+  const offDay = pc.presenceWindow({ ...rep, shiftDays: 1 }, riyadh(8), riyadh(8, 1));
+  assert.ok(offDay.end <= offDay.start, 'خارج أيام الدوام');
+  const onDay = pc.presenceWindow({ ...rep, shiftDays: 127 }, riyadh(8), riyadh(8, 1));
+  assert.equal(onDay.end, +riyadh(16, 40));
   const dayNoEnd = pc.presenceWindow({ ...rep, shiftEnd: null }, riyadh(16, 0), riyadh(16, 1));
   assert.equal(dayNoEnd.windowEndAt, +riyadh(23), 'حضورٌ نهاري بلا موعد نهاية: لا طلب بعد ١١ ليلاً');
   const evening = pc.presenceWindow({ ...rep, shiftEnd: null }, riyadh(20), riyadh(20, 1));
@@ -376,18 +387,16 @@ test('حارس ثابت: الحلقة تبدأ مع الخادم وتُطفأ ب
 });
 
 // ═══ إصلاحات المراجعة ═══
-test('نوبةٌ منسيّة مفتوحة من أمس: يومٌ جديد يُخطَّط له من موعد بداية الدوام لا منتصف الليل — وترك الانصراف لا يُعفي', async () => {
+test('نوبةٌ منسيّة مفتوحة من أمس: لا يومٌ جديد يُخطَّط لها — التحقق بين بصمة الحضور والانصراف وحدهما (طلب المالك ١٣ نوفمبر ٢٠٢٦)', async () => {
   reset();
   const a = addRep();
   shifts.push({ id: 'old', salesRepId: a.id, checkInAt: riyadh(8 - 24), checkOutAt: null }); // حضر أمس ولم ينصرف
   checks.push({ id: 'y', tenantId: 't1', salesRepId: a.id, day: '2026-10-21', dueAt: riyadh(10 - 24), windowEndAt: riyadh(17 - 24), status: 'MISSED', sentAt: riyadh(10 - 24), pushSent: 1 });
-  assert.equal((await pc.runPresenceChecks(riyadh(2, 0), countThen(0.9))).planned, 0, 'لا تخطيط قبل بداية دوامه');
+  assert.equal((await pc.runPresenceChecks(riyadh(2, 0), countThen(0.9))).planned, 0);
   pc._resetPresenceLoop();
   const r = await pc.runPresenceChecks(riyadh(8, 5), countThen(0.9));
-  assert.equal(r.planned, 3);
-  const today = checks.filter((c) => c.day === '2026-10-22');
-  assert.equal(today.length, 3);
-  assert.ok(today.every((c) => +c.dueAt >= +riyadh(8, 25) && +c.dueAt < +riyadh(16, 40)), 'داخل دوام اليوم');
+  assert.equal(r.planned, 0, 'بلا بصمة حضورٍ اليوم لا طلب');
+  assert.equal(checks.filter((c) => c.day === '2026-10-22').length, 0);
 });
 
 test('دوامٌ على فترتين: بعد استراحةٍ طويلة يُوزَّع ما لم يُرسل على نافذة المساء — لا يتكدّس فور العودة ولا بعد منتصف الليل', async () => {
