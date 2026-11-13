@@ -970,7 +970,8 @@ test('حارس ثابت: المحمّل الموحّد للعهدة والأما
   const customers = fs.readFileSync(path.join(__dirname, '..', 'routes', 'ledger', 'customers.ts'), 'utf8');
   assert.equal((customers.match(/if \(!f\.activated \|\| f\.manual\) \{ notStarted\(res, f, page/g) ?? []).length, 3, 'قبل التفعيل وفي الدفاتر اليدوية لا مستند فيها');
   assert.equal((customers.match(/\.\.\.\(f\.booksSince \? \{ createdAt: \{ gt: f\.booksSince \} \} : \{\}\)/g) ?? []).length, 3);
-  assert.match(customers, /booksSince: s\?\.activatedAt && s\.setupMethod === 'CLEAN' && s\.openingSnapshotAt \? s\.openingSnapshotAt : null/);
+  assert.match(customers, /booksSince: s\?\.activatedAt && isManualBooks\(s\) && s\.openingSnapshotAt \? s\.openingSnapshotAt : null/);
+  assert.doesNotMatch(customers, /setupMethod === 'CLEAN'/, 'لا مقارنة حرفية: isManualBooks من services/gl/mode');
 });
 
 // ═══ الدفاتر اليدوية المستقلة (أمر المالك، 2026-09-28): «مفصولة بشكل كامل عن المبيعات والمخزون وكل شيء، وكل شيء فيها يدوي» ═══
@@ -1012,8 +1013,9 @@ test('حارس ثابت: الدفاتر اليدوية لا تقرأ التشغ�
   assert.match(commit, /const openingStock = clean \? classifyOpeningStockEntries\(\[\], stockCut, stockDecimals\)/);
   assert.match(commit, /applyStep3\(tx, tenantId, draft, \{ manual: clean \}\)/);
   const customers = fs.readFileSync(path.join(__dirname, '..', 'routes', 'ledger', 'customers.ts'), 'utf8');
-  assert.equal((customers.match(/s\.setupMethod === 'CLEAN'\) \{\n\s+res\.json\(\{ success: true, data: \{ activated: !!s\?\.activatedAt, manualLedger/g) ?? []).length, 2, 'العهدة والأمانات');
+  assert.equal((customers.match(/isManualBooks\(s\)\) \{\n\s+res\.json\(\{ success: true, data: \{ activated: !!s\?\.activatedAt, manualLedger: isManualBooks\(s\)/g) ?? []).length, 2, 'العهدة والأمانات');
   const imp = fs.readFileSync(path.join(__dirname, '..', 'routes', 'import.ts'), 'utf8');
-  assert.match(imp, /s\?\.activatedAt && s\.setupMethod !== 'CLEAN' \? s\.activatedAt : null/);
+  // الصيغة الحرفية القديمة أو دالة الوضع (services/booksMode — «ربط الدفاتر» L0) بالمعنى نفسه
+  assert.match(imp, /s\?\.activatedAt && (s\.setupMethod !== 'CLEAN'|!isManualBooks\(s\)) \? s\.activatedAt : null/);
   assert.equal((imp.match(/coupledActivatedAt\(/g) ?? []).length >= 5, true);
 });

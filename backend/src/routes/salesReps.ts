@@ -6,6 +6,8 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId, actorOf } from '../middleware/auth';
 import { auditActorName } from '../services/attendanceEdit';
 import { REP_COLLECTED_CASH_SALE } from '../services/repCashCollection';
+// «الدفع من عهدة مندوب» (ربط الدفاتر L1): سندات صرف الموردين من عهدته تُنقصها (services/suppliers/repCustody.ts)
+import { custodyIncludesTeamless, repCustodySupplierNet } from '../services/suppliers/repCustody';
 import { adminRepFilter, adminCustomerFilter, scopedRecordWhere, SHAPE_INVOICE_RECEIPT, teamSupervisorIdOf, composeTeamCustodyWhere } from '../services/adminScope';
 import { settlementTeamOf, teamMembershipSelectFor } from '../services/teams';
 import { noStaffCredentials, refuseStaffCredentials } from '../services/platformAccess';
@@ -16,6 +18,8 @@ import { netSales } from '../services/netSales';
 import { userCustody, lockCustody, removalKeepsCustodySane, CustodyBlocked } from '../services/userCustody';
 import { isLedgerError } from '../services/gl/types';
 import { assertRepDeletable, settlementTombstones } from '../services/gl/sync/tombstone';
+// «ربط الدفاتر» (قرار المالك OD1): لا حذف لمستندٍ مرحَّل في شركةٍ دفاترها مربوطة — الحكم من المصدر الوحيد لوضع الدفاتر
+import { LINKED_NO_DELETE_CODE, LINKED_NO_DELETE_MESSAGE, tenantBooksLinked } from '../services/booksMode';
 import { BASE_PRICE_TYPE, PRICE_LIST_MESSAGES, allowedPriceTypesOf } from '../services/priceLists';
 
 const router = Router();
@@ -420,8 +424,17 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     // أولها حارس الدفاتر §5.3 (409 LEDGER_HISTORY_LOCKED، قفل المندوب FOR UPDATE) — التفصيل في assertRepDeletable.
     await prisma.$transaction(async tx => {
       await assertRepDeletable(tx, tid, req.params.id);
+      /* قفل صفّ المندوب FOR UPDATE لكل شركة قبل أي تفريغ («ربط الدفاتر» L1، C18): الحارس أعلاه يقفله حين تُفعَّل الدفاتر وحدها،
+       * وأغلب الشركات بلا دفاتر — فسندٌ يُرفع أثناء حذفٍ طويل (مواقع GPS لأشهر) كان يأخذ FOR KEY SHARE بلا انتظار ويلتزم بعد تفريغ
+       * السندات، ثم يفرّغ ON DELETE SetNull مندوبَه بصمت ويبقى deletedSalesRepId فارغاً: يضيع أثر من قبض المال. مع القفل ينتظر
+       * الإدراج المتزامن التزامَ الحذف ثم يفشل صريحاً (P2003)، والجاري قبله يُنتظَر فيراه التفريغ أدناه (قفلٌ مكرَّر في المعاملة نفسها
+       * للشركة المفعّلة بلا أثر). الفحص الفعلي للتزامن خطوة يدوية على قاعدة حقيقية */
+      await tx.$queryRaw`SELECT id FROM sales_reps WHERE id = ${req.params.id} AND "tenantId" = ${tid} FOR UPDATE`;
       await tx.invoice.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null } });
-      await tx.receipt.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null } });
+      /* «ربط الدفاتر» L1 (C18): السند يبقى بمرجعٍ مفرَّغ ومعرّفُ مندوبه في deletedSalesRepId — في الكتابة نفسها التي تفرّغ salesRepId
+       * (كتحميلات السيارة واستلامات التحصيل أدناه). كان التفريغ يمحو أثر من قبض المال بلا رجعة، فلا تُعاد عهدة المندوب المحذوف
+       * (١١١٠٠٣ لكل مندوب) حين تُبنى الدفاتر المربوطة رجعياً من بداية السنة */
+      await tx.receipt.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null, deletedSalesRepId: req.params.id } });
       /* الإقرار اليوميّ سجلٌّ كالفاتورة: وُقِّع عليه وصدرت به حصائل. وكان يُمحى
        * تعاقبياً بحذف المندوب بلا سطرٍ هنا يقول ذلك — فتختفي تقارير شهورٍ
        * وتبقى حصائلها تُعلن أرقاماً لا مصدر لها. */
@@ -559,19 +572,22 @@ router.put('/:id/customers', async (req: AuthRequest, res: Response, next: NextF
 });
 
 // رصيد التحصيل لدى المندوب = مجموع سنداته النشطة + فواتيره النقدية المحسوبة تحصيلاً (services/repCashCollection.ts)
-// − مجموع ما استلمه الأدمن منه.
-// «الفرق»: `teamWhere` (composeTeamCustodyWhere) على الأطراف الثلاثة معاً — رصيد الفريق = سنداته ونقديّه الموسومة − استلاماته الموسومة
+// − مجموع ما استلمه الأدمن منه − صافي ما صُرف من عهدته للموردين («الدفع من عهدة مندوب»، services/suppliers/repCustody.ts).
+// «الفرق»: `teamWhere` (composeTeamCustodyWhere) على الأطراف الثلاثة معاً — رصيد الفريق = سنداته ونقديّه الموسومة − استلاماته الموسومة.
+// وسند صرف المورّد بلا فريق: يدخل العرض الإجمالي ودلو «بلا فريق» وحدهما (custodyIncludesTeamless)
 async function repCollection(tid: string, repId: string, teamWhere: Record<string, unknown> = {}) {
-  const [collected, cashSales, settled] = await Promise.all([
+  const [collected, cashSales, settled, spent] = await Promise.all([
     prisma.receipt.aggregate({ where: { tenantId: tid, salesRepId: repId, status: 'ACTIVE', ...teamWhere }, _sum: { amount: true } }),
     prisma.invoice.aggregate({ where: { tenantId: tid, salesRepId: repId, AND: [REP_COLLECTED_CASH_SALE, teamWhere] }, _sum: { paidAmt: true } }),
     prisma.repSettlement.aggregate({ where: { tenantId: tid, salesRepId: repId, ...teamWhere }, _sum: { amount: true } }),
+    // المال خرج من يد المندوب إلى المورّد — بلاه يسلّم المندوب الباقي فيبقى عليه ثمن الشراء «عجزاً» دائماً
+    custodyIncludesTeamless(teamWhere) ? repCustodySupplierNet(prisma, tid, repId) : Promise.resolve(0),
   ]);
   const cash = cashSales._sum.paidAmt ?? 0;
   const c = (collected._sum.amount ?? 0) + cash;
   const s = settled._sum.amount ?? 0;
-  // collected يشمل النقدية المحسوبة، وcashSales جزؤها منه للعرض
-  return { collected: clean(c), cashSales: clean(cash), settled: clean(s), outstanding: clean(c - s) };
+  // collected يشمل النقدية المحسوبة، وcashSales جزؤها منه للعرض؛ وpaidToSuppliers حين وُجد وحده (الردّ لغيره كما كان)
+  return { collected: clean(c), cashSales: clean(cash), settled: clean(s), ...(spent !== 0 && { paidToSuppliers: clean(spent) }), outstanding: clean(c - s - spent) };
 }
 
 /** الفريق المطلوب لعرض العهدة (`?teamId=`) — نصٌّ غير فارغ وإلا لا طلب */
@@ -752,6 +768,13 @@ async function isPrimaryAdmin(req: AuthRequest): Promise<boolean> {
   return !!admin && admin.isActive && admin.role === 'ADMIN' && admin.tenantId === tenantId(req);
 }
 
+/** رفض حذف مستندٍ مرحَّل في شركةٍ دفاترها مربوطة — يُرمى داخل المعاملة فلا تمضي كتابة، ويُحوَّل 409 في المعالج */
+class BooksLinkedNoDelete extends Error {
+  constructor() { super(LINKED_NO_DELETE_MESSAGE); this.name = 'BooksLinkedNoDelete'; }
+}
+/** جسم الرفض الموحّد (409) — بالرمز والرسالة من services/booksMode */
+export const BOOKS_LINKED_NO_DELETE_BODY = Object.freeze({ success: false, code: LINKED_NO_DELETE_CODE, message: LINKED_NO_DELETE_MESSAGE });
+
 /**
  * حذف استلام تحصيل من سجلّ المندوب — للأدمن الرئيسي وحده.
  *
@@ -765,6 +788,8 @@ async function isPrimaryAdmin(req: AuthRequest): Promise<boolean> {
  *
  * ولا يمضي الحذف صامتاً: يُقيَّد في الإشعارات بمبلغه ومن حذفه، ومعه نسخةٌ
  * كاملة من الصفّ في `data` — فمن حذف خطأً يعيد تسجيله كما كان بلا تخمين.
+ *
+ * والشركة ذات الدفاتر المربوطة (قرار المالك OD1): لا حذف — 409 BOOKS_LINKED_NO_DELETE.
  */
 router.delete('/:id/settlements/:settlementId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -797,6 +822,10 @@ router.delete('/:id/settlements/:settlementId', async (req: AuthRequest, res: Re
     const when = new Date(row.settledAt).toISOString().slice(0, 10);
 
     await prisma.$transaction(async tx => {
+      /* «ربط الدفاتر» (قرار المالك OD1): في شركةٍ دفاترها مربوطة (isLinked وحدها) الاستلام مستندٌ مرحَّل — قيد نقل العهدة من
+       * المندوب إلى المستلم — فلا يُمحى صفّه؛ التصحيح بعكسٍ لا بحذف (409 BOOKS_LINKED_NO_DELETE). يُقرأ داخل المعاملة وقبل
+       * قفل العهدة وأيّ كتابة. والدفاتر اليدوية (CLEAN) وغير المفعّلة والقديمة: الحذف كما كان حرفاً بحرف */
+      if (await tenantBooksLinked(tx, tid)) throw new BooksLinkedNoDelete();
       /* حارس العهدة قبل أيّ كتابة.
        *
        * هذا المبلغ دخل عهدة مستخدمٍ حين استُلم. فإن كان قد ورّده — كلّه أو
@@ -845,6 +874,7 @@ router.delete('/:id/settlements/:settlementId', async (req: AuthRequest, res: Re
     // الرصيد بعد الحذف — لتُحدّث الواجهة بطاقاتها من مصدرٍ واحد لا من حسابٍ محلّي
     res.json({ success: true, data: await repCollection(tid, rep.id, composeTeamCustodyWhere(sup)) });
   } catch (err) {
+    if (err instanceof BooksLinkedNoDelete) { res.status(409).json(BOOKS_LINKED_NO_DELETE_BODY); return; }
     if (err instanceof CustodyBlocked) { res.status(400).json({ success: false, message: err.message }); return; }
     next(err);
   }

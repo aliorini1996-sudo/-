@@ -19,7 +19,11 @@ import {
   unitsByProduct, UnitInvalidError, UNIT_SELECT, assertWarehouseCovers, WarehouseInsufficientError, vanKeyOf,
 } from '../services/warehouseStock';
 // «الربط لا يُرفض» (أمر المالك ٩ نوفمبر ٢٠٢٦): الحركة تُقبل بما يمكن معالجته، والمتروك أو المعدَّل تحذيرٌ في ردّ النجاح
-import { lenientStockLines, noQuantitiesWarning, stockNoopBody } from '../services/stockLenient';
+import { lenientStockLines, noQuantitiesWarning, stockNoopBody, type StockWarning } from '../services/stockLenient';
+// «ربط الدفاتر» L1: سبب تسوية السيارة (ADJUST) من قائمةٍ ثابتة — الفحص المشترك مع تسوية المستودع (الواجهة 400، ومفتاح API تحذير)
+import { VAN_ADJUST_REASONS } from '../services/suppliers/core';
+import { isSupplierError, supplierErrorBody } from '../services/suppliers/payments';
+import { resolveAdjustReason } from '../services/suppliers/warehouseBills';
 // مفتاح منع التكرار لحركات السيارة (D8): بلا قيدٍ فريد — قفلٌ استشاري على المرجع ثم البحث به داخل المعاملة
 import { CLIENT_REF_SCHEMA, ClientRefReplay, clientRefQuery, lockClientRef } from '../services/stockClientRef';
 // حدود أيام ملخّص السيارات بتوقيت الشركة كسجلّ التحميلات (#14)
@@ -82,6 +86,9 @@ const loadSchema = z.object({
     expiryDate: z.unknown().optional(),
     lotReason: z.unknown().optional(),
   })).min(1),
+  // «ربط الدفاتر» L1: سبب التسوية ADJUST — COUNT | DAMAGE | EXPIRY | SHORTAGE_REP (عجز على المندوب) | SAMPLE | OTHER. لغير ADJUST يُهمل.
+  // بلا تحقق نوعٍ هنا: غير الصالح ⇒ 400 ADJUST_REASON_INVALID للواجهة، ويُهمل بتحذير ADJUST_REASON_IGNORED لمفتاح API («الربط لا يُرفض»)
+  reason: z.unknown().optional(),
 });
 
 // يحدّد المندوب المستهدف: المندوب=نفسه، الأدمن=من الطلب
@@ -332,6 +339,9 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
   try {
     const tid = tenantId(req);
     const data = loadSchema.parse(req.body);
+    // «ربط الدفاتر» L1: سبب التسوية يُحكم عليه قبل أي قراءة — الواجهة بسببٍ مجهول 400 بلا عمل، ومفتاح API تحذيرٌ يُضمّ لردّ النجاح
+    const reasonWarnings: StockWarning[] = [];
+    const adjustReason = data.type === 'ADJUST' ? resolveAdjustReason(data.reason, VAN_ADJUST_REASONS, !!req.user?.apiKeyId, reasonWarnings) : null;
     // «تتبّع اللوط» D30: سيارة مندوبٍ محذوف مفتاحها معرّفه المحفوظ — لا مندوب يُحلّ ولا نطاق (إداري غير مقيّد وحده)
     const gone = data.deletedSalesRepId !== undefined ? await deletedVanOf(req, tid, data) : null;
     const { salesRepId, isRep } = gone ? { salesRepId: gone.vanKey, isRep: false } : resolveRep(req, data.salesRepId);
@@ -401,6 +411,7 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
       stripLot: (i) => ({ ...i, lots: undefined, lotNumber: undefined, productionDate: undefined, expiryDate: undefined, lotReason: undefined }),
     });
     const { lines: items, units, products, warnings } = lenient;
+    warnings.push(...reasonWarnings);
     // لم يبقَ سطرٌ يُكتب ⇒ 200 بلا حركة بتحذيراته (لا مرجع يُحفظ: إعادته تعيد الردّ نفسه)
     if (!items.length) { res.status(200).json(stockNoopBody(warnings)); return; }
     const productIds = [...new Set(items.map(i => i.productId))];
@@ -471,6 +482,8 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     const createLoad = (db: Prisma.TransactionClient | typeof prisma, plan: VanMovementPlan | null = null) => db.vanLoad.create({
       data: {
         tenantId: tid, salesRepId: gone ? null : salesRepId, type: data.type, note: data.note,
+        // سبب التسوية بالنشر الشرطيّ — غائبٌ ⇒ العمود null والحركة كما كانت حرفياً
+        ...(adjustReason && { reason: adjustReason }),
         // D30: تنزيل سيارة مندوبٍ محذوف بمعرّفه المحفوظ، كما يكتبه حذف المندوب على حركاته
         ...(gone && { deletedSalesRepId: gone.vanKey }),
         ...(loadLocationId && { locationId: loadLocationId }),
@@ -589,6 +602,8 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     // D8: طلبٌ مكرَّر تزامن مع أصله فوجده القفل ⇒ الحركة القائمة كما في المسار السريع
     if (err instanceof ClientRefReplay) { res.status(200).json({ success: true, data: err.row, replay: true, idempotent: true }); return; }
     if ((err as { code?: unknown })?.code === 'CLIENT_REF_REUSED') { res.status(409).json({ success: false, code: 'CLIENT_REF_REUSED', message: (err as Error).message }); return; }
+    // «ربط الدفاتر» L1: سبب تسويةٍ غير معروف من الواجهة ⇒ 400 ADJUST_REASON_INVALID بلا حركة
+    if (isSupplierError(err)) { res.status(err.status).json(supplierErrorBody(err)); return; }
     next(err);
   }
 });
@@ -956,6 +971,8 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
       ...loads.map(l => ({
         // «تصفير المخزون»: معرّف التشغيلة لحركة التصفير (null لغيرها؛ والفواتير أدناه null دائماً)
         kind: l.type, date: l.createdAt, ref: l.note || '', by: l.createdBy, zeroRunId: l.zeroRunId ?? null,
+        // «ربط الدفاتر» L1: سبب التسوية (COUNT | DAMAGE | EXPIRY | SHORTAGE_REP | SAMPLE | OTHER) حين سُجّل وحده — والحركة بلا سبب كما كانت حرفاً
+        ...(l.reason != null && { reason: l.reason }),
         items: l.items.map(i => ({ name: i.product.name, unit: i.unitName ?? i.product.unit, qty: i.qty, baseQty: baseQtyOf(i), ...primaryOf(i.product), lineRef: i.lineRef ?? null, ...(withLots && { lots: (i as { lots?: unknown }).lots ?? [] }) })),
       })),
       ...invoices.map(inv => ({

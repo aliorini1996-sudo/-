@@ -5,6 +5,7 @@
 import { validateMove } from '../services/gl/validate';
 import { saContext, taxIdOf, type FixtureOverrides } from '../services/gl/testing/fixtures';
 import { maxLocalDate } from '../services/gl/dates';
+import { isManualBooks } from '../services/gl/mode';
 import type { CustodyComponentsInput } from '../services/gl/custody';
 import type { LedgerContext } from '../services/gl/resolve';
 import type { PostMoveOptions, PostedMove } from '../services/gl/post';
@@ -139,7 +140,11 @@ export class FakePostingStore implements PostingStore {
 
   // ── PostingStore ──
   async dbNow(): Promise<Date> { return new Date(this.nowMs()); }
+  /** مرآة eligibleTenantsWhere: المفعّلة بعَلَم المجموعة بلا الدفاتر اليدوية */
   async listEligibleTenants(): Promise<EligibleTenant[]> {
+    return isManualBooks(this.settings) ? [] : this.listCheckTenants();
+  }
+  async listCheckTenants(): Promise<EligibleTenant[]> {
     return this.settings.activatedAt && this.settings.suiteEnabled ? [{ tenantId: this.tenantId, lastSyncAt: this.state.lastSyncAt }] : [];
   }
   async loadPosterSettings(tenantId: string): Promise<PosterSettings | null> {

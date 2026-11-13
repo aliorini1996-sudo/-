@@ -16,12 +16,13 @@ import {
   loadBuildContext, requireMoveRecord, settingsSnapshotFromRow, type GlDb, type LedgerContext,
 } from '../resolve';
 import { reversalDraftFromRecord, reverseMove, type ReverseResult } from '../reverse';
+import { isManualBooks, SETUP_METHODS } from '../mode';
 import { autoSaleKey, invoicePayloadFromRows } from '../builders/invoice';
 import { receiptCustodyClass, type CustodyComponentsInput, type CustodyItem, type CustodySettlementItem } from '../custody';
 import {
   type BackfillState, type EventStatus, type SkipReason, type SourceEvent, type SourceType, type VatCategory,
 } from '../types';
-import { tombstoneOrigin, type LiveMoveState, type OriginFacts, type SiblingState } from './classify';
+import { setupMethodOf, tombstoneOrigin, type LiveMoveState, type OriginFacts, type SiblingState } from './classify';
 import type {
   EligibleTenant, ListDueEventsOptions, LiveMoveLine, OpeningImportCandidate, PosterSettings, PostingStore, PostingTx, SourceData,
   WithPostLockOptions,
@@ -99,6 +100,25 @@ function jsonOf(v: unknown): Prisma.InputJsonValue | typeof Prisma.DbNull {
 
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null);
 
+// ═══ أهلية الشركات ═══
+
+/** طرق الإعداد اليدوية مشتقّةً من services/gl/mode (لا مقارنة حرفية): اليوم ['CLEAN'] */
+const MANUAL_SETUP_METHODS: string[] = SETUP_METHODS.filter((m) => isManualBooks({ setupMethod: m }));
+
+/**
+ * where الشركات المفعّلة بعَلَم المجموعة (صرفة، تُختبر بلا قاعدة). excludeManual ⇒ تُستبعد الدفاتر اليدوية في SQL نفسه
+ * («ربط الدفاتر» L0 A4): كانت تمرّ إلى النبضة فتُتخطّى بـMANUAL_LEDGER بلا لمس lastSyncAt، فتبقى بـNULL في رأس الترتيب
+ * (NULLS FIRST) أبداً وتأكل سقف 200 من المربوطة. setupMethod الفارغ يبقى مؤهلاً كما كان: `NOT IN` وحده يُسقط NULL في SQL،
+ * فالفرع `setupMethod: null` صريح.
+ */
+export function eligibleTenantsWhere(opts: { excludeManual: boolean }): Prisma.GlSettingsWhereInput {
+  return {
+    activatedAt: { not: null },
+    tenant: { accountingSuiteEnabled: true, accountingEnabled: true },
+    ...(opts.excludeManual ? { OR: [{ setupMethod: null }, { setupMethod: { notIn: MANUAL_SETUP_METHODS } }] } : {}),
+  };
+}
+
 // ═══ المخزن ═══
 
 export class PrismaPostingStore implements PostingStore {
@@ -111,14 +131,23 @@ export class PrismaPostingStore implements PostingStore {
     return dbNowOf(this.db);
   }
 
+  /** النبضة: بلا الدفاتر اليدوية (لا شيء فيها للمُطابِق ولا للمُرحِّل) */
   async listEligibleTenants(limit = 200): Promise<EligibleTenant[]> {
-    const rows = await this.db.glSettings.findMany({
-      where: { activatedAt: { not: null }, tenant: { accountingSuiteEnabled: true, accountingEnabled: true } },
+    return this.listTenants(eligibleTenantsWhere({ excludeManual: true }), limit);
+  }
+
+  /** الفحوص الليلية: كل المفعّلة ومنها اليدوية — كما كانت قائمة الأهلية قبل الاستبعاد (runChecks يتخطّى لها فحوص المطابقة) */
+  async listCheckTenants(limit = 200): Promise<EligibleTenant[]> {
+    return this.listTenants(eligibleTenantsWhere({ excludeManual: false }), limit);
+  }
+
+  private async listTenants(where: Prisma.GlSettingsWhereInput, limit: number): Promise<EligibleTenant[]> {
+    return this.db.glSettings.findMany({
+      where,
       select: { tenantId: true, lastSyncAt: true },
       orderBy: [{ lastSyncAt: { sort: 'asc', nulls: 'first' } }, { tenantId: 'asc' }],
       take: limit,
     });
-    return rows;
   }
 
   async loadPosterSettings(tenantId: string): Promise<PosterSettings | null> {
@@ -134,7 +163,7 @@ export class PrismaPostingStore implements PostingStore {
       suiteEnabled: row.tenant?.accountingSuiteEnabled === true && row.tenant?.accountingEnabled !== false,
       activatedAt: row.activatedAt,
       backfillState: (row.backfillState || 'NONE') as BackfillState,
-      setupMethod: row.setupMethod === 'FULL_HISTORY' ? 'FULL_HISTORY' : row.setupMethod === 'OPENING' ? 'OPENING' : row.setupMethod === 'CLEAN' ? 'CLEAN' : null,
+      setupMethod: setupMethodOf(row.setupMethod),
       cutoverDate: row.cutoverDate ? fromDbDate(row.cutoverDate) : null,
       openingSnapshotAt: row.openingSnapshotAt,
       timezone: snapshot.timezone,
@@ -277,8 +306,8 @@ export class PrismaPostingTx implements PostingTx {
       this.settingsCache = {
         timezone: s?.timezone || 'Asia/Riyadh', currency: s?.currency ?? 'SAR', decimals: s?.currencyDecimals ?? 2,
         routing: s?.receiptRouting ?? null, cashInvoiceRouting: s?.cashInvoiceRouting ?? 'MAIN_CASH',
-        // البداية النظيفة: ما أُنشئ حتى T0 خارج الدفاتر — نافذة محمّل العهدة
-        cleanSince: s?.setupMethod === 'CLEAN' && s.openingSnapshotAt ? s.openingSnapshotAt : null,
+        // البداية النظيفة (الدفاتر اليدوية وحدها؛ LINKED كـOPENING بلا نافذة): ما أُنشئ حتى T0 خارج الدفاتر — نافذة محمّل العهدة
+        cleanSince: isManualBooks(s) && s?.openingSnapshotAt ? s.openingSnapshotAt : null,
       };
     }
     return this.settingsCache;

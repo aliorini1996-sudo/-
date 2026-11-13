@@ -1,6 +1,6 @@
 // M3 — حارس ترتيب إعادة ضبط الدفاتر (DESIGN.md §5.7، §9.5 G6، §10.1 صف M3: gl-reset-order.test.ts).
-// من schema.prisma: كل نموذج Gl* في GL_RESET_ORDER أو GL_RESET_KEEP (= ['GlAuditLog'] حرفياً)، وكل ابن قبل أبيه،
-// والقفل أول عبارة في معاملة ledger-reset (يُفعَّل حين يوجد المسار).
+// من schema.prisma: كل نموذج Gl* في GL_RESET_ORDER أو GL_RESET_KEEP (= ['GlAuditLog', 'GlVendor'] حرفياً — GlVendor منذ
+// «ربط الدفاتر» L1 سجلّ الموردين التشغيلي)، وكل ابن قبل أبيه، والقفل أول عبارة في معاملة ledger-reset (يُفعَّل حين يوجد المسار).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -40,13 +40,33 @@ function parseModels(src: string): Map<string, Model> {
 const models = parseModels(schema);
 const glModels = [...models.values()].filter((x) => /^Gl[A-Z]/.test(x.name));
 
-test('GL_RESET_KEEP = [\'GlAuditLog\'] حرفياً، وعلاقة GlAuditLog بـTenant وحده', () => {
-  assert.deepEqual([...GL_RESET_KEEP], ['GlAuditLog']);
+test('GL_RESET_KEEP = [\'GlAuditLog\', \'GlVendor\'] حرفياً، وعلاقة GlAuditLog بـTenant وحده', () => {
+  assert.deepEqual([...GL_RESET_KEEP], ['GlAuditLog', 'GlVendor']);
   const audit = models.get('GlAuditLog');
   assert.ok(audit, 'GlAuditLog في المخطط');
   assert.deepEqual(audit.relations.map((r) => r.target), ['Tenant']);
   // لا نموذج gl يشير إلى GlAuditLog (فلا يمنع حذفَ غيره ولا يُحذف بتسلسل)
   for (const x of glModels) assert.ok(!x.relations.some((r) => r.target === 'GlAuditLog'), `${x.name} → GlAuditLog`);
+});
+
+test('«ربط الدفاتر» L1: GlVendor (سجلّ الموردين التشغيلي) لا تمسّه إعادة الضبط — تشير إليه جداول تشغيلية بـNoAction فحذفه يفشل', async () => {
+  assert.ok(!(GL_RESET_ORDER as readonly string[]).includes('GlVendor'), 'GlVendor خارج GL_RESET_ORDER');
+  const vendor = models.get('GlVendor')!;
+  // GlVendor لا يملك إلا علاقة Tenant، ولا نموذج gl يشير إليه (فبقاؤه لا يمنع حذف غيره)
+  assert.deepEqual(vendor.relations.map((r) => r.target), ['Tenant']);
+  for (const x of glModels) assert.ok(!x.relations.some((r) => r.target === 'GlVendor'), `${x.name} → GlVendor`);
+  // المشيرون إليه تشغيليون بـNoAction — لو بقي في الترتيب لفشل deleteMany بـP2003 عند أول مورّد له حركة
+  const referrers = [...models.values()].filter((x) => x.relations.some((r) => r.target === 'GlVendor')).map((x) => x.name).sort();
+  assert.deepEqual(referrers, ['SupplierLedgerEntry', 'SupplierPayment', 'WarehouseEntry']);
+  for (const n of referrers) {
+    assert.ok(!/^Gl[A-Z]/.test(n));
+    assert.equal(models.get(n)!.relations.find((r) => r.target === 'GlVendor')!.onDelete, 'NoAction', n);
+  }
+  // deleteLedgerRows لا يلمسه
+  const calls: string[] = [];
+  const tx = new Proxy({}, { get: (_t, prop: string) => ({ deleteMany: async () => { calls.push(prop); return { count: 0 }; } }) }) as unknown as ResetTx;
+  await deleteLedgerRows(tx, 't1');
+  assert.ok(!calls.includes('glVendor'));
 });
 
 test('كل نموذج Gl* في GL_RESET_ORDER أو GL_RESET_KEEP، وكل مُدرج موجود بلا تكرار، وكل نموذج يحمل tenantId', () => {
@@ -108,6 +128,7 @@ test('deleteLedgerRows يحذف بالترتيب بمفوَّضات Prisma ول�
   const counts = await deleteLedgerRows(tx, 't1');
   assert.deepEqual(calls, GL_RESET_ORDER.map(resetDelegateName));
   assert.ok(!calls.includes('glAuditLog'));
+  assert.ok(!calls.includes('glVendor'));
   assert.equal(counts.GlMove, 'glMove'.length);
   assert.equal(resetDelegateName('GlMoveSource'), 'glMoveSource');
 });

@@ -51,6 +51,17 @@ import { isTaxOff } from '../services/taxMode';
 import {
   ATTACHMENT_META_SELECT, attachmentInvalid, entryCapMessage, parsePurchaseAttachments, servableAttachment, type PurchaseAttachmentInput,
 } from '../services/purchaseAttachments';
+// «ربط الدفاتر» L1 (طلب المالك ١٣ نوفمبر ٢٠٢٦): الشراء نقدي/آجل والمرتجع للمورّد والإلغاء — الحساب والكتابة كلها في الخدمة (دوال tx)،
+// والمسار يقرأ الطلب ويأخذ الأقفال. لا كتابة في gl_* (gl_vendors يُقرأ وحده)
+import { WAREHOUSE_ADJUST_REASONS } from '../services/suppliers/core';
+import { isSupplierError, supplierErrorBody } from '../services/suppliers/payments';
+import {
+  classifyEntryTx, creditSettlementsOf, returnRemainingOf, entryJson, loadEntryContext, parseCancelBody, parseReturnBody, purchaseEntryCols, purchaseLineCols,
+  readEntryForReply, resolveAdjustReason, resolveEntryPurchase, reverseEntryTx, writeEntryPurchaseTx, type PurchasePaymentRef, type ReversalInput,
+  findReturnByClientRef, legacyOpeningImportIds,
+} from '../services/suppliers/warehouseBills';
+// نطاق المستخدم المقيَّد على مناديب «مصدر الدفع» (REP_CUSTODY:<id>): لا يُكشف مندوبٌ خارج نطاقه في السجلّ والردود
+import { custodyRepOf, hiddenRepIds, maskPaidAccountRef } from '../services/suppliers/repCustody';
 
 const router = Router();
 router.use(authenticate);
@@ -102,6 +113,23 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     // شركةٌ بالدينار كانت ترى قيمة كل صنفٍ مقرَّبةً إلى خانتين (٠٫٣٧ بدل ٠٫٣٧١).
     const [dec, before] = await Promise.all([tenantCurrencyDecimals(tid), warehouseAsOf(tid, req.query.asOf)]);
     res.json({ success: true, data: await computeWarehouseStock(tid, dec, before) });
+  } catch (err) { next(err); }
+});
+
+/**
+ * «ربط الدفاتر» L1: المناديب لاختيار «عهدة مندوب» مصدراً للدفع (الشراء النقدي، وسند صرف المورّد) — بحرّاس المستودع نفسها
+ * (canManageVanStock) لا canManageSalesReps: من يسجّل الشراء أو يصرف للمورّد قد لا يملك إدارة المناديب، وقائمة /sales-reps تردّه 403.
+ * المعرّف والاسم والحالة وحدها (لا جوال ولا صلاحيات)، ونطاق المستخدم كبطاقة /vans — والخادم يتحقق من المندوب عند الحفظ على أي حال.
+ */
+router.get('/reps', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const reps = await prisma.salesRep.findMany({
+      where: { tenantId: tid, ...(await adminRepFilter(req)) },
+      select: { id: true, name: true, isActive: true },
+      orderBy: { name: 'asc' },
+    });
+    res.json({ success: true, data: reps });
   } catch (err) { next(err); }
 });
 
@@ -198,9 +226,22 @@ const entrySchema = z.object({
   costsIncludeTax: z.boolean().optional().default(false),
   // مفتاح منع التكرار (D8): واحدٌ لكل محاولة حفظ يُعاد مع إعادتها — المكرَّر يردّ الحركة القائمة 200 بلا كتابة. غائبٌ ⇒ كما كان
   clientRef: CLIENT_REF_SCHEMA.optional(),
+  // ═══ «ربط الدفاتر» L1: الشراء نقدي/آجل (services/suppliers/warehouseBills.ts) — كلها اختيارية، وغيابها ⇒ الوارد كما كان حرفياً ═══
+  // بلا تحقق نوعٍ هنا عمداً: الفحص في الخدمة — الواجهة 400 برمزٍ عربي، ومفتاح API لا يُرفض (وارد غير مصنَّف بتحذير)
+  vendorId: z.unknown().optional(),
+  paymentMode: z.unknown().optional(), // CASH | CREDIT
+  paidFrom: z.unknown().optional(), // MAIN_CASH | BANK | REP_CUSTODY
+  paidFromRepId: z.unknown().optional(),
+  supplierRef: z.unknown().optional(), // ≤ 60
+  billDate: z.unknown().optional(), // YYYY-MM-DD — الافتراضي يوم الاستلام بتوقيت الشركة
+  vatTreatment: z.unknown().optional(), // RECOVERABLE | NON_RECOVERABLE | NONE
+  // سبب التسوية ADJUST من WAREHOUSE_ADJUST_REASONS (COUNT | DAMAGE | EXPIRY | SAMPLE | OTHER)
+  reason: z.unknown().optional(),
   items: z.array(z.object({
     productId: z.string(),
     qty: z.number(), // بوحدة البند
+    // «ربط الدفاتر» L1: نسبة ضريبة السطر ٪ — الافتراضي نسبة الصنف (والشركة بلا ضريبة أو معاملة NONE ⇒ صفر). تُقرأ مع بيانات الشراء وحدها
+    taxPct: z.unknown().optional(),
     // وحدة البند (كرتون/حبة). غائبة ⇒ وحدة الأساس بمعامل ١: عميلٌ قديم أو مفتاح API يرسل الكمية بالأساس كما كان
     unitId: z.string().nullish(),
     // موجبٌ فقط: سعرٌ سالب لا معنى له، وصفرٌ يعني «بلا سعر» فيُرسَل غائباً.
@@ -253,8 +294,15 @@ async function insertAttachments(tx: Prisma.TransactionClient, tid: string, entr
   return out;
 }
 
+const entryNotFound = (res: Response) => res.status(404).json({ success: false, message: 'الحركة غير موجودة' });
+
+/** أنواع حركة المستودع لفلتر السجلّ (?type=) — RETURN مرتجعٌ للمورّد («ربط الدفاتر» L1) */
+const ENTRY_TYPES: ReadonlySet<string> = new Set(['RECEIVE', 'ADJUST', 'RETURN']);
+
 /** ملاحظة تسوية الإنقاص المكتوبة من أسطر وارد سالبة حين لا ملاحظة في الطلب */
 const NEGATIVE_RECEIVE_NOTE = 'تسوية إنقاص لأسطر وارد بكمية سالبة';
+/** ومرتجعها للمورّد حين تحمل مورّداً وسعراً («ربط الدفاتر» L1) */
+const NEGATIVE_RECEIVE_RETURN_NOTE = 'مرتجع للمورّد من أسطر وارد بكمية سالبة';
 
 // تسجيل وارد (استلام/شراء) أو تسوية للمستودع
 router.post('/entries', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -282,13 +330,13 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     const priorOf = async (db: Prisma.TransactionClient | typeof prisma) => {
       if (!clientRef) return null;
       const prior = await db.warehouseEntry.findFirst({ where: { tenantId: tid, clientRef }, orderBy: { createdAt: 'asc' }, include: priorInclude });
-      if (prior && prior.type !== data.type && !(negativeReceive && prior.type === 'ADJUST')) {
+      if (prior && prior.type !== data.type && !(negativeReceive && (prior.type === 'ADJUST' || prior.type === 'RETURN'))) {
         throw Object.assign(new Error('مرجع الحفظ clientRef مستعملٌ لحركةٍ أخرى — ولّد مرجعاً جديداً لكل حفظ'), { status: 409, code: 'CLIENT_REF_REUSED' });
       }
       return prior;
     };
     const prior0 = await priorOf(prisma);
-    if (prior0) { res.status(200).json({ success: true, data: prior0, replay: true, idempotent: true }); return; }
+    if (prior0) { res.status(200).json({ success: true, data: entryJson(prior0), replay: true, idempotent: true }); return; }
     /** أول ما في كل معاملة كتابة: قفل المرجع ثم البحث به — وُجد ⇒ تُجهَض المعاملة بلا كتابة ويُردّ القائم */
     const refGate = async (tx: Prisma.TransactionClient) => {
       if (!clientRef) return;
@@ -348,6 +396,14 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
       const stray = lines.find((i) => !trackedNow.has(i.productId) && warehouseLineCarriesLot(i));
       if (stray) throw lotOnUntrackedError(products.find((p) => p.id === stray.productId)?.name ?? '', stray.productId, stray.fi);
     }
+    // «ربط الدفاتر» L1: سبب التسوية، ثم بيانات الشراء (نقدي/آجل) — بلا حقل شراء ⇒ buy null والمسار كما كان حرفياً بلا أي استعلام.
+    // الواجهة: نقصٌ أو خطأ ⇒ 400 برمزه (SupplierError)؛ ومفتاح API: الوارد غير مصنَّف بتحذير PURCHASE_UNCLASSIFIED («الربط لا يُرفض»)
+    const isApi = !!req.user?.apiKeyId;
+    const adjustReason = data.type === 'ADJUST' ? resolveAdjustReason(data.reason, WAREHOUSE_ADJUST_REASONS, isApi, warnings) : null;
+    // «الدفع من عهدة مندوب»: المندوب في نطاق المستخدم (يُقرأ النطاق عند العهدة وحدها) — كسند الصرف المباشر (canAccessRep)
+    const buy = await resolveEntryPurchase(prisma, tid, data, { isApi, lines, products, warnings, repScope: () => adminRepFilter(req) });
+    // الأسطر السالبة بمورّدٍ وسعر ⇒ مرتجعٌ للمورّد (RETURN بسعره وقيده) لا تسوية إنقاصٍ غير مسعَّرة
+    const negAsReturn = buy?.negAsReturn === true;
     // «الربط لا يُرفض»: الوارد بكمية سالبة (مرتجعٌ للمورّد أو عكس استلام في نظام المُكامِل) كان 400 — صار **إنقاصاً** بتحذير
     // NEGATIVE_RECEIVE_AS_ADJUST. لا القيمة المطلقة: −٥ تُقرأ +٥ فيبعد الرصيد عشرة عن الحقيقة. ولا سطر وارد سالب: خطة اللوط ترفضه
     // (LOT_QTY_INVALID) وتقييم الوارد يفترض دخولاً. فأسطره السالبة تسويةُ إنقاص (ADJUST) بلا سعر — طريق الإنقاص الذي يعرفه كل قارئ
@@ -355,19 +411,23 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     // تسويةٌ منفصلة في المعاملة نفسها قبل الوارد (النقص أولاً كخطة اللوط) تعود في الردّ `adjustment`، والوارد يحمل المرجع
     const negative = data.type === 'RECEIVE' ? lines.filter((i) => i.qty < 0) : [];
     for (const i of negative) {
-      warnings.push({
-        code: 'NEGATIVE_RECEIVE_AS_ADJUST', index: i.at, productId: i.productId,
-        message: `كمية السطر ${i.at + 1} سالبة فسُجّلت تسوية إنقاص لا وارداً${i.unitCost != null ? ' وأُهمل سعرها' : ''}`,
-      });
+      warnings.push(negAsReturn
+        ? { code: 'NEGATIVE_RECEIVE_AS_RETURN', index: i.at, productId: i.productId, message: `كمية السطر ${i.at + 1} سالبة فسُجّلت مرتجعاً للمورّد بسعرها` }
+        : {
+          code: 'NEGATIVE_RECEIVE_AS_ADJUST', index: i.at, productId: i.productId,
+          message: `كمية السطر ${i.at + 1} سالبة فسُجّلت تسوية إنقاص لا وارداً${i.unitCost != null ? ' وأُهمل سعرها' : ''}`,
+        });
     }
     const decreaseOnly = negative.length > 0 && negative.length === lines.length;
-    const entryType: 'RECEIVE' | 'ADJUST' = decreaseOnly ? 'ADJUST' : data.type;
-    const asDecrease = (i: EntryLine): EntryLine => ({ ...i, unitCost: undefined });
+    // نوع الأسطر السالبة: مرتجعٌ للمورّد (RETURN) أو تسوية إنقاص (ADJUST) — للحركة كلها إن كانت سالبة كلها، وإلا للحركة المفصولة
+    const splitType: 'ADJUST' | 'RETURN' = negAsReturn ? 'RETURN' : 'ADJUST';
+    const entryType: 'RECEIVE' | 'ADJUST' | 'RETURN' = decreaseOnly ? splitType : data.type;
+    const asDecrease = (i: EntryLine): EntryLine => (negAsReturn ? i : { ...i, unitCost: undefined });
     const mainLines: EntryLine[] = decreaseOnly ? negative.map(asDecrease) : negative.length ? lines.filter((i) => i.qty > 0) : lines;
     const splitLines: EntryLine[] = decreaseOnly ? [] : negative.map(asDecrease);
     // «إزالة الضريبة»: الشركة بلا ضريبة غير مسجّلة فلا تستردّ ضريبة مدخلات — النسبة الفعلية صفر فالتكلفة المخزَّنة ما كُتب.
     // العلم يُقرأ حين يلزم الردّ من الشامل وحده (costsIncludeTax وسطرٌ بسعر)، فالوارد بلا الخيار بلا استعلامٍ زائد كما كان
-    const taxOff = data.costsIncludeTax && mainLines.some((i) => i.unitCost != null)
+    const taxOff = !buy && data.costsIncludeTax && mainLines.some((i) => i.unitCost != null)
       && isTaxOff(await prisma.companySettings.findUnique({ where: { tenantId: tid }, select: { taxDisabled: true } }));
     const taxOf = new Map(products.map((p) => [p.id, taxOff ? 0 : p.taxPct]));
 
@@ -377,38 +437,56 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     // (splitByLine) بندٌ لكلٍّ بإشارته: بوحدة السطر إن كانت حصّته وحداتٍ كاملة، وإلا بوحدة الأساس (Σ الأساس = أساس السطر)
     // و«مرجع السطر» على كل بندٍ من سطره — والمقسوم على تشغيلات يحمله كلُّ بندٍ منه فيجمعها المُكامِل إلى سطره. غائبٌ ⇒ البند كما كان.
     // `part`: الحركة (mainLines بنوعها، وتحمل المرجع) أو تسوية الإنقاص المفصولة من وارد مختلط (splitLines، ADJUST بلا مرجع)
-    const entryData = (lotIdByLine: ReadonlyMap<number, string | null> | null, splitByLine?: ReadonlyMap<number, { lotId: string | null; qty: number }[]>, part: 'main' | 'split' = 'main') => ({
-      tenantId: tid, type: part === 'split' ? 'ADJUST' : entryType, supplier: data.supplier, createdBy: by?.name,
-      note: part === 'split' || decreaseOnly ? (data.note ?? NEGATIVE_RECEIVE_NOTE) : data.note,
-      // D8: المرجع بالنشر الشرطيّ — غائبٌ ⇒ العمود null كما كان
-      ...(part === 'main' && clientRef && { clientRef }),
-      items: {
-        create: (part === 'split' ? splitLines : mainLines).flatMap((i) => {
-          const unitCost = i.unitCost == null
-            ? null
-            : netUnitCost(i.unitCost, taxOf.get(i.productId) ?? 0, data.costsIncludeTax);
-          const lineRef = i.lineRef != null ? { lineRef: i.lineRef } : null;
-          const split = splitByLine?.get(i.fi);
-          if (split) {
-            const sign = Number(i.qty) < 0 ? -1 : 1;
-            const F = i.unit.factor;
-            return split.map((r) => {
-              const inUnits = r.qty / F;
-              const whole = F > 1 && Math.abs(inUnits - Math.round(inUnits)) <= 1e-9;
-              return { productId: i.productId, ...unitFields(sign * (whole ? Math.round(inUnits) : r.qty), whole ? i.unit : null), unitCost, lotId: r.lotId, ...lineRef };
-            });
-          }
-          return [{
-            productId: i.productId,
-            // الكمية بوحدة البند كما في فاتورة المورّد، ولقطة وحدتها، والكمية بالأساس للرصيد والتقييم
-            ...unitFields(i.qty, i.unit),
-            unitCost,
-            ...(lotIdByLine && { lotId: lotIdByLine.get(i.fi) ?? null }),
-            ...lineRef,
-          }];
-        }),
-      },
-    });
+    const entryData = (lotIdByLine: ReadonlyMap<number, string | null> | null, splitByLine?: ReadonlyMap<number, { lotId: string | null; qty: number }[]>, part: 'main' | 'split' = 'main') => {
+      const partType = part === 'split' ? splitType : entryType;
+      const partLines = part === 'split' ? splitLines : mainLines;
+      // «ربط الدفاتر» L1: الوارد والمرتجع بخطة شراء يحملان المورّد والفاتورة والإجماليات (purchaseEntryCols)، والتسوية لا
+      const bought = buy && partType !== 'ADJUST' ? buy : null;
+      return {
+        tenantId: tid, type: partType, supplier: data.supplier ?? bought?.vendor?.name, createdBy: by?.name,
+        note: part === 'split' || decreaseOnly ? (data.note ?? (partType === 'RETURN' ? NEGATIVE_RECEIVE_RETURN_NOTE : NEGATIVE_RECEIVE_NOTE)) : data.note,
+        // D8: المرجع بالنشر الشرطيّ — غائبٌ ⇒ العمود null كما كان
+        ...(part === 'main' && clientRef && { clientRef }),
+        // المصدر: المفصولة من وارد مختلط NEG_SPLIT، ومفتاح API ‏API، والواجهات MANUAL (افتراض العمود — بلا مفتاح فالكتابة كما كانت)
+        ...(part === 'split' ? { source: 'NEG_SPLIT' } : isApi && { source: 'API' }),
+        ...(partType === 'ADJUST' && part === 'main' && adjustReason && { reason: adjustReason }),
+        ...(bought && purchaseEntryCols(bought, partType === 'RETURN' ? 'RETURN' : 'RECEIVE', partLines)),
+        items: {
+          create: partLines.flatMap((i) => {
+            // بخطة شراء: تكلفة المخزون ونسبة السطر وسعره المُدخل من الخدمة (purchaseLineCols)؛ وبلاها الحساب القائم حرفياً
+            const priced = bought ? purchaseLineCols(bought, i) : null;
+            const unitCost = priced ? priced.unitCost : i.unitCost == null
+              ? null
+              : netUnitCost(i.unitCost, taxOf.get(i.productId) ?? 0, data.costsIncludeTax);
+            const lineRef = i.lineRef != null ? { lineRef: i.lineRef } : null;
+            const lineBuy = priced ? { taxPct: priced.taxPct, enteredUnitCost: priced.enteredUnitCost } : null;
+            const split = splitByLine?.get(i.fi);
+            if (split) {
+              const sign = Number(i.qty) < 0 ? -1 : 1;
+              const F = i.unit.factor;
+              return split.map((r) => {
+                const inUnits = r.qty / F;
+                const whole = F > 1 && Math.abs(inUnits - Math.round(inUnits)) <= 1e-9;
+                // المرتجع المسعَّر («ربط الدفاتر» L1): بندٌ بوحدة الأساس سعره لوحدته — سعر الكرتون ÷ معامله بلا تقريب (unitCostPerBase)
+                const perBase = !whole && F > 1;
+                const rowCost = perBase && unitCost != null ? unitCost / F : unitCost;
+                const rowBuy = perBase && lineBuy?.enteredUnitCost != null ? { ...lineBuy, enteredUnitCost: lineBuy.enteredUnitCost / F } : lineBuy;
+                return { productId: i.productId, ...unitFields(sign * (whole ? Math.round(inUnits) : r.qty), whole ? i.unit : null), unitCost: rowCost, lotId: r.lotId, ...lineRef, ...rowBuy };
+              });
+            }
+            return [{
+              productId: i.productId,
+              // الكمية بوحدة البند كما في فاتورة المورّد، ولقطة وحدتها، والكمية بالأساس للرصيد والتقييم
+              ...unitFields(i.qty, i.unit),
+              unitCost,
+              ...(lotIdByLine && { lotId: lotIdByLine.get(i.fi) ?? null }),
+              ...lineRef,
+              ...lineBuy,
+            }];
+          }),
+        },
+      };
+    };
     const entryInclude = { items: { include: { product: { select: { id: true, name: true, unit: true, primaryUnitId: true } }, ...(withLots && { lot: ENTRY_LOT_SELECT }) } } };
     /** تسوية الإنقاص المفصولة (وارد مختلط) في معاملة الحركة نفسها، قبل إنشاء الوارد — null حين لا أسطر سالبة مع موجبة */
     const createSplit = (tx: Prisma.TransactionClient, plan: WarehouseEntryPlan | null) => (splitLines.length
@@ -418,13 +496,19 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
      * ردّ الإنشاء: الحركة، وتسوية الإنقاص المفصولة (adjustment) إن وُجدت، والتحذيرات («الربط لا يُرفض» ثم اللوط) إن وُجدت،
      * والمرفقات المحفوظة (attachments: بياناتها الوصفية بلا الملفات) إن أُرسلت — وإلا كما كان
      */
-    const entryReply = <E, A>(entry: E, adjustment: E | null, lotWarnings: readonly LotWarning[], attachments: readonly A[] = []) => {
+    const entryReply = <E extends object, A>(entry: E, adjustment: E | null, lotWarnings: readonly LotWarning[], attachments: readonly A[] = [], payment: PurchasePaymentRef | null = null) => {
       const all: (StockWarning | LotWarning)[] = [...warnings, ...lotWarnings];
       return {
-        success: true, data: entry, ...(adjustment && { adjustment }), ...(all.length > 0 && { warnings: all }),
+        // الإجماليات بالملّي (BigInt) لا تمرّ في res.json: entryJson يحوّلها أرقاماً بوحدة العملة (net/tax/total)
+        success: true, data: entryJson(entry), ...(adjustment && { adjustment: entryJson(adjustment) }), ...(all.length > 0 && { warnings: all }),
         ...(attachments.length > 0 && { attachments }),
+        // سند الصرف الآلي للشراء النقدي (للطباعة) — غائبٌ لغيره
+        ...(payment && { supplierPayment: payment }),
       };
     };
+    /** قيود الشراء بعد صفوف الحركة في المعاملة نفسها — بلا خطة شراء لا شيء ولا استعلام */
+    const savePurchase = (tx: Prisma.TransactionClient, entry: { id: string; type: string }, adjustment: { id: string; type: string } | null) =>
+      writeEntryPurchaseTx(tx, tid, buy, { main: entry, split: adjustment }, by?.name ?? null);
     /** مرفقات الحركة الرئيسية في معاملتها بعد صفّها — لا شيء حين لا مرفقات (بلا استعلام) */
     const saveAttachments = (tx: Prisma.TransactionClient, entryId: string) => (attItems.length
       ? insertAttachments(tx, tid, entryId, attItems, attBy)
@@ -448,18 +532,20 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
           await assertStillUntracked(tx, tid, productIds);
           const adjustment = await createSplit(tx, null);
           const entry = await tx.warehouseEntry.create({ data: entryData(null), include: entryInclude });
+          const { payment } = await savePurchase(tx, entry, adjustment);
           const attachments = await saveAttachments(tx, entry.id);
-          return { entry, adjustment, attachments };
+          return { entry, adjustment, attachments, payment };
         }, BASE_GUARD_TX).catch((e: unknown) => { throw (e instanceof ProductUnitsChangedError ? null : asLotBusy(e)) ?? e; })
         : await prisma.$transaction(async (tx) => {
           await refGate(tx);
           await lockBases(tx, tid, expected);
           const adjustment = await createSplit(tx, null);
           const entry = await tx.warehouseEntry.create({ data: entryData(null), include: entryInclude });
+          const { payment } = await savePurchase(tx, entry, adjustment);
           const attachments = await saveAttachments(tx, entry.id);
-          return { entry, adjustment, attachments };
+          return { entry, adjustment, attachments, payment };
         }, BASE_GUARD_TX);
-      res.status(201).json(entryReply(out.entry, out.adjustment, [], out.attachments));
+      res.status(201).json(entryReply(out.entry, out.adjustment, [], out.attachments, out.payment));
       return;
     }
 
@@ -477,14 +563,15 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
         const planBase = { tenantId: tid, actor: lotActorOf(req.user), createdBy: by?.name ?? null, day, allowUnknown: true, locked, eventActor: lotEventActorOf(req.user) };
         // تسوية الإنقاص المفصولة (وارد مختلط) أولاً: نقصها على رصيد المستودع قبل تشغيلات الوارد — زيادةٌ في الطلب نفسه لا تغطّي نقصه
         // (كخطة اللوط نفسها)، ونقص تشغيلتها 409 LOT_STOCK_INSUFFICIENT كأي تسوية
-        const splitPlan = splitLines.length ? await planWarehouseEntryInTx(tx, { ...planBase, type: 'ADJUST', lines: planLinesOf(splitLines) }) : null;
+        const splitPlan = splitLines.length ? await planWarehouseEntryInTx(tx, { ...planBase, type: splitType, lines: planLinesOf(splitLines) }) : null;
         const plan = await planWarehouseEntryInTx(tx, { ...planBase, type: entryType, lines: planLinesOf(mainLines) });
         const adjustment = await createSplit(tx, splitPlan);
         const entry = await tx.warehouseEntry.create({ data: entryData(plan.lotIdByLine, plan.splitByLine), include: entryInclude });
+        const { payment } = await savePurchase(tx, entry, adjustment);
         const attachments = await saveAttachments(tx, entry.id);
-        return { entry, adjustment, warnings: [...(splitPlan?.warnings ?? []), ...plan.warnings], attachments };
+        return { entry, adjustment, warnings: [...(splitPlan?.warnings ?? []), ...plan.warnings], attachments, payment };
       }, { maxWait: 10_000, timeout: 20_000 });
-      res.status(201).json(entryReply(out.entry, out.adjustment, out.warnings, out.attachments));
+      res.status(201).json(entryReply(out.entry, out.adjustment, out.warnings, out.attachments, out.payment));
     } catch (e) {
       // تبدّل الأساس (§3) يُفحص قبل asLotBusy فيمرّ كما هو إلى baseGuardReply أدناه — لا يُقرأ انشغالاً من اسم صنفٍ في رسالته.
       // وانشغال القفل أو مهلة المعاملة في مسار اللوط ⇒ 503 LOT_BUSY (D14) عبر معالج الموجّه أدناه
@@ -500,8 +587,10 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     const g = err instanceof ProductUnitsChangedError || err instanceof ProductUnitsBusyError ? baseGuardReply(err, false) : null;
     if (g) { res.status(g.status).json(g.body); return; }
     // D8: طلبٌ مكرَّر تزامن مع أصله فوجده القفل ⇒ الحركة القائمة كما في المسار السريع؛ ومرجعٌ لحركةٍ أخرى 409
-    if (err instanceof ClientRefReplay) { res.status(200).json({ success: true, data: err.row, replay: true, idempotent: true }); return; }
+    if (err instanceof ClientRefReplay) { res.status(200).json({ success: true, data: entryJson(err.row as object), replay: true, idempotent: true }); return; }
     if ((err as { code?: unknown })?.code === 'CLIENT_REF_REUSED') { res.status(409).json({ success: false, code: 'CLIENT_REF_REUSED', message: (err as Error).message }); return; }
+    // «ربط الدفاتر» L1: بيانات شراءٍ ناقصة أو خاطئة من الواجهة ⇒ 400 برمزها (PURCHASE_*) بلا حركة
+    if (isSupplierError(err)) { res.status(err.status).json(supplierErrorBody(err)); return; }
     next(err);
   }
 });
@@ -512,20 +601,34 @@ router.get('/entries', async (req: AuthRequest, res: Response, next: NextFunctio
     const tid = tenantId(req);
     // D8: ?clientRef= — هل حُفظت محاولةٌ بمرجعها قبل إعادة الإرسال؟ نصٌّ صالح وحده، وغيره يُهمل
     const clientRef = clientRefQuery(req.query.clientRef);
+    // «ربط الدفاتر» L1: ?vendorId= (حركات مورّدٍ بعينه) و?type=RECEIVE|ADJUST|RETURN — غير الصالح يُهمل فالسجلّ كما كان
+    const vendorId = typeof req.query.vendorId === 'string' && req.query.vendorId.trim() ? req.query.vendorId.trim().slice(0, 64) : null;
+    const type = typeof req.query.type === 'string' && ENTRY_TYPES.has(req.query.type) ? req.query.type : null;
     // الخانات تُقرأ مرّة واحدة مع الحركات — لا داخل حلقة الأسطر أدناه
     const [dec, entries] = await Promise.all([
       tenantCurrencyDecimals(tid),
       prisma.warehouseEntry.findMany({
-        where: { tenantId: tid, ...(clientRef && { clientRef }) },
+        where: { tenantId: tid, ...(clientRef && { clientRef }), ...(vendorId && { vendorId }), ...(type && { type }) },
         orderBy: { createdAt: 'desc' },
         take: 100,
         include: {
           items: { include: { product: { select: { name: true, unit: true, primaryUnitId: true } }, ...(lotsOn(req) && { lot: ENTRY_LOT_SELECT }) } },
           // «إرفاق فاتورة المشتريات»: العدد وحده (أيقونة المرفق في السجلّ) — الملفات لا تُحمَّل هنا
           _count: { select: { attachments: true } },
+          // «ربط الدفاتر» L1: اسم المورّد من سجلّ الموردين (null لحركةٍ بلا مورّد)
+          vendor: { select: { id: true, name: true } },
         },
       }),
     ]);
+    // المدفوع والمتبقّي لفواتير الآجل في الصفحة — استعلاماتٌ ثابتة العدد، ولا شيء حين لا آجل فيها
+    const settled = await creditSettlementsOf(prisma, tid, entries);
+    // المتبقّي للإرجاع من كل سطر في الوارد المصنَّف (الحَكَم نفسه الذي يرفض به المرتجع) — الواجهة تقدّمه على حسابها من السجلّ
+    const returnable = await returnRemainingOf(prisma, tid, entries as unknown as Parameters<typeof returnRemainingOf>[2]);
+    // «المخزون الافتتاحي» السابق لعمود المصدر ('MANUAL' حتى يُشغَّل سكربت الملء): يُعرض بمصدره الحقيقي OPENING_IMPORT فلا تَسِمه
+    // الواجهة «غير مصنَّف» بزرَّي تصنيف وإلغاء يرفضهما الخادم — بدفعة الاستيراد نفسها، ولا استعلام حين لا مرشّح في الصفحة
+    const legacyOpening = await legacyOpeningImportIds(prisma, tid, entries);
+    // مصدر الدفع «عهدة مندوب» لمندوبٍ خارج نطاق المستخدم المقيَّد: بلا معرّفه — ولا استعلام حين لا عهدة في الصفحة أو غير مقيَّد
+    const hiddenReps = await hiddenRepIds(req, tid, entries.map((e) => custodyRepOf(e.paidAccountRef)));
     // الإجمالي يُحسب هنا بالدالّة المختبَرة لا في المتصفّح: حسابان لرقمٍ واحد
     // ينزاحان يوماً — وقاعدة التقريب (جمعُ أسطرٍ مقرَّبة) تعيش في مكان واحد.
     //
@@ -538,25 +641,173 @@ router.get('/entries', async (req: AuthRequest, res: Response, next: NextFunctio
     res.json({
       success: true,
       data: entries.map((e) => ({
-        ...e,
+        // الإجماليات بالملّي ⇒ net/tax/total بوحدة العملة، وتاريخا الفاتورة واستحقاقها YYYY-MM-DD (BigInt لا يمرّ في res.json)
+        ...entryJson(e),
+        ...(legacyOpening.has(e.id) && { source: 'OPENING_IMPORT' }),
+        ...(hiddenReps.size > 0 && { paidAccountRef: maskPaidAccountRef(e.paidAccountRef, hiddenReps) }),
+        vendor: e.vendor ?? null,
+        // للآجل: ما دُفع (تخصيصات السندات السارية) وما بقي بعد المرتجعات — null لغيره
+        paid: settled.get(e.id)?.paid ?? null,
+        outstanding: settled.get(e.id)?.outstanding ?? null,
         // «تصفير المخزون»: معرّف التشغيلة لتسوية التصفير (null لكل حركة أخرى) — صريحٌ في الردّ فتوسمها الواجهة «تصفير» بالوسم
         // لا بنصّ الملاحظة (يُكتب يدوياً في أي تسوية)
         zeroRunId: e.zeroRunId ?? null,
         // عدد مرفقات فاتورة المشتريات — صريحٌ دائماً (صفر بلا مرفق)، و`_count` الخام لا يخرج في الردّ
         _count: undefined,
         attachmentsCount: e._count?.attachments ?? 0,
-        items: e.items.map((i) => ({ ...i, lineCost: lineCost(i.qty, i.unitCost, dec) })),
+        items: e.items.map((i) => {
+          const left = returnable.get(e.id)?.get(i.id);
+          // remainingQty للوارد المصنَّف غير الملغى وحده — وغيره بلا الحقل (السطر كما كان)
+          return { ...i, lineCost: lineCost(i.qty, i.unitCost, dec), ...(left !== undefined && { remainingQty: left }) };
+        }),
         totalCost: entryTotalCost(e.items, dec),
       })),
     });
   } catch (err) { next(err); }
 });
 
+// ═══ «ربط الدفاتر» L1 (طلب المالك ١٣ نوفمبر ٢٠٢٦): تصنيف الوارد، ومرتجعه للمورّد، وإلغاؤه ═══
+// بحرّاس الموجّه نفسها، والحساب والكتابة في services/suppliers/warehouseBills.ts بعد قفل صفّ الحركة FOR UPDATE (يتسلسل مع سندات الصرف
+// وتخصيصها). الإدخال صارمٌ لكل مُصدِر (400): لا حركة مخزون تضيع برفضه. أخطاء الخدمة SupplierError ⇒ حالتها ورمزها
+
+const supplierReply = (res: Response, err: unknown): boolean => {
+  if (!isSupplierError(err)) return false;
+  res.status(err.status).json(supplierErrorBody(err));
+  return true;
+};
+
+/** حركاتٌ للردّ بعد التصنيف/المرتجع/الإلغاء: «مصدر الدفع» بعهدة مندوبٍ خارج نطاق المستخدم المقيَّد بلا معرّفه (كالسجلّ) */
+async function scopedEntryReplies<T extends Record<string, unknown> | null>(req: AuthRequest, tid: string, rows: T[]): Promise<T[]> {
+  const hidden = await hiddenRepIds(req, tid, rows.map((r) => custodyRepOf(r?.paidAccountRef as string | null | undefined)));
+  if (!hidden.size) return rows;
+  return rows.map((r) => (r ? { ...r, paidAccountRef: maskPaidAccountRef(r.paidAccountRef as string | null | undefined, hidden) } : r));
+}
+
+// تصنيف وارد غير مصنَّف: المورّد ونقدي/آجل وأسعار السطور غير المسعَّرة ⇒ ما يكتبه الإنشاء المصنَّف (BILL ± سند صرف آلي)
+router.post('/entries/:id/classify', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const entryId = String(req.params.id);
+    const by = (req.user as { name?: string } | undefined)?.name ?? null;
+    const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
+    // «الدفع من عهدة مندوب»: نطاق المستخدم يُقرأ قبل المعاملة (لا اتصالٌ ثانٍ داخلها) وحين تُطلب العهدة وحدها — كسند الصرف المباشر
+    const wantsCustody = typeof body.paidFrom === 'string' && body.paidFrom.trim().toUpperCase() === 'REP_CUSTODY';
+    const scope = wantsCustody ? await adminRepFilter(req) : {};
+    const out = await prisma.$transaction((tx) => classifyEntryTx(tx, { tenantId: tid, entryId, by, body, repScope: async () => scope }), BASE_GUARD_TX);
+    const [data] = await scopedEntryReplies(req, tid, [await readEntryForReply(prisma, tid, out.entryId, lotsOn(req))]);
+    res.json({ success: true, data, ...(out.payment && { supplierPayment: out.payment }), ...(out.warnings.length > 0 && { warnings: out.warnings }) });
+  } catch (err) {
+    if (supplierReply(res, err)) return;
+    next(err);
+  }
+});
+
+/**
+ * المرتجع والإلغاء بأقفال المخزون نفسها للتسوية السالبة: مرجع العميل clientRef أولاً إن أُرسل (قفلٌ استشاري بمفتاح الوارد نفسه، كالإنشاء)،
+ * ثم الأصناف كالإنشاء — lockBases (حارس الوحدة) وإعادة قراءة التتبّع
+ * والميزة مفعّلة (D25)، أو طابور اللوط وlockLotProducts حين فيها صنفٌ متتبَّع (وخطة النقص من لوط السطر الأصلي في الخدمة) — ثم صفّ
+ * الحركة FOR UPDATE (الخدمة)، ثم سند الصرف. لا مسار يأخذ صفّ حركةٍ ثم ينتظر صنفاً (السندات: صفوف الفواتير ⇒ الترقيم)، فلا حلقة انتظار.
+ */
+async function reverseEntry(req: AuthRequest, res: Response, kind: 'return' | 'cancel'): Promise<void> {
+  const tid = tenantId(req);
+  const entryId = String(req.params.id);
+  const parsed = kind === 'return' ? { ret: parseReturnBody(req.body) } : { reason: parseCancelBody(req.body).reason };
+  const withLots = lotsOn(req);
+  /** ردّ المرتجع القائم بمرجعه (200 replay) بشكل ردّ الإنشاء — بلا كتابة ولا حكمٍ جديد على الوارد (قد أُلغي بعده) */
+  const replayReturn = async (returnId: string): Promise<void> => {
+    const [entry, returnEntry] = await scopedEntryReplies(req, tid, await Promise.all([
+      readEntryForReply(prisma, tid, entryId, withLots), readEntryForReply(prisma, tid, returnId, withLots),
+    ]));
+    res.status(200).json({ success: true, data: returnEntry, entry, replay: true, idempotent: true });
+  };
+  // مفتاح منع التكرار (نمط D8 للوارد): ضاع ردّ مرتجعٍ التزم فأُعيد الطلب بمرجعه ⇒ المرتجع القائم، لا مرتجعٌ ثانٍ ولا قيد RETURN مكرَّر
+  // (المتبقّي يسمح بالثاني حين يكون الأول جزئياً). ومرجعٌ لحركةٍ أخرى ⇒ 409 CLIENT_REF_REUSED. والطلبان المتزامنان يحسمهما القفل أدناه
+  const clientRef = parsed.ret?.clientRef ?? null;
+  if (clientRef) {
+    const prior = await findReturnByClientRef(prisma, tid, entryId, clientRef);
+    if (prior) { await replayReturn(prior.id); return; }
+  }
+  const pre = await loadEntryContext(prisma, tid, entryId);
+  if (!pre) { entryNotFound(res); return; }
+  const by = (req.user as { name?: string } | undefined)?.name ?? null;
+  const input: ReversalInput = { kind, tenantId: tid, entryId, isApi: !!req.user?.apiKeyId, by, products: pre.products, ...parsed };
+  const expected = expectedBasesOf(pre.products);
+  const productIds = pre.products.map((p) => p.id);
+  const preTracked = withLots ? pre.products.filter((p) => p.lotTracked === true).map((p) => p.id) : [];
+  /** أول ما في المعاملة (قبل أقفال الأصناف، كترتيب الإنشاء): قفل المرجع ثم البحث به — وُجد ⇒ تُجهَض بلا كتابة ويُردّ القائم */
+  const refGate = async (tx: Prisma.TransactionClient): Promise<void> => {
+    if (!clientRef) return;
+    await lockClientRef(tx, 'warehouse-entry', tid, clientRef);
+    const prior = await findReturnByClientRef(tx, tid, entryId, clientRef);
+    if (prior) throw new ClientRefReplay(prior);
+  };
+  let out: Awaited<ReturnType<typeof reverseEntryTx>>;
+  try {
+    if (!preTracked.length) {
+      out = await prisma.$transaction(async (tx) => {
+        await refGate(tx);
+        await lockBases(tx, tid, expected);
+        if (withLots) await assertStillUntracked(tx, tid, productIds);
+        return reverseEntryTx(tx, input, null);
+      }, BASE_GUARD_TX).catch((e: unknown) => { throw (withLots && !(e instanceof ProductUnitsChangedError) && !isSupplierError(e) ? asLotBusy(e) : null) ?? e; });
+    } else {
+      const { day } = await companyDay(prisma, tid);
+      const release = await acquireLotQueue(tid, preTracked);
+      try {
+        out = await prisma.$transaction(async (tx) => {
+          await refGate(tx);
+          const locked = await lockLotProducts(tx, tid, productIds);
+          assertBasesUnchanged(expected, locked.units);
+          return reverseEntryTx(tx, input, { locked, day, actor: lotActorOf(req.user), eventActor: lotEventActorOf(req.user) });
+        }, { maxWait: 10_000, timeout: 20_000 });
+      } catch (e) {
+        // ClientRefReplay ليس انشغالاً (asLotBusy ⇒ null) فيمرّ كما هو إلى الردّ القائم أدناه
+        if (e instanceof ProductUnitsChangedError || isSupplierError(e)) throw e;
+        throw asLotBusy(e) ?? e;
+      } finally {
+        release();
+      }
+    }
+  } catch (e) {
+    // طلبٌ مكرَّر تزامن مع أصله فوجده القفل ⇒ المرتجع القائم كما في الفحص السريع أعلاه
+    if (e instanceof ClientRefReplay) { await replayReturn((e.row as { id: string }).id); return; }
+    throw e;
+  }
+  const [entry, returnEntry] = await scopedEntryReplies(req, tid, await Promise.all([
+    readEntryForReply(prisma, tid, entryId, withLots),
+    out.returnEntryId ? readEntryForReply(prisma, tid, out.returnEntryId, withLots) : Promise.resolve(null),
+  ]));
+  res.status(kind === 'return' ? 201 : 200).json({
+    success: true,
+    data: kind === 'return' ? returnEntry : entry,
+    ...(kind === 'cancel' ? { returnEntry } : { entry }),
+    ...(out.cancelledPayment && { cancelledPayment: out.cancelledPayment }),
+    ...(out.lotWarnings.length > 0 && { warnings: out.lotWarnings }),
+  });
+}
+
+/** أخطاء المرتجع والإلغاء: الخدمة (SupplierError)، وتبدّل الأساس أو انشغاله (§3) كما في الإنشاء، وLotError إلى معالج الموجّه */
+const reversalRoute = (kind: 'return' | 'cancel') => async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    await reverseEntry(req, res, kind);
+  } catch (err) {
+    if (supplierReply(res, err)) return;
+    const g = err instanceof ProductUnitsChangedError || err instanceof ProductUnitsBusyError ? baseGuardReply(err, false) : null;
+    if (g) { res.status(g.status).json(g.body); return; }
+    next(err);
+  }
+};
+
+// مرتجعٌ جزئي لوارد مصنَّف: حركة RETURN مرتبطة بأصلها بكمياتٍ سالبة وتكلفة سطرها ولوطه، وقيد RETURN (± REFUND_IN للردّ النقدي)
+router.post('/entries/:id/return', reversalRoute('return'));
+
+// إلغاء وارد: مرتجعٌ كامل للمتبقّي + CANCELLED؛ النقدي يُلغى سنده الآلي، والآجل بدفعاتٍ سارية 409 BILL_HAS_PAYMENTS
+router.post('/entries/:id/cancel', reversalRoute('cancel'));
+
 // ═══ «إرفاق فاتورة المشتريات» (طلب المالك ١٣ نوفمبر ٢٠٢٦): مرفقات حركةٍ قائمة ═══
 // بحرّاس الموجّه نفسها (لا مندوب، وصلاحية إدارة المخزون، والميزة مفعّلة، و«صلاحية الحذف» على DELETE في authenticate)،
 // وكل استعلامٍ مقيَّد بشركة الطالب: حركةٌ أو مرفقٌ لشركةٍ أخرى 404 كأنه غير موجود
 
-const entryNotFound = (res: Response) => res.status(404).json({ success: false, message: 'الحركة غير موجودة' });
 const attachmentNotFound = (res: Response) => res.status(404).json({ success: false, message: 'المرفق غير موجود' });
 
 // قائمة مرفقات الحركة — البيانات الوصفية بلا الملفات

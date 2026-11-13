@@ -553,6 +553,16 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
         });
         if (again.action !== retention.action || (gsNow === null) !== (glSettings === null)) throw new RetentionChangedError(again);
         finalCounts = { postedMoves: again.postedMoves, retentionUntil: again.retentionUntil };
+        // «ربط الدفاتر» L1: كشف الموردين وسندات صرفهم وتخصيصاتها تشير إلى سجلّ الموردين (gl_vendors) وإلى حركات المستودع بلا
+        // تعاقب (NoAction) — فلا يُترك ترتيبها لتعاقب حذف الشركة: التخصيصات أولاً (تشير إلى السند والحركة)، ثم قيود المورّد
+        // (تشير إلى السند والحركة والمورّد)، ثم السندات، ثم يُفكّ مورّد الحركات ويُحذف سجلّ الموردين بعد كل توابعه — قبل جداول
+        // الدفاتر أدناه أياً كان موضع GlVendor فيها. وسجلّ «إعادة المرتجع للمخزون» معها (إلحاقيّ بمعرّف فاتورة بلا علاقة)
+        await tx.supplierPaymentAllocation.deleteMany({ where: { tenantId: tid } });
+        await tx.supplierLedgerEntry.deleteMany({ where: { tenantId: tid } });
+        await tx.supplierPayment.deleteMany({ where: { tenantId: tid } });
+        await tx.invoiceRestockLog.deleteMany({ where: { tenantId: tid } });
+        await tx.warehouseEntry.updateMany({ where: { tenantId: tid, vendorId: { not: null } }, data: { vendorId: null } });
+        await tx.glVendor.deleteMany({ where: { tenantId: tid } });
         // بعد انقضاء مدة الحفظ وبالتأكيد الثاني وحده: جداول gl صراحةً بالترتيب (الأبناء قبل الآباء) ومعها سجل التدقيق
         const ledgerDelegates = [
           ...(destroyLedger ? [...GL_RESET_ORDER, ...GL_RESET_KEEP].map(m => (tx as unknown as Record<string, { deleteMany(a: { where: { tenantId: string } }): Promise<{ count: number }> }>)[resetDelegateName(m)]) : []),
@@ -578,6 +588,10 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
         await tx.vanLoadItemLot.deleteMany({ where: { tenantId: tid } });
         await tx.warehouseEntryItem.updateMany({ where: { entry: { tenantId: tid }, lotId: { not: null } }, data: { lotId: null } });
         await tx.productLot.deleteMany({ where: { tenantId: tid } });
+        // بنود تحميل السيارات وحركات المستودع (ببنودها ومرفقاتها تعاقباً) قبل الأصناف: مفتاح الصنف في البند إلزاميّ بلا onDelete
+        // (Restrict) فحذف الأصناف قبلها يفشل — وتوابع المورّد على الحركات حُذفت أعلاه
+        await tx.vanLoadItem.deleteMany({ where: { vanLoad: { tenantId: tid } } });
+        await tx.warehouseEntry.deleteMany({ where: { tenantId: tid } });
         await tx.product.deleteMany({ where: { tenantId: tid } });
         await tx.productCategory.deleteMany({ where: { tenantId: tid } });
         await tx.companySettings.deleteMany({ where: { tenantId: tid } });

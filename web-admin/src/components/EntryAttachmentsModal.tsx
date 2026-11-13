@@ -148,7 +148,7 @@ export default function EntryAttachmentsModal({ entry, canEdit, onClose }: { ent
           <div className="min-w-0">
             <h2 className="text-lg font-bold text-[#1F1A13] flex items-center gap-2"><Paperclip size={20} className="text-[#E15A30]" /> {title}</h2>
             <p className="text-xs text-[#9A8F7E] mt-0.5 truncate">
-              {entry.type === 'RECEIVE' ? tr('وارد') : tr('تسوية')} · <span dir="ltr">{formatDate(entry.createdAt)}</span>{entry.supplier ? ` · ${entry.supplier}` : ''}
+              {entry.type === 'RECEIVE' ? tr('وارد') : entry.type === 'RETURN' ? tr('مرتجع للمورد') : tr('تسوية')} · <span dir="ltr">{formatDate(entry.createdAt)}</span>{entry.supplier ? ` · ${entry.supplier}` : ''}
             </p>
           </div>
           <button ref={closeRef} onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500" aria-label={tr('إغلاق')}><X size={18} /></button>

@@ -17,12 +17,15 @@ import { foldStock, type InvRow, type LoadRow } from '../routes/vanStock';
 import { roundDecimal } from '../utils/helpers';
 import { DAMAGED_VAN_SINCE } from './vanDamaged';
 import { BASE_QTY_SQL, aggVanTotals, aggWarehouseTotals, type AggVanTotalInv, type AggVanTotalLoad, type LotDb, type WhTotalAgg } from './lotsDb';
+import type { WarehouseEntrySource } from './suppliers/core';
 import { roundQty, unitFields } from './units';
 import { composeWarehouse, loadWarehouseInputs, summarizeVansStock, type WarehouseInputsDb } from './warehouseStock';
 import { valueVanQty, type VanLayer } from './warehouseCost';
 
 /** ملاحظة كل حركة تصفير — والوسم الحقيقي zeroRunId (النصّ يُكتب يدوياً في أي تسوية فلا يُعتمد عليه) */
 export const STOCK_ZERO_NOTE = 'تصفير المخزون';
+/** WarehouseEntry.source لتسوية التصفير («ربط الدفاتر» L1) — من قائمة المصادر في services/suppliers/core.ts */
+export const STOCK_ZERO_SOURCE: WarehouseEntrySource = 'STOCK_ZERO';
 /** كلمة التأكيد التي يكتبها المدير */
 export const STOCK_ZERO_CONFIRM_WORD = 'تصفير';
 /** الاسم المعروض لجلسة المالك في التشغيلة وحركة المستودع — كبقية مسارات التدقيق (actorOf) */
@@ -81,7 +84,8 @@ export interface ZeroBalances {
 export function warehouseBalancesOf(rows: readonly WhTotalAgg[]): Map<string, number> {
   const acc = new Map<string, number>();
   for (const r of rows) {
-    const sign = r.source === 'WH' ? 1 : r.type === 'LOAD' ? -1 : r.type === 'UNLOAD' ? 1 : 0; // تسوية السيارة لا تمسّ المستودع
+    // أسطر المستودع كلها بإشارتها أيّاً كان نوعها (الوارد والتسوية والمرتجع للمورّد RETURN السالب)؛ وتسوية السيارة لا تمسّ المستودع
+    const sign = r.source === 'WH' ? 1 : r.type === 'LOAD' ? -1 : r.type === 'UNLOAD' ? 1 : 0;
     if (sign) acc.set(r.productId, (acc.get(r.productId) ?? 0) + sign * r.qty);
   }
   const out = new Map<string, number>();
@@ -366,7 +370,8 @@ export async function writeStockZero(tx: StockZeroWriteTx, a: { tenantId: string
   let entryId: string | null = null;
   if (a.plan.warehouse.enabled && a.plan.warehouse.lines.length) {
     const entry = await tx.warehouseEntry.create({
-      data: { tenantId: a.tenantId, type: 'ADJUST', note: STOCK_ZERO_NOTE, createdBy: a.createdBy, zeroRunId: a.runId },
+      // source (ربط الدفاتر L1): مصدر الحركة على صفّها — التصفير تسويةُ جردٍ يميّزها مُطابِق الدفاتر بلا قراءة zeroRunId
+      data: { tenantId: a.tenantId, type: 'ADJUST', source: STOCK_ZERO_SOURCE, note: STOCK_ZERO_NOTE, createdBy: a.createdBy, zeroRunId: a.runId },
       select: { id: true },
     });
     entryId = entry.id;

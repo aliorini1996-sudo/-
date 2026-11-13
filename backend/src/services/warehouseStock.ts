@@ -2,10 +2,11 @@
 // مخزون الشركة (المستودع المركزيّ) — مرتبطٌ بمخزون السيارات.
 // ----------------------------------------------------------------------------
 // الرصيد لكل منتج =
-//     الوارد (RECEIVE) + تسويات المستودع (ADJUST)
+//     الوارد (RECEIVE − المرتجع للمورّد RETURN) + تسويات المستودع (ADJUST)
 //   + العائد من السيارات (VanLoad UNLOAD)
 //   − المحمّل للسيارات   (VanLoad LOAD)
 // تسوية السيارة (VanLoad ADJUST) حركةٌ داخل السيارة لا تمسّ المستودع.
+// والمرتجع للمورّد («ربط الدفاتر» L1) كمياته سالبة ويُقيَّم كتسويةٍ بالنقص تماماً — انظر `costKindOfWarehouseEntry`.
 // والعائد يدخل بالكلفة التي خرج بها لا بمتوسّط لحظة عودته، وبكلفة **سيارته هو**
 // لا كلفة حمولة زميله — انظر `valueStock`.
 //
@@ -17,7 +18,10 @@ import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { currencyDecimalsOf } from '../config/countries';
 import { roundDecimal } from '../utils/helpers';
-import { valueStock, valueVanQty, unitCostPerBase, CostMove, VanLayer, DEFAULT_CURRENCY_DECIMALS } from './warehouseCost';
+import {
+  valueStock, valueVanQty, unitCostPerBase, costKindOfWarehouseEntry, warehouseEntryColumn, CostMove, VanLayer, DEFAULT_CURRENCY_DECIMALS,
+} from './warehouseCost';
+import { cleanMoney } from './netSales';
 import { baseQtyOf, factorOf, productQtyText, type UnitDef } from './units';
 import { majorTotals, type MajorUnitProduct, type UnitTotal } from './majorUnitTotals';
 
@@ -35,7 +39,7 @@ export interface WarehouseRow {
   status?: string;
   /** صنفٌ مؤرشف (حذفُه وضع deletedAt) بقي له رصيد — يُوسم فلا يبدو الصنف مكرّراً بجانب بديله. يغيب كـstatus */
   archived?: boolean;
-  received: number;        // الوارد للمستودع
+  received: number;        // الوارد للمستودع صافياً من المرتجع للمورّد (RECEIVE + RETURN السالب)
   adjusted: number;        // تسويات المستودع (+/−)
   loadedToVans: number;    // خرج للسيارات
   returnedFromVans: number; // عاد من السيارات (UNLOAD)
@@ -118,12 +122,12 @@ export function composeWarehouse(
   };
 
   for (const it of warehouseItems) {
-    const m = ensure(it.productId);
-    if (it.type === 'RECEIVE') {
-      m.received += it.qty;
+    // العمود: RECEIVE وRETURN «الوارد» (صافي ما ورد من الموردين) وغيرهما تسوية؛ والتقييم: RECEIVE وحده بسعره، وغيره —
+    // ADJUST جردٌ أو تالف، وRETURN مرتجعٌ للمورّد بكمية سالبة — يخرج بلا ثمن بمتوسّط لحظته (warehouseCost.ts)
+    ensure(it.productId)[warehouseEntryColumn(it.type)] += it.qty;
+    if (costKindOfWarehouseEntry(it.type) === 'RECEIVE') {
       push(it.productId, { qty: it.qty, kind: 'RECEIVE', unitCost: it.unitCost }, it.at);
     } else {
-      m.adjusted += it.qty; // ADJUST — جردٌ أو تالف، بلا ثمن
       push(it.productId, { qty: it.qty, kind: 'OTHER' }, it.at);
     }
   }
@@ -423,7 +427,7 @@ export type WarehouseOnHandDb = Pick<Prisma.TransactionClient, 'warehouseEntryIt
 
 /**
  * رصيد المستودع الآن لأصنافٍ بعينها (بالأساس) بالمعادلة نفسها في composeWarehouse: الوارد والتسويات + العائد من السيارات − المحمَّل
- * لها (ومنه تحميلات المناديب المحذوفين). استعلامان مقيّدان بأصناف الحركة لا مستودع الشركة كله. داخل معاملة التحميل يقرأ الملتزَم
+ * لها (ومنه تحميلات المناديب المحذوفين). أسطر المستودع كلها بإشارتها أيّاً كان نوعها — والمرتجع للمورّد (RETURN) سالبٌ فيُنقصه. استعلامان مقيّدان بأصناف الحركة لا مستودع الشركة كله. داخل معاملة التحميل يقرأ الملتزَم
  * بعد قفل المستودع (READ COMMITTED): التحميل السابق التزم قبل أن يُفكّ قفله.
  */
 export async function warehouseOnHandOf(tid: string, productIds: readonly string[], db: WarehouseOnHandDb = prisma): Promise<Map<string, number>> {
@@ -496,6 +500,48 @@ export async function assertWarehouseCovers(
   await lockWarehouseStock(tx, tid);
   const short = warehouseShortLines(lines, await warehouseOnHandOf(tid, lines.map((l) => l.productId), tx));
   if (short.length) throw new WarehouseInsufficientError(short, warehouseShortMessage(short, products));
+}
+
+// ═══ «المشتريات الشهرية» في لوحة التحكم («ربط الدفاتر» L1: صافية من المرتجع وبلا المخزون الافتتاحي) ═══
+
+/**
+ * صفّ مجمَّع من حركات الشهر المسعَّرة (routes/dashboard.ts): بنوع الحركة وحالتها ومصدرها ومصدر الوارد الأصلي للمرتجع.
+ * `value` = Σ الكمية × تكلفة الوحدة بوحدة الصفّ (سالبٌ للمرتجع: كمياته سالبة)، و`entries` عدد الحركات المتميّزة.
+ */
+export interface PurchaseAggRow {
+  type: string;
+  status: string | null;
+  source: string | null;
+  /** مصدر الوارد الذي يردّه هذا المرتجع (returnOfEntryId) — null لغير المرتجع أو لمرتجعٍ بلا أصل */
+  returnOfSource: string | null;
+  value: number | null;
+  entries: number | bigint | null;
+}
+
+/** مصدر حركة المخزون الافتتاحي — جردٌ أُدخل لا شراء */
+export const OPENING_IMPORT_SOURCE = 'OPENING_IMPORT';
+
+/**
+ * المشتريات الشهرية = الوارد المسعَّر (RECEIVE) + المرتجع للمورّد (RETURN، قيمته سالبة) — صافيةً كما يُنقص المرتجعُ المبيعات.
+ * - المخزون الافتتاحي (source = OPENING_IMPORT) ليس شراءً فلا يدخل، ولا مرتجعُ وارده (إلغاء استيرادٍ خاطئ لا ينقص مشترياتٍ لم تُعدّ).
+ * - عدد الحركات: الوارد غير الملغى وحده — الوارد الملغى (CANCELLED) تُصفّر قيمتَه حركةُ إلغائه (RETURN كاملة) فيبقى في المجموع
+ *   صافياً صفراً، ولا يُعدّ شراءً. المرتجع لا يُعدّ حركة شراء.
+ * - أي نوعٍ آخر (ADJUST) لا يدخل. والناتج منقّى من ضجيج الفاصلة العائمة كصافي المبيعات (cleanMoney).
+ */
+export function monthPurchasesOf(rows: readonly PurchaseAggRow[]): { purchasesTotal: number; entriesCount: number } {
+  let total = 0;
+  let count = 0;
+  for (const r of rows) {
+    if (r.source === OPENING_IMPORT_SOURCE || r.returnOfSource === OPENING_IMPORT_SOURCE) continue;
+    const value = Number(r.value ?? 0);
+    if (r.type === 'RECEIVE') {
+      total += Number.isFinite(value) ? value : 0;
+      if (r.status !== 'CANCELLED') count += Number(r.entries ?? 0);
+    } else if (r.type === 'RETURN') {
+      total += Number.isFinite(value) ? value : 0;
+    }
+  }
+  return { purchasesTotal: cleanMoney(total), entriesCount: count };
 }
 
 /** ما في السيارات بتكلفة الشراء — بطاقة «في مخزون السيارات» في صفحة مخزون الشركة */

@@ -4,7 +4,9 @@
  * - GL_RESET_ORDER: كل نماذج gl الحالية بالترتيب الصريح (الأبناء قبل الآباء). العلاقات الداخلية NoAction تُفحص في
  *   نهاية كل عبارة، فالترتيب الخاطئ يفشل بـP2003. GlMove بعبارة واحدة (المرجع الذاتي reversedMoveId).
  *   كل نموذج جديد يُضاف هنا مع مرحلته (M4+ …)، وحارس gl-reset-order يفشل إن نُسي.
- * - GL_RESET_KEEP = ['GlAuditLog'] حرفياً (G5 وG6): لا يُحذف، وتستمر سلسلته ويُكتب فيه LEDGER_RESET.
+ * - GL_RESET_KEEP = ما لا تمسّه إعادة الضبط: GlAuditLog (G5 وG6: لا يُحذف، وتستمر سلسلته ويُكتب فيه LEDGER_RESET)، وGlVendor
+ *   («ربط الدفاتر» L1: صار سجلّ الموردين التشغيلي — تشير إليه supplier_ledger_entries وsupplier_payments وwarehouse_entries
+ *   بـNoAction، فحذفه يفشل بـP2003، وهو بيانات تشغيل لا دفاتر). حذف الشركة نفسه يحذفهما بعد جداولهما التابعة.
  * - المعاملة (مسار POST /api/tenants/:id/ledger-reset): **أول عبارة** acquirePostLock (pg_advisory_xact_lock(hashtext('gl-post:'||tid)))،
  *   ثم ledgerResetBlockReasons ⇒ 409 LEDGER_RESET_BLOCKED {reasons}، ثم deleteLedgerRows بالترتيب، ثم تدقيق LEDGER_RESET.
  */
@@ -19,7 +21,7 @@ export const GL_RESET_ORDER = [
   'GlMove', // عبارة واحدة: reversedMoveId ذاتي؛ → GlJournal (NoAction)
   'GlSequence', // → GlJournal
   // M6 (عند وصول نماذجها): GlPaymentAllocation، GlVendorBillLine، GlPaymentBatchLine، ثم GlVendorBill، GlPaymentBatch، ثم GlPayment، GlExpense
-  'GlVendor',
+  // (GlVendor خرج إلى GL_RESET_KEEP: سجلّ الموردين التشغيلي — «ربط الدفاتر» L1)
   // ما يشير إلى الحسابات
   'GlAccountMapping', // → GlAccount (NoAction)
   'GlAccountTagLink', // → GlAccount، GlAccountTag
@@ -44,7 +46,7 @@ export const GL_RESET_ORDER = [
 
 export type GlResetModel = (typeof GL_RESET_ORDER)[number];
 
-export const GL_RESET_KEEP = ['GlAuditLog'] as const;
+export const GL_RESET_KEEP = ['GlAuditLog', 'GlVendor'] as const;
 
 /** اسم مفوَّض Prisma للنموذج: GlMoveSource ⇒ glMoveSource */
 export function resetDelegateName(model: string): string {

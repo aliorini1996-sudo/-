@@ -128,6 +128,8 @@ const INVOICE_COLS = [
   'cashCollectedByRep',
   // «أنواع الأسعار»: النوع الذي سُعّر به المستند وقت الإصدار (null = السعر الأساسي)
   'priceListId',
+  // «ربط الدفاتر» L1: عملة الفاتورة لحظة الإصدار (عملة الشركة) — null للقديمة = عملة الشركة الحالية
+  'currency',
   'teamId',
   // «لوكيشن»: ختم موقع المندوب وقت الإصدار (لقطة لا تتحرّك بنقله)
   'locationId',
@@ -189,6 +191,8 @@ const RECEIPT_COLS = [
   'notes', 'status', 'createdAt', 'updatedAt', 'teamId',
   // «إدارة طرق الدفع»: مفتاح الطريقة المخصّصة (c_…) أو null — paymentMethod يبقى الأساس المحاسبي
   'paymentMethodKey',
+  // «ربط الدفاتر» L1: معرّف المندوب بعد حذفه (حذفُه يفرّغ salesRepId ويملأ هذا فيتحرّك updatedAt) — أثر عهدته كـvan-loads
+  'deletedSalesRepId',
 ];
 
 const OFFLINE = 'سباكة العمل دون اتصال (مفتاح منع التكرار من الجهاز)';
@@ -318,7 +322,8 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
     // suggestedQty وexpectedQty (اقتراح التحميل وتنبّؤه) بالأساس دائماً — المحرّك يقترح حبّاتٍ لا كراتين
     // zeroRunId: حركة «تصفير المخزون» (معرّف تشغيلته، null لغيرها) — يميّزها المُزامِن بلا اعتمادٍ على نصّ الملاحظة
     // clientRef: مفتاح منع التكرار كما أرسله العميل (D8، null لما بلاه) — به يتحقّق المُكامِل أن محاولته حُفظت قبل أن يعيدها
-    select: { ...pick('id', 'salesRepId', 'deletedSalesRepId', 'locationId', 'type', 'note', 'createdBy', 'createdAt', 'updatedAt', 'zeroRunId', 'clientRef'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'suggestedQty', 'expectedQty', 'lineRef') } },
+    // reason («ربط الدفاتر» L1): سبب التسوية ADJUST — COUNT | DAMAGE | EXPIRY | SHORTAGE_REP | SAMPLE | OTHER، وnull لغيرها/القديم
+    select: { ...pick('id', 'salesRepId', 'deletedSalesRepId', 'locationId', 'type', 'reason', 'note', 'createdBy', 'createdAt', 'updatedAt', 'zeroRunId', 'clientRef'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'suggestedQty', 'expectedQty', 'lineRef') } },
     // «تتبّع اللوط»: معرّف البند للشركة المفعّلة — به تُربط صفوف van-load-item-lots (vanLoadItemId) ببندها — وتوزيعه على التشغيلات
     // مضمّناً فيه ببطاقتها (Σ qty لبندٍ = baseQty البند بإشارته). والمطفأة بلا تغيير (§١٠.١): البند يُعرَّف عندها بحركته وصنفه كما كان
     lotSelect: { items: { select: { ...pick('id'), lots: VAN_ITEM_LOTS } } },
@@ -330,10 +335,21 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
     },
   },
   {
-    name: 'warehouse-entries', model: 'warehouseEntry', mode: 'created', permission: 'canManageVanStock', accounting: true, warehouse: true, tenantPath: 'direct', hardDeletes: true,
+    // بطابع التعديل («ربط الدفاتر» L1): تصنيف الوارد لاحقاً (المورّد ونقدي/آجل والإجماليات وأسعار سطوره) وإلغاؤه (status) يغيّران
+    // الصفّ بعد إنشائه فيتحرّك updatedAt — وبطابع الإنشاء كانا يسقطان من المزامنة
+    name: 'warehouse-entries', model: 'warehouseEntry', mode: 'updated', permission: 'canManageVanStock', accounting: true, warehouse: true, tenantPath: 'direct', hardDeletes: true,
     // unitCost لوحدة البند (تكلفة الكرتون لبندٍ بالكرتون) — تكلفة الأساس = unitCost ÷ unitFactor
     // zeroRunId: تسوية «تصفير المخزون» (null لغيرها)، وclientRef مفتاح منع التكرار (D8، null لما بلاه)
-    select: { ...pick('id', 'type', 'note', 'supplier', 'createdBy', 'createdAt', 'zeroRunId', 'clientRef'), items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'unitCost', 'lineRef') } },
+    // «ربط الدفاتر» L1: type RETURN مرتجعٌ للمورّد (كمياته سالبة، returnOfEntryId وارده)، والمورّد (vendorId) ونوع الشراء (paymentMode
+    // CASH | CREDIT | null غير مصنَّف) ومصدر الدفع ورقم فاتورة المورّد وتاريخها واستحقاقها ومعاملة الضريبة وسبب التسوية والحالة
+    // (POSTED | CANCELLED) والمصدر (MANUAL | API | OPENING_IMPORT | STOCK_ZERO | NEG_SPLIT). والإجماليات بالملّي تخرج net/tax/total
+    // أرقاماً بوحدة العملة (shapeRow)، وللبند نسبة ضريبته وسعره كما أُدخل (enteredUnitCost؛ unitCost تكلفة المخزون)
+    select: {
+      ...pick('id', 'type', 'note', 'supplier', 'createdBy', 'createdAt', 'zeroRunId', 'clientRef', 'updatedAt', 'source', 'status', 'reason',
+        'vendorId', 'paymentMode', 'paidAccountRef', 'supplierRef', 'billDate', 'dueDate', 'costsIncludeTax', 'vatTreatment', 'returnOfEntryId',
+        'netMilli', 'taxMilli', 'totalMilli'),
+      items: { select: pick('productId', 'qty', ...UNIT_SNAPSHOT_COLS, 'unitCost', 'taxPct', 'enteredUnitCost', 'lineRef') },
+    },
     // «تتبّع اللوط»: للشركة المفعّلة معرّف البند وتشغيلته (سطرٌ = لوطٌ واحد؛ null = غير مسمّى أو صنفٌ غير متتبَّع) وبطاقتها مضمّنة
     // (lot: null حين lotId فارغ). وسطر التسوية المنقسم على عدّة تشغيلات بنودٌ بالمرجع نفسه (lineRef). والمطفأة بلا تغيير (§١٠.١)
     lotSelect: { items: { select: { ...pick('id', 'lotId'), lot: LOT_CARD } } },
@@ -533,13 +549,33 @@ export function shapeRow(def: SyncResource, row: Record<string, unknown>): Recor
     const { _count, ...rest } = row;
     return { ...rest, photoCount: (_count as { photos?: number }).photos ?? 0 };
   }
-  if (QTY_ITEM_RESOURCES.has(def.name) && Array.isArray(row.items)) {
+  const out = def.name === 'warehouse-entries' ? milliRow(row) : row;
+  if (QTY_ITEM_RESOURCES.has(def.name) && Array.isArray(out.items)) {
     return {
-      ...row,
-      items: (row.items as Record<string, unknown>[]).map((it) => (it && it.baseQty == null && 'qty' in it
+      ...out,
+      items: (out.items as Record<string, unknown>[]).map((it) => (it && it.baseQty == null && 'qty' in it
         ? { ...it, baseQty: baseQtyOf(it as Parameters<typeof baseQtyOf>[0]) }
         : it)),
     };
   }
-  return row;
+  return out;
+}
+
+/** أعمدة الملّي (BigInt) ⇒ أرقامٌ بوحدة العملة بأسمائها في المستند — BigInt لا يمرّ في res.json */
+const MILLI_COLS: readonly (readonly [string, string])[] = [['netMilli', 'net'], ['taxMilli', 'tax'], ['totalMilli', 'total']];
+
+/**
+ * إجماليات حركة المستودع بالملّي ⇒ net/tax/total بوحدة العملة (null لغير المسعَّر) — كـGET /api/warehouse/entries. ملّيٌّ دقيقٌ
+ * حتى ٩×١٠^١٢ وحدة. وتاريخا الفاتورة واستحقاقها (@db.Date) يخرجان ISO كبقية التواريخ.
+ */
+function milliRow(row: Record<string, unknown>): Record<string, unknown> {
+  if (!MILLI_COLS.some(([k]) => k in row)) return row;
+  const out: Record<string, unknown> = { ...row };
+  for (const [k, name] of MILLI_COLS) {
+    if (!(k in out)) continue;
+    const v = out[k];
+    delete out[k];
+    out[name] = v == null ? null : Number(typeof v === 'bigint' ? v : BigInt(v as number)) / 1000;
+  }
+  return out;
 }

@@ -176,7 +176,10 @@ test('الطابور قبل withNumberRetry ويُحرَّر بعد الالتز
     'await assertReturnStillUntracked(tx, tid, lotPids);',
     'return row;',
     '});',
-    'const updated = await prisma.invoice.update({ where: { id: req.params.id }, data: { returnToStock } });',
+    // «ربط الدفاتر» L1: التشغيل إلى true معاملةٌ واحدة بلا خيار: سجلّ التبديل ثم التحديث القائم نفسه
+    'const updated = await prisma.$transaction(async tx => {',
+    'await recordRestockToggleInTx(tx, tid, invoice.id, returnToStock, changedBy);',
+    'return tx.invoice.update({ where: { id: invoice.id }, data: { returnToStock } });',
     'const lh = lotReply(err, lotOff.length > 0);',
     '  } finally {\n    releaseLots?.();\n  }',
   ], 'إطفاء العودة');

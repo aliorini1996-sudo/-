@@ -4,6 +4,7 @@ import { authenticate, requireAdmin, requireAccountingSuite, requireLedgerPermis
 import { AuthRequest } from '../../types';
 import { ledgerContext, LedgerLocals } from './context';
 import { fromDbDate } from '../../services/gl/dates';
+import { bookMode } from '../../services/gl/mode';
 import configRouter from './config';
 import lockDatesRouter from './lockDates';
 import movesRouter from './moves';
@@ -40,6 +41,7 @@ router.get('/status', requireLedgerPermission('canViewLedger'), async (_req: Aut
       select: {
         activatedAt: true, backfillState: true, templateKey: true, countryCode: true, currency: true,
         currencyDecimals: true, cutoverDate: true, setupMethod: true, timezone: true, lastSyncAt: true,
+        linkBasis: true, linkedFrom: true,
       },
     });
     res.json({
@@ -57,6 +59,11 @@ router.get('/status', requireLedgerPermission('canViewLedger'), async (_req: Aut
         currencyDecimals: s?.currencyDecimals ?? null,
         cutoverDate: s?.cutoverDate ? fromDbDate(s.cutoverDate) : null,
         setupMethod: s?.setupMethod ?? null,
+        /** «ربط الدفاتر» L0: الوضع المحسوم في الخادم (NONE | MANUAL | LINKED | LEGACY) — بديل مقارنة setupMethod حرفياً في الواجهة */
+        bookMode: bookMode(s),
+        /** «ربط الدفاتر»: أساس الربط وبدايته (YYYY-MM-DD) — «دفاتر مربوطة بالنظام منذ <التاريخ>»؛ null لغير المربوطة */
+        linkBasis: s?.linkBasis ?? null,
+        linkedFrom: s?.linkedFrom ? fromDbDate(s.linkedFrom) : null,
         timezone: s?.timezone ?? null,
         lastSyncAt: s?.lastSyncAt ?? null,
       },

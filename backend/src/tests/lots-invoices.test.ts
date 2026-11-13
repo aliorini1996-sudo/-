@@ -1093,7 +1093,8 @@ test('restock: الإطفاء والبضاعة مبيعة ⇒ 409 (I1)، وال�
   calls = []; txOptions = [];
   const on = await restock(ret2.body.data.id, true);
   assert.equal(on.status, 200);
-  assert.deepEqual([lockCalls().length, txOptions], [0, []], 'التشغيل: السلوك القائم');
+  assert.deepEqual([lockCalls().length, txOptions], [0, [undefined]], 'التشغيل: بلا قفل لوطٍ ولا مهلة جديدة — معاملة سجلّ التبديل وحدها');
+  calls = []; txOptions = [];
   db.tenant.lotTrackingEnabled = false;
   const offDisabled = await restock(ret2.body.data.id, false);
   assert.equal(offDisabled.status, 200);

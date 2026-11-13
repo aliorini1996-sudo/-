@@ -10,6 +10,7 @@ import { fromDbDate, toDbDate } from '../dates';
 import { toMilli } from '../money';
 import { openingEntryGroupsFromRows, openingEntryRole, openingEntryTotalsFromGroups } from './rules';
 import { RECONCILED_SOURCES } from '../sync/desired';
+import { setupMethodOf } from '../sync/classify';
 import { siblingPostKey } from '../sync/keys';
 import { PrismaPostingTx } from '../sync/postingStore.prisma';
 import { cursorLagMs } from '../sync/reconciler';
@@ -49,7 +50,7 @@ export function createPrismaCheckStore(db: Db): CheckStore {
       if (!s) return null;
       return {
         activatedAt: s.activatedAt, backfillState: s.backfillState as BackfillState,
-        setupMethod: s.setupMethod === 'FULL_HISTORY' ? 'FULL_HISTORY' : s.setupMethod === 'OPENING' ? 'OPENING' : s.setupMethod === 'CLEAN' ? 'CLEAN' : null,
+        setupMethod: setupMethodOf(s.setupMethod),
         cutoverDate: dateOut(s.cutoverDate), openingSnapshotAt: s.openingSnapshotAt, timezone: s.timezone,
         currencyDecimals: s.currencyDecimals, lastSyncAt: s.lastSyncAt,
         inventoryMode: (s.inventoryMode === 'PERPETUAL' ? 'PERPETUAL' : 'PERIODIC') as InventoryMode,

@@ -199,11 +199,11 @@ export function menuItemViewPerm(item: LedgerMenuItem): LedgerKey | undefined {
  * قاعدة الظهور (§8.2): العنصر يظهر حين يملك المستخدم صلاحية عرضه، والقسم بلا عناصر ظاهرة يُخفى،
  * والقائمة التي لا يملك عرض أي من بنودها تُخفى كلها. صرفة — `has` = `k => canLedger(user, k)`.
  */
-/** الدفاتر اليدوية المستقلة (CLEAN، أو قبل أي تفعيل) — قاعدة صرفة بلا استيراد واجهة برمجة (تُختبر في node) */
-export function isManualLedger(status: { activatedAt?: string | null; setupMethod?: string | null } | null | undefined): boolean {
-  if (!status) return true;
-  return !status.activatedAt || status.setupMethod === 'CLEAN';
-}
+/**
+ * الدفاتر اليدوية المستقلة (CLEAN، أو قبل أي تفعيل) — قاعدة صرفة بلا استيراد واجهة برمجة (تُختبر في node).
+ * «ربط الدفاتر» L0: مصدرها الوحيد lib/ledger/bookMode.ts (مرآة وضع الدفاتر في الخادم) — يُعاد تصديرها هنا كما كانت.
+ */
+export { isManualLedger } from '../../lib/ledger/bookMode';
 
 /** شاشات تعرض مستندات التشغيل أو ترحيلها الآلي — لا تنطبق على الدفاتر اليدوية المستقلة */
 export const MANUAL_LEDGER_HIDDEN_PATHS: readonly string[] = [

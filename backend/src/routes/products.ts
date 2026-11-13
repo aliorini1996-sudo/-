@@ -7,7 +7,8 @@ import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, 
 import { AuthRequest } from '../types';
 import { paginate, paginationMeta, roundDecimal } from '../utils/helpers';
 import { canAccessCustomer } from '../services/customerScope';
-import { purgeInTx } from '../services/ownerPurge';
+import { PurgeRefused, SUPPLIER_BILLS_NO_DELETE_CODE, purgeInTx } from '../services/ownerPurge';
+import { LINKED_NO_DELETE_CODE, tenantBooksLinked, type BookModeDb } from '../services/booksMode';
 import { adminRepFilter } from '../services/adminScope';
 import { applyProductVatGate } from './productsZatca';
 import { RETURN_RULE_METRICS, RETURN_RULE_MODES, SHELF_LIFE_BASES, SHELF_LIFE_UNITS, returnRuleConfigProblem, shelfLifeProblem } from '../services/shelfLife';
@@ -1241,11 +1242,21 @@ router.delete('/:id', requireAdmin, async (req: AuthRequest, res: Response, next
       await tx.$executeRaw`SELECT set_config('lock_timeout', ${LOT_LOCK_TIMEOUT}, true)`;
       const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM products WHERE id = ${req.params.id} AND "tenantId" = ${tid} FOR UPDATE`;
       await tx.$executeRaw`SELECT set_config('lock_timeout', ${prev[0]?.lock_timeout ?? '0'}, true)`;
-      return locked.length ? hardDeleteLocked(tx, tid, req.params.id) : null;
+      if (!locked.length) return null;
+      // «ربط الدفاتر» (قرار المالك OD1): بعد القفل — فلا يُكتب بندٌ للصنف بين الفحص والحذف
+      if (await linkedProductDeleteBlocked(tx, tid, req.params.id)) return LINKED_BLOCKED;
+      return hardDeleteLocked(tx, tid, req.params.id);
     }, { maxWait: 10_000, timeout: 60_000 }); // قد ينتظر القفلُ عمليةَ لوطٍ جارية (D13)، والحذف يمسّ حركات الصنف
     if (archived === null) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
+    if (archived === LINKED_BLOCKED) { res.status(409).json({ success: false, code: LINKED_NO_DELETE_CODE, message: LINKED_PRODUCT_DELETE_MESSAGE }); return; }
     res.json({ success: true, archived });
   } catch (err) {
+    // «ربط الدفاتر» L1 (لكل شركة): للصنف أسطر في فواتير موردين — حذفه كان يمحو الفاتورة بقيودها أو يُبقي إجماليها القديم فيضخّم
+    // مرتجعها. المحرّك يرفض قبل أي كتابة (assertPurgeKeepsSupplierBills) والمعاملة تُستعاد؛ والرسالة لمدير الشركة: أوقِفه
+    if (err instanceof PurgeRefused && err.code === SUPPLIER_BILLS_NO_DELETE_CODE) {
+      res.status(409).json({ success: false, code: SUPPLIER_BILLS_NO_DELETE_CODE, message: PRODUCT_SUPPLIER_BILLS_MESSAGE });
+      return;
+    }
     // الانشغال (55P03، 40P01، أو P2028 مهلة المعاملة) ⇒ 503 LOT_BUSY «أعد المحاولة» (D14) لا 500 برسالةٍ داخلية
     const busy = asLotBusy(err);
     if (busy) { res.status(busy.status).json(lotErrorBody(busy)); return; }
@@ -1269,6 +1280,43 @@ async function hardDeleteLocked(tx: Prisma.TransactionClient, tid: string, id: s
   await purgeInTx(tx, tid, 'Product', [id]);
   return false;
 }
+
+/**
+ * نتيجة معاملة الحذف حين تمنعه الدفاتر المربوطة (لا حذف ولا كتابة) — رمزٌ (Symbol) لا نصّ: قيمةٌ داخلية لا تُرسل أبداً، والنصّ
+ * الكبير كان يُقرأ رمزَ خطأ في حارس «كل رمز يرسله موجّه الأصناف موثّق» (apiDocsCatalog.test)
+ */
+const LINKED_BLOCKED: unique symbol = Symbol('linked-blocked');
+export const LINKED_PRODUCT_DELETE_MESSAGE =
+  'دفاتر هذه الشركة مربوطة بالنظام: للصنف حركات مرحَّلة (فواتير أو مستودع أو تحميل سيارات) فلا يُحذف — أوقِفه بدلاً من الحذف';
+/** حذف صنفٍ له أسطر في فواتير موردين (شراء نقدي/آجل أو مرتجع للمورّد) — لكل شركة (services/ownerPurge.ts) */
+export const PRODUCT_SUPPLIER_BILLS_MESSAGE =
+  'للصنف أسطر في فواتير موردين (شراء نقدي أو آجل أو مرتجع للمورّد) فلا يُحذف — حذفه يمحو الفاتورة من كشف المورّد أو يغيّر قيمتها. أوقِفه بدلاً من الحذف';
+
+/** أدنى شكل يكفي الحارس: وضع الدفاتر وأول بندٍ للصنف في الفواتير والمستودع والتحميل (PrismaClient وTransactionClient والمزيّف) */
+interface ProductHistoryDb extends BookModeDb {
+  invoiceItem: { findFirst(a: { where: { productId: string }; select: { id: true } }): Promise<{ id: string } | null> };
+  warehouseEntryItem: { findFirst(a: { where: { productId: string }; select: { id: true } }): Promise<{ id: string } | null> };
+  vanLoadItem: { findFirst(a: { where: { productId: string }; select: { id: true } }): Promise<{ id: string } | null> };
+}
+
+/**
+ * «ربط الدفاتر» (قرار المالك OD1، ١٣ نوفمبر ٢٠٢٦): في الشركة المربوطة صنفٌ له أي بند فاتورة أو حركة مستودع أو تحميل سيارة لا
+ * يُحذف حذفاً حقيقياً — الحذف يمحو بنود حركاته المرحَّلة ويفكّ ربط بنود فواتيره (فينفصل التقييم والتكلفة عن قيودها). يُوقَف
+ * بدلاً منه (409 BOOKS_LINKED_NO_DELETE). الصنف بلا أثر يُحذف كما كان، والشركة اليدوية كما كانت تماماً: لا قراءة بنود لها
+ */
+export async function linkedProductDeleteBlocked(db: unknown, tid: string, productId: string): Promise<boolean> {
+  const d = db as ProductHistoryDb;
+  if (!(await tenantBooksLinked(d, tid))) return false;
+  const q = { where: { productId }, select: { id: true } } as const;
+  if (await d.invoiceItem.findFirst(q)) return true;
+  if (await d.warehouseEntryItem.findFirst(q)) return true;
+  return !!(await d.vanLoadItem.findFirst(q));
+}
+
+/** «إضافة وحدة فرعية أصغر» (convert-base) ممنوعة في الشركة المربوطة: تعيد كتابة كميات الأساس في مستندات مرحَّلة */
+export const BOOKS_LINKED_BASE_LOCKED_CODE = 'BOOKS_LINKED_BASE_LOCKED';
+export const BOOKS_LINKED_BASE_LOCKED_MESSAGE =
+  'دفاتر هذه الشركة مربوطة بالنظام: إضافة وحدة أصغر من وحدة الأساس تعيد كتابة كميات مستندات مرحَّلة فلا تُسمح — أضف وحدةً أكبر، أو أنشئ صنفاً جديداً بالوحدة الأصغر';
 
 router.put('/:id/price-tiers', requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -1672,6 +1720,12 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
     const refusal = await convertBaseRefusalFor(req);
     if (refusal) { res.status(refusal.status).json({ success: false, code: refusal.code, message: refusal.message }); return; }
     const tid = tenantId(req);
+    // «ربط الدفاتر» (L0): الشركة المربوطة لا تحوّل أساس صنف — التحويل يضرب baseQty وكميات اللوط في كل مستنداته المرحَّلة. المعاينة
+    // كالتنفيذ (لا معاينة لما لن يُسمح به). والشركة اليدوية كما كانت تماماً
+    if (await tenantBooksLinked(prisma, tid)) {
+      res.status(409).json({ success: false, code: BOOKS_LINKED_BASE_LOCKED_CODE, message: BOOKS_LINKED_BASE_LOCKED_MESSAGE });
+      return;
+    }
     const body = convertBaseSchema.parse(req.body);
     const newName = body.newBaseName.trim();
     /* ERP بوحدة واحدة (§2.2-ز): ما سبق التحويل هناك بالوحدة القديمة وما بعده بالجديدة، ولا إعادة دفع — إقرارٌ صريح.

@@ -10,6 +10,7 @@ import { c5Gap } from '../../services/gl/checks/rules';
 import { loadC5Input, loadPendingPartners, loadRepCustodyFacts } from '../../services/gl/checks/run';
 import { createPrismaCheckStore } from '../../services/gl/checks/store.prisma';
 import { milliText } from '../../services/gl/checks/types';
+import { isManualBooks } from '../../services/gl/mode';
 import { decodeEventNote, type EventNote } from '../../services/gl/sync/classify';
 import { postKeyOf, reverseKeyOf } from '../../services/gl/sync/keys';
 import type { SourceType } from '../../services/gl/types';
@@ -188,9 +189,9 @@ async function ledgerFacts(tenantId: string) {
      * البداية النظيفة (ملاحظة الخبير المحاسبي): هذه الصفحات جزء من الدفاتر، فلا تُدخلها مستندات التشغيل السابقة للتفعيل
      * ديناميكياً — تُعرض المستندات المنشأة بعد لحظة التفعيل وحدها. التفعيلات السابقة (OPENING/FULL_HISTORY) كما كانت.
      */
-    booksSince: s?.activatedAt && s.setupMethod === 'CLEAN' && s.openingSnapshotAt ? s.openingSnapshotAt : null,
-    /** الدفاتر اليدوية المستقلة (CLEAN): لا يدخلها مستند تشغيل إطلاقاً، فهذه القوائم فارغة دائماً */
-    manual: s?.setupMethod === 'CLEAN',
+    booksSince: s?.activatedAt && isManualBooks(s) && s.openingSnapshotAt ? s.openingSnapshotAt : null,
+    /** الدفاتر اليدوية المستقلة (CLEAN): لا يدخلها مستند تشغيل إطلاقاً، فهذه القوائم فارغة دائماً. المربوطة (LINKED) ليست يدوية */
+    manual: isManualBooks(s),
     timezone: s?.timezone || DEFAULT_TIMEZONE,
     meta: {
       activatedAt: s?.activatedAt ?? null,
@@ -365,8 +366,8 @@ router.get('/customers/custody', VIEW, ledgerHandler(async (req, res) => {
   const onlyRepId = str(q.salesRepId);
   const store = createPrismaCheckStore(prisma);
   const s = await store.loadSettings(tenantId);
-  if (!s?.activatedAt || s.setupMethod === 'CLEAN') {
-    res.json({ success: true, data: { activated: !!s?.activatedAt, manualLedger: s?.setupMethod === 'CLEAN', reps: [], totals: null } });
+  if (!s?.activatedAt || isManualBooks(s)) {
+    res.json({ success: true, data: { activated: !!s?.activatedAt, manualLedger: isManualBooks(s), reps: [], totals: null } });
     return;
   }
   const pending = await loadPendingPartners(store, tenantId, s);
@@ -406,8 +407,8 @@ router.get('/customers/paylink', VIEW, ledgerHandler(async (_req, res) => {
   const { tenantId } = locals(res);
   const store = createPrismaCheckStore(prisma);
   const s = await store.loadSettings(tenantId);
-  if (!s?.activatedAt || s.setupMethod === 'CLEAN') {
-    res.json({ success: true, data: { activated: !!s?.activatedAt, manualLedger: s?.setupMethod === 'CLEAN', summary: null } });
+  if (!s?.activatedAt || isManualBooks(s)) {
+    res.json({ success: true, data: { activated: !!s?.activatedAt, manualLedger: isManualBooks(s), summary: null } });
     return;
   }
   const pending = await loadPendingPartners(store, tenantId, s);

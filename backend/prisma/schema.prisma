@@ -147,6 +147,9 @@ model Tenant {
   priceLists           PriceList[]
   warehouseEntries     WarehouseEntry[]
   stockZeroRuns        StockZeroRun[]
+  supplierLedgerEntries SupplierLedgerEntry[] // «ربط الدفاتر» L1: كشف المورّد
+  supplierPayments     SupplierPayment[]
+  invoiceRestockLogs   InvoiceRestockLog[]
   repLocations         RepLocation[]
   repSettlements       RepSettlement[]
   importBatches        ImportBatch[]
@@ -1189,6 +1192,8 @@ model Invoice {
   number        String
   customerId    String
   customer      Customer  @relation(fields: [customerId], references: [id])
+  /// «ربط الدفاتر» L1: عملة الفاتورة لحظة الإصدار (عملة الشركة) — null للقديمة (= عملة الشركة الحالية)
+  currency      String?
   // اختياري + SetNull: حذف المندوب يحفظ فاتورته (سجلّ مالي) ويُفرِّغ مرجع المندوب فقط
   salesRepId    String?
   salesRep      SalesRep? @relation(fields: [salesRepId], references: [id], onDelete: SetNull)
@@ -1376,6 +1381,8 @@ model Receipt {
   // اختياري + SetNull: حذف المندوب يحفظ سنده (سجلّ مالي) ويُفرِّغ مرجع المندوب فقط
   salesRepId    String?
   salesRep      SalesRep? @relation(fields: [salesRepId], references: [id], onDelete: SetNull)
+  /// «ربط الدفاتر» L1: معرّف المندوب بعد حذفه (كـVanLoad.deletedSalesRepId) — بلا مفتاح أجنبي؛ يحفظ أثر العهدة
+  deletedSalesRepId String?
   // الفريق الذي عمل له المندوب حين أنشأه (الفرق): يختاره المندوب، أو فريقه الوحيد، أو يُورث من الأصل؛ null = بلا فريق
   teamId        String?
   team          Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
@@ -1894,6 +1901,8 @@ model VanLoad {
   locationId String?
   location   SalesLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
   type       String   @default("LOAD") // LOAD | UNLOAD | ADJUST
+  /// «ربط الدفاتر» L1: سبب التسوية ADJUST — COUNT | DAMAGE | EXPIRY | SHORTAGE_REP (عجز على المندوب) | SAMPLE | OTHER؛ null لغيرها/القديم
+  reason     String?
   note       String?
   createdBy  String? // "REP" | "ADMIN" — من سجّل الحركة
   /// «تصفير المخزون» (طلب المالك ١ نوفمبر ٢٠٢٦): معرّف StockZeroRun لحركة التصفير — null لكل حركة أخرى. وسمٌ لا يُزوَّر
@@ -1913,6 +1922,7 @@ model VanLoad {
   @@index([salesRepId])
   @@index([tenantId, locationId, createdAt]) // «لوكيشن»: ملخّص المواقع وفلتر سجلّ التحميلات
   @@index([tenantId, clientRef]) // فهرس عادي لا قيد فريد — حلّ المرجع المكرَّر وفلتر ?clientRef=
+  @@index([tenantId, createdAt, id]) // «ربط الدفاتر»: مؤشّر المُطابِق
   @@map("van_loads")
 }
 
@@ -2096,12 +2106,42 @@ model WarehouseEntry {
   id        String               @id @default(uuid())
   tenantId  String
   tenant    Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  type      String               @default("RECEIVE") // RECEIVE (وارد/شراء) | ADJUST (تسوية)
+  type      String               @default("RECEIVE") // RECEIVE (وارد/شراء) | ADJUST (تسوية) | RETURN (مرتجع للمورّد — «ربط الدفاتر» L1)
   note      String?
   /// «تصفير المخزون»: معرّف StockZeroRun لتسوية التصفير (ADJUST) — null لكل حركة أخرى. يميّزها في السجلّ وفي حارس استيراد
   /// المخزون الافتتاحي (الحركات حتى آخر تصفير لا تمنع استيراداً جديداً)
   zeroRunId String?
-  supplier  String? // المورّد (اختياري، للوارد)
+  supplier  String? // المورّد نصّاً حرّاً (قديم/للعرض) — المرجع المحاسبي vendorId
+  // ═══ «ربط الدفاتر» L1 (١٣ نوفمبر ٢٠٢٦): الشراء نقدي/آجل والمورّد — كلها إضافية، null للحركات السابقة ═══
+  /// المورّد من سجلّ الموردين (gl_vendors). NoAction: لا يُحذف مورّد له حركات (يُؤرشف)
+  vendorId  String?
+  vendor    GlVendor? @relation(fields: [vendorId], references: [id], onDelete: NoAction)
+  /// مصدر الحركة: MANUAL (الواجهات) | API (الربط البرمجي) | OPENING_IMPORT (استيراد المخزون الافتتاحي) | STOCK_ZERO | NEG_SPLIT
+  source    String   @default("MANUAL")
+  /// للوارد المسعَّر: CASH (مدفوع فوراً ⇒ سند صرف مورّد آلي مخصَّص بالكامل) | CREDIT (آجل ⇒ ذمم دائنة) | null = غير مصنَّف
+  paymentMode String?
+  /// مصدر الدفع للنقدي: MAIN_CASH | BANK | REP_CUSTODY:<salesRepId> — يُنسخ إلى سند الصرف الآلي
+  paidAccountRef String?
+  /// رقم فاتورة المورّد وتاريخها واستحقاقها (الآجل: billDate + paymentDays للمورّد)
+  supplierRef String?
+  billDate    DateTime? @db.Date
+  dueDate     DateTime? @db.Date
+  /// الأسعار المُدخلة شاملة الضريبة؟ (تُحفظ صافيةً في unitCost دائماً، والمُدخل كما هو في enteredUnitCost)
+  costsIncludeTax Boolean @default(false)
+  /// RECOVERABLE (ضريبة مدخلات تُسترد) | NON_RECOVERABLE (تُرسمَل في التكلفة: مورّد بلا رقم ضريبي أو ضريبة الشركة مطفأة) | NONE (بلا ضريبة)
+  vatTreatment String?
+  /// للتسوية ADJUST: COUNT (جرد) | DAMAGE (تالف) | EXPIRY (منتهي) | SAMPLE (عينات) | OTHER
+  reason    String?
+  /// POSTED | CANCELLED (أُلغيت بحركة RETURN كاملة — لا حذف)
+  status    String   @default("POSTED")
+  /// للحركة RETURN (مرتجع للمورّد): الوارد الأصلي إن وُجد
+  returnOfEntryId String?
+  /// الإجماليات بالملّي (BigInt) لحظة الكتابة: الصافي والضريبة والإجمالي — مصدر كشف المورّد والقيود؛ null لغير المسعَّر
+  netMilli   BigInt?
+  taxMilli   BigInt?
+  totalMilli BigInt?
+  supplierLedgerEntries SupplierLedgerEntry[]
+  paymentAllocations    SupplierPaymentAllocation[]
   createdBy String? // اسم المستخدم الذي سجّل الحركة
   /// مفتاح منع التكرار (مراجعة المخزون D8) كـVanLoad.clientRef: بلا @@unique، والتفرّد تحت قفلٍ استشاري (routes/warehouse.ts)
   clientRef String?
@@ -2109,9 +2149,13 @@ model WarehouseEntry {
   /// «إرفاق فاتورة المشتريات» (طلب المالك ١٣ نوفمبر ٢٠٢٦): صور فاتورة المورّد أو PDF — تُحذف مع الحركة
   attachments WarehouseEntryAttachment[]
   createdAt DateTime             @default(now())
+  /// طابع التعديل (التصنيف/الإلغاء بعد الإنشاء) — للمزامنة؛ @default(now()) يجعله إضافياً على جدولٍ مأهول
+  updatedAt DateTime             @default(now()) @updatedAt
 
   @@index([tenantId, createdAt])
   @@index([tenantId, clientRef]) // فهرس عادي لا قيد فريد
+  @@index([tenantId, createdAt, id]) // مؤشّر المُطابِق (createdAt,id)
+  @@index([tenantId, vendorId, createdAt])
   @@map("warehouse_entries")
 }
 
@@ -2159,7 +2203,10 @@ model WarehouseEntryItem {
   // تكلفة شراء الوحدة **صافيةً قبل الضريبة** — معنى واحد لا معنيان:
   // ما يُدخله المستخدم شاملاً الضريبة يُردّ إلى صافيه في الخادم قبل الحفظ.
   // اختياريّ: الاستلام قد يُسجَّل قبل وصول فاتورة المورّد، ولا يُعطَّل لأجلها.
-  unitCost  Float? // للوارد (RECEIVE) فقط
+  unitCost  Float? // للوارد (RECEIVE) والمرتجع (RETURN) — صافٍ قبل الضريبة دائماً
+  /// «ربط الدفاتر» L1: نسبة ضريبة السطر (٪) وسعر الوحدة كما أدخله المستخدم (قد يكون شاملاً حسب costsIncludeTax)
+  taxPct          Float?
+  enteredUnitCost Float?
   // مهجور (١١ أكتوبر ٢٠٢٦): كانت الصلاحية تُحسب من تاريخ التوريد ثم صارت من تاريخ البيع (InvoiceItem.expiresAt)
   // بأمر المالك. لا يُكتب ولا يُقرأ؛ باقٍ لأن إسقاط عمودٍ من جدولٍ حيّ في preDeploy يُفشل db push إن حمل قيماً
   expiresAt DateTime? @db.Date
@@ -2193,6 +2240,115 @@ model WarehouseEntryAttachment {
 
   @@index([tenantId, entryId])
   @@map("warehouse_entry_attachments")
+}
+
+// ═══ «ربط الدفاتر» L1 (طلب المالك ١٣ نوفمبر ٢٠٢٦): كشف المورّد — سجلٌّ إلحاقيّ (append-only) كـAccountEntry للعميل ═══
+// ثلاث وظائف: كشف المورّد التشغيلي، ومصدر أحداث المُطابِق (L6)، وأساس فحص المطابقة C7/R10.
+// الإشارة: amountMilli موجب = يزيد ما ندين به للمورّد (BILL، PAYMENT_REV، REFUND_IN، OPENING الدائن)، سالب = ينقصه
+// (PAYMENT، RETURN، BILL_REV). الرصيد = Σ amountMilli. لا تعديل ولا حذف: التصحيح بقيدٍ عكسيّ *_REV.
+model SupplierLedgerEntry {
+  id                String           @id @default(uuid())
+  tenantId          String
+  tenant            Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vendorId          String
+  vendor            GlVendor         @relation(fields: [vendorId], references: [id], onDelete: NoAction)
+  /// BILL | BILL_REV | PAYMENT | PAYMENT_REV | RETURN | REFUND_IN | OPENING
+  kind              String
+  /// بالملّي (١/١٠٠٠ من وحدة العملة) وبإشارةٍ كما في رأس النموذج
+  amountMilli       BigInt
+  /// تفصيل الفاتورة/المرتجع: الصافي والضريبة بالملّي (موجبان دائماً) — null للدفعات
+  netMilli          BigInt?
+  taxMilli          BigInt?
+  warehouseEntryId  String?
+  warehouseEntry    WarehouseEntry?  @relation(fields: [warehouseEntryId], references: [id], onDelete: NoAction)
+  supplierPaymentId String?
+  supplierPayment   SupplierPayment? @relation(fields: [supplierPaymentId], references: [id], onDelete: NoAction)
+  /// للقيد العكسيّ *_REV: القيد الذي يعكسه
+  reversesId        String?
+  /// التاريخ المحاسبي للمستند (تاريخ فاتورة المورّد أو الدفع)
+  docDate           DateTime         @db.Date
+  dueDate           DateTime?        @db.Date
+  ref               String?
+  note              String?
+  createdBy         String?
+  createdAt         DateTime         @default(now())
+
+  @@index([tenantId, createdAt, id])
+  @@index([tenantId, vendorId, docDate])
+  @@index([warehouseEntryId])
+  @@index([supplierPaymentId])
+  @@map("supplier_ledger_entries")
+}
+
+/// سند صرف للمورّد (دفعة). نقدي الاستلام يولّد سنداً آلياً مخصَّصاً بالكامل لحركته (autoForEntryId).
+/// الإلغاء بحالة CANCELLED وقيد PAYMENT_REV — لا حذف.
+model SupplierPayment {
+  id              String   @id @default(uuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vendorId        String
+  vendor          GlVendor @relation(fields: [vendorId], references: [id], onDelete: NoAction)
+  /// رقم تسلسلي لكل شركة (SP-<number> للعرض)
+  number          Int
+  amountMilli     BigInt
+  /// CASH (الصندوق الرئيسي) | BANK_TRANSFER | CHEQUE | REP_CUSTODY (من عهدة مندوب: salesRepId)
+  method          String
+  salesRepId      String?
+  paidAt          DateTime @db.Date
+  reference       String?
+  note            String?
+  /// POSTED | CANCELLED
+  status          String   @default("POSTED")
+  cancelledAt     DateTime?
+  cancelledBy     String?
+  cancelReason    String?
+  /// السند الآلي لاستلامٍ نقدي — الحركة التي وُلّد لها
+  autoForEntryId  String?
+  clientRef       String?
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+  allocations     SupplierPaymentAllocation[]
+  ledgerEntries   SupplierLedgerEntry[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, vendorId, paidAt])
+  @@index([tenantId, createdAt, id])
+  @@index([tenantId, clientRef])
+  @@map("supplier_payments")
+}
+
+/// تخصيص الدفعة على فواتير المورّد (حركات الوارد الآجلة) — مصدر أعمار الذمم الدائنة والمطابقة الجزئية (L8)
+model SupplierPaymentAllocation {
+  id               String          @id @default(uuid())
+  tenantId         String
+  paymentId        String
+  payment          SupplierPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  warehouseEntryId String
+  warehouseEntry   WarehouseEntry  @relation(fields: [warehouseEntryId], references: [id], onDelete: NoAction)
+  amountMilli      BigInt
+  createdAt        DateTime        @default(now())
+
+  @@index([tenantId, warehouseEntryId])
+  @@index([paymentId])
+  @@map("supplier_payment_allocations")
+}
+
+/// سجلّ تبديل «إعادة المرتجع للمخزون» على فاتورة الإرجاع — إلحاقيّ: كل تبديل صفّ (السابق والجديد)، لا تعديل في المكان بلا أثر.
+/// مصدر حدث RESTOCK/RETURN_LOSS في الدفاتر المربوطة (L4/L6)
+model InvoiceRestockLog {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoiceId     String
+  previous      Boolean
+  returnToStock Boolean
+  changedBy     String?
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId, createdAt, id])
+  @@index([invoiceId])
+  @@map("invoice_restock_logs")
 }
 
 // ═══ تتبّع اللوط (التشغيلة) — services/lots.ts وservices/lotsDb.ts ═══
@@ -3958,7 +4114,17 @@ model GlSettings {
   fiscalYearEndMonth   Int       @default(12)
   fiscalYearEndDay     Int       @default(31)
   weekStartsOn         Int       @default(0) // 0=الأحد 6=السبت
-  setupMethod          String?   // OPENING | FULL_HISTORY
+  setupMethod          String?   // CLEAN (دفاتر يدوية مستقلة) | LINKED (دفاتر مربوطة بالنظام — «ربط الدفاتر» ١٣ نوفمبر ٢٠٢٦) | OPENING | FULL_HISTORY (قديمة) — اقرأها عبر services/gl/mode.ts وحده
+  /// «ربط الدفاتر» (L0): أساس الربط — FY_RESTATED (بأثر رجعي من بداية السنة المالية، قرار المالك) | FROM_ACTIVATION؛ null لغير المربوطة
+  linkBasis            String?
+  /// أول يوم تُرحَّل مستنداته في الدفاتر المربوطة (بداية السنة المالية لـFY_RESTATED)
+  linkedFrom           DateTime? @db.Date
+  /// لحظة لقطة البيانات عند الاعتماد (T0): ما قبلها مسار BACKFILL وما بعدها LIVE
+  linkSnapshotAt       DateTime?
+  linkedAt             DateTime?
+  linkedBy             String?
+  /// المعاينة التي اعتُمد عليها الربط (gl_link_previews — L2)
+  linkPreviewId        String?
   cutoverDate          DateTime? @db.Date
   openingSnapshotAt    DateTime?
   activatedAt          DateTime?
@@ -4399,7 +4565,7 @@ model GlSavedFilter {
   @@map("gl_saved_filters")
 }
 
-model GlVendor { // M2 — الحقلان bills وpayments يُضافان في M6 مع نماذجهما (§3.0)
+model GlVendor { // سجلّ الموردين (M2، وصار في «ربط الدفاتر» L1 سجلّ الموردين التشغيلي: routes/suppliers.ts) — لا يُمسح بإعادة ضبط الدفاتر
   id               String   @id @default(uuid())
   tenantId         String
   tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -4420,10 +4586,17 @@ model GlVendor { // M2 — الحقلان bills وpayments يُضافان في M
   fiscalPositionId String?
   isActive         Boolean  @default(true) // أرشفة لا حذف بعد أوّل حركة
   notes            String?
+  /// «ربط الدفاتر» L1: رمز المورّد (اختياري، فريد في الشركة بالتطبيق لا بقيد) ومدة السداد بالأيام (تاريخ استحقاق الفاتورة الآجلة)
+  code             String?
+  paymentDays      Int?
+  ledgerEntries    SupplierLedgerEntry[]
+  payments         SupplierPayment[]
+  warehouseEntries WarehouseEntry[]
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   @@index([tenantId, name])
   @@index([tenantId, vatNumber])
+  @@index([tenantId, code])
   @@map("gl_vendors")
 }
 

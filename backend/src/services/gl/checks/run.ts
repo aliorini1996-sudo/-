@@ -7,6 +7,8 @@
 import { custodyComponentsForRep, type CustodyComponentsInput } from '../custody';
 import { zonedStartOfDay } from '../dates';
 import { activeSyncSources, type LockDates } from '../locks';
+import { isManualBooks } from '../mode';
+import type { SetupMethod } from '../sync/classify';
 import { cutoverContextOf } from '../sync/poster';
 import type { BackfillState, InventoryMode, LocalDate, Milli } from '../types';
 import {
@@ -22,7 +24,8 @@ import { CHECK_KEYS, worstStatus, type CheckKey, type CheckResult, type ChecksRe
 export interface CheckSettingsFacts {
   activatedAt: Date | null;
   backfillState: BackfillState;
-  setupMethod: 'OPENING' | 'FULL_HISTORY' | 'CLEAN' | null;
+  /** الطريقة المعروفة كما هي (ومنها LINKED)، وغيرها null — اقرأها بـisManualBooks لا بمقارنة حرفية */
+  setupMethod: SetupMethod | null;
   cutoverDate: LocalDate | null;
   openingSnapshotAt: Date | null;
   timezone: string;
@@ -164,7 +167,7 @@ export async function loadRepCustodyFacts(store: CheckStore, tenantId: string, s
   const custody = idsOf(acc, 'CUSTODY');
   // البداية النظيفة: المعلّق التشغيلي لكل مندوب (C4b وصفحة العهدة) = عهدته الافتتاحية كما أدخلها المحاسب + تحصيل وتوريد ما
   // بعد التفعيل وحده — لا تاريخ ما قبل التفعيل (مرآة المحمّل الموحّد loadCustodyInputs؛ مراجعة عدائية ٢٨ سبتمبر ٢٠٢٦)
-  const clean = s.setupMethod === 'CLEAN' && !!s.openingSnapshotAt;
+  const clean = isManualBooks(s) && !!s.openingSnapshotAt;
   const [reps, ledger, opsSince, openingByRep] = await Promise.all([
     store.salesReps(tenantId),
     custody.length ? store.ledgerByPartner(tenantId, custody, 'salesRepId') : Promise.resolve(new Map<string, Milli>()),
@@ -193,7 +196,7 @@ export async function loadC5Input(store: CheckStore, tenantId: string, s: CheckS
   const acc = accounts ?? await store.controlAccounts(tenantId);
   const paylink = idsOf(acc, 'PAYLINK');
   // البداية النظيفة: دفتر الأمانات التشغيلي بعد التفعيل وحده + ما أدخله المحاسب افتتاحياً على 112005 (لا تاريخ ما قبل التفعيل)
-  const clean = s.setupMethod === 'CLEAN' && !!s.openingSnapshotAt;
+  const clean = isManualBooks(s) && !!s.openingSnapshotAt;
   const after = clean ? { createdAfter: s.openingSnapshotAt as Date } : {};
   const [ledgerMilli, opsSinceMilli, openingMilli, explanations] = await Promise.all([
     paylink.length ? store.ledgerTotal(tenantId, paylink) : Promise.resolve(0n),
@@ -216,7 +219,7 @@ export async function loadImportAfterCutover(
   return { accountId: account.id, accountCode: account.code, cutoverDate: s.cutoverDate, ...r };
 }
 
-/** فحوص المطابقة مع التشغيل والمزامنة — لا تنطبق على الدفاتر اليدوية المستقلة (CLEAN) */
+/** فحوص المطابقة مع التشغيل والمزامنة — لا تنطبق على الدفاتر اليدوية المستقلة (CLEAN) وحدها؛ المربوطة (LINKED) تُفحص كلها */
 export const MANUAL_LEDGER_SKIPPED_CHECKS: readonly CheckKey[] = ['C3', 'C4', 'C4b', 'C5', 'C8', 'C14', 'C15'];
 
 /**
@@ -234,7 +237,7 @@ export async function runChecks(store: CheckStore, tenantId: string, opts: RunCh
   // الدفاتر اليدوية المستقلة (CLEAN): فحوص المطابقة مع التشغيل (C3 ذمم، C4/C4b عهدة، C5 أمانات، C8 أحداث الترحيل، C14 ربط ERP،
   // C15 المزامنة) لا تنطبق — لا يدخل الدفاتر شيءٌ من التشغيل. تبقى فحوص الدفاتر الداخلية (التوازن، الأرصدة، المعلّقة،
   // المسودات، الضرائب، التسلسل).
-  if (s.setupMethod === 'CLEAN') for (const k of MANUAL_LEDGER_SKIPPED_CHECKS) want.delete(k);
+  if (isManualBooks(s)) for (const k of MANUAL_LEDGER_SKIPPED_CHECKS) want.delete(k);
   const needAccounts = ['C3', 'C4', 'C4b', 'C5'].some((k) => want.has(k as CheckKey));
   const accounts = needAccounts ? await store.controlAccounts(tenantId) : [];
   const pending = ['C3', 'C4', 'C5'].some((k) => want.has(k as CheckKey))

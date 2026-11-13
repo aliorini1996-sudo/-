@@ -466,7 +466,8 @@ export interface WhTotalAgg { productId: string; source: 'WH' | 'VAN'; type: str
 
 /**
  * رصيد المستودع لكل صنف من المجاميع = received + adjusted + returnedFromVans − loadedToVans (composeWarehouse،
- * warehouseStock.ts:92-114): RECEIVE وارد وغيره تسوية؛ LOAD خارج وUNLOAD عائد؛ تسوية السيارة لا تمسّه.
+ * warehouseStock.ts:92-114): عمود الحركة كـwarehouseEntryColumn (RECEIVE والمرتجع للمورّد RETURN السالب وارد، وغيرهما
+ * تسوية)؛ LOAD خارج وUNLOAD عائد؛ تسوية السيارة لا تمسّه.
  */
 export function warehouseOnHandAgg(rows: WhTotalAgg[]): Map<string, number> {
   const acc = new Map<string, { received: number; adjusted: number; loadedToVans: number; returnedFromVans: number }>();
@@ -476,10 +477,9 @@ export function warehouseOnHandAgg(rows: WhTotalAgg[]): Map<string, number> {
     return m;
   };
   for (const r of rows) {
-    if (r.source === 'WH') {
-      if (r.type === 'RECEIVE') ensure(r.productId).received += r.qty;
-      else ensure(r.productId).adjusted += r.qty;
-    } else if (r.type === 'LOAD') ensure(r.productId).loadedToVans += r.qty;
+    // مرآة warehouseEntryColumn (warehouseCost.ts) لا استيرادها: ذاك الملف يجرّ إعداد القاعدة (utils/helpers) وهذا بلا قاعدة
+    if (r.source === 'WH') ensure(r.productId)[r.type === 'RECEIVE' || r.type === 'RETURN' ? 'received' : 'adjusted'] += r.qty;
+    else if (r.type === 'LOAD') ensure(r.productId).loadedToVans += r.qty;
     else if (r.type === 'UNLOAD') ensure(r.productId).returnedFromVans += r.qty;
   }
   const out = new Map<string, number>();

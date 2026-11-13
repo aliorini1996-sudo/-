@@ -9,7 +9,8 @@ import { useLedgerOn } from '../../components/LedgerGate';
 import { ledgerConfigApi, ledgerKeys, isLedgerAccessError } from '../../api/ledgerConfig';
 import { findLedgerRoute, ledgerHref } from './routes';
 import SetupWizard from './setup/SetupWizard';
-import { BackfillStatusCard, useCommitResult, useSetupState } from './setup/setupUi';
+import { BackfillStatusCard, LinkedBooksNote, useCommitResult, useSetupState } from './setup/setupUi';
+import { isLinked, isManualBooks } from '../../lib/ledger/bookMode';
 import { CommitResultPanel } from './setup/SetupReview';
 
 /**
@@ -79,10 +80,12 @@ export default function LedgerHome() {
             </p>
             <p className="text-xs text-[#9A8F7E] mt-1">{tr('بطاقات الدفاتر تصل قريبا')}</p>
           </div>
-          {q.data?.setupMethod === 'CLEAN' ? (
+          {isManualBooks(q.data) ? (
             <p className="border-t border-[#F1EBDF] pt-4 text-sm text-[#6E6557] text-center">{tr('دفاتر يدوية مستقلة: منفصلة تماما عن المبيعات والمخزون والتحصيل، لا يُرحَّل إليها شيء آليا، وكل قيد فيها يُدخله المحاسب')}</p>
           ) : (
           <div className="border-t border-[#F1EBDF] pt-4 space-y-2">
+            {/* «ربط الدفاتر»: المربوطة بالنظام تُوصف بيوم ربطها (linkedFrom اختياري من الخادم) */}
+            {isLinked(q.data) && <LinkedBooksNote settings={q.data} />}
             <h2 className="text-sm font-bold text-[#1F1A13]">{tr('الترحيل التاريخي')}</h2>
             <BackfillStatusCard
               state={(setupQ.data?.activated ? setupQ.data.status.backfillState : q.data?.backfillState) ?? 'NONE'}

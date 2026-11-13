@@ -1,7 +1,8 @@
 /**
  * مجدول المزامنة (M3، DESIGN.md §5.1).
  *
- * - نبضة كل 60 ثانية للشركات التي accountingSuiteEnabled=true وactivatedAt≠null، بالتناوب حسب أقدم lastSyncAt.
+ * - نبضة كل 60 ثانية للشركات التي accountingSuiteEnabled=true وactivatedAt≠null — عدا الدفاتر اليدوية (تُستبعد في SQL،
+ *   «ربط الدفاتر» L0) — بالتناوب حسب أقدم lastSyncAt. والفحوص الليلية تعمّ اليدوية أيضاً (listCheckTenants).
  * - ميزانية عامة للنبضة كلها لا لكل شركة: ≤ 3 ثوانٍ و≤ 300 حدث عبر كل الشركات.
  * - عزل عن مسار الطلبات: PrismaClient مستقل بـ?connection_limit=1، وتُتخطى النبضة إن تجاوزت الطلبات الجارية عتبة
  *   (trackLedgerRequestLoad يعدّها في index.ts بجانب عدّاد services/requestCounter.ts القائم).
@@ -348,7 +349,8 @@ export function startLedgerSyncScheduler(): void {
   const nightly = async () => {
     try {
       await runNightlyChecksRound({
-        listTenants: () => deps.store.listEligibleTenants(),
+        // كل المفعّلة ومنها اليدوية (فحوص دفاترها الداخلية) — النبضة وحدها تستبعد اليدوية (listEligibleTenants)
+        listTenants: () => deps.store.listCheckTenants(),
         timezoneOf: async (id) => {
           const s = await deps.store.loadPosterSettings(id);
           return s?.activatedAt && s.suiteEnabled ? s.timezone : null;

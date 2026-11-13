@@ -1,5 +1,6 @@
 import api from './client';
 import { collectPages } from '../lib/ledger/pages';
+import type { BookMode, InventoryModeOption } from '../lib/ledger/bookMode';
 
 /**
  * عميل تهيئة الدفاتر — `/api/ledger/*` (ملحق أ، M2): الحالة، الحسابات، الدفاتر، الضرائب،
@@ -94,6 +95,11 @@ export interface LedgerStatus {
   currencyDecimals?: number | null;
   cutoverDate?: LocalDate | null;
   setupMethod?: string | null;
+  /** «ربط الدفاتر» L0: الوضع المحسوم في الخادم (services/booksMode) — اختياري لخادمٍ أقدم */
+  bookMode?: BookMode;
+  /** «ربط الدفاتر»: أساس الربط وبدايته (YYYY-MM-DD) — null لغير المربوطة */
+  linkBasis?: string | null;
+  linkedFrom?: LocalDate | null;
   timezone?: string | null;
   lastSyncAt?: string | null;
 }
@@ -243,6 +249,14 @@ export interface GlSettings {
   activatedAt: string | null;
   backfillState: BackfillState;
   inventoryMode: 'PERIODIC' | 'PERPETUAL';
+  /**
+   * «ربط الدفاتر»: خيارات طريقة الجرد المتاحة كما يحكم بها الخادم (بجانب الصفّ في GET/PUT /ledger/settings لا عموداً) —
+   * PERPETUAL غير متاح قبل الربط (reason INVENTORY_MODE_UNAVAILABLE). اختياري لخادمٍ أقدم
+   */
+  inventoryModeOptions?: InventoryModeOption[];
+  /** «ربط الدفاتر»: أساس الربط وبدايته (YYYY-MM-DD) — null لغير المربوطة */
+  linkBasis?: string | null;
+  linkedFrom?: LocalDate | null;
   perpetualFromDate: LocalDate | null;
   salesLockDate: LocalDate | null;
   purchaseLockDate: LocalDate | null;
@@ -315,7 +329,9 @@ export interface SeedReport {
 export type GlSettingsInput = Partial<Omit<GlSettings,
   'templateKey' | 'countryCode' | 'currency' | 'currencyDecimals' | 'activatedAt' | 'backfillState' | 'setupMethod'
   | 'cutoverDate' | 'paylinkFeeTaxInvoiceFrom' | 'salesLockDate' | 'purchaseLockDate' | 'taxLockDate' | 'hardLockDate' | 'lastSyncAt'
-  | 'id' | 'tenantId' | 'openingSnapshotAt' | 'activatedBy' | 'createdAt' | 'updatedAt' | 'cashBasisEnabled'>> & {
+  | 'id' | 'tenantId' | 'openingSnapshotAt' | 'activatedBy' | 'createdAt' | 'updatedAt' | 'cashBasisEnabled'
+  // «ربط الدفاتر»: مشتقّ من الخادم أو مملوكٌ لتفعيل الربط — لا يُرسل في الحفظ (مخطط الخادم strict)
+  | 'inventoryModeOptions' | 'linkBasis' | 'linkedFrom'>> & {
   /** الأساس النقدي مؤجَّل: الخادم يقبل false وحدها (TAX‑08) */
   cashBasisEnabled?: false;
 };

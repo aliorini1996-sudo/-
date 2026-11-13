@@ -170,7 +170,7 @@ export function backfillTransition(current: BackfillState, action: BackfillActio
   return current === 'PAUSED' ? 'RUNNING' : null;
 }
 
-/** المُطابِق يقرأ للشركة ما لم يكن الترحيل التاريخي موقوفاً مؤقتاً */
+/** المُطابِق يقرأ للشركة ما لم يكن الترحيل التاريخي موقوفاً مؤقتاً (والنبضة نفسها توقف المُرحِّل أيضاً: tick.ts isPostingPaused) */
 export function shouldReconcile(state: BackfillState | string): boolean {
   return state !== 'PAUSED';
 }

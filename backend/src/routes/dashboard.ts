@@ -5,6 +5,7 @@ import { scopedRecordWhere, adminCustomerFilter, adminRepFilter, SHAPE_INVOICE_R
 import { AuthRequest } from '../types';
 import { cleanMoney, netSales, signedAmount } from '../services/netSales';
 import { rankTopReps } from '../services/topReps';
+import { monthPurchasesOf, type PurchaseAggRow } from '../services/warehouseStock';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canAccessDashboard'));
@@ -91,21 +92,26 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const accountingOn = tenantFlag?.accountingEnabled !== false;
     const warehouseOn = tenantFlag?.warehouseEnabled === true;
 
-    // المشتريات الشهرية = قيمة الوارد إلى مخزون الشركة (WarehouseEntry type='RECEIVE'): Σ الكمية×سعر التكلفة.
+    // المشتريات الشهرية = قيمة الوارد إلى مخزون الشركة: Σ الكمية×سعر التكلفة للوارد (RECEIVE) صافيةً من المرتجع للمورّد
+    // (RETURN — كمياته سالبة فقيمته سالبة)، وبلا المخزون الافتتاحي (source = OPENING_IMPORT) ولا مرتجع وارده: جردٌ أُدخل لا شراء
+    // («ربط الدفاتر» L1). القرار في monthPurchasesOf (services/warehouseStock.ts)، والاستعلام يجمّع بمفاتيحه وحدها.
     // تُحسب فقط حين تُفعَّل ميزة المستودع (وإلا لا معنى للبطاقة ولا داعي للاستعلام على قاعدة 0.1 نواة).
     // مبلغٌ على مستوى الشركة (المستودع مركزيّ لا يُنسَب لمندوب)، فلا يمرّ بنطاق السجلات.
     // الوحدات المتعددة: `qty` و`unitCost` كلاهما **بوحدة الصفّ** (كرتونان × سعر الكرتون، كفاتورة المورّد)،
     // فحاصل ضربهما قيمة السطر أيّاً كانت وحدته — لا `baseQty` هنا، وإلا ضُربت كمية الحبّات بسعر الكرتون.
     let monthPurchases = { purchasesTotal: 0, entriesCount: 0 };
     if (warehouseOn && accountingOn) {
-      const rows = await prisma.$queryRaw<{ total: number | null; entries: number | bigint }[]>`
-        SELECT COALESCE(SUM(i.qty * i."unitCost"), 0)::float8 AS total,
-               COUNT(DISTINCT e.id) AS entries
+      const rows = await prisma.$queryRaw<PurchaseAggRow[]>`
+        SELECT e.type, e.status, e.source, o.source AS "returnOfSource",
+               COALESCE(SUM(i.qty * i."unitCost"), 0)::float8 AS value,
+               COUNT(DISTINCT e.id)::int AS entries
         FROM "warehouse_entry_items" i
         JOIN "warehouse_entries" e ON e.id = i."entryId"
-        WHERE e."tenantId" = ${tid} AND e.type = 'RECEIVE'
-          AND e."createdAt" >= ${startOfMonth} AND i."unitCost" IS NOT NULL`;
-      monthPurchases = { purchasesTotal: Number(rows[0]?.total ?? 0), entriesCount: Number(rows[0]?.entries ?? 0) };
+        LEFT JOIN "warehouse_entries" o ON o.id = e."returnOfEntryId"
+        WHERE e."tenantId" = ${tid} AND e.type IN ('RECEIVE', 'RETURN')
+          AND e."createdAt" >= ${startOfMonth} AND i."unitCost" IS NOT NULL
+        GROUP BY 1, 2, 3, 4`;
+      monthPurchases = monthPurchasesOf(rows);
     }
 
     // صافي مبيعات المندوب (البيع − مرتجعه)، وعدد فواتير البيع وحدها — أعلى خمسة من كل المرشّحين، ثم بالاسم عند التعادل

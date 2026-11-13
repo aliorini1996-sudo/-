@@ -1470,7 +1470,8 @@ export interface VanMovementPlanInput {
 }
 export interface VanMovementPlan { tracked: ReadonlySet<string>; lines: Map<number, (AllocRow & { viaWarehouse: boolean; reason: string | null })[]>; warnings: LotWarning[] }
 export interface WarehouseEntryPlanInput {
-  tenantId: string; type: 'RECEIVE' | 'ADJUST'; actor: LotActor; createdBy: string | null; day: string; allowUnknown: boolean; sourceEntryId?: string | null;
+  /** RETURN: مرتجعٌ للمورّد («ربط الدفاتر» L1) — أسطره سالبة كلها وتُخطَّط كتسوية نقصٍ تماماً (lotsWarehouse.ts) */
+  tenantId: string; type: 'RECEIVE' | 'ADJUST' | 'RETURN'; actor: LotActor; createdBy: string | null; day: string; allowUnknown: boolean; sourceEntryId?: string | null;
   lines: { idx: number; productId: string; productName: string; shelfLifeOn: boolean; qty: number; unitFactor?: number; lotId?: string | null; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null }[];
 }
 export interface WarehouseEntryPlan {

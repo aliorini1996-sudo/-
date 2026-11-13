@@ -35,11 +35,12 @@ test('البطاقة المضمّنة: تُقرأ لحظة السحب وتعدي
   for (const m of ['invoice', 'invoiceItem', 'invoiceItemLot', 'vanLoad', 'vanLoadItem', 'vanLoadItemLot', 'warehouseEntry', 'warehouseEntryItem']) {
     assert.ok(!new RegExp(`tx\\.${m}\\.(update|updateMany|upsert)\\(`).test(patch), `PATCH /lots/:id يحرّك ${m}`);
   }
-  // وwarehouse-entries بطابع الإنشاء: لا يُعاد بندٌ أبداً
+  // وwarehouse-entries بطابع التعديل منذ «ربط الدفاتر» (١٣ نوفمبر ٢٠٢٦): تصنيف الوارد وإلغاؤه وحدهما يحرّكان الحركة، وPATCH أعلاه
+  // لا يمسّها — فالبطاقة المضمّنة تبقى لقطةً لا تُعاد بتعديل تاريخيها
   const sync = read('src', 'services', 'apiSync.ts');
   const wh = sync.slice(sync.indexOf("name: 'warehouse-entries', model:"), sync.indexOf('\n', sync.indexOf("name: 'warehouse-entries', model:")));
-  assert.match(wh, /mode: 'created'/);
-  assert.equal(API_SYNC_RESOURCES.find((r) => r.name === 'warehouse-entries')!.mode, 'created');
+  assert.match(wh, /mode: 'updated'/);
+  assert.equal(API_SYNC_RESOURCES.find((r) => r.name === 'warehouse-entries')!.mode, 'updated');
   // المستند: الموارد الثلاثة والخطوة ومقدمة lots وصفحة الربط
   for (const r of ['invoices', 'van-loads', 'warehouse-entries']) {
     assert.match(what(r), /كما هي لحظة السحب/, `${r}: لحظة السحب`);

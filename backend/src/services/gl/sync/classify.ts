@@ -15,6 +15,7 @@
  *  - بوابات مساعدة: العملة، أفق المخزون، ترتيب P7، الترتيب، التراجع، ترميز ملاحظة الحالة في lastError.
  */
 import { addDays, compareLocalDate, localDate, zonedStartOfDay } from '../dates';
+import { isManualBooks, SETUP_METHODS, type SetupMethodValue } from '../mode';
 import type { EventHoldReason, EventStatus, LocalDate, SkipReason, SourceEvent, SourceType } from '../types';
 import {
   BLOCKED_BACKOFF_MS, BLOCK_REASONS, ERROR_BACKOFF_MS, EVENT_HOLD_REASONS, EVENT_RANK, INVENTORY_SOURCE_TYPES,
@@ -43,8 +44,28 @@ export interface CutoverContext {
  * OPENING: أرصدة افتتاحية بتاريخ بدء (تفعيلات سابقة). FULL_HISTORY: ترحيل التاريخ الكامل (تفعيلات سابقة).
  * CLEAN: البداية النظيفة — الطريقة الوحيدة لكل تفعيل جديد (ملاحظة الخبير المحاسبي): تاريخ البدء يوم التفعيل،
  * ولا يُرحَّل ولا يُستورد شيءٌ كان في حساب الشركة قبل لحظته.
+ * LINKED: دفاتر مربوطة بالنظام كله («ربط الدفاتر» L0) — في الترحيل والتصنيف كـOPENING تماماً حتى L7 (cutoverMethodOf).
+ * المصدر الوحيد للقيم services/booksMode.ts (SETUP_METHODS) — لا تُكرَّر هنا.
  */
-export type SetupMethod = 'OPENING' | 'FULL_HISTORY' | 'CLEAN';
+export type SetupMethod = SetupMethodValue;
+
+/**
+ * قيمة العمود النصّي gl_settings.setupMethod كما تقرؤها المخازن: الطريقة المعروفة تمرّ كما هي (ومنها LINKED)، وغيرها null.
+ * بديل سلاسل `=== 'FULL_HISTORY' ? … : === 'CLEAN' ? … : null` في postingStore.prisma.ts وchecks/store.prisma.ts.
+ */
+export function setupMethodOf(raw: string | null | undefined): SetupMethod | null {
+  return typeof raw === 'string' && (SETUP_METHODS as readonly string[]).includes(raw) ? (raw as SetupMethod) : null;
+}
+
+/**
+ * طريقة التصنيف بالنسبة لتاريخ البدء (المؤشر الابتدائي وcleanStart): اليدوية ⇒ CLEAN (البداية النظيفة)، والتاريخ الكامل كما هو،
+ * وكل ما سواهما ⇒ OPENING — ومنها LINKED («ربط الدفاتر» L0: كـOPENING تماماً، cutover = cutoverDate بلا cleanStart؛ أساسها
+ * الخاص يأتي مع L7) وغير المعروف كما كان. **لا تعيد CLEAN لغير اليدوية أبداً**.
+ */
+export function cutoverMethodOf(setupMethod: string | null | undefined): 'OPENING' | 'FULL_HISTORY' | 'CLEAN' {
+  if (isManualBooks({ setupMethod })) return 'CLEAN';
+  return setupMethod === 'FULL_HISTORY' ? 'FULL_HISTORY' : 'OPENING';
+}
 
 /** سياق التصنيف الذي تحتاجه القاعدتان */
 type CutoverRule = Pick<CutoverContext, 'cutoverDate' | 'openingSnapshotAt' | 'timezone' | 'cleanStart'>;

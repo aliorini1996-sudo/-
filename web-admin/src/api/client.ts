@@ -721,19 +721,34 @@ export const vanStockApi = {
 export const warehouseApi = {
   // asOf (YYYY-MM-DD): الرصيد وقيمته كما كانا في نهاية ذلك اليوم بتوقيت الشركة — وبدونه الآن
   stock: (asOf?: string) => api.get('/warehouse', { params: asOf ? { asOf } : undefined }),
-  entries: () => api.get('/warehouse/entries'),
+  // «ربط الدفاتر» L1: فلترا المورّد والنوع (RETURN مرتجعات المورّد) — بلاهما الطلب كما كان حرفاً
+  entries: (filters?: WarehouseEntriesFilter) => {
+    const params = { ...(filters?.vendorId && { vendorId: filters.vendorId }), ...(filters?.type && { type: filters.type }) };
+    return api.get('/warehouse/entries', Object.keys(params).length ? { params } : undefined);
+  },
   // ما في مخزون السيارات الآن وقيمته بتكلفة الشراء (سيارات نطاق المستخدم)
   vans: (asOf?: string) => api.get('/warehouse/vans', { params: asOf ? { asOf } : undefined }),
+  // «ربط الدفاتر» L1: مناديب نطاق المستخدم لـ«عهدة مندوب» (الشراء النقدي وسند صرف المورّد) — {id, name, isActive} بحرّاس المستودع
+  // (canManageVanStock): من يسجّل الشراء قد لا يملك canManageSalesReps فتردّه قائمة /sales-reps 403
+  reps: () => api.get<{ success: boolean; data: { id: string; name: string; isActive: boolean }[] }>('/warehouse/reps'),
   createEntry: (data: {
     type?: string; note?: string; supplier?: string;
     costsIncludeTax?: boolean;                                  // هل الأسعار المكتوبة شاملة الضريبة
     // unitCost للوارد فقط. «تتبّع اللوط» (§٤.٤): سطرٌ = تشغيلةٌ واحدة — lotId لقائمة، أو lotNumber وتاريخاها لجديدة
     // (الانتهاء إلزامي مع الصلاحية)، وnull صريح لغير المسمّى في التسوية بالزيادة. والردّ 201 يحمل lot وwarnings
     // baseUnitName («الوحدة الرئيسية» §2.8): الأساس كما رآه النموذج — كما في vanStockApi.createLoad
-    items: { productId: string; qty: number; unitId?: string | null; baseUnitName?: string | null; unitCost?: number; lotId?: string | null; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null }[];
+    // taxPct («ربط الدفاتر» L1): نسبة ضريبة السطر للشراء المصنَّف — غائبة ⇒ ضريبة الصنف كما يفعل الخادم
+    items: { productId: string; qty: number; unitId?: string | null; baseUnitName?: string | null; unitCost?: number; taxPct?: number; lotId?: string | null; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null }[];
     // «إرفاق فاتورة المشتريات» (طلب المالك ١٣ نوفمبر ٢٠٢٦): صور (تصوير/استديو) أو PDF — data URL، حتى ٥ في الحركة
     attachments?: WarehouseAttachmentInput[];
+  } & WarehousePurchaseFields & {
+    // سبب التسوية ADJUST (جرد/تالف/منتهي/عينات/أخرى) — غائبٌ ⇒ كما كان
+    reason?: WarehouseAdjustReason;
   }) => api.post('/warehouse/entries', data),
+  // «ربط الدفاتر» L1 — تصنيف وارد غير مصنَّف (المورّد والنوع والأسعار الناقصة)، ومرتجع جزئي للمورّد، وإلغاء الحركة بمرتجع كامل
+  classifyEntry: (id: string, body: WarehouseClassifyBody) => api.post(`/warehouse/entries/${id}/classify`, body),
+  returnEntry: (id: string, body: WarehouseReturnBody) => api.post(`/warehouse/entries/${id}/return`, body),
+  cancelEntry: (id: string, reason?: string) => api.post(`/warehouse/entries/${id}/cancel`, reason && reason.trim() ? { reason: reason.trim() } : {}),
   // مرفقات حركةٍ قائمة: القائمة بلا بيانات، وملفٌّ واحد ببياناته، والإضافة لاحقاً، والحذف
   attachments: (entryId: string) => api.get(`/warehouse/entries/${entryId}/attachments`),
   attachment: (entryId: string, attId: string) => api.get(`/warehouse/entries/${entryId}/attachments/${attId}`),
@@ -743,6 +758,81 @@ export const warehouseApi = {
 
 /** مرفق حركة المستودع كما يُرسل: اسم الملف وdata URL (صورة jpeg/png/webp أو PDF) */
 export interface WarehouseAttachmentInput { name: string; data: string }
+
+// ═══ «ربط الدفاتر» L1 (١٣ نوفمبر ٢٠٢٦): الشراء النقدي/الآجل ومرتجع المورّد — مرآة عقد routes/warehouse.ts ═══
+
+/** نوع الشراء: نقدي (سند صرف آلي مخصَّص بالكامل) أو آجل (ذمم دائنة) — غيابه = وارد غير مصنَّف كما كان */
+export type PurchasePaymentMode = 'CASH' | 'CREDIT';
+/** مصدر دفع الشراء النقدي: الصندوق الرئيسي أو البنك أو عهدة مندوب (paidFromRepId) */
+export type PurchasePaidFrom = 'MAIN_CASH' | 'BANK' | 'REP_CUSTODY';
+export type WarehouseVatTreatment = 'RECOVERABLE' | 'NON_RECOVERABLE' | 'NONE';
+/** أسباب تسوية المستودع (WAREHOUSE_ADJUST_REASONS في الخادم) */
+export type WarehouseAdjustReason = 'COUNT' | 'DAMAGE' | 'EXPIRY' | 'SAMPLE' | 'OTHER';
+
+/** حقول الشراء في جسم إنشاء الوارد — كلها اختيارية، وبلا paymentMode لا يتغيّر شيء */
+export interface WarehousePurchaseFields {
+  vendorId?: string;
+  paymentMode?: PurchasePaymentMode;
+  paidFrom?: PurchasePaidFrom;
+  paidFromRepId?: string;
+  /** رقم فاتورة المورّد (≤ ٦٠) */
+  supplierRef?: string;
+  /** YYYY-MM-DD — الافتراضي يوم الاستلام بتوقيت الشركة */
+  billDate?: string;
+  vatTreatment?: WarehouseVatTreatment;
+}
+
+/** POST /warehouse/entries/:id/classify — لوارد غير مصنَّف وحده؛ prices تملأ السطور غير المسعَّرة فقط */
+export interface WarehouseClassifyBody {
+  vendorId: string;
+  paymentMode: PurchasePaymentMode;
+  paidFrom?: PurchasePaidFrom;
+  paidFromRepId?: string;
+  supplierRef?: string;
+  billDate?: string;
+  costsIncludeTax?: boolean;
+  vatTreatment?: WarehouseVatTreatment;
+  prices?: { itemId: string; unitCost: number; taxPct?: number }[];
+}
+
+/** POST /warehouse/entries/:id/return — الكمية بوحدة السطر الأصلي، و≤ المتبقّي منه (وإلا 409 RETURN_EXCEEDS_RECEIVED) */
+export interface WarehouseReturnBody {
+  items: { itemId: string; qty: number }[];
+  note?: string;
+  /** رقم إشعار المورّد الدائن */
+  supplierRef?: string;
+  billDate?: string;
+  /** CREDIT يُنقص المستحقّ للمورّد، CASH المورّد ردّ المال إلى refundTo */
+  refundMode?: 'CREDIT' | 'CASH';
+  refundTo?: 'MAIN_CASH' | 'BANK';
+}
+
+/** فلاتر سجلّ الحركات */
+export interface WarehouseEntriesFilter { vendorId?: string; type?: 'RECEIVE' | 'ADJUST' | 'RETURN' }
+
+/**
+ * حقول الشراء على صفّ GET /warehouse/entries — اختياريةٌ كلها: خادمٌ أقدم لا يرسلها فيبقى الصفّ كما كان.
+ * المبالغ أرقام بوحدة العملة؛ paid/outstanding للآجل؛ status CANCELLED للحركة الملغاة بمرتجعٍ كامل
+ */
+export interface WarehouseEntryPurchaseFields {
+  vendorId?: string | null;
+  vendor?: { id: string; name: string } | null;
+  source?: string | null;
+  paymentMode?: PurchasePaymentMode | null;
+  paidAccountRef?: string | null;
+  supplierRef?: string | null;
+  billDate?: string | null;
+  dueDate?: string | null;
+  vatTreatment?: WarehouseVatTreatment | null;
+  reason?: string | null;
+  status?: 'POSTED' | 'CANCELLED' | string | null;
+  returnOfEntryId?: string | null;
+  net?: number | null;
+  tax?: number | null;
+  total?: number | null;
+  paid?: number | null;
+  outstanding?: number | null;
+}
 
 // «تصفير المخزون» (طلب المالك ١ نوفمبر ٢٠٢٦) — لمدير الشركة غير المقيَّد ولجلسة المالك وحدهما، والخادم هو الحَكَم.
 // المعاينة أرقامٌ تُعرض قبل الكتابة؛ والتنفيذ بكلمة التأكيد «تصفير» وzeroRef (uuid) يُولَّد مرةً لكل فتحٍ للنافذة ويُعاد مع

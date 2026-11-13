@@ -6,8 +6,9 @@ import { useAuthStore } from '../store/authStore';
 import { useLedgerOn } from './LedgerGate';
 import { canLedger } from '../lib/ledgerPerms';
 import { ledgerConfigApi, ledgerKeys } from '../api/ledgerConfig';
-import { ledgerSetupApi, ledgerSetupKeys, type SetupState } from '../api/ledgerSetup';
+import { ledgerSetupApi, ledgerSetupKeys, type SetupMethod, type SetupState } from '../api/ledgerSetup';
 import { addDaysYmd, importContextTimezone, openingStockNoteKey, type ImportCutoverSplit, type OpeningStockGate } from '../lib/importData';
+import { SETUP_METHODS, isLinkedMethod, isManualMethod } from '../lib/ledger/bookMode';
 import { formatDayOnly } from '../utils/format';
 
 /**
@@ -25,12 +26,15 @@ export interface LedgerImportCtx {
   timezone: string;
   /** قبل التفعيل ومع مسودة: اليوم السابق لتاريخ البدء — اقتراح «تاريخ الصفوف بلا تاريخ» */
   suggestedUndatedDate: string | null;
-  /** طريقة الإعداد: CLEAN بداية نظيفة (كل تفعيل جديد)، OPENING قيد افتتاحي، FULL_HISTORY كل حركة بتاريخها على 319002 */
-  method: 'OPENING' | 'FULL_HISTORY' | 'CLEAN' | null;
+  /**
+   * طريقة الإعداد: CLEAN بداية نظيفة (الدفاتر اليدوية)، OPENING قيد افتتاحي، FULL_HISTORY كل حركة بتاريخها على 319002،
+   * LINKED دفاتر مربوطة بالنظام («ربط الدفاتر») — الحكم بها عبر lib/ledger/bookMode.ts لا بمقارنة حرفية
+   */
+  method: SetupMethod | null;
 }
 
 export const FULL_HISTORY_IMPORT_NOTE = 'طريقة التاريخ الكامل: تُرحَّل كل حركة مستوردة بتاريخها على الأرصدة الافتتاحية 319002، ولا يُكتب قيد افتتاحي';
-const asMethod = (m: unknown): LedgerImportCtx['method'] => (m === 'OPENING' || m === 'FULL_HISTORY' || m === 'CLEAN' ? m : null);
+const asMethod = (m: unknown): LedgerImportCtx['method'] => (typeof m === 'string' && (SETUP_METHODS as readonly string[]).includes(m) ? m as SetupMethod : null);
 /** البداية النظيفة (ملاحظة الخبير المحاسبي): لا يدخل الدفاتر شيءٌ مستورد قبل التفعيل */
 export const CLEAN_START_IMPORT_NOTE = 'الدفاتر تبدأ نظيفة يوم التفعيل: لا يُستورد إليها ولا يُرحَّل شيء من البيانات السابقة للتفعيل، والأرصدة الافتتاحية يُدخلها المحاسب في معالج الدفاتر';
 
@@ -97,8 +101,12 @@ export default function ImportLedgerNotice({ ctx }: { ctx: LedgerImportCtx | nul
               ? tr(FULL_HISTORY_IMPORT_NOTE)
               : ctx.method === 'OPENING'
                 ? tr('الأرصدة المؤرخة قبل تاريخ البدء تدخل القيد الافتتاحي عند التفعيل؛ استوردها قبل التفعيل بتاريخ اليوم السابق لتاريخ البدء')
-                : tr(CLEAN_START_IMPORT_NOTE)}
-            {ctx.cutoverDate && ctx.method !== 'CLEAN' && <> · {tr('تاريخ البدء')}: <bdi className="tabular-nums">{formatDayOnly(ctx.cutoverDate)}</bdi></>}
+                : isLinkedMethod(ctx.method)
+                  // «ربط الدفاتر» قبل التفعيل (لا يقع قبل L7): الربط منذ بداية السنة المالية — ما قبلها يدخل القيد الافتتاحي
+                  // المشتق وما بعدها يُرحَّل بتاريخه (قرار المالك OD12)؛ لولا هذا لظهر للمربوطة نصُّ البداية النظيفة الكاذب عليها
+                  ? tr('الدفاتر ستُربط بالنظام منذ بداية السنة المالية: الأرصدة المستوردة المؤرخة قبلها تدخل القيد الافتتاحي، وما بعدها يُرحَّل قيداً بتاريخه')
+                  : tr(CLEAN_START_IMPORT_NOTE)}
+            {ctx.cutoverDate && !isManualMethod(ctx.method) && <> · {tr('تاريخ البدء')}: <bdi className="tabular-nums">{formatDayOnly(ctx.cutoverDate)}</bdi></>}
             {' · '}<Link to={LEDGER_WIZARD_HREF} className="font-semibold text-[#E15A30] hover:underline">{tr('معالج إعداد الدفاتر')}</Link>
           </span>
         </p>
@@ -109,7 +117,7 @@ export default function ImportLedgerNotice({ ctx }: { ctx: LedgerImportCtx | nul
     <div className={`${box('warn')} mt-3`} role="status">
       <p className="flex items-start gap-1.5">
         <BookOpen size={13} className="shrink-0 mt-0.5" />
-        {ctx.method === 'CLEAN' ? (
+        {isManualMethod(ctx.method) ? (
           <span>{tr('الدفاتر مفعّلة ببداية نظيفة: ما يُستورد يخدم التطبيق ولا يُرحَّل إلى الدفاتر، وأي رصيد فيها يُدخله المحاسب يدويا')}</span>
         ) : (
           <span>

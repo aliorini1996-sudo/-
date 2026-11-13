@@ -18,6 +18,7 @@
 import { Prisma } from '@prisma/client';
 import { bucketRemaining, foldStock } from '../routes/vanStock';
 import { aggVanTotals, LOT_LOCK_TIMEOUT, vanTotalsFromAgg } from './lotsDb';
+import { tenantBooksLinked, type BookModeDb } from './booksMode';
 import { delegateOf, purgeInTx, type PurgeResult } from './ownerPurge';
 import { productNameKey } from './productNames';
 import { baseQtyOf, roundQty, toBase } from './units';
@@ -250,6 +251,7 @@ export const MERGE_CODES = Object.freeze({
   UNIT_MISMATCH: 'وحدة الأساس مختلفة بين الصنفين فلا يدمجان',
   LOTS_CONFLICT: 'للصنفين تشغيلات بالرقم نفسه فلا يدمجان',
   SCHEMA_UNSUPPORTED: 'جدول حركات جديد بقيد فريد على الصنف لم يعالج بعد',
+  BOOKS_LINKED: 'دفاتر هذه الشركة مربوطة بالنظام والدمج ينقل مستندات مرحلة من صنف إلى آخر فلا يدمج الصنفان',
 });
 export type MergeCode = keyof typeof MERGE_CODES;
 
@@ -333,6 +335,9 @@ export async function mergeArchivedProduct(
   if (a.deletedAt == null) throw new MergeRefused('NOT_ARCHIVED');
   if (b.deletedAt != null) throw new MergeRefused('TARGET_ARCHIVED');
   if (normalizeUnit(a.unit) !== normalizeUnit(b.unit)) throw new MergeRefused('UNIT_MISMATCH');
+  /* «ربط الدفاتر» (OD1): الدمج يغيّر productId على بنود فواتير وحركات مخزون مرحَّلة (updateMany أدناه) ثم يحذف A — وحارس
+   * الحذف النهائي (assertPurgeAllowedForBooks) لا يرى إعادة التوجيه هذه. فالشركة المربوطة تُرفض قبل أي كتابة، واليدوية كما كانت */
+  if (await tenantBooksLinked(tx as unknown as BookModeDb, tenantId)) throw new MergeRefused('BOOKS_LINKED');
 
   const d = tx as unknown as Record<string, Delegate>;
   if (plan.repoint.some((t) => t.special === 'LOTS')) {

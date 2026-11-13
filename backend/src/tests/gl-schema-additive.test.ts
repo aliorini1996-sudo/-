@@ -53,6 +53,19 @@ function ownedRelations(x: Model): Field[] {
   return x.fields.filter((f) => modelNames.has(f.type) && /@relation\([^)]*fields:/.test(f.attrs));
 }
 
+/**
+ * «ربط الدفاتر» L1 (١٣ نوفمبر ٢٠٢٦): GlVendor صار سجلّ الموردين التشغيلي (routes/suppliers.ts)، فتشير إليه ثلاثة نماذج تشغيلية
+ * بمفتاح vendorId وonDelete: NoAction (لا يُحذف مورّد له حركات — يُؤرشف). هذا الاستثناء الوحيد من عزل الكتلة، ومحصور هنا
+ * بالنموذج والحقل والاتجاه وonDelete: أي علاقة أخرى بين الكتلة والجداول القائمة ما زالت ممنوعة.
+ */
+const VENDOR_OPERATIONAL_REFS: Readonly<Record<string, string>> = { WarehouseEntry: 'vendor', SupplierLedgerEntry: 'vendor', SupplierPayment: 'vendor' };
+
+/** حقل علاقة مسموح بين الكتلة ونموذج قائم: X.vendor → GlVendor (يملكه التشغيلي)، أو GlVendor.<قائمة> ← X (عكسية بلا سمات) */
+function isVendorOperationalRef(owner: Model, f: Field): boolean {
+  if (owner.name === 'GlVendor') return f.type in VENDOR_OPERATIONAL_REFS && /\[\]/.test(f.raw.split(/\s+/)[1] ?? '') && f.attrs.trim() === '';
+  return VENDOR_OPERATIONAL_REFS[owner.name] === f.name && f.type === 'GlVendor';
+}
+
 // ── (ج) العلامتان ─────────────────────────────────────────────────────────────
 test('(ج) علامتا الكتلة موجودتان مرة واحدة والختامية بعد الافتتاحية', () => {
   assert.equal(schema.split(OPEN).length - 1, 1, 'العلامة الافتتاحية يجب أن تظهر مرة واحدة');
@@ -94,9 +107,9 @@ test('(أ) كل علاقة داخل الكتلة: Tenant بـCascade، وبين 
         `${x.name}.${f.name}: علاقة بنموذج قائم غير Tenant (${f.type}) ممنوعة — المعرّفات نصوص بلا FK (§3.0)`);
       assert.ok(od === 'Cascade' || od === 'NoAction', `${x.name}.${f.name}: onDelete يجب أن يكون Cascade أو NoAction صراحةً`);
     }
-    // لا علاقات نحو نماذج قائمة غير Tenant ولو من الجهة العكسية
+    // لا علاقات نحو نماذج قائمة غير Tenant ولو من الجهة العكسية — عدا عكسيات سجلّ الموردين التشغيلي (VENDOR_OPERATIONAL_REFS)
     for (const f of x.fields) {
-      if (modelNames.has(f.type) && f.type !== 'Tenant') {
+      if (modelNames.has(f.type) && f.type !== 'Tenant' && !isVendorOperationalRef(x, f)) {
         assert.ok(/^Gl[A-Z]/.test(f.type), `${x.name}.${f.name}: يشير إلى ${f.type} خارج gl`);
       }
     }
@@ -125,7 +138,7 @@ test('(أ) كل نموذج Gl* يرتبط بـTenant بـCascade أو بأبٍ �
   }
 });
 
-test('(أ) من M3: كل نموذج Gl* في GL_RESET_ORDER أو GL_RESET_KEEP (GlAuditLog وحده)', async (t) => {
+test('(أ) من M3: كل نموذج Gl* في GL_RESET_ORDER أو GL_RESET_KEEP (GlAuditLog، وGlVendor منذ «ربط الدفاتر» L1)', async (t) => {
   // M3: services/gl/reset.ts موجود (§5.7) — البند مفعّل؛ غيابه فشل لا تخطٍّ.
   void t;
   assert.ok(fs.existsSync(RESET_PATH), 'services/gl/reset.ts مفقود (M3)');
@@ -135,7 +148,7 @@ test('(أ) من M3: كل نموذج Gl* في GL_RESET_ORDER أو GL_RESET_KEEP (
   const norm = (s: string) => s.charAt(0).toUpperCase() + s.slice(1); // يقبل glMove أو GlMove
   const orderN = new Set([...order].map(norm));
   const keepN = new Set([...keep].map(norm));
-  assert.deepEqual([...keepN].sort(), ['GlAuditLog'], 'GL_RESET_KEEP لا يحوي إلا GlAuditLog');
+  assert.deepEqual([...keepN].sort(), ['GlAuditLog', 'GlVendor'], 'GL_RESET_KEEP لا يحوي إلا GlAuditLog وسجلّ الموردين التشغيلي GlVendor');
   for (const x of glModels) {
     assert.ok(orderN.has(x.name) || keepN.has(x.name), `${x.name}: غير مُدرج في GL_RESET_ORDER`);
   }
@@ -201,8 +214,31 @@ test('(ب) علاقات Tenant العكسية Gl* بلا سمات، ولا حق�
   }
   for (const x of outside) {
     if (x.name === 'Tenant') continue;
-    for (const f of x.fields) assert.ok(!/^Gl[A-Z]/.test(f.type), `${x.name}.${f.name}: حقل Gl* على نموذج قائم`);
+    for (const f of x.fields) {
+      if (isVendorOperationalRef(x, f)) continue;
+      assert.ok(!/^Gl[A-Z]/.test(f.type), `${x.name}.${f.name}: حقل Gl* على نموذج قائم`);
+    }
   }
+});
+
+test('(ب) «ربط الدفاتر» L1: استثناء سجلّ الموردين محصور — vendorId → GlVendor بـNoAction من ثلاثة نماذج تشغيلية، وعكسياتها في GlVendor بلا سمات', () => {
+  const vendor = byName.get('GlVendor')!;
+  assert.ok(inBlock(vendor), 'GlVendor داخل الكتلة');
+  for (const [model, field] of Object.entries(VENDOR_OPERATIONAL_REFS)) {
+    const x = byName.get(model);
+    assert.ok(x && !inBlock(x), `${model}: نموذج تشغيلي خارج الكتلة`);
+    const f = x.fields.find((y) => y.name === field);
+    assert.ok(f && f.type === 'GlVendor', `${model}.${field} → GlVendor`);
+    assert.match(f.attrs, /@relation\(fields: \[vendorId\], references: \[id\]/, `${model}.${field}: بمفتاح vendorId`);
+    assert.equal(onDeleteOf(f), 'NoAction', `${model}.${field}: NoAction (لا يُحذف مورّد له حركات)`);
+    const back = vendor.fields.filter((y) => y.type === model);
+    assert.equal(back.length, 1, `GlVendor: عكسية واحدة لـ${model}`);
+    assert.equal(back[0].attrs.trim(), '', `GlVendor.${back[0].name}: عكسية بلا سمات`);
+  }
+  // لا نموذج تشغيلي آخر يشير إلى أي Gl*، ولا GlVendor يملك علاقة بغير Tenant
+  const others = outside.filter((x) => x.name !== 'Tenant' && !(x.name in VENDOR_OPERATIONAL_REFS));
+  for (const x of others) for (const f of x.fields) assert.ok(!/^Gl[A-Z]/.test(f.type), `${x.name}.${f.name}`);
+  assert.deepEqual(ownedRelations(vendor).map((f) => f.type), ['Tenant']);
 });
 
 test('(ب) لا @unique ولا @@unique على سطر خارج الكتلة يذكر gl أو Gl أو ledger', () => {

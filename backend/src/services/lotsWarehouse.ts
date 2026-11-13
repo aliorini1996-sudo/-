@@ -132,6 +132,8 @@ function withoutRows(view: PlaceLotView, rows: readonly { lotId: string | null; 
  * - **غير المتتبَّع:** lotId null بلا فحص — المستودع السالب جائزٌ له كما كان.
  * - **الكمية:** لكل سطرٍ متتبَّع بالأساس وبأربع خانات (isLotQty) وإلا LOT_QTY_INVALID: الطيّ مقرَّب لأربع خانات، فكسرٌ أدقّ
  *   يُعرض صالحه أكبر من خامه فيُصرف فوقه (I1).
+ * - **المرتجع للمورّد** (RETURN، «ربط الدفاتر» L1): أسطره سالبة كلها (الموجب LOT_QTY_INVALID) فيمرّ بمسار النقص أدناه حرفياً
+ *   كتسوية ADJUST سالبة — التشغيلة الصريحة (المسار يمرّر لوط السطر الأصلي) ≤ صالحها، والسطر بلا لوط بالأقرب انتهاءً.
  * - **النقص أولاً** (ADJUST سالب)، على عرض المستودع تحت القفل قبل إنشاء أي لوط في الحركة — فزيادةٌ في الحركة نفسها لا تغطّي
  *   نقصها: يُجمع الطلب لكل صنف ولوط (D26) ثم pickOutSources: الصريح (لوط، أو رقمٌ قائم، أو null لغير المسمّى) ≤ صالحه (I1)،
  *   وغير المسمّى لا ينزل دون min(0, قبله) (I2)؛ والسطر بلا لوط يُسحب تلقائياً بالأقرب انتهاءً أولاً ثم غير المسمّى (pickOutFefoLines)،
@@ -162,7 +164,8 @@ export async function planWarehouseEntryInTx(tx: LotTx, input: WarehouseEntryPla
   const outs: PlanLine[] = [];
   for (const l of input.lines) {
     if (!tracked.has(l.productId)) { lotIdByLine.set(l.idx, null); continue; }
-    if (!Number.isFinite(l.qty) || !isLotQty(Math.abs(l.qty)) || (input.type === 'RECEIVE' && l.qty < 0)) {
+    // الوارد لا ينقص، والمرتجع للمورّد (RETURN) لا يزيد: سطرٌ موجب فيه كان يُنشئ تشغيلةً أو يزيدها من «مرتجع»
+    if (!Number.isFinite(l.qty) || !isLotQty(Math.abs(l.qty)) || (input.type === 'RECEIVE' && l.qty < 0) || (input.type === 'RETURN' && l.qty > 0)) {
       throw lotErr('LOT_QTY_INVALID', {}, { productId: l.productId, productName: l.productName, idx: l.idx, qty: l.qty, decimals: 4 });
     }
     // «∅» مفتاح غير المسمّى في خرائط التجميع لا معرّف تشغيلة: يُحسب في النقص على غير المسمّى ثم يُكتب حرفياً lotId للسطر

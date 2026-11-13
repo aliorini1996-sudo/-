@@ -7,7 +7,7 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { authenticate, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { buildPurgePlan, delegateOf, executePurge, labelFieldsOf, PurgeRefused, targetableModels } from '../services/ownerPurge';
+import { assertPurgeAllowedForBooks, assertPurgeKeepsSupplierBills, buildPurgePlan, delegateOf, executePurge, labelFieldsOf, PurgeRefused, targetableModels } from '../services/ownerPurge';
 import { findArchivedProducts, mergeArchivedProduct, MergeRefused } from '../services/productTwins';
 import { asLotBusy } from '../services/lots';
 
@@ -53,6 +53,19 @@ router.get('/search', async (req: AuthRequest, res: Response, next: NextFunction
   } catch (err) { next(err); }
 });
 
+/**
+ * ردّ رفض المحرّك: حالته ورمزه منه — 404 بلا رمز كما كان (غير موجود/غير معروف)، و409 BOOKS_LINKED_NO_DELETE للشركة المربوطة
+ * ومعه النماذج المرحَّلة التي كانت الخطة ستمسّها
+ */
+function refusePurge(res: Response, err: PurgeRefused): void {
+  res.status(err.status).json({
+    success: false,
+    ...(err.code && { code: err.code }),
+    message: err.message,
+    ...(err.models.length > 0 && { models: err.models }),
+  });
+}
+
 const ID = z.string().min(1).max(100);
 /** سجلٌّ واحد (id) أو عدّة سجلات من النوع نفسه (ids — التحديد الجماعي في القوائم، حتى ٥٠٠) */
 const TARGET = z.object({ model: MODEL, id: ID.optional(), ids: z.array(ID).min(1).max(500).optional() })
@@ -63,10 +76,15 @@ const TARGET = z.object({ model: MODEL, id: ID.optional(), ids: z.array(ID).min(
 router.post('/preview', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { model, ids } = TARGET.parse(req.body);
-    const plan = await buildPurgePlan(prisma, tenantId(req), model, ids);
+    const tid = tenantId(req);
+    const plan = await buildPurgePlan(prisma, tid, model, ids);
+    // «ربط الدفاتر» (OD1): الشركة المربوطة تُرفض في المعاينة نفسها إن مسّت الخطة مستنداً مرحَّلاً — قبل أن يضغط المالك «حذف»
+    await assertPurgeAllowedForBooks(prisma, tid, plan);
+    // «ربط الدفاتر» L1: وحذفٌ يبتر فاتورة مورّد أو يُفرغها بحذف غيرها (الصنف) يُرفض في المعاينة نفسها لكل شركة
+    await assertPurgeKeepsSupplierBills(prisma, tid, plan);
     res.json({ success: true, data: { counts: plan.counts, nullCounts: plan.nullCounts } });
   } catch (err) {
-    if (err instanceof PurgeRefused) { res.status(404).json({ success: false, message: err.message }); return; }
+    if (err instanceof PurgeRefused) { refusePurge(res, err); return; }
     next(err);
   }
 });
@@ -87,7 +105,7 @@ router.post('/delete', async (req: AuthRequest, res: Response, next: NextFunctio
     }).catch(() => { /* السجل لا يُسقط حذفاً تمّ */ });
     res.json({ success: true, data: result });
   } catch (err) {
-    if (err instanceof PurgeRefused) { res.status(404).json({ success: false, message: err.message }); return; }
+    if (err instanceof PurgeRefused) { refusePurge(res, err); return; }
     next(err);
   }
 });

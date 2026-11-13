@@ -3,7 +3,7 @@ import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/rea
 import {
   Search, Plus, Trash2, Loader2, Warehouse, PackagePlus, Package, Wallet,
   Boxes, AlertTriangle, TrendingUp, TrendingDown, ChevronDown, ChevronUp,
-  ArrowRightLeft, FileDown, SlidersHorizontal, Paperclip,
+  ArrowRightLeft, FileDown, SlidersHorizontal, Paperclip, Undo2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { warehouseApi, productApi } from '../api/client';
@@ -38,6 +38,22 @@ import { useMTaxOff } from './mTaxMode';
 // «إرفاق فاتورة المشتريات» (طلب المالك ١٣ نوفمبر ٢٠٢٦): المنتقي في نموذج الحركة، وطبقة مرفقات الحركة من سجلّها
 import { MPurchaseAttachPicker, MEntryAttachments } from './MPurchaseAttachments';
 import { attachmentsPayload, type PickedAttachment } from '../lib/purchaseAttachments';
+// «ربط الدفاتر» L1 (طلب المالك ١٣ نوفمبر ٢٠٢٦): المورّد من سجلّ الموردين والشراء النقدي/الآجل وسبب التسوية في النموذج، وفي السجلّ
+// وقائع الشراء وأفعال «تصنيف» و«مرتجع للمورد» و«إلغاء الحركة» — الحساب مرآة الخادم من purchaseCalc (المشترك مع اللوحة)
+import type { Supplier } from '../api/suppliers';
+import type { WarehouseAdjustReason, WarehouseEntryPurchaseFields } from '../api/client';
+import {
+  dueDateOf, emptyPurchaseDraft, filterEntries, parsePositive, parseTaxPct, purchaseBodyFields, purchaseProblem, PURCHASE_PROBLEM_TEXT,
+  type PurchaseDraft,
+} from '../components/purchases/purchaseCalc';
+import { activeDecimals, SUPPLIER_CACHE_KEYS, todayDay, useRepsLite } from '../components/purchases/purchaseTypes';
+import { MAdjustReason, MLineTaxInput, MPurchaseFields, MPurchaseSummary } from './MPurchaseFields';
+import { MEntriesFilter, MEntryActions, MEntryPurchaseInfo } from './MPurchaseLog';
+import { MCancelEntry, MClassifyEntry, MReturnEntry } from './MPurchaseActions';
+import {
+  entriesFilterOf, entryFacts, entryKindOf, knownPurchaseError, lineTaxText, mDraftBillTotals, mEntryActions, problemLines, purchaseLineNet, rowTaxPct,
+  withVendorSupplier, type MEntryFacts, type MEntryTypeFilter,
+} from './MPurchaseLogic';
 
 /* الإشعار في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
 const MWarehouseNoticeDoc = lazy(() => import('./MWarehouseNoticeDoc'));
@@ -87,15 +103,22 @@ interface WhRow {
   uncostedQty: number;      // كمّية بلا تكلفة معروفة — خارج القيمة صراحةً
 }
 
-/** حركة مستودع كما يردّها `GET /warehouse/entries` (بإجماليها المحسوب في الخادم) */
-interface WhEntry {
+/**
+ * حركة مستودع كما يردّها `GET /warehouse/entries` (بإجماليها المحسوب في الخادم) — وحقول الشراء («ربط الدفاتر» L1) اختياريةٌ
+ * كلها: خادمٌ أقدم لا يرسلها فيبقى الصفّ كما كان
+ */
+interface WhEntry extends WarehouseEntryPurchaseFields {
   id: string; type: string; note: string | null; supplier: string | null;
   createdBy: string | null; createdAt: string;
+  /** «تصفير المخزون»: معرّف التصفير الذي كتب هذه التسوية — لا أفعال شراءٍ عليها */
+  zeroRunId?: string | null;
   // lineCost: قيمة السطر كما قرّبها الخادم — للإشعار المطبوع، مجموعها = totalCost
   // والسطر بلقطة وحدته (unitName/unitFactor) وكميته بالأساس — فالإشعار يطبع «٥ كرتون» لا «٥ حبة»
   items: {
     id: string; productId?: string; qty: number; unitCost: number | null; lineCost?: number | null;
     unitName?: string | null; unitFactor?: number | null; baseQty?: number | null;
+    /** «ربط الدفاتر» L1: نسبة ضريبة السطر، والمتبقّي للإرجاع بوحدة السطر إن أرسله الخادم */
+    taxPct?: number | null; remainingQty?: number | null;
     product: { name: string; unit: string };
     /** «تتبّع اللوط»: تشغيلة السطر — يضمّها الخادم حين الميزة مفعّلة وحدها */
     lot?: { lotNumber: string; productionDate: string | null; expiryDate: string | null } | null;
@@ -155,6 +178,15 @@ export default function MWarehouse({ onBack, company }: {
   // مرفقات حركةٍ من السجلّ — طبقةٌ ملء الشاشة كالإشعار
   const [attsOf, setAttsOf] = useState<WhEntry | null>(null);
   useBackClose(!!attsOf, () => setAttsOf(null));
+  /* «ربط الدفاتر» L1: فلترا السجلّ (المورّد ونوع الحركة ومنه «مرتجع للمورد») — بلاهما الطلب كما كان حرفاً، ويُعاد الفلتر على الصفوف
+   * فيصحّ ولو تجاهله خادمٌ أقدم. وطبقتا «تصنيف» و«مرتجع للمورد» ملء الشاشة، وورقة «إلغاء الحركة» (رجوعها داخلها) */
+  const [fVendor, setFVendor] = useState<Supplier | null>(null);
+  const [fType, setFType] = useState<MEntryTypeFilter>('');
+  const [classifyOf, setClassifyOf] = useState<WhEntry | null>(null);
+  useBackClose(!!classifyOf, () => setClassifyOf(null));
+  const [returnOf, setReturnOf] = useState<WhEntry | null>(null);
+  useBackClose(!!returnOf, () => setReturnOf(null));
+  const [cancelOf, setCancelOf] = useState<WhEntry | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDq(q.trim()), 250);
@@ -166,10 +198,17 @@ export default function MWarehouse({ onBack, company }: {
     queryFn: async () => expectArray<WhRow>((await warehouseApi.stock()).data?.data, tr('مخزون الشركة')),
   });
 
+  // الصفّ بلا مورّدٍ نصّي يأخذ اسم المورّد المسجَّل (withVendorSupplier) — فالسطر والإشعار المطبوع يسمّيانه
   const entriesQ = useQuery({
-    queryKey: ['m-wh-entries'],
-    queryFn: async () => expectArray<WhEntry>((await warehouseApi.entries()).data?.data, tr('سجل الوارد والتسويات')),
+    queryKey: ['m-wh-entries', fVendor?.id ?? '', fType],
+    queryFn: async () => withVendorSupplier(expectArray<WhEntry>((await warehouseApi.entries(entriesFilterOf(fVendor?.id, fType))).data?.data, tr('سجل الوارد والتسويات'))),
   });
+  const allEntries = useMemo(() => entriesQ.data ?? [], [entriesQ.data]);
+  const shownEntries = useMemo(() => filterEntries(allEntries, { type: fType, vendorId: fVendor?.id }), [allEntries, fType, fVendor]);
+  // «عهدة مندوب» في وسم الشراء النقدي باسم المندوب — تُجلب الأسماء حين في السجلّ شراءٌ من عهدة وحده
+  const repsQ = useRepsLite(allEntries.some(e => (e.paidAccountRef ?? '').startsWith('REP_CUSTODY:')));
+  const repName = (id: string) => repsQ.data?.find(r => r.id === id)?.name ?? null;
+  const today = todayDay();
 
   const all = useMemo(() => stockQ.data ?? [], [stockQ.data]);
 
@@ -215,9 +254,12 @@ export default function MWarehouse({ onBack, company }: {
     return (
       <MEntryAttachments entryId={attsOf.id} onClose={() => setAttsOf(null)}
         title={attsOf.type === 'RECEIVE' ? tr('فاتورة المشتريات') : tr('مرفقات')}
-        subtitle={[attsOf.type === 'RECEIVE' ? tr('وارد') : tr('تسوية'), attsOf.supplier, formatDate(attsOf.createdAt)].filter(Boolean).join(' · ')} />
+        subtitle={[attsOf.type === 'RECEIVE' ? tr('وارد') : attsOf.type === 'RETURN' ? tr('مرتجع للمورد') : tr('تسوية'), attsOf.supplier, formatDate(attsOf.createdAt)].filter(Boolean).join(' · ')} />
     );
   }
+  // «ربط الدفاتر» L1: تصنيف الوارد ومرتجعه للمورّد — طبقتان ملء الشاشة كنموذج الحركة
+  if (classifyOf) return <MClassifyEntry entry={classifyOf} lotOn={lotOn} onClose={() => setClassifyOf(null)} />;
+  if (returnOf) return <MReturnEntry entry={returnOf} all={allEntries} lotOn={lotOn} onClose={() => setReturnOf(null)} />;
 
   const searching = dq !== '';
 
@@ -343,25 +385,29 @@ export default function MWarehouse({ onBack, company }: {
           <h3 className="text-[11px] font-bold text-[#9A8F7E] px-1 uppercase tracking-wide flex items-center gap-1.5">
             <ArrowRightLeft size={13} /> {tr('سجل الوارد والتسويات')}
           </h3>
+          {/* «ربط الدفاتر» L1: فلتر نوع الحركة والمورّد */}
+          <MEntriesFilter vendor={fVendor} onVendor={setFVendor} type={fType} onType={setFType} />
           {entriesQ.isLoading ? (
             <MCard><div className="py-10"><MSpinner /></div></MCard>
           ) : entriesQ.isError ? (
             <MCard><div className="py-10">
               <MError onRetry={() => entriesQ.refetch()} text={errMsg(entriesQ.error, tr('تعذر تحميل البيانات'))} />
             </div></MCard>
-          ) : !entriesQ.data?.length ? (
+          ) : !shownEntries.length ? (
             <MCard><div className="py-10">
-              <MEmpty icon={ArrowRightLeft} text={tr('لا توجد حركات وارد بعد')} />
+              <MEmpty icon={ArrowRightLeft} text={fVendor || fType ? tr('لا حركات تطابق الفلتر') : tr('لا توجد حركات وارد بعد')} />
             </div></MCard>
           ) : (
             <>
               <MCard>
-                {entriesQ.data.slice(0, 20).map(e => (
+                {shownEntries.slice(0, 20).map(e => (
                   <EntryRow key={e.id} e={e} onNotice={() => setNoticeOf(e)}
-                    onAttachments={typeof e.attachmentsCount === 'number' ? () => setAttsOf(e) : undefined} />
+                    onAttachments={typeof e.attachmentsCount === 'number' ? () => setAttsOf(e) : undefined}
+                    facts={entryFacts(e, allEntries, today)} acts={mEntryActions(e, allEntries)} repName={repName}
+                    onClassify={() => setClassifyOf(e)} onReturn={() => setReturnOf(e)} onCancel={() => setCancelOf(e)} />
                 ))}
               </MCard>
-              {entriesQ.data.length > 20 && (
+              {shownEntries.length > 20 && (
                 <p className="text-[11px] text-[#9A8F7E] px-1">{tr('يعرض أحدث الحركات')}</p>
               )}
             </>
@@ -370,6 +416,8 @@ export default function MWarehouse({ onBack, company }: {
 
         <div className="h-2" />
       </div>
+      {/* «ربط الدفاتر» L1: ورقة «إلغاء الحركة» فوق الشاشة (absolute على حاوية القسم) */}
+      {cancelOf && <MCancelEntry entry={cancelOf} lotOn={lotOn} onClose={() => setCancelOf(null)} />}
     </MScreen>
   );
 }
@@ -580,35 +628,50 @@ function Cell({ label, value, tone = 'default', multi }: {
 
 /* ═══════════════════════ صفّ حركةٍ في السجلّ ═══════════════════════ */
 
-function EntryRow({ e, onNotice, onAttachments }: {
+function EntryRow({ e, onNotice, onAttachments, facts = null, acts, repName, onClassify, onReturn, onCancel }: {
   e: WhEntry; onNotice: () => void;
   /** طبقة مرفقات الحركة — غائبٌ حين لا يعرف الخادم المرفقات فلا مشبك */
   onAttachments?: () => void;
+  /** «ربط الدفاتر» L1: وقائع الشراء (null من خادمٍ أقدم ⇒ الصفّ كما كان)، وأفعال الصفّ */
+  facts?: MEntryFacts | null;
+  acts?: { classify: boolean; ret: boolean; cancel: boolean };
+  repName?: (id: string) => string | null;
+  onClassify?: () => void; onReturn?: () => void; onCancel?: () => void;
 }) {
   const tr = useTr();
   const taxOff = useMTaxOff();
   // تمييز العدد بالعربية (S14): «صنفان» و«3 أصناف» لا «2 صنف» — واللغات الأخرى كما كانت
   const lang = useLang(s => s.lang);
   const receive = e.type === 'RECEIVE';
+  // «ربط الدفاتر» L1: مرتجع المورّد (RETURN) نوعٌ ثالث بوسمه — وغيره كما كان (وارد/تسوية)
+  const kind = entryKindOf(e.type);
   // «تتبّع اللوط»: أرقام تشغيلات الحركة — لا تظهر إلا حين يضمّها الخادم (الميزة مفعّلة)
   const lotNos = [...new Set(e.items.map(i => i.lot?.lotNumber).filter((n): n is string => !!n))];
   // أصناف الحركة لا بنودها: نقصٌ «تلقائي» سُحب من أكثر من تشغيلة يُكتب بنداً لكل تشغيلة للصنف نفسه
   const products = new Set(e.items.map(i => i.productId ?? i.id)).size;
+  const hasActs = !!acts && (acts.classify || acts.ret || acts.cancel);
   return (
+    // الفاصل على الغلاف (كصفّ الرصيد): الصفّ وسطر الشراء تحته وحدةٌ واحدة بلا خطٍّ بينهما — والملغاة باهتة
+    <div className={`border-b border-[#F1EBDF] last:border-0 [&>*:first-child]:border-b-0 ${facts?.cancelled ? 'bg-[#FAF7F0]/70' : ''}`}>
     <MRow
-      leading={
+      leading={kind === 'RETURN' ? (
+        <span className="text-[10px] font-bold px-2 py-1 rounded-md flex-shrink-0 flex items-center gap-1 text-[#8A6D1F] bg-[#FDF6E7]">
+          <Undo2 size={11} /> {tr('مرتجع للمورد')}
+        </span>
+      ) : (
         <span className={`text-[10px] font-bold px-2 py-1 rounded-md flex-shrink-0 flex items-center gap-1 ${receive ? 'text-[#2F855A] bg-[#EAF6F0]' : 'text-[#6B46C1] bg-[#F3EEFB]'}`}>
           {receive ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
           {receive ? tr('وارد') : tr('تسوية')}
         </span>
-      }
+      )}
       title={countText(lang, products, 'صنف', tr, formatNumber)}
       subtitle={[e.supplier, e.note, e.createdBy, lotNos.length ? `${tr('التشغيلة')} ${lotNos.slice(0, 3).join('، ')}${lotNos.length > 3 ? '…' : ''}` : '']
         .filter(Boolean).join(' · ') || undefined}
       note={formatDate(e.createdAt)}
       trailing={
         <span className="flex items-center gap-1 flex-shrink-0">
-          {e.totalCost > 0 && (
+          {/* المصنَّف مبالغه في سطر الشراء تحته (الصافي والضريبة والإجمالي) — والمرتجع قيمته سالبة فلا تُعرض هنا */}
+          {e.totalCost > 0 && !e.paymentMode && (
             <span className="text-end">
               <span className="block text-xs font-bold text-[#1F1A13] whitespace-nowrap tabular-nums" dir="ltr">
                 {formatCurrency(e.totalCost)}
@@ -627,12 +690,18 @@ function EntryRow({ e, onNotice, onAttachments }: {
           )}
           {/* هدف لمسٍ ٤٠px: الصفّ نفسه غير قابل للنقر، فالزرّ وحده يستقبل الإبهام */}
           <button type="button" onClick={onNotice}
-            aria-label={receive ? tr('إشعار وارد PDF') : tr('إشعار تسوية PDF')}
+            aria-label={receive ? tr('إشعار وارد PDF') : kind === 'RETURN' ? tr('إشعار مرتجع PDF') : tr('إشعار تسوية PDF')}
             className="w-10 h-10 -me-1.5 rounded-xl flex items-center justify-center text-[#9A8F7E] active:bg-[#FAF7F0]">
             <FileDown size={17} />
           </button>
         </span>
       } />
+      {/* «ربط الدفاتر» L1: نوع الشراء ومصدر دفعه وفاتورة المورّد والمبالغ والاستحقاق والحالة — ثم أفعال الصفّ */}
+      {facts && <MEntryPurchaseInfo f={facts} repName={repName ?? (() => null)} />}
+      {hasActs && acts && (
+        <MEntryActions acts={acts} onClassify={onClassify ?? (() => {})} onReturn={onReturn ?? (() => {})} onCancel={onCancel ?? (() => {})} />
+      )}
+    </div>
   );
 }
 
@@ -648,6 +717,8 @@ interface FormRow extends StockLineUnit {
   productId: string; name: string;
   /** نسبة ضريبة الصنف — لازمةٌ لمعاينة الصافي حين تكون الأسعار شاملة */
   taxPct: number;
+  /** «ربط الدفاتر» L1: نسبة السطر كما كُتبت في الشراء المصنَّف — فارغةً نسبة الصنف (lineTaxText)، ولا تُرسل بلا نوع شراء */
+  taxText: string;
   qty: string; unitCost: string;
   /** «تتبّع اللوط»: الصنف متتبَّع والميزة مفعّلة ⇒ تشغيلة السطر (سطرٌ = تشغيلة)، وانتهاؤها إلزامي مع الصلاحية */
   tracked: boolean; shelfOn: boolean; lot: LotDraft;
@@ -671,7 +742,12 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
   const taxOff = useMTaxOff();
   const qc = useQueryClient();
   const [type, setType] = useState<'RECEIVE' | 'ADJUST'>(seed ? 'ADJUST' : 'RECEIVE');
-  const [supplier, setSupplier] = useState('');
+  /* «ربط الدفاتر» L1 (طلب المالك ١٣ نوفمبر ٢٠٢٦): المورّد من سجلّ الموردين بدل النصّ الحرّ (اسمه يُرسل في `supplier` أيضاً للعرض
+   * القديم والإشعار)، ونوع الشراء نقدي/آجل وحقوله — بلا نوعٍ يبقى الوارد غير مصنَّف والجسم بلا حقلٍ جديد. وسبب التسوية اختياريّ */
+  const [vendor, setVendor] = useState<Supplier | null>(null);
+  const [purchase, setPurchase] = useState<PurchaseDraft>(() => emptyPurchaseDraft(todayDay()));
+  const [reason, setReason] = useState<WarehouseAdjustReason | ''>('');
+  const purchaseMode = type === 'RECEIVE' ? purchase.mode : null;
   const [note, setNote] = useState('');
   // «إرفاق فاتورة المشتريات»: تُرسل مع الحركة في جسمها نفسه (وارد أو تسوية) — والضغط الجاري يوقف «حفظ» حتى يجهز آخر ملف
   const [atts, setAtts] = useState<PickedAttachment[]>([]);
@@ -683,7 +759,7 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
     const u = nextStockLineUnit(p, [], p.id);
     return u ? [{
       rowId: newRowId(), productId: seed.productId, name: seed.name, ...u, primaryUnitId: seed.primaryUnitId ?? null,
-      taxPct: 0, qty: '', unitCost: '', tracked: false, shelfOn: false, lot: emptyLotDraft(),
+      taxPct: 0, taxText: '', qty: '', unitCost: '', tracked: false, shelfOn: false, lot: emptyLotDraft(),
     }] : [];
   });
   // D8: مرجع محاولة الحفظ — يُعاد مع الإعادة بالمحتوى نفسه، ومحتوى آخر ⇒ مرجعٌ جديد
@@ -704,6 +780,18 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  /* «ربط الدفاتر» L1: سطر الصفّ بلا نسبة صنفه (صفّ المستودع لا يحملها) — تُقرأ من الصنف حين يُختار نوع شراءٍ والسطر وارد، فلا يُحسب
+   * شراءٌ مصنَّف بنسبة صفرٍ صامتة. مرّةً واحدة، وبلا نوع شراءٍ لا طلب (النموذج كما كان) */
+  const seedTaxAsked = useRef(false);
+  useEffect(() => {
+    if (!seed || !purchaseMode || seedTaxAsked.current) return;
+    seedTaxAsked.current = true;
+    productApi.get(seed.productId).then(res => {
+      const pct = (res.data?.data as ProductPick | undefined)?.taxPct;
+      if (typeof pct !== 'number' || !Number.isFinite(pct)) return;
+      setRows(rs => rs.map(r => (r.productId === seed.productId ? { ...r, taxPct: pct } : r)));
+    }).catch(() => { seedTaxAsked.current = false; /* تبقى نسبة السطر قابلةً للكتابة */ });
+  }, [seed, purchaseMode]);
   // فاتورة المورّد تُعلن السعر شاملاً الضريبة غالباً؛ المؤشّر يُخبر الخادم فيردّه
   // إلى صافيه قبل الحفظ — فيبقى للعمود معنى واحد مهما اختلفت عادة المورّدين
   const [costsIncludeTax, setCostsIncludeTax] = useState(false);
@@ -740,6 +828,8 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
     return u ? [...rs, {
       rowId: newRowId(), productId: p.id, name: p.name, ...u, primaryUnitId: p.primaryUnitId ?? null,
       taxPct: typeof p.taxPct === 'number' ? p.taxPct : 0,
+      // «ربط الدفاتر» L1: نسبة السطر افتراضها نسبة الصنف — تُعدَّل في الشراء المصنَّف وحده
+      taxText: String(typeof p.taxPct === 'number' ? p.taxPct : 0),
       qty: '1', unitCost: '',
       tracked, shelfOn: tracked && shelfLifeOn(p), lot: emptyLotDraft(),
     }] : rs;
@@ -759,6 +849,8 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
     setType(t);
   };
   const patchLot = (key: string, lot: LotDraft) => setRows(rs => rs.map(r => (r.rowId === key ? { ...r, lot } : r)));
+  /** «ربط الدفاتر» L1: نسبة السطر في الشراء المصنَّف — لا تمسّ الكمية ولا التشغيلة */
+  const patchTax = (key: string, v: string) => setRows(rs => rs.map(r => (r.rowId === key ? { ...r, taxText: v } : r)));
   const dropRow = (key: string) => setRows(rs => rs.filter(r => r.rowId !== key));
   /** وحدة السطر تتبدّل والكمية والسعر المكتوبان كما هما — كلاهما يُقرأ بالوحدة المختارة (والسعر يُراجَع) */
   const setRowUnit = (key: string, unitId: string | null) => setRows(rs => rs.map(r => {
@@ -852,6 +944,13 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
   // D3: وارد صنفٍ محذوف يُمنع هنا لا بعد الإرسال — والتسوية تمرّ (بها يُصحَّح رصيده)
   const archivedReceive = (r: FormRow) => type === 'RECEIVE' && isArchived(r.productId);
   const valid = rows.length > 0 && rows.every(r => !qtyBad(r) && !costBad(r) && !lotBad(r) && !archivedReceive(r));
+  /* «ربط الدفاتر» L1: الشراء المصنَّف — المورّد والسعر لكل سطر إلزاميان (والمندوب لعهدته)، يُقال ما يمنع الحفظ ولا يُترك الزرّ معطّلاً
+   * بلا سبب. والملخّص الحيّ = حساب الخادم (mDraftBillTotals ⇐ entryBillTotals: السعر كما كُتب، والشامل يُجمع لكل نسبة) فيطابق ما يُقيَّد
+   * في كشف المورّد وسند الصرف الآلي. بلا نوع شراء: لا شيء */
+  const purchaseIssue = purchaseMode ? purchaseProblem(purchase, vendor?.id, problemLines(rows), { taxOff }) : null;
+  const bill = purchaseMode ? mDraftBillTotals(rows, { inclusive: costsIncludeTax, taxOff }, activeDecimals()) : null;
+  const billDue = purchaseMode === 'CREDIT' ? dueDateOf(purchase.billDate || todayDay(), vendor?.paymentDays) : null;
+  const paidRepsQ = useRepsLite(purchaseMode === 'CASH' && purchase.paidFrom === 'REP_CUSTODY');
   /** «اجعل الرصيد صفراً»: كمية التسوية عكس رصيد الشاشة — بالرئيسية حين ينقسم عليها، وإلّا بالأساس (والاتجاه المنقلب يصفّر تشغيلته) */
   const zeroRow = (key: string) => setRows(rs => rs.map(r => {
     if (r.rowId !== key) return r;
@@ -871,20 +970,27 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
         // المتوسّط ٢٤ ضعفاً؛ وسطر الأساس بلا حقل كما قبل الميزة حرفاً. وتشغيلة السطر للمتتبَّع وحده
         // و`baseUnitName` (§2.8، §5.3): أساس الصنف كما عرفه كتالوج النموذج — صنفٌ حُوِّل بعد فتحه يُردّ 400 بدل أن تدخل عشرة
         // كراتين بسعر الكرتون عشر قوارير بسعر الكرتون للقارورة
-        const item: { productId: string; qty: number; unitCost?: number; unitId?: string; baseUnitName?: string } & ReturnType<typeof entryLotFields> = withBaseUnitName({
+        const item: { productId: string; qty: number; unitCost?: number; unitId?: string; baseUnitName?: string; taxPct?: number } & ReturnType<typeof entryLotFields> = withBaseUnitName({
           productId: r.productId, qty: Number(r.qty), ...(r.unitId && { unitId: r.unitId }),
           ...(r.tracked && entryLotFields(r.lot)),
         }, r.baseUnit);
         // السعر للوارد وحده، والفارغ يُرسَل **غائباً** لا صفراً: «بلا سعر» كمّيةٌ
         // خارج التقييم، بينما صفرٌ بضاعةٌ مجّانية — ومعناهما في الدفاتر مختلف
         if (type === 'RECEIVE' && r.unitCost.trim() !== '') item.unitCost = Number(r.unitCost);
+        // «ربط الدفاتر» L1: نسبة السطر للشراء المصنَّف وحده (صفرٌ مع «إزالة الضريبة») — بلا نوع شراء لا حقل جديد
+        if (purchaseMode) item.taxPct = rowTaxPct(r, taxOff);
         return item;
       });
       const body = {
         type,
-        supplier: type === 'RECEIVE' ? supplier.trim() || undefined : undefined,
+        // «ربط الدفاتر» L1: اسم المورّد المختار (للعرض القديم والإشعار) — والمرجع المحاسبي vendorId أدناه
+        supplier: type === 'RECEIVE' && vendor ? vendor.name : undefined,
         note: note.trim() || undefined,
         costsIncludeTax: type === 'RECEIVE' ? costsIncludeTax : undefined,
+        // المورّد وحقول الشراء (بلا نوعٍ {} فلا حقل جديد) للوارد، وسبب التسوية للتسوية — كلٌّ لنوع حركته وحده
+        ...(type === 'RECEIVE' && vendor && { vendorId: vendor.id }),
+        ...(type === 'RECEIVE' && purchaseBodyFields(purchase, { taxOff })),
+        ...(type === 'ADJUST' && reason && { reason }),
         items,
         // بلا مرفق لا مفتاح أصلاً — فيبقى الجسم كما كان حرفاً. ومعها تدخل في مرجع المحاولة (D8): إعادةٌ بالملفات نفسها
         // تُردّ الحركة المحفوظة، وملفاتٌ غيرها حركةٌ أخرى
@@ -906,7 +1012,9 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
       // و«تتبّع اللوط» في الجهتين: أرصدة التشغيلات وقوائمها، واقتراح FEFO للتحميل (الوارد يغيّره)، وشاشة التتبّع —
       // الجوال واللوحة (LOT_CACHE_KEYS)
       ['m-wh-stock', 'm-wh-entries', 'warehouse-stock', 'warehouse-entries',
-        ...(lotOn ? LOT_CACHE_KEYS : [])]
+        ...(lotOn ? LOT_CACHE_KEYS : []),
+        // «ربط الدفاتر» L1: الشراء المصنَّف يغيّر رصيد المورّد وسنداته (النقدي سند صرفٍ آلي)
+        ...(purchaseMode ? SUPPLIER_CACHE_KEYS : [])]
         .forEach(k => qc.invalidateQueries({ queryKey: [k] }));
       toast.success(replay ? tr('هذه الحركة محفوظة من قبل ولم تسجل مرة ثانية') : tr('تم حفظ الحركة'));
       // التحذير لا يمنع (تشغيلة موقوفة تبقى معزولة) — لكنه يُقال
@@ -923,7 +1031,9 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
         qc.invalidateQueries({ queryKey: ['m-wh-products'] });
         void refreshRowUnits();
       }
-      toast.error(errMsg(e, tr('تعذر الحفظ')));
+      // «ربط الدفاتر» L1: رموز الشراء (PURCHASE_VENDOR_REQUIRED/PURCHASE_PRICE_REQUIRED…) بنصّها العربي — وغيرها رسالة الخادم كما كانت
+      const pe = knownPurchaseError(e);
+      toast.error(pe ? tr(pe) : errMsg(e, tr('تعذر الحفظ')));
     },
   });
 
@@ -952,16 +1062,10 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
             : tr('التسوية تقبل موجبا زيادة أو سالبا نقص للجرد والتالف')}
         </p>
 
-        {/* ─────────── المورّد ─────────── */}
-        {receive && (
-          <section className="space-y-2.5">
-            <h3 className="text-[11px] font-bold text-[#9A8F7E] px-1 uppercase tracking-wide">{tr('المورد اختياري')}</h3>
-            <div className="bg-white rounded-2xl border border-[#F1EBDF] p-3">
-              <input className="input min-h-[44px]" value={supplier} maxLength={200}
-                placeholder={tr('اسم المورد')} onChange={e => setSupplier(e.target.value)} />
-            </div>
-          </section>
-        )}
+        {/* ─────────── المورّد ونوع الشراء («ربط الدفاتر» L1) ─────────── */}
+        {/* المورّد من سجلّ الموردين (بحث وإضافة سريعة) ونقدي/آجل اختياريّان — وللتسوية سببها */}
+        {receive && <MPurchaseFields draft={purchase} onDraft={setPurchase} vendor={vendor} onVendor={setVendor} disabled={save.isPending} />}
+        {!receive && <MAdjustReason value={reason} onChange={setReason} disabled={save.isPending} />}
 
         {/* ─────────── فاتورة المشتريات ─────────── */}
         {/* موضعٌ واحد للنوعين (الوارد والتسوية): المنتقي لا يُفكّ ويُركَّب حين يتبدّل النوع وضغطُ صورةٍ جارٍ */}
@@ -1025,7 +1129,12 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
               const badCost = costBad(r);
               const net = netOf(r);
               const qty = Number(r.qty);
-              const line = receive && net !== null && Number.isFinite(qty) ? qty * net : null;
+              // «ربط الدفاتر» L1: الشراء المصنَّف بنسبة السطر المكتوبة وحصّته الدقيقة من صافي الفاتورة (السعر كما كُتب، والشامل
+              // مردوداً بنسبته — كحساب الخادم)، وغيره كما كان. والسعر فيه إلزاميّ: الخانة الفارغة حمراء
+              const line = purchaseMode
+                ? purchaseLineNet(r, { inclusive: costsIncludeTax, taxOff })
+                : receive && net !== null && Number.isFinite(qty) ? qty * net : null;
+              const priceMissing = !!purchaseMode && !badCost && parsePositive(r.unitCost) == null;
               const opts = unitChoices({ unit: r.baseUnit, units: r.units, primaryUnitId: r.primaryUnitId });
               const multi = opts.length > 1;
               const stock = stockOf(r.productId);
@@ -1058,11 +1167,16 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
                       <label className="flex-1 min-w-0">
                         {/* السعر بوحدة السطر كفاتورة المورّد — اسمها على الخانة: سعر الكرتون في خانة حبّةٍ يتضخّم ٢٤ ضعفاً */}
                         <span className="block text-[10px] text-[#9A8F7E] mb-1">{tr('سعر الوحدة')}{multi ? ` (${r.unit})` : ''}</span>
-                        <input className={`input text-center min-h-[44px] ${badCost ? 'border-[#C0392B]' : ''}`}
+                        <input className={`input text-center min-h-[44px] ${badCost || priceMissing ? 'border-[#C0392B]' : ''}`}
                           dir="ltr" type="number" inputMode="decimal" step="any" min="0"
-                          placeholder={tr('اختياري')}
+                          placeholder={purchaseMode ? tr('مطلوب') : tr('اختياري')}
                           value={r.unitCost} onChange={e => patch(k, 'unitCost', e.target.value)} />
                       </label>
+                    )}
+                    {/* «ربط الدفاتر» L1: نسبة السطر في الشراء المصنَّف (افتراضها نسبة الصنف) — لا شيء مع «إزالة الضريبة» */}
+                    {purchaseMode && (
+                      <MLineTaxInput value={r.taxText} fallback={r.taxPct} disabled={save.isPending}
+                        invalid={parseTaxPct(lineTaxText(r)) == null} onChange={v => patchTax(k, v)} />
                     )}
                   </div>
 
@@ -1072,10 +1186,11 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
                     </p>
                   )}
                   {badCost && <p className="text-[10px] text-[#C0392B]">{tr('سعر الوحدة يجب أن يكون أكبر من صفر أو يترك فارغا')}</p>}
-                  {receive && !badCost && r.unitCost.trim() === '' && (
+                  {receive && !purchaseMode && !badCost && r.unitCost.trim() === '' && (
                     // أثرُ ترك الخانة فارغة يُقال قبل الحفظ لا بعده
                     <p className="text-[10px] text-[#9A8F7E]">{tr('بلا سعر تدخل الكمية المخزون خارج التقييم')}</p>
                   )}
+                  {priceMissing && <p className="text-[10px] text-[#C0392B]">{tr(PURCHASE_PROBLEM_TEXT.PRICE_REQUIRED)}</p>}
                   {line !== null && (
                     <p className="text-[10px] text-[#6E6557]">
                       {taxOff ? tr('قيمة السطر') : tr('قيمة السطر قبل الضريبة')}: <b className="text-[#1F1A13] tabular-nums">{formatCurrency(line)}</b>
@@ -1136,13 +1251,21 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
       {/* شريط الحفظ ثابتٌ أسفل الشاشة: نموذجٌ طويل وزرُّ حفظٍ في قاعه لا يُرى */}
       <div className="flex-shrink-0 border-t border-[#E9E1D3] bg-white p-3"
         style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
-        {receive && total > 0 && (
+        {receive && !purchaseMode && total > 0 && (
           <p className="text-[11px] text-[#6E6557] mb-2 px-0.5 flex items-center justify-between gap-2">
             <span>{taxOff ? tr('قيمة البضاعة المستلمة') : tr('قيمة البضاعة المستلمة قبل الضريبة')}</span>
             <b className="text-[#1F1A13] tabular-nums">{formatCurrency(total)}</b>
           </p>
         )}
-        <button onClick={() => save.mutate()} disabled={!valid || save.isPending || attBusy}
+        {/* «ربط الدفاتر» L1: ملخّص فاتورة المورّد الحيّ (الصافي والضريبة والإجمالي، والاستحقاق أو مصدر الدفع)، وما يمنع الحفظ */}
+        {bill && rows.length > 0 && (
+          <div className="mb-2 px-0.5">
+            <MPurchaseSummary totals={bill} mode={purchaseMode} dueDate={billDue} paymentDays={vendor?.paymentDays} paidFrom={purchase.paidFrom}
+              repName={paidRepsQ.data?.find(x => x.id === purchase.paidFromRepId)?.name ?? null} />
+          </div>
+        )}
+        {purchaseIssue && rows.length > 0 && <p className="text-[11px] text-[#B7791F] mb-2 px-0.5">{tr(PURCHASE_PROBLEM_TEXT[purchaseIssue])}</p>}
+        <button onClick={() => save.mutate()} disabled={!valid || !!purchaseIssue || save.isPending || attBusy}
           className="w-full bg-[#E15A30] text-white font-bold py-3.5 rounded-xl min-h-[50px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {save.isPending ? <Loader2 size={16} className="animate-spin" /> : <PackagePlus size={16} />}
           {tr('حفظ الحركة')}

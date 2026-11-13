@@ -29,6 +29,9 @@ import {
 } from '../services/importLedger';
 // البند 31: ردّ السعر الشامل إلى صافيه بالدالّة المالية الموحّدة نفسها (نصف-لأعلى)
 import { netFromInclusive, roundHalfUp } from '../lib/money';
+// «ربط الدفاتر» (L0): وضع الدفاتر من المصدر الوحيد — لا مقارنة حرفية بـ'CLEAN'
+import { LINKED_NO_DELETE_CODE, LINKED_NO_DELETE_MESSAGE, isLinked, isManualBooks } from '../services/booksMode';
+import type { WarehouseEntrySource } from '../services/suppliers/core';
 // «إزالة الضريبة»: الشركة بلا ضريبة لا ضريبة في أسعارها ولا تكاليفها — خيار «شاملة الضريبة» يسقط فيُحفظ المكتوب كما هو
 import { isTaxOff } from '../services/taxMode';
 import { entryTotalCost } from '../services/warehouseCost';
@@ -183,7 +186,16 @@ function sendImportError(err: unknown, res: Response, next: NextFunction): void 
  * غير موجودة — لا حجب ولا ربط ولا قفل حالة. `activatedAt` المعتبر هنا فارغ لها.
  */
 const coupledActivatedAt = (s: { activatedAt?: Date | null; setupMethod?: string | null } | null | undefined): Date | null =>
-  s?.activatedAt && s.setupMethod !== 'CLEAN' ? s.activatedAt : null;
+  s?.activatedAt && !isManualBooks(s) ? s.activatedAt : null;
+
+/**
+ * «ربط الدفاتر» (L0، قرار المالك OD1): الشركة المربوطة لا تتراجع عن استيراد المخزون الافتتاحي — حركته دخلت تقييم المخزون
+ * وقيوده (الافتتاحي قبل بداية السنة، أو قيد مخزون بعدها)، والتراجع عنها حذفٌ لمستندٍ مرحَّل. التصحيح بتسوية مستودع.
+ * يسبق حارس «الدفاتر مفعّلة» القائم (assertOpeningStockRevertAllowed) برمزٍ يخصّ الربط؛ وغير المربوطة لا يتغيّر لها شيء
+ */
+export function assertOpeningStockRevertNotLinked(s: { activatedAt?: Date | null; setupMethod?: string | null } | null | undefined): void {
+  if (isLinked(s)) throw new ImportHttpError(409, LINKED_NO_DELETE_CODE, LINKED_NO_DELETE_MESSAGE);
+}
 
 async function importLedgerContext(tid: string): Promise<{ activated: boolean; timezone: string | null; decimals: number }> {
   const s = await prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, timezone: true, setupDraft: true, currencyDecimals: true, setupMethod: true } });
@@ -1482,6 +1494,8 @@ router.post('/opening-stock', requireImportAccess('opening_stock', { accounting:
           data: {
             ...(lotPlan && entryId ? { id: entryId } : {}),
             tenantId: tid, type: OPENING_STOCK_ENTRY_TYPE, note: OPENING_STOCK_NOTE, createdBy: by, createdAt: dbNow,
+            // «ربط الدفاتر» L1: مصدر الحركة صريحاً (لا من نصّ الملاحظة) — الافتتاحي يدخل القيد الافتتاحي لا قيد شراء، ولا مورّد له
+            source: 'OPENING_IMPORT' satisfies WarehouseEntrySource,
             // الكمية والتكلفة بوحدة الصفّ ولقطتها وbaseQty — التقييم يقسم التكلفة على المعامل (warehouseCost)؛ وتشغيلته للمتتبَّع
             items: { create: checked.lines.map(l => ({ productId: l.productId, unitCost: l.unitCost, ...unitFields(l.qty, l.unitFactor && l.unitFactor !== 1 ? { name: l.unitName ?? null, factor: l.unitFactor } : null), ...(lotPlan && { lotId: lotPlan.lotIdByRow.get(l.row) ?? null }) })) },
           },
@@ -1839,7 +1853,9 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
     } else if (batch.kind === OPENING_STOCK_KIND) {
       // البند 9: قبل التفعيل وحده (بعده 409 OPENING_STOCK_REVERT_LEDGER_ACTIVE)، تحت قفل gl-post فلا يتقاطع مع الاعتماد؛
       // والحركة تُحذف ببنودها ما لم تُستهلك أصنافها بعدها (تحميل سيارات أو فواتير أو تسوية بالنقص) ⇒ blocked
-      assertOpeningStockRevertAllowed(coupledActivatedAt(await prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, setupMethod: true } })));
+      const revertBooks = await prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, setupMethod: true } });
+      assertOpeningStockRevertNotLinked(revertBooks);
+      assertOpeningStockRevertAllowed(coupledActivatedAt(revertBooks));
       for (const eid of ids) {
         let releaseLots: (() => void) | null = null;
         try {
@@ -1853,7 +1869,10 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
           const out = await prisma.$transaction(async tx => {
             await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
             await acquirePostLock(tx, tid);
-            assertOpeningStockRevertAllowed(coupledActivatedAt(await tx.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, setupMethod: true } })));
+            // وإعادة الحارسين تحت قفل gl-post: ربطٌ أو تفعيلٌ التزم بين القراءتين يمنع الحذف
+            const booksNow = await tx.glSettings.findUnique({ where: { tenantId: tid }, select: { activatedAt: true, setupMethod: true } });
+            assertOpeningStockRevertNotLinked(booksNow);
+            assertOpeningStockRevertAllowed(coupledActivatedAt(booksNow));
             const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM warehouse_entries WHERE id = ${eid} AND "tenantId" = ${tid} FOR UPDATE`;
             if (locked.length === 0) return { status: 'gone' as const };
             // lotId في القراءة نفسها: تشغيلاتٌ أنشأها الاستيراد تُحذف يتيمةً ولو أُطفئت الميزة بعده (أدناه) — بلا استعلامٍ زائد

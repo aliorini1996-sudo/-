@@ -1,6 +1,6 @@
 // M3 — الضمانات النظامية (DESIGN.md §9.5، §3.9، §5.3، §10.1 بند M3). حراس نصية وصرفة بلا قاعدة:
 //  - DELETE /api/tenants/:id: الحارس قبل confirmLedgerDestroy، ومعاد داخل معاملة تفاعلية أولها قفل gl-post قبل أي حذف (G6 (د)).
-//  - لا tenant.delete خارج ذلك المسار؛ POSTED_MOVES أول فحوص ledger-reset؛ GL_RESET_KEEP = ['GlAuditLog'] وحده.
+//  - لا tenant.delete خارج ذلك المسار؛ POSTED_MOVES أول فحوص ledger-reset؛ GL_RESET_KEEP = ['GlAuditLog', 'GlVendor'] وحدهما.
 //  - لا glAttachment.delete* في routes/ledger/** (حذف المرفقات داخل معاملة حذف المسودة في services/gl/reverse.ts وحدها).
 //  - routes/ledger-retention/** (إن وُجد) قراءة فقط وبلا requireAccountingSuite.
 //  - حذف المندوب: قفل صف المندوب FOR UPDATE قبل العدّ حين تُفعَّل الدفاتر، ولا شيء قبل التفعيل.
@@ -72,8 +72,8 @@ test('G6: لا tenant.delete في backend/src خارج DELETE /api/tenants/:id',
   assert.deepEqual(hits, []);
 });
 
-test('ledger-reset: POSTED_MOVES أول الفحوص، وGL_RESET_KEEP = [GlAuditLog] وحده', () => {
-  assert.deepEqual([...GL_RESET_KEEP], ['GlAuditLog']);
+test('ledger-reset: POSTED_MOVES أول الفحوص، وGL_RESET_KEEP = [GlAuditLog، GlVendor] وحدهما (سجلّ الموردين التشغيلي منذ «ربط الدفاتر» L1)', () => {
+  assert.deepEqual([...GL_RESET_KEEP], ['GlAuditLog', 'GlVendor']);
   const reasons = ledgerResetBlockReasons({ postedMoves: 1, filedReturns: 1, securedMoves: 1, hardLockDate: '2027-01-01', customerAdjustmentSources: 1 } as Parameters<typeof ledgerResetBlockReasons>[0]);
   assert.equal(reasons[0], 'POSTED_MOVES');
   const fn = read('services', 'gl', 'reset.ts');

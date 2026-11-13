@@ -7,14 +7,15 @@ import { useTr } from '../../../i18n/strings';
 import { useLang } from '../../../i18n/lang';
 import { activeLocale, formatDateTime, formatDayOnly } from '../../../utils/format';
 import { ledgerName } from '../../../lib/ledger/format';
-import { ledgerConfigReasonLabels, mappingKeyLabels } from '../../../lib/ledger/labels';
+import { ledgerConfigReasonLabels, mappingKeyLabels, setupMethodLabels } from '../../../lib/ledger/labels';
+import { inventoryModeChoices, isLinked, isManualBooks } from '../../../lib/ledger/bookMode';
 import {
   ledgerConfigApi, ledgerKeys, isLedgerAccessError, ledgerErrorOf, rebasedImportEntriesOf, RECEIPT_METHODS,
   type GlSettings, type GlSettingsInput, type ReceiptMethod, type SeedReport, type TaxPeriodicity,
 } from '../../../api/ledgerConfig';
 import { ledgerHref } from '../routes';
 import { AccountSelect, Field, Toggle, WriteButton, useAllAccounts, useConfigErrorText, useLedgerCan } from './parts/configUi';
-import { BackfillStatusCard, Notice, TimezoneImportsConflictNotice, useSetupState } from '../setup/setupUi';
+import { BackfillStatusCard, LinkedBooksNote, Notice, TimezoneImportsConflictNotice, useSetupState } from '../setup/setupUi';
 import { timezoneImportsConflictOf, type TimezoneImportsConflict } from '../setup/setupLogic';
 
 /**
@@ -176,7 +177,7 @@ export default function SettingsPage() {
   };
   const receiptLabels: Record<ReceiptMethod, string> = { CASH: tr('نقدي'), BANK_TRANSFER: tr('تحويل بنكي'), POS: tr('شبكة (نقاط البيع)'), CHEQUE: tr('شيك') };
   const backfillLabels: Record<string, string> = { NONE: tr('لم يبدأ'), RUNNING: tr('جار'), DONE: tr('مكتمل'), PAUSED: tr('موقوف مؤقتا') };
-  const setupLabels: Record<string, string> = { OPENING: tr('أرصدة افتتاحية'), FULL_HISTORY: tr('ترحيل التاريخ الكامل'), CLEAN: tr('بداية نظيفة من يوم التفعيل') };
+  const setupLabels: Record<string, string> = setupMethodLabels(tr);
   const frozenHint = tr('لا يتغير بعد تفعيل الدفاتر');
 
   if (settingsQ.isLoading) return <p className="text-sm text-[#9A8F7E] py-10 text-center">{tr('جاري التحميل...')}</p>;
@@ -198,6 +199,9 @@ export default function SettingsPage() {
     );
   };
   const receiptRouting = (val('receiptRouting') ?? {}) as Partial<Record<ReceiptMethod, 'CUSTODY' | 'DIRECT'>>;
+  // «ربط الدفاتر» L0: الجرد المستمر مخفيّ حتى L6 (الخادم يرفضه بـINVENTORY_MODE_UNAVAILABLE) إلا لمن قيمته المحفوظة PERPETUAL؛
+  // قائمة الخادم inventoryModeOptions إن وصلت هي الحكم
+  const inventoryModes = inventoryModeChoices(s?.inventoryMode, s?.inventoryModeOptions);
 
   const nav: [string, string][] = [
     ['fiscal-localization', tr('الأقلمة المالية')], ['initial-setup', tr('الإعداد المبدئي')], ['taxes', tr('الضرائب')],
@@ -257,19 +261,23 @@ export default function SettingsPage() {
             <ReadRow label={tr('الحالة')}>{activated ? `${tr('مفعّلة منذ')} ${formatDateTime(s.activatedAt!)}` : tr('بانتظار الإعداد')}</ReadRow>
             {s.setupMethod && <ReadRow label={tr('طريقة البدء')}>{setupLabels[s.setupMethod] ?? s.setupMethod}</ReadRow>}
             {s.cutoverDate && <ReadRow label={tr('تاريخ البدء')}>{formatDayOnly(s.cutoverDate)}</ReadRow>}
-            {activated && s.setupMethod === 'CLEAN' ? (
+            {activated && isManualBooks(s) ? (
               <Notice>{tr('دفاتر يدوية مستقلة: منفصلة تماما عن المبيعات والمخزون والتحصيل، لا يُرحَّل إليها شيء آليا، وكل قيد فيها يُدخله المحاسب')}</Notice>
             ) : activated ? (
-              <div className="rounded-xl border border-[#F1EBDF] p-3 space-y-2">
-                <p className="text-sm text-[#9A8F7E]">{tr('الترحيل التاريخي')}</p>
-                <BackfillStatusCard
-                  state={(setupQ.data?.activated ? setupQ.data.status.backfillState : s.backfillState) ?? 'NONE'}
-                  progress={setupQ.data?.activated ? setupQ.data.progress : null}
-                  canWrite={canWrite} />
-              </div>
+              <>
+                {/* «ربط الدفاتر»: المربوطة بالنظام تُوصف بيوم ربطها (linkedFrom اختياري من الخادم) فوق تقدّم الترحيل */}
+                {isLinked(s) && <LinkedBooksNote settings={s} />}
+                <div className="rounded-xl border border-[#F1EBDF] p-3 space-y-2">
+                  <p className="text-sm text-[#9A8F7E]">{tr('الترحيل التاريخي')}</p>
+                  <BackfillStatusCard
+                    state={(setupQ.data?.activated ? setupQ.data.status.backfillState : s.backfillState) ?? 'NONE'}
+                    progress={setupQ.data?.activated ? setupQ.data.progress : null}
+                    canWrite={canWrite} />
+                </div>
+              </>
             ) : (
               <>
-                {s.setupMethod !== 'CLEAN' && s.backfillState !== 'NONE' && <ReadRow label={tr('الترحيل التاريخي')}>{backfillLabels[s.backfillState] ?? s.backfillState}</ReadRow>}
+                {!isManualBooks(s) && s.backfillState !== 'NONE' && <ReadRow label={tr('الترحيل التاريخي')}>{backfillLabels[s.backfillState] ?? s.backfillState}</ReadRow>}
                 <div className="flex flex-wrap gap-2">
                   <Link to={ledgerHref('')} className="btn-primary inline-flex items-center gap-1.5">{tr('معالج الإعداد')}</Link>
                 </div>
@@ -453,11 +461,11 @@ export default function SettingsPage() {
           {/* 8. تقييم المخزون */}
           <Section n={8} id="inventory" icon={<Boxes size={15} />} title={tr('تقييم المخزون')}>
             <div className="grid gap-3 sm:grid-cols-3">
-              <Field label={tr('طريقة الجرد')} hint={frozen('inventoryMode') ? frozenHint : undefined}>
+              <Field label={tr('طريقة الجرد')} hint={frozen('inventoryMode') ? frozenHint : inventoryModes.includes('PERPETUAL') ? undefined : tr('الجرد المستمر يتاح مع ربط الدفاتر بالنظام')}>
                 <select className="input" value={val('inventoryMode')} disabled={ro || frozen('inventoryMode')}
                   onChange={e => setDraft(d => ({ ...d, inventoryMode: e.target.value as 'PERIODIC' | 'PERPETUAL', ...(e.target.value === 'PERIODIC' ? { perpetualFromDate: null } : {}) }))}>
                   <option value="PERIODIC">{tr('جرد دوري')}</option>
-                  <option value="PERPETUAL">{tr('جرد مستمر')}</option>
+                  {inventoryModes.includes('PERPETUAL') && <option value="PERPETUAL">{tr('جرد مستمر')}</option>}
                 </select>
               </Field>
               {val('inventoryMode') === 'PERPETUAL' && (

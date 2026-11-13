@@ -8,6 +8,7 @@
  * بلا prisma: المخزنان يُحقنان (scheduler.ts يبني تنفيذي Prisma).
  */
 import { randomUUID } from 'node:crypto';
+import { isManualBooks } from '../mode';
 import {
   RECONCILED_SOURCES,
 } from './desired';
@@ -67,6 +68,15 @@ export function safetyNetFn(store: ReconcilerStore, opts: { intervalMs?: number;
   };
 }
 
+/**
+ * «إيقاف مؤقت» الترحيل (§5.6، «ربط الدفاتر» L0 A5): معناه القائم «لا قراءة لصفوف المصادر إطلاقاً» — لا مُطابِق ولا شبكة أمان.
+ * ويمتدّ الآن إلى المُرحِّل: لا يُرحَّل حدثٌ واحد ولو كان مُدرجاً قبل الإيقاف (والمُرحِّل يقرأ المصادر حين تغيب الحمولة)،
+ * فالإيقاف وعَلَم المجموعة هما وحدهما «المكابح» في الدفاتر المربوطة (لا فكّ للربط).
+ */
+export function isPostingPaused(settings: Pick<PosterSettings, 'backfillState'>): boolean {
+  return settings.backfillState === 'PAUSED';
+}
+
 function skippedResult(tenantId: string, skipped: TenantTickResult['skipped'], settings: PosterSettings | null, pendingEvents: number, started: number, clock: () => number): TenantTickResult {
   return {
     tenantId, leaseAcquired: false, skipped, reconcile: [], post: null, pendingEvents,
@@ -75,8 +85,9 @@ function skippedResult(tenantId: string, skipped: TenantTickResult['skipped'], s
 }
 
 /**
- * نبضة شركة: NOT_ACTIVATED/SUITE_DISABLED (المؤشرات لا تتقدم أثناء الإطفاء §5.7) ⇒ IN_PROCESS ⇒ LEASE_HELD ⇒
- * المُطابِق ثم المُرحِّل ضمن budget، ثم lastSyncAt وفك العقد.
+ * نبضة شركة: NOT_ACTIVATED/SUITE_DISABLED (المؤشرات لا تتقدم أثناء الإطفاء §5.7) ⇒ MANUAL_LEDGER (الدفاتر اليدوية) ⇒
+ * IN_PROCESS ⇒ LEASE_HELD ⇒ المُطابِق ثم المُرحِّل ضمن budget، ثم lastSyncAt وفك العقد. الإيقاف المؤقت (PAUSED) ⇒ العقد يُؤخذ
+ * ويُفكّ ولا شيء بينهما (لا مُطابِق ولا شبكة أمان ولا مُرحِّل ولا lastSyncAt).
  */
 export async function runTenantTick(deps: TickDeps, tenantId: string, budget: SyncBudget): Promise<TenantTickResult> {
   const { store } = deps;
@@ -91,7 +102,7 @@ export async function runTenantTick(deps: TickDeps, tenantId: string, budget: Sy
 // الدفاتر اليدوية المستقلة (أمر المالك، ٢٨ سبتمبر ٢٠٢٦): «اجعل الدفاتر مفصولة بشكل كامل عن المبيعات والمخزون وكل شيء، وكل شيء
 // فيها يدوي». التفعيل بطريقة CLEAN = دفاتر لا يدخلها شيء من التشغيل آلياً، قديماً ولا جديداً.
   // فلا مُطابِق يمسح مستندات التشغيل ولا مُرحِّل يرحّلها — لا في النبضة ولا في «مزامنة الآن».
-  if (settings.setupMethod === 'CLEAN') return skippedResult(tenantId, 'MANUAL_LEDGER', settings, 0, started, clock);
+  if (isManualBooks(settings)) return skippedResult(tenantId, 'MANUAL_LEDGER', settings, 0, started, clock);
   if (inProcess.has(tenantId)) {
     return skippedResult(tenantId, 'IN_PROCESS', settings, await store.countPendingEvents(tenantId), started, clock);
   }
@@ -103,6 +114,18 @@ export async function runTenantTick(deps: TickDeps, tenantId: string, budget: Sy
     leased = await store.tryAcquireLease(tenantId, token);
     if (!leased) return skippedResult(tenantId, 'LEASE_HELD', settings, await store.countPendingEvents(tenantId), started, clock);
 
+    // الإيقاف المؤقت يحرس النبضة كلها هنا لا عبر المُطابِق المحقون وحده (backfillReconcilerFn يحترمه، وreconcilerFn لا):
+    // لا مُطابِق ولا شبكة أمان ولا مُرحِّل (لا قيد ولا قراءة مصدر). ولا يُحدَّث lastSyncAt — لم يُزامَن شيء، فتبقى صفوف ما
+    // بعد آخر مزامنة فعلية «معلّقة» في الفحوص (loadPendingPartners) بدل أن تُحسب مطابَقة
+    if (isPostingPaused(settings)) {
+      return {
+        tenantId, leaseAcquired: true, skipped: null, reconcile: [], post: null,
+        pendingEvents: await store.countPendingEvents(tenantId),
+        backfillState: settings.backfillState,
+        durationMs: clock() - started,
+      };
+    }
+
     const dbNow = await store.dbNow();
     let reconcile: ReconcileSourceResult[] = [];
     if (deps.reconcile) {
@@ -113,8 +136,7 @@ export async function runTenantTick(deps: TickDeps, tenantId: string, budget: Sy
         log('reconcile failed', { tenantId, error: (e as Error)?.message });
       }
     }
-    // «إيقاف مؤقت» الترحيل التاريخي (§5.6): لا قراءة لصفوف المصادر إطلاقاً، ومنها مسح شبكة الأمان
-    if (deps.safetyNet && settings.backfillState !== 'PAUSED' && !budgetExhausted(budget)) {
+    if (deps.safetyNet && !budgetExhausted(budget)) {
       try {
         await deps.safetyNet(tenantId, budget, { settings, dbNow });
       } catch (e) {

@@ -83,8 +83,10 @@ test('المزامنة: lineRef في select بنود invoices وvan-loads وware
   assert.ok(invCols.includes("'lineRef'"), 'INVOICE_ITEM_COLS');
   for (const res of ['van-loads', 'warehouse-entries']) {
     const block = resourceBlock(res);
-    const select = block.slice(block.indexOf('select:'), block.indexOf('\n', block.indexOf('select:')));
-    assert.ok(select.includes("'lineRef'"), `${res}: lineRef في select البنود`);
+    // سطر select البنود نفسه (select المورد قد يمتدّ أسطراً: warehouse-entries منذ «ربط الدفاتر»)، لا lotSelect (items: { select: { …)
+    const sel = block.indexOf('items: { select: pick(');
+    const select = block.slice(sel, block.indexOf('\n', sel));
+    assert.ok(sel > 0 && select.includes("'lineRef'"), `${res}: lineRef في select البنود`);
   }
   for (const res of ['invoices', 'van-loads', 'warehouse-entries']) {
     const block = resourceBlock(res);
@@ -146,10 +148,11 @@ test('الردود: lineRef في ردود البنود الموثّقة، وسط
   // الخادم: كل بنود السطر المنقسم تُكتب بمرجعه (splitByLine)
   const wh = read('routes', 'warehouse.ts');
   const at = wh.indexOf('const lineRef = i.lineRef != null');
-  const split = wh.slice(at, wh.indexOf('}),\n      },\n    });', at));
+  // نهاية entryData — صارت دالّةً بجسم منذ «ربط الدفاتر» (١٣ نوفمبر ٢٠٢٦): بنود الشراء (lineBuy/rowBuy) بعد المرجع
+  const split = wh.slice(at, wh.indexOf('}),\n        },\n      };\n    };', at));
   assert.ok(at > 0 && split.length > 100, 'entryData في warehouse.ts');
-  assert.match(split, /return split\.map\(\(r\) => \{[^]*?lotId: r\.lotId, \.\.\.lineRef \};/, 'بنود السطر المنقسم بلا مرجعه');
-  assert.match(split, /return \[\{[^]*?\.\.\.lineRef,\s*\}\];/, 'السطر الواحد بلا مرجعه');
+  assert.match(split, /return split\.map\(\(r\) => \{[^]*?lotId: r\.lotId, \.\.\.lineRef(?:, \.\.\.rowBuy)? \};/, 'بنود السطر المنقسم بلا مرجعه');
+  assert.match(split, /return \[\{[^]*?\.\.\.lineRef,\s*(?:\.\.\.lineBuy,\s*)?\}\];/, 'السطر الواحد بلا مرجعه');
   // والحركات: المرجع حاضرٌ دائماً في /movements — للحركة كما حُفظ، وللفاتورة كذلك إلا خارج النطاق (null كرقمها وعميلها)
   assert.ok((read('routes', 'vanStock.ts').match(/lineRef: (?:[^,]*?\()?i\.lineRef \?\? null/g) ?? []).length >= 2, '/movements بلا lineRef');
 });

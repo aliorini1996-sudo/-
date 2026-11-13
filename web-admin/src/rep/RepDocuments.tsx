@@ -359,7 +359,7 @@ export interface WarehouseNoticeItem {
 export interface WarehouseNoticeDoc {
   kind: 'warehouseNotice';
   company?: Company | null;
-  /** RECEIVE | ADJUST */
+  /** RECEIVE | ADJUST | RETURN («ربط الدفاتر» L1: مرتجعٌ للمورّد — كمياته سالبة فيُطبع كالتسوية بإشارتها) */
   entryType: string;
   /** مرجعٌ قصير مشتقّ من معرّف الحركة */
   ref: string;
@@ -1941,7 +1941,9 @@ export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: Wareho
   const th: React.CSSProperties = { background: brand, color: '#fff', padding: '9px 6px', fontSize: 12, fontWeight: 600, textAlign: 'center' };
   const td: React.CSSProperties = { padding: '7px 6px', fontSize: 11.5, textAlign: 'center', borderBottom: '1px solid #eef2f7' };
   const receive = doc.entryType === 'RECEIVE';
-  const title = receive ? tr('إشعار وارد بضاعة') : tr('إشعار تسوية مخزون');
+  // مرتجع المورّد: جدوله وملخّصه كالتسوية (نقصٌ بإشارته)، وعنوانه ومورّده له — لا «تسوية» تُخفي أنّ البضاعة رُدّت لمورّد
+  const supplierReturn = doc.entryType === 'RETURN';
+  const title = receive ? tr('إشعار وارد بضاعة') : supplierReturn ? tr('إشعار مرتجع للمورد') : tr('إشعار تسوية مخزون');
   const adj = adjustTotals(doc.items);
   // وحداتٌ مختلطة: الوارد والزيادة والنقص لكل وحدة (qtyByUnit) — وإلا الأرقام كما كانت
   const unitTotal = (pick: (q: number) => number, n: number) => {
@@ -1973,7 +1975,7 @@ export const PrintableWarehouseNotice = forwardRef<HTMLDivElement, { doc: Wareho
         </div>
         <div style={{ flex: 1, background: receive ? '#f0fdf4' : '#faf5ff', borderRadius: 10, padding: 14 }}>
           <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('ملخص الحركة')}</div>
-          {receive && doc.supplier && <InfoBox label={tr('المورد')} value={doc.supplier} />}
+          {(receive || supplierReturn) && doc.supplier && <InfoBox label={tr('المورد')} value={doc.supplier} />}
           {/* أصناف الحركة لا بنودها (warehouseNoticeProductCount) — كسجلّ الجوال (MWarehouse) */}
           <InfoBox label={tr('عدد الأصناف')} value={String(warehouseNoticeProductCount(doc.items))} />
           {/* التسوية تُطبع زيادتها ونقصها منفصلين: صافيها يخفي حركةً نقلت كمّيات */}
@@ -2744,7 +2746,7 @@ export function DocumentResult({ doc: issued, onClose, showLotsStrip = false }: 
     : doc.kind === 'stockRequest' ? `${tr('موجه إلى')} ${tr(stockRequestToLabel(doc.to))}`
     : doc.customer.name;
   const warehouseLabel = doc.kind === 'warehouseNotice'
-    ? (doc.entryType === 'RECEIVE' ? tr('إشعار وارد') : tr('إشعار تسوية'))
+    ? (doc.entryType === 'RECEIVE' ? tr('إشعار وارد') : doc.entryType === 'RETURN' ? tr('إشعار مرتجع للمورد') : tr('إشعار تسوية'))
     : '';
   const noticeLabel = doc.kind === 'loadNotice'
     ? (doc.movementKind === 'UNLOAD' ? tr('إشعار تنزيل') : doc.movementKind === 'ADJUST' ? tr('إشعار تسوية') : tr('إشعار تحميل'))

@@ -53,7 +53,7 @@ import {
 } from '../services/lots';
 import { randomUUID } from 'node:crypto';
 import {
-  ITEM_LOTS_INCLUDE, allocateLotsInTx, assertLockedStillUntracked, capsGate, clearStandardInline, einvoiceView, isReplayRequest, issuePhase2InRegime, lineRefColumn, lotPrecheck, regimeSettingsOf,
+  ITEM_LOTS_INCLUDE, allocateLotsInTx, assertLockedStillUntracked, capsGate, clearStandardInline, einvoiceView, invoiceCurrencyOf, isReplayRequest, issuePhase2InRegime, lineRefColumn, lotPrecheck, regimeSettingsOf,
   PRODUCT_LOCK_TIMEOUT, Phase2ProductUnitsBusy, Phase2ProductUnitsChanged, productUnitsBusyResult, productUnitsChangedResult,
   type ClientCapsHeaders, type EinvoiceView, type Phase2IssuanceContext, type Phase2IssuanceDeps, type Phase2LedgerHooks, type Phase2LotHooks, type Phase2Result, type Phase2Tx,
 } from './invoicesZatca';
@@ -875,6 +875,8 @@ async function stampNote(
                 ...(lotInvoiceId && { id: lotInvoiceId }),
                 tenantId: ctx.tenantId,
                 number: record.number,
+                // «ربط الدفاتر» L1: عملة الإشعار لحظة إصداره من صفّ البائع المحمَّل أصلاً (invoiceCurrencyOf — SAR في المرحلة الثانية)
+                currency: invoiceCurrencyOf(seller),
                 clientRef: ctx.clientRef ?? undefined,
                 clientCreatedAt: ctx.clientCreatedAt && !ctx.viaApiKey ? new Date(ctx.clientCreatedAt) : undefined,
                 customerId: locked.original.customerId,

@@ -18,6 +18,7 @@ import {
   PRE_CUTOVER_BOX_NOS, preCutoverBoxKey,
 } from './setupLogic';
 import { Notice, StepSection } from './setupUi';
+import { isManualMethod } from '../../../lib/ledger/bookMode';
 
 /**
  * خطوتا المعالج الأوليان (§5.6): الأساس، والشجرة (الأسماء وفئات المنتجات ومسار كل طريقة قبض). خطوة «طريقة البدء»
@@ -251,7 +252,8 @@ export function Step3Tree({ state, canWrite, busy, onSave, onBack }: StepProps) 
   const accounts = accountsQ.data ?? [];
   const hasAccounts = accounts.length > 0;
   // الدفاتر اليدوية المستقلة (CLEAN): لا ربط لفئات المنتجات ولا مسار لطرق القبض — كلاهما لترحيل التشغيل الآلي الذي لم يعد
-  const manual = state.effective.method === 'CLEAN';
+  // («ربط الدفاتر» L0: الحكم بـisManualMethod من lib/ledger/bookMode.ts — المربوطة تعرض الربط والمسار كالتفعيلات السابقة)
+  const manual = isManualMethod(state.effective.method);
   const catsQ = useQuery({
     queryKey: ledgerSetupKeys.categories,
     queryFn: async () => (await ledgerSetupApi.categories.list()).data.data,

@@ -59,6 +59,8 @@ const PayPage = lazy(() => import('./pages/PayPage'));
 const EinvoicePublicPage = lazy(() => import('./pages/EinvoicePublicPage'));
 const VanStockPage = lazy(() => import('./pages/VanStockPage'));
 const CompanyWarehousePage = lazy(() => import('./pages/CompanyWarehousePage'));
+// «الموردون» («ربط الدفاتر» L1) — كسولة: سجلّ الموردين وكشوفهم وسندات الصرف، لشركةٍ مخزونها مفعّل (الصفحة تفحص العَلَم والمحاسبة)
+const SuppliersPage = lazy(() => import('./pages/suppliers/SuppliersPage'));
 // «تتبّع اللوط» — كسولة: لا يُحمَّل كودها لشركةٍ لم يفعّل المالك الميزة لها (الصفحة نفسها تفحص العَلَم والمحاسبة)
 const LotsPage = lazy(() => import('./pages/LotsPage'));
 const DailyReportsPage = lazy(() => import('./pages/DailyReportsPage'));
@@ -367,6 +369,7 @@ export default function App() {
           <Route path="reports" element={<PermissionRoute permission="canViewReports"><ReportsPage /></PermissionRoute>} />
           <Route path="van-stock" element={<PermissionRoute permission="canManageVanStock"><VanStockPage /></PermissionRoute>} />
           <Route path="warehouse" element={<PermissionRoute permission="canManageVanStock"><CompanyWarehousePage /></PermissionRoute>} />
+          <Route path="suppliers" element={<PermissionRoute permission="canManageVanStock"><SuppliersPage /></PermissionRoute>} />
           <Route path="lots" element={<PermissionRoute permission="canManageVanStock"><LotsPage /></PermissionRoute>} />
           <Route path="daily-reports" element={<DailyReportsPage />} />
           <Route path="tracking" element={<PermissionRoute permission="canManageTracking"><TrackingPage /></PermissionRoute>} />

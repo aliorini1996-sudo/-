@@ -1,6 +1,6 @@
 /**
  * فهرس مسارات المنصة في مستند «الربط البرمجي API» — مستخرجٌ من مخططات zod ومعالجات كل موجّه
- * (العملاء، المنتجات، قوائم الأسعار، الفواتير، السندات، المناديب، المخزون، تتبّع LOT، الاستيراد، الميدان، التقارير، لوكيشن، طرق الدفع، الفرق). يُرسم في
+ * (العملاء، المنتجات، قوائم الأسعار، الفواتير، السندات، المناديب، المخزون، الموردون وسندات الصرف، تتبّع LOT، الاستيراد، الميدان، التقارير، لوكيشن، طرق الدفع، الفرق). يُرسم في
  * components/ApiDocs.tsx، ومعه في آخر الملف أدلّة ربط «لوكيشن» و«طرق الدفع» و«مخزون الشركة» و«تتبّع LOT» و«حركات المخزون من نظامكم» و«قوائم الأسعار» خطوةً بخطوة (API_DOC_GUIDES).
  * يُحدَّث حين يتغيّر عقد مسار؛ واختبار apiDocsCatalog.test.ts يتحقّق أن كل مسار مذكور هنا مركَّب فعلاً في الخادم **في ملف
  * موجّهه** (ومنها الموجّهات المتداخلة تحت /company)، وأن كل مسار في موجّهات الميزات الحديثة موثّقٌ هنا أو مستثنى بسببه.
@@ -1400,13 +1400,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, archived:false} (لا يوجد data؛ archived للتوافق ودائماً false) — 404 'الصنف غير موجود'",
+    "response": "{success:true, archived:false} (لا يوجد data؛ archived للتوافق ودائماً false) — 404 'الصنف غير موجود' — 409 {success:false, code:'BOOKS_LINKED_NO_DELETE', message:'دفاتر هذه الشركة مربوطة بالنظام: للصنف حركات مرحَّلة (فواتير أو مستودع أو تحميل سيارات) فلا يُحذف — أوقِفه بدلاً من الحذف'} في الشركة ذات الدفاتر المربوطة",
     "rules": [
      "الحذف حقيقي في معاملة واحدة تحت قفل الصنف: بنود الفواتير تبقى ويُكتب اسم الصنف في itemName لما ليس فيه اسم ثم productId=null، وتُحذف معه وحداته وبنود تحميل السيارات والوارد للمستودع وتشغيلاته («تتبّع LOT»). وقد ينتظر القفل عملية تشغيلات جارية فيرجع 503 {code:'LOT_BUSY'}: أعد المحاولة",
      "في الحالتين تُحذف نهائياً شرائح أسعاره وأسعار العملاء الخاصة به وأسعاره الثابتة وقواعده في «قوائم الأسعار» ولا تعود",
      "بعد الحذف: GET /products/:id يعيد 404، ويختفي من /v1/sync/products/ids، وتُعرض بنود فواتيره القديمة باسمه (product.name من itemName و product.id=null)",
      "كود الصنف المحذوف يصير حراً فيمكن إنشاء صنف جديد بالكود نفسه. والأصناف المؤرشفة قبل ٥ نوفمبر ٢٠٢٦ تبقى كما هي وأكوادها محجوزة",
-     "وحدات الصنف (units) تُحذف معه، وبنود فواتيره تحمل لقطة وحدتها (unitName/unitFactor) فتُقرأ بها"
+     "وحدات الصنف (units) تُحذف معه، وبنود فواتيره تحمل لقطة وحدتها (unitName/unitFactor) فتُقرأ بها",
+     "«الدفاتر المربوطة» (ربط الدفاتر بكامل النظام): في الشركة التي فعّلت ربط دفاترها بالنظام لا يُحذف صنفٌ له أي بند فاتورة أو حركة مستودع أو تحميل سيارة — يُرد 409 BOOKS_LINKED_NO_DELETE بلا أي حذف، والبديل إيقافه (PUT /products/:id بـstatus:'INACTIVE'). الفحص بعد قفل الصنف داخل معاملة الحذف نفسها. والصنف بلا أي حركة يُحذف كما سبق، والشركة ذات الدفاتر اليدوية أو بلا دفاتر لا يتغيّر لها شيء"
     ],
     "example": ""
    },
@@ -1791,6 +1792,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "requireAdminPermission('canManageProducts')",
      "requireAdmin — الدور ADMIN أو MANAGER أو ACCOUNTANT",
      "حارس الصلاحية قبل قراءة الجسم، بالترتيب: (١) مفتاح API ⇒ 403 {success:false, code:'CONVERT_BASE_INTERACTIVE_ONLY', message:'إضافة وحدة فرعية أصغر تتم من لوحة الإدارة وحدها — لا عبر مفتاح API'} دائماً ولو أصدره مالك المنصّة. (٢) جلسة الدعم الفني (المالك) تمرّ. (٣) مستخدمو شركةٍ لم يفتحها لها مالك المنصّة ⇒ 403 CONVERT_BASE_OWNER_ONLY (علم الشركة مطفأ افتراضياً ويُطلب من الدعم الفني، ويُقرأ من القاعدة في كل طلب). (٤) دورٌ غير ADMIN وMANAGER أو حسابٌ موقوف ⇒ 403 CONVERT_BASE_ROLE_FORBIDDEN. (٥) مستخدمٌ مقيّد النطاق ⇒ 403 CONVERT_BASE_SCOPED_USER. (٦) صلاحية الأصناف أو الفواتير أو مخزون السيارات false ⇒ 403 CONVERT_BASE_FORBIDDEN",
+     "«الدفاتر المربوطة»: بعد حارس الصلاحية وقبل قراءة الجسم، الشركة التي ربطت دفاترها بالنظام ⇒ 409 {success:false, code:'BOOKS_LINKED_BASE_LOCKED', message} للتنفيذ والمعاينة (dryRun) معاً",
      "صنفٌ له قيد وحدة مندوب (repSaleUnit أو repReturnUnit غير ANY) يُرفض 409 {code:'REP_UNIT_RULE_SET'}: التحويل يغيّر معنى الصغرى والكبرى، فيُزال القيد أولاً",
      "مفتاح قراءة فقط يُرفض 403 API_KEY_FORBIDDEN"
     ],
@@ -1857,7 +1859,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "إقرارٌ بتغيّر معنى قواعد «قوائم الأسعار» المحسوبة بالوحدة الرئيسية: يلزم حين لا تبقى الرئيسية بحجمها بعد التحويل (معاملها بعده لا يساوي معاملها قبله × factor، أي keepOldBaseAsPrimary=false لصنفٍ بلا رئيسية) والصنف تشمله في أي قائمة قاعدةُ فئته بسعر ثابت أو بحدّ أدنى للكمية، أو قاعدةُ كل الأصناف أو قاعدتُه هو بحدّ أدنى، وإلا 409 {success:false, code:'PRICE_RULES_UNIT_ACK', message, rulesCount}. ولا يُطلب مع dryRun: المعاينة تعدّ هذه القواعد في priceRulesAffected"
      }
     ],
-    "response": "403 {success:false, code:'CONVERT_BASE_INTERACTIVE_ONLY', message} لكل طلب مفتاح. ولجلسة لوحة الإدارة المسموح لها: {success:true, data:Product مع category وpriceTiers وunits وprimaryUnitId وbaseConvertedAt، converted:{factor, from, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, priceListItems?, priceListRules?, vanLoadItemLots?, invoiceItemLots?, lotRelabels?, conversionId}} وأعداد converted هي الصفوف المعاد كتابتها في كل جدول، وpriceListItems (أسعار الصنف الثابتة في «قوائم الأسعار») تظهر حين يكون للصنف سعرٌ ثابت في قائمةٍ منها وحدها، وpriceListRules (قواعد الصنف في القوائم) حين يمسّ التحويل قاعدةً منها وحدها، والثلاثة الاختيارية الأخرى (صفوف تشغيلات الصنف) تظهر حين يمسّ التحويل صفوفاً منها وحدها، وconversionId معرّف صفّ سجلّ التحويلات. ومع dryRun: {success:true, dryRun:true, erpLinked, apiKeys:{write, readOnly}, primaryAfter:<اسم الوحدة الرئيسية بعد التحويل>|null, priceRulesAffected?, converted:{factor, from, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, priceListItems?, priceListRules?, …}} بلا كتابة، وpriceRulesAffected عدد قواعد «قوائم الأسعار» التي يتغيّر معناها بهذا التحويل فيطلب التنفيذ إقرارها: تحضر حين يزيد على 0 وحده، وتغيب حين تبقى الرئيسية بحجمها أو لا تشمل الصنف قاعدةٌ بالوحدة الرئيسية (فشكل المعاينة كما كان) — 403 {code:'CONVERT_BASE_OWNER_ONLY' | 'CONVERT_BASE_ROLE_FORBIDDEN' | 'CONVERT_BASE_SCOPED_USER' | 'CONVERT_BASE_FORBIDDEN'} — 409 {success:false, code:'CONVERT_BASE_ERP_ACK', erpLinked:true, message} و409 {success:false, code:'CONVERT_BASE_API_ACK', apiKeys:{write, readOnly}, message} بلا إقرارهما (ولا يُطلبان مع dryRun) — 409 {success:false, code:'PRICE_RULES_UNIT_ACK', message, rulesCount} بلا acknowledgePriceRules حين لا تبقى الرئيسية بحجمها لصنفٍ تشمله قواعد بالوحدة الرئيسية — 409 {code:'REP_UNIT_RULE_SET'} لصنفٍ له قيد وحدة مندوب — 409 {success:false, code:'BASE_UNIT_CHANGED', message} — 409 {code:'BASE_NAME_RETIRED'} — 400 {code:'PRODUCT_UNITS_INVALID', message} — 404 PRODUCT_NOT_FOUND — 503 {code:'LOT_BUSY'} لصنفٍ متتبَّع التشغيلات مشغولٍ بعملية أخرى: أعد المحاولة",
+    "response": "403 {success:false, code:'CONVERT_BASE_INTERACTIVE_ONLY', message} لكل طلب مفتاح. ولجلسة لوحة الإدارة المسموح لها: {success:true, data:Product مع category وpriceTiers وunits وprimaryUnitId وbaseConvertedAt، converted:{factor, from, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, priceListItems?, priceListRules?, vanLoadItemLots?, invoiceItemLots?, lotRelabels?, conversionId}} وأعداد converted هي الصفوف المعاد كتابتها في كل جدول، وpriceListItems (أسعار الصنف الثابتة في «قوائم الأسعار») تظهر حين يكون للصنف سعرٌ ثابت في قائمةٍ منها وحدها، وpriceListRules (قواعد الصنف في القوائم) حين يمسّ التحويل قاعدةً منها وحدها، والثلاثة الاختيارية الأخرى (صفوف تشغيلات الصنف) تظهر حين يمسّ التحويل صفوفاً منها وحدها، وconversionId معرّف صفّ سجلّ التحويلات. ومع dryRun: {success:true, dryRun:true, erpLinked, apiKeys:{write, readOnly}, primaryAfter:<اسم الوحدة الرئيسية بعد التحويل>|null, priceRulesAffected?, converted:{factor, from, invoiceItems, vanLoadItems, warehouseEntryItems, stockRequestItems, customerPrices, priceTiers, priceListItems?, priceListRules?, …}} بلا كتابة، وpriceRulesAffected عدد قواعد «قوائم الأسعار» التي يتغيّر معناها بهذا التحويل فيطلب التنفيذ إقرارها: تحضر حين يزيد على 0 وحده، وتغيب حين تبقى الرئيسية بحجمها أو لا تشمل الصنف قاعدةٌ بالوحدة الرئيسية (فشكل المعاينة كما كان) — 403 {code:'CONVERT_BASE_OWNER_ONLY' | 'CONVERT_BASE_ROLE_FORBIDDEN' | 'CONVERT_BASE_SCOPED_USER' | 'CONVERT_BASE_FORBIDDEN'} — 409 {success:false, code:'CONVERT_BASE_ERP_ACK', erpLinked:true, message} و409 {success:false, code:'CONVERT_BASE_API_ACK', apiKeys:{write, readOnly}, message} بلا إقرارهما (ولا يُطلبان مع dryRun) — 409 {success:false, code:'PRICE_RULES_UNIT_ACK', message, rulesCount} بلا acknowledgePriceRules حين لا تبقى الرئيسية بحجمها لصنفٍ تشمله قواعد بالوحدة الرئيسية — 409 {code:'REP_UNIT_RULE_SET'} لصنفٍ له قيد وحدة مندوب — 409 {success:false, code:'BASE_UNIT_CHANGED', message} — 409 {code:'BASE_NAME_RETIRED'} — 400 {code:'PRODUCT_UNITS_INVALID', message} — 404 PRODUCT_NOT_FOUND — 503 {code:'LOT_BUSY'} لصنفٍ متتبَّع التشغيلات مشغولٍ بعملية أخرى: أعد المحاولة — 409 {success:false, code:'BOOKS_LINKED_BASE_LOCKED', message:'دفاتر هذه الشركة مربوطة بالنظام: إضافة وحدة أصغر من وحدة الأساس تعيد كتابة كميات مستندات مرحَّلة فلا تُسمح — أضف وحدةً أكبر، أو أنشئ صنفاً جديداً بالوحدة الأصغر'} في الشركة ذات الدفاتر المربوطة",
     "rules": [
      "كل الخطوات في معاملة واحدة بقفل صفّ الصنف: يتحوّل تاريخ الصنف كله أو لا شيء",
      "بنود الصنف في الفواتير والتحميلات والوارد وطلبات البضاعة: unitName يأخذ اسم الأساس القديم إن كان فارغاً، وunitFactor يُضرب بـfactor، وbaseQty يُعاد حسابه. أما qty وunitPrice وunitCost وlineTotal فلا تتغيّر: «2 كرتون» تبقى مطبوعة كما هي وأساسها 48 حبة. وsuggestedQty وexpectedQty في التحميلات تُضرب بـfactor (بالأساس دائماً)",
@@ -1868,7 +1870,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "كل نجاح يكتب في معاملته صفاً واحداً في سجلّ التحويلات (من، إلى، المعامل، اللحظة، الفاعل) ويختم baseConvertedAt للصنف",
      "حدود الشرائح minQty وmaxQty تُضرب بـfactor مع baseMinQty وbaseMaxQty",
      "لنظامكم: التحويل لا يجريه مفتاحكم ولا يصلكم ردّه، فاكتشفوه من مزامنة /v1/sync/products: baseConvertedAt تغيّر، وunit صار الاسم الجديد، وظهرت في units وحدةٌ باسم وحدة الأساس السابقة معاملها F هو معامل التحويل (وتضاعفت معاملات بقية وحداته بـF). التحويل يحرّك updatedAt للصنف وحده لا للفواتير ولا للتحميلات ولا للوارد، فمزامنة invoices وvan-loads وwarehouse-entries لا تعيد إرسال البنود القديمة بلقطاتها الجديدة: اضربوا baseQty المخزَّن لبنود هذا الصنف فيها بـF، ومعه توزيعها المضمّن للشركة المفعّل لها «تتبّع LOT» (items[].lots[].quantity في invoices وitems[].lots[].qty في van-loads) وإلا انفصل مجموع صفوف البند عن baseQty، أو أعيدوا سحب تلك الموارد من البداية (بلا since). وكميات تشغيلات الصنف بالأساس كذلك وتُضرب بـF داخل التحويل نفسه، ومزامنة /v1/sync/van-load-item-lots و/v1/sync/invoice-item-lots و/v1/sync/lot-relabels بطابع الإنشاء فلا تعيد إرسال الصفوف المضروبة: اضربوا qty (أو quantity) لصفوف هذا الصنف بـF، أو أعيدوا سحب الموارد الثلاثة من البداية (بلا since). ومن بعدها كل كتابة بمفتاحكم على هذا الصنف تحمل expectedBaseName أو baseUnitName (انظر مقدمة المجموعة)، وإلا 400 BASE_UNIT_REQUIRED",
-     "أثناء التحويل (حتى 120 ثانية لصنفٍ كثير التاريخ) تنتظر كتابات الصنف نفسه ٥ ثوانٍ على الأكثر ثم 503 PRODUCT_UNITS_BUSY، وتلك التي التزم التحويل بين قراءتها وكتابتها 409 PRODUCT_UNITS_CHANGED. والأصناف الأخرى لا تنتظر"
+     "أثناء التحويل (حتى 120 ثانية لصنفٍ كثير التاريخ) تنتظر كتابات الصنف نفسه ٥ ثوانٍ على الأكثر ثم 503 PRODUCT_UNITS_BUSY، وتلك التي التزم التحويل بين قراءتها وكتابتها 409 PRODUCT_UNITS_CHANGED. والأصناف الأخرى لا تنتظر",
+     "«الدفاتر المربوطة»: التحويل يعيد كتابة الكمية بوحدة الأساس (baseQty) وكميات التشغيلات في كل فواتير الصنف وتحميلاته وحركات مستودعه، وهي مستندات رُحّلت قيودها — فيُمنع في الشركة التي ربطت دفاترها بالنظام (409 BOOKS_LINKED_BASE_LOCKED) بلا أي كتابة. البديل: إضافة وحدة أكبر (POST /products/:id/units)، أو صنف جديد بالوحدة الأصغر. والشركات الأخرى كما سبق"
     ],
     "example": "{\"newBaseName\":\"قارورة\",\"factor\":24,\"expectedBaseName\":\"كرتون\",\"baseUnitCode\":\"PCE\",\"keepOldBaseAsPrimary\":true,\"dryRun\":true}"
    },
@@ -2560,7 +2563,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[...], pagination:{total, page, limit, pages}}. كل صف فيه أعمدة الفاتورة: id وnumber وtype وstatus وinvoiceDate وdueDate وdeliveryDate وpaymentPlan وpricesIncludeTax وtaxFree («إزالة الضريبة»: true = صدر المستند والشركة بلا ضريبة، وfalse = كما كان) وsubtotal وdiscountPct وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وremainingApplied (في مرتجع المرحلة الأولى المرتبط بفاتورة بيعٍ آجلة: ما أسقطه من متبقّيها لحظة إصداره، وnull لغيره) وreturnReason وreturnToStock وeinvoiceProvider وeinvoiceStatus وeinvoiceQr وclientRef وzatcaPhase وdocumentKind وinvoiceSubtype وissuedAt وoriginalInvoiceId وcreatedAt وlocationId وteamId وpriceListId (قائمة الأسعار التي سُعّر بها المستند، وnull = السعر الأساسي، أو قائمةٌ حُذفت بعدها، أو مستندٌ لا يُختم: الإشعار الدائن المرتبط بفاتورة والإشعار المدين — انظر قاعدة priceListId أدناه). ومعها customer{id,name,phone} وsalesRep{id,name} وlocation{id,name} (ختم موقع المندوب وقت الإصدار، أو null) و_count{items}، وitems عند طلب withItems (كل بند بـlineRef، ومعه lots مع withLots=1 والميزة مفعّلة). الحقل einvoiceSnapshot محذوف من صفوف القائمة",
+    "response": "{success:true, data:[...], pagination:{total, page, limit, pages}}. كل صف فيه أعمدة الفاتورة: id وnumber وtype وstatus وinvoiceDate وdueDate وdeliveryDate وpaymentPlan وpricesIncludeTax وtaxFree («إزالة الضريبة»: true = صدر المستند والشركة بلا ضريبة، وfalse = كما كان) وsubtotal وdiscountPct وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وremainingApplied (في مرتجع المرحلة الأولى المرتبط بفاتورة بيعٍ آجلة: ما أسقطه من متبقّيها لحظة إصداره، وnull لغيره) وreturnReason وreturnToStock وeinvoiceProvider وeinvoiceStatus وeinvoiceQr وclientRef وzatcaPhase وdocumentKind وinvoiceSubtype وissuedAt وoriginalInvoiceId وcreatedAt وlocationId وteamId وpriceListId (قائمة الأسعار التي سُعّر بها المستند، وnull = السعر الأساسي، أو قائمةٌ حُذفت بعدها، أو مستندٌ لا يُختم: الإشعار الدائن المرتبط بفاتورة والإشعار المدين — انظر قاعدة priceListId أدناه). ومعها customer{id,name,phone} وsalesRep{id,name} وlocation{id,name} (ختم موقع المندوب وقت الإصدار، أو null) و_count{items}، وitems عند طلب withItems (كل بند بـlineRef، ومعه lots مع withLots=1 والميزة مفعّلة). الحقل einvoiceSnapshot محذوف من صفوف القائمة. وكل صف يحمل currency (رمز عملة المستند لحظة إصداره، أو null للمستندات الأقدم = عملة الشركة الحالية)",
     "rules": [
      "الترتيب حسب createdAt تنازلياً، والترقيم بالأسلوب skip=(page-1)*limit",
      "هذه القائمة لا تشترط X-FS-Caps حتى للصفوف المربوطة بالمرحلة الثانية، بخلاف GET /invoices/:id",
@@ -2568,7 +2571,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "لا ترسل قيماً سالبة لـpage أو limit، لأنها لا تُصحَّح وقد تسبب خطأ 500",
      "from وto هنا بمنتصف ليل UTC، بخلاف ملخّص لوكيشن وسجل التحميلات وتقرير طرق الدفع التي تُحسب بأيام الشركة المحلية — فقد يختلف مجموع يومٍ واحد بينهما بما وقع بين منتصف الليل والثالثة فجراً بتوقيت الرياض",
      "teamId (ميزة «الفرق») عمود في كل صف: الفريق الذي وُسمت به الفاتورة أو null، وأسماء الفرق من GET /company/teams",
-     "priceListId («قوائم الأسعار») عمود في كل صف: قائمة الأسعار التي سُعّر بها المستند وقت الإصدار، وnull = السعر الأساسي أو قائمةٌ حُذفت بعدها، وأسماء القوائم من GET /price-lists. المرتجع في المرحلة الأولى يُختم كالبيع (المرسلة، وإلا القائمة الافتراضية: قائمة العميل، وإلا قائمة مندوب المستند الافتراضية، وإلا السعر الأساسي) ولو ارتبط بفاتورة بيع، وكذلك الإشعار الدائن برقم فاتورة أصلية يدوي (مرتجع بلا originalInvoiceId في المرحلة الثانية). أما الإشعار الدائن المرتبط بفاتورة (ومنه المرتجع المرتبط في المرحلة الثانية) والإشعار المدين فلا يُختمان (null)"
+     "priceListId («قوائم الأسعار») عمود في كل صف: قائمة الأسعار التي سُعّر بها المستند وقت الإصدار، وnull = السعر الأساسي أو قائمةٌ حُذفت بعدها، وأسماء القوائم من GET /price-lists. المرتجع في المرحلة الأولى يُختم كالبيع (المرسلة، وإلا القائمة الافتراضية: قائمة العميل، وإلا قائمة مندوب المستند الافتراضية، وإلا السعر الأساسي) ولو ارتبط بفاتورة بيع، وكذلك الإشعار الدائن برقم فاتورة أصلية يدوي (مرتجع بلا originalInvoiceId في المرحلة الثانية). أما الإشعار الدائن المرتبط بفاتورة (ومنه المرتجع المرتبط في المرحلة الثانية) والإشعار المدين فلا يُختمان (null)",
+     "currency: عملة المستند المختومة لحظة إصداره (SAR مثلاً). null للمستندات الصادرة قبل الختم وتعني عملة الشركة الحالية"
     ],
     "example": ""
    },
@@ -2712,7 +2716,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "الحقل signature يحمل صور التوقيع PNG بصيغة base64 وقد يكون حجمها كبيراً",
      "الحقل einvoice.qr هو رمز QR الذي يُطبع، والحقل printable يبين هل يجوز تسليم المستند فاتورةً ضريبية. القياسية لا تُطبع قبل اعتماد الهيئة",
-     "البند يُعرض بلقطة وحدته «qty unitName». وفي هذا المسار unitName لا يكون null: بندٌ بلا لقطة (كُتب بوحدة الأساس) يُملأ unitName فيه باسم وحدة الأساس الحالية product.unit، فاعرف بند الأساس بـunitFactor = 1 لا بـunitName (أما by-client-ref وردّ الإصدار والمزامنة فتعيد null كما خُزّن). وproduct.units لمعرفة هل وحدة البند ما زالت نشطة. وbaseQty = qty × unitFactor بوحدة الأساس"
+     "البند يُعرض بلقطة وحدته «qty unitName». وفي هذا المسار unitName لا يكون null: بندٌ بلا لقطة (كُتب بوحدة الأساس) يُملأ unitName فيه باسم وحدة الأساس الحالية product.unit، فاعرف بند الأساس بـunitFactor = 1 لا بـunitName (أما by-client-ref وردّ الإصدار والمزامنة فتعيد null كما خُزّن). وproduct.units لمعرفة هل وحدة البند ما زالت نشطة. وbaseQty = qty × unitFactor بوحدة الأساس",
+     "currency: عملة المستند المختومة لحظة إصداره (SAR مثلاً). null للمستندات الصادرة قبل الختم وتعني عملة الشركة الحالية"
     ],
     "example": ""
    },
@@ -2996,7 +3001,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "توقيع المندوب بنفس القيود"
      }
     ],
-    "response": "المرحلة الأولى: 201 {success:true, data:{...invoice, items[], customer{...}, installments[], signature}}. تكرار clientRef يرجع 200 {success:true, data:<الفاتورة القائمة>, idempotent:true}. المرحلة الثانية: الشكل نفسه مضافاً إليه data.einvoice. المبسّطة (02) ترجع 201. القياسية (01) تُرسل للاعتماد داخل الطلب بمهلة تقارب 20 ثانية، وترجع 201 إذا اعتُمدت، أو 202 ZATCA_CLEARANCE_PENDING إذا بقيت بانتظار الاعتماد (success:true وdata موجودة)، أو 422 ZATCA_REJECTED إذا رُفضت وأُبطلت (data.status=CANCELLED)، أو 202 ZATCA_CLEARED_NO_XML. وكل بند في data.items يحمل لقطة وحدته: qty وunitName (null = الأساس) وunitFactor وbaseQty وunitCode. «تتبّع LOT»: المستند الذي فيه صنف متتبَّع يحمل كل بند فيه lots (صفوف توزيعه كما في withLots=1)، ومعه warnings:[{code, productId, detail?}] بجوار data حين توجد تحذيرات (LOT_FROM_UNKNOWN بيعٌ من الرصيد غير المسمّى، LOT_SPLIT_UNIT وحدة بند انقسمت بين مصدرين detail:{unitFactor, idx}، LOT_INTO_BLOCKED مرتجع حرّ دخل تشغيلة موقوفة فبقي معزولاً، صريحةً أو مستنتَجةً من مبيعات العميل، detail:{lotId, lotNumber, blockKind, line}) — لا تمنع الإصدار. والرفض: 409 {success:false, code:'LOT_STOCK_INSUFFICIENT', message, detail:{productId, wanted, available, byLot:[{lotId, lotNumber, usable, status, expiryDate}], unknownUsable, lines}} و422 LOT_QTY_INVALID أو LOT_NOT_FOUND أو LOT_PRODUCT_MISMATCH أو LOT_BLOCKED أو LOT_EXPIRED (detail فيه productId وline فهرس البند)، و503 LOT_BUSY",
+    "response": "المرحلة الأولى: 201 {success:true, data:{...invoice, items[], customer{...}, installments[], signature}}. تكرار clientRef يرجع 200 {success:true, data:<الفاتورة القائمة>, idempotent:true}. المرحلة الثانية: الشكل نفسه مضافاً إليه data.einvoice. المبسّطة (02) ترجع 201. القياسية (01) تُرسل للاعتماد داخل الطلب بمهلة تقارب 20 ثانية، وترجع 201 إذا اعتُمدت، أو 202 ZATCA_CLEARANCE_PENDING إذا بقيت بانتظار الاعتماد (success:true وdata موجودة)، أو 422 ZATCA_REJECTED إذا رُفضت وأُبطلت (data.status=CANCELLED)، أو 202 ZATCA_CLEARED_NO_XML. وكل بند في data.items يحمل لقطة وحدته: qty وunitName (null = الأساس) وunitFactor وbaseQty وunitCode. «تتبّع LOT»: المستند الذي فيه صنف متتبَّع يحمل كل بند فيه lots (صفوف توزيعه كما في withLots=1)، ومعه warnings:[{code, productId, detail?}] بجوار data حين توجد تحذيرات (LOT_FROM_UNKNOWN بيعٌ من الرصيد غير المسمّى، LOT_SPLIT_UNIT وحدة بند انقسمت بين مصدرين detail:{unitFactor, idx}، LOT_INTO_BLOCKED مرتجع حرّ دخل تشغيلة موقوفة فبقي معزولاً، صريحةً أو مستنتَجةً من مبيعات العميل، detail:{lotId, lotNumber, blockKind, line}) — لا تمنع الإصدار. والرفض: 409 {success:false, code:'LOT_STOCK_INSUFFICIENT', message, detail:{productId, wanted, available, byLot:[{lotId, lotNumber, usable, status, expiryDate}], unknownUsable, lines}} و422 LOT_QTY_INVALID أو LOT_NOT_FOUND أو LOT_PRODUCT_MISMATCH أو LOT_BLOCKED أو LOT_EXPIRED (detail فيه productId وline فهرس البند)، و503 LOT_BUSY. يحمل صف الفاتورة في data حقل currency: رمز عملة المستند (ISO 4217، مثل SAR أو USD أو KWD)",
     "rules": [
      "الحساب: خصم الفاتورة يوزَّع على البنود قبل الضريبة، والإجمالي يساوي مجموع صافي البنود، والتقريب نصف لأعلى بعدد خانات عملة الشركة",
      "«إزالة الضريبة» (taxDisabled = true في GET /company/tax-mode وGET /company، للمنشأة غير المسجّلة في ضريبة القيمة المضافة): كل مستند جديد بلا ضريبة — البيع والمرتجع بنوعيه. الخادم يكتب taxPct = 0 لكل بند وtaxAmt = 0، فالسعر المرسل نهائي يدفعه العميل كما هو (لا تُضاف إليه ضريبة، ولا أثر لـpricesIncludeTax) والإجمالي مجموع صافي البنود، ويختم المستند taxFree = true مع einvoiceProvider = 'none' وeinvoiceStatus = null، ويعود taxFree في ردّ الإصدار وكل قراءة ومزامنة. ومن مفتاحك: بندٌ بـtaxPct أكبر من 0 يرجع 422 {success:false, code:'TAX_DISABLED', message} ولا يُكتب شيء — أرسل taxPct: 0 أو احذفه (الغائب هنا 0 لا defaultVatPct). والمرتجع المرتبط بفاتورة بيع كذلك: بندٌ فيه بنسبة أكبر من 0 يرجع 422 أيضاً، فأرسل نسبته 0 أو احذفها ويسعّره الخادم من بند البيع بنسبة 0 (القاعدة التالية). والشركة التي لم تُزل ضريبتها بلا أي تغيير (taxFree = false)",
@@ -3040,7 +3045,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "400 {success:false, code:'BASE_UNIT_REQUIRED', message}: بندٌ لصنفٍ حُوِّل (baseConvertedAt غير فارغ) بلا items[].baseUnitName من مفتاحك — قبل أي كتابة. أرسل unit الصنف كما قرأته",
      "503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'وحدات الأصناف قيد التحديث الآن — أعد المحاولة بعد لحظات'} حين يمسك تحويلُ وحدات صنفٍ في المستند صفَّه (حتى ٥ ثوانٍ انتظار، وفي المرحلة الثانية قبل الترقيم والختم): لا يُكتب شيء، أعد الإرسال بنفس clientRef. والفواتير بأصناف أخرى لا تنتظر",
      "الوحدة الرئيسية (primaryUnitId) لا تغيّر تفسير البند: بندٌ بلا unitId بوحدة الأساس، ولو كانت رئيسية الصنف كرتوناً",
-     "«بيع نقدي فقط» (cashOnly في GET /price-lists): فاتورة type = CREDIT (ومنها التقسيط paymentPlan = INSTALLMENT) قائمةُ مستندها معلَّمةٌ به — priceListId المرسلة، وإلا قائمة العميل، وإلا قائمة المندوب الافتراضية (والسعر الأساسي بلا قائمةٍ لا قيد عليه) — ترجع 409 {success:false, code:'PRICE_LIST_CASH_ONLY', message:'قائمة الأسعار هذه للبيع النقدي فقط — لا يباع بها آجل ولا تقسيط'} قبل أي كتابة، لشاشات المنصة (لوحة التحكم و/m) وتطبيق المندوب. CASH وRETURN يمرّان، والإشعاران الدائن والمدين والإلغاء والفواتير القائمة لا يمسّها. وطلب المفتاح معفى (الربط حرّ): يُقبل كما أرسلته، وكذلك إعادة رفع صندوق تطبيق المندوب لمستندٍ حُفظ دون اتصال (X-FS-Replay بجلسة المندوب وحدها، وهي تُمحى لطلب المفتاح؛ الترويسة نفسها من مستخدمي الشركة إصدارٌ حيّ يرجع 409)"
+     "«بيع نقدي فقط» (cashOnly في GET /price-lists): فاتورة type = CREDIT (ومنها التقسيط paymentPlan = INSTALLMENT) قائمةُ مستندها معلَّمةٌ به — priceListId المرسلة، وإلا قائمة العميل، وإلا قائمة المندوب الافتراضية (والسعر الأساسي بلا قائمةٍ لا قيد عليه) — ترجع 409 {success:false, code:'PRICE_LIST_CASH_ONLY', message:'قائمة الأسعار هذه للبيع النقدي فقط — لا يباع بها آجل ولا تقسيط'} قبل أي كتابة، لشاشات المنصة (لوحة التحكم و/m) وتطبيق المندوب. CASH وRETURN يمرّان، والإشعاران الدائن والمدين والإلغاء والفواتير القائمة لا يمسّها. وطلب المفتاح معفى (الربط حرّ): يُقبل كما أرسلته، وكذلك إعادة رفع صندوق تطبيق المندوب لمستندٍ حُفظ دون اتصال (X-FS-Replay بجلسة المندوب وحدها، وهي تُمحى لطلب المفتاح؛ الترويسة نفسها من مستخدمي الشركة إصدارٌ حيّ يرجع 409)",
+     "عملة المستند تُختم لحظة إصداره في currency: عملة الشركة الفعلية (تجاوز العملة إن ضُبط وإلا عملة دولة الشركة) — في المرحلة الأولى والثانية والمرتجع والإشعارين وإعادة رفع صندوق المندوب ومفتاح API. لا تُرسل في الجسم ولا تُقبل منه، وتغيير عملة الشركة لاحقاً لا يغيّر مستنداً صدر. المستندات الصادرة قبل الميزة currency فيها null (= عملة الشركة الحالية)"
     ],
     "example": "{\"customerId\":\"8f1c2a4e-1b2c-4d5e-9f00-112233445566\",\"salesRepId\":\"2b7e9d10-3c4d-4e5f-8a90-aabbccddeeff\",\"type\":\"CASH\",\"pricesIncludeTax\":true,\"items\":[{\"productId\":\"a1d2c3b4-0000-4000-8000-000000000001\",\"qty\":12,\"unitPrice\":5.75},{\"productId\":\"a1d2c3b4-0000-4000-8000-000000000002\",\"qty\":2,\"unitId\":\"5e6f7a8b-0000-4000-8000-0000000000c6\",\"unitPrice\":34.5,\"discountPct\":5}],\"notes\":\"طلب من نظام ERP\",\"clientRef\":\"3f2b8c1e-6a4d-4e2b-9c7a-1d2e3f4a5b6c\"}"
    },
@@ -3310,7 +3316,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "للمستندات من نوع RETURN فقط، ويشمل الإشعار الدائن. غير ذلك يرجع 400",
      "يغيّر حساب مخزون السيارة فوراً ولا يمس القيود المالية",
      "«تتبّع LOT»: true زيادةٌ تعود بها البضاعة إلى تشغيلاتها. أما false لمرتجعٍ فيه صنف متتبَّع فيُخرجها من السيارة، فيُرفض 409 {code:'LOT_STOCK_INSUFFICIENT', detail} إن كانت قد بيعت، و503 LOT_BUSY عند الانشغال أو تبدّل تتبّع الصنف أثناء الطلب",
-     "وfalse لصنفٍ غير متتبَّع: إن صار المتاح للبيع في سيارة المندوب سالباً (بيعت بضاعة المرتجع) يُرفض 409 {success:false, code:'RETURN_CANCEL_STOCK_SHORT', message, lines:[{productId, availableBase, requiredBase, bucket:'sellable'}]} بلا تغيير. المنتهي والتالف لا تحكمهما returnToStock فلا يُفحصان هنا"
+     "وfalse لصنفٍ غير متتبَّع: إن صار المتاح للبيع في سيارة المندوب سالباً (بيعت بضاعة المرتجع) يُرفض 409 {success:false, code:'RETURN_CANCEL_STOCK_SHORT', message, lines:[{productId, availableBase, requiredBase, bucket:'sellable'}]} بلا تغيير. المنتهي والتالف لا تحكمهما returnToStock فلا يُفحصان هنا",
+     "كل تبديلٍ يغيّر القيمة فعلاً يُسجَّل في سجلٍّ إلحاقيّ (السابقة والجديدة ومن بدّل ولحظته) داخل معاملة التبديل نفسها — مصدر حركة إعادة المخزون في الدفاتر المربوطة. وإرسال القيمة الحالية نفسها لا يُسجّل شيئاً ويرجع الصف كما هو، والرفض (400/404/409/503) لا يسجّل شيئاً. الردّ لم يتغيّر"
     ],
     "example": "{\"returnToStock\":true}"
    },
@@ -4335,7 +4342,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "body": [],
     "response": "{success:true} أو 404 'المندوب غير موجود' أو 409 {success:false, code:'LEDGER_HISTORY_LOCKED', message, salesRepId, footprint:{settlements, invoices, receipts, vanLoads, moveLines}}",
     "rules": [
-     "معاملة واحدة لا رجعة فيها: الفواتير والسندات والإقرارات اليومية تبقى ويُفرَّغ salesRepId منها، وتحميلات السيارة تبقى مع deletedSalesRepId",
+     "معاملة واحدة لا رجعة فيها: الفواتير والإقرارات اليومية تبقى ويُفرَّغ salesRepId منها، وسندات القبض تبقى ويُفرَّغ salesRepId منها ويُحفظ معرّف المندوب في deletedSalesRepId (في الكتابة نفسها)، وتحميلات السيارة تبقى مع deletedSalesRepId",
      "تُحذف: المواقع والزيارات وصورها والإشعارات وتوجيه الإقرار اليومي وإسنادات العملاء ويُزال من قائمة المندوب الذكي",
      "استلامات التحصيل (RepSettlement) تبقى بصورها ويُفرَّغ salesRepId منها ويُحفظ معرّفه في deletedSalesRepId، فتبقى عهدة مستخدمي الشركة الذين استلموها كما هي (userCustody يجمع repSettlement بالمستلِم)",
      "إذا كانت الدفاتر مفعّلة (glSettings.activatedAt) وللمندوب أثر مالي يُرفض بـ 409، وفي وضع الدفاتر اليدوية CLEAN لا يمنع إلا سطور القيود",
@@ -4573,17 +4580,19 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "صاحب المفتاح دوره الحالي في القاعدة ADMIN وفعّال وفي الشركة نفسها، وإلا 403",
      "«صلاحية الحذف» لصاحب المفتاح: إن سحبها مدير الشركة يُرفض 403 DELETE_NOT_ALLOWED قبل أي فحص آخر",
      "نطاق المستخدم adminRepFilter",
-     "مفتاح غير قراءة فقط"
+     "مفتاح غير قراءة فقط",
+     "الشركة ذات الدفاتر المربوطة بالنظام: لا حذف (409 BOOKS_LINKED_NO_DELETE)"
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:{collected, settled, outstanding}} بعد الحذف",
+    "response": "{success:true, data:{collected, cashSales, settled, outstanding}} بعد الحذف، أو 409 {success:false, code:'BOOKS_LINKED_NO_DELETE', message} في الشركة ذات الدفاتر المربوطة",
     "rules": [
      "MANAGER و ACCOUNTANT يرجعان 403 'حذف استلام التحصيل متاح للأدمن الرئيسي فقط'",
      "404 إذا لم يوجد المندوب أو لم يكن الاستلام لهذا المندوب في هذه الشركة",
+     "إذا كانت دفاتر الشركة مربوطة بالنظام (كل مستند يُرحَّل قيده آلياً) فالاستلام مستند مرحَّل لا يُحذف: 409 {success:false, code:'BOOKS_LINKED_NO_DELETE', message:'دفاتر هذه الشركة مربوطة بالنظام: المستند المرحَّل لا يُحذف — ألغِه أو اعمل له إشعاراً دائناً/مرتجعاً بدلاً من الحذف'} بلا أي تغيير. الدفاتر اليدوية أو غير المفعّلة: الحذف كما هو",
      "حارس العهدة: إذا ورّد المستلم من عهدته ما يجعلها سالبة بعد الحذف يرجع 400 ويلزم حذف التوريد أولاً من صفحة مستخدمي الشركة",
      "يُنشأ إشعار REP_SETTLEMENT_DELETED بالمبلغ والتاريخ ومن حذف مع نسخة كاملة من الصف في data",
-     "إذا فُعّلت الدفاتر يُسجل حدثا SETTLEMENT POST و REVERSE في glSourceEvent ضمن المعاملة نفسها"
+     "إذا كانت الدفاتر مفعّلة بطريقة قديمة (غير يدوية وغير مربوطة) يُسجل حدثا SETTLEMENT POST و REVERSE في glSourceEvent ضمن المعاملة نفسها"
     ],
     "example": ""
    }
@@ -4592,7 +4601,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
  {
   "key": "stock",
   "title": "مخزون السيارات ومخزون الشركة",
-  "overview": "وحدتان مترابطتان. الأولى مخزون سيارات المناديب (/van-stock)، ورصيده لا يُخزَّن بل يُحسب في كل طلب: التحميل − التنزيل + التسوية − المبيع + المرتجع العائد للمخزون. والثانية مستودع الشركة المركزي (/warehouse)، ورصيده محسوب أيضاً: الوارد + تسويات المستودع + العائد من السيارات − المحمَّل للسيارات، مع تقييم بتكلفة الشراء الصافية قبل الضريبة. لذلك فتحميل سيارة عبر POST /van-stock/loads ينقص المستودع تلقائياً، وتنزيلها يعيد الكمية إليه.\nالحراس على كل مسارات /van-stock: يجب ألا يكون النظام المحاسبي مطفأً (accountingEnabled، والرفض 403 برمز ACCOUNTING_NOT_ALLOWED)، ويجب أن يملك صاحب المفتاح صلاحية canManageVanStock (والرفض 403). ويُطبَّق كذلك نطاق المناديب المحدد لصاحب المفتاح إن كان مقيَّداً.\nمسارات /warehouse تشترط الشيئين نفسيهما وتفعيل ميزة مخزون الشركة (warehouseEnabled، وهي مطفأة افتراضياً)، بهذا الترتيب: صلاحية canManageVanStock أولاً (403 بلا code، فيأتي ولو كان النظام المحاسبي مطفأً)، ثم النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED)، ثم عَلَم المستودع (403 بلا code برسالة «ميزة مخزون الشركة غير مفعلة لهذه الشركة»).\nالمفتاح المضبوط على «قراءة فقط» لا يمرّ إلا بطلبات GET.\nلكل قائمة في هذه المجموعة سقف ثابت: سجل المستودع آخر 100 حركة، وسجل التحميلات آخر 100 حركة ما لم تُرسل page فيُرقَّم بحدّ 200. للتاريخ الكامل استعمل مسارات المزامنة /v1/sync/van-loads و/v1/sync/warehouse-entries.\nلا يوجد مسار لتعديل الحركات أو حذفها، والتصحيح يكون بحركة معاكسة أو بتسوية. وPOST /van-stock/loads وPOST /warehouse/entries يقبلان clientRef اختيارياً (حتى 64 حرفاً لاتينياً أو رقماً أو - أو _): ولّد واحداً لكل حركة وأعده نفسه عند الإعادة، فيرجع المكرَّر 200 بالحركة القائمة وreplay: true بلا كتابة (والبحث به ?clientRef= في GET). بلاه تُنشئ إعادة الطلب حركة مكررة.\nالتحميل LOAD في شركة مخزونها مفعّل (warehouseEnabled) لا يتجاوز رصيد الصنف في المستودع بوحدة الأساس، لكل مُصدِر ومنه المفتاح: 422 WAREHOUSE_INSUFFICIENT بـlines:[{index, indexes, productId, availableBase, requestedBase}] ولا يُكتب شيء. والوارد RECEIVE والتحميل LOAD لصنفٍ مؤرشف 422 PRODUCT_ARCHIVED، وصنفٌ لا يتبع الشركة 400 PRODUCT_NOT_FOUND بموضع السطر index.\nطلبات البضاعة (/rep-stock-requests): المندوب الذي لا يملك صلاحية التحميل يرفع من تطبيقه ما يحتاجه، فيظهر للإدارة في «طلب مخزون» بصفحة مخزون الشركة. بمفتاح الشركة تقرأ المعلّقة وتعدّل الكميات المعتمدة وترسل الطلب العام أو ترفض. الطلب لا يمسّ أي رصيد، وكل كتابة ترسل نسخة الطلب updatedAt كما قرأتها (409 إن تغيّر). وحراسها بالترتيب: النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED) ثم canManageVanStock ثم العَلَم (403 WAREHOUSE_NOT_ENABLED).\nالحد 120 طلباً في الدقيقة لكل مفتاح، ويظهر في رؤوس X-RateLimit-*\nالوحدات المتعددة: كل رصيد وكمية مجمّعة في هذه المجموعة بوحدة الأساس للصنف (unit، أصغر ما يُباع): remaining وloaded وsold في السيارة، وonHand وreceived في المستودع، وأرقام الاقتراح والدقة، ومجاميع الملخّصات عبر الأصناف (حبّات لا كراتين). وتُرفق units (وحدات الصنف {id, name, factor, isActive}) بصفوف الأرصدة ليعرضها نظامكم «2 كرتون و3 حبة». ومسارات الكتابة (POST /van-stock/loads وPOST /warehouse/entries وتعديل طلب البضاعة) تقبل items[].unitId من units[].id للصنف، فتكون qty بوحدته (وunitCost لوحدته في الوارد)، ويكتب الخادم لقطتها unitName وunitFactor وbaseQty = qty × unitFactor. غياب unitId = وحدة الأساس كما قبل الميزة، ومعرّفٌ لا يخصّ الصنف أو لوحدة موقوفة يُرفض 400 {success:false, code:'UNIT_INVALID', message} ولا تُكتب الحركة. ومزامنة /v1/sync/van-loads و/v1/sync/warehouse-entries تحمل اللقطة نفسها في كل بند: اجمع baseQty لا qty\n«تتبّع LOT» (حين lotTrackingEnabled للشركة وlotTracked للصنف، وإلا لا شيء مما يلي): رصيد الصنف المتتبَّع مقسوم على تشغيلات في المستودع وفي كل سيارة، والباقي «غير مسمّى». لا تجعل أي حركة رصيد تشغيلة سالباً ولا تُنقص الرصيد غير المسمّى تحت الصفر، لأي مُصدِر (409 LOT_STOCK_INSUFFICIENT)، فالقاعدتان «لا فحص للتوفر» و«المستودع قد يصير سالباً» لا تنطبقان عليه. كل زيادة بلا مصدر يلزمها تشغيلة وإلا 422 LOT_REQUIRED: الوارد والتسوية بالزيادة في المستودع (items[].lotId أو items[].lotNumber وتاريخاها، وlotId: null صريحاً للرصيد غير المسمّى في التسوية وحدها)، والتسوية بالزيادة في السيارة والتحميل في شركة بلا مخزون شركة (items[].lotNumber أو items[].lots). والتحميل من المستودع يوزّعه الخادم بالأقرب انتهاءً من التشغيلات النشطة غير المنتهية ثم من الرصيد غير المسمّى، أو بتشغيلاتك في items[].lots، والإنقاص من السيارة (التنزيل والتسوية والإتلاف) بتشغيلاتك في items[].lots، وبدونها يُسحب تلقائياً من كل تشغيلات الدلو بالأقرب انتهاءً أولاً (والموقوفة والمنتهية منها، والتي بلا انتهاء آخراً) ثم من الرصيد غير المسمّى (عدا تنزيل سيارة مندوبٍ محذوف: تشغيلاتٌ مسمّاة صريحة لازمة وإلا 422 LOT_REQUIRED بـdetail.reason = DELETED_VAN، وإتلاف المنتهي غير المباع lotReason = EXPIRED_UNSOLD_DESTROY: من التشغيلات المنتهية يوم الشركة وحدها لا من غير المسمّى، ونقصها 409 LOT_STOCK_INSUFFICIENT)، فقد يتوزّع البند على أكثر من تشغيلة بيقين ASSUMED، وما فاق رصيد الدلو 409 LOT_STOCK_INSUFFICIENT؛ وكذلك تسوية النقص في المستودع بلا تشغيلة (تُكتب بنداً لكل تشغيلة). كل كميات التشغيلات بوحدة الأساس. والمخزون الافتتاحي بالاستيراد (POST /import/opening-stock في مجموعة «استيراد البيانات»، صفوف rows حتى 5000) يقبل لكل صف lotNumber وproductionDate وexpiryDate للصنف المتتبَّع، وأخطاء صفوفه في errors[]: LOT_REQUIRED (رقم غائب أو أطول من 64) وLOT_DATES_INVALID وLOT_EXPIRY_REQUIRED وLOT_QTY_INVALID (كمية بالأساس بأكثر من أربع خانات) وLOT_DATES_MISMATCH (رقم مسجَّل أو مكرّر في الملف بتواريخ أخرى)، وانشغال الأصناف 409 OPENING_STOCK_LEDGER_BUSY. والتراجع عن دفعة افتتاحية استُعملت تشغيلاتها بعدها يبقى في blocked بالسبب «استُعملت تشغيلات المخزون الافتتاحي بعد الاستيراد». التفاصيل في مجموعة «تتبّع LOT»",
+  "overview": "وحدتان مترابطتان. الأولى مخزون سيارات المناديب (/van-stock)، ورصيده لا يُخزَّن بل يُحسب في كل طلب: التحميل − التنزيل + التسوية − المبيع + المرتجع العائد للمخزون. والثانية مستودع الشركة المركزي (/warehouse)، ورصيده محسوب أيضاً: الوارد − المرتجع للمورّد + تسويات المستودع + العائد من السيارات − المحمَّل للسيارات، مع تقييم بتكلفة الشراء الصافية قبل الضريبة. لذلك فتحميل سيارة عبر POST /van-stock/loads ينقص المستودع تلقائياً، وتنزيلها يعيد الكمية إليه.\nالحراس على كل مسارات /van-stock: يجب ألا يكون النظام المحاسبي مطفأً (accountingEnabled، والرفض 403 برمز ACCOUNTING_NOT_ALLOWED)، ويجب أن يملك صاحب المفتاح صلاحية canManageVanStock (والرفض 403). ويُطبَّق كذلك نطاق المناديب المحدد لصاحب المفتاح إن كان مقيَّداً.\nمسارات /warehouse تشترط الشيئين نفسيهما وتفعيل ميزة مخزون الشركة (warehouseEnabled، وهي مطفأة افتراضياً)، بهذا الترتيب: صلاحية canManageVanStock أولاً (403 بلا code، فيأتي ولو كان النظام المحاسبي مطفأً)، ثم النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED)، ثم عَلَم المستودع (403 بلا code برسالة «ميزة مخزون الشركة غير مفعلة لهذه الشركة»).\nالمفتاح المضبوط على «قراءة فقط» لا يمرّ إلا بطلبات GET.\nلكل قائمة في هذه المجموعة سقف ثابت: سجل المستودع آخر 100 حركة، وسجل التحميلات آخر 100 حركة ما لم تُرسل page فيُرقَّم بحدّ 200. للتاريخ الكامل استعمل مسارات المزامنة /v1/sync/van-loads و/v1/sync/warehouse-entries.\nلا يوجد مسار لتعديل الحركات أو حذفها، والتصحيح يكون بحركة معاكسة أو بتسوية. ووارد المستودع يُصنَّف نقداً أو آجلاً لاحقاً (POST /warehouse/entries/:id/classify)، ويُردّ منه للمورّد (POST /warehouse/entries/:id/return)، ويُلغى بمرتجعٍ كامل (POST /warehouse/entries/:id/cancel) — كلها حركات جديدة لا تعديلٌ لبنود قائمة. والموردون وسندات صرفهم في مجموعة «الموردون وسندات الصرف». وPOST /van-stock/loads وPOST /warehouse/entries يقبلان clientRef اختيارياً (حتى 64 حرفاً لاتينياً أو رقماً أو - أو _): ولّد واحداً لكل حركة وأعده نفسه عند الإعادة، فيرجع المكرَّر 200 بالحركة القائمة وreplay: true بلا كتابة (والبحث به ?clientRef= في GET). بلاه تُنشئ إعادة الطلب حركة مكررة.\nالتحميل LOAD في شركة مخزونها مفعّل (warehouseEnabled) لا يتجاوز رصيد الصنف في المستودع بوحدة الأساس، لكل مُصدِر ومنه المفتاح: 422 WAREHOUSE_INSUFFICIENT بـlines:[{index, indexes, productId, availableBase, requestedBase}] ولا يُكتب شيء. والوارد RECEIVE والتحميل LOAD لصنفٍ مؤرشف 422 PRODUCT_ARCHIVED، وصنفٌ لا يتبع الشركة 400 PRODUCT_NOT_FOUND بموضع السطر index.\nطلبات البضاعة (/rep-stock-requests): المندوب الذي لا يملك صلاحية التحميل يرفع من تطبيقه ما يحتاجه، فيظهر للإدارة في «طلب مخزون» بصفحة مخزون الشركة. بمفتاح الشركة تقرأ المعلّقة وتعدّل الكميات المعتمدة وترسل الطلب العام أو ترفض. الطلب لا يمسّ أي رصيد، وكل كتابة ترسل نسخة الطلب updatedAt كما قرأتها (409 إن تغيّر). وحراسها بالترتيب: النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED) ثم canManageVanStock ثم العَلَم (403 WAREHOUSE_NOT_ENABLED).\nالحد 120 طلباً في الدقيقة لكل مفتاح، ويظهر في رؤوس X-RateLimit-*\nالوحدات المتعددة: كل رصيد وكمية مجمّعة في هذه المجموعة بوحدة الأساس للصنف (unit، أصغر ما يُباع): remaining وloaded وsold في السيارة، وonHand وreceived في المستودع، وأرقام الاقتراح والدقة، ومجاميع الملخّصات عبر الأصناف (حبّات لا كراتين). وتُرفق units (وحدات الصنف {id, name, factor, isActive}) بصفوف الأرصدة ليعرضها نظامكم «2 كرتون و3 حبة». ومسارات الكتابة (POST /van-stock/loads وPOST /warehouse/entries وتعديل طلب البضاعة) تقبل items[].unitId من units[].id للصنف، فتكون qty بوحدته (وunitCost لوحدته في الوارد)، ويكتب الخادم لقطتها unitName وunitFactor وbaseQty = qty × unitFactor. غياب unitId = وحدة الأساس كما قبل الميزة، ومعرّفٌ لا يخصّ الصنف أو لوحدة موقوفة يُرفض 400 {success:false, code:'UNIT_INVALID', message} ولا تُكتب الحركة. ومزامنة /v1/sync/van-loads و/v1/sync/warehouse-entries تحمل اللقطة نفسها في كل بند: اجمع baseQty لا qty\n«تتبّع LOT» (حين lotTrackingEnabled للشركة وlotTracked للصنف، وإلا لا شيء مما يلي): رصيد الصنف المتتبَّع مقسوم على تشغيلات في المستودع وفي كل سيارة، والباقي «غير مسمّى». لا تجعل أي حركة رصيد تشغيلة سالباً ولا تُنقص الرصيد غير المسمّى تحت الصفر، لأي مُصدِر (409 LOT_STOCK_INSUFFICIENT)، فالقاعدتان «لا فحص للتوفر» و«المستودع قد يصير سالباً» لا تنطبقان عليه. كل زيادة بلا مصدر يلزمها تشغيلة وإلا 422 LOT_REQUIRED: الوارد والتسوية بالزيادة في المستودع (items[].lotId أو items[].lotNumber وتاريخاها، وlotId: null صريحاً للرصيد غير المسمّى في التسوية وحدها)، والتسوية بالزيادة في السيارة والتحميل في شركة بلا مخزون شركة (items[].lotNumber أو items[].lots). والتحميل من المستودع يوزّعه الخادم بالأقرب انتهاءً من التشغيلات النشطة غير المنتهية ثم من الرصيد غير المسمّى، أو بتشغيلاتك في items[].lots، والإنقاص من السيارة (التنزيل والتسوية والإتلاف) بتشغيلاتك في items[].lots، وبدونها يُسحب تلقائياً من كل تشغيلات الدلو بالأقرب انتهاءً أولاً (والموقوفة والمنتهية منها، والتي بلا انتهاء آخراً) ثم من الرصيد غير المسمّى (عدا تنزيل سيارة مندوبٍ محذوف: تشغيلاتٌ مسمّاة صريحة لازمة وإلا 422 LOT_REQUIRED بـdetail.reason = DELETED_VAN، وإتلاف المنتهي غير المباع lotReason = EXPIRED_UNSOLD_DESTROY: من التشغيلات المنتهية يوم الشركة وحدها لا من غير المسمّى، ونقصها 409 LOT_STOCK_INSUFFICIENT)، فقد يتوزّع البند على أكثر من تشغيلة بيقين ASSUMED، وما فاق رصيد الدلو 409 LOT_STOCK_INSUFFICIENT؛ وكذلك تسوية النقص في المستودع بلا تشغيلة (تُكتب بنداً لكل تشغيلة). كل كميات التشغيلات بوحدة الأساس. والمخزون الافتتاحي بالاستيراد (POST /import/opening-stock في مجموعة «استيراد البيانات»، صفوف rows حتى 5000) يقبل لكل صف lotNumber وproductionDate وexpiryDate للصنف المتتبَّع، وأخطاء صفوفه في errors[]: LOT_REQUIRED (رقم غائب أو أطول من 64) وLOT_DATES_INVALID وLOT_EXPIRY_REQUIRED وLOT_QTY_INVALID (كمية بالأساس بأكثر من أربع خانات) وLOT_DATES_MISMATCH (رقم مسجَّل أو مكرّر في الملف بتواريخ أخرى)، وانشغال الأصناف 409 OPENING_STOCK_LEDGER_BUSY. والتراجع عن دفعة افتتاحية استُعملت تشغيلاتها بعدها يبقى في blocked بالسبب «استُعملت تشغيلات المخزون الافتتاحي بعد الاستيراد». التفاصيل في مجموعة «تتبّع LOT»",
   "endpoints": [
    {
     "method": "POST",
@@ -4624,6 +4633,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "string",
       "required": false,
       "desc": "ملاحظة حرة بلا حد طول في المخطط، وتظهر كمرجع في /movements"
+     },
+     {
+      "name": "reason",
+      "type": "enum: COUNT | DAMAGE | EXPIRY | SHORTAGE_REP | SAMPLE | OTHER",
+      "required": false,
+      "desc": "سبب تسوية السيارة (type = ADJUST): جرد، تالف، منتهي، عجز على المندوب، عينات، أخرى — بلا حساسية لحالة الأحرف، ويعود في الحركة (reason) وفي مزامنة van-loads. لغير ADJUST يُهمل"
      },
      {
       "name": "items",
@@ -4716,7 +4731,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "مفتاح منع التكرار: ولّد واحداً لكل حركة (uuid يكفي) وأعد إرساله نفسه عند إعادة المحاولة. مرجعٌ سبق حفظه لهذه الشركة ⇒ 200 {success:true, data:<الحركة القائمة بشكل ردّ الإنشاء>, replay:true, idempotent:true} ولا يُكتب شيء ولا يُعاد الحكم على الأصناف أو الرصيد (ولو تغيّر بعد الحفظ الأول). مرجعٌ لحركة سيارة أخرى أو نوع آخر ⇒ 409 {success:false, code:'CLIENT_REF_REUSED'}. والطلبان المتزامنان بالمرجع نفسه يُنشئان حركة واحدة. غيابه = بلا حماية من التكرار كما كان، وصيغةٌ غير صالحة 400. لكل شركة مستقلّ، ويعود في GET /van-stock/loads (و?clientRef=) ومزامنة van-loads"
      }
     ],
-    "response": "201 {success:true, data:{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, note, createdBy:'ADMIN', zeroRunId:null, clientRef, createdAt, updatedAt, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, lineRef, product:{id,name,unit,primaryUnitId}, lots?}]}, warnings?}. lineRef «مرجع السطر» كما أرسلته (null لما لم يُرسَل). «تتبّع LOT»: حركةٌ فيها صنف متتبَّع ترجع كل بند بـlots:[{id, vanLoadItemId, tenantId, productId, vanKey, moveType, viaWarehouse, lotId, qty, certainty, reason, createdAt, lot:{lotNumber, expiryDate}|null}] (qty بالأساس وبإشارة البند، فتسوية النقص سالبة)، ومعها warnings:[{code, productId, detail?}] (قد تكون فارغة): LOT_FROM_UNKNOWN تحميلٌ من المستودع وزّعه الخادم فأخذ من الرصيد غير المسمّى، LOT_SPLIT_UNIT وحدة بند (كرتون) انقسمت بين مصدرين في التوزيع التلقائي detail:{unitFactor, idx} وidx موضع البند في items كما أرسلته، LOT_INTO_BLOCKED تسوية بالزيادة إلى تشغيلة موقوفة detail:{lotId, lotNumber, blockKind}، LOT_MULTI_IN_VAN صار في السيارة أكثر من تشغيلة صالحة للصنف بعد تحميل أو تسوية بالزيادة detail:{lots:[{lotId, lotNumber, usable, expiryDate, status}]}. البند لا يُشطر: إنقاصٌ سُحب من أكثر من تشغيلة يبقى بنداً واحداً بعدة صفوف في lots — 400 {success:false, code:'UNIT_INVALID', message} لوحدة بند غير صالحة (items[].unitId) — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} لمفتاحٍ على صنف محوَّل بلا baseUnitName — 409 {success:false, code:'PRODUCT_UNITS_CHANGED', message} حين يلتزم تحويلُ صنفٍ بين القراءة والكتابة (لا يُكتب شيء) — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'وحدات الأصناف قيد التحديث الآن — أعد المحاولة بعد لحظات'} — 400 {success:false, code:'PRODUCT_NOT_FOUND', message, productId, index, productIds, indexes} صنفٌ لا يتبع الشركة — 422 {success:false, code:'PRODUCT_ARCHIVED', message, productId, index} تحميل صنفٍ مؤرشف — 422 {success:false, code:'WAREHOUSE_INSUFFICIENT', message, lines:[{index, indexes, productId, availableBase, requestedBase}]} تحميلٌ فوق رصيد المستودع — 200 {success:true, data, replay:true, idempotent:true} لمرجع clientRef سبق حفظه — 409 {success:false, code:'CLIENT_REF_REUSED', message}",
+    "response": "201 {success:true, data:{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, reason, note, createdBy:'ADMIN', zeroRunId:null, clientRef, createdAt, updatedAt, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, lineRef, product:{id,name,unit,primaryUnitId}, lots?}]}, warnings?}. lineRef «مرجع السطر» كما أرسلته (null لما لم يُرسَل). «تتبّع LOT»: حركةٌ فيها صنف متتبَّع ترجع كل بند بـlots:[{id, vanLoadItemId, tenantId, productId, vanKey, moveType, viaWarehouse, lotId, qty, certainty, reason, createdAt, lot:{lotNumber, expiryDate}|null}] (qty بالأساس وبإشارة البند، فتسوية النقص سالبة)، ومعها warnings:[{code, productId, detail?}] (قد تكون فارغة): LOT_FROM_UNKNOWN تحميلٌ من المستودع وزّعه الخادم فأخذ من الرصيد غير المسمّى، LOT_SPLIT_UNIT وحدة بند (كرتون) انقسمت بين مصدرين في التوزيع التلقائي detail:{unitFactor, idx} وidx موضع البند في items كما أرسلته، LOT_INTO_BLOCKED تسوية بالزيادة إلى تشغيلة موقوفة detail:{lotId, lotNumber, blockKind}، LOT_MULTI_IN_VAN صار في السيارة أكثر من تشغيلة صالحة للصنف بعد تحميل أو تسوية بالزيادة detail:{lots:[{lotId, lotNumber, usable, expiryDate, status}]}. البند لا يُشطر: إنقاصٌ سُحب من أكثر من تشغيلة يبقى بنداً واحداً بعدة صفوف في lots — 400 {success:false, code:'UNIT_INVALID', message} لوحدة بند غير صالحة (items[].unitId) — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} لمفتاحٍ على صنف محوَّل بلا baseUnitName — 409 {success:false, code:'PRODUCT_UNITS_CHANGED', message} حين يلتزم تحويلُ صنفٍ بين القراءة والكتابة (لا يُكتب شيء) — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'وحدات الأصناف قيد التحديث الآن — أعد المحاولة بعد لحظات'} — 400 {success:false, code:'PRODUCT_NOT_FOUND', message, productId, index, productIds, indexes} صنفٌ لا يتبع الشركة — 422 {success:false, code:'PRODUCT_ARCHIVED', message, productId, index} تحميل صنفٍ مؤرشف — 422 {success:false, code:'WAREHOUSE_INSUFFICIENT', message, lines:[{index, indexes, productId, availableBase, requestedBase}]} تحميلٌ فوق رصيد المستودع — 200 {success:true, data, replay:true, idempotent:true} لمرجع clientRef سبق حفظه — 409 {success:false, code:'CLIENT_REF_REUSED', message} — 400 {success:false, code:'ADJUST_REASON_INVALID', message, details:{allowed}} لسبب تسويةٍ غير معروف من الواجهة (ومفتاح API: تحذير ADJUST_REASON_IGNORED بلا رفض)",
     "rules": [
      "البنود التي كميتها صفر تُحذف، فإن لم يبقَ بند يُرَدّ 400 «لا توجد كميات صالحة»",
      "صنفٌ لا يتبع الشركة (أو حُذف حذفاً فعلياً) ⇒ 400 {success:false, code:'PRODUCT_NOT_FOUND', message, productId, index, productIds, indexes} قبل حلّ وحدات البنود (فلا يأتي UNIT_INVALID مضلِّلاً لسطرٍ يحمل unitId): index موضع أول سطرٍ مرفوض في items كما أرسلتها (من الصفر، والسطر الصفري لا يزيحه)، وindexes كل المواضع، وproductIds الأصناف المرفوضة",
@@ -4737,7 +4752,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "إن غاب salesRepId يُرَدّ 400 برسالة «يجب تحديد المندوب»",
      "مندوب خارج نطاق صاحب المفتاح يُرَدّ عليه 404 برسالة «المندوب غير موجود»",
      "ختم الموقع (ميزة «لوكيشن»): التحميل من النوع LOAD يُختم في الخادم بموقع المندوب لحظة التسجيل إن كانت الميزة مفعّلة، والأنواع الأخرى بلا ختم. لا حقل له في الجسم",
-     "التحميل بالكرتون: {\"productId\":\"…\",\"unitId\":\"<كرتون 24>\",\"qty\":2} يزيد السيارة 48 حبة (baseQty) وينقص المستودع 48، ويبقى البند مطبوعاً «2 كرتون»"
+     "التحميل بالكرتون: {\"productId\":\"…\",\"unitId\":\"<كرتون 24>\",\"qty\":2} يزيد السيارة 48 حبة (baseQty) وينقص المستودع 48، ويبقى البند مطبوعاً «2 كرتون»",
+     "سببٌ غير معروف: الواجهة 400 {success:false, code:'ADJUST_REASON_INVALID', message, details:{allowed}} بلا حركة، ومفتاح API تُحفظ التسوية بلا سبب مع warnings:[{code:'ADJUST_REASON_IGNORED', message}] («الربط لا يُرفض»)"
     ],
     "example": "{\"salesRepId\":\"3f6c2a1e-8b4d-4c1a-9e2f-1a2b3c4d5e6f\",\"type\":\"LOAD\",\"note\":\"تحميل صباح الأحد\",\"items\":[{\"productId\":\"a1b2c3d4-0000-4000-8000-000000000001\",\"qty\":24,\"suggestedQty\":24,\"expectedQty\":20.5},{\"productId\":\"a1b2c3d4-0000-4000-8000-000000000002\",\"unitId\":\"5e6f7a8b-0000-4000-8000-0000000000c1\",\"qty\":2}]}"
    },
@@ -5046,7 +5062,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, note, createdBy:'REP'|'ADMIN'|null, createdAt, zeroRunId, clientRef, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, lineRef, product:{id,name,unit,primaryUnitId}, lots?}], salesRep:{id,name}, location:{id,name}|null}], pagination?:{total, page, limit, pages}}",
+    "response": "{success:true, data:[{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, reason, note, createdBy:'REP'|'ADMIN'|null, createdAt, zeroRunId, clientRef, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, lineRef, product:{id,name,unit,primaryUnitId}, lots?}], salesRep:{id,name}, location:{id,name}|null}], pagination?:{total, page, limit, pages}}",
     "rules": [
      "بلا page: آخر 100 حركة فقط، الأحدث أولاً، بلا pagination. ومع page: صفحات مرقّمة بحدّ 200. للتاريخ الكامل استعمل /v1/sync/van-loads",
      "location هو ختم موقع المندوب لحظة التحميل (حركات LOAD وحدها تُختم حين تفعّل الشركة ميزة «لوكيشن»)، ولا يتغيّر إن نُقل المندوب لاحقاً. وnull لما بلا ختم",
@@ -5055,7 +5071,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "qty بوحدة البند ولقطتها unitName (null = الأساس) وunitFactor، وbaseQty بالأساس لمن يجمع. وsuggestedQty وexpectedQty بالأساس دائماً",
      "lineRef «مرجع السطر» (لكل الشركات): ما أرسلته في items[].lineRef عند POST /van-stock/loads كما هو، وnull لما لم يُرسَل (ومنه حركات اللوحة وتطبيق المندوب)",
      "zeroRunId (string أو null): معرّف عملية «تصفير المخزون» التي كتبت الحركة، وnull لكل حركة غيرها. التصفير يكتب لكل سيارة مندوب قائم (ولو موقوفاً) فيها رصيد: ADJUST يُعيد الرصيد القابل للبيع إلى الصفر (والسالب بسطر موجب)، وDAMAGED_OUT لرصيد التالف، وEXPIRED_OUT لرصيد المنتهي، كلها بالملاحظة «تصفير المخزون» وcreatedBy='ADMIN' وبنود بوحدة الأساس، ومعها حركة ADJUST واحدة للمستودع بالمعرّف نفسه (GET /warehouse/entries). وسيارات المناديب المحذوفين لا تُمسّ. فاعرف حركات التصفير بـzeroRunId لا بنص الملاحظة",
-     "التصفير نفسه (POST /stock-zero) من لوحة التحكم وحدها: يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN. ولا يجري أصلاً (409 STOCK_ZERO_LOT_TRACKED بلا أي حركة) ما دامت «تتبّع LOT» مفعّلة ولصنف متتبَّع رصيدٌ يكتبه التصفير (في المستودع أو في سيارة مندوب قائم)، فحركات zeroRunId لا تحمل صنفاً متتبَّعاً والميزة مفعّلة. يُصفَّر هذا الصنف قبله بتنزيل أو تسوية نقص أو إزالة EXPIRED_OUT وDAMAGED_OUT هنا وبتسوية نقص في المستودع، والسحب التلقائي يكفي بلا تشغيلات"
+     "التصفير نفسه (POST /stock-zero) من لوحة التحكم وحدها: يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN. ولا يجري أصلاً (409 STOCK_ZERO_LOT_TRACKED بلا أي حركة) ما دامت «تتبّع LOT» مفعّلة ولصنف متتبَّع رصيدٌ يكتبه التصفير (في المستودع أو في سيارة مندوب قائم)، فحركات zeroRunId لا تحمل صنفاً متتبَّعاً والميزة مفعّلة. يُصفَّر هذا الصنف قبله بتنزيل أو تسوية نقص أو إزالة EXPIRED_OUT وDAMAGED_OUT هنا وبتسوية نقص في المستودع، والسحب التلقائي يكفي بلا تشغيلات",
+     "reason (string أو null): سبب تسوية السيارة ADJUST كما أُرسل في POST /van-stock/loads (COUNT | DAMAGE | EXPIRY | SHORTAGE_REP | SAMPLE | OTHER)، وnull لغير التسوية وللتسوية بلا سبب"
     ],
     "example": ""
    },
@@ -5084,14 +5101,15 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{kind:'LOAD'|'UNLOAD'|'ADJUST'|'EXPIRED_OUT'|'DAMAGED_OUT'|'SALE'|'RETURN'|'RETURN_DAMAGED', date, ref, by, zeroRunId, items:[{name, unit, qty, baseQty, primaryUnitId(null أو معرّف الوحدة الرئيسية لصنف البند — للعرض وحده), lineRef(«مرجع السطر» المحفوظ على بند الحركة أو الفاتورة، وnull لما لم يُرسَل ولبند فاتورةٍ خارج نطاق المستخدم المقيَّد), lots?}]}]}",
+    "response": "{success:true, data:[{kind:'LOAD'|'UNLOAD'|'ADJUST'|'EXPIRED_OUT'|'DAMAGED_OUT'|'SALE'|'RETURN'|'RETURN_DAMAGED', date, ref, by, zeroRunId, reason?, items:[{name, unit, qty, baseQty, primaryUnitId(null أو معرّف الوحدة الرئيسية لصنف البند — للعرض وحده), lineRef(«مرجع السطر» المحفوظ على بند الحركة أو الفاتورة، وnull لما لم يُرسَل ولبند فاتورةٍ خارج نطاق المستخدم المقيَّد), lots?}]}]}",
     "rules": [
      "يدمج آخر 50 حركة سيارة مع آخر 50 فاتورة مؤكدة، ثم يرتبها تنازلياً حسب التاريخ ويقتطع أول 60",
      "ref في حركة السيارة هو الملاحظة، وفي الفاتورة «رقم الفاتورة · اسم العميل». ولصاحب المفتاح المقيَّد بنطاق (أو مشرف الفرق) تبقى فاتورة المندوب خارج نطاقه بكمّياتها لأن رصيد السيارة واحد، لكن ref «مستند خارج نطاقك» وlineRef بنودها null",
      "by في الفواتير دائماً 'REP' حتى لو أنشأتها الإدارة، وفي حركات السيارة REP أو ADMIN",
      "المرتجع يظهر هنا حتى لو لم يُعَد للمخزون (returnToStock=false)، والمرتجع التالف الداخل رصيد «المرتجع التالف» يظهر RETURN_DAMAGED، وبند بلا صنف يظهر باسم «صنف محذوف»",
      "لا تُعاد معرّفات للبنود أو الأصناف، فقط الاسم والوحدة والكمية: unit وحدة البند كما كُتب (لقطته، وإلا وحدة الصنف) وqty بها، وbaseQty الكمية بوحدة الأساس لمن يجمع",
-     "zeroRunId (string أو null): في حركة السيارة معرّف عملية «تصفير المخزون» إن كتبتها (ADJUST وDAMAGED_OUT وEXPIRED_OUT بالملاحظة «تصفير المخزون» فيظهر ref «تصفير المخزون»)، وnull لكل حركة غيرها وللفواتير والمرتجعات دائماً. والتصفير يُطلق من لوحة التحكم وحدها (POST /stock-zero يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN)"
+     "zeroRunId (string أو null): في حركة السيارة معرّف عملية «تصفير المخزون» إن كتبتها (ADJUST وDAMAGED_OUT وEXPIRED_OUT بالملاحظة «تصفير المخزون» فيظهر ref «تصفير المخزون»)، وnull لكل حركة غيرها وللفواتير والمرتجعات دائماً. والتصفير يُطلق من لوحة التحكم وحدها (POST /stock-zero يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN)",
+     "reason في حركة السيارة حين سُجّل لها سبب تسوية (POST /van-stock/loads بالنوع ADJUST): COUNT | DAMAGE | EXPIRY | SHORTAGE_REP (عجزٌ على المندوب) | SAMPLE | OTHER — وغائبٌ لحركةٍ بلا سبب وللفواتير"
     ],
     "example": ""
    },
@@ -5218,10 +5236,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "تظهر كل الأصناف النشطة حتى التي لا حركة لها، والموقوفة والمؤرشفة ما دام لها رصيد أو قيمة (ومع asOf كذلك). status حالة الصنف (ACTIVE أو INACTIVE)، وarchived = true للمؤرشف (deletedAt غير فارغ) — للعرض وحده، فلا يبدو الصنف مكرّراً بجانب بديله",
      "onHand = received + adjusted + returnedFromVans − loadedToVans، مقرّبة لأربع خانات",
+     "received صافي الوارد من الموردين: أسطر الوارد RECEIVE ناقص المرتجع للمورّد RETURN («ربط الدفاتر»: حركة مستودع كمياتها سالبة)، وadjusted تسويات المستودع ADJUST وحدها (جرد وتالف وتصفير). المرتجع للمورّد لا يظهر في adjusted",
      "تُحسب تحميلات كل المناديب ومنهم المحذوفون، ولا يُطبَّق نطاق المناديب هنا لأن المستودع على مستوى الشركة",
      "avgCost متوسط متحرك من الوارد المسعّر، صافٍ قبل الضريبة، بأربع خانات. stockValue = costedQty × avgCost، مقرّبة بخانات عملة الشركة",
+     "المرتجع للمورّد RETURN يخرج من التقييم تماماً كتسوية بالنقص: بمتوسّط لحظته لا بسعر سطره الأصلي، فلا يغيّر متوسّط ما بقي (ويُنقص الكمية بلا سعر بنسبتها كما تفعل التسوية)",
      "uncostedQty كمية بلا سعر معروف، وهي خارج stockValue صراحة",
-     "onHand وstockValue قد يصيران سالبين بتسوية بالنقص، أو من تحميلاتٍ سبقت منع التحميل فوق الرصيد (POST /van-stock/loads يرفض الآن 422 WAREHOUSE_INSUFFICIENT ما يتجاوز onHand، والصنف السالب لا يُحمَّل منه) — إلا الصنف المتتبَّع بالتشغيلة («تتبّع LOT»): التحميل والتسوية بالنقص لا يتجاوزان رصيد تشغيلاته والرصيد غير المسمّى (409 LOT_STOCK_INSUFFICIENT)، فلا ينزل تحت الصفر إلا ما كان سالباً قبل التفعيل. وأرصدته بالتشغيلة في GET /lots/balances",
+     "onHand وstockValue قد يصيران سالبين بتسوية بالنقص أو بمرتجعٍ للمورّد يتجاوز الرصيد، أو من تحميلاتٍ سبقت منع التحميل فوق الرصيد (POST /van-stock/loads يرفض الآن 422 WAREHOUSE_INSUFFICIENT ما يتجاوز onHand، والصنف السالب لا يُحمَّل منه) — إلا الصنف المتتبَّع بالتشغيلة («تتبّع LOT»): التحميل والتسوية بالنقص والمرتجع للمورّد لا تتجاوز رصيد تشغيلاته والرصيد غير المسمّى (409 LOT_STOCK_INSUFFICIENT)، فلا ينزل تحت الصفر إلا ما كان سالباً قبل التفعيل. وأرصدته بالتشغيلة في GET /lots/balances",
      "الكميات (received وadjusted وloadedToVans وreturnedFromVans وonHand وcostedQty وuncostedQty) بوحدة الأساس unit، وavgCost لوحدة الأساس (تكلفة الكرتون ÷ معامله بلا تقريب قبل المتوسط)، وunits وحدات الصنف للعرض"
     ],
     "example": ""
@@ -5261,10 +5281,10 @@ export const API_DOC_GROUPS: DocGroup[] = [
    {
     "method": "POST",
     "path": "/warehouse/entries",
-    "purpose": "تسجيل وارد (شراء أو استلام) إلى مستودع الشركة، أو تسوية جرد له",
+    "purpose": "تسجيل وارد إلى مستودع الشركة — ومعه اختيارياً الشراء نقداً أو آجلاً من مورّدٍ مسجَّل (فاتورة مورّد وقيد في كشفه وسند صرف آلي للنقدي) — أو تسوية جرد بسببها",
     "permission": "canManageVanStock",
     "gates": [
-     "صلاحية canManageVanStock أولاً (403 بلا code)",
+     "صلاحية canManageVanStock أولاً (403 بلا code)، والمندوب SALES_REP ممنوع 403",
      "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
      "warehouseEnabled يجب أن يكون true وإلا 403 بلا code «ميزة مخزون الشركة غير مفعلة لهذه الشركة»",
      "مفتاح قراءة فقط مرفوض 403 API_KEY_FORBIDDEN"
@@ -5275,7 +5295,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "type",
       "type": "enum: RECEIVE | ADJUST",
       "required": false,
-      "desc": "الافتراضي RECEIVE. RECEIVE وارد أو شراء، وADJUST تسوية جرد أو تالف"
+      "desc": "الافتراضي RECEIVE. RECEIVE وارد أو شراء، وADJUST تسوية جرد أو تالف. وRETURN (مرتجعٌ للمورّد) لا يُرسل: يُشتقّ من أسطر وارد سالبة بمورّد وسعر (قاعدة «الوارد السالب») أو من POST /warehouse/entries/:id/return"
      },
      {
       "name": "note",
@@ -5287,7 +5307,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "supplier",
       "type": "string (max 200)",
       "required": false,
-      "desc": "اسم المورّد كنص حر، ولا يرتبط بسجل مورد"
+      "desc": "اسم المورّد كنص حر، ولا يرتبط بسجل مورد — للربط بسجلّ الموردين أرسل vendorId (ومعه يُكتب اسم المورّد هنا إن غاب)"
      },
      {
       "name": "costsIncludeTax",
@@ -5300,6 +5320,54 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "string ≤ 64 ([A-Za-z0-9_-])",
       "required": false,
       "desc": "مفتاح منع التكرار: ولّد واحداً لكل حركة وأعد إرساله نفسه عند إعادة المحاولة. مرجعٌ سبق حفظه لهذه الشركة ⇒ 200 {success:true, data:<الحركة القائمة بشكل ردّ الإنشاء>, replay:true, idempotent:true} بلا كتابة ولا حكمٍ جديد. مرجعٌ لحركة من نوع آخر ⇒ 409 {success:false, code:'CLIENT_REF_REUSED'}. والطلبان المتزامنان بالمرجع نفسه يُنشئان حركة واحدة. غيابه = بلا حماية من التكرار، وصيغةٌ غير صالحة 400. يعود في GET /warehouse/entries (و?clientRef=) ومزامنة warehouse-entries"
+     },
+     {
+      "name": "vendorId",
+      "type": "string (uuid) | null",
+      "required": false,
+      "desc": "المورّد من GET /suppliers (سجلّ الموردين). مع الوارد يُحفظ على الحركة ويُكتب اسمه في supplier إن غاب. مورّدٌ غير موجود في الشركة: الواجهة 400 PURCHASE_VENDOR_REQUIRED، ومفتاح API تُحفظ الحركة بلا مورّد بتحذير PURCHASE_UNCLASSIFIED"
+     },
+     {
+      "name": "paymentMode",
+      "type": "enum: CASH | CREDIT",
+      "required": false,
+      "desc": "نوع الشراء للوارد: CASH مدفوعٌ فوراً (سند صرف آلي بالإجمالي كاملاً مخصَّص للحركة)، CREDIT آجل (ذمة على المورّد تستحقّ بعد مدة سداده). يتطلب vendorId وكل سطرٍ بـunitCost. غيابه = وارد غير مصنَّف يُصنَّف لاحقاً بـPOST /warehouse/entries/:id/classify"
+     },
+     {
+      "name": "paidFrom",
+      "type": "enum: MAIN_CASH | BANK | REP_CUSTODY",
+      "required": false,
+      "desc": "مصدر الدفع للنقدي، الافتراضي MAIN_CASH. REP_CUSTODY يتطلب paidFromRepId لمندوبٍ في الشركة. يُهمل مع CREDIT. مع الأسطر السالبة المحوَّلة مرتجعاً وpaymentMode = CASH هو مستلم ما ردّه المورّد"
+     },
+     {
+      "name": "paidFromRepId",
+      "type": "string (uuid)",
+      "required": false,
+      "desc": "المندوب الذي دُفع من عهدته (paidFrom = REP_CUSTODY)"
+     },
+     {
+      "name": "supplierRef",
+      "type": "string ≤ 60",
+      "required": false,
+      "desc": "رقم فاتورة المورّد — مرجع قيد الكشف. أطول من 60: الواجهة 400 PURCHASE_INVALID، ومفتاح API يُقصّ بتحذير PURCHASE_FIELD_ADJUSTED"
+     },
+     {
+      "name": "billDate",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "تاريخ فاتورة المورّد — تاريخ قيدها وسندها النقدي وأساس الاستحقاق. الافتراضي يوم الاستلام بتوقيت الشركة. غير الصالح: الواجهة 400 PURCHASE_INVALID، ومفتاح API يُستعمل الافتراضي بتحذير PURCHASE_FIELD_ADJUSTED"
+     },
+     {
+      "name": "vatTreatment",
+      "type": "enum: RECOVERABLE | NON_RECOVERABLE | NONE",
+      "required": false,
+      "desc": "معاملة ضريبة المشتريات. الافتراضي RECOVERABLE (التكلفة صافية والضريبة تُسترد)، وللشركة «بلا ضريبة» NONE (و«RECOVERABLE» صريحاً لها تصير NONE بتحذير VAT_TREATMENT_ADJUSTED). NONE ⇒ نسبة كل سطر صفر. NON_RECOVERABLE ⇒ الضريبة تُرسمَل في تكلفة المخزون (unitCost = الصافي × (1 + النسبة)، أو الشامل كما كُتب)"
+     },
+     {
+      "name": "reason",
+      "type": "enum: COUNT | DAMAGE | EXPIRY | SAMPLE | OTHER",
+      "required": false,
+      "desc": "سبب التسوية ADJUST (جرد، تالف، منتهي، عينات، أخرى)، بلا حساسية لحالة الأحرف. غير المعروف: الواجهة 400 ADJUST_REASON_INVALID، ومفتاح API يُهمل بتحذير ADJUST_REASON_IGNORED. يُهمل مع الوارد"
      },
      {
       "name": "items",
@@ -5317,7 +5385,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "items[].qty",
       "type": "number",
       "required": true,
-      "desc": "الكمية بوحدة البند (unitId)، وبلا unitId بوحدة الأساس. في RECEIVE يجب أن تكون موجبة. في ADJUST الموجب يزيد والسالب ينقص. البند الذي كميته صفر يُحذف"
+      "desc": "الكمية بوحدة البند (unitId)، وبلا unitId بوحدة الأساس. في RECEIVE الموجبة وارد، والسالبة لا تُرفض: أسطرها مرتجعٌ للمورّد أو تسوية إنقاص (قاعدة «الوارد السالب»). في ADJUST الموجب يزيد والسالب ينقص. البند الذي كميته صفر يُحذف"
      },
      {
       "name": "items[].unitId",
@@ -5336,6 +5404,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "number (>0, finite, max 1e9)",
       "required": false,
       "desc": "تكلفة شراء وحدة البند (تكلفة الكرتون لبند بالكرتون كما في فاتورة المورّد)، وتُقبل مع RECEIVE فقط. الصفر مرفوض، فإن لم يوجد سعر أغفل الحقل"
+     },
+     {
+      "name": "items[].taxPct",
+      "type": "number 0..100",
+      "required": false,
+      "desc": "نسبة ضريبة السطر — الافتراضي نسبة الصنف (وصفر مع vatTreatment = NONE). تُقرأ مع بيانات الشراء وحدها. غير الصالحة: الواجهة 400 PURCHASE_INVALID، ومفتاح API نسبة الصنف بتحذير PURCHASE_FIELD_ADJUSTED"
      },
      {
       "name": "items[].lotId",
@@ -5368,20 +5442,26 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "«مرجع السطر»: معرّف السطر في نظامك، يُحفظ على البند ويعود كما هو في ردّ الحركة وGET /warehouse/entries ومزامنة warehouse-entries (items[].lineRef). وسطر تسوية النقص الذي سحبه الخادم من أكثر من تشغيلة يعود بنوداً متعددة كلها بـlineRef السطر نفسه، فاجمع baseQty البنود بالمرجع لتطابق سطرك. اختياري لكل الشركات: يُقصّ طرفاه، والفارغ بعد القصّ = null، والأطول من 100 حرف 400. لا فرادة ولا فحص غيره"
      }
     ],
-    "response": "201 {success:true, data:{id, tenantId, type, note, supplier, createdBy, clientRef, createdAt, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, expiresAt, lineRef, product:{id,name,unit,primaryUnitId}, lotId?, lot?}]}, warnings?}. lineRef «مرجع السطر» كما أرسلته (null لما لم يُرسَل). «تتبّع LOT» (الميزة مفعّلة): كل بند يحمل lotId وlot:{lotNumber, productionDate, expiryDate}|null (null لصنف غير متتبَّع أو للرصيد غير المسمّى)، وwarnings بجوار data حين توجد وحدها: LOT_INTO_BLOCKED {code, productId, detail:{idx, lotId, lotNumber, blockKind}} حين يدخل الوارد أو التسوية بالزيادة تشغيلة موقوفة، وLOT_SPLIT_UNIT {code, productId, detail:{unitFactor, idx}} حين قسم السحب التلقائي لتسوية النقص وحدة السطر (كرتوناً) بين مصدرين (idx موضع السطر بين البنود غير الصفرية). وسطر تسوية نقص سحبه الخادم من أكثر من تشغيلة يعود بنوداً متعددة في items للصنف نفسه، لكلٍّ lotId وlot ولقطة وحدته (وحدة السطر إن كانت حصّته وحداتٍ كاملة وإلا وحدة الأساس) وqty وbaseQty بالسالب وlineRef السطر نفسه، ومجموع baseQty لها = الكمية الأساسية للسطر — 400 {success:false, code:'UNIT_INVALID', message} لوحدة بند غير صالحة — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} لمفتاحٍ على صنف محوَّل بلا baseUnitName — 409 {success:false, code:'PRODUCT_UNITS_CHANGED', message} حين يلتزم تحويلُ صنفٍ بين القراءة والكتابة (لا يُكتب شيء) — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'وحدات الأصناف قيد التحديث الآن — أعد المحاولة بعد لحظات'}",
+    "response": "201 {success:true, data:<الحركة>, adjustment?:<الحركة المفصولة من الأسطر السالبة>, warnings?, attachments?, supplierPayment?:{id, number, displayNumber:'SP-000001'}}. حركة المستودع: {id, tenantId, type: RECEIVE|ADJUST|RETURN, note, supplier, vendorId, source: MANUAL|API|OPENING_IMPORT|STOCK_ZERO|NEG_SPLIT, paymentMode: CASH|CREDIT|null, paidAccountRef: MAIN_CASH|BANK|REP_CUSTODY:<salesRepId>|null, supplierRef, billDate:'YYYY-MM-DD'|null, dueDate:'YYYY-MM-DD'|null, costsIncludeTax, vatTreatment: RECOVERABLE|NON_RECOVERABLE|NONE|null, reason, status: POSTED|CANCELLED, returnOfEntryId, net, tax, total (أرقام بوحدة العملة أو null لغير المصنَّف/غير المسعَّر)، createdBy, clientRef, createdAt, updatedAt, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, taxPct, enteredUnitCost, expiresAt, lineRef, product:{id,name,unit,primaryUnitId}, lotId?, lot?}]}. supplierPayment للوارد النقدي وحده: سند الصرف الآلي (للطباعة GET /supplier-payments/:id). 400 {success:false, code:'PURCHASE_VENDOR_REQUIRED'|'PURCHASE_PRICE_REQUIRED'|'PURCHASE_INVALID'|'ADJUST_REASON_INVALID', message, details?} من الواجهات (لا يُكتب شيء)؛ PURCHASE_PRICE_REQUIRED يحمل details.indexes مواضع الأسطر بلا سعر. lineRef «مرجع السطر» كما أرسلته (null لما لم يُرسَل). «تتبّع LOT» (الميزة مفعّلة): كل بند يحمل lotId وlot:{lotNumber, productionDate, expiryDate}|null (null لصنف غير متتبَّع أو للرصيد غير المسمّى)، وwarnings بجوار data حين توجد وحدها: LOT_INTO_BLOCKED {code, productId, detail:{idx, lotId, lotNumber, blockKind}} حين يدخل الوارد أو التسوية بالزيادة تشغيلة موقوفة، وLOT_SPLIT_UNIT {code, productId, detail:{unitFactor, idx}} حين قسم السحب التلقائي لتسوية النقص وحدة السطر (كرتوناً) بين مصدرين (idx موضع السطر بين البنود غير الصفرية). وسطر تسوية نقص سحبه الخادم من أكثر من تشغيلة يعود بنوداً متعددة في items للصنف نفسه، لكلٍّ lotId وlot ولقطة وحدته (وحدة السطر إن كانت حصّته وحداتٍ كاملة وإلا وحدة الأساس) وqty وbaseQty بالسالب وlineRef السطر نفسه، ومجموع baseQty لها = الكمية الأساسية للسطر — 400 {success:false, code:'UNIT_INVALID', message} لوحدة بند غير صالحة — 400 {success:false, code:'BASE_UNIT_REQUIRED', message} لمفتاحٍ على صنف محوَّل بلا baseUnitName — 409 {success:false, code:'PRODUCT_UNITS_CHANGED', message} حين يلتزم تحويلُ صنفٍ بين القراءة والكتابة (لا يُكتب شيء) — 503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'وحدات الأصناف قيد التحديث الآن — أعد المحاولة بعد لحظات'}",
     "rules": [
      "«تتبّع LOT»: كمية سطر الصنف المتتبَّع بالأساس (qty × factor) بأربع خانات عشرية على الأكثر (وإلا 422 LOT_QTY_INVALID). الزيادة (الوارد والتسوية بالزيادة) تشغيلة واحدة للسطر: lotId أو lotNumber، أو lotId: null صريحاً للرصيد غير المسمّى في التسوية وحدها، وبدونها 422 LOT_REQUIRED. التسوية بالنقص لا تتجاوز رصيد التشغيلة أو الرصيد غير المسمّى في المستودع (409 LOT_STOCK_INSUFFICIENT). وسطرٌ بالنقص بلا lotId ولا lotNumber يسحبه الخادم تلقائياً مما بقي بعد الأسطر الصريحة للصنف: كل تشغيلات المستودع بالأقرب انتهاءً أولاً، والموقوفة والمنتهية داخلة في الترتيب (فالمنتهية تخرج أولاً)، والتي بلا انتهاء بعدها، ثم الرصيد غير المسمّى آخراً. أسطر الكرتون قبل أسطر الحبة، والكرتون الكامل من تشغيلة واحدة ما أمكن. فإن أخذ السطر من أكثر من تشغيلة كُتب بنداً لكل تشغيلة (items متعددة للسطر نفسه بالصنف نفسه، بوحدة السطر إن كانت حصّتها وحداتٍ كاملة وإلا بوحدة الأساس، ومجموع baseQty لها = أساس السطر، وكلها بـitems[].lineRef السطر إن أرسلته). لإتلاف تشغيلة بعينها (موقوفة أو منتهية) أرسل lotId أو lotNumber: السحب التلقائي يختار بالانتهاء لا بالحالة. وأي رفض يلغي الحركة كلها، والانشغال 503 LOT_BUSY",
      "«تتبّع LOT» — شكل 409 LOT_STOCK_INSUFFICIENT في التسوية بالنقص (الكميات بالأساس): detail {productId, productName, bucket:'SELLABLE', wanted, sources:[{lotId, lotNumber, usable, status, expiryDate}]} — wanted ما طُلب من الصنف، وsources مصادر المستودع الصالحة (lotId: null للرصيد غير المسمّى)، ولتشغيلة صريحة يضاف lotId وlotNumber. ولا فهرس سطر فيه",
      "«تتبّع LOT» — صنفٌ غير متتبَّع والميزة مفعّلة للشركة: سطرٌ يحمل حقل تشغيلة (lotId غير null، أو lotNumber أو productionDate أو expiryDate غير فارغ) يُرفض 422 {code:'LOT_PRODUCT_MISMATCH', detail:{productId, idx, reason:'NOT_TRACKED'}} وتُلغى الحركة كلها، وidx موضع السطر بين البنود غير الصفرية كسائر أخطاء الحركة. أرسله بلا هذه الحقول (null والنص الفارغ غياب). والميزة مطفأة تُهمل هذه الحقول كما كانت",
      "«تتبّع LOT» — الانشغال: 503 {code:'LOT_BUSY', detail:{cause|reason}} حين يكون الصنف مشغولاً بعملية تشغيلات أخرى، أو تبدّل تتبّعه أثناء الطلب (detail.reason = 'TRACKING_CHANGED')، أو طال انتظار المعاملة تحت الضغط — ومنه حركةٌ أصنافها كلها غير متتبَّعة والميزة مفعّلة للشركة. لا يُكتب شيء، فأعد الطلب (بالـclientRef نفسه إن أرسلته). والميزة مطفأة لا LOT_BUSY",
      "البنود التي كميتها صفر تُحذف، فإن لم يبقَ بند يُرَدّ 400",
-     "RECEIVE بكمية سالبة يعطي 400، والتنقيص يكون بتسوية ADJUST",
      "ADJUST مع unitCost يعطي 400",
      "صنفٌ لا يتبع الشركة (أو حُذف حذفاً فعلياً) ⇒ 400 {success:false, code:'PRODUCT_NOT_FOUND', message, productId, index, productIds, indexes}: index موضع أول سطرٍ مرفوض في items كما أرسلتها (من الصفر، والسطر الصفري لا يزيحه)، وindexes كل المواضع",
      "الوارد RECEIVE لصنفٍ مؤرشف (deletedAt غير فارغ) ⇒ 422 {success:false, code:'PRODUCT_ARCHIVED', message, productId, index} بلا كتابة. والتسوية ADJUST تُقبل عليه",
-     "unitCost المحفوظ صافٍ دائماً ولوحدة البند، والتقييم يقسمه على unitFactor فتكلفة الحبة = تكلفة الكرتون ÷ 24. مع costsIncludeTax=true يكون unitCost ÷ (1 + taxPct الصنف/100) مقرّباً لأربع خانات، والشركة «بلا ضريبة» (taxDisabled في GET /company/tax-mode) بلا ردّ: unitCost المحفوظ ما أُرسل",
+     "unitCost المحفوظ لوحدة البند، والتقييم يقسمه على unitFactor فتكلفة الحبة = تكلفة الكرتون ÷ 24. وبلا بيانات شراء هو صافٍ دائماً: مع costsIncludeTax=true يكون unitCost ÷ (1 + taxPct الصنف/100) مقرّباً لأربع خانات، والشركة «بلا ضريبة» (taxDisabled في GET /company/tax-mode) بلا ردّ: unitCost المحفوظ ما أُرسل. ومع بيانات الشراء (paymentMode) تحكمه vatTreatment ونسبة السطر items[].taxPct (قاعدة «unitCost المحفوظ تكلفة المخزون» أدناه)",
      "التقييم: الوارد المسعّر يحرّك متوسط التكلفة، والوارد بلا سعر يدخل uncostedQty، والتسوية الموجبة تُقيَّم بمتوسط اللحظة، والسالبة تنقص الكمية المقيَّمة وغير المقيَّمة بنسبتهما",
-     "المسار لا يُنشئ قيداً محاسبياً ولا ذمة مورد، فهو حركة مخزون فقط",
+     "الوارد مع paymentMode (الواجهات): vendorId إلزامي وكل سطرٍ مسعَّر، وإلا 400 PURCHASE_VENDOR_REQUIRED / PURCHASE_PRICE_REQUIRED بلا حركة. مفتاح API لا يُرفض أبداً لنقص بيانات الشراء: تُحفظ الحركة كاملة غير مصنَّفة (paymentMode = null، بلا قيود مورّد) مع warnings:[{code:'PURCHASE_UNCLASSIFIED', message}] تذكر السبب (بلا مورّد، أو سطر بلا سعر، أو مصدر دفع غير صالح…) — صنّفها لاحقاً بـPOST /warehouse/entries/:id/classify",
+     "الوارد المصنَّف يُكتب في معاملة الحركة نفسها: net/tax/total (الصافي مقرَّبٌ نصف-لأعلى، والضريبة لكل نسبة على مجموع صافي سطورها، والأسعار الشاملة costsIncludeTax تُجمع شاملةً ثم تُفصل لكل نسبة فيطابق الإجمالي فاتورة المورّد)، ولكل سطر taxPct وenteredUnitCost (السعر كما أُرسل)، وdueDate للآجل = billDate + مدة سداد المورّد (paymentDays، وبلاها يوم الفاتورة)، وقيد BILL (+الإجمالي) في كشف المورّد بتاريخ billDate. والنقدي: سند صرف آلي بالإجمالي كاملاً مخصَّص للحركة (autoForEntryId) بتاريخ billDate ومن paidFrom، وقيد PAYMENT (−الإجمالي) — فرصيد المورّد بعده صفر",
+     "الوارد السالب: سطرٌ بكمية سالبة مع vendorId صالح وكل الأسطر السالبة مسعَّرة ⇒ مرتجعٌ للمورّد (type RETURN بسعره وقيد RETURN −إجماليه، وpaymentMode = CASH ⇒ قيد REFUND_IN + أيضاً: المورّد ردّ المال) بتحذير NEGATIVE_RECEIVE_AS_RETURN. وإلا تسوية إنقاص ADJUST بلا سعر كما كان (NEGATIVE_RECEIVE_AS_ADJUST). كل الأسطر سالبة ⇒ الحركة نفسها RETURN أو ADJUST (تحمل clientRef)، ومختلطة ⇒ حركةٌ مفصولة في adjustment بـsource = NEG_SPLIT",
+     "source: API لطلبات مفتاح API، وMANUAL للواجهات، وNEG_SPLIT للحركة المفصولة من وارد مختلط",
+     "بيانات الشراء (vendorId، paymentMode…) مع ADJUST تُهمل بتحذير PURCHASE_FIELDS_IGNORED: التسوية جردٌ أو تالف لا شراء",
+     "unitCost المحفوظ تكلفة المخزون لوحدة البند: صافٍ قبل الضريبة (RECOVERABLE وNONE)، وشاملٌ للضريبة مع NON_RECOVERABLE",
+     "BigInt لا يخرج: الإجماليات net/tax/total أرقامٌ بوحدة العملة، وbillDate/dueDate أيام YYYY-MM-DD. وبلا أي حقل شراء: الحركة والردّ كما كانا (net/tax/total = null)",
+     "لا شيء من هذا يكتب في دفاتر النظام المحاسبي (لا قيود): هو الكشف التشغيلي للمورّد، والدفاتر المربوطة تُبنى منه لاحقاً",
      "createdBy هو اسم مستخدم الشركة صاحب المفتاح",
      "منع التكرار بـclientRef الاختياري (انظر الحقل): المكرَّر 200 بالحركة القائمة وreplay:true، وبلاه كل طلبٍ حركةٌ جديدة. ولا مسار تعديل أو حذف"
     ],
@@ -5390,10 +5470,10 @@ export const API_DOC_GROUPS: DocGroup[] = [
    {
     "method": "GET",
     "path": "/warehouse/entries",
-    "purpose": "سجل حركات المستودع (الوارد والتسويات) مع قيمة كل سطر وإجمالي الحركة (آخر 100 حركة)",
+    "purpose": "سجل حركات المستودع (الوارد والتسويات والمرتجعات للمورّد) مع قيمة كل سطر وإجمالي الحركة، والمورّد ونوع الشراء والمدفوع والمتبقّي للآجل (آخر 100 حركة)",
     "permission": "canManageVanStock",
     "gates": [
-     "صلاحية canManageVanStock أولاً (403 بلا code)",
+     "صلاحية canManageVanStock أولاً (403 بلا code)، والمندوب SALES_REP ممنوع 403",
      "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
      "warehouseEnabled يجب أن يكون true وإلا 403 بلا code «ميزة مخزون الشركة غير مفعلة لهذه الشركة»"
     ],
@@ -5403,22 +5483,229 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "string ≤ 64 ([A-Za-z0-9_-])",
       "required": false,
       "desc": "الحركة التي أُرسلت بهذا المرجع (POST /warehouse/entries) — للتحقّق قبل إعادة الإرسال. صيغةٌ غير صالحة تُهمل"
+     },
+     {
+      "name": "vendorId",
+      "type": "string (uuid)",
+      "required": false,
+      "desc": "حركات مورّدٍ بعينه (الوارد ومرتجعاته)"
+     },
+     {
+      "name": "type",
+      "type": "enum: RECEIVE | ADJUST | RETURN",
+      "required": false,
+      "desc": "نوع الحركة، وRETURN المرتجعات للمورّد. غير المعروف يُهمل"
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, tenantId, type, note, supplier, createdBy, createdAt, zeroRunId, clientRef, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, expiresAt, lineRef, product:{name,unit,primaryUnitId}, lineCost, lotId?, lot?}], totalCost}]}",
+    "response": "{success:true, data:[{…الحركة، vendor:{id,name}|null, paid, outstanding, attachmentsCount, zeroRunId, items:[{…, lineCost}], totalCost}]}. حركة المستودع: {id, tenantId, type: RECEIVE|ADJUST|RETURN, note, supplier, vendorId, source: MANUAL|API|OPENING_IMPORT|STOCK_ZERO|NEG_SPLIT, paymentMode: CASH|CREDIT|null, paidAccountRef: MAIN_CASH|BANK|REP_CUSTODY:<salesRepId>|null, supplierRef, billDate:'YYYY-MM-DD'|null, dueDate:'YYYY-MM-DD'|null, costsIncludeTax, vatTreatment: RECOVERABLE|NON_RECOVERABLE|NONE|null, reason, status: POSTED|CANCELLED, returnOfEntryId, net, tax, total (أرقام بوحدة العملة أو null لغير المصنَّف/غير المسعَّر)، createdBy, clientRef, createdAt, updatedAt, items:[{id, entryId, productId, qty, unitName, unitFactor, baseQty, unitCost, taxPct, enteredUnitCost, expiresAt, lineRef, product:{name,unit,primaryUnitId}, remainingQty?, lotId?, lot?}]}",
     "rules": [
      "«تتبّع LOT» (حين تكون الميزة مفعّلة للشركة): كل بند يحمل lotId وlot:{lotNumber, productionDate, expiryDate}|null — تشغيلة البند، وnull لصنف غير متتبَّع أو للرصيد غير المسمّى. وتسوية نقصٍ سحبها الخادم من أكثر من تشغيلة تظهر بنوداً متعددة للصنف نفسه في الحركة، لكلٍّ تشغيلته ولقطة وحدته وbaseQty وكلها بـlineRef السطر نفسه، فاجمع baseQty. والميزة مطفأة: الرد كما كان",
      "lineRef «مرجع السطر» (لكل الشركات): ما أرسلته في items[].lineRef عند POST /warehouse/entries كما هو، وnull لما لم يُرسَل",
      "zeroRunId (string أو null): معرّف عملية «تصفير المخزون» التي كتبت الحركة، وnull لكل حركة غيرها. التصفير يكتب للمستودع حركة تسوية ADJUST واحدة بالملاحظة «تصفير المخزون» تُعيد كل رصيد إلى الصفر (بنودها بوحدة الأساس بلا unitCost، والسالب يُعاد بسطر موجب)، ولكل سيارة مندوب حركات ADJUST وDAMAGED_OUT وEXPIRED_OUT بالمعرّف نفسه (GET /van-stock/loads). هي تسويات عادية تدخل الأرصدة كغيرها، فاعرفها بـzeroRunId لا بنص الملاحظة",
      "التصفير نفسه (POST /stock-zero) من لوحة التحكم وحدها: يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN، ويُنفّذه مدير الشركة غير المقيّد بنطاق بكلمة تأكيد. لا مسار له في هذا المستند. ولا يجري أصلاً (409 STOCK_ZERO_LOT_TRACKED بلا أي حركة) ما دامت «تتبّع LOT» مفعّلة ولصنف متتبَّع رصيدٌ في المستودع أو في سيارة مندوب قائم، فحركات zeroRunId لا تحمل صنفاً متتبَّعاً والميزة مفعّلة. يُصفَّر هذا الصنف قبله بتسوية نقص هنا (POST /warehouse/entries بالنوع ADJUST) وبتنزيل أو تسوية نقص أو إزالة من السيارات، والسحب التلقائي يكفي بلا تشغيلات",
      "آخر 100 حركة فقط، الأحدث أولاً، بلا ترقيم صفحات. للتاريخ الكامل استعمل /v1/sync/warehouse-entries",
-     "unitCost صافٍ قبل الضريبة، ويكون null إن لم يُسعَّر",
+     "unitCost تكلفة المخزون لوحدة البند: صافٍ قبل الضريبة، وشاملٌ لها في وارد مصنَّف بمعاملة NON_RECOVERABLE (والسعر كما أُدخل في enteredUnitCost)، ويكون null إن لم يُسعَّر",
      "lineCost = qty × unitCost بوحدة السطر (كراتين × تكلفة الكرتون) مقرّبة بخانات عملة الشركة، وتكون 0 حين لا يوجد سعر. وtotalCost هو مجموع قيم lineCost بعد تقريب كل منها. وbaseQty كمية السطر بالأساس",
      "expiresAt حقل مهجور لا يُكتب، فتجاهله",
-     "product في هذا المسار يحمل name وunit فقط، بلا id، والمعرّف موجود في productId"
+     "product في هذا المسار يحمل name وunit فقط، بلا id، والمعرّف موجود في productId",
+     "paid وoutstanding للوارد الآجل (paymentMode = CREDIT) وحده، وnull لغيره: paid مجموع تخصيصات سندات الصرف السارية، وoutstanding = الإجمالي − المدفوع − المرتجعات المرتبطة به (بعد طرح ما ردّه المورّد نقداً عنها)، ولا يقلّ عن صفر، والملغى صفر",
+     "type = RETURN مرتجعٌ للمورّد: كمياته سالبة (qty وbaseQty)، وreturnOfEntryId الوارد الذي يردّه (null لمرتجعٍ من أسطر وارد سالبة)، وpaymentMode CASH = ردّ المورّد المال (قيد REFUND_IN) وCREDIT = خصمٌ من رصيده. يُنقص رصيد المستودع كتسويةٍ سالبة",
+     "status = CANCELLED وارد أُلغي بـPOST /warehouse/entries/:id/cancel — بقي في السجلّ وألغته حركة RETURN كاملة (returnOfEntryId)",
+     "net/tax/total بالأرقام بوحدة العملة (لا BigInt)، وnull للوارد غير المصنَّف وللتسوية",
+     "items[].remainingQty للوارد المصنَّف غير الملغى وحده (وغائبٌ لغيره): المتبقّي القابل للإرجاع من السطر بوحدته بعد كل مرتجعاته السارية (لا ما ظهر منها في الصفحة) — الحدّ نفسه الذي يرفض به POST /warehouse/entries/:id/return ما زاد عليه (409 RETURN_EXCEEDS_RECEIVED)"
     ],
     "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/warehouse/reps",
+    "purpose": "المناديب لاختيار «عهدة مندوب» مصدراً للدفع في الشراء النقدي (paidFrom = REP_CUSTODY) وفي سند صرف المورّد (method = REP_CUSTODY) — بحرّاس المستودع لا صلاحية إدارة المناديب",
+    "permission": "canManageVanStock",
+    "gates": [
+     "صلاحية canManageVanStock أولاً (403 بلا code)، والمندوب SALES_REP ممنوع 403",
+     "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
+     "warehouseEnabled يجب أن يكون true وإلا 403 بلا code «ميزة مخزون الشركة غير مفعلة لهذه الشركة»",
+     "نطاق المستخدم: مناديبه وحدهم",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:[{id, name, isActive}]}",
+    "rules": [
+     "مرتّبة بالاسم، والموقوف (isActive = false) معها — الصرف من عهدةٍ قائمة لمندوبٍ موقوف جائز",
+     "المعرّف والاسم والحالة وحدها: لا جوال ولا صلاحيات (للتفاصيل GET /sales-reps بصلاحية canManageSalesReps)",
+     "الخادم يتحقق من المندوب عند الحفظ على أي حال (من الشركة ومن نطاق المستخدم)"
+    ],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/warehouse/entries/:id/classify",
+    "purpose": "تصنيف وارد غير مصنَّف (نقدي/آجل) لاحقاً: المورّد ونوع الشراء وأسعار السطور غير المسعَّرة ⇒ ما يكتبه الإنشاء المصنَّف (الإجماليات وقيد BILL وللنقدي سند صرف آلي)",
+    "permission": "canManageVanStock",
+    "gates": [
+     "صلاحية canManageVanStock أولاً (403 بلا code)، والمندوب SALES_REP ممنوع 403",
+     "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
+     "warehouseEnabled يجب أن يكون true وإلا 403 بلا code «ميزة مخزون الشركة غير مفعلة لهذه الشركة»",
+     "مفتاح قراءة فقط مرفوض 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "vendorId",
+      "type": "string (uuid)",
+      "required": false,
+      "desc": "المورّد — مطلوب ما لم تحمل الحركة مورّداً (الافتراضي مورّد الحركة). غير موجود في الشركة 400 PURCHASE_VENDOR_REQUIRED"
+     },
+     {
+      "name": "paymentMode",
+      "type": "enum: CASH | CREDIT",
+      "required": true,
+      "desc": "نوع الشراء"
+     },
+     {
+      "name": "paidFrom",
+      "type": "enum: MAIN_CASH | BANK | REP_CUSTODY",
+      "required": false,
+      "desc": "مصدر الدفع للنقدي، الافتراضي MAIN_CASH"
+     },
+     {
+      "name": "paidFromRepId",
+      "type": "string (uuid)",
+      "required": false,
+      "desc": "مندوب العهدة لـREP_CUSTODY"
+     },
+     {
+      "name": "supplierRef",
+      "type": "string ≤ 60",
+      "required": false,
+      "desc": "رقم فاتورة المورّد"
+     },
+     {
+      "name": "billDate",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "تاريخ الفاتورة — الافتراضي يوم الاستلام (createdAt الحركة) بتوقيت الشركة لا يوم التصنيف"
+     },
+     {
+      "name": "costsIncludeTax",
+      "type": "boolean",
+      "required": false,
+      "desc": "هل الأسعار في prices شاملة الضريبة (الافتراضي قيمة الحركة)"
+     },
+     {
+      "name": "vatTreatment",
+      "type": "enum: RECOVERABLE | NON_RECOVERABLE | NONE",
+      "required": false,
+      "desc": "معاملة الضريبة كما في الإنشاء"
+     },
+     {
+      "name": "prices",
+      "type": "array [{itemId, unitCost > 0, taxPct? 0..100}]",
+      "required": false,
+      "desc": "أسعار السطور غير المسعَّرة بمعرّف بندها (items[].id) — تملأ غير المسعَّر وحده: سعرٌ لسطرٍ مسعَّر يُهمل بتحذير PRICE_IGNORED_EXISTING (لا يُغيَّر سعرٌ قائم). سطرٌ بلا سعر بعدها ⇒ 400 PURCHASE_PRICE_REQUIRED (details.itemIds)"
+     }
+    ],
+    "response": "200 {success:true, data:<الحركة بعد التصنيف مع vendor>, supplierPayment?:{id, number, displayNumber}, warnings?}. 404 حركة غير موجودة (أو لشركة أخرى). 409 {code:'ENTRY_ALREADY_CLASSIFIED'} لمصنَّفٍ مسبقاً، و'ENTRY_NOT_CLASSIFIABLE' لغير الوارد أو للمخزون الافتتاحي (source = OPENING_IMPORT)، و'ENTRY_ALREADY_CANCELLED' للملغى. 400 PURCHASE_VENDOR_REQUIRED | PURCHASE_PRICE_REQUIRED | PURCHASE_INVALID",
+    "rules": [
+     "يكتب ما يكتبه POST /warehouse/entries المصنَّف حرفياً: net/tax/total وtaxPct وenteredUnitCost للسطور، وdueDate للآجل، وقيد BILL بتاريخ billDate، وللنقدي سند صرف آلي مخصَّص بالكامل وقيد PAYMENT",
+     "صارمٌ لكل مُصدِر (ومنه مفتاح API): لا حركة مخزون تضيع برفضه",
+     "الأسعار القائمة لا تُغيَّر: فلا يُصنَّف وارد فيه سطرٌ مسعَّر بمعاملة ضريبة تخالف ما سُعّر به (NON_RECOVERABLE على أسعار صافية، أو costsIncludeTax مخالف لأسعارٍ أُدخلت مع الحركة) — 400 PURCHASE_INVALID",
+     "updatedAt الحركة يتحرّك فتصل التصنيفات مزامنة warehouse-entries (بطابع التعديل)",
+     "مرّة واحدة: الوارد المصنَّف يُعدَّل بإلغائه (cancel) ثم تسجيله من جديد"
+    ],
+    "example": "{\"vendorId\":\"7c1e2d3f-0000-4000-8000-0000000000a1\",\"paymentMode\":\"CASH\",\"supplierRef\":\"INV-9\",\"prices\":[{\"itemId\":\"5d2c0000-0000-4000-8000-0000000000e1\",\"unitCost\":20}]}"
+   },
+   {
+    "method": "POST",
+    "path": "/warehouse/entries/:id/return",
+    "purpose": "مرتجعٌ جزئي للمورّد من وارد مصنَّف: حركة RETURN مرتبطة بأصلها بكمياتٍ سالبة بتكلفة السطر الأصلي ولوطه، وقيد RETURN في كشف المورّد",
+    "permission": "canManageVanStock",
+    "gates": [
+     "صلاحية canManageVanStock أولاً (403 بلا code)، والمندوب SALES_REP ممنوع 403",
+     "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
+     "warehouseEnabled يجب أن يكون true وإلا 403 بلا code «ميزة مخزون الشركة غير مفعلة لهذه الشركة»",
+     "مفتاح قراءة فقط مرفوض 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "items",
+      "type": "array (min 1) [{itemId, qty > 0}]",
+      "required": true,
+      "desc": "بنود الوارد الأصلي (items[].id) والكمية المرتجعة بوحدة البند نفسها. المكرَّر يُجمع. أكثر من المتبقّي من السطر (الوارد − مرتجعاته السابقة) ⇒ 409 RETURN_EXCEEDS_RECEIVED (details: itemId, requested, remaining)"
+     },
+     {
+      "name": "note",
+      "type": "string ≤ 300",
+      "required": false,
+      "desc": "ملاحظة"
+     },
+     {
+      "name": "supplierRef",
+      "type": "string ≤ 60",
+      "required": false,
+      "desc": "رقم إشعار المورّد الدائن — مرجع القيد (الافتراضي رقم الفاتورة الأصلية)"
+     },
+     {
+      "name": "billDate",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "تاريخ المرتجع المحاسبي — الافتراضي يوم الشركة، ولا يسبق تاريخ الفاتورة (400 RETURN_INVALID)"
+     },
+     {
+      "name": "refundMode",
+      "type": "enum: CREDIT | CASH",
+      "required": false,
+      "desc": "الافتراضي CREDIT: يُخصم من رصيد المورّد. CASH: المورّد ردّ المال ⇒ قيد REFUND_IN (+) مع RETURN (−)"
+     },
+     {
+      "name": "refundTo",
+      "type": "enum: MAIN_CASH | BANK",
+      "required": false,
+      "desc": "مستلم الردّ النقدي، الافتراضي MAIN_CASH (paidAccountRef حركة المرتجع)"
+     }
+    ],
+    "response": "201 {success:true, data:<حركة RETURN>, entry:<الوارد الأصلي>, warnings?}. 404 حركة غير موجودة. 409 'ENTRY_NOT_CLASSIFIED' (صنّف الوارد أولاً أو ألغه)، 'ENTRY_NOT_RETURNABLE' لغير الوارد، 'ENTRY_ALREADY_CANCELLED'، 'RETURN_EXCEEDS_RECEIVED'. 400 RETURN_INVALID. ومع «تتبّع LOT»: 409 LOT_STOCK_INSUFFICIENT و503 LOT_BUSY كتسوية النقص",
+    "rules": [
+     "الإجمالي: حساب أسطر المرتجع بسعر الوارد ونسبته (الشامل يُجمع شاملاً) مقيَّداً بالمتبقّي من الفاتورة؛ والمرتجع الذي يستنفد ما بقي من كل السطور يأخذ المتبقّي من الفاتورة حرفياً (الفاتورة − المرتجعات السابقة) فمجموع المرتجعات = الفاتورة بالملّي",
+     "المخزون: RETURN خروجٌ من المستودع بكمياتٍ سالبة يُحسب كتسوية ADJUST سالبة (الرصيد والتقييم بمتوسّط اللحظة)، بحرّاس التسوية السالبة نفسها: الصنف غير المتتبَّع بلا حارس رصيد، والمتتبَّع (والميزة مفعّلة) يخرج من لوط سطره الأصلي صراحةً ولا يتجاوز صالحه (409 LOT_STOCK_INSUFFICIENT)",
+     "المرتجع النقدي (refundMode = CASH) لا يُخصم من متبقّي الفاتورة الآجلة (سُوّي بالنقد)، والدائن (CREDIT) يُخصم",
+     "لا شيء في دفاتر النظام المحاسبي (لا قيود)"
+    ],
+    "example": "{\"items\":[{\"itemId\":\"5d2c0000-0000-4000-8000-0000000000e1\",\"qty\":10}],\"supplierRef\":\"CN-77\",\"refundMode\":\"CREDIT\"}"
+   },
+   {
+    "method": "POST",
+    "path": "/warehouse/entries/:id/cancel",
+    "purpose": "إلغاء وارد: مرتجعٌ كامل لما بقي منه (حركة RETURN) وحالته CANCELLED — النقدي يُلغى سنده الآلي، والآجل لا يُلغى وعليه دفعات سارية",
+    "permission": "canManageVanStock",
+    "gates": [
+     "صلاحية canManageVanStock أولاً (403 بلا code)، والمندوب SALES_REP ممنوع 403",
+     "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
+     "warehouseEnabled يجب أن يكون true وإلا 403 بلا code «ميزة مخزون الشركة غير مفعلة لهذه الشركة»",
+     "مفتاح قراءة فقط مرفوض 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "reason",
+      "type": "string ≤ 300",
+      "required": false,
+      "desc": "سبب الإلغاء — ملاحظة حركة المرتجع وسبب إلغاء السند الآلي"
+     }
+    ],
+    "response": "200 {success:true, data:<الوارد الملغى status CANCELLED>, returnEntry:<حركة RETURN>|null, cancelledPayment?:{id, number, displayNumber}, warnings?}. 404 حركة غير موجودة. 409 'BILL_HAS_PAYMENTS' (ألغِ سندات الصرف أولاً)، 'ENTRY_ALREADY_CANCELLED'، 'ENTRY_NOT_RETURNABLE' لغير الوارد. 400 RETURN_INVALID لسببٍ طويل",
+    "rules": [
+     "المصنَّف: قيد RETURN بالمتبقّي من الفاتورة حرفياً (الفاتورة − مرتجعاتها السابقة) فرصيد المورّد بعده صفرٌ للآجل والنقدي",
+     "النقدي: سند الصرف الآلي يُلغى (status CANCELLED وقيد PAYMENT_REV +المبلغ) — والسند الآلي لا يُلغى إلا من هنا (POST /supplier-payments/:id/cancel يردّه 409 AUTO_PAYMENT_CANCEL_VIA_ENTRY). إلا إن ردّ المورّد مالاً عن مرتجعٍ سابق لهذا الوارد: يبقى السند ويُسجَّل ما بقي استرداداً نقدياً REFUND_IN إلى مصدر الدفع الأصلي (فلا يُحسب ذلك المال مرّتين)",
+     "الآجل: عليه تخصيص من سند صرف غير ملغى ⇒ 409 BILL_HAS_PAYMENTS بلا كتابة",
+     "غير المصنَّف (ومنه المخزون الافتتاحي): حركة RETURN بأسعار سطوره (إن وُجدت) بلا قيود مورّد",
+     "ما رُدّ كله سابقاً: لا حركة RETURN جديدة (returnEntry = null) والحالة CANCELLED",
+     "التاريخ المحاسبي يوم الشركة، ولا يسبق تاريخ الفاتورة. وأقفال المخزون واللوط كالمرتجع"
+    ],
+    "example": "{\"reason\":\"البضاعة وصلت تالفة\"}"
    },
    {
     "method": "GET",
@@ -5659,6 +5946,608 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الطلب المرفوض لا يعود معلّقاً، والمندوب يرفع طلباً جديداً"
     ],
     "example": "{\"updatedAt\":\"2026-10-27T08:15:02.114Z\"}"
+   }
+  ]
+ },
+ {
+  "key": "suppliers",
+  "title": "الموردون وسندات الصرف",
+  "overview": "سجلّ موردي الشركة (المشتريات) وكشف حسابهم والفواتير الآجلة المفتوحة وأعمار الذمم الدائنة وسندات صرفهم، تحت https://api.fieldsa.net/api/suppliers وhttps://api.fieldsa.net/api/supplier-payments.\nالحرّاس حرّاس مخزون الشركة نفسها بهذا الترتيب: المندوب (SALES_REP) مرفوض 403، ثم صلاحية canManageVanStock (403 إذا كانت false صراحةً)، ثم النظام المحاسبي (403 ACCOUNTING_NOT_ALLOWED)، ثم ميزة مخزون الشركة (403 WAREHOUSE_NOT_ENABLED). المفتاح «قراءة فقط» لا يمرّ إلا بطلبات GET (403 API_KEY_FORBIDDEN)، والحذف يتبع «صلاحية الحذف» لصاحب المفتاح (403 DELETE_NOT_ALLOWED).\nالمبالغ أرقامٌ بوحدة عملة الشركة في الطلب والردّ. فشل التحقق 400 برمز SUPPLIER_INVALID أو SUPPLIER_PAYMENT_INVALID مع errors لكل حقل، وأخطاء العمليات بالشكل {success:false, code, message, details?}.\nلا يكتب أي مسار هنا قيداً في دفاتر النظام المحاسبي: هذا الكشف التشغيلي للمورّد وحده (والمورّد نفسه صفٌّ في سجلّ الموردين). أما المشتريات نفسها — الفاتورة النقدية أو الآجلة ومرتجعها للمورّد وإلغاؤها — فحركات مستودع في مجموعة «مخزون السيارات ومخزون الشركة»: POST /warehouse/entries بـvendorId وpaymentMode، وPOST /warehouse/entries/:id/classify و/return و/cancel، ومنها تُكتب قيود كشف المورّد وسند الصرف الآلي للنقدي.",
+  "endpoints": [
+   {
+    "method": "GET",
+    "path": "/suppliers",
+    "purpose": "قائمة موردي الشركة بالبحث والحالة والصفحات، ولكل مورّد رصيده وعدد فواتيره الآجلة المفتوحة",
+    "permission": "canManageVanStock",
+    "gates": [
+     "authenticate — الجلسة أو مفتاح API (المفتاح يُعامَل كمستخدم الشركة الذي أصدره)",
+     "المندوب (SALES_REP) مرفوض صراحةً 403 'غير مسموح' — للوحة الشركة وحدها كالمستودع",
+     "requireAdminPermission('canManageVanStock') — 403 'لا تملك صلاحية الوصول لهذا القسم' إذا كانت false صراحةً",
+     "النظام المحاسبي: accountingEnabled = false ⇒ 403 ACCOUNTING_NOT_ALLOWED",
+     "مخزون الشركة: warehouseEnabled ليس true ⇒ 403 WAREHOUSE_NOT_ENABLED (رسالة 'ميزة مخزون الشركة غير مفعلة لهذه الشركة')"
+    ],
+    "query": [
+     {
+      "name": "search",
+      "type": "string",
+      "required": false,
+      "desc": "بحث بلا حساسية لحالة الأحرف في الاسم والاسم الإنجليزي والرمز والرقم الضريبي (بلا مسافات) والجوال — حتى 100 حرف"
+     },
+     {
+      "name": "status",
+      "type": "string",
+      "required": false,
+      "desc": "active (الافتراضي) | archived | all — غيرها 400 SUPPLIER_INVALID"
+     },
+     {
+      "name": "page",
+      "type": "integer",
+      "required": false,
+      "desc": "الصفحة من 1 (غير الرقمي أو الأقل من 1 ⇒ 1)"
+     },
+     {
+      "name": "limit",
+      "type": "integer",
+      "required": false,
+      "desc": "حجم الصفحة 1..200 (الافتراضي 50، والأكبر يُقصّ إلى 200)"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{items:Supplier[], total, page, limit}} — Supplier = {id, name, nameEn, code, vatNumber, crNumber, phone, email, address, city, countryCode, iban, bankName, paymentDays (عدد أو null), isActive, notes, createdAt (ISO), balance (رقم بوحدة العملة: موجب = مستحقّ للمورّد، سالب = دفعة مقدّمة له), openBillsCount (فواتيره الآجلة غير الملغاة ذات المتبقّي)}",
+    "rules": [
+     "الترتيب بالاسم ثم المعرّف",
+     "balance = Σ قيود كشف المورّد (فواتير + إلغاءات سندات + استرداد − سندات − مرتجعات − إلغاءات فواتير)، وopenBillsCount من الحال الراهنة؛ يُحسبان للصفحة كلها بتجميعٍ واحد",
+     "الموردون المؤرشفون (isActive:false) لا يظهرون إلا بـstatus=archived أو all"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/suppliers/aging",
+    "purpose": "أعمار الذمم الدائنة لكل مورّد حتى تاريخ: متبقّي الفواتير الآجلة المفتوحة يومها موزّعاً على شرائح التأخّر عن الاستحقاق",
+    "permission": "canManageVanStock",
+    "gates": [
+     "authenticate — الجلسة أو مفتاح API (المفتاح يُعامَل كمستخدم الشركة الذي أصدره)",
+     "المندوب (SALES_REP) مرفوض صراحةً 403 'غير مسموح' — للوحة الشركة وحدها كالمستودع",
+     "requireAdminPermission('canManageVanStock') — 403 'لا تملك صلاحية الوصول لهذا القسم' إذا كانت false صراحةً",
+     "النظام المحاسبي: accountingEnabled = false ⇒ 403 ACCOUNTING_NOT_ALLOWED",
+     "مخزون الشركة: warehouseEnabled ليس true ⇒ 403 WAREHOUSE_NOT_ENABLED (رسالة 'ميزة مخزون الشركة غير مفعلة لهذه الشركة')"
+    ],
+    "query": [
+     {
+      "name": "asOf",
+      "type": "string",
+      "required": false,
+      "desc": "YYYY-MM-DD — الافتراضي يوم الشركة الحالي بتوقيتها؛ غير الصالح 400 SUPPLIER_INVALID"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{asOf, rows:[{supplierId, name, code, isActive, current, d1_30, d31_60, d61_90, d90_plus, total, balance, unapplied, openBillsCount}], totals:{current, d1_30, d31_60, d61_90, d90_plus, total, balance, unapplied}}}",
+    "rules": [
+     "الشريحة بأيام التأخّر بعد الاستحقاق حتى asOf: current (لم يستحق أو يستحق اليوم)، d1_30، d31_60، d61_90، d90_plus",
+     "الحال كما كانت يوم asOf: الفاتورة بتاريخها، والسداد بتاريخ دفعه ما لم يُلغَ سنده حتى asOf، والمرتجع بتاريخه — والفاتورة بعد asOf لا تظهر",
+     "total = Σ الشرائح = متبقّي الفواتير، وbalance رصيد كشف المورّد حتى asOf، وunapplied = balance − total (سالب لدفعة مقدّمة غير مخصّصة، موجب لرصيد افتتاحي) فيطابق التقرير الكشف بفرق صفر",
+     "يظهر كل مورّد له فاتورة مفتوحة أو رصيد غير صفري حتى asOf (والمؤرشف منهم)، مرتّباً بالاسم"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/suppliers/:id",
+    "purpose": "بطاقة مورّد برصيده وعدد فواتيره المفتوحة",
+    "permission": "canManageVanStock",
+    "gates": [
+     "authenticate — الجلسة أو مفتاح API (المفتاح يُعامَل كمستخدم الشركة الذي أصدره)",
+     "المندوب (SALES_REP) مرفوض صراحةً 403 'غير مسموح' — للوحة الشركة وحدها كالمستودع",
+     "requireAdminPermission('canManageVanStock') — 403 'لا تملك صلاحية الوصول لهذا القسم' إذا كانت false صراحةً",
+     "النظام المحاسبي: accountingEnabled = false ⇒ 403 ACCOUNTING_NOT_ALLOWED",
+     "مخزون الشركة: warehouseEnabled ليس true ⇒ 403 WAREHOUSE_NOT_ENABLED (رسالة 'ميزة مخزون الشركة غير مفعلة لهذه الشركة')"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:Supplier} — 404 {success:false, code:'SUPPLIER_NOT_FOUND', message:'المورّد غير موجود'} (ومورّد شركةٍ أخرى كغير الموجود)",
+    "rules": [
+     "balance رصيد الكشف الكلي (كل ما سُجّل)"
+    ],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/suppliers",
+    "purpose": "إنشاء مورّد في سجلّ موردي الشركة",
+    "permission": "canManageVanStock",
+    "gates": [
+     "authenticate — الجلسة أو مفتاح API (المفتاح يُعامَل كمستخدم الشركة الذي أصدره)",
+     "المندوب (SALES_REP) مرفوض صراحةً 403 'غير مسموح' — للوحة الشركة وحدها كالمستودع",
+     "requireAdminPermission('canManageVanStock') — 403 'لا تملك صلاحية الوصول لهذا القسم' إذا كانت false صراحةً",
+     "النظام المحاسبي: accountingEnabled = false ⇒ 403 ACCOUNTING_NOT_ALLOWED",
+     "مخزون الشركة: warehouseEnabled ليس true ⇒ 403 WAREHOUSE_NOT_ENABLED (رسالة 'ميزة مخزون الشركة غير مفعلة لهذه الشركة')",
+     "مفتاح «قراءة فقط» يُرفض في الكتابة 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "name",
+      "type": "string",
+      "required": true,
+      "desc": "اسم المورّد 1..120 (يُقصّ)"
+     },
+     {
+      "name": "nameEn",
+      "type": "string|null",
+      "required": false,
+      "desc": "الاسم بالإنجليزية ≤120"
+     },
+     {
+      "name": "code",
+      "type": "string|null",
+      "required": false,
+      "desc": "رمز المورّد ≤40 — فريد في الشركة بلا حساسية لحالة الأحرف (والمؤرشف يحجزه) وإلا 409 SUPPLIER_CODE_EXISTS"
+     },
+     {
+      "name": "vatNumber",
+      "type": "string|null",
+      "required": false,
+      "desc": "الرقم الضريبي ≤30 — تُحذف مسافاته ويُحفظ بحروف كبيرة (حروف لاتينية وأرقام وشرطات)، فريد في الشركة وإلا 409 SUPPLIER_VAT_EXISTS"
+     },
+     {
+      "name": "crNumber",
+      "type": "string|null",
+      "required": false,
+      "desc": "السجل التجاري ≤40"
+     },
+     {
+      "name": "phone",
+      "type": "string|null",
+      "required": false,
+      "desc": "الجوال ≤30"
+     },
+     {
+      "name": "email",
+      "type": "string|null",
+      "required": false,
+      "desc": "البريد ≤120 بصيغة بريد صحيحة"
+     },
+     {
+      "name": "address",
+      "type": "string|null",
+      "required": false,
+      "desc": "العنوان ≤300"
+     },
+     {
+      "name": "city",
+      "type": "string|null",
+      "required": false,
+      "desc": "المدينة ≤80"
+     },
+     {
+      "name": "countryCode",
+      "type": "string",
+      "required": false,
+      "desc": "رمز الدولة ISO حرفان (يُحفظ بحروف كبيرة) — غيابه في الإنشاء = دولة الشركة"
+     },
+     {
+      "name": "iban",
+      "type": "string|null",
+      "required": false,
+      "desc": "الآيبان — تُحذف المسافات والشرطات ويُحفظ بحروف كبيرة، والصيغة حرفا دولة ورقما تحقّق ثم 10..30 حرفاً ورقماً"
+     },
+     {
+      "name": "bankName",
+      "type": "string|null",
+      "required": false,
+      "desc": "اسم البنك ≤120"
+     },
+     {
+      "name": "paymentDays",
+      "type": "integer|null",
+      "required": false,
+      "desc": "مدة السداد بالأيام 0..365 (نصّ رقمي يُقبل، والفارغ null) — استحقاق فواتيره الآجلة = تاريخ الفاتورة + المدة"
+     },
+     {
+      "name": "notes",
+      "type": "string|null",
+      "required": false,
+      "desc": "ملاحظات ≤1000"
+     }
+    ],
+    "response": "201 {success:true, data:Supplier} (balance 0 وopenBillsCount 0) — 400 {success:false, code:'SUPPLIER_INVALID', message:'بيانات غير صحيحة <الحقول>', errors:{field:[...]}} — 409 {success:false, code:'SUPPLIER_CODE_EXISTS'|'SUPPLIER_VAT_EXISTS', message, details:{supplierId}}",
+    "rules": [
+     "النصوص تُقصّ، والنص الفارغ يُحفظ null",
+     "التفرّد (الرمز والرقم الضريبي) يُفحص تحت قفلٍ للشركة فلا يُنشئ طلبان متزامنان رمزاً مكرّراً، ورموز الشركات الأخرى لا تحجز شيئاً",
+     "الحقول غير المعرّفة (balance، isActive…) تُهمل بصمت — المورّد الجديد فعّال دائماً"
+    ],
+    "example": "{\"name\": \"شركة التوريد المتحدة\", \"code\": \"S-001\", \"vatNumber\": \"300123456700003\", \"crNumber\": \"1010123456\", \"phone\": \"0551234567\", \"email\": \"ap@supplier.sa\", \"city\": \"الرياض\", \"iban\": \"SA0380000000608010167519\", \"bankName\": \"مصرف الراجحي\", \"paymentDays\": 30}"
+   },
+   {
+    "method": "PUT",
+    "path": "/suppliers/:id",
+    "purpose": "تعديل المورّد أو أرشفته واستعادته",
+    "permission": "canManageVanStock",
+    "gates": [
+     "authenticate — الجلسة أو مفتاح API (المفتاح يُعامَل كمستخدم الشركة الذي أصدره)",
+     "المندوب (SALES_REP) مرفوض صراحةً 403 'غير مسموح' — للوحة الشركة وحدها كالمستودع",
+     "requireAdminPermission('canManageVanStock') — 403 'لا تملك صلاحية الوصول لهذا القسم' إذا كانت false صراحةً",
+     "النظام المحاسبي: accountingEnabled = false ⇒ 403 ACCOUNTING_NOT_ALLOWED",
+     "مخزون الشركة: warehouseEnabled ليس true ⇒ 403 WAREHOUSE_NOT_ENABLED (رسالة 'ميزة مخزون الشركة غير مفعلة لهذه الشركة')",
+     "مفتاح «قراءة فقط» يُرفض في الكتابة 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "desc": "1..120 إن أُرسل"
+     },
+     {
+      "name": "nameEn",
+      "type": "string|null",
+      "required": false,
+      "desc": "الاسم بالإنجليزية ≤120"
+     },
+     {
+      "name": "code",
+      "type": "string|null",
+      "required": false,
+      "desc": "رمز المورّد ≤40 — فريد في الشركة بلا حساسية لحالة الأحرف (والمؤرشف يحجزه) وإلا 409 SUPPLIER_CODE_EXISTS"
+     },
+     {
+      "name": "vatNumber",
+      "type": "string|null",
+      "required": false,
+      "desc": "الرقم الضريبي ≤30 — تُحذف مسافاته ويُحفظ بحروف كبيرة (حروف لاتينية وأرقام وشرطات)، فريد في الشركة وإلا 409 SUPPLIER_VAT_EXISTS"
+     },
+     {
+      "name": "crNumber",
+      "type": "string|null",
+      "required": false,
+      "desc": "السجل التجاري ≤40"
+     },
+     {
+      "name": "phone",
+      "type": "string|null",
+      "required": false,
+      "desc": "الجوال ≤30"
+     },
+     {
+      "name": "email",
+      "type": "string|null",
+      "required": false,
+      "desc": "البريد ≤120 بصيغة بريد صحيحة"
+     },
+     {
+      "name": "address",
+      "type": "string|null",
+      "required": false,
+      "desc": "العنوان ≤300"
+     },
+     {
+      "name": "city",
+      "type": "string|null",
+      "required": false,
+      "desc": "المدينة ≤80"
+     },
+     {
+      "name": "countryCode",
+      "type": "string",
+      "required": false,
+      "desc": "رمز الدولة ISO حرفان (يُحفظ بحروف كبيرة) — غيابه في الإنشاء = دولة الشركة"
+     },
+     {
+      "name": "iban",
+      "type": "string|null",
+      "required": false,
+      "desc": "الآيبان — تُحذف المسافات والشرطات ويُحفظ بحروف كبيرة، والصيغة حرفا دولة ورقما تحقّق ثم 10..30 حرفاً ورقماً"
+     },
+     {
+      "name": "bankName",
+      "type": "string|null",
+      "required": false,
+      "desc": "اسم البنك ≤120"
+     },
+     {
+      "name": "paymentDays",
+      "type": "integer|null",
+      "required": false,
+      "desc": "مدة السداد بالأيام 0..365 (نصّ رقمي يُقبل، والفارغ null) — استحقاق فواتيره الآجلة = تاريخ الفاتورة + المدة"
+     },
+     {
+      "name": "notes",
+      "type": "string|null",
+      "required": false,
+      "desc": "ملاحظات ≤1000"
+     },
+     {
+      "name": "isActive",
+      "type": "boolean",
+      "required": false,
+      "desc": "false أرشفة (يبقى في الكشوف والسندات ويُدفع له)، true استعادة"
+     }
+    ],
+    "response": "{success:true, data:Supplier} — 400 {success:false, code:'SUPPLIER_INVALID', message:'بيانات غير صحيحة <الحقول>', errors:{field:[...]}} — 404 {success:false, code:'SUPPLIER_NOT_FOUND', message:'المورّد غير موجود'} (ومورّد شركةٍ أخرى كغير الموجود) — 409 SUPPLIER_CODE_EXISTS | SUPPLIER_VAT_EXISTS",
+    "rules": [
+     "الحقول المرسلة وحدها تتغيّر؛ null أو \"\" يمسح الحقل الاختياري",
+     "التفرّد يُفحص حين تتغيّر القيمة فعلاً (بلا حساسية لحالة الأحرف)",
+     "تغيير paymentDays لا يغيّر استحقاق الفواتير السابقة (مخزّن على كل فاتورة)"
+    ],
+    "example": "{\"phone\": \"0559876543\", \"paymentDays\": 45, \"isActive\": true}"
+   },
+   {
+    "method": "DELETE",
+    "path": "/suppliers/:id",
+    "purpose": "حذف حقيقي لمورّد لا أثر له",
+    "permission": "canManageVanStock",
+    "gates": [
+     "authenticate — الجلسة أو مفتاح API (المفتاح يُعامَل كمستخدم الشركة الذي أصدره)",
+     "المندوب (SALES_REP) مرفوض صراحةً 403 'غير مسموح' — للوحة الشركة وحدها كالمستودع",
+     "requireAdminPermission('canManageVanStock') — 403 'لا تملك صلاحية الوصول لهذا القسم' إذا كانت false صراحةً",
+     "النظام المحاسبي: accountingEnabled = false ⇒ 403 ACCOUNTING_NOT_ALLOWED",
+     "مخزون الشركة: warehouseEnabled ليس true ⇒ 403 WAREHOUSE_NOT_ENABLED (رسالة 'ميزة مخزون الشركة غير مفعلة لهذه الشركة')",
+     "مفتاح «قراءة فقط» يُرفض في الكتابة 403 API_KEY_FORBIDDEN",
+     "صلاحية الحذف: صاحب الجلسة أو المفتاح بلا canDelete ⇒ 403 DELETE_NOT_ALLOWED"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:{id, deleted:true}} — 404 {success:false, code:'SUPPLIER_NOT_FOUND', message:'المورّد غير موجود'} (ومورّد شركةٍ أخرى كغير الموجود) — 409 {success:false, code:'SUPPLIER_HAS_HISTORY', message:'للمورّد حركات أو قيود أو دفعات فلا يُحذف — أرشِفه بدلاً من الحذف', details:{warehouseEntries, ledgerEntries, payments, journalEntries}}",
+    "rules": [
+     "يُحذف فقط إن لم تحمله أي حركة مستودع ولا قيد في كشفه ولا سند صرف ولا سطر قيد في النظام المحاسبي — وإلا 409 SUPPLIER_HAS_HISTORY والبديل الأرشفة (PUT بـisActive:false)",
+     "صفّ المورّد يُقفل قبل الفحص فلا تتسلّل حركةٌ جديدة بين الفحص والحذف"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/suppliers/:id/statement",
+    "purpose": "كشف حساب المورّد لفترة: الرصيد الافتتاحي والسطور بالرصيد الجاري",
+    "permission": "canManageVanStock",
+    "gates": [
+     "authenticate — الجلسة أو مفتاح API (المفتاح يُعامَل كمستخدم الشركة الذي أصدره)",
+     "المندوب (SALES_REP) مرفوض صراحةً 403 'غير مسموح' — للوحة الشركة وحدها كالمستودع",
+     "requireAdminPermission('canManageVanStock') — 403 'لا تملك صلاحية الوصول لهذا القسم' إذا كانت false صراحةً",
+     "النظام المحاسبي: accountingEnabled = false ⇒ 403 ACCOUNTING_NOT_ALLOWED",
+     "مخزون الشركة: warehouseEnabled ليس true ⇒ 403 WAREHOUSE_NOT_ENABLED (رسالة 'ميزة مخزون الشركة غير مفعلة لهذه الشركة')"
+    ],
+    "query": [
+     {
+      "name": "from",
+      "type": "string",
+      "required": false,
+      "desc": "YYYY-MM-DD بداية الفترة (تاريخ المستند) — غيابها = من أول التاريخ"
+     },
+     {
+      "name": "to",
+      "type": "string",
+      "required": false,
+      "desc": "YYYY-MM-DD نهايتها — غيابها = حتى آخره. التاريخ غير الصالح أو from بعد to ⇒ 400 SUPPLIER_INVALID"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{supplier:Supplier, currency, from, to, opening, closing, totalDebit, totalCredit, lines:[{id, date, kind, ref, description, debit, credit, balance, dueDate, warehouseEntryId, supplierPaymentId, attachmentsCount}]}} — 404 {success:false, code:'SUPPLIER_NOT_FOUND', message:'المورّد غير موجود'} (ومورّد شركةٍ أخرى كغير الموجود)",
+    "rules": [
+     "kind: BILL (فاتورة مورّد، دائن) | BILL_REV (إلغاء فاتورة، مدين) | PAYMENT (سند صرف، مدين) | PAYMENT_REV (إلغاء سند، دائن) | RETURN (مرتجع للمورّد، مدين) | REFUND_IN (استرداد نقدي من المورّد، دائن) | OPENING (رصيد افتتاحي بإشارته)",
+     "balance بعد كل سطر: موجب = مستحقّ للمورّد. opening = Σ ما قبل from، وclosing = opening + Σ الدائن − Σ المدين في الفترة",
+     "ref رقم فاتورة المورّد أو SP-<n> للسند، وdescription وصف عربي جاهز للعرض مثل «فاتورة مورّد INV-100 — شراء نقدي» و«سند صرف SP-000012 — تحويل بنكي» و«إلغاء سند صرف SP-000012 — <السبب>» و«مرتجع للمورّد INV-100»",
+     "attachmentsCount عدد مرفقات حركة المستودع (صور فاتورة المورّد أو PDF) للسطر المرتبط بحركة، وإلا 0",
+     "الترتيب: تاريخ المستند ثم لحظة التسجيل. supplier.balance رصيد الكشف الكلي لا رصيد الفترة"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/suppliers/:id/open-bills",
+    "purpose": "فواتير المورّد الآجلة غير الملغاة التي بقي منها شيء — لاختيار التخصيص في سند الصرف",
+    "permission": "canManageVanStock",
+    "gates": [
+     "authenticate — الجلسة أو مفتاح API (المفتاح يُعامَل كمستخدم الشركة الذي أصدره)",
+     "المندوب (SALES_REP) مرفوض صراحةً 403 'غير مسموح' — للوحة الشركة وحدها كالمستودع",
+     "requireAdminPermission('canManageVanStock') — 403 'لا تملك صلاحية الوصول لهذا القسم' إذا كانت false صراحةً",
+     "النظام المحاسبي: accountingEnabled = false ⇒ 403 ACCOUNTING_NOT_ALLOWED",
+     "مخزون الشركة: warehouseEnabled ليس true ⇒ 403 WAREHOUSE_NOT_ENABLED (رسالة 'ميزة مخزون الشركة غير مفعلة لهذه الشركة')"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:[{warehouseEntryId, supplierRef, billDate, dueDate, total, paid, returned, outstanding, daysOverdue}]} — 404 {success:false, code:'SUPPLIER_NOT_FOUND', message:'المورّد غير موجود'} (ومورّد شركةٍ أخرى كغير الموجود)",
+    "rules": [
+     "outstanding = total − تخصيصات السندات السارية − المرتجعات المطبّقة (بعد ما ردّه المورّد نقداً)، ولا يقلّ عن صفر",
+     "الأقدم استحقاقاً أولاً؛ daysOverdue أيام التأخّر حتى يوم الشركة الحالي (صفر قبل الاستحقاق)",
+     "الشراء النقدي لا يظهر هنا (مدفوع بسنده الآلي)"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/supplier-payments",
+    "purpose": "قائمة سندات صرف الموردين بالمورّد والفترة والحالة",
+    "permission": "canManageVanStock",
+    "gates": [
+     "authenticate — الجلسة أو مفتاح API (المفتاح يُعامَل كمستخدم الشركة الذي أصدره)",
+     "المندوب (SALES_REP) مرفوض صراحةً 403 'غير مسموح' — للوحة الشركة وحدها كالمستودع",
+     "requireAdminPermission('canManageVanStock') — 403 'لا تملك صلاحية الوصول لهذا القسم' إذا كانت false صراحةً",
+     "النظام المحاسبي: accountingEnabled = false ⇒ 403 ACCOUNTING_NOT_ALLOWED",
+     "مخزون الشركة: warehouseEnabled ليس true ⇒ 403 WAREHOUSE_NOT_ENABLED (رسالة 'ميزة مخزون الشركة غير مفعلة لهذه الشركة')"
+    ],
+    "query": [
+     {
+      "name": "supplierId",
+      "type": "string",
+      "required": false,
+      "desc": "سندات مورّد واحد"
+     },
+     {
+      "name": "from",
+      "type": "string",
+      "required": false,
+      "desc": "YYYY-MM-DD — تاريخ الدفع من"
+     },
+     {
+      "name": "to",
+      "type": "string",
+      "required": false,
+      "desc": "YYYY-MM-DD — تاريخ الدفع إلى. التاريخ غير الصالح 400 SUPPLIER_PAYMENT_INVALID"
+     },
+     {
+      "name": "status",
+      "type": "string",
+      "required": false,
+      "desc": "POSTED | CANCELLED (بلا حساسية لحالة الأحرف، وall أو الغياب = الكل) — غيرها 400 SUPPLIER_PAYMENT_INVALID"
+     },
+     {
+      "name": "page",
+      "type": "integer",
+      "required": false,
+      "desc": "الصفحة من 1"
+     },
+     {
+      "name": "limit",
+      "type": "integer",
+      "required": false,
+      "desc": "1..200 (الافتراضي 50)"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{items:SupplierPaymentView[], total, page, limit}} — SupplierPaymentView = {id, number, displayNumber:'SP-000123', supplierId, supplierName, amount, method, salesRepId, salesRepName, paidAt:'YYYY-MM-DD', reference, note, status:'POSTED'|'CANCELLED', cancelledAt (ISO أو null), cancelReason, autoForEntryId, allocations:[{warehouseEntryId, supplierRef, amount}], createdBy, createdAt (ISO)}",
+    "rules": [
+     "الأحدث تاريخ دفعٍ أولاً ثم الأعلى رقماً"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/supplier-payments/:id",
+    "purpose": "سند صرف واحد للعرض والطباعة",
+    "permission": "canManageVanStock",
+    "gates": [
+     "authenticate — الجلسة أو مفتاح API (المفتاح يُعامَل كمستخدم الشركة الذي أصدره)",
+     "المندوب (SALES_REP) مرفوض صراحةً 403 'غير مسموح' — للوحة الشركة وحدها كالمستودع",
+     "requireAdminPermission('canManageVanStock') — 403 'لا تملك صلاحية الوصول لهذا القسم' إذا كانت false صراحةً",
+     "النظام المحاسبي: accountingEnabled = false ⇒ 403 ACCOUNTING_NOT_ALLOWED",
+     "مخزون الشركة: warehouseEnabled ليس true ⇒ 403 WAREHOUSE_NOT_ENABLED (رسالة 'ميزة مخزون الشركة غير مفعلة لهذه الشركة')"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:SupplierPaymentView} — 404 {success:false, code:'SUPPLIER_PAYMENT_NOT_FOUND', message:'السند غير موجود'} (وسند شركةٍ أخرى كغير الموجود)",
+    "rules": [
+     "displayNumber رقم الطباعة (SP-000123) وهو مرجع سطر السند في كشف المورّد"
+    ],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/supplier-payments",
+    "purpose": "سند صرف لمورّد (دفعة) مع تخصيصه على فواتيره الآجلة",
+    "permission": "canManageVanStock",
+    "gates": [
+     "authenticate — الجلسة أو مفتاح API (المفتاح يُعامَل كمستخدم الشركة الذي أصدره)",
+     "المندوب (SALES_REP) مرفوض صراحةً 403 'غير مسموح' — للوحة الشركة وحدها كالمستودع",
+     "requireAdminPermission('canManageVanStock') — 403 'لا تملك صلاحية الوصول لهذا القسم' إذا كانت false صراحةً",
+     "النظام المحاسبي: accountingEnabled = false ⇒ 403 ACCOUNTING_NOT_ALLOWED",
+     "مخزون الشركة: warehouseEnabled ليس true ⇒ 403 WAREHOUSE_NOT_ENABLED (رسالة 'ميزة مخزون الشركة غير مفعلة لهذه الشركة')",
+     "مفتاح «قراءة فقط» يُرفض في الكتابة 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "supplierId",
+      "type": "string",
+      "required": true,
+      "desc": "المورّد (من الشركة، والمؤرشف يُدفع له) — غيره 404 SUPPLIER_NOT_FOUND"
+     },
+     {
+      "name": "amount",
+      "type": "number",
+      "required": true,
+      "desc": "المبلغ > 0 بوحدة العملة (نصّ رقمي يُقبل) — ما يصير صفراً بعد التقريب لمنازل العملة 400"
+     },
+     {
+      "name": "method",
+      "type": "string",
+      "required": true,
+      "desc": "CASH (الصندوق الرئيسي) | BANK_TRANSFER | CHEQUE | REP_CUSTODY (من عهدة مندوب)"
+     },
+     {
+      "name": "salesRepId",
+      "type": "string",
+      "required": false,
+      "desc": "مطلوب لـREP_CUSTODY ومن الشركة (وللمستخدم المقيّد النطاق: من مناديبه) وإلا 400؛ يُهمل لغيرها"
+     },
+     {
+      "name": "paidAt",
+      "type": "string",
+      "required": true,
+      "desc": "تاريخ الدفع YYYY-MM-DD — تاريخ قيد السند في كشف المورّد"
+     },
+     {
+      "name": "reference",
+      "type": "string|null",
+      "required": false,
+      "desc": "مرجع التحويل أو رقم الشيك ≤120"
+     },
+     {
+      "name": "note",
+      "type": "string|null",
+      "required": false,
+      "desc": "ملاحظة ≤500"
+     },
+     {
+      "name": "clientRef",
+      "type": "string",
+      "required": false,
+      "desc": "مفتاح منع التكرار (حروف لاتينية وأرقام و- و_ حتى 64؛ uuid يكفي) — إعادة الطلب بالمرجع نفسه تعيد السند القائم 200"
+     },
+     {
+      "name": "allocations",
+      "type": "array",
+      "required": false,
+      "desc": "[{warehouseEntryId, amount ≥ 0}] حتى 500 — لكل فاتورة ≤ متبقّيها، وΣ ≤ المبلغ، والفاتورة حركة وارد آجلة غير ملغاة لنفس المورّد"
+     },
+     {
+      "name": "autoAllocate",
+      "type": "boolean",
+      "required": false,
+      "desc": "true يخصّص ما بقي من المبلغ (بعد التخصيص الصريح) على فواتير المورّد المفتوحة الأقدم استحقاقاً أولاً"
+     }
+    ],
+    "response": "201 {success:true, data:SupplierPaymentView} — والمرجع المكرّر 200 {success:true, data, replay:true, idempotent:true} — 400 {success:false, code:'SUPPLIER_PAYMENT_INVALID', message, errors?:{field:[...]}, details?} — 404 SUPPLIER_NOT_FOUND — 409 {success:false, code:'ALLOCATION_EXCEEDS_OUTSTANDING', message, details:{warehouseEntryId, supplierRef, outstanding, requested}} — 409 CLIENT_REF_REUSED (المرجع لسندٍ بمورّد أو مبلغ آخر)",
+    "rules": [
+     "المبالغ أرقام بوحدة عملة الشركة (لا ملّي ولا نصوص في الردّ)؛ الخادم يحفظها بالملّي مقرّبةً نصف-لأعلى إلى منازل العملة (خانتان للريال، ثلاث للدينار الكويتي والبحريني والعُماني)",
+     "ما زاد على التخصيص يبقى دفعة مقدّمة غير مخصّصة (رصيد مدين للمورّد يظهر سالباً في balance)",
+     "الرقم تسلسلي لكل شركة بلا فجوات، ويُكتب في كشف المورّد قيد PAYMENT بقيمة −المبلغ بتاريخ الدفع ومرجعه SP-<n>",
+     "clientRef المكرّر يعيد السند القائم بلا أي كتابة ولو تزامن الطلبان (قفل على المرجع)",
+     "فاتورة نقدية أو غير مصنّفة (نقدي/آجل) أو ملغاة أو لمورّد آخر لا يُخصَّص لها ⇒ 400 SUPPLIER_PAYMENT_INVALID مع details.warehouseEntryId",
+     "السند الآلي للشراء النقدي يُنشأ مع حركة المستودع وحدها — لا يقبله هذا المسار"
+    ],
+    "example": "{\"supplierId\": \"5d2f8a1c-3b4e-4f6a-9c7d-1e2f3a4b5c6d\", \"amount\": 1500, \"method\": \"BANK_TRANSFER\", \"paidAt\": \"2026-11-13\", \"reference\": \"TRX-88231\", \"note\": \"سداد فواتير أكتوبر\", \"clientRef\": \"8b7c6d5e-4f3a-4b2c-9d1e-0f9a8b7c6d5e\", \"allocations\": [{\"warehouseEntryId\": \"a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d\", \"amount\": 1000}], \"autoAllocate\": true}"
+   },
+   {
+    "method": "POST",
+    "path": "/supplier-payments/:id/cancel",
+    "purpose": "إلغاء سند صرف بقيدٍ عكسي (لا حذف)",
+    "permission": "canManageVanStock",
+    "gates": [
+     "authenticate — الجلسة أو مفتاح API (المفتاح يُعامَل كمستخدم الشركة الذي أصدره)",
+     "المندوب (SALES_REP) مرفوض صراحةً 403 'غير مسموح' — للوحة الشركة وحدها كالمستودع",
+     "requireAdminPermission('canManageVanStock') — 403 'لا تملك صلاحية الوصول لهذا القسم' إذا كانت false صراحةً",
+     "النظام المحاسبي: accountingEnabled = false ⇒ 403 ACCOUNTING_NOT_ALLOWED",
+     "مخزون الشركة: warehouseEnabled ليس true ⇒ 403 WAREHOUSE_NOT_ENABLED (رسالة 'ميزة مخزون الشركة غير مفعلة لهذه الشركة')",
+     "مفتاح «قراءة فقط» يُرفض في الكتابة 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "reason",
+      "type": "string|null",
+      "required": false,
+      "desc": "سبب الإلغاء ≤500 — يظهر في وصف سطر الإلغاء في الكشف"
+     }
+    ],
+    "response": "{success:true, data:SupplierPaymentView} بالحالة CANCELLED — 404 {success:false, code:'SUPPLIER_PAYMENT_NOT_FOUND', message:'السند غير موجود'} (وسند شركةٍ أخرى كغير الموجود) — 409 {code:'SUPPLIER_PAYMENT_ALREADY_CANCELLED'} — 409 {code:'AUTO_PAYMENT_CANCEL_VIA_ENTRY', details:{autoForEntryId}} — 400 {success:false, code:'SUPPLIER_PAYMENT_INVALID', message, errors?:{field:[...]}, details?}",
+    "rules": [
+     "يُكتب في كشف المورّد قيد PAYMENT_REV يعكس قيد السند حرفياً بتاريخ يوم الشركة (لا يسبق تاريخ الدفع)، وتبقى تخصيصاته أثراً ولا تُحسب في متبقّي الفواتير بعده",
+     "السند الآلي لشراءٍ نقدي (autoForEntryId) لا يُلغى من هنا: يُلغى بإلغاء حركة الاستلام POST /warehouse/entries/:id/cancel",
+     "الإلغاء مرّة واحدة؛ الثاني 409 SUPPLIER_PAYMENT_ALREADY_CANCELLED"
+    ],
+    "example": "{\"reason\": \"سُجّل مرتين\"}"
    }
   ]
  },
@@ -6265,10 +7154,10 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "body": [],
     "response": "{success:true, data:{lot:{id, productId, lotNumber, productionDate, expiryDate, status, blockKind, blockedAt, createdAt, productName, source, note}, origin:[{kind, at, ref, qty}], places:[{place, salesRepId, repName, raw, usable, held, approximate, loaded, unloaded, sold, returned}], customers:[{customerId, name, phone, address, city, invoices:[{invoiceId, number, date, sold, returned, net, weakest, flags, broad}]}]|null, customersHidden, scoped, scope, events:[{kind, at, actorName, reason}]}}",
     "rules": [
-     "origin مصادر دخول التشغيلة: kind = RECEIVE أو ADJUST (المستودع، بإشارته: تسوية النقص سالبة، ومنها ما سحبه الخادم تلقائياً منها) أو OPENING_IMPORT أو LOAD (تحميل بلا مستودع) أو ADJUST (تسوية بالزيادة في سيارة) أو RELABEL (موجبة إليها وسالبة منها) أو RETURN (مرتجع حرّ أُرسلت تشغيلته صراحةً، بلا sourceItemLotId)، وref معرّف الحركة. والمرتجع الحرّ الذي استنتج الخادم تشغيلته لا يظهر هنا بل في customers",
+     "origin مصادر دخول التشغيلة وحركاتها في المستودع: kind = RECEIVE أو ADJUST (المستودع، بإشارته: تسوية النقص سالبة، ومنها ما سحبه الخادم تلقائياً منها) أو SUPPLIER_RETURN (مرتجع للمورّد من المستودع — حركة RETURN، كميته سالبة) أو OPENING_IMPORT أو LOAD (تحميل بلا مستودع) أو ADJUST (تسوية بالزيادة في سيارة) أو RELABEL (موجبة إليها وسالبة منها) أو RETURN (مرتجع عميلٍ حرّ أُرسلت تشغيلته صراحةً، بلا sourceItemLotId)، وref معرّف الحركة. والمرتجع الحرّ الذي استنتج الخادم تشغيلته لا يظهر هنا بل في customers",
      "customers كل من بيع له من التشغيلة ولو صار صافيه صفراً بمرتجع. وصف المرتجع ذو sourceItemLotId يُنسب لفاتورة البيع المصدر: المرتجع المرتبط لفاتورة بيعه، والمرتجع الحرّ المستنتَج لفاتورة البيع التي استُنتج منها (بيقين ASSUMED). weakest أضعف يقين في صفوف الفاتورة: CONFIRMED أو ASSUMED أو UNKNOWN",
      "customers = null وcustomersHidden = true لصاحب مفتاح بلا canManageCustomers",
-     "الكميات بالأساس. وسيارة المندوب المحذوف «مندوب محذوف» بـapproximate = true لغير المقيّد وحده",
+     "الكميات بالأساس. وسيارة المندوب المحذوف «مندوب محذوف» بـapproximate = true لغير المقيّد وحده. والمرتجع للمورّد يُنقص raw وusable للتشغيلة في مكان المستودع كتسوية النقص",
      "404 {success:false, code:'LOT_NOT_FOUND', message, detail:{lotId}} لتشغيلة غير موجودة في الشركة"
     ],
     "example": ""
@@ -7038,7 +7927,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "المنتجات: لا يُحذف صنفٌ له بنود فواتير أو تحميلات سيارات أو حركات مستودع أو سطور قيود، أو «تتبّع LOT»: تشغيلات (السبب «للصنف تشغيلات مسجلة» والميزة مفعّلة، و«مرتبط بسجلات أخرى» وهي مطفأة). والمحذوف يُحذف مع وحداته وأسعاره الخاصة وشرائح أسعاره",
      "الأسعار: يُستعاد السعر السابق أو يُحذف الجديد، ما لم يتغيّر السعر بعد الاستيراد فيبقى في blocked",
      "الأرصدة والكشوف: حذفٌ كامل في معاملة واحدة وإعادة حساب الأرصدة المتحرّكة وbalance العملاء، وblocked = 0 دائماً. ودفعة أخرى منها تُكتب ⇒ 409 IMPORT_IN_PROGRESS، وتراجعٌ متزامن سبقك ⇒ 404 IMPORT_BATCH_GONE",
-     "المخزون الافتتاحي: قبل تفعيل الدفاتر المرتبطة وحده (وإلا 409 OPENING_STOCK_REVERT_LEDGER_ACTIVE). ويُمنع إن حُمّلت أصنافه إلى السيارات أو سُوّيت بالنقص بعده",
+     "المخزون الافتتاحي: قبل تفعيل الدفاتر المرتبطة وحده (وإلا 409 OPENING_STOCK_REVERT_LEDGER_ACTIVE)، وفي الشركة التي ربطت دفاترها بالنظام لا يُتراجع عنه أبداً: 409 {success:false, code:'BOOKS_LINKED_NO_DELETE', message:'دفاتر هذه الشركة مربوطة بالنظام: المستند المرحَّل لا يُحذف — ألغِه أو اعمل له إشعاراً دائناً/مرتجعاً بدلاً من الحذف'} قبل حذف أي حركة (يُفحص قبل البدء ثم تحت قفل الدفاتر لكل حركة)، والتصحيح بتسوية مستودع. ويُمنع إن حُمّلت أصنافه إلى السيارات أو سُوّيت بالنقص بعده. والدفاتر اليدوية المستقلة لا تمنعه",
      "«تصفير المخزون»: دفعة مخزون افتتاحي أُنشئت في لحظة آخر تصفير أو قبلها لا يُتراجع عنها أبداً — كمياتها أُلغيت بتسوية التصفير، فطرحها ثانيةً يُنقص المخزون المُدخل بعده. تبقى في blocked بالسبب «صُفّر المخزون بعد هذا الاستيراد» وفي remaining، وreverted = false",
      "«تتبّع LOT»: ويُمنع التراجع عن المخزون الافتتاحي إن استُعملت تشغيلاته بعده (تحميل أو تسمية أو تسوية بالنقص، أو صار رصيد تشغيلة سالباً بطرحه)، فيبقى في blocked بالسبب «استُعملت تشغيلات المخزون الافتتاحي بعد الاستيراد». وعند الحذف تُحذف التشغيلات التي أنشأها ولم يبقَ لها مرجع: تغيب من /v1/sync/product-lots/ids ويُكتب لها حدث DELETE في lot-events. ويجري هذا الحذف كذلك إن أُطفئت الميزة بعد الاستيراد وكانت بنود الحركة تحمل تشغيلات من فترة تفعيلها (يظهر في المزامنة حين تُفعَّل الميزة ثانية)، أما فحص الاستعمال فوالميزة مفعّلة وحدها",
      "انشغال قفل الدفاتر أو طابور التشغيلات ⇒ 409 IMPORT_REVERT_LEDGER_BUSY: أعد المحاولة. وفي العملاء يُردّ 409 حين لم يُحذف أحد بعد، وإلا 200 بما حُذف والعميل المزاحَم في blocked برسالة الانشغال وما بعده في remaining. وفي المنتجات يبقى الصنف المزاحَم في blocked بلا 409"
@@ -8425,7 +9314,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "المبيعات صافية: فواتير CONFIRMED ناقص المرتجع المؤكَّد في اليوم أو الشهر نفسه، والعدد فواتير البيع وحدها، والتحصيل سندات ACTIVE",
      "حدود اليوم والشهر محسوبة بتوقيت الخادم المحلي عبر new Date(y,m,d) وليس بتوقيت الرياض صراحةً",
-     "purchasesTotal مجموع الكمية ضرب سعر التكلفة لحركات المستودع RECEIVE هذا الشهر على مستوى الشركة دون نطاق",
+     "purchasesTotal مشتريات الشهر صافية («ربط الدفاتر»): Σ الكمية × سعر التكلفة (بوحدة السطر) لأسطر الوارد RECEIVE المسعَّرة هذا الشهر، ناقص المرتجع للمورّد RETURN المسعَّر هذا الشهر (كمياته سالبة) — على مستوى الشركة دون نطاق. والمرتجع يُطرح من شهر تسجيله ولو كان وارده في شهرٍ سابق، فقد يكون الرقم سالباً في شهرٍ مرتجعه أكبر من وارده",
+     "المخزون الافتتاحي ليس شراءً: حركات source = OPENING_IMPORT خارج purchasesTotal وpurchaseEntriesCount، وكذلك المرتجع الذي يلغي وارداً افتتاحياً (returnOfEntryId لحركة OPENING_IMPORT). والتسويات ADJUST (ومنها تصفير المخزون source = STOCK_ZERO) لا تدخل",
+     "purchaseEntriesCount عدد حركات الوارد RECEIVE غير الملغاة (status ≠ CANCELLED) التي فيها سطرٌ مسعَّر هذا الشهر، بلا الافتتاحي. الوارد الملغى تصفّر قيمتَه حركةُ إلغائه (RETURN كاملة) فيبقى في المجموع صافياً صفراً ولا يُعدّ، والمرتجع لا يُعدّ حركة شراء",
      "أعداد العملاء customers تُرجع دائماً حتى مع إطفاء المحاسبة: total للنشطين (ACTIVE) وحدهم، وwithBalance كل عميل غير محذوف (ACTIVE وINACTIVE وBLOCKED) رصيده أكبر من 0.000001 — جمهور GET /reports/balances?type=overdue نفسه — وcreditExceeded كل عميل غير محذوف سقفه أكبر من صفر ورصيده أكبر من السقف",
      "topReps أعلى 5 مناديب نشطين (isActive) في نطاق المستخدم أو فريقه بصافي مبيعات الشهر: salesTotal = فواتير CONFIRMED ناقص المرتجع المؤكَّد منذ أول الشهر بنطاق المستند، وinvoicesCount فواتير البيع وحدها. الترتيب تنازلي بالصافي ثم بالاسم، ومن لا مبيعات له (صفر) يكمل القائمة فقط إن قلّ أصحاب المبيعات عن 5، ومن صافيه سالب بعدهم. والمندوب الموقوف لا يظهر",
      "topCustomers أعلى 5 حسب totalSales المخزن مع استثناء الحالة DELETED، وrecentInvoices آخر 10 فواتير مؤكدة غير مرتجعة حسب createdAt"
@@ -8498,7 +9389,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "requireAdminPermission('canManageCompanySettings')",
      "يُرفض لمفتاح القراءة فقط (403 API_KEY_FORBIDDEN)",
      "zatcaPhase2Enabled: تغيير taxNumber أو commercialReg أو countryCode لشركة سعودية يحتاج دور ADMIN غير مقيّد النطاق",
-     "zatcaPhase2StartedAt: بعد التفعيل الحي لا تتغير الدولة ولا العملة ولا تجاوزها ولا مزود الفوترة (409)"
+     "zatcaPhase2StartedAt: بعد التفعيل الحي لا تتغير الدولة ولا العملة ولا تجاوزها ولا مزود الفوترة (409)",
+     "الدفاتر المربوطة: بعد ربط دفاتر الشركة بالنظام لا تتغير الدولة ولا العملة الفعلية (409 BOOKS_LINKED_CURRENCY_LOCKED)"
     ],
     "query": [],
     "body": [
@@ -8617,7 +9509,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "رابط الوسيط المعتمد، وغيابه يمسحه"
      }
     ],
-    "response": "{success:true, data:{صف إعدادات الشركة بعد الحفظ بدون einvoiceClientSecret ومعه einvoiceHasSecret}} ولا تُرجع أعلام الاشتراك هنا",
+    "response": "{success:true, data:{صف إعدادات الشركة بعد الحفظ بدون einvoiceClientSecret ومعه einvoiceHasSecret}} ولا تُرجع أعلام الاشتراك هنا — 409 {success:false, code:'BOOKS_LINKED_CURRENCY_LOCKED', message, fields:['countryCode'|'currency']} حين يغيّر الحفظ دولة أو عملة شركةٍ دفاترها مربوطة",
     "rules": [
      "الحقول email وlogo وprimaryColor وeinvoiceClientId وeinvoiceActivityCode وeinvoiceBranchCode وeinvoiceIntermediaryUrl تُضبط null إذا غابت عن الجسم، فاقرأ GET /company أولاً وأعد إرسالها كاملة",
      "العملة والضريبة الافتراضية ومزود الفوترة لا تُرسل، بل يشتقها الخادم من countryCode ومن currencyOverride",
@@ -8625,7 +9517,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "مع zatcaPhase2Enabled وتغيير فعلي في taxNumber أو commercialReg أو countryCode لشركة سعودية: غير ADMIN يُرد 403 SELLER_FIELDS_ADMIN_ONLY، والمقيد النطاق 403 SELLER_FIELDS_SCOPED، والصيغة الخاطئة 400 SELLER_INVALID مع fieldErrors:[{field, messageAr}]",
      "مع زاتكا المرحلة الثانية: إرسال taxNumber أو commercialReg بنفس القيمة بعد التطبيع لا يُكتب",
      "بعد التفعيل الحي (zatcaPhase2StartedAt) أي تغيير فعلي في countryCode أو currency أو currencyOverride أو einvoiceProvider يُرد 409 ZATCA_SETTINGS_LOCKED مع fields، والحفظ بلا تغيير فعلي يمر",
-     "حقول einvoice هنا لمزودات ETA وPeppol وTTN، أما ربط زاتكا المرحلة الثانية فله مسارات /zatca"
+     "حقول einvoice هنا لمزودات ETA وPeppol وTTN، أما ربط زاتكا المرحلة الثانية فله مسارات /zatca",
+     "الدفاتر المربوطة: إذا ربطت الشركة دفاترها بالنظام فأي تغيير فعلي في countryCode أو في العملة الفعلية المشتقة (من الدولة أو من currencyOverride) يُرد 409 {success:false, code:'BOOKS_LINKED_CURRENCY_LOCKED', message:'دفاتر هذه الشركة مربوطة بالنظام: لا تتغيّر دولة الشركة ولا عملتها بعد الربط — قيود كل المستندات بعملتها وضريبة دولتها', fields} بلا أي كتابة، وfields الحقول التي كانت ستتغير. والمقارنة بالقيم المشتقة النهائية بلا حساسية لحالة الأحرف، فالحفظ بلا تغيير فعلي يمر كما هو. والشركات ذات الدفاتر اليدوية أو بلا دفاتر لا قيد عليها"
     ],
     "example": "{\"name\":\"شركة الريادة للتوزيع\",\"address\":\"الرياض، حي السلي\",\"taxNumber\":\"310123456700003\",\"commercialReg\":\"1010123456\",\"phone\":\"0112345678\",\"email\":\"info@alriyada.sa\",\"primaryColor\":\"#E15A30\",\"headerStyle\":\"classic\",\"numerals\":\"latin\",\"countryCode\":\"SA\"}"
    },
@@ -9641,7 +10534,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
           '- التسوية بالنقص بلا lotId ولا lotNumber يسحبها الخادم تلقائياً: كل تشغيلات المستودع بالأقرب انتهاءً أولاً (والموقوفة والمنتهية منها، والتي بلا انتهاء آخراً)، ثم الرصيد غير المسمّى. فإن أخذ السطر من أكثر من تشغيلة عاد في الرد بنوداً متعددة للصنف نفسه، لكلٍّ lotId وbaseQty (بوحدة السطر إن كانت حصّته وحداتٍ كاملة وإلا بوحدة الأساس) وكلها بـlineRef السطر. لإتلاف تشغيلة بعينها أرسل lotId. وما فاق الرصيد 409 LOT_STOCK_INSUFFICIENT.',
           '- clientRef (حتى 64 حرفاً لاتينياً أو رقماً أو - أو _) يجعل إعادة الإرسال آمنة: ولّد واحداً لكل حركة وأعده نفسه عند الإعادة، فيرجع المكرَّر 200 بالحركة القائمة وreplay: true بلا كتابة. بلاه تُنشئ إعادة الطلب حركة مكررة. ولا تعديل ولا حذف: التصحيح بتسوية معاكسة.',
           '- الوارد RECEIVE لصنفٍ مؤرشف (deletedAt غير فارغ) 422 PRODUCT_ARCHIVED، وصنفٌ لا يتبع الشركة 400 PRODUCT_NOT_FOUND، وكلاهما بموضع السطر index.',
-          '- الحركة مخزون فقط: لا تُنشئ قيداً محاسبياً ولا ذمة مورد.',
+          '- بلا بيانات شراء الحركة مخزون فقط: لا قيد محاسبي ولا ذمة مورد. ومع vendorId وpaymentMode (CASH أو CREDIT) يُكتب الشراء في كشف المورّد (فاتورة، وللنقدي سند صرف آلي) — انظر POST /warehouse/entries ومجموعة «الموردون وسندات الصرف». ولا شيء من ذلك في الدفاتر.',
         ].join('\n'),
         curl: send('POST', '/warehouse/entries', '{"type":"RECEIVE","supplier":"مؤسسة التوريد المتحدة","note":"فاتورة مورد 5512","costsIncludeTax":true,"items":[{"productId":"<productId>","qty":120,"unitCost":11.5}]}'),
       },
@@ -9704,7 +10597,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
         title: 'أبقِ نظامكم متزامناً',
         text: [
           'للانعكاس أولاً بأول استعمل المزامنة (القسم ٣) بدل سحب القوائم:',
-          '- /api/v1/sync/warehouse-entries: الوارد والتسويات ببنودها. يشترط canManageVanStock ثم ألا يكون النظام المحاسبي مطفأً (403 ACCOUNTING_DISABLED) ثم تفعيل الميزة (403 WAREHOUSE_DISABLED). الحركة المحذوفة تُكتشف بمطابقة /ids.',
+          '- /api/v1/sync/warehouse-entries: الوارد والتسويات والمرتجعات للمورّد ببنودها، بطابع التعديل (تصنيف الوارد لاحقاً وإلغاؤه يعيدان الحركة). يشترط canManageVanStock ثم ألا يكون النظام المحاسبي مطفأً (403 ACCOUNTING_DISABLED) ثم تفعيل الميزة (403 WAREHOUSE_DISABLED). الحركة المحذوفة تُكتشف بمطابقة /ids.',
           '- /api/v1/sync/van-loads: التحميل والتنزيل والتسوية للسيارات، ومعها locationId.',
           '- بهما مع الفواتير تحسب رصيد المستودع والسيارات في نظامكم بالمعادلة أعلاه، بجمع baseQty لكل بند (الكمية بالأساس) لا qty: البند يحمل unitName وunitFactor وbaseQty = qty × unitFactor.',
           '- كل بند في المورديْن يحمل lineRef («مرجع السطر» الذي أرسلتموه، وnull لما لم يُرسَل) لكل الشركات، وكل حركة تحمل clientRef (مفتاح منع التكرار كما أرسلتموه، وnull لما بلاه).',
@@ -9841,7 +10734,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
           '- «مرجع السطر»: أرسل مع كل بند items[].lineRef (معرّف السطر في نظامكم، نصٌّ حتى 100 حرف بعد قصّ طرفيه، والفارغ null، والأطول 400) في POST /api/invoices (كل الأنواع ومنها المرتجع) وPOST /api/van-stock/loads وPOST /api/warehouse/entries، وlines[].lineRef في الإشعارين الدائن والمدين. يُحفظ على البند ويعود كما هو في الرد والقراءة والمزامنة، لكل الشركات بلا شرط الميزة، وnull لما لم يُرسَل. لا فرادة ولا فحص غير الطول.',
           '- سطر تسوية النقص في المستودع الذي سحبه الخادم من أكثر من تشغيلة يعود بنوداً متعددة كلها بـlineRef السطر نفسه، لكلٍّ lotId وlot: اجمع baseQty البنود بالمرجع لتطابق سطركم. وبند السيارة والفاتورة لا يُشطر: بندٌ واحد بمرجعه وعدة صفوف في lots.',
           '- مزامنة invoices (والميزة مفعّلة): كل بند items[].lots = [{id, lotId, quantity, certainty, expiryDate, sourceItemLotId, flags, lot:{lotNumber, productionDate, expiryDate}|null}]. ومزامنة van-loads: items[].lots = [{id, lotId, qty, certainty, reason, moveType, viaWarehouse, lot}] وqty بإشارة البند. ومزامنة warehouse-entries: كل بند lotId وlot. الكميات بالأساس، والصفوف بترتيبٍ ثابت (createdAt ثم id — صفوف البند الواحد تُكتب معاً بطابعٍ واحد فترتيبها بالمعرّف لا بترتيب السحب: لا تستنتج منه أولوية، ورتّب بـlot.expiryDate إن لزم)، وid الصفّ هو معرّفه في invoice-item-lots أو van-load-item-lots، وlotId = null «غير معروف» (وlot معه null). وتواريخ lot أيامٌ عند منتصف ليل UTC: خذ أول عشرة أحرف (YYYY-MM-DD).',
-          '- بطاقة lot في السطر تُقرأ لحظة السحب: تعديل تاريخي التشغيلة لاحقاً (PATCH /api/lots/:id) لا يحرّك طابع الفاتورة ولا الحركة، وwarehouse-entries بطابع الإنشاء أصلاً، فلا يُعاد السطر ويبقى عندكم التاريخ القديم. خذوا التاريخين الحيّين وحالة البطاقة من product-lots (بطابع التعديل) بـlotId. أما items[].lots[].expiryDate في invoices فلقطة انتهاء التشغيلة عند الإصدار، لا تتغيّر بتعديل البطاقة.',
+          '- بطاقة lot في السطر تُقرأ لحظة السحب: تعديل تاريخي التشغيلة لاحقاً (PATCH /api/lots/:id) لا يحرّك طابع الفاتورة ولا الحركة (وطابع warehouse-entries لا يحرّكه إلا تصنيف الوارد وإلغاؤه)، فلا يُعاد السطر ويبقى عندكم التاريخ القديم. خذوا التاريخين الحيّين وحالة البطاقة من product-lots (بطابع التعديل) بـlotId. أما items[].lots[].expiryDate في invoices فلقطة انتهاء التشغيلة عند الإصدار، لا تتغيّر بتعديل البطاقة.',
           '- بلا مزامنة: GET /api/invoices?withItems=1&withLots=1 يضمّ lots لكل بند بشكل GET /api/invoices/:id?withLots=1 (وlot فيه {lotNumber, expiryDate})، وبلا withLots القائمة كما كانت. وردّ POST /api/van-stock/loads وPOST /api/warehouse/entries يحمل lots أو lot لكل بند.',
           '- الموارد المنفصلة (invoice-item-lots وvan-load-item-lots وproduct-lots وlot-relabels وlot-events) باقية كما هي، ومنها السحب الكامل وحالة البطاقة (الإيقاف والسحب). والحقول المضمّنة لا تحرّك updatedAt: لتصلكم في الصفوف القديمة أعد سحب invoices وvan-loads وwarehouse-entries بلا since مرة.',
           'المثال أدناه بند فاتورة بيع في مزامنة invoices: كرتونان من 24 وزّعهما الخادم على تشغيلتين، ومرجع السطر كما أرسله نظامكم.',
@@ -9948,7 +10841,7 @@ export const API_DOC_GUIDES: DocGuide[] = [
           '- أرسل المستند كله في طلب واحد بكل أسطره، لا طلباً لكل سطر: لا حد لعدد الأسطر، والجسم حتى 10 ميغابايت. والحركة تُكتب كاملة أو لا يُكتب منها شيء.',
           '- الصنف المتتبَّع بالتشغيلة يحمل تشغيلته في السطر (الخطوة 10)، وإلا 422 LOT_REQUIRED.',
           '- الرد {success: true, data: {id, type, note, supplier, createdBy, createdAt, items:[{id, productId, qty, unitName, unitFactor, baseQty, unitCost, lotId, lineRef, product}]}, warnings?}. في سطر وحدة الأساس (بلا unitId) يكون unitName = null، وunitCost المحفوظ صافٍ قبل الضريبة. ومع «تتبّع LOT» يحمل كل بند الحقل lot {lotNumber, productionDate, expiryDate} أو null، وقد يأتي بجوار data الحقل warnings:[{code, productId, detail}]: LOT_INTO_BLOCKED حين تدخل الزيادة تشغيلة موقوفة، وLOT_SPLIT_UNIT حين يقسم السحب التلقائي في تسوية النقص كرتوناً بين تشغيلتين. التحذير لا يمنع الحركة: الحركة سُجّلت. احفظ data.id مقابل مستندكم، وطابق البنود بـlineRef لا بترتيبها: ترتيب البنود في الرد غير مضمون.',
-          '- الحركة مخزون فقط: لا تُنشئ قيداً محاسبياً ولا ذمة مورد. والرصيد يظهر فوراً في GET /api/warehouse.',
+          '- بلا vendorId وpaymentMode الحركة مخزون فقط: لا قيد محاسبي ولا ذمة مورد (ومعهما يُكتب الشراء في كشف المورّد — انظر POST /warehouse/entries). والرصيد يظهر فوراً في GET /api/warehouse.',
         ].join('\n'),
         curl: send('POST', '/warehouse/entries', '{"type":"RECEIVE","note":"ERP:GRN-000123","supplier":"مصنع الأغذية","costsIncludeTax":false,"items":[{"productId":"<productId>","unitId":"<cartonUnitId>","baseUnitName":"<unit>","qty":10,"unitCost":96,"lineRef":"GRN-000123/1"},{"productId":"<productId2>","baseUnitName":"<unit>","qty":36,"unitCost":4.5,"lineRef":"GRN-000123/2"}]}'),
       },

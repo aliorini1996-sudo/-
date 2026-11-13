@@ -121,6 +121,8 @@ test('كل مسار في المستند مركَّبٌ في الخادم بطر�
 const COVERED_ROUTERS = [
   'locations', 'paymentMethodsConfig', 'printSettings', 'printTexts', 'attendanceAdmin', 'teams', 'reports', 'invoices', 'salesReps', 'vanStock', 'warehouse', 'receipts',
   'repStockRequests', 'products', 'lots', 'import', 'companyBuyerRelax', 'returnPolicy', 'stockZero', 'priceLists',
+  // «ربط الدفاتر» L1 (١٣ نوفمبر ٢٠٢٦): سجلّ الموردين وسندات صرفهم
+  'suppliers', 'supplierPayments',
   // «إزالة الضريبة» (٧ نوفمبر ٢٠٢٦): موجّه /company/tax-mode المتداخل أيّاً كان اسم ملفه — وغيابه يُفشل اختبار الميزة أدناه لا هذا
   ...(MOUNTS.get('/company/tax-mode') ?? []),
 ];
@@ -769,9 +771,14 @@ test('«تتبّع LOT» (D9): حقول التشغيلة لصنفٍ غير مت�
   for (const router of ['vanStock', 'warehouse']) {
     const src = routeFile(router);
     assert.ok(src.includes('lotOnUntrackedError('), `${router}: لا رفض NOT_TRACKED`);
-    const at = src.lastIndexOf('assertStillUntracked(tx, tid, productIds)');
-    // «الوحدة الرئيسية» (§2.8): المعاملة نفسها تقفل الأساس، فرفض ProductUnitsChangedError يمرّ برمزه قبل asLotBusy
-    assert.ok(at > 0 && /\.catch\((busy|\(e: unknown\) => \{ throw (asLotBusy\(e\)|\(e instanceof ProductUnitsChangedError \? null : asLotBusy\(e\)\)) \?\? e; \})\)/.test(src.slice(at, at + 520)), `${router}: P2028 في المسار غير المتتبَّع ليس LOT_BUSY`); // ٥٢٠: سطر مرفقات فاتورة المشتريات (١٣ نوفمبر ٢٠٢٦)
+    // كل موضعٍ يعيد قراءة التتبّع — لا الأخير وحده: في المستودع الإنشاء ثم («ربط الدفاتر» L1) مرتجع الوارد وإلغاؤه
+    const sites = [...src.matchAll(/assertStillUntracked\(tx, tid, productIds\)/g)].map((m) => m.index!);
+    assert.ok(sites.length > 0, `${router}: لا إعادة قراءة للتتبّع`);
+    for (const at of sites) {
+      // «الوحدة الرئيسية» (§2.8): المعاملة نفسها تقفل الأساس، فرفض ProductUnitsChangedError يمرّ برمزه قبل asLotBusy
+      // («ربط الدفاتر»: وخطأ المورّد SupplierError كذلك في المرتجع والإلغاء)
+      assert.ok(/\.catch\((busy|\(e: unknown\) => \{ throw (asLotBusy\(e\)|\(e instanceof ProductUnitsChangedError \? null : asLotBusy\(e\)\)|\(withLots && !\(e instanceof ProductUnitsChangedError\) && !isSupplierError\(e\) \? asLotBusy\(e\) : null\)) \?\? e; \})\)/.test(src.slice(at, at + 620)), `${router}: P2028 في المسار غير المتتبَّع ليس LOT_BUSY`); // ٦٢٠: سطر مرفقات فاتورة المشتريات وسطر قيود الشراء (١٣ نوفمبر ٢٠٢٦)
+    }
   }
   for (const [p, fields] of [
     ['/van-stock/loads', ['items[].lots', 'items[].lotNumber', 'items[].productionDate', 'items[].expiryDate', 'items[].lotReason']],

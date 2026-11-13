@@ -396,7 +396,9 @@ test('كل بادئةٍ تُركَّب بعد الحارس مصنَّفة: مح�
   const OPEN = ['/affiliate', '/affiliate-admin', '/ai-rep', '/analytics', '/api-keys', '/attendance-admin', '/auth', '/company', '/company-users', '/contact', '/daily-reports',
     '/dashboard', '/erp', '/finance', '/hunter', '/import', '/leads', '/leads-cron', '/ledger', '/live', '/locations', '/lots', '/notifications', '/owner-purge', '/payments',
     '/petroapp', '/platform-staff', '/price-lists', '/products', '/profile-deck', '/promo-videos', '/public', '/quotes', '/rep-routes', '/rep-stock-requests', '/rep-targets', '/reports', '/sales-reps',
-    '/site-content', '/staff-auth', '/stock-zero', '/support', '/tenants', '/tracking', '/v1', '/van-stock', '/wa-inbox', '/warehouse', '/work-numbers', '/zatca'];
+    '/site-content', '/staff-auth', '/stock-zero', '/supplier-payments', '/suppliers', '/support', '/tenants', '/tracking', '/v1', '/van-stock', '/wa-inbox', '/warehouse',
+    '/work-numbers', '/zatca'];
+  // '/suppliers' و'/supplier-payments' («ربط الدفاتر» L1): إداريّان يرفضان المندوب صراحةً (حرّاس المستودع) — لا عمل على عميل
   const unclassified = mounted.filter((p) => !GUARDED.includes(p) && !OPEN.includes(p));
   assert.deepEqual(unclassified, [], 'بادئةٌ جديدة: إن كانت تعمل على عميل أضفها إلى LIVE_GUARDED_PREFIXES (الخادم والتطبيق)، وإلا إلى OPEN هنا');
   for (const g of GUARDED) assert.ok(live.LIVE_GUARDED_PREFIXES.some((x) => x === g || x.startsWith(g + '/')), g);

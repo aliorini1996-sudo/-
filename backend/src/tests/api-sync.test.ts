@@ -206,9 +206,9 @@ test('شروط الاستعلام: عزل الشركة، و«منذ» بعمود
   assert.deepEqual(sync.sinceWhere(visits, new Date(0)), { receivedAt: { gte: new Date(0) } });
   const since = new Date('2026-10-01T00:00:00Z');
   assert.deepEqual(sync.sinceWhere(cust, since), { updatedAt: { gte: since } });
-  assert.deepEqual(sync.sinceWhere(sync.syncResource('warehouse-entries')!, since), { createdAt: { gte: since } });
-  // تتغيّر بعد إنشائها (إعادة حساب الرصيد، إزاحة التاريخ، حذف المندوب) فتُقرأ بطابع التعديل
-  for (const n of ['account-entries', 'van-loads']) assert.deepEqual(sync.sinceWhere(sync.syncResource(n)!, since), { updatedAt: { gte: since } }, n);
+  // تتغيّر بعد إنشائها (إعادة حساب الرصيد، إزاحة التاريخ، حذف المندوب، وتصنيف حركة المستودع وإلغاؤها في «ربط الدفاتر» L1)
+  // فتُقرأ بطابع التعديل
+  for (const n of ['account-entries', 'van-loads', 'warehouse-entries']) assert.deepEqual(sync.sinceWhere(sync.syncResource(n)!, since), { updatedAt: { gte: since } }, n);
   assert.match(JSON.stringify(sync.sinceWhere(sync.syncResource('attendance')!, since)), /checkOutAt/);
   assert.equal(sync.sinceWhere(sync.syncResource('categories')!, since), null);
   const after = sync.afterCursorWhere(cust, { r: 'customers', t: since.toISOString(), i: 'x' });

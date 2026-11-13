@@ -17,8 +17,42 @@ import returnPolicyRouter from './returnPolicy';
 import paymentMethodsConfigRouter from './paymentMethodsConfig';
 import companyBuyerRelaxRouter from './companyBuyerRelax';
 import companyTaxModeRouter from './companyTaxMode';
+import { tenantBooksLinked } from '../services/booksMode';
 
 const router = Router();
+
+// ═══ «ربط الدفاتر» L0 — قفل العملة والدولة للشركة المربوطة ═══
+
+/** الحقول المقفلة: الدولة والعملة الفعلية (المشتقّة من الدولة أو من تجاوزها) */
+export const BOOKS_LINKED_LOCKED_SETTINGS = ['countryCode', 'currency'] as const;
+export type BooksLinkedLockedSetting = (typeof BOOKS_LINKED_LOCKED_SETTINGS)[number];
+export const BOOKS_LINKED_CURRENCY_LOCKED_CODE = 'BOOKS_LINKED_CURRENCY_LOCKED';
+export const BOOKS_LINKED_CURRENCY_LOCKED_MESSAGE =
+  'دفاتر هذه الشركة مربوطة بالنظام: لا تتغيّر دولة الشركة ولا عملتها بعد الربط — قيود كل المستندات بعملتها وضريبة دولتها';
+
+const normSetting = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim().toUpperCase() : null);
+
+/**
+ * ما سيغيّره الحفظ فعلاً من الدولة والعملة. next = جسم الكتابة النهائي بعد الاشتقاق (مفتاح غائب أو undefined = لا يُكتب)،
+ * والمقارنة بلا حساسية لحالة الأحرف ولا مسافات. لا صفّ إعدادات بعد ⇒ لا شيء مقفل (لا دفاتر مربوطة بلا شركة مهيّأة)
+ */
+export function linkedCurrencyLockedChanges(
+  current: { countryCode?: string | null; currency?: string | null } | null | undefined,
+  next: Readonly<Record<string, unknown>>,
+): BooksLinkedLockedSetting[] {
+  if (!current) return [];
+  const out: BooksLinkedLockedSetting[] = [];
+  for (const f of BOOKS_LINKED_LOCKED_SETTINGS) {
+    if (!Object.prototype.hasOwnProperty.call(next, f) || next[f] === undefined) continue;
+    if (normSetting(next[f]) !== normSetting(current[f])) out.push(f);
+  }
+  return out;
+}
+
+export function linkedCurrencyLockedBody(fields: readonly BooksLinkedLockedSetting[]): Record<string, unknown> {
+  return { success: false, code: BOOKS_LINKED_CURRENCY_LOCKED_CODE, message: BOOKS_LINKED_CURRENCY_LOCKED_MESSAGE, fields: [...fields] };
+}
+
 router.use(authenticate);
 // «الفرق» داخل الشركة — /api/company/teams (routes/teams.ts): تحت بادئة الشركة المصنّفة، بحرّاسها هي
 router.use('/teams', teamsRouter);
@@ -218,6 +252,14 @@ router.put('/', requireAdmin, requireAdminPermission('canManageCompanySettings')
       const zatcaLocked = phase2LockedSettingChanges(existing, clean);
       if (zatcaLocked.length > 0) {
         res.status(409).json(phase2SettingsLockedBody(zatcaLocked));
+        return;
+      }
+      // «ربط الدفاتر» (L0): الدفاتر المربوطة بعملة الشركة ودولتها (قيود كل مستند بعملته وضريبة دولته) — لا تتغيّران بعد الربط.
+      // المقارنة بالقيم المشتقّة النهائية كقفل ZATCA أعلاه (حفظٌ بلا تغيير فعلي يمرّ)، ووضع الدفاتر لا يُقرأ إلا لتغييرٍ فعلي —
+      // فالشركة اليدوية وكل حفظٍ عادي كما كانا تماماً
+      const booksLocked = linkedCurrencyLockedChanges(existing, clean);
+      if (booksLocked.length > 0 && await tenantBooksLinked(prisma, tid)) {
+        res.status(409).json(linkedCurrencyLockedBody(booksLocked));
         return;
       }
     }

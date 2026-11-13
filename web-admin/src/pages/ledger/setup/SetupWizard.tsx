@@ -13,7 +13,8 @@ import {
 } from '../../../api/ledgerSetup';
 import { ledgerHref } from '../routes';
 import { clampStep, prevStep, SETUP_STEPS, setupStepFromSearch, timezoneImportsConflictOf, type SetupStepNo, type TimezoneImportsConflict } from './setupLogic';
-import { BackfillStatusCard, DataImportLink, Notice, TimezoneImportsConflictNotice, useCommitResult, useSetupErrorText, useSetupState, WarehouseLink } from './setupUi';
+import { BackfillStatusCard, DataImportLink, LinkedBooksNote, Notice, TimezoneImportsConflictNotice, useCommitResult, useSetupErrorText, useSetupState, WarehouseLink } from './setupUi';
+import { isLinked, isManualMethod } from '../../../lib/ledger/bookMode';
 import { Step1Basics, Step3Tree } from './SetupSteps';
 import ManualBalances from './ManualBalances';
 import { CommitResultPanel, Step6Review } from './SetupReview';
@@ -99,13 +100,15 @@ export default function SetupWizard() {
     return (
       <div className="max-w-5xl mx-auto space-y-4">
         {result && <div className="card"><CommitResultPanel result={result} decimals={decimals} /></div>}
-        {status.setupMethod === 'CLEAN' ? (
+        {isManualMethod(status.setupMethod) ? (
           <div className="card space-y-2">
             <Notice>{tr('دفاتر يدوية مستقلة: منفصلة تماما عن المبيعات والمخزون والتحصيل، لا يُرحَّل إليها شيء آليا، وكل قيد فيها يُدخله المحاسب')}</Notice>
             <Link to={ledgerHref('entries')} className="text-xs text-[#E15A30] hover:underline">{tr('قيود اليومية')} ←</Link>
           </div>
         ) : (
           <div className="card space-y-3">
+            {/* «ربط الدفاتر»: المربوطة بالنظام تُوصف بيوم ربطها (linkedFrom اختياري من الخادم) */}
+            {isLinked(status) && <LinkedBooksNote settings={status} />}
             <h2 className="text-base font-bold text-[#1F1A13]">{tr('الترحيل التاريخي')}</h2>
             <BackfillStatusCard progress={progress} state={q.data?.activated ? q.data.status.backfillState : status.backfillState} canWrite={canWrite} />
             <Link to={ledgerHref('config/settings')} className="text-xs text-[#E15A30] hover:underline">{tr('الإعدادات')} ←</Link>

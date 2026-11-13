@@ -3,6 +3,8 @@ import { z } from 'zod';
 import prisma from '../config/database';
 import { resolveDocTeam, supervisorViewerOf, teamMembershipSelectFor } from '../services/teams';
 import { REP_COLLECTED_CASH_SALE } from '../services/repCashCollection';
+// «الدفع من عهدة مندوب» (ربط الدفاتر L1): سندات صرف الموردين من عهدته تُنقص رصيده كما في routes/salesReps.ts (repCollection)
+import { repCustodySupplierNet } from '../services/suppliers/repCustody';
 import { authenticate, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, canAccessRep, existingInScope, SHAPE_INVOICE_RECEIPT, teamSupervisorIdOf, composeTeamCustodyWhere } from '../services/adminScope';
 import { AuthRequest } from '../types';
@@ -138,18 +140,21 @@ router.get('/collection-balance', async (req: AuthRequest, res: Response, next: 
       if (!rep?.showCollectionBalance) { res.json({ success: true, data: { enabled: false } }); return; }
     }
     const docScope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
-    const [collected, cashSales, settled] = await Promise.all([
+    // «الدفع من عهدة مندوب»: سند صرف المورّد بلا فريق — يُطرح للمندوب نفسه ولغير مشرف الفرق (عرض المشرف عهدة فرقه وحدها كاستلاماته)
+    const withSupplierSpend = isSalesRep || (await teamSupervisorIdOf(req)) === null;
+    const [collected, cashSales, settled, spent] = await Promise.all([
       prisma.receipt.aggregate({ where: { tenantId: tid, salesRepId: repId, status: 'ACTIVE', ...docScope }, _sum: { amount: true } }),
       // «البيع النقدي تحصيلٌ لدى المندوب»: نطاق المستند نفسه (الفاتورة والسند بشكلٍ واحد)
       prisma.invoice.aggregate({ where: { tenantId: tid, salesRepId: repId, AND: [REP_COLLECTED_CASH_SALE, docScope] }, _sum: { paidAmt: true } }),
       // «الفرق»: سندات مشرف الفريق موسومةٌ بفرقه (scopedRecordWhere) — فاستلاماته كذلك، وإلا نقص الرصيد بما سلّمه فريقٌ آخر
       prisma.repSettlement.aggregate({ where: { tenantId: tid, salesRepId: repId, ...(isSalesRep ? {} : composeTeamCustodyWhere(await teamSupervisorIdOf(req))) }, _sum: { amount: true } }),
+      withSupplierSpend ? repCustodySupplierNet(prisma, tid, repId) : Promise.resolve(0),
     ]);
     const cash = cashSales._sum.paidAmt ?? 0;
     const c = (collected._sum.amount ?? 0) + cash;
     const s = settled._sum.amount ?? 0;
-    // collected يشمل النقدية المحسوبة، وcashSales جزؤها منه للعرض
-    res.json({ success: true, data: { enabled: true, collected: clean(c), cashSales: clean(cash), settled: clean(s), outstanding: clean(c - s) } });
+    // collected يشمل النقدية المحسوبة، وcashSales جزؤها منه للعرض؛ وpaidToSuppliers حين وُجد وحده (الردّ لغيره كما كان)
+    res.json({ success: true, data: { enabled: true, collected: clean(c), cashSales: clean(cash), settled: clean(s), ...(spent !== 0 && { paidToSuppliers: clean(spent) }), outstanding: clean(c - s - spent) } });
   } catch (err) { next(err); }
 });
 

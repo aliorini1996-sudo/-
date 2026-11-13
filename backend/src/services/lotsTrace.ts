@@ -62,6 +62,19 @@ export function lotEventVisible(after: unknown, visibleReps: ReadonlySet<string>
   return typeof a.vanKey === 'string' && visibleReps.has(a.vanKey);
 }
 
+/** نوع مصدرٍ في التتبّع لسطر مستودعٍ يحمل اللوط مرتجعاً للمورّد (RETURN، «ربط الدفاتر» L1) */
+export const LOT_ORIGIN_SUPPLIER_RETURN = 'SUPPLIER_RETURN';
+
+/**
+ * نوع سطر مستودعٍ في «المصدر» من تتبّع اللوط: الحركة التي أنشأت التشغيلة باستيرادٍ افتتاحي OPENING_IMPORT، والمرتجع للمورّد
+ * SUPPLIER_RETURN، وغيرهما نوع الحركة كما هو (RECEIVE/ADJUST). و«RETURN» محجوزٌ في المصدر لمرتجع عميلٍ أعاد التشغيلة
+ * إلى السيارة (كمية موجبة) — فلو بقي المرتجع للمورّد RETURN لقرأ مدقّق السحب بضاعةً خرجت إلى المورّد عائدةً من عميل.
+ */
+export function warehouseOriginKind(type: string, opening: boolean): string {
+  if (opening) return 'OPENING_IMPORT';
+  return type === 'RETURN' ? LOT_ORIGIN_SUPPLIER_RETURN : type;
+}
+
 /** أسماء المناديب القائمين بين المفاتيح — الغائب محذوف */
 async function repNames(db: LotDb, tid: string, keys: string[]): Promise<Map<string, string>> {
   if (!keys.length) return new Map();
@@ -388,7 +401,7 @@ export async function lotTrace(db: LotDb, tid: string, lotId: string, opts: LotT
   const origin: LotTraceDto['origin'] = [];
   for (const w of whItems) {
     const opening = lot.source === 'OPENING_IMPORT' && w.entry.id === lot.sourceEntryId;
-    origin.push({ kind: opening ? 'OPENING_IMPORT' : w.entry.type, at: iso(w.entry.createdAt), ref: w.entry.id, qty: roundLot(baseQtyOf(w)) });
+    origin.push({ kind: warehouseOriginKind(w.entry.type, opening), at: iso(w.entry.createdAt), ref: w.entry.id, qty: roundLot(baseQtyOf(w)) });
   }
   for (const v of vanRows) {
     if (v.viaWarehouse || !(v.moveType === 'LOAD' || v.moveType === 'ADJUST') || !(v.qty > 0) || !keySet.has(v.vanKey)) continue;

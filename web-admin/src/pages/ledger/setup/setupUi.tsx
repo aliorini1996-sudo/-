@@ -12,6 +12,7 @@ import {
 import LedgerAmount from '../../../components/ledger/LedgerAmount';
 import { useConfigErrorText, WriteButton } from '../config/parts/configUi';
 import { DATA_IMPORT_ANCHOR, DATA_IMPORT_HREF, WAREHOUSE_HREF, hasPostCutoverImports, openingStockReview, type TimezoneImportsConflict } from './setupLogic';
+import { linkedFromDay } from '../../../lib/ledger/bookMode';
 
 /**
  * أجزاء معالج الإعداد المشتركة (M3، §5.6، §8.4 القسم 2): نص أخطاء المعالج، وتسميات أسباب صفوف الأرصدة اليدوية،
@@ -383,7 +384,7 @@ export function BackfillStatusCard({ progress, state, canWrite, compact }: {
           )}
         </>
       )}
-      {state === 'PAUSED' && <p className="text-[11px] text-[#9A8F7E]">{tr('أثناء الإيقاف المؤقت لا تُقرأ مستندات جديدة للترحيل، والمستندات التشغيلية تعمل كالمعتاد')}</p>}
+      {state === 'PAUSED' && <p className="text-[11px] text-[#9A8F7E]">{tr('أثناء الإيقاف المؤقت يتوقف الترحيل الآلي كله فلا يُرحَّل حتى ما ينتظر منه، والمستندات التشغيلية تعمل كالمعتاد')}</p>}
     </div>
   );
 }
@@ -412,4 +413,20 @@ export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | '
     ok: 'border-emerald-200 bg-emerald-50 text-emerald-800',
   }[tone];
   return <div className={`rounded-xl border px-3 py-2 text-xs leading-relaxed ${cls}`} role={tone === 'error' ? 'alert' : 'status'}>{children}</div>;
+}
+
+/**
+ * «ربط الدفاتر» L0: وصف الدفاتر المربوطة بالنظام (LINKED) في الإعدادات وفهرس الدفاتر والمعالج بعد التفعيل — «دفاتر
+ * مربوطة بالنظام منذ <linkedFrom>» حين يرجع الخادم الحقل (اختياري: لا يرجعه اليوم)، وإلا بلا تاريخ. المستدعي يعرضها
+ * لـisLinked وحدها، فلا تمسّ الدفاتر اليدوية ولا التفعيلات السابقة.
+ */
+export function LinkedBooksNote({ settings }: { settings: object | null | undefined }) {
+  const tr = useTr();
+  const day = linkedFromDay(settings);
+  return (
+    <Notice>
+      <p className="font-semibold">{day ? tr('دفاتر مربوطة بالنظام منذ {date}').replace('{date}', formatDayOnly(day)) : tr('دفاتر مربوطة بالنظام')}</p>
+      <p>{tr('كل مستند من التشغيل يُرحَّل قيده إلى الدفاتر آلياً، والمستند المرحَّل لا يُحذف: يُلغى أو يُعمل له إشعار دائن أو مرتجع')}</p>
+    </Notice>
+  );
 }

@@ -4,6 +4,7 @@ import { SALES_CHANNELS } from './channels';
 import { parseAmount, parsePercent, hasPercentSign, toAsciiDigits, columnDecimalStyle, currencyDecimalFallback, type DecimalStyle } from './importAmount';
 import { classifyPaymentStatus, type PaymentStatusClass } from './importStatus';
 import { primaryUnitOf, productQtyText, unitProblem, type UnitDef } from './units';
+import { isManualMethod } from './ledger/bookMode';
 
 export { toAsciiDigits } from './importAmount';
 
@@ -1708,8 +1709,9 @@ export function openingStockGate(i: {
   const c = i.ctx;
   const sb = i.serverBlock;
   if (c?.activated || sb?.reason === 'active') return { state: 'blocked', reason: 'active', cutoverDate: c?.cutoverDate ?? null };
-  // البداية النظيفة (كل تفعيل جديد): المخزون المستورد لا يدخل الدفاتر أياً كان تاريخ البدء، فلا حجب ولا إقرار قبل التفعيل
-  if (!c || c.method === 'CLEAN') return { state: 'open' };
+  // البداية النظيفة (الدفاتر اليدوية): المخزون المستورد لا يدخل الدفاتر أياً كان تاريخ البدء، فلا حجب ولا إقرار قبل التفعيل
+  // («ربط الدفاتر» L0: الحكم بـisManualMethod من lib/ledger/bookMode.ts لا بمقارنة حرفية)
+  if (!c || isManualMethod(c.method)) return { state: 'open' };
   if (sb?.reason === 'fullHistory' || c.method === 'FULL_HISTORY') {
     return { state: 'blocked', reason: 'fullHistory', cutoverDate: c?.cutoverDate ?? null };
   }

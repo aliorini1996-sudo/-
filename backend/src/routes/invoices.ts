@@ -52,7 +52,7 @@ import { ALLOCATION_ALLOWED_WHERE } from '../compliance/zatca/status';
 import { ZatcaHttpError } from '../compliance/zatca/errors';
 import { issuanceHttpError } from '../compliance/zatca/issue';
 import {
-  PRODUCT_UNITS_BUSY_MESSAGE, assertLockedStillUntracked, capsFromHeaders, capsGate, isPhase2Invoice, issuePhase2Invoice, phase2ReadBody, phase2ReplayBody,
+  PRODUCT_UNITS_BUSY_MESSAGE, assertLockedStillUntracked, capsFromHeaders, capsGate, invoiceCurrencyOf, isPhase2Invoice, issuePhase2Invoice, phase2ReadBody, phase2ReplayBody,
   lineRefColumn, type Phase2IssuanceContext,
 } from './invoicesZatca';
 import { productionPhase2Deps } from './invoicesZatcaDeps';
@@ -708,6 +708,45 @@ export function linkedReturnRemainingApplied(
   if (!sale || sale.type !== 'CREDIT' || sale.status !== 'CONFIRMED') return 0;
   const applied = Math.min(Math.max(0, Number(sale.remainingAmt) || 0), Math.max(0, Number(returnTotal) || 0));
   return applied > 0 ? clean(applied) : 0;
+}
+
+/** أدنى شكل لمعاملة سجلّ التبديل: Prisma.TransactionClient، والمزيّف في الاختبارات */
+export interface RestockToggleTx {
+  invoice: {
+    updateMany(args: { where: { id: string; tenantId: string; returnToStock: boolean }; data: { returnToStock: boolean } }): Promise<{ count: number }>;
+  };
+  invoiceRestockLog: {
+    create(args: { data: { tenantId: string; invoiceId: string; previous: boolean; returnToStock: boolean; changedBy: string | null } }): Promise<unknown>;
+  };
+}
+
+/**
+ * «ربط الدفاتر» L1 (B11): تبديل «إعادة المرتجع للمخزون» يُلحق صفّاً في invoice_restock_logs داخل معاملة التبديل نفسها، حين تتغيّر
+ * القيمة فعلاً وحده. كان التبديل تعديلاً في المكان بلا أثر، فلا تعرف الدفاتر المربوطة (L4/L6: RESTOCK وRETURN_LOSS بتكلفة اللقطة)
+ * متى عادت بضاعة المرتجع للمخزون أو خرجت منه، ولا تُبنى رجعياً من بداية السنة. والصفّ يُكتب لكل شركة: ربطٌ لاحق يقرؤه بأثر رجعي،
+ * ولا يمسّ جداول الدفاتر.
+ * الحكم بتحديثٍ مشروطٍ بالقيمة السابقة (returnToStock = نقيض الجديدة): يقفل الصفّ في التحديث نفسه، وتحت READ COMMITTED يُعاد تقييم
+ * الشرط على النسخة الملتزمة — فتبديلان متزامنان إلى القيمة نفسها يكتب أحدهما وحده (count = 1) ولا صفّ للآخر، ومتعاكسان يكتب كلٌّ
+ * صفّه بترتيب التزامهما. والتبديل إلى القيمة نفسها لا يكتب شيئاً. «السابقة» نقيض الجديدة بالبناء (العمود منطقيّ غير فارغ).
+ * يُستدعى بعد حرّاس المسار وقبل تحديثه القائم (tx.invoice.update) الذي يعيد الصفّ كما كان — فالردّ وختم updatedAt كما هما.
+ */
+export async function recordRestockToggleInTx(
+  tx: RestockToggleTx, tid: string, invoiceId: string, returnToStock: boolean, changedBy: string | null,
+): Promise<boolean> {
+  const flipped = await tx.invoice.updateMany({ where: { id: invoiceId, tenantId: tid, returnToStock: !returnToStock }, data: { returnToStock } });
+  if (flipped.count === 0) return false;
+  await tx.invoiceRestockLog.create({ data: { tenantId: tid, invoiceId, previous: !returnToStock, returnToStock, changedBy } });
+  return true;
+}
+
+/**
+ * «من بدّل» في سجلّ التبديل — بدلالة actorOf (middleware/auth.ts): جلسة المالك ومفتاحه الصادر من الدعم OWNER:<المعرّف>، وإلا معرّف
+ * المستخدم. نسخةٌ محلية عمداً: اختبارات المسار تحقن بديلاً لـmiddleware/auth بلا actorOf فيسقط استيرادها وقت التشغيل.
+ */
+export function restockActorOf(user: { id?: string; impersonated?: boolean; ownerIssuedKey?: boolean } | null | undefined): string | null {
+  const id = user?.id;
+  if (!id) return null;
+  return user?.impersonated === true || user?.ownerIssuedKey === true ? `OWNER:${id}` : id;
 }
 
 /** بند مستندٍ للعرض والطباعة (القاعدة ٨): لقطة وحدته، وإلّا وحدة صنفه — صفٌّ بلا لقطة كُتب بوحدة الأساس وقتها */
@@ -1455,6 +1494,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const companyVat = docTaxFree ? 0 : (company?.defaultVatPct ?? 15);
     // الخانات من العملة الفعلية (تجاوز الدولار/اليورو يغلب خانات الدولة — كويتية بالدولار: خانتان لا ثلاث)
     const dec = currencyDecimalsOf(company?.currency ?? getCountryTax(company?.countryCode).currency);
+    /* «ربط الدفاتر» L1 (A7): عملة المستند لحظة إصداره تُختم في Invoice.currency — من الصفّ نفسه بلا استعلام زائد، وهي العملة نفسها
+     * التي تُقرَّب بها مبالغه أعلاه: company.ts يكتب currency = عملة التجاوز حين يُضبط (منذ أُضيف التجاوز 5604090)، فـcurrency هنا
+     * هي الفعلية = ما تقارنه الدفاتر (currencyOverride || currency) دون عمودٍ زائد في select المثبَّت (invoices-phase2-static) */
+    const docCurrency = invoiceCurrencyOf(company);
 
     /* «البيع بدون مخزون» (مراجعة المخزون، البندان ٥ و٩): مطلوب أصناف البيع غير المتتبَّعة بالأساس لمندوبٍ لا يملكه — يُعاد فحصه داخل
      * المعاملة تحت قفل السيارة (null = لا حارس). وإعادة رفع صندوق المندوب (X-FS-Replay بجلسته؛ تُمحى لمفتاح API في middleware/auth.ts)
@@ -2026,6 +2069,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           ...(lotInvoiceId && { id: lotInvoiceId }),
           tenantId: tid,
           number,
+          currency: docCurrency,
           clientRef: body.clientRef,
           // يقرؤه وسم الصلاحية بعد الإصدار يومَ المرتجع (stampInvoiceExpiry) — فلا يُخزَّن من مفتاح API (deviceAt أعلاه)
           clientCreatedAt: deviceAt ? new Date(deviceAt) : undefined,
@@ -2768,6 +2812,8 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
   try {
     const tid = tenantId(req);
     const { returnToStock } = z.object({ returnToStock: z.boolean() }).parse(req.body);
+    // «ربط الدفاتر» L1: من بدّل — يُكتب في سجلّ التبديل (recordRestockToggleInTx) حين تتغيّر القيمة فعلاً
+    const changedBy = restockActorOf(req.user);
     // عَلَم «تتبّع اللوط» في القراءة نفسها — لا استعلام زائد والميزة مطفأة (ن١-٢٠)
     const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) }, select: { id: true, type: true, tenant: { select: { lotTrackingEnabled: true } } } });
     if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
@@ -2787,6 +2833,8 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
         await assertRestockOffKeepsLots(tx, tid, invoice.id);
         // D10: وأصنافه غير المتتبَّعة — لا يصير المتاح في السيارة سالباً (بعد حارس اللوط: مفاتيح اللوط قبل قفل السيارة)
         await assertReturnRemovalKeepsVan(tx, tid, invoice.id, 'RESTOCK_OFF', new Set(lotOff));
+        // «ربط الدفاتر» L1: سجلّ التبديل بعد الحرّاس وفي المعاملة نفسها (رفضٌ قبله لا يكتب شيئاً)
+        await recordRestockToggleInTx(tx, tid, invoice.id, returnToStock, changedBy);
         return tx.invoice.update({ where: { id: invoice.id }, data: { returnToStock } });
       }, LOT_TX_OPTIONS);
       releaseLots();
@@ -2806,6 +2854,7 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
         // D25 أولاً (قفل الصفّ ثم الأصناف كما كان): صنفٌ صار متتبَّعاً ⇒ 503 فيُعاد بحارس اللوط — ثم المتاح تحت قفل السيارة
         if (lotPids.length) await assertReturnStillUntracked(tx, tid, lotPids);
         await assertReturnRemovalKeepsVan(tx, tid, invoice.id, 'RESTOCK_OFF');
+        await recordRestockToggleInTx(tx, tid, invoice.id, returnToStock, changedBy);
         return tx.invoice.update({ where: { id: invoice.id }, data: { returnToStock } });
       });
       res.json({ success: true, data: off });
@@ -2813,6 +2862,7 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
     }
     if (lotPids.length) {
       const kept = await prisma.$transaction(async tx => {
+        await recordRestockToggleInTx(tx, tid, invoice.id, returnToStock, changedBy);
         const row = await tx.invoice.update({ where: { id: invoice.id }, data: { returnToStock } });
         await assertReturnStillUntracked(tx, tid, lotPids);
         return row;
@@ -2820,7 +2870,12 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
       res.json({ success: true, data: kept });
       return;
     }
-    const updated = await prisma.invoice.update({ where: { id: req.params.id }, data: { returnToStock } });
+    /* التشغيل إلى true زيادةٌ خالصة: بلا قفل لوطٍ ولا حارس ولا مهلة جديدة كما كان — و«ربط الدفاتر» L1 يجعله معاملةً واحدة يُلحق
+     * فيها سجلّ التبديل (حين تتغيّر القيمة فعلاً) ثم التحديث القائم نفسه، فلا يبقى تبديلٌ بلا صفّه ولا صفٌّ بلا تبديله */
+    const updated = await prisma.$transaction(async tx => {
+      await recordRestockToggleInTx(tx, tid, invoice.id, returnToStock, changedBy);
+      return tx.invoice.update({ where: { id: invoice.id }, data: { returnToStock } });
+    });
     res.json({ success: true, data: updated });
   } catch (err) {
     // D10: بضاعة المرتجع بيعت — لا إطفاء (409 بالسطور)

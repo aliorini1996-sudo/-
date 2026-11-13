@@ -19,6 +19,8 @@ import {
   manualIssueText, Notice, OpeningStockNotice, PostCutoverImportsNotice, StepSection, TimezoneImportsConflictNotice, useSetupErrorText,
 } from './setupUi';
 import { StepFooter, usePeriodicityLabels, type StepProps } from './SetupSteps';
+import { isManualMethod } from '../../../lib/ledger/bookMode';
+import { setupMethodLabels } from '../../../lib/ledger/labels';
 
 /**
  * الخطوة الأخيرة (§5.6) ونتيجة التفعيل. خطوة «الأرصدة المشتقة» أُزيلت بقرار الخبير المحاسبي (٢٧ سبتمبر ٢٠٢٦):
@@ -121,7 +123,7 @@ export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps 
   const issues = q.data?.manual.issues ?? [];
   const drafts = q.data?.draftsBeforeCutover ?? state.draftsBeforeCutover;
   // البداية النظيفة: الخطوة الأولى (ومبالغ الإقرار) والأرصدة «حتى لحظة التفعيل» — حُفظت في يوم آخر ⇒ الخادم يرفض بـ409
-  const dayChanged = method === 'CLEAN' && !!d.step1?.cutoverDate && d.step1.cutoverDate !== state.today;
+  const dayChanged = isManualMethod(method) && !!d.step1?.cutoverDate && d.step1.cutoverDate !== state.today;
   const blocked = !q.data || issues.length > 0 || dayChanged;
   const imported = q.data?.importedAfterCutover;
   const importsBlocked = importsAckBlocksCommit(imported, importsAck);
@@ -156,7 +158,7 @@ export function Step6Review({ state, canWrite, onBack, onCommitted }: StepProps 
             [tr('القالب'), state.effective.templateKey],
             [tr('المنطقة الزمنية'), s1.timezone ?? state.effective.timezone],
             [tr('دورية الإقرار'), periodicityLabels[s1.taxPeriodicity ?? state.effective.taxPeriodicity]],
-            [tr('طريقة البدء'), method === 'CLEAN' ? tr('بداية نظيفة من يوم التفعيل') : method === 'FULL_HISTORY' ? tr('ترحيل التاريخ الكامل') : tr('أرصدة افتتاحية')],
+            [tr('طريقة البدء'), setupMethodLabels(tr)[method] ?? tr('أرصدة افتتاحية')],
             [tr('تاريخ البدء'), q.data ? formatDayOnly(q.data.cutoff.cutoverDate) : s1.cutoverDate ? formatDayOnly(s1.cutoverDate) : '—'],
             [tr('الأرصدة اليدوية'), String(d.step5?.rows.length ?? 0)],
           ] as [string, string][]).map(([k, v]) => (
@@ -275,7 +277,7 @@ export function CommitResultPanel({ result, decimals }: { result: SetupCommitRes
     <div className="space-y-4">
       <Notice tone="ok">
         <p className="font-semibold">{tr('تم تفعيل الدفاتر')}</p>
-        <p>{result.status.setupMethod === 'CLEAN'
+        <p>{isManualMethod(result.status.setupMethod)
           ? tr('دفاتر يدوية مستقلة: منفصلة تماما عن المبيعات والمخزون والتحصيل، لا يُرحَّل إليها شيء آليا، وكل قيد فيها يُدخله المحاسب')
           : tr('الأرقام أدناه نهائية كما التُزمت في معاملة التفعيل، والترحيل الآلي للمستندات بعد تاريخ البدء يعمل الآن في الخلفية')}</p>
       </Notice>

@@ -10,6 +10,7 @@
  *   (الحارس الثابت gl-hooks-static يتحقق من الموضع).
  * - assertRepDeletable: حارس لا أحداث — لا تُكتب أحداث عكس للاستلامات عند حذف المندوب.
  */
+import { isManualBooks } from '../mode';
 import { LedgerError } from '../types';
 import {
   arEntryPayload, settlementPayload, sourceEventCreateRow,
@@ -37,8 +38,9 @@ export interface TombstoneSettings {
 export async function ledgerTombstoneSettings(db: TombstoneSettingsDb, tenantId: string): Promise<TombstoneSettings | null> {
   const s = await db.glSettings.findUnique({ where: { tenantId }, select: { activatedAt: true, currencyDecimals: true, setupMethod: true } });
   if (!s || !s.activatedAt) return null;
-  // الدفاتر اليدوية المستقلة (CLEAN): حذف استلام أو التراجع عن استيراد في التشغيل لا يكتب حدثاً في الدفاتر
-  if (s.setupMethod === 'CLEAN') return null;
+  // الدفاتر اليدوية المستقلة (CLEAN): حذف استلام أو التراجع عن استيراد في التشغيل لا يكتب حدثاً في الدفاتر.
+  // المربوطة (LINKED) ليست يدوية: تُكتب أحداثها كالتفعيلات السابقة
+  if (isManualBooks(s)) return null;
   return { activatedAt: s.activatedAt, currencyDecimals: s.currencyDecimals };
 }
 
@@ -177,8 +179,8 @@ export async function assertRepDeletable(db: RepDeletableDb, tenantId: string, s
   const s = await db.glSettings.findUnique({ where: { tenantId }, select: { activatedAt: true, setupMethod: true } });
   if (!s || !s.activatedAt) return;
   // الدفاتر اليدوية المستقلة (CLEAN): بصمة التشغيل (سندات، فواتير، استلامات، تحميل) لا تهمّ الدفاتر — تحجب الحذفَ سطورُ قيود
-  // تحمل المندوب شريكاً وحدها (سلامة المرجع)
-  const manual = s.setupMethod === 'CLEAN';
+  // تحمل المندوب شريكاً وحدها (سلامة المرجع). المربوطة (LINKED) تعدّ البصمة كاملةً: الفواتير وتحميلات السيارة مرحَّلة أو ستُرحَّل
+  const manual = isManualBooks(s);
   // قفل صف المندوب قبل أي عدّ: العدّ وحده بـREAD COMMITTED لا يمنع سنداً يلتزم بين الفحص والحذف (onDelete: SetNull
   // كان سيفرّغ مندوبه بصمت ويُخرج عهدته من P7/C4). الفحص الفعلي للتزامن خطوة يدوية على قاعدة حقيقية.
   if (db.$queryRaw) await db.$queryRaw`SELECT id FROM sales_reps WHERE id = ${salesRepId} AND "tenantId" = ${tenantId} FOR UPDATE`;

@@ -15,7 +15,7 @@ import type { PostMoveOptions, PostedMove } from '../post';
 import type { LedgerContext } from '../resolve';
 import type { ReverseMoveOptions, ReverseResult } from '../reverse';
 import type { BackfillState, GlSettingsSnapshot, InventoryMode, LocalDate, Milli, MoveDraft, SourceEvent, SourceType } from '../types';
-import type { LiveMoveState, OriginFacts, SiblingState } from './classify';
+import type { LiveMoveState, OriginFacts, SetupMethod, SiblingState } from './classify';
 import type {
   CompositeKey, DesiredEvent, EventStatus, LeaseHandle, SourceEventPatch, SourceEventRecord, SyncCursorSource, SyncCursorState,
 } from './types';
@@ -27,7 +27,8 @@ export interface PosterSettings {
   suiteEnabled: boolean;
   activatedAt: Date | null;
   backfillState: BackfillState;
-  setupMethod: 'OPENING' | 'FULL_HISTORY' | 'CLEAN' | null;
+  /** الطريقة المعروفة كما هي (ومنها LINKED — setupMethodOf)، وغيرها null. اقرأها بـisManualBooks/cutoverMethodOf لا بمقارنة حرفية */
+  setupMethod: SetupMethod | null;
   cutoverDate: LocalDate | null;
   /** T0 */
   openingSnapshotAt: Date | null;
@@ -43,7 +44,11 @@ export interface PosterSettings {
   snapshot: GlSettingsSnapshot;
 }
 
-/** الشركات المؤهلة للنبضة: accountingSuiteEnabled=true وactivatedAt≠null، مرتبة بأقدم lastSyncAt (round‑robin) */
+/**
+ * الشركات المؤهلة للنبضة: accountingSuiteEnabled=true وactivatedAt≠null، **عدا الدفاتر اليدوية** (تُستبعد في SQL نفسه،
+ * «ربط الدفاتر» L0 A4 — كانت تتصدّر القائمة بـlastSyncAt فارغ أبداً فتزاحم المربوطة على سقف 200)، مرتبة بأقدم lastSyncAt
+ * (round‑robin). والفحوص الليلية تعمّ اليدوية أيضاً عبر listCheckTenants.
+ */
 export interface EligibleTenant {
   tenantId: string;
   lastSyncAt: Date | null;
@@ -161,7 +166,10 @@ export interface PostingStore {
   // ── المجدول والعقد (§5.1) ──
   /** ساعة القاعدة (SELECT now()) */
   dbNow(): Promise<Date>;
+  /** أهلية الترحيل الآلي (النبضة): المفعّلة بعَلَم المجموعة، بلا الدفاتر اليدوية */
   listEligibleTenants(limit?: number): Promise<EligibleTenant[]>;
+  /** أهلية الفحوص الليلية: المفعّلة بعَلَم المجموعة كلها، ومنها اليدوية (فحوص دفاترها الداخلية: التوازن والأرصدة والتسلسل…) */
+  listCheckTenants(limit?: number): Promise<EligibleTenant[]>;
   loadPosterSettings(tenantId: string): Promise<PosterSettings | null>;
   /**
    * UPDATE gl_settings SET workerLeaseUntil = NOW() + 90s, workerLeaseToken = token

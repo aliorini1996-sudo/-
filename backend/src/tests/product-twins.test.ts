@@ -162,6 +162,8 @@ function fakeTx(opts: {
   products: Array<{ id: string; tenantId: string; name: string; unit: string; deletedAt: Date | null }>;
   lotsA?: Array<{ lotNumber: string }>; lotClash?: number;
   reqA?: Array<Record<string, unknown>>; reqB?: Array<Record<string, unknown>>;
+  /** «ربط الدفاتر»: إعدادات دفاتر الشركة (null = لم تُفعَّل) */
+  books?: { setupMethod: string | null; activatedAt: Date | null } | null;
 }) {
   const log: Array<{ op: string; model: string; arg?: unknown }> = [];
   const tx = new Proxy({}, {
@@ -185,6 +187,7 @@ function fakeTx(opts: {
         update: async (a: unknown) => { log.push({ op: 'update', model: name, arg: a }); return {}; },
         delete: async (a: unknown) => { log.push({ op: 'delete', model: name, arg: a }); return {}; },
         deleteMany: async (a: unknown) => { log.push({ op: 'deleteMany', model: name, arg: a }); return { count: 0 }; },
+        findUnique: async (a: unknown) => { log.push({ op: 'findUnique', model: name, arg: a }); return name === 'glSettings' ? (opts.books ?? null) : null; },
       };
     },
   });
@@ -251,6 +254,8 @@ test('الدمج يُرفض برمزه بلا أي كتابة: نفسه، غير
     ['TARGET_ARCHIVED', { products: [A, { ...B, deletedAt: DAY }] }, 'A', 'B'],
     ['UNIT_MISMATCH', { products: [A, { ...B, unit: 'كرتون' }] }, 'A', 'B'],
     ['LOTS_CONFLICT', { products: [A, B], lotsA: [{ lotNumber: 'L1' }], lotClash: 1 }, 'A', 'B'],
+    // «ربط الدفاتر» (OD1): الدمج ينقل مستندات مرحَّلة — الشركة المربوطة المفعّلة تُرفض قبل أي كتابة
+    ['BOOKS_LINKED', { products: [A, B], books: { setupMethod: 'LINKED', activatedAt: DAY } }, 'A', 'B'],
   ];
   for (const [code, opts, from, to] of cases) {
     const { tx, log } = fakeTx(opts);
@@ -270,4 +275,27 @@ test('الدمج: تشغيلات A بلا تعارض تُوجَّه إلى B', a
   await mergeArchivedProduct(tx as never, 't1', 'A', 'B', { purge: async () => ({ counts: {}, nullCounts: {} }) });
   const lot = log.find((c) => c.op === 'updateMany' && c.model === 'productLot');
   assert.deepEqual(lot?.arg, { where: { productId: 'A', tenantId: 't1' }, data: { productId: 'B' } });
+});
+
+test('«ربط الدفاتر»: الدمج يمرّ لليدوية وللمربوطة قبل التفعيل ولغير المفعّلة، ويُرفض للمربوطة المفعّلة وحدها', async () => {
+  const run = async (books: Parameters<typeof fakeTx>[0]['books']) => {
+    const { tx, log } = fakeTx({ products: [A, B], books });
+    try {
+      await mergeArchivedProduct(tx as never, 't1', 'A', 'B', { purge: async () => ({ counts: {}, nullCounts: {} }) });
+      return { ok: true, log };
+    } catch (e) {
+      assert.ok(e instanceof MergeRefused && e.code === 'BOOKS_LINKED');
+      return { ok: false, log };
+    }
+  };
+  assert.equal((await run(null)).ok, true);
+  assert.equal((await run({ setupMethod: 'CLEAN', activatedAt: DAY })).ok, true);
+  assert.equal((await run({ setupMethod: 'LINKED', activatedAt: null })).ok, true);
+  const linked = await run({ setupMethod: 'LINKED', activatedAt: DAY });
+  assert.equal(linked.ok, false);
+  // القراءة على الصفّين المقفلين وقبل أي كتابة
+  const read = linked.log.findIndex((c) => c.op === 'findUnique' && c.model === 'glSettings');
+  const lock = linked.log.findIndex((c) => c.op === 'queryRaw' && String(c.arg).includes('FOR UPDATE'));
+  assert.ok(lock >= 0 && read > lock);
+  assert.ok(!linked.log.some((c) => ['updateMany', 'update', 'delete', 'deleteMany'].includes(c.op)));
 });

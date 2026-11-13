@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { buildPurgePlan, deletionOrder, inboundOf, targetableModels } from '../services/ownerPurge';
 import { isPlatformOwnerSession } from '../routes/ownerPurge';
 
-test('الأنواع: كل جدولٍ فيه tenantId قابل للحذف عدا الشركة نفسها', () => {
+// «ربط الدفاتر» L0: والدفاتر (Gl*) وقيود الموردين وتخصيص سنداتهم وسجلّ تبديل العودة ليست أهدافاً — تغطيتها في b2a-owner-purge-books
+test('الأنواع: كل جدولٍ فيه tenantId قابل للحذف عدا الشركة نفسها والدفاتر وقيود الموردين وسجلّ تبديل العودة', () => {
   const t = targetableModels();
   for (const m of ['Invoice', 'Receipt', 'VanLoad', 'WarehouseEntry', 'SalesLocation', 'Customer', 'Product', 'SalesRep']) assert.ok(t.includes(m), m);
   assert.ok(!t.includes('Tenant'));

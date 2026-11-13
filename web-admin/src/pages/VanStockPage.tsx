@@ -40,6 +40,8 @@ import {
   loadOverWarehouse, movementKey, productFlagOf, refFor, repRemainingView, unloadOverVan, vanPickList, warehouseAvailOf, warehouseInsufficientOf,
   isIndeterminateError, sendWithRefRecovery, withClientRef, withServerAvail, type PickEntry, type ProductFlag, type RefMemo,
 } from '../lib/vanStockFlags';
+// «ربط الدفاتر» L1: سبب تسوية السيارة (VanLoad.reason)
+import { VAN_DESTROY_REASON } from '../components/purchases/purchaseCalc';
 
 /*
  * الوحدات المتعددة: كل كمية تأتي من الخادم هنا **بوحدة الأساس** (`unit` اسمها) — الرصيد والمحمّل والمباع والاقتراح —
@@ -277,6 +279,8 @@ export default function VanStockPage() {
     mutationFn: (a: LotAction) => vanStockApi.createLoad(withItemsBase(a.kind === 'DESTROY'
       ? {
         salesRepId: selected, type: 'ADJUST', note: tr('إتلاف تشغيلة منتهية لم تبع'),
+        // «ربط الدفاتر» L1: سبب تسوية السيارة (VanLoad.reason) — إتلاف المنتهي غير المباع «منتهي الصلاحية»
+        reason: VAN_DESTROY_REASON,
         items: [{ productId: a.productId, qty: -a.qty, lots: [{ lotId: a.lotId, qty: a.qty }], lotReason: 'EXPIRED_UNSOLD_DESTROY' }],
       }
       : {

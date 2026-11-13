@@ -27,8 +27,9 @@ import {
   LedgerError, isNoMove,
   type BuildResult, type EventHoldReason, type LocalDate, type Milli, type MoveDraft, type SkipReason,
 } from '../types';
+import { isManualBooks } from '../mode';
 import {
-  blockedRetry, classifyCutover, compareEventsForPosting, currencyMismatch, decodeEventNote, encodeEventNote, errorRetry, initialWatermarkAt,
+  blockedRetry, classifyCutover, compareEventsForPosting, currencyMismatch, cutoverMethodOf, decodeEventNote, encodeEventNote, errorRetry, initialWatermarkAt,
   inventoryGate, isInventoryEvent, isStillActionable, isTombstoneSource, planEvent, settlementOrderReady,
   type CutoverContext, type CutoverRow, type EventPlan, type LiveMoveState, type OriginFacts, type SiblingState, type SiblingWrite,
 } from './classify';
@@ -114,14 +115,15 @@ export function cutoverContextOf(s: Pick<PosterSettings, 'setupMethod' | 'cutove
   if (!s.cutoverDate || !s.openingSnapshotAt) {
     return { cutoverDate: '1970-01-01', openingSnapshotAt: EPOCH, timezone: s.timezone, initialWatermarkAt: EPOCH };
   }
-  const method = s.setupMethod === 'FULL_HISTORY' ? 'FULL_HISTORY' : s.setupMethod === 'CLEAN' ? 'CLEAN' : 'OPENING';
+  // LINKED («ربط الدفاتر» L0) كـOPENING تماماً: cutover = cutoverDate بلا cleanStart — لا تُعامَل يدويةً أبداً (cutoverMethodOf)
+  const method = cutoverMethodOf(s.setupMethod);
   return {
     cutoverDate: s.cutoverDate,
     openingSnapshotAt: s.openingSnapshotAt,
     timezone: s.timezone,
     initialWatermarkAt: initialWatermarkAt({ method, cutoverDate: s.cutoverDate, openingSnapshotAt: s.openingSnapshotAt, timezone: s.timezone }),
-    // البداية النظيفة: كل ما أُنشئ حتى T0 خارج الدفاتر أياً كان تاريخه (classifyCutover)
-    cleanStart: method === 'CLEAN',
+    // البداية النظيفة (الدفاتر اليدوية وحدها): كل ما أُنشئ حتى T0 خارج الدفاتر أياً كان تاريخه (classifyCutover)
+    cleanStart: isManualBooks(s),
   };
 }
 

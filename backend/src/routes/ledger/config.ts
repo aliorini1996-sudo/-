@@ -20,7 +20,7 @@ import { addMonths, compareLocalDate, daysInMonth, fromDbDate, isLocalDate, isVa
 import {
   ACCOUNT_TYPES, ACCOUNT_TYPE_NATURAL_SIDE, CASH_FLOW_TAGS, CASH_INVOICE_ROUTINGS, INVENTORY_MODES, JOURNAL_TYPES,
   LedgerError, MAPPING_KEYS, SEQUENCE_RESETS, TAX_DEADLINE_RULES, TAX_PERIODICITIES, TAX_USES, VAT_BOXES_SA, VAT_CATEGORIES,
-  type AccountType, type MappingKey, type TemplateKey,
+  type AccountType, type InventoryMode, type MappingKey, type TemplateKey,
 } from '../../services/gl/types';
 
 /**
@@ -983,13 +983,16 @@ export function settingsOut(s: SettingsRow) {
     salesLockDate: dateOut(s.salesLockDate), purchaseLockDate: dateOut(s.purchaseLockDate),
     taxLockDate: dateOut(s.taxLockDate), hardLockDate: dateOut(s.hardLockDate),
     paylinkFeeTaxInvoiceFrom: dateOut(s.paylinkFeeTaxInvoiceFrom),
+    // «ربط الدفاتر»: بداية الربط عمود تاريخ (@db.Date) — YYYY-MM-DD كبقية التواريخ لا ISO بمنتصف الليل UTC (فرق التدقيق ونوع الواجهة)
+    linkedFrom: dateOut(s.linkedFrom),
   };
 }
 
 router.get('/settings', CONFIGURE, ledgerHandler(async (_req, res) => {
   const { tenantId } = ledgerOf(res);
   const s = await prisma.glSettings.findUnique({ where: { tenantId } });
-  res.json({ success: true, data: s ? settingsOut(s) : null });
+  // inventoryModeOptions بجانب الصف لا داخله (settingsOut يغذّي diff التدقيق، والخيار مشتقّ لا عمود)
+  res.json({ success: true, data: s ? { ...settingsOut(s), inventoryModeOptions: inventoryModeOptions(s.inventoryMode) } : null });
 }));
 
 const RECEIPT_METHODS = ['CASH', 'BANK_TRANSFER', 'POS', 'CHEQUE'] as const;
@@ -1030,6 +1033,27 @@ const settingsUpdateSchema = z.object({
 /** تغييرها بعد التفعيل يعيد تفسير تواريخ مرحّلة وسنوات وأرصدة مخزون قائمة. */
 const FROZEN_AFTER_ACTIVATION = ['timezone', 'fiscalYearEndMonth', 'fiscalYearEndDay', 'inventoryMode', 'perpetualFromDate'] as const;
 
+/**
+ * «ربط الدفاتر» L0: الجرد المستمر (PERPETUAL) لا يُختار جديداً حتى تصل قيود المخزون وتكلفة البضاعة مع الربط (L6) — بلا
+ * محرّك تكلفة ولا مصادر مخزون يُرحَّل منها، تبقى حسابات 114/511 بلا حركة فيتشوّه قائمة الدخل والميزانية بصمت.
+ * شركةٌ قيمتها PERPETUAL أصلاً لا تنكسر: إبقاؤها (أو العودة إلى PERIODIC) مسموح كما كان.
+ */
+export const INVENTORY_MODE_UNAVAILABLE_CODE = 'INVENTORY_MODE_UNAVAILABLE';
+export const INVENTORY_MODE_UNAVAILABLE_MESSAGE = 'المخزون الدائم يتاح مع ربط الدفاتر';
+
+/** الخيار متاح؟ (صرفة) — PERIODIC دائماً، وPERPETUAL لمن هي قيمته الحالية وحدها حتى L6 */
+export function inventoryModeAvailable(mode: InventoryMode, current: string | null | undefined): boolean {
+  return mode !== 'PERPETUAL' || current === 'PERPETUAL';
+}
+
+/** قائمة خيارات طريقة الجرد للواجهة (GET/PUT /settings): تعطيل PERPETUAL بسببه بدل إخفائه */
+export function inventoryModeOptions(current: string | null | undefined): { value: InventoryMode; available: boolean; reason: string | null }[] {
+  return INVENTORY_MODES.map((value) => {
+    const available = inventoryModeAvailable(value, current);
+    return { value, available, reason: available ? null : INVENTORY_MODE_UNAVAILABLE_CODE };
+  });
+}
+
 router.put('/settings', CONFIGURE, ledgerHandler(async (req, res) => {
   const { tenantId } = ledgerOf(res);
   // البند 25: rebaseImportDates حقل علوي للطلب لا عمود إعدادات — يُنزع قبل settingsUpdateSchema (strict) ولا يُكتب
@@ -1049,6 +1073,12 @@ router.put('/settings', CONFIGURE, ledgerHandler(async (req, res) => {
         return body[f] !== cur;
       });
       if (frozen.length) throw new LedgerHttpError(409, 'هذه الإعدادات لا تتغير بعد تفعيل الدفاتر', { reason: 'FROZEN_AFTER_ACTIVATION', fields: frozen });
+    }
+    // بعد حارس التجميد: المفعّلة (اليدوية كلها اليوم) تلقى 409 FROZEN_AFTER_ACTIVATION كما كانت بايتاً بايتاً
+    if (body.inventoryMode !== undefined && !inventoryModeAvailable(body.inventoryMode, s.inventoryMode)) {
+      throw new LedgerHttpError(400, INVENTORY_MODE_UNAVAILABLE_MESSAGE, {
+        reason: INVENTORY_MODE_UNAVAILABLE_CODE, field: 'inventoryMode', inventoryMode: s.inventoryMode,
+      }, INVENTORY_MODE_UNAVAILABLE_CODE);
     }
     const month = body.fiscalYearEndMonth ?? s.fiscalYearEndMonth;
     const day = body.fiscalYearEndDay ?? s.fiscalYearEndDay;
@@ -1109,6 +1139,7 @@ router.put('/settings', CONFIGURE, ledgerHandler(async (req, res) => {
     success: true,
     data: {
       ...settingsOut(updated.settings),
+      inventoryModeOptions: inventoryModeOptions(updated.settings.inventoryMode),
       ...(updated.rebasedImportEntries !== undefined ? { rebasedImportEntries: updated.rebasedImportEntries } : {}),
     },
   });

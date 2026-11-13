@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { DollarSign, CreditCard, ShoppingCart, TrendingUp, Users, AlertTriangle, Trophy, ChevronLeft, UserCog, Package, BarChart3, Warehouse, Layers } from 'lucide-react';
+import { DollarSign, CreditCard, ShoppingCart, TrendingUp, Users, AlertTriangle, Trophy, ChevronLeft, UserCog, Package, BarChart3, Warehouse, Layers, Truck } from 'lucide-react';
 import { dashboardApi } from '../api/client';
 import { DashboardStats } from '../types';
 import { formatCurrency } from '../utils/format';
@@ -24,13 +24,14 @@ const MSalesChart = lazy(() => import('./MSalesChart'));
  *  - الاستطلاع مشروط بحياة الشاشة (بطارية وباقة).
  */
 /** أقسام الإدارة التي تُفتح من الرئيسية صفحاتٍ كاملة */
-export type HomeSection = 'reps' | 'products' | 'reports' | 'warehouse' | 'lots';
+export type HomeSection = 'reps' | 'products' | 'reports' | 'warehouse' | 'suppliers' | 'lots';
 
 const SECTION_TILES: { id: HomeSection; label: string; icon: React.ElementType }[] = [
   { id: 'reps', label: 'المناديب', icon: UserCog },
   { id: 'products', label: 'المنتجات', icon: Package },
   { id: 'reports', label: 'التقارير', icon: BarChart3 },
   { id: 'warehouse', label: 'مخزون الشركة', icon: Warehouse },
+  { id: 'suppliers', label: 'الموردون', icon: Truck },
   // «تتبّع اللوط» — تظهر حين تسمح بها القوقعة وحدها (الصلاحية والمحاسبة وعلم الشركة)، والميزة المطفأة لا بلاطة لها
   { id: 'lots', label: 'تتبع LOT', icon: Layers },
 ];

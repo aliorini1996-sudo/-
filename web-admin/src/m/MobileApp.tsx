@@ -22,6 +22,8 @@ const MSalesReps = lazy(() => import('./MSalesReps'));
 const MProducts = lazy(() => import('./MProducts'));
 const MReports = lazy(() => import('./MReports'));
 const MWarehouse = lazy(() => import('./MWarehouse'));
+// «الموردون» (ربط الدفاتر L1): قسمٌ من الرئيسية بحارس «مخزون الشركة» نفسه، كسولٌ كبقيّة الأقسام
+const MSuppliers = lazy(() => import('./MSuppliers'));
 // «تتبّع اللوط»: شاشة التشغيلات قسمٌ من الرئيسية لا تبويبٌ سفلي (المقاعد خمسة وقد امتلأت — tabRules.test)
 const MLots = lazy(() => import('./MLots'));
 import { lotFlagsOf } from '../lib/lots';
@@ -143,6 +145,8 @@ export default function MobileApp() {
     /* مخزون الشركة بحارسٍ ثلاثيّ يطابق حارس الخادم: الصلاحية، ثمّ النظام
      * المحاسبيّ، ثمّ ميزة المستودع. وبلاطةٌ تُفضي إلى ٤٠٣ أسوأ من غيابها. */
     if (can(user, 'canManageVanStock') && accountingOn && warehouseOn) out.push('warehouse');
+    // «الموردون» بحارس المستودع حرفاً: الخادم يحرس /api/suppliers بحرّاس المستودع نفسها
+    if (can(user, 'canManageVanStock') && accountingOn && warehouseOn) out.push('suppliers');
     /* «تتبّع اللوط» بحارس موجّه /api/lots نفسه وبترتيبه: الصلاحية (canManageVanStock)، ثمّ النظام المحاسبيّ
      * (ACCOUNTING_NOT_ALLOWED)، ثمّ علم الشركة (LOTS_NOT_ALLOWED). ولا يشترط المستودع: الشركة بلا مستودع تحمّل
      * بتشغيلةٍ صريحة (D4) ولتشغيلاتها سيارات وعملاء يُتتبَّعون ويُسحب منها. */
@@ -338,6 +342,7 @@ export default function MobileApp() {
             {section === 'reps' ? <MSalesReps company={company} accountingOn={accountingOn} onBack={() => setSection(null)} />
               : section === 'products' ? <MProducts lotOn={lotOn} onBack={() => setSection(null)} />
                 : section === 'warehouse' ? <MWarehouse company={company} onBack={() => setSection(null)} />
+                  : section === 'suppliers' ? <MSuppliers company={company} onBack={() => setSection(null)} />
                   : section === 'lots' ? <MLots company={company} onBack={() => setSection(null)} />
                     : <MReports accountingOn={accountingOn} company={company} onBack={() => setSection(null)} />}
           </Suspense>

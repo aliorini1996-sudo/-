@@ -41,6 +41,8 @@ import {
 import MUnitChips from './MUnitChips';
 import MLotFields, { useProductLots } from './MLotFields';
 import { anyPrimary, fill, qtyTotalLabel, refetchUnitsOn, withBaseUnitName, backWithBaseNames } from './mPrimaryUnit';
+// «ربط الدفاتر» L1 (طلب المالك ١٣ نوفمبر ٢٠٢٦): وسم سبب تسوية السيارة في حركتها
+import { vanReasonLabel } from './MPurchaseLogic';
 
 /**
  * تسجيل تحميل بضاعة لسيارة مندوب — من تطبيق الإدارة على الجوال.
@@ -113,6 +115,8 @@ interface Movement {
   kind: string; date: string; ref: string; by: string | null;
   /** #11 (إضافتان قد تغيبان): مرتجعٌ لا يعود للمخزون أو عاد منتهياً — movementKey يقرؤهما */
   returnToStock?: boolean; returnExpired?: boolean;
+  /** «ربط الدفاتر» L1: سبب تسوية السيارة (VanLoad.reason) لحركة ADJUST — غائبٌ من خادمٍ أقدم فلا وسم */
+  reason?: string | null;
   /** `unit` لقطة وحدة البند و`qty` بها، و`baseQty` كميته بالأساس — لمن يجمع بنوداً تختلف وحداتها.
    *  و`lots` صفوف تشغيلات البند (withLots=1 والميزة مفعّلة وحدها) — للإشعار المطبوع */
   items: { name: string; unit: string; qty: number; baseQty?: number | null; lots?: unknown; primaryUnitId?: string | null }[];
@@ -1029,6 +1033,8 @@ export default function MRepLoad({ rep, company, onClose }: {
                 const qty = m.items.reduce((s, it) => s + it.qty, 0);
                 // بنودٌ تختلف وحداتها تُجمع لكل وحدة («٢ كرتون · ٥ حبة») — «٧» رقمٌ بلا وحدة؛ وبالأساس كلّها: كما كانت
                 const mixed = movementQtyText(m.items, fmtQty);
+                // «ربط الدفاتر» L1: سبب تسوية السيارة (جرد/تالف/منتهي/عجز على المندوب…) أمام مرجعها — وبلا سببٍ كما كان
+                const why = vanReasonLabel(m);
                 return (
                   <MRow key={`${m.date}-${i}`}
                     leading={(
@@ -1037,7 +1043,7 @@ export default function MRepLoad({ rep, company, onClose }: {
                       </span>
                     )}
                     title={`${meta.sign}${mixed ?? fmtQty(Math.abs(qty))} · ${m.items.length} ${tr('صنف')}`}
-                    subtitle={m.ref || undefined}
+                    subtitle={[why ? tr(why) : '', m.ref].filter(Boolean).join(' · ') || undefined}
                     note={`${formatDate(m.date)} · ${formatTime(m.date)}`}
                     trailing={EXPORTABLE.includes(m.kind) ? (
                       <button onClick={() => setNoticeMv(m)} aria-label={tr('إشعار PDF')}

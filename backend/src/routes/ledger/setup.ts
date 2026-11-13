@@ -21,6 +21,7 @@ import {
   type BackfillState, type BuildContext, type LocalDate, type TaxPeriodicity, type TemplateKey,
 } from '../../services/gl/types';
 import { initialWatermarkAt, type SetupMethod } from '../../services/gl/sync/classify';
+import { isManualBooks } from '../../services/gl/mode';
 import {
   acquireImportEntriesLock, assertCutoverNotInFuture, buildOpeningMove, checkCutoverVatPeriod, classifyOpeningStockEntries, computeDerivedOpening, computeImportedAfterCutover, resolveManualPartners,
   importBatchRecordIds, importInProgressDetails, importedAfterCutoverJson, loadImportedAfterCutover, loadRunningImportBatch, loadOpeningSources, openingCutoff, openingMoveJson, openingSnapshotFromDbNow,
@@ -47,7 +48,8 @@ import {
  *                               حركات مستوردة بتاريخ ≥ البدء تُرحَّل بتاريخها على 319002 لا في الافتتاح.
  * - POST /setup/commit          معاملة واحدة (60 ثانية): القفلان ثم T0 من ساعة القاعدة بعدهما (البند 42) ⇒ لا دفعة استيراد جارية (409 LEDGER_IMPORT_IN_PROGRESS) ⇒ الزرع متساوي الأثر ⇒ إعادة الحساب
  *                               بـT0 ⇒ قيد OPEN ⇒ openingSnapshotAt/activatedAt ⇒ المؤشرات ⇒ backfillState=RUNNING ⇒ SETUP_COMMIT.
- * - POST /setup/backfill        «إيقاف مؤقت»/«استئناف» الترحيل التاريخي (RUNNING ⇄ PAUSED).
+ * - POST /setup/backfill        «إيقاف مؤقت»/«استئناف» الترحيل التاريخي (RUNNING ⇄ PAUSED). الإيقاف يوقف النبضة كلها: المُطابِق
+ *                               وشبكة الأمان والمُرحِّل (tick.ts isPostingPaused — «ربط الدفاتر» L0).
  *
  * الصلاحية canConfigureLedger لكل المسارات. العزل بـtenantId من السياق. لا تواريخ إقفال هنا (§8.3 LockDatesDialog).
  */
@@ -263,6 +265,9 @@ function settingsStatus(s: SettingsRow | null) {
     inventoryMode: s?.inventoryMode ?? 'PERIODIC',
     cashInvoiceRouting: s?.cashInvoiceRouting ?? 'MAIN_CASH',
     receiptRouting: s?.receiptRouting ?? null,
+    // «ربط الدفاتر»: أساس الربط وبدايته (YYYY-MM-DD) — «منذ <التاريخ>» في المعالج وفهرس الدفاتر؛ null لغير المربوطة
+    linkBasis: s?.linkBasis ?? null,
+    linkedFrom: dateOut(s?.linkedFrom),
   };
 }
 
@@ -450,7 +455,7 @@ router.post('/setup/preview-opening', CONFIGURE, ledgerHandler(async (req, res) 
   const draft = mergeDraft(parseStoredDraft(s?.setupDraft), patch);
   const now = await dbNowOf(prisma);
   const eff = effectiveSetup(draft, s, company.countryCode, now);
-  const clean = eff.method === 'CLEAN';
+  const clean = isManualBooks({ setupMethod: eff.method });
   let cutoverDate = eff.cutoverDate;
   if (eff.method === 'FULL_HISTORY') {
     const facts = await loadHistoryFacts(prisma, tenantId);
@@ -639,7 +644,7 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     const dbNow = await dbClockOf(tx);
     const draft = mergeDraft(parseStoredDraft(before?.setupDraft), parsed.data.draft ?? {});
     const eff = effectiveSetup(draft, before, company.countryCode, dbNow);
-    const clean = eff.method === 'CLEAN';
+    const clean = isManualBooks({ setupMethod: eff.method });
     // البداية النظيفة: الخطوة الأولى (ومعها مبالغ الإقرار قبل البدء) والأرصدة الافتتاحية تُراجع «حتى لحظة التفعيل»؛ فإن
     // حُفظت الخطوة الأولى في يومٍ غير يوم الاعتماد فتاريخ البدء تغيّر ومستندات الأيام الفاصلة لا تقع في المربعات ولا في
     // الأرصدة ولا في الدفاتر ⇒ 409 قبل أي كتابة حتى تُحفظ الخطوة الأولى اليوم (مراجعة عدائية، ٢٧ سبتمبر ٢٠٢٦).

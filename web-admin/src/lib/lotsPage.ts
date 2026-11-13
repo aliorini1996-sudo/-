@@ -365,7 +365,8 @@ export const TRACE_PLACE_COLUMNS: readonly { label: string; qty: (p: TracePlace)
 /** تسمية نوع المصدر: مصدر البطاقة، أو نوع حركة المستودع أو السيارة */
 export function originKindLabel(kind: string, tr: Tr): string {
   if (kind in LOT_SOURCE_LABELS) return tr(LOT_SOURCE_LABELS[kind as LotSource]);
-  const MOVES: Record<string, string> = { ADJUST: 'تسوية', LOAD: 'تحميل مباشر للسيارة', RELABEL: 'تسمية أو إعادة تصنيف', RETURN: 'مرتجع' };
+  // SUPPLIER_RETURN («ربط الدفاتر» L1): سطر مستودعٍ من نوع RETURN — مرتجعٌ للمورّد (RETURN هنا محجوزٌ لمرتجع العميل)
+  const MOVES: Record<string, string> = { ADJUST: 'تسوية', LOAD: 'تحميل مباشر للسيارة', RELABEL: 'تسمية أو إعادة تصنيف', RETURN: 'مرتجع', SUPPLIER_RETURN: 'مرتجع للمورد' };
   return MOVES[kind] ? tr(MOVES[kind]) : kind;
 }
 

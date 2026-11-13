@@ -15,8 +15,11 @@ import type {
 
 // ═══ المسودة (GlSettings.setupDraft) ═══
 
-/** CLEAN: البداية النظيفة — طريقة كل تفعيل جديد (ملاحظة الخبير المحاسبي). OPENING/FULL_HISTORY: تفعيلات سابقة */
-export type SetupMethod = 'OPENING' | 'FULL_HISTORY' | 'CLEAN';
+/**
+ * CLEAN: البداية النظيفة — الدفاتر اليدوية المستقلة (ملاحظة الخبير المحاسبي). OPENING/FULL_HISTORY: تفعيلات سابقة.
+ * LINKED: دفاتر مربوطة بالنظام («ربط الدفاتر»، لا تُفعَّل قبل L7). الحكم بالطريقة من lib/ledger/bookMode.ts وحده.
+ */
+export type SetupMethod = 'OPENING' | 'FULL_HISTORY' | 'CLEAN' | 'LINKED';
 export type CashInvoiceRouting = 'MAIN_CASH' | 'CUSTODY';
 export type ReceiptRouteTarget = 'CUSTODY' | 'DIRECT';
 
@@ -77,6 +80,11 @@ export interface SetupStatus {
   activatedBy: string | null;
   backfillState: BackfillState;
   setupMethod: SetupMethod | null;
+  /**
+   * «ربط الدفاتر»: يوم بدء الربط (LINKED) — اختياري (null لغير المربوطة، وغائب في خادمٍ أقدم). عمود @db.Date فقد يصل YYYY-MM-DD أو ISO
+   * كاملاً؛ يُقرأ بـlinkedFromDay (lib/ledger/bookMode.ts) لا مباشرة
+   */
+  linkedFrom?: string | null;
   cutoverDate: LocalDate | null;
   openingSnapshotAt: string | null;
   templateKey: string | null;

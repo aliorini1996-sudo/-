@@ -71,7 +71,8 @@ const OLD_ITEM_COLS: Record<string, string[]> = {
     'itemName', 'unitCode', 'vatCategory', 'vatExemptionCode', 'vatExemptionReason', 'creditedItemId', 'expiresAt',
     'returnExpired', 'expirySaleInvoiceId', 'returnOfItemId', 'unitName', 'unitFactor', 'baseQty'],
   'van-loads': ['productId', 'qty', 'unitName', 'unitFactor', 'baseQty', 'suggestedQty', 'expectedQty'],
-  'warehouse-entries': ['productId', 'qty', 'unitName', 'unitFactor', 'baseQty', 'unitCost'],
+  // «ربط الدفاتر» L1: نسبة ضريبة الشراء والسعر كما أُدخل — عمودا شراء لا لوط
+  'warehouse-entries': ['productId', 'qty', 'unitName', 'unitFactor', 'baseQty', 'unitCost', 'taxPct', 'enteredUnitCost'],
 };
 const LINE_RESOURCES = Object.keys(OLD_ITEM_COLS);
 

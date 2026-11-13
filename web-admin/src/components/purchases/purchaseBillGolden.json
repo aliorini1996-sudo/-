@@ -1,0 +1,629 @@
+{
+  "_doc": [
+    "متجهات ذهبية مشتركة بين الخادم والواجهة لفاتورة المورّد على حركة المستودع («ربط الدفاتر» L1).",
+    "وُلّدت من دوال الخادم نفسها: backend/src/services/suppliers/warehouseBills.ts — entryBillTotals وinventoryUnitCost، وسلسلة reverseEntryTx (remainingByItem وresidualTotals وcapTotals).",
+    "bills: lines بشكل BillCostLine (unitCost تكلفة المخزون، enteredUnitCost السعر كما أُدخل) ⇒ expect = entryBillTotals بوحدة العملة.",
+    "returns: bill.lines الوارد الأصلي (id وproductId للسطر)، وprior مرتجعاتٌ سابقة بكمياتها وإجمالياتها كما قُيّدت، وremaining المتبقّي من كل سطر بعدها، وret المرتجع الأخير ⇒ expect كما يقيّده الخادم.",
+    "المرآة: web-admin/src/components/purchases/purchaseCalc.ts (entryBillTotals وdraftBillTotals وclassifyPreview وreturnPreview) ويحرسها fix-purchasePreviewParity.test.ts."
+  ],
+  "bills": [
+    {
+      "name": "شامل ١٥٪: ألف وحدة بسعر ١٠ ⇒ 10,000 كفاتورة المورّد (لا 10,000.06)",
+      "decimals": 2,
+      "costsIncludeTax": true,
+      "vatTreatment": "RECOVERABLE",
+      "lines": [
+        {
+          "qty": 1000,
+          "unitCost": 8.6957,
+          "enteredUnitCost": 10,
+          "taxPct": 15
+        }
+      ],
+      "expect": {
+        "net": 8695.65,
+        "tax": 1304.35,
+        "total": 10000
+      }
+    },
+    {
+      "name": "شامل ١٥٪: ١٢ × ١٫٠٠ ⇒ 12.00 (لا 12.01)",
+      "decimals": 2,
+      "costsIncludeTax": true,
+      "vatTreatment": "RECOVERABLE",
+      "lines": [
+        {
+          "qty": 12,
+          "unitCost": 0.8696,
+          "enteredUnitCost": 1,
+          "taxPct": 15
+        }
+      ],
+      "expect": {
+        "net": 10.43,
+        "tax": 1.57,
+        "total": 12
+      }
+    },
+    {
+      "name": "شامل ١٥٪: ٢٤٠٠ × ٠٫٥٧ ⇒ 1,368.00 (لا 1,368.13)",
+      "decimals": 2,
+      "costsIncludeTax": true,
+      "vatTreatment": "RECOVERABLE",
+      "lines": [
+        {
+          "qty": 2400,
+          "unitCost": 0.4957,
+          "enteredUnitCost": 0.57,
+          "taxPct": 15
+        }
+      ],
+      "expect": {
+        "net": 1189.57,
+        "tax": 178.43,
+        "total": 1368
+      }
+    },
+    {
+      "name": "صافٍ بخمس منازل: ١٠٠٠ × ١٫٢٣٤٥٦ بلا ضريبة ⇒ 1,234.56 (لا 1,234.60)",
+      "decimals": 2,
+      "costsIncludeTax": false,
+      "vatTreatment": "RECOVERABLE",
+      "lines": [
+        {
+          "qty": 1000,
+          "unitCost": 1.2346,
+          "enteredUnitCost": 1.23456,
+          "taxPct": 0
+        }
+      ],
+      "expect": {
+        "net": 1234.56,
+        "tax": 0,
+        "total": 1234.56
+      }
+    },
+    {
+      "name": "صافٍ بخمس منازل: ١٠٠٠ × ٠٫١٢٣٤٥ بضريبة ١٥٪ ⇒ 141.97 (لا 142.03)",
+      "decimals": 2,
+      "costsIncludeTax": false,
+      "vatTreatment": "RECOVERABLE",
+      "lines": [
+        {
+          "qty": 1000,
+          "unitCost": 0.1235,
+          "enteredUnitCost": 0.12345,
+          "taxPct": 15
+        }
+      ],
+      "expect": {
+        "net": 123.45,
+        "tax": 18.52,
+        "total": 141.97
+      }
+    },
+    {
+      "name": "شامل بنسب ١٥ و٥ وصفر: كل نسبة تُجمع وتُفصل وحدها",
+      "decimals": 2,
+      "costsIncludeTax": true,
+      "vatTreatment": "RECOVERABLE",
+      "lines": [
+        {
+          "qty": 7,
+          "unitCost": 2.8957,
+          "enteredUnitCost": 3.33,
+          "taxPct": 15
+        },
+        {
+          "qty": 11,
+          "unitCost": 2.6,
+          "enteredUnitCost": 2.99,
+          "taxPct": 15
+        },
+        {
+          "qty": 5,
+          "unitCost": 9.5143,
+          "enteredUnitCost": 9.99,
+          "taxPct": 5
+        },
+        {
+          "qty": 3,
+          "unitCost": 1.75,
+          "enteredUnitCost": 1.75,
+          "taxPct": 0
+        }
+      ],
+      "expect": {
+        "net": 101.69,
+        "tax": 9.71,
+        "total": 111.4
+      }
+    },
+    {
+      "name": "صافٍ بنسبتين: الضريبة لكل نسبة على مجموع صافيها",
+      "decimals": 2,
+      "costsIncludeTax": false,
+      "vatTreatment": "RECOVERABLE",
+      "lines": [
+        {
+          "qty": 3,
+          "unitCost": 10.005,
+          "enteredUnitCost": 10.005,
+          "taxPct": 15
+        },
+        {
+          "qty": 2,
+          "unitCost": 7.333,
+          "enteredUnitCost": 7.333,
+          "taxPct": 5
+        }
+      ],
+      "expect": {
+        "net": 44.68,
+        "tax": 5.23,
+        "total": 49.91
+      }
+    },
+    {
+      "name": "بلا ضريبة (NONE / إزالة الضريبة) والأسعار «شاملة»: الإجمالي ما كُتب",
+      "decimals": 2,
+      "costsIncludeTax": true,
+      "vatTreatment": "NONE",
+      "lines": [
+        {
+          "qty": 3,
+          "unitCost": 11.5,
+          "enteredUnitCost": 11.5,
+          "taxPct": 0
+        },
+        {
+          "qty": 2,
+          "unitCost": 0.335,
+          "enteredUnitCost": 0.335,
+          "taxPct": 0
+        }
+      ],
+      "expect": {
+        "net": 35.17,
+        "tax": 0,
+        "total": 35.17
+      }
+    },
+    {
+      "name": "غير مستردة صافية: التكلفة 115 والفاتورة 1,000 + 150",
+      "decimals": 2,
+      "costsIncludeTax": false,
+      "vatTreatment": "NON_RECOVERABLE",
+      "lines": [
+        {
+          "qty": 10,
+          "unitCost": 115,
+          "enteredUnitCost": 100,
+          "taxPct": 15
+        }
+      ],
+      "expect": {
+        "net": 1000,
+        "tax": 150,
+        "total": 1150
+      }
+    },
+    {
+      "name": "غير مستردة شاملة: الفاتورة 1,150 كما كُتبت",
+      "decimals": 2,
+      "costsIncludeTax": true,
+      "vatTreatment": "NON_RECOVERABLE",
+      "lines": [
+        {
+          "qty": 10,
+          "unitCost": 115,
+          "enteredUnitCost": 115,
+          "taxPct": 15
+        }
+      ],
+      "expect": {
+        "net": 1000,
+        "tax": 150,
+        "total": 1150
+      }
+    },
+    {
+      "name": "ثلاث منازل (الدينار): شامل ١٥٪",
+      "decimals": 3,
+      "costsIncludeTax": true,
+      "vatTreatment": "RECOVERABLE",
+      "lines": [
+        {
+          "qty": 7,
+          "unitCost": 1.0735,
+          "enteredUnitCost": 1.2345,
+          "taxPct": 15
+        },
+        {
+          "qty": 13,
+          "unitCost": 0.0439,
+          "enteredUnitCost": 0.0505,
+          "taxPct": 15
+        }
+      ],
+      "expect": {
+        "net": 8.085,
+        "tax": 1.213,
+        "total": 9.298
+      }
+    },
+    {
+      "name": "بلا منازل: شامل ١٠٪",
+      "decimals": 0,
+      "costsIncludeTax": true,
+      "vatTreatment": "RECOVERABLE",
+      "lines": [
+        {
+          "qty": 3,
+          "unitCost": 303.0273,
+          "enteredUnitCost": 333.33,
+          "taxPct": 10
+        },
+        {
+          "qty": 1,
+          "unitCost": 0.4545,
+          "enteredUnitCost": 0.5,
+          "taxPct": 10
+        }
+      ],
+      "expect": {
+        "net": 910,
+        "tax": 90,
+        "total": 1000
+      }
+    },
+    {
+      "name": "تصنيف بسطرٍ سبق الميزة (تكلفة صافية بلا سعرٍ مُدخل) وسعرٍ جديد شامل",
+      "decimals": 2,
+      "costsIncludeTax": true,
+      "vatTreatment": "RECOVERABLE",
+      "lines": [
+        {
+          "qty": 10,
+          "unitCost": 4.5,
+          "enteredUnitCost": null,
+          "taxPct": 15
+        },
+        {
+          "qty": 6,
+          "unitCost": 10,
+          "enteredUnitCost": 11.5,
+          "taxPct": 15
+        }
+      ],
+      "expect": {
+        "net": 105,
+        "tax": 15.75,
+        "total": 120.75
+      }
+    }
+  ],
+  "returns": [
+    {
+      "name": "غير مستردة: مرتجع وحدة من عشر بسعر ١٠٠ ⇒ 115 (لا 132.25)",
+      "decimals": 2,
+      "costsIncludeTax": false,
+      "vatTreatment": "NON_RECOVERABLE",
+      "bill": {
+        "lines": [
+          {
+            "id": "i0",
+            "productId": "p0",
+            "qty": 10,
+            "unitCost": 115,
+            "enteredUnitCost": 100,
+            "taxPct": 15
+          }
+        ],
+        "totals": {
+          "net": 1000,
+          "tax": 150,
+          "total": 1150
+        }
+      },
+      "prior": [],
+      "remaining": {
+        "i0": 10
+      },
+      "ret": {
+        "i0": 1
+      },
+      "exhausts": false,
+      "expect": {
+        "net": 100,
+        "tax": 15,
+        "total": 115
+      }
+    },
+    {
+      "name": "شامل: مرتجع كامل الألف وحدة بسعر ١٠ ⇒ المتبقّي 10,000 (لا 10,000.06)",
+      "decimals": 2,
+      "costsIncludeTax": true,
+      "vatTreatment": "RECOVERABLE",
+      "bill": {
+        "lines": [
+          {
+            "id": "i0",
+            "productId": "p0",
+            "qty": 1000,
+            "unitCost": 8.6957,
+            "enteredUnitCost": 10,
+            "taxPct": 15
+          }
+        ],
+        "totals": {
+          "net": 8695.65,
+          "tax": 1304.35,
+          "total": 10000
+        }
+      },
+      "prior": [],
+      "remaining": {
+        "i0": 1000
+      },
+      "ret": {
+        "i0": 1000
+      },
+      "exhausts": true,
+      "expect": {
+        "net": 8695.65,
+        "tax": 1304.35,
+        "total": 10000
+      }
+    },
+    {
+      "name": "شامل: مرتجع جزئي ٣٠٠ من ألف",
+      "decimals": 2,
+      "costsIncludeTax": true,
+      "vatTreatment": "RECOVERABLE",
+      "bill": {
+        "lines": [
+          {
+            "id": "i0",
+            "productId": "p0",
+            "qty": 1000,
+            "unitCost": 8.6957,
+            "enteredUnitCost": 10,
+            "taxPct": 15
+          }
+        ],
+        "totals": {
+          "net": 8695.65,
+          "tax": 1304.35,
+          "total": 10000
+        }
+      },
+      "prior": [],
+      "remaining": {
+        "i0": 1000
+      },
+      "ret": {
+        "i0": 300
+      },
+      "exhausts": false,
+      "expect": {
+        "net": 2608.7,
+        "tax": 391.3,
+        "total": 3000
+      }
+    },
+    {
+      "name": "شامل ١٢ × ١: مرتجع ٥ ثم الباقي ٧ يأخذ المتبقّي حرفياً",
+      "decimals": 2,
+      "costsIncludeTax": true,
+      "vatTreatment": "RECOVERABLE",
+      "bill": {
+        "lines": [
+          {
+            "id": "i0",
+            "productId": "p0",
+            "qty": 12,
+            "unitCost": 0.8696,
+            "enteredUnitCost": 1,
+            "taxPct": 15
+          }
+        ],
+        "totals": {
+          "net": 10.43,
+          "tax": 1.57,
+          "total": 12
+        }
+      },
+      "prior": [
+        {
+          "qty": {
+            "i0": 5
+          },
+          "totals": {
+            "net": 4.35,
+            "tax": 0.65,
+            "total": 5
+          }
+        }
+      ],
+      "remaining": {
+        "i0": 7
+      },
+      "ret": {
+        "i0": 7
+      },
+      "exhausts": true,
+      "expect": {
+        "net": 6.08,
+        "tax": 0.92,
+        "total": 7
+      }
+    },
+    {
+      "name": "المرتجع الجزئي مقيَّد بالمتبقّي من الفاتورة (capTotals)",
+      "decimals": 2,
+      "costsIncludeTax": false,
+      "vatTreatment": "RECOVERABLE",
+      "bill": {
+        "lines": [
+          {
+            "id": "i0",
+            "productId": "p0",
+            "qty": 1,
+            "unitCost": 0.005,
+            "enteredUnitCost": 0.005,
+            "taxPct": 0
+          },
+          {
+            "id": "i1",
+            "productId": "p1",
+            "qty": 1,
+            "unitCost": 0.005,
+            "enteredUnitCost": 0.005,
+            "taxPct": 0
+          },
+          {
+            "id": "i2",
+            "productId": "p2",
+            "qty": 1,
+            "unitCost": 0.005,
+            "enteredUnitCost": 0.005,
+            "taxPct": 0
+          },
+          {
+            "id": "i3",
+            "productId": "p3",
+            "qty": 1,
+            "unitCost": 0.005,
+            "enteredUnitCost": 0.005,
+            "taxPct": 0
+          }
+        ],
+        "totals": {
+          "net": 0.02,
+          "tax": 0,
+          "total": 0.02
+        }
+      },
+      "prior": [
+        {
+          "qty": {
+            "i0": 1
+          },
+          "totals": {
+            "net": 0.01,
+            "tax": 0,
+            "total": 0.01
+          }
+        },
+        {
+          "qty": {
+            "i1": 1
+          },
+          "totals": {
+            "net": 0.01,
+            "tax": 0,
+            "total": 0.01
+          }
+        }
+      ],
+      "remaining": {
+        "i0": 0,
+        "i1": 0,
+        "i2": 1,
+        "i3": 1
+      },
+      "ret": {
+        "i2": 1
+      },
+      "exhausts": false,
+      "expect": {
+        "net": 0,
+        "tax": 0,
+        "total": 0
+      }
+    },
+    {
+      "name": "صافٍ بنسبتين: مرتجع جزئي من سطرين",
+      "decimals": 2,
+      "costsIncludeTax": false,
+      "vatTreatment": "RECOVERABLE",
+      "bill": {
+        "lines": [
+          {
+            "id": "i0",
+            "productId": "p0",
+            "qty": 3,
+            "unitCost": 10.005,
+            "enteredUnitCost": 10.005,
+            "taxPct": 15
+          },
+          {
+            "id": "i1",
+            "productId": "p1",
+            "qty": 2,
+            "unitCost": 7.333,
+            "enteredUnitCost": 7.333,
+            "taxPct": 5
+          }
+        ],
+        "totals": {
+          "net": 44.68,
+          "tax": 5.23,
+          "total": 49.91
+        }
+      },
+      "prior": [],
+      "remaining": {
+        "i0": 3,
+        "i1": 2
+      },
+      "ret": {
+        "i0": 1,
+        "i1": 1
+      },
+      "exhausts": false,
+      "expect": {
+        "net": 17.34,
+        "tax": 1.87,
+        "total": 19.21
+      }
+    },
+    {
+      "name": "بلا ضريبة (NONE): مرتجع جزئي",
+      "decimals": 2,
+      "costsIncludeTax": true,
+      "vatTreatment": "NONE",
+      "bill": {
+        "lines": [
+          {
+            "id": "i0",
+            "productId": "p0",
+            "qty": 3,
+            "unitCost": 11.5,
+            "enteredUnitCost": 11.5,
+            "taxPct": 0
+          }
+        ],
+        "totals": {
+          "net": 34.5,
+          "tax": 0,
+          "total": 34.5
+        }
+      },
+      "prior": [],
+      "remaining": {
+        "i0": 3
+      },
+      "ret": {
+        "i0": 2
+      },
+      "exhausts": false,
+      "expect": {
+        "net": 23,
+        "tax": 0,
+        "total": 23
+      }
+    }
+  ]
+}

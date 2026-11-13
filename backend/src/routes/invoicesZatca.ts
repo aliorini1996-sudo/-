@@ -29,9 +29,11 @@ import {
 import type { DocumentProjection, ZatcaDocumentStore } from '../compliance/zatca/documentStore';
 import { ZatcaHttpError, unitUnavailableError } from '../compliance/zatca/errors';
 import {
-  buyerSimplifiedAuditLine, issuanceHttpError, phase2InvoiceColumns, phase2ItemColumns, phase2NumberPrefix, prepareIssuance,
+  buyerSimplifiedAuditLine, effectiveIssuanceCurrency, issuanceHttpError, phase2InvoiceColumns, phase2ItemColumns, phase2NumberPrefix, prepareIssuance,
   type EngineTotals, type IssuanceCustomer, type IssuanceProduct, type IssuanceRequest, type PreparedIssuance,
 } from '../compliance/zatca/issue';
+// «ربط الدفاتر» L1: عملة دولة الشركة الافتراضية لختم عملة المستند حين لا عملة في الإعدادات (invoiceCurrencyOf)
+import { getCountryTax } from '../config/countries';
 import type { IssuanceChainStore } from '../compliance/zatca/issueChain';
 import { openIssuanceSigning } from '../compliance/zatca/issueSigner';
 import { runIssuance, stampInTx, type StampInTxResult } from '../compliance/zatca/issueTx';
@@ -710,6 +712,28 @@ const PRODUCT_PHASE2_SELECT = {
   unit: true,
 } satisfies Prisma.ProductSelect;
 
+/** أدنى شكل لصفّ إعدادات الشركة يكفي لعملة المستند (صفّ البائع المحمَّل، أو صفّ الشركة في المرحلة الأولى) */
+export interface InvoiceCurrencySettings {
+  currency?: string | null;
+  currencyOverride?: string | null;
+  countryCode?: string | null;
+}
+
+/**
+ * «ربط الدفاتر» L1 (A7): عملة المستند لحظة إصداره — تُختم في Invoice.currency في كل مسار ينشئ صفّ فاتورة: المرحلة الأولى
+ * (invoices.ts، ومنها إعادة رفع صندوق المندوب ومفتاح API)، والثانية هنا، والإشعاران في invoicesNotes.ts. فتغييرٌ لاحق لعملة الشركة
+ * لا يعيد تسمية مستنداتٍ صدرت، وتعرف الدفاتر المربوطة عملة كل مستند من صفّه لا من إعدادات اليوم.
+ * العملة الفعلية: تجاوز العملة إن ضُبط وإلا عملة الإعدادات (effectiveIssuanceCurrency — وهي ما تقارنه الدفاتر في
+ * HELD(CURRENCY_MISMATCH): currencyOverride || currency)، وبلا صفّ إعدادات أو بعملةٍ فارغة: عملة دولة الشركة الافتراضية
+ * (getCountryTax — كما تُحسب خانات التقريب في invoices.ts). نقيّة: من الصفّ المقروء أصلاً في المسار، لا استعلام زائد.
+ */
+export function invoiceCurrencyOf(settings: InvoiceCurrencySettings | null | undefined): string {
+  const effective = settings
+    ? effectiveIssuanceCurrency({ currency: settings.currency ?? '', currencyOverride: settings.currencyOverride ?? null })
+    : '';
+  return effective || getCountryTax(settings?.countryCode).currency;
+}
+
 /** الإعدادات التي يقرأ منها النظامُ الضريبيُّ قرارَه (جزء من صفّ البائع المحمَّل). */
 export function regimeSettingsOf(seller: { countryCode: string | null; einvoiceProvider: string | null; zatcaPhase2StartedAt: Date | null; taxNumber: string | null } | null): RegimeSettings | null {
   if (!seller) return null;
@@ -939,6 +963,8 @@ async function issueNow(
                 ...(lotInvoiceId && { id: lotInvoiceId }),
                 tenantId: ctx.tenantId,
                 number: record.number,
+                // «ربط الدفاتر» L1: عملة المستند لحظة الإصدار من صفّ البائع المحمَّل أصلاً (SAR وحدها في المرحلة الثانية — D9)
+                currency: invoiceCurrencyOf(seller),
                 clientRef: ctx.body.clientRef ?? undefined,
                 // والإشعار اليدويّ بمفتاح API لا يخزّن لحظة جهازه (يومُ مرتجعٍ يختاره المُرسِل — كالإشعار المرتبط)
                 clientCreatedAt: ctx.body.clientCreatedAt && !manual?.viaApiKey ? new Date(ctx.body.clientCreatedAt) : undefined,

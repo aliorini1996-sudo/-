@@ -1,5 +1,6 @@
 import type { LedgerKey } from '../ledgerPerms';
 import type { AccountType, CashFlowTag, JournalType, TaxUse, VatCategory } from '../../api/ledgerConfig';
+import type { SetupMethodValue } from './bookMode';
 
 /**
  * تسميات الدفاتر التقنية (§8.7) — **بنداءات `tr()` حرفية** لا `tr(متغير)`: حارس
@@ -166,6 +167,8 @@ export const ledgerConfigReasonLabels = (tr: Tr): Record<string, string> => ({
   TAX_IN_USE: tr('لا تتغير نسبة ضريبة مستعملة في قيود — أنشئ ضريبة جديدة'),
   TAX_IN_SETTINGS: tr('الضريبة مستعملة في إعدادات الدفاتر'),
   FROZEN_AFTER_ACTIVATION: tr('هذه الإعدادات لا تتغير بعد تفعيل الدفاتر'),
+  // «ربط الدفاتر» L0: الجرد المستمر لا يُختار حتى تصل قيود المخزون مع الربط (L6) — routes/ledger/config.ts
+  INVENTORY_MODE_UNAVAILABLE: tr('الجرد المستمر يتاح مع ربط الدفاتر بالنظام'),
   INVALID_FISCAL_YEAR_END: tr('يوم نهاية السنة المالية غير صالح للشهر'),
   TAX_DEADLINE_DAYS_REQUIRED: tr('عدد أيام موعد الإقرار مطلوب'),
   DEFAULT_PURCHASE_TAX_INVALID: tr('ضريبة الشراء الافتراضية يجب أن تكون ضريبة مشتريات نشطة'),
@@ -196,6 +199,17 @@ export const ledgerConfigReasonLabels = (tr: Tr): Record<string, string> => ({
   OPENING_STOCK_TOO_RECENT: tr('استُورد مخزون افتتاحي قبل أقل من 10 دقائق فلا تشمله لقطة الافتتاح: أعد الاعتماد بعد دقائق'),
   // البداية النظيفة: الخطوة الأولى حُفظت في يوم غير يوم الاعتماد
   SETUP_DAY_CHANGED: tr('تغيّر يوم التفعيل منذ حفظ الخطوة الأولى: احفظ الخطوة الأولى من جديد اليوم وراجع الأرصدة الافتتاحية لتكون حتى لحظة التفعيل'),
+});
+
+/**
+ * تسمية «طريقة البدء» (setupMethod) في الإعدادات ومراجعة المعالج. LINKED «دفاتر مربوطة بالنظام» («ربط الدفاتر» L0)؛
+ * والثلاث الأخرى بنصوصها السابقة حرفاً بحرف.
+ */
+export const setupMethodLabels = (tr: Tr): Record<SetupMethodValue, string> => ({
+  OPENING: tr('أرصدة افتتاحية'),
+  FULL_HISTORY: tr('ترحيل التاريخ الكامل'),
+  CLEAN: tr('بداية نظيفة من يوم التفعيل'),
+  LINKED: tr('دفاتر مربوطة بالنظام'),
 });
 
 /** رموز ملحق ب التي تردها نقاط التهيئة. */
