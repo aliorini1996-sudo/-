@@ -6,12 +6,16 @@ import { formatDate, formatCurrency, formatDayOnly } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useLang } from '../i18n/lang';
 import SearchableSelect from '../components/SearchableSelect';
-import { Warehouse, PackagePlus, X, Trash2, TrendingUp, TrendingDown, AlertTriangle, Calendar, ArrowRightLeft, Wallet, Info, FileDown, ClipboardList, Truck, Layers, ChevronDown, ChevronUp, CopyPlus, Eraser, SlidersHorizontal } from 'lucide-react';
+import { Warehouse, PackagePlus, X, Trash2, TrendingUp, TrendingDown, AlertTriangle, Calendar, ArrowRightLeft, Wallet, Info, FileDown, ClipboardList, Truck, Layers, ChevronDown, ChevronUp, CopyPlus, Eraser, SlidersHorizontal, Paperclip } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 import DocumentModal from '../components/DocumentModal';
 import StockRequestModal from '../components/StockRequestModal';
 import StockZeroModal from '../components/StockZeroModal';
+// «إرفاق فاتورة المشتريات» (طلب المالك ١٣ نوفمبر ٢٠٢٦): المنتقي في نافذة الحركة، ونافذة مرفقات الحركة من السجلّ
+import PurchaseAttachmentsPicker from '../components/PurchaseAttachmentsPicker';
+import EntryAttachmentsModal from '../components/EntryAttachmentsModal';
+import { attachmentInvalidOf, attachmentsPayload, type PickedAttachment } from '../lib/purchaseAttachments';
 import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
 import { warehouseNoticeDocFromEntry, Company } from '../rep/RepDocuments';
 import { isTaxOff } from '../lib/taxMode';
@@ -83,6 +87,8 @@ interface WhEntry {
   id: string; type: string; note: string | null; supplier: string | null; createdBy: string | null; createdAt: string;
   /** «تصفير المخزون»: معرّف التصفير الذي كتب هذه التسوية — null (أو غائبٌ من خادمٍ أقدم) لكل حركةٍ عادية */
   zeroRunId?: string | null;
+  /** «إرفاق فاتورة المشتريات»: عدد مرفقات الحركة (بلا بياناتها) — خادمٌ أقدم لا يرسله ⇒ لا مرفقات */
+  attachmentsCount?: number;
   // lineCost: قيمة السطر كما قرّبها الخادم — للإشعار المطبوع، مجموعها = totalCost.
   // unitName/unitFactor لقطة وحدة السطر: الكمية وتكلفة الوحدة بها (الكرتون كرتوناً)
   // lot: تشغيلة السطر («تتبّع اللوط»، والميزة مفعّلة وحدها)، وproductId لعدّ أصناف الإشعار لا بنوده (نقصٌ تلقائي من تشغيلتين = بندان)
@@ -155,6 +161,10 @@ export default function CompanyWarehousePage() {
   });
   // الحركة المعروض إشعارها الآن
   const [noticeOf, setNoticeOf] = useState<WhEntry | null>(null);
+  /* «إرفاق فاتورة المشتريات» (طلب المالك ١٣ نوفمبر ٢٠٢٦): الحركة المفتوحة مرفقاتها — والإضافة والحذف لمن يسجّل حركات المستودع:
+   * صلاحية الصفحة نفسها (canManageVanStock كحارس المسار في App وفي الخادم)، والخادم هو الحَكَم */
+  const [attsOf, setAttsOf] = useState<WhEntry | null>(null);
+  const canEditEntries = me?.canManageVanStock !== false;
   // صفّ الرصيد الموسَّع بتشغيلاته
   const [openLots, setOpenLots] = useState<string | null>(null);
   // إعدادات الشركة لترويسة الإشعار — المفتاح نفسه الذي تقرؤه القوقعة
@@ -536,6 +546,20 @@ export default function CompanyWarehousePage() {
                   </span>
                   <span className="flex items-center gap-2">
                     <span className="text-[11px] text-[#9A8F7E] flex items-center gap-1"><Calendar size={11} /> {formatDate(e.createdAt)}</span>
+                    {/* مرفقات الحركة (فاتورة المشتريات): المشبك بعددها، ولمن يسجّل الحركات مشبكٌ خافت يُرفق بحركةٍ بلا مرفقات */}
+                    {(e.attachmentsCount ?? 0) > 0 ? (
+                      <button type="button" onClick={() => setAttsOf(e)}
+                        title={e.type === 'RECEIVE' ? tr('فاتورة المشتريات') : tr('مرفقات')} aria-label={e.type === 'RECEIVE' ? tr('فاتورة المشتريات') : tr('مرفقات')}
+                        className="inline-flex items-center gap-0.5 px-1.5 py-1 rounded-lg text-[#E15A30] bg-[#FBEBE2] hover:bg-[#F8DCCD] text-[11px] font-bold">
+                        <Paperclip size={13} /> {e.attachmentsCount}
+                      </button>
+                    ) : canEditEntries && !isZero && (
+                      <button type="button" onClick={() => setAttsOf(e)}
+                        title={e.type === 'RECEIVE' ? tr('إرفاق فاتورة المشتريات') : tr('مرفقات')} aria-label={e.type === 'RECEIVE' ? tr('إرفاق فاتورة المشتريات') : tr('مرفقات')}
+                        className="p-1.5 rounded-lg text-[#C9BFAE] hover:bg-[#FBEBE2] hover:text-[#E15A30]">
+                        <Paperclip size={14} />
+                      </button>
+                    )}
                     <button type="button" onClick={() => setNoticeOf(e)}
                       title={e.type === 'RECEIVE' ? tr('إشعار وارد PDF') : tr('إشعار تسوية PDF')}
                       aria-label={e.type === 'RECEIVE' ? tr('إشعار وارد PDF') : tr('إشعار تسوية PDF')}
@@ -591,6 +615,7 @@ export default function CompanyWarehousePage() {
 
       {showEntry && <WarehouseEntryModal lotOn={lotOn} seed={entrySeed} stockRows={rows} taxOff={taxOff} onClose={() => { setShowEntry(false); setEntrySeed(null); }} />}
       {showZero && canZeroStock && <StockZeroModal onClose={() => setShowZero(false)} />}
+      {attsOf && <EntryAttachmentsModal entry={attsOf} canEdit={canEditEntries} onClose={() => setAttsOf(null)} />}
 
       {showRequest && (
         <StockRequestModal rows={rows} company={companyQ.data ?? null} by={me?.name}
@@ -758,6 +783,11 @@ function WarehouseEntryModal({ onClose, lotOn, seed = null, stockRows = [], taxO
   const [type, setType] = useState<'RECEIVE' | 'ADJUST'>(seed ? 'ADJUST' : 'RECEIVE');
   const [supplier, setSupplier] = useState('');
   const [note, setNote] = useState('');
+  /* «إرفاق فاتورة المشتريات» (طلب المالك ١٣ نوفمبر ٢٠٢٦): صورٌ (تصوير/استديو) أو PDF تُرسل في جسم الحركة نفسه فتُحفظ معها ذرّياً —
+   * رفض الحركة لا يُبقي مرفقاً. للوارد، وتجوز للتسوية. `attBusy` تجهيزٌ جارٍ (الضغط) يعطّل «حفظ»، و`attErr` ردّ 400 ATTACHMENT_INVALID */
+  const [atts, setAtts] = useState<PickedAttachment[]>([]);
+  const [attBusy, setAttBusy] = useState(false);
+  const [attErr, setAttErr] = useState('');
   // صنف الصفّ كما في صفّ المستودع — قائمة المنتجات لا تحمل المحذوف، فيُحلّ منه اسمه ووحداته وأساسه (الخادم يقبل التسوية لأي صنفٍ للشركة)
   const seedPick: ProductPick | null = seed
     ? { id: seed.productId, name: seed.name, unit: seed.unit, code: seed.code, taxPct: 0, units: seed.units, primaryUnitId: seed.primaryUnitId ?? null }
@@ -922,6 +952,8 @@ function WarehouseEntryModal({ onClose, lotOn, seed = null, stockRows = [], taxO
         type, supplier: supplier.trim() || undefined, note: note.trim() || undefined,
         costsIncludeTax: type === 'RECEIVE' ? costsIncludeTax : undefined,
         items,
+        // المرفقات في الجسم نفسه — ولا مفتاح بلا مرفقات فيبقى الجسم ومرجع محاولته كما كانا
+        ...attachmentsPayload(atts),
       };
       // المرجع من المحتوى: الإعادة بلا تعديل ترسل المرجع نفسه، وأي تعديلٍ في النموذج مرجعٌ جديد
       attempt.current = entryAttempt(attempt.current, body);
@@ -937,9 +969,16 @@ function WarehouseEntryModal({ onClose, lotOn, seed = null, stockRows = [], taxO
       toast.success(isReplayResponse(res?.data) ? tr('هذه الحركة محفوظة من قبل ولم تسجل مرة ثانية') : tr('تم حفظ الحركة'));
       // تحذيرات اللوط لا تمنع (مثل الإضافة إلى تشغيلة موقوفة) — تُقال بعد الحفظ
       for (const w of lotWarningsOf((res?.data as { warnings?: unknown } | undefined)?.warnings)) toast(tr(LOT_WARNING_LABELS[w.code]), { icon: '⚠️' });
+      // حركةٌ لم تُكتب (لا كميات صالحة) لا تُبقي مرفقاتها — الخادم يقولها تحذيراً
+      const ws = (res?.data as { warnings?: unknown } | undefined)?.warnings;
+      const lostAtts = (Array.isArray(ws) ? ws as { code?: unknown; message?: unknown }[] : []).find(w => w?.code === 'ATTACHMENTS_NOT_SAVED');
+      if (lostAtts && typeof lostAtts.message === 'string') toast(tr(lostAtts.message), { icon: '⚠️' });
       onClose();
     },
     onError: (e: unknown) => {
+      // مرفقٌ رفضه الخادم (400 ATTACHMENT_INVALID): لم يُكتب شيء — السبب تحت المرفقات ليُحذف ما لا يصلح ويُعاد الحفظ
+      const badAtt = attachmentInvalidOf(e);
+      if (badAtt) { setAttErr(tr(badAtt)); toast.error(tr(badAtt)); return; }
       // D3: وارد صنفٍ محذوف — يُعلَّم سطره فيُقال عليه ويُمنع الحفظ حتى يُحذف السطر أو تصير الحركة تسوية
       const arch = productArchivedOf(e);
       if (arch) setRefusedArchived(s => new Set([...s, arch.productId]));
@@ -1111,6 +1150,13 @@ function WarehouseEntryModal({ onClose, lotOn, seed = null, stockRows = [], taxO
             <label className="label">{tr('ملاحظة اختياري')}</label>
             <input className="input" value={note} onChange={e => setNote(e.target.value)} placeholder={tr('مثال فاتورة شراء رقم جرد')} />
           </div>
+
+          {/* «إرفاق فاتورة المشتريات»: تصوير، أو من الاستديو، أو ملف PDF — وفي التسوية «مرفقات» */}
+          <div>
+            <label className="label flex items-center gap-1.5"><Paperclip size={14} className="text-[#E15A30]" /> {type === 'RECEIVE' ? tr('إرفاق فاتورة المشتريات') : tr('مرفقات')}</label>
+            <PurchaseAttachmentsPicker items={atts} onChange={v => { setAtts(v); setAttErr(''); }} onBusy={setAttBusy} disabled={save.isPending} />
+            {attErr && <p className="text-[11px] text-red-600 mt-1">{attErr}</p>}
+          </div>
           {type === 'ADJUST' && <p className="text-[11px] text-[#9A8F7E]">{tr('التسوية تقبل موجبا زيادة أو سالبا نقص للجرد والتالف')}</p>}
           {type === 'ADJUST' && trackedRows.length > 0 && (
             <p className="text-[11px] text-[#9A8F7E]">{tr('نقص الصنف المتتبع من تشغيلة محددة وإتلاف تشغيلة موقوفة أو منتهية تسوية نقص منها')}</p>
@@ -1118,7 +1164,7 @@ function WarehouseEntryModal({ onClose, lotOn, seed = null, stockRows = [], taxO
         </div>
 
         <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">
-          <button onClick={() => save.mutate()} disabled={save.isPending || !valid}
+          <button onClick={() => save.mutate()} disabled={save.isPending || !valid || attBusy}
             className="btn-primary flex-1 justify-center py-2.5 disabled:opacity-60">
             {save.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <PackagePlus size={16} />}
             {tr('حفظ الحركة')}

@@ -771,7 +771,7 @@ test('«تتبّع LOT» (D9): حقول التشغيلة لصنفٍ غير مت�
     assert.ok(src.includes('lotOnUntrackedError('), `${router}: لا رفض NOT_TRACKED`);
     const at = src.lastIndexOf('assertStillUntracked(tx, tid, productIds)');
     // «الوحدة الرئيسية» (§2.8): المعاملة نفسها تقفل الأساس، فرفض ProductUnitsChangedError يمرّ برمزه قبل asLotBusy
-    assert.ok(at > 0 && /\.catch\((busy|\(e: unknown\) => \{ throw (asLotBusy\(e\)|\(e instanceof ProductUnitsChangedError \? null : asLotBusy\(e\)\)) \?\? e; \})\)/.test(src.slice(at, at + 400)), `${router}: P2028 في المسار غير المتتبَّع ليس LOT_BUSY`);
+    assert.ok(at > 0 && /\.catch\((busy|\(e: unknown\) => \{ throw (asLotBusy\(e\)|\(e instanceof ProductUnitsChangedError \? null : asLotBusy\(e\)\)) \?\? e; \})\)/.test(src.slice(at, at + 520)), `${router}: P2028 في المسار غير المتتبَّع ليس LOT_BUSY`); // ٥٢٠: سطر مرفقات فاتورة المشتريات (١٣ نوفمبر ٢٠٢٦)
   }
   for (const [p, fields] of [
     ['/van-stock/loads', ['items[].lots', 'items[].lotNumber', 'items[].productionDate', 'items[].expiryDate', 'items[].lotReason']],

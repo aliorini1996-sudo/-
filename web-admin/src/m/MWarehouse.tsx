@@ -3,7 +3,7 @@ import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/rea
 import {
   Search, Plus, Trash2, Loader2, Warehouse, PackagePlus, Package, Wallet,
   Boxes, AlertTriangle, TrendingUp, TrendingDown, ChevronDown, ChevronUp,
-  ArrowRightLeft, FileDown, SlidersHorizontal,
+  ArrowRightLeft, FileDown, SlidersHorizontal, Paperclip,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { warehouseApi, productApi } from '../api/client';
@@ -35,6 +35,9 @@ import MLotFields, { whLotsQuery } from './MLotFields';
 import { anyPrimary, fill, qtyTotalLabel, refetchUnitsOn, withBaseUnitName } from './mPrimaryUnit';
 // «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): علم الشركة الحالي (المستودع بلا ختم) — مطفأ ⇒ الشاشة كما كانت حرفاً
 import { useMTaxOff } from './mTaxMode';
+// «إرفاق فاتورة المشتريات» (طلب المالك ١٣ نوفمبر ٢٠٢٦): المنتقي في نموذج الحركة، وطبقة مرفقات الحركة من سجلّها
+import { MPurchaseAttachPicker, MEntryAttachments } from './MPurchaseAttachments';
+import { attachmentsPayload, type PickedAttachment } from '../lib/purchaseAttachments';
 
 /* الإشعار في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
 const MWarehouseNoticeDoc = lazy(() => import('./MWarehouseNoticeDoc'));
@@ -98,6 +101,8 @@ interface WhEntry {
     lot?: { lotNumber: string; productionDate: string | null; expiryDate: string | null } | null;
   }[];
   totalCost: number;
+  /** عدد مرفقات الحركة (فاتورة المشتريات) — خادمٌ أقدم لا يرسله ⇒ لا مشبك */
+  attachmentsCount?: number;
 }
 
 interface ProductPick {
@@ -147,6 +152,9 @@ export default function MWarehouse({ onBack, company }: {
   // إشعار حركةٍ مفتوح — طبقةٌ فوق الشاشة، إغلاقها يُطفئ شرطها
   const [noticeOf, setNoticeOf] = useState<WhEntry | null>(null);
   useBackClose(!!noticeOf, () => setNoticeOf(null));
+  // مرفقات حركةٍ من السجلّ — طبقةٌ ملء الشاشة كالإشعار
+  const [attsOf, setAttsOf] = useState<WhEntry | null>(null);
+  useBackClose(!!attsOf, () => setAttsOf(null));
 
   useEffect(() => {
     const t = setTimeout(() => setDq(q.trim()), 250);
@@ -201,6 +209,13 @@ export default function MWarehouse({ onBack, company }: {
       <Suspense fallback={<MSpinner />}>
         <MWarehouseNoticeDoc entry={noticeOf} company={company} onClose={() => setNoticeOf(null)} />
       </Suspense>
+    );
+  }
+  if (attsOf) {
+    return (
+      <MEntryAttachments entryId={attsOf.id} onClose={() => setAttsOf(null)}
+        title={attsOf.type === 'RECEIVE' ? tr('فاتورة المشتريات') : tr('مرفقات')}
+        subtitle={[attsOf.type === 'RECEIVE' ? tr('وارد') : tr('تسوية'), attsOf.supplier, formatDate(attsOf.createdAt)].filter(Boolean).join(' · ')} />
     );
   }
 
@@ -341,7 +356,10 @@ export default function MWarehouse({ onBack, company }: {
           ) : (
             <>
               <MCard>
-                {entriesQ.data.slice(0, 20).map(e => <EntryRow key={e.id} e={e} onNotice={() => setNoticeOf(e)} />)}
+                {entriesQ.data.slice(0, 20).map(e => (
+                  <EntryRow key={e.id} e={e} onNotice={() => setNoticeOf(e)}
+                    onAttachments={typeof e.attachmentsCount === 'number' ? () => setAttsOf(e) : undefined} />
+                ))}
               </MCard>
               {entriesQ.data.length > 20 && (
                 <p className="text-[11px] text-[#9A8F7E] px-1">{tr('يعرض أحدث الحركات')}</p>
@@ -562,7 +580,11 @@ function Cell({ label, value, tone = 'default', multi }: {
 
 /* ═══════════════════════ صفّ حركةٍ في السجلّ ═══════════════════════ */
 
-function EntryRow({ e, onNotice }: { e: WhEntry; onNotice: () => void }) {
+function EntryRow({ e, onNotice, onAttachments }: {
+  e: WhEntry; onNotice: () => void;
+  /** طبقة مرفقات الحركة — غائبٌ حين لا يعرف الخادم المرفقات فلا مشبك */
+  onAttachments?: () => void;
+}) {
   const tr = useTr();
   const taxOff = useMTaxOff();
   // تمييز العدد بالعربية (S14): «صنفان» و«3 أصناف» لا «2 صنف» — واللغات الأخرى كما كانت
@@ -594,6 +616,14 @@ function EntryRow({ e, onNotice }: { e: WhEntry; onNotice: () => void }) {
               {/* الإجمالي يحسبه الخادم صافياً — والوسم يمنع قراءته شاملاً */}
               {!taxOff && <span className="block text-[9px] text-[#9A8F7E]">{tr('قبل الضريبة')}</span>}
             </span>
+          )}
+          {/* فاتورة المشتريات: المشبك بعددها بلون العلامة، وباهتٌ بلا مرفق — ومنه تُضاف فاتورةٌ وصلت بعد الحفظ */}
+          {onAttachments && (
+            <button type="button" onClick={onAttachments} aria-label={tr('مرفقات')}
+              className={`h-10 min-w-[36px] px-1 rounded-xl flex items-center justify-center gap-0.5 active:bg-[#FAF7F0] ${(e.attachmentsCount ?? 0) > 0 ? 'text-[#E15A30]' : 'text-[#C9BFB0]'}`}>
+              <Paperclip size={16} />
+              {(e.attachmentsCount ?? 0) > 0 && <span className="text-[11px] font-bold tabular-nums">{formatNumber(e.attachmentsCount ?? 0)}</span>}
+            </button>
           )}
           {/* هدف لمسٍ ٤٠px: الصفّ نفسه غير قابل للنقر، فالزرّ وحده يستقبل الإبهام */}
           <button type="button" onClick={onNotice}
@@ -643,6 +673,9 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
   const [type, setType] = useState<'RECEIVE' | 'ADJUST'>(seed ? 'ADJUST' : 'RECEIVE');
   const [supplier, setSupplier] = useState('');
   const [note, setNote] = useState('');
+  // «إرفاق فاتورة المشتريات»: تُرسل مع الحركة في جسمها نفسه (وارد أو تسوية) — والضغط الجاري يوقف «حفظ» حتى يجهز آخر ملف
+  const [atts, setAtts] = useState<PickedAttachment[]>([]);
+  const [attBusy, setAttBusy] = useState(false);
   // الكمية فارغة في سطر الصفّ: المستخدم يكتب التسوية أو يضغط «اجعل الرصيد صفراً» — لا حفظ بكميةٍ لم يرها
   const [rows, setRows] = useState<FormRow[]>(() => {
     if (!seed) return [];
@@ -853,14 +886,20 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
         note: note.trim() || undefined,
         costsIncludeTax: type === 'RECEIVE' ? costsIncludeTax : undefined,
         items,
+        // بلا مرفق لا مفتاح أصلاً — فيبقى الجسم كما كان حرفاً. ومعها تدخل في مرجع المحاولة (D8): إعادةٌ بالملفات نفسها
+        // تُردّ الحركة المحفوظة، وملفاتٌ غيرها حركةٌ أخرى
+        ...attachmentsPayload(atts),
       };
       // D8: المرجع من المحتوى — الإعادة بلا تعديل ترسل المرجع نفسه فيردّ الخادم الحركة المحفوظة ولا يكتبها ثانية
       attempt.current = entryAttempt(attempt.current, body);
       const payload: EntryPayload = { ...body, clientRef: attempt.current.ref };
       const res = await warehouseApi.createEntry(payload);
-      return { warnings: lotWarningsOf((res.data as { warnings?: unknown } | undefined)?.warnings), replay: isReplayResponse(res.data) };
+      const raw = (res.data as { warnings?: unknown } | undefined)?.warnings;
+      // «إرفاق فاتورة المشتريات»: لا حركة كُتبت ⇒ الخادم يقول إن المرفقات لم تُحفظ (كما في الويب) — لا تضيع الصورة بصمت
+      const lostAtts = (Array.isArray(raw) ? raw as { code?: unknown; message?: unknown }[] : []).find(w => w?.code === 'ATTACHMENTS_NOT_SAVED');
+      return { warnings: lotWarningsOf(raw), replay: isReplayResponse(res.data), lostAtts: typeof lostAtts?.message === 'string' ? lostAtts.message : null };
     },
-    onSuccess: ({ warnings, replay }) => {
+    onSuccess: ({ warnings, replay, lostAtts }) => {
       attempt.current = null;
       // مفاتيح الجوال ومفاتيح اللوحة معاً — الحزمة واحدة والكاش مشترك، فترك
       // مفاتيح اللوحة يُظهر رصيداً قديماً لمن ينتقل إليها بعد الحفظ.
@@ -872,6 +911,7 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
       toast.success(replay ? tr('هذه الحركة محفوظة من قبل ولم تسجل مرة ثانية') : tr('تم حفظ الحركة'));
       // التحذير لا يمنع (تشغيلة موقوفة تبقى معزولة) — لكنه يُقال
       [...new Set(warnings.map(w => w.code))].forEach(c => toast(tr(LOT_WARNING_LABELS[c])));
+      if (lostAtts) toast.error(lostAtts);
       onClose();
     },
     onError: (e: unknown) => {
@@ -922,6 +962,17 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
             </div>
           </section>
         )}
+
+        {/* ─────────── فاتورة المشتريات ─────────── */}
+        {/* موضعٌ واحد للنوعين (الوارد والتسوية): المنتقي لا يُفكّ ويُركَّب حين يتبدّل النوع وضغطُ صورةٍ جارٍ */}
+        <section className="space-y-2.5">
+          <h3 className="text-[11px] font-bold text-[#9A8F7E] px-1 uppercase tracking-wide flex items-center gap-1.5">
+            <Paperclip size={13} /> {receive ? tr('إرفاق فاتورة المشتريات') : tr('مرفقات')}
+          </h3>
+          <div className="bg-white rounded-2xl border border-[#F1EBDF] p-3">
+            <MPurchaseAttachPicker items={atts} onChange={setAtts} onBusy={setAttBusy} disabled={save.isPending} />
+          </div>
+        </section>
 
         {/* ─────────── إضافة صنف ─────────── */}
         <section className="space-y-2.5">
@@ -1091,7 +1142,7 @@ function MWarehouseEntry({ onClose, lotOn, seed = null, stockRows = [] }: { onCl
             <b className="text-[#1F1A13] tabular-nums">{formatCurrency(total)}</b>
           </p>
         )}
-        <button onClick={() => save.mutate()} disabled={!valid || save.isPending}
+        <button onClick={() => save.mutate()} disabled={!valid || save.isPending || attBusy}
           className="w-full bg-[#E15A30] text-white font-bold py-3.5 rounded-xl min-h-[50px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {save.isPending ? <Loader2 size={16} className="animate-spin" /> : <PackagePlus size={16} />}
           {tr('حفظ الحركة')}

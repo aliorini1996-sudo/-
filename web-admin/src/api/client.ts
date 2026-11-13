@@ -731,8 +731,18 @@ export const warehouseApi = {
     // (الانتهاء إلزامي مع الصلاحية)، وnull صريح لغير المسمّى في التسوية بالزيادة. والردّ 201 يحمل lot وwarnings
     // baseUnitName («الوحدة الرئيسية» §2.8): الأساس كما رآه النموذج — كما في vanStockApi.createLoad
     items: { productId: string; qty: number; unitId?: string | null; baseUnitName?: string | null; unitCost?: number; lotId?: string | null; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null }[];
+    // «إرفاق فاتورة المشتريات» (طلب المالك ١٣ نوفمبر ٢٠٢٦): صور (تصوير/استديو) أو PDF — data URL، حتى ٥ في الحركة
+    attachments?: WarehouseAttachmentInput[];
   }) => api.post('/warehouse/entries', data),
+  // مرفقات حركةٍ قائمة: القائمة بلا بيانات، وملفٌّ واحد ببياناته، والإضافة لاحقاً، والحذف
+  attachments: (entryId: string) => api.get(`/warehouse/entries/${entryId}/attachments`),
+  attachment: (entryId: string, attId: string) => api.get(`/warehouse/entries/${entryId}/attachments/${attId}`),
+  addAttachments: (entryId: string, attachments: WarehouseAttachmentInput[]) => api.post(`/warehouse/entries/${entryId}/attachments`, { attachments }),
+  removeAttachment: (entryId: string, attId: string) => api.delete(`/warehouse/entries/${entryId}/attachments/${attId}`),
 };
+
+/** مرفق حركة المستودع كما يُرسل: اسم الملف وdata URL (صورة jpeg/png/webp أو PDF) */
+export interface WarehouseAttachmentInput { name: string; data: string }
 
 // «تصفير المخزون» (طلب المالك ١ نوفمبر ٢٠٢٦) — لمدير الشركة غير المقيَّد ولجلسة المالك وحدهما، والخادم هو الحَكَم.
 // المعاينة أرقامٌ تُعرض قبل الكتابة؛ والتنفيذ بكلمة التأكيد «تصفير» وzeroRef (uuid) يُولَّد مرةً لكل فتحٍ للنافذة ويُعاد مع

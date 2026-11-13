@@ -5422,6 +5422,83 @@ export const API_DOC_GROUPS: DocGroup[] = [
    },
    {
     "method": "GET",
+    "path": "/warehouse/entries/:id/attachments",
+    "purpose": "قائمة مرفقات حركة المستودع (فاتورة المشتريات صوراً أو PDF) بلا بيانات الملفات",
+    "permission": "canManageVanStock",
+    "gates": [
+     "صلاحية canManageVanStock أولاً (403 بلا code)",
+     "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
+     "warehouseEnabled يجب أن يكون true وإلا 403 بلا code «ميزة مخزون الشركة غير مفعلة لهذه الشركة»"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:[{id, name, mime, size, createdBy, createdAt}]} — 404 «الحركة غير موجودة» لحركة شركةٍ أخرى",
+    "rules": [
+     "عدد المرفقات في سجل الحركات: attachmentsCount في كل صفّ من GET /warehouse/entries"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/warehouse/entries/:id/attachments/:attId",
+    "purpose": "ملف مرفقٍ واحد ببياناته",
+    "permission": "canManageVanStock",
+    "gates": [
+     "صلاحية canManageVanStock أولاً (403 بلا code)",
+     "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
+     "warehouseEnabled يجب أن يكون true وإلا 403 بلا code «ميزة مخزون الشركة غير مفعلة لهذه الشركة»"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:{id, name, mime, data}} — data نصّ data URL (base64)، ويُعاد فحصه قبل الإرسال فالمخالف 404",
+    "rules": [],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/warehouse/entries/:id/attachments",
+    "purpose": "إرفاق فاتورة المشتريات بحركةٍ قائمة (وتُرفق أيضاً عند الإنشاء في attachments بجسم POST /warehouse/entries)",
+    "permission": "canManageVanStock",
+    "gates": [
+     "صلاحية canManageVanStock أولاً (403 بلا code)",
+     "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
+     "warehouseEnabled يجب أن يكون true وإلا 403 بلا code «ميزة مخزون الشركة غير مفعلة لهذه الشركة»",
+     "مفتاح قراءة فقط مرفوض 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "attachments",
+      "type": "array of {name: string ≤120, data: data URL}",
+      "required": true,
+      "desc": "صورة JPEG أو PNG أو WebP حتى 1.5 ميغابايت، أو PDF حتى 4 ميغابايت (بعد فكّ base64)؛ النوع يُحكم بأول بايتات الملف لا باسمه؛ ٥ ملفات و٦ ميغابايت في الطلب، و١٠ للحركة"
+     }
+    ],
+    "response": "201 {success:true, data:[{id, name, mime, size, createdBy, createdAt}]} — 400 {code:'ATTACHMENT_INVALID', message} بلا كتابة",
+    "rules": [
+     "اسم الملف يُنظَّف ويُختم بامتداد نوعه المكتشف"
+    ],
+    "example": "{\"attachments\":[{\"name\":\"invoice.pdf\",\"data\":\"data:application/pdf;base64,JVBERi0xLjcK...\"}]}"
+   },
+   {
+    "method": "DELETE",
+    "path": "/warehouse/entries/:id/attachments/:attId",
+    "purpose": "حذف مرفقٍ من حركة المستودع نهائياً",
+    "permission": "canManageVanStock",
+    "gates": [
+     "صلاحية canManageVanStock أولاً (403 بلا code)",
+     "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
+     "warehouseEnabled يجب أن يكون true وإلا 403 بلا code «ميزة مخزون الشركة غير مفعلة لهذه الشركة»",
+     "صلاحية الحذف للمستخدم الإداري كبقية حذف المستودع"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true} — 404 «المرفق غير موجود»",
+    "rules": [],
+    "example": ""
+   },
+   {
+    "method": "GET",
     "path": "/rep-stock-requests",
     "purpose": "طلبات البضاعة المعلّقة التي رفعها المناديب من «مخزون سيارتي» — نافذة «طلب مخزون» في صفحة مخزون الشركة",
     "permission": "canManageVanStock",

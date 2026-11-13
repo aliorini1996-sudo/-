@@ -2106,6 +2106,8 @@ model WarehouseEntry {
   /// مفتاح منع التكرار (مراجعة المخزون D8) كـVanLoad.clientRef: بلا @@unique، والتفرّد تحت قفلٍ استشاري (routes/warehouse.ts)
   clientRef String?
   items     WarehouseEntryItem[]
+  /// «إرفاق فاتورة المشتريات» (طلب المالك ١٣ نوفمبر ٢٠٢٦): صور فاتورة المورّد أو PDF — تُحذف مع الحركة
+  attachments WarehouseEntryAttachment[]
   createdAt DateTime             @default(now())
 
   @@index([tenantId, createdAt])
@@ -2172,6 +2174,25 @@ model WarehouseEntryItem {
   @@index([productId])
   @@index([lotId])
   @@map("warehouse_entry_items")
+}
+
+/// «إرفاق فاتورة المشتريات» (طلب المالك ١٣ نوفمبر ٢٠٢٦): فاتورة المورّد مرفقةً بحركة المستودع (الوارد أو التسوية) — صورة
+/// (تصوير/استديو) أو PDF. البيانات data URL كاملة مفحوصة بالبايتات (services/purchaseAttachments.ts) وتُقدَّم بعد فحصٍ ثانٍ،
+/// والقائمة بلا البيانات (`_count` في سجلّ الحركات). جدولٌ جديد إضافيّ؛ حذف الحركة يحذف مرفقاتها
+model WarehouseEntryAttachment {
+  id        String         @id @default(uuid())
+  tenantId  String
+  entryId   String
+  entry     WarehouseEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  name      String // اسم الملف للعرض (≤١٢٠، بامتداد نوعه المفحوص)
+  mime      String // image/jpeg | image/png | image/webp | application/pdf — من البايتات لا من البادئة
+  size      Int // البايتات بعد فكّ base64
+  data      String // data:<mime>;base64,…
+  createdBy String? // اسم من أرفق (أو «الدعم الفني» لجلسة المالك)
+  createdAt DateTime       @default(now())
+
+  @@index([tenantId, entryId])
+  @@map("warehouse_entry_attachments")
 }
 
 // ═══ تتبّع اللوط (التشغيلة) — services/lots.ts وservices/lotsDb.ts ═══

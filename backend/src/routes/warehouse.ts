@@ -6,7 +6,7 @@ import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
-import { authenticate, requireAdminPermission, tenantId } from '../middleware/auth';
+import { authenticate, requireAdminPermission, tenantId, isOwnerSession } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { computeWarehouseStock, tenantCurrencyDecimals, loadWarehouseInputs, composeWarehouse, summarizeVansStock, UnitInvalidError, UNIT_SELECT } from '../services/warehouseStock';
 // «الربط لا يُرفض» (أمر المالك ٩ نوفمبر ٢٠٢٦): الحركة تُقبل بما يمكن معالجته، والمتروك أو المعدَّل تحذيرٌ في ردّ النجاح
@@ -47,6 +47,10 @@ import { netUnitCost, entryTotalCost, lineCost } from '../services/warehouseCost
 // مفتاح منع التكرار للوارد والتسوية (D8): بلا قيدٍ فريد — قفلٌ استشاري على المرجع ثم البحث به داخل المعاملة
 import { CLIENT_REF_SCHEMA, ClientRefReplay, clientRefQuery, lockClientRef } from '../services/stockClientRef';
 import { isTaxOff } from '../services/taxMode';
+// «إرفاق فاتورة المشتريات» (طلب المالك ١٣ نوفمبر ٢٠٢٦): صور فاتورة المورّد أو PDF مع حركة المستودع — الفحص كله في الخدمة
+import {
+  ATTACHMENT_META_SELECT, attachmentInvalid, entryCapMessage, parsePurchaseAttachments, servableAttachment, type PurchaseAttachmentInput,
+} from '../services/purchaseAttachments';
 
 const router = Router();
 router.use(authenticate);
@@ -228,6 +232,27 @@ const ENTRY_PRODUCT_SELECT = {
   id: true, taxPct: true, name: true, code: true, unit: true, baseConvertedAt: true, deletedAt: true, units: { select: UNIT_SELECT }, ...LOT_PRODUCT_SELECT,
 } as const;
 
+/**
+ * من أرفق فاتورة المشتريات: اسم المستخدم وقت الإرفاق — وجلسة «دخول» المالك أو موظف المنصة (توكنها يحمل هوية مدير الشركة) ومفتاحٌ
+ * أصدره الدعم تُنسب لـ«الدعم الفني» كوثائق العميل (docUploader) لا باسم مدير الشركة
+ */
+const attachmentActor = (req: AuthRequest): string | null => {
+  if (isOwnerSession(req) || req.user?.ownerIssuedKey === true) return 'الدعم الفني';
+  const name = (req.user as { name?: unknown } | undefined)?.name;
+  return typeof name === 'string' && name ? name.slice(0, 120) : null;
+};
+
+/** صفوف المرفقات في معاملةٍ قائمة (مع الحركة أو بعدها) — الأعمدة الوصفية وحدها تعود */
+async function insertAttachments(tx: Prisma.TransactionClient, tid: string, entryId: string, items: readonly PurchaseAttachmentInput[], by: string | null) {
+  const out: Prisma.WarehouseEntryAttachmentGetPayload<{ select: typeof ATTACHMENT_META_SELECT }>[] = [];
+  for (const a of items) {
+    out.push(await tx.warehouseEntryAttachment.create({
+      data: { tenantId: tid, entryId, name: a.name, mime: a.mime, size: a.size, data: a.data, createdBy: by }, select: ATTACHMENT_META_SELECT,
+    }));
+  }
+  return out;
+}
+
 /** ملاحظة تسوية الإنقاص المكتوبة من أسطر وارد سالبة حين لا ملاحظة في الطلب */
 const NEGATIVE_RECEIVE_NOTE = 'تسوية إنقاص لأسطر وارد بكمية سالبة';
 
@@ -236,6 +261,17 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
   try {
     const tid = tenantId(req);
     const data = entrySchema.parse(req.body);
+    // «إرفاق فاتورة المشتريات»: الملفات تُفحص قبل كل شيء (النوع من البايتات، والحجم، والعدد) — ملفٌّ لا يصلح ⇒ 400 ATTACHMENT_INVALID
+    // بلا حركة ولا مرفق. والصالحة تُكتب في معاملة الحركة نفسها بعد صفّها (رفض الحركة لا يُبقي مرفقاً)، وعلى الحركة الرئيسية وحدها
+    // (حاملة المرجع)؛ والإعادة بالمرجع (replay) تردّ القائمة بلا مرفقٍ مكرَّر. غائبةٌ ⇒ كما كان حرفياً
+    const att = parsePurchaseAttachments(req.body?.attachments);
+    if (!att.ok) { res.status(400).json(attachmentInvalid(att.message)); return; }
+    const attItems = att.items;
+    const attBy = attItems.length ? attachmentActor(req) : null;
+    /** حركةٌ لم تُكتب (كل الأسطر صفرية أو متروكة) ⇒ المرفقات لم تُحفظ أيضاً — تُذكر تحذيراً لا تسقط بصمت */
+    const noopWarnings = (ws: StockWarning[]): StockWarning[] => (attItems.length
+      ? [...ws, { code: 'ATTACHMENTS_NOT_SAVED', message: 'لم تُحفظ المرفقات لأنه لم تُسجَّل حركة' }]
+      : ws);
     // D8: مرجعٌ سبق حفظه ⇒ الحركة القائمة 200 بشكل ردّ الإنشاء (و replay: true) بلا كتابة ولا حكمٍ جديد على أصنافها؛ ومرجعٌ لحركةٍ من نوعٍ
     // آخر ⇒ 409 CLIENT_REF_REUSED. والطلبان المتزامنان بالمرجع نفسه يحسمهما القفل في المعاملة (refGate). المستودع للشركة كلها فلا نطاق
     const clientRef = data.clientRef ?? null;
@@ -266,7 +302,7 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     const warnings: StockWarning[] = [];
     const nonZero = data.items.map((i, at) => ({ ...i, at })).filter((i) => i.qty !== 0).map((i, fi) => ({ ...i, fi }));
     // كل الأسطر صفرية ⇒ 200 بلا حركة وتحذير NO_QUANTITIES (كان 400 «لا توجد كميات صالحة»)
-    if (!nonZero.length) { res.status(200).json(stockNoopBody([noQuantitiesWarning()])); return; }
+    if (!nonZero.length) { res.status(200).json(stockNoopBody(noopWarnings([noQuantitiesWarning()]))); return; }
     // التسوية جردٌ أو تالف لا شراء — فلا ثمن لها: سعرٌ مُرسَل معها يُهمل بتحذير UNIT_COST_IGNORED (كان 400 للطلب كله)
     const priced = data.type === 'ADJUST' ? nonZero.map((i) => {
       if (i.unitCost == null) return i;
@@ -291,7 +327,7 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     });
     warnings.push(...lenient.warnings);
     // لم يبقَ سطرٌ يُكتب ⇒ 200 بلا حركة بتحذيراته (لا مرجع يُحفظ: إعادته تعيد الردّ نفسه)
-    if (!lenient.lines.length) { res.status(200).json(stockNoopBody(warnings)); return; }
+    if (!lenient.lines.length) { res.status(200).json(stockNoopBody(noopWarnings(warnings))); return; }
     const { products } = lenient;
     // كل سطر بلقطة وحدته المحلولة (يكتبها unitFields)
     const lines = lenient.lines.map((i, k) => ({ ...i, unit: lenient.units[k] }));
@@ -378,11 +414,21 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     const createSplit = (tx: Prisma.TransactionClient, plan: WarehouseEntryPlan | null) => (splitLines.length
       ? tx.warehouseEntry.create({ data: entryData(plan?.lotIdByLine ?? null, plan?.splitByLine, 'split'), include: entryInclude })
       : null);
-    /** ردّ الإنشاء: الحركة، وتسوية الإنقاص المفصولة (adjustment) إن وُجدت، والتحذيرات («الربط لا يُرفض» ثم اللوط) إن وُجدت — وإلا كما كان */
-    const entryReply = <E>(entry: E, adjustment: E | null, lotWarnings: readonly LotWarning[]) => {
+    /**
+     * ردّ الإنشاء: الحركة، وتسوية الإنقاص المفصولة (adjustment) إن وُجدت، والتحذيرات («الربط لا يُرفض» ثم اللوط) إن وُجدت،
+     * والمرفقات المحفوظة (attachments: بياناتها الوصفية بلا الملفات) إن أُرسلت — وإلا كما كان
+     */
+    const entryReply = <E, A>(entry: E, adjustment: E | null, lotWarnings: readonly LotWarning[], attachments: readonly A[] = []) => {
       const all: (StockWarning | LotWarning)[] = [...warnings, ...lotWarnings];
-      return { success: true, data: entry, ...(adjustment && { adjustment }), ...(all.length > 0 && { warnings: all }) };
+      return {
+        success: true, data: entry, ...(adjustment && { adjustment }), ...(all.length > 0 && { warnings: all }),
+        ...(attachments.length > 0 && { attachments }),
+      };
     };
+    /** مرفقات الحركة الرئيسية في معاملتها بعد صفّها — لا شيء حين لا مرفقات (بلا استعلام) */
+    const saveAttachments = (tx: Prisma.TransactionClient, entryId: string) => (attItems.length
+      ? insertAttachments(tx, tid, entryId, attItems, attBy)
+      : Promise.resolve([]));
     /** أسطر خطة اللوط بالأساس من unitFields نفسها التي تكتب السطر (D22)، ومعرّف كل سطر موضعه بعد حذف الصفرية (fi) */
     const planLinesOf = (part: readonly EntryLine[]) => warehousePlanLines(part, part.map((i) => unitFields(i.qty, i.unit).baseQty), products, part.map((i) => i.unit.factor))
       .map((l, k) => ({ ...l, idx: part[k].fi }));
@@ -402,16 +448,18 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
           await assertStillUntracked(tx, tid, productIds);
           const adjustment = await createSplit(tx, null);
           const entry = await tx.warehouseEntry.create({ data: entryData(null), include: entryInclude });
-          return { entry, adjustment };
+          const attachments = await saveAttachments(tx, entry.id);
+          return { entry, adjustment, attachments };
         }, BASE_GUARD_TX).catch((e: unknown) => { throw (e instanceof ProductUnitsChangedError ? null : asLotBusy(e)) ?? e; })
         : await prisma.$transaction(async (tx) => {
           await refGate(tx);
           await lockBases(tx, tid, expected);
           const adjustment = await createSplit(tx, null);
           const entry = await tx.warehouseEntry.create({ data: entryData(null), include: entryInclude });
-          return { entry, adjustment };
+          const attachments = await saveAttachments(tx, entry.id);
+          return { entry, adjustment, attachments };
         }, BASE_GUARD_TX);
-      res.status(201).json(entryReply(out.entry, out.adjustment, []));
+      res.status(201).json(entryReply(out.entry, out.adjustment, [], out.attachments));
       return;
     }
 
@@ -433,9 +481,10 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
         const plan = await planWarehouseEntryInTx(tx, { ...planBase, type: entryType, lines: planLinesOf(mainLines) });
         const adjustment = await createSplit(tx, splitPlan);
         const entry = await tx.warehouseEntry.create({ data: entryData(plan.lotIdByLine, plan.splitByLine), include: entryInclude });
-        return { entry, adjustment, warnings: [...(splitPlan?.warnings ?? []), ...plan.warnings] };
+        const attachments = await saveAttachments(tx, entry.id);
+        return { entry, adjustment, warnings: [...(splitPlan?.warnings ?? []), ...plan.warnings], attachments };
       }, { maxWait: 10_000, timeout: 20_000 });
-      res.status(201).json(entryReply(out.entry, out.adjustment, out.warnings));
+      res.status(201).json(entryReply(out.entry, out.adjustment, out.warnings, out.attachments));
     } catch (e) {
       // تبدّل الأساس (§3) يُفحص قبل asLotBusy فيمرّ كما هو إلى baseGuardReply أدناه — لا يُقرأ انشغالاً من اسم صنفٍ في رسالته.
       // وانشغال القفل أو مهلة المعاملة في مسار اللوط ⇒ 503 LOT_BUSY (D14) عبر معالج الموجّه أدناه
@@ -470,7 +519,11 @@ router.get('/entries', async (req: AuthRequest, res: Response, next: NextFunctio
         where: { tenantId: tid, ...(clientRef && { clientRef }) },
         orderBy: { createdAt: 'desc' },
         take: 100,
-        include: { items: { include: { product: { select: { name: true, unit: true, primaryUnitId: true } }, ...(lotsOn(req) && { lot: ENTRY_LOT_SELECT }) } } },
+        include: {
+          items: { include: { product: { select: { name: true, unit: true, primaryUnitId: true } }, ...(lotsOn(req) && { lot: ENTRY_LOT_SELECT }) } },
+          // «إرفاق فاتورة المشتريات»: العدد وحده (أيقونة المرفق في السجلّ) — الملفات لا تُحمَّل هنا
+          _count: { select: { attachments: true } },
+        },
       }),
     ]);
     // الإجمالي يُحسب هنا بالدالّة المختبَرة لا في المتصفّح: حسابان لرقمٍ واحد
@@ -489,10 +542,86 @@ router.get('/entries', async (req: AuthRequest, res: Response, next: NextFunctio
         // «تصفير المخزون»: معرّف التشغيلة لتسوية التصفير (null لكل حركة أخرى) — صريحٌ في الردّ فتوسمها الواجهة «تصفير» بالوسم
         // لا بنصّ الملاحظة (يُكتب يدوياً في أي تسوية)
         zeroRunId: e.zeroRunId ?? null,
+        // عدد مرفقات فاتورة المشتريات — صريحٌ دائماً (صفر بلا مرفق)، و`_count` الخام لا يخرج في الردّ
+        _count: undefined,
+        attachmentsCount: e._count?.attachments ?? 0,
         items: e.items.map((i) => ({ ...i, lineCost: lineCost(i.qty, i.unitCost, dec) })),
         totalCost: entryTotalCost(e.items, dec),
       })),
     });
+  } catch (err) { next(err); }
+});
+
+// ═══ «إرفاق فاتورة المشتريات» (طلب المالك ١٣ نوفمبر ٢٠٢٦): مرفقات حركةٍ قائمة ═══
+// بحرّاس الموجّه نفسها (لا مندوب، وصلاحية إدارة المخزون، والميزة مفعّلة، و«صلاحية الحذف» على DELETE في authenticate)،
+// وكل استعلامٍ مقيَّد بشركة الطالب: حركةٌ أو مرفقٌ لشركةٍ أخرى 404 كأنه غير موجود
+
+const entryNotFound = (res: Response) => res.status(404).json({ success: false, message: 'الحركة غير موجودة' });
+const attachmentNotFound = (res: Response) => res.status(404).json({ success: false, message: 'المرفق غير موجود' });
+
+// قائمة مرفقات الحركة — البيانات الوصفية بلا الملفات
+router.get('/entries/:id/attachments', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const entryId = String(req.params.id);
+    const [entry, rows] = await Promise.all([
+      prisma.warehouseEntry.findFirst({ where: { id: entryId, tenantId: tid }, select: { id: true } }),
+      prisma.warehouseEntryAttachment.findMany({ where: { tenantId: tid, entryId }, select: ATTACHMENT_META_SELECT, orderBy: { createdAt: 'asc' } }),
+    ]);
+    if (!entry) { entryNotFound(res); return; }
+    res.json({ success: true, data: rows });
+  } catch (err) { next(err); }
+});
+
+// ملفٌّ واحد ببياناته (data URL) — يُفحص من جديد قبل تقديمه: ما لا يطابق نوعه المحفوظ بالبايتات لا يُعاد (404)
+router.get('/entries/:id/attachments/:attId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const row = await prisma.warehouseEntryAttachment.findFirst({
+      where: { id: String(req.params.attId), tenantId: tid, entryId: String(req.params.id) },
+      select: { id: true, name: true, mime: true, data: true },
+    });
+    if (!row || !servableAttachment(row.mime, row.data)) { attachmentNotFound(res); return; }
+    // الملف لا يتغيّر بعد رفعه (يُحذف ولا يُعدَّل) — تخزينٌ خاصّ في متصفح المستخدم وحده
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.json({ success: true, data: row });
+  } catch (err) { next(err); }
+});
+
+// إرفاق ملفات بحركةٍ قائمة (نسي الفاتورة عند الاستلام أو وصلت لاحقاً): حتى خمسة في الطلب وعشرة للحركة — تحت قفل صفّ الحركة
+// فرفعان متزامنان لا يتجاوزان السقف معاً. والسقف كلّه أو لا شيء كالفحص: 400 ATTACHMENT_INVALID برسالة ما يتّسع
+router.post('/entries/:id/attachments', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const entryId = String(req.params.id);
+    const att = parsePurchaseAttachments(req.body?.attachments);
+    if (!att.ok) { res.status(400).json(attachmentInvalid(att.message)); return; }
+    if (!att.items.length) { res.status(400).json(attachmentInvalid('اختر صورة أو ملف PDF لإرفاقه')); return; }
+    const items = att.items;
+    const by = attachmentActor(req);
+    const out = await prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM warehouse_entries WHERE id = ${entryId} AND "tenantId" = ${tid} FOR UPDATE`;
+      if (!locked.length) return { kind: 'missing' as const };
+      const count = await tx.warehouseEntryAttachment.count({ where: { tenantId: tid, entryId } });
+      const over = entryCapMessage(count, items.length);
+      if (over != null) return { kind: 'over' as const, message: over };
+      return { kind: 'created' as const, created: await insertAttachments(tx, tid, entryId, items, by) };
+    });
+    if (out.kind === 'missing') { entryNotFound(res); return; }
+    if (out.kind === 'over') { res.status(400).json(attachmentInvalid(out.message)); return; }
+    res.status(201).json({ success: true, data: out.created });
+  } catch (err) { next(err); }
+});
+
+// حذف مرفق — حقيقيّ بلا أرشفة (أمر المالك ٥ نوفمبر)، والحركة نفسها كما هي
+router.delete('/entries/:id/attachments/:attId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const { count } = await prisma.warehouseEntryAttachment.deleteMany({
+      where: { id: String(req.params.attId), tenantId: tid, entryId: String(req.params.id) },
+    });
+    if (count === 0) { attachmentNotFound(res); return; }
+    res.json({ success: true });
   } catch (err) { next(err); }
 });
 
