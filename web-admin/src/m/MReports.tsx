@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, Fragment, ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   TrendingUp, Receipt, Users, UserCheck, Wallet, Clock, MapPin, UserX,
-  RefreshCw, ChevronLeft, AlertTriangle, Package, CalendarDays, UserRound,
+  RefreshCw, ChevronLeft, AlertTriangle, Package, CalendarDays, UserRound, Banknote,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { reportApi, attendanceAdminApi } from '../api/client';
@@ -18,6 +18,9 @@ import { hasBigUnit, qtyText } from './mUnits';
 import { anyPrimary, qtyTotalLabel } from './mPrimaryUnit';
 import type { UnitDef } from '../lib/units';
 import { breakOf, compactMinutes, formatPeriods, hasPunchLocation, periodsOf, punchInUrl, punchOutUrl, periodOutside, type WorkPeriodLike } from '../lib/workPeriods';
+import {
+  appliedRangeOf, truncationOf, defaultedRangeNote, truncationNote, customerStatusBadge, perfHasCash, perfCompanyRate, type Truncation,
+} from '../lib/reportsAccuracy';
 
 /**
  * شاشة التقارير التحليلية في تطبيق الإدارة على الجوال (سبعة تقارير).
@@ -66,6 +69,8 @@ interface CollectionsRes {
 interface BalanceRow {
   id: string; name: string; phone: string; balance: number; creditLimit: number;
   paymentDays: number; totalSales: number; totalCollected: number;
+  /** ACTIVE | INACTIVE | BLOCKED منذ ١٣ نوفمبر ٢٠٢٦ — المحظور والموقوف مدينان يدخلان الإجمالي بشارة (البند ٢) */
+  status?: string;
 }
 
 interface VisitLoc { customerName: string; createdAt: string; lat: number; lng: number; mapsUrl: string }
@@ -73,6 +78,8 @@ interface PerfRow {
   id: string; name: string; invoicesCount: number; salesTotal: number; collectionsTotal: number;
   discountTotal: number; collectionRate: number; avgInvoice: number;
   workMinutes: number; workHours: number; workMins: number; visitsCount: number; visits: VisitLoc[];
+  /** البيع النقدي المحصَّل لحظة البيع — يدخل نسبة التحصيل (البند ٦)؛ غيابه من خادمٍ أقدم ⇒ السندات وحدها كما كانت */
+  cashSalesTotal?: number;
 }
 
 interface RecvCustomer {
@@ -316,6 +323,9 @@ function Hint({ children }: { children: ReactNode }) {
   return <p className="text-[11px] text-[#9A8F7E] leading-relaxed px-1">{children}</p>;
 }
 
+/** نصّ تنبيه القصّ لتقارير الزيارات (البند ٧): بلغ الخادم سقف الأمان فأبقى أحدث N سجلاً خاماً، والأرقام عنها وحدها */
+const truncText = (t: Truncation, tr: Tr) => truncationNote(t, tr, formatNumber, 'newest') ?? '';
+
 // ═══════════════ الشاشة ═══════════════
 
 const REPORTS = [
@@ -486,10 +496,17 @@ function SalesReport({ from, to, groupBy, onGroupBy }: {
   const tr = useTr();
   const q = useQuery({
     queryKey: ['m-report', 'sales', from, to, groupBy],
-    queryFn: async () => expectArray<SalesRow>(
-      (await reportApi.sales(params({ from, to, groupBy }))).data?.data, 'تقرير المبيعات'),
+    queryFn: async () => {
+      const res = await reportApi.sales(params({ from, to, groupBy }));
+      // المدى الذي طبّقه الخادم (meta.appliedRange، البند ٩): النافذة الافتراضية بتاريخيها بدل «تسعين يوماً» مجرّدة
+      return { rows: expectArray<SalesRow>(res.data?.data, 'تقرير المبيعات'), applied: appliedRangeOf(res.data) };
+    },
   });
-  const rows = useMemo(() => q.data ?? [], [q.data]);
+  const rows = useMemo(() => q.data?.rows ?? [], [q.data]);
+  /* قبل الردّ (أو من خادمٍ أقدم بلا المدى المُعلَن) يبقى تنبيه التسعين يوماً القائم حين لا مدى؛ وبعده تاريخا النافذة كما طُبّقا */
+  const rangeNote = q.data?.applied
+    ? defaultedRangeNote(q.data.applied, tr)
+    : (!from && !to ? tr('بلا مدى محدد يعرض الخادم آخر تسعين يوما فقط') : null);
   const { limit, onScroll, hidden } = useWindowed(`${from}|${to}|${groupBy}`, rows.length);
 
   const sum = useMemo(() => rows.reduce(
@@ -515,7 +532,7 @@ function SalesReport({ from, to, groupBy, onGroupBy }: {
 
       {/* الخادم يقصّ المبيعات على ٩٠ يوماً حين لا يُمرَّر مدى — والصمت عن القصّ
           يجعل التقرير يُقرأ على أنه «كل التاريخ» فتُبنى عليه مقارنة باطلة */}
-      {!from && !to && <Hint>{tr('بلا مدى محدد يعرض الخادم آخر تسعين يوما فقط')}</Hint>}
+      {rangeNote && <Hint>{rangeNote}</Hint>}
 
       <State q={q} empty={rows.length === 0} emptyText={tr('لا مبيعات في هذا المدى')} emptyIcon={TrendingUp}>
         <div className="grid grid-cols-2 gap-2.5">
@@ -643,10 +660,15 @@ function BalancesReport() {
         <MCard>
           {rows.slice(0, limit).map(c => {
             const over = c.creditLimit > 0 && c.balance > c.creditLimit;
+            const badge = customerStatusBadge(c.status);
             return (
               <MRow key={c.id}
                 leading={<Initial name={c.name} />}
-                title={c.name}
+                // المحظور والموقوف مدينان داخل الإجمالي — شارةٌ بجانب الاسم تميّزهما لا تُخفيهما (البند ٢). الاسم وحده يُقصّ
+                // والشارة لا تنكمش: سطر MRow مقصوصٌ بنقاط، فاسمٌ تجاريٌّ طويل كان يدفعها إلى ما بعد «…» على شاشة ٣٧٥px
+                title={badge
+                  ? <span className="flex items-center gap-1.5 min-w-0"><span className="truncate min-w-0">{c.name}</span><span className={`shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold ${c.status === 'BLOCKED' ? 'bg-[#FBEAE7] text-[#B42318]' : 'bg-[#F1EBDF] text-[#6E6557]'}`}>{tr(badge)}</span></span>
+                  : c.name}
                 subtitle={[c.phone, c.creditLimit > 0 ? `${tr('الحد')} ${formatCurrency(c.creditLimit)}` : null]
                   .filter(Boolean).join(' · ')}
                 note={over ? tr('تجاوز الحد الائتماني') : undefined}
@@ -668,34 +690,48 @@ function PerformanceReport({ from, to, onOpen }: {
   const tr = useTr();
   const q = useQuery({
     queryKey: ['m-report', 'performance', from, to],
-    queryFn: async () => expectArray<PerfRow>(
-      (await reportApi.repPerformance(params({ from, to }))).data?.data, 'أداء المناديب'),
+    queryFn: async () => {
+      const res = await reportApi.repPerformance(params({ from, to }));
+      // الزيارات من كل سجلّات المدى، وقصُّ سقف الأمان يُعلَن في meta (البند ٧)
+      return { rows: expectArray<PerfRow>(res.data?.data, 'أداء المناديب'), trunc: truncationOf(res.data) };
+    },
   });
-  const rows = useMemo(() => q.data ?? [], [q.data]);
+  const rows = useMemo(() => q.data?.rows ?? [], [q.data]);
   const { limit, onScroll, hidden } = useWindowed(`${from}|${to}`, rows.length);
 
   const sum = useMemo(() => rows.reduce((a, r) => ({
     sales: a.sales + r.salesTotal,
     collected: a.collected + r.collectionsTotal,
+    cash: a.cash + (r.cashSalesTotal ?? 0),
     invoices: a.invoices + r.invoicesCount,
     visits: a.visits + r.visitsCount,
-  }), { sales: 0, collected: 0, invoices: 0, visits: 0 }), [rows]);
-  const rate = sum.sales > 0 ? Math.round((sum.collected / sum.sales) * 100) : 0;
+  }), { sales: 0, collected: 0, cash: 0, invoices: 0, visits: 0 }), [rows]);
+  /* البند ٦: نسبة الشركة بتعريف نسبة المندوب في الخادم — (السندات + البيع النقدي المحصَّل) ÷ صافي المبيعات؛ كانت السندات
+   * وحدها فتظهر شركةٌ تبيع نقداً حمراء. وخادمٌ أقدم بلا البيع النقدي ⇒ السندات وحدها كما كانت */
+  const rate = perfCompanyRate(rows);
+  const withCash = perfHasCash(rows);
 
   return (
     <Pane onScroll={onScroll}>
       <State q={q} empty={rows.length === 0} emptyText={tr('لا مناديب نشطين')} emptyIcon={UserCheck}>
+        {q.data?.trunc.truncated && <Note>{truncText(q.data.trunc, tr)}</Note>}
         <div className="grid grid-cols-2 gap-2.5">
           <MStat label={tr('إجمالي المبيعات')} value={formatCurrency(sum.sales)} icon={TrendingUp} />
           <MStat label={tr('إجمالي التحصيل')} value={formatCurrency(sum.collected)} tone="good" icon={Wallet} />
+          {/* السندات تبقى «إجمالي التحصيل» كتقرير التحصيل، والبيع النقدي المحصَّل لحظة البيع شقٌّ بجانبها */}
+          {withCash && <MStat label={tr('مبيعات نقدية محصلة')} value={formatCurrency(sum.cash)} tone="good" icon={Banknote} />}
           {/* النسبة من **مجاميع المعروض** لا متوسّط نسب المناديب: متوسّط النسب
               يساوي بين مندوبٍ باع ألفاً وآخر باع مليوناً فيُجمّل التقصير */}
           <MStat label={tr('نسبة التحصيل')} value={`${formatNumber(rate)}%`}
             tone={rate >= 80 ? 'good' : rate >= 50 ? 'warn' : 'bad'} />
           <MStat label={tr('عدد الفواتير')} value={formatNumber(sum.invoices)} icon={Receipt} />
           <MStat label={tr('عدد الزيارات')} value={formatNumber(sum.visits)} icon={MapPin} />
-          <MStat label={tr('المناديب')} value={formatNumber(rows.length)} icon={UserCheck} />
+          {/* مع بطاقة النقدي سبع بطاقات: الأخيرة بعرض الصفّ فلا تبقى وحيدةً في صفّها */}
+          <div className={withCash ? 'col-span-2' : undefined}>
+            <MStat label={tr('المناديب')} value={formatNumber(rows.length)} icon={UserCheck} />
+          </div>
         </div>
+        {withCash && <Hint>{tr('نسبة التحصيل تشمل المبيعات النقدية المحصلة مع سندات القبض')}</Hint>}
 
         <MCard>
           {rows.slice(0, limit).map(r => (
@@ -806,9 +842,15 @@ function HoursReport({ from, to, onOpen }: {
         // الخادم يقصّ المدى عند ٣١ يوماً ويُعلن ذلك — تجاهلُه يجعل المشرف
         // يختار ثلاثة أشهر ويقرأ شهراً واحداً وهو يظنّه ثلاثة
         clamped: (res.data?.meta?.rangeClamped as number | undefined) ?? null,
+        // المدى المطبَّق بأيام الجهاز (البند ٩) وقصّ سجلّات الزيارات (البند ٧)
+        applied: appliedRangeOf(res.data), trunc: truncationOf(res.data),
       };
     },
   });
+  /* بلا «من» يعرض الخادم أسبوعاً: قبل الردّ (أو من خادمٍ أقدم) التنبيه القائم بلا مدى، وبعده تاريخا النافذة كما طُبّقا */
+  const rangeNote = q.data?.applied
+    ? defaultedRangeNote(q.data.applied, tr)
+    : (!from && !to ? tr('بلا مدى محدد يعرض الخادم آخر سبعة أيام') : null);
   const rows = useMemo(() => q.data?.rows ?? [], [q.data]);
   const { limit, onScroll, hidden } = useWindowed(`${from}|${to}`, rows.length);
 
@@ -821,10 +863,11 @@ function HoursReport({ from, to, onOpen }: {
 
   return (
     <Pane onScroll={onScroll}>
-      {!from && !to && <Hint>{tr('بلا مدى محدد يعرض الخادم آخر سبعة أيام')}</Hint>}
+      {rangeNote && <Hint>{rangeNote}</Hint>}
       {q.data?.clamped != null && (
         <Note>{tr('المدى المطلوب أطول من المسموح عرضت آخر')} {formatNumber(q.data.clamped)} {tr('يوما فقط')}</Note>
       )}
+      {q.data?.trunc.truncated && <Note>{truncText(q.data.trunc, tr)}</Note>}
 
       <State q={q} empty={rows.length === 0} emptyText={tr('لا بيانات حضور في هذه الفترة')} emptyIcon={Clock}>
         <div className="grid grid-cols-2 gap-2.5">
@@ -909,8 +952,11 @@ function VisitsReport({ from, to, onOpen }: {
   const tr = useTr();
   const q = useQuery({
     queryKey: ['m-report', 'visits', from, to],
-    queryFn: async () => expectObject<{ count: number; visits: CustVisit[] }>(
-      (await reportApi.customerVisits(params({ from, to }))).data?.data, 'زيارات العملاء'),
+    queryFn: async () => {
+      const res = await reportApi.customerVisits(params({ from, to }));
+      // كل سجلّات المدى دفعاتٍ حتى سقف أمانٍ عالٍ — وبلوغه يُعلَن فلا يُقرأ المقصوص شاملاً (البند ٧)
+      return { ...expectObject<{ count: number; visits: CustVisit[] }>(res.data?.data, 'زيارات العملاء'), trunc: truncationOf(res.data) };
+    },
   });
   const visits = useMemo(() => q.data?.visits ?? [], [q.data]);
 
@@ -946,6 +992,7 @@ function VisitsReport({ from, to, onOpen }: {
   return (
     <Pane onScroll={onScroll}>
       <State q={q} empty={visits.length === 0} emptyText={tr('لا زيارات في هذا المدى')} emptyIcon={MapPin}>
+        {q.data?.trunc.truncated && <Note>{truncText(q.data.trunc, tr)}</Note>}
         <div className="grid grid-cols-2 gap-2.5">
           <MStat label={tr('إجمالي الزيارات')} value={formatNumber(visits.length)} icon={MapPin} />
           <MStat label={tr('العملاء المزارون')} value={formatNumber(groups.length)} icon={Users} />
@@ -989,6 +1036,10 @@ function PerfDetail({ row, onClose }: { row: PerfRow; onClose: () => void }) {
         <div className="grid grid-cols-2 gap-2.5">
           <MStat label={tr('إجمالي المبيعات')} value={formatCurrency(row.salesTotal)} icon={TrendingUp} />
           <MStat label={tr('إجمالي التحصيل')} value={formatCurrency(row.collectionsTotal)} tone="good" icon={Wallet} />
+          {/* البند ٦: البيع النقدي المحصَّل لحظة البيع شقٌّ ظاهر — ونسبة الخادم تجمعه مع السندات */}
+          {typeof row.cashSalesTotal === 'number' && (
+            <MStat label={tr('مبيعات نقدية محصلة')} value={formatCurrency(row.cashSalesTotal)} tone="good" icon={Banknote} />
+          )}
           <MStat label={tr('نسبة التحصيل')} value={`${formatNumber(row.collectionRate)}%`}
             tone={row.collectionRate >= 80 ? 'good' : row.collectionRate >= 50 ? 'warn' : 'bad'} />
           <MStat label={tr('متوسط الفاتورة')} value={formatCurrency(row.avgInvoice)} />
@@ -996,8 +1047,12 @@ function PerfDetail({ row, onClose }: { row: PerfRow; onClose: () => void }) {
           <MStat label={tr('إجمالي الخصومات')} value={formatCurrency(row.discountTotal)}
             tone={row.discountTotal > 0 ? 'warn' : 'default'} />
           <MStat label={tr('نشاط التطبيق')} value={fmtMin(row.workMinutes, tr)} icon={Clock} />
-          <MStat label={tr('عدد الزيارات')} value={formatNumber(row.visitsCount)} icon={MapPin} />
+          {/* مع بطاقة النقدي تسع بطاقات: الأخيرة بعرض الصفّ فلا تبقى وحيدةً في صفّها */}
+          <div className={typeof row.cashSalesTotal === 'number' ? 'col-span-2' : undefined}>
+            <MStat label={tr('عدد الزيارات')} value={formatNumber(row.visitsCount)} icon={MapPin} />
+          </div>
         </div>
+        {typeof row.cashSalesTotal === 'number' && <Hint>{tr('نسبة التحصيل تشمل المبيعات النقدية المحصلة مع سندات القبض')}</Hint>}
 
         {row.visits.length > 0 && (
           <>

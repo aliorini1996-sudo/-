@@ -27,6 +27,7 @@ import { lotErr, lotErrorBody, lotHttpError } from '../services/lots';
 import { listMerchants, nearpayConfigured } from '../services/nearpay';
 import { recordLotEvent, type LotEventActor } from '../services/lotsDb';
 import { CONVERT_BASE_OPEN_TO_COMPANY } from '../services/convertBaseAccess';
+import { rankTopReps } from '../services/topReps';
 
 // إدارة الشركات المشتركة — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
@@ -629,25 +630,26 @@ router.get('/:id/performance', async (req: AuthRequest, res: Response, next: Nex
     const tenant = await prisma.tenant.findUnique({ where: { id: tid } });
     if (!tenant) { res.status(404).json({ success: false, message: 'الشركة غير موجودة' }); return; }
 
-    const [customers, products, salesReps, sales, returns, receipts, topReps] = await Promise.all([
+    const [customers, products, salesReps, sales, returns, receipts, repGroups, activeReps] = await Promise.all([
       prisma.customer.count({ where: { tenantId: tid } }),
       prisma.product.count({ where: { tenantId: tid } }),
       prisma.salesRep.count({ where: { tenantId: tid } }),
       prisma.invoice.aggregate({ where: { tenantId: tid, status: 'CONFIRMED', type: { not: 'RETURN' } }, _count: { id: true }, _sum: { total: true } }),
       prisma.invoice.aggregate({ where: { tenantId: tid, status: 'CONFIRMED', type: 'RETURN' }, _count: { id: true }, _sum: { total: true } }),
       prisma.receipt.aggregate({ where: { tenantId: tid, status: 'ACTIVE' }, _count: { id: true }, _sum: { amount: true } }),
-      prisma.salesRep.findMany({
-        where: { tenantId: tid },
-        take: 5,
-        select: { id: true, name: true, invoices: { where: { status: 'CONFIRMED', type: { not: 'RETURN' } }, select: { total: true } } },
+      // «أفضل المناديب أداءً» (تدقيق دقّة التقارير، ١٣ نوفمبر ٢٠٢٦): كان خمسة مناديب بلا ترتيب (take: 5 بلا orderBy) تُرتَّب
+      // وحدها بإجماليٍّ لا يطرح المرتجع. الآن كلوحة الشركة (services/topReps.ts): صافي كل مندوب (البيع − المرتجع) من تجميعٍ
+      // واحد بالمندوب والنوع، والمرشّحون كل المناديب النشطين، ثم أعلى خمسة. المدى كما كان: كل الزمن (لا حدّ شهر هنا).
+      // ويبقى «salesTotal» الشركة أعلاه إجمالياً والمرتجع سطراً مستقلاً بجانبه (services/netSales.ts) — الصافي لأرقام المناديب وترتيبهم
+      prisma.invoice.groupBy({
+        by: ['salesRepId', 'type'],
+        where: { tenantId: tid, status: 'CONFIRMED', salesRepId: { not: null } },
+        _sum: { total: true }, _count: { _all: true },
       }),
+      prisma.salesRep.findMany({ where: { tenantId: tid, isActive: true }, select: { id: true, name: true } }),
     ]);
 
-    const reps = topReps.map(r => ({
-      id: r.id, name: r.name,
-      invoicesCount: r.invoices.length,
-      salesTotal: r.invoices.reduce((s, i) => s + Number(i.total), 0),
-    })).sort((a, b) => b.salesTotal - a.salesTotal);
+    const reps = rankTopReps(activeReps, repGroups);
 
     res.json({
       success: true,

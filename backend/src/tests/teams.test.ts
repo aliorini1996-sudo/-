@@ -233,7 +233,11 @@ test('حارس نصّي: روابط الدفع بشكلها، ولوحة الت�
   // شكل الفاتورة على استعلام رابط الدفع يُسقط صفحته بـ500 لمشرف الفرق — يُسمح به على استعلام الفاتورة نفسها وحده
   const invShape = pl.split('scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)').slice(0, -1);
   assert.ok(invShape.every((seg) => /prisma\.invoice\.findFirst\(\{\s*where: \{[^}]*$/.test(seg)), 'شكل الفاتورة على استعلام الفاتورة وحده');
-  assert.ok(read('routes/dashboard.ts').includes('invoiceDate: { gte: startOfMonth }, ...recScope }, select: { total: true, type: true } } },'), '«أفضل المناديب»');
+  // «أفضل المناديب» (تدقيق دقّة التقارير ١٣ نوفمبر ٢٠٢٦): تجميعٌ واحد بنطاق المستند، والمرشّحون النشطون بنطاق المندوب
+  const dash = read('routes/dashboard.ts');
+  assert.ok(dash.includes("by: ['salesRepId', 'type'],")
+    && dash.includes("where: { tenantId: tid, ...recScope, status: 'CONFIRMED', invoiceDate: { gte: startOfMonth }, salesRepId: { not: null } },"), '«أفضل المناديب»');
+  assert.ok(dash.includes('prisma.salesRep.findMany({ where: { tenantId: tid, ...repScope, isActive: true }'), '«أفضل المناديب»: المرشّحون بالنطاق');
   const stats = read('routes/salesReps.ts');
   const st = stats.slice(stats.indexOf("router.get('/:id/stats'"));
   assert.ok(st.indexOf('...(await adminRepFilter(req)) }, select: { id: true } }))') > 0 && st.includes('...docScope },'), 'إحصاءات المندوب بالنطاق');

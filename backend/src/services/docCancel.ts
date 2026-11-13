@@ -51,6 +51,52 @@ export async function lockInvoiceForCancel(tx: Tx, tenantId: string, invoiceId: 
 }
 
 /**
+ * البند ١١ (تدقيق دقّة التقارير، ١٣ نوفمبر ٢٠٢٦): متبقّي فاتورة البيع بعد ردّ ما أسقطه مرتجعٌ أُلغي — زيادةٌ بقدر المُسقَط
+ * مسقوفةٌ بما عليها فعلاً: `total − paidAmt − otherReturns`، و`otherReturns` إجمالي مرتجعاتها **الأخرى** القائمة (المرتبطة
+ * ببنودها والإشعارات الدائنة عليها). فسندٌ سدّد منها بعد المرتجع لا يرفعها فوق دَينها، ولا مرتجعٌ لاحقٌ قُصّ مُسقَطه (لم يجد
+ * متبقّياً فصار ائتماناً للعميل) يعود ديناً وهمياً عليها. ولا تُنقصها أبداً (صفٌّ متبقّيه فوق السقف أصلاً يبقى كما هو). صرفةٌ.
+ * مثال: بيع ١٠٠٠، مرتجع ٣٠٠ (يُسقط ٣٠٠)، سند ٧٠٠، مرتجع ٢٠٠ (لا يُسقط شيئاً) — إلغاء الأول يعيد ١٠٠ لا ٣٠٠.
+ */
+export function restoredRemaining(sale: { total: number; paidAmt: number; remainingAmt: number }, applied: number, otherReturns = 0): number {
+  const remaining = Number(sale.remainingAmt) || 0;
+  const owed = clean(Math.max(0, (Number(sale.total) || 0) - (Number(sale.paidAmt) || 0) - Math.max(0, Number(otherReturns) || 0)));
+  return clean(Math.max(remaining, Math.min(owed, remaining + Math.max(0, Number(applied) || 0))));
+}
+
+/**
+ * البند ١١: إلغاء مرتجعٍ من المرحلة الأولى أسقط من متبقّي فاتورة بيعه الآجلة (`Invoice.remainingApplied`) يردّ إليها ما أسقطه
+ * **بعينه** لا إجماليه (restoredRemaining). فاتورة البيع تُعرف من بنود المرتجع (returnOfItemId — بنوده كلها من فاتورةٍ واحدة،
+ * services/returnLinks.ts) وتُقفل FOR UPDATE وتُقرأ في الاستعلام نفسه ثمّ تُكتب تحت القفل. يُستدعى بعد قفل المرتجع وقبل أقفال
+ * السيارة وصفّ العميل: ترتيب إصدار المرتجع نفسه (فاتورة البيع ⇒ السيارة/اللوط ⇒ العميل).
+ * بلا مبلغٍ مسجَّل — مرتجعٌ حرّ، أو على نقدية، أو صدر قبل الميزة — لا استعلام ولا أثر. والإشعار الدائن (المرحلة الثانية) لا يمرّ
+ * من هنا (إلغاؤه ممنوع): يردّه إبطاله في services/invoiceVoid.ts restoreOriginalRemaining كما كان.
+ */
+export async function restoreReturnRemaining(tx: Tx, tenantId: string, returnInvoiceId: string, applied: unknown): Promise<void> {
+  const amount = clean(Math.max(0, Number(applied) || 0));
+  if (!(amount > 0)) return;
+  const [sale] = await tx.$queryRaw<{ id: string; status: string; total: number; paidAmt: number; remainingAmt: number }[]>`
+    SELECT s.id, s.status, s.total, s."paidAmt", s."remainingAmt" FROM invoices s
+     WHERE s."tenantId" = ${tenantId} AND s.id = (
+       SELECT si."invoiceId" FROM invoice_items r JOIN invoice_items si ON si.id = r."returnOfItemId"
+        WHERE r."invoiceId" = ${returnInvoiceId} LIMIT 1)
+     FOR UPDATE`;
+  // فاتورة بيعٍ أُلغيت لا تُحيا ديونها (ولا يقع: لا يُلغى بيعٌ عليه مرتجعٌ مرتبط قائم — lockInvoiceForCancel)
+  if (!sale || sale.status === 'CANCELLED') return;
+  // مرتجعاتها الأخرى القائمة سقفٌ ثانٍ (restoredRemaining): المرتبطة ببنودها، والإشعارات الدائنة عليها — كلٌّ مرةً واحدة (UNION)
+  // وبلا المرتجع الملغى نفسه. تحت قفل فاتورة البيع: إصدار مرتجعٍ عليها ينتظره (assertReturnLinks يقفلها أولاً)
+  const [other] = await tx.$queryRaw<{ otherReturns: number | null }[]>`
+    SELECT COALESCE(SUM(o.total), 0)::float8 AS "otherReturns" FROM invoices o
+     WHERE o."tenantId" = ${tenantId} AND o.status = 'CONFIRMED' AND o.type = 'RETURN' AND o.id <> ${returnInvoiceId}
+       AND o.id IN (
+         SELECT ol."invoiceId" FROM invoice_items ol JOIN invoice_items sl ON sl.id = ol."returnOfItemId" WHERE sl."invoiceId" = ${sale.id}
+         UNION
+         SELECT cn.id FROM invoices cn WHERE cn."originalInvoiceId" = ${sale.id})`;
+  const next = restoredRemaining(sale, amount, Number(other?.otherReturns ?? 0));
+  if (Math.abs(next - (Number(sale.remainingAmt) || 0)) < 1e-9) return;
+  await tx.invoice.update({ where: { id: sale.id }, data: { remainingAmt: next } });
+}
+
+/**
  * ينقل السند إلى CANCELLED بمقارنةٍ وتبديل (updateMany مشروطٌ بأنه غير ملغى). في PostgreSQL ينتظر الطلبُ الثاني قفلَ
  * الصفّ ثمّ يعيد تقييم الشرط فلا يطابق شيئاً. يعيد true لمن فاز بالإلغاء وحده.
  */

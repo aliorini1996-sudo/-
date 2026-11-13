@@ -3,7 +3,8 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, adminCustomerFilter, adminRepFilter, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { AuthRequest } from '../types';
-import { cleanMoney, netOfInvoices, netSales, signedAmount } from '../services/netSales';
+import { cleanMoney, netSales, signedAmount } from '../services/netSales';
+import { rankTopReps } from '../services/topReps';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canAccessDashboard'));
@@ -19,7 +20,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const [
       dailySales, dailyReceipts, monthSales, monthReceipts,
       totalCustomers, overdueCustomers, creditExceeded,
-      topReps, topCustomers, recentInvoices,
+      repMonthGroups, activeReps, topCustomers, recentInvoices,
       dailyReturns, monthReturns,
     ] = await (async () => {
     // قيود نطاق المستخدم تُحسب مرّة وتُطبَّق على كل استعلامات اللوحة
@@ -44,17 +45,23 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         _sum: { amount: true }, _count: { id: true },
       }),
       prisma.customer.count({ where: { tenantId: tid, ...custScope, status: 'ACTIVE' } }),
-      prisma.customer.count({ where: { tenantId: tid, ...custScope, status: 'ACTIVE', balance: { gt: 0 } } }),
+      // «العملاء بأرصدة» و«تجاوز الحد الائتماني» بجمهور تقرير «أرصدة العملاء» نفسه (تدقيق دقّة التقارير، ١٣ نوفمبر ٢٠٢٦):
+      // كل عميلٍ غير محذوف — الموقوف والمحظور مدينان حقيقيان، والحظر هو ما يوقف به المدير البيع لمتعثّر (invoices.ts)،
+      // فإسقاطهما كان يُنقص العدّين عمّا في التقرير وكشف الحساب. و1e-6 حدّ التقرير نفسه: غبار العائمة التاريخي لا يُعدّ ديناً
+      prisma.customer.count({ where: { tenantId: tid, ...custScope, status: { not: 'DELETED' }, balance: { gt: 1e-6 } } }),
       prisma.customer.count({
-        where: { tenantId: tid, ...custScope, status: 'ACTIVE', creditLimit: { gt: 0 }, balance: { gt: prisma.customer.fields.creditLimit as never } },
+        where: { tenantId: tid, ...custScope, status: { not: 'DELETED' }, creditLimit: { gt: 0 }, balance: { gt: prisma.customer.fields.creditLimit as never } },
       }).catch(() => 0),
-      prisma.salesRep.findMany({
-        where: { tenantId: tid, ...repScope },
-        take: 5,
-        // فواتير المندوب بنطاق المستند (recScope): مندوبٌ مشترك لا تُجمع لمشرف فريقٍ مبيعاتُ فريقه الآخر.
-        // والمرتجع معها بنوعه ليُطرح (services/netSales.ts)
-        select: { id: true, name: true, invoices: { where: { status: 'CONFIRMED', invoiceDate: { gte: startOfMonth }, ...recScope }, select: { total: true, type: true } } },
+      // «أفضل المناديب» يُرتَّب قبل أن يُقصّ (services/topReps.ts): صافي الشهر لكل مندوب من تجميعٍ واحد بنطاق المستند
+      // (recScope — مندوبٌ مشترك لا تُجمع لمشرف فريقٍ مبيعاتُ فريقه الآخر)، والمرتجع بنوعه ليُطرح (services/netSales.ts)
+      prisma.invoice.groupBy({
+        by: ['salesRepId', 'type'],
+        where: { tenantId: tid, ...recScope, status: 'CONFIRMED', invoiceDate: { gte: startOfMonth }, salesRepId: { not: null } },
+        _sum: { total: true }, _count: { _all: true },
       }),
+      // والمرشّحون كل المناديب **النشطين** في نطاق المستخدم أو فريقه — لا خمسةٌ بلا ترتيب (take: 5 بلا orderBy كان يأخذ
+      // أقدم الصفوف والموقوف معها فيغيب أعلى المناديب مبيعاً). صفوفٌ خفيفة (معرّف واسم) لا فواتير
+      prisma.salesRep.findMany({ where: { tenantId: tid, ...repScope, isActive: true }, select: { id: true, name: true } }),
       prisma.customer.findMany({
         // المحذوف يسقط من «أفضل العملاء» كما سقط من قوائمهم
         where: { tenantId: tid, ...custScope, status: { not: 'DELETED' } },
@@ -101,12 +108,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       monthPurchases = { purchasesTotal: Number(rows[0]?.total ?? 0), entriesCount: Number(rows[0]?.entries ?? 0) };
     }
 
-    // صافي مبيعات المندوب (البيع − مرتجعه)، وعدد فواتير البيع وحدها
-    const topRepsWithStats = topReps.map(r => ({
-      id: r.id,
-      name: r.name,
-      ...netOfInvoices(r.invoices),
-    })).sort((a, b) => b.salesTotal - a.salesTotal);
+    // صافي مبيعات المندوب (البيع − مرتجعه)، وعدد فواتير البيع وحدها — أعلى خمسة من كل المرشّحين، ثم بالاسم عند التعادل
+    const topRepsWithStats = rankTopReps(activeReps, repMonthGroups);
 
     res.json({
       success: true,

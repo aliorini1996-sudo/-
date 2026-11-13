@@ -203,12 +203,12 @@ export default function CustomersPage() {
     setOpeningId(c.id);
     try {
       const res = await customerApi.statement(c.id);
-      const { customer, entries, teamScoped } = res.data.data;
-      // «الفرق»: كشف المشرف يُعنوَن «رصيد فريقك» لا «المستحق على العميل»
+      const { customer, entries, teamScoped, teamNames } = res.data.data;
+      // «الفرق»: كشف المشرف يُعنوَن «رصيد فريقك» لا «المستحق على العميل»، وتنبيه الورقة يسمّي فرقه كنافذة الكشف
       // فُتح قبل اكتمال تحميل الشركة (أو تعثّرها): تُطلب الآن، وإلا خرج بالنصوص الافتراضية وترويسة فارغة (D-G6)
       let co = company;
       try { co = company ?? await qc.ensureQueryData({ queryKey: ['company'], queryFn: fetchCompany }); } catch { /* يبقى الحالي */ }
-      setDocResult(statementDocFromData(customer, entries, user?.name || tr('الإدارة'), co, { teamScoped: teamScoped === true }));
+      setDocResult(statementDocFromData(customer, entries, user?.name || tr('الإدارة'), co, { teamScoped: teamScoped === true, teamNames }));
     } catch { toast.error(tr('تعذر فتح الكشف')); }
     setOpeningId(null);
   };

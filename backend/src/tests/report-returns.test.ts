@@ -12,7 +12,10 @@ test('تقرير المرتجع: المؤكَّدة من نوع المرتجع �
   const h = src.slice(i, src.indexOf("router.get('/collections'"));
   // نطاق المستخدم ومعه فلتر الفريق — في النطاق نفسه فيطبَّق على المرتجعات وعلى مبيعات النسبة معاً
   assert.match(h, /const scope = \{ \.\.\.\(await scopedRecordWhere\(req, SHAPE_INVOICE_RECEIPT\)\), \.\.\.teamDocWhere\(reportTeamOf\(req\.query\.teamId\)\) \};/, 'نطاق المستخدم والفريق');
-  assert.match(h, /where: \{ tenantId: tid, \.\.\.scope, status: 'CONFIRMED', type: 'RETURN', invoiceDate: dateFilter \}/, 'المرتجعات المؤكَّدة');
+  // شرطٌ واحد للقائمة ولملخّصها المجمَّع في القاعدة (دقّة التقارير، البند ٧): القائمة والتجميع بالسبب والبنود المنتهية
+  assert.match(h, /const returnsWhere: Prisma\.InvoiceWhereInput = \{ tenantId: tid, \.\.\.scope, status: 'CONFIRMED', type: 'RETURN', invoiceDate: dateFilter \};/, 'المرتجعات المؤكَّدة');
+  assert.equal(h.split('where: returnsWhere').length - 1, 2, 'القائمة والتجميع بالسبب على الشرط نفسه');
+  assert.match(h, /prisma\.invoiceItem\.count\(\{ where: \{ returnExpired: true, invoice: returnsWhere \} \}\)/, 'البنود المنتهية من كل مرتجعات المدى');
   assert.match(h, /where: \{ tenantId: tid, \.\.\.scope, status: 'CONFIRMED', type: \{ not: 'RETURN' \}, invoiceDate: dateFilter \}/, 'مبيعات المدى نفسه');
   assert.match(h, /returnRate: salesTotal > 0 \?/, 'لا قسمة على صفر');
   assert.match(h, /where: \{ id: \{ in: saleItemIds \}, invoice: \{ tenantId: tid \} \}/, 'فاتورة البيع من الشركة نفسها');

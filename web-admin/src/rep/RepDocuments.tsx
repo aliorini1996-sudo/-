@@ -278,6 +278,8 @@ export interface StatementDoc {
   finalBalance: number;
   /** «الفرق»: كشف مشرف فريق — قيود فرقه وحدها وإجماليات العميل لفريقه؛ يُعنوَن بذلك كي لا يُقرأ رصيداً كاملاً للعميل */
   teamScoped?: boolean;
+  /** أسماء فرق المشرف (مع teamScoped وحده، ومن الخادم) — تُسمّى في تنبيه الورقة كما على الشاشات. الغائب = بلا أسماء */
+  teamNames?: string[];
 }
 
 export interface SettlementEntry {
@@ -1705,9 +1707,12 @@ export const PrintableStatement = forwardRef<HTMLDivElement, { doc: StatementDoc
           </div>
         </div>
       </div>
+      {/* الورقة تُسلَّم وتُتداول: تقول صراحةً إن رصيد الفريق قد يخالف رصيد العميل الكامل (تدقيق دقّة التقارير ١٣ نوفمبر ٢٠٢٦) */}
       {doc.teamScoped && (
         <div style={{ marginTop: 10, fontSize: 12, color: '#8A5A00' }}>
-          {tr('كشف فريقك فقط لا يشمل فواتير الفرق الأخرى وسنداتها ولا التسويات اليدوية')}
+          {tr('هذا الكشف يشمل مستندات فريقك وحده — قد يختلف عن رصيد العميل الكامل في قائمة العملاء')}
+          {/* الورقة هي ما يُسلَّم: تسمّي الفرق كالشاشات (نافذة اللوحة وملفها وشاشة الجوال) */}
+          {doc.teamNames?.length ? <span style={{ color: '#6E6557' }}> ({tr('الفريق')}: {doc.teamNames.join('، ')})</span> : null}
         </div>
       )}
 
@@ -2339,7 +2344,7 @@ export function statementDocFromData(
    * و`timezone` منطقة الشركة التي رشّح بها الخادم الفترة (يعيدها مع الكشف): مرّرها كما
    * وصلت — بها تُطبع لحظاتُ الحركات بأيام الفترة نفسها لا بأيام جهاز المُصدِر.
    */
-  range?: { from?: string; to?: string; openingBalance?: number; closingBalance?: number; timezone?: string | null; teamScoped?: boolean }
+  range?: { from?: string; to?: string; openingBalance?: number; closingBalance?: number; timezone?: string | null; teamScoped?: boolean; teamNames?: string[] | null }
 ): StatementDoc {
   const mapped: StatementEntry[] = entries.map((e: any) => ({
     date: e.entryDate,
@@ -2380,6 +2385,9 @@ export function statementDocFromData(
     totalCredit,
     finalBalance,
     teamScoped: range?.teamScoped === true,
+    // أسماء الفرق مع كشف المشرف وحده؛ والمفتاح غائبٌ بلا أسماء فيبقى المستند كما كان حرفاً
+    ...(range?.teamScoped === true && (range.teamNames ?? []).some(Boolean)
+      ? { teamNames: (range.teamNames ?? []).filter(Boolean) } : {}),
   };
 }
 

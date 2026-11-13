@@ -290,6 +290,7 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
       tenantId: 'معروف من المفتاح', clientRef: OFFLINE, clientCreatedAt: OFFLINE,
       orderType: 'بقايا وحدة المطاعم المحذوفة', serviceChargeAmt: 'بقايا وحدة المطاعم المحذوفة', tipAmt: 'بقايا وحدة المطاعم المحذوفة', shiftId: 'بقايا وحدة المطاعم المحذوفة',
       einvoiceSnapshot: 'لقطة XML الفاتورة الإلكترونية — ثقيلة؛ المستند الضريبي من مسارات الفوترة الإلكترونية',
+      remainingApplied: 'داخلي: ما أسقطه مرتجع المرحلة الأولى من متبقّي فاتورة بيعه ليردّه إلغاؤه بعينه — المتبقّي الفعلي remainingAmt على فاتورة البيع',
     },
     nested: {
       items: { model: 'invoiceItem', denied: { invoiceId: PARENT, menuItemId: 'بقايا وحدة المطاعم المحذوفة', orderItemId: 'بقايا وحدة المطاعم المحذوفة' } },

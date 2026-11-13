@@ -180,6 +180,8 @@ function matchItem(it: Row, w: Row): boolean {
     if (k === 'lots') { assert.ok(isObj(v.some)); return it.lots.some((l: Row) => matchLot(l, v.some)); }
     if (k === 'invoice') return matchInvoice(it.invoice, v);
     if (k === 'id') return scalarOk(it.id, v);
+    // ملخّص المرتجع: البنود المنتهية في كل مرتجعات المدى (invoiceItem.count — دقّة التقارير، البند ٧)
+    if (k === 'returnExpired') return it.returnExpired === v;
     throw new Error(`مفتاح بند غير مدعوم في المزيّف: ${k}`);
   });
 }
@@ -227,8 +229,23 @@ const models: Record<string, Record<string, (a: Row) => unknown>> = {
   invoice: {
     findMany: (a) => sortBy(INVOICES.filter((r) => matchInvoice(r, a.where)), a.orderBy).slice(0, a.take ?? Infinity).map((r) => project(r, a.select)),
     aggregate: (a) => ({ _sum: { total: INVOICES.filter((r) => matchInvoice(r, a.where)).reduce((t, r) => t + r.total, 0) } }),
+    // ملخّص المرتجع تجميعٌ في القاعدة على كل مستندات المدى (دقّة التقارير، البند ٧): العدد والقيمة لكل سبب
+    groupBy: (a) => {
+      const groups = new Map<string, Row>();
+      for (const r of INVOICES.filter((x) => matchInvoice(x, a.where))) {
+        const key = JSON.stringify((a.by as string[]).map((k) => r[k] ?? null));
+        const g = groups.get(key) ?? { ...Object.fromEntries((a.by as string[]).map((k) => [k, r[k] ?? null])), _count: { _all: 0 }, _sum: { total: 0 } };
+        g._count._all += 1;
+        g._sum.total += r.total;
+        groups.set(key, g);
+      }
+      return [...groups.values()];
+    },
   },
-  invoiceItem: { findMany: (a) => allItems().filter((it) => matchItem(it, a.where)).map((it) => project(it, a.select)) },
+  invoiceItem: {
+    findMany: (a) => allItems().filter((it) => matchItem(it, a.where)).map((it) => project(it, a.select)),
+    count: (a) => allItems().filter((it) => matchItem(it, a.where)).length,
+  },
   invoiceItemLot: { findMany: (a) => sortBy(allItemLots().filter((l) => matchLot(l, a.where)), a.orderBy).map((l) => project(l, a.select)) },
   productLot: { findMany: (a) => LOTS.filter((l) => matchLot(l, a.where)).map((l) => project(l, a.select)) },
   product: { findMany: (a) => PRODUCTS.filter((p) => matchLot(p, a.where)).map((p) => project(p, a.select)) },

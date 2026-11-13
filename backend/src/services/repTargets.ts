@@ -172,7 +172,8 @@ export interface LinkedReturnLine {
 }
 
 /**
- * مرتجع المرحلة الأولى المرتبط لا يُنقص باقي فاتورة البيع ولا يكتب originalInvoiceId، فلم يكن يُطرح من افتتاحيّها بينما إشعار
+ * مرتجع المرحلة الأولى المرتبط لا يكتب originalInvoiceId (وصار يُنقص باقي فاتورة البيع منذ البند ١١ — والافتتاحي يُحسب من
+ * الإجمالي والسداد والمرتجعات لا من الباقي، فيبقى الطرح هنا)، فلم يكن يُطرح من افتتاحيّها بينما إشعار
  * المرحلة الثانية الدائن (adjustments) يُطرح — فتضخّم الأساس لكل شركةٍ خارج المرحلة الثانية. يُضاف هنا إلى إشعاراتها فتتّفق
  * المرحلتان: إجمالي كل مرتجعٍ مرةً واحدة على فاتورة بيعه (المرتجع المرتبط من فاتورةٍ واحدة؛ وبنودٌ على أكثر من فاتورة تُنسب
  * للأولى فلا يُطرح مرتين)، ومستندٌ قُرئ إشعاراً لا يتكرّر. أما ائتمان العميل بلا فاتورة (مرتجعٌ حرّ، إشعارٌ بلا أصل، سندٌ يفيض
@@ -364,6 +365,20 @@ export async function loadProgressContext(tid: string, repId: string, win: Pick<
   const needsCollection = targets.some((t) => t.kind === 'COLLECTION_PCT');
   const needsVisits = targets.some((t) => t.kind === 'VISITS_COUNT');
   const needsCustomers = targets.some((t) => t.kind === 'NEW_CUSTOMERS');
+  // مرتجع المرحلة الأولى المرتبط يُسقط من متبقّي الآجلة منذ البند ١١ من تدقيق التقارير (remainingApplied) ولا يكتب
+  // originalInvoiceId، فآجلةٌ مفتوحةٌ أول الشهر أرجعها العميل في الشهر أو بعده تصير بمتبقٍّ صفر ولا يلتقطها فرعٌ من فروع OR
+  // أدناه، فتسقط من الأساس وترتفع النسبة (ويتغيّر شهرٌ مضى بأثر رجعي). بنود البيع التي أسقط مرتجعٌ مؤكَّد منذ بداية الشهر من
+  // متبقّي فاتورتها تُعيدها مرشَّحة — وافتتاحيّها كما كان: الإجمالي − السداد قبل الشهر − المرتجعات قبله (withLinkedReturns).
+  // ما لم يُسقط شيئاً (حرٌّ، على نقدية، قبل الميزة) لم يغيّر المتبقّي فلا حاجة إليه. groupBy: بند البيع مرةً واحدة من القاعدة
+  const appliedSaleItemIds = needsCollection
+    ? (await prisma.invoiceItem.groupBy({
+      by: ['returnOfItemId'],
+      where: {
+        returnOfItemId: { not: null },
+        invoice: { tenantId: tid, status: 'CONFIRMED', type: 'RETURN', remainingApplied: { gt: 0 }, invoiceDate: { gte: from } },
+      },
+    })).map((r) => r.returnOfItemId).filter((x): x is string => !!x)
+    : [];
   const [sales, returns, items, credit, visitRows, newCustomers, company] = await Promise.all([
     prisma.invoice.aggregate({ where: { ...docs, type: { not: 'RETURN' }, invoiceDate: { gte: from, lt: to } }, _sum: { total: true } }),
     prisma.invoice.aggregate({ where: { ...docs, type: 'RETURN', invoiceDate: { gte: from, lt: to } }, _sum: { total: true } }),
@@ -382,6 +397,7 @@ export async function loadProgressContext(tid: string, repId: string, win: Pick<
             { remainingAmt: { gt: BASE_EPS } },
             { receiptItems: { some: { receipt: { receiptDate: { gte: from } } } } },
             { adjustments: { some: { invoiceDate: { gte: from } } } },
+            ...(appliedSaleItemIds.length ? [{ items: { some: { id: { in: appliedSaleItemIds } } } }] : []),
           ],
         },
         select: {

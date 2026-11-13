@@ -643,9 +643,12 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
       { receipt: { team: supTeam } },
       { receipt: { invoiceItems: { some: { invoice: { team: supTeam } } } } },
     ] } : {};
-    const supTeamIds = sup
-      ? new Set((await prisma.teamSupervisor.findMany({ where: { tenantId: tid, adminId: sup }, select: { teamId: true } })).map((t) => t.teamId))
+    // واسم كل فريق من الاستعلام نفسه (علاقةٌ في الصفّ ذاته، بلا ذهابٍ ثانٍ إلى القاعدة): الكشف يُعنوَن «كشف فريقك»
+    // (teamScoped) وتسمّي الواجهة الفرق — تدقيق دقّة التقارير ١٣ نوفمبر ٢٠٢٦: رصيدان مختلفان للعميل نفسه بلا تفسير
+    const supTeams = sup
+      ? await prisma.teamSupervisor.findMany({ where: { tenantId: tid, adminId: sup }, select: { teamId: true, team: { select: { name: true } } } })
       : null;
+    const supTeamIds = supTeams ? new Set(supTeams.map((t) => t.teamId)) : null;
     /** حصّة فرق المشرف من كل سندٍ في القيود — استعلامٌ واحد بتوزيع السندات، وللمشرف وحده */
     const sharesOf = async (rs: { receiptId: string | null }[]): Promise<Map<string, number>> => {
       const ids = [...new Set(rs.map((r) => r.receiptId).filter((x): x is string => !!x))];
@@ -726,7 +729,11 @@ router.get('/:id/statement', async (req: AuthRequest, res: Response, next: NextF
       customerOut = { ...customer, totalSales: t.totalSales, totalCollected: t.totalCollected, balance: t.balance };
     }
 
-    res.json({ success: true, data: { customer: customerOut, entries, openingBalance, closingBalance, timezone, teamScoped: sup !== null } });
+    // teamScoped: الردّ مقصورٌ على فرق المشرف (القيود والإجماليات أعلاه)، فتعنون الواجهة الرصيد والمبيعات والتحصيل «لفريقك»
+    // وتنبّه أنه قد يخالف رصيد العميل الكامل في قائمة العملاء — ما يراه المشرف لم يتغيّر، العنوان وحده. وteamNames أسماء
+    // فرقه مرتّبةً (للمشرف وحده؛ غيره بلا المفتاح كما كان الردّ حرفاً)
+    const teamNames = supTeams?.map((t) => t.team.name).sort((a, b) => a.localeCompare(b, 'ar'));
+    res.json({ success: true, data: { customer: customerOut, entries, ...(teamNames && { teamNames }), openingBalance, closingBalance, timezone, teamScoped: sup !== null } });
   } catch (err) { next(err); }
 });
 

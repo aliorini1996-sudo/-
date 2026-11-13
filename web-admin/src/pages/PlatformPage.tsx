@@ -890,7 +890,8 @@ function PerformanceModal({ tenant, onClose }: { tenant: Tenant; onClose: () => 
                           <span className="text-sm font-bold text-[#1F1A13]">{formatCurrency(r.salesTotal)}</span>
                         </div>
                         <div className="w-full h-1.5 bg-[#F1EBDF] rounded-full overflow-hidden">
-                          <div className="h-full bg-[#E15A30] rounded-full" style={{ width: `${(r.salesTotal / maxRepSales) * 100}%` }} />
+                          {/* المبلغ صافٍ من المرتجع (services/topReps.ts) فقد يكون سالباً: عرضٌ سالب يُسقطه المتصفّح فيمتلئ الشريط كاملاً */}
+                          <div className="h-full bg-[#E15A30] rounded-full" style={{ width: `${(Math.max(0, r.salesTotal) / maxRepSales) * 100}%` }} />
                         </div>
                       </div>
                       <span className="text-xs text-gray-400 shrink-0">{r.invoicesCount} {tr('فاتورة')}</span>

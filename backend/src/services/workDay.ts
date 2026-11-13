@@ -92,13 +92,44 @@ export function mergeVisits<T extends VisitLike>(visits: T[]): MergedVisit<T>[] 
     sources: [v],
   }));
 
-  for (const u of sorted.filter((v) => !isTimed(v))) {
+  /* فهرس المضيفين (المؤقّتة وحدها — المدموج بلا توقيت لا يستضيف) بالعميل، بدل مسح `out` كلّه لكل ملاحظة: التقارير تقرأ الآن
+   * كل زيارات المدى (دقّة التقارير، البند ٧ — حتى ٢٠٠٬٠٠٠ سجلّ) فصار المسح الكامل تربيعياً يحبس الخادم ثوانيَ. والنتيجة هي
+   * نفسها حرفاً: المرشّحون من يطابقهم sameCustomer وحدهم — مضيفٌ بمعرّف يُقارَن بالمعرّف متى حملته الملاحظة، ومضيفٌ بلا معرّف
+   * (أو ملاحظةٌ بلا معرّف) بالاسم — ويُختار أصغرهم موضعاً في `out` ممن تقع الملاحظة في نافذته، كما كان find يختار أوّلهم. */
+  const hostCount = out.length;
+  const push = (m: Map<string, number[]>, k: string, i: number) => { const a = m.get(k); if (a) a.push(i); else m.set(k, [i]); };
+  const hostsById = new Map<string, number[]>();     // مضيفون بمعرّف عميل
+  const hostsNoIdByName = new Map<string, number[]>(); // مضيفون بلا معرّف — بالاسم
+  const hostsByName = new Map<string, number[]>();   // كل المضيفين بالاسم — لملاحظةٍ بلا معرّف
+  for (let i = 0; i < hostCount; i++) {
+    const h = out[i].sources[0];
+    if (h.customerId) push(hostsById, h.customerId, i); else push(hostsNoIdByName, h.customerName, i);
+    push(hostsByName, h.customerName, i);
+  }
+  /** أصغر موضعٍ من قائمتين تصاعديّتين يطابق الملاحظة عميلاً (sameCustomer — القاعدة نفسها، حارساً) وتقع في نافذته — -1 إن لا أحد */
+  const firstFit = (u: T, a: number[] | undefined, b: number[] | undefined): number => {
     const t = u.at.getTime();
-    const host = out.find((h) =>
-      h.durationSec != null &&
-      sameCustomer(h.sources[0], u) &&
-      t >= h.start.getTime() - MERGE_TOLERANCE_MS &&
-      t <= (h.end ? h.end.getTime() : h.start.getTime()) + MERGE_TOLERANCE_MS);
+    const fits = (i: number) => {
+      const h = out[i];
+      return sameCustomer(h.sources[0], u) &&
+        t >= h.start.getTime() - MERGE_TOLERANCE_MS && t <= (h.end ? h.end.getTime() : h.start.getTime()) + MERGE_TOLERANCE_MS;
+    };
+    let x = 0;
+    let y = 0;
+    const la = a?.length ?? 0;
+    const lb = b?.length ?? 0;
+    while (x < la || y < lb) {
+      const i = y >= lb || (x < la && a![x] < b![y]) ? a![x++] : b![y++];
+      if (fits(i)) return i;
+    }
+    return -1;
+  };
+
+  for (const u of sorted.filter((v) => !isTimed(v))) {
+    const at = u.customerId
+      ? firstFit(u, hostsById.get(u.customerId), hostsNoIdByName.get(u.customerName))
+      : firstFit(u, hostsByName.get(u.customerName), undefined);
+    const host = at >= 0 ? out[at] : undefined;
     if (host) {
       host.hasNote = true;
       host.parts += 1;

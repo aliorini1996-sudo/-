@@ -18,7 +18,7 @@ test('صفحة العملاء: كشف الحساب المفتوح يأخذ تج�
   assert.match(s, /useQuery\(\{ queryKey: \['company'\], queryFn: fetchCompany \}\)/, 'الاستعلام والضمان بدالّة واحدة');
   assert.match(s, /useEffect\(\(\) => \{ setDocResult\(d => \(d \? withLiveCompany\(d, company\) : d\)\); \}, \[company\]\);/,
     'تجدّد الشركة لا يصل الكشف المفتوح: إعادة طباعته بالنصوص القديمة');
-  const call = "statementDocFromData(customer, entries, user?.name || tr('الإدارة'), co, { teamScoped: teamScoped === true })";
+  const call = "statementDocFromData(customer, entries, user?.name || tr('الإدارة'), co, { teamScoped: teamScoped === true, teamNames })";
   const c = s.indexOf(call);
   assert.ok(c > 0, 'بناء الكشف لا يستعمل الشركة المضمونة');
   const ensure = s.lastIndexOf("company ?? await qc.ensureQueryData({ queryKey: ['company'], queryFn: fetchCompany })", c);

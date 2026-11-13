@@ -20,9 +20,16 @@ import { cleanMoney, isReturnInvoice, netSales, signedAmount } from '../services
 import { buildUnvisitedRows, unvisitedRange } from '../services/unvisitedCustomers';
 import { lastVisitBeforeMap, visitedCustomerIds } from '../services/unvisitedCustomersDb';
 import { saleInvoiceStatsMap } from '../services/unvisitedInvoicesDb';
+import { NEWEST_FIRST, VISIT_RAW_CEILING, olderThan, readNewestFirst, utcAppliedRange, utcDay, type AppliedRange } from '../services/reportBatches';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
+
+/**
+ * سقف قائمتَي الطلبات والمرتجع (البند ٧): **القائمة** وحدها تُقصّ عنده ويُعلَن `meta.truncated` — أمّا الملخّص (العدد والقيمة
+ * والأسباب ونسبة المرتجع) فتجميعٌ في القاعدة على كل مستندات المدى، فلا يُقرأ رقمٌ ناقص على أنه شامل.
+ */
+const REPORT_LIST_LIMIT = 5_000;
 
 /**
  * وحدة بيعٍ أكبر من الأساس كما يحتاجها العارض لـformatQty («٢ كرتون و٣ حبة») — النشطة وحدها. و`id` ليعرف العارض
@@ -313,6 +320,9 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
           ...(to ? { lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) } : {}),
         }
       : { gte: new Date(Date.now() - DEFAULT_DAYS * 24 * 60 * 60 * 1000) };
+    // المدى المطبَّق فعلاً في `meta` لكل فرعٍ (البند ٩): التجميعات مصفوفاتٌ لا تحمل حقلاً، وكان defaultRangeDays في الملخّص
+    // وحده — والواجهة تطلب التجميع دائماً، فكان عنوان «الفترة» يقول «كل الفترات» فوق آخر تسعين يوماً
+    const meta = { appliedRange: utcAppliedRange(!rangeApplied, dateFilter) };
 
     // «إجمالي المبيعات» صافٍ (طلب المالك ٢٩ أكتوبر ٢٠٢٦): المرتجع المؤكَّد بالمدى والنطاق والفلاتر نفسها يُطرح من كل تجميع
     // ومن الملخّص — كحساب العميل وتقرير المواقع والدفاتر. العدد يبقى عدد فواتير البيع، وقائمة الفواتير بلا مرتجعات
@@ -348,7 +358,7 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
 
     if (groupBy === 'product') {
       const ids = [...new Set([...invoices, ...returns].flatMap(inv => inv.items.map(i => i.product?.id).filter((x): x is string => !!x)))];
-      res.json({ success: true, data: salesByProduct(invoices, await activeUnitsByProduct(tid, ids), returns) });
+      res.json({ success: true, data: salesByProduct(invoices, await activeUnitsByProduct(tid, ids), returns), meta });
       return;
     }
 
@@ -364,7 +374,7 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
         if (sign > 0) byRep[key].count++;
         byRep[key].total += sign * Number(inv.total);
       });
-      res.json({ success: true, data: cleanRows(Object.values(byRep)).sort((a, b) => b.total - a.total) });
+      res.json({ success: true, data: cleanRows(Object.values(byRep)).sort((a, b) => b.total - a.total), meta });
       return;
     }
 
@@ -376,7 +386,7 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
         if (sign > 0) byCustomer[key].count++;
         byCustomer[key].total += sign * Number(inv.total);
       });
-      res.json({ success: true, data: cleanRows(Object.values(byCustomer)).sort((a, b) => b.total - a.total) });
+      res.json({ success: true, data: cleanRows(Object.values(byCustomer)).sort((a, b) => b.total - a.total), meta });
       return;
     }
 
@@ -389,7 +399,7 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
         if (sign > 0) byChannel[key].count++;
         byChannel[key].total += sign * Number(inv.total);
       });
-      res.json({ success: true, data: cleanRows(Object.values(byChannel)).sort((a, b) => b.total - a.total) });
+      res.json({ success: true, data: cleanRows(Object.values(byChannel)).sort((a, b) => b.total - a.total), meta });
       return;
     }
 
@@ -402,7 +412,7 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
         if (sign > 0) byRegion[key].count++;
         byRegion[key].total += sign * Number(inv.total);
       });
-      res.json({ success: true, data: cleanRows(Object.values(byRegion)).sort((a, b) => b.total - a.total) });
+      res.json({ success: true, data: cleanRows(Object.values(byRegion)).sort((a, b) => b.total - a.total), meta });
       return;
     }
 
@@ -415,7 +425,7 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
         if (sign > 0) byTeam[key].count++;
         byTeam[key].total += sign * Number(inv.total);
       });
-      res.json({ success: true, data: cleanRows(Object.values(byTeam)).sort((a, b) => b.total - a.total) });
+      res.json({ success: true, data: cleanRows(Object.values(byTeam)).sort((a, b) => b.total - a.total), meta });
       return;
     }
 
@@ -433,7 +443,7 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
       // عليه قرارات ناقصة. الواجهة تعرض التنبيه ويرفعه المستخدم بتحديد مدى.
       ...(rangeApplied ? {} : { defaultRangeDays: DEFAULT_DAYS }),
     };
-    res.json({ success: true, data: { invoices, summary } });
+    res.json({ success: true, data: { invoices, summary }, meta });
   } catch (err) { next(err); }
 });
 
@@ -460,37 +470,49 @@ router.get('/orders', async (req: AuthRequest, res: Response, next: NextFunction
       }
       : { gte: new Date(Date.now() - DEFAULT_DAYS * 24 * 60 * 60 * 1000) };
 
-    const orders = await prisma.invoice.findMany({
-      where: {
-        tenantId: tid,
-        ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)),
-        status: { not: 'CANCELLED' },
-        // الشرط الذي يصنع التقرير: تاريخ تسليمٍ محدَّد
-        deliveryDate: { not: null, ...deliveryFilter },
-        ...teamDocWhere(reportTeamOf(req.query.teamId)),
-      },
-      select: {
-        id: true, number: true, invoiceDate: true, deliveryDate: true,
-        total: true, paidAmt: true, status: true, team: TEAM_NAME_SELECT,
-        customer: { select: { id: true, name: true, phone: true, city: true } },
-        salesRep: { select: { id: true, name: true } },
-      },
-      orderBy: { deliveryDate: 'asc' },   // الأقرب تسليماً أوّلاً — ترتيب العمل لا ترتيب الإصدار
-      take: 5000,
-    });
+    const ordersWhere: Prisma.InvoiceWhereInput = {
+      tenantId: tid,
+      ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)),
+      status: { not: 'CANCELLED' },
+      // الشرط الذي يصنع التقرير: تاريخ تسليمٍ محدَّد
+      deliveryDate: { not: null, ...deliveryFilter },
+      ...teamDocWhere(reportTeamOf(req.query.teamId)),
+    };
+    // القائمة مقصوصةٌ بسقفٍ مُعلَن، والملخّص تجميعٌ في القاعدة على كل طلبات المدى (البند ٧) — كان يُجمع من القائمة المقصوصة
+    // صامتاً، والترتيب التصاعدي يُبقي أقدم التسليمات ويُسقط القادمة منها
+    const [found, totals] = await Promise.all([
+      prisma.invoice.findMany({
+        where: ordersWhere,
+        select: {
+          id: true, number: true, invoiceDate: true, deliveryDate: true,
+          // remainingAmt المتبقي الفعلي: الإشعار الدائن ومرتجع المرحلة الأولى المربوط (البند ١١) يُنقصانه دون paidAmt
+          total: true, paidAmt: true, remainingAmt: true, status: true, team: TEAM_NAME_SELECT,
+          customer: { select: { id: true, name: true, phone: true, city: true } },
+          salesRep: { select: { id: true, name: true } },
+        },
+        orderBy: { deliveryDate: 'asc' },   // الأقرب تسليماً أوّلاً — ترتيب العمل لا ترتيب الإصدار
+        take: REPORT_LIST_LIMIT + 1,        // صفٌّ زائد شاهدُ «يوجد المزيد»
+      }),
+      prisma.invoice.aggregate({ where: ordersWhere, _count: { _all: true }, _sum: { total: true, paidAmt: true, remainingAmt: true } }),
+    ]);
+    const truncated = found.length > REPORT_LIST_LIMIT;
+    const orders = truncated ? found.slice(0, REPORT_LIST_LIMIT) : found;
 
     res.json({
       success: true,
       data: {
         orders,
         summary: {
-          count: orders.length,
-          total: orders.reduce((s, o) => s + Number(o.total || 0), 0),
-          paid: orders.reduce((s, o) => s + Number(o.paidAmt || 0), 0),
+          count: totals._count._all,
+          total: cleanMoney(Number(totals._sum.total ?? 0)),
+          paid: cleanMoney(Number(totals._sum.paidAmt ?? 0)),
+          // المتبقي من remainingAmt لا الإجمالي − المدفوع: المرتجع المربوط والإشعار الدائن يُنقصان المتبقي وحده
+          remaining: cleanMoney(Number(totals._sum.remainingAmt ?? 0)),
         },
         rangeApplied,
         defaultDays: rangeApplied ? null : DEFAULT_DAYS,
       },
+      meta: { truncated, limit: REPORT_LIST_LIMIT, appliedRange: utcAppliedRange(!rangeApplied, deliveryFilter) },
     });
   } catch (err) { next(err); }
 });
@@ -517,10 +539,15 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
       : { gte: new Date(Date.now() - DEFAULT_DAYS * 24 * 60 * 60 * 1000) };
     // «الفرق»: الفريق جزءٌ من النطاق نفسه — فيطبَّق على المرتجعات وعلى مبيعات النسبة معاً
     const scope = { ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)), ...teamDocWhere(reportTeamOf(req.query.teamId)) };
+    // مستندات المرتجع في المدى — شرطٌ واحد للقائمة وللملخّص، فلا يختلف ما يُعدّ عمّا يُعرض إلا بالسقف المُعلَن
+    const returnsWhere: Prisma.InvoiceWhereInput = { tenantId: tid, ...scope, status: 'CONFIRMED', type: 'RETURN', invoiceDate: dateFilter };
 
-    const [returns, sales] = await Promise.all([
+    /* الملخّص تجميعٌ في القاعدة على **كل** مرتجعات المدى (البند ٧): كان يُحسب من القائمة المقصوصة عند ٥٬٠٠٠ صامتاً، فينقص
+     * العدد والقيمة والأسباب والبنود المنتهية — بينما مقام النسبة ومرتجع تقرير المبيعات بلا سقف، فيختلف التقريران.
+     * والقائمة وحدها مقصوصةٌ بسقفٍ مُعلَن (الأحدث أولاً). */
+    const [found, sales, reasonGroups, expiredLines] = await Promise.all([
       prisma.invoice.findMany({
-        where: { tenantId: tid, ...scope, status: 'CONFIRMED', type: 'RETURN', invoiceDate: dateFilter },
+        where: returnsWhere,
         select: {
           id: true, number: true, invoiceDate: true, total: true, taxAmt: true,
           returnReason: true, returnToStock: true, documentKind: true, notes: true, createdAt: true, team: TEAM_NAME_SELECT,
@@ -536,14 +563,20 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
           },
         },
         orderBy: { invoiceDate: 'desc' },
-        take: 5000,
+        take: REPORT_LIST_LIMIT + 1, // صفٌّ زائد شاهدُ «يوجد المزيد»
       }),
       // نسبة المرتجع: مبيعات المدى نفسه في النطاق نفسه (تعريف تقرير المبيعات)
       prisma.invoice.aggregate({
         where: { tenantId: tid, ...scope, status: 'CONFIRMED', type: { not: 'RETURN' }, invoiceDate: dateFilter },
         _sum: { total: true },
       }),
+      // العدد والقيمة لكل سبب — ومنها عدد المرتجع وقيمته كلّها
+      prisma.invoice.groupBy({ by: ['returnReason'], where: returnsWhere, _count: { _all: true }, _sum: { total: true } }),
+      // البنود التي عادت منتهية الصلاحية في كل مرتجعات المدى
+      prisma.invoiceItem.count({ where: { returnExpired: true, invoice: returnsWhere } }),
     ]);
+    const truncated = found.length > REPORT_LIST_LIMIT;
+    const returns = truncated ? found.slice(0, REPORT_LIST_LIMIT) : found;
 
     // فاتورة البيع للمرتجع المرتبط في المرحلة الأولى: من بنوده (returnOfItemId) — استعلامٌ واحد لكل المرتجعات
     const saleItemIds = [...new Set(returns.flatMap((r) => r.items.map((i) => i.returnOfItemId).filter((x): x is string => !!x)))];
@@ -576,30 +609,38 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
       };
     });
 
-    const total = rows.reduce((t, r) => t + r.total, 0);
+    // من تجميع القاعدة لا من الصفوف: سببٌ فارغ يُعدّ «عادياً» كما يعرضه الصفّ (reason ?? 'NORMAL')
+    let count = 0;
+    let total = 0;
     const byReason: Record<string, { count: number; total: number }> = {};
-    for (const r of rows) {
-      const b = (byReason[r.reason] ??= { count: 0, total: 0 });
-      b.count += 1;
-      b.total += r.total;
+    for (const g of reasonGroups) {
+      const n = g._count._all;
+      const t = Number(g._sum.total ?? 0);
+      const b = (byReason[g.returnReason ?? 'NORMAL'] ??= { count: 0, total: 0 });
+      b.count += n;
+      b.total += t;
+      count += n;
+      total += t;
     }
+    for (const b of Object.values(byReason)) b.total = Math.round(b.total * 1000) / 1000;
     const salesTotal = Number(sales._sum.total ?? 0);
     res.json({
       success: true,
       data: {
         returns: rows,
         summary: {
-          count: rows.length,
+          count,
           total: Math.round(total * 1000) / 1000,
           salesTotal: Math.round(salesTotal * 1000) / 1000,
           // نسبة المرتجع من المبيعات بمنزلةٍ عشرية — null بلا مبيعات (القسمة على صفر لا معنى لها)
           returnRate: salesTotal > 0 ? Math.round((total / salesTotal) * 1000) / 10 : null,
           byReason,
-          expiredLines: rows.reduce((n, r) => n + r.items.filter((i) => i.returnExpired === true).length, 0),
+          expiredLines,
         },
         rangeApplied,
         defaultDays: rangeApplied ? null : DEFAULT_DAYS,
       },
+      meta: { truncated, limit: REPORT_LIST_LIMIT, appliedRange: utcAppliedRange(!rangeApplied, dateFilter) },
     });
   } catch (err) { next(err); }
 });
@@ -665,9 +706,12 @@ router.get('/balances', async (req: AuthRequest, res: Response, next: NextFuncti
     if (type === 'overdue') where = { balance: { gt: 1e-6 } };
     if (type === 'exceeded') where = { creditLimit: { gt: 0 } };
 
+    // كل عميلٍ غير محذوف — النشط والموقوف والمحظور (البند ٢): الدين لا يسقط بإيقاف العميل. كان الشرط ACTIVE وحده فيختفي
+    // المحظور (وهو عادةً المتعثّر الذي أُوقف البيع له) والموقوف بدل حذفه، ومعهما دينهما من «إجمالي مديونية الشركة» —
+    // بينما قائمة العملاء وكشف الحساب ومديونيات المندوب تُظهره. والحالة في كل صفّ لتَسِمه الواجهة «محظور» أو «غير نشط».
     const customers = await prisma.customer.findMany({
-      where: { tenantId: tid, status: 'ACTIVE', ...(await adminCustomerFilter(req)), ...where },
-      select: { id: true, name: true, phone: true, balance: true, creditLimit: true, paymentDays: true, totalSales: true, totalCollected: true },
+      where: { tenantId: tid, status: { not: 'DELETED' }, ...(await adminCustomerFilter(req)), ...where },
+      select: { id: true, name: true, phone: true, status: true, balance: true, creditLimit: true, paymentDays: true, totalSales: true, totalCollected: true },
       orderBy: { balance: 'desc' },
     });
 
@@ -695,7 +739,8 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
     // ومجاميع المندوب بنطاق المستند نفسه (docScope): مندوبٌ مشترك لا تظهر لمشرف فريقٍ مبيعاتُ فريقه الآخر
     const team = reportTeamOf(req.query.teamId);
     const docScope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
-    const [reps, sessions, visitRows] = await Promise.all([
+    const visitWhere: Prisma.RepVisitWhereInput = { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req, SHAPE_VISIT)), ...teamDocWhere(team) };
+    const [reps, sessions, visitRead, cashSaleGroups] = await Promise.all([
       prisma.salesRep.findMany({
         where: { tenantId: tid, isActive: true, AND: [await adminRepFilter(req), teamRepOrDocsWhere(team)] },
         select: {
@@ -718,16 +763,30 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
       }),
       /* كلّ الزيارات — لا العدّ الخام (groupBy) ولا ذوات الإحداثيّات وحدها.
        * العدّ يجري على **الوقفات** بعد الدمج: الزيارة المؤقّتة وملاحظتها سجلّان
-       * ووقفةٌ واحدة، فكان عدّ السجلّات يضاعف زيارات المندوب في تقرير أدائه. */
-      prisma.repVisit.findMany({
-        where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req, SHAPE_VISIT)), ...teamDocWhere(team) },
+       * ووقفةٌ واحدة، فكان عدّ السجلّات يضاعف زيارات المندوب في تقرير أدائه.
+       * وكلّها فعلاً (البند ٧): دفعاتٌ حتى تنفد (services/reportBatches.ts) — كان سقفٌ صامت عند ٢٠٬٠٠٠ تصاعدياً يُبقي أقدم
+       * السجلّات ويُسقط الأحدث، فيظهر مندوبٌ التحق حديثاً بصفر زيارات. وحدّ الأمان وحده يُعلَن في meta.truncated */
+      readNewestFirst((after, take) => prisma.repVisit.findMany({
+        where: { AND: [visitWhere, olderThan(after)] },
         select: {
-          salesRepId: true, customerId: true, createdAt: true, startedAt: true, durationSec: true,
+          id: true, salesRepId: true, customerId: true, createdAt: true, startedAt: true, durationSec: true,
           lat: true, lng: true, customer: { select: { name: true } },
         },
-        orderBy: { createdAt: 'asc' }, take: 20000,
+        orderBy: NEWEST_FIRST, take,
+      })),
+      /* «نسبة التحصيل» تعدّ البيع النقدي محصَّلاً (البند ٦): الفاتورة النقدية تُقبض لحظة البيع ولا تُنشئ سند قبض، فكانت
+       * تدخل المقام (صافي المبيعات) ولا تدخل البسط (السندات) — ومندوبٌ نقديٌّ كلّه يظهر بنسبة ٠٪ حمراء. والشرط هو
+       * COLLECTED_CASH_SALE حرفياً (صفحة «طرق الدفع»، القرار ١): النقدية المؤكَّدة وما أبطلته الهيئة واحتُفظ بتحصيله، وpaidAmt
+       * (= الإجمالي في النقدية). بلا ختم العهدة cashCollectedByRep: البيع النقدي محصَّلٌ عند البيع أيّاً كان من يحمل النقد.
+       * بالمدى والنطاق والفريق أنفسها — والشرط فيه OR فيُجمع مع النطاق والفريق في AND كصفحة «طرق الدفع» */
+      prisma.invoice.groupBy({
+        by: ['salesRepId'],
+        where: { tenantId: tid, ...(dateFilter && { invoiceDate: dateFilter }), AND: [COLLECTED_CASH_SALE, teamDocWhere(team), docScope] },
+        _sum: { paidAmt: true },
       }),
     ]);
+    const visitRows = visitRead.rows;
+    const cashSalesOf = new Map(cashSaleGroups.map((g) => [g.salesRepId, cleanMoney(Number(g._sum.paidAmt ?? 0))]));
 
     const minutesByRep = new Map<string, number>();
     for (const s of sessions) {
@@ -752,7 +811,9 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
     const data = reps.map(r => {
       const salesCount = r.invoices.filter((i) => !isReturnInvoice(i)).length;
       const salesTotal = cleanMoney(r.invoices.reduce((s, i) => s + signedAmount(i, i.total), 0));
+      // «التحصيل» يبقى السندات وحدها — يطابق تقرير التحصيل كما كان؛ والبيع النقدي المحصَّل حقلٌ مستقلّ بجانبه
       const collectionsTotal = r.receipts.reduce((s, rc) => s + Number(rc.amount), 0);
+      const cashSalesTotal = cashSalesOf.get(r.id) ?? 0;
       const discountTotal = cleanMoney(r.invoices.reduce((s, i) => s + signedAmount(i, i.discountAmt), 0));
       const workMinutes = Math.round(minutesByRep.get(r.id) || 0);
       return {
@@ -761,8 +822,10 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
         invoicesCount: salesCount,
         salesTotal,
         collectionsTotal,
+        cashSalesTotal,
         discountTotal,
-        collectionRate: salesTotal > 0 ? Math.round((collectionsTotal / salesTotal) * 100) : 0,
+        // (السندات + البيع النقدي المحصَّل) ÷ صافي المبيعات — نسبةٌ صحيحة كما كانت، وقد تتجاوز ١٠٠ بسندات دينٍ أقدم من المدى
+        collectionRate: salesTotal > 0 ? Math.round(((collectionsTotal + cashSalesTotal) / salesTotal) * 100) : 0,
         avgInvoice: salesCount > 0 ? Math.round(salesTotal / salesCount) : 0,
         workMinutes,
         workHours: Math.floor(workMinutes / 60),
@@ -772,7 +835,8 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
       };
     }).sort((a, b) => b.salesTotal - a.salesTotal);
 
-    res.json({ success: true, data });
+    // data مصفوفةٌ فالإعلان في meta بجانبها (كـrangeClamped في ساعات العمل)
+    res.json({ success: true, data, meta: { truncated: visitRead.truncated, limit: visitRead.limit } });
   } catch (err) { next(err); }
 });
 
@@ -783,8 +847,11 @@ router.get('/customer-visits', async (req: AuthRequest, res: Response, next: Nex
     const { from, to } = req.query as Record<string, string>;
     const fromDate = from ? new Date(from) : new Date(0);
     const toEnd = to ? new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) : new Date();
-    const visits = await prisma.repVisit.findMany({
-      where: { tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...(await scopedRecordWhere(req, SHAPE_VISIT)), ...teamDocWhere(reportTeamOf(req.query.teamId)) },
+    // كل زيارات المدى دفعاتٍ حتى تنفد (البند ٧، services/reportBatches.ts): كان سقفٌ صامت عند ٥٬٠٠٠ سجلّ يُسقط ما قبل
+    // آخر أيام المدى، فيختفي عميلٌ زِير أوله من هنا ومن «لم تتم زيارتهم» معاً (ذاك يرى كل الزيارات). حدّ الأمان وحده مُعلَن
+    const visitScope = await scopedRecordWhere(req, SHAPE_VISIT);
+    const visitRead = await readNewestFirst((after, take) => prisma.repVisit.findMany({
+      where: { AND: [{ tenantId: tid, createdAt: { gte: fromDate, lt: toEnd }, ...visitScope, ...teamDocWhere(reportTeamOf(req.query.teamId)) }, olderThan(after)] },
       select: {
         id: true, salesRepId: true, customerId: true, createdAt: true, startedAt: true,
         note: true, lat: true, lng: true, durationSec: true,
@@ -792,8 +859,9 @@ router.get('/customer-visits', async (req: AuthRequest, res: Response, next: Nex
         salesRep: { select: { name: true } },
         team: TEAM_NAME_SELECT,
       },
-      orderBy: { createdAt: 'desc' }, take: 5000,
-    });
+      orderBy: NEWEST_FIRST, take,
+    }));
+    const visits = visitRead.rows;
     /* وقفةٌ لكلّ صفّ: الزيارة المؤقّتة وملاحظتها (أو صورتها) سجلّان في القاعدة،
      * فكان العميل يظهر مرّتين — مرّةً بمدّة ومرّةً «بلا توقيت» بملاحظة — ويتضاعف
      * عدد زياراته. والصفّ المدموج يأخذ المدّة من المؤقّت، والملاحظة من سجلّها،
@@ -813,7 +881,7 @@ router.get('/customer-visits', async (req: AuthRequest, res: Response, next: Nex
         mapsUrl: m.lat != null && m.lng != null ? `https://www.google.com/maps?q=${m.lat},${m.lng}` : '',
       };
     }).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-    res.json({ success: true, data: { count: rows.length, visits: rows } });
+    res.json({ success: true, data: { count: rows.length, visits: rows }, meta: { truncated: visitRead.truncated, limit: visitRead.limit } });
   } catch (err) { next(err); }
 });
 
@@ -950,29 +1018,32 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
     // «الفرق»: المناديب بعضويتهم (الساعات والحضور لا تنقسم)، وزياراتهم بوسمها
     const team = reportTeamOf(req.query.teamId);
     const repWhere = { tenantId: tid, isActive: true, AND: [await adminRepFilter(req), teamRepWhere(team)] };
-    const [reps, sessions, visits, pingRows, attendance] = await Promise.all([
+    // الفلتر يُوائم حقل التجميع (at = startedAt || createdAt): الفلتر على
+    // createdAt وحده كان يُدخل زيارةً بدأت قبل المدى (startedAt قديم لزيارةٍ
+    // عالقة أُنشئ سجلّها داخله) فتُنسب ليوم بدايتها خارج ما حدّده المشرف،
+    // ويُسقط زيارةً بدأت في آخر يومٍ وأُنشئ سجلُّها بعد منتصف ليله.
+    // النطاق عنصرٌ في مصفوفة AND نفسها: نثرُه بجانب مفتاح AND كان يُكتب فوقه فيسقط قيد عملاء المستخدم المقيّد
+    const visitWhere: Prisma.RepVisitWhereInput = {
+      tenantId: tid,
+      ...teamDocWhere(team),
+      AND: [await scopedRecordWhere(req, SHAPE_VISIT), { OR: [
+        { startedAt: { gte: fromDate, lt: toEnd } },
+        { startedAt: null, createdAt: { gte: fromDate, lt: toEnd } },
+      ] }],
+    };
+    const [reps, sessions, visitRead, pingRows, attendance] = await Promise.all([
       prisma.salesRep.findMany({ where: repWhere, select: { id: true, name: true } }),
       prisma.repSession.findMany({
         where: { tenantId: tid, startedAt: { gte: fromDate, lt: toEnd }, ...(await scopedRepRecordWhere(req)) },
         select: { salesRepId: true, startedAt: true, lastBeatAt: true },
       }),
-      prisma.repVisit.findMany({
-        // الفلتر يُوائم حقل التجميع (at = startedAt || createdAt): الفلتر على
-        // createdAt وحده كان يُدخل زيارةً بدأت قبل المدى (startedAt قديم لزيارةٍ
-        // عالقة أُنشئ سجلّها داخله) فتُنسب ليوم بدايتها خارج ما حدّده المشرف،
-        // ويُسقط زيارةً بدأت في آخر يومٍ وأُنشئ سجلُّها بعد منتصف ليله.
-        // النطاق عنصرٌ في مصفوفة AND نفسها: نثرُه بجانب مفتاح AND كان يُكتب فوقه فيسقط قيد عملاء المستخدم المقيّد
-        where: {
-          tenantId: tid,
-          ...teamDocWhere(team),
-          AND: [await scopedRecordWhere(req, SHAPE_VISIT), { OR: [
-            { startedAt: { gte: fromDate, lt: toEnd } },
-            { startedAt: null, createdAt: { gte: fromDate, lt: toEnd } },
-          ] }],
-        },
-        select: { salesRepId: true, createdAt: true, startedAt: true, durationSec: true, lat: true, lng: true, customer: { select: { name: true } } },
-        orderBy: { createdAt: 'asc' }, take: 10000,
-      }),
+      // كل زيارات المدى دفعاتٍ حتى تنفد (البند ٧، services/reportBatches.ts): كان سقفٌ صامت عند ١٠٬٠٠٠ تصاعدياً يُسقط
+      // زيارات آخر أيام الشهر لشركةٍ متوسطة، فتظهر أيامها بلا زيارات وvisitsTotal ناقصاً. حدّ الأمان وحده يُعلَن في meta
+      readNewestFirst((after, take) => prisma.repVisit.findMany({
+        where: { AND: [visitWhere, olderThan(after)] },
+        select: { id: true, salesRepId: true, createdAt: true, startedAt: true, durationSec: true, lat: true, lng: true, customer: { select: { name: true } } },
+        orderBy: NEWEST_FIRST, take,
+      })),
       // نقاط GPS تُختزل في القاعدة إلى (مندوب × يوم محلي → أول/آخر التقاط):
       // الصفوف الخام قد تبلغ الملايين، والمطلوب منها طرفا اليوم لا مسارُه.
       // ⚠️ لا make_interval هنا: Prisma يمرّر الرقم bigint وPostgres لا يملك
@@ -1010,7 +1081,7 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
       return m;
     };
     const sessByRep = byRep(sessions);
-    const visitsByRep = byRep(visits);
+    const visitsByRep = byRep(visitRead.rows);
     const pingsByRep = byRep(pingRows);
     const attByRep = byRep(attendance);
 
@@ -1064,7 +1135,14 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
       };
     }).sort((a, b) => b.fieldMinutesTotal - a.fieldMinutesTotal);
 
-    res.json({ success: true, data, meta: { tzOffsetMin, ...(rangeClamped ? { rangeClamped: MAX_DAYS } : {}) } });
+    // المدى المطبَّق فعلاً بالأيام المحلّية نفسها التي مُلئت بها الصفوف (البند ٩): بلا «من» أسبوعٌ اختاره الخادم (defaulted)،
+    // و«من» بعد قصّ الـ٣١ يوماً — فعنوان «الفترة» في التصدير يقول ما في الجدول لا ما طُلب
+    const localDay = (d: Date) => utcDay(new Date(d.getTime() + tzOffsetMin * 60000));
+    const appliedRange: AppliedRange = { from: localDay(fromDate), to: localDay(new Date(toEnd.getTime() - 1)), defaulted: !from };
+    res.json({
+      success: true, data,
+      meta: { tzOffsetMin, ...(rangeClamped ? { rangeClamped: MAX_DAYS } : {}), truncated: visitRead.truncated, limit: visitRead.limit, appliedRange },
+    });
   } catch (err) { next(err); }
 });
 
@@ -1128,6 +1206,8 @@ router.get('/rep-ranking', async (req: AuthRequest, res: Response, next: NextFun
     const ids = reps.map((r) => r.id);
     const value = new Map<string, number>();
     const add = (rep: string | null, v: number) => { if (rep) value.set(rep, (value.get(rep) ?? 0) + v); };
+    /** معيار الزيارات وحده قد يبلغ حدّ أمان السجلّات الخام — يُعلَن في meta */
+    let visitsTruncated = false;
 
     if (ids.length && metric === 'sales') {
       // صافي المبيعات: المرتجع بنوعه يُطرح (services/netSales.ts)
@@ -1148,15 +1228,17 @@ router.get('/rep-ranking', async (req: AuthRequest, res: Response, next: NextFun
       });
       for (const [rep, v] of productQtyByRep(rows)) add(rep, v);
     } else if (ids.length && metric === 'visits') {
-      const visits = await prisma.repVisit.findMany({
-        where: { tenantId: tid, salesRepId: { in: ids }, createdAt: { gte: start, lt: end }, ...(await scopedRecordWhere(req, SHAPE_VISIT)), ...teamDocWhere(team) },
-        select: {
-          salesRepId: true, customerId: true, createdAt: true, startedAt: true, durationSec: true,
-          lat: true, lng: true, customer: { select: { name: true } },
-        },
-        orderBy: { createdAt: 'asc' }, take: 50000,
-      });
-      for (const m of mergeVisitsByRep(visits.map(asVisitLike))) add(m.sources[0].salesRepId, 1);
+      // كل زيارات المدى دفعاتٍ حتى تنفد (البند ٧) — تعريف «أداء المندوب» وقراءته نفسيهما، فلا يختلف عدد المندوب بين التبويبين
+      // (كان هنا سقف ٥٠٬٠٠٠ وهناك ٢٠٬٠٠٠، وكلاهما تصاعديّ يُسقط الأحدث). والأعمدة ما يحتاجه الدمج وحده: العميل بمعرّفه
+      // (sameCustomer يطابق بالمعرّف متى حمله الطرفان، والعمود إلزامي) — فلا اسم ولا موقع
+      const visitWhere: Prisma.RepVisitWhereInput = { tenantId: tid, salesRepId: { in: ids }, createdAt: { gte: start, lt: end }, ...(await scopedRecordWhere(req, SHAPE_VISIT)), ...teamDocWhere(team) };
+      const visitRead = await readNewestFirst((after, take) => prisma.repVisit.findMany({
+        where: { AND: [visitWhere, olderThan(after)] },
+        select: { id: true, salesRepId: true, customerId: true, createdAt: true, startedAt: true, durationSec: true },
+        orderBy: NEWEST_FIRST, take,
+      }));
+      visitsTruncated = visitRead.truncated;
+      for (const m of mergeVisitsByRep(visitRead.rows.map(asVisitLike))) add(m.sources[0].salesRepId, 1);
     } else if (ids.length && metric === 'appTime') {
       const sessions = await prisma.repSession.findMany({
         where: { tenantId: tid, salesRepId: { in: ids }, startedAt: { gte: start, lt: end } },
@@ -1222,12 +1304,22 @@ router.get('/rep-ranking', async (req: AuthRequest, res: Response, next: NextFun
     // الكيلو بمنزلةٍ عشرية، والدقائق صحيحة، والمبالغ والكميات بثلاث منازل (عملات الدينار)
     const round = (v: number) => (metric === 'distance' ? Math.round(v * 10) / 10 : metric === 'appTime' ? Math.round(v) : Math.round(v * 1000) / 1000);
     const rows = rankRows(reps.map((r) => ({ repId: r.id, name: r.name, value: round(value.get(r.id) ?? 0) })));
+    // المسافة وحدها لها مدىً افتراضيّ (أسبوعٌ ينتهي «إلى») وقصٌّ عند ٣١ يوماً — فمداها المطبَّق فعلاً في meta (البند ٩)؛
+    // وبقية المعايير بلا «من» منذ البداية بلا نافذةٍ مفروضة
+    const appliedRange: AppliedRange | null = metric === 'distance'
+      ? { from: utcDay(new Date(start.getTime() + tz * 60000)), to: toDay, defaulted: !isDay(q.from) }
+      : null;
     res.json({
       success: true,
       data: {
         metric, product, rows,
         range: { from: start.getTime() === 0 ? null : new Date(start.getTime() + tz * 60000).toISOString().slice(0, 10), to: toDay },
         clampedDays,
+      },
+      meta: {
+        truncated: visitsTruncated,
+        ...(metric === 'visits' ? { limit: VISIT_RAW_CEILING } : {}),
+        ...(appliedRange ? { appliedRange } : {}),
       },
     });
   } catch (err) { next(err); }
@@ -1395,6 +1487,8 @@ router.get('/lot-sales', requireLots, async (req: AuthRequest, res: Response, ne
         truncated,
         ...(truncated && { maxInvoices: LOT_SALES_MAX_INVOICES }),
       },
+      // اصطلاح meta الموحّد لتقارير المدى والسقف (البندان ٧ و٩) — data أعلاه كما كان، والمدى بأيام الشركة كـdata.range
+      meta: { truncated, limit: LOT_SALES_MAX_INVOICES, appliedRange: { from: rangeFrom, to: rangeTo, defaulted: !rangeApplied } satisfies AppliedRange },
     });
   } catch (err) { next(err); }
 });

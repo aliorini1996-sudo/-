@@ -1238,6 +1238,9 @@ model Invoice {
   total            Float
   paidAmt          Float   @default(0)
   remainingAmt     Float
+  /// مرتجع المرحلة الأولى المرتبط بفاتورة بيعٍ آجلة: ما أسقطه فعلاً من متبقّيها لحظة إصداره، فيردّ إلغاؤه هذا القدر بعينه.
+  /// null = لم يُسقط شيئاً (مرتجعٌ حرّ، أو على نقدية، أو صدر قبل الميزة — لا ترحيل للتاريخ)
+  remainingApplied Float?
 
   // الفوترة الإلكترونية (اعتماد حكومي) — تُملأ عند الإرسال للمزوّد
   einvoiceProvider    String? // zatca | eta | peppol | ttn | none
@@ -2366,6 +2369,9 @@ model RepVisit {
   @@index([tenantId, salesRepId, createdAt])
   @@index([tenantId, customerId])
   @@index([tenantId, teamId, createdAt]) // تقارير الفرق
+  // تقارير الزيارات تقرأ كل سجلّات الشركة في المدى دفعاتٍ بالأحدث أولاً (services/reportBatches.ts — تدقيق دقّة التقارير ١٣
+  // نوفمبر ٢٠٢٦): بهذا الفهرس كل دفعةٍ مسحُ مدىً يبدأ من مؤشّرها، وبدونه تُعيد كل دفعةٍ فرز ما بقي من زيارات الشركة كله
+  @@index([tenantId, createdAt])
   @@map("rep_visits")
 }
 

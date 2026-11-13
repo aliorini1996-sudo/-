@@ -8,7 +8,11 @@ import { presenceByRepDay, presenceSummary, type PresenceRow } from '../lib/pres
 import { splitSheetsByTeam } from '../lib/teamReport';
 import { customerPhoneText } from '../lib/customerPhoneField';
 import RepRankingBoard, { RANKING_LABELS, type RankingData, type RankingMetric } from '../components/reports/RepRankingBoard';
-import { formatCurrency, activeLocale, formatDayOnly } from '../utils/format';
+import { formatCurrency, activeLocale, formatDayOnly, formatNumber } from '../utils/format';
+import {
+  appliedRangeOf, truncationOf, periodText, defaultedRangeNote, truncationNote, customerStatusLabel, customerStatusBadge,
+  hasCustomerStatus, perfHasCash, rateBarWidth, listTotals, type AppliedRange, type Truncation,
+} from '../lib/reportsAccuracy';
 import { useTr } from '../i18n/strings';
 import { channelLabel } from '../lib/channels';
 import { filterFlat, filterNested } from '../lib/reportSearch';
@@ -50,7 +54,12 @@ interface VisitLoc { customerName: string; createdAt: string; lat: number; lng: 
 interface PerfRow {
   id: string; name: string; invoicesCount: number; salesTotal: number; collectionsTotal: number; collectionRate: number; avgInvoice: number;
   workMinutes: number; workHours: number; workMins: number; visitsCount: number; visits: VisitLoc[];
+  /** البيع النقدي المحصَّل لحظة البيع (شرط «طرق الدفع» COLLECTED_CASH_SALE) — يدخل نسبة التحصيل منذ ١٣ نوفمبر ٢٠٢٦؛
+   *  غيابه من خادمٍ أقدم ⇒ لا عمود له، والنسبة سندات وحدها كما كانت */
+  cashSalesTotal?: number;
 }
+/** صفّ «أرصدة العملاء» — `status` (ACTIVE | INACTIVE | BLOCKED) منذ ١٣ نوفمبر ٢٠٢٦: المحظور والموقوف مدينون يدخلون الإجمالي بشارة */
+interface BalanceRow { id: string; name: string; phone: string; balance: number; creditLimit: number; status?: string }
 interface RecvCustomer { id: string; name: string; businessName: string | null; phone: string; city: string | null; balance: number; lastPaymentAt: string | null }
 interface RecvRow { id: string; name: string; customersCount: number; debtorsCount: number; totalBalance: number; customers: RecvCustomer[] }
 interface CustVisit { id: string; customerId: string; customerName: string; repName: string; teamName?: string | null; createdAt: string; durationSec: number | null; note: string; mapsUrl: string }
@@ -58,10 +67,15 @@ interface CustVisit { id: string; customerId: string; customerName: string; repN
 interface OrderRow {
   id: string; number: string; invoiceDate: string; deliveryDate: string;
   total: number; paidAmt: number; status: string;
+  /** المتبقي الفعلي (الإشعار الدائن والمرتجع المربوط يُنقصانه دون المدفوع) — غيابه من خادمٍ أقدم ⇒ الإجمالي − المدفوع */
+  remainingAmt?: number;
   customer: { id: string; name: string; phone: string; city: string | null } | null;
   salesRep: { id: string; name: string } | null;
   team?: { id: string; name: string } | null;
 }
+/** متبقي الطلب: remainingAmt حين يرسله الخادم، وإلا الإجمالي − المدفوع (خادمٌ أقدم) */
+const orderRemaining = (o: OrderRow): number => (o.remainingAmt != null && Number.isFinite(Number(o.remainingAmt))
+  ? Number(o.remainingAmt) : Number(o.total || 0) - Number(o.paidAmt || 0));
 /** صفّ «تقرير المرتجع» — مستند إرجاعٍ مؤكَّد بفاتورة بيعه (إن رُبط) وبنوده */
 interface ReturnRow {
   id: string; number: string; invoiceDate: string; total: number; taxAmt: number;
@@ -176,14 +190,17 @@ export default function ReportsPage() {
     { id: 'performance', label: tr('أداء المناديب'), icon: UserCheck },
   ];
 
-  const { data: salesData, isLoading: salesLoading } = useQuery({
+  /* البند ٩: بلا مدى يقصر الخادم المبيعات على تسعين يوماً — والتجميعات مصفوفاتٌ لا تحمل ذلك، فالمدى المطبَّق في `meta`
+   * أعلى الردّ: منه تنبيه الشاشة ورأس PDF وورقة «الفترة» في Excel بدل «كل الفترات» */
+  const { data: salesRes, isLoading: salesLoading } = useQuery({
     queryKey: ['report-sales', from, to, groupBy, teamFilter],
     queryFn: async () => {
       const res = await reportApi.sales({ from, to, groupBy, ...tp });
-      return res.data.data;
+      return { rows: res.data.data, applied: appliedRangeOf(res.data) };
     },
     enabled: accountingReady && accountingOn && tab === 'sales' && salesType === 'summary',
   });
+  const salesData = salesRes?.rows;
 
   /* الطلبات: المدى يُطبَّق على **تاريخ التسليم** لا تاريخ الفاتورة — السؤال
    * «ما الذي عليّ تسليمه بين هذين التاريخين». */
@@ -191,7 +208,12 @@ export default function ReportsPage() {
     queryKey: ['report-orders', from, to, teamFilter],
     queryFn: async () => {
       const res = await reportApi.orders({ from, to, ...tp });
-      return res.data.data as { orders: OrderRow[]; summary: { count: number; total: number; paid: number }; rangeApplied: boolean; defaultDays: number | null };
+      // الملخّص من القاعدة على كل طلبات المدى، والقائمة مقطوعةٌ عند سقفها بعلامة (البند ٧) — والمدى المطبَّق (البند ٩): بلا مدى
+      // لا حدّ أعلى لتاريخ التسليم (التسليمات القادمة داخلة) فيُعلن الخادم to = null، فلا يقول التنبيه ورأس PDF «حتى اليوم»
+      return {
+        ...(res.data.data as { orders: OrderRow[]; summary: { count: number; total: number; paid: number; remaining?: number }; rangeApplied: boolean; defaultDays: number | null }),
+        applied: appliedRangeOf(res.data), trunc: truncationOf(res.data),
+      };
     },
     enabled: accountingReady && accountingOn && tab === 'sales' && salesType === 'orders',
   });
@@ -201,7 +223,11 @@ export default function ReportsPage() {
     queryKey: ['report-returns', from, to, teamFilter, lotOn],
     queryFn: async () => {
       const res = await reportApi.returns({ from, to, ...tp, ...(lotOn && { withLots: '1' }) });
-      return res.data.data as { returns: ReturnRow[]; summary: ReturnsSummary; rangeApplied: boolean; defaultDays: number | null };
+      // الملخّص (العدد والقيمة والسبب والنسبة) من القاعدة على كل مرتجعات المدى؛ القائمة وحدها قد تُقطع عند سقفها (البند ٧)
+      return {
+        ...(res.data.data as { returns: ReturnRow[]; summary: ReturnsSummary; rangeApplied: boolean; defaultDays: number | null }),
+        applied: appliedRangeOf(res.data), trunc: truncationOf(res.data),
+      };
     },
     enabled: accountingReady && accountingOn && tab === 'sales' && salesType === 'returns',
   });
@@ -211,7 +237,8 @@ export default function ReportsPage() {
     queryKey: ['report-lot-sales', from, to, teamFilter],
     queryFn: async () => {
       const params = { ...(from ? { from } : {}), ...(to ? { to } : {}), ...tp };
-      return (await lotsApi.lotSales(params)).data.data as LotSalesReportDto;
+      const res = await lotsApi.lotSales(params);
+      return { ...(res.data.data as LotSalesReportDto), applied: appliedRangeOf(res.data) };
     },
     enabled: accountingReady && accountingOn && lotOn && tab === 'sales' && salesType === 'lots',
     // رفض ٤xx (مدى مقلوب، الميزة أُطفئت) لا يتغيّر بالإعادة فيُقال فوراً — الإعادة للشبكة و٥xx
@@ -234,7 +261,7 @@ export default function ReportsPage() {
     queryKey: ['report-balances'],
     queryFn: async () => {
       const res = await reportApi.balances({ type: 'overdue' });
-      return res.data.data as { id: string; name: string; phone: string; balance: number; creditLimit: number }[];
+      return res.data.data as BalanceRow[];
     },
     enabled: accountingReady && accountingOn && tab === 'balances' && custType === 'balances',
   });
@@ -244,7 +271,8 @@ export default function ReportsPage() {
     queryKey: ['report-customer-visits', from, to, teamFilter],
     queryFn: async () => {
       const res = await reportApi.customerVisits({ from, to, ...tp });
-      return res.data.data as { count: number; visits: CustVisit[] };
+      // البند ٧: الخادم يقرأ كل سجلّات المدى دفعاتٍ حتى سقف أمانٍ عالٍ — وبلوغه يُعلَن فلا يُقرأ المقصوص شاملاً
+      return { ...(res.data.data as { count: number; visits: CustVisit[] }), trunc: truncationOf(res.data) };
     },
     enabled: tab === 'balances' && custType === 'visits',
   });
@@ -299,14 +327,16 @@ export default function ReportsPage() {
     // عمود أساسٍ بلا تحصيلٍ في الفترة يحمل اسم الشركة أيضاً («مدى» لا «شبكة») — الملخّص لا يذكر إلا ما حُصّل به
     return [...COLL_BASE_COLS, ...extra].map(id => ({ id, short: collMethods.find(m => m.id === id)?.short ?? companyMethodLabel(companyQ.data, id) ?? baseMethodLabel(id, true) }));
   }, [collMethods, companyQ.data, tr]); // eslint-disable-line react-hooks/exhaustive-deps
-  const { data: perfData } = useQuery({
+  const { data: perfRes } = useQuery({
     queryKey: ['report-performance', from, to, teamFilter],
     queryFn: async () => {
       const res = await reportApi.repPerformance({ from, to, ...tp });
-      return res.data.data as PerfRow[];
+      // البند ٧: عدد الزيارات من كل سجلّات المدى — وقصُّ سقف الأمان يُعلَن في meta
+      return { rows: res.data.data as PerfRow[], trunc: truncationOf(res.data) };
     },
     enabled: accountingReady && accountingOn && tab === 'performance' && perfType === 'performance',
   });
+  const perfData = perfRes?.rows;
 
   // مديونيات المندوب: رصيد كل عميل مُسنَد — لحظيّ، فلا يدخل التاريخ في مفتاح الكاش
   // نقرأ status/fetchStatus لا isLoading: عند تقلّب الشبكة يوقف React Query
@@ -331,7 +361,8 @@ export default function ReportsPage() {
         metric: rankMetric, from, to, tz: String(-new Date().getTimezoneOffset()), ...tp,
         ...(rankMetric === 'product' ? { productId: rankProduct } : {}),
       });
-      return res.data.data as RankingData;
+      // قصّ معيار الزيارات (البند ٧) والمدى المطبَّق لمعيار المسافة بنافذته الافتراضية أو المقصوصة (البند ٩)
+      return { ...(res.data.data as RankingData), applied: appliedRangeOf(res.data), trunc: truncationOf(res.data) };
     },
     enabled: tab === 'performance' && perfType === 'ranking' && (rankMetric !== 'product' || !!rankProduct),
   });
@@ -353,6 +384,8 @@ export default function ReportsPage() {
       return {
         rows: res.data.data as WorkHoursRow[],
         clampedDays: (res.data.meta?.rangeClamped as number | undefined) ?? null,
+        // المدى المطبَّق بالأيام المحلية (أسبوعٌ افتراضيّ أو المقصوص عند ٣١ يوماً) وقصّ سجلّات الزيارات — البندان ٩ و٧
+        applied: appliedRangeOf(res.data), trunc: truncationOf(res.data),
       };
     },
     enabled: tab === 'performance' && perfType === 'hours',
@@ -430,21 +463,36 @@ export default function ReportsPage() {
   // في المرتجعات بندٌ بغير وحدة الأساس (حبّةٌ من كرتون، كرتونٌ قديم بعد التحويل)؟ — تُكتب الوحدة بجانب الكمية حينها.
   // وكذلك بندٌ لصنفٍ له وحدة رئيسية (R2): «1» بلا وحدة تُقرأ كرتوناً وهي قارورة — `!!primaryUnitId` قيمةٌ صادقة لا حضور المفتاح
   const returnsMultiUnit = returnRows.some(r => r.items.some(i => factorOf(i) !== 1 || !!i.primaryUnitId));
-  const returnTotals = useMemo(() => ({
-    count: returnRows.length,
-    total: Math.round(returnRows.reduce((t, r) => t + Number(r.total || 0), 0) * 1e6) / 1e6,
-  }), [returnRows]);
+  /* البند ٧: بلا بحثٍ العدد والقيمة من ملخّص الخادم (القاعدة على كل مرتجعات المدى) لا من القائمة — فالقائمة قد تُقطع عند
+   * سقفها والإجمالي لا يُقطع معها؛ ومع البحث مجموع المطابق المعروض كما كان (التصدير يتبع المعروض) */
+  const returnTotals = useMemo(
+    () => listTotals(returnsQ.data?.summary, returnRows, r => Number(r.total || 0), !!q),
+    [returnsQ.data, returnRows, q],
+  );
   const reasonLabel = (r: string) => tr(RETURN_REASON_LABELS[r] ?? r);
 
-  const orderTotals = useMemo(() => ({
-    count: orderRows.length,
-    total: Math.round(orderRows.reduce((t, o) => t + Number(o.total || 0), 0) * 1e6) / 1e6,
-    remaining: Math.round(orderRows.reduce((t, o) => t + (Number(o.total || 0) - Number(o.paidAmt || 0)), 0) * 1e6) / 1e6,
-  }), [orderRows]);
+  // الطلبات كالمرتجع (البند ٧): بلا بحثٍ من ملخّص الخادم على كل طلبات المدى. والمتبقي من remainingAmt (ملخّص الخادم remaining)، لأن
+  // المرتجع المربوط والإشعار الدائن يُنقصانه دون المدفوع؛ وخادمٌ أقدم بلاه ⇒ الإجمالي − المدفوع كما كان
+  const orderTotals = useMemo(() => {
+    const sm = ordersQ.data?.summary;
+    const base = listTotals(sm, orderRows, o => Number(o.total || 0), !!q);
+    const remaining = !q && sm && Number.isFinite(Number(sm.remaining))
+      ? Number(sm.remaining)
+      : !q && sm && Number.isFinite(Number(sm.paid))
+        ? Number(sm.total) - Number(sm.paid)
+        : orderRows.reduce((t, o) => t + orderRemaining(o), 0);
+    return { ...base, remaining: Math.round(remaining * 1e6) / 1e6 };
+  }, [ordersQ.data, orderRows, q]);
 
+  /* البند ٢: الأرصدة تشمل المحظور والموقوف (غير المحذوف) — يُبحث بحالتهما أيضاً («محظور») ويُعلَّمان بشارة،
+   * ومجموعهما داخل «إجمالي مديونية الشركة». وعمود «الحالة» في التصدير حين يرسلها الخادم */
+  const balHasStatus = hasCustomerStatus(balancesData);
   const balanceRows = useMemo(
-    () => filterFlat(balancesData || [], q, c => [c.name, c.phone]),
-    [balancesData, q],
+    () => filterFlat(balancesData || [], q, c => {
+      const badge = customerStatusBadge(c.status);
+      return [c.name, c.phone, badge ? tr(badge) : null];
+    }),
+    [balancesData, q, tr],
   );
 
   /**
@@ -472,7 +520,7 @@ export default function ReportsPage() {
   const collShownTotals = useMemo(() => collectionTotals(collRepShown), [collRepShown]);
 
   // إجمالي مديونية الشركة: مجموع أرصدة العملاء المعروضين (كلٌّ مرّة، من المعروض
-  // فيحترم النطاق والبحث). تقرير الأرصدة يعرض المدينين (رصيد موجب).
+  // فيحترم النطاق والبحث). تقرير الأرصدة يعرض المدينين (رصيد موجب) — والمحظور والموقوف منهم داخله (البند ٢).
   const balanceTotal = useMemo(() => {
     if (!balanceRows) return null;
     const total = balanceRows.reduce((s, c) => s + Number(c.balance || 0), 0);
@@ -523,6 +571,19 @@ export default function ReportsPage() {
     () => filterFlat(perfData || [], q, r => [r.name, ...r.visits.map(v => v.customerName)]),
     [perfData, q],
   );
+  /* البند ٦: «مبيعات نقدية محصّلة» بجانب «التحصيل» — السندات تبقى عموداً كتقرير التحصيل، والبيع النقدي المحصَّل لحظة البيع
+   * شقٌّ ظاهر، والنسبة من الخادم تجمعهما. لا عمود لخادمٍ أقدم (لا يرسله ونسبته سندات وحدها) */
+  const perfCash = perfHasCash(perfData);
+  // صفّ الأداء في التصدير — ورقة كل المناديب وملف المندوب الواحد من مصدرٍ واحد فلا تنحرف إحداهما
+  const perfSheetRow = (r: PerfRow, withCash: boolean) => ({
+    [tr('المندوب')]: r.name, [tr('عدد الفواتير')]: r.invoicesCount, [tr('إجمالي المبيعات')]: num(r.salesTotal),
+    [tr('التحصيل')]: num(r.collectionsTotal),
+    ...(withCash && { [tr('مبيعات نقدية محصلة')]: num(r.cashSalesTotal ?? 0) }),
+    [tr('نسبة التحصيل %')]: r.collectionRate, [tr('متوسط الفاتورة')]: num(r.avgInvoice),
+    [tr('ساعات العمل')]: fmtDuration(r.workHours, r.workMins), [tr('عدد الزيارات')]: r.visitsCount,
+    [tr('روابط مواقع الزيارات')]: r.visits.map(v => v.mapsUrl).join('\n'),
+  });
+  const perfColWidths = (withCash: boolean) => (withCash ? [22, 12, 16, 14, 18, 14, 16, 14, 12, 55] : [22, 12, 16, 14, 14, 16, 14, 12, 55]);
 
   // تقييم الأداء: البحث بالاسم يقطّع اللوحة، والمرتبة تبقى مرتبته بين الجميع
   const rankRowsShown = useMemo(
@@ -673,12 +734,7 @@ export default function ReportsPage() {
       })), colWidths: rankProduct ? [10, 26, 30, 24] : [10, 26, 30] }];
       fname = tr('تقييم الأداء');
     } else if (tab === 'performance' && perfType === 'performance' && perfRows?.length) {
-      sheets = [{ name: tr('أداء المناديب'), rows: perfRows.map(r => ({
-        [tr('المندوب')]: r.name, [tr('عدد الفواتير')]: r.invoicesCount, [tr('إجمالي المبيعات')]: num(r.salesTotal),
-        [tr('التحصيل')]: num(r.collectionsTotal), [tr('نسبة التحصيل %')]: r.collectionRate, [tr('متوسط الفاتورة')]: num(r.avgInvoice),
-        [tr('ساعات العمل')]: fmtDuration(r.workHours, r.workMins), [tr('عدد الزيارات')]: r.visitsCount,
-        [tr('روابط مواقع الزيارات')]: r.visits.map(v => v.mapsUrl).join('\n'),
-      })), colWidths: [22, 12, 16, 14, 14, 16, 14, 12, 55] }];
+      sheets = [{ name: tr('أداء المناديب'), rows: perfRows.map(r => perfSheetRow(r, perfCash)), colWidths: perfColWidths(perfCash) }];
       // ورقة مواقع الزيارات (روابط خرائط Google)
       const locItems = perfRows.flatMap((r, ri) => r.visits.map(v => ({ rep: String(ri), row: {
         [tr('المندوب')]: r.name, [tr('العميل')]: v.customerName, [tr('الوقت')]: fmtDateTime(v.createdAt), [tr('رابط الموقع')]: v.mapsUrl,
@@ -714,6 +770,14 @@ export default function ReportsPage() {
           ...(lotOn && { [tr('التشغيلات')]: returnLotsText(i) }),
         }))), colWidths: [...(returnsMultiUnit ? [16, 12, 24, 26, 10, 12, 14, 14] : [16, 12, 24, 26, 10, 14, 14]), ...(lotOn ? [34] : [])] },
       ];
+      /* القائمة مقطوعة عند سقفها (البند ٧): مجموع عمود الملف ناقص — فإجماليّ الشاشة (ملخّص الخادم على المدى كله) ورقةٌ في أوّله
+       * كما في الأرصدة، وتنبيه القصّ في الملف يحيل إليها. بطاقات الشاشة نفسها: العدد والقيمة والنسبة وعدد كل سبب */
+      if (returnsQ.data?.trunc.truncated) sheets.unshift({ name: tr('الإجمالي'), rows: [{
+        [tr('عدد المرتجعات')]: returnTotals.count,
+        [tr('إجمالي قيمة المرتجعات')]: num(returnTotals.total),
+        [tr('نسبة المرتجع من المبيعات')]: returnsQ.data.summary.returnRate == null ? '—' : `${returnsQ.data.summary.returnRate}%`,
+        ...Object.fromEntries(Object.entries(returnsQ.data.summary.byReason ?? {}).map(([k, v]) => [reasonLabel(k), v.count])),
+      }], colWidths: [16, 22, 22, 14, 14, 14] });
       fname = tr('تقرير المرتجع');
     } else if (tab === 'sales' && salesType === 'lots' && lotSalesRows.length) {
       // الكميات بالأساس أرقاماً (للجمع داخل الصنف في Excel) ومعها اسم الأساس
@@ -743,8 +807,14 @@ export default function ReportsPage() {
         [tr('تاريخ الفاتورة')]: fmtDay(o.invoiceDate),
         [tr('تاريخ التسليم')]: fmtDay(o.deliveryDate),
         [tr('الإجمالي')]: num(Number(o.total || 0)),
-        [tr('المتبقي')]: num(Number(o.total || 0) - Number(o.paidAmt || 0)),
+        [tr('المتبقي')]: num(orderRemaining(o)),
       })), colWidths: [16, 24, 16, 14, 20, 14, 14, 14, 14] }];
+      // كالمرتجع: القائمة مقطوعة ⇒ إجماليّ الشاشة (ملخّص الخادم) ورقةٌ في أوّل الملف
+      if (ordersQ.data?.trunc.truncated) sheets.unshift({ name: tr('الإجمالي'), rows: [{
+        [tr('عدد الطلبات')]: orderTotals.count,
+        [tr('إجمالي قيمة الطلبات')]: num(orderTotals.total),
+        [tr('المتبقي على الطلبات')]: num(orderTotals.remaining),
+      }], colWidths: [16, 22, 22] });
       fname = tr('تقرير الطلبات');
     } else if (tab === 'sales' && salesType === 'summary' && Array.isArray(salesRows) && salesRows.length) {
       // حسب الصنف بوحدات: الكمية بالأساس رقماً (للجمع في Excel) ومعها اسم الأساس ونصّها مفكَّكاً «٢ كرتون و٣ حبة»
@@ -777,9 +847,11 @@ export default function ReportsPage() {
       ];
       fname = tr('زيارات العملاء');
     } else if (tab === 'balances' && custType === 'balances' && balanceRows?.length) {
+      // «الحالة» آخر الأعمدة (البند ٢): المحظور والموقوف داخل الإجمالي فيُعرفان في الملف — وردٌّ أقدم بلا الحالة ⇒ الملف كما كان
       sheets = [{ name: tr('أرصدة العملاء'), rows: balanceRows.map(c => ({
         [tr('العميل')]: c.name, [tr('الجوال')]: c.phone, [tr('الرصيد')]: num(c.balance), [tr('الحد الائتماني')]: num(c.creditLimit),
-      })), colWidths: [24, 16, 14, 16] }];
+        ...(balHasStatus && { [tr('الحالة')]: tr(customerStatusLabel(c.status)) }),
+      })), colWidths: balHasStatus ? [24, 16, 14, 16, 12] : [24, 16, 14, 16] }];
       if (balanceTotal) sheets.unshift({ name: tr('الإجمالي'), rows: [{
         [tr('إجمالي مديونية الشركة')]: num(balanceTotal.total), [tr('عدد العملاء المدينين')]: balanceTotal.count,
       }], colWidths: [28, 20] });
@@ -831,6 +903,68 @@ export default function ReportsPage() {
     return sheets ? { sheets, fname } : null;
   };
 
+  /* البند ٩: المدى الذي طبّقه الخادم فعلاً للتقرير المعروض — نافذته الافتراضية بلا مدى (٩٠ يوماً للمبيعات والطلبات والمرتجع
+   * والتشغيلات، وأسبوعٌ لساعات العمل ومسافة التقييم) أو المقصوص عند ٣١ يوماً. منه «الفترة» في رأس PDF وورقة Excel، فلا يُطبع
+   * «كل الفترات» فوق تسعين يوماً. تقريرٌ لا يعلن مدى (أو خادمٌ أقدم) ⇒ «من/إلى» المستخدم كما اليوم */
+  const activeApplied: AppliedRange | null = (
+    tab === 'sales'
+      ? (salesType === 'summary' ? salesRes?.applied : salesType === 'orders' ? ordersQ.data?.applied
+        : salesType === 'returns' ? returnsQ.data?.applied : lotSalesQ.data?.applied)
+      : tab === 'performance' && perfType === 'hours' ? hoursData?.applied
+      : tab === 'performance' && perfType === 'ranking' ? rankingQ.data?.applied
+      : null
+  ) ?? null;
+  /* البند ٧: قصّ سقف الأمان للتقرير المعروض نصّاً — تنبيه الشاشة نفسه يُطبع تحت رأس PDF ويُكتب في ورقة «الفترة»، فلا يخرج
+   * ملفٌّ مقصوص يبدو شاملاً. الزيارات: أحدث N سجلاً؛ المرتجع والطلبات: القائمة مقطوعة والإجمالي كاملٌ في ورقةٍ أوّل الملف
+   * (listExport — لا «أعلاه» في ملفٍّ بلا بطاقات) */
+  const truncText = (t: Truncation | null | undefined, kind: 'newest' | 'list' | 'listExport', shown = 0) => truncationNote(t, tr, formatNumber, kind, shown);
+  const activeTruncText: string | null =
+    tab === 'sales'
+      ? (salesType === 'orders' ? truncText(ordersQ.data?.trunc, 'listExport', ordersQ.data?.orders.length)
+        : salesType === 'returns' ? truncText(returnsQ.data?.trunc, 'listExport', returnsQ.data?.returns.length)
+        : salesType === 'lots' && lotSalesQ.data?.truncated ? tr('النتيجة مقطوعة عند الحد الأقصى للفواتير ضيق المدى')
+        : null)
+      : tab === 'performance'
+        ? (perfType === 'performance' ? truncText(perfRes?.trunc, 'newest')
+          : perfType === 'hours' ? truncText(hoursData?.trunc, 'newest')
+          : perfType === 'ranking' ? truncText(rankingQ.data?.trunc, 'newest')
+          : null)
+        : tab === 'balances' && custType === 'visits' ? truncText(visitsData?.trunc, 'newest')
+        : null;
+  /* تنبيهات الشاشة لكل تقرير (البندان ٩ و٧) بلون تنبيه التسعين يوماً القائم: النافذة الافتراضية بتاريخيها كما طبّقها الخادم،
+   * وخادمٌ أقدم بلا المدى المُعلَن ⇒ تنبيه المرتجع والتشغيلات القائم كما كان (والطلبات بعَلَمها القائم rangeApplied) */
+  const ninetyDays = tr('بلا مدى محدد يعرض الخادم آخر تسعين يوما فقط');
+  const salesRangeNote = defaultedRangeNote(salesRes?.applied, tr);
+  const ordersRangeNote = defaultedRangeNote(ordersQ.data?.applied, tr)
+    ?? (ordersQ.data?.rangeApplied === false && ordersQ.data.defaultDays ? ninetyDays : null);
+  const returnsRangeNote = defaultedRangeNote(returnsQ.data?.applied, tr)
+    ?? (returnsQ.data?.rangeApplied === false && returnsQ.data.defaultDays ? ninetyDays : null);
+  const lotsRangeNote = defaultedRangeNote(lotSalesQ.data?.applied, tr)
+    ?? (lotSalesQ.data?.rangeApplied === false && lotSalesQ.data.defaultDays ? ninetyDays : null);
+  const hoursRangeNote = defaultedRangeNote(hoursData?.applied, tr);
+  // التقييم: نافذة المسافة الافتراضية وحدها (لمعيارها يُعلَن المدى) — والقصّ عند ٣١ يوماً تعرضه اللوحة نفسها
+  const rankingRangeNote = rankMetric === 'distance' ? defaultedRangeNote(rankingQ.data?.applied, tr) : null;
+  const noteCls = 'rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-xs px-3 py-2';
+
+  /* البند ٦: «نسبة التحصيل» في ملف الأداء تجمع البيع النقدي المحصَّل مع السندات — شرح الشاشة (التلميح واللافتة) يرافق الملف
+   * أيضاً، وإلا قرأ قارئه نسبةً أعلى من «التحصيل ÷ المبيعات» بلا تفسير. وخادمٌ أقدم بلا الحقل ⇒ لا شرح (نسبته سندات وحدها) */
+  const perfRateNote = tab === 'performance' && perfType === 'performance' && perfCash
+    ? tr('نسبة التحصيل تشمل المبيعات النقدية المحصلة مع سندات القبض') : null;
+  /** ملاحظة الملف: تنبيه القصّ وشرح النسبة معاً — تحت رأس PDF وفي ورقة «الفترة» */
+  const exportNote: string | null = [activeTruncText, perfRateNote].filter(Boolean).join(' — ') || null;
+
+  /** ورقة «الفترة» آخر ملف Excel — ما يحمله رأس PDF (التقرير والمدى المطبَّق وملاحظة الملف) لملفٍّ بلا رأس؛ وبلا إعلانٍ من
+   *  الخادم ولا ملاحظة لا ورقة (الملف كما كان حرفاً). آخِراً لا أوّلاً: الورقة الأولى تبقى البيانات لمن يقرؤها آلياً */
+  const periodSheets = (title: string): ExcelSheet[] => (activeApplied || exportNote ? [{
+    name: tr('الفترة'), colWidths: exportNote ? [28, 36, 16, 60] : [28, 36, 16],
+    rows: [{
+      [tr('التقرير')]: title,
+      [tr('الفترة')]: periodText(activeApplied, from, to, tr),
+      [tr('تاريخ الإصدار')]: new Date().toLocaleDateString(activeLocale()),
+      ...(exportNote ? { [tr('ملاحظة')]: exportNote } : {}),
+    }],
+  }] : []);
+
   const day = () => new Date().toISOString().slice(0, 10);
   const safeName = (s: string) => s.replace(/[\\/?*[\]:]/g, '·').slice(0, 60);
 
@@ -843,7 +977,7 @@ export default function ReportsPage() {
   const handleExport = async () => {
     const built = buildSheets();
     if (!built) { toast.error(tr('لا توجد بيانات للتصدير')); return; }
-    const out = await shareOrDownloadExcel(exportSheets(built.sheets), `${withTeam(built.fname)}-${day()}`);
+    const out = await shareOrDownloadExcel([...exportSheets(built.sheets), ...periodSheets(withTeam(built.fname))], `${withTeam(built.fname)}-${day()}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
 
@@ -856,11 +990,14 @@ export default function ReportsPage() {
     const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const linksCol = tr('روابط مواقع الزيارات'); // عمود الروابط المجمّعة يُستبعد من PDF (يطول الصف)
     // المديونيات لحظية: لا نطبع نطاقاً ضُبط في تبويبٍ آخر على تقريرٍ لا يتأثر به
+    // وغيرها: المدى الذي طبّقه الخادم حين يُعلنه (البند ٩)، وإلا «من/إلى» المستخدم كما كان
     const range = (tab === 'performance' && perfType === 'receivables')
       ? tr('لحظي وقت الإصدار')
-      : (from && to) ? `${from} — ${to}` : from ? `${tr('من')} ${from}` : to ? `${tr('إلى')} ${to}` : tr('كل الفترات');
+      : periodText(activeApplied, from, to, tr);
     const teamLine = exportTeamName ? ` · ${tr('الفريق')}: ${exportTeamName}` : '';
-    const header = `<div style="border-bottom:2px solid #E15A30;padding-bottom:10px;margin-bottom:8px"><h2 style="font-size:18px;margin:0;color:#1F1A13">${esc(title)}</h2><p style="font-size:12px;color:#6E6557;margin:4px 0 0">${esc(tr('الفترة'))}: ${esc(range)}${esc(teamLine)} · ${esc(tr('تاريخ الإصدار'))}: ${esc(new Date().toLocaleDateString(activeLocale()))}</p></div>`;
+    // تقريرٌ بلغ سقف الأمان يحمل تنبيهه تحت الرأس (البند ٧)، وملف الأداء شرحَ نسبة التحصيل (البند ٦)
+    const truncLine = exportNote ? `<p style="font-size:11px;color:#9A5B1E;margin:4px 0 0">${esc(exportNote)}</p>` : '';
+    const header = `<div style="border-bottom:2px solid #E15A30;padding-bottom:10px;margin-bottom:8px"><h2 style="font-size:18px;margin:0;color:#1F1A13">${esc(title)}</h2><p style="font-size:12px;color:#6E6557;margin:4px 0 0">${esc(tr('الفترة'))}: ${esc(range)}${esc(teamLine)} · ${esc(tr('تاريخ الإصدار'))}: ${esc(new Date().toLocaleDateString(activeLocale()))}</p>${truncLine}</div>`;
     const wrap = (inner: string, withHeader: boolean): HTMLElement => {
       const el = document.createElement('div');
       el.style.cssText = 'position:fixed;left:-99999px;top:0;width:780px;background:#fff;padding:24px;font-family:Tahoma,Arial,sans-serif;direction:rtl';
@@ -918,13 +1055,9 @@ export default function ReportsPage() {
 
   // تصدير تقرير مندوب واحد بشكل مستقل (Excel أو PDF، اسم الملف باسم المندوب)
   const repPerfSheets = (r: PerfRow) => {
-    const rows = [{
-      [tr('المندوب')]: r.name, [tr('عدد الفواتير')]: r.invoicesCount, [tr('إجمالي المبيعات')]: num(r.salesTotal),
-      [tr('التحصيل')]: num(r.collectionsTotal), [tr('نسبة التحصيل %')]: r.collectionRate, [tr('متوسط الفاتورة')]: num(r.avgInvoice),
-      [tr('ساعات العمل')]: fmtDuration(r.workHours, r.workMins), [tr('عدد الزيارات')]: r.visitsCount,
-      [tr('روابط مواقع الزيارات')]: r.visits.map(v => v.mapsUrl).join('\n'),
-    }];
-    const sheets = [{ name: tr('أداء المندوب'), rows, colWidths: [22, 12, 16, 14, 14, 16, 14, 12, 55] }];
+    const withCash = typeof r.cashSalesTotal === 'number';
+    const rows: Record<string, unknown>[] = [perfSheetRow(r, withCash)];
+    const sheets: ExcelSheet[] = [{ name: tr('أداء المندوب'), rows, colWidths: perfColWidths(withCash) }];
     if (r.visits.length) sheets.push({
       name: tr('مواقع الزيارات'),
       rows: r.visits.map(v => ({ [tr('العميل')]: v.customerName, [tr('الوقت')]: fmtDateTime(v.createdAt), [tr('رابط الموقع')]: v.mapsUrl })),
@@ -958,12 +1091,12 @@ export default function ReportsPage() {
       : [daily, visits];
   };
   const exportRepPerf = async (r: PerfRow) => {
-    const out = await shareOrDownloadExcel(repPerfSheets(r), `${tr('أداء')}-${safeName(withTeam(r.name))}-${day()}`);
+    const out = await shareOrDownloadExcel([...repPerfSheets(r), ...periodSheets(`${tr('أداء')} - ${r.name}`)], `${tr('أداء')}-${safeName(withTeam(r.name))}-${day()}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
   const exportRepPerfPdf = (r: PerfRow) => sheetsToPdf(repPerfSheets(r), `${tr('أداء')} - ${r.name}`);
   const exportRepHours = async (r: WorkHoursRow) => {
-    const out = await shareOrDownloadExcel(repHoursSheetsAll(r), `${tr('ساعات العمل')}-${safeName(withTeam(r.name))}-${day()}`);
+    const out = await shareOrDownloadExcel(repHoursSheetsAll(r).concat(periodSheets(`${tr('ساعات العمل')} - ${r.name}`)), `${tr('ساعات العمل')}-${safeName(withTeam(r.name))}-${day()}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
   const exportRepHoursPdf = (r: WorkHoursRow) => sheetsToPdf(repHoursSheetsAll(r), `${tr('ساعات العمل')} - ${r.name}`);
@@ -993,7 +1126,7 @@ export default function ReportsPage() {
     })),
   }];
   const exportCustVisits = async (g: CustGroup) => {
-    const out = await shareOrDownloadExcel(custVisitSheets(g), `${tr('زيارات')}-${safeName(withTeam(g.customerName))}-${day()}`);
+    const out = await shareOrDownloadExcel([...custVisitSheets(g), ...periodSheets(`${tr('زيارات')} - ${g.customerName}`)], `${tr('زيارات')}-${safeName(withTeam(g.customerName))}-${day()}`);
     toast.success(out === 'shared' ? tr('تمت المشاركة') : tr('تم التصدير'));
   };
   const exportCustVisitsPdf = (g: CustGroup) => sheetsToPdf(custVisitSheets(g), `${tr('زيارات')} - ${g.customerName}`);
@@ -1153,6 +1286,8 @@ export default function ReportsPage() {
       {/* Sales Report */}
       {tab === 'sales' && salesType === 'summary' && (
         <div className="space-y-4">
+          {/* بلا مدى يقصر الخادم التجميعات على تسعين يوماً — كان الويب يعرضها بلا تنبيه فتُقرأ «كل التاريخ» (البند ٩) */}
+          {salesRangeNote && <div className={noteCls}>{salesRangeNote}</div>}
           {salesLoading ? (
             <div className="card flex items-center justify-center h-32 text-gray-400">{tr('جاري التحميل')}</div>
           ) : Array.isArray(salesRows) && salesRows.length > 0 ? (
@@ -1240,10 +1375,10 @@ export default function ReportsPage() {
                   </div>
                 </div>
               </div>
-              {returnsQ.data?.rangeApplied === false && returnsQ.data.defaultDays && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-xs px-3 py-2">
-                  {tr('بلا مدى محدد يعرض الخادم آخر تسعين يوما فقط')}
-                </div>
+              {returnsRangeNote && <div className={noteCls}>{returnsRangeNote}</div>}
+              {/* القائمة مقطوعة عند سقفها والبطاقات أعلاه من القاعدة كاملةً (البند ٧) */}
+              {returnsQ.data?.trunc.truncated && (
+                <div className={noteCls}>{truncText(returnsQ.data.trunc, 'list', returnsQ.data.returns.length)}</div>
               )}
               <div className="card p-0">
                 <div className="table-wrapper">
@@ -1333,11 +1468,7 @@ export default function ReportsPage() {
                   <p className="text-xl font-bold text-gray-700 tabular-nums">{lotSalesQ.data?.summary.invoices ?? 0}</p>
                 </div>
               </div>
-              {lotSalesQ.data?.rangeApplied === false && lotSalesQ.data.defaultDays && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-xs px-3 py-2">
-                  {tr('بلا مدى محدد يعرض الخادم آخر تسعين يوما فقط')}
-                </div>
-              )}
+              {lotsRangeNote && <div className={noteCls}>{lotsRangeNote}</div>}
               {lotSalesQ.data?.scoped && (
                 <div className="rounded-xl border border-[#F1EBDF] bg-[#FAF7F0] text-[#6E6557] text-xs px-3 py-2">{tr('تقرير التشغيلات مقيد بنطاقك')}</div>
               )}
@@ -1434,6 +1565,11 @@ export default function ReportsPage() {
                   <p className="text-xl font-bold text-red-600 tabular-nums">{formatCurrency(orderTotals.remaining)}</p>
                 </div>
               </div>
+              {/* كان الخادم يُعلن نافذة التسعين يوماً (rangeApplied) والويب يتجاهلها — والقائمة قد تُقطع عند سقفها (البندان ٩ و٧) */}
+              {ordersRangeNote && <div className={noteCls}>{ordersRangeNote}</div>}
+              {ordersQ.data?.trunc.truncated && (
+                <div className={noteCls}>{truncText(ordersQ.data.trunc, 'list', ordersQ.data.orders.length)}</div>
+              )}
               <div className="card p-0">
                 <div className="px-5 py-2.5 border-b border-[#F1EBDF] text-[12px] text-[#6E6557]">
                   {tr('المدى محسوب على تاريخ التسليم لا تاريخ الفاتورة والترتيب بالأقرب تسليما')}
@@ -1449,7 +1585,7 @@ export default function ReportsPage() {
                     </thead>
                     <tbody>
                       {orderRows.map((o, i) => {
-                        const remaining = Number(o.total || 0) - Number(o.paidAmt || 0);
+                        const remaining = orderRemaining(o);
                         // تسليمٌ مضى موعده: ما لم يُسلَّم بعدُ عملٌ متأخّر، والمشرف يريده بارزاً
                         const late = new Date(o.deliveryDate).getTime() < new Date(new Date().toDateString()).getTime();
                         return (
@@ -1623,7 +1759,15 @@ export default function ReportsPage() {
               <tbody>
                 {balanceRows.map(c => (
                   <tr key={c.id}>
-                    <td className="font-medium text-gray-800">{c.name}</td>
+                    <td className="font-medium text-gray-800">
+                      {c.name}
+                      {/* المحظور والموقوف مدينان داخل الإجمالي — الشارة تميّزهما لا تُخفيهما (البند ٢) */}
+                      {customerStatusBadge(c.status) && (
+                        <span className={`ms-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold align-middle ${c.status === 'BLOCKED' ? 'bg-[#FBEAE7] text-[#B42318]' : 'bg-gray-100 text-gray-600'}`}>
+                          {tr(customerStatusBadge(c.status)!)}
+                        </span>
+                      )}
+                    </td>
                     <td className="font-mono text-sm text-gray-500">{customerPhoneText(c.phone)}</td>
                     <td className={`font-semibold ${Number(c.balance) > Number(c.creditLimit) ? 'text-red-600' : 'text-orange-600'}`}>
                       {formatCurrency(c.balance)}
@@ -1667,6 +1811,10 @@ export default function ReportsPage() {
           <span>{tr('تعذر تحميل التقرير')}</span>
           <button onClick={() => visitsRefetch()} className="btn-secondary">{tr('إعادة المحاولة')}</button>
         </div>
+      )}
+      {/* بلغ الخادم سقف الأمان فأبقى أحدث السجلّات: الإجمالي وعدد العملاء عنها وحدها — يُقال صراحةً (البند ٧) */}
+      {tab === 'balances' && custType === 'visits' && visitsStatus === 'success' && visitsData?.trunc.truncated && (
+        <div className={`${noteCls} mb-4`}>{truncText(visitsData.trunc, 'newest')}</div>
       )}
       {tab === 'balances' && custType === 'visits' && visitsStatus === 'success' && visitRows && (
         <div className="card p-0">
@@ -1826,6 +1974,11 @@ export default function ReportsPage() {
       )}
 
       {/* تقييم الأداء — ترتيب المناديب حسب معيارٍ يختاره المشرف */}
+      {/* فوق لوحة التقييم: نافذة المسافة الافتراضية بتاريخيها (البند ٩)، وقصّ سجلّات معيار الزيارات (البند ٧) */}
+      {tab === 'performance' && perfType === 'ranking' && rankingRangeNote && <div className={`${noteCls} mb-4`}>{rankingRangeNote}</div>}
+      {tab === 'performance' && perfType === 'ranking' && rankingQ.data?.trunc.truncated && (
+        <div className={`${noteCls} mb-4`}>{truncText(rankingQ.data.trunc, 'newest')}</div>
+      )}
       {tab === 'performance' && perfType === 'ranking' && (
         <RepRankingBoard
           metric={rankMetric} onMetric={setRankMetric} metrics={rankMetrics}
@@ -1838,13 +1991,24 @@ export default function ReportsPage() {
       {/* Performance Report */}
       {tab === 'performance' && perfType === 'performance' && perfRows && (
         <div className="space-y-4">
+          {/* عدد الزيارات من كل سجلّات المدى — إلا أن يبلغ الخادم سقف الأمان فيُبقي أحدثها ويقول ذلك (البند ٧) */}
+          {perfRes?.trunc.truncated && <div className={noteCls}>{truncText(perfRes.trunc, 'newest')}</div>}
           <div className="card p-0">
+            {/* البند ٦: النسبة = (السندات + البيع النقدي المحصَّل) ÷ صافي المبيعات — كانت السندات وحدها فيهبط المندوب النقدي إلى قرب الصفر */}
+            {perfCash && (
+              <div className="px-5 py-2.5 border-b border-[#F1EBDF] text-[12px] text-[#6E6557]">
+                {tr('نسبة التحصيل تشمل المبيعات النقدية المحصلة مع سندات القبض')}
+              </div>
+            )}
             <div className="table-wrapper">
               <table className="table">
                 <thead>
                   <tr>
                     <th>{tr('المندوب')}</th><th>{tr('عدد الفواتير')}</th><th>{tr('إجمالي المبيعات')}</th>
-                    <th>{tr('التحصيل')}</th><th>{tr('نسبة التحصيل')}</th><th>{tr('متوسط الفاتورة')}</th>
+                    <th>{tr('التحصيل')}</th>
+                    {perfCash && <th>{tr('مبيعات نقدية محصلة')}</th>}
+                    <th title={perfCash ? tr('نسبة التحصيل تشمل المبيعات النقدية المحصلة مع سندات القبض') : undefined}>{tr('نسبة التحصيل')}</th>
+                    <th>{tr('متوسط الفاتورة')}</th>
                     <th>{tr('ساعات العمل')}</th><th>{tr('عدد الزيارات')}</th><th>{tr('تصدير')}</th>
                   </tr>
                 </thead>
@@ -1856,10 +2020,12 @@ export default function ReportsPage() {
                       <td className="text-gray-600">{r.invoicesCount}</td>
                       <td className="font-semibold text-[#E15A30]">{formatCurrency(r.salesTotal)}</td>
                       <td className="text-green-600">{formatCurrency(r.collectionsTotal)}</td>
-                      <td>
+                      {perfCash && <td className="text-green-600">{formatCurrency(r.cashSalesTotal ?? 0)}</td>}
+                      <td title={perfCash ? tr('نسبة التحصيل تشمل المبيعات النقدية المحصلة مع سندات القبض') : undefined}>
                         <div className="flex items-center gap-2">
                           <div className="flex-1 bg-gray-100 rounded-full h-1.5 w-16">
-                            <div className="h-1.5 rounded-full bg-green-500" style={{ width: `${r.collectionRate}%` }} />
+                            {/* الشريط يُقصّ عند ١٠٠٪ (سندات ديونٍ قديمة قد ترفع النسبة فوقها) — والرقم يُكتب كما هو */}
+                            <div className="h-1.5 rounded-full bg-green-500" style={{ width: `${rateBarWidth(r.collectionRate)}%` }} />
                           </div>
                           <span className="text-xs text-gray-600 w-10">{r.collectionRate}%</span>
                         </div>
@@ -1886,7 +2052,7 @@ export default function ReportsPage() {
                     </tr>
                     {expandedPerf === r.id && r.visits.length > 0 && (
                       <tr>
-                        <td colSpan={9} className="bg-[#FAF7F0] p-0">
+                        <td colSpan={perfCash ? 10 : 9} className="bg-[#FAF7F0] p-0">
                           <div className="p-3">
                             <p className="text-xs font-semibold text-[#6E6557] mb-2">{tr('مواقع زيارات')} {r.name} ({r.visits.length})</p>
                             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -1950,6 +2116,9 @@ export default function ReportsPage() {
               {tr('المدى المطلوب أطول من المسموح عرضت آخر')} {hoursData.clampedDays} {tr('يوما فقط')}
             </div>
           )}
+          {/* بلا «من» يعرض الخادم أسبوعاً — بتاريخيه كما طبّقهما بأيام المتصفّح (البند ٩)؛ وقصّ سجلّات الزيارات (البند ٧) */}
+          {hoursRangeNote && <div className={noteCls}>{hoursRangeNote}</div>}
+          {hoursData?.trunc.truncated && <div className={noteCls}>{truncText(hoursData.trunc, 'newest')}</div>}
           {hoursStatus === 'pending' ? (
             <div className="card flex items-center justify-center h-32 text-gray-400">
               {hoursFetchStatus === 'paused' ? tr('بانتظار عودة الاتصال') : tr('جاري التحميل')}

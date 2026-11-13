@@ -58,6 +58,19 @@ const db = new Proxy({
   invoice: {
     async findMany(a: Row) { return byType(a.where); },
     async aggregate(a: Row) { const rows = byType(a.where); return { _sum: { total: sum(rows, 'total') }, _count: { id: rows.length } }; },
+    // تجميعٌ عامّ بمفاتيح by و_sum المطلوبة و_count._all — ملخّص تقرير المرتجع صار تجميعاً في القاعدة على كل مستندات المدى
+    // (دقّة التقارير، البند ٧: groupBy بالسبب)، ويصلح لأيّ تجميعٍ آخر بالنوع أو المندوب
+    async groupBy(a: Row) {
+      const groups = new Map<string, Row>();
+      for (const d of byType(a.where)) {
+        const key = JSON.stringify(a.by.map((k: string) => d[k] ?? null));
+        const g = groups.get(key) ?? { ...Object.fromEntries(a.by.map((k: string) => [k, d[k] ?? null])), _count: { _all: 0 }, _sum: Object.fromEntries(Object.keys(a._sum ?? {}).map((f) => [f, 0])) };
+        g._count._all += 1;
+        for (const f of Object.keys(a._sum ?? {})) g._sum[f] += Number(d[f] ?? 0);
+        groups.set(key, g);
+      }
+      return [...groups.values()];
+    },
   },
   receipt: { async aggregate() { return { _sum: { amount: 0 }, _count: { id: 0 } }; } },
   // prisma.customer.fields.creditLimit: مقارنة عمودين في عدّ «تجاوز حدّ الائتمان»

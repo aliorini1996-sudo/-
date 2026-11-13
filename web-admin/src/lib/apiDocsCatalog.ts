@@ -636,8 +636,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{customer, entries:[{id, type, debit, credit, balance, description, entryDate, createdAt, invoiceId, receiptId, invoice:{... items:[{... product:{name, unit, primaryUnitId}}]}|null, receipt|null}], openingBalance, closingBalance, timezone}}",
+    "response": "{success:true, data:{customer, entries:[{id, type, debit, credit, balance, description, entryDate, createdAt, invoiceId, receiptId, invoice:{... items:[{... product:{name, unit, primaryUnitId}}]}|null, receipt|null}], teamNames?:[string], openingBalance, closingBalance, timezone, teamScoped:boolean}}",
     "rules": [
+     "teamScoped = true لمشرف الفرق (ميزة «الفرق»): القيود والإجماليات customer.totalSales وtotalCollected وbalance وopeningBalance وclosingBalance لمستندات فرقه وحدها، فقد تختلف عن رصيد العميل الكامل في قائمة العملاء — اعرضها «لفريقك». وteamNames أسماء فرقه مرتّبةً، تأتي مع teamScoped = true وحده. وغيره (مدير غير مقيَّد أو مقيَّد بالقوائم) teamScoped = false بلا teamNames والأرقام كاملة",
      "حدود الفترة تُحسب بتوقيت الشركة المضبوط في إعدادات الدفاتر، وإذا لم يُضبط فبمنتصف ليل UTC. القيمة التي ليست بصيغة YYYY-MM-DD تُحلَّل بـnew Date، فالتزم بالصيغة",
      "openingBalance = مجموع (المدين ناقص الدائن) قبل from، ويكون 0 إذا لم يُرسل from",
      "balance في كل سطر يُحسب جارياً عند العرض (لا تُعرض القيمة المخزنة)، والموجب يعني أنه مستحق على العميل",
@@ -2559,7 +2560,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[...], pagination:{total, page, limit, pages}}. كل صف فيه أعمدة الفاتورة: id وnumber وtype وstatus وinvoiceDate وdueDate وdeliveryDate وpaymentPlan وpricesIncludeTax وtaxFree («إزالة الضريبة»: true = صدر المستند والشركة بلا ضريبة، وfalse = كما كان) وsubtotal وdiscountPct وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وreturnReason وreturnToStock وeinvoiceProvider وeinvoiceStatus وeinvoiceQr وclientRef وzatcaPhase وdocumentKind وinvoiceSubtype وissuedAt وoriginalInvoiceId وcreatedAt وlocationId وteamId وpriceListId (قائمة الأسعار التي سُعّر بها المستند، وnull = السعر الأساسي، أو قائمةٌ حُذفت بعدها، أو مستندٌ لا يُختم: الإشعار الدائن المرتبط بفاتورة والإشعار المدين — انظر قاعدة priceListId أدناه). ومعها customer{id,name,phone} وsalesRep{id,name} وlocation{id,name} (ختم موقع المندوب وقت الإصدار، أو null) و_count{items}، وitems عند طلب withItems (كل بند بـlineRef، ومعه lots مع withLots=1 والميزة مفعّلة). الحقل einvoiceSnapshot محذوف من صفوف القائمة",
+    "response": "{success:true, data:[...], pagination:{total, page, limit, pages}}. كل صف فيه أعمدة الفاتورة: id وnumber وtype وstatus وinvoiceDate وdueDate وdeliveryDate وpaymentPlan وpricesIncludeTax وtaxFree («إزالة الضريبة»: true = صدر المستند والشركة بلا ضريبة، وfalse = كما كان) وsubtotal وdiscountPct وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وremainingApplied (في مرتجع المرحلة الأولى المرتبط بفاتورة بيعٍ آجلة: ما أسقطه من متبقّيها لحظة إصداره، وnull لغيره) وreturnReason وreturnToStock وeinvoiceProvider وeinvoiceStatus وeinvoiceQr وclientRef وzatcaPhase وdocumentKind وinvoiceSubtype وissuedAt وoriginalInvoiceId وcreatedAt وlocationId وteamId وpriceListId (قائمة الأسعار التي سُعّر بها المستند، وnull = السعر الأساسي، أو قائمةٌ حُذفت بعدها، أو مستندٌ لا يُختم: الإشعار الدائن المرتبط بفاتورة والإشعار المدين — انظر قاعدة priceListId أدناه). ومعها customer{id,name,phone} وsalesRep{id,name} وlocation{id,name} (ختم موقع المندوب وقت الإصدار، أو null) و_count{items}، وitems عند طلب withItems (كل بند بـlineRef، ومعه lots مع withLots=1 والميزة مفعّلة). الحقل einvoiceSnapshot محذوف من صفوف القائمة",
     "rules": [
      "الترتيب حسب createdAt تنازلياً، والترقيم بالأسلوب skip=(page-1)*limit",
      "هذه القائمة لا تشترط X-FS-Caps حتى للصفوف المربوطة بالمرحلة الثانية، بخلاف GET /invoices/:id",
@@ -3003,6 +3004,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "«إزالة الضريبة» — شاشات المنصة وتطبيق المندوب (لا المفتاح): طلبٌ حيّ ببند taxPct أكبر من 0 بعد الإزالة (بيانات شركة قديمة في الجهاز، وعدا المرتجع المرتبط بفاتورة بيع) يرجع 409 TAX_MODE_CHANGED فيعيد الجهاز قراءة الشركة ويسعّر من جديد، وmessage فيه محايدة لا تذكر الضريبة لأنها تُعرض للشركة بلا ضريبة: 'تغيرت إعدادات الشركة حدث الصفحة ثم أعد الإصدار' (والرمز نفسه في الاتجاه المعاكس بعد إعادة الضريبة — قاعدة builtTaxFree التالية). وإعادة رفع صندوق تطبيق المندوب (X-FS-Replay، وهي تُمحى لطلب المفتاح) تُقبل كما بناها الجهاز: إن حمل بندٌ ضريبةً يُحفظ المستند بضريبته وtaxFree = false مطابقاً للورقة التي بيد العميل، وإلا يُختم taxFree = true. وهذا لجلسة المندوب وحدها: الترويسة نفسها من مستخدمي الشركة أو جلسة مالك المنصة لا تمنح «كما بُني» فتسري عليها قواعد الإصدار الحيّ (409). ومستند الصندوق بلا builtTaxFree (إصدارٌ أقدم من التطبيق) المُنشأ على الجهاز (clientCreatedAt مصحّحةً بفرق ساعة الجهاز X-FS-Device-Now كتاريخ المستند) قبل لحظة التبديل taxModeChangedAt صدر والشركة بضريبتها، فيُحفظ كما بُني على المسار المعتاد بلا ختم (taxFree = false) ولو كانت بنوده كلها صفراً؛ وبلا clientCreatedAt صالح تسري قواعد الإزالة؛ ومع builtTaxFree يحسمه الوضع الذي بُني عليه لا اللحظة (القاعدة التالية). والمستندات السابقة تبقى كما صدرت: taxFree لا يتغيّر بتبديل الشركة لاحقاً، وإعادة الضريبة تسري على المستندات الجديدة وحدها",
      "«إزالة الضريبة» — الوضع الذي سعّر به الجهاز builtTaxFree (لشاشات المنصة وتطبيق المندوب؛ طلب المفتاح يتجاهله وتبقى له قواعده: 422 TAX_DISABLED ولو في المرتجع المرتبط بفاتورة بيع): يحسم المستند بالوضع الذي بُني عليه لا بلحظته، و«إعادة الرفع» هنا صندوق المندوب وحده (X-FS-Replay بجلسة المندوب، وهي تُمحى لطلب المفتاح؛ الترويسة نفسها من دورٍ آخر إصدارٌ حيّ). • الشركة بلا ضريبة وtrue: الحيّ بقواعد الإزالة (بندٌ بنسبة أكبر من 0 ⇒ 409 TAX_MODE_CHANGED، وإلا نسبة 0 وtaxFree = true)، وإعادة الرفع تُقبل كما بُنيت بلا مقارنة لحظة: بنودها كلها 0 ⇒ taxFree = true. • الشركة بلا ضريبة وfalse: الحيّ كذلك، وإعادة الرفع على المسار المعتاد كما بُنيت (سعّرها الجهاز والشركة بضريبتها) بلا ختم (taxFree = false) ولو كانت بنودها كلها 0، بلا مقارنة لحظة. • الشركة بلا ضريبة وغائب (إصدارٌ أقدم من التطبيق): السلوك السابق بمقارنة clientCreatedAt المصحّحة بلحظة التبديل taxModeChangedAt (القاعدة السابقة). • الشركة بضريبتها وtrue (بيانات شركة قديمة في الجهاز بعد إعادة الضريبة): الحيّ 409 TAX_MODE_CHANGED فيعيد الجهاز قراءة الشركة ويسعّر البنود بضريبتها، وإعادة الرفع تُقبل كما بُنيت: بنودها كلها 0 ⇒ مختومة taxFree = true مع einvoiceProvider = 'none' وeinvoiceStatus = null مطابقةً للورقة التي بيد العميل، وبندٌ أكبر من 0 ⇒ بضريبته كما بُني. • الشركة بضريبتها وfalse أو غائب: بلا أي تغيير",
      "الأثر المحاسبي: CREDIT يرفع رصيد العميل بالإجمالي ويضع paidAmt=0 وremainingAmt=total. CASH يسجّل قيدين (مدين ثم تحصيل) فلا يتغير الرصيد، ويضع paidAmt=total وremainingAmt=0. RETURN ينقص رصيد العميل وtotalSales ويضع paid=0 وremaining=0",
+     "المرتجع من فاتورة بيعٍ آجلة مؤكَّدة (originalInvoiceId، في المرحلة الأولى): يُنقص remainingAmt لفاتورة البيع بـmin(إجمالي المرتجع، متبقّيها) ولا تحت الصفر في المعاملة نفسها، ويكتب المُسقَط في remainingApplied على المرتجع، وتُبطل روابط دفع فاتورة البيع بعد الالتزام. وقيد العميل بإجمالي المرتجع كاملاً كما كان، فالفائض رصيدٌ دائن للعميل — كالإشعار الدائن في المرحلة الثانية. وفاتورة بيعٍ نقدية أو آجلة لا متبقّي عليها لا تتغيّر، وremainingApplied فيها null. وإعادة الرفع بـclientRef قائم ترجع المستند القائم بلا إسقاطٍ ثانٍ. ولا ترحيل للتاريخ: مرتجعٌ صدر قبل هذه القاعدة ترك متبقّي فاتورته كما كان وremainingApplied فيه null",
      "الحد الائتماني لا يمنع الإنشاء. إذا كان creditLimit>0 وتجاوزه الرصيد مع الإجمالي يُنشأ تنبيه CREDIT_LIMIT_EXCEEDED فقط",
      "العميل المحظور BLOCKED يرجع 400، والعميل أو المندوب خارج النطاق يرجع 403 أو 404",
      "قيود المندوب (حد الخصم وتغيير السعر وتبديل قائمة الأسعار canChangePriceList والبيع بلا مخزون وقيود الصنف REP_PRODUCT_RULE والأذونات) لا تنطبق على المفتاح، لأنها مشروطة بالدور SALES_REP. لذلك المفتاح يستطيع البيع بأكثر من مخزون السيارة، إلا الصنف المتتبَّع بالتشغيلة («تتبّع LOT» مفعّل للشركة والصنف): بيعه ممنوعٌ فوق رصيد تشغيلات السيارة الصالحة وغير المسمّى لكل مُصدِر ومنه المفتاح، ولا يُعفي منه إذن canSellWithoutStock (409 LOT_STOCK_INSUFFICIENT)",
@@ -3063,6 +3065,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "إذا صدر على الفاتورة إشعار دائن أو مدين يرجع 409 مع reason=HAS_NOTES",
      "الفاتورة الآجلة التي حُصّل جزء منها (paidAmt>0) ترجع 400، والفاتورة المرتبطة بسند قبض ترجع 400",
      "الأثر: status=CANCELLED، وعكس القيود حسب النوع (مرتجع أو نقدي أو آجل)، وتنبيه INVOICE_CANCELLED، وإبطال روابط الدفع الحية. مخزون السيارة يُستعاد تلقائياً لأن الحساب يعتمد على الفواتير المؤكدة فقط",
+     "إلغاء مرتجعٍ له remainingApplied أكبر من صفر يردّ هذا القدر بعينه إلى remainingAmt لفاتورة بيعه (تُعرف من بنوده returnOfItemId وتُقفل)، مسقوفاً بـtotal ناقص paidAmt لها فلا يعلو على دَينها بعد سدادٍ لاحق، ولا يُنقصه أبداً، ولا شيء لفاتورة بيعٍ ملغاة. والمرتجع بلا remainingApplied (حرّ، أو على نقدية، أو أقدم من القاعدة) يُلغى كما كان",
      "الفحوص تُعاد تحت قفل الصف لمنع الإلغاء المزدوج (services/docCancel.ts)",
      "«تتبّع LOT»: إلغاء فاتورة بيع يعيد كمياتها إلى تشغيلاتها في السيارة تلقائياً. أما إلغاء مرتجعٍ فيه صنف متتبَّع فيُخرج بضاعته من السيارة، فيُرفض 409 {code:'LOT_STOCK_INSUFFICIENT', detail} إن كانت قد بيعت (لا تصير تشغيلة سالبة ولا ينقص الرصيد غير المسمّى تحت الصفر)، و503 LOT_BUSY حين يكون الصنف مشغولاً أو تبدّل تتبّعه أثناء الطلب: أعد المحاولة",
      "إلغاء مرتجعٍ يُخرج بضاعته من سيارة مندوبه لصنفٍ غير متتبَّع أيضاً: إن صار به رصيد السيارة سالباً في رصيده (المتاح للبيع، أو منتهي الصلاحية، أو التالف) لأنها بيعت أو أُزيلت يُرفض 409 {success:false, code:'RETURN_CANCEL_STOCK_SHORT', message, lines:[{productId, availableBase, requiredBase, bucket:'sellable'|'expired'|'damaged'}]} بلا تغيير — الكميات بوحدة الأساس. سجّل تحميلاً أو تسوية للسيارة ثم أعد الإلغاء. الفحص تحت قفل الفاتورة وقفل السيارة"
@@ -3849,13 +3852,14 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{ success: true, data: { customer, entries, openingBalance, closingBalance, timezone } }. customer صف العميل كاملاً. وentries قيود account_entries، وكل قيد {id, type, debit, credit, balance, description, entryDate, invoiceId, receiptId, createdAt, invoice, receipt}، والفاتورة فيها بنودها مع product {name, unit}. وتكون type واحدة من INVOICE_DEBIT أو INVOICE_CREDIT أو RECEIPT_CREDIT أو RECEIPT_DEBIT أو ADJUSTMENT_DEBIT أو ADJUSTMENT_CREDIT. وtimezone نص أو null",
+    "response": "{ success: true, data: { customer, entries, teamNames?, openingBalance, closingBalance, timezone, teamScoped } }. customer صف العميل كاملاً. وentries قيود account_entries، وكل قيد {id, type, debit, credit, balance, description, entryDate, invoiceId, receiptId, createdAt, invoice, receipt}، والفاتورة فيها بنودها مع product {name, unit}. وتكون type واحدة من INVOICE_DEBIT أو INVOICE_CREDIT أو RECEIPT_CREDIT أو RECEIPT_DEBIT أو ADJUSTMENT_DEBIT أو ADJUSTMENT_CREDIT. وtimezone نص أو null",
     "rules": [
      "الرصيد balance في كل سطر مشتق بالترتيب المعروض: المرحّل زائد المدين ناقص الدائن، وليس القيمة المخزّنة",
      "الترتيب حسب entryDate ثم createdAt ثم debit تنازلياً ثم id، فالفاتورة النقدية تظهر قبل سدادها",
      "الصيغة غير YYYY-MM-DD تُعامل بالسلوك القديم: new Date للبداية، ونهاية اليوم بتوقيت الخادم للنهاية",
      "لا ترقيم صفحات، فكل حركات الفترة تعود دفعة واحدة",
      "الصلاحية المطلوبة canManageCustomers لا canManageReceipts",
+     "teamScoped = true لمشرف الفرق: القيود وcustomer.totalSales وtotalCollected وbalance والرصيدان المرحّل والختامي لمستندات فرقه وحدها، وقد تختلف عن رصيد العميل الكامل في قائمة العملاء. وteamNames أسماء فرقه مرتّبةً معه وحده، وغيره teamScoped = false بلا teamNames",
      "بنود الفواتير في الكشف بلقطة وحدة كل بند: qty بوحدته وunitName (null = وحدة الأساس، فاعرض product.unit) وunitFactor وbaseQty. والأرصدة من القيود بالمبالغ فلا تمسّها الوحدة"
     ],
     "example": ""
@@ -7703,7 +7707,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
  {
   "key": "reports",
   "title": "التقارير ولوحة المؤشرات وبيانات الشركة والإشعارات",
-  "overview": "كل المسارات تحت https://api.fieldsa.net/api وتقبل مفتاح الشركة في Authorization: Bearer fsk_... أو في الترويسة X-API-Key، ويعمل المفتاح بهوية المستخدم الذي أصدره (ADMIN أو MANAGER أو ACCOUNTANT) فتسري عليه صلاحياته ونطاقه. لا يقع أي من هذه المسارات ضمن البادئات الممنوعة على المفاتيح. حد الطلبات 120 في الدقيقة لكل مفتاح (X-RateLimit-Limit و429 API_RATE_LIMIT). المفتاح المضبوط «قراءة فقط» لا يمر إلا بطلبات GET وHEAD، فيُرفض عليه PUT /company وPATCH للإشعارات برمز 403 API_KEY_FORBIDDEN. لا يوجد ترقيم صفحات (page/limit) في أي مسار من هذه المجموعة، وبعضها يرجع كل الصفوف دفعة واحدة، فاستعمل مدى زمنياً ضيقاً. التواريخ في from وto بصيغة YYYY-MM-DD وتُفسَّر على أنها منتصف ليل UTC، وقيمة to تشمل يومها كاملاً، إلا في work-hours وrep-ranking حيث تُحسب بالتوقيت المحلي عبر tz، وفي payment-methods حيث تُحسب بأيام الشركة المحلية (المنطقة الزمنية لإعداد الشركة) والافتراض اليوم. التقارير (/reports) لا يحجبها إطفاء النظام المحاسبي إلا ثلاثة: GET /reports/payment-methods (403 ACCOUNTING_NOT_ALLOWED قبل فحص عَلَم صفحتها)، وGET /reports/lot-sales (403 ACCOUNTING_NOT_ALLOWED قبل فحص عَلَم «تتبّع LOT» LOTS_NOT_ALLOWED)، وGET /reports/rep-ranking بالمعيارين الماليين sales وproduct (403 ACCOUNTING_NOT_ALLOWED؛ والمعايير الأخرى تعمل). أما لوحة المؤشرات (/dashboard) فتُرجع أصفاراً حين يكون مطفأً. أخطاء التحقق من الجسم ترجع 400 بالشكل {success:false, message, errors:{field:[...]}}. ميزة «الفرق»: معظم التقارير تقبل teamId (معرّف فريق أو none)، وللفلتر معنيان بحسب ما يقوم عليه الرقم:\n- بوسم المستند: sales وorders وreturns وcollections وcustomer-visits وpayment-methods وlot-sales، ومبيعات وتحصيل وزيارات rep-performance، والمعايير sales وproduct وvisits في rep-ranking، وزيارات work-hours. المستند يحمل فريقاً واحداً، فمجموع الفرق مع none يساوي إجمالي الشركة بلا ازدواج.\n- بعضوية المندوب الحالية في الفريق: rep-receivables كلها، وساعات work-hours وجلساتها وبصماتها ونقاطها، وworkMinutes في rep-performance، والمعياران distance وappTime في rep-ranking. هذه لا تنقسم بالفريق، فالمندوب في فريقين يُحسب كاملاً تحت كليهما ولا يصح جمع الفرق.\nوصف كل تقرير يذكر معناه.\n«المبيعات» صافية من المرتجع في كل التقارير ولوحة المؤشرات وإحصاءات المندوب (GET /sales-reps/:id/stats) وملخّص لوكيشن: فواتير البيع المؤكدة ناقص المرتجع المؤكد (والإشعار الدائن مرتجع، والإشعار المدين بيع) في المدى والنطاق والفريق نفسها، وعدد الفواتير عدد فواتير البيع وحدها. ويبقى إجمالياً عمداً summary.salesTotal في GET /reports/returns لأنه مقام returnRate. ولا يوجد تقرير يصفّي أو يجمّع بقائمة الأسعار («قوائم الأسعار»): قائمة كل فاتورة في priceListId من صفها (تفصيلي GET /reports/sales ومورد المزامنة invoices).",
+  "overview": "كل المسارات تحت https://api.fieldsa.net/api وتقبل مفتاح الشركة في Authorization: Bearer fsk_... أو في الترويسة X-API-Key، ويعمل المفتاح بهوية المستخدم الذي أصدره (ADMIN أو MANAGER أو ACCOUNTANT) فتسري عليه صلاحياته ونطاقه. لا يقع أي من هذه المسارات ضمن البادئات الممنوعة على المفاتيح. حد الطلبات 120 في الدقيقة لكل مفتاح (X-RateLimit-Limit و429 API_RATE_LIMIT). المفتاح المضبوط «قراءة فقط» لا يمر إلا بطلبات GET وHEAD، فيُرفض عليه PUT /company وPATCH للإشعارات برمز 403 API_KEY_FORBIDDEN. لا يوجد ترقيم صفحات (page/limit) في أي مسار من هذه المجموعة، وبعضها يرجع كل الصفوف دفعة واحدة، فاستعمل مدى زمنياً ضيقاً. ما يعلنه الخادم عن التقرير في كائن meta أعلى الردّ بجانب data (لأن data في بعضها مصفوفة صفوف)، ولا يُحذف به حقلٌ قائم:\n- meta.appliedRange = {from, to, defaulted}: المدى الذي طبّقه الخادم فعلاً بصيغة YYYY-MM-DD بيوم التقرير نفسه، وnull في طرفٍ = بلا حدّ من جهته، وdefaulted = true حين اختار الخادم نافذته الافتراضية. في sales بكل تجميعاتها وorders وreturns وlot-sales وwork-hours، وفي rep-ranking بمعيار distance وحده. والتقارير التي لا نافذة افتراضية لها بلا هذا الحقل.\n- meta.truncated (true وحده يعني أن الخادم بلغ سقفه فقصّ) وmeta.limit السقف: في customer-visits وrep-performance وwork-hours وrep-ranking بمعيار visits تُقرأ سجلّات الزيارات الخام كلها دفعاتٍ حتى حدّ أمان 200000 سجل يُبقي الأحدث، وفي orders وreturns تُقصّ القائمة وحدها عند 5000 والملخّص كامل، وفي lot-sales عند 20000 فاتورة.\nالتواريخ في from وto بصيغة YYYY-MM-DD وتُفسَّر على أنها منتصف ليل UTC، وقيمة to تشمل يومها كاملاً، إلا في work-hours وrep-ranking حيث تُحسب بالتوقيت المحلي عبر tz، وفي payment-methods حيث تُحسب بأيام الشركة المحلية (المنطقة الزمنية لإعداد الشركة) والافتراض اليوم. التقارير (/reports) لا يحجبها إطفاء النظام المحاسبي إلا ثلاثة: GET /reports/payment-methods (403 ACCOUNTING_NOT_ALLOWED قبل فحص عَلَم صفحتها)، وGET /reports/lot-sales (403 ACCOUNTING_NOT_ALLOWED قبل فحص عَلَم «تتبّع LOT» LOTS_NOT_ALLOWED)، وGET /reports/rep-ranking بالمعيارين الماليين sales وproduct (403 ACCOUNTING_NOT_ALLOWED؛ والمعايير الأخرى تعمل). أما لوحة المؤشرات (/dashboard) فتُرجع أصفاراً حين يكون مطفأً. أخطاء التحقق من الجسم ترجع 400 بالشكل {success:false, message, errors:{field:[...]}}. ميزة «الفرق»: معظم التقارير تقبل teamId (معرّف فريق أو none)، وللفلتر معنيان بحسب ما يقوم عليه الرقم:\n- بوسم المستند: sales وorders وreturns وcollections وcustomer-visits وpayment-methods وlot-sales، ومبيعات وتحصيل وزيارات rep-performance، والمعايير sales وproduct وvisits في rep-ranking، وزيارات work-hours. المستند يحمل فريقاً واحداً، فمجموع الفرق مع none يساوي إجمالي الشركة بلا ازدواج.\n- بعضوية المندوب الحالية في الفريق: rep-receivables كلها، وساعات work-hours وجلساتها وبصماتها ونقاطها، وworkMinutes في rep-performance، والمعياران distance وappTime في rep-ranking. هذه لا تنقسم بالفريق، فالمندوب في فريقين يُحسب كاملاً تحت كليهما ولا يصح جمع الفرق.\nوصف كل تقرير يذكر معناه.\n«المبيعات» صافية من المرتجع في كل التقارير ولوحة المؤشرات وإحصاءات المندوب (GET /sales-reps/:id/stats) وملخّص لوكيشن: فواتير البيع المؤكدة ناقص المرتجع المؤكد (والإشعار الدائن مرتجع، والإشعار المدين بيع) في المدى والنطاق والفريق نفسها، وعدد الفواتير عدد فواتير البيع وحدها. ويبقى إجمالياً عمداً summary.salesTotal في GET /reports/returns لأنه مقام returnRate. ولا يوجد تقرير يصفّي أو يجمّع بقائمة الأسعار («قوائم الأسعار»): قائمة كل فاتورة في priceListId من صفها (تفصيلي GET /reports/sales ومورد المزامنة invoices).",
   "endpoints": [
    {
     "method": "GET",
@@ -7756,10 +7760,11 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "بدون groupBy: {success:true, data:{invoices:[صف الفاتورة كاملاً بكل أعمدتها ومنها number وtype وinvoiceDate وsubtotal وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وpricesIncludeTax وteamId وpriceListId (قائمة الأسعار التي سُعّرت بها، null = السعر الأساسي)، مع customer{id,name,channel,city} وsalesRep{id,name} أو null وteam{id,name} أو null وitems[صف البند كاملاً ومنه qty وunitPrice وunitCost وdiscountAmt وtaxPct وtaxAmt وlineTotal وunitName وunitFactor وbaseQty مع product{id,name,code,unit,primaryUnitId} أو null]], summary:{total, count, taxTotal, discountTotal, returnsTotal, returnsCount, defaultRangeDays?}}}. مع groupBy=product تكون data مصفوفة [{productId, name, code, qty, baseQty, unit, units:[{id, name, factor}], primaryUnitId(null أو معرّف من units — للعرض وحده), total}] حيث total مجموع lineTotal. ومع rep أو customer أو channel أو region أو team تكون data مصفوفة [{name, count, total}] (total صافٍ وقد يكون سالباً، وcount فواتير البيع وحدها). كل التجميعات مرتبة تنازلياً حسب total",
+    "response": "بدون groupBy: {success:true, data:{invoices:[صف الفاتورة كاملاً بكل أعمدتها ومنها number وtype وinvoiceDate وsubtotal وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وpricesIncludeTax وteamId وpriceListId (قائمة الأسعار التي سُعّرت بها، null = السعر الأساسي)، مع customer{id,name,channel,city} وsalesRep{id,name} أو null وteam{id,name} أو null وitems[صف البند كاملاً ومنه qty وunitPrice وunitCost وdiscountAmt وtaxPct وtaxAmt وlineTotal وunitName وunitFactor وbaseQty مع product{id,name,code,unit,primaryUnitId} أو null]], summary:{total, count, taxTotal, discountTotal, returnsTotal, returnsCount, defaultRangeDays?}}}. مع groupBy=product تكون data مصفوفة [{productId, name, code, qty, baseQty, unit, units:[{id, name, factor}], primaryUnitId(null أو معرّف من units — للعرض وحده), total}] حيث total مجموع lineTotal. ومع rep أو customer أو channel أو region أو team تكون data مصفوفة [{name, count, total}] (total صافٍ وقد يكون سالباً، وcount فواتير البيع وحدها). كل التجميعات مرتبة تنازلياً حسب total. وفي كل الأشكال (التفصيلي وكل groupBy) بجانب data: meta:{appliedRange:{from, to, defaulted}}",
     "rules": [
      "الحالة CONFIRMED وحدها. قائمة invoices فواتير بيع (RETURN مستثنى منها)، أما الإجماليات والتجميعات فصافية: يُطرح منها المرتجع المؤكَّد بالمدى والفلاتر نفسها (كميةً ومبلغاً في تجميع الصنف، وقد يظهر صفّ سالب)، وsummary.total وtaxTotal وdiscountTotal صافية، وsummary.returnsTotal وreturnsCount للمرتجع، وcount عدد فواتير البيع وحدها",
-     "بلا from ولا to يُقصر التقرير على آخر 90 يوماً، ويُعلن ذلك بـ summary.defaultRangeDays=90 في الوضع التفصيلي وحده، أما مع groupBy فيُطبَّق السقف دون إعلان",
+     "بلا from ولا to يُقصر التقرير على آخر 90 يوماً، ويُعلن ذلك في كل الأشكال بـmeta.appliedRange وdefaulted = true (from يوم UTC للحظة الآن ناقص 90×24 ساعة، وto = null لأن النافذة الافتراضية بلا حدّ أعلى)، ومعه summary.defaultRangeDays=90 في الوضع التفصيلي كما كان",
+     "meta.appliedRange بأيام UTC كتفسير from وto هنا: مع أحد الطرفين defaulted = false والطرف المرسل كما أُرسل والغائب null",
      "يكفي طرف واحد من المدى، والطرف الغائب يعني بلا حد من جهته",
      "لا ترقيم ولا حد أقصى للصفوف، والفواتير مرتبة تصاعدياً بـ invoiceDate",
      "groupBy=rep يجمع الفواتير التي بلا مندوب تحت «بلا مندوب»، وproduct يجمع البند الذي بلا منتج تحت «صنف محذوف»، وchannel يجمع العميل الذي بلا قناة تحت UNSET، وregion يجمّع حسب customer.city وغيابها «—»",
@@ -7800,12 +7805,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{orders:[{id, number, invoiceDate, deliveryDate, total, paidAmt, status, customer{id,name,phone,city}, salesRep{id,name} أو null}], summary:{count, total, paid}, rangeApplied:boolean, defaultDays:90 أو null}}",
+    "response": "{success:true, data:{orders:[{id, number, invoiceDate, deliveryDate, total, paidAmt, remainingAmt, status, customer{id,name,phone,city}, salesRep{id,name} أو null}], summary:{count, total, paid, remaining}, rangeApplied:boolean, defaultDays:90 أو null}, meta:{truncated:boolean, limit:5000, appliedRange:{from, to, defaulted}}} وremainingAmt وsummary.remaining المتبقي الفعلي الذي يُنقصه الإشعار الدائن والمرتجع المربوط دون paidAmt",
     "rules": [
      "الشرط الأساسي أن يكون deliveryDate غير فارغ",
      "تُستثنى الحالة CANCELLED فقط، فتدخل المسودات DRAFT، ولا يوجد فلتر على نوع المستند",
      "بلا from ولا to يُطبَّق deliveryDate أكبر من أو يساوي الآن ناقص 90 يوماً بلا حد أعلى، فتدخل التسليمات المستقبلية",
-     "الحد الأقصى 5000 صف مرتبة تصاعدياً بـ deliveryDate"
+     "قائمة orders حتى 5000 صف مرتبة تصاعدياً بـ deliveryDate (الأقرب تسليماً أولاً، فالمقصوص أبعدها تسليماً لا أقدمها)، وmeta.truncated = true حين تُقصّ. أما summary (count وtotal وpaid) فتجميعٌ في القاعدة على كل طلبات المدى ولو قُصّت القائمة، فلا تحسبه من الصفوف",
+     "meta.appliedRange بأيام UTC على deliveryDate: مع أحد الطرفين defaulted = false والغائب null. وبلا from ولا to defaulted = true وfrom يوم الآن ناقص 90 يوماً وto = null: لا حدّ أعلى في هذه الحالة فالتسليمات القادمة داخلة"
     ],
     "example": ""
    },
@@ -7847,12 +7853,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{returns:[{id, number, invoiceDate, total, taxAmt, reason, returnToStock, toDamagedStock, creditNote, notes, saleInvoices:[number], customer{id,name,phone,city}, salesRep{id,name}, items:[{name, unit, qty, unitFactor, baseQty, baseUnit, primaryUnitId(null أو معرّف الوحدة الرئيسية لصنف البند — للعرض وحده), lineTotal, returnExpired, expiresAt}]}], summary:{count, total, salesTotal, returnRate, byReason:{NORMAL|DAMAGED|EXCHANGE:{count,total}}, expiredLines}, rangeApplied, defaultDays}}",
+    "response": "{success:true, data:{returns:[{id, number, invoiceDate, total, taxAmt, reason, returnToStock, toDamagedStock, creditNote, notes, saleInvoices:[number], customer{id,name,phone,city}, salesRep{id,name}, items:[{name, unit, qty, unitFactor, baseQty, baseUnit, primaryUnitId(null أو معرّف الوحدة الرئيسية لصنف البند — للعرض وحده), lineTotal, returnExpired, expiresAt}]}], summary:{count, total, salesTotal, returnRate, byReason:{NORMAL|DAMAGED|EXCHANGE:{count,total}}, expiredLines}, rangeApplied, defaultDays}, meta:{truncated:boolean, limit:5000, appliedRange:{from, to, defaulted}}}",
     "rules": [
      "returnRate = total المرتجع ÷ summary.salesTotal × 100 بمنزلة عشرية واحدة، وnull بلا مبيعات. وsummary.salesTotal هنا إجمالي فواتير البيع المؤكدة في المدى والنطاق والفريق نفسها بلا طرح المرتجع (مقام النسبة)، خلافاً لـsummary.total في GET /reports/sales فهو صافٍ",
      "saleInvoices أرقام فواتير البيع: الأصل للإشعار الدائن، أو فواتير البنود المرتبطة للمرتجع من فاتورة بيع في المرحلة الأولى",
      "toDamagedStock = true للتالف الذي دخل رصيد «المرتجع التالف» في السيارة (لا يُباع)",
-     "حتى 5000 مرتجع، الأحدث أولاً",
+     "قائمة returns حتى 5000 مرتجع، الأحدث أولاً، وmeta.truncated = true حين تُقصّ. أما summary كله (count وtotal وbyReason — والسبب الفارغ تحت NORMAL كما في الصفّ — وexpiredLines وreturnRate ومقامها salesTotal) فتجميعٌ في القاعدة على كل مرتجعات المدى ولو قُصّت القائمة، فلا تحسبه من الصفوف. وbyReason[*].total بثلاث منازل كـtotal",
+     "meta.appliedRange بأيام UTC: بلا from ولا to defaulted = true وfrom يوم الآن ناقص 90 يوماً وto = null (النافذة الافتراضية بلا حدّ أعلى)، ومع أحد الطرفين defaulted = false والغائب null",
      "unit وحدة البند المرتجع كما كُتب (لقطته، وإلا وحدة الصنف) وqty بها، وbaseQty بوحدة الأساس baseUnit: حبةٌ أُرجعت من بند كرتون تظهر «1 حبة» لا «1 كرتون»"
     ],
     "example": ""
@@ -7903,7 +7910,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{rows:[{productId, productName, productCode, unit, units:[{id, name, factor}], primaryUnitId(null أو معرّف من units — للعرض وحده), lotId, lotNumber, productionDate, expiryDate, status, blockKind, sold, returned, net, customers, invoices, returnInvoices, soldByCertainty:{CONFIRMED, ASSUMED, UNKNOWN}}], products:[{productId, productName, productCode, unit, units, primaryUnitId, lots, sold, returned, net, customers, invoices, returnInvoices, soldByCertainty}], summary:{lots, products, customers, invoices, returnInvoices}, range:{from, to, timezone}, rangeApplied, defaultDays, scoped, truncated, maxInvoices?}}. التاريخ غير الصالح أو المعامل المكرّر 400 «معامل غير صالح»",
+    "response": "{success:true, data:{rows:[{productId, productName, productCode, unit, units:[{id, name, factor}], primaryUnitId(null أو معرّف من units — للعرض وحده), lotId, lotNumber, productionDate, expiryDate, status, blockKind, sold, returned, net, customers, invoices, returnInvoices, soldByCertainty:{CONFIRMED, ASSUMED, UNKNOWN}}], products:[{productId, productName, productCode, unit, units, primaryUnitId, lots, sold, returned, net, customers, invoices, returnInvoices, soldByCertainty}], summary:{lots, products, customers, invoices, returnInvoices}, range:{from, to, timezone}, rangeApplied, defaultDays, scoped, truncated, maxInvoices?}, meta:{truncated, limit:20000, appliedRange:{from, to, defaulted}}}. التاريخ غير الصالح أو المعامل المكرّر 400 «معامل غير صالح»",
     "rules": [
      "الكميات بوحدة الأساس للصنف، ولا تُجمع كميات صنفين معاً: الملخّص عدّاتٌ بلا كمية",
      "lotId = null صفّ «غير معروف»: بيعٌ من رصيد بلا تشغيلة، أو مرتجعٌ ورث صفّ بيعٍ «غير معروف» (يبقى UNKNOWN ولو حمل مصدره)، أو مرتجعٌ حرّ فاق مبيعات العميل السابقة للصنف (فواتير البيع المؤرخة حتى تاريخ المرتجع — والتاريخ بلا وقت حتى نهاية يومه بتوقيت الشركة — ضمن حقبة التتبّع الحالية وحدها)",
@@ -7911,7 +7918,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "soldByCertainty يقين نسبة المباع إلى التشغيلة: CONFIRMED مؤكد، وASSUMED مفترض بالأقرب انتهاءً، وUNKNOWN غير معروف",
      "الفواتير المؤكدة وحدها، والمرتجع والإشعار الدائن يُطرحان في returned",
      "الترتيب: الصنف بالاسم، ثم التشغيلات بالأقرب انتهاءً، و«غير معروف» آخراً",
-     "حتى 20000 فاتورة الأحدث أولاً، وtruncated = true حين يتجاوز المدى ذلك فضيّق المدى"
+     "حتى 20000 فاتورة الأحدث أولاً، وtruncated = true حين يتجاوز المدى ذلك فضيّق المدى. والصفوف والملخّص هنا من الفواتير المقروءة، فهي أيضاً عن المقصوص وحده حين truncated",
+     "meta بالاتفاق الموحّد لتقارير هذه المجموعة: truncated كـdata.truncated وlimit = 20000، وappliedRange = {from, to} من data.range بأيام الشركة وdefaulted = true حين لم يُرسل from ولا to (آخر 90 يوماً)"
     ],
     "example": ""
    },
@@ -8023,7 +8031,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
    {
     "method": "GET",
     "path": "/reports/balances",
-    "purpose": "أرصدة العملاء النشطين: الكل أو المدينون أو المتجاوزون لسقف الائتمان",
+    "purpose": "أرصدة العملاء غير المحذوفين (النشطين والموقوفين والمحظورين): الكل أو المدينون أو المتجاوزون لسقف الائتمان",
     "permission": "canViewReports",
     "gates": [
      "requireAdmin",
@@ -8036,13 +8044,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "type",
       "type": "enum: overdue | exceeded",
       "required": false,
-      "desc": "overdue تعني كل عميل رصيده أكبر من صفر، وexceeded تعني من له سقف أكبر من صفر ورصيده أكبر من السقف، وبدونها يرجع كل العملاء النشطين"
+      "desc": "overdue تعني كل عميل رصيده أكبر من صفر، وexceeded تعني من له سقف أكبر من صفر ورصيده أكبر من السقف، وبدونها يرجع كل العملاء غير المحذوفين"
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, name, phone, balance, creditLimit, paymentDays, totalSales, totalCollected}]} مرتبة تنازلياً حسب balance",
+    "response": "{success:true, data:[{id, name, phone, status:'ACTIVE'|'INACTIVE'|'BLOCKED', balance, creditLimit, paymentDays, totalSales, totalCollected}]} مرتبة تنازلياً حسب balance",
     "rules": [
-     "العملاء ذوو الحالة ACTIVE فقط",
+     "كل عميل حالته غير DELETED: ACTIVE وINACTIVE وBLOCKED. فالموقوف والمحظور المدينان داخلان في القائمة وفي أي مجموع تحسبه منها (إجمالي مديونية الشركة)، وstatus في كل صف ليميّزهما. ونطاق المستخدم المقيّد كما هو",
      "الرصيد هنا هو القيمة المخزنة customer.balance، وليس المحسوب من قيود الحساب كما في rep-receivables",
      "overdue لا تفحص paymentDays ولا تاريخ الاستحقاق، بل الرصيد الموجب فقط مع تجاهل كسور أصغر من 1e-6",
      "exceeded تُفلتر في الذاكرة بعد جلب كل من له سقف",
@@ -8082,14 +8090,16 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, name, invoicesCount, salesTotal, collectionsTotal, discountTotal, collectionRate (التحصيل ÷ صافي المبيعات × 100 نسبة صحيحة، و0 حين الصافي صفر أو سالب), avgInvoice (صافي المبيعات ÷ عدد فواتير البيع مقرّباً لعدد صحيح), workMinutes, workHours, workMins, visitsCount, visits:[{customerName, createdAt, lat, lng, mapsUrl}]}]} مرتبة تنازلياً حسب salesTotal",
+    "response": "{success:true, data:[{id, name, invoicesCount, salesTotal, collectionsTotal, cashSalesTotal, discountTotal, collectionRate ((collectionsTotal + cashSalesTotal) ÷ صافي المبيعات × 100 نسبة صحيحة، و0 حين الصافي صفر أو سالب), avgInvoice (صافي المبيعات ÷ عدد فواتير البيع مقرّباً لعدد صحيح), workMinutes, workHours, workMins, visitsCount, visits:[{customerName, createdAt, lat, lng, mapsUrl}]}], meta:{truncated:boolean, limit:200000}} مرتبة تنازلياً حسب salesTotal",
     "rules": [
      "فلتر التاريخ على المبيعات والتحصيل لا يُطبَّق إلا إذا أُرسل from وto معاً، وإلا تُحسب على كل السجل",
      "جلسات العمل والزيارات تستعمل from وحده (أو بداية الزمن) وto وحده (أو الآن) كلّاً على حدة",
      "المبيعات صافية: فواتير CONFIRMED ناقص مرتجعها (RETURN) في المدى، وكذلك الخصم، وعدد الفواتير ومتوسطها لفواتير البيع وحدها، والتحصيل سندات ACTIVE، ومجاميع المندوب بنطاق المستند لصاحب المفتاح: المقيّد بالقوائم لا يرى إلا ما عميله ومندوبه كلاهما في نطاقه، ومشرف الفرق ما وُسم بفرقه وحدها",
+     "collectionsTotal سندات القبض وحدها كما كان (يطابق تقرير التحصيل). وcashSalesTotal مجموع paidAmt لفواتير البيع النقدي المحصّلة عند البيع: CASH بحالة CONFIRMED، ومعها النقدية التي أبطلتها الهيئة واحتُفظ بتحصيلها (تعريف صفحة طرق الدفع نفسه)، بفلتر التاريخ والنطاق والفريق أنفسها للمبيعات",
+     "collectionRate = (collectionsTotal + cashSalesTotal) ÷ salesTotal × 100 مقرّبة لعدد صحيح: البيع النقدي محصَّل عند البيع ولا ينشئ سند قبض، فمندوبٌ نقديّ كله نسبته 100 لا 0. ولا تُقصّ عند 100، فسندات دينٍ أقدم من المدى قد ترفعها فوقها",
      "workMinutes مجموع (lastBeatAt ناقص startedAt) لجلسات التطبيق RepSession",
      "visitsCount عدد الوقفات بعد دمج سجل المؤقت مع سجل الملاحظة أو الصورة لنفس العميل خلال 5 دقائق، لا عدد السجلات",
-     "قائمة visits تضم الوقفات ذات الإحداثيات فقط بحد 300 لكل مندوب، وcreatedAt فيها بداية الوقفة، والصفوف الخام محدودة بـ 20000 الأقدم أولاً",
+     "قائمة visits تضم الوقفات ذات الإحداثيات فقط بحد 300 لكل مندوب، وcreatedAt فيها بداية الوقفة. والصفوف الخام تُقرأ كلها دفعاتٍ الأحدث أولاً حتى حدّ أمان 200000 سجل: بلوغه يُبقي الأحدث ويُعلَن بـmeta.truncated = true (وmeta.limit = 200000)، فضيّق المدى",
      "المناديب النشطون isActive فقط"
     ],
     "example": ""
@@ -8126,9 +8136,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{count, visits:[{id, customerId, customerName, repName, createdAt, durationSec, note, mapsUrl}]}} مرتبة من الأحدث",
+    "response": "{success:true, data:{count, visits:[{id, customerId, customerName, repName, createdAt, durationSec, note, mapsUrl}]}, meta:{truncated:boolean, limit:200000}} مرتبة من الأحدث",
     "rules": [
-     "تُجلب أحدث 5000 سجل خام ثم تُدمج في وقفات، فالمدى الطويل يُقصّ بصمت",
+     "تُقرأ كل سجلّات المدى الخام دفعاتٍ الأحدث أولاً ثم تُدمج في وقفات، حتى حدّ أمان 200000 سجل: بلوغه يُبقي الأحدث ويُعلَن بـmeta.truncated = true (وmeta.limit = 200000)، فضيّق المدى. وبلا from يُقرأ كل التاريخ",
      "createdAt في الصف هو بداية الوقفة (startedAt أو createdAt)، وid معرّف أول سجل فيها",
      "note تجمع الملاحظات غير المكررة بفاصل « · »، وmapsUrl نص فارغ إذا لم يوجد موقع",
      "لا فلتر حسب المندوب أو العميل في هذا المسار"
@@ -8242,7 +8252,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, name, totalMinutes, hours, minutes, sessions, firstSeen, lastSeen, fieldMinutesTotal, workedDays, absentDays, visitsTotal, avgDayMinutes, days:[{date, firstActivity, lastActivity, spanMinutes, periods:[{start, end, source:'PUNCH'|'ACTIVITY', inLat?, inLng?, outLat?, outLng?}], breakMinutes, appMinutes, visits:[{customerName, start, end, durationSec, hasNote, parts, lat, lng, sources}], visitsCount, visitsSec, absent}]}], meta:{tzOffsetMin, rangeClamped?:31}}",
+    "response": "{success:true, data:[{id, name, totalMinutes, hours, minutes, sessions, firstSeen, lastSeen, fieldMinutesTotal, workedDays, absentDays, visitsTotal, avgDayMinutes, days:[{date, firstActivity, lastActivity, spanMinutes, periods:[{start, end, source:'PUNCH'|'ACTIVITY', inLat?, inLng?, outLat?, outLng?}], breakMinutes, appMinutes, visits:[{customerName, start, end, durationSec, hasNote, parts, lat, lng, sources}], visitsCount, visitsSec, absent}]}], meta:{tzOffsetMin, rangeClamped?:31, truncated:boolean, limit:200000, appliedRange:{from, to, defaulted}}}",
     "rules": [
      "بلا from يكون المدى 7 أيام تنتهي عند to أو الآن",
      "الحد الأقصى 31 يوماً، والزائد يُقصّ من البداية ويُعلن بـ meta.rangeClamped=31",
@@ -8251,7 +8261,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "اليوم الذي فيه بصمة حضور تُؤخذ فترته من البصمات (PUNCH) ومجموع النوبات المغلقة وحدها، واليوم بلا بصمة امتداد واحد من أول أثر لآخر أثر (ACTIVITY)",
      "نقاط الموقع التي تدخل أول أثر وآخره نقاط صفحة التطبيق وحدها. نقاط التطبيق في الخلفية تُسجَّل حتى منتصف الليل فلا تمدّ اليوم ولا firstSeen وlastSeen",
      "الأيام الخالية داخل المدى تظهر بصف absent=true، وavgDayMinutes يُقسم على أيام العمل لا أيام المدى",
-     "الزيارات الخام محدودة بـ 10000 سجل"
+     "الزيارات الخام تُقرأ كلها دفعاتٍ الأحدث أولاً حتى حدّ أمان 200000 سجل: بلوغه يُبقي الأحدث ويُعلَن بـmeta.truncated = true (وmeta.limit = 200000)",
+     "meta.appliedRange = {from, to, defaulted} بالأيام المحلية (tz) نفسها التي في days: defaulted = true حين لم يُرسل from (الأسبوع الافتراضي)، وfrom بعد القصّ عند 31 يوماً إن وقع"
     ],
     "example": ""
    },
@@ -8306,10 +8317,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{metric, product:{id,name,unit,primaryUnitId(null أو معرّف من units — للعرض وحده),units:[{id, name, factor}]}|null, rows:[{repId, name, value, rank}], range:{from, to}, clampedDays}}",
+    "response": "{success:true, data:{metric, product:{id,name,unit,primaryUnitId(null أو معرّف من units — للعرض وحده),units:[{id, name, factor}]}|null, rows:[{repId, name, value, rank}], range:{from, to}, clampedDays}, meta:{truncated:boolean, limit?:200000, appliedRange?:{from, to, defaulted}}}",
     "rules": [
      "الصفوف بالقيمة تنازلياً، والمتساويان يأخذان المرتبة نفسها (1، 2، 2، 4)",
      "distance مدى أقصاه 31 يوماً، وما زاد يُقصّ ويُعلن في clampedDays",
+     "meta.truncated حاضر دائماً، ولا يكون true إلا لمعيار visits: سجلّات الزيارات الخام تُقرأ كلها دفعاتٍ الأحدث أولاً حتى حدّ أمان 200000 سجل يُبقي الأحدث (ومعه meta.limit = 200000 لهذا المعيار وحده)",
+     "meta.appliedRange لمعيار distance وحده، بالأيام المحلية (tz): defaulted = true حين لم يُرسل from (أسبوع ينتهي في to)، وfrom بعد القصّ عند 31 يوماً. وبقية المعايير بلا from منذ البداية بلا نافذة مفروضة فلا تحمله",
      "distance: نقاط صفحة التطبيق تُحسب كلها، ونقاط التطبيق في الخلفية تُحسب داخل يوم العمل المحلي وحده، أي من أول أثر في اليوم إلى آخره (نقاط الصفحة والجلسات والزيارات وبصمات الحضور والانصراف للمندوب نفسه)، فقيادة النهار والشاشة مقفلة تُحسب والمساء بعد آخر أثر لا. ويوم بلا أثر لا تُحسب له نقطة خلفية",
      "المبالغ والكميات بثلاث منازل، والكيلو بمنزلة واحدة، والدقائق صحيحة",
      "مع metric=product: value صافي الكمية المباعة بوحدة الأساس product.unit (كرتون من 24 = 24) بعد طرح المرتجع منه في المدى، وقد يكون سالباً، وunits وحدات الصنف النشطة للعرض. ومع metric=sales: value صافي المبيعات (البيع المؤكَّد ناقص المرتجع المؤكَّد)"
@@ -8336,8 +8349,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "المبيعات صافية: فواتير CONFIRMED ناقص المرتجع المؤكَّد في اليوم أو الشهر نفسه، والعدد فواتير البيع وحدها، والتحصيل سندات ACTIVE",
      "حدود اليوم والشهر محسوبة بتوقيت الخادم المحلي عبر new Date(y,m,d) وليس بتوقيت الرياض صراحةً",
      "purchasesTotal مجموع الكمية ضرب سعر التكلفة لحركات المستودع RECEIVE هذا الشهر على مستوى الشركة دون نطاق",
-     "أعداد العملاء customers تُرجع دائماً حتى مع إطفاء المحاسبة: total للنشطين، وwithBalance رصيدهم أكبر من صفر، وcreditExceeded سقفهم أكبر من صفر ورصيدهم أكبر من السقف",
-     "topReps تأخذ أول 5 مناديب من القاعدة بلا ترتيب ثم ترتّبهم بصافي مبيعات الشهر (salesTotal = البيع ناقص المرتجع، وinvoicesCount فواتير البيع وحدها)، فليست بالضرورة أعلى 5 في الشركة",
+     "أعداد العملاء customers تُرجع دائماً حتى مع إطفاء المحاسبة: total للنشطين (ACTIVE) وحدهم، وwithBalance كل عميل غير محذوف (ACTIVE وINACTIVE وBLOCKED) رصيده أكبر من 0.000001 — جمهور GET /reports/balances?type=overdue نفسه — وcreditExceeded كل عميل غير محذوف سقفه أكبر من صفر ورصيده أكبر من السقف",
+     "topReps أعلى 5 مناديب نشطين (isActive) في نطاق المستخدم أو فريقه بصافي مبيعات الشهر: salesTotal = فواتير CONFIRMED ناقص المرتجع المؤكَّد منذ أول الشهر بنطاق المستند، وinvoicesCount فواتير البيع وحدها. الترتيب تنازلي بالصافي ثم بالاسم، ومن لا مبيعات له (صفر) يكمل القائمة فقط إن قلّ أصحاب المبيعات عن 5، ومن صافيه سالب بعدهم. والمندوب الموقوف لا يظهر",
      "topCustomers أعلى 5 حسب totalSales المخزن مع استثناء الحالة DELETED، وrecentInvoices آخر 10 فواتير مؤكدة غير مرتجعة حسب createdAt"
     ],
     "example": ""

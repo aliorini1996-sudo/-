@@ -21,7 +21,7 @@ let scripted: Record<string, (args: any) => unknown> = {};
 const seen: Record<string, any[]> = {};
 function defaultFor(method: string): unknown {
   if (method === 'aggregate') return { _sum: { total: null } };
-  if (method === 'findMany') return [];
+  if (method === 'findMany' || method === 'groupBy') return [];
   if (method === 'count') return 0;
   return null;
 }
@@ -236,6 +236,38 @@ test('المحمّل — مرتجع المرحلة الأولى: استعلام�
   reset();
   assert.deepEqual((await loadProgressContext(TENANT, REP, NOV, [{ kind: 'COLLECTION_PCT', productId: null }])).collection, { base: 0, collected: 0 });
   assert.equal(seen['invoiceItem.findMany'], undefined);
+});
+
+test('المحمّل — البند ١١ (مرتجعٌ يُسقط من متبقّي الآجلة): آجلةٌ مفتوحة أول الشهر أرجعها العميل في الشهر تبقى في الأساس بافتتاحيّها', async () => {
+  // S: آجلة ١٠٠٠ قبل الشهر بلا سداد، أرجعها العميل كلها في الشهر بمرتجعٍ مرتبط ⇒ متبقّيها اليوم صفر ولا سند ولا إشعار عليها.
+  // قبل البند ١١ كان متبقّيها ١٠٠٠ فتُرشَّح بافتتاحي ١٠٠٠؛ ولو سقطت لارتفعت نسبة التحصيل وتغيّر شهرٌ مضى بأثر رجعي
+  // P: آجلة ١٠٠٠ سُدّد منها ٦٠٠ قبل الشهر وأُرجع باقيها ٤٠٠ في الشهر ⇒ افتتاحيّها ٤٠٠ كما كان
+  const rows = [
+    { id: 'S', total: 1000, remainingAmt: 0, items: [{ id: 's1' }], receiptItems: [], adjustments: [] },
+    { id: 'P', total: 1000, remainingAmt: 0, items: [{ id: 'p1' }], receiptItems: [{ amount: 600, receipt: { receiptDate: BEFORE, status: 'ACTIVE' } }], adjustments: [] },
+  ];
+  // القاعدة المزيّفة تطبّق OR الترشيح كما هو: متبقٍّ موجب، أو بند بيعٍ أسقط مرتجعٌ منذ بداية الشهر من متبقّي فاتورته
+  const candidates = (a: any) => rows.filter((r) => a.where.OR.some((b: any) =>
+    (b.remainingAmt && r.remainingAmt > b.remainingAmt.gt) || (b.items && r.items.some((i) => b.items.some.id.in.includes(i.id)))));
+  reset({ 'invoiceItem.groupBy': () => [{ returnOfItemId: 's1' }, { returnOfItemId: 'p1' }], 'invoice.findMany': candidates });
+  const ctx = await loadProgressContext(TENANT, REP, NOV, [{ kind: 'COLLECTION_PCT', productId: null }]);
+  assert.deepEqual(ctx.collection, { base: 1000 + 400, collected: 0 });
+  const gw = seen['invoiceItem.groupBy'][0];
+  assert.deepEqual(gw.by, ['returnOfItemId']);
+  assert.deepEqual(gw.where.returnOfItemId, { not: null });
+  const ri = gw.where.invoice;
+  assert.deepEqual([ri.tenantId, ri.status, ri.type, ri.remainingApplied, ri.invoiceDate.gte.toISOString()],
+    [TENANT, 'CONFIRMED', 'RETURN', { gt: 0 }, NOV.from.toISOString()], 'ما أسقط من المتبقّي منذ بداية الشهر وحده، بلا حدٍّ أعلى كفرع السندات');
+  assert.equal('lt' in ri.invoiceDate, false);
+  assert.deepEqual(seen['invoice.findMany'][0].where.OR.at(-1), { items: { some: { id: { in: ['s1', 'p1'] } } } });
+  // بلا مرتجعٍ أسقط شيئاً: فروع OR الثلاثة كما كانت، والآجلة بمتبقٍّ صفر خارج الأساس
+  reset({ 'invoice.findMany': candidates });
+  assert.deepEqual((await loadProgressContext(TENANT, REP, NOV, [{ kind: 'COLLECTION_PCT', productId: null }])).collection, { base: 0, collected: 0 });
+  assert.equal(seen['invoice.findMany'][0].where.OR.length, 3);
+  // وبلا هدف تحصيل لا استعلام له
+  reset();
+  await loadProgressContext(TENANT, REP, NOV, [{ kind: 'SALES_AMOUNT', productId: null }]);
+  assert.equal(seen['invoiceItem.groupBy'], undefined);
 });
 
 test('المحمّل — خانات العملة: عملة الشركة (الكويتي ثلاث والعراقي صفر)، وبلا هدف تحصيل لا قراءة للشركة', async () => {

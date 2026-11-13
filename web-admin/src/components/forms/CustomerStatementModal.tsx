@@ -51,13 +51,17 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
       const res = await customerApi.statement(customer.id, Object.keys(params).length ? params : undefined);
       // timezone: منطقة الشركة التي رشّح بها الخادم أيام الفترة. `null` قيمةٌ يعيدها الخادم فعلاً
       // (شركة بلا منطقة مضبوطة)، و`undefined` للتوافق مع خادمٍ أقدم — والحالتان ارتدادٌ إلى المتصفّح.
-      return res.data.data as { customer: Customer; entries: AccountEntry[]; openingBalance: number; closingBalance: number; timezone?: string | null; teamScoped?: boolean };
+      return res.data.data as { customer: Customer; entries: AccountEntry[]; openingBalance: number; closingBalance: number; timezone?: string | null; teamScoped?: boolean; teamNames?: string[] };
     },
   });
 
   /* «الفرق»: مشرف الفريق يتسلّم كشف فريقه وحده، وإجماليات العميل في الردّ لفريقه (يحسبها الخادم بأنواع القيود كما يحدّث
    * إجماليات العميل) — فالملخّص يقرأ الحقول نفسها لكلّ مستخدم، وتتبدّل عناوينه وحدها */
   const teamScoped = data?.teamScoped === true;
+  /* تدقيق دقّة التقارير (١٣ نوفمبر ٢٠٢٦): المشرف يرى للعميل نفسه رصيدين — رصيد فريقه هنا والرصيد الكامل في قائمة العملاء —
+   * فالتنبيه يسمّي الفرق ويقول صراحةً إن الرقمين قد يختلفان. وغير المشرف لا يرى شيئاً جديداً */
+  const teamNote = tr('هذا الكشف يشمل مستندات فريقك وحده — قد يختلف عن رصيد العميل الكامل في قائمة العملاء');
+  const teamNames = (data?.teamNames ?? []).filter(Boolean).join('، ');
   const summarySales = Number(data?.customer.totalSales ?? 0);
   const summaryCollected = Number(data?.customer.totalCollected ?? 0);
   const summaryBalance = Number(data?.customer.balance ?? 0);
@@ -82,6 +86,8 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
       { [tr('البند')]: teamScoped ? tr('مبيعات فريقك') : tr('إجمالي المبيعات'), [tr('القيمة')]: num(summarySales) },
       { [tr('البند')]: teamScoped ? tr('تحصيل فريقك') : tr('إجمالي التحصيل'), [tr('القيمة')]: num(summaryCollected) },
       { [tr('البند')]: teamScoped ? tr('رصيد فريقك') : tr('الرصيد الحالي'), [tr('القيمة')]: num(summaryBalance) },
+      // الملف يُتداول بعيداً عن الشاشة: التنبيه يسافر معه كي لا يُقرأ رصيد الفريق رصيداً كاملاً للعميل
+      ...(teamScoped ? [{ [tr('البند')]: tr('ملاحظة'), [tr('القيمة')]: teamNames ? `${teamNote} (${tr('الفريق')}: ${teamNames})` : teamNote }] : []),
     ];
     // نفس صفّ الترحيل في الملف المُصدَّر — الكشف المطبوع يجب أن يقرأ كالمعروض
     const carry: Record<string, string | number>[] = from
@@ -145,7 +151,8 @@ export default function CustomerStatementModal({ customer, onClose }: Props) {
         </div>
         {teamScoped && (
           <p className="mx-4 mt-3 text-xs text-[#8A5A00] bg-[#FFF6E5] border border-[#F3D9A4] rounded-lg px-3 py-2">
-            {tr('كشف فريقك فقط لا يشمل فواتير الفرق الأخرى وسنداتها ولا التسويات اليدوية')}
+            {teamNote}
+            {teamNames && <span className="text-[#6E6557]"> ({tr('الفريق')}: {teamNames})</span>}
           </p>
         )}
 

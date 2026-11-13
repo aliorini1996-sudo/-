@@ -34,6 +34,8 @@ interface StatementData {
   closingBalance: number;
   /** «الفرق»: كشف مشرف فريق — قيود فرقه وحدها */
   teamScoped?: boolean;
+  /** أسماء فرق المشرف (مع teamScoped وحده) — تُسمّى في التنبيه */
+  teamNames?: string[];
 }
 
 /**
@@ -88,6 +90,10 @@ export default function MCustomerStatement({ customer, company, repName, onClose
   });
 
   const entries = q.data?.entries ?? [];
+  /* تدقيق دقّة التقارير (١٣ نوفمبر ٢٠٢٦): كشف المشرف رصيد فريقه لا رصيد العميل الكامل في قائمة العملاء — فيُسمّى بذلك
+   * في التنبيه وعنوان الرصيد الختامي، وغير المشرف كما كان حرفاً */
+  const teamScoped = q.data?.teamScoped === true;
+  const teamNames = (q.data?.teamNames ?? []).filter(Boolean).join('، ');
   const totalDebit = entries.reduce((s, e) => s + Number(e.debit), 0);
   const totalCredit = entries.reduce((s, e) => s + Number(e.credit), 0);
 
@@ -103,6 +109,8 @@ export default function MCustomerStatement({ customer, company, repName, onClose
             from: from || undefined, to: to || undefined,
             openingBalance: q.data.openingBalance, closingBalance: q.data.closingBalance,
             teamScoped: q.data.teamScoped === true,
+            // والورقة تسمّي الفرق كالشاشة — هي ما يُسلَّم
+            teamNames: q.data.teamNames,
           }}
           onClose={() => setPdf(false)} />
       </Suspense>
@@ -149,9 +157,10 @@ export default function MCustomerStatement({ customer, company, repName, onClose
           : !q.data ? null
           : (
             <>
-              {q.data.teamScoped && (
+              {teamScoped && (
                 <p className="text-[11px] text-[#8A5A00] bg-[#FFF6E5] border border-[#F3D9A4] rounded-xl px-3 py-2">
-                  {tr('كشف فريقك فقط لا يشمل فواتير الفرق الأخرى وسنداتها ولا التسويات اليدوية')}
+                  {tr('هذا الكشف يشمل مستندات فريقك وحده — قد يختلف عن رصيد العميل الكامل في قائمة العملاء')}
+                  {teamNames && <span className="text-[#6E6557]"> ({tr('الفريق')}: {teamNames})</span>}
                 </p>
               )}
               {/* الرصيد المرحَّل: يُعرض حين تُحدَّد بداية — ما قبلها لا يُطوى بصمت */}
@@ -226,7 +235,11 @@ export default function MCustomerStatement({ customer, company, repName, onClose
                   <div className="flex items-center justify-between text-sm pt-1.5 border-t border-[#F1EBDF]">
                     {/* «الحالي» يصدق بلا تصفية وحدها: مع مدّةٍ مُصفّاة هذا رصيد
                         آخر يومٍ فيها لا رصيد اليوم */}
-                    <span className="font-semibold text-[#1F1A13]">{rangeOn ? tr('رصيد نهاية الفترة') : tr('الرصيد الحالي')}</span>
+                    <span className="font-semibold text-[#1F1A13]">
+                      {teamScoped
+                        ? (rangeOn ? tr('رصيد فريقك نهاية الفترة') : tr('رصيد فريقك'))
+                        : (rangeOn ? tr('رصيد نهاية الفترة') : tr('الرصيد الحالي'))}
+                    </span>
                     <span className="font-extrabold text-[#1F1A13]">{formatCurrency(q.data.closingBalance)}</span>
                   </div>
                 </MCard>

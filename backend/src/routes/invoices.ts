@@ -66,13 +66,14 @@ import { reissuePhase2Invoice } from '../services/invoiceReissue';
 import { cashCollectedStamp } from '../services/repCashCollection';
 import { retryPhase2Document } from '../services/zatcaSubmit';
 import {
+  clean,
   postInvoiceEntries,
   postCashInvoiceEntries,
   postReturnEntries,
 } from '../services/accounting';
 // عكس قيود فاتورة أُلغيت — نسخةٌ واحدة يتشاركها الإلغاء اليدويّ وإبطال المرحلة الثانية (Z5.4)
 import { reverseInvoiceInTx } from '../services/invoiceVoid';
-import { CancelRefused, lockInvoiceForCancel } from '../services/docCancel';
+import { CancelRefused, lockInvoiceForCancel, restoreReturnRemaining } from '../services/docCancel';
 // «تتبّع اللوط»: توزيع البنود على التشغيلات داخل معاملة الإصدار، وحارسا إلغاء المرتجع وإطفاء عودته — للصنف المتتبَّع في شركةٍ
 // فعّلت الميزة وحده؛ وغيره مساره حرفياً كما كان (services/lotsInvoice.ts)
 import { randomUUID } from 'node:crypto';
@@ -689,6 +690,24 @@ export function priceLinkedReturn(
 function returnedChanged(a: ReadonlyMap<string, number>, b: ReadonlyMap<string, number>, ids: Iterable<string>): boolean {
   for (const id of ids) if (Math.abs((a.get(id) ?? 0) - (b.get(id) ?? 0)) > QTY_EPS) return true;
   return false;
+}
+
+/**
+ * البند ١١ من تدقيق دقّة التقارير (١٣ نوفمبر ٢٠٢٦): ما يُسقطه مرتجع المرحلة الأولى المرتبط من متبقّي فاتورة بيعه.
+ *
+ * كان المرتجع يكتب قيد العميل وحده ويترك remainingAmt للفاتورة كما هو، بينما الإشعار الدائن في المرحلة الثانية يُنقصه
+ * (remainingAfterCreditNote). فبقي على الفاتورة دَينٌ وهمي يجذبه التوزيع الإلزامي بالأقدم أولاً، وتعرضه «الفواتير المفتوحة»
+ * ورابط الدفع، ثمّ ينتقل «المتبقّي» إلى فاتورةٍ لاحقة سُدّدت كاملة. القاعدة نفسها هنا: الآجلة المؤكَّدة وحدها، بقدر المرتجع
+ * ولا تحت الصفر، وما فاض يبقى رصيداً دائناً للعميل في قيده. والنقدية متبقّيها صفر أصلاً فلا شيء.
+ * التقريب بـclean لا بمنزلتين: من عملات المرحلة الأولى ما خاناته ثلاث (الدينار)، والمبلغ يُردّ عند الإلغاء بعينه.
+ */
+export function linkedReturnRemainingApplied(
+  sale: { type: string; status: string; remainingAmt: number | null } | null | undefined,
+  returnTotal: number,
+): number {
+  if (!sale || sale.type !== 'CREDIT' || sale.status !== 'CONFIRMED') return 0;
+  const applied = Math.min(Math.max(0, Number(sale.remainingAmt) || 0), Math.max(0, Number(returnTotal) || 0));
+  return applied > 0 ? clean(applied) : 0;
 }
 
 /** بند مستندٍ للعرض والطباعة (القاعدة ٨): لقطة وحدته، وإلّا وحدة صنفه — صفٌّ بلا لقطة كُتب بوحدة الأساس وقتها */
@@ -1975,12 +1994,23 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       // مرتجعٌ من فاتورة بيع: قفل صفّ فاتورة البيع ثم إعادة التحقق من المتاح — مرتجعان متزامنان لا يتجاوزانه معاً
       // «لوكيشن»: ومن صفّها المقفل نفسه ختمُ موقعها يرثه المرتجع (null لبيعٍ بلا ختم) — بلا استعلامٍ زائد
       let invLocationId = docLocationId;
+      // البند ١١: ما يُسقطه المرتجع المرتبط من متبقّي فاتورة بيعه الآجلة، ومتبقّيها بعده — صفرٌ وnull لغيره
+      let remainingApplied = 0;
+      let saleRemainingAfter: number | null = null;
       if (saleForReturn) {
         const saleLink = await assertReturnLinks(tx, { tenantId: tid, customerId, saleInvoiceId: saleForReturn, lines: saleLinkLines, lock: true });
         invLocationId = inheritedLocation(saleLink);
         // وتحت القفل نفسه: مرتجعٌ متزامن التزم قبله ⇒ يُعاد التسعير على ما رُدّ فعلاً، فيبقى مجموع المرتجعات قيمةَ البند
         const nowReturned = await returnedBySaleItem(tx, tid, refundSaleIds);
         if (returnedChanged(nowReturned, refundReturned, refundSaleIds)) priced = priceRefund(nowReturned);
+        // البند ١١: متبقّي فاتورة البيع يُقرأ تحت قفلها (assertReturnLinks أعلاه، FOR UPDATE) وبعد إعادة التسعير — فسندٌ أو مرتجعٌ
+        // متزامن على الفاتورة نفسها ينتظر هذه المعاملة ثمّ يقرأ ما كتبته، ولا يُسقط مرتجعان معاً أكثر من المتبقّي
+        const saleDue = await tx.invoice.findFirst({
+          where: { id: saleForReturn, tenantId: tid },
+          select: { type: true, status: true, remainingAmt: true },
+        });
+        remainingApplied = linkedReturnRemainingApplied(saleDue, priced.total);
+        if (saleDue && remainingApplied > 0) saleRemainingAfter = clean(Math.max(0, Number(saleDue.remainingAmt) - remainingApplied));
       }
       // «تتبّع اللوط» (§٤.٨ البند ٦): بعد قفل فاتورة البيع وقبل الإنشاء — قفل الأصناف (المجموعة الموثوقة من الصفوف المقفلة أعلاه)،
       // ثم السباق على clientRef، ثم التوزيع بلا سالبٍ على أي تشغيلة (I1) ولا تحت min(0, غير المسمّى) (I2)
@@ -2041,6 +2071,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           total: priced.total,
           paidAmt: isReturn ? 0 : (body.type === 'CASH' ? priced.total : 0),
           remainingAmt: isReturn ? 0 : (body.type === 'CASH' ? 0 : priced.total),
+          // البند ١١: ما أسقطه هذا المرتجع من متبقّي فاتورة بيعه — يردّه إلغاؤه بعينه (docCancel.ts restoreReturnRemaining)
+          ...(remainingApplied > 0 && { remainingApplied }),
           // «البيع النقدي تحصيلٌ لدى المندوب»: النقدية لمندوبٍ مفعَّلٍ له الإعداد تُعدّ محصَّلةً في عهدته — ختمٌ لا يتحرّك بعد الإصدار
           ...cashCollectedStamp(body.type, rep),
           einvoiceProvider,
@@ -2076,6 +2108,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       });
 
       if (isReturn) {
+        // البند ١١: متبقّي فاتورة البيع الآجلة ينقص بما أسقطه المرتجع — في المعاملة نفسها، وصفّها مقفلٌ منذ assertReturnLinks فالقيمة
+        // المحسوبة تحت القفل تُكتب كما هي (لا غبار أعدادٍ عائمة). قبل قيد العميل: ترتيب الأقفال invoices ⇒ customers كالإشعار الدائن
+        if (saleForReturn && saleRemainingAfter != null) {
+          await tx.invoice.update({ where: { id: saleForReturn }, data: { remainingAmt: saleRemainingAfter } });
+        }
         await postReturnEntries(tx as never, tid, inv.id, customerId, priced.total, docDate);
       } else if (body.type === 'CASH') {
         await postCashInvoiceEntries(tx as never, tid, inv.id, customerId, total, docDate);
@@ -2107,6 +2144,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     await noticeRebased(invoice.number ?? null);
     // فاتورة جديدة (ونقدية مدفوعة معها) تظهر في قوائم الشاشات المفتوحة لحظتها
     publishInvoicesChanged(tid);
+    // البند ١١: أسقط المرتجع من متبقّي فاتورة بيعه — رابط دفعٍ قائم عليها بالمبلغ القديم يموت كما بعد الإشعار الدائن (نقد 13).
+    // خارج المعاملة عمداً (نداء شبكي)، وفشله لا يُفشل مرتجعاً التُزم
+    if (saleForReturn && Number(invoice.remainingApplied ?? 0) > 0) {
+      void import('../services/paylink')
+        .then(m => m.expireStaleLinks(tid, saleForReturn))
+        .catch(e => console.error('return issue: expire sale links failed:', (e as Error).message));
+    }
     // صلاحية الأصناف من تاريخ البيع، وللمرتجع: هل ما عاد منتهي الصلاحية (لا يُفشل الإصدار)
     if (tracksExpiry) await stampExpiryAfterIssue(tid, 201, { data: invoice });
     // «تتبّع اللوط»: تحذيرات التوزيع (من غير المسمّى، وحدةٌ مقسومة، إلى موقوفة، إعادةٌ موسومة) لا تمنع وتُرفق بالردّ
@@ -2252,6 +2296,9 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
     const updated = await prisma.$transaction(async tx => {
       // الفحوص أعلاه على قراءةٍ سابقة للمعاملة: القفل وإعادتها تحته أولاً، وإلا عكس طلبان متقاربان القيد مرّتين
       await lockInvoiceForCancel(tx, tid, invoice.id);
+      // البند ١١: مرتجعٌ أسقط من متبقّي فاتورة بيعه الآجلة يردّ إليها ما أسقطه بعينه (مسقوفاً بما عليها). بعد قفل المرتجع وقبل أقفال
+      // السيارة واللوط وصفّ العميل: فاتورة البيع ثمّ السيارة ثمّ العميل كإصدار المرتجع نفسه. ولا استعلام لمرتجعٍ لم يُسقط شيئاً
+      if (invoice.type === 'RETURN') await restoreReturnRemaining(tx, tid, invoice.id, invoice.remainingApplied);
       // ترتيب الأقفال (repSaleStock VAN_LOCK_ORDER): دلوا المنتهي والتالف لغير المتتبَّع قبل أقفال اللوط، كإزالتهما في السيارة
       if (lotCancel.length) await preLockReturnOutBuckets(tx, tid, invoice.id, new Set(lotCancel));
       // «تتبّع اللوط»: لا يُلغى مرتجعٌ بيعت بضاعته — صالح كل تشغيلة بعد الإزالة ≥ 0 (I1)، وغير المسمّى ≥ min(0, قبله) (I2)

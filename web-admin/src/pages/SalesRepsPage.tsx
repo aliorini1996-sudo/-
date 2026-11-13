@@ -17,6 +17,7 @@ import TeamsTabBoundary from '../components/teams/TeamsTabBoundary';
 import { formatCurrency, formatDate, formatDayOnly, formatTime, formatNumber, statusLabels, paymentMethodLabels, getActiveCurrency } from '../utils/format';
 import { totalsByUnit, docQtyText } from '../lib/adminUnits';
 import { methodLabelFor, type CompanyWithMethods } from '../lib/paymentMethodsConfig';
+import { statementTotals, statementPeriodLabel, fetchAllPages, pageOf, truncationNote, isReturnDoc } from '../lib/repStatement';
 import { priceListsOf, repPriceTypesSummary } from '../lib/priceLists';
 import { currencyDecimals } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
@@ -1043,35 +1044,47 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
   });
   const rcpMethod = (r: Receipt) => methodLabelFor(methodsCompany, r.paymentMethod, r.paymentMethodKey, tr);
 
+  // كل صفحات القائمتين لا أولاهما: الكشف كان يطلب ٥٠٠٠ ويتجاهل pagination.total، فمندوبٌ قديم على «كل الفترات»
+  // تسقط أقدم مستنداته من كل رقمٍ بلا تنبيه. يُجلب الآن الكلّ حتى سقف أمان، وما فوقه يُعلَن (lib/repStatement.ts)
   const { data, isLoading } = useQuery({
     queryKey: ['rep-statement', rep.id, from, to],
     queryFn: async () => {
-      const base: Record<string, string | number> = { salesRepId: rep.id, limit: 5000, withItems: 1 };
+      const base: Record<string, string | number> = { salesRepId: rep.id, withItems: 1 };
       // كلٌّ على حدة (راجع صفحة الفواتير)
       if (from) base.from = from;
       if (to) base.to = to;
       const [inv, rcp] = await Promise.all([
-        invoiceApi.list({ ...base, status: 'CONFIRMED' }),
-        receiptApi.list(base),
+        fetchAllPages<Invoice>(async (page, limit) => pageOf<Invoice>((await invoiceApi.list({ ...base, status: 'CONFIRMED', page, limit })).data)),
+        fetchAllPages<Receipt>(async (page, limit) => pageOf<Receipt>((await receiptApi.list({ ...base, page, limit })).data)),
       ]);
-      return { invoices: inv.data.data as Invoice[], receipts: rcp.data.data as Receipt[] };
+      return {
+        invoices: inv.rows, receipts: rcp.rows,
+        invoicesCut: inv.truncated ? { shown: inv.rows.length, total: inv.total } : null,
+        receiptsCut: rcp.truncated ? { shown: rcp.rows.length, total: rcp.total } : null,
+      };
     },
   });
 
   const invoices = data?.invoices ?? [];
   const receipts = data?.receipts ?? [];
-  const sales = invoices.filter(i => (i.type as string) !== 'RETURN');
-  const returns = invoices.filter(i => (i.type as string) === 'RETURN');
-  const salesTotal = sales.reduce((s, i) => s + Number(i.total), 0);
-  const returnsTotal = returns.reduce((s, i) => s + Number(i.total), 0);
+  const sales = invoices.filter(i => !isReturnDoc(i));
+  // البيع والمرتجع وصافيهما من حسابٍ واحد للبطاقة والتذييل والملف والورقة — المرتجع لا يُضاف إلى البيع أبداً
+  const totals = statementTotals(invoices);
+  const { salesTotal, returnsTotal, netSales } = totals;
   const collectTotal = receipts.reduce((s, r) => s + Number(r.amount), 0);
-  const periodLabel = from && to ? `${formatDate(from)} — ${formatDate(to)}` : tr('كل الفترات');
+  // «من» وحدها أو «إلى» وحدها مدّةٌ مُصفّاة لا «كل الفترات»
+  const periodLabel = statementPeriodLabel(from, to, tr, formatDayOnly);
+  // بلغ الجلبُ سقف الأمان: الأحدث وحده معروض، والإجماليات له — يُقال صراحةً على الشاشة والورقة والملف
+  const cutNotes = [
+    data?.invoicesCut ? truncationNote('invoices', data.invoicesCut, tr, formatNumber) : '',
+    data?.receiptsCut ? truncationNote('receipts', data.receiptsCut, tr, formatNumber) : '',
+  ].filter(Boolean);
+  const cutHint = tr('الإجماليات للمعروض وحده — ضيّق الفترة لكشف كامل');
   // ملخّص أصناف الفاتورة: «اسم ×كمية، …» (لعمود الأصناف في الكشف)
   // لقطة وحدة البند لا وحدة الصنف الحالية: بعد التحويل صارت وحدة الصنف «حبة» والبند كرتون
   // ولصنفٍ له وحدة رئيسية (R2) يُلحق اسم الوحدة دائماً «×5 قارورة» — primaryUnitId من select بنود الفواتير (null ⇒ القائم حرفاً)
   const itemsText = (i: Invoice) => (i.items || []).map(it => `${it.product.name} ×${docQtyText({ qty: it.qty, unitName: it.unitName, unitFactor: it.unitFactor, unit: it.product.unit, product: { primaryUnitId: (it.product as { primaryUnitId?: string | null }).primaryUnitId } }, formatNumber)}`).join('، ');
-  // إجماليات أسفل الكشف: مجموع مبالغ الفواتير + مجموع الوحدات المباعة مفصّلة حسب الوحدة (كرتون/قطعة/…)
-  const invoicesAmountTotal = invoices.reduce((s, i) => s + Number(i.total), 0);
+  // إجماليات أسفل الكشف: المبيعات والمرتجعات وصافيهما (totals أعلاه) + الوحدات المباعة مفصّلة حسب الوحدة (كرتون/قطعة/…)
   // الوحدات المباعة لكل وحدةٍ بلقطتها (كرتونٌ وحبّةٌ لا يُجمعان رقماً واحداً، ووحدة البند لا وحدة الصنف الحالية)
   const soldUnits = (() => {
     const m = totalsByUnit(sales.flatMap(i => (i.items || []).map(it => ({ qty: it.qty, unitName: it.unitName, unit: it.product.unit }))), tr('وحدة'));
@@ -1080,27 +1093,36 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
 
   // تصدير الكشف إلى Excel (3 أوراق: ملخص، فواتير، سندات)
   const exportRep = async () => {
+    // المدّة أوّلاً كرأس الشاشة والورقة («من X» / «حتى Y» لطرفٍ واحد)، والإجمالي قبل المرتجع «المبيعات» كالشاشة: «إجمالي
+    // المبيعات» في المنصّة صافٍ من المرتجع (services/netSales.ts)
     const summary = [
+      { [tr('البند')]: tr('الفترة'), [tr('القيمة')]: periodLabel },
       { [tr('البند')]: tr('عدد فواتير البيع'), [tr('القيمة')]: sales.length },
-      { [tr('البند')]: tr('إجمالي المبيعات'), [tr('القيمة')]: num(salesTotal) },
-      { [tr('البند')]: tr('عدد المرتجعات'), [tr('القيمة')]: returns.length },
-      { [tr('البند')]: tr('إجمالي المرتجعات'), [tr('القيمة')]: num(returnsTotal) },
-      { [tr('البند')]: tr('صافي المبيعات'), [tr('القيمة')]: num(salesTotal - returnsTotal) },
+      { [tr('البند')]: tr('المبيعات'), [tr('القيمة')]: num(salesTotal) },
+      { [tr('البند')]: tr('عدد المرتجعات'), [tr('القيمة')]: totals.returnsCount },
+      { [tr('البند')]: tr('المرتجعات'), [tr('القيمة')]: num(returnsTotal) },
+      { [tr('البند')]: tr('صافي المبيعات'), [tr('القيمة')]: num(netSales) },
       { [tr('البند')]: tr('عدد سندات القبض'), [tr('القيمة')]: receipts.length },
       { [tr('البند')]: tr('إجمالي التحصيل'), [tr('القيمة')]: num(collectTotal) },
-    ];
+    ] as Record<string, string | number>[];
+    // الملف يُرسَل ويُحفظ: إن قُطع الجلب عند السقف فالملاحظة فيه كما على الشاشة
+    for (const note of cutNotes.length ? [...cutNotes, cutHint] : []) summary.push({ [tr('البند')]: tr('ملاحظة'), [tr('القيمة')]: note });
     const invRows = invoices.map(i => ({
       [tr('رقم الفاتورة')]: i.number, [tr('العميل')]: i.customer.name,
       [tr('الأصناف')]: itemsText(i),
       [tr('النوع')]: tr(statusLabels[i.type] || i.type),
       [tr('التاريخ')]: formatDate(i.invoiceDate), [tr('الإجمالي')]: num(i.total), [tr('المدفوع')]: num(i.paidAmt), [tr('المتبقي')]: num(i.remainingAmt),
     })) as Record<string, string | number>[];
-    // صف الإجمالي أسفل جدول الفواتير
-    if (invoices.length) invRows.push({
-      [tr('رقم الفاتورة')]: tr('الإجمالي'), [tr('العميل')]: '',
-      [tr('الأصناف')]: `${tr('الوحدات المباعة')}: ${soldUnits}`,
-      [tr('النوع')]: '', [tr('التاريخ')]: '', [tr('الإجمالي')]: num(invoicesAmountTotal), [tr('المدفوع')]: '', [tr('المتبقي')]: '',
+    // تذييل جدول الفواتير: المبيعات والمرتجعات وصافيهما — لا مجموعٌ موجب واحد يضيف المرتجع إلى البيع
+    const invFoot = (label: string, items: string, amount: number) => ({
+      [tr('رقم الفاتورة')]: label, [tr('العميل')]: '', [tr('الأصناف')]: items,
+      [tr('النوع')]: '', [tr('التاريخ')]: '', [tr('الإجمالي')]: num(amount), [tr('المدفوع')]: '', [tr('المتبقي')]: '',
     });
+    if (invoices.length) invRows.push(
+      invFoot(tr('المبيعات'), `${tr('الوحدات المباعة')}: ${soldUnits}`, salesTotal),
+      invFoot(tr('المرتجعات'), '', returnsTotal),
+      invFoot(tr('صافي المبيعات'), '', netSales),
+    );
     const rcpRows = receipts.map(r => ({
       [tr('رقم السند')]: r.number, [tr('العميل')]: r.customer.name,
       [tr('طريقة الدفع')]: rcpMethod(r),
@@ -1119,6 +1141,15 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
     const esc = (s: unknown) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string));
     const invRows = invoices.map((i, n) => `<tr><td>${n + 1}</td><td>${esc(i.number)}</td><td>${esc(i.customer.name)}</td><td style="font-size:10px">${esc((i.items?.length ? `${i.items.length} ${tr('صنف')}: ` : '') + itemsText(i))}</td><td>${esc(tr(statusLabels[i.type] || i.type))}</td><td>${formatDate(i.invoiceDate)}</td><td style="text-align:left">${num(i.total).toFixed(2)}</td></tr>`).join('');
     const rcpRows = receipts.map((r, n) => `<tr><td>${n + 1}</td><td>${esc(r.number)}</td><td>${esc(r.customer.name)}</td><td>${esc(rcpMethod(r))}</td><td>${formatDate(r.receiptDate)}</td><td style="text-align:left">${num(r.amount).toFixed(2)}</td></tr>`).join('');
+    // تذييل الفواتير المطبوع: المبيعات ثم المرتجعات ثم صافيهما — كالشاشة والملف
+    const footRow = (label: string, units: string, count: string, amount: number, top = false) =>
+      `<tr style="background:#FAF7F0;font-weight:700${top ? ';border-top:2px solid #E15A30' : ''}"><td colspan=3>${label}</td><td>${esc(units)}</td><td colspan=2>${count}</td><td style="text-align:left">${num(amount).toFixed(2)}</td></tr>`;
+    const invFootHtml = footRow(tr('المبيعات'), soldUnits, `${totals.salesCount} ${tr('فاتورة')}`, salesTotal, true)
+      + footRow(tr('المرتجعات'), '', `${totals.returnsCount} ${tr('مرتجع')}`, returnsTotal)
+      + footRow(tr('صافي المبيعات'), '', '', netSales);
+    const cutBox = cutNotes.length
+      ? `<div style="background:#FFFBEB;color:#92400E;border:1px solid #FDE68A;border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:11px">${[...cutNotes, cutHint].map(esc).join('<br/>')}</div>`
+      : '';
     const html = `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"/><title>${tr('كشف')} ${esc(rep.name)}</title>
     <style>
       @page { size: A4; margin: 14mm; }
@@ -1136,15 +1167,17 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
     </style></head><body>
       <h1>FieldSales — ${tr('كشف المندوب')}</h1>
       <div class="sub">${tr('المندوب')}: <b>${esc(rep.name)}</b> · ${tr('الجوال')}: ${esc(rep.phone)} · ${tr('الفترة')}: ${periodLabel} · ${tr('تاريخ الإصدار')}: ${formatDate(new Date().toISOString())}</div>
+      ${cutBox}
       <div class="cards">
         <div class="card"><div class="v">${sales.length}</div><div class="k">${tr('عدد الفواتير')}</div></div>
-        <div class="card"><div class="v">${num(salesTotal).toFixed(2)}</div><div class="k">${tr('إجمالي المبيعات')}</div></div>
+        <div class="card"><div class="v">${num(salesTotal).toFixed(2)}</div><div class="k">${tr('المبيعات')}</div></div>
+        <div class="card"><div class="v">${num(returnsTotal).toFixed(2)}</div><div class="k">${tr('المرتجعات')}</div></div>
+        <div class="card"><div class="v">${num(netSales).toFixed(2)}</div><div class="k">${tr('صافي المبيعات')}</div></div>
         <div class="card"><div class="v">${receipts.length}</div><div class="k">${tr('عدد السندات')}</div></div>
         <div class="card"><div class="v">${num(collectTotal).toFixed(2)}</div><div class="k">${tr('إجمالي التحصيل')}</div></div>
-        <div class="card"><div class="v">${num(salesTotal - returnsTotal).toFixed(2)}</div><div class="k">${tr('صافي المبيعات')}</div></div>
       </div>
       <h2>${tr('الفواتير')} (${invoices.length})</h2>
-      <table><thead><tr><th>#</th><th>${tr('رقم الفاتورة')}</th><th>${tr('العميل')}</th><th>${tr('الأصناف')}</th><th>${tr('النوع')}</th><th>${tr('التاريخ')}</th><th>${tr('الإجمالي')}</th></tr></thead><tbody>${invRows || `<tr><td colspan=7>${tr('لا توجد فواتير')}</td></tr>`}</tbody>${invoices.length ? `<tfoot><tr style="background:#FAF7F0;font-weight:700;border-top:2px solid #E15A30"><td colspan=3>${tr('الإجمالي')}</td><td>${esc(soldUnits)}</td><td colspan=2>${invoices.length} ${tr('فاتورة')}</td><td style="text-align:left">${num(invoicesAmountTotal).toFixed(2)}</td></tr></tfoot>` : ''}</table>
+      <table><thead><tr><th>#</th><th>${tr('رقم الفاتورة')}</th><th>${tr('العميل')}</th><th>${tr('الأصناف')}</th><th>${tr('النوع')}</th><th>${tr('التاريخ')}</th><th>${tr('الإجمالي')}</th></tr></thead><tbody>${invRows || `<tr><td colspan=7>${tr('لا توجد فواتير')}</td></tr>`}</tbody>${invoices.length ? `<tfoot>${invFootHtml}</tfoot>` : ''}</table>
       <h2>${tr('سندات القبض')} (${receipts.length})</h2>
       <table><thead><tr><th>#</th><th>${tr('رقم السند')}</th><th>${tr('العميل')}</th><th>${tr('الطريقة')}</th><th>${tr('التاريخ')}</th><th>${tr('المبلغ')}</th></tr></thead><tbody>${rcpRows || `<tr><td colspan=6>${tr('لا توجد سندات')}</td></tr>`}</tbody></table>
     </body></html>`;
@@ -1157,10 +1190,11 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
     setTimeout(() => { try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); } catch { /* */ } setTimeout(() => iframe.remove(), 2000); }, 400);
   };
 
-  const stat = (v: string, k: string, color: string) => (
+  const stat = (v: string, k: string, color: string, sub?: string) => (
     <div className="bg-white rounded-xl border border-[#E9E1D3] p-3">
       <p className={`text-lg font-bold ${color}`}>{v}</p>
       <p className="text-xs text-[#6E6557]">{k}</p>
+      {sub && <p className="text-[11px] text-[#6E6557] mt-0.5">{sub}</p>}
     </div>
   );
 
@@ -1190,10 +1224,17 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
             <div className="text-center text-gray-400 py-10">{tr('جاري التحميل')}</div>
           ) : (
             <>
-              {/* ملخص */}
+              {cutNotes.length > 0 && (
+                <div className="text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-lg p-2.5 leading-relaxed">
+                  {cutNotes.map(n => <p key={n}>{n}</p>)}
+                  <p>{cutHint}</p>
+                </div>
+              )}
+              {/* ملخص — «المبيعات» في المنصّة صافيةٌ من المرتجع (netSales.ts)، والبيع والمرتجع تحتها لمن يراجع */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {stat(String(sales.length), tr('عدد الفواتير'), 'text-[#E15A30]')}
-                {stat(formatCurrency(salesTotal), tr('إجمالي المبيعات'), 'text-[#E15A30]')}
+                {stat(formatCurrency(netSales), tr('صافي المبيعات'), 'text-[#E15A30]',
+                  `${tr('المبيعات')} ${formatCurrency(salesTotal)} · ${tr('المرتجعات')} ${formatCurrency(returnsTotal)}`)}
                 {stat(String(receipts.length), tr('عدد السندات'), 'text-[#1E7A52]')}
                 {stat(formatCurrency(collectTotal), tr('إجمالي التحصيل'), 'text-[#1E7A52]')}
               </div>
@@ -1223,11 +1264,22 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
                     </tbody>
                     {invoices.length > 0 && (
                       <tfoot>
+                        {/* المرتجع سطرٌ مستقلّ يُطرح لا يُجمع — كان «الإجمالي» يضيفه إلى البيع */}
                         <tr className="bg-[#FAF7F0] font-bold border-t-2 border-[#E15A30]">
-                          <td colSpan={2} className="text-[#1F1A13]">{tr('الإجمالي')}</td>
+                          <td colSpan={2} className="text-[#1F1A13]">{tr('المبيعات')}</td>
                           <td className="text-[#1F1A13]">{soldUnits || '-'}</td>
-                          <td colSpan={2} className="text-xs text-gray-500">{invoices.length} {tr('فاتورة')}</td>
-                          <td className="text-[#E15A30]">{formatCurrency(invoicesAmountTotal)}</td>
+                          <td colSpan={2} className="text-xs text-gray-500">{totals.salesCount} {tr('فاتورة')}</td>
+                          <td className="text-[#1F1A13]">{formatCurrency(salesTotal)}</td>
+                        </tr>
+                        <tr className="bg-[#FAF7F0] font-bold">
+                          <td colSpan={2} className="text-[#1F1A13]">{tr('المرتجعات')}</td>
+                          <td className="text-[#1F1A13]">-</td>
+                          <td colSpan={2} className="text-xs text-gray-500">{totals.returnsCount} {tr('مرتجع')}</td>
+                          <td className="text-red-600">{formatCurrency(returnsTotal)}</td>
+                        </tr>
+                        <tr className="bg-[#FAF7F0] font-bold">
+                          <td colSpan={5} className="text-[#1F1A13]">{tr('صافي المبيعات')}</td>
+                          <td className="text-[#E15A30]">{formatCurrency(netSales)}</td>
                         </tr>
                       </tfoot>
                     )}
