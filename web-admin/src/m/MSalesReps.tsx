@@ -13,6 +13,7 @@ import { SalesRep } from '../types';
 import { formatCurrency, formatDate, formatTime, getActiveCurrency } from '../utils/format';
 import { currencyDecimals } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
+import { NO_CAMERA_HINT, cameraCaptureCrashes } from '../lib/appCamera';
 import { useAuthStore } from '../store/authStore';
 import { compressImage } from '../rep/imageCompress';
 import { useBackClose } from '../lib/useBackClose';
@@ -1283,6 +1284,8 @@ function RepCollect({ rep, company, onClose }: { rep: SalesRep; company?: unknow
                       )}
                     </div>
                     <Hint text={tr('الحد الأقصى 4 صور')} />
+                    {/* تطبيق «إدارة» 1.0.x على الآيفون: «التقاط صورة» في قائمة iOS يُغلق التطبيق (lib/appCamera.ts) */}
+                    {photos.length < MAX_PHOTOS && cameraCaptureCrashes() && <Hint text={tr(NO_CAMERA_HINT)} />}
                   </div>
 
                   <div>

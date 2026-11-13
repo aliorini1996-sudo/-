@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Camera, ImagePlus, FileText, X } from 'lucide-react';
 import { useTr } from '../i18n/strings';
+import { NO_CAMERA_MSG, cameraCaptureCrashes } from '../lib/appCamera';
 import { compressImage } from '../rep/imageCompress';
 import {
   PURCHASE_ATT_COMPRESS, PURCHASE_ATT_MAX_PER_ENTRY, PURCHASE_ATT_MAX_PER_REQUEST, addProblem, checkAttachment, humanSize, isPdf, normalizePdfDataUrl,
@@ -109,10 +110,17 @@ export default function PurchaseAttachmentsPicker({ items, onChange, existing = 
       )}
       {left > 0 && (
         <div className="grid grid-cols-3 gap-2">
-          <label className={btn}>
-            <Camera size={16} /> {tr('تصوير')}
-            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onPick} disabled={working || disabled} />
-          </label>
+          {cameraCaptureCrashes() ? (
+            // تطبيق «إدارة» 1.0.x على الآيفون بلا إذن كاميرا: فتحها يُغلق التطبيق (lib/appCamera.ts)
+            <button type="button" className={btn} onClick={() => setMsg(tr(NO_CAMERA_MSG))} disabled={working || disabled}>
+              <Camera size={16} /> {tr('تصوير')}
+            </button>
+          ) : (
+            <label className={btn}>
+              <Camera size={16} /> {tr('تصوير')}
+              <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onPick} disabled={working || disabled} />
+            </label>
+          )}
           <label className={btn}>
             <ImagePlus size={16} /> {tr('من الاستديو')}
             <input type="file" accept="image/*" multiple className="hidden" onChange={onPick} disabled={working || disabled} />

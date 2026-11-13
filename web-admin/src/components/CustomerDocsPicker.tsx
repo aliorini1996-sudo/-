@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Camera, ImagePlus, X } from 'lucide-react';
 import { useTr } from '../i18n/strings';
+import { NO_CAMERA_MSG, cameraCaptureCrashes } from '../lib/appCamera';
 import { compressImage } from '../rep/imageCompress';
 import { CUSTOMER_DOC_MAX_PER_REQUEST, DOC_COMPRESS, PickedDoc, CustomerDocKind, docKindsFor } from '../lib/customerDocs';
 
@@ -72,10 +73,18 @@ export default function CustomerDocsPicker({ docs, onChange, taxOff = false, max
       )}
       {docs.length < max && (
         <div className="grid grid-cols-2 gap-2">
-          <label className={`flex items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-gray-300 py-3 text-xs font-medium text-gray-500 cursor-pointer hover:border-[#E15A30] hover:text-[#E15A30] active:bg-gray-50 ${working ? 'opacity-50 pointer-events-none' : ''}`}>
-            <Camera size={16} /> {tr('تصوير')}
-            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onPick} />
-          </label>
+          {cameraCaptureCrashes() ? (
+            // تطبيق «إدارة» 1.0.x على الآيفون بلا إذن كاميرا: فتحها يُغلق التطبيق (lib/appCamera.ts)
+            <button type="button" onClick={() => setMsg(tr(NO_CAMERA_MSG))}
+              className={`flex items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-gray-300 py-3 text-xs font-medium text-gray-500 cursor-pointer hover:border-[#E15A30] hover:text-[#E15A30] active:bg-gray-50 ${working ? 'opacity-50 pointer-events-none' : ''}`}>
+              <Camera size={16} /> {tr('تصوير')}
+            </button>
+          ) : (
+            <label className={`flex items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-gray-300 py-3 text-xs font-medium text-gray-500 cursor-pointer hover:border-[#E15A30] hover:text-[#E15A30] active:bg-gray-50 ${working ? 'opacity-50 pointer-events-none' : ''}`}>
+              <Camera size={16} /> {tr('تصوير')}
+              <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onPick} />
+            </label>
+          )}
           <label className={`flex items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-gray-300 py-3 text-xs font-medium text-gray-500 cursor-pointer hover:border-[#E15A30] hover:text-[#E15A30] active:bg-gray-50 ${working ? 'opacity-50 pointer-events-none' : ''}`}>
             <ImagePlus size={16} /> {tr('من الاستديو')}
             <input type="file" accept="image/*" multiple className="hidden" onChange={onPick} />
