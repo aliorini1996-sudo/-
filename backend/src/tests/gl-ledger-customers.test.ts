@@ -68,6 +68,8 @@ test('حارس ثابت: نقاط العملاء GET بـcanViewLedger، وال�
   assert.deepEqual(routes(customers), [
     'get /customers/invoices VIEW', 'get /customers/receipts VIEW', 'get /customers/custody VIEW',
     'get /customers/paylink VIEW', 'get /customers/paylink/entries VIEW',
+    // «ربط الدفاتر» L5: شرح فرق عهدة المندوب (OD3) وعهدة مستخدمي الشركة (C4u) — قراءة فقط بالصلاحية نفسها
+    'get /customers/custody/:salesRepId/explain VIEW', 'get /customers/user-custody VIEW',
   ]);
   assert.match(customers, /const VIEW = requireLedgerPermission\('canViewLedger'\);/);
   assert.deepEqual(routes(review), ['get /audit CONFIGURE']);

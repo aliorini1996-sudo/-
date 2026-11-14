@@ -17,6 +17,9 @@ import {
 } from './desired';
 import { arEntryKey, settlementKey } from './keys';
 import type { DesiredEvent } from './types';
+import { isLinked, isManualBooks } from '../mode';
+import { userSettlementPayload } from './desired';
+import { userSettlementKey } from './keys';
 
 // ═══ قراءة التفعيل ═══
 
@@ -195,4 +198,76 @@ export async function assertRepDeletable(db: RepDeletableDb, tenantId: string, s
   if (hasFinancialFootprint(footprint)) {
     throw new LedgerError('LEDGER_HISTORY_LOCKED', { salesRepId, footprint: { ...footprint } }, REP_HISTORY_LOCKED_MESSAGE);
   }
+}
+
+// ═══ USER_SETTLEMENT («ربط الدفاتر» L5، الفجوة C14): حذف توريد عهدة مستخدم الشركة ═══
+//
+// للمربوطة وحدها (isLinked): التوريد مصدرٌ لا يقرؤه المُطابِق إلا لها (D13)، فلا معنى لحدث حذفٍ في غيرها — والشركة اليدوية
+// والقديمة وغير المفعّلة لا تُقرأ لها إلا gl_settings (قراءة واحدة) ولا يُكتب شيء. الحدثان PENDING بالحمولة نفسها كحذف
+// الاستلام (POST بـsettledAt وREVERSE بلحظة الحذف)، والمُرحِّل وحده يقرّر تحت قفل gl-post (لا SKIPPED هنا أبداً).
+
+/** صف user_settlements المحذوف كما يُقرأ قبل الحذف، ومعه لقطة اسم المورِّد (الالتزام 7) */
+export interface UserSettlementTombstoneRow {
+  id: string;
+  fromUserId: string;
+  amount: number;
+  method: string;
+  note: string | null;
+  receivedBy?: string | null;
+  receivedByUserId?: string | null;
+  settledAt: Date;
+  createdAt: Date;
+  fromUserName?: string | null;
+}
+
+/** null إلا للدفاتر المربوطة المفعّلة */
+export async function userSettlementTombstoneSettings(db: TombstoneSettingsDb, tenantId: string): Promise<TombstoneSettings | null> {
+  const s = await db.glSettings.findUnique({ where: { tenantId }, select: { activatedAt: true, currencyDecimals: true, setupMethod: true } });
+  if (!s || !s.activatedAt || !isLinked(s)) return null;
+  return { activatedAt: s.activatedAt, currencyDecimals: s.currencyDecimals };
+}
+
+/** صرفة: USER_SETTLEMENT:<id>:POST (effectAt = settledAt) وUSER_SETTLEMENT:<id>:REVERSE (لحظة الحذف) معاً، PENDING */
+export function userSettlementTombstoneEvents(row: UserSettlementTombstoneRow, decimals: number, opts: TombstoneOptions = {}): DesiredEvent[] {
+  const deletedAt = opts.deletedAt ?? new Date();
+  const payload = userSettlementPayload({
+    id: row.id, fromUserId: row.fromUserId, amount: row.amount, method: row.method, note: row.note ?? null,
+    receivedBy: row.receivedBy ?? null, settledAt: row.settledAt, createdAt: row.createdAt,
+  }, row.fromUserName ?? null, decimals);
+  return [
+    { sourceKey: userSettlementKey(row.id, 'POST'), sourceType: 'USER_SETTLEMENT', sourceId: row.id, event: 'POST', effectAt: row.settledAt, payload, status: 'PENDING' },
+    { sourceKey: userSettlementKey(row.id, 'REVERSE'), sourceType: 'USER_SETTLEMENT', sourceId: row.id, event: 'REVERSE', effectAt: deletedAt, payload, status: 'PENDING' },
+  ];
+}
+
+/** صفوف glSourceEvent.createMany({data, skipDuplicates: true}) يكتبها مسار الحذف داخل معاملته قبل userSettlement.delete — [] لغير المربوطة */
+export async function userSettlementTombstones(
+  db: TombstoneSettingsDb, tenantId: string, rows: readonly UserSettlementTombstoneRow[], opts: TombstoneOptions = {},
+): Promise<SourceEventCreateRow[]> {
+  const s = await userSettlementTombstoneSettings(db, tenantId);
+  if (!s || rows.length === 0) return [];
+  return rows.flatMap((r) => userSettlementTombstoneEvents(r, s.currencyDecimals, opts)).map((e) => sourceEventCreateRow(tenantId, e));
+}
+
+/**
+ * حذف استلامٍ من المندوب في الدفاتر المربوطة: كـsettlementTombstones لكن بحمولة المربوطة (receivedByUserId وreceivedByName،
+ * عبر settlementPayload(…, {linked})) — فإن سبق الحذفُ المُطابِقَ كانت حمولة POST هي حمولته حرفاً، ويُرحَّل P7 إلى 111004
+ * كما كان سيُرحَّل لو رآه. لغير المربوطة يعيد ما يعيده settlementTombstones نفسه.
+ */
+export async function settlementTombstonesWithReceiver(
+  tx: TombstoneSettingsDb, tenantId: string, row: SettlementTombstoneRow & { receivedByUserId?: string | null },
+  opts: TombstoneOptions & { salesRepName?: string | null; receivedByName?: string | null } = {},
+): Promise<SourceEventCreateRow[]> {
+  const s = await tx.glSettings.findUnique({ where: { tenantId }, select: { activatedAt: true, currencyDecimals: true, setupMethod: true } });
+  if (!s || !s.activatedAt || isManualBooks(s)) return [];
+  if (!isLinked(s)) return settlementTombstoneEvents(row, s.currencyDecimals, opts).map((e) => sourceEventCreateRow(tenantId, e));
+  const deletedAt = opts.deletedAt ?? new Date();
+  const payload = settlementPayload(
+    { ...row, note: row.note ?? null, receivedByUserId: row.receivedByUserId ?? null },
+    opts.salesRepName ?? null, s.currencyDecimals, { linked: true, receivedByName: opts.receivedByName ?? null },
+  );
+  return ([
+    { sourceKey: settlementKey(row.id, 'POST'), sourceType: 'SETTLEMENT', sourceId: row.id, event: 'POST', effectAt: row.settledAt, payload, status: 'PENDING' },
+    { sourceKey: settlementKey(row.id, 'REVERSE'), sourceType: 'SETTLEMENT', sourceId: row.id, event: 'REVERSE', effectAt: deletedAt, payload, status: 'PENDING' },
+  ] as DesiredEvent[]).map((e) => sourceEventCreateRow(tenantId, e));
 }

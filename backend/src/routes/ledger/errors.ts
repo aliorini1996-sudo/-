@@ -63,6 +63,12 @@ export const LEDGER_ERROR_MESSAGES: Readonly<Partial<Record<LedgerErrorCode, str
   LEDGER_CUTOVER_MID_VAT_PERIOD: 'تاريخ البدء داخل فترة إقرار: أكّد الاختيار وأدخل مبالغ المربعات قبل البدء، أو اختر بداية فترة',
   LEDGER_HISTORY_TOO_LARGE: 'الترحيل التاريخي الكامل يتجاوز السقف المسموح، فاختر الأرصدة الافتتاحية',
   LEDGER_HISTORY_LOCKED: REP_HISTORY_LOCKED_MESSAGE,
+  // «ربط الدفاتر» L4/L5: رموز ملحق ب الجديدة — بلا نصّ يسقط الردّ على الرمز الإنجليزي (LedgerError بلا رسالة صريحة)
+  LEDGER_BOOKS_NOT_LINKED: 'هذه العملية متاحة حين تكون الدفاتر مربوطة بالنظام',
+  LEDGER_METHOD_ACCOUNT_INVALID: 'الحساب لا يصلح لطريقة الدفع: حساب نقد أو بنك أو أصل متداول نشط غير رئيسي',
+  LEDGER_ADJUSTMENT_ALLOCATION_INVALID: 'تخصيص التسوية على الفواتير غير صالح',
+  LEDGER_CLEARING_INVALID: 'بيانات التسوية الموجّهة غير صالحة',
+  LEDGER_ROUTING_CUSTODY_NONCASH: 'لا تُوجَّه التحويلات البنكية ونقاط البيع إلى عهدة المندوب',
 };
 
 /**

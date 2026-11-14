@@ -26,6 +26,7 @@ export const GL_RESET_ORDER = [
   'GlAccountTag',
   'GlProductCategoryAccount',
   'GlRepAnalyticDefault',
+  'GlPaymentMethodMap', // «ربط الدفاتر» L5: يشير إلى حساب ودفتر بمعرّفٍ نصيّ (بلا FK) — قبل GlAccount احتياطاً
   'GlAccount',
   'GlJournal',
   'GlTax',

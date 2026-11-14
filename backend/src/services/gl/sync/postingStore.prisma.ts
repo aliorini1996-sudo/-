@@ -31,6 +31,25 @@ import {
   type CompositeKey, type DesiredEvent, type LeaseHandle, type SourceEventPatch, type SourceEventPayload, type SourceEventRecord,
   type SyncCursorSource, type SyncCursorState,
 } from './types';
+// «ربط الدفاتر» L4+L5+L8 (عقد §5.6) — استيرادات منفصلة لا تمسّ ما فوقها (دمج L0+L1 وL2+L3 بلا تعارض)
+import { CASH_VOID_KEEP_COLLECTION_NOTE } from '../../../lib/ledgerNotes';
+import { zonedStartOfDay } from '../dates';
+import { isLinked } from '../mode';
+import { ensureLinkedAccounts as ensureLinkedAccountRows } from '../coa/linkedAccounts';
+import { linkedReversalVatPeriod } from '../vat/period';
+import { linkedReceiptCustodyClass } from '../builders/receipt';
+import { createPrismaReconcileStore } from '../reconcile/store.prisma';
+import type { ReconcileStore } from '../reconcile/types';
+import type { CustodyOpening, CustodyRouting, ReceiptCustodyClass } from '../custody';
+import type { BuildContext, Milli, ReceiptRouting } from '../types';
+import type { UserCustodyDeliveredRow, UserCustodyInputs, UserCustodyReceivedRow, UserCustodyRefundRow } from '../../userCustodyCore';
+import { readUserCustodyOpsRows, userCustodyInputsFromRows } from '../../userCustody';
+import {
+  invoicePostEventPayload, paylinkRefundPayload, receiptPostEventPayload, receiptReverseEventPayload, settlementPayload, userSettlementPayload,
+  type DeriveContext, type InvoiceFacts, type RepSettlementSourceRow,
+} from './desired';
+import { loadAdminNames, loadInvoiceFacts, loadReceiptFacts, loadRefundLinks } from './facts.prisma';
+import { receiptKey, settlementKey } from './keys';
 
 // ═══ عميل المعالج ═══
 
@@ -182,6 +201,22 @@ export class PrismaPostingStore implements PostingStore {
     return !!row;
   }
 
+  /**
+   * «ربط الدفاتر» L5: صفوف RepSettlement بعد مؤشر REP_SETTLEMENT حتى الأفق — EXISTS نفسه في reconcilerStore.hasUnreadRows
+   * للمصدر (مرشّح المندوب القائم SETTLEMENT_HAS_REP)، لمؤشر ترتيب USER_SETTLEMENT الفعّال (poster.effectiveRepSettlementWatermark).
+   */
+  async hasUnreadRepSettlements(tenantId: string, watermark: CompositeKey, horizon: Date): Promise<boolean> {
+    const row = await this.db.repSettlement.findFirst({
+      where: {
+        tenantId, ...SETTLEMENT_HAS_REP,
+        createdAt: { lte: horizon },
+        OR: [{ createdAt: { gt: watermark.at } }, { createdAt: watermark.at, id: { gt: watermark.id } }],
+      },
+      select: { id: true },
+    });
+    return !!row;
+  }
+
   async readCursors(tenantId: string): Promise<SyncCursorState[]> {
     const rows = await this.db.glSyncCursor.findMany({ where: { tenantId }, orderBy: { source: 'asc' } });
     return rows.filter((r) => (SYNC_CURSOR_SOURCES as readonly string[]).includes(r.source)).map(cursorOf);
@@ -262,6 +297,8 @@ function cursorOf(r: { source: string; watermarkAt: Date; watermarkId: string; l
 
 export class PrismaPostingTx implements PostingTx {
   private settingsCache: { timezone: string; currency: string; decimals: number; routing: unknown; cashInvoiceRouting: string; cleanSince: Date | null } | null = null;
+  /** «ربط الدفاتر» (D1): وضع الدفاتر ونافذة العهدة — يُملأ مع settingsCache من القراءة نفسها (لا استعلام زائد) */
+  private linkCache: LinkedStoreSettings | null = null;
 
   constructor(private readonly tx: GlDb, readonly tenantId: string) {}
 
@@ -272,8 +309,10 @@ export class PrismaPostingTx implements PostingTx {
         select: {
           timezone: true, currency: true, currencyDecimals: true, receiptRouting: true, cashInvoiceRouting: true,
           setupMethod: true, openingSnapshotAt: true,
+          activatedAt: true, linkedFrom: true, linkSnapshotAt: true, cutoverDate: true,
         },
       });
+      this.linkCache = linkedStoreSettingsOf(s);
       this.settingsCache = {
         timezone: s?.timezone || 'Asia/Riyadh', currency: s?.currency ?? 'SAR', decimals: s?.currencyDecimals ?? 2,
         routing: s?.receiptRouting ?? null, cashInvoiceRouting: s?.cashInvoiceRouting ?? 'MAIN_CASH',
@@ -403,6 +442,7 @@ export class PrismaPostingTx implements PostingTx {
       select: {
         accountId: true, label: true, debitMilli: true, creditMilli: true, salesRepId: true, customerId: true,
         partnerName: true, analyticAccountId: true,
+        adminUserId: true, // «ربط الدفاتر» L5: بُعد مستخدم الشركة على 111004 — عكس P7 وتوريد المستخدم من القيد الحيّ يحمله
       },
     });
   }
@@ -473,8 +513,12 @@ export class PrismaPostingTx implements PostingTx {
     if (rec.state !== 'POSTED' || rec.number === null || reason === '') return reverseMove(this.tx, { ...opts, tenantId });
     const context = await loadBuildContext(this.tx, tenantId);
     const date = maxLocalDate(opts.requestedDate, fromDbDate(rec.date));
+    // «ربط الدفاتر» OD17 (عقد §4.3): للمربوطة وحدها سطور الضريبة/العلامة تُعلَّم vatAdjustment حين يقع العكس في فترة إقرار
+    // غير فترة الأصل (بتاريخ ترحيله الفعلي بعد إزاحة الإقفال). linkedReversalVatPeriod يعيد undefined لغيرها ⇒ المسودة كما كانت
+    const vatPeriod = linkedReversalVatPeriod(context.ctx);
     const draft = reversalDraftFromRecord(rec, {
       date, reason, originalNumber: rec.number, sourceKey: opts.sourceKey ?? null, sourceEvent: opts.sourceEvent ?? null,
+      ...(vatPeriod ? { vatPeriod } : {}),
     });
     const posted = await postMove(this.tx, draft, {
       tenantId, actor: opts.actor, context, validationMode: 'SYSTEM', lockPolicy: 'SHIFT',
@@ -494,6 +538,13 @@ export class PrismaPostingTx implements PostingTx {
     const dec = s.decimals;
     const tenantId = this.tenantId;
     const routing = (s.routing && typeof s.routing === 'object' ? s.routing : null) as Parameters<typeof receiptCustodyClass>[0]['routing'];
+    // «ربط الدفاتر» §5.6 (3): نافذة العهدة للمربوطة — ما قبل linkedFrom (وأُنشئ حتى T0) صيغةٌ مغلقة من مجاميع SQL، وعناصر
+    // النافذة وحدها صفوفاً: O(النافذة) لكل استلام بدل التاريخ كله. null ⇒ تعذّرت الصيغة المغلقة فيُطوى التاريخ كله أدناه
+    const link = this.linkCache ?? LINK_NONE;
+    if (link.window) {
+      const windowed = await this.loadLinkedCustodyInputs(salesRepId, link.window, dec, s.cashInvoiceRouting, routing ?? null);
+      if (windowed) return windowed;
+    }
     // البداية النظيفة (ملاحظة الخبير المحاسبي): عهدة المندوب في الدفاتر = ما أدخله المحاسب في القيد الافتتاحي + عمليات ما بعد
     // التفعيل وحدها. لا يُعاد تشغيل تاريخ التشغيل السابق للتفعيل (سندات واستلامات لم تدخل الدفاتر قط) — لا في قسمة التوريد
     // عند ترحيله، ولا في فحص C4، ولا في صفحة العهدة. المحمّل واحد للثلاثة فيبقون متّسقين.
@@ -503,11 +554,11 @@ export class PrismaPostingTx implements PostingTx {
     const [receipts, invoices, settlements, settlementEvents, openingCustody] = await Promise.all([
       this.tx.receipt.findMany({
         where: { tenantId, salesRepId, ...win },
-        select: { id: true, amount: true, paymentMethod: true, receiptDate: true, createdAt: true },
+        select: { id: true, amount: true, paymentMethod: true, receiptDate: true, createdAt: true, cancelRefundFrom: true },
       }),
       this.tx.invoice.findMany({
         where: { tenantId, salesRepId, type: 'CASH', ...win },
-        select: { id: true, total: true, invoiceDate: true, createdAt: true },
+        select: { id: true, total: true, invoiceDate: true, createdAt: true, cashCollectedByRep: true },
       }),
       this.tx.repSettlement.findMany({
         where: { tenantId, salesRepId, ...win },
@@ -538,22 +589,31 @@ export class PrismaPostingTx implements PostingTx {
             ...(invoiceIds.length ? [{ invoiceId: { in: invoiceIds }, receiptId: null }] : []),
           ],
         },
-        select: { receiptId: true, invoiceId: true, type: true, entryDate: true },
+        select: { receiptId: true, invoiceId: true, type: true, entryDate: true, description: true },
       })
       : [];
     const receiptEffect = new Map<string, Date>();
     const receiptReversed = new Map<string, Date>();
     const invoiceReversed = new Map<string, Date>();
+    // C17 (E5.13): إبطال ZATCA يحتفظ بالنقد (وسم CASH_VOID_KEEP_COLLECTION_NOTE على INVOICE_CREDIT بلا RECEIPT_DEBIT) لا يعكس
+    // شقّ التحصيل — مرآة keepCashLeg في desired.ts حرفاً، وإلا رأت العهدة الفاتورة معكوسة والقيد أبقى 111003 فاحمرّ C4
+    const keepCashVoid = new Set<string>();
+    const cashLegReversed = new Set<string>();
     for (const e of entries) {
       if (e.receiptId && e.type === 'RECEIPT_CREDIT') receiptEffect.set(e.receiptId, e.entryDate);
       if (e.receiptId && e.type === 'RECEIPT_DEBIT') receiptReversed.set(e.receiptId, e.entryDate);
       if (!e.receiptId && e.invoiceId && e.type === 'INVOICE_CREDIT') invoiceReversed.set(e.invoiceId, e.entryDate);
+      if (!e.receiptId && e.invoiceId && e.type === 'INVOICE_CREDIT' && e.description === CASH_VOID_KEEP_COLLECTION_NOTE) keepCashVoid.add(e.invoiceId);
+      if (!e.receiptId && e.invoiceId && e.type === 'RECEIPT_DEBIT') cashLegReversed.add(e.invoiceId);
     }
+    for (const id of keepCashVoid) if (!cashLegReversed.has(id)) invoiceReversed.delete(id);
 
     const out: CustodyComponentsInput = {
       receipts: [], onlineReceipts: [], outsideReceipts: [], cashInvoices: [], settlements: [], shortages: [], custodyExpenses: [],
       routing: { cashInvoice: s.cashInvoiceRouting === 'CUSTODY' ? 'CUSTODY' : 'MAIN_CASH', receipt: routing ?? null },
     };
+    // OD2/D5: في المربوطة يوجّه ختمُ الفاتورة النقدية نقدَها إلى 111003 أياً كان cashInvoiceRouting (custody.ts)
+    if (link.linked) out.routing = { ...out.routing, stampDrivesCustody: true };
     if (openingCustody) {
       const opening = (openingCustody._sum.debitMilli ?? 0n) - (openingCustody._sum.creditMilli ?? 0n);
       // العهدة الافتتاحية نقدٌ بيد المندوب ينتظر التوريد: تدخل رصيد الدفاتر والمعلّق معاً فيغطّيها أول توريد (والمعلّق التشغيلي لـC4b
@@ -565,13 +625,17 @@ export class PrismaPostingTx implements PostingTx {
         id: r.id, salesRepId, amountMilli: toMilli(r.amount, dec), effectAt: receiptEffect.get(r.id) ?? r.receiptDate,
         createdAt: r.createdAt, reversedAt: receiptReversed.get(r.id) ?? null,
       };
-      const cls = receiptCustodyClass({ paymentMethod: r.paymentMethod, salesRepId, routing });
+      const cls = custodyClassOf(r.paymentMethod, salesRepId, routing ?? null, link.linked);
+      // C11: عكسٌ رُدّ ماله من خارج عهدة المندوب — للمربوطة وحدها (الـbuilder لا يبني الردّ من خارجها إلا لها)
+      if (link.linked && cls === 'CUSTODY' && item.reversedAt != null && cancelRefundOutsideCustody(r.cancelRefundFrom)) item.reversalOutsideCustody = true;
       ((cls === 'CUSTODY' ? out.receipts : cls === 'ONLINE' ? out.onlineReceipts : out.outsideReceipts) as CustodyItem[]).push(item);
     }
     for (const i of invoices) {
       (out.cashInvoices as CustodyItem[]).push({
         id: i.id, salesRepId, amountMilli: toMilli(i.total, dec), effectAt: i.invoiceDate, createdAt: i.createdAt,
         reversedAt: invoiceReversed.get(i.id) ?? null,
+        // OD2: الختم يُعدّ تحصيلاً في الشاشة (REP_COLLECTED_CASH_SALE) — وفي المربوطة يوجّه نقده إلى العهدة (stampDrivesCustody)
+        ...(i.cashCollectedByRep ? { stamped: true } : {}),
       });
     }
 
@@ -612,6 +676,13 @@ export class PrismaPostingTx implements PostingTx {
   }
 
   async resolveOrigin(event: Pick<SourceEventRecord, 'sourceType' | 'sourceId' | 'event' | 'payload'>): Promise<OriginFacts | null> {
+    // «ربط الدفاتر» C13/C14: توريد عهدة المستخدم مصدرُ tombstone كالاستلام — الأصل من حمولته (settledAt/createdAt) ووجود صفّه
+    if (event.sourceType === 'USER_SETTLEMENT') {
+      const fromPayload = tombstoneOrigin('USER_SETTLEMENT', event.payload);
+      if (!fromPayload) return null;
+      const exists = !!(await this.tx.userSettlement.findFirst({ where: { id: event.sourceId, tenantId: this.tenantId }, select: { id: true } }));
+      return { ...fromPayload, sourceExists: exists };
+    }
     if (event.sourceType === 'SETTLEMENT' || event.sourceType === 'AR_ENTRY') {
       const fromPayload = tombstoneOrigin(event.sourceType, event.payload);
       if (fromPayload) {
@@ -642,6 +713,10 @@ export class PrismaPostingTx implements PostingTx {
     const tz = s.timezone;
     const dec = s.decimals;
     const str = (v: number | null | undefined): string | null => (v === null || v === undefined ? null : String(v));
+    // «ربط الدفاتر» (D1، عقد §5.6 البند 1): المربوطة تبني حمولتها بدوال A1 نفسها وحقائق facts.prisma التي يكتب بها المُطابِق
+    // (مصدر واحد للحمولة، ومعها حقول L4/L5)، والمصدران الجديدان لها وحدها. غيرها يكمل أدناه حرفاً كما كان.
+    const linkedData = await this.loadLinkedSourceData(sourceType, sourceId, event);
+    if (linkedData) return linkedData;
 
     switch (sourceType) {
       case 'INVOICE': {
@@ -802,9 +877,695 @@ export class PrismaPostingTx implements PostingTx {
   async dbNow(): Promise<Date> {
     return dbNowOf(this.tx);
   }
+
+  // ═══ «ربط الدفاتر» L4+L5+L8 (عقد §3.6، §5.6) — لا يستدعيها المُرحِّل إلا لأحداث المربوطة ═══
+
+  /** إعدادات الربط من قراءة settings() نفسها */
+  private async linkSettings(): Promise<LinkedStoreSettings> {
+    await this.settings();
+    return this.linkCache ?? LINK_NONE;
+  }
+
+  /** D6: مدخلات طيّ عهدة المستخدم (loadUserCustodyInputsMany بمستخدم واحد — خمس قراءات بلا N+1) */
+  async loadUserCustodyInputs(userId: string): Promise<UserCustodyInputs> {
+    const s = await this.settings();
+    const m = await loadUserCustodyInputsMany(this.tx, this.tenantId, s.decimals, [userId]);
+    return m.get(userId) ?? emptyUserCustodyInputs(userId);
+  }
+
+  /** ترتيب USER_SETTLEMENT: أحداث SETTLEMENT غير النهائية لاستلاماتٍ بيد المستخدم (حمولة المربوطة تحمل receivedByUserId) */
+  async listUserFeedEvents(userId: string, upTo: Date): Promise<{ status: EventStatus; effectAt: Date }[]> {
+    const rows = await this.tx.glSourceEvent.findMany({
+      where: {
+        tenantId: this.tenantId, sourceType: 'SETTLEMENT', status: { in: ['PENDING', 'BLOCKED'] }, effectAt: { lte: upTo },
+        payload: { path: ['receivedByUserId'], equals: userId },
+      },
+      select: { status: true, effectAt: true },
+    });
+    return rows.map((r) => ({ status: r.status as EventStatus, effectAt: r.effectAt }));
+  }
+
+  /** حالة RECEIPT:<id>:REVERSE وحمولته (C9) — حدثٌ بلا حمولة (أدرجته بوابة الأشقاء) ⇒ الحقلان من المستند نفسه */
+  async getReceiptReverse(receiptId: string): Promise<{ status: EventStatus; refundEntryId: string | null; cancelRefundFrom: string | null } | null> {
+    const ev = await this.tx.glSourceEvent.findUnique({
+      where: { tenantId_sourceKey: { tenantId: this.tenantId, sourceKey: receiptKey(receiptId, 'REVERSE') } },
+      select: { status: true, payload: true },
+    });
+    if (!ev) return null;
+    let p = payloadRecord(ev.payload);
+    if (!p) {
+      const data = await this.loadSourceData('RECEIPT', receiptId, 'REVERSE');
+      p = data.kind === 'FOUND' ? payloadRecord(data.payload) : null;
+    }
+    return { status: ev.status as EventStatus, refundEntryId: textOrNull(p?.refundEntryId), cancelRefundFrom: textOrNull(p?.cancelRefundFrom) };
+  }
+
+  /**
+   * D2: حسابات المربوطة 111004/112007/214002 الناقصة تُنشأ متساوية الأثر داخل المعاملة ويُعاد السياق إن أُنشئ شيء. لغير
+   * المربوطة لا كتابة ولا قراءة زائدة (حارس دفاعي فوق حارس المُرحِّل: شجرة اليدوية والقديمة لا تتغيّر حساباً واحداً).
+   */
+  async ensureLinkedAccounts(): Promise<{ created: string[]; context: LedgerContext | null }> {
+    const link = await this.linkSettings();
+    if (!link.linked) return { created: [], context: null };
+    const r = await ensureLinkedAccountRows(this.tx, this.tenantId);
+    return { created: r.created, context: r.created.length ? await loadBuildContext(this.tx, this.tenantId) : null };
+  }
+
+  /** L8: مخزن المطابقة الجزئية على المعاملة نفسها (services/gl/reconcile، A10) */
+  reconcileStore(): ReconcileStore {
+    return createPrismaReconcileStore(this.tx, this.tenantId);
+  }
+
+  /**
+   * حمولة المربوطة لمصادرها (§5.6 البند 1) — null لغير المربوطة أو لمصدرٍ يبقى مساره القائم (AR_ENTRY وPAYLINK_FEE وPAYOUT).
+   * المصدران الجديدان (USER_SETTLEMENT وPAYLINK_REFUND) لا يشتقّهما المُطابِق إلا للمربوطة ⇒ MISSING لغيرها.
+   */
+  private async loadLinkedSourceData(sourceType: SourceType, sourceId: string, event: SourceEvent): Promise<SourceData | null> {
+    if (!LINKED_PAYLOAD_SOURCES.has(sourceType)) return null;
+    const link = await this.linkSettings();
+    if (!link.linked) return sourceType === 'USER_SETTLEMENT' || sourceType === 'PAYLINK_REFUND' ? { kind: 'MISSING' } : null;
+    const s = await this.settings();
+    const tenantId = this.tenantId;
+    const dec = s.decimals;
+    const ctx: DeriveContext = { timezone: s.timezone, currency: s.currency, currencyDecimals: dec, linked: true };
+
+    switch (sourceType) {
+      case 'INVOICE': {
+        const facts = (await loadInvoiceFacts(this.tx, tenantId, [sourceId], { linked: true })).get(sourceId);
+        const plan = facts ? INVOICE_ROW_PLAN[facts.type] : undefined;
+        if (!facts || !plan) return { kind: 'MISSING' };
+        const rows = await this.tx.accountEntry.findMany({
+          where: { tenantId, invoiceId: sourceId, receiptId: null },
+          select: { type: true, entryDate: true, createdAt: true, description: true },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        });
+        return linkedInvoiceSourceData(facts, plan, rows, event, ctx);
+      }
+      case 'RECEIPT': {
+        const facts = (await loadReceiptFacts(this.tx, tenantId, [sourceId], { linked: true })).get(sourceId);
+        if (!facts) return { kind: 'MISSING' };
+        const rows = await this.tx.accountEntry.findMany({
+          where: { tenantId, receiptId: sourceId, type: event === 'REVERSE' ? 'RECEIPT_DEBIT' : 'RECEIPT_CREDIT' },
+          select: { entryDate: true, createdAt: true },
+        });
+        if (rows.length === 0) return { kind: 'MISSING' };
+        // مرآة المُطابِق: الأثر أصغر entryDate لصفوف المفتاح، والإنشاء أكبر createdAt
+        const effectAt = minDateOf(rows.map((r) => r.entryDate));
+        const createdAt = maxDateOf(rows.map((r) => r.createdAt));
+        const entryDate = localDate(effectAt, s.timezone);
+        const payload = event === 'REVERSE'
+          ? receiptReverseEventPayload(facts, entryDate, ctx, iso(createdAt))
+          : receiptPostEventPayload(facts, entryDate, ctx, iso(createdAt));
+        return { kind: 'FOUND', createdAt, payload };
+      }
+      case 'SETTLEMENT': {
+        const st = await this.tx.repSettlement.findFirst({
+          where: { id: sourceId, tenantId, ...SETTLEMENT_HAS_REP },
+          select: {
+            id: true, salesRepId: true, amount: true, method: true, note: true, settledAt: true, createdAt: true, receivedByUserId: true,
+            salesRep: { select: { name: true } },
+          },
+        });
+        if (!st || !st.salesRepId) return { kind: 'MISSING' };
+        const receivedByName = st.receivedByUserId ? (await loadAdminNames(this.tx, tenantId, [st.receivedByUserId])).get(st.receivedByUserId) ?? null : null;
+        const row: RepSettlementSourceRow = {
+          id: st.id, salesRepId: st.salesRepId, amount: st.amount, method: st.method, note: st.note ?? null,
+          settledAt: st.settledAt, createdAt: st.createdAt, receivedByUserId: st.receivedByUserId ?? null,
+        };
+        return { kind: 'FOUND', createdAt: st.createdAt, payload: settlementPayload(row, st.salesRep?.name ?? null, dec, { linked: true, receivedByName }) };
+      }
+      case 'USER_SETTLEMENT': {
+        const us = await this.tx.userSettlement.findFirst({
+          where: { id: sourceId, tenantId },
+          select: { id: true, fromUserId: true, amount: true, method: true, note: true, receivedBy: true, receivedByUserId: true, settledAt: true, createdAt: true },
+        });
+        if (!us) return { kind: 'MISSING' };
+        const name = (await loadAdminNames(this.tx, tenantId, [us.fromUserId])).get(us.fromUserId) ?? null;
+        return { kind: 'FOUND', createdAt: us.createdAt, payload: userSettlementPayload(us, name, dec) };
+      }
+      case 'PAYLINK_REFUND': {
+        const e = await this.tx.settlementEntry.findFirst({
+          where: { id: sourceId, tenantId, kind: 'REFUND' },
+          select: { id: true, kind: true, amount: true, feeNet: true, feeVat: true, linkId: true, payoutId: true, note: true, createdAt: true },
+        });
+        if (!e) return { kind: 'MISSING' };
+        const refundLink = e.linkId ? (await loadRefundLinks(this.tx, tenantId, [e.linkId])).get(e.linkId) ?? null : null;
+        return { kind: 'FOUND', createdAt: e.createdAt, payload: paylinkRefundPayload(e, refundLink, dec) };
+      }
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * §5.6 البند 3 — نافذة العهدة للمربوطة: صفوف عناصر النافذة (وما قبلها عُكس داخلها) ومجاميع ما قبلها بتقريب كل مستند
+   * نصف-لأعلى في SQL، ثم linkedCustodyInputs الصرفة. التصنيف بصفوف account_entries نفسها التي يصنّف بها المُطابِق أحداثه
+   * (أصغر entryDate وأكبر createdAt للمفتاح) ⇒ حدّ النافذة هنا هو حدّ classifyCutover حرفاً. null ⇒ يُطوى التاريخ كله.
+   */
+  private async loadLinkedCustodyInputs(
+    salesRepId: string, w: CustodyWindow, dec: number, cashInvoiceRouting: string, routing: ReceiptRouting | null,
+  ): Promise<CustodyComponentsInput | null> {
+    const tenantId = this.tenantId;
+    const [receiptRows, invoiceRows, windowSettlements, settledBefore, reverseEvents, openingCustody] = await Promise.all([
+      this.tx.$queryRaw<LinkedReceiptSqlRow[]>(linkedCustodyReceiptsSql(tenantId, salesRepId, w, dec)),
+      this.tx.$queryRaw<LinkedInvoiceSqlRow[]>(linkedCustodyInvoicesSql(tenantId, salesRepId, w, dec)),
+      this.tx.repSettlement.findMany({
+        where: { tenantId, salesRepId, OR: [{ settledAt: { gte: w.start } }, { createdAt: { gt: w.snapshotAt } }] },
+        select: { id: true, amount: true, settledAt: true, createdAt: true },
+      }),
+      this.tx.$queryRaw<{ total: string | null }[]>`
+        SELECT COALESCE(SUM(ROUND(s."amount"::numeric, ${dec}::int)), 0)::text AS "total"
+        FROM "rep_settlements" s
+        WHERE s."tenantId" = ${tenantId} AND s."salesRepId" = ${salesRepId} AND s."settledAt" < ${w.start} AND s."createdAt" <= ${w.snapshotAt}`,
+      // استلامات المندوب المحذوفة: حمولة الـtombstone (حدث REVERSE يحمل حمولة POST نفسها) ولحظة الحذف
+      this.tx.glSourceEvent.findMany({
+        where: { tenantId, sourceType: 'SETTLEMENT', event: 'REVERSE', payload: { path: ['salesRepId'], equals: salesRepId } },
+        select: { sourceId: true, effectAt: true, detectedAt: true, payload: true },
+      }),
+      // العهدة الافتتاحية (المشتقّة عند الاعتماد L7): سطور 111003 للمندوب في قيد OPENING
+      this.tx.glMoveLine.aggregate({
+        where: { tenantId, posted: true, salesRepId, account: { controlKind: 'CUSTODY' }, move: { moveType: 'OPENING', state: 'POSTED' } },
+        _sum: { debitMilli: true, creditMilli: true },
+      }),
+    ]);
+
+    const settlements: LinkedCustodySettlementRow[] = [];
+    const live = new Set(windowSettlements.map((st) => st.id));
+    for (const st of windowSettlements) {
+      settlements.push({ id: st.id, salesRepId, amountMilli: toMilli(st.amount, dec), effectAt: st.settledAt, createdAt: st.createdAt, reversedAt: null, inWindow: true });
+    }
+    for (const ev of reverseEvents) {
+      if (live.has(ev.sourceId)) continue;
+      const p = payloadRecord(ev.payload);
+      const settledAt = textOrNull(p?.settledAt);
+      if (!p || !settledAt || p.amount === undefined || p.amount === null) continue;
+      const createdAt = textOrNull(p.createdAt) ?? settledAt;
+      const inWindow = inCustodyWindow(settledAt, createdAt, w);
+      // عكس tombstone: أثره لحظة الحذف وكشفه (مرآة selfRow في poster.ts)
+      const revCreated = ev.detectedAt.getTime() > ev.effectAt.getTime() ? ev.detectedAt : ev.effectAt;
+      if (!inWindow && !inCustodyWindow(ev.effectAt, revCreated, w)) continue; // قبل النافذة أُثبت وحُذف: صافيه صفر
+      settlements.push({
+        id: ev.sourceId, salesRepId, amountMilli: toMilli(String(p.amount), dec), effectAt: settledAt, createdAt, reversedAt: ev.effectAt, inWindow,
+      });
+    }
+    // التقسيم المخزَّن على أحداث POST (المرحَّلة، والمجمَّد عند الاعتماد لما قبل النافذة)
+    const keys = settlements.map((st) => settlementKey(st.id, 'POST'));
+    for (let i = 0; i < keys.length; i += 1000) {
+      const stored = await this.tx.glSourceEvent.findMany({
+        where: { tenantId, sourceKey: { in: keys.slice(i, i + 1000) } },
+        select: { sourceId: true, status: true, nonCustodyClearedMilli: true, shortageRecoveredMilli: true },
+      });
+      const byId = new Map(stored.map((e) => [e.sourceId, e]));
+      for (const st of settlements) {
+        const e = byId.get(st.id);
+        if (e && (e.status === 'DONE' || e.status === 'SKIPPED') && e.nonCustodyClearedMilli !== null) {
+          st.nonCustodyClearedMilli = e.nonCustodyClearedMilli;
+          st.shortageRecoveredMilli = e.shortageRecoveredMilli;
+        }
+      }
+    }
+
+    const facts = linkedCustodyFactsFromSql({
+      salesRepId, dec, receiptRows, invoiceRows, settlements,
+      settledBeforeMilli: toMilli(settledBefore[0]?.total ?? '0', dec),
+      openingLedgerMilli: (openingCustody._sum.debitMilli ?? 0n) - (openingCustody._sum.creditMilli ?? 0n),
+      routing: { cashInvoice: cashInvoiceRouting === 'CUSTODY' ? 'CUSTODY' : 'MAIN_CASH', receipt: routing, stampDrivesCustody: true },
+    });
+    return linkedCustodyInputs(facts);
+  }
 }
 
 /** مبلغ Float مخزّن ⇒ نص بمنازل العملة (عبر الملّي) */
 function toMilliText(v: number, decimals: number): string {
   return formatMilli(toMilli(v, decimals), decimals);
+}
+
+// ═══ «ربط الدفاتر» L4+L5 (عقد §5.6) — مساعدات صرفة ومحمّلات مجمّعة ═══
+
+const payloadRecord = (v: unknown): Record<string, unknown> | null =>
+  (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
+const textOrNull = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
+const minDateOf = (ds: readonly Date[]): Date => ds.reduce((m, d) => (d.getTime() < m.getTime() ? d : m), ds[0]);
+const maxDateOf = (ds: readonly Date[]): Date => ds.reduce((m, d) => (d.getTime() > m.getTime() ? d : m), ds[0]);
+
+/** المصادر التي تُبنى حمولتها للمربوطة بدوال A1 (desired.ts) — والباقية بمسارها القائم */
+const LINKED_PAYLOAD_SOURCES: ReadonlySet<string> = new Set(['INVOICE', 'RECEIPT', 'SETTLEMENT', 'USER_SETTLEMENT', 'PAYLINK_REFUND']);
+
+/** صفوف كل مفتاح للفاتورة والصف الأساسي — مرآة POSTING_TYPES_BY_INVOICE في desired.ts (لا يصدّرها) */
+export interface InvoiceRowPlan { post: readonly string[]; reverse: readonly string[]; primaryPost: string; primaryReverse: string }
+const INVOICE_ROW_PLAN: Readonly<Record<string, InvoiceRowPlan>> = {
+  CASH: { post: ['INVOICE_DEBIT', 'RECEIPT_CREDIT'], reverse: ['INVOICE_CREDIT', 'RECEIPT_DEBIT'], primaryPost: 'INVOICE_DEBIT', primaryReverse: 'INVOICE_CREDIT' },
+  CREDIT: { post: ['INVOICE_DEBIT'], reverse: ['INVOICE_CREDIT'], primaryPost: 'INVOICE_DEBIT', primaryReverse: 'INVOICE_CREDIT' },
+  RETURN: { post: ['INVOICE_CREDIT'], reverse: ['INVOICE_DEBIT'], primaryPost: 'INVOICE_CREDIT', primaryReverse: 'INVOICE_DEBIT' },
+};
+
+/**
+ * حمولة الفاتورة للمربوطة من صفوف account_entries — مرآة المُطابِق: الأثر أصغر entryDate للصفوف الأساسية، والإنشاء أكبر
+ * createdAt لصفوف المفتاح، والعكس النقدي يحمل keepCashLeg بالقاعدة نفسها (Q1). صرفة (يختبرها l458-a07).
+ */
+export function linkedInvoiceSourceData(
+  facts: InvoiceFacts, plan: InvoiceRowPlan,
+  rows: readonly { type: string; entryDate: Date; createdAt: Date; description: string | null }[],
+  event: SourceEvent, ctx: DeriveContext,
+): SourceData {
+  const wanted = event === 'REVERSE' ? plan.reverse : plan.post;
+  let group = rows.filter((r) => wanted.includes(r.type));
+  // POST أدرجته بوابة الأشقاء قبل صفّه الأساسي: أيّ صف للمستند كما في المسار القائم (wanted[0] ?? rows[0])
+  if (group.length === 0 && event !== 'REVERSE') group = [...rows];
+  if (group.length === 0) return { kind: 'MISSING' };
+  const primaryType = event === 'REVERSE' ? plan.primaryReverse : plan.primaryPost;
+  const primary = group.filter((r) => r.type === primaryType);
+  const effectAt = minDateOf((primary.length > 0 ? primary : group).map((r) => r.entryDate));
+  const createdAt = maxDateOf(group.map((r) => r.createdAt));
+  const entryDate = localDate(effectAt, ctx.timezone);
+  if (event === 'REVERSE') {
+    const keepCashLeg = facts.type === 'CASH'
+      && group.some((r) => r.type === 'INVOICE_CREDIT' && r.description === CASH_VOID_KEEP_COLLECTION_NOTE)
+      && !group.some((r) => r.type === 'RECEIPT_DEBIT');
+    return {
+      kind: 'FOUND', createdAt,
+      payload: { invoiceId: facts.id, type: facts.type, entryDate, sourceCreatedAt: iso(createdAt), ...(keepCashLeg ? { keepCashLeg: true } : {}) },
+    };
+  }
+  return { kind: 'FOUND', createdAt, payload: invoicePostEventPayload(facts, entryDate, ctx, iso(createdAt)) };
+}
+
+// ── نافذة عهدة المندوب للمربوطة (§5.6 البند 3) ──
+
+/** نافذة الإعادة: [بداية يوم linkedFrom بتوقيت الشركة، …) أو ما أُنشئ بعد T0 (linkSnapshotAt) */
+export interface CustodyWindow {
+  start: Date;
+  snapshotAt: Date;
+}
+
+/** وضع الدفاتر ونافذة العهدة كما يقرؤهما مخزن الترحيل */
+export interface LinkedStoreSettings {
+  linked: boolean;
+  /** null للمربوطة بلا linkedFrom/linkSnapshotAt (قبل اعتماد L7) ⇒ التاريخ كله */
+  window: CustodyWindow | null;
+}
+
+const LINK_NONE: LinkedStoreSettings = { linked: false, window: null };
+
+/**
+ * من صف gl_settings: المربوطة المفعّلة وحدها (isLinked)، ونافذتها linkedFrom/linkSnapshotAt (واحتياطاً cutoverDate/openingSnapshotAt
+ * اللذان يصنّف بهما المُرحِّل: L7 يكتبهما بالقيمتين نفسيهما).
+ */
+export function linkedStoreSettingsOf(s: {
+  timezone?: string | null; setupMethod?: string | null; activatedAt?: Date | null;
+  linkedFrom?: Date | null; linkSnapshotAt?: Date | null; cutoverDate?: Date | null; openingSnapshotAt?: Date | null;
+} | null | undefined): LinkedStoreSettings {
+  if (!s || !isLinked({ setupMethod: s.setupMethod ?? null, activatedAt: s.activatedAt ?? null })) return LINK_NONE;
+  const from = s.linkedFrom ?? s.cutoverDate ?? null;
+  const snap = s.linkSnapshotAt ?? s.openingSnapshotAt ?? null;
+  return {
+    linked: true,
+    window: from && snap ? { start: zonedStartOfDay(fromDbDate(from), s.timezone || 'Asia/Riyadh'), snapshotAt: snap } : null,
+  };
+}
+
+/** داخل النافذة ⇔ الأثر ≥ بدايتها أو الإنشاء > T0 — نفي isIncludedInOpening (classifyCutover) حرفاً */
+export function inCustodyWindow(effectAt: Date | string, createdAt: Date | string, w: CustodyWindow): boolean {
+  return new Date(effectAt).getTime() >= w.start.getTime() || new Date(createdAt).getTime() > w.snapshotAt.getTime();
+}
+
+/** C11: الردّ من خارج عهدة المندوب (عهدة مستخدم، صندوق رئيسي، بنك) — REP_CUSTODY وMETHOD وnull مرآة الأصل */
+export function cancelRefundOutsideCustody(from: string | null | undefined): boolean {
+  return from === 'USER_CUSTODY' || from === 'MAIN_CASH' || from === 'BANK';
+}
+
+/**
+ * تصنيف السند للعهدة كما يبنيه القيد: غير المربوطة receiptCustodyClass حرفاً، والمربوطة بقاعدة D4 في
+ * builders/receipt.linkedReceiptCustodyClass نفسها (CUSTODY للنقد والشيك وحدهما) — فلا يرى الطيّ تحويلاً في العهدة والقيد في البنك.
+ */
+export function custodyClassOf(paymentMethod: string, salesRepId: string, routing: ReceiptRouting | null, linked: boolean): ReceiptCustodyClass {
+  if (!linked) return receiptCustodyClass({ paymentMethod, salesRepId, routing });
+  // الدالة تقرأ ctx.settings وحده: سياقٌ بالإعدادين يكفيها (البطاقة POS فلا تبلغ CUSTODY في المربوطة أصلاً)
+  const ctx = { settings: { receiptRouting: routing, linkedPosting: true } } as unknown as BuildContext;
+  return linkedReceiptCustodyClass({ paymentMethod, salesRepId, cardPaymentId: null }, ctx);
+}
+
+export interface LinkedCustodyReceiptRow {
+  id: string;
+  amountMilli: Milli;
+  paymentMethod: string;
+  cancelRefundFrom: string | null;
+  effectAt: Date | string;
+  createdAt: Date | string;
+  reversedAt: Date | string | null;
+  /** false ⇒ قبل النافذة وعُكس داخلها: يدخل كاملاً ويُطرح أثره من العهدة الافتتاحية */
+  inWindow: boolean;
+}
+/** مجموع سندات ما قبل النافذة (غير المعكوسة داخلها) بتقريب كل سند */
+export interface LinkedCustodyReceiptSum { paymentMethod: string; cancelRefundFrom: string | null; reversed: boolean; totalMilli: Milli }
+export interface LinkedCustodyInvoiceRow {
+  id: string;
+  amountMilli: Milli;
+  stamped: boolean;
+  effectAt: Date | string;
+  createdAt: Date | string;
+  reversedAt: Date | string | null;
+  inWindow: boolean;
+}
+export interface LinkedCustodyInvoiceSum { stamped: boolean; reversed: boolean; totalMilli: Milli }
+export interface LinkedCustodySettlementRow extends CustodySettlementItem { inWindow: boolean }
+
+export interface LinkedCustodyWindowFacts {
+  salesRepId: string;
+  /** cashInvoice وreceipt وstampDrivesCustody (المربوطة) */
+  routing: CustodyRouting;
+  /** Σ سطور 111003 للمندوب في قيد OPENING (المشتقّ عند الاعتماد: الحالة عند البدء، والمعكوس داخل النافذة فيها نشط) */
+  openingLedgerMilli: Milli;
+  receipts: readonly LinkedCustodyReceiptRow[];
+  receiptSums: readonly LinkedCustodyReceiptSum[];
+  invoices: readonly LinkedCustodyInvoiceRow[];
+  invoiceSums: readonly LinkedCustodyInvoiceSum[];
+  /** استلامات النافذة (والمحذوفة) وما قبلها حُذف داخلها، بالتقسيم المخزَّن */
+  settlements: readonly LinkedCustodySettlementRow[];
+  /** Σ استلامات ما قبل النافذة القائمة */
+  settledBeforeMilli: Milli;
+}
+
+/**
+ * الصيغة المغلقة (§5.6 البند 3): عناصر النافذة صفوفاً، وما قبلها حالةً افتتاحية واحدة للمندوب:
+ *  - الأرصدة الجارية (النشطة بكل الطرق، والإلكترونية، وخارج العهدة، ونقد الفواتير خارج العهدة، والمستلَم) = مجاميع ما قبل
+ *    النافذة غير المعكوس؛ والمعكوس قبلها صافيه صفر، إلا سند CUSTODY رُدّ ماله من خارج العهدة (C11): أثره على 111003 باقٍ
+ *    ويدخل cancelRefundOutside.
+ *  - 111003 الافتتاحي = سطور قيد OPENING − أثر ما قبل النافذة المعكوس داخلها (يدخل كاملاً فيُعاد أثره عند تاريخه).
+ *  - r التراكمي = المستلَم − (ما دخل 111003 − الافتتاحي): هويّة P7 (covered = الداخل − الباقي، وr = المستلَم − covered).
+ *  - المعلّق صفر: لا 911001 لما قبل النافذة.
+ * null ⇒ استلامٌ قبل النافذة حُذف داخلها بلا تقسيم مخزَّن: لا تُعرف تغطيته من الافتتاح، فيُطوى التاريخ كله (المُستدعي).
+ */
+export function linkedCustodyInputs(f: LinkedCustodyWindowFacts): CustodyComponentsInput | null {
+  const rep = f.salesRepId;
+  const routing = f.routing.receipt ?? null;
+  const cashToCustody = f.routing.cashInvoice === 'CUSTODY';
+  const stampDrives = f.routing.stampDrivesCustody === true;
+  const toLedger = (stamped: boolean): boolean => (stamped ? stampDrives || cashToCustody : cashToCustody);
+  const out: CustodyComponentsInput = {
+    receipts: [], onlineReceipts: [], outsideReceipts: [], cashInvoices: [], settlements: [], shortages: [], custodyExpenses: [],
+    routing: f.routing,
+  };
+  let preEffect = 0n; // أثر عناصر ما قبل النافذة المعكوسة داخلها على 111003 (مضمَّن في قيد OPENING)
+
+  for (const r of f.receipts) {
+    const cls = custodyClassOf(r.paymentMethod, rep, routing, true);
+    const item: CustodyItem = {
+      id: r.id, salesRepId: rep, amountMilli: r.amountMilli, effectAt: r.effectAt, createdAt: r.createdAt, reversedAt: r.reversedAt,
+      ...(cls === 'CUSTODY' && r.reversedAt != null && cancelRefundOutsideCustody(r.cancelRefundFrom) ? { reversalOutsideCustody: true } : {}),
+    };
+    ((cls === 'CUSTODY' ? out.receipts : cls === 'ONLINE' ? out.onlineReceipts : out.outsideReceipts) as CustodyItem[]).push(item);
+    if (!r.inWindow && cls === 'CUSTODY') preEffect += r.amountMilli;
+  }
+  for (const i of f.invoices) {
+    (out.cashInvoices as CustodyItem[]).push({
+      id: i.id, salesRepId: rep, amountMilli: i.amountMilli, effectAt: i.effectAt, createdAt: i.createdAt, reversedAt: i.reversedAt,
+      ...(i.stamped ? { stamped: true } : {}),
+    });
+    if (!i.inWindow && toLedger(i.stamped)) preEffect += i.amountMilli;
+  }
+  for (const st of f.settlements) {
+    const { inWindow, ...item } = st;
+    if (!inWindow) {
+      if (item.nonCustodyClearedMilli == null) return null;
+      // أثره عند البدء −covered (المخزَّن: covered = المبلغ − r − المسترد)
+      preEffect -= item.amountMilli - item.nonCustodyClearedMilli - (item.shortageRecoveredMilli ?? 0n);
+    }
+    (out.settlements as CustodySettlementItem[]).push(item);
+  }
+
+  let active = 0n;
+  let online = 0n;
+  let outside = 0n;
+  let cashOutside = 0n;
+  let inflows = 0n;
+  let cancelOutside = 0n;
+  for (const g of f.receiptSums) {
+    const cls = custodyClassOf(g.paymentMethod, rep, routing, true);
+    if (g.reversed) {
+      if (cls === 'CUSTODY' && cancelRefundOutsideCustody(g.cancelRefundFrom)) {
+        inflows += g.totalMilli;
+        cancelOutside += g.totalMilli;
+      }
+      continue;
+    }
+    active += g.totalMilli;
+    if (cls === 'CUSTODY') inflows += g.totalMilli;
+    else if (cls === 'ONLINE') online += g.totalMilli;
+    else outside += g.totalMilli;
+  }
+  for (const g of f.invoiceSums) {
+    if (g.reversed) continue;
+    if (g.stamped) {
+      active += g.totalMilli;
+      if (toLedger(true)) inflows += g.totalMilli;
+      else outside += g.totalMilli;
+    } else if (cashToCustody) {
+      inflows += g.totalMilli;
+    } else {
+      cashOutside += g.totalMilli;
+    }
+  }
+  const ledgerOpen = f.openingLedgerMilli - preEffect;
+  const opening: CustodyOpening = {
+    ledgerCustodyMilli: ledgerOpen,
+    onlineActiveMilli: online,
+    outsideActiveMilli: outside,
+    cashSalesOutsideMilli: cashOutside,
+    activeReceiptsMilli: active,
+    settledMilli: f.settledBeforeMilli,
+    nonCustodyClearedMilli: f.settledBeforeMilli - (inflows - ledgerOpen),
+    suspenseMilli: 0n,
+    cancelRefundOutsideMilli: cancelOutside,
+  };
+  out.opening = { [rep]: opening };
+  return out;
+}
+
+/** صفّ استعلام نافذة السندات: ROW (عنصر النافذة أو ما قبلها عُكس داخلها) أو SUM (مجموع ما قبلها بتقريب كل سند) */
+export interface LinkedReceiptSqlRow {
+  kind: 'ROW' | 'SUM';
+  id: string | null;
+  method: string | null;
+  refundFrom: string | null;
+  amount: number | null;
+  effAt: Date | null;
+  createdAt: Date | null;
+  revAt: Date | null;
+  inWin: boolean | null;
+  reversed: boolean | null;
+  total: string | null;
+}
+export interface LinkedInvoiceSqlRow {
+  kind: 'ROW' | 'SUM';
+  id: string | null;
+  stamped: boolean | null;
+  amount: number | null;
+  effAt: Date | null;
+  createdAt: Date | null;
+  revAt: Date | null;
+  inWin: boolean | null;
+  reversed: boolean | null;
+  total: string | null;
+}
+
+/** صفوف الاستعلامين ⇒ حقائق الصيغة المغلقة (صرفة: ملّي بمنازل العملة لكل سند، والمجاميع نصوص عشرية مقرّبة في SQL) */
+export function linkedCustodyFactsFromSql(input: {
+  salesRepId: string; dec: number; routing: CustodyRouting; openingLedgerMilli: Milli; settledBeforeMilli: Milli;
+  receiptRows: readonly LinkedReceiptSqlRow[]; invoiceRows: readonly LinkedInvoiceSqlRow[]; settlements: readonly LinkedCustodySettlementRow[];
+}): LinkedCustodyWindowFacts {
+  const dec = input.dec;
+  const receipts: LinkedCustodyReceiptRow[] = [];
+  const receiptSums: LinkedCustodyReceiptSum[] = [];
+  for (const r of input.receiptRows) {
+    if (r.kind === 'SUM') {
+      receiptSums.push({ paymentMethod: r.method ?? 'CASH', cancelRefundFrom: r.refundFrom ?? null, reversed: r.reversed === true, totalMilli: toMilli(r.total ?? '0', dec) });
+      continue;
+    }
+    if (!r.id || r.amount === null || !r.effAt || !r.createdAt) continue;
+    receipts.push({
+      id: r.id, amountMilli: toMilli(Number(r.amount), dec), paymentMethod: r.method ?? 'CASH', cancelRefundFrom: r.refundFrom ?? null,
+      effectAt: r.effAt, createdAt: r.createdAt, reversedAt: r.revAt ?? null, inWindow: r.inWin === true,
+    });
+  }
+  const invoices: LinkedCustodyInvoiceRow[] = [];
+  const invoiceSums: LinkedCustodyInvoiceSum[] = [];
+  for (const r of input.invoiceRows) {
+    if (r.kind === 'SUM') {
+      invoiceSums.push({ stamped: r.stamped === true, reversed: r.reversed === true, totalMilli: toMilli(r.total ?? '0', dec) });
+      continue;
+    }
+    if (!r.id || r.amount === null || !r.effAt || !r.createdAt) continue;
+    invoices.push({
+      id: r.id, amountMilli: toMilli(Number(r.amount), dec), stamped: r.stamped === true,
+      effectAt: r.effAt, createdAt: r.createdAt, reversedAt: r.revAt ?? null, inWindow: r.inWin === true,
+    });
+  }
+  return {
+    salesRepId: input.salesRepId, routing: input.routing, openingLedgerMilli: input.openingLedgerMilli,
+    receipts, receiptSums, invoices, invoiceSums, settlements: input.settlements, settledBeforeMilli: input.settledBeforeMilli,
+  };
+}
+
+/**
+ * سندات المندوب: تصنيف كل سند بصفوف account_entries للمفتاح (RECEIPT_CREDIT للترحيل: أصغر entryDate وأكبر createdAt؛
+ * RECEIPT_DEBIT للعكس) — classifyCutover نفسه. يعيد صفوف النافذة (وما قبلها عُكس داخلها) ومجاميع ما قبلها مجمّعةً بالطريقة
+ * ومصدر الردّ والعكس، بتقريب كل سند نصف-لأعلى إلى منازل العملة (ROUND على numeric) ثم الجمع. صفوف الدفتر تُمسح مرة
+ * (فهرس tenantId) وتُضمّ بالتجزئة — لا استعلام لكل سند.
+ */
+export function linkedCustodyReceiptsSql(tenantId: string, salesRepId: string, w: CustodyWindow, dec: number): Prisma.Sql {
+  return Prisma.sql`
+    WITH "ent" AS (
+      SELECT e."receiptId" AS "rid",
+             MIN(e."entryDate") FILTER (WHERE e."type" = 'RECEIPT_CREDIT') AS "cAt",
+             MAX(e."createdAt") FILTER (WHERE e."type" = 'RECEIPT_CREDIT') AS "cCreated",
+             MIN(e."entryDate") FILTER (WHERE e."type" = 'RECEIPT_DEBIT') AS "dAt",
+             MAX(e."createdAt") FILTER (WHERE e."type" = 'RECEIPT_DEBIT') AS "dCreated"
+      FROM "account_entries" e
+      WHERE e."tenantId" = ${tenantId} AND e."type" IN ('RECEIPT_CREDIT', 'RECEIPT_DEBIT')
+        AND e."receiptId" IN (SELECT r0."id" FROM "receipts" r0 WHERE r0."tenantId" = ${tenantId} AND r0."salesRepId" = ${salesRepId})
+      GROUP BY e."receiptId"
+    ), "t" AS (
+      SELECT r."id", r."amount", r."paymentMethod" AS "method", r."cancelRefundFrom" AS "refundFrom", r."createdAt",
+             COALESCE(ent."cAt", r."receiptDate") AS "effAt",
+             ent."dAt" AS "revAt",
+             (COALESCE(ent."cAt", r."receiptDate") >= ${w.start} OR COALESCE(ent."cCreated", r."createdAt") > ${w.snapshotAt}) AS "inWin",
+             (ent."dAt" IS NOT NULL AND (ent."dAt" >= ${w.start} OR ent."dCreated" > ${w.snapshotAt})) AS "revInWin"
+      FROM "receipts" r LEFT JOIN "ent" ON ent."rid" = r."id"
+      WHERE r."tenantId" = ${tenantId} AND r."salesRepId" = ${salesRepId}
+    )
+    SELECT 'ROW' AS "kind", t."id", t."method", t."refundFrom", t."amount", t."effAt", t."createdAt", t."revAt", t."inWin",
+           (t."revAt" IS NOT NULL) AS "reversed", NULL::text AS "total"
+    FROM "t" WHERE t."inWin" OR t."revInWin"
+    UNION ALL
+    SELECT 'SUM', NULL, t."method", t."refundFrom", NULL, NULL, NULL, NULL, NULL,
+           (t."revAt" IS NOT NULL), COALESCE(SUM(ROUND(t."amount"::numeric, ${dec}::int)), 0)::text
+    FROM "t" WHERE NOT (t."inWin" OR t."revInWin")
+    GROUP BY t."method", t."refundFrom", (t."revAt" IS NOT NULL)`;
+}
+
+/**
+ * فواتير المندوب النقدية: الترحيل INVOICE_DEBIT (والمفتاح معه RECEIPT_CREDIT)، والعكس INVOICE_CREDIT (ومعه RECEIPT_DEBIT).
+ * عكسٌ يحتفظ بالنقد (C17: وسم الإبطال بلا RECEIPT_DEBIT) لا يُعدّ عكساً للعهدة — مرآة keepCashLeg في desired.ts. ومجاميع ما
+ * قبل النافذة مجمّعة بالختم والعكس.
+ */
+export function linkedCustodyInvoicesSql(tenantId: string, salesRepId: string, w: CustodyWindow, dec: number): Prisma.Sql {
+  return Prisma.sql`
+    WITH "ent" AS (
+      SELECT e."invoiceId" AS "iid",
+             MIN(e."entryDate") FILTER (WHERE e."type" = 'INVOICE_DEBIT') AS "pAt",
+             MAX(e."createdAt") FILTER (WHERE e."type" IN ('INVOICE_DEBIT', 'RECEIPT_CREDIT')) AS "pCreated",
+             MIN(e."entryDate") FILTER (WHERE e."type" = 'INVOICE_CREDIT') AS "rAt",
+             MAX(e."createdAt") FILTER (WHERE e."type" IN ('INVOICE_CREDIT', 'RECEIPT_DEBIT')) AS "rCreated",
+             BOOL_OR(e."type" = 'INVOICE_CREDIT') AS "hasCredit",
+             BOOL_OR(e."type" = 'INVOICE_CREDIT' AND e."description" = ${CASH_VOID_KEEP_COLLECTION_NOTE}) AS "hasKeep",
+             BOOL_OR(e."type" = 'RECEIPT_DEBIT') AS "hasRd"
+      FROM "account_entries" e
+      WHERE e."tenantId" = ${tenantId} AND e."receiptId" IS NULL
+        AND e."invoiceId" IN (SELECT i0."id" FROM "invoices" i0 WHERE i0."tenantId" = ${tenantId} AND i0."salesRepId" = ${salesRepId} AND i0."type" = 'CASH')
+      GROUP BY e."invoiceId"
+    ), "t" AS (
+      SELECT i."id", i."total", i."invoiceDate", i."createdAt", i."cashCollectedByRep" AS "stamped",
+             CASE WHEN COALESCE(ent."hasCredit", false) AND NOT (COALESCE(ent."hasKeep", false) AND NOT COALESCE(ent."hasRd", false))
+                  THEN ent."rAt" END AS "revAt",
+             ent."rCreated",
+             (COALESCE(ent."pAt", i."invoiceDate") >= ${w.start} OR COALESCE(ent."pCreated", i."createdAt") > ${w.snapshotAt}) AS "inWin"
+      FROM "invoices" i LEFT JOIN "ent" ON ent."iid" = i."id"
+      WHERE i."tenantId" = ${tenantId} AND i."salesRepId" = ${salesRepId} AND i."type" = 'CASH'
+    ), "u" AS (
+      SELECT t.*, (t."revAt" IS NOT NULL AND (t."revAt" >= ${w.start} OR t."rCreated" > ${w.snapshotAt})) AS "revInWin" FROM "t"
+    )
+    SELECT 'ROW' AS "kind", u."id", u."stamped", u."total" AS "amount", u."invoiceDate" AS "effAt", u."createdAt", u."revAt", u."inWin",
+           (u."revAt" IS NOT NULL) AS "reversed", NULL::text AS "total"
+    FROM "u" WHERE u."inWin" OR u."revInWin"
+    UNION ALL
+    SELECT 'SUM', NULL, u."stamped", NULL, NULL, NULL, NULL, NULL,
+           (u."revAt" IS NOT NULL), COALESCE(SUM(ROUND(u."total"::numeric, ${dec}::int)), 0)::text
+    FROM "u" WHERE NOT (u."inWin" OR u."revInWin")
+    GROUP BY u."stamped", (u."revAt" IS NOT NULL)`;
+}
+
+// ── عهدة مستخدمي الشركة (D6) ──
+
+const emptyUserCustodyInputs = (userId: string): UserCustodyInputs => ({ userId, received: [], delivered: [], refunds: [] });
+
+/**
+ * مدخلات foldUserCustody لمستخدمين (null = كل من له تاريخ عهدة) بخمس قراءات أياً كان عددهم (بلا N+1):
+ *  - الصفوف الحيّة (الاستلامات والتوريدات والاستردادات) من المصدر الواحد مع الشاشة: readUserCustodyOpsRows ثم
+ *    userCustodyInputsFromRows بمنظور الدفاتر (services/userCustody.ts — مراجعة ١٤ نوفمبر: كان لكلٍّ محمّله فاختلفا).
+ *    استلام المندوب المحذوف يُقرأ ويُوسم outsideCustody: المُطابِق لا يرحّله (SETTLEMENT_HAS_REP) وسنداته OUTSIDE في 111001،
+ *    فيدخل الوعاء — توريد ماله يمرّ بلا قيد (لا 111004 سالب ولا 111001 مرّتين). كان يُسقَط فيُقيَّد توريده كاملاً على 111004.
+ *  - المحذوف من الاستلام من حمولة tombstone المربوطة (SETTLEMENT REVERSE تحمل receivedByUserId) بلحظة الحذف عكساً.
+ *  - المحذوف من التوريد من حمولة USER_SETTLEMENT REVERSE بلحظة الحذف؛ والتقسيم المخزَّن من حدث POST المنفّذ أو المحسوم
+ *    (nonCustodyClearedMilli) يُقرأ ولا يُعاد اشتقاقه.
+ * المبالغ ملّي بمنازل العملة لكل مستند (نصف-لأعلى كـtoMilli) — المبلغ نفسه الذي يُرحَّل به P7 والتوريد والعكس.
+ */
+export async function loadUserCustodyInputsMany(
+  db: GlDb, tenantId: string, decimals: number, userIds: readonly string[] | null,
+): Promise<Map<string, UserCustodyInputs>> {
+  const out = new Map<string, UserCustodyInputs>();
+  if (userIds && userIds.length === 0) return out;
+  const want = userIds ? new Set(userIds) : null;
+  const single = userIds && userIds.length === 1 ? userIds[0] : null;
+  const wanted = (u: unknown): u is string => typeof u === 'string' && u !== '' && (!want || want.has(u));
+  const of = (u: string): UserCustodyInputs => {
+    let x = out.get(u);
+    if (!x) { x = emptyUserCustodyInputs(u); out.set(u, x); }
+    return x;
+  };
+  const [ops, settlementReverses, userEvents] = await Promise.all([
+    readUserCustodyOpsRows(db, tenantId, userIds),
+    db.glSourceEvent.findMany({
+      where: { tenantId, sourceType: 'SETTLEMENT', event: 'REVERSE', ...(single ? { payload: { path: ['receivedByUserId'], equals: single } } : {}) },
+      select: { sourceId: true, effectAt: true, payload: true },
+    }),
+    db.glSourceEvent.findMany({
+      where: { tenantId, sourceType: 'USER_SETTLEMENT', ...(single ? { payload: { path: ['fromUserId'], equals: single } } : {}) },
+      select: { sourceId: true, event: true, status: true, effectAt: true, payload: true, nonCustodyClearedMilli: true },
+    }),
+  ]);
+  for (const [u, x] of userCustodyInputsFromRows(ops, { decimals, ledgerView: true, wanted })) out.set(u, x);
+
+  const liveReceived = new Set(ops.received.map((r) => r.id));
+  const deletedReceived = new Set<string>();
+  for (const e of settlementReverses) {
+    if (liveReceived.has(e.sourceId) || deletedReceived.has(e.sourceId)) continue;
+    const p = payloadRecord(e.payload);
+    const at = textOrNull(p?.settledAt);
+    const user = p?.receivedByUserId;
+    if (!p || !at || p.amount === undefined || p.amount === null || !wanted(user)) continue;
+    deletedReceived.add(e.sourceId);
+    const row: UserCustodyReceivedRow = {
+      id: e.sourceId, amountMilli: toMilli(String(p.amount), decimals), method: textOrNull(p.method) ?? 'CASH', at,
+      createdAt: textOrNull(p.createdAt) ?? at, reversedAt: e.effectAt,
+    };
+    of(user).received.push(row);
+  }
+
+  const stored = new Map<string, bigint>();
+  const deletedAt = new Map<string, Date>();
+  const tombstones = new Map<string, Record<string, unknown>>();
+  for (const e of userEvents) {
+    if (e.event === 'POST' && (e.status === 'DONE' || e.status === 'SKIPPED') && e.nonCustodyClearedMilli !== null) stored.set(e.sourceId, e.nonCustodyClearedMilli);
+    if (e.event === 'REVERSE') {
+      deletedAt.set(e.sourceId, e.effectAt);
+      const p = payloadRecord(e.payload);
+      if (p) tombstones.set(e.sourceId, p);
+    }
+  }
+  const liveDelivered = new Set(ops.delivered.map((d) => d.id));
+  // التقسيم المخزَّن على التوريد الحيّ (منظور الدفاتر وحده — الشاشة لا تقرأ أحداث الدفاتر)
+  for (const x of out.values()) for (const d of x.delivered) d.storedPassThroughMilli = stored.get(d.id) ?? null;
+  for (const [id, p] of tombstones) {
+    if (liveDelivered.has(id)) continue;
+    const at = textOrNull(p.settledAt);
+    const user = p.fromUserId;
+    if (!at || p.amount === undefined || p.amount === null || !wanted(user)) continue;
+    const row: UserCustodyDeliveredRow = {
+      id, amountMilli: toMilli(String(p.amount), decimals), method: textOrNull(p.method) ?? 'CASH', at,
+      createdAt: textOrNull(p.createdAt) ?? at, reversedAt: deletedAt.get(id) ?? null, storedPassThroughMilli: stored.get(id) ?? null,
+    };
+    of(user).delivered.push(row);
+  }
+  return out;
 }

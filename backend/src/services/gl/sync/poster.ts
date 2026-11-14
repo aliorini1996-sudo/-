@@ -22,6 +22,12 @@ import { buildReceiptMove, buildReceiptReversalMove, type ReceiptPostPayload } f
 import { buildSettlementMove } from '../builders/custody';
 import { buildImportEntryMove, type ImportEntryPayload } from '../builders/importEntry';
 import { buildPaylinkFeeMove, buildPayoutMove, type PaylinkFeePayload, type PayoutPayload } from '../builders/paylink';
+import { buildPaylinkRefundMove } from '../builders/paylink';
+import { receiptReversalNeedsBuild } from '../builders/receipt';
+import { buildUserSettlementMove } from '../builders/userCustody';
+import { userDeliverySplitBefore, type UserCustodyInputs } from '../../userCustodyCore';
+import { reconcileAfterPost } from '../reconcile/apply';
+import { toMilli } from '../money';
 import type { LedgerContext } from '../resolve';
 import {
   LedgerError, isNoMove,
@@ -32,6 +38,7 @@ import {
   inventoryGate, isInventoryEvent, isStillActionable, isTombstoneSource, planEvent, settlementOrderReady,
   type CutoverContext, type CutoverRow, type EventPlan, type LiveMoveState, type OriginFacts, type SiblingState, type SiblingWrite,
 } from './classify';
+import { userSettlementOrderReady } from './classify';
 import { reverseKeyOf, siblingPostKey } from './keys';
 import { reconcileHorizon } from './reconciler';
 import type { OpeningImportCandidate, PosterSettings, PostingStore, PostingTx } from './postingStore';
@@ -43,6 +50,7 @@ import {
   type PendingHoldReason, type PostOutcome, type PosterRunResult, type ReceiptPostEventPayload, type ReceiptReverseEventPayload,
   type SettlementEventPayload, type SourceEventPatch, type SourceEventRecord,
 } from './types';
+import type { PaylinkRefundEventPayload, SourceEventPayload, UserSettlementEventPayload } from './types';
 
 // ═══ الميزانية ═══
 
@@ -92,6 +100,7 @@ export const AUTO_REVERSAL_REASONS: Readonly<Record<string, string>> = {
   SETTLEMENT: 'حذف استلام تحصيل المندوب',
   AR_ENTRY: 'التراجع عن الاستيراد',
   CUSTOMER_ADJUSTMENT: 'إلغاء تسوية ذمة العميل',
+  USER_SETTLEMENT: 'حذف توريد عهدة مستخدم الشركة',
 };
 
 /** رموز LedgerError التي تعني ربطاً أو حساباً ناقصاً ⇒ HELD(MISSING_MAPPING) لا ERROR */
@@ -110,7 +119,7 @@ export class PosterHoldError extends Error {
 const EPOCH = new Date(0);
 
 /** سياق التصنيف من الإعدادات: الطريقة (ب) أو غياب تاريخ البدء ⇒ لا شيء مشمول بالافتتاح */
-export function cutoverContextOf(s: Pick<PosterSettings, 'setupMethod' | 'cutoverDate' | 'openingSnapshotAt' | 'timezone'>): CutoverContext {
+export function cutoverContextOf(s: Pick<PosterSettings, 'setupMethod' | 'cutoverDate' | 'openingSnapshotAt' | 'timezone'> & Partial<Pick<PosterSettings, 'snapshot'>>): CutoverContext {
   if (!s.cutoverDate || !s.openingSnapshotAt) {
     return { cutoverDate: '1970-01-01', openingSnapshotAt: EPOCH, timezone: s.timezone, initialWatermarkAt: EPOCH };
   }
@@ -122,6 +131,8 @@ export function cutoverContextOf(s: Pick<PosterSettings, 'setupMethod' | 'cutove
     initialWatermarkAt: initialWatermarkAt({ method, cutoverDate: s.cutoverDate, openingSnapshotAt: s.openingSnapshotAt, timezone: s.timezone }),
     // البداية النظيفة: كل ما أُنشئ حتى T0 خارج الدفاتر أياً كان تاريخه (classifyCutover)
     cleanStart: method === 'CLEAN',
+    // OD12: المربوطة تُرحِّل الأرصدة المستوردة (قبل linkedFrom افتتاحاً، وبعده 319002 مع تنبيه) — غيرها كما كانت حرفاً
+    ...(s.snapshot?.linkedPosting ? { skipImportedBalances: false } : {}),
   };
 }
 
@@ -157,6 +168,10 @@ interface RunEnv {
   /** بصمة إعدادات البناء التي حُمِّل بها السياق — تغيّرها تحت القفل يُعيد التحميل (D2 والمسارات) */
   contextVersion?: number | null;
   log: (msg: string, data?: Record<string, unknown>) => void;
+  /** «ربط الدفاتر» L5: مؤشر REP_SETTLEMENT الفعّال لترتيب USER_SETTLEMENT — يُقرأ خارج المعاملة عند أول توريد مستخدم (undefined = لم يُقرأ) */
+  repSettlementWatermark?: CompositeKey | null;
+  /** D2: حسابات المربوطة (111004/112007/214002) تأكّد وجودها ملتزماً في هذه النبضة */
+  linkedAccountsEnsured?: boolean;
 }
 
 export function emptyPosterResult(stoppedBy: PosterRunResult['stoppedBy'] = 'EMPTY'): PosterRunResult {
@@ -378,6 +393,11 @@ async function processEvent(env: RunEnv, ev: SourceEventRecord): Promise<PostOut
     return hold(env, ev, 'CURRENCY_MISMATCH', `${settings.currency}≠${settings.companyCurrency}`);
   }
 
+  // «ربط الدفاتر» L5: مؤشر REP_SETTLEMENT الفعّال خارج المعاملة (مخزن الترحيل باتصال واحد)، مرة لكل نبضة قبل أول توريد مستخدم
+  if (ev.sourceType === 'USER_SETTLEMENT' && env.repSettlementWatermark === undefined) {
+    env.repSettlementWatermark = await effectiveRepSettlementWatermark(store, tenantId, env.now);
+  }
+
   // (3) المعاملة
   try {
     const decision = await store.withPostLock(tenantId, (tx) => decideAndPost(env, tx, ev));
@@ -548,6 +568,10 @@ function hasRecipe(ev: SourceEventRecord): boolean {
     case 'AR_ENTRY': return ev.event === 'POST' || ev.event === 'REVERSE';
     case 'PAYLINK_FEE':
     case 'PAYOUT': return ev.event === 'POST';
+    // «ربط الدفاتر» L5: يشتقّهما المُطابِق للمربوطة وحدها (توريد عهدة مستخدم وحذفه، واسترداد دفع إلكتروني)
+    case 'USER_SETTLEMENT': return ev.event === 'POST' || ev.event === 'REVERSE';
+    case 'PAYLINK_REFUND': return ev.event === 'POST';
+    // COGS/RESTOCK: builders/cogs.ts بعد L3 (GlCostSnapshot)
     default: return false; // WH_ENTRY/VAN_LOAD/RESTOCK/COGS (M9) وCUSTOMER_ADJUSTMENT (M4 يكتبه DONE)
   }
 }
@@ -671,13 +695,16 @@ async function applySiblingWrite(env: RunEnv, tx: PostingTx, ev: SourceEventReco
  * حفظ paylinkFeeTaxInvoiceFrom (D2) أو cashInvoiceRouting/receiptRouting يأخذ القفل نفسه، فالقيمة المقروءة هنا هي
  * السارية لحظة الترحيل (§8.1) لا ما قُرئ في أول النبضة.
  */
-export async function contextOf(env: Pick<RunEnv, 'context' | 'contextVersion'>, tx: PostingTx): Promise<LedgerContext> {
+export async function contextOf(
+  env: Pick<RunEnv, 'context' | 'contextVersion'> & Partial<Pick<RunEnv, 'settings' | 'linkedAccountsEnsured'>>, tx: PostingTx,
+): Promise<LedgerContext> {
   const version = tx.settingsVersion ? await tx.settingsVersion() : null;
   if (!env.context || (version !== null && version !== (env.contextVersion ?? null))) {
     env.context = await tx.loadContext();
     env.contextVersion = version;
   }
-  return env.context;
+  await ensureLinkedAccountsOnce(env, tx);
+  return env.context as LedgerContext;
 }
 
 function withPlanDate(draft: MoveDraft, plan: Extract<EventPlan, { action: 'POST' }>): MoveDraft {
@@ -736,13 +763,16 @@ async function executePost(env: RunEnv, tx: PostingTx, ev: SourceEventRecord, pl
       return block(env, tx, ev, 'SETTLEMENT_ORDER');
     }
   }
+  // «ربط الدفاتر» L5: ترتيب توريد المستخدم وبوابة استرداد الدفع الإلكتروني (قبل أي بناء)
+  const pre = await linkedPreGate(env, tx, ev, plan);
+  if (pre.kind === 'DECIDED') return pre.decision;
 
   await applySiblingWrite(env, tx, ev, plan.siblingWrite);
 
   if (plan.mode === 'REVERSE_LIVE') return reverseLive(env, tx, ev, plan);
 
   const context = await contextOf(env, tx);
-  const built = await buildFor(env, tx, ev, plan, context);
+  const built = await buildFor(env, tx, ev, plan, context, pre);
   if (isNoMove(built.result)) {
     const patch = skippedPatch(env.now, built.result.reason, built.extra);
     await tx.updateEvent(ev.id, patch);
@@ -758,6 +788,7 @@ async function executePost(env: RunEnv, tx: PostingTx, ev: SourceEventRecord, pl
     auditSummary: `ترحيل آلي ${ev.sourceKey}`,
     auditExtra: { sourceKey: ev.sourceKey, eventId: ev.id, mode: plan.mode },
   });
+  await reconcileAfterPosting(env, tx, ev, posted.id, built.reversedMoveId ?? null);
   const patch = donePatch(env.now, posted.id, built.extra);
   await tx.updateEvent(ev.id, patch);
   return {
@@ -791,15 +822,19 @@ async function reverseLive(env: RunEnv, tx: PostingTx, ev: SourceEventRecord, pl
       auditAction: 'MOVE_REVERSE', auditSummary: `عكس آلي ${ev.sourceKey}`,
       auditExtra: { sourceKey: ev.sourceKey, eventId: ev.id, mode: plan.mode },
     });
+    await reconcileAfterPosting(env, tx, ev, posted.id, liveMoveId);
     const patch = donePatch(env.now, posted.id, {});
     await tx.updateEvent(ev.id, patch);
     return { outcome: { status: 'DONE', moveId: posted.id, idempotent: false }, patch };
   }
   if (ev.sourceType === 'RECEIPT') {
     const original = await postPayloadOf<ReceiptPostEventPayload>(tx, ev);
-    if (original.paymentMethod === 'ONLINE' && original.paylinkId) {
-      const context = await contextOf(env, tx);
-      const rev = payloadOf(ev) as ReceiptReverseEventPayload | null;
+    const rev = payloadOf(ev) as ReceiptReverseEventPayload | null;
+    // سند إلكتروني برابط (كاليوم حرفاً)، أو مربوطة رُدّ مالها من خارج عهدة المندوب (C11) أو أُلغي يدوياً ⇒ يُبنى العكس
+    // بالـbuilder لا بالمرآة (receiptReversalNeedsBuild). غير المربوطة لا تصل الدالة الجديدة فيبقى مسارها كما كان بايتاً.
+    const onlineLinked = original.paymentMethod === 'ONLINE' && !!original.paylinkId;
+    const context = onlineLinked || isLinkedPosting(env) ? await contextOf(env, tx) : null;
+    if (context && (onlineLinked || receiptReversalNeedsBuild(original, rev, context.ctx))) {
       const result = buildReceiptReversalMove({
         receiptId: ev.sourceId, number: original.number ?? null, date: plan.date,
         original, reverse: rev, customerName: original.customerName ?? null, salesRepName: original.salesRepName ?? null,
@@ -815,6 +850,7 @@ async function reverseLive(env: RunEnv, tx: PostingTx, ev: SourceEventRecord, pl
         auditAction: 'MOVE_REVERSE', auditSummary: `عكس آلي ${ev.sourceKey}`,
         auditExtra: { sourceKey: ev.sourceKey, eventId: ev.id, mode: plan.mode },
       });
+      await reconcileAfterPosting(env, tx, ev, posted.id, liveMoveId);
       const patch = donePatch(env.now, posted.id, {});
       await tx.updateEvent(ev.id, patch);
       return { outcome: { status: 'DONE', moveId: posted.id, idempotent: false }, patch };
@@ -830,6 +866,7 @@ async function reverseLive(env: RunEnv, tx: PostingTx, ev: SourceEventRecord, pl
     sourceEvent: ev.event,
     auditAction: 'MOVE_REVERSE',
   });
+  await reconcileAfterPosting(env, tx, ev, r.reversal.id, liveMoveId);
   const patch = donePatch(env.now, r.reversal.id, {});
   await tx.updateEvent(ev.id, patch);
   return { outcome: { status: 'DONE', moveId: r.reversal.id, idempotent: r.alreadyReversed }, patch };
@@ -843,6 +880,7 @@ interface Built {
 
 async function buildFor(
   env: RunEnv, tx: PostingTx, ev: SourceEventRecord, plan: Extract<EventPlan, { action: 'POST' }>, context: LedgerContext,
+  pre: Extract<LinkedPreFacts, { kind: 'GO' }> = { kind: 'GO' },
 ): Promise<Built> {
   const reverse = ev.event === 'REVERSE';
   switch (ev.sourceType) {
@@ -937,6 +975,17 @@ async function buildFor(
       const p = await sourcePayload<PayoutPayload>(tx, ev, 'POST', ev.payload);
       return { result: buildPayoutMove({ ...p, payoutId: p.payoutId ?? ev.sourceId }, context.ctx), extra: {} };
     }
+    case 'USER_SETTLEMENT':
+      return buildUserSettlementFor(tx, ev, plan, context);
+    case 'PAYLINK_REFUND': {
+      const p = await sourcePayload<PaylinkRefundEventPayload>(tx, ev, 'POST', ev.payload);
+      return {
+        result: buildPaylinkRefundMove({
+          payload: { ...p, entryId: p.entryId ?? ev.sourceId }, receiptReverseRefundEntryId: pre.receiptReverseRefundEntryId ?? null, date: plan.date,
+        }, context.ctx),
+        extra: {},
+      };
+    }
     default:
       throw new PosterHoldError('UNEXPECTED_ENTRY_SHAPE', `NO_RECIPE ${ev.sourceType}`);
   }
@@ -948,7 +997,19 @@ async function optionalPayload<T>(tx: PostingTx, ev: SourceEventRecord, event: '
 }
 
 function receiptPayload(p: ReceiptPostEventPayload): ReceiptPostPayload {
-  return { salesRepId: p.salesRepId ?? null, paymentMethod: p.paymentMethod, amount: p.amount, customerId: p.customerId, paylinkId: p.paylinkId ?? null };
+  return { salesRepId: p.salesRepId ?? null, paymentMethod: p.paymentMethod, amount: p.amount, customerId: p.customerId, paylinkId: p.paylinkId ?? null, ...linkedReceiptFields(p) };
+}
+
+/**
+ * «ربط الدفاتر» L5 (C2/C4/C10/L8): مفتاح الطريقة المخصّصة ومعرّف دفعة البطاقة والتخصيصات تُمرَّر للـbuilder حين تحملها
+ * الحمولة وحدها (يكتبها المُطابِق للمربوطة فقط، D1) — فحمولة غيرها تبقى الكائن نفسه حرفاً كما كان.
+ */
+export function linkedReceiptFields(p: Pick<ReceiptPostPayload, 'paymentMethodKey' | 'cardPaymentId' | 'allocations'>): Partial<ReceiptPostPayload> {
+  return {
+    ...(p.paymentMethodKey ? { paymentMethodKey: p.paymentMethodKey } : {}),
+    ...(p.cardPaymentId ? { cardPaymentId: p.cardPaymentId } : {}),
+    ...(p.allocations && p.allocations.length > 0 ? { allocations: p.allocations } : {}),
+  };
 }
 
 /** P7: مدخلات العهدة قبل هذا الاستلام — بنود أثرها ≤ settledAt، واستلامات سابقة له بالترتيب (settledAt، createdAt) */
@@ -1054,4 +1115,158 @@ export function missingAutoSalePercents(result: BuildResult, context: Pick<Ledge
 /** مجموع المبالغ الموقَّع (للتشخيص في الاختبارات) */
 export function draftNetMilli(d: MoveDraft): Milli {
   return d.lines.reduce((a, l) => a + l.debitMilli - l.creditMilli, 0n);
+}
+
+// ═══ «ربط الدفاتر» L4+L5+L8 (عقد §3.6، §5.7) — كل ما يلي لا يعمل إلا للدفاتر المربوطة ═══
+
+/**
+ * D1: الدفاتر المربوطة المفعّلة وحدها — لقطة إعدادات النبضة (settingsSnapshotFromRow) أو السياق المعاد قراءته تحت القفل.
+ * غيرها (اليدوية والقديمة وغير المفعّلة) لا تمرّ بأي سلوك جديد هنا.
+ */
+export function isLinkedPosting(env: { settings?: Pick<PosterSettings, 'snapshot'> | null; context?: LedgerContext | null }): boolean {
+  return env.settings?.snapshot?.linkedPosting === true || env.context?.ctx.settings.linkedPosting === true;
+}
+
+/**
+ * D2 (§5.1): حسابات المربوطة 111004/112007/214002 تُنشأ عند الحاجة قبل أول بناء في النبضة (متساوي الأثر داخل المعاملة).
+ * لا يُعلَّم «تأكّد» إلا حين لا يُنشئ شيئاً: معاملة الإنشاء قد تتراجع (فشل بناء لاحق)، فيُعاد التحقق في الحدث التالي
+ * حتى يُرى الإنشاء ملتزماً — ثم لا استعلام إضافياً بقية النبضة.
+ */
+async function ensureLinkedAccountsOnce(
+  env: Pick<RunEnv, 'context'> & Partial<Pick<RunEnv, 'settings' | 'linkedAccountsEnsured'>>, tx: PostingTx,
+): Promise<void> {
+  if (env.linkedAccountsEnsured || !tx.ensureLinkedAccounts || !isLinkedPosting(env)) return;
+  const r = await tx.ensureLinkedAccounts();
+  if (r.context) env.context = r.context;
+  if (r.created.length === 0) env.linkedAccountsEnsured = true;
+}
+
+/**
+ * المؤشر الفعّال لترتيب USER_SETTLEMENT (مرآة effectiveAccountEntryWatermark لـP7): مؤشر REP_SETTLEMENT كما هو، إلا حين
+ * لا صفوف RepSettlement غير مقروءة حتى الأفق فيصير max(المؤشر، الأفق) — وإلا بقي توريدٌ هو آخر عملية محجوباً حتى يُنشأ
+ * استلام جديد. المخزن بلا hasUnreadRepSettlements ⇒ المؤشر كما هو (أحوط: قد يحجب ولا يسبق).
+ */
+export async function effectiveRepSettlementWatermark(store: PostingStore, tenantId: string, dbNow: Date): Promise<CompositeKey | null> {
+  const cursor = await store.readCursor(tenantId, 'REP_SETTLEMENT');
+  if (!cursor) return null;
+  const base: CompositeKey = { at: cursor.watermarkAt, id: cursor.watermarkId };
+  if (!store.hasUnreadRepSettlements) return base;
+  const horizon = reconcileHorizon(dbNow);
+  if (horizon.getTime() <= base.at.getTime()) return base;
+  if (await store.hasUnreadRepSettlements(tenantId, base, horizon)) return base;
+  return maxCompositeKey(base, { at: horizon, id: '' });
+}
+
+/** نتيجة البوابة السابقة للبناء: يُكمل (ومعه ما قرأته البوابة للـbuilder)، أو قرار نهائي كُتب على الحدث */
+type LinkedPreFacts =
+  | { kind: 'GO'; /** PAYLINK_REFUND: refundEntryId في حمولة RECEIPT:<receiptId>:REVERSE المرحَّل */ receiptReverseRefundEntryId?: string | null }
+  | { kind: 'DECIDED'; decision: Decision };
+
+/**
+ * §5.7: بوابتان قبل البناء لمصدري المربوطة الجديدين (لا يشتقّهما المُطابِق لغيرها):
+ *  - USER_SETTLEMENT:POST — ترتيب userSettlementOrderReady (مؤشر REP_SETTLEMENT الفعّال تجاوز إنشاء التوريد، ولا استلامات
+ *    للمستخدم PENDING/BLOCKED حتى settledAt) وإلا BLOCKED(SETTLEMENT_ORDER): مدين 111004 قبل دائنه.
+ *  - PAYLINK_REFUND:POST — حدث RECEIPT:<receiptId>:REVERSE: غائب أو غير نهائي ⇒ BLOCKED(SIBLING_NOT_FINAL)،
+ *    SKIPPED ⇒ SKIPPED(NETTED)، DONE ⇒ يُبنى بـrefundEntryId من حمولته (C9).
+ */
+async function linkedPreGate(env: RunEnv, tx: PostingTx, ev: SourceEventRecord, plan: Extract<EventPlan, { action: 'POST' }>): Promise<LinkedPreFacts> {
+  if (ev.event !== 'POST') return { kind: 'GO' };
+  if (ev.sourceType === 'USER_SETTLEMENT') {
+    const p = await sourcePayload<UserSettlementEventPayload>(tx, ev, 'POST', ev.payload);
+    const ready = userSettlementOrderReady({
+      settlementCreatedAt: p.createdAt ?? ev.detectedAt,
+      settledAt: p.settledAt,
+      repSettlementWatermark: env.repSettlementWatermark ?? null,
+      feedEvents: await tx.listUserFeedEvents(p.fromUserId, ev.effectAt),
+    });
+    if (ready) return { kind: 'GO' };
+    await applySiblingWrite(env, tx, ev, plan.siblingWrite);
+    return { kind: 'DECIDED', decision: await block(env, tx, ev, 'SETTLEMENT_ORDER') };
+  }
+  if (ev.sourceType === 'PAYLINK_REFUND') {
+    const p = await sourcePayload<PaylinkRefundEventPayload>(tx, ev, 'POST', ev.payload);
+    // استرداد بلا سند قبض لا يقابله دائن 214002 ولا مدين 112005 معروف ⇒ يُحجز للمحاسب بدل قيدٍ من طرف واحد
+    if (!p.receiptId) throw new PosterHoldError('UNEXPECTED_ENTRY_SHAPE', `PAYLINK_REFUND:${ev.sourceId} بلا سند قبض`);
+    const rev = await tx.getReceiptReverse(p.receiptId);
+    if (!rev || (rev.status !== 'DONE' && rev.status !== 'SKIPPED')) {
+      await applySiblingWrite(env, tx, ev, plan.siblingWrite);
+      return { kind: 'DECIDED', decision: await block(env, tx, ev, 'SIBLING_NOT_FINAL') };
+    }
+    if (rev.status === 'SKIPPED') {
+      await applySiblingWrite(env, tx, ev, plan.siblingWrite);
+      const patch = skippedPatch(env.now, 'NETTED');
+      await tx.updateEvent(ev.id, patch);
+      return { kind: 'DECIDED', decision: { outcome: { status: 'SKIPPED', skipReason: 'NETTED' }, patch } };
+    }
+    return { kind: 'GO', receiptReverseRefundEntryId: rev.refundEntryId };
+  }
+  return { kind: 'GO' };
+}
+
+/**
+ * C14: توريد مستخدم الشركة. POST ⇒ تقسيم «قبله» (userDeliverySplitBefore) ثم buildUserSettlementMove، والمرور
+ * (passThroughMilli) يُحفظ على الحدث nonCustodyClearedMilli. REVERSE من المصدر (الأصل مشمول بالافتتاح) ⇒ البناء الأمامي
+ * بالتقسيم المخزَّن على حدث POST (أو المعاد اشتقاقه قبله) ثم invertDraft. REVERSE لقيد حيّ لا يصل هنا (مرآة reverseMove).
+ */
+async function buildUserSettlementFor(
+  tx: PostingTx, ev: SourceEventRecord, plan: Extract<EventPlan, { action: 'POST' }>, context: LedgerContext,
+): Promise<Built> {
+  const reverse = ev.event === 'REVERSE';
+  const p = reverse ? await postPayloadOf<UserSettlementEventPayload>(tx, ev) : await sourcePayload<UserSettlementEventPayload>(tx, ev, 'POST', ev.payload);
+  const inputs = await tx.loadUserCustodyInputs(p.fromUserId);
+  const postKey = reverse ? siblingPostKey(ev.sourceKey) : null;
+  const stored = postKey ? ((await tx.getEvent(postKey))?.nonCustodyClearedMilli ?? null) : null;
+  const scoped = userDeliveryRestored(inputs, ev.sourceId, p, context.ctx.settings.currencyDecimals, { reinstate: reverse, storedPassThroughMilli: stored });
+  const split = userDeliverySplitBefore(scoped, ev.sourceId);
+  const build = buildUserSettlementMove({ userSettlementId: ev.sourceId, payload: p, date: plan.date, split }, context.ctx);
+  if (!reverse) return { result: build.result, extra: { nonCustodyClearedMilli: build.split.passThroughMilli } };
+  if (isNoMove(build.result)) return { result: build.result, extra: {} };
+  return { result: invertDraft(build.result, 'REVERSE', plan.date), extra: {} };
+}
+
+/**
+ * مدخلات الطيّ وفيها التوريد نفسه: صفّه المحذوف قد يغيب عن القراءة (أو يحمل reversedAt) ⇒ يُعاد من الحمولة الثابتة،
+ * والتقسيم المخزَّن على حدث POST (إن وُجد) يُثبَّت عليه فلا يُعاد اشتقاقه.
+ */
+export function userDeliveryRestored(
+  inputs: UserCustodyInputs, deliveryId: string,
+  p: Pick<UserSettlementEventPayload, 'amount' | 'method' | 'settledAt' | 'createdAt'>, decimals: number,
+  opts: { reinstate: boolean; storedPassThroughMilli?: Milli | null },
+): UserCustodyInputs {
+  const stored = opts.storedPassThroughMilli ?? null;
+  const found = inputs.delivered.some((d) => d.id === deliveryId);
+  const delivered = found
+    ? inputs.delivered.map((d) => (d.id !== deliveryId ? d : {
+      ...d,
+      ...(opts.reinstate ? { reversedAt: null } : {}),
+      ...(d.storedPassThroughMilli == null && stored !== null ? { storedPassThroughMilli: stored } : {}),
+    }))
+    : [...inputs.delivered, {
+      id: deliveryId, amountMilli: toMilli(p.amount, decimals), method: p.method, at: p.settledAt,
+      createdAt: p.createdAt ?? p.settledAt, reversedAt: null, storedPassThroughMilli: stored,
+    }];
+  return { ...inputs, delivered };
+}
+
+/** L8: مصادر يُطابَق قيدها بعد ترحيله (سطور ذمة 113001، أو 214002 للاسترداد) */
+export const RECONCILE_AFTER_POST_SOURCE_TYPES = ['INVOICE', 'RECEIPT', 'AR_ENTRY', 'PAYLINK_REFUND'] as const;
+
+/**
+ * L8 (D7): المطابقة الجزئية داخل معاملة الترحيل نفسها بعد كل قيد ذمة جديد (postMove أو reverseMove)، وفكّها عند العكس.
+ * المربوطة وحدها، وحين يوفّر المخزن reconcileStore؛ رميها يُسقط الترحيل كله (اتساق الدفتر مع مطابقته).
+ */
+async function reconcileAfterPosting(
+  env: RunEnv, tx: PostingTx, ev: SourceEventRecord, moveId: string, reversedMoveId: string | null,
+): Promise<void> {
+  if (!tx.reconcileStore || !(RECONCILE_AFTER_POST_SOURCE_TYPES as readonly string[]).includes(ev.sourceType)) return;
+  if (!isLinkedPosting(env)) return;
+  let payload: SourceEventPayload | null = ev.payload ?? null;
+  if (!payload && ev.event === 'POST') {
+    // حدث POST أدرجته بوابة الأشقاء بلا حمولة: التخصيصات وappliesTo من المستند نفسه
+    const data = await tx.loadSourceData(ev.sourceType, ev.sourceId, 'POST');
+    payload = data.kind === 'FOUND' ? (data.payload as SourceEventPayload) : null;
+  }
+  await reconcileAfterPost(tx.reconcileStore(), {
+    sourceType: ev.sourceType, sourceId: ev.sourceId, event: ev.event, moveId, reversedMoveId, payload,
+  });
 }

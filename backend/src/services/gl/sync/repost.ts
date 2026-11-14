@@ -24,6 +24,10 @@ import { debitTotalMilli, missingAutoSalePercents, settlementRebuildInputs } fro
 import { nextRepostIndex, parseSourceKey, repostKey, repostRevKey, reverseKeyOf } from './keys';
 import type { PostingTx } from './postingStore';
 import type { ArEntryEventPayload, ReceiptPostEventPayload, SettlementEventPayload } from './types';
+import type { SourceEventPayload } from './types';
+import { linkedReceiptFields, RECONCILE_AFTER_POST_SOURCE_TYPES } from './poster';
+import { linkedSettlementRebuildFromLines } from '../builders/custody';
+import { reconcileAfterPost } from '../reconcile/apply';
 
 export const REPOST_REVERSAL_REASON = 'إعادة الترحيل من المصدر بعد تعديل الربط';
 
@@ -87,6 +91,11 @@ export function repostPrecheck(move: RepostMoveFacts): { baseKey: string; source
   if (move.sources.length === 0) throw new RepostRejectedError('NO_SOURCE');
   const parsed = move.sources.map((s) => parseSourceKey(s.sourceKey)).find((p) => p && p.event === 'POST');
   if (!parsed) throw new RepostRejectedError('NOT_POST_SOURCE', { sourceKeys: move.sources.map((s) => s.sourceKey) });
+  // M4: قيد تسوية ذمم العميل مفتاحه AR_ENTRY:<id>:POST ومصدره CUSTOMER_ADJUSTMENT — يكتبه مستنده (المسار) لا الـbuilder، فلا
+  // وصفة تعيده: وصفة AR_ENTRY تبنيه قيد استيراد على OPENING_EQUITY، ثم يعكس إلغاءُ التسوية الأصلَ المعكوس فيبقى REPOST حيّاً
+  if (move.sources.some((s) => s.sourceType === 'CUSTOMER_ADJUSTMENT')) {
+    throw new RepostRejectedError('NO_RECIPE', { sourceType: 'CUSTOMER_ADJUSTMENT' });
+  }
   if (parsed.sourceType === 'CUSTODY_SHORTAGE' || !REPOSTABLE.includes(parsed.sourceType)) {
     throw new RepostRejectedError('NO_RECIPE', { sourceType: parsed.sourceType });
   }
@@ -120,7 +129,7 @@ async function rebuild(tx: PostingTx, sourceType: SourceType, sourceId: string, 
       const p = await snapshotPayload<ReceiptPostEventPayload>(tx, baseKey, sourceType, sourceId);
       const result = buildReceiptMove({
         receiptId: sourceId, number: p.number ?? null, date,
-        payload: { salesRepId: p.salesRepId ?? null, paymentMethod: p.paymentMethod, amount: p.amount, customerId: p.customerId, paylinkId: p.paylinkId ?? null },
+        payload: { salesRepId: p.salesRepId ?? null, paymentMethod: p.paymentMethod, amount: p.amount, customerId: p.customerId, paylinkId: p.paylinkId ?? null, ...linkedReceiptFields(p) },
         customerName: p.customerName ?? null, salesRepName: p.salesRepName ?? null,
       }, context.ctx);
       return { result, context };
@@ -134,14 +143,20 @@ async function rebuild(tx: PostingTx, sourceType: SourceType, sourceId: string, 
       if (!outcome) throw new RepostRejectedError('SOURCE_NOT_FOUND', { sourceKey: baseKey, reason: 'CUSTODY_OUTCOME' });
       // المعلّق (911001) من القيد الحيّ نفسه لا من إعادة اشتقاق العتبة: فاتورة نقدية أُدخلت لاحقاً بتاريخ سابق تغيّر
       // العتبة المعاد حسابها، فتتغير مبالغ النقد و911001 بإعادة ترحيل غرضها تبديل الحسابات وحده (أو NO_MOVE)
+      const liveLines = await tx.loadMoveLines(liveMoveId);
+      // المربوطة: المعلّق من سطور 911001 لا من Σ المدين (P7 إلى مستخدم يُدين 111004 بالمبلغ كاملاً)، والنقل كما رُحّل
+      const linked = context.ctx.settings.linkedPosting === true ? linkedSettlementRebuildFromLines(outcome, liveLines, context.ctx) : null;
       const build = buildSettlementMove({
         settlementId: sourceId, payload: p, salesRepName: p.salesRepName ?? null, date,
-        ...settlementRebuildInputs(outcome, debitTotalMilli(await tx.loadMoveLines(liveMoveId))),
+        ...settlementRebuildInputs(outcome, linked ? linked.postedDebitMilli : debitTotalMilli(liveLines)),
+        ...(linked ? { methodReclassAllowanceMilli: linked.methodReclassAllowanceMilli } : {}),
       }, context.ctx);
       return { result: build.result, context };
     }
     case 'AR_ENTRY': {
       const p = await snapshotPayload<ArEntryEventPayload>(tx, baseKey, sourceType, sourceId);
+      // مرآة حارس المُرحِّل: حمولة تسوية M4 لا تُبنى قيد استيراد (repostPrecheck يرفضها بمصدرها، وهذا دفاعٌ بالحمولة)
+      if (p.origin === 'CUSTOMER_ADJUSTMENT') throw new RepostRejectedError('NO_RECIPE', { sourceType: 'CUSTOMER_ADJUSTMENT' });
       const result = buildImportEntryMove({
         entryId: p.entryId ?? sourceId, customerId: p.customerId, customerName: p.customerName ?? null,
         debit: p.debit, credit: p.credit, description: p.description ?? null, entryDate: p.entryDate, createdAt: p.createdAt ?? null,
@@ -215,10 +230,32 @@ export async function repostFromSource(tx: PostingTx, opts: RepostOptions): Prom
     auditExtra: { baseKey, n, originalMoveId: move.id, reversalMoveId: reversal.reversal.id },
     now: opts.now,
   });
+  await reconcileRepost(tx, built.context, { baseKey, sourceType, sourceId, originalMoveId: move.id, reversalMoveId: reversal.reversal.id, repostMoveId: posted.id });
   return {
     baseKey, n, sourceType, sourceId,
     original: { id: move.id, number: move.number },
     reversal: { id: reversal.reversal.id, number: reversal.reversal.number, date: reversal.reversal.date, sourceKey: repostRevKey(baseKey, n) },
     repost: { id: posted.id, number: posted.number, date: posted.date, sourceKey: repostKey(baseKey, n) },
   };
+}
+
+/**
+ * L8 (D7، §6.1 «الفكّ عند أي REVERSE»): إعادة الترحيل عكسٌ ثم ترحيل، فتمرّ بالمطابقة كما يمرّ بها المُرحِّل داخل المعاملة
+ * نفسها — وإلا بقيت مطابقات الأصل (RI وRET وCA) على قيدٍ معكوس، وبقي عكسه والقيد الجديد مفتوحين بكامل المبلغ: أعمارٌ مدينة
+ * مضاعفة ورصيد دائن وهمي وفجوة C16 لا تُصلح نفسها (إلغاء المصدر لاحقاً لا يعكس إلا القيد الجديد). العكس يفكّ ما يمسّ سطور
+ * الأصل ويطابقه بعكسه (REV)، ثم يلتقط القيد الجديد ما تحرّر (pendingAllocationsForInvoice/pendingReturnsForInvoice للفاتورة،
+ * وتخصيصات الحمولة للسند). المربوطة وحدها، وحين يوفّر المخزن reconcileStore ولمصادر الذمة وحدها — غيرها كما كان بايتاً.
+ */
+async function reconcileRepost(
+  tx: PostingTx, context: LedgerContext,
+  r: { baseKey: string; sourceType: SourceType; sourceId: string; originalMoveId: string; reversalMoveId: string; repostMoveId: string },
+): Promise<void> {
+  if (context.ctx.settings.linkedPosting !== true || !tx.reconcileStore) return;
+  if (!(RECONCILE_AFTER_POST_SOURCE_TYPES as readonly string[]).includes(r.sourceType)) return;
+  const store = tx.reconcileStore();
+  await reconcileAfterPost(store, {
+    sourceType: r.sourceType, sourceId: r.sourceId, event: 'REVERSE', moveId: r.reversalMoveId, reversedMoveId: r.originalMoveId, payload: null,
+  });
+  const payload = await snapshotPayload<SourceEventPayload>(tx, r.baseKey, r.sourceType, r.sourceId);
+  await reconcileAfterPost(store, { sourceType: r.sourceType, sourceId: r.sourceId, event: 'POST', moveId: r.repostMoveId, payload });
 }

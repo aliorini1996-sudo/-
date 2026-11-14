@@ -328,6 +328,8 @@ const db: Row = {
     },
   },
   customer: { async findFirst() { return { id: 'C1', tenantId: T }; } },
+  // «ربط الدفاتر» C6: السند اليدوي بطريقة ONLINE يقرأ وضع الدفاتر — شركة الاختبار بلا دفاتر (كما اليوم)
+  glSettings: { async findUnique() { return null; } },
   invoice: { async findMany() { return []; } },
   receipt: {
     async findFirst() { return null; },
@@ -612,7 +614,14 @@ test('حارس نصّي: الدفاتر وروابط الدفع والتسويا
     return out;
   };
   const files = [...walk(path.join(SRC, 'services', 'gl')), path.join(SRC, 'services', 'paylink.ts'), path.join(SRC, 'services', 'settlement.ts'), path.join(SRC, 'services', 'accounting.ts')];
-  for (const f of files) assert.doesNotMatch(fs.readFileSync(f, 'utf8'), /paymentMethodKey|paymentMethodsConfig|paymentMethodsCore/, path.relative(SRC, f));
+  // «ربط الدفاتر» C10 (D3): الدفاتر **المربوطة** تقرأ عمود السند paymentMethodKey لتحلّ صفّ خريطة الطرق (GlPaymentMethodMap) قبل
+  // الأساس — في الحمولة واشتقاقها وبانيها وحدها. ولا تعرف إعداد الطرق نفسه (paymentMethodsConfig/paymentMethodsCore) أبداً،
+  // وروابط الدفع والتسويات والقيود التشغيلية لا تعرف المفتاح إطلاقاً
+  const KEY_AWARE = new Set(['builders/receipt.ts', 'sync/desired.ts', 'sync/facts.prisma.ts', 'sync/poster.ts'].map((f) => path.join(SRC, 'services', 'gl', f)));
+  for (const f of files) {
+    const c = fs.readFileSync(f, 'utf8');
+    assert.doesNotMatch(c, KEY_AWARE.has(f) ? /paymentMethodsConfig|paymentMethodsCore/ : /paymentMethodKey|paymentMethodsConfig|paymentMethodsCore/, path.relative(SRC, f));
+  }
   // النواة صرفة (تُنسخ للواجهة): zod وحده
   const core = read('services', 'paymentMethodsCore.ts');
   assert.deepEqual([...core.matchAll(/^import .* from '([^']+)';$/gm)].map((m) => m[1]), ['zod']);

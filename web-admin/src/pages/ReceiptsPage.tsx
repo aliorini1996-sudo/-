@@ -17,6 +17,12 @@ import { shareOrDownloadExcel, num } from '../utils/excel';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 import { withLiveCompany } from '../rep/companyRefresh';
 import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
+// «ربط الدفاتر» C11: من أين رُدّ مال سند العهدة المُسلَّم؟ — للدفاتر المربوطة وحدها، وغيرها يُلغى بلا جسم كما كان
+import { ledgerOpsKeys, type ReceiptCancelOptions } from '../api/ledgerOps';
+import { cancelRefundSourceLabels, receiptCancelCodeLabels } from '../lib/ledger/labels';
+import {
+  cancelRequestBody, initialRefundChoice, receiptMayNeedRefundSource, refundChoiceComplete, refundPickerVisible, type RefundChoice,
+} from '../lib/ledger/sync';
 
 /** جلب إعدادات الشركة — نفسه للاستعلام ولـensureQueryData عند فتح مستند قبل اكتمال تحميلها (D-G6) */
 const fetchCompany = async () => { const res = await companyApi.get(); return res.data.data as Company; };
@@ -33,6 +39,7 @@ export default function ReceiptsPage() {
   const [docResult, setDocResult] = useState<ReceiptDoc | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [cancelId, setCancelId] = useState<string | null>(null);
+  const [refundChoice, setRefundChoice] = useState<RefundChoice | null>(null);
 
   const { data: company } = useQuery({ queryKey: ['company'], queryFn: fetchCompany });
   // «نصوص المطبوعات» تصل المستند المفتوح: تجدّد إعدادات الشركة يُستبدل في نسخته (لا نصوص لحظة الفتح)
@@ -105,10 +112,26 @@ export default function ReceiptsPage() {
     setOpeningId(null);
   };
 
+  /* «ربط الدفاتر» C11: خيارات ردّ المال قبل التأكيد (قراءة بلا كتابة). تعذّرها أو الشركة غير المربوطة ⇒ لا منتقي ولا جسم،
+   * فالإلغاء حرفياً كما كان (cancelRequestBody ⇒ undefined ⇒ PATCH بلا جسم) */
+  const optionsEnabled = !!cancelId && receiptMayNeedRefundSource(data?.data.find(r => r.id === cancelId));
+  const cancelOptionsQ = useQuery({
+    queryKey: ledgerOpsKeys.receiptCancelOptions(cancelId ?? ''),
+    queryFn: async () => (await receiptApi.cancelOptions(cancelId!)).data.data as ReceiptCancelOptions,
+    enabled: optionsEnabled,
+    retry: false,
+    staleTime: 0,
+  });
+  const cancelOptions = optionsEnabled && !cancelOptionsQ.isError ? cancelOptionsQ.data ?? null : null;
+  useEffect(() => { setRefundChoice(initialRefundChoice(cancelOptions)); }, [cancelOptions]);
+
   const cancelMutation = useMutation({
-    mutationFn: (id: string) => receiptApi.cancel(id),
+    mutationFn: ({ id, body }: { id: string; body?: { refundFrom: string; refundFromUserId?: string } }) => receiptApi.cancel(id, body),
     onSuccess: () => { invalidateAfterReceipt(qc); toast.success(tr('تم إلغاء السند')); },
-    onError: () => toast.error(tr('خطأ في الإلغاء')),
+    onError: (e: unknown) => {
+      const code = (e as { response?: { data?: { code?: unknown } } })?.response?.data?.code;
+      toast.error((typeof code === 'string' && receiptCancelCodeLabels(tr)[code]) || tr('خطأ في الإلغاء'));
+    },
   });
 
   const purge = useOwnerBulkPurge('Receipt');
@@ -254,11 +277,54 @@ export default function ReceiptsPage() {
           message={tr('هل تريد إلغاء هذا السند سيعكس أثره على رصيد العميل')}
           confirmLabel={tr('نعم إلغاء')}
           danger
-          loading={cancelMutation.isPending}
-          onConfirm={() => { cancelMutation.mutate(cancelId, { onSettled: () => setCancelId(null) }); }}
+          loading={cancelMutation.isPending || cancelOptionsQ.isFetching}
+          extra={refundPickerVisible(cancelOptions) ? (
+            <RefundSourcePicker options={cancelOptions} choice={refundChoice} onChange={setRefundChoice} />
+          ) : undefined}
+          onConfirm={() => {
+            if (!refundChoiceComplete(cancelOptions, refundChoice)) { toast.error(tr('اختر مصدر ردّ المال')); return; }
+            cancelMutation.mutate({ id: cancelId, body: cancelRequestBody(cancelOptions, refundChoice) }, { onSettled: () => setCancelId(null) });
+          }}
           onClose={() => setCancelId(null)}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * «من أين رُدّ المال؟» (C11): سند عهدةٍ سلّم المندوبُ ماله ثم أُلغي — عكسه من عهدة المندوب يجعلها سالبة، فيُسجَّل المصدر الفعلي
+ * للردّ (عهدة المندوب، أو عهدة آخر مستخدم استلم، أو الصندوق، أو البنك). المقترح من الخادم محدّد مسبقاً.
+ */
+function RefundSourcePicker({ options, choice, onChange }: {
+  options: ReceiptCancelOptions; choice: RefundChoice | null; onChange: (c: RefundChoice) => void;
+}) {
+  const tr = useTr();
+  const labels = cancelRefundSourceLabels(tr);
+  return (
+    <div className="mt-3 text-start space-y-1.5" role="radiogroup" aria-label={tr('من أين رُدّ المال؟')}>
+      <p className="text-sm font-semibold text-[#1F1A13]">{tr('من أين رُدّ المال؟')}</p>
+      <p className="text-[11px] text-[#9A8F7E] leading-relaxed">{tr('سلّم المندوب مال هذا السند بعد تحصيله، فحدّد من أين رُدّ للعميل كي لا تصير عهدته سالبة في الدفاتر')}</p>
+      {options.options.map(o => {
+        const checked = choice?.refundFrom === o.value;
+        return (
+          <label key={o.value} className={`flex items-start gap-2 rounded-lg border px-2.5 py-1.5 text-sm cursor-pointer ${checked ? 'border-[#E15A30] bg-[#FBEBE2]' : 'border-[#E8E0D2]'}`}>
+            <input type="radio" name="refund-from" className="mt-1" checked={checked}
+              onChange={() => onChange({ refundFrom: o.value, userId: o.value === 'USER_CUSTODY' ? o.userId ?? options.suggestedUserId ?? null : null })} />
+            <span className="min-w-0">
+              <span className="block">
+                {labels[o.value] ?? o.value}
+                {o.value === options.suggested && <span className="ms-1 text-[11px] text-[#E15A30]">({tr('المقترح')})</span>}
+              </span>
+              {o.value === 'USER_CUSTODY' && (
+                <span className="block text-[11px] text-[#6E6557]">
+                  {o.userName ?? ''}{o.userOutstanding != null && <> · {tr('عهدته')}: <bdi>{formatCurrency(o.userOutstanding)}</bdi></>}
+                </span>
+              )}
+            </span>
+          </label>
+        );
+      })}
     </div>
   );
 }

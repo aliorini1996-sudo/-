@@ -304,7 +304,12 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
   {
     name: 'receipts', model: 'receipt', mode: 'updated', permission: 'canManageReceipts', accounting: true, tenantPath: 'direct', hardDeletes: false,
     select: { ...pick(...RECEIPT_COLS), invoiceItems: { select: pick('invoiceId', 'amount') } },
-    denied: { tenantId: 'معروف من المفتاح', clientRef: OFFLINE, clientCreatedAt: OFFLINE },
+    denied: {
+      tenantId: 'معروف من المفتاح', clientRef: OFFLINE, clientCreatedAt: OFFLINE,
+      // «ربط الدفاتر» (C11): مصدر ردّ مال السند الملغى يقرؤه المُرحِّل وطيّ عهدة المستخدم وحدهما — لا يخصّ المُكامِل
+      cancelRefundFrom: 'داخلي للدفاتر المربوطة: مصدر ردّ المال عند إلغاء السند',
+      cancelRefundUserId: 'داخلي للدفاتر المربوطة',
+    },
   },
   {
     // بطابع التعديل: الرصيد المتحرّك يُعاد حسابه (تراجع الاستيراد) وentryDate يُزاح (تغيير منطقة الدفاتر) بعد الإنشاء

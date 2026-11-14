@@ -62,6 +62,18 @@ export const LEDGER_ROUTES: readonly LedgerRouteDef[] = [
   { path: 'reports/income-statement', component: 'reports/IncomeStatementPage', view: 'canViewLedger', write: null, milestone: 'M4' },
   { path: 'reports/trial-balance', component: 'reports/TrialBalancePage', view: 'canViewLedger', write: null, milestone: 'M4' },
   { path: 'reports/general-ledger', component: 'reports/GeneralLedgerPage', view: 'canViewLedger', write: null, milestone: 'M4' },
+  // «ربط الدفاتر» L4/L5/L8 (عقد §6.4): تقارير الشركاء من الدفاتر (M6) — قراءة بـcanViewLedger، والتصدير قراءةٌ لا كتابة عمود
+  { path: 'reports/partner-ledger', component: 'reports/PartnerLedgerPage', view: 'canViewLedger', write: null, milestone: 'M6' },
+  { path: 'reports/aged-receivable', component: 'reports/AgedReceivablePage', view: 'canViewLedger', write: null, milestone: 'M6' },
+  { path: 'reports/aged-payable', component: 'reports/AgedPayablePage', view: 'canViewLedger', write: null, milestone: 'M6' },
+  { path: 'reports/late-arrivals', component: 'reports/LateArrivalsPage', view: 'canViewLedger', write: null, milestone: 'M6' },
+  { path: 'reports/product-ledger', component: 'reports/ProductLedgerPage', view: 'canViewLedger', write: null, milestone: 'M6' },
+  // …وشاشات العمليات المربوطة: تسويات ذمم العملاء (M4)، والتسوية الموجّهة للحسابات الوسيطة (M7)، وعهدة مستخدمي الشركة
+  // وخريطة طرق الدفع (M3) — بصلاحيات نقاطها في routes/ledger/{customerAdjustments,clearing,customers,paymentMethodMap}.ts
+  { path: 'customers/adjustments', component: 'customers/CustomerAdjustmentsPage', view: 'canViewLedger', write: 'canPostJournals', milestone: 'M4' },
+  { path: 'customers/clearing', component: 'customers/ClearingPage', view: 'canViewLedger', write: 'canPostJournals', milestone: 'M7' },
+  { path: 'customers/user-custody', component: 'customers/UserCustodyPage', view: 'canViewLedger', write: null, milestone: 'M3' },
+  { path: 'config/payment-methods', component: 'config/PaymentMethodMapPage', view: 'canConfigureLedger', write: 'canConfigureLedger', milestone: 'M3' },
 ];
 
 /** الحوارات بلا مسار (صف «تواريخ الإقفال…» في جدول §8.2). */
@@ -108,6 +120,10 @@ export const ledgerMenus = (tr: (ar: string) => string): LedgerMenu[] => [
           { kind: 'route', label: tr('سندات القبض'), path: 'customers/receipts' },
           { kind: 'route', label: tr('عهدة المناديب'), path: 'customers/custody' },
           { kind: 'route', label: tr('أمانات الدفع الإلكتروني'), path: 'customers/paylink' },
+          // «ربط الدفاتر» L4/L5 (عقد §6.4)
+          { kind: 'route', label: tr('تسويات ذمم العملاء'), path: 'customers/adjustments' },
+          { kind: 'route', label: tr('عهدة مستخدمي الشركة'), path: 'customers/user-custody' },
+          { kind: 'route', label: tr('تسوية الحسابات الوسيطة'), path: 'customers/clearing' },
         ],
       },
       { items: [{ kind: 'link', label: tr('العملاء'), href: '/app/customers', view: 'canViewLedger' }] },
@@ -166,6 +182,17 @@ export const ledgerMenus = (tr: (ar: string) => string): LedgerMenu[] => [
           { kind: 'route', label: tr('دفتر الأستاذ العام'), path: 'reports/general-ledger' },
         ],
       },
+      // «ربط الدفاتر» L8 (عقد §6.4): تقارير الشركاء من الدفاتر
+      {
+        label: tr('الشركاء'),
+        items: [
+          { kind: 'route', label: tr('دفتر أستاذ الشركاء'), path: 'reports/partner-ledger' },
+          { kind: 'route', label: tr('أعمار الذمم المدينة'), path: 'reports/aged-receivable' },
+          { kind: 'route', label: tr('أعمار الذمم الدائنة'), path: 'reports/aged-payable' },
+          { kind: 'route', label: tr('تقرير الأصناف من الدفاتر'), path: 'reports/product-ledger' },
+          { kind: 'route', label: tr('مستندات وصلت متأخرة (تقرير)'), path: 'reports/late-arrivals' },
+        ],
+      },
     ],
   },
   {
@@ -182,6 +209,8 @@ export const ledgerMenus = (tr: (ar: string) => string): LedgerMenu[] => [
           { kind: 'route', label: tr('ربط الحسابات'), path: 'config/mappings' },
           { kind: 'route', label: tr('السنوات المالية'), path: 'config/fiscal-years' },
           { kind: 'route', label: tr('علامات الحسابات'), path: 'config/tags' },
+          // «ربط الدفاتر» L5 (D3، عقد §6.4)
+          { kind: 'route', label: tr('طرق الدفع والحسابات'), path: 'config/payment-methods' },
         ],
       },
     ],
@@ -208,7 +237,11 @@ export function isManualLedger(status: { activatedAt?: string | null; setupMetho
 /** شاشات تعرض مستندات التشغيل أو ترحيلها الآلي — لا تنطبق على الدفاتر اليدوية المستقلة */
 export const MANUAL_LEDGER_HIDDEN_PATHS: readonly string[] = [
   'customers/invoices', 'customers/receipts', 'customers/custody', 'customers/paylink', 'review/events', 'review/late',
-];
+].concat([
+  // «ربط الدفاتر» L4/L5/L8: شاشات التشغيل المربوط (تسويات الذمم، وعهدة المستخدمين، والتسوية الموجّهة، وخريطة الطرق)، وتقريران
+  // لا يملؤهما إلا الترحيل الآلي (الوصول المتأخر، والإيراد لكل صنف). دفتر الشريك والأعمار يبقيان: يقرآن سطور القيود اليدوية أيضاً
+  'customers/adjustments', 'customers/user-custody', 'customers/clearing', 'config/payment-methods', 'reports/late-arrivals', 'reports/product-ledger',
+]);
 
 /** قوائم الدفاتر اليدوية المستقلة: بلا قائمة «العملاء» (مستندات التشغيل ورابط شاشة العملاء) ولا أحداث الترحيل الآلي */
 export function manualLedgerMenus(menus: readonly LedgerMenu[]): LedgerMenu[] {

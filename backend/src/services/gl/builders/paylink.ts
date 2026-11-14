@@ -7,12 +7,15 @@
 //                             مدين 116001 = feeVat (S15_PURCH، TAX، وعاء feeNet، SA_7) / دائن 112005 = feeGross
 // P10 توريد الأمانات (دفتر PLNK، moveType=PAYLINK_PAYOUT):
 //     مدين PAYLINK_PAYOUT_ACCOUNT (112001) = المبلغ / دائن 112005 = المبلغ
+//     «ربط الدفاتر» (C8، OD14) للمربوطة: مدين صف PAYOUT في خريطة الطرق، وإلا البنك الرئيسي 111101
+// «ربط الدفاتر» C9 — استرداد الدفع الإلكتروني بعد إلغاء يدوي (دفتر PLNK، moveType=CUSTOMER_REFUND):
+//     مدين 214002 (العميل) / دائن 112005 = |المسترد|؛ وإن صفّى عكسُ السند الأمانات بهذا الاسترداد نفسه ⇒ NO_MOVE(NETTED)
 import { compareLocalDate, isLocalDate, localDate } from '../dates';
-import { toMilli } from '../money';
+import { absMilli, toMilli } from '../money';
 import {
   JOURNAL_CODE_BY_SYSTEM_KEY, noMove,
   type BuildContext, type BuildResult, type GlSettingsSnapshot, type LineDraft,
-  type Milli, type MoveDraft, type TaxRef,
+  type LocalDate, type Milli, type MoveDraft, type TaxRef,
 } from '../types';
 
 /** مفتاح ضريبة المشتريات التي تُسترد بها ضريبة العمولة (§5.5 P9) */
@@ -201,13 +204,106 @@ export function buildPayoutMove(payload: PayoutPayload, ctx: BuildContext): Buil
     currencyDecimals: dec,
     lines: [
       {
-        accountKey: 'PAYLINK_PAYOUT_ACCOUNT',
+        ...payoutDebitTarget(ctx),
         label: 'توريد أمانات الدفع الإلكتروني للحساب البنكي',
         debitMilli: amount, creditMilli: 0n,
       },
       {
         accountKey: 'PAYLINK_CLEARING',
         label: 'تصفية أمانات الدفع الإلكتروني بالتوريد',
+        debitMilli: 0n, creditMilli: amount,
+      },
+    ],
+  };
+  return draft;
+}
+
+// ═══ «ربط الدفاتر» L5 — توريد الأمانات إلى البنك (C8) واسترداد ما بعد الإلغاء اليدوي (C9) ═══
+//
+// الـbuilder لا يستورد إلا types/money/dates (حارس gl-builder-paylink)، فيُكرَّر هنا حرفياً ما يلزم من خريطة الطرق ورمز 214002؛
+// واختبار l458-a04 يثبت أن payoutDebitTarget ≡ linkedMethodAccount({method:'PAYOUT'}) وأن الرمز = CUSTOMER_CREDITS_CODE.
+
+/** مستردات العملاء وأرصدتهم الدائنة (= CUSTOMER_CREDITS_CODE في coa/linkedAccounts) */
+export const PAYLINK_CUSTOMER_CREDITS_CODE = '214002';
+
+/** مفتاح حدث الاسترداد (العقد §5.2، D13): PAYLINK_REFUND:<entryId> — تعيد تصديره sync/keys.ts */
+export const paylinkRefundKey = (entryId: string): string => `PAYLINK_REFUND:${entryId}`;
+
+/** حمولة PAYLINK_REFUND — من SettlementEntry kind=REFUND ورابطه (المبالغ نصوص §5.2) */
+export interface PaylinkRefundPayload {
+  entryId: string;
+  linkId: string | null;
+  /** CustomerPaymentLink.receiptId — السند الذي أُلغي */
+  receiptId: string | null;
+  /** SettlementEntry.amount الموقَّع (سالب عادةً) — تُؤخذ قيمته المطلقة */
+  amount: string;
+  createdAt: string;
+  customerId?: string | null;
+  customerName?: string | null;
+  note?: string | null;
+}
+
+/**
+ * C8 — مدين توريد الأمانات: غير المربوطة PAYLINK_PAYOUT_ACCOUNT (112001) كاليوم حرفياً. المربوطة: صف PAYOUT في خريطة الطرق إن
+ * حُلّ حسابه وكان غير رقابي، وإلا MAIN_BANK — فلا يتراكم التوريد على «مقبوضات قيد الإيداع» الذي لا يُصفّى قبل M7.
+ */
+export function payoutDebitTarget(ctx: BuildContext): Pick<LineDraft, 'accountKey' | 'accountId'> {
+  if (ctx.settings.linkedPosting !== true) return { accountKey: 'PAYLINK_PAYOUT_ACCOUNT' };
+  const ref = ctx.paymentMethodAccount?.('PAYOUT') ?? null;
+  const acc = ref ? ctx.accounts.byId(ref.accountId) : null;
+  if (acc && acc.controlKind === null) return { accountId: acc.id };
+  return { accountKey: 'MAIN_BANK' };
+}
+
+/**
+ * C9 — قيد استرداد الدفع الإلكتروني (SettlementEntry REFUND) للمربوطة.
+ * receiptReverseRefundEntryId = refundEntryId في حمولة RECEIPT:<receiptId>:REVERSE المرحَّل:
+ *  - يساوي entryId ⇒ NO_MOVE(NETTED): العكس نفسه (المسار العادي: الاسترداد يلغي السند في معاملته) دان 112005 بالمبلغ.
+ *  - غير ذلك (إلغاء يدوي سبق الاسترداد فدان 214002) ⇒ مدين 214002 / دائن 112005 بالقيمة المطلقة للمسترد.
+ */
+export function buildPaylinkRefundMove(
+  input: { payload: PaylinkRefundPayload; receiptReverseRefundEntryId: string | null; date: LocalDate },
+  ctx: BuildContext,
+): BuildResult {
+  const { payload } = input;
+  const { settings } = ctx;
+  const dec = settings.currencyDecimals;
+  const amount = absMilli(toMilli(payload.amount, dec));
+  if (amount === 0n) return noMove('ZERO_VALUE', 'استرداد صفري');
+  if (input.receiptReverseRefundEntryId !== null && input.receiptReverseRefundEntryId === payload.entryId) {
+    return noMove('NETTED', 'عكس السند صفّى أمانات الدفع الإلكتروني بهذا الاسترداد');
+  }
+  const customerName = payload.customerName && payload.customerName.trim() ? payload.customerName.trim() : 'عميل';
+  const partner = payload.customerId ? { customerId: payload.customerId, partnerName: customerName } : {};
+  const noteSuffix = payload.note ? ` — ${payload.note}` : '';
+  const draft: MoveDraft = {
+    kind: 'MOVE',
+    journalCode: plnkJournalCode(ctx),
+    journalSystemKey: 'PAYLINK',
+    moveType: 'CUSTOMER_REFUND',
+    origin: 'AUTO',
+    date: input.date,
+    ref: payload.linkId ?? null,
+    narration: `استرداد دفع إلكتروني للعميل ${customerName} بعد إلغاء سنده${noteSuffix}`,
+    needsAttention: false,
+    attentionReason: null,
+    customerId: payload.customerId ?? null,
+    sourceType: 'PAYLINK_REFUND',
+    sourceId: payload.entryId,
+    sourceKey: paylinkRefundKey(payload.entryId),
+    sourceEvent: 'POST',
+    currencyCode: settings.currency,
+    currencyDecimals: dec,
+    lines: [
+      {
+        accountCode: PAYLINK_CUSTOMER_CREDITS_CODE,
+        label: `تسوية المستحق للعميل ${customerName} باسترداد دفعه الإلكتروني`,
+        debitMilli: amount, creditMilli: 0n,
+        ...partner,
+      },
+      {
+        accountKey: 'PAYLINK_CLEARING',
+        label: 'خروج مبلغ الاسترداد من أمانات الدفع الإلكتروني',
         debitMilli: 0n, creditMilli: amount,
       },
     ],

@@ -7,11 +7,12 @@
  */
 import type { GlSettings, Prisma } from '@prisma/client';
 import { fromDbDate } from './dates';
+import { isLinked } from './mode';
 import {
   DEFAULT_GL_SETTINGS, SOURCE_OWNED_CONTROL_KINDS, createBuildContext,
   type AccountRef, type AccountType, type BuildContext, type CategoryAccountsRef, type ControlKind,
   type GlSettingsSnapshot, type JournalRef, type JournalSystemKey, type JournalType, type LineDraft,
-  type LocalDate, type MappingKey, type MoveDraft, type MoveOrigin, type MoveType, type ReceiptRouting,
+  type LocalDate, type MappingKey, type MethodAccountRef, type MoveDraft, type MoveOrigin, type MoveType, type ReceiptRouting,
   type SequenceReset, type SourceType, type TaxRef, type TaxRole, type TaxUse, type VatCategory,
   isMappingKey,
 } from './types';
@@ -49,7 +50,7 @@ export type GlSettingsRow = Pick<
   | 'postReturnsToContra' | 'receiptRouting' | 'cashInvoiceRouting' | 'paylinkFeeTaxInvoiceFrom'
   | 'postPurchaseDiscountSeparately' | 'billPricesIncludeTax' | 'earlyDiscountAdjustsVat'
   | 'taxRoundingMethod' | 'defaultPurchaseTaxId'
->;
+> & Partial<Pick<GlSettings, 'setupMethod' | 'activatedAt'>>; // «ربط الدفاتر» D1: اختياريان — الغائب ⇒ غير مربوطة (linkedPosting غائب)
 
 function receiptRoutingOf(v: unknown): ReceiptRouting | null {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
@@ -93,6 +94,8 @@ export function settingsSnapshotFromRow(row: GlSettingsRow): GlSettingsSnapshot 
     earlyDiscountAdjustsVat: row.earlyDiscountAdjustsVat,
     taxRoundingMethod: row.taxRoundingMethod === 'PER_LINE' ? 'PER_LINE' : 'PER_TAX',
     defaultPurchaseTaxId: row.defaultPurchaseTaxId ?? null,
+    // «ربط الدفاتر» D1: المفتاح يُكتب للمربوطة المفعّلة وحدها — غيرها بلا المفتاح أصلاً (لا undefined) فتبقى اللقطة مساويةً لليوم
+    ...(isLinked(row) ? { linkedPosting: true as const } : {}),
   };
 }
 
@@ -140,6 +143,15 @@ export interface LedgerRows {
   journals: readonly GlJournalRow[];
   categoryAccounts?: readonly ({ categoryId: string } & CategoryAccountsRef)[];
   repAnalytics?: readonly { salesRepId: string; analyticAccountId: string }[];
+  /** «ربط الدفاتر» L5: صفوف GlPaymentMethodMap — الغائب ⇒ السياق بلا paymentMethodAccount (غير المربوطة) */
+  paymentMethodMaps?: readonly PaymentMethodMapRow[];
+}
+
+/** صف GlPaymentMethodMap كما يقرؤه السياق */
+export interface PaymentMethodMapRow {
+  methodKey: string;
+  accountId: string;
+  journalId: string | null;
 }
 
 export interface LedgerContext {
@@ -173,6 +185,7 @@ export function buildContextFromRows(rows: LedgerRows): LedgerContext {
   const ctx = createBuildContext({
     settings: rows.settings ? settingsSnapshotFromRow(rows.settings) : {},
     accounts, mappings, taxes, journals, categoryAccounts, repAnalytics,
+    ...(rows.paymentMethodMaps ? { paymentMethodMaps: paymentMethodMapsOf(rows.paymentMethodMaps) } : {}),
   });
   return {
     ctx,
@@ -184,6 +197,13 @@ export function buildContextFromRows(rows: LedgerRows): LedgerContext {
     taxById: new Map(taxes.map((t) => [t.id, t])),
     journalById: new Map(journals.map((j) => [j.id, j])),
   };
+}
+
+/** صفوف الخريطة ⇐ methodKey → {accountId, journalId} (صرفة). المفتاح المكرّر محال بقيد @@unique([tenantId, methodKey]). */
+export function paymentMethodMapsOf(rows: readonly PaymentMethodMapRow[]): Record<string, MethodAccountRef> {
+  const out: Record<string, MethodAccountRef> = {};
+  for (const r of rows) out[r.methodKey] = { accountId: r.accountId, journalId: r.journalId ?? null };
+  return out;
 }
 
 // ═══ القراءة من القاعدة ═══
@@ -215,7 +235,15 @@ export async function loadBuildContext(db: GlDb, tenantId: string): Promise<Ledg
     }),
     db.glRepAnalyticDefault.findMany({ where, select: { salesRepId: true, analyticAccountId: true } }),
   ]);
-  return buildContextFromRows({ settings, accounts, mappings, taxes, journals, categoryAccounts, repAnalytics });
+  // «ربط الدفاتر» L5 (D3): خريطة الطرق للمربوطة وحدها — بعد الإعدادات لا معها، فلا استعلام زائد لليدوية وغير المربوطة
+  // (القاعدة ٠٫١ نواة)، ويبقى سياقها بلا paymentMethodAccount كما كان
+  const paymentMethodMaps = isLinked(settings)
+    ? await db.glPaymentMethodMap.findMany({ where, select: { methodKey: true, accountId: true, journalId: true } })
+    : undefined;
+  return buildContextFromRows({
+    settings, accounts, mappings, taxes, journals, categoryAccounts, repAnalytics,
+    ...(paymentMethodMaps ? { paymentMethodMaps } : {}),
+  });
 }
 
 // ═══ القيد المخزَّن ⇐ مسودة المحرك ═══
@@ -235,7 +263,8 @@ export const MOVE_RECORD_SELECT = {
   needsAttention: true, attentionReason: true, createdBy: true, createdByImpersonated: true, postedAt: true,
   postedBy: true, postedByImpersonated: true, secureSeq: true, secureHash: true,
   journal: { select: { id: true, code: true, systemKey: true, type: true, sequenceReset: true } },
-  lines: { select: MOVE_LINE_ENGINE_SELECT, orderBy: { seq: 'asc' as const } },
+  // adminUserId («ربط الدفاتر» L5) هنا لا في MOVE_LINE_ENGINE_SELECT: يُحمل للترحيل والعكس، ولا يتغيّر ردّ GET /moves/:id
+  lines: { select: { ...MOVE_LINE_ENGINE_SELECT, adminUserId: true }, orderBy: { seq: 'asc' as const } },
   sources: { select: { sourceKey: true, sourceType: true, sourceId: true, event: true } },
   reversal: { select: { id: true, number: true } },
 } as const;
@@ -261,12 +290,12 @@ export type MoveRecordForDraft = Pick<
   | 'currencyDecimals'
 > & {
   journal: { code: string; systemKey: string | null };
-  lines: readonly Pick<
+  lines: readonly (Pick<
     MoveRecord['lines'][number],
     | 'accountId' | 'label' | 'debitMilli' | 'creditMilli' | 'customerId' | 'vendorId' | 'salesRepId' | 'partnerName'
     | 'analyticAccountId' | 'productId' | 'quantity' | 'taxId' | 'taxRole' | 'taxBaseMilli' | 'vatBox' | 'vatAdjustment'
     | 'dueDate'
-  >[];
+  > & { adminUserId?: string | null })[]; // adminUserId اختياري: سجلات MOVE_DETAIL_SELECT والاختبارات بلا العمود
 };
 
 /** قيد مخزَّن ⇐ MoveDraft بحساب كل سطر بمعرّفه (للترحيل والعكس). sourceKey لا يُنسخ (GlMoveSource صفوف مستقلة). */
@@ -289,6 +318,8 @@ export function moveDraftFromRecord(m: MoveRecordForDraft): MoveDraft {
     vatBox: l.vatBox,
     vatAdjustment: l.vatAdjustment,
     dueDate: dateOrNull(l.dueDate),
+    // «ربط الدفاتر» L5: بُعد المستخدم يُحمل حين يوجد وحده — فالمسودة من قيد قديم مساويةٌ لليوم حرفياً
+    ...(l.adminUserId ? { adminUserId: l.adminUserId } : {}),
   }));
   return {
     kind: 'MOVE',
@@ -350,6 +381,8 @@ export function ownerActionFor(sourceType: string | null, sourceId: string | nul
     case 'SETTLEMENT': return `DELETE /api/sales-reps/${salesRepId ?? ':repId'}/settlements/${id}`;
     case 'AR_ENTRY': return 'POST /api/import/batches/:batchId/revert';
     case 'CUSTOMER_ADJUSTMENT': return `POST /api/ledger/customer-adjustments/${id}/cancel`;
+    // «ربط الدفاتر» C14: توريد عهدة مستخدم الشركة يُلغى بحذفه من صفحة المستخدم (المستخدم غير معروف من رأس القيد)
+    case 'USER_SETTLEMENT': return `DELETE /api/company-users/:userId/settlements/${id}`;
     default: return null;
   }
 }

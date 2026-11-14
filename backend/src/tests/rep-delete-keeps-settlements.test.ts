@@ -31,14 +31,22 @@ test('مسار الحذف: يفرّغ الاستلامات بمعرّف المن
 
 test('العهدة: استلامٌ بلا مندوب (محذوف) يبقى في «المستلَم» — لا تصفر عهدةٌ ولا تصير سالبة', async () => {
   // سعد استلم ١٠٬٠٠٠ من أحمد (حُذف أحمد فصار salesRepId=null) وورّد ٤٬٠٠٠
-  const rows = [{ tenantId: 't1', receivedByUserId: 'saad', salesRepId: null, deletedSalesRepId: 'ahmad', amount: 10_000 }];
-  const sum = (xs: { amount: number }[]) => ({ _sum: { amount: xs.reduce((s, x) => s + x.amount, 0) } });
+  const when = new Date('2026-10-01T08:00:00Z');
+  const rows = [{ id: 's1', tenantId: 't1', receivedByUserId: 'saad', salesRepId: null, deletedSalesRepId: 'ahmad', amount: 10_000, method: 'CASH', settledAt: when, createdAt: when }];
+  const delivered = [{ id: 'u1', tenantId: 't1', fromUserId: 'saad', amount: 4_000, method: 'CASH', settledAt: new Date('2026-10-02T08:00:00Z'), createdAt: new Date('2026-10-02T08:00:00Z') }];
+  // الاستعلام لا يرشّح بالمندوب: الشرطان وحدهما (الشركة والمستلِم) — فالصف بلا مندوب يبقى
+  const mine = (a: { where: { tenantId: string; receivedByUserId: { in?: string[] } } }) =>
+    rows.filter((r) => r.tenantId === a.where.tenantId && (a.where.receivedByUserId.in ?? []).includes(r.receivedByUserId));
   const db = {
-    repSettlement: { aggregate: async (a: { where: Record<string, unknown> }) => sum(rows.filter((r) => r.tenantId === a.where.tenantId && r.receivedByUserId === a.where.receivedByUserId)) },
-    userSettlement: { aggregate: async () => ({ _sum: { amount: 4_000 } }) },
+    repSettlement: {
+      groupBy: async (a: Parameters<typeof mine>[0]) => mine(a).map((r) => ({ receivedByUserId: r.receivedByUserId })),
+      findMany: async (a: Parameters<typeof mine>[0]) => mine(a),
+    },
+    userSettlement: { groupBy: async () => [{ fromUserId: 'saad' }], findMany: async () => delivered },
+    receipt: { findMany: async () => [] },
   };
   const c = await userCustody(db as never, 't1', 'saad');
-  assert.deepEqual(c, { received: 10_000, delivered: 4_000, outstanding: 6_000 });
+  assert.deepEqual(c, { received: 10_000, delivered: 4_000, outstanding: 6_000, nonCashReceived: 0, passThrough: 0 });
 });
 
 test('الدفاتر: استلام المندوب المحذوف غائب عنها كما كان — المرشّح والحارس', () => {

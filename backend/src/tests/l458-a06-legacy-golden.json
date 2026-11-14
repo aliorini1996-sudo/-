@@ -1,0 +1,6374 @@
+{
+ "dec0": {
+  "moves": [
+   {
+    "number": "INV/2026-09/0001",
+    "date": "2026-09-20",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-1",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-1",
+      "1150000",
+      "0",
+      "c1",
+      "r1",
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-1 — 15٪",
+      "0",
+      "1000000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-1",
+      "0",
+      "150000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "1000000"
+     ],
+     [
+      "111001",
+      "تحصيل نقدي لفاتورة INV-1",
+      "1150000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل نقدي لفاتورة مبيعات INV-1",
+      "0",
+      "1150000",
+      "c1",
+      "r1",
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-09/0002",
+    "date": "2026-09-20",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-2",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-2",
+      "1150000",
+      "0",
+      "c2",
+      "r1",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-2 — 15٪",
+      "0",
+      "1000000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-2",
+      "0",
+      "150000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "1000000"
+     ],
+     [
+      "111001",
+      "تحصيل نقدي لفاتورة INV-2",
+      "1150000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل نقدي لفاتورة مبيعات INV-2",
+      "0",
+      "1150000",
+      "c2",
+      "r1",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-09/0003",
+    "date": "2026-09-21",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-3",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-3",
+      "11500000",
+      "0",
+      "c1",
+      "r1",
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-3 — 15٪",
+      "0",
+      "10000000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-3",
+      "0",
+      "1500000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "10000000"
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-09/0004",
+    "date": "2026-09-22",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-4",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-4",
+      "2070000",
+      "0",
+      "c3",
+      "r2",
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-4 — 15٪",
+      "0",
+      "1000000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "413001",
+      "خصم مسموح به INV-4 — 15٪",
+      "100000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "411002",
+      "إيراد مبيعات INV-4 — 15٪",
+      "0",
+      "1000000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "413001",
+      "خصم مسموح به INV-4 — 15٪",
+      "100000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-4",
+      "0",
+      "270000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "1800000"
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-09/0005",
+    "date": "2026-09-28",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-5",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-5",
+      "1150000",
+      "0",
+      "c2",
+      "r1",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-5 — 15٪",
+      "0",
+      "1000000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-5",
+      "0",
+      "150000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "1000000"
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-09/0006",
+    "date": "2026-09-29",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-6",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-6",
+      "1149000",
+      "0",
+      "c2",
+      "r2",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-6 — 15٪",
+      "0",
+      "999000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-6",
+      "0",
+      "150000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "999000"
+     ]
+    ]
+   },
+   {
+    "number": "REV/2026-09/0007",
+    "date": "2026-09-30",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-6",
+    "reverses": "INV/2026-09/0006",
+    "lines": [
+     [
+      "113001",
+      "عكس ذمة فاتورة مبيعات INV-6",
+      "0",
+      "1149000",
+      "c2",
+      "r2",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "عكس إيراد مبيعات INV-6 — 15٪",
+      "999000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "عكس ضريبة مبيعات 15٪ — INV-6",
+      "150000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "-999000"
+     ]
+    ]
+   },
+   {
+    "number": "OPEN/2026-10/0008",
+    "date": "2026-10-01",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": true,
+    "sourceType": "AR_ENTRY",
+    "sourceId": "ae0010",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "رصيد مستورد — عميل ثالث",
+      "500000",
+      "0",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "319002",
+      "مقابل أرصدة العملاء المستوردة",
+      "0",
+      "500000",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-10/0009",
+    "date": "2026-10-02",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-9",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-9",
+      "1151000",
+      "0",
+      "c3",
+      "r1",
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-9 — 15٪",
+      "0",
+      "1000000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-9",
+      "0",
+      "150000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "1000000"
+     ],
+     [
+      "421009",
+      "فروقات تقريب فاتورة INV-9",
+      "0",
+      "1000",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "REV/2026-10/0010",
+    "date": "2026-10-03",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-5",
+    "reverses": "INV/2026-09/0005",
+    "lines": [
+     [
+      "113001",
+      "عكس ذمة فاتورة مبيعات INV-5",
+      "0",
+      "1150000",
+      "c2",
+      "r1",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "عكس إيراد مبيعات INV-5 — 15٪",
+      "1000000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "عكس ضريبة مبيعات 15٪ — INV-5",
+      "150000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "-1000000"
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-10/0011",
+    "date": "2026-10-05",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "RET-7",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة مرتجع مبيعات RET-7",
+      "0",
+      "1150000",
+      "c1",
+      "r1",
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "412001",
+      "مردودات مبيعات RET-7 — 15٪",
+      "1000000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — RET-7",
+      "150000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "-1000000"
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0012",
+    "date": "2026-10-06",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-1",
+    "reverses": null,
+    "lines": [
+     [
+      "111003",
+      "تحصيل نقداً في عهدة المندوب",
+      "5000000",
+      "0",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل أول",
+      "0",
+      "5000000",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0013",
+    "date": "2026-10-06",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-2",
+    "reverses": null,
+    "lines": [
+     [
+      "112001",
+      "تحصيل تحويل بنكي من عميل",
+      "2000000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثالث",
+      "0",
+      "2000000",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0014",
+    "date": "2026-10-07",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-3",
+    "reverses": null,
+    "lines": [
+     [
+      "112001",
+      "تحصيل تحويل بنكي من عميل",
+      "70000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثالث",
+      "0",
+      "70000",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0015",
+    "date": "2026-10-07",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-4",
+    "reverses": null,
+    "lines": [
+     [
+      "112004",
+      "تحصيل نقطة بيع من عميل",
+      "1150000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثانٍ",
+      "0",
+      "1150000",
+      "c2",
+      null,
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0016",
+    "date": "2026-10-08",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-5",
+    "reverses": null,
+    "lines": [
+     [
+      "112004",
+      "تحصيل نقطة بيع من عميل",
+      "300000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثالث",
+      "0",
+      "300000",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0017",
+    "date": "2026-10-08",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-6",
+    "reverses": null,
+    "lines": [
+     [
+      "111003",
+      "تحصيل شيك في عهدة المندوب",
+      "1000000",
+      "0",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل أول",
+      "0",
+      "1000000",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0018",
+    "date": "2026-10-09",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-7",
+    "reverses": null,
+    "lines": [
+     [
+      "112005",
+      "تحصيل إلكتروني في أمانات الدفع الإلكتروني",
+      "2300000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثانٍ",
+      "0",
+      "2300000",
+      "c2",
+      null,
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "PLNK/2026-10/0019",
+    "date": "2026-10-09",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "PAYLINK_FEE",
+    "sourceId": "se0022",
+    "reverses": null,
+    "lines": [
+     [
+      "611007",
+      "عمولة الدفع الإلكتروني شاملة الضريبة",
+      "69000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "112005",
+      "اقتطاع عمولة الدفع الإلكتروني من الأمانات",
+      "0",
+      "69000",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0020",
+    "date": "2026-10-10",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-8",
+    "reverses": null,
+    "lines": [
+     [
+      "112005",
+      "تحصيل إلكتروني في أمانات الدفع الإلكتروني",
+      "1000000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل أول",
+      "0",
+      "1000000",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0021",
+    "date": "2026-10-11",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-9",
+    "reverses": null,
+    "lines": [
+     [
+      "112005",
+      "تحصيل إلكتروني في أمانات الدفع الإلكتروني",
+      "800000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثالث",
+      "0",
+      "800000",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0022",
+    "date": "2026-10-12",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": true,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-9",
+    "reverses": "RCPT/2026-10/0021",
+    "lines": [
+     [
+      "113001",
+      "إلغاء تحصيل من العميل عميل ثالث",
+      "800000",
+      "0",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "911001",
+      "إلغاء يدوي لسند إلكتروني دون استرداد — معلّق",
+      "0",
+      "800000",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0023",
+    "date": "2026-10-12",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-10",
+    "reverses": null,
+    "lines": [
+     [
+      "111003",
+      "تحصيل نقداً في عهدة المندوب",
+      "600000",
+      "0",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثانٍ",
+      "0",
+      "600000",
+      "c2",
+      null,
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "REV/2026-10/0024",
+    "date": "2026-10-13",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-10",
+    "reverses": "RCPT/2026-10/0023",
+    "lines": [
+     [
+      "111003",
+      "عكس تحصيل نقداً في عهدة المندوب",
+      "0",
+      "600000",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "عكس تحصيل من العميل عميل ثانٍ",
+      "600000",
+      "0",
+      "c2",
+      null,
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0025",
+    "date": "2026-10-14",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-11",
+    "reverses": null,
+    "lines": [
+     [
+      "111003",
+      "تحصيل نقداً في عهدة المندوب",
+      "400000",
+      "0",
+      null,
+      "r2",
+      "مندوب ب",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل أول",
+      "0",
+      "400000",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0026",
+    "date": "2026-10-14",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-12",
+    "reverses": null,
+    "lines": [
+     [
+      "111003",
+      "تحصيل نقداً في عهدة المندوب",
+      "700000",
+      "0",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثالث",
+      "0",
+      "700000",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "CUST/2026-10/0027",
+    "date": "2026-10-15",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "SETTLEMENT",
+    "sourceId": "S-1",
+    "reverses": null,
+    "lines": [
+     [
+      "111001",
+      "استلام تحصيل نقداً من المندوب مندوب أ",
+      "6700000",
+      "0",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "111003",
+      "تصفية عهدة المندوب مندوب أ",
+      "0",
+      "6700000",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "CUST/2026-10/0028",
+    "date": "2026-10-15",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "SETTLEMENT",
+    "sourceId": "S-2",
+    "reverses": null,
+    "lines": [
+     [
+      "111001",
+      "استلام تحصيل نقداً من المندوب مندوب ب",
+      "400000",
+      "0",
+      null,
+      "r2",
+      "مندوب ب",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "111003",
+      "تصفية عهدة المندوب مندوب ب",
+      "0",
+      "400000",
+      null,
+      "r2",
+      "مندوب ب",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "REV/2026-10/0029",
+    "date": "2026-10-16",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-11",
+    "reverses": "RCPT/2026-10/0025",
+    "lines": [
+     [
+      "111003",
+      "عكس تحصيل نقداً في عهدة المندوب",
+      "0",
+      "400000",
+      null,
+      "r2",
+      "مندوب ب",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "عكس تحصيل من العميل عميل أول",
+      "400000",
+      "0",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "REV/2026-10/0030",
+    "date": "2026-10-17",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-12",
+    "reverses": "RCPT/2026-10/0026",
+    "lines": [
+     [
+      "111003",
+      "عكس تحصيل نقداً في عهدة المندوب",
+      "0",
+      "700000",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "عكس تحصيل من العميل عميل ثالث",
+      "700000",
+      "0",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-10/0031",
+    "date": "2026-10-18",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-8",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-8",
+      "1150000",
+      "0",
+      "c2",
+      "r2",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-8 — 15٪",
+      "0",
+      "1000000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-8",
+      "0",
+      "150000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "1000000"
+     ],
+     [
+      "111001",
+      "تحصيل نقدي لفاتورة INV-8",
+      "1150000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل نقدي لفاتورة مبيعات INV-8",
+      "0",
+      "1150000",
+      "c2",
+      "r2",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-10/0032",
+    "date": "2026-10-19",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-8",
+    "reverses": "INV/2026-10/0031",
+    "lines": [
+     [
+      "113001",
+      "عكس ذمة فاتورة مبيعات INV-8",
+      "0",
+      "1150000",
+      "c2",
+      "r2",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "عكس إيراد مبيعات INV-8 — 15٪",
+      "1000000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "عكس ضريبة مبيعات 15٪ — INV-8",
+      "150000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "-1000000"
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0033",
+    "date": "2026-10-20",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-8",
+    "reverses": "RCPT/2026-10/0020",
+    "lines": [
+     [
+      "113001",
+      "إلغاء تحصيل من العميل عميل أول",
+      "1000000",
+      "0",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "112005",
+      "استرداد الدفع الإلكتروني من الأمانات",
+      "0",
+      "1000000",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0034",
+    "date": "2026-10-21",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": true,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-13",
+    "reverses": null,
+    "lines": [
+     [
+      "911001",
+      "سند إلكتروني بلا رابط دفع — معلّق",
+      "100000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل أول",
+      "0",
+      "100000",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "PLNK/2026-10/0035",
+    "date": "2026-10-30",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "PAYOUT",
+    "sourceId": "PO-1",
+    "reverses": null,
+    "lines": [
+     [
+      "112001",
+      "توريد أمانات الدفع الإلكتروني للحساب البنكي",
+      "2231000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "112005",
+      "تصفية أمانات الدفع الإلكتروني بالتوريد",
+      "0",
+      "2231000",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   }
+  ],
+  "sources": [
+   [
+    "AR_ENTRY:ae0010:POST",
+    "OPEN/2026-10/0008"
+   ],
+   [
+    "INVOICE:INV-1:POST",
+    "INV/2026-09/0001"
+   ],
+   [
+    "INVOICE:INV-2:POST",
+    "INV/2026-09/0002"
+   ],
+   [
+    "INVOICE:INV-3:POST",
+    "INV/2026-09/0003"
+   ],
+   [
+    "INVOICE:INV-4:POST",
+    "INV/2026-09/0004"
+   ],
+   [
+    "INVOICE:INV-5:POST",
+    "INV/2026-09/0005"
+   ],
+   [
+    "INVOICE:INV-5:REVERSE",
+    "REV/2026-10/0010"
+   ],
+   [
+    "INVOICE:INV-6:POST",
+    "INV/2026-09/0006"
+   ],
+   [
+    "INVOICE:INV-6:REVERSE",
+    "REV/2026-09/0007"
+   ],
+   [
+    "INVOICE:INV-8:POST",
+    "INV/2026-10/0031"
+   ],
+   [
+    "INVOICE:INV-8:REVERSE",
+    "INV/2026-10/0032"
+   ],
+   [
+    "INVOICE:INV-9:POST",
+    "INV/2026-10/0009"
+   ],
+   [
+    "INVOICE:RET-7:POST",
+    "INV/2026-10/0011"
+   ],
+   [
+    "PAYLINK_FEE:se0022",
+    "PLNK/2026-10/0019"
+   ],
+   [
+    "PAYOUT:PO-1",
+    "PLNK/2026-10/0035"
+   ],
+   [
+    "RECEIPT:R-1:POST",
+    "RCPT/2026-10/0012"
+   ],
+   [
+    "RECEIPT:R-10:POST",
+    "RCPT/2026-10/0023"
+   ],
+   [
+    "RECEIPT:R-10:REVERSE",
+    "REV/2026-10/0024"
+   ],
+   [
+    "RECEIPT:R-11:POST",
+    "RCPT/2026-10/0025"
+   ],
+   [
+    "RECEIPT:R-11:REVERSE",
+    "REV/2026-10/0029"
+   ],
+   [
+    "RECEIPT:R-12:POST",
+    "RCPT/2026-10/0026"
+   ],
+   [
+    "RECEIPT:R-12:REVERSE",
+    "REV/2026-10/0030"
+   ],
+   [
+    "RECEIPT:R-13:POST",
+    "RCPT/2026-10/0034"
+   ],
+   [
+    "RECEIPT:R-2:POST",
+    "RCPT/2026-10/0013"
+   ],
+   [
+    "RECEIPT:R-3:POST",
+    "RCPT/2026-10/0014"
+   ],
+   [
+    "RECEIPT:R-4:POST",
+    "RCPT/2026-10/0015"
+   ],
+   [
+    "RECEIPT:R-5:POST",
+    "RCPT/2026-10/0016"
+   ],
+   [
+    "RECEIPT:R-6:POST",
+    "RCPT/2026-10/0017"
+   ],
+   [
+    "RECEIPT:R-7:POST",
+    "RCPT/2026-10/0018"
+   ],
+   [
+    "RECEIPT:R-8:POST",
+    "RCPT/2026-10/0020"
+   ],
+   [
+    "RECEIPT:R-8:REVERSE",
+    "RCPT/2026-10/0033"
+   ],
+   [
+    "RECEIPT:R-9:POST",
+    "RCPT/2026-10/0021"
+   ],
+   [
+    "RECEIPT:R-9:REVERSE",
+    "RCPT/2026-10/0022"
+   ],
+   [
+    "SETTLEMENT:S-1:POST",
+    "CUST/2026-10/0027"
+   ],
+   [
+    "SETTLEMENT:S-2:POST",
+    "CUST/2026-10/0028"
+   ]
+  ],
+  "events": [
+   [
+    "AR_ENTRY:ae0010:POST",
+    "DONE",
+    null,
+    "OPEN/2026-10/0008",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-1:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0001",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-2:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0002",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-3:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0003",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-4:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0004",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-5:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0005",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-5:REVERSE",
+    "DONE",
+    null,
+    "REV/2026-10/0010",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-6:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0006",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-6:REVERSE",
+    "DONE",
+    null,
+    "REV/2026-09/0007",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-8:POST",
+    "DONE",
+    null,
+    "INV/2026-10/0031",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-8:REVERSE",
+    "DONE",
+    null,
+    "INV/2026-10/0032",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-9:POST",
+    "DONE",
+    null,
+    "INV/2026-10/0009",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:RET-7:POST",
+    "DONE",
+    null,
+    "INV/2026-10/0011",
+    null,
+    null,
+    null
+   ],
+   [
+    "PAYLINK_FEE:se0022",
+    "DONE",
+    null,
+    "PLNK/2026-10/0019",
+    null,
+    null,
+    null
+   ],
+   [
+    "PAYOUT:PO-1",
+    "DONE",
+    null,
+    "PLNK/2026-10/0035",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-1:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0012",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-10:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0023",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-10:REVERSE",
+    "DONE",
+    null,
+    "REV/2026-10/0024",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-11:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0025",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-11:REVERSE",
+    "DONE",
+    null,
+    "REV/2026-10/0029",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-12:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0026",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-12:REVERSE",
+    "DONE",
+    null,
+    "REV/2026-10/0030",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-13:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0034",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-2:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0013",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-3:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0014",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-4:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0015",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-5:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0016",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-6:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0017",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-7:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0018",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-8:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0020",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-8:REVERSE",
+    "DONE",
+    null,
+    "RCPT/2026-10/0033",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-9:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0021",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-9:REVERSE",
+    "DONE",
+    null,
+    "RCPT/2026-10/0022",
+    null,
+    null,
+    null
+   ],
+   [
+    "SETTLEMENT:S-1:POST",
+    "DONE",
+    null,
+    "CUST/2026-10/0027",
+    "0",
+    "0",
+    null
+   ],
+   [
+    "SETTLEMENT:S-1b:POST",
+    "SKIPPED",
+    "NETTED",
+    null,
+    "1000000",
+    "0",
+    null
+   ],
+   [
+    "SETTLEMENT:S-2:POST",
+    "DONE",
+    null,
+    "CUST/2026-10/0028",
+    "0",
+    "0",
+    null
+   ],
+   [
+    "SETTLEMENT:S-3:POST",
+    "SKIPPED",
+    "NETTED",
+    null,
+    "2000000",
+    "0",
+    null
+   ],
+   [
+    "SETTLEMENT:S-4:POST",
+    "SKIPPED",
+    "NETTED",
+    null,
+    "1000000",
+    "0",
+    null
+   ],
+   [
+    "SETTLEMENT:S-4:REVERSE",
+    "SKIPPED",
+    "NETTED",
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "SETTLEMENT:S-5:POST",
+    "SKIPPED",
+    "NETTED",
+    null,
+    "150000",
+    "0",
+    null
+   ]
+  ]
+ },
+ "dec2": {
+  "moves": [
+   {
+    "number": "INV/2026-09/0001",
+    "date": "2026-09-20",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-1",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-1",
+      "115000",
+      "0",
+      "c1",
+      "r1",
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-1 — 15٪",
+      "0",
+      "100000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-1",
+      "0",
+      "15000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "100000"
+     ],
+     [
+      "111001",
+      "تحصيل نقدي لفاتورة INV-1",
+      "115000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل نقدي لفاتورة مبيعات INV-1",
+      "0",
+      "115000",
+      "c1",
+      "r1",
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-09/0002",
+    "date": "2026-09-20",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-2",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-2",
+      "115000",
+      "0",
+      "c2",
+      "r1",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-2 — 15٪",
+      "0",
+      "100000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-2",
+      "0",
+      "15000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "100000"
+     ],
+     [
+      "111001",
+      "تحصيل نقدي لفاتورة INV-2",
+      "115000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل نقدي لفاتورة مبيعات INV-2",
+      "0",
+      "115000",
+      "c2",
+      "r1",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-09/0003",
+    "date": "2026-09-21",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-3",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-3",
+      "1150000",
+      "0",
+      "c1",
+      "r1",
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-3 — 15٪",
+      "0",
+      "1000000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-3",
+      "0",
+      "150000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "1000000"
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-09/0004",
+    "date": "2026-09-22",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-4",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-4",
+      "207000",
+      "0",
+      "c3",
+      "r2",
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-4 — 15٪",
+      "0",
+      "100000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "413001",
+      "خصم مسموح به INV-4 — 15٪",
+      "10000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "411002",
+      "إيراد مبيعات INV-4 — 15٪",
+      "0",
+      "100000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "413001",
+      "خصم مسموح به INV-4 — 15٪",
+      "10000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-4",
+      "0",
+      "27000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "180000"
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-09/0005",
+    "date": "2026-09-28",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-5",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-5",
+      "115000",
+      "0",
+      "c2",
+      "r1",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-5 — 15٪",
+      "0",
+      "100000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-5",
+      "0",
+      "15000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "100000"
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-09/0006",
+    "date": "2026-09-29",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-6",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-6",
+      "114990",
+      "0",
+      "c2",
+      "r2",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-6 — 15٪",
+      "0",
+      "99990",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-6",
+      "0",
+      "15000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "99990"
+     ]
+    ]
+   },
+   {
+    "number": "REV/2026-09/0007",
+    "date": "2026-09-30",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-6",
+    "reverses": "INV/2026-09/0006",
+    "lines": [
+     [
+      "113001",
+      "عكس ذمة فاتورة مبيعات INV-6",
+      "0",
+      "114990",
+      "c2",
+      "r2",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "عكس إيراد مبيعات INV-6 — 15٪",
+      "99990",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "عكس ضريبة مبيعات 15٪ — INV-6",
+      "15000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "-99990"
+     ]
+    ]
+   },
+   {
+    "number": "OPEN/2026-10/0008",
+    "date": "2026-10-01",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": true,
+    "sourceType": "AR_ENTRY",
+    "sourceId": "ae0010",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "رصيد مستورد — عميل ثالث",
+      "50000",
+      "0",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "319002",
+      "مقابل أرصدة العملاء المستوردة",
+      "0",
+      "50000",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-10/0009",
+    "date": "2026-10-02",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-9",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-9",
+      "115010",
+      "0",
+      "c3",
+      "r1",
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-9 — 15٪",
+      "0",
+      "100000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-9",
+      "0",
+      "15000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "100000"
+     ],
+     [
+      "421009",
+      "فروقات تقريب فاتورة INV-9",
+      "0",
+      "10",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "REV/2026-10/0010",
+    "date": "2026-10-03",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-5",
+    "reverses": "INV/2026-09/0005",
+    "lines": [
+     [
+      "113001",
+      "عكس ذمة فاتورة مبيعات INV-5",
+      "0",
+      "115000",
+      "c2",
+      "r1",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "عكس إيراد مبيعات INV-5 — 15٪",
+      "100000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "عكس ضريبة مبيعات 15٪ — INV-5",
+      "15000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "-100000"
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-10/0011",
+    "date": "2026-10-05",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "RET-7",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة مرتجع مبيعات RET-7",
+      "0",
+      "115000",
+      "c1",
+      "r1",
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "412001",
+      "مردودات مبيعات RET-7 — 15٪",
+      "100000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — RET-7",
+      "15000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "-100000"
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0012",
+    "date": "2026-10-06",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-1",
+    "reverses": null,
+    "lines": [
+     [
+      "111003",
+      "تحصيل نقداً في عهدة المندوب",
+      "500000",
+      "0",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل أول",
+      "0",
+      "500000",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0013",
+    "date": "2026-10-06",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-2",
+    "reverses": null,
+    "lines": [
+     [
+      "112001",
+      "تحصيل تحويل بنكي من عميل",
+      "200000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثالث",
+      "0",
+      "200000",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0014",
+    "date": "2026-10-07",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-3",
+    "reverses": null,
+    "lines": [
+     [
+      "112001",
+      "تحصيل تحويل بنكي من عميل",
+      "7000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثالث",
+      "0",
+      "7000",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0015",
+    "date": "2026-10-07",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-4",
+    "reverses": null,
+    "lines": [
+     [
+      "112004",
+      "تحصيل نقطة بيع من عميل",
+      "115000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثانٍ",
+      "0",
+      "115000",
+      "c2",
+      null,
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0016",
+    "date": "2026-10-08",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-5",
+    "reverses": null,
+    "lines": [
+     [
+      "112004",
+      "تحصيل نقطة بيع من عميل",
+      "30000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثالث",
+      "0",
+      "30000",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0017",
+    "date": "2026-10-08",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-6",
+    "reverses": null,
+    "lines": [
+     [
+      "111003",
+      "تحصيل شيك في عهدة المندوب",
+      "100000",
+      "0",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل أول",
+      "0",
+      "100000",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0018",
+    "date": "2026-10-09",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-7",
+    "reverses": null,
+    "lines": [
+     [
+      "112005",
+      "تحصيل إلكتروني في أمانات الدفع الإلكتروني",
+      "230000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثانٍ",
+      "0",
+      "230000",
+      "c2",
+      null,
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "PLNK/2026-10/0019",
+    "date": "2026-10-09",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "PAYLINK_FEE",
+    "sourceId": "se0022",
+    "reverses": null,
+    "lines": [
+     [
+      "611007",
+      "عمولة الدفع الإلكتروني شاملة الضريبة",
+      "6900",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "112005",
+      "اقتطاع عمولة الدفع الإلكتروني من الأمانات",
+      "0",
+      "6900",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0020",
+    "date": "2026-10-10",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-8",
+    "reverses": null,
+    "lines": [
+     [
+      "112005",
+      "تحصيل إلكتروني في أمانات الدفع الإلكتروني",
+      "100000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل أول",
+      "0",
+      "100000",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0021",
+    "date": "2026-10-11",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-9",
+    "reverses": null,
+    "lines": [
+     [
+      "112005",
+      "تحصيل إلكتروني في أمانات الدفع الإلكتروني",
+      "80000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثالث",
+      "0",
+      "80000",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0022",
+    "date": "2026-10-12",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": true,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-9",
+    "reverses": "RCPT/2026-10/0021",
+    "lines": [
+     [
+      "113001",
+      "إلغاء تحصيل من العميل عميل ثالث",
+      "80000",
+      "0",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "911001",
+      "إلغاء يدوي لسند إلكتروني دون استرداد — معلّق",
+      "0",
+      "80000",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0023",
+    "date": "2026-10-12",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-10",
+    "reverses": null,
+    "lines": [
+     [
+      "111003",
+      "تحصيل نقداً في عهدة المندوب",
+      "60000",
+      "0",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثانٍ",
+      "0",
+      "60000",
+      "c2",
+      null,
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "REV/2026-10/0024",
+    "date": "2026-10-13",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-10",
+    "reverses": "RCPT/2026-10/0023",
+    "lines": [
+     [
+      "111003",
+      "عكس تحصيل نقداً في عهدة المندوب",
+      "0",
+      "60000",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "عكس تحصيل من العميل عميل ثانٍ",
+      "60000",
+      "0",
+      "c2",
+      null,
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0025",
+    "date": "2026-10-14",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-11",
+    "reverses": null,
+    "lines": [
+     [
+      "111003",
+      "تحصيل نقداً في عهدة المندوب",
+      "40000",
+      "0",
+      null,
+      "r2",
+      "مندوب ب",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل أول",
+      "0",
+      "40000",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0026",
+    "date": "2026-10-14",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-12",
+    "reverses": null,
+    "lines": [
+     [
+      "111003",
+      "تحصيل نقداً في عهدة المندوب",
+      "70000",
+      "0",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثالث",
+      "0",
+      "70000",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "CUST/2026-10/0027",
+    "date": "2026-10-15",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "SETTLEMENT",
+    "sourceId": "S-1",
+    "reverses": null,
+    "lines": [
+     [
+      "111001",
+      "استلام تحصيل نقداً من المندوب مندوب أ",
+      "670000",
+      "0",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "111003",
+      "تصفية عهدة المندوب مندوب أ",
+      "0",
+      "670000",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "CUST/2026-10/0028",
+    "date": "2026-10-15",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "SETTLEMENT",
+    "sourceId": "S-2",
+    "reverses": null,
+    "lines": [
+     [
+      "111001",
+      "استلام تحصيل نقداً من المندوب مندوب ب",
+      "40000",
+      "0",
+      null,
+      "r2",
+      "مندوب ب",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "111003",
+      "تصفية عهدة المندوب مندوب ب",
+      "0",
+      "40000",
+      null,
+      "r2",
+      "مندوب ب",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "REV/2026-10/0029",
+    "date": "2026-10-16",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-11",
+    "reverses": "RCPT/2026-10/0025",
+    "lines": [
+     [
+      "111003",
+      "عكس تحصيل نقداً في عهدة المندوب",
+      "0",
+      "40000",
+      null,
+      "r2",
+      "مندوب ب",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "عكس تحصيل من العميل عميل أول",
+      "40000",
+      "0",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "REV/2026-10/0030",
+    "date": "2026-10-17",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-12",
+    "reverses": "RCPT/2026-10/0026",
+    "lines": [
+     [
+      "111003",
+      "عكس تحصيل نقداً في عهدة المندوب",
+      "0",
+      "70000",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "عكس تحصيل من العميل عميل ثالث",
+      "70000",
+      "0",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-10/0031",
+    "date": "2026-10-18",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-8",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-8",
+      "115000",
+      "0",
+      "c2",
+      "r2",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-8 — 15٪",
+      "0",
+      "100000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-8",
+      "0",
+      "15000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "100000"
+     ],
+     [
+      "111001",
+      "تحصيل نقدي لفاتورة INV-8",
+      "115000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل نقدي لفاتورة مبيعات INV-8",
+      "0",
+      "115000",
+      "c2",
+      "r2",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-10/0032",
+    "date": "2026-10-19",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-8",
+    "reverses": "INV/2026-10/0031",
+    "lines": [
+     [
+      "113001",
+      "عكس ذمة فاتورة مبيعات INV-8",
+      "0",
+      "115000",
+      "c2",
+      "r2",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "عكس إيراد مبيعات INV-8 — 15٪",
+      "100000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "عكس ضريبة مبيعات 15٪ — INV-8",
+      "15000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "-100000"
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0033",
+    "date": "2026-10-20",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-8",
+    "reverses": "RCPT/2026-10/0020",
+    "lines": [
+     [
+      "113001",
+      "إلغاء تحصيل من العميل عميل أول",
+      "100000",
+      "0",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "112005",
+      "استرداد الدفع الإلكتروني من الأمانات",
+      "0",
+      "100000",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0034",
+    "date": "2026-10-21",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": true,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-13",
+    "reverses": null,
+    "lines": [
+     [
+      "911001",
+      "سند إلكتروني بلا رابط دفع — معلّق",
+      "10000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل أول",
+      "0",
+      "10000",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "PLNK/2026-10/0035",
+    "date": "2026-10-30",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "PAYOUT",
+    "sourceId": "PO-1",
+    "reverses": null,
+    "lines": [
+     [
+      "112001",
+      "توريد أمانات الدفع الإلكتروني للحساب البنكي",
+      "223100",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "112005",
+      "تصفية أمانات الدفع الإلكتروني بالتوريد",
+      "0",
+      "223100",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   }
+  ],
+  "sources": [
+   [
+    "AR_ENTRY:ae0010:POST",
+    "OPEN/2026-10/0008"
+   ],
+   [
+    "INVOICE:INV-1:POST",
+    "INV/2026-09/0001"
+   ],
+   [
+    "INVOICE:INV-2:POST",
+    "INV/2026-09/0002"
+   ],
+   [
+    "INVOICE:INV-3:POST",
+    "INV/2026-09/0003"
+   ],
+   [
+    "INVOICE:INV-4:POST",
+    "INV/2026-09/0004"
+   ],
+   [
+    "INVOICE:INV-5:POST",
+    "INV/2026-09/0005"
+   ],
+   [
+    "INVOICE:INV-5:REVERSE",
+    "REV/2026-10/0010"
+   ],
+   [
+    "INVOICE:INV-6:POST",
+    "INV/2026-09/0006"
+   ],
+   [
+    "INVOICE:INV-6:REVERSE",
+    "REV/2026-09/0007"
+   ],
+   [
+    "INVOICE:INV-8:POST",
+    "INV/2026-10/0031"
+   ],
+   [
+    "INVOICE:INV-8:REVERSE",
+    "INV/2026-10/0032"
+   ],
+   [
+    "INVOICE:INV-9:POST",
+    "INV/2026-10/0009"
+   ],
+   [
+    "INVOICE:RET-7:POST",
+    "INV/2026-10/0011"
+   ],
+   [
+    "PAYLINK_FEE:se0022",
+    "PLNK/2026-10/0019"
+   ],
+   [
+    "PAYOUT:PO-1",
+    "PLNK/2026-10/0035"
+   ],
+   [
+    "RECEIPT:R-1:POST",
+    "RCPT/2026-10/0012"
+   ],
+   [
+    "RECEIPT:R-10:POST",
+    "RCPT/2026-10/0023"
+   ],
+   [
+    "RECEIPT:R-10:REVERSE",
+    "REV/2026-10/0024"
+   ],
+   [
+    "RECEIPT:R-11:POST",
+    "RCPT/2026-10/0025"
+   ],
+   [
+    "RECEIPT:R-11:REVERSE",
+    "REV/2026-10/0029"
+   ],
+   [
+    "RECEIPT:R-12:POST",
+    "RCPT/2026-10/0026"
+   ],
+   [
+    "RECEIPT:R-12:REVERSE",
+    "REV/2026-10/0030"
+   ],
+   [
+    "RECEIPT:R-13:POST",
+    "RCPT/2026-10/0034"
+   ],
+   [
+    "RECEIPT:R-2:POST",
+    "RCPT/2026-10/0013"
+   ],
+   [
+    "RECEIPT:R-3:POST",
+    "RCPT/2026-10/0014"
+   ],
+   [
+    "RECEIPT:R-4:POST",
+    "RCPT/2026-10/0015"
+   ],
+   [
+    "RECEIPT:R-5:POST",
+    "RCPT/2026-10/0016"
+   ],
+   [
+    "RECEIPT:R-6:POST",
+    "RCPT/2026-10/0017"
+   ],
+   [
+    "RECEIPT:R-7:POST",
+    "RCPT/2026-10/0018"
+   ],
+   [
+    "RECEIPT:R-8:POST",
+    "RCPT/2026-10/0020"
+   ],
+   [
+    "RECEIPT:R-8:REVERSE",
+    "RCPT/2026-10/0033"
+   ],
+   [
+    "RECEIPT:R-9:POST",
+    "RCPT/2026-10/0021"
+   ],
+   [
+    "RECEIPT:R-9:REVERSE",
+    "RCPT/2026-10/0022"
+   ],
+   [
+    "SETTLEMENT:S-1:POST",
+    "CUST/2026-10/0027"
+   ],
+   [
+    "SETTLEMENT:S-2:POST",
+    "CUST/2026-10/0028"
+   ]
+  ],
+  "events": [
+   [
+    "AR_ENTRY:ae0010:POST",
+    "DONE",
+    null,
+    "OPEN/2026-10/0008",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-1:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0001",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-2:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0002",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-3:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0003",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-4:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0004",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-5:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0005",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-5:REVERSE",
+    "DONE",
+    null,
+    "REV/2026-10/0010",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-6:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0006",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-6:REVERSE",
+    "DONE",
+    null,
+    "REV/2026-09/0007",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-8:POST",
+    "DONE",
+    null,
+    "INV/2026-10/0031",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-8:REVERSE",
+    "DONE",
+    null,
+    "INV/2026-10/0032",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-9:POST",
+    "DONE",
+    null,
+    "INV/2026-10/0009",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:RET-7:POST",
+    "DONE",
+    null,
+    "INV/2026-10/0011",
+    null,
+    null,
+    null
+   ],
+   [
+    "PAYLINK_FEE:se0022",
+    "DONE",
+    null,
+    "PLNK/2026-10/0019",
+    null,
+    null,
+    null
+   ],
+   [
+    "PAYOUT:PO-1",
+    "DONE",
+    null,
+    "PLNK/2026-10/0035",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-1:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0012",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-10:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0023",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-10:REVERSE",
+    "DONE",
+    null,
+    "REV/2026-10/0024",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-11:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0025",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-11:REVERSE",
+    "DONE",
+    null,
+    "REV/2026-10/0029",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-12:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0026",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-12:REVERSE",
+    "DONE",
+    null,
+    "REV/2026-10/0030",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-13:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0034",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-2:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0013",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-3:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0014",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-4:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0015",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-5:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0016",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-6:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0017",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-7:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0018",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-8:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0020",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-8:REVERSE",
+    "DONE",
+    null,
+    "RCPT/2026-10/0033",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-9:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0021",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-9:REVERSE",
+    "DONE",
+    null,
+    "RCPT/2026-10/0022",
+    null,
+    null,
+    null
+   ],
+   [
+    "SETTLEMENT:S-1:POST",
+    "DONE",
+    null,
+    "CUST/2026-10/0027",
+    "0",
+    "0",
+    null
+   ],
+   [
+    "SETTLEMENT:S-1b:POST",
+    "SKIPPED",
+    "NETTED",
+    null,
+    "100000",
+    "0",
+    null
+   ],
+   [
+    "SETTLEMENT:S-2:POST",
+    "DONE",
+    null,
+    "CUST/2026-10/0028",
+    "0",
+    "0",
+    null
+   ],
+   [
+    "SETTLEMENT:S-3:POST",
+    "SKIPPED",
+    "NETTED",
+    null,
+    "200000",
+    "0",
+    null
+   ],
+   [
+    "SETTLEMENT:S-4:POST",
+    "SKIPPED",
+    "NETTED",
+    null,
+    "100000",
+    "0",
+    null
+   ],
+   [
+    "SETTLEMENT:S-4:REVERSE",
+    "SKIPPED",
+    "NETTED",
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "SETTLEMENT:S-5:POST",
+    "SKIPPED",
+    "NETTED",
+    null,
+    "15000",
+    "0",
+    null
+   ]
+  ]
+ },
+ "dec3": {
+  "moves": [
+   {
+    "number": "INV/2026-09/0001",
+    "date": "2026-09-20",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-1",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-1",
+      "1150",
+      "0",
+      "c1",
+      "r1",
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-1 — 15٪",
+      "0",
+      "1000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-1",
+      "0",
+      "150",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "1000"
+     ],
+     [
+      "111001",
+      "تحصيل نقدي لفاتورة INV-1",
+      "1150",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل نقدي لفاتورة مبيعات INV-1",
+      "0",
+      "1150",
+      "c1",
+      "r1",
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-09/0002",
+    "date": "2026-09-20",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-2",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-2",
+      "1150",
+      "0",
+      "c2",
+      "r1",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-2 — 15٪",
+      "0",
+      "1000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-2",
+      "0",
+      "150",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "1000"
+     ],
+     [
+      "111001",
+      "تحصيل نقدي لفاتورة INV-2",
+      "1150",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل نقدي لفاتورة مبيعات INV-2",
+      "0",
+      "1150",
+      "c2",
+      "r1",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-09/0003",
+    "date": "2026-09-21",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-3",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-3",
+      "11500",
+      "0",
+      "c1",
+      "r1",
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-3 — 15٪",
+      "0",
+      "10000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-3",
+      "0",
+      "1500",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "10000"
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-09/0004",
+    "date": "2026-09-22",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-4",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-4",
+      "2070",
+      "0",
+      "c3",
+      "r2",
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-4 — 15٪",
+      "0",
+      "1000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "413001",
+      "خصم مسموح به INV-4 — 15٪",
+      "100",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "411002",
+      "إيراد مبيعات INV-4 — 15٪",
+      "0",
+      "1000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "413001",
+      "خصم مسموح به INV-4 — 15٪",
+      "100",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-4",
+      "0",
+      "270",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "1800"
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-09/0005",
+    "date": "2026-09-28",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-5",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-5",
+      "1150",
+      "0",
+      "c2",
+      "r1",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-5 — 15٪",
+      "0",
+      "1000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-5",
+      "0",
+      "150",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "1000"
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-09/0006",
+    "date": "2026-09-29",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-6",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-6",
+      "1149",
+      "0",
+      "c2",
+      "r2",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-6 — 15٪",
+      "0",
+      "999",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-6",
+      "0",
+      "150",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "999"
+     ]
+    ]
+   },
+   {
+    "number": "REV/2026-09/0007",
+    "date": "2026-09-30",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-6",
+    "reverses": "INV/2026-09/0006",
+    "lines": [
+     [
+      "113001",
+      "عكس ذمة فاتورة مبيعات INV-6",
+      "0",
+      "1149",
+      "c2",
+      "r2",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "عكس إيراد مبيعات INV-6 — 15٪",
+      "999",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "عكس ضريبة مبيعات 15٪ — INV-6",
+      "150",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "-999"
+     ]
+    ]
+   },
+   {
+    "number": "OPEN/2026-10/0008",
+    "date": "2026-10-01",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": true,
+    "sourceType": "AR_ENTRY",
+    "sourceId": "ae0010",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "رصيد مستورد — عميل ثالث",
+      "500",
+      "0",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "319002",
+      "مقابل أرصدة العملاء المستوردة",
+      "0",
+      "500",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-10/0009",
+    "date": "2026-10-02",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-9",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-9",
+      "1151",
+      "0",
+      "c3",
+      "r1",
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-9 — 15٪",
+      "0",
+      "1000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-9",
+      "0",
+      "150",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "1000"
+     ],
+     [
+      "421009",
+      "فروقات تقريب فاتورة INV-9",
+      "0",
+      "1",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "REV/2026-10/0010",
+    "date": "2026-10-03",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-5",
+    "reverses": "INV/2026-09/0005",
+    "lines": [
+     [
+      "113001",
+      "عكس ذمة فاتورة مبيعات INV-5",
+      "0",
+      "1150",
+      "c2",
+      "r1",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "عكس إيراد مبيعات INV-5 — 15٪",
+      "1000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "عكس ضريبة مبيعات 15٪ — INV-5",
+      "150",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "-1000"
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-10/0011",
+    "date": "2026-10-05",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "RET-7",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة مرتجع مبيعات RET-7",
+      "0",
+      "1150",
+      "c1",
+      "r1",
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "412001",
+      "مردودات مبيعات RET-7 — 15٪",
+      "1000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — RET-7",
+      "150",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "-1000"
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0012",
+    "date": "2026-10-06",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-1",
+    "reverses": null,
+    "lines": [
+     [
+      "111003",
+      "تحصيل نقداً في عهدة المندوب",
+      "5000",
+      "0",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل أول",
+      "0",
+      "5000",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0013",
+    "date": "2026-10-06",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-2",
+    "reverses": null,
+    "lines": [
+     [
+      "112001",
+      "تحصيل تحويل بنكي من عميل",
+      "2000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثالث",
+      "0",
+      "2000",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0014",
+    "date": "2026-10-07",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-3",
+    "reverses": null,
+    "lines": [
+     [
+      "112001",
+      "تحصيل تحويل بنكي من عميل",
+      "70",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثالث",
+      "0",
+      "70",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0015",
+    "date": "2026-10-07",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-4",
+    "reverses": null,
+    "lines": [
+     [
+      "112004",
+      "تحصيل نقطة بيع من عميل",
+      "1150",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثانٍ",
+      "0",
+      "1150",
+      "c2",
+      null,
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0016",
+    "date": "2026-10-08",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-5",
+    "reverses": null,
+    "lines": [
+     [
+      "112004",
+      "تحصيل نقطة بيع من عميل",
+      "300",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثالث",
+      "0",
+      "300",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0017",
+    "date": "2026-10-08",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-6",
+    "reverses": null,
+    "lines": [
+     [
+      "111003",
+      "تحصيل شيك في عهدة المندوب",
+      "1000",
+      "0",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل أول",
+      "0",
+      "1000",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0018",
+    "date": "2026-10-09",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-7",
+    "reverses": null,
+    "lines": [
+     [
+      "112005",
+      "تحصيل إلكتروني في أمانات الدفع الإلكتروني",
+      "2300",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثانٍ",
+      "0",
+      "2300",
+      "c2",
+      null,
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "PLNK/2026-10/0019",
+    "date": "2026-10-09",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "PAYLINK_FEE",
+    "sourceId": "se0022",
+    "reverses": null,
+    "lines": [
+     [
+      "611007",
+      "عمولة الدفع الإلكتروني شاملة الضريبة",
+      "69",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "112005",
+      "اقتطاع عمولة الدفع الإلكتروني من الأمانات",
+      "0",
+      "69",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0020",
+    "date": "2026-10-10",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-8",
+    "reverses": null,
+    "lines": [
+     [
+      "112005",
+      "تحصيل إلكتروني في أمانات الدفع الإلكتروني",
+      "1000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل أول",
+      "0",
+      "1000",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0021",
+    "date": "2026-10-11",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-9",
+    "reverses": null,
+    "lines": [
+     [
+      "112005",
+      "تحصيل إلكتروني في أمانات الدفع الإلكتروني",
+      "800",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثالث",
+      "0",
+      "800",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0022",
+    "date": "2026-10-12",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": true,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-9",
+    "reverses": "RCPT/2026-10/0021",
+    "lines": [
+     [
+      "113001",
+      "إلغاء تحصيل من العميل عميل ثالث",
+      "800",
+      "0",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "911001",
+      "إلغاء يدوي لسند إلكتروني دون استرداد — معلّق",
+      "0",
+      "800",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0023",
+    "date": "2026-10-12",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-10",
+    "reverses": null,
+    "lines": [
+     [
+      "111003",
+      "تحصيل نقداً في عهدة المندوب",
+      "600",
+      "0",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثانٍ",
+      "0",
+      "600",
+      "c2",
+      null,
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "REV/2026-10/0024",
+    "date": "2026-10-13",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-10",
+    "reverses": "RCPT/2026-10/0023",
+    "lines": [
+     [
+      "111003",
+      "عكس تحصيل نقداً في عهدة المندوب",
+      "0",
+      "600",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "عكس تحصيل من العميل عميل ثانٍ",
+      "600",
+      "0",
+      "c2",
+      null,
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0025",
+    "date": "2026-10-14",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-11",
+    "reverses": null,
+    "lines": [
+     [
+      "111003",
+      "تحصيل نقداً في عهدة المندوب",
+      "400",
+      "0",
+      null,
+      "r2",
+      "مندوب ب",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل أول",
+      "0",
+      "400",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0026",
+    "date": "2026-10-14",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-12",
+    "reverses": null,
+    "lines": [
+     [
+      "111003",
+      "تحصيل نقداً في عهدة المندوب",
+      "700",
+      "0",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل ثالث",
+      "0",
+      "700",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "CUST/2026-10/0027",
+    "date": "2026-10-15",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "SETTLEMENT",
+    "sourceId": "S-1",
+    "reverses": null,
+    "lines": [
+     [
+      "111001",
+      "استلام تحصيل نقداً من المندوب مندوب أ",
+      "6700",
+      "0",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "111003",
+      "تصفية عهدة المندوب مندوب أ",
+      "0",
+      "6700",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "CUST/2026-10/0028",
+    "date": "2026-10-15",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "SETTLEMENT",
+    "sourceId": "S-2",
+    "reverses": null,
+    "lines": [
+     [
+      "111001",
+      "استلام تحصيل نقداً من المندوب مندوب ب",
+      "400",
+      "0",
+      null,
+      "r2",
+      "مندوب ب",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "111003",
+      "تصفية عهدة المندوب مندوب ب",
+      "0",
+      "400",
+      null,
+      "r2",
+      "مندوب ب",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "REV/2026-10/0029",
+    "date": "2026-10-16",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-11",
+    "reverses": "RCPT/2026-10/0025",
+    "lines": [
+     [
+      "111003",
+      "عكس تحصيل نقداً في عهدة المندوب",
+      "0",
+      "400",
+      null,
+      "r2",
+      "مندوب ب",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "عكس تحصيل من العميل عميل أول",
+      "400",
+      "0",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "REV/2026-10/0030",
+    "date": "2026-10-17",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-12",
+    "reverses": "RCPT/2026-10/0026",
+    "lines": [
+     [
+      "111003",
+      "عكس تحصيل نقداً في عهدة المندوب",
+      "0",
+      "700",
+      null,
+      "r1",
+      "مندوب أ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "عكس تحصيل من العميل عميل ثالث",
+      "700",
+      "0",
+      "c3",
+      null,
+      "عميل ثالث",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-10/0031",
+    "date": "2026-10-18",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-8",
+    "reverses": null,
+    "lines": [
+     [
+      "113001",
+      "ذمة فاتورة مبيعات INV-8",
+      "1150",
+      "0",
+      "c2",
+      "r2",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "إيراد مبيعات INV-8 — 15٪",
+      "0",
+      "1000",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "ضريبة مبيعات 15٪ — INV-8",
+      "0",
+      "150",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "1000"
+     ],
+     [
+      "111001",
+      "تحصيل نقدي لفاتورة INV-8",
+      "1150",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل نقدي لفاتورة مبيعات INV-8",
+      "0",
+      "1150",
+      "c2",
+      "r2",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "INV/2026-10/0032",
+    "date": "2026-10-19",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "INVOICE",
+    "sourceId": "INV-8",
+    "reverses": "INV/2026-10/0031",
+    "lines": [
+     [
+      "113001",
+      "عكس ذمة فاتورة مبيعات INV-8",
+      "0",
+      "1150",
+      "c2",
+      "r2",
+      "عميل ثانٍ",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "411001",
+      "عكس إيراد مبيعات INV-8 — 15٪",
+      "1000",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "BASE",
+      null
+     ],
+     [
+      "212001",
+      "عكس ضريبة مبيعات 15٪ — INV-8",
+      "150",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      "tax_S15_SALE",
+      "TAX",
+      "-1000"
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0033",
+    "date": "2026-10-20",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-8",
+    "reverses": "RCPT/2026-10/0020",
+    "lines": [
+     [
+      "113001",
+      "إلغاء تحصيل من العميل عميل أول",
+      "1000",
+      "0",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "112005",
+      "استرداد الدفع الإلكتروني من الأمانات",
+      "0",
+      "1000",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "RCPT/2026-10/0034",
+    "date": "2026-10-21",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": true,
+    "sourceType": "RECEIPT",
+    "sourceId": "R-13",
+    "reverses": null,
+    "lines": [
+     [
+      "911001",
+      "سند إلكتروني بلا رابط دفع — معلّق",
+      "100",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "113001",
+      "تحصيل من العميل عميل أول",
+      "0",
+      "100",
+      "c1",
+      null,
+      "عميل أول",
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   },
+   {
+    "number": "PLNK/2026-10/0035",
+    "date": "2026-10-30",
+    "originalDate": null,
+    "lateArrival": false,
+    "needsAttention": false,
+    "sourceType": "PAYOUT",
+    "sourceId": "PO-1",
+    "reverses": null,
+    "lines": [
+     [
+      "112001",
+      "توريد أمانات الدفع الإلكتروني للحساب البنكي",
+      "2231",
+      "0",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     [
+      "112005",
+      "تصفية أمانات الدفع الإلكتروني بالتوريد",
+      "0",
+      "2231",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    ]
+   }
+  ],
+  "sources": [
+   [
+    "AR_ENTRY:ae0010:POST",
+    "OPEN/2026-10/0008"
+   ],
+   [
+    "INVOICE:INV-1:POST",
+    "INV/2026-09/0001"
+   ],
+   [
+    "INVOICE:INV-2:POST",
+    "INV/2026-09/0002"
+   ],
+   [
+    "INVOICE:INV-3:POST",
+    "INV/2026-09/0003"
+   ],
+   [
+    "INVOICE:INV-4:POST",
+    "INV/2026-09/0004"
+   ],
+   [
+    "INVOICE:INV-5:POST",
+    "INV/2026-09/0005"
+   ],
+   [
+    "INVOICE:INV-5:REVERSE",
+    "REV/2026-10/0010"
+   ],
+   [
+    "INVOICE:INV-6:POST",
+    "INV/2026-09/0006"
+   ],
+   [
+    "INVOICE:INV-6:REVERSE",
+    "REV/2026-09/0007"
+   ],
+   [
+    "INVOICE:INV-8:POST",
+    "INV/2026-10/0031"
+   ],
+   [
+    "INVOICE:INV-8:REVERSE",
+    "INV/2026-10/0032"
+   ],
+   [
+    "INVOICE:INV-9:POST",
+    "INV/2026-10/0009"
+   ],
+   [
+    "INVOICE:RET-7:POST",
+    "INV/2026-10/0011"
+   ],
+   [
+    "PAYLINK_FEE:se0022",
+    "PLNK/2026-10/0019"
+   ],
+   [
+    "PAYOUT:PO-1",
+    "PLNK/2026-10/0035"
+   ],
+   [
+    "RECEIPT:R-1:POST",
+    "RCPT/2026-10/0012"
+   ],
+   [
+    "RECEIPT:R-10:POST",
+    "RCPT/2026-10/0023"
+   ],
+   [
+    "RECEIPT:R-10:REVERSE",
+    "REV/2026-10/0024"
+   ],
+   [
+    "RECEIPT:R-11:POST",
+    "RCPT/2026-10/0025"
+   ],
+   [
+    "RECEIPT:R-11:REVERSE",
+    "REV/2026-10/0029"
+   ],
+   [
+    "RECEIPT:R-12:POST",
+    "RCPT/2026-10/0026"
+   ],
+   [
+    "RECEIPT:R-12:REVERSE",
+    "REV/2026-10/0030"
+   ],
+   [
+    "RECEIPT:R-13:POST",
+    "RCPT/2026-10/0034"
+   ],
+   [
+    "RECEIPT:R-2:POST",
+    "RCPT/2026-10/0013"
+   ],
+   [
+    "RECEIPT:R-3:POST",
+    "RCPT/2026-10/0014"
+   ],
+   [
+    "RECEIPT:R-4:POST",
+    "RCPT/2026-10/0015"
+   ],
+   [
+    "RECEIPT:R-5:POST",
+    "RCPT/2026-10/0016"
+   ],
+   [
+    "RECEIPT:R-6:POST",
+    "RCPT/2026-10/0017"
+   ],
+   [
+    "RECEIPT:R-7:POST",
+    "RCPT/2026-10/0018"
+   ],
+   [
+    "RECEIPT:R-8:POST",
+    "RCPT/2026-10/0020"
+   ],
+   [
+    "RECEIPT:R-8:REVERSE",
+    "RCPT/2026-10/0033"
+   ],
+   [
+    "RECEIPT:R-9:POST",
+    "RCPT/2026-10/0021"
+   ],
+   [
+    "RECEIPT:R-9:REVERSE",
+    "RCPT/2026-10/0022"
+   ],
+   [
+    "SETTLEMENT:S-1:POST",
+    "CUST/2026-10/0027"
+   ],
+   [
+    "SETTLEMENT:S-2:POST",
+    "CUST/2026-10/0028"
+   ]
+  ],
+  "events": [
+   [
+    "AR_ENTRY:ae0010:POST",
+    "DONE",
+    null,
+    "OPEN/2026-10/0008",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-1:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0001",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-2:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0002",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-3:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0003",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-4:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0004",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-5:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0005",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-5:REVERSE",
+    "DONE",
+    null,
+    "REV/2026-10/0010",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-6:POST",
+    "DONE",
+    null,
+    "INV/2026-09/0006",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-6:REVERSE",
+    "DONE",
+    null,
+    "REV/2026-09/0007",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-8:POST",
+    "DONE",
+    null,
+    "INV/2026-10/0031",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-8:REVERSE",
+    "DONE",
+    null,
+    "INV/2026-10/0032",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:INV-9:POST",
+    "DONE",
+    null,
+    "INV/2026-10/0009",
+    null,
+    null,
+    null
+   ],
+   [
+    "INVOICE:RET-7:POST",
+    "DONE",
+    null,
+    "INV/2026-10/0011",
+    null,
+    null,
+    null
+   ],
+   [
+    "PAYLINK_FEE:se0022",
+    "DONE",
+    null,
+    "PLNK/2026-10/0019",
+    null,
+    null,
+    null
+   ],
+   [
+    "PAYOUT:PO-1",
+    "DONE",
+    null,
+    "PLNK/2026-10/0035",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-1:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0012",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-10:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0023",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-10:REVERSE",
+    "DONE",
+    null,
+    "REV/2026-10/0024",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-11:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0025",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-11:REVERSE",
+    "DONE",
+    null,
+    "REV/2026-10/0029",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-12:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0026",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-12:REVERSE",
+    "DONE",
+    null,
+    "REV/2026-10/0030",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-13:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0034",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-2:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0013",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-3:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0014",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-4:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0015",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-5:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0016",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-6:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0017",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-7:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0018",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-8:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0020",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-8:REVERSE",
+    "DONE",
+    null,
+    "RCPT/2026-10/0033",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-9:POST",
+    "DONE",
+    null,
+    "RCPT/2026-10/0021",
+    null,
+    null,
+    null
+   ],
+   [
+    "RECEIPT:R-9:REVERSE",
+    "DONE",
+    null,
+    "RCPT/2026-10/0022",
+    null,
+    null,
+    null
+   ],
+   [
+    "SETTLEMENT:S-1:POST",
+    "DONE",
+    null,
+    "CUST/2026-10/0027",
+    "0",
+    "0",
+    null
+   ],
+   [
+    "SETTLEMENT:S-1b:POST",
+    "SKIPPED",
+    "NETTED",
+    null,
+    "1000",
+    "0",
+    null
+   ],
+   [
+    "SETTLEMENT:S-2:POST",
+    "DONE",
+    null,
+    "CUST/2026-10/0028",
+    "0",
+    "0",
+    null
+   ],
+   [
+    "SETTLEMENT:S-3:POST",
+    "SKIPPED",
+    "NETTED",
+    null,
+    "2000",
+    "0",
+    null
+   ],
+   [
+    "SETTLEMENT:S-4:POST",
+    "SKIPPED",
+    "NETTED",
+    null,
+    "1000",
+    "0",
+    null
+   ],
+   [
+    "SETTLEMENT:S-4:REVERSE",
+    "SKIPPED",
+    "NETTED",
+    null,
+    null,
+    null,
+    null
+   ],
+   [
+    "SETTLEMENT:S-5:POST",
+    "SKIPPED",
+    "NETTED",
+    null,
+    "150",
+    "0",
+    null
+   ]
+  ]
+ }
+}

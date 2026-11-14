@@ -22,6 +22,9 @@ import {
   type IncomeStatement, type ReportAccountRoles,
 } from '../../services/gl/reports/incomeStatement';
 import { buildBalanceSheet, flattenBalanceSheet, type BalanceSheet } from '../../services/gl/reports/balanceSheet';
+import type { PartnerReclassInput } from '../../services/gl/reports/balanceSheet';
+import { loadPartnerReclass } from '../../services/gl/reports/partnerLoad.prisma';
+import { isLinked } from '../../services/gl/mode';
 import { buildExecutiveSummary, executiveSummaryLineCount } from '../../services/gl/reports/executive';
 import {
   MAX_FILTER_IDS, MAX_SEARCH_LENGTH, REPORT_BREAKDOWNS, REPORT_COMPARISON_KINDS, REPORT_DATE_MODES,
@@ -99,7 +102,7 @@ export function canonicalReportKey(raw: string): ReportKey | null {
 
 /** تقارير §7.6 إلى §7.10 تُسلَّم مع مراحلها (M4+/M5/M6/M7/M11) — 404 مفهوم لا «مفتاح مجهول». */
 export const LATER_REPORT_KEYS = [
-  'partner-ledger', 'aged-receivable', 'aged-payable', 'vat-return', 'cash-flow',
+  'vat-return', 'cash-flow',
 ] as const;
 
 // ═══ السقوف ═══
@@ -391,6 +394,8 @@ export function reportOptionsHash(key: string, req: ParsedReportRequest): string
 export interface StatementPeriodBalances {
   period: ReportPeriod;
   balances: readonly AccountBalance[];
+  /** «ربط الدفاتر» L8 (E5.15): أرصدة الشركاء «اعتباراً من» تاريخ هذا العمود — للميزانية في المربوطة وحدها */
+  partnerReclass?: PartnerReclassInput | null;
 }
 
 /**
@@ -414,6 +419,10 @@ export interface StatementInput {
   draftMoveCount: number;
   /** أعمدة المقارنة، الأقرب أولاً (فارغة بلا مقارنة، RPT‑04) */
   comparisons: readonly StatementPeriodBalances[];
+  /** «ربط الدفاتر» L8: الدفاتر مربوطة (isLinked) — الميزانية تُعيد تصنيف أرصدة الشركاء عرضاً (E5.15). الغائب = كما كانت حرفاً */
+  linkedPosting?: boolean;
+  /** أرصدة الشركاء «اعتباراً من» الفترة الأساسية (loadPartnerReclass) — للميزانية في المربوطة وحدها */
+  partnerReclass?: PartnerReclassInput | null;
 }
 
 /**
@@ -538,18 +547,20 @@ export const incomeStatementAdapter: StatementBuilder = (input) => {
 
 /** الميزانية «اعتباراً من» D، وأعمدة المقارنة ميزانياتٌ كاملة بتواريخ سابقة (§7.4). */
 export const balanceSheetAdapter: StatementBuilder = (input) => {
-  const make = (period: ReportPeriod, balances: readonly AccountBalance[]): BalanceSheet => buildBalanceSheet({
+  // «ربط الدفاتر» L8 (E5.15): المربوطة تعيد تصنيف أرصدة الشركاء عرضاً — كل عمودٍ بأرصدة تاريخه (balanceSheetReclassInputs)
+  const make = (period: ReportPeriod, balances: readonly AccountBalance[], reclass?: PartnerReclassInput | null): BalanceSheet => buildBalanceSheet({
     period,
     accounts: input.accounts,
     balances,
     roles: input.roles,
-    settings: { drawingsAfterNetProfit: input.settings.drawingsAfterNetProfit },
+    settings: { drawingsAfterNetProfit: input.settings.drawingsAfterNetProfit, ...(input.linkedPosting === true ? { linkedPosting: true } : {}) },
+    ...(reclass ? { partnerReclass: reclass } : {}),
     hideZero: input.options.hideZero,
     search: input.options.search,
     unit: input.options.unit,
     hierarchy: input.options.hierarchy,
   });
-  const sheet = make(input.period, input.balances);
+  const sheet = make(input.period, input.balances, input.partnerReclass);
   return {
     rows: sheet.sections,
     totals: {
@@ -566,9 +577,35 @@ export const balanceSheetAdapter: StatementBuilder = (input) => {
     lineCount: balanceSheetLineCount(sheet),
     asOf: sheet.asOf,
     statementOptions: sheet.options,
-    comparisonColumns: input.comparisons.map((c) => comparisonColumn(make(c.period, c.balances))),
+    comparisonColumns: input.comparisons.map((c) => comparisonColumn(make(c.period, c.balances, c.partnerReclass))),
+    // ملخّص إعادة التصنيف وتحذيرها حين طُبّقت وحدها (غيابهما = الميزانية كما كانت حرفاً) — التحذير يُضمّ إلى warnings (statementWarnings)
+    ...(sheet.partnerReclass ? { partnerReclass: sheet.partnerReclass } : {}),
+    ...(sheet.warnings?.length ? { warnings: sheet.warnings } : {}),
   };
 };
+
+/** تحذيرات المحرّك من مخرَج القائمة (`warnings`، كـPARTNER_RECLASS للميزانية) — تُضمّ إلى تنبيهات الردّ لا تُنشر حقلاً مستقلاً. صرفة. */
+export function statementWarnings(result: StatementResult): ReportWarning[] {
+  const w = result.warnings;
+  if (!Array.isArray(w)) return [];
+  return w.filter((x): x is ReportWarning => !!x && typeof x === 'object' && typeof (x as ReportWarning).code === 'string')
+    .map((x) => ({ code: x.code, message: x.message, ...(x.details ? { details: x.details } : {}) }));
+}
+
+/**
+ * مدخل إعادة تصنيف الميزانية (E5.15): للمربوطة وحدها — أرصدة الشركاء «اعتباراً من» تاريخ كل عمود (الأساسي ثم المقارنة).
+ * غير المربوطة: قراءة gl_settings وحدها، والميزانية كما كانت حرفاً (لا linkedPosting ولا أرصدة).
+ */
+export async function balanceSheetReclassInputs(
+  tx: ReportDb, tenantId: string, period: ReportPeriod, comparisons: readonly ReportPeriod[],
+): Promise<{ linkedPosting: boolean; base: PartnerReclassInput | null; comparisons: (PartnerReclassInput | null)[] }> {
+  const gl = await tx.glSettings.findUnique({ where: { tenantId }, select: { setupMethod: true, activatedAt: true } });
+  if (!isLinked(gl)) return { linkedPosting: false, base: null, comparisons: comparisons.map(() => null) };
+  const base = await loadPartnerReclass(tx, tenantId, period.to);
+  const cmp: (PartnerReclassInput | null)[] = [];
+  for (const p of comparisons) cmp.push(await loadPartnerReclass(tx, tenantId, p.to));
+  return { linkedPosting: true, base, comparisons: cmp };
+}
 
 /**
  * ORPT‑09 «الملخّص التنفيذي» (§7.3): اثنتا عشرة بطاقة — الإيراد وإجمالي الربح وهامشه وصافي الربح
@@ -1259,6 +1296,9 @@ async function buildStatement(
 
   // الميزان لا يحتاج الأدوار؛ قائمة الدخل والميزانية تحتاجانها (المسحوبات والأرباح المبقاة)
   const roles = key === 'trial-balance' ? EMPTY_ACCOUNT_ROLES : await loadReportAccountRoles(prisma, tenantId, accounts);
+  // «ربط الدفاتر» L8 (E5.15): أرصدة الشركاء للميزانية في المربوطة — لكل عمودٍ بتاريخه (غيرها: الميزانية كما كانت حرفاً)
+  const reclass = key === 'balance-sheet' ? await balanceSheetReclassInputs(prisma, tenantId, period, cmpPeriods) : null;
+  if (reclass) comparisons.forEach((c, i) => { c.partnerReclass = reclass.comparisons[i] ?? null; });
 
   const result = STATEMENT_BUILDERS[key]({
     reportKey: key,
@@ -1271,6 +1311,7 @@ async function buildStatement(
     showZero: req.showZero,
     draftMoveCount: sources.draftMoveCount,
     comparisons,
+    ...(reclass?.linkedPosting ? { linkedPosting: true, partnerReclass: reclass.base } : {}),
   });
 
   return {
@@ -1289,7 +1330,8 @@ async function buildStatement(
     extra: { ...statementExtras(result), draftMoveCount: sources.draftMoveCount },
     comparisonIgnored: false,
     accountFilterIgnored: req.accounts.length > 0,
-    engineWarnings: [],
+    // تحذيرات المحرّك (PARTNER_RECLASS في الميزانية المربوطة) — تُضمّ إلى warnings في الردّ (reportWarnings)
+    engineWarnings: statementWarnings(result),
   };
 }
 

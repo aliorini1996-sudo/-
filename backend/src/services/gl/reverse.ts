@@ -22,6 +22,7 @@ import {
 import { sequencePrefixFor } from './sequence';
 import { validateMove, validationModeOf } from './validate';
 import { LedgerError, type LocalDate, type MoveDraft, type SourceEvent } from './types';
+import { applyReversalVatPeriod, type ReversalVatPeriod } from './vat/period';
 
 // ═══ G5: سبب العكس ═══
 
@@ -83,6 +84,12 @@ export interface ReversalDraftOptions {
   /** للعكس الآلي: مفتاح المصدر (مثل INVOICE:<id>:REVERSE) وحدثه */
   sourceKey?: string | null;
   sourceEvent?: SourceEvent | null;
+  /**
+   * «ربط الدفاتر» OD17 (للمربوطة وحدها — المُمرِّر يحرسه، وvat/period.linkedReversalVatPeriod يعيد undefined لغيرها):
+   * سطور TAX/MARKER تصير vatAdjustment = الأصل || (فترة إقرار الأصل ≠ فترة تاريخ العكس بعد إزاحة الإقفال إن مُرِّرت
+   * lockShift). الغائب ⇒ كما كان حرفاً (vatAdjustment منسوخ).
+   */
+  vatPeriod?: ReversalVatPeriod;
 }
 
 /**
@@ -92,7 +99,7 @@ export interface ReversalDraftOptions {
 export function reversalDraftFromRecord(original: MoveRecordForDraft, opts: ReversalDraftOptions): MoveDraft {
   const base = moveDraftFromRecord(original);
   const ref = opts.originalNumber ? ` ${opts.originalNumber}` : '';
-  return {
+  const draft: MoveDraft = {
     ...base,
     sequencePrefix: sequencePrefixFor(base.journalCode, base.moveType),
     date: opts.date,
@@ -111,6 +118,8 @@ export function reversalDraftFromRecord(original: MoveRecordForDraft, opts: Reve
       taxBaseMilli: l.taxBaseMilli === null || l.taxBaseMilli === undefined ? l.taxBaseMilli : -l.taxBaseMilli,
     })),
   };
+  // OD17: base.date = تاريخ الأصل كما رُحِّل فعلاً (بعد أي إزاحة) — هو ما دخلت به ضريبته الإقرار
+  return opts.vatPeriod ? applyReversalVatPeriod(draft, base.date, opts.vatPeriod) : draft;
 }
 
 // ═══ reverseMove ═══

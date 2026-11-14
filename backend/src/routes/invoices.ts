@@ -31,6 +31,9 @@ import { REP_PRODUCT_RULE_CODE, replayPredatesRepRule, repLineProblem, repLinked
 import { replayPredatesReturnPolicy, returnLinkRequired } from '../services/returnPolicy';
 // «إزالة الضريبة» (services/taxMode.ts، طلب المالك ٧ نوفمبر ٢٠٢٦): بنود المستند الجديد لشركةٍ «بلا ضريبة» صفرٌ وختمه Invoice.taxFree
 import { TAX_MODE_CODES, TAX_MODE_MESSAGES, isTaxOff } from '../services/taxMode';
+// «ربط الدفاتر» L4 (B1 وB6): الحكم «مربوطة» من صفّ gl_settings — services/booksMode لا services/gl (حارس gl-hooks-static)
+import { isLinked } from '../services/booksMode';
+import { companyZoneOf } from '../services/invoiceExpiry';
 import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, requireAccounting, tenantId } from '../middleware/auth';
 import { scopedRecordWhere, canAccessRep, existingInScope, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
@@ -708,6 +711,96 @@ export function linkedReturnRemainingApplied(
   if (!sale || sale.type !== 'CREDIT' || sale.status !== 'CONFIRMED') return 0;
   const applied = Math.min(Math.max(0, Number(sale.remainingAmt) || 0), Math.max(0, Number(returnTotal) || 0));
   return applied > 0 ? clean(applied) : 0;
+}
+
+// ═══ «ربط الدفاتر» L4 — B1 وB6: للشركة ذات الدفاتر المربوطة وحدها (isLinked)، وغيرها مسارها حرفاً كما كان ═══
+
+/** فرق منطقة الشركة عن UTC عند لحظةٍ بالملّي ثانية (Intl وحده) */
+function zoneOffsetMs(t: number, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric',
+  }).formatToParts(new Date(t));
+  const get = (k: Intl.DateTimeFormatPartTypes): number => Number(parts.find((p) => p.type === k)?.value);
+  return Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'), get('second')) - Math.floor(t / 1000) * 1000;
+}
+
+/**
+ * أول لحظة من يومٍ تقويمي (YYYY-MM-DD) بتوقيت الشركة — مرآة zonedStartOfDay في services/gl/dates.ts حرفاً (لا تُستورد هنا:
+ * حارس gl-hooks-static؛ واختبار l458-a08 يطابقهما). القفزة الصيفية عند منتصف الليل ⇒ أول لحظة موجودة من اليوم.
+ */
+export function companyDayStart(day: string, timeZone: string): Date {
+  const [y, m, d] = day.split('-').map(Number);
+  const wall = Date.UTC(y, m - 1, d);
+  let t = wall - zoneOffsetMs(wall, timeZone);
+  for (let i = 0; i < 2; i++) {
+    const next = wall - zoneOffsetMs(t, timeZone);
+    if (next === t) break;
+    t = next;
+  }
+  if (localDateIn(new Date(t), timeZone) < day) {
+    let lo = t, hi = t + 3 * 3_600_000;
+    while (hi - lo > 1000) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (localDateIn(new Date(mid), timeZone) < day) lo = mid; else hi = mid;
+    }
+    t = hi;
+  }
+  return new Date(t);
+}
+
+/**
+ * B1 (D9): استحقاق الآجلة الافتراضي = بداية يوم (التاريخ المحلي للمستند + paymentDays يوماً) بتوقيت الشركة — فيقرؤه المُطابِق
+ * (localDate(dueDate, tz)) يومَه نفسه في أي منطقة. والمهلة غير الرقمية ⇒ لا استحقاق مخترع، والسالبة صفر: قاعدة اشتقاق الحمولة
+ * للتاريخ القديم نفسها (desired.ts — dueDateDerived)، فيتطابق ما يُكتب عند الإصدار وما يُشتقّ لما صدر قبل الربط.
+ */
+export function creditDefaultDueDate(at: Date, timeZone: string, paymentDays: number | null | undefined): Date | undefined {
+  if (typeof paymentDays !== 'number' || !Number.isFinite(paymentDays)) return undefined;
+  // تاريخ مستندٍ غير صالح: لا استحقاق (والإصدار يرفضه كما كان — لا عطل جديد من هنا)
+  if (!Number.isFinite(at.getTime())) return undefined;
+  const days = Math.max(0, Math.trunc(paymentDays));
+  const [y, m, d] = localDateIn(at, timeZone).split('-').map(Number);
+  const due = new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+  return companyDayStart(due, timeZone);
+}
+
+/**
+ * B1 عند الإصدار: قراءةٌ واحدة لـgl_settings (الوضع ومنطقة الدفاتر معاً) — للمربوطة وحدها استحقاقٌ افتراضي، وغيرها undefined
+ * كما كان حرفاً (والمنطقة: الدفاتر ثم بلد الشركة المقروء أصلاً في صفّ الإعدادات — tenantTz نفسه بلا استعلامه الثاني).
+ */
+export async function linkedCreditDueDate(
+  db: Pick<Prisma.TransactionClient, 'glSettings'>, tenantId: string, at: Date,
+  paymentDays: number | null | undefined, countryCode: string | null | undefined,
+): Promise<Date | undefined> {
+  const gl = await db.glSettings.findUnique({ where: { tenantId }, select: { setupMethod: true, activatedAt: true, timezone: true } });
+  if (!isLinked(gl)) return undefined;
+  return creditDefaultDueDate(at, companyZoneOf(gl?.timezone, countryCode), paymentDays);
+}
+
+/**
+ * B6 (D10، مثال E4.9): مرتجعٌ مرتبط بفاتورة بيعٍ **خاضعة** (غير مختومة taxFree وفي بنودها المرتجعة نسبةٌ فوق الصفر) في شركةٍ
+ * أزالت ضريبتها ودفاترها مربوطة ⇒ يحتفظ كل بند بنسبة بند البيع: ضريبة المخرجات التي فُرضت عند البيع تُعكس بعينها، والمبلغ
+ * المسترد نفسه (priceLinkedReturn يحسبه شاملاً من بند البيع). الختم taxFree يبقى (العرض والطباعة وZATCA: none/null كما هي). صرف.
+ */
+export function returnKeepsSaleVat(i: {
+  linked: boolean; docTaxFree: boolean; saleTaxFree: boolean | null | undefined; saleLines: ReadonlyMap<string, SaleLineForRefund>;
+}): boolean {
+  if (!i.linked || !i.docTaxFree || i.saleTaxFree === true) return false;
+  for (const l of i.saleLines.values()) if (Number(l.taxPct) > 0) return true;
+  return false;
+}
+
+/**
+ * B6 عند الإصدار: بلا ختمٍ أو بلا بند بيعٍ خاضع ⇒ لا قراءة أبداً. وإلا gl_settings، ثم ختم فاتورة البيع للمربوطة وحدها.
+ */
+export async function linkedReturnKeepsSaleVat(
+  db: Pick<Prisma.TransactionClient, 'glSettings' | 'invoice'>, tenantId: string, saleInvoiceId: string,
+  saleLines: ReadonlyMap<string, SaleLineForRefund>, docTaxFree: boolean,
+): Promise<boolean> {
+  if (!returnKeepsSaleVat({ linked: true, docTaxFree, saleTaxFree: false, saleLines })) return false;
+  const gl = await db.glSettings.findUnique({ where: { tenantId }, select: { setupMethod: true, activatedAt: true } });
+  if (!isLinked(gl)) return false;
+  const sale = await db.invoice.findFirst({ where: { id: saleInvoiceId, tenantId }, select: { taxFree: true } });
+  return returnKeepsSaleVat({ linked: true, docTaxFree, saleTaxFree: sale?.taxFree ?? null, saleLines });
 }
 
 /** بند مستندٍ للعرض والطباعة (القاعدة ٨): لقطة وحدته، وإلّا وحدة صنفه — صفٌّ بلا لقطة كُتب بوحدة الأساس وقتها */
@@ -1652,6 +1745,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         res.status(400).json({ success: false, message: `عدد الأقساط يتجاوز الحد المسموح (${MAX_INSTALLMENTS})` }); return;
       }
     }
+    /* «ربط الدفاتر» B1 (D9): الآجلة بلا أقساط وبلا تاريخ استحقاقٍ صريح في شركةٍ دفاترها مربوطة ⇒ الاستحقاق = يوم المستند بتوقيت
+     * الشركة + مهلة العميل (paymentDays من صفّه المحمَّل أعلاه) — فتحمل ذمّتها في الدفاتر وفي أعمار الديون استحقاقاً حقيقياً.
+     * قراءة gl_settings الواحدة حين يتحقّق الشرط وحده، وغير المربوطة undefined كما كانت (العمود فارغ) */
+    const linkedDefaultDue = body.type === 'CREDIT' && !installmentRows.length && !body.dueDate
+      ? await linkedCreditDueDate(prisma, tid, docDate ?? new Date(), customer.paymentDays, company?.countryCode)
+      : undefined;
 
     // «قيود المندوب» على الصنف (services/repProductRules.ts، طلب المالك ٣١ أكتوبر ٢٠٢٦): بيعٌ أو مرتجعٌ — حرٌّ أو من فاتورة —
     // بوحدة بنده (لقطة الخادم snapOf، معامل ١ = الصغرى). للمندوب وحده، وقبل فرع المرحلة الثانية فيشمل المرتجع-إشعاراً دائناً.
@@ -1758,7 +1857,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         signatureImages,
         creditCheck,
         deliveryDate: deliveryOk,
-        dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
+        dueDate: body.dueDate ? new Date(body.dueDate) : linkedDefaultDue,
         // «تتبّع اللوط» (§٤.٩): الخطة نفسها — فحصٌ مسبق قبل التوقيع، والتوزيع داخل createInvoice (لا طابور هنا، D29)
         ...(lotPlan && { lots: lotPlan }),
         // والعلم من صفّ المندوب المحمَّل (لا استعلام): حارس D25 للصنف الذي صار متتبَّعاً بين القراءة وقفل الفرع
@@ -1898,9 +1997,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const refundSaleIds = [...new Set(saleLinkLines.map(l => l.saleItemId).filter((x): x is string => !!x))];
     let refundLines = new Map<string, SaleLineForRefund>();
     let refundReturned = new Map<string, number>();
+    // «ربط الدفاتر» B6: مرتجعٌ مختوم «بلا ضريبة» يحتفظ بنسبة بند بيعه الخاضع (المربوطة وحدها — linkedReturnKeepsSaleVat)
+    let keepSaleVat = false;
     const priceRefund = (returned: ReadonlyMap<string, number>): Priced => {
       // «إزالة الضريبة»: المرتجع بلا ضريبة بنسبة صفر والمبلغ نفسه (والشركة بضريبتها: الخيارات كما كانت حرفياً)
-      const c = priceLinkedReturn(body.items, saleLinkLines, refundLines, returned, docTaxFree ? { companyVat, decimals: dec, taxFree: true } : { companyVat, decimals: dec });
+      const c = priceLinkedReturn(body.items, saleLinkLines, refundLines, returned, docTaxFree && !keepSaleVat ? { companyVat, decimals: dec, taxFree: true } : { companyVat, decimals: dec });
       return {
         items: finalItems.map((src, idx) => ({ ...src, ...c.items[idx] })),
         subtotal: c.subtotal, discountAmt: c.discountAmt, taxAmt: c.taxAmt, total: c.total, pricesIncludeTax: true, discountPct: 0,
@@ -1911,6 +2012,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         saleLinesForRefund(prisma, tid, saleForReturn, refundSaleIds),
         returnedBySaleItem(prisma, tid, refundSaleIds),
       ]);
+      keepSaleVat = await linkedReturnKeepsSaleVat(prisma, tid, saleForReturn, refundLines, docTaxFree);
       priced = priceRefund(refundReturned);
     }
 
@@ -2051,7 +2153,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           // مع خطة أقساط: الاستحقاق هو آخر قسط (لحظة براءة الذمّة) لا ما أرسله العميل
           dueDate: installmentRows.length
             ? installmentRows[installmentRows.length - 1].dueDate
-            : (body.dueDate ? new Date(body.dueDate) : undefined),
+            : (body.dueDate ? new Date(body.dueDate) : linkedDefaultDue),
           ...(body.paymentPlan && { paymentPlan: body.paymentPlan }),
           ...(installmentRows.length && {
             installments: {

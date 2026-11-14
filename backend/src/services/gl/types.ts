@@ -146,6 +146,8 @@ export const MOVE_TYPES = [
   'PAYLINK_PAYOUT', 'IMPORT', 'IN_INVOICE', 'IN_REFUND', 'PAYMENT', 'EXPENSE', 'STATEMENT_LINE',
   'RECONCILE', 'STOCK', 'COGS', 'INV_CLOSING', 'DEPRECIATION', 'LOAN', 'DEFERRAL', 'TAX_CLOSING',
   'OPENING', 'FY_CLOSING', 'FX', 'CUSTOMER_ADJUSTMENT', 'CUSTODY_SHORTAGE', 'CONTROL_ADJUSTMENT',
+  // «ربط الدفاتر» D12: استرداد الدفع الإلكتروني بعد إلغاء يدوي (C9)، وردّ رصيد العميل الدائن (M4)
+  'CUSTOMER_REFUND',
 ] as const;
 export type MoveType = (typeof MOVE_TYPES)[number];
 
@@ -202,11 +204,26 @@ export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 export type ReceiptRouteTarget = 'CUSTODY' | 'DIRECT';
 export type ReceiptRouting = Partial<Record<Exclude<PaymentMethod, 'ONLINE'>, ReceiptRouteTarget>>;
 
+/**
+ * «ربط الدفاتر» D3 (OD4/OD14/C2/C10): المفاتيح الأساسية لصفوف GlPaymentMethodMap — طرق السند الأربع غير الإلكترونية،
+ * وCARD لتحصيل البطاقة (CardPayment)، وPAYOUT لتوريد أمانات الدفع الإلكتروني. ONLINE غير قابل للربط (112005 أو 911001).
+ * المفتاح المخصّص c_… يُتحقَّق منه بـCUSTOM_METHOD_KEY_RE في نواة طرق الدفع خارج services/gl، يستوردها مسار خريطة الطرق
+ * (routes/ledger/paymentMethodMap.ts) — هذا الملف صرف بلا استيراد، ولا يعرّف النمط ثانيةً.
+ */
+export const PAYMENT_METHOD_MAP_KEYS = ['CASH', 'BANK_TRANSFER', 'POS', 'CHEQUE', 'CARD', 'PAYOUT'] as const;
+export type PaymentMethodMapKey = (typeof PAYMENT_METHOD_MAP_KEYS)[number];
+
+export function isPaymentMethodMapKey(v: unknown): v is PaymentMethodMapKey {
+  return typeof v === 'string' && (PAYMENT_METHOD_MAP_KEYS as readonly string[]).includes(v);
+}
+
 // ═══ المزامنة والأحداث (§3.4، §5.2، §5.4) ═══
 
 export const SOURCE_TYPES = [
   'INVOICE', 'RECEIPT', 'AR_ENTRY', 'SETTLEMENT', 'PAYLINK_FEE', 'PAYOUT', 'WH_ENTRY', 'VAN_LOAD',
   'RESTOCK', 'CUSTOMER_ADJUSTMENT',
+  // «ربط الدفاتر» D13: توريد عهدة مستخدم الشركة (UserSettlement، C14)، واسترداد الدفع الإلكتروني (SettlementEntry REFUND، C9)
+  'USER_SETTLEMENT', 'PAYLINK_REFUND',
 ] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
@@ -269,6 +286,12 @@ export const LEDGER_ERROR_HTTP = {
   // إضافة validate.ts (خارج ملحق ب): I5 بلا رمز في التصميم، وسطر بحساب لا يُحلّ
   LEDGER_PARTNER_REQUIRED: 422,
   LEDGER_ACCOUNT_NOT_FOUND: 422,
+  // «ربط الدفاتر» L4/L5: مسارات M4 وخريطة الطرق والتسوية الموجّهة وفحص توجيه العهدة (OD4)
+  LEDGER_BOOKS_NOT_LINKED: 409,
+  LEDGER_METHOD_ACCOUNT_INVALID: 422,
+  LEDGER_ADJUSTMENT_ALLOCATION_INVALID: 422,
+  LEDGER_CLEARING_INVALID: 422,
+  LEDGER_ROUTING_CUSTODY_NONCASH: 422,
 } as const;
 export type LedgerErrorCode = keyof typeof LEDGER_ERROR_HTTP;
 
@@ -395,6 +418,12 @@ export interface GlSettingsSnapshot {
   earlyDiscountAdjustsVat: boolean;
   taxRoundingMethod: 'PER_TAX' | 'PER_LINE';
   defaultPurchaseTaxId: string | null;
+  /**
+   * «ربط الدفاتر» (D1): true للدفاتر المربوطة المفعّلة وحدها (setupMethod = LINKED مع activatedAt) — تكتبه
+   * settingsSnapshotFromRow حين isLinked(row). الغائب = سلوك اليوم حرفياً (اليدوية والقديمة وغير المفعّلة)،
+   * ولا يضيفه DEFAULT_GL_SETTINGS. كل سلوك ترحيل جديد في الـbuilders محروس به.
+   */
+  linkedPosting?: true;
 }
 
 /** القيم الافتراضية من @default في §3.2 — للاختبارات والمعالج. */
@@ -444,6 +473,11 @@ export interface LineDraft {
   customerId?: string | null;
   vendorId?: string | null;
   salesRepId?: string | null;
+  /**
+   * «ربط الدفاتر» L5 (D2): بُعد مستخدم الشركة (Admin.id) على 111004 عهدة تحصيلات المستخدمين — سطر CUSTODY يحمل
+   * salesRepId أو adminUserId ولا يحملهما معاً (validate: CUSTODY_PARTNER_AMBIGUOUS).
+   */
+  adminUserId?: string | null;
   /** لقطة الاسم — إلزامية حين يوجد customerId أو vendorId أو salesRepId (G6 (ز)) */
   partnerName?: string | null;
   analyticAccountId?: string | null;
@@ -526,6 +560,8 @@ export interface TaxResolver {
 export interface JournalResolver {
   bySystemKey(key: JournalSystemKey): JournalRef | null;
   byCode(code: string): JournalRef | null;
+  /** «ربط الدفاتر» L5: دفتر صف خريطة الطرق (MethodAccountRef.journalId) بمعرّفه — اختياري للسياقات المزيّفة القائمة */
+  byId?(id: string): JournalRef | null;
 }
 
 export interface BuildContext {
@@ -537,6 +573,18 @@ export interface BuildContext {
   categoryAccounts(categoryId: string): CategoryAccountsRef | null;
   /** GlRepAnalyticDefault — null = بلا تحليلي */
   repAnalytic(salesRepId: string): string | null;
+  /**
+   * «ربط الدفاتر» L5 (D3): صف GlPaymentMethodMap للمفتاح (المخصّص c_… أو الأساس) — null إن لم يُربط.
+   * اختياري: يغيب عن السياقات القديمة والمزيّفة وعن الشركات غير المربوطة (loadBuildContext لا يحمّل الخريطة لها)،
+   * فالـbuilder يقرؤه بـctx.paymentMethodAccount?.(key) ويسقط إلى الحساب الافتراضي للطريقة.
+   */
+  paymentMethodAccount?(methodKey: string): MethodAccountRef | null;
+}
+
+/** «ربط الدفاتر» L5: حساب طريقة الدفع المربوط (GlPaymentMethodMap) ودفتره الاختياري (null = دفتر السندات) */
+export interface MethodAccountRef {
+  accountId: string;
+  journalId: string | null;
 }
 
 export interface BuildContextInput {
@@ -548,6 +596,8 @@ export interface BuildContextInput {
   journals?: readonly JournalRef[];
   categoryAccounts?: Readonly<Record<string, CategoryAccountsRef>>;
   repAnalytics?: Readonly<Record<string, string>>;
+  /** «ربط الدفاتر» L5: methodKey ← صف الخريطة. الغائب ⇒ السياق بلا paymentMethodAccount (كما كان قبل L5) */
+  paymentMethodMaps?: Readonly<Record<string, MethodAccountRef>>;
 }
 
 /** يبني سياقاً في الذاكرة من صفوف مقروءة مسبقاً — للمُرحِّل (M3) وللاختبارات. */
@@ -568,9 +618,11 @@ export function createBuildContext(input: BuildContextInput): BuildContext {
   const journals = input.journals ?? [];
   const jByKey = new Map<string, JournalRef>();
   const jByCode = new Map<string, JournalRef>();
+  const jById = new Map<string, JournalRef>();
   for (const j of journals) {
     if (j.systemKey) jByKey.set(j.systemKey, j);
     jByCode.set(j.code, j);
+    jById.set(j.id, j);
   }
   return {
     settings: { ...DEFAULT_GL_SETTINGS, ...(input.settings ?? {}) },
@@ -590,8 +642,23 @@ export function createBuildContext(input: BuildContextInput): BuildContext {
     journals: {
       bySystemKey: (key) => jByKey.get(key) ?? null,
       byCode: (code) => jByCode.get(code) ?? null,
+      byId: (id) => jById.get(id) ?? null,
     },
     categoryAccounts: (categoryId) => input.categoryAccounts?.[categoryId] ?? null,
     repAnalytic: (salesRepId) => input.repAnalytics?.[salesRepId] ?? null,
+    ...paymentMethodAccountOf(input.paymentMethodMaps),
+  };
+}
+
+/**
+ * يضيف paymentMethodAccount للسياق حين تُمرَّر الخريطة وحدها — وإلا لا مفتاح إطلاقاً فيبقى شكل السياق كما كان قبل L5
+ * (مساواة عميقة في الاختبارات الذهبية). hasOwnProperty: مفتاح مثل 'constructor' لا يُقرأ من سلسلة النموذج الأولي.
+ */
+function paymentMethodAccountOf(
+  maps: Readonly<Record<string, MethodAccountRef>> | undefined,
+): Pick<BuildContext, 'paymentMethodAccount'> | Record<string, never> {
+  if (!maps) return {};
+  return {
+    paymentMethodAccount: (methodKey: string) => (Object.prototype.hasOwnProperty.call(maps, methodKey) ? maps[methodKey] : null),
   };
 }

@@ -37,6 +37,11 @@ export interface CutoverContext {
   initialWatermarkAt: Date;
   /** البداية النظيفة (setupMethod = CLEAN): كل ما أُنشئ حتى T0 خارج الدفاتر أياً كان تاريخ أثره */
   cleanStart?: boolean;
+  /**
+   * «ربط الدفاتر» OD12: هل تُتخطّى صفوف AR_ENTRY (الأرصدة المستوردة) أبداً؟ الغائب ⇒ cleanStart (سلوك اليوم حرفياً).
+   * المربوطة تمرّر false (cutoverContextOf في poster.ts) فيدخل الاستيراد قبل linkedFrom الافتتاحَ، وبعده 319002 مع تنبيه.
+   */
+  skipImportedBalances?: boolean;
 }
 
 /**
@@ -113,7 +118,8 @@ export interface OriginFacts {
 }
 
 /**
- * أصل POST من حمولة tombstone (§5.3، §5.4): SETTLEMENT ⇒ settledAt/createdAt، AR_ENTRY ⇒ entryDate/createdAt.
+ * أصل POST من حمولة tombstone (§5.3، §5.4): SETTLEMENT ⇒ settledAt/createdAt، AR_ENTRY ⇒ entryDate/createdAt،
+ * USER_SETTLEMENT («ربط الدفاتر» C13/C14) ⇒ settledAt/createdAt.
  * null لغير مصادر tombstone أو حمولة ناقصة. sourceExists=false دائماً (الصف محذوف).
  */
 export function tombstoneOrigin(sourceType: SourceType, payload: unknown): OriginFacts | null {
@@ -127,6 +133,12 @@ export function tombstoneOrigin(sourceType: SourceType, payload: unknown): Origi
     const p = payload as Partial<ArEntryEventPayload>;
     if (!p.entryDate || !p.createdAt) return null;
     return { originEffectAt: p.entryDate as Instant, originCreatedAt: p.createdAt as Instant, sourceExists: false };
+  }
+  if (sourceType === 'USER_SETTLEMENT') {
+    // الحقلان نصّا ISO في حمولة توريد المستخدم (UserSettlementPayload، builders/userCustody.ts) — شكل بنيوي هنا بلا استيراد
+    const p = payload as { settledAt?: unknown; createdAt?: unknown };
+    if (!p.settledAt || !p.createdAt) return null;
+    return { originEffectAt: p.settledAt as Instant, originCreatedAt: p.createdAt as Instant, sourceExists: false };
   }
   return null;
 }
@@ -311,7 +323,8 @@ export function planEvent(input: PlanEventInput): EventPlan {
   // البداية النظيفة: «لا نريد أي استيراد غير يدوي» (المالك والخبير، ٢٨ سبتمبر ٢٠٢٦) — صفوف AR_ENTRY (الأرصدة وكشوف الحسابات
   // المستوردة، ورصيد العميل الافتتاحي من التطبيق) لا تُرحَّل إلى الدفاتر أبداً، قبل التفعيل ولا بعده. تسوية العميل من الدفاتر
   // (CUSTOMER_ADJUSTMENT) يكتب مستندُها حدثَها DONE بنفسه فلا تمرّ من هنا، وعكسها REVERSE_LIVE في بوابة الأشقاء.
-  if (input.cutover.cleanStart && input.sourceType === 'AR_ENTRY' && input.event === 'POST') {
+  // «ربط الدفاتر» OD12: skipImportedBalances يعلو cleanStart حين يُمرَّر (المربوطة false)؛ الغائب ⇒ كما كان حرفياً
+  if ((input.cutover.skipImportedBalances ?? input.cutover.cleanStart) && input.sourceType === 'AR_ENTRY' && input.event === 'POST') {
     return { action: 'SKIP', skipReason: 'OPENING', siblingWrite: null };
   }
   const own = classifyCutover(input.self, input.cutover);
@@ -397,6 +410,25 @@ export function settlementOrderReady(input: {
   if (!w || w.at.getTime() <= toDate(input.settlementCreatedAt).getTime()) return false;
   const settled = toDate(input.settledAt).getTime();
   return !input.repReceiptEvents.some((r) => (r.status === 'PENDING' || r.status === 'BLOCKED') && r.effectAt.getTime() <= settled);
+}
+
+/**
+ * ترتيب USER_SETTLEMENT («ربط الدفاتر» C14، مرآة settlementOrderReady): توريد المستخدم يُقسَّم إلى «مرور» من الوعاء غير النقدي
+ * و«عهدة» نقدية بما استلمه قبله (userDeliverySplitBefore) — فلا يُرحَّل حتى:
+ *  (1) يتجاوز مؤشر REP_SETTLEMENT (الفعّال) createdAt التوريد: كل استلامٍ من المناديب أُنشئ قبله قُرئ وأُدرجت أحداثه؛
+ *  (2) ولا حدث SETTLEMENT لاستلامٍ بيد المستخدم (receivedByUserId) بحالة PENDING/BLOCKED وeffectAt ≤ settledAt،
+ *      فيُرحَّل مدين 111004 قبل دائنه ولا يُرى رصيد المستخدم سالباً في الدفاتر لحظةً.
+ */
+export function userSettlementOrderReady(input: {
+  settlementCreatedAt: Instant;
+  settledAt: Instant;
+  repSettlementWatermark: CompositeKey | null;
+  feedEvents: readonly { status: EventStatus; effectAt: Date }[];
+}): boolean {
+  const w = input.repSettlementWatermark;
+  if (!w || w.at.getTime() <= toDate(input.settlementCreatedAt).getTime()) return false;
+  const settled = toDate(input.settledAt).getTime();
+  return !input.feedEvents.some((r) => (r.status === 'PENDING' || r.status === 'BLOCKED') && r.effectAt.getTime() <= settled);
 }
 
 /** ترتيب المعالجة (§5.4): effectAt ثم rank(POST<COGS<RESTOCK<REVERSE) ثم sourceKey */

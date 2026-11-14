@@ -15,6 +15,7 @@ import { buildZatcaQr, zatcaTimestamp } from './zatca';
 import { zatcaChipOf, zatcaDocView, type ZatcaDocView } from '../lib/zatca/docStatus';
 import { zatcaPrintDecision, type ZatcaPrintDecision } from '../lib/zatca/docPrint';
 import { isDocTaxFree, isTaxOff } from '../lib/taxMode';
+import { taxFreeShownAmounts } from '../lib/taxFreeTotals';
 import { PrintRefusedError, printThermalInvoice, printThermalReceipt } from './thermal';
 import { receiptInvoicesFrom, receiptLinkView, type ReceiptInvoiceLink } from './receiptLinks';
 import { backdropClose } from '../lib/backdropClose';
@@ -437,8 +438,11 @@ export function taxFreeView<T extends AnyDoc>(doc: T): T {
   if (!docTaxOff(doc)) return doc;
   const company = doc.company;
   const customer = (doc as { customer?: DocCustomer }).customer;
+  /* «ربط الدفاتر» B6: مرتجعٌ مختوم بلا ضريبة يحمل ضريبة بيعه في السجلّ (الصافي 100 + 15) — يُرسم بلغة «لا ضريبة»: المجموع قبل
+   * الخصم = الإجمالي + الخصم، والضريبة ونسب البنود صفر (lib/taxFreeTotals.ts). وكل مختومٍ ضريبته صفر كما هو حرفاً */
+  const shown = doc.kind === 'invoice' ? (taxFreeShownAmounts(doc as InvoiceDoc) as AnyDoc as T) : doc;
   return {
-    ...doc,
+    ...shown,
     ...(company?.taxNumber ? { company: omitTaxNumber(company) } : null),
     ...(customer?.taxNumber ? { customer: omitTaxNumber(customer) } : null),
   } as T;

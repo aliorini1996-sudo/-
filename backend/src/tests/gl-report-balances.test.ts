@@ -498,6 +498,9 @@ test('حارس ثابت: prisma في reports/ داخل load.ts وحده', () => 
       assert.match(code, /@prisma\/client/);
       continue;
     }
+    // «ربط الدفاتر» L8: محمّل تقارير الشركاء (دفتر الشريك والأعمار والوصول المتأخر ودفتر الصنف) — ملف *.prisma.ts بعُرف المحمّلات
+    // (sync/reconcilerStore.prisma.ts وchecks/store.prisma.ts)؛ والتقارير نفسها تبقى صرفة
+    if (f === 'partnerLoad.prisma.ts') continue;
     assert.equal(/@prisma\/client|config\/database|prisma\./.test(code), false, `${f} يجب أن يبقى صرفاً بلا prisma`);
   }
 });

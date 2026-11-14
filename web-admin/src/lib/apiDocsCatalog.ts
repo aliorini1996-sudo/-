@@ -1,6 +1,6 @@
 /**
  * فهرس مسارات المنصة في مستند «الربط البرمجي API» — مستخرجٌ من مخططات zod ومعالجات كل موجّه
- * (العملاء، المنتجات، قوائم الأسعار، الفواتير، السندات، المناديب، المخزون، تتبّع LOT، الاستيراد، الميدان، التقارير، لوكيشن، طرق الدفع، الفرق). يُرسم في
+ * (العملاء، المنتجات، قوائم الأسعار، الفواتير، السندات، المناديب، المخزون، تتبّع LOT، الاستيراد، الميدان، التقارير، لوكيشن، طرق الدفع، الفرق، الدفاتر). يُرسم في
  * components/ApiDocs.tsx، ومعه في آخر الملف أدلّة ربط «لوكيشن» و«طرق الدفع» و«مخزون الشركة» و«تتبّع LOT» و«حركات المخزون من نظامكم» و«قوائم الأسعار» خطوةً بخطوة (API_DOC_GUIDES).
  * يُحدَّث حين يتغيّر عقد مسار؛ واختبار apiDocsCatalog.test.ts يتحقّق أن كل مسار مذكور هنا مركَّب فعلاً في الخادم **في ملف
  * موجّهه** (ومنها الموجّهات المتداخلة تحت /company)، وأن كل مسار في موجّهات الميزات الحديثة موثّقٌ هنا أو مستثنى بسببه.
@@ -2867,7 +2867,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "dueDate",
       "type": "date string",
       "required": false,
-      "desc": "تاريخ الاستحقاق. مع التقسيط يُستبدل تلقائياً بتاريخ آخر قسط"
+      "desc": "تاريخ الاستحقاق. مع التقسيط يُستبدل تلقائياً بتاريخ آخر قسط. وفي شركةٍ دفاترها مربوطة: الآجلة بلا أقساط وبلا dueDate تأخذ استحقاقاً افتراضياً = بداية يوم الفاتورة بتوقيت الشركة + مهلة العميل paymentDays يوماً"
      },
      {
       "name": "deliveryDate",
@@ -3040,7 +3040,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "400 {success:false, code:'BASE_UNIT_REQUIRED', message}: بندٌ لصنفٍ حُوِّل (baseConvertedAt غير فارغ) بلا items[].baseUnitName من مفتاحك — قبل أي كتابة. أرسل unit الصنف كما قرأته",
      "503 {success:false, code:'PRODUCT_UNITS_BUSY', message:'وحدات الأصناف قيد التحديث الآن — أعد المحاولة بعد لحظات'} حين يمسك تحويلُ وحدات صنفٍ في المستند صفَّه (حتى ٥ ثوانٍ انتظار، وفي المرحلة الثانية قبل الترقيم والختم): لا يُكتب شيء، أعد الإرسال بنفس clientRef. والفواتير بأصناف أخرى لا تنتظر",
      "الوحدة الرئيسية (primaryUnitId) لا تغيّر تفسير البند: بندٌ بلا unitId بوحدة الأساس، ولو كانت رئيسية الصنف كرتوناً",
-     "«بيع نقدي فقط» (cashOnly في GET /price-lists): فاتورة type = CREDIT (ومنها التقسيط paymentPlan = INSTALLMENT) قائمةُ مستندها معلَّمةٌ به — priceListId المرسلة، وإلا قائمة العميل، وإلا قائمة المندوب الافتراضية (والسعر الأساسي بلا قائمةٍ لا قيد عليه) — ترجع 409 {success:false, code:'PRICE_LIST_CASH_ONLY', message:'قائمة الأسعار هذه للبيع النقدي فقط — لا يباع بها آجل ولا تقسيط'} قبل أي كتابة، لشاشات المنصة (لوحة التحكم و/m) وتطبيق المندوب. CASH وRETURN يمرّان، والإشعاران الدائن والمدين والإلغاء والفواتير القائمة لا يمسّها. وطلب المفتاح معفى (الربط حرّ): يُقبل كما أرسلته، وكذلك إعادة رفع صندوق تطبيق المندوب لمستندٍ حُفظ دون اتصال (X-FS-Replay بجلسة المندوب وحدها، وهي تُمحى لطلب المفتاح؛ الترويسة نفسها من مستخدمي الشركة إصدارٌ حيّ يرجع 409)"
+     "«بيع نقدي فقط» (cashOnly في GET /price-lists): فاتورة type = CREDIT (ومنها التقسيط paymentPlan = INSTALLMENT) قائمةُ مستندها معلَّمةٌ به — priceListId المرسلة، وإلا قائمة العميل، وإلا قائمة المندوب الافتراضية (والسعر الأساسي بلا قائمةٍ لا قيد عليه) — ترجع 409 {success:false, code:'PRICE_LIST_CASH_ONLY', message:'قائمة الأسعار هذه للبيع النقدي فقط — لا يباع بها آجل ولا تقسيط'} قبل أي كتابة، لشاشات المنصة (لوحة التحكم و/m) وتطبيق المندوب. CASH وRETURN يمرّان، والإشعاران الدائن والمدين والإلغاء والفواتير القائمة لا يمسّها. وطلب المفتاح معفى (الربط حرّ): يُقبل كما أرسلته، وكذلك إعادة رفع صندوق تطبيق المندوب لمستندٍ حُفظ دون اتصال (X-FS-Replay بجلسة المندوب وحدها، وهي تُمحى لطلب المفتاح؛ الترويسة نفسها من مستخدمي الشركة إصدارٌ حيّ يرجع 409)",
+     "الاستحقاق الافتراضي (الدفاتر المربوطة وحدها): type = CREDIT بلا installmentPlan وبلا dueDate ⇒ dueDate = أول لحظة من (يوم invoiceDate بتوقيت الشركة + paymentDays للعميل) — مثال: فاتورة 2026-11-14 بالرياض ومهلة 30 ⇒ dueDate = 2026-12-13T21:00:00.000Z (أي 14 ديسمبر محلياً). وغير المربوطة يبقى dueDate فارغاً كما كان",
+     "شركةٌ أزالت ضريبتها (taxDisabled) ودفاترها مربوطة: المرتجع من فاتورة بيعٍ صدرت بضريبتها (originalInvoiceId) يحتفظ كل بندٍ فيه بنسبة بند البيع — taxAmt > 0 وsubtotal صافٍ والإجمالي هو المبلغ المسترد نفسه — ويبقى مختوماً taxFree بلا فوترة إلكترونية (einvoiceProvider none) فيُعرض ويُطبع بلا ذكر الضريبة. وغير المربوطة: المرتجع بنسبة صفر كما كان"
     ],
     "example": "{\"customerId\":\"8f1c2a4e-1b2c-4d5e-9f00-112233445566\",\"salesRepId\":\"2b7e9d10-3c4d-4e5f-8a90-aabbccddeeff\",\"type\":\"CASH\",\"pricesIncludeTax\":true,\"items\":[{\"productId\":\"a1d2c3b4-0000-4000-8000-000000000001\",\"qty\":12,\"unitPrice\":5.75},{\"productId\":\"a1d2c3b4-0000-4000-8000-000000000002\",\"qty\":2,\"unitId\":\"5e6f7a8b-0000-4000-8000-0000000000c6\",\"unitPrice\":34.5,\"discountPct\":5}],\"notes\":\"طلب من نظام ERP\",\"clientRef\":\"3f2b8c1e-6a4d-4e2b-9c7a-1d2e3f4a5b6c\"}"
    },
@@ -3775,14 +3777,39 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "فشل التحقق بالزود يعطي 400 مع { success:false, message:'بيانات غير صحيحة ...', errors }. وإرسال amount نصاً يُرفض",
      "مفتاح API يرسل salesRepId دائماً: بدونه 400 «يجب تحديد المندوب»، ولمندوب خارج النطاق أو من شركة أخرى 404",
      "ترويسة X-FS-Replay خاصة بصندوق تطبيق المندوب وتُمحى من طلبات المفتاح، فرفض 422 لطريقة مجهولة أو معطّلة يسري على المفتاح دائماً",
-     "paymentMethodKey في صف السند (وفي /v1/sync/receipts) هو المفتاح المخصّص أو null للطرق المدمجة، وpaymentMethod الأساس المحاسبي دائماً"
+     "paymentMethodKey في صف السند (وفي /v1/sync/receipts) هو المفتاح المخصّص أو null للطرق المدمجة، وpaymentMethod الأساس المحاسبي دائماً",
+     "paymentMethod = ONLINE يدوياً في شركةٍ دفاترها مربوطة أو قديمة مفعّلة (تُرحِّل من التشغيل) ⇒ 422 { success:false, code:'RECEIPT_ONLINE_MANUAL', message:'السند الإلكتروني يُنشأ من رابط الدفع وحده — سجّل الطريقة الفعلية للتحصيل' } بلا سند — للوحة التحكم وتطبيق المندوب وحدهما. طلب مفتاح API لا يُرفض بهذا أبداً، ولا إعادة رفع صندوق تطبيق المندوب (وترويسة X-FS-Replay تُمحى من طلبات المفتاح فلا أثر لها فيه)، والشركة بلا دفاتر أو بدفاتر يدوية كما كانت"
     ],
     "example": "{\"customerId\":\"5b0c7e2a-1f3d-4a9e-8c21-7d4f6a9b2e10\",\"salesRepId\":\"a8e4d1c9-3b7f-4f02-9a6e-0c5d2b8f7e31\",\"amount\":1150.00,\"paymentMethod\":\"BANK_TRANSFER\",\"bankName\":\"مصرف الراجحي\",\"receiptDate\":\"2026-10-11T09:30:00+03:00\",\"notes\":\"دفعة حساب أكتوبر\",\"invoiceAllocations\":[{\"invoiceId\":\"e3f9a2b4-6c1d-4e8f-b5a7-9d0c2e4f6a81\",\"amount\":1150.00}],\"clientRef\":\"3f1c2b9e-6a4d-4c1e-9b7a-2d5e8f0a1b2c\"}"
    },
    {
+    "method": "GET",
+    "path": "/receipts/:id/cancel-options",
+    "purpose": "من أين يُردّ مال السند إن أُلغي: تصنيفه بالنسبة لعهدة المندوب، وهل سُلِّم ماله، والمصدر المقترح والخيارات — يقرؤه حوار الإلغاء قبل PATCH /receipts/:id/cancel",
+    "permission": "canManageReceipts",
+    "gates": [
+     "requireAccounting",
+     "admin scope: out-of-scope receipt returns 404",
+     "SALES_REP: own receipts only (another rep's receipt returns 404)"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{ success: true, data: { linked, custodyClass, handedOver, suggested, suggestedUserId, repOutstanding, options: [ { value, label, userId?, userName?, userOutstanding? } ] } }. linked: الدفاتر مربوطة مفعّلة (LINKED). custodyClass: CUSTODY (بمندوب وطريقته موجّهة لعهدته؛ وفي المربوطة النقد والشيك وحدهما وليس دفع بطاقة) | ONLINE (سند رابط الدفع) | OUTSIDE (موجّه مباشرة لحساب طريقته). handedOver: للمندوب استلامٌ بعد تاريخ السند ورصيد تحصيله الحالي (كـGET /receipts/collection-balance) أقل من مبلغ السند. suggested: REP_CUSTODY | USER_CUSTODY | MAIN_CASH | BANK | METHOD أو null للإلكتروني. suggestedUserId: آخر مستخدم استلم من المندوب حين المقترح USER_CUSTODY. repOutstanding: رصيد تحصيل المندوب حين حُسب وإلا null. المبالغ أرقام بوحدة العملة",
+    "rules": [
+     "قراءةٌ بلا كتابة: لا يغيّر السند ولا الدفاتر",
+     "المقترح لسندٍ CUSTODY: لم يُسلَّم ⇒ REP_CUSTODY؛ سُلِّم وآخر استلامٍ تحويلٌ بنكي أو نقطة بيع ⇒ BANK؛ سُلِّم نقداً أو شيكاً إلى مستخدم شركة عهدته (نقد وشيكات) تكفي المبلغ ⇒ USER_CUSTODY بمعرّفه؛ وإلا MAIN_CASH",
+     "سند OUTSIDE ⇒ METHOD (ردٌّ من حساب طريقته نفسها) والخيارات METHOD وMAIN_CASH وBANK. والسند الإلكتروني ONLINE ⇒ suggested null وoptions فارغة: إلغاؤه يحسمه رابط الدفع واسترداده",
+     "خيارات CUSTODY: REP_CUSTODY، وUSER_CUSTODY لآخر مستلِم (بعهدته الحالية userOutstanding) إن كان من مستخدمي الشركة، وMAIN_CASH، وBANK",
+     "المندوب (SALES_REP): suggested REP_CUSTODY وخيارٌ واحد REP_CUSTODY — لا تُقرأ عهد المستخدمين ولا رصيده",
+     "السند الملغى مسبقاً ⇒ 400 مع رسالة السند ملغى مسبقا",
+     "الشركة غير المربوطة تحصل على الأرقام نفسها وlinked=false، وحوار الإلغاء يعرض المنتقي للمربوطة وحدها (linked && custodyClass === 'CUSTODY' && handedOver)"
+    ],
+    "example": ""
+   },
+   {
     "method": "PATCH",
     "path": "/receipts/:id/cancel",
-    "purpose": "إلغاء سند قبض: إعادة المبالغ إلى الفواتير وعكس القيد في كشف الحساب",
+    "purpose": "إلغاء سند قبض: إعادة المبالغ إلى الفواتير وعكس القيد في كشف الحساب، مع تسجيل من أين رُدّ المال للعميل",
     "permission": "canManageReceipts",
     "gates": [
      "requireAccounting",
@@ -3790,16 +3817,33 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "admin scope: out-of-scope receipt returns 404"
     ],
     "query": [],
-    "body": [],
-    "response": "{ success: true, data: سند } بعد الإلغاء، وحالته status CANCELLED",
+    "body": [
+     {
+      "name": "refundFrom",
+      "type": "enum: REP_CUSTODY | USER_CUSTODY | MAIN_CASH | BANK | METHOD",
+      "required": false,
+      "desc": "من أين رُدّ مال السند للعميل: من عهدة المندوب، أو من عهدة مستخدم الشركة الذي استلمه، أو من الصندوق الرئيسي، أو من البنك، أو من حساب طريقة الدفع نفسها. اختياري: غيابه في الشركة غير المربوطة يُبقي الإلغاء كما كان (لا يُكتب شيء)، وفي المربوطة يُكتب المقترح من GET /receipts/:id/cancel-options. قيمةٌ غير معروفة ⇒ 400 RECEIPT_CANCEL_REFUND_INVALID"
+     },
+     {
+      "name": "refundFromUserId",
+      "type": "string",
+      "required": false,
+      "desc": "معرّف مستخدم الشركة (admin) الذي رُدّ المال من عهدته — إلزامي مع USER_CUSTODY، ويُهمل مع غيره"
+     }
+    ],
+    "response": "{ success: true, data: سند } بعد الإلغاء، وحالته status CANCELLED. وحين كُتب المصدر يحمل الصفّ cancelRefundFrom وcancelRefundUserId (لا يظهران في /v1/sync/receipts)",
     "rules": [
-     "لا يحتاج جسماً ولا سبباً",
+     "الجسم اختياري، ولا سبب مطلوب. الطلب بلا جسم في شركةٍ غير مربوطة الدفاتر هو الإلغاء القديم حرفاً",
      "السند غير الموجود يعطي 404، والملغى مسبقاً يعطي 400 مع رسالة السند ملغى مسبقا، وكذلك الطلبان المتزامنان يفوز أحدهما ويأخذ الآخر 400",
-     "الأثر داخل معاملة: تتحول الحالة إلى CANCELLED، ويُعاد كل تخصيص إلى فاتورته (paidAmt ينقص وremainingAmt يزيد)، ويُضاف قيد RECEIPT_DEBIT مدين بالمبلغ كاملاً بتاريخ اليوم لا بتاريخ السند الأصلي، ويرتفع customer.balance وينقص totalCollected، ويُنشأ إشعار RECEIPT_CANCELLED",
+     "مصدر الردّ يُكتب على السند حين يُرسل refundFrom صراحةً (لأي شركة)، أو حين الشركة دفاترها مربوطة (المقترح إن غاب الحقل). والمندوب (SALES_REP) يُكتب له REP_CUSTODY دائماً أياً كان المرسل. والسند الإلكتروني ONLINE يتجاهل الحقل",
+     "USER_CUSTODY: بلا refundFromUserId أو بمستخدمٍ ليس من الشركة ⇒ 400 RECEIPT_CANCEL_REFUND_USER. وعهدة المستخدم (نقد وشيكات) تُفحص داخل المعاملة تحت قفلها: لا تكفي مبلغ السند ⇒ 400 RECEIPT_CANCEL_REFUND_USER ولا يُلغى السند",
+     "USER_CUSTODY يُنقص عهدة ذلك المستخدم بمبلغ السند (شاشة عهدة المستخدم وسقف توريده)",
+     "الأثر داخل معاملة: تتحول الحالة إلى CANCELLED، ويُكتب مصدر الردّ إن لزم، ويُعاد كل تخصيص إلى فاتورته (paidAmt ينقص وremainingAmt يزيد)، ويُضاف قيد RECEIPT_DEBIT مدين بالمبلغ كاملاً بتاريخ اليوم لا بتاريخ السند الأصلي، ويرتفع customer.balance وينقص totalCollected، ويُنشأ إشعار RECEIPT_CANCELLED",
+     "في الدفاتر المربوطة يحدّد المصدر الحساب الدائن لقيد العكس: USER_CUSTODY عهدة المستخدم 111004، MAIN_CASH الصندوق الرئيسي، BANK حساب التحويل البنكي، وREP_CUSTODY أو METHOD مرآة قيد السند",
      "روابط receipt_invoices لا تُحذف عند الإلغاء، والفاتورة المرتبطة بسند ولو ملغى لا يمكن إلغاؤها لاحقاً",
      "كشف الحساب يُبقي سطري الإصدار والإلغاء معاً، ولا يُحذف القيد الأصلي"
     ],
-    "example": "{}"
+    "example": "{\"refundFrom\":\"USER_CUSTODY\",\"refundFromUserId\":\"9c2e4a1b-7d3f-4e8a-b6c5-1f0d2a9e8b74\"}"
    },
    {
     "method": "GET",
@@ -4519,7 +4563,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "لا تحقق من zod هنا بل فحص يدوي: مبلغ غير صالح يرجع 400 'أدخل مبلغا صحيحا أكبر من صفر'",
      "لا سقف مقابل الرصيد المتبقي فقد يصير outstanding سالباً",
      "settledAt وقت الطلب ولا يمكن تأريخه بتاريخ سابق",
-     "المبلغ يدخل عهدة صاحب المفتاح (receivedByUserId) ويُسجل createdBy باسمه، وتوريد العهدة يتم من مسارات /company-users الممنوعة على المفتاح فيلزم إجراؤه من اللوحة",
+     "المبلغ يُنسب لصاحب المفتاح (receivedByUserId) ويُسجل createdBy باسمه. ويدخل عهدته النقدية إن كانت الطريقة CASH أو CHEQUE وحدهما؛ أما BANK_TRANSFER وPOS فلا تدخل العهدة لأن المال في حساب الشركة أصلاً، وتُعرض له «مستلَماً غير نقدي» يمرّ منه توريده غير النقدي أولاً. وتوريد العهدة يتم من مسارات /company-users الممنوعة على المفتاح فيلزم إجراؤه من اللوحة",
      "حجم جسم الطلب حتى 10mb"
     ],
     "example": "{\"amount\":1500,\"method\":\"CASH\",\"note\":\"تسليم تحصيل يوم الأحد\"}"
@@ -4581,7 +4625,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "MANAGER و ACCOUNTANT يرجعان 403 'حذف استلام التحصيل متاح للأدمن الرئيسي فقط'",
      "404 إذا لم يوجد المندوب أو لم يكن الاستلام لهذا المندوب في هذه الشركة",
-     "حارس العهدة: إذا ورّد المستلم من عهدته ما يجعلها سالبة بعد الحذف يرجع 400 ويلزم حذف التوريد أولاً من صفحة مستخدمي الشركة",
+     "حارس العهدة (النقد والشيكات): إذا ورّد المستلم من عهدته ما يجعلها سالبة بعد الحذف يرجع 400 ويلزم حذف التوريد أولاً من صفحة مستخدمي الشركة. والاستلام تحويلاً أو بنقطة بيع لا يدخل العهدة النقدية فلا يُقارن بها، إلا أن يكون توريدٌ غير نقدي قد مرّ منه فيصير جزؤه النقدي سالباً بحذفه. وفي شركةٍ دفاترها مربوطة يرجع 400 أيضاً إن غيّر الحذف تقسيم توريدٍ غير نقدي مرّ منه",
      "يُنشأ إشعار REP_SETTLEMENT_DELETED بالمبلغ والتاريخ ومن حذف مع نسخة كاملة من الصف في data",
      "إذا فُعّلت الدفاتر يُسجل حدثا SETTLEMENT POST و REVERSE في glSourceEvent ضمن المعاملة نفسها"
     ],
@@ -9369,6 +9413,1146 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "rules": [
      "فريق غير موجود 404، وصنف ليس من الشركة 400",
      "الأصناف المتغيّرة يتحرّك updatedAt لها فتصل مزامنة products"
+    ],
+    "example": ""
+   }
+  ]
+ },
+ {
+  "key": "ledger",
+  "title": "الدفاتر المحاسبية (النظام المحاسبي المتكامل)",
+  "overview": "مسارات النظام المحاسبي المتكامل (الدفاتر) تحت https://api.fieldsa.net/api/ledger. ترسل المفتاح في Authorization: Bearer fsk_... أو في X-API-Key: fsk_... ويُعامل الطلب كأنه من مستخدم الشركة الذي أصدر المفتاح\nسلسلة الحراسة على كل المسارات بالترتيب: مستخدم لوحة الشركة (requireAdmin، والمندوب 403) ثم النظام المحاسبي المتكامل مفعّل للشركة (accountingSuiteEnabled = true وaccountingEnabled ليس false) وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED، ثم صلاحية الدفاتر المذكورة في كل مسار (canViewLedger أو canPostJournals أو canConfigureLedger) وإلا 403 LEDGER_PERMISSION_DENIED. مدير الشركة المالك (ADMIN بصلاحية إدارة المستخدمين) يمرّ بها كلها، وcanViewLedger تتحقق بأيٍّ من صلاحيات الدفاتر، وصاحب المفتاح مقيّد النطاق (Admin.scopeEnabled) يُرفض 403 LEDGER_SCOPED_ADMIN لأن الدفاتر على مستوى الشركة كلها\nأوضاع الدفاتر: «مربوطة» يُرحَّل فيها قيد كل مستند تشغيلي آلياً، و«قديمة مفعّلة» تُرحِّل من التشغيل أيضاً، و«يدوية» دفاتر مستقلة بلا ترحيل آلي. ما يخصّ وضعاً بعينه مذكورٌ في حرّاس مساره وقواعده\nصيغة الأخطاء: {success:false, code, message, ...التفاصيل, details} — التفاصيل (ومنها reason) تُنشر بجانب الرمز وتبقى كاملة في details، وبعض الرفض بلا code وسببه في reason. معرّفٌ من شركة أخرى أو غير موجود يعود 404 كغير الموجود (عادةً {success:false, message:'السجل غير موجود'}، وبعضه بسببه في reason)، وفشل zod يعود 400 بالشكل العام {success:false, message:'بيانات غير صحيحة <الحقول>', errors}\nالمبالغ أرقام بوحدة العملة، إلا الحقول المنتهية بـMilli فهي نصوص بالملّي (المبلغ = النص ÷ 1000). وتواريخ المستندات والقيود YYYY-MM-DD\nالمفتاح «للقراءة فقط» لا يقبل إلا GET وHEAD، فمسارات التصدير (POST …/export) تحتاج مفتاحاً كاملاً وإن لم تكتب إلا صفّ تدقيق",
+  "endpoints": [
+   {
+    "method": "PUT",
+    "path": "/ledger/settings",
+    "purpose": "تعديل إعدادات الدفاتر جزئياً: المنطقة الزمنية والسنة المالية والضريبة ووجهة سندات المندوب والفواتير النقدية وغيرها — ما يُرسل وحده يتغيّر",
+    "permission": "canConfigureLedger",
+    "gates": [
+     "مستخدم لوحة الشركة (requireAdmin)؛ المندوب SALES_REP ممنوع 403",
+     "النظام المحاسبي المتكامل مفعّل للشركة وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED",
+     "صلاحية الدفاتر canConfigureLedger وإلا 403 LEDGER_PERMISSION_DENIED",
+     "صفّ إعدادات الدفاتر موجود وإلا 409 LEDGER_NOT_SETUP {reason:'SETTINGS_MISSING'}"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "receiptRouting",
+      "type": "{CASH?, BANK_TRANSFER?, POS?, CHEQUE?: 'CUSTODY'|'DIRECT'} | null",
+      "required": false,
+      "desc": "وجهة سندات المندوب لكل طريقة: عهدة المندوب (CUSTODY) أو حساب الطريقة مباشرة (DIRECT)، وnull يمحو التوجيه المحفوظ. وفي الدفاتر التي يُرحِّل التشغيل قيودها لا تقبل العهدةَ إلا النقدُ والشيك (القواعد)"
+     },
+     {
+      "name": "cashInvoiceRouting",
+      "type": "enum: MAIN_CASH | CUSTODY",
+      "required": false,
+      "desc": "وجهة نقد الفاتورة النقدية: الصندوق الرئيسي أو عهدة المندوب"
+     },
+     {
+      "name": "timezone",
+      "type": "string (IANA)",
+      "required": false,
+      "desc": "منطقة الدفاتر الزمنية مثل Asia/Riyadh، وغير الصالحة ⇒ 400. لا تتغيّر بعد التفعيل"
+     },
+     {
+      "name": "fiscalYearEndMonth, fiscalYearEndDay",
+      "type": "integer 1–12, integer 1–31",
+      "required": false,
+      "desc": "نهاية السنة المالية، ويومٌ لا يوجد في الشهر ⇒ 422 {reason:'INVALID_FISCAL_YEAR_END'}. لا تتغيّر بعد التفعيل"
+     },
+     {
+      "name": "weekStartsOn",
+      "type": "integer 0–6",
+      "required": false,
+      "desc": "أول أيام الأسبوع في الدفاتر"
+     },
+     {
+      "name": "inventoryMode, perpetualFromDate",
+      "type": "enum: PERIODIC | PERPETUAL, string YYYY-MM-DD | null",
+      "required": false,
+      "desc": "نظام المخزون (دوري أو مستمر) وتاريخ بداية المستمر. لا يتغيّران بعد التفعيل"
+     },
+     {
+      "name": "taxPeriodicity",
+      "type": "enum: MONTHLY | BIMONTHLY | QUARTERLY | FOUR_MONTHS | SEMIANNUAL | ANNUAL | FISCAL_YEAR",
+      "required": false,
+      "desc": "دورية الإقرار الضريبي"
+     },
+     {
+      "name": "taxDeadlineRule, taxDeadlineDays",
+      "type": "enum: END_OF_NEXT_MONTH | DAYS_AFTER, integer 1–365 | null",
+      "required": false,
+      "desc": "موعد تقديم الإقرار: نهاية الشهر التالي، أو أيامٌ بعد نهاية الفترة. DAYS_AFTER بلا أيام ⇒ 422 {reason:'TAX_DEADLINE_DAYS_REQUIRED'}، وEND_OF_NEXT_MONTH يمحو الأيام"
+     },
+     {
+      "name": "taxClosingJournalId, deferralJournalId",
+      "type": "string | null",
+      "required": false,
+      "desc": "دفتر قيد إقفال الضريبة ودفتر التأجيل: دفترٌ للشركة، وغير الموجود أو لشركة أخرى ⇒ 404"
+     },
+     {
+      "name": "defaultPurchaseTaxId, zeroRatedSalesTaxKey",
+      "type": "string | null",
+      "required": false,
+      "desc": "ضريبة الشراء الافتراضية (ضريبة مشتريات نشطة وإلا 422 {reason:'DEFAULT_PURCHASE_TAX_INVALID'})، ومفتاح ضريبة المبيعات الصفرية (ضريبة مبيعات نشطة بنسبة صفر وإلا 422 {reason:'ZERO_RATED_TAX_INVALID'})؛ وغير الموجودة ⇒ 404"
+     },
+     {
+      "name": "taxRoundingMethod, deferralGenerate, deferralMethod",
+      "type": "enum: PER_TAX | PER_LINE, enum: ON_VALIDATION | MANUAL, enum: BY_MONTHS | BY_DAYS",
+      "required": false,
+      "desc": "تقريب الضريبة (لكل ضريبة أو لكل سطر)، وتوليد قيود التأجيل (عند الاعتماد أو يدوياً) وطريقة توزيعها (بالأشهر أو بالأيام)"
+     },
+     {
+      "name": "cashBasisEnabled",
+      "type": "false",
+      "required": false,
+      "desc": "الأساس النقدي غير متاح: يُقبل false وحده"
+     },
+     {
+      "name": "billPricesIncludeTax, billPredictionEnabled, postPurchaseDiscountSeparately, earlyDiscountAdjustsVat, postSalesDiscountSeparately, postReturnsToContra, autoValidateBills, batchPaymentsEnabled, drawingsAfterNetProfit, depreciationInOperatingExpenses",
+      "type": "boolean",
+      "required": false,
+      "desc": "مفاتيح المعالجة المحاسبية في الدفاتر"
+     },
+     {
+      "name": "rebaseImportDates",
+      "type": "boolean",
+      "required": false,
+      "desc": "حقلٌ للطلب لا يُخزَّن: تأكيد إعادة ضبط تواريخ الأرصدة والكشوف المستوردة حين يغيّر تغييرُ المنطقة الزمنية يومَها — بدونه في هذه الحال ⇒ 409 LEDGER_TIMEZONE_IMPORTS_CONFLICT"
+     }
+    ],
+    "response": "{success:true, data:{…صفّ إعدادات الدفاتر كاملاً بعد الحفظ (التواريخ YYYY-MM-DD), rebasedImportEntries?}} — rebasedImportEntries عدد القيود المستوردة التي أُعيد ضبط تاريخها حين أُرسل rebaseImportDates",
+    "rules": [
+     "جسمٌ جزئي صارم: حقلٌ غير معروف أو قيمةٌ غير صالحة ⇒ 400 بصيغة zod العامة",
+     "بعد تفعيل الدفاتر لا تتغيّر timezone وfiscalYearEndMonth وfiscalYearEndDay وinventoryMode وperpetualFromDate: قيمةٌ مختلفة ⇒ 409 {reason:'FROZEN_AFTER_ACTIVATION', fields}",
+     "للدفاتر التي يُرحِّل التشغيل قيودها (مربوطة أو قديمة مفعّلة)، توجيه التحويل البنكي أو نقطة البيع إلى العهدة ⇒ 422 LEDGER_ROUTING_CUSTODY_NONCASH {reason:'CUSTODY_NONCASH', methods:['BANK_TRANSFER'|'POS']} «لا تُوجَّه التحويلات البنكية ونقاط البيع إلى عهدة المندوب». النقد والشيك يقبلان العهدة. الدفاتر اليدوية وغير المفعّلة كما كانت",
+     "تحت قفل الترحيل في معاملة واحدة، ويُكتب تدقيق SETTINGS_CHANGE بما تغيّر قبله وبعده"
+    ],
+    "example": "{\"receiptRouting\":{\"CASH\":\"CUSTODY\",\"CHEQUE\":\"CUSTODY\",\"BANK_TRANSFER\":\"DIRECT\",\"POS\":\"DIRECT\"}}"
+   },
+   {
+    "method": "POST",
+    "path": "/ledger/setup/draft",
+    "purpose": "حفظ مسودة معالج إعداد الدفاتر قبل التفعيل — ما يُرسل من الخطوات يُدمج فوق المسودة المحفوظة",
+    "permission": "canConfigureLedger",
+    "gates": [
+     "مستخدم لوحة الشركة (requireAdmin)؛ المندوب SALES_REP ممنوع 403",
+     "النظام المحاسبي المتكامل مفعّل للشركة وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED",
+     "صلاحية الدفاتر canConfigureLedger وإلا 403 LEDGER_PERMISSION_DENIED",
+     "الدفاتر غير مفعّلة بعد وإلا 409 {reason:'ALREADY_ACTIVATED', activatedAt}"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "currentStep",
+      "type": "integer 1–6",
+      "required": false,
+      "desc": "الخطوة التي يقف عندها المعالج"
+     },
+     {
+      "name": "step1",
+      "type": "object",
+      "required": false,
+      "desc": "الأساس: timezone وfiscalYearEndMonth وfiscalYearEndDay وweekStartsOn وtaxPeriodicity وcutoverDate (YYYY-MM-DD) وconfirmMidVatPeriod وpreCutoverBoxes (مبالغ مربعات الإقرار قبل البدء)"
+     },
+     {
+      "name": "step2",
+      "type": "{method: OPENING | FULL_HISTORY}",
+      "required": false,
+      "desc": "طريقة الإعداد المطلوبة — والطريقة التي يعمل بها المعالج فعلاً في effective.method من الردّ"
+     },
+     {
+      "name": "step3",
+      "type": "object",
+      "required": false,
+      "desc": "الشجرة والتوجيه: accountNames [{code, name}] حتى 500، وcategoryIncomeAccounts [{categoryId, accountCode}] حتى 2000، وreceiptRouting ({CASH?, BANK_TRANSFER?, POS?, CHEQUE?: 'CUSTODY'|'DIRECT'} | null)، وcashInvoiceRouting (MAIN_CASH | CUSTODY)"
+     },
+     {
+      "name": "step5",
+      "type": "{rows:[…]} حتى 5000 صف",
+      "required": false,
+      "desc": "الأرصدة الافتتاحية اليدوية: لكل صفّ accountCode وdebit أو credit، ومعها حسب الحساب vendorId أو vendorName وdueDate وsalesRepId أو salesRepName وcustomerId أو customerRef وlabel"
+     },
+     {
+      "name": "rebaseImportDates",
+      "type": "boolean",
+      "required": false,
+      "desc": "حقلٌ للطلب لا يُخزَّن: تأكيد إعادة ضبط تواريخ الأرصدة والكشوف المستوردة حين يغيّر تغييرُ المنطقة الزمنية يومَها — بدونه في هذه الحال ⇒ 409 LEDGER_TIMEZONE_IMPORTS_CONFLICT"
+     }
+    ],
+    "response": "{success:true, data:{draft (المسودة المدمجة المحفوظة), effective (الإعدادات التي سيُفعَّل بها المعالج: القالب والدولة والمنطقة والسنة المالية والدورية والطريقة وتاريخ البدء), history (تقدير الترحيل التاريخي حين step2.method = FULL_HISTORY وإلا null), rebasedImportEntries?}}",
+    "rules": [
+     "الجسم صارم: حقلٌ غير معروف ⇒ 400 بصيغة zod العامة، وكل خطوة تُدمج فوق المحفوظة فيكفي إرسال ما تغيّر",
+     "معالجٌ طريقته تربط الدفاتر بالنظام يرفض في step3.receiptRouting توجيه التحويل البنكي أو نقطة البيع إلى العهدة ⇒ 422 LEDGER_ROUTING_CUSTODY_NONCASH {reason:'CUSTODY_NONCASH', methods}. البداية النظيفة (الدفاتر اليدوية) كما كانت",
+     "أول حفظٍ ينشئ صفّ إعدادات الدفاتر بقالب دولة الشركة ويكتب تدقيق SETUP_START"
+    ],
+    "example": "{\"currentStep\":3,\"step3\":{\"receiptRouting\":{\"CASH\":\"CUSTODY\",\"CHEQUE\":\"CUSTODY\",\"BANK_TRANSFER\":\"DIRECT\",\"POS\":\"DIRECT\"}}}"
+   },
+   {
+    "method": "POST",
+    "path": "/ledger/setup/commit",
+    "purpose": "اعتماد معالج إعداد الدفاتر وتفعيلها: زرع الشجرة والقيد الافتتاحي وتاريخ البدء في معاملة واحدة",
+    "permission": "canConfigureLedger",
+    "gates": [
+     "مستخدم لوحة الشركة (requireAdmin)؛ المندوب SALES_REP ممنوع 403",
+     "النظام المحاسبي المتكامل مفعّل للشركة وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED",
+     "صلاحية الدفاتر canConfigureLedger وإلا 403 LEDGER_PERMISSION_DENIED",
+     "الدفاتر غير مفعّلة بعد وإلا 409 {reason:'ALREADY_ACTIVATED', activatedAt}"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "acknowledgeStatutory",
+      "type": "true",
+      "required": true,
+      "desc": "الإقرار بتنبيه السجلات المحاسبية النظامية، وغيابه أو غير true ⇒ 422 {reason:'STATUTORY_ACK_REQUIRED', field}"
+     },
+     {
+      "name": "acknowledgePostCutoverImports",
+      "type": "boolean | object",
+      "required": false,
+      "desc": "إقرارٌ بحركات مستوردة بتاريخ البدء أو بعده (تُرحَّل بتاريخها لا في القيد الافتتاحي) — إلزامي حين توجد، وإلا 409 LEDGER_POST_CUTOVER_IMPORTS_ACK"
+     },
+     {
+      "name": "acknowledgeOpeningStockExcluded",
+      "type": "boolean",
+      "required": false,
+      "desc": "إقرارٌ بمخزون افتتاحي مستورد في تاريخ البدء أو بعده لا يدخل الافتتاح — إلزامي حين يوجد، وإلا 409 LEDGER_OPENING_STOCK_AFTER_CUTOVER"
+     },
+     {
+      "name": "rebaseImportDates",
+      "type": "boolean",
+      "required": false,
+      "desc": "حقلٌ للطلب لا يُخزَّن: تأكيد إعادة ضبط تواريخ الأرصدة والكشوف المستوردة حين يغيّر تغييرُ المنطقة الزمنية يومَها — بدونه في هذه الحال ⇒ 409 LEDGER_TIMEZONE_IMPORTS_CONFLICT"
+     },
+     {
+      "name": "draft",
+      "type": "object",
+      "required": false,
+      "desc": "تعديلٌ أخير على المسودة بشكل جسم POST /ledger/setup/draft، يُدمج فوق المحفوظة قبل الاعتماد"
+     }
+    ],
+    "response": "201 {success:true, data:{status:{seeded, activatedAt, activatedBy, backfillState, setupMethod, cutoverDate, openingSnapshotAt, templateKey, countryCode, currency, currencyDecimals, …}, move (القيد الافتتاحي ومجاميعه مع id وnumber وdate), watermarkAt, futureDated, seed:{created, skipped, unresolvedMappings, conflictingMappings, conflictingAccountRefs}, vendorsCreated, step3, rebasedImportEntries?}} — بالأرقام الملتزمة لا بأرقام المعاينة",
+    "rules": [
+     "معاملة واحدة حتى 60 ثانية تحت قفل الترحيل وقفل دفعات الاستيراد: كل شيء أو لا شيء، والجسم صارم (حقلٌ غير معروف ⇒ 400)",
+     "دفعة استيراد جارية للشركة ⇒ 409 LEDGER_IMPORT_IN_PROGRESS قبل أي كتابة",
+     "البداية النظيفة: الخطوة الأولى محفوظة في يومٍ غير يوم الاعتماد ⇒ 409 LEDGER_SETUP_DAY_CHANGED {reason:'SETUP_DAY_CHANGED', savedCutoverDate, cutoverDate} — احفظ الخطوة الأولى اليوم ثم اعتمد",
+     "القاعدة نفسها في المسودة تُعاد عند الاعتماد قبل أي كتابة ⇒ 422 LEDGER_ROUTING_CUSTODY_NONCASH (عهدةٌ للتحويل البنكي أو نقطة البيع في step3.receiptRouting لمعالجٍ طريقته تربط الدفاتر بالنظام)"
+    ],
+    "example": "{\"acknowledgeStatutory\":true}"
+   },
+   {
+    "method": "GET",
+    "path": "/ledger/config/payment-methods",
+    "purpose": "طرق الدفع وحساباتها في الدفاتر: الحساب الافتراضي لكل طريقة، والمربوط، والفعلي الذي يقيّد عليه السند",
+    "permission": "canConfigureLedger",
+    "gates": [
+     "مستخدم لوحة الشركة (requireAdmin)؛ المندوب SALES_REP ممنوع 403",
+     "النظام المحاسبي المتكامل مفعّل للشركة وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED",
+     "صلاحية الدفاتر canConfigureLedger وإلا 403 LEDGER_PERMISSION_DENIED"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:{linked:boolean, methods:[{methodKey, label, base, custom:boolean, archived:boolean, defaultAccount:{id,code,name}|null, accountId:string|null, account:{id,code,name}|null, journalId:string|null, effective:{id,code,name}|null}]}}",
+    "rules": [
+     "methods: CASH وBANK_TRANSFER وPOS وCHEQUE وCARD (الدفع بالبطاقة) وPAYOUT (توريد أمانات الدفع الإلكتروني)، ثم طرق الشركة المخصّصة c_… بترتيبها (base أساسها)، ثم صفوف لمفاتيح لم تعد في الإعداد (archived = true) لتُحذف",
+     "الافتراضي: النقد 111001، التحويل 111101 (لا 112001)، نقطة البيع 112004، الشيك 112003، البطاقة 112007، التوريد 111101؛ وللمخصّصة الحساب الفعلي لأساسها",
+     "effective = ما يقيّد عليه السند في الدفاتر المربوطة: صفّ المفتاح المخصّص ثم صفّ الأساس ثم الافتراضي؛ وصفٌّ يشير إلى حساب رقابي أو محذوف يُتخطّى",
+     "الدفع الإلكتروني ONLINE غير قابل للربط (أمانات 112005 بالرابط) فلا يظهر",
+     "الدفاتر المربوطة: تُنشأ حسابات الربط الناقصة (111004 و112007 و214002) عند القراءة — متساوية الأثر، والدفاتر اليدوية لا يُضاف إلى شجرتها شيء"
+    ],
+    "example": ""
+   },
+   {
+    "method": "PUT",
+    "path": "/ledger/config/payment-methods/:methodKey",
+    "purpose": "ربط طريقة دفع بحساب نقد أو بنك أو حساب وسيط في الدفاتر",
+    "permission": "canConfigureLedger",
+    "gates": [
+     "مستخدم لوحة الشركة (requireAdmin)؛ المندوب SALES_REP ممنوع 403",
+     "النظام المحاسبي المتكامل مفعّل للشركة وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED",
+     "صلاحية الدفاتر canConfigureLedger وإلا 403 LEDGER_PERMISSION_DENIED",
+     "صفّ إعدادات الدفاتر موجود وإلا 409 LEDGER_NOT_SETUP؛ والدفاتر اليدوية ⇒ 409 LEDGER_BOOKS_NOT_LINKED"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "accountId",
+      "type": "string",
+      "required": true,
+      "desc": "الحساب: نشط، من نوع asset_cash أو asset_current، غير رئيسي (لا ذمم ولا عهدة ولا أمانات)، وليس المعلّق 911001 ولا 112005 — وإلا 422 LEDGER_METHOD_ACCOUNT_INVALID {reason:'ARCHIVED'|'CONTROL'|'FORBIDDEN'|'TYPE'}؛ وحساب شركة أخرى ⇒ 404"
+     },
+     {
+      "name": "journalId",
+      "type": "string | null",
+      "required": false,
+      "desc": "دفتر اختياري للطريقة (نشط، غير دفتر مبيعات أو مشتريات)؛ null = دفتر مقبوضات العملاء"
+     }
+    ],
+    "response": "{success:true, data:{linked, methods:[…]}} — الردّ نفسه في GET بعد الحفظ",
+    "rules": [
+     "methodKey: أحد CASH | BANK_TRANSFER | POS | CHEQUE | CARD | PAYOUT، أو مفتاح طريقة مخصّصة c_… موجودة في إعداد طرق الدفع (وإلا 404 {reason:'METHOD_NOT_FOUND'})؛ غيرها ⇒ 400 LEDGER_METHOD_KEY_INVALID",
+     "تحت قفل الترحيل، وتدقيق MAPPING_CHANGE حين يتغيّر الحساب أو الدفتر",
+     "يسري على قيود السندات والتوريد التي تُرحَّل بعده؛ المرحَّل لا يتغيّر",
+     "مثال: طريقة مخصّصة c_stcpay أساسها التحويل مربوطة بـ111102 ⇒ سند 500 بها: Dr 111102 500 / Cr 113001 500"
+    ],
+    "example": "{\"accountId\":\"acc-111102\",\"journalId\":null}"
+   },
+   {
+    "method": "DELETE",
+    "path": "/ledger/config/payment-methods/:methodKey",
+    "purpose": "إعادة طريقة الدفع إلى حسابها الافتراضي",
+    "permission": "canConfigureLedger",
+    "gates": [
+     "مستخدم لوحة الشركة (requireAdmin)؛ المندوب SALES_REP ممنوع 403",
+     "النظام المحاسبي المتكامل مفعّل للشركة وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED",
+     "صلاحية الدفاتر canConfigureLedger وإلا 403 LEDGER_PERMISSION_DENIED",
+     "صفّ إعدادات الدفاتر موجود وإلا 409 LEDGER_NOT_SETUP؛ والدفاتر اليدوية ⇒ 409 LEDGER_BOOKS_NOT_LINKED"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:{linked, methods:[…]}}",
+    "rules": [
+     "متساوي الأثر: طريقة بلا صفّ ⇒ الردّ نفسه بلا تدقيق؛ وإلا يُحذف الصفّ بتدقيق MAPPING_CHANGE",
+     "يقبل مفاتيح الصفوف اليتيمة (طريقة لم تعد في الإعداد)"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/ledger/customer-adjustments",
+    "purpose": "قائمة تسويات ذمم العملاء من الدفاتر: شطب الديون المعدومة وردّ الأرصدة الدائنة، بفلاتر العميل والحالة وتاريخ المستند",
+    "permission": "canViewLedger",
+    "gates": [
+     "مستخدم لوحة الشركة (requireAdmin)؛ المندوب SALES_REP ممنوع 403",
+     "النظام المحاسبي المتكامل مفعّل للشركة (accountingSuiteEnabled = true وaccountingEnabled ليس false) وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED",
+     "صلاحية الدفاتر canViewLedger وإلا 403 LEDGER_PERMISSION_DENIED",
+     "دفاتر يُرحِّل التشغيل قيودها (مربوطة أو قديمة مفعّلة) وإلا 409 LEDGER_BOOKS_NOT_LINKED {reason:'BOOKS_NOT_LINKED', mode}"
+    ],
+    "query": [
+     {
+      "name": "customerId",
+      "type": "string",
+      "required": false,
+      "desc": "عميل واحد"
+     },
+     {
+      "name": "status",
+      "type": "enum: ACTIVE | CANCELLED",
+      "required": false,
+      "desc": "الحالة؛ غيرها ⇒ 400 {reason:'INVALID_STATUS'}"
+     },
+     {
+      "name": "kind",
+      "type": "enum: BAD_DEBT_WRITEOFF | CREDIT_REFUND",
+      "required": false,
+      "desc": "نوع التسوية (قيمة مجهولة تُهمل)"
+     },
+     {
+      "name": "from",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "تاريخ المستند من (شامل)؛ غير صالح ⇒ 400 {reason:'INVALID_DATE'}"
+     },
+     {
+      "name": "to",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "تاريخ المستند إلى (شامل)"
+     },
+     {
+      "name": "page",
+      "type": "number ≥ 1",
+      "required": false,
+      "desc": "الصفحة (الافتراضي 1)"
+     },
+     {
+      "name": "limit",
+      "type": "number",
+      "required": false,
+      "desc": "حجم الصفحة (الافتراضي 50، والأقصى 200)"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{items:[CustomerAdjustmentView], total, page, limit}} — CustomerAdjustmentView = {id, customerId, customerName, kind:'BAD_DEBT_WRITEOFF'|'CREDIT_REFUND', amount:number, counterAccountCode, method:'CASH'|'BANK_TRANSFER'|'CHEQUE'|null, docDate:'YYYY-MM-DD', reference, note, status:'ACTIVE'|'CANCELLED', moveId, moveNumber, reverseMoveId, reverseMoveNumber, allocations:[{invoiceId, invoiceNumber, amount}], createdBy, createdAt, cancelledAt, cancelReason}",
+    "rules": [
+     "الترتيب بتاريخ المستند ثم الإنشاء تنازلياً",
+     "id = معرّف صفّ كشف حساب العميل (AccountEntry) الذي كتبه المستند",
+     "قراءة فقط: أربعة استعلامات لكل صفحة (المستندات وعددها، ثم العملاء والفواتير والقيود دفعةً واحدة)",
+     "المبالغ أرقام بوحدة العملة"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/ledger/customer-adjustments/open-items",
+    "purpose": "ما يقبل التسوية لعميل: فواتيره الآجلة المفتوحة (للشطب) ورصيده الدائن (للردّ)",
+    "permission": "canViewLedger",
+    "gates": [
+     "مستخدم لوحة الشركة (requireAdmin)؛ المندوب SALES_REP ممنوع 403",
+     "النظام المحاسبي المتكامل مفعّل للشركة وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED",
+     "صلاحية الدفاتر canViewLedger وإلا 403 LEDGER_PERMISSION_DENIED",
+     "دفاتر يُرحِّل التشغيل قيودها وإلا 409 LEDGER_BOOKS_NOT_LINKED"
+    ],
+    "query": [
+     {
+      "name": "customerId",
+      "type": "string",
+      "required": true,
+      "desc": "العميل؛ غيابه ⇒ 400 {reason:'CUSTOMER_REQUIRED'}، وعميل شركة أخرى ⇒ 404"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{customerId, customerName, currencyDecimals, invoices:[{invoiceId, number, invoiceDate:'YYYY-MM-DD', dueDate:'YYYY-MM-DD'|null, total, remaining}], truncated, balance, debitBalance, creditBalance, linkedFrom:'YYYY-MM-DD'|null}}",
+    "rules": [
+     "الفواتير: الآجلة المعتمدة بمتبقٍّ أكبر من 0.004 ولم تعلّقها هيئة الزكاة والضريبة (الشرط نفسه في توزيع سند القبض)، بالأقدم أولاً وحدّ 500 (truncated = true إن زادت)",
+     "المبالغ مقرَّبة لكل مستند نصف-لأعلى بمنازل العملة — ما يقبله التخصيص بالضبط",
+     "balance = Σمدين − Σدائن لكشف العميل؛ creditBalance = max(0, −balance) سقف الردّ، وdebitBalance = max(0, balance) سقف الشطب",
+     "linkedFrom: أول تاريخ مستند مقبول (بداية الربط، أو تاريخ البدء للدفاتر القديمة)"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/ledger/customer-adjustments/:id",
+    "purpose": "تسوية ذمة واحدة بالعرض نفسه في القائمة",
+    "permission": "canViewLedger",
+    "gates": [
+     "مستخدم لوحة الشركة (requireAdmin)؛ المندوب SALES_REP ممنوع 403",
+     "النظام المحاسبي المتكامل مفعّل للشركة وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED",
+     "صلاحية الدفاتر canViewLedger وإلا 403 LEDGER_PERMISSION_DENIED",
+     "دفاتر يُرحِّل التشغيل قيودها وإلا 409 LEDGER_BOOKS_NOT_LINKED"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:CustomerAdjustmentView}",
+    "rules": [
+     "معرّف شركة أخرى أو غير موجود ⇒ 404"
+    ],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/ledger/customer-adjustments",
+    "purpose": "شطب دين معدوم على فواتير العميل، أو ردّ رصيده الدائن نقداً أو بتحويل أو بشيك — صفّ كشف الحساب والقيد ومطابقته في معاملة واحدة",
+    "permission": "canPostJournals",
+    "gates": [
+     "مستخدم لوحة الشركة (requireAdmin)؛ المندوب SALES_REP ممنوع 403",
+     "النظام المحاسبي المتكامل مفعّل للشركة وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED",
+     "صلاحية الدفاتر canPostJournals وإلا 403 LEDGER_PERMISSION_DENIED",
+     "دفاتر يُرحِّل التشغيل قيودها (مربوطة أو قديمة مفعّلة) وإلا 409 LEDGER_BOOKS_NOT_LINKED — الدفاتر اليدوية لا يُكتب فيها صفّ تشغيلي"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "customerId",
+      "type": "string",
+      "required": true,
+      "desc": "العميل؛ عميل شركة أخرى أو غير موجود ⇒ 404"
+     },
+     {
+      "name": "kind",
+      "type": "enum: BAD_DEBT_WRITEOFF | CREDIT_REFUND",
+      "required": true,
+      "desc": "الشطب: مدين المقابل / دائن ذمم العملاء 113001. الردّ: مدين 113001 / دائن النقد أو البنك"
+     },
+     {
+      "name": "amount",
+      "type": "number | string > 0",
+      "required": true,
+      "desc": "المبلغ بمنازل عملة الدفاتر لا أكثر (وإلا 422 LEDGER_ADJUSTMENT_INVALID {reason:'PRECISION'})"
+     },
+     {
+      "name": "docDate",
+      "type": "string YYYY-MM-DD",
+      "required": true,
+      "desc": "تاريخ المستند والقيد: لا بعد اليوم بتوقيت الشركة (422 {reason:'DOC_DATE_IN_FUTURE'}) ولا قبل بداية الربط (422 LEDGER_ADJUSTMENT_BEFORE_CUTOVER)، وفترة مقفلة ⇒ 422 LEDGER_PERIOD_LOCKED"
+     },
+     {
+      "name": "counter",
+      "type": "enum: BAD_DEBT | ALLOWANCE",
+      "required": false,
+      "desc": "للشطب: BAD_DEBT (الافتراضي) ⇒ 711005 الديون المعدومة، ALLOWANCE ⇒ 113009 مخصص الديون المشكوك فيها (الحساب المربوط بالمفتاح أولاً)"
+     },
+     {
+      "name": "method",
+      "type": "enum: CASH | BANK_TRANSFER | CHEQUE",
+      "required": false,
+      "desc": "للردّ (الافتراضي CASH): حساب الطريقة من «طرق الدفع والحسابات» — النقد 111001، والتحويل 111101؛ والشيك الصادر يُسحب من البنك فحسابه حساب التحويل"
+     },
+     {
+      "name": "allocations",
+      "type": "{invoiceId, amount}[] ≤ 200",
+      "required": false,
+      "desc": "للشطب: الفواتير ومبالغها (المكرّر يُجمع). Σ = amount حرفاً، وكل مبلغ ≤ متبقّي فاتورته. للردّ ممنوعة (422 {reason:'REFUND_WITH_ALLOCATIONS'})"
+     },
+     {
+      "name": "autoAllocate",
+      "type": "boolean",
+      "required": false,
+      "desc": "للشطب بلا allocations: على فواتير العميل المفتوحة بالأقدم فالأقدم (تاريخ الفاتورة)؛ متبقٍّ أقل من المبلغ ⇒ 422 {reason:'AUTO_INSUFFICIENT'}"
+     },
+     {
+      "name": "reference",
+      "type": "string ≤ 100",
+      "required": false,
+      "desc": "مرجع المستند (قرار الشطب، رقم الحوالة …) — مرجع القيد"
+     },
+     {
+      "name": "note",
+      "type": "string ≤ 1000",
+      "required": false,
+      "desc": "ملاحظة داخلية"
+     }
+    ],
+    "response": "201 {success:true, data:CustomerAdjustmentView}",
+    "rules": [
+     "معاملة واحدة بالترتيب: قفل الترحيل ⇒ أقفال الفواتير المخصّصة (FOR UPDATE بترتيب المعرّف) ⇒ قفل صفّ العميل ⇒ صفّ كشف الحساب (ADJUSTMENT_CREDIT للشطب، ADJUSTMENT_DEBIT للردّ) ورصيد العميل ⇒ إنقاص متبقّي الفواتير ⇒ القيد ⇒ المستند وتخصيصاته ⇒ حدث الدفاتر DONE ⇒ المطابقة الجزئية ⇒ التدقيق. أي خطأ يُسقط كل شيء: لا صفّ بلا قيد ولا قيد بلا صفّ",
+     "الشطب: Dr 711005 (أو 113009) / Cr 113001 للعميل — نوع القيد CUSTOMER_ADJUSTMENT في دفتر العمليات المتنوعة MISC. مثال: INV-77 مفتوح 300 ⇒ Dr 711005 300 / Cr 113001 300",
+     "الردّ: Dr 113001 للعميل / Cr حساب الطريقة — نوع القيد CUSTOMER_REFUND في دفتر مقبوضات العملاء RCPT. مثال: رصيد دائن 200 من مرتجع ⇒ نقداً Dr 113001 200 / Cr 111001 200، وتحويلاً Cr 111101",
+     "الشطب لا يتجاوز الرصيد المدين للعميل، والردّ لا يتجاوز رصيده الدائن: 422 LEDGER_ADJUSTMENT_EXCEEDS_BALANCE {reason:'WRITEOFF_EXCEEDS_DEBIT_BALANCE'|'REFUND_EXCEEDS_CREDIT_BALANCE'}",
+     "تخصيص غير صالح ⇒ 422 LEDGER_ADJUSTMENT_ALLOCATION_INVALID بسببه: ALLOCATIONS_REQUIRED، INVOICE_NOT_FOUND، OTHER_CUSTOMER، NOT_CONFIRMED، NOT_CREDIT، ZATCA_PENDING، EXCEEDS_REMAINING، SUM_MISMATCH، PRECISION، AMOUNT_NOT_POSITIVE، AUTO_INSUFFICIENT",
+     "الحدث: AR_ENTRY:<id>:POST بحالة DONE (sourceType CUSTOMER_ADJUSTMENT) — الترحيل الآلي لا يعيد ترحيل الصفّ",
+     "المطابقة الجزئية للدفاتر المربوطة وحدها: الشطب CA:<allocationId> مع سطور الفاتورة الحيّة بالأقدم استحقاقاً (الأقساط بالترتيب)، والفاتورة التي لم تُرحَّل بعد تُطابَق عند ترحيلها؛ والردّ مع الأرصدة الدائنة المفتوحة للعميل بالأقدم فالأقدم (FIFO)",
+     "متبقّي الفاتورة يُنقص بمبلغ التخصيص (لا يمسّ المدفوع paidAmt: الشطب ليس تحصيلاً)، ولا يتغيّر إجمالي المبيعات ولا التحصيل للعميل — الرصيد وحده",
+     "التدقيق: MOVE_POST للقيد وCUSTOMER_ADJUSTMENT للمستند"
+    ],
+    "example": "{\"customerId\":\"c1\",\"kind\":\"BAD_DEBT_WRITEOFF\",\"amount\":300,\"docDate\":\"2026-11-14\",\"counter\":\"BAD_DEBT\",\"allocations\":[{\"invoiceId\":\"i77\",\"amount\":300}],\"reference\":\"قرار 12\"}"
+   },
+   {
+    "method": "POST",
+    "path": "/ledger/customer-adjustments/:id/cancel",
+    "purpose": "إلغاء تسوية ذمة: عكس صفّ كشف الحساب والقيد، وردّ متبقّي الفواتير المشطوبة",
+    "permission": "canPostJournals",
+    "gates": [
+     "مستخدم لوحة الشركة (requireAdmin)؛ المندوب SALES_REP ممنوع 403",
+     "النظام المحاسبي المتكامل مفعّل للشركة وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED",
+     "صلاحية الدفاتر canPostJournals وإلا 403 LEDGER_PERMISSION_DENIED",
+     "دفاتر يُرحِّل التشغيل قيودها وإلا 409 LEDGER_BOOKS_NOT_LINKED"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "reason",
+      "type": "string ≤ 500",
+      "required": true,
+      "desc": "سبب الإلغاء؛ غيابه أو فراغه ⇒ 422 LEDGER_REVERSAL_REASON_REQUIRED"
+     }
+    ],
+    "response": "{success:true, data:CustomerAdjustmentView} بحالة CANCELLED ومعها reverseMoveId وcancelledAt وcancelReason",
+    "rules": [
+     "معاملة واحدة: صفّ كشف الحساب العاكس بلحظة الإلغاء ⇒ ردّ متبقّي الفواتير المخصّصة بعينه (للفواتير المعتمدة وحدها: فاتورة أُلغيت بعد الشطب عكست ذمتها كاملة بإلغائها) ⇒ عكس القيد بتاريخ اليوم (مُزاحاً عن الإقفال) ⇒ الأحداث ⇒ فكّ المطابقة ⇒ الحالة ⇒ التدقيق",
+     "الأحداث: AR_ENTRY:<id>:REVERSE بحالة DONE، وصفّ العكس التشغيلي AR_ENTRY:<reverseEntryId>:POST بحالة SKIPPED(NETTED) فلا يرحّله الترحيل الآلي استيراداً",
+     "المطابقة (المربوطة): تُحذف مطابقات سطور القيد الأصلي فتعود الفاتورة مفتوحة أو الرصيد الدائن مفتوحاً، ثم يُطابَق الأصل بعكسه REV:<reversalMoveId>",
+     "تسوية ملغاة مسبقاً ⇒ 409 LEDGER_ADJUSTMENT_CANCELLED {reason:'ALREADY_CANCELLED'}، ومعرّف شركة أخرى ⇒ 404",
+     "قيد التسوية مملوك لمستندها: لا يُعكس من «القيود» (409 LEDGER_SOURCE_OWNED_MOVE ومعه هذا المسار إجراءً)"
+    ],
+    "example": "{\"reason\":\"سدّد العميل لاحقاً\"}"
+   },
+   {
+    "method": "GET",
+    "path": "/ledger/clearing/open",
+    "purpose": "السطور المدينة المفتوحة على الحساب الوسيط لنوع تسوية (نقاط البيع أو البطاقة أو الشيكات أو مقبوضات قيد الإيداع) لاختيار ما وصل منها إلى البنك",
+    "permission": "canViewLedger",
+    "gates": [
+     "مستخدم لوحة الشركة (requireAdmin)؛ المندوب SALES_REP ممنوع 403",
+     "النظام المحاسبي المتكامل مفعّل للشركة (accountingSuiteEnabled = true وaccountingEnabled ليس false) وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED",
+     "صلاحية الدفاتر canViewLedger وإلا 403 LEDGER_PERMISSION_DENIED",
+     "الدفاتر مُعدّة (صف إعداداتها موجود) وإلا 409 LEDGER_NOT_SETUP"
+    ],
+    "query": [
+     {
+      "name": "kind",
+      "type": "enum: POS_SETTLEMENT | CARD_SETTLEMENT | CHEQUE_CLEARANCE | DEPOSIT_CLEARANCE",
+      "required": true,
+      "desc": "نوع التسوية، وحسابه الوسيط: نقاط البيع 112004، البطاقة 112007، الشيكات 112003، مقبوضات قيد الإيداع 112001. وللدفاتر المربوطة: حساب الطريقة في «طرق الدفع والحسابات» إن كان حساباً وسيطاً (أصلاً متداولاً غير رئيسي). غيابه أو غير ذلك ⇒ 400 {reason:'INVALID_KIND', allowed}"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{kind, account:{id, code, name, isActive}, currency, decimals, balance:number, lines:[{lineId, moveId, moveNumber, date:'YYYY-MM-DD', label, amount:number, residual:number}], total:number, count:number, truncated:boolean, bankAccounts:[{id, code, name}]}}",
+    "rules": [
+     "lines بالأقدم فالأقدم (التاريخ ثم رقم القيد ثم ترتيب السطر)، وحدّ المعروض 1000 سطر؛ count وtotal (Σ residual) على كل المفتوح حتى 5000 سطر، وtruncated = true إن زاد عنه",
+     "residual = المبلغ − مطابقات التسويات السابقة (CLR) التي لم يُعكس قيدها − ما يقابله في زوج العكس: سندٌ أُلغي بمرآة قيده لا يظهر مفتوحاً، وسندٌ أُلغي بردٍّ من الصندوق أو عهدة مستخدم أو البنك يبقى مفتوحاً لأن مال الجهاز ما زال آتياً",
+     "balance = رصيد الحساب الوسيط المرحّل (مدين − دائن)",
+     "bankAccounts = الحسابات المقبولة مستلِماً في POST /ledger/clearing: حسابات نقد وبنك نشطة غير رئيسية (لا عهدة المندوب 111003 ولا عهدة المستخدم 111004)",
+     "حساب وسيط غير موجود في دليل الشركة (مثل 112007 قبل ربط الدفاتر) ⇒ 422 {code:'LEDGER_CLEARING_INVALID', reason:'CLEARING_ACCOUNT_MISSING'}",
+     "المبالغ أرقام بوحدة العملة، وقراءة فقط بلا أي كتابة"
+    ],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/ledger/clearing",
+    "purpose": "تسوية موجّهة: قيد يُصفّي الحساب الوسيط بإجمالي ما ورّده البنك ويثبت عمولته وضريبتها، ثم يطابق السطور المفتوحة بسطر الدائن",
+    "permission": "canPostJournals",
+    "gates": [
+     "مستخدم لوحة الشركة (requireAdmin)؛ المندوب SALES_REP ممنوع 403",
+     "النظام المحاسبي المتكامل مفعّل للشركة وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED",
+     "صلاحية الدفاتر canPostJournals وإلا 403 LEDGER_PERMISSION_DENIED",
+     "الدفاتر مفعّلة (activatedAt) وإلا 409 LEDGER_NOT_SETUP {reason:'NOT_ACTIVATED'}"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "kind",
+      "type": "enum: POS_SETTLEMENT | CARD_SETTLEMENT | CHEQUE_CLEARANCE | DEPOSIT_CLEARANCE",
+      "required": true,
+      "desc": "نوع التسوية، ويحدّد الحساب الوسيط الدائن (كما في GET /ledger/clearing/open)"
+     },
+     {
+      "name": "date",
+      "type": "string YYYY-MM-DD",
+      "required": true,
+      "desc": "تاريخ القيد (يوم ظهور الإيداع في كشف البنك). تاريخ في فترة مقفلة ⇒ 422 LEDGER_PERIOD_LOCKED"
+     },
+     {
+      "name": "bankAccountId",
+      "type": "string",
+      "required": true,
+      "desc": "الحساب المستلِم من bankAccounts: نقد أو بنك نشط غير رئيسي. ويُرحَّل القيد في دفتر البنك الذي حسابه الافتراضي هو هذا الحساب، وإلا دفتر البنك الرئيسي BNK1"
+     },
+     {
+      "name": "gross",
+      "type": "number | string",
+      "required": true,
+      "desc": "الإجمالي الذي يُصفّى من الحساب الوسيط (> 0)، بمنازل عملة الدفاتر لا أكثر"
+     },
+     {
+      "name": "fee",
+      "type": "number | string",
+      "required": false,
+      "desc": "عمولة البنك أو الجهاز قبل الضريبة (≥ 0) — مدين 611008 الرسوم البنكية"
+     },
+     {
+      "name": "feeVat",
+      "type": "number | string",
+      "required": false,
+      "desc": "ضريبة العمولة (≥ 0، ولا تكون بلا عمولة) — مدين 116001 بضريبة المشتريات الافتراضية (S15_PURCH، المربع SA_7) ووعاؤها العمولة"
+     },
+     {
+      "name": "ref",
+      "type": "string ≤ 200",
+      "required": false,
+      "desc": "مرجع التسوية في كشف البنك (يظهر في مرجع القيد وأوصاف سطوره)"
+     },
+     {
+      "name": "note",
+      "type": "string ≤ 1000",
+      "required": false,
+      "desc": "ملاحظة تُلحق ببيان القيد"
+     },
+     {
+      "name": "lineIds",
+      "type": "string[] ≤ 1000",
+      "required": false,
+      "desc": "السطور المفتوحة المختارة من GET /ledger/clearing/open. غيابها ⇒ يُطابَق الإجمالي على كل المفتوح بالأقدم فالأقدم"
+     }
+    ],
+    "response": "201 {success:true, data:{moveId, moveNumber, date, kind, clearingAccount:{id, code, name}, bankAccountId, gross, fee, feeVat, net, sourceRef:'CLR:<moveId>', matched:[{lineId, moveId, amount}], matchedTotal}}",
+    "rules": [
+     "القيد يدوي مرحّل (origin MANUAL، نوعه RECONCILE): مدين البنك = gross − fee − feeVat (يُحذف السطر إن كان صفراً)، ومدين 611008 = fee، ومدين 116001 = feeVat، ودائن الحساب الوسيط = gross — متّزن دائماً",
+     "مثال: نقطة بيع إجماليها 2,000 وعمولتها 51.73 وضريبتها 7.77 ⇒ Dr 111101 1,940.50 / Dr 611008 51.73 / Dr 116001 7.77 / Cr 112004 2,000.00",
+     "المطابقة: سطر الدائن يُطابَق بالسطور المختارة (أو الأقدم فالأقدم) حتى الإجمالي، والأخير جزئياً عند الحاجة، بمرجع CLR:<moveId> في المطابقات الجزئية",
+     "كل شيء في معاملة واحدة بعد قفل الترحيل: القيد ومطابقاته وتدقيق RECONCILE معاً أو لا شيء، فلا تُطابَق السطور نفسها مرتين في تسويتين متزامنتين",
+     "422 {code:'LEDGER_CLEARING_INVALID', reason}: GROSS_NOT_POSITIVE، FEE_NEGATIVE، FEE_VAT_NEGATIVE، FEES_EXCEED_GROSS (العمولة وضريبتها فوق الإجمالي)، FEE_VAT_WITHOUT_FEE، PRECISION (منازل أكثر من العملة، ومعه field)، INVALID_DATE، BANK_ACCOUNT_NOT_FOUND، BANK_ACCOUNT_INACTIVE، BANK_ACCOUNT_NOT_CASH، BANK_ACCOUNT_CONTROL، BANK_IS_CLEARING، CLEARING_ACCOUNT_MISSING، CLEARING_ACCOUNT_INACTIVE، FEE_ACCOUNT_MISSING، VAT_TAX_UNAVAILABLE (لا ضريبة مشتريات صالحة: أدخل العمولة شاملة الضريبة)، LINE_OTHER_ACCOUNT (سطر من حساب آخر، ومعه lineId)، LINE_NOT_OPEN (مطابَق كاملاً أو ليس مديناً)، EXCEEDS_OPEN (الإجمالي فوق المتبقّي المفتوح، ومعه available)، EXCEEDS_BALANCE (فوق رصيد الحساب الوسيط، ومعه balance)",
+     "سطر في lineIds لا ينتمي للشركة ⇒ 404 كغير الموجود",
+     "القيد يُعكس من «القيود» كأي قيد يدوي (POST /ledger/moves/:id/reverse بسبب)، فتسقط مطابقاته من حساب المتبقّي وتعود سطوره مفتوحة",
+     "لا يمسّ المستندات التشغيلية ولا أحداث المزامنة"
+    ],
+    "example": "{\"kind\":\"POS_SETTLEMENT\",\"date\":\"2026-11-13\",\"bankAccountId\":\"<id حساب 111101>\",\"gross\":2000,\"fee\":51.73,\"feeVat\":7.77,\"ref\":\"STL-778\",\"lineIds\":[\"<lineId>\",\"<lineId>\"]}"
+   },
+   {
+    "method": "GET",
+    "path": "/ledger/customers/custody/:salesRepId/explain",
+    "purpose": "تفسير فرق عهدة المندوب: ما تعرضه شاشة التحصيل ناقص رصيد عهدته في الدفاتر 111003، بنداً بنداً بلا باقٍ غير مفسَّر",
+    "permission": "canViewLedger",
+    "gates": [
+     "مستخدم لوحة الشركة (requireAdmin)؛ المندوب SALES_REP ممنوع 403",
+     "النظام المحاسبي المتكامل مفعّل للشركة وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED",
+     "صلاحية الدفاتر canViewLedger وإلا 403 LEDGER_PERMISSION_DENIED"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:{activated:true, lastSyncAt, currencyDecimals, explanation:{salesRepId, name, opsMilli, ledgerMilli, ledgerActualMilli, c4GapMilli, items:[{kind:'OPENING'|'ONLINE'|'OUTSIDE'|'STAMPED_OUTSIDE'|'EXPENSE'|'SHORTAGE'|'SHORTAGE_EXPENSED'|'SETTLEMENT_R'|'CANCEL_REFUND_OUTSIDE'|'CASH_INVOICE_CUSTODY', refId, at, amountMilli}], totalMilli, unexplainedMilli}}} — وقبل التفعيل أو للدفاتر اليدوية {activated, manualLedger, explanation:null}",
+    "rules": [
+     "المبالغ ملّي نصوصاً (بلاحقة Milli) كسائر صفحات «العملاء» — المبلغ = النص ÷ 1000",
+     "opsMilli − ledgerMilli = Σ items.amountMilli، وunexplainedMilli = 0 حين تتسق المدخلات",
+     "ledgerMilli = رصيد 111003 المتوقَّع من المكوّنات، وledgerActualMilli = الرصيد المرحَّل فعلاً، وc4GapMilli = الفعلي − المتوقَّع",
+     "كل بند موقَّع: الموجب يرفع الشاشة على الدفاتر (سند إلكتروني أو خارج العهدة، مصروف، عجز)، والسالب ينقصها (ما صفّاه الاستلام خارج العهدة، إلغاء رُدّ ماله من خارجها)",
+     "مندوب شركة أخرى أو غير موجود ⇒ 404"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/ledger/customers/user-custody",
+    "purpose": "عهدة تحصيلات مستخدمي الشركة: رصيد 111004 لكل مستخدم في الدفاتر مقابل عهدته التشغيلية (النقد والشيكات)",
+    "permission": "canViewLedger",
+    "gates": [
+     "مستخدم لوحة الشركة (requireAdmin)؛ المندوب SALES_REP ممنوع 403",
+     "النظام المحاسبي المتكامل مفعّل للشركة وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED",
+     "صلاحية الدفاتر canViewLedger وإلا 403 LEDGER_PERMISSION_DENIED"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:{activated:true, linked:true, lastSyncAt, currencyDecimals, pendingEvents, users:[{userId, name, isActive, ledgerMilli, opsOutstandingMilli, c4uGapMilli}], totals:{ledgerMilli, opsOutstandingMilli, c4uGapMilli}}} — لغير المربوطة {activated, linked:false, manualLedger, users:[], totals:null}",
+    "rules": [
+     "للدفاتر المربوطة وحدها",
+     "ledgerMilli = Σ(مدين − دائن) لسطور حسابات العهدة ببُعد المستخدم (111004)؛ opsOutstandingMilli = العهدة التشغيلية: المستلَم نقداً وشيكات − الجزء النقدي من التوريد − ما رُدّ من عهدته لعملاء أُلغيت سنداتهم؛ c4uGapMilli = الفرق",
+     "pendingEvents: أحداث استلام المناديب وتوريد المستخدمين غير المرحّلة بعد — فرقٌ معها قد يكون عابراً",
+     "المبالغ ملّي نصوصاً، ومبالغ المستندات مقرَّبة لكل مستند نصف-لأعلى بمنازل العملة قبل الجمع"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/ledger/reports/partner-ledger",
+    "purpose": "دفتر أستاذ الشريك من الدفاتر: كشف عميل أو مورد أو عهدة مندوب أو عهدة مستخدم بالرصيد الافتتاحي والجاري والختامي، مع المتبقّي والمطابقات الجزئية لكل سطر ومرفقات مستنده",
+    "permission": "canViewLedger",
+    "gates": [
+     "مستخدم لوحة الشركة (requireAdmin)؛ المندوب SALES_REP ممنوع 403",
+     "النظام المحاسبي المتكامل مفعّل للشركة (accountingSuiteEnabled = true وaccountingEnabled ليس false) وإلا 403 ACCOUNTING_SUITE_NOT_ALLOWED",
+     "صلاحية الدفاتر canViewLedger (أو أعلى منها) وإلا 403 LEDGER_PERMISSION_DENIED، والمدير مقيّد النطاق 403 LEDGER_SCOPED_ADMIN"
+    ],
+    "query": [
+     {
+      "name": "partnerType",
+      "type": "enum: customer | vendor | rep | user",
+      "required": true,
+      "desc": "نوع الشريك وحساباته: customer ⇒ حسابات الذمم المدينة (controlKind AR، 113001) ببُعد customerId؛ vendor ⇒ الذمم الدائنة (AP، 211001) ببُعد vendorId؛ rep ⇒ العهد (CUSTODY، 111003) ببُعد salesRepId؛ user ⇒ العهد (111004) ببُعد adminUserId"
+     },
+     {
+      "name": "partnerId",
+      "type": "string ≤ 64",
+      "required": true,
+      "desc": "معرّف الشريك (Customer.id أو GlVendor.id أو SalesRep.id أو Admin.id). شريك ليس للشركة ولا حركة له ⇒ 404 {reason:'PARTNER_NOT_FOUND'}"
+     },
+     {
+      "name": "from",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "بداية الفترة. الافتراضي بداية السنة المالية لتاريخ النهاية"
+     },
+     {
+      "name": "to",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "نهاية الفترة. الافتراضي اليوم بتوقيت الشركة. to قبل from ⇒ 400 {reason:'INVALID_RANGE'}"
+     },
+     {
+      "name": "includeReconciled",
+      "type": "boolean | 'true' | 'false' | '1' | '0'",
+      "required": false,
+      "desc": "الافتراضي true. false ⇒ تُسقط السطور المطابَقة كلياً، والافتتاح يُحسب من السطور غير المطابَقة كلياً قبل from (كـOdoo «غير المطابَقة»)"
+     },
+     {
+      "name": "page",
+      "type": "integer",
+      "required": false,
+      "desc": "رقم الصفحة من 1 (الافتراضي 1)"
+     },
+     {
+      "name": "pageSize",
+      "type": "integer",
+      "required": false,
+      "desc": "حجم الصفحة (الافتراضي 100، والأقصى 500). الرصيد الجاري صحيح في كل صفحة"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{reportKey:'partner-ledger', settings:{currency, currencyDecimals, timezone, linked}, partner:{type, id, name}, currency, decimals, from, to, includeReconciled, opening:number, closing:number, totalDebit:number, totalCredit:number, lines:[{lineId, moveId, moveNumber, date, journalCode, ref, label, sourceType, sourceId, debit, credit, balance, dueDate, residual, fullyReconciled, matches:[{lineId, moveId, moveNumber, amount}], productId, productName, quantity, attachments:{count, kinds:string[]}}], documents:{count}, pagination:{page, pageSize, total, pages, paginated}, lineCount, warnings:[{code, message, details?}]}}",
+    "rules": [
+     "الرصيد بقاعدة مدين − دائن لكل الأنواع: closing = opening + totalDebit − totalCredit دائماً، وbalance هو الرصيد الجاري بعد السطر",
+     "residual موقَّع: موجب لسطر مدين مفتوح، وسالب لدائن مفتوح، وصفر للمطابَق كلياً (fullyReconciled)؛ وmatches هي المطابقات الجزئية للسطر بالسطر المقابل ورقم قيده",
+     "attachments: عدد مرفقات المستند المصدر للسطر وأنواعها (صور السند RECEIPT_PHOTO، صور الاستلام REP_SETTLEMENT_PHOTO، صور توريد المستخدم USER_SETTLEMENT_PHOTO، توقيعا الفاتورة INVOICE_SIGNATURE، مرفقات حركة المستودع WAREHOUSE_ATTACHMENT) ومرفقات القيد نفسه LEDGER_ATTACHMENT — ويُفتح كلٌّ منها بـGET /ledger/source-attachments",
+     "documents.count = وثائق العميل في «استديو العميل» (للعميل وحده، وإلا 0)",
+     "السطور المرحّلة وحدها، مرتّبة بالتاريخ ثم لحظة القيد ثم رقمه ثم ترتيب السطر. فوق 50,000 سطر في الفترة ⇒ 422 LEDGER_RANGE_TOO_LARGE",
+     "warnings: UNPOSTED_ENTRIES حين توجد مسودات أو أحداث بانتظار الترحيل حتى to، وRECONCILE_NOT_ACTIVE للعميل والمورد في الدفاتر غير المربوطة (المطابقة الآلية للمربوطة وحدها)",
+     "المبالغ أرقام بوحدة العملة، وقراءة فقط بلا أي كتابة ولا مزامنة"
+    ],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/ledger/reports/partner-ledger/export",
+    "purpose": "تصدير دفتر أستاذ الشريك كاملاً بلا ترقيم (الملف يبنيه المتصفح XLSX أو PDF)",
+    "permission": "canViewLedger",
+    "gates": [
+     "مستخدم لوحة الشركة والنظام المحاسبي مفعّل وصلاحية canViewLedger كما في GET",
+     "محدد التصدير ledgerExportLimiter: 20 تصديراً كل 15 دقيقة لكل مستخدم، وفوقه 429"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "format",
+      "type": "enum: xlsx | pdf",
+      "required": true,
+      "desc": "صيغة الملف التي سيبنيها المتصفح — تحدّد السقف"
+     },
+     {
+      "name": "partnerType, partnerId, from, to, includeReconciled",
+      "type": "كما في GET",
+      "required": false,
+      "desc": "partnerType وpartnerId إلزاميان؛ page وpageSize يُهملان (البيانات كاملة)"
+     }
+    ],
+    "response": "{success:true, data:{…ردّ GET كاملاً بلا ترقيم, format, cap, paginated:false, lineCount}}",
+    "rules": [
+     "lineCount = السطور + صفّا الافتتاح والختام؛ فوق 50,000 لـxlsx أو 5,000 لـpdf ⇒ 422 LEDGER_EXPORT_TOO_LARGE {lines, cap, format}",
+     "يُكتب صفّ تدقيق EXPORT (entityType REPORT، entityId partner-ledger) بالفترة وبصمة الخيارات وعدد السطور"
+    ],
+    "example": "{\"format\":\"xlsx\",\"partnerType\":\"customer\",\"partnerId\":\"<customerId>\"}"
+   },
+   {
+    "method": "GET",
+    "path": "/ledger/reports/aged-receivable",
+    "purpose": "أعمار الذمم المدينة من الدفاتر: متبقّي كل عميل بعد المطابقات الجزئية موزّعاً على أعمدة العمر، والأرصدة الدائنة غير المخصّصة",
+    "permission": "canViewLedger",
+    "gates": [
+     "مستخدم لوحة الشركة والنظام المحاسبي مفعّل وصلاحية canViewLedger"
+    ],
+    "query": [
+     {
+      "name": "asOf",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "تاريخ الأعمار (الافتراضي اليوم بتوقيت الشركة). السطور حتى التاريخ، والمطابقة تُحسب فقط إن كان سطرها المقابل حتى التاريخ أيضاً"
+     },
+     {
+      "name": "basis",
+      "type": "enum: due | date",
+      "required": false,
+      "desc": "الافتراضي due: العمر من الاستحقاق (وإلا تاريخ السطر)؛ date: من تاريخ السطر"
+     },
+     {
+      "name": "buckets",
+      "type": "string",
+      "required": false,
+      "desc": "أربعة أعداد صحيحة موجبة متزايدة مفصولة بفواصل (الافتراضي 30,60,90,120)، وغير ذلك ⇒ 400 {reason:'INVALID_BUCKETS'}"
+     },
+     {
+      "name": "partnerId",
+      "type": "string ≤ 64",
+      "required": false,
+      "desc": "عميل واحد ⇒ يُضاف detail بالبنود المفتوحة سطراً سطراً"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{reportKey:'aged-receivable', settings, partnerId, kind:'AR', asOf, basis, buckets:number[], rows:[{partnerId, name, notDue, b1, b2, b3, b4, older, unappliedCredits, total}], totals:{notDue, b1, b2, b3, b4, older, unappliedCredits, total}, detail?:[{lineId, moveId, moveNumber, date, dueDate, daysOverdue, residual, bucket}], warnings}}",
+    "rules": [
+     "العمر ≤ 0 ⇒ notDue، ثم b1 = [1..buckets[0]] وb2 وb3 وb4 بحدودها الشاملة، ثم older",
+     "البنود المفتوحة على الجانب الدائن (سند بلا تخصيص، مرتجع غير مطبّق) لا تُعمَّر: تدخل unappliedCredits سالبةً، وtotal = صافي رصيد العميل المفتوح",
+     "في الدفاتر المربوطة تساوي الأعمدة remainingAmt التشغيلي للفواتير موزّعاً على أقساطها الأقدم استحقاقاً أولاً (الإشعار الدائن يُسقط بحدّ المفتوح لحظة ترحيله)",
+     "warnings: RECONCILE_NOT_ACTIVE للدفاتر غير المربوطة (لا مطابقة آلية فيها: كل سطر يظهر مفتوحاً بتاريخه)، وUNPOSTED_ENTRIES كالقوائم",
+     "استعلام واحد مجمّع في القاعدة لكل الشركاء؛ المبالغ أرقام بوحدة العملة"
+    ],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/ledger/reports/aged-receivable/export",
+    "purpose": "تصدير أعمار الذمم المدينة كاملة",
+    "permission": "canViewLedger",
+    "gates": [
+     "كما في GET، ومعه محدد التصدير ledgerExportLimiter"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "format",
+      "type": "enum: xlsx | pdf",
+      "required": true,
+      "desc": "الصيغة وسقفها"
+     },
+     {
+      "name": "asOf, basis, buckets, partnerId",
+      "type": "كما في GET",
+      "required": false,
+      "desc": "الخيارات نفسها"
+     }
+    ],
+    "response": "{success:true, data:{…ردّ GET, format, cap, paginated:false, lineCount}}",
+    "rules": [
+     "lineCount = الصفوف + التفصيل + صفّ الإجمالي، وفوق السقف 422 LEDGER_EXPORT_TOO_LARGE، ثم صفّ تدقيق EXPORT"
+    ],
+    "example": "{\"format\":\"pdf\",\"asOf\":\"2027-01-20\"}"
+   },
+   {
+    "method": "GET",
+    "path": "/ledger/reports/aged-payable",
+    "purpose": "أعمار الذمم الدائنة (الموردين) من الدفاتر بالقواعد نفسها على حسابات AP",
+    "permission": "canViewLedger",
+    "gates": [
+     "مستخدم لوحة الشركة والنظام المحاسبي مفعّل وصلاحية canViewLedger"
+    ],
+    "query": [
+     {
+      "name": "asOf, basis, buckets",
+      "type": "كما في aged-receivable",
+      "required": false,
+      "desc": "الخيارات نفسها"
+     },
+     {
+      "name": "partnerId",
+      "type": "string ≤ 64",
+      "required": false,
+      "desc": "مورد واحد (GlVendor.id) ⇒ detail"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{reportKey:'aged-payable', kind:'AP', …كأعمار الذمم المدينة}}",
+    "rules": [
+     "المبالغ موجبة على الجانب الدائن (فواتير الموردين)، والدفعات المقدمة المفتوحة على الجانب المدين في unappliedCredits سالبةً",
+     "يمتلئ مع ترحيل المشتريات والموردين؛ قبلها صفوف فارغة"
+    ],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/ledger/reports/aged-payable/export",
+    "purpose": "تصدير أعمار الذمم الدائنة كاملة",
+    "permission": "canViewLedger",
+    "gates": [
+     "كما في GET، ومعه محدد التصدير ledgerExportLimiter"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "format",
+      "type": "enum: xlsx | pdf",
+      "required": true,
+      "desc": "الصيغة وسقفها"
+     },
+     {
+      "name": "asOf, basis, buckets, partnerId",
+      "type": "كما في GET",
+      "required": false,
+      "desc": "الخيارات نفسها"
+     }
+    ],
+    "response": "{success:true, data:{…ردّ GET, format, cap, paginated:false, lineCount}}",
+    "rules": [
+     "كتصدير أعمار الذمم المدينة"
+    ],
+    "example": "{\"format\":\"xlsx\"}"
+   },
+   {
+    "method": "GET",
+    "path": "/ledger/reports/late-arrivals",
+    "purpose": "مستندات وصلت متأخرة: قيود آلية رُحّلت بتاريخ غير تاريخ مستندها لإقفال الفترة أو لأنّ المستند أقدم من بداية الدفاتر",
+    "permission": "canViewLedger",
+    "gates": [
+     "مستخدم لوحة الشركة والنظام المحاسبي مفعّل وصلاحية canViewLedger"
+    ],
+    "query": [
+     {
+      "name": "from",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "بداية فترة تاريخ الترحيل (الافتراضي بداية السنة المالية)"
+     },
+     {
+      "name": "to",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "نهايتها (الافتراضي اليوم)"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{reportKey:'late-arrivals', settings, from, to, cutoverDate, rows:[{moveId, moveNumber, sourceType, sourceId, ref, partnerName, originalDate, postedDate, reason:'PERIOD_LOCKED'|'AFTER_CUTOVER', amount}], total, count, warnings:[]}}",
+    "rules": [
+     "المصدر: القيود المرحّلة ذات lateArrival = true أو originalDate ≠ date",
+     "AFTER_CUTOVER حين يسبق تاريخ المستند بداية الدفاتر (linkedFrom للمربوطة، وإلا cutoverDate)، وإلا PERIOD_LOCKED",
+     "مثال: فاتورة بتاريخ 2026-10-02 وإقفال المبيعات 2026-10-31 ⇒ رُحّلت 2026-11-01 بسبب PERIOD_LOCKED",
+     "فوق 50,000 قيد ⇒ 422 LEDGER_RANGE_TOO_LARGE"
+    ],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/ledger/reports/late-arrivals/export",
+    "purpose": "تصدير تقرير المستندات المتأخرة كاملاً",
+    "permission": "canViewLedger",
+    "gates": [
+     "كما في GET، ومعه محدد التصدير ledgerExportLimiter"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "format",
+      "type": "enum: xlsx | pdf",
+      "required": true,
+      "desc": "الصيغة وسقفها"
+     },
+     {
+      "name": "from, to",
+      "type": "كما في GET",
+      "required": false,
+      "desc": "الفترة"
+     }
+    ],
+    "response": "{success:true, data:{…ردّ GET, format, cap, paginated:false, lineCount}}",
+    "rules": [
+     "فوق السقف 422 LEDGER_EXPORT_TOO_LARGE، ثم صفّ تدقيق EXPORT"
+    ],
+    "example": "{\"format\":\"xlsx\"}"
+   },
+   {
+    "method": "GET",
+    "path": "/ledger/reports/product-ledger",
+    "purpose": "تقرير الأصناف من الدفاتر: لكل صنف الكمية والإيراد والخصم والمرتجع والصافي من سطور الإيراد ذات الصنف",
+    "permission": "canViewLedger",
+    "gates": [
+     "مستخدم لوحة الشركة والنظام المحاسبي مفعّل وصلاحية canViewLedger"
+    ],
+    "query": [
+     {
+      "name": "from, to",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "فترة تاريخ القيد (الافتراضي بداية السنة المالية حتى اليوم)"
+     },
+     {
+      "name": "productId",
+      "type": "string",
+      "required": false,
+      "desc": "صنف واحد"
+     },
+     {
+      "name": "customerId",
+      "type": "string",
+      "required": false,
+      "desc": "عميل القيد (رأس القيد)"
+     },
+     {
+      "name": "salesRepId",
+      "type": "string",
+      "required": false,
+      "desc": "مندوب القيد (رأس القيد)"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{reportKey:'product-ledger', settings, from, to, filters:{productId, customerId, salesRepId}, rows:[{productId, productName, quantity, soldQuantity, returnedQuantity, revenue, discount, returns, net}], totals:{quantity, soldQuantity, returnedQuantity, revenue, discount, returns, net}, warnings}}",
+    "rules": [
+     "revenue = Σ (دائن − مدين) على حسابات الإيراد خارج قيود المرتجع؛ discount = Σ (مدين − دائن) على حساب الخصم المسموح به؛ returns = Σ (مدين − دائن) على مردودات المبيعات أو في قيود المرتجع؛ net = revenue − discount − returns",
+     "quantity = المباعة − المرتجعة (بالوحدة الصغرى baseQty)، وإلغاء الفاتورة يعيد كميتها",
+     "الإيراد لكل صنف يُرحَّل في الدفاتر المربوطة وحدها، وغيرها تحذير PRODUCT_LINES_LINKED_ONLY",
+     "أربعة استعلامات groupBy مجمّعة في القاعدة؛ المبالغ أرقام بوحدة العملة"
+    ],
+    "example": ""
+   },
+   {
+    "method": "POST",
+    "path": "/ledger/reports/product-ledger/export",
+    "purpose": "تصدير تقرير الأصناف كاملاً",
+    "permission": "canViewLedger",
+    "gates": [
+     "كما في GET، ومعه محدد التصدير ledgerExportLimiter"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "format",
+      "type": "enum: xlsx | pdf",
+      "required": true,
+      "desc": "الصيغة وسقفها"
+     },
+     {
+      "name": "from, to, productId, customerId, salesRepId",
+      "type": "كما في GET",
+      "required": false,
+      "desc": "الفلاتر نفسها"
+     }
+    ],
+    "response": "{success:true, data:{…ردّ GET, format, cap, paginated:false, lineCount}}",
+    "rules": [
+     "فوق السقف 422 LEDGER_EXPORT_TOO_LARGE، ثم صفّ تدقيق EXPORT"
+    ],
+    "example": "{\"format\":\"pdf\"}"
+   },
+   {
+    "method": "GET",
+    "path": "/ledger/partners/search",
+    "purpose": "منتقي الشريك (والصنف) لتقارير الدفاتر: بحث بالاسم بحدّ 20",
+    "permission": "canViewLedger",
+    "gates": [
+     "مستخدم لوحة الشركة والنظام المحاسبي مفعّل وصلاحية canViewLedger"
+    ],
+    "query": [
+     {
+      "name": "type",
+      "type": "enum: customer | vendor | rep | user | product",
+      "required": true,
+      "desc": "نوع الشريك (أو الصنف لتقرير الأصناف)"
+     },
+     {
+      "name": "q",
+      "type": "string ≤ 100",
+      "required": false,
+      "desc": "نصّ البحث: الاسم (وللعميل الجوال والرمز، وللمورد والمندوب الجوال). فارغ ⇒ أول 20 بالاسم"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{type, items:[{id, name, hint}]}}",
+    "rules": [
+     "hint: جوال العميل أو المورد أو المندوب، ودور مستخدم الشركة (لا البريد)، وnull للصنف",
+     "شركة الطلب وحدها، ومرتّبة بالاسم"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/ledger/source-attachments",
+    "purpose": "مرفقات المستند المصدر لسطر قيد أو شريك (بيانات وصفية): صور السند والاستلام والتوريد، وتوقيعا الفاتورة، ومرفقات حركة المستودع، ووثائق العميل، ومرفقات القيد نفسه",
+    "permission": "canViewLedger",
+    "gates": [
+     "مستخدم لوحة الشركة والنظام المحاسبي مفعّل وصلاحية canViewLedger — المحاسب يرى المرفق بلا صلاحية تشغيلية على المستند"
+    ],
+    "query": [
+     {
+      "name": "sourceType",
+      "type": "enum: RECEIPT | SETTLEMENT | USER_SETTLEMENT | INVOICE | WH_ENTRY | CUSTOMER | AR_ENTRY | CUSTOMER_ADJUSTMENT | PAYLINK_FEE | PAYOUT | PAYLINK_REFUND | VAN_LOAD",
+      "required": true,
+      "desc": "نوع المصدر كما في sourceType سطر القيد، وCUSTOMER لوثائق العميل"
+     },
+     {
+      "name": "sourceId",
+      "type": "string ≤ 128",
+      "required": true,
+      "desc": "معرّف المصدر (ولـCUSTOMER يُقبل customerId مرادفاً). غيابه ⇒ 400 {reason:'SOURCE_ID_REQUIRED'}"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{sourceType, sourceId, items:[{kind:'RECEIPT_PHOTO'|'REP_SETTLEMENT_PHOTO'|'USER_SETTLEMENT_PHOTO'|'INVOICE_SIGNATURE'|'WAREHOUSE_ATTACHMENT'|'CUSTOMER_DOCUMENT'|'LEDGER_ATTACHMENT', id, name, mime, size, createdAt}]}}",
+    "rules": [
+     "المصدر يُتحقّق من انتمائه للشركة أولاً، وإلا 404 {reason:'SOURCE_NOT_FOUND'} بلا قراءة لمرفقاته",
+     "الصور تُعاد بيانات وصفية فقط (النوع من بادئة data URL، والحجم بعد فكّ base64) دون نقل المحتوى",
+     "توقيعا الفاتورة بمعرّفين <invoiceId>:customer و<invoiceId>:rep، والموجود منهما وحده",
+     "LEDGER_ATTACHMENT: مرفقات قيود المصدر المرحّلة (GlAttachment) — لكل المصادر عدا CUSTOMER"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/ledger/source-attachments/:kind/:id",
+    "purpose": "محتوى مرفق واحد للعرض (صورة أو PDF) بصيغة data URL",
+    "permission": "canViewLedger",
+    "gates": [
+     "مستخدم لوحة الشركة والنظام المحاسبي مفعّل وصلاحية canViewLedger"
+    ],
+    "query": [
+     {
+      "name": "sourceId",
+      "type": "string ≤ 128",
+      "required": false,
+      "desc": "إن مُرِّر يجب أن يكون مصدر المرفق (السند أو الاستلام أو الفاتورة أو الحركة أو العميل، أو القيد أو مصدره لمرفق القيد)، وإلا 404"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{data:'data:<mime>;base64,…', mime, name}} مع Cache-Control: private, no-store",
+    "rules": [
+     "kind من القائمة في GET /ledger/source-attachments، وغيرها ⇒ 400 {reason:'INVALID_KIND', allowed}",
+     "المرفق يُقرأ من جدول نوعه وحده وبشرط الشركة (بعلاقة السند أو الاستلام أو التوريد للجداول التي لا تحمل الشركة): معرّف من شركة أخرى أو من جدول نوع آخر أو من مصدر آخر ⇒ 404 {reason:'ATTACHMENT_NOT_FOUND'}",
+     "مرفق القيد (LEDGER_ATTACHMENT) يُعاد base64 من البايتات المخزّنة"
     ],
     "example": ""
    }

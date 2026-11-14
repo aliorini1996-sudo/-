@@ -13,9 +13,13 @@ import { AuthRequest } from '../types';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { clean } from '../services/accounting';
 import { netSales } from '../services/netSales';
-import { userCustody, lockCustody, removalKeepsCustodySane, CustodyBlocked } from '../services/userCustody';
+import { lockCustody, CustodyBlocked } from '../services/userCustody';
+// «ربط الدفاتر» L5 (OD5، D6): حارس حذف الاستلام بالطيّ نفسه (النقد والشيكات)، وحمولة المربوطة بالمستلِم
+import { userCustodyInputs } from '../services/userCustody';
+import { foldUserCustody, receivedRemovalKeepsCustodySane } from '../services/userCustodyCore';
+import { tenantBooksLinked } from '../services/booksMode';
 import { isLedgerError } from '../services/gl/types';
-import { assertRepDeletable, settlementTombstones } from '../services/gl/sync/tombstone';
+import { assertRepDeletable, settlementTombstonesWithReceiver } from '../services/gl/sync/tombstone';
 import { BASE_PRICE_TYPE, PRICE_LIST_MESSAGES, allowedPriceTypesOf } from '../services/priceLists';
 
 const router = Router();
@@ -806,8 +810,16 @@ router.delete('/:id/settlements/:settlementId', async (req: AuthRequest, res: Re
        * والقفل هنا يمنع توريداً متزامناً يمرّ بين الفحص والحذف. */
       if (holder) {
         await lockCustody(tx, tid, holder.id);
-        const { outstanding } = await userCustody(tx, tid, holder.id);
-        if (!removalKeepsCustodySane(outstanding, row.amount)) {
+        /* «ربط الدفاتر» OD5: العهدة نقدٌ وشيكات، والتحويل ونقطة البيع «وعاءٌ» يمرّ منه التوريد غير النقدي. فالحارس بالطيّ نفسه
+         * بلا الصفّ: لا عهدة سالبة (للاستلام النقدي هو الفحص القديم حرفاً: outstanding − amount)، والاستلام غير النقدي لا يُقارن
+         * بعهدةٍ نقدية لا يدخلها. والمربوطة أيضاً: لا يتغيّر تقسيم توريدٍ مرّ منه — الدفاتر تُبقي التقسيم المخزَّن فينحرف 111004 */
+        const eps = 5n; // نصف هللة بالملّي — هامش CUSTODY_EPS نفسه في removalKeepsCustodySane
+        const inputs = await userCustodyInputs(tx, tid, holder.id);
+        const outstanding = Number(foldUserCustody(inputs).outstandingMilli) / 1000;
+        const sane = (await tenantBooksLinked(tx, tid))
+          ? receivedRemovalKeepsCustodySane(inputs, row.id, eps)
+          : foldUserCustody({ ...inputs, received: inputs.received.filter((r) => r.id !== row.id) }).outstandingMilli >= -eps;
+        if (!sane) {
           throw new CustodyBlocked(
             `هذا المبلغ في عهدة ${holder.name} وقد ورد منه ما يمنع حذفه`
             + ` — احذف توريده من صفحة مستخدمي الشركة أولا (المتبقي في عهدته ${clean(outstanding)})`,
@@ -815,8 +827,9 @@ router.delete('/:id/settlements/:settlementId', async (req: AuthRequest, res: Re
         }
       }
       // خطاف الدفاتر (§5.3): قبل الحذف وفي معاملته، SETTLEMENT:<id>:POST وSETTLEMENT:<id>:REVERSE معاً بلقطة
-      // كاملة للصف — لا شيء حين لم تُفعَّل الدفاتر يوماً (activatedAt فارغ)
-      const glTombstones = await settlementTombstones(tx, tid, { ...row, salesRepId: rep.id }, { salesRepName: rep.name });
+      // كاملة للصف — لا شيء حين لم تُفعَّل الدفاتر يوماً (activatedAt فارغ). والمربوطة بحمولتها (receivedByUserId واسمه) كي يُعكس
+      // P7 المشمول بالافتتاح على 111004 لا على حساب الطريقة؛ وغيرها كـsettlementTombstones حرفاً
+      const glTombstones = await settlementTombstonesWithReceiver(tx, tid, { ...row, salesRepId: rep.id }, { salesRepName: rep.name, receivedByName: holder?.name ?? null });
       if (glTombstones.length > 0) {
         await tx.glSourceEvent.createMany({ data: glTombstones as Prisma.GlSourceEventCreateManyInput[], skipDuplicates: true });
       }

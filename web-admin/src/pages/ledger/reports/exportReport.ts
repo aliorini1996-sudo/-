@@ -19,6 +19,11 @@
 import { num } from '../../../utils/excel';
 import type { ExcelSheet } from '../../../utils/excel';
 import { rowsToPagedPdf, type PagedPdfColumn, type PagedPdfRow } from '../../../rep/pdfPaged';
+import {
+  PARTNER_REPORT_KEYS, agingBasisLabels, agingColumnLabels, lateArrivalReasonLabels, partnerReportTitles, partnerTypeLabels, roundQuantity,
+  type PartnerReportKey,
+} from '../../../api/ledgerPartners';
+import { sourceTypeLabels } from '../../../lib/ledger/sync';
 
 // ═══ العقد مع النقطة (‏`backend/src/routes/ledger/reports.ts` حرفياً) ═══
 
@@ -231,6 +236,8 @@ export interface ExportColumn {
   numeric?: boolean;
   /** حصّة العرض في PDF */
   width?: number;
+  /** خلية رقمية ليست مبلغاً (الكمية، العدد): منازلها هي، لا منازل العملة — «ربط الدفاتر» L8 */
+  decimals?: number;
 }
 
 export interface ExportRow {
@@ -304,6 +311,7 @@ export function reportTitle(reportKey: string, tr: (ar: string) => string): stri
   if (reportKey === 'balance-sheet') return tr('الميزانية العمومية');
   if (reportKey === 'general-ledger') return tr('دفتر الأستاذ العام');
   if (reportKey === 'executive-summary') return tr('الملخص التنفيذي');
+  if (isPartnerExportKey(reportKey)) return partnerExportTitle(reportKey, tr);
   return tr('تقرير');
 }
 
@@ -347,6 +355,7 @@ export function optionsLabel(data: ReportExportData, tr: (ar: string) => string)
 
 /** صفوف الترويسة الأولى: الشركة والفترة والخيارات وتاريخ الطباعة (§7.1 البند 5). صرفة. */
 export function reportMetaRows(input: ReportMetaInput): { label: string; value: string }[] {
+  if (isPartnerExportKey(input.data.reportKey)) return partnerExportMetaRows(input);
   const { data, tr } = input;
   const now = input.now ?? new Date();
   const printed = (() => {
@@ -364,6 +373,7 @@ export function reportMetaRows(input: ReportMetaInput): { label: string; value: 
 
 /** اسم الملف: عنوان التقرير ومداه، بلا محارف تكسر أنظمة الملفات. صرفة. */
 export function reportFileName(data: ReportExportData, tr: (ar: string) => string): string {
+  if (isPartnerExportKey(data.reportKey)) return partnerExportFileName(data, tr);
   const span = data.reportKey === 'balance-sheet' || data.options.dateFilter.mode === 'asOf'
     ? String(data.asOf ?? data.period.to)
     : `${data.period.from}_${data.period.to}`;
@@ -723,6 +733,7 @@ export function buildReportTable(data: ReportExportData, tr: (ar: string) => str
   if (data.reportKey === 'balance-sheet') return balanceSheetTable(data, tr);
   if (data.reportKey === 'general-ledger') return generalLedgerTable(data, tr);
   if (data.reportKey === 'executive-summary') return executiveSummaryTable(data, tr);
+  if (isPartnerExportKey(data.reportKey)) return partnerExportTable(data, tr);
   return { columns: [{ label: tr('البند') }], rows: [], indentIndex: 0 };
 }
 
@@ -763,7 +774,7 @@ export function tableToSheet(input: SheetBuildInput): ExcelSheet {
       if (v === null || v === undefined) { row[label] = ''; return; }
       if (typeof v === 'number') {
         // «المستوى» عددٌ صحيح لا مبلغ، فلا يُقرَّب بمنازل العملة
-        row[label] = i === 0 ? v : num(v, decimals);
+        row[label] = i === 0 ? v : num(v, table.columns[i]?.decimals ?? decimals);
         return;
       }
       row[label] = formulaSafe(i === table.indentIndex ? indentText(r.level, v) : v);
@@ -789,6 +800,8 @@ export function makeAmountFormatter(decimals: number, locale = 'ar-SA'): (v: num
 export interface PdfRowsInput {
   table: ExportTable;
   formatAmount: (v: number) => string;
+  /** خلايا العمود ذي `decimals` (كمية لا مبلغ)؛ الافتراضي `makeQuantityFormatter()` */
+  formatQuantity?: (v: number, decimals: number) => string;
 }
 
 /**
@@ -796,6 +809,7 @@ export interface PdfRowsInput {
  */
 export function tableToPdfRows(input: PdfRowsInput): { columns: PagedPdfColumn[]; rows: PagedPdfRow[] } {
   const { table, formatAmount } = input;
+  const formatQuantity = input.formatQuantity ?? makeQuantityFormatter();
   // جدولٌ بعمود واحد يبقى كما هو (وإلا خرجت صفحةٌ بلا أعمدة)
   const keep = table.columns.length > 1 ? table.columns.map((_, i) => i).filter((i) => i !== 0) : [0];
   const columns: PagedPdfColumn[] = keep.map((i) => ({
@@ -813,7 +827,7 @@ export function tableToPdfRows(input: PdfRowsInput): { columns: PagedPdfColumn[]
     cells: keep.map((i) => {
       const v = r.cells[i];
       if (v === null || v === undefined) return '';
-      if (typeof v === 'number') return formatAmount(v);
+      if (typeof v === 'number') return table.columns[i].decimals === undefined ? formatAmount(v) : formatQuantity(v, table.columns[i].decimals as number);
       return i === table.indentIndex ? indentText(r.level, v) : v;
     }),
   }));
@@ -890,4 +904,289 @@ export async function runReportExport(input: RunReportExportInput): Promise<RunR
     warnings: Array.isArray(data.warnings) ? data.warnings : [],
     delivery,
   };
+}
+
+// ═══ «ربط الدفاتر» L8: تقارير الشركاء (عقد L4/L5/L8 §6.2) ═══
+//
+// الردّ هنا **أرقام بوحدة العملة** (`fromMilli` في `routes/ledger/partnerReports.ts`) لا ملّي نصّي، ولا `period` ولا `options`:
+// فلكل تقرير جدوله وترويسته، والمسار المشترك (‏`runReportExport` ← `buildReportTable` و`reportMetaRows` و`reportFileName`)
+// يحوّل إليها بسطر واحد. الكمية والعدد خليتان رقميتان بمنازلهما (`ExportColumn.decimals`) لا بمنازل العملة.
+
+/** هل المفتاح تقرير شركاء (L8)؟ صرفة. */
+export function isPartnerExportKey(key: string): key is PartnerReportKey {
+  return (PARTNER_REPORT_KEYS as readonly string[]).includes(key);
+}
+
+export function partnerExportTitle(key: PartnerReportKey, tr: (ar: string) => string): string {
+  return partnerReportTitles(tr)[key];
+}
+
+/** منسّق الكمية: حتى `decimals` منازل بلا أصفار لاحقة («240» و«2.5»). صرفة. */
+export function makeQuantityFormatter(locale = 'ar-SA'): (v: number, decimals: number) => string {
+  const cache = new Map<number, Intl.NumberFormat | null>();
+  return (v: number, decimals: number) => {
+    const d = Math.max(0, Math.min(6, Math.trunc(decimals)));
+    if (!cache.has(d)) {
+      try { cache.set(d, new Intl.NumberFormat(locale, { minimumFractionDigits: 0, maximumFractionDigits: d })); } catch { cache.set(d, null); }
+    }
+    const f = cache.get(d);
+    return f ? f.format(v) : String(Math.round(v * 10 ** d) / 10 ** d);
+  };
+}
+
+type PartnerCell = string | number | null;
+interface KeyedColumn { key: string; col: ExportColumn }
+interface KeyedRow { level: number; values: Readonly<Record<string, PartnerCell>>; strong?: boolean; head?: boolean; carry?: boolean; muted?: boolean }
+
+/** صفوف بمفاتيح الأعمدة ⇒ جدول التصدير (العمود الغائب خلية فارغة). صرفة. */
+function keyedTable(columns: readonly KeyedColumn[], rows: readonly KeyedRow[], indentKey: string): ExportTable {
+  return {
+    columns: columns.map((c) => c.col),
+    rows: rows.map((r) => ({
+      level: r.level, strong: r.strong, head: r.head, carry: r.carry, muted: r.muted,
+      cells: columns.map((c) => (c.key === 'level' ? r.level : r.values[c.key] ?? null)),
+    })),
+    indentIndex: Math.max(0, columns.findIndex((c) => c.key === indentKey)),
+  };
+}
+
+/** مبلغ من الردّ (رقم بوحدة العملة) أو فارغ. صرفة. */
+const partnerAmount = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const qtyCell = (v: unknown): number | null => roundQuantity(typeof v === 'number' ? v : null);
+const levelColumn = (tr: (ar: string) => string): KeyedColumn => ({ key: 'level', col: { label: tr('المستوى'), numeric: true, width: 0.4 } });
+const QTY_DECIMALS = 4;
+
+interface PlMatchJson { moveNumber: string | null; amount: number }
+interface PlLineJson {
+  date: string; moveNumber: string | null; journalCode: string | null; ref: string | null; label: string | null;
+  sourceType: string | null; debit: number; credit: number; balance: number; dueDate: string | null; residual: number;
+  fullyReconciled: boolean; matches: PlMatchJson[]; productName: string | null; quantity: number | null;
+  attachments?: { count?: number };
+}
+interface PlJson {
+  partner?: { type?: string; id?: string; name?: string | null };
+  from: string; to: string; includeReconciled?: boolean; decimals?: number;
+  opening: number; closing: number; totalDebit: number; totalCredit: number; lines: PlLineJson[];
+}
+
+/**
+ * دفتر أستاذ الشريك: صفّ الافتتاح (يتكرر أعلى صفحات PDF)، ثم السطور برصيد جارٍ، ثم صفّ الإجمالي بالختام.
+ * أعمدة الاستحقاق والمتبقّي والمطابقات للعميل والمورّد وحدهما (المطابقة على الذمم)، والصنف والكمية حين يحملهما سطر. صرفة.
+ */
+function partnerLedgerExportTable(data: ReportExportData, tr: (ar: string) => string): ExportTable {
+  const d = data as unknown as PlJson;
+  const lines = arr<PlLineJson>(d.lines);
+  const isArAp = d.partner?.type === 'customer' || d.partner?.type === 'vendor';
+  const hasProduct = lines.some((l) => !!l.productName || (typeof l.quantity === 'number' && l.quantity !== 0));
+  const dec = Number.isFinite(data.settings?.currencyDecimals) ? data.settings.currencyDecimals : Number.isFinite(d.decimals) ? Number(d.decimals) : 2;
+  const src = sourceTypeLabels(tr);
+  const columns: KeyedColumn[] = [
+    levelColumn(tr),
+    { key: 'date', col: { label: tr('التاريخ'), width: 1 } },
+    { key: 'number', col: { label: tr('رقم القيد'), width: 1.1 } },
+    { key: 'journal', col: { label: tr('الدفتر'), width: 0.7 } },
+    { key: 'ref', col: { label: tr('المرجع'), width: 1 } },
+    { key: 'source', col: { label: tr('المستند'), width: 1 } },
+    { key: 'label', col: { label: tr('البيان'), width: 2.4 } },
+    ...(hasProduct ? [
+      { key: 'product', col: { label: tr('الصنف'), width: 1.4 } },
+      { key: 'quantity', col: { label: tr('الكمية'), numeric: true, width: 0.8, decimals: QTY_DECIMALS } },
+    ] : []),
+    ...(isArAp ? [{ key: 'due', col: { label: tr('الاستحقاق'), width: 1 } }] : []),
+    { key: 'debit', col: { label: tr('مدين'), numeric: true, width: 1.1 } },
+    { key: 'credit', col: { label: tr('دائن'), numeric: true, width: 1.1 } },
+    { key: 'balance', col: { label: tr('الرصيد'), numeric: true, width: 1.2 } },
+    ...(isArAp ? [
+      { key: 'residual', col: { label: tr('المتبقّي'), numeric: true, width: 1.1 } },
+      { key: 'matches', col: { label: tr('المطابقات'), width: 1.6 } },
+    ] : []),
+    { key: 'attachments', col: { label: tr('المرفقات'), numeric: true, width: 0.6, decimals: 0 } },
+  ];
+  // كصفّ الحساب في دفتر الأستاذ العام: اسم الشريك ورصيده الافتتاحي، ويعيده PDF أعلى كل صفحة تالية سياقاً للقارئ
+  const who = txt(d.partner?.name) || txt(d.partner?.id);
+  const rows: KeyedRow[] = [{
+    level: 0, head: true, strong: true, carry: true,
+    values: { date: txt(d.from), label: who ? `${who} — ${tr('الرصيد الافتتاحي')}` : tr('الرصيد الافتتاحي'), balance: partnerAmount(d.opening) },
+  }];
+  for (const l of lines) {
+    const matches = arr<PlMatchJson>(l.matches).map((m) => `${txt(m.moveNumber) || '—'}: ${Number(m.amount).toFixed(dec)}`).join('، ');
+    rows.push({
+      level: 1,
+      values: {
+        date: txt(l.date), number: txt(l.moveNumber), journal: txt(l.journalCode), ref: txt(l.ref),
+        source: l.sourceType ? src[l.sourceType] ?? l.sourceType : '',
+        label: txt(l.label), product: txt(l.productName), quantity: qtyCell(l.quantity), due: txt(l.dueDate),
+        debit: partnerAmount(l.debit), credit: partnerAmount(l.credit), balance: partnerAmount(l.balance),
+        residual: partnerAmount(l.residual),
+        matches: l.fullyReconciled ? (matches ? `${tr('مطابَق كلياً')} — ${matches}` : tr('مطابَق كلياً')) : matches,
+        attachments: l.attachments?.count ? l.attachments.count : null,
+      },
+    });
+  }
+  rows.push({
+    level: 0, strong: true,
+    values: {
+      date: txt(d.to), label: tr('إجمالي الفترة والرصيد الختامي'),
+      debit: partnerAmount(d.totalDebit), credit: partnerAmount(d.totalCredit), balance: partnerAmount(d.closing),
+    },
+  });
+  return keyedTable(columns, rows, 'label');
+}
+
+interface AgingColsJson { notDue: number; b1: number; b2: number; b3: number; b4: number; older: number; unappliedCredits: number; total: number }
+interface AgingRowJson extends AgingColsJson { partnerId: string; name: string | null }
+interface AgingDetailJson { moveNumber: string | null; date: string; dueDate: string | null; daysOverdue: number; residual: number; bucket: string }
+interface AgingJson { kind?: 'AR' | 'AP'; asOf: string; basis?: string; buckets?: number[]; partnerId?: string | null; rows: AgingRowJson[]; totals: AgingColsJson; detail?: AgingDetailJson[] }
+
+const AGING_AMOUNT_KEYS = ['notDue', 'b1', 'b2', 'b3', 'b4', 'older', 'unappliedCredits', 'total'] as const;
+
+/**
+ * أعمار الذمم: صفّ لكل شريك بأعمدته، وتحته (لشريك واحد) بنوده المفتوحة كلٌّ في عموده، ثم الإجمالي. صرفة.
+ */
+function agingExportTable(data: ReportExportData, tr: (ar: string) => string): ExportTable {
+  const d = data as unknown as AgingJson;
+  const kind = d.kind ?? (data.reportKey === 'aged-payable' ? 'AP' : 'AR');
+  const labels = agingColumnLabels(arr<number>(d.buckets), tr, kind);
+  const columns: KeyedColumn[] = [
+    levelColumn(tr),
+    { key: 'name', col: { label: kind === 'AR' ? tr('العميل') : tr('المورّد'), width: 2.6 } },
+    ...AGING_AMOUNT_KEYS.map((k) => ({ key: k, col: { label: labels[k], numeric: true, width: k === 'unappliedCredits' ? 1.3 : 1.1 } })),
+  ];
+  const amounts = (c: Partial<AgingColsJson> | undefined): Record<string, PartnerCell> =>
+    Object.fromEntries(AGING_AMOUNT_KEYS.map((k) => [k, partnerAmount(c?.[k])]));
+  const rows: KeyedRow[] = [];
+  const detail = arr<AgingDetailJson>(d.detail);
+  for (const r of arr<AgingRowJson>(d.rows)) {
+    rows.push({ level: 0, strong: detail.length > 0, values: { name: txt(r.name) || txt(r.partnerId), ...amounts(r) } });
+  }
+  for (const x of detail) {
+    const col = x.bucket === 'unapplied' ? 'unappliedCredits' : x.bucket;
+    const parts = [txt(x.moveNumber) || '—', txt(x.date)];
+    if (x.dueDate) parts.push(`${tr('الاستحقاق')} ${x.dueDate}`);
+    if (x.bucket !== 'unapplied') parts.push(`${x.daysOverdue} ${tr('يوماً')}`);
+    rows.push({ level: 1, values: { name: parts.join(' · '), [col]: partnerAmount(x.residual), total: partnerAmount(x.residual) } });
+  }
+  rows.push({ level: 0, strong: true, values: { name: tr('الإجمالي'), ...amounts(d.totals) } });
+  return keyedTable(columns, rows, 'name');
+}
+
+interface LateRowJson {
+  moveNumber: string | null; sourceType: string | null; ref: string | null; partnerName: string | null;
+  originalDate: string; postedDate: string; reason: string; amount: number;
+}
+
+/** المستندات التي وصلت متأخرة: قيدٌ لكل صفّ بتاريخه الأصلي وتاريخ ترحيله وسببه، ثم الإجمالي وعدده. صرفة. */
+function lateArrivalsExportTable(data: ReportExportData, tr: (ar: string) => string): ExportTable {
+  const d = data as unknown as { rows: LateRowJson[]; total: number; count: number };
+  const src = sourceTypeLabels(tr);
+  const reasons = lateArrivalReasonLabels(tr) as Record<string, string>;
+  const columns: KeyedColumn[] = [
+    levelColumn(tr),
+    { key: 'number', col: { label: tr('رقم القيد'), width: 1.1 } },
+    { key: 'source', col: { label: tr('المستند'), width: 1.2 } },
+    { key: 'ref', col: { label: tr('المرجع'), width: 1.1 } },
+    { key: 'partner', col: { label: tr('الشريك'), width: 1.6 } },
+    { key: 'original', col: { label: tr('تاريخ المستند'), width: 1 } },
+    { key: 'posted', col: { label: tr('تاريخ الترحيل'), width: 1 } },
+    { key: 'reason', col: { label: tr('السبب'), width: 1.6 } },
+    { key: 'amount', col: { label: tr('المبلغ'), numeric: true, width: 1.1 } },
+  ];
+  const rows: KeyedRow[] = arr<LateRowJson>(d.rows).map((r) => ({
+    level: 0,
+    values: {
+      number: txt(r.moveNumber), source: r.sourceType ? src[r.sourceType] ?? r.sourceType : '', ref: txt(r.ref),
+      partner: txt(r.partnerName), original: txt(r.originalDate), posted: txt(r.postedDate),
+      reason: reasons[r.reason] ?? txt(r.reason), amount: partnerAmount(r.amount),
+    },
+  }));
+  rows.push({ level: 0, strong: true, values: { number: `${tr('الإجمالي')} (${Number(d.count ?? rows.length)})`, amount: partnerAmount(d.total) } });
+  return keyedTable(columns, rows, 'number');
+}
+
+interface ProductColsJson { quantity: number; soldQuantity: number; returnedQuantity: number; revenue: number; discount: number; returns: number; net: number }
+interface ProductRowJson extends ProductColsJson { productId: string; productName: string | null }
+
+/** تقرير الأصناف من الدفاتر: الكميات بمنازلها والمبالغ بمنازل العملة، و«الصافي = الإيراد − الخصم − المردودات». صرفة. */
+function productLedgerExportTable(data: ReportExportData, tr: (ar: string) => string): ExportTable {
+  const d = data as unknown as { rows: ProductRowJson[]; totals: ProductColsJson };
+  const columns: KeyedColumn[] = [
+    levelColumn(tr),
+    { key: 'name', col: { label: tr('الصنف'), width: 2.6 } },
+    { key: 'soldQuantity', col: { label: tr('الكمية المباعة'), numeric: true, width: 1, decimals: QTY_DECIMALS } },
+    { key: 'returnedQuantity', col: { label: tr('الكمية المرتجعة'), numeric: true, width: 1, decimals: QTY_DECIMALS } },
+    { key: 'quantity', col: { label: tr('صافي الكمية'), numeric: true, width: 1, decimals: QTY_DECIMALS } },
+    { key: 'revenue', col: { label: tr('الإيراد'), numeric: true, width: 1.1 } },
+    { key: 'discount', col: { label: tr('الخصم'), numeric: true, width: 1.1 } },
+    { key: 'returns', col: { label: tr('المردودات'), numeric: true, width: 1.1 } },
+    { key: 'net', col: { label: tr('الصافي'), numeric: true, width: 1.2 } },
+  ];
+  const vals = (r: Partial<ProductColsJson> | undefined): Record<string, PartnerCell> => ({
+    soldQuantity: qtyCell(r?.soldQuantity), returnedQuantity: qtyCell(r?.returnedQuantity), quantity: qtyCell(r?.quantity),
+    revenue: partnerAmount(r?.revenue), discount: partnerAmount(r?.discount), returns: partnerAmount(r?.returns), net: partnerAmount(r?.net),
+  });
+  const rows: KeyedRow[] = arr<ProductRowJson>(d.rows).map((r) => ({ level: 0, values: { name: txt(r.productName) || txt(r.productId), ...vals(r) } }));
+  rows.push({ level: 0, strong: true, values: { name: tr('الإجمالي'), ...vals(d.totals) } });
+  return keyedTable(columns, rows, 'name');
+}
+
+/** جدول تقرير الشركاء من ردّ نقطة التصدير. صرفة. */
+export function partnerExportTable(data: ReportExportData, tr: (ar: string) => string): ExportTable {
+  if (data.reportKey === 'partner-ledger') return partnerLedgerExportTable(data, tr);
+  if (data.reportKey === 'aged-receivable' || data.reportKey === 'aged-payable') return agingExportTable(data, tr);
+  if (data.reportKey === 'late-arrivals') return lateArrivalsExportTable(data, tr);
+  return productLedgerExportTable(data, tr);
+}
+
+/** ترويسة ملف تقرير الشركاء: الشركة والتقرير والشريك والفترة والخيارات والعملة وتاريخ الطباعة. صرفة. */
+export function partnerExportMetaRows(input: ReportMetaInput): { label: string; value: string }[] {
+  const { tr } = input;
+  const data = input.data;
+  const d = data as unknown as {
+    partner?: { type?: string; id?: string; name?: string | null }; from?: string; to?: string; asOf?: string; includeReconciled?: boolean;
+    basis?: string; buckets?: number[]; partnerId?: string | null; rows?: { name?: string | null; productName?: string | null }[];
+    filters?: { productId?: string | null; customerId?: string | null; salesRepId?: string | null };
+  };
+  const now = input.now ?? new Date();
+  const printed = (() => {
+    try { return now.toLocaleString(input.locale ?? 'ar-SA'); } catch { return now.toISOString().slice(0, 16).replace('T', ' '); }
+  })();
+  const key = data.reportKey as PartnerReportKey;
+  const out: { label: string; value: string }[] = [];
+  if (input.company && input.company.trim() !== '') out.push({ label: tr('الشركة'), value: input.company.trim() });
+  out.push({ label: tr('التقرير'), value: partnerExportTitle(key, tr) });
+  const options: string[] = [];
+  if (key === 'partner-ledger') {
+    const types = partnerTypeLabels(tr) as Record<string, string>;
+    const type = d.partner?.type ? types[d.partner.type] ?? d.partner.type : '';
+    out.push({ label: tr('الشريك'), value: [type, txt(d.partner?.name) || txt(d.partner?.id)].filter(Boolean).join(' — ') });
+    out.push({ label: tr('الفترة'), value: `${txt(d.from)} — ${txt(d.to)}` });
+    options.push(d.includeReconciled === false ? tr('البنود غير المطابَقة وحدها') : tr('مع البنود المطابَقة كلياً'));
+  } else if (key === 'aged-receivable' || key === 'aged-payable') {
+    if (d.partnerId) out.push({ label: tr('الشريك'), value: txt(arr<{ name?: string | null }>(d.rows)[0]?.name) || d.partnerId });
+    out.push({ label: tr('الفترة'), value: `${tr('اعتباراً من')} ${txt(d.asOf)}` });
+    const bases = agingBasisLabels(tr) as Record<string, string>;
+    options.push(bases[d.basis ?? 'due'] ?? txt(d.basis));
+    if (arr<number>(d.buckets).length > 0) options.push(`${tr('الأعمدة')}: ${arr<number>(d.buckets).join(' / ')}`);
+  } else {
+    out.push({ label: tr('الفترة'), value: `${txt(d.from)} — ${txt(d.to)}` });
+    if (key === 'product-ledger') {
+      const f = d.filters ?? {};
+      if (f.productId) options.push(`${tr('الصنف')}: ${txt(arr<{ productName?: string | null }>(d.rows)[0]?.productName) || f.productId}`);
+      if (f.customerId) options.push(tr('عميل محدد'));
+      if (f.salesRepId) options.push(tr('مندوب محدد'));
+    }
+  }
+  if (options.length > 0) out.push({ label: tr('الخيارات'), value: options.join(' · ') });
+  out.push({ label: tr('العملة'), value: `${data.settings?.currency ?? ''}` });
+  out.push({ label: tr('تاريخ الطباعة'), value: printed });
+  return out;
+}
+
+/** اسم ملف تقرير الشركاء: العنوان، والشريك (لدفتره)، والمدى أو تاريخ الأعمار. صرفة. */
+export function partnerExportFileName(data: ReportExportData, tr: (ar: string) => string): string {
+  const key = data.reportKey as PartnerReportKey;
+  const d = data as unknown as { partner?: { name?: string | null }; from?: string; to?: string; asOf?: string };
+  const span = key === 'aged-receivable' || key === 'aged-payable' ? txt(d.asOf) : `${txt(d.from)}_${txt(d.to)}`;
+  const who = key === 'partner-ledger' ? txt(d.partner?.name) : '';
+  return [partnerExportTitle(key, tr), who, span].filter((p) => p !== '').join('-').replace(/[\\/?*[\]:<>|"]/g, '·').slice(0, 80);
 }

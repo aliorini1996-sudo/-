@@ -20,6 +20,7 @@ import {
 import {
   RECONCILED_SOURCES, deriveSourceEvents, type DeriveContext, type ReconciledSource, type SourceRow,
 } from './desired';
+import { reconciledSourceEnabled } from './desired';
 
 // ═══ واجهة القراءة والكتابة ═══
 
@@ -31,6 +32,11 @@ export interface ReconcileSettings {
   /** عملة الشركة الحالية للقطة الحمولة (تُقارن بـGlSettings.currency عند الترحيل) */
   currency: string;
   currencyDecimals: number;
+  /**
+   * «ربط الدفاتر» (D1): isLinked({setupMethod, activatedAt}) — الدفاتر المربوطة المفعّلة. يفتح مصدر USER_SETTLEMENT وحقول
+   * الحمولة الجديدة وحدث PAYLINK_REFUND. الغائب = false (سلوك اليوم حرفاً، ومنه الإعدادات المبنيّة في الاختبارات والتفعيل).
+   */
+  linked?: boolean;
 }
 
 export interface PageQuery {
@@ -137,6 +143,7 @@ export async function reconcileSource(
 ): Promise<ReconcileSourceResult | null> {
   const settings = opts.settings !== undefined ? opts.settings : await store.loadSettings(tenantId);
   if (!settings || !settings.activatedAt) return null;
+  if (!reconciledSourceEnabled(source, settings)) return null; // USER_SETTLEMENT للمربوطة وحدها (D13)
   const cursor = await store.readCursor(tenantId, source);
   if (!cursor) return null;
 
@@ -208,6 +215,7 @@ export async function reconcileTenant(store: ReconcilerStore, tenantId: string, 
   const dbNow = opts.dbNow ?? await store.dbNow();
   const out: ReconcileSourceResult[] = [];
   for (const source of RECONCILED_SOURCES) {
+    if (!reconciledSourceEnabled(source, settings)) continue; // لا قراءة مؤشر USER_SETTLEMENT لغير المربوطة
     if (opts.deadline !== undefined && (opts.clock ?? Date.now)() >= opts.deadline) break;
     const r = await reconcileSource(store, tenantId, source, { ...opts, settings, dbNow });
     if (r) out.push(r);
@@ -231,8 +239,11 @@ export interface SafetyNetResult {
 export async function safetyNetScan(
   store: ReconcilerStore, tenantId: string, source: ReconciledSource, opts: ReconcileOptions & { lookbackMs?: number } = {},
 ): Promise<SafetyNetResult | null> {
+  // USER_SETTLEMENT (D13): المؤشر أولاً حين لم تُمرَّر الإعدادات (نبضة شبكة الأمان) — غير المربوطة بلا مؤشر فلا تُقرأ إعداداتها مرة رابعة
+  if (source === 'USER_SETTLEMENT' && opts.settings === undefined && !(await store.readCursor(tenantId, source))) return null;
   const settings = opts.settings !== undefined ? opts.settings : await store.loadSettings(tenantId);
   if (!settings || !settings.activatedAt) return null;
+  if (!reconciledSourceEnabled(source, settings)) return null;
   const cursor = await store.readCursor(tenantId, source);
   if (!cursor) return null;
   const pageSize = opts.pageSize ?? RECONCILE_PAGE_SIZE;

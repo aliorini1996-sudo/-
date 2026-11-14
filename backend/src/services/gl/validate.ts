@@ -44,6 +44,8 @@ export type ValidationReason =
   | 'VAT_LINE_UNTAGGED'
   | 'CUSTOMER_REQUIRED'
   | 'VENDOR_REQUIRED'
+  /** «ربط الدفاتر» D2: سطر عهدة (CUSTODY) بمندوب ومستخدم معاً — لا يُعرف لمن العهدة (111003 بالمندوب، 111004 بالمستخدم) */
+  | 'CUSTODY_PARTNER_AMBIGUOUS'
   | 'OFF_BALANCE_MIXED'
   | 'TOO_FEW_LINES'
   | 'UNBALANCED';
@@ -198,6 +200,11 @@ export function collectMoveIssues(move: MoveDraft, ctx: BuildContext, opts: Vali
     }
     if (kind === 'AP' && !hasText(line.vendorId)) {
       issues.push({ code: 'LEDGER_PARTNER_REQUIRED', invariant: 'I5', reason: 'VENDOR_REQUIRED', ...at });
+    }
+    // I5 («ربط الدفاتر» D2): العهدة لشريك واحد — salesRepId (111003) أو adminUserId (111004) لا كلاهما، وإلا لحُسب السطر
+    // في C4 (مجموع المندوب) وC4u (مجموع المستخدم) معاً. adminUserId لا يُكتب إلا للمربوطة، فالقيود القائمة لا تبلغ هذا الشرط.
+    if (kind === 'CUSTODY' && hasText(line.salesRepId) && hasText(line.adminUserId)) {
+      issues.push({ code: 'LEDGER_PARTNER_REQUIRED', invariant: 'I5', reason: 'CUSTODY_PARTNER_AMBIGUOUS', ...at });
     }
   });
 

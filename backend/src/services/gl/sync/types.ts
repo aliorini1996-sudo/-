@@ -13,6 +13,8 @@ import type { ReceiptPostPayload, ReceiptReversePayload } from '../builders/rece
 import type { SettlementPayload } from '../builders/custody';
 import type { ImportEntryPayload } from '../builders/importEntry';
 import type { PaylinkFeePayload, PayoutPayload } from '../builders/paylink';
+import type { PaylinkRefundPayload } from '../builders/paylink';
+import type { UserSettlementPayload } from '../builders/userCustody';
 import { LOCK_SYNC_HEARTBEAT_MS, LOCK_SYNC_LATE_COMMIT_WINDOW_MS, SYNC_CURSOR_SOURCES, type SyncCursorSource } from '../locks';
 import {
   EVENT_HOLD_REASONS, EVENT_STATUSES, SKIP_REASONS, SOURCE_EVENTS, SOURCE_TYPES,
@@ -62,9 +64,9 @@ export const POSTER_PICKUP_STATUSES = ['PENDING', 'BLOCKED', 'ERROR'] as const s
 /** حالات نهائية لبوابة الأشقاء (§5.4) */
 export const FINAL_EVENT_STATUSES = ['DONE', 'SKIPPED'] as const satisfies readonly EventStatus[];
 /** مصادر المبيعات التي تخضع لـHELD(CURRENCY_MISMATCH) (§5.4، §5.8) */
-export const SALES_SOURCE_TYPES = ['INVOICE', 'RECEIPT', 'AR_ENTRY', 'SETTLEMENT', 'PAYLINK_FEE', 'PAYOUT', 'CUSTOMER_ADJUSTMENT'] as const satisfies readonly SourceType[];
+export const SALES_SOURCE_TYPES = ['INVOICE', 'RECEIPT', 'AR_ENTRY', 'SETTLEMENT', 'PAYLINK_FEE', 'PAYOUT', 'CUSTOMER_ADJUSTMENT', 'USER_SETTLEMENT', 'PAYLINK_REFUND'] as const satisfies readonly SourceType[];
 /** مصادر tombstone: قد يُحذف صفها فتُقرأ الحمولة وحدها (§5.3، §5.4) */
-export const TOMBSTONE_SOURCE_TYPES = ['SETTLEMENT', 'AR_ENTRY'] as const satisfies readonly SourceType[];
+export const TOMBSTONE_SOURCE_TYPES = ['SETTLEMENT', 'AR_ENTRY', 'USER_SETTLEMENT'] as const satisfies readonly SourceType[];
 /** مصادر المخزون الخاضعة للأفق الآمن (§5.4، M9) — ومعها أحداث COGS وRESTOCK */
 export const INVENTORY_SOURCE_TYPES = ['WH_ENTRY', 'VAN_LOAD', 'RESTOCK'] as const satisfies readonly SourceType[];
 
@@ -87,10 +89,12 @@ export const IMPORT_AFTER_CUTOVER_ATTENTION_REASON = 'حركة مستوردة ب
 export const CURSOR_SOURCE_EVENT_TYPES: Readonly<Record<SyncCursorSource, readonly SourceType[]>> = {
   ACCOUNT_ENTRY: ['INVOICE', 'RECEIPT', 'AR_ENTRY'],
   REP_SETTLEMENT: ['SETTLEMENT'],
-  SETTLEMENT_ENTRY: ['PAYLINK_FEE', 'PAYOUT'],
+  SETTLEMENT_ENTRY: ['PAYLINK_FEE', 'PAYOUT', 'PAYLINK_REFUND'],
   WAREHOUSE_ENTRY: ['WH_ENTRY'],
   VAN_LOAD: ['VAN_LOAD'],
   RETURN_RESTOCK: ['RESTOCK'],
+  // «ربط الدفاتر» L5 (D13): المربوطة وحدها
+  USER_SETTLEMENT: ['USER_SETTLEMENT'],
 };
 
 // ═══ أسباب الحجب المؤقت BLOCKED والإبقاء PENDING ═══
@@ -193,6 +197,18 @@ export interface PayoutEventPayload extends PayoutPayload, EventPayloadMeta {
   createdAt: string;
 }
 
+/**
+ * USER_SETTLEMENT:<id>:POST|REVERSE («ربط الدفاتر» L5، C14) — من user_settlements كما خُزّن (المبلغ نص)، والـtombstone يكتب
+ * الحمولة نفسها في المفتاحين. للمربوطة وحدها.
+ */
+export interface UserSettlementEventPayload extends UserSettlementPayload, EventPayloadMeta {}
+
+/**
+ * PAYLINK_REFUND:<entryId> («ربط الدفاتر» L5، C9) — SettlementEntry kind=REFUND للمربوطة، والمبلغ **موقَّع كما خُزّن** (سالب)
+ * كسائر صفوف الأمانات (PAYLINK_FEE وPAYOUT)؛ والرابط ⇒ سند الدفع وعميله لحظة الاشتقاق.
+ */
+export interface PaylinkRefundEventPayload extends PaylinkRefundPayload, EventPayloadMeta {}
+
 /** M9 وM4 — تُعرَّف أشكالها مع مراحلها */
 export type OpaqueEventPayload = Record<string, unknown> & EventPayloadMeta;
 
@@ -208,6 +224,8 @@ export interface SourceEventPayloadMap {
   VAN_LOAD: { POST: OpaqueEventPayload };
   RESTOCK: { RESTOCK: OpaqueEventPayload };
   CUSTOMER_ADJUSTMENT: { POST: OpaqueEventPayload; REVERSE: OpaqueEventPayload };
+  USER_SETTLEMENT: { POST: UserSettlementEventPayload; REVERSE: UserSettlementEventPayload };
+  PAYLINK_REFUND: { POST: PaylinkRefundEventPayload };
 }
 
 export type PayloadOf<T extends SourceType, E extends SourceEvent> =
@@ -215,7 +233,8 @@ export type PayloadOf<T extends SourceType, E extends SourceEvent> =
 
 export type SourceEventPayload =
   | InvoicePostEventPayload | InvoiceReverseEventPayload | ReceiptPostEventPayload | ReceiptReverseEventPayload
-  | ArEntryEventPayload | SettlementEventPayload | PaylinkFeeEventPayload | PayoutEventPayload | OpaqueEventPayload;
+  | ArEntryEventPayload | SettlementEventPayload | PaylinkFeeEventPayload | PayoutEventPayload | OpaqueEventPayload
+  | UserSettlementEventPayload | PaylinkRefundEventPayload;
 
 // ═══ الحدث ═══
 

@@ -6,7 +6,7 @@
  */
 import type { Milli } from '../types';
 
-export const CHECK_KEYS = ['C1', 'C2', 'C3', 'C4', 'C4b', 'C5', 'C8', 'C9', 'C10', 'C11', 'C12', 'C14', 'C15'] as const;
+export const CHECK_KEYS = ['C1', 'C2', 'C3', 'C4', 'C4b', 'C4u', 'C5', 'C8', 'C9', 'C10', 'C11', 'C12', 'C14', 'C15', 'C16'] as const;
 export type CheckKey = (typeof CHECK_KEYS)[number];
 
 export function isCheckKey(v: unknown): v is CheckKey {
@@ -79,7 +79,13 @@ export const CHECK_TITLES: Readonly<Record<CheckKey, string>> = {
   C12: 'تسلسل الترقيم',
   C14: 'ازدواج القيد مع ERP',
   C15: 'تأخّر مؤشر المزامنة',
+  // «ربط الدفاتر» L5/L8 — للدفاتر المربوطة وحدها (LINKED_ONLY_CHECKS)
+  C4u: 'عهدة مستخدمي الشركة',
+  C16: 'الذمم المفتوحة مقابل متبقّي الفواتير',
 };
+
+/** «ربط الدفاتر»: فحوص لا تنطبق إلا على الدفاتر المربوطة (عهدة المستخدمين 111004، والمطابقة الجزئية للذمم) */
+export const LINKED_ONLY_CHECKS = ['C4u', 'C16'] as const satisfies readonly CheckKey[];
 
 const RANK: Record<CheckStatus, number> = { GREEN: 0, YELLOW: 1, RED: 2 };
 
