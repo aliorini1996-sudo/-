@@ -21,6 +21,11 @@ import { ZatcaHttpError } from '../compliance/zatca/errors';
 import { readPaymentMethodsConfig, resolveReceiptMethod } from '../services/paymentMethodsCore';
 import { DEVICE_NOW_HEADER, headerText, offlineInvoiceDate } from '../services/offlineInvoiceDate';
 import { tenantTz } from '../services/invoiceExpiry';
+// «ربط الدفاتر» L5 (C6 وC11): وضع الدفاتر ومصدر ردّ السند الملغى — services/booksMode لا services/gl (حارس gl-hooks-static)
+import { postsFromOperations } from '../services/booksMode';
+import { CancelRefundRejected, applyCancelRefundInTx, cancelRefundOptions, resolveCancelRefund } from '../services/receiptCancelSource';
+import { cancelCustodyAccessFor } from '../services/receiptCancelSource';
+import { adminScopeEnabled } from '../services/adminScope';
 
 const router = Router();
 router.use(authenticate);
@@ -248,6 +253,14 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       { replay: String(req.headers['x-fs-replay'] || '') === '1' },
     );
     if (!method.ok) { res.status(method.status).json({ success: false, code: method.code, message: method.message }); return; }
+    /* «ربط الدفاتر» C6 (D11): السند الإلكتروني يولد من رابط الدفع وحده (services/paylink.ts — مقابله 112005 بالتسوية). سندٌ يدويّ
+     * بطريقة ONLINE في شركةٍ تُرحِّل من التشغيل (مربوطة أو قديمة) لا مقابل له إلا الحساب المعلّق 911001 ⇒ 422. والإعادة
+     * (X-FS-Replay) ومفتاح API لا يُرفضان أبداً (integration_no_reject)، وغير المرحِّلة كما كانت. إعدادات الدفاتر تُقرأ لـONLINE وحده */
+    if (method.paymentMethod === 'ONLINE' && !req.user?.apiKeyId && String(req.headers['x-fs-replay'] || '') !== '1'
+      && postsFromOperations(await prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { setupMethod: true, activatedAt: true } }))) {
+      res.status(422).json({ success: false, code: 'RECEIPT_ONLINE_MANUAL', message: 'السند الإلكتروني يُنشأ من رابط الدفع وحده — سجّل الطريقة الفعلية للتحصيل' });
+      return;
+    }
 
     const customer = await prisma.customer.findFirst({ where: { id: customerId, tenantId: tid } });
     if (!customer) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
@@ -428,6 +441,27 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   }
 });
 
+/** صلاحيات المُلغي على عهد المستخدمين (مراجعة ١٤ نوفمبر) — كسولة: لا قراءة إلا حين يلزم الحكم */
+const cancelAccessOf = (req: AuthRequest) => async () => cancelCustodyAccessFor(prisma, req.user, await adminScopeEnabled(req));
+
+// «ربط الدفاتر» C11: من أين يُردّ مال السند إن أُلغي؟ يقرؤه حوار الإلغاء قبل PATCH /:id/cancel (services/receiptCancelSource.ts).
+// قراءةٌ بلا كتابة: التصنيف للعهدة (D4)، و«سُلِّم؟»، والمقترح والخيارات — والمندوب لا يرى إلا عهدته
+router.get('/:id/cancel-options', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const receipt = await prisma.receipt.findFirst({
+      where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
+      select: { id: true, amount: true, paymentMethod: true, salesRepId: true, receiptDate: true, status: true },
+    });
+    const isRep = req.user?.role === 'SALES_REP';
+    if (!receipt || (isRep && receipt.salesRepId !== req.user!.id)) { res.status(404).json({ success: false, message: 'السند غير موجود' }); return; }
+    if (receipt.status === 'CANCELLED') { res.status(400).json({ success: false, message: 'السند ملغى مسبقا' }); return; }
+    // عهدة المستلِم ورصيد المندوب لمن يحقّ له وحده (حارس عهدة التحصيل وتقييد النطاق) — تُقرأ صلاحياته كسولةً
+    const data = await cancelRefundOptions(prisma, tid, receipt, { repOnly: isRep, access: cancelAccessOf(req) });
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+});
+
 router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -444,9 +478,14 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
       if (!rep?.canCancelReceipt) { res.status(403).json({ success: false, message: 'لا تملك صلاحية إلغاء سند قبض' }); return; }
     }
 
+    // «ربط الدفاتر» C11: من أين رُدّ المال (Receipt.cancelRefundFrom) — يُقرَّر هنا بلا قفل، ويُكتب داخل المعاملة قبل عكس القيود.
+    // null ⇒ لا كتابة: الإلغاء حرفياً كما كان (غير المربوطة بلا حقلٍ في الجسم، والسند الإلكتروني)
+    const refund = await resolveCancelRefund(prisma, tid, receipt, { body: req.body, role: req.user?.role, access: cancelAccessOf(req) });
+
     const updated = await prisma.$transaction(async tx => {
       // الفحص أعلاه على قراءةٍ سابقة للمعاملة: مقارنةٌ وتبديل على الحالة أولاً، وإلا أعاد طلبان متقاربان المبلغ مرّتين
       if (!(await claimReceiptCancel(tx, tid, receipt.id))) throw new CancelRefused('السند ملغى مسبقا');
+      if (refund) await applyCancelRefundInTx(tx, tid, receipt, refund);
       const rcp = await tx.receipt.findUniqueOrThrow({ where: { id: receipt.id } });
       await restoreAllocations(tx, tid, receipt.invoiceItems);
       await reverseReceiptEntries(tx as never, tid, rcp.id, rcp.customerId, Number(rcp.amount));
@@ -468,6 +507,7 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
     res.json({ success: true, data: updated });
   } catch (err) {
     if (err instanceof CancelRefused) { res.status(400).json({ success: false, message: err.message }); return; }
+    if (err instanceof CancelRefundRejected) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
     next(err);
   }
 });

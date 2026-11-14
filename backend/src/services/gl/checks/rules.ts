@@ -10,6 +10,7 @@ import {
 } from '../custody';
 import { toMilli } from '../money';
 import { checkSequenceGaps, parseMoveNumber } from '../sequence';
+import type { UserCustodyFold } from '../../userCustodyCore';
 import type { BackfillState, LocalDate, Milli } from '../types';
 import {
   CHECK_TITLES, limitRows, milliText, worstStatus,
@@ -323,6 +324,8 @@ export function evaluateC4b(reps: readonly RepCustodyFacts[]): CheckResult {
       onlineUnclearedMilli: milliText(c.onlineUncleared), custodyExpensesMilli: milliText(c.custodyExpenses),
       openShortageMilli: milliText(c.openShortage), shortagesExpensedMilli: milliText(c.shortagesExpensed),
       nonCustodyClearedMilli: milliText(c.nonCustodyCleared), gapMilli: milliText(gap), matched: gap === 0n,
+      // «ربط الدفاتر» C11: إلغاءٌ رُدّ ماله من خارج العهدة ينقص الشاشة ولا ينقص 111003 — بند المعادلة حين يوجد وحده
+      ...(c.cancelRefundOutside ? { cancelRefundOutsideMilli: milliText(c.cancelRefundOutside) } : {}),
     };
   });
   const mismatched = rows.filter((r) => r.matched === false);
@@ -579,4 +582,139 @@ export function evaluateC15(input: { backfillState: BackfillState | string; curs
   if (red) return result('C15', 'RED', 'مؤشر المزامنة متأخر أو متوقف', rows, 'SYNC_NOW', metrics);
   if (yellow) return result('C15', 'YELLOW', 'الترحيل التاريخي جارٍ ولا تقدم في بعض المصادر', rows, 'SYNC_NOW', metrics);
   return result('C15', 'GREEN', backfill ? 'الترحيل التاريخي جارٍ' : 'المؤشرات حديثة', rows, null, metrics);
+}
+
+// ═══ «ربط الدفاتر» L5 — C4u: عهدة مستخدمي الشركة (D6، OD5) ═══
+
+/** حقائق مستخدمٍ واحد: رصيده في الأستاذ (111004 ببُعد adminUserId) وطيّ عهدته التشغيلية بالدالة نفسها للشاشة والقيد */
+export interface UserCustodyFacts {
+  userId: string;
+  name: string | null;
+  /** Σ(مدين − دائن) لسطور حسابات CUSTODY المرحّلة ببُعد المستخدم (ومنها القيد الافتتاحي) */
+  ledgerMilli: Milli;
+  fold: UserCustodyFold;
+  pending: boolean;
+}
+
+export function c4uGaps(users: readonly UserCustodyFacts[]): PartnerGap[] {
+  return users
+    .map((u) => ({
+      partnerId: u.userId, name: u.name, ledgerMilli: u.ledgerMilli, expectedMilli: u.fold.outstandingMilli,
+      gapMilli: u.ledgerMilli - u.fold.outstandingMilli, pending: u.pending,
+    }))
+    .filter((g) => g.gapMilli !== 0n)
+    .sort((a, b) => (abs(b.gapMilli) > abs(a.gapMilli) ? 1 : abs(b.gapMilli) < abs(a.gapMilli) ? -1 : a.partnerId < b.partnerId ? -1 : 1));
+}
+
+/**
+ * C4u: 111004 لكل مستخدم = foldUserCustody(...).outstanding (R4). أي فرق أحمر، إلا لمستخدمٍ له أحداث غير نهائية فأصفر
+ * (§5.9: الأستاذ لم يلحق بعد). الصفوف لكل مستخدم بمكوّنات طيّه (المختلف أولاً)، ولا قيد تصحيح آلياً من هنا (adjustable=false).
+ */
+export function evaluateC4u(users: readonly UserCustodyFacts[]): CheckResult {
+  const gaps = c4uGaps(users);
+  const gapOf = new Map(gaps.map((g) => [g.partnerId, g]));
+  const status = gapStatus(gaps);
+  const rowOf = (u: UserCustodyFacts): CheckRow => {
+    const g = gapOf.get(u.userId);
+    return {
+      userId: u.userId, name: u.name, ledgerMilli: milliText(u.ledgerMilli), expectedMilli: milliText(u.fold.outstandingMilli),
+      gapMilli: milliText(g?.gapMilli ?? 0n), receivedCashMilli: milliText(u.fold.receivedCashMilli),
+      receivedNonCashMilli: milliText(u.fold.receivedNonCashMilli), deliveredMilli: milliText(u.fold.deliveredMilli),
+      passThroughMilli: milliText(u.fold.passThroughMilli), refundsMilli: milliText(u.fold.refundsMilli),
+      nonCashPoolMilli: milliText(u.fold.nonCashPoolMilli), matched: !g, pending: u.pending, adjustable: false,
+    };
+  };
+  const ordered = [...users].sort((a, b) => {
+    const ga = gapOf.has(a.userId) ? 0 : 1;
+    const gb = gapOf.has(b.userId) ? 0 : 1;
+    return ga - gb || (a.name ?? a.userId).localeCompare(b.name ?? b.userId, 'ar');
+  });
+  const ledgerTotal = users.reduce((t, u) => t + u.ledgerMilli, 0n);
+  const outstandingTotal = users.reduce((t, u) => t + u.fold.outstandingMilli, 0n);
+  const metrics: CheckResult['metrics'] = {
+    users: users.length, ledgerTotalMilli: milliText(ledgerTotal), expectedTotalMilli: milliText(outstandingTotal),
+    totalGapMilli: milliText(ledgerTotal - outstandingTotal), mismatched: gaps.length,
+  };
+  const rows = ordered.map(rowOf);
+  if (status === 'GREEN') return result('C4u', 'GREEN', 'عهدة كل مستخدم في الأستاذ تطابق عهدته التشغيلية', rows, null, metrics);
+  return result(
+    'C4u', status,
+    status === 'RED' ? `${gaps.filter((g) => !g.pending).length} مستخدم تنحرف عهدته في الأستاذ عن عهدته التشغيلية` : 'انحرافات مؤقتة بانتظار الترحيل الآلي',
+    rows, status === 'RED' ? null : 'SYNC_NOW', metrics,
+  );
+}
+
+// ═══ «ربط الدفاتر» L8 — C16: الذمم المفتوحة مقابل متبقّي الفواتير ═══
+
+/** الحد الأعلى لفواتير التعمّق في C16 */
+export const C16_INVOICE_DETAIL_LIMIT = 50;
+
+/** فاتورة تختلف ذمتها المفتوحة في الأستاذ (Σ متبقّي سطور مدينها بعد المطابقة) عن remainingAmt التشغيلي */
+export interface C16InvoiceDetail {
+  invoiceId: string;
+  number: string | null;
+  customerId: string;
+  invoiceDate: LocalDate | null;
+  /** remainingAmt مقرَّباً لمنازل العملة (نصف-لأعلى) */
+  remainingMilli: Milli;
+  /** Σ متبقّي سطور الذمة المدينة لقيدها الحيّ (0 إن لم يُرحَّل) */
+  ledgerOpenMilli: Milli;
+}
+
+export interface C16Input {
+  /** Σ متبقّي سطور 113001 المدينة لكل عميل (reconcile/store.prisma.openArByCustomer) */
+  ledgerOpen: ReadonlyMap<string, Milli>;
+  /** Σ remainingAmt لفواتير CONFIRMED (CREDIT/CASH) لكل عميل بتقريب كل فاتورة */
+  opsRemaining: ReadonlyMap<string, Milli>;
+  names: ReadonlyMap<string, string>;
+  pendingCustomers: ReadonlySet<string>;
+  pendingAll: boolean;
+  /** تعمّق بالفاتورة للعملاء المختلفين (حتى C16_INVOICE_DETAIL_LIMIT) */
+  invoices: readonly C16InvoiceDetail[];
+}
+
+export function c16Gaps(input: Pick<C16Input, 'ledgerOpen' | 'opsRemaining' | 'names' | 'pendingCustomers' | 'pendingAll'>): PartnerGap[] {
+  const ids = new Set<string>([...input.ledgerOpen.keys(), ...input.opsRemaining.keys()]);
+  const out: PartnerGap[] = [];
+  for (const id of ids) {
+    const ledgerMilli = input.ledgerOpen.get(id) ?? 0n;
+    const expectedMilli = input.opsRemaining.get(id) ?? 0n;
+    const gapMilli = ledgerMilli - expectedMilli;
+    if (gapMilli === 0n) continue;
+    out.push({ partnerId: id, name: input.names.get(id) ?? null, ledgerMilli, expectedMilli, gapMilli, pending: input.pendingAll || input.pendingCustomers.has(id) });
+  }
+  return out.sort((a, b) => (abs(b.gapMilli) > abs(a.gapMilli) ? 1 : abs(b.gapMilli) < abs(a.gapMilli) ? -1 : a.partnerId < b.partnerId ? -1 : 1));
+}
+
+/**
+ * C16 (أصفر، L8): لكل عميل Σ الذمم المفتوحة في الأستاذ (متبقّي السطور المدينة بعد المطابقة الجزئية) = Σ متبقّي فواتيره.
+ * فرقٌ دلالة على مطابقة ناقصة (فاتورة لم تُرحَّل، أو تخصيص لم يُطابَق) أو فجوة D8 الموثّقة (إشعار دائن أسقط من أصله أكثر
+ * من المفتوح) — لا تصحيح آلياً. التعمّق بالفاتورة للعملاء المختلفين.
+ */
+export function evaluateC16(input: C16Input): CheckResult {
+  const gaps = c16Gaps(input);
+  const sum = (m: ReadonlyMap<string, Milli>): Milli => { let t = 0n; for (const v of m.values()) t += v; return t; };
+  const ledgerTotal = sum(input.ledgerOpen);
+  const opsTotal = sum(input.opsRemaining);
+  const metrics: CheckResult['metrics'] = {
+    customers: gaps.length, ledgerTotalMilli: milliText(ledgerTotal), expectedTotalMilli: milliText(opsTotal),
+    totalGapMilli: milliText(ledgerTotal - opsTotal),
+  };
+  if (gaps.length === 0) return result('C16', 'GREEN', 'الذمم المفتوحة في الأستاذ تطابق متبقّي الفواتير لكل عميل', [], null, metrics);
+  const rows: CheckRow[] = [
+    ...gaps.map((g) => ({
+      kind: 'CUSTOMER', customerId: g.partnerId, name: g.name, ledgerMilli: milliText(g.ledgerMilli), expectedMilli: milliText(g.expectedMilli),
+      gapMilli: milliText(g.gapMilli), pending: g.pending, adjustable: false,
+    })),
+    ...input.invoices.slice(0, C16_INVOICE_DETAIL_LIMIT).map((i) => ({
+      kind: 'INVOICE', invoiceId: i.invoiceId, number: i.number, customerId: i.customerId, date: i.invoiceDate,
+      ledgerMilli: milliText(i.ledgerOpenMilli), expectedMilli: milliText(i.remainingMilli), gapMilli: milliText(i.ledgerOpenMilli - i.remainingMilli),
+    })),
+  ];
+  const allPending = gaps.every((g) => g.pending);
+  return result(
+    'C16', 'YELLOW',
+    allPending ? 'انحرافات مؤقتة بانتظار الترحيل الآلي' : `${gaps.length} عميل تختلف ذممه المفتوحة في الأستاذ عن متبقّي فواتيره`,
+    rows, allPending ? 'SYNC_NOW' : null, metrics,
+  );
 }

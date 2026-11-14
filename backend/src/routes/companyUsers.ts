@@ -5,7 +5,13 @@ import prisma from '../config/database';
 import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '../middleware/auth';
 import { clean } from '../services/accounting';
 import { getAdminScope, setAdminScope, adminScopeEnabled } from '../services/adminScope';
-import { userCustody, lockCustody, handoverAllowed, CustodyExceeded, CUSTODY_EPS } from '../services/userCustody';
+import {
+  userCustody, lockCustody, CustodyExceeded, CUSTODY_EPS,
+  userCustodyMany, custodyIn, userCustodyFold, userCustodyInputs, handoverAllowedFor, handoverCap, CustodyBlocked,
+} from '../services/userCustody';
+import { deliveryRemovalKeepsSplits } from '../services/userCustodyCore';
+import { userSettlementTombstones } from '../services/gl/sync/tombstone';
+import type { Prisma } from '@prisma/client';
 import { noStaffCredentials, refuseStaffCredentials } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 
@@ -223,14 +229,9 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     // عمود العهدة لغير المقيّد بنطاق وحده (لماذا: `guardCustody` أعلاه). والقائمة
     // تُردّ كما هي للمقيّد فلا تنكسر صفحته — العمود وحده يغيب.
     if (await adminScopeEnabled(req)) { res.json({ success: true, data: users }); return; }
-    // عهدة كل مستخدم بتجميعتين لا باستعلامٍ لكلّ صفّ (N+1)
-    const [recAgg, delAgg] = await Promise.all([
-      prisma.repSettlement.groupBy({ by: ['receivedByUserId'], where: { tenantId: tid, receivedByUserId: { not: null } }, _sum: { amount: true } }),
-      prisma.userSettlement.groupBy({ by: ['fromUserId'], where: { tenantId: tid }, _sum: { amount: true } }),
-    ]);
-    const recMap = new Map(recAgg.map((g) => [g.receivedByUserId as string, g._sum.amount ?? 0]));
-    const delMap = new Map(delAgg.map((g) => [g.fromUserId, g._sum.amount ?? 0]));
-    const withCustody = users.map((u) => ({ ...u, custody: clean((recMap.get(u.id) ?? 0) - (delMap.get(u.id) ?? 0)) }));
+    // عهدة كل مستخدم (نقد وشيكات — OD5) بقراءات مجمّعة لا باستعلامٍ لكلّ صفّ (N+1): userCustodyMany
+    const custody = await userCustodyMany(prisma, tid);
+    const withCustody = users.map((u) => ({ ...u, custody: custodyIn(custody, u.id).outstanding }));
     res.json({ success: true, data: withCustody });
   } catch (err) { next(err); }
 });
@@ -281,8 +282,9 @@ router.post('/:id/settlements', requireAdminPermission('canReceiveUserCollection
      * لطلبين متزامنين أن يمرّ كلٌّ منهما بالعهدة كاملةً فتصير سالبة. */
     await prisma.$transaction(async tx => {
       await lockCustody(tx, tid, target.id);
-      const { outstanding } = await userCustody(tx, tid, target.id);
-      if (!handoverAllowed(outstanding, amount)) throw new CustodyExceeded(outstanding, amount);
+      // السقف بطريقة التوريد (OD5): النقد والشيك من العهدة النقدية، والتحويل ونقطة البيع منها ومن المستلَم غير النقدي
+      const fold = await userCustodyFold(tx, tid, target.id);
+      if (!handoverAllowedFor(fold, method, amount)) throw new CustodyExceeded(handoverCap(fold, method), amount);
       await tx.userSettlement.create({
         data: {
           tenantId: tid, fromUserId: target.id, amount, method, note,
@@ -343,6 +345,35 @@ router.get('/:id/settlements/:sid/photos', async (req: AuthRequest, res: Respons
   } catch (err) { next(err); }
 });
 
+/** صف التوريد كما يُقرأ قبل حذفه (findFirst بلا select) */
+type UserSettlementRowForDelete = {
+  id: string; fromUserId: string; amount: number; method: string; note: string | null;
+  receivedBy: string | null; receivedByUserId: string | null; settledAt: Date; createdAt: Date;
+};
+
+/**
+ * خطاف الدفاتر المربوطة لحذف توريد عهدة («ربط الدفاتر» L5، الفجوة C14) — داخل معاملة الحذف وقبل userSettlement.delete.
+ *
+ * - غير المربوطة (يدوية، قديمة، غير مفعّلة): قراءة gl_settings وحدها ولا كتابة — الحذف كما كان حرفاً.
+ * - المربوطة: USER_SETTLEMENT:<id>:POST و:REVERSE معاً PENDING بلقطة كاملة للصف (glSourceEvent.createMany بـskipDuplicates)،
+ *   والمُرحِّل يعكس قيد التوريد بتقسيمه المخزَّن فتعود العهدة (E5.12).
+ * - وحارسٌ قبل الكتابة تحت قفل العهدة: الدفاتر تُبقي تقسيم التوريدات اللاحقة مخزَّناً، فإن غيّر حذفُ هذا التوريد تقسيمَ
+ *   توريدٍ لاحق (مرّ من المستلَم غير النقدي بسببه) انحرفت الشاشة عن 111004 بلا قيدٍ يصلحها — فيُرفض ويُحذف اللاحق أولاً.
+ * مُصدَّر لاختبار السلوك بعميل مزيّف (l458-a05-hooks).
+ */
+export async function userSettlementDeleteLedgerHook(
+  tx: Prisma.TransactionClient, tid: string, row: UserSettlementRowForDelete, target: { id: string; name: string },
+): Promise<number> {
+  const glTombstones = await userSettlementTombstones(tx, tid, [{ ...row, fromUserName: target.name }]);
+  if (glTombstones.length === 0) return 0;
+  await lockCustody(tx, tid, target.id);
+  if (!deliveryRemovalKeepsSplits(await userCustodyInputs(tx, tid, target.id), row.id)) {
+    throw new CustodyBlocked('بعد هذا التوريد توريد غير نقدي يتغير تقسيمه بحذفه — احذف التوريدات اللاحقة له أولا ثم أعد تسجيلها');
+  }
+  await tx.glSourceEvent.createMany({ data: glTombstones as Prisma.GlSourceEventCreateManyInput[], skipDuplicates: true });
+  return glTombstones.length;
+}
+
 /**
  * حذف توريدٍ سُجِّل خطأً — يعيد مبلغه إلى عهدة المستخدم.
  *
@@ -373,6 +404,8 @@ router.delete('/:id/settlements/:sid', async (req: AuthRequest, res: Response, n
     const actor = `${by?.name || 'الادمن'}${by?.impersonated ? ' (الدعم الفني)' : ''}`;
     const when = new Date(row.settledAt).toISOString().slice(0, 10);
     await prisma.$transaction(async tx => {
+      // خطاف الدفاتر المربوطة قبل الحذف وفي معاملته (userSettlementDeleteLedgerHook أعلاه) — لا شيء لغيرها
+      await userSettlementDeleteLedgerHook(tx, tid, row, target);
       // الصور تمضي مع الصفّ (onDelete: Cascade في المخطّط)
       await tx.userSettlement.delete({ where: { id: row.id } });
       await tx.notification.create({
@@ -392,7 +425,10 @@ router.delete('/:id/settlements/:sid', async (req: AuthRequest, res: Response, n
       });
     });
     res.json({ success: true, data: await userCustody(prisma, tid, target.id) });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err instanceof CustodyBlocked) { res.status(400).json({ success: false, message: err.message }); return; }
+    next(err);
+  }
 });
 
 /**

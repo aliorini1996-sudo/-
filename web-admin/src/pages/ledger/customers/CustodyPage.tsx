@@ -12,6 +12,11 @@ import { ledgerReviewApi, ledgerReviewKeys, type CustodyRepRow } from '../../../
 import { ledgerErrorMessage } from '../../../lib/ledger/errors';
 import { ledgerHref } from '../routes';
 import { NotActivatedNotice, ManualLedgerNotice } from './postingFilters';
+// «ربط الدفاتر» OD3: «تفسير الفرق» — قائمة r المفصّلة من /customers/custody/:salesRepId/explain
+import { ListTree } from 'lucide-react';
+import { ledgerOpsApi, ledgerOpsKeys } from '../../../api/ledgerOps';
+import { custodyExplainKindLabels } from '../../../lib/ledger/labels';
+import { eventsHrefFor, explainConsistency, explainEventKey } from '../../../lib/ledger/sync';
 
 /**
  * «العملاء ← عهدة المناديب» (M3، §5.5 custodyComponents، §5.9 C4/C4b، D3 الخيار ب، D9): لكل مندوب رصيد 111003 في الأستاذ
@@ -158,6 +163,7 @@ function RepDetail({ rep, decimals, loading, error }: { rep: CustodyRepRow; deci
         <Link to={`${ledgerHref('customers/receipts')}?salesRepId=${encodeURIComponent(rep.salesRepId)}`} className="text-[#E15A30] hover:underline">{tr('سندات القبض')}</Link>
         <Link to={`${ledgerHref('review/events')}?q=SETTLEMENT`} className="text-[#E15A30] hover:underline">{tr('أحداث الاستلامات')}</Link>
       </div>
+      <CustodyExplainPanel salesRepId={rep.salesRepId} decimals={decimals} />
       {loading && <p className="text-xs text-[#9A8F7E]">{tr('جاري التحميل...')}</p>}
       {error && <p className="text-xs text-[#C0392B]">{error}</p>}
       {rep.settlements && (
@@ -194,6 +200,89 @@ function RepDetail({ rep, decimals, loading, error }: { rep: CustodyRepRow; deci
             </table>
           </div>
         )
+      )}
+    </div>
+  );
+}
+
+/**
+ * «تفسير الفرق» (OD3): الشاشة التشغيلية − عهدة الأستاذ بنداً بنداً (custodyExplain) — كل بند بأثره الموقَّع ومرجعه وأحداثه،
+ * ثم المجموع والباقي غير المفسَّر (صفر حين تتسق المدخلات). يُجلب عند الطلب فقط: قراءة مدخلات العهدة كاملةً لمندوب واحد.
+ */
+function CustodyExplainPanel({ salesRepId, decimals }: { salesRepId: string; decimals: number }) {
+  const tr = useTr();
+  const [open, setOpen] = useState(false);
+  const q = useQuery({
+    queryKey: ledgerOpsKeys.custodyExplain(salesRepId),
+    queryFn: async () => (await ledgerOpsApi.custody.explain(salesRepId)).data.data,
+    enabled: open,
+  });
+  const x = q.data?.explanation ?? null;
+  const dec = q.data?.currencyDecimals ?? decimals;
+  const kindLabels = custodyExplainKindLabels(tr) as Record<string, string>;
+  const check = x ? explainConsistency(x) : null;
+  return (
+    <div className="space-y-2">
+      <button type="button" className="btn-secondary !py-1 !px-2.5 text-xs inline-flex items-center gap-1" aria-expanded={open} onClick={() => setOpen(o => !o)}>
+        <ListTree size={13} />{open ? tr('إخفاء تفسير الفرق') : tr('تفسير الفرق')}
+      </button>
+      {open && q.isLoading && <p className="text-xs text-[#9A8F7E]">{tr('جاري التحميل...')}</p>}
+      {open && q.isError && <p className="text-xs text-[#C0392B]">{ledgerErrorMessage(tr, ledgerErrorOf(q.error))}</p>}
+      {open && q.data && !x && <p className="text-xs text-[#6E6557]">{tr('التفسير متاح للدفاتر المفعّلة التي تُرحَّل من التشغيل')}</p>}
+      {open && x && check && (
+        <div className="rounded-xl border border-[#E8E0D2] bg-white p-3 space-y-2">
+          <div className="grid gap-2 sm:grid-cols-4 text-xs">
+            <div><p className="text-[#9A8F7E]">{tr('رصيد الشاشة التشغيلية')}</p><p className="font-semibold"><MilliAmount value={x.opsMilli} decimals={dec} /></p></div>
+            <div><p className="text-[#9A8F7E]">{tr('عهدة الأستاذ')}</p><p className="font-semibold"><MilliAmount value={x.ledgerMilli} decimals={dec} /></p></div>
+            <div><p className="text-[#9A8F7E]">{tr('الفرق')}</p><p className="font-semibold"><MilliAmount value={check.gapMilli.toString()} decimals={dec} /></p></div>
+            <div>
+              <p className="text-[#9A8F7E]">{tr('غير مفسَّر')}</p>
+              <p className="font-semibold">{check.consistent ? <Badge tone="green">✓</Badge> : <Badge tone="red"><MilliAmount value={x.unexplainedMilli} decimals={dec} colored={false} /></Badge>}</p>
+            </div>
+          </div>
+          {x.items.length === 0 ? <p className="text-xs text-[#6E6557]">{tr('لا فرق بين الشاشة التشغيلية وعهدة الأستاذ')}</p> : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="text-[#9A8F7E]">
+                  <tr>
+                    <th className="text-start px-2 py-1">{tr('البند')}</th>
+                    <th className="text-start px-2 py-1">{tr('المرجع')}</th>
+                    <th className="text-start px-2 py-1">{tr('التاريخ')}</th>
+                    <th className="text-end px-2 py-1">{tr('الأثر على الفرق')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {x.items.map((it, i) => {
+                    const key = explainEventKey(it.kind, it.refId, it.amountMilli);
+                    return (
+                      <tr key={`${it.kind}:${it.refId}:${i}`} className="border-t border-[#F1EBDF]">
+                        <td className="px-2 py-1">{kindLabels[it.kind] ?? it.kind}</td>
+                        <td className="px-2 py-1">
+                          {key
+                            ? <Link to={eventsHrefFor(key)} className="text-[#E15A30] hover:underline"><bdi className="font-mono">{it.refId.slice(0, 8)}</bdi></Link>
+                            : it.kind === 'OPENING' ? '' : <bdi className="font-mono text-[#6E6557]">{it.refId.slice(0, 8)}</bdi>}
+                        </td>
+                        <td className="px-2 py-1 whitespace-nowrap">{it.at ? <bdi>{formatDateTime(it.at)}</bdi> : ''}</td>
+                        <td className="text-end px-2 py-1"><MilliAmount value={it.amountMilli} decimals={dec} /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot className="font-semibold border-t border-[#E8E0D2]">
+                  <tr>
+                    <td className="px-2 py-1" colSpan={3}>{tr('مجموع البنود')}</td>
+                    <td className="text-end px-2 py-1"><MilliAmount value={x.totalMilli} decimals={dec} /></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+          {!/^-?0+$/.test(x.c4GapMilli) && (
+            <p className="text-[11px] text-[#8E2A1F]">
+              {tr('رصيد عهدة المندوب الفعلي في الأستاذ يخالف العهدة المتوقّعة (C4)')}: <MilliAmount value={x.ledgerActualMilli} decimals={dec} /> · <MilliAmount value={x.c4GapMilli} decimals={dec} />
+            </p>
+          )}
+        </div>
       )}
     </div>
   );

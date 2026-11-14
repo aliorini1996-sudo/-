@@ -38,6 +38,7 @@ import { IMPORT_ENTRY_KINDS, importTimezone } from '../../services/importLedger'
 import {
   LEDGER_TIMEZONE_IMPORTS_CONFLICT_CODE, LEDGER_TIMEZONE_IMPORTS_CONFLICT_MESSAGE, importTimezoneConflict, planImportDateRebase, plannedRebaseCount,
 } from '../../services/importTimezoneRebase';
+import { assertRoutingCustodyCashOnly, routingGuardApplies, wizardLinksBooks } from './paymentMethodMap';
 
 /**
  * معالج الإعداد والقيد الافتتاحي والترحيل التاريخي — `/api/ledger/setup*` (M3، §5.6، §8.4 القسم 2، ملحق أ).
@@ -399,6 +400,8 @@ router.post('/setup/draft', CONFIGURE, ledgerHandler(async (req, res) => {
     assertNotActivated(before);
     const merged = mergeDraft(parseStoredDraft(before?.setupDraft), patch);
     const eff = effectiveSetup(merged, before, company.countryCode, now);
+    // «ربط الدفاتر» OD4 (D4): معالجٌ يربط الدفاتر لا يقبل عهدة المندوب للتحويل ونقطة البيع (طريقة البداية النظيفة كما كانت)
+    assertRoutingCustodyCashOnly(merged.step3?.receiptRouting, routingGuardApplies(before) || wizardLinksBooks(eff.method));
     // الخطوة 1: لا تاريخ بدء في المستقبل (422 LEDGER_CUTOVER_IN_FUTURE) ولا داخل فترة إقرار دون تأكيد
     checkStep1(eff, now);
     let history = null;
@@ -644,6 +647,7 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     const dbNow = await dbClockOf(tx);
     const draft = mergeDraft(parseStoredDraft(before?.setupDraft), parsed.data.draft ?? {});
     const eff = effectiveSetup(draft, before, company.countryCode, dbNow);
+    assertRoutingCustodyCashOnly(draft.step3?.receiptRouting, routingGuardApplies(before) || wizardLinksBooks(eff.method)); // «ربط الدفاتر» OD4
     const clean = isManualBooks({ setupMethod: eff.method });
     // البداية النظيفة: الخطوة الأولى (ومعها مبالغ الإقرار قبل البدء) والأرصدة الافتتاحية تُراجع «حتى لحظة التفعيل»؛ فإن
     // حُفظت الخطوة الأولى في يومٍ غير يوم الاعتماد فتاريخ البدء تغيّر ومستندات الأيام الفاصلة لا تقع في المربعات ولا في

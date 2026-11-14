@@ -123,7 +123,8 @@ export interface HistoryEstimate {
 
 export interface DraftsBeforeCutover { count: number; listUrl: string }
 
-export type SyncSource = 'ACCOUNT_ENTRY' | 'REP_SETTLEMENT' | 'SETTLEMENT_ENTRY' | 'WAREHOUSE_ENTRY' | 'VAN_LOAD' | 'RETURN_RESTOCK';
+export type SyncSource = 'ACCOUNT_ENTRY' | 'REP_SETTLEMENT' | 'SETTLEMENT_ENTRY' | 'WAREHOUSE_ENTRY' | 'VAN_LOAD' | 'RETURN_RESTOCK'
+  | 'USER_SETTLEMENT'; // «ربط الدفاتر» D13: للمربوطة وحدها
 
 export interface BackfillProgress {
   state: BackfillState;

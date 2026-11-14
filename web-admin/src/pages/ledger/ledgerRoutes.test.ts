@@ -17,7 +17,8 @@ import {
 const root = process.cwd();
 const read = (...p: string[]) => fs.readFileSync(path.join(root, ...p), 'utf8');
 const identity = (s: string) => s;
-const DELIVERED = new Set(['M2', 'M3', 'M4']);
+// M6 وM7: صفوف «ربط الدفاتر» L4/L5/L8 (تقارير الشركاء والتسوية الموجّهة) — عقد §6.4
+const DELIVERED = new Set(['M2', 'M3', 'M4', 'M6', 'M7']);
 
 test('صفوف الجدول: مسارات فريدة، ومفاتيح صلاحيات صحيحة، ومراحل مسلَّمة وحدها', () => {
   const paths = LEDGER_ROUTES.map(r => r.path);
@@ -81,8 +82,8 @@ test('صفوف M2 من جدول §8.2 كلها موجودة بصلاحياتها
     assert.ok(r, `مسار M4 غير مسجَّل: ${p}`);
     assert.deepEqual({ component: r.component, view: r.view, write: r.write, milestone: r.milestone }, { component, view, write, milestone: 'M4' }, p);
   }
-  // مسارات M5+ في القائمتين لا تُسجَّل قبل مرحلتها
-  for (const p of ['customers/adjustments', 'review/uncosted']) assert.ok(!LEDGER_ROUTES.some(r => r.path === p), `مسار لمرحلة لاحقة: ${p}`);
+  // مسارات المراحل اللاحقة في القائمتين لا تُسجَّل قبل مرحلتها («تسويات الذمم» سُلّمت مع «ربط الدفاتر» L4)
+  for (const p of ['review/uncosted']) assert.ok(!LEDGER_ROUTES.some(r => r.path === p), `مسار لمرحلة لاحقة: ${p}`);
   const lock = LEDGER_DIALOGS.find(d => d.key === 'lockDates');
   assert.deepEqual(lock && { view: lock.view, write: lock.write }, { view: 'canCloseLedgerPeriods', write: 'canCloseLedgerPeriods' });
 });
@@ -156,7 +157,11 @@ test('قاعدة الظهور: العنصر بصلاحية عرضه، والقا
     'review/events', 'review/attention', 'review/late', 'review/unreviewed', 'review/checks',
     // M4: التقارير الأربعة كلها بـcanViewLedger، فيراها صاحب العرض وحده بلا تهيئة
     'reports/balance-sheet', 'reports/income-statement', 'reports/trial-balance', 'reports/general-ledger',
+    // «ربط الدفاتر» L4/L5/L8: تقارير الشركاء وشاشات العمليات كلها بـcanViewLedger (خريطة الطرق وحدها بالتهيئة)
+    'reports/partner-ledger', 'reports/aged-receivable', 'reports/aged-payable', 'reports/product-ledger', 'reports/late-arrivals',
+    'customers/adjustments', 'customers/user-custody', 'customers/clearing',
   ].sort());
+  assert.ok(!flat(visibleFor(viewer)).includes('config/payment-methods'), '«طرق الدفع والحسابات» لمن يملك canConfigureLedger وحده');
   assert.ok(!flat(visibleFor(viewer)).includes('review/audit'), 'سجل التدقيق لمن يملك canConfigureLedger وحده');
   assert.deepEqual(visibleFor(viewer).find(m => m.key === 'config')?.sections.length, 1, 'القسم بلا عناصر ظاهرة يُخفى');
 
@@ -167,6 +172,7 @@ test('قاعدة الظهور: العنصر بصلاحية عرضه، والقا
   const configurer = u({ canConfigureLedger: true });
   assert.ok(flat(visibleFor(configurer)).includes('config/settings'));
   assert.ok(flat(visibleFor(configurer)).includes('review/audit'));
+  assert.ok(flat(visibleFor(configurer)).includes('config/payment-methods'));
   assert.ok(!flat(visibleFor(configurer)).includes('dialog:lockDates'));
 
   assert.deepEqual(visibleFor(u({ role: 'ADMIN', canManageCompanyUsers: true, scopeEnabled: true })), [], 'مقيّد النطاق لا يرى شيئاً');
@@ -195,4 +201,67 @@ test('الدفاتر اليدوية: القائمة بلا «العملاء» (�
   assert.equal(isManualLedger({ activatedAt: '2027-01-15T09:00:00Z', setupMethod: 'CLEAN' }), true);
   assert.equal(isManualLedger({ activatedAt: null, setupMethod: null }), true);
   assert.equal(isManualLedger({ activatedAt: '2026-01-01T00:00:00Z', setupMethod: 'OPENING' }), false, 'التفعيلات السابقة كما كانت');
+});
+
+// ═══ «ربط الدفاتر» L4/L5/L8 (عقد §6.4 A12): صفوف الجدول والقوائم حرفياً ═══
+
+test('ربط الدفاتر: صفوف جدول §6.4 بمكوّناتها وصلاحياتها ومراحلها حرفياً', () => {
+  const expected: [string, string, LedgerKey, LedgerKey | null, string][] = [
+    ['reports/partner-ledger', 'reports/PartnerLedgerPage', 'canViewLedger', null, 'M6'],
+    ['reports/aged-receivable', 'reports/AgedReceivablePage', 'canViewLedger', null, 'M6'],
+    ['reports/aged-payable', 'reports/AgedPayablePage', 'canViewLedger', null, 'M6'],
+    ['reports/late-arrivals', 'reports/LateArrivalsPage', 'canViewLedger', null, 'M6'],
+    ['reports/product-ledger', 'reports/ProductLedgerPage', 'canViewLedger', null, 'M6'],
+    ['customers/adjustments', 'customers/CustomerAdjustmentsPage', 'canViewLedger', 'canPostJournals', 'M4'],
+    ['customers/clearing', 'customers/ClearingPage', 'canViewLedger', 'canPostJournals', 'M7'],
+    ['customers/user-custody', 'customers/UserCustodyPage', 'canViewLedger', null, 'M3'],
+    ['config/payment-methods', 'config/PaymentMethodMapPage', 'canConfigureLedger', 'canConfigureLedger', 'M3'],
+  ];
+  for (const [p, component, view, write, milestone] of expected) {
+    const r = LEDGER_ROUTES.find(x => x.path === p);
+    assert.ok(r, `مسار غير مسجَّل: ${p}`);
+    assert.deepEqual({ component: r.component, view: r.view, write: r.write, milestone: r.milestone }, { component, view, write, milestone }, p);
+  }
+});
+
+test('ربط الدفاتر: عناصر القوائم بنصوصها الحرفية ومواضعها (العملاء، إعداد التقارير ← الشركاء، التهيئة ← المحاسبة)', () => {
+  const menus = ledgerMenus(identity);
+  const routesOf = (key: string, section?: string) => menus.find(m => m.key === key)!.sections
+    .filter(s => section === undefined || s.label === section)
+    .flatMap(s => s.items.flatMap(i => (i.kind === 'route' ? [`${i.label}=${i.path}`] : [])));
+  const customers = routesOf('customers');
+  for (const x of ['تسويات ذمم العملاء=customers/adjustments', 'عهدة مستخدمي الشركة=customers/user-custody', 'تسوية الحسابات الوسيطة=customers/clearing']) {
+    assert.ok(customers.includes(x), x);
+  }
+  assert.deepEqual(routesOf('reports', 'الشركاء'), [
+    'دفتر أستاذ الشركاء=reports/partner-ledger',
+    'أعمار الذمم المدينة=reports/aged-receivable',
+    'أعمار الذمم الدائنة=reports/aged-payable',
+    'تقرير الأصناف من الدفاتر=reports/product-ledger',
+    'مستندات وصلت متأخرة (تقرير)=reports/late-arrivals',
+  ]);
+  assert.ok(routesOf('config', 'المحاسبة').includes('طرق الدفع والحسابات=config/payment-methods'));
+  // كل صفّ جديد يُستدعى من قائمته بنصّ tr حرفي (حارس langs.test) — لا تسمية مركّبة
+  const src = read('src', 'pages', 'ledger', 'routes.ts');
+  for (const l of ['تسويات ذمم العملاء', 'عهدة مستخدمي الشركة', 'تسوية الحسابات الوسيطة', 'الشركاء', 'دفتر أستاذ الشركاء', 'أعمار الذمم المدينة',
+    'أعمار الذمم الدائنة', 'تقرير الأصناف من الدفاتر', 'مستندات وصلت متأخرة (تقرير)', 'طرق الدفع والحسابات']) {
+    assert.ok(src.includes(`tr('${l}')`), l);
+  }
+});
+
+test('ربط الدفاتر: الدفاتر اليدوية بلا شاشات التشغيل المربوط ولا تقريري الترحيل الآلي، ويبقى دفتر الشريك والأعمار', () => {
+  const manual = manualLedgerMenus(ledgerMenus(identity));
+  const paths = manual.flatMap(m => m.sections.flatMap(s => s.items.flatMap(i => (i.kind === 'route' ? [i.path] : []))));
+  for (const p of ['customers/adjustments', 'customers/user-custody', 'customers/clearing', 'config/payment-methods', 'reports/late-arrivals', 'reports/product-ledger']) {
+    assert.ok(MANUAL_LEDGER_HIDDEN_PATHS.includes(p), `غير مخفي لليدوية: ${p}`);
+    assert.ok(!paths.includes(p), p);
+  }
+  for (const p of ['reports/partner-ledger', 'reports/aged-receivable', 'reports/aged-payable']) assert.ok(paths.includes(p), `يبقى لليدوية: ${p}`);
+  // المسارات القديمة في القائمة نفسها كما كانت
+  for (const p of ['customers/invoices', 'customers/receipts', 'customers/custody', 'customers/paylink', 'review/events', 'review/late']) {
+    assert.ok(MANUAL_LEDGER_HIDDEN_PATHS.includes(p), p);
+  }
+  // القسم الذي يُفرغ يُخفى: «الشركاء» يبقى بثلاثة عناصر لليدوية
+  const partners = manual.find(m => m.key === 'reports')!.sections.find(s => s.label === 'الشركاء')!;
+  assert.deepEqual(partners.items.map(i => (i.kind === 'route' ? i.path : '')), ['reports/partner-ledger', 'reports/aged-receivable', 'reports/aged-payable']);
 });

@@ -500,7 +500,8 @@ function UserCustodyModal({ user, isCompanyAdmin, onClose, onDone }: {
     queryKey: ['user-custody', user.id],
     queryFn: async () => {
       const r = await companyUserApi.custody(user.id);
-      return r.data.data as { received: number; delivered: number; outstanding: number };
+      // «ربط الدفاتر» OD5: العهدة نقدٌ وشيكات، والمستلَم تحويلاً أو بنقطة بيع (nonCashReceived) «وعاءٌ» يمرّ منه التوريد غير النقدي
+      return r.data.data as { received: number; delivered: number; outstanding: number; nonCashReceived?: number; passThrough?: number };
     },
   });
   const logQ = useQuery({
@@ -572,7 +573,10 @@ function UserCustodyModal({ user, isCompanyAdmin, onClose, onDone }: {
   const amt = Number(amount) || 0;
   // الهامش نصف هللة — يطابق `CUSTODY_EPS` في الخادم. نصف ريال كان يُمرّر من
   // الواجهة مبلغاً يردّه الخادم، فيرى المستلِم زرّاً مفعّلاً ورفضاً بعد الضغط.
-  const ready = amt > 0 && amt <= outstanding + 0.005 && !settle.isPending;
+  // سقف التوريد بطريقته كالخادم (userHandoverCapMilli، OD5): النقد والشيك من العهدة، والتحويل والشبكة منها ومن الوعاء غير النقدي
+  const nonCashPool = Math.max(0, (data?.nonCashReceived ?? 0) - (data?.passThrough ?? 0));
+  const cap = method === 'CASH' || method === 'CHEQUE' ? outstanding : outstanding + nonCashPool;
+  const ready = amt > 0 && amt <= cap + 0.005 && !settle.isPending;
   const methods: [string, string][] = [['CASH', 'نقدي'], ['BANK_TRANSFER', 'تحويل'], ['POS', 'شبكة'], ['CHEQUE', 'شيك']];
   const methodLabel = (m?: string | null) => (methods.find(([v]) => v === m) || methods[0])[1];
 
@@ -608,6 +612,23 @@ function UserCustodyModal({ user, isCompanyAdmin, onClose, onDone }: {
                 <p className={`text-[11px] ${outstanding < -0.004 ? 'text-[#C0392B]' : 'text-[#2F855A]'}`}>{tr('العهدة المتبقية')}</p>
                 <p className={`font-bold text-sm ${outstanding < -0.004 ? 'text-[#C0392B]' : 'text-[#2F855A]'}`}>{formatCurrency(outstanding)}</p>
               </div>
+              {/* OD5: المستلَم غير النقدي خارج العهدة — يُعرض وحده حين يوجد، ومعه ما بقي منه يورَّد تحويلاً أو بالشبكة */}
+              {(data?.nonCashReceived ?? 0) > 0.004 && (
+                <>
+                  <div className="rounded-xl border border-[#E9E1D3] p-3">
+                    <p className="text-[11px] text-[#6E6557]">{tr('المستلَم تحويلاً ونقطة بيع')}</p>
+                    <p className="font-bold text-sm">{formatCurrency(data?.nonCashReceived ?? 0)}</p>
+                  </div>
+                  <div className="rounded-xl border border-[#E9E1D3] p-3">
+                    <p className="text-[11px] text-[#6E6557]">{tr('المارّ من غير النقدي')}</p>
+                    <p className="font-bold text-sm">{formatCurrency(data?.passThrough ?? 0)}</p>
+                  </div>
+                  <div className="rounded-xl border border-[#E9E1D3] p-3">
+                    <p className="text-[11px] text-[#6E6557]">{tr('الوعاء غير النقدي المتبقّي')}</p>
+                    <p className="font-bold text-sm">{formatCurrency(nonCashPool)}</p>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

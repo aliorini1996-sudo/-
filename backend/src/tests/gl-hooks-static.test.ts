@@ -226,7 +226,8 @@ test('assertRepDeletable مشروط بـactivatedAt لا بـinventoryMode، و�
 test('حذف الاستلام الواحد ما زال يكتب SETTLEMENT:<id>:REVERSE داخل معاملته وقبل الحذف', () => {
   const body = handler(read('routes/salesReps.ts'), "router.delete('/:id/settlements/:settlementId'");
   const { text: tx } = interactiveTx(body);
-  ordered(tx, ['settlementTombstones(tx, tid, { ...row', 'tx.glSourceEvent.createMany(', 'skipDuplicates: true', 'tx.repSettlement.delete('], 'ترتيب خطاف حذف الاستلام');
+  // «ربط الدفاتر» L5: settlementTombstonesWithReceiver = settlementTombstones حرفاً لغير المربوطة، وبحمولة المستلِم للمربوطة
+  ordered(tx, ['settlementTombstonesWithReceiver(tx, tid, { ...row', 'tx.glSourceEvent.createMany(', 'skipDuplicates: true', 'tx.repSettlement.delete('], 'ترتيب خطاف حذف الاستلام');
   const s = read('services/gl/sync/tombstone.ts');
   const i = s.indexOf('export function settlementTombstoneEvents(');
   const fn = s.slice(i, s.indexOf('\n}', i));

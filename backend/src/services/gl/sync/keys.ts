@@ -8,6 +8,7 @@
  *   SETTLEMENT:<id>:POST | SETTLEMENT:<id>:REVERSE
  *   PAYLINK_FEE:<entryId> | PAYOUT:<payoutId> | WH_ENTRY:<id> | VAN_LOAD:<id>:POST
  *   CUSTODY_SHORTAGE:<id>:POST|REVERSE (M4)
+ *   USER_SETTLEMENT:<id>:POST|REVERSE | PAYLINK_REFUND:<entryId> («ربط الدفاتر» L5، المربوطة وحدها)
  * «إعادة الترحيل من المصدر» (§6.1): <base>:REPOST:<n> و<base>:REPOST_REV:<n> حيث <base> مفتاح POST الأصلي،
  * فيبقى الثلاثة تحت نمط `<base>*` («القيد الحيّ» = آخر GlMoveSource تحت النمط ليس لقيده reversal).
  *
@@ -17,6 +18,8 @@
 import { receiptKey as builderReceiptKey } from '../builders/receipt';
 import { settlementKey as builderSettlementKey } from '../builders/custody';
 import { paylinkFeeKey as builderPaylinkFeeKey, payoutKey as builderPayoutKey } from '../builders/paylink';
+import { paylinkRefundKey as builderPaylinkRefundKey } from '../builders/paylink';
+import { userSettlementKey as builderUserSettlementKey } from '../builders/userCustody';
 import type { SourceEvent, SourceType } from '../types';
 
 export type PostOrReverse = Extract<SourceEvent, 'POST' | 'REVERSE'>;
@@ -33,6 +36,13 @@ export const payoutKey = builderPayoutKey;
 export const whEntryKey = (entryId: string): string => `WH_ENTRY:${entryId}`;
 export const vanLoadKey = (loadId: string): string => `VAN_LOAD:${loadId}:POST`;
 export const custodyShortageKey = (shortageId: string, event: PostOrReverse = 'POST'): string => `CUSTODY_SHORTAGE:${shortageId}:${event}`;
+/**
+ * «ربط الدفاتر» L5 (D13): توريد عهدة مستخدم الشركة (user_settlements) — USER_SETTLEMENT:<id>:POST|REVERSE؛ POST من المُطابِق،
+ * وREVERSE من الـtombstone عند الحذف. إعادة تصدير مفتاح الـbuilder كسائر المفاتيح (مصدر واحد، اختبار l458-a1-keys).
+ */
+export const userSettlementKey: (id: string, event: PostOrReverse) => string = builderUserSettlementKey;
+/** «ربط الدفاتر» L5 (C9): استرداد دفع إلكتروني PAYLINK_REFUND:<entryId> — SettlementEntry kind=REFUND للمربوطة، بلا لاحقة حدث (= POST) */
+export const paylinkRefundKey: (entryId: string) => string = builderPaylinkRefundKey;
 
 /** مفتاح POST (الأساس) لكل مصدر: ما تُقارن به بوابة الأشقاء وREPOST */
 export function postKeyOf(sourceType: SourceType, sourceId: string): string {
@@ -47,6 +57,8 @@ export function postKeyOf(sourceType: SourceType, sourceId: string): string {
     case 'WH_ENTRY': return whEntryKey(sourceId);
     case 'VAN_LOAD': return vanLoadKey(sourceId);
     case 'RESTOCK': return invoiceKey(sourceId, 'POST');
+    case 'USER_SETTLEMENT': return userSettlementKey(sourceId, 'POST');
+    case 'PAYLINK_REFUND': return paylinkRefundKey(sourceId);
   }
 }
 
@@ -58,6 +70,7 @@ export function reverseKeyOf(sourceType: SourceType, sourceId: string): string |
     case 'AR_ENTRY':
     case 'CUSTOMER_ADJUSTMENT': return arEntryKey(sourceId, 'REVERSE');
     case 'SETTLEMENT': return settlementKey(sourceId, 'REVERSE');
+    case 'USER_SETTLEMENT': return userSettlementKey(sourceId, 'REVERSE');
     default: return null;
   }
 }
@@ -124,6 +137,16 @@ export function parseSourceKey(key: string): ParsedSourceKey | null {
   if ((m = new RegExp(`^(PAYLINK_FEE|PAYOUT|WH_ENTRY):${ID}${repostSuffix}$`).exec(key))) {
     const t = m[1] as SourceType;
     return withRepost(t, m[2], `${t}:${m[2]}`, 'POST', m[3], m[4]);
+  }
+  // «ربط الدفاتر» L5: USER_SETTLEMENT بحدثيه كـSETTLEMENT، وPAYLINK_REFUND بلا لاحقة حدث كـPAYLINK_FEE (ويقبلان REPOST)
+  if ((m = new RegExp(`^USER_SETTLEMENT:${ID}:POST${repostSuffix}$`).exec(key))) {
+    return withRepost('USER_SETTLEMENT', m[1], userSettlementKey(m[1], 'POST'), 'POST', m[2], m[3]);
+  }
+  if ((m = new RegExp(`^USER_SETTLEMENT:${ID}:REVERSE$`).exec(key))) {
+    return withRepost('USER_SETTLEMENT', m[1], userSettlementKey(m[1], 'POST'), 'REVERSE');
+  }
+  if ((m = new RegExp(`^PAYLINK_REFUND:${ID}${repostSuffix}$`).exec(key))) {
+    return withRepost('PAYLINK_REFUND', m[1], paylinkRefundKey(m[1]), 'POST', m[2], m[3]);
   }
   if ((m = new RegExp(`^VAN_LOAD:${ID}:POST${repostSuffix}$`).exec(key))) {
     return withRepost('VAN_LOAD', m[1], vanLoadKey(m[1]), 'POST', m[2], m[3]);

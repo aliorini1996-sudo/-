@@ -1,6 +1,9 @@
 import type { LedgerKey } from '../ledgerPerms';
 import type { AccountType, CashFlowTag, JournalType, TaxUse, VatCategory } from '../../api/ledgerConfig';
 import type { SetupMethodValue } from './bookMode';
+import type {
+  CancelRefundFrom, ClearingKind, CustodyExplainKind, CustomerAdjustmentKind, CustomerAdjustmentStatus, WriteoffCounter,
+} from '../../api/ledgerOps';
 
 /**
  * تسميات الدفاتر التقنية (§8.7) — **بنداءات `tr()` حرفية** لا `tr(متغير)`: حارس
@@ -199,6 +202,7 @@ export const ledgerConfigReasonLabels = (tr: Tr): Record<string, string> => ({
   OPENING_STOCK_TOO_RECENT: tr('استُورد مخزون افتتاحي قبل أقل من 10 دقائق فلا تشمله لقطة الافتتاح: أعد الاعتماد بعد دقائق'),
   // البداية النظيفة: الخطوة الأولى حُفظت في يوم غير يوم الاعتماد
   SETUP_DAY_CHANGED: tr('تغيّر يوم التفعيل منذ حفظ الخطوة الأولى: احفظ الخطوة الأولى من جديد اليوم وراجع الأرصدة الافتتاحية لتكون حتى لحظة التفعيل'),
+  ...ledgerLinkedReasonLabels(tr),
 });
 
 /**
@@ -232,6 +236,10 @@ export const ledgerConfigCodeLabels = (tr: Tr): Record<string, string> => ({
   LEDGER_OPENING_STOCK_AFTER_CUTOVER: tr('مخزون افتتاحي مستورد في تاريخ البدء أو بعده لا يدخل القيد الافتتاحي: اعتمد في يوم لاحق بتاريخ بدء بعد يوم الاستيراد، أو تراجع عن الدفعة، أو أقرّ بالمتابعة دون قيمته'),
   LEDGER_OPENING_STOCK_TOO_RECENT: tr('استُورد مخزون افتتاحي قبل أقل من 10 دقائق فلا تشمله لقطة الافتتاح: أعد الاعتماد بعد دقائق'),
   LEDGER_SETUP_DAY_CHANGED: tr('تغيّر يوم التفعيل منذ حفظ الخطوة الأولى: احفظ الخطوة الأولى من جديد اليوم وراجع الأرصدة الافتتاحية لتكون حتى لحظة التفعيل'),
+  // «ربط الدفاتر» L4/L5: نصّ الرمز حين يغيب سببه (الأسباب نفسها في ledgerLinkedReasonLabels وتسميات الشاشات)
+  LEDGER_BOOKS_NOT_LINKED: tr('هذه العملية متاحة حين تكون الدفاتر مربوطة بالنظام'),
+  LEDGER_ROUTING_CUSTODY_NONCASH: tr('لا تُوجَّه التحويلات البنكية ونقاط البيع إلى عهدة المندوب'),
+  LEDGER_METHOD_ACCOUNT_INVALID: tr('حساب الطريقة يجب أن يكون حساب نقد أو بنك أو أصلاً متداولاً'),
 });
 
 // ═══ مساعدات عرض القوائم والتصدير ═══
@@ -248,3 +256,152 @@ export const chunkIds = (ids: readonly string[], size = EXPORT_IDS_MAX): string[
   for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size));
   return out;
 };
+
+// ═══ «ربط الدفاتر» L4/L5/L8 (A11): أسباب الخادم الجديدة وتسميات شاشات العمليات ═══
+
+/**
+ * أسباب يردّها الخادم تحت routes/ledger وservices/gl منذ «ربط الدفاتر» (خريطة الطرق، تسويات الذمم، التسوية الموجّهة، تقارير
+ * الشركاء، المرفقات، ثابت بُعد العهدة) — تُنشر في ledgerConfigReasonLabels فتصل ledgerReasonLabels وحارس errors.test.
+ * عامة الصياغة: السبب الواحد قد يردّه أكثر من مسار (INVALID_KIND للتسوية والمرفقات)، والشاشة تقدّم تسميتها الأدق.
+ */
+export const ledgerLinkedReasonLabels = (tr: Tr): Record<string, string> => ({
+  BOOKS_NOT_LINKED: tr('هذه العملية متاحة حين تكون الدفاتر مربوطة بالنظام'),
+  MANUAL_BOOKS: tr('هذا الإعداد للدفاتر المربوطة بالنظام وحدها، ودفاتر الشركة يدوية مستقلة'),
+  BEFORE_CUTOVER: tr('تاريخ المستند قبل بداية الدفاتر المربوطة'),
+  ALREADY_CANCELLED: tr('التسوية ملغاة مسبقاً'),
+  ADJUSTMENT_WITHOUT_MOVE: tr('التسوية بلا قيد مرحّل فلا تُلغى من هنا: راجع أحداث الترحيل'),
+  INVALID_STATUS: tr('حالة غير معروفة'),
+  INVALID_KIND: tr('النوع المطلوب غير معروف'),
+  CREDIT_LINE_MISSING: tr('تعذّر إيجاد سطر تصفية الحساب الوسيط في القيد، أعد المحاولة'),
+  CUSTODY_NONCASH: tr('لا تُوجَّه التحويلات البنكية ونقاط البيع إلى عهدة المندوب'),
+  INVALID_METHOD_KEY: tr('مفتاح طريقة الدفع غير معروف'),
+  METHOD_NOT_FOUND: tr('طريقة الدفع غير موجودة'),
+  JOURNAL_TYPE: tr('دفتر الطريقة يجب أن يكون دفتر نقد أو بنك أو عمليات عامة'),
+  PARTNER_NOT_FOUND: tr('الشريك غير موجود في هذه الشركة'),
+  INVALID_BUCKETS: tr('أعمدة الأعمار أربعة أعداد صحيحة موجبة متزايدة مثل 30,60,90,120'),
+  SOURCE_ID_REQUIRED: tr('المستند المصدر مطلوب'),
+  SOURCE_NOT_FOUND: tr('المستند المصدر غير موجود'),
+  ATTACHMENT_NOT_FOUND: tr('المرفق غير موجود'),
+  CUSTODY_PARTNER_AMBIGUOUS: tr('سطر العهدة يحمل مندوباً ومستخدماً معاً: اختر أحدهما'),
+});
+
+/** خريطة طرق الدفع: أسباب رفض الحساب (MethodAccountProblem في routes/ledger/paymentMethodMap.ts) */
+export const paymentMethodMapReasonLabels = (tr: Tr): Record<string, string> => ({
+  ARCHIVED: tr('الحساب مؤرشف'),
+  TYPE: tr('حساب الطريقة يجب أن يكون حساب نقد أو بنك أو أصلاً متداولاً'),
+  CONTROL: tr('لا يُربط بطريقة دفع حسابٌ رئيسي كذمم العملاء أو عهدة المندوب أو المستخدم'),
+  FORBIDDEN: tr('لا تُربط طريقة دفع بالحساب المعلّق ولا بأمانات الدفع الإلكتروني'),
+  MANUAL_BOOKS: tr('خريطة طرق الدفع تسري على الدفاتر المربوطة بالنظام وحدها'),
+});
+
+/** تسويات ذمم العملاء: أسباب المستند والتخصيص والرصيد (routes/ledger/customerAdjustments.ts) */
+export const customerAdjustmentReasonLabels = (tr: Tr): Record<string, string> => ({
+  AMOUNT_NOT_POSITIVE: tr('المبلغ يجب أن يكون أكبر من صفر'),
+  PRECISION: tr('المبلغ فيه منازل عشرية أكثر مما تسمح به العملة'),
+  DOC_DATE_IN_FUTURE: tr('تاريخ المستند بعد اليوم'),
+  COUNTER_ACCOUNT_MISSING: tr('الحساب المقابل للتسوية غير موجود في دليل الحسابات'),
+  REFUND_WITH_ALLOCATIONS: tr('ردّ الرصيد الدائن لا يُخصَّص على فواتير'),
+  ALLOCATIONS_REQUIRED: tr('حدّد الفواتير المشطوبة ومبالغها أو اختر التخصيص التلقائي'),
+  INVOICE_NOT_FOUND: tr('فاتورة في التخصيص غير موجودة'),
+  OTHER_CUSTOMER: tr('فاتورة في التخصيص لعميل آخر'),
+  NOT_CONFIRMED: tr('فاتورة في التخصيص ليست معتمدة'),
+  NOT_CREDIT: tr('الشطب على الفواتير الآجلة وحدها'),
+  ZATCA_PENDING: tr('فاتورة في التخصيص لم تعتمدها هيئة الزكاة والضريبة بعد'),
+  EXCEEDS_REMAINING: tr('مبلغ التخصيص أكبر من المتبقّي على الفاتورة'),
+  SUM_MISMATCH: tr('مجموع التخصيصات لا يساوي مبلغ الشطب'),
+  AUTO_INSUFFICIENT: tr('متبقّي فواتير العميل المفتوحة أقل من مبلغ الشطب'),
+  WRITEOFF_EXCEEDS_DEBIT_BALANCE: tr('مبلغ الشطب أكبر من الرصيد المدين للعميل'),
+  REFUND_EXCEEDS_CREDIT_BALANCE: tr('مبلغ الردّ أكبر من الرصيد الدائن للعميل'),
+  BOOKS_NOT_LINKED: tr('تسويات ذمم العملاء متاحة حين تكون الدفاتر مربوطة بالنظام'),
+  BEFORE_CUTOVER: tr('تاريخ المستند قبل بداية الدفاتر المربوطة'),
+  // تحقّق الواجهة قبل الإرسال (لا يردّها الخادم بهذه الأسماء)
+  CUSTOMER_REQUIRED: tr('اختر العميل'),
+  AMOUNT_REQUIRED: tr('أدخل المبلغ'),
+  INVALID_AMOUNT: tr('مبلغ غير صالح'),
+  INVALID_DATE: tr('تاريخ غير صالح'),
+});
+
+/** التسوية الموجّهة: أسباب الرفض (ClearingRouteReason في routes/ledger/clearing.ts) وتحقّق الواجهة */
+export const clearingReasonLabels = (tr: Tr): Record<string, string> => ({
+  INVALID_KIND: tr('نوع التسوية غير معروف'),
+  INVALID_DATE: tr('تاريخ غير صالح'),
+  GROSS_NOT_POSITIVE: tr('الإجمالي يجب أن يكون أكبر من صفر'),
+  FEE_NEGATIVE: tr('العمولة لا تكون سالبة'),
+  FEE_VAT_NEGATIVE: tr('ضريبة العمولة لا تكون سالبة'),
+  FEES_EXCEED_GROSS: tr('العمولة وضريبتها أكبر من الإجمالي'),
+  FEE_VAT_WITHOUT_FEE: tr('ضريبة العمولة بلا عمولة'),
+  PRECISION: tr('المبلغ فيه منازل عشرية أكثر مما تسمح به العملة'),
+  BANK_ACCOUNT_NOT_FOUND: tr('حساب البنك غير موجود'),
+  BANK_ACCOUNT_INACTIVE: tr('حساب البنك مؤرشف'),
+  BANK_ACCOUNT_NOT_CASH: tr('الحساب المستلِم يجب أن يكون حساب نقد أو بنك'),
+  BANK_ACCOUNT_CONTROL: tr('لا يجوز الإيداع في حساب رئيسي كعهدة المندوب أو المستخدم'),
+  CLEARING_ACCOUNT_MISSING: tr('الحساب الوسيط لهذا النوع غير موجود في دليل الحسابات'),
+  CLEARING_ACCOUNT_INACTIVE: tr('الحساب الوسيط لهذا النوع مؤرشف'),
+  BANK_IS_CLEARING: tr('حساب البنك هو الحساب الوسيط نفسه'),
+  FEE_ACCOUNT_MISSING: tr('حساب الرسوم البنكية غير مربوط أو مؤرشف'),
+  VAT_TAX_UNAVAILABLE: tr('لا توجد ضريبة مشتريات صالحة لضريبة العمولة: أدخل العمولة شاملة الضريبة أو فعّل ضريبة المشتريات'),
+  LINE_OTHER_ACCOUNT: tr('سطر مختار من حساب غير الحساب الوسيط لهذا النوع'),
+  LINE_NOT_OPEN: tr('سطر مختار غير مفتوح: مطابَق بالكامل أو ليس سطراً مديناً مرحّلاً'),
+  EXCEEDS_OPEN: tr('الإجمالي أكبر من المتبقّي المفتوح في السطور المختارة'),
+  EXCEEDS_BALANCE: tr('الإجمالي أكبر من رصيد الحساب الوسيط'),
+  CREDIT_LINE_MISSING: tr('تعذّر إيجاد سطر تصفية الحساب الوسيط في القيد، أعد المحاولة'),
+  // تحقّق الواجهة قبل الإرسال
+  GROSS_REQUIRED: tr('أدخل الإجمالي'),
+  INVALID_AMOUNT: tr('مبلغ غير صالح'),
+  BANK_REQUIRED: tr('اختر الحساب المستلِم'),
+  NO_OPEN_LINES: tr('لا سطور مفتوحة على الحساب الوسيط لهذا النوع'),
+});
+
+/** رموز رفض إلغاء السند حين يُحدَّد مصدر الردّ (services/receiptCancelSource.ts) */
+export const receiptCancelCodeLabels = (tr: Tr): Record<string, string> => ({
+  RECEIPT_CANCEL_REFUND_USER: tr('مستخدم الشركة المختار غير صالح أو عهدته لا تكفي لردّ مبلغ السند: اختر مصدراً آخر للردّ'),
+  RECEIPT_CANCEL_REFUND_INVALID: tr('مصدر الردّ غير معروف'),
+  // مراجعة ١٤ نوفمبر: الإسناد إلى عهدة مستخدمٍ آخر لصاحب صلاحية عهدة التحصيل وحده (403)
+  RECEIPT_CANCEL_REFUND_USER_FORBIDDEN: tr('الردّ من عهدة مستخدمٍ آخر يتطلّب صلاحية عهدة التحصيل: اختر المصدر المقترح أو عهدتك أو مصدراً آخر'),
+});
+
+/** مصدر ردّ مال السند الملغى (Receipt.cancelRefundFrom، C11) — الخادم يرسل الاسم عربياً والواجهة تترجم بالمفتاح */
+export const cancelRefundSourceLabels = (tr: Tr): Record<CancelRefundFrom, string> => ({
+  REP_CUSTODY: tr('من عهدة المندوب'),
+  USER_CUSTODY: tr('من عهدة مستخدم الشركة'),
+  MAIN_CASH: tr('من الصندوق الرئيسي'),
+  BANK: tr('من الحساب البنكي'),
+  METHOD: tr('من حساب طريقة الدفع نفسها'),
+});
+
+export const customerAdjustmentKindLabels = (tr: Tr): Record<CustomerAdjustmentKind, string> => ({
+  BAD_DEBT_WRITEOFF: tr('شطب دين معدوم'),
+  CREDIT_REFUND: tr('ردّ رصيد دائن للعميل'),
+});
+
+export const customerAdjustmentStatusLabels = (tr: Tr): Record<CustomerAdjustmentStatus, string> => ({
+  ACTIVE: tr('نشط'),
+  CANCELLED: tr('ملغى'),
+});
+
+/** الحساب المقابل للشطب — اسما حسابي القالب (مفتاحا BAD_DEBT وDOUBTFUL_ALLOWANCE في mappingKeyLabels) */
+export const writeoffCounterLabels = (tr: Tr): Record<WriteoffCounter, string> => ({
+  BAD_DEBT: tr('ديون معدومة'),
+  ALLOWANCE: tr('مخصص الديون المشكوك في تحصيلها'),
+});
+
+export const clearingKindLabels = (tr: Tr): Record<ClearingKind, string> => ({
+  POS_SETTLEMENT: tr('تسوية مقبوضات نقاط البيع'),
+  CARD_SETTLEMENT: tr('تسوية تحصيلات البطاقة'),
+  CHEQUE_CLEARANCE: tr('تحصيل شيكات العملاء'),
+  DEPOSIT_CLEARANCE: tr('إيداع مقبوضات قيد الإيداع'),
+});
+
+/** بنود تفسير فرق العهدة (custodyExplain، OD3) — أثر كل بند الموقَّع على (الشاشة التشغيلية − الأستاذ) */
+export const custodyExplainKindLabels = (tr: Tr): Record<CustodyExplainKind, string> => ({
+  OPENING: tr('فرق الرصيد الافتتاحي'),
+  ONLINE: tr('سند إلكتروني تعدّه الشاشة خارج العهدة'),
+  OUTSIDE: tr('سند تعدّه الشاشة ولا يدخل العهدة'),
+  STAMPED_OUTSIDE: tr('فاتورة نقدية مختومة قُيّد نقدها خارج العهدة'),
+  EXPENSE: tr('مصروف من العهدة'),
+  SHORTAGE: tr('عجز العهدة'),
+  SHORTAGE_EXPENSED: tr('عجز محمّل على المصروف'),
+  SETTLEMENT_R: tr('ما صفّاه الاستلام من خارج العهدة'),
+  CANCEL_REFUND_OUTSIDE: tr('إلغاء سند رُدّ ماله من خارج العهدة'),
+  CASH_INVOICE_CUSTODY: tr('فاتورة نقدية في العهدة لا تعدّها الشاشة'),
+});

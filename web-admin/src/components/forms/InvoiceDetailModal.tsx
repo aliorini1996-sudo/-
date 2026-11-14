@@ -2,6 +2,7 @@ import { Invoice } from '../../types';
 import { formatCurrency, formatDate, statusLabels } from '../../utils/format';
 import { useTr } from '../../i18n/strings';
 import { isDocTaxFree, type TaxModeDoc } from '../../lib/taxMode';
+import { taxFreeShownSubtotal } from '../../lib/taxFreeTotals';
 import { customerPhoneText } from '../../lib/customerPhoneField';
 import { X, Printer } from 'lucide-react';
 
@@ -92,7 +93,8 @@ export default function InvoiceDetailModal({ invoice, onClose }: Props) {
           {/* Totals */}
           <div className="flex justify-end">
             <div className="w-56 space-y-1.5 text-sm border-t pt-3">
-              <div className="flex justify-between"><span className="text-gray-500">{tr('قبل الخصم')}</span><span>{formatCurrency(invoice.subtotal)}</span></div>
+              {/* «ربط الدفاتر» B6: المختوم بلا ضريبة وفي سجلّه ضريبة (مرتجع بيعٍ خاضع) ⇒ الإجمالي + الخصم، لا الصافي بلا سطرٍ يفسّر الفرق */}
+              <div className="flex justify-between"><span className="text-gray-500">{tr('قبل الخصم')}</span><span>{formatCurrency(taxFreeShownSubtotal(invoice as unknown as Parameters<typeof taxFreeShownSubtotal>[0]))}</span></div>
               {Number(invoice.discountAmt) > 0 && (
                 <div className="flex justify-between text-red-500"><span>{tr('الخصم')}</span><span>- {formatCurrency(invoice.discountAmt)}</span></div>
               )}

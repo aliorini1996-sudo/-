@@ -88,6 +88,20 @@ function ownerOf(p: string): { prefix: string; files: Set<string> } | null {
 
 const documented = new Set(API_DOC_GROUPS.flatMap((g) => g.endpoints.map((e) => `${e.method} ${e.path}`)));
 
+/**
+ * مسارٌ يُعرَّف في حلقةٍ بقالب نصّي (تقارير الشركاء في الدفاتر: router.get(`/reports/${key}`) لكل مفتاح): يُقبل حين يطابق ما حول
+ * المتغيّر حرفياً، والجزء المتغيّر مقطعٌ واحد مذكورٌ نصّاً مقتبساً في ملف الموجّه نفسه (مفاتيح الحلقة) — فلا يمرّ مفتاحٌ لا يعرفه
+ */
+function templateRouteHas(src: string, method: string, sub: string): boolean {
+  for (const m of src.matchAll(new RegExp(`\\.${method.toLowerCase()}\\(\`([^\`$]*)\\$\\{\\w+\\}([^\`$]*)\``, 'g'))) {
+    const [, pre, post] = m;
+    if (sub.length <= pre.length + post.length || !sub.startsWith(pre) || !sub.endsWith(post)) continue;
+    const key = sub.slice(pre.length, sub.length - post.length);
+    if (!key.includes('/') && !key.startsWith(':') && src.includes(`'${key}'`)) return true;
+  }
+  return false;
+}
+
 test('خريطة التركيب تعرف الموجّهات المتداخلة تحت /company — ولا تنسب مساراً لملف غيره', () => {
   assert.deepEqual([...(MOUNTS.get('/company/payment-methods') ?? [])], ['paymentMethodsConfig']);
   assert.deepEqual([...(MOUNTS.get('/company/print-settings') ?? [])], ['printSettings']);
@@ -108,7 +122,7 @@ test('كل مسار في المستند مركَّبٌ في الخادم بطر�
       if (!owner) { missing.push(`${e.method} ${e.path} (لا بادئة)`); continue; }
       const sub = e.path.slice(owner.prefix.length) || '/';
       const needle = `.${e.method.toLowerCase()}('${sub}'`;
-      if (![...owner.files].some((f) => routeFile(f).includes(needle))) missing.push(`${e.method} ${e.path} (${[...owner.files].join('/')})`);
+      if (![...owner.files].some((f) => routeFile(f).includes(needle) || templateRouteHas(routeFile(f), e.method, sub))) missing.push(`${e.method} ${e.path} (${[...owner.files].join('/')})`);
     }
   }
   assert.deepEqual(missing, []);

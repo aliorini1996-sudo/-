@@ -346,7 +346,9 @@ test('المفاتيح الخمسة (ومنها الملخّص التنفيذي 
   assert.deepEqual([...REPORT_KEYS], ['trial-balance', 'income-statement', 'balance-sheet', 'general-ledger', 'executive-summary']);
   for (const k of REPORT_KEYS) assert.equal(isReportKey(k), true);
   assert.equal(isReportKey('partner-ledger'), false);
-  assert.ok((LATER_REPORT_KEYS as readonly string[]).includes('partner-ledger'));
+  // «ربط الدفاتر» L8: دفتر الشريك وأعمار الذمم لها موجّهها (partnerReports.ts، مركّب قبل reportsRouter) فخرجت من «المراحل التالية»
+  for (const k of ['partner-ledger', 'aged-receivable', 'aged-payable']) assert.equal((LATER_REPORT_KEYS as readonly string[]).includes(k), false, k);
+  assert.deepEqual([...LATER_REPORT_KEYS], ['vat-return', 'cash-flow']);
   // الملخّص التنفيذي خرج من «المراحل التالية» إلى التقارير الحيّة (§7.3 ORPT‑09، مرحلته M4)
   assert.equal((LATER_REPORT_KEYS as readonly string[]).includes('executive-summary'), false);
   assert.equal(isStatementKey('general-ledger'), false);

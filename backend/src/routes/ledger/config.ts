@@ -14,6 +14,7 @@ import { assertArabicName, hasArabicLetter } from '../../services/gl/names';
 import { JOURNAL_CODE_RE } from '../../services/gl/sequence';
 import { importTimezone } from '../../services/importLedger';
 import { dbNowOf, guardImportTimezone } from './setup';
+import { assertRoutingCustodyCashOnly, routingGuardApplies } from './paymentMethodMap';
 import { MAPPING_KEY_ALLOWED_TYPES, MAPPING_KEY_CONTROL_KIND, SA_6D_ACCOUNT_GROUPS } from '../../services/gl/coa/sa';
 import { countByType, pageOfRanked, rankAccounts } from '../../services/gl/coa/search';
 import { addMonths, compareLocalDate, daysInMonth, fromDbDate, isLocalDate, isValidTimeZone, toDbDate } from '../../services/gl/dates';
@@ -1065,6 +1066,8 @@ router.put('/settings', CONFIGURE, ledgerHandler(async (req, res) => {
     await acquirePostLock(tx, tenantId);
     const s = await tx.glSettings.findUnique({ where: { tenantId } });
     if (!s) throw new LedgerError('LEDGER_NOT_SETUP', { reason: 'SETTINGS_MISSING' });
+    // «ربط الدفاتر» OD4 (D4): الدفاتر التي يُرحِّل تشغيلُها قيوده لا تقبل عهدة المندوب للتحويل ونقطة البيع — اليدوية كما كانت
+    assertRoutingCustodyCashOnly(body.receiptRouting, routingGuardApplies(s));
 
     if (s.activatedAt) {
       const frozen = FROZEN_AFTER_ACTIVATION.filter((f) => {

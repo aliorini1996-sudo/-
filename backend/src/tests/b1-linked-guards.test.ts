@@ -120,7 +120,8 @@ class MiniCheckStore implements CheckStore {
 test('الفحوص: LINKED تُفحص كلها (C3/C4/C4b/C5/C8/C14/C15 لا تُتخطّى)، وCLEAN تتخطّاها كما كانت', async () => {
   const keys = async (m: CheckSettingsFacts['setupMethod']) => (await runChecks(new MiniCheckStore(m), 't1')).results.map((r) => r.key);
   const linked = await keys('LINKED');
-  for (const k of MANUAL_LEDGER_SKIPPED_CHECKS) assert.ok(linked.includes(k), `LINKED: ${k}`);
+  // C4u وC16 (L5/L8) خلف علَم linked في لقطة الإعدادات — المخزن المصغّر هنا بلا العلَم، فتُفحص السبعة الأصلية
+  for (const k of MANUAL_LEDGER_SKIPPED_CHECKS.filter((c) => c !== 'C4u' && c !== 'C16')) assert.ok(linked.includes(k), `LINKED: ${k}`);
   assert.deepEqual(linked, await keys('OPENING'), 'LINKED = OPENING في مجموعة الفحوص');
   const manual = await keys('CLEAN');
   for (const k of MANUAL_LEDGER_SKIPPED_CHECKS) assert.ok(!manual.includes(k), `CLEAN: ${k}`);

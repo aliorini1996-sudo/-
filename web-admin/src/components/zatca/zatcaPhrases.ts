@@ -131,7 +131,7 @@ export const ZATCA_PHRASES: Record<string, { en: string; fr: string; tr: string;
   'تجديد الشهادة جارٍ': { en: 'Certificate renewal in progress', fr: 'Renouvellement du certificat en cours', tr: 'Sertifika yenileme sürüyor', zh: '证书续期进行中' },
   'رفضت الهيئة شهادة الوحدة': { en: 'ZATCA rejected the unit certificate', fr: 'La ZATCA a rejeté le certificat de l’unité', tr: 'ZATCA birim sertifikasını reddetti', zh: 'ZATCA 拒绝了该单元证书' },
   'موقوفة نهائياً': { en: 'Permanently retired', fr: 'Arrêtée définitivement', tr: 'Kalıcı olarak durduruldu', zh: '已永久停用' },
-  'حالة غير معروفة': { en: 'Unknown status', fr: 'Statut inconnu', tr: 'Bilinmeyen durum', zh: '未知状态' },
+  // «حالة غير معروفة» انتقلت إلى PHRASES العامّ: تعرضها أسباب «ربط الدفاتر» (lib/ledger/labels.ts) خارج التبويب أيضاً
   'بيئة المحاكاة — للاختبار، لا تُنتج فواتير حقيقية': { en: 'Simulation environment — for testing, produces no real invoices', fr: 'Environnement de simulation — pour les tests, ne produit aucune facture réelle', tr: 'Simülasyon ortamı — test içindir, gerçek fatura üretmez', zh: '模拟环境——仅供测试，不产生真实发票' },
   'بيئة الإنتاج — فواتير ضريبية حقيقية': { en: 'Production environment — real tax invoices', fr: 'Environnement de production — factures fiscales réelles', tr: 'Üretim ortamı — gerçek vergi faturaları', zh: '生产环境——真实税务发票' },
   'بيئة المطوّرين — بيانات تجريبية فقط': { en: 'Developer environment — test data only', fr: 'Environnement développeurs — données de test uniquement', tr: 'Geliştirici ortamı — yalnızca test verisi', zh: '开发者环境——仅测试数据' },

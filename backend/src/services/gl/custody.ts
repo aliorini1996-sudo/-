@@ -5,6 +5,8 @@
 // والأستاذ يتكيّف: نقد الفواتير النقدية إلى 111001 افتراضاً، وONLINE إلى 112005، وP7 بـcovered/recovered/r.
 // المتطابقة (C4b): opsOutstanding = ledgerCustody + onlineUncleared + custodyExpenses + openShortage + shortagesExpensed
 // وتصحّ بالبناء ما دام cashInvoiceRouting=MAIN_CASH ولا افتتاح خارج الإعادة.
+// «ربط الدفاتر» L5: المختومة (OD2) تدخل الشاشة وتدخل 111003 بالختم في المربوطة، والإلغاء بردٍّ من خارج العهدة (C11)
+// يُطرح من الطرف الأيمن (− cancelRefundOutside)؛ وcustodyExplain يفصّل ops − ledger بنوداً بلا باقٍ (OD3).
 import { maxMilli, minMilli } from './money';
 import type {
   CashInvoiceRouting, Milli, PaymentMethod, ReceiptRouting,
@@ -82,6 +84,10 @@ export interface CustodyItem {
   effectAt: CustodyInstant;
   createdAt?: CustodyInstant | null;
   reversedAt?: CustodyInstant | null;
+  /** «ربط الدفاتر» L5 (OD2): فاتورة نقدية مختومة cashCollectedByRep (لعناصر cashInvoices وحدها) */
+  stamped?: boolean;
+  /** «ربط الدفاتر» L5 (C11): عكسٌ رُدّ ماله من خارج عهدة المندوب (Receipt.cancelRefundFrom ∉ {REP_CUSTODY, null}) — للسندات CUSTODY وحدها */
+  reversalOutsideCustody?: boolean;
 }
 
 /**
@@ -102,6 +108,8 @@ export interface CustodyRouting {
   cashInvoice: CashInvoiceRouting;
   /** للتوثيق/التصنيف المسبق بـreceiptCustodyClass؛ القوائم تصل مصنّفة */
   receipt?: ReceiptRouting | null;
+  /** «ربط الدفاتر» L5 (OD2/D5): true للمربوطة — الفاتورة النقدية المختومة تدخل 111003 أياً كان cashInvoice */
+  stampDrivesCustody?: boolean;
 }
 
 /** حالة افتتاحية لكل مندوب (مجاميع ما قبل نافذة الإعادة)؛ الغائب صفر */
@@ -121,6 +129,8 @@ export interface CustodyOpening {
   /** Σ السندات النشطة بكل الطرق (للشاشة التشغيلية) */
   activeReceiptsMilli?: Milli;
   settledMilli?: Milli;
+  /** «ربط الدفاتر» L5 (C11): Σ السندات CUSTODY المعكوسة بردٍّ من خارج العهدة قبل النافذة */
+  cancelRefundOutsideMilli?: Milli;
 }
 
 export interface CustodyComponentsInput {
@@ -172,6 +182,8 @@ export interface CustodyComponents {
   opsOutstanding: Milli;
   /** مجموع العتبة الحالي لـ911001 في P7 */
   nonCustodyAllowance: Milli;
+  /** «ربط الدفاتر» L5 (C11): Σ أصل السندات CUSTODY المعكوسة بردٍّ من خارج العهدة — تنقص الشاشة ولا تنقص 111003 */
+  cancelRefundOutside: Milli;
   settlements: CustodySettlementOutcome[];
 }
 
@@ -200,6 +212,7 @@ interface RepState {
   suspenseCum: Milli;
   activeReceipts: Milli;
   settled: Milli;
+  cancelRefundOutside: Milli;
   outcomes: Map<string, CustodySettlementOutcome>;
 }
 
@@ -223,6 +236,7 @@ function newState(o: CustodyOpening | undefined): RepState {
     suspenseCum: o?.suspenseMilli ?? 0n,
     activeReceipts: o?.activeReceiptsMilli ?? 0n,
     settled: o?.settledMilli ?? 0n,
+    cancelRefundOutside: o?.cancelRefundOutsideMilli ?? 0n,
     outcomes: new Map(),
   };
 }
@@ -270,12 +284,19 @@ export function custodyComponents(input: CustodyComponentsInput): Record<string,
   for (const repId of Object.keys(input.opening ?? {})) stateOf(repId);
 
   const cashToCustody = input.routing.cashInvoice === 'CUSTODY';
+  const stampDrivesCustody = input.routing.stampDrivesCustody === true;
 
   for (const ev of events) {
     const s = stateOf(ev.item.salesRepId);
     const amt = ev.item.amountMilli * ev.sign;
     switch (ev.kind) {
       case 'CUSTODY_RECEIPT':
+        // C11: عكسٌ رُدّ ماله من خارج العهدة (صندوق رئيسي، بنك، عهدة مستخدم) لا يمسّ 111003 — الشاشة تنقص وحدها
+        if (ev.sign === -1n && ev.item.reversalOutsideCustody === true) {
+          s.activeReceipts += amt;
+          s.cancelRefundOutside -= amt;
+          break;
+        }
         s.ledger += amt;
         s.activeReceipts += amt;
         break;
@@ -288,6 +309,14 @@ export function custodyComponents(input: CustodyComponentsInput): Record<string,
         s.activeReceipts += amt;
         break;
       case 'CASH_INVOICE':
+        // OD2/D5: المختومة تعدّها الشاشة تحصيلاً (REP_COLLECTED_CASH_SALE)، فتدخل 111003 حين يوجّهها الختم (المربوطة) أو
+        // التوجيه العام CUSTODY، وإلا فهي «خارج العهدة» كسندٍ موجَّه مباشرة. وغير المختومة كما كانت حرفاً.
+        if (ev.item.stamped === true) {
+          if (stampDrivesCustody || cashToCustody) s.ledger += amt;
+          else s.outsideActive += amt;
+          s.activeReceipts += amt;
+          break;
+        }
         if (cashToCustody) s.ledger += amt;
         else s.cashOutside += amt;
         break;
@@ -363,6 +392,7 @@ export function custodyComponents(input: CustodyComponentsInput): Record<string,
       shortageRecovered: s.recovered,
       opsOutstanding: s.activeReceipts - s.settled,
       nonCustodyAllowance: allowanceOf(s),
+      cancelRefundOutside: s.cancelRefundOutside,
       settlements: [...s.outcomes.values()],
     };
   }
@@ -376,7 +406,7 @@ export function custodyComponentsForRep(input: CustodyComponentsInput, salesRepI
     salesRepId, ledgerCustody: 0n, onlineUncleared: 0n, cashSalesOutsideCustody: 0n, custodyExpenses: 0n,
     openShortage: 0n, shortagesExpensed: 0n, nonCustodyCleared: 0n, suspenseCleared: 0n, shortageRecovered: 0n,
     opsOutstanding: 0n,
-    nonCustodyAllowance: 0n, settlements: [],
+    nonCustodyAllowance: 0n, cancelRefundOutside: 0n, settlements: [],
   };
 }
 
@@ -399,12 +429,110 @@ export function custodyC4Gap(ledgerBalanceMilli: Milli, c: Pick<CustodyComponent
   return ledgerBalanceMilli - c.ledgerCustody;
 }
 
-/** C4b: opsOutstanding − (ledgerCustody + onlineUncleared + custodyExpenses + openShortage + shortagesExpensed) (صفر = متطابق) */
+/**
+ * C4b: opsOutstanding − (ledgerCustody + onlineUncleared + custodyExpenses + openShortage + shortagesExpensed − cancelRefundOutside)
+ * (صفر = متطابق). cancelRefundOutside (C11) يغيب عن المكوّنات القديمة ⇒ صفر، فالصيغة القائمة حرفاً.
+ */
 export function custodyC4bGap(
   c: Pick<CustodyComponents,
-    'opsOutstanding' | 'ledgerCustody' | 'onlineUncleared' | 'custodyExpenses' | 'openShortage' | 'shortagesExpensed'>,
+    'opsOutstanding' | 'ledgerCustody' | 'onlineUncleared' | 'custodyExpenses' | 'openShortage' | 'shortagesExpensed'>
+    & Partial<Pick<CustodyComponents, 'cancelRefundOutside'>>,
   opsOutstandingMilli: Milli = c.opsOutstanding,
 ): Milli {
   return opsOutstandingMilli
-    - (c.ledgerCustody + c.onlineUncleared + c.custodyExpenses + c.openShortage + c.shortagesExpensed);
+    - (c.ledgerCustody + c.onlineUncleared + c.custodyExpenses + c.openShortage + c.shortagesExpensed - (c.cancelRefundOutside ?? 0n));
+}
+
+// ═══ «ربط الدفاتر» L5 — تفسير فرق العهدة بنداً بنداً (OD3) ═══
+
+/**
+ * أنواع بنود التفسير. كل بند أثرُه الموقَّع على (الشاشة − 111003):
+ * OPENING (فرق الافتتاح)، ONLINE وOUTSIDE (سندات تعدّها الشاشة ولا تدخل العهدة)، STAMPED_OUTSIDE (فاتورة نقدية مختومة
+ * قُيّد نقدها خارج العهدة)، EXPENSE وSHORTAGE وSHORTAGE_EXPENSED (تنقص 111003 ولا تنقص الشاشة؛ والمسترد من العجز
+ * بند SHORTAGE سالب على الاستلام)، SETTLEMENT_R (ما صفّاه الاستلام خارج العهدة: سالب)، CANCEL_REFUND_OUTSIDE (إلغاء
+ * رُدّ ماله من خارج العهدة: سالب)، CASH_INVOICE_CUSTODY (فاتورة نقدية غير مختومة في العهدة بالتوجيه العام لا تعدّها
+ * الشاشة: سالب).
+ */
+export type CustodyExplainKind =
+  | 'OPENING' | 'ONLINE' | 'OUTSIDE' | 'STAMPED_OUTSIDE' | 'EXPENSE' | 'SHORTAGE' | 'SHORTAGE_EXPENSED' | 'SETTLEMENT_R'
+  | 'CANCEL_REFUND_OUTSIDE' | 'CASH_INVOICE_CUSTODY';
+
+/** OD3: بند من قائمة r المفصّلة — ops − ledger بنداً بنداً بلا باقٍ غير مفسَّر */
+export interface CustodyExplainItem {
+  kind: CustodyExplainKind;
+  refId: string;
+  /** ISO للحظة الأثر (لحظة العكس لـCANCEL_REFUND_OUTSIDE)؛ فارغ لبند الافتتاح */
+  at: string;
+  /** موقَّع: موجب يرفع الشاشة على الأستاذ */
+  amountMilli: Milli;
+}
+
+export interface CustodyExplanation {
+  opsMilli: Milli;
+  ledgerMilli: Milli;
+  items: CustodyExplainItem[];
+  totalMilli: Milli;
+  /** = ops − ledger − total — صفر دائماً حين تتسق المدخلات */
+  unexplainedMilli: Milli;
+}
+
+const isoOf = (v: CustodyInstant): string => new Date(instantMs(v)).toISOString();
+
+/**
+ * يفسّر فرق الشاشة التشغيلية (opsOutstanding) عن 111003 لمندوب واحد بنوداً موقَّعة. البنود تُشتق من القوائم مباشرةً
+ * (لا من المكوّنات)، والفرق يُحسب من custodyComponents — فـunexplainedMilli = 0 شاهدٌ على اتساق المسارين لا تحصيل حاصل.
+ * البند المعكوس كلّه (أثره الصافي صفر) لا يُدرج.
+ */
+export function custodyExplain(input: CustodyComponentsInput, salesRepId: string): CustodyExplanation {
+  const c = custodyComponentsForRep(input, salesRepId);
+  const items: CustodyExplainItem[] = [];
+  const add = (kind: CustodyExplainKind, refId: string, at: string, amountMilli: Milli) => {
+    if (amountMilli !== 0n) items.push({ kind, refId, at, amountMilli });
+  };
+  const mine = <T extends CustodyItem>(list: readonly T[]): T[] => list.filter((i) => i.salesRepId === salesRepId);
+  const live = (i: CustodyItem) => i.reversedAt == null;
+
+  const o = input.opening?.[salesRepId];
+  if (o) {
+    add('OPENING', salesRepId, '',
+      (o.activeReceiptsMilli ?? 0n) - (o.settledMilli ?? 0n) - (o.ledgerCustodyMilli ?? 0n));
+  }
+  for (const r of mine(input.receipts)) {
+    if (!live(r) && r.reversalOutsideCustody === true) add('CANCEL_REFUND_OUTSIDE', r.id, isoOf(r.reversedAt!), -r.amountMilli);
+  }
+  for (const r of mine(input.onlineReceipts)) if (live(r)) add('ONLINE', r.id, isoOf(r.effectAt), r.amountMilli);
+  for (const r of mine(input.outsideReceipts)) if (live(r)) add('OUTSIDE', r.id, isoOf(r.effectAt), r.amountMilli);
+  const cashToCustody = input.routing.cashInvoice === 'CUSTODY';
+  const stampDrives = input.routing.stampDrivesCustody === true;
+  for (const inv of mine(input.cashInvoices)) {
+    if (!live(inv)) continue;
+    if (inv.stamped === true) {
+      if (!(stampDrives || cashToCustody)) add('STAMPED_OUTSIDE', inv.id, isoOf(inv.effectAt), inv.amountMilli);
+    } else if (cashToCustody) {
+      add('CASH_INVOICE_CUSTODY', inv.id, isoOf(inv.effectAt), -inv.amountMilli);
+    }
+  }
+  for (const sh of mine(input.shortages)) {
+    if (live(sh)) add(sh.chargedTo === 'EXPENSE' ? 'SHORTAGE_EXPENSED' : 'SHORTAGE', sh.id, isoOf(sh.effectAt), sh.amountMilli);
+  }
+  for (const e of mine(input.custodyExpenses)) if (live(e)) add('EXPENSE', e.id, isoOf(e.effectAt), e.amountMilli);
+  const settledAt = new Map(mine(input.settlements).map((s) => [s.id, s.effectAt] as const));
+  for (const out of c.settlements) {
+    if (out.reversed) continue;
+    const at = settledAt.get(out.id);
+    const iso = at != null ? isoOf(at) : '';
+    add('SHORTAGE', out.id, iso, -out.recoveredMilli);
+    add('SETTLEMENT_R', out.id, iso, -out.nonCustodyClearedMilli);
+  }
+
+  items.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0) || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0)
+    || (a.refId < b.refId ? -1 : a.refId > b.refId ? 1 : 0));
+  const total = items.reduce((s, i) => s + i.amountMilli, 0n);
+  return {
+    opsMilli: c.opsOutstanding,
+    ledgerMilli: c.ledgerCustody,
+    items,
+    totalMilli: total,
+    unexplainedMilli: c.opsOutstanding - c.ledgerCustody - total,
+  };
 }

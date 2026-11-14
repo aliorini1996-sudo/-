@@ -14,6 +14,11 @@ import { isManualBooks } from '../../services/gl/mode';
 import { decodeEventNote, type EventNote } from '../../services/gl/sync/classify';
 import { postKeyOf, reverseKeyOf } from '../../services/gl/sync/keys';
 import type { SourceType } from '../../services/gl/types';
+// «ربط الدفاتر» L5 (OD3/OD5): شرح فرق عهدة المندوب وعهدة مستخدمي الشركة — أسماء مستعارة فلا تتصادم مع استيرادات L0 للمساعد نفسه
+import { isLinked as booksLinked, isManualBooks as booksManual } from '../../services/booksMode';
+import { custodyExplain } from '../../services/gl/custody';
+import { loadUserCustodyInputsMany } from '../../services/gl/sync/postingStore.prisma';
+import { foldUserCustody, type UserCustodyInputs } from '../../services/userCustodyCore';
 
 /**
  * قائمة «العملاء» في الدفاتر (M3، DESIGN.md §8.2، INV‑01، PAY‑01، §5.5 custodyComponents، §5.9 C4/C4b/C5).
@@ -505,6 +510,110 @@ router.get('/customers/paylink/entries', VIEW, ledgerHandler(async (req, res) =>
     data: {
       ...f.meta, activated: f.activated, kind, total, ...page,
       rows: rows.map((r) => ({ ...r, date: localDate(r.createdAt, f.timezone), posting: postings.get(r.id) })),
+    },
+  });
+}));
+
+// ═══ «ربط الدفاتر» L5 — شرح فرق عهدة المندوب (OD3) وعهدة مستخدمي الشركة (C4u، OD5) ═══
+
+/**
+ * `GET /customers/custody/:salesRepId/explain` — قائمة r المفصّلة: الشاشة التشغيلية − 111003 بنداً بنداً (custodyExplain)، بلا
+ * باقٍ غير مفسَّر حين تتسق المدخلات (unexplainedMilli = 0). ومعها الرصيد الفعلي للمندوب في الأستاذ وفرق C4 (الأستاذ − المتوقَّع).
+ * قراءة فقط بمدخلات المحمّل الموحّد نفسه (store.custodyInputs) — للدفاتر المفعّلة غير اليدوية.
+ */
+router.get('/customers/custody/:salesRepId/explain', VIEW, ledgerHandler(async (req, res) => {
+  const { tenantId } = locals(res);
+  const salesRepId = String(req.params.salesRepId ?? '').trim();
+  const store = createPrismaCheckStore(prisma);
+  const s = await store.loadSettings(tenantId);
+  if (!s?.activatedAt || booksManual(s)) {
+    res.json({ success: true, data: { activated: !!s?.activatedAt, manualLedger: booksManual(s), explanation: null } });
+    return;
+  }
+  const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId }, select: { id: true, name: true } });
+  if (!rep) throw new LedgerHttpError(404, 'المندوب غير موجود', { reason: 'NOT_FOUND', salesRepId });
+  const custody = (await store.controlAccounts(tenantId)).filter((a) => a.controlKind === 'CUSTODY').map((a) => a.id);
+  const [inputs, ledger] = await Promise.all([
+    store.custodyInputs(tenantId, rep.id),
+    custody.length ? store.ledgerByPartner(tenantId, custody, 'salesRepId') : Promise.resolve(new Map<string, bigint>()),
+  ]);
+  const x = custodyExplain(inputs, rep.id);
+  const actual = ledger.get(rep.id) ?? 0n;
+  res.json({
+    success: true,
+    data: {
+      activated: true, lastSyncAt: s.lastSyncAt, currencyDecimals: s.currencyDecimals,
+      explanation: {
+        salesRepId: rep.id, name: rep.name,
+        opsMilli: milliText(x.opsMilli), ledgerMilli: milliText(x.ledgerMilli), ledgerActualMilli: milliText(actual),
+        c4GapMilli: milliText(custodyC4Gap(actual, { ledgerCustody: x.ledgerMilli })),
+        items: x.items.map((i) => ({ kind: i.kind, refId: i.refId, at: i.at, amountMilli: milliText(i.amountMilli) })),
+        totalMilli: milliText(x.totalMilli), unexplainedMilli: milliText(x.unexplainedMilli),
+      },
+    },
+  });
+}));
+
+/** أحداث غير نهائية تمسّ العهد (استلام المناديب وتوريد المستخدمين) — فرقٌ معها قد يكون عابراً حتى تُرحَّل */
+const USER_CUSTODY_EVENT_TYPES = ['SETTLEMENT', 'USER_SETTLEMENT'] as const;
+
+/**
+ * `GET /customers/user-custody` — عهدة مستخدمي الشركة: 111004 لكل مستخدم (بُعد adminUserId على حسابات CUSTODY) مقابل الطيّ
+ * التشغيلي foldUserCustody (النقد والشيكات وحدها، OD5) — والفرق C4u. للمربوطة وحدها؛ غيرها قائمة فارغة بلا قراءة تشغيل.
+ * ثلاث قراءات مجمّعة (تجميع الأستاذ، ومدخلات الطيّ لكل المستخدمين دفعةً، والأسماء) — لا استعلام لكل مستخدم.
+ */
+router.get('/customers/user-custody', VIEW, ledgerHandler(async (_req, res) => {
+  const { tenantId } = locals(res);
+  const s = await prisma.glSettings.findUnique({
+    where: { tenantId }, select: { setupMethod: true, activatedAt: true, currencyDecimals: true, lastSyncAt: true },
+  });
+  if (!booksLinked(s)) {
+    res.json({ success: true, data: { activated: !!s?.activatedAt, linked: false, manualLedger: booksManual(s), users: [], totals: null } });
+    return;
+  }
+  const decimals = s!.currencyDecimals;
+  const custody = (await prisma.glAccount.findMany({ where: { tenantId, controlKind: 'CUSTODY' }, select: { id: true } })).map((a) => a.id);
+  const [ledgerRows, inputs, pendingEvents] = await Promise.all([
+    custody.length
+      ? prisma.glMoveLine.groupBy({
+        by: ['adminUserId'],
+        where: { tenantId, posted: true, accountId: { in: custody }, adminUserId: { not: null } },
+        _sum: { debitMilli: true, creditMilli: true },
+      })
+      : Promise.resolve([]),
+    // مدخلات الطيّ نفسها التي يقرؤها الفحص C4u والمُرحِّل (المحذوف من tombstone، والتقسيم المخزَّن، ومرشّح المندوب القائم) — فالفرق هنا = C4u
+    loadUserCustodyInputsMany(prisma, tenantId, decimals, null),
+    prisma.glSourceEvent.count({
+      where: { tenantId, status: { in: ['PENDING', 'BLOCKED', 'ERROR', 'HELD'] }, sourceType: { in: [...USER_CUSTODY_EVENT_TYPES] } },
+    }),
+  ]);
+  const ledger = new Map<string, bigint>();
+  for (const g of ledgerRows as { adminUserId: string | null; _sum: { debitMilli: bigint | null; creditMilli: bigint | null } }[]) {
+    if (g.adminUserId) ledger.set(g.adminUserId, (g._sum.debitMilli ?? 0n) - (g._sum.creditMilli ?? 0n));
+  }
+  const ids = [...new Set([...ledger.keys(), ...inputs.keys()])];
+  const admins = ids.length
+    ? await prisma.admin.findMany({ where: { tenantId, id: { in: ids } }, select: { id: true, name: true, isActive: true } })
+    : [];
+  const adminOf = new Map(admins.map((a) => [a.id, a]));
+  const empty = (userId: string): UserCustodyInputs => ({ userId, received: [], delivered: [], refunds: [] });
+  let tLedger = 0n; let tOps = 0n; let tGap = 0n;
+  const users = ids.map((userId) => {
+    const ledgerMilli = ledger.get(userId) ?? 0n;
+    const ops = foldUserCustody(inputs.get(userId) ?? empty(userId)).outstandingMilli;
+    const gap = ledgerMilli - ops;
+    tLedger += ledgerMilli; tOps += ops; tGap += gap;
+    const a = adminOf.get(userId);
+    return {
+      userId, name: a?.name ?? null, isActive: a?.isActive ?? false,
+      ledgerMilli: milliText(ledgerMilli), opsOutstandingMilli: milliText(ops), c4uGapMilli: milliText(gap),
+    };
+  }).sort((a, b) => (a.name ?? a.userId).localeCompare(b.name ?? b.userId, 'ar'));
+  res.json({
+    success: true,
+    data: {
+      activated: true, linked: true, lastSyncAt: s!.lastSyncAt, currencyDecimals: decimals, pendingEvents, users,
+      totals: { ledgerMilli: milliText(tLedger), opsOutstandingMilli: milliText(tOps), c4uGapMilli: milliText(tGap) },
     },
   });
 }));

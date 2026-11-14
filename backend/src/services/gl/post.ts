@@ -320,6 +320,8 @@ export async function postMove(tx: GlTx, input: MoveDraft, opts: PostMoveOptions
           customerId: r.line.customerId ?? null,
           vendorId: r.line.vendorId ?? null,
           salesRepId: r.line.salesRepId ?? null,
+          // «ربط الدفاتر» L5 (D2): بُعد مستخدم الشركة على 111004 — يُكتب حين يوجد وحده فيبقى إدراج السطور القديم كما كان
+          ...(r.line.adminUserId ? { adminUserId: r.line.adminUserId } : {}),
           partnerName: r.line.partnerName ?? null,
           analyticAccountId: r.line.analyticAccountId ?? null,
           productId: r.line.productId ?? null,

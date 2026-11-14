@@ -10,7 +10,9 @@
  */
 import { SETTLEMENT_HAS_REP, settlementHasRep } from '../settlementRep';
 import type { Prisma, PrismaClient } from '@prisma/client';
-import { sourceEventCreateRow, factIdsForRows, type DeriveContext, type InvoiceFacts, type ReceiptFacts, type ReconciledSource, type SourceRow } from './desired';
+import { sourceEventCreateRow, factIdsForRows, type DeriveContext, type ReconciledSource, type SourceRow } from './desired';
+import { loadAdminNames, loadInvoiceFacts, loadReceiptFacts, loadRefundLinks } from './facts.prisma';
+import { isLinked } from '../mode';
 import type { CommitPageResult, PageQuery, ReconcileSettings, ReconcilerStore } from './reconciler';
 import type { CompositeKey, DesiredEvent, SyncCursorState } from './types';
 
@@ -46,13 +48,15 @@ export function createPrismaReconcilerStore(db: Db): ReconcilerStore {
     async loadSettings(tenantId): Promise<ReconcileSettings | null> {
       const s = await db.glSettings.findUnique({
         where: { tenantId },
-        select: { activatedAt: true, timezone: true, currency: true, currencyDecimals: true },
+        select: { activatedAt: true, timezone: true, currency: true, currencyDecimals: true, setupMethod: true },
       });
       if (!s) return null;
       const company = await db.companySettings.findUnique({ where: { tenantId }, select: { currency: true } });
       return {
         tenantId, activatedAt: s.activatedAt, timezone: s.timezone,
         currency: company?.currency ?? s.currency, currencyDecimals: s.currencyDecimals,
+        // «ربط الدفاتر» (D1): المربوطة المفعّلة وحدها
+        linked: isLinked({ setupMethod: s.setupMethod, activatedAt: s.activatedAt }),
       };
     },
 
@@ -76,12 +80,18 @@ export function createPrismaReconcilerStore(db: Db): ReconcilerStore {
         case 'REP_SETTLEMENT':
           return (await db.repSettlement.findMany({
             where: { ...where, ...SETTLEMENT_HAS_REP }, orderBy: ORDER, take: q.limit,
-            select: { id: true, salesRepId: true, amount: true, method: true, note: true, settledAt: true, createdAt: true },
+            select: { id: true, salesRepId: true, amount: true, method: true, note: true, settledAt: true, createdAt: true, receivedByUserId: true },
           })).filter(settlementHasRep);
         case 'SETTLEMENT_ENTRY':
           return db.settlementEntry.findMany({
             where, orderBy: ORDER, take: q.limit,
             select: { id: true, kind: true, amount: true, feeNet: true, feeVat: true, linkId: true, payoutId: true, note: true, createdAt: true },
+          });
+        case 'USER_SETTLEMENT':
+          // «ربط الدفاتر» L5 (D13): الفهرس [tenantId, createdAt, id] — والمؤشر للمربوطة وحدها
+          return db.userSettlement.findMany({
+            where, orderBy: ORDER, take: q.limit,
+            select: { id: true, fromUserId: true, amount: true, method: true, note: true, receivedBy: true, receivedByUserId: true, settledAt: true, createdAt: true },
           });
       }
     },
@@ -89,62 +99,12 @@ export function createPrismaReconcilerStore(db: Db): ReconcilerStore {
     async loadFacts(tenantId, source, rows, settings): Promise<DeriveContext> {
       const ids = factIdsForRows(source, rows);
       const ctx: DeriveContext = { timezone: settings.timezone, currency: settings.currency, currencyDecimals: settings.currencyDecimals };
+      // «ربط الدفاتر» (D1): المربوطة وحدها تحمّل الحقائق الجديدة وتُعلَّم؛ غيرها بالاستعلامات نفسها حرفاً (facts.prisma.ts)
+      const linked = settings.linked === true;
+      if (linked) ctx.linked = true;
 
-      if (ids.invoiceIds.length > 0) {
-        const list = await db.invoice.findMany({
-          where: { tenantId, id: { in: ids.invoiceIds } },
-          select: {
-            id: true, number: true, type: true, customerId: true, salesRepId: true, pricesIncludeTax: true,
-            subtotal: true, discountAmt: true, taxAmt: true, total: true, dueDate: true,
-            taxFree: true, // «إزالة الضريبة»: ختم الفاتورة ⇒ الحمولة (حين true وحده)
-            customer: { select: { name: true } }, salesRep: { select: { name: true } },
-            items: {
-              select: { productId: true, qty: true, unitPrice: true, taxPct: true, taxAmt: true, lineTotal: true, vatCategory: true, product: { select: { categoryId: true } } },
-              orderBy: { id: 'asc' },
-            },
-          },
-        });
-        ctx.invoices = new Map(list.map((i): [string, InvoiceFacts] => [i.id, {
-          id: i.id, number: i.number, type: i.type, customerId: i.customerId, salesRepId: i.salesRepId,
-          pricesIncludeTax: i.pricesIncludeTax, subtotal: i.subtotal, discountAmt: i.discountAmt, taxAmt: i.taxAmt, total: i.total,
-          dueDate: i.dueDate, customerName: i.customer?.name ?? null, salesRepName: i.salesRep?.name ?? null, taxFree: i.taxFree,
-          items: i.items.map((it) => ({
-            productId: it.productId, categoryId: it.product?.categoryId ?? null, qty: it.qty, unitPrice: it.unitPrice,
-            taxPct: it.taxPct, taxAmt: it.taxAmt, lineTotal: it.lineTotal, vatCategory: it.vatCategory,
-          })),
-        }]));
-      }
-
-      if (ids.receiptIds.length > 0) {
-        const list = await db.receipt.findMany({
-          where: { tenantId, id: { in: ids.receiptIds } },
-          select: {
-            id: true, number: true, customerId: true, salesRepId: true, paymentMethod: true, amount: true,
-            customer: { select: { name: true } }, salesRep: { select: { name: true } },
-          },
-        });
-        // paylinkId من CustomerPaymentLink.receiptId = receipt.id — لا من clientRef
-        const links = await db.customerPaymentLink.findMany({
-          where: { tenantId, receiptId: { in: ids.receiptIds } },
-          select: { id: true, receiptId: true },
-        });
-        const linkByReceipt = new Map(links.filter((l) => l.receiptId).map((l) => [l.receiptId as string, l.id]));
-        const refunds = links.length === 0 ? [] : await db.settlementEntry.findMany({
-          where: { tenantId, kind: 'REFUND', linkId: { in: links.map((l) => l.id) } },
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          select: { id: true, linkId: true, amount: true },
-        });
-        const refundByLink = new Map<string, { entryId: string; amount: number }>();
-        for (const r of refunds) if (r.linkId && !refundByLink.has(r.linkId)) refundByLink.set(r.linkId, { entryId: r.id, amount: r.amount });
-        ctx.receipts = new Map(list.map((r): [string, ReceiptFacts] => {
-          const paylinkId = linkByReceipt.get(r.id) ?? null;
-          return [r.id, {
-            id: r.id, number: r.number, customerId: r.customerId, salesRepId: r.salesRepId, paymentMethod: r.paymentMethod,
-            amount: r.amount, customerName: r.customer?.name ?? null, salesRepName: r.salesRep?.name ?? null,
-            paylinkId, refund: paylinkId ? (refundByLink.get(paylinkId) ?? null) : null,
-          }];
-        }));
-      }
+      if (ids.invoiceIds.length > 0) ctx.invoices = await loadInvoiceFacts(db, tenantId, ids.invoiceIds, { linked });
+      if (ids.receiptIds.length > 0) ctx.receipts = await loadReceiptFacts(db, tenantId, ids.receiptIds, { linked });
 
       if (ids.customerIds.length > 0) {
         const list = await db.customer.findMany({ where: { tenantId, id: { in: ids.customerIds } }, select: { id: true, name: true } });
@@ -158,6 +118,8 @@ export function createPrismaReconcilerStore(db: Db): ReconcilerStore {
         const list = await db.payout.findMany({ where: { tenantId, id: { in: ids.payoutIds } }, select: { id: true, bankReference: true } });
         ctx.payouts = new Map(list.map((p) => [p.id, { id: p.id, bankReference: p.bankReference }]));
       }
+      if (linked && ids.userIds.length > 0) ctx.userNames = await loadAdminNames(db, tenantId, ids.userIds);
+      if (linked && ids.linkIds.length > 0) ctx.refundLinks = await loadRefundLinks(db, tenantId, ids.linkIds);
       return ctx;
     },
 
@@ -196,6 +158,7 @@ export function createPrismaReconcilerStore(db: Db): ReconcilerStore {
         case 'ACCOUNT_ENTRY': return !!(await db.accountEntry.findFirst({ where, select }));
         case 'REP_SETTLEMENT': return !!(await db.repSettlement.findFirst({ where: { ...where, ...SETTLEMENT_HAS_REP }, select }));
         case 'SETTLEMENT_ENTRY': return !!(await db.settlementEntry.findFirst({ where, select }));
+        case 'USER_SETTLEMENT': return !!(await db.userSettlement.findFirst({ where, select }));
       }
     },
   };

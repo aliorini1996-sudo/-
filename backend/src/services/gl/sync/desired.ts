@@ -18,6 +18,15 @@
  * effectAt: entryDate للصف الأساسي (INVOICE_DEBIT للترحيل وINVOICE_CREDIT للعكس، ومقلوبان للمرتجع)، وإن لم
  * يوجد بين صفوف المفتاح إلا المقترن فأصغر entryDate تحته.
  * الحمولة (§5.2): لقطة دنيا ثابتة، المبالغ نصوص بمنازل العملة، و sourceCreatedAt = أكبر createdAt بين صفوف المفتاح.
+ *
+ * «ربط الدفاتر» L4+L5 (العقد §3.2، D1): كل حقل حمولة جديد يُكتب **للمربوطة وحدها** (ctx.linked === true) و**حين يحمل قيمة**،
+ * فحمولة غير المربوطة (القديمة LEGACY) حرفاً كما كانت (اختبار l458-a1-golden). والجديد:
+ *  - الفاتورة: ختم cashCollectedByRep، والأقساط، والاستحقاق الافتراضي dueDateDerived، وappliesTo للمرتجع/الإشعار الدائن،
+ *    وفي البنود baseQty وproductName (مدخل الإيراد لكل صنف ومحرّك التكلفة لاحقاً).
+ *  - السند: paymentMethodKey وcardPaymentId وallocations؛ والعكس: مصدر ردّ المال cancelRefundFrom ومستخدمه.
+ *  - الاستلام: receivedByUserId وreceivedByName (P7 ⇒ 111004).
+ *  - USER_SETTLEMENT:<id>:POST (effectAt = settledAt) من user_settlements، وSETTLEMENT_ENTRY REFUND ⇒ PAYLINK_REFUND:<entryId>.
+ * دوال الحمولة صرفة ومصدر واحد: يستعملها المُطابِق وpostingStore.loadSourceData معاً (لا نسختان تتباعدان).
  */
 import { CASH_VOID_KEEP_COLLECTION_NOTE } from '../../../lib/ledgerNotes';
 import { localDate } from '../dates';
@@ -26,6 +35,10 @@ import { invoicePayloadFromRows, INVOICE_KINDS, type InvoiceKind } from '../buil
 import { VAT_CATEGORIES, type VatCategory } from '../types';
 import { encodeEventNote } from './classify';
 import { arEntryKey, invoiceKey, paylinkFeeKey, payoutKey, receiptKey, settlementKey } from './keys';
+import { addDays } from '../dates';
+import { paylinkRefundKey, userSettlementKey } from './keys';
+import type { LocalDate } from '../types';
+import type { InvoicePostEventPayload, PaylinkRefundEventPayload, UserSettlementEventPayload } from './types';
 import type {
   ArEntryEventPayload, DesiredEvent, InvoiceReverseEventPayload, PaylinkFeeEventPayload, PayoutEventPayload,
   ReceiptPostEventPayload, ReceiptReverseEventPayload, SettlementEventPayload, SourceEvent, SourceEventPayload,
@@ -34,12 +47,23 @@ import type {
 
 // ═══ المصادر التي يقرؤها المُطابِق في M3 ═══
 
-/** مصادر المبيعات والتحصيل (M3). WAREHOUSE_ENTRY وVAN_LOAD وRETURN_RESTOCK تصل مع M9. */
-export const RECONCILED_SOURCES = ['ACCOUNT_ENTRY', 'REP_SETTLEMENT', 'SETTLEMENT_ENTRY'] as const satisfies readonly SyncCursorSource[];
+/**
+ * مصادر المبيعات والتحصيل (M3). WAREHOUSE_ENTRY وVAN_LOAD وRETURN_RESTOCK تصل مع M9.
+ * USER_SETTLEMENT («ربط الدفاتر» L5، D13) للمربوطة وحدها: reconciledSourceEnabled يحرسه في المُطابِق.
+ */
+export const RECONCILED_SOURCES = ['ACCOUNT_ENTRY', 'REP_SETTLEMENT', 'SETTLEMENT_ENTRY', 'USER_SETTLEMENT'] as const satisfies readonly SyncCursorSource[];
 export type ReconciledSource = (typeof RECONCILED_SOURCES)[number];
 
 export function isReconciledSource(s: string): s is ReconciledSource {
   return (RECONCILED_SOURCES as readonly string[]).includes(s);
+}
+
+/**
+ * هل يقرأ المُطابِق هذا المصدر لهذه الشركة؟ الثلاثة القديمة لكل شركة مفعّلة كما اليوم، وUSER_SETTLEMENT للمربوطة وحدها
+ * (D13) — فلا استعلام زائد ولا حدث جديد لغيرها ولو وُجد مؤشره خطأً.
+ */
+export function reconciledSourceEnabled(source: ReconciledSource, opts: { linked?: boolean } | null | undefined): boolean {
+  return source !== 'USER_SETTLEMENT' || opts?.linked === true;
 }
 
 // ═══ الصفوف كما تُقرأ ═══
@@ -67,6 +91,24 @@ export interface RepSettlementSourceRow {
   note: string | null;
   settledAt: Date;
   createdAt: Date;
+  /**
+   * «ربط الدفاتر» L5 (C12): مستخدم الشركة الذي استلم (Admin.id) ⇒ P7 إلى 111004 للمربوطة. اختياري في النوع لأن صفوف
+   * الـtombstone والافتتاح القديمة لا تحمله؛ الغائب = null (لا مستلِم).
+   */
+  receivedByUserId?: string | null;
+}
+
+/** user_settlements («ربط الدفاتر» L5، C14) — توريد مستخدم الشركة ما في عهدته */
+export interface UserSettlementSourceRow {
+  id: string;
+  fromUserId: string;
+  amount: number;
+  method: string;
+  note: string | null;
+  receivedBy: string | null;
+  receivedByUserId: string | null;
+  settledAt: Date;
+  createdAt: Date;
 }
 
 /** settlement_entries */
@@ -86,6 +128,7 @@ export interface SourceRowMap {
   ACCOUNT_ENTRY: AccountEntrySourceRow;
   REP_SETTLEMENT: RepSettlementSourceRow;
   SETTLEMENT_ENTRY: SettlementEntrySourceRow;
+  USER_SETTLEMENT: UserSettlementSourceRow;
 }
 export type SourceRow = SourceRowMap[ReconciledSource];
 
@@ -100,6 +143,12 @@ export interface InvoiceItemFacts {
   taxAmt: number;
   lineTotal: number;
   vatCategory: string | null;
+  /** «ربط الدفاتر» L4: InvoiceItem.baseQty (null = صفّ سبق الميزة ⇒ qty × unitFactor) */
+  baseQty?: number | null;
+  /** InvoiceItem.unitFactor (الافتراضي 1) */
+  unitFactor?: number | null;
+  /** لقطة الاسم: itemName ?? product.name */
+  productName?: string | null;
 }
 
 /** invoice.findMany({where:{tenantId, id:{in}}}) — Invoice.type لا يتغير بعد الإنشاء */
@@ -120,6 +169,22 @@ export interface InvoiceFacts {
   /** «إزالة الضريبة»: Invoice.taxFree — يدخل الحمولة حين يكون true وحده (الغائب/false = حمولة اليوم حرفاً) */
   taxFree?: boolean | null;
   items: readonly InvoiceItemFacts[];
+  // ── «ربط الدفاتر» L4 (تدخل حمولة المربوطة وحدها) ──
+  /** Invoice.invoiceDate — أساس الاستحقاق الافتراضي (D9): يومه بتوقيت الشركة + paymentDays، كقاعدة الإصدار B1 */
+  invoiceDate?: Date;
+  /** ختم «البيع النقدي تحصيل لدى المندوب» (OD2) */
+  cashCollectedByRep?: boolean | null;
+  /** InvoiceInstallment (B2) — المبلغ حصّة القسط شاملة الضريبة */
+  installments?: readonly { seq: number; dueDate: Date; amount: number }[];
+  /** Customer.paymentDays لحظة الاشتقاق (D9) */
+  customerPaymentDays?: number | null;
+  /** مرتجع المرحلة الأولى المرتبط: ما أسقطه من متبقّي فاتورة بيعه */
+  remainingApplied?: number | null;
+  /** فاتورة البيع للمرتجع المرتبط: items.returnOfItemId ⇒ InvoiceItem.invoiceId (أول بند مرتبط) */
+  saleInvoiceId?: string | null;
+  /** CREDIT_NOTE | DEBIT_NOTE | INVOICE | null */
+  documentKind?: string | null;
+  originalInvoiceId?: string | null;
 }
 
 export interface ReceiptFacts {
@@ -135,6 +200,18 @@ export interface ReceiptFacts {
   paylinkId: string | null;
   /** SettlementEntry kind=REFUND للرابط (الأحدث) */
   refund: { entryId: string; amount: number } | null;
+  // ── «ربط الدفاتر» L5 (تدخل حمولة المربوطة وحدها) ──
+  /** Receipt.paymentMethodKey — الطريقة المخصّصة c_… (D3) */
+  paymentMethodKey?: string | null;
+  /** CardPayment.id حيث CardPayment.receiptId = receipt.id (C4: البطاقة إلى 112007 لا العهدة) */
+  cardPaymentId?: string | null;
+  /** ReceiptInvoice (C16 ⇒ المطابقة الجزئية L8) */
+  allocations?: readonly { id: string; invoiceId: string; amount: number }[];
+  /** Receipt.cancelRefundFrom (C11) */
+  cancelRefundFrom?: string | null;
+  cancelRefundUserId?: string | null;
+  /** لقطة اسم المستخدم (Admin.name) لـcancelRefundUserId */
+  cancelRefundUserName?: string | null;
 }
 
 export interface PayoutFacts {
@@ -154,6 +231,12 @@ export interface DeriveContext {
   customerNames?: ReadonlyMap<string, string>;
   salesRepNames?: ReadonlyMap<string, string>;
   payouts?: ReadonlyMap<string, PayoutFacts>;
+  /** «ربط الدفاتر» (D1): الدفاتر المربوطة المفعّلة — وحدها تُكتب لها حقول الحمولة الجديدة وأحداث USER_SETTLEMENT وPAYLINK_REFUND */
+  linked?: boolean;
+  /** Admin.id ⇒ الاسم (المستلِم في P7، وصاحب التوريد في USER_SETTLEMENT، ومستخدم الاسترداد) */
+  userNames?: ReadonlyMap<string, string>;
+  /** SETTLEMENT_ENTRY REFUND: linkId ⇒ {receiptId, customerId, customerName} */
+  refundLinks?: ReadonlyMap<string, { receiptId: string | null; customerId: string | null; customerName: string | null }>;
 }
 
 // ═══ أدوات ═══
@@ -241,6 +324,172 @@ function vatCategoryOf(v: string | null): VatCategory | null {
   return v && (VAT_CATEGORIES as readonly string[]).includes(v) ? (v as VatCategory) : null;
 }
 
+// ═══ دوال الحمولة المشتركة (المُطابِق وpostingStore.loadSourceData — مصدر واحد، العقد §3.2) ═══
+
+/** مصادر ردّ المال عند إلغاء السند (C11) — قيمة غير معروفة في الصف لا تدخل الحمولة (دفاعاً: الـbuilder يعكس بالمرآة حينها) */
+const CANCEL_REFUND_SOURCES = ['REP_CUSTODY', 'USER_CUSTODY', 'MAIN_CASH', 'BANK', 'METHOD'] as const;
+type CancelRefundSource = (typeof CANCEL_REFUND_SOURCES)[number];
+
+function cancelRefundSourceOf(v: string | null | undefined): CancelRefundSource | null {
+  return v && (CANCEL_REFUND_SOURCES as readonly string[]).includes(v) ? (v as CancelRefundSource) : null;
+}
+
+/** كمية الأساس بلا غبار طفو (2.5 × 6 = 15، 0.1 × 3 = 0.3): ست منازل كـclean في التشغيل */
+function cleanQty(x: number): number {
+  const r = Math.round(x * 1e6) / 1e6;
+  return Object.is(r, -0) ? 0 : r;
+}
+
+/**
+ * InvoiceItem.baseQty ?? qty × unitFactor (العقد §4.1). null حين لم تُحمَّل الوحدة أصلاً (حقائق ناقصة: لا تخمين بمعامل 1 لبند
+ * قد يكون كرتوناً) أو تعذّر رقم منتهٍ — فلا يُكتب الحقل.
+ */
+function linkedBaseQty(it: InvoiceItemFacts): number | null {
+  if (it.baseQty != null) return Number.isFinite(Number(it.baseQty)) ? cleanQty(Number(it.baseQty)) : null;
+  if (it.unitFactor == null) return null;
+  const raw = Number(it.qty) * Number(it.unitFactor);
+  return Number.isFinite(raw) ? cleanQty(raw) : null;
+}
+
+/** أيام الاستحقاق من Customer.paymentDays (D9): عدد صحيح ≥ 0، وإلا null (لا استحقاق مشتق) */
+function derivedPaymentDays(d: number | null | undefined): number | null {
+  if (typeof d !== 'number' || !Number.isFinite(d)) return null;
+  return Math.max(0, Math.trunc(d));
+}
+
+/** الأقساط بالترتيب (B2): الاستحقاق تاريخ محلي بتوقيت الشركة، والمبلغ كما خُزّن (invoicePayloadFromRows يكتبه نصاً نصف-لأعلى لكل قسط) */
+function linkedInstallments(inv: InvoiceFacts, tz: string): { seq: number; dueDate: LocalDate; amount: number }[] {
+  if (!inv.installments || inv.installments.length === 0) return [];
+  return [...inv.installments]
+    .sort((a, b) => Number(a.seq) - Number(b.seq))
+    .map((i) => ({ seq: Number(i.seq), dueDate: localDate(i.dueDate, tz), amount: Number(i.amount) }));
+}
+
+/**
+ * ما يُسقطه المستند من ذمة أصله (L8):
+ *  - مرتجع مرتبط أسقط من متبقّي بيعه (remainingApplied > 0 بمنازل العملة) ⇒ {فاتورة البيع، المبلغ المُسقَط بعينه}.
+ *  - إشعار دائن (المرحلة الثانية) على أصله ⇒ {الأصل، null}: لا يخزّن ما أسقطه (D8)، فالمطابقة بحدّ المفتوح لحظة الترحيل.
+ * الإشعار المدين وغير المرتبط ⇒ null.
+ */
+function linkedAppliesTo(inv: InvoiceFacts, dec: number): { invoiceId: string; amount: number | null } | null {
+  if (inv.type !== 'RETURN') return null;
+  const applied = Number(inv.remainingApplied ?? 0);
+  if (Number.isFinite(applied) && applied > 0 && inv.saleInvoiceId && toMilli(applied, dec) > 0n) return { invoiceId: inv.saleInvoiceId, amount: applied };
+  if (inv.documentKind === 'CREDIT_NOTE' && inv.originalInvoiceId) return { invoiceId: inv.originalInvoiceId, amount: null };
+  return null;
+}
+
+/** مدخلات invoicePayloadFromRows الإضافية للمربوطة (D1) — يكتبها هو حين تحمل قيمة؛ وهنا يتقرّر «متى» وحده (العقد §4.2) */
+interface LinkedInvoiceInputs {
+  dueDate: LocalDate | null;
+  cashCollectedByRep: boolean | null;
+  installments: { seq: number; dueDate: LocalDate; amount: number }[] | null;
+  dueDateDerived: boolean | null;
+  appliesTo: { invoiceId: string; amount: number | null } | null;
+}
+
+function linkedInvoiceInputs(inv: InvoiceFacts, entryDate: LocalDate, ctx: DeriveContext): LinkedInvoiceInputs {
+  const tz = ctx.timezone;
+  const stored = inv.dueDate ? localDate(inv.dueDate, tz) : null;
+  const installments = linkedInstallments(inv, tz);
+  let dueDate = stored;
+  let dueDateDerived: boolean | null = null;
+  // D9: آجلة بلا استحقاق ولا أقساط ⇒ يوم الفاتورة (بتوقيت الشركة، كقاعدة الإصدار B1) + paymentDays؛ والأقساط تحمل استحقاقاتها
+  if (stored === null && inv.type === 'CREDIT' && installments.length === 0) {
+    const days = derivedPaymentDays(inv.customerPaymentDays);
+    if (days !== null) {
+      dueDate = addDays(inv.invoiceDate ? localDate(inv.invoiceDate, tz) : entryDate, days);
+      dueDateDerived = true;
+    }
+  }
+  return {
+    dueDate,
+    cashCollectedByRep: inv.cashCollectedByRep === true ? true : null,
+    installments: installments.length > 0 ? installments : null,
+    dueDateDerived,
+    appliesTo: linkedAppliesTo(inv, ctx.currencyDecimals),
+  };
+}
+
+/**
+ * INVOICE:<id>:POST — حمولة اليوم حرفاً (invoicePayloadFromRows + sourceCreatedAt)، ومعها حقول L4 للمربوطة وحدها: الختم،
+ * والأقساط، والاستحقاق المشتق، وappliesTo، وفي البنود baseQty وproductName. entryDate: التاريخ المحلي للصف الأساسي.
+ * يرمي RangeError لنوع فاتورة غير معروف (كـinvoicePayloadFromRows).
+ */
+export function invoicePostEventPayload(inv: InvoiceFacts, entryDate: LocalDate, ctx: DeriveContext, sourceCreatedAt: string | null): InvoicePostEventPayload {
+  const tz = ctx.timezone;
+  const dec = ctx.currencyDecimals;
+  const lf = ctx.linked === true ? linkedInvoiceInputs(inv, entryDate, ctx) : null;
+  return {
+    ...invoicePayloadFromRows({
+      invoice: {
+        id: inv.id, number: inv.number, type: inv.type, customerId: inv.customerId, salesRepId: inv.salesRepId,
+        pricesIncludeTax: inv.pricesIncludeTax, subtotal: inv.subtotal, discountAmt: inv.discountAmt, taxAmt: inv.taxAmt, total: inv.total,
+        taxFree: inv.taxFree,
+      },
+      items: inv.items.map((it) => ({
+        productId: it.productId, categoryId: it.categoryId, qty: it.qty, unitPrice: it.unitPrice,
+        taxPct: it.taxPct, taxAmt: it.taxAmt, lineTotal: it.lineTotal, vatCategory: vatCategoryOf(it.vatCategory),
+        ...(lf ? { baseQty: linkedBaseQty(it), productName: it.productName ?? null } : {}),
+      })),
+      customerName: inv.customerName,
+      salesRepName: inv.salesRepName,
+      entryDate,
+      dueDate: lf ? lf.dueDate : inv.dueDate ? localDate(inv.dueDate, tz) : null,
+      currency: ctx.currency,
+      currencyDecimals: dec,
+      ...(lf ? {
+        cashCollectedByRep: lf.cashCollectedByRep, installments: lf.installments, dueDateDerived: lf.dueDateDerived, appliesTo: lf.appliesTo,
+      } : {}),
+    }),
+    sourceCreatedAt,
+  };
+}
+
+/** RECEIPT:<id>:POST — حمولة اليوم حرفاً، ومعها للمربوطة: paymentMethodKey وcardPaymentId وallocations (≥1) */
+export function receiptPostEventPayload(r: ReceiptFacts, entryDate: LocalDate, ctx: DeriveContext, sourceCreatedAt: string | null): ReceiptPostEventPayload {
+  const dec = ctx.currencyDecimals;
+  const p: ReceiptPostEventPayload = {
+    receiptId: r.id, number: r.number, entryDate,
+    salesRepId: r.salesRepId, paymentMethod: r.paymentMethod, amount: amountText(r.amount, dec), customerId: r.customerId,
+    paylinkId: r.paylinkId,
+    customerName: r.customerName, salesRepName: r.salesRepName, sourceCreatedAt,
+  };
+  if (ctx.linked !== true) return p;
+  // التخصيصات بترتيب المعرّف (ثابت عبر إعادة الاشتقاق)؛ الصفرية لا أثر لها في المطابقة فلا تُكتب
+  const allocations = [...(r.allocations ?? [])]
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((a) => ({ id: a.id, invoiceId: a.invoiceId, amount: amountText(a.amount, dec) }))
+    .filter((a) => toMilli(a.amount, dec) !== 0n);
+  return {
+    ...p,
+    ...(r.paymentMethodKey ? { paymentMethodKey: r.paymentMethodKey } : {}),
+    ...(r.cardPaymentId ? { cardPaymentId: r.cardPaymentId } : {}),
+    ...(allocations.length > 0 ? { allocations } : {}),
+  };
+}
+
+/** RECEIPT:<id>:REVERSE — حمولة اليوم حرفاً، ومعها للمربوطة مصدر ردّ المال (C11) ومستخدمه ولقطة اسمه */
+export function receiptReverseEventPayload(r: ReceiptFacts, entryDate: LocalDate, ctx: DeriveContext, sourceCreatedAt: string | null): ReceiptReverseEventPayload {
+  const dec = ctx.currencyDecimals;
+  const p: ReceiptReverseEventPayload = {
+    receiptId: r.id, entryDate, paymentMethod: r.paymentMethod,
+    paylinkId: r.paylinkId, refundEntryId: r.refund?.entryId ?? null,
+    refundedAmount: r.refund ? amountText(r.refund.amount, dec) : null,
+    sourceCreatedAt,
+  };
+  if (ctx.linked !== true) return p;
+  const from = cancelRefundSourceOf(r.cancelRefundFrom);
+  const userId = r.cancelRefundUserId ?? null;
+  const userName = r.cancelRefundUserName ?? (userId ? ctx.userNames?.get(userId) ?? null : null);
+  return {
+    ...p,
+    ...(from ? { cancelRefundFrom: from } : {}),
+    ...(userId ? { cancelRefundUserId: userId } : {}),
+    ...(userName ? { cancelRefundUserName: userName } : {}),
+  };
+}
+
 function accountEntryPayload(g: KeyGroup, effectAt: Date, ctx: DeriveContext): SourceEventPayload | null {
   const { plan } = g;
   const tz = ctx.timezone;
@@ -264,46 +513,13 @@ function accountEntryPayload(g: KeyGroup, effectAt: Date, ctx: DeriveContext): S
       };
       return p;
     }
-    return {
-      ...invoicePayloadFromRows({
-        invoice: {
-          id: inv.id, number: inv.number, type: inv.type, customerId: inv.customerId, salesRepId: inv.salesRepId,
-          pricesIncludeTax: inv.pricesIncludeTax, subtotal: inv.subtotal, discountAmt: inv.discountAmt, taxAmt: inv.taxAmt, total: inv.total,
-          taxFree: inv.taxFree,
-        },
-        items: inv.items.map((it) => ({
-          productId: it.productId, categoryId: it.categoryId, qty: it.qty, unitPrice: it.unitPrice,
-          taxPct: it.taxPct, taxAmt: it.taxAmt, lineTotal: it.lineTotal, vatCategory: vatCategoryOf(it.vatCategory),
-        })),
-        customerName: inv.customerName,
-        salesRepName: inv.salesRepName,
-        entryDate,
-        dueDate: inv.dueDate ? localDate(inv.dueDate, tz) : null,
-        currency: ctx.currency,
-        currencyDecimals: dec,
-      }),
-      sourceCreatedAt,
-    };
+    return invoicePostEventPayload(inv, entryDate, ctx, sourceCreatedAt);
   }
   if (plan.sourceType === 'RECEIPT') {
     const r = ctx.receipts?.get(plan.sourceId);
     if (!r) return null;
-    if (plan.event === 'POST') {
-      const p: ReceiptPostEventPayload = {
-        receiptId: r.id, number: r.number, entryDate,
-        salesRepId: r.salesRepId, paymentMethod: r.paymentMethod, amount: amountText(r.amount, dec), customerId: r.customerId,
-        paylinkId: r.paylinkId,
-        customerName: r.customerName, salesRepName: r.salesRepName, sourceCreatedAt,
-      };
-      return p;
-    }
-    const p: ReceiptReverseEventPayload = {
-      receiptId: r.id, entryDate, paymentMethod: r.paymentMethod,
-      paylinkId: r.paylinkId, refundEntryId: r.refund?.entryId ?? null,
-      refundedAmount: r.refund ? amountText(r.refund.amount, dec) : null,
-      sourceCreatedAt,
-    };
-    return p;
+    if (plan.event === 'POST') return receiptPostEventPayload(r, entryDate, ctx, sourceCreatedAt);
+    return receiptReverseEventPayload(r, entryDate, ctx, sourceCreatedAt);
   }
   // AR_ENTRY: صف واحد لكل مفتاح
   const row = g.rows[0];
@@ -364,9 +580,15 @@ export function deriveAccountEntryEvents(rows: readonly AccountEntrySourceRow[],
   return out;
 }
 
-/** rep_settlements ⇒ SETTLEMENT:<id>:POST (effectAt = settledAt) */
-export function settlementPayload(row: RepSettlementSourceRow, salesRepName: string | null, decimals: number): SettlementEventPayload {
-  return {
+/**
+ * rep_settlements ⇒ SETTLEMENT:<id>:POST (effectAt = settledAt).
+ * extra.linked («ربط الدفاتر» C12): مستلِمٌ من مستخدمي الشركة ⇒ receivedByUserId ولقطة اسمه (حين تحمل قيمة) — وغيره حرفاً كما كان.
+ */
+export function settlementPayload(
+  row: RepSettlementSourceRow, salesRepName: string | null, decimals: number,
+  extra?: { receivedByName?: string | null; linked?: boolean },
+): SettlementEventPayload {
+  const p: SettlementEventPayload = {
     settlementId: row.id,
     amount: amountText(row.amount, decimals),
     method: row.method,
@@ -377,20 +599,94 @@ export function settlementPayload(row: RepSettlementSourceRow, salesRepName: str
     salesRepName: salesRepName ?? null,
     sourceCreatedAt: iso(row.createdAt),
   };
+  if (extra?.linked !== true || !row.receivedByUserId) return p;
+  return {
+    ...p,
+    receivedByUserId: row.receivedByUserId,
+    ...(extra.receivedByName ? { receivedByName: extra.receivedByName } : {}),
+  };
 }
 
 export function deriveRepSettlementEvents(rows: readonly RepSettlementSourceRow[], ctx: DeriveContext): DesiredEvent[] {
+  const linked = ctx.linked === true;
   return rows.map((row) => ({
     sourceKey: settlementKey(row.id, 'POST'),
     sourceType: 'SETTLEMENT',
     sourceId: row.id,
     event: 'POST',
     effectAt: row.settledAt,
-    payload: settlementPayload(row, ctx.salesRepNames?.get(row.salesRepId) ?? null, ctx.currencyDecimals),
+    payload: settlementPayload(
+      row, ctx.salesRepNames?.get(row.salesRepId) ?? null, ctx.currencyDecimals,
+      linked ? { linked, receivedByName: row.receivedByUserId ? ctx.userNames?.get(row.receivedByUserId) ?? null : null } : undefined,
+    ),
   }));
 }
 
-/** settlement_entries: FEE ⇒ PAYLINK_FEE، PAYOUT ⇒ PAYOUT، COLLECTED/REFUND ⇒ لا حدث (تغطيهما قيود السند) */
+/**
+ * ما تحتاجه حمولة التوريد من صفّه — UserSettlementSourceRow كاملاً أو صفّ الـtombstone قبل الحذف (الاختيارية قد تغيب).
+ * receivedByUserId يُقبل ولا يدخل الحمولة (شكل UserSettlementPayload).
+ */
+export type UserSettlementPayloadRow = Pick<UserSettlementSourceRow, 'id' | 'fromUserId' | 'amount' | 'method' | 'settledAt' | 'createdAt'>
+  & Partial<Pick<UserSettlementSourceRow, 'note' | 'receivedBy' | 'receivedByUserId'>>;
+
+/**
+ * user_settlements ⇒ حمولة USER_SETTLEMENT:<id>:POST|REVERSE («ربط الدفاتر» C14): المبلغ نص بمنازل العملة، والتاريخان ISO،
+ * ولقطة اسم صاحب العهدة. الطريقة كما خُزّنت (CASH|BANK_TRANSFER|POS|CHEQUE) — الـbuilder يحلّ حسابها (D3) والمرور (D6).
+ */
+export function userSettlementPayload(row: UserSettlementPayloadRow, fromUserName: string | null, decimals: number): UserSettlementEventPayload {
+  return {
+    userSettlementId: row.id,
+    fromUserId: row.fromUserId,
+    fromUserName: fromUserName ?? null,
+    amount: amountText(row.amount, decimals),
+    method: row.method,
+    settledAt: iso(row.settledAt),
+    createdAt: iso(row.createdAt),
+    note: row.note ?? null,
+    receivedBy: row.receivedBy ?? null,
+    sourceCreatedAt: iso(row.createdAt),
+  };
+}
+
+/** user_settlements ⇒ USER_SETTLEMENT:<id>:POST (effectAt = settledAt) — للمربوطة وحدها (D1، D13) */
+export function deriveUserSettlementEvents(rows: readonly UserSettlementSourceRow[], ctx: DeriveContext): DesiredEvent[] {
+  if (ctx.linked !== true) return [];
+  return rows.map((row) => ({
+    sourceKey: userSettlementKey(row.id, 'POST'),
+    sourceType: 'USER_SETTLEMENT',
+    sourceId: row.id,
+    event: 'POST',
+    effectAt: row.settledAt,
+    payload: userSettlementPayload(row, ctx.userNames?.get(row.fromUserId) ?? null, ctx.currencyDecimals),
+  }));
+}
+
+/**
+ * SettlementEntry kind=REFUND ⇒ حمولة PAYLINK_REFUND:<entryId> («ربط الدفاتر» C9). المبلغ موقَّع كما خُزّن (سالب: −المسترد)
+ * كـPAYLINK_FEE وPAYOUT، والرابط ⇒ سنده (يحسم المُرحِّل به: عكسُ السند صفّى 112005 أم لا) وعميله.
+ */
+export function paylinkRefundPayload(
+  row: SettlementEntrySourceRow,
+  link: { receiptId: string | null; customerId: string | null; customerName: string | null } | null,
+  decimals: number,
+): PaylinkRefundEventPayload {
+  return {
+    entryId: row.id,
+    linkId: row.linkId,
+    receiptId: link?.receiptId ?? null,
+    amount: amountText(row.amount, decimals),
+    createdAt: iso(row.createdAt),
+    customerId: link?.customerId ?? null,
+    customerName: link?.customerName ?? null,
+    note: row.note ?? null,
+    sourceCreatedAt: iso(row.createdAt),
+  };
+}
+
+/**
+ * settlement_entries: FEE ⇒ PAYLINK_FEE، PAYOUT ⇒ PAYOUT، COLLECTED/REFUND ⇒ لا حدث (تغطيهما قيود السند).
+ * «ربط الدفاتر» (المربوطة وحدها): REFUND ⇒ PAYLINK_REFUND:<entryId> (effectAt = createdAt).
+ */
 export function deriveSettlementEntryEvents(rows: readonly SettlementEntrySourceRow[], ctx: DeriveContext): DesiredEvent[] {
   const dec = ctx.currencyDecimals;
   const out = new Map<string, DesiredEvent>();
@@ -419,8 +715,23 @@ export function deriveSettlementEntryEvents(rows: readonly SettlementEntrySource
         ev.lastError = heldNote(`صف توريد ${row.id} بلا payoutId`);
       }
       out.set(key, ev);
+    } else if (row.kind === 'REFUND' && ctx.linked === true) {
+      // «ربط الدفاتر» C9 (المربوطة وحدها): الاسترداد بعد إلغاء يدوي يصفّي 214002 مقابل 112005، وفي المسار العادي
+      // (الاسترداد يلغي السند في معاملته) يحسمه المُرحِّل NETTED. رابطٌ مجهول أو بلا سند ⇒ HELD للمراجعة لا تخمين
+      const link = row.linkId ? ctx.refundLinks?.get(row.linkId) ?? null : null;
+      const key = paylinkRefundKey(row.id);
+      if (out.has(key)) continue;
+      const ev: DesiredEvent = {
+        sourceKey: key, sourceType: 'PAYLINK_REFUND', sourceId: row.id, event: 'POST', effectAt: row.createdAt,
+        payload: paylinkRefundPayload(row, link, dec),
+      };
+      if (!link?.receiptId) {
+        ev.status = 'HELD';
+        ev.lastError = heldNote(row.linkId ? `صف استرداد ${row.id} لرابط ${row.linkId} بلا سند قبض` : `صف استرداد ${row.id} بلا رابط دفع`);
+      }
+      out.set(key, ev);
     }
-    // COLLECTED وREFUND: لا حدث (§5.2)
+    // COLLECTED (وREFUND لغير المربوطة): لا حدث (§5.2) — تغطيهما قيود السند
   }
   return [...out.values()];
 }
@@ -431,14 +742,21 @@ export function deriveSourceEvents(source: ReconciledSource, rows: readonly Sour
     case 'ACCOUNT_ENTRY': return deriveAccountEntryEvents(rows as readonly AccountEntrySourceRow[], ctx);
     case 'REP_SETTLEMENT': return deriveRepSettlementEvents(rows as readonly RepSettlementSourceRow[], ctx);
     case 'SETTLEMENT_ENTRY': return deriveSettlementEntryEvents(rows as readonly SettlementEntrySourceRow[], ctx);
+    case 'USER_SETTLEMENT': return deriveUserSettlementEvents(rows as readonly UserSettlementSourceRow[], ctx);
   }
 }
 
-/** معرّفات الحقائق اللازمة لصفحة (للتحميل بالمفتاح الأساسي) */
+/**
+ * معرّفات الحقائق اللازمة لصفحة (للتحميل بالمفتاح الأساسي).
+ * «ربط الدفاتر»: linkIds لصفوف REFUND، وuserIds لمستلِمي الاستلامات (receivedByUserId) ولأصحاب توريدات العهد (fromUserId) —
+ * يحمّلها المخزن للمربوطة وحدها.
+ */
 export function factIdsForRows(source: ReconciledSource, rows: readonly SourceRow[]): {
   invoiceIds: string[]; receiptIds: string[]; customerIds: string[]; salesRepIds: string[]; payoutIds: string[];
+  linkIds: string[]; userIds: string[];
 } {
   const inv = new Set<string>(), rec = new Set<string>(), cust = new Set<string>(), reps = new Set<string>(), pay = new Set<string>();
+  const links = new Set<string>(), users = new Set<string>();
   if (source === 'ACCOUNT_ENTRY') {
     for (const r of rows as readonly AccountEntrySourceRow[]) {
       if (r.invoiceId) inv.add(r.invoiceId);
@@ -447,11 +765,22 @@ export function factIdsForRows(source: ReconciledSource, rows: readonly SourceRo
       if (r.invoiceId && r.receiptId) rec.add(r.receiptId);
     }
   } else if (source === 'REP_SETTLEMENT') {
-    for (const r of rows as readonly RepSettlementSourceRow[]) reps.add(r.salesRepId);
+    for (const r of rows as readonly RepSettlementSourceRow[]) {
+      reps.add(r.salesRepId);
+      if (r.receivedByUserId) users.add(r.receivedByUserId);
+    }
+  } else if (source === 'USER_SETTLEMENT') {
+    for (const r of rows as readonly UserSettlementSourceRow[]) users.add(r.fromUserId);
   } else {
-    for (const r of rows as readonly SettlementEntrySourceRow[]) if (r.kind === 'PAYOUT' && r.payoutId) pay.add(r.payoutId);
+    for (const r of rows as readonly SettlementEntrySourceRow[]) {
+      if (r.kind === 'PAYOUT' && r.payoutId) pay.add(r.payoutId);
+      if (r.kind === 'REFUND' && r.linkId) links.add(r.linkId);
+    }
   }
-  return { invoiceIds: [...inv], receiptIds: [...rec], customerIds: [...cust], salesRepIds: [...reps], payoutIds: [...pay] };
+  return {
+    invoiceIds: [...inv], receiptIds: [...rec], customerIds: [...cust], salesRepIds: [...reps], payoutIds: [...pay],
+    linkIds: [...links], userIds: [...users],
+  };
 }
 
 /** صف createMany لـgl_source_events (الحالة الافتراضية PENDING، والـtombstone لا يضبط SKIPPED أبداً) */

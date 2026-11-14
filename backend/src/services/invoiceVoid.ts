@@ -118,7 +118,8 @@ async function lockInvoice(tx: VoidTx, invoiceId: string): Promise<LockedInvoice
  * والنقدية متبقّيها صفر أصلاً فلا يردّ إليها شيء (ما حُصّل بقي رصيداً دائناً — Q1).
  */
 async function restoreOriginalRemaining(tx: VoidTx, tenantId: string, originalInvoiceId: string, noteTotal: number): Promise<void> {
-  const amount = Math.round(Math.max(0, Number(noteTotal) || 0) * 100) / 100;
+  // clean (دقّة 1e6) لا التقريب لمنزلتين: يحفظ الخانة الثالثة للدينار (BHD/KWD/OMR…)، ولا أثر له على الريال
+  const amount = clean(Math.max(0, Number(noteTotal) || 0));
   if (amount <= 0) return;
   const raw = (tx as { $executeRaw?: unknown }).$executeRaw;
   if (typeof raw === 'function') {
@@ -133,7 +134,7 @@ async function restoreOriginalRemaining(tx: VoidTx, tenantId: string, originalIn
   if (!row) return;
   const owed = Math.max(0, Number(row.total ?? 0) - Number(row.paidAmt ?? 0));
   const next = Math.min(owed, Number(row.remainingAmt ?? 0) + amount);
-  await tx.invoice.update({ where: { id: originalInvoiceId }, data: { remainingAmt: Math.round(next * 100) / 100 } });
+  await tx.invoice.update({ where: { id: originalInvoiceId }, data: { remainingAmt: clean(next) } });
 }
 
 export interface VoidInvoiceInput {

@@ -11,6 +11,8 @@
  * - هذا الملف أنواع فقط (لا تنفيذ، لا استيراد قيمي).
  */
 import type { CustodyComponentsInput } from '../custody';
+import type { UserCustodyInputs } from '../../userCustodyCore';
+import type { ReconcileStore } from '../reconcile/types';
 import type { PostMoveOptions, PostedMove } from '../post';
 import type { LedgerContext } from '../resolve';
 import type { ReverseMoveOptions, ReverseResult } from '../reverse';
@@ -69,6 +71,8 @@ export interface LiveMoveLine {
   customerId: string | null;
   partnerName: string | null;
   analyticAccountId: string | null;
+  /** «ربط الدفاتر» L5: بُعد مستخدم الشركة على 111004 (D2) — اختياري للمخازن القديمة */
+  adminUserId?: string | null;
 }
 
 /** عمليات داخل معاملة الترحيل (تحت قفل gl-post) */
@@ -133,6 +137,30 @@ export interface PostingTx {
    * وsourceType=AR_ENTRY وevent=POST وstatus ∈ (PENDING, BLOCKED, ERROR) — يعيد عدد المتأثر.
    */
   skipOpeningImports?(ids: readonly string[], now: Date): Promise<number>;
+
+  // ── «ربط الدفاتر» L5 وL8 (عقد L4+L5+L8 §3.6) — لا يستدعيها المُرحِّل إلا لأحداث المربوطة ──
+
+  /**
+   * مدخلات طيّ عهدة مستخدم الشركة (D6، services/userCustodyCore.foldUserCustody): المستلَم من المناديب (RepSettlement
+   * بـreceivedByUserId، والمحذوف بـreversedAt من حمولة الـtombstone)، والتوريدات (UserSettlement، والمحذوف بـreversedAt)
+   * بـstoredPassThroughMilli من nonCustodyClearedMilli لحدث USER_SETTLEMENT:<id>:POST إن رُحّل، والاستردادات
+   * (Receipt.cancelRefundFrom=USER_CUSTODY بـcancelRefundUserId=userId). مقروءة داخل المعاملة.
+   */
+  loadUserCustodyInputs(userId: string): Promise<UserCustodyInputs>;
+  /**
+   * ترتيب USER_SETTLEMENT (مرآة P7): أحداث SETTLEMENT غير النهائية (PENDING/BLOCKED) لاستلاماتٍ receivedByUserId=userId
+   * بـeffectAt ≤ upTo — ما دام فيها شيء لا يُرحَّل توريد المستخدم (مدين 111004 قبل دائنه).
+   */
+  listUserFeedEvents(userId: string, upTo: Date): Promise<{ status: EventStatus; effectAt: Date }[]>;
+  /** حالة حدث RECEIPT:<id>:REVERSE وحمولته (لحدث PAYLINK_REFUND): null إن لم يوجد الحدث بعد */
+  getReceiptReverse(receiptId: string): Promise<{ status: EventStatus; refundEntryId: string | null; cancelRefundFrom: string | null } | null>;
+  /**
+   * D2: يُنشئ حسابات المربوطة الناقصة (111004/112007/214002) متساوي الأثر داخل المعاملة، ويعيد سياقاً محدَّثاً إن أنشأ
+   * شيئاً (وإلا null). اختياري: غيابه ⇒ السياق كما هو (المخازن القديمة).
+   */
+  ensureLinkedAccounts?(): Promise<{ created: string[]; context: LedgerContext | null }>;
+  /** L8: مخزن المطابقة الجزئية داخل المعاملة نفسها (services/gl/reconcile، A10). اختياري: غيابه ⇒ لا مطابقة */
+  reconcileStore?(): ReconcileStore;
 }
 
 /** مرشّح حسم OPENING الجماعي كما يُقرأ تحت القفل */
@@ -189,6 +217,11 @@ export interface PostingStore {
    * اختياري للمخازن المزيّفة القديمة: غيابه ⇒ المؤشر كما هو.
    */
   hasUnreadRows?(tenantId: string, source: 'ACCOUNT_ENTRY', watermark: CompositeKey, horizon: Date): Promise<boolean>;
+  /**
+   * «ربط الدفاتر» L5: صفوف RepSettlement بعد مؤشر REP_SETTLEMENT حتى الأفق — للمؤشر الفعّال في ترتيب USER_SETTLEMENT
+   * (مرآة hasUnreadRows لـACCOUNT_ENTRY). اختياري: غيابه ⇒ مؤشر REP_SETTLEMENT كما هو (أحوط: قد يحجب ولا يسبق).
+   */
+  hasUnreadRepSettlements?(tenantId: string, watermark: CompositeKey, horizon: Date): Promise<boolean>;
   /** inventoryHorizon(tid) (§5.4، M9): min(watermarkAt لـACCOUNT_ENTRY وWAREHOUSE_ENTRY وVAN_LOAD) أو null */
   inventoryHorizon(tenantId: string): Promise<Date | null>;
   /** أبكر حدث مخزون ERROR/HELD/BLOCKED (رأس الطابور E0) */

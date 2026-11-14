@@ -276,7 +276,12 @@ test('المسارات: معالجا reverse وreset-draft يستدعيان asse
   // لا مسار آخر يعكس أو يعيد إلى مسودة متجاوزاً الحارس
   for (const f of allRouteFiles()) {
     const c = stripComments(fs.readFileSync(f, 'utf8'));
-    const uses = (c.match(/\b(reverseMove|resetDraft)\(tx/g) ?? []).length;
+    // «ربط الدفاتر» M4 (customerAdjustments.ts): إلغاء التسوية يعكس قيدَ مستندها هو (moveId من صفّ التسوية لا من الطلب) بنمط
+    // SYSTEM ومفتاح مصدر — عكسٌ يملكه المستند كإلغاء الفاتورة، لا عكس قيدٍ يدوي، فلا يُعدّ هنا. وأيّ عكس بـmoveId من الطلب يبقى محروساً
+    const sourceOwned = [...c.matchAll(/\b(?:reverseMove|resetDraft)\(tx,\s*\{/g)]
+      .map((m) => c.slice(m.index, c.indexOf('});', m.index)))
+      .filter((arg) => /mode: 'SYSTEM'/.test(arg) && /\bsourceKey: /.test(arg) && !/moveId: (req\.|moveId\b)/.test(arg)).length;
+    const uses = (c.match(/\b(reverseMove|resetDraft)\(tx/g) ?? []).length - sourceOwned;
     const guards = (c.match(/assertManualOwned\(tx/g) ?? []).length;
     assert.ok(guards >= uses, `${f}: ${uses} عكس مقابل ${guards} حارس I7`);
   }

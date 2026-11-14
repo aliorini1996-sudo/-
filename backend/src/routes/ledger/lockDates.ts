@@ -17,6 +17,7 @@ import type { PrismaClient } from '@prisma/client';
 import { isReconciledSource } from '../../services/gl/sync/desired';
 import { reconcileHorizon } from '../../services/gl/sync/reconciler';
 import { createPrismaReconcilerStore } from '../../services/gl/sync/reconcilerStore.prisma';
+import { isLinked } from '../../services/gl/mode';
 
 /**
  * تواريخ الإقفال — `GET/PUT /api/ledger/lock-dates` بصلاحية canCloseLedgerPeriods (M2، §2.5، LOCK‑01، §9.5 G3).
@@ -54,6 +55,8 @@ type LockSettingsRow = {
   purchaseLockDate: Date | null;
   taxLockDate: Date | null;
   hardLockDate: Date | null;
+  /** «ربط الدفاتر» D13: طريقة الإعداد — المربوطة تنتظر مؤشر USER_SETTLEMENT أيضاً (activeSyncSources) */
+  setupMethod?: string | null;
 };
 
 export function lockDatesOut(s: Pick<LockSettingsRow, LockDateField>): LockDates {
@@ -100,6 +103,7 @@ export async function loadLockSyncInput(
       inventoryMode: s.inventoryMode === 'PERPETUAL' ? 'PERPETUAL' : 'PERIODIC',
       activatedAt: s.activatedAt,
       backfillState: s.backfillState as BackfillState,
+      ...(isLinked(s) ? { linked: true } : {}),
     },
     cursors: snapshots,
     eventSummary: { events, eventCount },

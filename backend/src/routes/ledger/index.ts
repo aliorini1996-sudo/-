@@ -16,6 +16,12 @@ import setupRouter from './setup';
 import customersRouter from './customers';
 import reviewRouter from './review';
 import reportsRouter from './reports';
+// «ربط الدفاتر» L4/L5/L8: تسويات ذمم العملاء (M4)، وخريطة طرق الدفع، والتسوية الموجّهة، وتقارير الشركاء، ومرفقات المستندات
+import customerAdjustmentsRouter from './customerAdjustments';
+import paymentMethodMapRouter from './paymentMethodMap';
+import clearingRouter from './clearing';
+import partnerReportsRouter from './partnerReports';
+import sourceAttachmentsRouter from './sourceAttachments';
 
 /**
  * النظام المحاسبي المتكامل — `/api/ledger` (§9.1، ملحق أ).
@@ -83,6 +89,10 @@ router.use(checksRouter);
 // M3: قائمة «العملاء» (حالة الترحيل والعهدة والأمانات) و«مراجعة ← سجل التدقيق» — §8.2
 router.use(customersRouter);
 router.use(reviewRouter);
+// «ربط الدفاتر» L4/L5: كلٌّ يحرس مساراته بـrequireLedgerPermission (التسويات والتسوية الموجّهة canPostJournals، والخريطة canConfigureLedger)
+router.use(customerAdjustmentsRouter); router.use(paymentMethodMapRouter); router.use(clearingRouter);
+// L8: تقارير الشركاء ومرفقات المستندات **قبل** reportsRouter — وإلا التقط `/reports/:key` مفاتيحها الجديدة (partner-ledger …)
+router.use(partnerReportsRouter); router.use(sourceAttachmentsRouter);
 // M4: التقارير المالية (§7) — `GET /reports/:key` و`POST /reports/:key/export` بصلاحية canViewLedger
 router.use(reportsRouter);
 

@@ -372,6 +372,14 @@ test('I7: كل وصفة آلية (origin=AUTO بأي sourceType، أو بمفت�
   for (const f of fs.readdirSync(builders).filter((x) => x.endsWith('.ts'))) {
     const c = strip(fs.readFileSync(path.join(builders, f), 'utf8'));
     if (!/kind: 'MOVE'/.test(c)) continue;
+    if (f === 'clearing.ts') {
+      // «ربط الدفاتر» L5 (§5.2، E5.14): التسوية الموجّهة قيدٌ يدويّ يُنشئه المحاسب (RECONCILE) — لا مصدر له فلا مالك، ويُعكس
+      // كأي قيد يدوي. فهو MANUAL وحده وبلا أي مفتاح مصدر
+      assert.match(c, /origin: 'MANUAL'/, f);
+      assert.doesNotMatch(c, /origin: 'AUTO'/, f);
+      for (const k of ['sourceType', 'sourceId', 'sourceKey', 'sourceEvent']) assert.match(c, new RegExp(`\\b${k}: null,`), `${f}: ${k}`);
+      continue;
+    }
     assert.doesNotMatch(c, /origin: 'MANUAL'/, f);
     assert.match(c, /origin: 'AUTO'/, f);
   }

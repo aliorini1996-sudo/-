@@ -283,7 +283,8 @@ export const receiptApi = {
   list: (params?: Record<string, string | number>) => api.get('/receipts', { params }),
   get: (id: string) => api.get(`/receipts/${id}`),
   create: (data: unknown) => api.post('/receipts', data),
-  cancel: (id: string) => api.patch(`/receipts/${id}/cancel`),
+  cancel: (id: string, body?: { refundFrom: string; refundFromUserId?: string }) => (body ? api.patch(`/receipts/${id}/cancel`, body) : api.patch(`/receipts/${id}/cancel`)),
+  cancelOptions: (id: string) => api.get(`/receipts/${id}/cancel-options`),
 };
 
 export const dashboardApi = {

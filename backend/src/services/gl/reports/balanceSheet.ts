@@ -138,11 +138,129 @@ export interface BalanceSheet {
    */
   equityInvariantMilli: Milli;
   options: BalanceSheetOptions;
+  /** «ربط الدفاتر» L8 (E5.15): ملخّص إعادة التصنيف العرضية — حاضر حين طُبّقت وحدها (غيابه = الميزانية كما كانت حرفاً) */
+  partnerReclass?: BalanceSheetPartnerReclass;
+  /** تحذيرات المحرّك (PARTNER_RECLASS) — حاضرة حين طُبّقت إعادة التصنيف وحدها */
+  warnings?: BalanceSheetWarning[];
 }
 
 export interface BalanceSheetSettings {
   /** §7.4: ينقل رصيد حسابات وسم DRAWINGS من «رأس المال» إلى سطري الأرباح */
   drawingsAfterNetProfit?: boolean;
+  /** «ربط الدفاتر»: الدفاتر المربوطة ⇒ إعادة تصنيف أرصدة الشركاء حين تُمرَّر `partnerReclass` */
+  linkedPosting?: boolean;
+}
+
+// ═══ «ربط الدفاتر» L8: إعادة تصنيف أرصدة الشركاء (E5.15) — عرضية بلا قيود ═══
+
+/** رمز «مستردات العملاء وأرصدتهم الدائنة» (linkedAccounts.CUSTOMER_CREDITS_CODE) */
+export const CUSTOMER_CREDITS_RECLASS_CODE = '214002';
+/** رمز «دفعات مقدمة للموردين» في القالب السعودي */
+export const VENDOR_ADVANCES_RECLASS_CODE = '115003';
+
+/**
+ * مدخل إعادة التصنيف لكل حساب رقابي: Σ الأرصدة الدائنة لعملاء حساب AR، وΣ الأرصدة المدينة لموردي حساب AP — موجبة،
+ * محسوبة لكل شريك على حدة «اعتباراً من» تاريخ الميزانية (`partnerLoad.prisma.ts: loadPartnerReclass`).
+ */
+export interface PartnerReclassInput {
+  customerCredits: readonly { accountId: string; amountMilli: Milli; partners: number }[];
+  vendorDebits: readonly { accountId: string; amountMilli: Milli; partners: number }[];
+}
+
+export interface BalanceSheetPartnerReclass {
+  /** Σ الأرصدة الدائنة للعملاء المنقولة إلى الخصوم */
+  customerCreditsMilli: Milli;
+  /** Σ الأرصدة المدينة للموردين المنقولة إلى الأصول */
+  vendorDebitsMilli: Milli;
+  customers: number;
+  vendors: number;
+  /** الحساب الذي ظهرت تحته الأرصدة (تركيبي `reclass:<code>` حين لا يوجد في دليل الشركة) */
+  customerCreditsAccountId: string | null;
+  vendorAdvancesAccountId: string | null;
+}
+
+export interface BalanceSheetWarning {
+  code: 'PARTNER_RECLASS';
+  message: string;
+  details: { customers: number; vendors: number };
+}
+
+export const PARTNER_RECLASS_MESSAGE =
+  'أُعيد تصنيف أرصدة الشركاء عرضاً بلا قيود: الأرصدة الدائنة للعملاء في الخصوم (مستردات العملاء وأرصدتهم الدائنة)، والأرصدة المدينة للموردين في الأصول (دفعات مقدمة للموردين)';
+
+const RECLASS_SYNTHETIC: Readonly<Record<string, Omit<ReportAccount, 'id'>>> = {
+  [CUSTOMER_CREDITS_RECLASS_CODE]: {
+    code: CUSTOMER_CREDITS_RECLASS_CODE,
+    name: 'مستردات العملاء وأرصدتهم الدائنة',
+    nameI18n: {
+      ar: 'مستردات العملاء وأرصدتهم الدائنة', en: 'Customer Refunds and Credit Balances',
+      fr: 'Remboursements et soldes créditeurs clients', tr: 'Müşteri İadeleri ve Alacak Bakiyeleri', zh: '客户退款及贷方余额',
+    },
+    type: 'liability_current',
+  },
+  [VENDOR_ADVANCES_RECLASS_CODE]: {
+    code: VENDOR_ADVANCES_RECLASS_CODE,
+    name: 'دفعات مقدمة للموردين',
+    nameI18n: {
+      ar: 'دفعات مقدمة للموردين', en: 'Advances to Suppliers', fr: 'Avances aux fournisseurs',
+      tr: 'Satıcılara Verilen Avanslar', zh: '预付供应商款项',
+    },
+    type: 'asset_prepayments',
+  },
+};
+
+/**
+ * خطة إعادة التصنيف: فرقٌ بقاعدة `مدين − دائن` لكل حساب (Σ الفروق = 0 ⇒ الميزانية متّزنة، وحقوق الملكية لا تتغيّر):
+ * حساب AR += الدائن المنقول، و214002 −= ه؛ وحساب AP −= المدين المنقول، و115003 += ه. حسابٌ هدف غائب ⇒ صفّ تركيبي.
+ * لا تطبيق (null) بلا مدخل، أو بلا «مربوطة» ولا خيار صريح، أو حين المنقول صفر.
+ */
+export function partnerReclassPlan(
+  input: Pick<BalanceSheetInput, 'partnerReclass' | 'reclassifyPartnerBalances' | 'settings'>,
+  accounts: readonly ReportAccount[],
+): { delta: Map<string, Milli>; extraAccounts: ReportAccount[]; summary: BalanceSheetPartnerReclass } | null {
+  const r = input.partnerReclass;
+  if (!r) return null;
+  if (input.settings?.linkedPosting !== true && input.reclassifyPartnerBalances !== true) return null;
+  const known = new Set(accounts.map((a) => a.id));
+  const byCodeOf = (code: string) => accounts.find((a) => a.code === code) ?? null;
+  const delta = new Map<string, Milli>();
+  const add = (id: string, v: Milli) => delta.set(id, (delta.get(id) ?? 0n) + v);
+  let customerCredits = 0n;
+  let customers = 0;
+  for (const c of r.customerCredits) {
+    if (!known.has(c.accountId) || c.amountMilli <= 0n) continue;
+    add(c.accountId, c.amountMilli);
+    customerCredits += c.amountMilli;
+    customers += c.partners;
+  }
+  let vendorDebits = 0n;
+  let vendors = 0;
+  for (const v of r.vendorDebits) {
+    if (!known.has(v.accountId) || v.amountMilli <= 0n) continue;
+    add(v.accountId, -v.amountMilli);
+    vendorDebits += v.amountMilli;
+    vendors += v.partners;
+  }
+  if (customerCredits === 0n && vendorDebits === 0n) return null;
+  const extraAccounts: ReportAccount[] = [];
+  const target = (code: string, amount: Milli): string | null => {
+    if (amount === 0n) return null;
+    const existing = byCodeOf(code);
+    const id = existing?.id ?? `reclass:${code}`;
+    if (!existing) extraAccounts.push({ id, ...RECLASS_SYNTHETIC[code] });
+    add(id, code === CUSTOMER_CREDITS_RECLASS_CODE ? -amount : amount);
+    return id;
+  };
+  const customerCreditsAccountId = target(CUSTOMER_CREDITS_RECLASS_CODE, customerCredits);
+  const vendorAdvancesAccountId = target(VENDOR_ADVANCES_RECLASS_CODE, vendorDebits);
+  return {
+    delta,
+    extraAccounts,
+    summary: {
+      customerCreditsMilli: customerCredits, vendorDebitsMilli: vendorDebits, customers, vendors,
+      customerCreditsAccountId, vendorAdvancesAccountId,
+    },
+  };
 }
 
 export interface BalanceSheetInput {
@@ -161,6 +279,10 @@ export interface BalanceSheetInput {
   unit?: ReportUnit;
   /** RPT‑07: يُعاد كما هو */
   hierarchy?: boolean;
+  /** «ربط الدفاتر» L8: أرصدة الشركاء «اعتباراً من» التاريخ — تُطبَّق مع `settings.linkedPosting` أو الخيار الصريح أدناه */
+  partnerReclass?: PartnerReclassInput | null;
+  /** إعادة التصنيف لغير المربوطة صراحةً */
+  reclassifyPartnerBalances?: boolean;
 }
 
 // ═══ التسميات والمعادلات ═══
@@ -275,7 +397,9 @@ export function buildBalanceSheet(input: BalanceSheetInput): BalanceSheet {
   const index = balanceIndex(balances);
   const balanceOf = (id: string): AccountBalance => index.get(id) ?? zeroBalance(id);
 
-  const sorted = [...accounts].sort(byCode);
+  // «ربط الدفاتر» L8: إعادة التصنيف العرضية (null ⇒ الميزانية كما كانت حرفاً)
+  const reclass = partnerReclassPlan(input, accounts);
+  const sorted = [...accounts, ...(reclass?.extraAccounts ?? [])].sort(byCode);
   const ofType = (...types: AccountType[]): ReportAccount[] => {
     const want = new Set<string>(types);
     return sorted.filter((a) => want.has(a.type));
@@ -324,7 +448,8 @@ export function buildBalanceSheet(input: BalanceSheetInput): BalanceSheet {
     return s;
   };
 
-  const full = (a: ReportAccount, b: AccountBalance): Milli => fullBalanceMilli(a.type, b);
+  const full = (a: ReportAccount, b: AccountBalance): Milli => fullBalanceMilli(a.type, b)
+    + (reclass?.delta.get(a.id) ?? 0n);
   const movement = (_a: ReportAccount, b: AccountBalance): Milli => periodNetMilli(b);
   const beforeFyWithClosing = (_a: ReportAccount, b: AccountBalance): Milli => b.preFyMilli + closingTotalMilli(b);
 
@@ -468,6 +593,14 @@ export function buildBalanceSheet(input: BalanceSheetInput): BalanceSheet {
     balanced: imbalanceMilli === 0n,
     equityInvariantMilli: totalEquityMilli + equityUniverse,
     options: { drawingsAfterNetProfit: withDrawings, hideZero, unit, hierarchy, search, searchFiltered },
+    ...(reclass ? {
+      partnerReclass: reclass.summary,
+      warnings: [{
+        code: 'PARTNER_RECLASS' as const,
+        message: PARTNER_RECLASS_MESSAGE,
+        details: { customers: reclass.summary.customers, vendors: reclass.summary.vendors },
+      }],
+    } : {}),
   };
 }
 

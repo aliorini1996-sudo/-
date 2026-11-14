@@ -37,6 +37,7 @@ import {
 import type { Align } from '../lib/print/printSettingsCore';
 import { phraseIn } from '../lib/print/printTexts';
 import { isTaxFreePrint } from '../lib/print/taxFreePrint';
+import { taxFreeShownSubtotal } from '../lib/taxFreeTotals';
 import { formBackgroundRef, useFormImage, type FormImageStatus } from '../lib/print/formImage';
 import { hasCustomerPhone } from '../lib/customerPhoneField';
 import { currencyDecimals } from '../i18n/countries';
@@ -192,7 +193,8 @@ export function formFieldValues(
   put('repName', clean(doc.repName), false);
 
   put('notes', notes, false);
-  put('subtotal', moneyOf(k, doc.subtotal), true);
+  // «ربط الدفاتر» B6: المختوم بلا ضريبة وفي سجلّه ضريبة ⇒ الإجمالي + الخصم (taxFreeView يفعلها قبل القالب، وهنا دفاعاً لمن يرسم FormInvoice مباشرةً)
+  put('subtotal', moneyOf(k, taxFreeShownSubtotal(doc)), true);
   put('discount', moneyOf(k, doc.discount), true);
   if (k.vat) put('vatAmount', moneyOf(k, doc.tax), true);
   put('totalDue', moneyOf(k, doc.total), true);

@@ -138,7 +138,8 @@ function collect(routesDir = backendRoutes): { decls: Decl[]; unguarded: string[
       const inline = permsIn(beforeHandler(call), aliasesOf.get(f)!);
       const mount = prefixOf(`${f}#${m[1]}`);
       const perms = inline.length ? inline : [...(routerLevel.get(m[1]) ?? []), ...mount.perms];
-      const full = normPath(mount.prefix + m[4]);
+      // مسارٌ بقالب في حلقة (`/reports/${key}` في partnerReports.ts) ⇒ :p كالعميل — مقطعٌ متغيّر لا حرفي
+      const full = normPath(mount.prefix + m[4].replace(/\$\{[^}]*\}/g, ':p'));
       const rel = path.relative(routesDir, f);
       if (perms.length === 0) unguarded.push(`${m[2].toUpperCase()} ${full} (${rel})`);
       decls.push({ method: m[2] as Method, path: full, perms: [...new Set(perms)], file: rel });
@@ -203,6 +204,20 @@ const ENDPOINTS: Record<string, { get: string[]; writes: string[]; helpers?: str
   'reports/income-statement': { get: ['/reports/:p'], writes: [] },
   'reports/trial-balance': { get: ['/reports/:p'], writes: [] },
   'reports/general-ledger': { get: ['/reports/:p'], writes: [] },
+  // «ربط الدفاتر» L8 (عقد §6.2–§6.4): تقارير الشركاء — `GET /reports/:key` (partnerReports.ts مركَّب قبل reportsRouter)
+  // ومنتقي الشريك والصنف `GET /partners/search` ومرفقات المستند المصدر `GET /source-attachments[/:kind/:id]`، كلها canViewLedger
+  'reports/partner-ledger': { get: ['/reports/:p'], writes: [], helpers: ['/partners/search', '/source-attachments', '/source-attachments/:p/:p'] },
+  'reports/aged-receivable': { get: ['/reports/:p'], writes: [], helpers: ['/partners/search', '/source-attachments', '/source-attachments/:p/:p'] },
+  'reports/aged-payable': { get: ['/reports/:p'], writes: [], helpers: ['/partners/search'] },
+  'reports/late-arrivals': { get: ['/reports/:p'], writes: [], helpers: ['/source-attachments', '/source-attachments/:p/:p'] },
+  'reports/product-ledger': { get: ['/reports/:p'], writes: [], helpers: ['/partners/search', '/source-attachments', '/source-attachments/:p/:p'] },
+  // L4/L5 (A11): تسويات ذمم العملاء (M4)، والتسوية الموجّهة (M7)، وعهدة المستخدمين وخريطة الطرق (M3)
+  // حوار الإنشاء: الفواتير المفتوحة للعميل ومنتقيه (canViewLedger، فلا يتعطّل لصاحب canPostJournals وحدها)
+  'customers/adjustments': { get: ['/customer-adjustments'], writes: ['/customer-adjustments'], helpers: ['/customer-adjustments/open-items', '/partners/search'] },
+  'customers/clearing': { get: ['/clearing/open'], writes: ['/clearing'] },
+  'customers/user-custody': { get: ['/customers/user-custody'], writes: [] },
+  // منتقي دفتر الطريقة: GET /journals بصلاحية التهيئة نفسها (عمودا الصفّ canConfigureLedger)
+  'config/payment-methods': { get: ['/config/payment-methods'], writes: ['/config/payment-methods'], helpers: ['/journals'] },
   // ترحيل المسودات وحذفها من الحوار مشروطان بـcanPostJournals (canPost)
   'dialog:lockDates': { get: ['/lock-dates'], writes: ['/lock-dates'], gated: { 'POST /moves/:p/post': 'canPostJournals', 'DELETE /moves/:p': 'canPostJournals' } },
 };
@@ -242,6 +257,7 @@ test('المحلّل نفسه: التركيب عبر الاستيراد، وال
       "r.get('/', requireLedgerPermission(\"canViewLedger\"), async (_req, res) => {});",
       "r.post('/:id/archive', canConfig, async (req: AuthRequest, res) => {});",
       "r.put('/:accountId', async (req, res) => { req.get('/x'); });",
+      "for (const k of ['a', 'b']) r.get(`/rep/${k}`, requireLedgerPermission('canViewLedger'), async (_req, res) => {});",
       'export default r;',
     ].join(NL));
     fs.mkdirSync(path.join(dir, 'moves'));
@@ -258,8 +274,10 @@ test('المحلّل نفسه: التركيب عبر الاستيراد، وال
     assert.equal(got['GET /status'], 'canViewLedger', 'الصلاحية داخل جسم المعالج لا تُحتسب');
     assert.equal(got['GET /accounts'], 'canViewLedger');
     assert.equal(got['POST /accounts/:p/archive'], 'canConfigureLedger');
+    assert.equal(got['GET /accounts/rep/:p'], 'canViewLedger', 'مسار بقالب في حلقة (partnerReports) يُطبَّع :p');
     assert.equal(got['POST /moves/:p/post'], 'canPostJournals', 'صلاحية التركيب تسري على الموجّه الفرعي المسمّى');
     assert.deepEqual(unguarded, ['PUT /accounts/:p (accounts.ts)']);
+    assert.ok(decls.every(d => !d.path.includes('${')), 'مسار بقالب لم يُطبَّع');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -300,6 +318,12 @@ test('المقارنة نفسها: خادم مطابق لملحق أ ⇒ لا م
     d('post', '/checks/run', C), d('post', '/checks/rebuild-balances', C), d('post', '/checks/:p/control-adjustment', C), d('get', '/audit', C), d('post', '/sync', V),
     // M4: نقطتا التقارير، كلتاهما canViewLedger
     d('get', '/reports/:p', V), d('post', '/reports/:p/export', V),
+    // ربط الدفاتر L4/L5/L8
+    d('get', '/partners/search', V), d('get', '/source-attachments', V), d('get', '/source-attachments/:p/:p', V),
+    d('get', '/customer-adjustments', V), d('get', '/customer-adjustments/open-items', V), d('get', '/customer-adjustments/:p', V),
+    d('post', '/customer-adjustments', P), d('post', '/customer-adjustments/:p/cancel', P),
+    d('get', '/clearing/open', V), d('post', '/clearing', P), d('get', '/customers/user-custody', V),
+    d('get', '/config/payment-methods', C), d('put', '/config/payment-methods/:p', C), d('delete', '/config/payment-methods/:p', C),
   ];
   assert.deepEqual(comparePerms(good), []);
   const badView = good.map(x => (x.method === 'get' && x.path === '/items' ? { ...x, perms: [C] } : x));
@@ -357,7 +381,7 @@ function comparePerms(decls: Decl[]): string[] {
 // ═══ مسارات عميل الويب مقابل الخادم، ونقاط كل صفحة مشتقة من استدعاءاتها ═══
 
 const webSrc = path.resolve(process.cwd(), 'src');
-const API_FILES = ['api/ledgerConfig.ts', 'api/ledgerMoves.ts', 'api/ledgerReview.ts', 'api/ledgerSetup.ts'];
+const API_FILES = ['api/ledgerConfig.ts', 'api/ledgerMoves.ts', 'api/ledgerReview.ts', 'api/ledgerSetup.ts', 'api/ledgerPartners.ts', 'api/ledgerOps.ts'];
 /** ملف مكوّن كل حوار (الصفوف المسارية ملفها من `component`) */
 const DIALOG_FILES: Record<string, string> = { lockDates: 'components/ledger/LockDatesDialog.tsx' };
 
@@ -426,7 +450,7 @@ function rowCalls(entry: string, client = clientRoutes()): { calls: RowCall[]; u
   for (const f of rowFiles(entry)) {
     const s = fs.readFileSync(f, 'utf8');
     const rel = path.relative(webSrc, f).split(path.sep).join('/');
-    const names = [...s.matchAll(/\b(ledger(?:Config|Moves|Review|Setup)Api(?:\.\w+)+)/g)].map(m => m[1]);
+    const names = [...s.matchAll(/\b(ledger(?:Config|Moves|Review|Setup|Partners|Ops)Api(?:\.\w+)+)/g)].map(m => m[1]);
     if (aliasRe) for (const m of s.matchAll(aliasRe)) names.push(...client.aliases.get(m[1])!);
     for (const n of names) {
       const hits = client.routes.get(n);

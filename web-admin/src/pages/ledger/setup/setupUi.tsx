@@ -257,6 +257,8 @@ export const syncSourceLabels = (tr: Tr): Record<string, string> => ({
   WAREHOUSE_ENTRY: tr('حركات المستودع'),
   VAN_LOAD: tr('تحميل السيارات'),
   RETURN_RESTOCK: tr('المرتجعات إلى المخزون'),
+  // «ربط الدفاتر» D13: مؤشر توريدات عهد مستخدمي الشركة — للدفاتر المربوطة وحدها
+  USER_SETTLEMENT: tr('توريدات عهد مستخدمي الشركة'),
 });
 
 /** حالة الإعداد بعد التفعيل من GET /setup (canConfigureLedger) — تحدّث كل 30 ثانية أثناء الترحيل. */

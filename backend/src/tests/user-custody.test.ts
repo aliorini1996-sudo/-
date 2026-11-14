@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import {
   userCustody, handoverAllowed, removalKeepsCustodySane, CUSTODY_EPS, CustodyExceeded, CustodyBlocked,
+  userCustodyMany, userCustodyFold, handoverAllowedFor, handoverCap,
 } from '../services/userCustody';
 
 /**
@@ -15,22 +16,128 @@ import {
  * ما لا يلتقطه اختبار دالّة.
  */
 
-const agg = (sum: number | null) => ({ aggregate: async () => ({ _sum: { amount: sum } }) });
-const db = (received: number | null, delivered: number | null) => ({
-  repSettlement: agg(received), userSettlement: agg(delivered),
-}) as unknown as Parameters<typeof userCustody>[0];
+// ═══ عميل مزيّف بصفوف حقيقية: groupBy (من له تاريخ) ثم findMany (صفوف الطيّ) — ويحصي القراءات ═══
+
+type Row = Record<string, unknown>;
+const T0 = new Date('2026-09-01T08:00:00Z');
+const at = (min: number) => new Date(T0.getTime() + min * 60_000);
+
+function whereMatch(r: Row, where: Row): boolean {
+  return Object.entries(where).every(([k, v]) => {
+    if (v && typeof v === 'object' && !(v instanceof Date)) {
+      const o = v as { in?: unknown[]; not?: unknown };
+      if ('in' in o) return (o.in ?? []).includes(r[k]);
+      if ('not' in o) return r[k] !== o.not;
+    }
+    return r[k] === v;
+  });
+}
+
+function fakeCustodyDb(rows: { rec?: Row[]; del?: Row[]; rct?: Row[] }) {
+  const calls: string[] = [];
+  const model = (name: string, list: Row[]) => ({
+    groupBy: async ({ by, where }: { by: string[]; where: Row }) => {
+      calls.push(`${name}.groupBy`);
+      const seen = new Map<string, Row>();
+      for (const r of list.filter((x) => whereMatch(x, where))) {
+        const key = by.map((b) => String(r[b])).join('|');
+        if (!seen.has(key)) seen.set(key, Object.fromEntries(by.map((b) => [b, r[b]])));
+      }
+      return [...seen.values()];
+    },
+    findMany: async ({ where }: { where: Row }) => { calls.push(`${name}.findMany`); return list.filter((x) => whereMatch(x, where)); },
+  });
+  const db = {
+    repSettlement: model('repSettlement', rows.rec ?? []),
+    userSettlement: model('userSettlement', rows.del ?? []),
+    receipt: model('receipt', rows.rct ?? []),
+  };
+  return { db: db as unknown as Parameters<typeof userCustody>[0], calls };
+}
+
+const rec = (id: string, amount: number, method = 'CASH', min = 0, user = 'u1'): Row =>
+  ({ id, tenantId: 't1', receivedByUserId: user, amount, method, settledAt: at(min), createdAt: at(min) });
+const del = (id: string, amount: number, method = 'CASH', min = 10, user = 'u1'): Row =>
+  ({ id, tenantId: 't1', fromUserId: user, amount, method, settledAt: at(min), createdAt: at(min) });
+const refund = (id: string, amount: number, user = 'u1'): Row =>
+  ({ id, tenantId: 't1', status: 'CANCELLED', cancelRefundFrom: 'USER_CUSTODY', cancelRefundUserId: user, amount, updatedAt: at(20), createdAt: at(1) });
+const ZERO = { received: 0, delivered: 0, outstanding: 0, nonCashReceived: 0, passThrough: 0 };
 
 test('العهدة = المستلم من المناديب ناقص المورد', async () => {
-  assert.deepEqual(await userCustody(db(6075, 2000), 't1', 'u1'), { received: 6075, delivered: 2000, outstanding: 4075 });
+  const { db } = fakeCustodyDb({ rec: [rec('r1', 6075)], del: [del('d1', 2000)] });
+  assert.deepEqual(await userCustody(db, 't1', 'u1'), { ...ZERO, received: 6075, delivered: 2000, outstanding: 4075 });
 });
 
-test('لا صفوف: أصفار لا undefined', async () => {
-  assert.deepEqual(await userCustody(db(null, null), 't1', 'u1'), { received: 0, delivered: 0, outstanding: 0 });
+test('لا صفوف: أصفار لا undefined — وتجميعتان فقط بلا قراءة صفوف ولا سندات', async () => {
+  const { db, calls } = fakeCustodyDb({});
+  assert.deepEqual(await userCustody(db, 't1', 'u1'), ZERO);
+  assert.deepEqual(calls.sort(), ['repSettlement.groupBy', 'userSettlement.groupBy']);
 });
 
 test('كسور العائمة لا تسرب إلى الرصيد', async () => {
-  const { outstanding } = await userCustody(db(0.1 + 0.2, 0.3), 't1', 'u1');
+  const { db } = fakeCustodyDb({ rec: [rec('r1', 0.1), rec('r2', 0.2)], del: [del('d1', 0.3)] });
+  const { outstanding } = await userCustody(db, 't1', 'u1');
   assert.equal(outstanding, 0); // لا 5.5e-17
+});
+
+// ═══ OD5: العهدة نقد وشيكات وحدها ═══
+
+test('OD5: التحويل ونقطة البيع لا يدخلان العهدة، والتوريد غير النقدي يمرّ منهما أولاً، والشيك عهدة', async () => {
+  const { db } = fakeCustodyDb({
+    rec: [rec('c', 500), rec('q', 200, 'CHEQUE', 1), rec('b', 300, 'BANK_TRANSFER', 2), rec('p', 100, 'POS', 3)],
+    del: [del('d1', 350, 'BANK_TRANSFER', 10)],
+  });
+  // الوعاء 400 (300+100) ⇒ التوريد 350 مرور كله؛ العهدة النقدية 700 كما هي
+  assert.deepEqual(await userCustody(db, 't1', 'u1'),
+    { received: 700, delivered: 0, outstanding: 700, nonCashReceived: 400, passThrough: 350 });
+  const fold = await userCustodyFold(db, 't1', 'u1');
+  assert.equal(fold.nonCashPoolMilli, 50_000n);
+  // السقف: نقداً 700، وتحويلاً 700 + 50 الباقية في الوعاء
+  assert.equal(handoverCap(fold, 'CASH'), 700);
+  assert.equal(handoverCap(fold, 'CHEQUE'), 700);
+  assert.equal(handoverCap(fold, 'BANK_TRANSFER'), 750);
+  assert.equal(handoverAllowedFor(fold, 'CASH', 700), true);
+  assert.equal(handoverAllowedFor(fold, 'CASH', 700.004), true, 'ضمن هامش الكسور');
+  assert.equal(handoverAllowedFor(fold, 'CASH', 701), false);
+  assert.equal(handoverAllowedFor(fold, 'BANK_TRANSFER', 750), true);
+  assert.equal(handoverAllowedFor(fold, 'POS', 750.01), false);
+  for (const bad of [0, -5, NaN, Infinity]) assert.equal(handoverAllowedFor(fold, 'CASH', bad), false, `قبل ${bad}`);
+});
+
+test('OD5: توريدٌ غير نقدي أكبر من الوعاء ⇒ الزائد نقدٌ أُودع البنك (ينقص العهدة)، والتاريخ القديم بلا سالب', async () => {
+  // استلم تحويلاً 300 ثم نقداً 500، وورّد تحويلاً 500: 300 مرور + 200 من النقد
+  const { db } = fakeCustodyDb({ rec: [rec('b', 300, 'BANK_TRANSFER', 0), rec('c', 500, 'CASH', 1)], del: [del('d', 500, 'BANK_TRANSFER', 5)] });
+  assert.deepEqual(await userCustody(db, 't1', 'u1'),
+    { received: 500, delivered: 200, outstanding: 300, nonCashReceived: 300, passThrough: 300 });
+});
+
+test('C11: ما رُدّ من عهدة المستخدم لعميلٍ أُلغي سنده ينقص العهدة، ويُعدّ في «ما خرج»', async () => {
+  const { db } = fakeCustodyDb({ rec: [rec('c', 800)], rct: [refund('rc1', 500), refund('rc2', 100, 'u2')] });
+  const c = await userCustody(db, 't1', 'u1');
+  assert.deepEqual(c, { ...ZERO, received: 800, delivered: 500, outstanding: 300 });
+  assert.equal(c.outstanding, c.received - c.delivered, 'outstanding = received − delivered دائماً');
+});
+
+test('userCustodyMany: كل المستخدمين بخمس قراءات على الأكثر (لا N+1)، ولا سندات حين لا تاريخ لأحد', async () => {
+  const many = fakeCustodyDb({
+    rec: Array.from({ length: 30 }, (_, i) => rec(`r${i}`, 100, i % 3 === 0 ? 'BANK_TRANSFER' : 'CASH', i, `u${i % 10}`)),
+    del: Array.from({ length: 10 }, (_, i) => del(`d${i}`, 50, i % 2 ? 'BANK_TRANSFER' : 'CASH', 100 + i, `u${i}`)),
+    rct: [refund('x', 10, 'u3')],
+  });
+  const m = await userCustodyMany(many.db, 't1');
+  assert.equal(m.size, 10);
+  assert.ok(many.calls.length <= 5, `${many.calls.length} قراءة`);
+  for (const [u, c] of m) {
+    const single = await userCustody(fakeCustodyDb({
+      rec: Array.from({ length: 30 }, (_, i) => rec(`r${i}`, 100, i % 3 === 0 ? 'BANK_TRANSFER' : 'CASH', i, `u${i % 10}`)),
+      del: Array.from({ length: 10 }, (_, i) => del(`d${i}`, 50, i % 2 ? 'BANK_TRANSFER' : 'CASH', 100 + i, `u${i}`)),
+      rct: [refund('x', 10, 'u3')],
+    }).db, 't1', u);
+    assert.deepEqual(c, single, `المستخدم ${u}: المجمّع = المفرد`);
+  }
+  const none = fakeCustodyDb({ rct: [refund('x', 10, 'u3')] });
+  assert.equal((await userCustodyMany(none.db, 't1')).size, 0);
+  assert.ok(!none.calls.some((c) => c.startsWith('receipt.')), 'مسح السندات لمن لا تاريخ له');
 });
 
 test('سقف التوريد: الكل مقبول والزائد مرفوض', () => {
@@ -110,7 +217,8 @@ test('حارس ثابت: حذف مستخدم الشركة يفحص عهدته', 
 test('حارس ثابت: حذف استلام المندوب يفحص عهدة مستلمه', () => {
   const src = read('routes', 'salesReps.ts');
   const del = src.slice(src.indexOf("router.delete('/:id/settlements/:settlementId'"));
-  assert.ok(/removalKeepsCustodySane/.test(del) && /lockCustody/.test(del),
+  // «ربط الدفاتر» OD5: الحارس بالطيّ (receivedRemovalKeepsCustodySane) — العهدة النقدية لا تُقارن باستلامٍ غير نقدي
+  assert.ok(/[rR]emovalKeepsCustodySane/.test(del) && /lockCustody/.test(del),
     'إسقاط استلام ورده صاحبه يجعل عهدته سالبة فتمنع كل توريد لاحق');
 });
 

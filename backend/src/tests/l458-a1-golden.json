@@ -1,0 +1,1746 @@
+{
+ "ACCOUNT_ENTRY:2": [
+  {
+   "sourceKey": "INVOICE:cash1:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "cash1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.000Z",
+   "payload": {
+    "invoiceId": "cash1",
+    "number": "INV-cash1",
+    "type": "CASH",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": null,
+    "pricesIncludeTax": false,
+    "subtotal": "100.00",
+    "discountAmt": "0.00",
+    "taxAmt": "15.00",
+    "total": "115.00",
+    "currency": "SAR",
+    "currencyDecimals": 2,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 1,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "15.00",
+      "lineTotal": "115.00",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.002Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cr1:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "cr1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.010Z",
+   "payload": {
+    "invoiceId": "cr1",
+    "number": "INV-cr1",
+    "type": "CREDIT",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": "2027-01-13",
+    "pricesIncludeTax": false,
+    "subtotal": "1000.00",
+    "discountAmt": "0.00",
+    "taxAmt": "150.00",
+    "total": "1150.00",
+    "currency": "SAR",
+    "currencyDecimals": 2,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 10,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "150.00",
+      "lineTotal": "1150.00",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.010Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cr2:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "cr2",
+   "event": "POST",
+   "effectAt": "2026-11-13T09:00:00.000Z",
+   "payload": {
+    "invoiceId": "cr2",
+    "number": "INV-cr2",
+    "type": "CREDIT",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-13",
+    "dueDate": null,
+    "pricesIncludeTax": false,
+    "subtotal": "1000.00",
+    "discountAmt": "0.00",
+    "taxAmt": "150.00",
+    "total": "1150.00",
+    "currency": "SAR",
+    "currencyDecimals": 2,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 2.5,
+      "unitPrice": 400,
+      "taxPct": 15,
+      "taxAmt": "150.00",
+      "lineTotal": "1150.00",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.020Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cr3:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "cr3",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.030Z",
+   "payload": {
+    "invoiceId": "cr3",
+    "number": "INV-cr3",
+    "type": "CREDIT",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": "2026-12-02",
+    "pricesIncludeTax": false,
+    "subtotal": "1000.00",
+    "discountAmt": "0.00",
+    "taxAmt": "150.00",
+    "total": "1150.00",
+    "currency": "SAR",
+    "currencyDecimals": 2,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 10,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "150.00",
+      "lineTotal": "1150.00",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.030Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:ret1:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "ret1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.040Z",
+   "payload": {
+    "invoiceId": "ret1",
+    "number": "INV-ret1",
+    "type": "RETURN",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": null,
+    "pricesIncludeTax": false,
+    "subtotal": "100.00",
+    "discountAmt": "0.00",
+    "taxAmt": "15.00",
+    "total": "115.00",
+    "currency": "SAR",
+    "currencyDecimals": 2,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 10,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "150.00",
+      "lineTotal": "1150.00",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.040Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cn1:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "cn1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.050Z",
+   "payload": {
+    "invoiceId": "cn1",
+    "number": "INV-cn1",
+    "type": "RETURN",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": null,
+    "pricesIncludeTax": false,
+    "subtotal": "100.00",
+    "discountAmt": "0.00",
+    "taxAmt": "15.00",
+    "total": "115.00",
+    "currency": "SAR",
+    "currencyDecimals": 2,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 10,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "150.00",
+      "lineTotal": "1150.00",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.050Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:dn1:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "dn1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.060Z",
+   "payload": {
+    "invoiceId": "dn1",
+    "number": "INV-dn1",
+    "type": "CREDIT",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": null,
+    "pricesIncludeTax": false,
+    "subtotal": "1000.00",
+    "discountAmt": "0.00",
+    "taxAmt": "150.00",
+    "total": "1150.00",
+    "currency": "SAR",
+    "currencyDecimals": 2,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 10,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "150.00",
+      "lineTotal": "1150.00",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.060Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc1:POST",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.070Z",
+   "payload": {
+    "receiptId": "rc1",
+    "number": "RC-rc1",
+    "entryDate": "2026-11-14",
+    "salesRepId": "r1",
+    "paymentMethod": "BANK_TRANSFER",
+    "amount": "600.00",
+    "customerId": "c1",
+    "paylinkId": null,
+    "customerName": "عميل",
+    "salesRepName": "مندوب",
+    "sourceCreatedAt": "2026-11-14T09:00:00.070Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc2:POST",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc2",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.080Z",
+   "payload": {
+    "receiptId": "rc2",
+    "number": "RC-rc2",
+    "entryDate": "2026-11-14",
+    "salesRepId": "r1",
+    "paymentMethod": "CASH",
+    "amount": "500.00",
+    "customerId": "c1",
+    "paylinkId": null,
+    "customerName": "عميل",
+    "salesRepName": "مندوب",
+    "sourceCreatedAt": "2026-11-14T09:00:00.080Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc2:REVERSE",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc2",
+   "event": "REVERSE",
+   "effectAt": "2026-11-14T09:00:00.090Z",
+   "payload": {
+    "receiptId": "rc2",
+    "entryDate": "2026-11-14",
+    "paymentMethod": "CASH",
+    "paylinkId": null,
+    "refundEntryId": null,
+    "refundedAmount": null,
+    "sourceCreatedAt": "2026-11-14T09:00:00.090Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc3:POST",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc3",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.100Z",
+   "payload": {
+    "receiptId": "rc3",
+    "number": "RC-rc3",
+    "entryDate": "2026-11-14",
+    "salesRepId": "r1",
+    "paymentMethod": "POS",
+    "amount": "230.00",
+    "customerId": "c1",
+    "paylinkId": null,
+    "customerName": "عميل",
+    "salesRepName": "مندوب",
+    "sourceCreatedAt": "2026-11-14T09:00:00.100Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc4:POST",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc4",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.110Z",
+   "payload": {
+    "receiptId": "rc4",
+    "number": "RC-rc4",
+    "entryDate": "2026-11-14",
+    "salesRepId": "r1",
+    "paymentMethod": "ONLINE",
+    "amount": "1000.00",
+    "customerId": "c1",
+    "paylinkId": "L1",
+    "customerName": "عميل",
+    "salesRepName": "مندوب",
+    "sourceCreatedAt": "2026-11-14T09:00:00.110Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc4:REVERSE",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc4",
+   "event": "REVERSE",
+   "effectAt": "2026-11-14T09:00:00.120Z",
+   "payload": {
+    "receiptId": "rc4",
+    "entryDate": "2026-11-14",
+    "paymentMethod": "ONLINE",
+    "paylinkId": "L1",
+    "refundEntryId": "se-r1",
+    "refundedAmount": "-1000.00",
+    "sourceCreatedAt": "2026-11-14T09:00:00.120Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc5:REVERSE",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc5",
+   "event": "REVERSE",
+   "effectAt": "2026-11-14T09:00:00.130Z",
+   "payload": {
+    "receiptId": "rc5",
+    "entryDate": "2026-11-14",
+    "paymentMethod": "ONLINE",
+    "paylinkId": "L2",
+    "refundEntryId": null,
+    "refundedAmount": null,
+    "sourceCreatedAt": "2026-11-14T09:00:00.130Z"
+   }
+  },
+  {
+   "sourceKey": "AR_ENTRY:a16:POST",
+   "sourceType": "AR_ENTRY",
+   "sourceId": "a16",
+   "event": "POST",
+   "effectAt": "2026-10-15T09:00:00.000Z",
+   "payload": {
+    "entryId": "a16",
+    "customerId": "c1",
+    "customerName": "عميل واحد",
+    "debit": "500.56",
+    "credit": "0.00",
+    "description": "رصيد مستورد",
+    "entryDate": "2026-10-15T09:00:00.000Z",
+    "createdAt": "2026-11-14T09:00:00.140Z",
+    "origin": "IMPORT",
+    "sourceCreatedAt": "2026-11-14T09:00:00.140Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cash2:REVERSE",
+   "sourceType": "INVOICE",
+   "sourceId": "cash2",
+   "event": "REVERSE",
+   "effectAt": "2026-11-14T09:00:00.150Z",
+   "payload": {
+    "invoiceId": "cash2",
+    "type": "CASH",
+    "entryDate": "2026-11-14",
+    "sourceCreatedAt": "2026-11-14T09:00:00.150Z",
+    "keepCashLeg": true
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cr3:REVERSE",
+   "sourceType": "INVOICE",
+   "sourceId": "cr3",
+   "event": "REVERSE",
+   "effectAt": "2026-11-14T09:00:00.160Z",
+   "payload": {
+    "invoiceId": "cr3",
+    "type": "CREDIT",
+    "entryDate": "2026-11-14",
+    "sourceCreatedAt": "2026-11-14T09:00:00.160Z"
+   }
+  }
+ ],
+ "facts:ACCOUNT_ENTRY": {
+  "invoiceIds": [
+   "cash1",
+   "cr1",
+   "cr2",
+   "cr3",
+   "ret1",
+   "cn1",
+   "dn1",
+   "cash2"
+  ],
+  "receiptIds": [
+   "rc1",
+   "rc2",
+   "rc3",
+   "rc4",
+   "rc5"
+  ],
+  "customerIds": [
+   "c1"
+  ],
+  "salesRepIds": [],
+  "payoutIds": []
+ },
+ "REP_SETTLEMENT:2": [
+  {
+   "sourceKey": "SETTLEMENT:s1:POST",
+   "sourceType": "SETTLEMENT",
+   "sourceId": "s1",
+   "event": "POST",
+   "effectAt": "2026-11-13T09:00:00.000Z",
+   "payload": {
+    "settlementId": "s1",
+    "amount": "800.00",
+    "method": "CASH",
+    "salesRepId": "r1",
+    "settledAt": "2026-11-13T09:00:00.000Z",
+    "createdAt": "2026-11-14T09:00:00.200Z",
+    "note": null,
+    "salesRepName": "أحمد",
+    "sourceCreatedAt": "2026-11-14T09:00:00.200Z"
+   }
+  },
+  {
+   "sourceKey": "SETTLEMENT:s2:POST",
+   "sourceType": "SETTLEMENT",
+   "sourceId": "s2",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.000Z",
+   "payload": {
+    "settlementId": "s2",
+    "amount": "700.01",
+    "method": "CHEQUE",
+    "salesRepId": "r1",
+    "settledAt": "2026-11-14T09:00:00.000Z",
+    "createdAt": "2026-11-14T09:00:00.210Z",
+    "note": "شيك",
+    "salesRepName": "أحمد",
+    "sourceCreatedAt": "2026-11-14T09:00:00.210Z"
+   }
+  },
+  {
+   "sourceKey": "SETTLEMENT:s3:POST",
+   "sourceType": "SETTLEMENT",
+   "sourceId": "s3",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.005Z",
+   "payload": {
+    "settlementId": "s3",
+    "amount": "300.00",
+    "method": "BANK_TRANSFER",
+    "salesRepId": "r2",
+    "settledAt": "2026-11-14T09:00:00.005Z",
+    "createdAt": "2026-11-14T09:00:00.220Z",
+    "note": null,
+    "salesRepName": "خالد",
+    "sourceCreatedAt": "2026-11-14T09:00:00.220Z"
+   }
+  }
+ ],
+ "facts:REP_SETTLEMENT": {
+  "invoiceIds": [],
+  "receiptIds": [],
+  "customerIds": [],
+  "salesRepIds": [
+   "r1",
+   "r2"
+  ],
+  "payoutIds": []
+ },
+ "SETTLEMENT_ENTRY:2": [
+  {
+   "sourceKey": "PAYLINK_FEE:se-f1",
+   "sourceType": "PAYLINK_FEE",
+   "sourceId": "se-f1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.301Z",
+   "payload": {
+    "entryId": "se-f1",
+    "amount": "-41.00",
+    "feeNet": "35.65",
+    "feeVat": "5.35",
+    "createdAt": "2026-11-14T09:00:00.301Z",
+    "linkId": "L1",
+    "note": "عمولة",
+    "sourceCreatedAt": "2026-11-14T09:00:00.301Z"
+   }
+  },
+  {
+   "sourceKey": "PAYOUT:po1",
+   "sourceType": "PAYOUT",
+   "sourceId": "po1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.303Z",
+   "payload": {
+    "payoutId": "po1",
+    "amount": "-950.00",
+    "createdAt": "2026-11-14T09:00:00.303Z",
+    "bankReference": "BR-1",
+    "note": null,
+    "sourceCreatedAt": "2026-11-14T09:00:00.303Z"
+   }
+  }
+ ],
+ "facts:SETTLEMENT_ENTRY": {
+  "invoiceIds": [],
+  "receiptIds": [],
+  "customerIds": [],
+  "salesRepIds": [],
+  "payoutIds": [
+   "po1"
+  ]
+ },
+ "settlementPayload:2": [
+  {
+   "settlementId": "s1",
+   "amount": "800.00",
+   "method": "CASH",
+   "salesRepId": "r1",
+   "settledAt": "2026-11-13T09:00:00.000Z",
+   "createdAt": "2026-11-14T09:00:00.200Z",
+   "note": null,
+   "salesRepName": "أحمد",
+   "sourceCreatedAt": "2026-11-14T09:00:00.200Z"
+  },
+  {
+   "settlementId": "s2",
+   "amount": "700.01",
+   "method": "CHEQUE",
+   "salesRepId": "r1",
+   "settledAt": "2026-11-14T09:00:00.000Z",
+   "createdAt": "2026-11-14T09:00:00.210Z",
+   "note": "شيك",
+   "salesRepName": "أحمد",
+   "sourceCreatedAt": "2026-11-14T09:00:00.210Z"
+  },
+  {
+   "settlementId": "s3",
+   "amount": "300.00",
+   "method": "BANK_TRANSFER",
+   "salesRepId": "r2",
+   "settledAt": "2026-11-14T09:00:00.005Z",
+   "createdAt": "2026-11-14T09:00:00.220Z",
+   "note": null,
+   "salesRepName": "أحمد",
+   "sourceCreatedAt": "2026-11-14T09:00:00.220Z"
+  }
+ ],
+ "ACCOUNT_ENTRY:3": [
+  {
+   "sourceKey": "INVOICE:cash1:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "cash1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.000Z",
+   "payload": {
+    "invoiceId": "cash1",
+    "number": "INV-cash1",
+    "type": "CASH",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": null,
+    "pricesIncludeTax": false,
+    "subtotal": "100.000",
+    "discountAmt": "0.000",
+    "taxAmt": "15.000",
+    "total": "115.000",
+    "currency": "BHD",
+    "currencyDecimals": 3,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 1,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "15.000",
+      "lineTotal": "115.000",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.002Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cr1:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "cr1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.010Z",
+   "payload": {
+    "invoiceId": "cr1",
+    "number": "INV-cr1",
+    "type": "CREDIT",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": "2027-01-13",
+    "pricesIncludeTax": false,
+    "subtotal": "1000.000",
+    "discountAmt": "0.000",
+    "taxAmt": "150.000",
+    "total": "1150.000",
+    "currency": "BHD",
+    "currencyDecimals": 3,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 10,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "150.000",
+      "lineTotal": "1150.000",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.010Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cr2:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "cr2",
+   "event": "POST",
+   "effectAt": "2026-11-13T09:00:00.000Z",
+   "payload": {
+    "invoiceId": "cr2",
+    "number": "INV-cr2",
+    "type": "CREDIT",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-13",
+    "dueDate": null,
+    "pricesIncludeTax": false,
+    "subtotal": "1000.000",
+    "discountAmt": "0.000",
+    "taxAmt": "150.000",
+    "total": "1150.000",
+    "currency": "BHD",
+    "currencyDecimals": 3,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 2.5,
+      "unitPrice": 400,
+      "taxPct": 15,
+      "taxAmt": "150.000",
+      "lineTotal": "1150.000",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.020Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cr3:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "cr3",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.030Z",
+   "payload": {
+    "invoiceId": "cr3",
+    "number": "INV-cr3",
+    "type": "CREDIT",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": "2026-12-02",
+    "pricesIncludeTax": false,
+    "subtotal": "1000.000",
+    "discountAmt": "0.000",
+    "taxAmt": "150.000",
+    "total": "1150.000",
+    "currency": "BHD",
+    "currencyDecimals": 3,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 10,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "150.000",
+      "lineTotal": "1150.000",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.030Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:ret1:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "ret1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.040Z",
+   "payload": {
+    "invoiceId": "ret1",
+    "number": "INV-ret1",
+    "type": "RETURN",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": null,
+    "pricesIncludeTax": false,
+    "subtotal": "100.000",
+    "discountAmt": "0.000",
+    "taxAmt": "15.000",
+    "total": "115.000",
+    "currency": "BHD",
+    "currencyDecimals": 3,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 10,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "150.000",
+      "lineTotal": "1150.000",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.040Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cn1:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "cn1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.050Z",
+   "payload": {
+    "invoiceId": "cn1",
+    "number": "INV-cn1",
+    "type": "RETURN",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": null,
+    "pricesIncludeTax": false,
+    "subtotal": "100.000",
+    "discountAmt": "0.000",
+    "taxAmt": "15.000",
+    "total": "115.000",
+    "currency": "BHD",
+    "currencyDecimals": 3,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 10,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "150.000",
+      "lineTotal": "1150.000",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.050Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:dn1:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "dn1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.060Z",
+   "payload": {
+    "invoiceId": "dn1",
+    "number": "INV-dn1",
+    "type": "CREDIT",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": null,
+    "pricesIncludeTax": false,
+    "subtotal": "1000.000",
+    "discountAmt": "0.000",
+    "taxAmt": "150.000",
+    "total": "1150.000",
+    "currency": "BHD",
+    "currencyDecimals": 3,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 10,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "150.000",
+      "lineTotal": "1150.000",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.060Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc1:POST",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.070Z",
+   "payload": {
+    "receiptId": "rc1",
+    "number": "RC-rc1",
+    "entryDate": "2026-11-14",
+    "salesRepId": "r1",
+    "paymentMethod": "BANK_TRANSFER",
+    "amount": "600.000",
+    "customerId": "c1",
+    "paylinkId": null,
+    "customerName": "عميل",
+    "salesRepName": "مندوب",
+    "sourceCreatedAt": "2026-11-14T09:00:00.070Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc2:POST",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc2",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.080Z",
+   "payload": {
+    "receiptId": "rc2",
+    "number": "RC-rc2",
+    "entryDate": "2026-11-14",
+    "salesRepId": "r1",
+    "paymentMethod": "CASH",
+    "amount": "500.000",
+    "customerId": "c1",
+    "paylinkId": null,
+    "customerName": "عميل",
+    "salesRepName": "مندوب",
+    "sourceCreatedAt": "2026-11-14T09:00:00.080Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc2:REVERSE",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc2",
+   "event": "REVERSE",
+   "effectAt": "2026-11-14T09:00:00.090Z",
+   "payload": {
+    "receiptId": "rc2",
+    "entryDate": "2026-11-14",
+    "paymentMethod": "CASH",
+    "paylinkId": null,
+    "refundEntryId": null,
+    "refundedAmount": null,
+    "sourceCreatedAt": "2026-11-14T09:00:00.090Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc3:POST",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc3",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.100Z",
+   "payload": {
+    "receiptId": "rc3",
+    "number": "RC-rc3",
+    "entryDate": "2026-11-14",
+    "salesRepId": "r1",
+    "paymentMethod": "POS",
+    "amount": "230.000",
+    "customerId": "c1",
+    "paylinkId": null,
+    "customerName": "عميل",
+    "salesRepName": "مندوب",
+    "sourceCreatedAt": "2026-11-14T09:00:00.100Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc4:POST",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc4",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.110Z",
+   "payload": {
+    "receiptId": "rc4",
+    "number": "RC-rc4",
+    "entryDate": "2026-11-14",
+    "salesRepId": "r1",
+    "paymentMethod": "ONLINE",
+    "amount": "1000.000",
+    "customerId": "c1",
+    "paylinkId": "L1",
+    "customerName": "عميل",
+    "salesRepName": "مندوب",
+    "sourceCreatedAt": "2026-11-14T09:00:00.110Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc4:REVERSE",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc4",
+   "event": "REVERSE",
+   "effectAt": "2026-11-14T09:00:00.120Z",
+   "payload": {
+    "receiptId": "rc4",
+    "entryDate": "2026-11-14",
+    "paymentMethod": "ONLINE",
+    "paylinkId": "L1",
+    "refundEntryId": "se-r1",
+    "refundedAmount": "-1000.000",
+    "sourceCreatedAt": "2026-11-14T09:00:00.120Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc5:REVERSE",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc5",
+   "event": "REVERSE",
+   "effectAt": "2026-11-14T09:00:00.130Z",
+   "payload": {
+    "receiptId": "rc5",
+    "entryDate": "2026-11-14",
+    "paymentMethod": "ONLINE",
+    "paylinkId": "L2",
+    "refundEntryId": null,
+    "refundedAmount": null,
+    "sourceCreatedAt": "2026-11-14T09:00:00.130Z"
+   }
+  },
+  {
+   "sourceKey": "AR_ENTRY:a16:POST",
+   "sourceType": "AR_ENTRY",
+   "sourceId": "a16",
+   "event": "POST",
+   "effectAt": "2026-10-15T09:00:00.000Z",
+   "payload": {
+    "entryId": "a16",
+    "customerId": "c1",
+    "customerName": "عميل واحد",
+    "debit": "500.555",
+    "credit": "0.000",
+    "description": "رصيد مستورد",
+    "entryDate": "2026-10-15T09:00:00.000Z",
+    "createdAt": "2026-11-14T09:00:00.140Z",
+    "origin": "IMPORT",
+    "sourceCreatedAt": "2026-11-14T09:00:00.140Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cash2:REVERSE",
+   "sourceType": "INVOICE",
+   "sourceId": "cash2",
+   "event": "REVERSE",
+   "effectAt": "2026-11-14T09:00:00.150Z",
+   "payload": {
+    "invoiceId": "cash2",
+    "type": "CASH",
+    "entryDate": "2026-11-14",
+    "sourceCreatedAt": "2026-11-14T09:00:00.150Z",
+    "keepCashLeg": true
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cr3:REVERSE",
+   "sourceType": "INVOICE",
+   "sourceId": "cr3",
+   "event": "REVERSE",
+   "effectAt": "2026-11-14T09:00:00.160Z",
+   "payload": {
+    "invoiceId": "cr3",
+    "type": "CREDIT",
+    "entryDate": "2026-11-14",
+    "sourceCreatedAt": "2026-11-14T09:00:00.160Z"
+   }
+  }
+ ],
+ "REP_SETTLEMENT:3": [
+  {
+   "sourceKey": "SETTLEMENT:s1:POST",
+   "sourceType": "SETTLEMENT",
+   "sourceId": "s1",
+   "event": "POST",
+   "effectAt": "2026-11-13T09:00:00.000Z",
+   "payload": {
+    "settlementId": "s1",
+    "amount": "800.000",
+    "method": "CASH",
+    "salesRepId": "r1",
+    "settledAt": "2026-11-13T09:00:00.000Z",
+    "createdAt": "2026-11-14T09:00:00.200Z",
+    "note": null,
+    "salesRepName": "أحمد",
+    "sourceCreatedAt": "2026-11-14T09:00:00.200Z"
+   }
+  },
+  {
+   "sourceKey": "SETTLEMENT:s2:POST",
+   "sourceType": "SETTLEMENT",
+   "sourceId": "s2",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.000Z",
+   "payload": {
+    "settlementId": "s2",
+    "amount": "700.005",
+    "method": "CHEQUE",
+    "salesRepId": "r1",
+    "settledAt": "2026-11-14T09:00:00.000Z",
+    "createdAt": "2026-11-14T09:00:00.210Z",
+    "note": "شيك",
+    "salesRepName": "أحمد",
+    "sourceCreatedAt": "2026-11-14T09:00:00.210Z"
+   }
+  },
+  {
+   "sourceKey": "SETTLEMENT:s3:POST",
+   "sourceType": "SETTLEMENT",
+   "sourceId": "s3",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.005Z",
+   "payload": {
+    "settlementId": "s3",
+    "amount": "300.000",
+    "method": "BANK_TRANSFER",
+    "salesRepId": "r2",
+    "settledAt": "2026-11-14T09:00:00.005Z",
+    "createdAt": "2026-11-14T09:00:00.220Z",
+    "note": null,
+    "salesRepName": "خالد",
+    "sourceCreatedAt": "2026-11-14T09:00:00.220Z"
+   }
+  }
+ ],
+ "SETTLEMENT_ENTRY:3": [
+  {
+   "sourceKey": "PAYLINK_FEE:se-f1",
+   "sourceType": "PAYLINK_FEE",
+   "sourceId": "se-f1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.301Z",
+   "payload": {
+    "entryId": "se-f1",
+    "amount": "-41.000",
+    "feeNet": "35.650",
+    "feeVat": "5.350",
+    "createdAt": "2026-11-14T09:00:00.301Z",
+    "linkId": "L1",
+    "note": "عمولة",
+    "sourceCreatedAt": "2026-11-14T09:00:00.301Z"
+   }
+  },
+  {
+   "sourceKey": "PAYOUT:po1",
+   "sourceType": "PAYOUT",
+   "sourceId": "po1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.303Z",
+   "payload": {
+    "payoutId": "po1",
+    "amount": "-950.000",
+    "createdAt": "2026-11-14T09:00:00.303Z",
+    "bankReference": "BR-1",
+    "note": null,
+    "sourceCreatedAt": "2026-11-14T09:00:00.303Z"
+   }
+  }
+ ],
+ "settlementPayload:3": [
+  {
+   "settlementId": "s1",
+   "amount": "800.000",
+   "method": "CASH",
+   "salesRepId": "r1",
+   "settledAt": "2026-11-13T09:00:00.000Z",
+   "createdAt": "2026-11-14T09:00:00.200Z",
+   "note": null,
+   "salesRepName": "أحمد",
+   "sourceCreatedAt": "2026-11-14T09:00:00.200Z"
+  },
+  {
+   "settlementId": "s2",
+   "amount": "700.005",
+   "method": "CHEQUE",
+   "salesRepId": "r1",
+   "settledAt": "2026-11-14T09:00:00.000Z",
+   "createdAt": "2026-11-14T09:00:00.210Z",
+   "note": "شيك",
+   "salesRepName": "أحمد",
+   "sourceCreatedAt": "2026-11-14T09:00:00.210Z"
+  },
+  {
+   "settlementId": "s3",
+   "amount": "300.000",
+   "method": "BANK_TRANSFER",
+   "salesRepId": "r2",
+   "settledAt": "2026-11-14T09:00:00.005Z",
+   "createdAt": "2026-11-14T09:00:00.220Z",
+   "note": null,
+   "salesRepName": "أحمد",
+   "sourceCreatedAt": "2026-11-14T09:00:00.220Z"
+  }
+ ],
+ "ACCOUNT_ENTRY:0": [
+  {
+   "sourceKey": "INVOICE:cash1:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "cash1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.000Z",
+   "payload": {
+    "invoiceId": "cash1",
+    "number": "INV-cash1",
+    "type": "CASH",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": null,
+    "pricesIncludeTax": false,
+    "subtotal": "100",
+    "discountAmt": "0",
+    "taxAmt": "15",
+    "total": "115",
+    "currency": "IQD",
+    "currencyDecimals": 0,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 1,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "15",
+      "lineTotal": "115",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.002Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cr1:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "cr1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.010Z",
+   "payload": {
+    "invoiceId": "cr1",
+    "number": "INV-cr1",
+    "type": "CREDIT",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": "2027-01-13",
+    "pricesIncludeTax": false,
+    "subtotal": "1000",
+    "discountAmt": "0",
+    "taxAmt": "150",
+    "total": "1150",
+    "currency": "IQD",
+    "currencyDecimals": 0,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 10,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "150",
+      "lineTotal": "1150",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.010Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cr2:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "cr2",
+   "event": "POST",
+   "effectAt": "2026-11-13T09:00:00.000Z",
+   "payload": {
+    "invoiceId": "cr2",
+    "number": "INV-cr2",
+    "type": "CREDIT",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-13",
+    "dueDate": null,
+    "pricesIncludeTax": false,
+    "subtotal": "1000",
+    "discountAmt": "0",
+    "taxAmt": "150",
+    "total": "1150",
+    "currency": "IQD",
+    "currencyDecimals": 0,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 2.5,
+      "unitPrice": 400,
+      "taxPct": 15,
+      "taxAmt": "150",
+      "lineTotal": "1150",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.020Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cr3:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "cr3",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.030Z",
+   "payload": {
+    "invoiceId": "cr3",
+    "number": "INV-cr3",
+    "type": "CREDIT",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": "2026-12-02",
+    "pricesIncludeTax": false,
+    "subtotal": "1000",
+    "discountAmt": "0",
+    "taxAmt": "150",
+    "total": "1150",
+    "currency": "IQD",
+    "currencyDecimals": 0,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 10,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "150",
+      "lineTotal": "1150",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.030Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:ret1:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "ret1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.040Z",
+   "payload": {
+    "invoiceId": "ret1",
+    "number": "INV-ret1",
+    "type": "RETURN",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": null,
+    "pricesIncludeTax": false,
+    "subtotal": "100",
+    "discountAmt": "0",
+    "taxAmt": "15",
+    "total": "115",
+    "currency": "IQD",
+    "currencyDecimals": 0,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 10,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "150",
+      "lineTotal": "1150",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.040Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cn1:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "cn1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.050Z",
+   "payload": {
+    "invoiceId": "cn1",
+    "number": "INV-cn1",
+    "type": "RETURN",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": null,
+    "pricesIncludeTax": false,
+    "subtotal": "100",
+    "discountAmt": "0",
+    "taxAmt": "15",
+    "total": "115",
+    "currency": "IQD",
+    "currencyDecimals": 0,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 10,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "150",
+      "lineTotal": "1150",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.050Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:dn1:POST",
+   "sourceType": "INVOICE",
+   "sourceId": "dn1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.060Z",
+   "payload": {
+    "invoiceId": "dn1",
+    "number": "INV-dn1",
+    "type": "CREDIT",
+    "customerId": "c1",
+    "customerName": "عميل",
+    "salesRepId": "r1",
+    "salesRepName": "مندوب",
+    "entryDate": "2026-11-14",
+    "dueDate": null,
+    "pricesIncludeTax": false,
+    "subtotal": "1000",
+    "discountAmt": "0",
+    "taxAmt": "150",
+    "total": "1150",
+    "currency": "IQD",
+    "currencyDecimals": 0,
+    "items": [
+     {
+      "productId": "p1",
+      "categoryId": "cat1",
+      "qty": 10,
+      "unitPrice": 100,
+      "taxPct": 15,
+      "taxAmt": "150",
+      "lineTotal": "1150",
+      "vatCategory": "S"
+     }
+    ],
+    "sourceCreatedAt": "2026-11-14T09:00:00.060Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc1:POST",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.070Z",
+   "payload": {
+    "receiptId": "rc1",
+    "number": "RC-rc1",
+    "entryDate": "2026-11-14",
+    "salesRepId": "r1",
+    "paymentMethod": "BANK_TRANSFER",
+    "amount": "600",
+    "customerId": "c1",
+    "paylinkId": null,
+    "customerName": "عميل",
+    "salesRepName": "مندوب",
+    "sourceCreatedAt": "2026-11-14T09:00:00.070Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc2:POST",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc2",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.080Z",
+   "payload": {
+    "receiptId": "rc2",
+    "number": "RC-rc2",
+    "entryDate": "2026-11-14",
+    "salesRepId": "r1",
+    "paymentMethod": "CASH",
+    "amount": "500",
+    "customerId": "c1",
+    "paylinkId": null,
+    "customerName": "عميل",
+    "salesRepName": "مندوب",
+    "sourceCreatedAt": "2026-11-14T09:00:00.080Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc2:REVERSE",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc2",
+   "event": "REVERSE",
+   "effectAt": "2026-11-14T09:00:00.090Z",
+   "payload": {
+    "receiptId": "rc2",
+    "entryDate": "2026-11-14",
+    "paymentMethod": "CASH",
+    "paylinkId": null,
+    "refundEntryId": null,
+    "refundedAmount": null,
+    "sourceCreatedAt": "2026-11-14T09:00:00.090Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc3:POST",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc3",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.100Z",
+   "payload": {
+    "receiptId": "rc3",
+    "number": "RC-rc3",
+    "entryDate": "2026-11-14",
+    "salesRepId": "r1",
+    "paymentMethod": "POS",
+    "amount": "230",
+    "customerId": "c1",
+    "paylinkId": null,
+    "customerName": "عميل",
+    "salesRepName": "مندوب",
+    "sourceCreatedAt": "2026-11-14T09:00:00.100Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc4:POST",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc4",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.110Z",
+   "payload": {
+    "receiptId": "rc4",
+    "number": "RC-rc4",
+    "entryDate": "2026-11-14",
+    "salesRepId": "r1",
+    "paymentMethod": "ONLINE",
+    "amount": "1000",
+    "customerId": "c1",
+    "paylinkId": "L1",
+    "customerName": "عميل",
+    "salesRepName": "مندوب",
+    "sourceCreatedAt": "2026-11-14T09:00:00.110Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc4:REVERSE",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc4",
+   "event": "REVERSE",
+   "effectAt": "2026-11-14T09:00:00.120Z",
+   "payload": {
+    "receiptId": "rc4",
+    "entryDate": "2026-11-14",
+    "paymentMethod": "ONLINE",
+    "paylinkId": "L1",
+    "refundEntryId": "se-r1",
+    "refundedAmount": "-1000",
+    "sourceCreatedAt": "2026-11-14T09:00:00.120Z"
+   }
+  },
+  {
+   "sourceKey": "RECEIPT:rc5:REVERSE",
+   "sourceType": "RECEIPT",
+   "sourceId": "rc5",
+   "event": "REVERSE",
+   "effectAt": "2026-11-14T09:00:00.130Z",
+   "payload": {
+    "receiptId": "rc5",
+    "entryDate": "2026-11-14",
+    "paymentMethod": "ONLINE",
+    "paylinkId": "L2",
+    "refundEntryId": null,
+    "refundedAmount": null,
+    "sourceCreatedAt": "2026-11-14T09:00:00.130Z"
+   }
+  },
+  {
+   "sourceKey": "AR_ENTRY:a16:POST",
+   "sourceType": "AR_ENTRY",
+   "sourceId": "a16",
+   "event": "POST",
+   "effectAt": "2026-10-15T09:00:00.000Z",
+   "payload": {
+    "entryId": "a16",
+    "customerId": "c1",
+    "customerName": "عميل واحد",
+    "debit": "501",
+    "credit": "0",
+    "description": "رصيد مستورد",
+    "entryDate": "2026-10-15T09:00:00.000Z",
+    "createdAt": "2026-11-14T09:00:00.140Z",
+    "origin": "IMPORT",
+    "sourceCreatedAt": "2026-11-14T09:00:00.140Z"
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cash2:REVERSE",
+   "sourceType": "INVOICE",
+   "sourceId": "cash2",
+   "event": "REVERSE",
+   "effectAt": "2026-11-14T09:00:00.150Z",
+   "payload": {
+    "invoiceId": "cash2",
+    "type": "CASH",
+    "entryDate": "2026-11-14",
+    "sourceCreatedAt": "2026-11-14T09:00:00.150Z",
+    "keepCashLeg": true
+   }
+  },
+  {
+   "sourceKey": "INVOICE:cr3:REVERSE",
+   "sourceType": "INVOICE",
+   "sourceId": "cr3",
+   "event": "REVERSE",
+   "effectAt": "2026-11-14T09:00:00.160Z",
+   "payload": {
+    "invoiceId": "cr3",
+    "type": "CREDIT",
+    "entryDate": "2026-11-14",
+    "sourceCreatedAt": "2026-11-14T09:00:00.160Z"
+   }
+  }
+ ],
+ "REP_SETTLEMENT:0": [
+  {
+   "sourceKey": "SETTLEMENT:s1:POST",
+   "sourceType": "SETTLEMENT",
+   "sourceId": "s1",
+   "event": "POST",
+   "effectAt": "2026-11-13T09:00:00.000Z",
+   "payload": {
+    "settlementId": "s1",
+    "amount": "800",
+    "method": "CASH",
+    "salesRepId": "r1",
+    "settledAt": "2026-11-13T09:00:00.000Z",
+    "createdAt": "2026-11-14T09:00:00.200Z",
+    "note": null,
+    "salesRepName": "أحمد",
+    "sourceCreatedAt": "2026-11-14T09:00:00.200Z"
+   }
+  },
+  {
+   "sourceKey": "SETTLEMENT:s2:POST",
+   "sourceType": "SETTLEMENT",
+   "sourceId": "s2",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.000Z",
+   "payload": {
+    "settlementId": "s2",
+    "amount": "700",
+    "method": "CHEQUE",
+    "salesRepId": "r1",
+    "settledAt": "2026-11-14T09:00:00.000Z",
+    "createdAt": "2026-11-14T09:00:00.210Z",
+    "note": "شيك",
+    "salesRepName": "أحمد",
+    "sourceCreatedAt": "2026-11-14T09:00:00.210Z"
+   }
+  },
+  {
+   "sourceKey": "SETTLEMENT:s3:POST",
+   "sourceType": "SETTLEMENT",
+   "sourceId": "s3",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.005Z",
+   "payload": {
+    "settlementId": "s3",
+    "amount": "300",
+    "method": "BANK_TRANSFER",
+    "salesRepId": "r2",
+    "settledAt": "2026-11-14T09:00:00.005Z",
+    "createdAt": "2026-11-14T09:00:00.220Z",
+    "note": null,
+    "salesRepName": "خالد",
+    "sourceCreatedAt": "2026-11-14T09:00:00.220Z"
+   }
+  }
+ ],
+ "SETTLEMENT_ENTRY:0": [
+  {
+   "sourceKey": "PAYLINK_FEE:se-f1",
+   "sourceType": "PAYLINK_FEE",
+   "sourceId": "se-f1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.301Z",
+   "payload": {
+    "entryId": "se-f1",
+    "amount": "-41",
+    "feeNet": "36",
+    "feeVat": "5",
+    "createdAt": "2026-11-14T09:00:00.301Z",
+    "linkId": "L1",
+    "note": "عمولة",
+    "sourceCreatedAt": "2026-11-14T09:00:00.301Z"
+   }
+  },
+  {
+   "sourceKey": "PAYOUT:po1",
+   "sourceType": "PAYOUT",
+   "sourceId": "po1",
+   "event": "POST",
+   "effectAt": "2026-11-14T09:00:00.303Z",
+   "payload": {
+    "payoutId": "po1",
+    "amount": "-950",
+    "createdAt": "2026-11-14T09:00:00.303Z",
+    "bankReference": "BR-1",
+    "note": null,
+    "sourceCreatedAt": "2026-11-14T09:00:00.303Z"
+   }
+  }
+ ],
+ "settlementPayload:0": [
+  {
+   "settlementId": "s1",
+   "amount": "800",
+   "method": "CASH",
+   "salesRepId": "r1",
+   "settledAt": "2026-11-13T09:00:00.000Z",
+   "createdAt": "2026-11-14T09:00:00.200Z",
+   "note": null,
+   "salesRepName": "أحمد",
+   "sourceCreatedAt": "2026-11-14T09:00:00.200Z"
+  },
+  {
+   "settlementId": "s2",
+   "amount": "700",
+   "method": "CHEQUE",
+   "salesRepId": "r1",
+   "settledAt": "2026-11-14T09:00:00.000Z",
+   "createdAt": "2026-11-14T09:00:00.210Z",
+   "note": "شيك",
+   "salesRepName": "أحمد",
+   "sourceCreatedAt": "2026-11-14T09:00:00.210Z"
+  },
+  {
+   "settlementId": "s3",
+   "amount": "300",
+   "method": "BANK_TRANSFER",
+   "salesRepId": "r2",
+   "settledAt": "2026-11-14T09:00:00.005Z",
+   "createdAt": "2026-11-14T09:00:00.220Z",
+   "note": null,
+   "salesRepName": "أحمد",
+   "sourceCreatedAt": "2026-11-14T09:00:00.220Z"
+  }
+ ]
+}

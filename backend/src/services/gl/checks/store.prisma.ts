@@ -18,6 +18,15 @@ import { createPrismaReconcilerStore } from '../sync/reconcilerStore.prisma';
 import type { BackfillState, InventoryMode, LocalDate, Milli } from '../types';
 import type { CheckSettingsFacts, CheckStore, PendingPartners } from './run';
 import type { CursorFacts, OpeningEntryGroup, PeriodTotal, ProblemEvent } from './rules';
+// «ربط الدفاتر» L5/L8 (C4b بالنقدية المختومة، C4u، C16) — استيرادات منفصلة
+import { REP_COLLECTED_CASH_SALE } from '../../repCashCollection';
+import { isLinked } from '../mode';
+import { loadUserCustodyInputsMany } from '../sync/postingStore.prisma';
+import { loadAdminNames } from '../sync/facts.prisma';
+import { openArByCustomer } from '../reconcile/store.prisma';
+import type { C16InvoiceDetail } from './rules';
+import { Prisma as PrismaSql } from '@prisma/client';
+import { localDate } from '../dates';
 
 type Db = Prisma.TransactionClient | PrismaClient;
 
@@ -58,6 +67,8 @@ export function createPrismaCheckStore(db: Db): CheckStore {
           salesLockDate: dateOut(s.salesLockDate), purchaseLockDate: dateOut(s.purchaseLockDate),
           taxLockDate: dateOut(s.taxLockDate), hardLockDate: dateOut(s.hardLockDate),
         },
+        // «ربط الدفاتر» (D1): المربوطة المفعّلة وحدها — C4u وC16 ومؤشر USER_SETTLEMENT في C15
+        linked: isLinked({ setupMethod: s.setupMethod, activatedAt: s.activatedAt }),
       };
     },
 
@@ -115,10 +126,12 @@ export function createPrismaCheckStore(db: Db): CheckStore {
       };
       const rows = partner === 'customerId'
         ? await d.glMoveLine.groupBy({ by: ['customerId'], where, _sum: { debitMilli: true, creditMilli: true } })
-        : await d.glMoveLine.groupBy({ by: ['salesRepId'], where, _sum: { debitMilli: true, creditMilli: true } });
+        : partner === 'adminUserId'
+          ? await d.glMoveLine.groupBy({ by: ['adminUserId'], where, _sum: { debitMilli: true, creditMilli: true } })
+          : await d.glMoveLine.groupBy({ by: ['salesRepId'], where, _sum: { debitMilli: true, creditMilli: true } });
       const out = new Map<string, Milli>();
-      for (const r of rows as { customerId?: string | null; salesRepId?: string | null; _sum: { debitMilli: bigint | null; creditMilli: bigint | null } }[]) {
-        const id = partner === 'customerId' ? r.customerId : r.salesRepId;
+      for (const r of rows as { customerId?: string | null; salesRepId?: string | null; adminUserId?: string | null; _sum: { debitMilli: bigint | null; creditMilli: bigint | null } }[]) {
+        const id = partner === 'customerId' ? r.customerId : partner === 'adminUserId' ? r.adminUserId : r.salesRepId;
         if (!id) continue;
         out.set(id, (r._sum.debitMilli ?? 0n) - (r._sum.creditMilli ?? 0n));
       }
@@ -251,6 +264,12 @@ export function createPrismaCheckStore(db: Db): CheckStore {
       const out = new Map<string, Milli>();
       for (const r of collected) if (r.salesRepId) out.set(r.salesRepId, toMilli(r._sum.amount ?? 0, decimals));
       for (const r of settled) if (r.salesRepId) out.set(r.salesRepId, (out.get(r.salesRepId) ?? 0n) - toMilli(r._sum.amount ?? 0, decimals));
+      // OD3 (C4b): «البيع النقدي تحصيلٌ لدى المندوب» — شاشة collection-balance تعدّ فواتيره المختومة (REP_COLLECTED_CASH_SALE،
+      // paidAmt) تحصيلاً، فيعدّها المعلّق هنا كذلك ويقابلها في المكوّنات عنصر cashInvoices المختوم (stamped)
+      const cashSales = await d.invoice.groupBy({
+        by: ['salesRepId'], where: { tenantId, salesRepId: { not: null }, ...after, AND: [REP_COLLECTED_CASH_SALE] }, _sum: { paidAmt: true },
+      });
+      for (const r of cashSales) if (r.salesRepId) out.set(r.salesRepId, (out.get(r.salesRepId) ?? 0n) + toMilli(r._sum.paidAmt ?? 0, decimals));
       return out;
     },
 
@@ -281,7 +300,7 @@ export function createPrismaCheckStore(db: Db): CheckStore {
       };
     },
 
-    async pendingPartners(tenantId, since): Promise<PendingPartners> {
+    async pendingPartners(tenantId, since, opts = {}): Promise<PendingPartners> {
       const out: PendingPartners = { customerIds: new Set(), salesRepIds: new Set(), settlement: false, unknown: false };
       const events = await d.glSourceEvent.findMany({
         where: { tenantId, status: { in: NON_FINAL } },
@@ -296,6 +315,12 @@ export function createPrismaCheckStore(db: Db): CheckStore {
         const r = str(p?.salesRepId);
         if (c) out.customerIds.add(c);
         if (r) out.salesRepIds.add(r);
+        // «ربط الدفاتر» C4u: مستلِم الاستلام، وصاحب التوريد، ومستخدم ردّ مال السند الملغى
+        if (opts.linked) {
+          for (const u of [str(p?.receivedByUserId), str(p?.fromUserId), str(p?.cancelRefundUserId)]) if (u) (out.userIds ??= new Set()).add(u);
+          if (e.sourceType === 'PAYLINK_REFUND') out.settlement = true;
+          if (e.sourceType === 'USER_SETTLEMENT' && !p) out.unknown = true;
+        }
         switch (e.sourceType) {
           case 'PAYLINK_FEE':
           case 'PAYOUT':
@@ -349,6 +374,16 @@ export function createPrismaCheckStore(db: Db): CheckStore {
         }
         for (const s of settlements) if (s.salesRepId) out.salesRepIds.add(s.salesRepId);
         if (settlementEntries > 0) out.settlement = true;
+        // «ربط الدفاتر» C4u: صفوف عهدة المستخدمين الحديثة (استلامٌ بيد مستخدم، وتوريده) لم تلحق بها نبضة
+        if (opts.linked) {
+          const [received, delivered] = await Promise.all([
+            d.repSettlement.findMany({ where: { tenantId, createdAt: { gt: since }, receivedByUserId: { not: null }, ...SETTLEMENT_HAS_REP }, select: { receivedByUserId: true }, take: PENDING_SCAN_LIMIT }),
+            d.userSettlement.findMany({ where: { tenantId, createdAt: { gt: since } }, select: { fromUserId: true }, take: PENDING_SCAN_LIMIT }),
+          ]);
+          if (received.length >= PENDING_SCAN_LIMIT || delivered.length >= PENDING_SCAN_LIMIT) out.unknown = true;
+          for (const x of received) if (x.receivedByUserId) (out.userIds ??= new Set()).add(x.receivedByUserId);
+          for (const x of delivered) (out.userIds ??= new Set()).add(x.fromUserId);
+        }
       }
       return out;
     },
@@ -464,6 +499,75 @@ export function createPrismaCheckStore(db: Db): CheckStore {
         d.erpIntegration.findUnique({ where: { tenantId }, select: { enabled: true, provider: true } }),
       ]);
       return !!tenant?.erpEnabled && !!erp?.enabled && erp.provider === 'ODOO';
+    },
+
+    // ── «ربط الدفاتر» L5/L8 ──
+
+    /** C4u: مدخلات الطيّ لكل من له تاريخ عهدة — المحمّل نفسه الذي يقسم به المُرحِّل توريد المستخدم (خمس قراءات) */
+    async userCustodyInputs(tenantId, decimals) {
+      return loadUserCustodyInputsMany(d, tenantId, decimals, null);
+    },
+
+    async adminNames(tenantId, ids) {
+      return loadAdminNames(d, tenantId, [...ids]);
+    },
+
+    /** C16: Σ متبقّي سطور الذمة المدينة لكل عميل (A10: reconcile/store.prisma.openArByCustomer) */
+    async openArByCustomer(tenantId) {
+      return openArByCustomer(d, tenantId);
+    },
+
+    /** C16: Σ remainingAmt لفواتير CONFIRMED (CREDIT/CASH) لكل عميل — تقريب كل فاتورة نصف-لأعلى (ROUND على numeric) ثم الجمع */
+    async invoiceRemainingByCustomer(tenantId, decimals) {
+      const rows = await d.$queryRaw<{ customerId: string; total: string }[]>`
+        SELECT i."customerId" AS "customerId", COALESCE(SUM(ROUND(i."remainingAmt"::numeric, ${decimals}::int)), 0)::text AS "total"
+        FROM "invoices" i
+        WHERE i."tenantId" = ${tenantId} AND i."status" = 'CONFIRMED' AND i."type" IN ('CREDIT', 'CASH')
+        GROUP BY i."customerId"`;
+      const out = new Map<string, Milli>();
+      for (const r of rows) {
+        const m = toMilli(r.total, decimals);
+        if (m !== 0n) out.set(r.customerId, m);
+      }
+      return out;
+    },
+
+    /**
+     * C16 تعمّقاً: فواتير العملاء المذكورين (CONFIRMED، CREDIT/CASH) بمتبقّيها مقابل Σ متبقّي سطور الذمة المدينة لقيدها الحيّ
+     * (INVOICE:<id>:POST وإعادة ترحيله، غير المعكوس) بعد المطابقة — المختلفة وحدها، حتى limit. استعلام واحد مجمّع.
+     */
+    async invoiceOpenItems(tenantId, customerIds, decimals, limit, timezone): Promise<C16InvoiceDetail[]> {
+      if (customerIds.length === 0 || limit <= 0) return [];
+      const rows = await d.$queryRaw<{ invoiceId: string; number: string | null; customerId: string; invoiceDate: Date | null; remaining: string; ledgerOpen: bigint | number | string | null }[]>`
+        WITH "inv" AS (
+          SELECT i."id", i."number", i."customerId", i."invoiceDate", ROUND(i."remainingAmt"::numeric, ${decimals}::int) AS "rem"
+          FROM "invoices" i
+          WHERE i."tenantId" = ${tenantId} AND i."customerId" IN (${PrismaSql.join([...customerIds])})
+            AND i."status" = 'CONFIRMED' AND i."type" IN ('CREDIT', 'CASH')
+        ), "led" AS (
+          SELECT ms."sourceId" AS "iid", SUM(l."debitMilli" - COALESCE(pr."amt", 0)) AS "open"
+          FROM "gl_move_sources" ms
+          JOIN "gl_moves" m ON m."id" = ms."moveId" AND m."state" = 'POSTED' AND m."reversedMoveId" IS NULL
+          JOIN "gl_move_lines" l ON l."moveId" = m."id" AND l."debitMilli" > 0 AND l."customerId" IS NOT NULL
+          JOIN "gl_accounts" a ON a."id" = l."accountId" AND a."controlKind" = 'AR'
+          LEFT JOIN LATERAL (
+            SELECT SUM(p."amountMilli") AS "amt" FROM "gl_partial_reconciles" p WHERE p."tenantId" = ${tenantId} AND p."debitLineId" = l."id"
+          ) pr ON true
+          WHERE ms."tenantId" = ${tenantId} AND ms."sourceType" = 'INVOICE' AND ms."event" = 'POST'
+            AND ms."sourceId" IN (SELECT "id" FROM "inv")
+          GROUP BY ms."sourceId"
+        )
+        SELECT inv."id" AS "invoiceId", inv."number", inv."customerId", inv."invoiceDate", inv."rem"::text AS "remaining",
+               COALESCE(led."open", 0)::bigint AS "ledgerOpen"
+        FROM "inv" LEFT JOIN "led" ON led."iid" = inv."id"
+        WHERE COALESCE(led."open", 0) <> (inv."rem" * 1000)::bigint
+        ORDER BY inv."invoiceDate" ASC, inv."id" ASC
+        LIMIT ${limit}`;
+      return rows.map((r) => ({
+        invoiceId: r.invoiceId, number: r.number, customerId: r.customerId,
+        invoiceDate: r.invoiceDate ? localDate(r.invoiceDate, timezone || 'Asia/Riyadh') : null,
+        remainingMilli: toMilli(r.remaining, decimals), ledgerOpenMilli: big(r.ledgerOpen),
+      }));
     },
   };
 }

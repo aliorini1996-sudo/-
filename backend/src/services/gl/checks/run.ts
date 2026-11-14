@@ -18,6 +18,12 @@ import {
   type SuspenseAccountFacts, type UnbalancedMove,
 } from './rules';
 import { CHECK_KEYS, worstStatus, type CheckKey, type CheckResult, type ChecksReport } from './types';
+// «ربط الدفاتر» L5/L8: C4u وC16 للمربوطة وحدها — استيرادات منفصلة
+import { foldUserCustody, type UserCustodyInputs } from '../../userCustodyCore';
+import {
+  C16_INVOICE_DETAIL_LIMIT, c16Gaps, evaluateC16, evaluateC4u, type C16Input, type C16InvoiceDetail, type UserCustodyFacts,
+} from './rules';
+import { LINKED_ONLY_CHECKS } from './types';
 
 // ═══ الحقائق ═══
 
@@ -33,6 +39,8 @@ export interface CheckSettingsFacts {
   lastSyncAt: Date | null;
   inventoryMode: InventoryMode;
   lockDates: LockDates;
+  /** «ربط الدفاتر» (D1): دفاتر مربوطة مفعّلة (isLinked) — الغائب = غير مربوطة (المخازن القديمة) */
+  linked?: boolean;
 }
 
 export interface ControlAccountFacts { id: string; code: string; controlKind: string }
@@ -45,6 +53,8 @@ export interface PendingPartners {
   settlement: boolean;
   /** حدث بلا شريك معروف (حمولة غائبة) أو لا نبضة بعد ⇒ كل انحراف أصفر */
   unknown: boolean;
+  /** «ربط الدفاتر» (C4u): مستخدمو الشركة الذين لهم أحداث عهدة غير نهائية أو صفوف حديثة — للمربوطة وحدها */
+  userIds?: Set<string>;
 }
 
 export interface CheckStore {
@@ -60,7 +70,7 @@ export interface CheckStore {
   controlAccounts(tenantId: string): Promise<ControlAccountFacts[]>;
   mappedAccounts(tenantId: string, keys: readonly string[]): Promise<{ key: string; id: string; code: string }[]>;
   /** Σ(مدين − دائن) للسطور المرحّلة على الحسابات مجمّعة بالشريك؛ moveType اختياري (OPENING) */
-  ledgerByPartner(tenantId: string, accountIds: readonly string[], partner: 'customerId' | 'salesRepId', opts?: { moveType?: string }): Promise<Map<string, Milli>>;
+  ledgerByPartner(tenantId: string, accountIds: readonly string[], partner: 'customerId' | 'salesRepId' | 'adminUserId', opts?: { moveType?: string }): Promise<Map<string, Milli>>;
   ledgerTotal(tenantId: string, accountIds: readonly string[], opts?: { moveType?: 'OPENING' }): Promise<Milli>;
 
   // C3
@@ -85,7 +95,8 @@ export interface CheckStore {
   paylinkExplanations(tenantId: string, decimals: number, opts?: { createdAfter?: Date }): Promise<Pick<C5Input, 'refundedLinksWithoutRefund' | 'cancelledOnlineWithoutRefund'>>;
 
   // المزامنة
-  pendingPartners(tenantId: string, since: Date | null): Promise<PendingPartners>;
+  /** opts.linked («ربط الدفاتر»): يجمع مستخدمي العهدة أيضاً (userIds) — والغائب كما كان */
+  pendingPartners(tenantId: string, since: Date | null, opts?: { linked?: boolean }): Promise<PendingPartners>;
   problemEvents(tenantId: string, limit: number): Promise<ProblemEvent[]>;
   cursorStates(tenantId: string, dbNow: Date): Promise<CursorFacts[]>;
 
@@ -101,6 +112,18 @@ export interface CheckStore {
   sequences(tenantId: string): Promise<SequenceFacts[]>;
   postedMoveNumbers(tenantId: string): Promise<{ journalId: string; number: string }[]>;
   erpOdooActive(tenantId: string): Promise<boolean>;
+
+  // ── «ربط الدفاتر» L5/L8 (اختيارية: المخازن المزيّفة القديمة بلا هذه ⇒ C4u/C16 بلا صفوف) ──
+  /** C4u: مدخلات foldUserCustody لكل مستخدم له تاريخ عهدة (قراءات مجمّعة بلا N+1) */
+  userCustodyInputs?(tenantId: string, decimals: number): Promise<Map<string, UserCustodyInputs>>;
+  /** أسماء مستخدمي الشركة (Admin) */
+  adminNames?(tenantId: string, ids: readonly string[]): Promise<Map<string, string>>;
+  /** C16: Σ متبقّي سطور الذمة المدينة لكل عميل بعد المطابقة الجزئية */
+  openArByCustomer?(tenantId: string): Promise<Map<string, Milli>>;
+  /** C16: Σ remainingAmt لفواتير CONFIRMED (CREDIT/CASH) لكل عميل بتقريب كل فاتورة نصف-لأعلى */
+  invoiceRemainingByCustomer?(tenantId: string, decimals: number): Promise<Map<string, Milli>>;
+  /** C16: فواتير العملاء المذكورين التي تختلف ذمتها المفتوحة في الأستاذ عن متبقّيها (حتى limit) */
+  invoiceOpenItems?(tenantId: string, customerIds: readonly string[], decimals: number, limit: number, timezone?: string): Promise<C16InvoiceDetail[]>;
 }
 
 /** صفوف المصدر بعد (آخر نبضة − هامش) تُعدّ لم تلحق بها نبضة */
@@ -126,7 +149,7 @@ function idsOf(accounts: readonly ControlAccountFacts[], kind: string): string[]
 
 export async function loadPendingPartners(store: CheckStore, tenantId: string, s: CheckSettingsFacts): Promise<PendingPartners> {
   const since = s.lastSyncAt ? new Date(s.lastSyncAt.getTime() - RECENT_ROWS_MARGIN_MS) : null;
-  const p = await store.pendingPartners(tenantId, since);
+  const p = await store.pendingPartners(tenantId, since, s.linked === true ? { linked: true } : undefined);
   if (!s.lastSyncAt) p.unknown = true;
   return p;
 }
@@ -220,7 +243,48 @@ export async function loadImportAfterCutover(
 }
 
 /** فحوص المطابقة مع التشغيل والمزامنة — لا تنطبق على الدفاتر اليدوية المستقلة (CLEAN) وحدها؛ المربوطة (LINKED) تُفحص كلها */
-export const MANUAL_LEDGER_SKIPPED_CHECKS: readonly CheckKey[] = ['C3', 'C4', 'C4b', 'C5', 'C8', 'C14', 'C15'];
+export const MANUAL_LEDGER_SKIPPED_CHECKS: readonly CheckKey[] = ['C3', 'C4', 'C4b', 'C5', 'C8', 'C14', 'C15',
+  'C4u', 'C16'];
+
+/**
+ * «ربط الدفاتر» C4u (D6، R4): لكل مستخدم شركة 111004 (CUSTODY ببُعد adminUserId) مقابل foldUserCustody لمدخلاته — الدالة
+ * نفسها لشاشة المستخدم وقيد التوريد. المستخدمون = من له سطور في الأستاذ أو تاريخ عهدة. قراءات مجمّعة (لا استعلام لكل مستخدم).
+ */
+export async function loadUserCustodyFacts(
+  store: CheckStore, tenantId: string, s: CheckSettingsFacts, pending: PendingPartners, accounts?: ControlAccountFacts[], onlyUserId?: string,
+): Promise<UserCustodyFacts[]> {
+  const acc = accounts ?? await store.controlAccounts(tenantId);
+  const custody = idsOf(acc, 'CUSTODY');
+  const [ledger, inputs] = await Promise.all([
+    custody.length ? store.ledgerByPartner(tenantId, custody, 'adminUserId') : Promise.resolve(new Map<string, Milli>()),
+    store.userCustodyInputs ? store.userCustodyInputs(tenantId, s.currencyDecimals) : Promise.resolve(new Map<string, UserCustodyInputs>()),
+  ]);
+  const ids = [...new Set<string>([...ledger.keys(), ...inputs.keys()])].filter((id) => !onlyUserId || id === onlyUserId);
+  const names = ids.length && store.adminNames ? await store.adminNames(tenantId, ids) : new Map<string, string>();
+  const out: UserCustodyFacts[] = ids.map((id) => ({
+    userId: id, name: names.get(id) ?? null, ledgerMilli: ledger.get(id) ?? 0n,
+    fold: foldUserCustody(inputs.get(id) ?? { userId: id, received: [], delivered: [], refunds: [] }),
+    pending: pending.unknown || (pending.userIds?.has(id) ?? false),
+  }));
+  return out.sort((a, b) => (a.name ?? a.userId).localeCompare(b.name ?? b.userId, 'ar'));
+}
+
+/** «ربط الدفاتر» C16: الذمم المفتوحة في الأستاذ مقابل متبقّي الفواتير لكل عميل، والتعمّق بالفاتورة للعملاء المختلفين وحدهم */
+export async function loadC16Input(store: CheckStore, tenantId: string, s: CheckSettingsFacts, pending: PendingPartners): Promise<C16Input> {
+  const [ledgerOpen, opsRemaining] = await Promise.all([
+    store.openArByCustomer ? store.openArByCustomer(tenantId) : Promise.resolve(new Map<string, Milli>()),
+    store.invoiceRemainingByCustomer ? store.invoiceRemainingByCustomer(tenantId, s.currencyDecimals) : Promise.resolve(new Map<string, Milli>()),
+  ]);
+  const base = { ledgerOpen, opsRemaining, names: new Map<string, string>(), pendingCustomers: pending.customerIds, pendingAll: pending.unknown };
+  const gaps = c16Gaps(base);
+  if (gaps.length === 0) return { ...base, invoices: [] };
+  const ids = gaps.slice(0, C16_INVOICE_DETAIL_LIMIT).map((g) => g.partnerId);
+  const [names, invoices] = await Promise.all([
+    store.customerNames(tenantId, ids),
+    store.invoiceOpenItems ? store.invoiceOpenItems(tenantId, ids, s.currencyDecimals, C16_INVOICE_DETAIL_LIMIT, s.timezone) : Promise.resolve([] as C16InvoiceDetail[]),
+  ]);
+  return { ...base, names, invoices };
+}
 
 /**
  * يشغّل الفحوصات (كلها أو `only`). شركة غير مفعّلة ⇒ تقرير بلا نتائج (overall GREEN) — الفحوص تفترض activatedAt.
@@ -240,7 +304,9 @@ export async function runChecks(store: CheckStore, tenantId: string, opts: RunCh
   if (isManualBooks(s)) for (const k of MANUAL_LEDGER_SKIPPED_CHECKS) want.delete(k);
   const needAccounts = ['C3', 'C4', 'C4b', 'C5'].some((k) => want.has(k as CheckKey));
   const accounts = needAccounts ? await store.controlAccounts(tenantId) : [];
-  const pending = ['C3', 'C4', 'C5'].some((k) => want.has(k as CheckKey))
+  // «ربط الدفاتر»: C4u وC16 للمربوطة وحدها (القديمة OPENING/FULL_HISTORY لا 111004 لها ولا مطابقة جزئية)
+  if (s.linked !== true) for (const k of LINKED_ONLY_CHECKS) want.delete(k);
+  const pending = ['C3', 'C4', 'C5', 'C4u', 'C16'].some((k) => want.has(k as CheckKey))
     ? await loadPendingPartners(store, tenantId, s)
     : { customerIds: new Set<string>(), salesRepIds: new Set<string>(), settlement: false, unknown: false };
 
@@ -255,6 +321,7 @@ export async function runChecks(store: CheckStore, tenantId: string, opts: RunCh
     if (want.has('C4')) results.push(evaluateC4(reps));
     if (want.has('C4b')) results.push(evaluateC4b(reps));
   }
+  if (want.has('C4u')) results.push(evaluateC4u(await loadUserCustodyFacts(store, tenantId, s, pending, accounts.length ? accounts : undefined)));
   if (want.has('C5')) results.push(evaluateC5(await loadC5Input(store, tenantId, s, pending, accounts)));
   if (want.has('C8')) results.push(evaluateC8(await store.problemEvents(tenantId, MAX_PROBLEM_EVENTS), now));
   if (want.has('C9')) {
@@ -280,12 +347,13 @@ export async function runChecks(store: CheckStore, tenantId: string, opts: RunCh
     results.push(evaluateC12(sequences, moves));
   }
   if (want.has('C14')) results.push(evaluateC14({ erpOdooActive: await store.erpOdooActive(tenantId) }));
+  if (want.has('C16')) results.push(evaluateC16(await loadC16Input(store, tenantId, s, pending)));
   if (want.has('C15')) {
     results.push(evaluateC15({
       backfillState: s.backfillState,
       cursors: await store.cursorStates(tenantId, now),
       // المُطابِق في M3 يقرأ المصادر الثلاثة؛ مصادر المخزون تُضاف في M9
-      requiredSources: activeSyncSources('PERIODIC'),
+      requiredSources: activeSyncSources('PERIODIC', s.linked === true ? { linked: true } : {}),
     }));
   }
   const order = new Map(CHECK_KEYS.map((k, i) => [k, i]));
