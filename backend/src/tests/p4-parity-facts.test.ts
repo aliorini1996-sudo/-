@@ -349,11 +349,14 @@ test('تكامل: المعاينة الحقيقية على سيناريو الس
   assert.equal(by.get('R5')!.expectedMilli, 24_360n);
   assert.equal(by.get('R3')!.info!.reps, 1);
   const r8 = by.get('R8')!;
-  assert.equal(r8.status, 'NOT_AVAILABLE');
+  // «ربط الدفاتر» L6: المعاينة ترحّل قيود المخزون ⇒ R8 كامل
+  assert.equal(r8.status, 'OK');
+  assert.equal(r8.diffMilli, 0n);
   assert.equal(r8.info!.openingTie, 'OK');
   assert.ok(r8.drill.some((d) => d.partnerId === 'WH' && d.name === 'المستودع'));
   assert.equal(by.get('R9')!.expectedMilli, r.costing.summary.fyCogsMilli);
-  // وارد يناير المسعَّر بلا نمط دفع (50 × 6) ⇒ دائن 211002 متوقَّعاً
-  assert.equal(by.get('R11')!.expectedMilli, -300_000n);
+  // وارد يناير المسعَّر بلا نمط دفع (50 × 6) + وارد نوفمبر قبل الربط (100 × 5، افتتاح 211002 المشتقّ — L7) ⇒ دائن 211002
+  assert.equal(by.get('R11')!.expectedMilli, -800_000n);
+  assert.equal(by.get('R11')!.status, 'OK');
   assert.equal(s.db.writeCount(), 0);
 });

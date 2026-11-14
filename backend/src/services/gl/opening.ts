@@ -645,6 +645,9 @@ export const LINKED_DERIVED_OPENING_KEYS: readonly MappingKey[] = [
 export const LINKED_DERIVED_CONTROL_KINDS: readonly ControlKind[] = ['AR', 'CUSTODY', 'PAYLINK', 'INVENTORY'];
 /** مفاتيح المخزون من المشتقّ — تُشتقّ في الجرد المستمر وحده (PERPETUAL)؛ في الدوري لا سطور مخزون مشتقّة (OD7) */
 const LINKED_INVENTORY_KEYS: readonly MappingKey[] = ['INVENTORY_WAREHOUSE', 'INVENTORY_VAN'];
+/** «ربط الدفاتر» L7: والدائنون والوارد غير المفوتر يُشتقّان معه في الجرد المستمر (linkedOpeningLines البند 5) */
+const LINKED_PERPETUAL_PAYABLE_KEYS: readonly MappingKey[] = ['AP_CONTROL', 'GRNI'];
+const LINKED_PERPETUAL_PAYABLE_KINDS: readonly ControlKind[] = ['AP', 'GRNI'];
 
 export interface ManualBalanceIssue {
   index: number;
@@ -689,7 +692,7 @@ function amountOf(v: number | string | null | undefined, dec: number): Milli | '
 export function validateManualBalanceRows(
   rows: readonly ManualBalanceRowInput[],
   ctx: BuildContext,
-  opts: { midVatPeriod: boolean; derivedAccounts?: boolean; derivedInventory?: boolean },
+  opts: { midVatPeriod: boolean; derivedAccounts?: boolean; derivedInventory?: boolean; derivedPayables?: boolean },
 ): { lines: ManualBalanceLine[]; issues: ManualBalanceIssue[] } {
   const dec = ctx.settings.currencyDecimals;
   const lines: ManualBalanceLine[] = [];
@@ -698,8 +701,16 @@ export function validateManualBalanceRows(
   const equityId = ctx.accounts.byKey('OPENING_EQUITY')?.id ?? null;
   // بالمفتاح وبالنوع معاً: حساب أُعيد ربطه أو أُضيف بنوع رئيسي مشتقّ يُرفض كذلك (مرآة نسخة 0372543^) — والمخزون حين يُشتقّ وحده
   const withInventory = opts.derivedInventory !== false;
-  const derivedKeys = withInventory ? LINKED_DERIVED_OPENING_KEYS : LINKED_DERIVED_OPENING_KEYS.filter((k) => !LINKED_INVENTORY_KEYS.includes(k));
-  const derivedKinds = withInventory ? LINKED_DERIVED_CONTROL_KINDS : LINKED_DERIVED_CONTROL_KINDS.filter((k) => k !== 'INVENTORY');
+  // «ربط الدفاتر» L7: derivedPayables (الجرد المستمر) ⇒ 211001 و211002 مشتقّان أيضاً (linkedOpeningLines البند 5)
+  const payables = opts.derivedPayables === true;
+  const derivedKeys = [
+    ...(withInventory ? LINKED_DERIVED_OPENING_KEYS : LINKED_DERIVED_OPENING_KEYS.filter((k) => !LINKED_INVENTORY_KEYS.includes(k))),
+    ...(payables ? LINKED_PERPETUAL_PAYABLE_KEYS : []),
+  ];
+  const derivedKinds = [
+    ...(withInventory ? LINKED_DERIVED_CONTROL_KINDS : LINKED_DERIVED_CONTROL_KINDS.filter((k) => k !== 'INVENTORY')),
+    ...(payables ? LINKED_PERPETUAL_PAYABLE_KINDS : []),
+  ];
   const derivedIds = opts.derivedAccounts === true
     ? new Set(derivedKeys.map((k) => ctx.accounts.byKey(k)?.id).filter((x): x is string => !!x))
     : null;
@@ -860,6 +871,14 @@ export function linkedOpeningLines(derived: DerivedOpeningLinesInput, openingDat
       const repName = (typeof known === 'string' ? known.trim() : '') || `مندوب ${rep}`;
       add({ accountKey: 'INVENTORY_VAN', label: `بضاعة سيارة — ${repName}`, salesRepId: rep, partnerName: repName }, valueMilli);
     }
+  }
+  // 5) «ربط الدفاتر» L7 (الجرد المستمر): 211001 لكل مورّد برصيد كشفه (موجبه دائن) ثم 211002 بالوارد غير المفوتر
+  if (derived.payables) {
+    for (const v of derived.payables.vendors) {
+      const name = (v.vendorName ?? '').trim() || `مورّد ${v.vendorId}`;
+      add({ accountKey: 'AP_CONTROL', label: `رصيد مورّد افتتاحي — ${name}`, vendorId: v.vendorId, partnerName: name, dueDate: openingDate }, -v.balanceMilli);
+    }
+    add({ accountKey: 'GRNI', label: 'مشتريات مستلمة لم تُفوتر — افتتاحي' }, -derived.payables.grniMilli);
   }
   let debitMilli = 0n;
   let creditMilli = 0n;

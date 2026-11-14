@@ -252,8 +252,8 @@ test('القصّ: القيد الافتتاحي عند 2000 سطر والمحج�
   const receivables = Array.from({ length: 2100 }, (_, i) => ({ customerId: `cx-${String(i).padStart(5, '0')}`, milli: 1000n + BigInt(i) * 10n }));
   const r = await runPreview(s.db.client as never, TID, previewOptionsFor(), {}, fakeDeps({}, receivables));
   assert.equal(r.opening.lines.length, PREVIEW_LIST_CAPS.openingLines);
-  // 2100 ذمة + مخزون المستودع (من الملخّص المزيّف) + 319002
-  assert.equal(r.opening.linesTruncated, 2100 + 1 + 1 - PREVIEW_LIST_CAPS.openingLines);
+  // 2100 ذمة + مخزون المستودع (من الملخّص المزيّف) + 211002 (وارد نوفمبر قبل الربط — L7) + 319002
+  assert.equal(r.opening.linesTruncated, 2100 + 1 + 1 + 1 - PREVIEW_LIST_CAPS.openingLines);
   assert.equal(r.opening.totals.debitMilli, r.opening.totals.creditMilli);
   assert.equal(r.heldLines.length, PREVIEW_LIST_CAPS.heldLines);
   assert.equal(r.heldTruncated, 520 - PREVIEW_LIST_CAPS.heldLines);

@@ -283,6 +283,11 @@ export const ledgerLinkedReasonLabels = (tr: Tr): Record<string, string> => ({
   SOURCE_NOT_FOUND: tr('المستند المصدر غير موجود'),
   ATTACHMENT_NOT_FOUND: tr('المرفق غير موجود'),
   CUSTODY_PARTNER_AMBIGUOUS: tr('سطر العهدة يحمل مندوباً ومستخدماً معاً: اختر أحدهما'),
+  // «ربط الدفاتر» L7/L9: اعتماد الربط (POST /linking/commit)
+  FINAL_ACK_REQUIRED: tr('ربط الدفاتر نهائي لا رجعة فيه — أقرّ بذلك قبل الاعتماد'),
+  NAME_REQUIRED: tr('اكتب اسم الشركة كما هو تماماً لتأكيد ربط الدفاتر'),
+  CONVERSION_UNAVAILABLE: tr('تحويل الدفاتر اليدوية القائمة إلى مربوطة يُتاح قريباً مع إدخال أرصدة بداية السنة — لا تغيير على دفاترك'),
+  INVENTORY_TOO_LARGE: tr('حركات مخزون الشركة أكثر من أن تُقيَّم بأمان عند الاعتماد — لم يُربط شيء ولم يتغيّر شيء؛ تواصل مع الدعم'),
 });
 
 /** خريطة طرق الدفع: أسباب رفض الحساب (MethodAccountProblem في routes/ledger/paymentMethodMap.ts) */

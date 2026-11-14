@@ -18,7 +18,7 @@ import { addDays, compareLocalDate, localDate, zonedStartOfDay } from '../dates'
 import { isManualBooks, SETUP_METHODS, type SetupMethodValue } from '../mode';
 import type { EventHoldReason, EventStatus, LocalDate, SkipReason, SourceEvent, SourceType } from '../types';
 import {
-  BLOCKED_BACKOFF_MS, BLOCK_REASONS, ERROR_BACKOFF_MS, EVENT_HOLD_REASONS, EVENT_RANK, INVENTORY_SOURCE_TYPES,
+  BLOCKED_BACKOFF_MS, BLOCK_REASONS, ERROR_BACKOFF_MS, EVENT_HOLD_REASONS, EVENT_RANK, INVENTORY_SOURCE_TYPES, LINKED_CURRENCY_GUARDED_SOURCE_TYPES,
   MAX_ERROR_ATTEMPTS, PENDING_HOLD_REASONS, SALES_SOURCE_TYPES, TOMBSTONE_SOURCE_TYPES,
   type ArEntryEventPayload, type BlockReason, type CompositeKey, type PendingHoldReason, type SettlementEventPayload,
 } from './types';
@@ -390,9 +390,23 @@ export function isStillActionable(status: EventStatus): boolean {
 // ═══ بوابات مساعدة ═══
 
 /** HELD(CURRENCY_MISMATCH) لمصادر المبيعات حين تختلف عملة الإعدادات المجمّدة عن عملة الشركة (§5.4، §5.8) */
-export function currencyMismatch(sourceType: SourceType, settingsCurrency: string, companyCurrency: string | null | undefined): boolean {
-  if (!(SALES_SOURCE_TYPES as readonly string[]).includes(sourceType)) return false;
+export function currencyMismatch(
+  sourceType: SourceType, settingsCurrency: string, companyCurrency: string | null | undefined, opts: { linked?: boolean } = {},
+): boolean {
+  const guarded = (SALES_SOURCE_TYPES as readonly string[]).includes(sourceType)
+    || (opts.linked === true && (LINKED_CURRENCY_GUARDED_SOURCE_TYPES as readonly string[]).includes(sourceType));
+  if (!guarded) return false;
   return !!companyCurrency && companyCurrency.toUpperCase() !== settingsCurrency.toUpperCase();
+}
+
+/**
+ * «ربط الدفاتر» L6: أحداث المخزون والمشتريات وتكلفة المبيعات للمربوطة — تُقيَّم من لقطات التكلفة (بوابة costRef بدل أفق
+ * المخزون ورأس الطابور)، وتُصنَّف بأثرها الذاتي وحده (لا بوابة أشقاء: قيمتها من لقطتها لا من قيد POST).
+ */
+export const L6_SOURCE_TYPES = ['WH_ENTRY', 'VAN_LOAD', 'RESTOCK', 'SUPPLIER_ENTRY'] as const satisfies readonly SourceType[];
+
+export function isL6Event(e: { sourceType: SourceType; event: SourceEvent }): boolean {
+  return (L6_SOURCE_TYPES as readonly string[]).includes(e.sourceType) || e.event === 'COGS';
 }
 
 export function isInventoryEvent(e: { sourceType: SourceType; event: SourceEvent }): boolean {

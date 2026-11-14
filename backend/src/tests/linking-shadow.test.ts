@@ -12,6 +12,7 @@ import { initialWatermarkAt } from '../services/gl/sync/classify';
 import { RECONCILED_SOURCES, deriveAccountEntryEvents } from '../services/gl/sync/desired';
 import { partnerRows } from '../services/gl/linking/parity';
 import { reconcileTenant } from '../services/gl/sync/reconciler';
+import { POST_RETRY_ADVANCE_MS, POST_RETRY_ROUNDS } from '../services/gl/linking/preview';
 import { createSyncBudget, runPoster } from '../services/gl/sync/poster';
 import { IMPORT_AFTER_CUTOVER_ATTENTION_REASON } from '../services/gl/sync/types';
 import { SYSTEM_ACTOR } from '../services/gl/audit';
@@ -383,15 +384,27 @@ async function runEngine(s: LinkingScenario, opts = previewOptionsFor()) {
     for (const src of RECONCILED_SOURCES) shadow.setCursor(src, wm, '');
     await scanFutureDatedRows(client, TID, { watermarkAt: wm, cutoverStart: CUTOVER_START, settings: built.reconcileSettings });
     const rec = new ShadowReconcilerStore(shadow, client);
-    for (let i = 0; i < 5; i++) {
-      const r = await reconcileTenant(rec, TID, { pageSize: 2000, settings: built.reconcileSettings, dbNow: shadow.now(), log: () => undefined });
-      if (r.reduce((a, x) => a + x.eventsInserted + x.tailEventsInserted, 0) === 0) break;
-    }
+    const reconcile = async () => {
+      for (let i = 0; i < 5; i++) {
+        const r = await reconcileTenant(rec, TID, { pageSize: 2000, settings: built.reconcileSettings, dbNow: shadow.now(), log: () => undefined });
+        if (r.reduce((a, x) => a + x.eventsInserted + x.tailEventsInserted, 0) === 0) break;
+      }
+    };
     const store = new ShadowPostingStore(shadow, client);
-    shadow.rebuildQueues();
-    for (let i = 0; i < 20; i++) {
-      const r = await runPoster(store, built.posterSettings, createSyncBudget({ timeMs: 1e12, events: 1e9 }), { actor: SYSTEM_ACTOR, log: () => undefined });
-      if (r.stoppedBy === 'EMPTY') break;
+    const post = async () => {
+      shadow.rebuildQueues();
+      for (let i = 0; i < 20; i++) {
+        const r = await runPoster(store, built.posterSettings, createSyncBudget({ timeMs: 1e12, events: 1e9 }), { actor: SYSTEM_ACTOR, log: () => undefined });
+        if (r.stoppedBy === 'EMPTY') break;
+      }
+    };
+    await reconcile();
+    await post();
+    // جولات الإعادة بالساعة الافتراضية كما يجريها runPreview (PAYLINK_REFUND ينتظر RECEIPT:REVERSE ⇒ SIBLING_NOT_FINAL)
+    for (let round = 0; round < POST_RETRY_ROUNDS && shadow.hasRetryable(); round++) {
+      shadow.advanceClock(POST_RETRY_ADVANCE_MS);
+      await reconcile();
+      await post();
     }
     return { shadow, built };
   });

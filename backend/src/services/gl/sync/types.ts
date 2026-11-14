@@ -65,8 +65,18 @@ export const POSTER_PICKUP_STATUSES = ['PENDING', 'BLOCKED', 'ERROR'] as const s
 export const FINAL_EVENT_STATUSES = ['DONE', 'SKIPPED'] as const satisfies readonly EventStatus[];
 /** مصادر المبيعات التي تخضع لـHELD(CURRENCY_MISMATCH) (§5.4، §5.8) */
 export const SALES_SOURCE_TYPES = ['INVOICE', 'RECEIPT', 'AR_ENTRY', 'SETTLEMENT', 'PAYLINK_FEE', 'PAYOUT', 'CUSTOMER_ADJUSTMENT', 'USER_SETTLEMENT', 'PAYLINK_REFUND'] as const satisfies readonly SourceType[];
+/**
+ * «ربط الدفاتر» L6: المخزون والمشتريات للمربوطة يخضعان لـHELD(CURRENCY_MISMATCH) أيضاً — قيمها بعملة الشركة (لقطات التكلفة
+ * وكشف المورّد بالملّي). مجموعة منفصلة لا تمسّ SALES_SOURCE_TYPES: غير المربوطة حرفاً كما كانت (لا أحداث لها أصلاً).
+ */
+export const LINKED_CURRENCY_GUARDED_SOURCE_TYPES = ['WH_ENTRY', 'VAN_LOAD', 'RESTOCK', 'SUPPLIER_ENTRY'] as const satisfies readonly SourceType[];
 /** مصادر tombstone: قد يُحذف صفها فتُقرأ الحمولة وحدها (§5.3، §5.4) */
 export const TOMBSTONE_SOURCE_TYPES = ['SETTLEMENT', 'AR_ENTRY', 'USER_SETTLEMENT'] as const satisfies readonly SourceType[];
+/**
+ * «ربط الدفاتر» L6: انتظار لقطة بندٍ تجاوزه محرّك التكلفة (وصول متأخر يطويه مسحه — LATE_SCAN_LOOKBACK_MS في
+ * services/costing/snapshots.ts) قبل أن يُرحَّل الحدث بما وُجد ويُنبَّه المحاسب.
+ */
+export const COST_SNAPSHOT_WAIT_MS = 24 * 60 * 60_000;
 /** مصادر المخزون الخاضعة للأفق الآمن (§5.4، M9) — ومعها أحداث COGS وRESTOCK */
 export const INVENTORY_SOURCE_TYPES = ['WH_ENTRY', 'VAN_LOAD', 'RESTOCK'] as const satisfies readonly SourceType[];
 
@@ -95,7 +105,14 @@ export const CURSOR_SOURCE_EVENT_TYPES: Readonly<Record<SyncCursorSource, readon
   RETURN_RESTOCK: ['RESTOCK'],
   // «ربط الدفاتر» L5 (D13): المربوطة وحدها
   USER_SETTLEMENT: ['USER_SETTLEMENT'],
+  // «ربط الدفاتر» L6: المربوطة بالجرد المستمر وحدها
+  SUPPLIER_ENTRY: ['SUPPLIER_ENTRY'],
 };
+
+/**
+ * «ربط الدفاتر» L6: مؤشّرات المُطابِق — SUPPLIER_ENTRY دخل SYNC_CURSOR_SOURCES (locks.ts)، فالنوعان واحد (يبقى الاسم لمستورديه).
+ */
+export type ReconcileCursorSource = SyncCursorSource;
 
 // ═══ أسباب الحجب المؤقت BLOCKED والإبقاء PENDING ═══
 
@@ -106,11 +123,20 @@ export const BLOCK_REASONS = [
   'AWAITING_RECONCILER',
   /** P7: مؤشر ACCOUNT_ENTRY لم يتجاوز settlement.createdAt، أو للمندوب RECEIPT PENDING/BLOCKED بـeffectAt ≤ settledAt (§5.5) */
   'SETTLEMENT_ORDER',
+  /**
+   * «ربط الدفاتر» L6: تجاوز محرّك التكلفة صفّ المصدر ولم تُكتب لقطة بندٍ منتظَر بعد (وصول متأخر يطويه مسح المحرّك) — يُعاد
+   * فحصه حتى نافذة المسح المتأخر (24 ساعة)، ثم يُرحَّل بما وُجد ويُنبَّه المحاسب.
+   */
+  'AWAITING_COST_SNAPSHOT',
 ] as const;
 export type BlockReason = (typeof BLOCK_REASONS)[number];
 
 /** أسباب إبقاء حدث مخزون PENDING بلا attempts++ ولا BLOCKED (§5.4) */
-export const PENDING_HOLD_REASONS = ['INVENTORY_HORIZON', 'INVENTORY_HEAD_OF_LINE'] as const;
+export const PENDING_HOLD_REASONS = [
+  'INVENTORY_HORIZON', 'INVENTORY_HEAD_OF_LINE',
+  // «ربط الدفاتر» L6: محرّك التكلفة لم يبلغ صفّ المصدر بعد (costRef) — PENDING بلا attempts ولا معاملة
+  'AWAITING_COST_SNAPSHOT',
+] as const;
 export type PendingHoldReason = (typeof PENDING_HOLD_REASONS)[number];
 
 // ═══ الحمولات (§5.2) ═══
@@ -212,20 +238,125 @@ export interface PaylinkRefundEventPayload extends PaylinkRefundPayload, EventPa
 /** M9 وM4 — تُعرَّف أشكالها مع مراحلها */
 export type OpaqueEventPayload = Record<string, unknown> & EventPayloadMeta;
 
+// ═══ «ربط الدفاتر» L6: المخزون والمشتريات وتكلفة المبيعات (المربوطة وحدها) ═══
+
+/** مؤشّر صفّ المصدر في محرّك التكلفة (services/costing: srcCreatedAt ISO، srcId) — لا يُرحَّل الحدث قبل أن يبلغه المحرّك */
+export interface CostRefPayload {
+  at: string;
+  id: string;
+}
+
+/** حقول مشتركة لأحداث تُقيَّم من لقطات GlCostSnapshot */
+export interface CostEventMeta extends EventPayloadMeta {
+  /** التاريخ المحاسبي المحلي للأثر */
+  entryDate: LocalDate;
+  costRef: CostRefPayload;
+  /** بنود المصدر التي تُنتظر لها لقطة (WarehouseEntryItem / VanLoadItem / InvoiceItem) */
+  expectedItemIds: string[];
+  /** لقطة أسماء المناديب لسطور 114002 و113003 */
+  repNames?: Record<string, string> | null;
+}
+
+/** WH_ENTRY:<id> — حركة المستودع: الوارد (STOCK ⇒ 211002 أو 319002 للاستيراد الافتتاحي)، والتسوية بسببها، والتصفير، ومرتجع غير مفوتر */
+export interface WhEntryEventPayload extends CostEventMeta {
+  entryId: string;
+  type: string;
+  source: string | null;
+  reason: string | null;
+  zeroRunId: string | null;
+  vendorId: string | null;
+  vendorName: string | null;
+  supplierRef: string | null;
+  note: string | null;
+}
+
+/** VAN_LOAD:<id>:POST — التحميل والتنزيل وتسوية السيارة (سبب العجز على المندوب ⇒ 113003) والتصفير */
+export interface VanLoadEventPayload extends CostEventMeta {
+  loadId: string;
+  type: string;
+  reason: string | null;
+  zeroRunId: string | null;
+  salesRepId: string | null;
+  salesRepName: string | null;
+  note: string | null;
+}
+
+/** INVOICE:<invoiceId>:RESTOCK:<n> — تبديل «الإعادة للمخزون» على مرتجع (InvoiceRestockLog) */
+export interface RestockEventPayload extends CostEventMeta {
+  logId: string;
+  invoiceId: string;
+  number: string | null;
+  previous: boolean;
+  returnToStock: boolean;
+  salesRepId: string | null;
+  salesRepName: string | null;
+}
+
+/** ساق التكلفة للفاتورة (services/costing/keys.ts INVOICE_LEGS) */
+export type CogsLeg = 'OUT' | 'CANCEL' | 'RET' | 'RETCANCEL';
+
+/** INVOICE:<id>:COGS (البيع أو المرتجع) | INVOICE:<id>:COGS_REV (إلغاؤهما) */
+export interface CogsEventPayload extends CostEventMeta {
+  invoiceId: string;
+  number: string | null;
+  invoiceType: string;
+  leg: CogsLeg;
+  salesRepId: string | null;
+  salesRepName: string | null;
+  /** InvoiceItem.id ⇒ فئة الصنف (حساب تكلفة الفئة GlProductCategoryAccount.cogsAccountId) */
+  categories?: Record<string, string> | null;
+}
+
+/** حركة المستودع المرتبطة بقيد كشف المورّد (الفاتورة BILL والمرتجع RETURN والاسترداد REFUND_IN) */
+export interface SupplierEntryWarehouseFacts {
+  id: string;
+  type: string;
+  /** RECOVERABLE | NON_RECOVERABLE | NONE | null (= RECOVERABLE) */
+  vatTreatment: string | null;
+  /** MAIN_CASH | BANK | REP_CUSTODY:<salesRepId> (المرتجع النقدي ⇒ مستلم الاسترداد) */
+  paidAccountRef: string | null;
+  costRef: CostRefPayload;
+  expectedItemIds: string[];
+}
+
+/** SUPPLIER_ENTRY:<id> — صفّ supplier_ledger_entries كما خُزّن (المبالغ نصوص ملّي موقّعة كالصفّ) */
+export interface SupplierEntryEventPayload extends EventPayloadMeta {
+  entryId: string;
+  /** BILL | BILL_REV | PAYMENT | PAYMENT_REV | RETURN | REFUND_IN | OPENING */
+  kind: string;
+  vendorId: string;
+  vendorName: string | null;
+  amountMilli: string;
+  netMilli: string | null;
+  taxMilli: string | null;
+  /** تاريخ المستند المحلي (docDate) */
+  entryDate: LocalDate;
+  dueDate: LocalDate | null;
+  ref: string | null;
+  note: string | null;
+  reversesId: string | null;
+  warehouseEntry: SupplierEntryWarehouseFacts | null;
+  payment: { id: string; number: number | null; method: string; salesRepId: string | null; salesRepName: string | null } | null;
+  /** للفاتورة والمرتجع: مؤشّر حركة المستودع في محرّك التكلفة (بوابة المُرحِّل) */
+  costRef?: CostRefPayload | null;
+  repNames?: Record<string, string> | null;
+}
+
 /** خريطة (sourceType, event) ⇒ الحمولة */
 export interface SourceEventPayloadMap {
-  INVOICE: { POST: InvoicePostEventPayload; REVERSE: InvoiceReverseEventPayload; COGS: OpaqueEventPayload; RESTOCK: OpaqueEventPayload };
+  INVOICE: { POST: InvoicePostEventPayload; REVERSE: InvoiceReverseEventPayload; COGS: CogsEventPayload; RESTOCK: OpaqueEventPayload };
   RECEIPT: { POST: ReceiptPostEventPayload; REVERSE: ReceiptReverseEventPayload };
   AR_ENTRY: { POST: ArEntryEventPayload; REVERSE: ArEntryEventPayload };
   SETTLEMENT: { POST: SettlementEventPayload; REVERSE: SettlementEventPayload };
   PAYLINK_FEE: { POST: PaylinkFeeEventPayload };
   PAYOUT: { POST: PayoutEventPayload };
-  WH_ENTRY: { POST: OpaqueEventPayload };
-  VAN_LOAD: { POST: OpaqueEventPayload };
-  RESTOCK: { RESTOCK: OpaqueEventPayload };
+  WH_ENTRY: { POST: WhEntryEventPayload };
+  VAN_LOAD: { POST: VanLoadEventPayload };
+  RESTOCK: { RESTOCK: RestockEventPayload };
   CUSTOMER_ADJUSTMENT: { POST: OpaqueEventPayload; REVERSE: OpaqueEventPayload };
   USER_SETTLEMENT: { POST: UserSettlementEventPayload; REVERSE: UserSettlementEventPayload };
   PAYLINK_REFUND: { POST: PaylinkRefundEventPayload };
+  SUPPLIER_ENTRY: { POST: SupplierEntryEventPayload };
 }
 
 export type PayloadOf<T extends SourceType, E extends SourceEvent> =
@@ -234,7 +365,8 @@ export type PayloadOf<T extends SourceType, E extends SourceEvent> =
 export type SourceEventPayload =
   | InvoicePostEventPayload | InvoiceReverseEventPayload | ReceiptPostEventPayload | ReceiptReverseEventPayload
   | ArEntryEventPayload | SettlementEventPayload | PaylinkFeeEventPayload | PayoutEventPayload | OpaqueEventPayload
-  | UserSettlementEventPayload | PaylinkRefundEventPayload;
+  | UserSettlementEventPayload | PaylinkRefundEventPayload
+  | WhEntryEventPayload | VanLoadEventPayload | RestockEventPayload | CogsEventPayload | SupplierEntryEventPayload;
 
 // ═══ الحدث ═══
 

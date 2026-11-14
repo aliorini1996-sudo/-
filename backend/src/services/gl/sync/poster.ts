@@ -52,6 +52,15 @@ import {
   type SettlementEventPayload, type SourceEventPatch, type SourceEventRecord,
 } from './types';
 import type { PaylinkRefundEventPayload, SourceEventPayload, UserSettlementEventPayload } from './types';
+// «ربط الدفاتر» L6: المخزون والمشتريات وتكلفة المبيعات (المربوطة بالجرد المستمر وحدها)
+import { buildStockMove, stockNarration, type CostSnapshotInput } from '../builders/stock';
+import { buildCogsMove, cogsLegOfSnapshotKey } from '../builders/cogs';
+import { buildReceiptStockMove, buildSupplierEntryMove } from '../builders/purchase';
+import { isL6Event } from './classify';
+import { COST_SNAPSHOT_WAIT_MS, compareCompositeKey } from './types';
+import type {
+  CogsEventPayload, CostRefPayload, RestockEventPayload, SupplierEntryEventPayload, VanLoadEventPayload, WhEntryEventPayload,
+} from './types';
 
 // ═══ الميزانية ═══
 
@@ -174,6 +183,8 @@ interface RunEnv {
   repSettlementWatermark?: CompositeKey | null;
   /** D2: حسابات المربوطة (111004/112007/214002) تأكّد وجودها ملتزماً في هذه النبضة */
   linkedAccountsEnsured?: boolean;
+  /** «ربط الدفاتر» L6: أبعد موضع طواه محرّك التكلفة — يُقرأ مرة للنبضة عند أول حدث تكلفة (undefined = لم يُقرأ) */
+  costCursor?: CompositeKey | null;
 }
 
 export function emptyPosterResult(stoppedBy: PosterRunResult['stoppedBy'] = 'EMPTY'): PosterRunResult {
@@ -380,8 +391,12 @@ async function processEvent(env: RunEnv, ev: SourceEventRecord): Promise<PostOut
   const { store, settings } = env;
   const tenantId = settings.tenantId;
 
-  // (1) أفق المخزون — بلا attempts++ ولا BLOCKED
-  if (isInventoryEvent(ev)) {
+  // «ربط الدفاتر» L6: أحداث المربوطة تُقيَّم من لقطات التكلفة — بوابتها مؤشّر المحرّك (costRef) لا أفق effectAt ولا رأس الطابور
+  if (isL6Event(ev) && isLinkedPosting(env)) {
+    const wait = await costGate(env, ev);
+    if (wait) return keepPending(env, ev, wait);
+  } else if (isInventoryEvent(ev)) {
+    // (1) أفق المخزون — بلا attempts++ ولا BLOCKED
     if (!env.inventory.loaded) {
       const [horizon, head] = await Promise.all([store.inventoryHorizon(tenantId), store.inventoryBlockedHead(tenantId)]);
       env.inventory = { loaded: true, horizon, head };
@@ -391,7 +406,7 @@ async function processEvent(env: RunEnv, ev: SourceEventRecord): Promise<PostOut
   }
 
   // (2) العملة
-  if (currencyMismatch(ev.sourceType, settings.currency, settings.companyCurrency)) {
+  if (currencyMismatch(ev.sourceType, settings.currency, settings.companyCurrency, { linked: isLinkedPosting(env) })) {
     return hold(env, ev, 'CURRENCY_MISMATCH', `${settings.currency}≠${settings.companyCurrency}`);
   }
 
@@ -499,7 +514,9 @@ async function decideAndPost(env: RunEnv, tx: PostingTx, stale: SourceEventRecor
   if (!ev) return { outcome: { status: 'SKIPPED', skipReason: 'MANUAL' }, patch: {} }; // حُذف (إعادة ضبط) — لا كتابة
   if (!isStillActionable(ev.status)) return settledOutcome(ev);
 
-  if (!hasRecipe(ev)) throw new PosterHoldError('UNEXPECTED_ENTRY_SHAPE', `NO_RECIPE ${ev.sourceType}:${ev.event}`);
+  if (!hasRecipe(ev) && !(isL6Event(ev) && isLinkedPosting(env))) {
+    throw new PosterHoldError('UNEXPECTED_ENTRY_SHAPE', `NO_RECIPE ${ev.sourceType}:${ev.event}`);
+  }
 
   const self = await selfRow(tx, ev);
   let plan = await planFor(env, tx, ev, self);
@@ -602,7 +619,7 @@ const isLocalDateText = (v: unknown): v is LocalDate => typeof v === 'string' &&
 async function selfRow(tx: PostingTx, ev: SourceEventRecord): Promise<CutoverRow> {
   const p = payloadOf(ev);
   let effectDate: LocalDate | null = null;
-  if (p && (ev.sourceType === 'INVOICE' || ev.sourceType === 'RECEIPT') && isLocalDateText(p.entryDate)) effectDate = p.entryDate;
+  if (p && (ev.sourceType === 'INVOICE' || ev.sourceType === 'RECEIPT' || isL6Event(ev)) && isLocalDateText(p.entryDate)) effectDate = p.entryDate;
   let createdAt: Date | string | null = null;
   if (ev.event === 'REVERSE' && isTombstoneSource(ev.sourceType)) {
     // حمولة الـtombstone واحدة في المفتاحين وتحمل createdAt الصف الأصلي؛ أثر العكس لحظة الحذف (effectAt) وكشفه
@@ -620,6 +637,11 @@ async function selfRow(tx: PostingTx, ev: SourceEventRecord): Promise<CutoverRow
 }
 
 async function planFor(env: RunEnv, tx: PostingTx, ev: SourceEventRecord, self: CutoverRow): Promise<EventPlan> {
+  // «ربط الدفاتر» L6: بأثرها الذاتي وحده — قبل البدء ومشمولٌ بالافتتاح ⇒ SKIPPED(OPENING) (الافتتاح المشتق يحمل المخزون والذمم)،
+  // وإلا يُرحَّل بتاريخه أو بتاريخ البدء وصولاً متأخراً. لا بوابة أشقاء: إلغاء بيعٍ سبق البدء يعيد مخزونه بلقطته (cleanStart=false)
+  if (isL6Event(ev) && isLinkedPosting(env)) {
+    return planEvent({ sourceType: ev.sourceType, event: 'POST', self, sibling: null, cutover: env.cutover });
+  }
   if (ev.event === 'POST') {
     let sibling: SiblingState | null = null;
     if (isTombstoneSource(ev.sourceType)) {
@@ -774,7 +796,8 @@ async function executePost(env: RunEnv, tx: PostingTx, ev: SourceEventRecord, pl
   if (plan.mode === 'REVERSE_LIVE') return reverseLive(env, tx, ev, plan);
 
   const context = await contextOf(env, tx);
-  const built = await buildFor(env, tx, ev, plan, context, pre);
+  const built = isL6Event(ev) && isLinkedPosting(env) ? await buildL6For(env, tx, ev, plan, context) : await buildFor(env, tx, ev, plan, context, pre);
+  if (built.blocked) return block(env, tx, ev, built.blocked);
   if (isNoMove(built.result)) {
     const patch = skippedPatch(env.now, built.result.reason, built.extra);
     await tx.updateEvent(ev.id, patch);
@@ -878,6 +901,8 @@ interface Built {
   result: BuildResult;
   extra: Partial<SourceEventPatch>;
   reversedMoveId?: string | null;
+  /** «ربط الدفاتر» L6: لقطة بندٍ منتظَر غائبة بعد تجاوز المحرّك (وصول متأخر) ⇒ BLOCKED لا قيد */
+  blocked?: BlockReason;
 }
 
 async function buildFor(
@@ -1271,4 +1296,148 @@ async function reconcileAfterPosting(
   await reconcileAfterPost(tx.reconcileStore(), {
     sourceType: ev.sourceType, sourceId: ev.sourceId, event: ev.event, moveId, reversedMoveId, payload,
   });
+}
+
+
+// ═══ «ربط الدفاتر» L6 — المخزون والمشتريات وتكلفة المبيعات (المربوطة بالجرد المستمر وحدها) ═══
+
+const costRefOfPayload = (p: AnyPayload | null): CostRefPayload | null => {
+  const c = p?.costRef as Partial<CostRefPayload> | null | undefined;
+  return c && typeof c.at === 'string' && typeof c.id === 'string' ? { at: c.at, id: c.id } : null;
+};
+
+/**
+ * بوابة محرّك التكلفة خارج المعاملة: الحدث الذي يُقيَّم من لقطات لا يُرحَّل قبل أن يطوي المحرّك صفّ مصدره (costRef) —
+ * PENDING بلا attempts ولا BLOCKED (مهمة اللقطات في المجدول تكتبها بعد النبضة). بلا costRef (الدفعات والاسترداد) ⇒ لا بوابة.
+ */
+async function costGate(env: RunEnv, ev: SourceEventRecord): Promise<PendingHoldReason | null> {
+  const ref = costRefOfPayload(payloadOf(ev));
+  if (!ref) return null;
+  if (env.costCursor === undefined) {
+    env.costCursor = env.store.costCursor ? await env.store.costCursor(env.settings.tenantId) : null;
+  }
+  const cursor = env.costCursor;
+  if (!cursor) return 'AWAITING_COST_SNAPSHOT';
+  const at = new Date(ref.at);
+  if (Number.isNaN(at.getTime())) return null;
+  return compareCompositeKey({ at, id: ref.id }, cursor) > 0 ? 'AWAITING_COST_SNAPSHOT' : null;
+}
+
+type CostInputs =
+  | { kind: 'GO'; snapshots: CostSnapshotInput[]; attention: string | null }
+  | { kind: 'BLOCK' };
+
+/**
+ * لقطات المستند تحت القفل: كل بند منتظَر له لقطة ⇒ GO. غائبٌ والمحرّك تجاوز صفّه ⇒ وصولٌ متأخر يطويه مسح المحرّك: BLOCKED
+ * حتى COST_SNAPSHOT_WAIT_MS من إنشاء الصفّ، ثم يُرحَّل ما وُجد مع تنبيه (لا حجب أبدي لطابور المخزون).
+ */
+async function costInputs(
+  env: RunEnv, tx: PostingTx, refs: readonly { refType: string; refId: string }[], expected: readonly string[],
+  keep: (s: CostSnapshotInput) => boolean, costRef: CostRefPayload | null,
+): Promise<CostInputs> {
+  if (!tx.loadCostSnapshots) throw new PosterHoldError('UNEXPECTED_ENTRY_SHAPE', 'NO_COST_SNAPSHOT_STORE');
+  const snapshots = (await tx.loadCostSnapshots(refs)).filter(keep);
+  const have = new Set(snapshots.map((s) => s.itemId));
+  const missing = expected.filter((id) => !have.has(id));
+  if (missing.length === 0) return { kind: 'GO', snapshots, attention: null };
+  const created = costRef ? new Date(costRef.at).getTime() : Number.NaN;
+  if (Number.isFinite(created) && env.now.getTime() - created < COST_SNAPSHOT_WAIT_MS) return { kind: 'BLOCK' };
+  return {
+    kind: 'GO', snapshots,
+    attention: `لا لقطة تكلفة لـ${missing.length} من بنود المستند بعد نافذة الوصول المتأخر — رُحّل ما وُجد، راجع تقييم المخزون`,
+  };
+}
+
+const BLOCKED_COST: Built = { result: { kind: 'NO_MOVE', reason: 'ZERO_VALUE' }, extra: {}, blocked: 'AWAITING_COST_SNAPSHOT' };
+
+async function buildL6For(
+  env: RunEnv, tx: PostingTx, ev: SourceEventRecord, plan: Extract<EventPlan, { action: 'POST' }>, context: LedgerContext,
+): Promise<Built> {
+  const raw = payloadOf(ev);
+  if (!raw) throw new PosterHoldError('SOURCE_NOT_FOUND', `${ev.sourceKey} بلا حمولة`);
+  const ctx = context.ctx;
+  const ref = costRefOfPayload(raw);
+
+  if (ev.sourceType === 'SUPPLIER_ENTRY') {
+    const p = raw as unknown as SupplierEntryEventPayload;
+    const kind = (p.kind ?? '').toUpperCase();
+    let snapshots: CostSnapshotInput[] = [];
+    let attention: string | null = null;
+    if (kind === 'BILL' || kind === 'BILL_REV' || kind === 'RETURN') {
+      const we = p.warehouseEntry;
+      if (!we) throw new PosterHoldError('UNEXPECTED_ENTRY_SHAPE', `قيد مورّد ${kind} بلا حركة مستودع`);
+      const want = kind === 'RETURN' ? 'VENDOR_RETURN' : 'RECEIVE';
+      const c = await costInputs(env, tx, [{ refType: 'WH_ENTRY', refId: we.id }], we.expectedItemIds, (s) => s.kind === want, we.costRef);
+      if (c.kind === 'BLOCK') return BLOCKED_COST;
+      snapshots = c.snapshots;
+      attention = c.attention;
+    }
+    const result = buildSupplierEntryMove({
+      payload: p, sourceKey: ev.sourceKey, date: plan.date, snapshots, needsAttention: !!attention, attentionReason: attention,
+    }, ctx);
+    return { result, extra: {} };
+  }
+
+  if (ev.sourceType === 'WH_ENTRY') {
+    const p = raw as unknown as WhEntryEventPayload;
+    const c = await costInputs(env, tx, [{ refType: 'WH_ENTRY', refId: p.entryId }], p.expectedItemIds ?? [], () => true, ref);
+    if (c.kind === 'BLOCK') return BLOCKED_COST;
+    const zeroRun = !!p.zeroRunId || p.source === 'STOCK_ZERO';
+    const input = {
+      sourceId: ev.sourceId, sourceKey: ev.sourceKey, date: plan.date, ref: p.supplierRef ?? null,
+      narration: stockNarration('WH', p.type, { reason: p.reason, zeroRun, ref: p.supplierRef, note: p.note }),
+      snapshots: c.snapshots, reason: p.reason, zeroRun,
+      grniCounter: p.source === 'OPENING_IMPORT' ? 'OPENING_EQUITY' as const : 'GRNI' as const,
+      repNames: p.repNames ?? null, needsAttention: !!c.attention, attentionReason: c.attention,
+    };
+    const result = p.type === 'RECEIVE'
+      ? buildReceiptStockMove(input, ctx)
+      : buildStockMove({ ...input, sourceType: 'WH_ENTRY', sourceEvent: 'POST' }, ctx);
+    return { result, extra: {} };
+  }
+
+  if (ev.sourceType === 'VAN_LOAD') {
+    const p = raw as unknown as VanLoadEventPayload;
+    const c = await costInputs(env, tx, [{ refType: 'VAN_LOAD', refId: p.loadId }], p.expectedItemIds ?? [], () => true, ref);
+    if (c.kind === 'BLOCK') return BLOCKED_COST;
+    const zeroRun = !!p.zeroRunId;
+    const result = buildStockMove({
+      sourceType: 'VAN_LOAD', sourceId: ev.sourceId, sourceKey: ev.sourceKey, sourceEvent: 'POST', date: plan.date,
+      narration: stockNarration('VAN', p.type, { reason: p.reason, zeroRun, repName: p.salesRepName, note: p.note }),
+      snapshots: c.snapshots, reason: p.reason, zeroRun, salesRepId: p.salesRepId, repNames: p.repNames ?? null,
+      needsAttention: !!c.attention, attentionReason: c.attention,
+    }, ctx);
+    return { result, extra: {} };
+  }
+
+  if (ev.sourceType === 'RESTOCK') {
+    const p = raw as unknown as RestockEventPayload;
+    const c = await costInputs(env, tx, [{ refType: 'RESTOCK_LOG', refId: p.logId }], p.expectedItemIds ?? [], () => true, ref);
+    if (c.kind === 'BLOCK') return BLOCKED_COST;
+    const n = p.number ? ` ${p.number}` : '';
+    const result = buildStockMove({
+      sourceType: 'RESTOCK', sourceId: ev.sourceId, sourceKey: ev.sourceKey, sourceEvent: 'RESTOCK', date: plan.date,
+      narration: p.returnToStock ? `إعادة المرتجع${n} إلى المخزون` : `إخراج المرتجع${n} من المخزون (لا يعود)`,
+      ref: p.number, snapshots: c.snapshots, salesRepId: p.salesRepId, repNames: p.repNames ?? null,
+      needsAttention: !!c.attention, attentionReason: c.attention,
+    }, ctx);
+    return { result, extra: {} };
+  }
+
+  if (ev.sourceType === 'INVOICE' && ev.event === 'COGS') {
+    const p = raw as unknown as CogsEventPayload;
+    const leg = p.leg;
+    const c = await costInputs(
+      env, tx, [{ refType: 'INVOICE', refId: p.invoiceId }], p.expectedItemIds ?? [], (s) => cogsLegOfSnapshotKey(s.sourceKey) === leg, ref,
+    );
+    if (c.kind === 'BLOCK') return BLOCKED_COST;
+    const result = buildCogsMove({
+      invoiceId: p.invoiceId, number: p.number, leg, sourceKey: ev.sourceKey, date: plan.date, snapshots: c.snapshots,
+      salesRepId: p.salesRepId, repNames: p.repNames ?? null, categories: p.categories ?? null,
+      needsAttention: !!c.attention, attentionReason: c.attention,
+    }, ctx);
+    return { result, extra: {} };
+  }
+
+  throw new PosterHoldError('UNEXPECTED_ENTRY_SHAPE', `NO_RECIPE ${ev.sourceType}:${ev.event}`);
 }

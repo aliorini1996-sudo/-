@@ -135,6 +135,16 @@ export interface DerivedOpeningLinesInput {
   inventory: readonly LocationTotals[] | null;
   /** أسماء المناديب لسطور 114002 (لقطة partnerName) */
   salesRepNames?: Readonly<Record<string, string>>;
+  /** «ربط الدفاتر» L7 (الجرد المستمر وحده): 211001 لكل مورّد و211002 — null/الغائب ⇒ بلا سطورهما */
+  payables?: LinkedOpeningPayables | null;
+}
+
+/** الدائنون والوارد غير المفوتر المشمولان بالافتتاح (قبل linkedFrom) — قيود SUPPLIER_ENTRY وWH_ENTRY بعده */
+export interface LinkedOpeningPayables {
+  /** رصيد كشف كل مورّد (docDate < linkedFrom وcreatedAt ≤ اللقطة) — موجبه مستحقّ له ⇒ دائن 211001 بمورّده */
+  vendors: readonly { vendorId: string; vendorName: string | null; balanceMilli: Milli }[];
+  /** Σ الوارد المسعَّر غير المصنَّف قبل cutoverStart (sumUnclassifiedPricedReceipts، مرآة R11) ⇒ دائن 211002 */
+  grniMilli: Milli;
 }
 
 export interface LinkedOpeningResult {
@@ -295,6 +305,8 @@ export interface GlBalanceView {
   grandTotals(): { debitMilli: Milli; creditMilli: Milli };
   /** سطور على حساب (للتعمّق) */
   linesOn(accountId: string, limit: number): { moveRef: string; date: LocalDate; moveType: string; sourceKey: string | null; needsAttention: boolean; attentionReason: string | null; debitMilli: Milli; creditMilli: Milli }[];
+  /** عدد السطور على الحسابات (اختياري؛ الغائب ⇒ يُعدّ من linesOn بسقف) — «هل حمل الأستاذ قيود تدفّقٍ غير الافتتاح؟» (R8–R11) */
+  countLines?(accountIds: readonly string[], q?: GlBalanceQuery): number;
 }
 
 /** حقائق التشغيل المقابلة (loadOperationalFacts — P4) — كل مبلغ مقرَّب **لكل مستند** نصف-لأعلى ثم مجموع بالملّي */
@@ -311,6 +323,8 @@ export interface OperationalFacts {
   supplierByVendor: Map<string, Milli>;
   /** Σ قيمة أسطر الوارد المسعَّر غير المصنَّف (paymentMode null) المسجَّل منذ linkedFrom */
   unclassifiedPricedReceiptsFyMilli: Milli;
+  /** «ربط الدفاتر» L7: وما سُجّل قبل linkedFrom — افتتاح 211002 المشتقّ للمربوطة بالجرد المستمر. الغائب = 0 */
+  unclassifiedPricedReceiptsOpeningMilli?: Milli;
   names: { customers: Map<string, string>; reps: Map<string, string>; vendors: Map<string, string> };
 }
 

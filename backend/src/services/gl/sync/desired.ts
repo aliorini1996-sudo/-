@@ -37,7 +37,13 @@ import { encodeEventNote } from './classify';
 import { arEntryKey, invoiceKey, paylinkFeeKey, payoutKey, receiptKey, settlementKey } from './keys';
 import { addDays } from '../dates';
 import { paylinkRefundKey, userSettlementKey } from './keys';
+import { fromDbDate, zonedStartOfDay } from '../dates';
+import { invoiceCogsRevKey, invoiceRestockKey, supplierEntryKey, vanLoadKey, whEntryKey } from './keys';
 import type { LocalDate } from '../types';
+import type {
+  CogsEventPayload, CogsLeg, ReconcileCursorSource, RestockEventPayload, SupplierEntryEventPayload, SupplierEntryWarehouseFacts,
+  VanLoadEventPayload, WhEntryEventPayload,
+} from './types';
 import type { InvoicePostEventPayload, PaylinkRefundEventPayload, UserSettlementEventPayload } from './types';
 import type {
   ArEntryEventPayload, DesiredEvent, InvoiceReverseEventPayload, PaylinkFeeEventPayload, PayoutEventPayload,
@@ -52,17 +58,32 @@ import type {
  * USER_SETTLEMENT («ربط الدفاتر» L5، D13) للمربوطة وحدها: reconciledSourceEnabled يحرسه في المُطابِق.
  */
 export const RECONCILED_SOURCES = ['ACCOUNT_ENTRY', 'REP_SETTLEMENT', 'SETTLEMENT_ENTRY', 'USER_SETTLEMENT'] as const satisfies readonly SyncCursorSource[];
-export type ReconciledSource = (typeof RECONCILED_SOURCES)[number];
 
-export function isReconciledSource(s: string): s is ReconciledSource {
+/**
+ * «ربط الدفاتر» L6: مصادر المخزون والمشتريات — للمربوطة بالجرد المستمر وحدها (inventoryPosting). منفصلة عن RECONCILED_SOURCES
+ * عمداً: مستهلكوه (المعاينة وشبكة الأمان وفحص تأخر المؤشّر وتواريخ الإقفال) يبقون لغير المربوطة حرفاً كما كانوا، والمُطابِق
+ * يقرأ ALL_RECONCILED_SOURCES.
+ */
+export const INVENTORY_RECONCILED_SOURCES = ['WAREHOUSE_ENTRY', 'VAN_LOAD', 'RETURN_RESTOCK', 'SUPPLIER_ENTRY'] as const satisfies readonly ReconcileCursorSource[];
+export const ALL_RECONCILED_SOURCES = [...RECONCILED_SOURCES, ...INVENTORY_RECONCILED_SOURCES] as const;
+export type ReconciledSource = (typeof ALL_RECONCILED_SOURCES)[number];
+
+/** مصادر المُطابِق القائمة (M3 + USER_SETTLEMENT) — كما كانت */
+export function isReconciledSource(s: string): s is (typeof RECONCILED_SOURCES)[number] {
   return (RECONCILED_SOURCES as readonly string[]).includes(s);
+}
+
+/** «ربط الدفاتر» L6: أي مصدر يقرؤه المُطابِق لشركةٍ ما (ومنها مصادر المخزون والمشتريات للمربوطة) */
+export function isAnyReconciledSource(s: string): s is ReconciledSource {
+  return (ALL_RECONCILED_SOURCES as readonly string[]).includes(s);
 }
 
 /**
  * هل يقرأ المُطابِق هذا المصدر لهذه الشركة؟ الثلاثة القديمة لكل شركة مفعّلة كما اليوم، وUSER_SETTLEMENT للمربوطة وحدها
  * (D13) — فلا استعلام زائد ولا حدث جديد لغيرها ولو وُجد مؤشره خطأً.
  */
-export function reconciledSourceEnabled(source: ReconciledSource, opts: { linked?: boolean } | null | undefined): boolean {
+export function reconciledSourceEnabled(source: ReconciledSource, opts: { linked?: boolean; inventoryPosting?: boolean } | null | undefined): boolean {
+  if ((INVENTORY_RECONCILED_SOURCES as readonly string[]).includes(source)) return opts?.linked === true && opts?.inventoryPosting === true;
   return source !== 'USER_SETTLEMENT' || opts?.linked === true;
 }
 
@@ -124,11 +145,78 @@ export interface SettlementEntrySourceRow {
   createdAt: Date;
 }
 
+/** بند حركة مستودع أو سيارة كما يُقرأ مع صفّه (L6) */
+export interface StockItemRow {
+  id: string;
+  qty: number;
+  baseQty: number | null;
+}
+
+/** warehouse_entries («ربط الدفاتر» L6) */
+export interface WarehouseEntrySourceRow {
+  id: string;
+  type: string;
+  source: string | null;
+  reason: string | null;
+  zeroRunId: string | null;
+  vendorId: string | null;
+  supplierRef: string | null;
+  note: string | null;
+  billDate: Date | null;
+  totalMilli: bigint | null;
+  createdAt: Date;
+  items: StockItemRow[];
+}
+
+/** van_loads («ربط الدفاتر» L6) */
+export interface VanLoadSourceRow {
+  id: string;
+  type: string;
+  reason: string | null;
+  zeroRunId: string | null;
+  salesRepId: string | null;
+  deletedSalesRepId: string | null;
+  note: string | null;
+  createdAt: Date;
+  items: StockItemRow[];
+}
+
+/** invoice_restock_logs («ربط الدفاتر» L6) */
+export interface RestockLogSourceRow {
+  id: string;
+  invoiceId: string;
+  previous: boolean;
+  returnToStock: boolean;
+  createdAt: Date;
+}
+
+/** supplier_ledger_entries («ربط الدفاتر» L6) */
+export interface SupplierEntrySourceRow {
+  id: string;
+  vendorId: string;
+  kind: string;
+  amountMilli: bigint;
+  netMilli: bigint | null;
+  taxMilli: bigint | null;
+  warehouseEntryId: string | null;
+  supplierPaymentId: string | null;
+  reversesId: string | null;
+  docDate: Date;
+  dueDate: Date | null;
+  ref: string | null;
+  note: string | null;
+  createdAt: Date;
+}
+
 export interface SourceRowMap {
   ACCOUNT_ENTRY: AccountEntrySourceRow;
   REP_SETTLEMENT: RepSettlementSourceRow;
   SETTLEMENT_ENTRY: SettlementEntrySourceRow;
   USER_SETTLEMENT: UserSettlementSourceRow;
+  WAREHOUSE_ENTRY: WarehouseEntrySourceRow;
+  VAN_LOAD: VanLoadSourceRow;
+  RETURN_RESTOCK: RestockLogSourceRow;
+  SUPPLIER_ENTRY: SupplierEntrySourceRow;
 }
 export type SourceRow = SourceRowMap[ReconciledSource];
 
@@ -237,6 +325,43 @@ export interface DeriveContext {
   userNames?: ReadonlyMap<string, string>;
   /** SETTLEMENT_ENTRY REFUND: linkId ⇒ {receiptId, customerId, customerName} */
   refundLinks?: ReadonlyMap<string, { receiptId: string | null; customerId: string | null; customerName: string | null }>;
+  // ── «ربط الدفاتر» L6 (المربوطة بالجرد المستمر وحدها) ──
+  /** أحداث المخزون والمشتريات وتكلفة المبيعات */
+  inventoryPosting?: boolean;
+  /** ACCOUNT_ENTRY: بنود الفواتير بمعرّفاتها (أحداث COGS) */
+  costItems?: ReadonlyMap<string, readonly CostItemFacts[]>;
+  /** RETURN_RESTOCK: فاتورة المرتجع، ورقم التبديل لكل صفّ (ترتيبه بين صفوف فاتورته بـ(createdAt, id)، من 1) */
+  restockInvoices?: ReadonlyMap<string, RestockInvoiceFacts>;
+  restockGenerations?: ReadonlyMap<string, number>;
+  /** gl_vendors.id ⇒ الاسم */
+  vendorNames?: ReadonlyMap<string, string>;
+  /** SUPPLIER_ENTRY: سندات الصرف وحركات المستودع المرتبطة */
+  supplierPayments?: ReadonlyMap<string, { id: string; number: number | null; method: string; salesRepId: string | null }>;
+  supplierWarehouse?: ReadonlyMap<string, SupplierEntryWarehouseFacts>;
+}
+
+/** بند فاتورة لأحداث التكلفة (L6) */
+export interface CostItemFacts {
+  id: string;
+  invoiceId: string;
+  productId: string | null;
+  qty: number;
+  baseQty: number | null;
+  unitFactor: number | null;
+  returnExpired: boolean | null;
+  categoryId: string | null;
+}
+
+/** فاتورة المرتجع لحدث تبديل «الإعادة للمخزون» (L6) */
+export interface RestockInvoiceFacts {
+  id: string;
+  number: string | null;
+  type: string;
+  salesRepId: string | null;
+  salesRepName: string | null;
+  /** isDamagedVanReturn: مرتجع تالف لا يعود للمخزون أبداً */
+  damaged: boolean;
+  items: readonly CostItemFacts[];
 }
 
 // ═══ أدوات ═══
@@ -576,6 +701,186 @@ export function deriveAccountEntryEvents(rows: readonly AccountEntrySourceRow[],
       ev.lastError = heldNote(g.unexpected.join('؛ ').slice(0, 900));
     }
     out.push(ev);
+    // «ربط الدفاتر» L6: تكلفة البيع/المرتجع وإلغاؤهما (المربوطة بالجرد المستمر وحدها)
+    if (ctx.inventoryPosting === true && g.unexpected.length === 0) {
+      const cogs = cogsEventFor(g, effectAt, ctx);
+      if (cogs) out.push(cogs);
+    }
+  }
+  return out;
+}
+
+// ═══ «ربط الدفاتر» L6: المخزون والمشتريات وتكلفة المبيعات ═══
+
+const cmpRow = (a: { createdAt: Date; id: string }, b: { createdAt: Date; id: string }): number =>
+  a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+/** الكمية بالأساس: baseQty ?? qty × unitFactor (صفّ سبق الميزة) */
+export function costItemBaseQty(it: Pick<CostItemFacts, 'qty' | 'baseQty' | 'unitFactor'>): number {
+  if (it.baseQty != null && Number.isFinite(Number(it.baseQty))) return Number(it.baseQty);
+  return Number(it.qty) * Number(it.unitFactor ?? 1);
+}
+
+const nonZeroStockItems = (items: readonly StockItemRow[]): string[] =>
+  items.filter((i) => { const q = i.baseQty ?? i.qty; return Number.isFinite(q) && q !== 0; }).map((i) => i.id).sort();
+
+const costRefOf = (r: { createdAt: Date; id: string }) => ({ at: iso(r.createdAt), id: r.id });
+
+const repNamesOf = (repId: string | null, name: string | null | undefined): Record<string, string> | null =>
+  repId && name ? { [repId]: name } : null;
+
+/**
+ * INVOICE:<id>:COGS (البيع OUT أو المرتجع RET) وINVOICE:<id>:COGS_REV (إلغاؤهما CANCEL/RETCANCEL) — حدث واحد لكل مجموعة صفوف
+ * أساسية، بمؤشّر أقدم صفّ أساسي (المحرّك يطوي الأقدم وحده: DUPLICATE_PRIMARY_ROW). الإشعار المدين والفاتورة بلا بنود أصناف
+ * موجبة ⇒ لا حدث (لا لقطة تُنتظر).
+ */
+function cogsEventFor(g: KeyGroup, effectAt: Date, ctx: DeriveContext): DesiredEvent | null {
+  if (g.plan.sourceType !== 'INVOICE' || g.primaryRows.length === 0) return null;
+  const inv = ctx.invoices?.get(g.plan.sourceId);
+  if (!inv || !INVOICE_KINDS.includes(inv.type as InvoiceKind) || inv.documentKind === 'DEBIT_NOTE') return null;
+  const items = (ctx.costItems?.get(inv.id) ?? []).filter((it) => !!it.productId && costItemBaseQty(it) > 0);
+  if (items.length === 0) return null;
+  const ret = inv.type === 'RETURN';
+  const leg: CogsLeg = g.plan.event === 'POST' ? (ret ? 'RET' : 'OUT') : (ret ? 'RETCANCEL' : 'CANCEL');
+  const primary = [...g.primaryRows].sort(cmpRow)[0];
+  const categories: Record<string, string> = {};
+  for (const it of items) if (it.categoryId) categories[it.id] = it.categoryId;
+  const payload: CogsEventPayload = {
+    invoiceId: inv.id, number: inv.number, invoiceType: inv.type, leg,
+    salesRepId: inv.salesRepId, salesRepName: inv.salesRepName,
+    entryDate: localDate(effectAt, ctx.timezone),
+    costRef: costRefOf(primary),
+    expectedItemIds: items.map((i) => i.id).sort(),
+    repNames: repNamesOf(inv.salesRepId, inv.salesRepName),
+    ...(Object.keys(categories).length > 0 ? { categories } : {}),
+    sourceCreatedAt: iso(maxCreated(g.rows)),
+  };
+  return {
+    sourceKey: g.plan.event === 'POST' ? invoiceKey(inv.id, 'COGS') : invoiceCogsRevKey(inv.id),
+    sourceType: 'INVOICE', sourceId: inv.id, event: 'COGS', effectAt, payload,
+  };
+}
+
+/**
+ * warehouse_entries ⇒ WH_ENTRY:<id> (effectAt = createdAt، لحظة الحركة كمحرّك التكلفة). مرتجع المورّد المسعَّر بمورّد
+ * (له قيد RETURN في كشف المورّد) يملكه SUPPLIER_ENTRY (قيد واحد: الذمة والمخزون والضريبة) فلا حدث هنا.
+ */
+export function deriveWarehouseEntryEvents(rows: readonly WarehouseEntrySourceRow[], ctx: DeriveContext): DesiredEvent[] {
+  if (ctx.inventoryPosting !== true) return []; // المربوطة بالجرد المستمر وحدها
+  const out: DesiredEvent[] = [];
+  for (const r of rows) {
+    const type = (r.type ?? '').toUpperCase();
+    if (type === 'RETURN' && r.vendorId && r.totalMilli != null && r.totalMilli > 0n && r.billDate) continue;
+    const expected = nonZeroStockItems(r.items);
+    if (expected.length === 0) continue;
+    const payload: WhEntryEventPayload = {
+      entryId: r.id, type, source: r.source ?? null, reason: r.reason ?? null, zeroRunId: r.zeroRunId ?? null,
+      vendorId: r.vendorId ?? null, vendorName: r.vendorId ? (ctx.vendorNames?.get(r.vendorId) ?? null) : null,
+      supplierRef: r.supplierRef ?? null, note: r.note ?? null,
+      entryDate: localDate(r.createdAt, ctx.timezone), costRef: costRefOf(r), expectedItemIds: expected,
+      sourceCreatedAt: iso(r.createdAt),
+    };
+    out.push({ sourceKey: whEntryKey(r.id), sourceType: 'WH_ENTRY', sourceId: r.id, event: 'POST', effectAt: r.createdAt, payload });
+  }
+  return out;
+}
+
+/** van_loads ⇒ VAN_LOAD:<id>:POST. DAMAGED_OUT/EXPIRED_OUT قيمتها صفر (الشطب عند المرتجع، E5) والنوع المجهول ⇒ لا حدث */
+export function deriveVanLoadEvents(rows: readonly VanLoadSourceRow[], ctx: DeriveContext): DesiredEvent[] {
+  if (ctx.inventoryPosting !== true) return []; // المربوطة بالجرد المستمر وحدها
+  const out: DesiredEvent[] = [];
+  for (const r of rows) {
+    const type = (r.type ?? '').toUpperCase();
+    if (type !== 'LOAD' && type !== 'UNLOAD' && type !== 'ADJUST') continue;
+    const expected = nonZeroStockItems(r.items);
+    if (expected.length === 0) continue;
+    const rep = r.salesRepId ?? r.deletedSalesRepId ?? null;
+    const name = rep ? (ctx.salesRepNames?.get(rep) ?? null) : null;
+    const payload: VanLoadEventPayload = {
+      loadId: r.id, type, reason: r.reason ?? null, zeroRunId: r.zeroRunId ?? null, salesRepId: rep, salesRepName: name,
+      note: r.note ?? null,
+      entryDate: localDate(r.createdAt, ctx.timezone), costRef: costRefOf(r), expectedItemIds: expected,
+      repNames: repNamesOf(rep, name), sourceCreatedAt: iso(r.createdAt),
+    };
+    out.push({ sourceKey: vanLoadKey(r.id), sourceType: 'VAN_LOAD', sourceId: r.id, event: 'POST', effectAt: r.createdAt, payload });
+  }
+  return out;
+}
+
+/**
+ * invoice_restock_logs ⇒ INVOICE:<invoiceId>:RESTOCK:<n> (B11). صفّ بلا تبديل فعلي، ومرتجع تالف (لا يعود أبداً)، وبنود
+ * منتهية الصلاحية ⇒ لا لقطة تُنتظر لها.
+ */
+export function deriveRestockEvents(rows: readonly RestockLogSourceRow[], ctx: DeriveContext): DesiredEvent[] {
+  if (ctx.inventoryPosting !== true) return []; // المربوطة بالجرد المستمر وحدها
+  const out: DesiredEvent[] = [];
+  for (const r of rows) {
+    if (r.previous === r.returnToStock) continue;
+    const inv = ctx.restockInvoices?.get(r.invoiceId);
+    const gen = ctx.restockGenerations?.get(r.id);
+    if (!inv || inv.type !== 'RETURN' || inv.damaged || !gen) continue;
+    const items = inv.items.filter((it) => !!it.productId && costItemBaseQty(it) > 0 && it.returnExpired !== true);
+    if (items.length === 0) continue;
+    const payload: RestockEventPayload = {
+      logId: r.id, invoiceId: inv.id, number: inv.number, previous: r.previous, returnToStock: r.returnToStock,
+      salesRepId: inv.salesRepId, salesRepName: inv.salesRepName,
+      entryDate: localDate(r.createdAt, ctx.timezone), costRef: costRefOf(r), expectedItemIds: items.map((i) => i.id).sort(),
+      repNames: repNamesOf(inv.salesRepId, inv.salesRepName), sourceCreatedAt: iso(r.createdAt),
+    };
+    out.push({ sourceKey: invoiceRestockKey(inv.id, gen), sourceType: 'RESTOCK', sourceId: inv.id, event: 'RESTOCK', effectAt: r.createdAt, payload });
+  }
+  return out;
+}
+
+const SUPPLIER_KINDS_NEED_ENTRY = ['BILL', 'BILL_REV', 'RETURN'] as const;
+const SUPPLIER_KINDS = ['BILL', 'BILL_REV', 'PAYMENT', 'PAYMENT_REV', 'RETURN', 'REFUND_IN', 'OPENING'] as const;
+
+/**
+ * supplier_ledger_entries ⇒ SUPPLIER_ENTRY:<id> (effectAt = بداية يوم docDate بتوقيت الشركة). الفاتورة والمرتجع يلزمهما
+ * حركة المستودع (القيمة من لقطاتها)، والدفعة يلزمها سندها — وغيابهما ⇒ HELD(UNEXPECTED_ENTRY_SHAPE) لا تخمين.
+ */
+export function deriveSupplierEntryEvents(rows: readonly SupplierEntrySourceRow[], ctx: DeriveContext): DesiredEvent[] {
+  if (ctx.inventoryPosting !== true) return []; // المربوطة بالجرد المستمر وحدها
+  const out: DesiredEvent[] = [];
+  for (const r of rows) {
+    const kind = (r.kind ?? '').toUpperCase();
+    const entryDate = fromDbDate(r.docDate);
+    const we = r.warehouseEntryId ? (ctx.supplierWarehouse?.get(r.warehouseEntryId) ?? null) : null;
+    const pay = r.supplierPaymentId ? (ctx.supplierPayments?.get(r.supplierPaymentId) ?? null) : null;
+    const repId = pay?.salesRepId ?? null;
+    const repName = repId ? (ctx.salesRepNames?.get(repId) ?? null) : null;
+    const paidRep = we?.paidAccountRef ? (/^REP_CUSTODY:(.+)$/.exec(we.paidAccountRef)?.[1] ?? null) : null;
+    const repNames: Record<string, string> = {};
+    if (repId && repName) repNames[repId] = repName;
+    const paidRepName = paidRep ? ctx.salesRepNames?.get(paidRep) : null;
+    if (paidRep && paidRepName) repNames[paidRep] = paidRepName;
+    const payload: SupplierEntryEventPayload = {
+      entryId: r.id, kind, vendorId: r.vendorId, vendorName: ctx.vendorNames?.get(r.vendorId) ?? null,
+      amountMilli: r.amountMilli.toString(), netMilli: r.netMilli != null ? r.netMilli.toString() : null,
+      taxMilli: r.taxMilli != null ? r.taxMilli.toString() : null,
+      entryDate, dueDate: r.dueDate ? fromDbDate(r.dueDate) : null, ref: r.ref ?? null, note: r.note ?? null,
+      reversesId: r.reversesId ?? null, warehouseEntry: we,
+      payment: pay ? { ...pay, salesRepName: repName } : null,
+      ...((SUPPLIER_KINDS_NEED_ENTRY as readonly string[]).includes(kind) && we ? { costRef: we.costRef } : {}),
+      ...(Object.keys(repNames).length > 0 ? { repNames } : {}),
+      sourceCreatedAt: iso(r.createdAt),
+    };
+    const ev: DesiredEvent = {
+      sourceKey: supplierEntryKey(r.id), sourceType: 'SUPPLIER_ENTRY', sourceId: r.id, event: 'POST',
+      effectAt: zonedStartOfDay(entryDate, ctx.timezone), payload,
+    };
+    const problem = !(SUPPLIER_KINDS as readonly string[]).includes(kind)
+      ? `نوع قيد مورّد غير معروف ${kind}`
+      : (SUPPLIER_KINDS_NEED_ENTRY as readonly string[]).includes(kind) && !we
+        ? `قيد مورّد ${kind} بلا حركة مستودع`
+        : (kind === 'PAYMENT' || kind === 'PAYMENT_REV') && !pay
+          ? `قيد مورّد ${kind} بلا سند صرف`
+          : null;
+    if (problem) {
+      ev.status = 'HELD';
+      ev.lastError = heldNote(`${problem} (${r.id})`);
+    }
+    out.push(ev);
   }
   return out;
 }
@@ -743,6 +1048,10 @@ export function deriveSourceEvents(source: ReconciledSource, rows: readonly Sour
     case 'REP_SETTLEMENT': return deriveRepSettlementEvents(rows as readonly RepSettlementSourceRow[], ctx);
     case 'SETTLEMENT_ENTRY': return deriveSettlementEntryEvents(rows as readonly SettlementEntrySourceRow[], ctx);
     case 'USER_SETTLEMENT': return deriveUserSettlementEvents(rows as readonly UserSettlementSourceRow[], ctx);
+    case 'WAREHOUSE_ENTRY': return deriveWarehouseEntryEvents(rows as readonly WarehouseEntrySourceRow[], ctx);
+    case 'VAN_LOAD': return deriveVanLoadEvents(rows as readonly VanLoadSourceRow[], ctx);
+    case 'RETURN_RESTOCK': return deriveRestockEvents(rows as readonly RestockLogSourceRow[], ctx);
+    case 'SUPPLIER_ENTRY': return deriveSupplierEntryEvents(rows as readonly SupplierEntrySourceRow[], ctx);
   }
 }
 
@@ -771,6 +1080,8 @@ export function factIdsForRows(source: ReconciledSource, rows: readonly SourceRo
     }
   } else if (source === 'USER_SETTLEMENT') {
     for (const r of rows as readonly UserSettlementSourceRow[]) users.add(r.fromUserId);
+  } else if ((INVENTORY_RECONCILED_SOURCES as readonly string[]).includes(source)) {
+    // «ربط الدفاتر» L6: حقائق هذه المصادر يحمّلها المخزن بنفسه (reconcilerStore.prisma loadInventoryFacts)
   } else {
     for (const r of rows as readonly SettlementEntrySourceRow[]) {
       if (r.kind === 'PAYOUT' && r.payoutId) pay.add(r.payoutId);

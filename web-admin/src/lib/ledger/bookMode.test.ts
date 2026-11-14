@@ -147,8 +147,9 @@ test('inventoryModeChoices: مرآة inventoryModeAvailable ورمز الرفض 
   if (!fs.existsSync(f)) { t.skip('الخادم غير موجود بجوار الواجهة'); return; }
   const s = fs.readFileSync(f, 'utf8');
   assert.match(s, /export const INVENTORY_MODE_UNAVAILABLE_CODE = 'INVENTORY_MODE_UNAVAILABLE';/);
-  assert.match(s, /return mode !== 'PERPETUAL' \|\| current === 'PERPETUAL';/, 'قاعدة الإتاحة في الخادم تغيّرت — راجع inventoryModeChoices');
-  assert.match(s, /inventoryModeOptions: inventoryModeOptions\(s\.inventoryMode\)/, 'GET /settings يرسل القائمة');
+  // «ربط الدفاتر» L6/L7: والمربوطة يظهر لها الجرد المستمر — القائمة من الخادم (serverOptions) تحمل ذلك
+  assert.match(s, /return mode !== 'PERPETUAL' \|\| current === 'PERPETUAL' \|\| opts\.linked === true;/, 'قاعدة الإتاحة في الخادم تغيّرت — راجع inventoryModeChoices');
+  assert.match(s, /inventoryModeOptions: inventoryModeOptions\(s\.inventoryMode, \{ linked: isLinked\(s\) \}\)/, 'GET /settings يرسل القائمة');
   // صفحة الإعدادات تعرض الخيار من الدالة لا ثابتاً
   const page = read('pages', 'ledger', 'config', 'SettingsPage.tsx');
   assert.match(page, /const inventoryModes = inventoryModeChoices\(s\?\.inventoryMode, /);

@@ -335,7 +335,7 @@ test('activeSyncSources: الافتراضي حرفاً كما كان، وlinked 
   assert.deepEqual(activeSyncSources('PERPETUAL'), ['ACCOUNT_ENTRY', 'REP_SETTLEMENT', 'SETTLEMENT_ENTRY', 'WAREHOUSE_ENTRY', 'VAN_LOAD', 'RETURN_RESTOCK']);
   assert.deepEqual(activeSyncSources('PERIODIC', { linked: false }), ['ACCOUNT_ENTRY', 'REP_SETTLEMENT', 'SETTLEMENT_ENTRY']);
   assert.deepEqual(activeSyncSources('PERIODIC', { linked: true }), ['ACCOUNT_ENTRY', 'REP_SETTLEMENT', 'SETTLEMENT_ENTRY', 'USER_SETTLEMENT']);
-  assert.deepEqual(activeSyncSources('PERPETUAL', { linked: true }).slice(-2), ['RETURN_RESTOCK', 'USER_SETTLEMENT']);
+  assert.deepEqual(activeSyncSources('PERPETUAL', { linked: true }).slice(-3), ['RETURN_RESTOCK', 'USER_SETTLEMENT', 'SUPPLIER_ENTRY']);
 });
 
 test('lockSyncBlockers: مؤشر USER_SETTLEMENT يُطلب للمربوطة وحدها', () => {

@@ -8,6 +8,7 @@ import { LedgerLocals } from './context';
 import { LedgerHttpError, ledgerHandler } from './errors';
 import { appendAudit, ledgerActor, type GlActor, type GlTx } from '../../services/gl/audit';
 import { acquirePostLock, assertJournalNumberingEditable } from '../../services/gl/post';
+import { isLinked } from '../../services/gl/mode';
 import { GlNotFoundError } from '../../services/gl/resolve';
 import { backfillAccountDescriptions, seedTemplate } from '../../services/gl/seed';
 import { assertArabicName, hasArabicLetter } from '../../services/gl/names';
@@ -993,7 +994,7 @@ router.get('/settings', CONFIGURE, ledgerHandler(async (_req, res) => {
   const { tenantId } = ledgerOf(res);
   const s = await prisma.glSettings.findUnique({ where: { tenantId } });
   // inventoryModeOptions بجانب الصف لا داخله (settingsOut يغذّي diff التدقيق، والخيار مشتقّ لا عمود)
-  res.json({ success: true, data: s ? { ...settingsOut(s), inventoryModeOptions: inventoryModeOptions(s.inventoryMode) } : null });
+  res.json({ success: true, data: s ? { ...settingsOut(s), inventoryModeOptions: inventoryModeOptions(s.inventoryMode, { linked: isLinked(s) }) } : null });
 }));
 
 const RECEIPT_METHODS = ['CASH', 'BANK_TRANSFER', 'POS', 'CHEQUE'] as const;
@@ -1042,15 +1043,20 @@ const FROZEN_AFTER_ACTIVATION = ['timezone', 'fiscalYearEndMonth', 'fiscalYearEn
 export const INVENTORY_MODE_UNAVAILABLE_CODE = 'INVENTORY_MODE_UNAVAILABLE';
 export const INVENTORY_MODE_UNAVAILABLE_MESSAGE = 'المخزون الدائم يتاح مع ربط الدفاتر';
 
-/** الخيار متاح؟ (صرفة) — PERIODIC دائماً، وPERPETUAL لمن هي قيمته الحالية وحدها حتى L6 */
-export function inventoryModeAvailable(mode: InventoryMode, current: string | null | undefined): boolean {
-  return mode !== 'PERPETUAL' || current === 'PERPETUAL';
+/**
+ * الخيار متاح؟ (صرفة) — PERIODIC دائماً، وPERPETUAL لمن هي قيمته الحالية، وللدفاتر المربوطة («ربط الدفاتر» L6: قيود المخزون
+ * وتكلفة البضاعة تُرحَّل لها، والاعتماد يضبطه لمن فعّل مخزون الشركة).
+ */
+export function inventoryModeAvailable(mode: InventoryMode, current: string | null | undefined, opts: { linked?: boolean } = {}): boolean {
+  return mode !== 'PERPETUAL' || current === 'PERPETUAL' || opts.linked === true;
 }
 
 /** قائمة خيارات طريقة الجرد للواجهة (GET/PUT /settings): تعطيل PERPETUAL بسببه بدل إخفائه */
-export function inventoryModeOptions(current: string | null | undefined): { value: InventoryMode; available: boolean; reason: string | null }[] {
+export function inventoryModeOptions(
+  current: string | null | undefined, opts: { linked?: boolean } = {},
+): { value: InventoryMode; available: boolean; reason: string | null }[] {
   return INVENTORY_MODES.map((value) => {
-    const available = inventoryModeAvailable(value, current);
+    const available = inventoryModeAvailable(value, current, opts);
     return { value, available, reason: available ? null : INVENTORY_MODE_UNAVAILABLE_CODE };
   });
 }
@@ -1078,7 +1084,7 @@ router.put('/settings', CONFIGURE, ledgerHandler(async (req, res) => {
       if (frozen.length) throw new LedgerHttpError(409, 'هذه الإعدادات لا تتغير بعد تفعيل الدفاتر', { reason: 'FROZEN_AFTER_ACTIVATION', fields: frozen });
     }
     // بعد حارس التجميد: المفعّلة (اليدوية كلها اليوم) تلقى 409 FROZEN_AFTER_ACTIVATION كما كانت بايتاً بايتاً
-    if (body.inventoryMode !== undefined && !inventoryModeAvailable(body.inventoryMode, s.inventoryMode)) {
+    if (body.inventoryMode !== undefined && !inventoryModeAvailable(body.inventoryMode, s.inventoryMode, { linked: isLinked(s) })) {
       throw new LedgerHttpError(400, INVENTORY_MODE_UNAVAILABLE_MESSAGE, {
         reason: INVENTORY_MODE_UNAVAILABLE_CODE, field: 'inventoryMode', inventoryMode: s.inventoryMode,
       }, INVENTORY_MODE_UNAVAILABLE_CODE);
@@ -1142,7 +1148,7 @@ router.put('/settings', CONFIGURE, ledgerHandler(async (req, res) => {
     success: true,
     data: {
       ...settingsOut(updated.settings),
-      inventoryModeOptions: inventoryModeOptions(updated.settings.inventoryMode),
+      inventoryModeOptions: inventoryModeOptions(updated.settings.inventoryMode, { linked: isLinked(updated.settings) }),
       ...(updated.rebasedImportEntries !== undefined ? { rebasedImportEntries: updated.rebasedImportEntries } : {}),
     },
   });

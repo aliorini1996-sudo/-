@@ -27,6 +27,8 @@ import type {
   EligibleTenant, ListDueEventsOptions, LiveMoveLine, OpeningImportCandidate, PosterSettings, PostingStore, PostingTx, SourceData,
   WithPostLockOptions,
 } from './postingStore';
+import type { CostSnapshotRecord } from './postingStore';
+import { compareCompositeKey } from './types';
 import {
   POST_TX_TIMEOUT_MS, SYNC_CURSOR_SOURCES, WORKER_LEASE_SECONDS,
   type CompositeKey, type DesiredEvent, type LeaseHandle, type SourceEventPatch, type SourceEventPayload, type SourceEventRecord,
@@ -252,13 +254,36 @@ export class PrismaPostingStore implements PostingStore {
   }
 
   async inventoryHorizon(tenantId: string): Promise<Date | null> {
-    const s = await this.db.glSettings.findUnique({ where: { tenantId }, select: { inventoryMode: true, backfillState: true } });
-    if (!s || s.inventoryMode !== 'PERPETUAL' || s.backfillState !== 'DONE') return null;
+    const s = await this.db.glSettings.findUnique({
+      where: { tenantId }, select: { inventoryMode: true, backfillState: true, setupMethod: true, activatedAt: true },
+    });
+    if (!s || s.inventoryMode !== 'PERPETUAL') return null;
+    // «ربط الدفاتر» L6: المربوطة أفقها حيّ من التفعيل (أثناء الترحيل التاريخي أيضاً) = أبعد موضع طواه محرّك التكلفة؛ والقيم
+    // من اللقطات فلا ترتيب effectAt بين أحداث المخزون (المُرحِّل يحرسها ببوابة costRef). غيرها حرفاً كما كان.
+    if (isLinked(s)) return (await this.costCursor(tenantId))?.at ?? null;
+    if (s.backfillState !== 'DONE') return null;
     const rows = await this.db.glSyncCursor.findMany({
       where: { tenantId, source: { in: ['ACCOUNT_ENTRY', 'WAREHOUSE_ENTRY', 'VAN_LOAD'] } }, select: { watermarkAt: true },
     });
     if (rows.length < 3) return null;
     return rows.reduce((m, r) => (r.watermarkAt < m ? r.watermarkAt : m), rows[0].watermarkAt);
+  }
+
+  async costCursor(tenantId: string): Promise<CompositeKey | null> {
+    const [snap, head] = await Promise.all([
+      this.db.glCostSnapshot.findFirst({
+        where: { tenantId }, orderBy: [{ srcCreatedAt: 'desc' }, { srcId: 'desc' }], select: { srcCreatedAt: true, srcId: true },
+      }),
+      this.db.glCostCheckpoint.findFirst({
+        where: { tenantId, productId: '*', location: '*' }, orderBy: [{ cursorAt: 'desc' }, { cursorId: 'desc' }],
+        select: { cursorAt: true, cursorId: true },
+      }),
+    ]);
+    const a: CompositeKey | null = snap ? { at: snap.srcCreatedAt, id: snap.srcId } : null;
+    const b: CompositeKey | null = head ? { at: head.cursorAt, id: head.cursorId } : null;
+    if (!a) return b;
+    if (!b) return a;
+    return compareCompositeKey(a, b) >= 0 ? a : b;
   }
 
   async inventoryBlockedHead(tenantId: string): Promise<{ effectAt: Date; sourceKey: string } | null> {
@@ -968,6 +993,25 @@ export class PrismaPostingTx implements PostingTx {
   /** L8: مخزن المطابقة الجزئية على المعاملة نفسها (services/gl/reconcile، A10) */
   reconcileStore(): ReconcileStore {
     return createPrismaReconcileStore(this.tx, this.tenantId);
+  }
+
+  /** «ربط الدفاتر» L6: لقطات التكلفة للمستندات — الفهرس (tenantId, refType, refId) */
+  async loadCostSnapshots(refs: readonly { refType: string; refId: string }[]): Promise<CostSnapshotRecord[]> {
+    const byType = new Map<string, Set<string>>();
+    for (const r of refs) {
+      const set = byType.get(r.refType) ?? new Set<string>();
+      set.add(r.refId);
+      byType.set(r.refType, set);
+    }
+    if (byType.size === 0) return [];
+    return this.tx.glCostSnapshot.findMany({
+      where: { tenantId: this.tenantId, OR: [...byType].map(([refType, ids]) => ({ refType, refId: { in: [...ids] } })) },
+      select: {
+        sourceKey: true, kind: true, refType: true, refId: true, itemId: true, productId: true, location: true, toLocation: true,
+        baseQty: true, valueMilli: true, varianceMilli: true, memoMilli: true,
+      },
+      orderBy: { sourceKey: 'asc' },
+    });
   }
 
   /**

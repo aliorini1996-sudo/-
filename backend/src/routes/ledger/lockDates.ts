@@ -14,7 +14,7 @@ import {
 } from '../../services/gl/locks';
 import { LedgerError, type BackfillState, type LocalDate } from '../../services/gl/types';
 import type { PrismaClient } from '@prisma/client';
-import { isReconciledSource } from '../../services/gl/sync/desired';
+import { isAnyReconciledSource, isReconciledSource, reconciledSourceEnabled } from '../../services/gl/sync/desired';
 import { reconcileHorizon } from '../../services/gl/sync/reconciler';
 import { createPrismaReconcilerStore } from '../../services/gl/sync/reconcilerStore.prisma';
 import { isLinked } from '../../services/gl/mode';
@@ -91,8 +91,14 @@ export async function loadLockSyncInput(
   const reconciler = createPrismaReconcilerStore(tx as unknown as PrismaClient);
   const horizon = reconcileHorizon(now);
   const snapshots: SyncCursorSnapshot[] = [];
+  // «ربط الدفاتر» L6: للمربوطة تُقرأ مصادر المخزون والمشتريات فعلاً (بالجرد المستمر) — غير المربوطة كما كانت حرفاً
+  const linked = isLinked(s);
+  const enabled = { linked, inventoryPosting: linked && s.inventoryMode === 'PERPETUAL' };
   for (const c of cursors) {
-    const hasUnreadRows = isReconciledSource(c.source)
+    const readable = linked
+      ? isAnyReconciledSource(c.source) && reconciledSourceEnabled(c.source, enabled)
+      : isReconciledSource(c.source);
+    const hasUnreadRows = readable && isAnyReconciledSource(c.source)
       ? await reconciler.hasUnreadRows(tenantId, c.source, { at: c.watermarkAt, id: c.watermarkId }, horizon)
       : true;
     snapshots.push({ source: c.source, watermarkAt: c.watermarkAt, lastRunAt: c.lastRunAt, hasUnreadRows });

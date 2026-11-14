@@ -7,7 +7,8 @@ import type { EventStatus } from './ledgerReview';
  *
  * مُوفَّق مع backend/src/routes/ledger/linking.ts وbackend/src/services/gl/linking/types.ts:
  * - كل المسارات `canConfigureLedger` **ولمالك الشركة وحده** (403 `LEDGER_LINKING_OWNER_ONLY`)، وللقراءة فقط:
- *   الكتابة الوحيدة صفّ المعاينة نفسه (`gl_link_previews`) — لا زرّ اعتماد هنا (L7).
+ *   الكتابة الوحيدة صفّ المعاينة نفسه (`gl_link_previews`). زرّ الربط النهائي (L7/L9) خارج `ledgerLinkingApi` عمداً:
+ *   `commitBooksLinking` تستدعيه بطاقة إعدادات الشركة وحدها، لا صفحة المعاينة.
  * - الأنواع منسوخة يدوياً من `PreviewResultJson = JsonMilli<PreviewResult>`: كل bigint نصّ عدد صحيح بالملّي
  *   (كل حقل ينتهي بـ`Milli`)، ويُعرض عبر milliToDecimalString/LedgerAmount — لا `Number` على مبلغ أبداً.
  * - أعضاء الكائن أدناه سطرٌ لكلٍّ منها: حارس ledgerMenuPerms يقرأ المسار من نصّ السطر.
@@ -368,3 +369,48 @@ export const ledgerLinkingKeys = {
   preview: (id: string) => ['ledger', 'linking', 'preview', id] as const,
   preflight: (basis: LinkBasis) => ['ledger', 'linking', 'preflight', basis] as const,
 };
+
+// ═══ الربط النهائي (L7/L9 مبسّطة) — POST /linking/commit ═══
+
+/** حالة «ربط الدفاتر» كما يعيدها GET /company (booksLinking — للنظام المحاسبي المفعّل ولغير المندوب) */
+export type BooksLinkingState = 'NONE' | 'MANUAL' | 'BUILDING' | 'LINKED' | 'LEGACY';
+export interface BooksLinkingStatus {
+  state: BooksLinkingState;
+  /** NONE | RUNNING | PAUSED | DONE */
+  backfillState: string | null;
+  linkedFrom: LocalDate | null;
+  /** ISO */
+  linkedAt: string | null;
+}
+
+/** إقرار الحركات المستوردة بعد تاريخ الربط: مربوط باللقطة المعروضة (من تفاصيل 409) أو منطقي */
+export type PostCutoverImportsAck = boolean | { count: number; debit: string; credit: string; snapshotAt?: string | null };
+
+export interface LinkingCommitBody {
+  /** اسم الشركة كما هو (يُطابق حرفياً بعد قصّ الطرفين) */
+  companyName: string;
+  /** «الربط نهائي لا رجعة فيه» */
+  acknowledgeFinal: true;
+  acknowledgePostCutoverImports?: PostCutoverImportsAck;
+  acknowledgeOpeningStockExcluded?: boolean;
+}
+
+export interface LinkingCommitResult {
+  linking?: {
+    basis: LinkBasis;
+    linkedFrom: LocalDate;
+    /** دفاتر يدوية حُوِّلت (عُكس افتتاحها القديم) */
+    converted: boolean;
+    restated: { originalId: string; originalNumber: string | null; reversalId: string; reversalNumber: string; date: LocalDate }[];
+  };
+}
+
+/** رموز رفض الربط النهائي — تسمياتها في بطاقة إعدادات الشركة */
+export type LinkingCommitErrorCode =
+  | 'LINKING_ACK_REQUIRED' | 'LINKING_NAME_MISMATCH' | 'LINKING_CURRENCY' | 'LINKING_LOCKED' | 'LINKING_MANUAL_MOVES'
+  | 'LEDGER_POST_CUTOVER_IMPORTS_ACK' | 'LEDGER_POST_CUTOVER_IMPORTS_CHANGED' | 'LEDGER_OPENING_STOCK_AFTER_CUTOVER';
+
+/** نهائي بلا فكّ: canConfigureLedger ومالك الشركة، وتأكيد الاسم والإقرار — 201 بالأرقام الملتزمة */
+export function commitBooksLinking(body: LinkingCommitBody) {
+  return api.post<LedgerEnvelope<LinkingCommitResult>>(`${L}/linking/commit`, body);
+}

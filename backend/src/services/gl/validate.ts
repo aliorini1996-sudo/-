@@ -127,6 +127,9 @@ export function collectMoveIssues(move: MoveDraft, ctx: BuildContext, opts: Vali
   let totalCredit = 0n;
   let nonZero = 0;
   let offBalanceCount = 0;
+  // «ربط الدفاتر» L6: 211002 (GRNI) يملكه مصدره في الدفاتر المربوطة وحدها — حساب الربط GRNI يُعامَل controlKind=GRNI ولو لم
+  // يُضبط عموده بعد (الحسابات القائمة قبل الاعتماد). غير المربوطة لا يتغيّر لها شيء (القيد اليدوي على 211002 كما كان).
+  const linkedGrniId = ctx.settings.linkedPosting === true ? (ctx.accounts.byKey('GRNI')?.id ?? null) : null;
 
   move.lines.forEach((line, index) => {
     const d = line.debitMilli;
@@ -182,7 +185,7 @@ export function collectMoveIssues(move: MoveDraft, ctx: BuildContext, opts: Vali
 
     if (account.type === 'off_balance') offBalanceCount++;
 
-    const kind = account.controlKind;
+    const kind = account.controlKind ?? (linkedGrniId !== null && account.id === linkedGrniId ? 'GRNI' : null);
     if (mode === 'MANUAL' && kind) {
       // I4: الحسابات الرئيسية ممنوعة يدوياً إلا بنوع القيد CONTROL_ADJUSTMENT
       if (SOURCE_OWNED_CONTROL_KINDS.includes(kind) && !controlExempt) {

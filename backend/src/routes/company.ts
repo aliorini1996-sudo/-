@@ -17,7 +17,7 @@ import returnPolicyRouter from './returnPolicy';
 import paymentMethodsConfigRouter from './paymentMethodsConfig';
 import companyBuyerRelaxRouter from './companyBuyerRelax';
 import companyTaxModeRouter from './companyTaxMode';
-import { tenantBooksLinked } from '../services/booksMode';
+import { bookMode, tenantBooksLinked, type BookModeSettings } from '../services/booksMode';
 
 const router = Router();
 
@@ -124,10 +124,32 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     // «التحصيل بالبطاقة»: تفعيل المالك وتاجر الشركة يكفيان على بيئة الاختبار، وcardPayTest يقول للواجهة «اختبار — لا مال حقيقي»
     // بلا اسم مزوّد الدفع (طلب المالك ١ نوفمبر ٢٠٢٦)؛ معرّف التاجر نفسه لا يخرج في الرد
     const cardPayAvailable = tenant?.cardPayEnabled === true && cardPayUsable({ id: tid, cardPayEnabled: tenant.cardPayEnabled, nearpayMerchantId: tenant.nearpayMerchantId });
-    const data = { ...(maskCompany(company as Record<string, unknown> | null) as object), erpEnabled: !!tenant?.erpEnabled, petroappEnabled: !!tenant?.petroappEnabled, hatifEnabled: !!tenant?.hatifEnabled, catalogEnabled: !!tenant?.catalogEnabled, paylinkEnabled: !!tenant?.paylinkEnabled, warehouseEnabled: !!tenant?.warehouseEnabled, receivablesSummaryEnabled: !!tenant?.receivablesSummaryEnabled, accountingEnabled: tenant?.accountingEnabled !== false, dailyReportEnabled: tenant?.dailyReportEnabled === true, attendanceEnabled: tenant?.attendanceEnabled === true, invoiceSignatureEnabled: tenant?.invoiceSignatureEnabled === true, accountingSuiteEnabled: tenant?.accountingSuiteEnabled === true, zatcaPhase2Enabled: tenant?.zatcaPhase2Enabled === true, aiRepEnabled: tenant?.aiRepEnabled === true && (req.user?.role !== 'SALES_REP' || await aiRepForRep(tid, req.user.id)), apiEnabled: tenant?.apiEnabled === true, cardPayEnabled: tenant?.cardPayEnabled === true, cardPayAvailable, cardPayTest: cardPayAvailable && cardPayTestMode(), locationsEnabled: tenant?.locationsEnabled === true, paymentMethodsEnabled: tenant?.paymentMethodsEnabled === true, lotTrackingEnabled: tenant?.lotTrackingEnabled === true, lotOnInvoice: company?.lotOnInvoice === true && tenant?.lotTrackingEnabled === true };
+    // «ربط الدفاتر» L7: حالة الربط لبطاقة إعدادات الشركة — للنظام المحاسبي المفعّل وحده ولغير المندوب (قراءة واحدة لصفّ الإعدادات)
+    const booksLinking = tenant?.accountingSuiteEnabled === true && tenant?.accountingEnabled !== false && req.user?.role !== 'SALES_REP'
+      ? booksLinkingStatus(await prisma.glSettings.findUnique({ where: { tenantId: tid }, select: { setupMethod: true, activatedAt: true, backfillState: true, linkedFrom: true, linkedAt: true } }))
+      : null;
+    const data = { ...(maskCompany(company as Record<string, unknown> | null) as object), ...(booksLinking ? { booksLinking } : {}), erpEnabled: !!tenant?.erpEnabled, petroappEnabled: !!tenant?.petroappEnabled, hatifEnabled: !!tenant?.hatifEnabled, catalogEnabled: !!tenant?.catalogEnabled, paylinkEnabled: !!tenant?.paylinkEnabled, warehouseEnabled: !!tenant?.warehouseEnabled, receivablesSummaryEnabled: !!tenant?.receivablesSummaryEnabled, accountingEnabled: tenant?.accountingEnabled !== false, dailyReportEnabled: tenant?.dailyReportEnabled === true, attendanceEnabled: tenant?.attendanceEnabled === true, invoiceSignatureEnabled: tenant?.invoiceSignatureEnabled === true, accountingSuiteEnabled: tenant?.accountingSuiteEnabled === true, zatcaPhase2Enabled: tenant?.zatcaPhase2Enabled === true, aiRepEnabled: tenant?.aiRepEnabled === true && (req.user?.role !== 'SALES_REP' || await aiRepForRep(tid, req.user.id)), apiEnabled: tenant?.apiEnabled === true, cardPayEnabled: tenant?.cardPayEnabled === true, cardPayAvailable, cardPayTest: cardPayAvailable && cardPayTestMode(), locationsEnabled: tenant?.locationsEnabled === true, paymentMethodsEnabled: tenant?.paymentMethodsEnabled === true, lotTrackingEnabled: tenant?.lotTrackingEnabled === true, lotOnInvoice: company?.lotOnInvoice === true && tenant?.lotTrackingEnabled === true };
     res.json({ success: true, data });
   } catch (err) { next(err); }
 });
+
+/** حالة «ربط الدفاتر» كما تعرضها البطاقة: NONE غير مفعّلة، MANUAL يدوية، BUILDING مربوطة يجري ترحيلها، LINKED مربوطة مكتملة، LEGACY قديمة */
+export type BooksLinkingState = 'NONE' | 'MANUAL' | 'BUILDING' | 'LINKED' | 'LEGACY';
+export interface BooksLinkingStatus { state: BooksLinkingState; backfillState: string | null; linkedFrom: string | null; linkedAt: string | null }
+
+export function booksLinkingStatus(s: (BookModeSettings & { backfillState?: string | null; linkedFrom?: Date | null; linkedAt?: Date | null }) | null): BooksLinkingStatus {
+  const mode = bookMode(s);
+  // صفّ يدويّ بلا تفعيل (مسودة معالج) لم يُفعَّل بعد
+  const state: BooksLinkingState = mode === 'MANUAL' ? (s?.activatedAt ? 'MANUAL' : 'NONE')
+    : mode === 'LINKED' ? (s?.backfillState === 'DONE' ? 'LINKED' : 'BUILDING')
+      : mode === 'LEGACY' ? 'LEGACY' : 'NONE';
+  return {
+    state,
+    backfillState: s?.backfillState ?? null,
+    linkedFrom: s?.linkedFrom ? s.linkedFrom.toISOString().slice(0, 10) : null,
+    linkedAt: s?.linkedAt ? s.linkedAt.toISOString() : null,
+  };
+}
 
 /**
  * هل يغيّر حفظُ موظف المنصة (جلسة «دخول») هاتفَ الشركة؟ بوت واتساب يعرّف الشركة به ويعيد عبره كلمات مرور المناديب

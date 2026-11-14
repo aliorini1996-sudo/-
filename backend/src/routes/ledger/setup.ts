@@ -18,8 +18,9 @@ import { addDays, daysInMonth, fromDbDate, isLocalDate, isValidTimeZone, toDbDat
 import { draftsListUrl } from '../../services/gl/locks';
 import {
   CASH_INVOICE_ROUTINGS, DEFAULT_GL_SETTINGS, LedgerError, TAX_PERIODICITIES,
-  type BackfillState, type BuildContext, type LocalDate, type TaxPeriodicity, type TemplateKey,
+  type BackfillState, type BuildContext, type InventoryMode, type LocalDate, type TaxPeriodicity, type TemplateKey,
 } from '../../services/gl/types';
+import { LINKED_CONTROL_KIND_OVERRIDES } from '../../services/gl/coa/sa';
 import { initialWatermarkAt, type SetupMethod } from '../../services/gl/sync/classify';
 import { isManualBooks } from '../../services/gl/mode';
 import {
@@ -39,6 +40,8 @@ import {
   LEDGER_TIMEZONE_IMPORTS_CONFLICT_CODE, LEDGER_TIMEZONE_IMPORTS_CONFLICT_MESSAGE, importTimezoneConflict, planImportDateRebase, plannedRebaseCount,
 } from '../../services/importTimezoneRebase';
 import { assertRoutingCustodyCashOnly, routingGuardApplies, wizardLinksBooks } from './paymentMethodMap';
+// «ربط الدفاتر» L7/L9: نوع الخطّافات وحده (يُمحى عند الترجمة) — وحدات الربط لا تُستورد قيمياً هنا (حارس «مظلمة»)
+import type { LinkingCommitHooks, LinkingPlan, RestatedOpening } from '../../services/gl/linking/activate';
 
 /**
  * معالج الإعداد والقيد الافتتاحي والترحيل التاريخي — `/api/ledger/setup*` (M3، §5.6، §8.4 القسم 2، ملحق أ).
@@ -191,6 +194,41 @@ function assertFiscalYearEnd(e: EffectiveSetup) {
       reason: 'INVALID_FISCAL_YEAR_END', fiscalYearEndMonth: e.fiscalYearEndMonth, fiscalYearEndDay: e.fiscalYearEndDay,
     });
   }
+}
+
+/**
+ * «ربط الدفاتر» L7: الإعدادات الفعلية للاعتماد المربوط — الطريقة LINKED وتاريخ البدء = linkedFrom = بداية السنة المالية لليوم
+ * المحلي (eff.cutoverDate في البداية النظيفة = اليوم بتوقيت الشركة). نهاية سنة غير صالحة ⇒ 422 قبل الحساب.
+ */
+function linkedSetup(e: EffectiveSetup, linking: LinkingCommitHooks): Pick<EffectiveSetup, 'method' | 'cutoverDate'> {
+  assertFiscalYearEnd(e);
+  return { method: 'LINKED', cutoverDate: linking.linkingFromDate(e.cutoverDate as LocalDate, e.fiscalYearEndMonth, e.fiscalYearEndDay) };
+}
+
+/** عملة الدفاتر التي سيزرعها القالب (لا صفّ إعدادات بعد) — null إن لم يوجد قالب للدولة (يُرفض لاحقاً TEMPLATE_UNAVAILABLE) */
+function templateCurrencyOf(e: EffectiveSetup): string | null {
+  try {
+    return resolveTemplate(e.templateKey, e.templateKey === 'GENERIC_6D' ? { countryCode: e.countryCode } : {}).settings.currency;
+  } catch (err) {
+    if (err instanceof RangeError) return null;
+    throw err;
+  }
+}
+
+/**
+ * L9: مسودة التحويل — إعدادات الدفاتر اليدوية المفعّلة هي المرجع (الخطوة الأولى منها)، ولا شجرة ولا روابط فئات تُعاد (step3 فارغة)
+ * ولا أرصدة يدوية (أرصدة المسودة القديمة بتاريخ البدء اليدوي لا بتاريخ الربط) — تُدمج فوق المخزّنة بـmergeDraft.
+ */
+function conversionDraft(s: SettingsRow): SetupDraft {
+  const tp = (TAX_PERIODICITIES as readonly string[]).includes(s.taxPeriodicity) ? (s.taxPeriodicity as TaxPeriodicity) : 'QUARTERLY';
+  return {
+    step1: {
+      timezone: s.timezone, fiscalYearEndMonth: s.fiscalYearEndMonth, fiscalYearEndDay: s.fiscalYearEndDay, weekStartsOn: s.weekStartsOn,
+      taxPeriodicity: tp, confirmMidVatPeriod: false, preCutoverBoxes: null,
+    },
+    step3: {},
+    step5: { rows: [] },
+  };
 }
 
 /** صف GlSettings بلقطة القالب إن لم يوجد (بلا زرع حسابات) — createMany متساوي الأثر */
@@ -520,7 +558,7 @@ export const LEDGER_SETUP_DAY_CHANGED_MESSAGE =
  * البند 41: الإقرار مربوط باللقطة المعروضة (العدد والمدين والدائن ولحظتها) لا قيمةً منطقية، فلا يصحّ إقرار قديم
  * على واقع جديد. الشكل المنطقي يبقى مقبولاً للتوافق (نداءات قديمة) لكنه غير مربوط، والواجهة تُرسل اللقطة.
  */
-const postCutoverImportsAckSchema = z.object({
+export const postCutoverImportsAckSchema = z.object({
   count: z.number().int().min(0),
   debit: z.string().max(40),
   credit: z.string().max(40),
@@ -621,8 +659,29 @@ async function resolveVendors(tx: GlTx, tenantId: string, lines: ManualBalanceLi
   return { created };
 }
 
-router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
+/**
+ * «ربط الدفاتر» L7/L9: POST /linking/commit يضع خطّافاته (services/gl/linking/activate.ts) في res.locals ثم يستدعي معالج الاعتماد
+ * هذا نفسه (runSetupCommitRoute) — غيابها (POST /setup/commit) = البداية النظيفة كما كانت حرفياً.
+ */
+export const LINKING_COMMIT_LOCAL = 'linkingCommit';
+const linkingOf = (res: Response): LinkingCommitHooks | null => (res.locals[LINKING_COMMIT_LOCAL] as LinkingCommitHooks | undefined) ?? null;
+let setupCommitImpl: (req: AuthRequest, res: Response) => Promise<void>;
+/** معالج الاعتماد نفسه بلا CONFIGURE (المُستدعي يحرس) — أخطاؤه تُرمى لـledgerHandler المُستدعي */
+export function runSetupCommitRoute(req: AuthRequest, res: Response): Promise<void> {
+  return setupCommitImpl(req, res);
+}
+
+/*
+ * الفرع المربوط (linking ≠ null): setupMethod = LINKED وتاريخ البدء = linkedFrom = بداية السنة المالية، وT0 = ساعة القاعدة − نافذة
+ * الالتزام المتأخر؛ شروط المنع قبل أي كتابة (الاسم، العملة، الإقفال، وللتحويل القيود اليدوية)؛ الافتتاح المشتقّ (ذمم/عهد/أمانات —
+ * وللجرد المستمر المخزون من محرّك التكلفة و211001/211002) مع أرصدة المسودة غير المشتقّة، وللتحويل (L9، موقوف: 409 من الشروط):
+ * عكس الافتتاح القديم بتاريخه ثم الافتتاح المشتقّ بلا صفوف يدوية؛
+ * ثم linkBasis/linkedFrom/linkSnapshotAt/linkedAt/linkedBy والمؤشرات وbackfillState=RUNNING فيرحّل المحرّك القائم كل المستندات
+ * بتواريخها؛ تدقيق LINKING_ENABLE. نهائي: لا فكّ.
+ */
+router.post('/setup/commit', CONFIGURE, ledgerHandler(setupCommitImpl = async (req, res) => {
   const { tenantId, actorId } = ledgerOf(res);
+  const linking = linkingOf(res);
   const parsed = commitSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     const ack = (req.body as { acknowledgeStatutory?: unknown } | undefined)?.acknowledgeStatutory;
@@ -637,7 +696,9 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
 
     const company = await companyOf(tx, tenantId);
     const before = await tx.glSettings.findUnique({ where: { tenantId } });
-    assertNotActivated(before);
+    // L9: الدفاتر اليدوية المفعّلة تُحوَّل إلى مربوطة؛ وكل مفعّلة سواها 409 ALREADY_ACTIVATED كما كان
+    const converting = !!linking && !!before?.activatedAt && isManualBooks(before);
+    if (!converting) assertNotActivated(before);
     // دفعة استيراد جارية (قلبها ينبض خلال المهلة) ⇒ 409 LEDGER_IMPORT_IN_PROGRESS قبل أي كتابة: صفوفها تُكتب بسياق
     // «قبل التفعيل» ولا يغطيها الافتتاح ولا الإقرار. قفل حجز الدفعات أولاً فلا تُحجز دفعة بين الفحص والتفعيل؛
     // المنقطعة (نبض أقدم من المهلة) لا تمنع — ما سُجّل منها يُراجع ويُتراجع عنه من سجل الدفعات.
@@ -645,9 +706,14 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     // البند 42: ساعة القاعدة **بعد** حيازة القفلين (clock_timestamp لا now المجمَّد على بدء المعاملة)، فتشمل اللقطة
     // كل ما كُتب أثناء انتظار القفل. T0 ومنه openingSnapshotAt وactivatedAt وفحوص الإقرار كلها على هذه اللحظة.
     const dbNow = await dbClockOf(tx);
+    if (converting && before) parsed.data.draft = conversionDraft(before);
     const draft = mergeDraft(parseStoredDraft(before?.setupDraft), parsed.data.draft ?? {});
     const eff = effectiveSetup(draft, before, company.countryCode, dbNow);
+    // «ربط الدفاتر»: الطريقة LINKED وتاريخ البدء بداية السنة المالية (قبل حارس التوجيه: الربط يحرسه)
+    if (linking) Object.assign(eff, linkedSetup(eff, linking));
     assertRoutingCustodyCashOnly(draft.step3?.receiptRouting, routingGuardApplies(before) || wizardLinksBooks(eff.method)); // «ربط الدفاتر» OD4
+    // والتوجيه المحفوظ في الصفّ حين لا تختار المسودة توجيهاً (التحويل خاصةً)
+    if (linking && draft.step3?.receiptRouting === undefined) assertRoutingCustodyCashOnly(before?.receiptRouting ?? null, true);
     const clean = isManualBooks({ setupMethod: eff.method });
     // البداية النظيفة: الخطوة الأولى (ومعها مبالغ الإقرار قبل البدء) والأرصدة الافتتاحية تُراجع «حتى لحظة التفعيل»؛ فإن
     // حُفظت الخطوة الأولى في يومٍ غير يوم الاعتماد فتاريخ البدء تغيّر ومستندات الأيام الفاصلة لا تقع في المربعات ولا في
@@ -661,6 +727,21 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     // البداية النظيفة: T0 = لحظة التفعيل نفسها — كل ما أُنشئ حتى هنا خارج الدفاتر. نافذة الدقائق العشر (LATE_COMMIT_WINDOW)
     // كانت لتتّسق الأرصدة المشتقة مع صفوف لم تُلتزم بعد؛ لا اشتقاق الآن، وصفٌّ أُنشئ قبل التفعيل والتُزم بعده خارج الدفاتر أيضاً.
     const T0 = clean ? dbNow : openingSnapshotFromDbNow(dbNow);
+    // «ربط الدفاتر»: شروط المنع قبل أي كتابة (الاسم ثم العملة ثم الإقفال ثم — للتحويل — القيود اليدوية في نافذة الربط)
+    let linkingPlan: LinkingPlan | null = null;
+    if (linking) {
+      const verdict = await linking.preconditions(tx, {
+        tenantId, linkedFrom: eff.cutoverDate as LocalDate, converting, settingsRow: before,
+        glCurrency: before?.currency || templateCurrencyOf(eff) || company.currency || '',
+        companyCurrency: company.currency, typedCompanyName: linking.typedCompanyName,
+      });
+      if ('block' in verdict) throw new LedgerHttpError(verdict.block.status, verdict.block.message, verdict.block.details, verdict.block.code);
+      linkingPlan = verdict.plan;
+    }
+    // «ربط الدفاتر» L6/L7: مخزون الشركة مفعّل ⇒ الجرد المستمر من linkedFrom (قيود المخزون وتكلفة البضاعة) — مرآة المعاينة
+    const linkedInventoryMode: InventoryMode | null = linking
+      ? linking.inventoryMode((await tx.tenant.findUnique({ where: { id: tenantId }, select: { warehouseEnabled: true } }))?.warehouseEnabled)
+      : null;
     const runningImport = await loadRunningImportBatch(tx, tenantId, dbNow);
     if (runningImport) {
       throw new LedgerHttpError(409, LEDGER_IMPORT_IN_PROGRESS_MESSAGE, importInProgressDetails(runningImport), 'LEDGER_IMPORT_IN_PROGRESS');
@@ -736,16 +817,26 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     // (3) الإعدادات قبل التفعيل ثم الزرع متساوي الأثر (§4.5)
     await ensureSettingsRow(tx, tenantId, eff.templateKey, company.countryCode);
     const step3 = draft.step3 ?? {};
-    await tx.glSettings.update({
+    // L9: إعدادات الدفاتر اليدوية المفعّلة ومسودتها المخزّنة تبقى كما هي
+    if (!converting) await tx.glSettings.update({
       where: { tenantId },
       data: {
         timezone: eff.timezone, fiscalYearEndMonth: eff.fiscalYearEndMonth, fiscalYearEndDay: eff.fiscalYearEndDay,
         weekStartsOn: eff.weekStartsOn, taxPeriodicity: eff.taxPeriodicity,
         ...(step3.cashInvoiceRouting ? { cashInvoiceRouting: step3.cashInvoiceRouting } : {}),
         ...(step3.receiptRouting !== undefined ? { receiptRouting: step3.receiptRouting === null ? Prisma.DbNull : step3.receiptRouting } : {}),
+        // «ربط الدفاتر» L7: طريقة الجرد للمربوطة، والجرد المستمر من linkedFrom (= تاريخ البدء)
+        ...(linkedInventoryMode ? {
+          inventoryMode: linkedInventoryMode,
+          perpetualFromDate: linkedInventoryMode === 'PERPETUAL' ? toDbDate(eff.cutoverDate as LocalDate) : null,
+        } : {}),
         setupDraft: draft as Prisma.InputJsonValue,
       },
     });
+    // «ربط الدفاتر» OD4: لا توجيه في المسودة ولا الصفّ ⇒ افتراضي الربط نفسه الذي عرضته المعاينة (params.ts)
+    if (linking && (step3.receiptRouting !== undefined ? step3.receiptRouting : before?.receiptRouting ?? null) == null) {
+      await tx.glSettings.update({ where: { tenantId }, data: { receiptRouting: { ...linking.defaultReceiptRouting } as Prisma.InputJsonValue } });
+    }
     let seed;
     const templateOpts = eff.templateKey === 'GENERIC_6D' ? { countryCode: eff.countryCode } : {};
     try {
@@ -766,12 +857,21 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
       if (t) await tx.glSettings.updateMany({ where: { tenantId, defaultPurchaseTaxId: null }, data: { defaultPurchaseTaxId: t.id } });
     }
     const step3Report = await applyStep3(tx, tenantId, draft, { manual: clean });
+    // «ربط الدفاتر» L6/L7: أنواع الحسابات الرئيسية للمربوطة (211002 ⇒ GRNI: يغذّيه الاستلام والفاتورة وحدهما) — لا تُدهس نوعاً قائماً
+    if (linking) {
+      for (const [code, controlKind] of Object.entries(LINKED_CONTROL_KIND_OVERRIDES)) {
+        await tx.glAccount.updateMany({ where: { tenantId, code, controlKind: null }, data: { controlKind } });
+      }
+    }
     const context = await loadBuildContext(tx, tenantId);
     const ctx = context.ctx;
     const decimals = ctx.settings.currencyDecimals;
 
     // (4) الأرصدة اليدوية (الخطوة 5)
-    const manual = validateManualBalanceRows(manualRowsOf(draft), ctx, { midVatPeriod: midPeriod });
+    // «ربط الدفاتر»: حسابات السطور المشتقّة مرفوضة يدوياً، والمخزون يدويّ حتى L6 (خيارات الخطّاف)
+    const manual = validateManualBalanceRows(
+      manualRowsOf(draft), ctx, linking ? linking.manualOptions(midPeriod, linkedInventoryMode ?? 'PERIODIC') : { midVatPeriod: midPeriod },
+    );
     if (manual.issues.length) {
       throw new LedgerHttpError(422, 'أرصدة افتتاحية يدوية غير صالحة', { reason: 'OPENING_BALANCE_ROWS_INVALID', issues: manual.issues.slice(0, 200), count: manual.issues.length });
     }
@@ -786,10 +886,25 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     // من المستندات) بقرار الخبير المحاسبي. computeDerivedOpening تبقى لتقسيم الاستلامات السابقة للبدء فقط (لا تُرحِّل).
     const cut = openingCutoff(cutoverDate, eff.timezone, T0, { cleanStart: clean });
     // الدفاتر اليدوية المستقلة (CLEAN): لا قراءة واحدة لجداول التشغيل عند التفعيل (لا سندات ولا استلامات ولا مخزون)
-    const derived = clean ? null : computeDerivedOpening(await loadOpeningSources(tx, tenantId, cut), cut, {
+    // «ربط الدفاتر»: الأرصدة المشتقّة نفسها (والمخزون من محرّك التكلفة لا من هنا) تدخل القيد عبر الخطّاف — اليدوية لا تمرّرها أبداً
+    const derived = clean ? null : computeDerivedOpening(await loadOpeningSources(tx, tenantId, cut, linking ? { includeInventory: false } : {}), cut, {
       decimals, routing: { receiptRouting: ctx.settings.receiptRouting, cashInvoiceRouting: ctx.settings.cashInvoiceRouting },
     });
-    const move = buildOpeningMove({ openingDate: cut.openingDate, manual: manual.lines, ctx, salesRepNames: partners.salesRepNames });
+    // «ربط الدفاتر» L7: الجرد المستمر يضيف المخزون من محرّك التكلفة كما في linkedFrom، و211001 لكل مورّد و211002 — تعذّر ⇒ 409
+    let linkedInventory = null;
+    if (linking && derived) {
+      const inv = await linking.deriveInventory(tx, tenantId, { inventoryMode: linkedInventoryMode ?? 'PERIODIC', cut, decimals, dbNow });
+      if ('block' in inv) throw new LedgerHttpError(inv.block.status, inv.block.message, inv.block.details, inv.block.code);
+      linkedInventory = inv.value;
+    }
+    const move = linking && derived
+      ? linking.buildOpening({ openingDate: cut.openingDate, manual: manual.lines, ctx, salesRepNames: partners.salesRepNames }, derived, linkedInventory)
+      : buildOpeningMove({ openingDate: cut.openingDate, manual: manual.lines, ctx, salesRepNames: partners.salesRepNames });
+
+    // L9: قيد نظام يعكس كل افتتاح قديم بتاريخه (LINKING_RESTATE) قبل الافتتاح المشتقّ الجديد — لا حذف لأي قيد
+    const restated: RestatedOpening[] = linking && linkingPlan?.openings.length
+      ? await linking.restateOpenings(tx, { tenantId, actor, context, now: dbNow, openings: linkingPlan.openings })
+      : [];
 
     // (6) قيد OPEN بتاريخ cutover − 1
     const posted = move.draft
@@ -808,6 +923,10 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
         setupMethod: eff.method, cutoverDate: toDbDate(cutoverDate), openingSnapshotAt: T0,
         // الدفاتر اليدوية: لا ترحيل آلي ولا تاريخي يجري — DONE من لحظة التفعيل
         activatedAt: dbNow, activatedBy: actorId, backfillState: clean ? 'DONE' : 'RUNNING',
+        // L9: لحظة التفعيل الأولى وصاحبها يبقيان (لحظة الربط في linkedAt/linkedBy)
+        ...(converting && before?.activatedAt ? { activatedAt: before.activatedAt, activatedBy: before.activatedBy } : {}),
+        // «ربط الدفاتر»: الأساس (بأثر رجعي من بداية السنة) وتاريخ الربط ولقطته ومن ربط ومتى — لا فكّ بعدها
+        ...(linking ? { linkBasis: linking.basis, linkedFrom: toDbDate(cutoverDate), linkSnapshotAt: T0, linkedAt: dbNow, linkedBy: actorId } : {}),
       },
     });
     const watermarkAt = initialWatermarkAt({ method: eff.method, cutoverDate, openingSnapshotAt: T0, timezone: eff.timezone });
@@ -815,9 +934,10 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
     if (!clean) {
       await tx.glSyncCursor.updateMany({ where: { tenantId }, data: { watermarkAt, watermarkId: '', lastRunAt: null, lastCount: 0, stallTicks: 0 } });
       const inventoryMode = settings.inventoryMode === 'PERPETUAL' ? 'PERPETUAL' : 'PERIODIC';
-      await tx.glSyncCursor.createMany({ data: initialCursorRows(tenantId, inventoryMode, watermarkAt), skipDuplicates: true });
+      // «ربط الدفاتر» L7: مؤشّرات المربوطة (USER_SETTLEMENT، ومصادر المخزون وكشف المورّد في الجرد المستمر)
+      await tx.glSyncCursor.createMany({ data: initialCursorRows(tenantId, inventoryMode, watermarkAt, linking ? { linked: true } : {}), skipDuplicates: true });
     }
-    const futureDated = eff.method === 'OPENING'
+    const futureDated = eff.method === 'OPENING' || linking
       ? await scanFutureDatedRows(tx, tenantId, {
         watermarkAt, cutoverStart: cut.cutoverStart,
         settings: { tenantId, activatedAt: dbNow, timezone: eff.timezone, currency: company.currency ?? settings.currency, currencyDecimals: decimals },
@@ -832,8 +952,11 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
 
     const moveJson = openingMoveJson(move, decimals);
     await appendAudit(tx, {
-      tenantId, actor, action: 'SETUP_COMMIT', entityType: 'SETTINGS', entityId: settings.id,
-      summary: `تفعيل النظام المحاسبي المتكامل بتاريخ بدء ${cutoverDate} (${clean ? 'بداية نظيفة بلا ترحيل لما سبق التفعيل' : eff.method === 'OPENING' ? 'أرصدة افتتاحية' : 'التاريخ الكامل'})`,
+      tenantId, actor, action: linking ? linking.auditAction : 'SETUP_COMMIT', entityType: 'SETTINGS', entityId: settings.id,
+      summary: linking
+        ? `ربط الدفاتر بالنظام من بداية السنة المالية ${cutoverDate} (${converting ? 'تحويل الدفاتر اليدوية: عُكس الافتتاح القديم وبُني افتتاح مشتقّ' : 'تفعيل مربوط'}) — نهائي بلا فكّ`
+        : `تفعيل النظام المحاسبي المتكامل بتاريخ بدء ${cutoverDate} (${clean ? 'بداية نظيفة بلا ترحيل لما سبق التفعيل' : eff.method === 'OPENING' ? 'أرصدة افتتاحية' : 'التاريخ الكامل'})`,
+      ...(linking ? { before: before ? { setupMethod: before.setupMethod, activatedAt: before.activatedAt, cutoverDate: dateOut(before.cutoverDate) } : null } : {}),
       after: {
         method: eff.method, cutoverDate, openingSnapshotAt: T0.toISOString(), activatedAt: dbNow.toISOString(), templateKey: eff.templateKey,
         midVatPeriod: midPeriod, preCutoverBoxes: eff.preCutoverBoxes, watermarkAt: watermarkAt.toISOString(), history, futureDated, frozenSettlements,
@@ -848,6 +971,12 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
         openingStockExcluded: openingStock.afterCutover.count > 0 ? openingStockJson.afterCutover : null,
         openingMove: posted ? { id: posted.id, number: posted.number, date: posted.date } : null,
         openingSource: 'MANUAL_ONLY', equityDiff: moveJson.equityDiff, totalDebit: moveJson.totalDebit,
+        ...(linking ? {
+          linking: {
+            basis: linking.basis, linkedFrom: cutoverDate, linkSnapshotAt: T0.toISOString(), converted: converting, openingSource: 'LINKED',
+            openingLineCount: move.lineCount, restated, finalAcknowledged: true,
+          },
+        } : {}),
       },
     });
 
@@ -860,6 +989,7 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(async (req, res) => {
       vendorsCreated: vendors.created,
       step3: step3Report,
       ...(rebasedImportEntries !== undefined ? { rebasedImportEntries } : {}),
+      ...(linking ? { linking: { basis: linking.basis, linkedFrom: cutoverDate, converted: converting, restated } } : {}),
     };
   }, COMMIT_TX);
   // الاستجابة بالأرقام النهائية الملتزمة لا بأرقام المعاينة

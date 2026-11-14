@@ -6,7 +6,8 @@ import { actorOf, isOwnerSession, requireLedgerPermission } from '../../middlewa
 import { AuthRequest } from '../../types';
 import { LedgerLocals } from './context';
 import { LedgerHttpError, ledgerHandler } from './errors';
-import { parseStoredDraft } from './setup';
+import { LINKING_COMMIT_LOCAL, parseStoredDraft, postCutoverImportsAckSchema, runSetupCommitRoute } from './setup';
+import { LINKING_FINAL_ACK_MESSAGE, LINKING_NAME_MISMATCH_MESSAGE, linkingCommitHooks } from '../../services/gl/linking/activate';
 import { toJsonMilli } from '../../services/gl/reports/incomeStatement';
 import {
   createPreviewJobDeps, getPreview, listPreviews, loadPreviewOptions, startPreview, PREVIEW_LIST_DEFAULT, PREVIEW_LIST_MAX,
@@ -27,6 +28,8 @@ import { DEFAULT_LINK_BASIS, LINK_BASES, type LinkBasis, type LinkingDraft, type
  * - GET  /linking/preview/:id   حالة المعاينة وتقدّمها ونتيجتها (PreviewResultJson) — للشركة نفسها وإلا 404.
  * - GET  /linking/previews      آخر المعاينات بلا نتائجها (?limit ≤ 20).
  * - GET  /linking/preflight     الفحوص المسبقة الخفيفة (LIGHT) داخل لقطة قراءة قصيرة (30 ثانية).
+ * - POST /linking/commit        «ربط الدفاتر» (L7/L9 مبسّطة، طلب المالك ١٤ نوفمبر ٢٠٢٦): زرّ نهائي بلا فكّ — مسار التفعيل القائم
+ *                               (معالج POST /setup/commit نفسه — runSetupCommitRoute) فرعاً مربوطاً بتأكيد اسم الشركة حرفياً وإقرار «نهائي».
  *
  * السلسلة الموروثة من index.ts: authenticate → requireAdmin → requireAccountingSuite → ledgerContext. ثم لكل مسار
  * canConfigureLedger ثم مالك الشركة وحده (OD18): ربط الدفاتر قرار لا رجعة فيه بعد الاعتماد (L7) فمعاينته لصاحب القرار.
@@ -206,6 +209,40 @@ router.get('/linking/preflight', requireLedgerPermission('canConfigureLedger'), 
   }
   const report = await run.catch(paramsError);
   res.json({ success: true, data: toJsonMilli(report) });
+}));
+
+// ═══ POST /linking/commit — الربط النهائي ═══
+
+const commitBodySchema = z.object({
+  /** اسم الشركة كما هو (companySettings.name) — يُطابَق حرفياً بعد قصّ الطرفين */
+  companyName: z.string().max(300).refine((v) => v.trim().length > 0),
+  /** «الربط نهائي لا رجعة فيه» */
+  acknowledgeFinal: z.literal(true),
+  /** إقرار بأرصدة مستوردة بتاريخ ≥ الربط (تُرحَّل على 319002) — حين يطلبه الخادم (409 LEDGER_POST_CUTOVER_IMPORTS_ACK) */
+  acknowledgePostCutoverImports: z.union([z.boolean(), postCutoverImportsAckSchema]).optional(),
+  /** إقرار بمخزون افتتاحي مستورد بتاريخ ≥ الربط (لا يدخل الافتتاح) — حين يطلبه الخادم (409 LEDGER_OPENING_STOCK_AFTER_CUTOVER) */
+  acknowledgeOpeningStockExcluded: z.boolean().optional(),
+}).strict();
+
+router.post('/linking/commit', requireLedgerPermission('canConfigureLedger'), requireCompanyOwner, ledgerHandler(async (req, res) => {
+  const parsed = commitBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    const b = (req.body ?? {}) as { acknowledgeFinal?: unknown; companyName?: unknown };
+    if (b.acknowledgeFinal !== true) throw new LedgerHttpError(422, LINKING_FINAL_ACK_MESSAGE, { reason: 'FINAL_ACK_REQUIRED', field: 'acknowledgeFinal' }, 'LINKING_ACK_REQUIRED');
+    if (typeof b.companyName !== 'string' || !b.companyName.trim()) {
+      throw new LedgerHttpError(422, LINKING_NAME_MISMATCH_MESSAGE, { reason: 'NAME_REQUIRED', field: 'companyName' }, 'LINKING_NAME_MISMATCH');
+    }
+    throw parsed.error;
+  }
+  const { acknowledgePostCutoverImports: ack, acknowledgeOpeningStockExcluded: stockAck } = parsed.data;
+  // معالج الاعتماد نفسه بجسمه (الإقرار النظامي ضمن «نهائي») وخطّافات الربط — يردّ 201 بالأرقام الملتزمة
+  res.locals[LINKING_COMMIT_LOCAL] = linkingCommitHooks(parsed.data.companyName);
+  req.body = {
+    acknowledgeStatutory: true,
+    ...(ack !== undefined ? { acknowledgePostCutoverImports: ack } : {}),
+    ...(stockAck !== undefined ? { acknowledgeOpeningStockExcluded: stockAck } : {}),
+  };
+  await runSetupCommitRoute(req, res);
 }));
 
 export default router;

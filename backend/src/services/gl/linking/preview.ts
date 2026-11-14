@@ -18,7 +18,7 @@ import {
   type ManualBalanceLine,
 } from '../opening';
 import { initialWatermarkAt } from '../sync/classify';
-import { RECONCILED_SOURCES } from '../sync/desired';
+import { ALL_RECONCILED_SOURCES, RECONCILED_SOURCES } from '../sync/desired';
 import { createSyncBudget, runPoster } from '../sync/poster';
 import type { PosterSettings } from '../sync/postingStore';
 import { reconcileTenant, type ReconcileLogEntry, type ReconcileSettings } from '../sync/reconciler';
@@ -33,11 +33,12 @@ import {
 } from './aggregate';
 import { computeDataHash, computeResultHash, loadPreCutoverSourceStats } from './dataHash';
 import { loadLinkedOpening } from './openingLinked';
-import { loadOperationalFacts, runParity } from './parity';
+import { loadLinkedPayables, loadOperationalFacts, runParity } from './parity';
 import { runPreflight } from './preflight';
 import { ShadowGlAccessError, createShadowClient } from './shadowClient';
 import {
-  ShadowPostingStore, ShadowReconcilerStore, ShadowState, ShadowTooLargeError, createPreviewShadow, shadowBalanceView,
+  ShadowPostingStore, ShadowReconcilerStore, ShadowState, ShadowTooLargeError, createPreviewShadow, enableShadowInventoryPosting,
+  shadowBalanceView,
 } from './shadowStore';
 import { withReadOnlySnapshot } from './snapshot';
 import {
@@ -205,7 +206,10 @@ export async function runPreview(
         until: dbNow, currencyDecimals: dec, cutoverDate: linkedFrom, cutoverStart, openingSnapshotAt: T0, timezone: tz,
         batchMoves: opts.limits?.costBatchMoves, maxMoves: opts.limits?.maxCostMoves,
         onBatch: () => { assertNoViolation(shadow); activityBeat(); },
+        // PV: قيود المخزون (L6) تُقيَّم من لقطات المحرّك — الجرد المستمر وحده يرحّلها، فلا تُجمع لغيره
+        ...(opts.inventoryMode === 'PERPETUAL' ? { onOutputs: (os: Parameters<typeof shadow.addCostSnapshots>[0]) => shadow.addCostSnapshots(os) } : {}),
       });
+      enableShadowInventoryPosting(built, folded);
       assertNoViolation(shadow);
       const summary = folded.summary;
       const costSnapshots = folded.snapshots;
@@ -217,9 +221,12 @@ export async function runPreview(
         cut, decimals: dec, routing: { receiptRouting: opts.receiptRouting, cashInvoiceRouting: opts.cashInvoiceRouting },
         inventory: opts.inventoryMode === 'PERPETUAL' ? summary.openingByLocation : null,
       });
+      // «ربط الدفاتر» L7: الجرد المستمر ⇒ 211001 لكل مورّد و211002 في الافتتاح — كالاعتماد (activate.deriveLinkedInventory)
+      if (opts.inventoryMode === 'PERPETUAL') linked.derived.payables = await loadLinkedPayables(client, tenantId, cut, dec);
       // المخزون مشتقٌّ في الجرد المستمر وحده: في الدوري (OD7) رصيده الافتتاحي يدويٌّ يُقبل ويدخل القيد (لا سطور مشتقّة له)
       const manual = validateManualBalanceRows(opts.manualRows, shadow.context.ctx, {
         midVatPeriod: opts.midVatPeriod, derivedAccounts: true, derivedInventory: opts.inventoryMode === 'PERPETUAL',
+        derivedPayables: opts.inventoryMode === 'PERPETUAL',
       });
       const partners = await resolveManualPartners(client, tenantId, manual.lines);
       const badRows = new Set(partners.issues.map((i) => i.index));
@@ -259,7 +266,8 @@ export async function runPreview(
       // ── RECONCILE ──
       await enter('RECONCILE');
       const watermarkAt = initialWatermarkAt({ method: 'OPENING', cutoverDate: linkedFrom, openingSnapshotAt: T0, timezone: tz });
-      for (const s of RECONCILED_SOURCES) shadow.setCursor(s, watermarkAt, '');
+      // «ربط الدفاتر» L6: مصادر المخزون والمشتريات تُفتح مؤشّراتها حين فُتح ترحيلها (enableShadowInventoryPosting)
+      for (const s of reconcileSettings.inventoryPosting === true ? ALL_RECONCILED_SOURCES : RECONCILED_SOURCES) shadow.setCursor(s, watermarkAt, '');
       await scanFutureDatedRows(client, tenantId, { watermarkAt, cutoverStart, settings: reconcileSettings });
       assertNoViolation(shadow);
       const recStore = new ShadowReconcilerStore(shadow, client);

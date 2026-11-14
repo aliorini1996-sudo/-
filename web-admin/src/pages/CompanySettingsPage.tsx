@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { companyApi, lotsApi } from '../api/client';
 import { supportedCountries, getCountry } from '../i18n/countries';
 import { useTr } from '../i18n/strings';
-import { Building2, Save, Upload, Trash2, Image as ImageIcon, ShieldCheck, ShieldAlert, Lock, Layers, Percent } from 'lucide-react';
+import { Building2, Save, Upload, Trash2, Image as ImageIcon, ShieldCheck, ShieldAlert, Lock, Layers, Percent, Link2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Header } from '../rep/RepDocuments';
 import DataImportPanel from '../components/DataImportPanel';
@@ -20,7 +20,11 @@ import SupportModal from '../components/SupportModal';
 import { isZatcaPhase2Live } from '../lib/zatcaRegime';
 import { zatcaCollectOn } from '../lib/zatcaRegime';
 import { useAuthStore } from '../store/authStore';
-import { Navigate, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
+import { commitBooksLinking, type BooksLinkingStatus, type PostCutoverImportsAck } from '../api/ledgerLinking';
+import { ledgerErrorOf } from '../api/ledgerConfig';
+import { ledgerErrorMessage } from '../lib/ledger/errors';
+import { isLinkingOwner } from '../lib/ledger/linking';
 import { lotFlagsOf } from '../lib/lots';
 import { TAX_FREE_TITLES, TAX_MODE_CONFIRM_OFF, TAX_MODE_HINT, TAX_MODE_LABEL, isTaxOff } from '../lib/taxMode';
 import { taxModeBlockLines, taxModeChecked, taxModeConflictReasons, taxModeErrorCode, taxModeRefusalLines, taxModeStickyReasons, type TaxModeCardCompany, type TaxModeZatcaReason } from './taxOffScreens1';
@@ -238,6 +242,11 @@ export default function CompanySettingsPage() {
   // «إزالة الضريبة»: لمدير الشركة غير المقيَّد (وجلسة المالك تعمل كحسابه) — يُحفظ فوراً بمساره المستقل (PATCH /company/tax-mode)،
   // والخادم يرفض غيره ويرفض الإزالة ما دام ربط المرحلة الثانية مفعّلاً (409 TAX_MODE_ZATCA_CONFLICT)
   const taxModeCardOn = role === 'ADMIN' && !scopeEnabled;
+  // «ربط الدفاتر» (L7/L9): لمالك الشركة وللنظام المحاسبي المفعّل — الحالة من GET /company (booksLinking). جلسة دخول المالك تعمل
+  // كالحساب الذي تمثّله (كبقية الصفحة)، والحَكَم requireCompanyOwner في الخادم
+  const authUser = useAuthStore(s => s.user);
+  const booksLinking = (data as { booksLinking?: BooksLinkingStatus | null } | null | undefined)?.booksLinking ?? null;
+  const booksLinkingCardOn = accountingOn && !!booksLinking && isLinkingOwner(authUser);
   // الحقل المقفل يبدو مقفلاً (لا حقلاً يتجاهل الكتابة صامتاً) ويُقرأ معه سبب القفل
   const lockedProps = sellerLocked ? { 'aria-describedby': SELLER_LOCK_HINT_ID, title: tr(zatcaSellerLockHint(role, scopeEnabled)) } : {};
 
@@ -491,6 +500,7 @@ export default function CompanySettingsPage() {
           {buyerRelaxCardOn && <BuyerRelaxCard value={(data as { buyerVatAddressRelaxed?: unknown } | null | undefined)?.buyerVatAddressRelaxed === true} />}
           {returnPolicyCardOn && <ReturnPolicyCard company={data} />}
           {taxModeCardOn && <TaxModeCard company={data} />}
+          {booksLinkingCardOn && booksLinking && <BooksLinkingCard status={booksLinking} companyName={data?.name ?? ''} />}
 
           {/* الفوترة الإلكترونية (الربط الحكومي) — بيانات الربط تُدخلها الشركة. «إزالة الضريبة»: لا فوترة إلكترونية لشركةٍ بلا ضريبة
               (المزوّد 'none' في كل مستندٍ جديد) — البطاقة تُخفى وبياناتها المحفوظة تُرسل كما هي */}
@@ -758,6 +768,181 @@ function LotOnInvoiceCard({ value }: { value: boolean }) {
       <p className="text-[11px] text-[#6E6557] mt-1.5 leading-relaxed">
         {tr('سطر تحت كل صنف متتبع برقم التشغيلة وكميتها وتاريخ انتهائها في فاتورة A4 والحرارية — يحفظ فور التبديل')}
       </p>
+    </div>
+  );
+}
+
+/** رموز 409 التي تُحسم بإقرارٍ ثم إعادة الربط (الحركات المستوردة والمخزون الافتتاحي المستورد بعد تاريخ الربط) */
+const LINKING_ACK_CODES: readonly string[] = ['LEDGER_POST_CUTOVER_IMPORTS_ACK', 'LEDGER_POST_CUTOVER_IMPORTS_CHANGED', 'LEDGER_OPENING_STOCK_AFTER_CUTOVER'];
+
+type LinkingErr = NonNullable<ReturnType<typeof ledgerErrorOf>>;
+interface LinkingAcks { imports?: PostCutoverImportsAck; stock?: boolean }
+
+/** نصّ رفض الربط مترجماً بأرقامه (العدد والتاريخ من تفاصيل الخادم) — وغيره بنصوص الدفاتر العامة */
+function linkingCommitErrorText(tr: (s: string) => string, e: LinkingErr | null): string {
+  const d = (k: string): string => {
+    const v = e?.[k] ?? e?.details?.[k];
+    return typeof v === 'string' || typeof v === 'number' ? String(v) : '';
+  };
+  switch (e?.code) {
+    case 'LINKING_NAME_MISMATCH': return tr('اكتب اسم الشركة كما هو تماماً لتأكيد ربط الدفاتر');
+    case 'LINKING_ACK_REQUIRED': return tr('ربط الدفاتر نهائي لا رجعة فيه — أقرّ بذلك قبل الاعتماد');
+    case 'LINKING_CURRENCY': return tr('عملة الشركة أو بعض الفواتير تخالف عملة الدفاتر — وحّد العملة قبل ربط الدفاتر');
+    case 'LINKING_LOCKED': return tr('تاريخ إقفال لا يسبق القيد الافتتاحي ({date}) — ارفعه من تواريخ الإقفال قبل ربط الدفاتر').replace('{date}', d('from'));
+    case 'LINKING_MANUAL_MOVES':
+      return tr('لا تُحوَّل الدفاتر اليدوية إلى مربوطة: فيها {count} قيداً يدوياً مؤرّخاً منذ {date} — اعكسها أو احذف مسوّداتها أولاً')
+        .replace('{count}', d('count')).replace('{date}', d('from'));
+    case 'LEDGER_POST_CUTOVER_IMPORTS_ACK':
+    case 'LEDGER_POST_CUTOVER_IMPORTS_CHANGED':
+      return tr('توجد أرصدة مستوردة بتاريخ الربط أو بعده تُرحَّل على حساب فروقات الافتتاح — أقرّ بها ثم اربط من جديد');
+    case 'LEDGER_OPENING_STOCK_AFTER_CUTOVER':
+      return tr('يوجد مخزون افتتاحي مستورد بتاريخ الربط أو بعده لا يدخل القيد الافتتاحي — أقرّ به ثم اربط من جديد');
+    case 'LEDGER_LINKING_OWNER_ONLY': return tr('ربط الدفاتر بالنظام لمالك الشركة وحده');
+    case 'LINKING_CONVERSION_UNAVAILABLE': return tr('تحويل الدفاتر اليدوية القائمة إلى مربوطة يُتاح قريباً مع إدخال أرصدة بداية السنة — لا تغيير على دفاترك');
+    case 'LINKING_INVENTORY_TOO_LARGE': return tr('حركات مخزون الشركة أكثر من أن تُقيَّم بأمان عند الاعتماد — لم يُربط شيء ولم يتغيّر شيء؛ تواصل مع الدعم');
+    default: return ledgerErrorMessage(tr, e);
+  }
+}
+
+/** إقرار الحركات المستوردة مربوطاً باللقطة التي عرضها الخادم في 409 (العدد والمدين والدائن)، وإلا منطقي */
+function importsAckFrom(e: LinkingErr | null): PostCutoverImportsAck {
+  const raw = (e?.importedAfterCutover ?? e?.details?.importedAfterCutover) as { count?: unknown; debit?: unknown; credit?: unknown } | undefined;
+  if (raw && typeof raw.count === 'number' && typeof raw.debit === 'string' && typeof raw.credit === 'string') {
+    return { count: raw.count, debit: raw.debit, credit: raw.credit };
+  }
+  return true;
+}
+
+/**
+ * «ربط الدفاتر بالنظام» (L7/L9 مبسّطة، طلب المالك ١٤ نوفمبر ٢٠٢٦) — زرّ تفعيل نهائي: الحالة (غير مربوطة/يدوية/جارٍ البناء/مربوطة
+ * منذ …)، ورابط المعاينة، وزرّ «ربط الدفاتر» بنافذة تأكيد (كتابة اسم الشركة + إقرار «نهائي»). الخادم (POST /api/ledger/linking/commit)
+ * يحرس المالك والصلاحية والاسم والعملة والإقفال والقيود اليدوية للتحويل، ويطلب إقراراً إضافياً حين توجد حركات أو مخزون مستورد بعد تاريخ
+ * الربط (409 بالرمز) فيظهر مربّع الإقرار وتُعاد المحاولة بإقرارها.
+ */
+function BooksLinkingCard({ status, companyName }: { status: BooksLinkingStatus; companyName: string }) {
+  const tr = useTr();
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [finalAck, setFinalAck] = useState(false);
+  const [error, setError] = useState<LinkingErr | null>(null);
+  const [extraAck, setExtraAck] = useState(false);
+  const [acks, setAcks] = useState<LinkingAcks>({});
+  // L9 موقوف: تحويل الدفاتر اليدوية القائمة يُتاح مع إدخال أرصدة بداية السنة (الخادم يرد 409 LINKING_CONVERSION_UNAVAILABLE)
+  const canLink = status.state === 'NONE';
+  const nameOk = typed.trim().length > 0 && typed.trim() === companyName.trim();
+  const needsExtraAck = !!error?.code && LINKING_ACK_CODES.includes(error.code);
+
+  const commit = useMutation({
+    mutationFn: (a: LinkingAcks) => commitBooksLinking({
+      companyName: typed, acknowledgeFinal: true,
+      ...(a.imports !== undefined ? { acknowledgePostCutoverImports: a.imports } : {}),
+      ...(a.stock ? { acknowledgeOpeningStockExcluded: true } : {}),
+    }),
+    onSuccess: () => {
+      setOpen(false);
+      setError(null);
+      qc.invalidateQueries({ queryKey: ['company'] });
+      qc.invalidateQueries({ queryKey: ['ledger'] });
+      toast.success(tr('رُبطت الدفاتر بالنظام — يجري ترحيل مستندات السنة بتواريخها'));
+    },
+    onError: (err: unknown) => {
+      const e = ledgerErrorOf(err);
+      setError(e);
+      setExtraAck(false);
+      // رفضٌ لتغيّر الحال (رُبطت من جهاز آخر مثلاً) ⇒ إعادة قراءة البطاقة
+      if (e?.status === 409 && !(e.code && LINKING_ACK_CODES.includes(e.code))) qc.invalidateQueries({ queryKey: ['company'] });
+    },
+  });
+
+  const submit = () => {
+    let next = acks;
+    if (needsExtraAck && extraAck && error) {
+      // الإقرار الإضافي يُضاف لما سبقه (قد يطلب الخادم الإقرارين واحداً بعد الآخر)
+      next = error.code === 'LEDGER_OPENING_STOCK_AFTER_CUTOVER' ? { ...acks, stock: true } : { ...acks, imports: importsAckFrom(error) };
+      setAcks(next);
+    }
+    setError(null);
+    commit.mutate(next);
+  };
+
+  const openDialog = () => {
+    setOpen(true); setTyped(''); setFinalAck(false); setError(null); setExtraAck(false); setAcks({});
+  };
+
+  const stateText = status.state === 'LINKED'
+    ? tr('مربوطة منذ {date}').replace('{date}', status.linkedFrom ?? '')
+    : status.state === 'BUILDING'
+      ? (status.backfillState === 'PAUSED' ? tr('جارٍ بناء الدفاتر المربوطة — الترحيل التاريخي متوقف مؤقتاً') : tr('جارٍ بناء الدفاتر المربوطة: تُرحَّل مستندات السنة بتواريخها'))
+      : status.state === 'MANUAL' ? tr('دفاتر يدوية مستقلة — غير مربوطة')
+        : status.state === 'LEGACY' ? tr('مفعّلة بطريقة قديمة') : tr('غير مربوطة');
+
+  return (
+    <div className="card">
+      <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+        <div className="w-11 h-11 bg-[#FBEDE7] rounded-xl flex items-center justify-center">
+          <Link2 size={20} className="text-[#E15A30]" />
+        </div>
+        <div>
+          <p className="font-semibold text-gray-800">{tr('ربط الدفاتر بالنظام')}</p>
+          <p className="text-xs text-gray-400">{tr('كل فاتورة وسند يُرحَّل قيده آلياً من بداية السنة المالية')}</p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-gray-700">{tr('الحالة')}: <b>{stateText}</b></p>
+        {canLink && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Link to="/app/ledger/linking" className="btn-secondary text-sm">{tr('معاينة الربط قبل الاعتماد')}</Link>
+            <button type="button" className="btn-primary text-sm" onClick={openDialog}>{tr('ربط الدفاتر')}</button>
+          </div>
+        )}
+      </div>
+      {status.state === 'MANUAL' && (
+        <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-xs leading-relaxed">
+          {tr('تحويل الدفاتر اليدوية القائمة إلى مربوطة يُتاح قريباً مع إدخال أرصدة بداية السنة — لا تغيير على دفاترك')}
+        </p>
+      )}
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+            <p className="font-semibold text-gray-800">{tr('ربط الدفاتر بالنظام')}</p>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-xs leading-relaxed space-y-1">
+              <p>{tr('تُربط الدفاتر من بداية السنة المالية: يُبنى قيد افتتاحي من أرصدة العملاء والمناديب والأمانات بتاريخ اليوم السابق لها، ثم تُرحَّل كل الفواتير والسندات والتسويات بتواريخها آلياً')}</p>
+              <p>{tr('الربط نهائي: لا يُفكّ بعد الاعتماد، والمستند المرحّل لا يُحذف بل يُلغى أو يُعمل له مرتجع')}</p>
+              {status.state === 'MANUAL' && (
+                <p>{tr('دفاترك يدوية: يُعكس قيدها الافتتاحي القديم بتاريخه بقيد نظام ويحل محله الافتتاح المشتق، وأرصدة البنك والأصول وحقوق الملكية تُدخل بعد الربط بقيد يدوي بتاريخ اليوم السابق لبداية السنة. لا يتم التحويل إن وُجدت قيود يدوية في سنة الربط')}</p>
+              )}
+            </div>
+            <div>
+              <label className="label">{tr('اكتب اسم الشركة للتأكيد')}: <b>{companyName}</b></label>
+              <input className="input" value={typed} onChange={e => setTyped(e.target.value)} autoComplete="off" />
+            </div>
+            <label className="flex items-start gap-2.5 text-sm text-gray-700 cursor-pointer select-none">
+              <input type="checkbox" className="w-4 h-4 mt-0.5 accent-[#E15A30]" checked={finalAck} onChange={e => setFinalAck(e.target.checked)} />
+              {tr('أقرّ بأن ربط الدفاتر نهائي لا رجعة فيه')}
+            </label>
+            {error && (
+              <div className="rounded-lg border border-red-200 bg-red-50 text-red-800 px-3 py-2 text-xs leading-relaxed space-y-2">
+                <p>{linkingCommitErrorText(tr, error)}</p>
+                {needsExtraAck && (
+                  <label className="flex items-start gap-2 cursor-pointer select-none">
+                    <input type="checkbox" className="w-4 h-4 mt-0.5 accent-[#E15A30]" checked={extraAck} onChange={e => setExtraAck(e.target.checked)} />
+                    {tr('أقرّ بذلك')}
+                  </label>
+                )}
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" className="btn-secondary text-sm" onClick={() => setOpen(false)} disabled={commit.isPending}>{tr('إلغاء')}</button>
+              <button type="button" className="btn-primary text-sm" onClick={submit}
+                disabled={!nameOk || !finalAck || commit.isPending || (needsExtraAck && !extraAck)}>
+                {tr('ربط الدفاتر')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

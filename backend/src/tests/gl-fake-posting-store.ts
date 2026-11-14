@@ -30,6 +30,7 @@ import { isUnderPostPattern } from '../services/gl/sync/keys';
 import type {
   EligibleTenant, ListDueEventsOptions, LiveMoveLine, PosterSettings, PostingStore, PostingTx, SourceData, WithPostLockOptions,
 } from '../services/gl/sync/postingStore';
+import type { CostSnapshotRecord } from '../services/gl/sync/postingStore';
 import type {
   CompositeKey, DesiredEvent, EventStatus, LeaseHandle, SourceEventPatch, SourceEventRecord, SourceEvent, SourceType, SyncCursorSource, SyncCursorState,
 } from '../services/gl/sync/types';
@@ -132,6 +133,11 @@ export interface FakeStoreOptions {
   unreadRepSettlements?: (watermark: CompositeKey, horizon: Date) => boolean;
   /** false ⇒ لا reconcileStore في المعاملة (المخزن القديم بلا L8)؛ الافتراضي مطابقة في الذاكرة */
   reconcile?: boolean;
+  // ── «ربط الدفاتر» L6 ──
+  /** لقطات التكلفة (gl_cost_snapshots) — مصفوفة حيّة يضيف إليها الاختبار */
+  costSnapshots?: CostSnapshotRecord[];
+  /** أبعد موضع طواه محرّك التكلفة (الغائب ⇒ null: لا شيء مطويّ) */
+  costCursor?: () => CompositeKey | null;
 }
 
 const clone = <T>(v: T): T => structuredClone(v);
@@ -257,6 +263,7 @@ export class FakePostingStore implements PostingStore {
     return this.opts.unreadRepSettlements ? this.opts.unreadRepSettlements(watermark, horizon) : true;
   }
   async inventoryHorizon(): Promise<Date | null> { return null; }
+  async costCursor(): Promise<CompositeKey | null> { return this.opts.costCursor ? this.opts.costCursor() : null; }
   async inventoryBlockedHead(): Promise<{ effectAt: Date; sourceKey: string } | null> { return null; }
   async listDueEvents(_t: string, opts: ListDueEventsOptions): Promise<SourceEventRecord[]> {
     const ex = new Set(opts.excludeIds ?? []);
@@ -508,6 +515,10 @@ class FakeTx implements PostingTx {
     return { status: e.status, refundEntryId: p?.refundEntryId ?? null, cancelRefundFrom: p?.cancelRefundFrom ?? null };
   }
   /** كـPrismaPostingTx: الناقص من 111004/112007/214002 يُضاف (ويتراجع مع المعاملة)، والسياق يُعاد حين أُنشئ شيء */
+  async loadCostSnapshots(refs: readonly { refType: string; refId: string }[]): Promise<CostSnapshotRecord[]> {
+    const want = new Set(refs.map((r) => `${r.refType}|${r.refId}`));
+    return (this.s.opts.costSnapshots ?? []).filter((x) => want.has(`${x.refType}|${x.refId}`)).map((x) => ({ ...x }));
+  }
   async ensureLinkedAccounts(): Promise<{ created: string[]; context: LedgerContext | null }> {
     this.s.ensureLinkedCalls++;
     const ctx = this.s.context().ctx;

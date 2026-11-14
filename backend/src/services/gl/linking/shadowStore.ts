@@ -23,13 +23,16 @@ import { openingSnapshotFromDbNow } from '../opening';
 import { GlNotFoundError, settingsSnapshotFromRow, type LedgerContext, type MoveRecordForDraft } from '../resolve';
 import { reversalDraftFromRecord, type ReverseMoveOptions, type ReverseResult } from '../reverse';
 import { sequencePrefixFor } from '../sequence';
-import { compareEventsForPosting, type LiveMoveState, type OriginFacts, type SiblingState } from '../sync/classify';
+import { isLinked } from '../mode';
+import { compareEventsForPosting, isInventoryEvent, setupMethodOf, type LiveMoveState, type OriginFacts, type SiblingState } from '../sync/classify';
 import { isUnderPostPattern, receiptKey } from '../sync/keys';
 import type { UserCustodyInputs } from '../../userCustodyCore';
 import { PrismaPostingTx } from '../sync/postingStore.prisma';
 import type {
-  EligibleTenant, ListDueEventsOptions, LiveMoveLine, OpeningImportCandidate, PosterSettings, PostingStore, PostingTx, SourceData,
+  CostSnapshotRecord, EligibleTenant, ListDueEventsOptions, LiveMoveLine, OpeningImportCandidate, PosterSettings, PostingStore, PostingTx,
+  SourceData,
 } from '../sync/postingStore';
+import type { CostCursor, StepOutput } from '../../costing/types';
 import type { CommitPageResult, PageQuery, ReconcileSettings, ReconcilerStore } from '../sync/reconciler';
 import { createPrismaReconcilerStore } from '../sync/reconcilerStore.prisma';
 import type { ReconciledSource, SourceRow } from '../sync/desired';
@@ -61,6 +64,8 @@ export interface ShadowLine {
   customerId: string | null;
   vendorId: string | null;
   salesRepId: string | null;
+  /** «ربط الدفاتر» L5 (D2): بُعد مستخدم الشركة على 111004 — كعمود GlMoveLine.adminUserId (null لغيره) */
+  adminUserId: string | null;
   partnerName: string | null;
   analyticAccountId: string | null;
   productId: string | null;
@@ -198,6 +203,13 @@ export class ShadowState {
    */
   activity: (() => void) | null = null;
   rollbacks = 0;
+  /**
+   * «ربط الدفاتر» PV/L6: لقطات التكلفة من طيّ المعاينة (costingFold) لكل مستند (refType، refId) — بدل gl_cost_snapshots التي
+   * لا يقرؤها الظلّ؛ null ⇒ لم تُجمع (الجرد الدوري أو اختبارات بلا محرّك) فلا loadCostSnapshots ولا costCursor.
+   */
+  private costByRef: Map<string, CostSnapshotRecord[]> | null = null;
+  /** آخر ما طواه محرّك التكلفة في المعاينة (= costCursor الإنتاج بعد مهمة اللقطات) */
+  costCursor: CompositeKey | null = null;
 
   private clockMs: number;
   private idSeq = 0;
@@ -248,6 +260,41 @@ export class ShadowState {
 
   recordGlViolation(access: string): void {
     if (this.glViolations.length < 50) this.glViolations.push(access);
+  }
+
+  // ── لقطات التكلفة (L6) ──
+
+  /** يجمع نواتج دفعة طيّ كصفوف لقطات (الحقول التي يقرؤها المُرحِّل وحدها) */
+  addCostSnapshots(outputs: readonly StepOutput[]): void {
+    const m = this.costByRef ?? (this.costByRef = new Map());
+    for (const o of outputs) {
+      const k = `${o.refType}\u0000${o.refId}`;
+      let arr = m.get(k);
+      if (!arr) { arr = []; m.set(k, arr); }
+      arr.push({
+        sourceKey: o.key, kind: o.kind, refType: o.refType, refId: o.refId, itemId: o.itemId, productId: o.productId, location: o.location,
+        toLocation: o.toLocation ?? null, baseQty: o.baseQty, valueMilli: o.valueMilli, varianceMilli: o.varianceMilli, memoMilli: o.memoMilli,
+      });
+    }
+  }
+
+  setCostCursor(c: CostCursor | null): void {
+    this.costCursor = c ? { at: c.createdAt, id: c.id } : null;
+  }
+
+  /** مرآة PrismaPostingTx.loadCostSnapshots: لقطات المستندات المطلوبة مرتّبةً بالمفتاح */
+  costSnapshotsFor(refs: readonly { refType: string; refId: string }[]): CostSnapshotRecord[] {
+    const m = this.costByRef;
+    if (!m) return [];
+    const seen = new Set<string>();
+    const out: CostSnapshotRecord[] = [];
+    for (const r of refs) {
+      const k = `${r.refType}\u0000${r.refId}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      for (const x of m.get(k) ?? []) out.push({ ...x });
+    }
+    return out.sort((a, b) => (a.sourceKey < b.sourceKey ? -1 : a.sourceKey > b.sourceKey ? 1 : 0));
   }
 
   // ── الإعدادات للعميل الحارس ──
@@ -617,6 +664,7 @@ export class ShadowState {
         moveId: id, seq: i, date: draft.date, accountId: r.account.id, label: r.line.label,
         debitMilli: r.line.debitMilli, creditMilli: r.line.creditMilli,
         customerId: r.line.customerId ?? null, vendorId: r.line.vendorId ?? null, salesRepId: r.line.salesRepId ?? null,
+        adminUserId: r.line.adminUserId ?? null,
         partnerName: r.line.partnerName ?? null, analyticAccountId: r.line.analyticAccountId ?? null,
         productId: r.line.productId ?? null, quantity: r.line.quantity ?? null,
         taxId: r.tax?.id ?? r.line.taxId ?? null, taxRole: r.line.taxRole ?? null, taxBaseMilli: r.line.taxBaseMilli ?? null,
@@ -674,6 +722,7 @@ export class ShadowState {
         vendorId: l.vendorId, salesRepId: l.salesRepId, partnerName: l.partnerName, analyticAccountId: l.analyticAccountId,
         productId: l.productId, quantity: l.quantity, taxId: l.taxId, taxRole: l.taxRole, taxBaseMilli: l.taxBaseMilli,
         vatBox: l.vatBox, vatAdjustment: l.vatAdjustment, dueDate: l.dueDate ? toDbDate(l.dueDate) : null,
+        ...(l.adminUserId ? { adminUserId: l.adminUserId } : {}),
       })),
     };
   }
@@ -716,6 +765,7 @@ export class ShadowState {
     return (this.moves.get(moveId)?.lines ?? []).map((l) => ({
       accountId: l.accountId, label: l.label, debitMilli: l.debitMilli, creditMilli: l.creditMilli, salesRepId: l.salesRepId,
       customerId: l.customerId, partnerName: l.partnerName, analyticAccountId: l.analyticAccountId,
+      ...(l.adminUserId ? { adminUserId: l.adminUserId } : {}),
     }));
   }
 
@@ -749,7 +799,10 @@ export interface PreviewShadow {
 
 /**
  * الظلّ كما يبنيه runPreview: صفّ الإعدادات الافتراضي (LINKED عند T0)، وسياق القالب، وإعدادات المُطابِق والمُرحِّل.
- * D9: setupMethod 'OPENING' في المُرحِّل = دلالة LINKED (cleanStart=false) — يُبدَّل بـ'LINKED' حين يعرفه PosterSettings (L0).
+ * سلوك المربوطة كاملاً كما سيُرحَّل بعد الاعتماد (PV): لقطة الإعدادات من الصفّ الافتراضي ⇒ linkedPosting (isLinked)، والمُطابِق
+ * بـlinked (حقول الحمولة المجمّدة: الأقساط وختم التحصيل والبطاقة والمستلِم، ومصدر USER_SETTLEMENT واسترداد الرابط)، والمُرحِّل
+ * بطريقة LINKED نفسها (cutoverMethodOf ⇒ OPENING بلا cleanStart — D9)، وحسابات المربوطة في السياق (virtualContextInput).
+ * نافذة العهدة المغلقة تبقى مطفأة في الظلّ (ShadowPostingStore) لأنها تقرأ جداول الدفاتر الحقيقية (SHADOW_GL_ACCESS).
  */
 export function createPreviewShadow(tenantId: string, opts: PreviewOptions, dbNow: Date, maxEvents?: number): PreviewShadow {
   const t0 = openingSnapshotFromDbNow(dbNow);
@@ -760,14 +813,32 @@ export function createPreviewShadow(tenantId: string, opts: PreviewOptions, dbNo
   });
   const reconcileSettings: ReconcileSettings = {
     tenantId, activatedAt: t0, timezone: opts.timezone, currency: opts.currency, currencyDecimals: opts.currencyDecimals,
+    linked: isLinked(settingsRow),
+    // inventoryPosting (L6) يُفتح بعد طيّ التكلفة وحده: enableShadowInventoryPosting
   };
   const posterSettings: PosterSettings = {
-    tenantId, suiteEnabled: true, activatedAt: t0, backfillState: 'RUNNING', setupMethod: 'OPENING', cutoverDate: opts.linkedFrom,
+    tenantId, suiteEnabled: true, activatedAt: t0, backfillState: 'RUNNING', setupMethod: setupMethodOf(settingsRow.setupMethod), cutoverDate: opts.linkedFrom,
     openingSnapshotAt: t0, timezone: opts.timezone, inventoryMode: opts.inventoryMode, perpetualFromDate: opts.linkedFrom,
     currency: opts.currency, companyCurrency: opts.currency, lastSyncAt: null, snapshot,
   };
   const shadow = new ShadowState({ tenantId, settingsRow, contextInput: vci.contextInput, reconcileSettings, posterSettings, now: dbNow, maxEvents });
   return { shadow, t0, reconcileSettings, posterSettings, unknownCategoryAccounts: vci.unknownCategoryAccounts };
+}
+
+/**
+ * «ربط الدفاتر» L6 في الظلّ — بعد طيّ التكلفة (foldCostingForPreview بـonOutputs ⇒ addCostSnapshots): مصادر المخزون والمشتريات
+ * تُطابَق وتُرحَّل للمربوطة بالجرد المستمر (مرآة reconcilerStore.prisma.loadSettings) **حين طوى المحرّك حركاتٍ** — فالقيود
+ * تُقيَّم من لقطاتها (loadCostSnapshots) وبوابتها مؤشّره (costCursor = آخر ما طواه، والطيّ غطّى الصفوف حتى ساعة القاعدة).
+ * بلا حركات مطويّة لا يُفتح المصدر (لا أحداث تنتظر لقطاتٍ لن تأتي). يعيد هل فُتح.
+ */
+export function enableShadowInventoryPosting(
+  b: Pick<PreviewShadow, 'shadow' | 'reconcileSettings'>, fold: { snapshots: number; cursor: CostCursor | null },
+): boolean {
+  const on = b.reconcileSettings.linked === true && b.shadow.posterSettings.inventoryMode === 'PERPETUAL' && fold.snapshots > 0 && !!fold.cursor;
+  b.shadow.setCostCursor(on ? fold.cursor : null);
+  if (on) b.reconcileSettings.inventoryPosting = true;
+  else delete b.reconcileSettings.inventoryPosting;
+  return on;
 }
 
 // ═══ المُطابِق ═══
@@ -912,6 +983,10 @@ class ShadowPostingTx implements PostingTx {
     return this.s.openingImportCandidates(opts);
   }
   async skipOpeningImports(ids: readonly string[], now: Date): Promise<number> { return this.s.skipOpeningImports(ids, now); }
+  /** «ربط الدفاتر» L6: لقطات التكلفة من طيّ المعاينة (لا gl_cost_snapshots) — بلا لقطات مجموعة لا يُعرض المصدر أصلاً */
+  async loadCostSnapshots(refs: readonly { refType: string; refId: string }[]): Promise<CostSnapshotRecord[]> {
+    return this.s.costSnapshotsFor(refs);
+  }
 }
 
 export interface ShadowPostingHooks {
@@ -949,9 +1024,30 @@ export class ShadowPostingStore implements PostingStore {
   hasUnreadRows(tenantId: string, _source: 'ACCOUNT_ENTRY', watermark: CompositeKey, horizon: Date): Promise<boolean> {
     return this.reconciler.hasUnreadRows(tenantId, 'ACCOUNT_ENTRY', watermark, horizon);
   }
-  /** لا أحداث مخزون في الظلّ قبل L6 */
-  async inventoryHorizon(): Promise<Date | null> { return null; }
-  async inventoryBlockedHead(): Promise<{ effectAt: Date; sourceKey: string } | null> { return null; }
+  /**
+   * أفق المخزون (§5.4) في الظلّ: المعاينة لقطة ثابتة طابَقَ فيها المُطابِق كل الصفوف حتى ساعة الظلّ (التمريرة الدائمة والذيل)،
+   * فلا صفّ متأخر يُنتظر — الأفق = ساعة الظلّ للجرد المستمر (كالإنتاج بعد اكتمال الترحيل التاريخي)، ولا شيء للدوري (null
+   * كـPrismaPostingStore). أحداث المخزون (L6: WH_ENTRY/VAN_LOAD/RESTOCK وCOGS/RESTOCK) تُرحَّل إذن في المعاينة حين توجد.
+   */
+  async inventoryHorizon(): Promise<Date | null> {
+    return this.shadow.posterSettings.inventoryMode === 'PERPETUAL' ? this.shadow.now() : null;
+  }
+  /** «ربط الدفاتر» L6: مؤشّر محرّك التكلفة — آخر ما طواه طيّ المعاينة (enableShadowInventoryPosting)؛ null ⇒ تنتظر الأحداث */
+  async costCursor(): Promise<CompositeKey | null> {
+    return this.shadow.costCursor;
+  }
+  /** أقدم حدث مخزون محجوب (ERROR/HELD/BLOCKED) — مرآة PrismaPostingStore.inventoryBlockedHead على أحداث الظلّ */
+  async inventoryBlockedHead(): Promise<{ effectAt: Date; sourceKey: string } | null> {
+    let head: { effectAt: Date; sourceKey: string } | null = null;
+    for (const e of this.shadow.events.values()) {
+      if ((e.status !== 'ERROR' && e.status !== 'HELD' && e.status !== 'BLOCKED') || !isInventoryEvent(e)) continue;
+      const t = e.effectAt.getTime();
+      if (!head || t < head.effectAt.getTime() || (t === head.effectAt.getTime() && e.sourceKey < head.sourceKey)) {
+        head = { effectAt: e.effectAt, sourceKey: e.sourceKey };
+      }
+    }
+    return head;
+  }
   async listDueEvents(_tenantId: string, opts: ListDueEventsOptions): Promise<SourceEventRecord[]> {
     return this.shadow.listDue(opts).map((e) => ({ ...e }));
   }
@@ -1009,6 +1105,11 @@ export function shadowBalanceView(shadow: ShadowState): GlBalanceView {
       let t = 0n;
       for (const id of uniq(accountIds)) for (const l of shadow.linesOn(id)) if (pass(l, q)) t += l.debitMilli - l.creditMilli;
       return t;
+    },
+    countLines(accountIds, q) {
+      let n = 0;
+      for (const id of uniq(accountIds)) for (const l of shadow.linesOn(id)) if (pass(l, q)) n++;
+      return n;
     },
     unbalancedMoves() {
       const out: { moveRef: string; sourceKey: string | null; debitMilli: Milli; creditMilli: Milli }[] = [];

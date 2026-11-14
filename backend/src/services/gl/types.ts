@@ -93,11 +93,15 @@ export function isMappingKey(v: unknown): v is MappingKey {
 
 // ═══ أنواع الحسابات الرئيسية (§3.2 controlKind، I4، I7) ═══
 
-export const CONTROL_KINDS = ['AR', 'AP', 'CUSTODY', 'PAYLINK', 'INVENTORY', 'VAT_OUT', 'VAT_IN', 'SUSPENSE'] as const;
+/**
+ * «ربط الدفاتر» L6: GRNI (211002 مشتريات مستلمة لم تُفوتر) — يُضبط على حساب الشركة المربوطة وحدها عند الاعتماد
+ * (coa/sa.ts LINKED_CONTROL_KIND_OVERRIDES)، فلا يتغيّر شيء لقوالب الشركات اليدوية ولا لحساباتها القائمة.
+ */
+export const CONTROL_KINDS = ['AR', 'AP', 'CUSTODY', 'PAYLINK', 'INVENTORY', 'VAT_OUT', 'VAT_IN', 'SUSPENSE', 'GRNI'] as const;
 export type ControlKind = (typeof CONTROL_KINDS)[number];
 
 /** I4/I7: حسابات يغذّيها مصدرها وحده — ممنوعة في القيد اليدوي، وتجعل القيد مملوكاً لمصدر. */
-export const SOURCE_OWNED_CONTROL_KINDS: readonly ControlKind[] = ['AR', 'AP', 'CUSTODY', 'PAYLINK', 'INVENTORY'];
+export const SOURCE_OWNED_CONTROL_KINDS: readonly ControlKind[] = ['AR', 'AP', 'CUSTODY', 'PAYLINK', 'INVENTORY', 'GRNI'];
 
 /** I4: سطر يدوي عليها يُقبل فقط بـtaxId وvatBox. */
 export const VAT_CONTROL_KINDS: readonly ControlKind[] = ['VAT_OUT', 'VAT_IN'];
@@ -224,6 +228,8 @@ export const SOURCE_TYPES = [
   'RESTOCK', 'CUSTOMER_ADJUSTMENT',
   // «ربط الدفاتر» D13: توريد عهدة مستخدم الشركة (UserSettlement، C14)، واسترداد الدفع الإلكتروني (SettlementEntry REFUND، C9)
   'USER_SETTLEMENT', 'PAYLINK_REFUND',
+  // «ربط الدفاتر» L6: كشف المورّد (supplier_ledger_entries: الفاتورة والدفعة والمرتجع والاسترداد وعكوسها) — المربوطة وحدها
+  'SUPPLIER_ENTRY',
 ] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 

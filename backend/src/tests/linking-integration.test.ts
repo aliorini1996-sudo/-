@@ -112,7 +112,12 @@ test('مظلمة: الشيفرة الإنتاجية القائمة لا تستو
       }
     }
   }
-  assert.deepEqual([...importers.keys()].sort(), ['routes/ledger/index.ts', 'routes/ledger/linking.ts', 'services/gl/opening.ts']);
+  assert.deepEqual([...importers.keys()].sort(), [
+    'routes/ledger/index.ts', 'routes/ledger/linking.ts', 'services/gl/builders/stock.ts', 'services/gl/opening.ts', 'services/gl/sync/scheduler.ts',
+  ]);
+  // «ربط الدفاتر» L6: قيود المخزون تقرأ ثوابت الحسابات والأنواع، والمُجدوِل يكتب لقطات التكلفة — محروسة بـlinked وinventoryPosting
+  assert.deepEqual(importers.get('services/gl/builders/stock.ts')?.sort(), ['services/costing/accounts', 'services/costing/types']);
+  assert.deepEqual(importers.get('services/gl/sync/scheduler.ts'), ['services/costing/snapshots']);
   assert.deepEqual(importers.get('routes/ledger/index.ts'), ['routes/ledger/linking']);
   // opening.ts (المسار اليدوي يمرّ به): ثوابت المواقع الصرفة من costing/types وحدها — لا محرّك ولا قاعدة
   assert.deepEqual(importers.get('services/gl/opening.ts'), ['services/costing/types']);

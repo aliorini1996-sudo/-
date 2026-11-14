@@ -61,6 +61,8 @@ export const AUDIT_ACTIONS = [
   'ATTACHMENT_ADD', 'SAVED_FILTER_CHANGE',
   'TAX_RETURN_LOCK', 'TAX_RETURN_FILE', 'TAX_RETURN_PAY',
   'INVENTORY_CLOSE', 'SECURE_ENTRIES', 'FY_CLOSE', 'LEDGER_RESET', 'EXPORT',
+  // «ربط الدفاتر» L7/L9: اعتماد الربط وإعادة بناء الافتتاح عند التحويل
+  'LINKING_ENABLE', 'LINKING_RESTATE',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

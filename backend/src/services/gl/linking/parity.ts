@@ -7,8 +7,9 @@
  *   المجموع ⇒ فرق كاذب). ولذا لا تُستعمل `CheckStore.accountEntryTotals`/`settlementBalance` هنا. المجاميع على BigInt
  *   (`supplier_ledger_entries.amountMilli`) دقيقة فتُجمع في القاعدة. الصفوف بصفحات بمؤشّر (createdAt, id) على فهرس
  *   (tenantId, createdAt, id)، والمعرّفات بدفعات — بلا N+1 (إلا عهدة المندوب: انظر أدناه).
- * - `runParity`: صرفة، R1..R13 بالترتيب. **التسامح صفر**: فرق ملّي واحد ⇒ MISMATCH. ما لا يحمله الأستاذ بعد (تكلفة
- *   المبيعات، حركات المخزون، المشتريات…) ⇒ NOT_AVAILABLE بمرحلته وسببه، والمتوقَّع محسوب مع تعمّقه (D10).
+ * - `runParity`: صرفة، R1..R13 بالترتيب. **التسامح صفر**: فرق ملّي واحد ⇒ MISMATCH. ما لا يحمله الأستاذ بعد ⇒ NOT_AVAILABLE
+ *   بمرحلته وسببه، والمتوقَّع محسوب مع تعمّقه (D10). R8–R11 (PV) كاملةٌ حين يحمل الأستاذ قيود تدفّقها (سطور غير افتتاحية على
+ *   حساباتها) أو لا نشاط تشغيلياً لها، وإلا NOT_AVAILABLE «لا قيود لها في الظلّ بعد (L6)».
  * - `compareByPartner`: التعمّق لكل شريك — فرز |الفرق| تنازلياً ثم المعرّف، والقصّ عند PREVIEW_LIST_CAPS.drillRows.
  *
  * إشارة كل رقم: «مدين − دائن» كالأستاذ، فالفرق = الفعلي − المتوقَّع بالمعنى نفسه في كل فحص (الموردون والوارد غير المصنَّف
@@ -18,8 +19,9 @@ import type { Prisma } from '@prisma/client';
 import { openingEntryGroupsFromRows, openingEntryTotalsFromGroups, type OpeningEntryGroup, type OpeningEntryRow } from '../checks/rules';
 import { createPrismaCheckStore } from '../checks/store.prisma';
 import { custodyComponentsForRep } from '../custody';
+import { toDbDate } from '../dates';
 import { formatMilli, toMilli, unitMilli } from '../money';
-import { includedInOpening, openingCutoff, openingRowRole } from '../opening';
+import { includedInOpening, openingCutoff, openingRowRole, type OpeningCutoff } from '../opening';
 import { SETTLEMENT_HAS_REP } from '../settlementRep';
 import { siblingPostKey } from '../sync/keys';
 import { IMPORT_AFTER_CUTOVER_ATTENTION_REASON } from '../sync/types';
@@ -29,7 +31,7 @@ import { UNKNOWN_VAN, WH_LOCATION, repOfLocation, vanLocation, type LocationKey,
 import {
   PREVIEW_LIST_CAPS,
   type GlBalanceQuery, type GlBalanceView, type OperationalFacts, type ParityCheck, type ParityCode, type ParityContext, type ParityDrillRow,
-  type ParityPartnerType, type ParityScope,
+  type LinkedOpeningPayables, type ParityPartnerType, type ParityScope,
 } from './types';
 
 // ═══ الثوابت ═══
@@ -59,13 +61,17 @@ export const PARITY_TITLES: Readonly<Record<ParityCode, string>> = {
   R13: 'اكتمال الترحيل وخلوّ الحساب المعلّق 911001',
 };
 
-/** ما لا يحمله الأستاذ في هذه المرحلة: المرحلة التي تضيفه وسببه (D10 — نصوص العقد §13) */
+/**
+ * ما لا يحمله الأستاذ في هذه المرحلة: المرحلة التي تضيفه وسببه (D10 — نصوص العقد §13).
+ * R8–R11 (PV): محسوبة كاملةً (FULL) حين يحمل الأستاذ قيود تدفّقها — أو حين لا نشاط تشغيلياً لها فلا قيد يُنتظر — وإلا
+ * NOT_AVAILABLE بهذا السبب: لا قيود لها في الظلّ بعد (ترحيل L6 للمخزون والمشتريات)، والمتوقَّع محسوب معروض.
+ */
 export const PARITY_NOT_AVAILABLE: Readonly<Partial<Record<ParityCode, { availableIn: 'L4' | 'L5' | 'L6' | 'L7'; reason: string }>>> = {
   R4: { availableIn: 'L5', reason: 'عهدة المستخدمين 111004 تُضاف في L5' },
   R6: { availableIn: 'L4', reason: 'مطابقة صافي المبيعات الشهري تُضاف في L4' },
   R7: { availableIn: 'L4', reason: 'ضريبة المخرجات بالفترة والمربع من المستندات تُضاف في L4' },
   R8: { availableIn: 'L6', reason: 'قيود حركات المخزون تُضاف في L6' },
-  R9: { availableIn: 'L4', reason: 'قيد تكلفة المبيعات يُضاف في L4' },
+  R9: { availableIn: 'L6', reason: 'قيد تكلفة المبيعات يُضاف مع قيود المخزون في L6' },
   R10: { availableIn: 'L6', reason: 'قيود المشتريات والموردين تُضاف في L6' },
   R11: { availableIn: 'L6', reason: 'قيود الوارد غير المصنَّف على 211002 تُضاف في L6' },
   R12: { availableIn: 'L6', reason: 'سجلّ ضريبة المشتريات يُضاف في L6' },
@@ -75,6 +81,11 @@ export const PARITY_NOT_AVAILABLE: Readonly<Partial<Record<ParityCode, { availab
 /** المخزون الدوري (OD7): لا رصيد مخزون مستمرّ في الدفاتر فلا مطابقة له في أي مرحلة */
 export const R8_PERIODIC_REASON = 'المخزون الدوري (PERIODIC): لا تحمل الدفاتر رصيد مخزون مستمرّاً — لا مطابقة 114001/114002';
 export const R8_NO_COSTING_REASON = 'لا ملخّص لمحرّك التكلفة — قيود حركات المخزون تُضاف في L6';
+/** الجرد الدوري: لا تكلفة مبيعات تُقيَّد لكل بيع (تُحسب بالجرد في آخر الفترة) فلا مطابقة لـ511001 باللقطات */
+export const R9_PERIODIC_REASON = 'المخزون الدوري (PERIODIC): لا يُقيَّد قيد تكلفة لكل بيع — لا مطابقة 511001 بلقطات التكلفة';
+export const R9_NO_COSTING_REASON = 'لا ملخّص لمحرّك التكلفة — لا متوقَّع لتكلفة المبيعات';
+/** سطور الأستاذ المقروءة لكشف «هل رُحِّل التدفّق أصلاً» حين لا يدعم العرض countLines */
+export const PARITY_POSTED_PROBE_LIMIT = 100_000;
 
 // ═══ مساعدات ═══
 
@@ -417,6 +428,30 @@ function ledgerByLocation(gl: GlBalanceView, wh: string | null | undefined, van:
   return out;
 }
 
+const NON_OPENING: GlBalanceQuery = { excludeMoveTypes: ['OPENING'] };
+
+/**
+ * هل يحمل الأستاذ قيود تدفّقٍ على هذه الحسابات غير القيد الافتتاحي؟ (قيود L6 في الظلّ). countLines إن دعمه العرض
+ * (الظلّ)، وإلا سطور linesOn بسقف.
+ */
+function postedLineCount(gl: GlBalanceView, ids: readonly (string | null | undefined)[]): number {
+  const list = [...new Set(ids.filter((x): x is string => !!x))];
+  if (list.length === 0) return 0;
+  if (gl.countLines) return gl.countLines(list, NON_OPENING);
+  let n = 0;
+  for (const id of list) for (const l of gl.linesOn(id, PARITY_POSTED_PROBE_LIMIT)) if (l.moveType !== 'OPENING') n++;
+  return n;
+}
+
+/** نشاط مخزون في السنة: رصيدٌ لموقعٍ تغيّر عن افتتاحه، أو تكلفة/فرق/شطب في السنة — فلا بدّ من قيود لتطابق الدفاتر */
+function costingFyActivity(c: NonNullable<ParityContext['costing']>): boolean {
+  if (c.fyCogsMilli !== 0n || c.fyVarianceMilli !== 0n || c.fyWriteOffMilli !== 0n) return true;
+  const now = byLocation(c.nowByLocation);
+  const open = byLocation(c.openingByLocation);
+  for (const k of new Set([...now.keys(), ...open.keys()])) if ((now.get(k) ?? 0n) !== (open.get(k) ?? 0n)) return true;
+  return false;
+}
+
 function checkR8(gl: GlBalanceView, ops: OperationalFacts, ctx: ParityContext): ParityCheck {
   const costing = ctx.costing;
   const { ids, missing } = accountIds(gl, ['INVENTORY_WAREHOUSE', 'INVENTORY_VAN']);
@@ -430,8 +465,8 @@ function checkR8(gl: GlBalanceView, ops: OperationalFacts, ctx: ParityContext): 
     const { drill, truncated } = capDrill(r.rows);
     return notAvailable('R8', 'NONE', { reason: R8_NO_COSTING_REASON, actualMilli: r.actualMilli, drill, drillTruncated: truncated, info: { accountMissing: missing } });
   }
-  const now = partnerRows(byLocation(costing.nowByLocation), actual, opts);
   if (ctx.inventoryMode !== 'PERPETUAL') {
+    const now = partnerRows(byLocation(costing.nowByLocation), actual, opts);
     const { drill, truncated } = capDrill(now.rows);
     // لا ينطبق في أي مرحلة: availableIn = null ورمز السبب، فلا تعرض الواجهة «يُضاف في L6» ولا تقرأ التعمّق فروقاً
     return notAvailable('R8', 'NONE', {
@@ -440,62 +475,90 @@ function checkR8(gl: GlBalanceView, ops: OperationalFacts, ctx: ParityContext): 
       info: { locations: now.rows.length, openingTie: null, accountMissing: missing },
     });
   }
-  // المتاح الآن (OPENING_ONLY): سطور الافتتاح لكل موقع = Σ لقطات الافتتاح (CostingSummary.openingByLocation)
+  const posted = postedLineCount(gl, [wh, van]);
+  const full = posted > 0 || !costingFyActivity(costing);
   const dec = ctx.currencyDecimals;
+  // الآن: 114001 = تقييم المستودع، و114002 لكل مندوب = بطاقة سيارته (CostingSummary.nowByLocation)
+  const now = partnerRows(byLocation(costing.nowByLocation), actual, full ? { ...opts, explainDiffs: true } : opts);
+  // والفرعي: سطور الافتتاح لكل موقع = Σ لقطات الافتتاح (CostingSummary.openingByLocation)
   const opening = partnerRows(byLocation(costing.openingByLocation), ledgerByLocation(gl, wh, van, OPENING_ONLY), {
     ...opts, notePrefix: OPENING_NOTE,
     noteOf: (_k, e, a) => `المتوقَّع ${amountText(e, dec)} والأستاذ ${amountText(a, dec)}`,
   });
   const { drill, truncated } = capDrill([...now.rows, ...opening.rows.filter((r) => r.diffMilli !== 0n)]);
-  return notAvailable('R8', 'OPENING_ONLY', {
-    expectedMilli: now.expectedMilli, actualMilli: now.actualMilli, drill, drillTruncated: truncated,
-    info: {
-      locations: now.rows.length,
-      openingTie: opening.mismatches === 0 ? 'OK' : 'MISMATCH',
-      openingExpectedMilli: milliText(opening.expectedMilli),
-      openingActualMilli: milliText(opening.actualMilli),
-      openingDiffMilli: milliText(opening.diffMilli),
-      openingMismatches: opening.mismatches,
-      accountMissing: missing,
-    },
-  });
+  const info: Info = {
+    locations: now.rows.length,
+    ...(full ? { mismatches: now.mismatches } : {}),
+    openingTie: opening.mismatches === 0 ? 'OK' : 'MISMATCH',
+    openingExpectedMilli: milliText(opening.expectedMilli),
+    openingActualMilli: milliText(opening.actualMilli),
+    openingDiffMilli: milliText(opening.diffMilli),
+    openingMismatches: opening.mismatches,
+    postedLines: posted,
+    accountMissing: missing,
+  };
+  if (full) return fullCheck('R8', now.mismatches === 0 && opening.mismatches === 0, now.expectedMilli, now.actualMilli, drill, truncated, info);
+  return notAvailable('R8', 'OPENING_ONLY', { expectedMilli: now.expectedMilli, actualMilli: now.actualMilli, drill, drillTruncated: truncated, info });
 }
 
-// ═══ R9–R11: المتوقَّع محسوباً ═══
+// ═══ R9–R11 ═══
 
+/** R9: 511001 = Σ أثر لقطات السنة على تكلفة المبيعات (البيع − الإعادة للمخزون + فروق الوارد على مخزون سالب) — fyCogsMilli */
 function checkR9(gl: GlBalanceView, ctx: ParityContext): ParityCheck {
-  const { ids, missing } = accountIds(gl, ['COGS']);
+  const { ids, missing } = accountIds(gl, ['COGS', 'INVENTORY_WAREHOUSE', 'INVENTORY_VAN']);
+  const cogs = ids.get('COGS');
+  const actual = totalOf(gl, cogs);
   const c = ctx.costing;
-  return notAvailable('R9', 'NONE', {
-    expectedMilli: c ? c.fyCogsMilli : null,
-    actualMilli: totalOf(gl, ids.get('COGS')),
-    info: c
-      ? { fyVarianceMilli: milliText(c.fyVarianceMilli), fyWriteOffMilli: milliText(c.fyWriteOffMilli), moveCount: c.moveCount, accountMissing: missing }
-      : { accountMissing: missing },
-  });
+  if (!c) return notAvailable('R9', 'NONE', { reason: R9_NO_COSTING_REASON, actualMilli: actual, info: { accountMissing: missing } });
+  const info: Info = {
+    fyVarianceMilli: milliText(c.fyVarianceMilli), fyWriteOffMilli: milliText(c.fyWriteOffMilli), moveCount: c.moveCount, accountMissing: missing,
+  };
+  if (ctx.inventoryMode !== 'PERPETUAL') {
+    return notAvailable('R9', 'NONE', { availableIn: null, reason: R9_PERIODIC_REASON, expectedMilli: c.fyCogsMilli, actualMilli: actual, info });
+  }
+  // تكلفة المبيعات تُقيَّد مع حركة المخزون نفسها (Cr 114001/114002) — فقيود أحد الحسابات الثلاثة دليل ترحيل التدفّق
+  const posted = postedLineCount(gl, [cogs, ids.get('INVENTORY_WAREHOUSE'), ids.get('INVENTORY_VAN')]);
+  info.postedLines = posted;
+  if (posted > 0 || !costingFyActivity(c)) return fullCheck('R9', actual === c.fyCogsMilli, c.fyCogsMilli, actual, [], 0, info);
+  return notAvailable('R9', 'NONE', { expectedMilli: c.fyCogsMilli, actualMilli: actual, info });
 }
 
-function checkR10(gl: GlBalanceView, ops: OperationalFacts): ParityCheck {
+/** R10: 211001 لكل مورّد = رصيد كشفه (supplier_ledger_entries) — موجبه «مستحقّ له» = دائن ⇒ المتوقَّع −Σ amountMilli */
+function checkR10(gl: GlBalanceView, ops: OperationalFacts, ctx: ParityContext): ParityCheck {
   const { ids, missing } = accountIds(gl, ['AP_CONTROL']);
-  // كشف المورّد موجبه «مستحقّ له» = دائن 211001 ⇒ المتوقَّع بإشارة الأستاذ = −Σ amountMilli
-  const r = partnerRows(negate(ops.supplierByVendor), byPartner(gl, ids.get('AP_CONTROL'), 'vendorId'), {
+  const ap = ids.get('AP_CONTROL');
+  const posted = postedLineCount(gl, [ap]);
+  const activity = [...ops.supplierByVendor.values()].some((v) => v !== 0n);
+  const full = posted > 0 || !activity;
+  const r = partnerRows(negate(ops.supplierByVendor), byPartner(gl, ap, 'vendorId'), {
     partnerType: 'VENDOR', names: ops.names.vendors, blankName: 'سطور ذمم دائنة بلا مورّد',
+    ...(full ? { heldByPartner: ctx.heldByPartner, explainDiffs: true } : {}),
   });
   const { drill, truncated } = capDrill(r.rows);
-  return notAvailable('R10', 'NONE', {
-    expectedMilli: r.expectedMilli, actualMilli: r.actualMilli, drill, drillTruncated: truncated,
-    info: { vendors: ops.supplierByVendor.size, accountMissing: missing },
-  });
+  const info: Info = { vendors: ops.supplierByVendor.size, ...(full ? { mismatches: r.mismatches } : {}), postedLines: posted, accountMissing: missing };
+  if (full) return fullCheck('R10', r.mismatches === 0, r.expectedMilli, r.actualMilli, drill, truncated, info);
+  return notAvailable('R10', 'NONE', { expectedMilli: r.expectedMilli, actualMilli: r.actualMilli, drill, drillTruncated: truncated, info });
 }
 
+/**
+ * R11: 211002 = −Σ صافي الوارد المسعَّر غير المصنَّف منذ بداية السنة وما قبلها (افتتاحه المشتقّ للمربوطة بالجرد المستمر — L7)
+ * (الدائن سالب بإشارة الأستاذ)
+ */
 function checkR11(gl: GlBalanceView, ops: OperationalFacts): ParityCheck {
   const { ids, missing } = accountIds(gl, ['GRNI']);
-  return notAvailable('R11', 'NONE', {
-    // الوارد غير المصنَّف يُقيَّد دائناً على 211002 (D4) ⇒ المتوقَّع بإشارة الأستاذ سالب
-    expectedMilli: -ops.unclassifiedPricedReceiptsFyMilli,
-    actualMilli: totalOf(gl, ids.get('GRNI')),
-    info: { unclassifiedPricedReceiptsFyMilli: milliText(ops.unclassifiedPricedReceiptsFyMilli), accountMissing: missing },
-  });
+  const grni = ids.get('GRNI');
+  const opening = ops.unclassifiedPricedReceiptsOpeningMilli ?? 0n;
+  const total = ops.unclassifiedPricedReceiptsFyMilli + opening;
+  const expected = -total;
+  const actual = totalOf(gl, grni);
+  const posted = postedLineCount(gl, [grni]);
+  const info: Info = {
+    unclassifiedPricedReceiptsFyMilli: milliText(ops.unclassifiedPricedReceiptsFyMilli),
+    ...(opening !== 0n ? { unclassifiedPricedReceiptsOpeningMilli: milliText(opening) } : {}),
+    postedLines: posted, accountMissing: missing,
+  };
+  if (posted > 0 || total === 0n) return fullCheck('R11', actual === expected, expected, actual, [], 0, info);
+  return notAvailable('R11', 'NONE', { expectedMilli: expected, actualMilli: actual, info });
 }
 
 function checkR13(gl: GlBalanceView, ctx: ParityContext): ParityCheck {
@@ -521,7 +584,7 @@ export function runParity(gl: GlBalanceView, ops: OperationalFacts, ctx: ParityC
     notAvailable('R7', 'NONE'),
     checkR8(gl, ops, ctx),
     checkR9(gl, ctx),
-    checkR10(gl, ops),
+    checkR10(gl, ops, ctx),
     checkR11(gl, ops),
     notAvailable('R12', 'NONE'),
     checkR13(gl, ctx),
@@ -722,6 +785,67 @@ async function forEachPage<T extends { id: string; createdAt: Date }>(
 /** مؤشّر أسطر الوارد: (entry.createdAt, entry.id, item.id) — كـwhWhere في costing/streams.ts */
 type ItemAfter = { at: Date; pid: string; iid: string } | null;
 
+/**
+ * Σ toMilli(qty × unitCost) لأسطر الوارد RECEIVE المسعَّر بكمية أساس موجبة، بلا نمط دفع (paymentMode null)، المسجَّل في
+ * [from, until] — بقيمة السطر نفسها التي يدخل بها محرّك التكلفة (streams.ts). يُستثنى OPENING_IMPORT (D8). بالصفحات.
+ * R11 (منذ بداية السنة) والافتتاح المشتقّ لـ211002 («ربط الدفاتر» L7: ما قبل cutoverStart) يقرآنه معاً.
+ */
+export async function sumUnclassifiedPricedReceipts(
+  db: Pick<Prisma.TransactionClient, 'warehouseEntryItem'>, tenantId: string, w: { from: Date; until: Date }, dec: number,
+  pageSize: number = PARITY_PAGE_SIZE,
+): Promise<Milli> {
+  let sum = 0n;
+  if (w.until.getTime() < w.from.getTime()) return sum;
+  let after: ItemAfter = null;
+  for (;;) {
+    const rows: ReceiptItemRow[] = await db.warehouseEntryItem.findMany({
+      where: receiptItemsWhere(tenantId, w.from, w.until, after),
+      orderBy: [{ entry: { createdAt: 'asc' } }, { entry: { id: 'asc' } }, { id: 'asc' }],
+      take: pageSize,
+      select: { id: true, qty: true, unitFactor: true, baseQty: true, unitCost: true, entry: { select: { id: true, createdAt: true } } },
+    });
+    for (const r of rows) {
+      if (r.unitCost === null || !(r.unitCost > 0) || !(baseQtyOf(r) > 0)) continue;
+      // قيمة السطر بوحدته مقرّبة مرة واحدة — inValueMilli في costing/streams.ts حرفياً
+      sum += toMilli(r.qty * r.unitCost, dec);
+    }
+    if (rows.length < pageSize) break;
+    const last = rows[rows.length - 1];
+    after = { at: last.entry.createdAt, pid: last.entry.id, iid: last.id };
+  }
+  return sum;
+}
+
+/**
+ * «ربط الدفاتر» L7 (الجرد المستمر): الدائنون المشمولون بالافتتاح — رصيد كشف كل مورّد بقيوده المشمولة (مسند classifyCutover نفسه:
+ * docDate < linkedFrom وcreatedAt ≤ اللقطة؛ المتأخر يُرحَّل بتاريخ البدء)، والوارد المسعَّر غير المصنَّف قبل cutoverStart.
+ * أسماء الموردين بالشكل الوحيد الذي يمرّره العميل الحارس (كالموردين أعلاه). المعاينة والاعتماد يقرآنه معاً. صفري ⇒ يُسقط.
+ */
+export async function loadLinkedPayables(
+  db: Pick<Prisma.TransactionClient, 'supplierLedgerEntry' | 'glVendor' | 'warehouseEntryItem'>, tenantId: string, cut: OpeningCutoff, decimals: number,
+): Promise<LinkedOpeningPayables> {
+  const groups = await db.supplierLedgerEntry.groupBy({
+    by: ['vendorId'], where: { tenantId, docDate: { lt: toDbDate(cut.cutoverDate) }, createdAt: { lte: cut.snapshotAt } }, _sum: { amountMilli: true },
+  });
+  const balances = groups
+    .map((g) => ({ vendorId: g.vendorId, balanceMilli: g._sum?.amountMilli ?? 0n }))
+    .filter((g) => g.balanceMilli !== 0n)
+    .sort((a, b) => (a.vendorId < b.vendorId ? -1 : a.vendorId > b.vendorId ? 1 : 0));
+  const names = new Map<string, string>();
+  for (const ids of chunks(balances.map((b) => b.vendorId), PARITY_ID_CHUNK)) {
+    for (const v of await db.glVendor.findMany({ where: { tenantId, id: { in: ids } }, select: { id: true, name: true } })) {
+      if (v.name) names.set(v.id, v.name);
+    }
+  }
+  const grniMilli = await sumUnclassifiedPricedReceipts(db, tenantId, openingReceiptsWindow(cut), decimals);
+  return { vendors: balances.map((b) => ({ ...b, vendorName: names.get(b.vendorId) ?? null })), grniMilli };
+}
+
+/** نافذة الوارد المشمول بالافتتاح: أُنشئ قبل cutoverStart (تاريخ أثره createdAt) وحتى اللقطة */
+export function openingReceiptsWindow(cut: Pick<OpeningCutoff, 'cutoverStart' | 'snapshotAt'>): { from: Date; until: Date } {
+  return { from: new Date(0), until: new Date(Math.min(cut.cutoverStart.getTime() - 1, cut.snapshotAt.getTime())) };
+}
+
 interface ReceiptItemRow {
   id: string;
   qty: number;
@@ -866,27 +990,9 @@ export async function loadOperationalFacts(
     }
   }
 
-  // ── الوارد المسعَّر غير المصنَّف منذ بداية السنة ──
-  let unclassifiedPricedReceiptsFyMilli = 0n;
-  {
-    let after: ItemAfter = null;
-    for (;;) {
-      const rows: ReceiptItemRow[] = await db.warehouseEntryItem.findMany({
-        where: receiptItemsWhere(tenantId, input.cutoverStart, until, after),
-        orderBy: [{ entry: { createdAt: 'asc' } }, { entry: { id: 'asc' } }, { id: 'asc' }],
-        take: pageSize,
-        select: { id: true, qty: true, unitFactor: true, baseQty: true, unitCost: true, entry: { select: { id: true, createdAt: true } } },
-      });
-      for (const r of rows) {
-        if (r.unitCost === null || !(r.unitCost > 0) || !(baseQtyOf(r) > 0)) continue;
-        // قيمة السطر بوحدته مقرّبة مرة واحدة — inValueMilli في costing/streams.ts حرفياً
-        unclassifiedPricedReceiptsFyMilli += toMilli(r.qty * r.unitCost, dec);
-      }
-      if (rows.length < pageSize) break;
-      const last = rows[rows.length - 1];
-      after = { at: last.entry.createdAt, pid: last.entry.id, iid: last.id };
-    }
-  }
+  // ── الوارد المسعَّر غير المصنَّف منذ بداية السنة، وما قبلها (افتتاح 211002 للمربوطة بالجرد المستمر — L7) ──
+  const unclassifiedPricedReceiptsFyMilli = await sumUnclassifiedPricedReceipts(db, tenantId, { from: input.cutoverStart, until }, dec, pageSize);
+  const unclassifiedPricedReceiptsOpeningMilli = await sumUnclassifiedPricedReceipts(db, tenantId, openingReceiptsWindow(cut), dec, pageSize);
 
   // ── الأسماء ──
   const customerIds = [...new Set([...arByCustomer.keys(), ...arOpeningByCustomer.keys()])].sort();
@@ -899,6 +1005,7 @@ export async function loadOperationalFacts(
 
   return {
     arByCustomer, arOpeningByCustomer, custodyByRep, settlementBalanceMilli, supplierByVendor, unclassifiedPricedReceiptsFyMilli,
+    unclassifiedPricedReceiptsOpeningMilli,
     names: { customers, reps: repNames, vendors },
   };
 }

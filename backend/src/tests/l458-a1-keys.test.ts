@@ -77,7 +77,8 @@ test('قوائم المزامنة: المصدران مبيعات، وUSER_SETTLE
   assert.deepEqual([...TOMBSTONE_SOURCE_TYPES], ['SETTLEMENT', 'AR_ENTRY', 'USER_SETTLEMENT']);
   assert.deepEqual([...CURSOR_SOURCE_EVENT_TYPES.SETTLEMENT_ENTRY], ['PAYLINK_FEE', 'PAYOUT', 'PAYLINK_REFUND']);
   assert.deepEqual([...CURSOR_SOURCE_EVENT_TYPES.USER_SETTLEMENT], ['USER_SETTLEMENT']);
-  assert.equal(SYNC_CURSOR_SOURCES[SYNC_CURSOR_SOURCES.length - 1], 'USER_SETTLEMENT');
+  // «ربط الدفاتر» L6: كشف المورّد أُلحق بعد USER_SETTLEMENT
+  assert.deepEqual(SYNC_CURSOR_SOURCES.slice(-2), ['USER_SETTLEMENT', 'SUPPLIER_ENTRY']);
   // كل مؤشر له قائمة أحداث
   for (const s of SYNC_CURSOR_SOURCES) assert.ok(Array.isArray(CURSOR_SOURCE_EVENT_TYPES[s]), s);
 });

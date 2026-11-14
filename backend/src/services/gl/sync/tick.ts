@@ -8,9 +8,9 @@
  * بلا prisma: المخزنان يُحقنان (scheduler.ts يبني تنفيذي Prisma).
  */
 import { randomUUID } from 'node:crypto';
-import { isManualBooks } from '../mode';
+import { isLinked, isManualBooks } from '../mode';
 import {
-  RECONCILED_SOURCES,
+  ALL_RECONCILED_SOURCES, RECONCILED_SOURCES,
 } from './desired';
 import { reconcileTenant, safetyNetScan, type ReconcilerStore } from './reconciler';
 import { budgetExhausted, createSyncBudget, runPoster, type PosterOptions, type SyncBudget } from './poster';
@@ -58,7 +58,9 @@ export function safetyNetFn(store: ReconcilerStore, opts: { intervalMs?: number;
     const prev = last.get(tenantId);
     if (prev !== undefined && now - prev < interval) return;
     let exhausted = false;
-    for (const source of RECONCILED_SOURCES) {
+    // «ربط الدفاتر» L6: المربوطة تمسح مصادر المخزون والمشتريات أيضاً (safetyNetScan يحرسها بـreconciledSourceEnabled)؛ غيرها كما كانت
+    const sources = isLinked(ctx.settings) ? ALL_RECONCILED_SOURCES : RECONCILED_SOURCES;
+    for (const source of sources) {
       if (budgetExhausted(budget)) { exhausted = true; break; }
       const r = await safetyNetScan(store, tenantId, source, { clock: budget.clock, deadline: budget.deadline, dbNow: ctx.dbNow });
       if (r?.budgetExhausted) { exhausted = true; break; }

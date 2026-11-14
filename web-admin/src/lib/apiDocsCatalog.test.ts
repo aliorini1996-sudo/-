@@ -156,6 +156,7 @@ const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'GET /ledger/linking/preview/:id': 'يرفض مفاتيح API دائماً بـ403 (LEDGER_LINKING_INTERACTIVE_ONLY بعد حرّاس الدفاتر وcanConfigureLedger) — حالة معاينة ربط الدفاتر ونتيجتها لمالك الشركة من لوحة التحكم وحدها',
   'GET /ledger/linking/previews': 'يرفض مفاتيح API دائماً بـ403 (LEDGER_LINKING_INTERACTIVE_ONLY بعد حرّاس الدفاتر وcanConfigureLedger) — آخر معاينات ربط الدفاتر لمالك الشركة من لوحة التحكم وحدها',
   'GET /ledger/linking/preflight': 'يرفض مفاتيح API دائماً بـ403 (LEDGER_LINKING_INTERACTIVE_ONLY بعد حرّاس الدفاتر وcanConfigureLedger) — الفحوص المسبقة لربط الدفاتر لمالك الشركة من لوحة التحكم وحدها',
+  'POST /ledger/linking/commit': 'يرفض مفاتيح API دائماً بـ403 (LEDGER_LINKING_INTERACTIVE_ONLY بعد حرّاس الدفاتر وcanConfigureLedger) — اعتماد «ربط الدفاتر بالنظام» النهائي لمالك الشركة من لوحة التحكم وحدها باسم الشركة وإقرار «نهائي»',
 };
 
 test('كل مسار في موجّهات الميزات الحديثة موثّقٌ في المستند أو مستثنى بسبب مكتوب', () => {

@@ -357,6 +357,8 @@ export const SYNC_CURSOR_SOURCES = [
   'RETURN_RESTOCK',
   /** «ربط الدفاتر» L5 (D13): توريدات عهد مستخدمي الشركة (user_settlements) — مؤشر المربوطة وحدها */
   'USER_SETTLEMENT',
+  /** «ربط الدفاتر» L6: كشف المورّد (supplier_ledger_entries) — مؤشر المربوطة بالجرد المستمر وحدها */
+  'SUPPLIER_ENTRY',
 ] as const;
 export type SyncCursorSource = (typeof SYNC_CURSOR_SOURCES)[number];
 
@@ -368,7 +370,9 @@ export type SyncCursorSource = (typeof SYNC_CURSOR_SOURCES)[number];
 export function activeSyncSources(inventoryMode: InventoryMode, opts: { linked?: boolean } = {}): SyncCursorSource[] {
   const base: SyncCursorSource[] = ['ACCOUNT_ENTRY', 'REP_SETTLEMENT', 'SETTLEMENT_ENTRY'];
   const list: SyncCursorSource[] = inventoryMode === 'PERPETUAL' ? [...base, 'WAREHOUSE_ENTRY', 'VAN_LOAD', 'RETURN_RESTOCK'] : base;
-  return opts.linked === true ? [...list, 'USER_SETTLEMENT'] : list;
+  if (opts.linked !== true) return list;
+  // «ربط الدفاتر» L6: المربوطة بالجرد المستمر تقرأ كشف المورّد أيضاً (SUPPLIER_ENTRY آخر القائمة)
+  return inventoryMode === 'PERPETUAL' ? [...list, 'USER_SETTLEMENT', 'SUPPLIER_ENTRY'] : [...list, 'USER_SETTLEMENT'];
 }
 
 export interface LockSyncSettings {

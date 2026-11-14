@@ -9,7 +9,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { fromDbDate, toDbDate } from '../dates';
 import { toMilli } from '../money';
 import { openingEntryGroupsFromRows, openingEntryRole, openingEntryTotalsFromGroups } from './rules';
-import { RECONCILED_SOURCES } from '../sync/desired';
+import { isAnyReconciledSource, isReconciledSource, reconciledSourceEnabled } from '../sync/desired';
 import { setupMethodOf } from '../sync/classify';
 import { siblingPostKey } from '../sync/keys';
 import { PrismaPostingTx } from '../sync/postingStore.prisma';
@@ -422,10 +422,16 @@ export function createPrismaCheckStore(db: Db, opts: { custodyWindow?: boolean }
     async cursorStates(tenantId, dbNow): Promise<CursorFacts[]> {
       const rows = await d.glSyncCursor.findMany({ where: { tenantId } });
       const reconciler = createPrismaReconcilerStore(db as unknown as PrismaClient);
+      // «ربط الدفاتر» L6: للمربوطة يُقاس تأخّر مصادر المخزون والمشتريات أيضاً (بالجرد المستمر)؛ غير المربوطة كما كانت
+      const s = await d.glSettings.findUnique({ where: { tenantId }, select: { setupMethod: true, activatedAt: true, inventoryMode: true } });
+      const linked = isLinked(s);
+      const enabled = { linked, inventoryPosting: linked && s?.inventoryMode === 'PERPETUAL' };
       const out: CursorFacts[] = [];
       for (const c of rows) {
-        const lagMs = (RECONCILED_SOURCES as readonly string[]).includes(c.source)
-          ? await cursorLagMs(reconciler, tenantId, c.source as (typeof RECONCILED_SOURCES)[number], dbNow)
+        const src = c.source;
+        const measured = linked ? isAnyReconciledSource(src) && reconciledSourceEnabled(src, enabled) : isReconciledSource(src);
+        const lagMs = measured && isAnyReconciledSource(src)
+          ? await cursorLagMs(reconciler, tenantId, src, dbNow)
           : null;
         out.push({ source: c.source, watermarkAt: c.watermarkAt, lastRunAt: c.lastRunAt, lastCount: c.lastCount, stallTicks: c.stallTicks, lagMs });
       }

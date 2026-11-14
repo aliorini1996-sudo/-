@@ -214,6 +214,9 @@ test('طريقة الجرد: PERPETUAL لا يُختار جديداً (400 INVEN
   assert.equal(inventoryModeAvailable('PERPETUAL', 'PERIODIC'), false);
   assert.equal(inventoryModeAvailable('PERPETUAL', null), false);
   assert.equal(inventoryModeAvailable('PERPETUAL', 'PERPETUAL'), true, 'إبقاء القائم');
+  // «ربط الدفاتر» L6/L7: المربوطة يظهر لها الجرد المستمر (قيود المخزون وتكلفة البضاعة تُرحَّل لها)
+  assert.equal(inventoryModeAvailable('PERPETUAL', 'PERIODIC', { linked: true }), true);
+  assert.deepEqual(inventoryModeOptions('PERIODIC', { linked: true }).map((o) => o.available), [true, true]);
   assert.deepEqual(inventoryModeOptions('PERIODIC'), [
     { value: 'PERIODIC', available: true, reason: null },
     { value: 'PERPETUAL', available: false, reason: 'INVENTORY_MODE_UNAVAILABLE' },
@@ -231,13 +234,13 @@ test('حارس ثابت: PUT /settings يرفض PERPETUAL الجديد بعد ح
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'ledger', 'config.ts'), 'utf8');
   const put = src.slice(src.indexOf("router.put('/settings'"), src.indexOf("router.post('/settings/load-template'"));
   const frozen = put.indexOf("reason: 'FROZEN_AFTER_ACTIVATION'");
-  const guard = put.indexOf('!inventoryModeAvailable(body.inventoryMode, s.inventoryMode)');
+  const guard = put.indexOf('!inventoryModeAvailable(body.inventoryMode, s.inventoryMode, { linked: isLinked(s) })');
   const write = put.indexOf('tx.glSettings.update(');
   assert.ok(frozen > 0 && guard > frozen && write > guard, 'التجميد ثم الإتاحة ثم الكتابة');
   assert.match(put.slice(guard, write), /throw new LedgerHttpError\(400, INVENTORY_MODE_UNAVAILABLE_MESSAGE, \{/);
-  assert.match(put, /inventoryModeOptions: inventoryModeOptions\(updated\.settings\.inventoryMode\),/);
+  assert.match(put, /inventoryModeOptions: inventoryModeOptions\(updated\.settings\.inventoryMode, \{ linked: isLinked\(updated\.settings\) \}\),/);
   const get = src.slice(src.indexOf("router.get('/settings'"), src.indexOf('const RECEIPT_METHODS'));
-  assert.match(get, /inventoryModeOptions: inventoryModeOptions\(s\.inventoryMode\)/);
+  assert.match(get, /inventoryModeOptions: inventoryModeOptions\(s\.inventoryMode, \{ linked: isLinked\(s\) \}\)/);
   // الخيار المشتقّ خارج settingsOut (لا يدخل diff التدقيق)
   const out = src.slice(src.indexOf('export function settingsOut('), src.indexOf("router.get('/settings'"));
   assert.doesNotMatch(out, /inventoryModeOptions/);

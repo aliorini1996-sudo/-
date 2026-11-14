@@ -18,7 +18,7 @@ import {
   type CompositeKey, type DesiredEvent, type ReconcileSourceResult, type SyncCursorState,
 } from './types';
 import {
-  RECONCILED_SOURCES, deriveSourceEvents, type DeriveContext, type ReconciledSource, type SourceRow,
+  ALL_RECONCILED_SOURCES, deriveSourceEvents, type DeriveContext, type ReconciledSource, type SourceRow,
 } from './desired';
 import { reconciledSourceEnabled } from './desired';
 
@@ -37,6 +37,11 @@ export interface ReconcileSettings {
    * الحمولة الجديدة وحدث PAYLINK_REFUND. الغائب = false (سلوك اليوم حرفاً، ومنه الإعدادات المبنيّة في الاختبارات والتفعيل).
    */
   linked?: boolean;
+  /**
+   * «ربط الدفاتر» L6: المربوطة بالجرد المستمر (linked && inventoryMode = PERPETUAL) — يفتح مصادر المخزون والمشتريات وأحداث
+   * تكلفة المبيعات. الغائب = false (ومنه إعدادات المعاينة حتى توصل ظلّ اللقطات).
+   */
+  inventoryPosting?: boolean;
 }
 
 export interface PageQuery {
@@ -214,7 +219,7 @@ export async function reconcileTenant(store: ReconcilerStore, tenantId: string, 
   if (!settings || !settings.activatedAt) return [];
   const dbNow = opts.dbNow ?? await store.dbNow();
   const out: ReconcileSourceResult[] = [];
-  for (const source of RECONCILED_SOURCES) {
+  for (const source of ALL_RECONCILED_SOURCES) {
     if (!reconciledSourceEnabled(source, settings)) continue; // لا قراءة مؤشر USER_SETTLEMENT لغير المربوطة
     if (opts.deadline !== undefined && (opts.clock ?? Date.now)() >= opts.deadline) break;
     const r = await reconcileSource(store, tenantId, source, { ...opts, settings, dbNow });

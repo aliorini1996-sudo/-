@@ -5,6 +5,7 @@
  * الاعتماد (resolveTemplate + templateContextInput الصرفة، بمعرّفات acc_<code>/tax_<key>/jrn_<code>)، فوقه إعدادات الربط
  * المحلولة (params.ts) وربط فئات الدخل من المسودة. صرفٌ بلا قاعدة ولا ساعة.
  */
+import { linkedAccountRefs } from '../coa/linkedAccounts';
 import { toDbDate } from '../dates';
 import type { GlSettingsRow, LedgerContext } from '../resolve';
 import { resolveTemplate } from '../seed';
@@ -51,7 +52,10 @@ export function virtualContextInput(input: VirtualContextInput): { contextInput:
     ...input.settings,
     defaultPurchaseTaxId: tpl.defaultPurchaseTaxKey ? taxIdOf(tpl.defaultPurchaseTaxKey) : null,
   };
-  const contextInput = templateContextInput(tpl.chart, tpl.taxes, settings, { categoryAccounts });
+  // «ربط الدفاتر» (PV): حسابات المربوطة 111004/112007/214002 خارج القالب (D2) — الاعتماد ينشئها (ensureLinkedAccounts) قبل
+  // أول بناء، فيراها الظلّ من البداية بمعرّفاتها الحتمية؛ وإلا رُفض كل قيد يشير إليها برمزه (بطاقة، عهدة مستخدم، مستحق للعميل)
+  const extraAccounts = input.settings.linkedPosting === true ? linkedAccountRefs(accountIdOf).filter((a) => !codes.has(a.code)) : [];
+  const contextInput = templateContextInput(tpl.chart, tpl.taxes, settings, { categoryAccounts, ...(extraAccounts.length ? { extraAccounts } : {}) });
   return { contextInput, unknownCategoryAccounts: [...new Set(unknown)].sort() };
 }
 

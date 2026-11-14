@@ -16,7 +16,10 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { fiscalYearStart, localDate } from './dates';
 import { activeSyncSources } from './locks';
 import { LedgerError, type BackfillState, type InventoryMode, type LocalDate } from './types';
-import { deriveSourceEvents, isReconciledSource, sourceEventCreateRow, type SourceRow } from './sync/desired';
+import { deriveSourceEvents, sourceEventCreateRow, type SourceRow } from './sync/desired';
+import { isAnyReconciledSource, reconciledSourceEnabled } from './sync/desired';
+import { isLinked } from './mode';
+import type { ReconcileCursorSource } from './sync/types';
 import { reconcileHorizon, reconcileTenant, type ReconcileSettings, type ReconcilerStore } from './sync/reconciler';
 import { createPrismaReconcilerStore } from './sync/reconcilerStore.prisma';
 import type { ReconcileFn } from './sync/tick';
@@ -156,8 +159,19 @@ export async function loadHistoryFacts(db: GlDb | PrismaClient, tenantId: string
 
 // ═══ المؤشرات الابتدائية (الخطوة 6) ═══
 
-export function initialCursorRows(tenantId: string, inventoryMode: InventoryMode, watermarkAt: Date): Prisma.GlSyncCursorCreateManyInput[] {
-  return activeSyncSources(inventoryMode).map((source) => ({ tenantId, source, watermarkAt, watermarkId: '', lastCount: 0, stallTicks: 0 }));
+export function initialCursorRows(
+  tenantId: string, inventoryMode: InventoryMode, watermarkAt: Date, opts: { linked?: boolean } = {},
+): Prisma.GlSyncCursorCreateManyInput[] {
+  const sources = opts.linked === true ? linkedSyncSources(inventoryMode) : activeSyncSources(inventoryMode);
+  return sources.map((source) => ({ tenantId, source, watermarkAt, watermarkId: '', lastCount: 0, stallTicks: 0 }));
+}
+
+/**
+ * «ربط الدفاتر» L6: مؤشّرات الشركة المربوطة — activeSyncSources(linked) ومعها كشف المورّد (SUPPLIER_ENTRY) في الجرد المستمر.
+ * التفعيل (L7) يمرّر linked إلى initialCursorRows؛ والافتراضي حرفاً كما كان.
+ */
+export function linkedSyncSources(inventoryMode: InventoryMode): ReconcileCursorSource[] {
+  return activeSyncSources(inventoryMode, { linked: true });
 }
 
 // ═══ الحالة والتقدم ═══
@@ -176,7 +190,8 @@ export function shouldReconcile(state: BackfillState | string): boolean {
 }
 
 export interface BackfillSourceState {
-  source: SyncCursorSource;
+  /** «ربط الدفاتر» L6: ومعه SUPPLIER_ENTRY للمربوطة بالجرد المستمر */
+  source: ReconcileCursorSource;
   watermarkAt: Date;
   lastRunAt: Date | null;
   lastCount: number;
@@ -205,7 +220,7 @@ export interface BackfillProgress {
   caughtUp: boolean;
   /** الحالة بعد التقييم: RUNNING ⇒ DONE حين caughtUp */
   nextState: BackfillState;
-  sources: { source: SyncCursorSource; watermarkAt: string; lastRunAt: string | null; lagMs: number; caughtUp: boolean; stallTicks: number }[];
+  sources: { source: ReconcileCursorSource; watermarkAt: string; lastRunAt: string | null; lagMs: number; caughtUp: boolean; stallTicks: number }[];
   pendingEvents: number;
   /** المعلّق مفصولاً: الاستيراد والمستندات الحية */
   pendingByLane: { import: number; live: number };
@@ -247,12 +262,18 @@ export function backfillProgress(i: BackfillProgressInput): BackfillProgress {
  * يُستدعى من GET /setup (ومن المجدول إن رُبط).
  */
 export async function refreshBackfillState(db: PrismaClient, tenantId: string): Promise<BackfillProgress | null> {
-  const s = await db.glSettings.findUnique({ where: { tenantId }, select: { activatedAt: true, backfillState: true, inventoryMode: true } });
+  const s = await db.glSettings.findUnique({
+    where: { tenantId }, select: { activatedAt: true, backfillState: true, inventoryMode: true, setupMethod: true },
+  });
   if (!s?.activatedAt) return null;
   const store = createPrismaReconcilerStore(db);
   const dbNow = await store.dbNow();
   const horizon = reconcileHorizon(dbNow);
-  const active = activeSyncSources(s.inventoryMode === 'PERPETUAL' ? 'PERPETUAL' : 'PERIODIC');
+  const mode: InventoryMode = s.inventoryMode === 'PERPETUAL' ? 'PERPETUAL' : 'PERIODIC';
+  // «ربط الدفاتر» L6: المربوطة تنتظر مؤشّراتها كلها (ومنها المخزون وكشف المورّد بمُطابِقها)؛ غيرها حرفاً كما كان
+  const linked = isLinked(s);
+  const enabled = { linked, inventoryPosting: linked && mode === 'PERPETUAL' };
+  const active: ReconcileCursorSource[] = linked ? linkedSyncSources(mode) : activeSyncSources(mode);
   const cursors = await db.glSyncCursor.findMany({ where: { tenantId, source: { in: active } } });
   const sources: BackfillSourceState[] = [];
   for (const source of active) {
@@ -261,8 +282,9 @@ export async function refreshBackfillState(db: PrismaClient, tenantId: string): 
       sources.push({ source, watermarkAt: new Date(0), lastRunAt: null, lastCount: 0, stallTicks: 0, unread: true });
       continue;
     }
-    // مصادر المخزون (M9) بلا مُطابِق بعد: تُعدّ غير مكتملة ما دامت بلا تشغيل
-    const unread = isReconciledSource(source)
+    // مصدر يقرؤه المُطابِق لهذه الشركة ⇒ صفوف بعد مؤشّره حتى الأفق. مصادر المخزون لغير المربوطة (M9) بلا مُطابِق:
+    // تُعدّ غير مكتملة ما دامت بلا تشغيل كما كانت حرفاً — والمربوطة بالجرد المستمر يقرؤها مُطابِقها (L6) فلا يعلق الترحيل عليها
+    const unread = isAnyReconciledSource(source) && reconciledSourceEnabled(source, enabled)
       ? await store.hasUnreadRows(tenantId, source, { at: c.watermarkAt, id: c.watermarkId }, horizon)
       : c.lastRunAt === null;
     sources.push({ source, watermarkAt: c.watermarkAt, lastRunAt: c.lastRunAt, lastCount: c.lastCount, stallTicks: c.stallTicks, unread });

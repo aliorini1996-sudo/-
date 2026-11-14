@@ -37,7 +37,7 @@ test('A2 §3.1: المصادر والأنواع تُلحق في الآخر، و�
   assert.deepEqual(SOURCE_TYPES.slice(0, 10), [
     'INVOICE', 'RECEIPT', 'AR_ENTRY', 'SETTLEMENT', 'PAYLINK_FEE', 'PAYOUT', 'WH_ENTRY', 'VAN_LOAD', 'RESTOCK', 'CUSTOMER_ADJUSTMENT',
   ]);
-  assert.deepEqual(SOURCE_TYPES.slice(10), ['USER_SETTLEMENT', 'PAYLINK_REFUND']);
+  assert.deepEqual(SOURCE_TYPES.slice(10), ['USER_SETTLEMENT', 'PAYLINK_REFUND', 'SUPPLIER_ENTRY']);
   assert.equal(MOVE_TYPES[MOVE_TYPES.length - 1], 'CUSTOMER_REFUND');
   assert.equal(MOVE_TYPES.indexOf('CONTROL_ADJUSTMENT'), MOVE_TYPES.length - 2);
   assert.equal(new Set(MOVE_TYPES).size, MOVE_TYPES.length);

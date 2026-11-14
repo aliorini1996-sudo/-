@@ -431,23 +431,34 @@ test('R8: المخزون الدوري ⇒ NONE بلا مرحلة ولا ربط �
 test('R9: المتوقَّع = fyCogsMilli، والفعلي من 511001؛ وبلا ملخّص ⇒ null', () => {
   const lines = [...baseLines(), { move: 'C/1', account: 'a511001', d: 2_000n }, { move: 'C/1', account: 'a114001', c: 2_000n }];
   const p = run(lines).get('R9')!;
-  assert.equal(p.status, 'NOT_AVAILABLE');
-  assert.equal(p.availableIn, 'L4');
+  // «ربط الدفاتر» L6: ترحيل 511001 يعني أن تكلفة المبيعات تُقيَّد ⇒ مقارنة كاملة
+  assert.equal(p.status, 'MISMATCH');
+  assert.equal(p.scope, 'FULL');
+  assert.equal(p.availableIn, null);
   assert.equal(p.expectedMilli, 12_345n);
   assert.equal(p.actualMilli, 2_000n);
-  assert.equal(p.diffMilli, null);
+  assert.equal(p.diffMilli, -10_345n);
   assert.equal(p.info!.fyVarianceMilli, '6000');
-  assert.equal(run(baseLines(), baseOps(), baseCtx({ costing: null })).get('R9')!.expectedMilli, null);
+  const noCosting = run(baseLines(), baseOps(), baseCtx({ costing: null })).get('R9')!;
+  assert.equal(noCosting.expectedMilli, null);
+  assert.equal(noCosting.status, 'NOT_AVAILABLE');
+  // بلا سطور تكلفة مبيعات: مؤجَّل إلى L6
+  const noCogs = run(baseLines()).get('R9')!;
+  assert.equal(noCogs.status, 'NOT_AVAILABLE');
+  assert.equal(noCogs.availableIn, 'L6');
 });
 
 test('R10 وR11: المتوقَّع بإشارة الأستاذ (الدائن سالب) لكل مورّد وبأسمائهم، والوارد غير المصنَّف', () => {
   const lines = [...baseLines(), { move: 'B/1', account: 'a211001', c: 300_000n, vendorId: 'v1' }, { move: 'B/1', account: 'a114001', d: 300_000n }];
   const by = run(lines);
   const r10 = by.get('R10')!;
-  assert.equal(r10.status, 'NOT_AVAILABLE');
-  assert.equal(r10.availableIn, 'L6');
+  // «ربط الدفاتر» L6: سطر 211001 يعني أن الدائنين يُقيَّدون ⇒ مقارنة كاملة
+  assert.equal(r10.status, 'MISMATCH');
+  assert.equal(r10.scope, 'FULL');
+  assert.equal(r10.availableIn, null);
   assert.equal(r10.expectedMilli, -295_000n);
   assert.equal(r10.actualMilli, -300_000n);
+  assert.equal(r10.diffMilli, -5_000n);
   assert.equal(r10.info!.vendors, 2);
   const v1 = r10.drill.find((r) => r.partnerId === 'v1')!;
   assert.equal(v1.name, 'مورّد أول');
@@ -456,7 +467,8 @@ test('R10 وR11: المتوقَّع بإشارة الأستاذ (الدائن س
   const v2 = r10.drill.find((r) => r.partnerId === 'v2')!;
   assert.equal(v2.name, null);
   assert.equal(v2.expectedMilli, 5_000n);
-  assert.equal(v2.note, null, 'غير المتاح لا يُعلَّم «لا يفسّره حدث محجوز»');
+  assert.equal(v2.diffMilli, -5_000n);
+  assert.equal(v2.note, 'فرق لا يفسّره حدث محجوز');
 
   const r11 = by.get('R11')!;
   assert.equal(r11.expectedMilli, -50_000n);

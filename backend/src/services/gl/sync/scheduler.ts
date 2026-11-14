@@ -25,6 +25,9 @@ import {
   SYNC_HEARTBEAT_MS, TICK_DB_BUDGET_MS, TICK_EVENT_BUDGET,
   type ManualSyncResponse, type SchedulerTickResult,
 } from './types';
+import { COST_LATE_COMMIT_WINDOW_MS, computeSnapshots, type ComputeSnapshotsResult } from '../../costing/snapshots';
+import { isLinked } from '../mode';
+import { SAFETY_NET_INTERVAL_MS, compareCompositeKey, type CompositeKey } from './types';
 
 // ═══ ضغط الطلبات ═══
 
@@ -102,6 +105,11 @@ export interface SchedulerDeps extends TickDeps {
   pressureLogAfter?: number;
   /** قفل العامل المشترك مع «مزامنة الآن» والفحوص الليلية (الافتراضي LEDGER_WORKER_MUTEX) */
   mutex?: WorkerMutex;
+  /**
+   * «ربط الدفاتر» L6: مهمة لقطات التكلفة بعد نبضة كل شركة (runCostSnapshotJob) — تكتب gl_cost_* وحدها بميزانيتها المستقلة،
+   * فيجد المُرحِّل في النبضة التالية قيم أحداث المخزون وتكلفة المبيعات. الغائب = لا مهمة (الاختبارات القائمة حرفاً).
+   */
+  costSnapshots?: ((tenantId: string) => Promise<unknown>) | null;
 }
 
 export interface LedgerSyncScheduler {
@@ -156,6 +164,13 @@ export function createLedgerSyncScheduler(deps: SchedulerDeps): LedgerSyncSchedu
             const r = await runTenantTick(deps, t.tenantId, budget);
             result.tenants.push(r);
             result.eventsProcessed += r.post?.attempted ?? 0;
+            if (deps.costSnapshots && r.leaseAcquired && r.skipped === null) {
+              try {
+                await deps.costSnapshots(t.tenantId);
+              } catch (e) {
+                log('cost snapshots failed', { tenantId: t.tenantId, error: (e as Error)?.message });
+              }
+            }
             if (r.leaseAcquired && r.backfillState === 'RUNNING' && deps.refreshBackfill) {
               await refreshBackfillAfterTick(deps, t.tenantId, lastRefresh, clock, log);
             }
@@ -281,8 +296,76 @@ export function ledgerWorkerDeps(): SchedulerDeps | null {
     safetyNet: safetyNetFn(reconcilerStore),
     refreshBackfill: (id) => refreshBackfillState(client, id),
     onBackfillDone: (id) => runAndRecordChecks(client, id),
+    costSnapshots: (id) => runCostSnapshotJob(client, id),
   };
   return workerDeps;
+}
+
+// ═══ «ربط الدفاتر» L6: مهمة لقطات التكلفة ═══
+
+/** ميزانية المهمة لكل شركة في كل نبضة (مستقلة عن ميزانية الترحيل) */
+export const COST_SNAPSHOT_TIME_MS = 2_000;
+export const COST_SNAPSHOT_MAX_MOVES = 2_000;
+/** آخر مسح للوصول المتأخر لكل شركة — المسح كل SAFETY_NET_INTERVAL_MS كشبكة أمان المُطابِق لا كل نبضة (القاعدة ٠٫١ نواة) */
+const COST_LATE_SCAN_LAST = new Map<string, number>();
+
+/**
+ * يطوي حركات المخزون الجديدة ويجمّد لقطاتها (services/costing/snapshots.ts computeSnapshots) للمربوطة بالجرد المستمر وحدها —
+ * null لغيرها بقراءة واحدة لـgl_settings (لا كتابة ولا قفل). معاملاته قصيرة مستقلة تحت قفل gl-cost الاستشاري، فلا تزاحم البيع.
+ */
+export async function runCostSnapshotJob(
+  client: PrismaClient, tenantId: string,
+  opts: {
+    clock?: () => number; timeMs?: number; maxMoves?: number; lastLateScan?: Map<string, number>; lastPosition?: Map<string, CompositeKey>;
+  } = {},
+): Promise<ComputeSnapshotsResult | null> {
+  const s = await client.glSettings.findUnique({
+    where: { tenantId }, select: { setupMethod: true, activatedAt: true, inventoryMode: true, currencyDecimals: true },
+  });
+  if (!s || !isLinked(s) || s.inventoryMode !== 'PERPETUAL') return null;
+  const clock = opts.clock ?? Date.now;
+  const now = clock();
+  const last = opts.lastLateScan ?? COST_LATE_SCAN_LAST;
+  const prev = last.get(tenantId);
+  const lateScan = prev === undefined || now - prev >= SAFETY_NET_INTERVAL_MS;
+  // لا جديد بعد آخر موضع طواه هذا العامل (وصفوفٌ بلا حركات كالسندات مشمولة) ولا مسح متأخر مستحق ⇒ لا إعادة طيّ للّقطات
+  const position = opts.lastPosition ?? COST_LAST_POSITION;
+  const known = position.get(tenantId);
+  if (!lateScan && known) {
+    const newest = await newestCostSourceRow(client, tenantId, new Date(now - COST_LATE_COMMIT_WINDOW_MS));
+    if (!newest || compareCompositeKey(newest, known) <= 0) return null;
+  }
+  const r = await computeSnapshots(client, tenantId, {
+    currencyDecimals: s.currencyDecimals, clock, deadline: now + (opts.timeMs ?? COST_SNAPSHOT_TIME_MS),
+    maxMoves: opts.maxMoves ?? COST_SNAPSHOT_MAX_MOVES, lateScan,
+  });
+  if (lateScan) last.set(tenantId, now);
+  if (r.cursor && r.stoppedBy === 'DONE') position.set(tenantId, { at: r.cursor.createdAt, id: r.cursor.id });
+  else position.delete(tenantId);
+  return r;
+}
+
+/** آخر موضع طواه العامل لكل شركة (في الذاكرة؛ إعادة التشغيل تبدأ بطيٍّ كامل مرة) */
+const COST_LAST_POSITION = new Map<string, CompositeKey>();
+
+/** أحدث صفّ مصدرٍ لمحرّك التكلفة حتى الأفق — أربعة استعلامات على فهارس (tenantId, createdAt, id) */
+async function newestCostSourceRow(client: PrismaClient, tenantId: string, upTo: Date): Promise<CompositeKey | null> {
+  const where = { tenantId, createdAt: { lte: upTo } };
+  const orderBy = [{ createdAt: 'desc' as const }, { id: 'desc' as const }];
+  const select = { id: true, createdAt: true } as const;
+  const rows = await Promise.all([
+    client.accountEntry.findFirst({ where, orderBy, select }),
+    client.warehouseEntry.findFirst({ where, orderBy, select }),
+    client.vanLoad.findFirst({ where, orderBy, select }),
+    client.invoiceRestockLog.findFirst({ where, orderBy, select }),
+  ]);
+  let best: CompositeKey | null = null;
+  for (const r of rows) {
+    if (!r) continue;
+    const k: CompositeKey = { at: r.createdAt, id: r.id };
+    if (!best || compareCompositeKey(k, best) > 0) best = k;
+  }
+  return best;
 }
 
 /** الفحوص كاملة لشركة ثم تسجيل التقرير (الكاش والإشعار المشترك مع POST /checks/run) */

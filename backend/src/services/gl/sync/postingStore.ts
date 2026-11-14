@@ -161,6 +161,27 @@ export interface PostingTx {
   ensureLinkedAccounts?(): Promise<{ created: string[]; context: LedgerContext | null }>;
   /** L8: مخزن المطابقة الجزئية داخل المعاملة نفسها (services/gl/reconcile، A10). اختياري: غيابه ⇒ لا مطابقة */
   reconcileStore?(): ReconcileStore;
+  /**
+   * «ربط الدفاتر» L6: لقطات التكلفة (gl_cost_snapshots) لمستندات المصدر — قراءة وحدها. اختياري: المخزن بلا لقطات (الظلّ
+   * والمزيّفات القديمة) لا يرحّل حدث تكلفة (HELD بتفصيل)، ولا يصله إلا المربوطة بالجرد المستمر أصلاً.
+   */
+  loadCostSnapshots?(refs: readonly { refType: string; refId: string }[]): Promise<CostSnapshotRecord[]>;
+}
+
+/** «ربط الدفاتر» L6: صفّ لقطة تكلفة كما يقرؤه المُرحِّل (services/costing، المحرّك الوحيد) */
+export interface CostSnapshotRecord {
+  sourceKey: string;
+  kind: string;
+  refType: string;
+  refId: string;
+  itemId: string;
+  productId: string;
+  location: string;
+  toLocation: string | null;
+  baseQty: number;
+  valueMilli: bigint;
+  varianceMilli: bigint;
+  memoMilli: bigint;
 }
 
 /** مرشّح حسم OPENING الجماعي كما يُقرأ تحت القفل */
@@ -224,6 +245,11 @@ export interface PostingStore {
   hasUnreadRepSettlements?(tenantId: string, watermark: CompositeKey, horizon: Date): Promise<boolean>;
   /** inventoryHorizon(tid) (§5.4، M9): min(watermarkAt لـACCOUNT_ENTRY وWAREHOUSE_ENTRY وVAN_LOAD) أو null */
   inventoryHorizon(tenantId: string): Promise<Date | null>;
+  /**
+   * «ربط الدفاتر» L6: أبعد موضع طواه محرّك التكلفة (أحدث لقطة أو رأس نقطة حفظ) — كل صفّ مصدر ≤ هذا طُوي وجُمِّد.
+   * null ⇒ لم يُطوَ شيء. اختياري: غيابه يُبقي أحداث التكلفة PENDING.
+   */
+  costCursor?(tenantId: string): Promise<CompositeKey | null>;
   /** أبكر حدث مخزون ERROR/HELD/BLOCKED (رأس الطابور E0) */
   inventoryBlockedHead(tenantId: string): Promise<{ effectAt: Date; sourceKey: string } | null>;
 

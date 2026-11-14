@@ -17,7 +17,7 @@ import { HOLES_SAMPLE, SUMMARY_WARNING_SAMPLE } from '../../costing/summary';
 import {
   STEP_WARNINGS,
   type CostCursor, type CostState, type CostingSummary, type LocationKey, type LocationTotals, type Move, type SnapshotRef,
-  type StreamWarning,
+  type StepOutput, type StreamWarning,
 } from '../../costing/types';
 import { toQtyU, fromQtyU } from '../../costing/math';
 import { STREAM_WARNING_SAMPLE } from '../../costing/streams';
@@ -49,6 +49,8 @@ export interface CostingFoldInput {
   maxMoves?: number;
   /** بين الدفعات: نبض التقدّم وترك حلقة الأحداث */
   onBatch?: (folded: number) => Promise<void> | void;
+  /** «ربط الدفاتر» PV: نواتج كل دفعة (لقطات التكلفة المستقبلية) — يجمعها الظلّ ليقيّم بها قيود L6 كما ستُقيَّم بعد الاعتماد */
+  onOutputs?: (outputs: readonly StepOutput[]) => void;
 }
 
 export interface CostingFoldResult {
@@ -57,6 +59,8 @@ export interface CostingFoldResult {
   /** عدد النواتج (اللقطات المستقبلية) */
   snapshots: number;
   batches: number;
+  /** آخر ما طواه المحرّك (مؤشّر آخر دفعة) — costCursor الظلّ؛ null بلا حركات */
+  cursor: CostCursor | null;
 }
 
 /** لقطةٌ قد تُحال إليها حركةٌ لاحقة: بنود الفواتير (البيع والمرتجع وإلغاؤهما) وتبديلات الإعادة — لا الوارد ولا السيارة */
@@ -208,6 +212,7 @@ export async function foldCostingForPreview(
     if (capture) atCutover = rr.captured[0] ?? null;
     state = rr.state;
     outputs += rr.outputs.length;
+    input.onOutputs?.(rr.outputs);
     for (const o of rr.outputs) {
       products.add(o.productId);
       if (referenceable(o.key)) refs.set(o.key, snapshotRefOf(o));
@@ -225,7 +230,7 @@ export async function foldCostingForPreview(
       const streamCount = streamWarnings.filter((w) => w.count > 0).length;
       return {
         summary: mergeCostingSummaries(parts, { productCount: products.size, streamWarningCount: streamCount }),
-        sourceRows, snapshots: outputs, batches,
+        sourceRows, snapshots: outputs, batches, cursor,
       };
     }
     // صفّ مصدرٍ لم يتقدّم المؤشّر بعده (لا يحدث: loadMoves يتوقّف عند حدّ صفّ) — حارسٌ من الدوران

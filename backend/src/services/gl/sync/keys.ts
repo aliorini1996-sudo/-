@@ -9,6 +9,8 @@
  *   PAYLINK_FEE:<entryId> | PAYOUT:<payoutId> | WH_ENTRY:<id> | VAN_LOAD:<id>:POST
  *   CUSTODY_SHORTAGE:<id>:POST|REVERSE (M4)
  *   USER_SETTLEMENT:<id>:POST|REVERSE | PAYLINK_REFUND:<entryId> («ربط الدفاتر» L5، المربوطة وحدها)
+ *   «ربط الدفاتر» L6 (المربوطة وحدها): SUPPLIER_ENTRY:<supplierLedgerEntryId> (حدث POST)، وINVOICE:<id>:COGS_REV (تكلفة
+ *   إلغاء البيع أو المرتجع، حدث COGS) بجانب INVOICE:<id>:COGS، وINVOICE:<id>:RESTOCK:<n> لصفّ التبديل رقم n للمرتجع
  * «إعادة الترحيل من المصدر» (§6.1): <base>:REPOST:<n> و<base>:REPOST_REV:<n> حيث <base> مفتاح POST الأصلي،
  * فيبقى الثلاثة تحت نمط `<base>*` («القيد الحيّ» = آخر GlMoveSource تحت النمط ليس لقيده reversal).
  *
@@ -27,6 +29,10 @@ export type PostOrReverse = Extract<SourceEvent, 'POST' | 'REVERSE'>;
 export const invoiceKey = (invoiceId: string, event: Extract<SourceEvent, 'POST' | 'REVERSE' | 'COGS'>): string =>
   `INVOICE:${invoiceId}:${event}`;
 export const invoiceRestockKey = (invoiceId: string, generation: number): string => `INVOICE:${invoiceId}:RESTOCK:${generation}`;
+/** «ربط الدفاتر» L6: تكلفة إلغاء البيع أو المرتجع (حدث COGS بجانب INVOICE:<id>:COGS) */
+export const invoiceCogsRevKey = (invoiceId: string): string => `INVOICE:${invoiceId}:COGS_REV`;
+/** «ربط الدفاتر» L6: قيد كشف المورّد (supplier_ledger_entries) — بلا لاحقة حدث (= POST) */
+export const supplierEntryKey = (entryId: string): string => `SUPPLIER_ENTRY:${entryId}`;
 export const receiptKey = builderReceiptKey;
 /** صف AccountEntry بلا فاتورة ولا سند (§5.2) — ومفتاح «تسوية ذمة عميل» M4 */
 export const arEntryKey = (entryId: string, event: PostOrReverse = 'POST'): string => `AR_ENTRY:${entryId}:${event}`;
@@ -59,6 +65,7 @@ export function postKeyOf(sourceType: SourceType, sourceId: string): string {
     case 'RESTOCK': return invoiceKey(sourceId, 'POST');
     case 'USER_SETTLEMENT': return userSettlementKey(sourceId, 'POST');
     case 'PAYLINK_REFUND': return paylinkRefundKey(sourceId);
+    case 'SUPPLIER_ENTRY': return supplierEntryKey(sourceId);
   }
 }
 
@@ -123,7 +130,7 @@ export function parseSourceKey(key: string): ParsedSourceKey | null {
   if ((m = new RegExp(`^INVOICE:${ID}:RESTOCK:(0|${POS_INT.slice(1, -1)})$`).exec(key))) {
     return { sourceType: 'RESTOCK', sourceId: m[1], event: 'RESTOCK', baseKey: invoiceKey(m[1], 'POST'), repost: null, generation: Number(m[2]) };
   }
-  if ((m = new RegExp(`^INVOICE:${ID}:COGS$`).exec(key))) {
+  if ((m = new RegExp(`^INVOICE:${ID}:COGS(?:_REV)?$`).exec(key))) {
     return { sourceType: 'INVOICE', sourceId: m[1], event: 'COGS', baseKey: invoiceKey(m[1], 'POST'), repost: null, generation: null };
   }
   if ((m = new RegExp(`^(INVOICE|RECEIPT|AR_ENTRY|SETTLEMENT):${ID}:POST${repostSuffix}$`).exec(key))) {
@@ -144,6 +151,9 @@ export function parseSourceKey(key: string): ParsedSourceKey | null {
   }
   if ((m = new RegExp(`^USER_SETTLEMENT:${ID}:REVERSE$`).exec(key))) {
     return withRepost('USER_SETTLEMENT', m[1], userSettlementKey(m[1], 'POST'), 'REVERSE');
+  }
+  if ((m = new RegExp(`^SUPPLIER_ENTRY:${ID}${repostSuffix}$`).exec(key))) {
+    return withRepost('SUPPLIER_ENTRY', m[1], supplierEntryKey(m[1]), 'POST', m[2], m[3]);
   }
   if ((m = new RegExp(`^PAYLINK_REFUND:${ID}${repostSuffix}$`).exec(key))) {
     return withRepost('PAYLINK_REFUND', m[1], paylinkRefundKey(m[1]), 'POST', m[2], m[3]);

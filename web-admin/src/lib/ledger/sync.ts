@@ -90,6 +90,7 @@ export const sourceTypeLabels = (tr: Tr): Record<string, string> => ({
   CUSTOMER_ADJUSTMENT: tr('تسوية ذمة عميل'),
   USER_SETTLEMENT: tr('توريد عهدة مستخدم'),
   PAYLINK_REFUND: tr('استرداد دفع إلكتروني'),
+  SUPPLIER_ENTRY: tr('قيد كشف مورّد'),
 });
 
 export const sourceEventLabels = (tr: Tr): Record<string, string> => ({
