@@ -132,7 +132,10 @@ test('الإقفال قبل linkedFrom: إقفال يوم القيد الافت�
   assert.deepEqual(ok.plan, { linkedFrom: '2026-01-01', converting: false, openings: [] });
 });
 
-test('التحويل (L9) موقوف: الدفاتر اليدوية المفعّلة ⇒ 409 LINKING_CONVERSION_UNAVAILABLE قبل أي قراءة — لا تغيير على الدفاتر', async () => {
+// L9 مبسّط (B1): الاعتماد يحوّل الدفاتر اليدوية بخطّاف convert قبل بلوغ هذه الشروط (act-convert-b1) — مسار التحويل القديم
+// (عكس الافتتاح وبناء افتتاح من بداية السنة) يبقى موقوفاً هنا بلا وصول
+test('التحويل القديم (عكس الافتتاح) موقوف في linkingPreconditions: converting ⇒ 409 LINKING_CONVERSION_UNAVAILABLE قبل أي قراءة، والخطّافات تحمل convert (B1)', async () => {
+  assert.equal(typeof linkingCommitHooks('شركة').convert, 'function');
   assert.equal(LINKING_CONVERSION_AVAILABLE, false);
   const openings = [{ id: 'm-open', number: 'OPEN/2026/0001', date: new Date('2026-09-30T00:00:00.000Z') }];
   for (const o of [{ manualCount: 7 }, { manualCount: 0 }]) {

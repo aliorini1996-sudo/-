@@ -706,6 +706,19 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(setupCommitImpl = async (r
     // البند 42: ساعة القاعدة **بعد** حيازة القفلين (clock_timestamp لا now المجمَّد على بدء المعاملة)، فتشمل اللقطة
     // كل ما كُتب أثناء انتظار القفل. T0 ومنه openingSnapshotAt وactivatedAt وفحوص الإقرار كلها على هذه اللحظة.
     const dbNow = await dbClockOf(tx);
+    // L9 مبسّط (B1): الدفاتر اليدوية المفعّلة تُربط من تاريخ بدئها — الافتتاح القائم وكل قيد باقٍ، والقيود اليدوية المكرّرة تُعكس
+    // بتاريخها بإقرار (reverseDuplicates). لا افتتاح جديد ولا مسودة: الخطّاف يكتب كل شيء داخل هذه المعاملة والقفل.
+    if (converting && linking && before) {
+      assertRoutingCustodyCashOnly(before.receiptRouting ?? null, true); // «ربط الدفاتر» OD4 على التوجيه المحفوظ
+      const r = await linking.convert(tx, { tenantId, before, companyCurrency: company.currency, actor, actorId, dbNow });
+      if ('block' in r) throw new LedgerHttpError(r.block.status, r.block.message, r.block.details, r.block.code);
+      const c = r.value;
+      return {
+        status: settingsStatus(c.settings),
+        watermarkAt: c.watermarkAt,
+        linking: { basis: c.settings.linkBasis, linkedFrom: c.linkedFrom, converted: true, restated: [] as RestatedOpening[], reversedDuplicates: c.reversed },
+      };
+    }
     if (converting && before) parsed.data.draft = conversionDraft(before);
     const draft = mergeDraft(parseStoredDraft(before?.setupDraft), parsed.data.draft ?? {});
     const eff = effectiveSetup(draft, before, company.countryCode, dbNow);

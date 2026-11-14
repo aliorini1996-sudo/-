@@ -16,14 +16,20 @@
  *     LINKING_RESTATE — لا حذف لأي قيد؛ ثم يُرحَّل الافتتاح المشتقّ الجديد بتاريخ linkedFrom − 1.
  *     **موقوف** (LINKING_CONVERSION_AVAILABLE = false): كان يُسقط أرصدة البنك والأصول وحقوق الملكية من الافتتاح القديم، فالشروط
  *     ترد 409 LINKING_CONVERSION_UNAVAILABLE قبل أي قراءة حتى يُتاح إدخال أرصدة بداية السنة. الشيفرة باقية بلا وصول.
+ *   - convert (L9 مبسّط B1، ما يستعمله الاعتماد فعلاً للدفاتر اليدوية المفعّلة): ربطٌ من تاريخ بدئها بلا مسّ الافتتاح القائم ولا أي قيد،
+ *     وعكس القيود اليدوية المكرّرة بإقرار (convertManualBooks أدناه).
  *
  * لا مقارنة حرفية بطريقة الإعداد هنا (حارس b1-books-mode): الحكم عبر mode.ts في setup.ts.
  */
-import type { Prisma } from '@prisma/client';
-import type { AuditAction, GlActor, GlTx } from '../audit';
+import type { GlSettings, Prisma } from '@prisma/client';
+import { appendAudit, type AuditAction, type GlActor, type GlTx } from '../audit';
+import { initialCursorRows } from '../backfill';
+import { LINKED_CONTROL_KIND_OVERRIDES } from '../coa/sa';
+import { isManualBooks } from '../mode';
+import { initialWatermarkAt } from '../sync/classify';
 import { addDays, compareLocalDate, fiscalYearStart, fromDbDate, toDbDate } from '../dates';
 import { postMove, type PostedMove } from '../post';
-import { requireMoveRecord, type LedgerContext, type MoveRecordForDraft } from '../resolve';
+import { loadBuildContext, requireMoveRecord, type LedgerContext, type MoveRecordForDraft } from '../resolve';
 import { reversalDraftFromRecord } from '../reverse';
 import type { InventoryMode, LocalDate, ReceiptRouting } from '../types';
 import { buildOpeningMove, type DerivedOpening, type OpeningCutoff, type OpeningMoveInput, type OpeningMoveResult } from '../opening';
@@ -156,6 +162,18 @@ export const LINKING_CONVERSION_AVAILABLE: boolean = false;
 export const LINKING_CONVERSION_UNAVAILABLE_CODE = 'LINKING_CONVERSION_UNAVAILABLE';
 export const LINKING_CONVERSION_UNAVAILABLE_MESSAGE = 'تحويل الدفاتر اليدوية القائمة إلى مربوطة يُتاح قريباً مع إدخال أرصدة بداية السنة — لا تغيير على دفاترك';
 
+/** العملة ثابتة: P3 نفسه في المعاينة — عملة الشركة = عملة الدفاتر، ولا فاتورة بعملة أخرى ⇒ 409 LINKING_CURRENCY، وإلا null */
+async function currencyBlock(db: Pick<GlTx, 'invoice'>, tenantId: string, glCurrency: string, companyCurrency: string | null): Promise<LinkingBlock | null> {
+  const groups = await db.invoice.groupBy({ by: ['currency'], where: { tenantId, currency: { not: null } }, _count: { _all: true } });
+  const invoiceCurrencies = groups
+    .filter((g): g is typeof g & { currency: string } => typeof g.currency === 'string')
+    .map((g) => ({ currency: g.currency, invoices: g._count._all }))
+    .sort((a, b) => (a.currency < b.currency ? -1 : a.currency > b.currency ? 1 : 0));
+  const p3 = evaluateP3({ mode: 'FULL', currency: glCurrency }, { company: { currency: companyCurrency, countryCode: '' }, invoiceCurrencies });
+  if (p3.ok) return null;
+  return { status: 409, code: 'LINKING_CURRENCY', message: p3.details, details: { reason: 'CURRENCY', glCurrency, companyCurrency, invoiceCurrencies } };
+}
+
 /** شروط المنع بالترتيب: التحويل (موقوف) ⇒ الاسم ⇒ العملة ⇒ الإقفال ⇒ القيود اليدوية (التحويل). لا كتابة. */
 export async function linkingPreconditions(db: ActivateDb, i: PreconditionsInput): Promise<{ plan: LinkingPlan } | { block: LinkingBlock }> {
   if (i.converting && !LINKING_CONVERSION_AVAILABLE) {
@@ -171,16 +189,8 @@ export async function linkingPreconditions(db: ActivateDb, i: PreconditionsInput
     return { block: { status: 422, code: 'LINKING_NAME_MISMATCH', message: LINKING_NAME_MISMATCH_MESSAGE, details: { reason: 'NAME_MISMATCH', field: 'companyName' } } };
   }
 
-  // العملة ثابتة: P3 نفسه في المعاينة — عملة الشركة = عملة الدفاتر، ولا فاتورة بعملة أخرى
-  const groups = await db.invoice.groupBy({ by: ['currency'], where: { tenantId: i.tenantId, currency: { not: null } }, _count: { _all: true } });
-  const invoiceCurrencies = groups
-    .filter((g): g is typeof g & { currency: string } => typeof g.currency === 'string')
-    .map((g) => ({ currency: g.currency, invoices: g._count._all }))
-    .sort((a, b) => (a.currency < b.currency ? -1 : a.currency > b.currency ? 1 : 0));
-  const p3 = evaluateP3({ mode: 'FULL', currency: i.glCurrency }, { company: { currency: i.companyCurrency, countryCode: '' }, invoiceCurrencies });
-  if (!p3.ok) {
-    return { block: { status: 409, code: 'LINKING_CURRENCY', message: p3.details, details: { reason: 'CURRENCY', glCurrency: i.glCurrency, companyCurrency: i.companyCurrency, invoiceCurrencies } } };
-  }
+  const currency = await currencyBlock(db, i.tenantId, i.glCurrency, i.companyCurrency);
+  if (currency) return { block: currency };
 
   const openings = i.converting ? await loadOpeningsToRestate(db, i.tenantId) : [];
   const openingDate = addDays(i.linkedFrom, -1);
@@ -324,6 +334,220 @@ export function buildLinkedOpening(
   });
 }
 
+// ═══ L9 مبسّط (B1): تحويل الدفاتر اليدوية المفعّلة إلى مربوطة من تاريخ بدئها ═══
+//
+// الربط من تاريخ بدء الدفاتر اليدوية نفسه (linkedFrom = cutoverDate القائم، ولقطة openingSnapshotAt القائمة): لا يُمسّ قيد الافتتاح
+// القديم ولا أي قيد — المحرّك يصنّف كالمربوطة (OPENING): ما قبل linkedFrom وأُنشئ حتى T0 القديم مشمول بالافتتاح (SKIPPED)، وما بعده
+// يُرحَّل بتاريخه. القيود اليدوية المرحّلة منذ linkedFrom التي تمسّ حساباً يرحّله النظام آلياً تتكرّر ⇒ تُعكس بتاريخها الأصلي بقيد نظام
+// (LINKING_DUPLICATE) بإقرار صريح (reverseDuplicates) — لا حذف لشيء.
+
+export const LINKING_CONVERT_BASIS = 'FROM_ACTIVATION' as const;
+export const LINKING_DUPLICATE_REASON = 'LINKING_DUPLICATE';
+export const LINKING_DUPLICATE_NARRATION = 'عكس قيد يدوي مكرّر عند ربط الدفاتر: النظام يرحّل المستند نفسه آلياً';
+export const LINKING_AUDIT_DUPLICATE: AuditAction = 'LINKING_DUPLICATE_REVERSE';
+export const LINKING_DUPLICATES_ACK_CODE = 'LINKING_DUPLICATES_ACK';
+export function linkingDuplicatesMessage(count: number, from: LocalDate): string {
+  return `في دفاترك ${count} قيداً يدوياً منذ ${from} يمسّ حسابات يرحّلها النظام آلياً — تُعكس بتاريخها لأن النظام سيرحّلها تلقائياً (لا يُحذف شيء). أقرّ بعكسها ثم اربط`;
+}
+
+/** بادئات ما يرحّله النظام آلياً: الإيراد 411/412/413، والمخزون 114، والتكلفة 511/514، والموردون 211 — وحسابا الضريبة */
+export const AUTO_POSTED_PREFIXES: readonly string[] = ['411', '412', '413', '114', '511', '514', '211'];
+export const AUTO_POSTED_CODES: readonly string[] = ['212001', '116001'];
+/** ليست إدخالاً يدوياً مكرّراً: الافتتاح والإقفالات وفروق العملة والمطابقة */
+export const NON_DUPLICATE_MOVE_TYPES: readonly string[] = ['OPENING', 'TAX_CLOSING', 'FY_CLOSING', 'INV_CLOSING', 'FX', 'RECONCILE'];
+
+export function isAutoPostedAccount(a: { code: string; controlKind: string | null }): boolean {
+  return a.controlKind != null || a.code in LINKED_CONTROL_KIND_OVERRIDES || AUTO_POSTED_CODES.includes(a.code)
+    || AUTO_POSTED_PREFIXES.some((p) => a.code.startsWith(p));
+}
+
+export interface LinkingDuplicate { id: string; number: string | null; date: LocalDate; moveType: string; ref: string | null; narration: string | null; totalMilli: string }
+
+export type DuplicatesDb = Pick<GlTx, 'glAccount' | 'glMove'>;
+
+/**
+ * القيود اليدوية المكرّرة: مرحّلة، يدوية المنشأ بلا مستند مالك (sourceType فارغ)، غير معكوسة ولا عاكسة، ليست افتتاحاً ولا إقفالاً،
+ * بتاريخ ≥ from، وتمسّ حساباً يرحّله النظام آلياً (نوع تحكّم أو البادئات أعلاه).
+ */
+export async function findLinkingDuplicates(db: DuplicatesDb, tenantId: string, from: LocalDate): Promise<LinkingDuplicate[]> {
+  const accounts = await db.glAccount.findMany({
+    where: {
+      tenantId,
+      OR: [
+        { controlKind: { not: null } },
+        { code: { in: [...AUTO_POSTED_CODES, ...Object.keys(LINKED_CONTROL_KIND_OVERRIDES)] } },
+        ...AUTO_POSTED_PREFIXES.map((p) => ({ code: { startsWith: p } })),
+      ],
+    },
+    select: { id: true, code: true, controlKind: true },
+  });
+  const ids = accounts.filter(isAutoPostedAccount).map((a) => a.id);
+  if (!ids.length) return [];
+  const rows = await db.glMove.findMany({
+    where: {
+      tenantId, state: 'POSTED', origin: 'MANUAL', sourceType: null, moveType: { notIn: [...NON_DUPLICATE_MOVE_TYPES] },
+      reversedMoveId: null, reversal: { is: null }, date: { gte: toDbDate(from) }, lines: { some: { accountId: { in: ids } } },
+    },
+    select: { id: true, number: true, date: true, moveType: true, ref: true, narration: true, totalMilli: true },
+    orderBy: [{ date: 'asc' }, { id: 'asc' }],
+  });
+  return rows.map((r) => ({
+    id: r.id, number: r.number, date: fromDbDate(r.date), moveType: r.moveType, ref: r.ref, narration: r.narration, totalMilli: String(r.totalMilli),
+  }));
+}
+
+/** صفّ gl_settings الذي يقرؤه التحويل */
+export type ConvertSettingsRow = Pick<GlSettings, 'setupMethod' | 'activatedAt' | 'cutoverDate' | 'openingSnapshotAt' | 'currency' | 'receiptRouting'>
+  & Partial<Record<LockField, Date | null>>;
+
+export interface ConversionPlan { linkedFrom: LocalDate; snapshotAt: Date; duplicates: LinkingDuplicate[] }
+
+export interface ConversionInput {
+  tenantId: string;
+  before: ConvertSettingsRow;
+  companyCurrency: string | null;
+  typedCompanyName: string;
+  reverseDuplicates: boolean;
+}
+
+export type ConversionDb = Pick<GlTx, 'companySettings' | 'invoice' | 'glAccount' | 'glMove'>;
+
+/** شروط التحويل بالترتيب بلا كتابة: يدوية مفعّلة بتاريخ بدء ⇒ الاسم ⇒ العملة ⇒ الإقفال منذ linkedFrom ⇒ إقرار القيود المكرّرة */
+export async function conversionPreconditions(db: ConversionDb, i: ConversionInput): Promise<{ plan: ConversionPlan } | { block: LinkingBlock }> {
+  const b = i.before;
+  if (!b.activatedAt || !isManualBooks(b) || !b.cutoverDate || !b.openingSnapshotAt) {
+    return { block: { status: 409, code: 'LINKING_NOT_MANUAL', message: 'التحويل للدفاتر اليدوية المفعّلة وحدها', details: { reason: 'NOT_MANUAL' } } };
+  }
+  const cs = await db.companySettings.findUnique({ where: { tenantId: i.tenantId }, select: { name: true } });
+  if (!companyNameMatches(cs?.name, i.typedCompanyName)) {
+    return { block: { status: 422, code: 'LINKING_NAME_MISMATCH', message: LINKING_NAME_MISMATCH_MESSAGE, details: { reason: 'NAME_MISMATCH', field: 'companyName' } } };
+  }
+  const currency = await currencyBlock(db, i.tenantId, b.currency || i.companyCurrency || '', i.companyCurrency);
+  if (currency) return { block: currency };
+  const linkedFrom = fromDbDate(b.cutoverDate);
+  // المحرّك يرحّل منذ linkedFrom والعكس بتاريخ القيد الأصلي (≥ linkedFrom): لا إقفال في linkedFrom أو بعده
+  const locks = lockIssues(b, linkedFrom);
+  if (locks.length) {
+    return {
+      block: {
+        status: 409, code: 'LINKING_LOCKED',
+        message: `${locks.map((l) => l.label).join('، ')}: تاريخ إقفال لا يسبق تاريخ بدء الدفاتر (${linkedFrom}) — ارفعه قبل ربط الدفاتر`,
+        details: { reason: 'LOCK_DATES', from: linkedFrom, locks },
+      },
+    };
+  }
+  const duplicates = await findLinkingDuplicates(db, i.tenantId, linkedFrom);
+  if (duplicates.length && i.reverseDuplicates !== true) {
+    return {
+      block: {
+        status: 409, code: LINKING_DUPLICATES_ACK_CODE, message: linkingDuplicatesMessage(duplicates.length, linkedFrom),
+        details: { reason: 'DUPLICATES_ACK_REQUIRED', field: 'reverseDuplicates', count: duplicates.length, from: linkedFrom, moves: duplicates.slice(0, 50) },
+      },
+    };
+  }
+  return { plan: { linkedFrom, snapshotAt: b.openingSnapshotAt, duplicates } };
+}
+
+export interface ReversedDuplicate { originalId: string; originalNumber: string | null; reversalId: string; reversalNumber: string; date: LocalDate }
+
+/**
+ * عكس كل قيد مكرّر بقيد نظام **بتاريخه الأصلي** (lockPolicy REJECT — الإقفال مفحوص في الشروط) بسبب LINKING_DUPLICATE وتدقيق
+ * LINKING_DUPLICATE_REVERSE — أدوات العكس القائمة نفسها (reversalDraftFromRecord + postMove بـreversedMoveId). المعكوس سلفاً يُتخطّى.
+ * reverseMove لا يصلح هنا: وضعه اليدوي يرفض قيود حسابات التحكّم (الملكية)، والآلي يُزيح التاريخ إلى اليوم.
+ */
+export async function reverseLinkingDuplicates(
+  tx: GlTx,
+  input: { tenantId: string; actor: GlActor; context: LedgerContext; now: Date; duplicates: readonly LinkingDuplicate[] },
+  deps: RestateDeps = REAL_RESTATE_DEPS,
+): Promise<ReversedDuplicate[]> {
+  const out: ReversedDuplicate[] = [];
+  for (const d of input.duplicates) {
+    const rec = await deps.requireMoveRecord(tx, input.tenantId, d.id);
+    if (rec.state !== 'POSTED' || rec.reversal) continue;
+    const date = fromDbDate(rec.date);
+    const draft = reversalDraftFromRecord(rec, { date, reason: LINKING_DUPLICATE_NARRATION, originalNumber: rec.number });
+    const posted: PostedMove = await deps.postMove(tx, draft, {
+      tenantId: input.tenantId, actor: input.actor, context: input.context,
+      validationMode: 'SYSTEM', lockPolicy: 'REJECT',
+      reversedMoveId: rec.id, reversalReason: LINKING_DUPLICATE_REASON,
+      auditAction: LINKING_AUDIT_DUPLICATE,
+      auditSummary: `عكس القيد اليدوي المكرّر ${rec.number ?? rec.id} عند ربط الدفاتر — النظام يرحّل المستند نفسه آلياً`,
+      auditExtra: { linking: true, reason: LINKING_DUPLICATE_REASON, originalNumber: rec.number, originalDate: date },
+      now: input.now,
+    });
+    out.push({ originalId: rec.id, originalNumber: rec.number, reversalId: posted.id, reversalNumber: posted.number, date: posted.date });
+  }
+  return out;
+}
+
+export interface ConvertInput extends ConversionInput { actor: GlActor; actorId: string | null; dbNow: Date }
+export interface ConvertResult {
+  settings: GlSettings;
+  linkedFrom: LocalDate;
+  reversed: ReversedDuplicate[];
+  inventoryMode: InventoryMode;
+  watermarkAt: Date;
+}
+
+export interface ConvertDeps extends RestateDeps { loadContext: (tx: GlTx, tenantId: string) => Promise<LedgerContext>; appendAudit: typeof appendAudit }
+const REAL_CONVERT_DEPS: ConvertDeps = { ...REAL_RESTATE_DEPS, loadContext: loadBuildContext, appendAudit };
+
+/**
+ * التحويل كلّه داخل معاملة الاعتماد (قفل gl-post ممسوك من المُستدعي): الشروط ⇒ عكس المكرّر ⇒ أنواع التحكّم المربوطة ⇒ التوجيه
+ * الافتراضي ⇒ LINKED/FROM_ACTIVATION بـlinkedFrom = cutoverDate ولقطة الافتتاح القائمة، والجرد المستمر من linkedFrom لمخزون الشركة
+ * المفعّل ⇒ مؤشّرات المربوطة (إن غابت) ⇒ RUNNING ⇒ تدقيق LINKING_ENABLE. لا يُمسّ قيد الافتتاح ولا activatedAt ولا cutoverDate.
+ */
+export async function convertManualBooks(
+  tx: GlTx, i: ConvertInput, deps: ConvertDeps = REAL_CONVERT_DEPS,
+): Promise<{ value: ConvertResult } | { block: LinkingBlock }> {
+  const verdict = await conversionPreconditions(tx, i);
+  if ('block' in verdict) return verdict;
+  const { linkedFrom, snapshotAt, duplicates } = verdict.plan;
+  const reversed = duplicates.length
+    ? await reverseLinkingDuplicates(tx, { tenantId: i.tenantId, actor: i.actor, context: await deps.loadContext(tx, i.tenantId), now: i.dbNow, duplicates }, deps)
+    : [];
+  for (const [code, controlKind] of Object.entries(LINKED_CONTROL_KIND_OVERRIDES)) {
+    await tx.glAccount.updateMany({ where: { tenantId: i.tenantId, code, controlKind: null }, data: { controlKind } });
+  }
+  const tenant = await tx.tenant.findUnique({ where: { id: i.tenantId }, select: { warehouseEnabled: true } });
+  const inventoryMode = linkedInventoryMode(tenant?.warehouseEnabled);
+  const settings = await tx.glSettings.update({
+    where: { tenantId: i.tenantId },
+    data: {
+      setupMethod: 'LINKED', linkBasis: LINKING_CONVERT_BASIS, linkedFrom: toDbDate(linkedFrom), linkSnapshotAt: snapshotAt,
+      linkedAt: i.dbNow, linkedBy: i.actorId, backfillState: 'RUNNING',
+      inventoryMode, perpetualFromDate: inventoryMode === 'PERPETUAL' ? toDbDate(linkedFrom) : null,
+      ...(i.before.receiptRouting == null ? { receiptRouting: { ...LINKED_DEFAULT_RECEIPT_ROUTING } as Prisma.InputJsonValue } : {}),
+    },
+  });
+  const watermarkAt = initialWatermarkAt({ method: 'OPENING', cutoverDate: linkedFrom, openingSnapshotAt: snapshotAt, timezone: settings.timezone });
+  await tx.glSyncCursor.createMany({ data: initialCursorRows(i.tenantId, inventoryMode, watermarkAt, { linked: true }), skipDuplicates: true });
+  await deps.appendAudit(tx, {
+    tenantId: i.tenantId, actor: i.actor, action: LINKING_AUDIT_ENABLE, entityType: 'SETTINGS', entityId: settings.id,
+    summary: `تحويل الدفاتر اليدوية إلى مربوطة من تاريخ بدئها ${linkedFrom} — الافتتاح القائم باقٍ، وعُكس ${reversed.length} قيداً يدوياً مكرّراً — نهائي بلا فكّ`,
+    before: { setupMethod: i.before.setupMethod, activatedAt: i.before.activatedAt, cutoverDate: linkedFrom },
+    after: {
+      method: 'LINKED',
+      linking: {
+        basis: LINKING_CONVERT_BASIS, linkedFrom, linkSnapshotAt: snapshotAt.toISOString(), converted: true, openingSource: 'MANUAL_KEPT',
+        inventoryMode, watermarkAt: watermarkAt.toISOString(), reversedDuplicates: reversed, finalAcknowledged: true,
+      },
+    },
+  });
+  return { value: { settings, linkedFrom, reversed, inventoryMode, watermarkAt } };
+}
+
+/** حالة التحويل للبطاقة (قراءة فقط): هل الدفاتر يدوية مفعّلة، وتاريخ الربط، والقيود المكرّرة (عددها وأول ٥٠) */
+export async function conversionStatus(db: Pick<GlTx, 'glSettings' | 'glAccount' | 'glMove'>, tenantId: string): Promise<{
+  convertible: boolean; linkedFrom: LocalDate | null; duplicates: { count: number; moves: LinkingDuplicate[] };
+}> {
+  const s = await db.glSettings.findUnique({ where: { tenantId }, select: { setupMethod: true, activatedAt: true, cutoverDate: true } });
+  if (!s?.activatedAt || !isManualBooks(s) || !s.cutoverDate) return { convertible: false, linkedFrom: null, duplicates: { count: 0, moves: [] } };
+  const linkedFrom = fromDbDate(s.cutoverDate);
+  const dups = await findLinkingDuplicates(db, tenantId, linkedFrom);
+  return { convertible: true, linkedFrom, duplicates: { count: dups.length, moves: dups.slice(0, 50) } };
+}
+
 // ═══ الخطّافات التي يمرّرها POST /linking/commit إلى معالج الاعتماد (setup.ts) ═══
 
 export interface LinkingCommitHooks {
@@ -339,10 +563,17 @@ export interface LinkingCommitHooks {
   buildOpening: typeof buildLinkedOpening;
   restateOpenings: typeof restateOpenings;
   auditAction: string;
+  /** L9 مبسّط (B1): إقرار عكس القيود اليدوية المكرّرة (من جسم POST /linking/commit) */
+  reverseDuplicates: boolean;
+  /** L9 مبسّط (B1): تحويل الدفاتر اليدوية المفعّلة داخل معاملة الاعتماد */
+  convert: (tx: GlTx, i: Omit<ConvertInput, 'typedCompanyName' | 'reverseDuplicates'>) => Promise<{ value: ConvertResult } | { block: LinkingBlock }>;
 }
 
-export function linkingCommitHooks(typedCompanyName: string): LinkingCommitHooks {
+export function linkingCommitHooks(typedCompanyName: string, opts: { reverseDuplicates?: boolean } = {}): LinkingCommitHooks {
+  const reverseDuplicates = opts.reverseDuplicates === true;
   return {
+    reverseDuplicates,
+    convert: (tx, i) => convertManualBooks(tx, { ...i, typedCompanyName, reverseDuplicates }),
     typedCompanyName,
     basis: LINKING_COMMIT_BASIS,
     defaultReceiptRouting: LINKED_DEFAULT_RECEIPT_ROUTING,

@@ -393,6 +393,26 @@ export interface LinkingCommitBody {
   acknowledgeFinal: true;
   acknowledgePostCutoverImports?: PostCutoverImportsAck;
   acknowledgeOpeningStockExcluded?: boolean;
+  /** L9 مبسّط (B1): إقرار عكس القيود اليدوية المكرّرة عند تحويل الدفاتر اليدوية */
+  reverseDuplicates?: boolean;
+}
+
+/** قيد يدوي مكرّر: مرحّل منذ تاريخ بدء الدفاتر ويمسّ حساباً يرحّله النظام آلياً (يُعكس بتاريخه عند الربط) */
+export interface LinkingDuplicate {
+  id: string; number: string | null; date: LocalDate; moveType: string; ref: string | null; narration: string | null;
+  /** المجموع بالملّي (نصّ BigInt) */
+  totalMilli: string;
+}
+
+/** GET /linking/conversion — حالة تحويل الدفاتر اليدوية: تاريخ الربط والقيود المكرّرة (العدد وأول ٥٠) */
+export interface LinkingConversionStatus {
+  convertible: boolean;
+  linkedFrom: LocalDate | null;
+  duplicates: { count: number; moves: LinkingDuplicate[] };
+}
+
+export function fetchLinkingConversion() {
+  return api.get<LedgerEnvelope<LinkingConversionStatus>>(`${L}/linking/conversion`);
 }
 
 export interface LinkingCommitResult {
@@ -402,13 +422,15 @@ export interface LinkingCommitResult {
     /** دفاتر يدوية حُوِّلت (عُكس افتتاحها القديم) */
     converted: boolean;
     restated: { originalId: string; originalNumber: string | null; reversalId: string; reversalNumber: string; date: LocalDate }[];
+    /** L9 مبسّط (B1): القيود اليدوية المكرّرة المعكوسة بتواريخها */
+    reversedDuplicates?: { originalId: string; originalNumber: string | null; reversalId: string; reversalNumber: string; date: LocalDate }[];
   };
 }
 
 /** رموز رفض الربط النهائي — تسمياتها في بطاقة إعدادات الشركة */
 export type LinkingCommitErrorCode =
   | 'LINKING_ACK_REQUIRED' | 'LINKING_NAME_MISMATCH' | 'LINKING_CURRENCY' | 'LINKING_LOCKED' | 'LINKING_MANUAL_MOVES'
-  | 'LEDGER_POST_CUTOVER_IMPORTS_ACK' | 'LEDGER_POST_CUTOVER_IMPORTS_CHANGED' | 'LEDGER_OPENING_STOCK_AFTER_CUTOVER';
+  | 'LEDGER_POST_CUTOVER_IMPORTS_ACK' | 'LEDGER_POST_CUTOVER_IMPORTS_CHANGED' | 'LEDGER_OPENING_STOCK_AFTER_CUTOVER' | 'LINKING_DUPLICATES_ACK';
 
 /** نهائي بلا فكّ: canConfigureLedger ومالك الشركة، وتأكيد الاسم والإقرار — 201 بالأرقام الملتزمة */
 export function commitBooksLinking(body: LinkingCommitBody) {

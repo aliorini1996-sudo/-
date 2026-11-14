@@ -7,7 +7,7 @@ import { AuthRequest } from '../../types';
 import { LedgerLocals } from './context';
 import { LedgerHttpError, ledgerHandler } from './errors';
 import { LINKING_COMMIT_LOCAL, parseStoredDraft, postCutoverImportsAckSchema, runSetupCommitRoute } from './setup';
-import { LINKING_FINAL_ACK_MESSAGE, LINKING_NAME_MISMATCH_MESSAGE, linkingCommitHooks } from '../../services/gl/linking/activate';
+import { LINKING_FINAL_ACK_MESSAGE, LINKING_NAME_MISMATCH_MESSAGE, conversionStatus, linkingCommitHooks } from '../../services/gl/linking/activate';
 import { toJsonMilli } from '../../services/gl/reports/incomeStatement';
 import {
   createPreviewJobDeps, getPreview, listPreviews, loadPreviewOptions, startPreview, PREVIEW_LIST_DEFAULT, PREVIEW_LIST_MAX,
@@ -211,6 +211,13 @@ router.get('/linking/preflight', requireLedgerPermission('canConfigureLedger'), 
   res.json({ success: true, data: toJsonMilli(report) });
 }));
 
+// ═══ GET /linking/conversion — حالة تحويل الدفاتر اليدوية (L9 مبسّط B1): تاريخ الربط والقيود اليدوية المكرّرة. قراءة فقط ═══
+
+router.get('/linking/conversion', requireLedgerPermission('canConfigureLedger'), requireCompanyOwner, ledgerHandler(async (_req, res) => {
+  const { tenantId } = ledgerOf(res);
+  res.json({ success: true, data: await conversionStatus(prisma, tenantId) });
+}));
+
 // ═══ POST /linking/commit — الربط النهائي ═══
 
 const commitBodySchema = z.object({
@@ -222,6 +229,8 @@ const commitBodySchema = z.object({
   acknowledgePostCutoverImports: z.union([z.boolean(), postCutoverImportsAckSchema]).optional(),
   /** إقرار بمخزون افتتاحي مستورد بتاريخ ≥ الربط (لا يدخل الافتتاح) — حين يطلبه الخادم (409 LEDGER_OPENING_STOCK_AFTER_CUTOVER) */
   acknowledgeOpeningStockExcluded: z.boolean().optional(),
+  /** L9 مبسّط (B1): إقرار عكس القيود اليدوية المكرّرة عند تحويل الدفاتر اليدوية — حين يطلبه الخادم (409 LINKING_DUPLICATES_ACK) */
+  reverseDuplicates: z.boolean().optional(),
 }).strict();
 
 router.post('/linking/commit', requireLedgerPermission('canConfigureLedger'), requireCompanyOwner, ledgerHandler(async (req, res) => {
@@ -236,7 +245,7 @@ router.post('/linking/commit', requireLedgerPermission('canConfigureLedger'), re
   }
   const { acknowledgePostCutoverImports: ack, acknowledgeOpeningStockExcluded: stockAck } = parsed.data;
   // معالج الاعتماد نفسه بجسمه (الإقرار النظامي ضمن «نهائي») وخطّافات الربط — يردّ 201 بالأرقام الملتزمة
-  res.locals[LINKING_COMMIT_LOCAL] = linkingCommitHooks(parsed.data.companyName);
+  res.locals[LINKING_COMMIT_LOCAL] = linkingCommitHooks(parsed.data.companyName, { reverseDuplicates: parsed.data.reverseDuplicates === true });
   req.body = {
     acknowledgeStatutory: true,
     ...(ack !== undefined ? { acknowledgePostCutoverImports: ack } : {}),

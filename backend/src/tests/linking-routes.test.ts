@@ -465,7 +465,7 @@ test('كل مسار في linking.ts يحمل حرفياً requireLedgerPermissio
   const s = stripComments(read(path.join(ROUTES, 'linking.ts')));
   const regs = [...s.matchAll(/router\.(get|post|put|patch|delete)\(\s*'([^']+)'([^\n]*)/g)];
   assert.deepEqual(regs.map((m) => `${m[1].toUpperCase()} ${m[2]}`).sort(),
-    ['GET /linking/preflight', 'GET /linking/preview/:id', 'GET /linking/previews', 'POST /linking/commit', 'POST /linking/preview']);
+    ['GET /linking/conversion', 'GET /linking/preflight', 'GET /linking/preview/:id', 'GET /linking/previews', 'POST /linking/commit', 'POST /linking/preview']);
   for (const m of regs) {
     assert.match(m[3], /^,\s*requireLedgerPermission\('canConfigureLedger'\),\s*requireCompanyOwner,\s*ledgerHandler\(/, `${m[1]} ${m[2]}`);
   }

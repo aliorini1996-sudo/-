@@ -21,7 +21,7 @@ import { isZatcaPhase2Live } from '../lib/zatcaRegime';
 import { zatcaCollectOn } from '../lib/zatcaRegime';
 import { useAuthStore } from '../store/authStore';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
-import { commitBooksLinking, type BooksLinkingStatus, type PostCutoverImportsAck } from '../api/ledgerLinking';
+import { commitBooksLinking, fetchLinkingConversion, type BooksLinkingStatus, type PostCutoverImportsAck } from '../api/ledgerLinking';
 import { ledgerErrorOf } from '../api/ledgerConfig';
 import { ledgerErrorMessage } from '../lib/ledger/errors';
 import { isLinkingOwner } from '../lib/ledger/linking';
@@ -798,6 +798,9 @@ function linkingCommitErrorText(tr: (s: string) => string, e: LinkingErr | null)
     case 'LEDGER_OPENING_STOCK_AFTER_CUTOVER':
       return tr('يوجد مخزون افتتاحي مستورد بتاريخ الربط أو بعده لا يدخل القيد الافتتاحي — أقرّ به ثم اربط من جديد');
     case 'LEDGER_LINKING_OWNER_ONLY': return tr('ربط الدفاتر بالنظام لمالك الشركة وحده');
+    case 'LINKING_DUPLICATES_ACK':
+      return tr('في دفاترك {count} قيداً يدوياً منذ {date} يمسّ حسابات يرحّلها النظام آلياً — أقرّ بعكسها ثم اربط')
+        .replace('{count}', d('count')).replace('{date}', d('from'));
     case 'LINKING_CONVERSION_UNAVAILABLE': return tr('تحويل الدفاتر اليدوية القائمة إلى مربوطة يُتاح قريباً مع إدخال أرصدة بداية السنة — لا تغيير على دفاترك');
     case 'LINKING_INVENTORY_TOO_LARGE': return tr('حركات مخزون الشركة أكثر من أن تُقيَّم بأمان عند الاعتماد — لم يُربط شيء ولم يتغيّر شيء؛ تواصل مع الدعم');
     default: return ledgerErrorMessage(tr, e);
@@ -828,8 +831,17 @@ function BooksLinkingCard({ status, companyName }: { status: BooksLinkingStatus;
   const [error, setError] = useState<LinkingErr | null>(null);
   const [extraAck, setExtraAck] = useState(false);
   const [acks, setAcks] = useState<LinkingAcks>({});
-  // L9 موقوف: تحويل الدفاتر اليدوية القائمة يُتاح مع إدخال أرصدة بداية السنة (الخادم يرد 409 LINKING_CONVERSION_UNAVAILABLE)
-  const canLink = status.state === 'NONE';
+  const [dupAck, setDupAck] = useState(false);
+  // L9 مبسّط (B1): الدفاتر اليدوية المفعّلة تُربط من تاريخ بدئها — الافتتاح وكل قيد باقٍ، والقيود اليدوية المكرّرة تُعكس بإقرار
+  const manual = status.state === 'MANUAL';
+  const canLink = status.state === 'NONE' || manual;
+  const conversion = useQuery({
+    queryKey: ['ledger', 'linking', 'conversion'],
+    queryFn: () => fetchLinkingConversion().then((r) => r.data.data),
+    enabled: manual,
+    staleTime: 30_000,
+  });
+  const dupCount = manual ? conversion.data?.duplicates.count ?? 0 : 0;
   const nameOk = typed.trim().length > 0 && typed.trim() === companyName.trim();
   const needsExtraAck = !!error?.code && LINKING_ACK_CODES.includes(error.code);
 
@@ -838,6 +850,7 @@ function BooksLinkingCard({ status, companyName }: { status: BooksLinkingStatus;
       companyName: typed, acknowledgeFinal: true,
       ...(a.imports !== undefined ? { acknowledgePostCutoverImports: a.imports } : {}),
       ...(a.stock ? { acknowledgeOpeningStockExcluded: true } : {}),
+      ...(manual && dupAck ? { reverseDuplicates: true } : {}),
     }),
     onSuccess: () => {
       setOpen(false);
@@ -852,6 +865,8 @@ function BooksLinkingCard({ status, companyName }: { status: BooksLinkingStatus;
       setExtraAck(false);
       // رفضٌ لتغيّر الحال (رُبطت من جهاز آخر مثلاً) ⇒ إعادة قراءة البطاقة
       if (e?.status === 409 && !(e.code && LINKING_ACK_CODES.includes(e.code))) qc.invalidateQueries({ queryKey: ['company'] });
+      // قيود مكرّرة جديدة منذ آخر قراءة ⇒ تُحدَّث القائمة ويُعاد الإقرار عليها
+      if (e?.code === 'LINKING_DUPLICATES_ACK') { setDupAck(false); conversion.refetch(); }
     },
   });
 
@@ -867,7 +882,8 @@ function BooksLinkingCard({ status, companyName }: { status: BooksLinkingStatus;
   };
 
   const openDialog = () => {
-    setOpen(true); setTyped(''); setFinalAck(false); setError(null); setExtraAck(false); setAcks({});
+    setOpen(true); setTyped(''); setFinalAck(false); setError(null); setExtraAck(false); setAcks({}); setDupAck(false);
+    if (manual) conversion.refetch();
   };
 
   const stateText = status.state === 'LINKED'
@@ -893,14 +909,18 @@ function BooksLinkingCard({ status, companyName }: { status: BooksLinkingStatus;
         {canLink && (
           <div className="flex flex-wrap items-center gap-2">
             <Link to="/app/ledger/linking" className="btn-secondary text-sm">{tr('معاينة الربط قبل الاعتماد')}</Link>
-            <button type="button" className="btn-primary text-sm" onClick={openDialog}>{tr('ربط الدفاتر')}</button>
+            <button type="button" className="btn-primary text-sm" onClick={openDialog}>{manual ? tr('ربط الدفاتر من تاريخ بدء دفاترك') : tr('ربط الدفاتر')}</button>
           </div>
         )}
       </div>
-      {status.state === 'MANUAL' && (
-        <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-xs leading-relaxed">
-          {tr('تحويل الدفاتر اليدوية القائمة إلى مربوطة يُتاح قريباً مع إدخال أرصدة بداية السنة — لا تغيير على دفاترك')}
-        </p>
+      {manual && (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-xs leading-relaxed space-y-1">
+          <p>
+            {tr('تُربط دفاترك من تاريخ بدئها {date}: يبقى قيدك الافتتاحي وكل قيودك كما هي، وتُرحَّل الفواتير والسندات منذ ذلك التاريخ آلياً')
+              .replace('{date}', conversion.data?.linkedFrom ?? '')}
+          </p>
+          {dupCount > 0 && <p>{tr('قيود يدوية مكرّرة ستُعكس عند الربط: {count}').replace('{count}', String(dupCount))}</p>}
+        </div>
       )}
 
       {open && (
@@ -908,12 +928,32 @@ function BooksLinkingCard({ status, companyName }: { status: BooksLinkingStatus;
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-5 space-y-3 max-h-[90vh] overflow-y-auto">
             <p className="font-semibold text-gray-800">{tr('ربط الدفاتر بالنظام')}</p>
             <div className="rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-xs leading-relaxed space-y-1">
-              <p>{tr('تُربط الدفاتر من بداية السنة المالية: يُبنى قيد افتتاحي من أرصدة العملاء والمناديب والأمانات بتاريخ اليوم السابق لها، ثم تُرحَّل كل الفواتير والسندات والتسويات بتواريخها آلياً')}</p>
+              <p>{manual
+                ? tr('تُربط دفاترك من تاريخ بدئها {date}: يبقى قيدك الافتتاحي وكل قيودك كما هي، وتُرحَّل الفواتير والسندات منذ ذلك التاريخ آلياً').replace('{date}', conversion.data?.linkedFrom ?? '')
+                : tr('تُربط الدفاتر من بداية السنة المالية: يُبنى قيد افتتاحي من أرصدة العملاء والمناديب والأمانات بتاريخ اليوم السابق لها، ثم تُرحَّل كل الفواتير والسندات والتسويات بتواريخها آلياً')}</p>
               <p>{tr('الربط نهائي: لا يُفكّ بعد الاعتماد، والمستند المرحّل لا يُحذف بل يُلغى أو يُعمل له مرتجع')}</p>
-              {status.state === 'MANUAL' && (
-                <p>{tr('دفاترك يدوية: يُعكس قيدها الافتتاحي القديم بتاريخه بقيد نظام ويحل محله الافتتاح المشتق، وأرصدة البنك والأصول وحقوق الملكية تُدخل بعد الربط بقيد يدوي بتاريخ اليوم السابق لبداية السنة. لا يتم التحويل إن وُجدت قيود يدوية في سنة الربط')}</p>
-              )}
             </div>
+            {manual && dupCount > 0 && (
+              <div className="rounded-lg border border-gray-200 px-3 py-2 text-xs space-y-2">
+                <p className="font-medium text-gray-800">
+                  {tr('قيود يدوية تمسّ حسابات يرحّلها النظام آلياً منذ {date}: {count}')
+                    .replace('{date}', conversion.data?.linkedFrom ?? '').replace('{count}', String(dupCount))}
+                </p>
+                <ul className="max-h-32 overflow-y-auto divide-y divide-gray-100 text-gray-600">
+                  {(conversion.data?.duplicates.moves ?? []).slice(0, 10).map((m) => (
+                    <li key={m.id} className="flex justify-between gap-2 py-1" dir="auto">
+                      <span>{m.number ?? '—'} · {m.date}</span>
+                      <span className="tabular-nums">{(Number(m.totalMilli) / 1000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </li>
+                  ))}
+                </ul>
+                {dupCount > 10 && <p className="text-gray-400">{tr('و{count} غيرها').replace('{count}', String(dupCount - 10))}</p>}
+                <label className="flex items-start gap-2 cursor-pointer select-none text-gray-700">
+                  <input type="checkbox" className="w-4 h-4 mt-0.5 accent-[#E15A30]" checked={dupAck} onChange={e => setDupAck(e.target.checked)} />
+                  {tr('تُعكس هذه القيود اليدوية لأن النظام سيرحّلها تلقائياً — لا يُحذف شيء')}
+                </label>
+              </div>
+            )}
             <div>
               <label className="label">{tr('اكتب اسم الشركة للتأكيد')}: <b>{companyName}</b></label>
               <input className="input" value={typed} onChange={e => setTyped(e.target.value)} autoComplete="off" />
@@ -936,8 +976,8 @@ function BooksLinkingCard({ status, companyName }: { status: BooksLinkingStatus;
             <div className="flex justify-end gap-2 pt-1">
               <button type="button" className="btn-secondary text-sm" onClick={() => setOpen(false)} disabled={commit.isPending}>{tr('إلغاء')}</button>
               <button type="button" className="btn-primary text-sm" onClick={submit}
-                disabled={!nameOk || !finalAck || commit.isPending || (needsExtraAck && !extraAck)}>
-                {tr('ربط الدفاتر')}
+                disabled={!nameOk || !finalAck || commit.isPending || (needsExtraAck && !extraAck) || (manual && (conversion.isLoading || (dupCount > 0 && !dupAck)))}>
+                {manual ? tr('ربط الدفاتر من تاريخ بدء دفاترك') : tr('ربط الدفاتر')}
               </button>
             </div>
           </div>
