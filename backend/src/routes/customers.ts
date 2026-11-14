@@ -27,7 +27,7 @@ import { patchSessionOutlet } from '../ai-rep/session';
 import { UnitInvalidError } from '../services/warehouseStock';
 import { PRICE_LIST_MESSAGES } from '../services/priceLists';
 import { CUSTOMER_PHONE_MAX } from '../services/importMatch';
-import { findPhoneDuplicate, phoneDupBody, phoneDupExempt } from '../services/customerPhoneDup';
+import { phoneDupExempt } from '../services/customerPhoneDup';
 import { findLocationDuplicate, locationDupBody, validPoint } from '../services/customerLocationDup';
 import { DEVICE_NOW_HEADER, headerText, offlineInvoiceDate } from '../services/offlineInvoiceDate';
 import { parseCustomerDocs, droppedDocsWarning, docCreateRows, docsBatchRef } from '../services/customerDocs';
@@ -359,12 +359,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const geo = await resolveLocationUrl(locationUrl, { googleOnly: true });
       if (geo) { rest.lat = geo.lat; rest.lng = geo.lng; }
     }
-    // «منع تكرار الجوال داخل الشركة» (طلب المالك ١٣ نوفمبر ٢٠٢٦): جوالٌ مسجَّلٌ لعميلٍ آخر ⇒ 409 CUSTOMER_PHONE_EXISTS —
-    // إلا مفتاح API وإعادة رفع صندوق المندوب (services/customerPhoneDup.ts)
+    // جوال العميل حرٌّ: فكّ المالك قيد تكراره داخل الشركة (١٤ نوفمبر ٢٠٢٦ — كان 27d8ce1)، فعميلان بجوالٍ واحد مقبولان.
+    // ويبقى «منع تكرار الموقع داخل الشركة» (طلب المالك ١٣ نوفمبر ٢٠٢٦): عميلٌ آخر ضمن ٣٠ متراً ⇒ 409 CUSTOMER_LOCATION_EXISTS —
+    // إلا مفتاح API وإعادة رفع صندوق المندوب (services/customerPhoneDup.ts phoneDupExempt)
     if (!phoneDupExempt(req)) {
-      const dup = await findPhoneDuplicate(tid, rest.phone);
-      if (dup) { res.status(409).json(phoneDupBody(dup, await canAccessCustomer(req, tid, dup.id))); return; }
-      // «منع تكرار الموقع داخل الشركة» (طلب المالك ١٣ نوفمبر ٢٠٢٦): عميلٌ آخر ضمن ٣٠ متراً ⇒ 409 CUSTOMER_LOCATION_EXISTS
       const near = await findLocationDuplicate(tid, rest.lat, rest.lng);
       if (near) { res.status(409).json(locationDupBody(near, await canAccessCustomer(req, tid, near.id))); return; }
     }
@@ -555,12 +553,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       }
     }
     void _cr; void _cc; void _ap; // معرّف مكان Google يُربط عند الإنشاء وحده
-    // «منع تكرار الجوال داخل الشركة»: جوالٌ تغيّر إلى رقم عميلٍ آخر ⇒ 409 (الجوال نفسه بلا تغيير لا يُفحص — تكرارٌ قديم لا يمنع تعديلاً)
-    if (typeof data.phone === 'string' && data.phone.trim() && !phoneDupExempt(req)
-      && data.phone.trim() !== String(exists.phone ?? '').trim()) {
-      const dup = await findPhoneDuplicate(tid, data.phone, req.params.id);
-      if (dup) { res.status(409).json(phoneDupBody(dup, await canAccessCustomer(req, tid, dup.id))); return; }
-    }
+    // جوال العميل حرٌّ في التعديل كذلك: لا فحص تكرار (فكّ المالك القيد ١٤ نوفمبر ٢٠٢٦)
     // «تعديل بيانات العميل» للمندوب يشمل البيانات الوصفية لا الشروط المالية: الحدّ الائتمانيّ
     // وفترة السداد وحالة العميل قرارُ الإدارة — وإلا رفع المندوب حدّ عميله ليتجاوز ضابط الائتمان
     if (req.user?.role === 'SALES_REP') {
