@@ -30,10 +30,11 @@ test('ردّ 409: اسم العميل والمسافة لمن يراه وحده'
   assert.equal((hidden as { existingId?: string }).existingId, undefined);
 });
 
-test('الحارس موصول: الإنشاء بعد فحص الجوال وقبل الكتابة، والتعديل حين يتحرّك الموقع وحده، وبالإعفاءين نفسيهما', () => {
+test('الحارس موصول: الإنشاء داخل الإعفاء وقبل الكتابة، والتعديل حين يتحرّك الموقع وحده، وبالإعفاءين نفسيهما', () => {
   const s = fs.readFileSync(path.join(__dirname, '..', 'routes', 'customers.ts'), 'utf8').replace(/\r\n/g, '\n');
   const post = s.indexOf('const near = await findLocationDuplicate(tid, rest.lat, rest.lng);');
-  assert.ok(post > s.indexOf('const dup = await findPhoneDuplicate(tid, rest.phone);'), 'بعد الجوال وداخل الإعفاء نفسه');
+  const gate = s.indexOf('if (!phoneDupExempt(req)) {');
+  assert.ok(gate > 0 && post > gate && post - gate < 200, 'داخل الإعفاء مباشرةً');
   assert.ok(post < s.indexOf('const customer = await prisma.customer.create({', post), 'قبل الإنشاء');
   assert.ok(s.includes('const near = await findLocationDuplicate(tid, data.lat, data.lng, req.params.id);'), 'التعديل يستثني العميل نفسه');
   assert.ok(s.includes('if (validPoint(data.lat, data.lng) && !phoneDupExempt(req)) {'));
