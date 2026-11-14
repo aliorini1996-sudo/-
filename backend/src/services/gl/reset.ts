@@ -38,6 +38,10 @@ export const GL_RESET_ORDER = [
   'GlSourceEvent',
   'GlSyncCursor',
   'GlPeriodBalance',
+  // «ربط الدفاتر» L2+L3: مشتقّات بلا علاقة بنموذج gl آخر (Tenant وحده) — لقطات التكلفة ونقاط حفظها ومعاينات الربط
+  'GlCostSnapshot',
+  'GlCostCheckpoint',
+  'GlLinkPreview',
   // أخيراً
   'GlSettings',
 ] as const;

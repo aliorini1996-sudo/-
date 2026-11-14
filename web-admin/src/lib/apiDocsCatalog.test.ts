@@ -123,6 +123,8 @@ const COVERED_ROUTERS = [
   'repStockRequests', 'products', 'lots', 'import', 'companyBuyerRelax', 'returnPolicy', 'stockZero', 'priceLists',
   // «إزالة الضريبة» (٧ نوفمبر ٢٠٢٦): موجّه /company/tax-mode المتداخل أيّاً كان اسم ملفه — وغيابه يُفشل اختبار الميزة أدناه لا هذا
   ...(MOUNTS.get('/company/tax-mode') ?? []),
+  // «ربط الدفاتر بكامل النظام» (L2، ١٤ نوفمبر ٢٠٢٦): ملف الربط وحده من موجّه /ledger — مساراته كلها ترفض المفتاح فمستثناة أدناه
+  'ledger/linking',
 ];
 const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'PUT /company/teams/:id/supervisors': 'يرفض مفاتيح API دائماً بـ403 (API_KEY_FORBIDDEN بعد فحص صلاحيتي الإعدادات والمستخدمين) — نطاق مستخدمي الشركة من اللوحة وحدها، ومذكورٌ في مقدمة مجموعة الفرق',
@@ -134,6 +136,10 @@ const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'PUT /company/return-policy': 'يرفض مفاتيح API دائماً بـ403 (API_KEY_FORBIDDEN بعد فحص صلاحية الإعدادات) — «اشتراط اختيار فاتورة البيع للمرتجع» لمدير الشركة من اللوحة وحدها، ومذكورٌ في GET /company وPOST /invoices',
   'GET /stock-zero/preview': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — معاينة «تصفير المخزون» لمدير الشركة غير المقيّد بصلاحية المخزون (canManageVanStock) أو جلسة المالك (بلا صلاحية) من لوحة التحكم وحدها، ومذكورةٌ في GET /warehouse/entries وGET /van-stock/loads',
   'POST /stock-zero': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — «تصفير المخزون» بكلمة تأكيد لمدير الشركة غير المقيّد بصلاحية المخزون (canManageVanStock) أو جلسة المالك (بلا صلاحية) من لوحة التحكم وحدها، وحركاته (zeroRunId) موثّقةٌ في GET /warehouse/entries وGET /van-stock/loads وGET /van-stock/movements',
+  'POST /ledger/linking/preview': 'يرفض مفاتيح API دائماً بـ403 (LEDGER_LINKING_INTERACTIVE_ONLY بعد حرّاس الدفاتر وcanConfigureLedger، ولو أصدر المفتاحَ الدعمُ الفني) — معاينة «ربط الدفاتر بكامل النظام» لمالك الشركة أو جلسة المالك من لوحة التحكم وحدها',
+  'GET /ledger/linking/preview/:id': 'يرفض مفاتيح API دائماً بـ403 (LEDGER_LINKING_INTERACTIVE_ONLY بعد حرّاس الدفاتر وcanConfigureLedger) — حالة معاينة ربط الدفاتر ونتيجتها لمالك الشركة من لوحة التحكم وحدها',
+  'GET /ledger/linking/previews': 'يرفض مفاتيح API دائماً بـ403 (LEDGER_LINKING_INTERACTIVE_ONLY بعد حرّاس الدفاتر وcanConfigureLedger) — آخر معاينات ربط الدفاتر لمالك الشركة من لوحة التحكم وحدها',
+  'GET /ledger/linking/preflight': 'يرفض مفاتيح API دائماً بـ403 (LEDGER_LINKING_INTERACTIVE_ONLY بعد حرّاس الدفاتر وcanConfigureLedger) — الفحوص المسبقة لربط الدفاتر لمالك الشركة من لوحة التحكم وحدها',
 };
 
 test('كل مسار في موجّهات الميزات الحديثة موثّقٌ في المستند أو مستثنى بسبب مكتوب', () => {
@@ -156,6 +162,23 @@ test('كل مسار في موجّهات الميزات الحديثة موثّق
   // لا نجاح فارغ: قراءة المسارات من الملفات تعمل (٨٧ مساراً يوم كُتب هذا)
   assert.ok(seen >= 80, `قُرئ ${seen} مساراً فقط`);
   for (const key of Object.keys(NOT_DOCUMENTED)) assert.ok(!documented.has(key), `${key} موثّقٌ ومستثنى معاً`);
+});
+
+/**
+ * «ربط الدفاتر بكامل النظام»: المستند يُسلَّم لمبرمج الشركة ومسارات الربط ترفض المفتاح دائماً — فهي مستثناة لا موثّقة. والسبب
+ * صادقٌ ما دام كل مسار في ملف الربط خلف requireCompanyOwner، وهو يردّ 403 LEDGER_LINKING_INTERACTIVE_ONLY للمفتاح قبل أي فحص آخر.
+ */
+test('ربط الدفاتر: كل مسار في ملفه مستثنى من المستند لأن الخادم يرفض المفتاح فيه دائماً', () => {
+  assert.ok(MOUNTS.get('/ledger')?.has('ledger/linking'), 'موجّه الربط غير مركّب تحت /ledger');
+  const src = routeFile('ledger/linking');
+  const routes = [...src.matchAll(/router\.(get|post|put|patch|delete)\('([^']+)',([^\n]*)/g)];
+  const keys = routes.map((m) => `${m[1].toUpperCase()} /ledger${m[2]}`);
+  assert.deepEqual(keys.sort(), Object.keys(NOT_DOCUMENTED).filter((k) => k.includes(' /ledger/linking')).sort());
+  for (const m of routes) assert.ok(m[3].includes('requireCompanyOwner'), `${m[1].toUpperCase()} ${m[2]} بلا requireCompanyOwner`);
+  for (const k of keys) assert.ok(!documented.has(k), `${k} في المستند والمفتاح يُرفض فيه دائماً`);
+  const guard = src.slice(src.indexOf('export async function requireCompanyOwner'));
+  assert.match(guard.slice(0, guard.indexOf('isOwnerSession(req)')), /if \(req\.user\?\.apiKeyId\) \{\s*deny\(res, 403, 'LEDGER_LINKING_INTERACTIVE_ONLY'/,
+    'رفض المفتاح ليس أول فحص في requireCompanyOwner');
 });
 
 test('المستند لا يذكر مساراً ممنوعاً على المفاتيح، وكل مسار بطريقة معروفة', () => {

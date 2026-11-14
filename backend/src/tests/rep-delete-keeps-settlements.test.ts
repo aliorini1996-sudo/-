@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { userCustody } from '../services/userCustody';
-import { SETTLEMENT_HAS_REP, settlementHasRep } from '../services/gl/settlementRep';
+import { SETTLEMENT_HAS_REP, SETTLEMENT_OF_DELETED_REP, settlementHasRep } from '../services/gl/settlementRep';
 
 const SRC = path.join(__dirname, '..');
 const read = (rel: string) => fs.readFileSync(path.join(SRC, rel), 'utf8').replace(/\r\n/g, '\n');
@@ -43,6 +43,8 @@ test('العهدة: استلامٌ بلا مندوب (محذوف) يبقى في 
 
 test('الدفاتر: استلام المندوب المحذوف غائب عنها كما كان — المرشّح والحارس', () => {
   assert.deepEqual(SETTLEMENT_HAS_REP, { salesRepId: { not: null } });
+  // المعاكس للتشخيص لا يلتقط استلام مندوبٍ قائم أبداً (salesRepId = null شرطٌ فيه)
+  assert.deepEqual(SETTLEMENT_OF_DELETED_REP, { salesRepId: null, deletedSalesRepId: { not: null } });
   const rows = [{ id: 'a', salesRepId: 'r1' }, { id: 'b', salesRepId: null }];
   assert.deepEqual(rows.filter(settlementHasRep).map((r) => r.id), ['a']);
 });
@@ -63,8 +65,9 @@ test('حارس نصّي: كل قراءةٍ لاستلامات التحصيل ف�
     for (const m of s.matchAll(/repSettlement\.(findMany|findFirst|groupBy)\(/g)) {
       reads++;
       const call = s.slice(m.index!, m.index! + 400);
-      // في جملة where وحدها (لا حقل select اسمه salesRepId): المرشّح، أو مندوبٌ محدّد بمعرّفه
-      assert.match(call, /SETTLEMENT_HAS_REP|where: \{[^}]*\bsalesRepId\b[,}]/, `${path.relative(SRC, f)}: قراءة استلامات بلا مرشّح المندوب القائم`);
+      // في جملة where وحدها (لا حقل select اسمه salesRepId): المرشّح، أو مندوبٌ محدّد بمعرّفه، أو المرشّح المعاكس المسمّى
+      // للتشخيص (استلامات المحذوفين وحدهم — فحص «ربط الدفاتر» P11 يعدّها تنبيهاً لا رصيداً)
+      assert.match(call, /SETTLEMENT_HAS_REP|SETTLEMENT_OF_DELETED_REP|where: \{[^}]*\bsalesRepId\b[,}]/, `${path.relative(SRC, f)}: قراءة استلامات بلا مرشّح المندوب القائم`);
     }
   }
   assert.ok(reads >= 8, `عدد القراءات ${reads} — الماسح لم يجد ما يكفي`);

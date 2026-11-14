@@ -2,9 +2,12 @@
 // والدمج على معاملةٍ وهمية تسجّل كل نداء. بلا قاعدة بيانات.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { COST_LOCK_PREFIX } from '../services/costing/snapshots';
 import {
-  CONFIG_MODELS, combineRequestItems, detectTwin, findArchivedProducts, indexByName, mergeArchivedProduct, mergePlanModels,
-  MergeRefused, normalizeName, type ProductLite, type VanBalancesFn,
+  COSTING_LOCK_PREFIX, CONFIG_MODELS, combineRequestItems, detectTwin, findArchivedProducts, indexByName, isCostingEngineModel, mergeArchivedProduct,
+  mergePlanModels, MergeRefused, normalizeName, type ProductLite, type VanBalancesFn,
 } from '../services/productTwins';
 
 test('normalizeName: قصّ الأطراف ودمج المسافات وحالة الأحرف اللاتينية — بلا تطبيع للعربية', () => {
@@ -146,6 +149,100 @@ test('خطة الجداول: جدول حركاتٍ جديد بقيدٍ فريد 
   const plan = mergePlanModels(fake as never);
   assert.deepEqual(plan.unhandled, ['NewMove']);
   assert.deepEqual(plan.repoint.map((t) => [t.model, t.kind, t.tenantScoped]), [['NewMove', 'FK', false], ['NewLog', 'PLAIN', true]]);
+});
+
+/**
+ * DMMF مصغَّر من schema.prisma **الحالي** (لا من العميل المثبَّت — قد يكون مولَّداً من مخططٍ أقدم): ما تقرؤه mergePlanModels
+ * وحده — الحقول بنوعها (scalar/enum/object) وrelationFromFields و@unique، و@@unique المركّبة.
+ */
+function dmmfFromSchema(text: string) {
+  const blocks = [...text.matchAll(/^(model|enum)\s+(\w+)\s*\{([\s\S]*?)^\}/gm)];
+  const modelNames = new Set(blocks.filter((b) => b[1] === 'model').map((b) => b[2]));
+  const enumNames = new Set(blocks.filter((b) => b[1] === 'enum').map((b) => b[2]));
+  return blocks.filter((b) => b[1] === 'model').map(([, , name, body]) => {
+    const fields: Array<Record<string, unknown>> = [];
+    const uniqueFields: string[][] = [];
+    for (const raw of body.split('\n')) {
+      const line = raw.replace(/\/\/.*$/, '').trim();
+      if (!line) continue;
+      const u = /^@@unique\(\s*(?:fields:\s*)?\[([^\]]+)\]/.exec(line);
+      if (u) { uniqueFields.push(u[1].split(',').map((x) => x.trim().replace(/\(.*\)$/, ''))); continue; }
+      if (line.startsWith('@@')) continue;
+      const fm = /^(\w+)\s+(\w+)(\[\])?\??\s*(.*)$/.exec(line);
+      if (!fm) continue;
+      const [, fname, ftype, list, attrs] = fm;
+      const kind = modelNames.has(ftype) ? 'object' : enumNames.has(ftype) ? 'enum' : 'scalar';
+      const rel = /@relation\([^)]*fields:\s*\[([^\]]*)\]/.exec(attrs);
+      fields.push({
+        name: fname, kind, type: ftype, isList: !!list, isUnique: /@unique\b/.test(attrs),
+        ...(kind === 'object' ? { relationFromFields: rel ? rel[1].split(',').map((x) => x.trim()).filter(Boolean) : [] } : {}),
+      });
+    }
+    return { name, fields, uniqueFields };
+  });
+}
+
+const SCHEMA_TEXT = fs.readFileSync(path.join(__dirname, '..', '..', 'prisma', 'schema.prisma'), 'utf8');
+
+test('خطة الجداول من schema.prisma الحالي (كما يولّده prisma generate عند النشر): جداول محرّك التكلفة لا تُوجَّه ولا تعطّل الدمج', () => {
+  const models = dmmfFromSchema(SCHEMA_TEXT);
+  // المخطط فيه نموذجا المحرّك فعلاً (وإلا فالاختبار لا يثبت شيئاً)
+  for (const m of ['GlCostSnapshot', 'GlCostCheckpoint']) assert.ok(models.some((x) => x.name === m), m);
+  const cp = models.find((x) => x.name === 'GlCostCheckpoint')!;
+  assert.ok(cp.uniqueFields.some((u) => u.includes('productId')), 'قيد نقطة الحفظ الفريد يشمل productId');
+
+  const plan = mergePlanModels(models as never);
+  // قبل الإصلاح: unhandled = ['GlCostCheckpoint'] ⇒ SCHEMA_UNSUPPORTED لكل زوج ولكل الشركات، وGlCostSnapshot في repoint
+  assert.deepEqual(plan.unhandled, []);
+  assert.deepEqual(plan.repoint.map((t) => t.model).filter((m) => /^GlCost/.test(m)), []);
+  assert.deepEqual(plan.costingEngine, [{ model: 'GlCostCheckpoint', tenantScoped: true }, { model: 'GlCostSnapshot', tenantScoped: true }]);
+  for (const m of REPOINT) assert.ok(plan.repoint.some((t) => t.model === m), `${m} ما زال يُوجَّه`);
+  for (const t of plan.repoint) assert.ok(!isCostingEngineModel(t.model) && !CONFIG_MODELS.has(t.model), t.model);
+});
+
+test('خطة الجداول: أي نموذج GlCost* لاحق (ولو بقيدٍ فريد على productId) ناتجُ محرّكٍ لا تاريخ — لا repoint ولا unhandled', () => {
+  const fake = [
+    { name: 'Product', fields: [{ name: 'id', kind: 'scalar', type: 'String' }], uniqueFields: [] },
+    { name: 'GlCostLayer', uniqueFields: [['tenantId', 'productId', 'location']], fields: [
+      { name: 'tenantId', kind: 'scalar', type: 'String' }, { name: 'productId', kind: 'scalar', type: 'String' },
+    ] },
+    { name: 'GlCostMeta', uniqueFields: [], fields: [{ name: 'tenantId', kind: 'scalar', type: 'String' }] },
+    { name: 'GlCostlyThing', uniqueFields: [], fields: [{ name: 'productId', kind: 'scalar', type: 'String' }] },
+  ];
+  const plan = mergePlanModels(fake as never);
+  assert.deepEqual(plan.unhandled, []);
+  assert.deepEqual(plan.costingEngine, [{ model: 'GlCostLayer', tenantScoped: true }]);
+  // «GlCostly» ليس من المحرّك (حدّ الكلمة: GlCost ثم حرفٌ كبير) فيُعامَل كأي جدول
+  assert.deepEqual(plan.repoint.map((t) => t.model), ['GlCostlyThing']);
+});
+
+test('الدمج: لـA لقطات تكلفة مجمَّدة ⇒ COSTING_HISTORY بلا أي كتابة، بعد قفل المحرّك الاستشاري؛ ولا لقطات ⇒ دمجٌ لا يمسّ gl_cost_*', async () => {
+  const models = dmmfFromSchema(SCHEMA_TEXT);
+  // A مطويّ في المحرّك
+  {
+    const { tx, log } = fakeTx({ products: [A, B], lotClash: 1 });
+    await assert.rejects(
+      mergeArchivedProduct(tx as never, 't1', 'A', 'B', { models: models as never, purge: async () => ({ counts: {}, nullCounts: {} }) }),
+      (e: unknown) => e instanceof MergeRefused && e.code === 'COSTING_HISTORY',
+    );
+    // قفل المحرّك نفسه (المفتاح مكرَّرٌ في productTwins كي لا يستورد المسار القائم محرّك التكلفة المظلم)
+    assert.equal(COSTING_LOCK_PREFIX, COST_LOCK_PREFIX);
+    const lock = log.findIndex((c) => c.op === 'executeRaw' && String(c.arg).includes('pg_advisory_xact_lock'));
+    const firstCount = log.findIndex((c) => c.op === 'count' && /^glCost/.test(c.model));
+    assert.ok(lock >= 0 && lock < firstCount, 'القفل قبل الفحص');
+    assert.deepEqual(log[firstCount].arg, { where: { productId: 'A', tenantId: 't1' } });
+    assert.ok(!log.some((c) => ['updateMany', 'update', 'delete', 'deleteMany'].includes(c.op)), 'لا كتابة');
+  }
+  // لا لقطات لـA (المحرّك مظلم اليوم): الدمج يمضي، ولا جدول gl_cost_* يُكتب
+  {
+    const { tx, log } = fakeTx({ products: [A, B], lotClash: 0 });
+    await mergeArchivedProduct(tx as never, 't1', 'A', 'B', { models: models as never, purge: async () => ({ counts: {}, nullCounts: {} }) });
+    const counted = log.filter((c) => c.op === 'count' && /^glCost/.test(c.model)).map((c) => c.model).sort();
+    assert.deepEqual(counted, ['glCostCheckpoint', 'glCostSnapshot']);
+    assert.ok(!log.some((c) => /^glCost/.test(c.model) && c.op !== 'count'), 'gl_cost_* لا يُكتب');
+    const repointed = log.filter((c) => c.op === 'updateMany').map((c) => c.model);
+    for (const m of ['invoiceItem', 'vanLoadItem', 'warehouseEntryItem', 'repTarget']) assert.ok(repointed.includes(m), m);
+  }
 });
 
 test('combineRequestItems: الوحدة نفسها تُجمع كما هي، ووحدتان مختلفتان ⇒ سطرٌ بالأساس', () => {

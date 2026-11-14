@@ -81,6 +81,10 @@ test('صفوف M2 من جدول §8.2 كلها موجودة بصلاحياتها
     assert.ok(r, `مسار M4 غير مسجَّل: ${p}`);
     assert.deepEqual({ component: r.component, view: r.view, write: r.write, milestone: r.milestone }, { component, view, write, milestone: 'M4' }, p);
   }
+  // «ربط الدفاتر بالنظام» L2 (العقد l23 §15): معاينة للقراءة، عرضها وكتابتها canConfigureLedger
+  const linking = LEDGER_ROUTES.find(x => x.path === 'linking');
+  assert.deepEqual(linking && { component: linking.component, view: linking.view, write: linking.write, milestone: linking.milestone },
+    { component: 'linking/LinkingPreviewPage', view: 'canConfigureLedger', write: 'canConfigureLedger', milestone: 'M3' });
   // مسارات M5+ في القائمتين لا تُسجَّل قبل مرحلتها
   for (const p of ['customers/adjustments', 'review/uncosted']) assert.ok(!LEDGER_ROUTES.some(r => r.path === p), `مسار لمرحلة لاحقة: ${p}`);
   const lock = LEDGER_DIALOGS.find(d => d.key === 'lockDates');
@@ -166,6 +170,13 @@ test('قاعدة الظهور: العنصر بصلاحية عرضه، والقا
 
   const configurer = u({ canConfigureLedger: true });
   assert.ok(flat(visibleFor(configurer)).includes('config/settings'));
+  // ربط الدفاتر: في «التهيئة ← المحاسبة» آخراً، لمن يملك canConfigureLedger (والمالك)، لا لصاحب العرض وحده
+  assert.ok(flat(visibleFor(configurer)).includes('linking'));
+  assert.ok(flat(visibleFor(owner)).includes('linking'));
+  assert.ok(!flat(visibleFor(viewer)).includes('linking'), 'المعاينة لا تظهر لصاحب canViewLedger وحده');
+  const accountingConfig = ledgerMenus(identity).find(m => m.key === 'config')?.sections.find(sec => sec.label === 'المحاسبة');
+  const lastItem = accountingConfig?.items[accountingConfig.items.length - 1];
+  assert.deepEqual(lastItem, { kind: 'route', label: 'ربط الدفاتر بالنظام (معاينة)', path: 'linking' });
   assert.ok(flat(visibleFor(configurer)).includes('review/audit'));
   assert.ok(!flat(visibleFor(configurer)).includes('dialog:lockDates'));
 
@@ -192,6 +203,7 @@ test('الدفاتر اليدوية: القائمة بلا «العملاء» (�
   const paths = manual.flatMap(m => m.sections.flatMap(s => s.items.flatMap(i => (i.kind === 'route' ? [i.path] : []))));
   for (const p of MANUAL_LEDGER_HIDDEN_PATHS) assert.ok(!paths.includes(p), p);
   assert.ok(paths.includes('entries') && paths.includes('review/checks'));
+  assert.ok(paths.includes('linking'), 'معاينة الربط تعمل قبل التفعيل (الدفاتر اليدوية)');
   assert.equal(isManualLedger({ activatedAt: '2027-01-15T09:00:00Z', setupMethod: 'CLEAN' }), true);
   assert.equal(isManualLedger({ activatedAt: null, setupMethod: null }), true);
   assert.equal(isManualLedger({ activatedAt: '2026-01-01T00:00:00Z', setupMethod: 'OPENING' }), false, 'التفعيلات السابقة كما كانت');

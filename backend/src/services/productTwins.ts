@@ -182,6 +182,22 @@ export const CONFIG_MODELS: ReadonlySet<string> = new Set([
  */
 export const SPECIAL_MODELS: Readonly<Record<string, 'LOTS' | 'REQUEST_ITEMS'>> = { ProductLot: 'LOTS', RepStockRequestItem: 'REQUEST_ITEMS' };
 
+/**
+ * جداول **محرّك التكلفة** (services/costing — gl_cost_snapshots وgl_cost_checkpoints وكل GlCost* لاحق): ناتجٌ مشتقّ ومجمَّد من
+ * الحركات بمؤشّرها، لا تاريخٌ تشغيلي. **لا يُعاد توجيهها أبداً**: إعادة كتابة productId في لقطةٍ مجمَّدة تنقض «لا إعادة كتابة
+ * لقطةٍ مضت» (D2) — إعادة الطيّ تطوي لقطات B فوق نقطة حفظٍ تحمل حالة A فتفشل (COST_REFOLD_MISMATCH)، وصفّا (A، موقع) و(B، الموقع
+ * نفسه) في مجموعة حفظٍ واحدة يصطدمان بقيدها الفريد. ولا تُعدّ «تاريخاً بقيدٍ فريدٍ غير معالَج» فلا تُعطّل الدمج للجميع.
+ * دمج صنفٍ طوى المحرّك حركاته ⇒ يُرفض COSTING_HISTORY (فشلٌ مغلق) حتى يصير الدمج حدثاً صريحاً في المحرّك (L7: ضمّ حالة A إلى B
+ * عند موضع الدمج) — فلا تُترك حالة A يتيمةً بينما تُطوى حركات B بلا رصيد A. والمحرّك مظلمٌ اليوم (لا لقطات لأي شركة) فلا أثر.
+ */
+export const COSTING_ENGINE_MODEL_RE = /^GlCost[A-Z]/;
+/**
+ * مفتاح القفل الاستشاري لمحرّك التكلفة (COST_LOCK_PREFIX في services/costing/snapshots.ts) — مكرَّرٌ لا مستورد: مسار الدمج إنتاجيٌّ
+ * قائم والمحرّك «مظلم» لا تستورده الشيفرة القائمة (حارس linking-integration)، واختبار product-twins يثبت التطابق.
+ */
+export const COSTING_LOCK_PREFIX = 'gl-cost:';
+export const isCostingEngineModel = (name: string): boolean => COSTING_ENGINE_MODEL_RE.test(name);
+
 export interface RepointTarget {
   model: string;
   field: string;
@@ -198,6 +214,8 @@ export interface MergePlanModels {
   deleteWith: string[];
   /** جداول تاريخٍ بقيدٍ فريدٍ على productId بلا معالجة — الدمج يُرفض حتى تُعالَج (حارس تغيّر المخطط) */
   unhandled: string[];
+  /** جداول محرّك التكلفة التي تحمل الصنف (عمود productId نصّي) — لا تُوجَّه أبداً؛ صفوفٌ فيها لـA ⇒ COSTING_HISTORY */
+  costingEngine: Array<{ model: string; tenantScoped: boolean }>;
 }
 
 const hasScalar = (m: DmmfModel, name: string) => m.fields.some((f) => f.name === name && f.kind === 'scalar');
@@ -210,8 +228,14 @@ export function mergePlanModels(models: readonly DmmfModel[] = Prisma.dmmf.datam
   const repoint: RepointTarget[] = [];
   const deleteWith: string[] = [];
   const unhandled: string[] = [];
+  const costingEngine: MergePlanModels['costingEngine'] = [];
   for (const m of models) {
     if (m.name === 'Product') continue;
+    // ناتج محرّك التكلفة لا يُصنَّف تاريخاً ولا إعداداً (انظر COSTING_ENGINE_MODEL_RE) — قبل أي تصنيف، فلا يدخل repoint أبداً
+    if (isCostingEngineModel(m.name)) {
+      if (m.fields.some((f) => f.name === 'productId' && f.kind === 'scalar')) costingEngine.push({ model: m.name, tenantScoped: hasScalar(m, 'tenantId') });
+      continue;
+    }
     const fkFields = new Set<string>();
     for (const f of m.fields) {
       const from = f.kind === 'object' ? (f.relationFromFields ?? []) : [];
@@ -237,7 +261,8 @@ export function mergePlanModels(models: readonly DmmfModel[] = Prisma.dmmf.datam
   }
   repoint.sort((a, b) => a.kind.localeCompare(b.kind) || a.model.localeCompare(b.model));
   deleteWith.sort();
-  return { repoint, deleteWith, unhandled };
+  costingEngine.sort((a, b) => (a.model < b.model ? -1 : a.model > b.model ? 1 : 0));
+  return { repoint, deleteWith, unhandled, costingEngine };
 }
 
 // ═══ الدمج ═══
@@ -250,6 +275,7 @@ export const MERGE_CODES = Object.freeze({
   UNIT_MISMATCH: 'وحدة الأساس مختلفة بين الصنفين فلا يدمجان',
   LOTS_CONFLICT: 'للصنفين تشغيلات بالرقم نفسه فلا يدمجان',
   SCHEMA_UNSUPPORTED: 'جدول حركات جديد بقيد فريد على الصنف لم يعالج بعد',
+  COSTING_HISTORY: 'للصنف تكلفة مجمدة في محرك التكلفة فلا يدمج قبل دعم الدمج فيه',
 });
 export type MergeCode = keyof typeof MERGE_CODES;
 
@@ -302,17 +328,22 @@ type Delegate = {
 /**
  * يدمج الصنف المؤرشف `fromId` (A) في الصنف القائم `toId` (B) داخل المعاملة `tx` (المستدعي يفتحها بمهلة ٦٠ ثانية):
  * ١) قفل الصفّين FOR UPDATE بترتيب المعرّف (بمهلة قفلٍ محلية كحذف الصنف) — بندٌ أو حركةٌ أو تشغيلةٌ تُكتب لأيٍّ منهما تنتظر.
- * ٢) التحقق: الصنفان في الشركة، A مؤرشف وB غير مؤرشف (أيّ حالة)، وحدة الأساس المطبَّعة واحدة، ولا تشغيلة بالرقم نفسه.
+ * ٢) التحقق: الصنفان في الشركة، A مؤرشف وB غير مؤرشف (أيّ حالة)، وحدة الأساس المطبَّعة واحدة، ولا تشغيلة بالرقم نفسه، ولا
+ *    تكلفة مجمَّدة لـA في محرّك التكلفة (COSTING_HISTORY — جداوله لا تُوجَّه أبداً).
  * ٣) لقطة اسم A ووحدته في بنود فواتيره بلا لقطة حين يختلف النصّ عن B — فتبقى الفاتورة القديمة بما طُبع عليها.
  * ٤) إعادة توجيه كل جداول التاريخ والحركات (mergePlanModels) — وطلب البضاعة المشترك يُجمع سطراه.
  * ٥) حذف A حذفاً حقيقياً (purgeInTx) مع إعداده الباقي.
  */
 export async function mergeArchivedProduct(
   tx: Tx, tenantId: string, fromId: string, toId: string,
-  deps: { purge?: (tx: Tx, tenantId: string, model: string, ids: string[]) => Promise<PurgeResult> } = {},
+  deps: {
+    purge?: (tx: Tx, tenantId: string, model: string, ids: string[]) => Promise<PurgeResult>;
+    /** للاختبار: نماذج المخطط (الافتراضي Prisma.dmmf — العميل المولَّد) */
+    models?: readonly DmmfModel[];
+  } = {},
 ): Promise<MergeResult> {
   if (fromId === toId) throw new MergeRefused('SAME_PRODUCT');
-  const plan = mergePlanModels();
+  const plan = mergePlanModels(deps.models);
   if (plan.unhandled.length) throw new MergeRefused('SCHEMA_UNSUPPORTED');
 
   // ١) القفل — بترتيب المعرّف فلا يتقاطع دمجان على الصنفين نفسيهما بترتيبين
@@ -335,6 +366,15 @@ export async function mergeArchivedProduct(
   if (normalizeUnit(a.unit) !== normalizeUnit(b.unit)) throw new MergeRefused('UNIT_MISMATCH');
 
   const d = tx as unknown as Record<string, Delegate>;
+  // محرّك التكلفة طوى حركاتٍ لـA ⇒ لا دمج (فشلٌ مغلق: حالة A المجمَّدة لا تُنقل إلى B بعد — COSTING_ENGINE_MODEL_RE). بالقفل
+  // الاستشاري نفسه الذي تبدأ به كل معاملة كتابة للمحرّك (COSTING_LOCK_PREFIX) فلا تُلتزم دفعة لقطاتٍ له بين الفحص والدمج
+  if (plan.costingEngine.length) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${COSTING_LOCK_PREFIX + tenantId}::text))`;
+    for (const t of plan.costingEngine) {
+      const n = await d[delegateOf(t.model)].count({ where: { productId: fromId, ...(t.tenantScoped && { tenantId }) } });
+      if (n) throw new MergeRefused('COSTING_HISTORY');
+    }
+  }
   if (plan.repoint.some((t) => t.special === 'LOTS')) {
     const aLots = await d.productLot.findMany({ where: { tenantId, productId: fromId }, select: { lotNumber: true } });
     if (aLots.length) {

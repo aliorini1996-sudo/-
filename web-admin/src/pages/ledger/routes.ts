@@ -43,6 +43,8 @@ export const LEDGER_ROUTES: readonly LedgerRouteDef[] = [
   { path: 'config/mappings', component: 'config/MappingsPage', view: 'canConfigureLedger', write: 'canConfigureLedger', milestone: 'M2' },
   { path: 'config/tags', component: 'config/TagList', view: 'canConfigureLedger', write: 'canConfigureLedger', milestone: 'M2' },
   { path: 'config/fiscal-years', component: 'config/FiscalYearList', view: 'canConfigureLedger', write: 'canConfigureLedger', milestone: 'M2' },
+  // «ربط الدفاتر بالنظام» L2 (العقد l23 §15): معاينة للقراءة قبل التفعيل — الكتابة الوحيدة صفّ المعاينة، لمالك الشركة
+  { path: 'linking', component: 'linking/LinkingPreviewPage', view: 'canConfigureLedger', write: 'canConfigureLedger', milestone: 'M3' },
   // العملاء (M3): حالة ترحيل المستندات القائمة، وعهدة المناديب (وزر «تسجيل عجز» M4)، والأمانات
   { path: 'customers/invoices', component: 'customers/InvoicePostingList', view: 'canViewLedger', write: null, milestone: 'M3' },
   { path: 'customers/receipts', component: 'customers/ReceiptPostingList', view: 'canViewLedger', write: null, milestone: 'M3' },
@@ -182,6 +184,7 @@ export const ledgerMenus = (tr: (ar: string) => string): LedgerMenu[] => [
           { kind: 'route', label: tr('ربط الحسابات'), path: 'config/mappings' },
           { kind: 'route', label: tr('السنوات المالية'), path: 'config/fiscal-years' },
           { kind: 'route', label: tr('علامات الحسابات'), path: 'config/tags' },
+          { kind: 'route', label: tr('ربط الدفاتر بالنظام (معاينة)'), path: 'linking' },
         ],
       },
     ],
