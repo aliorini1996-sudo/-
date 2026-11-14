@@ -206,6 +206,9 @@ model Tenant {
   glRepAnalyticDefaults GlRepAnalyticDefault[]
   glPaymentMethodMaps   GlPaymentMethodMap[] // «ربط الدفاتر» L5: طريقة الدفع ⇒ الحساب
   glVendors             GlVendor[] // النموذج في M2 (§3.5)
+  glLinkPreviews        GlLinkPreview[] // «ربط الدفاتر» L2: معاينات الربط (قراءة فقط)
+  glCostSnapshots       GlCostSnapshot[] // «ربط الدفاتر» L3: لقطة تكلفة كل حركة مخزون
+  glCostCheckpoints     GlCostCheckpoint[] // «ربط الدفاتر» L3: نقاط حفظ محرّك التكلفة
 
   // المندوب الذكي AI — علاقات عكسية فقط
   aiRepSettings         AiRepSettings?
@@ -4456,7 +4459,9 @@ model GlPartialReconcile {
   creditMoveId String?
   createdBy    String?
   createdAt    DateTime @default(now())
-  @@unique([tenantId, sourceRef, debitLineId, creditLineId]) // كتابة متساوية الأثر للمصدر الواحد
+  // ⚠️ بلا @@unique: قيدٌ فريد على جدولٍ قائم يوقف `prisma db push` في preDeploy (فشل نشر ee9600d في ١٤ نوفمبر ٢٠٢٦).
+  // تساوي الأثر في التطبيق: «المطلوب − المطابَق قبلاً» تحت قفل الترحيل، وinsertPartials يُسقط الثلاثي الموجود قبل الإدراج
+  @@index([tenantId, sourceRef])
   @@index([tenantId, debitLineId])
   @@index([tenantId, creditLineId])
   @@index([tenantId, debitMoveId])
@@ -4657,6 +4662,145 @@ model GlProductCategoryAccount { // النموذج في M2 (غياب الصف = 
   inventoryAccountId String?
   @@unique([tenantId, categoryId])
   @@map("gl_product_category_accounts")
+}
+
+// ═══ «ربط الدفاتر بكامل النظام» L2+L3 (١٣ نوفمبر ٢٠٢٦) — العقد: scratchpad/l23_contract.md ═══
+// ثلاثة نماذج إضافية بحتة داخل كتلة gl (حارس gl-schema-additive يمنع أي Gl* خارجها): لا علاقة إلا بـTenant، والمعرّفات التشغيلية
+// نصوص بلا FK. كلها في GL_RESET_ORDER (services/gl/reset.ts): مشتقّات تُعاد من المصادر الإلحاقية، فمسحها مع الدفاتر آمن.
+
+/// معاينة الربط (L2): تشغيلٌ للقراءة فقط داخل معاملة REPEATABLE READ READ ONLY يشتقّ الأحداث ويبني القيود ويطابقها في الذاكرة،
+/// ولا يكتب إلا هذا الصف (الحالة والتقدّم والنتيجة). الاعتماد (L7) يقبل معاينةً DONE عمرها أقل من ٢٤ ساعة لم تتغيّر بصمة مدخلاتها.
+/// مهمة غير متزامنة في العملية نفسها (services/gl/linking/jobs.ts): معاينة جارية واحدة لكل شركة، وواحدة على المنصّة كلها.
+model GlLinkPreview {
+  id          String    @id @default(uuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// QUEUED | RUNNING | DONE | FAILED
+  status      String    @default("QUEUED")
+  /// FY_RESTATED (بأثر رجعي من بداية السنة المالية — قرار المالك) | FROM_ACTIVATION (من يوم الربط)
+  basis       String
+  /// أول يوم مربوط (cutover): بداية السنة المالية لـFY_RESTATED، واليوم المحلي لـFROM_ACTIVATION
+  linkedFrom  DateTime  @db.Date
+  /// T0 = (SELECT now() داخل معاملة اللقطة) − ١٠ دقائق (openingSnapshotFromDbNow) — حدّ «المشمول بالافتتاح»؛ null حتى تبدأ
+  snapshotAt  DateTime?
+  /// بصمة مدخلات الافتتاح (sha256 hex، linking/dataHash.ts): صفوف ما قبل linkedFrom وإعدادات الربط والأرصدة اليدوية —
+  /// نشاط السنة لا يغيّرها، وأي صفّ رجعيّ أو محذوف قبل linkedFrom يغيّرها فيُعاد التشغيل قبل الاعتماد
+  dataHash    String?
+  /// بصمة الجزء الحتمي من النتيجة (sha256 hex) — معيار «تشغيلان بالمدخلات نفسها = النتيجة نفسها»
+  resultHash  String?
+  /// PreviewResultJson (services/gl/linking/types.ts): المبالغ نصوص ملّي — مقصوص إلى PREVIEW_RESULT_MAX_BYTES بقوائم محدودة؛
+  /// null حتى DONE، ويُفرَّغ في المعاينات الأقدم من آخر خمس للشركة (لا حذف للصف)
+  result      Json?
+  /// حجم result بالبايت بعد القصّ
+  resultBytes Int?
+  /// مرحلة التنفيذ لشريط التقدّم (بترتيبها): QUEUED | READ | COSTING | OPENING | RECONCILE | POST | PARITY | PREFLIGHT | DONE
+  phase       String?
+  progressPct Int       @default(0)
+  /// نبض المهمة كل مرحلة ودفعة — RUNNING بلا نبضٍ أحدث من PREVIEW_STALE_MS تُعلَّم FAILED(INTERRUPTED) (إعادة تشغيل الخادم)
+  heartbeatAt DateTime?
+  /// للفشل: INTERRUPTED | TIMEOUT | TOO_LARGE | SHADOW_GL_ACCESS | ALREADY_ACTIVATED | INTERNAL — والرسالة العربية في error
+  errorCode   String?
+  error       String?
+  /// خيارات الطلب كما قُبلت ({basis, requestedVia}) — للتدقيق
+  options     Json?
+  /// معرّف المستخدم (أو OWNER:<id> لجلسة مالك المنصة — actorOf)
+  requestedBy String?
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+
+  @@index([tenantId, createdAt]) // آخر معاينات الشركة وحدّ المعدّل والجارية
+  @@index([status, createdAt]) // طابور المهام وكنس المنقطعة
+  @@map("gl_link_previews")
+}
+
+/// لقطة تكلفة حركة مخزون واحدة (L3): ناتج محرّك التكلفة الوحيد services/costing (المتوسّط المرجّح المتحرّك لكل موقع — OD6).
+/// صفّ لكل سطر حركة لكل أثر (sourceKey فريد لكل شركة)، إلحاقيّة: لا تُعدَّل بعد كتابتها، ولا تُكتب داخل معاملة البيع
+/// (services/costing/snapshots.ts بمعاملات قصيرة مستقلة). الترتيب في المحرّك بلحظة تسجيل المصدر (srcCreatedAt, srcId) — كالمتوسّط
+/// المتحرّك في SAP: الحركة تُقيَّم بمتوسّط لحظة تسجيلها ولو كان تاريخها المحاسبي سابقاً — فلا تُعاد كتابة لقطة مضت أبداً.
+/// منها تقرأ قيود تكلفة المبيعات والمخزون (L4/L6) والشاشات، فيقارن C6/R8 مثلاً بمثل.
+model GlCostSnapshot {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// مفتاح الحركة (services/costing/keys.ts): COST:<refType>:<itemId>[:<leg>] — فريد لكل شركة
+  sourceKey     String
+  /// MoveKind (services/costing/types.ts): RECEIVE | VENDOR_RETURN | WH_ADJUST | ZERO_RUN | VAN_LOAD | VAN_UNLOAD | VAN_ADJUST |
+  /// DAMAGE_OUT | VAN_SALE | WAREHOUSE_SALE | SALE_CANCEL | VAN_RETURN_RESTOCK | WAREHOUSE_RETURN_RESTOCK | RETURN_WRITE_OFF |
+  /// RETURN_CANCEL | RESTOCK_TOGGLE
+  kind          String
+  /// المستند المصدر: WH_ENTRY (warehouse_entries) | VAN_LOAD (van_loads) | INVOICE (invoices) | RESTOCK_LOG (invoice_restock_logs)
+  refType       String
+  refId         String
+  /// سطر المستند: WarehouseEntryItem.id | VanLoadItem.id | InvoiceItem.id (لسجلّ التبديل: بند فاتورة المرتجع)
+  itemId        String
+  productId     String
+  /// موقع الأثر: 'WH' (المستودع) | 'VAN:<salesRepId>' (سيارة المندوب، أو معرّفه المحفوظ بعد حذفه) | 'VAN:_' (سيارة مجهولة)
+  location      String
+  /// الموقع الهدف للتحويل (VAN_LOAD/VAN_UNLOAD) — null لغيره
+  toLocation    String?
+  /// الكمية بوحدة الأساس موقّعة على location (٦ منازل كـunits.roundQty)؛ صفر للحركات المذكِّرة (DAMAGE_OUT وRETURN_WRITE_OFF)
+  baseQty       Float
+  /// جزء |baseQty| الذي تحرّك بلا تكلفة معروفة (دلو «خارج التقييم») — لمرآة الإلغاء والمرتجع بدقّة
+  uncostedQty   Float    @default(0)
+  /// تغيّر قيمة location بالملّي موقّعاً (صافٍ بعد سدّ الحفرة) — مضاعف لأصغر وحدة عملة؛ Σ لكل موقع = تقييمه بلا انجراف.
+  /// للتحويل: القيمة الإجمالية المنقولة G = −valueMilli، ويتغيّر toLocation بمقدار G − varianceMilli
+  valueMilli    BigInt
+  /// تكلفة مبيعات إضافية يعترف بها هذا الأثر بالملّي (E6 سدّ الرصيد السالب): موجب = مدين 511001 / دائن مخزون الموقع المستقبِل
+  varianceMilli BigInt   @default(0)
+  /// مبلغ مذكِّر بالملّي: شطب مرتجع لا يعود للمخزون (موجب = مدين 514001 / دائن 511001) وعكسه عند إلغائه أو تبديله (سالب)
+  memoMilli     BigInt   @default(0)
+  /// تكلفة وحدة الأساس × 10⁴ (COST_DECIMALS) = |القيمة الإجمالية| ÷ |الكمية المقيَّمة| مقرّبة — للعرض والتدقيق وحدهما
+  unitCostE4    BigInt   @default(0)
+  /// طريقة التكلفة — AVCO وحدها (OD6)
+  method        String   @default("AVCO")
+  /// التاريخ المحاسبي للأثر (يحدّد تاريخ قيده في L4/L6 وتقييم «في تاريخ»): تاريخ الفاتورة/الإلغاء أو لحظة الحركة (streams.ts)
+  effectAt      DateTime
+  /// مؤشّر الصف المصدر (createdAt, id) — ترتيب المحرّك الوحيد، ومنه نقاط الحفظ
+  srcCreatedAt  DateTime
+  srcId         String
+  /// صفٌّ مصدر ظهر بعد تجاوز المؤشّر حدّه (معاملة أطول من نافذة الالتزام المتأخر) فقُيِّم في موضع ظهوره لا موضعه — نادر ومُعلَّم
+  lateArrival   Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@unique([tenantId, sourceKey])
+  @@index([tenantId, srcCreatedAt, srcId]) // قراءة اللقطات بترتيب المحرّك
+  @@index([tenantId, effectAt]) // التقييم والتكلفة «في تاريخ» (R8/R9/C6)
+  @@index([tenantId, refType, refId]) // قيود L4/L6: لقطات فاتورة/حركة بعينها
+  @@index([tenantId, productId, srcCreatedAt]) // بطاقة تكلفة الصنف
+  @@map("gl_cost_snapshots")
+}
+
+/// نقطة حفظ محرّك التكلفة (L3): حالة كل (صنف، موقع) بعد طيّ كل الحركات حتى المؤشّر (cursorAt, cursorId) شاملاً — يُستأنف الطيّ
+/// منها لا من أول التاريخ (معيار ٥٠ ألف حركة). المجموعة الواحدة صفوفٌ بالمؤشّر نفسه، ويُكتب أخيراً في معاملتها صفّ «الرأس»
+/// (productId = '*' وlocation = '*') فلا تُقرأ مجموعة ناقصة. يُبقى آخر ثلاث مجموعات (snapshots.ts) والأقدم يُحذف.
+model GlCostCheckpoint {
+  id                String   @id @default(uuid())
+  tenantId          String
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// الصنف، أو '*' لصفّ الرأس
+  productId         String
+  /// 'WH' | 'VAN:<id>' | 'VAN:_'، أو '*' لصفّ الرأس
+  location          String
+  /// المؤشّر الشامل (= «في لحظة»): الحالة بعد كل حركة (srcCreatedAt, srcId) ≤ (cursorAt, cursorId)
+  cursorAt          DateTime
+  cursorId          String
+  /// الكمية الكلية بوحدة الأساس (قد تكون سالبة = عجز) — المقيَّمة = qtyBase − uncostedQty
+  qtyBase           Float    @default(0)
+  /// جزء الرصيد الموجب بلا تكلفة معروفة (≥ 0)
+  uncostedQty       Float    @default(0)
+  /// قيمة الدلو المقيَّم بالملّي (مضاعف لأصغر وحدة عملة)
+  valueMilli        BigInt   @default(0)
+  /// آخر رصيدٍ مقيَّمٍ موجب (القيمة والكمية معاً، لا متوسّطاً مقرّباً): مرجع تقييم السحب المكشوف على موقعٍ فارغ — null إن لم يُعرف
+  lastAvgValueMilli BigInt?
+  lastAvgQty        Float?
+  /// عدد الحركات المطويّة حتى هذا المؤشّر (صفّ الرأس) — تشخيص
+  movesFolded       Int      @default(0)
+  createdAt         DateTime @default(now())
+
+  @@unique([tenantId, cursorAt, cursorId, productId, location])
+  @@index([tenantId, productId, cursorAt]) // أحدث رأس مجموعة (productId = '*')
+  @@map("gl_cost_checkpoints")
 }
 // ═══ نهاية النظام المحاسبي المتكامل ═══
 

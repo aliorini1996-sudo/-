@@ -12,6 +12,8 @@
  * - الأرصدة اليدوية (الخطوة 5): صفوف {رمز الحساب، مدين، دائن، مورّد، تاريخ استحقاق}؛ سطر 211001 يحمل vendorId (I5).
  * - الفرق إلى 319002 OPENING_EQUITY. القيد بتاريخ cutover − 1 في دفتر OPEN (moveType=OPENING، origin=AUTO).
  * - المعاينة (/setup/preview-opening) إرشادية لا تُخزَّن؛ الاعتماد يعيد الحساب داخل معاملة التفعيل بـT0.
+ * - «ربط الدفاتر» (LINKED وحده): buildOpeningMove يقبل `derived` فتعود السطور المشتقّة (linkedOpeningLines) والمخزون من
+ *   محرّك التكلفة، وvalidateManualBalanceRows يقبل `derivedAccounts` (DERIVED_ACCOUNT). الدفاتر اليدوية لا تمرّرهما.
  *
  * الحساب صرف؛ القراءة من القاعدة في loadOpeningSources على عميل/معاملة يمرّرها المُستدعي.
  */
@@ -34,9 +36,11 @@ import { baseQtyOf } from '../units';
 import { IMPORT_BATCH_RUNNING, importBatchState } from '../importLedger';
 import {
   JOURNAL_CODE_BY_SYSTEM_KEY, LedgerError, createBuildContext,
-  type AccountRef, type BuildContext, type CashInvoiceRouting, type GlSettingsSnapshot, type JournalRef, type LineDraft,
+  type AccountRef, type BuildContext, type CashInvoiceRouting, type ControlKind, type GlSettingsSnapshot, type JournalRef, type LineDraft,
   type LocalDate, type MappingKey, type Milli, type MoveDraft, type ReceiptRouting, type TaxPeriodicity, type TemplateKey,
 } from './types';
+import { UNKNOWN_VAN, WH_LOCATION, isVanLocation, repOfLocation, type LocationTotals } from '../costing/types';
+import type { DerivedOpeningLinesInput } from './linking/types';
 
 type GlDb = Prisma.TransactionClient;
 
@@ -625,10 +629,27 @@ export const MANUAL_BALANCE_ISSUES = [
 ] as const;
 export type ManualBalanceIssueReason = (typeof MANUAL_BALANCE_ISSUES)[number];
 
+/**
+ * «ربط الدفاتر» (LINKED، القاعدة 7 في الخطة): الذمم والعهدة والأمانات والمخزون تُشتق من التشغيل في القيد الافتتاحي،
+ * فإدخالها يدوياً يعدّها مرتين ⇒ DERIVED_ACCOUNT. ثابت منفصل عمداً (D12): MANUAL_BALANCE_ISSUES مرآة حرفية لقائمة
+ * الويب (setupLogic.test.ts) وتبقى كما هي للدفاتر اليدوية.
+ */
+export const LINKED_MANUAL_BALANCE_ISSUES = ['DERIVED_ACCOUNT'] as const;
+export type LinkedManualBalanceIssueReason = (typeof LINKED_MANUAL_BALANCE_ISSUES)[number];
+
+/** مفاتيح الحسابات التي تشتقّ سطورها الافتتاحية في الدفاتر المربوطة (linkedOpeningLines) */
+export const LINKED_DERIVED_OPENING_KEYS: readonly MappingKey[] = [
+  'AR_CONTROL', 'REP_CUSTODY', 'PAYLINK_CLEARING', 'INVENTORY_WAREHOUSE', 'INVENTORY_VAN',
+];
+/** وأنواعها الرئيسية: أي حساب بهذا النوع (ولو لم يُربط بمفتاح) يغذّيه مصدره وحده */
+export const LINKED_DERIVED_CONTROL_KINDS: readonly ControlKind[] = ['AR', 'CUSTODY', 'PAYLINK', 'INVENTORY'];
+/** مفاتيح المخزون من المشتقّ — تُشتقّ في الجرد المستمر وحده (PERPETUAL)؛ في الدوري لا سطور مخزون مشتقّة (OD7) */
+const LINKED_INVENTORY_KEYS: readonly MappingKey[] = ['INVENTORY_WAREHOUSE', 'INVENTORY_VAN'];
+
 export interface ManualBalanceIssue {
   index: number;
   accountCode: string;
-  reason: ManualBalanceIssueReason;
+  reason: ManualBalanceIssueReason | LinkedManualBalanceIssueReason;
 }
 
 export interface ManualBalanceLine {
@@ -659,27 +680,41 @@ function amountOf(v: number | string | null | undefined, dec: number): Milli | '
 
 /**
  * يتحقق من صفوف الأرصدة اليدوية مقابل السياق. `midVatPeriod`: تاريخ بدء داخل فترة مؤكَّد (فتُقبل 212001/116001).
+ * `derivedAccounts` («ربط الدفاتر» LINKED وحده): حسابات السطور المشتقّة مرفوضة يدوياً بـDERIVED_ACCOUNT — غيابه = السلوك القائم.
+ * `derivedInventory` (مع derivedAccounts؛ الافتراضي true): هل يُشتقّ المخزون فعلاً؟ false في الجرد الدوري (PERIODIC، OD7): لا سطور
+ * 114001/114002 مشتقّة، فرصيدها الافتتاحي **يدويٌّ** يُقبل — رفضه كان يُسقط مخزون أول المدة من القيد كلياً (الأصول وحقوق الملكية
+ * ناقصةً بقيمته، ثم قيد بضاعة آخر المدة P18 يضخّم الربح بها).
  * لا يرمي: المسار يرد 422 بالمخالفات، والمعاينة تعرضها.
  */
 export function validateManualBalanceRows(
   rows: readonly ManualBalanceRowInput[],
   ctx: BuildContext,
-  opts: { midVatPeriod: boolean },
+  opts: { midVatPeriod: boolean; derivedAccounts?: boolean; derivedInventory?: boolean },
 ): { lines: ManualBalanceLine[]; issues: ManualBalanceIssue[] } {
   const dec = ctx.settings.currencyDecimals;
   const lines: ManualBalanceLine[] = [];
   const issues: ManualBalanceIssue[] = [];
   const custodyId = ctx.accounts.byKey('REP_CUSTODY')?.id ?? null;
   const equityId = ctx.accounts.byKey('OPENING_EQUITY')?.id ?? null;
+  // بالمفتاح وبالنوع معاً: حساب أُعيد ربطه أو أُضيف بنوع رئيسي مشتقّ يُرفض كذلك (مرآة نسخة 0372543^) — والمخزون حين يُشتقّ وحده
+  const withInventory = opts.derivedInventory !== false;
+  const derivedKeys = withInventory ? LINKED_DERIVED_OPENING_KEYS : LINKED_DERIVED_OPENING_KEYS.filter((k) => !LINKED_INVENTORY_KEYS.includes(k));
+  const derivedKinds = withInventory ? LINKED_DERIVED_CONTROL_KINDS : LINKED_DERIVED_CONTROL_KINDS.filter((k) => k !== 'INVENTORY');
+  const derivedIds = opts.derivedAccounts === true
+    ? new Set(derivedKeys.map((k) => ctx.accounts.byKey(k)?.id).filter((x): x is string => !!x))
+    : null;
   rows.forEach((row, index) => {
     const code = String(row.accountCode ?? '').trim();
-    const push = (reason: ManualBalanceIssueReason) => issues.push({ index, accountCode: code, reason });
+    const push = (reason: ManualBalanceIssueReason | LinkedManualBalanceIssueReason) => issues.push({ index, accountCode: code, reason });
     const account = ctx.accounts.byCode(code);
     if (!account) return push('ACCOUNT_NOT_FOUND');
     if (!account.isActive) return push('ACCOUNT_ARCHIVED');
     if (account.type === 'equity_unaffected') return push('EQUITY_UNAFFECTED');
     if (account.type === 'off_balance') return push('OFF_BALANCE');
     if (account.id === equityId) return push('OPENING_EQUITY');
+    if (derivedIds && (derivedIds.has(account.id) || (!!account.controlKind && derivedKinds.includes(account.controlKind)))) {
+      return push('DERIVED_ACCOUNT');
+    }
     if ((account.controlKind === 'VAT_OUT' || account.controlKind === 'VAT_IN') && ctx.settings.templateKey === 'SA_6D' && !opts.midVatPeriod) {
       return push('VAT_REQUIRES_MID_PERIOD');
     }
@@ -726,6 +761,11 @@ export interface OpeningMoveInput {
   ctx: BuildContext;
   /** أسماء المناديب لسطور يدوية تحمل salesRepId (لقطة partnerName) */
   salesRepNames?: Readonly<Record<string, string>>;
+  /**
+   * «ربط الدفاتر» (LINKED وحده، القاعدة 7): السطور المشتقّة من التشغيل (linkedOpeningLines) قبل اليدوية.
+   * غيابه (أو null) = السلوك القائم للدفاتر اليدوية حرفياً — لا سطر آلي ولا حقل إضافي في النتيجة.
+   */
+  derived?: DerivedOpeningLinesInput | null;
 }
 
 export interface OpeningMoveResult {
@@ -737,10 +777,94 @@ export interface OpeningMoveResult {
   manualDebitMilli: Milli;
   manualCreditMilli: Milli;
   lineCount: number;
+  /** مع `derived` وحده: مجموعا السطور المشتقّة وعددها — وهي أول derivedLineCount سطراً في القيد */
+  derivedDebitMilli?: Milli;
+  derivedCreditMilli?: Milli;
+  derivedLineCount?: number;
 }
 
 function signed(line: Omit<LineDraft, 'debitMilli' | 'creditMilli'>, amount: Milli): LineDraft {
   return { ...line, debitMilli: amount > 0n ? amount : 0n, creditMilli: amount < 0n ? -amount : 0n };
+}
+
+// ═══ السطور المشتقّة للدفاتر المربوطة («ربط الدفاتر» L2) ═══
+
+export interface LinkedOpeningLines {
+  lines: LineDraft[];
+  debitMilli: Milli;
+  creditMilli: Milli;
+}
+
+/**
+ * ترتيب مواقع المخزون الافتتاحي: المستودع أولاً ثم السيارات بمفتاح موقعها بنقاط الرموز لا اللغة (VAN:_ بمعرّفه «_») —
+ * الترتيب نفسه لـcompareLocations في costing/stepper.ts (stateTotals)، فتتبع السطورُ ترتيبَ ملخّص المحرّك.
+ */
+function compareInventoryLocations(a: LocationTotals['location'], b: LocationTotals['location']): number {
+  if (a === b) return 0;
+  if (a === WH_LOCATION) return -1;
+  if (b === WH_LOCATION) return 1;
+  return a < b ? -1 : 1;
+}
+
+/**
+ * سطور القيد الافتتاحي المشتقّة للدفاتر المربوطة، بترتيب نسخة 0372543^ (قبل إزالة الأرصدة المشتقة) ثم المخزون:
+ *   1) 113001 AR_CONTROL لكل عميل برصيده (والدائن دائناً) بعميله واسمه، واستحقاقه تاريخ القيد.
+ *   2) 111003 REP_CUSTODY لكل مندوب بعهدته الدفترية ≠ 0 (custodyComponents.ledgerCustody).
+ *   3) 112005 PAYLINK_CLEARING بأمانات الدفع الإلكتروني ≠ 0.
+ *   4) المخزون من محرّك التكلفة (CostingSummary.openingByLocation) لكل موقع بقيمة ≠ 0، المستودع أولاً ثم السيارات بمفتاح
+ *      موقعها: WH ⇒ 114001، VAN:<مندوب> ⇒ 114002 بمندوبه واسمه، VAN:_ ⇒ 114002 بلا مندوب. null ⇒ لا سطور مخزون
+ *      (PERIODIC، OD7). opening.warehouse (composeWarehouse القديم) لا يُستعمل: القيمة من محرّك التكلفة وحده كي يطابق
+ *      الافتتاحُ ما ستقيّده حركات المخزون (L6).
+ * كل مبلغ صفري يُتخطّى (سطر 0/0 يُسقط القيد في validateMove). عهدة مستخدمي الشركة 111004 تأتي في L5.
+ */
+export function linkedOpeningLines(derived: DerivedOpeningLinesInput, openingDate: LocalDate): LinkedOpeningLines {
+  const lines: LineDraft[] = [];
+  const add = (line: Omit<LineDraft, 'debitMilli' | 'creditMilli'>, amount: Milli) => {
+    if (amount !== 0n) lines.push(signed(line, amount));
+  };
+  const { opening } = derived;
+  for (const r of opening.receivables) {
+    add({
+      accountKey: 'AR_CONTROL', label: `رصيد افتتاحي — ${r.customerName}`, customerId: r.customerId, partnerName: r.customerName, dueDate: openingDate,
+    }, r.balanceMilli);
+  }
+  for (const c of opening.custody) {
+    add({
+      accountKey: 'REP_CUSTODY', label: `عهدة افتتاحية — ${c.salesRepName}`, salesRepId: c.salesRepId, partnerName: c.salesRepName,
+    }, c.ledgerCustodyMilli);
+  }
+  add({ accountKey: 'PAYLINK_CLEARING', label: 'أمانات الدفع الإلكتروني الافتتاحية' }, opening.paylinkHeldMilli);
+  if (derived.inventory) {
+    // تجميع بالموقع (دفاعاً عن مدخل مكرّر): القيمة هي ما يُقيَّد، والكمية للعرض وحده
+    const byLocation = new Map<LocationTotals['location'], Milli>();
+    for (const t of derived.inventory) {
+      if (t.location !== WH_LOCATION && (!isVanLocation(t.location) || (t.location !== UNKNOWN_VAN && !repOfLocation(t.location)))) {
+        // موقع لا يعرفه الترميز = خطأ برمجي: الإسقاط الصامت يحوّل قيمته إلى 319002
+        throw new RangeError(`موقع مخزون غير معروف في الافتتاح المشتقّ: ${String(t.location)}`);
+      }
+      byLocation.set(t.location, (byLocation.get(t.location) ?? 0n) + t.valueMilli);
+    }
+    const names = derived.salesRepNames ?? {};
+    const ordered = [...byLocation.entries()].sort(([a], [b]) => compareInventoryLocations(a, b));
+    for (const [location, valueMilli] of ordered) {
+      if (location === WH_LOCATION) {
+        add({ accountKey: 'INVENTORY_WAREHOUSE', label: 'مخزون المستودع الافتتاحي' }, valueMilli);
+        continue;
+      }
+      const rep = repOfLocation(location);
+      if (!rep) {
+        add({ accountKey: 'INVENTORY_VAN', label: 'بضاعة سيارات غير معروفة' }, valueMilli);
+        continue;
+      }
+      const known = Object.prototype.hasOwnProperty.call(names, rep) ? names[rep] : undefined;
+      const repName = (typeof known === 'string' ? known.trim() : '') || `مندوب ${rep}`;
+      add({ accountKey: 'INVENTORY_VAN', label: `بضاعة سيارة — ${repName}`, salesRepId: rep, partnerName: repName }, valueMilli);
+    }
+  }
+  let debitMilli = 0n;
+  let creditMilli = 0n;
+  for (const l of lines) { debitMilli += l.debitMilli; creditMilli += l.creditMilli; }
+  return { lines, debitMilli, creditMilli };
 }
 
 /**
@@ -749,12 +873,16 @@ function signed(line: Omit<LineDraft, 'debitMilli' | 'creditMilli'>, amount: Mil
  * الأرصدة المشتقة (الذمم والعهدة والأمانات ومخزون المستودع محسوبةً من المستندات) أُزيلت من القيد بقرار الخبير المحاسبي
  * (٢٧ سبتمبر ٢٠٢٦): كانت تولّد سطوراً آلية إجبارية. صارت هذه الحسابات تُدخل يدوياً — الذمم بعميلها والعهدة بمندوبها.
  * computeDerivedOpening باقية لتجميد تقسيم الاستلامات السابقة للبدء (freezeOpeningSettlementSplits) فقط، ولا تُرحِّل شيئاً.
+ *
+ * «ربط الدفاتر» (LINKED، القاعدة 7 في الخطة): مع `derived` وحده تسبق السطورُ المشتقّة (linkedOpeningLines) اليدويةَ،
+ * والفرق 319002 = −(Σ المشتقّ + Σ اليدوي). الدفاتر اليدوية لا تمرّر `derived` أبداً (setup.ts)، فقيدها كما كان حرفياً.
  */
 export function buildOpeningMove(input: OpeningMoveInput): OpeningMoveResult {
   const { ctx } = input;
   const s = ctx.settings;
   const date = input.openingDate;
-  const lines: LineDraft[] = [];
+  const linked = input.derived ? linkedOpeningLines(input.derived, date) : null;
+  const lines: LineDraft[] = linked ? [...linked.lines] : [];
   let manualDebitMilli = 0n;
   let manualCreditMilli = 0n;
   const repNames = input.salesRepNames ?? {};
@@ -785,8 +913,12 @@ export function buildOpeningMove(input: OpeningMoveInput): OpeningMoveResult {
     lines.push(signed({ accountKey: 'OPENING_EQUITY', label: 'فرق الأرصدة الافتتاحية' }, -net));
     if (net < 0n) totalDebitMilli += -net;
   }
+  // حقول المشتقّ تظهر مع الخيار وحده — نتيجة الاستدعاء القائم بلا `derived` لا يزيد فيها مفتاح (الاختبار الذهبي)
+  const linkedTotals = linked
+    ? { derivedDebitMilli: linked.debitMilli, derivedCreditMilli: linked.creditMilli, derivedLineCount: linked.lines.length }
+    : null;
   if (lines.length === 0) {
-    return { draft: null, equityDiffMilli: 0n, totalDebitMilli: 0n, manualDebitMilli, manualCreditMilli, lineCount: 0 };
+    return { draft: null, equityDiffMilli: 0n, totalDebitMilli: 0n, manualDebitMilli, manualCreditMilli, lineCount: 0, ...linkedTotals };
   }
   const draft: MoveDraft = {
     kind: 'MOVE',
@@ -807,7 +939,7 @@ export function buildOpeningMove(input: OpeningMoveInput): OpeningMoveResult {
     currencyDecimals: s.currencyDecimals,
     lines,
   };
-  return { draft, equityDiffMilli, totalDebitMilli, manualDebitMilli, manualCreditMilli, lineCount: lines.length };
+  return { draft, equityDiffMilli, totalDebitMilli, manualDebitMilli, manualCreditMilli, lineCount: lines.length, ...linkedTotals };
 }
 
 // ═══ حلّ شركاء الأرصدة اليدوية (العملاء والمناديب) ═══

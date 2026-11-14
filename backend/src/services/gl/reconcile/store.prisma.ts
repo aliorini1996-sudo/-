@@ -237,7 +237,17 @@ export function createPrismaReconcileStore(tx: GlDb, tenantId: string): Reconcil
         creditMoveId: r.creditMoveId, amountMilli: r.amountMilli, sourceRef: r.sourceRef, createdBy: RECONCILE_SYSTEM_ACTOR,
       }));
       if (data.length === 0) return 0;
-      const r = await tx.glPartialReconcile.createMany({ data, skipDuplicates: true });
+      // تساوي الأثر بلا قيد فريد في القاعدة (انظر schema.prisma): الثلاثي الموجود يُسقط، والمكرَّر داخل الدفعة نفسها كذلك.
+      // الاستدعاء تحت قفل الترحيل للشركة، فلا كاتب متزامن بين القراءة والإدراج
+      const key = (r: { sourceRef: string | null; debitLineId: string; creditLineId: string }) => `${r.sourceRef ?? ''}|${r.debitLineId}|${r.creditLineId}`;
+      const existing = await tx.glPartialReconcile.findMany({
+        where: { tenantId, sourceRef: { in: [...new Set(data.map((d) => d.sourceRef))] }, debitLineId: { in: [...new Set(data.map((d) => d.debitLineId))] } },
+        select: { sourceRef: true, debitLineId: true, creditLineId: true },
+      });
+      const seen = new Set(existing.map(key));
+      const fresh = data.filter((d) => { const k = key(d); if (seen.has(k)) return false; seen.add(k); return true; });
+      if (fresh.length === 0) return 0;
+      const r = await tx.glPartialReconcile.createMany({ data: fresh });
       return r.count;
     },
 

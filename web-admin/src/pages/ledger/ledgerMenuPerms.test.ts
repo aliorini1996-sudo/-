@@ -185,6 +185,9 @@ const ENDPOINTS: Record<string, { get: string[]; writes: string[]; helpers?: str
   'config/mappings': { get: ['/mappings', '/mappings/categories'], writes: ['/mappings'] },
   'config/tags': { get: ['/tags'], writes: ['/tags'] },
   'config/fiscal-years': { get: ['/fiscal-years'], writes: ['/fiscal-years'], gated: { 'GET /settings': 'canConfigureLedger' }, viewLooser: true },
+  // «ربط الدفاتر بالنظام» L2 (العقد l23 §14.3، §15): كل مساراته canConfigureLedger ثم requireCompanyOwner؛
+  // الكتابة الوحيدة POST /linking/preview (صفّ المعاينة)، والاستطلاع GET /linking/preview/:id مساعدة
+  linking: { get: ['/linking/previews', '/linking/preflight'], writes: ['/linking/preview'], helpers: ['/linking/preview/:p'] },
   // M3: العملاء (قراءة؛ «تسجيل عجز» M4) ومراجعة
   'customers/invoices': { get: ['/customers/invoices'], writes: [] },
   'customers/receipts': { get: ['/customers/receipts'], writes: [] },
@@ -324,6 +327,8 @@ test('المقارنة نفسها: خادم مطابق لملحق أ ⇒ لا م
     d('post', '/customer-adjustments', P), d('post', '/customer-adjustments/:p/cancel', P),
     d('get', '/clearing/open', V), d('post', '/clearing', P), d('get', '/customers/user-custody', V),
     d('get', '/config/payment-methods', C), d('put', '/config/payment-methods/:p', C), d('delete', '/config/payment-methods/:p', C),
+    // ربط الدفاتر L2: كلها canConfigureLedger
+    d('post', '/linking/preview', C), d('get', '/linking/preview/:p', C), d('get', '/linking/previews', C), d('get', '/linking/preflight', C),
   ];
   assert.deepEqual(comparePerms(good), []);
   const badView = good.map(x => (x.method === 'get' && x.path === '/items' ? { ...x, perms: [C] } : x));
@@ -381,7 +386,7 @@ function comparePerms(decls: Decl[]): string[] {
 // ═══ مسارات عميل الويب مقابل الخادم، ونقاط كل صفحة مشتقة من استدعاءاتها ═══
 
 const webSrc = path.resolve(process.cwd(), 'src');
-const API_FILES = ['api/ledgerConfig.ts', 'api/ledgerMoves.ts', 'api/ledgerReview.ts', 'api/ledgerSetup.ts', 'api/ledgerPartners.ts', 'api/ledgerOps.ts'];
+const API_FILES = ['api/ledgerConfig.ts', 'api/ledgerMoves.ts', 'api/ledgerReview.ts', 'api/ledgerSetup.ts', 'api/ledgerPartners.ts', 'api/ledgerOps.ts', 'api/ledgerLinking.ts'];
 /** ملف مكوّن كل حوار (الصفوف المسارية ملفها من `component`) */
 const DIALOG_FILES: Record<string, string> = { lockDates: 'components/ledger/LockDatesDialog.tsx' };
 
@@ -450,7 +455,7 @@ function rowCalls(entry: string, client = clientRoutes()): { calls: RowCall[]; u
   for (const f of rowFiles(entry)) {
     const s = fs.readFileSync(f, 'utf8');
     const rel = path.relative(webSrc, f).split(path.sep).join('/');
-    const names = [...s.matchAll(/\b(ledger(?:Config|Moves|Review|Setup|Partners|Ops)Api(?:\.\w+)+)/g)].map(m => m[1]);
+    const names = [...s.matchAll(/\b(ledger(?:Config|Moves|Review|Setup|Partners|Ops|Linking)Api(?:\.\w+)+)/g)].map(m => m[1]);
     if (aliasRe) for (const m of s.matchAll(aliasRe)) names.push(...client.aliases.get(m[1])!);
     for (const n of names) {
       const hits = client.routes.get(n);
@@ -611,4 +616,34 @@ test('نقاط معالج الإعداد (api/ledgerSetup.ts) مشمولة با�
   // تغيّر صلاحية GET /setup في الخادم إلى ما لا يكفيه شرط الفهرس (canConfigureLedger) ⇒ يُلتقط
   const stricter = decls.map(x => (x.method === 'get' && x.path === '/setup' ? { ...x, perms: ['canCloseLedgerPeriods' as LedgerKey] } : x));
   assert.ok(home(compareCalls(stricter, only(homeFixture))).some(s => s.includes('GET /setup') && s.includes('canCloseLedgerPeriods')));
+});
+
+test('ربط الدفاتر (L2): نقاط ledgerLinkingApi الأربع بمساراتها، والصفحة تستدعيها كلها ولا تكتب غير المعاينة، وخفض صلاحيتها يُلتقط', () => {
+  const client = clientRoutes();
+  const linking = [...client.routes.values()].flat().filter(r => r.name.startsWith('ledgerLinkingApi.')).map(r => `${r.name} ${r.method.toUpperCase()} ${r.path}`).sort();
+  assert.deepEqual(linking, [
+    'ledgerLinkingApi.getPreview GET /linking/preview/:p',
+    'ledgerLinkingApi.listPreviews GET /linking/previews',
+    'ledgerLinkingApi.preflight GET /linking/preflight',
+    'ledgerLinkingApi.startPreview POST /linking/preview',
+  ]);
+  // الصفحة تصل فعلاً إلى النقاط الأربع عبر مكوّناتها (components/ledger/linking)
+  const pageCalls = new Set(rowCalls(rowEntry('linking'), client).calls.map(c => `${c.method.toUpperCase()} ${c.path}`));
+  for (const k of ['POST /linking/preview', 'GET /linking/preview/:p', 'GET /linking/previews', 'GET /linking/preflight']) assert.ok(pageCalls.has(k), `الصفحة لا تستدعي ${k}`);
+  // لا زرّ كتابة غير «تشغيل المعاينة» (العقد §17 U1-3)
+  assert.deepEqual([...pageCalls].filter(k => !k.startsWith('GET ')), ['POST /linking/preview'], 'كتابة أخرى في صفحة المعاينة');
+
+  const d = (method: Method, p: string, perm: LedgerKey): Decl => ({ method, path: p, perms: [perm], file: 'fixture.ts' });
+  const C: LedgerKey = 'canConfigureLedger';
+  const decls: Decl[] = [d('post', '/linking/preview', C), d('get', '/linking/preview/:p', C), d('get', '/linking/previews', C), d('get', '/linking/preflight', C)];
+  const call = (method: Method, p: string): RowCall => ({ method, path: p, via: 'fixture', file: 'fixture.tsx' });
+  const pageFixture = [call('post', '/linking/preview'), call('get', '/linking/preview/:p'), call('get', '/linking/previews'), call('get', '/linking/preflight')];
+  const only = (calls: RowCall[]) => (id: string) => (id === 'linking' ? calls : []);
+  const row = (ps: string[]) => ps.filter(x => x.startsWith('linking:'));
+  assert.deepEqual(row(compareCalls(decls, only(pageFixture))), []);
+  // الاستطلاع بصلاحية لا يكفيها عمود العرض أو الكتابة ⇒ يُلتقط
+  const stricter = decls.map(x => (x.path === '/linking/preview/:p' ? { ...x, perms: ['canCloseLedgerPeriods' as LedgerKey] } : x));
+  assert.ok(row(compareCalls(stricter, only(pageFixture))).some(x => x.includes('GET /linking/preview/:p') && x.includes('canCloseLedgerPeriods')));
+  // نقطة يستدعيها الويب ولا يسجّلها الخادم ⇒ تُلتقط
+  assert.ok(row(compareCalls(decls.filter(x => x.path !== '/linking/preflight'), only(pageFixture))).some(x => x.includes('GET /linking/preflight') && x.includes('غير مسجَّل')));
 });

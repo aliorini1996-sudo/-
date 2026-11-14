@@ -826,6 +826,8 @@ test('حارس ثابت: المعاينة والاعتماد يبنيان الق
   assert.match(commit, /openingSource: 'MANUAL_ONLY'/);
   const opening = fs.readFileSync(path.join(__dirname, '..', 'services', 'gl', 'opening.ts'), 'utf8');
   const build = opening.slice(opening.indexOf('export function buildOpeningMove('), opening.indexOf('// ═══ حلّ شركاء'));
+  // «ربط الدفاتر» (L2): الدفاتر المربوطة وحدها تشتقّ سطوراً، في الدالّة المستقلة linkedOpeningLines التي لا تُستدعى إلا مع
+  // `derived` (openingLinked.ts ⇐ المعاينة) — فجسم buildOpeningMove والمسار اليدوي في setup.ts يبقيان كما يحرسهما هذا الاختبار
   assert.doesNotMatch(build, /accountKey: '(AR_CONTROL|REP_CUSTODY|PAYLINK_CLEARING|INVENTORY_WAREHOUSE)'/);
   assert.doesNotMatch(build, /derived\./);
 });

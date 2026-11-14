@@ -3,7 +3,7 @@
  * لا مقارنة حرفية بـsetupMethod === 'CLEAN' في services/gl: استعمل isManualBooks/isLinked/bookMode.
  */
 export {
-  bookMode, isManualBooks, isLinked, postsFromOperations, tenantBookMode, tenantBooksLinked,
+  bookMode, isManualBooks, isLinked, isLinkedMode, postsFromOperations, tenantBookMode, tenantBooksLinked,
   SETUP_METHODS, LINKED_NO_DELETE_CODE, LINKED_NO_DELETE_MESSAGE,
   type BookMode, type BookModeSettings, type BookModeDb, type SetupMethodValue,
 } from '../booksMode';

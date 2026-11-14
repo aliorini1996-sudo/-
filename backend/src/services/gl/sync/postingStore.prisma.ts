@@ -328,6 +328,11 @@ export class PrismaPostingTx implements PostingTx {
   private settingsCache: { timezone: string; currency: string; decimals: number; routing: unknown; cashInvoiceRouting: string; cleanSince: Date | null } | null = null;
   /** «ربط الدفاتر» (D1): وضع الدفاتر ونافذة العهدة — يُملأ مع settingsCache من القراءة نفسها (لا استعلام زائد) */
   private linkCache: LinkedStoreSettings | null = null;
+  /**
+   * نافذة العهدة المغلقة (§5.6) تقرأ gl_source_events وgl_move_lines مباشرةً — المعاينة (services/gl/linking) تطفئها فيُطوى
+   * التاريخ كله من الجداول التشغيلية وحدها، لأن ظلّ الدفاتر لا يدعم تلك الاستعلامات (SHADOW_GL_ACCESS). الإنتاج: مفعّلة.
+   */
+  custodyWindowEnabled = true;
 
   constructor(private readonly tx: GlDb, readonly tenantId: string) {}
 
@@ -570,7 +575,7 @@ export class PrismaPostingTx implements PostingTx {
     // «ربط الدفاتر» §5.6 (3): نافذة العهدة للمربوطة — ما قبل linkedFrom (وأُنشئ حتى T0) صيغةٌ مغلقة من مجاميع SQL، وعناصر
     // النافذة وحدها صفوفاً: O(النافذة) لكل استلام بدل التاريخ كله. null ⇒ تعذّرت الصيغة المغلقة فيُطوى التاريخ كله أدناه
     const link = this.linkCache ?? LINK_NONE;
-    if (link.window) {
+    if (link.window && this.custodyWindowEnabled) {
       const windowed = await this.loadLinkedCustodyInputs(salesRepId, link.window, dec, s.cashInvoiceRouting, routing ?? null);
       if (windowed) return windowed;
     }

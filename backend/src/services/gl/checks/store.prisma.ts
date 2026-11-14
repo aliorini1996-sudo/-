@@ -44,7 +44,8 @@ type AnyPayload = Record<string, unknown> | null;
 const payloadOf = (v: unknown): AnyPayload => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
 
-export function createPrismaCheckStore(db: Db): CheckStore {
+/** opts.custodyWindow=false: المعاينة — نافذة العهدة المغلقة تقرأ جداول الدفاتر الحقيقية التي لا يدعمها الظلّ (انظر custodyWindowEnabled) */
+export function createPrismaCheckStore(db: Db, opts: { custodyWindow?: boolean } = {}): CheckStore {
   const postingTxs = new Map<string, PrismaPostingTx>();
   const d = db as Prisma.TransactionClient;
 
@@ -251,7 +252,11 @@ export function createPrismaCheckStore(db: Db): CheckStore {
 
     async custodyInputs(tenantId, salesRepId) {
       let tx = postingTxs.get(tenantId);
-      if (!tx) { tx = new PrismaPostingTx(d, tenantId); postingTxs.set(tenantId, tx); }
+      if (!tx) {
+        tx = new PrismaPostingTx(d, tenantId);
+        if (opts.custodyWindow === false) tx.custodyWindowEnabled = false;
+        postingTxs.set(tenantId, tx);
+      }
       return tx.loadCustodyInputs(salesRepId);
     },
 

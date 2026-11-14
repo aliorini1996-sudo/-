@@ -7,9 +7,10 @@
 import { custodyComponentsForRep, type CustodyComponentsInput } from '../custody';
 import { zonedStartOfDay } from '../dates';
 import { activeSyncSources, type LockDates } from '../locks';
-import { isManualBooks } from '../mode';
+import { isLinkedMode, isManualBooks } from '../mode';
 import type { SetupMethod } from '../sync/classify';
 import { cutoverContextOf } from '../sync/poster';
+import type { BookMode } from '../mode';
 import type { BackfillState, InventoryMode, LocalDate, Milli } from '../types';
 import {
   evaluateC1, evaluateC10, evaluateC11, evaluateC12, evaluateC14, evaluateC15, evaluateC2, evaluateC3, evaluateC4, evaluateC4b,
@@ -41,6 +42,16 @@ export interface CheckSettingsFacts {
   lockDates: LockDates;
   /** «ربط الدفاتر» (D1): دفاتر مربوطة مفعّلة (isLinked) — الغائب = غير مربوطة (المخازن القديمة) */
   linked?: boolean;
+  /** «ربط الدفاتر»: يملؤه checks/store.prisma.ts بعد دمج L0 (D13) — غيابه = السلوك القائم */
+  bookMode?: BookMode | null;
+}
+
+/**
+ * فحص C3 الفرعي «صف افتتاحي حُذف بلا حدث» يعود للدفاتر المربوطة: افتتاحها مشتقّ من صفوف AccountEntry قبل البدء نفسها
+ * (القاعدة 7)، فاختلاف الأستاذ الافتتاحي عن تلك الصفوف عطلٌ حقيقي. اليدوية والقديمة (وغياب الحقل) موقوف كما كان.
+ */
+export function c3OpeningEntriesEnabled(s: Pick<CheckSettingsFacts, 'bookMode' | 'linked'>): boolean {
+  return s.linked === true || isLinkedMode(s.bookMode);
 }
 
 export interface ControlAccountFacts { id: string; code: string; controlKind: string }
@@ -162,11 +173,12 @@ export async function loadC3Input(store: CheckStore, tenantId: string, s: CheckS
   const exclude = s.cutoverDate && s.openingSnapshotAt
     ? { cutoverStart: zonedStartOfDay(cut.cutoverDate, cut.timezone), openingSnapshotAt: cut.openingSnapshotAt, cleanStart: cut.cleanStart === true }
     : null;
-  // تعمّق «صف افتتاحي حُذف بلا حدث» (البند 6 (ج)) موقوف: كان يفترض أن سطور الذمم في القيد الافتتاحي مشتقّة من
-  // صفوف AccountEntry قبل البدء فيقارن بينهما. أُزيلت الأرصدة المشتقة بقرار الخبير المحاسبي (٢٧ سبتمبر ٢٠٢٦) وصار
+  // تعمّق «صف افتتاحي حُذف بلا حدث» (البند 6 (ج)) موقوف لغير المربوطة: كان يفترض أن سطور الذمم في القيد الافتتاحي مشتقّة
+  // من صفوف AccountEntry قبل البدء فيقارن بينهما. أُزيلت الأرصدة المشتقة بقرار الخبير المحاسبي (٢٧ سبتمبر ٢٠٢٦) وصار
   // الافتتاح ما يُدخله المحاسب بنفسه، فالمقارنة تُظهر كل اختلاف مشروع بين دفاتره السابقة والتطبيق عطلاً أحمر كاذباً.
+  // الدفاتر المربوطة («ربط الدفاتر» LINKED) تعيد الاشتقاق فيعود الفحص لها وحدها (c3OpeningEntriesEnabled).
   // المعادلة الأساسية لـC3 (الأستاذ = افتتاح الأستاذ + حركات ما بعد البدء) تبقى كما هي.
-  const withOpeningEntries = false as boolean;
+  const withOpeningEntries = c3OpeningEntriesEnabled(s);
   const [ledger, opening, entriesAfterCutover, deletedOpeningImports, openingEntries] = await Promise.all([
     ar.length ? store.ledgerByPartner(tenantId, ar, 'customerId') : Promise.resolve(new Map<string, Milli>()),
     ar.length ? store.ledgerByPartner(tenantId, ar, 'customerId', { moveType: 'OPENING' }) : Promise.resolve(new Map<string, Milli>()),

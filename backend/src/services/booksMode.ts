@@ -41,6 +41,11 @@ export function isManualBooks(s: BookModeSettings | null | undefined): boolean {
   return !!s && s.setupMethod === 'CLEAN';
 }
 
+/** قيمة وضعٍ محسوبة (BookMode) تعني «مربوطة»؟ — لمن يحمل الوضع لا الإعدادات (لقطات الفحوص والمعاينة) */
+export function isLinkedMode(m: BookMode | null | undefined): boolean {
+  return m === 'LINKED';
+}
+
 /** دفاتر مربوطة مفعّلة — حرّاس «لا حذف للمرحَّل» وقفل العملة/الدولة تعمل لهذه وحدها */
 export function isLinked(s: BookModeSettings | null | undefined): boolean {
   return bookMode(s) === 'LINKED';
