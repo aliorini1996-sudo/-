@@ -409,6 +409,8 @@ export interface LinkingConversionStatus {
   convertible: boolean;
   linkedFrom: LocalDate | null;
   duplicates: { count: number; moves: LinkingDuplicate[] };
+  /** قيود يدوية للموردين/الضريبة لا تُعكس آلياً (مصروف بضريبة، فاتورة مورّد وسدادها، توريد ضريبة) — تبقى ويراجعها المحاسب */
+  review?: { count: number; moves: LinkingDuplicate[] };
 }
 
 export function fetchLinkingConversion() {

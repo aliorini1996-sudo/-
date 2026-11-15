@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   LINKING_AUDIT_DUPLICATE, LINKING_AUDIT_ENABLE, LINKING_DUPLICATES_ACK_CODE, LINKING_DUPLICATE_REASON,
-  conversionPreconditions, conversionStatus, convertManualBooks, findLinkingDuplicates, isAutoPostedAccount, linkingCommitHooks,
+  classifyLinkingManualMoves, conversionPreconditions, conversionStatus, convertManualBooks, findLinkingDuplicates, isAutoPostedAccount, isSalesSideAccount, linkingCommitHooks,
   type ConvertDeps, type ConvertInput,
 } from '../services/gl/linking/activate';
 import { isAuditAction } from '../services/gl/audit';
@@ -27,6 +27,11 @@ const ACCOUNTS = [
   { id: 'a-vat', code: '212001', controlKind: null },
   { id: 'a-rent', code: '521001', controlKind: null },
   { id: 'a-cap', code: '311001', controlKind: null },
+  // للتصنيف: ضريبة المدخلات، والموردون (ذمة فرعية وGRNI)، ومصروف
+  { id: 'a-vin', code: '116001', controlKind: 'VAT_IN' },
+  { id: 'a-ven', code: '211003', controlKind: null },
+  { id: 'a-grni', code: '211002', controlKind: null },
+  { id: 'a-exp', code: '611001', controlKind: null },
 ];
 
 interface FakeMove {
@@ -60,7 +65,7 @@ const MOVES: FakeMove[] = [
 ];
 
 /** معاملة مزيّفة تقيّم مسند findLinkingDuplicates على MOVES وتسجّل كل نداء — أي حذف أو تعديل قيد يُرمى */
-function fakeTx(o: { name?: string; warehouseEnabled?: boolean } = {}) {
+function fakeTx(o: { name?: string; warehouseEnabled?: boolean; moves?: FakeMove[] } = {}) {
   const calls: string[] = [];
   const writes: Record<string, unknown[]> = {};
   const rec = (k: string, a: unknown) => { calls.push(k); (writes[k] ??= []).push(a); };
@@ -77,7 +82,7 @@ function fakeTx(o: { name?: string; warehouseEnabled?: boolean } = {}) {
       findMany: async (a: { where: W }) => {
         calls.push('glMove.findMany');
         const w = a.where;
-        return MOVES.filter((m) => m.state === w.state && m.origin === w.origin && m.sourceType === w.sourceType && !w.moveType.notIn.includes(m.moveType)
+        return (o.moves ?? MOVES).filter((m) => m.state === w.state && m.origin === w.origin && m.sourceType === w.sourceType && !w.moveType.notIn.includes(m.moveType)
           && m.reversedMoveId === null && m.reversal === null && m.date >= w.date.gte && m.lines.some((l) => w.lines.some.accountId.in.includes(l.accountId)));
       },
       delete: forbid('glMove.delete'), deleteMany: forbid('glMove.deleteMany'), update: forbid('glMove.update'), updateMany: forbid('glMove.updateMany'),
@@ -220,7 +225,7 @@ test('غير اليدوية كما هي: لا تحويل للمفعّلة بطر
   assert.equal(st.linkedFrom, '2026-03-01');
   assert.equal(st.duplicates.count, 2);
   const none = await conversionStatus({ glSettings: { findUnique: async () => ({ setupMethod: 'OPENING', activatedAt: T0, cutoverDate: day('2026-01-01') }) } } as never, 't1');
-  assert.deepEqual(none, { convertible: false, linkedFrom: null, duplicates: { count: 0, moves: [] } });
+  assert.deepEqual(none, { convertible: false, linkedFrom: null, duplicates: { count: 0, moves: [] }, review: { count: 0, moves: [] } });
   // الخطّافات: الإقرار من الجسم وحده
   assert.equal(linkingCommitHooks('شركة').reverseDuplicates, false);
   assert.equal(linkingCommitHooks('شركة', { reverseDuplicates: true }).reverseDuplicates, true);
@@ -229,4 +234,51 @@ test('غير اليدوية كما هي: لا تحويل للمفعّلة بطر
   assert.match(s, /const converting = !!linking && !!before\?\.activatedAt && isManualBooks\(before\);/);
   const i = s.indexOf('if (converting && linking && before) {');
   assert.ok(i > 0 && i < s.indexOf('const draft = mergeDraft(parseStoredDraft(before?.setupDraft)'), 'التحويل قبل المسودة والافتتاح');
+});
+
+test('التصنيف: جانب المبيعات يُعكس بالإقرار؛ مصروف بضريبة مدخلات وفاتورة مورّد وسداده وتوريد الضريبة لا تُعكس بل تُعرض للمراجعة', async () => {
+  const moves = [
+    // INV يدوي: نقدي بإيراد وضريبة مخرجات ⇒ مكرّر
+    mv('inv', '2026-03-10', [['a-bank', 1_150_000n, 0n], ['a-rev', 0n, 1_000_000n], ['a-vat', 0n, 150_000n]], { number: 'INV/2026/03/0001' }),
+    // مصروف بضريبة مدخلات من البنك ⇒ للمراجعة (النظام لا يرحّله)
+    mv('exp', '2026-03-11', [['a-exp', 200_000n, 0n], ['a-vin', 30_000n, 0n], ['a-bank', 0n, 230_000n]], { number: 'EXP/2026/03/0001' }),
+    // BILL يدوي لمورّد خدمات ⇒ للمراجعة
+    mv('bill', '2026-03-12', [['a-exp', 1_000_000n, 0n], ['a-vin', 150_000n, 0n], ['a-ven', 0n, 1_150_000n]], { number: 'BILL/2026/03/0001' }),
+    // PAY يدوي: سداد المورّد من البنك ⇒ للمراجعة
+    mv('pay', '2026-03-20', [['a-ven', 1_150_000n, 0n], ['a-bank', 0n, 1_150_000n]], { number: 'PAY/2026/0001' }),
+    // استلام بضاعة على GRNI ⇒ للمراجعة
+    mv('grni', '2026-03-21', [['a-exp', 50_000n, 0n], ['a-grni', 0n, 50_000n]]),
+    // توريد ضريبة المخرجات يدوياً ⇒ للمراجعة
+    mv('vatpay', '2026-04-05', [['a-vat', 400_000n, 0n], ['a-bank', 0n, 400_000n]]),
+    // مختلط: مبيعات وسداد في قيد واحد ⇒ يمسّ جانب المبيعات ⇒ مكرّر
+    mv('mixed', '2026-04-06', [['a-ar', 100_000n, 0n], ['a-rev', 0n, 100_000n], ['a-ven', 10_000n, 0n], ['a-bank', 0n, 10_000n]]),
+  ];
+  const { tx } = fakeTx({ moves });
+  const c = await classifyLinkingManualMoves(tx, 't1', '2026-03-01');
+  assert.deepEqual(c.duplicates.map((m) => m.id), ['inv', 'mixed']);
+  assert.deepEqual(c.review.map((m) => m.id), ['exp', 'bill', 'pay', 'grni', 'vatpay']);
+  assert.deepEqual((await findLinkingDuplicates(tx, 't1', '2026-03-01')).map((m) => m.id), ['inv', 'mixed']);
+  assert.equal(isSalesSideAccount({ code: '116001', controlKind: 'VAT_IN' }), false);
+  assert.equal(isSalesSideAccount({ code: '211001', controlKind: 'AP' }), false);
+  assert.equal(isSalesSideAccount({ code: '113001', controlKind: 'AR' }), true);
+  assert.equal(isSalesSideAccount({ code: '511001', controlKind: null }), true);
+  // بلا إقرار: 409 بعدد المكرّر وحده، والمراجعة في التفاصيل والرسالة
+  const r = await conversionPreconditions(fakeTx({ moves }).tx, { ...INPUT, reverseDuplicates: false });
+  assert.ok('block' in r && r.block.code === LINKING_DUPLICATES_ACK_CODE);
+  assert.match(r.block.message, /2 قيداً يدوياً منذ 2026-03-01/);
+  assert.match(r.block.message, /و5 قيداً يدوياً للموردين أو الضريبة لن يُعكس/);
+  assert.equal((r.block.details as { review: { count: number } }).review.count, 5);
+  // بالإقرار: الخطة تعكس المكرّر وحده وتُبقي المراجعة
+  const ok = await conversionPreconditions(fakeTx({ moves }).tx, INPUT);
+  assert.ok('plan' in ok);
+  assert.deepEqual(ok.plan.duplicates.map((m) => m.id), ['inv', 'mixed']);
+  assert.deepEqual(ok.plan.review.map((m) => m.id), ['exp', 'bill', 'pay', 'grni', 'vatpay']);
+  // مراجعة بلا مكرّر ⇒ لا يلزم إقرار ولا يُعكس شيء
+  const onlyReview = await conversionPreconditions(fakeTx({ moves: moves.filter((m) => m.id !== 'inv' && m.id !== 'mixed') }).tx, { ...INPUT, reverseDuplicates: false });
+  assert.ok('plan' in onlyReview);
+  assert.equal(onlyReview.plan.duplicates.length, 0);
+  assert.equal(onlyReview.plan.review.length, 5);
+  const st = await conversionStatus(fakeTx({ moves }).tx, 't1');
+  assert.equal(st.duplicates.count, 2);
+  assert.equal(st.review.count, 5);
 });

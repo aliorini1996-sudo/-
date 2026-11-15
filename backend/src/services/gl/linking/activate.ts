@@ -357,6 +357,9 @@ export const LINKING_DUPLICATE_REASON = 'LINKING_DUPLICATE';
 export const LINKING_DUPLICATE_NARRATION = 'عكس قيد يدوي مكرّر عند ربط الدفاتر: النظام يرحّل المستند نفسه آلياً';
 export const LINKING_AUDIT_DUPLICATE: AuditAction = 'LINKING_DUPLICATE_REVERSE';
 export const LINKING_DUPLICATES_ACK_CODE = 'LINKING_DUPLICATES_ACK';
+export function linkingReviewNote(count: number): string {
+  return `و${count} قيداً يدوياً للموردين أو الضريبة لن يُعكس (قد لا يعرفه النظام: مصروف بضريبة أو سداد مورّد) — يراجعه المحاسب ويعكس بنفسه ما كرّرته مشتريات النظام`;
+}
 export function linkingDuplicatesMessage(count: number, from: LocalDate): string {
   return `في دفاترك ${count} قيداً يدوياً منذ ${from} يمسّ حسابات يرحّلها النظام آلياً — تُعكس بتاريخها لأن النظام سيرحّلها تلقائياً (لا يُحذف شيء). أقرّ بعكسها ثم اربط`;
 }
@@ -377,10 +380,29 @@ export interface LinkingDuplicate { id: string; number: string | null; date: Loc
 export type DuplicatesDb = Pick<GlTx, 'glAccount' | 'glMove'>;
 
 /**
- * القيود اليدوية المكرّرة: مرحّلة، يدوية المنشأ بلا مستند مالك (sourceType فارغ)، غير معكوسة ولا عاكسة، ليست افتتاحاً ولا إقفالاً،
- * بتاريخ ≥ from، وتمسّ حساباً يرحّله النظام آلياً (نوع تحكّم أو البادئات أعلاه).
+ * جانب المبيعات والمخزون: النظام مصدرها الوحيد (فواتير المناديب وسنداتهم وعهدتهم ومخزونهم) ⇒ القيد اليدوي عليها منذ البدء مكرّر.
+ * أما الموردون (211، AP/GRNI) وحسابا الضريبة (116001/212001) والمعلّق فيمسّها اليدوي المشروع أيضاً: مصروف بضريبة مدخلات،
+ * وفاتورة مورّد خدمات وسدادها، وتوريد الضريبة — النظام لا يرحّل شيئاً منها، فعكسها يمحو مصروفاً وضريبة ونقداً حقيقية.
  */
-export async function findLinkingDuplicates(db: DuplicatesDb, tenantId: string, from: LocalDate): Promise<LinkingDuplicate[]> {
+export const SALES_SIDE_PREFIXES: readonly string[] = ['411', '412', '413', '114', '511', '514'];
+export const SALES_SIDE_CONTROL_KINDS: readonly string[] = ['AR', 'CUSTODY', 'PAYLINK', 'INVENTORY'];
+
+export function isSalesSideAccount(a: { code: string; controlKind: string | null }): boolean {
+  return (a.controlKind != null && SALES_SIDE_CONTROL_KINDS.includes(a.controlKind)) || SALES_SIDE_PREFIXES.some((p) => a.code.startsWith(p));
+}
+
+export interface LinkingManualMoves {
+  /** تمسّ حساباً في جانب المبيعات والمخزون ⇒ تُعكس بإقرار */
+  duplicates: LinkingDuplicate[];
+  /** لا تمسّ إلا الموردين/الضريبة/المعلّق ⇒ لا تُعكس آلياً: تبقى كما هي ويراجعها المحاسب (ما كرّرته مشتريات النظام يعكسه بنفسه) */
+  review: LinkingDuplicate[];
+}
+
+/**
+ * القيود اليدوية المرشّحة: مرحّلة، يدوية المنشأ بلا مستند مالك (sourceType فارغ)، غير معكوسة ولا عاكسة، ليست افتتاحاً ولا إقفالاً،
+ * بتاريخ ≥ from، وتمسّ حساباً يرحّله النظام آلياً (نوع تحكّم أو البادئات أعلاه) — ثم تُصنَّف: مكرّرة (جانب المبيعات) أو للمراجعة.
+ */
+export async function classifyLinkingManualMoves(db: DuplicatesDb, tenantId: string, from: LocalDate): Promise<LinkingManualMoves> {
   const accounts = await db.glAccount.findMany({
     where: {
       tenantId,
@@ -392,26 +414,37 @@ export async function findLinkingDuplicates(db: DuplicatesDb, tenantId: string, 
     },
     select: { id: true, code: true, controlKind: true },
   });
-  const ids = accounts.filter(isAutoPostedAccount).map((a) => a.id);
-  if (!ids.length) return [];
+  const auto = accounts.filter(isAutoPostedAccount);
+  if (!auto.length) return { duplicates: [], review: [] };
+  const salesSide = new Set(auto.filter(isSalesSideAccount).map((a) => a.id));
   const rows = await db.glMove.findMany({
     where: {
       tenantId, state: 'POSTED', origin: 'MANUAL', sourceType: null, moveType: { notIn: [...NON_DUPLICATE_MOVE_TYPES] },
-      reversedMoveId: null, reversal: { is: null }, date: { gte: toDbDate(from) }, lines: { some: { accountId: { in: ids } } },
+      reversedMoveId: null, reversal: { is: null }, date: { gte: toDbDate(from) }, lines: { some: { accountId: { in: auto.map((a) => a.id) } } },
     },
-    select: { id: true, number: true, date: true, moveType: true, ref: true, narration: true, totalMilli: true },
+    select: { id: true, number: true, date: true, moveType: true, ref: true, narration: true, totalMilli: true, lines: { select: { accountId: true } } },
     orderBy: [{ date: 'asc' }, { id: 'asc' }],
   });
-  return rows.map((r) => ({
-    id: r.id, number: r.number, date: fromDbDate(r.date), moveType: r.moveType, ref: r.ref, narration: r.narration, totalMilli: String(r.totalMilli),
-  }));
+  const out: LinkingManualMoves = { duplicates: [], review: [] };
+  for (const r of rows) {
+    const item: LinkingDuplicate = {
+      id: r.id, number: r.number, date: fromDbDate(r.date), moveType: r.moveType, ref: r.ref, narration: r.narration, totalMilli: String(r.totalMilli),
+    };
+    (r.lines.some((l) => salesSide.has(l.accountId)) ? out.duplicates : out.review).push(item);
+  }
+  return out;
+}
+
+/** المكرّرة وحدها (جانب المبيعات والمخزون) — ما يُعكس بالإقرار */
+export async function findLinkingDuplicates(db: DuplicatesDb, tenantId: string, from: LocalDate): Promise<LinkingDuplicate[]> {
+  return (await classifyLinkingManualMoves(db, tenantId, from)).duplicates;
 }
 
 /** صفّ gl_settings الذي يقرؤه التحويل */
 export type ConvertSettingsRow = Pick<GlSettings, 'setupMethod' | 'activatedAt' | 'cutoverDate' | 'openingSnapshotAt' | 'currency' | 'receiptRouting'>
   & Partial<Record<LockField, Date | null>>;
 
-export interface ConversionPlan { linkedFrom: LocalDate; snapshotAt: Date; duplicates: LinkingDuplicate[] }
+export interface ConversionPlan { linkedFrom: LocalDate; snapshotAt: Date; duplicates: LinkingDuplicate[]; review: LinkingDuplicate[] }
 
 export interface ConversionInput {
   tenantId: string;
@@ -447,16 +480,20 @@ export async function conversionPreconditions(db: ConversionDb, i: ConversionInp
       },
     };
   }
-  const duplicates = await findLinkingDuplicates(db, i.tenantId, linkedFrom);
+  const { duplicates, review } = await classifyLinkingManualMoves(db, i.tenantId, linkedFrom);
   if (duplicates.length && i.reverseDuplicates !== true) {
     return {
       block: {
-        status: 409, code: LINKING_DUPLICATES_ACK_CODE, message: linkingDuplicatesMessage(duplicates.length, linkedFrom),
-        details: { reason: 'DUPLICATES_ACK_REQUIRED', field: 'reverseDuplicates', count: duplicates.length, from: linkedFrom, moves: duplicates.slice(0, 50) },
+        status: 409, code: LINKING_DUPLICATES_ACK_CODE,
+        message: linkingDuplicatesMessage(duplicates.length, linkedFrom) + (review.length ? ` — ${linkingReviewNote(review.length)}` : ''),
+        details: {
+          reason: 'DUPLICATES_ACK_REQUIRED', field: 'reverseDuplicates', count: duplicates.length, from: linkedFrom, moves: duplicates.slice(0, 50),
+          review: { count: review.length, moves: review.slice(0, 50) },
+        },
       },
     };
   }
-  return { plan: { linkedFrom, snapshotAt: b.openingSnapshotAt, duplicates } };
+  return { plan: { linkedFrom, snapshotAt: b.openingSnapshotAt, duplicates, review } };
 }
 
 export interface ReversedDuplicate { originalId: string; originalNumber: string | null; reversalId: string; reversalNumber: string; date: LocalDate }
@@ -513,7 +550,7 @@ export async function convertManualBooks(
 ): Promise<{ value: ConvertResult } | { block: LinkingBlock }> {
   const verdict = await conversionPreconditions(tx, i);
   if ('block' in verdict) return verdict;
-  const { linkedFrom, snapshotAt, duplicates } = verdict.plan;
+  const { linkedFrom, snapshotAt, duplicates, review } = verdict.plan;
   const reversed = duplicates.length
     ? await reverseLinkingDuplicates(tx, { tenantId: i.tenantId, actor: i.actor, context: await deps.loadContext(tx, i.tenantId), now: i.dbNow, duplicates }, deps)
     : [];
@@ -542,6 +579,7 @@ export async function convertManualBooks(
       linking: {
         basis: LINKING_CONVERT_BASIS, linkedFrom, linkSnapshotAt: snapshotAt.toISOString(), converted: true, openingSource: 'MANUAL_KEPT',
         inventoryMode, watermarkAt: watermarkAt.toISOString(), reversedDuplicates: reversed, finalAcknowledged: true,
+        keptForReview: review.map((r) => ({ id: r.id, number: r.number, date: r.date })),
       },
     },
   });
@@ -551,12 +589,18 @@ export async function convertManualBooks(
 /** حالة التحويل للبطاقة (قراءة فقط): هل الدفاتر يدوية مفعّلة، وتاريخ الربط، والقيود المكرّرة (عددها وأول ٥٠) */
 export async function conversionStatus(db: Pick<GlTx, 'glSettings' | 'glAccount' | 'glMove'>, tenantId: string): Promise<{
   convertible: boolean; linkedFrom: LocalDate | null; duplicates: { count: number; moves: LinkingDuplicate[] };
+  review: { count: number; moves: LinkingDuplicate[] };
 }> {
   const s = await db.glSettings.findUnique({ where: { tenantId }, select: { setupMethod: true, activatedAt: true, cutoverDate: true } });
-  if (!s?.activatedAt || !isManualBooks(s) || !s.cutoverDate) return { convertible: false, linkedFrom: null, duplicates: { count: 0, moves: [] } };
+  if (!s?.activatedAt || !isManualBooks(s) || !s.cutoverDate) {
+    return { convertible: false, linkedFrom: null, duplicates: { count: 0, moves: [] }, review: { count: 0, moves: [] } };
+  }
   const linkedFrom = fromDbDate(s.cutoverDate);
-  const dups = await findLinkingDuplicates(db, tenantId, linkedFrom);
-  return { convertible: true, linkedFrom, duplicates: { count: dups.length, moves: dups.slice(0, 50) } };
+  const { duplicates: dups, review } = await classifyLinkingManualMoves(db, tenantId, linkedFrom);
+  return {
+    convertible: true, linkedFrom,
+    duplicates: { count: dups.length, moves: dups.slice(0, 50) }, review: { count: review.length, moves: review.slice(0, 50) },
+  };
 }
 
 // ═══ الخطّافات التي يمرّرها POST /linking/commit إلى معالج الاعتماد (setup.ts) ═══

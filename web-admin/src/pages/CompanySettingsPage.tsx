@@ -842,6 +842,7 @@ function BooksLinkingCard({ status, companyName }: { status: BooksLinkingStatus;
     staleTime: 30_000,
   });
   const dupCount = manual ? conversion.data?.duplicates.count ?? 0 : 0;
+  const reviewCount = manual ? conversion.data?.review?.count ?? 0 : 0;
   const nameOk = typed.trim().length > 0 && typed.trim() === companyName.trim();
   const needsExtraAck = !!error?.code && LINKING_ACK_CODES.includes(error.code);
 
@@ -952,6 +953,23 @@ function BooksLinkingCard({ status, companyName }: { status: BooksLinkingStatus;
                   <input type="checkbox" className="w-4 h-4 mt-0.5 accent-[#E15A30]" checked={dupAck} onChange={e => setDupAck(e.target.checked)} />
                   {tr('تُعكس هذه القيود اليدوية لأن النظام سيرحّلها تلقائياً — لا يُحذف شيء')}
                 </label>
+              </div>
+            )}
+            {manual && reviewCount > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs space-y-2 text-amber-900">
+                <p className="font-medium">
+                  {tr('قيود يدوية للموردين أو الضريبة لن تُعكس: {count}').replace('{count}', String(reviewCount))}
+                </p>
+                <p>{tr('قد لا يعرفها النظام (مصروف بضريبة، فاتورة مورّد وسدادها، توريد ضريبة) فتبقى كما هي — يراجعها المحاسب ويعكس بنفسه ما سجّلته مشتريات النظام أيضاً')}</p>
+                <ul className="max-h-32 overflow-y-auto divide-y divide-amber-100">
+                  {(conversion.data?.review?.moves ?? []).slice(0, 10).map((m) => (
+                    <li key={m.id} className="flex justify-between gap-2 py-1" dir="auto">
+                      <span>{m.number ?? '—'} · {m.date}</span>
+                      <span className="tabular-nums">{(Number(m.totalMilli) / 1000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </li>
+                  ))}
+                </ul>
+                {reviewCount > 10 && <p className="opacity-70">{tr('و{count} غيرها').replace('{count}', String(reviewCount - 10))}</p>}
               </div>
             )}
             <div>
