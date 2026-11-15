@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createElement, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { FormInvoice, formMarksBand, formSheetOfLook, type FormInvoiceFacts } from './printPreprinted';
+import { FormInvoice, VALUE_BLEED_MM, formMarksBand, formSheetOfLook, type FormInvoiceFacts } from './printPreprinted';
 import { PrintableInvoice, invoiceDocFromDetail, type InvoiceDoc } from './RepDocuments';
 import { DEFAULT_PRINT_LOOK, PrintLookContext, lookFor, type PrintLook } from './printLook';
 import { zatcaPrintDecision, type ZatcaPrintDecision } from '../lib/zatca/docPrint';
@@ -129,6 +129,11 @@ test('المواضع بالمم من ركن الورقة + المعايرة dx/d
   assert.match(num, /text-align:center/);
   assert.match(num, /white-space:nowrap;overflow:hidden;text-overflow:ellipsis/);
   assert.match(num, />SI-2026-000123</);
+  // بلاغ ١٥ نوفمبر ٢٠٢٦ (أسفل الحروف مقصوص على النقطية): الصندوق لا يقصّ رأسياً — القصّ أفقيٌّ في غلافٍ بعرضه يمتدّ VALUE_BLEED_MM
+  // فوقه وتحته بسطرٍ أطول بضعفها (6 + 2×4 = 14 مم) فيبقى مركز النص حيث كان
+  assert.match(num, /line-height:6mm;font-size:11pt;text-align:center;white-space:nowrap;overflow:visible"/);
+  assert.match(num, /<div data-form-value="" style="position:absolute;left:0;right:0;top:-4mm;bottom:-4mm;box-sizing:border-box;padding:0 0\.5mm;line-height:14mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">/);
+  assert.equal(VALUE_BLEED_MM, 4);
   const total = boxOf(html, 'data-form-field="totalDue"')!;
   assert.match(total, /left:151\.5mm;top:266mm/);
   assert.match(total, /font-size:13\.2pt;font-weight:700/);
@@ -204,7 +209,7 @@ test('القيم كالقالب ثنائي اللغة: الدفع والعنوا
   assert.match(v('remainingAmt')!, />1,000\.00</);
   assert.match(v('docTitle')!, />فاتورة ضريبية</);
   assert.equal(v('customerBusiness'), null, 'الفارغ لا يُطبع');
-  const cells = (col: string) => [...html.matchAll(new RegExp(`data-form-col="${col}"[^>]*>(?:<span[^>]*>)?([^<]*)<`, 'g'))].map((m) => m[1]);
+  const cells = (col: string) => [...html.matchAll(new RegExp(`data-form-col="${col}"[^>]*>(?:<div data-form-value[^>]*>)?(?:<span[^>]*>)?([^<]*)<`, 'g'))].map((m) => m[1]);
   assert.deepEqual(cells('barcode'), ['6281000001', '6281000002', '6281000003', '6281000004', '6281000005']);
   assert.deepEqual(cells('itemCode').slice(0, 2), ['P-1', 'P-2']);
   // الشامل والتفصيل ظاهر: 11.50 شاملاً ⇒ 10.00 قبل الضريبة (كالقالب ثنائي اللغة)، والإجمالي كما خُزّن
