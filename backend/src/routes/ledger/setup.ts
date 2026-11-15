@@ -709,7 +709,8 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(setupCommitImpl = async (r
     // L9 مبسّط (B1): الدفاتر اليدوية المفعّلة تُربط من تاريخ بدئها — الافتتاح القائم وكل قيد باقٍ، والقيود اليدوية المكرّرة تُعكس
     // بتاريخها بإقرار (reverseDuplicates). لا افتتاح جديد ولا مسودة: الخطّاف يكتب كل شيء داخل هذه المعاملة والقفل.
     if (converting && linking && before) {
-      assertRoutingCustodyCashOnly(before.receiptRouting ?? null, true); // «ربط الدفاتر» OD4 على التوجيه المحفوظ
+      // «ربط الدفاتر» OD4: توجيه الدفاتر اليدوية القديم (التحويل البنكي ونقاط البيع ⇒ عهدة المندوب — الافتراضي القديم) لا يمنع
+      // التحويل؛ يُصحَّح آلياً عند الاعتماد (convert ⇒ linkedReceiptRouting): غير النقدي إلى حسابه مباشرة، والنقد والشيكات كما هي
       const r = await linking.convert(tx, { tenantId, before, companyCurrency: company.currency, actor, actorId, dbNow });
       if ('block' in r) throw new LedgerHttpError(r.block.status, r.block.message, r.block.details, r.block.code);
       const c = r.value;

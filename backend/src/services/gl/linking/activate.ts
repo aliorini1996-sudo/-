@@ -45,6 +45,17 @@ import { LINKED_DEFAULT_RECEIPT_ROUTING, type LinkedOpeningPayables } from './ty
 
 // ═══ الثوابت ═══
 
+/**
+ * توجيه السندات للمربوطة (OD4): التوجيه القائم بعد تصحيحه — التحويل البنكي ونقاط البيع لا تمرّ بعهدة المندوب (المال في البنك أو عند
+ * مزوّد الجهاز) فتُوجَّه مباشرةً إلى حساب الطريقة؛ النقد والشيكات واختيارات المستخدم الأخرى كما هي. بلا توجيه ⇒ الافتراضي.
+ */
+export function linkedReceiptRouting(routing: unknown): Record<string, unknown> {
+  if (!routing || typeof routing !== 'object' || Array.isArray(routing)) return { ...LINKED_DEFAULT_RECEIPT_ROUTING };
+  const out: Record<string, unknown> = { ...LINKED_DEFAULT_RECEIPT_ROUTING, ...(routing as Record<string, unknown>) };
+  for (const m of ['BANK_TRANSFER', 'POS'] as const) if (out[m] === 'CUSTODY') out[m] = LINKED_DEFAULT_RECEIPT_ROUTING[m];
+  return out;
+}
+
 /** أساس الربط الوحيد في الزرّ: بأثر رجعي من بداية السنة المالية (قرار المالك) */
 export const LINKING_COMMIT_BASIS = 'FY_RESTATED' as const;
 
@@ -517,7 +528,7 @@ export async function convertManualBooks(
       setupMethod: 'LINKED', linkBasis: LINKING_CONVERT_BASIS, linkedFrom: toDbDate(linkedFrom), linkSnapshotAt: snapshotAt,
       linkedAt: i.dbNow, linkedBy: i.actorId, backfillState: 'RUNNING',
       inventoryMode, perpetualFromDate: inventoryMode === 'PERPETUAL' ? toDbDate(linkedFrom) : null,
-      ...(i.before.receiptRouting == null ? { receiptRouting: { ...LINKED_DEFAULT_RECEIPT_ROUTING } as Prisma.InputJsonValue } : {}),
+      receiptRouting: linkedReceiptRouting(i.before.receiptRouting) as Prisma.InputJsonValue,
     },
   });
   const watermarkAt = initialWatermarkAt({ method: 'OPENING', cutoverDate: linkedFrom, openingSnapshotAt: snapshotAt, timezone: settings.timezone });
