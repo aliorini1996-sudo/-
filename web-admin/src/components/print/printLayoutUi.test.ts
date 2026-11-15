@@ -16,7 +16,7 @@ import { PHRASES } from '../../i18n/strings';
 // حقول «التخطيط» ودوالّها في PrintPreview.tsx لا في اللوحة: اللوحة تستورد عميل الـAPI (import.meta.env وlocalStorage) فلا تُحمَّل هنا
 import PrintPreview, {
   FormThumb, LAYOUT_FONT_SCALES, PaperPreview, accentInputState, applyDesignCard, designCardId, designCardSelected, designCards, effectiveFontScale, layoutEditable,
-  logoChoices, orderIsDefault, previewFormDoc, previewInvoiceDoc, previewReceiptDoc, resetSectionOrder, sectionRows, withLayoutFontScale,
+  layoutFontScalesFor, logoChoices, orderIsDefault, previewFormDoc, previewInvoiceDoc, previewReceiptDoc, resetSectionOrder, sectionRows, withLayoutFontScale,
 } from './PrintPreview';
 import { FORM_COLUMN_LABELS, FORM_FIELD_LABELS, formOf, formReachOf, printedBox, withFormField } from '../../lib/print/formModel';
 import { TAX_OFF_TEMPLATE_HINTS, TaxOffPrintContext, templateHintFor } from './taxOffPrint';
@@ -479,4 +479,18 @@ test('اللوحة للنموذج على النقطية: «رمز QR» برسا�
   const sheet = read('src', 'rep', 'PrintDeviceSheet.tsx');
   assert.ok(sheet.includes(`\${${label}}`));
   assert.ok(!sheet.includes('${tr(TEMPLATE_LABELS[p.template])}'));
+});
+
+test('حجم الخط للنقطية يبدأ بـ75٪ و80٪ (طلب المالك ١٥ نوفمبر ٢٠٢٦) — والصفحة كما هي، والقالب صالح بهما', () => {
+  const impact: PrintProfile = { id: 'mip', name: 'mip', printer: 'impact', template: 'impact_plain', paper: presetPaper('ff_95x11')!, options: defaultPrintOptions('impact') };
+  assert.deepEqual([...layoutFontScalesFor(impact)], [0.75, 0.8, 0.9, 1, 1.15]);
+  assert.deepEqual([...layoutFontScalesFor({ printer: 'page' })], [0.9, 1, 1.15]);
+  for (const f of [0.75, 0.8] as const) {
+    const q = withLayoutFontScale(impact, f);
+    assert.equal(q.options.fontScale, f);
+    assert.equal(effectiveFontScale(q), f);
+    valid(q);
+  }
+  const src = fs.readFileSync(path.join(process.cwd(), 'src/components/print/PrintPreview.tsx'), 'utf8');
+  assert.ok(src.includes('{layoutFontScalesFor(p).map((f) => ('), 'الأزرار من layoutFontScalesFor');
 });

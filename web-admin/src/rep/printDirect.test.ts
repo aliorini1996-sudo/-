@@ -412,3 +412,40 @@ test('التحرير الحرّ — rasterPages يمرّر مدى اللوحات
   const raster = fs.readFileSync(path.join(process.cwd(), 'src/lib/print/raster.ts'), 'utf8');
   assert.ok(raster.includes("if (!el.hasAttribute('data-print-canvas')) return { bitmap, slots };"), 'الورقة بلا لوحات بلا keep');
 });
+
+// ─── حجم الخط على النقطية بالبلوتوث (طلب المالك ١٥ نوفمبر ٢٠٢٦) ───
+type FakeStyle = { zoom: string; width: string; height: string };
+const fakeEl = (style: Partial<FakeStyle>, slots: Array<Partial<FakeStyle>> = []) => {
+  const s = { zoom: '', width: '', height: '', ...style };
+  const kids = slots.map((k) => ({ style: { zoom: '', width: '', height: '', ...k } }));
+  return { style: s, querySelectorAll: (sel: string) => (sel === '[data-qr-value]' ? kids : []), kids } as unknown as HTMLElement & { kids: Array<{ style: FakeStyle }> };
+};
+
+test('rasterUnzoom: يرفع zoom ويوسّع الجذر إلى عرضه ÷ zoom وخانة الرمز × 1/zoom — و100٪ لا يُمسّ', async () => {
+  const { rasterUnzoom } = await import('../lib/print/raster');
+  const a = fakeEl({ zoom: '0.75', width: '794px' }, [{ width: '269px', height: '269px' }]);
+  rasterUnzoom(a);
+  assert.equal(a.style.zoom, '');
+  assert.equal(Number.parseFloat(a.style.width).toFixed(3), (794 / 0.75).toFixed(3));
+  assert.equal(Number.parseFloat(a.kids[0].style.width).toFixed(3), (269 / 0.75).toFixed(3), 'الرمز بمقاسه: لا يصغر عن حدّ القراءة');
+  assert.equal(Number.parseFloat(a.kids[0].style.height).toFixed(3), (269 / 0.75).toFixed(3));
+  const big = fakeEl({ zoom: '1.15', width: '794px' });
+  rasterUnzoom(big);
+  assert.equal(Number.parseFloat(big.style.width).toFixed(3), (794 / 1.15).toFixed(3), 'فوق 100٪: أضيق فالخطّ أكبر حقاً');
+  for (const z of ['', '1']) {
+    const n = fakeEl({ zoom: z, width: '794px' }, [{ width: '269px', height: '269px' }]);
+    rasterUnzoom(n);
+    assert.equal(n.style.width, '794px');
+    assert.equal(n.kids[0].style.width, '269px');
+    assert.equal(n.style.zoom, z, 'بلا zoom: البايتات كما كانت حرفاً');
+  }
+});
+
+test('rasterUnzoom موصول في الفرع العام للنقطية وحدها قبل الالتقاط — والنموذج والشريط بلا مساس', () => {
+  const src = fs.readFileSync(path.join(process.cwd(), 'src/rep/printDirect.ts'), 'utf8');
+  const node = src.slice(src.indexOf('export async function printNodeDirect('));
+  const at = node.indexOf("if (p.printer === 'impact') rasterUnzoom(clone);");
+  assert.ok(at > 0 && at < node.indexOf('copies.push(await rasterPages(clone, p, ui));'));
+  assert.ok(at > node.indexOf('cloneWithLabel(node, want[i] || null, bannerHtml)'));
+  assert.equal((src.match(/rasterUnzoom\(/g) ?? []).length, 1, 'استدعاءٌ واحد (التعريف في raster.ts)');
+});

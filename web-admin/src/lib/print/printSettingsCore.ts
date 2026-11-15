@@ -75,7 +75,13 @@ export interface Paper {
 }
 
 export const FONT_SCALES = [0.9, 1, 1.15, 1.3] as const;
-export type FontScale = (typeof FONT_SCALES)[number];
+/**
+ * أحجامٌ أصغر للطابعة النقطية (طلب المالك ١٥ نوفمبر ٢٠٢٦: «تصغير حجم الخط أكثر لتظهر جميع التفاصيل والشعار» على ورق الدوت ماتركس).
+ * تُقبل في كل قالب (توسيعٌ آمن — لا إعداد محفوظ يصير غير صالح)، والواجهة تعرضها للنقطية وحدها. وتغيير الطابعة يعيد الخيارات
+ * لافتراضيّها (withPrinter)، فلا تنتقل إلى الرول. FONT_SCALES كما هي: صفحة المعايرة تطبع سطراً لكل حجمٍ منها (خطوط الأساس).
+ */
+export const IMPACT_SMALL_FONT_SCALES = [0.75, 0.8] as const;
+export type FontScale = (typeof FONT_SCALES)[number] | (typeof IMPACT_SMALL_FONT_SCALES)[number];
 export const QR_SIZES = ['auto', 'large'] as const;
 export type QrSize = (typeof QR_SIZES)[number];
 export const PRINT_COPIES = [1, 2, 3] as const;
@@ -576,7 +582,7 @@ function makePrintSettingsSchema(strict: boolean) {
     showItemCodes: z.boolean(),
     showCustomerBalance: z.boolean(),
     footerText: z.string().nullable(),
-    fontScale: z.union([z.literal(0.9), z.literal(1), z.literal(1.15), z.literal(1.3)]),
+    fontScale: z.union([z.literal(0.75), z.literal(0.8), z.literal(0.9), z.literal(1), z.literal(1.15), z.literal(1.3)]),
     boldBody: z.boolean(),
     qrSize: z.enum(QR_SIZES),
     copies: z.union([z.literal(1), z.literal(2), z.literal(3)]),

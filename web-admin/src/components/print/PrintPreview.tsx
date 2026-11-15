@@ -5,7 +5,7 @@ import {
   PRINT_SAMPLE_WATERMARK, STAMPED_QR_CELLS, geometry, pageQrModuleMm, qrPlan, type PrintProfile,
   ACCENT_PALETTE, ACCENT_RE, LOGO_POSITIONS, LOGO_POSITION_LABELS, LOGO_SIZES, LOGO_SIZE_LABELS, PRINT_ISSUES, SECTION_LABELS, TABLE_STYLES,
   TABLE_STYLE_LABELS, accentContrastOk, canMoveSection, designsFor, isItemsRemoved, isLegacyProfileId, isQrRemoved, layoutOf, moveSection, normalizeSectionOrder, sectionsFor,
-  templatesFor, withDesign, withLayout, type LogoPosition, type SectionId, type TemplateId,
+  templatesFor, withDesign, withLayout, IMPACT_SMALL_FONT_SCALES, type FontScale, type LogoPosition, type SectionId, type TemplateId,
 } from '../../lib/print/printSettings';
 import { sampleInvoiceDoc } from '../../lib/print/calibration';
 import { PrintableInvoice, PrintableReceipt, type Company, type InvoiceDoc, type ReceiptDoc } from '../../rep/RepDocuments';
@@ -555,8 +555,16 @@ export function logoChoices(_p: PrintProfile): readonly LogoPosition[] {
 /** أحجام الخط في «التخطيط» للصفحة والنقطية (الرول يبقى في «الخط» بمقاساته الأربعة كاليوم) */
 export const LAYOUT_FONT_SCALES = [0.9, 1, 1.15] as const;
 
+/**
+ * الأحجام المعروضة لقالبٍ: النقطية تبدأ بـ75٪ و80٪ (IMPACT_SMALL_FONT_SCALES — طلب المالك ١٥ نوفمبر ٢٠٢٦: ورق الدوت ماتركس
+ * لا يتّسع للتفاصيل والشعار)، والصفحة كما هي
+ */
+export function layoutFontScalesFor(p: Pick<PrintProfile, 'printer'>): readonly FontScale[] {
+  return p.printer === 'impact' ? [...IMPACT_SMALL_FONT_SCALES, ...LAYOUT_FONT_SCALES] : LAYOUT_FONT_SCALES;
+}
+
 /** حجم الخط للصفحة والنقطية: يُحفظ في fontScale ويُنشئ التخطيط — بلا تخطيط لا يُطبَّق عليهما (مطبوعة اليوم حرفياً) */
-export function withLayoutFontScale(p: PrintProfile, f: (typeof LAYOUT_FONT_SCALES)[number]): PrintProfile {
+export function withLayoutFontScale(p: PrintProfile, f: FontScale): PrintProfile {
   return withLayout({ ...p, options: { ...p.options, fontScale: f } }, {});
 }
 
@@ -728,7 +736,7 @@ export function LayoutFields({ p, update }: { p: PrintProfile; update: (next: Pr
           <div role="group" aria-label={tr('حجم الخط')}>
             <span className="label">{tr('حجم الخط')}</span>
             <div className="flex gap-1.5 flex-wrap">
-              {LAYOUT_FONT_SCALES.map((f) => (
+              {layoutFontScalesFor(p).map((f) => (
                 <button key={f} type="button" dir="ltr" aria-pressed={effectiveFontScale(p) === f} onClick={() => update(withLayoutFontScale(p, f))}
                   className={chip(effectiveFontScale(p) === f)}>{Math.round(f * 100)}%</button>
               ))}

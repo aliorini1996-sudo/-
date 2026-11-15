@@ -472,3 +472,26 @@ export function pageLabelRows(dpi: PrinterDpi): { gap: number; text: number } {
   const dpm = dotsPerMm(dpi);
   return { gap: Math.round(3 * dpm), text: Math.round(3 * dpm) };
 }
+
+/**
+ * «حجم الخط» على النقطية بالبلوتوث (طلب المالك ١٥ نوفمبر ٢٠٢٦: «تصغير الخط لتظهر جميع التفاصيل والشعار» على ورق الدوت ماتركس).
+ * القالب يصغّر خطّه بـzoom على جذره (layout.ts scaleStyle). وفي الالتقاط عيبان (مُثبَتان بمختبر puppeteer + html2canvas 1.4.1):
+ *  · html2canvas يأخذ مواضع الكلمات مصغّرةً وحجم الخطّ غير مصغّر ⇒ تتراكب الكلمات وتضيع المسافات («ICEANDBAKES12345»)؛
+ *  · captureElement يمدّ عرض الجذر المصغّر إلى عرض الحزمة ⇒ يُلغي التصغير فلا يصغر شيء.
+ * فلنسخة الالتقاط وحدها (printDirect.ts printNodeDirect): يُرفع zoom ويُوسَّع الجذر إلى عرضه ÷ zoom ⇒ يُرسم القالب على عرض الحزمة كاملاً بخطٍّ أصغر حقاً (أو أكبر
+ * فوق 100٪)، وخانة رمز QR ([data-qr-value]) تُضرب في 1/zoom فيبقى الرمز بمقاسه — لا يصغر عن حدّ القراءة فتُرفض الطباعة (qrNoFit).
+ * جذرٌ بلا zoom (100٪) لا يُمسّ: البايتات كما كانت حرفاً. والمعاينة ونظام الطباعة (ويندوز) كما هما.
+ */
+export function rasterUnzoom(el: HTMLElement): void {
+  const z = Number.parseFloat(el.style.zoom);
+  if (!(z > 0) || Math.abs(z - 1) < 1e-6) return;
+  const w = Number.parseFloat(el.style.width);
+  el.style.zoom = '';
+  if (w > 0) el.style.width = `${w / z}px`;
+  for (const s of Array.from(el.querySelectorAll<HTMLElement>('[data-qr-value]'))) {
+    const sw = Number.parseFloat(s.style.width);
+    const sh = Number.parseFloat(s.style.height);
+    if (sw > 0) s.style.width = `${sw / z}px`;
+    if (sh > 0) s.style.height = `${sh / z}px`;
+  }
+}

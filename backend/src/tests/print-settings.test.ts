@@ -668,3 +668,19 @@ test('حارس نصّي: PUT /api/company وcompanySchema لم يُمسّا — 
   const block = schema.slice(i, schema.indexOf('\n}', i));
   assert.match(block, /\n\s*printSettings\s+Json\?\s*\n/, 'printSettings Json? بلا افتراضي (null = سلوك اليوم)');
 });
+
+test('حجم الخط 75٪ و80٪ للنقطية (طلب المالك ١٥ نوفمبر ٢٠٢٦): مقبولان عند الحفظ — والقائمة القديمة FONT_SCALES كما هي (صفحة المعايرة)', async () => {
+  const { FONT_SCALES, IMPACT_SMALL_FONT_SCALES } = await import('../services/printSettings');
+  assert.deepEqual([...FONT_SCALES], [0.9, 1, 1.15, 1.3]);
+  assert.deepEqual([...IMPACT_SMALL_FONT_SCALES], [0.75, 0.8]);
+  for (const fontScale of [0.75, 0.8] as const) {
+    const s = fleet();
+    s.profiles[0].options = { ...s.profiles[0].options, fontScale, layout: defaultPrintLayout('impact', 'standard') };
+    assert.deepEqual(issuesOf(s), [], `fontScale ${fontScale}`);
+  }
+  for (const fontScale of [0.5, 0.7, 0.85]) {
+    const s = clone(fleet()) as unknown as { profiles: Array<{ options: Record<string, unknown> }> };
+    s.profiles[0].options.fontScale = fontScale;
+    assert.ok(issuesOf(s).length > 0, `fontScale ${fontScale} يُرفض`);
+  }
+});

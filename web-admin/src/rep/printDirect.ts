@@ -20,7 +20,7 @@ import {
   dotsPerMm, formReachX, geometry, maxPrintableDots, type DevicePrintChoice, type PrintProfile, type PrinterDpi,
 } from '../lib/print/printSettings';
 import {
-  PAGE_CUT_SEARCH_MM, applyQrSlots, captureElement, createBitmap, formSheetRaster, pageLabelRows, paginate, shiftRight, stackRows, textStrip,
+  PAGE_CUT_SEARCH_MM, applyQrSlots, captureElement, createBitmap, formSheetRaster, pageLabelRows, paginate, rasterUnzoom, shiftRight, stackRows, textStrip,
   type Bitmap, type RasterPage,
 } from '../lib/print/raster';
 import { ESCPOS_CANCEL, encodeEscPos } from '../lib/print/escpos';
@@ -322,6 +322,7 @@ export async function printNodeDirect(
   for (let i = 0; i < want.length; i++) {
     if (ui.signal?.aborted) return 'cancelled';
     const clone = cloneWithLabel(node, want[i] || null, bannerHtml);
+    if (p.printer === 'impact') rasterUnzoom(clone); // حجم الخط على النقطية: خطٌّ أصغر حقاً على عرض الحزمة، والرمز بمقاسه
     host.appendChild(clone);
     try {
       copies.push(await rasterPages(clone, p, ui));
