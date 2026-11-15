@@ -244,6 +244,11 @@ export interface PrintForm {
   /** true = أرقام 0-9، وfalse = أرقام الشركة */
   latinDigits: boolean;
   valueLang: FormValueLang;
+  /**
+   * حجم خط النموذج كله (طلب المالك ١٥ نوفمبر ٢٠٢٦: تصغير الخط في النموذج على الطابعة النقطية): نسبةٌ تُضرب في حجم كل حقلٍ والجدول
+   * (formFontPt) فيبقى كلٌّ نسبةً إلى غيره — 70–160، والواجهة تعرض 75/80/90/100/115. غيابه = 100 (النماذج القائمة كما هي حرفاً).
+   */
+  fontPct?: number;
   fields: FormField[];
   table: FormTable | null;
 }
@@ -555,6 +560,7 @@ function makePrintSettingsSchema(strict: boolean) {
     background: z.boolean(),
     latinDigits: z.boolean(),
     valueLang: strict ? z.enum(FORM_VALUE_LANGS) : z.enum(FORM_VALUE_LANGS).catch('ar'),
+    fontPct: num.optional(),
     fields: z.array(item(formField)),
     table: formTable.nullable(),
   }, strict);
@@ -912,6 +918,7 @@ function formFaults(p: PrintProfile, l: PrintLayout, f: PrintForm): FreeFault[] 
   if (!inRangeL(f.dxMm, F.offsetMm)) fault('dxMm', PRINT_ISSUES.layoutFormOffset);
   if (!inRangeL(f.dyMm, F.offsetMm)) fault('dyMm', PRINT_ISSUES.layoutFormOffset);
   if (f.image !== null && !formImageOk(f.image)) fault('image', PRINT_ISSUES.layoutFormImage);
+  if (f.fontPct !== undefined && !inRangeL(f.fontPct, LAYOUT_BOUNDS.fontPct)) fault('fontPct', PRINT_ISSUES.layoutFormFont);
   // المنطقة بالمعايرة كما أُرسلت (غير المنتهية 0 — ورسالتها layoutFormOffset أعلاه)؛ null للطابعة العادية
   const zone = formZoneOf(p, isFin(f.dxMm) ? f.dxMm : 0, isFin(f.dyMm) ? f.dyMm : 0);
   const qrMin = formQrMinMm(p.printer);
@@ -986,8 +993,9 @@ function fitFormToPaper(f: PrintForm, p: PrintProfile): PrintForm {
     }
     table = { ...table, rows, columns };
   }
-  // النقطية لا تطبع الخلفية (layoutFormBgImpact): القراءة تُطفئها ولا تُسقط النموذج
-  return { ...f, image: f.image !== null && !formImageOk(f.image) ? null : f.image, background: zone ? false : f.background, dxMm, dyMm, fields, table };
+  // النقطية لا تطبع الخلفية (layoutFormBgImpact): القراءة تُطفئها ولا تُسقط النموذج — وحجم خطّ النموذج خارج حدوده يسقط وحده (100٪)
+  const out = { ...f, image: f.image !== null && !formImageOk(f.image) ? null : f.image, background: zone ? false : f.background, dxMm, dyMm, fields, table };
+  return pctOk(f.fontPct) ? out : noPct(out);
 }
 
 /**
@@ -1257,6 +1265,7 @@ function canonicalForm(f: PrintForm): PrintForm {
     background: f.background,
     latinDigits: f.latinDigits,
     valueLang: f.valueLang,
+    ...(f.fontPct !== undefined ? { fontPct: roundIn(f.fontPct, B_.fontPct, Math.round) } : {}),
     fields,
     table,
   };

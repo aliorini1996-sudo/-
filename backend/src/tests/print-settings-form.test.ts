@@ -564,3 +564,28 @@ test('النموذج على النقطية: القراءة المتسامحة ت
   assert.equal(readBack((f) => { f.fields[3].w = 54.5; }), undefined, 'qr 54.5');
   assert.equal(readBack((f) => { f.fields[3].x = 2; }), undefined, 'qr outside the band');
 });
+
+test('حجم خط النموذج كله form.fontPct (طلب المالك ١٥ نوفمبر ٢٠٢٦): 70–160 يُحفظ بعد valueLang، وخارجها يُرفض، والمتسامح يُسقطه وحده', () => {
+  for (const pct of [75, 80, 115]) {
+    const v = accepts(formp({ ...baseForm(), fontPct: pct }), `form.fontPct ${pct}`);
+    const form = v.profiles[3].options.layout!.form!;
+    assert.equal(form.fontPct, pct);
+    const keys = Object.keys(form);
+    assert.equal(keys.indexOf('fontPct'), keys.indexOf('valueLang') + 1, 'بعد لغة القيم وقبل الحقول');
+  }
+  // على النقطية أيضاً
+  accepts(impactp({ ...impactForm(), fontPct: 75 }), 'impact form.fontPct 75');
+  // غيابه = النموذج كما كان حرفاً (لا مفتاح)
+  assert.ok(!('fontPct' in accepts(formp(), 'بلا fontPct').profiles[3].options.layout!.form!));
+  rejects(formp({ ...baseForm(), fontPct: 60 }), PRINT_ISSUES.layoutFormFont, 'form.fontPct 60');
+  rejects(formp({ ...baseForm(), fontPct: 170 }), PRINT_ISSUES.layoutFormFont, 'form.fontPct 170');
+  // المتسامح: الحجم المعطوب يسقط وحده (100) ويبقى النموذج بحقوله
+  const raw = clone(fleetWith(formp({ ...baseForm(), image: IMG }))) as unknown as { profiles: Array<{ options: { layout: { form: Record<string, unknown> } } }> };
+  raw.profiles[3].options.layout.form.fontPct = 40;
+  assert.equal(checkPrintSettings(raw, true).ok, false);
+  const read = storedPrintSettings(raw);
+  const f = read.settings.profiles[3].options.layout!.form!;
+  assert.ok(f, 'النموذج باقٍ');
+  assert.ok(!('fontPct' in f), 'الحجم المعطوب سقط وحده');
+  assert.equal(f.fields.length, baseForm().fields.length);
+});

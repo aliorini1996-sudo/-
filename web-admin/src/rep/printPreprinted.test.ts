@@ -560,3 +560,13 @@ test('الخلفية عند الطباعة: تنبيه «بلا خلفية» م�
   assert.ok(app.includes('const formBgRefs = formBackgroundRefsOf(company?.printSettings);'));
   assert.ok(app.includes('void prefetchFormImages(defaultFormImageLoader(), formBgRefs);'));
 });
+
+test('حجم خط النموذج كله (form.fontPct — طلب المالك ١٥ نوفمبر ٢٠٢٦): كل حقلٍ وخلايا الجدول بنسبته، والمواضع كما هي', () => {
+  const base = render();
+  const small = render({ form: { ...FORM, fontPct: 75 } });
+  assert.match(boxOf(base, 'data-form-field="docNumber"')!, /line-height:6mm;font-size:11pt/);
+  assert.match(boxOf(small, 'data-form-field="docNumber"')!, /left:61\.5mm;top:42mm;width:90mm;height:6mm[^"]*font-size:8\.25pt/);
+  assert.match(boxOf(small, 'data-form-field="totalDue"')!, /font-size:9\.9pt;font-weight:700/);
+  assert.match(boxOf(base, 'data-form-col="description"')!, /font-size:9\.9pt/);
+  assert.match(boxOf(small, 'data-form-col="description"')!, /font-size:7\.43pt/);
+});

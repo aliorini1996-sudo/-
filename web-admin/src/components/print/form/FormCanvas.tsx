@@ -229,7 +229,7 @@ export default function FormCanvas({ form, paper, onChange, selected, onSelect, 
 
   const valueText = (label: string, fontPct: number | undefined, align: FormField['align'], bold?: boolean) => (
     <span className="block w-full overflow-hidden px-0.5 text-[#1F1A13]/70" style={{
-      fontSize: ptToScreenPx(formFontPt(fontPct), scale), fontWeight: bold || boldAll ? 700 : 400, textAlign: formTextAlign(align),
+      fontSize: ptToScreenPx(formFontPt(fontPct, form.fontPct), scale), fontWeight: bold || boldAll ? 700 : 400, textAlign: formTextAlign(align),
       whiteSpace: 'nowrap', textOverflow: 'ellipsis', lineHeight: 1.15,
     }}>{label}</span>
   );
@@ -311,7 +311,7 @@ export default function FormCanvas({ form, paper, onChange, selected, onSelect, 
                   outline: isSel ? '2px solid #E15A30' : 'none',
                 }}>
                 <span className="absolute top-0 inset-x-0 block overflow-hidden text-[#1E5FA8]" style={{
-                  height: rowPx, fontSize: ptToScreenPx(formFontPt(t.fontPct), scale) * 0.85, lineHeight: `${rowPx}px`,
+                  height: rowPx, fontSize: ptToScreenPx(formFontPt(t.fontPct, form.fontPct), scale) * 0.85, lineHeight: `${rowPx}px`,
                   textAlign: formTextAlign(c.align), whiteSpace: 'nowrap', textOverflow: 'ellipsis', padding: '0 1px',
                 }}>{label}</span>
               </button>

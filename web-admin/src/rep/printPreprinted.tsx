@@ -383,7 +383,7 @@ export const FormInvoice = forwardRef<HTMLDivElement, FormInvoiceProps>(({ doc, 
     const v: FormValue | undefined = f.id === 'pageNo' ? { text: k.arabic ? arDigits(`${page.n}/${page.of}`) : `${page.n}/${page.of}`, ltr: true } : values[f.id];
     if (!v || !v.text) return null;
     return (
-      <div key={f.id} data-form-field={f.id} style={valueBoxStyle(b, f.align, formFontPt(f.fontPct), f.bold === true)}>
+      <div key={f.id} data-form-field={f.id} style={valueBoxStyle(b, f.align, formFontPt(f.fontPct, form.fontPct), f.bold === true)}>
         {valueNode(v, b)}
       </div>
     );
@@ -391,7 +391,7 @@ export const FormInvoice = forwardRef<HTMLDivElement, FormInvoiceProps>(({ doc, 
 
   const rowNodes = (items: FormItem[], offset: number): ReactNode[] => {
     if (!table || columns.length === 0) return [];
-    const pt = formFontPt(table.fontPct);
+    const pt = formFontPt(table.fontPct, form.fontPct);
     return items.map((it, i) => (
       <div key={`r${i}`} data-form-row={offset + i + 1}>
         {columns.map((c) => {

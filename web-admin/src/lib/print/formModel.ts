@@ -105,10 +105,18 @@ export function formRasterPx(paper: FormPaper | null | undefined): { wPx: number
 
 /** حجم الخط الأساسي للقيم بالنقطة — يُضرب في fontPct/100 */
 export const FORM_BASE_FONT_PT = 11;
-export function formFontPt(fontPct?: number | null): number {
+/**
+ * حجم خطّ القيمة بالنقطة: الأساس × خطّ الحقل (أو الجدول) × خطّ النموذج كله (form.fontPct — طلب المالك ١٥ نوفمبر ٢٠٢٦). كلاهما في
+ * حدود LAYOUT_BOUNDS.fontPct وغيابه 100 — فبلا خطّ نموذج الناتج كما كان حرفاً
+ */
+export function formFontPt(fontPct?: number | null, formPct?: number | null): number {
   const p = fin(fontPct) ? clamp(fontPct, LAYOUT_BOUNDS.fontPct[0], LAYOUT_BOUNDS.fontPct[1]) : 100;
-  return Math.round(FORM_BASE_FONT_PT * p) / 100;
+  const g = fin(formPct) ? clamp(formPct, LAYOUT_BOUNDS.fontPct[0], LAYOUT_BOUNDS.fontPct[1]) : 100;
+  return g === 100 ? Math.round(FORM_BASE_FONT_PT * p) / 100 : Math.round((FORM_BASE_FONT_PT * p * g) / 100) / 100;
 }
+
+/** أزرار «حجم خط النموذج» في المصمّم — 100 = بلا مفتاح */
+export const FORM_FONT_SCALES_PCT = [75, 80, 90, 100, 115] as const;
 
 export interface FormBox { x: number; y: number; w: number; h: number }
 
@@ -340,6 +348,7 @@ export function fitForm(form: PrintForm, paper: FormPaper | null | undefined): P
     background: fr.box === null && form?.background === true,
     latinDigits: form?.latinDigits !== false,
     valueLang: form?.valueLang === 'en' ? 'en' : 'ar',
+    ...(cleanPct(form?.fontPct) !== undefined ? { fontPct: cleanPct(form?.fontPct) } : {}),
     fields: sortFields(fields),
     table,
   };
@@ -461,7 +470,7 @@ export function starterForm(paper: FormPaper | null | undefined, opts: { withQr?
 /** «اقتراح مواضع افتراضية»: مواضع البداية، وتبقى الصورة والمعايرة والخلفية والأرقام ولغة القيم */
 export function resetFormPositions(form: PrintForm, paper: FormPaper | null | undefined, opts: { withQr?: boolean } = {}): PrintForm {
   const s = starterForm(paper, opts);
-  return commitForm(form, fitForm({ ...s, image: form.image, dxMm: form.dxMm, dyMm: form.dyMm, background: form.background, latinDigits: form.latinDigits, valueLang: form.valueLang }, paper));
+  return commitForm(form, fitForm({ ...s, image: form.image, dxMm: form.dxMm, dyMm: form.dyMm, background: form.background, latinDigits: form.latinDigits, valueLang: form.valueLang, fontPct: form.fontPct }, paper));
 }
 
 /**
@@ -701,7 +710,7 @@ export function reorderFormColumn(form: PrintForm, paper: FormPaper | null | und
   return commitForm(form, { ...form, table: { ...t, columns: clampColumns(packed, frameOf(paper, form)) } });
 }
 
-export type FormPropsPatch = Partial<Pick<PrintForm, 'image' | 'dxMm' | 'dyMm' | 'background' | 'latinDigits' | 'valueLang'>>;
+export type FormPropsPatch = Partial<Pick<PrintForm, 'image' | 'dxMm' | 'dyMm' | 'background' | 'latinDigits' | 'valueLang'>> & { fontPct?: number | null };
 
 /** خصائص النموذج: الصورة (مرجعٌ صالح أو null)، والمعايرة ±20 بعُشر مم، والخلفية، والأرقام، ولغة القيم */
 export function withFormProps(form: PrintForm, patch: FormPropsPatch): PrintForm {
@@ -712,6 +721,13 @@ export function withFormProps(form: PrintForm, patch: FormPropsPatch): PrintForm
   if (typeof patch.background === 'boolean') next.background = patch.background;
   if (typeof patch.latinDigits === 'boolean') next.latinDigits = patch.latinDigits;
   if (patch.valueLang !== undefined && (FORM_VALUE_LANGS as readonly string[]).includes(patch.valueLang)) next.valueLang = patch.valueLang;
+  // حجم خطّ النموذج كله: 100 (أو null) يحذف المفتاح، وغيره في حدوده (cleanPct) — بعد لغة القيم كترتيب النواة (canonicalForm)
+  if ('fontPct' in patch) {
+    const pct = cleanPct(patch.fontPct);
+    const { fields, table, fontPct: _old, ...head } = next;
+    void _old;
+    return commitForm(form, { ...head, ...(pct !== undefined ? { fontPct: pct } : {}), fields, table });
+  }
   return commitForm(form, next);
 }
 

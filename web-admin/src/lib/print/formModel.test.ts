@@ -7,7 +7,7 @@ import path from 'node:path';
 import {
   FORM_BASE_FONT_PT, FORM_BOUNDS, FORM_COLUMN_IDS, FORM_COLUMN_LABELS, FORM_FIELD_GROUPS, FORM_FIELD_IDS, FORM_FIELD_LABELS, FORM_IMAGE_DPI,
   FORM_LAST_SHEET_IDS, FORM_NOTES, FORM_REF_SHEET, FORM_TAX_COLUMN_IDS, FORM_TAX_FIELD_IDS, FORM_VALUE_LANG_LABELS, FORM_WARNINGS,
-  defaultFormColumn, defaultFormField, defaultFormTable, fitForm, formFieldMinMm, formFontPt, formIssues, formOf, formOverlaps, formQrMissing,
+  FORM_FONT_SCALES_PCT, defaultFormColumn, defaultFormField, defaultFormTable, fitForm, formFieldMinMm, formFontPt, formIssues, formOf, formOverlaps, formQrMissing,
   formPaperOf, formReachBox, formReachOf,
   formRasterPx, formSheetSize, formSheets, formTableBox, formWarnings, isLastSheetField, moveFormColumn, moveFormField, moveFormTable,
   printedBox, reorderFormColumn, resetFormPositions, scaleForm, sheetFields, starterForm, tableRowTop, withForm, withFormColumn, withFormField,
@@ -676,4 +676,32 @@ test('formModel.ts خالص: بلا React ولا DOM، ويستورد النوا
   assert.ok(from.length > 0 && from.every((m) => m === './printSettingsCore'), from.join(','));
   assert.equal(LAYOUT_BOUNDS.stepMm, 0.5);
   assert.deepEqual(withLayout(formProfile(), { design: 'preprinted' }).options.layout!.form, formOf(formProfile()));
+});
+
+test('حجم خط النموذج كله (طلب المالك ١٥ نوفمبر ٢٠٢٦): يُضرب في خطّ الحقل والجدول، و100 بلا مفتاح، وبلاه الناتج كما كان', () => {
+  assert.deepEqual([...FORM_FONT_SCALES_PCT], [75, 80, 90, 100, 115]);
+  assert.equal(formFontPt(undefined), 11);
+  assert.equal(formFontPt(undefined, undefined), 11);
+  assert.equal(formFontPt(120), 13.2);
+  assert.equal(formFontPt(120, 100), 13.2, '100 = كما كان');
+  assert.equal(formFontPt(undefined, 75), 8.25);
+  assert.equal(formFontPt(120, 75), 9.9);
+  assert.equal(formFontPt(70, 75), 5.78, 'أصغر الممكن 70٪ × 75٪');
+  assert.equal(formFontPt(100, 40), 7.7, 'خارج الحدود يُقصّ إلى 70');
+  const f = starterForm(A4);
+  assert.ok(!('fontPct' in f));
+  const small = withFormProps(f, { fontPct: 75 });
+  assert.equal(small.fontPct, 75);
+  assert.deepEqual(small.fields, f.fields, 'الحقول ومواضعها كما هي');
+  assert.equal(fitForm(small, A4 as never).fontPct, 75, 'fitForm يحمله');
+  assert.ok(!('fontPct' in withFormProps(small, { fontPct: 100 })), '100 يحذف المفتاح');
+  assert.ok(!('fontPct' in withFormProps(small, { fontPct: null })));
+  const keys = Object.keys(small);
+  assert.equal(keys.indexOf('fontPct'), keys.indexOf('valueLang') + 1, 'ترتيب مفاتيح النواة (canonicalForm)');
+});
+
+test('«اقتراح مواضع افتراضية» ونقل النموذج لورقٍ آخر يُبقيان حجم خط النموذج', () => {
+  const f = withFormProps(starterForm(A4), { fontPct: 80 });
+  assert.equal(resetFormPositions(f, A4 as never).fontPct, 80);
+  assert.equal(scaleForm(f, A4 as never, presetPaper('a5') as never).fontPct, 80);
 });

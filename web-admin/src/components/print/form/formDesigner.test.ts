@@ -644,3 +644,22 @@ test('الترجمة: كل tr(\'…\') في ملفات مصمّم النموذج
   assert.deepEqual(missing, []);
   for (const k of [...impact, FORM_NOTES.impactCalibrate, FORM_NOTES.impactCutSheet]) assert.ok(PHRASES[k] && !/['’]/.test(PHRASES[k].fr), `«${k}» فرنسية بفاصلة علوية`);
 });
+
+test('«حجم خط النموذج» في لوحة النموذج (طلب المالك ١٥ نوفمبر ٢٠٢٦): أزرار FORM_FONT_SCALES_PCT تكتب form.fontPct، والقماش يرسم بالنسبة نفسها', async () => {
+  const fsm = await import('node:fs');
+  const pathm = await import('node:path');
+  const read = (rel: string) => fsm.readFileSync(pathm.resolve(process.cwd(), 'src', rel), 'utf8');
+  const insp = read('components/print/form/FormInspector.tsx');
+  assert.ok(insp.includes('data-form-font-scale=""'));
+  assert.ok(insp.includes('FORM_FONT_SCALES_PCT.map((v) => ('));
+  assert.ok(insp.includes('setForm(withFormProps(form, { fontPct: v }))'));
+  const canvas = read('components/print/form/FormCanvas.tsx');
+  assert.ok(canvas.includes('formFontPt(fontPct, form.fontPct)'), 'قيم الحقول بالمصمّم بخطّ النموذج');
+  assert.ok(canvas.includes('formFontPt(t.fontPct, form.fontPct)'), 'والجدول');
+  const printed = read('rep/printPreprinted.tsx');
+  assert.ok(printed.includes('formFontPt(f.fontPct, form.fontPct)') && printed.includes('formFontPt(table.fontPct, form.fontPct)'));
+  for (const k of ['حجم خط النموذج', 'يصغر أو يكبر خط كل الحقول والجدول معا بنسبة واحدة']) {
+    const t = PHRASES[k];
+    assert.ok(t && t.en && t.fr && t.tr && t.zh && !/'/.test(t.fr), k);
+  }
+});

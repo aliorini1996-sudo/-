@@ -19,7 +19,7 @@ import { ArrowLeft, ArrowRight, Bold, ImageUp, Plus, RotateCcw, Trash2, X } from
 import { useTr } from '../../../i18n/strings';
 import {
   FORM_BOUNDS, FORM_COLUMN_IDS, FORM_COLUMN_LABELS, FORM_FIELD_GROUPS, FORM_FIELD_LABELS, FORM_NOTES, FORM_TAX_COLUMN_IDS, FORM_TAX_FIELD_IDS,
-  FORM_VALUE_LANGS, FORM_VALUE_LANG_LABELS, formFieldMinMm, formOf, formPaperOf, formQrMissing, formWarnings, isLastSheetField, reorderFormColumn,
+  FORM_FONT_SCALES_PCT, FORM_VALUE_LANGS, FORM_VALUE_LANG_LABELS, formFieldMinMm, formOf, formPaperOf, formQrMissing, formWarnings, isLastSheetField, reorderFormColumn,
   resetFormPositions, withForm, withFormColumn, withFormField, withFormProps, withFormTable, withoutFormColumn, withoutFormField,
   type FormColumnId, type FormFieldId, type PrintForm,
 } from '../../../lib/print/formModel';
@@ -443,6 +443,19 @@ function FormPanel({ p, update, form, setForm, onSelect, onUpload, taxOff }: {
           </span>
         </div>
         <p className="text-[11px] text-[#9A8F7E]">{tr('لغة طريقة الدفع وعنوان المستند على الورقة')}</p>
+        {/* حجم خطّ النموذج كله (طلب المالك ١٥ نوفمبر ٢٠٢٦): يُضرب في خطّ كل حقلٍ والجدول — 100 = بلا مفتاح (النموذج كما كان) */}
+        <div className={row} data-form-font-scale="">
+          <span className={lab}>{tr('حجم خط النموذج')}</span>
+          <span className="inline-flex flex-wrap gap-1" role="group" aria-label={tr('حجم خط النموذج')}>
+            {FORM_FONT_SCALES_PCT.map((v) => (
+              <button type="button" key={v} dir="ltr" aria-pressed={(form.fontPct ?? 100) === v}
+                onClick={() => setForm(withFormProps(form, { fontPct: v }))} className={chipCls((form.fontPct ?? 100) === v)}>
+                {v}%
+              </button>
+            ))}
+          </span>
+        </div>
+        <p className="text-[11px] text-[#9A8F7E]">{tr('يصغر أو يكبر خط كل الحقول والجدول معا بنسبة واحدة')}</p>
       </div>
 
       <div className="pt-2 border-t border-[#F1EBDF] space-y-2" data-profile-removals="">
