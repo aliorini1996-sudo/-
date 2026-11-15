@@ -233,18 +233,40 @@ export function formCellValue(it: FormItem, id: FormColumnId, n: number, k: Form
 const textAlignOf = (a: Align | undefined): CSSProperties['textAlign'] => (a === 'center' ? 'center' : a === 'end' ? 'end' : 'start');
 const justifyOf = (a: Align | undefined): CSSProperties['justifyContent'] => (a === 'center' ? 'center' : a === 'end' ? 'flex-end' : 'flex-start');
 
-/** صندوق قيمةٍ مطلق بالمم: سطرٌ واحد في وسط ارتفاعه، والزائد يُقصّ بنقاط */
+/**
+ * صندوق قيمةٍ مطلق بالمم: سطرٌ واحد في وسط ارتفاعه. الصندوق نفسه لا يقصّ — القصّ في غلافه الداخلي (valueClipStyle).
+ */
 function valueBoxStyle(b: FormBox, align: Align | undefined, pt: number, bold: boolean): CSSProperties {
   return {
     position: 'absolute', left: mm(b.x), top: mm(b.y), width: mm(b.w), height: mm(b.h), boxSizing: 'border-box',
     padding: `0 ${PAD_MM}mm`, lineHeight: mm(b.h), fontSize: `${pt}pt`, fontWeight: bold ? 700 : undefined, textAlign: textAlignOf(align),
-    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap', overflow: 'visible',
   };
 }
 
-const valueNode = (v: FormValue): ReactNode => (v.ltr
-  ? <span dir="ltr" style={{ unicodeBidi: 'isolate' }}>{v.text}</span>
-  : <span dir="auto" style={{ unicodeBidi: 'isolate' }}>{v.text}</span>);
+/**
+ * فسحة القصّ الرأسية بالمم فوق الصندوق وتحته (بلاغ المالك ١٥ نوفمبر ٢٠٢٦: «النص مقصوص بأسفل بعض الكلمات» على النقطية — E صارت F وB صارت R).
+ * خط Noto Kufi Arabic أطول من صندوق 3–4 مم (أدنى ارتفاعٍ 3 مم، وورق نصف الصفحة يصغّر الحقول إليه)، فكان overflow:hidden يقصّ أسفل
+ * الحروف اللاتينية وذيول العربية — وhtml2canvas (البلوتوث) يرسم النص أخفض من المتصفح بنقطة أو اثنتين فيزيد القصّ.
+ * القصّ للقيمة الطويلة أفقياً وحده: الغلاف بعرض الصندوق، ويمتدّ رأسياً بهذه الفسحة بارتفاع سطرٍ يحفظ المركز نفسه — فالنصّ في موضعه حرفاً.
+ */
+export const VALUE_BLEED_MM = 4;
+
+/** غلاف القصّ: عرض الصندوق (والحشوة) تماماً، وارتفاعه + فسحتين، والسطر بارتفاعه الجديد ⇒ مركز النص كما كان */
+function valueClipStyle(b: FormBox): CSSProperties {
+  return {
+    position: 'absolute', left: 0, right: 0, top: mm(-VALUE_BLEED_MM), bottom: mm(-VALUE_BLEED_MM), boxSizing: 'border-box',
+    padding: `0 ${PAD_MM}mm`, lineHeight: mm(b.h + 2 * VALUE_BLEED_MM), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+  };
+}
+
+const valueNode = (v: FormValue, b: FormBox): ReactNode => (
+  <div data-form-value="" style={valueClipStyle(b)}>
+    {v.ltr
+      ? <span dir="ltr" style={{ unicodeBidi: 'isolate' }}>{v.text}</span>
+      : <span dir="auto" style={{ unicodeBidi: 'isolate' }}>{v.text}</span>}
+  </div>
+);
 
 /**
  * رمز QR في مربعه: الصورة بضلع min(w,h) بلا حشوةٍ ولا إطار — وما تحتها (التعليق) يُقصّ بحدود المربع. بلا علامات اقتباس (نصّ <style> لا يُهرَّب).
@@ -362,7 +384,7 @@ export const FormInvoice = forwardRef<HTMLDivElement, FormInvoiceProps>(({ doc, 
     if (!v || !v.text) return null;
     return (
       <div key={f.id} data-form-field={f.id} style={valueBoxStyle(b, f.align, formFontPt(f.fontPct), f.bold === true)}>
-        {valueNode(v)}
+        {valueNode(v, b)}
       </div>
     );
   };
@@ -376,7 +398,7 @@ export const FormInvoice = forwardRef<HTMLDivElement, FormInvoiceProps>(({ doc, 
           const v = formCellValue(it, c.id, offset + i + 1, k);
           if (!v.text) return null;
           const b = printedBox(form, { x: c.x, y: tableRowTop(table, i), w: c.w, h: table.rowMm });
-          return <div key={c.id} data-form-col={c.id} style={valueBoxStyle(b, c.align, pt, false)}>{valueNode(v)}</div>;
+          return <div key={c.id} data-form-col={c.id} style={valueBoxStyle(b, c.align, pt, false)}>{valueNode(v, b)}</div>;
         })}
       </div>
     ));
