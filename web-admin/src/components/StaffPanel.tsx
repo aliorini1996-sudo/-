@@ -76,7 +76,6 @@ function requiresOf(key: string): string[] {
   if ((key.startsWith('leads.') || key.startsWith('waBridge.')) && key !== 'leads.view') return ['leads.view'];
   if (key.startsWith('affiliates.') && key !== 'affiliates.view') return ['affiliates.view'];
   if (key === 'payments.manage') return ['payments.view'];
-  if (key === 'quotes.delete') return ['quotes.view'];
   if (key === 'live.requests') return ['live.view'];
   return [];
 }

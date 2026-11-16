@@ -7779,6 +7779,26 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'و{count} غيرها': { en: 'and {count} more', fr: 'et {count} autres', tr: 've {count} tane daha', zh: '另有 {count} 条' },
   'تُعكس هذه القيود اليدوية لأن النظام سيرحّلها تلقائياً — لا يُحذف شيء': { en: 'These manual entries will be reversed because the system will post them automatically — nothing is deleted', fr: 'Ces écritures manuelles seront extournées car le système les comptabilisera automatiquement — rien n\'est supprimé', tr: 'Sistem bunları otomatik olarak kaydedeceği için bu manuel kayıtlar ters çevrilecek — hiçbir şey silinmez', zh: '由于系统将自动过账，这些手工分录将被冲销——不会删除任何内容' },
   'في دفاترك {count} قيداً يدوياً منذ {date} يمسّ حسابات يرحّلها النظام آلياً — أقرّ بعكسها ثم اربط': { en: 'Your books have {count} manual entries since {date} touching accounts the system posts automatically — acknowledge their reversal, then link', fr: 'Votre comptabilité contient {count} écritures manuelles depuis le {date} touchant des comptes que le système comptabilise automatiquement — confirmez leur extourne, puis liez', tr: 'Defterlerinizde {date} tarihinden beri sistemin otomatik kaydettiği hesaplara dokunan {count} manuel kayıt var — ters çevrilmesini onaylayın, sonra bağlayın', zh: '您的账簿中自 {date} 起有 {count} 条手工分录涉及系统自动过账的科目——请确认冲销后再关联' },
+  // «إدارة المبيعات» (طلب المالك ١٦ نوفمبر ٢٠٢٦) — لوحة المالك: كل من تواصل مع المنصة في قائمة واحدة (components/SalesCrmPanel.tsx)
+  'إدارة المبيعات': { en: 'Sales management', fr: 'Gestion des ventes', tr: 'Satış yönetimi', zh: '销售管理' },
+  'كل من تواصل مع المنصة في مكان واحد ومن أين أتى': { en: 'Everyone who contacted the platform in one place, and where they came from', fr: 'Tous ceux qui ont contacté la plateforme au même endroit, avec leur provenance', tr: 'Platformla iletişime geçen herkes tek yerde ve nereden geldikleri', zh: '所有联系过平台的人集中在一处，并显示其来源' },
+  'بحث بالاسم أو الشركة أو الجوال أو البريد': { en: 'Search by name, company, mobile or email', fr: 'Rechercher par nom, entreprise, mobile ou e-mail', tr: 'Ad, şirket, cep telefonu veya e-posta ile ara', zh: '按姓名、公司、手机或邮箱搜索' },
+  'مسح الكل': { en: 'Clear all', fr: 'Tout effacer', tr: 'Tümünü temizle', zh: '全部清除' },
+  'تعذر جلب محادثات واتساب الآن — أعد التحميل بعد قليل': { en: 'Could not fetch WhatsApp conversations right now — reload in a moment', fr: 'Impossible de récupérer les conversations WhatsApp pour le moment — rechargez dans un instant', tr: 'WhatsApp konuşmaları şu anda alınamadı — biraz sonra yeniden yükleyin', zh: '暂时无法获取 WhatsApp 对话——请稍后重新加载' },
+  'البريد الوارد غير مربوط بالمنصة بعد': { en: 'Inbound email is not connected to the platform yet', fr: 'Les e-mails entrants ne sont pas encore reliés à la plateforme', tr: 'Gelen e-posta henüz platforma bağlı değil', zh: '收件邮箱尚未接入平台' },
+  'من أين أتى': { en: 'Where they came from', fr: 'Provenance', tr: 'Nereden geldi', zh: '来源' },
+  'لا نتائج مطابقة': { en: 'No matching results', fr: 'Aucun résultat correspondant', tr: 'Eşleşen sonuç yok', zh: '没有匹配的结果' },
+  'لا أحد تواصل مع المنصة بعد': { en: 'No one has contacted the platform yet', fr: 'Personne n’a encore contacté la plateforme', tr: 'Henüz kimse platformla iletişime geçmedi', zh: '尚无人联系平台' },
+  'المعروض': { en: 'Shown', fr: 'Affichés', tr: 'Gösterilen', zh: '已显示' },
+  'واتساب': { en: 'WhatsApp', fr: 'WhatsApp', tr: 'WhatsApp', zh: 'WhatsApp' },
+  'أول تواصل': { en: 'First contact', fr: 'Premier contact', tr: 'İlk iletişim', zh: '首次联系' },
+  'أضف ملاحظة': { en: 'Add a note', fr: 'Ajouter une note', tr: 'Not ekle', zh: '添加备注' },
+  'تسجيل تجريبي': { en: 'Trial signup', fr: 'Inscription à l’essai', tr: 'Deneme kaydı', zh: '试用注册' },
+  'تجربة عبر سفير': { en: 'Trial via ambassador', fr: 'Essai via un ambassadeur', tr: 'Elçi aracılığıyla deneme', zh: '经推广大使试用' },
+  'طلب اجتماع': { en: 'Meeting request', fr: 'Demande de rendez-vous', tr: 'Toplantı talebi', zh: '会议预约' },
+  'تواصل معنا': { en: 'Contact us', fr: 'Nous contacter', tr: 'Bize ulaşın', zh: '联系我们' },
+  'طلب اشتراك': { en: 'Subscription request', fr: 'Demande d’abonnement', tr: 'Abonelik talebi', zh: '订阅申请' },
+  'طلب عرض سعر': { en: 'Quote request', fr: 'Demande de devis', tr: 'Fiyat teklifi talebi', zh: '报价申请' },
 };
 
 // ثابتة الهوية ما لم تتغيّر اللغة — كـuseT (انظر سببه هناك)

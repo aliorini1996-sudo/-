@@ -11,60 +11,29 @@
 
 import { Router, Response, NextFunction } from 'express';
 import { platformGate } from '../services/platformAccess';
+import { fetchWaBot } from '../services/waBotInbox';
 import { AuthRequest } from '../types';
 
 const router = Router();
 // مالك المنصة وموظفوها بصلاحياتهم (services/platformAccess.ts: platformGate — ما لا قاعدة له للمالك وحده)
 router.use(platformGate);
 
-const BOT_URL = (process.env.WA_BOT_URL || 'https://wa-sales-bot.onrender.com').replace(/\/+$/, '');
-const TOKEN = (process.env.WA_SWEEP_TOKEN || '').trim();
-
-function configured(): boolean {
-  return !!TOKEN;
-}
-
 /**
- * ينادي البوت ويعيد جسمه كما هو.
+ * ينادي البوت ويعيد جسمه كما هو (النداء نفسه في services/waBotInbox.ts — تشاركه مزامنة «إدارة المبيعات»).
  *
  * مهلة ٦٠ ثانية لا ١٠: البوت على خطّة تُنيم الخدمة، وإيقاظها يستغرق ~٥٠ ثانية.
  * مهلةٌ قصيرة كانت ستُظهر «البوت معطّل» بينما هو نائم فقط.
  */
 async function proxy(path: string, res: Response): Promise<void> {
-  if (!configured()) {
-    res.status(503).json({
-      success: false,
-      message: 'WA_SWEEP_TOKEN غير مضبوط في بيئة الخادم — لا يمكن قراءة محادثات البوت',
-    });
+  const r = await fetchWaBot(path, {
+    timeoutMs: 60_000,
+    timeoutMessage: 'البوت لم يستجب خلال دقيقة — قد يكون نائماً، أعد المحاولة',
+  });
+  if (!r.ok) {
+    res.status(r.status).json({ success: false, message: r.message });
     return;
   }
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 60_000);
-  try {
-    const r = await fetch(`${BOT_URL}${path}`, {
-      headers: { 'x-inbox-token': TOKEN },
-      signal: ctrl.signal,
-    });
-    const body = await r.json().catch(() => null);
-    if (!r.ok) {
-      res.status(r.status === 401 ? 502 : r.status).json({
-        success: false,
-        message: r.status === 401
-          ? 'البوت رفض الرمز — تأكّد أن WA_SWEEP_TOKEN متطابق في الخدمتين'
-          : (body as { message?: string })?.message || `البوت ردّ ${r.status}`,
-      });
-      return;
-    }
-    res.json({ success: true, data: body });
-  } catch (e) {
-    const aborted = (e as Error).name === 'AbortError';
-    res.status(504).json({
-      success: false,
-      message: aborted ? 'البوت لم يستجب خلال دقيقة — قد يكون نائماً، أعد المحاولة' : 'تعذّر الوصول للبوت',
-    });
-  } finally {
-    clearTimeout(t);
-  }
+  res.json({ success: true, data: r.body });
 }
 
 router.get('/stats', async (_req: AuthRequest, res: Response, next: NextFunction) => {

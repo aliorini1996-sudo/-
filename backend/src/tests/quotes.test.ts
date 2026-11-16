@@ -145,7 +145,7 @@ test('نافذة الرقم المؤقّت: مستقبلٌ بدقيقتين لا
 test('التركيب: التسجيل خلف محدّد المعدّل، والسجلّ والحذف للمالك وحده، وتصادمٌ فريد يُفحص بالمعرّف أولاً', () => {
   const src = readFileSync(path.join(__dirname, '../routes/quotes.ts'), 'utf8');
   assert.match(src, /router\.post\('\/', quoteLimiter,/);
-  // حارس لوحة المالك: المالك، والموظف بصلاحيتي «عروض الأسعار» (services/platformAccess.ts)
+  // حارس لوحة المالك: للمالك وحده — لا قاعدة للموظف منذ ١٦ نوفمبر ٢٠٢٦ («إدارة المبيعات» بدل الصفحة، services/platformAccess.ts)
   assert.match(src, /router\.get\('\/admin', platformGate,/);
   assert.match(src, /router\.delete\('\/admin\/:id', platformGate,/);
   assert.equal((src.match(/router\.(get|post|put|patch|delete)\(/g) || []).length, 3, 'مسارٌ إضافيّ قد يكشف السجلّ');

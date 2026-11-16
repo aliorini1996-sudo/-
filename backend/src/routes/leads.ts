@@ -16,6 +16,9 @@ import { personalize, marketingHtml } from '../services/marketingTemplate';
 import { phoneIsMobile } from '../services/phoneType';
 import { getEmailConfig, saveEmailConfig, runAutoEmailBatch } from '../services/leadEmailer';
 import { getCommunityConfig, saveCommunityConfig, runCommunityHuntBatch } from '../services/communityHunter';
+import {
+  syncSalesInbox, listSalesInbox, parseSalesListQuery, salesUpdateSchema, updateSalesContact,
+} from '../services/salesInbox';
 
 // إدارة العملاء المحتملين (Leads) — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
@@ -511,6 +514,30 @@ router.put('/community-hunt', async (req: AuthRequest, res: Response, next: Next
 
 router.post('/community-hunt/run', async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try { res.json({ success: true, data: await runCommunityHuntBatch() }); } catch (err) { next(err); }
+});
+
+// ------------------------------- «إدارة المبيعات» — قبل /:id ------------------------------- //
+// كل من تواصل مع المنصة في قائمة واحدة (services/salesInbox.ts) بصلاحية sales.view. صفوف واتساب لمن يملك محادثات البوت
+// أيضاً (waInbox.view) — والمالك يرى كل شيء
+router.get('/sales-inbox', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const includeWhatsapp = staffHas(req, 'waInbox.view');
+    // مزامنة التجارب وواتساب أفضل جهد ومخنوقة (مرّة في الدقيقة) — لا تُفشل القائمة
+    const { whatsapp, syncedAt } = await syncSalesInbox({ includeWhatsapp });
+    const data = await listSalesInbox(parseSalesListQuery(req.query as Record<string, unknown>), includeWhatsapp);
+    res.json({ success: true, data: { ...data, whatsapp, syncedAt: syncedAt.toISOString() } });
+  } catch (err) { next(err); }
+});
+
+// المرحلة والملاحظة وحدهما — المزامنة لا تمسّهما أبداً
+router.put('/sales-inbox/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const parsed = salesUpdateSchema.safeParse(req.body ?? {});
+    if (!parsed.success) { res.status(400).json({ success: false, message: 'حالة أو ملاحظة غير صالحة' }); return; }
+    const row = await updateSalesContact(String(req.params.id), parsed.data, staffHas(req, 'waInbox.view'));
+    if (!row) { res.status(404).json({ success: false, message: 'جهة التواصل غير موجودة' }); return; }
+    res.json({ success: true, data: row });
+  } catch (err) { next(err); }
 });
 
 // ------------------------------- تفاصيل + أنشطة ------------------------------- //

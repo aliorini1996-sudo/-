@@ -54,11 +54,11 @@ test('accessFor: المالك كل شيء، والموظف ما منحه الم�
   assert.deepEqual([owner.isOwner, owner.isStaff], [true, false]);
   for (const k of SERVER_KEYS) assert.equal(owner.can(k as never), true, `المالك بلا ${k}`);
 
-  const staff = accessFor({ role: 'PLATFORM_STAFF', permissions: ['leads.view', 'quotes.view'] });
+  const staff = accessFor({ role: 'PLATFORM_STAFF', permissions: ['leads.view', 'sales.view'] });
   assert.deepEqual([staff.isOwner, staff.isStaff], [false, true]);
   assert.equal(staff.can('leads.view'), true);
-  assert.equal(staff.can('quotes.view'), true);
-  for (const k of SERVER_KEYS.filter((k) => k !== 'leads.view' && k !== 'quotes.view')) {
+  assert.equal(staff.can('sales.view'), true);
+  for (const k of SERVER_KEYS.filter((k) => k !== 'leads.view' && k !== 'sales.view')) {
     assert.equal(staff.can(k as never), false, `الموظف يملك ${k} بلا منح`);
   }
 
@@ -158,8 +158,8 @@ test('المخزن: دخول الموظف وخروجه في مساحته وحد�
   assert.equal(store.has('token'), false, 'الموظف دخل مساحة الشركة');
 
   // تحديث الصلاحيات من /staff-auth/me يُكتب في مساحته
-  useAuthStore.getState().patchUser({ permissions: ['leads.view', 'quotes.view'] });
-  assert.deepEqual(JSON.parse(store.get('st_user')!).permissions, ['leads.view', 'quotes.view']);
+  useAuthStore.getState().patchUser({ permissions: ['leads.view', 'sales.view'] });
+  assert.deepEqual(JSON.parse(store.get('st_user')!).permissions, ['leads.view', 'sales.view']);
 
   useAuthStore.getState().logout();
   assert.equal(store.has('st_token'), false);

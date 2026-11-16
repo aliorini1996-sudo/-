@@ -25,6 +25,7 @@ import FinancePanel from '../components/FinancePanel';
 import WaInboxPanel from '../components/WaInboxPanel';
 import LeadsPanel from '../components/LeadsPanel';
 import InvoiceToolPanel from '../components/InvoiceToolPanel';
+import SalesCrmPanel from '../components/SalesCrmPanel';
 import { BrandIcon } from '../components/BrandLogo';
 import LanguageToggle from '../components/LanguageToggle';
 import { useTr } from '../i18n/strings';
@@ -32,8 +33,6 @@ import { backdropClose } from '../lib/backdropClose';
 import { lotRecordsRetainedOf, tenantLotNote, tenantLotPayload } from '../lib/lotTrackingUi';
 import { taxModeErrorMessage } from './taxOffScreens1';
 import { DealStageSelect, NotesButton, TenantNotesModal } from '../components/TenantCrm';
-// سجلّ عروض الأسعار — كسولٌ: يجرّ html2canvas وjsPDF لمعاينة المستند وتنزيله
-const QuotesPanel = lazy(() => import('../components/QuotesPanel'));
 // «موظفو المنصة» وسجل نشاطهم — للمالك وحده، فلا تُحمَّل حزمتها في جلسة موظف أصلاً
 const StaffPanel = lazy(() => import('../components/StaffPanel'));
 
@@ -56,7 +55,7 @@ export default function PlatformPage() {
   const [showProfile, setShowProfile] = useState(false);
   const [showPayments, setShowPayments] = useState(false);
   const [showAffiliates, setShowAffiliates] = useState(false);
-  const [showQuotes, setShowQuotes] = useState(false);
+  const [showSales, setShowSales] = useState(false);
   const [showFinance, setShowFinance] = useState(false);
   const [showWaInbox, setShowWaInbox] = useState(false);
   const [showLeads, setShowLeads] = useState(false);
@@ -119,7 +118,7 @@ export default function PlatformPage() {
   // أقسام الشريط الجانبي الممنوحة — بلا شيءٍ منها يرى الموظف ترحيباً هادئاً بدل جدول الشركات
   const menu = {
     leads: can('leads.view'), invoiceTool: can('invoiceTool.view'), waInbox: can('waInbox.view'),
-    payments: can('payments.view'), affiliates: can('affiliates.view'), quotes: can('quotes.view'),
+    payments: can('payments.view'), affiliates: can('affiliates.view'), sales: can('sales.view'),
     content: can('content.edit'), visits: can('visits.view'), live: can('live.view'),
   };
   const anySection = Object.values(menu).some(Boolean);
@@ -193,9 +192,10 @@ export default function PlatformPage() {
               <Handshake size={18} className="flex-shrink-0" /> <span>{tr('السفراء')}</span>
             </button>
           )}
-          {menu.quotes && (
-            <button onClick={() => setShowQuotes(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
-              <FileText size={18} className="flex-shrink-0" /> <span>{tr('عروض الأسعار')}</span>
+          {/* «إدارة المبيعات» (طلب المالك ١٦ نوفمبر ٢٠٢٦) حلّت محلّ «عروض الأسعار»: كل من تواصل مع المنصة في قائمة واحدة */}
+          {menu.sales && (
+            <button onClick={() => setShowSales(true)} className="sidebar-link w-full text-[#F5C87A] hover:bg-[#E0A02C]/20 hover:text-[#f8d99b]">
+              <TrendingUp size={18} className="flex-shrink-0" /> <span>{tr('إدارة المبيعات')}</span>
             </button>
           )}
           {menu.content && (
@@ -322,7 +322,7 @@ export default function PlatformPage() {
       )}
       {showPayments && menu.payments && <PaymentLinksPanel onClose={() => setShowPayments(false)} />}
       {showAffiliates && menu.affiliates && <AffiliatesPanel onClose={() => setShowAffiliates(false)} />}
-      {showQuotes && menu.quotes && <Suspense fallback={null}><QuotesPanel onClose={() => setShowQuotes(false)} /></Suspense>}
+      {showSales && menu.sales && <SalesCrmPanel onClose={() => setShowSales(false)} />}
       {showStaff && isOwner && <Suspense fallback={null}><StaffPanel onClose={() => setShowStaff(false)} /></Suspense>}
       {showPassword && (isOwner
         ? <ChangePasswordModal onClose={() => setShowPassword(false)} />

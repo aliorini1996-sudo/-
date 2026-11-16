@@ -47,12 +47,13 @@ export const isLedgerModel = (name: string): boolean => /^Gl[A-Z]/.test(name);
 /**
  * لا يُستهدف مباشرة لأي شركة: الشركة نفسها (لها مسارها في لوحة المالك)، وجداول الدفاتر كلها (Gl* — ومنها سجلّ الموردين
  * وله مساره routes/suppliers.ts)، وسجلّات المورّد الإلحاقية (كشفه وتخصيصات دفعاته) وسجلّ «إعادة المرتجع للمخزون»: تُحذف
- * تابعةً لمستندها وحده لا منفردة. وجداول المنصة بلا شركة لا تدخل أصلاً (hasTenantId)
+ * تابعةً لمستندها وحده لا منفردة. وجداول المنصة بلا شركة لا تدخل أصلاً (hasTenantId)، ومثلها «إدارة المبيعات» (SalesContact):
+ * tenantId فيها إشارةٌ إلى شركة التجربة لا ملكيةٌ لها، وحذفها يمحو مرحلة فريق المبيعات وملاحظته اليدوية
  */
 const NOT_TARGETABLE: ReadonlySet<string> = new Set([
   'Tenant',
   ...MODELS.filter((m) => isLedgerModel(m.name)).map((m) => m.name),
-  'SupplierLedgerEntry', 'SupplierPaymentAllocation', 'InvoiceRestockLog',
+  'SupplierLedgerEntry', 'SupplierPaymentAllocation', 'InvoiceRestockLog', 'SalesContact',
 ]);
 
 /**

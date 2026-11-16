@@ -19,7 +19,7 @@ export type StaffKey =
   | 'waInbox.view'
   | 'payments.view' | 'payments.manage'
   | 'affiliates.view' | 'affiliates.manage' | 'affiliates.payouts' | 'affiliates.iban'
-  | 'quotes.view' | 'quotes.delete'
+  | 'sales.view'
   | 'content.edit'
   | 'visits.view' | 'live.view' | 'live.requests';
 

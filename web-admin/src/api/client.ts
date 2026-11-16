@@ -7,6 +7,7 @@ import type { PrintSettingsV1 } from '../lib/print/printSettingsCore';
 import type { PrintTextsV1 } from '../lib/print/printTextsCore';
 import type { PaymentMethodsConfigInput } from '../lib/paymentMethodsCore';
 import type { RepTargetComboInput, RepTargetInput } from '../lib/repTargets';
+import type { SalesInboxParams, SalesUpdate } from '../lib/salesCrm';
 import type {
   LotCreateRequest, LotListParams, LotRef, LotRelabelRequest, LotStatusRequest, LotTrackingRequest, LotUpdateRequest,
 } from '../lib/lots';
@@ -602,6 +603,13 @@ export const leadApi = {
   invoiceToolUsers: () => api.get('/leads/invoice-tool'),
 };
 
+// «إدارة المبيعات» — كل من تواصل مع المنصة في قائمة واحدة (لوحة المالك، مفتاح sales.view). الخادم يزامن التجارب ومحادثات
+// البوت عند القراءة، ونماذج الموقع تُكتب لحظة الإرسال؛ والتعديل حالةُ المتابعة والملاحظة وحدهما
+export const salesApi = {
+  inbox: (params?: SalesInboxParams) => api.get('/leads/sales-inbox', { params }),
+  update: (id: string, body: SalesUpdate) => api.put(`/leads/sales-inbox/${encodeURIComponent(id)}`, body),
+};
+
 // الأدوات المجانية العامة — التقاط استخدام مولّد الفواتير كعميل محتمل (نقطة عامة بلا مصادقة)
 export const toolsApi = {
   invgenCapture: (data: Record<string, unknown>) => api.post('/leads-cron/invgen', data),
@@ -916,7 +924,8 @@ export const paymentsApi = {
   publicStatus: (id: string) => api.get(`/payments/public-status/${id}`),
 };
 
-// عروض الأسعار — التسجيل بلا دخول من الرابط الخاص /q-fs7k2m، والسجلّ والحذف للمالك وحده.
+// عروض الأسعار — التسجيل بلا دخول من الرابط الخاص /q-fs7k2m. نافذة سجلّها في لوحة المالك أُزيلت (حلّت محلّها «إدارة المبيعات»،
+// طلب المالك ١٦ نوفمبر ٢٠٢٦)، ومسار السجلّ /quotes/admin باقٍ في الخادم للمالك وحده.
 // الباقة وسعرها وحدّها والصلاحية من كتالوج الخادم بمعرّف الباقة وحده؛ لا يُرسَل سعرٌ ولا إجماليّ.
 export interface QuoteIssuePayload {
   clientRef: string;
@@ -932,8 +941,6 @@ export interface QuoteIssuePayload {
 }
 export const quotesApi = {
   issue: (data: QuoteIssuePayload) => api.post('/quotes', data, { timeout: 10_000 }),
-  list: (params: { q?: string; page?: number }) => api.get('/quotes/admin', { params }),
-  remove: (id: string) => api.delete(`/quotes/admin/${id}`),
 };
 
 // الإدارة المالية — للمالك وحده. كل الأرقام مشتقّة في الخادم؛ الواجهة تعرض فقط.

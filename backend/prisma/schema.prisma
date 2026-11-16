@@ -2877,6 +2877,35 @@ model Lead {
   @@map("leads")
 }
 
+// «إدارة المبيعات» (طلب المالك ١٦ نوفمبر ٢٠٢٦) — قمعٌ واحد لكل من تواصل مع المنصة: تسجيل تجريبي (ذاتي أو عبر سفير)،
+// طلب اجتماع، تواصل معنا، طلب اشتراك أو عرض سعر، ومحادثات بوت واتساب. جدولٌ جديد بقيده الفريد — لا قيد على جدولٍ قائم.
+// التجارب وواتساب تُزامَن عند فتح الصفحة (services/salesInbox.ts) والنماذج تُكتب لحظة الإرسال (routes/contact.ts).
+// المزامنة تحدّث الحقول الوصفية وحدها: المرحلة والملاحظة للبشر لا تُمسّان أبداً.
+model SalesContact {
+  id        String   @id @default(uuid())
+  channel   String // TRIAL | AMBASSADOR_TRIAL | MEETING | CONTACT | SUBSCRIPTION | QUOTE_REQUEST | WHATSAPP
+  sourceRef String // TRIAL/AMBASSADOR_TRIAL: tenantId · WHATSAPP: أرقام الجوال · النماذج: uuid
+  name      String?
+  company   String?
+  phone     String?
+  email     String?
+  country   String?
+  message   String?
+  origin    String? // «من أين أتى» نصّاً عربياً
+  tenantId  String?
+  stage     String   @default("NEW") // NEW | CONTACTED | MEETING | NEGOTIATION | WON | LOST | NOT_FIT
+  note      String?
+  firstAt   DateTime @default(now())
+  lastAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([channel, sourceRef])
+  @@index([lastAt])
+  @@index([stage])
+  @@map("sales_contacts")
+}
+
 // سجلّ رسائل واتساب (صادر/وارد) — يغذّي الحدّ اليومي وتتبّع التسليم/القراءة ومطابقة الردود.
 // حالات التسليم تصل عبر webhook من Meta وتُحدَّث على waId.
 model WaMessage {

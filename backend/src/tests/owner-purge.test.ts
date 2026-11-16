@@ -9,6 +9,8 @@ test('الأنواع: كل جدولٍ فيه tenantId قابل للحذف عدا
   const t = targetableModels();
   for (const m of ['Invoice', 'Receipt', 'VanLoad', 'WarehouseEntry', 'SalesLocation', 'Customer', 'Product', 'SalesRep']) assert.ok(t.includes(m), m);
   assert.ok(!t.includes('Tenant'));
+  // «إدارة المبيعات» جدول منصّة: tenantId فيه إشارة إلى شركة التجربة لا ملكية
+  assert.ok(!t.includes('SalesContact'));
 });
 
 test('العلاقات الواردة إلى الفاتورة: البنود إلزامية، والقيد اختياري، والمرتجع يشير إليها اختيارياً', () => {

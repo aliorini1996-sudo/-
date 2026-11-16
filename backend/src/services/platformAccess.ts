@@ -55,8 +55,9 @@ export const STAFF_PERMISSIONS = [
   { key: 'affiliates.payouts', group: 'السفراء', label: 'اعتماد العمولات والدفعات والتسويات' },
   { key: 'affiliates.iban', group: 'السفراء', label: 'كشف رقم الآيبان' },
 
-  { key: 'quotes.view', group: 'عروض الأسعار', label: 'عرض سجل عروض الأسعار' },
-  { key: 'quotes.delete', group: 'عروض الأسعار', label: 'حذف عرض سعر' },
+  // «إدارة المبيعات» (طلب المالك ١٦ نوفمبر ٢٠٢٦) بدل «عروض الأسعار» — سجلّ العروض صار للمالك وحده (/api/quotes/admin بلا قاعدة).
+  // صفوف واتساب فيها لمن يملك waInbox.view أيضاً (routes/leads.ts)
+  { key: 'sales.view', group: 'إدارة المبيعات', label: 'إدارة المبيعات' },
 
   { key: 'content.edit', group: 'محتوى الموقع', label: 'تعديل محتوى الصفحة والبروفايل' },
 
@@ -90,7 +91,8 @@ const r = (method: Method, path: string, key: StaffPermissionKey, auditRead?: bo
  * `/api/leads/INVOICE-TOOL` يصل معالج `/invoice-tool` لا `/:id`، فمطابقته حرفاً بحرف كانت تعطيه مفتاح `leads.view`.
  *
  * ما لا قاعدة له للمالك وحده: /api/finance/* (قرار المالك)، /api/paylink/owner/* (أمانات «الإدارة المالية»)،
- * /api/tenants/ops/* (MRR والتقرير الأسبوعي)، /api/promo-videos/*، /api/platform-staff/* (إدارة الموظفين).
+ * /api/tenants/ops/* (MRR والتقرير الأسبوعي)، /api/promo-videos/*، /api/platform-staff/* (إدارة الموظفين)،
+ * /api/quotes/admin/* (سجلّ عروض الأسعار — أُزيلت صفحته من اللوحة ١٦ نوفمبر ٢٠٢٦ وبقي المسار للمالك).
  */
 export const ROUTE_RULES: readonly RouteRule[] = [
   // ── الشركات /api/tenants ──
@@ -121,6 +123,9 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   r('PUT', '/api/leads/(apify-budget|auto-hunt|community-hunt)', 'leads.hunt'),
   r('POST', '/api/leads/(phone-classify|auto-hunt/run|community-hunt/run|search|import|enrich)', 'leads.hunt'),
   r('GET', '/api/leads/invoice-tool', 'invoiceTool.view', true),
+  // «إدارة المبيعات» — حرفيّة قبل /api/leads/:id (وإلا أخذت leads.view)
+  r('GET', '/api/leads/sales-inbox', 'sales.view'),
+  r('PUT', `/api/leads/sales-inbox/${SEG}`, 'sales.view'),
   r('GET', '/api/leads/export/csv', 'leads.export', true),
   r('POST', '/api/leads', 'leads.edit'),
   r('GET', `/api/leads/${SEG}`, 'leads.view'),
@@ -153,10 +158,6 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   r('POST', `/api/affiliate-admin/commissions/${SEG}/(approve|hold|release|decline)`, 'affiliates.payouts'),
   r('POST', '/api/affiliate-admin/(payouts|adjustments)', 'affiliates.payouts'),
   r('POST', `/api/affiliate-admin/payouts/${SEG}/(record|void)`, 'affiliates.payouts'),
-
-  // ── عروض الأسعار /api/quotes ──
-  r('GET', '/api/quotes/admin', 'quotes.view'),
-  r('DELETE', `/api/quotes/admin/${SEG}`, 'quotes.delete'),
 
   // ── محتوى الموقع والبروفايل ──
   r('PUT', '/api/site-content', 'content.edit'),

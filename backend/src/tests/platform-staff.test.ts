@@ -196,8 +196,10 @@ function ownerRoutes(): { method: string; path: string; file: string }[] {
   return out;
 }
 
-/** للمالك وحده بقراره أو للأمان — لا قاعدة لها (الحارس يمنع الموظف) */
-const OWNER_ONLY = [/^\/api\/finance(\/|$)/, /^\/api\/paylink\/owner\//, /^\/api\/tenants\/ops\//, /^\/api\/promo-videos(\/|$)/];
+/** للمالك وحده بقراره أو للأمان — لا قاعدة لها (الحارس يمنع الموظف). سجل عروض الأسعار منذ ١٦ نوفمبر ٢٠٢٦ («إدارة المبيعات» بدل صفحته) */
+const OWNER_ONLY = [
+  /^\/api\/finance(\/|$)/, /^\/api\/paylink\/owner\//, /^\/api\/tenants\/ops\//, /^\/api\/promo-videos(\/|$)/, /^\/api\/quotes\/admin(\/|$)/,
+];
 
 test('كل مسارٍ خلف حارس لوحة المالك مصنَّف: مفتاح صلاحية أو للمالك وحده — ومسارٌ جديد بلا تصنيف يُفشل هذا', () => {
   const routes = ownerRoutes();
@@ -225,6 +227,10 @@ test('مفاتيح المسارات الحساسة كما وُصفت للمال�
   assert.equal(key('GET', '/api/tenants/ops/cards'), null);
   assert.equal(key('POST', '/api/tenants/ops/weekly-report'), null);
   assert.equal(key('GET', '/api/leads/invoice-tool'), 'invoiceTool.view');
+  assert.equal(key('GET', '/api/leads/sales-inbox'), 'sales.view', 'لا leads.view عبر /:id');
+  assert.equal(key('PUT', '/api/leads/sales-inbox/c1'), 'sales.view');
+  assert.equal(key('GET', '/api/quotes/admin'), null, 'سجل عروض الأسعار للمالك وحده');
+  assert.equal(key('DELETE', '/api/quotes/admin/q1'), null);
   assert.equal(key('GET', '/api/leads/l1'), 'leads.view');
   assert.equal(key('POST', '/api/leads/whatsapp-send'), 'leads.message');
   assert.equal(key('POST', '/api/leads/email'), 'leads.message');
@@ -246,6 +252,7 @@ test('مفاتيح المسارات الحساسة كما وُصفت للمال�
 test('المطابقة بلا حساسية حالة كتوجيه Express: الحرفيّ يغلب المعامِل مهما كُتبت الأحرف', () => {
   const at = (baseUrl: string, p: string) => pa.ruleFor('GET', pa.requestPath({ baseUrl, path: p }))?.key;
   assert.equal(at('/API/Leads', '/INVOICE-TOOL'), 'invoiceTool.view', 'لا leads.view عبر /:id');
+  assert.equal(at('/api/leads', '/Sales-Inbox'), 'sales.view', 'لا leads.view عبر /:id');
   assert.equal(at('/api/tenants', '/Platform-Totals'), 'tenants.totals');
   assert.equal(at('/api/tenants', '/OPS'), undefined, '/ops ليس شركة');
   assert.equal(at('/api/leads', '/l1/'), 'leads.view', 'الشرطة الأخيرة');

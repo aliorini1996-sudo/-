@@ -4,6 +4,7 @@ import { sendMail, mailLayout } from '../services/mailer';
 import { mailLimiter } from '../middleware/rateLimits';
 import { leadAlertRecipients } from '../services/leadAlerts';
 import { pageLangSchema, pageLangLabel } from '../lib/pageLang';
+import { recordInboundContact } from '../services/salesInbox';
 
 // استقبال رسائل التواصل من الصفحة التعريفية وإرسالها لبريد الشركة
 const router = Router();
@@ -16,6 +17,11 @@ router.post('/', mailLimiter, async (req: Request, res: Response, next: NextFunc
       phone: z.string().optional(),
       message: z.string().min(1),
     }).parse(req.body);
+
+    // «إدارة المبيعات»: يُسجَّل قبل البريد، وتعذّر القاعدة لا يمنع البريد (services/salesInbox.ts)
+    try {
+      await recordInboundContact({ channel: 'CONTACT', name: body.name, email: body.email, phone: body.phone, message: body.message });
+    } catch (e) { console.error('[contact] تعذّر تسجيل التواصل في إدارة المبيعات:', e); }
 
     const sent = await sendMail({
       // لحظياً إلى البريد الرئيسي وabdullah وanas وceo (طلب المالك ١٠ نوفمبر — services/leadAlerts.ts)
@@ -51,6 +57,19 @@ router.post('/subscription', mailLimiter, async (req: Request, res: Response, ne
     }).parse(req.body);
 
     const title = body.kind === 'quote' ? 'طلب عرض سعر' : 'طلب اشتراك جديد';
+    // «إدارة المبيعات»: يُسجَّل قبل البريد، وتعذّر القاعدة لا يمنع البريد (services/salesInbox.ts)
+    try {
+      await recordInboundContact({
+        channel: body.kind === 'quote' ? 'QUOTE_REQUEST' : 'SUBSCRIPTION',
+        name: body.contactName, company: body.companyName, email: body.email, phone: body.phone, country: body.country,
+        message: [
+          body.notes?.trim(),
+          body.city?.trim() ? `المدينة: ${body.city.trim()}` : '',
+          body.repsCount?.trim() ? `عدد المناديب المتوقع: ${body.repsCount.trim()}` : '',
+        ].filter(Boolean).join(' · '),
+      });
+    } catch (e) { console.error('[contact] تعذّر تسجيل الطلب في إدارة المبيعات:', e); }
+
     const sent = await sendMail({
       // لحظياً إلى البريد الرئيسي وabdullah وanas وceo (طلب المالك ١٠ نوفمبر — services/leadAlerts.ts)
       to: leadAlertRecipients(),
@@ -88,6 +107,14 @@ router.post('/meeting', mailLimiter, async (req: Request, res: Response, next: N
     if (!parsed.success) { res.status(400).json({ success: false, message: 'اكتب اسمك ورقم جوال صحيحا' }); return; }
     const body = parsed.data;
     const name = body.name.replace(/[<>]/g, '');
+    // «إدارة المبيعات»: يُسجَّل قبل البريد، وتعذّر القاعدة لا يمنع البريد (services/salesInbox.ts)
+    try {
+      await recordInboundContact({
+        channel: 'MEETING', name: body.name, phone: body.phone, country: body.country,
+        message: `لغة الصفحة: ${pageLangLabel(body.lang || 'ar')}`,
+      });
+    } catch (e) { console.error('[contact] تعذّر تسجيل طلب الاجتماع في إدارة المبيعات:', e); }
+
     const sent = await sendMail({
       // لحظياً إلى البريد الرئيسي والثلاثة (طلب المالك ٨ نوفمبر — services/leadAlerts.ts)
       to: leadAlertRecipients(),
