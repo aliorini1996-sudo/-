@@ -387,19 +387,29 @@ export interface SalesRow {
   id: string; channel: string; name: string | null; company: string | null; phone: string | null; email: string | null;
   country: string | null; message: string | null; origin: string | null; tenantId: string | null; stage: string;
   note: string | null; firstAt: string; lastAt: string;
+  /** عدد الملاحظات (السجلّ + الملاحظة القديمة المفردة إن وُجدت) — لعدّاد الأيقونة */
+  notesCount: number;
 }
 
 export function toSalesRow(r: {
   id: string; channel: string; name: string | null; company: string | null; phone: string | null; email: string | null;
   country: string | null; message: string | null; origin: string | null; tenantId: string | null; stage: string;
   note: string | null; firstAt: Date; lastAt: Date;
-}): SalesRow {
+}, logged = 0): SalesRow {
   return {
     id: r.id, channel: r.channel, name: r.name ?? null, company: r.company ?? null, phone: r.phone ?? null,
     email: r.email ?? null, country: r.country ?? null, message: r.message ?? null, origin: r.origin ?? null,
     tenantId: r.tenantId ?? null, stage: r.stage, note: r.note ?? null,
     firstAt: new Date(r.firstAt).toISOString(), lastAt: new Date(r.lastAt).toISOString(),
+    notesCount: logged + (r.note && r.note.trim() ? 1 : 0),
   };
+}
+
+/** عدد ملاحظات السجلّ لكل جهة تواصل — تجميعٌ واحد للصفحة (لا استعلام لكل صفّ) */
+async function notesCountOf(db: Db, ids: string[]): Promise<Map<string, number>> {
+  if (!ids.length) return new Map();
+  const g = await db.salesContactNote.groupBy({ by: ['contactId'], where: { contactId: { in: ids } }, _count: { _all: true } });
+  return new Map(g.map((x) => [x.contactId, x._count._all]));
 }
 
 /** الصفوف بالأحدث تواصلاً، والعدّادات على كل ما يراه الطالب لا على الصفحة المرشَّحة وحدها */
@@ -418,7 +428,8 @@ export async function listSalesInbox(p: SalesListParams, includeWhatsapp: boolea
   for (const g of byChannel) channels[g.channel] = g._count._all;
   const stages: Record<string, number> = Object.fromEntries(SALES_STAGES.map((s) => [s, 0]));
   for (const g of byStage) stages[g.stage] = g._count._all;
-  return { rows: rows.map(toSalesRow), total, counts: { byChannel: channels, byStage: stages } };
+  const logged = await notesCountOf(db, rows.map((r) => r.id));
+  return { rows: rows.map((r) => toSalesRow(r, logged.get(r.id) ?? 0)), total, counts: { byChannel: channels, byStage: stages } };
 }
 
 /** تعديل المرحلة والملاحظة وحدهما — الملاحظة الفارغة تُمسح (null) */
@@ -430,12 +441,54 @@ export const salesUpdateSchema = z.object({
 export type SalesUpdate = z.infer<typeof salesUpdateSchema>;
 
 /** null = غير موجود لهذا الطالب (صفّ واتساب لمن لا يملك محادثات البوت كأنه غير موجود ⇒ ٤٠٤) */
-export async function updateSalesContact(id: string, body: SalesUpdate, includeWhatsapp: boolean, db: Db = prisma): Promise<SalesRow | null> {
+export async function updateSalesContact(
+  id: string, body: SalesUpdate, includeWhatsapp: boolean, db: Db = prisma, author?: SalesNoteAuthor,
+): Promise<SalesRow | null> {
   const cur = await db.salesContact.findUnique({ where: { id } });
   if (!cur || (!includeWhatsapp && cur.channel === 'WHATSAPP')) return null;
   const data: { stage?: string; note?: string | null } = {};
   if (body.stage !== undefined) data.stage = body.stage;
   if (body.note !== undefined) data.note = body.note;
-  if (!Object.keys(data).length) return toSalesRow(cur);
-  return toSalesRow(await db.salesContact.update({ where: { id }, data }));
+  const logged = async () => (await notesCountOf(db, [id])).get(id) ?? 0;
+  if (!Object.keys(data).length) return toSalesRow(cur, await logged());
+  const row = await db.salesContact.update({ where: { id }, data });
+  // تغيير الحالة فعلاً ⇒ سطرٌ في سجلّ الملاحظات بالاسم والوقت (كحالة الصفقة في لوحة المالك)
+  if (author && body.stage !== undefined && body.stage !== cur.stage) {
+    await db.salesContactNote.create({ data: { contactId: id, kind: 'STAGE', body: `غيّر الحالة إلى «${SALES_STAGE_LABELS[body.stage]}»`, ...author } });
+  }
+  return toSalesRow(row, await logged());
+}
+
+// ═══ سجلّ الملاحظات ═══
+
+export const SALES_STAGE_LABELS: Record<SalesStage, string> = {
+  NEW: 'جديد', CONTACTED: 'تم التواصل', MEETING: 'تم الاجتماع', NEGOTIATION: 'المفاوضة', WON: 'مشتري', LOST: 'تم خسارة العميل', NOT_FIT: 'غير مناسب',
+};
+
+export interface SalesNoteAuthor { authorKind: 'OWNER' | 'STAFF'; authorId: string; authorName: string }
+export const salesNoteBodySchema = z.object({ body: z.string().trim().min(1, 'اكتب الملاحظة').max(5000, 'الملاحظة أطول من ٥٠٠٠ حرف') });
+const noteSelect = { id: true, kind: true, body: true, authorKind: true, authorName: true, createdAt: true } as const;
+
+/** جهة التواصل كما يراها الطالب (صفّ واتساب لمن لا يملك محادثات البوت كأنه غير موجود) */
+async function visibleContact(db: Db, id: string, includeWhatsapp: boolean) {
+  const c = await db.salesContact.findUnique({ where: { id }, select: { id: true, channel: true, note: true } });
+  return !c || (!includeWhatsapp && c.channel === 'WHATSAPP') ? null : c;
+}
+
+/** السجلّ الأحدث أولاً، والملاحظة القديمة المفردة (إن وُجدت) منفصلة للعرض */
+export async function listSalesNotes(id: string, includeWhatsapp: boolean, db: Db = prisma) {
+  const c = await visibleContact(db, id, includeWhatsapp);
+  if (!c) return null;
+  const notes = await db.salesContactNote.findMany({ where: { contactId: id }, orderBy: { createdAt: 'desc' }, take: 500, select: noteSelect });
+  return { notes, legacyNote: c.note && c.note.trim() ? c.note : null };
+}
+
+export async function addSalesNote(id: string, body: string, author: SalesNoteAuthor, includeWhatsapp: boolean, db: Db = prisma) {
+  if (!(await visibleContact(db, id, includeWhatsapp))) return null;
+  return db.salesContactNote.create({ data: { contactId: id, kind: 'NOTE', body, ...author }, select: noteSelect });
+}
+
+export async function removeSalesNote(id: string, noteId: string, includeWhatsapp: boolean, db: Db = prisma): Promise<boolean> {
+  if (!(await visibleContact(db, id, includeWhatsapp))) return false;
+  return (await db.salesContactNote.deleteMany({ where: { id: noteId, contactId: id } })).count > 0;
 }

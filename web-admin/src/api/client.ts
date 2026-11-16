@@ -608,6 +608,10 @@ export const leadApi = {
 export const salesApi = {
   inbox: (params?: SalesInboxParams) => api.get('/leads/sales-inbox', { params }),
   update: (id: string, body: SalesUpdate) => api.put(`/leads/sales-inbox/${encodeURIComponent(id)}`, body),
+  // سجلّ ملاحظات جهة التواصل (كملاحظات الشركات في لوحة المالك)
+  notes: (id: string) => api.get(`/leads/sales-inbox/${encodeURIComponent(id)}/notes`),
+  addNote: (id: string, body: string) => api.post(`/leads/sales-inbox/${encodeURIComponent(id)}/notes`, { body }),
+  removeNote: (id: string, noteId: string) => api.delete(`/leads/sales-inbox/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`),
 };
 
 // الأدوات المجانية العامة — التقاط استخدام مولّد الفواتير كعميل محتمل (نقطة عامة بلا مصادقة)

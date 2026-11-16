@@ -23,6 +23,7 @@ const stub = (rel: string, exports: Record<string, unknown>): void => {
 // ─── Prisma مزيّف: مطابِقٌ يرفض ما لا يعرفه من العوامل ───
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 let contacts: Row[] = [];
+let salesNotes: Row[] = [];
 let tenants: Row[] = [];
 let attributions: Row[] = [];
 const staff = new Map<string, Row>();
@@ -93,6 +94,21 @@ const prisma = {
         contacts.push(newContact(d)); count++;
       }
       return { count };
+    },
+  },
+  // سجلّ ملاحظات «إدارة المبيعات» (١٦ نوفمبر)
+  salesContactNote: {
+    async groupBy(a: { where: { contactId: { in: string[] } } }) {
+      const m = new Map<string, number>();
+      for (const n of salesNotes) if (a.where.contactId.in.includes(n.contactId)) m.set(n.contactId, (m.get(n.contactId) ?? 0) + 1);
+      return [...m].map(([contactId, c]) => ({ contactId, _count: { _all: c } }));
+    },
+    async create(a: { data: Row }) { const n = { id: `n${++seq}`, createdAt: new Date(), ...a.data }; salesNotes.push(n); return n; },
+    async findMany(a: { where: { contactId: string } }) { return salesNotes.filter((n) => n.contactId === a.where.contactId).reverse(); },
+    async deleteMany(a: { where: { id: string; contactId: string } }) {
+      const before = salesNotes.length;
+      salesNotes = salesNotes.filter((n) => !(n.id === a.where.id && n.contactId === a.where.contactId));
+      return { count: before - salesNotes.length };
     },
   },
   tenant: {
@@ -185,7 +201,7 @@ function staffWith(...permissions: string[]): string {
 
 const D = (s: string) => new Date(s);
 function reset() {
-  contacts = []; attributions = []; staff.clear(); owners.clear(); owners.set('o1', { id: 'o1', isActive: true });
+  contacts = []; salesNotes = []; attributions = []; staff.clear(); owners.clear(); owners.set('o1', { id: 'o1', isActive: true });
   contactCreateFails = false; tenantScans = 0; botCalls = []; mails.length = 0;
   botReply = { ok: true, body: { threads: [] } };
   tenants = [
@@ -427,7 +443,7 @@ test('GET /sales-inbox: المالك يرى كل القنوات وواتساب،
   assert.equal(d.total, 5);
   assert.deepEqual(d.counts.byChannel, { TRIAL: 2, AMBASSADOR_TRIAL: 1, MEETING: 1, CONTACT: 0, SUBSCRIPTION: 0, QUOTE_REQUEST: 0, WHATSAPP: 1 });
   assert.deepEqual(d.counts.byStage, { NEW: 5, CONTACTED: 0, MEETING: 0, NEGOTIATION: 0, WON: 0, LOST: 0, NOT_FIT: 0 });
-  assert.deepEqual(Object.keys(d.rows[0]).sort(), ['channel', 'company', 'country', 'email', 'firstAt', 'id', 'lastAt', 'message', 'name', 'note', 'origin', 'phone', 'stage', 'tenantId'].sort());
+  assert.deepEqual(Object.keys(d.rows[0]).sort(), ['channel', 'company', 'country', 'email', 'firstAt', 'id', 'lastAt', 'message', 'name', 'note', 'notesCount', 'origin', 'phone', 'stage', 'tenantId'].sort());
 
   // المرشّح يضيّق الصفوف والعدّادات على الكل
   const f = (await call('GET', '/api/leads/sales-inbox?channel=TRIAL&limit=1', owner())).body.data;
@@ -493,6 +509,28 @@ test('PUT /sales-inbox/:id: المرحلة والملاحظة، ٤٠٠ لمرح�
 
   const cleared = await call('PUT', `/api/leads/sales-inbox/${trial.id}`, t, { note: '' });
   assert.deepEqual([cleared.body.data.note, cleared.body.data.stage], [null, 'CONTACTED']);
+});
+
+test('سجلّ ملاحظات جهة التواصل: إضافة بالكاتب، وسطر آلي عند تغيير الحالة، والعدّاد، والحذف، وواتساب بلا صلاحيته ٤٠٤', async () => {
+  reset();
+  botReply = { ok: true, body: { threads: [thread({})] } };
+  await call('GET', '/api/leads/sales-inbox', owner());
+  const trial = contacts.find((c) => c.sourceRef === 't-self')!;
+  const wa = contacts.find((c) => c.channel === 'WHATSAPP')!;
+  const t = staffWith('sales.view');
+  assert.equal((await call('POST', `/api/leads/sales-inbox/${trial.id}/notes`, t, { body: '  ' })).status, 400);
+  const added = await call('POST', `/api/leads/sales-inbox/${trial.id}/notes`, owner(), { body: 'اتصلت وطلب عرض سعر' });
+  assert.equal(added.status, 201);
+  assert.deepEqual([added.body.data.kind, added.body.data.authorKind], ['NOTE', 'OWNER']);
+  await call('PUT', `/api/leads/sales-inbox/${trial.id}`, owner(), { stage: 'MEETING' });
+  const list = await call('GET', `/api/leads/sales-inbox/${trial.id}/notes`, t);
+  assert.deepEqual(list.body.data.notes.map((n: Row) => n.kind), ['STAGE', 'NOTE']);
+  assert.match(list.body.data.notes[0].body, /تم الاجتماع/);
+  const inbox = await call('GET', '/api/leads/sales-inbox', owner());
+  assert.equal(inbox.body.data.rows.find((r: Row) => r.id === trial.id).notesCount, 2);
+  assert.equal((await call('POST', `/api/leads/sales-inbox/${wa.id}/notes`, t, { body: 'x' })).status, 404, 'واتساب بلا صلاحيته');
+  assert.equal((await call('DELETE', `/api/leads/sales-inbox/${trial.id}/notes/${added.body.data.id}`, t)).status, 200);
+  assert.equal((await call('DELETE', `/api/leads/sales-inbox/${trial.id}/notes/${added.body.data.id}`, t)).status, 404);
 });
 
 // ═══════════════════ نماذج الموقع ═══════════════════
@@ -564,7 +602,7 @@ test('المصدر: التسجيل قبل sendMail داخل try/catch في كل 
   const id = leads.indexOf("router.get('/:id'");
   assert.ok(leads.indexOf("router.get('/sales-inbox'") > 0 && leads.indexOf("router.get('/sales-inbox'") < id);
   assert.ok(leads.indexOf("router.put('/sales-inbox/:id'") > 0 && leads.indexOf("router.put('/sales-inbox/:id'") < leads.indexOf("router.put('/:id'"));
-  assert.equal((leads.match(/staffHas\(req, 'waInbox\.view'\)/g) ?? []).length, 2, 'القائمة والتعديل');
+  assert.equal((leads.match(/staffHas\(req, 'waInbox\.view'\)/g) ?? []).length, 5, 'القائمة والتعديل وسجلّ الملاحظات الثلاثة');
   // مولد الفواتير مستثنى بقرار المالك: لا قناة له
   assert.equal((si.SALES_CHANNELS as readonly string[]).some((c) => /invoice|tool/i.test(c)), false);
   assert.doesNotMatch(svc, /invoice-tool/);

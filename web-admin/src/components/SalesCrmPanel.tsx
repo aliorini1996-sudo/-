@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X, Search, RefreshCw, TrendingUp, Phone, Mail, MessageCircle, AlertTriangle, Inbox } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { salesApi } from '../api/client';
+import { SalesNotesButton, SalesNotesModal } from './SalesNotesModal';
 import { useTr } from '../i18n/strings';
 import { flagOf } from '../i18n/dialCodes';
 import { formatDateTime, formatMoment, formatNumber } from '../utils/format';
 import {
-  SALES_CHANNELS, SALES_LIMIT_DEFAULT, SALES_LIMIT_MAX, SALES_NOTE_MAX, SALES_STAGES, channelOf, inboxParams, mailHref, stageOf,
+  SALES_CHANNELS, SALES_LIMIT_DEFAULT, SALES_LIMIT_MAX, SALES_STAGES, channelOf, inboxParams, mailHref, stageOf,
   telHref, waHrefForRow, type SalesInbox, type SalesRow, type SalesUpdate,
 } from '../lib/salesCrm';
 
@@ -129,7 +130,7 @@ export default function SalesCrmPanel({ onClose }: { onClose: () => void }) {
                   <th>{tr('من أين أتى')}</th>
                   <th>{tr('التاريخ')}</th>
                   <th>{tr('الحالة')}</th>
-                  <th className="min-w-[200px]">{tr('ملاحظة')}</th>
+                  <th>{tr('الملاحظات')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -179,6 +180,7 @@ function ChannelChip({ active, label, count, onClick }: { active: boolean; label
 /** صفّ عميل — الحالة تُحفظ عند الاختيار، والملاحظة عند مغادرة الحقل */
 function SalesRowView({ row }: { row: SalesRow }) {
   const tr = useTr();
+  const [notesOpen, setNotesOpen] = useState(false);
   const qc = useQueryClient();
   const m = useMutation({
     mutationFn: (body: SalesUpdate) => salesApi.update(row.id, body),
@@ -245,41 +247,9 @@ function SalesRowView({ row }: { row: SalesRow }) {
         </select>
       </td>
       <td>
-        <NoteInput note={row.note} saving={m.isPending} onSave={(note) => m.mutate({ note })} />
+        <SalesNotesButton row={row} onClick={() => setNotesOpen(true)} />
+        {notesOpen && <SalesNotesModal row={row} onClose={() => setNotesOpen(false)} />}
       </td>
     </tr>
-  );
-}
-
-/** ملاحظة تُعدَّل في مكانها — تُحفظ عند مغادرة الحقل (أو Enter) إن تغيّرت، وEsc يتراجع */
-function NoteInput({ note, saving, onSave }: { note: string | null; saving: boolean; onSave: (note: string | null) => void }) {
-  const tr = useTr();
-  const [value, setValue] = useState(note ?? '');
-  const skipBlur = useRef(false);
-  // ما يصل من الخادم (بعد الحفظ أو التحديث) يحلّ محلّ المكتوب
-  useEffect(() => { setValue(note ?? ''); }, [note]);
-
-  const commit = () => {
-    if (skipBlur.current) { skipBlur.current = false; return; }
-    const next = value.trim();
-    if (next === (note ?? '').trim()) return;
-    onSave(next ? next : null);
-  };
-
-  return (
-    <input
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') e.currentTarget.blur();
-        if (e.key === 'Escape') { skipBlur.current = true; setValue(note ?? ''); e.currentTarget.blur(); }
-      }}
-      disabled={saving}
-      maxLength={SALES_NOTE_MAX}
-      placeholder={tr('أضف ملاحظة')}
-      aria-label={tr('ملاحظة')}
-      className="w-full text-xs border border-transparent hover:border-[#E9E1D3] focus:border-[#E15A30] rounded-lg px-2 py-1.5 bg-transparent focus:bg-white outline-none disabled:opacity-60"
-    />
   );
 }

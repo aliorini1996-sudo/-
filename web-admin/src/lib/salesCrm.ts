@@ -54,6 +54,8 @@ export interface SalesRow {
   note: string | null;
   firstAt: string;
   lastAt: string;
+  /** عدد الملاحظات (السجلّ + الملاحظة القديمة) لعدّاد الأيقونة */
+  notesCount?: number;
 }
 
 export interface SalesInbox {
