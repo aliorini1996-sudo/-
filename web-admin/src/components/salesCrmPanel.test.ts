@@ -77,7 +77,7 @@ test('SalesCrmPanel: شاشة كاملة كالعملاء المحتملين، �
   assert.match(panel, /c\.value !== 'WHATSAPP' \|\| data\?\.whatsapp\.included !== false/);
   // الأعمدة السبعة بالترتيب
   const heads = [...panel.matchAll(/<th[^>]*>\{tr\('([^']+)'\)\}<\/th>/g)].map((m) => m[1]);
-  assert.deepEqual(heads, ['العميل', 'الجوال', 'البريد', 'من أين أتى', 'التاريخ', 'الحالة', 'ملاحظة']);
+  assert.deepEqual(heads, ['العميل', 'الجوال', 'البريد', 'من أين أتى', 'وقت التسجيل', 'الحالة', 'ملاحظة']);
   // الروابط: tel: وwa.me وmailto: من الأدوات الصرفة
   assert.match(panel, /telHref\(row\.phone\)/);
   assert.match(panel, /const wa = waHrefForRow\(row\);/);
@@ -101,7 +101,9 @@ test('SalesCrmPanel: شاشة كاملة كالعملاء المحتملين، �
   assert.match(panel, /\{data\.total > rows\.length && limit < SALES_LIMIT_MAX && \(\s*<button onClick=\{\(\) => setLimit\(SALES_LIMIT_MAX\)\}/);
   assert.match(panel, /tr\('عرض المزيد'\)/);
   // التاريخ بالمنسّق الميلادي المشترك (utils/format) لا بتنسيقٍ محلي
-  assert.match(panel, /formatDateTime\(row\.lastAt\)/);
+  // «وقت التسجيل» أوّل ظهورٍ للعميل، وآخر تواصلٍ تحته إن اختلف (طلب المالك ١٦ نوفمبر ٢٠٢٦)
+  assert.match(panel, /formatDateTime\(row\.firstAt\)/);
+  assert.match(panel, /row\.firstAt !== row\.lastAt && <p[^>]*>\{tr\('آخر تواصل'\)\} \{formatDateTime\(row\.lastAt\)\}/);
   assert.doesNotMatch(panel, /toLocale(Date)?String\(/);
   // الملاحظتان
   assert.match(panel, /data\?\.whatsapp\.included && !data\.whatsapp\.ok && \(/);
@@ -111,12 +113,13 @@ test('SalesCrmPanel: شاشة كاملة كالعملاء المحتملين، �
   assert.doesNotMatch(panel, /invoice-tool|invoiceTool|مولد الفواتير/);
 });
 
-test('القنوات السبع والحالات السبع بمفاتيح الخادم وأسمائها', () => {
+test('القنوات الثماني والحالات السبع بمفاتيح الخادم وأسمائها', () => {
   assert.deepEqual(SALES_CHANNELS.map((c) => [c.value, c.label]), [
     ['TRIAL', 'تسجيل تجريبي'],
     ['AMBASSADOR_TRIAL', 'تجربة عبر سفير'],
+    ['SALES_CREATED', 'فُتح من قبل المبيعات'],
     ['MEETING', 'طلب اجتماع'],
-    ['CONTACT', 'تواصل معنا'],
+    ['CONTACT', 'إيميل — تواصل معنا'],
     ['SUBSCRIPTION', 'طلب اشتراك'],
     ['QUOTE_REQUEST', 'طلب عرض سعر'],
     ['WHATSAPP', 'واتساب'],

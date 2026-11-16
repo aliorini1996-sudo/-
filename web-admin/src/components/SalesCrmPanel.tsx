@@ -127,7 +127,7 @@ export default function SalesCrmPanel({ onClose }: { onClose: () => void }) {
                   <th>{tr('الجوال')}</th>
                   <th>{tr('البريد')}</th>
                   <th>{tr('من أين أتى')}</th>
-                  <th>{tr('التاريخ')}</th>
+                  <th>{tr('وقت التسجيل')}</th>
                   <th>{tr('الحالة')}</th>
                   <th className="min-w-[200px]">{tr('ملاحظة')}</th>
                 </tr>
@@ -230,8 +230,10 @@ function SalesRowView({ row }: { row: SalesRow }) {
         {row.origin && <p className="text-xs text-gray-600 mt-1">{row.origin}</p>}
         {row.message && <p className="text-xs text-gray-400 mt-0.5 line-clamp-2 break-words" title={row.message}>{row.message}</p>}
       </td>
-      <td className="text-xs text-gray-500 whitespace-nowrap" title={row.firstAt !== row.lastAt ? `${tr('أول تواصل')} ${formatDateTime(row.firstAt)}` : undefined}>
-        {formatDateTime(row.lastAt)}
+      {/* «وقت التسجيل» (طلب المالك ١٦ نوفمبر ٢٠٢٦): أوّل ظهورٍ للعميل — وآخر تواصلٍ تحته إن اختلف */}
+      <td className="text-xs text-gray-500 whitespace-nowrap">
+        {formatDateTime(row.firstAt)}
+        {row.firstAt !== row.lastAt && <p className="text-[11px] text-gray-400 mt-0.5">{tr('آخر تواصل')} {formatDateTime(row.lastAt)}</p>}
       </td>
       <td>
         <select

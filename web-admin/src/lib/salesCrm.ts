@@ -11,8 +11,11 @@ import { ALL_DIAL } from '../i18n/dialCodes';
 export const SALES_CHANNELS = [
   { value: 'TRIAL', label: 'تسجيل تجريبي', cls: 'bg-[#FBEBE2] text-[#C94E28]' },
   { value: 'AMBASSADOR_TRIAL', label: 'تجربة عبر سفير', cls: 'bg-amber-50 text-amber-800' },
+  // شركةٌ فتحها المالك أو موظفو المنصة من اللوحة (طلب المالك ١٦ نوفمبر ٢٠٢٦)
+  { value: 'SALES_CREATED', label: 'فُتح من قبل المبيعات', cls: 'bg-[#EEE9E1] text-[#1F1A13]' },
   { value: 'MEETING', label: 'طلب اجتماع', cls: 'bg-indigo-50 text-indigo-700' },
-  { value: 'CONTACT', label: 'تواصل معنا', cls: 'bg-sky-50 text-sky-700' },
+  // نموذج «تواصل معنا» يصل إيميلاً — والمالك يسمّيه «إيميل»
+  { value: 'CONTACT', label: 'إيميل — تواصل معنا', cls: 'bg-sky-50 text-sky-700' },
   { value: 'SUBSCRIPTION', label: 'طلب اشتراك', cls: 'bg-green-50 text-green-700' },
   { value: 'QUOTE_REQUEST', label: 'طلب عرض سعر', cls: 'bg-purple-50 text-purple-700' },
   { value: 'WHATSAPP', label: 'واتساب', cls: 'bg-[#E7F8EE] text-[#128C7E]' },

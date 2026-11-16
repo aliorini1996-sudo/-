@@ -63,7 +63,9 @@ const newContact = (data: Row): Row => ({
 const prisma = {
   salesContact: {
     async findMany(a: { where?: Row; select?: Row; orderBy?: unknown; take?: number }) {
-      const rows = contacts.filter((r) => match(r, a.where)).sort((x, y) => y.lastAt.getTime() - x.lastAt.getTime() || y.createdAt.getTime() - x.createdAt.getTime());
+      // الترتيب بمفتاح orderBy الأول (firstAt «وقت التسجيل» في القائمة) ثم createdAt
+      const k = ((Array.isArray(a.orderBy) ? Object.keys((a.orderBy[0] ?? {}) as Row)[0] : undefined) ?? 'lastAt') as 'firstAt' | 'lastAt';
+      const rows = contacts.filter((r) => match(r, a.where)).sort((x, y) => y[k].getTime() - x[k].getTime() || y.createdAt.getTime() - x.createdAt.getTime());
       return rows.slice(0, a.take ?? rows.length).map((r) => pick(r, a.select));
     },
     async count(a: { where?: Row }) { return contacts.filter((r) => match(r, a.where)).length; },
@@ -98,9 +100,10 @@ const prisma = {
   tenant: {
     async findMany(a: { where: Row }) {
       tenantScans++;
-      assert.deepEqual(a.where, { plan: 'trial' });
-      return tenants.filter((t) => t.plan === 'trial').map((t) => ({
-        id: t.id, name: t.name, createdAt: t.createdAt, settings: t.settings ?? null, admins: t.admins ?? [],
+      // كل الشركات عدا شركة العرض المزروعة (pro + «الشركة التجريبية») — «فُتح من قبل المبيعات» (طلب المالك ١٦ نوفمبر ٢٠٢٦)
+      assert.deepEqual(a.where, { NOT: { AND: [{ plan: 'pro' }, { name: 'الشركة التجريبية' }] } });
+      return tenants.filter((t) => !(t.plan === 'pro' && t.name === 'الشركة التجريبية')).map((t) => ({
+        id: t.id, name: t.name, createdAt: t.createdAt, plan: t.plan, settings: t.settings ?? null, admins: t.admins ?? [],
       }));
     },
   },
@@ -196,6 +199,7 @@ function reset() {
     { id: 't-portal', name: 'شركة البوابة', plan: 'trial', createdAt: D('2026-11-12T08:00:00Z'),
       settings: { phone: '0503333333', countryCode: 'AE' }, admins: [{ name: 'منى', email: 'm@portal.ae' }] },
     { id: 't-paid', name: 'مشترك', plan: 'pro', createdAt: D('2026-01-01T08:00:00Z') },
+    { id: 't-seed', name: 'الشركة التجريبية', plan: 'pro', createdAt: D('2025-12-01T08:00:00Z') },
   ];
   attributions = [
     { tenantId: 't-code', source: 'signup_code', codeUsed: 'AB2CD3EF', affiliate: { fullName: 'سفير الكود', code: 'AB2CD3EF' } },
@@ -290,11 +294,13 @@ test('syncPatch: لا stage ولا note ولا firstAt أبداً، ولا كت�
   for (const k of ['stage', 'note', 'firstAt', 'id', 'sourceRef', 'createdAt']) assert.equal(k in all, false, k);
 });
 
-test('مزامنة التجارب: الشركات التجريبية وحدها، وإعادة المزامنة تحدّث الوصف ولا تمسّ المرحلة والملاحظة وfirstAt', async () => {
+test('مزامنة الشركات: التجريبية، وغيرها «فُتح من قبل المبيعات» عدا شركة العرض، وإعادة المزامنة لا تمسّ المرحلة والملاحظة وfirstAt', async () => {
   reset();
-  assert.deepEqual(await si.syncTrials(db), { created: 3, updated: 0 });
+  assert.deepEqual(await si.syncTrials(db), { created: 4, updated: 0 });
   const by = (ref: string) => contacts.find((c) => c.sourceRef === ref)!;
-  assert.equal(by('t-paid'), undefined, 'المشترك ليس تجربة');
+  assert.deepEqual([by('t-paid').channel, by('t-paid').origin, by('t-paid').company], ['SALES_CREATED', 'فُتح من قبل المبيعات', 'مشترك'], 'فتحه المالك من اللوحة');
+  assert.equal(by('t-paid').firstAt.getTime(), D('2026-01-01T08:00:00Z').getTime(), 'وقت التسجيل = إنشاء الشركة');
+  assert.equal(by('t-seed'), undefined, 'شركة العرض المزروعة ليست عميلاً');
   assert.deepEqual([by('t-self').channel, by('t-self').origin], ['TRIAL', 'الموقع — التسجيل التجريبي']);
   assert.deepEqual([by('t-code').channel, by('t-code').origin], ['TRIAL', 'الموقع — التسجيل التجريبي · كود سفير AB2CD3EF']);
   assert.deepEqual([by('t-portal').channel, by('t-portal').origin], ['AMBASSADOR_TRIAL', 'سفير: نورة السفيرة']);
@@ -308,7 +314,7 @@ test('مزامنة التجارب: الشركات التجريبية وحدها�
     [by('t-self').company, by('t-self').name, by('t-self').stage, by('t-self').note],
     ['مؤسسة الذات المحدودة', 'سالم العلي', 'NEGOTIATION', 'اتصلت به'],
   );
-  assert.equal(contacts.length, 3, 'لا تكرار');
+  assert.equal(contacts.length, 4, 'لا تكرار');
   assert.deepEqual(await si.syncTrials(db), { created: 0, updated: 0 }, 'بلا تغيير ⇒ لا كتابة');
 });
 
@@ -416,17 +422,17 @@ test('القواعد: sales.view للقائمة والتعديل (لا leads.vie
 test('GET /sales-inbox: المالك يرى كل القنوات وواتساب، والموظف بـsales.view وحدها بلا واتساب ولا نداء للبوت، وغيره ٤٠٣', async () => {
   reset();
   botReply = { ok: true, body: { threads: [thread({})] } };
-  contacts.push(newContact({ channel: 'MEETING', sourceRef: 'f1', name: 'طالب اجتماع', phone: '+966500000009', origin: 'الموقع — احجز اجتماع', lastAt: D('2026-11-13T00:00:00Z') }));
+  contacts.push(newContact({ channel: 'MEETING', sourceRef: 'f1', name: 'طالب اجتماع', phone: '+966500000009', origin: 'الموقع — احجز اجتماع', firstAt: D('2026-11-13T00:00:00Z'), lastAt: D('2026-11-13T00:00:00Z') }));
 
   const o = await call('GET', '/api/leads/sales-inbox', owner());
   assert.equal(o.status, 200);
   const d = o.body.data;
   assert.deepEqual(d.whatsapp, { ok: true, included: true });
   assert.equal(typeof d.syncedAt, 'string');
-  assert.deepEqual(d.rows.map((r: Row) => r.channel), ['WHATSAPP', 'MEETING', 'AMBASSADOR_TRIAL', 'TRIAL', 'TRIAL'], 'الأحدث أولاً');
-  assert.equal(d.total, 5);
-  assert.deepEqual(d.counts.byChannel, { TRIAL: 2, AMBASSADOR_TRIAL: 1, MEETING: 1, CONTACT: 0, SUBSCRIPTION: 0, QUOTE_REQUEST: 0, WHATSAPP: 1 });
-  assert.deepEqual(d.counts.byStage, { NEW: 5, CONTACTED: 0, MEETING: 0, NEGOTIATION: 0, WON: 0, LOST: 0, NOT_FIT: 0 });
+  assert.deepEqual(d.rows.map((r: Row) => r.channel), ['WHATSAPP', 'MEETING', 'AMBASSADOR_TRIAL', 'TRIAL', 'TRIAL', 'SALES_CREATED'], 'الأحدث تسجيلاً أولاً');
+  assert.equal(d.total, 6);
+  assert.deepEqual(d.counts.byChannel, { TRIAL: 2, AMBASSADOR_TRIAL: 1, SALES_CREATED: 1, MEETING: 1, CONTACT: 0, SUBSCRIPTION: 0, QUOTE_REQUEST: 0, WHATSAPP: 1 });
+  assert.deepEqual(d.counts.byStage, { NEW: 6, CONTACTED: 0, MEETING: 0, NEGOTIATION: 0, WON: 0, LOST: 0, NOT_FIT: 0 });
   assert.deepEqual(Object.keys(d.rows[0]).sort(), ['channel', 'company', 'country', 'email', 'firstAt', 'id', 'lastAt', 'message', 'name', 'note', 'origin', 'phone', 'stage', 'tenantId'].sort());
 
   // المرشّح يضيّق الصفوف والعدّادات على الكل
@@ -440,7 +446,7 @@ test('GET /sales-inbox: المالك يرى كل القنوات وواتساب،
   assert.deepEqual(s.body.data.whatsapp, { ok: true, included: false });
   assert.equal(s.body.data.rows.some((r: Row) => r.channel === 'WHATSAPP'), false);
   assert.equal(s.body.data.counts.byChannel.WHATSAPP, 0);
-  assert.equal(s.body.data.total, 4);
+  assert.equal(s.body.data.total, 5, 'الشركات الأربع (ومنها «فُتح من قبل المبيعات») والاجتماع — بلا واتساب');
   assert.equal(botCalls.length, calls, 'لا نداء للبوت');
   assert.equal((await call('GET', '/api/leads/sales-inbox?channel=WHATSAPP', staffWith('sales.view'))).body.data.rows.length, 0);
 
@@ -460,7 +466,7 @@ test('GET /sales-inbox: البوت المتعذّر ⇒ whatsapp.ok=false بال
   const r = await call('GET', '/api/leads/sales-inbox', owner());
   assert.equal(r.status, 200);
   assert.deepEqual(r.body.data.whatsapp, { ok: false, included: true, error: 'بوت واتساب لم يستجب' });
-  assert.equal(r.body.data.rows.length, 3);
+  assert.equal(r.body.data.rows.length, 4, 'الشركات الأربع ومنها «فُتح من قبل المبيعات»');
 });
 
 test('PUT /sales-inbox/:id: المرحلة والملاحظة، ٤٠٠ لمرحلة مجهولة، ٤٠٤ لمجهول ولصفّ واتساب بلا صلاحيته — والمزامنة بعدها لا تمسّهما', async () => {

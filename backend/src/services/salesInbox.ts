@@ -17,12 +17,13 @@ import { fetchWaBot, WaBotResult } from './waBotInbox';
 
 // ───────────────────────────── القنوات والمراحل ─────────────────────────────
 
-export const SALES_CHANNELS = ['TRIAL', 'AMBASSADOR_TRIAL', 'MEETING', 'CONTACT', 'SUBSCRIPTION', 'QUOTE_REQUEST', 'WHATSAPP'] as const;
+export const SALES_CHANNELS = ['TRIAL', 'AMBASSADOR_TRIAL', 'SALES_CREATED', 'MEETING', 'CONTACT', 'SUBSCRIPTION', 'QUOTE_REQUEST', 'WHATSAPP'] as const;
 export type SalesChannel = typeof SALES_CHANNELS[number];
 export const SALES_STAGES = ['NEW', 'CONTACTED', 'MEETING', 'NEGOTIATION', 'WON', 'LOST', 'NOT_FIT'] as const;
 export type SalesStage = typeof SALES_STAGES[number];
 
-const TRIAL_CHANNELS: SalesChannel[] = ['TRIAL', 'AMBASSADOR_TRIAL'];
+/** قنوات الشركات (يُطابَق صفّها بمعرّف الشركة): التجربة الذاتية، وعبر سفير، و«فُتح من قبل المبيعات» (طلب المالك ١٦ نوفمبر ٢٠٢٦) */
+const TRIAL_CHANNELS: SalesChannel[] = ['TRIAL', 'AMBASSADOR_TRIAL', 'SALES_CREATED'];
 export type FormChannel = 'CONTACT' | 'SUBSCRIPTION' | 'QUOTE_REQUEST' | 'MEETING';
 
 /** «من أين أتى» لكل نموذج في الموقع */
@@ -33,6 +34,8 @@ export const FORM_ORIGIN: Record<FormChannel, string> = {
   MEETING: 'الموقع — احجز اجتماع',
 };
 export const TRIAL_ORIGIN = 'الموقع — التسجيل التجريبي';
+/** شركةٌ فتحها المالك أو موظفو المنصة من اللوحة (POST /api/tenants — باقتها غير trial) */
+export const SALES_CREATED_ORIGIN = 'فُتح من قبل المبيعات';
 export const WHATSAPP_ORIGIN = 'واتساب — بوت المبيعات';
 
 const isChannel = (v: unknown): v is SalesChannel => typeof v === 'string' && (SALES_CHANNELS as readonly string[]).includes(v);
@@ -91,6 +94,8 @@ export interface TrialInput {
   admin: { name: string | null; email: string | null } | null;
   settings: { phone: string | null; countryCode: string | null } | null;
   attribution: { source: string; codeUsed: string | null; affiliate: { fullName: string | null; code: string | null } | null } | null;
+  /** باقةٌ غير trial ⇒ فتحها المالك أو موظفوه من اللوحة (لا مسار تسجيلٍ آخر يكتب غير trial) */
+  salesCreated?: boolean;
 }
 
 /** شركةٌ تجريبية ⇒ صفّها: «فتحها سفير» (portal) قناةٌ مستقلة، والتسجيل الذاتي بكود سفير يُذكر الكود في «من أين أتى» */
@@ -98,7 +103,11 @@ export function trialFields(i: TrialInput): SalesFields {
   const a = i.attribution;
   const portal = a?.source === 'portal';
   let origin: string;
-  if (portal) {
+  if (i.salesCreated) {
+    // «فُتح من قبل المبيعات» — وإسنادٌ لاحق لسفير (owner/claim) يُذكر اسمه
+    const amb = clip(a?.affiliate?.fullName, 120) || clip(a?.affiliate?.code, 40);
+    origin = amb ? `${SALES_CREATED_ORIGIN} · سفير: ${amb}` : SALES_CREATED_ORIGIN;
+  } else if (portal) {
     origin = `سفير: ${clip(a?.affiliate?.fullName, 120) || clip(a?.affiliate?.code, 40) || clip(a?.codeUsed, 40) || '—'}`;
   } else {
     origin = TRIAL_ORIGIN;
@@ -106,7 +115,7 @@ export function trialFields(i: TrialInput): SalesFields {
     if (code) origin += ` · كود سفير ${code}`;
   }
   return {
-    channel: portal ? 'AMBASSADOR_TRIAL' : 'TRIAL',
+    channel: i.salesCreated ? 'SALES_CREATED' : portal ? 'AMBASSADOR_TRIAL' : 'TRIAL',
     sourceRef: i.tenant.id,
     name: clip(i.admin?.name, 200),
     company: clip(i.tenant.name, 200),
@@ -224,14 +233,20 @@ async function writeSynced(db: Db, rows: SalesFields[], existing: ExistingRow[])
 
 const TRIAL_SCAN_MAX = 2000;
 
-/** كل شركةٍ باقتها trial ⇒ صفّها (بمعرّف الشركة). يُطابَق القائم بمعرّف الشركة عبر قناتي التجربة معاً */
+/** شركة العرض التي يزرعها الإقلاع الأول (index.ts seedDefaults) — ليست عميلاً */
+export const SEED_TENANT = Object.freeze({ name: 'الشركة التجريبية', plan: 'pro' });
+
+/**
+ * كل شركة ⇒ صفّها (بمعرّف الشركة): التجريبية (ذاتياً أو عبر سفير)، وغيرها «فُتح من قبل المبيعات» (طلب المالك ١٦ نوفمبر ٢٠٢٦)
+ * — عدا شركة العرض المزروعة. يُطابَق القائم بمعرّف الشركة عبر قنوات الشركات معاً.
+ */
 export async function syncTrials(db: Db = prisma): Promise<{ created: number; updated: number }> {
   const tenants = await db.tenant.findMany({
-    where: { plan: 'trial' },
+    where: { NOT: { AND: [{ plan: SEED_TENANT.plan }, { name: SEED_TENANT.name }] } },
     orderBy: { createdAt: 'desc' },
     take: TRIAL_SCAN_MAX,
     select: {
-      id: true, name: true, createdAt: true,
+      id: true, name: true, createdAt: true, plan: true,
       settings: { select: { phone: true, countryCode: true } },
       admins: { where: { role: 'ADMIN' }, orderBy: { createdAt: 'asc' }, take: 1, select: { name: true, email: true } },
     },
@@ -251,6 +266,7 @@ export async function syncTrials(db: Db = prisma): Promise<{ created: number; up
     admin: t.admins[0] ?? null,
     settings: t.settings ?? null,
     attribution: attrBy.get(t.id) ?? null,
+    salesCreated: t.plan !== 'trial',
   }));
   return writeSynced(db, rows, existing);
 }
@@ -402,14 +418,15 @@ export function toSalesRow(r: {
   };
 }
 
-/** الصفوف بالأحدث تواصلاً، والعدّادات على كل ما يراه الطالب لا على الصفحة المرشَّحة وحدها */
+/** الصفوف بالأحدث تسجيلاً (firstAt)، والعدّادات على كل ما يراه الطالب لا على الصفحة المرشَّحة وحدها */
 export async function listSalesInbox(p: SalesListParams, includeWhatsapp: boolean, db: Db = prisma): Promise<{
   rows: SalesRow[]; total: number; counts: { byChannel: Record<string, number>; byStage: Record<string, number> };
 }> {
   const where = buildSalesWhere(p, includeWhatsapp);
   const scope = buildSalesWhere({}, includeWhatsapp);
   const [rows, total, byChannel, byStage] = await Promise.all([
-    db.salesContact.findMany({ where, orderBy: [{ lastAt: 'desc' }, { createdAt: 'desc' }], take: p.limit }),
+    // «وقت التسجيل» (طلب المالك ١٦ نوفمبر ٢٠٢٦): الأحدث تسجيلاً أوّلاً — أوّل ظهورٍ للعميل لا آخر تواصل
+    db.salesContact.findMany({ where, orderBy: [{ firstAt: 'desc' }, { createdAt: 'desc' }], take: p.limit }),
     db.salesContact.count({ where }),
     db.salesContact.groupBy({ by: ['channel'], where: scope, _count: { _all: true } }),
     db.salesContact.groupBy({ by: ['stage'], where: scope, _count: { _all: true } }),

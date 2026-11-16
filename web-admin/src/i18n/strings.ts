@@ -7795,6 +7795,11 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'أضف ملاحظة': { en: 'Add a note', fr: 'Ajouter une note', tr: 'Not ekle', zh: '添加备注' },
   'تسجيل تجريبي': { en: 'Trial signup', fr: 'Inscription à l’essai', tr: 'Deneme kaydı', zh: '试用注册' },
   'تجربة عبر سفير': { en: 'Trial via ambassador', fr: 'Essai via un ambassadeur', tr: 'Elçi aracılığıyla deneme', zh: '经推广大使试用' },
+  // «إدارة المبيعات» — إضافات المالك (١٦ نوفمبر ٢٠٢٦)
+  'فُتح من قبل المبيعات': { en: 'Opened by sales', fr: 'Ouvert par les ventes', tr: 'Satış ekibi tarafından açıldı', zh: '由销售开通' },
+  'إيميل — تواصل معنا': { en: 'Email: contact us', fr: 'E-mail : nous contacter', tr: 'E-posta: bize ulaşın', zh: '邮件：联系我们' },
+  'وقت التسجيل': { en: 'Registered at', fr: 'Date d’inscription', tr: 'Kayıt zamanı', zh: '登记时间' },
+  'آخر تواصل': { en: 'Last contact', fr: 'Dernier contact', tr: 'Son iletişim', zh: '最近联系' },
   'طلب اجتماع': { en: 'Meeting request', fr: 'Demande de rendez-vous', tr: 'Toplantı talebi', zh: '会议预约' },
   'تواصل معنا': { en: 'Contact us', fr: 'Nous contacter', tr: 'Bize ulaşın', zh: '联系我们' },
   'طلب اشتراك': { en: 'Subscription request', fr: 'Demande d’abonnement', tr: 'Abonelik talebi', zh: '订阅申请' },
