@@ -56,6 +56,8 @@ export interface SalesRow {
   lastAt: string;
   /** عدد الملاحظات (السجلّ + الملاحظة القديمة) لعدّاد الأيقونة */
   notesCount?: number;
+  /** آخر ملاحظة مكتوبة لتُقرأ في القائمة (authorName/createdAt فارغان للملاحظة القديمة) */
+  lastNote?: { body: string; authorName: string | null; createdAt: string | null } | null;
 }
 
 export interface SalesInbox {

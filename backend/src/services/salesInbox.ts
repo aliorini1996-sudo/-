@@ -389,20 +389,39 @@ export interface SalesRow {
   note: string | null; firstAt: string; lastAt: string;
   /** عدد الملاحظات (السجلّ + الملاحظة القديمة المفردة إن وُجدت) — لعدّاد الأيقونة */
   notesCount: number;
+  /** آخر ملاحظة مكتوبة (لا سطور الحالة الآلية) لتُقرأ في القائمة — أو الملاحظة القديمة المفردة بلا كاتب */
+  lastNote: { body: string; authorName: string | null; createdAt: string | null } | null;
 }
 
 export function toSalesRow(r: {
   id: string; channel: string; name: string | null; company: string | null; phone: string | null; email: string | null;
   country: string | null; message: string | null; origin: string | null; tenantId: string | null; stage: string;
   note: string | null; firstAt: Date; lastAt: Date;
-}, logged = 0): SalesRow {
+}, logged = 0, last: LastNote | null = null): SalesRow {
   return {
     id: r.id, channel: r.channel, name: r.name ?? null, company: r.company ?? null, phone: r.phone ?? null,
     email: r.email ?? null, country: r.country ?? null, message: r.message ?? null, origin: r.origin ?? null,
     tenantId: r.tenantId ?? null, stage: r.stage, note: r.note ?? null,
     firstAt: new Date(r.firstAt).toISOString(), lastAt: new Date(r.lastAt).toISOString(),
     notesCount: logged + (r.note && r.note.trim() ? 1 : 0),
+    lastNote: last
+      ? { body: last.body, authorName: last.authorName, createdAt: new Date(last.createdAt).toISOString() }
+      : r.note && r.note.trim() ? { body: r.note, authorName: null, createdAt: null } : null,
   };
+}
+
+type LastNote = { contactId: string; body: string; authorName: string; createdAt: Date };
+
+/** آخر ملاحظة مكتوبة لكل جهة تواصل في الصفحة — استعلامٌ واحد (distinct) لا استعلام لكل صفّ */
+async function lastNotesOf(db: Db, ids: string[]): Promise<Map<string, LastNote>> {
+  if (!ids.length) return new Map();
+  const rows = await db.salesContactNote.findMany({
+    where: { contactId: { in: ids }, kind: 'NOTE' },
+    orderBy: [{ contactId: 'asc' }, { createdAt: 'desc' }],
+    distinct: ['contactId'],
+    select: { contactId: true, body: true, authorName: true, createdAt: true },
+  });
+  return new Map(rows.map((r) => [r.contactId, r]));
 }
 
 /** عدد ملاحظات السجلّ لكل جهة تواصل — تجميعٌ واحد للصفحة (لا استعلام لكل صفّ) */
@@ -428,8 +447,9 @@ export async function listSalesInbox(p: SalesListParams, includeWhatsapp: boolea
   for (const g of byChannel) channels[g.channel] = g._count._all;
   const stages: Record<string, number> = Object.fromEntries(SALES_STAGES.map((s) => [s, 0]));
   for (const g of byStage) stages[g.stage] = g._count._all;
-  const logged = await notesCountOf(db, rows.map((r) => r.id));
-  return { rows: rows.map((r) => toSalesRow(r, logged.get(r.id) ?? 0)), total, counts: { byChannel: channels, byStage: stages } };
+  const ids = rows.map((r) => r.id);
+  const [logged, last] = await Promise.all([notesCountOf(db, ids), lastNotesOf(db, ids)]);
+  return { rows: rows.map((r) => toSalesRow(r, logged.get(r.id) ?? 0, last.get(r.id) ?? null)), total, counts: { byChannel: channels, byStage: stages } };
 }
 
 /** تعديل المرحلة والملاحظة وحدهما — الملاحظة الفارغة تُمسح (null) */
@@ -450,13 +470,14 @@ export async function updateSalesContact(
   if (body.stage !== undefined) data.stage = body.stage;
   if (body.note !== undefined) data.note = body.note;
   const logged = async () => (await notesCountOf(db, [id])).get(id) ?? 0;
-  if (!Object.keys(data).length) return toSalesRow(cur, await logged());
+  const last = async () => (await lastNotesOf(db, [id])).get(id) ?? null;
+  if (!Object.keys(data).length) return toSalesRow(cur, await logged(), await last());
   const row = await db.salesContact.update({ where: { id }, data });
   // تغيير الحالة فعلاً ⇒ سطرٌ في سجلّ الملاحظات بالاسم والوقت (كحالة الصفقة في لوحة المالك)
   if (author && body.stage !== undefined && body.stage !== cur.stage) {
     await db.salesContactNote.create({ data: { contactId: id, kind: 'STAGE', body: `غيّر الحالة إلى «${SALES_STAGE_LABELS[body.stage]}»`, ...author } });
   }
-  return toSalesRow(row, await logged());
+  return toSalesRow(row, await logged(), await last());
 }
 
 // ═══ سجلّ الملاحظات ═══

@@ -130,7 +130,7 @@ export default function SalesCrmPanel({ onClose }: { onClose: () => void }) {
                   <th>{tr('من أين أتى')}</th>
                   <th>{tr('التاريخ')}</th>
                   <th>{tr('الحالة')}</th>
-                  <th>{tr('الملاحظات')}</th>
+                  <th className="min-w-[300px]">{tr('الملاحظات')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -247,7 +247,20 @@ function SalesRowView({ row }: { row: SalesRow }) {
         </select>
       </td>
       <td>
-        <SalesNotesButton row={row} onClick={() => setNotesOpen(true)} />
+        <div className="flex items-start gap-2 min-w-[300px] max-w-[420px]">
+          <SalesNotesButton row={row} onClick={() => setNotesOpen(true)} />
+          {/* آخر ملاحظة مقروءة من الخارج — والضغط عليها يفتح السجلّ كاملاً */}
+          <button onClick={() => setNotesOpen(true)} className="flex-1 min-w-0 text-right rounded-lg px-2 py-1 hover:bg-amber-50/70">
+            {row.lastNote ? (
+              <>
+                <p className="text-sm text-[#1F1A13] whitespace-pre-wrap break-words line-clamp-3" title={row.lastNote.body}>{row.lastNote.body}</p>
+                {row.lastNote.authorName && (
+                  <p className="text-[11px] text-gray-400 mt-0.5">{row.lastNote.authorName}{row.lastNote.createdAt ? ` · ${formatDateTime(row.lastNote.createdAt)}` : ''}</p>
+                )}
+              </>
+            ) : <span className="text-xs text-gray-400">{tr('أضف ملاحظة')}</span>}
+          </button>
+        </div>
         {notesOpen && <SalesNotesModal row={row} onClose={() => setNotesOpen(false)} />}
       </td>
     </tr>

@@ -104,7 +104,13 @@ const prisma = {
       return [...m].map(([contactId, c]) => ({ contactId, _count: { _all: c } }));
     },
     async create(a: { data: Row }) { const n = { id: `n${++seq}`, createdAt: new Date(), ...a.data }; salesNotes.push(n); return n; },
-    async findMany(a: { where: { contactId: string } }) { return salesNotes.filter((n) => n.contactId === a.where.contactId).reverse(); },
+    async findMany(a: { where: { contactId: string | { in: string[] }; kind?: string }; distinct?: string[] }) {
+      const ids = typeof a.where.contactId === 'string' ? [a.where.contactId] : a.where.contactId.in;
+      const rows = salesNotes.filter((n) => ids.includes(n.contactId) && (!a.where.kind || n.kind === a.where.kind)).reverse();
+      if (!a.distinct) return rows;
+      const seen = new Set<string>();
+      return rows.filter((n) => (seen.has(n.contactId) ? false : (seen.add(n.contactId), true)));
+    },
     async deleteMany(a: { where: { id: string; contactId: string } }) {
       const before = salesNotes.length;
       salesNotes = salesNotes.filter((n) => !(n.id === a.where.id && n.contactId === a.where.contactId));
@@ -443,7 +449,7 @@ test('GET /sales-inbox: المالك يرى كل القنوات وواتساب،
   assert.equal(d.total, 5);
   assert.deepEqual(d.counts.byChannel, { TRIAL: 2, AMBASSADOR_TRIAL: 1, MEETING: 1, CONTACT: 0, SUBSCRIPTION: 0, QUOTE_REQUEST: 0, WHATSAPP: 1 });
   assert.deepEqual(d.counts.byStage, { NEW: 5, CONTACTED: 0, MEETING: 0, NEGOTIATION: 0, WON: 0, LOST: 0, NOT_FIT: 0 });
-  assert.deepEqual(Object.keys(d.rows[0]).sort(), ['channel', 'company', 'country', 'email', 'firstAt', 'id', 'lastAt', 'message', 'name', 'note', 'notesCount', 'origin', 'phone', 'stage', 'tenantId'].sort());
+  assert.deepEqual(Object.keys(d.rows[0]).sort(), ['channel', 'company', 'country', 'email', 'firstAt', 'id', 'lastAt', 'message', 'lastNote', 'name', 'note', 'notesCount', 'origin', 'phone', 'stage', 'tenantId'].sort());
 
   // المرشّح يضيّق الصفوف والعدّادات على الكل
   const f = (await call('GET', '/api/leads/sales-inbox?channel=TRIAL&limit=1', owner())).body.data;
@@ -527,7 +533,9 @@ test('سجلّ ملاحظات جهة التواصل: إضافة بالكاتب،
   assert.deepEqual(list.body.data.notes.map((n: Row) => n.kind), ['STAGE', 'NOTE']);
   assert.match(list.body.data.notes[0].body, /تم الاجتماع/);
   const inbox = await call('GET', '/api/leads/sales-inbox', owner());
-  assert.equal(inbox.body.data.rows.find((r: Row) => r.id === trial.id).notesCount, 2);
+  const listed = inbox.body.data.rows.find((r: Row) => r.id === trial.id);
+  assert.equal(listed.notesCount, 2);
+  assert.deepEqual([listed.lastNote.body, listed.lastNote.authorName], ['اتصلت وطلب عرض سعر', 'مالك المنصة'], 'آخر ملاحظة مكتوبة تُقرأ في القائمة (لا سطر الحالة)');
   assert.equal((await call('POST', `/api/leads/sales-inbox/${wa.id}/notes`, t, { body: 'x' })).status, 404, 'واتساب بلا صلاحيته');
   assert.equal((await call('DELETE', `/api/leads/sales-inbox/${trial.id}/notes/${added.body.data.id}`, t)).status, 200);
   assert.equal((await call('DELETE', `/api/leads/sales-inbox/${trial.id}/notes/${added.body.data.id}`, t)).status, 404);
