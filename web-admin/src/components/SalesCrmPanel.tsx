@@ -121,16 +121,17 @@ export default function SalesCrmPanel({ onClose }: { onClose: () => void }) {
         {/* القائمة */}
         <div className="card p-0 overflow-hidden">
           <div className="table-wrapper border-0 rounded-none">
-            <table className="table">
+            {/* عرض ثابت بنِسَب للأعمدة: كل شيء ظاهر بلا تمرير أفقي، والنصوص الطويلة تلتفّ داخل خلاياها */}
+            <table className="table table-fixed">
               <thead>
                 <tr>
-                  <th className="min-w-[150px]">{tr('العميل')}</th>
-                  <th>{tr('الجوال')}</th>
-                  <th>{tr('البريد')}</th>
-                  <th>{tr('من أين أتى')}</th>
-                  <th>{tr('التاريخ')}</th>
-                  <th>{tr('الحالة')}</th>
-                  <th className="min-w-[300px]">{tr('الملاحظات')}</th>
+                  <th className="w-[13%]">{tr('العميل')}</th>
+                  <th className="w-[13%]">{tr('الجوال')}</th>
+                  <th className="w-[12%]">{tr('البريد')}</th>
+                  <th className="w-[15%]">{tr('من أين أتى')}</th>
+                  <th className="w-[10%]">{tr('التاريخ')}</th>
+                  <th className="w-[11%]">{tr('الحالة')}</th>
+                  <th className="w-[26%]">{tr('الملاحظات')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -209,9 +210,9 @@ function SalesRowView({ row }: { row: SalesRow }) {
         {/* الدولة رمزاً (ISO) بعلمها، أو نصّاً كما كُتب في النموذج */}
         {row.country && <p className="text-[11px] text-gray-400">{/^[A-Za-z]{2}$/.test(row.country) ? `${flagOf(row.country)} ${row.country.toUpperCase()}` : row.country}</p>}
       </td>
-      <td className="text-sm whitespace-nowrap">
+      <td className="text-sm break-words">
         {row.phone ? (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {tel
               ? <a href={tel} dir="ltr" className="inline-flex items-center gap-1 text-gray-700 hover:text-[#E15A30]"><Phone size={12} />{row.phone}</a>
               : <span dir="ltr" className="text-gray-700">{row.phone}</span>}
@@ -224,15 +225,15 @@ function SalesRowView({ row }: { row: SalesRow }) {
       </td>
       <td className="text-sm">
         {row.email ? (mail
-          ? <a href={mail} dir="ltr" className="inline-flex items-center gap-1 max-w-[200px] truncate align-bottom text-blue-600 hover:underline"><Mail size={12} className="flex-shrink-0" />{row.email}</a>
+          ? <a href={mail} dir="ltr" className="inline-flex items-center gap-1 max-w-full break-all align-bottom text-blue-600 hover:underline"><Mail size={12} className="flex-shrink-0" />{row.email}</a>
           : <span dir="ltr" className="text-gray-600">{row.email}</span>) : <span className="text-gray-300">—</span>}
       </td>
-      <td className="text-sm max-w-[280px]">
+      <td className="text-sm break-words">
         <span className={`badge ${ch.cls}`}>{tr(ch.label)}</span>
         {row.origin && <p className="text-xs text-gray-600 mt-1">{row.origin}</p>}
         {row.message && <p className="text-xs text-gray-400 mt-0.5 line-clamp-2 break-words" title={row.message}>{row.message}</p>}
       </td>
-      <td className="text-xs text-gray-500 whitespace-nowrap" title={row.firstAt !== row.lastAt ? `${tr('أول تواصل')} ${formatDateTime(row.firstAt)}` : undefined}>
+      <td className="text-xs text-gray-500" title={row.firstAt !== row.lastAt ? `${tr('أول تواصل')} ${formatDateTime(row.firstAt)}` : undefined}>
         {formatDateTime(row.lastAt)}
       </td>
       <td>
@@ -247,7 +248,7 @@ function SalesRowView({ row }: { row: SalesRow }) {
         </select>
       </td>
       <td>
-        <div className="flex items-start gap-2 min-w-[300px] max-w-[420px]">
+        <div className="flex items-start gap-2 min-w-0">
           <SalesNotesButton row={row} onClick={() => setNotesOpen(true)} />
           {/* آخر ملاحظة مقروءة من الخارج — والضغط عليها يفتح السجلّ كاملاً */}
           <button onClick={() => setNotesOpen(true)} className="flex-1 min-w-0 text-right rounded-lg px-2 py-1 hover:bg-amber-50/70">
