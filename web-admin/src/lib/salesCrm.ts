@@ -58,6 +58,8 @@ export interface SalesRow {
   notesCount?: number;
   /** آخر ملاحظة مكتوبة لتُقرأ في القائمة (authorName/createdAt فارغان للملاحظة القديمة) */
   lastNote?: { body: string; authorName: string | null; createdAt: string | null } | null;
+  /** مسؤول الصفقة: أول موظف غيّر الحالة أو كتب ملاحظة */
+  owner?: { name: string; at: string | null } | null;
 }
 
 export interface SalesInbox {

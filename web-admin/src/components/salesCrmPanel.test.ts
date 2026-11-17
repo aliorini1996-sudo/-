@@ -77,7 +77,7 @@ test('SalesCrmPanel: شاشة كاملة كالعملاء المحتملين، �
   assert.match(panel, /c\.value !== 'WHATSAPP' \|\| data\?\.whatsapp\.included !== false/);
   // الأعمدة السبعة بالترتيب
   const heads = [...panel.matchAll(/<th[^>]*>\{tr\('([^']+)'\)\}<\/th>/g)].map((m) => m[1]);
-  assert.deepEqual(heads, ['العميل', 'الجوال', 'البريد', 'من أين أتى', 'التاريخ', 'الحالة', 'الملاحظات']);
+  assert.deepEqual(heads, ['العميل', 'الجوال', 'البريد', 'من أين أتى', 'التاريخ', 'الحالة', 'مسؤول الصفقة', 'الملاحظات']);
   // الروابط: tel: وwa.me وmailto: من الأدوات الصرفة
   assert.match(panel, /telHref\(row\.phone\)/);
   assert.match(panel, /const wa = waHrefForRow\(row\);/);

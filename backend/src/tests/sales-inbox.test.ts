@@ -74,6 +74,12 @@ const prisma = {
       return [...m].map(([k, n]) => ({ [a.by[0]]: k, _count: { _all: n } }));
     },
     async findUnique(a: { where: { id: string } }) { const r = contacts.find((x) => x.id === a.where.id); return r ? { ...r } : null; },
+    async updateMany(a: { where: { id: string; ownerStaffId: null }; data: Row }) {
+      const r = contacts.find((x) => x.id === a.where.id && (x.ownerStaffId ?? null) === null);
+      if (!r) return { count: 0 };
+      Object.assign(r, a.data);
+      return { count: 1 };
+    },
     async update(a: { where: { id: string }; data: Row }) {
       const r = contacts.find((x) => x.id === a.where.id);
       if (!r) throw new Error('Record to update not found.');
@@ -449,7 +455,7 @@ test('GET /sales-inbox: المالك يرى كل القنوات وواتساب،
   assert.equal(d.total, 5);
   assert.deepEqual(d.counts.byChannel, { TRIAL: 2, AMBASSADOR_TRIAL: 1, MEETING: 1, CONTACT: 0, SUBSCRIPTION: 0, QUOTE_REQUEST: 0, WHATSAPP: 1 });
   assert.deepEqual(d.counts.byStage, { NEW: 5, CONTACTED: 0, MEETING: 0, NEGOTIATION: 0, WON: 0, LOST: 0, NOT_FIT: 0 });
-  assert.deepEqual(Object.keys(d.rows[0]).sort(), ['channel', 'company', 'country', 'email', 'firstAt', 'id', 'lastAt', 'message', 'lastNote', 'name', 'note', 'notesCount', 'origin', 'phone', 'stage', 'tenantId'].sort());
+  assert.deepEqual(Object.keys(d.rows[0]).sort(), ['channel', 'company', 'country', 'email', 'firstAt', 'id', 'lastAt', 'message', 'lastNote', 'name', 'note', 'notesCount', 'origin', 'owner', 'phone', 'stage', 'tenantId'].sort());
 
   // المرشّح يضيّق الصفوف والعدّادات على الكل
   const f = (await call('GET', '/api/leads/sales-inbox?channel=TRIAL&limit=1', owner())).body.data;
@@ -537,6 +543,13 @@ test('سجلّ ملاحظات جهة التواصل: إضافة بالكاتب،
   assert.equal(listed.notesCount, 2);
   assert.deepEqual([listed.lastNote.body, listed.lastNote.authorName], ['اتصلت وطلب عرض سعر', 'مالك المنصة'], 'آخر ملاحظة مكتوبة تُقرأ في القائمة (لا سطر الحالة)');
   assert.equal((await call('POST', `/api/leads/sales-inbox/${wa.id}/notes`, t, { body: 'x' })).status, 404, 'واتساب بلا صلاحيته');
+  assert.equal(listed.owner, null, 'المالك لا يُسنَد مسؤولاً');
+  // أول موظف يكتب ملاحظة يصير المسؤول، ولا يتغيّر بعمل موظف آخر بعده
+  await call('POST', `/api/leads/sales-inbox/${trial.id}/notes`, t, { body: 'تابعت معه' });
+  await call('PUT', `/api/leads/sales-inbox/${trial.id}`, staffWith('sales.view'), { stage: 'NEGOTIATION' });
+  const owned = (await call('GET', '/api/leads/sales-inbox', owner())).body.data.rows.find((r: Row) => r.id === trial.id);
+  assert.ok(owned.owner?.name, 'الموظف الأول مسؤول الصفقة');
+  assert.equal(trial.ownerStaffId, contacts.find((c) => c.id === trial.id)!.ownerStaffId);
   assert.equal((await call('DELETE', `/api/leads/sales-inbox/${trial.id}/notes/${added.body.data.id}`, t)).status, 200);
   assert.equal((await call('DELETE', `/api/leads/sales-inbox/${trial.id}/notes/${added.body.data.id}`, t)).status, 404);
 });

@@ -2902,6 +2902,10 @@ model SalesContact {
 
   /// سجلّ الملاحظات كملاحظات الشركات في لوحة المالك (طلب المالك ١٦ نوفمبر ٢٠٢٦) — note أعلاه ملاحظة قديمة مفردة تبقى للعرض
   notes     SalesContactNote[]
+  /// «مسؤول الصفقة» (طلب المالك ١٧ نوفمبر ٢٠٢٦): أول موظف منصة غيّر الحالة أو كتب ملاحظة — يُثبَّت مرة واحدة، والمالك لا يُسنَد
+  ownerStaffId String?
+  ownerName    String?
+  ownerAt      DateTime?
 
   @@unique([channel, sourceRef])
   @@index([lastAt])

@@ -125,13 +125,14 @@ export default function SalesCrmPanel({ onClose }: { onClose: () => void }) {
             <table className="table table-fixed">
               <thead>
                 <tr>
-                  <th className="w-[13%]">{tr('العميل')}</th>
-                  <th className="w-[13%]">{tr('الجوال')}</th>
-                  <th className="w-[12%]">{tr('البريد')}</th>
-                  <th className="w-[15%]">{tr('من أين أتى')}</th>
-                  <th className="w-[10%]">{tr('التاريخ')}</th>
+                  <th className="w-[12%]">{tr('العميل')}</th>
+                  <th className="w-[12%]">{tr('الجوال')}</th>
+                  <th className="w-[11%]">{tr('البريد')}</th>
+                  <th className="w-[14%]">{tr('من أين أتى')}</th>
+                  <th className="w-[9%]">{tr('التاريخ')}</th>
                   <th className="w-[11%]">{tr('الحالة')}</th>
-                  <th className="w-[26%]">{tr('الملاحظات')}</th>
+                  <th className="w-[9%]">{tr('مسؤول الصفقة')}</th>
+                  <th className="w-[22%]">{tr('الملاحظات')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -246,6 +247,9 @@ function SalesRowView({ row }: { row: SalesRow }) {
         >
           {SALES_STAGES.map((s) => <option key={s.value} value={s.value}>{tr(s.label)}</option>)}
         </select>
+      </td>
+      <td className="text-sm break-words" title={row.owner?.at ? formatDateTime(row.owner.at) : undefined}>
+        {row.owner ? <span className="font-medium text-[#1F1A13]">{row.owner.name}</span> : <span className="text-gray-300">—</span>}
       </td>
       <td>
         <div className="flex items-start gap-2 min-w-0">

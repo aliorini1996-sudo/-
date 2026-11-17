@@ -391,12 +391,14 @@ export interface SalesRow {
   notesCount: number;
   /** آخر ملاحظة مكتوبة (لا سطور الحالة الآلية) لتُقرأ في القائمة — أو الملاحظة القديمة المفردة بلا كاتب */
   lastNote: { body: string; authorName: string | null; createdAt: string | null } | null;
+  /** مسؤول الصفقة: أول موظف غيّر الحالة أو كتب ملاحظة */
+  owner: { name: string; at: string | null } | null;
 }
 
 export function toSalesRow(r: {
   id: string; channel: string; name: string | null; company: string | null; phone: string | null; email: string | null;
   country: string | null; message: string | null; origin: string | null; tenantId: string | null; stage: string;
-  note: string | null; firstAt: Date; lastAt: Date;
+  note: string | null; firstAt: Date; lastAt: Date; ownerName?: string | null; ownerAt?: Date | null;
 }, logged = 0, last: LastNote | null = null): SalesRow {
   return {
     id: r.id, channel: r.channel, name: r.name ?? null, company: r.company ?? null, phone: r.phone ?? null,
@@ -407,7 +409,17 @@ export function toSalesRow(r: {
     lastNote: last
       ? { body: last.body, authorName: last.authorName, createdAt: new Date(last.createdAt).toISOString() }
       : r.note && r.note.trim() ? { body: r.note, authorName: null, createdAt: null } : null,
+    owner: r.ownerName ? { name: r.ownerName, at: r.ownerAt ? new Date(r.ownerAt).toISOString() : null } : null,
   };
+}
+
+/**
+ * يُسنِد الصفقة لأول موظف منصة يعمل عليها (حالة أو ملاحظة) — مرة واحدة: الشرط ownerStaffId = null في التحديث نفسه فلا يسبق
+ * موظفٌ آخر في الوقت ذاته. المالك لا يُسنَد (يرى ويوجّه)، فالصفقة تبقى بلا مسؤول حتى يعمل عليها موظف.
+ */
+async function claimSalesOwner(db: Db, id: string, author: SalesNoteAuthor | undefined): Promise<void> {
+  if (!author || author.authorKind !== 'STAFF') return;
+  await db.salesContact.updateMany({ where: { id, ownerStaffId: null }, data: { ownerStaffId: author.authorId, ownerName: author.authorName, ownerAt: new Date() } });
 }
 
 type LastNote = { contactId: string; body: string; authorName: string; createdAt: Date };
@@ -472,6 +484,7 @@ export async function updateSalesContact(
   const logged = async () => (await notesCountOf(db, [id])).get(id) ?? 0;
   const last = async () => (await lastNotesOf(db, [id])).get(id) ?? null;
   if (!Object.keys(data).length) return toSalesRow(cur, await logged(), await last());
+  await claimSalesOwner(db, id, author);
   const row = await db.salesContact.update({ where: { id }, data });
   // تغيير الحالة فعلاً ⇒ سطرٌ في سجلّ الملاحظات بالاسم والوقت (كحالة الصفقة في لوحة المالك)
   if (author && body.stage !== undefined && body.stage !== cur.stage) {
@@ -506,6 +519,7 @@ export async function listSalesNotes(id: string, includeWhatsapp: boolean, db: D
 
 export async function addSalesNote(id: string, body: string, author: SalesNoteAuthor, includeWhatsapp: boolean, db: Db = prisma) {
   if (!(await visibleContact(db, id, includeWhatsapp))) return null;
+  await claimSalesOwner(db, id, author);
   return db.salesContactNote.create({ data: { contactId: id, kind: 'NOTE', body, ...author }, select: noteSelect });
 }
 
