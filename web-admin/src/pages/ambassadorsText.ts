@@ -35,6 +35,8 @@ export interface AmbText {
   h1Accent: string;
   lead: string;
   cta: string;
+  /** زرّ الرأس المختصر — يتّسع لعرض ٣٢٠ بكسل مع مبدّل اللغة */
+  ctaShort: string;
   ctaNote: string;
   login: string;
   loginShort: string;
@@ -72,6 +74,7 @@ export const AMBASSADORS_TEXT: Record<AmbLang, AmbText> = {
     h1Accent: '٣٠٪',
     lead: 'سجّل في دقيقة وخذ رابطك فوراً بلا انتظار موافقة. شارك الرابط مع شركات التوزيع والمبيعات الميدانية التي تعرفها، وحين تدفع الشركة أول اشتراك لها تحصل على ٣٠٪ من دفعتها كاملةً.',
     cta: 'انضم الآن',
+    ctaShort: 'انضم',
     ctaNote: 'الانضمام مجاني ويفتح حسابك فوراً',
     login: 'لديك حساب سفير؟ سجّل الدخول',
     loginShort: 'دخول السفراء',
@@ -147,6 +150,7 @@ export const AMBASSADORS_TEXT: Record<AmbLang, AmbText> = {
     h1Accent: '30%',
     lead: 'Sign up in a minute and get your link right away, with no approval wait. Share it with the distribution and field sales companies you know, and when a company makes its first subscription payment you earn 30% of the full amount.',
     cta: 'Join now',
+    ctaShort: 'Join',
     ctaNote: 'Joining is free and opens your account instantly',
     login: 'Already an ambassador? Log in',
     loginShort: 'Ambassador login',
@@ -222,6 +226,7 @@ export const AMBASSADORS_TEXT: Record<AmbLang, AmbText> = {
     h1Accent: '30 %',
     lead: 'Inscrivez-vous en une minute et recevez votre lien tout de suite, sans attendre de validation. Partagez-le avec les entreprises de distribution et de vente terrain que vous connaissez : quand une entreprise effectue son premier paiement d’abonnement, vous touchez 30 % du montant total.',
     cta: 'Rejoindre maintenant',
+    ctaShort: 'Rejoindre',
     ctaNote: 'L’inscription est gratuite et ouvre votre compte immédiatement',
     login: 'Déjà ambassadeur ? Connectez-vous',
     loginShort: 'Connexion ambassadeurs',

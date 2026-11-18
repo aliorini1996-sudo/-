@@ -68,22 +68,24 @@ export default function AmbassadorsPage() {
   const primaryBtn = 'inline-flex items-center justify-center gap-2 rounded-2xl bg-[#E15A30] hover:bg-[#C94B24] text-white font-bold transition-colors focus:outline-none focus-visible:ring-4 focus-visible:ring-[#E15A30]/30';
 
   return (
-    <div dir={dir} lang={L} data-ambassadors-page="" className="min-h-screen bg-[#FAF7F0] text-[#1F1A13] overflow-x-hidden" style={{ fontFamily: FONT }}>
+    // overflow-x-clip لا hidden: hidden يجعل الغلاف حاوية تمرير فيتعطّل الرأس اللاصق (sticky)
+    <div dir={dir} lang={L} data-ambassadors-page="" className="min-h-screen bg-[#FAF7F0] text-[#1F1A13] overflow-x-clip" style={{ fontFamily: FONT }}>
       {/* ── الرأس ── */}
       <header className="sticky top-0 z-40 bg-[#FAF7F0]/90 backdrop-blur border-b border-[#E9E1D3]/70">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2">
           <Link to={home} className="flex items-center gap-2.5 min-w-0" aria-label={t.home}>
             <BrandIcon size={32} />
-            <span className="hidden min-[400px]:inline text-lg sm:text-xl whitespace-nowrap" dir="ltr" style={{ fontFamily: "'IBM Plex Serif', serif", fontWeight: 600, letterSpacing: '-0.3px' }}>
+            {/* الاسم اللفظي من sm، ودخول السفراء في الرأس من lg، وزرّ الرأس مختصر — فلا يتجاوز الرأس عرض ٣٢٠ بكسل بأي لغة */}
+            <span className="hidden sm:inline text-xl whitespace-nowrap" dir="ltr" style={{ fontFamily: "'IBM Plex Serif', serif", fontWeight: 600, letterSpacing: '-0.3px' }}>
               <span className="text-[#1F1A13]">Field</span> <span className="text-[#E15A30]">Sales</span>
             </span>
           </Link>
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            <Link to={AMBASSADORS_LOGIN} className="hidden sm:inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#6E6557] hover:text-[#1F1A13] px-3 py-2 rounded-xl hover:bg-black/5">
+            <Link to={AMBASSADORS_LOGIN} className="hidden lg:inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#6E6557] hover:text-[#1F1A13] px-3 py-2 rounded-xl hover:bg-black/5">
               <LogIn size={15} />{t.loginShort}
             </Link>
             <LanguageToggle />
-            <Link to={AMBASSADORS_JOIN} data-amb-join="header" className={`${primaryBtn} text-[13px] px-3.5 py-2 rounded-xl`}>{t.cta}</Link>
+            <Link to={AMBASSADORS_JOIN} data-amb-join="header" className={`${primaryBtn} text-[13px] px-3.5 py-2 rounded-xl whitespace-nowrap`}>{t.ctaShort}</Link>
           </div>
         </div>
       </header>
@@ -112,8 +114,8 @@ export default function AmbassadorsPage() {
             </p>
             <ul className="mt-8 grid grid-cols-3 gap-2 sm:gap-3">
               {t.stats.map((s) => (
-                <li key={s.v} className="bg-white rounded-2xl border border-[#E9E1D3] px-2.5 py-3.5 sm:p-4 text-center">
-                  <div className="text-xl sm:text-2xl font-extrabold text-[#1F1A13] whitespace-nowrap">{s.v}</div>
+                <li key={s.v} className="bg-white rounded-2xl border border-[#E9E1D3] px-2 py-3.5 sm:p-4 text-center min-w-0">
+                  <div className="text-lg sm:text-2xl font-extrabold text-[#1F1A13] leading-tight break-words">{s.v}</div>
                   <div className="mt-1 text-[11.5px] sm:text-[13px] leading-snug text-[#6E6557]">{s.l}</div>
                 </li>
               ))}
