@@ -6,6 +6,7 @@ import {
   X, Handshake, LayoutDashboard, Users, FileSearch, Link2, BadgePercent, Landmark, Scale, Settings,
   Search, Eye, EyeOff, Copy, AlertTriangle, CheckCircle2, XCircle, PauseCircle, PlayCircle, Ban,
   Building2, Plus, Wallet, ShieldAlert, RefreshCw, History, Info, Lock, RotateCcw, Shuffle, CalendarClock, Phone,
+  UserPlus, FileWarning, Inbox, Megaphone, Upload, Trash2, Download, FileText, ExternalLink, Play, Timer, AlertOctagon, Globe, UserCheck,
 } from 'lucide-react';
 import api from '../api/client';
 import { backdropClose } from '../lib/backdropClose';
@@ -16,10 +17,14 @@ import * as L from './affiliatesPanelLogic';
 /**
  * «سفراء فيلد سيلز» — نافذة المالك لبرنامج التسويق بالعمولة.
  *
- * المواصفة الحاكمة: `docs/affiliate/API.md` §2 و`CONTRACT.md`. قرارات المالك:
+ * المواصفة الحاكمة: `docs/affiliate/API.md` §2 و`CONTRACT.md` و`V2_SPEC.md` §8. قرارات المالك:
  * عمولة واحدة لكل شركة على **أول دفعة مؤكَّدة** بكامل مبلغها شاملاً الضريبة،
  * والصرف **يدوي من المالك** — المنصّة لا تحرّك مالاً: تُنشئ الدفعة هنا لتجميد
  * العمولات، ويحوّل المالك من بنكه، ثم يسجّل المرجع.
+ *
+ * v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): الانضمام فوريّ بلا موافقة (الرفض = إيقاف)، والعمولة تُعتمد تلقائياً
+ * بعد حجز ١٠ أيام، ودورة تسوية كل ١٠ أيام (١ و١١ و٢١) تُنشئ المسودّات آلياً — ويبقى التحويل وتسجيله
+ * («مدفوعة» أو «فشل التحويل») يدوياً. وتبويبان جديدان: المطالبات الفائتة والمواد التسويقية.
  *
  * كل المبالغ هللات صحيحة؛ التحويل من نصّ الريال في `affiliatesPanelLogic.ts`.
  */
@@ -30,7 +35,8 @@ const A = '/affiliate-admin';
 const unwrap = async <T,>(p: Promise<AxiosResponse>): Promise<T> => (await p).data.data as T;
 
 const affApi = {
-  overview: () => unwrap<L.Overview>(api.get(`${A}/overview`)),
+  /** v2 يضيف السفراء الجدد والملفات الناقصة والمطالبات الفائتة والتسوية القادمة وآخر دورة */
+  overview: async () => L.normalizeOverview(await unwrap<L.Overview>(api.get(`${A}/overview`))),
   settings: () => unwrap<L.AffiliateSettings>(api.get(`${A}/settings`)),
   /** يقبل `intakeOpen` و`disclosureText` فقط — القواعد الست تتغيّر بنشر شروط (publishTerms) */
   saveSettings: (body: L.SettingsBody) => unwrap<L.AffiliateSettings>(api.put(`${A}/settings`, body)),
@@ -43,6 +49,9 @@ const affApi = {
   affiliateAction: (id: string, action: L.UserAction, reason?: string) =>
     unwrap<{ status: L.UserStatus }>(api.post(`${A}/affiliates/${id}/${action}`, reason !== undefined ? { reason } : {})),
   revealIban: (id: string) => unwrap<L.RevealedIban>(api.post(`${A}/affiliates/${id}/reveal-iban`, {})),
+  /** مستند الهوية/السجل مفكوكاً — صلاحية affiliates.iban، وكل عرضٍ حدث `document_viewed` في سجلّ السفير */
+  affiliateDocument: (id: string, kind: L.DocKind) =>
+    unwrap<{ dataUrl: string }>(api.get(`${A}/affiliates/${id}/documents/${kind}`)),
   claims: async (status: string) =>
     L.normalizeClaims(await unwrap<L.ClaimRow[]>(api.get(`${A}/claims`, { params: L.cleanParams({ status }) }))),
   approveClaim: (id: string) => unwrap<{ status: 'approved'; lockedUntil: string }>(api.post(`${A}/claims/${id}/approve`, {})),
@@ -71,6 +80,21 @@ const affApi = {
   recordPayout: (id: string, body: { bankReference: string; transferredAt: string }) =>
     unwrap<L.PayoutRow>(api.post(`${A}/payouts/${id}/record`, body)),
   voidPayout: (id: string, reason: string) => unwrap<L.PayoutRow>(api.post(`${A}/payouts/${id}/void`, { reason })),
+  /** «فشل التحويل» (v2): المسودّة `failed` وتعود عمولاتها «معتمدة» للدورة التالية، وبريدٌ للسفير */
+  failPayout: (id: string, reason: string) => unwrap<L.PayoutRow>(api.post(`${A}/payouts/${id}/fail`, { reason })),
+  /** «تشغيل الدورة الآن» — دورة آخر نهايةٍ مرّت بمفتاحها نفسه، آمنةٌ للتكرار وتنشئ مسودّات فقط */
+  runSettlement: () => unwrap<L.SettlementRunResult>(api.post(`${A}/settlement/run`, {})),
+  missedClaims: async (status: string) =>
+    L.normalizeMissedClaims(await unwrap<L.MissedClaimRow[]>(api.get(`${A}/missed-claims`, { params: L.cleanParams({ status }) }))),
+  /** القبول = إسنادٌ يدويّ للشركة إلى صاحب المطالبة من لحظة تسجيلها، ثمّ المطالبة `accepted` */
+  acceptMissedClaim: (id: string, body: { tenantId: string; reason: string }) =>
+    unwrap<L.MissedAcceptResult>(api.post(`${A}/missed-claims/${id}/accept`, body)),
+  rejectMissedClaim: (id: string, reason: string) =>
+    unwrap<{ status: 'rejected' }>(api.post(`${A}/missed-claims/${id}/reject`, { reason })),
+  materials: () => unwrap<L.MaterialRow[]>(api.get(`${A}/materials`)),
+  materialFile: (id: string) => unwrap<{ dataUrl: string }>(api.get(`${A}/materials/${id}/file`)),
+  createMaterial: (body: L.MaterialBody) => unwrap<L.MaterialRow>(api.post(`${A}/materials`, body)),
+  deleteMaterial: (id: string) => unwrap<{ ok: true }>(api.delete(`${A}/materials/${id}`)),
   createAdjustment: (body: { affiliateId: string; amountHalalas: number; note: string }) =>
     unwrap<unknown>(api.post(`${A}/adjustments`, body)),
   searchTenants: (q: string) => unwrap<L.TenantHit[]>(api.get(`${A}/tenants/search`, { params: { q } })),
@@ -480,17 +504,19 @@ function RevealIban({ affiliateId }: { affiliateId: string }) {
 
 // ─── التبويبات ─────────────────────────────────────────────────────────────
 
-type TabKey = 'overview' | 'affiliates' | 'claims' | 'attributions' | 'commissions' | 'payouts' | 'adjustments' | 'settings';
-type FilterTab = 'affiliates' | 'claims' | 'attributions' | 'commissions' | 'payouts';
+type TabKey = 'overview' | 'affiliates' | 'claims' | 'missed' | 'attributions' | 'commissions' | 'payouts' | 'adjustments' | 'materials' | 'settings';
+type FilterTab = 'affiliates' | 'claims' | 'missed' | 'attributions' | 'commissions' | 'payouts';
 
 const TABS: Array<{ key: TabKey; label: string; icon: React.ElementType }> = [
   { key: 'overview', label: 'نظرة عامة', icon: LayoutDashboard },
   { key: 'affiliates', label: 'المسوّقون', icon: Users },
   { key: 'claims', label: 'الترشيحات', icon: FileSearch },
+  { key: 'missed', label: 'المطالبات الفائتة', icon: Inbox },
   { key: 'attributions', label: 'الإسناد', icon: Link2 },
   { key: 'commissions', label: 'العمولات', icon: BadgePercent },
   { key: 'payouts', label: 'الصرف', icon: Landmark },
   { key: 'adjustments', label: 'التصحيحات', icon: Scale },
+  { key: 'materials', label: 'المواد التسويقية', icon: Megaphone },
   { key: 'settings', label: 'الإعدادات والشروط', icon: Settings },
 ];
 
@@ -500,7 +526,7 @@ export default function AffiliatesPanel({ onClose }: { onClose: () => void }) {
   const tabs = TABS.filter((t) => t.key !== 'adjustments' || can('affiliates.payouts'));
   const [tab, setTab] = useState<TabKey>('overview');
   const [filters, setFilters] = useState<Record<FilterTab, string>>({
-    affiliates: '', claims: '', attributions: '', commissions: '', payouts: '',
+    affiliates: '', claims: '', missed: '', attributions: '', commissions: '', payouts: '',
   });
   const setFilter = (t: FilterTab) => (v: string) => setFilters((p) => ({ ...p, [t]: v }));
   const go = (t: TabKey, filter?: string) => {
@@ -509,9 +535,10 @@ export default function AffiliatesPanel({ onClose }: { onClose: () => void }) {
   };
 
   const { data: overview } = useQuery({ queryKey: [KEY, 'overview'], queryFn: affApi.overview });
+  // v2: لا شارة على «المسوّقون» — الانضمام فوريّ فلا طلبات تنتظر المالك
   const badge: Partial<Record<TabKey, number>> = overview ? {
-    affiliates: overview.affiliates.pending_review,
     claims: overview.claimsUnderReview,
+    missed: overview.missedClaimsUnderReview,
     attributions: overview.attributions.disputed,
     commissions: overview.commissions.readyToApprove,
     payouts: overview.payoutCandidates,
@@ -525,7 +552,7 @@ export default function AffiliatesPanel({ onClose }: { onClose: () => void }) {
             <div className="w-10 h-10 bg-[#FBEBE2] rounded-xl flex items-center justify-center"><Handshake className="w-5 h-5 text-[#E15A30]" /></div>
             <div>
               <h2 className="text-lg font-bold text-[#1F1A13]">سفراء فيلد سيلز</h2>
-              <p className="text-[11.5px] text-[#6E6557]">عمولة على أول دفعة مؤكَّدة لكل شركة · الصرف يدوي منك — المنصّة لا تحوّل أي مال</p>
+              <p className="text-[11.5px] text-[#6E6557]">عمولة على أول دفعة مؤكَّدة لكل شركة · تسوية كل ١٠ أيام · التحويل يدوي منك — المنصّة لا تحوّل أي مال</p>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-black/5" aria-label="إغلاق"><X className="w-5 h-5 text-gray-500" /></button>
@@ -554,10 +581,12 @@ export default function AffiliatesPanel({ onClose }: { onClose: () => void }) {
           {tab === 'overview' && <OverviewTab go={go} />}
           {tab === 'affiliates' && <AffiliatesTab status={filters.affiliates} setStatus={setFilter('affiliates')} />}
           {tab === 'claims' && <ClaimsTab status={filters.claims} setStatus={setFilter('claims')} />}
+          {tab === 'missed' && <MissedClaimsTab status={filters.missed} setStatus={setFilter('missed')} />}
           {tab === 'attributions' && <AttributionsTab status={filters.attributions} setStatus={setFilter('attributions')} />}
           {tab === 'commissions' && <CommissionsTab status={filters.commissions} setStatus={setFilter('commissions')} />}
           {tab === 'payouts' && <PayoutsTab status={filters.payouts} setStatus={setFilter('payouts')} />}
           {tab === 'adjustments' && can('affiliates.payouts') && <AdjustmentsTab />}
+          {tab === 'materials' && <MaterialsTab />}
           {tab === 'settings' && <SettingsTab />}
         </div>
       </div>
@@ -572,25 +601,52 @@ function OverviewTab({ go }: { go: (t: TabKey, filter?: string) => void }) {
   if (isLoading) return <Loading />;
   if (isError || !o) return <Failed onRetry={() => refetch()} />;
 
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): الانضمام فوريّ — لا «طلبات انضمام بانتظار المراجعة» بعد اليوم؛
+  // مكانها السفراء الجدد والملفات الناقصة والمطالبات الفائتة والتسوية القادمة
+  const nextKey = L.nextSettlementKey(o.nextSettlementAt);
   const cards: Array<{ label: string; value: string; hint: string; icon: React.ElementType; hot: boolean; onClick: () => void }> = [
-    { label: 'طلبات انضمام بانتظار المراجعة', value: String(o.affiliates.pending_review), hint: 'اعتماد أو رفض كل طلب', icon: Users, hot: o.affiliates.pending_review > 0, onClick: () => go('affiliates', 'pending_review') },
+    { label: 'سفراء جدد هذا الأسبوع', value: String(o.newAffiliates7d), hint: 'انضمّوا فوراً بلا موافقة — آخر ٧ أيام', icon: UserPlus, hot: false, onClick: () => go('affiliates', '') },
+    { label: 'ملفات ناقصة', value: String(o.incompleteProfiles), hint: 'معتمدون لم يكملوا ملفهم — لا يدخلون التسوية حتى يكملوه', icon: FileWarning, hot: false, onClick: () => go('affiliates', 'incomplete') },
+    { label: 'مطالبات فائتة قيد المراجعة', value: String(o.missedClaimsUnderReview), hint: 'شركة سجّلت دون رمز السفير — اقبلها بربط الشركة أو ارفضها', icon: Inbox, hot: o.missedClaimsUnderReview > 0, onClick: () => go('missed', 'under_review') },
     { label: 'ترشيحات قيد المراجعة', value: String(o.claimsUnderReview), hint: 'الأسبق بالسجل التجاري يفوز', icon: FileSearch, hot: o.claimsUnderReview > 0, onClick: () => go('claims', 'under_review') },
     { label: 'إسنادات متنازع عليها', value: String(o.attributions.disputed), hint: 'عميل عائد أو تعارض ترشيح أو شروط غير مقبولة', icon: AlertTriangle, hot: o.attributions.disputed > 0, onClick: () => go('attributions', 'disputed') },
-    { label: 'عمولات جاهزة للاعتماد', value: String(o.commissions.readyToApprove), hint: 'انتهت فترة حجزها', icon: BadgePercent, hot: o.commissions.readyToApprove > 0, onClick: () => go('commissions', 'pending') },
-    { label: 'معتمدة لم تُصرف', value: L.formatHalalas(o.commissions.approvedUnpaidHalalas), hint: 'بانتظار دفعة وتحويل يدوي', icon: Wallet, hot: o.commissions.approvedUnpaidHalalas > 0, onClick: () => go('commissions', 'approved') },
-    { label: 'مرشّحون للصرف', value: String(o.payoutCandidates), hint: 'أنشئ دفعة ثم حوّل من بنكك', icon: Landmark, hot: o.payoutCandidates > 0, onClick: () => go('payouts') },
+    { label: 'عمولات بانتظار الحجز', value: L.formatHalalas(o.commissions.pendingHalalas), hint: 'تُعتمد تلقائياً بعد انتهاء حجزها', icon: Timer, hot: false, onClick: () => go('commissions', 'pending') },
+    { label: 'انتهى حجزها ولم تُعتمد', value: String(o.commissions.readyToApprove), hint: 'لم يجتز الاعتماد التلقائي فحصاً — راجعها أو اعتمدها يدوياً', icon: BadgePercent, hot: o.commissions.readyToApprove > 0, onClick: () => go('commissions', 'pending') },
+    { label: 'معتمدة لم تُصرف', value: L.formatHalalas(o.commissions.approvedUnpaidHalalas), hint: 'تدخل دورة التسوية القادمة', icon: Wallet, hot: o.commissions.approvedUnpaidHalalas > 0, onClick: () => go('commissions', 'approved') },
   ];
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+      <button
+        onClick={() => go('payouts')}
+        className={`w-full text-right rounded-xl border bg-white p-4 hover:shadow-sm transition flex flex-wrap items-center gap-x-6 gap-y-3 ${o.payoutCandidates > 0 ? 'border-[#F3C9B6]' : 'border-[#E7DECD]'}`}
+      >
+        <div className="flex items-center gap-3 flex-1 min-w-[200px]">
+          <div className="w-10 h-10 rounded-xl bg-[#FBEBE2] flex items-center justify-center shrink-0"><CalendarClock className="w-5 h-5 text-[#E15A30]" /></div>
+          <div>
+            <p className="text-[11.5px] font-semibold text-gray-500">التسوية القادمة</p>
+            <p className="text-lg font-bold text-[#1F1A13]">{formatDayOnly(nextKey)}</p>
+            <p className="text-[11px] text-gray-400">كل ١٠ أيام (١ و١١ و٢١ من كل شهر) — تُنشأ المسودّات تلقائياً وتحوّل أنت</p>
+          </div>
+        </div>
+        <div className="min-w-[180px]">
+          <p className="text-[11.5px] font-semibold text-gray-500">آخر دورة</p>
+          <p className="text-[13px] font-bold text-[#1F1A13]">{L.lastCycleText(o.lastCycle)}</p>
+        </div>
+        <div>
+          <p className="text-[11.5px] font-semibold text-gray-500">مؤهَّلون للتسوية الآن</p>
+          <p className={`text-2xl font-bold tabular-nums ${o.payoutCandidates > 0 ? 'text-[#E15A30]' : 'text-[#1F1A13]'}`} dir="ltr">{o.payoutCandidates}</p>
+        </div>
+      </button>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {cards.map((c) => (
           <button
             key={c.label} onClick={c.onClick}
             className={`text-right rounded-xl border bg-white p-4 hover:shadow-sm transition ${c.hot ? 'border-[#F3C9B6]' : 'border-[#E7DECD]'}`}
           >
             <div className="flex items-center gap-2 text-[11.5px] font-semibold text-gray-500">
-              <c.icon className={`w-4 h-4 ${c.hot ? 'text-[#E15A30]' : ''}`} /> {c.label}
+              <c.icon className={`w-4 h-4 shrink-0 ${c.hot ? 'text-[#E15A30]' : ''}`} /> {c.label}
             </div>
             <div className={`mt-1.5 text-2xl font-bold tabular-nums ${c.hot ? 'text-[#E15A30]' : 'text-[#1F1A13]'}`} dir="ltr">{c.value}</div>
             <div className="mt-0.5 text-[11px] text-gray-400">{c.hint}</div>
@@ -617,7 +673,8 @@ function OverviewTab({ go }: { go: (t: TabKey, filter?: string) => void }) {
 
       <Note tone="money">
         قواعد البرنامج: <b>عمولة واحدة لكل شركة</b> على <b>أول دفعة مؤكَّدة</b> بكامل مبلغها شاملاً الضريبة (ولو غطّت سنة).
-        لا تُعتمد قبل انتهاء فترة الحجز، ويُعاد فحص حالة رابط الدفع عند الاعتماد. <b>الصرف يدوي</b>: تحوّل أنت من البنك وتسجّل المرجع هنا.
+        تُحجز ثم <b>تُعتمد تلقائياً</b> بعد انتهاء الحجز (ويُعاد فحص رابط الدفع)، وتُجمع كل ١٠ أيام في مسودّات دفعات.
+        <b> التحويل يدوي</b>: تحوّل أنت من البنك وتسجّل المرجع هنا — المنصّة لا تحرّك أي مال.
       </Note>
     </div>
   );
@@ -632,10 +689,17 @@ function Row({ k, v, danger }: { k: string; v: ReactNode; danger?: boolean }) {
   );
 }
 
-// ─── ٢) المسوّقون ──────────────────────────────────────────────────────────
+/// ─── ٢) المسوّقون ──────────────────────────────────────────────────────────
+
+/** حالة الملف: «مكتمل» أو «ينقصه: …» — نصٌّ قد يطول فيلتفّ (لا Chip بسطرٍ واحد) */
+function ProfileChip({ r }: { r: { profileComplete?: boolean | null; missing?: readonly string[] | null } }) {
+  const st = L.profileState(r);
+  return <span className={`inline-block text-[11px] font-bold rounded-lg px-2 py-0.5 leading-snug max-w-[180px] ${TONE[st.tone]}`}>{st.label}</span>;
+}
 
 function AffiliateActions({ a, actions }: { a: { id: string; fullName: string; status: L.UserStatus }; actions: Actions }) {
-  // القبول والرفض والإيقاف وإعادة التفعيل: affiliates.manage
+  // الإيقاف وإعادة التفعيل: affiliates.manage — v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): لا اعتماد ولا رفض
+  // للطلبات (الانضمام فوريّ، والرفض = إيقاف)؛ `approve`/`reject` باقيان في الخادم للإرث وحده
   const canManage = usePlatformAccess().can('affiliates.manage');
   const list = L.USER_ACTIONS[a.status] ?? [];
   if (!canManage) return null;
@@ -643,27 +707,11 @@ function AffiliateActions({ a, actions }: { a: { id: string; fullName: string; s
   const k = (x: string) => `aff:${x}:${a.id}`;
   return (
     <div className="flex flex-wrap gap-1">
-      {list.includes('approve') && (
-        <ActionBtn tone="good" icon={CheckCircle2} disabled={actions.busy === k('approve')}
-          onClick={() => actions.run(k('approve'), () => affApi.affiliateAction(a.id, 'approve'), `اعتُمد ${a.fullName} وأُبلغ بالبريد`)}>
-          اعتماد
-        </ActionBtn>
-      )}
-      {list.includes('reject') && (
-        <ActionBtn tone="bad" icon={XCircle}
-          onClick={() => actions.ask({
-            key: k('reject'), title: `رفض طلب ${a.fullName}`, confirmLabel: 'رفض الطلب', danger: true, mode: 'text',
-            hint: 'يصل السبب للمتقدّم في بريد الرفض.',
-            action: (reason) => affApi.affiliateAction(a.id, 'reject', reason), success: 'رُفض الطلب',
-          })}>
-          رفض
-        </ActionBtn>
-      )}
       {list.includes('suspend') && (
         <ActionBtn tone="bad" icon={PauseCircle}
           onClick={() => actions.ask({
             key: k('suspend'), title: `إيقاف ${a.fullName}`, confirmLabel: 'إيقاف', danger: true, mode: 'text',
-            hint: 'الموقوف يدخل البوابة ولا يرى أرباحه ولا يرشّح. العمولات القائمة لا تُمسّ تلقائياً — راجعها من تبويب العمولات.',
+            hint: 'الموقوف يدخل البوابة ولا يرى أرباحه ولا يرشّح، ولا يدخل دورة التسوية. العمولات القائمة لا تُمسّ تلقائياً — راجعها من تبويب العمولات. يصل السبب للسفير في بريد الإيقاف.',
             action: (reason) => affApi.affiliateAction(a.id, 'suspend', reason), success: 'أُوقف السفير',
           })}>
           إيقاف
@@ -673,7 +721,7 @@ function AffiliateActions({ a, actions }: { a: { id: string; fullName: string; s
         const copy = L.reactivateCopy(a.status);
         return (
           <ActionBtn tone="good" icon={a.status === 'rejected' ? RotateCcw : PlayCircle} disabled={actions.busy === k('reactivate')}
-            title={a.status === 'rejected' ? 'يعيد الطلب «بانتظار المراجعة» — لا يعتمده' : undefined}
+            title={a.status === 'rejected' ? 'يعيده «معتمداً» مباشرةً — لا مراجعة بعد اليوم' : undefined}
             onClick={() => actions.run(k('reactivate'), () => affApi.affiliateAction(a.id, 'reactivate'), copy.success)}>
             {copy.label}
           </ActionBtn>
@@ -683,33 +731,46 @@ function AffiliateActions({ a, actions }: { a: { id: string; fullName: string; s
   );
 }
 
+/** تصفية «ملف ناقص»: محلية فوق قائمة المعتمدين (الخادم يصفّي بالحالة وحدها) */
+const AFF_FILTER_VALUES = [...L.USER_FILTER_STATUSES, 'incomplete'] as const;
+const AFF_FILTER_LABEL: Record<string, L.Label> = { ...L.USER_STATUS_LABEL, incomplete: { label: 'ملف ناقص', tone: 'amber' } };
+
 function AffiliatesTab({ status, setStatus }: { status: string; setStatus: (v: string) => void }) {
   const actions = useActions();
   const [q, setQ] = useState('');
   const dq = useDebounced(q.trim(), 350);
   const [openId, setOpenId] = useState<string | null>(null);
-  const { data, isLoading, isError, refetch, isFetching } = useQuery({
-    queryKey: [KEY, 'affiliates', status, dq],
-    queryFn: () => affApi.affiliates(status, dq),
+  const incompleteOnly = status === 'incomplete';
+  const serverStatus = incompleteOnly ? 'approved' : status;
+  const { data: raw, isLoading, isError, refetch, isFetching } = useQuery({
+    queryKey: [KEY, 'affiliates', serverStatus, dq],
+    queryFn: () => affApi.affiliates(serverStatus, dq),
     placeholderData: (prev) => prev,
   });
+  const data = raw && incompleteOnly ? raw.filter((a) => a.profileComplete === false) : raw;
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 justify-between">
-        <StatusFilter values={L.USER_STATUSES} map={L.USER_STATUS_LABEL} value={status} onChange={setStatus} />
+        <StatusFilter values={AFF_FILTER_VALUES} map={AFF_FILTER_LABEL} value={status} onChange={setStatus} />
         <div className="relative w-full sm:w-64">
           <Search className="w-4 h-4 text-gray-400 absolute top-1/2 -translate-y-1/2 right-3" />
-          <input className="input w-full pr-9" value={q} onChange={(e) => setQ(e.target.value)} placeholder="اسم، بريد، جوال، رمز" />
+          <input className="input w-full pr-9" value={q} onChange={(e) => setQ(e.target.value)} placeholder="اسم، بريد، جوال، رمز، شركة" />
         </div>
       </div>
+      {incompleteOnly && (
+        <Note>
+          الملف المكتمل (النوع، الآيبان، الهوية/الإقامة، والسجل التجاري للشركة) <b>شرطٌ لدخول دورة التسوية فقط</b> — لا يحجب الحساب.
+          يكمله السفير من «ملفي» في البوابة، وعمولاته المعتمدة تنتظره حتى يكتمل.
+        </Note>
+      )}
 
       {isLoading ? <Loading /> : isError ? <Failed onRetry={() => refetch()} /> : !data || data.length === 0 ? (
-        <Empty>{status || dq ? 'لا نتائج مطابقة' : 'لا طلبات انضمام بعد — شارك رابط البوابة من تبويب الإعدادات'}</Empty>
+        <Empty>{status || dq ? 'لا نتائج مطابقة' : 'لا سفراء بعد — شارك صفحة البرنامج من تبويب الإعدادات'}</Empty>
       ) : (
         <div className={isFetching ? 'opacity-70 transition-opacity' : ''}>
           <Table head={<>
-            <Th>السفير</Th><Th>التواصل</Th><Th>الحالة</Th><Th>النشاط</Th><Th>الأرباح</Th><Th>التسجيل</Th><Th>إجراءات</Th>
+            <Th>السفير</Th><Th>النوع</Th><Th>التواصل</Th><Th>الحالة</Th><Th>الملف</Th><Th>النشاط</Th><Th>الأرباح</Th><Th>التسجيل</Th><Th>إجراءات</Th>
           </>}>
             {data.map((a) => (
               <tr key={a.id} className="hover:bg-[#FBEBE2]/30">
@@ -720,6 +781,10 @@ function AffiliatesTab({ status, setStatus }: { status: string; setStatus: (v: s
                   <p className="text-[10.5px] text-[#9A8F7E] font-mono" dir="ltr">{a.code}</p>
                   {a.city && <p className="text-[10.5px] text-[#9A8F7E]">{a.city}</p>}
                 </Td>
+                <Td className="text-[11.5px]">
+                  {a.partnerType ? <p className="font-semibold text-[#1F1A13] whitespace-nowrap">{L.labelOf(L.PARTNER_TYPE_LABEL, a.partnerType)}</p> : <p className="text-gray-400">—</p>}
+                  {a.companyName && <p className="text-[10.5px] text-[#9A8F7E] max-w-[150px] truncate" title={a.companyName}>{a.companyName}</p>}
+                </Td>
                 <Td>
                   <p className="text-[11.5px] font-mono" dir="ltr">{a.email}</p>
                   {a.phone && <p className="text-[11.5px] font-mono text-[#6E6557]" dir="ltr">{a.phone}</p>}
@@ -728,6 +793,7 @@ function AffiliatesTab({ status, setStatus }: { status: string; setStatus: (v: s
                   <StatusChip map={L.USER_STATUS_LABEL} value={a.status} />
                   {a.statusReason && <p className="text-[10.5px] text-[#9A8F7E] mt-1 max-w-[160px]">{a.statusReason}</p>}
                 </Td>
+                <Td><ProfileChip r={a} /></Td>
                 <Td className="text-[11.5px] text-[#6E6557] whitespace-nowrap">
                   <p>ترشيحات {a.counts.claims}</p>
                   <p>شركات {a.counts.attributions}</p>
@@ -780,6 +846,12 @@ function AffiliateDrawer({ id, actions, onClose }: { id: string; actions: Action
   const canIban = usePlatformAccess().can('affiliates.iban');
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: [KEY, 'affiliate', id], queryFn: () => affApi.affiliate(id) });
   const a = data?.affiliate;
+  const [viewDoc, setViewDoc] = useState<L.DocKind | null>(null);
+  const links = a?.socialLinks ?? [];
+  const docs = a?.documents ?? [];
+  const missed = data?.missedClaims ?? [];
+  // السجل التجاري يُطلب للشركة وحدها — ويُعرض لغيرها إن رُفع
+  const docKinds = L.DOC_KINDS.filter((k) => k === 'national_id' || a?.partnerType === 'company' || docs.some((d) => d.kind === k));
 
   return (
     <div className="fixed inset-0 z-[65] bg-black/30" dir="rtl" {...backdropClose(onClose)}>
@@ -798,6 +870,10 @@ function AffiliateDrawer({ id, actions, onClose }: { id: string; actions: Action
             <>
               <DrawerSection title="الملف">
                 <div className="grid sm:grid-cols-2 gap-x-5 gap-y-1.5 text-[12.5px]">
+                  <Row k="النوع" v={a.partnerType ? L.labelOf(L.PARTNER_TYPE_LABEL, a.partnerType) : '—'} />
+                  {a.companyName && <Row k="اسم الشركة" v={a.companyName} />}
+                  <Row k="اكتمال الملف" v={<ProfileChip r={a} />} />
+                  {a.profileCompletedAt && <Row k="اكتمل في" v={day(a.profileCompletedAt)} />}
                   <Row k="البريد" v={<span className="font-mono text-[11.5px]" dir="ltr">{a.email}</span>} />
                   <Row k="الجوال" v={a.phone ? <span className="font-mono text-[11.5px]" dir="ltr">{a.phone}</span> : '—'} />
                   <Row k="المدينة" v={a.city || '—'} />
@@ -823,7 +899,50 @@ function AffiliateDrawer({ id, actions, onClose }: { id: string; actions: Action
                     </div>
                     {canIban && <RevealIban affiliateId={a.id} />}
                   </div>
-                ) : <p className="text-[12px] text-gray-400">لم يُدخل آيبان — يُطلب منه بعد أول عمولة معتمدة.</p>}
+                ) : <p className="text-[12px] text-gray-400">لم يُدخل آيبان بعد — يضيفه من «ملفي» في البوابة متى شاء، وهو شرطٌ لدخول دورة التسوية.</p>}
+              </DrawerSection>
+
+              <DrawerSection title="روابط التواصل" count={links.length}>
+                {links.length === 0 ? <p className="text-[12px] text-gray-400">لم يُضف روابط</p> : (
+                  <ul className="space-y-1.5 text-[12px]">
+                    {links.map((l, i) => {
+                      const href = L.safeHttpUrl(l.url);
+                      return (
+                        <li key={`${l.platform}-${i}`} className="flex items-center gap-2 min-w-0">
+                          <Chip>{L.labelOf(L.SOCIAL_PLATFORM_LABEL, l.platform)}</Chip>
+                          {href
+                            ? <a href={href} target="_blank" rel="noopener noreferrer nofollow" className="font-mono text-[11.5px] text-[#E15A30] hover:underline truncate inline-flex items-center gap-1" dir="ltr">{l.url}<ExternalLink className="w-3 h-3 shrink-0" /></a>
+                            : <span className="font-mono text-[11.5px] text-[#6E6557] truncate" dir="ltr">{l.url}</span>}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </DrawerSection>
+
+              <DrawerSection title="المستندات" count={docs.length}>
+                <ul className="divide-y divide-[#F1EBDF] text-[12px]">
+                  {docKinds.map((kind) => {
+                    const d = docs.find((x) => x.kind === kind);
+                    return (
+                      <li key={kind} className="py-1.5 flex flex-wrap items-center gap-2">
+                        <FileText className="w-3.5 h-3.5 text-[#9A8F7E]" />
+                        <span className="font-semibold">{L.labelOf(L.DOC_KIND_LABEL, kind)}</span>
+                        {d ? (
+                          <>
+                            <span className="text-[11px] text-[#9A8F7E]">{d.mime === 'application/pdf' ? 'PDF' : 'صورة'} · {L.formatBytes(d.sizeBytes)} · رُفع {day(d.createdAt)}</span>
+                            {canIban && (
+                              <span className="mr-auto">
+                                <ActionBtn icon={Eye} onClick={() => setViewDoc(kind)} title="يُسجَّل كل عرض في سجل أحداث السفير">عرض</ActionBtn>
+                              </span>
+                            )}
+                          </>
+                        ) : <Chip tone="amber">لم يُرفع</Chip>}
+                      </li>
+                    );
+                  })}
+                </ul>
+                {!canIban && docs.length > 0 && <p className="text-[11px] text-[#9A8F7E] mt-1.5 flex items-center gap-1"><Lock className="w-3 h-3" /> عرض المستندات لمن يملك صلاحية الآيبان</p>}
               </DrawerSection>
 
               <DrawerSection title="الترشيحات" count={data.claims.length}>
@@ -891,9 +1010,24 @@ function AffiliateDrawer({ id, actions, onClose }: { id: string; actions: Action
                       <span className="tabular-nums font-bold">{L.formatHalalas(p.netHalalas)}</span>
                       <StatusChip map={L.PAYOUT_STATUS_LABEL} value={p.status} />
                       {p.bankReference && <span className="font-mono text-[11px]" dir="ltr">{p.bankReference}</span>}
+                      {(() => { const per = L.payoutPeriod(p); return per ? <span className="text-[11px] text-[#6E6557]">الفترة {formatDayOnly(per.from)} ← {formatDayOnly(per.to)}</span> : null; })()}
                       {p.transferredAt && <span className="text-[11px] text-[#6E6557]">حُوّلت {dayOnly(p.transferredAt)}</span>}
                       {p.voidReason && <span className="text-[11px] text-[#9A8F7E]">ألغيت: {p.voidReason}</span>}
+                      {p.failedReason && <span className="text-[11px] text-red-700">فشل التحويل: {p.failedReason}</span>}
                       <span className="text-[11px] text-[#9A8F7E] mr-auto">{day(p.createdAt)}</span>
+                    </li>
+                  ))}
+                </MiniList>
+              </DrawerSection>
+
+              <DrawerSection title="المطالبات الفائتة" count={missed.length}>
+                <MiniList empty={missed.length === 0}>
+                  {missed.map((m) => (
+                    <li key={m.id} className="py-1.5 flex flex-wrap items-center gap-2">
+                      <span className="font-semibold">{m.companyName ?? '—'}</span>
+                      <StatusChip map={L.MISSED_CLAIM_STATUS_LABEL} value={m.status} />
+                      {m.reasonNote && <span className="text-[11px] text-[#6E6557]">{m.reasonNote}</span>}
+                      <span className="text-[11px] text-[#9A8F7E] mr-auto">{day(m.submittedAt)}</span>
                     </li>
                   ))}
                 </MiniList>
@@ -924,6 +1058,63 @@ function AffiliateDrawer({ id, actions, onClose }: { id: string; actions: Action
           )}
         </div>
       </aside>
+      {viewDoc && a && <DocumentViewer affiliateId={a.id} kind={viewDoc} onClose={() => setViewDoc(null)} />}
+    </div>
+  );
+}
+
+/**
+ * عرض مستند الهوية/السجل — `GET /affiliates/:id/documents/:kind` (صلاحية affiliates.iban). كل عرضٍ يُسجَّل
+ * حدثاً `document_viewed` في الخادم، فلا يُحفظ المحتوى في ذاكرة الاستعلامات ولا يُعاد جلبه تلقائياً،
+ * ويُعرض من الأنواع الأربعة المفحوصة وحدها (صورة في <img>، وPDF من رابط blob: يُحرَّر عند الإغلاق).
+ */
+function DocumentViewer({ affiliateId, kind, onClose }: { affiliateId: string; kind: L.DocKind; onClose: () => void }) {
+  const qc = useQueryClient();
+  type View = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; as: 'image' | 'pdf'; src: string };
+  const [view, setView] = useState<View>({ status: 'loading' });
+  useEffect(() => {
+    let alive = true;
+    let blobUrl: string | null = null;
+    affApi.affiliateDocument(affiliateId, kind)
+      .then(({ dataUrl }) => {
+        if (!alive) return;
+        const prev = L.documentPreview(dataUrl);
+        if (!prev) { setView({ status: 'error', message: 'نوع الملف غير مدعوم للعرض' }); return; }
+        if (prev.kind === 'image') { setView({ status: 'ready', as: 'image', src: dataUrl }); return; }
+        const bytes = L.dataUrlToBytes(dataUrl);
+        if (!bytes) { setView({ status: 'error', message: 'الملف تالف' }); return; }
+        blobUrl = URL.createObjectURL(new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' }));
+        setView({ status: 'ready', as: 'pdf', src: blobUrl });
+      })
+      .catch((e) => { if (alive) setView({ status: 'error', message: L.apiErrorMessage(e, 'تعذّر جلب المستند') }); })
+      // العرض حدثٌ جديد في سجلّ السفير — يُحدَّث الدرج ليظهر
+      .finally(() => qc.invalidateQueries({ queryKey: [KEY, 'affiliate', affiliateId] }));
+    return () => { alive = false; if (blobUrl) URL.revokeObjectURL(blobUrl); };
+  }, [affiliateId, kind]);
+
+  return (
+    <div className="fixed inset-0 z-[80] bg-black/60 flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-[#F1EBDF]">
+          <h3 className="text-base font-bold text-[#1F1A13]">{L.labelOf(L.DOC_KIND_LABEL, kind)}</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-black/5" aria-label="إغلاق"><X className="w-5 h-5 text-gray-500" /></button>
+        </div>
+        <div className="p-4 flex-1 min-h-0 overflow-auto">
+          {view.status === 'loading' ? <Loading />
+            : view.status === 'error' ? <p className="text-center text-sm text-red-600 py-10">{view.message}</p>
+              : view.as === 'image'
+                ? <img src={view.src} alt={L.labelOf(L.DOC_KIND_LABEL, kind)} className="max-w-full max-h-[70vh] mx-auto object-contain rounded-lg border border-[#E7DECD]" />
+                : (
+                  <div className="space-y-2">
+                    <iframe src={view.src} title={L.labelOf(L.DOC_KIND_LABEL, kind)} className="w-full h-[70vh] rounded-lg border border-[#E7DECD]" />
+                    <a href={view.src} target="_blank" rel="noopener noreferrer" className="text-[12px] text-[#E15A30] hover:underline inline-flex items-center gap-1"><ExternalLink className="w-3.5 h-3.5" /> فتح في نافذة مستقلة</a>
+                  </div>
+                )}
+        </div>
+        <p className="px-5 py-3 border-t border-[#F1EBDF] text-[11px] text-amber-900 flex items-center gap-1">
+          <ShieldAlert className="w-3.5 h-3.5 shrink-0" /> سُجّل هذا العرض في سجل أحداث السفير. لا تحفظ المستند خارج المنصّة.
+        </p>
+      </div>
     </div>
   );
 }
