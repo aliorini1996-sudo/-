@@ -7,6 +7,8 @@
  *  - تحويل الريال ⇔ الهللات بلا فاصلة عائمة — هللة مقطوعة من عمولة هي مال
  *    حقيقي، و`0.29 * 100` ليس 29.
  *  - النسبة المئوية ⇔ نقاط الأساس (الإعدادات تُعرض نسبةً وتُرسل bps).
+ *  - v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦، V2_SPEC §8): الانضمام فوريّ بلا موافقة، فشل التحويل، دورة التسوية
+ *    كل ١٠ أيام، ملف السفير ومستنداته، المطالبات الفائتة، والمواد التسويقية.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -28,6 +30,16 @@ import {
   validateReassign, buildReassignBody, reassignClaimOptions, validateWindow,
   TERMS_RULE_KEYS, RULE_LABEL, RULE_LIMITS, rulesToInputs, rulesOf, parseRuleChanges, describeRuleChanges, formatRule,
   DISCLOSURE_MIN, validateDisclosure, settingsDiff, settingsDraftOf, syncSettingsDraft,
+  // v2
+  PARTNER_TYPES, SOCIAL_PLATFORMS, DOC_KINDS, MISSED_CLAIM_STATUSES, MATERIAL_CATEGORIES, PROFILE_MISSING, MISSED_MATCHES, PAYOUT_BLOCKS,
+  PARTNER_TYPE_LABEL, SOCIAL_PLATFORM_LABEL, DOC_KIND_LABEL, PROFILE_MISSING_LABEL, MISSED_CLAIM_STATUS_LABEL, MISSED_MATCH_LABEL,
+  MATERIAL_CATEGORY_LABEL, PAYOUT_BLOCK_LABEL, USER_FILTER_STATUSES,
+  profileState, safeHttpUrl, socialLinksOf, formatBytes, documentPreview, dataUrlToBytes,
+  nextSettlementDayKey, nextSettlementKey, payoutPeriod, validateFailReason, daysText, autoApproveNote,
+  settlementRunMessage, lastCycleText, skippedText,
+  missedClaimActions, validateMissedAccept, daysFromSignup, missedWindowLabel, missedAcceptMessage, normalizeMissedClaims,
+  materialNeeds, validateMaterial, buildMaterialBody, materialBodyBytes, MATERIAL_MAX_BYTES, JSON_BODY_LIMIT_BYTES,
+  normalizeOverview,
 } from './affiliatesPanelLogic';
 
 const ARABIC = /[؀-ۿ]/;
@@ -57,6 +69,15 @@ test('كل قيمة تعداد لها تسمية عربية — ولا تسمي�
   assertLabelled('RefVia', REF_VIAS, REF_VIA_LABEL);
   assertLabelled('AdjustmentKind', ADJUSTMENT_KINDS, ADJUSTMENT_KIND_LABEL);
   assertLabelled('ActorType', ACTOR_TYPES, ACTOR_LABEL);
+  // v2
+  assertLabelled('PartnerType', PARTNER_TYPES, PARTNER_TYPE_LABEL);
+  assertLabelled('SocialPlatform', SOCIAL_PLATFORMS, SOCIAL_PLATFORM_LABEL);
+  assertLabelled('DocKind', DOC_KINDS, DOC_KIND_LABEL);
+  assertLabelled('ProfileMissing', PROFILE_MISSING, PROFILE_MISSING_LABEL);
+  assertLabelled('MissedClaimStatus', MISSED_CLAIM_STATUSES, MISSED_CLAIM_STATUS_LABEL);
+  assertLabelled('MissedMatch', MISSED_MATCHES, MISSED_MATCH_LABEL);
+  assertLabelled('MaterialCategory', MATERIAL_CATEGORIES, MATERIAL_CATEGORY_LABEL);
+  assertLabelled('PayoutBlock', PAYOUT_BLOCKS, PAYOUT_BLOCK_LABEL);
 });
 
 test('التعدادات مطابقة حرفياً لـ API.md', () => {
@@ -65,7 +86,8 @@ test('التعدادات مطابقة حرفياً لـ API.md', () => {
   const union = (name: string): string[] => {
     const m = new RegExp(`type ${name} = ([^;]+);`).exec(doc);
     assert.ok(m, `النوع ${name} غير موجود في API.md`);
-    return [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]);
+    // v2: `ProfileMissing` يحمل 'partnerType' بحرفٍ كبير — فالنمط يقبل الحالتين
+    return [...m[1].matchAll(/'([A-Za-z_]+)'/g)].map((x) => x[1]);
   };
   assert.deepEqual([...USER_STATUSES], union('UserStatus'));
   assert.deepEqual([...CLAIM_STATUSES], union('ClaimStatus'));
@@ -75,6 +97,15 @@ test('التعدادات مطابقة حرفياً لـ API.md', () => {
   assert.deepEqual([...CLAIM_HOWS], union('ClaimHow'));
   assert.deepEqual([...CLAIM_REASONS], union('ClaimReason'));
   assert.deepEqual([...FLAGS], union('Flag'));
+  // v2 (V2_SPEC §3 — API.md يطابقها): فشل التحويل في PayoutStatus، وتعدادات الملف والمطالبات والمواد والحجب
+  assert.ok((PAYOUT_STATUSES as readonly string[]).includes('failed'), 'حالة «فشل التحويل» غائبة');
+  assert.deepEqual([...PARTNER_TYPES], union('PartnerType'));
+  assert.deepEqual([...SOCIAL_PLATFORMS], union('SocialPlatform'));
+  assert.deepEqual([...DOC_KINDS], union('DocKind'));
+  assert.deepEqual([...PROFILE_MISSING], union('ProfileMissing'));
+  assert.deepEqual([...MISSED_CLAIM_STATUSES], union('MissedClaimStatus'));
+  assert.deepEqual([...MATERIAL_CATEGORIES], union('MaterialCategory'));
+  assert.deepEqual([...PAYOUT_BLOCKS], union('PayoutBlock'));
 });
 
 test('تسميات أسباب رفض الترشيح وإشارات الإسناد كما حدّدها المالك', () => {
@@ -103,11 +134,23 @@ test('كل حالة لها قائمة إجراءات (ولو فارغة)', () =>
   assert.ok(COMMISSION_ACTIONS.on_hold.includes('release'));
 });
 
-test('المرفوض يُعاد للمراجعة، والموقوف يُعاد تفعيله — بالمسار نفسه reactivate', () => {
+// v2 — قرار المالك ١٨ نوفمبر ٢٠٢٦ (V2_SPEC §3): الانضمام فوريّ بلا موافقة، فلا «اعتماد/رفض» للطلبات بعد اليوم
+// (الرفض = إيقاف)، والمرفوض إرثاً يُعاد تفعيله **معتمداً** مباشرةً لا «للمراجعة». كان الحارس يثبّت «إعادة للمراجعة».
+test('v2: الإيقاف للمعتمد، وإعادة التفعيل للموقوف والمرفوض (إلى معتمد)، والإرث pending_* بلا إجراء', () => {
+  assert.deepEqual(USER_ACTIONS.approved, ['suspend']);
   assert.deepEqual(USER_ACTIONS.rejected, ['reactivate']);
   assert.deepEqual(USER_ACTIONS.suspended, ['reactivate']);
-  assert.equal(reactivateCopy('rejected').label, 'إعادة للمراجعة');
+  assert.deepEqual(USER_ACTIONS.pending_email, [], 'الإرث يُرقّى تلقائياً — لا زرّ');
+  assert.deepEqual(USER_ACTIONS.pending_review, [], 'لا موافقة يدوية بعد اليوم');
+  for (const s of USER_STATUSES) {
+    for (const a of USER_ACTIONS[s] as string[]) assert.ok(a === 'suspend' || a === 'reactivate', `${s}: إجراءٌ قديم «${a}»`);
+  }
+  assert.equal(reactivateCopy('rejected').label, 'إعادة تفعيل');
+  assert.match(reactivateCopy('rejected').success, /معتمداً/);
   assert.equal(reactivateCopy('suspended').label, 'إعادة تفعيل');
+  // تصفية المسوّقين بلا حالات الإرث، لكنها تبقى في القاموس كي لا يظهر صفٌّ قديم رمزاً إنجليزياً
+  assert.deepEqual([...USER_FILTER_STATUSES], ['approved', 'suspended', 'rejected']);
+  assert.ok(USER_STATUS_LABEL.pending_review.label.includes('قديم'));
 });
 
 test('إجراءات الإسناد: إعادة الإسناد للمتنازع عليه والمُبطل، وتعديل البداية لما بلا عمولة', () => {
@@ -325,6 +368,24 @@ test('مرشّح الصرف: مؤهّل بلا عمولات (تصحيح موجب
   assert.equal(candidateBlocker(correctionOnly), null);
   assert.equal(canCreatePayout({ eligible: true, hasPayout: false }), false);
   assert.equal(canCreatePayout({ eligible: false, hasPayout: true }), false);
+});
+
+test('v2: مرشّح الصرف بـblockedBy من الخادم — iban_failed يحجب الدورة الآلية وحدها فيبقى اليدوي', () => {
+  const base = { eligible: false, hasPayout: true, netHalalas: 8000, minPayoutHalalas: 5000 };
+  assert.equal(canCreatePayout({ ...base, eligible: true, blockedBy: null }), true);
+  assert.equal(candidateBlocker({ ...base, eligible: true, blockedBy: null }), null);
+  assert.equal(canCreatePayout({ ...base, blockedBy: 'iban_failed' }), true, 'اليدوي متاح بعد فشل التحويل');
+  assert.match(candidateBlocker({ ...base, blockedBy: 'iban_failed' })!, /فشل آخر تحويل/);
+  for (const b of ['not_approved', 'below_min', 'no_iban', 'profile_incomplete', 'has_draft'] as const) {
+    assert.equal(canCreatePayout({ ...base, blockedBy: b }), false, b);
+    assert.ok(candidateBlocker({ ...base, blockedBy: b }), b);
+  }
+  assert.equal(canCreatePayout({ ...base, hasPayout: false, blockedBy: null }), false, 'بلا آيبان لا دفعة أبداً');
+  // الحدّ الأدنى من شروط السفير نفسه لا من الإعدادات الحالية
+  assert.equal(candidateBlocker({ ...base, netHalalas: 3000, blockedBy: 'below_min' }, 10000), 'دون الحدّ الأدنى 50 ر.س — يُرحَّل');
+  assert.equal(candidateBlocker({ ...base, netHalalas: -10, blockedBy: 'below_min' }), 'الصافي صفر أو سالب');
+  assert.equal(candidateBlocker({ ...base, blockedBy: 'profile_incomplete' }), 'ملفه غير مكتمل');
+  assert.equal(candidateBlocker({ ...base, blockedBy: 'future_code' }), 'future_code', 'رمز مجهول يُعرض كما هو');
 });
 
 test('حالة قيد التصحيح: سُوّي فقط مع دفعة مسجَّلة', () => {
@@ -632,4 +693,299 @@ test('رقم تواصل الترشيح بصيغة الخادم المخزّنة:
   assert.match(src, /c\.contactPhone && \(/, 'رقم التواصل لا يُعرض في صفّ الترشيح');
   assert.match(src, /href=\{L\.telHref\(c\.contactPhone\)!\}/, 'رقم التواصل ليس رابط tel:');
   assert.match(src, /رقم التواصل:/, 'لوحة المالك تبقى عربية');
+});
+
+// ─── v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦ — V2_SPEC §3/§5/§8) ────────────────────
+
+test('v2: حالة الملف لعمود «الملف» — ما ينقص بالترتيب الثابت، والغائب «—» لا «مكتمل»', () => {
+  assert.deepEqual(profileState({ profileComplete: true, missing: [] }), { label: 'مكتمل', tone: 'green' });
+  assert.deepEqual(profileState({ profileComplete: false, missing: ['national_id', 'iban'] }), { label: 'ينقصه: الآيبان، الهوية / الإقامة', tone: 'amber' });
+  assert.equal(profileState({ profileComplete: false, missing: ['commercial_reg', 'partnerType'] }).label, 'ينقصه: نوع السفير، السجل التجاري');
+  assert.equal(profileState({ profileComplete: false, missing: [] }).label, 'غير مكتمل');
+  assert.equal(profileState({ profileComplete: false, missing: ['new_thing'] }).label, 'ينقصه: new_thing', 'رمز مجهول يُعرض كما هو');
+  assert.deepEqual(profileState({}), { label: '—', tone: 'gray' }, 'خادمٌ أقدم بلا الحقلين');
+});
+
+test('v2: روابط التواصل — http/https وحدها تُفتح، والشكل غير المتوقع يسقط بأمان', () => {
+  assert.equal(safeHttpUrl('https://x.com/fieldsa'), 'https://x.com/fieldsa');
+  assert.equal(safeHttpUrl('  http://example.com '), 'http://example.com/');
+  for (const bad of ['javascript:alert(1)', 'JAVASCRIPT:alert(1)', 'data:text/html,<b>x</b>', 'ftp://x.com', 'x.com', '', null, undefined, 'https://']) {
+    assert.equal(safeHttpUrl(bad as string | null | undefined), null, String(bad));
+  }
+  assert.deepEqual(
+    socialLinksOf([{ platform: 'x', url: 'https://x.com/a' }, { url: 'https://b.com' }, { platform: 'instagram', url: '' }, null, 'str']),
+    [{ platform: 'x', url: 'https://x.com/a' }, { platform: 'other', url: 'https://b.com' }],
+  );
+  assert.deepEqual(socialLinksOf({}), []);
+  assert.deepEqual(socialLinksOf(null), []);
+});
+
+test('v2: معاينة المستند — الأنواع الأربعة المفحوصة وحدها، وPDF يُحوَّل لبايتات', () => {
+  assert.deepEqual(documentPreview('data:image/png;base64,iVBORw0KGgo='), { kind: 'image', mime: 'image/png' });
+  assert.deepEqual(documentPreview('data:image/jpeg;base64,/9j/'), { kind: 'image', mime: 'image/jpeg' });
+  assert.deepEqual(documentPreview('data:image/webp;base64,UklGRg=='), { kind: 'image', mime: 'image/webp' });
+  assert.deepEqual(documentPreview('data:application/pdf;base64,JVBERi0='), { kind: 'pdf', mime: 'application/pdf' });
+  for (const bad of ['data:image/svg+xml;base64,PHN2Zz4=', 'data:text/html;base64,PGI+', 'https://x.com/a.png', 'data:image/png,raw', '', null]) {
+    assert.equal(documentPreview(bad), null, String(bad));
+  }
+  assert.deepEqual([...(dataUrlToBytes('data:text/plain;base64,SGk=') ?? [])], [72, 105]);
+  assert.equal(dataUrlToBytes('not-a-data-url'), null);
+  assert.equal(formatBytes(812), '812 بايت');
+  assert.equal(formatBytes(1536), '1.5 ك.ب');
+  assert.equal(formatBytes(3 * 1024 * 1024), '3 م.ب');
+  assert.equal(formatBytes(null), '—');
+});
+
+test('v2: دورة التسوية — نهاياتها 1 و11 و21 منتصف ليل الرياض، والقادمة من الخادم أولاً', () => {
+  assert.equal(nextSettlementDayKey(Date.parse('2026-11-18T10:00:00Z')), '2026-11-21');
+  assert.equal(nextSettlementDayKey(Date.parse('2026-11-10T20:59:59Z')), '2026-11-11', 'قبل منتصف ليل الرياض بثانية');
+  assert.equal(nextSettlementDayKey(Date.parse('2026-11-10T21:00:00Z')), '2026-11-21', 'منتصف ليل ١١ بالرياض = دورته انتهت');
+  assert.equal(nextSettlementDayKey(Date.parse('2026-11-21T12:00:00Z')), '2026-12-01');
+  assert.equal(nextSettlementDayKey(Date.parse('2026-12-25T10:00:00Z')), '2027-01-01', 'رأس السنة');
+  // لحظة الخادم (منتصف ليل الرياض = 21:00 UTC من اليوم السابق) تُقرأ يومَ الرياض لا يوم UTC
+  assert.equal(nextSettlementKey('2026-11-20T21:00:00.000Z'), '2026-11-21');
+  assert.equal(nextSettlementKey(null, Date.parse('2026-11-18T10:00:00Z')), '2026-11-21', 'خادمٌ أقدم ⇒ الحساب المحلي');
+});
+
+test('v2: فترة دفعة الدورة أيامٌ شاملة (النهاية حصريّة)، واليدوية بلا فترة', () => {
+  assert.deepEqual(
+    payoutPeriod({ periodStart: '2026-10-31T21:00:00.000Z', periodEnd: '2026-11-10T21:00:00.000Z', cycleKey: '2026-11-11' }),
+    { from: '2026-11-01', to: '2026-11-10' },
+  );
+  assert.deepEqual(payoutPeriod({ periodStart: '2026-11-10T21:00:00.000Z', periodEnd: null, cycleKey: '2026-11-21' }), { from: '2026-11-11', to: '2026-11-20' });
+  assert.equal(payoutPeriod({ periodStart: null, periodEnd: null, cycleKey: null }), null);
+  assert.equal(payoutPeriod({}), null);
+});
+
+test('v2: فشل التحويل — سببٌ من 3 إلى 300 حرف (مدى الخادم)', () => {
+  assert.equal(validateFailReason('الآيبان غير صحيح'), null);
+  assert.match(validateFailReason('ab')!, /3/);
+  assert.match(validateFailReason('  ab  ')!, /3/);
+  assert.match(validateFailReason('x'.repeat(301))!, /300/);
+  assert.equal(validateFailReason('x'.repeat(300)), null);
+});
+
+test('v2: ملاحظة الاعتماد التلقائي بعد الحجز (ويبقى اليدوي)', () => {
+  assert.equal(daysText(1), 'يوم واحد');
+  assert.equal(daysText(2), 'يومان');
+  assert.equal(daysText(10), '10 أيام');
+  assert.equal(daysText(30), '30 يوماً');
+  assert.match(autoApproveNote(10), /تلقائياً/);
+  assert.match(autoApproveNote(10), /10 أيام/);
+  assert.match(autoApproveNote(undefined), /10 أيام/, 'الافتراضي حجز v4');
+  assert.match(autoApproveNote(10), /الاعتماد اليدوي/);
+});
+
+test('v2: رسالة «تشغيل الدورة الآن» من ردّ الخادم — الدفعات ومجموعها والمعتمد تلقائياً ومن تُخطّي', () => {
+  const r = settlementRunMessage({
+    cycleKey: '2026-11-11', ran: true, reason: null, manual: true, autoApproved: 3,
+    payouts: [{ id: 'p1', affiliateId: 'a', netHalalas: 12000 }, { id: 'p2', affiliateId: 'b', netHalalas: 8000 }],
+    totalHalalas: 20000, skipped: { profile_incomplete: 2, below_min: 5, cycle_done: 1 },
+  });
+  assert.equal(r.warn, false);
+  assert.match(r.text, /\(2026-11-11\)/);
+  assert.match(r.text, /أُنشئت دفعتان بمجموع 200 ر\.س/);
+  assert.match(r.text, /اعتُمدت تلقائياً 3 عمولة/);
+  assert.match(r.text, /ملفه غير مكتمل: 2/);
+  assert.match(r.text, /له دفعة في هذه الدورة: 1/);
+  assert.doesNotMatch(r.text, /دون الحدّ/, 'ما دون الحدّ يُرحَّل بصمت');
+
+  const none = settlementRunMessage({ cycleKey: '2026-11-11', ran: true, payouts: [], totalHalalas: 0, skipped: {} });
+  assert.equal(none.warn, false);
+  assert.match(none.text, /لا دفعات جديدة/);
+  const busy = settlementRunMessage({ cycleKey: '2026-11-11', ran: false, reason: 'already_ran', payouts: [] });
+  assert.equal(busy.warn, true);
+  assert.match(busy.text, /أُنجزت أو تجري الآن/);
+  assert.match(settlementRunMessage(null).text, /شُغّلت دورة التسوية/);
+  assert.equal(skippedText({ below_min: 3 }), '');
+  assert.equal(skippedText({ no_iban: 1, weird: 2 }), 'لم يُدخل آيبان بعد: 1 · weird: 2');
+});
+
+test('v2: «آخر دورة» للنظرة العامة والصرف', () => {
+  assert.equal(lastCycleText(null), 'لم تُشغَّل دورة بعد');
+  assert.equal(lastCycleText({ cycleKey: '2026-11-11', payouts: 3, totalHalalas: 15050, ranAt: '2026-11-11T00:05:00.000Z' }), 'آخر دورة 2026-11-11: 3 دفعات بمجموع 150.50 ر.س');
+  assert.equal(lastCycleText({ cycleKey: '2026-11-11', payouts: 1, totalHalalas: 5000, ranAt: '2026-11-11T00:05:00.000Z' }), 'آخر دورة 2026-11-11: دفعة واحدة بمجموع 50 ر.س');
+  assert.equal(lastCycleText({ cycleKey: '2026-11-11', payouts: 0, totalHalalas: 0, ranAt: null }), 'آخر دورة 2026-11-11: لم تُنجز بعد');
+  assert.equal(lastCycleText({ cycleKey: '2026-11-11', payouts: 0, totalHalalas: 0, ranAt: '2026-11-11T00:05:00.000Z' }), 'آخر دورة 2026-11-11: 0 دفعة بمجموع 0 ر.س');
+});
+
+test('v2: تطبيع النظرة العامة — أرقام v2 الغائبة أصفار، وآخر دورة بلا مفتاح null', () => {
+  const base = {
+    affiliates: { approved: 3, suspended: 1, total: 4 }, attributions: { active: 1, disputed: 0 },
+    commissions: { pendingHalalas: 0, onHoldHalalas: 0, readyToApprove: 0, approvedUnpaidHalalas: 0, paidHalalas: 0 },
+  };
+  const o = normalizeOverview(base);
+  assert.equal(o.newAffiliates7d, 0);
+  assert.equal(o.incompleteProfiles, 0);
+  assert.equal(o.missedClaimsUnderReview, 0);
+  assert.equal(o.nextSettlementAt, null);
+  assert.equal(o.lastCycle, null);
+  const full = normalizeOverview({ ...base, newAffiliates7d: 2, nextSettlementAt: '2026-11-20T21:00:00.000Z', lastCycle: { cycleKey: '2026-11-11', payouts: 2, totalHalalas: 500, ranAt: null } });
+  assert.equal(full.newAffiliates7d, 2);
+  assert.deepEqual(full.lastCycle, { cycleKey: '2026-11-11', payouts: 2, totalHalalas: 500, ranAt: null });
+  assert.equal(normalizeOverview({ ...base, lastCycle: { payouts: 1 } as never }).lastCycle, null);
+});
+
+test('v2: تطبيع تفصيل السفير — الروابط والمستندات والمطالبات الفائتة، والحقول من الجذر احتياطاً', () => {
+  const d = normalizeDetail({
+    affiliate: {
+      id: 'a', socialLinks: [{ platform: 'x', url: 'https://x.com/a' }],
+      documents: [{ kind: 'national_id', mime: 'image/png', sizeBytes: 10, createdAt: '2026-11-18T10:00:00Z' }],
+    },
+  } as unknown as Parameters<typeof normalizeDetail>[0]);
+  assert.equal(d.affiliate.socialLinks?.length, 1);
+  assert.equal(d.affiliate.documents?.length, 1);
+  assert.deepEqual(d.affiliate.missing, []);
+  assert.deepEqual(d.missedClaims, []);
+  const root = normalizeDetail({ affiliate: { id: 'a' }, partnerType: 'company', profileComplete: false, missing: ['commercial_reg'] } as unknown as Parameters<typeof normalizeDetail>[0]);
+  assert.equal(root.affiliate.partnerType, 'company');
+  assert.equal(root.affiliate.profileComplete, false);
+  assert.deepEqual(root.affiliate.missing, ['commercial_reg']);
+});
+
+test('v2: المطالبات الفائتة — القبول والرفض لما تحت المراجعة، وشركةٌ وسبب، ومهلة ٣٠ يوماً', () => {
+  assert.deepEqual(missedClaimActions({ status: 'under_review' }), { accept: true, reject: true });
+  for (const st of ['accepted', 'rejected', 'withdrawn']) assert.deepEqual(missedClaimActions({ status: st }), { accept: false, reject: false }, st);
+
+  assert.match(validateMissedAccept('', 'أكّدت الشركة بالهاتف')!, /الشركة/);
+  assert.match(validateMissedAccept('t1', 'ab')!, /السبب/);
+  assert.match(validateMissedAccept('t1', 'x'.repeat(501))!, /500/);
+  assert.equal(validateMissedAccept('t1', 'أكّدت الشركة بالهاتف'), null);
+
+  // الصيغة نفسها في الخادم: floor((submittedAt − createdAt)/يوم)
+  assert.equal(daysFromSignup('2026-11-18T10:00:00Z', '2026-11-01T10:00:00Z'), 17);
+  assert.equal(daysFromSignup('2026-11-18T09:00:00Z', '2026-11-01T10:00:00Z'), 16);
+  assert.equal(daysFromSignup(null, '2026-11-01T10:00:00Z'), null);
+
+  assert.equal(missedWindowLabel(17)!.tone, 'green');
+  assert.match(missedWindowLabel(17)!.label, /17 يوماً.*داخل المهلة/);
+  assert.equal(missedWindowLabel(30)!.tone, 'green', 'اليوم الثلاثون داخلها');
+  assert.equal(missedWindowLabel(31)!.tone, 'red');
+  assert.match(missedWindowLabel(31)!.label, /خارج مهلة 30 يوماً/);
+  assert.equal(missedWindowLabel(5, false)!.tone, 'red', 'withinWindow من الخادم يعلو');
+  assert.equal(missedWindowLabel(-2)!.label, 'قُدّمت قبل تسجيل الشركة');
+  assert.equal(missedWindowLabel(null), null);
+
+  assert.deepEqual(
+    missedAcceptMessage('مؤسسة النور', 'شركة النور', 'أحمد', { commissionCreated: true, accrualReason: null }),
+    { text: 'قُبلت مطالبة «مؤسسة النور» — أُسندت شركة النور إلى أحمد — وأُنشئت عمولة', warn: false },
+  );
+  const noPay = missedAcceptMessage('م', 'ش', 'أ', { commissionCreated: false, accrualReason: 'no_payment' });
+  assert.equal(noPay.warn, true);
+  assert.match(noPay.text, /لا دفعة مؤكَّدة للشركة بعد/);
+  assert.deepEqual(normalizeMissedClaims([{ id: 'm' }] as unknown as Parameters<typeof normalizeMissedClaims>[0])[0].suggestions, []);
+  assert.deepEqual(normalizeMissedClaims(null as unknown as []), []);
+});
+
+test('v2: المواد التسويقية — ما تحتاجه كل فئة مطابقٌ للخادم', () => {
+  assert.deepEqual(materialNeeds('image'), { file: 'required', url: 'none', text: 'optional' });
+  assert.deepEqual(materialNeeds('document'), { file: 'required', url: 'none', text: 'optional' });
+  assert.deepEqual(materialNeeds('video'), { file: 'optional', url: 'optional', text: 'optional' });
+  assert.deepEqual(materialNeeds('link'), { file: 'none', url: 'required', text: 'optional' });
+  assert.deepEqual(materialNeeds('text'), { file: 'none', url: 'none', text: 'required' });
+  assert.equal(materialNeeds('bogus'), null);
+  for (const c of MATERIAL_CATEGORIES) assert.ok(materialNeeds(c), c);
+});
+
+test('v2: المواد التسويقية — التحقّق قبل الرفع (الحجم والنوع والرابط والنصّ)', () => {
+  const png = { name: 'a.png', size: 1000, type: 'image/png' };
+  const f = { title: 'صورة الحملة', category: 'image' as const, url: '', textBody: '', file: png };
+  assert.equal(validateMaterial(f), null);
+  assert.match(validateMaterial({ ...f, title: 'a' })!, /عنوان/);
+  assert.equal(validateMaterial({ ...f, category: '' }), 'اختر فئة المادة');
+  assert.equal(validateMaterial({ ...f, file: null }), 'اختر الملف');
+  assert.match(validateMaterial({ ...f, file: { ...png, type: 'application/pdf' } })!, /ليس صورة/);
+  assert.match(validateMaterial({ ...f, category: 'document', file: png })!, /PDF/);
+  assert.match(validateMaterial({ ...f, file: { ...png, size: MATERIAL_MAX_BYTES + 1 } })!, /٨ ميغابايت/);
+  // دون ٨ ميغابايت لكن جسم JSON (base64 +٣٣٪) يتجاوز حدّ الخادم 10mb ⇒ يُرفض هنا لا بـ413
+  assert.ok(materialBodyBytes(7_900_000, 'صورة', '') > JSON_BODY_LIMIT_BYTES);
+  assert.match(validateMaterial({ ...f, file: { ...png, size: 7_900_000 } })!, /بعد الترميز/);
+  assert.equal(validateMaterial({ ...f, file: { ...png, size: 7_000_000 } }), null);
+  assert.match(validateMaterial({ ...f, file: { ...png, size: 0 } })!, /فارغ/);
+
+  const v = { title: 'فيديو قصير', category: 'video' as const, url: '', textBody: '', file: null };
+  assert.match(validateMaterial(v)!, /واحدٌ منهما/);
+  assert.match(validateMaterial({ ...v, url: 'https://youtu.be/x', file: { name: 'v.mp4', size: 100, type: 'video/mp4' } })!, /واحدٌ منهما/);
+  assert.equal(validateMaterial({ ...v, url: 'https://youtu.be/x' }), null);
+  assert.equal(validateMaterial({ ...v, file: { name: 'v.mp4', size: 100, type: 'video/mp4' } }), null);
+
+  const l = { title: 'صفحة البرنامج', category: 'link' as const, url: '', textBody: '', file: png };
+  assert.equal(validateMaterial(l), 'اكتب الرابط');
+  assert.match(validateMaterial({ ...l, url: 'javascript:alert(1)' })!, /https/);
+  assert.equal(validateMaterial({ ...l, url: 'https://fieldsa.net/ambassadors' }), null, 'ملفٌ عالق من فئة سابقة لا يُحتسب');
+
+  const t = { title: 'نصّ واتساب', category: 'text' as const, url: '', textBody: '', file: null };
+  assert.equal(validateMaterial(t), 'اكتب النصّ الجاهز');
+  assert.match(validateMaterial({ ...t, textBody: 'x'.repeat(4001) })!, /4000/);
+  assert.equal(validateMaterial({ ...t, textBody: 'انضم لسفراء فيلد سيلز' }), null);
+});
+
+test('v2: جسم POST /materials — حقل المصدر الموافق للفئة وحده', () => {
+  const png = { name: 'campaign.png', size: 1000, type: 'image/png' };
+  assert.deepEqual(
+    buildMaterialBody({ title: ' صورة ', category: 'image', url: 'https://stale', textBody: '', file: png }, 'data:image/png;base64,AAAA'),
+    { title: 'صورة', category: 'image', dataUrl: 'data:image/png;base64,AAAA', fileName: 'campaign.png' },
+  );
+  assert.deepEqual(
+    buildMaterialBody({ title: 'رابط', category: 'link', url: ' https://fieldsa.net/ambassadors ', textBody: ' انضم ', file: png }, 'data:image/png;base64,AAAA'),
+    { title: 'رابط', category: 'link', url: 'https://fieldsa.net/ambassadors', textBody: 'انضم' },
+  );
+  assert.deepEqual(
+    buildMaterialBody({ title: 'فيديو', category: 'video', url: 'https://youtu.be/x', textBody: '', file: null }),
+    { title: 'فيديو', category: 'video', url: 'https://youtu.be/x' },
+  );
+  assert.deepEqual(
+    buildMaterialBody({ title: 'نصّ', category: 'text', url: '', textBody: ' نصٌّ جاهز ', file: null }),
+    { title: 'نصّ', category: 'text', textBody: 'نصٌّ جاهز' },
+  );
+});
+
+test('v2: لوحة المالك — بلا موافقة طلبات، وبالتسوية وفشل التحويل والمطالبات الفائتة والمواد والمستندات', () => {
+  const src = fs.readFileSync(fileURLToPath(new URL('./AffiliatesPanel.tsx', import.meta.url)), 'utf8');
+  // الانضمام فوريّ: لا بطاقة «طلبات بانتظار المراجعة» ولا زرّا اعتماد/رفض للسفير
+  assert.doesNotMatch(src, /طلبات انضمام بانتظار المراجعة/);
+  assert.doesNotMatch(src, /كل طلب انضمام ينتظر موافقتك/);
+  assert.doesNotMatch(src, /affiliateAction\(a\.id, '(approve|reject)'/);
+  assert.match(src, /الانضمام فوريّ بلا موافقة/);
+  assert.match(src, /البوابة: fieldsa\.net\/ax — صفحة البرنامج العلنية: fieldsa\.net\/ambassadors/);
+  assert.match(src, /L\.PUBLIC_PAGE_URL/);
+  // النظرة العامة
+  for (const k of ['o.newAffiliates7d', 'o.incompleteProfiles', 'o.missedClaimsUnderReview', 'L.lastCycleText(o.lastCycle)', 'L.nextSettlementKey(o.nextSettlementAt)']) {
+    assert.ok(src.includes(k), `النظرة العامة بلا ${k}`);
+  }
+  // الدرج: «عرض» المستند بصلاحية الآيبان وحدها، والجلب من مسار المالك المسجَّل
+  const drawer = src.match(/function AffiliateDrawer[\s\S]*?\n\}\n/);
+  assert.ok(drawer, 'AffiliateDrawer غير موجود');
+  assert.match(drawer![0], /canIban && \(\s*<span[^>]*>\s*<ActionBtn[\s\S]{0,80}?setViewDoc\(kind\)/, 'زرّ «عرض» المستند بلا صلاحية affiliates.iban');
+  assert.match(drawer![0], /روابط التواصل/);
+  assert.match(drawer![0], /L\.SOCIAL_PLATFORM_LABEL/);
+  assert.match(src, /\/affiliates\/\$\{id\}\/documents\/\$\{kind\}/);
+  assert.match(src, /L\.documentPreview\(dataUrl\)/);
+  // الجدول: النوع والملف
+  assert.match(src, /<Th>النوع<\/Th>/);
+  assert.match(src, /<Th>الملف<\/Th>/);
+  // العمولات: الاعتماد التلقائي ويبقى اليدوي
+  assert.match(src, /L\.autoApproveNote\(settings\?\.holdDays\)/);
+  assert.match(src, /affApi\.commissionAction\(c\.id, 'approve'\)/);
+  // الصرف: الدورة وتشغيلها وفشل التحويل والفترة
+  assert.match(src, /\/settlement\/run/);
+  assert.match(src, /\/payouts\/\$\{id\}\/fail/);
+  assert.match(src, /function FailPayoutDialog/);
+  assert.match(src, /L\.validateFailReason\(reason\)/);
+  assert.match(src, /تشغيل الدورة الآن/);
+  assert.match(src, /L\.settlementRunMessage\(/);
+  assert.match(src, /L\.payoutPeriod\(p\)/);
+  assert.match(src, /دورة التسوية كل ١٠ أيام \(١ و١١ و٢١/);
+  // المطالبات الفائتة: القبول بربط شركة (TenantSearchBox) أو الرفض بسبب
+  assert.match(src, /\/missed-claims\/\$\{id\}\/accept/);
+  assert.match(src, /\/missed-claims\/\$\{id\}\/reject/);
+  assert.match(src, /<TenantSearchBox selected=\{tenant\} onSelect=\{setTenant\} warnAttributed \/>/);
+  assert.match(src, /L\.validateMissedAccept\(/);
+  // المواد التسويقية
+  assert.match(src, /api\.post\(`\$\{A\}\/materials`, body\)/);
+  assert.match(src, /api\.delete\(`\$\{A\}\/materials\/\$\{id\}`\)/);
+  assert.match(src, /L\.validateMaterial\(form\)/);
+  // التصديرات التي تستوردها نافذة روابط الدفع
+  assert.match(src, /export function TenantSearchBox/);
+  assert.match(src, /export function LinkPaymentTenantDialog/);
 });
