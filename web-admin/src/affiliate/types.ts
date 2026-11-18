@@ -42,6 +42,8 @@ export interface PublicTerms {
   /** نافذة الإسناد بالأيام (1..365) — صفحة تسجيل الشركات تُسقط رمز رابطٍ أقدم منها */
   refWindowDays: number;
   intakeOpen: boolean;
+  /** اختياريّ — غيابه ⇒ 10 (format.SETTLEMENT_EVERY_DAYS) */
+  settlementEveryDays?: number;
 }
 
 /** رابط تواصل في الملف: منصّة + رابط `https?://` ≤300 (حتى ٨) */
