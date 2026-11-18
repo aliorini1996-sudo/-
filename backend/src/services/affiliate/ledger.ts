@@ -23,6 +23,11 @@
  *
  * الخطافات من `routes/payments.ts` تُستدعى خارج معاملة الدفع ولا ترمي، والاسترداد
  * الجزئيّ يُحفظ على الرابط أوّلاً — فما يفوت الخطاف تلتقطه `reconcile()` من المصدر.
+ *
+ * v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦، docs/affiliate/V2_SPEC.md §5): الاعتماد بعد الحجز آليّ
+ * (`autoApproveEligible` بفحوص `approveCommission` نفسها، منفّذه النظام)، ومسودّات دورة التسوية
+ * (`createCyclePayout`) تمرّ من طريق الإنشاء اليدويّ نفسه (`draftPayout`) — والملف المكتمل شرطٌ
+ * للصرف، و«فشل التحويل» (`failPayout`) يفكّ البنود كالإلغاء. المنصّة لا تحرّك مالاً في أيٍّ منها.
  */
 import { Prisma } from '@prisma/client';
 import prisma from '../../config/database';

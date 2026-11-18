@@ -157,13 +157,16 @@ export async function prepareMissedClaimAccept(id: string, tenantId: string): Pr
   return { affiliateId: c.affiliateId, effectiveFrom };
 }
 
-/** بعد نجاح الإسناد: المطالبة `accepted` بالشركة والسبب (سحبٌ تزامن مع القبول لا يُبطل إسناداً تمّ) */
+/**
+ * بعد نجاح الإسناد: المطالبة `accepted` بالشركة والسبب. الإسناد تمّ فعلاً، فسحبٌ أو رفضٌ تزامن معه لا
+ * يترك المطالبة بحالةٍ تناقضه — الختم يتبع ما حدث.
+ */
 export async function markMissedClaimAccepted(id: string, tenantId: string, reason: string, by: PlatformActor, attributionId: string): Promise<void> {
   await prisma.$transaction(async tx => {
     const c = await tx.affiliateMissedClaim.findUnique({ where: { id }, select: { affiliateId: true, status: true } });
     if (!c) throw new LedgerError(404, 'المطالبة غير موجودة');
     const won = await tx.affiliateMissedClaim.updateMany({
-      where: { id, status: { in: ['under_review', 'withdrawn'] } },
+      where: { id, status: { in: ['under_review', 'withdrawn', 'rejected'] } },
       data: { status: 'accepted', tenantId, reasonNote: reason, reviewedAt: new Date(), reviewedBy: by.actorId },
     });
     if (won.count !== 1) throw new LedgerError(409, 'تغيّرت حالة المطالبة — حدّث الصفحة', 'raced');
