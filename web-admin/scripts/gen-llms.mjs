@@ -416,7 +416,7 @@ ${answersFor('en', { tiers, countries: registry.count }).map(answerLine).join(''
 - [About](${abs('/about/')}): who is behind FieldSales. English: ${abs('/en/about/')}
 - [Contact](${abs('/contact/')}): sales and support. English: ${abs('/en/contact/')}
 - [Blog (Arabic)](${abs('/blog/')}): practical guides on field sales, van sales, collection and e-invoicing for distribution companies. English: ${abs('/en/blog/')} · French: ${abs('/fr/blog/')}
-- [FieldSales Ambassadors (Arabic)](${abs('/ambassadors/')}): the referral program. Anyone can join instantly with no approval wait and earn 30% of the first confirmed payment (VAT included) of each company they refer, held 10 days and settled every 10 days. English: ${abs('/en/ambassadors/')} · French: ${abs('/fr/ambassadors/')}
+- [FieldSales Ambassadors (Arabic)](${abs('/ambassadors/')}): referral program, instant joining; 30% of each referred company’s first confirmed payment, settled every 10 days. English: ${abs('/en/ambassadors/')} · French: ${abs('/fr/ambassadors/')}
 
 ## Company
 
