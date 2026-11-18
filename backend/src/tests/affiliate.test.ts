@@ -140,7 +140,9 @@ test('انتقالات الحالات المسموحة وحدها', () => {
   assert.equal(canTransition('commission', 'declined', 'pending'), false);
   assert.equal(canTransition('attribution', 'void', 'active'), true, 'خطأ المالك قابل للتصحيح');
   assert.equal(canTransition('payout', 'recorded', 'void'), false, 'التحويل المسجَّل لا يُلغى');
-  assert.equal(canTransition('user', 'pending_email', 'approved'), false, 'لا قبول بلا بريدٍ مؤكَّد');
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦ — الانضمام فوريّ): pending_email إرثٌ يُرقّى إلى approved — كان «لا قبول بلا بريدٍ مؤكَّد»
+  assert.equal(canTransition('user', 'pending_email', 'approved'), true, 'ترقية الإرث (V2_SPEC §3)');
+  assert.equal(canTransition('user', 'suspended', 'pending_email'), false, 'لا عودة إلى حالة انتظار');
   assert.equal(canTransition('nope', 'a', 'b'), false);
 });
 
@@ -233,11 +235,14 @@ test('يوم الرياض والتهريب والرابط', () => {
   // تاريخٌ يُخزَّن منتصف ليل الرياض يعود بيومه لا باليوم السابق
   assert.equal(riyadhDay(new Date('2026-12-31T00:00:00+03:00')), '2026-12-31');
   assert.equal(escapeHtml(`<img src=x onerror="a">&'`), '&lt;img src=x onerror=&quot;a&quot;&gt;&amp;&#39;');
-  assert.match(referralLink('AB2C3D4E'), /\/\?ref=AB2C3D4E$/);
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): الرابط مباشرةً إلى صفحة التسجيل — كان `/?ref=`
+  assert.match(referralLink('AB2C3D4E'), /\/signup\?ref=AB2C3D4E$/);
 });
 
 test('نصّ الشروط المدمج يطابق الإعدادات الافتراضية — تغيير أحدهما بلا الآخر يُفشل', () => {
   const toAr = (n: number) => String(n).replace(/\d/g, d => '٠١٢٣٤٥٦٧٨٩'[+d]);
+  // العدد والمعدود: ٣–١٠ «أيام» وما فوقها «يوماً» — حجز v4 عشرة أيام (قرار المالك ١٨ نوفمبر ٢٠٢٦)
+  const days = (n: number) => `${toAr(n)} ${n >= 3 && n <= 10 ? 'أيام' : 'يوماً'}`;
   assert.equal(DEFAULT_SETTINGS.currentTermsVersion, DEFAULT_TERMS_VERSION);
   assert.ok(DEFAULT_TERMS_BODY.includes(DEFAULT_TERMS_VERSION));
   assert.ok(DEFAULT_TERMS_BODY.includes(`${toAr(DEFAULT_SETTINGS.rateBps / 100)}٪ من أوّل دفعة مؤكَّدة`));
@@ -246,7 +251,7 @@ test('نصّ الشروط المدمج يطابق الإعدادات الافت�
   assert.ok(DEFAULT_TERMS_BODY.includes(`خلال ${toAr(DEFAULT_SETTINGS.firstPaymentWithinDays)} يوماً`));
   assert.ok(DEFAULT_TERMS_BODY.includes(`متصفّح الزائر ${toAr(DEFAULT_SETTINGS.refWindowDays)} يوماً`));
   assert.ok(DEFAULT_TERMS_BODY.includes(`لك ${toAr(DEFAULT_SETTINGS.claimLockDays)} يوماً`));
-  assert.ok(DEFAULT_TERMS_BODY.includes(`معلّقة ${toAr(DEFAULT_SETTINGS.holdDays)} يوماً`));
+  assert.ok(DEFAULT_TERMS_BODY.includes(`معلّقة ${days(DEFAULT_SETTINGS.holdDays)}`));
   assert.ok(DEFAULT_TERMS_BODY.includes(`${toAr(DEFAULT_SETTINGS.minPayoutHalalas / 100)} ريال`));
   assert.ok(DEFAULT_TERMS_BODY.includes('موثوق') && DEFAULT_TERMS_BODY.includes('«إعلان»'));
 });
@@ -310,19 +315,20 @@ test('التركيب: البوابة بمصادقتها الخاصة، ولوح�
   assert.doesNotMatch(portal, /authLimiter|signupLimiter/, 'محدِّدات مستقلّة لا عدّادات مشتركة مع دخول الشركات');
   assert.doesNotMatch(portal, /req\.(body|params|query)\.affiliateId/, 'معرّف السفير من التوكن وحده');
   let scoped = 0;
-  for (const m of portal.matchAll(/prisma\.(affiliateCommission|affiliateClaim|tenantAttribution|affiliatePayout|affiliateAdjustment)\.(findMany|findFirst|updateMany|count|aggregate|groupBy)\(\{\s*(?:by: \[[^\]]*\], )?where: \{([^}]*)/g)) {
+  // v2: affiliateMissedClaim (حدّ المطالبات المفتوحة) تحت الحارس نفسه
+  for (const m of portal.matchAll(/prisma\.(affiliateCommission|affiliateClaim|tenantAttribution|affiliatePayout|affiliateAdjustment|affiliateMissedClaim)\.(findMany|findFirst|updateMany|count|aggregate|groupBy)\(\{\s*(?:by: \[[^\]]*\], )?where: \{([^}]*)/g)) {
     scoped++;
     assert.match(m[3], /affiliateId|id: \{ in: payoutIds/, `استعلامٌ بلا قيد السفير: ${m[0].slice(0, 90)}`);
   }
   assert.ok(scoped >= 10, `الحارس لم يلتقط الاستعلامات (${scoped}) — تغيّر شكل الكود`);
 });
 
-test('الردود الموحّدة: لا تعداد حسابات في التسجيل والاستعادة', () => {
+test('الردود الموحّدة: لا تعداد حسابات في الاستعادة وفتح الحسابات — والتسجيل 409 صريحة بقرار المالك', () => {
   const portal = src('routes', 'affiliate.ts');
   // «حسابٌ يفتحه السفير»: 202 واحدة سواءٌ فُتح أو حُجب لأنّ المنشأة عميلٌ قائم — لا تعداد شركات
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): /register خرج من القائمة (201 أو 409 email_taken كتسجيل الشركات)، و/resend-verification حُذف
   const uniform: Array<[string, RegExp]> = [
-    ['/register', /status\(202\)\.json\(ACCEPTED\)/], ['/forgot', /status\(202\)\.json\(ACCEPTED\)/],
-    ['/resend-verification', /status\(202\)\.json\(ACCEPTED\)/], ['/trials', /status\(202\)\.json\(/],
+    ['/forgot', /status\(202\)\.json\(ACCEPTED\)/], ['/trials', /status\(202\)\.json\(/],
   ];
   for (const [route, accepted] of uniform) {
     const from = portal.indexOf(`router.post('${route}'`);
@@ -331,6 +337,12 @@ test('الردود الموحّدة: لا تعداد حسابات في التس�
     assert.match(handler, accepted, route);
     assert.doesNotMatch(handler, /status\(40[49]\)[^\n]*(موجود|مسجّل|مستخدم)/, `${route} يكشف وجود الحساب`);
   }
+  const from = portal.indexOf("router.post('/register'");
+  const reg = portal.slice(from, portal.indexOf('\nrouter.', from + 10));
+  assert.match(reg, /status\(409\)\.json\(EMAIL_TAKEN\)/, 'البريد المسجَّل يوجَّه للدخول');
+  assert.match(portal, /code: 'email_taken', message: 'يوجد حساب بهذا البريد — سجّل الدخول'/);
+  assert.doesNotMatch(reg, /affiliateUser\.(update|updateMany)\(/, 'لا كتابة فوق حسابٍ قائم أبداً — صاحبه يستعيد كلمة مروره');
+  assert.ok(!portal.includes("router.post('/resend-verification'") && !portal.includes("router.post('/verify-email'"), 'لا تأكيد بريد بعد اليوم');
 });
 
 test('الصرف لا يكون سالباً والمنصّة لا تحرّك مالاً', () => {
@@ -464,7 +476,7 @@ test('الإعدادات لا تغيّر قيم الشروط، والنشر يط
   assert.match(approve, /rules\.claimLockDays/, 'مدّة القفل من شروط صاحب الترشيح');
 });
 
-test('البوابة: الدخول بعدّادٍ ذرّي، والتأكيد بكلمة المرور، ومهلة البريد، والشروط على الخادم', () => {
+test('البوابة: الدخول بعدّادٍ ذرّي، والتسجيل الفوريّ، ومهلة البريد، والشروط على الخادم', () => {
   const portal = strip(src('routes', 'affiliate.ts'));
   const login = portal.slice(portal.indexOf("router.post('/login'"), portal.indexOf("router.post('/forgot'"));
   assert.doesNotMatch(login, /status\(423\)/);
@@ -472,13 +484,15 @@ test('البوابة: الدخول بعدّادٍ ذرّي، والتأكيد ب
   assert.match(login, /"failedLogins" = "failedLogins" \+ 1[\s\S]*RETURNING "failedLogins"/, 'قراءةٌ ثمّ كتابة تجعل التخمين المتزامن محاولةً واحدة');
   assert.ok(login.indexOf('RETURNING "failedLogins"') < login.indexOf('verifyPassword('), 'المحاولة تُحجز قبل فحص كلمة المرور');
   assert.match(login, /u\?\.id \?\? crypto\.randomUUID\(\)/, 'الكتابة نفسها لبريدٍ غير موجود');
-  const verify = portal.slice(portal.indexOf("router.post('/verify-email'"), portal.indexOf("router.post('/resend-verification'"));
-  assert.match(verify, /password: z\.string\(\)/);
-  assert.match(verify, /password_mismatch/, 'من سجّل ببريد غيره لا يُفعَّل بنقرة صاحب البريد');
-  assert.match(verify, /tokenVersion: p\.tv, passwordHash: u\.passwordHash/);
-  const reg = portal.slice(portal.indexOf("router.post('/register'"), portal.indexOf('const BAD_VERIFY'));
-  assert.match(reg, /where: \{ id: existing\.id, status: 'pending_email' \}/, 'لا كتابة فوق حسابٍ تأكّد للتوّ');
-  for (const route of ["router.post('/register'", "router.post('/resend-verification'", "router.post('/forgot'"]) {
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): لا تأكيد بريد — كان هنا حارس «التأكيد بكلمة المرور» لمسار /verify-email المحذوف.
+  // بديله: التسجيل يُنشئ approved ويُعيد الجلسة، ولا يكتب فوق حسابٍ قائم (الحارس في «الردود الموحّدة»)
+  const reg = portal.slice(portal.indexOf("router.post('/register'"), portal.indexOf('\nrouter.', portal.indexOf("router.post('/register'") + 10));
+  assert.match(reg, /status: 'approved', emailVerifiedAt: null/, 'الانضمام فوريّ');
+  assert.match(reg, /status\(201\)\.json\(\{ success: true, data: \{ token: signSession\(u\.id, u\.tokenVersion\), user: publicUser\(u\) \} \}\)/);
+  assert.match(reg, /mailWelcome\(u\.email, referralLink\(u\.code\)\)/);
+  assert.match(reg, /mailOwnerNewAffiliate\(u\)/);
+  assert.doesNotMatch(portal, /mailVerify|signPurpose\('ax-verify'/, 'لا رابط تأكيدٍ يُوقَّع');
+  for (const route of ["router.post('/forgot'"]) {
     const body = portal.slice(portal.indexOf(route), portal.indexOf('\nrouter.', portal.indexOf(route) + 10));
     assert.match(body, /claimMailSlot\(/, `${route}: مهلة البريد لكلّ عنوان`);
   }
@@ -491,8 +505,10 @@ test('البوابة: الدخول بعدّادٍ ذرّي، والتأكيد ب
   assert.doesNotMatch(portal, /mawthooqProblem/, 'لا يُرفض انضمامٌ أو حفظٌ بسبب ترخيص موثوق');
   assert.match(portal, /a\.commission && a\.commission\.affiliateId === aid\(req\)/, 'عمولة سفيرٍ سابق لا تُعرض لغيره');
   const mail = strip(src('services', 'affiliate', 'mail.ts'));
-  for (const sig of ['export function mailVerify', 'export function mailReset']) {
-    assert.doesNotMatch(fnBody(mail, sig), /escapeHtml\(name\)|\$\{name\}/, `${sig}: نصّ الطالب في بريدٍ رسميٍّ لعنوانٍ لم تثبت ملكيّته`);
+  // v2: mailVerify حُذف (لا تأكيد بريد) — بريد الترحيب بدله يصل عنواناً لم تثبت ملكيّته أيضاً، فتحت الحارس نفسه
+  assert.doesNotMatch(mail, /export function mailVerify/);
+  for (const sig of ['export function mailWelcome', 'export function mailReset']) {
+    assert.doesNotMatch(fnBody(mail, sig), /escapeHtml\(name\)|\$\{name\}|fullName|companyName/, `${sig}: نصّ الطالب في بريدٍ رسميٍّ لعنوانٍ لم تثبت ملكيّته`);
   }
 });
 
@@ -528,18 +544,24 @@ test('الدفعة الأولى فقط: المصالحة تُوقف عمولةً
   assert.doesNotMatch(attach.slice(0, attach.indexOf('existingCompanyPhones')), /refWindowDays \* DAY_MS\) \{\s*return;/);
 });
 
-test('البوابة: محاولات كلمة المرور الصحيحة قبل التأكيد تُردّ، والاستعادة لا تكشف بزمنها، والآيبان يُفتح للمستحقّ', () => {
+test('البوابة: الإرث يُرقّى عند الدخول، والاستعادة لا تكشف بزمنها، وبيانات الاستلام متاحة دائماً', () => {
   const portal = strip(src('routes', 'affiliate.ts'));
   const login = portal.slice(portal.indexOf("router.post('/login'"), portal.indexOf("router.post('/forgot'"));
-  assert.match(login, /GREATEST\("failedLogins" - 1, 0\)/);
-  const verify = portal.slice(portal.indexOf("router.post('/verify-email'"), portal.indexOf("router.post('/resend-verification'"));
-  assert.match(verify, /failedLogins: 0, lockedUntil: null/);
-  for (const route of ["router.post('/forgot'", "router.post('/resend-verification'"]) {
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): فرع pending_email (ردّ المحاولة بـGREATEST ثمّ 401) صار ترقيةً إلى approved بعد نجاح كلمة المرور
+  assert.doesNotMatch(login, /GREATEST\("failedLogins" - 1, 0\)|status === 'pending_email'/);
+  assert.ok(login.indexOf('promoteLegacyAffiliate(u.id, u.status)') > login.indexOf("if (!ok) { res.status(401)"), 'الترقية بعد فحص كلمة المرور وحده');
+  const reset = portal.slice(portal.indexOf("router.post('/reset'"), portal.indexOf("router.post('/click'"));
+  assert.match(reset, /promoteLegacyAffiliate\(p\.uid, before\.status\)/, 'الاستعادة تُدخل صاحب الإرث وتُرقّيه');
+  for (const route of ["router.post('/forgot'"]) {
     const body = portal.slice(portal.indexOf(route), portal.indexOf('\nrouter.', portal.indexOf(route) + 10));
     assert.match(body, /claimMailSlot\(eligible \? u!\.id : crypto\.randomUUID\(\)\)/, `${route}: الكتابة نفسها في كلّ الفروع`);
   }
-  const csp = portal.slice(portal.indexOf('async function canSetPayout'), portal.indexOf('\n}\n', portal.indexOf('async function canSetPayout')));
-  assert.match(csp, /amountHalalas: \{ gt: 0 \}/, 'تصحيحٌ موجبٌ وحده يفتح بيانات الاستلام');
+  // v2: كان هنا حارس canSetPayout («تُفتح بعد أوّل عمولة أو تصحيحٍ موجب») — المالك ألغى الشرط؛ بديله: لا شرط ولا رسالته
+  assert.doesNotMatch(portal, /async function canSetPayout|تُفتح بيانات الاستلام بعد اعتماد/);
+  const pp = portal.slice(portal.indexOf("router.put('/payout-profile'"), portal.indexOf('\nrouter.', portal.indexOf("router.put('/payout-profile'") + 10));
+  assert.match(pp, /normIbanSA\(b\.iban\)/, 'الآيبان السعودي بفحص mod-97 كما هو');
+  assert.match(pp, /status: 'draft' \} \}\);\s*if \(draft\) \{ res\.status\(409\)/, '409 مع دفعةٍ قيد المعالجة');
+  assert.match(pp, /refreshProfileCompletion\(updated\.id\)/, 'الآيبان جزءٌ من اكتمال الملف');
   assert.match(portal, /refundedHalalas: c\.refundedHalalas/, 'المسترد ظاهرٌ للسفير');
   assert.match(strip(src('routes', 'affiliateAdmin.ts')), /refundedHalalas: c\.refundedHalalas/, 'والمالك');
 });
@@ -547,18 +569,23 @@ test('البوابة: محاولات كلمة المرور الصحيحة قبل
 
 test('الشروط v2: إحالة المنشأة التي يعمل فيها السفير مسموحة، ونصّ v1 محفوظٌ لمن قبله', async () => {
   const core = await import('../services/affiliate/core');
-  assert.equal(core.DEFAULT_TERMS_VERSION, '2026-09-v3');
-  assert.deepEqual([...core.BUILTIN_TERMS_VERSIONS], ['2026-09-v1', '2026-09-v2', '2026-09-v3']);
-  for (const v of ['2026-09-v2', '2026-09-v3']) {
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦ — V2_SPEC §4): الإصدار الرابع هو الافتراضيّ، والثلاثة قبله محفوظةٌ كما قُبلت
+  assert.equal(core.DEFAULT_TERMS_VERSION, '2026-11-v4');
+  assert.deepEqual([...core.BUILTIN_TERMS_VERSIONS], ['2026-09-v1', '2026-09-v2', '2026-09-v3', '2026-11-v4']);
+  for (const v of ['2026-09-v2', '2026-09-v3', '2026-11-v4']) {
     const body = core.builtinTermsBody(v) ?? '';
     assert.ok(body.includes(`الإصدار ${v}`), `ترويسة ${v}`);
     assert.ok(body.includes('يجوز لك إحالة المنشأة التي تعمل فيها أو تملكها أو تديرها'), v);
     assert.ok(!body.includes('إحالةٌ ذاتية لا تستحقّ عمولة'), v);
     assert.ok(body.includes('لا عمولة على شركةٍ كانت عميلاً لفيلد سيلز قبل إحالتك'), `قاعدة العميل الجديد باقية: ${v}`);
   }
-  assert.equal(core.builtinTermsBody('2026-09-v3'), core.DEFAULT_TERMS_BODY);
-  assert.ok(core.DEFAULT_TERMS_BODY.includes('ورقم التواصل معها'), 'v3: الترشيح يحمل رقم التواصل');
-  assert.ok(!core.DEFAULT_TERMS_BODY.includes('لا تُرسل لنا بيانات أشخاص'), 'v3 لا يناقض الخانة الإلزامية');
+  assert.equal(core.builtinTermsBody('2026-11-v4'), core.DEFAULT_TERMS_BODY);
+  const v3 = core.builtinTermsBody('2026-09-v3') ?? '';
+  assert.ok(v3.includes('ورقم التواصل معها') && v3.includes('معلّقة ٣٠ يوماً') && v3.includes('١٠٠ ريال'), 'نصّ v3 كما قُبل حرفاً بحرف (حجز ٣٠ وحدّ ١٠٠)');
+  for (const body of [v3, core.DEFAULT_TERMS_BODY]) {
+    assert.ok(body.includes('ورقم التواصل معها'), 'v3+: الترشيح يحمل رقم التواصل');
+    assert.ok(!body.includes('لا تُرسل لنا بيانات أشخاص'), 'v3+ لا يناقض الخانة الإلزامية');
+  }
   assert.ok((core.builtinTermsBody('2026-09-v2') ?? '').includes('لا تُرسل لنا بيانات أشخاص'), 'نصّ v2 كما قُبل');
   const v1 = core.builtinTermsBody('2026-09-v1') ?? '';
   assert.ok(v1.includes('الإصدار 2026-09-v1') && v1.includes('إحالةٌ ذاتية لا تستحقّ عمولة'), 'النصّ الذي قُبل لا يُعاد كتابته');
@@ -574,7 +601,8 @@ test('بلا قيود على السفير: لا إقرارات مشروطة ول
   assert.match(schema, /publicPromoter: z\.boolean\(\)\.optional\(\)/);
   assert.doesNotMatch(schema, /z\.literal\(true\)\s*,\s*noSpam|independent: z\.literal/, 'لا إقرار إلزامي');
   assert.match(schema, /acceptTerms: z\.literal\(true\)/, 'قبول الشروط وحده باقٍ');
-  const reg = portal.slice(portal.indexOf("router.post('/register'"), portal.indexOf('const BAD_VERIFY'));
+  // v2: BAD_VERIFY حُذف مع /verify-email — الشريحة تنتهي عند المسار التالي (/login)
+  const reg = portal.slice(portal.indexOf("router.post('/register'"), portal.indexOf("router.post('/login'"));
   assert.match(reg, /publicPromoter: false, mawthooqNo: null, mawthooqExpiry: null/);
 });
 
@@ -612,7 +640,8 @@ test('جوال السفير من أيّ دولة: السعوديّ بصيغته�
 
 test('تسجيل السفير يقبل جوال أيّ دولة عبر normAffiliatePhone', () => {
   const portal = strip(src('routes', 'affiliate.ts'));
-  const reg = portal.slice(portal.indexOf("router.post('/register'"), portal.indexOf('const BAD_VERIFY'));
+  // v2: BAD_VERIFY حُذف مع /verify-email — الشريحة تنتهي عند المسار التالي (/login)
+  const reg = portal.slice(portal.indexOf("router.post('/register'"), portal.indexOf("router.post('/login'"));
   assert.match(reg, /const phone = normAffiliatePhone\(b\.phone\)/);
   assert.doesNotMatch(reg, /normPhoneSA\(b\.phone\)/, 'التسجيل ما زال سعودياً فقط');
 });
