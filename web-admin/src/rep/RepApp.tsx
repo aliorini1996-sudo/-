@@ -88,8 +88,13 @@ import {
   returnRefreshesSnapshot, snapProductOf, storedVanLotsOf, trackedIds, underLotReplayHeld, vanLotsEntry, withPosted, zeroQtyLine,
   type OfflineLotBlock, type PendingCatalogProduct, type PendingOut, type PlanLine, type PostedItem, type StoredVanLots,
 } from './vanLots';
-import { LOT_BLOCK_KIND_LABELS, LOT_EPS, docLotsFrom, isLotExpiredOn, lotFlagsOf, roundLot, toBaseQty } from '../lib/lots';
+import { LOT_BLOCK_KIND_LABELS, LOT_EPS, docLotsFrom, isLotExpiredOn, lotFlagsOf, roundLot, toBaseQty, type LotRef } from '../lib/lots';
 import { lotCellText, lotDayText, repInvoiceGetConfig } from './docLots';
+// «تتبّع اللوط» — تشغيلة المرتجع الحرّ يختارها المندوب اختيارياً (طلب المالك ١٦ نوفمبر ٢٠٢٦، المنطق الصرف في returnLots.ts)
+import {
+  CUSTOMER_LOT_HISTORY_PATH, customerLotHistoryOf, lotRejectLine, returnLineLots, returnLotLine, returnLotOptions, returnLotPickOf,
+  returnPickDocLots, withReturnPick, type CustomerLotRow, type ReturnLotOption,
+} from './returnLots';
 import { todayLocal } from '../lib/shelfLife';
 import { useLocationGate, strictLiveFix } from './locationGate';
 import { attemptClientRef, customerScopeOpen, deviceKind, liveSnapshot, onLiveRefused, requestLocationInGesture, resetLive, strictRepNow, LIVE_REFUSAL_MESSAGE, type LiveBlock } from './liveGate';
@@ -2586,6 +2591,45 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     setPickSale(true);
   }, [retLinkOnly, online]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /* ─── «تتبّع اللوط» — تشغيلة المرتجع الحرّ (طلب المالك ١٦ نوفمبر ٢٠٢٦ «عالجها»): كان المرتجع يدخل السيارة «غير مسمّى» لأن المندوب
+   * لا يختار تشغيلة. الآن يختارها اختيارياً لسطر المرتجع الحرّ بصنفٍ متتبَّع — والافتراض «تلقائي» بلا حقلٍ كما كان، فيقرّر الخادم:
+   * ما اشتراه هذا العميل أولاً (متصلاً من الخادم) ثم تشغيلات الصنف في لقطة سيارته (وهي وحدها دون اتصال). المختار في items[i].lots
+   * من الحمولة نفسها التي يحفظها الصندوق الأوف‑لاين، فيقبله الخادم حيّاً بصرامة ويعامله في الإعادة تلميحاً لا يُرفض به المستند.
+   * والبيع وبند فاتورة البيع (يرث تشغيلات بيعه) لا يمرّان بشيءٍ هنا ─── */
+  const retLotOn = lotOn && isReturn;
+  const retStored = retLotOn ? lots?.stored ?? null : null;
+  // قائمة اللقطة هي المرجع، وبلاها علم الصنف في الكتالوج (كالبيع)
+  const retTracked = useMemo(() => (retLotOn ? trackedIds(retStored?.snap, products) : null), [retLotOn, retStored, products]);
+  const retLotShown = (l: any): boolean => returnLotLine(retLotOn, isReturn, l, retTracked);
+  // سجلّ العميل لكل صنفٍ كما قُرئ في هذه الشاشة — يبقى إن انقطع الاتصال بعدها، ولا يُطلب للصنف مرتين
+  const [retHistory, setRetHistory] = useState<Record<string, CustomerLotRow[]>>({});
+  const retAsked = useRef(new Set<string>());
+  const retPids = retLotOn ? [...new Set(lines.filter(retLotShown).map(l => String(l.productId)))].sort().join('|') : '';
+  useEffect(() => {
+    // عميلٌ أُنشئ دون اتصال لا معرّف خادمي له ولا مشتريات: تشغيلات السيارة وحدها
+    if (!retPids || !showCart || customer?._offline || !customer?.id || !navigator.onLine) return;
+    for (const pid of retPids.split('|')) {
+      if (retAsked.current.has(pid)) continue;
+      retAsked.current.add(pid);
+      repApi.get(CUSTOMER_LOT_HISTORY_PATH, { params: { customerId: customer.id, productId: pid }, background: true })
+        .then(res => { const rows = customerLotHistoryOf(res.data?.data); setRetHistory(h => ({ ...h, [pid]: rows })); })
+        // انقطاعٌ يُعاد مع عودة الاتصال؛ ورفض الخادم (خادمٌ أقدم بلا المسار، أو الميزة أُطفئت) لا يُعاد: «تلقائي» وتشغيلات السيارة تكفي
+        .catch(err => { if (isNetworkError(err)) retAsked.current.delete(pid); });
+    }
+  }, [retPids, showCart, customer?.id, online]); // eslint-disable-line react-hooks/exhaustive-deps
+  const retOptionsOf = (l: any): ReturnLotOption[] =>
+    returnLotOptions(retHistory[l.productId] ?? null, retStored?.snap ?? null, l.productId, l.retLot ?? null);
+  /** اختيار تشغيلة السطر i — '' يعيده «تلقائي» */
+  const setRetLot = (i: number, lotId: string) => {
+    const o = lotId && lines[i] ? retOptionsOf(lines[i]).find(x => x.lotId === lotId) : undefined;
+    setLines(prev => prev.map((x, j) => (j === i ? withReturnPick(x, o ? returnLotPickOf(o) : null) : x)));
+  };
+  /** حقل lots لبند المرتجع الحرّ في الحمولة — «تلقائي» أو غير المتتبَّع أو البيع: لا مفتاح، والجسم كما كان حرفاً */
+  const retLotsOf = (l: any): { lots?: LotRef[] } => {
+    const r = retLotShown(l) ? returnLineLots(l.retLot, l) : undefined;
+    return r ? { lots: r } : {};
+  };
+
   // معاينة جدول الأقساط من الإجمالي المحليّ — والخادم يكتب الجدول الحقيقي
   // من إجماليّه هو، فتتطابق المعاينة معه ما دام الإجمالي واحداً
   const insPreview = salePlan === 'INSTALLMENT'
@@ -2762,6 +2806,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         // وحدة البند ولقطتها — يحفظها الصندوق الأوف‑لاين مع الجسم وتُرفع معه. بند الأساس بلا حقل: الجسم كما كان
         ...invoiceItemUnit(l),
         ...(isReturn && saleRef && l.saleItemId && { invoiceItemId: l.saleItemId }),
+        // «تتبّع اللوط»: تشغيلة سطر المرتجع الحرّ التي اختارها المندوب [{lotId, qty أساسية}] — وبلا اختيار لا مفتاح (retLotsOf)
+        ...retLotsOf(l),
       })),
       ...(deliveryDate && { deliveryDate }), // اختياري — لا يُرسل إن لم يُحدد
       // يُهمَلان في الخادم إن أُطفئت الميزة
@@ -2925,6 +2971,14 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           payload.items = lotPlan.payloadItems;
           offlineItems = lotPlan.docItems;
         }
+        // «تتبّع اللوط» — المرتجع الحرّ بتشغيلةٍ اختارها المندوب: رقمها على الورقة (بشرط lotOnInvoice) من الحمولة المصفوفة نفسها
+        if (retLotOn) {
+          const sent = payload.items as { lots?: LotRef[] }[];
+          offlineItems = offlineItems.map((it, i) => {
+            const docLots = returnPickDocLots(lines[i]?.retLot, sent[i]?.lots);
+            return docLots ? { ...it, lots: docLots } : it;
+          });
+        }
         const localNumber = 'محلي-' + clientRef.slice(0, 8).toUpperCase();
         await outboxAdd({ clientRef, repId: currentRepId(), kind: 'invoice', payload, status: 'queued', clientCreatedAt, localNumber });
         const paid = saleType === 'CASH' && !isReturn ? total : 0;
@@ -2971,6 +3025,12 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         // يخالف وضعها الآن) — تُجلب /company وكاشها الآن فتنقلب السلّة إلى الوضع الجديد (مؤثّر taxOff ⇐ repRetaxLines: عند الإزالة النسب صفر
         // وغير المعدَّل بسعره الصافي، وعند العودة نسب الأصناف وغير المعدَّل بشامله من جديد)، برسالةٍ بلا ذكرٍ للضريبة، ثم يعيد المندوب الإصدار
         if (isTaxModeChanged(err)) { onCompanyStale?.(); setMsg(tr('تغيرت إعدادات الشركة راجع الأسعار ثم أعد الإصدار')); setLoading(false); return; }
+        // «تتبّع اللوط»: تشغيلةٌ اختارها المندوب للمرتجع رفضها الخادم حيّاً (حُذفت، أو لصنفٍ آخر) — رسالته تُعرض أدناه، وسطرها يعود
+        // «تلقائي» فيُعاد الإصدار بلا نقرةٍ على المنتقي (بنود الحمولة بترتيب أسطر السلّة)
+        if (retLotOn) {
+          const j = lotRejectLine(err?.response?.data, lines.length);
+          if (j != null && lines[j]?.retLot) setLines(prev => prev.map((x, k) => (k === j ? withReturnPick(x, null) : x)));
+        }
         setMsg(err?.response?.data?.message || tr('تعذر إصدار المستند حاول مجددا')); setLoading(false);
       }
     }
@@ -3341,6 +3401,32 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                   const cap = l.saleItemId ? null : lotCapOf(l.productId);
                   return cap == null ? null : (
                     <p className="mb-2 text-[11px] text-gray-500">{tr('متاح في سيارتك')} {lotQtyText(products.find(x => x.id === l.productId) ?? l, cap)}</p>
+                  );
+                })()}
+                {/* «تتبّع اللوط» — تشغيلة سطر المرتجع الحرّ، اختيارية والافتراض «تلقائي»: ما اشتراه العميل ثم ما في سيارتك. والموقوفة
+                  * والمنتهية تُختار بعلامتها (مرتجع تشغيلةٍ مسحوبة يُسجَّل فيها معزولاً). بلا خياراتٍ لا منتقي: «تلقائي» وحده */}
+                {retLotShown(l) && (() => {
+                  const opts = retOptionsOf(l);
+                  if (!opts.length) return null;
+                  const label = (o: ReturnLotOption) => [
+                    o.lotNumber,
+                    o.expiryDate ? `${tr('ينتهي')} ${lotDayText(o.expiryDate)}` : '',
+                    o.status === 'BLOCKED' ? tr(LOT_BLOCK_KIND_LABELS[o.blockKind ?? 'HOLD']) : isLotExpiredOn(o, lotToday) ? tr('منتهية') : '',
+                  ].filter(Boolean).join(' · ');
+                  const optsOf = (src: ReturnLotOption['source']) => opts.filter(o => o.source === src)
+                    .map(o => <option key={o.lotId} value={o.lotId}>{label(o)}</option>);
+                  const cust = optsOf('CUSTOMER');
+                  const van = optsOf('VAN');
+                  return (
+                    <div className="mb-2" data-rep-return-lot="">
+                      <label className="text-[10px] text-gray-400 block mb-1">{tr('التشغيلة')} ({tr('اختياري')})</label>
+                      <select className="input !py-1.5 text-sm" value={l.retLot?.lotId ?? ''} onChange={e => setRetLot(i, e.target.value)}>
+                        <option value="">{tr('تلقائي')}</option>
+                        {optsOf('PICKED')}
+                        {cust.length > 0 && <optgroup label={tr('اشتراها العميل')}>{cust}</optgroup>}
+                        {van.length > 0 && <optgroup label={tr('في سيارتك')}>{van}</optgroup>}
+                      </select>
+                    </div>
                   );
                 })()}
                 {/* المرتجع من فاتورة بيع: المتاح منها وحالة صلاحية ما بيع اليوم */}

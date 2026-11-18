@@ -10,7 +10,7 @@
 // - يوم الانتهاء يومٌ تقويمي: يُكتب من النصّ YYYY-MM-DD مباشرة (new Date يزيحه يوماً غرب غرينتش).
 // ============================================================================
 
-import { LOT_EPS, lotDay, lotFlagsOf, roundLot, type DocLotLine } from '../lib/lots';
+import { LOT_ASSUMED_MARK, LOT_EPS, LOT_ROW_FLAG_LABELS, lotDay, lotFlagsOf, roundLot, type DocLotLine } from '../lib/lots';
 import { factorOf } from '../lib/units';
 
 type Tr = (ar: string) => string;
@@ -81,13 +81,27 @@ function baseQtyTag(o: LotTextOpts): string {
   return name || o.tr('بالوحدة الصغرى');
 }
 
-/** «تشغيلة {رقم} ×{كمية} · ينتهي {يوم}» — نصٌّ واحد للعارضات الأربعة. lotNumber: null = صفٌّ بلا تشغيلة معروفة */
+/**
+ * «تشغيلة {رقم} ×{كمية} · ينتهي {يوم}» — نصٌّ واحد للعارضات الأربعة. lotNumber: null = صفٌّ بلا تشغيلة معروفة.
+ * المرتجع المنسوب تقديراً (`assumed`، طلب المالك ١٦ نوفمبر ٢٠٢٦) يُطبع رقمه ومعه «(تقديري)» — لا «تشغيلة غير معروفة» لصفٍّ
+ * نُسبت تشغيلته، ولا رقمٌ يُقرأ يقيناً وهو تقدير. وغير الموسوم النصّ كما كان حرفاً.
+ */
 export function lotLineText(l: DocLotLine, o: LotTextOpts): string {
   const d = o.digits ?? same;
   const q = lotQtyInLine(l.qty, o.unitFactor);
   const exp = lotDayText(l.expiryDate);
-  const name = l.lotNumber ? `${o.tr('تشغيلة')} ${l.lotNumber}` : o.tr('تشغيلة غير معروفة');
+  const name = l.lotNumber
+    ? `${o.tr('تشغيلة')} ${l.lotNumber}${l.assumed ? ` (${o.tr(LOT_ASSUMED_MARK)})` : ''}`
+    : o.tr('تشغيلة غير معروفة');
   return `${name} ×${d(String(q.qty))}${q.base ? ` ${baseQtyTag(o)}` : ''}${exp ? ` · ${o.tr('ينتهي')} ${d(exp)}` : ''}`;
+}
+
+/**
+ * وسوم الإكمال والتقدير بجانب التشغيلة في شريط الإدارة خارج الورقة («أكملت من تشغيلة أخرى»، «تشغيلة مقدرة من مشتريات العميل»…)
+ * — « · » قبل كلٍّ منها، وبلا وسومٍ نصٌّ فارغ. لا يُطبع على ورقة العميل.
+ */
+export function lotFlagNotes(l: DocLotLine, tr: Tr): string {
+  return (l.flags ?? []).map((f) => ` · ${tr(LOT_ROW_FLAG_LABELS[f])}`).join('');
 }
 
 /** خانة «التشغيلة / الانتهاء» في الإشعارين: «{رقم} · ينتهي {يوم}» ومعها الكمية حين يتوزّع السطر على أكثر من تشغيلة */

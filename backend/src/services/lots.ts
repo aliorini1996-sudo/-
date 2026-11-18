@@ -54,7 +54,12 @@ export const LOT_BUCKETS = ['SELLABLE', 'EXPIRED', 'DAMAGED'] as const;
 export const LOT_PLACES = ['WAREHOUSE', 'VAN'] as const;
 export const LOT_SOURCES = ['RECEIVE', 'LOAD', 'OPENING_IMPORT', 'RELABEL', 'RETURN', 'MANUAL'] as const;
 export const LOT_RELABEL_REASONS = ['LABEL_EXISTING', 'RECLASSIFY', 'CORRECTION'] as const;
-export const LOT_ROW_FLAGS = ['REPLAY_BLOCKED', 'REPLAY_RECALLED', 'REPLAY_EXPIRED', 'REPLAY_CLAMPED', 'HINT_REJECTED', 'SPLIT_UNIT'] as const;
+/**
+ * وسوم صفّ التوزيع (عمود flags نصٌّ حرّ بفواصل، فلا ترحيل). الأربعة الأخيرة طلب المالك ١٦ نوفمبر ٢٠٢٦، تُلحق آخراً فلا يتغيّر ترتيب
+ * وسوم الصفوف القائمة: EXPLICIT_FALLBACK صفٌّ أكمل به النظام سطراً صريحاً نفدت تشغيلته أو انتهت أو أوقفت (allocateOutLines بـSPILL)،
+ * وRETURN_GUESS_* تشغيلةٌ خمّنها النظام لمرتجعٍ بلا دليل (attributeUnnamedReturnRows) بطبقتها — فالسجل صادقٌ عمّا اختاره النظام.
+ */
+export const LOT_ROW_FLAGS = ['REPLAY_BLOCKED', 'REPLAY_RECALLED', 'REPLAY_EXPIRED', 'REPLAY_CLAMPED', 'HINT_REJECTED', 'SPLIT_UNIT', 'EXPLICIT_FALLBACK', 'RETURN_GUESS_CUSTOMER', 'RETURN_GUESS_VAN', 'RETURN_GUESS_COMPANY'] as const;
 export const LOT_EVENT_KINDS = ['CREATE', 'UPDATE_DATES', 'UPDATE_NOTE', 'BLOCK', 'UNBLOCK', 'DELETE', 'RELABEL', 'TRACKING_ON', 'TRACKING_OFF'] as const;
 export const LOT_VAN_REASONS = ['EXPIRED_UNSOLD_DESTROY'] as const;
 /** = loadSchema.type (vanStock.ts:28) — لا نوع حركة جديد (حارس نصّي: كل نوع غيرها يقع في m.adjusted، vanStock.ts:134) */
@@ -550,7 +555,12 @@ export function refsOfByLot(byLot: ReadonlyMap<string, number>): LotRef[] {
 // ═══ §٢.٦ خوارزميات التوزيع ═══
 
 export interface AllocRow { lotId: string | null; qty: number; certainty: LotCertainty; flags: LotRowFlag[]; expiryDate: string | null; sourceItemLotId?: string | null }
-export interface LotWarning { code: 'LOT_MULTI_IN_VAN' | 'LOT_HINT_REJECTED' | 'LOT_INTO_BLOCKED' | 'LOT_SPLIT_UNIT' | 'LOT_FROM_UNKNOWN' | 'LOT_REPLAY_FLAGGED'; productId: string; detail?: Record<string, unknown> }
+/**
+ * تحذيرٌ لا يمنع (warnings[] بجوار data). طلب المالك ١٦ نوفمبر ٢٠٢٦ أضاف أربعة: LOT_EXPLICIT_FALLBACK (أُكمل سطرٌ صريح من غير
+ * تشغيلته، allocateOutLines بـSPILL)، وLOT_CLAMPED وLOT_NUMBER_UNKNOWN وLOT_CREATED (تسامح حركات مفتاح الربط في السيارة والمستودع:
+ * إنقاصٌ حُصر بالمتاح، ورقم تشغيلة لا تعرفه الشركة فسُحب تلقائياً، وتشغيلة أُنشئت لزيادة) — الاتحاد سطرٌ واحد تقرؤه المرآة والمستند.
+ */
+export interface LotWarning { code: 'LOT_MULTI_IN_VAN' | 'LOT_HINT_REJECTED' | 'LOT_INTO_BLOCKED' | 'LOT_SPLIT_UNIT' | 'LOT_FROM_UNKNOWN' | 'LOT_REPLAY_FLAGGED' | 'LOT_EXPLICIT_FALLBACK' | 'LOT_CLAMPED' | 'LOT_NUMBER_UNKNOWN' | 'LOT_CREATED'; productId: string; detail?: Record<string, unknown> }
 export type AllocResult = { ok: true; rows: AllocRow[]; warnings: LotWarning[] } | { ok: false; error: LotError };
 
 /** وسوم الإعادة التي تستحق إشعار الإدارة (LOT_REPLAY_FLAGGED) — SPLIT_UNIT تحذيرٌ عادي */
