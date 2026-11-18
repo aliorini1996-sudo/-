@@ -1,7 +1,11 @@
-# عقد تنفيذ برنامج «سفير فيلد سيلز» — v1
+# عقد تنفيذ برنامج «سفير فيلد سيلز» — v2
 
 > هذا العقد **يعلو** على `affiliate_design.md` حيث يتعارضان. التصميم كُتب قبل قرارات المالك
 > (١٣ سبتمبر ٢٠٢٦)، وهذا العقد يطبّقها ويطبّق إصلاحات `affiliate_critique.json` ذات الصلة.
+>
+> **v2 (١٨ نوفمبر ٢٠٢٦)**: قرارات المالك في `V2_SPEC.md` (الانضمام الفوريّ، الحجز ١٠ أيام، التسوية كل ١٠ أيام
+> بحدٍّ أدنى ٥٠ ر.س، الاعتماد التلقائي، الملف الكامل شرطٌ للتسوية، المطالبة الفائتة، المواد التسويقية، الصفحة العلنية)
+> مُدمجةٌ هنا وفي `API.md`. ما بقي من v1 بلا تغيير يسري كما هو.
 
 ## 0. قرارات المالك الحاكمة
 
@@ -10,8 +14,10 @@
 | نسبة العمولة | **30%** (`rateBps = 3000`) |
 | على ماذا | **الدفعة الأولى المؤكَّدة فقط** لكل شركة — لا تكرار |
 | الأساس | **كامل مبلغ الدفعة الأولى شاملاً الضريبة** (`amountHalalas`)، ولو غطّت سنة مقدّماً |
-| الصرف | **يدوي من المالك من البداية** (المنشأة سعودية بسجل تجاري ومسجّلة ضريبياً). المنصّة **لا تحرّك مالاً** |
-| الانضمام | رابط عام **غير مُدرج** + **موافقة المالك** على كل طلب |
+| الصرف | **دورة تسوية تلقائية كل ١٠ أيام** (نهاياتها ١ و١١ و٢١ بالرياض) بحدٍّ أدنى **٥٠ ر.س** (شروط v4) ويُرحَّل ما دونه: المنصّة **تُنشئ مسودّات الدفعات** وتنبّه المالك، والمالك **يحوّل يدوياً** من البنك ويسجّل «مدفوع» أو «فشل التحويل». المنصّة **لا تحرّك مالاً** أبداً (v2، ١٨ نوفمبر ٢٠٢٦) |
+| الحجز والاعتماد | **١٠ أيام** للإسنادات الجديدة بعد قبول شروط v4 (القائمة تبقى بلقطتها ٣٠)، ثمّ **اعتمادٌ تلقائيّ** بفحوص الاعتماد اليدويّ نفسها — ويبقى للمالك الاعتماد والإيقاف اليدويّان (v2) |
+| الانضمام | **فوريّ** (v2): التسجيل يفتح الحساب `approved` ويُدخله مباشرةً — بلا تأكيد بريد ولا موافقة. البوابة `/ax` تبقى غير مُدرجة، وللبرنامج **صفحةٌ علنية مفهرسة** `/ambassadors` (عربي/إنجليزي/فرنسي) |
+| الملف | **كاملٌ** (v2): نوع السفير (فرد/شركة/مؤثر)، روابط التواصل، الآيبان، صورة الهوية/الإقامة (+ السجل للشركة) — **شرطٌ لدخول دورة التسوية فقط** ولا يحجب الحساب |
 | النشر | **النشر العلني مسموح بلا قيود في البوابة** — أُلغي اشتراط ترخيص «موثوق» والإقرارات عند الانضمام بقرار المالك (١٣ سبتمبر ٢٠٢٦: «لا نريد تقييد السفير»)؛ تبقى الشروط تذكّر بالمتطلّبات النظامية |
 | التسمية | «سفير فيلد سيلز» في الواجهة |
 | إحالة منشأة السفير | **مسموحة** — يجوز للسفير إحالة المنشأة التي يعمل فيها أو يملكها ما دامت عميلاً جديداً (قرار المالك ١٣ سبتمبر ٢٠٢٦، الشروط `2026-09-v2`). تسجيلها ببريده أو جواله إشارةٌ معلوماتية لا توقف الإسناد؛ العميل العائد وحده يوقفه |
@@ -21,17 +27,28 @@
 1. **مصدر حقيقة الدفع:** صفّ `payment_links` بحالة `status='paid'` و`tenantId` غير فارغ. لا يُقرأ `Tenant.plan` ولا `subscriptionEndsAt` ولا `isActive` ولا أي تقدير MRR.
 2. **عمولة واحدة لكل شركة:** `AffiliateCommission.tenantId @unique` + `paymentLinkId @unique`. أوّل دفعة مؤكَّدة للشركة **بعد** `effectiveFrom` هي الوحيدة.
 3. **المبالغ بالهللات `Int`**، والعمولة = `roundHalfUp(amountHalalas × rateBps / 10000)`.
-4. **حجز قبل الاعتماد:** `eligibleAt = paidAt + holdDays` (افتراضي 30) يُحسب **مرّةً عند الإنشاء** ويُخزَّن — تغيير الإعدادات لاحقاً لا يمسّ عمولةً قائمة.
+4. **حجز قبل الاعتماد:** `eligibleAt = paidAt + holdDays` (لقطة الإسناد: ٣٠ لشروط v1–v3، **١٠ لشروط v4**) يُحسب **مرّةً عند الإنشاء** ويُخزَّن — تغيير الإعدادات لاحقاً لا يمسّ عمولةً قائمة. بعده **اعتمادٌ تلقائيّ** (`autoApproveEligible`، منفّذه `system`).
 5. **الاسترداد:** قبل الصرف ⇒ العمولة `reversed`. بعد الصرف ⇒ قيد سالب `AffiliateAdjustment(kind='clawback_refund')` يُخصم من دفعات قادمة، **ولا دفعة سالبة أبداً**.
 6. **رمز إحالة خاطئ أو فارغ لا يُفشل تسجيل الشركة أبداً** (يُهمَل بصمت).
 7. **البوابة معزولة المصادقة:** سرّ مشتقّ `JWT_SECRET::affiliate` وحمولة `kind:'affiliate'`، وعميل axios مستقلّ ومفتاح تخزين مستقلّ (`ax_token`). لا تستعمل `api/client.ts`.
-8. **غير مُدرجة:** لا في robots ولا sitemap ولا prerender ولا llms. `noindex,nofollow` يُحقن عند التحميل. تُستثنى من `VisitTracker` و`WhatsAppFab` (ومرآة اختباره). لا روابط إليها من صفحات عامة.
+8. **البوابة غير مُدرجة:** `/ax` لا في robots ولا sitemap ولا prerender ولا llms. `noindex,nofollow` يُحقن عند التحميل. تُستثنى من `VisitTracker` و`WhatsAppFab` (ومرآة اختباره). لا روابط إليها من صفحات عامة — الصفحة العلنية `/ambassadors` (v2، مفهرسة) تربط إليها عبر `/ambassadors/join` و`/ambassadors/login` اللذين يحوّلان إلى `/ax`.
 9. **الترشيح:** اسم منشأة، سجل تجاري، **رقم التواصل مع المنشأة (إلزاميّ بقرار المالك ١٣ سبتمبر ٢٠٢٦)**، مدينة، واختيار «كيف عرّفتهم». الرقم في خانته المخصّصة ولا يُستعمل إلا للتواصل بشأن الاشتراك (الشروط v3)؛ والاسم والمدينة والملاحظة (≤200) **تُرفض إن احتوت جوالاً أو بريداً**.
 10. **لا حسابات تجريبية ولا اتصال بالقاعدة.** التحقق بالاختبارات فقط.
-11. **الأخطاء الموحّدة:** التسجيل واستعادة كلمة المرور تردّ 202 موحّدة (لا تعداد حسابات)، وتُلتقط P2002.
+11. **الأخطاء الموحّدة:** استعادة كلمة المرور تردّ 202 موحّدة (لا تعداد حسابات)، وتُلتقط P2002. **التسجيل (v2)** فوريّ كتسجيل الشركات: 201 بالتوكن، وبريدٌ مسجَّل 409 `email_taken` «يوجد حساب بهذا البريد — سجّل الدخول» (قرار المالك ١٨ نوفمبر ٢٠٢٦ — ثمن الانضمام الفوريّ، ومحدِّد ٦/ساعة/IP قائم).
 12. **السفير لا يصل حساب أيّ شركة:** لا كلمة مرور ولا رابط تفعيل ولا جلسة ولا هوية واتساب — حتى في الحساب الذي يفتحه هو من البوابة (§3.1). الدخول الوحيد لطرفٍ ثالث انتحال المالك الموسوم.
+13. **مستندات الهوية (v2)** مشفّرة AES-256-GCM (`AFFILIATE_DOC_KEY` أو مشتقّ من سرّ السفير `::doc`) ولا تُعاد إلا للسفير نفسه أو للمالك/الموظف بصلاحية `affiliates.iban` مع حدث `document_viewed`.
+14. **الدورة مرّةً واحدة (v2):** كلّ دورة تسوية تُحجز بعلامة `OpsMarker 'ax-settle:<cycleKey>'`، ولكلّ سفيرٍ دفعةٌ واحدة في الدورة — ولو تعدّدت النسخ أو أُعيد التشغيل.
 
 ## 2. نموذج البيانات (إضافي فقط — جداول جديدة، لا FK لجداول قائمة)
+
+> **إضافات v2** (مُطبَّقة في المخطّط — `backend/prisma/schema.prisma` كتلة السفراء هي المرجع، والكتلة أدناه شكل v1):
+> `AffiliateUser`: `partnerType?` (individual|company|influencer)، `companyName?`، `socialLinks Json?` ([{platform, url}] حتى ٨)،
+> `profileCompletedAt?`، وعلاقتا `documents` و`missedClaims`. `AffiliatePayout`: الحالة `draft|recorded|void|failed`،
+> و`cycleKey?` (تاريخ نهاية الدورة YYYY-MM-DD بالرياض)، `periodStart?`، `periodEnd?`، `failedReason?`، `failedAt?`.
+> جداول جديدة: `AffiliateDocument` (kind national_id|commercial_reg، mime، sizeBytes، sha256) + `AffiliateDocumentBlob.enc`
+> (iv12+tag16+cipher)، `AffiliateMissedClaim` (companyName، contactPhone?، crNumber?، note?، status under_review|accepted|rejected|withdrawn،
+> tenantId?، reasonNote?، reviewedAt/By)، `AffiliateMaterial` (title، category image|video|document|text|link، fileName/mime/sizeBytes?، url?،
+> textBody?، sortOrder، createdBy) + `AffiliateMaterialBlob.bytes`. وعلامة الدورة في `OpsMarker` القائم.
 
 ```prisma
 model AffiliateUser {
@@ -296,15 +313,23 @@ model AffiliateClickDaily {
 - **الإسناد `disputed`:** تُنشأ العمولة `on_hold` لا `pending`.
 - **الخطافات في `payments.ts`:** `accrueForPayment(linkId)` بعد القلب الناجح إلى `paid` (خارج المعاملة، `.catch(console.error)`)، و`reverseForPayment(linkId)` بعد القلب الناجح بعيداً عن `paid`. كلاهما idempotent.
 - **قبل الاعتماد والصرف:** يُعاد قراءة `payment_links.status` (محليّاً) — وإن لم يكن `paid` تُعكس العمولة.
+- **الاعتماد التلقائي (v2):** `autoApproveEligible(now)` — لكلّ عمولة `pending` و`eligibleAt ≤ now`: فحوص `approveCommission` نفسها (دالّةٌ واحدة `approveAs`: المزامنة، الدفعة الأسبق، الحجز، الإسناد active، السفير approved، عمولة > 0) ثمّ `approved` بـ`approvedBy='system'` وحدث `actorType:'system'`. يعمل في كلّ نبضةٍ (ساعة) وفي كلّ دورة تسوية؛ وما لا يجتاز يبقى لقرار المالك.
 - **روابط يتيمة:** `POST /api/payments/:id/link-tenant` (SUPER_ADMIN) يضبط `tenantId` لرابط `paid` بلا شركة، ويسجّل حدثاً، ثم يستدعي `accrueForPayment`.
 
-## 5. الصرف (يدوي)
+## 5. الصرف — دورة التسوية (v2) والتحويل اليدويّ
 
-- **المرشّحون:** مسوّقون لهم عمولات `approved` بلا `payoutId` + قيود بلا `payoutId`، وصافيها ≥ `minPayoutHalalas`، ولهم IBAN.
-- **إنشاء دفعة (`draft`):** تُربط العمولات والقيود بها في معاملة. الصافي = مجموع العمولات + مجموع القيود (سالبة). **إن كان الصافي ≤ 0 لا تُنشأ** (تبقى القيود للدورة القادمة).
+- **المرشّحون:** مسوّقون لهم عمولات `approved` بلا `payoutId` + قيود بلا `payoutId`. **مؤهَّل** = صافيه ≥ `minPayoutHalalas` من شروطه، حالته `approved`، له IBAN، **ملفه مكتمل** (`profileStatus` — v2)، بلا مسودّة مفتوحة، ولم يفشل آخر تحويلٍ له دون أن يحدّث بيانات استلامه (`iban_failed`). كلّ مرشّحٍ يحمل `blockedBy` بأوّل سببٍ ينطبق.
+- **دورة التسوية (v2):** نهاياتها ١ و١١ و٢١ من كلّ شهر 00:00 بالرياض؛ `cycleKey` = تاريخ النهاية، `periodStart` = النهاية السابقة. `runSettlementCycle(now)` (services/affiliate/settlement.ts) من مجدولٍ كلّ ساعة: آخر نهايةٍ مرّت ← `claimMarker('ax-settle:'+cycleKey)` ← `reconcile()` ← `autoApproveEligible` ← مسودّة `draft` لكلّ مؤهَّل بـ`cycleKey/periodStart/periodEnd` و`createdBy='system'` ← بريدٌ للمالك بالعدد والمجموع. ما دون الحدّ يبقى `approved` ويُرحَّل. زرّ المالك «تشغيل الدورة الآن» يمرّ بالمفتاح نفسه بلا تكرار. مفتاح الإطفاء `AX_SETTLEMENT_ENABLED=0`.
+- **إنشاء دفعة (`draft`)** — يدوياً من المالك أو من الدورة بالطريق نفسه (`draftPayout`): تُربط العمولات والقيود بها في معاملة بعد قفلها. الصافي = مجموع العمولات + مجموع القيود (سالبة). **إن كان الصافي ≤ 0 أو دون الحدّ لا تُنشأ** (تبقى القيود للدورة القادمة). الملف المكتمل شرطٌ (409 `profile_incomplete`).
 - **تسجيل التحويل (`recorded`):** مرجع التحويل البنكي + تاريخه ⇒ العمولات `paid`.
 - **إلغاء (`void`):** يفكّ الربط وتعود العمولات `approved`.
-- **IBAN:** يُطلب في البوابة **بعد أول عمولة معتمدة** فقط. تحقّق `^SA\d{22}$` + mod-97. يُخزَّن مشفّراً (`AFFILIATE_IBAN_KEY` أو مشتقّ من `JWT_SECRET`)، ويُعرض للمالك `holderName + last4` فقط، والكشف الكامل بزرّ «إظهار» يُسجَّل حدثاً.
+- **فشل التحويل (`failed`، v2):** `failPayout(id, by, reason)` — المسودّة `failed` بسببها وتاريخها، وبنودها تُفكّ كالإلغاء وتعود `approved`، وبريد «تعذّر التحويل — تحقّق من بيانات الآيبان» للسفير، وتدخل الدورة التالية تلقائياً بعد تحديثه بيانات الاستلام.
+- **IBAN:** متاحٌ في البوابة **دائماً** (v2 — أُلغي «بعد أول عمولة معتمدة»). تحقّق `^SA\d{22}$` + mod-97. يُخزَّن مشفّراً (`AFFILIATE_IBAN_KEY` أو مشتقّ من `JWT_SECRET`)، ويُعرض للمالك `holderName + last4` فقط، والكشف الكامل بزرّ «إظهار» يُسجَّل حدثاً.
+
+## 5.1 المطالبة بإحالة فائتة والمواد التسويقية (v2)
+
+- **المطالبة الفائتة** (`AffiliateMissedClaim`): شركةٌ جاءت من السفير وسجّلت دون رابطه أو رمزه. يقدّمها خلال ٣٠ يوماً من تسجيلها (اسم المنشأة، وجوالها وسجلّها إن عرفهما، وملاحظة ≤200 بلا جوال/بريد)، وحدٌّ ٢٠ مفتوحة. المالك يقبلها بربط شركةٍ (اقتراحاتٌ بالسجل والجوال والاسم) ⇒ إسنادٌ يدويّ `createOwnerAttribution` إلى صاحبها **من لحظة تسجيل الشركة** ثمّ `accepted` — أو يرفضها بسبب. تختلف عن «الترشيح» (Nomination) الذي يحجز شركةً قبل تسجيلها.
+- **المواد التسويقية** (`AffiliateMaterial`): يرفعها المالك — صورة/فيديو قصير/مستند (≤ ٨ ميغابايت، النوع من البايتات، لا SVG/HTML)، أو رابط، أو نصّ جاهز — والسفير يقرؤها وينزّلها من البوابة.
 
 ## 6. المسارات الخلفية
 
@@ -314,14 +339,15 @@ model AffiliateClickDaily {
 | المسار | المصادقة | الجسم / الردّ |
 |---|---|---|
 | `GET /terms/public` | عام | `{version, body, disclosureText, rateBps, holdDays, minPayoutHalalas}` |
-| `POST /register` | عام، محدّد | `{fullName, email, phone, city?, password, publicPromoter, mawthooqNo?, mawthooqExpiry?, vatNumber?, marketingConsent, acceptTerms:true, termsVersion, declarations:{independent,noSpam,disclose,noSelfReferral}}` ⇒ **202 موحّد** + بريد تأكيد. يرفض 403 إن `intakeOpen=false`. |
-| `POST /verify-email` | عام | `{token}` ⇒ `pending_review` |
-| `POST /login` | عام، محدّد | `{email, password}` ⇒ `{token, user}` — خطأ موحّد، قفل بعد 5 محاولات 15 دقيقة |
+| `POST /register` | عام، محدّد | v2: `{fullName, email, phone, password, partnerType, companyName?, socialLinks?, acceptTerms:true, termsVersion, marketingConsent?}` ⇒ **201** `{token, user}` فوراً (`approved`). بريدٌ مسجَّل 409 `email_taken`. يرفض 403 إن `intakeOpen=false`. |
+| ~~`POST /verify-email`~~ · ~~`POST /resend-verification`~~ | — | **حُذفتا في v2** (لا تأكيد بريد) |
+| `POST /login` | عام، محدّد | `{email, password}` ⇒ `{token, user}` — خطأ موحّد، قفل بعد 5 محاولات 15 دقيقة. الإرث `pending_*` يُرقّى `approved` عند النجاح |
 | `POST /forgot` / `POST /reset` | عام، محدّد | 202 موحّد / `{token, password}` |
 | `POST /click` | عام، محدّد | `{code}` ⇒ 204 (يزيد `AffiliateClickDaily`) |
-| `GET /me` | سفير | `{user (بلا ibanEnc/passwordHash), settings(disclosureText, rateBps, holdDays, minPayoutHalalas), link}` |
-| `PUT /me` | سفير | `{city?, marketingConsent?, publicPromoter?, mawthooqNo?, mawthooqExpiry?, vatNumber?}` |
-| `GET /dashboard` | سفير approved | `{clicks30d, signups, paidCompanies, pendingHalalas, approvedHalalas, paidHalalas}` |
+| `GET /me` | سفير | `{user (بلا ibanEnc/passwordHash، + partnerType, companyName, socialLinks, documents, profileComplete, missing), settings(disclosureText, rateBps, holdDays, minPayoutHalalas, nextSettlementAt, settlementEveryDays), link: /signup?ref=CODE}` |
+| `PUT /me` | سفير | `{city?, marketingConsent?, vatNumber?, partnerType?, companyName?, socialLinks?}` |
+| `POST /documents` · `GET/DELETE /documents/:kind` | سفير | رفع الهوية/السجل (يستبدل)، ومعاينته، وحذفه (v2) |
+| `GET /dashboard` | سفير approved | `{clicks30d, signups, paidCompanies, pendingHalalas, approvedHalalas, paidHalalas}` + v2: `totalEarnedHalalas, pendingSettlementHalalas, activeReferrals, conversionRate, earningsByMonth, nextSettlementAt, steps` |
 | `GET /companies` | سفير approved | `[{tenantName, source, status: 'trial'|'paid'|'disputed'|'void', signedUpAt, firstPaidAt?, commission?:{status, commissionHalalas, eligibleAt}}]` |
 | `POST /claims` | سفير approved | `{companyName, crNumber, city?, how, note?}` ⇒ 201 `{id}` + رسالة موحّدة |
 | `GET /claims` | سفير approved | `[{id, companyName, crNumber, status, lockedUntil?, submittedAt}]` (بلا reasonNote) |
@@ -329,22 +355,28 @@ model AffiliateClickDaily {
 | `POST /trials` | سفير approved + محدِّدٌ لكلّ سفير | `{companyName, countryCode?, adminName, adminEmail, adminPhone, crNumber?, consent:true, dryRun?}` ⇒ **202 موحّد** — حسابٌ تجريبي بلا كلمة مرور ورابط تفعيل لبريد المسؤول وحده (§3.1) |
 | `POST /trials/:id/resend` · `POST /trials/:id/withdraw` | سفير approved | رابط تفعيلٍ جديد للبريد المسجَّل · سحب حسابٍ لم يُفعَّل |
 | `GET /commissions` | سفير approved | `[{tenantName, commissionHalalas, paymentAmountHalalas, status, eligibleAt, reasonNote?, paidAt?}]` |
-| `GET /payouts` | سفير approved | `[{id, netHalalas, status, transferredAt, bankReference, ibanLast4}]` |
-| `PUT /payout-profile` | سفير approved + له عمولة معتمدة | `{iban, holderName, bankName?}` |
+| `GET /payouts` | سفير approved | v2: كلّ دفعاته عدا الملغاة `[{id, status: draft|recorded|failed, commissionsHalalas, adjustmentsHalalas, netHalalas, periodStart, periodEnd, transferredAt, bankReference, ibanLast4, failedReason}]` |
+| `PUT /payout-profile` | سفير (v2: **دائماً**) | `{iban, holderName, bankName?}` — 409 مع مسودّة دفعة قائمة |
+| `POST /missed-claims` · `GET /missed-claims` · `POST /missed-claims/:id/withdraw` | سفير approved | المطالبة بإحالة فائتة (v2) |
+| `GET /materials` · `GET /materials/:id/file` | سفير approved | المواد التسويقية (v2) |
 
-### 6.2 المالك — `backend/src/routes/affiliateAdmin.ts` مركّب على `/api/affiliate-admin` بـ`authenticate, requireSuperAdmin`
+### 6.2 المالك — `backend/src/routes/affiliateAdmin.ts` مركّب على `/api/affiliate-admin` خلف `platformGate` (المالك وموظفو المنصّة بالمفاتيح `affiliates.view|manage|payouts|iban` — كلّ مسارٍ مصنَّف في `services/platformAccess.ts`)
 
 | المسار | الغرض |
 |---|---|
 | `GET/PUT /settings` | الإعدادات (upsert للصفّ `global`) |
 | `GET /terms` · `POST /terms` | الإصدارات · نشر إصدار `{version, body}` (يضبط `currentTermsVersion`) |
-| `GET /affiliates?status=` | قائمة بإحصاء مختصر |
-| `POST /affiliates/:id/approve` · `/reject {reason}` · `/suspend {reason}` · `/reactivate` | القرار + بريد |
-| `GET /affiliates/:id` | التفصيل (IBAN مخفي) · `POST /affiliates/:id/reveal-iban` (حدث) |
+| `GET /overview` | v2: + `newAffiliates7d, incompleteProfiles, missedClaimsUnderReview, nextSettlementAt, lastCycle` وبلا `pending_review` |
+| `GET /affiliates?status=` | قائمة بإحصاء مختصر + النوع واكتمال الملف (v2) |
+| `POST /affiliates/:id/suspend {reason}` · `/reactivate` (موقوف أو مرفوض ⇒ مقبول، v2) · `/approve` · `/reject {reason}` (للإرث `pending_review`) | القرار + بريد |
+| `GET /affiliates/:id` | التفصيل (IBAN مخفي، + النوع والروابط والمستندات وصفياً والاكتمال والمطالبات الفائتة) · `POST /affiliates/:id/reveal-iban` (حدث) · `GET /affiliates/:id/documents/:kind` (v2، `affiliates.iban`، حدث `document_viewed`) |
 | `GET /claims?status=` · `POST /claims/:id/approve` · `/reject {reasonCode}` · `/link-tenant {tenantId}` | الترشيحات + اقتراحات مطابقة |
 | `GET /attributions?status=` · `POST /attributions` `{tenantId, affiliateId, reason}` · `/:id/void {reason}` · `/:id/activate {reason}` | الإسناد |
 | `GET /commissions?status=` · `POST /commissions/:id/approve` · `/hold {reason}` · `/release` · `/decline {reason}` | العمولات |
-| `GET /payouts/candidates` · `POST /payouts {affiliateId}` · `POST /payouts/:id/record {bankReference, transferredAt}` · `/void {reason}` · `GET /payouts` | الصرف |
+| `GET /payouts/candidates` · `POST /payouts {affiliateId}` · `POST /payouts/:id/record {bankReference, transferredAt}` · `/void {reason}` · `/fail {reason}` (v2) · `GET /payouts` | الصرف |
+| `POST /settlement/run` | تشغيل دورة التسوية الآن (v2 — بمفتاح الدورة نفسه، مسودّاتٌ فقط) |
+| `GET /missed-claims?status=` · `POST /missed-claims/:id/accept {tenantId, reason}` · `/reject {reason}` | المطالبات الفائتة (v2) |
+| `GET /materials` · `GET /materials/:id/file` · `POST /materials` · `DELETE /materials/:id` | المواد التسويقية (v2) |
 | `POST /adjustments` `{affiliateId, amountHalalas, note}` | تصحيح يدوي |
 | `GET /events?entity=&entityId=` | السجل |
 | `GET /tenants/search?q=` | بحث شركات لربط الترشيح/الإسناد |
@@ -355,6 +387,7 @@ model AffiliateClickDaily {
 
 ### 7.أ البوابة `/ax` — `web-admin/src/affiliate/`
 مستقلّة بالكامل (مثل `/hx`): `AffiliateApp.tsx` كسول من `App.tsx`، axios خاص، `ax_token`، `noindex,nofollow`، RTL، ألوان الهوية.
+**v2 (V2_SPEC §7):** الجوال أولاً — شريطٌ سفليّ (الرئيسية · شركاتي · أرباحي · المزيد) وشريطٌ جانبيّ على الحاسوب؛ تسجيلٌ فوريّ بنوع السفير؛ «أكمل ملفك»؛ مشاركة الرابط؛ خطوات البداية؛ بطاقات ٢×٢ ورسم أرباح ٦ أشهر؛ التسويات بحالاتها؛ المطالبة الفائتة؛ المواد؛ الأسئلة الشائعة والدعم. القائمة أدناه شكل v1.
 
 1. **دخول** · **تسجيل** (الحقول + الإقرارات + الشروط + «سأنشر علناً» ⇒ رقم موثوق وتاريخه) · **تأكيد البريد** · **نسيت كلمة المرور**.
 2. **بانتظار الموافقة / مرفوض / موقوف** (حالة فقط).
@@ -367,7 +400,10 @@ model AffiliateClickDaily {
 9. **الشروط.**
 
 ### 7.ب قسم المالك — `web-admin/src/components/AffiliatesPanel.tsx`
-نافذة منبثقة من `PlatformPage` (زرّ «السفراء»)، بتبويبات: المسوّقون · الترشيحات · الإسناد · العمولات · الصرف · الإعدادات والشروط.
+نافذة منبثقة من `PlatformPage` (زرّ «السفراء»)، بتبويبات: المسوّقون · الترشيحات · الإسناد · العمولات · الصرف · الإعدادات والشروط — و(v2) **المطالبات الفائتة** و**المواد التسويقية**، وفي الصرف دورة التسوية («تشغيل الدورة الآن») و«فشل التحويل».
+
+### 7.د الصفحة العلنية (v2) — `/ambassadors` و`/en/ambassadors` و`/fr/ambassadors`
+مصيَّرة مسبقاً ومفهرسة ورابطها في تذييل الصفحة الرئيسية؛ أزرارها إلى `/ambassadors/join` و`/ambassadors/login` (تحويلٌ إلى `/ax`) فلا يظهر `/ax` في أيّ صفحةٍ علنية.
 
 ### 7.ج التسجيل وملتقط الرابط
 - `web-admin/src/lib/referral.ts`: `captureRefFromUrl()` · `readRef()` · `clearRef()`، ويُستدعى الالتقاط من `App.tsx` لكل مسار.
@@ -376,3 +412,4 @@ model AffiliateClickDaily {
 ## 8. الاختبارات
 - خلفية: `backend/src/tests/affiliate.test.ts` (يُدرج في `package.json`): المال والجدولة والرموز والتطبيع وIBAN والإشارات والانتقالات والصرف، وحارس `signupSchema` المتسامح، وحارس مصدر الحقيقة، وحارس الخطافات.
 - ويب: `web-admin/src/affiliate/*.test.ts`: `referral` وحارس الإخفاء (noindex، VisitTracker، WhatsAppFab، sitemap/robots/llms لا تحوي `/ax`).
+- v2: `backend/src/tests/affiliate-v2-settlement.test.ts` (حدود الدورة، الدورة مرّةً واحدة ومسودّاتٌ فقط، المواد بالبايتات، المطالبات الفائتة، تصنيف مسارات المالك) و`affiliate-v2-portal.test.ts` (البوابة). الاختبارات التي ثبّتت سلوك v1 عمداً حُدّثت بتعليقٍ يذكر قرار المالك (١٨ نوفمبر ٢٠٢٦).
