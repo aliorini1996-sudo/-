@@ -53,6 +53,8 @@ const I18N_ROUTES = [
   { p: '/meeting', priority: '0.6', freq: 'monthly', lastmod: '2026-11-08' },
   // البروفايل بخمس روابط مُصيَّرة منذ ١١ نوفمبر ٢٠٢٦ (كان رابطاً واحداً برأس الرئيسية فلا يُفهرس)
   { p: '/profile', priority: '0.6', freq: 'monthly', lastmod: '2026-11-11' },
+  // «سفراء فيلد سيلز» — الصفحة العلنية للبرنامج بثلاث لغات (أُنشئت ١٨ نوفمبر ٢٠٢٦، V2_SPEC §9). بوابة السفير نفسها خارج الخريطة
+  { p: '/ambassadors', priority: '0.6', freq: 'monthly', lastmod: '2026-11-18' },
   { p: '/about', priority: '0.7', freq: 'monthly' },
   { p: '/contact', priority: '0.7', freq: 'monthly' },
   { p: '/calculator', priority: '0.9', freq: 'weekly' },

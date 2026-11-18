@@ -17,7 +17,8 @@
  * - لوحات الدخول: `/app` · `/platform` · `/staff` (موظفو المنصة ودخولهم) · `/m` · `/rep` · `/login` · `/owner` · `/verify-email`
  *   · `/activate` (تفعيل حساب شركةٍ فتحه سفير — رمز التفعيل في الرابط، فلا وسم طرفٍ ثالث يقرؤه)
  *   (وأي مسار مطعم مستقبلي مثل `/pos` · `/kds` · `/app-r` يبقى خارج القائمة تلقائياً).
- * - البوابات الخاصة غير المُدرجة: `/ax` (السفير) · `/hx` (الصيد) · `/q-fs7k2m` (عروض الأسعار).
+ * - البوابات الخاصة غير المُدرجة: `/ax` (السفير) · `/hx` (الصيد) · `/q-fs7k2m` (عروض الأسعار)،
+ *   ومسارا التحويل إلى بوابة السفير `/ambassadors/join` و`/ambassadors/login` (الصفحة العلنية `/ambassadors` نفسها تسويقية).
  * - صفحات عملاء عملائنا: `/c/:tenant/:rep` (منيو المندوب) · `/pay/:token`
  *   — زائرها ليس عميلاً محتملاً لنا، ولا شأن لإعلاناتنا بزبائن شركة مشتركة.
  * - `/payment/success`: صفحة عودة عملائنا نحن من ميسر بعد دفع الاشتراك أو تجديد بوت واتساب
@@ -33,6 +34,9 @@ const LOCALE_PREFIX = /^\/(en|fr|tr|zh)(?=\/|$)/;
 const MARKETING_ROOTS = new Set([
   'about', 'terms', 'service-agreement', 'privacy', 'contact', 'meeting', 'subscribe-request',
   'calculator', 'invoice-generator', 'pricing', 'signup', 'tutorial', 'profile',
+  // صفحة «سفراء فيلد سيلز» العلنية (١٨ نوفمبر ٢٠٢٦) وحدها — مسارا التحويل تحتها (/ambassadors/join و/login) بلا وسم:
+  // ليست في WITH_CHILD، فهما بابان إلى البوابة الخاصة لا صفحتا هبوط
+  'ambassadors',
   'blog', 'free', 'قطاعات', 'مزايا', 'نماذج',
 ]);
 

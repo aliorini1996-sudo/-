@@ -235,7 +235,9 @@ async function main() {
   const known = (u) => { KNOWN.add(u); return u; };
   for (const p of ['/', '/en/', '/fr/', '/tr/', '/zh/', '/about/', '/en/about/', '/fr/about/', '/contact/', '/en/contact/', '/fr/contact/',
     '/calculator/', '/en/calculator/', '/fr/calculator/', '/invoice-generator/', '/en/invoice-generator/', '/fr/invoice-generator/',
-    '/pricing/', '/en/pricing/', '/fr/pricing/', '/blog/', '/en/blog/', '/fr/blog/', '/rep-app/', '/free/', '/مزايا/', '/قطاعات/', '/نماذج/']) known(abs(p));
+    '/pricing/', '/en/pricing/', '/fr/pricing/', '/blog/', '/en/blog/', '/fr/blog/', '/rep-app/', '/free/', '/مزايا/', '/قطاعات/', '/نماذج/',
+    // صفحة «سفراء فيلد سيلز» العلنية بلغاتها الثلاث (١٨ نوفمبر ٢٠٢٦) — بوابة السفير نفسها غير مُدرجة ولا تُذكر هنا
+    '/ambassadors/', '/en/ambassadors/', '/fr/ambassadors/']) known(abs(p));
   const featureUrl = (ft) => known(abs(`/مزايا/${ft.slug}/`));
   const sectorUrl = (s) => known(abs(`/قطاعات/${s.slug}/`));
   const templateUrl = (t) => known(abs(`/نماذج/${t.slug}/`));
@@ -414,6 +416,7 @@ ${answersFor('en', { tiers, countries: registry.count }).map(answerLine).join(''
 - [About](${abs('/about/')}): who is behind FieldSales. English: ${abs('/en/about/')}
 - [Contact](${abs('/contact/')}): sales and support. English: ${abs('/en/contact/')}
 - [Blog (Arabic)](${abs('/blog/')}): practical guides on field sales, van sales, collection and e-invoicing for distribution companies. English: ${abs('/en/blog/')} · French: ${abs('/fr/blog/')}
+- [FieldSales Ambassadors (Arabic)](${abs('/ambassadors/')}): the referral program. Anyone can join instantly with no approval wait and earn 30% of the first confirmed payment (VAT included) of each company they refer, held 10 days and settled every 10 days. English: ${abs('/en/ambassadors/')} · French: ${abs('/fr/ambassadors/')}
 
 ## Company
 
@@ -501,6 +504,7 @@ ${SECTORS.map((s) => `- [برنامج مناديب لموزعي ${s.name}](${sec
 ${FREE_TOOLS.map((t) => `- [${t.title}](${toolUrl(t)}): ${t.desc}`).join('\n')}
 ${TEMPLATES.map((t) => `- [${t.title}](${templateUrl(t)}): ${t.purpose}`).join('\n')}
 - [Free tax invoice generator](${abs('/invoice-generator/')}) · [Revenue leak calculator](${abs('/calculator/')})
+- [FieldSales Ambassadors](${abs('/ambassadors/')}): referral program, 30% of each referred company’s first confirmed payment · [English](${abs('/en/ambassadors/')}) · [French](${abs('/fr/ambassadors/')})
 `);
   const section = (label, list, L) => {
     addF(`\n## ${label}\n\n`);
