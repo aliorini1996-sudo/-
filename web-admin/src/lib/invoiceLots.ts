@@ -2,8 +2,9 @@
 // «تتبّع اللوط» في الفواتير والتقارير (W4) — منطقٌ صرف تستدعيه نافذة الفاتورة وصفحتا الفواتير والتقارير.
 // ----------------------------------------------------------------------------
 // ١. الورقة من ردّ الخادم: تشغيلات كل بند (items[].lots) تُلحق ببنود المستند، فتطابق الورقةُ السجلَّ لا المعاينة.
-// ٢. المرتجع: لوطات البيع على شاشة القابل للإرجاع (للعرض — الخادم يوزّع المرتبط بنفسه)، والمرتجع الحرّ من الإدارة
-//    بتشغيلة صريحة اختيارية للسطر كله (D5)، وإلا «غير معروف» بلا شيء يُرسل.
+// ٢. المرتجع: لوطات البيع على شاشة القابل للإرجاع، والمرتجع الحرّ من الإدارة بتشغيلة صريحة اختيارية للسطر كله (D5).
+//    طلب المالك ١٦ نوفمبر ٢٠٢٦: منتقي الحرّ يبدأ بما اشتراه هذا العميل (/lots/customer-history)، والمرتبط يختار من تشغيلات
+//    بند البيع نفسه (المرحلة B)؛ و«تلقائي» الافتراضي في الحالين — الخادم ينسبها تقديراً بدل «غير معروف» ما وُجدت تشغيلة.
 // ٣. رسالة النقص من تفاصيل الخادم بلغة الواجهة.
 // ٤. تقرير «المبيعات حسب التشغيلة» (GET /reports/lot-sales) وتشغيلات بنود تقرير المرتجع.
 //
@@ -121,6 +122,128 @@ export function withFreeReturnLots<L extends { productId: string; qty: number; u
   return touched ? { ...payload, items: next } : payload;
 }
 
+// ─── اختيار تشغيلة المرتجع (طلب المالك ١٦ نوفمبر ٢٠٢٦: «مفروض يتم ربطه بـLOT سابق») ───
+
+/** سقف ما يُقرأ من سجلّ العميل — الخادم يردّ ٥٠ على الأكثر */
+export const CUSTOMER_LOT_HISTORY_LIMIT = 50;
+
+/** صفّ GET /lots/customer-history: تشغيلةٌ مسمّاة اشتراها العميل من الصنف في الحقبة الحالية، الأحدث بيعاً أولاً، والكميات أساسية */
+export interface CustomerLotHistoryRow {
+  lotId: string; lotNumber: string; expiryDate: string | null; status: LotStatus; blockKind: LotBlockKind | null;
+  lastSoldAt: string | null; soldBase: number | null; returnedBase: number | null;
+}
+
+const finiteOrNull = (x: unknown): number | null => {
+  const n = typeof x === 'number' ? x : typeof x === 'string' && x.trim() ? Number(x) : NaN;
+  return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * ردّ /lots/customer-history (data) إلى صفوفٍ صالحة **بترتيب الخادم** (الأحدث أولاً): الصفّ بلا معرّف أو رقم أو حالة معروفة يسقط،
+ * والمكرّر يبقى أوّله. وما ليس مصفوفةً ⇒ [] — يبقى «تلقائي» وتشغيلات الصنف الأخرى، فلا تسقط النافذة بردٍّ غير متوقّع.
+ */
+export function customerLotHistoryOf(raw: unknown): CustomerLotHistoryRow[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CustomerLotHistoryRow[] = [];
+  const seen = new Set<string>();
+  for (const x of raw) {
+    if (out.length >= CUSTOMER_LOT_HISTORY_LIMIT) break;
+    if (!x || typeof x !== 'object' || Array.isArray(x)) continue;
+    const r = x as Record<string, unknown>;
+    const status = r.status === 'ACTIVE' || r.status === 'BLOCKED' ? r.status : null;
+    if (typeof r.lotId !== 'string' || !r.lotId || typeof r.lotNumber !== 'string' || !r.lotNumber.trim() || !status || seen.has(r.lotId)) continue;
+    seen.add(r.lotId);
+    out.push({
+      lotId: r.lotId, lotNumber: r.lotNumber.trim(), expiryDate: lotDay(r.expiryDate), status,
+      blockKind: status === 'BLOCKED' && (r.blockKind === 'HOLD' || r.blockKind === 'RECALL') ? r.blockKind : null,
+      lastSoldAt: typeof r.lastSoldAt === 'string' ? r.lastSoldAt : null,
+      soldBase: finiteOrNull(r.soldBase), returnedBase: finiteOrNull(r.returnedBase),
+    });
+  }
+  return out;
+}
+
+/** خيارٌ في منتقي تشغيلة المرتجع الحرّ: CUSTOMER اشتراها هذا العميل، OTHER من تشغيلات الصنف الأخرى */
+export interface FreeReturnLotOption {
+  lotId: string; lotNumber: string; expiryDate: string | null; status: LotStatus; blockKind: LotBlockKind | null;
+  group: 'CUSTOMER' | 'OTHER'; soldBase: number | null;
+}
+
+/**
+ * خيارات تشغيلة سطر المرتجع الحرّ في نافذة الإدارة: ما اشتراه **هذا العميل** من الصنف أولاً بترتيب الخادم (الأحدث بيعاً — هو الأرجح
+ * أن يعود)، ثم تشغيلات الصنف الأخرى (/lots، بصلاحية مخزون السيارات) مما لم يرد قبلها — كل تشغيلة مرة، ومن صنفٍ آخر لا شيء.
+ * «تلقائي» يبقى الافتراضي خارج القائمة: الخادم ينسبها هو (مبيعات العميل، ثم السيارة، ثم الشركة — ASSUMED).
+ */
+export function freeReturnLotOptions(
+  history: readonly CustomerLotHistoryRow[] | null | undefined,
+  productLots: readonly { id: string; productId?: string; lotNumber: string; expiryDate: string | null; status: LotStatus; blockKind?: LotBlockKind | null }[] | null | undefined,
+  productId: string,
+): FreeReturnLotOption[] {
+  const out: FreeReturnLotOption[] = [];
+  const seen = new Set<string>();
+  for (const h of history ?? []) {
+    if (seen.has(h.lotId)) continue;
+    seen.add(h.lotId);
+    out.push({ lotId: h.lotId, lotNumber: h.lotNumber, expiryDate: h.expiryDate, status: h.status, blockKind: h.blockKind, group: 'CUSTOMER', soldBase: h.soldBase });
+  }
+  for (const l of productLots ?? []) {
+    if (!l?.id || seen.has(l.id) || (l.productId && l.productId !== productId)) continue;
+    seen.add(l.id);
+    out.push({ lotId: l.id, lotNumber: l.lotNumber, expiryDate: lotDay(l.expiryDate), status: l.status, blockKind: l.blockKind ?? null, group: 'OTHER', soldBase: null });
+  }
+  return out;
+}
+
+/**
+ * المرتجع المرتبط (المرحلة B): تشغيلات بند البيع التي يُختار منها — المسمّاة وحدها وفيها ما يُرجَع. «تلقائي» (الوراثة من صفوف
+ * البيع) يبقى الافتراضي؛ والخادم يقبل الصريح من صفوف بند البيع نفسه وحده وضمن المتاح إرجاعه من كلٍّ (وإلا 422).
+ */
+export function linkedReturnLotChoices(rows: readonly SaleLotRow[] | null | undefined): (SaleLotRow & { lotId: string })[] {
+  return (rows ?? []).filter((r): r is SaleLotRow & { lotId: string } => r.lotId !== null && r.returnable > LOT_EPS);
+}
+
+/** الكمية الأساسية لسطر مرتجعٍ مرتبط (الكمية × معامل وحدة المرتجع) — ما يقارن به الخادم صفوف التشغيلة */
+export function linkedReturnBaseQty(l: { qty: number; retUnitFactor?: number | null }): number {
+  return toBaseQty({ qty: num(l.qty), unitFactor: l.retUnitFactor });
+}
+
+/**
+ * ما يمنع إرسال تشغيلةٍ مختارة لسطر مرتجعٍ مرتبط: ليست من صفوف بند البيع (LOT_NOT_IN_SALE)، أو الكمية فوق ما يُرجَع منها
+ * (LOT_OVER_RETURNABLE) — مرآة رفض الخادم 422، فيُقال قبل الإرسال. «تلقائي» أو سطرٌ بلا كمية ⇒ null.
+ */
+export function linkedReturnLotProblem(
+  rows: readonly SaleLotRow[] | null | undefined, lotId: string | null | undefined, baseQty: number,
+): 'LOT_NOT_IN_SALE' | 'LOT_OVER_RETURNABLE' | null {
+  if (!lotId || !(baseQty > LOT_EPS)) return null;
+  const row = (rows ?? []).find((r) => r.lotId === lotId);
+  if (!row) return 'LOT_NOT_IN_SALE';
+  return roundLot(baseQty) > row.returnable + LOT_EPS ? 'LOT_OVER_RETURNABLE' : null;
+}
+
+/**
+ * يُلحق التشغيلة المختارة ببنود المرتجع المرتبط (buildLinkedReturnPayload): المطابقة **بمعرّف بند البيع** (invoiceItemId) لا
+ * بالموضع، والكمية الأساسية من سطره. بندٌ «تلقائي» أو بلا سطرٍ مطابق كما هو، ولا اختيار ⇒ الجسم نفسه حرفياً.
+ */
+export function withLinkedReturnLots(
+  payload: Record<string, unknown>,
+  lines: readonly { saleItemId: string; qty: number; retUnitFactor?: number | null }[],
+  choiceOf: (saleItemId: string) => string | null | undefined,
+): Record<string, unknown> {
+  const items = payload.items;
+  if (!Array.isArray(items)) return payload;
+  let touched = false;
+  const next = items.map((it) => {
+    const sid = (it as { invoiceItemId?: unknown })?.invoiceItemId;
+    const line = typeof sid === 'string' ? lines.find((l) => l.saleItemId === sid) : undefined;
+    const lotId = line ? choiceOf(line.saleItemId) : undefined;
+    const qty = line ? linkedReturnBaseQty(line) : 0;
+    if (!line || !lotId || qty <= LOT_EPS) return it;
+    touched = true;
+    return { ...(it as Record<string, unknown>), lots: [{ lotId, qty: roundLot(qty) }] };
+  });
+  return touched ? { ...payload, items: next } : payload;
+}
+
 // ─── رسالة الخطأ ───
 
 export interface LotErrorCtx {
@@ -166,6 +289,10 @@ export function lotErrorText(info: LotErrorInfo, tr: (ar: string) => string, ctx
     return parts.join(' · ');
   }
   if (info.code === 'LOT_BUSY') return tr('التشغيلة مشغولة بعملية أخرى أعد المحاولة بعد لحظات');
+  // رفض تشغيلة المرتجع المرتبط (طلب المالك ١٦ نوفمبر ٢٠٢٦، المرحلة B): LOT_QTY_INVALID وسببه في detail.reason — بلغة الواجهة لا
+  // رسالة الخادم العربية. يبلغه مرتجعٌ آخر سبق فأنقص المتاح إرجاعه بعد ما فحصته النافذة
+  if (info.code === 'LOT_QTY_INVALID' && d.reason === 'LOT_OVER_RETURNABLE') return tr('الكمية أكبر من المتاح إرجاعه من هذه التشغيلة');
+  if (info.code === 'LOT_QTY_INVALID' && d.reason === 'LOT_NOT_IN_SALE') return tr('التشغيلة المختارة ليست من تشغيلات بند فاتورة البيع');
   return info.message || tr('خطأ');
 }
 

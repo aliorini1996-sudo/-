@@ -7879,6 +7879,24 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'الربح': { en: 'Profit', fr: 'Marge', tr: 'Kâr', zh: '利润' },
   'اسم المورد أو الصنف': { en: 'Supplier or product name', fr: 'Nom du fournisseur ou du produit', tr: 'Tedarikçi veya ürün adı', zh: '供应商或商品名称' },
   'اسم الصنف أو العميل أو المندوب': { en: 'Product, customer or rep name', fr: 'Nom du produit, du client ou du commercial', tr: 'Ürün, müşteri veya temsilci adı', zh: '商品、客户或业务员名称' },
+  // «تتبّع LOT» — طلب المالك ١٦ نوفمبر ٢٠٢٦: الإكمال من تشغيلة أخرى، وتقدير تشغيلة المرتجع، وتسامح حركات المفتاح، ومنتقي تشغيلة المرتجع (ويب ومندوب)
+  'اشتراها العميل': { en: 'Bought by this customer', fr: 'Achetés par ce client', tr: 'Bu müşterinin aldıkları', zh: '该客户购买过的批次' },
+  'حدد العميل والصنف': { en: 'Select the customer and the product', fr: 'Choisissez le client et le produit', tr: 'Müşteriyi ve ürünü seçin', zh: '请选择客户和商品' },
+  'التشغيلة المختارة ليست من تشغيلات بند فاتورة البيع': { en: 'The selected lot is not one of the lots of the sales invoice line', fr: 'Le lot choisi ne fait pas partie des lots de la ligne de la facture de vente', tr: 'Seçilen parti, satış faturası kalemindeki partilerden biri değil', zh: '所选批次不属于该销售发票明细行的批次' },
+  'الكمية المختارة من التشغيلة أكبر من المتبقي منها للإرجاع في فاتورة البيع': { en: 'The quantity chosen from this lot is more than what is left to return from it on the sales invoice', fr: 'La quantité choisie pour ce lot dépasse ce qui reste à retourner de ce lot sur la facture de vente', tr: 'Bu partiden seçilen miktar, satış faturasında iade edilebilecek kalan miktardan fazla', zh: '从该批次选择的数量超过了销售发票中该批次剩余的可退数量' },
+  'أكملت من تشغيلة أخرى': { en: 'Completed from another lot', fr: 'Complété depuis un autre lot', tr: 'Başka bir partiden tamamlandı', zh: '已从其他批次补足' },
+  'تشغيلة مقدرة من مشتريات العميل': { en: 'Estimated lot from the customer purchases', fr: 'Lot estimé selon les achats du client', tr: 'Müşteri alımlarından tahmini parti', zh: '根据客户购买记录估定的批次' },
+  'تشغيلة مقدرة من تشغيلات السيارة': { en: 'Estimated lot from the van lots', fr: 'Lot estimé selon les lots du véhicule', tr: 'Araç partilerinden tahmini parti', zh: '根据车辆批次估定的批次' },
+  'تشغيلة مقدرة من تشغيلات الشركة': { en: 'Estimated lot from the company lots', fr: 'Lot estimé selon les lots de la société', tr: 'Şirket partilerinden tahmini parti', zh: '根据公司批次估定的批次' },
+  'نفدت التشغيلة المختارة أو انتهت فأكملت الكمية من تشغيلة أخرى': { en: 'The selected lot ran out or expired, so the quantity was completed from another lot', fr: 'Le lot choisi est épuisé ou expiré, la quantité a été complétée depuis un autre lot', tr: 'Seçilen parti tükendi veya süresi doldu, miktar başka bir partiden tamamlandı', zh: '所选批次已用完或已过期，数量已从其他批次补足' },
+  'خفضت الكمية إلى المتاح لأن الرصيد لا يكفي': { en: 'Quantity reduced to the available amount because the balance is not enough', fr: 'Quantité réduite au disponible car le solde ne suffit pas', tr: 'Bakiye yetmediği için miktar mevcut olana düşürüldü', zh: '余额不足，数量已减至可用量' },
+  'رقم التشغيلة غير معروف فصرفت الكمية بالأقرب انتهاء': { en: 'Unknown lot number, so the quantity was taken by earliest expiry', fr: 'Numéro de lot inconnu, la quantité a été prélevée par expiration la plus proche', tr: 'Parti numarası bilinmiyor, miktar en yakın son kullanmaya göre düşüldü', zh: '批次号未知，已按最早到期出库' },
+  'أنشئت تشغيلة جديدة برقمها المرسل': { en: 'A new lot was created with the number sent', fr: 'Un nouveau lot a été créé avec le numéro envoyé', tr: 'Gönderilen numarayla yeni bir parti oluşturuldu', zh: '已按发送的编号创建新批次' },
+  'التشغيلة المختارة لا تكفي — سيُكمَل الباقي من تشغيلة أخرى (الأقرب انتهاءً)': { en: 'The selected lot is not enough — the rest will be completed from another lot (earliest expiry)', fr: 'Le lot choisi ne suffit pas — le reste sera complété depuis un autre lot (expiration la plus proche)', tr: 'Seçilen parti yetmiyor — kalan kısım başka bir partiden tamamlanacak (en yakın son kullanma)', zh: '所选批次不足——其余数量将从其他批次补足（最早到期优先）' },
+  'تقديري': { en: 'estimated', fr: 'estimé', tr: 'tahmini', zh: '估定' },
+  'اشتراها هذا العميل': { en: 'Bought by this customer', fr: 'Achetés par ce client', tr: 'Bu müşterinin aldıkları', zh: '该客户购买过的' },
+  'تشغيلات أخرى للصنف': { en: 'Other lots of the product', fr: 'Autres lots du produit', tr: 'Ürünün diğer partileri', zh: '该商品的其他批次' },
+  'الكمية أكبر من المتاح إرجاعه من هذه التشغيلة': { en: 'The quantity exceeds what can be returned from this lot', fr: 'La quantité dépasse ce qui peut être retourné de ce lot', tr: 'Miktar bu partiden iade edilebilecek miktarı aşıyor', zh: '数量超过该批次可退回的数量' },
 };
 
 // ثابتة الهوية ما لم تتغيّر اللغة — كـuseT (انظر سببه هناك)
