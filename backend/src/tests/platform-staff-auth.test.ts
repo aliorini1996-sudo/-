@@ -454,7 +454,8 @@ test('سجلّ السفراء: الموظف staff لا owner — دالةٌ وا
 
   const admin = strip(read('routes', 'affiliateAdmin.ts'));
   assert.doesNotMatch(admin, /actorType: 'owner'/);
-  const ledgerFns = 'approveCommission|holdCommission|releaseCommission|declineCommission|createOwnerAttribution|voidAttribution|activateAttribution|reassignAttribution|adjustAttributionWindow|linkClaimToTenant|createPayout|recordPayout|voidPayout';
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): failPayout «فشل التحويل» قرارٌ جديد للمالك بالتوقيع نفسه (by: PlatformActor)
+  const ledgerFns = 'approveCommission|holdCommission|releaseCommission|declineCommission|createOwnerAttribution|voidAttribution|activateAttribution|reassignAttribution|adjustAttributionWindow|linkClaimToTenant|createPayout|recordPayout|voidPayout|failPayout';
   /** معاملات الاستدعاء بموازنة الأقواس */
   const argsAt = (s: string, open: number): string => {
     let depth = 0;
@@ -465,7 +466,8 @@ test('سجلّ السفراء: الموظف staff لا owner — دالةٌ وا
     throw new Error('أقواس غير متوازنة');
   };
   const calls = [...admin.matchAll(new RegExp(`await (${ledgerFns})\\(`, 'g'))];
-  assert.equal(calls.length, 13);
+  // ١٣ قبل v2، و+٢: «فشل التحويل» (failPayout) وقبول المطالبة الفائتة (createOwnerAttribution ثانيةً) — كلّها بمنفّذ اللوحة
+  assert.equal(calls.length, 15);
   for (const c of calls) {
     const args = argsAt(admin, c.index! + c[0].length - 1);
     assert.match(args, /platformActor\(req\)/, `${c[1]} بمنفّذ اللوحة`);
@@ -479,6 +481,9 @@ test('سجلّ السفراء: الموظف staff لا owner — دالةٌ وا
     const sig = new RegExp(`export async function ${fn}\\([^)]*by: PlatformActor`);
     assert.match(ledger, sig, fn);
   }
+  // الاعتماد التلقائيّ ودفعات الدورة منفّذها النظام لا المالك — دالّتان جديدتان بلا by (v2 §5)
+  assert.match(ledger, /export async function autoApproveEligible\(now: Date = new Date\(\)\)/);
+  assert.match(ledger, /export async function createCyclePayout\(affiliateId: string, cycle: PayoutCycle\)/);
 
   const pay = strip(read('routes', 'payments.ts'));
   const link = pay.slice(pay.indexOf("router.post('/:id/link-tenant'"), pay.indexOf('function tokenMatches'));
