@@ -337,8 +337,10 @@ test('مسارات المالك v2: المستند يُسجَّل عرضه، و�
     return admin.slice(i, admin.indexOf('\nrouter.', i + 10));
   };
   const doc = route("router.get('/affiliates/:id/documents/:kind'");
-  assert.match(doc, /isDocKind\(kind\)/);
-  assert.match(doc, /documentDataUrl\(id, kind\)/);
+  assert.match(doc, /\(DOC_KINDS as readonly string\[\]\)\.includes\(kind\)/, 'نوعٌ معروف قبل أيّ قراءة');
+  assert.match(doc, /documentDataUrl\(id, kind as /);
+  // من ملف الوكيل A توقيعا §11 وحدهما — فيبقى تنفيذه الأصليّ في الدمج
+  assert.match(admin, /import \{ profileStatus, documentDataUrl \} from '\.\.\/services\/affiliate\/documents';/);
   assert.match(doc, /action: 'document_viewed', \.\.\.platformActor\(req\)/);
   assert.ok(doc.indexOf('document_viewed') < doc.indexOf('res.json'), 'الحدث قبل الردّ');
   assert.match(route("router.post('/payouts/:id/fail'"), /min\(3, 'اذكر السبب'\)\.max\(300\)[\s\S]*await failPayout\(String\(req\.params\.id\), platformActor\(req\), reason\)/);

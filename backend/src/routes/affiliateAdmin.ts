@@ -24,7 +24,8 @@ import {
 } from '../services/affiliate/ledger';
 import { mailDecision, mailPayoutRecorded } from '../services/affiliate/mail';
 import { pendingActivationTenantIds } from '../services/trialCompany';
-import { profileStatus, documentDataUrl, isDocKind } from '../services/affiliate/documents';
+// الوكيل A يملك documents.ts — لا يُستورد منه إلا توقيعا V2_SPEC §11
+import { profileStatus, documentDataUrl } from '../services/affiliate/documents';
 import { nextSettlementAt, lastCycleSummary, runSettlementCycle, SETTLEMENT_DAYS, SETTLEMENT_EVERY_DAYS } from '../services/affiliate/settlement';
 import {
   listMissedClaimsForOwner, prepareMissedClaimAccept, markMissedClaimAccepted, rejectMissedClaim, MISSED_CLAIM_STATUSES,
@@ -38,6 +39,8 @@ router.use(platformGate);
 // معرّف المنفّذ (المالك أو موظف المنصة) لأعمدة updatedBy/reviewedBy وأمثالها — ونوعه في السجلّ والدفاتر عبر platformActor
 const owner = (req: AuthRequest) => req.user!.id;
 const reasonBody = z.object({ reason: z.string().trim().min(3, 'اذكر السبب').max(500) });
+/** أنواع مستندات ملف السفير (V2_SPEC §3 DocKind) */
+const DOC_KINDS = ['national_id', 'commercial_reg'] as const;
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const riyadhDate = (s: string) => new Date(`${s}T00:00:00+03:00`);
 
@@ -306,10 +309,10 @@ router.post('/affiliates/:id/reactivate', handle(async (req, res) => {
 router.get('/affiliates/:id/documents/:kind', handle(async (req, res) => {
   const id = String(req.params.id);
   const kind = String(req.params.kind);
-  if (!isDocKind(kind)) throw new LedgerError(400, 'نوع مستندٍ غير معروف');
+  if (!(DOC_KINDS as readonly string[]).includes(kind)) throw new LedgerError(400, 'نوع مستندٍ غير معروف');
   const u = await prisma.affiliateUser.findUnique({ where: { id }, select: { id: true } });
   if (!u) throw new LedgerError(404, 'السفير غير موجود');
-  const dataUrl = await documentDataUrl(id, kind);
+  const dataUrl = await documentDataUrl(id, kind as Parameters<typeof documentDataUrl>[1]);
   if (!dataUrl) throw new LedgerError(404, 'لم يُرفع هذا المستند');
   await logEvent(prisma, { entity: 'user', entityId: id, action: 'document_viewed', ...platformActor(req), meta: { kind } });
   res.setHeader('Cache-Control', 'no-store');
