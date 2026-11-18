@@ -1,6 +1,6 @@
 // «تصفير المخزون» (طلب المالك ١ نوفمبر ٢٠٢٦) — GET /api/stock-zero/preview و POST /api/stock-zero بقاعدة مزيّفة في الذاكرة
 // تحاكي التجميعات (SQL lotsDb وstockZero) من صفوفها، ومعاملةٍ تتراجع، وخادمٍ على 127.0.0.1 (لا قاعدة ولا شبكة): من يصفّر، والتأكيد،
-// والتكرار بالـzeroRef، و«لا شيء يُصفَّر»، وأصناف اللوط، وأسطر المستودع والسيارات بدلائها، والمحذوف والمطفأ، وشرط ما بعد التصفير
+// والتكرار بالـzeroRef، و«لا شيء يُصفَّر»، والميزة مطفأة لأصناف اللوط (المفعّلة في stock-zero-lots.test.ts)، وأسطر المستودع والسيارات بدلائها، والمحذوف والمطفأ، وشرط ما بعد التصفير
 // والانشغال — مع حرّاس نصّية على التركيب في index.ts وعلى zeroRunId في سجلّات المستودع والسيارات.
 // و«تصفير سيارة مندوب واحدة» (salesRepId، ١٨ نوفمبر ٢٠٢٦): سيارته وحدها والباقي كما هو، ومندوب شركة أخرى 404، والتكرار بالمرجع.
 import { guardHits } from '../compliance/zatca/__fixtures__/z3-netguard';
@@ -165,7 +165,7 @@ function fakeDb(store: Store, o: FakeOpts = {}) {
 
   const queryRaw = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const { sql, values: vals } = render(strings, values);
-    calls.push(`query:${sql.slice(0, 60)}`);
+    calls.push(`query:${sql.slice(0, 100)}`);
     if (sql.includes('pg_try_advisory_xact_lock')) return [{ ok: !o.lockHeld }];
     if (sql.includes('FROM products') && sql.includes('FOR UPDATE')) {
       if (o.freezeError) throw o.freezeError;
@@ -394,7 +394,7 @@ test('المعاينة: المستودع والسيارات بالأساس وق�
     assert.deepEqual(d.warehouse, { enabled: true, products: 4, positiveQty: 94, negativeQty: 5, value: 120 + 50 + 48, uncostedQty: 0 });
     // r1 ماء ٢٠ (٤٠) وحليب −٣، تالف ٢ ومنتهٍ ١؛ r2 ماء ٤ (٨) وتالف حليب −١ متروك
     assert.deepEqual(d.vans, { reps: 2, products: 2, sellableQty: 24, negativeQty: 3, unsellableQty: 3, value: 48, deletedVans: 1 });
-    assert.deepEqual(d.lotBlocked, []);
+    assert.deepEqual([d.lotProducts, d.lotProductsTotal], [[], 0]);
     // r2 آخر ظهوره قبل ١٤ يوماً فلا يُعدّ جهازاً نشطاً
     assert.deepEqual(d.pendingDevices, [{ repId: 'r1', name: 'أحمد', outboxPending: 3 }]);
     assert.deepEqual([d.lastRun, d.alreadyZero, d.currencyDecimals], [null, false, 2]);
@@ -529,30 +529,20 @@ test('التأكيد: كلمةٌ خاطئة أو غائبة أو zeroRef غير 
   } finally { await s.close(); }
 });
 
-test('«تتبّع اللوط» مفعّل وصنفٌ متتبَّع له رصيد ⇒ 409 STOCK_ZERO_LOT_TRACKED بأصنافه بلا كتابة؛ والميزة مطفأة ⇒ علم الصنف لا أثر له', async () => {
-  const store = scenario({ lotTrackingEnabled: true });
-  store.products.find((p) => p.id === 'p3')!.lotTracked = true;
-  const f = fakeDb(store);
-  const s = await serve(f.db, () => ADMIN);
-  try {
-    const pv = (await s.call('GET', '/preview')).body.data;
-    assert.deepEqual(pv.lotBlocked, [{ productId: 'p3', name: 'حليب' }]);
-    const before = rowsCount(store);
-    const res = await s.call('POST', '', { confirm: 'تصفير', zeroRef: REF(50) });
-    assert.deepEqual([res.status, res.body], [409, {
-      success: false, code: 'STOCK_ZERO_LOT_TRACKED',
-      // صفحة اللوط لا تصفّر: الرسالة تدلّ على تسوية النقص بالتشغيلة في مخزون الشركة وعلى مخزون السيارات (نصّ strings.ts في الواجهة نفسه)
-      message: 'أصناف بتتبع اللوط لها رصيد صفر رصيد المستودع بتسوية نقص بالتشغيلة من مخزون الشركة وأزل رصيد السيارات من مخزون السيارات أولا',
-      data: { products: [{ productId: 'p3', name: 'حليب' }] },
-    }]);
-    assert.deepEqual(rowsCount(store), before);
-  } finally { await s.close(); }
-
+// «تتبّع اللوط» مفعّلاً تُصفَّر أصنافه تشغيلةً تشغيلة (طلب المالك ١٨ نوفمبر ٢٠٢٦ — كان 409 STOCK_ZERO_LOT_TRACKED): مختبرٌ في
+// stock-zero-lots.test.ts بقاعدةٍ مزيّفة تعرف صفوف اللوط. وهنا: الميزة مطفأة ⇒ علم الصنف لا أثر له والسلوك كما كان حرفاً
+test('«تتبّع اللوط» مطفأ ⇒ علم الصنف لا أثر له: لا رفض ولا أصناف لوط في المعاينة ولا قراءة لوط، وسطر الصنف −رصيده كما كان', async () => {
   const off = scenario({ lotTrackingEnabled: false });
   off.products.find((p) => p.id === 'p3')!.lotTracked = true;
-  const s2 = await serve(fakeDb(off).db, () => ADMIN);
+  const f = fakeDb(off);
+  const s2 = await serve(f.db, () => ADMIN);
   try {
+    const pv = (await s2.call('GET', '/preview')).body.data;
+    assert.deepEqual([pv.lotProducts, pv.lotProductsTotal, 'lotBlocked' in pv], [[], 0, false]);
     assert.equal((await s2.call('POST', '', { confirm: 'تصفير', zeroRef: REF(51) })).status, 200);
+    const e = zeroRows(off).entries[0];
+    assert.deepEqual(linesOf(off, 'entryId', e.id).find((l) => l.productId === 'p3'), { productId: 'p3', qty: 5, unitName: null, unitFactor: 1, baseQty: 5 });
+    assert.ok(!f.calls.some((c) => /van_load_item_lots|invoice_item_lots|lot_relabels|current_setting/.test(c)), 'لا قراءة لوطٍ ولا قفله');
   } finally { await s2.close(); }
 });
 

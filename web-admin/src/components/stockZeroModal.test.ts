@@ -110,7 +110,7 @@ test('التأكيد المكتوب: الزرّ معطّل حتى تساوي ا�
   const s = modal();
   assert.match(s, /export const STOCK_ZERO_CONFIRM_WORD = 'تصفير';/);
   assert.match(s, /const confirmed = typed\.trim\(\) === STOCK_ZERO_CONFIRM_WORD;/);
-  assert.match(s, /const canRun = !!p && !p\.alreadyZero && !blocked && confirmed && !run\.isPending && !previewQ\.isFetching;/);
+  assert.match(s, /const canRun = !!p && !p\.alreadyZero && confirmed && !run\.isPending && !previewQ\.isFetching;/);
   assert.match(s, /onClick=\{\(\) => run\.mutate\(\)\} disabled=\{!canRun\}/);
   assert.match(s, /className="btn-danger[^"]*">[\s\S]*?\{van \? tr\('تصفير هذه السيارة'\) : tr\('تصفير المخزون'\)\}/);
   assert.match(s, /<input id="stock-zero-confirm"[^/]*?autoComplete="off"/);
@@ -188,11 +188,14 @@ test('بعد النجاح: يُبطَل كل مفتاح أرصدةٍ وحركا�
   assert.ok(ok.indexOf('onClose()') > ok.indexOf('invalidateQueries'));
 });
 
-test('الأخطاء: رسالة الخادم مترجمةً بـtr، واللوط المانع يعيد المعاينة', () => {
+test('الأخطاء: رسالة الخادم مترجمةً بـtr، والانشغال يعيد المعاينة — ولا منع لأصناف اللوط بعد اليوم', () => {
   const s = modal();
-  const err = s.slice(s.indexOf('onError: (e: unknown) =>'), s.indexOf('const blocked'));
+  const err = s.slice(s.indexOf('onError: (e: unknown) =>'), s.indexOf('const canRun'));
+  assert.ok(err.length > 0);
   assert.match(err, /toast\.error\(msg \? tr\(msg\) : tr\('تعذر تصفير المخزون'\)\);/);
-  assert.match(err, /serverCode\(e\) === 'STOCK_ZERO_LOT_TRACKED'\) void previewQ\.refetch\(\)/);
+  assert.match(err, /serverCode\(e\) === 'STOCK_ZERO_BUSY'\) void previewQ\.refetch\(\)/);
+  // «أصناف اللوط تُصفَّر تشغيلةً تشغيلة» (١٨ نوفمبر): الخادم لا يرفضها فلا رمز ولا قائمة منعٍ في النافذة
+  assert.doesNotMatch(s, /STOCK_ZERO_LOT_TRACKED|lotBlocked|\bblocked\b/);
 });
 
 test('المعاينة: الأقسام والتحذيرات وما يمنع', () => {
@@ -206,22 +209,23 @@ test('المعاينة: الأقسام والتحذيرات وما يمنع', ()
   for (const k of [
     'سيارات مناديب محذوفين لا تُمسّ',
     'أجهزة مناديب لم ترفع مستنداتها — اطلب منهم المزامنة قبل التصفير، وإلا ظهرت فواتيرهم المتأخرة رصيداً سالباً',
-    'أصناف بتتبع اللوط لها رصيد صفر رصيد المستودع بتسوية نقص بالتشغيلة من مخزون الشركة وأزل رصيد السيارات من مخزون السيارات أولا', 'المخزون صفر الآن لا شيء للتصفير', 'آخر تصفير',
+    'أصناف بتتبع اللوط', 'تصفر كل تشغيلة بكميتها والجزء بلا تشغيلة بسطر وحده', 'أصناف أخرى بتتبع اللوط', 'غير مسمى', 'ينتهي', 'منتهي', 'تالف',
+    'المخزون صفر الآن لا شيء للتصفير', 'آخر تصفير',
     'لا يمكن التراجع عن التصفير إلا بإدخال استلامات جديدة', 'السجل والمخزون في تاريخ يبقيان بالأرقام القديمة', 'عهدة أدوات السيارات لا تتأثر بالتصفير',
   ]) assert.ok(s.includes(`tr('${k}')`), k);
-  // اللوط المانع يعطّل الزرّ (blocked في canRun) ويُخفي حقل التأكيد، ويدلّ على الطريق الحقيقي: «مخزون الشركة» و«مخزون السيارات»
-  // (صفحة اللوط عرضٌ لا تسوية فيها)
-  assert.match(s, /const blocked = lotBlocked\.length > 0;/);
-  assert.match(s, /\{!p\.alreadyZero && !blocked && \(/);
-  const box = s.slice(s.indexOf('{blocked && ('), s.indexOf('{p.lastRun && ('));
-  assert.match(box, /<Link to="\/app\/warehouse" onClick=\{onClose\}[^>]*>\{tr\('مخزون الشركة'\)\}<\/Link>/);
-  assert.match(box, /<Link to="\/app\/van-stock" onClick=\{onClose\}[^>]*>\{tr\('مخزون السيارات'\)\}<\/Link>/);
-  assert.doesNotMatch(s, /\/app\/lots|فتح صفحة اللوط|صفرها من صفحة اللوط/);
-  // والمساران حقيقيان في الموجِّه (تحت /app)
-  const app = read('App.tsx');
-  assert.ok(app.includes('<Route path="warehouse" element={<PermissionRoute permission="canManageVanStock"><CompanyWarehousePage />'));
-  assert.ok(app.includes('<Route path="van-stock" element={<PermissionRoute permission="canManageVanStock"><VanStockPage />'));
-  assert.match(read('layouts', 'MainLayout.tsx'), /to: '\/app\/warehouse'[\s\S]*?to: '\/app\/van-stock'|to: '\/app\/van-stock'[\s\S]*?to: '\/app\/warehouse'/);
+  // «أصناف اللوط تُصفَّر تشغيلةً تشغيلة» (١٨ نوفمبر): لا منع ولا إحالة إلى تسويةٍ يدوية — حقل التأكيد لكل ما ليس صفراً، وقسم أصناف اللوط
+  // بتشغيلاتها (رقمها أو «غير مسمى»، وانتهاؤها يوماً خالصاً، ودلو المرتجع المنتهي أو التالف، وكميتها والسالب أحمر) من lotProducts
+  assert.match(s, /\{!p\.alreadyZero && \(\s*<div>\s*<label htmlFor="stock-zero-confirm"/);
+  assert.match(s, /const lotProducts = p\?\.lotProducts \?\? \[\];/);
+  const box = s.slice(s.indexOf('{lotProducts.length > 0 && ('), s.indexOf('{p.lastRun && ('));
+  assert.ok(box.length > 0, 'قسم أصناف اللوط غائب');
+  for (const f of [
+    "{tr('أصناف بتتبع اللوط')}", "{tr('تصفر كل تشغيلة بكميتها والجزء بلا تشغيلة بسطر وحده')}", "{l.lotNumber ?? tr('غير مسمى')}",
+    "formatDayOnly(l.expiryDate)", "l.bucket === 'EXPIRED' ? tr('منتهي') : tr('تالف')", 'fmtQty(l.qty)', "l.qty < 0 ? 'text-red-600'",
+    'p.lotProductsTotal > lotProducts.length', "{tr('أصناف أخرى بتتبع اللوط')}",
+    "it.place === 'WAREHOUSE' ? tr('المستودع المركزي') : `${tr('سيارة المندوب')}: ${it.repName ?? ''}`",
+  ]) assert.ok(box.includes(f), f);
+  assert.doesNotMatch(s, /\/app\/lots|فتح صفحة اللوط|صفرها من صفحة اللوط|<Link\b/);
   // الأجهزة المعلّقة تحذيرٌ لا منع
   assert.doesNotMatch(s.slice(s.indexOf('const canRun'), s.indexOf(';', s.indexOf('const canRun'))), /pending/);
   // التحذير الأحمر قبل الكتابة
@@ -236,7 +240,8 @@ test('«تصفير سيارة مندوب واحدة» (١٨ نوفمبر): زر�
   assert.match(s, /queryFn: async \(\) => \(await stockZeroApi\.preview\(salesRepId\)\)\.data\.data as StockZeroPreview,/);
   assert.match(s, /\{van \? `\$\{tr\('تصفير سيارة المندوب'\)\}: \$\{name\}` : tr\('تصفير المخزون'\)\}/);
   assert.match(s, /const name = p\?\.salesRep\?\.name \|\| repName \|\| '';/);
-  assert.match(s, /\{!van && \(\s*<div className="flex flex-wrap gap-x-4 gap-y-1">\s*<Link to="\/app\/warehouse"/);
+  // سيارةٌ واحدة: أصناف اللوط بلا وسم موقعها (كلها في سيارته)
+  assert.match(s, /\{!van && <span className="font-normal text-\[#9A8F7E\]"> — \{it\.place === 'WAREHOUSE'/);
   // التأكيد بالكلمة نفسها والزرّ بالشرط نفسه في الحالين — والشطب لا يعود إلى المستودع (تحذير)
   assert.equal(s.match(/const confirmed = /g)?.length, 1);
   assert.ok(s.includes("{van && <p>{tr('بضاعة السيارة لا تعود إلى المستودع لإرجاعها سجل تنزيلا بدلا من التصفير')}</p>}"));
@@ -295,7 +300,7 @@ test('القاموس: كل عبارة جديدة ورسائل الخادم حر�
     // رسائل الخادم (routes/stockZero.ts) — تُعرض بـtr(message)
     'هذا الإجراء غير متاح بمفتاح API', 'تصفير المخزون لمدير الشركة وحده', 'تصفير المخزون لمدير الشركة غير المقيد بنطاق',
     'اكتب كلمة التأكيد تصفير', 'تصفير آخر قيد التنفيذ انتظر ثم أعد المحاولة',
-    'أصناف بتتبع اللوط لها رصيد صفر رصيد المستودع بتسوية نقص بالتشغيلة من مخزون الشركة وأزل رصيد السيارات من مخزون السيارات أولا', 'المخزون مشغول بحركة أخرى أعد المحاولة بعد لحظات',
+    'المخزون مشغول بحركة أخرى أعد المحاولة بعد لحظات',
   ];
   // وكل tr('…') عربيٌّ في النافذة مدخلٌ في القاموس
   const used = [...modal().matchAll(/\btr\('([^']+)'\)/g)].map(m => m[1]);

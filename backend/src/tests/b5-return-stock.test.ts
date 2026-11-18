@@ -299,7 +299,7 @@ test('تصفير المخزون: تسوية المستودع تُكتب بمصد
   } as unknown as StockZeroWriteTx;
   const plan: StockZeroPlan = {
     warehouse: { enabled: true, lines: [{ productId: 'a', balance: 70 }, { productId: 'b', balance: -3 }] },
-    vans: [], lotBlocked: [], skipped: { deletedVans: 0, negativeUnsellable: 0 }, alreadyZero: false,
+    vans: [], skipped: { deletedVans: 0, negativeUnsellable: 0 }, alreadyZero: false,
   };
   const out = await writeStockZero(tx, { tenantId: 't1', runId: 'run-1', plan, createdBy: 'مدير' });
   assert.deepEqual(out, { entryId: 'we-1', vanLoads: 0 });

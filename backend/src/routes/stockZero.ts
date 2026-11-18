@@ -21,6 +21,11 @@
 //   تُصفَّر سيارة هذا المندوب وحدها (ومنه الموقوف)، والمستودع وبقية السيارات لا تُمسّ، والتشغيلة warehouseZeroed = false وملخّصها
 //   scope: 'VAN' باسم المندوب. مندوبٌ من شركة أخرى أو محذوف ⇒ 404 STOCK_ZERO_REP_NOT_FOUND. والحرّاس والقفل الاستشاري (واحدٌ للشركة:
 //   تصفير سيارةٍ وتصفير الشركة لا يتزامنان) وتجميد الأصناف وzeroRef والتحقق بعد الكتابة كما هي حرفاً.
+// «أصناف اللوط تُصفَّر تشغيلةً تشغيلة» (طلب المالك ١٨ نوفمبر ٢٠٢٦ — كان 409 STOCK_ZERO_LOT_TRACKED): والميزة مفعّلة يُؤخذ طابور
+//   أصناف اللوط داخل العملية قبل طلب اتصال المعاملة (acquireLotQueue، D29)، وداخلها بعد تجميد الأصناف FOR UPDATE قفلُ اللوط الاستشاري
+//   لكل صنفٍ متتبَّع بترتيب المفتاح على الصفوف المقفلة نفسها (lockLotProducts بـlockedRows — موضع قفل اللوط الوحيد، وترتيب المنصّة:
+//   صفوف الأصناف ثم أقفال اللوط)، والمتتبَّع تحت القفل هو المرجع (D25). ثم أرصدة التشغيلات في الخطة والكتابة والتحقق بعدها
+//   (services/stockZero.ts)، والمعاينة تعرض أصناف اللوط بتشغيلاتها. والميزة مطفأة: لا طابور ولا قفل لوط ولا قراءة — كما كان.
 // الاعتماديات مُحقنة (createStockZeroRouter) فتختبرها tests/stock-zero.test.ts بقاعدة مزيّفة في الذاكرة بلا شبكة.
 // ============================================================================
 import { NextFunction, RequestHandler, Response, Router } from 'express';
@@ -29,12 +34,13 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import prisma from '../config/database';
 import { actorOf, authenticate, isOwnerSession, requireAccounting, requireAdmin, tenantId as tenantIdOf } from '../middleware/auth';
 import { adminScopeEnabled } from '../services/adminScope';
+import { acquireLotQueue, lockLotProducts } from '../services/lotsDb';
 import { isStaffImpersonation } from '../services/platformAccess';
 import { tenantCurrencyDecimals } from '../services/warehouseStock';
 import {
-  PENDING_DEVICE_DAYS, STOCK_ZERO_CONFIRM_WORD, STOCK_ZERO_SUPPORT_NAME, StockZeroError,
-  alreadyZeroResult, isStockZeroBusy, loadValuation, loadZeroBalances, planStockZero, residualsOf, runSummaryOf, stockZeroAuditLine, totalsOf,
-  vanLoadCountOf, writeStockZero, type StockZeroRep, type ZeroProduct,
+  PENDING_DEVICE_DAYS, STOCK_ZERO_CONFIRM_WORD, STOCK_ZERO_LOT_PREVIEW_LIMIT, STOCK_ZERO_SUPPORT_NAME, StockZeroError,
+  alreadyZeroResult, isStockZeroBusy, loadValuation, loadZeroBalances, lotPreviewOf, planStockZero, residualsOf, runSummaryOf, stockZeroAuditLine,
+  totalsOf, vanLoadCountOf, writeStockZero, type StockZeroRep, type ZeroProduct,
 } from '../services/stockZero';
 import type { AuthRequest } from '../types';
 
@@ -72,7 +78,7 @@ function repQueryOf(req: AuthRequest): string | null | undefined {
 /** حدّ أسطر البقيّة في سجلّ الخادم — ألف صنفٍ متبقٍّ لا يُغرق السجلّ */
 const RESIDUAL_LOG_LIMIT = 20;
 
-// بيانات رفضٍ للواجهة (أصناف اللوط) وحدها: بيانات 5xx (أسطر البقيّة) للسجلّ لا للعميل
+// بيانات رفضٍ دون 5xx وحدها للعميل: بيانات 5xx (أسطر البقيّة) للسجلّ لا للعميل
 const reply = (res: Response, e: StockZeroError) => {
   res.status(e.status).json({ success: false, code: e.code, message: e.message, ...(e.data !== undefined && e.status < 500 && { data: e.data }) });
 };
@@ -127,7 +133,7 @@ export function createStockZeroRouter(deps: StockZeroDeps): Router {
     return z?.zeroRunId ? db.stockZeroRun.findFirst({ where: { id: z.zeroRunId, tenantId: tid }, select: LAST_RUN_SELECT }) : null;
   };
 
-  // المعاينة: ما سيُصفَّر وقيمته، وما يمنع التنفيذ (أصناف اللوط)، وما يستحقّ التنبيه (أجهزة بصندوقٍ صادر)، وآخر تصفير.
+  // المعاينة: ما سيُصفَّر وقيمته، وأصناف اللوط بتشغيلاتها كما ستُصفَّر، وما يستحقّ التنبيه (أجهزة بصندوقٍ صادر)، وآخر تصفير.
   // وبـ?salesRepId= سيارة ذلك المندوب وحدها: لا مستودع ولا سيارات أخرى ولا محذوفين، وجهازه هو، وآخر تصفيرٍ مسّ سيارته
   router.get('/preview', async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
@@ -142,14 +148,20 @@ export function createStockZeroRouter(deps: StockZeroDeps): Router {
         // كل الأصناف ومنها المعطّلة: بضاعتها قد تبقى في المستودع أو السيارات
         db.product.findMany({ where: { tenantId: tid }, select: { id: true, name: true, lotTracked: true }, orderBy: { id: 'asc' } }),
         // كل المناديب القائمين ومنهم الموقوفون — سيارة الموقوف تُصفَّر أيضاً (أو المندوب المختار وحده)
-        rep ? [{ id: rep.id }] : db.salesRep.findMany({ where: { tenantId: tid }, select: { id: true } }),
+        rep ? [{ id: rep.id, name: rep.name }] : db.salesRep.findMany({ where: { tenantId: tid }, select: { id: true, name: true } }),
         rep ? lastVanRunOf(tid, rep.id) : db.stockZeroRun.findFirst({ where: { tenantId: tid }, orderBy: { createdAt: 'desc' }, select: LAST_RUN_SELECT }),
         deps.decimals(tid),
       ]);
-      const balances = await loadZeroBalances(db, tid, { productIds: products.map((p) => p.id), repIds: reps.map((r) => r.id) }, { vansOnly: !!rep });
+      const lotsOn = tenant?.lotTrackingEnabled === true;
+      // «تتبّع اللوط»: تشغيلات الأصناف المتتبَّعة وبطاقاتها (رقمها وانتهاؤها) للعرض — قراءةٌ بلا قفل (المعاينة عرضٌ لا عقد)
+      const lotProductIds = lotsOn ? products.filter((p) => p.lotTracked === true).map((p) => p.id) : [];
+      const balances = await loadZeroBalances(db, tid, { productIds: products.map((p) => p.id), repIds: reps.map((r) => r.id), lotProductIds }, { vansOnly: !!rep, lotMetas: true });
       const plan = planStockZero({
         // سيارةٌ واحدة: المستودع خارج النطاق كأنه مطفأ — لا سطر له ولا قسم في المعاينة
-        products, warehouseEnabled: !rep && tenant?.warehouseEnabled === true, lotTrackingEnabled: tenant?.lotTrackingEnabled === true, balances,
+        products, warehouseEnabled: !rep && tenant?.warehouseEnabled === true, lotTrackingEnabled: lotsOn, balances,
+      });
+      const lotItems = lotPreviewOf(plan, {
+        metas: balances.lots?.metas ?? new Map(), productNames: new Map(products.map((p) => [p.id, p.name])), repNames: new Map(reps.map((r) => [r.id, r.name])),
       });
       const totals = totalsOf(plan, await loadValuation(db, tid, dec));
       const since = new Date(now().getTime() - PENDING_DEVICE_DAYS * 86_400_000);
@@ -163,7 +175,8 @@ export function createStockZeroRouter(deps: StockZeroDeps): Router {
           ...(rep && { scope: 'VAN', salesRep: rep }),
           warehouse: totals.warehouse,
           vans: totals.vans,
-          lotBlocked: plan.lotBlocked,
+          lotProducts: lotItems.slice(0, STOCK_ZERO_LOT_PREVIEW_LIMIT),
+          lotProductsTotal: lotItems.length,
           pendingDevices: pending.map((r) => ({ repId: r.id, name: r.name, outboxPending: r.outboxPending ?? 0 })),
           lastRun: lastRun ? { id: lastRun.id, createdAt: lastRun.createdAt, actorName: lastRun.actorName } : null,
           alreadyZero: plan.alreadyZero,
@@ -197,6 +210,13 @@ export function createStockZeroRouter(deps: StockZeroDeps): Router {
       const actorId = actorOf(req);
       const actorName = owner ? STOCK_ZERO_SUPPORT_NAME : (req.user?.name ?? '');
 
+      // «تتبّع اللوط»: طابور أصناف اللوط المتتبَّعة (القراءة المسبقة) داخل العملية قبل طلب اتصال المعاملة (D29) ويُحرَّر في finally —
+      // صنفٌ صار متتبَّعاً بين القراءتين يُقفل في القاعدة وحدها (lockLotProducts أدناه). الانشغال ⇒ 503 STOCK_ZERO_BUSY
+      const preLots = await db.tenant.findUnique({ where: { id: tid }, select: { lotTrackingEnabled: true } });
+      const preTracked = preLots?.lotTrackingEnabled === true
+        ? (await db.product.findMany({ where: { tenantId: tid, lotTracked: true }, select: { id: true, lotTracked: true } })).filter((p) => p.lotTracked === true).map((p) => p.id)
+        : [];
+      const releaseLots = preTracked.length ? await acquireLotQueue(tid, preTracked) : null;
       const out = await db.$transaction(async (tx) => {
         // (١) تصفيرٌ واحد للشركة في كل لحظة — المحاولة لا الانتظار: الثاني يعود فوراً 409
         const lock = await tx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(hashtext(${'stock-zero:' + tid})) AS ok`;
@@ -207,28 +227,32 @@ export function createStockZeroRouter(deps: StockZeroDeps): Router {
         // (٢) تجميد كل أصناف الشركة بترتيب المفتاح، بمهلة قفلٍ محلية: كل كاتبٍ يُدرج سطراً بالصنف ينتظر التزامنا (لا تحديثات الحالة
         //     — انظر الرأس و(٥))، وكاتبٌ عالق ⇒ 503 لا انتظار دقيقة
         await tx.$executeRaw`SELECT set_config('lock_timeout', ${STOCK_ZERO_LOCK_TIMEOUT}, true)`;
-        const products = await tx.$queryRaw<ZeroProduct[]>`SELECT id, name, "lotTracked" FROM products WHERE "tenantId" = ${tid} ORDER BY id FOR UPDATE`;
+        const products = await tx.$queryRaw<ZeroProduct[]>`SELECT id, name, "lotTracked", "lotTrackedSince" FROM products WHERE "tenantId" = ${tid} ORDER BY id FOR UPDATE`;
         const tenant = await tx.tenant.findUnique({ where: { id: tid }, select: { warehouseEnabled: true, lotTrackingEnabled: true } });
+        const lotsOn = tenant?.lotTrackingEnabled === true;
+        // «تتبّع اللوط»: قفل اللوط الاستشاري لكل صنفٍ متتبَّع بترتيب المفتاح بعد صفوف الأصناف (ترتيب المنصّة §٣.١) — على الصفوف المقفلة
+        // نفسها بلا FOR KEY SHARE ثانٍ (lockedRows)، والمتتبَّع تحت القفل هو المرجع (D25). والميزة مطفأة: لا قفل ولا قراءة لوط
+        const locked = lotsOn
+          ? await lockLotProducts(tx, tid, products.map((p) => p.id), {
+            lockedRows: products.map((p) => ({ id: p.id, lotTracked: p.lotTracked === true, lotTrackedSince: p.lotTrackedSince ?? null })),
+          })
+          : null;
         // سيارةٌ واحدة: مندوبها وحده (حذفٌ التزم منذ الفحص أعلاه ⇒ 404 بلا كتابة)، وإلا كل المناديب القائمين
         const rep = repId ? await repOf(tx, tid, repId) : null;
         if (repId && !rep) throw new StockZeroError(404, 'STOCK_ZERO_REP_NOT_FOUND');
         const reps = rep ? [{ id: rep.id }] : await tx.salesRep.findMany({ where: { tenantId: tid }, select: { id: true } });
-        const q = { productIds: products.map((p) => p.id), repIds: reps.map((r) => r.id) };
+        const q = { productIds: products.map((p) => p.id), repIds: reps.map((r) => r.id), lotProductIds: locked ? [...locked.tracked] : [] };
         const scope = { vansOnly: !!rep };
-        // (٣) الأرصدة الدقيقة تحت التجميد — لا ما قُرئ قبله. وسيارةٌ واحدة: المستودع خارج النطاق (لا تسوية، وwarehouseZeroed = false)
-        const plan = planStockZero({
-          products, warehouseEnabled: !rep && tenant?.warehouseEnabled === true, lotTrackingEnabled: tenant?.lotTrackingEnabled === true,
-          balances: await loadZeroBalances(tx, tid, q, scope),
-        });
+        // (٣) الأرصدة الدقيقة تحت التجميد — لا ما قُرئ قبله، ومعها تشغيلات الأصناف المتتبَّعة (تُصفَّر تشغيلةً تشغيلة) وبطاقاتها للملخّص.
+        //     وسيارةٌ واحدة: المستودع خارج النطاق (لا تسوية، وwarehouseZeroed = false)
+        const balances = await loadZeroBalances(tx, tid, q, { ...scope, lotMetas: true });
+        const plan = planStockZero({ products, warehouseEnabled: !rep && tenant?.warehouseEnabled === true, lotTrackingEnabled: lotsOn, balances });
         const repTag = rep ? { scope: 'VAN' as const, salesRep: rep } : {};
-        // صنفٌ متتبَّع باللوط رصيده موزّعٌ على تشغيلات: تسويةٌ إجمالية تكسر رصيد التشغيلات — يُصفَّر أولاً بتسوية نقصٍ بالتشغيلة في
-        // مخزون الشركة وإزالةٍ من مخزون السيارات (صفحة اللوط لا تصفّر)، ولا كتابة
-        if (plan.lotBlocked.length) throw new StockZeroError(409, 'STOCK_ZERO_LOT_TRACKED', { products: plan.lotBlocked });
         if (plan.alreadyZero) return { kind: 'zero' as const, data: { ...alreadyZeroResult(plan), ...repTag } };
 
         // (٤) التشغيلة ثم الحركات الموسومة بها ثم ربطها بها
         const totals = totalsOf(plan, val);
-        const summary = runSummaryOf(plan, val, totals, rep);
+        const summary = runSummaryOf(plan, val, totals, rep, balances.lots?.metas);
         const run = await tx.stockZeroRun.create({
           data: { tenantId: tid, zeroRef, actorId, actorName, impersonated: owner, warehouseZeroed: plan.warehouse.enabled, summary: summary as unknown as Prisma.InputJsonValue },
           select: { id: true },
@@ -248,12 +272,12 @@ export function createStockZeroRouter(deps: StockZeroDeps): Router {
 
         // (٥) شرط ما بعد التصفير. أولاً المستحيل: حركاتٌ مكتوبة لا تطابق الخطة خللٌ في الكود ⇒ 500 (لا تزامن يسبّبه).
         if (w.vanLoads !== vanLoadCountOf(plan)) throw new StockZeroError(500, 'STOCK_ZERO_POSTCONDITION', ['VAN_LOAD_COUNT']);
-        // ثم إعادة الحساب داخل المعاملة نفسها: بقيّةٌ ⇒ كاتبٌ لا ينتظر التجميد (إلغاء فاتورة، إعادة مخزون، إلغاء مرتجع) التزم أثناءنا
-        // ⇒ تراجعٌ كامل و503 قابلٌ للإعادة — الإعادة تقرأ رصيده الجديد فتصفّره
+        // ثم إعادة الحساب داخل المعاملة نفسها — رصيد كل صنفٍ وكل تشغيلةٍ لصنفٍ متتبَّع: بقيّةٌ ⇒ كاتبٌ لا ينتظر التجميد (إلغاء فاتورة،
+        // إعادة مخزون، إلغاء مرتجع) التزم أثناءنا ⇒ تراجعٌ كامل و503 قابلٌ للإعادة — الإعادة تقرأ رصيده الجديد فتصفّره
         const residual = residualsOf(await loadZeroBalances(tx, tid, q, scope), plan.warehouse.enabled);
         if (residual.length) throw new StockZeroError(503, 'STOCK_ZERO_BUSY', residual);
         return { kind: 'done' as const, data: result, warehouseLines: plan.warehouse.lines.length, vanLoads: w.vanLoads, salesRepId: rep?.id ?? null };
-      }, STOCK_ZERO_TX);
+      }, STOCK_ZERO_TX).finally(() => releaseLots?.());
 
       if (out.kind === 'idempotent') { res.json({ success: true, idempotent: true, data: out.data }); return; }
       if (out.kind === 'done') {
