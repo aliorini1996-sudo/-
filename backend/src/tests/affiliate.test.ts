@@ -348,7 +348,14 @@ test('الردود الموحّدة: لا تعداد حسابات في الاس�
 test('الصرف لا يكون سالباً والمنصّة لا تحرّك مالاً', () => {
   const ledger = src('services', 'affiliate', 'ledger.ts');
   assert.match(ledger, /if \(!t\.eligible\) throw new LedgerError/);
-  assert.doesNotMatch(ledger + src('routes', 'affiliateAdmin.ts'), /moyasar|createInvoice/i, 'لا تحويل من المنصّة');
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): «التسوية التلقائية» تُنشئ مسودّاتٍ وتنبّه فقط — الحارس يشمل ملفّاتها الجديدة
+  const v2 = ['settlement.ts', 'settlementMail.ts', 'materials.ts', 'missedClaims.ts'].map(f => src('services', 'affiliate', f)).join('\n');
+  assert.doesNotMatch(ledger + src('routes', 'affiliateAdmin.ts') + v2, /moyasar|createInvoice/i, 'لا تحويل من المنصّة');
+  // (strip وfnBody معرَّفان أسفل الملف — نصٌّ مباشر هنا)
+  const settle = src('services', 'affiliate', 'settlement.ts').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  assert.doesNotMatch(settle, /status: 'recorded'|recordPayout|status: 'paid'/, 'الدورة لا تسجّل تحويلاً ولا تقلب عمولةً مدفوعة — المالك يحوّل ويسجّل');
+  const cyc = ledger.slice(ledger.indexOf('export async function createCyclePayout'), ledger.indexOf('async function draftPayout'));
+  assert.match(cyc, /draftPayout\(affiliateId, SYSTEM_ACTOR, SYSTEM_ID, cycle\)/, 'دفعة الدورة مسودّةٌ منفّذها النظام');
 });
 
 
@@ -417,10 +424,21 @@ test('المصالحة مع الدفعة دالّةٌ واحدة: القفل ق�
   const voidP = fnBody(ledger, 'export async function voidPayout');
   assert.match(voidP, /"payoutId" = \$\{id\} FOR UPDATE/, 'قفل بنود المسودّة قبل قراءتها');
   assert.match(voidP, /syncCommissionTx\(tx, c\.id/);
-  const create = fnBody(ledger, 'export async function createPayout');
+  // v2: الإنشاء اليدويّ (createPayout) ودفعة الدورة (createCyclePayout) طريقٌ واحد — draftPayout
+  assert.match(fnBody(ledger, 'export async function createPayout'), /return draftPayout\(affiliateId, \{ type: by\.actorType, id: by\.actorId \}, by\.actorId, null\)/);
+  const create = fnBody(ledger, 'async function draftPayout');
   assert.match(create, /"affiliateId" = \$\{affiliateId\} AND status = 'approved' AND "payoutId" IS NULL FOR UPDATE/);
   assert.match(create, /rulesFor\(u\.termsVersion\)/, 'الحدّ الأدنى من الشروط التي قبلها السفير');
   assert.doesNotMatch(create, /!commissions\.length\) throw/, 'تصحيحٌ موجبٌ وحده يُصرف');
+  assert.match(create, /profileStatus\(affiliateId\)[\s\S]*'profile_incomplete'/, 'v2: الملف المكتمل شرطٌ للصرف');
+  assert.ok(create.indexOf('cycleKey: cycle.cycleKey }') > create.indexOf('FOR UPDATE'), 'v2: دفعةٌ واحدة لكلّ سفيرٍ في الدورة — تُفحص بعد القفل');
+  // فشل التحويل يفكّ البنود كالإلغاء تماماً
+  const fail = fnBody(ledger, 'export async function failPayout');
+  assert.match(fail, /"payoutId" = \$\{id\} FOR UPDATE/, 'قفل بنود المسودّة قبل قراءتها');
+  assert.match(fail, /where: \{ id, status: 'draft' \}, data: \{ status: 'failed', failedReason: reason, failedAt: now \}/);
+  assert.match(fail, /syncCommissionTx\(tx, c\.id/);
+  assert.match(fail, /deleteMany\(\{ where: \{ commissionId: c\.id, kind: 'clawback_refund', payoutId: null \} \}\)/, 'الثابت: لا قيد استرداد لعمولةٍ غير ملتزَمٍ بها');
+  assert.match(fail, /mailPayoutFailed\(/, 'بريد «تعذّر التحويل» للسفير');
 });
 
 test('الاسترداد الجزئي يُحفظ على الرابط أوّلاً، وتلتقطه المصالحة والعمولة الجديدة', () => {
@@ -518,7 +536,26 @@ test('المخطّط: أعمدة المصدر والتحمّل والمهلة', 
   assert.match(link, /refundedHalalas\s+Int\s+@default\(0\)/, 'عمودٌ إضافيّ بقيمةٍ افتراضية — db push بلا فقد بيانات');
   assert.match(schema, /clawbackAffiliateId\s+String\?/);
   assert.match(schema, /lastMailAt\s+DateTime\?/);
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): الحجز ١٠ أيام يأتي من قواعد الشروط v4 لقطةً على كلّ إسنادٍ جديد —
+  // افتراضيّ العمود يبقى 30 في المخطّط المقفل، فالإسنادات القائمة لا تُمسّ (V2_SPEC §1.3 و§12)
   assert.match(schema, /holdDays\s+Int\s+@default\(30\)/);
+});
+
+test('المخطّط v2: الدورة وفشل التحويل والمطالبات والمواد — أعمدةٌ اختيارية وجداول جديدة فقط', () => {
+  const schema = read('prisma', 'schema.prisma');
+  const model = (name: string) => {
+    const i = schema.indexOf(`model ${name} {`);
+    assert.ok(i >= 0, name);
+    return schema.slice(i, schema.indexOf('\n}', i));
+  };
+  const payout = model('AffiliatePayout');
+  for (const col of ['cycleKey', 'failedReason']) assert.match(payout, new RegExp(`${col}\\s+String\\?`), col);
+  for (const col of ['periodStart', 'periodEnd', 'failedAt']) assert.match(payout, new RegExp(`${col}\\s+DateTime\\?`), col);
+  assert.match(payout, /draft\|recorded\|void\|failed/);
+  assert.match(model('AffiliateMissedClaim'), /status\s+String\s+@default\("under_review"\)/);
+  assert.match(model('AffiliateMaterialBlob'), /bytes\s+Bytes/);
+  assert.match(model('AffiliateDocumentBlob'), /enc\s+Bytes/);
+  assert.match(model('OpsMarker'), /key\s+String\s+@id/, 'علامة الدورة ax-settle:<cycleKey> فريدةٌ بالمفتاح');
 });
 
 
@@ -529,9 +566,17 @@ test('الدفعة الأولى فقط: المصالحة تُوقف عمولةً
   const sync = fnBody(ledger, 'async function syncCommissionTx');
   assert.match(sync, /paidAt: \{ not: null, lt: c\.paymentPaidAt \}/, 'فحص الدفعة الأقدم في نقطة كلّ قرارٍ ماليّ');
   assert.match(sync, /return 'held_earlier'/);
-  const approve = fnBody(ledger, 'export async function approveCommission');
+  // v2: الاعتماد اليدويّ والتلقائيّ يمرّان من فحوصٍ واحدة (approveAs)
+  assert.match(fnBody(ledger, 'export async function approveCommission'), /return approveAs\(id, \{ type: by\.actorType, id: by\.actorId \}, by\.actorId, new Date\(\)\)/);
+  const approve = ledger.slice(ledger.indexOf('async function approveAs'), ledger.indexOf('export const SYSTEM_ACTOR'));
   assert.match(approve, /'earlier_payment'/, 'لا اعتماد لعمولةٍ ليست على الدفعة الأولى');
   assert.match(approve, /'sync_failed'/, 'فشل المطابقة لا يمرّر الاعتماد');
+  for (const code of ['hold_not_over', 'attribution_not_active', 'affiliate_not_approved', 'zero_commission', 'not_pending']) assert.match(approve, new RegExp(`'${code}'`), code);
+  const auto = fnBody(ledger, 'export async function autoApproveEligible');
+  assert.match(auto, /approveAs\(r\.id, SYSTEM_ACTOR, SYSTEM_ID, now\)/, 'التلقائيّ بفحوص اليدويّ نفسها ومنفّذه النظام');
+  assert.match(auto, /status: 'pending', eligibleAt: \{ lte: now \}/);
+  assert.match(ledger, /export const SYSTEM_ACTOR: Actor = \{ type: 'system', id: null \}/);
+  assert.match(ledger, /export const SYSTEM_ID = 'system'/);
   const accrue = fnBody(ledger, 'export async function accrueForPayment');
   for (const r of ['earlier_payment_committed', 'earlier_payment_no_commission', 'earlier_payment_linked']) {
     assert.match(accrue, new RegExp(`'${r}'`), `السبب يصف ما حدث فعلاً: ${r}`);
