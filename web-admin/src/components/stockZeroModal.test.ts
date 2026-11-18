@@ -40,9 +40,12 @@ function gateOf(src: string): (me: Me, impersonating: string | null, staff: bool
     new Function('me', 'impersonating', 'isStaffImpersonationClient', `return ${m[1]};`)(me, impersonating, () => staff) as boolean;
 }
 
-test('العميل: stockZeroApi بمساريه — المعاينة GET والتنفيذ POST بكلمة التأكيد وzeroRef', () => {
+test('العميل: stockZeroApi بمساريه — المعاينة GET والتنفيذ POST بكلمة التأكيد وzeroRef، وsalesRepId لسيارةٍ واحدة يُرسَل حين يوجد وحده', () => {
   const s = read('api', 'client.ts');
-  assert.match(s, /export const stockZeroApi = \{\n  preview: \(\) => api\.get\('\/stock-zero\/preview'\),\n  run: \(confirm: string, zeroRef: string\) => api\.post\('\/stock-zero', \{ confirm, zeroRef \}\),\n\};/);
+  const block = s.slice(s.indexOf('export const stockZeroApi = {'), s.indexOf('};', s.indexOf('export const stockZeroApi = {')) + 2);
+  assert.ok(block.includes("preview: (salesRepId?: string) => api.get('/stock-zero/preview', salesRepId ? { params: { salesRepId } } : undefined),"), block);
+  // غائبٌ ⇒ الجسم كما كان حرفاً (الشركة كلها)؛ والخادم يرفض null والفارغ (400) فلا يُرسَلان أبداً
+  assert.ok(block.includes("run: (confirm: string, zeroRef: string, salesRepId?: string) => api.post('/stock-zero', salesRepId ? { confirm, zeroRef, salesRepId } : { confirm, zeroRef }),"), block);
 });
 
 test('الإظهار: مدير الشركة غير المقيَّد أو جلسة المالك — في الصفحتين، والنافذة خلف الشرط نفسه', () => {
@@ -53,7 +56,8 @@ test('الإظهار: مدير الشركة غير المقيَّد أو جلس�
     assert.ok(s.includes("import { useAuthStore, isStaffImpersonationClient } from '../store/authStore';"), name);
     assert.match(s, /\{canZeroStock && \(\s*<button type="button" onClick=\{\(\) => setShowZero\(true\)\}[^>]*>\s*<Eraser size=\{1\d\} \/> \{tr\('تصفير المخزون'\)\}/, `${name}: الزرّ بلا شرط`);
     assert.ok(s.includes('{showZero && canZeroStock && <StockZeroModal onClose={() => setShowZero(false)} />}'), name);
-    assert.equal(s.match(/<StockZeroModal\b/g)?.length, 1, name);
+    // «مخزون السيارات» نافذتان: الشركة كلها، وسيارة المندوب المختار (salesRepId)
+    assert.equal(s.match(/<StockZeroModal\b/g)?.length, name === 'van' ? 2 : 1, name);
   }
   // في «مخزون الشركة» بجانب «استلام / تسوية»
   const w = wh();
@@ -108,11 +112,11 @@ test('التأكيد المكتوب: الزرّ معطّل حتى تساوي ا�
   assert.match(s, /const confirmed = typed\.trim\(\) === STOCK_ZERO_CONFIRM_WORD;/);
   assert.match(s, /const canRun = !!p && !p\.alreadyZero && !blocked && confirmed && !run\.isPending && !previewQ\.isFetching;/);
   assert.match(s, /onClick=\{\(\) => run\.mutate\(\)\} disabled=\{!canRun\}/);
-  assert.match(s, /className="btn-danger[^"]*">[\s\S]*?\{tr\('تصفير المخزون'\)\}/);
+  assert.match(s, /className="btn-danger[^"]*">[\s\S]*?\{van \? tr\('تصفير هذه السيارة'\) : tr\('تصفير المخزون'\)\}/);
   assert.match(s, /<input id="stock-zero-confirm"[^/]*?autoComplete="off"/);
   assert.ok(s.includes("{tr('اكتب كلمة التأكيد: تصفير')}"));
   // ما يُرسَل هو المكتوب نفسه (مقصوصاً) — لا الثابت، فالخادم يحكم على ما كتبه المدير
-  assert.match(s, /stockZeroApi\.run\(typed\.trim\(\), zeroRef\)/);
+  assert.match(s, /stockZeroApi\.run\(typed\.trim\(\), zeroRef, salesRepId\)/);
 });
 
 test('zeroRef: يُولَّد مرةً لكل فتح (مُهيِّئ useState) ويُعاد كما هو مع كل محاولة', () => {
@@ -176,7 +180,7 @@ test('بعد النجاح: يُبطَل كل مفتاح أرصدةٍ وحركا�
     'van-summary', 'van-current', 'van-movements', 'van-loads-log', 'van-suggest', 'locations-summary',
     'van-lot-balances', 'lot-balances-wh', 'lot-balances-van', 'lot-balances-load', 'lot-fefo', 'lots-of-product', 'lots',
   ]);
-  assert.match(modal(), /queryKey: \['stock-zero-preview'\],[\s\S]{0,120}gcTime: 0,/);
+  assert.match(modal(), /queryKey: \['stock-zero-preview', salesRepId \?\? null\],[\s\S]{0,140}gcTime: 0,/);
   const ok = s.slice(s.indexOf('onSuccess: (r) =>'), s.indexOf('onError:'));
   assert.match(ok, /STOCK_ZERO_INVALIDATE_KEYS\.forEach\(k => qc\.invalidateQueries\(\{ queryKey: \[k\] \}\)\);/);
   assert.ok(ok.includes("tr('تم تصفير المخزون')") && ok.includes('r.warehouse.products') && ok.includes('r.vans.reps') && ok.includes('r.vans.products'));
@@ -193,7 +197,7 @@ test('الأخطاء: رسالة الخادم مترجمةً بـtr، واللو
 
 test('المعاينة: الأقسام والتحذيرات وما يمنع', () => {
   const s = modal();
-  assert.match(s, /queryKey: \['stock-zero-preview'\]/);
+  assert.match(s, /queryKey: \['stock-zero-preview', salesRepId \?\? null\]/);
   assert.match(s, /\{p\.warehouse\.enabled && \(/, 'قسم المستودع بلا شرط تفعيله');
   for (const f of ['p.warehouse.products', 'p.warehouse.positiveQty', 'p.warehouse.negativeQty', 'p.warehouse.value', 'p.warehouse.uncostedQty',
     'p.vans.reps', 'p.vans.products', 'p.vans.sellableQty', 'p.vans.negativeQty', 'p.vans.unsellableQty', 'p.vans.value', 'p.vans.deletedVans', 'p.lastRun.actorName']) {
@@ -222,6 +226,50 @@ test('المعاينة: الأقسام والتحذيرات وما يمنع', ()
   assert.doesNotMatch(s.slice(s.indexOf('const canRun'), s.indexOf(';', s.indexOf('const canRun'))), /pending/);
   // التحذير الأحمر قبل الكتابة
   assert.match(s, /<div role="alert"/);
+});
+
+test('«تصفير سيارة مندوب واحدة» (١٨ نوفمبر): زرّ «تصفير هذه السيارة» في تفصيل المندوب وفي شاشة تحميله على الجوال بالشرط نفسه، والنافذة بسيارته وحدها', () => {
+  const s = modal();
+  // النافذة: salesRepId يحدّد النطاق في المعاينة والتنفيذ، والعنوان باسم المندوب، ولا روابط تُخرج الجوال إلى اللوحة
+  assert.match(s, /export default function StockZeroModal\(\{ onClose, salesRepId, repName, onZeroed \}/);
+  assert.match(s, /const van = !!salesRepId;/);
+  assert.match(s, /queryFn: async \(\) => \(await stockZeroApi\.preview\(salesRepId\)\)\.data\.data as StockZeroPreview,/);
+  assert.match(s, /\{van \? `\$\{tr\('تصفير سيارة المندوب'\)\}: \$\{name\}` : tr\('تصفير المخزون'\)\}/);
+  assert.match(s, /const name = p\?\.salesRep\?\.name \|\| repName \|\| '';/);
+  assert.match(s, /\{!van && \(\s*<div className="flex flex-wrap gap-x-4 gap-y-1">\s*<Link to="\/app\/warehouse"/);
+  // التأكيد بالكلمة نفسها والزرّ بالشرط نفسه في الحالين — والشطب لا يعود إلى المستودع (تحذير)
+  assert.equal(s.match(/const confirmed = /g)?.length, 1);
+  assert.ok(s.includes("{van && <p>{tr('بضاعة السيارة لا تعود إلى المستودع لإرجاعها سجل تنزيلا بدلا من التصفير')}</p>}"));
+  const ok = s.slice(s.indexOf('onSuccess: (r) =>'), s.indexOf('onError:'));
+  assert.ok(ok.indexOf('onZeroed?.()') > ok.indexOf('invalidateQueries') && ok.indexOf('onZeroed?.()') < ok.indexOf('onClose()'));
+
+  // «مخزون السيارات»: في رأس تفصيل المندوب المختار، بشرط زرّ الشركة نفسه (canZeroStock)
+  const v = van();
+  assert.match(v, /const \[zeroRep, setZeroRep\] = useState<\{ id: string; name: string \} \| null>\(null\);/);
+  const head = v.slice(v.indexOf("{tr('مخزون المندوب الحالي')} — {selectedRep.repName}"), v.indexOf('{currentQ.isLoading ?'));
+  assert.match(head, /\{canZeroStock && \(\s*<button type="button" onClick=\{\(\) => setZeroRep\(\{ id: selectedRep\.salesRepId, name: selectedRep\.repName \}\)\}[^>]*>\s*<Eraser size=\{14\} \/> \{tr\('تصفير هذه السيارة'\)\}/);
+  assert.ok(v.includes('{zeroRep && canZeroStock && <StockZeroModal salesRepId={zeroRep.id} repName={zeroRep.name} onClose={() => setZeroRep(null)} />}'));
+
+  // الجوال (/m): شاشة تحميل المندوب — قسم «مخزون المندوب الحالي» — بالشرط نفسه حرفاً، وبعد التصفير مفاتيح الجوال واللوحة معاً
+  const m = read('m', 'MRepLoad.tsx');
+  assert.ok(m.includes(GATE), 'شرط الإظهار في /m تغيّر');
+  assert.ok(m.includes("import { useAuthStore, isStaffImpersonationClient } from '../store/authStore';"));
+  assert.ok(m.includes("const StockZeroModal = lazy(() => import('../components/StockZeroModal'));"));
+  assert.match(m, /\{canZeroStock && \(\s*<button type="button" onClick=\{\(\) => setZeroOpen\(true\)\}[^>]*>\s*<Eraser size=\{13\} \/> \{tr\('تصفير هذه السيارة'\)\}/);
+  assert.ok(m.includes('<StockZeroModal salesRepId={rep.id} repName={rep.name} onZeroed={invalidateVanStock} onClose={() => setZeroOpen(false)} />'));
+  assert.match(m, /\{zeroOpen && canZeroStock && \(/);
+  assert.ok(m.includes('useBackClose(zeroOpen, () => setZeroOpen(false));'));
+  const gate = gateOf(m);
+  assert.equal(gate({ role: 'ADMIN' }, null, false), true);
+  assert.equal(gate({ role: 'ADMIN', scopeEnabled: true }, null, false), false);
+  assert.equal(gate({ role: 'ADMIN' }, 'Co', true), false);
+
+  // القاموس: العبارات الجديدة ورسالة الخادم (STOCK_ZERO_REP_NOT_FOUND) بلغاتها الأربع
+  const dict = read('i18n', 'strings.ts');
+  for (const k of ['تصفير هذه السيارة', 'تصفير سيارة المندوب', 'تم تصفير سيارة المندوب', 'المندوب غير موجود']) {
+    const esc = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    assert.equal(dict.match(new RegExp(`^  '${esc}': \\{ en: '[^']+', fr: '[^']+', tr: '[^']+', zh: '[^']+' \\},$`, 'gm'))?.length, 1, k);
+  }
 });
 
 test('السجلّ: تسوية التصفير شارةٌ حمراء وأصنافها مطويّة «N صنف»، وحركة السيارة موسومة', () => {

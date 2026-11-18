@@ -227,6 +227,8 @@ export default function VanStockPage() {
   // «دخول» موظف المنصة دوره ADMIN و`impersonating` قائم — يُستثنى من الفرعين فالخادم يرفضه دائماً (٤٠٣)، ومديرٌ نُزعت منه «تحميل مخزون السيارة» يرفضه كذلك
   const canZeroStock = !isStaffImpersonationClient() && ((me?.role === 'ADMIN' && !me?.scopeEnabled && me?.canManageVanStock !== false) || !!impersonating);
   const [showZero, setShowZero] = useState(false);
+  // «تصفير سيارة مندوب واحدة» (طلب المالك ١٨ نوفمبر ٢٠٢٦): من تفصيل المندوب المختار، بالشرط نفسه — النافذة نفسها بسيارته وحدها
+  const [zeroRep, setZeroRep] = useState<{ id: string; name: string } | null>(null);
 
   // مخزون السيارة بضاعةٌ وقيمة: صفحته تُمنع مع المحاسبة، ومسار /van-stock
   // محروسٌ بالخادم فكلّ طلبٍ هنا كان سيعود ٤٠٣ بلافتة خطأ.
@@ -525,6 +527,12 @@ export default function VanStockPage() {
           <div className="card p-0 overflow-hidden">
             <div className="px-5 py-3.5 border-b border-[#F1EBDF] font-bold text-[#1F1A13] text-sm flex items-center gap-2">
               <Package size={17} className="text-[#E15A30]" /> {tr('مخزون المندوب الحالي')} — {selectedRep.repName}
+              {canZeroStock && (
+                <button type="button" onClick={() => setZeroRep({ id: selectedRep.salesRepId, name: selectedRep.repName })}
+                  className="ms-auto inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-semibold text-[#C0392B] hover:bg-red-50">
+                  <Eraser size={14} /> {tr('تصفير هذه السيارة')}
+                </button>
+              )}
             </div>
             {currentQ.isLoading ? (
               <div className="p-8 text-center text-gray-400 text-sm">{tr('جار التحميل')}</div>
@@ -631,6 +639,7 @@ export default function VanStockPage() {
       {showLoad && <LoadModal preselectRep={selected} lotOn={lotOn} whOn={whOn} onClose={() => setShowLoad(false)} />}
       {showAccuracy && <AccuracyModal preselectRep={selected} qv={qv} onClose={() => setShowAccuracy(false)} />}
       {showZero && canZeroStock && <StockZeroModal onClose={() => setShowZero(false)} />}
+      {zeroRep && canZeroStock && <StockZeroModal salesRepId={zeroRep.id} repName={zeroRep.name} onClose={() => setZeroRep(null)} />}
       {noticeMv && <DocumentModal doc={withMovementLots(loadNoticeDocFromData(repName, noticeMv, companyQ.data ?? null), noticeMv, lotOn)} onClose={() => setNoticeMv(null)} />}
       {toolsRep && <ToolsModal repId={toolsRep.salesRepId} repName={toolsRep.repName} onClose={() => setToolsRep(null)} />}
       {toolsGone && <ToolsModal deleted repId={toolsGone.deletedSalesRepId} repName={tr('مندوب محذوف')} onClose={() => setToolsGone(null)} />}

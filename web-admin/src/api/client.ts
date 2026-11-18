@@ -865,8 +865,9 @@ export interface WarehouseEntryPurchaseFields {
 // المعاينة أرقامٌ تُعرض قبل الكتابة؛ والتنفيذ بكلمة التأكيد «تصفير» وzeroRef (uuid) يُولَّد مرةً لكل فتحٍ للنافذة ويُعاد مع
 // كل محاولة — فإعادة الإرسال بعد انقطاعٍ تعود بنتيجة التصفير نفسه (idempotent) لا بتصفيرٍ ثانٍ
 export const stockZeroApi = {
-  preview: () => api.get('/stock-zero/preview'),
-  run: (confirm: string, zeroRef: string) => api.post('/stock-zero', { confirm, zeroRef }),
+  // salesRepId («تصفير سيارة مندوب واحدة»، طلب المالك ١٨ نوفمبر ٢٠٢٦): سيارته وحدها — غائبٌ = المستودع وكل السيارات
+  preview: (salesRepId?: string) => api.get('/stock-zero/preview', salesRepId ? { params: { salesRepId } } : undefined),
+  run: (confirm: string, zeroRef: string, salesRepId?: string) => api.post('/stock-zero', salesRepId ? { confirm, zeroRef, salesRepId } : { confirm, zeroRef }),
 };
 
 // «تتبّع اللوط» — /api/lots (ميزة يفعّلها المالك لكل شركة؛ ٤٠٣ LOTS_NOT_ALLOWED دونها، والمسارات بصلاحية مخزون السيارات).

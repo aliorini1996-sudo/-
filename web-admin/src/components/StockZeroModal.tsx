@@ -14,6 +14,10 @@ import { newUuid } from '../lib/uuid';
  * بحركات تسوية موسومةٍ بالتصفير — فالتاريخ باقٍ و«المخزون في تاريخ» يقرأ الأرقام القديمة — ثم تُدخل الشركة استلاماتها من جديد.
  * النافذة تعرض المعاينة أولاً (ما سيُصفَّر وقيمته بتكلفة الشراء، وما لا يُمسّ، وما يمنع)، والتنفيذ بكلمة «تصفير» مكتوبةً.
  * والخادم هو الحَكَم في الصلاحية والأرقام: يعيد الحساب داخل المعاملة نفسها، فالمعاينة عرضٌ لا عقد.
+ *
+ * «تصفير سيارة مندوب واحدة» (طلب المالك ١٨ نوفمبر ٢٠٢٦): بخاصية salesRepId تصير النافذة لسيارة ذلك المندوب وحدها — المعاينة
+ * والتنفيذ بـsalesRepId، والعنوان باسمه، ولا قسم مستودع (الخادم لا يمسّه)، والتأكيد بكلمة «تصفير» نفسها. بضاعة السيارة تُشطب ولا
+ * تعود إلى المستودع (لذلك «تنزيل»). وonZeroed لشاشةٍ تقرأ مفاتيح غير مفاتيح اللوحة (شاشة /m) فتُعيد جلبها.
  */
 
 /** كلمة التأكيد كما يقارنها الخادم بعد trim — كتابتها شرطٌ لتفعيل الزرّ */
@@ -33,6 +37,9 @@ export const STOCK_ZERO_INVALIDATE_KEYS = [
 
 /** GET /stock-zero/preview — الكميات بوحدة الأساس، والقيم بتكلفة الشراء كصفحة المستودع وبطاقة «في مخزون السيارات» */
 export interface StockZeroPreview {
+  /** «تصفير سيارة مندوب واحدة»: النطاق ومندوبه كما يقرؤه الخادم — غائبان لتصفير الشركة كلها */
+  scope?: 'VAN';
+  salesRep?: { id: string; name: string };
   warehouse: { enabled: boolean; products: number; positiveQty: number; negativeQty: number; value: number; uncostedQty: number };
   vans: { reps: number; products: number; sellableQty: number; negativeQty: number; unsellableQty: number; value: number; deletedVans: number };
   lotBlocked: { productId: string; name: string }[];
@@ -46,6 +53,8 @@ export interface StockZeroPreview {
 export interface StockZeroResult {
   runId: string | null;
   alreadyZero: boolean;
+  scope?: 'VAN';
+  salesRep?: { id: string; name: string };
   warehouse: { products: number; entryId: string | null };
   vans: { reps: number; loads: number; products: number };
   skipped: { deletedVans: number; negativeUnsellable: number };
@@ -58,9 +67,18 @@ const fmtQty = (n: number) => Number((n ?? 0).toFixed(2)).toLocaleString('en-US'
 const serverMessage = (e: unknown): string | undefined => (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
 const serverCode = (e: unknown): string | undefined => (e as { response?: { data?: { code?: string } } })?.response?.data?.code;
 
-export default function StockZeroModal({ onClose }: { onClose: () => void }) {
+export default function StockZeroModal({ onClose, salesRepId, repName, onZeroed }: {
+  onClose: () => void;
+  /** «تصفير سيارة مندوب واحدة»: سيارة هذا المندوب وحدها — غائبٌ = المستودع وكل السيارات */
+  salesRepId?: string;
+  /** اسم المندوب للعنوان قبل وصول المعاينة (ثم اسمه من الخادم) */
+  repName?: string;
+  /** بعد نجاح التصفير وقبل الإغلاق — لشاشةٍ تقرأ مفاتيح استعلامٍ غير مفاتيح اللوحة */
+  onZeroed?: () => void;
+}) {
   const tr = useTr();
   const qc = useQueryClient();
+  const van = !!salesRepId;
   // مرجع التصفير يُولَّد مرةً واحدة لكل فتحٍ للنافذة (المكوّن يُركَّب عند الفتح) ويُعاد مع كل محاولة: إن انقطع الردّ بعد أن
   // كتب الخادم فإعادة الضغط تعود بنتيجة التصفير نفسه لا بتصفيرٍ ثانٍ يمسح ما أُدخل بينهما
   // والمولّد محروس (lib/uuid): crypto.randomUUID غائبٌ في المتصفّحات الأقدم والسياق غير الآمن، واستدعاؤه هنا بلا حارسٍ يُسقط النافذة
@@ -70,8 +88,8 @@ export default function StockZeroModal({ onClose }: { onClose: () => void }) {
 
   // المعاينة طازجةً عند كل فتح — رصيدٌ قديمٌ في الكاش يُري المدير أرقاماً غير التي ستُصفَّر
   const previewQ = useQuery({
-    queryKey: ['stock-zero-preview'],
-    queryFn: async () => (await stockZeroApi.preview()).data.data as StockZeroPreview,
+    queryKey: ['stock-zero-preview', salesRepId ?? null],
+    queryFn: async () => (await stockZeroApi.preview(salesRepId)).data.data as StockZeroPreview,
     staleTime: 0,
     gcTime: 0,
     refetchOnWindowFocus: false,
@@ -81,12 +99,18 @@ export default function StockZeroModal({ onClose }: { onClose: () => void }) {
   const pending = p?.pendingDevices ?? [];
   const dec = p?.currencyDecimals;
   const money = (n: number) => formatCurrency(n ?? 0, undefined, dec);
+  // اسم المندوب من الخادم متى وصل، وإلا ما مرّرته الصفحة
+  const name = p?.salesRep?.name || repName || '';
 
   const run = useMutation({
-    mutationFn: async () => (await stockZeroApi.run(typed.trim(), zeroRef)).data.data as StockZeroResult,
+    mutationFn: async () => (await stockZeroApi.run(typed.trim(), zeroRef, salesRepId)).data.data as StockZeroResult,
     onSuccess: (r) => {
       STOCK_ZERO_INVALIDATE_KEYS.forEach(k => qc.invalidateQueries({ queryKey: [k] }));
-      if (r.alreadyZero) {
+      onZeroed?.();
+      if (van) {
+        toast.success(r.alreadyZero ? tr('سيارة المندوب صفر أصلا لم يكتب شيء')
+          : `${tr('تم تصفير سيارة المندوب')}: ${r.salesRep?.name || name} · ${r.vans.products} ${tr('صنف في السيارات')}`, { duration: 6000 });
+      } else if (r.alreadyZero) {
         toast.success(tr('المخزون صفر أصلا لم يكتب شيء'));
       } else {
         toast.success(`${tr('تم تصفير المخزون')}: ${r.warehouse.products} ${tr('صنف في المستودع')} · ${r.vans.reps} ${tr('سيارة')} · ${r.vans.products} ${tr('صنف في السيارات')}`, { duration: 6000 });
@@ -109,12 +133,16 @@ export default function StockZeroModal({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl" {...backdropClose(() => { if (!run.isPending) onClose(); })}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
-          <h2 className="text-lg font-bold text-[#1F1A13] flex items-center gap-2"><Eraser size={20} className="text-[#C0392B]" /> {tr('تصفير المخزون')}</h2>
+          <h2 className="text-lg font-bold text-[#1F1A13] flex items-center gap-2">
+            <Eraser size={20} className="text-[#C0392B] shrink-0" /> {van ? `${tr('تصفير سيارة المندوب')}: ${name}` : tr('تصفير المخزون')}
+          </h2>
           <button type="button" onClick={onClose} disabled={run.isPending} aria-label={tr('إغلاق')} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 disabled:opacity-40"><X size={18} /></button>
         </div>
 
         <div className="p-5 space-y-4 overflow-y-auto">
-          <p className="text-sm text-[#6E6557]">{tr('يصفر رصيد المستودع وكل سيارات المناديب بحركات تسوية ثم تدخل الشركة استلاماتها من جديد')}</p>
+          <p className="text-sm text-[#6E6557]">{van
+            ? tr('يصفر رصيد سيارة هذا المندوب وحدها بحركات تسوية ولا يمس المستودع ولا سيارات المناديب الآخرين')
+            : tr('يصفر رصيد المستودع وكل سيارات المناديب بحركات تسوية ثم تدخل الشركة استلاماتها من جديد')}</p>
 
           {previewQ.isLoading ? (
             <p className="text-center text-gray-400 text-sm py-6">{tr('جار التحميل')}</p>
@@ -124,7 +152,7 @@ export default function StockZeroModal({ onClose }: { onClose: () => void }) {
             <>
               {p.alreadyZero && (
                 <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-[#1E7A52] flex items-center gap-2">
-                  <Info size={16} className="shrink-0" /> {tr('المخزون صفر الآن لا شيء للتصفير')}
+                  <Info size={16} className="shrink-0" /> {van ? tr('سيارة المندوب صفر الآن لا شيء للتصفير') : tr('المخزون صفر الآن لا شيء للتصفير')}
                 </div>
               )}
 
@@ -144,11 +172,11 @@ export default function StockZeroModal({ onClose }: { onClose: () => void }) {
                 </section>
               )}
 
-              {/* سيارات المناديب الحيّة — والموقوفون معهم */}
+              {/* سيارات المناديب الحيّة — والموقوفون معهم (أو سيارة المندوب المختار وحدها) */}
               <section className="rounded-xl border border-[#E9E1D3] p-3.5 space-y-1.5">
-                <p className="text-sm font-bold text-[#1F1A13] flex items-center gap-2"><Truck size={16} className="text-[#E15A30]" /> {tr('سيارات المناديب')}</p>
+                <p className="text-sm font-bold text-[#1F1A13] flex items-center gap-2"><Truck size={16} className="text-[#E15A30]" /> {van ? tr('سيارة المندوب') : tr('سيارات المناديب')}</p>
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                  <dt className="text-[#9A8F7E]">{tr('سيارات فيها رصيد')}</dt><dd className="font-bold text-[#1F1A13]">{p.vans.reps}</dd>
+                  {!van && <><dt className="text-[#9A8F7E]">{tr('سيارات فيها رصيد')}</dt><dd className="font-bold text-[#1F1A13]">{p.vans.reps}</dd></>}
                   <dt className="text-[#9A8F7E]">{tr('أصناف لها رصيد')}</dt><dd className="font-bold text-[#1F1A13]">{p.vans.products}</dd>
                   <dt className="text-[#9A8F7E]">{tr('كمية متاحة للبيع')}</dt><dd className="font-bold text-[#1F1A13]">{fmtQty(p.vans.sellableQty)}</dd>
                   <dt className="text-[#9A8F7E]">{tr('كمية سالبة تجبر إلى صفر')}</dt><dd className={`font-bold ${p.vans.negativeQty > 0 ? 'text-red-600' : 'text-[#1F1A13]'}`}>{fmtQty(p.vans.negativeQty)}</dd>
@@ -176,20 +204,25 @@ export default function StockZeroModal({ onClose }: { onClose: () => void }) {
               )}
 
               {/* أصنافٌ بتتبّع اللوط لها رصيد: الخادم يرفض التصفير كلّه حتى يُزال رصيدها — وصفحة اللوط عرضٌ لا تسوية فيها، فالطريق
-                  الحقيقي: رصيد المستودع بتسوية نقصٍ بالتشغيلة من «مخزون الشركة»، ورصيد السيارات من «مخزون السيارات» */}
+                  الحقيقي: رصيد المستودع بتسوية نقصٍ بالتشغيلة من «مخزون الشركة»، ورصيد السيارات من «مخزون السيارات».
+                  وسيارةٌ واحدة: رصيدها من تفصيل سيارته نفسها (الصفحة المفتوحة) — بلا روابط تُخرج شاشة الجوال إلى اللوحة */}
               {blocked && (
                 <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 space-y-1.5">
                   <p className="text-xs font-semibold text-red-700 flex items-start gap-1.5">
                     <Layers size={14} className="shrink-0 mt-0.5" />
-                    {tr('أصناف بتتبع اللوط لها رصيد صفر رصيد المستودع بتسوية نقص بالتشغيلة من مخزون الشركة وأزل رصيد السيارات من مخزون السيارات أولا')}
+                    {van
+                      ? tr('أصناف بتتبع اللوط لها رصيد في هذه السيارة أزل رصيدها من مخزون السيارة أولا')
+                      : tr('أصناف بتتبع اللوط لها رصيد صفر رصيد المستودع بتسوية نقص بالتشغيلة من مخزون الشركة وأزل رصيد السيارات من مخزون السيارات أولا')}
                   </p>
                   <ul className="text-[11px] text-red-700 space-y-0.5 ps-5 list-disc">
                     {lotBlocked.map(b => <li key={b.productId}>{b.name}</li>)}
                   </ul>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1">
-                    <Link to="/app/warehouse" onClick={onClose} className="inline-block text-[11px] font-semibold text-[#E15A30]">{tr('مخزون الشركة')}</Link>
-                    <Link to="/app/van-stock" onClick={onClose} className="inline-block text-[11px] font-semibold text-[#E15A30]">{tr('مخزون السيارات')}</Link>
-                  </div>
+                  {!van && (
+                    <div className="flex flex-wrap gap-x-4 gap-y-1">
+                      <Link to="/app/warehouse" onClick={onClose} className="inline-block text-[11px] font-semibold text-[#E15A30]">{tr('مخزون الشركة')}</Link>
+                      <Link to="/app/van-stock" onClick={onClose} className="inline-block text-[11px] font-semibold text-[#E15A30]">{tr('مخزون السيارات')}</Link>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -199,7 +232,11 @@ export default function StockZeroModal({ onClose }: { onClose: () => void }) {
 
               {/* التحذير قبل الكتابة: لا تراجع إلا باستلامات جديدة، والتاريخ باقٍ، والعهدة لا تُمسّ */}
               <div role="alert" className="rounded-xl border border-red-300 bg-[#FBE3DF] px-4 py-3 text-xs text-[#9B2C1F] space-y-1">
-                <p className="font-bold flex items-center gap-1.5"><AlertTriangle size={14} /> {tr('لا يمكن التراجع عن التصفير إلا بإدخال استلامات جديدة')}</p>
+                <p className="font-bold flex items-center gap-1.5"><AlertTriangle size={14} /> {van
+                  ? tr('لا يمكن التراجع عن تصفير السيارة إلا بتحميل جديد')
+                  : tr('لا يمكن التراجع عن التصفير إلا بإدخال استلامات جديدة')}</p>
+                {/* التصفير شطبٌ لا إرجاع: تسوية السيارة لا تُدخل شيئاً إلى المستودع */}
+                {van && <p>{tr('بضاعة السيارة لا تعود إلى المستودع لإرجاعها سجل تنزيلا بدلا من التصفير')}</p>}
                 <p>{tr('السجل والمخزون في تاريخ يبقيان بالأرقام القديمة')}</p>
                 <p>{tr('عهدة أدوات السيارات لا تتأثر بالتصفير')}</p>
               </div>
@@ -219,7 +256,7 @@ export default function StockZeroModal({ onClose }: { onClose: () => void }) {
           <button type="button" onClick={() => run.mutate()} disabled={!canRun}
             className="btn-danger flex-1 justify-center py-2.5 disabled:opacity-50">
             {run.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Eraser size={16} />}
-            {tr('تصفير المخزون')}
+            {van ? tr('تصفير هذه السيارة') : tr('تصفير المخزون')}
           </button>
           <button type="button" onClick={onClose} disabled={run.isPending} className="btn-secondary">{tr('إلغاء')}</button>
         </div>

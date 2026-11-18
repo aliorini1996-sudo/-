@@ -11,6 +11,11 @@
 //
 // الدوالّ الصرفة (warehouseBalancesOf، vanBalancesOf، planStockZero، previewOf، residualsOf) بلا قاعدة فتُختبر وحدها
 // (tests/stock-zero.test.ts)، والموجّه routes/stockZero.ts يركّبها حول القفل والمعاملة.
+//
+// «تصفير سيارة مندوب واحدة» (طلب المالك ١٨ نوفمبر ٢٠٢٦): الحساب نفسه بنطاقٍ أضيق — loadZeroBalances بـvansOnly لا تقرأ
+// المستودع ولا سيارات المحذوفين، والخطة بمستودعٍ «مطفأ» (لا تسوية مستودع، وwarehouseZeroed = false)، فيبقى كل ما سواها كما هو:
+// الحركات الثلاث موسومة بـzeroRunId على سيارته وحدها، وحدّ دفعات الصلاحية (invoiceExpiry.zeroCutoffAt) لكل مندوبٍ من حركات
+// سيارته، وحارس استيراد المخزون الافتتاحي (warehouseZeroed وحده) لا يرى فيها تصفيراً للمستودع.
 // ============================================================================
 import { Prisma } from '@prisma/client';
 import { foldStock, type InvRow, type LoadRow } from '../routes/vanStock';
@@ -45,6 +50,8 @@ export const STOCK_ZERO_CODES = Object.freeze({
   STOCK_ZERO_ADMIN_ONLY: 'تصفير المخزون لمدير الشركة وحده',
   STOCK_ZERO_SCOPED: 'تصفير المخزون لمدير الشركة غير المقيد بنطاق',
   STOCK_ZERO_CONFIRM_REQUIRED: 'اكتب كلمة التأكيد تصفير',
+  // «تصفير سيارة مندوب واحدة»: المندوب ليس من هذه الشركة (أو حُذف) — النصّ نفسه في بقية المسارات وقاموس الواجهة
+  STOCK_ZERO_REP_NOT_FOUND: 'المندوب غير موجود',
   STOCK_ZERO_IN_PROGRESS: 'تصفير آخر قيد التنفيذ انتظر ثم أعد المحاولة',
   // صفحة اللوط لا تصفّر رصيد التشغيلات: المستودع بتسوية نقصٍ بالتشغيلة (مخزون الشركة)، والسيارات من مخزون السيارات
   STOCK_ZERO_LOT_TRACKED: 'أصناف بتتبع اللوط لها رصيد صفر رصيد المستودع بتسوية نقص بالتشغيلة من مخزون الشركة وأزل رصيد السيارات من مخزون السيارات أولا',
@@ -161,12 +168,18 @@ async function aggDeletedVans(db: LotDb, tid: string): Promise<{ vanKey: string;
 /**
  * الأرصدة الدقيقة للشركة: المستودع (كل السيارات ومنها المحذوفة، كـloadWarehouseInputs) وسيارات المناديب القائمين، لكل أصناف
  * الشركة ومنها المعطّلة. استعلاماتٌ متتابعة لا Promise.all: داخل المعاملة اتصالٌ واحد على أي حال.
+ * vansOnly («تصفير سيارة مندوب واحدة»): سيارات `repIds` وحدها — لا المستودع ولا سيارات المحذوفين (خارج النطاق فلا تُقرأ).
+ * والسيارات مقصورةٌ على `repIds` في الحالين: الاستعلام يحدّها، والحدّ هنا حزامٌ لا يدع سيارةً أخرى تدخل الخطة.
  */
-export async function loadZeroBalances(db: LotDb, tid: string, q: { productIds: string[]; repIds: string[] }): Promise<ZeroBalances> {
-  const wh = await aggWarehouseTotals(db, tid, { productIds: q.productIds });
+export async function loadZeroBalances(
+  db: LotDb, tid: string, q: { productIds: string[]; repIds: string[] }, opts: { vansOnly?: boolean } = {},
+): Promise<ZeroBalances> {
+  const wh = opts.vansOnly ? [] : await aggWarehouseTotals(db, tid, { productIds: q.productIds });
   const van = await aggVanTotals(db, tid, { vanKeys: q.repIds, productIds: q.productIds });
-  const deleted = await aggDeletedVans(db, tid);
-  return { warehouse: warehouseBalancesOf(wh), vans: vanBalancesOf(van.loads, van.invs), deletedVans: deletedVansOf(deleted) };
+  const deleted = opts.vansOnly ? [] : await aggDeletedVans(db, tid);
+  const keys = new Set(q.repIds);
+  const vans = new Map([...vanBalancesOf(van.loads, van.invs)].filter(([repId]) => keys.has(repId)));
+  return { warehouse: warehouseBalancesOf(wh), vans, deletedVans: deletedVansOf(deleted) };
 }
 
 // ═══ الخطة ═══
@@ -330,9 +343,17 @@ export function totalsOf(plan: StockZeroPlan, val: StockZeroValuation): StockZer
   };
 }
 
-/** ملخّص التشغيلة (StockZeroRun.summary): الأرصدة قبل التصفير لكل نطاق وصنف، والإجماليات، وما تُرك ولماذا */
-export function runSummaryOf(plan: StockZeroPlan, val: StockZeroValuation, totals: StockZeroTotals) {
+/** مندوب «تصفير سيارة واحدة» كما يُحفظ في الملخّص والنتيجة */
+export interface StockZeroRep { id: string; name: string }
+
+/**
+ * ملخّص التشغيلة (StockZeroRun.summary): نطاقها (COMPANY للشركة كلها، وVAN لسيارة مندوبٍ واحدة باسمه)، والأرصدة قبل التصفير
+ * لكل نطاق وصنف، والإجماليات، وما تُرك ولماذا
+ */
+export function runSummaryOf(plan: StockZeroPlan, val: StockZeroValuation, totals: StockZeroTotals, rep?: StockZeroRep | null) {
   return {
+    scope: rep ? 'VAN' as const : 'COMPANY' as const,
+    ...(rep && { salesRep: { id: rep.id, name: rep.name } }),
     warehouse: plan.warehouse.lines.map((l) => ({ productId: l.productId, qty: l.balance, value: val.warehouse.get(l.productId)?.stockValue ?? 0 })),
     vans: plan.vans.map((v) => ({
       repId: v.repId,
@@ -395,11 +416,14 @@ export async function writeStockZero(tx: StockZeroWriteTx, a: { tenantId: string
   return { entryId, vanLoads };
 }
 
-/** سطر التدقيق بعد الالتزام — معرّفات وأعداد فقط */
-export function stockZeroAuditLine(f: { tenantId: string; actorId: string; impersonated: boolean; runId: string; warehouseLines: number; vanLoads: number }): string {
+/** سطر التدقيق بعد الالتزام — معرّفات وأعداد فقط (ومعرّف المندوب لتصفير سيارةٍ واحدة) */
+export function stockZeroAuditLine(f: {
+  tenantId: string; actorId: string; impersonated: boolean; runId: string; warehouseLines: number; vanLoads: number; salesRepId?: string | null;
+}): string {
   return JSON.stringify({
     event: STOCK_ZERO_AUDIT_EVENT, tenantId: f.tenantId, actorId: f.actorId, impersonated: f.impersonated === true,
     runId: f.runId, warehouseLines: f.warehouseLines, vanLoads: f.vanLoads,
+    ...(f.salesRepId && { scope: 'VAN', salesRepId: f.salesRepId }),
   });
 }
 
