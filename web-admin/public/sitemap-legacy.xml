@@ -891,6 +891,30 @@
     <lastmod>2026-11-11</lastmod>
   </url>
   <url>
+    <loc>https://fieldsa.net/ambassadors/</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/ambassadors/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/ambassadors/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/ambassadors/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/ambassadors/"/>
+    <lastmod>2026-11-18</lastmod>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/en/ambassadors/</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/ambassadors/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/ambassadors/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/ambassadors/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/ambassadors/"/>
+    <lastmod>2026-11-18</lastmod>
+  </url>
+  <url>
+    <loc>https://fieldsa.net/fr/ambassadors/</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/ambassadors/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/ambassadors/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://fieldsa.net/fr/ambassadors/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://fieldsa.net/en/ambassadors/"/>
+    <lastmod>2026-11-18</lastmod>
+  </url>
+  <url>
     <loc>https://fieldsa.net/about/</loc>
     <xhtml:link rel="alternate" hreflang="ar" href="https://fieldsa.net/about/"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://fieldsa.net/en/about/"/>
