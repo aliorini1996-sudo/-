@@ -12,7 +12,7 @@ import { platformGate } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 import {
   getSettings, logEvent, logEventSafe, platformActor, decryptIban, isUniqueViolation, riyadhDay, DEFAULT_TERMS_VERSION, DEFAULT_SETTINGS,
-  BUILTIN_TERMS_VERSIONS, builtinTermsBody,
+  BUILTIN_TERMS_VERSIONS, builtinTermsBody, builtinTermsRules,
   TERMS_RULE_KEYS, TERMS_RULE_RANGES, TermsRuleKey, parseTermsRules, pickRules, rulesFor,
 } from '../services/affiliate/core';
 import { canTransition, normCompanyName, normCR } from '../services/affiliate/rules';
@@ -127,7 +127,7 @@ router.get('/terms', handle(async (_req, res) => {
   const defaults = pickRules(DEFAULT_SETTINGS);
   const list = rows.map(t => ({ version: t.version, body: t.body, publishedAt: t.publishedAt, publishedBy: t.publishedBy, rules: parseTermsRules(t.rulesJson, defaults) }));
   for (const v of [...BUILTIN_TERMS_VERSIONS].reverse()) {
-    if (!rows.some(r => r.version === v)) list.push({ version: v, body: builtinTermsBody(v) ?? '', publishedAt: new Date('2026-09-13T00:00:00Z'), publishedBy: 'system', rules: defaults });
+    if (!rows.some(r => r.version === v)) list.push({ version: v, body: builtinTermsBody(v) ?? '', publishedAt: new Date('2026-09-13T00:00:00Z'), publishedBy: 'system', rules: builtinTermsRules(v) ?? defaults });
   }
   res.json({ success: true, data: list });
 }));
