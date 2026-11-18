@@ -1,6 +1,8 @@
-import { useId, useState, type FormEvent } from 'react';
+import { useContext, useId, useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { BookOpenCheck, CircleAlert, ExternalLink, Loader2, Receipt, Undo2, Users, Wallet } from 'lucide-react';
+import {
+  AlertTriangle, BookOpenCheck, CalendarClock, CircleAlert, ExternalLink, FileText, Loader2, Package, Receipt, Repeat, Undo2, Users, Wallet,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ledgerMovesApi } from '../../../api/ledgerMoves';
 import { useTr } from '../../../i18n/strings';
@@ -10,9 +12,11 @@ import { canLedger } from '../../../lib/ledgerPerms';
 import { useAuthStore } from '../../../store/authStore';
 import { formatCurrency, formatDateTime, formatDayOnly, getActiveCurrency } from '../../../utils/format';
 import { LedgerAmount } from '../../ledger/LedgerAmount';
+import DocViewer, { DocViewerRenderContext } from '../docs/DocViewer';
 import {
-  POSTS_QUERY_KEY, REVERSE_REASON_MAX, isMobilePath, ledgerMoveHref, postedKindLabel, postedKindTone, reasonValid, reverseBody,
-  reverseErrorInfo, reverseOutcome, reverseSuccessText, type ReverseErrorInfo, type ReverseOutcome,
+  POSTS_QUERY_KEY, REVERSE_REASON_MAX, amortText, isMobilePath, ledgerMoveHref, moveDocId, moveNotes, postedKindLabel,
+  postedKindTone, prepaidProgressText, reasonValid, reverseBody, reverseErrorInfo, reverseOutcome, reverseSuccessText,
+  type ReverseErrorInfo, type ReverseOutcome,
 } from './aiPosts';
 
 /**
@@ -26,12 +30,21 @@ import {
  * وزرّ «العكس بتاريخ …» به (الخادم يتحقّق منه مجدداً).
  *
  * البطاقة لا تحسب رقماً: المبلغ والسطور كما أعادها الخادم.
+ *
+ * قيود المستندات (طلب المالك ١٨ نوفمبر): «المستند» يفتح ملف الفاتورة أو العقد المرفق بالقيد (العارض نفسه — طبقةٌ بملء الشاشة
+ * على الجوال)، وقيد الدفع المقدّم يعرض تقدّم إطفائه «تم إطفاء {n} من {m}» وموعد الإطفاء التالي، وعكسه ينبّه إلى ما رُحّل من
+ * الإطفاء (يبقى في الدفاتر — D2)، وقيد الإطفاء يقول ترتيبه، والأصل «يحتاج إهلاكاً يسجّله المحاسب» (D3)، والأشهر المؤجّلة لفترةٍ
+ * مقفلة كهرمانية. كل ملاحظةٍ من مصدرٍ واحد مترجمة (moveNotes): تنبيهات الخادم بالمعاني نفسها تُطوى فيها لا تُكرَّر بالعربية.
  */
 export default function PostedMoveCard({ move, onReversed }: { move: PostedMove; onReversed?: () => void }) {
   const tr = useTr();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const inputId = useId();
+  /** عارض مستند القيد */
+  const [viewing, setViewing] = useState(false);
+  /** عارض الجوال (/m) إن مرّرته المحادثة، وإلا DocViewer */
+  const renderViewer = useContext(DocViewerRenderContext);
 
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
@@ -74,11 +87,16 @@ export default function PostedMoveCard({ move, onReversed }: { move: PostedMove;
     setErr(null);
   };
 
-  const KindIcon = move.kind === 'SALARIES' ? Users : move.kind === 'SALARIES_SETTLE' ? Wallet : Receipt;
+  const KindIcon = move.kind === 'SALARIES' ? Users : move.kind === 'SALARIES_SETTLE' ? Wallet
+    : move.kind === 'PREPAID' ? CalendarClock : move.kind === 'PREPAID_AMORT' ? Repeat : move.kind === 'ASSET' ? Package : Receipt;
   const decimals = currencyDecimals(getActiveCurrency());
   // صفحات الدفاتر للويب ولمن يراها؛ تُفتح في لسانٍ جديد فلا تضيع المحادثة (في الذاكرة وحدها)
   const showLink = typeof window !== 'undefined' && !isMobilePath(window.location.pathname) && canLedger(user, 'canViewLedger');
   const reversalNo = done?.reversalNumber ?? null;
+  const docId = moveDocId(move);
+  const prepaid = move.kind === 'PREPAID' ? move.prepaid ?? null : null;
+  const notes = moveNotes(move, reversed, tr);
+  const amber = [...(notes.locked ? [notes.locked] : []), ...notes.other.map(w => tr(w))];
 
   return (
     <section
@@ -132,6 +150,36 @@ export default function PostedMoveCard({ move, onReversed }: { move: PostedMove;
             </span>
           )}
         </div>
+
+        {/* قيود المستندات: تقدّم الإطفاء، وترتيب الإطفاء، والأصل بلا إهلاك، وتنبيهات الخادم */}
+        {(prepaid || move.amort || notes.asset || notes.stop || amber.length > 0) && (
+          <div className="mt-2 ps-[26px] space-y-1">
+            {prepaid && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-[#6B3FA0]">
+                <span className="inline-flex items-center gap-1 font-semibold"><CalendarClock size={12} /> {prepaidProgressText(prepaid, tr)}</span>
+                {!reversed && !prepaid.stopped && prepaid.nextDate && (
+                  <span className="text-[#6E6557]">{tr('الإطفاء التالي {date}').replace('{date}', formatDayOnly(prepaid.nextDate))}</span>
+                )}
+              </div>
+            )}
+            {move.amort && (
+              <p className="text-[11px] text-[#3F5F7F] inline-flex items-center gap-1"><Repeat size={12} /> {amortText(move.amort, tr)}</p>
+            )}
+            {notes.asset && (
+              <p className="text-[11px] text-[#8A6A12] inline-flex items-center gap-1"><Package size={12} /> {notes.asset}</p>
+            )}
+            {notes.stop && (
+              <p role="status" className="flex items-start gap-1.5 text-[11px] rounded-lg px-2 py-1 border bg-[#FDF1EE] text-[#8E2B1F] border-[#F3C9BF]">
+                <AlertTriangle size={12} className="shrink-0 mt-0.5" /> <span>{notes.stop}</span>
+              </p>
+            )}
+            {amber.map((n, i) => (
+              <p key={i} dir="auto" className="flex items-start gap-1.5 text-[11px] rounded-lg px-2 py-1 border bg-[#FAEFD8] text-[#8A6A12] border-[#F0DDB0]">
+                <AlertTriangle size={12} className="shrink-0 mt-0.5" /> <span>{n}</span>
+              </p>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* السطور: الدائن بإزاحة كعادة القيد اليومي («من حـ/ … إلى حـ/») */}
@@ -180,12 +228,21 @@ export default function PostedMoveCard({ move, onReversed }: { move: PostedMove;
             {reversalNo && (
               <span className="text-[11px] text-[#6E6557]">{tr('قيد العكس')} <bdi dir="ltr">{reversalNo}</bdi></span>
             )}
+            {docId && (
+              <button
+                type="button"
+                onClick={() => setViewing(true)}
+                className="ms-auto inline-flex items-center gap-1 text-xs text-[#6E6557] hover:text-[#E15A30]"
+              >
+                <FileText size={12} /> {tr('المستند')}
+              </button>
+            )}
             {showLink && (
               <a
                 href={ledgerMoveHref(move.moveId)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="ms-auto inline-flex items-center gap-1 text-xs text-[#6E6557] hover:text-[#E15A30]"
+                className={`${docId ? '' : 'ms-auto'} inline-flex items-center gap-1 text-xs text-[#6E6557] hover:text-[#E15A30]`}
               >
                 <ExternalLink size={12} /> {tr('فتح في الدفاتر')}
               </a>
@@ -246,6 +303,15 @@ export default function PostedMoveCard({ move, onReversed }: { move: PostedMove;
           </form>
         )}
       </div>
+
+      {/* مستند القيد: الخادم يحرس الشركة وصلاحية رؤية الدفاتر، والنوع من توقيع البايتات (العارض لا يعرف نوعه هنا) */}
+      {viewing && docId && (renderViewer
+        ? renderViewer({ id: docId, fileName: summaryName(move, tr), mimeType: '' }, () => setViewing(false))
+        : <DocViewer doc={{ id: docId, fileName: summaryName(move, tr), mimeType: '' }} onClose={() => setViewing(false)} />)}
     </section>
   );
 }
+
+/** عنوان العارض لمستند القيد: «المستند» ورقم القيد */
+const summaryName = (m: Pick<PostedMove, 'moveNumber'>, tr: (s: string) => string): string =>
+  (m.moveNumber ? `${tr('المستند')} ${m.moveNumber}` : tr('المستند'));

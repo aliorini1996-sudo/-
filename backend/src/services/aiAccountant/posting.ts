@@ -24,12 +24,25 @@
  * الترحيل على قالب executeClearing (routes/ledger/clearing.ts): القفل ⇒ السياق ⇒ البناء ⇒ عدم التكرار تحت القفل ⇒
  * postMove (MANUAL، REJECT) ⇒ صفّ AiAccountantPost — في معاملة واحدة. لا GlMoveSource ولا sourceType: القيد يدويّ
  * يعكسه المستخدم من الواجهة (POST /api/ledger/moves/:id/reverse).
+ *
+ * قيود المستندات (رفع المستندات في المحادثة، قرارات المالك ١٨ نوفمبر ٢٠٢٦ — documents/post.ts يستدعيها بلا نموذج):
+ *   - مصروف (EXPENSE): مدين المصروف [+ مدين 116001 بضريبة قابلة للخصم] / دائن النقد أو البنك أو 213002 (غير مدفوعة، D6).
+ *   - مدفوع مقدماً (PREPAID، D2): مدين 115002 للإيجار (115001 لغيره) [+ 116001] / دائن مصدر الدفع، وجدول الإطفاء في meta
+ *     (أقساط شهرية متساوية بتقريب نصف-لأعلى والباقي على الأخير) يرحّله amortization.ts قيداً بقيد (PREPAID_AMORT).
+ *   - أصل (ASSET، D3): مدين حساب الأصل من القائمة البيضاء بالرمز [+ 116001] / دائن مصدر الدفع — بلا إهلاك.
+ *   - الضريبة (D7): DEDUCTIBLE سطر 116001، وNON_DEDUCTIBLE تُحمَّل على التكلفة (الإجمالي على المدين)، وNONE بلا سطر.
+ *   معرّف المستند في بصمة القيد (linesFingerprint) فلا يتبادل مستندان متساويا المبلغ قيديهما في إعادة الإرسال، وخطّافاته
+ *   (فحوص التكرار ونقل المرفق وربط المستند) تُنفَّذ داخل المعاملة نفسها حول postMove.
  * هذا الملف بلا prisma العام: المعاملة والتبعيات تُحقن، فيُختبر بمخزن مزيّف.
  */
 import type { PostedMove } from './context';
+import {
+  ACCT_ASSET_CODES, ACCT_DOC_CODES, ACCT_PREPAID_MAX_MONTHS, ACCT_REFERRED_ASSET_CODES, type AiDocRefusalCode,
+} from './documents/types';
+import type { Prisma } from '@prisma/client';
 import type { GlActor } from '../gl/audit';
 import { clearingFeeTax } from '../gl/builders/clearing';
-import { addDays, compareLocalDate, endOfMonth, isLocalDate } from '../gl/dates';
+import { addDays, addMonths, compareLocalDate, endOfMonth, isLocalDate, maxLocalDate } from '../gl/dates';
 import { baseFromGross, taxOnBase } from '../gl/draft';
 import { fromMilli, toMilli, unitMilli } from '../gl/money';
 import { acquirePostLock, postMove } from '../gl/post';
@@ -42,7 +55,12 @@ import {
 
 // ═══ الثوابت ═══
 
-export type AiPostKind = 'EXPENSE' | 'SALARIES' | 'SALARIES_SETTLE';
+/**
+ * نوع صفّ AiAccountantPost: مصروف ورواتب وسداد مستحق، ومن المستندات: مدفوع مقدماً (PREPAID) وقسط إطفائه الشهري
+ * (PREPAID_AMORT، صفّه يشير لأبيه parentPostId) وأصل (ASSET) — ومصروف المستند EXPENSE كمصروف المحادثة.
+ */
+export type AiPostKind = 'EXPENSE' | 'SALARIES' | 'SALARIES_SETTLE' | 'PREPAID' | 'PREPAID_AMORT' | 'ASSET';
+export const AI_POST_KINDS: readonly AiPostKind[] = ['EXPENSE', 'SALARIES', 'SALARIES_SETTLE', 'PREPAID', 'PREPAID_AMORT', 'ASSET'];
 
 /** إجراء التدقيق — البادئة EXPENSE_ مفتوحة في §9.3 (audit.ts OPEN_ACTION_PREFIXES) */
 export const AI_POST_AUDIT_ACTION = 'EXPENSE_AI_POST';
@@ -123,7 +141,9 @@ export type AiRefusalCode =
   | 'LEDGER_VAT_LINE_UNTAGGED' | 'VAT_RATE_MISMATCH' | 'VAT_INVALID'
   | 'DATE_INVALID' | 'DATE_FUTURE' | 'DATE_TOO_OLD' | 'MONTH_INVALID' | 'MONTH_FUTURE'
   | 'EXCEEDS_PAYABLE' | 'LEDGER_PERIOD_LOCKED' | 'LEDGER_ERROR' | 'TOO_MANY_POSTS' | 'POST_FAILED'
-  | 'VAT_BASIS_UNCLEAR' | 'PAYABLE_OUTSTANDING' | 'SALARIES_ALREADY_ACCRUED' | 'DUPLICATE_RECENT';
+  | 'VAT_BASIS_UNCLEAR' | 'PAYABLE_OUTSTANDING' | 'SALARIES_ALREADY_ACCRUED' | 'DUPLICATE_RECENT'
+  // ترحيل المستندات (documents/types.ts AI_DOC_REFUSALS)
+  | AiDocRefusalCode;
 
 /** رفضٌ يُشرح للمستخدم: رسالة عربية وتفاصيل (لا مبلغ متوهَّم فيها) */
 export interface AiRefusal {
@@ -507,6 +527,31 @@ export interface AiPostPlan {
     accrualSummaryPrefix?: string;
   };
   warnings: string[];
+  /** قيدٌ من مستند: معرّفه في البصمة وفي صفّ AiAccountantPost (docId) */
+  docId?: string;
+  /** قسط إطفاء: صفّ قيد الدفع المقدّم الذي يُطفأ */
+  parentPostId?: string;
+  /** جدول الإطفاء لقيد PREPAID (PrepaidSchedule) — يُخزَّن في صفّه كما هو */
+  meta?: PrepaidSchedule;
+}
+
+/**
+ * جدول إطفاء المدفوع مقدماً (D2) — في AiAccountantPost.meta لقيد PREPAID. المبالغ ملّي نصوصاً (JSON لا يحمل BigInt):
+ * القسط الشهري = الأساس ÷ الأشهر مقرَّباً نصف-لأعلى إلى منازل العملة، والأخير يأخذ الباقي (Σ الأقساط = الأساس بالضبط).
+ * startYm أول شهر خدمة (YYYY-MM)؛ قسط الشهر k يُرحَّل بتاريخ آخر يومٍ فيه (ولا يسبق تاريخ قيد الدفع).
+ */
+export interface PrepaidSchedule {
+  months: number;
+  baseMilli: string;
+  monthlyMilli: string;
+  lastMilli: string;
+  startYm: string;
+  prepaidCode: string;
+  expenseCode: string;
+  /** وصف المستند للسطور («فاتورة إيجار — مؤسسة …») */
+  what: string;
+  /** آخر تخطٍّ لفترة مقفلة (amortization.ts) — يظهر تنبيهاً في قائمة القيود حتى يُرحَّل ذلك الشهر */
+  lockedSkip?: { k: number; date: string; at: string } | null;
 }
 
 export type PlanOutcome = { ok: true; plan: AiPostPlan } | { ok: false; refusal: AiRefusal };
@@ -881,13 +926,387 @@ export function buildSettlePlan(env: PlanEnv, input: SettleInput): PlanOutcome {
   };
 }
 
+// ═══ قيود المستندات (رفع المستندات في المحادثة — قرارات المالك D2/D3/D6/D7) ═══
+
+/** الضريبة في قيد المستند (D7): DEDUCTIBLE سطر 116001، NON_DEDUCTIBLE على التكلفة، NONE بلا سطر */
+export type DocVatMode = 'DEDUCTIBLE' | 'NON_DEDUCTIBLE' | 'NONE';
+
+/** حسابات الأصول المقبولة بالرمز (D3) — مجمّعات الإهلاك 122xxx من النوع نفسه فلا يُحكم بالنوع وحده */
+export const DOC_ASSET_CODES: readonly string[] = Object.values(ACCT_ASSET_CODES);
+
+/** المدفوع مقدماً لا يكون دفعةً لمورد ولا تأميناً مسترداً (115003/115004 — لهما قيودهما) */
+const NOT_PREPAID_CODES: readonly string[] = ['115003', '115004'];
+
+/** حساب أصل يقبله المحاسب الذكي: من القائمة البيضاء بالرمز، نشط، بلا controlKind، أصل ثابت أو غير متداول */
+export function assetAccountProblem(a: AccountRef | null | undefined): AccountProblem | null {
+  if (!a) return 'MISSING';
+  if (!a.isActive) return 'ARCHIVED';
+  if (a.controlKind !== null) return 'CONTROL';
+  if (ACCT_REFERRED_ASSET_CODES.includes(a.code)) return 'REFERRED';
+  if (!DOC_ASSET_CODES.includes(a.code) || (a.type !== 'asset_fixed' && a.type !== 'asset_non_current')) return 'WRONG_TYPE';
+  return null;
+}
+
+/** حساب مدفوع مقدماً: asset_prepayments نشط بلا controlKind، وليس دفعات الموردين (VENDOR_ADVANCES) ولا التأمينات المستردة */
+export function prepaidAccountProblem(a: AccountRef | null | undefined, lc?: Pick<LedgerContext, 'ctx'>): AccountProblem | null {
+  if (!a) return 'MISSING';
+  if (!a.isActive) return 'ARCHIVED';
+  if (a.controlKind !== null) return 'CONTROL';
+  if (a.type !== 'asset_prepayments' || NOT_PREPAID_CODES.includes(a.code)) return 'WRONG_TYPE';
+  if (lc && lc.ctx.accounts.byKey('VENDOR_ADVANCES')?.id === a.id) return 'WRONG_TYPE';
+  return null;
+}
+
+/** حساب أصل المستند بالرمز: الأراضي والمباني للمحاسب البشري (DOC_TREATMENT_REFERRED)، وغير القائمة TREATMENT_NOT_ALLOWED */
+export function resolveAssetAccount(lc: PlanLedger, code: string): AccountRef | AiRefusal {
+  const c = (code ?? '').trim();
+  const a = c ? lc.ctx.accounts.byCode(c) : null;
+  const p = assetAccountProblem(a);
+  if (p === null && a) return a;
+  if (ACCT_REFERRED_ASSET_CODES.includes(c) || p === 'REFERRED') {
+    return refuse('DOC_TREATMENT_REFERRED',
+      `شراء ${a?.name ?? 'الأراضي والمباني'} يقرّر قيده محاسبك البشري (تكلفة الاقتناء والإهلاك ونقل الملكية)، فلم يُرحَّل شيء. احفظ المستند وأحِله إليه.`,
+      { accountCode: c });
+  }
+  const candidates = lc.accounts.filter((x) => assetAccountProblem(x) === null).sort(byCode).map((x) => ({ code: x.code, name: x.name }));
+  if (!a) {
+    return refuse('ACCOUNT_MISSING', `حساب الأصل ${c} غير موجود في دليل حساباتك. اختر حساب الأصل من القائمة.`, { accountCode: c, candidates });
+  }
+  return refuse(p === 'WRONG_TYPE' ? 'TREATMENT_NOT_ALLOWED' : 'ACCOUNT_NOT_ALLOWED',
+    `الحساب ${c} (${a.name}) لا يُرسمل عليه أصل من المحادثة. اختر أحد حسابات الأصول من القائمة.`,
+    { accountCode: c, problem: p, candidates });
+}
+
+/** مصروفات الإيجار (المحل والمستودع، وسكن الموظفين) — مدفوعها مقدماً على 115002 كاقتراح البطاقة (suggest.ts prepaidCodeForExpense) */
+export const RENT_EXPENSE_CODES: readonly string[] = [ACCT_DOC_CODES.rentExpense, EXPENSE_CATEGORIES.staff_housing.code];
+
+/**
+ * حساب المدفوع مقدماً (D2): رمزٌ اختاره المستخدم في البطاقة (115002/115001 — بالحارس نفسه)، وإلا من مصروف الإطفاء:
+ * الإيجار وسكن الموظفين ⇐ 115002 إيجار مدفوع مقدماً، وغيرهما ⇐ 115001 مصروفات مدفوعة مقدماً (مفتاح DEFERRED_EXPENSE ثم الرمز).
+ */
+export function resolvePrepaidAccount(lc: PlanLedger, expense: AccountRef, chosenCode?: string | null): AccountRef | AiRefusal {
+  const code = chosenCode?.trim();
+  if (code) {
+    const a = lc.ctx.accounts.byCode(code);
+    const p = prepaidAccountProblem(a, lc);
+    if (p === null && a) return a;
+    return refuse(p === 'MISSING' ? 'ACCOUNT_MISSING' : 'ACCOUNT_NOT_ALLOWED',
+      `حساب المدفوع مقدماً ${code}${a ? ` (${a.name})` : ''} ${PROBLEM_AR[p ?? 'MISSING']}. اختر «إيجار مدفوع مقدماً» أو «مصروفات مدفوعة مقدماً».`,
+      { accountCode: code, problem: p });
+  }
+  const rent = RENT_EXPENSE_CODES.includes(expense.code);
+  const target: TemplateTarget = rent ? { code: ACCT_DOC_CODES.prepaidRent } : { key: 'DEFERRED_EXPENSE', code: ACCT_DOC_CODES.prepaidOther };
+  const picked = pickAccount(targetAccounts(lc, target), (a) => prepaidAccountProblem(a, lc));
+  if ('problem' in picked) {
+    return refuse(picked.problem === 'MISSING' ? 'ACCOUNT_MISSING' : 'ACCOUNT_NOT_ALLOWED',
+      `حساب «${rent ? 'إيجار مدفوع مقدماً' : 'مصروفات مدفوعة مقدماً'}» (${target.code}) ${PROBLEM_AR[picked.problem]}. أضفه أو فعّله في دليل الحسابات ثم أعد الطلب.`,
+      { templateCode: target.code, problem: picked.problem });
+  }
+  return picked.account;
+}
+
+export interface DocPlanInput {
+  docId: string;
+  /** EXPENSE: حساب المصروف، ASSET: حساب الأصل، PREPAID: المصروف الذي يُطفأ عليه شهرياً */
+  accountCode: string;
+  paidFrom: CashSource | 'payable';
+  paidFromAccountCode?: string | null;
+  /** إجمالي المستند (شامل الضريبة) — المبلغ الدائن على مصدر الدفع */
+  totalMilli: Milli;
+  /** ضريبة المستند (0 بلا ضريبة) */
+  vatMilli: Milli;
+  vatMode: DocVatMode;
+  date: LocalDate;
+  /** وصف المستند منظّفاً للسطور والملخّص («فاتورة صيانة — مؤسسة الإتقان رقم 2231») */
+  what: string;
+}
+
+export interface PrepaidPlanInput extends DocPlanInput {
+  /** حساب المدفوع مقدماً المختار في البطاقة (115002/115001) — الغياب يُشتق من مصروف الإطفاء (accountCode) */
+  prepaidCode?: string | null;
+  months: number;
+  /** أول شهر خدمة YYYY-MM (بداية فترة المستند، وإلا شهر قيد الدفع) */
+  startYm: string;
+}
+
+export interface AssetPlanInput extends DocPlanInput {
+  /** حدّ الرسملة بالملّي (D3) — الصافي قبل الضريبة دونه ⇒ ASSET_BELOW_THRESHOLD */
+  thresholdMilli: Milli;
+}
+
+/** مصدر الدفع لقيد المستند: النقد أو النثريات أو البنك (أو رمز صندوق/بنك اختاره)، أو 213002 للفاتورة غير المدفوعة (D6) */
+export function resolveDocPayment(lc: PlanLedger, paidFrom: CashSource | 'payable', accountCode?: string | null): PaymentTarget | AiRefusal {
+  if (paidFrom === 'payable') {
+    const acc = resolveLiability(lc, ACCRUED_EXPENSES, 'مصروفات مستحقة');
+    return isRefusal(acc) ? acc : { account: acc, label: 'مستحق الدفع', cash: false };
+  }
+  return resolveCashAccount(lc, paidFrom, accountCode);
+}
+
+interface DocLines {
+  lines: LineDraft[];
+  pay: PaymentTarget;
+  journal: JournalChoice;
+  /** ما على المدين الرئيسي (الوعاء بضريبة قابلة للخصم، وإلا الإجمالي) */
+  debitMilli: Milli;
+  vatLineMilli: Milli;
+  vatPart: string;
+  warnings: string[];
+}
+
+/** المبلغ ⇐ مجموع الأقساط: القسم مقرَّباً نصف-لأعلى إلى أصغر وحدة عملة */
+function divRoundUnits(amount: Milli, parts: number, decimals: number): Milli {
+  const u = unitMilli(decimals);
+  const units = amount / u;
+  const n = BigInt(parts);
+  return ((units * 2n + n) / (2n * n)) * u;
+}
+
+/**
+ * سطور قيد المستند المشتركة: المدين الرئيسي [+ ضريبة المدخلات بمربّعها] / دائن مصدر الدفع بالإجمالي.
+ * DEDUCTIBLE: الوعاء = الإجمالي − الضريبة (موسوماً BASE) وسطر 116001 (TAX)؛ وغيره: الإجمالي كله على المدين (الضريبة من
+ * التكلفة). الضريبة المُزالة للشركة ⇒ لا سطر ضريبة أبداً.
+ */
+function docLinesOf(env: PlanEnv, debit: AccountRef, input: DocPlanInput): DocLines | AiRefusal {
+  const { lc } = env;
+  const dec = lc.ctx.settings.currencyDecimals;
+  const total = input.totalMilli;
+  if (total <= 0n) return refuse('AMOUNT_INVALID', 'إجمالي المستند يجب أن يكون أكبر من صفر.');
+  const pp = precisionProblem(total, dec, 'total');
+  if (pp) return pp;
+  const vat = input.vatMilli > 0n ? input.vatMilli : 0n;
+  if (vat > 0n) {
+    const vp = precisionProblem(vat, dec, 'vatAmount');
+    if (vp) return vp;
+    if (vat >= total) return refuse('VAT_INVALID', 'ضريبة المستند لا تتّسق مع إجماليه. صحّحها في البطاقة.');
+  }
+  const pay = resolveDocPayment(lc, input.paidFrom, input.paidFromAccountCode);
+  if (isRefusal(pay)) return pay;
+  const journal = journalFor(lc, pay.cash ? pay.account.id : null);
+  if (!journal) return refuse('JOURNAL_MISSING', 'لا يوجد دفتر نشط للصندوق أو البنك ولا دفتر «عمليات متنوعة» لترحيل القيد.');
+
+  const warnings: string[] = [];
+  let mode: DocVatMode = vat > 0n ? input.vatMode : 'NONE';
+  if (env.taxDisabled && mode !== 'NONE') mode = 'NONE';
+  const what = cleanText(input.what, 160) || debit.name;
+  const lines: LineDraft[] = [];
+  let debitMilli = total;
+  let vatLineMilli = 0n;
+  let vatPart = '';
+  if (mode === 'DEDUCTIBLE') {
+    const tax = clearingFeeTax(lc.ctx);
+    if (!tax) {
+      return refuse('LEDGER_VAT_LINE_UNTAGGED',
+        'لا توجد ضريبة مشتريات نشطة بمربّع إقرار في دفاترك لفصل ضريبة المدخلات. فعّل ضريبة المشتريات الافتراضية ثم أعد الطلب.');
+    }
+    const base = total - vat;
+    if (vat > taxOnBase(base, tax.rate, dec) + unitMilli(dec)) {
+      return refuse('VAT_INVALID', `ضريبة المستند أكبر من ${tax.rate}٪ من وعائها. صحّحها في البطاقة.`, { taxRate: tax.rate });
+    }
+    const vatAccount = tax.accountId ? lc.ctx.accounts.byId(tax.accountId) : lc.ctx.accounts.byKey('INPUT_VAT');
+    if (!vatAccount) return refuse('LEDGER_VAT_LINE_UNTAGGED', 'حساب ضريبة المدخلات غير موجود في دليل حساباتك. راجع إعداد الضرائب.');
+    debitMilli = base;
+    vatLineMilli = vat;
+    lines.push({ accountId: debit.id, label: `${debit.name}: ${what}`, debitMilli: base, creditMilli: 0n, taxId: tax.id, taxRole: 'BASE' });
+    lines.push({
+      accountId: vatAccount.id, label: `ضريبة القيمة المضافة: ${what}`, debitMilli: vat, creditMilli: 0n,
+      taxId: tax.id, taxCode: tax.key ?? null, taxRole: 'TAX', taxBaseMilli: base, vatBox: tax.vatBox,
+    });
+    vatPart = ` (منها ضريبة مدخلات ${formatAmount(vat, dec)})`;
+  } else {
+    const nonDed = mode === 'NON_DEDUCTIBLE' && vat > 0n;
+    lines.push({
+      accountId: debit.id,
+      label: `${debit.name}: ${what}${nonDed ? ' (شامل ضريبة غير قابلة للخصم)' : ''}`,
+      debitMilli: total, creditMilli: 0n,
+    });
+    if (nonDed) vatPart = ` (شامل ضريبة غير قابلة للخصم ${formatAmount(vat, dec)})`;
+    else if (vat > 0n && env.taxDisabled) warnings.push('الضريبة مُزالة في إعدادات الشركة، فسُجّل إجمالي المستند بلا فصل ضريبة.');
+    else if (vat > 0n) warnings.push('لا مربّع لضريبة المدخلات في دليل حساباتك، فسُجّل إجمالي المستند بلا فصل الضريبة.');
+  }
+  lines.push({
+    accountId: pay.account.id,
+    label: pay.cash ? `سداد ${what} ${pay.label}` : `${what}: مستحق الدفع`,
+    debitMilli: 0n,
+    creditMilli: total,
+  });
+  return { lines, pay, journal, debitMilli, vatLineMilli, vatPart, warnings };
+}
+
+/** قيد مصروف من مستند: مدين المصروف [+ 116001] / دائن مصدر الدفع (213002 إن لم يُدفع) */
+export function buildDocExpensePlan(env: PlanEnv, input: DocPlanInput): PlanOutcome {
+  const { lc } = env;
+  const expense = resolveExpenseAccount(lc, { accountCode: input.accountCode }, env.booksMode);
+  if (isRefusal(expense)) return fail(expense);
+  const d = docLinesOf(env, expense, input);
+  if (isRefusal(d)) return fail(d);
+  const dec = lc.ctx.settings.currencyDecimals;
+  const what = cleanText(input.what, 160) || expense.name;
+  const summaryAr = `مصروف ${expense.name}: ${formatAmount(input.totalMilli, dec)} ${env.currency}${d.vatPart} ${d.pay.label} — ${what}`;
+  const draft = moveDraft(env, d.journal, 'EXPENSE', input.date, `${what} (مستند — المحاسب الذكي)`, d.lines);
+  return {
+    ok: true,
+    plan: { kind: 'EXPENSE', draft, totalMilli: input.totalMilli, summaryAr, lines: planLinesOf(env, d.lines), warnings: d.warnings, docId: input.docId },
+  };
+}
+
+/** أصلٌ يحتاج إهلاكاً يسجّله المحاسب البشري (D3) — في الرد والبطاقة */
+export const ASSET_DEPRECIATION_NOTE = 'يحتاج إهلاكاً يسجّله المحاسب';
+
+/**
+ * قيد أصل من مستند (D3): مدين حساب الأصل (القائمة البيضاء) [+ 116001] / دائن مصدر الدفع — والصافي قبل الضريبة دون حدّ
+ * الرسملة ⇒ ASSET_BELOW_THRESHOLD (يُسجَّل مصروفاً). لا إهلاك: الملخّص والتنبيه يقولان «يحتاج إهلاكاً يسجّله المحاسب».
+ */
+export function buildAssetPlan(env: PlanEnv, input: AssetPlanInput): PlanOutcome {
+  const { lc } = env;
+  const dec = lc.ctx.settings.currencyDecimals;
+  const asset = resolveAssetAccount(lc, input.accountCode);
+  if (isRefusal(asset)) return fail(asset);
+  const net = input.totalMilli - (input.vatMilli > 0n ? input.vatMilli : 0n);
+  if (net < input.thresholdMilli) {
+    return fail(refuse('ASSET_BELOW_THRESHOLD',
+      `صافي المشتريات قبل الضريبة (${formatAmount(net > 0n ? net : 0n, dec)}) أقل من حدّ الرسملة (${formatAmount(input.thresholdMilli, dec)})، فلا يُسجَّل أصلاً — سجّله مصروفاً (أدوات مكتبية أو صيانة أو متنوعة).`,
+      { net: fromMilli(net > 0n ? net : 0n), threshold: fromMilli(input.thresholdMilli) }));
+  }
+  const d = docLinesOf(env, asset, input);
+  if (isRefusal(d)) return fail(d);
+  const what = cleanText(input.what, 160) || asset.name;
+  const summaryAr = `أصل ${asset.name}: ${formatAmount(input.totalMilli, dec)} ${env.currency}${d.vatPart} ${d.pay.label} — ${what}. ${ASSET_DEPRECIATION_NOTE}.`;
+  const draft = moveDraft(env, d.journal, 'ENTRY', input.date, `${what} — أصل (مستند — المحاسب الذكي)`, d.lines);
+  return {
+    ok: true,
+    plan: { kind: 'ASSET', draft, totalMilli: input.totalMilli, summaryAr, lines: planLinesOf(env, d.lines), warnings: d.warnings, docId: input.docId },
+  };
+}
+
+/** قسط الشهر k (1..months) من جدول الإطفاء: الأخير يأخذ الباقي */
+export function amortizationAmount(schedule: Pick<PrepaidSchedule, 'months' | 'monthlyMilli' | 'lastMilli'>, k: number): Milli {
+  return BigInt(k === schedule.months ? schedule.lastMilli : schedule.monthlyMilli);
+}
+
+/** آخر يومٍ في شهر الخدمة k (startYm + k−1) — تاريخ قسطه */
+export function amortizationMonthEnd(startYm: string, k: number): LocalDate {
+  return endOfMonth(addMonths(`${startYm}-01`, k - 1));
+}
+
+/** تاريخ قيد القسط k: آخر يومٍ في شهره، ولا يسبق تاريخ قيد الدفع (أشهرٌ مضت قبل الدفع تُحمَّل بتاريخه) */
+export function amortizationDate(schedule: Pick<PrepaidSchedule, 'startYm'>, k: number, parentDate: LocalDate): LocalDate {
+  return maxLocalDate(amortizationMonthEnd(schedule.startYm, k), parentDate);
+}
+
+/** «نوفمبر 2026» من YYYY-MM */
+export function monthLabelOf(ym: string): string {
+  const y = Number(ym.slice(0, 4));
+  const m = Number(ym.slice(5, 7));
+  return m >= 1 && m <= 12 ? `${MONTHS_AR[m - 1]} ${y}` : ym;
+}
+
+/**
+ * قيد مدفوع مقدماً من مستند (D2): مدين 115002 للإيجار أو 115001 لغيره [+ 116001 كاملة بتاريخ الفاتورة] / دائن مصدر الدفع.
+ * الأشهر 1..24 (الأطول للمحاسب البشري ⇒ DOC_TREATMENT_REFERRED)، والجدول في meta: الأساس (ما على حساب المدفوع مقدماً) ÷
+ * الأشهر مقرَّباً نصف-لأعلى والباقي على الأخير — قسطٌ يُقرَّب إلى صفر يُرفض (PREPAID_MONTHS_INVALID).
+ */
+export function buildPrepaidPlan(env: PlanEnv, input: PrepaidPlanInput): PlanOutcome {
+  const { lc } = env;
+  const dec = lc.ctx.settings.currencyDecimals;
+  const months = input.months;
+  if (!Number.isInteger(months) || months < 1) {
+    return fail(refuse('PREPAID_MONTHS_INVALID', `عدد أشهر الدفع المقدّم يجب أن يكون عدداً صحيحاً من 1 إلى ${ACCT_PREPAID_MAX_MONTHS}.`, { months }));
+  }
+  if (months > ACCT_PREPAID_MAX_MONTHS) {
+    return fail(refuse('DOC_TREATMENT_REFERRED',
+      `دفعٌ مقدّم لأكثر من ${ACCT_PREPAID_MAX_MONTHS} شهراً يقرّر قيده محاسبك البشري (عقد طويل الأجل)، فلم يُرحَّل شيء.`, { months }));
+  }
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.startYm)) {
+    return fail(refuse('PREPAID_MONTHS_INVALID', 'بداية فترة الدفع المقدّم غير صالحة: صحّح تاريخ بداية الفترة في البطاقة.'));
+  }
+  const expense = resolveExpenseAccount(lc, { accountCode: input.accountCode }, env.booksMode);
+  if (isRefusal(expense)) return fail(expense);
+  const prepaid = resolvePrepaidAccount(lc, expense, input.prepaidCode);
+  if (isRefusal(prepaid)) return fail(prepaid);
+  const d = docLinesOf(env, prepaid, input);
+  if (isRefusal(d)) return fail(d);
+  const base = d.debitMilli;
+  const monthly = divRoundUnits(base, months, dec);
+  const last = base - monthly * BigInt(months - 1);
+  if (monthly <= 0n || last <= 0n) {
+    return fail(refuse('PREPAID_MONTHS_INVALID', `المبلغ أصغر من أن يُوزَّع على ${months} شهراً. قلّل الأشهر أو سجّله مصروفاً.`, { months }));
+  }
+  const what = cleanText(input.what, 160) || prepaid.name;
+  const meta: PrepaidSchedule = {
+    months, baseMilli: base.toString(), monthlyMilli: monthly.toString(), lastMilli: last.toString(), startYm: input.startYm,
+    prepaidCode: prepaid.code, expenseCode: expense.code, what, lockedSkip: null,
+  };
+  const cur = env.currency;
+  const per = monthly === last
+    ? `${formatAmount(monthly, dec)} ${cur} شهرياً`
+    : `${formatAmount(monthly, dec)} ${cur} شهرياً والأخير ${formatAmount(last, dec)}`;
+  const summaryAr = `${prepaid.name}: ${formatAmount(input.totalMilli, dec)} ${cur}${d.vatPart} ${d.pay.label} — ${what}؛ `
+    + `يُطفأ على ${expense.name} ${months} شهراً من ${monthLabelOf(input.startYm)} (${per})`;
+  const draft = moveDraft(env, d.journal, 'ENTRY', input.date, `${what} — مدفوع مقدماً (مستند — المحاسب الذكي)`, d.lines);
+  return {
+    ok: true,
+    plan: {
+      kind: 'PREPAID', draft, totalMilli: input.totalMilli, summaryAr, lines: planLinesOf(env, d.lines), warnings: d.warnings,
+      docId: input.docId, meta,
+    },
+  };
+}
+
+export interface AmortizationInput {
+  parentPostId: string;
+  schedule: PrepaidSchedule;
+  k: number;
+  date: LocalDate;
+}
+
+/** قسط إطفاء الشهر k: مدين المصروف / دائن المدفوع مقدماً بقسطه — دفتر «عمليات متنوعة» */
+export function buildAmortizationPlan(env: PlanEnv, input: AmortizationInput): PlanOutcome {
+  const { lc } = env;
+  const dec = lc.ctx.settings.currencyDecimals;
+  const s = input.schedule;
+  if (!Number.isInteger(input.k) || input.k < 1 || input.k > s.months) {
+    return fail(refuse('PREPAID_MONTHS_INVALID', 'قسط إطفاء خارج جدول المدفوع مقدماً.', { k: input.k, months: s.months }));
+  }
+  const amount = amortizationAmount(s, input.k);
+  if (amount <= 0n) return fail(refuse('AMOUNT_INVALID', 'قسط الإطفاء يجب أن يكون أكبر من صفر.'));
+  const expense = resolveExpenseAccount(lc, { accountCode: s.expenseCode }, env.booksMode);
+  if (isRefusal(expense)) return fail(expense);
+  const prepaid = lc.ctx.accounts.byCode(s.prepaidCode);
+  const pp = prepaidAccountProblem(prepaid, lc);
+  if (pp !== null || !prepaid) {
+    return fail(refuse(pp === 'MISSING' ? 'ACCOUNT_MISSING' : 'ACCOUNT_NOT_ALLOWED',
+      `حساب المدفوع مقدماً (${s.prepaidCode}) ${PROBLEM_AR[pp ?? 'MISSING']}.`, { accountCode: s.prepaidCode, problem: pp }));
+  }
+  const journal = journalFor(lc, null);
+  if (!journal) return fail(refuse('JOURNAL_MISSING', 'لا يوجد دفتر «عمليات متنوعة» نشط لترحيل قسط الإطفاء.'));
+  const month = monthLabelOf(amortizationMonthEnd(s.startYm, input.k).slice(0, 7));
+  const what = `إطفاء ${s.what} — ${month} (${input.k} من ${s.months})`;
+  const lines: LineDraft[] = [
+    { accountId: expense.id, label: `${expense.name}: ${what}`, debitMilli: amount, creditMilli: 0n },
+    { accountId: prepaid.id, label: `${prepaid.name}: ${what}`, debitMilli: 0n, creditMilli: amount },
+  ];
+  const summaryAr = `${what}: ${formatAmount(amount, dec)} ${env.currency} على ${expense.name}`;
+  const draft = moveDraft(env, journal, 'DEFERRAL', input.date, `${what} (إطفاء مجدول — المحاسب الذكي)`, lines);
+  return {
+    ok: true,
+    plan: {
+      kind: 'PREPAID_AMORT', draft, totalMilli: amount, summaryAr, lines: planLinesOf(env, lines), warnings: [],
+      parentPostId: input.parentPostId,
+    },
+  };
+}
+
 // ═══ عدم التكرار ═══
 
 export interface FingerprintLine { accountId: string; debitMilli: Milli | bigint; creditMilli: Milli | bigint }
 
-/** بصمة القيد للمقارنة عند إعادة الإرسال: النوع + (الحساب، المدين، الدائن) مرتّبة — بلا التاريخ (إعادة الغد = الطلب نفسه) */
-export function linesFingerprint(kind: string, lines: readonly FingerprintLine[]): string {
-  return `${kind}|${lines
+/**
+ * بصمة القيد للمقارنة عند إعادة الإرسال: النوع [+ معرّف المستند] + (الحساب، المدين، الدائن) مرتّبة — بلا التاريخ (إعادة
+ * الغد = الطلب نفسه). المستند في البصمة: مستندان بالمبلغ والحسابات نفسها في طلبٍ أُعيد لا يتبادلان قيديهما.
+ */
+export function linesFingerprint(kind: string, lines: readonly FingerprintLine[], docId?: string | null): string {
+  return `${kind}${docId ? `#${docId}` : ''}|${lines
     .filter((l) => BigInt(l.debitMilli) !== 0n || BigInt(l.creditMilli) !== 0n)
     .map((l) => `${l.accountId}:${BigInt(l.debitMilli)}:${BigInt(l.creditMilli)}`)
     .sort()
@@ -895,7 +1314,7 @@ export function linesFingerprint(kind: string, lines: readonly FingerprintLine[]
 }
 
 export interface ExistingAiMove { id: string; ref: string | null; lines: readonly FingerprintLine[] }
-export interface ExistingAiRow { ref: string; kind: string; moveId: string }
+export interface ExistingAiRow { ref: string; kind: string; moveId: string; docId?: string | null }
 
 export type RefChoice =
   | { kind: 'new'; ref: string }
@@ -908,7 +1327,7 @@ export type RefChoice =
  */
 export function chooseAiRef(
   clientRef: string, usedRefs: readonly string[], moves: readonly ExistingAiMove[], rows: readonly ExistingAiRow[],
-  plan: Pick<AiPostPlan, 'kind' | 'lines'>, max = MAX_POSTS_PER_REQUEST,
+  plan: Pick<AiPostPlan, 'kind' | 'lines' | 'docId'>, max = MAX_POSTS_PER_REQUEST,
 ): RefChoice {
   const used = new Set(usedRefs);
   const taken = new Set<string>();
@@ -916,14 +1335,14 @@ export function chooseAiRef(
   for (const r of rows) taken.add(r.ref);
   const moveById = new Map(moves.map((m) => [m.id, m]));
   const rowByRef = new Map(rows.map((r) => [r.ref, r]));
-  const want = linesFingerprint(plan.kind, plan.lines);
+  const want = linesFingerprint(plan.kind, plan.lines, plan.docId);
   for (let n = 1; n <= max; n++) {
     const ref = aiRefOf(clientRef, n);
     if (used.has(ref)) continue;
     if (!taken.has(ref)) return { kind: 'new', ref };
     const row = rowByRef.get(ref);
     const mv = row ? moveById.get(row.moveId) : undefined;
-    if (row && mv && mv.ref === ref && row.kind === plan.kind && linesFingerprint(row.kind, mv.lines) === want) {
+    if (row && mv && mv.ref === ref && row.kind === plan.kind && linesFingerprint(row.kind, mv.lines, row.docId) === want) {
       return { kind: 'replay', ref, moveId: mv.id };
     }
   }
@@ -934,7 +1353,7 @@ export function chooseAiRef(
 
 export const AI_POST_ROW_SELECT = {
   id: true, adminId: true, adminName: true, moveId: true, moveNumber: true, ref: true, kind: true, amountMilli: true,
-  dateLocal: true, summaryAr: true, createdAt: true,
+  dateLocal: true, summaryAr: true, createdAt: true, docId: true, parentPostId: true, meta: true,
 } as const;
 
 export interface AiPostRow {
@@ -949,19 +1368,51 @@ export interface AiPostRow {
   dateLocal: string;
   summaryAr: string;
   createdAt: Date;
+  /** مستندات المحادثة: الأعمدة الاختيارية (الصفوف القديمة null) */
+  docId?: string | null;
+  parentPostId?: string | null;
+  meta?: unknown;
 }
 
-/** صفّ AiAccountantPost + سطور القيد ⇐ PostedMove العقد (المبالغ أرقام لا BigInt) */
+/** إضافات العرض لصفٍّ من مستند (listAiPostsWith وexecuteAiPost): المرفق وتقدّم الإطفاء وتنبيهه وترتيب القسط */
+export interface PostedExtras {
+  hasAttachment?: boolean;
+  prepaid?: PrepaidProgress;
+  warning?: string | null;
+  amort?: AmortOrdinal;
+}
+
+/** قسط الإطفاء k من n (PREPAID_AMORT): من مرجعه AI-AMORT-<parentPostId>-<k> وجدول قيد الدفع المقدّم أبيه */
+export interface AmortOrdinal {
+  parentPostId: string;
+  index: number;
+  months: number;
+}
+
+/** تقدّم إطفاء قيد PREPAID في القائمة: المرحّل من الأشهر، وتوقّفه (عُكس قيد الدفع)، وموعد القسط التالي، والأشهر المقفلة */
+export interface PrepaidProgress {
+  posted: number;
+  months: number;
+  stopped?: boolean;
+  /** آخر يوم في شهر القسط التالي غير المرحّل (بعده يُرحَّل) — null إن اكتمل أو توقّف */
+  nextDate?: string | null;
+  /** أشهر YYYY-MM تخطّاها الإطفاء لفترةٍ مقفلة */
+  lockedMonths?: string[];
+}
+
+/** صفّ AiAccountantPost + سطور القيد ⇐ PostedMove العقد (المبالغ أرقام لا BigInt) — النوع المجهول ⇒ EXPENSE */
 export function postedMoveOf(
   row: AiPostRow, lines: readonly (FingerprintLine & { accountCode?: string; accountName?: string })[],
   accountOf: (id: string) => { code: string; name: string } | null | undefined, reversed: boolean,
+  extras: PostedExtras = {},
 ): PostedMove {
+  const kind = (AI_POST_KINDS as readonly string[]).includes(row.kind) ? row.kind as AiPostKind : 'EXPENSE';
   return {
     id: row.id,
     moveId: row.moveId,
     moveNumber: row.moveNumber,
     ref: row.ref,
-    kind: (row.kind === 'SALARIES' || row.kind === 'SALARIES_SETTLE' ? row.kind : 'EXPENSE'),
+    kind,
     amount: fromMilli(BigInt(row.amountMilli)),
     date: row.dateLocal,
     summaryAr: row.summaryAr,
@@ -977,6 +1428,12 @@ export function postedMoveOf(
     reversed,
     createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
     adminName: row.adminName,
+    // حقول المستندات تُضاف لصفوفها وحدها (قيود المحادثة النصّية بشكلها القائم حرفياً)
+    ...(row.docId ? { docId: row.docId, hasAttachment: extras.hasAttachment ?? false } : {}),
+    ...(row.parentPostId ? { parentPostId: row.parentPostId } : {}),
+    ...(extras.prepaid ? { prepaid: extras.prepaid } : {}),
+    ...(extras.amort ? { amort: extras.amort } : {}),
+    ...(extras.warning ? { warning: extras.warning } : {}),
   };
 }
 
@@ -1005,6 +1462,20 @@ export interface AiPostRequest {
    * كما في الصفّ) منذ since بطلبٍ آخر — فلا يُرحَّل طلبٌ قديمٌ مرةً ثانية بدورةٍ جديدة (clientRef آخر).
    */
   duplicateGuard?: { adminId: string; since: Date };
+  /** ترحيلٌ من مستند (documents/post.ts): خطّافات داخل المعاملة نفسها حول postMove */
+  doc?: AiDocHooks;
+}
+
+/**
+ * خطّافات ترحيل المستند — كلها في معاملة executeAiPost وتحت قفل الترحيل، وأيّ رميٍ منها يُسقط القيد وصفّه معاً:
+ *   refusal  بعد عدم التكرار (إعادة الإرسال تُعاد قبله) وقبل postMove: طبقات التكرار (الملف نفسه، رقم الفاتورة، المفتاح الرخو).
+ *   relink   بعد postMove مباشرة: مرفق المستند يُنقل إلى القيد المرحَّل (لا يُربط بمسودة أبداً — حذف المسودة يحذف مرفقاتها).
+ *   linkDoc  بعد صفّ AiAccountantPost: المستند يشير إلى قيده وصفّه (مقارنة-وتبديل على moveId السابق).
+ */
+export interface AiDocHooks {
+  refusal(tx: GlDb, plan: AiPostPlan, lc: LedgerContext): Promise<AiRefusal | null>;
+  relink(tx: GlDb, posted: { moveId: string; moveNumber: string }): Promise<void>;
+  linkDoc(tx: GlDb, link: { moveId: string; postId: string }): Promise<void>;
 }
 
 /** نافذة فحص تكرار القيد بطلبٍ آخر (duplicateGuard) — محادثة الصفحة في الذاكرة فلا تطول عادةً عن هذا */
@@ -1128,7 +1599,8 @@ export async function executeAiPost(tx: GlDb, req: AiPostRequest, deps: AiPostDe
     const row = rows.find((r) => r.ref === choice.ref) as AiPostRow;
     const mv = moves.find((m) => m.id === choice.moveId);
     const reversal = await tx.glMove.findFirst({ where: { tenantId, reversedMoveId: choice.moveId }, select: { id: true } });
-    return { move: postedMoveOf(row, mv?.lines ?? [], accountOf, !!reversal), replayed: true, warnings: [] };
+    // إعادة إرسال قيد مستند: مرفقه نُقل إليه في الترحيل الأول (المعاملة نفسها)
+    return { move: postedMoveOf(row, mv?.lines ?? [], accountOf, !!reversal, { hasAttachment: !!row.docId }), replayed: true, warnings: [] };
   }
   if (choice.kind === 'none') {
     throw new AiPostRefusal(refuse('TOO_MANY_POSTS', `بلغ الطلب الواحد حدّ ${MAX_POSTS_PER_REQUEST} قيداً؛ أرسل الباقي في رسالة جديدة.`));
@@ -1137,6 +1609,11 @@ export async function executeAiPost(tx: GlDb, req: AiPostRequest, deps: AiPostDe
   // قيدٌ جديد: رصيد الالتزام والاستحقاق السابق والتكرار بطلبٍ آخر — تحت القفل نفسه
   const problem = await newPostRefusal(tx, tenantId, plan, req, dec);
   if (problem) throw new AiPostRefusal(problem);
+  // المستند: طبقات التكرار (الملف نفسه، رقم الفاتورة، المفتاح الرخو) بعد إعادة الإرسال وتحت القفل نفسه
+  if (req.doc) {
+    const dup = await req.doc.refusal(tx, plan, lc);
+    if (dup) throw new AiPostRefusal(dup);
+  }
 
   const draft: MoveDraft = { ...plan.draft, ref: choice.ref };
   const posted = await deps.postMove(tx, draft, {
@@ -1147,9 +1624,11 @@ export async function executeAiPost(tx: GlDb, req: AiPostRequest, deps: AiPostDe
     lockPolicy: 'REJECT',
     auditAction: AI_POST_AUDIT_ACTION,
     auditSummary: `المحاسب الذكي: ${plan.summaryAr}`.slice(0, 500),
-    auditExtra: { aiAccountant: true, clientRef: req.clientRef, ref: choice.ref, kind: plan.kind },
+    auditExtra: { aiAccountant: true, clientRef: req.clientRef, ref: choice.ref, kind: plan.kind, ...(plan.docId ? { docId: plan.docId } : {}) },
     ...(req.now ? { now: req.now } : {}),
   });
+  // مرفق المستند يُنقل إلى القيد المرحَّل في المعاملة نفسها — بعد postMove (لا مسودة) وقبل الصفّ
+  if (req.doc) await req.doc.relink(tx, { moveId: posted.id, moveNumber: posted.number });
   const row = await tx.aiAccountantPost.create({
     data: {
       tenantId,
@@ -1162,10 +1641,19 @@ export async function executeAiPost(tx: GlDb, req: AiPostRequest, deps: AiPostDe
       amountMilli: plan.totalMilli,
       dateLocal: posted.date,
       summaryAr: plan.summaryAr,
+      // أعمدة المستندات تُكتب لقيودها وحدها (صفّ المحادثة النصّية بشكله القائم)
+      ...(plan.docId ? { docId: plan.docId } : {}),
+      ...(plan.parentPostId ? { parentPostId: plan.parentPostId } : {}),
+      ...(plan.meta ? { meta: plan.meta as unknown as Prisma.InputJsonValue } : {}),
     },
     select: AI_POST_ROW_SELECT,
   });
-  return { move: postedMoveOf(row, plan.lines, accountOf, false), replayed: false, warnings: plan.warnings };
+  if (req.doc) await req.doc.linkDoc(tx, { moveId: posted.id, postId: row.id });
+  const extras: PostedExtras = {
+    ...(plan.docId ? { hasAttachment: true } : {}),
+    ...(plan.meta ? { prepaid: { posted: 0, months: plan.meta.months, stopped: false, nextDate: amortizationMonthEnd(plan.meta.startYm, 1) } } : {}),
+  };
+  return { move: postedMoveOf(row, plan.lines, accountOf, false, extras), replayed: false, warnings: plan.warnings };
 }
 
 // ═══ الأخطاء ⇐ رفض مشروح ═══
@@ -1204,11 +1692,39 @@ export interface AiPostsListDb {
   aiAccountantPost: { findMany(args: unknown): Promise<AiPostRow[]> };
   glMove: { findMany(args: unknown): Promise<unknown[]> };
   glAccount: { findMany(args: unknown): Promise<{ id: string; code: string; name: string }[]> };
+  /** مرفقات القيود — يُسأل لصفوف المستندات وحدها */
+  glAttachment?: { findMany(args: unknown): Promise<{ entityId: string }[]> };
 }
+
+/** جدول الإطفاء من AiAccountantPost.meta (Json) — شكلٌ غير متوقّع ⇒ null (لا يُرمى في قائمة) */
+export function scheduleOf(meta: unknown): PrepaidSchedule | null {
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return null;
+  const m = meta as Record<string, unknown>;
+  const int = (v: unknown) => typeof v === 'string' && /^\d+$/.test(v);
+  if (!Number.isInteger(m.months) || (m.months as number) < 1 || !int(m.monthlyMilli) || !int(m.lastMilli) || !int(m.baseMilli)) return null;
+  if (typeof m.startYm !== 'string' || !/^\d{4}-\d{2}$/.test(m.startYm) || typeof m.prepaidCode !== 'string' || typeof m.expenseCode !== 'string') return null;
+  const skip = m.lockedSkip && typeof m.lockedSkip === 'object' ? m.lockedSkip as Record<string, unknown> : null;
+  return {
+    months: m.months as number, baseMilli: m.baseMilli as string, monthlyMilli: m.monthlyMilli as string, lastMilli: m.lastMilli as string,
+    startYm: m.startYm, prepaidCode: m.prepaidCode, expenseCode: m.expenseCode, what: typeof m.what === 'string' ? m.what : '',
+    lockedSkip: skip && Number.isInteger(skip.k) && typeof skip.date === 'string'
+      ? { k: skip.k as number, date: skip.date, at: typeof skip.at === 'string' ? skip.at : '' } : null,
+  };
+}
+
+/** تنبيه قيد دفعٍ مقدّم عُكس بعد ترحيل أقساطٍ منه — الأقساط باقية لا تُعكس آلياً (D2) */
+export const prepaidReversedWarning = (liveAmortizations: number): string =>
+  `عُكس قيد الدفع — راجع قيود الإطفاء المرحّلة (${liveAmortizations})`;
+
+/** تنبيه فترة مقفلة تخطّاها الإطفاء — يُعاد تلقائياً بعد فتحها */
+export const prepaidLockedWarning = (date: string): string =>
+  `الفترة مقفلة فلم يُرحَّل قسط الإطفاء بتاريخ ${date}؛ يُرحَّل تلقائياً بعد فتحها`;
 
 /**
  * أحدث قيود المحاسب الذكي للشركة (tenantId من الجلسة وحدها): الصفّ + سطور القيد الحيّة + «معكوس؟» من GlMove.reversedMoveId.
  * قيدٌ حُذف أو أُعيد مسودةً يظهر reversed=true (لم يعد في الدفاتر فلا زرّ عكس له).
+ * صفوف المستندات تحمل docId وhasAttachment (مرفقٌ على القيد)، وقيد المدفوع مقدماً تقدّم إطفائه {posted, months} وتنبيهه
+ * (عُكس قيد الدفع بعد أقساطٍ حيّة، أو فترة مقفلة تُخطّيت)، والأصل «يحتاج إهلاكاً».
  */
 export async function listAiPostsWith(db: AiPostsListDb, tenantId: string, limit: number): Promise<PostedMove[]> {
   if (!tenantId) return [];
@@ -1217,7 +1733,14 @@ export async function listAiPostsWith(db: AiPostsListDb, tenantId: string, limit
     where: { tenantId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take, select: AI_POST_ROW_SELECT,
   });
   if (rows.length === 0) return [];
-  const moveIds = [...new Set(rows.map((r) => r.moveId))];
+  // أقساط قيود الدفع المقدّم في الصفحة (للتقدّم وتنبيه العكس) — تُسأل لها وحدها
+  const prepaidIds = rows.filter((r) => r.kind === 'PREPAID').map((r) => r.id);
+  const amortRows = prepaidIds.length
+    ? await db.aiAccountantPost.findMany({
+      where: { tenantId, parentPostId: { in: prepaidIds } }, select: { id: true, parentPostId: true, moveId: true, ref: true },
+    }) as unknown as { id: string; parentPostId: string | null; moveId: string; ref?: string }[]
+    : [];
+  const moveIds = [...new Set([...rows.map((r) => r.moveId), ...amortRows.map((r) => r.moveId)])];
   const moves = await db.glMove.findMany({
     where: { tenantId, id: { in: moveIds } },
     select: { id: true, state: true, lines: { select: { accountId: true, debitMilli: true, creditMilli: true }, orderBy: { seq: 'asc' } } },
@@ -1232,9 +1755,59 @@ export async function listAiPostsWith(db: AiPostsListDb, tenantId: string, limit
   const moveById = new Map(moves.map((m) => [m.id, m]));
   const reversed = new Set(reversals.map((r) => r.reversedMoveId).filter((x): x is string => !!x));
   const accountById = new Map(accounts.map((a) => [a.id, a]));
+  const deadMove = (moveId: string) => {
+    const mv = moveById.get(moveId);
+    return !mv || mv.state !== 'POSTED' || reversed.has(moveId);
+  };
+  // أقساط الإطفاء في الصفحة: عدد أشهرها من جدول قيد الدفع المقدّم أبيها — في الصفحة نفسها، وإلا يُسأل عنه وحده
+  const parentMeta = new Map<string, unknown>(rows.filter((r) => r.kind === 'PREPAID').map((r) => [r.id, r.meta]));
+  const missingParents = [...new Set(rows
+    .filter((r) => r.kind === 'PREPAID_AMORT' && r.parentPostId && !parentMeta.has(r.parentPostId))
+    .map((r) => r.parentPostId as string))];
+  if (missingParents.length) {
+    const parents = await db.aiAccountantPost.findMany({
+      where: { tenantId, id: { in: missingParents } }, select: { id: true, meta: true },
+    }) as unknown as { id: string; meta?: unknown }[];
+    for (const p of parents) if (missingParents.includes(p.id)) parentMeta.set(p.id, p.meta);
+  }
+  // المرفق على القيد نفسه (نُقل إليه في معاملة الترحيل) — قد يُحذف من الدفاتر بعدها
+  const docMoveIds = rows.filter((r) => r.docId).map((r) => r.moveId);
+  const attached = new Set<string>();
+  if (docMoveIds.length && db.glAttachment) {
+    const atts = await db.glAttachment.findMany({
+      where: { tenantId, entityType: 'MOVE', entityId: { in: [...new Set(docMoveIds)] } }, select: { entityId: true },
+    });
+    for (const a of atts) attached.add(a.entityId);
+  }
   return rows.map((row) => {
     const mv = moveById.get(row.moveId);
-    const gone = !mv || mv.state !== 'POSTED';
-    return postedMoveOf(row, mv?.lines ?? [], (id) => accountById.get(id), reversed.has(row.moveId) || gone);
+    const isDead = deadMove(row.moveId);
+    const extras: PostedExtras = {};
+    if (row.docId) extras.hasAttachment = attached.has(row.moveId);
+    if (row.kind === 'PREPAID') {
+      const s = scheduleOf(row.meta);
+      const mine = amortRows.filter((a) => a.parentPostId === row.id);
+      if (s) {
+        const postedKs = new Set(mine.map((a) => Number(/-(\d+)$/.exec(a.ref ?? '')?.[1] ?? NaN)).filter((k) => Number.isInteger(k)));
+        let next = 1;
+        while (postedKs.has(next)) next++;
+        extras.prepaid = {
+          posted: Math.min(mine.length, s.months), months: s.months, stopped: isDead,
+          nextDate: !isDead && next <= s.months ? amortizationMonthEnd(s.startYm, next) : null,
+          ...(s.lockedSkip ? { lockedMonths: [s.lockedSkip.date.slice(0, 7)] } : {}),
+        };
+      }
+      const liveAmort = mine.filter((a) => !deadMove(a.moveId)).length;
+      if (isDead && liveAmort > 0) extras.warning = prepaidReversedWarning(liveAmort);
+      else if (!isDead && s?.lockedSkip && mine.length < s.months) extras.warning = prepaidLockedWarning(s.lockedSkip.date);
+    } else if (row.kind === 'ASSET' && !isDead) {
+      extras.warning = ASSET_DEPRECIATION_NOTE;
+    } else if (row.kind === 'PREPAID_AMORT' && row.parentPostId) {
+      // «الشهر k من n» في البطاقة (amortText في الويب)
+      const k = Number(/-(\d+)$/.exec(row.ref ?? '')?.[1] ?? NaN);
+      const s = scheduleOf(parentMeta.get(row.parentPostId));
+      if (s && Number.isInteger(k) && k >= 1 && k <= s.months) extras.amort = { parentPostId: row.parentPostId, index: k, months: s.months };
+    }
+    return postedMoveOf(row, mv?.lines ?? [], (id) => accountById.get(id), isDead, extras);
   });
 }

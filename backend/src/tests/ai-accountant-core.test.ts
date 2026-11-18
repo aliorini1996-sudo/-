@@ -253,10 +253,16 @@ test('الحارس الأخير: المندوب ومفتاح API مرفوضان 
 
 test('GET /status: الشكل المتعاقد عليه، والترحيل = الصلاحية والدفاتر ومفتاح البيئة معاً، والشركة من الجلسة', async () => {
   reset();
+  // نموذجٌ مُعدّ (قراءة إعداد فقط — لا نداء): المستندات تتبع المحادثة
+  process.env.GROQ_API_KEY = 'gsk_test_status';
   const ok = await hit('GET', '/status');
   assert.equal(ok.status, 200, JSON.stringify(ok));
-  assert.deepEqual(Object.keys(ok.body!.data).sort(), ['booksActivated', 'booksMode', 'canPost', 'canViewLedger', 'companyName', 'currency', 'enabled', 'timezone', 'todayLocal', 'warehouseOn']);
+  assert.deepEqual(Object.keys(ok.body!.data).sort(), ['booksActivated', 'booksMode', 'canPost', 'canViewLedger', 'companyName', 'currency', 'docs', 'enabled', 'timezone', 'todayLocal', 'warehouseOn']);
   assert.equal(ok.body!.data.enabled, true);
+  // مستندات المحادثة (١٨ نوفمبر): مفعّلة افتراضياً لمن يرحّل، بسقوفها — بلا قراءة إضافية للقاعدة
+  assert.deepEqual(ok.body!.data.docs, {
+    enabled: true, canUpload: true, caps: { imageBytes: 400 * 1024, pdfBytes: 3 * 1024 * 1024, perMessage: 3 }, assetThreshold: 2000, retentionDays: 30,
+  });
   assert.equal(ok.body!.data.canPost, true, 'مالك الشركة بدفاتر مفعّلة');
   assert.equal(ok.body!.data.booksMode, 'MANUAL');
   assert.equal(ok.body!.data.companyName, 'شركة الأمل للتوزيع');
@@ -266,11 +272,32 @@ test('GET /status: الشكل المتعاقد عليه، والترحيل = ا�
   assert.ok(calls.some((c) => c.op === 'tenant.findUnique' && c.args.where.id === T));
 
   process.env.AI_ACCOUNTANT_WRITE = '0';
-  try { assert.equal((await hit('GET', '/status')).body!.data.canPost, false, 'AI_ACCOUNTANT_WRITE=0 يوقف الترحيل'); } finally { delete process.env.AI_ACCOUNTANT_WRITE; }
+  try {
+    const w = (await hit('GET', '/status')).body!.data;
+    assert.equal(w.canPost, false, 'AI_ACCOUNTANT_WRITE=0 يوقف الترحيل');
+    assert.equal(w.docs.enabled, false, 'والمستندات معه');
+  } finally { delete process.env.AI_ACCOUNTANT_WRITE; }
+  process.env.AI_ACCOUNTANT_DOCS = 'off';
+  try {
+    const d = (await hit('GET', '/status')).body!.data;
+    assert.deepEqual([d.canPost, d.docs.enabled, d.docs.canUpload], [true, false, false], 'AI_ACCOUNTANT_DOCS=off يطفئ المستندات وحدها');
+  } finally { delete process.env.AI_ACCOUNTANT_DOCS; }
+  // «سجّل القيد» دورة محادثة: المحادثة المطفأة أو نموذجٌ غير مُعدّ ⇒ لا مستندات (لا رفعٌ يستهلك الحصة ثم لا يُرحَّل أبداً)
+  process.env.AI_ACCOUNTANT_LLM = '0';
+  try {
+    const l = (await hit('GET', '/status')).body!.data;
+    assert.deepEqual([l.canPost, l.docs.enabled, l.docs.canUpload], [true, false, false], 'AI_ACCOUNTANT_LLM=0 يطفئ المستندات');
+  } finally { delete process.env.AI_ACCOUNTANT_LLM; }
+  delete process.env.GROQ_API_KEY;
+  const nm = (await hit('GET', '/status')).body!.data;
+  assert.deepEqual([nm.canPost, nm.docs.enabled], [true, false], 'بلا نموذج مُعدّ: لا مستندات');
+  process.env.GROQ_API_KEY = 'gsk_test_status';
 
   st.tenant!.accountingSuiteEnabled = false;
   const off = (await hit('GET', '/status')).body!.data;
   assert.deepEqual([off.canPost, off.booksActivated, off.booksMode], [false, false, 'NONE'], 'الدفاتر المطفأة بالمالك لا تُقرأ ولا يُرحَّل إليها');
+  assert.equal(off.docs.enabled, false, 'ولا مستندات بلا ترحيل');
+  delete process.env.GROQ_API_KEY;
   reset();
 });
 

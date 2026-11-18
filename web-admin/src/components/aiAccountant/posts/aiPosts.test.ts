@@ -6,9 +6,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  POSTS_LIMIT, POSTS_QUERY_KEY, REVERSE_REASON_MAX, cleanReason, isMobilePath, ledgerMoveHref, normalizePostedMove,
-  normalizePostsResponse, postedKindLabel, postedKindTone, reasonValid, reverseBody, reverseErrorInfo, reverseOutcome,
-  reverseSuccessText,
+  POSTS_LIMIT, POSTS_QUERY_KEY, REVERSE_REASON_MAX, amortText, cleanReason, isMobilePath, ledgerMoveHref, lockedMonthsText, moveDocId,
+  moveNotes, normalizePostedMove, normalizePostsResponse, postedKindLabel, postedKindTone, prepaidProgressText, prepaidStopText, reasonValid,
+  reverseBody, reverseErrorInfo, reverseOutcome, reverseSuccessText,
 } from './aiPosts';
 import { PHRASES } from '../../../i18n/strings';
 
@@ -212,6 +212,92 @@ test('normalizePostsResponse/normalizePostedMove: شكلٌ غير متوقّع �
   assert.equal(normalizePostedMove('x'), null);
 });
 
+// ─── قيود المستندات (طلب المالك ١٨ نوفمبر): المقدّم وإطفاؤه والأصل، و«المستند» ───
+
+test('أنواع المستندات: «إيجار/مصروف مقدّم» و«إطفاء شهري» و«أصل» بألوانٍ تخصّها', () => {
+  assert.equal(postedKindLabel('PREPAID'), 'إيجار/مصروف مقدّم');
+  assert.equal(postedKindLabel('PREPAID_AMORT'), 'إطفاء شهري');
+  assert.equal(postedKindLabel('ASSET'), 'أصل');
+  const tones = ['EXPENSE', 'SALARIES', 'SALARIES_SETTLE', 'PREPAID', 'PREPAID_AMORT', 'ASSET', 'X'].map(postedKindTone);
+  assert.equal(new Set(tones).size, tones.length, 'لكل نوعٍ لونه، والمجهول رمادي');
+  // البطاقة: أيقونةٌ لكل نوع، والأصل بلا إهلاك يقولها صراحةً
+  assert.match(CARD, /move\.kind === 'PREPAID' \? CalendarClock : move\.kind === 'PREPAID_AMORT' \? Repeat : move\.kind === 'ASSET' \? Package : Receipt/);
+  assert.match(CARD, /\{notes\.asset && \(\s*<p[\s\S]*?<Package size=\{12\} \/> \{notes\.asset\}/);
+  assert.match(LOGIC, /asset: m\.kind === 'ASSET' && !reversed \? tr\('يحتاج إهلاكاً يسجّله المحاسب'\) : null/);
+});
+
+test('normalizePostedMove: حقول المستند والإطفاء بصالحها وحده — والقيد بلا مستند بمفاتيحه القديمة', () => {
+  const docId = '11111111-1111-4111-8111-111111111111';
+  const base = { id: 'p', moveId: 'm', moveNumber: 'MISC/1', ref: 'AI-x-1', kind: 'PREPAID', amount: 12000, date: '2026-11-01', summaryAr: 'إيجار سنوي', lines: [], reversed: false, createdAt: '', adminName: null };
+  const m = normalizePostedMove({
+    ...base, docId, hasAttachment: true, warnings: ['شهرٌ مؤجّل', ''],
+    prepaid: { months: 12, postedMonths: 3, monthlyAmount: 1000, lastAmount: 1000, expenseCode: '621004', prepaidCode: '115002', nextDate: '2026-02-28', stopped: false, lockedMonths: ['2026-01', 'bad'] },
+  })!;
+  assert.equal(m.docId, docId);
+  assert.equal(m.hasAttachment, true);
+  assert.equal(m.prepaid?.postedMonths, 3);
+  assert.deepEqual(m.prepaid?.lockedMonths, ['2026-01']);
+  assert.deepEqual(m.warnings, ['شهرٌ مؤجّل']);
+  const amort = normalizePostedMove({ ...base, kind: 'PREPAID_AMORT', amort: { parentPostId: 'pp', index: 4, months: 12 } })!;
+  assert.deepEqual(amort.amort, { parentPostId: 'pp', index: 4, months: 12 });
+  const bad = normalizePostedMove({ ...base, docId: 'not-a-uuid', hasAttachment: 'yes', prepaid: { months: 0 }, amort: { index: 1 } })!;
+  for (const k of ['docId', 'hasAttachment', 'prepaid', 'amort', 'warnings']) assert.ok(!(k in bad), `${k} الفاسد يُسقط`);
+  const plain = normalizePostedMove(base)!;
+  assert.deepEqual(Object.keys(plain).sort(), Object.keys(base).sort(), 'قيدٌ بلا مستند بمفاتيحه القديمة حرفاً بحرف');
+});
+
+test('تقدّم الإطفاء ونهاياته: «تم إطفاء n من m»، وعكس قيد الدفع ينبّه إلى المرحّل، والمقفل مؤجّل، و«المستند» لما أُرفق', () => {
+  assert.equal(prepaidProgressText({ postedMonths: 3, months: 12 }), 'تم إطفاء 3 من 12');
+  assert.equal(prepaidStopText({ postedMonths: 3, stopped: false }, false), null, 'قيدٌ حيّ لا تنبيه');
+  assert.equal(prepaidStopText({ postedMonths: 3, stopped: true }, false), 'عُكس قيد الدفع — راجع قيود الإطفاء المرحّلة (3)');
+  assert.equal(prepaidStopText({ postedMonths: 2, stopped: false }, true), 'عُكس قيد الدفع — راجع قيود الإطفاء المرحّلة (2)', 'العكس من هذه البطاقة');
+  assert.equal(prepaidStopText({ postedMonths: 0, stopped: true }, true), 'عُكس قيد الدفع — توقف الإطفاء');
+  assert.equal(lockedMonthsText({ lockedMonths: [] }), null);
+  assert.equal(lockedMonthsText({ lockedMonths: ['2026-01', '2026-02'] }), 'تأجل إطفاء 2026-01، 2026-02 لأن الفترة مقفلة');
+  assert.equal(amortText({ index: 4, months: 12 }), 'الشهر 4 من 12');
+  const docId = '11111111-1111-4111-8111-111111111111';
+  assert.equal(moveDocId({ docId, hasAttachment: true }), docId);
+  assert.equal(moveDocId({ docId }), docId, 'غياب hasAttachment لا يُخفي الرابط');
+  assert.equal(moveDocId({ docId, hasAttachment: false }), null, 'ملفٌ لم يعد مرفقاً (تصفير الدفاتر)');
+  assert.equal(moveDocId({}), null);
+  // البطاقة: «المستند» يفتح العارض بمعرّف المستند (المحتوى من الخادم بصلاحية رؤية الدفاتر)، والتقدّم والتنبيهات من الدوال أعلاه
+  assert.match(CARD, /const docId = moveDocId\(move\);/);
+  assert.match(CARD, /\{docId && \(\s*<button[\s\S]*?onClick=\{\(\) => setViewing\(true\)\}[\s\S]*?\{tr\('المستند'\)\}/);
+  assert.match(CARD, /<DocViewer doc=\{\{ id: docId, fileName: summaryName\(move, tr\), mimeType: '' \}\} onClose=\{\(\) => setViewing\(false\)\} \/>/);
+  assert.match(CARD, /prepaidProgressText\(prepaid, tr\)/);
+  assert.match(CARD, /const notes = moveNotes\(move, reversed, tr\);/, 'ملاحظات البطاقة من مصدرٍ واحد');
+  assert.match(CARD, /\.\.\.notes\.other\.map\(w => tr\(w\)\)/, 'تنبيهٌ لا تعرفه البطاقة يمرّ بالمترجم');
+  assert.doesNotMatch(CARD, /move\.warnings/, 'لا تُعرض تنبيهات الخادم خاماً بجانب ملاحظات البطاقة');
+  assert.match(LOGIC, /\.\.\.postedDocFields\(x\),/);
+});
+
+test('moveNotes: كل ملاحظةٍ مرّة واحدة مترجمة — تنبيهات الخادم بالمعاني نفسها تُطوى، وعدد الأقساط الحيّة من الخادم', () => {
+  const tr = (x: string) => `[${x}]`;
+  const base = { kind: 'PREPAID' as const, prepaid: { posted: 3, months: 12, postedMonths: 3, stopped: false, nextDate: '2026-12-31', lockedMonths: [] as string[] } };
+  // الأصل: الخادم يرسل «يحتاج إهلاكاً…» تنبيهاً والبطاقة تقولها ⇒ مرّة واحدة ومترجمة
+  const asset = moveNotes({ kind: 'ASSET', warnings: ['يحتاج إهلاكاً يسجّله المحاسب'] }, false, tr);
+  assert.deepEqual(asset, { asset: '[يحتاج إهلاكاً يسجّله المحاسب]', stop: null, locked: null, other: [] });
+  assert.equal(moveNotes({ kind: 'ASSET' }, true).asset, null, 'الأصل المعكوس لا يحتاج إهلاكاً');
+  // عكس قيد الدفع: عدد الأقساط من الخادم (الحيّة وحدها) يغلب المرحّل، والنصّ مترجمٌ مرّة واحدة
+  const rev = moveNotes({ ...base, prepaid: { ...base.prepaid, stopped: true }, warnings: ['عُكس قيد الدفع — راجع قيود الإطفاء المرحّلة (2)'] }, true, tr);
+  assert.deepEqual(rev, { asset: null, stop: '[عُكس قيد الدفع — راجع قيود الإطفاء المرحّلة ({n})]'.replace('{n}', '2'), locked: null, other: [] });
+  // أوقفه الخادم بلا تنبيه ⇒ لا قسط حيّاً (عُكست الأقساط أيضاً) — لا «راجع (3)»
+  assert.equal(moveNotes({ ...base, prepaid: { ...base.prepaid, stopped: true } }, true).stop, 'عُكس قيد الدفع — توقف الإطفاء');
+  // عُكس من هذه البطاقة الآن (قبل تحديث القائمة): المرحّل أفضل ما نعرف
+  assert.equal(moveNotes(base, true).stop, 'عُكس قيد الدفع — راجع قيود الإطفاء المرحّلة (3)');
+  assert.equal(moveNotes(base, false).stop, null, 'قيدٌ حيّ لا تنبيه عكس');
+  // تنبيه العكس وحده يكفي ولو غاب جدول التقدّم
+  assert.equal(moveNotes({ kind: 'PREPAID', warnings: ['عُكس قيد الدفع — راجع قيود الإطفاء المرحّلة (4)'] }, true).stop, 'عُكس قيد الدفع — راجع قيود الإطفاء المرحّلة (4)');
+  // الشهر المقفل: من lockedMonths ومن تنبيه الخادم معاً بلا تكرار، ولا يُذكر للمعكوس
+  const lockedWarn = 'الفترة مقفلة فلم يُرحَّل قسط الإطفاء بتاريخ 2026-12-31؛ يُرحَّل تلقائياً بعد فتحها';
+  const locked = moveNotes({ ...base, prepaid: { ...base.prepaid, lockedMonths: ['2026-12'] }, warnings: [lockedWarn] }, false, tr);
+  assert.deepEqual(locked, { asset: null, stop: null, locked: '[تأجل إطفاء {months} لأن الفترة مقفلة]'.replace('{months}', '2026-12'), other: [] });
+  assert.equal(moveNotes({ ...base, warnings: [lockedWarn] }, false).locked, 'تأجل إطفاء 2026-12 لأن الفترة مقفلة', 'من التنبيه وحده');
+  assert.equal(moveNotes({ ...base, prepaid: { ...base.prepaid, stopped: true, lockedMonths: ['2026-12'] }, warnings: [lockedWarn] }, true).locked, null);
+  // تنبيهٌ لا تعرفه البطاقة يبقى كما هو (والبطاقة تمرّره بالمترجم)
+  assert.deepEqual(moveNotes({ kind: 'EXPENSE', warnings: ['تنبيهٌ جديد'] }, false).other, ['تنبيهٌ جديد']);
+});
+
 // ─── الترجمات ───
 
 /**
@@ -227,6 +313,12 @@ export const C3_PHRASES: readonly string[] = [
   'تُعرض أحدث {n} قيداً — الأقدم تجده في قيود اليومية بالبحث عن مرجعه',
 ];
 
+/** عبارات قيود المستندات (المقدّم وإطفاؤه والأصل) في ملفات هذه الحزمة */
+export const DOC_POSTS_PHRASES: readonly string[] = [
+  'إيجار/مصروف مقدّم', 'إطفاء شهري', 'تم إطفاء {n} من {m}', 'عُكس قيد الدفع — راجع قيود الإطفاء المرحّلة ({n})',
+  'عُكس قيد الدفع — توقف الإطفاء', 'تأجل إطفاء {months} لأن الفترة مقفلة', 'الشهر {n} من {m}', 'الإطفاء التالي {date}',
+];
+
 const ARABIC = /[؀-ۿ]/;
 
 test('الترجمات: كل tr(\'…\') في ملفات الحزمة في القاموس، ولا عبارة زائدة', () => {
@@ -237,12 +329,12 @@ test('الترجمات: كل tr(\'…\') في ملفات الحزمة في ال�
   assert.ok(used.size >= 30, `عبارات أقلّ من المتوقّع (${used.size})`);
   const missing = [...used].filter((k) => !PHRASES[k]);
   assert.deepEqual(missing, [], `بلا ترجمة: ${missing.join(' | ')}`);
-  const unused = C3_PHRASES.filter((k) => !used.has(k));
+  const unused = [...C3_PHRASES, ...DOC_POSTS_PHRASES].filter((k) => !used.has(k));
   assert.deepEqual(unused, [], `عبارات غير مستعملة: ${unused.join(' | ')}`);
 });
 
 test('الترجمات: أربع لغات غير فارغة، بلا عربية متسرّبة، والفرنسية بـ’ لا \'، والعناصر النائبة محفوظة', () => {
-  for (const k of C3_PHRASES) {
+  for (const k of [...C3_PHRASES, ...DOC_POSTS_PHRASES]) {
     const v = PHRASES[k];
     assert.ok(v, `${k} غائب عن القاموس`);
     assert.deepEqual(Object.keys(v).sort(), ['en', 'fr', 'tr', 'zh'], k);

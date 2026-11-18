@@ -49,7 +49,9 @@ test('كل خانة صورٍ في /m محروسة: capture خلف cameraCaptureC
 });
 
 test('أزرار التصوير في المكوّنات المشتركة محروسة كذلك (سطح المكتب والمندوب لا تتأثّر)، والنصّان مترجمان', () => {
-  for (const rel of ['m/MPurchaseAttachments.tsx', 'components/PurchaseAttachmentsPicker.tsx', 'components/CustomerDocsPicker.tsx']) {
+  for (const rel of ['m/MPurchaseAttachments.tsx', 'components/PurchaseAttachmentsPicker.tsx', 'components/CustomerDocsPicker.tsx',
+    // صينية مستندات «المحاسب الذكي AI» — مشتركةٌ بين الويب و/m (compact)، فتطبيق الإدارة 1.0.x على الآيفون يمرّ منها
+    'components/aiAccountant/docs/AttachTray.tsx']) {
     const s = src(rel);
     assert.match(s, /cameraCaptureCrashes\(\)/, rel);
     assert.match(s, /NO_CAMERA_MSG/, rel);
@@ -60,4 +62,35 @@ test('أزرار التصوير في المكوّنات المشتركة محر�
     assert.ok(p && p.en && p.fr && p.tr && p.zh, key);
     assert.ok(!p.fr.includes("'"), key);
   }
+});
+
+/** خانات الملفات في JSX: الوسم `<input … />` كاملاً — السهم `=>` في معالجٍ داخله لا يقطعه كما يقطع `[^>]*` */
+const fileInputs = (s: string) => [...s.matchAll(/<input\b[\s\S]*?\/>/g)].map(m => m[0]).filter(t => /\btype="file"/.test(t));
+const acceptOf = (tag: string) => /\baccept="([^"]*)"/.exec(tag)?.[1];
+
+test('صينية مستندات المحاسب الذكي: تصويرٌ واحد محروس، والاستديو صورٌ بتلميح NO_CAMERA_HINT تحته، وخانة PDF لا تقبل إلا PDF', () => {
+  const s = src('components/aiAccountant/docs/AttachTray.tsx');
+  const inputs = fileInputs(s);
+  assert.equal(inputs.length, 3, 'ثلاث خانات كبقيّة المنتقيات: تصوير، من الاستديو، ملف PDF');
+  for (const t of inputs) assert.ok(acceptOf(t) !== undefined, `accept نصٌّ حرفيّ يُقرأ هنا: ${t}`);
+
+  const camera = inputs.filter(t => t.includes('capture='));
+  assert.equal(camera.length, 1, 'خانة تصويرٍ واحدة');
+  assert.match(camera[0], /capture="environment"/);
+  assert.equal(acceptOf(camera[0]), 'image/*');
+
+  const gallery = inputs.filter(t => !t.includes('capture=') && /^image\//.test(acceptOf(t) ?? ''));
+  assert.equal(gallery.length, 1, 'الاستديو صورٌ بلا capture');
+  assert.doesNotMatch(acceptOf(gallery[0]) ?? '', /pdf/i);
+
+  const pdf = inputs.filter(t => /pdf/i.test(acceptOf(t) ?? ''));
+  assert.equal(pdf.length, 1, 'خانة PDF واحدة لا تشاركها الصور');
+  const tokens = (acceptOf(pdf[0]) ?? '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+  assert.ok(tokens.includes('application/pdf'), tokens.join(','));
+  assert.ok(tokens.every(x => x === 'application/pdf' || x === '.pdf'), `خانة PDF تقبل غيره: ${tokens.join(',')}`);
+  assert.ok(!pdf[0].includes('capture='));
+
+  // الرسالة على زرّ التصوير (الحارس العامّ أعلاه)، والتلميح يُرسم بعد خانة الاستديو — تحته لا فوقه
+  assert.match(s, /cameraCaptureCrashes\(\)/);
+  assert.ok(s.lastIndexOf('NO_CAMERA_HINT') > s.indexOf(gallery[0]), 'NO_CAMERA_HINT تحت خانة الاستديو');
 });

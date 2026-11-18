@@ -7,7 +7,8 @@
  * العكس يمرّ بمسار الدفاتر القائم وحده (POST /ledger/moves/:id/reverse — ledgerMovesApi.moves.reverse)، والسبب إلزاميّ
  * كما يفرضه الخادم (assertReversalReason ⇒ 422 LEDGER_REVERSAL_REASON_REQUIRED). القيد لا يُعكس هنا بغير ذلك.
  */
-import type { PostedMove, PostedMoveKind, PostedMoveLine } from '../../../lib/aiAccountant';
+import type { AiAmortRef, AiPrepaidProgress, PostedMove, PostedMoveKind, PostedMoveLine } from '../../../lib/aiAccountant';
+import { ASSET_DEPRECIATION_NOTE, postedDocFields } from '../../../lib/aiAccountantDocs';
 import { ledgerErrorMessage, type LedgerErrorLike } from '../../../lib/ledger/errors';
 
 type Tr = (ar: string) => string;
@@ -32,18 +33,109 @@ export function postedKindLabel(kind: unknown, tr: Tr = (s) => s): string {
     case 'EXPENSE': return tr('مصروف');
     case 'SALARIES': return tr('رواتب');
     case 'SALARIES_SETTLE': return tr('سداد مستحق');
+    // رفع المستندات: إيجارٌ أو خدمةٌ دُفعت مقدماً (115002/115001)، وإطفاؤها الشهري المجدول، وأصلٌ ثابت بلا إهلاك
+    case 'PREPAID': return tr('إيجار/مصروف مقدّم');
+    case 'PREPAID_AMORT': return tr('إطفاء شهري');
+    case 'ASSET': return tr('أصل');
     default: return tr('قيد');
   }
 }
 
-/** ألوان شارة النوع: المصروف بلون العلامة، والرواتب أزرق، وسدادها أخضر */
+/** ألوان شارة النوع: المصروف بلون العلامة، والرواتب أزرق، وسدادها أخضر، والمقدّم بنفسجي وإطفاؤه رمادي مزرقّ، والأصل كهرماني */
 export function postedKindTone(kind: unknown): string {
   switch (kind) {
     case 'EXPENSE': return 'bg-[#FDECE6] text-[#B8461F] border-[#F6CDBE]';
     case 'SALARIES': return 'bg-[#E8F0FB] text-[#2C5A8C] border-[#C9DBF2]';
     case 'SALARIES_SETTLE': return 'bg-[#E4F1EA] text-[#1E7A52] border-[#C6E3D2]';
+    case 'PREPAID': return 'bg-[#F3ECFB] text-[#6B3FA0] border-[#E0D2F3]';
+    case 'PREPAID_AMORT': return 'bg-[#EEF3F8] text-[#3F5F7F] border-[#D5E1EC]';
+    case 'ASSET': return 'bg-[#FAEFD8] text-[#8A6A12] border-[#F0DDB0]';
     default: return 'bg-[#F1EBDF] text-[#6E6557] border-[#E0D7C6]';
   }
+}
+
+// ─── المستند والإطفاء على البطاقة ───
+
+/** القيد رُحّل من مستندٍ مرفقٍ به — «المستند» يفتحه (GET /ai-accountant/documents/:id/content) */
+export const moveDocId = (m: Pick<PostedMove, 'docId' | 'hasAttachment'>): string | null =>
+  (typeof m.docId === 'string' && m.docId && m.hasAttachment !== false ? m.docId : null);
+
+/** تقدّم إطفاء قيد الدفع المقدّم: «تم إطفاء ٣ من ١٢» */
+export function prepaidProgressText(p: Pick<AiPrepaidProgress, 'postedMonths' | 'months'>, tr: Tr = (s) => s): string {
+  return tr('تم إطفاء {n} من {m}').replace('{n}', String(p.postedMonths)).replace('{m}', String(p.months));
+}
+
+/**
+ * عُكس قيد الدفع (أو توقّف إطفاؤه): الإطفاء يتوقّف وحده وما رُحّل من الأشهر يبقى في الدفاتر — فيُنبَّه إليها بعددها لتُراجع
+ * (D2). لا شيء رُحّل ⇒ «توقّف الإطفاء» وحدها. قيدٌ حيّ لم يتوقّف ⇒ null.
+ */
+export function prepaidStopText(p: Pick<AiPrepaidProgress, 'postedMonths' | 'stopped'>, reversed: boolean, tr: Tr = (s) => s): string | null {
+  if (!p.stopped && !reversed) return null;
+  if (p.postedMonths > 0) return tr('عُكس قيد الدفع — راجع قيود الإطفاء المرحّلة ({n})').replace('{n}', String(p.postedMonths));
+  return tr('عُكس قيد الدفع — توقف الإطفاء');
+}
+
+/** أشهرٌ تخطّاها الإطفاء لفترةٍ مقفلة (يُعاد إطفاؤها حين تُفتح) — null بلا أشهر */
+export function lockedMonthsText(p: Pick<AiPrepaidProgress, 'lockedMonths'>, tr: Tr = (s) => s): string | null {
+  const months = (p.lockedMonths ?? []).filter(m => /^\d{4}-\d{2}$/.test(m));
+  return months.length ? tr('تأجل إطفاء {months} لأن الفترة مقفلة').replace('{months}', months.join('، ')) : null;
+}
+
+/** ترتيب قيد الإطفاء الشهري: «الشهر ٣ من ١٢» */
+export function amortText(a: Pick<AiAmortRef, 'index' | 'months'>, tr: Tr = (s) => s): string {
+  return tr('الشهر {n} من {m}').replace('{n}', String(a.index)).replace('{m}', String(a.months));
+}
+
+/*
+ * تنبيهات الخادم على القيد في قائمة القيود (listAiPostsWith في posting.ts) نصوصٌ عربية ثابتة — والبطاقة تقول معانيها الثلاثة
+ * بنفسها مترجمةً: «يحتاج إهلاكاً» للأصل، و«عُكس قيد الدفع — راجع قيود الإطفاء المرحّلة (n)» (n أقساطٌ ما زالت حيّة)، و«الفترة
+ * مقفلة فلم يُرحَّل قسط الإطفاء بتاريخ …». تُعرف هنا فلا تُعرض مرّتين ولا بالعربية في واجهةٍ إنجليزية.
+ */
+const SRV_PREPAID_REVERSED_RE = /^عُكس قيد الدفع — راجع قيود الإطفاء المرحّلة \((\d{1,4})\)$/;
+const SRV_PREPAID_LOCKED_RE = /^الفترة مقفلة فلم يُرحَّل قسط الإطفاء بتاريخ (\d{4}-\d{2})-\d{2}/;
+
+/** ملاحظات بطاقة القيد — كلٌّ من مصدرٍ واحد مترجمة، وما لا تعرفه البطاقة من تنبيهات الخادم في `other` كما هو */
+export interface MoveNotes {
+  /** الأصل الحيّ (D3): «يحتاج إهلاكاً يسجّله المحاسب» */
+  asset: string | null;
+  /** قيد الدفع المقدّم معكوس: الإطفاء توقّف، والحيّ من أقساطه يُراجع (D2) */
+  stop: string | null;
+  /** أشهرٌ تخطّاها الإطفاء لفترةٍ مقفلة (لقيدٍ حيّ لم يكتمل) */
+  locked: string | null;
+  other: string[];
+}
+
+/**
+ * ملاحظات القيد بلا تكرار: تنبيهات الخادم المعروفة تُطوى في ملاحظات البطاقة المترجمة — وعدد الأقساط في تنبيه العكس من الخادم
+ * (الحيّة وحدها — قسطٌ عُكس هو أيضاً لا يُراجع) يغلب عدد المرحّل؛ وقيدٌ أوقفه الخادم بلا تنبيه ⇒ لا قسط حيّاً. الأصل المعكوس
+ * لا يحتاج إهلاكاً، والمعكوس لا تُذكر أشهره المقفلة.
+ */
+export function moveNotes(
+  m: Pick<PostedMove, 'kind' | 'prepaid' | 'warnings'>, reversed: boolean, tr: Tr = (s) => s,
+): MoveNotes {
+  let liveAmort: number | null = null;
+  const lockedFromServer: string[] = [];
+  const other: string[] = [];
+  for (const w of m.warnings ?? []) {
+    if (w === ASSET_DEPRECIATION_NOTE) continue;
+    const r = SRV_PREPAID_REVERSED_RE.exec(w);
+    if (r) { liveAmort = Number(r[1]); continue; }
+    const l = SRV_PREPAID_LOCKED_RE.exec(w);
+    if (l) { if (!lockedFromServer.includes(l[1])) lockedFromServer.push(l[1]); continue; }
+    other.push(w);
+  }
+  const isPrepaid = m.kind === 'PREPAID';
+  const prepaid = isPrepaid ? m.prepaid ?? null : null;
+  // تنبيه العكس من الخادم يكفي وحده (ولو غاب جدول التقدّم)
+  const stopped = isPrepaid && (reversed || prepaid?.stopped === true || liveAmort !== null);
+  const count = liveAmort ?? (prepaid?.stopped ? 0 : prepaid?.postedMonths ?? 0);
+  const lockedMonths = [...new Set([...(prepaid?.lockedMonths ?? []), ...lockedFromServer])];
+  return {
+    asset: m.kind === 'ASSET' && !reversed ? tr('يحتاج إهلاكاً يسجّله المحاسب') : null,
+    stop: stopped ? prepaidStopText({ postedMonths: count, stopped: true }, reversed, tr) : null,
+    locked: isPrepaid && !stopped ? lockedMonthsText({ lockedMonths }, tr) : null,
+    other,
+  };
 }
 
 // ─── سبب العكس وجسم الطلب ───
@@ -164,6 +256,8 @@ export function normalizePostedMove(m: unknown): PostedMove | null {
     reversed: x.reversed === true,
     createdAt: str(x.createdAt),
     adminName: typeof x.adminName === 'string' && x.adminName.trim() ? x.adminName : null,
+    // المستند والإطفاء بوجودهما الصالح وحده — قيدٌ بلا مستند يبقى بمفاتيحه القديمة حرفاً بحرف
+    ...postedDocFields(x),
   };
 }
 

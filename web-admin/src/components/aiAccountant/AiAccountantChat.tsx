@@ -1,18 +1,30 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpenCheck, Eye, ListChecks, Lock, MessageSquareText, RotateCcw, SendHorizontal } from 'lucide-react';
+import { BookOpenCheck, Eye, ListChecks, Lock, MessageSquareText, Paperclip, RotateCcw, SendHorizontal } from 'lucide-react';
 import { aiAccountantApi, companyApi } from '../../api/client';
 import { useTr } from '../../i18n/strings';
 import { canLedger } from '../../lib/ledgerPerms';
+import { isTaxOff } from '../../lib/taxMode';
 import { useAuthStore } from '../../store/authStore';
 import {
   MAX_TEXT, browserToday, buildChatBody, chatErrorInfo, entryId, firstBlankRange, hasBlank, isBlockingError, markReversed,
-  newClientRef, normalizeChatResponse, normalizeStatus, statusLine, templateText,
-  type AiStatus, type ChatEntry, type ChatTemplate,
+  newClientRef, normalizeChatResponse, normalizeStatus, replaceDocView, statusLine, templateText,
+  type AcctDocConfirm, type AcctDocView, type AiStatus, type ChatAttachment, type ChatEntry, type ChatTemplate,
 } from '../../lib/aiAccountant';
+import {
+  createBlobUrlRegistry, docApiErrorInfo, docDefaultText, docFileProblemText, normalizeDocResponse, prepareDocUpload,
+} from '../../lib/aiAccountantDocs';
 import TemplateBar from './chat/TemplateBar';
 import { AssistantBubble, ThinkingBubble, UserBubble, WelcomeCard } from './chat/ChatBubbles';
 import AiPostsList from './posts/AiPostsList';
+import AttachTray from './docs/AttachTray';
+import DocChips from './docs/DocChips';
+import DocViewer, { DocViewerRenderContext, type RenderDocViewer, type ViewerDoc } from './docs/DocViewer';
+import type { DocCardEnv } from './docs/DocCard';
+import {
+  activeRefusals, cardOwners, confirmingDocId, docIdInUse, lastConfirms, latestDocView, pendingBusy, readyDocIds, refusalsByDoc,
+  slotsLeft, type PendingDoc,
+} from './docs/docCardLogic';
 
 /**
  * «المحاسب الذكي AI» — غلاف المحادثة (صفحة الويب /app/ai-accountant وشاشة /m بـcompact).
@@ -26,13 +38,36 @@ import AiPostsList from './posts/AiPostsList';
  * - كل ردّ: نصّه، ثم بطاقة لكل تقرير (ReportCard: جدول + PDF بهوية الشركة + طباعة)، ثم بطاقة لكل قيد رُحّل
  *   (PostedMoveCard: رقمه ومرجعه وحساباته و«عكس القيد») — نجاح العكس يَسِم البطاقة ويحدّث قائمة القيود.
  * - compact: ملء الارتفاع، حشوٌ أصغر، وشرائح تُمرَّر أفقياً، و«Enter» سطرٌ جديد (لوحة مفاتيح الجوال) والإرسال بالزر.
+ * - رفع المستندات (طلب المالك ١٨ نوفمبر): 📎 أوّل خانة الكتابة لمن status.docs.enabled وحده ⇒ صينية «تصوير / من الاستديو /
+ *   ملف PDF» (AttachTray) ⇒ كل ملفٍّ يُجهَّز في الجهاز (ضغط الصورة وقراءة رمز QR — لا قارئ ذكاء اصطناعي، D4) ثم يُرفع بشريحةٍ
+ *   بنسبتها (DocChips)، وحتى ٣ في الرسالة. الإرسال بلا نصّ ⇒ «اقرأ المستند المرفق ولخّص بياناته» (لا يطابق نيّة التسجيل).
+ *   الردّ يحمل بطاقة المستند (DocCard) — لا ترحيل إلا بضغطة «سجّل القيد» فيها: رسالةٌ بنصٍّ مركّب وdocConfirm، والخادم يرحّل بلا
+ *   نموذج. ردٌّ تعذّر (الحدّ اليومي مثلاً — ودورة التأكيد لا تحتاج النموذج ولا الحصّة) يحمل بطاقات مستندات رسالته في إشعار خطئه
+ *   فلا يضيع مستندٌ رُفع. «محادثة جديدة» تمحو المرفقات وتُبطل روابط المعاينة. العارض: DocViewer هنا، أو عارض الجوال بـrenderViewer.
  */
 const STATUS_KEY = ['ai-accountant-status'] as const;
 const POSTS_KEY = ['ai-accountant-posts'] as const;
 
 const httpStatus = (e: unknown) => (e as { response?: { status?: number } } | null)?.response?.status ?? 0;
 
-export default function AiAccountantChat({ compact = false }: { compact?: boolean }) {
+/** ما يُرفق برسالةٍ تُرسَل: مستنداتها، وdocConfirm لرسالة «سجّل القيد» من البطاقة */
+interface SendExtra {
+  docIds?: string[];
+  docConfirm?: AcctDocConfirm;
+}
+
+let chipSeq = 0;
+const chipKey = () => `doc-${Date.now().toString(36)}-${(chipSeq++).toString(36)}`;
+
+export default function AiAccountantChat({ compact = false, renderViewer }: {
+  compact?: boolean;
+  /**
+   * عارض المستند البديل (طبقة الجوال MDocViewer) — بغيابه DocViewer لسطح المكتب. src رابط المعاينة المحلي (Blob) إن رُفع
+   * الملف من هذا الجهاز: يملكه المستدعي هنا (سجلّ الروابط) فلا يُبطله العارض.
+   */
+  renderViewer?: (doc: ViewerDoc, onClose: () => void, src?: string | null) => ReactNode;
+}) {
+  const viewerCtx: RenderDocViewer | null = renderViewer ?? null;
   const tr = useTr();
   const qc = useQueryClient();
 
@@ -49,10 +84,12 @@ export default function AiAccountantChat({ compact = false }: { compact?: boolea
   const ownerSession = useAuthStore(s => !!s.impersonating);
   const companyQ = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { warehouseEnabled?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { warehouseEnabled?: boolean; taxDisabled?: boolean | null } | null,
     staleTime: 300_000,
   });
   const companyWarehouse = companyQ.data ? companyQ.data.warehouseEnabled === true : undefined;
+  // «إزالة الضريبة»: بطاقة المستند بلا صفوف ضريبة ولا رقم ضريبي ولا رمز QR (lib/taxMode.ts)
+  const taxOff = isTaxOff(companyQ.data);
   const status: AiStatus | null = useMemo(
     () => normalizeStatus(statusQ.data, { canViewLedger: ownerSession || canLedger(user, 'canViewLedger'), warehouseOn: companyWarehouse }),
     [statusQ.data, ownerSession, user, companyWarehouse],
@@ -73,6 +110,32 @@ export default function AiAccountantChat({ compact = false }: { compact?: boolea
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const busy = useRef(false);
+
+  // ─── المستندات ───
+  const [trayOpen, setTrayOpen] = useState(false);
+  /** شرائح خانة الكتابة قبل الإرسال */
+  const [pendingDocs, setPendingDocs] = useState<PendingDoc[]>([]);
+  /** مستنداتٌ حُذفت في هذه المحادثة — بطاقاتها سطرٌ «حُذف المستند» */
+  const [deletedDocs, setDeletedDocs] = useState<Record<string, true>>({});
+  /** مستنداتٌ صُحّحت (PATCH) بعد آخر «سجّل القيد» لها — رفضها السابق لم يعد يصدق (activeRefusals) */
+  const [patchedSince, setPatchedSince] = useState<Record<string, true>>({});
+  const [viewer, setViewer] = useState<{ doc: ViewerDoc; src: string | null } | null>(null);
+  /** روابط المعاينة المحلية (Blob) — تُبطل كلّها عند «محادثة جديدة» وعند مغادرة الصفحة */
+  const blobs = useRef(createBlobUrlRegistry());
+  /** المستند ⇐ رابط معاينته المحلي (الملف كما رُفع من هذا الجهاز) */
+  const localUrls = useRef(new Map<string, string>());
+  /** بطاقات الرفع — احتياط ردٍّ لا يحمل documents (خادمٌ تعذّر نموذجه مثلاً) فتظهر البطاقة على أي حال */
+  const uploaded = useRef(new Map<string, AcctDocView>());
+  /** شرائح حُذفت أثناء رفعها — مستندها يُحذف من الخادم حين يكتمل */
+  const removedChips = useRef(new Set<string>());
+  /** جيل المحادثة: «محادثة جديدة» تزيده فيُهمل ما كان قيد التجهيز أو الرفع */
+  const gen = useRef(0);
+  /** آخر ما رُسم من الشرائح والمحادثة — للرفع غير المتزامن (المستند نفسه في شريحةٍ أخرى أو رسالةٍ أُرسلت لا يُحذف) */
+  const pendingRef = useRef<PendingDoc[]>([]);
+  const entriesRef = useRef<ChatEntry[]>([]);
+  pendingRef.current = pendingDocs;
+  entriesRef.current = entries;
+  useEffect(() => () => { blobs.current.revokeAll(); }, []);
 
   // التبويب لمن له سجلٌّ يراه (الدفاتر مفعّلة ويراها) — لا لمن يرحّل الآن وحده: GET /posts يعيد القيود لكل من يرى الدفاتر
   const showPosts = status?.booksActivated === true && status?.canViewLedger === true;
@@ -112,17 +175,37 @@ export default function AiAccountantChat({ compact = false }: { compact?: boolea
     try {
       const res = await aiAccountantApi.chat(body);
       const d = normalizeChatResponse(res.data?.data);
-      setEntries(cur => [...cur, {
-        id: entryId(), role: 'assistant', text: d.text,
-        reports: d.reports, posted: d.posted, warnings: d.warnings, guard: d.guard, turnId: d.turnId,
-      }]);
+      // بطاقات المستندات: من الردّ، وإلا (رسالة رفعٍ وردٌّ بلا documents) بطاقات الرفع نفسها — فلا يضيع مستندٌ بلا بطاقة
+      const docs = d.documents ?? (user.docConfirm ? [] : (user.docIds ?? [])
+        .map(id => uploaded.current.get(id)).filter((v): v is AcctDocView => !!v));
+      setEntries(cur => {
+        let next: ChatEntry[] = [...cur, {
+          id: entryId(), role: 'assistant', text: d.text,
+          reports: d.reports, posted: d.posted, warnings: d.warnings, guard: d.guard, turnId: d.turnId,
+          ...(docs.length ? { documents: docs } : {}),
+          ...(d.action ? { action: d.action } : {}),
+          ...(d.refusal ? { refusal: d.refusal } : {}),
+        }];
+        // الحالة الأحدث لكل مستند (مُرحّل، أو فحوصٌ جديدة) في كل فقاعة تذكره
+        for (const v of d.documents ?? []) next = replaceDocView(next, v);
+        return next;
+      });
       if (d.posted.length) void qc.invalidateQueries({ queryKey: POSTS_KEY });
     } catch (err) {
       const info = chatErrorInfo(err);
-      setEntries(cur => [
-        ...cur.map(e => (e.id === user.id ? { ...e, failed: true } : e)),
-        { id: entryId(), role: 'assistant', text: '', error: info.message, retryable: info.retryable },
-      ]);
+      setEntries(cur => {
+        // رسالة رفعٍ لم يصل ردّها (الحدّ اليومي ٤٢٩ يُرفض قبل قراءة المستندات): بطاقاتها في إشعار الخطأ نفسه — فالمستند لا يضيع
+        // و«سجّل القيد» يعمل (رسالته تحمل مستندها ودورتها بلا نموذج). رسالة التأكيد بطاقتها في مكانها من قبل
+        const docs = user.docConfirm ? [] : (user.docIds ?? [])
+          .map(id => latestDocView(cur, id) ?? uploaded.current.get(id) ?? null).filter((v): v is AcctDocView => !!v);
+        return [
+          ...cur.map(e => (e.id === user.id ? { ...e, failed: true } : e)),
+          {
+            id: entryId(), role: 'assistant', text: '', error: info.message, retryable: info.retryable,
+            ...(docs.length ? { documents: docs } : {}),
+          },
+        ];
+      });
       if (isBlockingError(info.kind)) {
         setBlocked(info.message);
         void qc.invalidateQueries({ queryKey: STATUS_KEY });
@@ -143,21 +226,145 @@ export default function AiAccountantChat({ compact = false }: { compact?: boolea
     });
   };
 
+  const perMessage = status?.docs.caps.perMessage ?? 3;
+
+  /** أحدث بطاقةٍ لمستند في المحادثة (أو بطاقة رفعه) */
+  const findView = (id: string): AcctDocView | null => {
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const v = entries[i].documents?.find(d => d.id === id);
+      if (v) return v;
+    }
+    return uploaded.current.get(id) ?? null;
+  };
+
+  /** شريحة المرفق في فقاعة المستخدم (للعرض وحده) */
+  const attachmentOf = (id: string): ChatAttachment => {
+    const p = pendingDocs.find(x => x.docId === id);
+    if (p) return { id, fileName: p.fileName, mimeType: p.mimeType, sizeBytes: p.sizeBytes };
+    const v = findView(id);
+    return { id, fileName: v?.fileName ?? '', mimeType: v?.mimeType ?? '', sizeBytes: v?.sizeBytes ?? 0 };
+  };
+
   /**
-   * إرسال نصّ: من الخانة (fromInput — تُفرَّغ بعده) أو من شريحة قالب (الخانة ومسوّدتها تبقيان كما هما).
+   * إرسال نصّ: من الخانة (fromInput — تُفرَّغ بعده ومعها مستنداتها الجاهزة) أو من شريحة قالب (الخانة ومسوّدتها ومرفقاتها تبقى
+   * كما هي) أو من بطاقة مستند («سجّل القيد»: extra بمستندها وdocConfirm). مستنداتٌ بلا نصّ ⇒ «اقرأ المستند المرفق ولخّص
+   * بياناته» — طلب قراءةٍ لا نيّة تسجيل.
    */
-  const send = (raw: string, fromInput = false) => {
-    const text = raw.trim();
-    if (!text || pending || busy.current) return;
+  const send = (raw: string, fromInput = false, extra: SendExtra = {}) => {
+    if (pending || busy.current) return;
+    if (fromInput && pendingBusy(pendingDocs)) { setHint('انتظر حتى يكتمل رفع المستندات'); return; }
+    const docIds = extra.docIds ?? (fromInput ? readyDocIds(pendingDocs, perMessage) : []);
+    const text = raw.trim() || (fromInput && docIds.length ? docDefaultText(tr) : '');
+    if (!text) return;
     // نصّ قالب ترحيلٍ لم يُكمَل: لا يُرسَل «…» إلى المحاسب (المبلغ يكتبه المستخدم بنفسه)
     if (fromInput && fromTemplate && hasBlank(text)) { setHint('أكمل الفراغات (…) قبل الإرسال'); focusBlank(raw); return; }
-    const user: ChatEntry = { id: entryId(), role: 'user', text: text.slice(0, MAX_TEXT), clientRef: newClientRef() };
+    const user: ChatEntry = {
+      id: entryId(), role: 'user', text: text.slice(0, MAX_TEXT), clientRef: newClientRef(),
+      ...(docIds.length ? { docIds, attachments: docIds.map(attachmentOf) } : {}),
+      ...(extra.docConfirm ? { docConfirm: extra.docConfirm } : {}),
+    };
+    // محاولة «سجّل القيد» جديدة: رفضها (أو قبولها) يحكم من جديد على الحقائق كما هي الآن
+    const confirmId = extra.docConfirm?.docId;
+    if (confirmId) setPatchedSince(s => (s[confirmId] ? Object.fromEntries(Object.entries(s).filter(([k]) => k !== confirmId)) : s));
     if (fromInput) {
       setInput('');
       setFromTemplate(false);
       setHint(null);
+      if (pendingDocs.length) {
+        // روابط المعاينة تنتقل مع مستنداتها إلى الفقاعة؛ وما لم يُرفع (شريحة خطأ) يُبطل رابطه الآن
+        for (const p of pendingDocs) {
+          if (p.phase === 'ready' && p.docId && p.localUrl) localUrls.current.set(p.docId, p.localUrl);
+          else blobs.current.revoke(p.localUrl);
+        }
+        setPendingDocs([]);
+        setTrayOpen(false);
+      }
     }
     void run([...entries, user], user);
+  };
+
+  // ─── رفع المستندات ───
+
+  const patchChip = (key: string, over: Partial<PendingDoc>) =>
+    setPendingDocs(cur => cur.map(p => (p.key === key ? { ...p, ...over } : p)));
+
+  /** ملفٌّ واحد: تجهيزٌ في الجهاز (ضغط ≤ ٤٠٠ ك.ب، وقراءة رمز QR للصورة) ثم رفعٌ خام بنسبته */
+  const processFile = async (file: File, key: string, g: number) => {
+    const caps = status?.docs.caps;
+    const r = await prepareDocUpload(file, caps ? { caps } : {});
+    // محادثةٌ جديدة أو شريحةٌ حُذفت أثناء التجهيز ⇒ لا رفع أصلاً
+    if (g !== gen.current || removedChips.current.has(key)) return;
+    if (!r.ok) { patchChip(key, { phase: 'error', error: docFileProblemText(r.problem, tr) }); return; }
+    const localUrl = blobs.current.create(r.file.blob);
+    patchChip(key, { phase: 'uploading', progress: 0, fileName: r.file.name, mimeType: r.file.mime, sizeBytes: r.file.size, localUrl });
+    try {
+      const res = await aiAccountantApi.documents.upload(r.file.blob, r.file.name, r.qr, (e) => {
+        if (e.total) patchChip(key, { progress: Math.min(99, (e.loaded / e.total) * 100) });
+      });
+      const { document, deduped } = normalizeDocResponse(res.data?.data);
+      if (!document) throw new Error('BAD_RESPONSE');
+      uploaded.current.set(document.id, document);
+      // المستند نفسه في شريحةٍ أخرى أو رسالةٍ أُرسلت (الملف أُرفق مرّتين فطابقه الخادم ببصمته) ⇒ لا يُحذف من الخادم أبداً هنا
+      const shared = docIdInUse(document.id, pendingRef.current, entriesRef.current, key);
+      // حُذفت الشريحة أو بدأت محادثةٌ جديدة أثناء الرفع ⇒ لا يبقى مستندٌ يتيم يأكل حصّة الشركة
+      if (g !== gen.current || removedChips.current.has(key)) {
+        blobs.current.revoke(localUrl);
+        if (!deduped && !shared) void aiAccountantApi.documents.remove(document.id).catch(() => undefined);
+        return;
+      }
+      // شريحةٌ أخرى تحمله في هذه الرسالة ⇒ هذه الشريحة زائدة: تُطوى (لا مستندان في الرسالة لملفٍّ واحد، ولا حذفٌ يُفقد الأخرى مستندها)
+      if (pendingRef.current.some(p => p.key !== key && p.docId === document.id)) {
+        blobs.current.revoke(localUrl);
+        // الباقية ترث «أُنشئ الآن» إن كانت هذه أنشأته — فحذفها لاحقاً يحذفه ولا يبقى يتيماً
+        setPendingDocs(cur => cur.filter(p => p.key !== key)
+          .map(p => (p.docId === document.id && !deduped ? { ...p, deduped: false } : p)));
+        return;
+      }
+      patchChip(key, { phase: 'ready', progress: 100, docId: document.id, deduped });
+    } catch (e) {
+      if (g === gen.current) patchChip(key, { phase: 'error', error: docApiErrorInfo(e, 'upload', tr).message });
+    }
+  };
+
+  /** ملفاتٌ من الصينية: شرائح فوراً ثم تجهيزٌ ورفعٌ بالتتابع (واحدٌ تلو واحد — قفل حصّة الشركة في الخادم) */
+  const addFiles = async (files: File[]) => {
+    const take = files.slice(0, slotsLeft(pendingDocs, perMessage));
+    if (!take.length) return;
+    const chips: PendingDoc[] = take.map(f => ({
+      key: chipKey(), fileName: f.name || tr('المستند'), mimeType: f.type || '', sizeBytes: f.size, phase: 'preparing', progress: 0,
+      error: null, docId: null, deduped: false, localUrl: null,
+    }));
+    setPendingDocs(cur => [...cur, ...chips]);
+    setHint(null);
+    const g = gen.current;
+    for (let i = 0; i < take.length; i++) {
+      if (g !== gen.current) return;
+      if (!removedChips.current.has(chips[i].key)) await processFile(take[i], chips[i].key, g);
+    }
+  };
+
+  /**
+   * حذف شريحة: رابطها يُبطل، ومستندها المرفوع للتوّ يُحذف من الخادم — لا المستند الموجود من قبل، ولا ما تحمله شريحةٌ أخرى أو
+   * رسالةٌ أُرسلت (docIdInUse)
+   */
+  const removeChip = (key: string) => {
+    const p = pendingDocs.find(x => x.key === key);
+    removedChips.current.add(key);
+    setPendingDocs(cur => cur.filter(x => x.key !== key));
+    if (!p) return;
+    blobs.current.revoke(p.localUrl);
+    if (p.docId && !p.deduped && !docIdInUse(p.docId, pendingDocs, entries, key)) {
+      void aiAccountantApi.documents.remove(p.docId).catch(() => undefined);
+    }
+  };
+
+  const openDoc = (doc: ViewerDoc) => setViewer({
+    doc: { id: doc.id, fileName: doc.fileName, mimeType: doc.mimeType, sizeBytes: doc.sizeBytes },
+    src: localUrls.current.get(doc.id) ?? null,
+  });
+  const openChip = (p: PendingDoc) => {
+    if (!p.docId) return;
+    setViewer({ doc: { id: p.docId, fileName: p.fileName, mimeType: p.mimeType, sizeBytes: p.sizeBytes }, src: p.localUrl });
   };
 
   const retry = (errorId: string) => {
@@ -196,6 +403,43 @@ export default function AiAccountantChat({ compact = false }: { compact?: boolea
     setInput('');
     setFromTemplate(false);
     setHint(null);
+    // المرفقات: الشرائح والعارض وروابط المعاينة كلّها، وما زال يُجهَّز أو يُرفع يُهمل (الجيل التالي)
+    gen.current += 1;
+    setPendingDocs([]);
+    setTrayOpen(false);
+    setDeletedDocs({});
+    setPatchedSince({});
+    setViewer(null);
+    blobs.current.revokeAll();
+    localUrls.current.clear();
+    uploaded.current.clear();
+    removedChips.current.clear();
+  };
+
+  // بطاقات المستندات: صاحب كل بطاقة (أحدث ردٍّ يذكرها)، وآخر رفضٍ لترحيلها، وما يُرحَّل الآن — مشتقّةٌ من المحادثة نفسها
+  const owners = useMemo(() => cardOwners(entries), [entries]);
+  // رفضٌ صُحّحت حقائق مستنده بعده لا يُعرض (ولا يَسِم البطاقة «مكررة» فيتخطّى فحص التكرار للحقائق الجديدة)
+  const refusals = useMemo(() => activeRefusals(refusalsByDoc(entries), patchedSince), [entries, patchedSince]);
+  const confirms = useMemo(() => lastConfirms(entries) as Record<string, AcctDocConfirm>, [entries]);
+  const docEnv: DocCardEnv = {
+    taxOff,
+    assetThreshold: status?.docs.assetThreshold ?? 2000,
+    currency: status?.currency ?? 'SAR',
+    todayLocal: status?.todayLocal ?? browserToday(),
+    busy: pending,
+    confirmingId: confirmingDocId(entries, pending),
+    lastConfirms: confirms,
+    onPatched: (v) => {
+      setEntries(cur => replaceDocView(cur, v));
+      setPatchedSince(s => (s[v.id] ? s : { ...s, [v.id]: true }));
+    },
+    onDeleted: (id) => {
+      setDeletedDocs(s => ({ ...s, [id]: true }));
+      blobs.current.revoke(localUrls.current.get(id));
+      localUrls.current.delete(id);
+    },
+    onConfirm: (m) => send(m.text, false, { docIds: m.docIds, docConfirm: m.docConfirm }),
+    onOpen: openDoc,
   };
 
   // ─── الحالات الحاجبة ───
@@ -246,6 +490,8 @@ export default function AiAccountantChat({ compact = false }: { compact?: boolea
   }
 
   const line = statusLine(status);
+  // 📎 لمن docs.enabled وحده (مفتاح البيئة + علم الشركة + الترحيل متاح) — خادمٌ أقدم بلا الكتلة ⇒ مطفأ
+  const docsOn = status.docs.enabled === true;
   const toneCls = line.tone === 'post'
     ? 'bg-[#E4F1EA] text-[#1E7A52] border-[#C6E3D2]'
     : line.tone === 'read-only'
@@ -265,6 +511,7 @@ export default function AiAccountantChat({ compact = false }: { compact?: boolea
   );
 
   return (
+    <DocViewerRenderContext.Provider value={viewerCtx}>
     <div className={shell}>
       {/* شريط الحالة والتبويبات */}
       <div className={`flex-shrink-0 border-b border-[#E9E1D3] bg-white ${compact ? 'px-3' : 'px-4'}`}>
@@ -300,10 +547,11 @@ export default function AiAccountantChat({ compact = false }: { compact?: boolea
             {entries.map(e => (
               <div key={e.id} data-entry={e.id}>
                 {e.role === 'user'
-                  ? <UserBubble entry={e} compact={compact} />
+                  ? <UserBubble entry={e} compact={compact} onOpenDoc={openDoc} />
                   : <AssistantBubble entry={e} compact={compact} onReversed={onReversed}
                       canRetry={!pending && e.retryable === true && e.id === lastEntry?.id}
-                      onRetry={() => retry(e.id)} />}
+                      onRetry={() => retry(e.id)}
+                      docs={{ env: docEnv, owners, refusals, deleted: deletedDocs }} />}
               </div>
             ))}
             {pending && <ThinkingBubble compact={compact} />}
@@ -312,10 +560,33 @@ export default function AiAccountantChat({ compact = false }: { compact?: boolea
           <div className={`flex-shrink-0 bg-white border-t border-[#E9E1D3] ${compact ? '' : 'pb-1'}`}>
             <TemplateBar status={status} compact={compact} singleRow={compact || entries.length > 0} disabled={pending}
               onPick={onPick} onRange={onRange} />
+            {docsOn && (
+              <AttachTray open={trayOpen} slots={slotsLeft(pendingDocs, perMessage)} max={perMessage} disabled={pending}
+                onFiles={files => { void addFiles(files); }} onClose={() => setTrayOpen(false)} compact={compact} />
+            )}
+            {docsOn && <DocChips items={pendingDocs} onRemove={removeChip} onOpen={openChip} compact={compact} />}
             <form
               onSubmit={e => { e.preventDefault(); send(input, true); }}
               className={`flex items-end gap-2 ${compact ? 'px-3 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]' : 'px-4 pt-1.5 pb-2'}`}
             >
+              {docsOn && (
+                <button
+                  type="button"
+                  onClick={() => setTrayOpen(o => !o)}
+                  disabled={pending}
+                  aria-label={tr('إرفاق مستند')}
+                  title={tr('إرفاق مستند')}
+                  aria-expanded={trayOpen}
+                  className={`relative shrink-0 rounded-xl border flex items-center justify-center transition-colors disabled:opacity-40 ${trayOpen ? 'bg-[#FDECE6] border-[#E15A30] text-[#E15A30]' : 'bg-white border-[#E9E1D3] text-[#6E6557] hover:text-[#E15A30] hover:border-[#E15A30]'} ${compact ? 'w-10 h-10' : 'w-11 h-[38px]'}`}
+                >
+                  <Paperclip size={18} />
+                  {pendingDocs.length > 0 && (
+                    <span className="absolute -top-1.5 -end-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#E15A30] text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
+                      {pendingDocs.length}
+                    </span>
+                  )}
+                </button>
+              )}
               <textarea
                 ref={inputRef}
                 rows={1}
@@ -340,7 +611,7 @@ export default function AiAccountantChat({ compact = false }: { compact?: boolea
               />
               <button
                 type="submit"
-                disabled={!input.trim() || pending}
+                disabled={(!input.trim() && !readyDocIds(pendingDocs, perMessage).length) || pending || pendingBusy(pendingDocs)}
                 aria-label={tr('إرسال')}
                 title={tr('إرسال')}
                 className={`shrink-0 rounded-xl bg-[#E15A30] hover:bg-[#C94E28] text-white flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[#E15A30] ${compact ? 'w-10 h-10' : 'w-11 h-[38px]'}`}
@@ -355,6 +626,12 @@ export default function AiAccountantChat({ compact = false }: { compact?: boolea
           </div>
         </>
       )}
+
+      {/* عارض المستند: طبقة الجوال إن مُرّرت، وإلا نافذة سطح المكتب (الرابط المحلي إن رُفع الملف من هذا الجهاز) */}
+      {viewer && (renderViewer
+        ? renderViewer(viewer.doc, () => setViewer(null), viewer.src)
+        : <DocViewer key={viewer.doc.id} doc={viewer.doc} src={viewer.src} onClose={() => setViewer(null)} />)}
     </div>
+    </DocViewerRenderContext.Provider>
   );
 }

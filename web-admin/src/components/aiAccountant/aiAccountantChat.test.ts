@@ -305,7 +305,8 @@ test('المحادثة ترسم بطاقات التقرير والقيد وقا�
   assert.match(chat, /<AiPostsList \/>/);
   assert.match(chat, /queryKey: POSTS_KEY/);
   assert.match(chat, /const POSTS_KEY = \['ai-accountant-posts'\] as const/, 'مفتاح قائمة القيود كما في العقد');
-  assert.match(chat, /export default function AiAccountantChat\(\{ compact = false \}: \{ compact\?: boolean \}\)/);
+  // compact للجوال (افتراضه false)، وrenderViewer عارض الجوال للمستندات (اختياري)
+  assert.match(chat, /export default function AiAccountantChat\(\{ compact = false, renderViewer \}: \{\n  compact\?: boolean;/);
   assert.match(read('pages', 'AiAccountantPage.tsx'), /<AiAccountantChat \/>/);
   // فحص الفراغ «…» لنصّ قالب الترحيل وحده (لوحة الآيفون تحوّل «...» إلى «…»)، وشريحة القالب لا تمحو مسوّدة الخانة
   assert.match(chat, /if \(fromInput && fromTemplate && hasBlank\(text\)\)/);
@@ -316,12 +317,98 @@ test('المحادثة ترسم بطاقات التقرير والقيد وقا�
   for (const f of [chat, bubbles, read('lib', 'aiAccountant.ts')]) assert.doesNotMatch(f, /localStorage|sessionStorage|indexedDB/);
 });
 
+// ─── رفع المستندات (طلب المالك ١٨ نوفمبر) ───
+
+test('📎 أوّل خانة الكتابة لمن docs.enabled وحده، والصينية والشرائح بين القوالب والنموذج', () => {
+  const chat = read('components', 'aiAccountant', 'AiAccountantChat.tsx');
+  assert.match(chat, /const docsOn = status\.docs\.enabled === true;/, 'خادمٌ أقدم بلا الكتلة ⇒ مطفأ (normalizeStatus)');
+  const form = chat.indexOf('<form');
+  const firstChild = chat.slice(chat.indexOf('>', chat.indexOf('className=', form)) + 1, chat.indexOf('<textarea', form));
+  assert.match(firstChild, /^\s*\{docsOn && \(\s*<button[\s\S]*?<Paperclip/, '📎 أوّل ما في النموذج');
+  assert.match(firstChild, /aria-label=\{tr\('إرفاق مستند'\)\}/);
+  const bar = chat.indexOf('<TemplateBar');
+  const tray = chat.indexOf('<AttachTray', bar);
+  const chips = chat.indexOf('<DocChips', bar);
+  assert.ok(bar < tray && tray < chips && chips < form, 'القوالب ثم الصينية ثم الشرائح ثم النموذج');
+  assert.match(chat, /\{docsOn && \(\s*<AttachTray/);
+  assert.match(chat, /\{docsOn && <DocChips/);
+  // الإرسال: ينتظر الرفع، والجاهز وحده يُرسَل، والمستند بلا نصّ ⇒ النصّ الافتراضي (لا نيّة تسجيل)
+  assert.match(chat, /if \(fromInput && pendingBusy\(pendingDocs\)\) \{ setHint\('انتظر حتى يكتمل رفع المستندات'\); return; \}/);
+  assert.match(chat, /const docIds = extra\.docIds \?\? \(fromInput \? readyDocIds\(pendingDocs, perMessage\) : \[\]\);/);
+  assert.match(chat, /const text = raw\.trim\(\) \|\| \(fromInput && docIds\.length \? docDefaultText\(tr\) : ''\);/);
+  assert.match(chat, /\.\.\.\(docIds\.length \? \{ docIds, attachments: docIds\.map\(attachmentOf\) \} : \{\}\),/);
+  assert.match(chat, /\.\.\.\(extra\.docConfirm \? \{ docConfirm: extra\.docConfirm \} : \{\}\),/);
+  assert.match(chat, /disabled=\{\(!input\.trim\(\) && !readyDocIds\(pendingDocs, perMessage\)\.length\) \|\| pending \|\| pendingBusy\(pendingDocs\)\}/);
+  // «سجّل القيد» في البطاقة ⇒ رسالةٌ جديدة بمستندها وdocConfirm (الإعادة بالمرجع نفسه تعيدهما — buildChatBody من المدخل)
+  assert.match(chat, /onConfirm: \(m\) => send\(m\.text, false, \{ docIds: m\.docIds, docConfirm: m\.docConfirm \}\),/);
+});
+
+test('الرفع: تجهيزٌ في الجهاز (لا قارئ ذكاء) ثم رفعٌ خام بنسبته، والمستند اليتيم يُحذف، و«محادثة جديدة» تمحو وتُبطل', () => {
+  const chat = read('components', 'aiAccountant', 'AiAccountantChat.tsx');
+  assert.match(chat, /await prepareDocUpload\(file, caps \? \{ caps \} : \{\}\)/);
+  assert.match(chat, /aiAccountantApi\.documents\.upload\(r\.file\.blob, r\.file\.name, r\.qr, \(e\) => \{/);
+  assert.match(chat, /normalizeDocResponse\(res\.data\?\.data\)/);
+  assert.match(chat, /if \(!deduped && !shared\) void aiAccountantApi\.documents\.remove\(document\.id\)/, 'شريحةٌ حُذفت أثناء الرفع');
+  assert.match(chat, /const shared = docIdInUse\(document\.id, pendingRef\.current, entriesRef\.current, key\);/,
+    'المستند نفسه في شريحةٍ أخرى أو رسالةٍ أُرسلت لا يُحذف');
+  assert.match(chat, /if \(p\.docId && !p\.deduped && !docIdInUse\(p\.docId, pendingDocs, entries, key\)\) \{\s*void aiAccountantApi\.documents\.remove\(p\.docId\)/,
+    'المستند الموجود من قبل أو المشترك لا يُحذف');
+  // الملف نفسه أُرفق مرّتين (طابقه الخادم ببصمته) ⇒ الشريحة الثانية تُطوى ولا مستندان لملفٍّ واحد
+  assert.match(chat, /if \(pendingRef\.current\.some\(p => p\.key !== key && p\.docId === document\.id\)\) \{/);
+  assert.match(chat, /pendingRef\.current = pendingDocs;\n\s*entriesRef\.current = entries;/);
+  const reset = chat.slice(chat.indexOf('const reset = () => {'), chat.indexOf('};', chat.indexOf('const reset = () => {')));
+  for (const s of ['gen.current += 1;', 'setPendingDocs([]);', 'setTrayOpen(false);', 'setViewer(null);', 'blobs.current.revokeAll();', 'localUrls.current.clear();', 'setPatchedSince({});']) {
+    assert.ok(reset.includes(s), `«محادثة جديدة» بلا ${s}`);
+  }
+  assert.match(chat, /useEffect\(\(\) => \(\) => \{ blobs\.current\.revokeAll\(\); \}, \[\]\);/, 'مغادرة الصفحة تُبطل الروابط');
+  // لا مزوّد رؤية ولا قراءة آلية في الواجهة (D4)
+  for (const f of [chat, read('components', 'aiAccountant', 'docs', 'DocCard.tsx')]) assert.doesNotMatch(f, /\/extract|gemini|vision/i);
+  // ردٌّ بلا documents لرسالة رفع ⇒ بطاقات الرفع نفسها؛ وحالة المستند الأحدث في كل فقاعة
+  assert.match(chat, /const docs = d\.documents \?\? \(user\.docConfirm \? \[\] : \(user\.docIds \?\? \[\]\)/);
+  assert.match(chat, /for \(const v of d\.documents \?\? \[\]\) next = replaceDocView\(next, v\);/);
+  // ردٌّ تعذّر لرسالة رفع (الحدّ اليومي ٤٢٩ قبل قراءة المستندات) ⇒ بطاقاتها في إشعار الخطأ — «سجّل القيد» لا يحتاج النموذج
+  const fail = chat.slice(chat.indexOf('} catch (err) {', chat.indexOf('const run = async')), chat.indexOf('} finally {', chat.indexOf('const run = async')));
+  assert.match(fail, /const docs = user\.docConfirm \? \[\] : \(user\.docIds \?\? \[\]\)\s*\.map\(id => latestDocView\(cur, id\) \?\? uploaded\.current\.get\(id\) \?\? null\)/);
+  assert.match(fail, /error: info\.message, retryable: info\.retryable,\s*\.\.\.\(docs\.length \? \{ documents: docs \} : \{\}\),/);
+  // رفضٌ صُحّحت حقائق مستنده بعده لا يُعرض، ومحاولة «سجّل القيد» الجديدة تعيد الحكم
+  assert.match(chat, /const refusals = useMemo\(\(\) => activeRefusals\(refusalsByDoc\(entries\), patchedSince\), \[entries, patchedSince\]\);/);
+  assert.match(chat, /onPatched: \(v\) => \{\s*setEntries\(cur => replaceDocView\(cur, v\)\);\s*setPatchedSince\(/);
+  assert.match(chat, /const confirmId = extra\.docConfirm\?\.docId;\n\s*if \(confirmId\) setPatchedSince\(/);
+  // العارض: طبقة الجوال إن مُرّرت (برابط المعاينة المحلي إن رُفع الملف من هذا الجهاز)، وإلا DocViewer
+  assert.match(chat, /renderViewer\?: \(doc: ViewerDoc, onClose: \(\) => void, src\?: string \| null\) => ReactNode;/);
+  assert.match(chat, /renderViewer\(viewer\.doc, \(\) => setViewer\(null\), viewer\.src\)/);
+  // وبطاقات القيود تحت المحادثة («المستند» في الردود وفي تبويب القيود) تفتح العارض نفسه عبر السياق — طبقة الجوال في /m
+  assert.match(chat, /<DocViewerRenderContext\.Provider value=\{viewerCtx\}>/);
+  const card = read('components', 'aiAccountant', 'posts', 'PostedMoveCard.tsx');
+  assert.match(card, /const renderViewer = useContext\(DocViewerRenderContext\);/);
+  assert.match(card, /renderViewer\(\{ id: docId, fileName: summaryName\(move, tr\), mimeType: '' \}, \(\) => setViewing\(false\)\)/);
+  assert.match(chat, /<DocViewer key=\{viewer\.doc\.id\} doc=\{viewer\.doc\} src=\{viewer\.src\} onClose=\{\(\) => setViewer\(null\)\} \/>/);
+});
+
+test('الفقاعات: شرائح المرفقات في رسالة المستخدم، وبطاقة المستند الكاملة في صاحبها وحده', () => {
+  const bubbles = read('components', 'aiAccountant', 'chat', 'ChatBubbles.tsx');
+  assert.match(bubbles, /<SentDocChips docs=\{entry\.attachments\} onOpen=\{onOpenDoc\} compact=\{compact\} \/>/);
+  assert.match(bubbles, /docs\.owners\[v\.id\] === entry\.id\s*\?\s*<DocCard view=\{v\} env=\{docs\.env\} refusal=\{docs\.refusals\[v\.id\] \?\? null\} compact=\{compact\} \/>\s*:\s*<DocCardStub/);
+  assert.match(bubbles, /docs\.deleted\[v\.id\]\s*\?\s*<DocCardDeleted/);
+  // البطاقات قبل التقارير والقيود، والردّ بمستندٍ وحده ليس «فارغاً»
+  assert.ok(bubbles.indexOf('documents.map') < bubbles.indexOf('reports.map'));
+  assert.match(bubbles, /const empty = !text && !documents\.length && !reports\.length/);
+  // إشعار الخطأ يرسم بطاقات مستنداته تحته (رسالة رفعٍ تعذّر ردّها)
+  const errBranch = bubbles.slice(bubbles.indexOf('if (entry.error) {'), bubbles.indexOf('const text = plainText(entry.text);'));
+  assert.match(errBranch, /\{docCards\}/);
+  assert.ok(bubbles.indexOf('const docCards') < bubbles.indexOf('if (entry.error) {'));
+});
+
 // ─── الترجمات ───
 
 test('كل عبارة بالترجمات الأربع، والقوالب تُحقن قيمها بعد الترجمة، والفرنسية بلا فاصلةٍ عليا مستقيمة', () => {
   const files = [
     ['components', 'aiAccountant', 'AiAccountantChat.tsx'], ['components', 'aiAccountant', 'chat', 'ChatBubbles.tsx'],
     ['components', 'aiAccountant', 'chat', 'TemplateBar.tsx'], ['pages', 'AiAccountantPage.tsx'], ['lib', 'aiAccountant.ts'],
+    // رفع المستندات: الصينية والشرائح والبطاقة والعارض ومنطقها
+    ['components', 'aiAccountant', 'docs', 'AttachTray.tsx'], ['components', 'aiAccountant', 'docs', 'DocChips.tsx'],
+    ['components', 'aiAccountant', 'docs', 'DocCard.tsx'], ['components', 'aiAccountant', 'docs', 'DocViewer.tsx'],
+    ['components', 'aiAccountant', 'docs', 'docCardLogic.ts'],
   ];
   const phrases = new Set<string>();
   for (const f of files) for (const m of read(...f).matchAll(/\btr\(\s*'((?:[^'\\]|\\.)*)'\s*\)/g)) phrases.add(m[1]);
@@ -334,6 +421,7 @@ test('كل عبارة بالترجمات الأربع، والقوالب تُح�
     phrases.add(chatErrorInfo(e).message);
   }
   phrases.add('أكمل الفراغات (…) قبل الإرسال');
+  phrases.add('انتظر حتى يكتمل رفع المستندات');
   phrases.add('تعذر تحميل حالة المحاسب الذكي');
   phrases.add('المحادثة');
   phrases.add('قيود المحاسب الذكي');

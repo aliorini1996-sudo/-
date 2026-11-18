@@ -365,6 +365,8 @@ export function startOpsScheduler() {
 
   // النظام المحاسبي المتكامل: ترحيل مسودات autoPostOn كل ساعة (يتخطى الشركة قبل activatedAt، DESIGN §6.1)
   startLedgerAutoPostScheduler();
+  // «المحاسب الذكي»: إطفاء المدفوع مقدماً الشهري وكنس مستندات المحادثة غير المرحّلة القديمة — يومياً (aiAccountant/amortization.ts)
+  void import('./aiAccountant/amortization').then(m => m.startAiAccountantScheduler()).catch(e => console.error('ai-accountant scheduler error:', e));
 
   console.log('🗓️ Ops scheduler started (reminders 8am Riyadh · monthly finance report 1st 8am · presence snapshot 5min · request flush 1min · AI rep learning 2–4am Riyadh)');
 }
