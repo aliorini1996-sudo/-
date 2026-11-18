@@ -6,8 +6,10 @@
 // لا نصوص هنا: كل خطأ مفتاحٌ في قاموس البوابة (./i18n) مع متغيّراته، والواجهة
 // تترجمه بلغة العرض.
 // ============================================================================
-import type { ClaimBody, ClaimHow, RegisterBody, TrialBody, UpdateMeBody } from './types';
-import { CLAIM_HOW_ORDER } from './labels';
+import type {
+  ClaimBody, ClaimHow, MissedClaimBody, PartnerType, RegisterBody, SocialLink, SocialPlatform, TrialBody, UpdateMeBody,
+} from './types';
+import { CLAIM_HOW_ORDER, PARTNER_TYPE_ORDER, SOCIAL_PLATFORM_ORDER } from './labels';
 import { msg, type AxMsg } from './i18n';
 import { dialOf } from '../i18n/dialCodes';
 
@@ -149,23 +151,45 @@ export function normIbanSA(iban: string): string | null {
 
 // ─────────────────────────── التسجيل ───────────────────────────
 
+/**
+ * بطاقة التسجيل الواحدة (V2_SPEC §7، قرار المالك ١٨ نوفمبر ٢٠٢٦ — الانضمام فوريّ): الاسم والبريد
+ * والجوال وكلمة المرور ونوع السفير (واسم الشركة إن كانت) والموافقة. المدينة والرقم الضريبي خرجا
+ * من التسجيل إلى «ملفي».
+ */
 export interface RegisterForm {
   fullName: string;
   email: string;
   /** مفتاح دولة الجوال (ISO alpha-2) — السعودية افتراضاً */
   phoneCountry: string;
   phone: string;
-  city: string;
   password: string;
-  vatNumber: string;
+  /** يُختار ببطاقات الأيقونات — فارغٌ حتى يختار */
+  partnerType: PartnerType | '';
+  /** يظهر ويُلزم حين partnerType = 'company' */
+  companyName: string;
   marketingConsent: boolean;
   acceptTerms: boolean;
 }
 
 export const EMPTY_REGISTER: RegisterForm = {
-  fullName: '', email: '', phoneCountry: 'SA', phone: '', city: '', password: '', vatNumber: '',
+  fullName: '', email: '', phoneCountry: 'SA', phone: '', password: '', partnerType: '', companyName: '',
   marketingConsent: false, acceptTerms: false,
 };
+
+export const COMPANY_NAME_MAX = 120;
+
+/** اسم شركة السفير: 2..120، بلا بيانات اتصال ولا روابط (يصل بريد المالك ولوحته) */
+export function companyNameError(name: string): AxMsg | null {
+  const n = name.trim();
+  if (n.length < 2 || n.length > COMPANY_NAME_MAX) return msg('val.companyName');
+  if (containsContactInfo(n)) return msg('val.companyContact');
+  if (containsLinkLike(n)) return msg('val.linkLike');
+  return null;
+}
+
+export function isPartnerType(v: unknown): v is PartnerType {
+  return typeof v === 'string' && (PARTNER_TYPE_ORDER as string[]).includes(v);
+}
 
 /** أوّل خطأ في نموذج التسجيل (بترتيب الحقول على الشاشة) أو null */
 export function registerError(f: RegisterForm): AxMsg | null {
@@ -173,10 +197,13 @@ export function registerError(f: RegisterForm): AxMsg | null {
   if (name.length < 2 || name.length > 80) return msg('val.fullName');
   if (!isValidEmail(f.email)) return msg('val.email');
   if (!normAffiliatePhone(composeAffiliatePhone(f.phoneCountry, f.phone))) return msg('val.phone');
-  if (f.city.trim().length > CITY_MAX) return cityTooLong();
   if (f.password.length < 8) return msg('val.passwordMin');
   if (f.password.length > 128) return msg('val.passwordMax');
-  if (f.vatNumber.trim() && !normVat(f.vatNumber)) return msg('val.vat');
+  if (!isPartnerType(f.partnerType)) return msg('val.partnerType');
+  if (f.partnerType === 'company') {
+    const e = companyNameError(f.companyName);
+    if (e) return e;
+  }
   if (!f.acceptTerms) return msg('val.acceptTerms');
   return null;
 }
@@ -189,21 +216,19 @@ function registerPhone(f: RegisterForm): string {
   return n.startsWith('966') ? n : `+${n}`;
 }
 
-/** جسم POST /register — الحقول الاختيارية تُرسل فقط إن وُجدت */
+/** جسم POST /register — اسم الشركة للشركة وحدها */
 export function buildRegisterBody(f: RegisterForm, termsVersion: string): RegisterBody {
   const body: RegisterBody = {
     fullName: f.fullName.trim(),
     email: f.email.trim().toLowerCase(),
     phone: registerPhone(f),
     password: f.password,
+    partnerType: f.partnerType as PartnerType,
     marketingConsent: f.marketingConsent,
     acceptTerms: true,
     termsVersion,
   };
-  const city = f.city.trim();
-  if (city) body.city = city;
-  const vat = f.vatNumber.trim() ? (normVat(f.vatNumber) ?? f.vatNumber.trim()) : '';
-  if (vat) body.vatNumber = vat;
+  if (f.partnerType === 'company') body.companyName = f.companyName.trim();
   return body;
 }
 
@@ -345,6 +370,9 @@ export function buildTrialBody(f: TrialForm): TrialBody {
 // ─────────────────────────── الملف ───────────────────────────
 
 export interface ProfileForm {
+  /** فارغٌ لسفيرٍ قديم لم يختر نوعه بعد — «ملفي» يطلبه */
+  partnerType: PartnerType | '';
+  companyName: string;
   city: string;
   marketingConsent: boolean;
   vatNumber: string;
@@ -352,19 +380,114 @@ export interface ProfileForm {
 
 /** أوّل خطأ في نموذج الملف أو null */
 export function profileError(f: ProfileForm): AxMsg | null {
+  if (f.partnerType === 'company') {
+    const e = companyNameError(f.companyName);
+    if (e) return e;
+  }
   if (f.city.trim().length > CITY_MAX) return cityTooLong();
   if (f.vatNumber.trim() && !normVat(f.vatNumber)) return msg('val.vat');
   return null;
 }
 
-/** جسم PUT /me بالحقول **المتغيّرة** فقط. حقلٌ نصّيّ أُفرغ يُرسل `''` (مسحٌ صريح) */
+/**
+ * جسم PUT /me بالحقول **المتغيّرة** فقط. حقلٌ نصّيّ أُفرغ يُرسل `''` (مسحٌ صريح). اسم الشركة
+ * يُرسل للشركة وحدها، ومن غيّر نوعه من «شركة» يُمسح اسم شركته (لا يبقى في لوحة المالك).
+ */
 export function buildProfileBody(f: ProfileForm, initial: ProfileForm): UpdateMeBody {
   const body: UpdateMeBody = {};
+  if (f.partnerType && f.partnerType !== initial.partnerType) body.partnerType = f.partnerType;
+  const company = f.partnerType === 'company' ? f.companyName.trim() : '';
+  if (company !== initial.companyName.trim()) body.companyName = company;
   const city = f.city.trim();
   if (city !== initial.city.trim()) body.city = city;
   if (f.marketingConsent !== initial.marketingConsent) body.marketingConsent = f.marketingConsent;
   const vat = f.vatNumber.trim() ? (normVat(f.vatNumber) ?? f.vatNumber.trim()) : '';
   if (vat !== (initial.vatNumber.trim())) body.vatNumber = vat;
+  return body;
+}
+
+// ─────────────────────────── روابط التواصل ───────────────────────────
+
+/** حدود الخادم (V2_SPEC §3): حتى ٨ روابط، كلٌّ `https?://` ≤ 300 */
+export const SOCIAL_MAX = 8;
+export const SOCIAL_URL_MAX = 300;
+
+export interface SocialRow { platform: SocialPlatform; url: string }
+
+export function isSocialPlatform(v: unknown): v is SocialPlatform {
+  return typeof v === 'string' && (SOCIAL_PLATFORM_ORDER as string[]).includes(v);
+}
+
+/** رابط تواصلٍ صالح: http(s) بنطاقٍ حقيقيّ و≤300 */
+export function isValidSocialUrl(url: string): boolean {
+  const s = (url || '').trim();
+  if (!s || s.length > SOCIAL_URL_MAX || !/^https?:\/\//i.test(s) || /\s/.test(s)) return false;
+  try {
+    const u = new URL(s);
+    return /^https?:$/.test(u.protocol) && u.hostname.includes('.');
+  } catch {
+    return false;
+  }
+}
+
+/** الصفوف المكتملة (المنصّة + الرابط) — صفٌّ رابطه فارغ يُسقط بلا خطأ */
+export function buildSocialLinks(rows: SocialRow[]): SocialLink[] {
+  return rows
+    .map((r) => ({ platform: r.platform, url: r.url.trim() }))
+    .filter((r) => r.url);
+}
+
+export function socialLinksError(rows: SocialRow[]): AxMsg | null {
+  const links = buildSocialLinks(rows);
+  if (links.length > SOCIAL_MAX) return msg('val.socialMax', { max: SOCIAL_MAX });
+  for (const l of links) {
+    if (!isSocialPlatform(l.platform) || !isValidSocialUrl(l.url)) return msg('val.socialUrl');
+  }
+  return null;
+}
+
+/** روابط الخادم ⇒ صفوف النموذج (قيمةٌ تالفة من خادمٍ أحدث تُهمل) */
+export function socialRowsOf(links: unknown): SocialRow[] {
+  if (!Array.isArray(links)) return [];
+  return links
+    .filter((l): l is SocialLink => !!l && typeof l === 'object' && typeof (l as SocialLink).url === 'string')
+    .map((l) => ({ platform: isSocialPlatform(l.platform) ? l.platform : 'other', url: l.url }))
+    .slice(0, SOCIAL_MAX);
+}
+
+export function sameSocialLinks(a: SocialLink[], b: SocialLink[]): boolean {
+  return a.length === b.length && a.every((x, i) => x.platform === b[i].platform && x.url === b[i].url);
+}
+
+// ─────────────────────── المطالبة بإحالة فائتة ───────────────────────
+
+/**
+ * «مطالبة بإحالة فائتة» (V2_SPEC §6.1): شركةٌ سجّلت دون رابطك أو رمزك — غير «رشّح شركة»
+ * (الترشيح المسبق قبل التسجيل). الاسم إلزاميّ، والجوال والسجل اختياريان صحيحان إن كُتبا،
+ * والملاحظة ≤200 بلا بيانات اتصال.
+ */
+export interface MissedForm { companyName: string; contactPhone: string; crNumber: string; note: string }
+export const EMPTY_MISSED: MissedForm = { companyName: '', contactPhone: '', crNumber: '', note: '' };
+
+export function missedClaimError(f: MissedForm): AxMsg | null {
+  const name = f.companyName.trim();
+  if (name.length < 2 || name.length > COMPANY_NAME_MAX) return msg('val.companyName');
+  if (containsContactInfo(name)) return msg('val.companyContact');
+  if (f.contactPhone.trim() && !normContactPhone(f.contactPhone)) return msg('val.contactPhone');
+  if (f.crNumber.trim() && !normCR(f.crNumber)) return msg('val.cr');
+  if (f.note.trim().length > NOTE_MAX) return msg('val.noteTooLong', { max: NOTE_MAX });
+  if (containsContactInfo(f.note)) return msg('val.noteContact');
+  return null;
+}
+
+export function buildMissedClaimBody(f: MissedForm): MissedClaimBody {
+  const body: MissedClaimBody = { companyName: f.companyName.trim() };
+  const phone = f.contactPhone.trim();
+  if (phone) body.contactPhone = normContactPhone(phone) ?? latinDigits(phone);
+  const cr = f.crNumber.trim();
+  if (cr) body.crNumber = normCR(cr) ?? latinDigits(cr);
+  const note = f.note.trim();
+  if (note) body.note = note;
   return body;
 }
 

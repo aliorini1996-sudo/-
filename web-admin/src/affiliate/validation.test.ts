@@ -7,6 +7,8 @@ import {
   EMPTY_CLAIM, claimError, buildClaimBody, type ClaimForm,
   buildProfileBody, profileError, type ProfileForm, payoutError,
   containsLinkLike, isSelfContact, EMPTY_TRIAL, trialError, buildTrialBody, type TrialForm,
+  companyNameError, isValidSocialUrl, socialLinksError, buildSocialLinks, socialRowsOf, sameSocialLinks, SOCIAL_MAX,
+  EMPTY_MISSED, missedClaimError, buildMissedClaimBody, type MissedForm,
 } from './validation';
 import { AX_DICT, translate } from './i18n';
 import { z } from 'zod';
@@ -121,6 +123,7 @@ const validRegister = (): RegisterForm => ({
   email: 'Sara@Example.com ',
   phone: '0551234567',
   password: 'correct-horse',
+  partnerType: 'individual',
   acceptTerms: true,
 });
 
@@ -132,31 +135,45 @@ test('التسجيل: الحقول الإلزامية والموافقة على 
   assert.equal(key(registerError({ ...validRegister(), password: '1234567' })), 'val.passwordMin', 'كلمة المرور ≥ 8');
   assert.equal(registerError({ ...validRegister(), password: '12345678' }), null);
   assert.equal(key(registerError({ ...validRegister(), password: 'x'.repeat(129) })), 'val.passwordMax');
-  assert.equal(key(registerError({ ...validRegister(), vatNumber: '123' })), 'val.vat');
   assert.equal(key(registerError({ ...validRegister(), acceptTerms: false })), 'val.acceptTerms');
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦ — بطاقةٌ واحدة): نوع السفير إلزاميّ، واسم الشركة للشركة وحدها؛
+  // المدينة والرقم الضريبي خرجا من التسجيل إلى «ملفي»
+  assert.equal(key(registerError({ ...validRegister(), partnerType: '' })), 'val.partnerType');
+  assert.equal(key(registerError({ ...validRegister(), partnerType: 'admin' as never })), 'val.partnerType');
+  assert.equal(key(registerError({ ...validRegister(), partnerType: 'company', companyName: '' })), 'val.companyName');
+  assert.equal(key(registerError({ ...validRegister(), partnerType: 'company', companyName: 'النخبة 0551234567' })), 'val.companyContact');
+  assert.equal(key(registerError({ ...validRegister(), partnerType: 'company', companyName: 'النخبة fieldsa-pay.com' })), 'val.linkLike');
+  assert.equal(registerError({ ...validRegister(), partnerType: 'company', companyName: 'مؤسسة النخبة' }), null);
+  assert.equal(registerError({ ...validRegister(), partnerType: 'influencer', companyName: '' }), null, 'اسم الشركة للشركة وحدها');
+  // بترتيب الشاشة: كلمة المرور قبل النوع، والنوع قبل الموافقة
+  assert.equal(key(registerError({ ...validRegister(), password: '1', partnerType: '' })), 'val.passwordMin');
+  assert.equal(key(registerError({ ...validRegister(), partnerType: '', acceptTerms: false })), 'val.partnerType');
   // لا شرط غير هذه: نموذجٌ بالحقول الإلزامية والموافقة وحدها صالح
-  assert.deepEqual(Object.keys(EMPTY_REGISTER).sort(), ['acceptTerms', 'city', 'email', 'fullName', 'marketingConsent', 'password', 'phone', 'phoneCountry', 'vatNumber']);
+  assert.deepEqual(Object.keys(EMPTY_REGISTER).sort(), ['acceptTerms', 'companyName', 'email', 'fullName', 'marketingConsent', 'partnerType', 'password', 'phone', 'phoneCountry']);
 });
 
-test('جسم التسجيل: بلا declarations ولا publicPromoter ولا حقول موثوق', () => {
-  const body = buildRegisterBody(validRegister(), '2026-09-v1');
+test('جسم التسجيل (V2_SPEC §6.1): النوع دائماً واسم الشركة للشركة — بلا declarations ولا موثوق ولا مدينة', () => {
+  const body = buildRegisterBody(validRegister(), '2026-11-v4');
   assert.deepEqual(body, {
     fullName: 'سارة أحمد',
     email: 'sara@example.com',
     phone: '966551234567',
     password: 'correct-horse',
+    partnerType: 'individual',
     marketingConsent: false,
     acceptTerms: true,
-    termsVersion: '2026-09-v1',
+    termsVersion: '2026-11-v4',
   });
-  for (const k of ['declarations', 'publicPromoter', 'mawthooqNo', 'mawthooqExpiry', 'city', 'vatNumber']) {
+  for (const k of ['declarations', 'publicPromoter', 'mawthooqNo', 'mawthooqExpiry', 'city', 'vatNumber', 'companyName']) {
     assert.ok(!(k in body), `${k} لا يُرسل`);
   }
 
-  const full = buildRegisterBody({ ...validRegister(), city: ' الرياض ', vatNumber: '300000000000003', marketingConsent: true }, 'v2');
-  assert.equal(full.city, 'الرياض');
-  assert.equal(full.vatNumber, '300000000000003');
-  assert.equal(full.marketingConsent, true);
+  const company = buildRegisterBody({ ...validRegister(), partnerType: 'company', companyName: ' مؤسسة النخبة ', marketingConsent: true }, 'v4');
+  assert.equal(company.partnerType, 'company');
+  assert.equal(company.companyName, 'مؤسسة النخبة');
+  assert.equal(company.marketingConsent, true);
+  // اسم شركةٍ كُتب ثم تغيّر النوع لا يُرسل
+  assert.ok(!('companyName' in buildRegisterBody({ ...validRegister(), partnerType: 'influencer', companyName: 'x' }, 'v4')));
 });
 
 const validClaim = (): ClaimForm => ({ ...EMPTY_CLAIM, companyName: 'مؤسسة النخبة للتوزيع', crNumber: '١٠١٠١٢٣٤٥٦', contactPhone: '0551234567', how: 'visit' });
@@ -265,7 +282,7 @@ test('جسم الترشيح يحمل contactPhone دائماً', () => {
   );
 });
 
-const baseProfile: ProfileForm = { city: 'الرياض', marketingConsent: false, vatNumber: '' };
+const baseProfile: ProfileForm = { partnerType: 'individual', companyName: '', city: 'الرياض', marketingConsent: false, vatNumber: '' };
 
 test('جسم PUT /me بالحقول المتغيّرة فقط — بلا حقول «موثوق»', () => {
   assert.deepEqual(buildProfileBody(baseProfile, baseProfile), {});
@@ -273,13 +290,72 @@ test('جسم PUT /me بالحقول المتغيّرة فقط — بلا حقو�
   assert.deepEqual(buildProfileBody({ ...baseProfile, marketingConsent: true }, baseProfile), { marketingConsent: true });
   assert.deepEqual(buildProfileBody({ ...baseProfile, vatNumber: '300000000000003' }, baseProfile), { vatNumber: '300000000000003' });
   assert.deepEqual(buildProfileBody(baseProfile, { ...baseProfile, vatNumber: '300000000000003' }), { vatNumber: '' }, 'المسح صريح');
-  assert.deepEqual(Object.keys(baseProfile).sort(), ['city', 'marketingConsent', 'vatNumber']);
+  // v2: النوع واسم الشركة من «ملفي»
+  assert.deepEqual(buildProfileBody({ ...baseProfile, partnerType: 'influencer' }, baseProfile), { partnerType: 'influencer' });
+  assert.deepEqual(
+    buildProfileBody({ ...baseProfile, partnerType: 'company', companyName: ' مؤسسة النخبة ' }, baseProfile),
+    { partnerType: 'company', companyName: 'مؤسسة النخبة' },
+  );
+  const asCompany: ProfileForm = { ...baseProfile, partnerType: 'company', companyName: 'مؤسسة النخبة' };
+  assert.deepEqual(buildProfileBody({ ...asCompany, partnerType: 'individual' }, asCompany), { partnerType: 'individual', companyName: '' }, 'من ترك «شركة» يُمسح اسم شركته');
+  assert.deepEqual(buildProfileBody({ ...baseProfile, partnerType: '' }, { ...baseProfile, partnerType: '' }), {}, 'سفيرٌ قديم بلا نوع لا يُرسل نوعاً فارغاً');
+  assert.deepEqual(Object.keys(baseProfile).sort(), ['city', 'companyName', 'marketingConsent', 'partnerType', 'vatNumber']);
 });
 
-test('تحقق الملف: المدينة والرقم الضريبي فقط', () => {
+test('تحقق الملف: اسم الشركة للشركة، والمدينة والرقم الضريبي', () => {
   assert.equal(profileError(baseProfile), null);
   assert.equal(key(profileError({ ...baseProfile, vatNumber: '12' })), 'val.vat');
   assert.equal(profileError({ ...baseProfile, vatNumber: '300000000000003', marketingConsent: true }), null);
+  assert.equal(key(profileError({ ...baseProfile, partnerType: 'company', companyName: 'م' })), 'val.companyName');
+  assert.equal(profileError({ ...baseProfile, partnerType: 'company', companyName: 'مؤسسة النخبة' }), null);
+  assert.equal(companyNameError('  مؤسسة النخبة  '), null);
+  assert.equal(key(companyNameError('x'.repeat(121))), 'val.companyName');
+});
+
+test('روابط التواصل (V2_SPEC §3): حتى ٨، كلٌّ https?:// ≤300، والصفّ الفارغ يُسقط', () => {
+  assert.equal(SOCIAL_MAX, 8);
+  for (const ok of ['https://instagram.com/sara', 'http://x.com/sara', 'https://www.tiktok.com/@sara', 'https://sara.sa']) {
+    assert.equal(isValidSocialUrl(ok), true, ok);
+  }
+  for (const bad of ['', 'instagram.com/sara', 'javascript:alert(1)', 'ftp://x.com', 'https://localhost', 'https://x .com', `https://x.com/${'a'.repeat(300)}`, 'https://']) {
+    assert.equal(isValidSocialUrl(bad), false, bad);
+  }
+  assert.equal(socialLinksError([{ platform: 'instagram', url: 'https://instagram.com/sara' }, { platform: 'x', url: '  ' }]), null);
+  assert.deepEqual(buildSocialLinks([{ platform: 'instagram', url: ' https://instagram.com/sara ' }, { platform: 'x', url: '' }]), [
+    { platform: 'instagram', url: 'https://instagram.com/sara' },
+  ]);
+  assert.equal(key(socialLinksError([{ platform: 'x', url: 'x.com/sara' }])), 'val.socialUrl');
+  assert.equal(key(socialLinksError([{ platform: 'myspace' as never, url: 'https://myspace.com/sara' }])), 'val.socialUrl');
+  const nine = Array.from({ length: 9 }, (_, i) => ({ platform: 'website' as const, url: `https://s${i}.sa` }));
+  assert.deepEqual(socialLinksError(nine), { key: 'val.socialMax', vars: { max: 8 } });
+  // من الخادم: قيمٌ تالفة تُهمل، والمنصّة المجهولة «أخرى»
+  assert.deepEqual(socialRowsOf(null), []);
+  assert.deepEqual(socialRowsOf([{ platform: 'snapchat', url: 'https://snapchat.com/add/s' }, { platform: 'mastodon', url: 'https://m.sa/@s' }, 7, { url: 3 }]), [
+    { platform: 'snapchat', url: 'https://snapchat.com/add/s' }, { platform: 'other', url: 'https://m.sa/@s' },
+  ]);
+  assert.equal(sameSocialLinks([{ platform: 'x', url: 'https://x.com/a' }], [{ platform: 'x', url: 'https://x.com/a' }]), true);
+  assert.equal(sameSocialLinks([{ platform: 'x', url: 'https://x.com/a' }], [{ platform: 'instagram', url: 'https://x.com/a' }]), false);
+});
+
+const validMissed = (): MissedForm => ({ ...EMPTY_MISSED, companyName: 'مؤسسة النخبة للتوزيع' });
+
+test('المطالبة بإحالة فائتة: الاسم إلزاميّ، والجوال والسجل اختياريان صحيحان إن كُتبا، والملاحظة بلا اتصال', () => {
+  assert.equal(missedClaimError(validMissed()), null);
+  assert.equal(key(missedClaimError({ ...validMissed(), companyName: 'م' })), 'val.companyName');
+  assert.equal(key(missedClaimError({ ...validMissed(), companyName: 'النخبة 0551234567' })), 'val.companyContact');
+  assert.equal(key(missedClaimError({ ...validMissed(), contactPhone: '123' })), 'val.contactPhone');
+  assert.equal(missedClaimError({ ...validMissed(), contactPhone: '0551234567' }), null, 'الرقم مكانه خانته');
+  assert.equal(key(missedClaimError({ ...validMissed(), crNumber: '12' })), 'val.cr');
+  assert.equal(key(missedClaimError({ ...validMissed(), note: 'جواله 0551234567' })), 'val.noteContact');
+  assert.deepEqual(missedClaimError({ ...validMissed(), note: 'x'.repeat(201) }), { key: 'val.noteTooLong', vars: { max: 200 } });
+  assert.deepEqual(buildMissedClaimBody(validMissed()), { companyName: 'مؤسسة النخبة للتوزيع' }, 'الاختياريّ الفارغ لا يُرسل');
+  assert.deepEqual(
+    buildMissedClaimBody({ companyName: ' النخبة ', contactPhone: ' ٠٥٥١٢٣٤٥٦٧ ', crNumber: '١٠١٠ ١٢٣ ٤٥٦', note: ' معرض ' }),
+    { companyName: 'النخبة', contactPhone: '0551234567', crNumber: '1010123456', note: 'معرض' },
+  );
+  for (const r of [missedClaimError({ ...EMPTY_MISSED }), missedClaimError({ ...validMissed(), crNumber: '1' })]) {
+    assert.ok(r && r.key in AX_DICT, `مفتاح غير موجود في القاموس: ${r?.key}`);
+  }
 });
 
 test('تحقق الاستلام', () => {
@@ -315,8 +391,8 @@ test('المدينة 60 حرفاً كحدّ أقصى في التسجيل وال�
   const city60 = 'م'.repeat(60);
   const city61 = 'م'.repeat(61);
   const tooLong = { key: 'val.cityTooLong', vars: { max: 60 } };
-  assert.equal(registerError({ ...validRegister(), city: city60 }), null);
-  assert.deepEqual(registerError({ ...validRegister(), city: city61 }), tooLong);
+  // v2: المدينة خرجت من التسجيل إلى «ملفي» (قرار المالك ١٨ نوفمبر ٢٠٢٦ — بطاقة تسجيلٍ واحدة)
+  assert.ok(!('city' in EMPTY_REGISTER));
   assert.equal(claimError({ ...validClaim(), city: city60 }), null);
   assert.deepEqual(claimError({ ...validClaim(), city: city61 }), tooLong);
   assert.equal(profileError({ ...baseProfile, city: city60 }), null);
@@ -329,7 +405,7 @@ test('المدينة 60 حرفاً كحدّ أقصى في التسجيل وال�
   assert.match(phoneInput![0], /maxLength=\{CONTACT_PHONE_MAX\}/);
   assert.doesNotMatch(claims, /containsContactInfo\(form\.contactPhone\)/, 'الكاشف لا يُطبَّق على خانة رقم التواصل');
   assert.match(claims, /c\.contactPhone && \(/, 'رقم التواصل لا يُعرض في «ترشيحاتي»');
-  for (const f of ['screens/AuthScreens.tsx', 'screens/ClaimsScreen.tsx', 'screens/ProfileScreen.tsx']) {
+  for (const f of ['screens/ClaimsScreen.tsx', 'screens/ProfileScreen.tsx']) {
     const src = readFileSync(new URL(`./${f}`, import.meta.url), 'utf8');
     const inputs = src.match(/value=\{form\.city\}[^\n]*/g) ?? [];
     assert.ok(inputs.length > 0, `${f}: حقل المدينة غير موجود`);
@@ -503,5 +579,8 @@ test('شاشة الحساب التجريبي: لا كلمة مرور ولا نس
   assert.match(app, /const trialOn = data\.settings\.portalTrialEnabled === true;/);
   assert.match(app, /const shown: Tab = tab === 'trial' && !trialOn \? 'home' : tab;/, '#trial والمفتاح مطفأ لا يعود للرئيسية');
   assert.match(app, /case 'trial': content = <TrialTab \{\.\.\.tabProps\} \/>;/);
-  assert.match(app, /\{ id: 'trial', label: 'tab\.trial', icon: <UserPlus size=\{15\} \/> \}/);
+  // v2: التبويبات معرّفةٌ في ./shell (الشريط الجانبيّ و«المزيد») — والتجريبيّ يُرشَّح بـvisibleTabs
+  const shell = readFileSync(new URL('./shell.tsx', import.meta.url), 'utf8');
+  assert.match(shell, /trial: \{ label: 'tab\.trial', Icon: UserPlus \}/);
+  assert.match(app, /visibleTabs\(MORE_TABS, trialOn\)/);
 });

@@ -1,11 +1,14 @@
 // ============================================================================
-// شاشات الحالة (بانتظار المراجعة / مرفوض / موقوف) وبوابة قبول الشروط الجديدة.
+// شاشات الحالة (موقوف / مرفوض / إرثٌ قيد التفعيل) وبوابة قبول الشروط الجديدة.
 // شاشة الحالة بطاقةٌ وزرّ خروج فقط — لا بيانات برنامج قبل الاعتماد.
+// v2 (V2_SPEC §3): الانضمام فوريّ — `pending_email`/`pending_review` إرثٌ يُرقّى في الخادم عند
+// الإقلاع وعند أيّ دخولٍ ناجح، فلا «بانتظار المراجعة» ولا «أكّد بريدك» بعد اليوم: جلسةٌ نادرة
+// بحالةٍ إرثية تُدعى للخروج والدخول من جديد فتُرقّى.
 // ============================================================================
 import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Clock, XCircle, PauseCircle, MailWarning, FileText, LogOut } from 'lucide-react';
+import { Clock, XCircle, PauseCircle, FileText, LogOut } from 'lucide-react';
 import { affiliateApi, httpStatus, qk, shouldRetry } from '../api';
 import { errorText } from '../errors';
 import { useAxT, type AxKey } from '../i18n';
@@ -27,8 +30,8 @@ export function StatusScreen({ me, onLogout }: { me: MeResponse; onLogout: () =>
   const reason = user.statusReason?.trim();
 
   let icon: ReactNode = <Clock size={42} className="text-[#E0A02C]" />;
-  let title: AxKey = 'status.review.title';
-  let body: AxKey = 'status.review.body';
+  let title: AxKey = 'status.legacy.title';
+  let body: AxKey = 'status.legacy.body';
 
   if (user.status === 'rejected') {
     icon = <XCircle size={42} className="text-[#C0392B]" />;
@@ -38,10 +41,6 @@ export function StatusScreen({ me, onLogout }: { me: MeResponse; onLogout: () =>
     icon = <PauseCircle size={42} className="text-[#C0392B]" />;
     title = 'status.suspended.title';
     body = 'status.suspended.body';
-  } else if (user.status === 'pending_email') {
-    icon = <MailWarning size={42} className="text-[#E0A02C]" />;
-    title = 'status.pendingEmail.title';
-    body = 'status.pendingEmail.body';
   }
 
   return (

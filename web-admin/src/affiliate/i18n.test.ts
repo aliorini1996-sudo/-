@@ -63,7 +63,7 @@ test('الترجمة والتعويض', () => {
   assert.equal(en.m({ key: 'val.cityTooLong', vars: { max: 60 } }), 'City name can be at most 60 characters');
   assert.equal(makeAxI18n('ar').dir, 'rtl');
   for (const l of AX_LANGS) assert.equal(dirOf(l), l === 'ar' ? 'rtl' : 'ltr');
-  const parts = en.rich('home.intro', { rate: '30%', days: 30 }) as unknown[];
+  const parts = en.rich('home.intro', { rate: '30%', days: '10 days' }) as unknown[];
   assert.ok(Array.isArray(parts) && parts.length >= 3, 'rich يُعيد أجزاءً');
 });
 
@@ -76,20 +76,40 @@ test('locale التنسيق بأرقام لاتينية وتقويم ميلاد�
 test('العربية المعروضة حرفياً كما كانت قبل التعريب', () => {
   const same: Array<[AxKey, string]> = [
     ['login.title', 'دخول السفراء'],
-    ['reg.doneHint', 'افتح الرابط في رسالة التأكيد وأدخل كلمة المرور التي اخترتها الآن، ثم يراجع فريقنا طلبك ويصلك القرار على بريدك.'],
-    ['status.review.body', 'شكراً لانضمامك. يراجع فريق فيلد سيلز كل طلب يدوياً، وسيصلك بريد بالقرار. لا حاجة لأي إجراء منك الآن.'],
-    ['home.adjustments', 'تسويات تُحتسب في دفعتك القادمة'],
     ['link.disclosureTitle', 'نصّ الإفصاح — أرفقه دائماً مع الرابط'],
     ['earn.paymentAmount', 'مبلغ الدفعة (شاملة الضريبة)'],
-    ['payout.unlockAfter', 'يُفتح نموذج الحساب البنكي بعد اعتماد أول عمولة لك.'],
     ['err.network', 'تعذّر الاتصال بالخادم — تحقق من الإنترنت'],
-    ['accepted.register', 'إن كانت البيانات صحيحة فستصلك رسالة تأكيد على بريدك'],
+    ['accepted.forgot', 'إن كان البريد مسجّلاً فستصلك رسالة لاستعادة كلمة المرور'],
+    // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): «التسويات» صارت دفعات الصرف الدورية، والتعديلات «تعديلات»
+    ['home.adjustments', 'تعديلات تُحتسب في تسويتك القادمة'],
+    ['settle.title', 'التسويات'],
+    ['earn.adjustments', 'التعديلات'],
+    ['st.payout.draft', 'قيد المعالجة'],
+    ['st.payout.recorded', 'مدفوعة'],
+    ['st.payout.failed', 'فشل التحويل'],
+    ['home.completeTitle', 'أكمل ملفك لاستلام أرباحك'],
+    ['tab.missed', 'مطالبة بإحالة فائتة'],
   ];
   for (const [k, ar] of same) assert.equal(AX_DICT[k].ar, ar, k);
+  // v2: الانضمام فوريّ — لا «كل طلب يُراجع قبل القبول» ولا «أكّد بريدك» ولا «بعد أول عمولة»
   assert.equal(
-    translate('ar', 'reg.subtitle', { rate: '30%', days: 30, min: '100.00 ر.س' }),
-    'عمولتك 30% من مبلغ الدفعة الأولى المؤكَّدة (شاملة الضريبة) لكل منشأة تشترك عبرك، تُعتمد بعد 30 يوماً من الدفع، وتُحوَّل يدوياً إلى حسابك البنكي متى بلغ رصيدك 100.00 ر.س. كل طلب يُراجع قبل القبول.',
+    translate('ar', 'reg.subtitle', { rate: '30%', days: '10 أيام', every: '10 أيام', min: '50.00 ر.س' }),
+    'عمولتك 30% من أول دفعة مؤكَّدة (شاملة الضريبة) لكل منشأة تشترك عبرك. تُحجز العمولة 10 أيام من الدفع ثم تُعتمد تلقائياً، وتُسوّى كل 10 أيام متى بلغ رصيدك 50.00 ر.س.',
   );
+  for (const k of ['accepted.register', 'reg.doneHint', 'status.review.body', 'status.pendingEmail.body', 'payout.unlockAfter', 'login.noVerifyMail']) {
+    assert.ok(!(k in AX_DICT), `${k}: نصٌّ لمسار v1 حُذف (مراجعة/تأكيد بريد/قفل الآيبان)`);
+  }
+  for (const k of Object.keys(AX_DICT) as AxKey[]) {
+    assert.doesNotMatch(AX_DICT[k].ar, /يُراجع قبل القبول|بانتظار المراجعة|أكّد بريدك|بعد اعتماد أول عمولة/, `${k}: وعدٌ من v1`);
+  }
+});
+
+test('الأيام بصيغتها: القوالب تأخذ العبارة كاملة من daysLabel لا رقماً يتبعه «يوماً»', () => {
+  // «10 يوماً» خطأٌ نحويّ — الحجز صار 10 أيام (V2_SPEC §0)
+  for (const k of ['reg.subtitle', 'home.intro', 'terms.hold', 'earn.info1', 'faq.a.hold'] as AxKey[]) {
+    assert.doesNotMatch(AX_DICT[k].ar, /\{days\} يوماً/, k);
+  }
+  assert.doesNotMatch(AX_DICT['terms.min'].ar, /\{every\} يوماً/);
 });
 
 /** يحذف التعليقات (// و/* *\/ و{/* *\/}) مع إبقاء الروابط `https://` داخل النصوص */
@@ -142,16 +162,32 @@ test('مبدّل اللغة أعلى كل شاشة — غلاف الدخول و�
   assert.match(app, /dir=\{dir\} lang=\{lang\}/);
 });
 
-test('رأس البوابة واتجاه التنبيهات والتبويب النشط بعد تبديل اللغة', () => {
+test('رأس البوابة واتجاه التنبيهات والتنقّل الجوّال (شريط سفليّ + «المزيد» + شريط جانبيّ)', () => {
   const app = readFileSync(new URL('./AffiliateApp.tsx', import.meta.url), 'utf8');
   const header = app.match(/<header[^>]*>/);
   assert.ok(header, 'رأس البوابة غير موجود');
   // backdrop-filter يحبس خلفية إغلاق قائمة اللغة (fixed inset-0) داخل الرأس
   assert.doesNotMatch(header![0], /backdrop-blur|backdrop-filter|\/95/, 'الرأس بخلفية ضبابية تحبس قائمة اللغة');
   assert.match(header![0], /bg-\[#FAF7F0\]/);
-  // التبويب النشط يُعاد توسيطه بعد تبديل اللغة/الاتجاه، فوراً لا بانزلاق
-  assert.match(app, /\}, \[tab, hasToken, dir, lang\]\);/, 'توسيط التبويب لا يتبع تبديل اللغة');
-  assert.match(app, /behavior: langChanged \? 'auto' : 'smooth'/);
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦ — V2_SPEC §7): شريط التبويبات الأفقيّ (وتوسيطه بعد تبديل اللغة)
+  // حلّ محلّه شريطٌ سفليّ ثابت و«المزيد» على الجوال وشريطٌ جانبيّ على الحاسوب — الحرّاس البديلة:
+  assert.doesNotMatch(app, /overflow-x-auto/, 'شريط التبويبات الأفقيّ ما زال');
+  assert.match(app, /<Sidebar tabs=\{visibleTabs\(TAB_IDS, trialOn\)\}/);
+  assert.match(app, /<BottomBar active=\{shown\}/);
+  assert.match(app, /<MoreSheet[\s\S]*?tabs=\{visibleTabs\(MORE_TABS, trialOn\)\}/);
+  assert.match(app, /useEffect\(\(\) => \{ setMoreOpen\(false\); \}, \[location\.hash, location\.search\]\);/, '«المزيد» لا تُغلق مع التنقّل (رجوع أندرويد)');
+  assert.match(app, /pb-36 lg:pb-14/, 'المحتوى بلا مساحةٍ للشريط السفليّ الثابت');
+  assert.match(app, /<SupportFab code=\{data\.user\.code\} \/>/, 'زرّ واتساب الدعم العائم غير مركّب');
+  const shell = readFileSync(new URL('./shell.tsx', import.meta.url), 'utf8');
+  assert.match(shell, /const pick = \(id: Tab\) => \{ onSelect\(id\); onClose\(\); \};/, '«المزيد» لا تُغلق بعد الاختيار');
+  assert.match(shell, /lg:hidden fixed bottom-0 inset-x-0/, 'الشريط السفليّ ليس للجوال وحده');
+  assert.match(shell, /hidden lg:block w-60/, 'الشريط الجانبيّ ليس للحاسوب وحده');
+  assert.match(shell, /env\(safe-area-inset-bottom\)/, 'الشريط السفليّ يتجاهل حافة الآيفون');
+  assert.match(shell, /if \(e\.key === 'Escape'\) onClose\(\);/);
+  assert.match(shell, /role="dialog" aria-modal="true"/);
+  assert.match(shell, /supportWhatsappUrl\(t\('support\.waMessage', \{ code \}\)\)/);
+  const fmt = readFileSync(new URL('./format.ts', import.meta.url), 'utf8');
+  assert.match(fmt, /export const SUPPORT_WHATSAPP = '966506061608';/, 'رقم واتساب الدعم الرسمي (V2_SPEC §7)');
   // 320px: العلامة تنكمش وتُقصّ، والأزرار لا تنكمش
   assert.match(app, /<div className="min-w-0 flex-1"><BrandLockup compact \/><\/div>/);
   assert.match(app, /flex items-center gap-1\.5 sm:gap-2 shrink-0/);
@@ -183,4 +219,12 @@ test('مصطلحات المراجِع: «ترشيح» غير «إحالة»، و
   const strings = readFileSync(new URL('../i18n/strings.ts', import.meta.url), 'utf8');
   assert.match(strings, /'signup\.refLabel': \{[^}]*tr: 'Referans kodu'/, 'خانة التسجيل التركية لا تطابق «Referans kodu»');
   assert.match(AX_DICT['link.codeHint'].tr, /“Referans kodu”/);
+  // v2: «مطالبة بإحالة فائتة / Missed referral claim» للجديد — لا تختلط بالترشيح المسبق
+  for (const k of ['tab.missed', 'missed.mine', 'missed.received'] as AxKey[]) {
+    assert.match(AX_DICT[k].en, /[Mm]issed referral claim/, `${k}.en`);
+    assert.doesNotMatch(AX_DICT[k].en, /[Nn]ominat/, `${k}.en يخلط بالترشيح`);
+  }
+  assert.equal(AX_DICT['tab.missed'].ar, 'مطالبة بإحالة فائتة');
+  assert.doesNotMatch(AX_DICT['tab.missed'].ar, /ترشيح|رشّح/);
+  assert.match(AX_DICT['method.nomination'].en, /Nomination/);
 });
