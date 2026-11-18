@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search, Plus, Trash2, Loader2, Package, Truck, Sparkles, AlertTriangle,
-  ArrowDownToLine, TrendingDown, Download,
+  ArrowDownToLine, TrendingDown, Download, Eraser,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { vanStockApi, productApi, lotsApi, warehouseApi } from '../api/client';
@@ -12,6 +12,7 @@ import { useTr } from '../i18n/strings';
 import { useLang } from '../i18n/lang';
 import { countText } from '../lib/arCount';
 import { useBackClose } from '../lib/useBackClose';
+import { useAuthStore, isStaffImpersonationClient } from '../store/authStore';
 import { primaryUnitOf, type UnitDef } from '../lib/units';
 import { unitChoices, defaultChoice, rebaseRow, choiceById } from '../rep/repUnits';
 import { removalStart } from '../lib/stockRequest';
@@ -185,6 +186,8 @@ const KIND_META: Record<string, { label: string; cls: string; sign: string }> = 
 
 /* إشعار الحركة في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
 const MLoadNoticeDoc = lazy(() => import('./MLoadNoticeDoc'));
+/* «تصفير سيارة مندوب واحدة»: نافذة اللوحة نفسها — تُجلب حين تُفتح وحدها */
+const StockZeroModal = lazy(() => import('../components/StockZeroModal'));
 
 /** الحركات التي لها إشعارٌ يُطبع: حركات السيارة وحدها لا المبيعات والمرتجعات،
  *  فتلك مستنداتها فواتيرُ وسندات لا إشعارُ مخزون — وهو تمييز اللوحة نفسه. */
@@ -221,6 +224,15 @@ export default function MRepLoad({ rep, company, onClose }: {
   const [noticeMv, setNoticeMv] = useState<Movement | null>(null);
 
   useBackClose(!!noticeMv, () => setNoticeMv(null));
+
+  /* «تصفير سيارة مندوب واحدة» (طلب المالك ١٨ نوفمبر ٢٠٢٦): نافذة اللوحة نفسها (StockZeroModal) بسيارة هذا المندوب وحدها، وبشرط
+   * إظهار صفحة «مخزون السيارات» حرفاً — مدير الشركة غير المقيَّد وله «تحميل مخزون السيارة»، أو جلسة المالك، لا «دخول» موظف المنصة.
+   * والخادم هو الحَكَم */
+  const me = useAuthStore(s => s.user);
+  const impersonating = useAuthStore(s => s.impersonating);
+  const canZeroStock = !isStaffImpersonationClient() && ((me?.role === 'ADMIN' && !me?.scopeEnabled && me?.canManageVanStock !== false) || !!impersonating);
+  const [zeroOpen, setZeroOpen] = useState(false);
+  useBackClose(zeroOpen, () => setZeroOpen(false));
 
   const [note, setNote] = useState('');
   const [q, setQ] = useState('');
@@ -668,9 +680,17 @@ export default function MRepLoad({ rep, company, onClose }: {
         {/* ─────────── رصيد السيارة الآن ───────────
             قبل النموذج لا بعده: مَن لا يرى المتبقّي يُحمّل فوق حمولةٍ قائمة */}
         <section className="space-y-2.5">
-          <h3 className="text-[11px] font-bold text-[#9A8F7E] px-1 uppercase tracking-wide">
-            {tr('مخزون المندوب الحالي')}
-          </h3>
+          <div className="flex items-center justify-between gap-2 px-1">
+            <h3 className="text-[11px] font-bold text-[#9A8F7E] uppercase tracking-wide">
+              {tr('مخزون المندوب الحالي')}
+            </h3>
+            {canZeroStock && (
+              <button type="button" onClick={() => setZeroOpen(true)}
+                className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-2 py-1 text-[11px] font-semibold text-[#C0392B] active:bg-red-50">
+                <Eraser size={13} /> {tr('تصفير هذه السيارة')}
+              </button>
+            )}
+          </div>
           {stockQ.isLoading ? (
             <MCard><div className="py-10"><MSpinner /></div></MCard>
           ) : stockQ.isError ? (
@@ -1102,6 +1122,13 @@ export default function MRepLoad({ rep, company, onClose }: {
           loading={save.isPending}
           onConfirm={() => save.mutate()}
           onClose={() => setConfirm(null)} />
+      )}
+
+      {/* بعد التصفير: مفاتيح الجوال واللوحة معاً كبعد حفظ الحركة (invalidateVanStock) — رصيد السيارة أعلاه يُجلب من جديد */}
+      {zeroOpen && canZeroStock && (
+        <Suspense fallback={null}>
+          <StockZeroModal salesRepId={rep.id} repName={rep.name} onZeroed={invalidateVanStock} onClose={() => setZeroOpen(false)} />
+        </Suspense>
       )}
     </div>
   );

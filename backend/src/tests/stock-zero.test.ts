@@ -1,7 +1,8 @@
 // «تصفير المخزون» (طلب المالك ١ نوفمبر ٢٠٢٦) — GET /api/stock-zero/preview و POST /api/stock-zero بقاعدة مزيّفة في الذاكرة
 // تحاكي التجميعات (SQL lotsDb وstockZero) من صفوفها، ومعاملةٍ تتراجع، وخادمٍ على 127.0.0.1 (لا قاعدة ولا شبكة): من يصفّر، والتأكيد،
-// والتكرار بالـzeroRef، و«لا شيء يُصفَّر»، وأصناف اللوط، وأسطر المستودع والسيارات بدلائها، والمحذوف والمطفأ، وشرط ما بعد التصفير
+// والتكرار بالـzeroRef، و«لا شيء يُصفَّر»، والميزة مطفأة لأصناف اللوط (المفعّلة في stock-zero-lots.test.ts)، وأسطر المستودع والسيارات بدلائها، والمحذوف والمطفأ، وشرط ما بعد التصفير
 // والانشغال — مع حرّاس نصّية على التركيب في index.ts وعلى zeroRunId في سجلّات المستودع والسيارات.
+// و«تصفير سيارة مندوب واحدة» (salesRepId، ١٨ نوفمبر ٢٠٢٦): سيارته وحدها والباقي كما هو، ومندوب شركة أخرى 404، والتكرار بالمرجع.
 import { guardHits } from '../compliance/zatca/__fixtures__/z3-netguard';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,7 +35,8 @@ type Row = Record<string, any>;
 interface Store {
   tenant: { id: string; warehouseEnabled: boolean; lotTrackingEnabled: boolean };
   products: { id: string; name: string; code: string; unit: string; status: string; lotTracked: boolean }[];
-  reps: { id: string; name: string; isActive: boolean; lastSeenAt: Date | null; outboxPending: number | null }[];
+  /** tenantId غائب = هذه الشركة — ومندوب شركةٍ أخرى بصفّه («تصفير سيارة مندوب واحدة» ⇒ 404) */
+  reps: { id: string; name: string; isActive: boolean; lastSeenAt: Date | null; outboxPending: number | null; tenantId?: string }[];
   admins: { id: string; role: string; tenantId: string; isActive: boolean; scopeEnabled: boolean; canManageVanStock?: boolean | null }[];
   whEntries: Row[]; whItems: Row[]; vanLoads: Row[]; vanItems: Row[]; invoices: Row[]; invItems: Row[]; runs: Row[];
 }
@@ -148,14 +150,22 @@ interface FakeOpts {
 function fakeDb(store: Store, o: FakeOpts = {}) {
   const calls: string[] = [];
   const txOpts: unknown[] = [];
-  const live = () => new Set(store.reps.map((r) => r.id));
+  const live = () => new Set(store.reps.filter((r) => (r.tenantId ?? TENANT) === TENANT).map((r) => r.id));
+  // سيارات الاستعلام كما يحدّها ANY(${keys}) — القيمة التالية لمعرّف الشركة ("tenantId" = ${tid} AND … = ANY(${keys})):
+  // «تصفير سيارة واحدة» يمرّر مندوبه وحده
+  const keysOf = (vals: unknown[]) => {
+    const next = vals[vals.indexOf(TENANT) + 1];
+    const k = Array.isArray(next) ? next as string[] : undefined;
+    const reps = live();
+    return k ? new Set(k.filter((id) => reps.has(id))) : reps;
+  };
   const whType = (entryId: string) => store.whEntries.find((e) => e.id === entryId)!;
   const vl = (id: string) => store.vanLoads.find((v) => v.id === id)!;
   const inv = (id: string) => store.invoices.find((i) => i.id === id)!;
 
   const queryRaw = async (strings: TemplateStringsArray, ...values: unknown[]) => {
-    const { sql } = render(strings, values);
-    calls.push(`query:${sql.slice(0, 60)}`);
+    const { sql, values: vals } = render(strings, values);
+    calls.push(`query:${sql.slice(0, 100)}`);
     if (sql.includes('pg_try_advisory_xact_lock')) return [{ ok: !o.lockHeld }];
     if (sql.includes('FROM products') && sql.includes('FOR UPDATE')) {
       if (o.freezeError) throw o.freezeError;
@@ -172,12 +182,12 @@ function fakeDb(store: Store, o: FakeOpts = {}) {
       return groupSum(store.vanItems.filter((r) => ['LOAD', 'UNLOAD'].includes(vl(r.vanLoadId).type)), (r) => ({ productId: r.productId, type: vl(r.vanLoadId).type }), baseOf);
     }
     if (sql.includes('FROM van_load_items') && sql.includes('"salesRepId" = ANY')) {
-      const reps = live();
+      const reps = keysOf(vals);
       return groupSum(store.vanItems.filter((r) => reps.has(vl(r.vanLoadId).salesRepId)),
         (r) => ({ productId: r.productId, vanKey: vl(r.vanLoadId).salesRepId, type: vl(r.vanLoadId).type }), baseOf);
     }
     if (sql.includes('FROM invoice_items')) {
-      const reps = live();
+      const reps = keysOf(vals);
       return groupSum(store.invItems.filter((r) => inv(r.invoiceId).status === 'CONFIRMED' && reps.has(inv(r.invoiceId).salesRepId) && r.productId), (r) => {
         const i = inv(r.invoiceId);
         return {
@@ -209,7 +219,9 @@ function fakeDb(store: Store, o: FakeOpts = {}) {
         .map((p) => pick({ ...p, units: [], primaryUnitId: null }, a.select)),
     },
     salesRep: {
+      findFirst: async (a: Row) => pick(store.reps.find((r) => r.id === a.where.id && (r.tenantId ?? TENANT) === a.where.tenantId), a.select),
       findMany: async (a: Row) => store.reps
+        .filter((r) => (r.tenantId ?? TENANT) === a.where.tenantId && (!a.where.id || r.id === a.where.id))
         .filter((r) => !a.where.outboxPending || (r.outboxPending ?? 0) > a.where.outboxPending.gt)
         .filter((r) => !a.where.lastSeenAt || (r.lastSeenAt !== null && r.lastSeenAt >= a.where.lastSeenAt.gte))
         .map((r) => pick(r, a.select)),
@@ -230,10 +242,16 @@ function fakeDb(store: Store, o: FakeOpts = {}) {
     },
     vanLoad: {
       create: async (a: Row) => { calls.push('vanLoad.create'); const id = nid('vl'); store.vanLoads.push({ id, createdAt: tick(), deletedSalesRepId: null, ...a.data }); return { id }; },
+      // آخر حركة تصفيرٍ على سيارة مندوب (آخر تصفيرٍ مسّ سيارته في المعاينة)
+      findFirst: async (a: Row) => pick([...store.vanLoads]
+        .filter((l) => l.tenantId === a.where.tenantId && l.salesRepId === a.where.salesRepId && (!a.where.zeroRunId || l.zeroRunId))
+        .sort((x, y) => y.createdAt - x.createdAt)[0], a.select),
     },
     stockZeroRun: {
       findUnique: async (a: Row) => pick(store.runs.find((r) => r.tenantId === a.where.tenantId_zeroRef.tenantId && r.zeroRef === a.where.tenantId_zeroRef.zeroRef), a.select),
-      findFirst: async (a: Row) => pick([...store.runs].sort((x, y) => y.createdAt - x.createdAt)[0], a.select),
+      findFirst: async (a: Row) => pick([...store.runs]
+        .filter((r) => (!a.where?.tenantId || r.tenantId === a.where.tenantId) && (!a.where?.id || r.id === a.where.id))
+        .sort((x, y) => y.createdAt - x.createdAt)[0], a.select),
       create: async (a: Row) => {
         calls.push('stockZeroRun.create');
         const id = nid('run');
@@ -376,7 +394,7 @@ test('المعاينة: المستودع والسيارات بالأساس وق�
     assert.deepEqual(d.warehouse, { enabled: true, products: 4, positiveQty: 94, negativeQty: 5, value: 120 + 50 + 48, uncostedQty: 0 });
     // r1 ماء ٢٠ (٤٠) وحليب −٣، تالف ٢ ومنتهٍ ١؛ r2 ماء ٤ (٨) وتالف حليب −١ متروك
     assert.deepEqual(d.vans, { reps: 2, products: 2, sellableQty: 24, negativeQty: 3, unsellableQty: 3, value: 48, deletedVans: 1 });
-    assert.deepEqual(d.lotBlocked, []);
+    assert.deepEqual([d.lotProducts, d.lotProductsTotal], [[], 0]);
     // r2 آخر ظهوره قبل ١٤ يوماً فلا يُعدّ جهازاً نشطاً
     assert.deepEqual(d.pendingDevices, [{ repId: 'r1', name: 'أحمد', outboxPending: 3 }]);
     assert.deepEqual([d.lastRun, d.alreadyZero, d.currencyDecimals], [null, false, 2]);
@@ -511,30 +529,20 @@ test('التأكيد: كلمةٌ خاطئة أو غائبة أو zeroRef غير 
   } finally { await s.close(); }
 });
 
-test('«تتبّع اللوط» مفعّل وصنفٌ متتبَّع له رصيد ⇒ 409 STOCK_ZERO_LOT_TRACKED بأصنافه بلا كتابة؛ والميزة مطفأة ⇒ علم الصنف لا أثر له', async () => {
-  const store = scenario({ lotTrackingEnabled: true });
-  store.products.find((p) => p.id === 'p3')!.lotTracked = true;
-  const f = fakeDb(store);
-  const s = await serve(f.db, () => ADMIN);
-  try {
-    const pv = (await s.call('GET', '/preview')).body.data;
-    assert.deepEqual(pv.lotBlocked, [{ productId: 'p3', name: 'حليب' }]);
-    const before = rowsCount(store);
-    const res = await s.call('POST', '', { confirm: 'تصفير', zeroRef: REF(50) });
-    assert.deepEqual([res.status, res.body], [409, {
-      success: false, code: 'STOCK_ZERO_LOT_TRACKED',
-      // صفحة اللوط لا تصفّر: الرسالة تدلّ على تسوية النقص بالتشغيلة في مخزون الشركة وعلى مخزون السيارات (نصّ strings.ts في الواجهة نفسه)
-      message: 'أصناف بتتبع اللوط لها رصيد صفر رصيد المستودع بتسوية نقص بالتشغيلة من مخزون الشركة وأزل رصيد السيارات من مخزون السيارات أولا',
-      data: { products: [{ productId: 'p3', name: 'حليب' }] },
-    }]);
-    assert.deepEqual(rowsCount(store), before);
-  } finally { await s.close(); }
-
+// «تتبّع اللوط» مفعّلاً تُصفَّر أصنافه تشغيلةً تشغيلة (طلب المالك ١٨ نوفمبر ٢٠٢٦ — كان 409 STOCK_ZERO_LOT_TRACKED): مختبرٌ في
+// stock-zero-lots.test.ts بقاعدةٍ مزيّفة تعرف صفوف اللوط. وهنا: الميزة مطفأة ⇒ علم الصنف لا أثر له والسلوك كما كان حرفاً
+test('«تتبّع اللوط» مطفأ ⇒ علم الصنف لا أثر له: لا رفض ولا أصناف لوط في المعاينة ولا قراءة لوط، وسطر الصنف −رصيده كما كان', async () => {
   const off = scenario({ lotTrackingEnabled: false });
   off.products.find((p) => p.id === 'p3')!.lotTracked = true;
-  const s2 = await serve(fakeDb(off).db, () => ADMIN);
+  const f = fakeDb(off);
+  const s2 = await serve(f.db, () => ADMIN);
   try {
+    const pv = (await s2.call('GET', '/preview')).body.data;
+    assert.deepEqual([pv.lotProducts, pv.lotProductsTotal, 'lotBlocked' in pv], [[], 0, false]);
     assert.equal((await s2.call('POST', '', { confirm: 'تصفير', zeroRef: REF(51) })).status, 200);
+    const e = zeroRows(off).entries[0];
+    assert.deepEqual(linesOf(off, 'entryId', e.id).find((l) => l.productId === 'p3'), { productId: 'p3', qty: 5, unitName: null, unitFactor: 1, baseQty: 5 });
+    assert.ok(!f.calls.some((c) => /van_load_item_lots|invoice_item_lots|lot_relabels|current_setting/.test(c)), 'لا قراءة لوطٍ ولا قفله');
   } finally { await s2.close(); }
 });
 
@@ -644,6 +652,145 @@ test('تصفيرٌ آخر قيد التنفيذ ⇒ 409 STOCK_ZERO_IN_PROGRESS،
   }
   assert.equal(isStockZeroBusy(new StockZeroError(409, 'STOCK_ZERO_IN_PROGRESS')), false, 'رفض التطبيق ليس انشغالاً');
   assert.equal(isStockZeroBusy(new Error('boom')), false);
+});
+
+// ═══ «تصفير سيارة مندوب واحدة» (طلب المالك ١٨ نوفمبر ٢٠٢٦) ═══
+
+test('سيارة مندوب واحدة: المعاينة والتنفيذ لسيارة r1 وحدها — المستودع وسيارة r2 وسيارة المحذوف كما هي، والتشغيلة warehouseZeroed=false وملخّصها VAN باسمه', async () => {
+  const store = scenario();
+  const f = fakeDb(store);
+  const audit: string[] = [];
+  const s = await serve(f.db, () => ADMIN, { audit });
+  try {
+    const companyBefore = (await s.call('GET', '/preview')).body.data;
+
+    // المعاينة: سيارته وحدها — لا قسم مستودع ولا سيارات أخرى ولا محذوفين، وجهازه هو، ولا تصفير سابق لسيارته
+    const pv = await s.call('GET', '/preview?salesRepId=r1');
+    assert.equal(pv.status, 200, JSON.stringify(pv.body));
+    const p = pv.body.data;
+    assert.deepEqual([p.scope, p.salesRep], ['VAN', { id: 'r1', name: 'أحمد' }]);
+    assert.deepEqual(p.warehouse, { enabled: false, products: 0, positiveQty: 0, negativeQty: 0, value: 0, uncostedQty: 0 });
+    // ماء ٢٠ متاح (٤٠) وتالف ٢، وحليب −٣ ومنتهٍ ١
+    assert.deepEqual(p.vans, { reps: 1, products: 2, sellableQty: 20, negativeQty: 3, unsellableQty: 3, value: 40, deletedVans: 0 });
+    assert.deepEqual(p.pendingDevices, [{ repId: 'r1', name: 'أحمد', outboxPending: 3 }]);
+    assert.deepEqual([p.lastRun, p.alreadyZero], [null, false]);
+    // والمندوب الموقوف لا يظهر جهازه في معاينة سيارةٍ غير سيارته
+    assert.deepEqual((await s.call('GET', '/preview?salesRepId=r2')).body.data.pendingDevices, []);
+
+    const before = { wh: store.whEntries.length, whItems: store.whItems.length, r2: store.vanLoads.filter((l) => l.salesRepId === 'r2').length };
+    const res = await s.call('POST', '', { confirm: 'تصفير', zeroRef: REF(100), salesRepId: 'r1' });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const d = res.body.data;
+    assert.deepEqual([d.scope, d.salesRep, d.alreadyZero], ['VAN', { id: 'r1', name: 'أحمد' }, false]);
+    assert.deepEqual(d.warehouse, { products: 0, entryId: null });
+    assert.deepEqual(d.vans, { reps: 1, loads: 3, products: 2 });
+    assert.deepEqual(d.skipped, { deletedVans: 0, negativeUnsellable: 0 });
+    assert.deepEqual(d.value, { warehouse: 0, vans: 40 });
+    // القفل الاستشاري نفسه وتجميد الأصناف قبل الكتابة
+    const iLock = f.calls.findIndex((c) => c.includes('pg_try_advisory_xact_lock'));
+    const iFreeze = f.calls.findIndex((c) => c.includes('FROM products'));
+    assert.ok(iLock >= 0 && iLock < iFreeze && iFreeze < f.calls.indexOf('stockZeroRun.create'), f.calls.join('\n'));
+
+    // الحركات: الثلاث على سيارة r1 وحدها، ولا تسوية مستودع، ولا حركة على r2 أو المحذوف
+    const { entries, loads } = zeroRows(store);
+    assert.equal(entries.length, 0);
+    assert.deepEqual([store.whEntries.length, store.whItems.length], [before.wh, before.whItems]);
+    assert.deepEqual(loads.map((l) => [l.salesRepId, l.type]).sort(), [['r1', 'ADJUST'], ['r1', 'DAMAGED_OUT'], ['r1', 'EXPIRED_OUT']]);
+    assert.ok(loads.every((l) => l.zeroRunId === d.runId && l.note === STOCK_ZERO_NOTE));
+    assert.equal(store.vanLoads.filter((l) => l.salesRepId === 'r2').length, before.r2);
+    assert.deepEqual(linesOf(store, 'vanLoadId', loads.find((l) => l.type === 'ADJUST')!.id).map((l) => [l.productId, l.qty]), [['p1', -20], ['p3', 3]]);
+
+    // التشغيلة: لم تصفّر المستودع (حارس استيراد المخزون الافتتاحي لا يراها)، وملخّصها باسم المندوب
+    const run = store.runs[0];
+    assert.deepEqual([run.zeroRef, run.warehouseZeroed, run.warehouseEntryId, run.vanLoadCount], [REF(100), false, null, 3]);
+    assert.deepEqual([run.summary.scope, run.summary.salesRep], ['VAN', { id: 'r1', name: 'أحمد' }]);
+    assert.deepEqual(run.summary.warehouse, []);
+    assert.deepEqual(run.summary.vans.map((v: Row) => v.repId), ['r1']);
+    assert.deepEqual(run.summary.result, d);
+    assert.deepEqual(JSON.parse(audit[0]), {
+      event: 'STOCK_ZERO', tenantId: TENANT, actorId: 'admin-1', impersonated: false, runId: d.runId, warehouseLines: 0, vanLoads: 3, scope: 'VAN', salesRepId: 'r1',
+    });
+
+    // بعده: سيارة r1 صفر وآخر تصفيرٍ لها هذا، والشركة: المستودع وr2 كما كانا قبله حرفاً
+    const after = (await s.call('GET', '/preview?salesRepId=r1')).body.data;
+    assert.deepEqual([after.alreadyZero, after.lastRun.id, after.lastRun.actorName], [true, d.runId, 'مدير الشركة']);
+    const company = (await s.call('GET', '/preview')).body.data;
+    assert.deepEqual(company.warehouse, companyBefore.warehouse);
+    assert.deepEqual(company.vans, { reps: 1, products: 1, sellableQty: 4, negativeQty: 0, unsellableQty: 0, value: 8, deletedVans: 1 });
+    // ولا تصفير سابق لسيارة r2 (التشغيلة لم تمسّها)
+    assert.equal((await s.call('GET', '/preview?salesRepId=r2')).body.data.lastRun, null);
+
+    // والمندوب الموقوف تُصفَّر سيارته وحده كذلك — ثم تصفير الشركة لا يجد في السيارات إلا ما لم يُمسّ
+    const r2 = await s.call('POST', '', { confirm: 'تصفير', zeroRef: REF(101), salesRepId: 'r2' });
+    assert.deepEqual([r2.status, r2.body.data.vans, r2.body.data.warehouse.entryId], [200, { reps: 1, loads: 1, products: 1 }, null]);
+    assert.deepEqual(store.runs.map((r) => r.warehouseZeroed), [false, false]);
+    const full = await s.call('POST', '', { confirm: 'تصفير', zeroRef: REF(102) });
+    assert.deepEqual([full.body.data.vans.loads, full.body.data.warehouse.products, store.runs[2].warehouseZeroed, store.runs[2].summary.scope], [0, 4, true, 'COMPANY']);
+  } finally { await s.close(); }
+});
+
+test('سيارة مندوب واحدة: مندوب شركة أخرى أو غير موجود ⇒ 404 STOCK_ZERO_REP_NOT_FOUND بلا قفل ولا كتابة؛ وsalesRepId فارغ أو null ⇒ 400 لا تصفير الشركة؛ والحرّاس قبله', async () => {
+  const store = scenario();
+  store.reps.push({ id: 'r-other', name: 'مندوب غريب', isActive: true, lastSeenAt: null, outboxPending: null, tenantId: 'tenant-other' });
+  const f = fakeDb(store);
+  let user: object = ADMIN;
+  const s = await serve(f.db, () => user);
+  const NOT_FOUND = { success: false, code: 'STOCK_ZERO_REP_NOT_FOUND', message: 'المندوب غير موجود' };
+  try {
+    const before = rowsCount(store);
+    for (const q of ['r-other', 'nope', '', '%20%20']) {
+      const res = await s.call('GET', `/preview?salesRepId=${q}`);
+      assert.deepEqual([res.status, res.body], [404, NOT_FOUND], q);
+    }
+    assert.deepEqual((await s.call('GET', '/preview?salesRepId=r1&salesRepId=r2')).status, 404, 'المكرّر مرفوض');
+    for (const salesRepId of ['r-other', 'nope']) {
+      const res = await s.call('POST', '', { confirm: 'تصفير', zeroRef: REF(110), salesRepId });
+      assert.deepEqual([res.status, res.body], [404, NOT_FOUND], salesRepId);
+    }
+    for (const salesRepId of [null, '', '   ', 5]) {
+      const res = await s.call('POST', '', { confirm: 'تصفير', zeroRef: REF(111), salesRepId });
+      assert.deepEqual([res.status, res.body.code], [400, 'STOCK_ZERO_CONFIRM_REQUIRED'], JSON.stringify(salesRepId));
+    }
+    assert.deepEqual(rowsCount(store), before);
+    assert.equal(f.txOpts.length, 0, 'لا معاملة ولا قفل');
+    assert.ok(!f.calls.some((c) => c.includes('pg_try_advisory_xact_lock')));
+
+    // الحرّاس كما هي وقبل البحث عن المندوب: المشرف ومفتاح API وجلسة الموظف
+    for (const [u, status, code] of [
+      [{ ...ADMIN, id: 'mgr-1', role: 'MANAGER' }, 403, null],
+      [{ ...ADMIN, apiKeyId: 'k1' }, 403, 'API_KEY_FORBIDDEN'],
+      [STAFF, 403, 'STOCK_ZERO_ADMIN_ONLY'],
+      [{ ...ADMIN, id: 'admin-novan' }, 403, 'STOCK_ZERO_ADMIN_ONLY'],
+    ] as const) {
+      user = u;
+      const res = await s.call('POST', '', { confirm: 'تصفير', zeroRef: REF(112), salesRepId: 'r1' });
+      assert.equal(res.status, status, JSON.stringify(u));
+      if (code) assert.equal(res.body.code, code);
+      assert.equal((await s.call('GET', '/preview?salesRepId=r1')).status, status);
+    }
+    assert.deepEqual(rowsCount(store), before);
+  } finally { await s.close(); }
+});
+
+test('سيارة مندوب واحدة: التكرار بالـzeroRef نفسه يردّ المحفوظ (بنطاقه واسم المندوب) idempotent بلا صفوف ولا معاملة', async () => {
+  const store = scenario();
+  const f = fakeDb(store);
+  const s = await serve(f.db, () => ADMIN);
+  try {
+    const first = await s.call('POST', '', { confirm: 'تصفير', zeroRef: REF(120), salesRepId: 'r1' });
+    assert.equal(first.status, 200);
+    assert.deepEqual([first.body.data.scope, first.body.data.salesRep.id], ['VAN', 'r1']);
+    const before = rowsCount(store);
+    const tx = f.txOpts.length;
+    const second = await s.call('POST', '', { confirm: 'تصفير', zeroRef: REF(120), salesRepId: 'r1' });
+    assert.deepEqual(second.body, { success: true, idempotent: true, data: first.body.data });
+    assert.deepEqual(rowsCount(store), before);
+    assert.equal(f.txOpts.length, tx);
+    // ومرجعٌ جديد بعده: السيارة صفرٌ أصلاً ⇒ alreadyZero بلا تشغيلة، باسم المندوب نفسه
+    const again = await s.call('POST', '', { confirm: 'تصفير', zeroRef: REF(121), salesRepId: 'r1' });
+    assert.deepEqual([again.status, again.body.data.alreadyZero, again.body.data.runId, again.body.data.scope, again.body.data.salesRep], [200, true, null, 'VAN', { id: 'r1', name: 'أحمد' }]);
+    assert.deepEqual(rowsCount(store), before);
+  } finally { await s.close(); }
 });
 
 // ═══ الدوالّ الصرفة ═══

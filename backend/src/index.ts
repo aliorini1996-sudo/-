@@ -19,6 +19,8 @@ import { startZatcaSweep } from './services/zatcaSubmit';
 import { startAttendanceAlerts } from './services/attendanceAlerts';
 import { startPresenceChecks } from './services/presenceChecks';
 import { startLedgerSyncScheduler, trackLedgerRequestLoad } from './services/gl/sync/scheduler';
+import { startAffiliateSettlementScheduler } from './services/affiliate/settlement';
+import { promoteLegacyPendingAffiliates } from './services/affiliate/core';
 
 import authRouter from './routes/auth';
 import customersRouter from './routes/customers';
@@ -430,6 +432,10 @@ server.listen(PORT, async () => {
   startZatcaSweep(); // ZATCA_SWEEP_ENABLED=false للإطفاء — خامل بلا مستندات مرحلة ثانية
   startAttendanceAlerts(); // تنبيهات الحضور على جوال المندوب — ATTENDANCE_ALERTS_ENABLED=false للإطفاء
   startPresenceChecks(); // التحقق العشوائي من التواجد — PRESENCE_CHECKS_ENABLED=false للإطفاء
+  // سفير فيلد سيلز v2: ترقية طلبات الانضمام القديمة (pending_*) إلى «مقبول» مرّةً بعلامة OpsMarker —
+  // (الدالّة لا ترمي أبداً — تُعيد العدد أو null؛ الـcatch احتياطٌ إضافي)
+  void promoteLegacyPendingAffiliates().catch((e: unknown) => console.error('[affiliate] legacy promotion:', (e as Error).message));
+  startAffiliateSettlementScheduler(); // دورة تسوية السفراء ١ و١١ و٢١ + الاعتماد التلقائي — AX_SETTLEMENT_ENABLED=0 للإطفاء
 });
 
 export default app;

@@ -26,6 +26,8 @@ const MARKETING = [
   '/en/service-agreement', '/en/subscribe-request',
   '/fr', '/fr/about', '/fr/blog', '/fr/pricing', '/fr/calculator', '/fr/contact',
   '/fr/invoice-generator', '/fr/privacy', '/fr/terms', '/fr/service-agreement',
+  // صفحة «سفراء فيلد سيلز» العلنية (١٨ نوفمبر ٢٠٢٦) — زرّ الدعم إلزامي عليها كبقية التسويق
+  '/ambassadors', '/en/ambassadors', '/fr/ambassadors',
 ];
 
 /**

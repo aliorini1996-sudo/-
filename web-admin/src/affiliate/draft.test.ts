@@ -31,10 +31,11 @@ afterEach(() => {
   else delete (globalThis as Record<string, unknown>).sessionStorage;
 });
 
+// v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): بطاقة التسجيل الواحدة — نوع السفير واسم الشركة بدل المدينة والرقم الضريبي
 const filled = (): RegisterForm => ({
   ...EMPTY_REGISTER,
-  fullName: 'سارة أحمد', email: 'sara@example.com', phone: '0551234567', city: 'الرياض',
-  password: 'correct-horse-battery', vatNumber: '300000000000003', marketingConsent: true, acceptTerms: true,
+  fullName: 'سارة أحمد', email: 'sara@example.com', phone: '0551234567', partnerType: 'company', companyName: 'مؤسسة النخبة',
+  password: 'correct-horse-battery', marketingConsent: true, acceptTerms: true,
 });
 
 test('كلمة المرور لا تُحفظ أبداً — ولا الموافقة على الشروط', () => {
@@ -74,13 +75,15 @@ test('تُمسح بعد الإرسال الناجح، والنموذج الفا�
 
 test('قيم تالفة: الحقل التالف يُهمل لا النموذج، والتالف كلياً يُمسح', () => {
   sessionStorage.setItem(REGISTER_DRAFT_KEY, JSON.stringify({
-    fullName: 'سارة', email: 42, city: 'x'.repeat(500), marketingConsent: 'yes', password: 'leaked', acceptTerms: true,
+    fullName: 'سارة', email: 42, companyName: 'x'.repeat(500), marketingConsent: 'yes', password: 'leaked', acceptTerms: true,
+    partnerType: 'admin',
   }));
   const f = loadRegisterDraft()!;
   assert.equal(f.fullName, 'سارة');
   assert.equal(f.email, '');
-  assert.equal(f.city.length, 200);
+  assert.equal(f.companyName.length, 200);
   assert.equal(f.marketingConsent, false);
+  assert.equal(f.partnerType, '', 'نوعٌ غير معروف لا يُستعاد');
   assert.equal(f.password, '', 'كلمة مرور مزروعة في التخزين لا تُقرأ');
   assert.equal(f.acceptTerms, false, 'موافقة مزروعة في التخزين لا تُقرأ');
 
@@ -90,18 +93,25 @@ test('قيم تالفة: الحقل التالف يُهمل لا النموذج�
   }
 });
 
-test('مسودّة قديمة بإقرارات و«موثوق» تُستعاد بحقولها الحالية فقط', () => {
+test('مسودّة قديمة بإقرارات و«موثوق» ومدينةٍ ورقمٍ ضريبيّ (v1) تُستعاد بحقولها الحالية فقط', () => {
   sessionStorage.setItem(REGISTER_DRAFT_KEY, JSON.stringify({
-    fullName: 'سارة أحمد', email: 'sara@example.com', phone: '0551234567', city: 'جدة', vatNumber: '', marketingConsent: true,
+    fullName: 'سارة أحمد', email: 'sara@example.com', phone: '0551234567', city: 'جدة', vatNumber: '300000000000003', marketingConsent: true,
     publicPromoter: true, mawthooqNo: '778899', mawthooqExpiry: '2027-06-30',
     declarations: { independent: true, noSpam: true, disclose: true, noSelfReferral: true },
   }));
   const f = loadRegisterDraft()!;
-  assert.deepEqual(f, { ...EMPTY_REGISTER, fullName: 'سارة أحمد', email: 'sara@example.com', phone: '0551234567', city: 'جدة', marketingConsent: true });
-  for (const k of ['publicPromoter', 'mawthooqNo', 'mawthooqExpiry', 'declarations']) assert.ok(!(k in f), `${k} لا يُستعاد`);
+  assert.deepEqual(f, { ...EMPTY_REGISTER, fullName: 'سارة أحمد', email: 'sara@example.com', phone: '0551234567', marketingConsent: true });
+  for (const k of ['publicPromoter', 'mawthooqNo', 'mawthooqExpiry', 'declarations', 'city', 'vatNumber']) assert.ok(!(k in f), `${k} لا يُستعاد`);
   saveRegisterDraft(f);
   const raw = JSON.parse(sessionStorage.getItem(REGISTER_DRAFT_KEY)!);
-  assert.deepEqual(Object.keys(raw).sort(), ['city', 'email', 'fullName', 'marketingConsent', 'phone', 'phoneCountry', 'vatNumber']);
+  assert.deepEqual(Object.keys(raw).sort(), ['companyName', 'email', 'fullName', 'marketingConsent', 'partnerType', 'phone', 'phoneCountry']);
+});
+
+test('نوع السفير يُحفظ ويُستعاد — ووحده يكفي مسودّةً', () => {
+  saveRegisterDraft({ ...EMPTY_REGISTER, partnerType: 'influencer' });
+  assert.equal(loadRegisterDraft()!.partnerType, 'influencer');
+  saveRegisterDraft(EMPTY_REGISTER);
+  assert.equal(sessionStorage.getItem(REGISTER_DRAFT_KEY), null);
 });
 
 test('مفتاح دولة الجوال يُحفظ ويُستعاد، وقيمةٌ تالفة تعود للسعودية', () => {
@@ -130,5 +140,6 @@ test('RegisterScreen: يستعيد المسودّة ويحفظها ويمسحه�
   assert.ok(reg, 'RegisterScreen غير موجود');
   assert.match(reg![0], /loadRegisterDraft\(\)/, 'لا استعادة للمسودّة');
   assert.match(reg![0], /saveRegisterDraft\(form\)/, 'لا حفظ للمسودّة');
-  assert.match(reg![0], /onSuccess: \(message\) => \{ clearRegisterDraft\(\);/, 'المسودّة لا تُمسح بعد الإرسال الناجح');
+  // v2: التسجيل الفوريّ يُعيد {token, user} — المسودّة تُمسح ثم يُخزَّن التوكن ويدخل الرئيسية
+  assert.match(reg![0], /onSuccess: \(r\) => \{\s*clearRegisterDraft\(\);/, 'المسودّة لا تُمسح بعد الإرسال الناجح');
 });

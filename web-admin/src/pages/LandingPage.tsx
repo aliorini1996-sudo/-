@@ -213,7 +213,7 @@ const CHROME_EN: [string, string][] = [
   ['>الحالة<', '>Status<'], ['تم الإرسال', 'Sent'], ['طلب #10428 قيد التنفيذ', 'Order #10428 in progress'],
   // التذييل
   ['>المنتج<', '>Product<'], ['تطبيق الجوال', 'Mobile app'],
-  ['>الشركة<', '>Company<'], ['>من نحن<', '>About us<'], ['>تواصل معنا<', '>Contact us<'],
+  ['>الشركة<', '>Company<'], ['>من نحن<', '>About us<'], ['>تواصل معنا<', '>Contact us<'], ['>سفراء فيلد سيلز<', '>Ambassadors<'],
   ['>قانوني<', '>Legal<'], ['>سياسة الخصوصية<', '>Privacy Policy<'],
   ['>الشروط والأحكام<', '>Terms & Conditions<'], ['>اتفاقية الخدمة<', '>Service Agreement<'],
   ['© ٢٠٢٦ Field Sales جميع الحقوق محفوظة', '© 2026 Field Sales — All rights reserved.'],
@@ -250,7 +250,7 @@ const CHROME_FR: [string, string][] = [
   ['>الحالة<', '>Statut<'], ['تم الإرسال', 'Envoyé'], ['طلب #10428 قيد التنفيذ', 'Commande #10428 en cours'],
   // التذييل
   ['>المنتج<', '>Produit<'], ['تطبيق الجوال', 'Application mobile'],
-  ['>الشركة<', '>Entreprise<'], ['>من نحن<', '>À propos<'], ['>تواصل معنا<', '>Contact<'],
+  ['>الشركة<', '>Entreprise<'], ['>من نحن<', '>À propos<'], ['>تواصل معنا<', '>Contact<'], ['>سفراء فيلد سيلز<', '>Ambassadeurs<'],
   ['>قانوني<', '>Légal<'], ['>سياسة الخصوصية<', '>Politique de confidentialité<'],
   ['>الشروط والأحكام<', '>Conditions générales<'], ['>اتفاقية الخدمة<', '>Contrat de service<'],
   ['© ٢٠٢٦ Field Sales جميع الحقوق محفوظة', '© 2026 Field Sales — Tous droits réservés.'],
@@ -325,6 +325,7 @@ const CHROME_TR: [string, string][] = [
   ['>الشركة<', '>Şirket<'],
   ['>من نحن<', '>Hakkımızda<'],
   ['>تواصل معنا<', '>İletişim<'],
+  ['>سفراء فيلد سيلز<', '>Elçi programı<'],
   ['>قانوني<', '>Yasal<'],
   ['>سياسة الخصوصية<', '>Gizlilik Politikası<'],
   ['>الشروط والأحكام<', '>Şartlar ve Koşullar<'],
@@ -402,6 +403,7 @@ const CHROME_ZH: [string, string][] = [
   ['>الشركة<', '>企业<'],
   ['>من نحن<', '>关于我们<'],
   ['>تواصل معنا<', '>联系我们<'],
+  ['>سفراء فيلد سيلز<', '>推广大使<'],
   ['>قانوني<', '>法律条款<'],
   ['>سياسة الخصوصية<', '>隐私政策<'],
   ['>الشروط والأحكام<', '>条款与条件<'],
@@ -651,7 +653,8 @@ function featureLinksRow(lang: Lang): string {
 // والوجهة من pathForLocale (i18n/locale.ts، المشتقّة من availableLangs): الصفحة بلغة الصفحة إن وُجدت بها، وإلا
 // نظيرها الإنجليزي — فلا يقود رابط من /tr/ أو /zh/ إلى مسار بلا صفحة (كان /tr/about يُخدَم قوقعة الرئيسية العربية).
 // /meeting هنا: زرّ «احجز اجتماعاً» في البطل كان يفتح الصفحة العربية من الرئيسيات الأربع.
-const LOCALIZED_PATHS = ['/about', '/contact', '/subscribe-request', '/meeting', '/pricing', '/blog', '/calculator', '/invoice-generator', '/privacy', '/terms', '/service-agreement'];
+// /ambassadors (رابط التذييل، ١٨ نوفمبر ٢٠٢٦): ثلاثية — من /tr/ و/zh/ تقود إلى النسخة الإنجليزية.
+const LOCALIZED_PATHS = ['/about', '/contact', '/subscribe-request', '/meeting', '/ambassadors', '/pricing', '/blog', '/calculator', '/invoice-generator', '/privacy', '/terms', '/service-agreement'];
 function localizeLinks(html: string, lang: Lang): string {
   if (lang === 'ar') return html;
   let out = html;

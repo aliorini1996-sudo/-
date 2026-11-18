@@ -1,7 +1,7 @@
 // ============================================================================
 // قراءة نقيّة لأخطاء خادم البوابة — بلا axios ولا import.meta، فتُختبر في node.
 // الخادم يُرسل `{ success: false, message, code? }`؛ `code` يميّز حالاتٍ تحتاج
-// سلوكاً لا نصّاً فقط (شروطٌ جديدة، كلمة مرور لا تطابق الطلب).
+// سلوكاً لا نصّاً فقط (شروطٌ جديدة، بريدٌ له حساب).
 //
 // نصوص الخادم عربية. `errorText` يُترجم الحالات المعروفة (شبكة، 429، رموز الأخطاء،
 // ومفتاحٌ «معروف» تمرّره الشاشة) لغير العربية، ويعرض أي رسالة خادمٍ أخرى كما هي؛
@@ -47,24 +47,18 @@ export function isTermsOutdated(err: unknown): boolean {
 }
 
 /**
- * نوع فشل تأكيد البريد:
- *  · `mismatch` — 400 `password_mismatch`: كلمة المرور لا تطابق آخر طلبٍ بهذا البريد
- *    (قد يكون غيره سجّل ببريده) ⇒ رسالة الخادم + «قدّم طلب انضمام»
- *  · `invalid`  — 400 آخر أو 409 (رابطٌ غير صالح أو قديم) ⇒ إعادة إرسال الرابط
- *  · `retry`    — شبكة أو محدِّد أو عطل خادم ⇒ يبقى النموذج لإعادة المحاولة
+ * 409 `email_taken` (V2_SPEC §6.1 — الانضمام فوريّ): يوجد حساب بهذا البريد ⇒ «سجّل الدخول».
+ * لا يُخلط بـ409 الشروط القديمة (`terms_outdated` أو بلا رمز) الذي يُعيد تحميل الشروط.
  */
-export type VerifyErrorKind = 'mismatch' | 'invalid' | 'retry';
-export function verifyErrorKind(err: unknown): VerifyErrorKind {
-  const s = errorStatus(err);
-  if (s === 400 && errorCode(err) === 'password_mismatch') return 'mismatch';
-  if (s === 400 || s === 409) return 'invalid';
-  return 'retry';
+export function isEmailTaken(err: unknown): boolean {
+  return errorStatus(err) === 409 && errorCode(err) === 'email_taken';
 }
 
 /** رموز أخطاء الخادم التي لها نصٌّ مترجم */
 const CODE_KEYS: Record<string, AxKey> = {
-  password_mismatch: 'verify.mismatch',
   terms_outdated: 'err.termsOutdated',
+  // التسجيل الفوريّ: بريدٌ له حساب ⇒ «سجّل الدخول»
+  email_taken: 'reg.emailTaken',
   // 429 قاعدةُ عمل لا محدِّد: ٥٠ ترشيحاً قيد المراجعة — «انتظر قليلاً» تضلّل هنا
   too_many_open_claims: 'err.tooManyOpenClaims',
   // الحساب التجريبي: حدود الخادم (429 برمزٍ = قاعدة عمل لا محدِّد) وحالاتٌ لها نصّها
@@ -79,6 +73,17 @@ const CODE_KEYS: Record<string, AxKey> = {
   not_found: 'err.notFound',
   // سحب حسابٍ دفعت عنه الشركة (POST /trials/:id/withdraw — 409)
   has_payment: 'err.hasPayment',
+  // المطالبة بإحالة فائتة: حدّ ٢٠ مفتوحة (قاعدة عمل لا محدِّد — الرموز كلها مقبولة:
+  // 429 من المسار، و409 `open_limit` من الخدمة حين يتسابق إرسالان عند ١٩ مفتوحة — API.md)
+  too_many_missed_claims: 'err.tooManyMissedClaims',
+  too_many_open_missed_claims: 'err.tooManyMissedClaims',
+  open_limit: 'err.tooManyMissedClaims',
+  // سحب مطالبةٍ بُتّ فيها والقائمة قديمة (409)
+  not_under_review: 'err.notUnderReview',
+  // رموز تحقّق المطالبة الموثّقة في API.md (400) — بنصوص التحقّق نفسها التي تعرضها الشاشة قبل الإرسال
+  contact_in_text: 'err.contactInText',
+  invalid_phone: 'val.contactPhone',
+  invalid_cr: 'val.cr',
 };
 
 /**
@@ -98,6 +103,9 @@ const FIELD_MSGS: Array<[string, AxMsg]> = [
   ['city', { key: 'val.cityTooLong', vars: { max: CITY_MAX } }],
   ['contactPhone', { key: 'val.contactPhone' }],
   ['password', { key: 'val.passwordMin' }],
+  ['partnerType', { key: 'val.partnerType' }],
+  ['socialLinks', { key: 'val.socialUrl' }],
+  ['dataUrl', { key: 'val.docType' }],
   ['vatNumber', { key: 'val.vat' }],
   ['how', { key: 'val.how' }],
   ['note', { key: 'val.noteTooLong', vars: { max: NOTE_MAX } }],
@@ -121,7 +129,7 @@ export function fieldErrorMsg(err: unknown): AxMsg | null {
  * نصّ خطأٍ بلغة العرض:
  *  1. 400 بحقلٍ مرفوض من zod ⇒ رسالة التحقّق المطابقة (بكل اللغات، العربية منها).
  *  2. العربية + رسالة خادم ⇒ الرسالة كما هي (سلوك البوابة الأصلي).
- *  3. رمز خطأ معروف (password_mismatch · terms_outdated · too_many_open_claims) ⇒ نصّه
+ *  3. رمز خطأ معروف (email_taken · terms_outdated · too_many_open_claims · open_limit · not_under_review…) ⇒ نصّه
  *     المترجم — **قبل** فرع 429 العام، فرمز قاعدة العمل لا يُبتلع في «محاولات كثيرة».
  *  4. 429 بلا رمز (المحدِّد) ⇒ «محاولات كثيرة»، وانقطاع ⇒ «تعذّر الاتصال».
  *  5. `known` — حالةٌ تعرفها الشاشة (401 الدخول، رابطٌ غير صالح) ⇒ نصّها المترجم.

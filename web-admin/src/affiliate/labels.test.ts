@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import {
   USER_STATUS, CLAIM_STATUS, ATTRIBUTION_STATUS, COMMISSION_STATUS, PAYOUT_STATUS,
   COMPANY_STATUS, COMPANY_SOURCE, ADJUSTMENT_KIND, CLAIM_HOW, CLAIM_HOW_ORDER, labelOf, textOf,
+  MISSED_CLAIM_STATUS, PARTNER_TYPE, PARTNER_TYPE_ORDER, SOCIAL_PLATFORM, SOCIAL_PLATFORM_ORDER, DOC_KIND, PROFILE_MISSING,
+  MATERIAL_CATEGORY, MATERIAL_CATEGORY_ORDER, COMPANY_METHOD, companyMethod,
 } from './labels';
 import { AX_DICT, AX_LANGS, type AxKey } from './i18n';
 
@@ -13,6 +15,18 @@ import { AX_DICT, AX_LANGS, type AxKey } from './i18n';
  * تسمية تُفشل الاختبار بدل أن تظهر للسفير نصّاً إنجليزياً خاماً.
  */
 const API = readFileSync(new URL('../../../docs/affiliate/API.md', import.meta.url), 'utf8');
+/** المواصفة الحاكمة للإصدار الثاني (قرار المالك ١٨ نوفمبر ٢٠٢٦) — تعلو على API.md حيث تتعارضان */
+const V2 = readFileSync(new URL('../../../docs/affiliate/V2_SPEC.md', import.meta.url), 'utf8');
+
+/** قائمة v2 من V2_SPEC §3 بصيغة `Name = 'a'|'b'` */
+function v2Union(typeName: string): string[] {
+  const m = V2.match(new RegExp(`${typeName} = ((?:'[a-zA-Z_]+'\\s*\\|\\s*)*'[a-zA-Z_]+')`));
+  assert.ok(m, `النوع ${typeName} غير موجود في V2_SPEC.md`);
+  return [...m![1].matchAll(/'([a-zA-Z_]+)'/g)].map((x) => x[1]);
+}
+
+/** اتحاد القائمتين بلا تكرار — API.md يُحدَّث ليطابق V2_SPEC (الوكيل B)، وأيّهما سبق يُلزم التسمية */
+const union = (...lists: string[][]) => [...new Set(lists.flat())];
 const ARABIC = /[؀-ۿ]/;
 
 function unionOf(typeName: string): string[] {
@@ -50,7 +64,39 @@ test('حالات المستخدم', () => assertLabelled('UserStatus', unionOf('
 test('حالات الترشيح', () => assertLabelled('ClaimStatus', unionOf('ClaimStatus'), CLAIM_STATUS));
 test('حالات الإسناد', () => assertLabelled('AttributionStatus', unionOf('AttributionStatus'), ATTRIBUTION_STATUS));
 test('حالات العمولة', () => assertLabelled('CommissionStatus', unionOf('CommissionStatus'), COMMISSION_STATUS));
-test('حالات الدفعة', () => assertLabelled('PayoutStatus', unionOf('PayoutStatus'), PAYOUT_STATUS));
+// v2: `failed` (فشل التحويل) دخلت الحالات — من V2_SPEC §3 ولو لم يُحدَّث API.md بعد
+test('حالات الدفعة', () => assertLabelled('PayoutStatus', union(unionOf('PayoutStatus'), v2Union('PayoutStatus')), PAYOUT_STATUS));
+
+test('قيم v2 (V2_SPEC §3): النوع والمنصّات والمستندات والمطالبات الفائتة والمواد', () => {
+  assertLabelled('PartnerType', v2Union('PartnerType'), PARTNER_TYPE);
+  assert.deepEqual([...PARTNER_TYPE_ORDER].sort(), v2Union('PartnerType').sort());
+  assertLabelled('SocialPlatform', v2Union('SocialPlatform'), SOCIAL_PLATFORM);
+  assert.deepEqual([...SOCIAL_PLATFORM_ORDER].sort(), v2Union('SocialPlatform').sort());
+  assertLabelled('DocKind', v2Union('DocKind'), DOC_KIND);
+  assertLabelled('MissedClaimStatus', v2Union('MissedClaimStatus'), MISSED_CLAIM_STATUS);
+  assertLabelled('MaterialCategory', v2Union('MaterialCategory'), MATERIAL_CATEGORY);
+  assert.deepEqual([...MATERIAL_CATEGORY_ORDER].sort(), v2Union('MaterialCategory').sort());
+  // ما ينقص الملف: `missing:['partnerType'|'iban'|'national_id'|'commercial_reg']` في GET /me
+  const line = V2.split('\n').find((l) => l.includes('GET /me'));
+  const m = line?.match(/missing:\[((?:'[a-zA-Z_]+'\|?)+)\]/);
+  assert.ok(m, 'missing غير موجود في سطر GET /me');
+  assertLabelled('ProfileMissing', [...m![1].matchAll(/'([a-zA-Z_]+)'/g)].map((x) => x[1]), PROFILE_MISSING);
+});
+
+test('«الطريقة» في شركاتي: رابط · رمز · ترشيح · حساب تجريبي · إداري (V2_SPEC §7)', () => {
+  assert.equal(companyMethod({ source: 'signup_code', refVia: 'link' }), 'link');
+  assert.equal(companyMethod({ source: 'signup_code', refVia: 'typed' }), 'code');
+  assert.equal(companyMethod({ source: 'signup_code' }), 'linkOrCode', 'بلا refVia لا تخمين');
+  assert.equal(companyMethod({ source: 'signup_code', refVia: null }), 'linkOrCode');
+  assert.equal(companyMethod({ source: 'claim' }), 'nomination');
+  assert.equal(companyMethod({ source: 'portal' }), 'trial');
+  assert.equal(companyMethod({ source: 'owner' }), 'admin', 'المطالبة الفائتة المقبولة إسنادٌ إداريّ');
+  assert.deepEqual(
+    ['link', 'code', 'nomination', 'trial', 'admin'].map((k) => textOf(COMPANY_METHOD, k)),
+    ['رابط', 'رمز', 'ترشيح', 'حساب تجريبي', 'إداري'],
+  );
+  for (const k of Object.values(COMPANY_METHOD)) for (const l of AX_LANGS) assert.ok(AX_DICT[k][l]?.trim(), `${k}.${l}`);
+});
 test('كيف عرّفتهم', () => {
   const how = unionOf('ClaimHow');
   assertLabelled('ClaimHow', how, CLAIM_HOW);
@@ -77,6 +123,12 @@ test('التسميات المطلوبة حرفياً للسفير', () => {
     ['trial', 'paid', 'disputed', 'void', 'expired'].map((k) => labelOf(COMPANY_STATUS, k).label),
     ['تجربة', 'دفعت', 'قيد المراجعة', 'ملغاة', 'انتهت المهلة'],
   );
+  // v2 (V2_SPEC §3): الدفعة للسفير «قيد المعالجة / مدفوعة / ملغاة / فشل التحويل»
+  assert.deepEqual(
+    ['draft', 'recorded', 'void', 'failed'].map((k) => labelOf(PAYOUT_STATUS, k).label),
+    ['قيد المعالجة', 'مدفوعة', 'ملغاة', 'فشل التحويل'],
+  );
+  assert.equal(labelOf(PAYOUT_STATUS, 'failed').tone, 'red');
 });
 
 test('قيمة مجهولة من خادمٍ أحدث لا تُسقط الواجهة', () => {

@@ -30,7 +30,7 @@ export const DEFAULT_CATEGORY_SLUG = 'van-sales-software';
  * الفحص ديناميكياً على App.tsx وpublic وdist، فلا تكفي هذه القائمة وحدها ولا تُعدّ نهائية.
  */
 export const RESERVED_SEGMENTS = Object.freeze([
-  'about', 'activate', 'app', 'app-r', 'assets', 'ax', 'blog', 'c', 'calculator', 'cities', 'contact', 'countries',
+  'about', 'activate', 'ambassadors', 'app', 'app-r', 'assets', 'ax', 'blog', 'c', 'calculator', 'cities', 'contact', 'countries',
   'data', 'delete-account', 'e', 'email', 'free', 'hookb', 'hx', 'icons', 'invoice-generator', 'kds', 'languages',
   'login', 'm', 'media', 'meeting', 'og', 'owner', 'pay', 'payment', 'platform', 'pos', 'pricing', 'privacy',
   'profile', 'q-fs7k2m', 'rep', 'rep-app', 'restaurant', 'service-agreement', 'signup', 'staff', 'subscribe-request',
@@ -48,6 +48,8 @@ export const TIER_A_PAGES = Object.freeze([
 /** مقاطع محجوزة **داخل** اللغة: slug الفئة لا يساويها (يصادم صفحة أخرى للغة نفسها أو مساراً قديماً تحت en/fr) */
 const SLUG_RESERVED = new Set([
   'countries', 'about', 'contact', 'features', 'apps', 'quote', 'meeting', 'blog', 'pricing', 'subscribe-request', 'llms.txt',
+  // صفحة السفراء العلنية تحت /en/ و/fr/ (١٨ نوفمبر ٢٠٢٦) — slug فئة بالاسم نفسه يصادمها
+  'ambassadors',
 ]);
 
 /**

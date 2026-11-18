@@ -12,18 +12,25 @@ import { platformGate } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 import {
   getSettings, logEvent, logEventSafe, platformActor, decryptIban, isUniqueViolation, riyadhDay, DEFAULT_TERMS_VERSION, DEFAULT_SETTINGS,
-  BUILTIN_TERMS_VERSIONS, builtinTermsBody,
+  BUILTIN_TERMS_VERSIONS, builtinTermsBody, builtinTermsRules,
   TERMS_RULE_KEYS, TERMS_RULE_RANGES, TermsRuleKey, parseTermsRules, pickRules, rulesFor,
 } from '../services/affiliate/core';
 import { canTransition, normCompanyName, normCR } from '../services/affiliate/rules';
 import {
   LedgerError, reconcile, approveCommission, holdCommission, releaseCommission, declineCommission,
   createOwnerAttribution, voidAttribution, activateAttribution, linkClaimToTenant,
-  payoutCandidates, createPayout, recordPayout, voidPayout, expireStaleClaims, reassignAttribution, adjustAttributionWindow,
+  payoutCandidates, createPayout, recordPayout, voidPayout, failPayout, expireStaleClaims, reassignAttribution, adjustAttributionWindow,
   AccrueResult,
 } from '../services/affiliate/ledger';
 import { mailDecision, mailPayoutRecorded } from '../services/affiliate/mail';
 import { pendingActivationTenantIds } from '../services/trialCompany';
+// الوكيل A يملك documents.ts — لا يُستورد منه إلا توقيعا V2_SPEC §11
+import { profileStatus, documentDataUrl } from '../services/affiliate/documents';
+import { nextSettlementAt, lastCycleSummary, runSettlementCycle, SETTLEMENT_DAYS, SETTLEMENT_EVERY_DAYS } from '../services/affiliate/settlement';
+import {
+  listMissedClaimsForOwner, prepareMissedClaimAccept, markMissedClaimAccepted, rejectMissedClaim, MISSED_CLAIM_STATUSES,
+} from '../services/affiliate/missedClaims';
+import { listMaterialsForOwner, materialFile, createMaterial, deleteMaterial, MATERIAL_CATEGORIES } from '../services/affiliate/materials';
 
 const router = Router();
 // مالك المنصة وموظفوها بصلاحياتهم (services/platformAccess.ts: platformGate — ما لا قاعدة له للمالك وحده)
@@ -32,6 +39,8 @@ router.use(platformGate);
 // معرّف المنفّذ (المالك أو موظف المنصة) لأعمدة updatedBy/reviewedBy وأمثالها — ونوعه في السجلّ والدفاتر عبر platformActor
 const owner = (req: AuthRequest) => req.user!.id;
 const reasonBody = z.object({ reason: z.string().trim().min(3, 'اذكر السبب').max(500) });
+/** أنواع مستندات ملف السفير (V2_SPEC §3 DocKind) */
+const DOC_KINDS = ['national_id', 'commercial_reg'] as const;
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const riyadhDate = (s: string) => new Date(`${s}T00:00:00+03:00`);
 
@@ -51,24 +60,33 @@ router.get('/overview', handle(async (_req, res) => {
   await reconcile().catch(e => console.error('[affiliate] reconcile:', (e as Error).message));
   await expireStaleClaims();
   const now = new Date();
-  const [users, claimsUnderReview, attrs, comms, ready, candidates] = await Promise.all([
+  // v2: لا طلبات انضمام بانتظار المراجعة (الانضمام فوريّ) — مكانها السفراء الجدد والملفات الناقصة والمطالبات الفائتة والتسوية
+  const [users, claimsUnderReview, attrs, comms, ready, candidates, newAffiliates7d, incompleteProfiles, missedClaimsUnderReview, lastCycle] = await Promise.all([
     prisma.affiliateUser.groupBy({ by: ['status'], _count: { _all: true } }),
     prisma.affiliateClaim.count({ where: { status: 'under_review' } }),
     prisma.tenantAttribution.groupBy({ by: ['status'], _count: { _all: true } }),
     prisma.affiliateCommission.groupBy({ by: ['status'], _sum: { commissionHalalas: true } }),
     prisma.affiliateCommission.count({ where: { status: 'pending', eligibleAt: { lte: now } } }),
     payoutCandidates(),
+    prisma.affiliateUser.count({ where: { createdAt: { gte: new Date(now.getTime() - 7 * 24 * 3600_000) } } }),
+    prisma.affiliateUser.count({ where: { status: 'approved', profileCompletedAt: null } }),
+    prisma.affiliateMissedClaim.count({ where: { status: 'under_review' } }),
+    lastCycleSummary(now),
   ]);
   const uc = (s: string) => users.find(u => u.status === s)?._count._all ?? 0;
   const ac = (s: string) => attrs.find(a => a.status === s)?._count._all ?? 0;
   const cs = (s: string) => comms.find(c => c.status === s)?._sum.commissionHalalas ?? 0;
   const approvedUnpaid = await prisma.affiliateCommission.aggregate({ where: { status: 'approved' }, _sum: { commissionHalalas: true } });
   res.json({ success: true, data: {
-    affiliates: { pending_review: uc('pending_review'), approved: uc('approved'), suspended: uc('suspended'), total: users.reduce((s, u) => s + u._count._all, 0) },
+    affiliates: { approved: uc('approved'), suspended: uc('suspended'), total: users.reduce((s, u) => s + u._count._all, 0) },
+    newAffiliates7d, incompleteProfiles, missedClaimsUnderReview,
     claimsUnderReview,
     attributions: { active: ac('active'), disputed: ac('disputed') },
     commissions: { pendingHalalas: cs('pending'), onHoldHalalas: cs('on_hold'), readyToApprove: ready, approvedUnpaidHalalas: approvedUnpaid._sum.commissionHalalas ?? 0, paidHalalas: cs('paid') },
     payoutCandidates: candidates.filter(c => c.eligible).length,
+    nextSettlementAt: nextSettlementAt(now).toISOString(),
+    settlementDays: SETTLEMENT_DAYS, settlementEveryDays: SETTLEMENT_EVERY_DAYS,
+    lastCycle,
   } });
 }));
 
@@ -109,7 +127,7 @@ router.get('/terms', handle(async (_req, res) => {
   const defaults = pickRules(DEFAULT_SETTINGS);
   const list = rows.map(t => ({ version: t.version, body: t.body, publishedAt: t.publishedAt, publishedBy: t.publishedBy, rules: parseTermsRules(t.rulesJson, defaults) }));
   for (const v of [...BUILTIN_TERMS_VERSIONS].reverse()) {
-    if (!rows.some(r => r.version === v)) list.push({ version: v, body: builtinTermsBody(v) ?? '', publishedAt: new Date('2026-09-13T00:00:00Z'), publishedBy: 'system', rules: defaults });
+    if (!rows.some(r => r.version === v)) list.push({ version: v, body: builtinTermsBody(v) ?? '', publishedAt: new Date('2026-09-13T00:00:00Z'), publishedBy: 'system', rules: builtinTermsRules(v) ?? defaults });
   }
   res.json({ success: true, data: list });
 }));
@@ -166,12 +184,36 @@ function listUsers(where: object) {
   });
 }
 
-function userRow(u: UserWithCounts, e?: { earned: number; paid: number }) {
+/**
+ * اكتمال الملف لقائمةٍ من السفراء دفعةً واحدة (عمود «الملف» في اللوحة) — القاعدة نفسها في
+ * services/affiliate/documents.ts `profileStatus` (V2_SPEC §3): النوع + الآيبان + الهوية (+ السجل للشركة).
+ * التفصيل والصرف يستدعيان `profileStatus` نفسها؛ هنا دفعةٌ بلا استعلامٍ لكلّ صفّ.
+ */
+async function profilesOf(users: Array<{ id: string; partnerType: string | null; ibanEnc: string | null }>) {
+  const docs = users.length
+    ? await prisma.affiliateDocument.findMany({ where: { affiliateId: { in: users.map(u => u.id) } }, select: { affiliateId: true, kind: true } })
+    : [];
+  const kinds = new Map<string, Set<string>>();
+  for (const d of docs) (kinds.get(d.affiliateId) ?? kinds.set(d.affiliateId, new Set()).get(d.affiliateId)!).add(d.kind);
+  return new Map(users.map(u => {
+    const k = kinds.get(u.id) ?? new Set<string>();
+    const missing = [
+      ...(!u.partnerType ? ['partnerType'] : []), ...(!u.ibanEnc ? ['iban'] : []), ...(!k.has('national_id') ? ['national_id'] : []),
+      ...(u.partnerType === 'company' && !k.has('commercial_reg') ? ['commercial_reg'] : []),
+    ];
+    return [u.id, { profileComplete: missing.length === 0, missing }] as const;
+  }));
+}
+
+function userRow(u: UserWithCounts, e?: { earned: number; paid: number }, p?: { profileComplete: boolean; missing: string[] }) {
   return {
     id: u.id, fullName: u.fullName, email: u.email, phone: u.phone, city: u.city, code: u.code, status: u.status,
     statusReason: u.statusReason, publicPromoter: u.publicPromoter, mawthooqNo: u.mawthooqNo,
     mawthooqExpiry: u.mawthooqExpiry ? riyadhDay(u.mawthooqExpiry) : null, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt,
     counts: u._count, earnedHalalas: e?.earned ?? 0, paidHalalas: e?.paid ?? 0, hasPayout: !!u.ibanEnc,
+    // v2: نوع السفير واكتمال ملفه (شرط دخول دورة التسوية)
+    partnerType: u.partnerType, companyName: u.companyName,
+    profileComplete: p?.profileComplete ?? false, missing: p?.missing ?? [],
   };
 }
 
@@ -183,22 +225,27 @@ router.get('/affiliates', handle(async (req, res) => {
     ...(q ? { OR: [
       { fullName: { contains: q, mode: 'insensitive' } }, { email: { contains: q.toLowerCase() } },
       { code: q.toUpperCase() }, { phone: { contains: q.replace(/\D/g, '') || q } },
+      { companyName: { contains: q, mode: 'insensitive' } },
     ] } : {}),
   });
-  const e = await earnings(users.map(u => u.id));
-  res.json({ success: true, data: users.map(u => userRow(u, e.get(u.id))) });
+  const [e, p] = await Promise.all([earnings(users.map(u => u.id)), profilesOf(users)]);
+  res.json({ success: true, data: users.map(u => userRow(u, e.get(u.id), p.get(u.id))) });
 }));
 
 router.get('/affiliates/:id', handle(async (req, res) => {
   const id = String(req.params.id);
   const [u] = await listUsers({ id });
   if (!u) throw new LedgerError(404, 'السفير غير موجود');
-  const [claims, attributions, commissions, adjustments, payouts] = await Promise.all([
+  const [claims, attributions, commissions, adjustments, payouts, documents, missedClaims, profile] = await Promise.all([
     prisma.affiliateClaim.findMany({ where: { affiliateId: id }, orderBy: { submittedAt: 'desc' } }),
     prisma.tenantAttribution.findMany({ where: { affiliateId: id }, orderBy: { createdAt: 'desc' } }),
     prisma.affiliateCommission.findMany({ where: { affiliateId: id }, orderBy: { createdAt: 'desc' } }),
     prisma.affiliateAdjustment.findMany({ where: { affiliateId: id }, orderBy: { createdAt: 'desc' } }),
     prisma.affiliatePayout.findMany({ where: { affiliateId: id }, orderBy: { createdAt: 'desc' } }),
+    // بياناتٌ وصفية فقط — الملف نفسه بمسار العرض المسجَّل (صلاحية affiliates.iban)
+    prisma.affiliateDocument.findMany({ where: { affiliateId: id }, orderBy: { createdAt: 'desc' }, select: { kind: true, mime: true, sizeBytes: true, createdAt: true } }),
+    prisma.affiliateMissedClaim.findMany({ where: { affiliateId: id }, orderBy: { submittedAt: 'desc' }, take: 100 }),
+    profileStatus(id),
   ]);
   const related = [id, ...claims.map(x => x.id), ...attributions.map(x => x.id), ...commissions.map(x => x.id), ...adjustments.map(x => x.id), ...payouts.map(x => x.id)];
   const events = await prisma.affiliateEvent.findMany({ where: { entityId: { in: related } }, orderBy: { createdAt: 'desc' }, take: 200 });
@@ -207,10 +254,14 @@ router.get('/affiliates/:id', handle(async (req, res) => {
   const pendingTenants = await pendingActivationTenantIds(attributions.filter(a => a.source === 'portal').map(a => a.tenantId));
   res.json({ success: true, data: {
     affiliate: {
-      ...userRow(u, e.get(id)), vatNumber: u.vatNumber, termsVersion: u.termsVersion, termsAcceptedAt: u.termsAcceptedAt, marketingConsent: u.marketingConsent,
+      ...userRow(u, e.get(id), { profileComplete: profile.complete, missing: profile.missing }),
+      vatNumber: u.vatNumber, termsVersion: u.termsVersion, termsAcceptedAt: u.termsAcceptedAt, marketingConsent: u.marketingConsent,
       payout: u.ibanEnc && u.ibanLast4 ? { holderName: u.ibanHolderName, bankName: u.bankName, ibanLast4: u.ibanLast4, updatedAt: u.payoutUpdatedAt } : null,
+      socialLinks: Array.isArray(u.socialLinks) ? u.socialLinks : [], profileCompletedAt: u.profileCompletedAt,
+      // أحدث مستندٍ لكلّ نوع (الرفع يستبدل السابق)
+      documents: documents.filter((d, i) => documents.findIndex(x => x.kind === d.kind) === i),
     },
-    claims, commissions, events,
+    claims, commissions, events, missedClaims,
     attributions: attributions.map(a => ({ ...a, activation: a.source === 'portal' && a.status !== 'void' ? (pendingTenants.has(a.tenantId) ? 'pending' : 'active') : null })),
     // «سُوّي» لا يعني «في مسودّة»: المسودّة لم تُحوَّل بعد وقد تُلغى
     adjustments: adjustments.map(a => {
@@ -225,7 +276,9 @@ async function decideUser(req: AuthRequest, res: Response, to: string, opts: { f
   const id = String(req.params.id);
   const u = await prisma.affiliateUser.findUnique({ where: { id } });
   if (!u) throw new LedgerError(404, 'السفير غير موجود');
-  if (!opts.from.includes(u.status) || !canTransition('user', u.status, to)) throw new LedgerError(409, 'انتقالٌ غير مسموح من الحالة الحالية');
+  // rejected→approved انتقالٌ أضافه v2 (§3: «إعادة تفعيل») — مسموحٌ هنا صراحةً وإن لم يُدرجه جدول الانتقالات في rules.ts
+  const v2Reactivation = u.status === 'rejected' && to === 'approved';
+  if (!opts.from.includes(u.status) || !(canTransition('user', u.status, to) || v2Reactivation)) throw new LedgerError(409, 'انتقالٌ غير مسموح من الحالة الحالية');
   await prisma.$transaction(async tx => {
     const won = await tx.affiliateUser.updateMany({
       where: { id, status: u.status },
@@ -241,10 +294,29 @@ async function decideUser(req: AuthRequest, res: Response, to: string, opts: { f
 router.post('/affiliates/:id/approve', handle(async (req, res) => decideUser(req, res, 'approved', { from: ['pending_review'], mail: 'approved' })));
 router.post('/affiliates/:id/reject', handle(async (req, res) => decideUser(req, res, 'rejected', { from: ['pending_review'], reason: reasonBody.parse(req.body).reason, mail: 'rejected' })));
 router.post('/affiliates/:id/suspend', handle(async (req, res) => decideUser(req, res, 'suspended', { from: ['approved'], reason: reasonBody.parse(req.body).reason, mail: 'suspended' })));
+// v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦، V2_SPEC §3): لا مراجعة بعد اليوم — المرفوض (إرثاً) يُعاد تفعيله مباشرةً
+// إلى «مقبول» كالموقوف، لا إلى «قيد المراجعة»
 router.post('/affiliates/:id/reactivate', handle(async (req, res) => {
   const u = await prisma.affiliateUser.findUnique({ where: { id: String(req.params.id) }, select: { status: true } });
-  if (u?.status === 'rejected') return decideUser(req, res, 'pending_review', { from: ['rejected'] });
+  if (u?.status === 'rejected') return decideUser(req, res, 'approved', { from: ['rejected'], mail: 'reactivated' });
   return decideUser(req, res, 'approved', { from: ['suspended'], mail: 'reactivated' });
+}));
+
+/**
+ * عرض مستند الهوية/السجل للمالك أو الموظف بصلاحية `affiliates.iban` (platformAccess.ts) — كلّ عرضٍ حدثٌ
+ * `document_viewed` يراه المالك في سجلّ السفير (V2_SPEC §1.7). مفكوكاً من التشفير ولا يُخزَّن في غيره.
+ */
+router.get('/affiliates/:id/documents/:kind', handle(async (req, res) => {
+  const id = String(req.params.id);
+  const kind = String(req.params.kind);
+  if (!(DOC_KINDS as readonly string[]).includes(kind)) throw new LedgerError(400, 'نوع مستندٍ غير معروف');
+  const u = await prisma.affiliateUser.findUnique({ where: { id }, select: { id: true } });
+  if (!u) throw new LedgerError(404, 'السفير غير موجود');
+  const dataUrl = await documentDataUrl(id, kind as Parameters<typeof documentDataUrl>[1]);
+  if (!dataUrl) throw new LedgerError(404, 'لم يُرفع هذا المستند');
+  await logEvent(prisma, { entity: 'user', entityId: id, action: 'document_viewed', ...platformActor(req), meta: { kind } });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ success: true, data: { dataUrl } });
 }));
 
 router.post('/affiliates/:id/reveal-iban', handle(async (req, res) => {
@@ -458,6 +530,8 @@ router.get('/payouts', handle(async (req, res) => {
     id: p.id, affiliate: p.affiliate, commissionsHalalas: p.commissionsHalalas, adjustmentsHalalas: p.adjustmentsHalalas, netHalalas: p.netHalalas,
     status: p.status, ibanLast4: p.ibanLast4, holderName: p.holderName, transferredAt: p.transferredAt ? riyadhDay(p.transferredAt) : null, bankReference: p.bankReference,
     createdAt: p.createdAt, voidReason: p.voidReason, commissionCount: p._count.commissions,
+    // v2: دورة التسوية (null لدفعةٍ يدوية) وفشل التحويل، ومن أنشأها ('system' لدفعات الدورة)
+    cycleKey: p.cycleKey, periodStart: p.periodStart, periodEnd: p.periodEnd, failedReason: p.failedReason, failedAt: p.failedAt, createdBy: p.createdBy,
   })) });
 }));
 
@@ -480,6 +554,22 @@ router.post('/payouts/:id/void', handle(async (req, res) => {
   res.json({ success: true, data: await voidPayout(String(req.params.id), platformActor(req), reasonBody.parse(req.body).reason) });
 }));
 
+/** فشل التحويل (v2 §5): المسودّة `failed` وبنودها تعود للدورة التالية، وبريدٌ للسفير ليصحّح الآيبان */
+router.post('/payouts/:id/fail', handle(async (req, res) => {
+  const { reason } = z.object({ reason: z.string().trim().min(3, 'اذكر السبب').max(300) }).parse(req.body);
+  res.json({ success: true, data: await failPayout(String(req.params.id), platformActor(req), reason) });
+}));
+
+/**
+ * «تشغيل الدورة الآن» — دورة آخر نهايةٍ مرّت بمفتاحها نفسه (`ax-settle:<cycleKey>`): آمنةٌ للتكرار، فلا
+ * دفعتان لسفيرٍ في دورةٍ واحدة. تنشئ مسودّاتٍ فقط — التحويل يدويّ من المالك.
+ */
+router.post('/settlement/run', handle(async (req, res) => {
+  const r = await runSettlementCycle(new Date(), { by: platformActor(req) });
+  logEventSafe({ entity: 'settings', entityId: `settlement:${r.cycleKey}`, action: 'settlement_run', ...platformActor(req), meta: { payouts: r.payouts.length, totalHalalas: r.totalHalalas, skipped: r.skipped } });
+  res.json({ success: true, data: { ...r, nextSettlementAt: nextSettlementAt().toISOString() } });
+}));
+
 router.post('/adjustments', handle(async (req, res) => {
   const b = z.object({ affiliateId: z.string().uuid(), amountHalalas: z.number().int().refine(v => v !== 0, 'المبلغ لا يكون صفراً').refine(v => Math.abs(v) <= 100_000_000), note: z.string().trim().min(3).max(500) }).parse(req.body);
   const u = await prisma.affiliateUser.findUnique({ where: { id: b.affiliateId }, select: { id: true } });
@@ -491,6 +581,59 @@ router.post('/adjustments', handle(async (req, res) => {
     return row;
   });
   res.json({ success: true, data: adj });
+}));
+
+// ───────────────────────────── المطالبات الفائتة (v2) ─────────────────────────────
+
+router.get('/missed-claims', handle(async (req, res) => {
+  const status = typeof req.query.status === 'string' && (MISSED_CLAIM_STATUSES as readonly string[]).includes(req.query.status) ? req.query.status : undefined;
+  res.json({ success: true, data: await listMissedClaimsForOwner(status) });
+}));
+
+/**
+ * قبول المطالبة = إسنادٌ يدويّ للشركة المختارة إلى صاحب المطالبة من لحظة تسجيلها (`createOwnerAttribution`
+ * بقيوده كلّها: لا إسناد قائم للشركة، السفير مقبول) ثمّ المطالبة `accepted`. فشل الإسناد يُبقيها قيد المراجعة.
+ */
+router.post('/missed-claims/:id/accept', handle(async (req, res) => {
+  const id = String(req.params.id);
+  const b = z.object({ tenantId: z.string().uuid(), reason: z.string().trim().min(3, 'اذكر السبب').max(500) }).parse(req.body);
+  const prep = await prepareMissedClaimAccept(id, b.tenantId);
+  const out = await createOwnerAttribution({ tenantId: b.tenantId, affiliateId: prep.affiliateId, reason: b.reason, effectiveFrom: prep.effectiveFrom }, platformActor(req));
+  await markMissedClaimAccepted(id, b.tenantId, b.reason, platformActor(req), out.attributionId);
+  res.json({ success: true, data: { status: 'accepted', ...(await attributionView(out.attributionId, out.accrual)) } });
+}));
+
+router.post('/missed-claims/:id/reject', handle(async (req, res) => {
+  const { reason } = reasonBody.parse(req.body);
+  await rejectMissedClaim(String(req.params.id), reason, platformActor(req));
+  res.json({ success: true, data: { status: 'rejected' } });
+}));
+
+// ───────────────────────────── المواد التسويقية (v2) ─────────────────────────────
+
+router.get('/materials', handle(async (_req, res) => {
+  res.json({ success: true, data: await listMaterialsForOwner() });
+}));
+
+router.get('/materials/:id/file', handle(async (req, res) => {
+  const f = await materialFile(String(req.params.id));
+  if (!f) throw new LedgerError(404, 'لا ملف لهذه المادّة');
+  res.json({ success: true, data: f });
+}));
+
+/** ملفٌّ (data URL ≤ ٨ ميغابايت مفحوصٌ بالبايتات) أو رابطٌ أو نصّ — التحقّق كلّه في services/affiliate/materials.ts */
+router.post('/materials', handle(async (req, res) => {
+  const b = z.object({
+    title: z.string(), category: z.enum(MATERIAL_CATEGORIES),
+    dataUrl: z.string().nullish(), fileName: z.string().max(300).nullish(), url: z.string().max(2000).nullish(),
+    textBody: z.string().max(8000).nullish(), sortOrder: z.number().int().nullish(),
+  }).parse(req.body);
+  res.status(201).json({ success: true, data: await createMaterial(b, platformActor(req)) });
+}));
+
+router.delete('/materials/:id', handle(async (req, res) => {
+  await deleteMaterial(String(req.params.id), platformActor(req));
+  res.json({ success: true, data: { ok: true } });
 }));
 
 // ───────────────────────────── السجلّ والبحث ─────────────────────────────

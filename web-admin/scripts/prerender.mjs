@@ -590,7 +590,7 @@ async function main() {
 ${enFaqHtml}
 <h2>Contact &amp; subscription requests</h2>
 <p>Official email: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Head office: Riyadh, Saudi Arabia · <a href="/en/subscribe-request/">Submit a subscription request</a> or <a href="/signup">start the free trial</a> directly.</p>
-<p><a href="/signup">Start your free 10-day trial</a> — no credit card required. <a href="/en/blog">Read the blog</a> · <a href="/en/subscribe-request/?type=quote">Request a quote</a> · <a href="/en/about">About</a> · <a href="/en/contact">Contact</a> · <a href="/en/terms/">Terms</a> · <a href="/en/privacy/">Privacy</a> · <a href="/en/service-agreement/">Service agreement</a> · <a href="/languages/">Other languages</a></p>
+<p><a href="/signup">Start your free 10-day trial</a> — no credit card required. <a href="/en/blog">Read the blog</a> · <a href="/en/subscribe-request/?type=quote">Request a quote</a> · <a href="/en/about">About</a> · <a href="/en/contact">Contact</a> · <a href="/en/ambassadors/">Ambassadors</a> · <a href="/en/terms/">Terms</a> · <a href="/en/privacy/">Privacy</a> · <a href="/en/service-agreement/">Service agreement</a> · <a href="/languages/">Other languages</a></p>
 <p>Guides for Saudi distribution: <a href="/en/blog/sales-rep-management-sa/">Sales rep management in Saudi Arabia</a> · <a href="/en/blog/van-sales-app-sa/">Van sales app for Saudi Arabia</a> · <a href="/en/blog/distribution-management-system-sa/">Distributor management system (DMS) in Saudi Arabia</a> · <a href="/en/blog/field-sales-software-sa/">Field sales management software for Saudi Arabia</a> · <a href="/en/blog/collection-receivables-sa/">Collection and receivables in Saudi Arabia</a></p>
 <p>By topic: <a href="/en/blog/mobile-field-invoicing/">offline field sales app</a> · <a href="/en/blog/fmcg-distribution/">trade marketing and distribution</a> · <a href="/en/blog/wholesale-food-distributors/">dairy distribution</a> · <a href="/en/blog/van-sales-app/">van sales app</a> · <a href="/en/blog/collection-receivables/">collection and receivables</a></p></main>`,
     },
@@ -605,7 +605,7 @@ ${enFaqHtml}
 <p>En Arabie saoudite, nous prenons en charge l’intégration phase 2 avec la plateforme Fatoora de la ZATCA. Dans les autres pays, le système émet des factures standard dans la devise et au taux de taxe de l’entreprise, et la connexion à la plateforme nationale de facturation électronique se fait sur demande.</p>
 <h2>Contact et demandes d'abonnement</h2>
 <p>E-mail officiel : <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Siège social : Arabie saoudite · <a href="/fr/subscribe-request/">Envoyez une demande d'abonnement</a> ou <a href="/signup">commencez l'essai gratuit</a>.</p>
-<p><a href="/signup">Essai gratuit de 10 jours</a> — sans carte bancaire. <a href="/fr/blog">Blog</a> · <a href="/fr/subscribe-request/?type=quote">Demander un devis</a> · <a href="/fr/invoice-generator/">Générateur de factures gratuit</a> · <a href="/fr/about">À propos</a> · <a href="/fr/contact">Contact</a> · <a href="/fr/terms/">Conditions</a> · <a href="/fr/privacy/">Confidentialité</a> · <a href="/fr/service-agreement/">Accord de service</a> · <a href="/languages/">Autres langues</a></p>
+<p><a href="/signup">Essai gratuit de 10 jours</a> — sans carte bancaire. <a href="/fr/blog">Blog</a> · <a href="/fr/subscribe-request/?type=quote">Demander un devis</a> · <a href="/fr/invoice-generator/">Générateur de factures gratuit</a> · <a href="/fr/about">À propos</a> · <a href="/fr/contact">Contact</a> · <a href="/fr/ambassadors/">Ambassadeurs</a> · <a href="/fr/terms/">Conditions</a> · <a href="/fr/privacy/">Confidentialité</a> · <a href="/fr/service-agreement/">Accord de service</a> · <a href="/languages/">Autres langues</a></p>
 <p>Par thème : <a href="/fr/blog/collection-receivables/">recouvrement de créances</a> · <a href="/fr/blog/collection-receivables-eg/">recouvrement de créances en Égypte</a> · <a href="/fr/blog/van-sales-app/">application de vente en tournée</a> · <a href="/fr/blog/collection-receivables-sa/">recouvrement de créances en Arabie saoudite</a> · <a href="/fr/blog/distribution-management-system/">système de gestion de la distribution</a></p></main>`,
     },
     tr: {
@@ -619,7 +619,7 @@ ${enFaqHtml}
 <p>Suudi Arabistan’da ZATCA’nın Fatoora platformuyla 2. Aşama entegrasyonunu destekliyoruz. Diğer ülkelerde sistem şirketin para birimi ve vergi oranıyla standart faturalar keser; ulusal e-fatura platformu bağlantısı talep üzerine yapılır.</p>
 <h2>İletişim ve abonelik talepleri</h2>
 <p>Resmi e-posta: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Merkez: Suudi Arabistan · <a href="/en/subscribe-request/">Abonelik talebi gönderin (İngilizce)</a> · <a href="/tr/meeting/">Toplantı planlayın</a> veya <a href="/signup">ücretsiz denemeyi başlatın</a>.</p>
-<p><a href="/signup">10 günlük ücretsiz deneme</a> — kredi kartı gerekmez. <a href="/en/blog">Blog (İngilizce)</a> · <a href="/en/about/">Hakkında (İngilizce)</a> · <a href="/en/contact/">İletişim (İngilizce)</a> · <a href="/languages/">Diğer diller</a></p></main>`,
+<p><a href="/signup">10 günlük ücretsiz deneme</a> — kredi kartı gerekmez. <a href="/en/blog">Blog (İngilizce)</a> · <a href="/en/about/">Hakkında (İngilizce)</a> · <a href="/en/contact/">İletişim (İngilizce)</a> · <a href="/en/ambassadors/">Elçi programı (İngilizce)</a> · <a href="/languages/">Diğer diller</a></p></main>`,
     },
     zh: {
       title: 'FieldSales | 外勤销售与分销管理软件',
@@ -632,7 +632,7 @@ ${enFaqHtml}
 <p>在沙特，我们支持与 ZATCA Fatoora 平台的第二阶段对接。其他国家使用本企业货币和税率的标准发票，如需对接本国政府电子发票平台，可按需办理。</p>
 <h2>联系我们与订阅申请</h2>
 <p>官方邮箱：<a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · 总部：沙特阿拉伯 · <a href="/en/subscribe-request/">提交订阅申请（英文）</a> · <a href="/zh/meeting/">预约会议</a>或直接<a href="/signup">开始免费试用</a>。</p>
-<p><a href="/signup">立即开始 10 天免费试用</a> — 无需信用卡。<a href="/en/blog">博客（英文）</a> · <a href="/en/about/">关于我们（英文）</a> · <a href="/en/contact/">联系我们（英文）</a> · <a href="/languages/">其他语言</a></p></main>`,
+<p><a href="/signup">立即开始 10 天免费试用</a> — 无需信用卡。<a href="/en/blog">博客（英文）</a> · <a href="/en/about/">关于我们（英文）</a> · <a href="/en/contact/">联系我们（英文）</a> · <a href="/en/ambassadors/">推广大使（英文）</a> · <a href="/languages/">其他语言</a></p></main>`,
     },
   };
   // الرئيسية المترجمة: hreflang خماسي (ع/إ/فر/تر/صيني) ثم رئيسيات اللغات الجديدة المنشورة — للتسويق فقط، والمدونة
@@ -707,6 +707,24 @@ ${enFaqHtml}
       // غير العربية بلا كلمات القالب العربية (لا مقابل لها بلغة الصفحة)
       lang: L, title: seo.title, description: seo.description, keywords: L === 'ar' ? undefined : false, canonical: canon(`${ORIGIN}${prefix}/profile`),
       image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: profileHreflang, bodyHtml: `<main>${parts.filter(Boolean).join('\n')}</main>`,
+    }));
+    n++;
+  }
+
+  // 3ب٣) «سفراء فيلد سيلز» بلغاتها الثلاث (V2_SPEC §9، طلب المالك ١٨ نوفمبر ٢٠٢٦): العنوان والوصف والكلمات وH1 والجسم
+  // وFAQPage كلها من src/pages/ambassadorsText.ts — الملف نفسه الذي يرسمه AmbassadorsPage.tsx ويمرّر منه useSeo (لا نسخة
+  // ثانية هنا: فخّ المصدر المزدوج). العنقود ثلاثي كالخريطة (TRILINGUAL_PATHS في src/i18n/locale.ts وlangsFor في gen-sitemap).
+  // الأزرار إلى مساري التحويل في App.tsx (انضمام ودخول) — لا يُذكر مسار البوابة في هذا الملف (affiliate/hiding.test.ts).
+  const amb = await loadTs('pages/ambassadorsText.ts');
+  const ambHreflang = trilingualHreflang(amb.AMBASSADORS_PATH);
+  for (const L of amb.AMBASSADORS_LANGS) {
+    const t = amb.AMBASSADORS_TEXT[L];
+    if (!t || !t.seoTitle || !t.seoDesc || !t.h1 || !t.faq?.length) throw new Error(`نصوص «سفراء فيلد سيلز» ناقصة للغة ${L} في src/pages/ambassadorsText.ts`);
+    const prefix = L === 'ar' ? '' : `/${L}`;
+    writeRoute(`${prefix}${amb.AMBASSADORS_PATH}`, buildPage({
+      lang: L, title: t.seoTitle, description: t.seoDesc, keywords: t.keywords, canonical: canon(`${ORIGIN}${prefix}${amb.AMBASSADORS_PATH}`),
+      image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: ambHreflang, jsonLd: amb.ambassadorsJsonLd(L),
+      bodyHtml: amb.ambassadorsStaticHtml(L),
     }));
     n++;
   }
@@ -1278,7 +1296,7 @@ ${homeFaqHtml}
 <h2>للتواصل وطلبات الاشتراك</h2>
 <p>البريد الرسمي: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · مقر الشركة: المملكة العربية السعودية · <a href="/subscribe-request/">سجّل طلب اشتراك جديد</a> أو <a href="/signup">ابدأ التجربة المجانية</a> مباشرةً.</p>
 <h2>روابط مفيدة</h2>
-<p><a href="/blog/">المدوّنة</a> · <a href="/calculator/">حاسبة تسريب الإيرادات</a> · <a href="/invoice-generator/">مولّد الفاتورة الضريبية المجاني</a> · <a href="/blog/distribution-terms-glossary/">قاموس مصطلحات التوزيع</a> · <a href="/blog/distribution-owners-questions/">أسئلة أصحاب شركات التوزيع</a> · <a href="/about/">عن المنصّة</a> · <a href="/contact/">تواصل معنا</a> · <a href="/en/">English</a> · <a href="/fr/">Français</a> · <a href="/languages/">لغات أخرى</a></p>
+<p><a href="/blog/">المدوّنة</a> · <a href="/calculator/">حاسبة تسريب الإيرادات</a> · <a href="/invoice-generator/">مولّد الفاتورة الضريبية المجاني</a> · <a href="/blog/distribution-terms-glossary/">قاموس مصطلحات التوزيع</a> · <a href="/blog/distribution-owners-questions/">أسئلة أصحاب شركات التوزيع</a> · <a href="/about/">عن المنصّة</a> · <a href="/contact/">تواصل معنا</a> · <a href="/ambassadors/">سفراء فيلد سيلز</a> · <a href="/en/">English</a> · <a href="/fr/">Français</a> · <a href="/languages/">لغات أخرى</a></p>
 <p>الشروط والسياسات: <a href="/terms/">الشروط والأحكام</a> · <a href="/privacy/">سياسة الخصوصية</a> · <a href="/service-agreement/">اتفاقية الخدمة</a></p>
 <p>صفحات المنصّة: <a href="/subscribe-request/?type=quote">طلب عرض سعر</a> · <a href="/rep-app/">تطبيق المندوب</a> · <a href="/نماذج/">نماذج Excel مجانية</a> · <a href="/free/">أدوات مجانية</a> · <a href="${PHASE2_FEATURE_HREF}">${esc(PHASE2_ANCHOR)}</a> · <a href="/tr/">Türkçe</a> · <a href="/zh/">中文</a></p>
 <p>القطاعات: ${SECTORS.map((sec) => `<a href="/قطاعات/${sec.slug}/">${esc(sec.name)}</a>`).join(' · ')} · <a href="/قطاعات/">كل القطاعات</a></p>
@@ -1356,7 +1374,7 @@ ${homeFaqHtml}
   })(DIST);
   console.log(`  تطبيع الشرطة الأخيرة: ${links} رابطاً في ${patched} ملف`);
 
-  console.log(`✅ prerender: ${n} صفحة ثابتة (${buildCatalog().length} مقال مولَّد ×3 + ${manual.length} مقال يدوي + فهارس + رئيسية و«احجز اجتماعاً» ع/إ/فر/تر/صيني + ${Object.keys(INFO).length} صفحة تعريفية ×3 + ${i18nCount} صفحة للطبقة متعددة اللغات) في dist/`);
+  console.log(`✅ prerender: ${n} صفحة ثابتة (${buildCatalog().length} مقال مولَّد ×3 + ${manual.length} مقال يدوي + فهارس + رئيسية و«احجز اجتماعاً» ع/إ/فر/تر/صيني + «سفراء فيلد سيلز» ع/إ/فر + ${Object.keys(INFO).length} صفحة تعريفية ×3 + ${i18nCount} صفحة للطبقة متعددة اللغات) في dist/`);
 }
 
 await main();
