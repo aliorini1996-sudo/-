@@ -1,9 +1,12 @@
 /**
  * منطق لوحة «سفير فيلد سيلز» للمالك — نقيّ بلا DOM ولا React ولا شبكة.
  *
- * الأشكال والتعدادات منقولة حرفياً من `docs/affiliate/API.md` §2؛ الخادم يُكتب
- * بالتوازي على المواصفة نفسها، فأي اسم هنا يخالفها خللٌ صامت (حالة بلا تسمية
- * تظهر للمالك رمزاً إنجليزياً). الحارس في `affiliatesPanelLogic.test.ts`.
+ * الأشكال والتعدادات منقولة حرفياً من `docs/affiliate/API.md` §2، وتعدادات v2
+ * (حالة الدفعة `failed`، نوع السفير، المنصّات، المستندات، المطالبات الفائتة،
+ * المواد التسويقية) من `docs/affiliate/V2_SPEC.md` §3 — قرار المالك ١٨ نوفمبر ٢٠٢٦:
+ * انضمامٌ فوريّ بلا موافقة، وحجز ١٠ أيام ثم اعتمادٌ تلقائي، ودورة تسوية كل ١٠ أيام.
+ * الخادم يُكتب بالتوازي على المواصفة نفسها، فأي اسم هنا يخالفها خللٌ صامت (حالة
+ * بلا تسمية تظهر للمالك رمزاً إنجليزياً). الحارس في `affiliatesPanelLogic.test.ts`.
  *
  * المال: **هللات صحيحة** من طرف إلى طرف. تحويل نصّ الريال إلى هللات يتمّ
  * بالأجزاء النصّية لا بالضرب العشري — `0.29 * 100` في الفاصلة العائمة
@@ -18,7 +21,8 @@ export const USER_STATUSES = ['pending_email', 'pending_review', 'approved', 're
 export const CLAIM_STATUSES = ['under_review', 'approved', 'rejected', 'withdrawn', 'expired', 'converted'] as const;
 export const ATTRIBUTION_STATUSES = ['active', 'disputed', 'void'] as const;
 export const COMMISSION_STATUSES = ['pending', 'on_hold', 'approved', 'paid', 'reversed', 'declined'] as const;
-export const PAYOUT_STATUSES = ['draft', 'recorded', 'void'] as const;
+// v2: `failed` = «فشل التحويل» — المالك يسجّله على مسودّةٍ ارتدّ تحويلها فتعود عمولاتها «معتمدة» للدورة التالية
+export const PAYOUT_STATUSES = ['draft', 'recorded', 'void', 'failed'] as const;
 export const CLAIM_HOWS = ['visit', 'relationship', 'event', 'online', 'other'] as const;
 export const CLAIM_REASONS = ['existing_customer', 'duplicate', 'self_referral', 'insufficient', 'other'] as const;
 export const FLAGS = ['self_email', 'self_phone', 'returning_company', 'ip_match', 'terms_outdated', 'link_expired', 'claim_conflict'] as const;
@@ -30,6 +34,22 @@ export const ADJUSTMENT_KINDS = ['clawback_refund', 'correction'] as const;
 // staff: موظف منصة بصلاحية السفراء (services/affiliate/core.ts platformActor)
 export const ACTOR_TYPES = ['system', 'affiliate', 'owner', 'staff', 'company'] as const;
 
+// ─── تعدادات v2 (V2_SPEC §3) ───────────────────────────────────────────────
+export const PARTNER_TYPES = ['individual', 'company', 'influencer'] as const;
+export const SOCIAL_PLATFORMS = ['x', 'instagram', 'snapchat', 'tiktok', 'youtube', 'linkedin', 'website', 'other'] as const;
+export const DOC_KINDS = ['national_id', 'commercial_reg'] as const;
+export const MISSED_CLAIM_STATUSES = ['under_review', 'accepted', 'rejected', 'withdrawn'] as const;
+export const MATERIAL_CATEGORIES = ['image', 'video', 'document', 'text', 'link'] as const;
+/** ما ينقص الملف كما يعيده الخادم في `missing` (V2_SPEC §6.1 `GET /me`) */
+export const PROFILE_MISSING = ['partnerType', 'iban', 'national_id', 'commercial_reg'] as const;
+/** سبب اقتراح شركةٍ لمطالبةٍ فائتة: «مطابقة بالاسم/السجل/الجوال» (V2_SPEC §6.2) */
+export const MISSED_MATCHES = ['cr', 'name', 'phone'] as const;
+/**
+ * حالات تصفية المسوّقين: `pending_*` إرثٌ يُرقّى إلى `approved` عند الإقلاع وعند الدخول
+ * (V2_SPEC §3) فلا يُعرض زرّاً — ويبقى في القاموس كي لا يظهر صفٌّ قديم رمزاً إنجليزياً.
+ */
+export const USER_FILTER_STATUSES = ['approved', 'suspended', 'rejected'] as const;
+
 export type UserStatus = typeof USER_STATUSES[number];
 export type ClaimStatus = typeof CLAIM_STATUSES[number];
 export type AttributionStatus = typeof ATTRIBUTION_STATUSES[number];
@@ -40,14 +60,22 @@ export type ClaimReason = typeof CLAIM_REASONS[number];
 export type Flag = typeof FLAGS[number];
 export type AttributionSource = typeof ATTRIBUTION_SOURCES[number];
 export type ActivationState = typeof ACTIVATION_STATES[number];
+export type PartnerType = typeof PARTNER_TYPES[number];
+export type SocialPlatform = typeof SOCIAL_PLATFORMS[number];
+export type DocKind = typeof DOC_KINDS[number];
+export type MissedClaimStatus = typeof MISSED_CLAIM_STATUSES[number];
+export type MaterialCategory = typeof MATERIAL_CATEGORIES[number];
+export type ProfileMissing = typeof PROFILE_MISSING[number];
+export type MissedMatch = typeof MISSED_MATCHES[number];
 
 /** تسمية عربية + نغمة لون (تُترجَم لأصناف Tailwind في المكوّن) */
 export type Tone = 'gray' | 'amber' | 'green' | 'red' | 'blue' | 'orange';
 export interface Label { label: string; tone: Tone }
 
 export const USER_STATUS_LABEL: Record<UserStatus, Label> = {
-  pending_email: { label: 'بانتظار تأكيد البريد', tone: 'gray' },
-  pending_review: { label: 'بانتظار المراجعة', tone: 'amber' },
+  // إرثٌ قبل v2 — يُرقّى «معتمداً» تلقائياً (لا موافقة ولا تأكيد بريد بعد ١٨ نوفمبر ٢٠٢٦)
+  pending_email: { label: 'طلب قديم — لم يؤكّد البريد', tone: 'gray' },
+  pending_review: { label: 'طلب قديم — بانتظار المراجعة', tone: 'gray' },
   approved: { label: 'معتمد', tone: 'green' },
   rejected: { label: 'مرفوض', tone: 'red' },
   suspended: { label: 'موقوف', tone: 'orange' },
@@ -77,10 +105,65 @@ export const COMMISSION_STATUS_LABEL: Record<CommissionStatus, Label> = {
   declined: { label: 'مرفوضة', tone: 'red' },
 };
 
+/**
+ * يراها السفير: قيد المعالجة / مدفوعة / ملغاة / فشل التحويل. والمالك يرى معها كلمة «مسودّة»
+ * لأن رسائل الخادم تسمّيها كذلك («ألغِ مسودّة الدفعة أولاً»).
+ */
 export const PAYOUT_STATUS_LABEL: Record<PayoutStatus, Label> = {
-  draft: { label: 'مسودّة — لم تُحوَّل', tone: 'amber' },
-  recorded: { label: 'مسجَّلة — حُوِّلت', tone: 'green' },
+  draft: { label: 'مسودّة — قيد المعالجة', tone: 'amber' },
+  recorded: { label: 'مدفوعة — مسجَّلة', tone: 'green' },
   void: { label: 'ملغاة', tone: 'gray' },
+  failed: { label: 'فشل التحويل', tone: 'red' },
+};
+
+export const PARTNER_TYPE_LABEL: Record<PartnerType, string> = {
+  individual: 'فرد',
+  company: 'شركة',
+  influencer: 'مؤثر',
+};
+
+export const SOCIAL_PLATFORM_LABEL: Record<SocialPlatform, string> = {
+  x: 'إكس (تويتر)',
+  instagram: 'إنستغرام',
+  snapchat: 'سناب شات',
+  tiktok: 'تيك توك',
+  youtube: 'يوتيوب',
+  linkedin: 'لينكدإن',
+  website: 'موقع إلكتروني',
+  other: 'أخرى',
+};
+
+export const DOC_KIND_LABEL: Record<DocKind, string> = {
+  national_id: 'الهوية / الإقامة',
+  commercial_reg: 'السجل التجاري',
+};
+
+export const PROFILE_MISSING_LABEL: Record<ProfileMissing, string> = {
+  partnerType: 'نوع السفير',
+  iban: 'الآيبان',
+  national_id: 'الهوية / الإقامة',
+  commercial_reg: 'السجل التجاري',
+};
+
+export const MISSED_CLAIM_STATUS_LABEL: Record<MissedClaimStatus, Label> = {
+  under_review: { label: 'قيد المراجعة', tone: 'amber' },
+  accepted: { label: 'مقبولة — أُسندت', tone: 'green' },
+  rejected: { label: 'مرفوضة', tone: 'red' },
+  withdrawn: { label: 'سحبها السفير', tone: 'gray' },
+};
+
+export const MISSED_MATCH_LABEL: Record<MissedMatch, string> = {
+  cr: 'السجل التجاري مطابق',
+  name: 'الاسم مشابه',
+  phone: 'الجوال مطابق',
+};
+
+export const MATERIAL_CATEGORY_LABEL: Record<MaterialCategory, string> = {
+  image: 'صورة',
+  video: 'فيديو',
+  document: 'مستند',
+  text: 'نصّ جاهز',
+  link: 'رابط',
 };
 
 export const CLAIM_HOW_LABEL: Record<ClaimHow, string> = {
@@ -180,20 +263,25 @@ export function toneOf<K extends string>(map: Record<K, Label>, value: string | 
 
 // ─── الإجراءات المسموحة لكل حالة (العرض فقط — الخادم هو الحَكَم بـ409) ──────
 
-export type UserAction = 'approve' | 'reject' | 'suspend' | 'reactivate';
+/**
+ * v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦: الانضمام فوريّ بلا موافقة): لا اعتماد ولا رفض للطلبات بعد اليوم —
+ * الرفض = إيقاف. `approve`/`reject` باقيان في الخادم للإرث وحده فلا تعرضهما اللوحة.
+ */
+export type UserAction = 'suspend' | 'reactivate';
 export const USER_ACTIONS: Record<UserStatus, UserAction[]> = {
+  // إرثٌ يُرقّى «معتمداً» تلقائياً عند الإقلاع وعند دخول صاحبه — لا إجراء يدوي
   pending_email: [],
-  pending_review: ['approve', 'reject'],
+  pending_review: [],
   approved: ['suspend'],
-  // `reactivate` على المرفوض يعيده «بانتظار المراجعة» (لا اعتماد مباشر)
+  // `reactivate` على المرفوض (إرثاً) يعيده **معتمداً** مباشرةً كالموقوف (V2_SPEC §3: rejected→approved)
   rejected: ['reactivate'],
   suspended: ['reactivate'],
 };
 
-/** نصّ زرّ `reactivate` ورسالة نجاحه حسب الحالة — المرفوض يعود للمراجعة، والموقوف يعود معتمداً */
+/** نصّ زرّ `reactivate` ورسالة نجاحه — المرفوض والموقوف كلاهما يعود «معتمداً» في v2 */
 export function reactivateCopy(status: UserStatus): { label: string; success: string } {
   return status === 'rejected'
-    ? { label: 'إعادة للمراجعة', success: 'أُعيد الطلب لقائمة المراجعة' }
+    ? { label: 'إعادة تفعيل', success: 'أُعيد تفعيل السفير — صار معتمداً' }
     : { label: 'إعادة تفعيل', success: 'أُعيد تفعيل السفير' };
 }
 
@@ -702,9 +790,13 @@ export function canCreatePayout(c: { eligible: boolean; hasPayout: boolean }): b
   return c.eligible === true && c.hasPayout === true;
 }
 
-/** سبب عدم أهلية مرشّح للصرف — بالعربية لعمود «مؤهّل» */
-export function candidateBlocker(c: { eligible: boolean; hasPayout: boolean; netHalalas: number }, minPayoutHalalas?: number): string | null {
+/**
+ * سبب عدم أهلية مرشّح للصرف — بالعربية لعمود «مؤهّل». `profileComplete: false` (v2) يُذكر
+ * صراحةً: الملف المكتمل شرطٌ لدخول دورة التسوية (V2_SPEC §0)؛ وغيابه من خادمٍ أقدم لا يحجب.
+ */
+export function candidateBlocker(c: { eligible: boolean; hasPayout: boolean; netHalalas: number; profileComplete?: boolean | null }, minPayoutHalalas?: number): string | null {
   if (!c.hasPayout) return 'لم يُدخل آيبان بعد';
+  if (c.profileComplete === false) return 'ملفه غير مكتمل';
   if (c.netHalalas <= 0) return 'الصافي صفر أو سالب';
   if (minPayoutHalalas != null && c.netHalalas < minPayoutHalalas) return `دون الحدّ الأدنى ${formatHalalas(minPayoutHalalas)}`;
   if (!c.eligible) return 'غير مؤهّل بعد';
@@ -730,17 +822,298 @@ export function groupIban(iban: string): string {
 }
 
 export const PORTAL_URL = 'https://fieldsa.net/ax';
+/** صفحة البرنامج العلنية المفهرسة (V2_SPEC §9) — تُشارَك بدل رابط البوابة */
+export const PUBLIC_PAGE_URL = 'https://fieldsa.net/ambassadors';
+
+// ─── ملف السفير (v2) ───────────────────────────────────────────────────────
+
+/**
+ * حالة الملف لعمود «الملف»: مكتمل، أو «ينقصه: …» بأسماء ما ينقص بالترتيب الثابت.
+ * غياب الحقلين (خادمٌ أقدم) ⇒ «—» لا «مكتمل» — لا نطمئن المالك على ما لا نعرفه.
+ */
+export function profileState(r: { profileComplete?: boolean | null; missing?: readonly string[] | null }): Label {
+  if (r.profileComplete === true) return { label: 'مكتمل', tone: 'green' };
+  const missing = Array.isArray(r.missing) ? r.missing : [];
+  if (r.profileComplete === false || missing.length > 0) {
+    const known = PROFILE_MISSING.filter((k) => missing.includes(k)).map((k) => PROFILE_MISSING_LABEL[k]);
+    const extra = missing.filter((k) => !(PROFILE_MISSING as readonly string[]).includes(k));
+    const all = [...known, ...extra];
+    return { label: all.length ? `ينقصه: ${all.join('، ')}` : 'غير مكتمل', tone: 'amber' };
+  }
+  return { label: '—', tone: 'gray' };
+}
+
+/** رابطٌ يُفتح من اللوحة: http/https فقط — `javascript:` وأخواتها تُعرض نصّاً لا رابطاً */
+export function safeHttpUrl(raw: string | null | undefined): string | null {
+  const s = String(raw ?? '').trim();
+  if (!/^https?:\/\//i.test(s) || s.length > 2048) return null;
+  try {
+    const u = new URL(s);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface SocialLink { platform: string; url: string }
+
+/** `socialLinks Json?` كما يصل (مصفوفة `{platform, url}`) ⇒ مصفوفة نظيفة؛ غير ذلك ⇒ [] */
+export function socialLinksOf(v: unknown): SocialLink[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((x): x is { platform?: unknown; url?: unknown } => !!x && typeof x === 'object')
+    .map((x) => ({ platform: typeof x.platform === 'string' ? x.platform : 'other', url: typeof x.url === 'string' ? x.url : '' }))
+    .filter((x) => x.url.trim() !== '');
+}
+
+/** حجم ملفٍ مقروء: «812 بايت» · «1.4 ك.ب» · «3.2 م.ب» */
+export function formatBytes(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(Number(n)) || Number(n) < 0) return '—';
+  const b = Math.trunc(Number(n));
+  if (b < 1024) return `${b} بايت`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1).replace(/\.0$/, '')} ك.ب`;
+  return `${(b / (1024 * 1024)).toFixed(1).replace(/\.0$/, '')} م.ب`;
+}
+
+/**
+ * معاينة مستند الهوية/السجل (`GET /affiliates/:id/documents/:kind` ⇒ `{dataUrl}`): الأنواع
+ * الأربعة المفحوصة في الخادم وحدها (V2_SPEC §3) — أي نوعٍ آخر (svg/html…) لا يُعرض في اللوحة.
+ */
+export const DOC_PREVIEW_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'] as const;
+export function documentPreview(dataUrl: string | null | undefined): { kind: 'image' | 'pdf'; mime: string } | null {
+  const m = /^data:([a-z]+\/[a-z0-9.+-]+);base64,/i.exec(String(dataUrl ?? ''));
+  if (!m) return null;
+  const mime = m[1].toLowerCase();
+  if (!(DOC_PREVIEW_MIMES as readonly string[]).includes(mime)) return null;
+  return { kind: mime === 'application/pdf' ? 'pdf' : 'image', mime };
+}
+
+/** data URL ‏base64 ⇒ بايتات (لـBlob ورابط blob: — Chrome يمنع data: لملفات PDF في الإطارات) */
+export function dataUrlToBytes(dataUrl: string): Uint8Array | null {
+  const i = dataUrl.indexOf(';base64,');
+  if (i < 0) return null;
+  try {
+    const bin = atob(dataUrl.slice(i + 8));
+    const out = new Uint8Array(bin.length);
+    for (let k = 0; k < bin.length; k++) out[k] = bin.charCodeAt(k);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+// ─── دورة التسوية (v2: كل ١٠ أيام — 1 و11 و21 منتصف الليل بتوقيت الرياض) ─────
+
+export const SETTLEMENT_DAYS = [1, 11, 21] as const;
+
+/**
+ * يوم نهاية الدورة القادمة بيوم الرياض — احتياطٌ للعرض فقط حين لا يصل `nextSettlementAt`
+ * من الخادم (مصدر الحقيقة `services/affiliate/settlement.ts`). اليوم الذي بلغ منتصف ليله
+ * لا يُعدّ قادماً: لحظة 00:00 من يوم 11 دورتها القادمة 21.
+ */
+export function nextSettlementDayKey(at: Date | number = Date.now()): string {
+  const today = riyadhDayKey(at);
+  const [y, m, d] = today.split('-').map(Number);
+  const p = (n: number) => String(n).padStart(2, '0');
+  const next = SETTLEMENT_DAYS.find((x) => x > d);
+  if (next) return `${y}-${p(m)}-${p(next)}`;
+  return m === 12 ? `${y + 1}-01-01` : `${y}-${p(m + 1)}-01`;
+}
+
+/** يوم الرياض قبل يومٍ معطى ('YYYY-MM-DD') */
+function prevDayKey(key: string): string {
+  const [y, m, d] = key.split('-').map(Number);
+  const t = Date.UTC(y, m - 1, d) - 86_400_000;
+  const dt = new Date(t);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${dt.getUTCFullYear()}-${p(dt.getUTCMonth() + 1)}-${p(dt.getUTCDate())}`;
+}
+
+/**
+ * فترة دفعة الدورة كأيامٍ شاملة: `periodStart` نهاية الدورة السابقة و`periodEnd` نهاية هذه
+ * (منتصف ليل الرياض — حصريّة)، فدورة `2026-11-11` تغطّي ١ ← ١٠ نوفمبر لا ١ ← ١١.
+ * دفعةٌ يدوية بلا فترة ⇒ null.
+ */
+export function payoutPeriod(p: { periodStart?: string | null; periodEnd?: string | null; cycleKey?: string | null }): { from: string; to: string } | null {
+  const endKey = dayKeyOf(p.periodEnd) ?? (p.cycleKey && isIsoDay(p.cycleKey) ? p.cycleKey : null);
+  const from = dayKeyOf(p.periodStart);
+  if (!endKey || !from) return null;
+  const to = prevDayKey(endKey);
+  return to < from ? { from, to: from } : { from, to };
+}
+
+export const FAIL_REASON_MIN = 3;
+export const FAIL_REASON_MAX = 300;
+/** سبب «فشل التحويل» — `POST /payouts/:id/fail {reason 3..300}` ويصل السفيرَ في بريده */
+export function validateFailReason(reason: string): string | null {
+  const n = reason.trim().length;
+  if (n < FAIL_REASON_MIN) return `اكتب سبب الفشل (${FAIL_REASON_MIN} أحرف على الأقل)`;
+  if (n > FAIL_REASON_MAX) return `سبب الفشل ${FAIL_REASON_MAX} حرف كحدّ أقصى`;
+  return null;
+}
+
+/** «١٠ أيام» · «٣٠ يوماً» · «يوم واحد» — عدد الأيام بتمييزه العربي (أرقام لاتينية كبقية اللوحة) */
+export function daysText(n: number): string {
+  const d = Math.trunc(Number(n) || 0);
+  if (d === 1) return 'يوم واحد';
+  if (d === 2) return 'يومان';
+  if (d >= 3 && d <= 10) return `${d} أيام`;
+  return `${d} يوماً`;
+}
+
+/** ملاحظة تبويب العمولات: الاعتماد تلقائيّ بعد الحجز، ويبقى اليدوي */
+export function autoApproveNote(holdDays?: number | null): string {
+  const hold = typeof holdDays === 'number' && Number.isFinite(holdDays) ? daysText(holdDays) : daysText(10);
+  return `تُعتمد العمولة تلقائياً بعد انتهاء فترة حجزها (${hold} في الشروط الحالية) في دورة التسوية التالية ما لم تكن موقوفة — ويبقى لك الاعتماد اليدوي متى انتهى الحجز`;
+}
+
+/** ردّ `POST /settlement/run` — الشكل يكتبه الخادم بالتوازي، فيُقرأ بحقولٍ اختيارية بأسماء محتملة */
+export interface SettlementRunResult {
+  cycleKey?: string | null;
+  /** عدد الدفعات المُنشأة (أو مصفوفتها) */
+  payouts?: number | unknown[] | null;
+  created?: number | unknown[] | null;
+  totalHalalas?: number | null;
+  /** الدورة نفسها شُغّلت قبلُ (مفتاح `ax-settle:<cycleKey>` محجوز) */
+  alreadyRan?: boolean | null;
+  skipped?: boolean | null;
+  ran?: boolean | null;
+}
+
+const countOf = (v: unknown): number | null => (Array.isArray(v) ? v.length : typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/** رسالة تشغيل الدورة يدوياً: ما أُنشئ ومجموعه، أو أنها شُغّلت سابقاً (idempotent بنفس المفتاح) */
+export function settlementRunMessage(r: SettlementRunResult | null | undefined): OutcomeMessage {
+  const cycle = r?.cycleKey ? ` (${r.cycleKey})` : '';
+  if (r?.alreadyRan === true || r?.skipped === true || r?.ran === false) {
+    return { text: `دورة التسوية${cycle} شُغّلت سابقاً — لا دفعات جديدة. أنشئ دفعةً يدوية من «المرشّحون للصرف» إن لزم`, warn: true };
+  }
+  const n = countOf(r?.payouts) ?? countOf(r?.created);
+  if (n === null) return { text: `شُغّلت دورة التسوية${cycle}`, warn: false };
+  if (n === 0) return { text: `شُغّلت دورة التسوية${cycle} — لا سفير مؤهّل (الحدّ الأدنى والملف المكتمل والآيبان)`, warn: false };
+  const total = typeof r?.totalHalalas === 'number' ? ` بمجموع ${formatHalalas(r.totalHalalas)}` : '';
+  return { text: `شُغّلت دورة التسوية${cycle} — أُنشئت ${n} ${n === 1 ? 'دفعة' : n === 2 ? 'دفعتان' : n <= 10 ? 'دفعات' : 'دفعة'}${total}. حوّلها من بنكك ثم سجّل كل تحويل`, warn: false };
+}
+
+/** «آخر دورة: N دفعات بمجموع X» لبطاقة النظرة العامة */
+export function lastCycleText(c: { cycleKey?: string | null; payouts?: number | null; totalHalalas?: number | null } | null | undefined): string {
+  if (!c || !c.cycleKey) return 'لم تُشغَّل دورة بعد';
+  const n = Math.trunc(Number(c.payouts) || 0);
+  const word = n === 1 ? 'دفعة' : n === 2 ? 'دفعتان' : n >= 3 && n <= 10 ? 'دفعات' : 'دفعة';
+  return `آخر دورة ${c.cycleKey}: ${n} ${word} بمجموع ${formatHalalas(Number(c.totalHalalas) || 0)}`;
+}
+
+// ─── المطالبات الفائتة (v2) ─────────────────────────────────────────────────
+
+/** القبول والرفض لما تحت المراجعة وحده — المقبولة والمرفوضة والمسحوبة نهائية */
+export function missedClaimActions(c: { status: string }): { accept: boolean; reject: boolean } {
+  const open = c.status === 'under_review';
+  return { accept: open, reject: open };
+}
+
+/** قبول مطالبة: شركةٌ مختارة وسببٌ يُحفظ في السجلّ (`POST /missed-claims/:id/accept {tenantId, reason}`) */
+export function validateMissedAccept(tenantId: string | null | undefined, reason: string): string | null {
+  if (!tenantId) return 'اختر الشركة التي سجّلت';
+  return validateReason(reason);
+}
+
+// ─── المواد التسويقية (v2) ──────────────────────────────────────────────────
+
+/** ملف المادة ≤ ٨ ميغابايت (V2_SPEC §6.2) — يُفحص هنا قبل قراءته base64 فلا يُرسل ما سيُرفض */
+export const MATERIAL_MAX_BYTES = 8 * 1024 * 1024;
+export const MATERIAL_TITLE_MIN = 2;
+export const MATERIAL_TITLE_MAX = 120;
+export const MATERIAL_TEXT_MAX = 2000;
+export const MATERIAL_URL_MAX = 500;
+
+/** مصدر المادة من فئتها: الصورة والفيديو والمستند ملفٌ مرفوع، والرابط رابط، والنصّ الجاهز نصّ */
+export function materialSource(category: string): 'file' | 'url' | 'text' | null {
+  if (category === 'image' || category === 'video' || category === 'document') return 'file';
+  if (category === 'link') return 'url';
+  if (category === 'text') return 'text';
+  return null;
+}
+
+/** ما يقبله حقل الملف لكل فئة (تلميحٌ للمتصفّح — الخادم يفحص البايتات) */
+export const MATERIAL_ACCEPT: Record<'image' | 'video' | 'document', string> = {
+  image: 'image/jpeg,image/png,image/webp,image/gif',
+  video: 'video/mp4,video/webm,video/quicktime',
+  document: 'application/pdf',
+};
+
+export interface MaterialFileMeta { name: string; size: number; type: string }
+export interface MaterialForm {
+  title: string;
+  category: MaterialCategory | '';
+  url: string;
+  textBody: string;
+  file: MaterialFileMeta | null;
+}
+
+export function validateMaterial(f: MaterialForm): string | null {
+  const title = f.title.trim();
+  if (title.length < MATERIAL_TITLE_MIN) return `اكتب عنوان المادة (${MATERIAL_TITLE_MIN} أحرف على الأقل)`;
+  if (title.length > MATERIAL_TITLE_MAX) return `العنوان ${MATERIAL_TITLE_MAX} حرفاً كحدّ أقصى`;
+  const src = materialSource(f.category);
+  if (!src) return 'اختر فئة المادة';
+  if (src === 'file') {
+    if (!f.file) return 'اختر الملف';
+    if (f.file.size <= 0) return 'الملف فارغ';
+    if (f.file.size > MATERIAL_MAX_BYTES) return `حجم الملف ${formatBytes(f.file.size)} — الحدّ الأقصى ٨ ميغابايت`;
+    const type = (f.file.type || '').toLowerCase();
+    if (type && f.category === 'image' && !type.startsWith('image/')) return 'الملف ليس صورة — اختر فئةً تناسبه';
+    if (type && f.category === 'video' && !type.startsWith('video/')) return 'الملف ليس فيديو — اختر فئةً تناسبه';
+    return null;
+  }
+  if (src === 'url') {
+    const u = f.url.trim();
+    if (!u) return 'اكتب الرابط';
+    if (u.length > MATERIAL_URL_MAX) return `الرابط ${MATERIAL_URL_MAX} حرف كحدّ أقصى`;
+    if (!safeHttpUrl(u)) return 'الرابط يبدأ بـ https:// أو http://';
+    return null;
+  }
+  const t = f.textBody.trim();
+  if (!t) return 'اكتب النصّ الجاهز';
+  if (t.length > MATERIAL_TEXT_MAX) return `النصّ ${MATERIAL_TEXT_MAX} حرف كحدّ أقصى`;
+  return null;
+}
+
+/** جسم `POST /materials` — حقل المصدر الموافق للفئة وحده (`dataUrl` يقرؤه المكوّن من الملف) */
+export interface MaterialBody { title: string; category: MaterialCategory; dataUrl?: string; fileName?: string; url?: string; textBody?: string }
+export function buildMaterialBody(f: MaterialForm, dataUrl?: string | null): MaterialBody {
+  const category = f.category as MaterialCategory;
+  const body: MaterialBody = { title: f.title.trim(), category };
+  const src = materialSource(category);
+  if (src === 'file') {
+    if (dataUrl) body.dataUrl = dataUrl;
+    if (f.file?.name) body.fileName = f.file.name.slice(0, 200);
+  } else if (src === 'url') body.url = f.url.trim();
+  else if (src === 'text') body.textBody = f.textBody.trim();
+  return body;
+}
 
 // ─── أشكال الردود (API.md §2) ──────────────────────────────────────────────
 
 export interface AffRef { id: string; fullName: string; code: string }
 
+export interface LastCycle { cycleKey: string; payouts: number; totalHalalas: number }
+
+/**
+ * `GET /overview` — v2 يضيف السفراء الجدد هذا الأسبوع والملفات الناقصة والمطالبات الفائتة
+ * والتسوية القادمة وآخر دورة، ويحذف `pending_review` من البطاقات (يبقى اختيارياً للإرث).
+ */
 export interface Overview {
-  affiliates: { pending_review: number; approved: number; suspended: number; total: number };
+  affiliates: { pending_review?: number; approved: number; suspended: number; total: number };
   claimsUnderReview: number;
   attributions: { active: number; disputed: number };
   commissions: { pendingHalalas: number; onHoldHalalas: number; readyToApprove: number; approvedUnpaidHalalas: number; paidHalalas: number };
   payoutCandidates: number;
+  newAffiliates7d: number;
+  incompleteProfiles: number;
+  missedClaimsUnderReview: number;
+  /** ISO لنهاية الدورة القادمة (منتصف ليل الرياض) */
+  nextSettlementAt: string | null;
+  lastCycle: LastCycle | null;
 }
 
 export interface AffiliateSettings {
@@ -756,7 +1129,14 @@ export interface AffiliateRow {
   status: UserStatus; statusReason: string | null; createdAt: string; lastLoginAt: string | null;
   counts: { claims: number; attributions: number; commissions: number };
   earnedHalalas: number; paidHalalas: number; hasPayout: boolean;
+  /** v2 — عمودا «النوع» و«الملف» (اختيارية: خادمٌ أقدم لا يرسلها فيُعرض «—») */
+  partnerType?: PartnerType | null;
+  companyName?: string | null;
+  profileComplete?: boolean | null;
+  missing?: string[] | null;
 }
+
+export interface AffiliateDocumentMeta { kind: DocKind | string; mime: string; sizeBytes: number; createdAt: string }
 
 export interface AffiliateEvent {
   id: string; entity: string; entityId: string; action: string; fromState: string | null; toState: string | null;
@@ -772,6 +1152,9 @@ export interface AffiliateDetail {
   affiliate: AffiliateRow & {
     vatNumber: string | null; termsVersion: string; termsAcceptedAt: string | null; marketingConsent: boolean;
     payout: { holderName: string; bankName: string | null; ibanLast4: string; updatedAt: string } | null;
+    /** v2 (V2_SPEC §6.2): روابط التواصل وبيانات المستندات بلا محتواها — المحتوى بطلبٍ مستقلّ يُسجَّل */
+    socialLinks?: SocialLink[];
+    documents?: AffiliateDocumentMeta[];
   };
   claims: Array<Partial<ClaimRow> & { id: string }>;
   attributions: Array<Partial<AttributionRow> & { id: string; tenantNameSnapshot?: string }>;
@@ -813,12 +1196,31 @@ export interface PayoutCandidate {
   affiliate: AffRef & { email: string };
   commissionsHalalas: number; adjustmentsHalalas: number; netHalalas: number; commissionCount: number;
   eligible: boolean; hasPayout: boolean; ibanLast4: string | null; holderName: string | null;
+  /** v2: الملف المكتمل شرطٌ لدخول دورة التسوية (اختياري — يغيب في خادمٍ أقدم) */
+  profileComplete?: boolean | null;
 }
 
 export interface PayoutRow {
   id: string; affiliate: AffRef; commissionsHalalas: number; adjustmentsHalalas: number; netHalalas: number;
   status: PayoutStatus; ibanLast4: string; holderName: string; transferredAt: string | null;
   bankReference: string | null; createdAt: string; voidReason: string | null; commissionCount: number;
+  /** v2: دفعة الدورة (`createdBy='system'`) تحمل مفتاحها وفترتها؛ اليدوية بلا فترة */
+  cycleKey?: string | null; periodStart?: string | null; periodEnd?: string | null;
+  failedReason?: string | null; failedAt?: string | null; createdBy?: string | null;
+}
+
+/** `GET /missed-claims?status` — مطالبة السفير بشركةٍ سجّلت دون رمزه، مع اقتراحات مطابقة */
+export interface MissedClaimRow {
+  id: string; affiliate: AffRef; companyName: string; contactPhone: string | null; crNumber: string | null;
+  note: string | null; status: MissedClaimStatus; reasonNote: string | null; submittedAt: string; reviewedAt: string | null;
+  tenantId?: string | null; tenantName?: string | null;
+  suggestions: Array<{ tenantId: string; tenantName: string; match: MissedMatch | string; createdAt?: string | null; attributed?: boolean | null }>;
+}
+
+/** `GET /materials` — المحتوى نفسه لا يعود في القائمة */
+export interface MaterialRow {
+  id: string; title: string; category: MaterialCategory; fileName: string | null; mime: string | null;
+  sizeBytes: number | null; url: string | null; textBody: string | null; sortOrder?: number; createdAt: string;
 }
 
 export interface TenantHit { id: string; name: string; commercialReg: string | null; createdAt: string; attributed: boolean }
@@ -846,9 +1248,41 @@ export interface AttributionChangeResult extends AccrualResult {
 
 const arr = <T,>(v: T[] | null | undefined): T[] => (Array.isArray(v) ? v : []);
 
+const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+/** أرقام v2 الغائبة (خادمٌ أقدم أثناء النشر) تصير أصفاراً، والتسوية القادمة/آخر دورة null */
+export function normalizeOverview(o: Partial<Overview> & Pick<Overview, 'affiliates' | 'attributions' | 'commissions'>): Overview {
+  const lc = o.lastCycle;
+  return {
+    ...o,
+    claimsUnderReview: num(o.claimsUnderReview),
+    payoutCandidates: num(o.payoutCandidates),
+    newAffiliates7d: num(o.newAffiliates7d),
+    incompleteProfiles: num(o.incompleteProfiles),
+    missedClaimsUnderReview: num(o.missedClaimsUnderReview),
+    nextSettlementAt: typeof o.nextSettlementAt === 'string' && o.nextSettlementAt ? o.nextSettlementAt : null,
+    lastCycle: lc && typeof lc === 'object' && lc.cycleKey ? { cycleKey: lc.cycleKey, payouts: num(lc.payouts), totalHalalas: num(lc.totalHalalas) } : null,
+  } as Overview;
+}
+
+/**
+ * تفصيل السفير: v2 يضيف حقول الملف — تُقرأ من `affiliate` أولاً ثم من جذر الردّ
+ * (المواصفة تقول «يضيف» دون تعيين الموضع)، والمستندات والروابط الغائبة تصير فارغة.
+ */
 export function normalizeDetail(d: AffiliateDetail): AffiliateDetail {
+  const root = d as AffiliateDetail & Partial<Pick<AffiliateRow, 'partnerType' | 'companyName' | 'profileComplete' | 'missing'>> & { documents?: unknown; socialLinks?: unknown };
+  const a = d.affiliate;
   return {
     ...d,
+    affiliate: a ? {
+      ...a,
+      partnerType: a.partnerType ?? root.partnerType ?? null,
+      companyName: a.companyName ?? root.companyName ?? null,
+      profileComplete: a.profileComplete ?? root.profileComplete ?? null,
+      missing: arr((a.missing ?? root.missing) as string[] | null | undefined),
+      socialLinks: socialLinksOf(a.socialLinks ?? root.socialLinks),
+      documents: arr((a.documents ?? root.documents) as AffiliateDocumentMeta[] | null | undefined),
+    } : a,
     claims: arr(d.claims),
     attributions: arr(d.attributions),
     commissions: arr(d.commissions),
@@ -864,4 +1298,8 @@ export function normalizeClaims(list: ClaimRow[]): ClaimRow[] {
 
 export function normalizeAttributions(list: AttributionRow[]): AttributionRow[] {
   return arr(list).map((a) => ({ ...a, flags: arr(a.flags) }));
+}
+
+export function normalizeMissedClaims(list: MissedClaimRow[]): MissedClaimRow[] {
+  return arr(list).map((c) => ({ ...c, suggestions: arr(c.suggestions) }));
 }
