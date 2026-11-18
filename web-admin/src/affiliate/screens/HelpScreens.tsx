@@ -9,20 +9,11 @@ import { affiliateApi, qk, shouldRetry } from '../api';
 import {
   SETTLEMENT_EVERY_DAYS, SUPPORT_EMAIL, SUPPORT_WHATSAPP, daysLabel, formatRate, formatSar, supportWhatsappUrl,
 } from '../format';
-import { useAxT, type AxKey } from '../i18n';
+import { useAxT } from '../i18n';
+import { FAQ_KEYS } from '../faq';
 import type { Tab } from '../nav';
 import type { MeResponse } from '../types';
 import { SectionTitle } from '../ui';
-
-/** الأسئلة بترتيب المواصفة: العمولة · الحجز والتسوية · الإحالة · الحساب التجريبي · المطالبة الفائتة · الملف والصرف */
-export const FAQ_KEYS: ReadonlyArray<{ q: AxKey; a: AxKey }> = [
-  { q: 'faq.q.commission', a: 'faq.a.commission' },
-  { q: 'faq.q.hold', a: 'faq.a.hold' },
-  { q: 'faq.q.referral', a: 'faq.a.referral' },
-  { q: 'faq.q.trial', a: 'faq.a.trial' },
-  { q: 'faq.q.missed', a: 'faq.a.missed' },
-  { q: 'faq.q.profile', a: 'faq.a.profile' },
-];
 
 /** نافذة الإسناد الافتراضية (V2_SPEC §0 «يبقى كما هو») — حين لم تُحمَّل الشروط العامة بعد */
 const REF_WINDOW_DAYS = 90;

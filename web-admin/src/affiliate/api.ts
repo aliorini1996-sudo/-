@@ -98,7 +98,7 @@ export const affiliateApi = {
   /**
    * الانضمام فوريّ (قرار المالك ١٨ نوفمبر ٢٠٢٦): 201 `{ token, user }` فيدخل السفير الرئيسية
    * مباشرةً — لا تأكيد بريد ولا مراجعة. بريدٌ مسجَّل ⇒ 409 `email_taken`.
-   * (`/verify-email` و`/resend-verification` حُذفا من الخادم والواجهة.)
+   * (مسارا تأكيد البريد وإعادة إرساله حُذفا من الخادم والواجهة.)
    */
   register: async (body: RegisterBody) =>
     unwrap<{ token: string; user: AffiliateMe }>(await axApi.post('/register', body)),
