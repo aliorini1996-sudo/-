@@ -7,8 +7,9 @@
 // ============================================================================
 import axios, { AxiosError, type AxiosResponse } from 'axios';
 import type {
-  PublicTerms, RegisterBody, AffiliateMe, MeResponse, UpdateMeBody, Dashboard, CompanyRow, UserStatus,
-  ClaimBody, ClaimRow, CommissionRow, AdjustmentRow, PayoutRow, PayoutProfileBody, PricingResponse, TrialBody } from './types';
+  PublicTerms, RegisterBody, AffiliateMe, MeResponse, UpdateMeBody, Dashboard, CompanyRow,
+  ClaimBody, ClaimRow, CommissionRow, AdjustmentRow, PayoutRow, PayoutProfileBody, PricingResponse, TrialBody,
+  AffiliateDocument, DocKind, MissedClaimBody, MissedClaimRow, MaterialRow } from './types';
 import { isTermsOutdated } from './errors';
 
 const BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
@@ -94,16 +95,15 @@ function uniformMessage(res: AxiosResponse): string | null {
 export const affiliateApi = {
   // ---- عام ----
   publicTerms: async () => unwrap<PublicTerms>(await axApi.get('/terms/public')),
-  register: async (body: RegisterBody) => uniformMessage(await axApi.post('/register', body)),
   /**
-   * يتطلّب كلمة المرور التي سُجّل بها آخر طلب (400 `password_mismatch` إن لم تطابق).
-   * `status` = حالة الحساب **الفعلية** (قد يكون مؤكَّداً مسبقاً ومقبولاً أو مرفوضاً).
+   * الانضمام فوريّ (قرار المالك ١٨ نوفمبر ٢٠٢٦): 201 `{ token, user }` فيدخل السفير الرئيسية
+   * مباشرةً — لا تأكيد بريد ولا مراجعة. بريدٌ مسجَّل ⇒ 409 `email_taken`.
+   * (`/verify-email` و`/resend-verification` حُذفا من الخادم والواجهة.)
    */
-  verifyEmail: async (token: string, password: string) =>
-    unwrap<{ status: UserStatus }>(await axApi.post('/verify-email', { token, password })),
+  register: async (body: RegisterBody) =>
+    unwrap<{ token: string; user: AffiliateMe }>(await axApi.post('/register', body)),
   login: async (email: string, password: string) =>
     unwrap<{ token: string; user: AffiliateMe }>(await axApi.post('/login', { email, password })),
-  resendVerification: async (email: string) => uniformMessage(await axApi.post('/resend-verification', { email })),
   forgot: async (email: string) => uniformMessage(await axApi.post('/forgot', { email })),
   /** `token`/`user` يُعادان لكل حساب مؤكَّد البريد — الاستعادة تُدخل صاحبها وتفكّ القفل */
   reset: async (token: string, password: string) =>
@@ -135,7 +135,28 @@ export const affiliateApi = {
   commissions: async () => unwrap<CommissionRow[]>(await axApi.get('/commissions')),
   adjustments: async () => unwrap<AdjustmentRow[]>(await axApi.get('/adjustments')),
   payouts: async () => unwrap<PayoutRow[]>(await axApi.get('/payouts')),
+  /** متاحٌ دائماً في v2 (لا شرط «بعد أول عمولة») — 409 مع دفعةٍ قيد المعالجة */
   setPayoutProfile: async (body: PayoutProfileBody) => unwrap<{ user: AffiliateMe }>(await axApi.put('/payout-profile', body)),
+
+  // ---- v2: المستندات (السفير نفسه وحده) ----
+  /** يستبدل السابق من النوع نفسه، ويُشفَّر في الخادم */
+  uploadDocument: async (kind: DocKind, dataUrl: string) =>
+    unwrap<AffiliateDocument>(await axApi.post('/documents', { kind, dataUrl }, { timeout: 90_000 })),
+  /** معاينة ما رفعه السفير — data URL */
+  documentFile: async (kind: DocKind) =>
+    unwrap<{ dataUrl: string }>(await axApi.get(`/documents/${encodeURIComponent(kind)}`, { timeout: 90_000 })),
+  deleteDocument: async (kind: DocKind) => unwrap<unknown>(await axApi.delete(`/documents/${encodeURIComponent(kind)}`)),
+
+  // ---- v2: المطالبة بإحالة فائتة ----
+  createMissedClaim: async (body: MissedClaimBody) => unwrap<{ id: string }>(await axApi.post('/missed-claims', body)),
+  missedClaims: async () => unwrap<MissedClaimRow[]>(await axApi.get('/missed-claims')),
+  withdrawMissedClaim: async (id: string) =>
+    unwrap<unknown>(await axApi.post(`/missed-claims/${encodeURIComponent(id)}/withdraw`)),
+
+  // ---- v2: المواد التسويقية ----
+  materials: async () => unwrap<MaterialRow[]>(await axApi.get('/materials')),
+  materialFile: async (id: string) =>
+    unwrap<{ dataUrl: string }>(await axApi.get(`/materials/${encodeURIComponent(id)}/file`, { timeout: 120_000 })),
 };
 
 /** مفاتيح react-query — كلها تحت 'ax' لتُمسح دفعةً عند الخروج */
@@ -150,6 +171,9 @@ export const qk = {
   commissions: ['ax', 'commissions'] as const,
   adjustments: ['ax', 'adjustments'] as const,
   payouts: ['ax', 'payouts'] as const,
+  missedClaims: ['ax', 'missed-claims'] as const,
+  materials: ['ax', 'materials'] as const,
+  document: (kind: DocKind) => ['ax', 'document', kind] as const,
 };
 
 /** لا إعادة محاولة لأخطاء القرار (401/403/404/409) — فقط لعطل الشبكة أو الخادم */
