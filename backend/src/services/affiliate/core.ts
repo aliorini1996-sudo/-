@@ -373,6 +373,64 @@ export function logEventSafe(e: EventInput): void {
   logEvent(prisma, e).catch(err => console.error('[affiliate] event log failed:', (err as Error).message));
 }
 
+// ───────────────────────────── ترقية الإرث (v2) ─────────────────────────────
+
+/**
+ * حالتا الانتظار القديمتان — **إرثٌ** بعد الانضمام الفوريّ (قرار المالك ١٨ نوفمبر ٢٠٢٦، V2_SPEC §3): لا يُنشأ عليهما
+ * حسابٌ بعد اليوم، وكلٌّ منهما يُرقّى إلى approved مرّةً عند الإقلاع وعند أيّ دخولٍ ناجح لصاحبه.
+ */
+export const LEGACY_PENDING_STATUSES = ['pending_email', 'pending_review'] as const;
+export const INSTANT_PROMOTION_MARKER = 'ax-v2-instant';
+
+/**
+ * ترقية الإرث **مرّةً واحدة** عند الإقلاع: علامة OpsMarker `ax-v2-instant` تُحجز ذرّياً (نسختان تقلعان معاً لا ترقّيان
+ * مرّتين)، ثمّ updateMany لكلّ pending_* ⇒ approved وحدثٌ ملخّص `system` بالعدد. الفشل يحرّر العلامة فيُعاد في الإقلاع
+ * التالي (والدخول يرقّي صاحبه في الأثناء). **لا ترمي أبداً** — آمنةٌ في مسار الإقلاع.
+ *
+ * يوصلها الوكيل B في index.ts بعد الإقلاع: `void promoteLegacyPendingAffiliates();` — تُعيد عدد المرقَّين، أو null إن
+ * سبقتها نسخةٌ أو إقلاعٌ سابق أو فشلت.
+ */
+export async function promoteLegacyPendingAffiliates(): Promise<number | null> {
+  try {
+    const won = await prisma.opsMarker.create({ data: { key: INSTANT_PROMOTION_MARKER, value: 'running' } }).then(() => true, () => false);
+    if (!won) return null;
+    try {
+      const count = await prisma.$transaction(async tx => {
+        const r = await tx.affiliateUser.updateMany({
+          where: { status: { in: [...LEGACY_PENDING_STATUSES] } },
+          data: { status: 'approved', reviewedAt: new Date(), reviewedBy: 'system' },
+        });
+        await logEvent(tx, {
+          entity: 'user', entityId: INSTANT_PROMOTION_MARKER, action: 'legacy_pending_promoted', toState: 'approved',
+          actorType: 'system', reason: 'الانضمام فوريّ (v2)', meta: { count: r.count },
+        });
+        return r.count;
+      });
+      await prisma.opsMarker.update({ where: { key: INSTANT_PROMOTION_MARKER }, data: { value: `done:${count}` } });
+      if (count) console.log(`[affiliate] v2: promoted ${count} legacy pending ambassadors to approved`);
+      return count;
+    } catch (e) {
+      await prisma.opsMarker.delete({ where: { key: INSTANT_PROMOTION_MARKER } }).catch(() => { /* يبقى للإقلاع التالي أن يحاول */ });
+      throw e;
+    }
+  } catch (e) {
+    console.error('[affiliate] legacy promotion failed:', (e as Error).message);
+    return null;
+  }
+}
+
+/** ترقية صاحب الحساب نفسه عند دخوله الناجح (أو استعادته كلمة المرور) — مشروطةٌ بحالته فلا تكتب فوق إيقافٍ متزامن */
+export async function promoteLegacyAffiliate(id: string, fromStatus: string): Promise<boolean> {
+  if (!(LEGACY_PENDING_STATUSES as readonly string[]).includes(fromStatus)) return false;
+  const won = await prisma.affiliateUser.updateMany({
+    where: { id, status: fromStatus },
+    data: { status: 'approved', reviewedAt: new Date(), reviewedBy: 'system' },
+  });
+  if (won.count !== 1) return false;
+  logEventSafe({ entity: 'user', entityId: id, action: 'legacy_pending_promoted', fromState: fromStatus, toState: 'approved', actorType: 'system', reason: 'الانضمام فوريّ (v2)' });
+  return true;
+}
+
 // ───────────────────────────── المصادقة ─────────────────────────────
 
 /** سرّ مشتقّ — توكن لوحة الشركة لا يُفكّ هنا، وتوكن السفير لا يُفكّ هناك */
@@ -383,6 +441,7 @@ export function affiliateSecret(): string {
 }
 
 export interface AffiliateSession { uid: string; kind: 'affiliate'; tv: number }
+// 'ax-verify' إرث: لا يُوقَّع بعد الانضمام الفوريّ (v2)، ويبقى في النوع ليُرفض صراحةً أينما قُدِّم
 type Purpose = 'ax-verify' | 'ax-reset';
 
 export function signSession(uid: string, tokenVersion: number): string {

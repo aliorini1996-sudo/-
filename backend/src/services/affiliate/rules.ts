@@ -308,12 +308,14 @@ export function isDisputedByFlags(flags: string[]): boolean {
 // ───────────────────────────── الانتقالات ─────────────────────────────
 
 const TRANSITIONS: Record<string, Record<string, string[]>> = {
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦ — V2_SPEC §3): الانضمام فوريّ، فـpending_email/pending_review إرثٌ يُرقّى إلى approved
+  // (عند الإقلاع مرّةً وعند دخول صاحبه)، وإعادة تفعيل المرفوض approved مباشرةً. والقبول/الرفض اليدويّان باقيان للإرث وحده
   user: {
-    pending_email: ['pending_review'],
+    pending_email: ['pending_review', 'approved'],
     pending_review: ['approved', 'rejected'],
     approved: ['suspended'],
     suspended: ['approved'],
-    rejected: ['pending_review'],
+    rejected: ['approved', 'pending_review'],
   },
   claim: {
     under_review: ['approved', 'rejected', 'withdrawn'],
@@ -337,9 +339,11 @@ const TRANSITIONS: Record<string, Record<string, string[]>> = {
     reversed: [],
   },
   payout: {
-    draft: ['recorded', 'void'],
+    // v2: «فشل التحويل» — المسودّة تفشل فتُفكّ عمولاتها وتدخل الدورة التالية (V2_SPEC §5)
+    draft: ['recorded', 'void', 'failed'],
     recorded: [],
     void: [],
+    failed: [],
   },
 };
 
@@ -382,4 +386,71 @@ export function payoutTotals(
     netHalalas: net,
     eligible: net > 0 && net >= Math.max(0, Math.trunc(minPayoutHalalas)),
   };
+}
+
+// ───────────────────────────── ملف السفير (v2) ─────────────────────────────
+
+/** نوع السفير يُختار عند التسجيل (V2_SPEC §3) */
+export const PARTNER_TYPES = ['individual', 'company', 'influencer'] as const;
+export type PartnerType = typeof PARTNER_TYPES[number];
+
+/** منصّات روابط التواصل — حتى ٨ روابط، كلٌّ `https?://` ≤ ٣٠٠ */
+export const SOCIAL_PLATFORMS = ['x', 'instagram', 'snapchat', 'tiktok', 'youtube', 'linkedin', 'website', 'other'] as const;
+export type SocialPlatform = typeof SOCIAL_PLATFORMS[number];
+export const MAX_SOCIAL_LINKS = 8;
+export const SOCIAL_URL_MAX = 300;
+export interface SocialLink { platform: SocialPlatform; url: string }
+
+/** أنواع مستندات الملف: الهوية الوطنية/الإقامة للجميع، والسجل التجاري للشركة */
+export const DOC_KINDS = ['national_id', 'commercial_reg'] as const;
+export type DocKind = typeof DOC_KINDS[number];
+export const isDocKind = (v: unknown): v is DocKind => typeof v === 'string' && (DOC_KINDS as readonly string[]).includes(v);
+
+/** ما ينقص الملف — بترتيبٍ ثابت تعرضه البوابة ولوحة المالك */
+export type ProfileMissing = 'partnerType' | 'iban' | 'national_id' | 'commercial_reg';
+
+/**
+ * روابط التواصل كما كتبها السفير ⇒ مصفوفةٌ مطبَّعة، أو سبب الرفض. `null`/`[]` يمسحها. الرابط `http(s)://` وحده
+ * (لا `javascript:` ولا `data:` — يُعرض رابطاً قابلاً للنقر في لوحة المالك)، بلا مسافاتٍ ولا محارف تحكّم، والمكرَّر يُسقط.
+ */
+export function normSocialLinks(input: unknown): { ok: true; links: SocialLink[] } | { ok: false; reason: string } {
+  if (input == null) return { ok: true, links: [] };
+  if (!Array.isArray(input)) return { ok: false, reason: 'روابط التواصل يجب أن تكون قائمة' };
+  if (input.length > MAX_SOCIAL_LINKS) return { ok: false, reason: `حتى ${MAX_SOCIAL_LINKS} روابط تواصل` };
+  const out: SocialLink[] = [];
+  for (const raw of input) {
+    const r = (raw && typeof raw === 'object' ? raw : {}) as { platform?: unknown; url?: unknown };
+    const platform = typeof r.platform === 'string' ? r.platform.trim().toLowerCase() : '';
+    if (!(SOCIAL_PLATFORMS as readonly string[]).includes(platform)) return { ok: false, reason: 'منصّة تواصل غير معروفة' };
+    const url = typeof r.url === 'string' ? r.url.normalize('NFKC').trim() : '';
+    // eslint-disable-next-line no-control-regex
+    if (!url || url.length > SOCIAL_URL_MAX || !/^https?:\/\/[^\s/?#]+\.[^\s]*$/i.test(url) || /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(url)) {
+      return { ok: false, reason: 'رابط التواصل يبدأ بـ https:// ولا يتجاوز ٣٠٠ حرف' };
+    }
+    if (!out.some(l => l.platform === platform && l.url.toLowerCase() === url.toLowerCase())) out.push({ platform: platform as SocialPlatform, url });
+  }
+  return { ok: true, links: out };
+}
+
+/** روابط مخزَّنة (Json) ⇒ مصفوفة آمنة للعرض — ما لا يصلح يُسقط ولا يرمي */
+export function readSocialLinks(stored: unknown): SocialLink[] {
+  if (!Array.isArray(stored)) return [];
+  return stored.flatMap(x => {
+    const r = normSocialLinks([x]);
+    return r.ok ? r.links : [];
+  }).slice(0, MAX_SOCIAL_LINKS);
+}
+
+/**
+ * اكتمال الملف (V2_SPEC §3): النوع + الآيبان + الهوية/الإقامة (+ السجل التجاري للشركة). شرطٌ لدخول دورة التسوية فقط —
+ * لا يحجب الحساب ولا الإحالة.
+ */
+export function profileMissing(p: { partnerType: string | null | undefined; hasIban: boolean; docKinds: readonly string[] }): ProfileMissing[] {
+  const missing: ProfileMissing[] = [];
+  const type = p.partnerType && (PARTNER_TYPES as readonly string[]).includes(p.partnerType) ? p.partnerType : null;
+  if (!type) missing.push('partnerType');
+  if (!p.hasIban) missing.push('iban');
+  if (!p.docKinds.includes('national_id')) missing.push('national_id');
+  if (type === 'company' && !p.docKinds.includes('commercial_reg')) missing.push('commercial_reg');
+  return missing;
 }
