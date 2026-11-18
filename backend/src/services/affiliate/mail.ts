@@ -31,17 +31,37 @@ const sar = (h: number) => (h / 100).toFixed(2);
 const portal = () => `${frontendBase()}/ax`;
 
 /**
- * بريدا التأكيد والاستعادة يصلان عنواناً **لم تُثبت ملكيّته** ويطلبهما أيّ أحد —
+ * بريدا الترحيب والاستعادة يصلان عنواناً **لم تُثبت ملكيّته** ويطلبهما أيّ أحد —
  * فلا يحملان نصّاً كتبه الطالب (الاسم): «مرحباً اشتراكك موقوف ادفع عبر fieldsa-pay.com»
  * كانت ستصل الضحيّة داخل بريدٍ رسميٍّ حقيقي من فيلد سيلز.
+ *
+ * v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦ — V2_SPEC §6.1): الانضمام فوريّ بلا تأكيد بريد، فلا `mailVerify` بعد اليوم —
+ * والترحيب بدله: رابط السفير (رمزٌ يولّده الخادم) ورابط البوابة، بلا اسمٍ ولا اسم شركة. ويصل كلّ عنوانٍ مرّةً
+ * واحدة على الأكثر (البريد فريد، والتسجيل الثاني به 409).
  */
-export function mailVerify(to: string, _name: string, token: string): void {
-  const url = `${portal()}?verify=${encodeURIComponent(token)}`;
-  send(to, 'تأكيد بريدك — سفير فيلد سيلز', layout('تأكيد البريد', [
+export function mailWelcome(to: string, referralUrl: string): void {
+  send(to, 'أهلاً بك في برنامج سفير فيلد سيلز', layout('أهلاً بك', [
     'مرحباً،',
-    'شكراً لطلب الانضمام إلى برنامج سفير فيلد سيلز. أكّد بريدك ليصل طلبك إلى المراجعة.',
-    'الرابط صالح يومين. إن لم تكن أنت من سجّل فتجاهل الرسالة.',
-  ], { label: 'تأكيد البريد', url }));
+    'فُتح حسابك في برنامج سفير فيلد سيلز وأصبح رابطك الخاص جاهزاً للمشاركة الآن:',
+    `<span dir="ltr" style="word-break:break-all">${escapeHtml(referralUrl)}</span>`,
+    'تكسب ٣٠٪ من أوّل دفعة لكل شركة تشترك عبر رابطك. أكمل ملفك من البوابة (نوعك، الحساب البنكي، صورة الهوية) لتدخل أرباحك دورة التسوية.',
+    'إن لم تكن أنت من سجّل بهذا البريد فاستعد كلمة المرور من البوابة أو راسلنا على info@fieldsa.net.',
+  ], { label: 'دخول البوابة', url: portal() }));
+}
+
+/**
+ * «قُبل طلبك» لطلبٍ كان **قيد المراجعة** في v1 ثمّ رقّاه النظام بالانضمام الفوريّ (v2 — core.ts notifyLegacyReviewApproved،
+ * المراجعة #20): شاشة v1 وعدته ببريدٍ بالقرار. لا يصل pending_email أبداً. كالترحيب: رابطه (رمزٌ يولّده الخادم) ورابط البوابة،
+ * بلا اسمٍ ولا نصٍّ كتبه.
+ */
+export function mailLegacyApproved(to: string, referralUrl: string): void {
+  send(to, 'قُبل طلبك — سفير فيلد سيلز', layout('قُبل طلبك', [
+    'مرحباً،',
+    'قُبل طلب انضمامك إلى برنامج سفير فيلد سيلز، وحسابك مفتوحٌ الآن ورابطك الخاص جاهزٌ للمشاركة:',
+    `<span dir="ltr" style="word-break:break-all">${escapeHtml(referralUrl)}</span>`,
+    'تكسب ٣٠٪ من أوّل دفعة لكل شركة تشترك عبر رابطك. ادخل البوابة بالبريد وكلمة المرور اللذين سجّلت بهما، وأكمل ملفك (نوعك، الحساب البنكي، صورة الهوية) لتدخل أرباحك دورة التسوية.',
+    'إن نسيت كلمة المرور فاستعدها من صفحة الدخول في البوابة.',
+  ], { label: 'دخول البوابة', url: portal() }));
 }
 
 export function mailReset(to: string, _name: string, token: string): void {
@@ -53,12 +73,18 @@ export function mailReset(to: string, _name: string, token: string): void {
   ], { label: 'تعيين كلمة مرور جديدة', url }));
 }
 
-export function mailOwnerNewApplicant(a: { fullName: string; email: string; phone: string | null; city: string | null; publicPromoter: boolean; mawthooqNo: string | null }): void {
+const PARTNER_TYPE_AR: Record<string, string> = { individual: 'فرد', company: 'شركة', influencer: 'مؤثر' };
+
+/** «سفير جديد» للمالك — للعلم لا للموافقة: الحساب فُتح فوراً (v2)، والإيقاف من لوحته إن لزم */
+export function mailOwnerNewAffiliate(a: { fullName: string; email: string; phone: string | null; city: string | null; partnerType: string | null; companyName: string | null }): void {
   const to = process.env.MAIL_TO || 'info@fieldsa.net';
-  send(to, `طلب سفير جديد: ${a.fullName}`, layout('طلب انضمام جديد', [
-    `<b>${escapeHtml(a.fullName)}</b> أكّد بريده وينتظر موافقتك.`,
+  // عنوان الرسالة نصٌّ عاديّ لا HTML — والاسم فيه مقصوصٌ بلا أسطرٍ جديدة (ترويسةٌ لا تُحقن)
+  const subjectName = a.fullName.replace(/[\r\n]+/g, ' ').slice(0, 80);
+  send(to, `سفير جديد: ${subjectName}`, layout('سفير جديد انضمّ', [
+    `انضمّ <b>${escapeHtml(a.fullName)}</b> إلى برنامج السفراء وفُتح حسابه فوراً.`,
+    `النوع: ${escapeHtml(PARTNER_TYPE_AR[a.partnerType ?? ''] ?? '—')}${a.companyName ? ` · الشركة: ${escapeHtml(a.companyName)}` : ''}`,
     `البريد: ${escapeHtml(a.email)} · الجوال: ${escapeHtml(a.phone ?? '—')} · المدينة: ${escapeHtml(a.city ?? '—')}`,
-    'راجع الطلب من لوحة المالك ← السفراء.',
+    'تجده في لوحة المالك ← السفراء، ولك إيقافه إن خالف الشروط.',
   ]));
 }
 
@@ -109,6 +135,28 @@ export function mailTrialActivated(to: string, name: string, tenantName: string)
   } catch (e) {
     console.error('[affiliate] mail error:', (e as Error).message);
   }
+}
+
+/**
+ * «تعذّر التحويل» (V2_SPEC §5 — failPayout في ledger.ts، الوكيل B): الدفعة فشلت وعادت عمولاتها معتمدة، وتدخل
+ * التسوية التالية بعد تصحيح بيانات الآيبان. السبب يكتبه المالك فيُهرَّب.
+ */
+export function mailPayoutFailed(to: string, name: string, p: { netHalalas: number; ibanLast4: string; reason: string }): void {
+  send(to, 'تعذّر تحويل مستحقّاتك — سفير فيلد سيلز', layout('تعذّر التحويل', [
+    `مرحباً ${escapeHtml(name)}،`,
+    `تعذّر تحويل <b>${sar(p.netHalalas)} ريال</b> إلى الآيبان المنتهي بـ${escapeHtml(p.ibanLast4)}.`,
+    `السبب: ${escapeHtml(p.reason)}`,
+    'تحقّق من بيانات الحساب البنكي في «ملفي» وصحّحها — ويدخل المبلغ دورة التسوية التالية تلقائياً.',
+  ], { label: 'تحديث بيانات الاستلام', url: `${portal()}#profile` }));
+}
+
+/** ملخّص دورة التسوية للمالك (V2_SPEC §5 — runSettlementCycle، الوكيل B): المنصّة أنشأت الدفعات والمالك يحوّل يدوياً */
+export function mailOwnerSettlementSummary(s: { cycleKey: string; payouts: number; totalHalalas: number }): void {
+  const to = process.env.MAIL_TO || 'info@fieldsa.net';
+  send(to, `تسوية السفراء ${s.cycleKey}: ${s.payouts} دفعات`, layout('دورة تسوية جديدة', [
+    `أُنشئت <b>${s.payouts}</b> دفعة قيد المعالجة بمجموع <b>${sar(s.totalHalalas)} ريال</b> لدورة ${escapeHtml(s.cycleKey)}.`,
+    'حوّل كلّ دفعة يدوياً ثمّ سجّلها «مدفوعة» بمرجع التحويل — أو «فشل التحويل» بسببه — من لوحة المالك ← السفراء ← الصرف.',
+  ]));
 }
 
 /** تغيير بيانات الاستلام يُبلَّغ به صاحب الحساب — جلسةٌ مسروقة لا تحوّل المستحقّات بصمت */

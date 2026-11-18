@@ -17,6 +17,8 @@ import LandingPage from './pages/LandingPage';
 import InfoPage from './pages/InfoPage';
 import ContactPage from './pages/ContactPage';
 import MeetingPage from './pages/MeetingPage';
+// «سفراء فيلد سيلز» — الصفحة العلنية المفهرسة للبرنامج (ع/إ/فر)، فورية كبقية الصفحات المُصيَّرة
+import AmbassadorsPage from './pages/AmbassadorsPage';
 import SignupPage from './pages/SignupPage';
 import LoginPage from './pages/LoginPage';
 import OwnerLoginPage from './pages/OwnerLoginPage';
@@ -179,6 +181,10 @@ function LocaleSync() {
   const setLang = useLang((s) => s.setLang);
   useEffect(() => {
     if (isAppRoute(pathname)) return;
+    // مسارا التحويل من صفحة السفراء إلى البوابة (/ambassadors/join و/ambassadors/login): لا يشتقّان لغة — وإلا فُرضت
+    // العربية لحظة التحويل على زائر /en/ambassadors أو /fr/ambassadors، والبوابة (مسار تطبيق) تتبع اللغة القائمة.
+    // وبتحميلٍ كامل (تبويبٌ جديد) يقرأ initialLangFor في i18n/lang.ts اللغة المحفوظة لهما (AMBASSADORS_REDIRECT).
+    if (/^\/ambassadors\/(join|login)\/?$/.test(pathname)) return;
     // صفحات الطبقة متعددة اللغات: لغة الواجهة (عناصر التطبيق المشتركة كشاشة التحميل) من الخمس — الإنجليزية لغير الخمس.
     // لغة المستند واتجاهه تضبطهما الصفحة نفسها، وapplyDoc لا يمسّهما على هذه المسارات (lang.ts) —
     // وإلا كتب localeFromPath('/es/') ⇒ ar لغةً عربية واتجاهاً RTL فوق الصفحة الإسبانية.
@@ -281,6 +287,11 @@ export default function App() {
         <Route path="/privacy" element={<InfoPage pageKey="privacy" />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/meeting" element={<MeetingPage />} />
+        <Route path="/ambassadors" element={<AmbassadorsPage />} />
+        {/* زرّا صفحة السفراء العلنية («انضم الآن» و«لديك حساب؟») — تحويلٌ استبدالاً إلى البوابة (V2_SPEC §9): الصفحات العامة
+            وprerender والخريطة لا تذكر مسار البوابة نفسه (affiliate/hiding.test.ts)، وهذان المساران وحدهما يعرفانه */}
+        <Route path="/ambassadors/join" element={<Navigate to="/ax?view=register" replace />} />
+        <Route path="/ambassadors/login" element={<Navigate to="/ax" replace />} />
         <Route path="/subscribe-request" element={<SubscriptionRequestPage />} />
         <Route path="/calculator" element={<LeakCalculatorPage />} />
         <Route path="/tutorial" element={<TutorialPage />} />
@@ -314,6 +325,7 @@ export default function App() {
         <Route path="/en/privacy" element={<InfoPage pageKey="privacy" />} />
         <Route path="/en/contact" element={<ContactPage />} />
         <Route path="/en/meeting" element={<MeetingPage />} />
+        <Route path="/en/ambassadors" element={<AmbassadorsPage />} />
         <Route path="/en/profile" element={<ProfilePage />} />
         <Route path="/en/subscribe-request" element={<SubscriptionRequestPage />} />
         <Route path="/en/calculator" element={<LeakCalculatorPage />} />
@@ -339,6 +351,7 @@ export default function App() {
         <Route path="/fr/privacy" element={<InfoPage pageKey="privacy" />} />
         <Route path="/fr/contact" element={<ContactPage />} />
         <Route path="/fr/meeting" element={<MeetingPage />} />
+        <Route path="/fr/ambassadors" element={<AmbassadorsPage />} />
         <Route path="/fr/profile" element={<ProfilePage />} />
         <Route path="/fr/subscribe-request" element={<SubscriptionRequestPage />} />
         <Route path="/fr/calculator" element={<LeakCalculatorPage />} />

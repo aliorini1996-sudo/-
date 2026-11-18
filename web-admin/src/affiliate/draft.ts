@@ -7,7 +7,7 @@
 //   إصدارٌ جديد بين الحفظ والعودة.
 // · كل وصولٍ إلى التخزين داخل try/catch — التخزين المحجوب لا يُسقط النموذج.
 // ============================================================================
-import { EMPTY_REGISTER, type RegisterForm } from './validation';
+import { EMPTY_REGISTER, isPartnerType, type RegisterForm } from './validation';
 
 export const REGISTER_DRAFT_KEY = 'ax_register_draft';
 
@@ -18,20 +18,21 @@ function session(): Storage | null {
   try { return (globalThis as { sessionStorage?: Storage }).sessionStorage ?? null; } catch { return null; }
 }
 
-const TEXT_FIELDS = ['fullName', 'email', 'phone', 'city', 'vatNumber'] as const;
+// v2: المدينة والرقم الضريبي خرجا من التسجيل إلى «ملفي» — ونوع السفير واسم الشركة دخلا
+const TEXT_FIELDS = ['fullName', 'email', 'phone', 'companyName'] as const;
 const TEXT_MAX = 200;
 
 /** يستخرج من النموذج ما يجوز حفظه — بلا كلمة المرور ولا الموافقة على الشروط */
 export function draftOf(f: RegisterForm): RegisterDraft {
   return {
-    fullName: f.fullName, email: f.email, phoneCountry: f.phoneCountry, phone: f.phone, city: f.city,
-    vatNumber: f.vatNumber, marketingConsent: f.marketingConsent,
+    fullName: f.fullName, email: f.email, phoneCountry: f.phoneCountry, phone: f.phone,
+    partnerType: f.partnerType, companyName: f.companyName, marketingConsent: f.marketingConsent,
   };
 }
 
 /** مسودّةٌ بلا أي قيمة مُدخلة لا تستحق الحفظ */
 export function isEmptyDraft(d: RegisterDraft): boolean {
-  return TEXT_FIELDS.every((k) => !d[k].trim()) && !d.marketingConsent;
+  return TEXT_FIELDS.every((k) => !d[k].trim()) && !d.marketingConsent && !d.partnerType;
 }
 
 export function saveRegisterDraft(f: RegisterForm): void {
@@ -47,7 +48,7 @@ export function saveRegisterDraft(f: RegisterForm): void {
 /**
  * يقرأ المسودّة ويدمجها في نموذجٍ فارغ بأنواعٍ مُتحقَّقة (قيمةٌ تالفة تُهمل حقلها
  * لا النموذج كلّه). كلمة المرور فارغة والموافقة على الشروط غير مؤشَّرة دائماً،
- * وأي حقلٍ قديم في مسودّةٍ سابقة (كإقرارات أو «موثوق») يُتجاهل.
+ * وأي حقلٍ قديم في مسودّةٍ سابقة (إقرارات، «موثوق»، المدينة والرقم الضريبي من v1) يُتجاهل.
  */
 export function loadRegisterDraft(): RegisterForm | null {
   let raw: string | null = null;
@@ -67,6 +68,7 @@ export function loadRegisterDraft(): RegisterForm | null {
   }
   if (typeof obj.marketingConsent === 'boolean') form.marketingConsent = obj.marketingConsent;
   if (typeof obj.phoneCountry === 'string' && /^[A-Z]{2}$/.test(obj.phoneCountry)) form.phoneCountry = obj.phoneCountry;
+  if (isPartnerType(obj.partnerType)) form.partnerType = obj.partnerType;
   form.password = '';
   form.acceptTerms = false;
   return form;

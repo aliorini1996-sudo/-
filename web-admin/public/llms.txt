@@ -179,6 +179,7 @@ Key facts:
 - [About](https://fieldsa.net/about/): who is behind FieldSales. English: https://fieldsa.net/en/about/
 - [Contact](https://fieldsa.net/contact/): sales and support. English: https://fieldsa.net/en/contact/
 - [Blog (Arabic)](https://fieldsa.net/blog/): practical guides on field sales, van sales, collection and e-invoicing for distribution companies. English: https://fieldsa.net/en/blog/ · French: https://fieldsa.net/fr/blog/
+- [FieldSales Ambassadors (Arabic)](https://fieldsa.net/ambassadors/): referral program, instant joining; 30% of each referred company’s first confirmed payment, settled every 10 days. English: https://fieldsa.net/en/ambassadors/ · French: https://fieldsa.net/fr/ambassadors/
 
 ## Company
 

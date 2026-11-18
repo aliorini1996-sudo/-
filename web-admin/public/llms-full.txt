@@ -35,6 +35,7 @@ Pricing: Per company, not per user: 299 SAR/month (up to 5 reps), 399 SAR/month 
 - [نموذج قائمة أسعار متدرّجة بالكمية](https://fieldsa.net/نماذج/قائمة-أسعار-متدرجة/): تحديد سعر كل صنف حسب شريحة الكمية وهامش كل شريحة — فلا يجتهد المندوب في التسعير ولا يبيع تحت التكلفة.
 - [نموذج تقرير زيارة ميدانية يومي](https://fieldsa.net/نماذج/تقرير-زيارة-ميدانية/): توثيق ما رآه المندوب عند العميل: حالة الرفّ والمنافسين والطلب — معلومة تُبنى عليها قرارات لا تُروى شفهياً.
 - [Free tax invoice generator](https://fieldsa.net/invoice-generator/) · [Revenue leak calculator](https://fieldsa.net/calculator/)
+- [FieldSales Ambassadors](https://fieldsa.net/ambassadors/): referral program, 30% of each referred company’s first confirmed payment · [English](https://fieldsa.net/en/ambassadors/) · [French](https://fieldsa.net/fr/ambassadors/)
 
 ## Languages
 

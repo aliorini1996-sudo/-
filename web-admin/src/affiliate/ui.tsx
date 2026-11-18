@@ -3,13 +3,16 @@
 // (مرجاني #E15A30 · حبر #1F1A13 · كريمي #FAF7F0 · أخضر #1E7A52).
 // الاتجاه يتبع اللغة: RTL للعربية وحدها، وLTR لغيرها — بخصائص منطقية (start/end).
 // ============================================================================
-import { useState, type ReactNode } from 'react';
-import { Check, Copy, Eye, EyeOff, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Fragment, useState, type ReactNode } from 'react';
+import {
+  Check, Copy, Eye, EyeOff, Loader2, AlertTriangle, RefreshCw, User, Building2, Megaphone, type LucideIcon,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { BrandIcon } from '../components/BrandLogo';
 import LanguageToggle from '../components/LanguageToggle';
 import { sarNumber, sarSymbol } from './format';
-import type { Label, Tone } from './labels';
+import { PARTNER_TYPE, PARTNER_TYPE_ORDER, type Label, type Tone } from './labels';
+import type { PartnerType } from './types';
 import { errorText } from './errors';
 import { useAxT, type AxKey } from './i18n';
 
@@ -242,5 +245,145 @@ export function ArabicTermsBody({ body, className = '' }: { body: string; classN
         {body}
       </div>
     </>
+  );
+}
+
+/**
+ * جدولٌ متجاوب (V2_SPEC §7 — الجوال أولاً): بطاقاتٌ على الجوال وجدولٌ من md فما فوق، من تعريف
+ * أعمدةٍ واحد. `head` عمود العنوان (رأس البطاقة)، و`status` الشارة (طرف رأس البطاقة)،
+ * و`footer` سطرٌ إضافيّ تحت الصفّ (سببٌ أو زرّ سحب) في الحالين.
+ */
+export interface DataCol<T> { id: string; label: string; cell: (row: T) => ReactNode; numeric?: boolean }
+
+export function DataList<T>({
+  rows, rowKey, head, status, cols, footer,
+}: {
+  rows: T[];
+  rowKey: (row: T) => string;
+  head: DataCol<T>;
+  status?: DataCol<T>;
+  cols: DataCol<T>[];
+  footer?: (row: T) => ReactNode;
+}) {
+  const all = [head, ...cols, ...(status ? [status] : [])];
+  return (
+    <>
+      <div className="space-y-2.5 md:hidden">
+        {rows.map((r) => {
+          const extra = footer?.(r);
+          return (
+            <div key={rowKey(r)} className="bg-white rounded-2xl border border-[#E9E1D3] p-3.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 font-bold text-[14.5px] text-[#1F1A13] break-words">{head.cell(r)}</div>
+                {status && <div className="shrink-0">{status.cell(r)}</div>}
+              </div>
+              {cols.length > 0 && (
+                <dl className="mt-2.5 space-y-1.5 border-t border-[#F1EBDF] pt-2.5">
+                  {cols.map((c) => (
+                    <div key={c.id} className="flex items-center justify-between gap-3 text-[12.5px]">
+                      <dt className="text-[#6E6557]">{c.label}</dt>
+                      <dd className="text-[#1F1A13] text-end">{c.cell(r)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+              {extra && <div className="mt-2.5">{extra}</div>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="hidden md:block bg-white rounded-2xl border border-[#E9E1D3] overflow-x-auto">
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr className="bg-[#FAF7F0] text-[#6E6557] text-[12px]">
+              {all.map((c) => (
+                <th key={c.id} scope="col" className={`px-3 py-2.5 font-semibold whitespace-nowrap ${c.numeric ? 'text-end' : 'text-start'}`}>{c.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const extra = footer?.(r);
+              return (
+                <Fragment key={rowKey(r)}>
+                  <tr className={`${extra ? '' : 'border-b'} border-[#F1EBDF] last:border-0 align-top`}>
+                    {all.map((c, i) => (
+                      <td key={c.id} className={`px-3 py-2.5 ${c.numeric ? 'text-end whitespace-nowrap' : 'text-start'} ${i === 0 ? 'font-semibold text-[#1F1A13]' : 'text-[#44403a]'}`}>{c.cell(r)}</td>
+                    ))}
+                  </tr>
+                  {extra && (
+                    <tr className="border-b border-[#F1EBDF] last:border-0">
+                      <td colSpan={all.length} className="px-3 pb-2.5 pt-0">{extra}</td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+/** شرائح تصفية أفقية (فئات المواد) — تمرير أفقيّ على الجوال بلا شريط */
+export function Chips<V extends string>({ value, options, onChange, label }: {
+  value: V;
+  options: Array<{ value: V; label: string }>;
+  onChange: (v: V) => void;
+  label: string;
+}) {
+  return (
+    <div role="radiogroup" aria-label={label} className="flex gap-1.5 overflow-x-auto pb-1 -mx-4 px-4" style={{ scrollbarWidth: 'none' }}>
+      {options.map((o) => {
+        const on = o.value === value;
+        return (
+          <button
+            key={o.value} type="button" role="radio" aria-checked={on} onClick={() => onChange(o.value)}
+            className={`shrink-0 px-3.5 py-1.5 rounded-full text-[12.5px] font-semibold whitespace-nowrap border transition-colors ${
+              on ? 'bg-[#1F1A13] text-white border-[#1F1A13]' : 'bg-white text-[#44403a] border-[#E9E1D3] hover:border-[#E15A30]'
+            }`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const PARTNER_ICON: Record<PartnerType, LucideIcon> = { individual: User, company: Building2, influencer: Megaphone };
+const PARTNER_HINT: Record<PartnerType, AxKey> = {
+  individual: 'partner.individualHint',
+  company: 'partner.companyHint',
+  influencer: 'partner.influencerHint',
+};
+
+/** نوع السفير ببطاقات أيقوناتٍ كبيرة (التسجيل و«ملفي») — مجموعة اختيارٍ واحد */
+export function PartnerTypePicker({ value, onChange, label }: { value: PartnerType | ''; onChange: (v: PartnerType) => void; label: string }) {
+  const { t } = useAxT();
+  return (
+    <div role="radiogroup" aria-label={label} className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+      {PARTNER_TYPE_ORDER.map((p) => {
+        const Icon = PARTNER_ICON[p];
+        const on = value === p;
+        return (
+          <button
+            key={p} type="button" role="radio" aria-checked={on} onClick={() => onChange(p)}
+            className={`flex sm:flex-col items-center sm:text-center gap-3 sm:gap-1.5 rounded-2xl border-2 px-3.5 py-3 text-start transition-colors ${
+              on ? 'border-[#E15A30] bg-[#FBEBE2]/60' : 'border-[#E9E1D3] bg-white hover:border-[#E15A30]/60'
+            }`}
+          >
+            <span className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${on ? 'bg-[#E15A30] text-white' : 'bg-[#FAF7F0] text-[#44403a]'}`}>
+              <Icon size={22} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[14px] font-bold text-[#1F1A13]">{t(PARTNER_TYPE[p])}</span>
+              <span className="block text-[11.5px] text-[#6E6557] leading-snug mt-0.5">{t(PARTNER_HINT[p])}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }

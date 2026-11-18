@@ -3817,6 +3817,11 @@ model AffiliateUser {
   payoutUpdatedAt    DateTime?
   lastLoginAt        DateTime?
   lastMailAt         DateTime?                     // آخر بريد تأكيد/استعادة — مهلةٌ تمنع إغراق صندوقٍ بالطلبات
+  // ── v2 (١٨ نوفمبر ٢٠٢٦، docs/affiliate/V2_SPEC.md): التسجيل فوريّ بلا تأكيد بريد ولا موافقة، وملف السفير يُكمَل قبل الصرف ──
+  partnerType        String?                       // individual|company|influencer
+  companyName        String?                       // للشركة والوكالة
+  socialLinks        Json?                         // [{platform, url}] حتى ٨
+  profileCompletedAt DateTime?                     // اكتمل الملف (النوع + الآيبان + الهوية [+ السجل للشركة]) — شرط دخول دورة التسوية
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   claims       AffiliateClaim[]
@@ -3824,6 +3829,8 @@ model AffiliateUser {
   commissions  AffiliateCommission[]
   adjustments  AffiliateAdjustment[]
   payouts      AffiliatePayout[]
+  documents    AffiliateDocument[]
+  missedClaims AffiliateMissedClaim[]
   @@index([status])
   @@index([phone])
   @@map("affiliate_users")
@@ -3939,7 +3946,7 @@ model AffiliatePayout {
   commissionsHalalas Int
   adjustmentsHalalas Int
   netHalalas         Int
-  status             String        @default("draft") // draft|recorded|void
+  status             String        @default("draft") // draft|recorded|void|failed — draft = «قيد المعالجة»
   ibanLast4          String
   holderName         String
   transferredAt      DateTime?
@@ -3947,6 +3954,12 @@ model AffiliatePayout {
   createdBy          String
   recordedBy         String?
   voidReason         String?
+  // ── v2: دورة التسوية كل ١٠ أيام (cycleKey = تاريخ نهاية الدورة YYYY-MM-DD بتوقيت الرياض)، والفترة، وفشل التحويل ──
+  cycleKey           String?
+  periodStart        DateTime?
+  periodEnd          DateTime?
+  failedReason       String?
+  failedAt           DateTime?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
   commissions        AffiliateCommission[]
@@ -4002,6 +4015,76 @@ model AffiliateClickDaily {
   count Int      @default(0)
   @@id([code, day])
   @@map("affiliate_click_daily")
+}
+
+/// v2: مستندات ملف السفير (الهوية/الإقامة، والسجل التجاري للشركة) — البايتات **مشفّرة** AES-256-GCM في جدولٍ منفصل
+/// لا تُقرأ في القوائم. مستندٌ واحدٌ ساري لكل نوع (الأحدث يحلّ محلّ الأقدم ويُحذف). المالك يطّلع عليه بزرٍّ يُسجَّل حدثاً
+model AffiliateDocument {
+  id          String        @id @default(uuid())
+  affiliateId String
+  affiliate   AffiliateUser @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  kind        String        // national_id|commercial_reg
+  mime        String        // image/jpeg|image/png|image/webp|application/pdf (مفحوص بالبايتات)
+  sizeBytes   Int
+  sha256      String
+  createdAt   DateTime      @default(now())
+  blob        AffiliateDocumentBlob?
+  @@index([affiliateId, kind])
+  @@map("affiliate_documents")
+}
+
+model AffiliateDocumentBlob {
+  id         String            @id @default(uuid())
+  documentId String            @unique
+  document   AffiliateDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  enc        Bytes             // iv(12) + tag(16) + cipher
+  @@map("affiliate_document_blobs")
+}
+
+/// v2: «المطالبة بإحالة فائتة» — شركةٌ سجّلت دون رابط السفير أو رمزه؛ يراجعها المالك ويسندها يدوياً (أو يرفض بسبب)
+model AffiliateMissedClaim {
+  id           String        @id @default(uuid())
+  affiliateId  String
+  affiliate    AffiliateUser @relation(fields: [affiliateId], references: [id])
+  companyName  String
+  contactPhone String?
+  crNumber     String?
+  note         String?
+  status       String        @default("under_review") // under_review|accepted|rejected|withdrawn
+  tenantId     String?       // الشركة التي أُسندت عند القبول
+  reasonNote   String?
+  reviewedAt   DateTime?
+  reviewedBy   String?
+  submittedAt  DateTime      @default(now())
+  @@index([affiliateId, status])
+  @@index([status, submittedAt])
+  @@map("affiliate_missed_claims")
+}
+
+/// v2: مكتبة المواد التسويقية — يرفعها المالك (صورة/فيديو قصير/مستند) أو يضع رابطاً (فيديو طويل) أو نصّاً جاهزاً للنسخ
+model AffiliateMaterial {
+  id        String   @id @default(uuid())
+  title     String
+  category  String   // image|video|document|text|link
+  fileName  String?
+  mime      String?
+  sizeBytes Int?
+  url       String?  // للرابط الخارجي
+  textBody  String?  // للنصّ الجاهز
+  sortOrder Int      @default(0)
+  createdBy String
+  createdAt DateTime @default(now())
+  blob      AffiliateMaterialBlob?
+  @@index([category, sortOrder])
+  @@map("affiliate_materials")
+}
+
+model AffiliateMaterialBlob {
+  id         String            @id @default(uuid())
+  materialId String            @unique
+  material   AffiliateMaterial @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  bytes      Bytes
+  @@map("affiliate_material_blobs")
 }
 
 // عرض سعر صادر من الرابط الخاص /q-fs7k2m (المالك وموظّفو المبيعات بلا حسابات) —

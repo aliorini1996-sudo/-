@@ -1,27 +1,30 @@
 // ============================================================================
-// شاشات ما قبل الجلسة: دخول · تسجيل · تأكيد البريد · نسيت كلمة المرور ·
-// تعيين كلمة مرور جديدة · إعادة إرسال التأكيد.
-// ردود التسجيل والاستعادة موحّدة (202) عمداً — لا تكشف هل البريد مسجّل.
+// شاشات ما قبل الجلسة: دخول · تسجيل فوريّ · نسيت كلمة المرور · تعيين كلمة مرور جديدة.
+//
+// v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦ — V2_SPEC §0 و§7): التسجيل **يفتح الحساب ويُدخله فوراً**
+// (201 `{token, user}`) — لا تأكيد بريد ولا «بانتظار المراجعة». شاشتا تأكيد البريد وإعادة
+// إرساله حُذفتا، وروابطهما القديمة تذهب للدخول (nav.isLegacyAuthLink).
+// ردّ الاستعادة يبقى موحّداً (202) عمداً — لا يكشف هل البريد مسجّل.
 // كل النصوص من قاموس البوابة (../i18n)؛ نصّ الشروط العربي يُعرض عربياً.
 // ============================================================================
 import { useEffect, useState, type FormEvent } from 'react';
 import { ARAB_DIAL, WORLD_DIAL, flagOf } from '../../i18n/dialCodes';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { CheckCircle2, MailCheck, ShieldAlert, AlertCircle } from 'lucide-react';
+import { CheckCircle2, MailCheck, AlertCircle, Zap } from 'lucide-react';
 import { affiliateApi, httpStatus, qk, setToken, shouldRetry } from '../api';
-import { formatRate, formatSar } from '../format';
+import { daysLabel, formatRate, formatSar, SETTLEMENT_EVERY_DAYS } from '../format';
 import {
-  CITY_MAX, EMPTY_REGISTER, buildRegisterBody, isValidEmail, registerError, type RegisterForm,
+  COMPANY_NAME_MAX, EMPTY_REGISTER, buildRegisterBody, isValidEmail, registerError, type RegisterForm,
 } from '../validation';
 import { clearRegisterDraft, loadRegisterDraft, saveRegisterDraft } from '../draft';
-import { errorText, localizedServerText, verifyErrorKind } from '../errors';
-import { useAxT, type AxKey } from '../i18n';
+import { errorText, isEmailTaken, localizedServerText } from '../errors';
+import { useAxT } from '../i18n';
 import {
-  ArabicTermsBody, AuthShell, CheckRow, ErrorBox, Field, LinkButton, Loading, PasswordInput, Spinner, ltrFieldAlign,
+  ArabicTermsBody, AuthShell, CheckRow, ErrorBox, Field, LinkButton, Loading, PartnerTypePicker, PasswordInput, Spinner,
+  ltrFieldAlign,
 } from '../ui';
-import { verifyOutcome, type AuthView, type VerifyOutcome } from '../nav';
-import type { UserStatus } from '../types';
+import type { AuthView } from '../nav';
 
 export type { AuthView } from '../nav';
 
@@ -44,9 +47,9 @@ function SubmitButton({ busy, children }: { busy: boolean; children: string }) {
 export function LoginScreen({ go, email, setEmail, onLoggedIn }: NavProps & { onLoggedIn: () => void }) {
   const { t, lang, dir } = useAxT();
   const [password, setPassword] = useState('');
-  // كل فشلٍ في الدخول (كلمة مرور خاطئة، بريد مجهول، بريد غير مؤكَّد، قفل مؤقت) يُعيد 401
-  // برسالة واحدة عمداً — فلا تفريع هنا على نصّها: تُعرض (مترجمةً لغير العربية)، ورابط
-  // «لم تصلك رسالة التأكيد؟» ظاهر دائماً تحت النموذج.
+  // كل فشلٍ في الدخول (كلمة مرور خاطئة، بريد مجهول، قفل مؤقت) يُعيد 401 برسالة واحدة عمداً —
+  // فلا تفريع هنا على نصّها: تُعرض (مترجمةً لغير العربية). حسابات v1 «بانتظار التأكيد أو
+  // المراجعة» تُرقّى في الخادم عند أوّل دخولٍ ناجح، فلا رابط «لم تصلك رسالة التأكيد؟» بعد اليوم.
   const [failure, setFailure] = useState<unknown>(null);
 
   const login = useMutation({
@@ -90,7 +93,6 @@ export function LoginScreen({ go, email, setEmail, onLoggedIn }: NavProps & { on
       <div className="mt-5 space-y-2 text-sm text-[#6E6557]">
         <div className="flex justify-between gap-2 flex-wrap">
           <LinkButton onClick={() => go('forgot')}>{t('login.forgot')}</LinkButton>
-          <LinkButton onClick={() => go('resend')}>{t('login.noVerifyMail')}</LinkButton>
         </div>
         <div className="pt-3 border-t border-[#F1EBDF] text-center">
           {t('login.notAmbassador')} <LinkButton onClick={() => go('register')}>{t('login.apply')}</LinkButton>
@@ -100,9 +102,14 @@ export function LoginScreen({ go, email, setEmail, onLoggedIn }: NavProps & { on
   );
 }
 
-// ─────────────────────────── التسجيل ───────────────────────────
+// ─────────────────────────── التسجيل الفوريّ ───────────────────────────
 
-export function RegisterScreen({ go, email, setEmail }: NavProps) {
+/**
+ * بطاقةٌ واحدة (V2_SPEC §7): الاسم والبريد والجوال وكلمة المرور ونوع السفير (واسم الشركة إن
+ * كانت) والموافقة ⇒ 201 `{token, user}` فيُخزَّن التوكن ويدخل الرئيسية فوراً.
+ * 409 `email_taken` ⇒ «سجّل الدخول» بالبريد نفسه؛ و409 غيره ⇒ صدرت شروطٌ أحدث أثناء الملء.
+ */
+export function RegisterScreen({ go, email, setEmail, onLoggedIn }: NavProps & { onLoggedIn: () => void }) {
   const { t, m, rich, lang, dir } = useAxT();
   const terms = useQuery({ queryKey: qk.terms, queryFn: affiliateApi.publicTerms, retry: shouldRetry, staleTime: 60_000 });
   // المسودّة تبقى في sessionStorage عبر الرجوع والتنقّل (بلا كلمة المرور ولا الموافقة على الشروط)
@@ -111,14 +118,24 @@ export function RegisterScreen({ go, email, setEmail }: NavProps) {
     if (draft) return draft.email.trim() || !email ? draft : { ...draft, email };
     return { ...EMPTY_REGISTER, email };
   });
-  const [doneMessage, setDoneMessage] = useState<string | null>(null);
-  useEffect(() => { if (doneMessage === null) saveRegisterDraft(form); }, [form, doneMessage]);
-  const set = <K extends keyof RegisterForm>(k: K, v: RegisterForm[K]) => setForm((f) => ({ ...f, [k]: v }));
+  const [taken, setTaken] = useState<unknown>(null);
+  useEffect(() => { saveRegisterDraft(form); }, [form]);
+  const set = <K extends keyof RegisterForm>(k: K, v: RegisterForm[K]) => {
+    if (k === 'email') setTaken(null);
+    setForm((f) => ({ ...f, [k]: v }));
+  };
 
   const register = useMutation({
     mutationFn: (version: string) => affiliateApi.register(buildRegisterBody(form, version)),
-    onSuccess: (message) => { clearRegisterDraft(); setEmail(form.email.trim()); setDoneMessage(message ?? ''); },
+    onSuccess: (r) => {
+      clearRegisterDraft();
+      setEmail(form.email.trim());
+      setToken(r.token);
+      toast.success(t('reg.welcome'));
+      onLoggedIn();
+    },
     onError: (err) => {
+      if (isEmailTaken(err)) { setTaken(err); return; }
       const s = httpStatus(err);
       if (s === 409) {
         // صدر إصدار جديد من الشروط أثناء ملء النموذج — لا موافقة على نصٍّ لم يُقرأ
@@ -131,22 +148,6 @@ export function RegisterScreen({ go, email, setEmail }: NavProps) {
       toast.error(errorText(err, lang, 'reg.failed'));
     },
   });
-
-  if (doneMessage !== null) {
-    return (
-      <AuthShell title={t('reg.doneTitle')}>
-        <div className="flex flex-col items-center text-center gap-3">
-          <MailCheck size={40} className="text-[#1E7A52]" />
-          <p className="text-[15px] text-[#1F1A13] leading-relaxed">{localizedServerText(lang, doneMessage, 'accepted.register')}</p>
-          <p className="text-[13px] text-[#6E6557] leading-relaxed">{t('reg.doneHint')}</p>
-          <div className="flex flex-col gap-2 w-full mt-2">
-            <button type="button" className="btn-primary w-full justify-center py-2.5" onClick={() => go('login')}>{t('reg.goLogin')}</button>
-            <button type="button" className="btn-secondary w-full justify-center py-2.5" onClick={() => go('resend')}>{t('reg.resendCta')}</button>
-          </div>
-        </div>
-      </AuthShell>
-    );
-  }
 
   if (terms.isLoading) return <AuthShell title={t('reg.title')}><Loading /></AuthShell>;
   if (terms.isError || !terms.data) {
@@ -167,18 +168,29 @@ export function RegisterScreen({ go, email, setEmail }: NavProps) {
     e.preventDefault();
     const err = registerError(form);
     if (err) { toast.error(m(err)); return; }
+    setTaken(null);
     register.mutate(pt.version);
   };
+
+  const toLogin = () => { setEmail(form.email.trim()); go('login'); };
 
   return (
     <AuthShell
       wide
       title={t('reg.title')}
-      subtitle={rich('reg.subtitle', {
-        rate: <b className="text-[#1F1A13]"><bdi dir="ltr">{formatRate(pt.rateBps)}</bdi></b>,
-        days: pt.holdDays,
-        min: formatSar(pt.minPayoutHalalas, lang),
-      })}
+      subtitle={
+        <>
+          {rich('reg.subtitle', {
+            rate: <b className="text-[#1F1A13]"><bdi dir="ltr">{formatRate(pt.rateBps)}</bdi></b>,
+            days: daysLabel(pt.holdDays, lang),
+            every: daysLabel(pt.settlementEveryDays ?? SETTLEMENT_EVERY_DAYS, lang),
+            min: formatSar(pt.minPayoutHalalas, lang),
+          })}
+          <span className="mt-2 flex items-center gap-1.5 rounded-xl bg-[#E4F1EA] text-[#1E7A52] text-[12.5px] font-semibold px-3 py-2">
+            <Zap size={15} className="shrink-0" /> {t('reg.instant')}
+          </span>
+        </>
+      }
     >
       <form onSubmit={submit} className="space-y-4" noValidate>
         <Field label={t('f.fullName')} required>
@@ -207,17 +219,24 @@ export function RegisterScreen({ go, email, setEmail }: NavProps) {
             </div>
           </Field>
         </div>
-        <div className="grid sm:grid-cols-2 gap-4">
-          <Field label={t('f.city')}>
-            <input className="input" value={form.city} onChange={(e) => set('city', e.target.value)} maxLength={CITY_MAX} />
-          </Field>
-          <Field label={t('f.password')} required hint={t('f.passwordHint')}>
-            <PasswordInput value={form.password} onChange={(v) => set('password', v)} autoComplete="new-password" />
-          </Field>
-        </div>
-        <Field label={t('f.vatOptional')} hint={t('f.vatHint')}>
-          <input dir="ltr" className={`input ${ltrFieldAlign(dir)}`} value={form.vatNumber} onChange={(e) => set('vatNumber', e.target.value)} inputMode="numeric" maxLength={17} />
+        {taken !== null && (
+          <div role="alert" className="rounded-xl bg-[#FAEFD8] text-[#8A5A0B] text-[13px] leading-relaxed px-3 py-2.5 space-y-2">
+            <p className="flex gap-2"><AlertCircle size={16} className="shrink-0 mt-0.5" /><span>{errorText(taken, lang, 'reg.emailTaken', 'reg.emailTaken')}</span></p>
+            <button type="button" className="btn-secondary w-full justify-center py-2" onClick={toLogin}>{t('common.login')}</button>
+          </div>
+        )}
+        <Field label={t('f.password')} required hint={t('f.passwordHint')}>
+          <PasswordInput value={form.password} onChange={(v) => set('password', v)} autoComplete="new-password" />
         </Field>
+
+        <Field label={t('reg.partnerType')} required>
+          <PartnerTypePicker value={form.partnerType} onChange={(v) => set('partnerType', v)} label={t('reg.partnerType')} />
+        </Field>
+        {form.partnerType === 'company' && (
+          <Field label={t('f.companyName')} required>
+            <input className="input" value={form.companyName} onChange={(e) => set('companyName', e.target.value)} autoComplete="organization" maxLength={COMPANY_NAME_MAX} />
+          </Field>
+        )}
 
         <div>
           <div className="label flex items-center justify-between">
@@ -248,108 +267,14 @@ export function RegisterScreen({ go, email, setEmail }: NavProps) {
   );
 }
 
-// ─────────────────────────── تأكيد البريد ───────────────────────────
+// ─────────────────────────── نسيت كلمة المرور ───────────────────────────
 
-/**
- * نتيجة كل رمز تأكيدٍ ناجح تُحفظ لعمر الصفحة: الرمز يُستهلك مرّةً في الخادم، والشاشة
- * قد تُركَّب ثانيةً بعودة السفير إليها بزرّ الرجوع — فتُعرض النتيجة بدل طلب كلمة المرور.
- */
-const verifiedTokens = new Map<string, UserStatus>();
-
-const VERIFY_COPY: Record<VerifyOutcome, { title: AxKey; body: AxKey }> = {
-  review: { title: 'verify.review.title', body: 'verify.review.body' },
-  approved: { title: 'verify.approved.title', body: 'verify.approved.body' },
-  already: { title: 'verify.already.title', body: 'verify.already.body' },
-};
-
-/**
- * تأكيد البريد يطلب **كلمة المرور التي اختارها المتقدّم عند التسجيل**: البريد يُثبت ملكية
- * الصندوق، وكلمة المرور تُثبت أنّ صاحب الصندوق هو صاحب الطلب. لا إرسال تلقائي عند الفتح.
- */
-export function VerifyScreen({ go, token }: NavProps & { token: string }) {
-  const { t, lang } = useAxT();
-  const cached = verifiedTokens.get(token);
-  const [password, setPassword] = useState('');
-  const [status, setStatus] = useState<UserStatus | null>(cached ?? null);
-  const [failure, setFailure] = useState<{ kind: 'mismatch' | 'invalid'; err: unknown } | null>(null);
-
-  const verify = useMutation({
-    mutationFn: () => affiliateApi.verifyEmail(token, password),
-    onSuccess: (r) => {
-      const st = (r?.status ?? 'pending_review') as UserStatus;
-      verifiedTokens.set(token, st);
-      setFailure(null);
-      setStatus(st);
-    },
-    onError: (err) => {
-      const kind = verifyErrorKind(err);
-      if (kind === 'retry') { toast.error(errorText(err, lang, 'verify.retry')); return; }
-      setFailure({ kind, err });
-    },
-  });
-
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!password) { toast.error(t('verify.enterPassword')); return; }
-    setFailure(null);
-    verify.mutate();
-  };
-
-  if (status) {
-    const copy = VERIFY_COPY[verifyOutcome(status)];
-    return (
-      <AuthShell title={t(copy.title)}>
-        <div className="flex flex-col items-center text-center gap-3">
-          <CheckCircle2 size={40} className="text-[#1E7A52]" />
-          <p className="text-[15px] text-[#1F1A13] leading-relaxed">{t(copy.body)}</p>
-          <button type="button" className="btn-primary w-full justify-center py-2.5 mt-2" onClick={() => go('login')}>{t('common.login')}</button>
-        </div>
-      </AuthShell>
-    );
-  }
-
-  if (failure?.kind === 'invalid') {
-    return (
-      <AuthShell title={t('verify.failedTitle')}>
-        <div className="flex flex-col items-center text-center gap-3">
-          <ShieldAlert size={40} className="text-[#C0392B]" />
-          <p className="text-[15px] text-[#1F1A13] leading-relaxed">{errorText(failure.err, lang, 'verify.invalid', 'verify.invalid')}</p>
-          <button type="button" className="btn-primary w-full justify-center py-2.5 mt-2" onClick={() => go('resend')}>{t('verify.sendNew')}</button>
-          <button type="button" className="btn-secondary w-full justify-center py-2.5" onClick={() => go('login')}>{t('common.login')}</button>
-        </div>
-      </AuthShell>
-    );
-  }
-
-  return (
-    <AuthShell title={t('verify.title')} subtitle={t('verify.subtitle')}>
-      <form onSubmit={submit} className="space-y-4">
-        <Field label={t('f.password')}>
-          <PasswordInput value={password} onChange={(v) => { setPassword(v); if (failure) setFailure(null); }} autoComplete="current-password" />
-        </Field>
-        {failure?.kind === 'mismatch' && (
-          <div role="alert" className="rounded-xl bg-[#FAEFD8] text-[#8A5A0B] text-[13px] leading-relaxed px-3 py-2.5 space-y-2">
-            <p className="flex gap-2"><AlertCircle size={16} className="shrink-0 mt-0.5" /><span>{errorText(failure.err, lang, 'verify.mismatch', 'verify.mismatch')}</span></p>
-            <button type="button" className="btn-secondary w-full justify-center py-2" onClick={() => go('register')}>{t('login.apply')}</button>
-          </div>
-        )}
-        <SubmitButton busy={verify.isPending}>{t('verify.submit')}</SubmitButton>
-      </form>
-      <p className="text-center text-sm mt-5"><LinkButton onClick={() => go('resend')}>{t('verify.sendNew')}</LinkButton></p>
-    </AuthShell>
-  );
-}
-
-// ─────────────────────────── بريد فقط (نسيت · إعادة إرسال) ───────────────────────────
-
-function EmailOnlyScreen({
-  go, email, setEmail, title, subtitle, action, accepted, send,
-}: NavProps & { title: AxKey; subtitle: AxKey; action: AxKey; accepted: AxKey; send: (email: string) => Promise<string | null> }) {
+export function ForgotScreen({ go, email, setEmail }: NavProps) {
   const { t, lang, dir } = useAxT();
   const [doneMessage, setDoneMessage] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const mutation = useMutation({
-    mutationFn: () => send(email.trim().toLowerCase()),
+    mutationFn: () => affiliateApi.forgot(email.trim().toLowerCase()),
     onSuccess: (message) => { setDoneMessage(message); setDone(true); },
     onError: (err) => toast.error(errorText(err, lang, 'mail.sendFailed')),
   });
@@ -361,10 +286,10 @@ function EmailOnlyScreen({
 
   if (done) {
     return (
-      <AuthShell title={t(title)}>
+      <AuthShell title={t('forgot.title')}>
         <div className="flex flex-col items-center text-center gap-3">
           <MailCheck size={40} className="text-[#1E7A52]" />
-          <p className="text-[15px] text-[#1F1A13] leading-relaxed">{localizedServerText(lang, doneMessage, accepted)}</p>
+          <p className="text-[15px] text-[#1F1A13] leading-relaxed">{localizedServerText(lang, doneMessage, 'accepted.forgot')}</p>
           <p className="text-[12.5px] text-[#6E6557]">{t('mail.checkSpam')}</p>
           <button type="button" className="btn-primary w-full justify-center py-2.5 mt-2" onClick={() => go('login')}>{t('common.backToLogin')}</button>
         </div>
@@ -372,50 +297,24 @@ function EmailOnlyScreen({
     );
   }
   return (
-    <AuthShell title={t(title)} subtitle={t(subtitle)}>
+    <AuthShell title={t('forgot.title')} subtitle={t('forgot.subtitle')}>
       <form onSubmit={submit} className="space-y-4">
         <Field label={t('f.email')}>
           <input type="email" dir="ltr" className={`input ${ltrFieldAlign(dir)}`} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" inputMode="email" />
         </Field>
-        <SubmitButton busy={mutation.isPending}>{t(action)}</SubmitButton>
+        <SubmitButton busy={mutation.isPending}>{t('forgot.action')}</SubmitButton>
       </form>
       <p className="text-center text-sm mt-5"><LinkButton onClick={() => go('login')}>{t('common.backToLogin')}</LinkButton></p>
     </AuthShell>
   );
 }
 
-export function ForgotScreen(props: NavProps) {
-  return (
-    <EmailOnlyScreen
-      {...props}
-      title="forgot.title"
-      subtitle="forgot.subtitle"
-      action="forgot.action"
-      accepted="accepted.forgot"
-      send={affiliateApi.forgot}
-    />
-  );
-}
-
-export function ResendScreen(props: NavProps) {
-  return (
-    <EmailOnlyScreen
-      {...props}
-      title="resend.title"
-      subtitle="resend.subtitle"
-      action="resend.action"
-      accepted="accepted.resend"
-      send={affiliateApi.resendVerification}
-    />
-  );
-}
-
 // ─────────────────────────── تعيين كلمة مرور جديدة ───────────────────────────
 
 /**
- * تعيين كلمة مرور جديدة. رابط البريد إثباتٌ أقوى من كلمة المرور، فالخادم يُعيد جلسةً لكل
- * حسابٍ مؤكَّد البريد ويفكّ القفل: يدخل صاحبها البوابة مباشرةً — هكذا يعود المُقفَل.
- * بلا جلسة (بريد لم يُؤكَّد بعد) ⇒ شاشة «تم التغيير» والدخول كالمعتاد.
+ * تعيين كلمة مرور جديدة. رابط البريد إثباتٌ أقوى من كلمة المرور، فالخادم يُعيد جلسةً ويفكّ
+ * القفل: يدخل صاحبها البوابة مباشرةً — هكذا يعود المُقفَل.
+ * بلا جلسة في الردّ ⇒ شاشة «تم التغيير» والدخول كالمعتاد.
  */
 export function ResetScreen({ go, token, onLoggedIn }: NavProps & { token: string; onLoggedIn: () => void }) {
   const { t, lang } = useAxT();
