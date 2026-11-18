@@ -15,12 +15,13 @@
 import type { Prisma } from '@prisma/client';
 import {
   LOT_BUCKETS, LOT_EPS, LOT_UNKNOWN_KEY, LOT_VAN_REASONS, LotError, aggregateRequest, allocateOutLines, isLotExpiredOn,
-  isLotQty, lotErr, lotMessage, multiLotWarning, normalizeLotNumber, parseLotRefsStrict, pickOutFefoLines, pickOutSources, refsOfByLot, roundLot,
+  isLotQty, lotErr, lotMessage, multiLotWarning, normalizeLotNumber, parseLotRefsStrict, pickOutFefoLines, pickOutSources, refsOfByLot, floorLot, roundLot,
   splitAvailability, zeroBuckets,
-  type AllocRow, type LotActor, type LotBalance, type LotBucket, type LotMeta, type LotRef, type LotWarning, type PlaceLotView,
+  type AllocRow, type LotActor, type LotBalance, type LotBucket, type LotCertainty, type LotMeta, type LotRef, type LotWarning, type PlaceLotView,
   type VanLotSnapshotDto, type VanMoveType, type VanMovementPlan, type VanMovementPlanInput,
 } from './lots';
-import { companyDay, loadLotMetas, lockLotProducts, placeViews, resolveOrCreateLot, type LotDb, type LotEventActor, type LotTx } from './lotsDb';
+import { companyDay, loadLotMetas, lockLotProducts, placeViews, recordLotEvent, resolveOrCreateLot, type LotDb, type LotEventActor, type LotTx } from './lotsDb';
+import { unitFields } from './units';
 
 /** D17 (افتراض المواصفة بقرار المالك): التحميل من غير المسمّى بعد نفاد المسمّى المؤهَّل، بيقين UNKNOWN، ولا يُنقص دون الصفر (I2) */
 export const VAN_LOT_ALLOW_UNKNOWN = true;
@@ -39,7 +40,151 @@ export interface VanLotsRaw { lots?: unknown; lotNumber?: unknown; productionDat
  * سياقٌ اختياري من المسار: الأقفال المأخوذة سلفاً (فلا تُؤخذ مرتين)، وفاعل سجل التدقيق كما يبنيه lotEventActorOf من req.user
  * (جلسة «دخول» بمُصدِرها STAFF أو OWNER، والمفتاح بمعرّفه) — بدونه يُشتقّ من createdBy واسم الفاعل كما كان، وبلا أقفال تأخذها الدالّة
  */
-export interface VanPlanContext { locked?: { tracked: ReadonlySet<string> } | null; actorName?: string | null; eventActor?: LotEventActor | null }
+export interface VanPlanContext {
+  locked?: { tracked: ReadonlySet<string> } | null; actorName?: string | null; eventActor?: LotEventActor | null;
+  /**
+   * «حركات مفتاح الربط لا تُرفض باللوط» (طلب المالك ١٦ نوفمبر ٢٠٢٦): المسار يمرّره لمفتاح API وحده (req.user.apiKeyId)، فالواجهة
+   * و/m وتطبيق المندوب كما كانت حرفياً. تصفير السيارة في Odoo كان يُرفض 409/422 فيبقى رصيد التشغيلات في فيلد — فصار تطبيق الحركة
+   * أولى من رفض المستند: رقمٌ مجهول ⇒ سحبٌ تلقائي، والنقص ⇒ حصرٌ بالمتاح (LOT_CLAMPED)، والكسر الخامس ⇒ تقريب، والزيادة برقمٍ
+   * جديد ⇒ إنشاءٌ بتحذير. ولا سالب أبداً (I1، I2)
+   */
+  lenient?: boolean;
+}
+
+/**
+ * خطة السيارة ومعها ما طبّقه التسامح: `applied` الكمية الأساسية **بإشارة البند** لكل سطرٍ تغيّرت كميته (حُصر بالمتاح أو قُرّب) —
+ * صفرٌ ⇒ لا يُكتب بنده. غائبٌ ⇒ السطر بكميته كما أُرسلت (كل غير المفتاح).
+ */
+export type VanMovementPlanResult = VanMovementPlan & { applied: Map<number, number> };
+
+/** كل أسطر الحركة حُصرت إلى صفر ⇒ لا حركة تُكتب: المسار يردّ 200 noop بالتحذيرات (لا حركةٌ بلا بنود) */
+export class VanPlanNoop extends Error {
+  constructor(readonly warnings: readonly unknown[]) { super('VAN_PLAN_NOOP'); this.name = 'VanPlanNoop'; }
+}
+
+/** هل حُصرت كل أسطر الحركة إلى صفر؟ (`idxs` مواضع البنود كما تعرّف بها الخطة أسطرها) */
+export function vanPlanWritesNothing(plan: VanMovementPlanResult | null | undefined, idxs: readonly number[]): boolean {
+  // applied غائبة (خطةٌ بلا تسامح من مستدعٍ قديم) ⇒ كل البنود تُكتب
+  return !!plan?.applied && idxs.length > 0 && idxs.every((i) => { const a = plan.applied.get(i); return a !== undefined && Math.abs(a) <= LOT_EPS; });
+}
+
+/**
+ * أعمدة كمية البند المطبَّقة (تُنشر **بعد** unitFields فتغلبها): سطرٌ لم يتغيّر ⇒ {} والبند كما كان. والمحصور بوحدة سطره إن بقي
+ * وحداتٍ كاملة، وإلا بوحدة الأساس — فمجموع صفوف لوطه = أساس البند دائماً (I3)
+ */
+export function vanAppliedItemFields(plan: VanMovementPlanResult | null | undefined, idx: number, unit: { name?: string | null; factor?: number | null }):
+  ReturnType<typeof unitFields> | Record<string, never> {
+  const a = plan?.applied?.get(idx);
+  if (a === undefined) return {};
+  const F = Number(unit.factor) || 1;
+  const inUnits = a / F;
+  return F > 1 && Math.abs(inUnits - Math.round(inUnits)) <= 1e-9 ? unitFields(Math.round(inUnits), unit) : unitFields(a, null);
+}
+
+// ═══ التسامح في الإنقاص (مفتاح الربط) ═══
+
+/** سطر إنقاصٍ متسامح لصنفٍ واحد: كميته الأساسية الموجبة، وتشغيلاته المفضَّلة (مجموعها قد يخالف كميته)، وحصرٌ اختياري للمسمّاة */
+export interface LenientOutLine { idx: number; qty: number; prefs?: LotRef[] | null; only?: ((m: LotMeta) => boolean) | null }
+export interface LenientOutResult { lines: Map<number, AllocRow[]>; applied: Map<number, number>; warnings: LotWarning[] }
+
+/**
+ * إنقاصٌ لا يُرفض لصنفٍ من دلوٍ في مكان (السيارة أو المستودع) — لمفتاح الربط حين يرفض المسار الصارم (pickOutSources) أو حين لا
+ * يساوي مجموع تشغيلاته كميته. لكل الأسطر معاً (D26): **المفضَّل أولاً** (اللوط المسمّى أيّاً كانت حالته — إنقاص تشغيلةٍ حقيقية مسموح
+ * ولو موقوفة أو منتهية — وغير المسمّى الصريح) حتى صالحه، **ثم** بالأقرب انتهاءً من بقية المسمّاة، **ثم** غير المسمّى (D17).
+ * وما زاد على ذلك يُحصر: الكمية المطبَّقة دون المطلوب بتحذير LOT_CLAMPED {idx, requested, applied}، ولا يُنزل شيءٌ دون الصفر:
+ * - I1: من اللوط حتى صالحه الموجب وحده.
+ * - I2: غير المسمّى حتى max(0, صالحه) — لا يُنقص دون min(0, قبله).
+ * - ورصيد الصنف الصالح (المسمّى + غير المسمّى) لا ينزل دون الصفر: لوطٌ «شبح» فوق رصيد الصنف (غير المسمّى سالب) لا يُصرف منه
+ *   ما لا يوجد في السيارة.
+ * مفضَّلٌ لم يكفِه صالحه ⇒ LOT_EXPLICIT_FALLBACK {line, lotId, lotNumber, reason: 'SHORT', requested, taken, spilled[]}.
+ * اليقين: المفضَّل المسمّى CONFIRMED، والتلقائي CONFIRMED إن كان المصدر الوحيد وإلا ASSUMED، وغير المسمّى UNKNOWN. الصفوف موجبة.
+ */
+export function lenientTakeLines(view: PlaceLotView, bucket: LotBucket, input: readonly LenientOutLine[]): LenientOutResult {
+  const productId = view.productId;
+  const warnings: LotWarning[] = [];
+  const pool = new Map(view.lots.map((l) => [l.lotId, Math.max(0, l.usable[bucket])]));
+  const byId = new Map(view.lots.map((l) => [l.lotId, l]));
+  const uu = view.unknownUsable?.[bucket] ?? 0;
+  let uLeft = Math.max(0, uu);
+  const namedPos = view.lots.reduce((s, l) => s + Math.max(0, l.usable[bucket]), 0);
+  // رصيد الصنف الصالح (سيارة مندوبٍ محذوف: غير المسمّى مجهول ⇒ المسمّى وحده)
+  const productUsable = view.unknownUsable ? view.lots.reduce((s, l) => s + l.usable[bucket], 0) + uu : Infinity;
+  // floorLot لا roundLot: التقريب لأعلى قد يأخذ فوق رصيدٍ أدقّ من أربع خانات بغبار < 0.00005 فيخرق I1/I2
+  let capLeft = floorLot(Math.max(0, Math.min(namedPos + uLeft, productUsable)));
+  const nSrc = view.lots.filter((l) => l.usable[bucket] > LOT_EPS).length + (uLeft > LOT_EPS ? 1 : 0);
+  const autoCert: LotCertainty = nSrc === 1 ? 'CONFIRMED' : 'ASSUMED';
+  const left = new Map(input.map((l) => [l.idx, roundLot(l.qty)]));
+  const rows = new Map<number, Map<string, AllocRow>>(input.map((l) => [l.idx, new Map()]));
+  const add = (idx: number, lotId: string | null, q: number, certainty: LotCertainty, expiryDate: string | null) => {
+    const m = rows.get(idx)!;
+    const k = keyOf(lotId);
+    const r = m.get(k);
+    if (r) r.qty = roundLot(r.qty + q);
+    else m.set(k, { lotId, qty: q, certainty, flags: [], expiryDate });
+  };
+  const take = (idx: number, max: number): number => {
+    const q = floorLot(Math.min(left.get(idx)!, max, capLeft));
+    if (!(q > LOT_EPS)) return 0;
+    left.set(idx, roundLot(left.get(idx)! - q));
+    capLeft = roundLot(capLeft - q);
+    return q;
+  };
+  const short = new Map<number, { lotId: string | null; lotNumber: string | null; requested: number; taken: number }[]>();
+  // ١) المفضَّل لكل الأسطر قبل أي سحبٍ تلقائي — فلا يأخذ سطرٌ تلقائي صالحَ تشغيلةٍ سمّاها سطرٌ بعده
+  for (const l of input) {
+    const s: { lotId: string | null; lotNumber: string | null; requested: number; taken: number }[] = [];
+    for (const r of l.prefs ?? []) {
+      const want = roundLot(Math.min(r.qty, left.get(l.idx)!));
+      if (!(want > LOT_EPS)) continue;
+      let got = 0;
+      if (r.lotId == null) {
+        got = take(l.idx, Math.min(want, uLeft));
+        uLeft = roundLot(uLeft - got);
+        if (got) add(l.idx, null, got, 'UNKNOWN', null);
+      } else {
+        const lot = byId.get(r.lotId);
+        if (lot && (!l.only || l.only(lot.meta))) {
+          got = take(l.idx, Math.min(want, pool.get(r.lotId) ?? 0));
+          pool.set(r.lotId, roundLot((pool.get(r.lotId) ?? 0) - got));
+          if (got) add(l.idx, r.lotId, got, 'CONFIRMED', lot.meta.expiryDate);
+        }
+      }
+      if (got < want - LOT_EPS) s.push({ lotId: r.lotId, lotNumber: r.lotId ? byId.get(r.lotId)?.meta.lotNumber ?? null : null, requested: want, taken: got });
+    }
+    short.set(l.idx, s);
+  }
+  // ٢) الباقي: الأقرب انتهاءً من المسمّاة (العرض مرتّبٌ بـfefoCompare)، ثم غير المسمّى — والمحصور تحذير
+  for (const l of input) {
+    const auto: { lotId: string | null; lotNumber: string | null; qty: number }[] = [];
+    for (const lot of view.lots) {
+      if (!(left.get(l.idx)! > LOT_EPS)) break;
+      if (l.only && !l.only(lot.meta)) continue;
+      const got = take(l.idx, pool.get(lot.lotId) ?? 0);
+      if (!got) continue;
+      pool.set(lot.lotId, roundLot((pool.get(lot.lotId) ?? 0) - got));
+      add(l.idx, lot.lotId, got, autoCert, lot.meta.expiryDate);
+      auto.push({ lotId: lot.lotId, lotNumber: lot.meta.lotNumber, qty: got });
+    }
+    if (!l.only && left.get(l.idx)! > LOT_EPS) {
+      const got = take(l.idx, uLeft);
+      uLeft = roundLot(uLeft - got);
+      if (got) { add(l.idx, null, got, 'UNKNOWN', null); auto.push({ lotId: null, lotNumber: null, qty: got }); }
+    }
+    for (const s of short.get(l.idx) ?? []) {
+      warnings.push({ code: 'LOT_EXPLICIT_FALLBACK', productId, detail: { line: l.idx, idx: l.idx, lotId: s.lotId, lotNumber: s.lotNumber, reason: 'SHORT', requested: s.requested, taken: s.taken, spilled: auto } });
+    }
+    const requested = roundLot(l.qty);
+    const applied = roundLot(requested - left.get(l.idx)!);
+    if (applied < requested - LOT_EPS) warnings.push({ code: 'LOT_CLAMPED', productId, detail: { idx: l.idx, bucket, requested, applied } });
+  }
+  const lines = new Map<number, AllocRow[]>();
+  const applied = new Map<number, number>();
+  for (const l of input) {
+    lines.set(l.idx, [...rows.get(l.idx)!.values()]);
+    applied.set(l.idx, roundLot(roundLot(l.qty) - left.get(l.idx)!));
+  }
+  return { lines, applied, warnings };
+}
 
 /** خطأ طلبٍ بحالته — يردّه معالج 4xx في routes/vanStock.ts برسالته */
 const badRequest = (message: string): Error => Object.assign(new Error(message), { status: 400 });
@@ -120,6 +265,117 @@ interface Line {
   idx: number; productId: string; productName: string; shelfLifeOn: boolean; unitFactor: number;
   dir: 1 | -1; abs: number; refs: LotRef[] | null; lotNumber: string | null; productionDate: string | null; expiryDate: string | null;
   reason: string | null;
+  /** مفتاح الربط وحده: التشغيلات كما أُرسلت (معرّفٌ أو رقم) قبل حلّها تحت القفل، وما يُنشأ منها في الزيادة */
+  prefs?: Pref[] | null; creates?: Pref[] | null;
+}
+
+/** تشغيلةٌ مفضَّلة من مفتاح الربط: معرّف فيلد، أو null صريح لغير المسمّى، أو رقم التشغيلة (رقم Odoo) مطبَّعاً — بكميتها الأساسية */
+interface Pref { lotId?: string | null; lotNumber?: string | null; qty: number; productionDate?: string | null; expiryDate?: string | null }
+
+/**
+ * سطرٌ متتبَّع من مفتاح الربط بلا رفضٍ للّوط (VanPlanContext.lenient): الإشارة (I7) كما هي، والكسر الخامس يُقرَّب بتحذير
+ * LOT_CLAMPED {reason: 'DECIMALS'} (وما قُرّب إلى صفر لا يُكتب ⇒ null)، والتشغيلات تفضيلاتٌ لا شروط — lots[] بمعرّف فيلد أو برقم
+ * التشغيلة (lotNumber داخل الصف)، أو رقمٌ أو معرّفٌ مسطَّح على البند — تُحلّ تحت القفل (resolvePrefs). صفٌّ بلا معرّفٍ ولا رقم
+ * أو بكميةٍ غير موجبة لا تفضيل له (يوزّعه الخادم).
+ */
+function parseLineLenient(l: VanMovementPlanInput['lines'][number], type: VanMoveType, warnings: LotWarning[]): Line | null {
+  const q = Number(l.qty);
+  const at = { productId: l.productId, idx: l.idx };
+  if (!Number.isFinite(q) || Math.abs(q) <= LOT_EPS) throw lotErr('LOT_QTY_INVALID', {}, { ...at, wanted: l.qty });
+  if (q < 0 && type !== 'ADJUST') throw lotErr('LOT_QTY_INVALID', {}, { ...at, wanted: q, reason: 'NEGATIVE' });
+  const dir: 1 | -1 = q > 0 ? 1 : -1;
+  let abs = Math.abs(q);
+  if (!isLotQty(abs)) {
+    const r = roundLot(abs);
+    warnings.push({ code: 'LOT_CLAMPED', productId: l.productId, detail: { idx: l.idx, reason: 'DECIMALS', requested: abs, applied: dir * r } });
+    if (!(r > LOT_EPS)) return null;
+    abs = r;
+  }
+  const reason = l.reason == null || l.reason === '' ? null : String(l.reason);
+  if (reason != null) {
+    if (!(LOT_VAN_REASONS as readonly string[]).includes(reason)) throw badRequest('وسم حركة التشغيلة غير معروف');
+    if (!(type === 'ADJUST' && dir < 0)) throw badRequest('إتلاف المنتهي غير المباع تسويةُ نقصٍ (ADJUST بكمية سالبة) وحدها');
+  }
+  const spec = specOf(l.lotsRaw) as VanLotsRaw & { lotId?: unknown };
+  const prefs: Pref[] = [];
+  const numberOf = (v: unknown): string | null => {
+    if (v == null || v === '') return null;
+    const n = normalizeLotNumber(v);
+    if (!n) warnings.push({ code: 'LOT_NUMBER_UNKNOWN', productId: l.productId, detail: { idx: l.idx, lotNumber: String(v).slice(0, 80), reason: 'INVALID' } });
+    return n;
+  };
+  if (Array.isArray(spec.lots)) {
+    for (const x of spec.lots.slice(0, 50)) {
+      if (!x || typeof x !== 'object' || Array.isArray(x)) continue;
+      const o = x as Record<string, unknown>;
+      const qty = roundLot(Math.abs(Number(o.qty)));
+      if (!Number.isFinite(qty) || !(qty > LOT_EPS)) continue;
+      const lotId = typeof o.lotId === 'string' && o.lotId.length > 0 && o.lotId.length <= 128 ? o.lotId : null;
+      const lotNumber = lotId ? null : numberOf(o.lotNumber);
+      // null الصريح بلا رقم = غير المسمّى صراحةً؛ والغائب بلا رقم لا تفضيل له
+      if (!lotId && !lotNumber && o.lotId !== null) continue;
+      prefs.push({ lotId: lotId ?? (lotNumber ? undefined : null), lotNumber, qty, productionDate: dayField(o.productionDate), expiryDate: dayField(o.expiryDate) });
+    }
+  }
+  if (!prefs.length) {
+    const flatId = typeof spec.lotId === 'string' && spec.lotId.length > 0 && spec.lotId.length <= 128 ? spec.lotId : null;
+    const flatNum = flatId ? null : numberOf(spec.lotNumber);
+    if (flatId || flatNum) prefs.push({ lotId: flatId ?? undefined, lotNumber: flatNum, qty: abs, productionDate: dayField(spec.productionDate), expiryDate: dayField(spec.expiryDate) });
+  }
+  return {
+    idx: l.idx, productId: l.productId, productName: l.productName, shelfLifeOn: l.shelfLifeOn === true,
+    unitFactor: Number.isFinite(l.unitFactor) && l.unitFactor > 0 ? l.unitFactor : 1,
+    dir, abs, refs: null, lotNumber: null, productionDate: dayField(spec.productionDate), expiryDate: dayField(spec.expiryDate), reason,
+    prefs: prefs.length ? prefs : null,
+  };
+}
+
+/**
+ * يحلّ تفضيلات مفتاح الربط تحت القفل، داخل الشركة والصنف وحدهما (عزل الشركات: معرّفٌ لشركةٍ أخرى «غير موجود» ولا يُكشف): المعرّف
+ * ببطاقته (loadLotMetas)، والرقم مطبَّعاً (normalizeLotNumber: حالة الأحرف والأرقام العربية والمسافات) بقراءةٍ واحدة. الإنقاص: ما لم
+ * يُحلّ أو كان لصنفٍ آخر يُترك وكميته للسحب التلقائي بتحذير LOT_NUMBER_UNKNOWN {fallback: 'FEFO'}. الزيادة: رقمٌ جديد يُنشأ
+ * لاحقاً (creates)، ومعرّفٌ مجهول أو لصنفٍ آخر يدخل غير مسمّى بتحذير {fallback: 'UNNAMED'}.
+ */
+async function resolvePrefs(tx: LotTx, tid: string, lines: Line[], isOut: (l: Line) => boolean, warnings: LotWarning[]): Promise<Map<string, LotMeta>> {
+  const withPrefs = lines.filter((l) => l.prefs?.length);
+  if (!withPrefs.length) return new Map();
+  const ids = uniq(withPrefs.flatMap((l) => l.prefs!.map((p) => p.lotId)).filter((x): x is string => typeof x === 'string'));
+  const nums = uniq(withPrefs.flatMap((l) => l.prefs!.filter((p) => !p.lotId && p.lotNumber).map((p) => p.lotNumber!)));
+  const byNumber = new Map<string, string>();
+  if (nums.length) {
+    const rows = await tx.productLot.findMany({
+      where: { tenantId: tid, productId: { in: uniq(withPrefs.map((l) => l.productId)) }, lotNumber: { in: nums } },
+      select: { id: true, productId: true, lotNumber: true },
+    });
+    for (const r of rows) byNumber.set(`${r.productId}|${r.lotNumber}`, r.id);
+  }
+  const allIds = uniq([...ids, ...byNumber.values()]);
+  const metas = allIds.length ? await loadLotMetas(tx, tid, { lotIds: allIds }) : new Map<string, LotMeta>();
+  for (const l of withPrefs) {
+    const out = isOut(l);
+    const refs: LotRef[] = [];
+    const creates: Pref[] = [];
+    for (const p of l.prefs!) {
+      if (p.lotId === null) { refs.push({ lotId: null, qty: p.qty }); continue; }
+      const id = p.lotId ?? byNumber.get(`${l.productId}|${p.lotNumber}`);
+      const m = id ? metas.get(id) : undefined;
+      if (m && m.productId === l.productId) { refs.push({ lotId: m.id, qty: p.qty }); continue; }
+      if (!out && !p.lotId && p.lotNumber) { creates.push(p); continue; }
+      warnings.push({
+        code: 'LOT_NUMBER_UNKNOWN', productId: l.productId,
+        detail: { idx: l.idx, ...(p.lotId ? { lotId: p.lotId } : { lotNumber: p.lotNumber }), reason: m ? 'PRODUCT_MISMATCH' : 'NOT_FOUND', qty: p.qty, fallback: out ? 'FEFO' : 'UNNAMED' },
+      });
+      if (!out) refs.push({ lotId: null, qty: p.qty });
+    }
+    l.refs = refs.length ? refs : null;
+    l.creates = creates.length ? creates : null;
+  }
+  return metas;
+}
+
+/** مجموع صفوفٍ لا يساوي كمية السطر (مفتاح الربط): التفضيلات تُتبع حتى كميته والباقي يوزّعه الخادم — تحذيرٌ لا رفض */
+function rowsSumWarning(l: Line, sum: number): LotWarning {
+  return { code: 'LOT_EXPLICIT_FALLBACK', productId: l.productId, detail: { line: l.idx, idx: l.idx, reason: 'ROWS_SUM', requested: roundLot(sum), qty: l.abs } };
 }
 
 /** سطرٌ متتبَّع من المدخلات: الإشارة (I7) والكسر (isLotQty) والوسم والصريح (للإدارة والمفتاح؛ المندوب يوزّع له الخادم) */
@@ -202,6 +458,31 @@ function pickPlan(view: PlaceLotView, bucket: LotBucket, pl: Line[], lookup: Rea
   return rows;
 }
 
+/**
+ * إنقاص مفتاح الربط من السيارة لصنفٍ واحد: الصارم أولاً (pickPlan حرفياً — الكرتون من تشغيلةٍ واحدة وD26) حين تساوي صفوف كل سطرٍ
+ * كميته؛ فإن رفض بخطأ لوط (نقصٌ في التشغيلة أو في الصنف) أو لم تتساوَ الصفوف ⇒ lenientTakeLines: المفضَّل ثم الأقرب انتهاءً ثم غير
+ * المسمّى، والزائد يُحصر بتحذير. `applied` للمتسامح وحده (الصارم يطبّق الكمية كاملة).
+ */
+function lenientPick(view: PlaceLotView, bucket: LotBucket, pl: Line[], lookup: ReadonlyMap<string, LotMeta> | null, day: string,
+  warnings: LotWarning[]): { rows: Map<number, AllocRow[]>; applied: Map<number, number> | null } {
+  const sumOf = (l: Line) => (l.refs ?? []).reduce((s, r) => s + r.qty, 0);
+  if (pl.every((l) => !l.refs || Math.abs(sumOf(l) - l.abs) <= LOT_EPS)) {
+    const w: LotWarning[] = [];
+    try {
+      const rows = pickPlan(view, bucket, pl, lookup, day, w);
+      warnings.push(...w);
+      return { rows, applied: null };
+    } catch (e) {
+      if (!(e instanceof LotError)) throw e;
+    }
+  }
+  for (const l of pl) if (l.refs && Math.abs(sumOf(l) - l.abs) > LOT_EPS) warnings.push(rowsSumWarning(l, sumOf(l)));
+  const expiredOn = (m: LotMeta) => isLotExpiredOn(m, day);
+  const g = lenientTakeLines(view, bucket, pl.map((l) => ({ idx: l.idx, qty: l.abs, prefs: l.refs, only: l.reason === 'EXPIRED_UNSOLD_DESTROY' ? expiredOn : null })));
+  warnings.push(...g.warnings);
+  return { rows: g.lines, applied: g.applied };
+}
+
 /** D18: لا تشغيلة صالحة في المستودع ولا رصيد غير مسمّى ⇒ الوارد أولاً (والنقص 409 كما هو) */
 function receiveFirst(e: LotError, view: PlaceLotView): LotError {
   const empty = !view.lots.some((l) => l.usable.SELLABLE > LOT_EPS) && !((view.unknownUsable?.SELLABLE ?? 0) > LOT_EPS);
@@ -231,24 +512,36 @@ function eventActor(input: VanMovementPlanInput, name: string | null): LotEventA
  *
  * التحذيرات: LOT_FROM_UNKNOWN وLOT_SPLIT_UNIT من التوزيع، وLOT_INTO_BLOCKED، وLOT_MULTI_IN_VAN على السيارة بعد الإضافة.
  */
-export async function planVanMovementInTx(tx: LotTx, input: VanMovementPlanInput, ctx: VanPlanContext = {}): Promise<VanMovementPlan> {
+export async function planVanMovementInTx(tx: LotTx, input: VanMovementPlanInput, ctx: VanPlanContext = {}): Promise<VanMovementPlanResult> {
   const { tenantId: tid, type, vanKey, day } = input;
   const locked = ctx.locked ?? await lockLotProducts(tx, tid, input.lines.map((l) => l.productId));
   const src = input.lines.filter((l) => locked.tracked.has(l.productId));
   const warnings: LotWarning[] = [];
-  const plan: { tracked: Set<string>; lines: Map<number, VanPlanRow[]>; warnings: LotWarning[] } = {
-    tracked: new Set(src.map((l) => l.productId)), lines: new Map(), warnings,
-  };
+  // مفتاح الربط (طلب المالك ١٦ نوفمبر ٢٠٢٦) — وسيارة المندوب المحذوف (D30) صارمةٌ دائماً: إداريٌّ بلوطاتٍ صريحة
+  const lenient = ctx.lenient === true && !input.deletedVan;
+  const plan: VanMovementPlanResult = { tracked: new Set(src.map((l) => l.productId)), lines: new Map(), warnings, applied: new Map() };
   if (input.deletedVan) {
     if (type !== 'UNLOAD') throw badRequest('سيارة المندوب المحذوف تُفرَّغ بالتنزيل للمستودع وحده');
     if (src.length !== input.lines.length) throw badRequest('تنزيل سيارة مندوبٍ محذوف للأصناف المتتبَّعة وحدها');
   }
-  // D9 تحت القفل: صنفٌ أُطفئ تتبّعه بين القراءة المسبقة والقفل وبنده يحمل تشغيلة — لا يُكتب بلا صفوف (المسار يرفضه قبلها)
-  const stray = input.lines.find((l) => !locked.tracked.has(l.productId) && vanLineCarriesLot({ ...specOf(l.lotsRaw), lotReason: l.reason }));
-  if (stray) throw lotOnUntrackedError(stray.productName, stray.productId, stray.idx);
+  // D9 تحت القفل: صنفٌ أُطفئ تتبّعه بين القراءة المسبقة والقفل وبنده يحمل تشغيلة — لا يُكتب بلا صفوف (المسار يرفضه قبلها).
+  // ومفتاح الربط: تُهمل تشغيلة السطر بتحذير (الصنف يتحرّك كغير متتبَّع) لا رفض المستند كله
+  for (const s of input.lines.filter((l) => !locked.tracked.has(l.productId) && vanLineCarriesLot({ ...specOf(l.lotsRaw), lotReason: l.reason }))) {
+    if (!lenient) throw lotOnUntrackedError(s.productName, s.productId, s.idx);
+    warnings.push({ code: 'LOT_NUMBER_UNKNOWN', productId: s.productId, detail: { idx: s.idx, reason: 'NOT_TRACKED', fallback: 'IGNORED' } });
+  }
   if (!src.length) return plan;
 
-  const lines = src.map((l) => parseLine(l, type, input.actor));
+  const lines: Line[] = [];
+  for (const l of src) {
+    if (!lenient) { lines.push(parseLine(l, type, input.actor)); continue; }
+    const p = parseLineLenient(l, type, warnings);
+    // كسرٌ خامس قُرّب: البند يُكتب بالكمية المقرَّبة (وما قُرّب إلى صفر لا يُكتب)
+    if (!p) { plan.applied.set(l.idx, 0); continue; }
+    if (Math.abs(p.abs - Math.abs(Number(l.qty))) > 1e-12) plan.applied.set(l.idx, p.dir * p.abs);
+    lines.push(p);
+  }
+  if (!lines.length) return plan;
   if (input.deletedVan) {
     // رصيد صنف السيارة المحذوفة مجهول: لوطاتٌ مسمّاة صريحة وحدها، تُفحص على صالحها (I1)
     const bad = lines.find((l) => !(l.refs || l.lotNumber) || (l.refs ?? []).some((r) => r.lotId == null));
@@ -264,6 +557,8 @@ export async function planVanMovementInTx(tx: LotTx, input: VanMovementPlanInput
   const rowsByLine = new Map<number, AllocRow[]>();
   const metas = new Map<string, LotMeta>();
   const actor = ctx.eventActor ?? eventActor(input, ctx.actorName ?? null);
+  // مفتاح الربط: تفضيلات التشغيلات (معرّفٌ أو رقم Odoo) تُحلّ تحت القفل — ما لم يُحلّ يُسحب تلقائياً أو يدخل غير مسمّى بتحذير
+  if (lenient) for (const [id, m] of await resolvePrefs(tx, tid, lines, isOut, warnings)) metas.set(id, m);
 
   // الإنقاص برقم تشغيلةٍ قائمة: يُحلّ إلى صفّها الصريح (لا إنشاء — التشغيلة الجديدة تدخل بالوارد أو بالزيادة)
   for (const l of outLines) {
@@ -295,14 +590,32 @@ export async function planVanMovementInTx(tx: LotTx, input: VanMovementPlanInput
       const view = fromWarehouse ? pv.warehouse.get(pid) : pv.vans.get(vanKey)?.get(pid);
       if (!view) throw new Error(`LOT_VIEW_MISSING: ${pid}`);
       if (fromWarehouse) {
-        // لكل سطرٍ معامله وصريحه على متاحٍ مشترك (D22، D26) — لا تجميع ثم distributeToLines: ذاك يشقّ الكرتون بلا وسم
+        // مفتاح الربط: صفوفٌ لا يساوي مجموعها كمية سطرها لا تصلح صريحاً ⇒ يوزّعه الخادم بتحذير (لا LOT_QTY_INVALID)
+        if (lenient) {
+          for (const l of pl) {
+            const sum = (l.refs ?? []).reduce((s, r) => s + r.qty, 0);
+            if (l.refs && Math.abs(sum - l.abs) > LOT_EPS) { warnings.push(rowsSumWarning(l, sum)); l.refs = null; }
+          }
+        }
+        // لكل سطرٍ معامله وصريحه على متاحٍ مشترك (D22، D26) — لا تجميع ثم distributeToLines: ذاك يشقّ الكرتون بلا وسم.
+        // طلب المالك ١٦ نوفمبر ٢٠٢٦ («لا مانع من أن يأخذ من LOT آخر»): التحميل من المستودع مسار سحب، فالتشغيلة المختارة «استعملها
+        // أولاً» لا «يجب»: ما لا يكفيه صالحها، أو كانت منتهية أو موقوفة (تمنح صفراً ولا يُسحب منها، I4)، يُكمَل بالأقرب انتهاءً ثم غير
+        // المسمّى بوسم EXPLICIT_FALLBACK وتحذير LOT_EXPLICIT_FALLBACK — والرفض لنقص الصنف كله وحده (409 كالتلقائي)
         const res = allocateOutLines({
           productId: pid, productName: pl[0].productName, view, day, mode: 'LOAD', allowUnknown: input.allowUnknown, lookup,
+          explicitShort: 'SPILL',
           lines: pl.map((l) => ({ idx: l.idx, qty: l.abs, unitFactor: l.unitFactor, explicit: l.refs })),
         });
         if (!res.ok) throw receiveFirst(res.error, view);
         warnings.push(...res.warnings);
         for (const [idx, r] of res.lines) rowsByLine.set(idx, r);
+      } else if (lenient) {
+        const got = lenientPick(view, bucket, pl, lookup, day, warnings);
+        for (const [idx, r] of got.rows) rowsByLine.set(idx, r);
+        for (const l of pl) {
+          const a = got.applied?.get(l.idx);
+          if (a !== undefined && Math.abs(a - l.abs) > LOT_EPS) plan.applied.set(l.idx, l.dir * a);
+        }
       } else {
         for (const [idx, r] of pickPlan(view, bucket, pl, lookup, day, warnings)) rowsByLine.set(idx, r);
       }
@@ -319,7 +632,32 @@ export async function planVanMovementInTx(tx: LotTx, input: VanMovementPlanInput
   for (const l of inLines) {
     const at = { productId: l.productId, idx: l.idx };
     let rows: AllocRow[];
-    if (l.lotNumber) {
+    if (lenient && (l.refs || l.creates)) {
+      // مفتاح الربط: الصفوف المحلولة كما هي، والرقم الجديد يُنشأ بقواعد اليوم (resolveOrCreateLot بمصدر LOAD) بتحذير LOT_CREATED
+      const want: { lotId: string | null; qty: number; expiryDate: string | null }[] = (l.refs ?? []).map((r) => ({ lotId: r.lotId, qty: r.qty, expiryDate: null }));
+      for (const p of l.creates ?? []) {
+        const r = await resolveOrCreateLot(tx, tid, { id: l.productId, name: l.productName, shelfLifeOn: l.shelfLifeOn },
+          { lotNumber: p.lotNumber, productionDate: p.productionDate ?? null, expiryDate: p.expiryDate ?? null }, { source: 'LOAD', createdBy: input.createdBy, actor });
+        metas.set(r.meta.id, r.meta);
+        if (r.created) warnings.push({ code: 'LOT_CREATED', productId: l.productId, detail: { idx: l.idx, lotId: r.meta.id, lotNumber: r.meta.lotNumber } });
+        want.push({ lotId: r.meta.id, qty: p.qty, expiryDate: r.meta.expiryDate });
+      }
+      // مجموعٌ يخالف كمية السطر: التفضيلات حتى كميته بترتيبها، والباقي غير مسمّى (لا رقم يُخترع) — بتحذير
+      const sum = want.reduce((s, r) => s + r.qty, 0);
+      if (Math.abs(sum - l.abs) > LOT_EPS) warnings.push(rowsSumWarning(l, sum));
+      const mine = new Map<string, number>();
+      let left = l.abs;
+      for (const r of want) {
+        const q = roundLot(Math.min(r.qty, left));
+        if (!(q > LOT_EPS)) continue;
+        mine.set(keyOf(r.lotId), roundLot((mine.get(keyOf(r.lotId)) ?? 0) + q));
+        left = roundLot(left - q);
+      }
+      if (left > LOT_EPS) mine.set(LOT_UNKNOWN_KEY, roundLot((mine.get(LOT_UNKNOWN_KEY) ?? 0) + left));
+      rows = [...mine].map(([k, qty]): AllocRow => (k === LOT_UNKNOWN_KEY
+        ? { lotId: null, qty, certainty: 'UNKNOWN', flags: [], expiryDate: null }
+        : { lotId: k, qty, certainty: 'CONFIRMED', flags: [], expiryDate: metas.get(k)?.expiryDate ?? null }));
+    } else if (l.lotNumber) {
       const { meta } = await resolveOrCreateLot(tx, tid, { id: l.productId, name: l.productName, shelfLifeOn: l.shelfLifeOn },
         { lotNumber: l.lotNumber, productionDate: l.productionDate, expiryDate: l.expiryDate }, { source: 'LOAD', createdBy: input.createdBy, actor });
       metas.set(meta.id, meta);
@@ -344,7 +682,10 @@ export async function planVanMovementInTx(tx: LotTx, input: VanMovementPlanInput
       const m = metas.get(r.lotId);
       if (!m) throw lotErr('LOT_NOT_FOUND', {}, { ...at, lotId: r.lotId });
       if (m.productId !== l.productId) throw lotErr('LOT_PRODUCT_MISMATCH', { lot: m.lotNumber, name: l.productName }, { ...at, lotId: r.lotId, lotProductId: m.productId });
-      if (type === 'LOAD') {
+      if (type === 'LOAD' && lenient && (m.status !== 'ACTIVE' || isLotExpiredOn(m, day))) {
+        // مفتاح الربط بلا مستودع: التحميل يسجّل ما وصل السيارة فعلاً من نظامه — يُقبل بتحذيرٍ لا رفض (والبيع منه ممنوعٌ كما هو، I4)
+        warnings.push({ code: 'LOT_INTO_BLOCKED', productId: l.productId, detail: { idx: l.idx, lotId: m.id, lotNumber: m.lotNumber, blockKind: m.blockKind, reason: m.status !== 'ACTIVE' ? 'BLOCKED' : 'EXPIRED' } });
+      } else if (type === 'LOAD') {
         // I4: التحميل من مؤهَّل — الموقوف والمنتهي لا يُحمَّلان (صريحاً أو برقمٍ قائم)
         if (m.status !== 'ACTIVE') throw lotErr('LOT_BLOCKED', { lot: m.lotNumber }, { ...at, lotId: m.id, blockKind: m.blockKind });
         if (isLotExpiredOn(m, day)) throw lotErr('LOT_EXPIRED', { lot: m.lotNumber, date: m.expiryDate }, { ...at, lotId: m.id, expiryDate: m.expiryDate });
@@ -359,7 +700,9 @@ export async function planVanMovementInTx(tx: LotTx, input: VanMovementPlanInput
   for (const l of lines) {
     const rows = rowsByLine.get(l.idx) ?? [];
     const sum = rows.reduce((s, r) => s + r.qty, 0);
-    if (Math.abs(sum - l.abs) > LOT_EPS) throw new Error(`LOT_I3_MISMATCH: ${l.productId} ${sum} != ${l.abs}`);
+    // المحصور (مفتاح الربط) يُكتب بكميته المطبَّقة — فمجموع صفوفه = كمية بنده المكتوبة (I3)
+    const want = plan.applied.has(l.idx) ? Math.abs(plan.applied.get(l.idx)!) : l.abs;
+    if (Math.abs(sum - want) > LOT_EPS) throw new Error(`LOT_I3_MISMATCH: ${l.productId} ${sum} != ${want}`);
     plan.lines.set(l.idx, rows.map((r) => ({ ...r, qty: l.dir * r.qty, viaWarehouse: via, reason: l.reason })));
   }
 
@@ -437,4 +780,310 @@ export async function vanLotSnapshot(db: LotDb, tid: string, repId: string): Pro
     });
   }
   return snap;
+}
+
+// ═══ الجرد المطلق (POST /van-stock/loads بـmode: 'COUNT') وتصفير السيارة (POST /van-stock/zero) ═══
+//
+// طلب المالك ١٦ نوفمبر ٢٠٢٦: «تصفير مخزون السيارة في Odoo يبقى في فيلد كمية LOT». Odoo يرسل **الكمية المعدودة** لا الفرق، وفيلد
+// لا يعرف إلا الفرق — فكان التصفير يُرفض أو يُطبَّق ناقصاً. الجرد يحسب الفرق بنفسه تحت الأقفال: حركة ADJUST واحدة (والإزالة
+// EXPIRED_OUT/DAMAGED_OUT حين includeUnsellable) بصفوف لوطها، وإعادة تسميةٍ (LotRelabel بسبب CORRECTION) لتوزيع ما بقي بين التشغيلات
+// وغير المسمّى — فلا نوع حركة جديد (foldStock والمزامنة والتقييم والتقارير كما هي)، وغير المسمّى مشتقٌّ دائماً.
+
+/** تحذيرٌ في ردّ الجرد: تحذيرات اللوط ومعها رموز الجرد (COUNT_LOTS_EXCEED، LOT_HELD_REMAINS، COUNT_BUCKET_SKIPPED) */
+export interface VanCountWarning { code: string; productId?: string; message?: string; detail?: Record<string, unknown> }
+
+/** خطة دلوٍ لصنف: صفوف الفرق (بإشارته) وإعادات التسمية والأهداف النهائية للصالح */
+export interface VanCountBucketPlan {
+  net: number;                                   // الفرق الصافي بالأساس (سالب = إنقاص)
+  moves: { lotId: string | null; qty: number }[]; // بإشارة الفرق، ومجموعها net (I3)
+  relabels: { fromLotId: string | null; toLotId: string | null; qty: number }[];
+  targets: Map<string, number>;                  // الصالح النهائي لكل مكوّن (lotId أو '∅')
+}
+
+/**
+ * خطة جرد دلوٍ واحد لصنفٍ في السيارة (صرفة، على **الصالح** = الخام − المحجوز؛ المحجوز D24 لا يُمسّ). الهدف `usableTarget` ≥ 0.
+ * - بأهداف تشغيلات (lotTargets، مكتملة: غير المذكورة صفر): كل تشغيلةٍ هدفها، وغير المسمّى الباقي (المستدعي يضمن ألّا يقلّ عن صفر).
+ * - بلاها: الإنقاص من المسمّاة بالأقرب انتهاءً (أيّاً كانت حالتها) ثم غير المسمّى، والزيادة إلى غير المسمّى (لا رقم يُخترع) — وكل
+ *   سالبٍ (عجزٌ تاريخي، أو لوطٌ «شبح» فوق رصيد الصنف) يُرفع إلى صفر.
+ * ثم الفرق الصافي صفوفٌ على المكوّنات التي تتحرّك باتجاهه (المسمّاة أولاً ثم غير المسمّى)، وما بقي إعادة تسميةٍ من الناقص إلى
+ * الزائد — فمجموع النهائي = الهدف، ولا مكوّن سالب (I1، I2).
+ */
+export function planVanCountBucket(view: PlaceLotView, bucket: LotBucket, usableTarget: number, lotTargets: ReadonlyMap<string, number> | null): VanCountBucketPlan {
+  const comps: { key: string; lotId: string | null; u: number }[] = view.lots.map((l) => ({ key: l.lotId, lotId: l.lotId, u: l.usable[bucket] }));
+  if (lotTargets) for (const id of lotTargets.keys()) if (id !== LOT_UNKNOWN_KEY && !comps.some((c) => c.key === id)) comps.push({ key: id, lotId: id, u: 0 });
+  const all = [...comps, { key: LOT_UNKNOWN_KEY, lotId: null as string | null, u: view.unknownUsable?.[bucket] ?? 0 }];
+  const N = roundLot(Math.max(0, usableTarget));
+  const f = new Map<string, number>();
+  if (lotTargets) {
+    let s = 0;
+    for (const c of comps) { const t = roundLot(Math.max(0, lotTargets.get(c.key) ?? 0)); f.set(c.key, t); s += t; }
+    f.set(LOT_UNKNOWN_KEY, roundLot(Math.max(0, N - s)));
+  } else {
+    for (const c of all) f.set(c.key, roundLot(Math.max(0, c.u)));
+    const P = roundLot([...f.values()].reduce((s, x) => s + x, 0));
+    if (N <= P) {
+      let R = roundLot(P - N);
+      for (const c of all) {
+        if (!(R > LOT_EPS)) break;
+        const q = roundLot(Math.min(R, f.get(c.key)!));
+        f.set(c.key, roundLot(f.get(c.key)! - q));
+        R = roundLot(R - q);
+      }
+    } else f.set(LOT_UNKNOWN_KEY, roundLot(f.get(LOT_UNKNOWN_KEY)! + N - P));
+  }
+  const delta = new Map(all.map((c) => [c.key, roundLot(f.get(c.key)! - c.u)]));
+  const net = roundLot([...delta.values()].reduce((s, x) => s + x, 0));
+  const moves: { lotId: string | null; qty: number }[] = [];
+  let rem = Math.abs(net);
+  const sgn = net < 0 ? -1 : 1;
+  for (const c of all) {
+    if (!(rem > LOT_EPS)) break;
+    const d = delta.get(c.key)!;
+    if (!(sgn * d > LOT_EPS)) continue;
+    const q = roundLot(Math.min(rem, sgn * d));
+    moves.push({ lotId: c.lotId, qty: sgn * q });
+    delta.set(c.key, roundLot(d - sgn * q));
+    rem = roundLot(rem - q);
+  }
+  const relabels: VanCountBucketPlan['relabels'] = [];
+  const srcs = all.filter((c) => delta.get(c.key)! < -LOT_EPS);
+  const sinks = all.filter((c) => delta.get(c.key)! > LOT_EPS);
+  let i = 0;
+  let j = 0;
+  while (i < srcs.length && j < sinks.length) {
+    const a = srcs[i];
+    const b = sinks[j];
+    const q = roundLot(Math.min(-delta.get(a.key)!, delta.get(b.key)!));
+    if (q > LOT_EPS) relabels.push({ fromLotId: a.lotId, toLotId: b.lotId, qty: q });
+    delta.set(a.key, roundLot(delta.get(a.key)! + q));
+    delta.set(b.key, roundLot(delta.get(b.key)! - q));
+    if (!(delta.get(a.key)! < -LOT_EPS)) i++;
+    if (!(delta.get(b.key)! > LOT_EPS)) j++;
+  }
+  return { net, moves, relabels, targets: f };
+}
+
+const COUNT_BUCKETS = ['SELLABLE', 'EXPIRED', 'DAMAGED'] as const;
+const heldOf = (v: PlaceLotView, b: LotBucket): number =>
+  roundLot(v.lots.reduce((s, l) => s + l.held[b], 0) + (v.unknown && v.unknownUsable ? v.unknown[b] - v.unknownUsable[b] : 0));
+
+/** عرضٌ فارغ لصنفٍ لا أثر له في السيارة */
+function blankVanView(productId: string, vanKey: string): PlaceLotView {
+  return { productId, place: 'VAN', vanKey, total: zeroBuckets(), lots: [], unknown: zeroBuckets(), unknownUsable: zeroBuckets(), deficits: [], firstInAt: new Map(), approximate: false };
+}
+
+/** الصنف غير المتتبَّع: رصيده كله «غير مسمّى» (صفوف لوطٍ تاريخية من حقبةٍ سابقة لا تُقرأ له) — والمحجوز كما هو */
+function untrackedView(v: PlaceLotView): PlaceLotView {
+  const total = v.total ?? zeroBuckets();
+  const unknownUsable = zeroBuckets();
+  for (const b of LOT_BUCKETS) unknownUsable[b] = roundLot(total[b] - heldOf(v, b));
+  return { ...v, lots: [], unknown: { ...total }, unknownUsable, deficits: [] };
+}
+
+/** سطر جردٍ لصنف: الكمية المعدودة بالأساس (≥ 0)، وتشغيلاته المعدودة اختياراً بالأساس (معرّف فيلد أو رقمٌ كرقم Odoo) */
+export interface VanCountLine {
+  productId: string; productName: string; shelfLifeOn: boolean; qty: number;
+  lots?: { lotId?: string | null; lotNumber?: unknown; qty: number; productionDate?: string | null; expiryDate?: string | null }[] | null;
+  lineRef?: string | null;
+}
+export interface VanCountInput {
+  tenantId: string; vanKey: string; day: string; actorId: string | null; note: string | null; clientRef: string | null;
+  includeUnsellable: boolean; lines: VanCountLine[];
+  /** شكل ردّ الحركة (include المسار نفسه) */
+  include: Prisma.VanLoadInclude;
+  /** أول المعاملة: قفل المرجع والبحث به (D8) — والمكرَّر يُجهضها */
+  gate?: (tx: LotTx) => Promise<void>;
+  /** بعد قفل الأصناف: مقارنة الأساس («الوحدة الرئيسية» §3) تحت القفل نفسه */
+  afterLock?: (locked: Awaited<ReturnType<typeof lockLotProducts>>) => void;
+}
+export interface VanCountProductSummary { productId: string; tracked: boolean; target: number; before: Record<LotBucket, number>; after: Record<LotBucket, number> }
+export interface VanCountResult { noop: boolean; loads: unknown[]; relabels: number; products: VanCountProductSummary[]; warnings: (LotWarning | VanCountWarning)[] }
+
+/** الجرد لم يبلغ هدفه بعد الكتابة (قراءةٌ ثانية تحت الأقفال) ⇒ تراجعٌ كامل و503 COUNT_POSTCONDITION — لا جردٌ نصف صحيح */
+export class VanCountPostcondition extends Error {
+  readonly status = 503;
+  readonly code = 'COUNT_POSTCONDITION';
+  constructor(readonly detail: Record<string, unknown>) { super('لم يطابق رصيد السيارة الجرد بعد التسجيل — أُلغيت العملية فأعد المحاولة'); this.name = 'VanCountPostcondition'; }
+}
+
+/**
+ * الجرد المطلق لسيارة مندوبٍ قائم داخل معاملته — الترتيب: المرجع (gate)، ثم قفلا التالف والمنتهي (includeUnsellable، بترتيب
+ * VAN_LOCK_ORDER)، ثم أقفال الأصناف (lockLotProducts؛ المتتبَّع تحت القفل هو المرجع D25)، ثم الأساس (afterLock)، ثم قفل المتاح
+ * `van-sellable:`، ثم القراءة (placeViews بمجاميعها)، ثم الخطة (planVanCountBucket لكل دلو)، ثم الكتابة، ثم **إعادة القراءة**
+ * (الهدف بلغ، وكل مكوّنٍ بهدفه، ولا مكوّن سالب) وإلا VanCountPostcondition.
+ * - الهدف دون المحجوز (مرتجع إشعارٍ قياسي «01» قابلٌ للإبطال، D24) ⇒ المحجوز يبقى بتحذير LOT_HELD_REMAINS.
+ * - مجموع التشغيلات المعدودة فوق كمية الصنف ⇒ الصنف بمجموعها بتحذير COUNT_LOTS_EXCEED.
+ * - رقمٌ لا تعرفه الشركة بكمية ⇒ يُنشأ (resolveOrCreateLot بمصدر MANUAL) بتحذير LOT_CREATED، وبصفر ⇒ يُهمل LOT_NUMBER_UNKNOWN.
+ * - الخطة الفارغة ⇒ noop بلا كتابة: إعادة الطلب نفسه لا تكتب شيئاً (متكرّرٌ بالبناء)، ومعه clientRef يردّ D8 الحركة المحفوظة.
+ * أول حركةٍ تُكتب تحمل clientRef.
+ */
+export async function executeVanCountInTx(tx: LotTx, input: VanCountInput, ctx: { eventActor: LotEventActor }): Promise<VanCountResult> {
+  const { tenantId: tid, vanKey } = input;
+  const warnings: (LotWarning | VanCountWarning)[] = [];
+  await input.gate?.(tx);
+  // ترتيب الأقفال الكلّي (repSaleStock VAN_LOCK_ORDER): التالف ثم المنتهي قبل الأصناف، والمتاح بعدها
+  if (input.includeUnsellable) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'van-damaged:' + vanKey}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'van-expired:' + vanKey}))`;
+  }
+  const pids = uniq(input.lines.map((l) => l.productId));
+  const locked = await lockLotProducts(tx, tid, pids);
+  input.afterLock?.(locked);
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'van-sellable:' + vanKey}))`;
+  const read = async () => (await placeViews(tx, tid, { vanKeys: [vanKey], productIds: pids, withTotals: true })).vans.get(vanKey) ?? new Map<string, PlaceLotView>();
+  const views = await read();
+  const viewOf = (m: Map<string, PlaceLotView>, pid: string) => {
+    const v = m.get(pid) ?? blankVanView(pid, vanKey);
+    return locked.tracked.has(pid) ? v : untrackedView(v);
+  };
+
+  // ── التشغيلات المعدودة: معرّفٌ أو رقمٌ داخل الشركة والصنف (عزل الشركات)، والجديد بكميةٍ يُنشأ ──
+  const withLots = input.lines.filter((l) => locked.tracked.has(l.productId) && l.lots?.length);
+  const nums = uniq(withLots.flatMap((l) => l.lots!.filter((r) => !r.lotId).map((r) => normalizeLotNumber(r.lotNumber)).filter((x): x is string => !!x)));
+  const byNumber = new Map<string, string>();
+  if (nums.length) {
+    const rows = await tx.productLot.findMany({
+      where: { tenantId: tid, productId: { in: uniq(withLots.map((l) => l.productId)) }, lotNumber: { in: nums } }, select: { id: true, productId: true, lotNumber: true },
+    });
+    for (const r of rows) byNumber.set(`${r.productId}|${r.lotNumber}`, r.id);
+  }
+  const ids = uniq([...withLots.flatMap((l) => l.lots!.map((r) => r.lotId).filter((x): x is string => typeof x === 'string' && x.length > 0)), ...byNumber.values()]);
+  const metas = ids.length ? await loadLotMetas(tx, tid, { lotIds: ids }) : new Map<string, LotMeta>();
+  const lotTargets = new Map<string, Map<string, number>>();
+  for (const l of withLots) {
+    const t = new Map<string, number>();
+    for (const r of l.lots!) {
+      const qty = roundLot(Math.max(0, Number(r.qty) || 0));
+      const num = r.lotId ? null : normalizeLotNumber(r.lotNumber);
+      const id = r.lotId || (num ? byNumber.get(`${l.productId}|${num}`) : undefined);
+      let m = id ? metas.get(id) : undefined;
+      if (!(m && m.productId === l.productId) && !r.lotId && num && qty > LOT_EPS) {
+        const c = await resolveOrCreateLot(tx, tid, { id: l.productId, name: l.productName, shelfLifeOn: l.shelfLifeOn },
+          { lotNumber: num, productionDate: r.productionDate ?? null, expiryDate: r.expiryDate ?? null }, { source: 'MANUAL', createdBy: input.actorId, actor: ctx.eventActor });
+        m = c.meta;
+        metas.set(m.id, m);
+        if (c.created) warnings.push({ code: 'LOT_CREATED', productId: l.productId, detail: { lotId: m.id, lotNumber: m.lotNumber } });
+      }
+      if (!(m && m.productId === l.productId)) {
+        warnings.push({ code: 'LOT_NUMBER_UNKNOWN', productId: l.productId, detail: { ...(r.lotId ? { lotId: r.lotId } : { lotNumber: num ?? null }), reason: m ? 'PRODUCT_MISMATCH' : 'NOT_FOUND', qty, fallback: 'UNNAMED' } });
+        continue;
+      }
+      t.set(m.id, roundLot((t.get(m.id) ?? 0) + qty));
+    }
+    lotTargets.set(l.productId, t);
+  }
+
+  // ── الخطة لكل صنفٍ ودلو ──
+  type Kind = 'ADJUST' | 'EXPIRED_OUT' | 'DAMAGED_OUT';
+  type Item = { productId: string; qty: number; rows: { lotId: string | null; qty: number }[]; lineRef: string | null; tracked: boolean };
+  const items: Record<Kind, Item[]> = { ADJUST: [], EXPIRED_OUT: [], DAMAGED_OUT: [] };
+  const relabels: { productId: string; bucket: LotBucket; fromLotId: string | null; toLotId: string | null; qty: number }[] = [];
+  const expect = new Map<string, { target: number; plans: Map<LotBucket, VanCountBucketPlan> }>();
+  const summary: VanCountProductSummary[] = [];
+  for (const l of input.lines) {
+    const pid = l.productId;
+    const isTracked = locked.tracked.has(pid);
+    const v = viewOf(views, pid);
+    const lt = isTracked ? lotTargets.get(pid) ?? null : null;
+    let target = roundLot(Math.max(0, l.qty));
+    const held = heldOf(v, 'SELLABLE');
+    const lotSum = lt ? roundLot([...lt.values()].reduce((s, x) => s + x, 0)) : 0;
+    if (lt && lotSum > roundLot(target - held) + LOT_EPS) {
+      warnings.push({ code: 'COUNT_LOTS_EXCEED', productId: pid, message: 'مجموع التشغيلات المعدودة أكبر من كمية الصنف — اعتُمد مجموعها', detail: { requested: target, lots: lotSum } });
+      target = roundLot(lotSum + held);
+    }
+    if (target < held - LOT_EPS) {
+      warnings.push({ code: 'LOT_HELD_REMAINS', productId: pid, message: 'في السيارة مرتجعٌ محجوز بانتظار حالة الإشعار — بقي كما هو', detail: { requested: target, held } });
+      target = held;
+    }
+    const plans = new Map<LotBucket, VanCountBucketPlan>();
+    for (const b of COUNT_BUCKETS) {
+      if (b !== 'SELLABLE' && !input.includeUnsellable) continue;
+      const p = planVanCountBucket(v, b, b === 'SELLABLE' ? roundLot(target - held) : 0, b === 'SELLABLE' ? lt : null);
+      // المنتهي والتالف يُزالان ولا يُزادان: رصيدٌ سالبٌ فيهما خللٌ قديم لا يصلحه الجرد
+      if (b !== 'SELLABLE' && p.net > LOT_EPS) {
+        warnings.push({ code: 'COUNT_BUCKET_SKIPPED', productId: pid, detail: { bucket: b, net: p.net } });
+        continue;
+      }
+      plans.set(b, p);
+      if (Math.abs(p.net) > LOT_EPS) {
+        const kind: Kind = b === 'SELLABLE' ? 'ADJUST' : b === 'EXPIRED' ? 'EXPIRED_OUT' : 'DAMAGED_OUT';
+        const sign = kind === 'ADJUST' ? 1 : -1; // الإزالة بكمياتٍ موجبة (vanMoveEffect يطرحها)
+        items[kind].push({
+          productId: pid, qty: roundLot(sign * p.net), rows: isTracked ? p.moves.map((m) => ({ lotId: m.lotId, qty: roundLot(sign * m.qty) })) : [],
+          lineRef: kind === 'ADJUST' ? l.lineRef ?? null : null, tracked: isTracked,
+        });
+      }
+      if (isTracked) for (const r of p.relabels) relabels.push({ productId: pid, bucket: b, ...r });
+    }
+    expect.set(pid, { target, plans });
+    const total = v.total ?? zeroBuckets();
+    summary.push({ productId: pid, tracked: isTracked, target, before: { ...total }, after: { ...total } });
+  }
+
+  const kinds = (['ADJUST', 'EXPIRED_OUT', 'DAMAGED_OUT'] as const).filter((k) => items[k].length);
+  if (!kinds.length && !relabels.length) return { noop: true, loads: [], relabels: 0, products: summary, warnings };
+
+  // ── الكتابة: حركةٌ لكل نوع (أولها تحمل clientRef)، والبنود بالأساس، وصفوف لوط الصنف المتتبَّع بإشارة البند (I3) ──
+  const loads: unknown[] = [];
+  for (const [n, kind] of kinds.entries()) {
+    loads.push(await tx.vanLoad.create({
+      data: {
+        tenantId: tid, salesRepId: vanKey, type: kind, note: input.note ?? 'جرد السيارة (COUNT)',
+        ...(kind === 'ADJUST' && { reason: 'COUNT' }),
+        ...(n === 0 && input.clientRef && { clientRef: input.clientRef }),
+        createdBy: 'ADMIN',
+        items: {
+          create: items[kind].map((it) => ({
+            productId: it.productId, ...unitFields(it.qty, null),
+            ...(it.lineRef && { lineRef: it.lineRef }),
+            ...(it.tracked && it.rows.length > 0 && {
+              lots: {
+                create: it.rows.filter((r) => Math.abs(r.qty) > LOT_EPS).map((r) => ({
+                  tenantId: tid, productId: it.productId, vanKey, moveType: kind, viaWarehouse: false,
+                  lotId: r.lotId, qty: r.qty, certainty: r.lotId ? 'CONFIRMED' : 'UNKNOWN', reason: null,
+                })),
+              },
+            }),
+          })),
+        },
+      },
+      include: input.include,
+    }));
+  }
+  // إعادة التسمية: توزيعٌ بلا كمية جديدة (لا تقييم يتغيّر) — من الناقص إلى الزائد، بسبب CORRECTION وسطرٌ في سجلّ كل تشغيلةٍ مسمّاة.
+  // هنا وحده يُتجاوز شرط «المصدر نشطٌ غير منتهٍ» (D27): تصحيحٌ يولّده النظام لرصيدٍ غير موجود فعلاً لا تسميةٌ يختارها مستخدم
+  const note = 'تصحيح آلي من جرد السيارة (COUNT)';
+  for (const r of relabels) {
+    const row = await tx.lotRelabel.create({
+      data: { tenantId: tid, productId: r.productId, place: 'VAN', vanKey, bucket: r.bucket, fromLotId: r.fromLotId, toLotId: r.toLotId, qty: r.qty, reason: 'CORRECTION', note, createdBy: input.actorId },
+      select: { id: true },
+    });
+    const after = { relabelId: row.id, place: 'VAN', vanKey, bucket: r.bucket, fromLotId: r.fromLotId, toLotId: r.toLotId, qty: r.qty, relabelReason: 'CORRECTION', source: 'COUNT' };
+    for (const lotId of [r.fromLotId, r.toLotId]) {
+      if (lotId) await recordLotEvent(tx, { tenantId: tid, lotId, productId: r.productId, kind: 'RELABEL', after, reason: note, actor: ctx.eventActor });
+    }
+  }
+
+  // ── الشرط اللاحق: إعادة القراءة في المعاملة نفسها ──
+  const again = await read();
+  const bad: Record<string, unknown>[] = [];
+  const near = (a: number, b: number) => Math.abs(a - b) <= 1e-4;
+  for (const s of summary) {
+    const v = viewOf(again, s.productId);
+    const total = v.total ?? zeroBuckets();
+    s.after = { ...total };
+    const e = expect.get(s.productId)!;
+    if (!near(total.SELLABLE, e.target)) bad.push({ productId: s.productId, bucket: 'SELLABLE', total: total.SELLABLE, target: e.target });
+    for (const [b, p] of e.plans) {
+      if (b !== 'SELLABLE' && !near(roundLot(total[b] - heldOf(v, b)), 0)) bad.push({ productId: s.productId, bucket: b, total: total[b] });
+      if (!s.tracked) continue;
+      for (const [k, t] of p.targets) {
+        const now = k === LOT_UNKNOWN_KEY ? v.unknownUsable?.[b] ?? 0 : v.lots.find((x) => x.lotId === k)?.usable[b] ?? 0;
+        if (!near(now, t)) bad.push({ productId: s.productId, bucket: b, lotId: k === LOT_UNKNOWN_KEY ? null : k, usable: now, target: t });
+      }
+    }
+  }
+  if (bad.length) throw new VanCountPostcondition({ mismatches: bad.slice(0, 20) });
+  return { noop: false, loads, relabels: relabels.length, products: summary, warnings };
 }

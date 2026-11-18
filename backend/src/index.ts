@@ -90,6 +90,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter, bridgeLimiter } from './middleware/rateLimits';
 // «اشتراط تفعيل الموقع» — قفل العمل على عميل: لا يغيّر المندوب المقيَّد بياناً على عميل إلا ظاهراً على الخريطة الآن بموقعٍ دقيق
 import { requireRepLiveLocation } from './middleware/repLiveLocation';
+import { apiRejectLog } from './services/apiRejectLog';
 // ZATCA المرحلة الثانية (Z5.7): رمز رابط المشتري لا يُكتب في سطر morgan — يُقنَّع قبل التوجيه
 import { redactShareTokensInLogs } from './middleware/shareUrlPrivacy';
 
@@ -216,6 +217,8 @@ app.use('/api', apiLimiter);
 // تُصنَّف كل بادئةٍ جديدة تُركَّب هنا.
 app.use('/api', requireRepLiveLocation);
 
+// «سطر رفض مفتاح الربط» (١٦ نوفمبر ٢٠٢٦): كل 4xx لمفتاح API على مخزون السيارة والمستودع والأصناف سطرٌ واحد بلا جسم (services/apiRejectLog.ts)
+app.use(['/api/van-stock', '/api/warehouse', '/api/products'], apiRejectLog());
 app.use('/api/auth', authRouter);
 app.use('/api/customers', customersRouter);
 app.use('/api/products', productsRouter);

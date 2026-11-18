@@ -889,6 +889,9 @@ export const lotsApi = {
   vanLotBalances: (salesRepId?: string) => api.get('/van-stock/lot-balances', { params: salesRepId ? { salesRepId } : {} }),
   // المباع والمرتجع والصافي وعدد العملاء لكل تشغيلة في الفترة (from/to بأيام الشركة) — بصلاحية التقارير وبالنطاق
   lotSales: (params: { from?: string; to?: string; productId?: string; lotId?: string }) => api.get('/reports/lot-sales', { params }),
+  // تشغيلات الصنف التي اشتراها العميل (الحقبة الحالية، الأحدث أولاً، ≤ ٥٠) — لمنتقي تشغيلة المرتجع (طلب المالك ١٦ نوفمبر ٢٠٢٦).
+  // بصلاحية الفواتير وبنطاق العميل؛ الميزة أو الصنف غير متتبَّع ⇒ []
+  customerHistory: (params: { customerId: string; productId: string }) => api.get('/lots/customer-history', { params }),
 };
 
 // تعديل بصمات الحضور إدارياً ورفعها من Excel (backend/src/routes/attendanceAdmin.ts) — كل كتابةٍ بسببٍ مكتوب وفي سجلّ التدقيق

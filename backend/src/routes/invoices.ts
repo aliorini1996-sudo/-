@@ -1951,6 +1951,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
             expectedBase: products.find(p => p.id === i.productId)?.unit ?? null,
             // «مرجع السطر»: يرافق بند المرتجع إلى بند الإشعار الذي يُحلّ إليه (invoicesNotes.ts noteLineRefs)
             lineRef: i.lineRef ?? null,
+            // «تتبّع اللوط» (المرحلة ب): اختيار التشغيلة يرافق بنده إلى بند الإشعار (noteLineLots) كما يحمله سطر الخطة (بإعادة أساسه)
+            lots: lotPlan ? lotPlan.lines[idx]?.lotsRaw : undefined,
           })),
           customer,
           salesRepId,
@@ -2529,6 +2531,9 @@ const creditNoteSchema = z.object({
       baseUnitName: z.string().transform((v) => v.slice(0, 64)).nullish(),
       // «مرجع السطر»: يُكتب على بند الإشعار الذي يُحلّ إليه هذا السطر (بترتيب الأصل — invoicesNotes.ts noteLineRefs)
       lineRef: lineRefField,
+      // «تتبّع اللوط» (المرحلة ب، طلب المالك ١٦ نوفمبر ٢٠٢٦): اختيارٌ اختياري بين تشغيلات بند الأصل وحدها [{lotId, qty أساسية}] —
+      // يحلّله التوزيع (lotsInvoice.ts linkedExplicitRows، وإلا 422)، ويرافق بنده إلى بند الإشعار (noteLineLots)
+      lots: z.unknown().optional(),
     })).min(1),
   ]),
 });
@@ -2677,7 +2682,7 @@ router.post('/:id/credit-note', async (req: AuthRequest, res: Response, next: Ne
     /* «الوحدة الرئيسية» §2.12-7 وD19: بنودٌ صريحة تحمل baseUnitName، أو طلبٌ بمفتاح API — يُقرأ صنف كل بند من الأصل (ولا استعلام
      * لغيرهما: الواجهة والمندوب كما كانا). baseUnitName يخالف أساس الصنف الآن ⇒ 400 UNIT_INVALID (كاشٌ قديم)، والمفتاح على صنفٍ
      * حُوِّل بلا baseUnitName ⇒ 400 BASE_UNIT_REQUIRED. والأساس المتوقَّع يُقارَن تحت قفل الإشعار (409 حين يسبقه تحويل). */
-    let lines: typeof body.lines | Array<{ invoiceItemId: string; qty: number; unitId: string | null; expectedBase: string | null; lineRef: string | null }> = body.lines;
+    let lines: typeof body.lines | Array<{ invoiceItemId: string; qty: number; unitId: string | null; expectedBase: string | null; lineRef: string | null; lots?: unknown }> = body.lines;
     if (body.lines !== 'FULL' && (body.lines.some((l) => l.baseUnitName != null) || !!req.user?.apiKeyId)) {
       const reqLines = body.lines;
       const origItems = await prisma.invoiceItem.findMany({
@@ -2702,6 +2707,7 @@ router.post('/:id/credit-note', async (req: AuthRequest, res: Response, next: Ne
         invoiceItemId: l.invoiceItemId, qty: l.qty, unitId: l.unitId ?? null,
         expectedBase: prodOf.get(l.invoiceItemId)?.unit ?? l.baseUnitName ?? null,
         lineRef: l.lineRef ?? null,
+        lots: l.lots,
       }));
     }
     const r = await issueCreditNote({

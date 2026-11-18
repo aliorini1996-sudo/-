@@ -20,7 +20,7 @@ import {
   buildPlaceView, companyDayOf, foldVanLots, foldWarehouseLots, heldUnknownOf, lotDatesProblem, lotErr, normalizeLotNumber, roundLot,
   sortedLockKeys, zeroBuckets,
   type AggInvLot, type AggRelabel, type AggVanLot, type AggWhLot, type BucketQty, type LotBlockKind, type LotEventKind,
-  type LotMeta, type LotRaw, type LotSource, type LotStatus, type PlaceLotView, type VanMoveType,
+  type LotMeta, type LotRaw, type LotSource, type LotStatus, type PlaceLotView, type ReturnGuessCandidate, type ReturnGuessTier, type VanMoveType,
 } from './lots';
 
 export type LotTx = Prisma.TransactionClient;
@@ -754,9 +754,9 @@ const SALE_MOMENT_SQL = Prisma.raw(`CASE WHEN i."clientCreatedAt" IS NULL THEN i
 
 /**
  * المستوى (أ) RETURN_GUESS_CUSTOMER: التشغيلات المسمّاة التي اشتراها العميل لأصنافٍ — بيعٌ نقدي أو آجل غير ملغى وليس إشعاراً،
- * وصفوفه في الحقبة الحالية — بآخر لحظة بيعٍ منها، الأحدث أولاً. اختيارٌ للتشغيلة فقط: لا يصير مصدراً (sourceItemLotId).
+ * وصفوفه في الحقبة الحالية، ولحظته حتى `asOf` إن أُعطي (حدّ T2 نفسه) — بآخر لحظة بيعٍ منها، الأحدث أولاً. اختيارٌ للتشغيلة فقط: لا يصير مصدراً (sourceItemLotId).
  */
-export async function customerBoughtLots(db: LotDb, tid: string, q: { customerId: string; productIds: string[] }): Promise<ReturnLotSeen[]> {
+export async function customerBoughtLots(db: LotDb, tid: string, q: { customerId: string; productIds: string[]; asOf?: Date | null }): Promise<ReturnLotSeen[]> {
   const pids = uniq(q.productIds);
   if (!pids.length || !q.customerId) return [];
   const rows = await db.$queryRaw<{ productId: string; lotId: string | null; lastAt: Date | null }[]>`
@@ -770,6 +770,7 @@ export async function customerBoughtLots(db: LotDb, tid: string, q: { customerId
       AND (i."documentKind" IS NULL OR i."documentKind" NOT IN ('CREDIT_NOTE', 'DEBIT_NOTE'))
       AND il."lotId" IS NOT NULL AND il."productId" = ANY(${pids}::text[])
       AND il."createdAt" >= ${EPOCH_SQL}
+      ${q.asOf ? Prisma.sql`AND ${SALE_MOMENT_SQL} <= ${q.asOf}` : Prisma.empty}
     GROUP BY 1, 2`;
   return seenNewestFirst(rows);
 }
@@ -926,5 +927,36 @@ export async function customerLotHistory(db: LotDb, tid: string, q: {
       lastSoldAt: e.lastAt, soldBase: roundLot(e.sold), returnedBase: roundLot(returned.get(lotId) ?? 0),
     });
   }
+  return out;
+}
+
+/**
+ * مرشّحو T3 لكل صنفٍ بالطبقات بالترتيب (العميل ثم سيارة المستند ثم الشركة)، وفي كل طبقةٍ الأحدث أولاً، بلا تكرارٍ عبر الطبقات
+ * (التشغيلة في أعلى طبقةٍ رأتها). الطبقة تسبق الحالة بقرار المالك، فلا تُستعلم طبقةٌ لصنفٍ وجد مرشّحاً صالح البطاقة فيما قبلها
+ * (أول مرشّحٍ هو المختار)، والسيارة تُتخطّى بلا vanKey. البطاقات من الشركة وللصنف نفسه وحدها (loadLotMetas بالمستأجر، I5) —
+ * داخل معاملة الإصدار بعد قفل الأصناف، وفي الفحص المسبق بلا قفل.
+ */
+export async function returnGuessCandidates(db: LotDb, tid: string, q: { customerId: string | null; vanKey: string | null; productIds: string[]; asOf?: Date | null }):
+  Promise<Map<string, ReturnGuessCandidate[]>> {
+  const pids = uniq(q.productIds);
+  const out = new Map<string, ReturnGuessCandidate[]>();
+  const taken = new Set<string>();
+  const pending = () => pids.filter((p) => !out.has(p));
+  const add = async (tier: ReturnGuessTier, rows: ReturnLotSeen[]) => {
+    const lotIds = uniq(rows.map((r) => r.lotId).filter((id) => !taken.has(id)));
+    const metas = lotIds.length ? await loadLotMetas(db, tid, { lotIds }) : new Map<string, LotMeta>();
+    for (const r of rows) {
+      const m = metas.get(r.lotId);
+      if (!m || m.productId !== r.productId || taken.has(r.lotId)) continue;
+      taken.add(r.lotId);
+      const list = out.get(r.productId) ?? [];
+      list.push({ lotId: m.id, lotNumber: m.lotNumber, expiryDate: m.expiryDate, status: m.status, blockKind: m.blockKind, tier });
+      out.set(r.productId, list);
+    }
+  };
+  if (!pids.length) return out;
+  if (q.customerId) await add('RETURN_GUESS_CUSTOMER', await customerBoughtLots(db, tid, { customerId: q.customerId, productIds: pids, asOf: q.asOf ?? null }));
+  if (q.vanKey && pending().length) await add('RETURN_GUESS_VAN', await vanSeenLots(db, tid, { vanKey: q.vanKey, productIds: pending() }));
+  if (pending().length) await add('RETURN_GUESS_COMPANY', await companyFlowLots(db, tid, { productIds: pending() }));
   return out;
 }

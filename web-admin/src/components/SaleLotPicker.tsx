@@ -2,19 +2,20 @@
 // «تتبّع اللوط» — منتقي تشغيلة سطر البيع في نافذة «إنشاء فاتورة جديدة» (طلب المالك ٢ نوفمبر ٢٠٢٦).
 // «تلقائي — الأقرب انتهاءً» افتراضاً (لا يُرسل شيء)، أو تشغيلةٌ واحدة للسطر كله، أو تقسيمٌ على أكثر من تشغيلة بمحرّر الصفوف
 // المشترك مع شاشتي المخزون (LotRowsEditor). المنطق الصرف في lib/saleLots.ts، والكميات بوحدة الأساس (D22).
+// طلب المالك ١٦ نوفمبر ٢٠٢٦: مختارةٌ لا تكفي أو صارت منتهية أو موقوفة لا تمنع — تنبيهٌ كهرماني (LotFallbackNote) والخادم يُكمل.
 // ============================================================================
 
 import { Layers } from 'lucide-react';
 import { useTr } from '../i18n/strings';
 import { formatDayOnly } from '../utils/format';
 import { LOT_BLOCK_KIND_LABELS, LOT_STATUS_LABELS } from '../lib/lots';
-import type { LotSource } from '../lib/stockLots';
+import type { LotFallbackPlan, LotSource } from '../lib/stockLots';
 import type { UnitDef } from '../lib/units';
 import {
   SALE_LOT_SPLIT, asDraftProblem, initialSplitRows, lotQtyInLineUnit, saleLineBaseQty, saleLotPickable, saleLotView,
   type SaleLotPick, type SaleLotProblem,
 } from '../lib/saleLots';
-import { LotRowsEditor, draftProblemText, fmtLotQty } from './StockLotFields';
+import { LotFallbackNote, LotRowsEditor, draftProblemText, fmtLotQty } from './StockLotFields';
 
 /** حالة المصادر: جاهزة، أو سببٌ يُبقي «تلقائي» وحده بنصٍّ بسيط */
 export type SaleLotState = 'READY' | 'NO_REP' | 'NO_PERM' | 'LOADING' | 'FAILED';
@@ -37,7 +38,7 @@ export function saleLotProblemText(
 }
 
 export default function SaleLotPicker({
-  line, prod, state, sources, problem, serverError, disabled, onChange,
+  line, prod, state, sources, problem, fallback, serverError, disabled, onChange,
 }: {
   line: { qty: number; unitFactor: number; unit: string; baseUnit: string; lotPick?: SaleLotPick | null };
   prod: { unit?: string | null; units?: UnitDef[] | null; primaryUnitId?: string | null } | null;
@@ -45,6 +46,8 @@ export default function SaleLotPicker({
   /** مصادر السطر (saleLotSources): المتاح بعد أسطر الصنف الأخرى — null قبل وصول اللقطة */
   sources: { all: LotSource[]; eligible: LotSource[] } | null;
   problem: SaleLotProblem | null;
+  /** «يُكمَل من غيرها» (saleLotFallback) — تنبيهٌ لا يمنع الإصدار */
+  fallback?: LotFallbackPlan | null;
   serverError?: string | null;
   disabled?: boolean;
   onChange: (pick: SaleLotPick | null) => void;
@@ -100,7 +103,7 @@ export default function SaleLotPicker({
     <div className="mt-1 min-w-[12rem] max-w-[22rem]" data-sale-lot="">
       <div className="flex items-center gap-1">
         <Layers size={12} className="text-[#E15A30] shrink-0" />
-        <select className={`input py-1 text-xs w-full min-w-0 ${problem || serverError ? 'border-red-300' : pick ? 'border-[#E15A30]/50' : ''}`}
+        <select className={`input py-1 text-xs w-full min-w-0 ${problem || serverError ? 'border-red-300' : fallback ? 'border-amber-300' : pick ? 'border-[#E15A30]/50' : ''}`}
           value={value} disabled={disabled} aria-label={tr('تشغيلة الصنف')} title={tr('تشغيلة الصنف')}
           onChange={(e) => choose(e.target.value)}>
           <option value="">{autoLabel}</option>
@@ -124,6 +127,9 @@ export default function SaleLotPicker({
         </div>
       )}
       {pick?.mode === 'ONE' && problem && <p className="text-[10px] text-red-600 mt-0.5">{saleLotProblemText(problem, tr, prod)}</p>}
+      {pick && !problem && fallback && (
+        <LotFallbackNote plan={fallback} sources={sources.all} shortText={tr('الكمية أكبر من المتاح في تشغيلات سيارة المندوب')} />
+      )}
       {serverError && <p className="text-[10px] text-red-600 mt-0.5">{serverError}</p>}
     </div>
   );

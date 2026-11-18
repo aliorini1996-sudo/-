@@ -136,12 +136,18 @@ export function returnPickDocLots(pick: ReturnLotPick | null | undefined, lots: 
 
 /**
  * سطر المستند الذي رفض الخادم تشغيلته في الإصدار الحيّ (ردّ LotError: رمزٌ يبدأ بـLOT_ و detail.line فهرس البند) — بنود الحمولة
- * بترتيب أسطر السلّة نفسه، فيعود ذلك السطر «تلقائي». غير ذلك null.
+ * بترتيب أسطر السلّة نفسه، فيعود ذلك السطر «تلقائي». وردٌّ بلا فهرسٍ صالح (خادمٌ أقدم) ومعه detail.lotId: أول سطرٍ اختار
+ * المندوب له تلك التشغيلة (`picks` معرّفات اختيار الأسطر بترتيبها) — فلا يعلق المندوب على اختيارٍ يرفضه الخادم. غير ذلك null.
  */
-export function lotRejectLine(data: unknown, count: number): number | null {
+export function lotRejectLine(data: unknown, count: number, picks?: readonly (string | null | undefined)[] | null): number | null {
   if (!data || typeof data !== 'object') return null;
-  const d = data as { code?: unknown; detail?: { line?: unknown } | null };
+  const d = data as { code?: unknown; detail?: { line?: unknown; lotId?: unknown } | null };
   if (typeof d.code !== 'string' || !d.code.startsWith('LOT_')) return null;
-  const line = d.detail && typeof d.detail === 'object' ? d.detail.line : undefined;
-  return typeof line === 'number' && Number.isInteger(line) && line >= 0 && line < count ? line : null;
+  const detail = d.detail && typeof d.detail === 'object' ? d.detail : null;
+  const line = detail?.line;
+  if (typeof line === 'number' && Number.isInteger(line) && line >= 0 && line < count) return line;
+  const lotId = detail?.lotId;
+  if (!okId(lotId) || !picks) return null;
+  const j = picks.findIndex((p, i) => i < count && p === lotId);
+  return j >= 0 ? j : null;
 }

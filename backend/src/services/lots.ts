@@ -722,6 +722,19 @@ const refsSum = (r: LotRef[]) => r.reduce((s, x) => s + x.qty, 0);
 /** رتبة الخدمة (D22): الوحدة الأكبر أولاً، والأساس (والمعامل التالف) آخراً */
 const cartonRank = (F: number) => (isCartonFactor(F) ? F : 1);
 
+/** سبب إكمال سطرٍ صريح من غير تشغيلته (LOT_EXPLICIT_FALLBACK): نفدت أو قصُرت، أو انتهت يوم المستند، أو موقوفة، أو غير المسمّى لا يكفي */
+export type ExplicitFallbackReason = 'SHORT' | 'EXPIRED' | 'BLOCKED' | 'UNKNOWN_SHORT';
+/** صفٌّ صريح لم تُعطِه تشغيلته كاملاً (SPILL) — يصير تحذيراً بعد خدمة باقي سطره، و`short` ما أُكمل عنه */
+interface SpillEvent { lotId: string | null; lotNumber: string | null; reason: ExplicitFallbackReason; requested: number; taken: number; short: number }
+/** سطرٌ يخدمه المسار الحيّ: بلا صريح، أو باقي سطرٍ صريح (SPILL) بمِنَحه وأحداثه — `pos` ترتيب الإدخال يكسر تعادل رتبة الخدمة */
+interface LiveJob { idx: number; qty: number; unitFactor: number; pos: number; spill?: { grants: AllocRow[]; events: SpillEvent[] } }
+const CERTAINTY_RANK: Readonly<Record<LotCertainty, number>> = { UNKNOWN: 0, ASSUMED: 1, CONFIRMED: 2 };
+/** أضعف اليقينين — صفّان للوطٍ واحد في سطرٍ يُضمّان فلا يدّعي المضموم يقيناً لم يكن لكل جزئه */
+const weakerCertainty = (a: LotCertainty, b: LotCertainty): LotCertainty => (CERTAINTY_RANK[a] <= CERTAINTY_RANK[b] ? a : b);
+/** ترتيب الخدمة (D22): الوحدة الأكبر أولاً ثم ترتيب الإدخال */
+const byService = <T extends { unitFactor: number; pos: number }>(xs: T[]): T[] =>
+  [...xs].sort((a, b) => cartonRank(b.unitFactor) - cartonRank(a.unitFactor) || a.pos - b.pos);
+
 /**
  * توزيع إنقاصٍ من SELLABLE للبيع أو التحميل (I1، I4) — **لكل أسطر الصنف معاً**، ولكل سطرٍ صفوفه.
  *
@@ -733,6 +746,15 @@ const cartonRank = (F: number) => (isCartonFactor(F) ? F : 1);
  *   ACTIVE، غير منتهٍ يوم `day`، مجموعه ≤ صالحه؛ والفارغ ≤ unknownUsable وبشرط allowUnknown؛ ثم Σ كل سطرٍ = كميته. صفوف
  *   السطر صريحه كما هو، CONFIRMED. البطاقة من `lookup` ثم من العرض؛ ولوطٌ غائب عن العرض صالحه صفر. وسطرٌ بلا صريح يوزّعه
  *   الخادم مما بقي بعد الصريح.
+ * - **الصريح الذي لا يكفي** (`explicitShort`، طلب المالك ١٦ نوفمبر ٢٠٢٦ «لا مانع من أن يأخذ من LOT آخر إذا انتهت هذه التشغيلة»):
+ *   'REJECT' (الافتراضي) العقد أعلاه حرفاً. 'SPILL' لمسارات الأخذ (بيع الإدارة والمفتاح، والتحميل من المستودع): التشغيلة
+ *   المسمّاة «خذ منها أولاً» لا «يجب منها». الوجود في الشركة والصنف وΣ السطر صارمةٌ كما هي (لا تُستبدل تشغيلةٌ بصمت)؛ ثم
+ *   الأسطر الصريحة بترتيب الخدمة وصفوف كلٍّ بترتيبها تُمنح من المتاح المشترك (D26): المسمّاة المؤهَّلة min(المطلوب، متاحها)
+ *   CONFIRMED، والموقوفة أو المنتهية يوم `day` صفراً (I4: لا يُباع منها ولا يُحمَّل)، والفارغ min(المطلوب، unknownUsable) بشرط
+ *   allowUnknown (I2). الباقي سطرٌ فرعي يُخدم مع الأسطر بلا صريح في مرورٍ واحد بترتيب الخدمة بالمسار الحيّ نفسه (المؤهَّلون بـFEFO
+ *   بقاعدة الكرتون ثم غير المسمّى، D17/D22)، وصفوفه موسومة EXPLICIT_FALLBACK. صفوف السطر مِنَحه ثم باقيه، وصفّا اللوط الواحد
+ *   يُضمّان؛ وSPLIT_UNIT على تسلسله كله. لكل صفٍّ صريح لم يكفِ تحذير LOT_EXPLICIT_FALLBACK {line, lotId, lotNumber, reason,
+ *   requested, taken, spilled}. والرفض الوحيد الباقي نقص الصنف كله: LOT_STOCK_INSUFFICIENT نفسه بلا lotId ومعه `lines`.
  * - **ترتيب الخدمة** (D22): أسطر F > 1 أولاً بـF تنازلياً، ثم البقية بترتيبها — فيأخذ الكرتون كراتينه كاملةً من لوطٍ واحد قبل
  *   أن تقتطع الحبّات منه.
  * - **بلا صريح، حيّاً**: لكل سطر المؤهَّلون بـFEFO بقاعدة الكرتون بمعامله، ثم غير المسمّى إن كان allowUnknown (D17)، والنقص
@@ -740,7 +762,8 @@ const cartonRank = (F: number) => (isCartonFactor(F) ? F : 1);
  * - **الإعادة** (`replay`، R6): التلميح يُقبل للصنف كله أو يُترك كله (D16) — كل سطرٍ بتلميحٍ مجموعه كميته، ومجموع كل لوطٍ على
  *   الأسطر ≤ صالحه — فتكون صفوف كل سطرٍ تلميحه كما طُبع على الورقة. وإلا لكل سطر الطبقات ١ (المؤهَّلون والموقوفون بعد البيع،
  *   بتقدّم firstInAt ≤ at)، ٢ (غير المسمّى)، ٣ (HOLD ثم المنتهي ثم RECALL، ASSUMED بوسمها)؛ والنقص LOT_REPLAY_HELD (D20)
- *   على المجموع. allowUnknown لا يقيّدها.
+ *   على المجموع. allowUnknown لا يقيّدها. وباقي الصريح (SPILL) يُخدم حيّاً قبل الطبقات: ما يختاره النظام لسطرٍ صريح من
+ *   المؤهَّل وحده.
  * - **الوحدة المقسومة** (D22): كل كرتونٍ انقسم بين مصدرين — لوطين، أو لوطٍ وغير المسمّى، أو طبقتين — يُوسَم صفّاه SPLIT_UNIT،
  *   ويُرفع LOT_SPLIT_UNIT لسطره `{unitFactor, idx}`.
  * - اليقين: صفّ مسمّى CONFIRMED إن كان المصدر المادي الوحيد في المكان (n_phys = 1) وإلا ASSUMED، وغير المسمّى UNKNOWN.
@@ -753,8 +776,10 @@ export function allocateOutLines(input: {
   allowUnknown: boolean;                                  // D17
   replay?: { at: Date; clamped: boolean } | null;
   lookup?: ReadonlyMap<string, LotMeta> | null;           // بطاقات اللوطات الصريحة (loadLotMetas) — للوجود والصنف والحالة خارج العرض
+  explicitShort?: 'REJECT' | 'SPILL';                     // الصريح الذي لا يكفي: يُرفض (الافتراضي) أو يُكمل من غيره (مسارات الأخذ)
 }): OutLinesResult {
   const { view, day, productId } = input;
+  const spill = input.explicitShort === 'SPILL';
   const warnings: LotWarning[] = [];
   const lines = new Map<number, AllocRow[]>();
   const fail = (error: LotError): OutLinesResult => ({ ok: false, error });
@@ -774,6 +799,9 @@ export function allocateOutLines(input: {
   // المتاح المشترك بين الأسطر (D26): كل سطرٍ يأخذ مما تركه ما قبله
   const pool = new Map<string, number>(view.lots.map((l) => [l.lotId, l.usable.SELLABLE]));
   let uuLeft = uu;
+  const posOf = new Map(live.map((l, i) => [l.idx, i] as const));
+  /** بواقي الأسطر الصريحة (SPILL) — تُخدم بالمسار الحيّ مع الأسطر بلا صريح */
+  const spillJobs: LiveJob[] = [];
 
   // ── الصريح ──
   const explicitLines = live.filter((l) => hasRefs(l.explicit));
@@ -783,9 +811,12 @@ export function allocateOutLines(input: {
     for (const [k, q] of want) {
       if (k === LOT_UNKNOWN_KEY) continue;
       const l = byId.get(k);
+      // الوجود في الشركة والصنف صارمان في الوضعين: تشغيلةٌ لا تعرفها الشركة أو لصنفٍ آخر لا تُستبدل بصمت
       const found = explicitMeta(k, l, input.lookup, productId, input.productName);
       if ('error' in found) return fail(found.error);
       const m = found.meta;
+      metas.set(k, m);
+      if (spill) continue; // SPILL: الموقوف والمنتهي والناقص تُمنح ما يحلّ منها ويُكمل الباقي من غيرها (أدناه) — لا رفض
       if (m && m.status !== 'ACTIVE') return fail(lotErr('LOT_BLOCKED', { lot: m.lotNumber }, { productId, lotId: k, blockKind: m.blockKind }));
       if (m && isLotExpiredOn(m, day)) {
         return fail(lotErr('LOT_EXPIRED', { lot: m.lotNumber, date: m.expiryDate }, { productId, lotId: k, expiryDate: m.expiryDate }));
@@ -795,10 +826,9 @@ export function allocateOutLines(input: {
         return fail(lotErr('LOT_STOCK_INSUFFICIENT', { name: input.productName, place: placeLabel(view.place), available: availText(view, usable) },
           { productId, lotId: k, lotNumber: m?.lotNumber ?? null, wanted: q, usable }));
       }
-      metas.set(k, m);
     }
     const uq = want.get(LOT_UNKNOWN_KEY);
-    if (uq != null && (!input.allowUnknown || uq > Math.max(0, uu) + LOT_EPS)) {
+    if (!spill && uq != null && (!input.allowUnknown || uq > Math.max(0, uu) + LOT_EPS)) {
       return fail(lotErr('LOT_STOCK_INSUFFICIENT', { name: input.productName, place: placeLabel(view.place), available: availText(view, input.allowUnknown ? uu : 0) },
         { productId, lotId: null, wanted: uq, unknownUsable: uu, allowUnknown: input.allowUnknown }));
     }
@@ -806,21 +836,59 @@ export function allocateOutLines(input: {
       const sum = refsSum(l.explicit ?? []);
       if (Math.abs(sum - l.qty) > LOT_EPS) return fail(lotErr('LOT_QTY_INVALID', {}, { productId, wanted: l.qty, sum }));
     }
-    for (const l of explicitLines) {
-      const mine = mergeRefs(l.explicit ?? []);
-      const rows: AllocRow[] = [];
-      for (const [k, q] of mine) if (k !== LOT_UNKNOWN_KEY) rows.push({ lotId: k, qty: q, certainty: 'CONFIRMED', flags: [], expiryDate: metas.get(k)?.expiryDate ?? null });
-      const u = mine.get(LOT_UNKNOWN_KEY);
-      if (u != null) rows.push(unknownRow(u, []));
-      for (const r of rows) {
-        if (r.lotId == null) uuLeft -= r.qty;
-        else pool.set(r.lotId, (pool.get(r.lotId) ?? 0) - r.qty);
+    if (!spill) {
+      for (const l of explicitLines) {
+        const mine = mergeRefs(l.explicit ?? []);
+        const rows: AllocRow[] = [];
+        for (const [k, q] of mine) if (k !== LOT_UNKNOWN_KEY) rows.push({ lotId: k, qty: q, certainty: 'CONFIRMED', flags: [], expiryDate: metas.get(k)?.expiryDate ?? null });
+        const u = mine.get(LOT_UNKNOWN_KEY);
+        if (u != null) rows.push(unknownRow(u, []));
+        for (const r of rows) {
+          if (r.lotId == null) uuLeft -= r.qty;
+          else pool.set(r.lotId, (pool.get(r.lotId) ?? 0) - r.qty);
+        }
+        lines.set(l.idx, rows);
       }
-      lines.set(l.idx, rows);
+    } else {
+      // المِنَح بترتيب الخدمة وصفوف كل سطرٍ بترتيبها (المسمّاة ثم الفارغ كصفوف REJECT): سطرٌ كفته تشغيلاته صفوفه كما في REJECT حرفاً
+      const grantOf = (q: number, avail: number): number => {
+        const a = Math.max(0, avail);
+        const g = q <= a + LOT_EPS ? q : Math.max(0, floorLot(a));
+        return g > LOT_EPS ? g : 0;
+      };
+      for (const l of byService(explicitLines.map((x) => ({ l: x, unitFactor: x.unitFactor, pos: posOf.get(x.idx) ?? 0 })))) {
+        const line = l.l;
+        const mine = mergeRefs(line.explicit ?? []);
+        const grants: AllocRow[] = [];
+        const events: SpillEvent[] = [];
+        for (const [k, q] of mine) {
+          if (k === LOT_UNKNOWN_KEY) continue;
+          const m = metas.get(k) ?? null;
+          const reason: ExplicitFallbackReason | null = m && m.status !== 'ACTIVE' ? 'BLOCKED' : m && isLotExpiredOn(m, day) ? 'EXPIRED' : null;
+          const g = reason ? 0 : grantOf(q, pool.get(k) ?? 0);
+          if (g > 0) {
+            pool.set(k, (pool.get(k) ?? 0) - g);
+            grants.push({ lotId: k, qty: g, certainty: 'CONFIRMED', flags: [], expiryDate: m?.expiryDate ?? null });
+          }
+          const short = roundLot(q - g);
+          if (short > LOT_EPS) events.push({ lotId: k, lotNumber: m?.lotNumber ?? null, reason: reason ?? 'SHORT', requested: q, taken: g, short });
+        }
+        const u = mine.get(LOT_UNKNOWN_KEY);
+        if (u != null) {
+          const g = input.allowUnknown ? grantOf(u, uuLeft) : 0;
+          if (g > 0) { uuLeft -= g; grants.push(unknownRow(g, [])); }
+          const short = roundLot(u - g);
+          if (short > LOT_EPS) events.push({ lotId: null, lotNumber: null, reason: 'UNKNOWN_SHORT', requested: u, taken: g, short });
+        }
+        lines.set(line.idx, grants);
+        if (!events.length) continue;
+        const rest = roundLot(line.qty - grants.reduce((s, r) => s + r.qty, 0));
+        if (rest > LOT_EPS) spillJobs.push({ idx: line.idx, qty: rest, unitFactor: line.unitFactor, pos: l.pos, spill: { grants, events } });
+      }
     }
   }
   const auto = live.filter((l) => !hasRefs(l.explicit));
-  if (!auto.length) return done();
+  if (!auto.length && !spillJobs.length) return done();
   const order = auto.map((l, i) => ({ l, i }))
     .sort((a, b) => cartonRank(b.l.unitFactor) - cartonRank(a.l.unitFactor) || a.i - b.i)
     .map((x) => x.l);
@@ -846,8 +914,121 @@ export function allocateOutLines(input: {
     for (const s of splitLines) warnings.push({ code: 'LOT_SPLIT_UNIT', productId, detail: { unitFactor: s.unitFactor, idx: s.idx } });
   };
 
+  // ── المسار الحيّ: المؤهَّلون بـFEFO بقاعدة الكرتون، ثم غير المسمّى إن كان allowUnknown (D17) ──
+  const eligible = view.lots.filter((l) => isEligible(l, day)).sort((a, b) => fefoCompare(a.meta, b.meta));
+  const cands: Cand[] = eligible.map((l) => ({ lot: l, flags: [], certainty: namedCertainty }));
+  const shortErr = (): LotError => {
+    const e = insufficient({ productId, productName: input.productName, qty: total, view, day, allowUnknown: input.allowUnknown });
+    // SPILL: نقص الصنف كله هو الرفض الوحيد الباقي — بأسطره كلها (والصريحة منها) فتُعلَّم كلها في الشاشة
+    return spill && explicitLines.length ? new LotError(e.code, e.message, e.status, { ...(e.detail ?? {}), lines: input.lines.map((l) => l.idx) }) : e;
+  };
+  /**
+   * صفوف سطرٍ صريح أُكمل (SPILL): مِنَحه بترتيبها، ثم باقيه بترتيب أخذه (كراتين FEFO كاملة، ثم قطعه، ثم غير المسمّى) موسوماً
+   * EXPLICIT_FALLBACK. صفّا اللوط الواحد في السطر يُضمّان (Σ الكمية، أضعف يقين، اتحاد الوسوم) فتُطبع التشغيلة مرة. الوحدة
+   * المقسومة على التسلسل كله بمعامل السطر (D22) بعد ضمّ المتجاورَين من مصدرٍ واحد. وspilled كل حدثٍ ما أكمله بترتيب الأخذ.
+   */
+  const spillRows = (job: LiveJob, taken: Map<Cand, number>, pieces: Piece[]): void => {
+    const { grants, events } = job.spill!;
+    type Step = { lotId: string | null; qty: number; certainty: LotCertainty; expiryDate: string | null; fb: boolean };
+    const seq: Step[] = grants.map((r) => ({ lotId: r.lotId, qty: r.qty, certainty: r.certainty, expiryDate: r.expiryDate, fb: false }));
+    const inPieces = new Map<Cand, number>();
+    for (const p of pieces) if (p.src) inPieces.set(p.src, (inPieces.get(p.src) ?? 0) + p.qty);
+    // مرحلة الكراتين في takeOrdered: ما أُخذ من المرشّح خارج قطعه، بترتيب المرشّحين (مضاعفات F)
+    for (const c of cands) {
+      const whole = snapLot((taken.get(c) ?? 0) - (inPieces.get(c) ?? 0));
+      if (whole > LOT_EPS) seq.push({ lotId: c.lot.lotId, qty: whole, certainty: c.certainty, expiryDate: c.lot.meta.expiryDate, fb: true });
+    }
+    for (const p of pieces) {
+      seq.push(p.src
+        ? { lotId: p.src.lot.lotId, qty: p.qty, certainty: p.src.certainty, expiryDate: p.src.lot.meta.expiryDate, fb: true }
+        : { lotId: null, qty: p.qty, certainty: 'UNKNOWN', expiryDate: null, fb: true });
+    }
+    const runs: { key: string; qty: number }[] = [];
+    for (const s of seq) {
+      const key = keyOf(s.lotId);
+      const last = runs[runs.length - 1];
+      if (last && last.key === key) last.qty += s.qty; else runs.push({ key, qty: s.qty });
+    }
+    const split = new Set<string>();
+    const F = job.unitFactor;
+    if (isCartonFactor(F)) {
+      let cum = 0;
+      for (let i = 0; i + 1 < runs.length; i++) {
+        cum += runs[i].qty;
+        if (Math.abs(cum - Math.round(cum / F) * F) > LOT_EPS * (i + 1)) { split.add(runs[i].key); split.add(runs[i + 1].key); }
+      }
+    }
+    const rows: AllocRow[] = [];
+    const at = new Map<string, number>();
+    for (const s of seq) {
+      const key = keyOf(s.lotId);
+      const fl = new Set<LotRowFlag>();
+      if (s.fb) fl.add('EXPLICIT_FALLBACK');
+      if (split.has(key)) fl.add('SPLIT_UNIT');
+      const i = at.get(key);
+      if (i == null) {
+        at.set(key, rows.length);
+        rows.push({ lotId: s.lotId, qty: s.qty, certainty: s.certainty, flags: LOT_ROW_FLAGS.filter((f) => fl.has(f)), expiryDate: s.expiryDate });
+        continue;
+      }
+      const r = rows[i];
+      for (const f of r.flags) fl.add(f);
+      rows[i] = { ...r, qty: snapLot(r.qty + s.qty), certainty: weakerCertainty(r.certainty, s.certainty), flags: LOT_ROW_FLAGS.filter((f) => fl.has(f)) };
+    }
+    lines.set(job.idx, rows);
+    if (split.size) splitLines.push({ idx: job.idx, unitFactor: F });
+    // spilled: الباقي بترتيب أخذه يُقسم على الأحداث بترتيبها، كلٌّ بما نقص منه
+    const fb = seq.filter((s) => s.fb);
+    let p = 0;
+    let pLeft = fb.length ? fb[0].qty : 0;
+    for (const ev of events) {
+      let need = ev.short;
+      const spilled = new Map<string, number>();
+      while (need > LOT_EPS && p < fb.length) {
+        const t = Math.min(need, pLeft);
+        const k = keyOf(fb[p].lotId);
+        spilled.set(k, (spilled.get(k) ?? 0) + t);
+        need -= t;
+        pLeft -= t;
+        if (pLeft <= LOT_EPS) { p++; pLeft = p < fb.length ? fb[p].qty : 0; }
+      }
+      warnings.push({
+        code: 'LOT_EXPLICIT_FALLBACK', productId,
+        detail: {
+          line: job.idx, lotId: ev.lotId, lotNumber: ev.lotNumber, reason: ev.reason, requested: ev.requested, taken: ev.taken,
+          spilled: [...spilled].map(([k, q]) => ({ lotId: lotOfKey(k), qty: roundLot(q) })),
+        },
+      });
+    }
+  };
+  const serveLive = (jobs: LiveJob[]): LotError | null => {
+    for (const job of jobs) {
+      const t = takeOrdered(cands, pool, job.qty, job.unitFactor, true);
+      const pieces = [...t.pieces];
+      const { left, uq } = input.allowUnknown ? takeUnknown(t.left, pieces) : { left: t.left, uq: 0 };
+      if (left > LOT_EPS) return shortErr();
+      if (job.spill) { spillRows(job, t.taken, pieces); continue; }
+      const split = splitSources(pieces, job.unitFactor);
+      const rows = rowsOf(cands, t.taken, split, []);
+      if (uq > 0) rows.push(unknownRow(uq, split.has(null) ? ['SPLIT_UNIT'] : []));
+      lines.set(job.idx, rows);
+      if (split.size) splitLines.push({ idx: job.idx, unitFactor: job.unitFactor });
+    }
+    return null;
+  };
+
   // ── الإعادة (R6) ──
   if (input.replay) {
+    // باقي الصريح (SPILL) حيّاً قبل الطبقات: ما يختاره النظام لسطرٍ صريح من المؤهَّل وحده (I4)، لا من الطبقة ٣
+    if (spillJobs.length) {
+      const e = serveLive(byService(spillJobs));
+      if (e) return fail(e);
+    }
+    if (!auto.length) {
+      if (fromUnknown) warnings.push({ code: 'LOT_FROM_UNKNOWN', productId });
+      splitWarnings();
+      return done();
+    }
     const at = input.replay.at;
     const base: LotRowFlag[] = input.replay.clamped ? ['REPLAY_CLAMPED'] : [];
     const markOf = (l: LotBalance): LotRowFlag[] => {
@@ -880,6 +1061,7 @@ export function allocateOutLines(input: {
           lines.set(l.idx, rows);
         }
         if (fromUnknown) warnings.push({ code: 'LOT_FROM_UNKNOWN', productId });
+        splitWarnings(); // بواقي الصريح (SPILL) المخدومة قبل الطبقات قد قسمت وحدة؛ وبلاها القائمة فارغة فلا يتغيّر شيء
         flagNotice();
         return done();
       }
@@ -932,20 +1114,9 @@ export function allocateOutLines(input: {
     return done();
   }
 
-  // ── المسار الحيّ بلا صريح ──
-  const eligible = view.lots.filter((l) => isEligible(l, day)).sort((a, b) => fefoCompare(a.meta, b.meta));
-  const cands: Cand[] = eligible.map((l) => ({ lot: l, flags: [], certainty: namedCertainty }));
-  for (const line of order) {
-    const t = takeOrdered(cands, pool, line.qty, line.unitFactor, true);
-    const pieces = [...t.pieces];
-    const { left, uq } = input.allowUnknown ? takeUnknown(t.left, pieces) : { left: t.left, uq: 0 };
-    if (left > LOT_EPS) return fail(insufficient({ productId, productName: input.productName, qty: total, view, day, allowUnknown: input.allowUnknown }));
-    const split = splitSources(pieces, line.unitFactor);
-    const rows = rowsOf(cands, t.taken, split, []);
-    if (uq > 0) rows.push(unknownRow(uq, split.has(null) ? ['SPLIT_UNIT'] : []));
-    lines.set(line.idx, rows);
-    if (split.size) splitLines.push({ idx: line.idx, unitFactor: line.unitFactor });
-  }
+  // ── المسار الحيّ: الأسطر بلا صريح وبواقي الصريح معاً بترتيب الخدمة ──
+  const err = serveLive(byService([...spillJobs, ...auto.map((l) => ({ idx: l.idx, qty: l.qty, unitFactor: l.unitFactor, pos: posOf.get(l.idx) ?? 0 }))]));
+  if (err) return fail(err);
   if (fromUnknown) warnings.push({ code: 'LOT_FROM_UNKNOWN', productId });
   splitWarnings();
   return done();
@@ -964,6 +1135,7 @@ export function allocateOut(input: {
   hint?: LotRef[] | null;                                 // الإعادة
   replay?: { at: Date; clamped: boolean } | null;
   lookup?: ReadonlyMap<string, LotMeta> | null;           // بطاقات اللوطات الصريحة (loadLotMetas) — للوجود والصنف والحالة خارج العرض
+  explicitShort?: 'REJECT' | 'SPILL';                     // كما في allocateOutLines: REJECT الافتراضي، وSPILL «خذ منها أولاً»
 }): AllocResult {
   const { qty, unitFactor, explicit, hint, ...rest } = input;
   const r = allocateOutLines({ ...rest, lines: [{ idx: 0, qty, unitFactor, explicit, hint }] });
@@ -1244,6 +1416,86 @@ export function allocateReturnFromHistory(input: {
   return rows;
 }
 
+// ═══ T3: تشغيلة المرتجع بلا دليل (طلب المالك ١٦ نوفمبر ٢٠٢٦) ═══
+
+/** طبقة تخمين تشغيلة مرتجعٍ بلا دليل = وسم صفّه */
+export type ReturnGuessTier = Extract<LotRowFlag, 'RETURN_GUESS_CUSTOMER' | 'RETURN_GUESS_VAN' | 'RETURN_GUESS_COMPANY'>;
+/** الطبقات بترتيبها: ما اشتراه العميل، ثم ما رأته سيارة المستند، ثم ما تحرّك في الشركة — في الحقبة الحالية كلها (D25) */
+export const RETURN_GUESS_TIERS: readonly ReturnGuessTier[] = ['RETURN_GUESS_CUSTOMER', 'RETURN_GUESS_VAN', 'RETURN_GUESS_COMPANY'];
+/** مرشّحٌ لتشغيلة مرتجعٍ بلا دليل: بطاقة اللوط وطبقته. `blockKind` اختياري: يقدّم HOLD على RECALL حين يُعطى */
+export interface ReturnGuessCandidate {
+  lotId: string; lotNumber: string; expiryDate: string | null; status: LotStatus; blockKind?: LotBlockKind | null; tier: ReturnGuessTier;
+}
+/** صفٌّ خمّن النظامُ تشغيلته لمرتجع (RETURN_GUESS_*)؟ — لا يدخل ختم الصلاحية ولا توجيه المنتهي (D6/D12، stampFromRows) */
+export function isReturnGuessRow(r: { flags?: readonly LotRowFlag[] | null }): boolean {
+  return !!r.flags && r.flags.some((f) => (RETURN_GUESS_TIERS as readonly LotRowFlag[]).includes(f));
+}
+
+/**
+ * ترتيب مرشّحي صنفٍ واحد: الطبقة (العميل، السيارة، الشركة)، ثم داخلها ACTIVE غير منتهٍ يوم المرتجع، ثم ACTIVE منتهٍ، ثم الموقوف
+ * HOLD ثم RECALL، ثم ترتيب الإدخال (يبنيه المستدعي الأحدث أولاً). وتشغيلةٌ في أكثر من طبقة تبقى في أعلاها وحدها. مرشّحٌ بلا
+ * معرّف أو بطبقةٍ غير معروفة يُهمل.
+ */
+export function rankReturnGuesses(cands: readonly ReturnGuessCandidate[], returnDay: string): ReturnGuessCandidate[] {
+  const tierOf = (c: ReturnGuessCandidate) => RETURN_GUESS_TIERS.indexOf(c.tier);
+  const classOf = (c: ReturnGuessCandidate) =>
+    (c.status !== 'ACTIVE' ? (c.blockKind === 'RECALL' ? 3 : 2) : isLotExpiredOn(c, returnDay) ? 1 : 0);
+  const ranked = cands.map((c, i) => ({ c, i }))
+    .filter(({ c }) => !!c && typeof c.lotId === 'string' && c.lotId.length > 0 && tierOf(c) >= 0)
+    .sort((a, b) => tierOf(a.c) - tierOf(b.c) || classOf(a.c) - classOf(b.c) || a.i - b.i);
+  const seen = new Set<string>();
+  const out: ReturnGuessCandidate[] = [];
+  for (const { c } of ranked) {
+    if (seen.has(c.lotId)) continue;
+    seen.add(c.lotId);
+    out.push(c);
+  }
+  return out;
+}
+
+/**
+ * T3: كل صفّ مرتجعٍ بقي بلا تشغيلة (lotId = null) بعد الصريح والوراثة (allocateReturnFromSale/History) يُنسب إلى أول مرشّحٍ
+ * لصنفه (rankReturnGuesses) بدل «غير مسمّى» — شكوى المالك «المرتجع يدخل كـLOT جديد غير مسمى». فلا يبقى مرتجعٌ بلا تشغيلة ما دام
+ * للصنف تشغيلةٌ مسمّاة في الحقبة (D25 كما هو: بلا مرشّح يبقى UNKNOWN). صرفة: المرشّحون يبنيهم المستدعي داخل المعاملة بعد قفل
+ * الأصناف (customerBoughtLots وvanSeenLots وcompanyFlowLots مع بطاقاتها)، و`rows` صفوف أسطر المرتجع ومع كلٍّ صنفه.
+ * - الصفّ المخمَّن: lotId المرشّح، ASSUMED (استنتاجٌ لا دليل)، انتهاؤه لقطة بطاقته، ووسم طبقته فوق وسومه. **الكمية
+ *   وsourceItemLotId كما هما حرفاً**: Σ السطر (I3) وما أُرجع من كل صفّ بيع (returnedBySource) لا يتغيّران، وفي المرتجع المرتبط
+ *   يبقى مصدر الصفّ صفَّ البيع المرتبط نفسه (أو null) لا صفَّ فاتورةٍ أخرى — فلا يفسد المتاح للإرجاع من فاتورةٍ لم يُرجَع منها.
+ * - كسرٌ أدقّ من أربع خانات (غبار R6 أو صفّ بيعٍ قديم): أرضيته للتشغيلة وباقيه صفٌّ UNKNOWN بمصدره — لا غبار في لوطٍ مسمّى.
+ * - المرتجع زيادة: لا فحص رصيد (I1/I2 لا يُمسّان)، وغير المسمّى المشتقّ لا يتغيّر بالمسمّى المضاف. تشغيلةٌ موقوفة مخمَّنة يدخلها
+ *   المرتجع معزولاً كاليوم: LOT_INTO_BLOCKED مرةً لكل تشغيلة بطبقتها.
+ * - الختم والتوجيه (D6/D12) لا يقرآن الصفوف المخمَّنة (stampFromRows يتخطّاها): تخمينٌ منتهٍ لا يقلب returnExpired ولا الدلو.
+ * الناتج بترتيب الصفوف، وكل صفٍّ بحقوله الإضافية (productId وغيرها) كما دخل.
+ */
+export function attributeUnnamedReturnRows<R extends AllocRow & { productId: string }>(
+  rows: readonly R[],
+  candidatesByProduct: ReadonlyMap<string, readonly ReturnGuessCandidate[]>,
+  returnDay: string,
+): { rows: R[]; warnings: LotWarning[] } {
+  const warnings: LotWarning[] = [];
+  const firstOf = new Map<string, ReturnGuessCandidate | null>();
+  const pick = (productId: string): ReturnGuessCandidate | null => {
+    if (!firstOf.has(productId)) firstOf.set(productId, rankReturnGuesses(candidatesByProduct.get(productId) ?? [], returnDay)[0] ?? null);
+    return firstOf.get(productId) ?? null;
+  };
+  const warned = new Set<string>();
+  const out: R[] = [];
+  for (const r of rows) {
+    if (r.lotId != null || !(r.qty > LOT_EPS)) { out.push(r); continue; }
+    const c = pick(r.productId);
+    const named = onLotGrid(r.qty) ? r.qty : Math.max(0, floorLot(r.qty));
+    if (!c || !(named > LOT_EPS)) { out.push(r); continue; }
+    const fl = new Set<LotRowFlag>([...r.flags, c.tier]);
+    out.push({ ...r, lotId: c.lotId, qty: named, certainty: 'ASSUMED', expiryDate: c.expiryDate, flags: LOT_ROW_FLAGS.filter((f) => fl.has(f)) });
+    if (named !== r.qty) out.push({ ...r, qty: r.qty - named, flags: [...r.flags] });
+    if (c.status !== 'ACTIVE' && !warned.has(c.lotId)) {
+      warned.add(c.lotId);
+      warnings.push({ code: 'LOT_INTO_BLOCKED', productId: r.productId, detail: { lotId: c.lotId, lotNumber: c.lotNumber, blockKind: c.blockKind ?? null, tier: c.tier } });
+    }
+  }
+  return { rows: out, warnings };
+}
+
 /**
  * يوزّع صفوف صنفٍ مجمَّع على أسطر الطلب بالترتيب (الصف يُقسم بين سطرين حين يلزم) — Σ صفوف كل سطر = كميته (I3).
  * لا تعرف الوحدة: لصفوفٍ لا كرتون فيها يُشقّ — مصدرٌ واحد (pickOutSources التلقائي). البيع والتحميل بـallocateOutLines
@@ -1280,10 +1532,11 @@ export function distributeToLines(rows: AllocRow[], lines: { idx: number; qty: n
 /**
  * ختم الصلاحية من صفوف التوزيع (D12، ن١-٣): null إن لم يوجد صفّ مسمّى له انتهاء (فتبقى اللقطة القائمة)؛ expiresAt = أقرب
  * انتهاء؛ returnExpired = أي صفّ مسمّى منتهٍ يوم المرتجع (D6: البند المختلط يُوجَّه كله إلى EXPIRED)، وnull بلا يوم مرتجع.
+ * الصفّ المخمَّن (RETURN_GUESS_*، T3) لا يُقرأ: تخمينٌ لا دليل فلا يقلب الختم ولا returnExpired ولا الدلو — يبقى ما كان لـUNKNOWN.
  */
-export function stampFromRows(rows: Pick<AllocRow, 'lotId' | 'expiryDate'>[], returnDay?: string | null):
+export function stampFromRows(rows: (Pick<AllocRow, 'lotId' | 'expiryDate'> & { flags?: readonly LotRowFlag[] | null })[], returnDay?: string | null):
   { expiresAt: string; returnExpired: boolean | null } | null {
-  const dated = rows.filter((r) => r.lotId != null && r.expiryDate != null).map((r) => r.expiryDate as string);
+  const dated = rows.filter((r) => r.lotId != null && r.expiryDate != null && !isReturnGuessRow(r)).map((r) => r.expiryDate as string);
   if (!dated.length) return null;
   const expiresAt = dated.reduce((a, b) => (b < a ? b : a));
   const returnExpired = returnDay ? dated.some((d) => returnDay > d) : null;

@@ -897,8 +897,10 @@ test('دليل «حركات المخزون من نظامكم»: لا سحب من
   assert.match(entrySchema, /lotNumber: z\.string\(\)\.max\(LOT_NUMBER_MAX\)\.optional\(\),/);
   assert.match(entrySchema, /unitCost: z\.number\(\)\.positive\(\)\.finite\(\)\.max\(1e9\)\.optional\(\),/);
   for (const k of ['"lotId": ""', '"lotNumber": null', '"unitCost": null', '"lineRef": 1']) assert.ok(all.includes(k), `الدليل لا يحذّر من ${k}`);
-  // سطر السيارة بلا lotId مسطّح (zod يحذف المفتاح المجهول بصمت)، وتحذيراتها في جذر الرد بجوار data
-  assert.doesNotMatch(loadSchema, /^\s+lotId:/m);
+  // سطر السيارة: lotId المسطّح لمفتاح الربط وحده (طلب المالك ١٦ نوفمبر ٢٠٢٦، تفضيلٌ للسطر كله) — اللوحة والمندوب يُهمَل لهما
+  // كما كان، وتحذيراتها في جذر الرد بجوار data
+  assert.match(loadSchema, /^\s+lotId: z\.unknown\(\)\.optional\(\),/m);
+  assert.ok(vs.includes('...(req.user?.apiKeyId && { lotId: i.lotId })'), 'lotId المسطّح لمفتاح الربط وحده');
   assert.ok(all.includes('لا يوجد حقل lotId مسطّح في سطر السيارة'));
   assert.ok(vs.includes('data: out.load, warnings: out.warnings'));
   assert.ok(all.includes('في جذر الرد بجوار data'));

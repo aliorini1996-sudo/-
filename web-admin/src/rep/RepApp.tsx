@@ -2595,8 +2595,9 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
    * لا يختار تشغيلة. الآن يختارها اختيارياً لسطر المرتجع الحرّ بصنفٍ متتبَّع — والافتراض «تلقائي» بلا حقلٍ كما كان، فيقرّر الخادم:
    * ما اشتراه هذا العميل أولاً (متصلاً من الخادم) ثم تشغيلات الصنف في لقطة سيارته (وهي وحدها دون اتصال). المختار في items[i].lots
    * من الحمولة نفسها التي يحفظها الصندوق الأوف‑لاين، فيقبله الخادم حيّاً بصرامة ويعامله في الإعادة تلميحاً لا يُرفض به المستند.
-   * والبيع وبند فاتورة البيع (يرث تشغيلات بيعه) لا يمرّان بشيءٍ هنا ─── */
-  const retLotOn = lotOn && isReturn;
+   * والبيع وبند فاتورة البيع (يرث تشغيلات بيعه) لا يمرّان بشيءٍ هنا. والمرتجع المربوط بفاتورة بيع كله مربوط في الخادم (linkedLine:
+   * originalInvoiceId يجعل كل بنوده مربوطة، وصريحه مقصورٌ على صفوف بند البيع) — فلا منتقي ولا حقل فيه ولو بقي سطرٌ حرّ ─── */
+  const retLotOn = lotOn && isReturn && !saleRef;
   const retStored = retLotOn ? lots?.stored ?? null : null;
   // قائمة اللقطة هي المرجع، وبلاها علم الصنف في الكتالوج (كالبيع)
   const retTracked = useMemo(() => (retLotOn ? trackedIds(retStored?.snap, products) : null), [retLotOn, retStored, products]);
@@ -2607,7 +2608,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
   const retPids = retLotOn ? [...new Set(lines.filter(retLotShown).map(l => String(l.productId)))].sort().join('|') : '';
   useEffect(() => {
     // عميلٌ أُنشئ دون اتصال لا معرّف خادمي له ولا مشتريات: تشغيلات السيارة وحدها
-    if (!retPids || !showCart || customer?._offline || !customer?.id || !navigator.onLine) return;
+    if (!retPids || !showCart || customer?._offline || !customer?.id || String(customer.id).startsWith('local-') || !navigator.onLine) return;
     for (const pid of retPids.split('|')) {
       if (retAsked.current.has(pid)) continue;
       retAsked.current.add(pid);
@@ -3028,7 +3029,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         // «تتبّع اللوط»: تشغيلةٌ اختارها المندوب للمرتجع رفضها الخادم حيّاً (حُذفت، أو لصنفٍ آخر) — رسالته تُعرض أدناه، وسطرها يعود
         // «تلقائي» فيُعاد الإصدار بلا نقرةٍ على المنتقي (بنود الحمولة بترتيب أسطر السلّة)
         if (retLotOn) {
-          const j = lotRejectLine(err?.response?.data, lines.length);
+          const j = lotRejectLine(err?.response?.data, lines.length, lines.map(x => x.retLot?.lotId));
           if (j != null && lines[j]?.retLot) setLines(prev => prev.map((x, k) => (k === j ? withReturnPick(x, null) : x)));
         }
         setMsg(err?.response?.data?.message || tr('تعذر إصدار المستند حاول مجددا')); setLoading(false);

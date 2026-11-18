@@ -30,10 +30,10 @@ import {
 } from '../lib/lots';
 import {
   directLoadLotFields, draftFromRows, draftProblem, draftRefs, emptyEntryLot, entryLotProblem, hasMultiLotWarning, isFourDecimals,
-  loadSourcesOf, outSourcesOf, shelfLifeOn,
+  loadDraftCheck, loadSourcesOf, outSourcesOf, shelfLifeOn,
   type EntryLotDraft, type LotBalancesResponse, type LotRowDraft, type PlaceViewWithAvailability,
 } from '../lib/stockLots';
-import { AutoPullPreview, EntryLotFields, LotRowsEditor, draftProblemText, entryProblemText, fetchLotBalances, fmtLotQty } from '../components/StockLotFields';
+import { AutoPullPreview, EntryLotFields, LotFallbackNote, LotRowsEditor, draftProblemText, entryProblemText, fetchLotBalances, fmtLotQty } from '../components/StockLotFields';
 import { STOCK_CACHE_KEYS } from '../m/mLotsLogic';
 import {
   DUP_NAME_TEXT, EXTRA_KIND_META, PRODUCT_FLAG_LABELS, VAN_MOVE_TEXT, archivedErrorOf, dupNameIds, fillCode, fillNames, isReplayResponse,
@@ -1186,7 +1186,14 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
         : tr('كمية الصنف المتتبع بأربع خانات عشرية على الأكثر بوحدة الأساس');
     }
     if (q > 0 && !whOn) return entryProblemText(entryLotProblem(r.lotEntry, { kind: 'INCREASE', expiryRequired: shelfLifeOn(productOf(r.productId)) }), tr);
-    if (q > 0) return r.lotEdit ? draftProblemText(draftProblem(r.lotEdit, base, loadSourcesOf(whViewOf(r.productId), day)), tr, productOf(r.productId)) : null;
+    // التحميل من المستودع بتوزيعٍ معدَّل (طلب المالك ١٦ نوفمبر ٢٠٢٦): الشكل ونقص الصنف كله يمنعان وحدهما — صفٌّ فوق متاح تشغيلته أو
+    // على منتهية أو موقوفة يُكمله الخادم من غيرها بالأقرب انتهاءً (تنبيهٌ كهرماني تحت المحرّر لا منع)
+    if (q > 0) {
+      if (!r.lotEdit) return null;
+      const c = loadDraftCheck(r.lotEdit, base, whViewOf(r.productId), day, factorOfRow(r));
+      if (c.problem) return draftProblemText(c.problem, tr, productOf(r.productId));
+      return c.short ? tr('الكمية أكبر من رصيد تشغيلات الصنف في المستودع') : null;
+    }
     if (balQ.isLoading) return tr('جار التحميل');
     const sources = outSourcesOf(vanViewOf(r.productId), 'SELLABLE', day);
     if (r.lotEdit) return draftProblemText(draftProblem(r.lotEdit, base, sources), tr, productOf(r.productId));
@@ -1570,6 +1577,7 @@ function LoadRowLots({ row, repId, whOn, factor, baseQty, baseUnit, prod, whView
   const box = 'mt-1.5 rounded-lg border border-[#F1EBDF] bg-[#FAF7F0] px-2 py-1.5 space-y-1';
   // المسوّدة المعدَّلة: محرّر الصفوف على مصادر المكان
   if (row.lotEdit !== null) {
+    const fallback = load ? loadDraftCheck(row.lotEdit, baseQty, whView, day, factor).fallback : null;
     return (
       <div className={box}>
         <div className="flex items-center justify-between gap-2">
@@ -1581,6 +1589,8 @@ function LoadRowLots({ row, repId, whOn, factor, baseQty, baseUnit, prod, whView
         </div>
         <LotRowsEditor rows={row.lotEdit} onChange={rs => onPatch({ lotEdit: rs })} sources={sources} lineBaseQty={baseQty} baseUnit={baseUnit} prod={prod} />
         {issue && <p className="text-[10px] text-red-600">{issue}</p>}
+        {/* «يُكمَل من غيرها» (طلب المالك ١٦ نوفمبر ٢٠٢٦): للتحميل وحده — التنزيل بتشغيلةٍ صريحة يبقى صارماً */}
+        {load && !issue && fallback && <LotFallbackNote plan={fallback} sources={outSourcesOf(whView, 'SELLABLE', day)} shortText={tr('الكمية أكبر من رصيد تشغيلات الصنف في المستودع')} />}
       </div>
     );
   }
