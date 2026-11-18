@@ -33,6 +33,8 @@ import {
 } from './rules';
 import { getSettings, rulesFor, logEvent, isUniqueViolation, DAY_MS, TermsRules, PlatformActor } from './core';
 import { mailCommissionCreated } from './mail';
+import { mailPayoutFailed } from './settlementMail';
+import { profileStatus } from './documents';
 
 type Tx = Prisma.TransactionClient;
 type Actor = { type: 'system' | 'owner' | 'staff' | 'company' | 'affiliate'; id?: string | null };
@@ -376,8 +378,17 @@ export async function reconcile(): Promise<{ accrued: number; synced: number }> 
 // ───────────────────────────── قرارات المالك على العمولة ─────────────────────────────
 
 export async function approveCommission(id: string, by: PlatformActor): Promise<string> {
+  return approveAs(id, { type: by.actorType, id: by.actorId }, by.actorId, new Date());
+}
+
+/**
+ * فحوص الاعتماد الواحدة — يدويّاً من المالك (`approveCommission`) وآلياً بعد الحجز
+ * (`autoApproveEligible`، v2 §5): المزامنة مع الدفعة، والدفعة الأسبق، والحجز، والإسناد
+ * الساري، والسفير المقبول، وعمولةٌ موجبة. لا طريق ثانٍ للاعتماد يتجاوز أحدها.
+ */
+async function approveAs(id: string, actor: Actor, approvedBy: string, now: Date): Promise<string> {
   // الدفعة أوّلاً: عكسٌ أو استردادٌ جزئيّ فات خطافه يُطبَّق قبل أيّ اعتماد
-  const synced = await syncCommission(id, { type: by.actorType, id: by.actorId });
+  const synced = await syncCommission(id, actor);
   if (synced === 'reversed') throw new LedgerError(409, 'الدفعة لم تعد مدفوعة — عُكست العمولة', 'payment_not_paid');
   if (synced === 'error') throw new LedgerError(503, 'تعذّرت مطابقة العمولة مع دفعتها الآن — أعد المحاولة', 'sync_failed');
   const c = await prisma.affiliateCommission.findUnique({ where: { id }, include: { affiliate: { select: { status: true } }, attribution: { select: { status: true } } } });
@@ -386,18 +397,55 @@ export async function approveCommission(id: string, by: PlatformActor): Promise<
     throw new LedgerError(409, 'للشركة دفعةٌ أقدم من دفعة هذه العمولة — ليست الدفعة الأولى؛ ارفضها وعوّض بقيد تصحيح إن لزم', 'earlier_payment');
   }
   if (c.status !== 'pending') throw new LedgerError(409, 'العمولة ليست معلّقة', 'not_pending');
-  if (Date.now() < c.eligibleAt.getTime()) throw new LedgerError(409, `لم تنتهِ مدّة الحجز — تُعتمد بعد ${c.eligibleAt.toISOString().slice(0, 10)}`, 'hold_not_over');
+  if (now.getTime() < c.eligibleAt.getTime()) throw new LedgerError(409, `لم تنتهِ مدّة الحجز — تُعتمد بعد ${c.eligibleAt.toISOString().slice(0, 10)}`, 'hold_not_over');
   if (c.attribution.status !== 'active') throw new LedgerError(409, 'الإسناد ليس سارياً — احسمه أولاً', 'attribution_not_active');
   if (c.affiliate.status !== 'approved') throw new LedgerError(409, 'حساب السفير ليس مقبولاً حالياً', 'affiliate_not_approved');
   if (c.commissionHalalas <= 0) throw new LedgerError(409, 'العمولة صفر بعد الاسترداد — ارفضها', 'zero_commission');
   await prisma.$transaction(async tx => {
     const won = await tx.affiliateCommission.updateMany({
-      where: { id, status: 'pending', commissionHalalas: c.commissionHalalas }, data: { status: 'approved', approvedAt: new Date(), approvedBy: by.actorId },
+      where: { id, status: 'pending', commissionHalalas: c.commissionHalalas, payoutId: null }, data: { status: 'approved', approvedAt: now, approvedBy },
     });
     if (won.count !== 1) throw new LedgerError(409, 'تغيّرت العمولة — حدّث الصفحة', 'raced');
-    await logEvent(tx, { entity: 'commission', entityId: id, action: 'approved', fromState: 'pending', toState: 'approved', actorType: by.actorType, actorId: by.actorId, meta: { commissionHalalas: c.commissionHalalas } });
+    await logEvent(tx, {
+      entity: 'commission', entityId: id, action: 'approved', fromState: 'pending', toState: 'approved', actorType: actor.type, actorId: actor.id ?? null,
+      meta: { commissionHalalas: c.commissionHalalas, ...(actor.type === 'system' ? { auto: true } : {}) },
+    });
   });
   return 'approved';
+}
+
+/** المنفّذ الآلي في الدفتر: الاعتماد بعد الحجز ودفعات دورة التسوية — `approvedBy`/`createdBy` = 'system' */
+export const SYSTEM_ACTOR: Actor = { type: 'system', id: null };
+export const SYSTEM_ID = 'system';
+
+/**
+ * الاعتماد التلقائي (v2 §5 — قرار المالك ١٨ نوفمبر ٢٠٢٦): كلّ عمولةٍ `pending` انقضى حجزها
+ * تُعتمد بفحوص الاعتماد اليدويّ نفسها (`approveAs`) ومنفّذها النظام. ما لا يجتاز فحصاً يبقى
+ * كما هو بلا خطأ (إسنادٌ متنازع، سفيرٌ موقوف، دفعةٌ عُكست…) ويبقى للمالك قراره اليدويّ.
+ * دالّةٌ جديدة — توقيعات قرارات المالك (`by: PlatformActor`) لا تُمسّ.
+ */
+export async function autoApproveEligible(now: Date = new Date()): Promise<{ approved: number; skipped: number }> {
+  let approved = 0; let skipped = 0;
+  let after: string | undefined;
+  for (;;) {
+    const rows = await prisma.affiliateCommission.findMany({
+      where: { status: 'pending', eligibleAt: { lte: now }, payoutId: null, ...(after ? { id: { gt: after } } : {}) },
+      select: { id: true }, orderBy: { id: 'asc' }, take: 500,
+    });
+    if (!rows.length) break;
+    after = rows[rows.length - 1].id;
+    for (const r of rows) {
+      try {
+        await approveAs(r.id, SYSTEM_ACTOR, SYSTEM_ID, now);
+        approved++;
+      } catch (e) {
+        skipped++;
+        if (!(e instanceof LedgerError)) console.error(`[affiliate] auto-approve ${r.id}:`, (e as Error).message);
+      }
+    }
+    if (rows.length < 500) break;
+  }
+  return { approved, skipped };
 }
 
 export async function holdCommission(id: string, by: PlatformActor, reason: string): Promise<string> {
@@ -766,6 +814,12 @@ export async function linkClaimToTenant(claimId: string, tenantId: string, by: P
 
 // ───────────────────────────── الصرف ─────────────────────────────
 
+/**
+ * سبب حجب المرشّح عن الصرف (v2): أوّل ما ينطبق بالترتيب. `iban_failed` = فشل آخر تحويلٍ ولم يحدّث
+ * السفير بيانات استلامه بعده — يحجب **دورة التسوية الآلية** وحدها، والمالك يُعيد يدوياً إن شاء.
+ */
+export type PayoutBlock = 'not_approved' | 'below_min' | 'no_iban' | 'profile_incomplete' | 'has_draft' | 'iban_failed';
+
 export async function payoutCandidates() {
   const [commissions, adjustments] = await Promise.all([
     prisma.affiliateCommission.findMany({ where: { status: 'approved', payoutId: null }, select: { affiliateId: true, commissionHalalas: true } }),
@@ -773,36 +827,71 @@ export async function payoutCandidates() {
   ]);
   const ids = [...new Set([...commissions.map(c => c.affiliateId), ...adjustments.map(a => a.affiliateId)])];
   if (!ids.length) return [];
-  const [users, drafts] = await Promise.all([
-    prisma.affiliateUser.findMany({ where: { id: { in: ids } }, select: { id: true, fullName: true, code: true, email: true, ibanEnc: true, ibanLast4: true, ibanHolderName: true, status: true, termsVersion: true } }),
+  const [users, drafts, settled] = await Promise.all([
+    prisma.affiliateUser.findMany({ where: { id: { in: ids } }, select: { id: true, fullName: true, code: true, email: true, ibanEnc: true, ibanLast4: true, ibanHolderName: true, status: true, termsVersion: true, payoutUpdatedAt: true } }),
     prisma.affiliatePayout.findMany({ where: { affiliateId: { in: ids }, status: 'draft' }, select: { affiliateId: true } }),
+    // آخر تحويلٍ حُسم لكلّ سفير (مسجَّل أو فاشل) — الأحدث أوّلاً
+    prisma.affiliatePayout.findMany({ where: { affiliateId: { in: ids }, status: { in: ['recorded', 'failed'] } }, select: { affiliateId: true, status: true, failedAt: true }, orderBy: { updatedAt: 'desc' } }),
   ]);
   const hasDraft = new Set(drafts.map(d => d.affiliateId));
+  const lastSettled = new Map<string, { status: string; failedAt: Date | null }>();
+  for (const p of settled) if (!lastSettled.has(p.affiliateId)) lastSettled.set(p.affiliateId, p);
   const rows = await Promise.all(users.map(async u => {
     const mine = commissions.filter(c => c.affiliateId === u.id);
-    const rules = await rulesForCached(u.termsVersion);
+    const [rules, profile] = await Promise.all([rulesForCached(u.termsVersion), profileStatus(u.id)]);
     const t = payoutTotals(mine, adjustments.filter(a => a.affiliateId === u.id), rules.minPayoutHalalas);
+    const last = lastSettled.get(u.id);
+    const ibanNeedsUpdate = last?.status === 'failed' && (!u.payoutUpdatedAt || !last.failedAt || u.payoutUpdatedAt.getTime() <= last.failedAt.getTime());
+    // تصحيحٌ موجبٌ وحده يُصرف: رفض عمولةٍ خطأً لا علاج له غيره
+    const blockedBy: PayoutBlock | null = u.status !== 'approved' ? 'not_approved'
+      : !t.eligible ? 'below_min'
+      : !u.ibanEnc ? 'no_iban'
+      : !profile.complete ? 'profile_incomplete'
+      : hasDraft.has(u.id) ? 'has_draft'
+      : ibanNeedsUpdate ? 'iban_failed'
+      : null;
     return {
       affiliate: { id: u.id, fullName: u.fullName, code: u.code, email: u.email },
       commissionsHalalas: t.commissionsHalalas, adjustmentsHalalas: t.adjustmentsHalalas, netHalalas: t.netHalalas,
-      commissionCount: mine.length,
-      // تصحيحٌ موجبٌ وحده يُصرف: رفض عمولةٍ خطأً لا علاج له غيره
-      eligible: t.eligible && !!u.ibanEnc && u.status === 'approved' && !hasDraft.has(u.id),
+      commissionCount: mine.length, minPayoutHalalas: rules.minPayoutHalalas,
+      eligible: blockedBy === null,
+      blockedBy, profileComplete: profile.complete, missing: profile.missing, ibanNeedsUpdate,
       hasPayout: !!u.ibanEnc, ibanLast4: u.ibanLast4, holderName: u.ibanHolderName,
     };
   }));
   return rows.sort((a, b) => b.netHalalas - a.netHalalas);
 }
 
+/** دورة التسوية التي تُنشأ لها الدفعة (settlement.ts) — `cycleKey` تاريخ نهايتها بالرياض */
+export interface PayoutCycle { cycleKey: string; periodStart: Date; periodEnd: Date }
+
 export async function createPayout(affiliateId: string, by: PlatformActor) {
+  return draftPayout(affiliateId, { type: by.actorType, id: by.actorId }, by.actorId, null);
+}
+
+/**
+ * دفعة دورة التسوية (v2 §5): المنصّة **تُنشئ مسودّةً** فقط ومنفّذها النظام — والمالك يحوّل من البنك
+ * ويسجّل «مدفوع» أو «فشل». مرّةً لكلّ سفيرٍ في الدورة الواحدة (`cycle_done`) ولو أُعيد التشغيل.
+ */
+export async function createCyclePayout(affiliateId: string, cycle: PayoutCycle) {
+  return draftPayout(affiliateId, SYSTEM_ACTOR, SYSTEM_ID, cycle);
+}
+
+/**
+ * تجهيز المسودّة — الطريق الواحد للإنشاء اليدويّ والآليّ. الملف المكتمل شرطٌ (v2 §3: النوع
+ * والآيبان والهوية [+ السجل للشركة]) كما الآيبان، والحدّ الأدنى من الشروط التي قبلها السفير.
+ */
+async function draftPayout(affiliateId: string, actor: Actor, createdBy: string, cycle: PayoutCycle | null) {
   const u = await prisma.affiliateUser.findUnique({ where: { id: affiliateId } });
   if (!u) throw new LedgerError(404, 'السفير غير موجود');
-  if (u.status !== 'approved') throw new LedgerError(409, 'حساب السفير ليس مقبولاً حالياً');
-  if (!u.ibanEnc || !u.ibanLast4 || !u.ibanHolderName) throw new LedgerError(409, 'لم يُدخل السفير بيانات الاستلام بعد');
+  if (u.status !== 'approved') throw new LedgerError(409, 'حساب السفير ليس مقبولاً حالياً', 'not_approved');
+  if (!u.ibanEnc || !u.ibanLast4 || !u.ibanHolderName) throw new LedgerError(409, 'لم يُدخل السفير بيانات الاستلام بعد', 'no_iban');
+  const profile = await profileStatus(affiliateId);
+  if (!profile.complete) throw new LedgerError(409, `ملف السفير ناقص (${profile.missing.join('، ')}) — اكتماله شرطٌ للصرف`, 'profile_incomplete');
 
   // مصالحةٌ قبل التجميع: عكسٌ أو استردادٌ جزئيّ فات خطافه لا يدخل دفعة
   const approved = await prisma.affiliateCommission.findMany({ where: { affiliateId, status: 'approved', payoutId: null }, select: { id: true } });
-  for (const c of approved) await syncCommission(c.id, { type: by.actorType, id: by.actorId });
+  for (const c of approved) await syncCommission(c.id, actor);
   const rules = await rulesFor(u.termsVersion);
 
   return prisma.$transaction(async tx => {
@@ -810,20 +899,29 @@ export async function createPayout(affiliateId: string, by: PlatformActor) {
     await tx.$queryRaw`SELECT id FROM affiliate_commissions WHERE "affiliateId" = ${affiliateId} AND status = 'approved' AND "payoutId" IS NULL FOR UPDATE`;
     await tx.$queryRaw`SELECT id FROM affiliate_adjustments WHERE "affiliateId" = ${affiliateId} AND "payoutId" IS NULL FOR UPDATE`;
     const draft = await tx.affiliatePayout.findFirst({ where: { affiliateId, status: 'draft' }, select: { id: true } });
-    if (draft) throw new LedgerError(409, 'للسفير مسودّة دفعة قائمة — سجّلها أو ألغها أولاً');
+    if (draft) throw new LedgerError(409, 'للسفير مسودّة دفعة قائمة — سجّلها أو ألغها أولاً', 'has_draft');
+    if (cycle) {
+      // دفعةٌ واحدة لكلّ سفيرٍ في الدورة: إعادة التشغيل لا تكرّرها، والملغاة أو الفاشلة تنتظر الدورة التالية
+      const done = await tx.affiliatePayout.findFirst({ where: { affiliateId, cycleKey: cycle.cycleKey }, select: { id: true } });
+      if (done) throw new LedgerError(409, 'للسفير دفعةٌ في هذه الدورة', 'cycle_done');
+    }
     const commissions = await tx.affiliateCommission.findMany({ where: { affiliateId, status: 'approved', payoutId: null }, select: { id: true, commissionHalalas: true } });
     const adjustments = await tx.affiliateAdjustment.findMany({ where: { affiliateId, payoutId: null }, select: { id: true, amountHalalas: true } });
     const t = payoutTotals(commissions, adjustments, rules.minPayoutHalalas);
-    if (!t.eligible) throw new LedgerError(409, `الصافي ${sar(t.netHalalas)} ريال — لا يبلغ الحدّ الأدنى للصرف`);
+    if (!t.eligible) throw new LedgerError(409, `الصافي ${sar(t.netHalalas)} ريال — لا يبلغ الحدّ الأدنى للصرف`, 'below_min');
     const payout = await tx.affiliatePayout.create({
       data: {
         affiliateId, commissionsHalalas: t.commissionsHalalas, adjustmentsHalalas: t.adjustmentsHalalas, netHalalas: t.netHalalas,
-        status: 'draft', ibanLast4: u.ibanLast4!, holderName: u.ibanHolderName!, createdBy: by.actorId,
+        status: 'draft', ibanLast4: u.ibanLast4!, holderName: u.ibanHolderName!, createdBy,
+        ...(cycle ? { cycleKey: cycle.cycleKey, periodStart: cycle.periodStart, periodEnd: cycle.periodEnd } : {}),
       },
     });
     if (commissions.length) await tx.affiliateCommission.updateMany({ where: { id: { in: commissions.map(x => x.id) } }, data: { payoutId: payout.id } });
     if (adjustments.length) await tx.affiliateAdjustment.updateMany({ where: { id: { in: adjustments.map(x => x.id) } }, data: { payoutId: payout.id } });
-    await logEvent(tx, { entity: 'payout', entityId: payout.id, action: 'created', toState: 'draft', actorType: by.actorType, actorId: by.actorId, meta: { netHalalas: t.netHalalas, commissions: commissions.length, adjustments: adjustments.length } });
+    await logEvent(tx, {
+      entity: 'payout', entityId: payout.id, action: 'created', toState: 'draft', actorType: actor.type, actorId: actor.id ?? null,
+      meta: { netHalalas: t.netHalalas, commissions: commissions.length, adjustments: adjustments.length, ...(cycle ? { cycleKey: cycle.cycleKey } : {}) },
+    });
     return payout;
   });
 }
@@ -872,4 +970,35 @@ export async function voidPayout(id: string, by: PlatformActor, reason: string) 
     await logEvent(tx, { entity: 'payout', entityId: id, action: 'void', fromState: 'draft', toState: 'void', actorType: by.actorType, actorId: by.actorId, reason });
     return tx.affiliatePayout.findUniqueOrThrow({ where: { id } });
   });
+}
+
+/**
+ * فشل التحويل (v2 §5): مسودّةٌ حاول المالك تحويلها فرُدّت (آيبانٌ خاطئ أو حسابٌ مغلق). تصير `failed`
+ * بسببها وتاريخها، وتُفكّ بنودها كالإلغاء تماماً — العمولات تعود «معتمدة» والقيود بلا دفعة، وقيود
+ * الاسترداد التي نشأت أثناء المسودّة تُحذف ثمّ تُصالَح كلّ عمولةٍ مع دفعتها (الثابت نفسه: لا قيد
+ * استردادٍ لعمولةٍ غير ملتزَمٍ بها). ثمّ بريدٌ للسفير ليصحّح بيانات استلامه، فتدخل الدورة التالية
+ * تلقائياً بعد تصحيحها (`payoutCandidates`: iban_failed). المنصّة لم تحرّك مالاً في أيّ لحظة.
+ */
+export async function failPayout(id: string, by: PlatformActor, reason: string) {
+  const failed = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM affiliate_commissions WHERE "payoutId" = ${id} FOR UPDATE`;
+    const now = new Date();
+    const won = await tx.affiliatePayout.updateMany({ where: { id, status: 'draft' }, data: { status: 'failed', failedReason: reason, failedAt: now } });
+    if (won.count !== 1) {
+      const p = await tx.affiliatePayout.findUnique({ where: { id }, select: { status: true } });
+      throw new LedgerError(p ? 409 : 404, p ? 'يُسجَّل الفشل لمسودّةٍ لم تُسجَّل بعد' : 'الدفعة غير موجودة', p ? 'not_draft' : undefined);
+    }
+    const commissions = await tx.affiliateCommission.findMany({ where: { payoutId: id }, select: { id: true } });
+    await tx.affiliateAdjustment.updateMany({ where: { payoutId: id }, data: { payoutId: null } });
+    for (const c of commissions) {
+      await tx.affiliateAdjustment.deleteMany({ where: { commissionId: c.id, kind: 'clawback_refund', payoutId: null } });
+      await tx.affiliateCommission.update({ where: { id: c.id }, data: { payoutId: null } });
+      await syncCommissionTx(tx, c.id, { type: by.actorType, id: by.actorId });
+    }
+    await logEvent(tx, { entity: 'payout', entityId: id, action: 'failed', fromState: 'draft', toState: 'failed', actorType: by.actorType, actorId: by.actorId, reason });
+    return tx.affiliatePayout.findUniqueOrThrow({ where: { id } });
+  });
+  const u = await prisma.affiliateUser.findUnique({ where: { id: failed.affiliateId }, select: { email: true, fullName: true } }).catch(() => null);
+  if (u) mailPayoutFailed(u.email, u.fullName, { netHalalas: failed.netHalalas, ibanLast4: failed.ibanLast4, reason });
+  return failed;
 }

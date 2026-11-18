@@ -151,16 +151,20 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   r('POST', `/api/payments/${SEG}/(refresh|link-tenant)`, 'payments.manage'),
 
   // ── السفراء /api/affiliate-admin ──
-  r('GET', `/api/affiliate-admin/(overview|settings|terms|affiliates|affiliates/${SEG}|claims|attributions|commissions|payouts/candidates|payouts|events|tenants/search)`, 'affiliates.view'),
+  r('GET', `/api/affiliate-admin/(overview|settings|terms|affiliates|affiliates/${SEG}|claims|attributions|commissions|payouts/candidates|payouts|events|tenants/search|missed-claims|materials|materials/${SEG}/file)`, 'affiliates.view'),
+  // v2 (١٨ نوفمبر ٢٠٢٦): مستند الهوية/السجل مفكوكاً — بمفتاح كشف الآيبان نفسه، وقراءةٌ حساسة تُسجَّل
+  r('GET', `/api/affiliate-admin/affiliates/${SEG}/documents/${SEG}`, 'affiliates.iban', true),
   r('PUT', '/api/affiliate-admin/settings', 'affiliates.manage'),
-  r('POST', '/api/affiliate-admin/(terms|attributions)', 'affiliates.manage'),
+  r('POST', '/api/affiliate-admin/(terms|attributions|materials)', 'affiliates.manage'),
+  r('DELETE', `/api/affiliate-admin/materials/${SEG}`, 'affiliates.manage'),
   r('POST', `/api/affiliate-admin/affiliates/${SEG}/(approve|reject|suspend|reactivate)`, 'affiliates.manage'),
   r('POST', `/api/affiliate-admin/affiliates/${SEG}/reveal-iban`, 'affiliates.iban'),
   r('POST', `/api/affiliate-admin/claims/${SEG}/(approve|reject|link-tenant)`, 'affiliates.manage'),
+  r('POST', `/api/affiliate-admin/missed-claims/${SEG}/(accept|reject)`, 'affiliates.manage'),
   r('POST', `/api/affiliate-admin/attributions/${SEG}/(void|activate|reassign|window)`, 'affiliates.manage'),
   r('POST', `/api/affiliate-admin/commissions/${SEG}/(approve|hold|release|decline)`, 'affiliates.payouts'),
-  r('POST', '/api/affiliate-admin/(payouts|adjustments)', 'affiliates.payouts'),
-  r('POST', `/api/affiliate-admin/payouts/${SEG}/(record|void)`, 'affiliates.payouts'),
+  r('POST', '/api/affiliate-admin/(payouts|adjustments|settlement/run)', 'affiliates.payouts'),
+  r('POST', `/api/affiliate-admin/payouts/${SEG}/(record|void|fail)`, 'affiliates.payouts'),
 
   // ── محتوى الموقع والبروفايل ──
   r('PUT', '/api/site-content', 'content.edit'),
