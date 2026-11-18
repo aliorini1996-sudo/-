@@ -601,7 +601,7 @@ function OverviewTab({ go }: { go: (t: TabKey, filter?: string) => void }) {
   if (isLoading) return <Loading />;
   if (isError || !o) return <Failed onRetry={() => refetch()} />;
 
-  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): الانضمام فوريّ — لا «طلبات انضمام بانتظار المراجعة» بعد اليوم؛
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): الانضمام فوريّ — لا بطاقة لطلباتٍ تنتظر الموافقة بعد اليوم؛
   // مكانها السفراء الجدد والملفات الناقصة والمطالبات الفائتة والتسوية القادمة
   const nextKey = L.nextSettlementKey(o.nextSettlementAt);
   const cards: Array<{ label: string; value: string; hint: string; icon: React.ElementType; hot: boolean; onClick: () => void }> = [
@@ -689,7 +689,7 @@ function Row({ k, v, danger }: { k: string; v: ReactNode; danger?: boolean }) {
   );
 }
 
-/// ─── ٢) المسوّقون ──────────────────────────────────────────────────────────
+// ─── ٢) المسوّقون ──────────────────────────────────────────────────────────
 
 /** حالة الملف: «مكتمل» أو «ينقصه: …» — نصٌّ قد يطول فيلتفّ (لا Chip بسطرٍ واحد) */
 function ProfileChip({ r }: { r: { profileComplete?: boolean | null; missing?: readonly string[] | null } }) {
@@ -2202,7 +2202,7 @@ function PayoutsTab({ status, setStatus }: { status: string; setStatus: (v: stri
   );
 }
 
-/ ─── ٧) التصحيحات ──────────────────────────────────────────────────────────
+// ─── ٧) التصحيحات ──────────────────────────────────────────────────────────
 
 function AdjustmentsTab() {
   const actions = useActions();

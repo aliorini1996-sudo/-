@@ -1232,7 +1232,7 @@ export function buildMaterialBody(f: MaterialForm, dataUrl?: string | null): Mat
   return body;
 }
 
-/ ─── أشكال الردود (API.md §2) ──────────────────────────────────────────────
+// ─── أشكال الردود (API.md §2) ──────────────────────────────────────────────
 
 export interface AffRef { id: string; fullName: string; code: string }
 
