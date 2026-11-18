@@ -42,8 +42,15 @@ export const MISSED_CLAIM_STATUSES = ['under_review', 'accepted', 'rejected', 'w
 export const MATERIAL_CATEGORIES = ['image', 'video', 'document', 'text', 'link'] as const;
 /** ما ينقص الملف كما يعيده الخادم في `missing` (V2_SPEC §6.1 `GET /me`) */
 export const PROFILE_MISSING = ['partnerType', 'iban', 'national_id', 'commercial_reg'] as const;
-/** سبب اقتراح شركةٍ لمطالبةٍ فائتة: «مطابقة بالاسم/السجل/الجوال» (V2_SPEC §6.2) */
-export const MISSED_MATCHES = ['cr', 'name', 'phone'] as const;
+/** سبب اقتراح شركةٍ لمطالبةٍ فائتة: مطابقة بالسجل ثمّ الجوال ثمّ الاسم (API.md §2 `GET /missed-claims`) */
+export const MISSED_MATCHES = ['cr', 'phone', 'name'] as const;
+/**
+ * سبب حجب مرشّح الصرف (API.md `type PayoutBlock`): أوّل ما ينطبق بالترتيب. `iban_failed` = فشل آخر
+ * تحويلٍ ولم يحدّث السفير بيانات استلامه بعده — يحجب **الدورة الآلية** وحدها، والمالك يُنشئ يدوياً إن شاء.
+ */
+export const PAYOUT_BLOCKS = ['not_approved', 'below_min', 'no_iban', 'profile_incomplete', 'has_draft', 'iban_failed'] as const;
+/** مهلة المطالبة بإحالة فائتة من تسجيل الشركة (الشروط v4 — يفرضها الخادم بـ409 `claim_late`) */
+export const MISSED_CLAIM_WINDOW_DAYS = 30;
 /**
  * حالات تصفية المسوّقين: `pending_*` إرثٌ يُرقّى إلى `approved` عند الإقلاع وعند الدخول
  * (V2_SPEC §3) فلا يُعرض زرّاً — ويبقى في القاموس كي لا يظهر صفٌّ قديم رمزاً إنجليزياً.
@@ -67,6 +74,7 @@ export type MissedClaimStatus = typeof MISSED_CLAIM_STATUSES[number];
 export type MaterialCategory = typeof MATERIAL_CATEGORIES[number];
 export type ProfileMissing = typeof PROFILE_MISSING[number];
 export type MissedMatch = typeof MISSED_MATCHES[number];
+export type PayoutBlock = typeof PAYOUT_BLOCKS[number];
 
 /** تسمية عربية + نغمة لون (تُترجَم لأصناف Tailwind في المكوّن) */
 export type Tone = 'gray' | 'amber' | 'green' | 'red' | 'blue' | 'orange';
@@ -154,8 +162,25 @@ export const MISSED_CLAIM_STATUS_LABEL: Record<MissedClaimStatus, Label> = {
 
 export const MISSED_MATCH_LABEL: Record<MissedMatch, string> = {
   cr: 'السجل التجاري مطابق',
-  name: 'الاسم مشابه',
   phone: 'الجوال مطابق',
+  name: 'الاسم مشابه',
+};
+
+/** عمود «الأهلية» في المرشّحين — وملخّص من تخطّتهم دورة التسوية (`skipped`) */
+export const PAYOUT_BLOCK_LABEL: Record<PayoutBlock, string> = {
+  not_approved: 'السفير غير معتمد',
+  below_min: 'دون الحدّ الأدنى — يُرحَّل',
+  no_iban: 'لم يُدخل آيبان بعد',
+  profile_incomplete: 'ملفه غير مكتمل',
+  has_draft: 'له مسودّة دفعة مفتوحة',
+  iban_failed: 'فشل آخر تحويل ولم يحدّث الآيبان',
+};
+
+/** أسباب تخطّي الدورة غير أسباب الحجب: دُفع له في هذه الدورة، أو خطأ عابر */
+export const SETTLEMENT_SKIP_LABEL: Record<string, string> = {
+  ...PAYOUT_BLOCK_LABEL,
+  cycle_done: 'له دفعة في هذه الدورة',
+  error: 'تعذّر إنشاء دفعته',
 };
 
 export const MATERIAL_CATEGORY_LABEL: Record<MaterialCategory, string> = {
@@ -785,20 +810,37 @@ export function sortAffiliatesForSelect<T extends { status: string; fullName: st
 /**
  * يجوز «إنشاء دفعة» لمرشّحٍ مؤهّلٍ له آيبان — **ولو بلا عمولات** (`commissionCount: 0`):
  * تصحيحٌ موجب وحده يكفي لدفعة.
+ * v2: حين يصل `blockedBy` يُحكم به — `null` مؤهَّل، و`iban_failed` يحجب الدورة الآلية وحدها فيبقى
+ * للمالك الإنشاء اليدوي (بتأكيد). وغيابه (خادمٌ أقدم) ⇒ `eligible` كما كان.
  */
-export function canCreatePayout(c: { eligible: boolean; hasPayout: boolean }): boolean {
-  return c.eligible === true && c.hasPayout === true;
+export function canCreatePayout(c: { eligible: boolean; hasPayout: boolean; blockedBy?: string | null }): boolean {
+  if (c.hasPayout !== true) return false;
+  if (c.blockedBy !== undefined) return c.blockedBy === null || c.blockedBy === 'iban_failed';
+  return c.eligible === true;
 }
 
 /**
- * سبب عدم أهلية مرشّح للصرف — بالعربية لعمود «مؤهّل». `profileComplete: false` (v2) يُذكر
- * صراحةً: الملف المكتمل شرطٌ لدخول دورة التسوية (V2_SPEC §0)؛ وغيابه من خادمٍ أقدم لا يحجب.
+ * سبب عدم أهلية مرشّح للصرف — بالعربية لعمود «الأهلية». v2: `blockedBy` من الخادم أولاً (الحدّ الأدنى
+ * من شروط السفير نفسه `minPayoutHalalas`)، وإلا يُستنتج كما كان. `profileComplete: false` يُذكر صراحةً:
+ * الملف المكتمل شرطٌ لدخول دورة التسوية (V2_SPEC §0)؛ وغيابه من خادمٍ أقدم لا يحجب.
  */
-export function candidateBlocker(c: { eligible: boolean; hasPayout: boolean; netHalalas: number; profileComplete?: boolean | null }, minPayoutHalalas?: number): string | null {
+export function candidateBlocker(
+  c: { eligible: boolean; hasPayout: boolean; netHalalas: number; profileComplete?: boolean | null; blockedBy?: string | null; minPayoutHalalas?: number | null },
+  minPayoutHalalas?: number,
+): string | null {
+  const min = typeof c.minPayoutHalalas === 'number' ? c.minPayoutHalalas : minPayoutHalalas;
+  if (c.blockedBy !== undefined) {
+    if (c.blockedBy === null) return null;
+    if (c.blockedBy === 'below_min') {
+      if (c.netHalalas <= 0) return 'الصافي صفر أو سالب';
+      return min != null ? `دون الحدّ الأدنى ${formatHalalas(min)} — يُرحَّل` : PAYOUT_BLOCK_LABEL.below_min;
+    }
+    return labelOf(PAYOUT_BLOCK_LABEL, c.blockedBy);
+  }
   if (!c.hasPayout) return 'لم يُدخل آيبان بعد';
   if (c.profileComplete === false) return 'ملفه غير مكتمل';
   if (c.netHalalas <= 0) return 'الصافي صفر أو سالب';
-  if (minPayoutHalalas != null && c.netHalalas < minPayoutHalalas) return `دون الحدّ الأدنى ${formatHalalas(minPayoutHalalas)}`;
+  if (min != null && c.netHalalas < min) return `دون الحدّ الأدنى ${formatHalalas(min)}`;
   if (!c.eligible) return 'غير مؤهّل بعد';
   return null;
 }
@@ -967,40 +1009,72 @@ export function autoApproveNote(holdDays?: number | null): string {
   return `تُعتمد العمولة تلقائياً بعد انتهاء فترة حجزها (${hold} في الشروط الحالية) في دورة التسوية التالية ما لم تكن موقوفة — ويبقى لك الاعتماد اليدوي متى انتهى الحجز`;
 }
 
-/** ردّ `POST /settlement/run` — الشكل يكتبه الخادم بالتوازي، فيُقرأ بحقولٍ اختيارية بأسماء محتملة */
+/**
+ * ردّ `POST /settlement/run` (API.md §2): دورة آخر نهايةٍ مرّت بمفتاحها نفسه — آمنةٌ للتكرار، فتشغيلها
+ * ثانيةً يلتقط من صار مؤهَّلاً بعد مرورها ويتخطّى من دُفع له فيها (`skipped.cycle_done`). تنشئ مسودّات فقط.
+ */
 export interface SettlementRunResult {
   cycleKey?: string | null;
-  /** عدد الدفعات المُنشأة (أو مصفوفتها) */
-  payouts?: number | unknown[] | null;
-  created?: number | unknown[] | null;
-  totalHalalas?: number | null;
-  /** الدورة نفسها شُغّلت قبلُ (مفتاح `ax-settle:<cycleKey>` محجوز) */
-  alreadyRan?: boolean | null;
-  skipped?: boolean | null;
+  periodStart?: string | null;
+  periodEnd?: string | null;
   ran?: boolean | null;
+  /** `already_ran`: أُنجزت أو تجري الآن في نسخةٍ أخرى (للمجدول — الزرّ اليدوي يمرّ دائماً) */
+  reason?: string | null;
+  manual?: boolean | null;
+  autoApproved?: number | null;
+  payouts?: Array<{ id: string; affiliateId: string; netHalalas: number }> | number | null;
+  totalHalalas?: number | null;
+  skipped?: Record<string, number> | null;
+  nextSettlementAt?: string | null;
 }
 
 const countOf = (v: unknown): number | null => (Array.isArray(v) ? v.length : typeof v === 'number' && Number.isFinite(v) ? v : null);
 
-/** رسالة تشغيل الدورة يدوياً: ما أُنشئ ومجموعه، أو أنها شُغّلت سابقاً (idempotent بنفس المفتاح) */
-export function settlementRunMessage(r: SettlementRunResult | null | undefined): OutcomeMessage {
-  const cycle = r?.cycleKey ? ` (${r.cycleKey})` : '';
-  if (r?.alreadyRan === true || r?.skipped === true || r?.ran === false) {
-    return { text: `دورة التسوية${cycle} شُغّلت سابقاً — لا دفعات جديدة. أنشئ دفعةً يدوية من «المرشّحون للصرف» إن لزم`, warn: true };
-  }
-  const n = countOf(r?.payouts) ?? countOf(r?.created);
-  if (n === null) return { text: `شُغّلت دورة التسوية${cycle}`, warn: false };
-  if (n === 0) return { text: `شُغّلت دورة التسوية${cycle} — لا سفير مؤهّل (الحدّ الأدنى والملف المكتمل والآيبان)`, warn: false };
-  const total = typeof r?.totalHalalas === 'number' ? ` بمجموع ${formatHalalas(r.totalHalalas)}` : '';
-  return { text: `شُغّلت دورة التسوية${cycle} — أُنشئت ${n} ${n === 1 ? 'دفعة' : n === 2 ? 'دفعتان' : n <= 10 ? 'دفعات' : 'دفعة'}${total}. حوّلها من بنكك ثم سجّل كل تحويل`, warn: false };
+/** «دفعة واحدة» · «دفعتان» · «3 دفعات» · «11 دفعة» */
+export function payoutsCountText(n: number): string {
+  const k = Math.trunc(Number(n) || 0);
+  if (k === 1) return 'دفعة واحدة';
+  if (k === 2) return 'دفعتان';
+  if (k >= 3 && k <= 10) return `${k} دفعات`;
+  return `${k} دفعة`;
 }
 
-/** «آخر دورة: N دفعات بمجموع X» لبطاقة النظرة العامة */
-export function lastCycleText(c: { cycleKey?: string | null; payouts?: number | null; totalHalalas?: number | null } | null | undefined): string {
+/** «ملفه غير مكتمل: 2 · لم يُدخل آيبان بعد: 1» — ما تخطّته الدورة بأسبابه (عدا ما دون الحدّ: يُرحَّل بصمت) */
+export function skippedText(skipped: Record<string, number> | null | undefined): string {
+  if (!skipped || typeof skipped !== 'object') return '';
+  return Object.entries(skipped)
+    .filter(([k, n]) => k !== 'below_min' && typeof n === 'number' && n > 0)
+    .map(([k, n]) => `${labelOf(SETTLEMENT_SKIP_LABEL, k)}: ${n}`)
+    .join(' · ');
+}
+
+/** رسالة تشغيل الدورة يدوياً: ما أُنشئ ومجموعه، وما اعتُمد تلقائياً، ومن تُخطّي ولماذا */
+export function settlementRunMessage(r: SettlementRunResult | null | undefined): OutcomeMessage {
+  const cycle = r?.cycleKey ? ` (${r.cycleKey})` : '';
+  if (r?.ran === false) {
+    return { text: `دورة التسوية${cycle} أُنجزت أو تجري الآن — لا دفعات جديدة. أعد المحاولة بعد دقائق أو أنشئ دفعةً يدوية من «المرشّحون للصرف»`, warn: true };
+  }
+  const auto = typeof r?.autoApproved === 'number' && r.autoApproved > 0 ? ` · اعتُمدت تلقائياً ${r.autoApproved} عمولة` : '';
+  const skip = skippedText(r?.skipped);
+  const skipPart = skip ? ` · تُخطّي: ${skip}` : '';
+  const n = countOf(r?.payouts);
+  if (n === null) return { text: `شُغّلت دورة التسوية${cycle}${auto}${skipPart}`, warn: false };
+  if (n === 0) return { text: `شُغّلت دورة التسوية${cycle} — لا دفعات جديدة (لا سفير مؤهَّل: الحدّ الأدنى والملف المكتمل والآيبان)${auto}${skipPart}`, warn: false };
+  const total = typeof r?.totalHalalas === 'number' ? ` بمجموع ${formatHalalas(r.totalHalalas)}` : '';
+  return { text: `شُغّلت دورة التسوية${cycle} — أُنشئت ${payoutsCountText(n)}${total}. حوّلها من بنكك ثم سجّل كل تحويل${auto}${skipPart}`, warn: false };
+}
+
+/** «آخر دورة 2026-11-11: 3 دفعات بمجموع X» لبطاقة النظرة العامة والصرف — `ranAt: null` بلا دفعات = لم تُنجز بعد */
+export function lastCycleText(c: { cycleKey?: string | null; payouts?: number | null; totalHalalas?: number | null; ranAt?: string | null } | null | undefined): string {
   if (!c || !c.cycleKey) return 'لم تُشغَّل دورة بعد';
   const n = Math.trunc(Number(c.payouts) || 0);
-  const word = n === 1 ? 'دفعة' : n === 2 ? 'دفعتان' : n >= 3 && n <= 10 ? 'دفعات' : 'دفعة';
-  return `آخر دورة ${c.cycleKey}: ${n} ${word} بمجموع ${formatHalalas(Number(c.totalHalalas) || 0)}`;
+  if (c.ranAt === null && n === 0) return `آخر دورة ${c.cycleKey}: لم تُنجز بعد`;
+  return `آخر دورة ${c.cycleKey}: ${payoutsCountText(n)} بمجموع ${formatHalalas(Number(c.totalHalalas) || 0)}`;
+}
+
+/** يوم التسوية القادمة للعرض: من الخادم (`nextSettlementAt` لحظة منتصف ليل الرياض) وإلا الحساب المحلي */
+export function nextSettlementKey(nextSettlementAt: string | null | undefined, now: Date | number = Date.now()): string {
+  return dayKeyOf(nextSettlementAt) ?? nextSettlementDayKey(now);
 }
 
 // ─── المطالبات الفائتة (v2) ─────────────────────────────────────────────────
@@ -1011,27 +1085,69 @@ export function missedClaimActions(c: { status: string }): { accept: boolean; re
   return { accept: open, reject: open };
 }
 
-/** قبول مطالبة: شركةٌ مختارة وسببٌ يُحفظ في السجلّ (`POST /missed-claims/:id/accept {tenantId, reason}`) */
+export const MISSED_ACCEPT_REASON_MAX = 500;
+/** قبول مطالبة: شركةٌ مختارة وسببٌ يُحفظ في السجلّ (`POST /missed-claims/:id/accept {tenantId, reason 3..500}`) */
 export function validateMissedAccept(tenantId: string | null | undefined, reason: string): string | null {
   if (!tenantId) return 'اختر الشركة التي سجّلت';
-  return validateReason(reason);
+  const r = validateReason(reason);
+  if (r) return r;
+  if (reason.trim().length > MISSED_ACCEPT_REASON_MAX) return `السبب ${MISSED_ACCEPT_REASON_MAX} حرف كحدّ أقصى`;
+  return null;
+}
+
+/**
+ * أيامٌ من تسجيل الشركة حتى تقديم المطالبة — بالصيغة نفسها في الخادم (`floor((submittedAt − createdAt)/يوم)`)
+ * لشركةٍ اختارها المالك بالبحث (الاقتراحات تحملها جاهزة `daysFromSignup`). غير الصالح ⇒ null.
+ */
+export function daysFromSignup(submittedAt: string | null | undefined, tenantCreatedAt: string | null | undefined): number | null {
+  const a = Date.parse(String(submittedAt ?? ''));
+  const b = Date.parse(String(tenantCreatedAt ?? ''));
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.floor((a - b) / 86_400_000);
+}
+
+/** شارة مهلة المطالبة: داخل ٣٠ يوماً من تسجيل الشركة أو خارجها (الخادم يرفض المتأخرة بـ`claim_late`) */
+export function missedWindowLabel(days: number | null | undefined, withinWindow?: boolean | null): Label | null {
+  if (typeof days !== 'number' || !Number.isFinite(days)) return null;
+  if (days < 0) return { label: 'قُدّمت قبل تسجيل الشركة', tone: 'green' };
+  const inside = typeof withinWindow === 'boolean' ? withinWindow : days <= MISSED_CLAIM_WINDOW_DAYS;
+  if (inside) return { label: `بعد ${daysText(days)} من تسجيلها — داخل المهلة`, tone: 'green' };
+  return { label: `بعد ${daysText(days)} من تسجيلها — خارج مهلة ${MISSED_CLAIM_WINDOW_DAYS} يوماً`, tone: 'red' };
+}
+
+/** رسالة قبول المطالبة: الإسناد الناشئ وأثره على العمولة (أُنشئت أو سبب عدم إنشائها) */
+export function missedAcceptMessage(companyName: string, tenantName: string, affiliateName: string, r: AccrualResult | null | undefined): OutcomeMessage {
+  return withAccrual(`قُبلت مطالبة «${companyName}» — أُسندت ${tenantName} إلى ${affiliateName}`, r);
 }
 
 // ─── المواد التسويقية (v2) ──────────────────────────────────────────────────
 
 /** ملف المادة ≤ ٨ ميغابايت (V2_SPEC §6.2) — يُفحص هنا قبل قراءته base64 فلا يُرسل ما سيُرفض */
 export const MATERIAL_MAX_BYTES = 8 * 1024 * 1024;
+/**
+ * حدّ جسم JSON العامّ في الخادم (`express.json({ limit: '10mb' })` = 10×1024×1024 بايت). الملف يُرسل
+ * data URL ‏base64 (+٣٣٪)، فأكبر ملفٍ يمرّ فعلاً ≈ ٧٫٥ ميغابايت — ما فوقه يُرفض 413 قبل المسار برسالةٍ غير عربية.
+ */
+export const JSON_BODY_LIMIT_BYTES = 10 * 1024 * 1024;
 export const MATERIAL_TITLE_MIN = 2;
 export const MATERIAL_TITLE_MAX = 120;
-export const MATERIAL_TEXT_MAX = 2000;
+export const MATERIAL_TEXT_MAX = 4000;
 export const MATERIAL_URL_MAX = 500;
 
-/** مصدر المادة من فئتها: الصورة والفيديو والمستند ملفٌ مرفوع، والرابط رابط، والنصّ الجاهز نصّ */
-export function materialSource(category: string): 'file' | 'url' | 'text' | null {
-  if (category === 'image' || category === 'video' || category === 'document') return 'file';
-  if (category === 'link') return 'url';
-  if (category === 'text') return 'text';
-  return null;
+export type MaterialNeed = 'required' | 'optional' | 'none';
+/**
+ * ما تحتاجه كل فئة (مطابق لـ`services/affiliate/materials.ts`): الصورة والمستند **ملفٌّ** إلزاماً، والفيديو
+ * ملفٌّ قصير **أو** رابط (واحدٌ منهما)، والرابط رابط، والنصّ نصّ؛ ونصٌّ مرافقٌ مسموحٌ مع أيّ فئة.
+ */
+export function materialNeeds(category: string): { file: MaterialNeed; url: MaterialNeed; text: MaterialNeed } | null {
+  switch (category) {
+    case 'image':
+    case 'document': return { file: 'required', url: 'none', text: 'optional' };
+    case 'video': return { file: 'optional', url: 'optional', text: 'optional' };
+    case 'link': return { file: 'none', url: 'required', text: 'optional' };
+    case 'text': return { file: 'none', url: 'none', text: 'required' };
+    default: return null;
+  }
 }
 
 /** ما يقبله حقل الملف لكل فئة (تلميحٌ للمتصفّح — الخادم يفحص البايتات) */
@@ -1040,6 +1156,22 @@ export const MATERIAL_ACCEPT: Record<'image' | 'video' | 'document', string> = {
   video: 'video/mp4,video/webm,video/quicktime',
   document: 'application/pdf',
 };
+
+/** طول نصٍّ بترميز UTF-8 (العربية بايتان للحرف) — لتقدير حجم جسم الطلب */
+function utf8Length(s: string): number {
+  let n = 0;
+  for (const ch of s) {
+    const c = ch.codePointAt(0) ?? 0;
+    n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+  }
+  return n;
+}
+
+/** تقدير حجم جسم `POST /materials` بالبايت: base64 الملف + بادئة data URL + الحقول (بهامش للهروب) + هامش JSON */
+export function materialBodyBytes(fileSize: number, title: string, textBody: string, fileName = ''): number {
+  const b64 = Math.ceil(Math.max(0, fileSize) / 3) * 4;
+  return b64 + 64 + utf8Length(title) + utf8Length(textBody) * 2 + utf8Length(fileName) + 256;
+}
 
 export interface MaterialFileMeta { name: string; size: number; type: string }
 export interface MaterialForm {
@@ -1054,49 +1186,58 @@ export function validateMaterial(f: MaterialForm): string | null {
   const title = f.title.trim();
   if (title.length < MATERIAL_TITLE_MIN) return `اكتب عنوان المادة (${MATERIAL_TITLE_MIN} أحرف على الأقل)`;
   if (title.length > MATERIAL_TITLE_MAX) return `العنوان ${MATERIAL_TITLE_MAX} حرفاً كحدّ أقصى`;
-  const src = materialSource(f.category);
-  if (!src) return 'اختر فئة المادة';
-  if (src === 'file') {
-    if (!f.file) return 'اختر الملف';
-    if (f.file.size <= 0) return 'الملف فارغ';
-    if (f.file.size > MATERIAL_MAX_BYTES) return `حجم الملف ${formatBytes(f.file.size)} — الحدّ الأقصى ٨ ميغابايت`;
-    const type = (f.file.type || '').toLowerCase();
+  const need = materialNeeds(f.category);
+  if (!need) return 'اختر فئة المادة';
+  const file = need.file === 'none' ? null : f.file;
+  const url = need.url === 'none' ? '' : f.url.trim();
+  const text = f.textBody.trim();
+
+  if (need.file === 'required' && !file) return 'اختر الملف';
+  if (f.category === 'video' && !file === !url) return 'الفيديو ملفٌّ قصير أو رابط — واحدٌ منهما';
+  if (file) {
+    if (file.size <= 0) return 'الملف فارغ';
+    if (file.size > MATERIAL_MAX_BYTES) return `حجم الملف ${formatBytes(file.size)} — الحدّ الأقصى ٨ ميغابايت`;
+    if (materialBodyBytes(file.size, title, text, file.name) > JSON_BODY_LIMIT_BYTES) {
+      return `حجم الملف ${formatBytes(file.size)} أكبر ممّا يُرفع من اللوحة (≈ ٧٫٥ ميغابايت بعد الترميز) — اضغطه أو أضفه رابطاً`;
+    }
+    const type = (file.type || '').toLowerCase();
     if (type && f.category === 'image' && !type.startsWith('image/')) return 'الملف ليس صورة — اختر فئةً تناسبه';
     if (type && f.category === 'video' && !type.startsWith('video/')) return 'الملف ليس فيديو — اختر فئةً تناسبه';
-    return null;
+    if (type && f.category === 'document' && type !== 'application/pdf') return 'المستند ملف PDF — اختر فئةً تناسبه';
   }
-  if (src === 'url') {
-    const u = f.url.trim();
-    if (!u) return 'اكتب الرابط';
-    if (u.length > MATERIAL_URL_MAX) return `الرابط ${MATERIAL_URL_MAX} حرف كحدّ أقصى`;
-    if (!safeHttpUrl(u)) return 'الرابط يبدأ بـ https:// أو http://';
-    return null;
+  if (need.url === 'required' && !url) return 'اكتب الرابط';
+  if (url) {
+    if (url.length > MATERIAL_URL_MAX) return `الرابط ${MATERIAL_URL_MAX} حرف كحدّ أقصى`;
+    if (!safeHttpUrl(url)) return 'الرابط يبدأ بـ https:// أو http://';
   }
-  const t = f.textBody.trim();
-  if (!t) return 'اكتب النصّ الجاهز';
-  if (t.length > MATERIAL_TEXT_MAX) return `النصّ ${MATERIAL_TEXT_MAX} حرف كحدّ أقصى`;
+  if (need.text === 'required' && !text) return 'اكتب النصّ الجاهز';
+  if (text.length > MATERIAL_TEXT_MAX) return `النصّ ${MATERIAL_TEXT_MAX} حرف كحدّ أقصى`;
   return null;
 }
 
-/** جسم `POST /materials` — حقل المصدر الموافق للفئة وحده (`dataUrl` يقرؤه المكوّن من الملف) */
+/** جسم `POST /materials` — حقول المصدر الموافقة للفئة وحدها (`dataUrl` يقرؤه المكوّن من الملف) */
 export interface MaterialBody { title: string; category: MaterialCategory; dataUrl?: string; fileName?: string; url?: string; textBody?: string }
 export function buildMaterialBody(f: MaterialForm, dataUrl?: string | null): MaterialBody {
   const category = f.category as MaterialCategory;
   const body: MaterialBody = { title: f.title.trim(), category };
-  const src = materialSource(category);
-  if (src === 'file') {
-    if (dataUrl) body.dataUrl = dataUrl;
+  const need = materialNeeds(category);
+  if (need && need.file !== 'none' && dataUrl) {
+    body.dataUrl = dataUrl;
     if (f.file?.name) body.fileName = f.file.name.slice(0, 200);
-  } else if (src === 'url') body.url = f.url.trim();
-  else if (src === 'text') body.textBody = f.textBody.trim();
+  }
+  const url = f.url.trim();
+  if (need && need.url !== 'none' && url && !body.dataUrl) body.url = url;
+  const text = f.textBody.trim();
+  if (text) body.textBody = text;
   return body;
 }
 
-// ─── أشكال الردود (API.md §2) ──────────────────────────────────────────────
+/ ─── أشكال الردود (API.md §2) ──────────────────────────────────────────────
 
 export interface AffRef { id: string; fullName: string; code: string }
 
-export interface LastCycle { cycleKey: string; payouts: number; totalHalalas: number }
+/** آخر دورةٍ انتهت: دفعاتها عدا الملغاة، و`ranAt: null` = لم تُنجز بعد (المجدول لم يمرّ أو يجري الآن) */
+export interface LastCycle { cycleKey: string; payouts: number; totalHalalas: number; ranAt: string | null }
 
 /**
  * `GET /overview` — v2 يضيف السفراء الجدد هذا الأسبوع والملفات الناقصة والمطالبات الفائتة
@@ -1113,6 +1254,8 @@ export interface Overview {
   missedClaimsUnderReview: number;
   /** ISO لنهاية الدورة القادمة (منتصف ليل الرياض) */
   nextSettlementAt: string | null;
+  settlementDays?: number[];
+  settlementEveryDays?: number;
   lastCycle: LastCycle | null;
 }
 
@@ -1155,12 +1298,15 @@ export interface AffiliateDetail {
     /** v2 (V2_SPEC §6.2): روابط التواصل وبيانات المستندات بلا محتواها — المحتوى بطلبٍ مستقلّ يُسجَّل */
     socialLinks?: SocialLink[];
     documents?: AffiliateDocumentMeta[];
+    profileCompletedAt?: string | null;
   };
   claims: Array<Partial<ClaimRow> & { id: string }>;
   attributions: Array<Partial<AttributionRow> & { id: string; tenantNameSnapshot?: string }>;
   commissions: Array<Partial<CommissionRow> & { id: string; tenantNameSnapshot?: string }>;
   adjustments: Array<{ id: string; kind?: string; amountHalalas?: number; note?: string | null; createdAt?: string; payoutId?: string | null; settled?: boolean; inDraft?: boolean }>;
   payouts: Array<Partial<PayoutRow> & { id: string }>;
+  /** v2: مطالباته بإحالاتٍ فائتة (صفوف خام) */
+  missedClaims?: Array<Partial<MissedClaimRow> & { id: string }>;
   events: AffiliateEvent[];
 }
 
@@ -1198,6 +1344,12 @@ export interface PayoutCandidate {
   eligible: boolean; hasPayout: boolean; ibanLast4: string | null; holderName: string | null;
   /** v2: الملف المكتمل شرطٌ لدخول دورة التسوية (اختياري — يغيب في خادمٍ أقدم) */
   profileComplete?: boolean | null;
+  /** v2: سبب الحجب (null = مؤهَّل) والحدّ الأدنى من شروط السفير نفسه وما ينقص ملفه */
+  blockedBy?: PayoutBlock | null;
+  minPayoutHalalas?: number;
+  missing?: string[];
+  /** فشل آخر تحويلٍ ولم يحدّث السفير بيانات استلامه بعده */
+  ibanNeedsUpdate?: boolean;
 }
 
 export interface PayoutRow {
@@ -1213,14 +1365,25 @@ export interface PayoutRow {
 export interface MissedClaimRow {
   id: string; affiliate: AffRef; companyName: string; contactPhone: string | null; crNumber: string | null;
   note: string | null; status: MissedClaimStatus; reasonNote: string | null; submittedAt: string; reviewedAt: string | null;
-  tenantId?: string | null; tenantName?: string | null;
-  suggestions: Array<{ tenantId: string; tenantName: string; match: MissedMatch | string; createdAt?: string | null; attributed?: boolean | null }>;
+  reviewedBy?: string | null; tenantId?: string | null; tenantName?: string | null;
+  /** لما تحت المراجعة وحده — مطابقة بالسجل ثمّ الجوال ثمّ الاسم، وأيامٌ من تسجيل الشركة حتى المطالبة */
+  suggestions: Array<{
+    tenantId: string; tenantName: string; match: MissedMatch | string; createdAt?: string | null; attributed?: boolean | null;
+    daysFromSignup?: number | null; withinWindow?: boolean | null;
+  }>;
+}
+
+/** ردّ `POST /missed-claims/:id/accept` — إسنادٌ يدويّ ثمّ المطالبة `accepted` */
+export interface MissedAcceptResult extends AccrualResult {
+  status: 'accepted';
+  attribution?: { id: string; status: AttributionStatus };
+  commission?: { id: string; status: CommissionStatus; commissionHalalas?: number } | null;
 }
 
 /** `GET /materials` — المحتوى نفسه لا يعود في القائمة */
 export interface MaterialRow {
   id: string; title: string; category: MaterialCategory; fileName: string | null; mime: string | null;
-  sizeBytes: number | null; url: string | null; textBody: string | null; sortOrder?: number; createdAt: string;
+  sizeBytes: number | null; url: string | null; textBody: string | null; sortOrder?: number; createdAt: string; createdBy?: string | null;
 }
 
 export interface TenantHit { id: string; name: string; commercialReg: string | null; createdAt: string; attributed: boolean }
@@ -1261,7 +1424,9 @@ export function normalizeOverview(o: Partial<Overview> & Pick<Overview, 'affilia
     incompleteProfiles: num(o.incompleteProfiles),
     missedClaimsUnderReview: num(o.missedClaimsUnderReview),
     nextSettlementAt: typeof o.nextSettlementAt === 'string' && o.nextSettlementAt ? o.nextSettlementAt : null,
-    lastCycle: lc && typeof lc === 'object' && lc.cycleKey ? { cycleKey: lc.cycleKey, payouts: num(lc.payouts), totalHalalas: num(lc.totalHalalas) } : null,
+    lastCycle: lc && typeof lc === 'object' && lc.cycleKey
+      ? { cycleKey: lc.cycleKey, payouts: num(lc.payouts), totalHalalas: num(lc.totalHalalas), ranAt: typeof lc.ranAt === 'string' ? lc.ranAt : null }
+      : null,
   } as Overview;
 }
 
@@ -1288,6 +1453,7 @@ export function normalizeDetail(d: AffiliateDetail): AffiliateDetail {
     commissions: arr(d.commissions),
     adjustments: arr(d.adjustments),
     payouts: arr(d.payouts),
+    missedClaims: arr(d.missedClaims),
     events: arr(d.events),
   };
 }
