@@ -8,6 +8,7 @@ import type { PrintTextsV1 } from '../lib/print/printTextsCore';
 import type { PaymentMethodsConfigInput } from '../lib/paymentMethodsCore';
 import type { RepTargetComboInput, RepTargetInput } from '../lib/repTargets';
 import type { SalesInboxParams, SalesUpdate } from '../lib/salesCrm';
+import type { ChatRequest as AiAccountantChatRequest } from '../lib/aiAccountant';
 import type {
   LotCreateRequest, LotListParams, LotRef, LotRelabelRequest, LotStatusRequest, LotTrackingRequest, LotUpdateRequest,
 } from '../lib/lots';
@@ -474,6 +475,13 @@ export const aiRepApi = {
   // المحلات المخفية عن المسح («أُغلق نهائياً / لم أجده» مؤكَّداً) و«أعد إظهاره»
   hiddenOutlets: () => api.get('/ai-rep/admin/hidden-outlets'),
   unhideOutlet: (id: string) => api.post(`/ai-rep/admin/hidden-outlets/${encodeURIComponent(id)}/unhide`),
+};
+
+// المحاسب الذكي AI — الحالة والمحادثة وسجلّ القيود التي رحّلها (خامل حتى يفعّله المالك للشركة)؛ العكس عبر مسار الدفاتر القائم
+export const aiAccountantApi = {
+  status: () => api.get('/ai-accountant/status'),
+  chat: (body: AiAccountantChatRequest) => api.post('/ai-accountant/chat', body),
+  posts: (limit = 50) => api.get('/ai-accountant/posts', { params: { limit } }),
 };
 
 export const petroappApi = {

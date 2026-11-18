@@ -74,6 +74,8 @@ const updateTenantSchema = z.object({
   zatcaPhase2Enabled: z.boolean().optional(),
   // المندوب الذكي AI — في التحديث وحده (مطفأ افتراضياً)
   aiRepEnabled: z.boolean().optional(),
+  // «المحاسب الذكي AI» (محادثة تقارير وقيود لمدير الشركة، routes/aiAccountant.ts) — في التحديث وحده (مطفأ افتراضياً)
+  aiAccountantEnabled: z.boolean().optional(),
   // «الربط البرمجي API» (مفاتيح API للشركة) — في التحديث وحده (مطفأ افتراضياً)
   apiEnabled: z.boolean().optional(),
   // صفحة «طرق الدفع» (تحصيل المناديب لكل طريقة دفع) — في التحديث وحده (مطفأ افتراضياً)
@@ -381,6 +383,10 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       const before = body.accountingSuiteEnabled === undefined
         ? null
         : await tx.tenant.findUnique({ where: { id: req.params.id }, select: { accountingSuiteEnabled: true } });
+      // «المحاسب الذكي AI»: يرحّل إلى دفاتر الشركة، فتبديله يُدوَّن FLAG_TOGGLE كالنظام المتكامل — الجسم بلا العلم ⇒ لا قراءة
+      const aiAcctBefore = body.aiAccountantEnabled === undefined
+        ? null
+        : await tx.tenant.findUnique({ where: { id: req.params.id }, select: { aiAccountantEnabled: true } });
       // «تتبّع اللوط» (D25): السابق داخل المعاملة، وكل انتقالٍ إلى المفعّل يبدأ حقبةً جديدة (lotTrackingSince) بعد عمليات اللوط
       // الجارية — فأرصدة التشغيلات تصير غير مسمّاة حتى تُسمّى (D8). وقبل أي كتابة: صفوف الأصناف قبل صفّ الشركة كترتيب §٣.١.
       // القراءة الأولى بلا قفل تقرّر الانتظار وحده؛ والمرجع للحقبة والحدث هو السابق تحت قفل صفّ الشركة بعده: تبديلان متزامنان
@@ -415,6 +421,18 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
           summary: updated.accountingSuiteEnabled ? 'تفعيل النظام المحاسبي المتكامل' : 'إطفاء النظام المحاسبي المتكامل',
           before: { accountingSuiteEnabled: before.accountingSuiteEnabled },
           after: { accountingSuiteEnabled: updated.accountingSuiteEnabled },
+        });
+      }
+      if (aiAcctBefore && (aiAcctBefore.aiAccountantEnabled === true) !== (updated.aiAccountantEnabled === true)) {
+        await appendAudit(tx, {
+          tenantId: updated.id,
+          actor: ownerActor(req),
+          action: 'FLAG_TOGGLE',
+          entityType: 'TENANT',
+          entityId: updated.id,
+          summary: updated.aiAccountantEnabled ? 'تفعيل المحاسب الذكي AI' : 'إطفاء المحاسب الذكي AI',
+          before: { aiAccountantEnabled: aiAcctBefore.aiAccountantEnabled === true },
+          after: { aiAccountantEnabled: updated.aiAccountantEnabled === true },
         });
       }
       // سجل تدقيق اللوط (المادة ٥٢): تبديل علم الشركة حدثٌ على مستوى الشركة (productId = TENANT_LOT_EVENT_PRODUCT)، حين تتغيّر القيمة وحدها

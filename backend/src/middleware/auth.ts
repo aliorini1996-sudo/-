@@ -447,6 +447,28 @@ export async function requireLots(req: AuthRequest, res: Response, next: NextFun
   } catch (err) { next(err); }
 }
 
+/**
+ * «المحاسب الذكي AI» (/api/ai-accountant) — ميزة **مطفأة افتراضياً** يفعّلها المالك لكل شركة (routes/aiAccountant.ts). نسخة requireLots:
+ * المحاسبة المطفأة تمنع أولاً (ACCOUNTING_NOT_ALLOWED — أرقامه كلها مالية)، ثم العَلَم بشرط `!== true` (تعذّر القراءة يمنع)،
+ * والشركة من الطلب مباشرةً (tenantId(req) ترمي للسوبر أدمن)، وجلسة المالك لا تتجاوز العَلَم: صلاحية اشتراكٍ لا صلاحية مستخدم.
+ */
+export async function requireAiAccountant(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const tid = req.user?.tenantId;
+    if (!tid) { next(); return; }
+    const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { aiAccountantEnabled: true, accountingEnabled: true } });
+    if (t?.accountingEnabled === false) {
+      res.status(403).json({ success: false, code: 'ACCOUNTING_NOT_ALLOWED', message: 'النظام المحاسبي غير مفعّل لهذه الشركة تواصل مع مزود الخدمة' });
+      return;
+    }
+    if (t?.aiAccountantEnabled !== true) {
+      res.status(403).json({ success: false, code: 'AI_ACCOUNTANT_NOT_ALLOWED', message: 'المحاسب الذكي غير مفعّل لاشتراك شركتك تواصل مع مزود الخدمة لتفعيله' });
+      return;
+    }
+    next();
+  } catch (err) { next(err); }
+}
+
 export async function requireAccounting(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const tid = req.user?.tenantId;

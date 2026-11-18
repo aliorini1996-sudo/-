@@ -98,6 +98,7 @@ model Tenant {
   zatcaPhase2Enabled        Boolean   @default(false) // تبويب ربط فوترة ZATCA المرحلة الثانية (/api/zatca) — يفعّله المالك لكل شركة سعودية؛ لا يغيّر إصدار الفواتير
   accountingSuiteEnabled    Boolean   @default(false) // النظام المحاسبي المتكامل — يفعّله المالك لكل شركة؛ لا يعمل إلا مع accountingEnabled !== false
   aiRepEnabled              Boolean   @default(false) // «المندوب الذكي AI» — محلات قريبة وتوقّع مشتريات كل محل ومسار؛ يفعّله المالك لكل شركة
+  aiAccountantEnabled       Boolean   @default(false) // «المحاسب الذكي AI» — محادثة تقارير وقيود لمدير الشركة؛ يفعّله المالك لكل شركة (routes/aiAccountant.ts)
   apiEnabled                Boolean   @default(false) // «الربط البرمجي API» — مفاتيح API لنظام الشركة الخاص؛ يفعّله المالك لكل شركة (services/apiKeys.ts)
   paymentMethodsEnabled     Boolean   @default(false) // صفحة «طرق الدفع» — تحصيل كل مندوب موزّعاً على النقدي والشبكة والتحويل والشيك والإلكتروني؛ يفعّلها المالك لكل شركة (services/paymentMethodsReport.ts)
   locationsEnabled          Boolean   @default(false) // «لوكيشن» — مواقع الشركة (فرع/مستودع/مدينة) ووسم الفواتير والتحميلات بموقع المندوب وقت الإصدار؛ يفعّلها المالك لكل شركة (services/locations.ts)
@@ -220,6 +221,9 @@ model Tenant {
   aiLearnedModels       AiLearnedModel[]
   aiLessons             AiLesson[]
   aiLearningRuns        AiLearningRun[]
+
+  // المحاسب الذكي AI — علاقة عكسية فقط
+  aiAccountantPosts     AiAccountantPost[]
 
   // لوحة المنصة وحدها (طلب المالك ٩ نوفمبر ٢٠٢٦): ملاحظات المالك والموظفين وحالة الصفقة — لا تصل الشركة أبداً
   platformNotes         TenantNote[]
@@ -5115,6 +5119,30 @@ model AiLearningRun {
   @@unique([tenantId, day])
   @@index([tenantId, startedAt])
   @@map("ai_learning_runs")
+}
+
+// ═══ المحاسب الذكي AI (طلب المالك ١٧ نوفمبر ٢٠٢٦) ═══
+// قيدٌ رحّله المحاسب الذكي بطلب مدير الشركة — لصفحة «قيود المحاسب الذكي». بلا نص محادثة.
+// adminId نصّ بلا علاقة (لا مفتاح أجنبي يعيق حذف المستخدم)، والقيد نفسه في gl_moves (moveId بلا علاقة كذلك).
+// ref = 'AI-'+clientRef+'-'+n فريد لكل شركة: عدم التكرار عند إعادة الإرسال. جدول جديد ⇒ @@unique آمن لـdb push.
+model AiAccountantPost {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  adminId     String
+  adminName   String?
+  moveId      String
+  moveNumber  String?
+  ref         String
+  kind        String // EXPENSE | SALARIES | SALARIES_SETTLE
+  amountMilli BigInt
+  dateLocal   String // YYYY-MM-DD بتوقيت الشركة (تاريخ القيد)
+  summaryAr   String
+  createdAt   DateTime @default(now())
+
+  @@unique([tenantId, ref])
+  @@index([tenantId, createdAt])
+  @@map("ai_accountant_posts")
 }
 
 // ═══ «ربط الدفاتر» L4 (M4، طلب المالك ١٣ نوفمبر ٢٠٢٦): تسويات ذمم العملاء من الدفاتر — شطب دينٍ معدوم واسترداد رصيدٍ دائن ═══
