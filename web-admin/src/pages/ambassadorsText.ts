@@ -22,6 +22,12 @@ export const AMBASSADORS_PATH = '/ambassadors';
 export const AMBASSADORS_JOIN = '/ambassadors/join';
 /** «لديك حساب؟» — يحوّله App.tsx إلى دخول البوابة */
 export const AMBASSADORS_LOGIN = '/ambassadors/login';
+/**
+ * رابطا الزرّين بلغة الصفحة: ‎?lang=en|fr‎ لغير العربية — زائرٌ أول يضغط الرابط المُصيَّر قبل إقلاع React
+ * (فلا لغة محفوظة بعد) تُفتح له البوابة بلغة الصفحة (initialLangFor في i18n/lang.ts) — مراجعة ١٨ نوفمبر
+ */
+export const ambassadorsJoinHref = (lang: AmbLang) => (lang === 'ar' ? AMBASSADORS_JOIN : `${AMBASSADORS_JOIN}?lang=${lang}`);
+export const ambassadorsLoginHref = (lang: AmbLang) => (lang === 'ar' ? AMBASSADORS_LOGIN : `${AMBASSADORS_LOGIN}?lang=${lang}`);
 
 export interface AmbItem { t: string; d: string }
 export interface AmbFaq { q: string; a: string }
@@ -340,7 +346,7 @@ export function ambassadorsStaticHtml(lang: AmbLang): string {
     `<p>${esc(t.eyebrow)}</p>`,
     `<h1>${esc(t.h1)}</h1>`,
     `<p>${esc(t.lead)}</p>`,
-    `<p><a href="${AMBASSADORS_JOIN}">${esc(t.cta)}</a> — ${esc(t.ctaNote)} · <a href="${AMBASSADORS_LOGIN}">${esc(t.login)}</a></p>`,
+    `<p><a href="${ambassadorsJoinHref(lang)}">${esc(t.cta)}</a> — ${esc(t.ctaNote)} · <a href="${ambassadorsLoginHref(lang)}">${esc(t.login)}</a></p>`,
     `<ul>${t.stats.map((s) => `<li><strong>${esc(s.v)}</strong> ${esc(s.l)}</li>`).join('')}</ul>`,
     `<h2>${esc(t.stepsTitle)}</h2>`,
     `<p>${esc(t.stepsSub)}</p>`,
@@ -356,7 +362,7 @@ export function ambassadorsStaticHtml(lang: AmbLang): string {
     t.faq.map((f) => `<h3>${esc(f.q)}</h3><p>${esc(f.a)}</p>`).join(''),
     `<h2>${esc(t.finalTitle)}</h2>`,
     `<p>${esc(t.finalBody)}</p>`,
-    `<p><a href="${AMBASSADORS_JOIN}">${esc(t.finalCta)}</a></p>`,
+    `<p><a href="${ambassadorsJoinHref(lang)}">${esc(t.finalCta)}</a></p>`,
     `<p>${esc(t.termsNote)}</p>`,
     `<p>${esc(t.otherLangs)}: ${others}</p>`,
     `<p><a href="${home}">${esc(t.home)}</a></p>`,

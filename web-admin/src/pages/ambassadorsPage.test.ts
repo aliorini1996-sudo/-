@@ -9,7 +9,7 @@ import { checkText, checkGlossary } from '../../scripts/claims-rules.mjs';
 import { availableLangs, routeLangs, pathForLocale, seoUrls } from '../i18n/locale';
 import { isAdsTagRoute } from '../lib/adsRoutes';
 import {
-  AMBASSADORS_TEXT, AMBASSADORS_LANGS, AMBASSADORS_JOIN, AMBASSADORS_LOGIN, AMBASSADORS_PATH,
+  AMBASSADORS_TEXT, AMBASSADORS_LANGS, AMBASSADORS_JOIN, AMBASSADORS_LOGIN, AMBASSADORS_PATH, ambassadorsJoinHref, ambassadorsLoginHref,
   ambassadorsJsonLd, ambassadorsStaticHtml, ambassadorsTextFor, type AmbText,
 } from './ambassadorsText';
 import AmbassadorsPage from './AmbassadorsPage';
@@ -105,7 +105,7 @@ test('الجسم المُصيَّر وFAQPage من المصدر نفسه: كل �
     assert.ok(html.startsWith('<main>') && html.endsWith('</main>'), `${L}: غلاف main`);
     assert.equal((html.match(/<h1>/g) || []).length, 1, `${L}: H1 واحد`);
     assert.ok(html.includes(`<h1>${t.h1}</h1>`), `${L}: H1 لا يطابق نصّ React`);
-    assert.ok(html.includes(`href="${AMBASSADORS_JOIN}"`) && html.includes(`href="${AMBASSADORS_LOGIN}"`), `${L}: الأزرار`);
+    assert.ok(html.includes(`href="${ambassadorsJoinHref(L)}"`) && html.includes(`href="${ambassadorsLoginHref(L)}"`), `${L}: الأزرار بلغة الصفحة`);
     assert.doesNotMatch(html, AX_PATH, `${L}: مسار البوابة في الجسم المُصيَّر`);
     const ld = ambassadorsJsonLd(L) as { '@type': string; mainEntity: { name: string; acceptedAnswer: { text: string } }[] };
     assert.equal(ld['@type'], 'FAQPage');
@@ -129,8 +129,8 @@ test('المكوّن يُرسم بلغة مساره من المصدر نفسه،
     const t = AMBASSADORS_TEXT[L];
     assert.match(html, new RegExp(`dir="${L === 'ar' ? 'rtl' : 'ltr'}"`), `${p}: الاتجاه`);
     assert.ok(html.includes(t.h1Accent) && html.includes(t.stepsTitle) && html.includes(t.faq[0].q), `${p}: النصوص`);
-    assert.ok(html.includes(`href="${AMBASSADORS_JOIN}"`), `${p}: زرّ الانضمام`);
-    assert.ok(html.includes(`href="${AMBASSADORS_LOGIN}"`), `${p}: زرّ الدخول`);
+    assert.ok(html.includes(`href="${ambassadorsJoinHref(L).replace(/&/g, '&amp;')}"`), `${p}: زرّ الانضمام`);
+    assert.ok(html.includes(`href="${ambassadorsLoginHref(L)}"`), `${p}: زرّ الدخول`);
     assert.doesNotMatch(html, AX_PATH, `${p}: مسار البوابة في الصفحة`);
     assert.equal((html.match(/<h1\b/g) || []).length, 1, `${p}: H1 واحد`);
   }

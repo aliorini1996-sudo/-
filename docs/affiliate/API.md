@@ -80,7 +80,7 @@ type Flag = 'self_email' | 'self_phone' | 'returning_company' | 'ip_match' | 'te
 - `PUT /me` `{ city?, marketingConsent?, vatNumber?, partnerType?, companyName?, socialLinks? }` ⇒ `{ user: AffiliateMe }` — `''` يمسح الحقل.
 - `POST /accept-terms` `{ termsVersion }` ⇒ `{ user: AffiliateMe }` (عند نشر إصدار جديد — بوابة TermsGate)
 
-> `GET /me` و`PUT /me` و`POST /accept-terms` وحدها بأيّ جلسة (طريق قبول الشروط مفتوحٌ دائماً). **كلّ ما يلي** — ومنه بيانات الاستلام والمستندات — خلف `requireApproved`.
+> `GET /me` و`PUT /me` و`POST /accept-terms` و`GET /pricing` (الباقات وأسعار السفير) وحدها بأيّ جلسة (طريق قبول الشروط مفتوحٌ دائماً). **كلّ ما يلي** — ومنه بيانات الاستلام والمستندات — خلف `requireApproved`.
 
 ### بجلسة **approved** وبالشروط الحالية مقبولة (غير ذلك 403 `{message}`؛ و`code: 'terms_outdated'` إن نُشرت شروطٌ لم يقبلها)
 - `PUT /payout-profile` `{ iban: string, holderName: string /*2..120*/, bankName?: string }` ⇒ `{ user: AffiliateMe }` — بلا شرط «بعد أول عمولة» (v2)، لكن **بجلسة approved وبالشروط الحالية** كبقيّة هذا القسم: سفيرٌ إرثيّ على v1–v3 يقبل v4 أولاً (TermsGate) ثمّ يُكمل ملفه. آيبان سعودي `SA`+22 بفحص mod-97 · 400 آيبان غير صالح · 409 إن كانت للسفير مسودّة دفعة قائمة. تحديثه بعد «فشل التحويل» يُعيده لدورة التسوية التالية.

@@ -732,7 +732,7 @@ const axDocLimiter = rateLimit({
  * حسابٍ عمره دقيقة يكفي لإغراق ذاكرة الخادم المشترك بين كلّ الشركات (المراجعة #7). حدّان:
  * - **لكلّ سفير** ٦٠ تنزيلاً في الساعة (بمعرّفه من التوكن، عدّادٌ واحد للمواد والمستندات).
  * - **التنزيلات المتزامنة**: اثنان لكلّ سفير وأربعة للخادم كلّه — الحدّ بالعدد وحده لا يمنع دفعةً متزامنة من عشرين طلباً.
- *   المقعد يُحرَّر حين يُغلق الردّ (اكتمل أو انقطع) لا حين ينتهي المعالج: البايتات تبقى في الذاكرة حتى يأخذها العميل.
+ *   المقعد يُحرَّر حين ينتهي المعالج **و**يُغلق الردّ (اكتمل أو انقطع) معاً، وللإرسال مهلة ٦٠ ثانية.
  */
 const axFileLimiter = rateLimit({
   ...limiterBase, windowMs: 60 * 60_000, limit: 60,
@@ -741,6 +741,7 @@ const axFileLimiter = rateLimit({
 });
 const FILE_INFLIGHT_MAX = 4;
 const FILE_INFLIGHT_PER_AFFILIATE = 2;
+const FILE_SEND_DEADLINE_MS = 60_000;
 let fileInflight = 0;
 const fileInflightBy = new Map<string, number>();
 const FILE_BUSY = { success: false, message: 'تنزيلاتٌ كثيرة جارية الآن — حاول بعد لحظات', code: 'file_busy' };
@@ -755,18 +756,26 @@ function fileSlot(req: AxRequest, res: Response, next: NextFunction): void {
   }
   fileInflight++;
   fileInflightBy.set(id, mine + 1);
-  let released = false;
-  const release = () => {
-    if (released) return;
+  // المقعد لا يُحرَّر إلا بشرطين معاً: انتهى المعالج (قرأ البايتات من القاعدة ورمّزها) **و**أُغلق الردّ (اكتمل أو انقطع).
+  // فالعميل الذي يقطع الطلب فوراً لا يستعيد مقعده والمعالج ما زال يحمّل ٨ ميغابايت (مراجعة ١٨ نوفمبر)،
+  // والقارئ البطيء جداً تقطعه مهلة الإرسال فلا يحتجز مقعداً من مقاعد الخادم الأربعة إلى الأبد.
+  let released = false, handlerDone = false, responseClosed = false;
+  const tryRelease = () => {
+    if (released || !handlerDone || !responseClosed) return;
     released = true;
     fileInflight--;
     const left = (fileInflightBy.get(id) ?? 1) - 1;
     if (left > 0) fileInflightBy.set(id, left); else fileInflightBy.delete(id);
   };
-  res.once('finish', release);
-  res.once('close', release);
+  const onClosed = () => { responseClosed = true; tryRelease(); };
+  res.once('finish', onClosed);
+  res.once('close', onClosed);
+  res.locals.releaseFileSlot = () => { handlerDone = true; tryRelease(); };
+  res.setTimeout(FILE_SEND_DEADLINE_MS, () => res.destroy());
   next();
 }
+/** يُنادى في finally كلّ معالجٍ خلف fileSlot — بعد res.json أو مسار الخطأ */
+const releaseFileSlot = (res: Response) => { (res.locals.releaseFileSlot as (() => void) | undefined)?.(); };
 
 const docKindParam = (req: Request) => {
   const k = String(req.params.kind);
@@ -797,7 +806,7 @@ router.get('/documents/:kind', axAuth, requireApproved, axFileLimiter, fileSlot,
     if (!dataUrl) { res.status(404).json({ success: false, message: 'لا يوجد مستندٌ من هذا النوع' }); return; }
     res.set('Cache-Control', 'no-store');
     res.json({ success: true, data: { dataUrl } });
-  } catch (e) { next(e); }
+  } catch (e) { next(e); } finally { releaseFileSlot(res); }
 });
 
 /** حذفٌ حقيقيّ — والملف يعود ناقصاً إن كان المستند شرطاً */
@@ -881,7 +890,7 @@ router.get('/materials/:id/file', axAuth, requireApproved, axFileLimiter, fileSl
     const f = await materialFile(String(req.params.id));
     if (!f) { res.status(404).json({ success: false, message: 'الملف غير موجود' }); return; }
     res.json({ success: true, data: f });
-  } catch (e) { next(e); }
+  } catch (e) { next(e); } finally { releaseFileSlot(res); }
 });
 
 export default router;

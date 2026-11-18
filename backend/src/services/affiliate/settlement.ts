@@ -91,9 +91,12 @@ export interface SettlementResult {
  * (ونبضة الدورة نفسها تعتمد قبل أن تدخلها بـ`now` نفسه). البداية لحظة الدورة السابقة (`at` في علامتها — ونداؤها
  * ختم `approvedAt` بها فلا يُعدّ مرّتين)، وإلا بداية هذه الدورة. فشل العدّ لا يُسقط الدورة: يُعاد عدّ النداء.
  */
-async function autoApprovedSinceLastCycle(periodStart: Date, now: Date, fallback: number): Promise<number> {
+async function autoApprovedSinceLastCycle(periodStart: Date, now: Date, fallback: number, sinceOverride: Date | null = null): Promise<number> {
   try {
     let since = periodStart;
+    if (sinceOverride) {
+      return await prisma.affiliateCommission.count({ where: { approvedBy: SYSTEM_ID, approvedAt: { gt: sinceOverride, lte: now } } });
+    }
     const prev = await prisma.opsMarker.findUnique({ where: { key: settlementMarkerKey(cycleBounds(periodStart).cycleKey) } });
     if (prev && prev.value !== 'running') {
       try {
@@ -106,6 +109,19 @@ async function autoApprovedSinceLastCycle(periodStart: Date, now: Date, fallback
     console.error('[affiliate] settlement auto-approved count:', (e as Error).message);
     return fallback;
   }
+}
+
+/** لحظة تشغيلٍ سابق لهذه الدورة نفسها من علامتها المنجزة: `at` (التشغيل الأصلي — ثابتٌ لا يُكتب فوقه) وآخر `manualAt` */
+async function ownCycleRun(key: string): Promise<{ at: Date; lastRunAt: Date } | null> {
+  try {
+    const m = await prisma.opsMarker.findUnique({ where: { key } });
+    if (!m || m.value === 'running') return null;
+    const v = JSON.parse(m.value) as { at?: string; manualAt?: string };
+    const at = new Date(v.at ?? '');
+    if (!Number.isFinite(at.getTime())) return null;
+    const manualAt = new Date(v.manualAt ?? '');
+    return { at, lastRunAt: Number.isFinite(manualAt.getTime()) && manualAt > at ? manualAt : at };
+  } catch { return null; }
 }
 
 /**
@@ -125,9 +141,12 @@ export async function runSettlementCycle(now: Date = new Date(), opts: { by?: Pl
     return { ...base, ran: false, reason: 'already_ran', autoApproved: 0, reconciled: { accrued: 0, synced: 0 }, payouts: [], totalHalalas: 0, skipped: {} };
   }
 
+  // إعادة تشغيلٍ يدوية لدورةٍ أُنجزت: العدّ منذ آخر تشغيلٍ لهذه الدورة نفسها (لا منذ الدورة السابقة — وإلا عُدّ ما
+  // أبلغ به بريد الدورة مرّتين)، و`at` الأصلي يبقى مرساة الدورة التالية (مراجعة ١٨ نوفمبر)
+  const ownPrev = claimed ? null : await ownCycleRun(key);
   const reconciled = await reconcile();
   const { approved: approvedNow } = await autoApproveEligible(now);
-  const autoApproved = await autoApprovedSinceLastCycle(bounds.periodStart, now, approvedNow);
+  const autoApproved = await autoApprovedSinceLastCycle(bounds.periodStart, now, approvedNow, ownPrev?.lastRunAt ?? null);
   const candidates = await payoutCandidates();
   const payouts: SettlementResult['payouts'] = [];
   const done: Array<{ fullName: string; code: string; netHalalas: number; ibanLast4: string }> = [];
@@ -154,7 +173,11 @@ export async function runSettlementCycle(now: Date = new Date(), opts: { by?: Pl
 
   await prisma.opsMarker.update({
     where: { key },
-    data: { value: JSON.stringify({ payouts: payouts.length, totalHalalas, skipped, manual, at: now.toISOString() }).slice(0, 1000) },
+    data: {
+      value: JSON.stringify(ownPrev
+        ? { payouts: payouts.length, totalHalalas, skipped, manual, at: ownPrev.at.toISOString(), manualAt: now.toISOString() }
+        : { payouts: payouts.length, totalHalalas, skipped, manual, at: now.toISOString() }).slice(0, 1000),
+    },
   }).catch(e => console.error('[affiliate] settlement marker:', (e as Error).message));
 
   // الآيبان جزءٌ من الملف المطلوب (profileStatus) و`payoutCandidates` يفحصه قبل بقيّة الملف — فمن بلا آيبان

@@ -9,7 +9,7 @@ import LanguageToggle from '../components/LanguageToggle';
 import { localeFromPath, pathForLocale, seoUrls } from '../i18n/locale';
 import { useSeo } from '../lib/seo';
 import {
-  AMBASSADORS_JOIN, AMBASSADORS_LANGS, AMBASSADORS_LANG_LABEL, AMBASSADORS_LOGIN, AMBASSADORS_PATH, AMBASSADORS_TEXT,
+  AMBASSADORS_LANGS, AMBASSADORS_LANG_LABEL, AMBASSADORS_PATH, AMBASSADORS_TEXT, ambassadorsJoinHref, ambassadorsLoginHref,
   ambassadorsJsonLd, ambassadorsPathFor, type AmbLang,
 } from './ambassadorsText';
 
@@ -81,11 +81,11 @@ export default function AmbassadorsPage() {
             </span>
           </Link>
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            <Link to={AMBASSADORS_LOGIN} className="hidden lg:inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#6E6557] hover:text-[#1F1A13] px-3 py-2 rounded-xl hover:bg-black/5">
+            <Link to={ambassadorsLoginHref(L)} className="hidden lg:inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#6E6557] hover:text-[#1F1A13] px-3 py-2 rounded-xl hover:bg-black/5">
               <LogIn size={15} />{t.loginShort}
             </Link>
             <LanguageToggle />
-            <Link to={AMBASSADORS_JOIN} data-amb-join="header" className={`${primaryBtn} text-[13px] px-3.5 py-2 rounded-xl whitespace-nowrap`}>{t.ctaShort}</Link>
+            <Link to={ambassadorsJoinHref(L)} data-amb-join="header" className={`${primaryBtn} text-[13px] px-3.5 py-2 rounded-xl whitespace-nowrap`}>{t.ctaShort}</Link>
           </div>
         </div>
       </header>
@@ -102,10 +102,10 @@ export default function AmbassadorsPage() {
             </h1>
             <p className="mt-5 text-[16px] sm:text-lg leading-relaxed text-[#5C5347] max-w-xl">{t.lead}</p>
             <div className="mt-7 flex flex-col sm:flex-row sm:items-center gap-3">
-              <Link to={AMBASSADORS_JOIN} data-amb-join="hero" className={`${primaryBtn} h-14 px-8 text-[17px] w-full sm:w-auto shadow-[0_14px_30px_rgba(225,90,48,0.28)]`}>
+              <Link to={ambassadorsJoinHref(L)} data-amb-join="hero" className={`${primaryBtn} h-14 px-8 text-[17px] w-full sm:w-auto shadow-[0_14px_30px_rgba(225,90,48,0.28)]`}>
                 {t.cta}<Fwd size={19} />
               </Link>
-              <Link to={AMBASSADORS_LOGIN} className="inline-flex items-center justify-center gap-1.5 h-12 px-5 rounded-2xl text-[15px] font-semibold text-[#1F1A13] hover:bg-black/5">
+              <Link to={ambassadorsLoginHref(L)} className="inline-flex items-center justify-center gap-1.5 h-12 px-5 rounded-2xl text-[15px] font-semibold text-[#1F1A13] hover:bg-black/5">
                 <LogIn size={16} />{t.login}
               </Link>
             </div>
@@ -258,10 +258,10 @@ export default function AmbassadorsPage() {
             <h2 className="relative text-2xl sm:text-4xl font-extrabold">{t.finalTitle}</h2>
             <p className="relative mt-3 text-[#C9BFAE]">{t.finalBody}</p>
             <div className="relative mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
-              <Link to={AMBASSADORS_JOIN} data-amb-join="final" className={`${primaryBtn} h-14 px-10 text-[17px] w-full sm:w-auto`}>
+              <Link to={ambassadorsJoinHref(L)} data-amb-join="final" className={`${primaryBtn} h-14 px-10 text-[17px] w-full sm:w-auto`}>
                 {t.finalCta}<Fwd size={19} />
               </Link>
-              <Link to={AMBASSADORS_LOGIN} className="inline-flex items-center gap-1.5 h-12 px-5 rounded-2xl text-[15px] font-semibold text-[#FAF7F0] hover:bg-white/10">
+              <Link to={ambassadorsLoginHref(L)} className="inline-flex items-center gap-1.5 h-12 px-5 rounded-2xl text-[15px] font-semibold text-[#FAF7F0] hover:bg-white/10">
                 <LogIn size={16} />{t.login}
               </Link>
             </div>
@@ -276,7 +276,7 @@ export default function AmbassadorsPage() {
           <div className="flex items-center gap-4 flex-wrap">
             <Link to={home} className="hover:text-[#1F1A13]">{t.home}</Link>
             <Link to={contact} className="hover:text-[#1F1A13]">{t.contact}</Link>
-            <Link to={AMBASSADORS_LOGIN} className="hover:text-[#1F1A13]">{t.loginShort}</Link>
+            <Link to={ambassadorsLoginHref(L)} className="hover:text-[#1F1A13]">{t.loginShort}</Link>
           </div>
           <nav aria-label={t.otherLangs} className="flex items-center gap-3 flex-wrap">
             {AMBASSADORS_LANGS.filter((x) => x !== L).map((x) => (

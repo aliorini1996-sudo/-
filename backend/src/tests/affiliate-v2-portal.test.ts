@@ -221,7 +221,8 @@ test('حرّاس الوصل: مسارات v2 خلف الجلسة والقبول�
   const fileLimiter = portal.slice(portal.indexOf('const axFileLimiter'), portal.indexOf('});', portal.indexOf('const axFileLimiter')));
   assert.match(fileLimiter, /keyGenerator: [^\n]*affiliate\?\.id/, 'لكلّ سفير بمعرّفه من التوكن');
   assert.match(fileLimiter, /limit: 60/);
-  assert.match(portal, /res\.once\('close', release\)/, 'المقعد يُحرَّر حين يُغلق الردّ ولو انقطع');
+  // مراجعة ١٨ نوفمبر: الإغلاق وحده لا يحرّر المقعد (قطعٌ فوري كان يتجاوز السقف) — إغلاق الردّ **و**انتهاء المعالج
+  assert.match(portal, /res\.once\('close', onClosed\)/, 'إغلاق الردّ طرفٌ في التحرير');
   // المراجعة #1: فتح الحسابات وإعادة إرسال روابطها بحدٍّ لكلّ IP في يوم الرياض فوق حدّ السفير — بلا شرط الملف (قرار المالك)
   assert.ok(portal.includes("router.post('/trials', axAuth, requireApproved, axTrialLimiter, axTrialIpLimiter,"));
   assert.ok(portal.includes("router.post('/trials/:id/resend', axAuth, requireApproved, axTrialLimiter, axTrialResendIpLimiter,"));
@@ -828,6 +829,41 @@ test('تنزيل الملفات: سقف المتزامن (٢ لكلّ سفير �
   const c = await tokenOf('boot0@example.com');
   assert.equal((await call('GET', '/materials/m1/file', undefined, c)).status, 200, 'المقاعد حُرّرت');
   assert.equal((await call('GET', '/documents/national_id', undefined, c)).status, 404);
+});
+
+test('تنزيل الملفات: قطع الطلب فوراً لا يُعيد المقعد والمعالج ما زال يحمّل الملف (مراجعة ١٨ نوفمبر) — يُحرَّر بانتهائهما معاً', async () => {
+  const prisma = (await import('../config/database')).default as any;
+  const orig = prisma.affiliateMaterial.findUnique;
+  let waiting = 0;
+  let open!: () => void;
+  const gate = new Promise<void>(r => { open = r; });
+  prisma.affiliateMaterial.findUnique = async (a: unknown) => { waiting++; await gate; return orig(a); };
+  const a = await tokenOf('amb.one@example.com');
+  const aborted: Promise<unknown>[] = [];
+  try {
+    for (let i = 0; i < 2; i++) {
+      const ac = new AbortController();
+      aborted.push(fetch(`http://127.0.0.1:${port}/api/affiliate/materials/m1/file`, { headers: { authorization: `Bearer ${a}` }, signal: ac.signal }).catch(() => null));
+      await waitFor(() => waiting === i + 1);
+      ac.abort();
+    }
+    await Promise.all(aborted);
+    await tick();
+    const third = await call('GET', '/materials/m1/file', undefined, a);
+    assert.deepEqual([third.status, third.json.code], [429, 'file_busy'], 'المعالجان ما زالا يعملان ⇒ المقعدان محجوزان رغم القطع');
+  } finally {
+    open();
+    prisma.affiliateMaterial.findUnique = orig;
+  }
+  await tick();
+  assert.equal((await call('GET', '/materials/m1/file', undefined, a)).status, 200, 'انتهى المعالجان ⇒ حُرّر المقعدان');
+});
+
+test('مصدر: مقعد التنزيل يُحرَّر في finally كلّ معالج وبمهلة إرسال', () => {
+  const code = src('routes', 'affiliate.ts');
+  assert.equal((code.match(/finally \{ releaseFileSlot\(res\); \}/g) ?? []).length, 2, 'المساران خلف fileSlot');
+  assert.ok(code.includes('res.setTimeout(FILE_SEND_DEADLINE_MS, () => res.destroy())'));
+  assert.ok(!/res\.once\('close', release\)/.test(code), 'لا تحرير بإغلاق الردّ وحده');
 });
 
 test('تنزيل الملفات: ٦٠ في الساعة لكلّ سفير (المواد والمستندات بعدّادٍ واحد) — وسفيرٌ آخر لا يتأثّر', async () => {

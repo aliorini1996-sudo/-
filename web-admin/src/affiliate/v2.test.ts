@@ -344,6 +344,11 @@ test('الانضمام من /en|fr/ambassadors بتحميلٍ كامل: مسار
   assert.equal(initialLangFor('/en/ambassadors', 'ar'), 'en');
   assert.equal(initialLangFor('/fr/ambassadors/', 'ar'), 'fr');
   assert.equal(initialLangFor('/ambassadors/joinx', 'fr'), 'ar');
+  // زائرٌ أول (لا لغة محفوظة) يضغط زرّ /en|fr/ambassadors المُصيَّر: ‎?lang=‎ مقدَّمةٌ على المحفوظ — مراجعة ١٨ نوفمبر
+  assert.equal(initialLangFor('/ambassadors/join/', null, '?lang=fr'), 'fr');
+  assert.equal(initialLangFor('/ambassadors/login', 'ar', '?lang=en'), 'en');
+  assert.equal(initialLangFor('/ambassadors/join', null, '?lang=xx'), 'ar', 'قيمةٌ مجهولة تُتجاهل');
+  assert.equal(initialLangFor('/ax', 'ar', '?lang=fr'), 'ar', 'المعامل لمساري التحويل وحدهما');
   assert.equal(AMBASSADORS_REDIRECT.test('/en/ambassadors/join'), false);
   // LocaleSync ما زال لا يشتقّ لغةً من مساري التحويل (يدهس اللغة القائمة بالعربية)
   const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');

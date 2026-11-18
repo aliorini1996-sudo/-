@@ -27,7 +27,18 @@ export function isAppRoute(p: string): boolean {
 export const AMBASSADORS_REDIRECT = /^\/ambassadors\/(join|login)\/?$/;
 
 /** لغة الإقلاع لمسارٍ ولغةٍ محفوظة — نقيّة (initial() يمرّر الموقع وlocalStorage) */
-export function initialLangFor(p: string, saved: string | null): Lang {
+const isLang = (v: string | null): v is Lang => v === 'ar' || v === 'en' || v === 'fr' || v === 'tr' || v === 'zh';
+
+/** ‎?lang=‎ على مساري التحويل إلى بوابة السفير وحدهما (أزرار الصفحة العلنية بلغتها) — وإلا null */
+export function redirectLangParam(p: string, search: string): Lang | null {
+  if (!AMBASSADORS_REDIRECT.test(p)) return null;
+  try { const v = new URLSearchParams(search).get('lang'); return isLang(v) ? v : null; } catch { return null; }
+}
+
+export function initialLangFor(p: string, saved: string | null, search = ''): Lang {
+  // زرّا صفحة السفراء يحملان لغتها صراحةً — مقدَّمةً على المحفوظ (زائرٌ أول لا لغة محفوظة له)
+  const explicit = redirectLangParam(p, search);
+  if (explicit) return explicit;
   // داخل التطبيق (ومسارا التحويل إلى بوابة السفير): تُحترم اللغة المحفوظة يدويًا — تدعم الفرنسية أيضًا
   if (isAppRoute(p) || AMBASSADORS_REDIRECT.test(p)) {
     if (saved === 'ar' || saved === 'en' || saved === 'fr' || saved === 'tr' || saved === 'zh') return saved;
@@ -48,7 +59,13 @@ function savedLang(): string | null {
 }
 
 function initial(): Lang {
-  if (typeof window !== 'undefined') return initialLangFor(window.location.pathname, savedLang());
+  if (typeof window !== 'undefined') {
+    const { pathname, search } = window.location;
+    const explicit = redirectLangParam(pathname, search);
+    // تُحفظ فتبقى البوابة بلغة الصفحة بعد التحويل وإعادة التحميل
+    if (explicit) { try { localStorage.setItem(KEY, explicit); } catch { /* تخزينٌ محجوب */ } }
+    return initialLangFor(pathname, savedLang(), search);
+  }
   return 'ar';
 }
 

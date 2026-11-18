@@ -317,6 +317,40 @@ test('«اعتُمدت تلقائياً» = ما اعتمده النظام من�
   assert.equal(created.length, 1, 'الدفعات تُنشأ رغم فشل العدّ');
 });
 
+test('إعادة تشغيل الدورة يدوياً: العدّ منذ تشغيلها السابق لا منذ الدورة السابقة، و`at` الأصلي يبقى مرساة الدورة التالية (مراجعة ١٨ نوفمبر)', async () => {
+  reset();
+  candidates = [{ affiliate: aff('a'), netHalalas: 8970, eligible: true, blockedBy: null }];
+  const prevAt = new Date('2026-10-31T21:30:00Z');
+  markers.set('ax-settle:2026-11-01', { key: 'ax-settle:2026-11-01', value: JSON.stringify({ payouts: 1, totalHalalas: 1, skipped: {}, manual: false, at: prevAt.toISOString() }), updatedAt: prevAt, createdAt: prevAt });
+  const at = new Date('2026-11-10T21:30:00Z');
+  const manualAt = new Date('2026-11-12T09:00:00Z'); // لا يزال «آخر دورة» = 2026-11-11
+  approvals = [
+    { approvedBy: 'system', approvedAt: new Date('2026-11-04T08:00:00Z') }, // في بريد الدورة المجدولة
+    { approvedBy: 'system', approvedAt: new Date('2026-11-11T08:00:00Z') }, // بين المجدول واليدوي
+  ];
+  const scheduled = await settlement.runSettlementCycle(at);
+  assert.equal(scheduled.cycleKey, '2026-11-11');
+  assert.equal(scheduled.autoApproved, 1, 'المجدولة: منذ الدورة السابقة حتى تشغيلها');
+  const by = { actorType: 'owner' as const, actorId: 'o1' };
+  countWheres.length = 0;
+  const manual = await settlement.runSettlementCycle(manualAt, { by });
+  assert.equal(manual.cycleKey, '2026-11-11');
+  assert.equal(manual.autoApproved, 1, 'اليدوية: ما بعد التشغيل المجدول وحده — لا تكرار ما في البريد');
+  assert.equal(countWheres[0].approvedAt.gt.getTime(), at.getTime());
+  const marker = JSON.parse(markers.get('ax-settle:2026-11-11')!.value);
+  assert.equal(marker.at, at.toISOString(), '`at` الأصلي لا يُكتب فوقه');
+  assert.equal(marker.manualAt, manualAt.toISOString());
+  // تشغيلٌ يدويّ ثانٍ يعدّ منذ اليدوي الأول
+  countWheres.length = 0;
+  await settlement.runSettlementCycle(new Date('2026-11-13T09:00:00Z'), { by });
+  assert.equal(countWheres[0].approvedAt.gt.getTime(), manualAt.getTime());
+  // الدورة التالية تعدّ من `at` الأصلي (بريد الدورات متّصلٌ بلا فجوةٍ ولا تكرار)
+  countWheres.length = 0;
+  const next = await settlement.runSettlementCycle(new Date('2026-11-20T21:30:00Z'));
+  assert.equal(next.cycleKey, '2026-11-21');
+  assert.equal(countWheres[0].approvedAt.gt.getTime(), at.getTime());
+});
+
 test('من بلا آيبان ينتظر إكمال ملفه أيضاً: يُعدّ في الملخّص، ويُرسل البريد ولو لم يُنتظر غيره', async () => {
   reset();
   candidates = [
