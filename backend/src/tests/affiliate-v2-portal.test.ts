@@ -216,6 +216,20 @@ test('حرّاس الوصل: مسارات v2 خلف الجلسة والقبول�
     "router.get('/materials', axAuth, requireApproved,", "router.get('/materials/:id/file', axAuth, requireApproved,",
   ]) assert.ok(portal.includes(r), r);
   assert.doesNotMatch(portal, /'\/verify-email'|'\/resend-verification'/);
+  // المراجعة #7: تنزيل الملفات (data URL في الذاكرة) بحدٍّ لكلّ سفير وسقفٍ للمتزامن — والعقد {dataUrl} كما هو
+  for (const r of ["router.get('/documents/:kind', axAuth, requireApproved, axFileLimiter, fileSlot,", "router.get('/materials/:id/file', axAuth, requireApproved, axFileLimiter, fileSlot,"]) assert.ok(portal.includes(r), r);
+  const fileLimiter = portal.slice(portal.indexOf('const axFileLimiter'), portal.indexOf('});', portal.indexOf('const axFileLimiter')));
+  assert.match(fileLimiter, /keyGenerator: [^\n]*affiliate\?\.id/, 'لكلّ سفير بمعرّفه من التوكن');
+  assert.match(fileLimiter, /limit: 60/);
+  assert.match(portal, /res\.once\('close', release\)/, 'المقعد يُحرَّر حين يُغلق الردّ ولو انقطع');
+  // المراجعة #1: فتح الحسابات وإعادة إرسال روابطها بحدٍّ لكلّ IP في يوم الرياض فوق حدّ السفير — بلا شرط الملف (قرار المالك)
+  assert.ok(portal.includes("router.post('/trials', axAuth, requireApproved, axTrialLimiter, axTrialIpLimiter,"));
+  assert.ok(portal.includes("router.post('/trials/:id/resend', axAuth, requireApproved, axTrialLimiter, axTrialResendIpLimiter,"));
+  const ipLimiter = portal.slice(portal.indexOf('const trialIpLimiter'), portal.indexOf('});', portal.indexOf('const trialIpLimiter')));
+  assert.match(ipLimiter, /keyGenerator: [^\n]*riyadhDay\(\)[^\n]*req\.ip/, 'مفتاحه IP ويوم الرياض');
+  const trials = portal.slice(portal.indexOf("router.post('/trials'"), portal.indexOf("router.post('/trials/:id/withdraw'"));
+  assert.doesNotMatch(trials, /profileCompletedAt|profileMissing|profileComplete/, 'الحساب التجريبي لا يُشترط له ملفٌّ مكتمل');
+  assert.match(portal, /normalizeMissedClaim\(b\)/, 'رموز المطالبة الفائتة من تحقّق الخدمة نفسه');
   assert.match(portal, /documentDataUrl\(aid\(req\), kind\)/, 'المعاينة لصاحب التوكن وحده');
   assert.match(portal, /createMissedClaim\(id, /);
   assert.match(portal, /withdrawMissedClaim\(aid\(req\), /);
@@ -402,6 +416,13 @@ async function call(method: string, url: string, body?: unknown, token?: string)
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 const tick = () => new Promise(r => setTimeout(r, 30));
+/** ينتظر شرطاً غير متزامن (بريدٌ يُرسل بعد الردّ) حتى ثانيتين */
+async function waitFor(ok: () => boolean): Promise<void> {
+  for (let i = 0; i < 100 && !ok(); i++) await new Promise(r => setTimeout(r, 20));
+}
+/** بريد «قُبل طلبك» لإرث pending_review (المراجعة #20) — عدّه يكشف من راسلناه */
+const APPROVED_SUBJECT = 'قُبل طلبك — سفير فيلد سيلز';
+const approvedMails = () => mailSubjects.filter(s => s === APPROVED_SUBJECT).length;
 
 const REG = {
   fullName: 'سفيرة الاختبار', email: 'Amb.One@Example.com', phone: '0551234567', password: 'Secret#123',
@@ -460,6 +481,21 @@ test('الدخول يرقّي الإرث pending_* إلى approved بكلمة ا
   assert.equal(db.affiliateUser.find(u => u.id === legacy.id)!.status, 'approved');
   await tick();
   assert.ok(db.affiliateEvent.some(e => e.entityId === legacy.id && e.action === 'legacy_pending_promoted' && e.fromState === 'pending_email' && e.actorType === 'system'));
+  assert.equal(approvedMails(), 0, 'pending_email لا يُراسَل: عنوانه لم تثبت ملكيّته');
+});
+
+test('إرث pending_review يُبلَّغ «قُبل طلبك» مرّةً عند ترقيته بالدخول (وعد v1 بالبريد) — ولا يتكرّر بدخولٍ لاحق', async () => {
+  const { hashPassword } = await import('../services/affiliate/core');
+  await model('affiliateUser').create({ data: { email: 'review@example.com', code: 'REVIEW23', passwordHash: hashPassword('Review#123'), fullName: 'مراجعة', phone: '966551113333', termsVersion: '2026-11-v4', termsAcceptedAt: new Date(), status: 'pending_review' } });
+  const ok = await call('POST', '/login', { email: 'review@example.com', password: 'Review#123' });
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  assert.equal(ok.json.data.user.status, 'approved');
+  await waitFor(() => approvedMails() === 1);
+  assert.equal(approvedMails(), 1);
+  const again = await call('POST', '/login', { email: 'review@example.com', password: 'Review#123' });
+  assert.equal(again.status, 200);
+  await tick();
+  assert.equal(approvedMails(), 1, 'الترقية مرّةً واحدة فالبريد مرّةً واحدة');
 });
 
 test('ترقية الإقلاع مرّةً واحدة بعلامة ax-v2-instant وحدثٍ ملخّص', async () => {
@@ -468,12 +504,45 @@ test('ترقية الإقلاع مرّةً واحدة بعلامة ax-v2-instant
     await model('affiliateUser').create({ data: { email: `boot${i}@example.com`, code: `BOOT${i}AAA`, passwordHash: hashPassword('x'.repeat(8)), fullName: 'إقلاع', termsVersion: '2026-11-v4', termsAcceptedAt: new Date(), status: st } });
   }
   await model('affiliateUser').create({ data: { email: 'susp@example.com', code: 'SUSP2345', passwordHash: 'x:y', fullName: 'موقوف', termsVersion: '2026-11-v4', termsAcceptedAt: new Date(), status: 'suspended' } });
+  const mailsBefore = approvedMails();
   assert.equal(await promoteLegacyPendingAffiliates(), 2);
+  // المراجعة #20: «قُبل طلبك» لـpending_review وحده (boot0) بعد الالتزام — لا لـpending_email (boot1) ولا للموقوف
+  await waitFor(() => approvedMails() > mailsBefore);
+  await tick();
+  assert.equal(approvedMails() - mailsBefore, 1, 'بريدٌ واحد: من كان قيد المراجعة وحده');
   assert.equal(db.affiliateUser.filter(u => u.status === 'pending_email' || u.status === 'pending_review').length, 0);
   assert.equal(db.affiliateUser.find(u => u.email === 'susp@example.com')!.status, 'suspended', 'الموقوف لا يُمسّ');
   assert.deepEqual(db.opsMarker.map(m => [m.key, m.value]), [['ax-v2-instant', 'done:2']]);
-  assert.ok(db.affiliateEvent.some(e => e.entityId === 'ax-v2-instant' && e.action === 'legacy_pending_promoted' && e.meta?.count === 2));
+  assert.ok(db.affiliateEvent.some(e => e.entityId === 'ax-v2-instant' && e.action === 'legacy_pending_promoted' && e.meta?.count === 2 && e.meta?.pendingReview === 1));
   assert.equal(await promoteLegacyPendingAffiliates(), null, 'نسخةٌ ثانية أو إقلاعٌ لاحق لا يعيد');
+});
+
+test('بريد «قُبل طلبك» أفضل جهد: لمن رقّاه النظام وحده، بفاصلٍ بين الرسائل، ولا يرمي أبداً', async () => {
+  const { notifyLegacyReviewApproved, hashPassword } = await import('../services/affiliate/core');
+  const mk = (email: string, code: string, extra: Row) => model('affiliateUser').create({ data: { email, code, passwordHash: hashPassword('x'.repeat(8)), fullName: 'ن', termsVersion: '2026-11-v4', termsAcceptedAt: new Date(), ...extra } });
+  const sys1 = await mk('sys1@example.com', 'SYS1AAAA', { status: 'approved', reviewedBy: 'system' });
+  const sys2 = await mk('sys2@example.com', 'SYS2AAAA', { status: 'approved', reviewedBy: 'system' });
+  const owner = await mk('own@example.com', 'OWN1AAAA', { status: 'approved', reviewedBy: 'owner-1' });
+  const rej = await mk('rej@example.com', 'REJ1AAAA', { status: 'rejected', reviewedBy: 'system' });
+  const before = approvedMails();
+  const started = Date.now();
+  assert.equal(await notifyLegacyReviewApproved([sys1.id, owner.id, rej.id, sys2.id], 40), 2, 'قرار المالك يُرسل بريده بنفسه، والمرفوض لا يُبلَّغ بقبول');
+  assert.ok(Date.now() - started >= 35, 'فاصلٌ بين الرسالتين');
+  await tick();
+  assert.equal(approvedMails() - before, 2);
+  assert.equal(await notifyLegacyReviewApproved([]), 0);
+  // قاعدةٌ معطّلة: لا يرمي (يُستدعى بـvoid بعد الالتزام وفي الدخول)
+  const prisma = (await import('../config/database')).default as any;
+  const orig = prisma.affiliateUser.findMany;
+  prisma.affiliateUser.findMany = async () => { throw new Error('db down'); };
+  const errLog = console.error;
+  console.error = () => {};
+  try {
+    assert.equal(await notifyLegacyReviewApproved([sys1.id]), 0);
+  } finally {
+    prisma.affiliateUser.findMany = orig;
+    console.error = errLog;
+  }
 });
 
 test('/me: النوع والروابط والمستندات واكتمال الملف وما ينقصه، والتسوية القادمة كل ١٠ أيام، والرابط الجديد', async () => {
@@ -609,10 +678,19 @@ test('/dashboard: الإجماليّ صافياً، والتسوية المعل�
 });
 
 test('المطالبة بإحالة فائتة: إنشاءٌ بلا بيانات اتصالٍ في الاسم والملاحظة، وقائمته، وسحب ما تحت المراجعة وحده', async () => {
+  // المراجعة #13 و#21: رموز API.md على ردود 400 — كانت بلا رمز
   const bad = await call('POST', '/missed-claims', { companyName: 'مؤسسة الضوء', note: 'كلّمت المدير 0551234567' }, token);
-  assert.equal(bad.status, 400);
+  assert.deepEqual([bad.status, bad.json.code], [400, 'contact_in_text']);
+  const badName = await call('POST', '/missed-claims', { companyName: 'مؤسسة الضوء info@daw.sa' }, token);
+  assert.deepEqual([badName.status, badName.json.code], [400, 'contact_in_text']);
   const badCr = await call('POST', '/missed-claims', { companyName: 'مؤسسة الضوء', crNumber: '123' }, token);
-  assert.equal(badCr.status, 400);
+  assert.deepEqual([badCr.status, badCr.json.code], [400, 'invalid_cr']);
+  const badPhone = await call('POST', '/missed-claims', { companyName: 'مؤسسة الضوء', contactPhone: '12' }, token);
+  assert.deepEqual([badPhone.status, badPhone.json.code], [400, 'invalid_phone']);
+  const shortName = await call('POST', '/missed-claims', { companyName: 'م' }, token);
+  assert.deepEqual([shortName.status, shortName.json.code], [400, 'invalid']);
+  assert.ok(Array.isArray(shortName.json.errors?.companyName), 'حقول zod باقية فتُترجم رسالة الحقل في البوابة');
+  assert.equal(db.affiliateMissedClaim.length, 0, 'لا كتابة في أيٍّ منها');
   const ok = await call('POST', '/missed-claims', { companyName: 'مؤسسة الضوء', contactPhone: '0551234567', crNumber: '1010101010', note: 'سجّلوا قبل أن يفتحوا رابطي' }, token);
   assert.equal(ok.status, 201, JSON.stringify(ok.json));
   const row = db.affiliateMissedClaim.find(x => x.id === ok.json.data.id)!;
@@ -626,7 +704,33 @@ test('المطالبة بإحالة فائتة: إنشاءٌ بلا بيانات
   assert.deepEqual((await call('GET', '/missed-claims', undefined, otherToken)).json.data, []);
   assert.equal((await call('POST', `/missed-claims/${row.id}/withdraw`, {}, token)).status, 200);
   assert.equal(row.status, 'withdrawn');
-  assert.equal((await call('POST', `/missed-claims/${row.id}/withdraw`, {}, token)).status, 409);
+  const again = await call('POST', `/missed-claims/${row.id}/withdraw`, {}, token);
+  assert.deepEqual([again.status, again.json.code], [409, 'not_under_review']);
+});
+
+test('حدّ المطالبات المفتوحة: 429 too_many_open_missed_claims — وسباق إرسالين (409 open_limit من الخدمة) يُردّ بالرمز نفسه', async () => {
+  const VALID = { companyName: 'مؤسسة الحدّ' };
+  const open = Array.from({ length: 20 }, (_, i) => ({ id: `mc-open-${i}`, affiliateId: me.id, companyName: `م${i}`, status: 'under_review', submittedAt: new Date() }));
+  db.affiliateMissedClaim.push(...open);
+  try {
+    const full = await call('POST', '/missed-claims', VALID, token);
+    assert.deepEqual([full.status, full.json.code], [429, 'too_many_open_missed_claims']);
+  } finally {
+    db.affiliateMissedClaim.splice(0, db.affiliateMissedClaim.length, ...db.affiliateMissedClaim.filter(c => !String(c.id).startsWith('mc-open-')));
+  }
+  // عدّ المسار يرى ١٩ والخدمة ترى ٢٠ (إرسالٌ متزامن سبقه)
+  const prisma = (await import('../config/database')).default as any;
+  const orig = prisma.affiliateMissedClaim.count;
+  let calls = 0;
+  prisma.affiliateMissedClaim.count = async () => (++calls === 1 ? 19 : 20);
+  try {
+    const race = await call('POST', '/missed-claims', VALID, token);
+    assert.deepEqual([race.status, race.json.code], [429, 'too_many_open_missed_claims']);
+    assert.equal(calls, 2, 'وصل فحص الخدمة');
+  } finally {
+    prisma.affiliateMissedClaim.count = orig;
+  }
+  assert.ok(!db.affiliateMissedClaim.some(c => c.companyName === 'مؤسسة الحدّ'));
 });
 
 test('المواد التسويقية: القائمة بلا بايتات، والملف data URL، والمفقود 404', async () => {
@@ -643,4 +747,97 @@ test('المواد التسويقية: القائمة بلا بايتات، وا
   assert.equal(f.json.data.dataUrl, dataUrl('image/png', PNG));
   assert.equal((await call('GET', '/materials/m2/file', undefined, token)).status, 404, 'النصّ بلا ملف');
   assert.equal((await call('GET', '/materials/nope/file', undefined, token)).status, 404);
+});
+
+// ═════════════════════════════ إصلاحات المراجعة (#18 و#1 و#7) ═════════════════════════════
+
+/** جلسةٌ لسفيرٍ قائم في المزيّف ببريده */
+async function tokenOf(email: string): Promise<string> {
+  const { signSession } = await import('../services/affiliate/core');
+  const u = db.affiliateUser.find(x => x.email === email)!;
+  assert.equal(u.status, 'approved', email);
+  return signSession(u.id, u.tokenVersion);
+}
+
+test('/companies: refVia (رابط/رمز مكتوب) للتسجيل الذاتيّ وحده فيعمل عمود «الطريقة» — وغيره null', async () => {
+  const b0 = db.affiliateUser.find(u => u.email === 'boot0@example.com')!;
+  const at = (id: string, source: string, refVia: string | null, mins: number) => ({
+    id, affiliateId: b0.id, tenantId: `t-${id}`, tenantNameSnapshot: id, source, refVia, status: 'active',
+    createdAt: new Date(Date.now() - mins * 60_000), firstPaymentDeadline: new Date(Date.now() + 90 * 86_400_000),
+  });
+  db.tenantAttribution.push(at('via-link', 'signup_code', 'link', 1), at('via-typed', 'signup_code', 'typed', 2), at('via-old', 'signup_code', null, 3), at('via-claim', 'claim', 'link', 4));
+  const r = await call('GET', '/companies', undefined, await tokenOf('boot0@example.com'));
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.deepEqual(Object.fromEntries(r.json.data.map((c: Row) => [c.tenantName, c.refVia])), { 'via-link': 'link', 'via-typed': 'typed', 'via-old': null, 'via-claim': null });
+  assert.ok(r.json.data.every((c: Row) => !('tenantId' in c)), 'معرّف الشركة لا يصل السفير');
+});
+
+test('فتح الحسابات: ١٠ لكلّ IP في يوم الرياض عبر كلّ الحسابات (لا يتجاوزه حسابٌ جديد) — وإعادة الإرسال بعدّادٍ منفصل', async () => {
+  const saved = process.env.AX_PORTAL_TRIAL_ENABLED;
+  // المفتاح مطفأ: المعالج يردّ 403 بلا أيّ كتابة — والمحدِّدان قبله يعدّان كلّ طلب
+  process.env.AX_PORTAL_TRIAL_ENABLED = '0';
+  try {
+    const accounts = await Promise.all(['amb.one@example.com', 'legacy@example.com', 'boot0@example.com'].map(tokenOf));
+    for (let i = 0; i < 10; i++) {
+      const r = await call('POST', '/trials', {}, accounts[i % 3]);
+      assert.deepEqual([r.status, r.json.code], [403, 'portal_trial_disabled'], `#${i + 1}`);
+    }
+    const fresh = await tokenOf('boot1@example.com');
+    const capped = await call('POST', '/trials', {}, fresh);
+    assert.deepEqual([capped.status, capped.json.code], [429, 'trial_ip_daily_cap'], 'حسابٌ آخر من الشبكة نفسها لا يفتح عدّاداً جديداً');
+    assert.match(capped.json.message, /حاول غداً/);
+    for (let i = 0; i < 10; i++) {
+      const r = await call('POST', '/trials/at-x/resend', {}, accounts[i % 3]);
+      assert.equal(r.status, 403, `إعادة الإرسال #${i + 1} لا تأكل عدّاد الفتح`);
+    }
+    const resendCapped = await call('POST', '/trials/at-x/resend', {}, fresh);
+    assert.deepEqual([resendCapped.status, resendCapped.json.code], [429, 'trial_ip_daily_cap']);
+    // السحب خارج المحدِّد: سحب حسابٍ فُتح بخطأ متاحٌ دائماً
+    assert.equal((await call('POST', '/trials/at-x/withdraw', {}, fresh)).status, 404, 'يصل المعالج (لا 429)');
+  } finally {
+    if (saved === undefined) delete process.env.AX_PORTAL_TRIAL_ENABLED; else process.env.AX_PORTAL_TRIAL_ENABLED = saved;
+  }
+});
+
+test('تنزيل الملفات: سقف المتزامن (٢ لكلّ سفير و٤ للخادم) يُحرَّر بانتهاء الردّ — والعقد {dataUrl} كما هو', async () => {
+  const prisma = (await import('../config/database')).default as any;
+  const orig = prisma.affiliateMaterial.findUnique;
+  let waiting = 0;
+  let open!: () => void;
+  const gate = new Promise<void>(r => { open = r; });
+  prisma.affiliateMaterial.findUnique = async (a: unknown) => { waiting++; await gate; return orig(a); };
+  try {
+    const [a, b, c] = await Promise.all(['amb.one@example.com', 'legacy@example.com', 'boot0@example.com'].map(tokenOf));
+    const held = [call('GET', '/materials/m1/file', undefined, a), call('GET', '/materials/m1/file', undefined, a)];
+    await waitFor(() => waiting === 2);
+    const third = await call('GET', '/materials/m1/file', undefined, a);
+    assert.deepEqual([third.status, third.json.code], [429, 'file_busy'], 'الثالث المتزامن من السفير نفسه');
+    held.push(call('GET', '/materials/m1/file', undefined, b), call('GET', '/materials/m1/file', undefined, b));
+    await waitFor(() => waiting === 4);
+    const global = await call('GET', '/documents/national_id', undefined, c);
+    assert.deepEqual([global.status, global.json.code], [429, 'file_busy'], 'الخادم كلّه: أربعة');
+    open();
+    for (const r of await Promise.all(held)) {
+      assert.equal(r.status, 200);
+      assert.equal(r.json.data.dataUrl, dataUrl('image/png', PNG));
+    }
+  } finally {
+    prisma.affiliateMaterial.findUnique = orig;
+  }
+  await tick();
+  const c = await tokenOf('boot0@example.com');
+  assert.equal((await call('GET', '/materials/m1/file', undefined, c)).status, 200, 'المقاعد حُرّرت');
+  assert.equal((await call('GET', '/documents/national_id', undefined, c)).status, 404);
+});
+
+test('تنزيل الملفات: ٦٠ في الساعة لكلّ سفير (المواد والمستندات بعدّادٍ واحد) — وسفيرٌ آخر لا يتأثّر', async () => {
+  const t = await tokenOf('boot1@example.com');
+  for (let i = 0; i < 60; i++) {
+    const r = await call('GET', i % 2 ? '/materials/m1/file' : '/documents/national_id', undefined, t);
+    assert.ok(r.status === 200 || r.status === 404, `#${i + 1}: ${r.status}`);
+  }
+  const over = await call('GET', '/materials/m1/file', undefined, t);
+  assert.equal(over.status, 429);
+  assert.match(over.json.message, /تنزيلاتٌ كثيرة من حسابك/);
+  assert.equal((await call('GET', '/materials/m1/file', undefined, token)).status, 200, 'العدّاد لكلّ سفير لا لكلّ IP');
 });

@@ -443,6 +443,10 @@ const DICT = {
   'st.missed.rejected': { ar: 'مرفوضة', en: 'Rejected', fr: 'Refusée', tr: 'Reddedildi', zh: '未通过' },
   'st.missed.withdrawn': { ar: 'مسحوبة', en: 'Withdrawn', fr: 'Retirée', tr: 'Geri çekildi', zh: '已撤回' },
   'err.tooManyMissedClaims': { ar: 'لديك مطالبات كثيرة قيد المراجعة — انتظر البتّ فيها', en: 'You have too many missed referral claims under review — please wait for a decision on them', fr: 'Vous avez trop de réclamations en cours d’examen — attendez qu’une décision soit prise', tr: 'İncelemede çok fazla talebiniz var — lütfen bunlar hakkında karar verilmesini bekleyin', zh: '您待审核的申诉过多，请等待审核结果后再提交' },
+  // 409 `not_under_review`: بُتّ في المطالبة (أو سُحبت) والقائمة على الشاشة قديمة
+  'err.notUnderReview': { ar: 'لم تعد المطالبة قيد المراجعة — حدّث الصفحة لترى حالتها', en: 'This claim is no longer under review — refresh the page to see its status', fr: 'Cette réclamation n’est plus en cours d’examen — actualisez la page pour voir son statut', tr: 'Bu talep artık incelemede değil — durumunu görmek için sayfayı yenileyin', zh: '该申诉已不在审核中，请刷新页面查看其状态' },
+  // 400 `contact_in_text`: جوالٌ أو بريد في اسم المنشأة أو الملاحظة (الخادم لا يميّز الحقل)
+  'err.contactInText': { ar: 'لا تكتب جوالاً أو بريداً في اسم المنشأة ولا في الملاحظة — رقم التواصل في خانته', en: 'Don’t include phone numbers or emails in the business name or the note — enter the contact number in its own field', fr: 'N’indiquez ni téléphone ni e-mail dans le nom de l’entreprise ou la remarque — saisissez le numéro de contact dans le champ prévu à cet effet', tr: 'İşletme adına veya nota telefon numarası ya da e-posta yazmayın — iletişim numarasını kendi alanına girin', zh: '企业名称和备注中请勿包含手机号或邮箱，请在专用栏位填写联系电话' },
 
   // ─── v2: أرباحي والتسويات ───
   'earn.heldUntil': { ar: 'محجوزة حتى', en: 'Held until', fr: 'Bloquée jusqu’au', tr: 'Bekleme bitişi', zh: '冻结至' },
@@ -520,6 +524,8 @@ const DICT = {
   'mat.share': { ar: 'مشاركة', en: 'Share', fr: 'Partager', tr: 'Paylaş', zh: '分享' },
   'mat.copyText': { ar: 'نسخ النص', en: 'Copy text', fr: 'Copier le texte', tr: 'Metni kopyala', zh: '复制文案' },
   'mat.open': { ar: 'فتح الرابط', en: 'Open link', fr: 'Ouvrir le lien', tr: 'Bağlantıyı aç', zh: '打开链接' },
+  // بجوار «نسخ النص» في المادّة نفسها (فيديو برابطٍ وتعليق) — «نسخ» وحدها ملتبسة
+  'mat.copyLink': { ar: 'نسخ الرابط', en: 'Copy link', fr: 'Copier le lien', tr: 'Bağlantıyı kopyala', zh: '复制链接' },
   'mat.empty': { ar: 'لا مواد هنا بعد', en: 'No materials here yet', fr: 'Aucun support ici pour le moment', tr: 'Burada henüz materyal yok', zh: '暂无素材' },
   'mat.emptyHint': { ar: 'يضيف فريق فيلد سيلز موادّ جديدة تباعاً.', en: 'The Field Sales team adds new materials regularly.', fr: 'L’équipe Field Sales ajoute régulièrement de nouveaux supports.', tr: 'Field Sales ekibi düzenli olarak yeni materyaller ekler.', zh: 'Field Sales 团队会持续更新素材。' },
   'mat.downloadFailed': { ar: 'تعذّر تنزيل الملف', en: 'We couldn’t download the file', fr: 'Impossible de télécharger le fichier', tr: 'Dosya indirilemedi', zh: '文件下载失败' },

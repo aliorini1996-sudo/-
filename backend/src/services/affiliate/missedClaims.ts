@@ -20,6 +20,20 @@ export const MISSED_CLAIM_OPEN_LIMIT = 20;
 /** المطالبة خلال ٣٠ يوماً من تسجيل الشركة (الشروط v4) */
 export const MISSED_CLAIM_WINDOW_DAYS = 30;
 
+/**
+ * أيامٌ كاملة من تسجيل الشركة حتى تقديم المطالبة (`floor`) — **القاعدة الواحدة** لاقتراحات القائمة
+ * (`withinWindow`) وفحص القبول (`claim_late`) ولوحة المالك (affiliatesPanelLogic: daysFromSignup وmissedWindowLabel).
+ * كانت القائمة تعدّ بالأيام الكاملة والقبول بالميلّي ثانية، فمطالبةٌ بعد ٣٠ يوماً وساعاتٍ تظهر «داخل المهلة» ويرفضها القبول.
+ */
+export function missedClaimDays(submittedAt: Date, tenantCreatedAt: Date): number {
+  return Math.floor((submittedAt.getTime() - tenantCreatedAt.getTime()) / DAY_MS);
+}
+
+/** داخل المهلة = لم يكتمل اليوم الحادي والثلاثون: اليوم الثلاثون داخلها (وما قبل التسجيل كذلك) */
+export function withinMissedClaimWindow(days: number): boolean {
+  return days <= MISSED_CLAIM_WINDOW_DAYS;
+}
+
 export interface MissedClaimInput { companyName: string; contactPhone?: string | null; crNumber?: string | null; note?: string | null }
 
 /** تحقّقٌ صرفٌ بلا قاعدة — يُعيد القيم المطبَّعة أو يرمي LedgerError 400 بالعربية */
@@ -127,8 +141,8 @@ export async function listMissedClaimsForOwner(status?: string) {
         ? new Set((await prisma.tenantAttribution.findMany({ where: { tenantId: { in: found.map(f => f.id) } }, select: { tenantId: true } })).map(a => a.tenantId))
         : new Set<string>();
       for (const f of found.slice(0, 8)) {
-        const days = Math.floor((c.submittedAt.getTime() - f.createdAt.getTime()) / DAY_MS);
-        suggestions.push({ tenantId: f.id, tenantName: f.name, match: f.match, createdAt: f.createdAt, attributed: attributed.has(f.id), daysFromSignup: days, withinWindow: days <= MISSED_CLAIM_WINDOW_DAYS });
+        const days = missedClaimDays(c.submittedAt, f.createdAt);
+        suggestions.push({ tenantId: f.id, tenantName: f.name, match: f.match, createdAt: f.createdAt, attributed: attributed.has(f.id), daysFromSignup: days, withinWindow: withinMissedClaimWindow(days) });
       }
     }
     return {
@@ -150,7 +164,8 @@ export async function prepareMissedClaimAccept(id: string, tenantId: string): Pr
   if (c.status !== 'under_review') throw new LedgerError(409, 'المطالبة ليست قيد المراجعة', 'not_under_review');
   const t = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { createdAt: true } });
   if (!t) throw new LedgerError(404, 'الشركة غير موجودة');
-  if (c.submittedAt.getTime() - t.createdAt.getTime() > MISSED_CLAIM_WINDOW_DAYS * DAY_MS) {
+  // القاعدة نفسها التي تعرضها القائمة «داخل المهلة» — لا مقارنةٌ أدقّ منها هنا
+  if (!withinMissedClaimWindow(missedClaimDays(c.submittedAt, t.createdAt))) {
     throw new LedgerError(409, `قُدّمت المطالبة بعد ${MISSED_CLAIM_WINDOW_DAYS} يوماً من تسجيل الشركة — إن أردت إسنادها فبإسنادٍ يدويّ من تبويب الإسناد`, 'claim_late');
   }
   const effectiveFrom = new Date(Math.min(t.createdAt.getTime(), Date.now()));

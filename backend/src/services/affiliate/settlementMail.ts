@@ -35,10 +35,11 @@ export interface SettlementSummaryMail {
   periodEnd: Date;
   payouts: Array<{ fullName: string; code: string; netHalalas: number; ibanLast4: string }>;
   totalHalalas: number;
-  /** رصيدٌ بلغ الحدّ لكنّ ملف صاحبه ناقص — ينتظر اكتماله */
+  /** رصيدٌ بلغ الحدّ لكنّ ملف صاحبه ناقص (ومنه الآيبان: `no_iban` و`profile_incomplete`) — ينتظر اكتماله */
   waitingProfile: number;
   /** فشل آخر تحويلٍ لصاحبه ولم يحدّث بيانات استلامه */
   waitingIban: number;
+  /** عمولاتٌ اعتمدها النظام منذ الدورة السابقة (settlement.ts: autoApprovedSinceLastCycle) */
   autoApproved: number;
 }
 
@@ -54,7 +55,7 @@ export function mailOwnerSettlementSummary(s: SettlementSummaryMail): void {
       : 'لم تُجهَّز دفعاتٌ في هذه الدورة.',
     ...lines,
     ...more,
-    ...(s.autoApproved ? [`اعتُمدت تلقائياً ${s.autoApproved} عمولة انتهى حجزها.`] : []),
+    ...(s.autoApproved ? [`اعتُمدت تلقائياً ${s.autoApproved} عمولة انتهى حجزها منذ الدورة السابقة.`] : []),
     ...(s.waitingProfile ? [`${s.waitingProfile} سفيراً بلغ رصيدهم الحدّ وينتظرون إكمال ملفهم (النوع والآيبان والهوية).`] : []),
     ...(s.waitingIban ? [`${s.waitingIban} سفيراً فشل آخر تحويلٍ لهم وينتظرون تحديث الآيبان.`] : []),
   ], { label: 'لوحة السفراء', url: `${frontendBase()}/platform` }));

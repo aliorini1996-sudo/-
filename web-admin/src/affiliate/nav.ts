@@ -114,6 +114,18 @@ export function tabTarget(search: string, hash: string, next: Tab): NavTarget | 
   return same ? null : { search: '', hash: tabHash(next) };
 }
 
+/**
+ * وجهة العنوان عند بدء الجلسة (دخول/استعادة) أو انتهائها (401): `/ax` بلا معامل، **ويبقى وسم
+ * تبويبٍ صالح** — رابط بريد «تعذّر تحويل مستحقّاتك» `/ax#profile` يُفتح بلا جلسة فيظهر الدخول، وبعده
+ * «ملفي» لا الرئيسية. التسجيل يبدأ من الرئيسية دائماً (V2_SPEC §7)، والوسم المجهول يُمسح.
+ * null = العنوان على وجهته أصلاً (لا مدخل ولا استبدال).
+ */
+export function sessionTarget(search: string, hash: string): NavTarget | null {
+  const keep = viewFromSearch(search) === 'register' ? 'home' : tabFromHash(hash);
+  const target = { search: '', hash: tabHash(keep) };
+  return clean(search) === '' && clean(hash) === target.hash ? null : target;
+}
+
 /** `?` و`#` الفارغان كالغياب */
 function clean(s: string): string {
   const v = s || '';

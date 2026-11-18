@@ -241,6 +241,10 @@ test('مفاتيح المسارات الحساسة كما وُصفت للمال�
   // سفير v2 (١٨ نوفمبر ٢٠٢٦): المفاتيح الأربعة القائمة وحدها — لا مفتاح جديد
   assert.equal(key('GET', '/api/affiliate-admin/affiliates/a1/documents/national_id'), 'affiliates.iban', 'المستند مفكوكاً بصلاحية الآيبان');
   assert.equal(pa.ruleFor('GET', '/api/affiliate-admin/affiliates/a1/documents/national_id')?.auditRead, true, 'قراءةٌ حساسة تُسجَّل');
+  // والتسمية التي يمنحها المالك تقول ذلك: المفتاح نفسه يكشف الآيبان ويفتح مستندات الهوية والسجل مفكوكة
+  const ibanLabel = pa.STAFF_PERMISSIONS.find((p) => p.key === 'affiliates.iban')?.label ?? '';
+  assert.match(ibanLabel, /الآيبان/);
+  assert.match(ibanLabel, /مستندات الهوية والسجل التجاري/, 'التسمية تخفي أنّ الصلاحية تفتح مستندات الهوية');
   assert.equal(key('GET', '/api/affiliate-admin/affiliates/a1'), 'affiliates.view');
   assert.equal(key('POST', '/api/affiliate-admin/payouts/p1/fail'), 'affiliates.payouts');
   assert.equal(key('POST', '/api/affiliate-admin/settlement/run'), 'affiliates.payouts');

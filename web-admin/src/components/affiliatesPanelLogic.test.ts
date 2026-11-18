@@ -19,7 +19,7 @@ import {
   CLAIM_HOWS, CLAIM_REASONS, FLAGS, ATTRIBUTION_SOURCES, REF_VIAS, ADJUSTMENT_KINDS, ACTOR_TYPES,
   USER_STATUS_LABEL, CLAIM_STATUS_LABEL, ATTRIBUTION_STATUS_LABEL, COMMISSION_STATUS_LABEL, PAYOUT_STATUS_LABEL,
   CLAIM_HOW_LABEL, CLAIM_REASON_LABEL, FLAG_LABEL, SOURCE_LABEL, REF_VIA_LABEL, ADJUSTMENT_KIND_LABEL, ACTOR_LABEL,
-  USER_ACTIONS, ATTRIBUTION_ACTIONS, COMMISSION_ACTIONS,
+  USER_ACTIONS, ATTRIBUTION_ACTIONS, COMMISSION_ACTIONS, commissionActions, PUBLIC_PAGE_URL,
   labelOf, toneOf, normalizeNumeric, parseSarToHalalas, halalasToSarInput, formatHalalas,
   bpsToPercent, parsePercentToBps, parseIntInRange, validateTermsForm, validateReason,
   validatePayoutRecord, validateAdjustment, isIsoDay,
@@ -132,6 +132,27 @@ test('كل حالة لها قائمة إجراءات (ولو فارغة)', () =>
   assert.deepEqual(COMMISSION_ACTIONS.declined, []);
   assert.ok(COMMISSION_ACTIONS.pending.includes('approve'));
   assert.ok(COMMISSION_ACTIONS.on_hold.includes('release'));
+});
+
+// v2: الاعتماد التلقائي كلّ ساعة يُخرج العمولة من «معلّقة» بعد حجزها بقليل — فالمعتمدة تُوقف أيضاً (holdCommission
+// يقبل pending وapproved)، إلا ما دخل مسودّة دفعة: الخادم يرفضه in_draft فلا زرّ له.
+test('v2: المعتمدة تُوقف ما لم تدخل مسودّة دفعة، والمسودّة تحجب الاعتماد والإيقاف والرفض', () => {
+  assert.deepEqual(COMMISSION_ACTIONS.approved, ['hold']);
+  assert.deepEqual(commissionActions({ status: 'approved', payoutId: null }), ['hold']);
+  assert.deepEqual(commissionActions({ status: 'approved' }), ['hold']);
+  assert.deepEqual(commissionActions({ status: 'approved', payoutId: 'p1' }), [], 'في مسودّة: لا إيقاف (in_draft)');
+  assert.deepEqual(commissionActions({ status: 'pending', payoutId: null }), ['approve', 'hold', 'decline']);
+  assert.deepEqual(commissionActions({ status: 'pending', payoutId: 'p1' }), []);
+  assert.deepEqual(commissionActions({ status: 'on_hold', payoutId: null }), ['release', 'decline']);
+  assert.deepEqual(commissionActions({ status: 'paid', payoutId: 'p1' }), []);
+  // لا تُعدَّل القائمة الثابتة من نسخةٍ أُعيدت
+  commissionActions({ status: 'approved', payoutId: null }).push('approve');
+  assert.deepEqual(COMMISSION_ACTIONS.approved, ['hold']);
+  // اللوحة تأخذ الإجراءات من الدالّة (لا من الخريطة مباشرةً) فيُحترم payoutId
+  const src = fs.readFileSync(fileURLToPath(new URL('./AffiliatesPanel.tsx', import.meta.url)), 'utf8');
+  assert.match(src, /const list = L\.commissionActions\(c\);/);
+  assert.doesNotMatch(src, /L\.COMMISSION_ACTIONS\[c\.status\]/);
+  assert.doesNotMatch(src, /عادت لفترة الحجز/, 'المحرَّرة بعد انتهاء حجزها تُعتمد خلال ساعة — لا «فترة حجز» جديدة');
 });
 
 // v2 — قرار المالك ١٨ نوفمبر ٢٠٢٦ (V2_SPEC §3): الانضمام فوريّ بلا موافقة، فلا «اعتماد/رفض» للطلبات بعد اليوم
@@ -774,6 +795,10 @@ test('v2: ملاحظة الاعتماد التلقائي بعد الحجز (وي
   assert.match(autoApproveNote(10), /10 أيام/);
   assert.match(autoApproveNote(undefined), /10 أيام/, 'الافتراضي حجز v4');
   assert.match(autoApproveNote(10), /الاعتماد اليدوي/);
+  // التوقيت الحقيقي: نبضة المجدول كلّ ساعة لا دورة التسوية (1/11/21)
+  assert.match(autoApproveNote(10), /خلال نحو ساعة من انتهاء فترة حجزها/);
+  assert.doesNotMatch(autoApproveNote(10), /دورة التسوية/);
+  assert.match(autoApproveNote(10), /والإيقاف ما لم تدخل مسودّة دفعة/);
 });
 
 test('v2: رسالة «تشغيل الدورة الآن» من ردّ الخادم — الدفعات ومجموعها والمعتمد تلقائياً ومن تُخطّي', () => {
@@ -785,7 +810,7 @@ test('v2: رسالة «تشغيل الدورة الآن» من ردّ الخاد
   assert.equal(r.warn, false);
   assert.match(r.text, /\(2026-11-11\)/);
   assert.match(r.text, /أُنشئت دفعتان بمجموع 200 ر\.س/);
-  assert.match(r.text, /اعتُمدت تلقائياً 3 عمولة/);
+  assert.match(r.text, /اعتُمدت تلقائياً 3 عمولة منذ الدورة السابقة/, 'الخادم يعدّ ما اعتمده النظام منذ الدورة السابقة');
   assert.match(r.text, /ملفه غير مكتمل: 2/);
   assert.match(r.text, /له دفعة في هذه الدورة: 1/);
   assert.doesNotMatch(r.text, /دون الحدّ/, 'ما دون الحدّ يُرحَّل بصمت');
@@ -856,6 +881,12 @@ test('v2: المطالبات الفائتة — القبول والرفض لما
   assert.equal(daysFromSignup('2026-11-18T10:00:00Z', '2026-11-01T10:00:00Z'), 17);
   assert.equal(daysFromSignup('2026-11-18T09:00:00Z', '2026-11-01T10:00:00Z'), 16);
   assert.equal(daysFromSignup(null, '2026-11-01T10:00:00Z'), null);
+  // القاعدة الواحدة مع القبول (missedClaims.ts: missedClaimDays/withinMissedClaimWindow): ٣٠ يوماً و٨ ساعات = اليوم
+  // الثلاثون — داخلها ويقبلها الخادم؛ ٣١ يوماً كاملة خارجها ويرفضها claim_late
+  assert.equal(daysFromSignup('2026-10-31T18:00:00Z', '2026-10-01T10:00:00Z'), 30);
+  assert.equal(missedWindowLabel(daysFromSignup('2026-10-31T18:00:00Z', '2026-10-01T10:00:00Z'))!.tone, 'green');
+  assert.equal(missedWindowLabel(daysFromSignup('2026-11-01T10:00:00Z', '2026-10-01T10:00:00Z'))!.tone, 'red');
+  assert.equal(missedWindowLabel(daysFromSignup('2026-11-01T09:59:59Z', '2026-10-01T10:00:00Z'))!.tone, 'green', 'قبل اكتمال اليوم الحادي والثلاثين بثانية');
 
   assert.equal(missedWindowLabel(17)!.tone, 'green');
   assert.match(missedWindowLabel(17)!.label, /17 يوماً.*داخل المهلة/);
@@ -947,8 +978,10 @@ test('v2: لوحة المالك — بلا موافقة طلبات، وبالت�
   assert.doesNotMatch(src, /كل طلب انضمام ينتظر موافقتك/);
   assert.doesNotMatch(src, /affiliateAction\(a\.id, '(approve|reject)'/);
   assert.match(src, /الانضمام فوريّ بلا موافقة/);
-  assert.match(src, /البوابة: fieldsa\.net\/ax — صفحة البرنامج العلنية: fieldsa\.net\/ambassadors/);
+  assert.match(src, /البوابة: fieldsa\.net\/ax — صفحة البرنامج العلنية: fieldsa\.net\/ambassadors\/ —/);
   assert.match(src, /L\.PUBLIC_PAGE_URL/);
+  // الرابط المُشارَك بالشرطة الأخيرة: Render يخدم المجلّد المصيَّر بها وحدها، وبدونها غلاف الرئيسية (معاينة خاطئة)
+  assert.equal(PUBLIC_PAGE_URL, 'https://fieldsa.net/ambassadors/');
   // النظرة العامة
   for (const k of ['o.newAffiliates7d', 'o.incompleteProfiles', 'o.missedClaimsUnderReview', 'L.lastCycleText(o.lastCycle)', 'L.nextSettlementKey(o.nextSettlementAt)']) {
     assert.ok(src.includes(k), `النظرة العامة بلا ${k}`);

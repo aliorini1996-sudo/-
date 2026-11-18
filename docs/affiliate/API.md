@@ -14,6 +14,8 @@
 type UserStatus = 'pending_email' | 'pending_review' | 'approved' | 'rejected' | 'suspended';
 // v2: التسجيل يُنشئ 'approved' مباشرةً. pending_email/pending_review **إرثٌ** يُرقّى إلى approved مرّةً عند الإقلاع
 // (OpsMarker 'ax-v2-instant') وعند أيّ دخولٍ ناجح لصاحبه. الانتقالات: approved→suspended، suspended→approved، rejected→approved.
+// ومن كان pending_review وحده (بريده مؤكَّد، ووعدته v1 ببريدٍ بالقرار) يصله بعد ترقيته بريد «قُبل طلبك» برابطه — أفضل جهدٍ
+// خارج المعاملة وبفاصلٍ بين الرسائل. pending_email لا يُراسَل (عنوانه لم تثبت ملكيّته).
 type PartnerType = 'individual' | 'company' | 'influencer';
 type SocialPlatform = 'x' | 'instagram' | 'snapchat' | 'tiktok' | 'youtube' | 'linkedin' | 'website' | 'other';
 type SocialLink = { platform: SocialPlatform; url: string /* https?:// ≤300 — حتى ٨ روابط */ };
@@ -77,11 +79,13 @@ type Flag = 'self_email' | 'self_phone' | 'returning_company' | 'ip_match' | 'te
   ```
 - `PUT /me` `{ city?, marketingConsent?, vatNumber?, partnerType?, companyName?, socialLinks? }` ⇒ `{ user: AffiliateMe }` — `''` يمسح الحقل.
 - `POST /accept-terms` `{ termsVersion }` ⇒ `{ user: AffiliateMe }` (عند نشر إصدار جديد — بوابة TermsGate)
-- `PUT /payout-profile` `{ iban: string, holderName: string /*2..120*/, bankName?: string }` ⇒ `{ user: AffiliateMe }` — **متاحٌ دائماً** (v2: أُلغي شرط «بعد أول عمولة»). آيبان سعودي `SA`+22 بفحص mod-97 · 400 آيبان غير صالح · 409 إن كانت للسفير مسودّة دفعة قائمة. تحديثه بعد «فشل التحويل» يُعيده لدورة التسوية التالية.
-- `POST /documents` `{ kind: DocKind, dataUrl: string }` ⇒ **201** `{ kind, mime, sizeBytes, createdAt }` — يستبدل السابق من النوع نفسه، مشفّراً، ويحدّث `profileCompletedAt`.
-- `GET /documents/:kind` ⇒ `{ dataUrl }` (السفير نفسه لمعاينة ما رفعه) · `DELETE /documents/:kind` ⇒ حذفٌ حقيقي.
+
+> `GET /me` و`PUT /me` و`POST /accept-terms` وحدها بأيّ جلسة (طريق قبول الشروط مفتوحٌ دائماً). **كلّ ما يلي** — ومنه بيانات الاستلام والمستندات — خلف `requireApproved`.
 
 ### بجلسة **approved** وبالشروط الحالية مقبولة (غير ذلك 403 `{message}`؛ و`code: 'terms_outdated'` إن نُشرت شروطٌ لم يقبلها)
+- `PUT /payout-profile` `{ iban: string, holderName: string /*2..120*/, bankName?: string }` ⇒ `{ user: AffiliateMe }` — بلا شرط «بعد أول عمولة» (v2)، لكن **بجلسة approved وبالشروط الحالية** كبقيّة هذا القسم: سفيرٌ إرثيّ على v1–v3 يقبل v4 أولاً (TermsGate) ثمّ يُكمل ملفه. آيبان سعودي `SA`+22 بفحص mod-97 · 400 آيبان غير صالح · 409 إن كانت للسفير مسودّة دفعة قائمة. تحديثه بعد «فشل التحويل» يُعيده لدورة التسوية التالية.
+- `POST /documents` `{ kind: DocKind, dataUrl: string }` ⇒ **201** `{ kind, mime, sizeBytes, createdAt }` — يستبدل السابق من النوع نفسه، مشفّراً، ويحدّث `profileCompletedAt` · 400 `document_invalid` · 429 (`axDocLimiter`: ٣٠ رفعاً/ساعة لكلّ سفير).
+- `GET /documents/:kind` ⇒ `{ dataUrl }` (السفير نفسه لمعاينة ما رفعه) · 400 نوعٌ غير معروف · 404 لم يُرفع · **429** حدّ التنزيل (انظر `GET /materials/:id/file`) · `DELETE /documents/:kind` ⇒ `{ ok: true }` حذفٌ حقيقي · 404.
 - `GET /dashboard` ⇒
   ```ts
   { clicks30d: number, signups: number, paidCompanies: number, pendingHalalas: number, approvedHalalas: number, paidHalalas: number,
@@ -92,16 +96,20 @@ type Flag = 'self_email' | 'self_phone' | 'returning_company' | 'ip_match' | 'te
     earningsByMonth: Array<{ month: 'YYYY-MM', halalas: number }> /* آخر ٦ أشهر بتاريخ الدفعة */,
     nextSettlementAt: string, steps: { account: true, shared: boolean /* clicks30d>0 || signups>0 */, firstPaid: boolean } }
   ```
-- `GET /companies` ⇒ `Array<{ id: string /*attributionId*/, tenantName: string, source: 'signup_code'|'claim'|'owner'|'portal', activation: 'pending'|'active'|null /*لمصدر portal وحده*/, status: 'trial'|'paid'|'disputed'|'void'|'expired', signedUpAt: string, firstPaymentDeadline: string, firstPaidAt: string|null, commission: { status: CommissionStatus, commissionHalalas: number, eligibleAt: string } | null /* عمولة السفير نفسه فقط */ }>`
+- `GET /companies` ⇒ `Array<{ id: string /*attributionId*/, tenantName: string, source: 'signup_code'|'claim'|'owner'|'portal', refVia: 'link'|'typed'|null /*لمصدر signup_code وحده: رابطه أم رمزه المكتوب — عمود «الطريقة»؛ null لغيره ولإسنادٍ أقدم من العمود*/, activation: 'pending'|'active'|null /*لمصدر portal وحده*/, status: 'trial'|'paid'|'disputed'|'void'|'expired', signedUpAt: string, firstPaymentDeadline: string, firstPaidAt: string|null, commission: { status: CommissionStatus, commissionHalalas: number, eligibleAt: string } | null /* عمولة السفير نفسه فقط */ }>`
 - `POST /claims` (الترشيح المسبق) `{ companyName: string /*2..120*/, crNumber: string /*10 أرقام*/, contactPhone: string /*إلزامي: جوال سعودي أو 8–15 رقماً*/, city?: string, how: ClaimHow, note?: string /*≤200*/ }` ⇒ **201** `{ id: string, message: 'استلمنا الترشيح وسيُراجع' }` — يُرفض (400) بريدٌ أو سلسلة أرقامٍ بأيّ فواصل فيها ٨ أرقامٍ فأكثر (عدا التاريخ) في الاسم أو المدينة أو الملاحظة.
 - `GET /claims` ⇒ `Array<{ id, companyName, crNumber, contactPhone: string|null, city: string|null, how: ClaimHow, status: ClaimStatus, lockedUntil: string|null, submittedAt: string }>`
 - `POST /claims/:id/withdraw` ⇒ `{ ok: true }` (فقط `under_review`، وإلا 409)
-- `POST /missed-claims` — **مطالبة بإحالة فائتة** (v2): شركةٌ سجّلت دون رابطك أو رمزك خلال آخر ٣٠ يوماً. جسم `{ companyName: string /*2..120*/, contactPhone?: string, crNumber?: string /*10 أرقام*/, note?: string /*≤200*/ }` ⇒ **201** `{ id }` — الاسم والملاحظة بلا جوالٍ ولا بريد (400 `contact_in_text`) · 400 `invalid_phone` · 400 `invalid_cr` · 409 `open_limit` (٢٠ مطالبةً مفتوحة).
+- `POST /missed-claims` — **مطالبة بإحالة فائتة** (v2): شركةٌ سجّلت دون رابطك أو رمزك خلال آخر ٣٠ يوماً. جسم `{ companyName: string /*2..120*/, contactPhone?: string, crNumber?: string /*10 أرقام*/, note?: string /*≤200*/ }` ⇒ **201** `{ id: string, message: 'استلمنا المطالبة وستُراجع' }`. الأخطاء (كلّها برمز):
+  - 400 `invalid` — شكل الجسم (الاسم ٢..١٢٠، الملاحظة ≤٢٠٠، الجوال والسجل ≤٣٠ نصّاً) مع `errors: { [field]: string[] }` كبقيّة أخطاء zod.
+  - 400 `contact_in_text` — جوالٌ أو بريد في الاسم أو الملاحظة (الجوال في خانته) · 400 `invalid_phone` · 400 `invalid_cr` (ليس ١٠ أرقام).
+  - **429** `too_many_open_missed_claims` — ٢٠ مطالبةً قيد المراجعة (قاعدة عمل لا محدِّد؛ وسباق إرسالين عند ١٩ يُردّ بالرمز نفسه).
+  - 403 كبقيّة القسم، و403 `not_approved` إن أُوقف الحساب بين الفحص والكتابة.
 - `GET /missed-claims` ⇒ `Array<{ id, companyName, contactPhone: string|null, crNumber: string|null, note: string|null, status: MissedClaimStatus, reasonNote: string|null, submittedAt: string, reviewedAt: string|null }>`
 - `POST /missed-claims/:id/withdraw` ⇒ `{ ok: true }` — ما تحت المراجعة فقط (404 `not_found` · 409 `not_under_review`).
 - `GET /materials` ⇒ `Array<{ id, title, category: MaterialCategory, fileName: string|null, mime: string|null, sizeBytes: number|null, url: string|null, textBody: string|null, createdAt: string }>` (بترتيب المالك ثمّ الأحدث)
-- `GET /materials/:id/file` ⇒ `{ dataUrl: string }` · 404 لمادّةٍ بلا ملف.
-- `POST /trials` — **حسابٌ تجريبي يفتحه السفير لمنشأة** (محدِّدٌ لكلّ سفير: ٢٠ طلباً في الساعة مع إعادة الإرسال) جسم:
+- `GET /materials/:id/file` ⇒ `{ dataUrl: string }` · 404 لمادّةٍ بلا ملف. هو و`GET /documents/:kind` يبنيان الملف كاملاً في الذاكرة، فخلفهما حدّان: **٦٠ تنزيلاً في الساعة لكلّ سفير** (عدّادٌ واحد لهما — 429 `{message}`)، و**تنزيلان متزامنان لكلّ سفير وأربعة للخادم كلّه** (429 `code: 'file_busy'` مع `Retry-After: 5`).
+- `POST /trials` — **حسابٌ تجريبي يفتحه السفير لمنشأة** (محدِّدٌ لكلّ سفير: ٢٠ طلباً في الساعة مع إعادة الإرسال، **وعشرةٌ لكلّ IP في يوم الرياض** عبر كلّ الحسابات — 429 `code: 'trial_ip_daily_cap'`؛ لا يُشترط ملفٌّ مكتمل) جسم:
   ```ts
   { companyName: string /*2..120*/, countryCode?: string /*حرفان — منه العملة والضريبة*/, adminName: string /*2..80*/,
     adminEmail: string /*≤160 — يُخزَّن صغيراً وهو اسم الدخول*/, adminPhone: string /*'+'+مفتاح الدولة+الرقم ≤30*/,
@@ -111,7 +119,7 @@ type Flag = 'self_email' | 'self_phone' | 'returning_company' | 'ip_match' | 'te
   - المدير يُنشأ **بلا كلمة مرور**، ورابط التفعيل (٧ أيام، مرّةً واحدة) يصل **بريد المسؤول وحده** — انظر §4. ولا واتساب قبل أن تفعّل الشركة وتؤكّد جوالها.
   - الإسناد في معاملة الإنشاء نفسها: `source: 'portal'`، `codeUsed`/`refVia` فارغان، ولقطة النسبة والحجز ومهلة الدفعة الأولى من شروط السفير. ترشيحٌ معتمد ساري القفل (أو متحوّل) **لسفيرٍ آخر** بالسجل أو بالاسم المُطبَّع ⇒ `status: 'disputed'` و`flags: ['claim_conflict']` يحسمه المالك. وترشيح السفير نفسه المعتمد بالسجل نفسه يتحوّل `converted`.
   - 400: جوال غير صحيح · سجلٌّ ليس 10 أرقام · رقمٌ أو بريدٌ أو رابط في اسم المنشأة أو المسؤول · `code: 'self_contact'` بريد السفير أو جواله مكان المسؤول. 403 `code: 'portal_trial_disabled'`. 429 `code: 'trial_daily_cap'` (١٠ محاولات في ٢٤ ساعة متحرّكة: ما فُتح + ما حُجب) · `code: 'trial_pending_cap'` (٢٠ حساباً لم تفعّلها شركاتها).
-- `POST /trials/:id/resend` (`id` = معرّف الإسناد من «شركاتي») ⇒ `{ message: string }` — رابطٌ جديد إلى **البريد المسجَّل** يُبطل كلّ رابطٍ أقدم. 404 `code: 'not_found'` · 409 `code: 'not_pending'` (فعّلت الشركة) · 409 `code: 'resend_window'` (مضى ٣٠ يوماً على الفتح) · 429 `code: 'resend_limit'` (٥ مرّات) · 429 `code: 'resend_cooldown'` (١٠ دقائق بين إرسالين) · 403 `portal_trial_disabled`.
+- `POST /trials/:id/resend` (`id` = معرّف الإسناد من «شركاتي») ⇒ `{ message: string }` — رابطٌ جديد إلى **البريد المسجَّل** يُبطل كلّ رابطٍ أقدم. 404 `code: 'not_found'` · 409 `code: 'not_pending'` (فعّلت الشركة) · 409 `code: 'resend_window'` (مضى ٣٠ يوماً على الفتح) · 429 `code: 'resend_limit'` (٥ مرّات) · 429 `code: 'resend_cooldown'` (١٠ دقائق بين إرسالين) · 429 `code: 'trial_ip_daily_cap'` (عشرُ إعاداتٍ لكلّ IP في يوم الرياض — عدّادٌ منفصل عن الفتح) · 403 `portal_trial_disabled`.
 - `POST /trials/:id/withdraw` ⇒ `{ ok: true }` — سحب حسابٍ فُتح بخطأ قبل تفعيله: الشركة تُوقف، والمدير يُعطَّل ويتحرّر بريده، والجوال يُمسح، والإسناد `void` (لا حذف). 404 `not_found` · 409 `not_pending` · 409 `code: 'has_payment'`. متاحٌ ولو أُطفئ فتح الحسابات.
 - `GET /commissions` ⇒ `Array<{ id, tenantName, paymentAmountHalalas, refundedHalalas, commissionHalalas, rateBps, status: CommissionStatus, paymentPaidAt: string, eligibleAt: string, reasonNote: string|null, paidAt: string|null }>`
 - `GET /adjustments` ⇒ `Array<{ id, kind: 'clawback_refund'|'correction', amountHalalas: number, note: string|null, createdAt: string, settled: boolean }>`

@@ -2,7 +2,8 @@
 // «المواد التسويقية» (V2_SPEC §6.1 و§7) — مكتبةٌ يرفعها المالك: صور وفيديو قصير ومستندات
 // (تُنزَّل أو تُشارك بقائمة الجوال)، ونصوصٌ جاهزة (تُنسخ)، وروابط (تُفتح). تصفيةٌ بالفئة.
 // الملف يُجلب عند الطلب فقط (GET /materials/:id/file) — لا تحميل مسبق لكل المكتبة على الجوال.
-// الرابط يُفتح إن كان http(s) وحده، والنصّ يُعرض نصّاً (لا HTML).
+// الرابط يُفتح إن كان http(s) وحده، والنصّ يُعرض نصّاً (لا HTML). ما يظهر يُقرَّر من بيانات المادّة
+// (../materials): فيديو الرابط رابطٌ يُفتح، والتعليق المرافق لأيّ فئةٍ يُنسخ.
 // ============================================================================
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
@@ -11,9 +12,10 @@ import { Download, ExternalLink, FileText, Film, Image, Link2, Share2, Type, typ
 import { affiliateApi, qk } from '../api';
 import { errorText } from '../errors';
 import { canShareFile, dataUrlToFile, downloadDataUrl, safeFileName } from '../files';
-import { formatBytes, formatDay, safeHttpUrl } from '../format';
+import { formatBytes, formatDay } from '../format';
 import { useAxT } from '../i18n';
 import { MATERIAL_CATEGORY, MATERIAL_CATEGORY_ORDER, textOf } from '../labels';
+import { materialParts } from '../materials';
 import type { MaterialCategory, MaterialRow, MeResponse } from '../types';
 import { Chips, CopyButton, Empty, ErrorBox, Loading, SectionTitle, Spinner } from '../ui';
 import { useAxQuery } from '../useAx';
@@ -63,8 +65,9 @@ function FileActions({ m }: { m: MaterialRow }) {
 function MaterialCard({ m }: { m: MaterialRow }) {
   const { t, lang } = useAxT();
   const Icon = CAT_ICON[m.category] ?? FileText;
-  const url = safeHttpUrl(m.url);
-  const isFile = m.category === 'image' || m.category === 'video' || m.category === 'document';
+  // من بيانات المادّة لا فئتها وحدها (../materials): فيديو الرابط يُفتح ولا «تنزيل» يرتدّ بـ404،
+  // والتعليق المرافق لأيّ فئةٍ يُعرض ويُنسخ.
+  const { file, url, text, textIsMain } = materialParts(m);
   return (
     <div className="bg-white rounded-2xl border border-[#E9E1D3] p-3.5 space-y-2.5">
       <div className="flex items-start gap-3">
@@ -73,27 +76,28 @@ function MaterialCard({ m }: { m: MaterialRow }) {
           <p className="font-bold text-[14px] text-[#1F1A13] break-words" dir="auto">{m.title}</p>
           <p className="text-[11.5px] text-[#8A8072] mt-0.5">
             {textOf(MATERIAL_CATEGORY, m.category, lang)} · {formatDay(m.createdAt, lang)}
-            {isFile && m.sizeBytes ? <> · <bdi dir="ltr">{formatBytes(m.sizeBytes)}</bdi></> : null}
+            {file && m.sizeBytes ? <> · <bdi dir="ltr">{formatBytes(m.sizeBytes)}</bdi></> : null}
           </p>
         </div>
       </div>
-      {m.category === 'text' && m.textBody && (
+      {text && (
         <>
-          <p className="rounded-xl bg-[#FAF7F0] border border-[#E9E1D3] px-3 py-2.5 text-[13px] text-[#1F1A13] leading-relaxed max-h-48 overflow-y-auto" dir="auto" style={{ whiteSpace: 'pre-wrap' }}>
-            {m.textBody}
+          <p className={`rounded-xl bg-[#FAF7F0] border border-[#E9E1D3] px-3 py-2.5 text-[13px] text-[#1F1A13] leading-relaxed overflow-y-auto ${textIsMain ? 'max-h-48' : 'max-h-32'}`} dir="auto" style={{ whiteSpace: 'pre-wrap' }}>
+            {text}
           </p>
-          <CopyButton text={m.textBody} label={t('mat.copyText')} primary className="w-full py-2" />
+          {/* «نصّ» ⇒ النسخ هو الإجراء الرئيس؛ والتعليق المرافق لملفٍّ أو رابط ⇒ زرٌّ ثانويّ */}
+          <CopyButton text={text} label={t('mat.copyText')} primary={textIsMain} className="w-full py-2" />
         </>
       )}
-      {m.category === 'link' && url && (
+      {url && (
         <div className="flex gap-2">
           <a href={url} target="_blank" rel="noopener noreferrer" className="btn-primary flex-1 justify-center py-2">
             <ExternalLink size={15} /> {t('mat.open')}
           </a>
-          <CopyButton text={url} label={t('copy.default')} className="flex-1 py-2" />
+          <CopyButton text={url} label={t('mat.copyLink')} className="flex-1 py-2" />
         </div>
       )}
-      {isFile && <FileActions m={m} />}
+      {file && <FileActions m={m} />}
     </div>
   );
 }

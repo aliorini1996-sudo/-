@@ -1814,7 +1814,7 @@ function CommissionsTab({ status, setStatus }: { status: string; setStatus: (v: 
           <Th>الشركة</Th><Th>السفير</Th><Th>الدفعة (شامل الضريبة)</Th><Th>النسبة</Th><Th>العمولة</Th><Th>التواريخ</Th><Th>الحالة</Th><Th>رابط الدفع</Th>{canPayouts && <Th>إجراءات</Th>}
         </>}>
           {data.map((c) => {
-            const list = L.COMMISSION_ACTIONS[c.status] ?? [];
+            const list = L.commissionActions(c);
             const linkOk = c.linkStatus === 'paid';
             const k = (x: string) => `com:${x}:${c.id}`;
             return (
@@ -1862,7 +1862,9 @@ function CommissionsTab({ status, setStatus }: { status: string; setStatus: (v: 
                       <ActionBtn icon={PauseCircle}
                         onClick={() => actions.ask({
                           key: k('hold'), title: `إيقاف عمولة ${c.tenantName}`, confirmLabel: 'إيقاف مؤقت', mode: 'text',
-                          hint: 'تبقى موقوفة حتى تحرّرها. السبب يظهر للسفير.',
+                          hint: c.status === 'approved'
+                            ? 'تخرج من الاعتماد فلا تدخل مسودّة الدورة، وتبقى موقوفة حتى تحرّرها. السبب يظهر للسفير.'
+                            : 'تبقى موقوفة حتى تحرّرها. السبب يظهر للسفير.',
                           action: (reason) => affApi.commissionAction(c.id, 'hold', reason), success: 'أُوقفت العمولة',
                         })}>
                         إيقاف
@@ -1870,7 +1872,7 @@ function CommissionsTab({ status, setStatus }: { status: string; setStatus: (v: 
                     )}
                     {list.includes('release') && (
                       <ActionBtn tone="good" icon={PlayCircle} disabled={actions.busy === k('release')}
-                        onClick={() => actions.run(k('release'), () => affApi.commissionAction(c.id, 'release'), 'حُرّرت العمولة وعادت لفترة الحجز')}>
+                        onClick={() => actions.run(k('release'), () => affApi.commissionAction(c.id, 'release'), 'حُرّرت العمولة وعادت معلّقة — إن انتهى حجزها تُعتمد تلقائياً خلال نحو ساعة')}>
                         تحرير
                       </ActionBtn>
                     )}
@@ -2701,7 +2703,7 @@ function SettingsTab() {
         <p className="text-[11.5px] text-[#6E6557] flex items-start gap-1.5">
           <UserCheck className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           <span>
-            البوابة: fieldsa.net/ax — صفحة البرنامج العلنية: fieldsa.net/ambassadors — <b>الانضمام فوريّ بلا موافقة</b>: من يسجّل يدخل مباشرةً ويأخذ رابطه،
+            البوابة: fieldsa.net/ax — صفحة البرنامج العلنية: fieldsa.net/ambassadors/ — <b>الانضمام فوريّ بلا موافقة</b>: من يسجّل يدخل مباشرةً ويأخذ رابطه،
             ولك إيقاف أي سفير لاحقاً من تبويب المسوّقين، وإغلاق استقبال التسجيلات من الإعدادات أدناه متى شئت.
           </span>
         </p>

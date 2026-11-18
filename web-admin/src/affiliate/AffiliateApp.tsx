@@ -21,9 +21,10 @@ import { AuthShell, AxLanguageToggle, BrandLockup, ErrorBox, Loading } from './u
 import { useAxT } from './i18n';
 import { ForgotScreen, LoginScreen, RegisterScreen, ResetScreen } from './screens/AuthScreens';
 import {
-  MORE_TABS, TAB_IDS, authTarget, authViewSearch, isLegacyAuthLink, linkTokenFromSearch, showLinkScreen, tabFromHash,
-  tabTarget, viewFromSearch, visibleTabs, type AuthView, type Tab,
+  MORE_TABS, TAB_IDS, authTarget, authViewSearch, isLegacyAuthLink, linkTokenFromSearch, sessionTarget, showLinkScreen,
+  tabFromHash, tabTarget, viewFromSearch, visibleTabs, type AuthView, type Tab,
 } from './nav';
+import { mergeMeUser } from './profile';
 import { BottomBar, MoreSheet, Sidebar, SupportFab } from './shell';
 import { StatusScreen, TermsGate } from './screens/StatusScreens';
 import { HomeTab, LinkTab } from './screens/HomeScreens';
@@ -125,39 +126,49 @@ export default function AffiliateApp() {
     if (target) navigate({ pathname: location.pathname, ...target });
   }, [navigate, location.pathname, location.search, location.hash]);
 
-  /** يعود العنوان إلى /ax نظيفاً — استبدالاً، فلا يُضاف مدخل */
+  /** يعود العنوان إلى /ax نظيفاً — استبدالاً، فلا يُضاف مدخل (الخروج) */
   const toRoot = useCallback(() => {
     if (location.search || location.hash) navigate({ pathname: location.pathname, search: '', hash: '' }, { replace: true });
   }, [navigate, location.pathname, location.search, location.hash]);
 
-  const resetSession = useCallback(() => {
+  /**
+   * بدء الجلسة أو انتهاؤها (401): /ax بلا معامل **ويبقى وسم التبويب** (nav.sessionTarget) — استبدالاً.
+   * رابط بريد «تعذّر التحويل» `/ax#profile` بلا جلسةٍ في هذا المتصفّح يصل «ملفي» بعد الدخول لا الرئيسية.
+   */
+  const toSession = useCallback(() => {
+    const target = sessionTarget(location.search, location.hash);
+    if (target) navigate({ pathname: location.pathname, ...target }, { replace: true });
+  }, [navigate, location.pathname, location.search, location.hash]);
+
+  /** `keepTab`: انتهاء الجلسة (401) يُبقي التبويب للعودة إليه بعد الدخول؛ والخروج الصريح يمسحه */
+  const resetSession = useCallback((keepTab: boolean) => {
     setHasToken(false);
     setMoreOpen(false);
     qc.removeQueries({ queryKey: qk.all });
-    toRoot();
-  }, [qc, toRoot]);
+    if (keepTab) toSession(); else toRoot();
+  }, [qc, toRoot, toSession]);
 
   const logout = useCallback(() => {
     clearToken();
-    resetSession();
+    resetSession(false);
   }, [resetSession]);
 
-  // 401 على أي طلبٍ بجلسة ⇒ مسح ax_token وحده (في api.ts) والعودة للدخول
+  // 401 على أي طلبٍ بجلسة ⇒ مسح ax_token وحده (في api.ts) والعودة للدخول — والتبويب باقٍ في العنوان
   useEffect(() => onUnauthorized(() => {
-    resetSession();
+    resetSession(true);
     toast.error(t('session.expired'));
   }), [resetSession, t]);
 
   const me = useQuery({ queryKey: qk.me, queryFn: affiliateApi.me, enabled: hasToken, retry: shouldRetry, staleTime: 60_000 });
 
-  /** دخولٌ أو تسجيلٌ فوريّ أو استعادة — الجلسة تبدأ من الرئيسية */
+  /** دخولٌ أو تسجيلٌ فوريّ أو استعادة — الجلسة تبدأ من الرئيسية، أو من تبويب الرابط العميق (#profile) */
   const onLoggedIn = useCallback(() => {
     qc.removeQueries({ queryKey: qk.all });
     setTermsOutdated(false);
     setFreshLink(null);
     setHasToken(true);
-    toRoot();
-  }, [qc, toRoot]);
+    toSession();
+  }, [qc, toSession]);
 
   const refreshMe = useCallback(() => { void qc.invalidateQueries({ queryKey: qk.me }); }, [qc]);
 
@@ -167,7 +178,9 @@ export default function AffiliateApp() {
   }), [qc]);
 
   const onUserUpdated = useCallback((u: AffiliateMe) => {
-    qc.setQueryData<MeResponse>(qk.me, (old) => (old ? { ...old, user: u } : old));
+    // دمجٌ لا استبدال: ردّ PUT /me وPUT /payout-profile وPOST /accept-terms بلا `documents` و`missing`
+    // و`profileComplete` (حقول GET /me وحده) — فيبقى ما في الذاكرة منها حتى تصل القراءة (profile.mergeMeUser)
+    qc.setQueryData<MeResponse>(qk.me, (old) => (old ? { ...old, user: mergeMeUser(old.user, u) } : old));
     // اكتمال الملف و`missing` والإعدادات تُحسب في الخادم — تُعاد قراءتها
     void qc.invalidateQueries({ queryKey: qk.me });
     void qc.invalidateQueries({ queryKey: qk.dashboard });

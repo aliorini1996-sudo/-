@@ -27,6 +27,22 @@ export function profileProgress(u: Pick<AffiliateMe, 'partnerType' | 'missing' |
   return { percent: Math.round((done / total) * 100), done, total, missing, complete };
 }
 
+/**
+ * المستخدم بعد ردّ تعديل (PUT /me · PUT /payout-profile · POST /accept-terms): هذه الردود بلا
+ * `documents` و`missing` و`profileComplete` (يحسبها GET /me وحده)، واستبدال المستخدم بها كان يُظهر
+ * لحظةَ إعادة القراءة هويةً مرفوعة «لم تُرفع» واكتمالاً ١٠٠٪ «ناقصاً». فيُدمج الردّ فوق ما في الذاكرة،
+ * وتبقى الحقول الثلاثة القديمة ما لم يُرسلها الخادم — حتى تصل قراءة /me (الخادم هو الحَكَم).
+ */
+export function mergeMeUser(old: AffiliateMe, u: Partial<AffiliateMe>): AffiliateMe {
+  return {
+    ...old,
+    ...u,
+    documents: Array.isArray(u.documents) ? u.documents : old.documents,
+    missing: Array.isArray(u.missing) ? u.missing : old.missing,
+    profileComplete: typeof u.profileComplete === 'boolean' ? u.profileComplete : old.profileComplete,
+  };
+}
+
 /** هل يُطلب السجل التجاري؟ للشركة وحدها (أو إن طلبه الخادم صراحةً) */
 export function needsCommercialReg(u: Pick<AffiliateMe, 'partnerType' | 'missing'>): boolean {
   return u.partnerType === 'company' || (Array.isArray(u.missing) && u.missing.includes('commercial_reg'));

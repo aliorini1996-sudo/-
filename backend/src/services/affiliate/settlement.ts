@@ -11,7 +11,7 @@
  */
 import prisma from '../../config/database';
 import { isUniqueViolation, PlatformActor } from './core';
-import { LedgerError, reconcile, autoApproveEligible, payoutCandidates, createCyclePayout } from './ledger';
+import { LedgerError, reconcile, autoApproveEligible, payoutCandidates, createCyclePayout, SYSTEM_ID } from './ledger';
 import { mailOwnerSettlementSummary } from './settlementMail';
 
 const RIYADH_OFFSET_MS = 3 * 3600_000;
@@ -77,11 +77,35 @@ export interface SettlementResult {
   /** already_ran: الدورة أُنجزت (أو تجري الآن في نسخةٍ أخرى) */
   reason: 'already_ran' | null;
   manual: boolean;
+  /** عمولاتٌ اعتمدها النظام منذ تشغيل الدورة السابقة (`autoApprovedSinceLastCycle`) — لا نداء هذه الدورة وحده */
   autoApproved: number;
   reconciled: { accrued: number; synced: number };
   payouts: Array<{ id: string; affiliateId: string; netHalalas: number }>;
   totalHalalas: number;
   skipped: Record<string, number>;
+}
+
+/**
+ * «اعتُمدت تلقائياً N» في ملخّص الدورة: عمولاتٌ اعتمدها النظام (`approvedBy: 'system'`) منذ تشغيل الدورة
+ * السابقة حتى هذا التشغيل. عدّ نداء الدورة وحده كان صفراً دائماً: نبضة كلّ ساعة تعتمد ما انقضى حجزه أوّلاً
+ * (ونبضة الدورة نفسها تعتمد قبل أن تدخلها بـ`now` نفسه). البداية لحظة الدورة السابقة (`at` في علامتها — ونداؤها
+ * ختم `approvedAt` بها فلا يُعدّ مرّتين)، وإلا بداية هذه الدورة. فشل العدّ لا يُسقط الدورة: يُعاد عدّ النداء.
+ */
+async function autoApprovedSinceLastCycle(periodStart: Date, now: Date, fallback: number): Promise<number> {
+  try {
+    let since = periodStart;
+    const prev = await prisma.opsMarker.findUnique({ where: { key: settlementMarkerKey(cycleBounds(periodStart).cycleKey) } });
+    if (prev && prev.value !== 'running') {
+      try {
+        const at = new Date(JSON.parse(prev.value).at);
+        if (Number.isFinite(at.getTime()) && at.getTime() < now.getTime()) since = at;
+      } catch { /* علامةٌ بلا ملخّصٍ مقروء — من بداية الدورة */ }
+    }
+    return await prisma.affiliateCommission.count({ where: { approvedBy: SYSTEM_ID, approvedAt: { gt: since, lte: now } } });
+  } catch (e) {
+    console.error('[affiliate] settlement auto-approved count:', (e as Error).message);
+    return fallback;
+  }
 }
 
 /**
@@ -102,7 +126,8 @@ export async function runSettlementCycle(now: Date = new Date(), opts: { by?: Pl
   }
 
   const reconciled = await reconcile();
-  const { approved: autoApproved } = await autoApproveEligible(now);
+  const { approved: approvedNow } = await autoApproveEligible(now);
+  const autoApproved = await autoApprovedSinceLastCycle(bounds.periodStart, now, approvedNow);
   const candidates = await payoutCandidates();
   const payouts: SettlementResult['payouts'] = [];
   const done: Array<{ fullName: string; code: string; netHalalas: number; ibanLast4: string }> = [];
@@ -132,7 +157,9 @@ export async function runSettlementCycle(now: Date = new Date(), opts: { by?: Pl
     data: { value: JSON.stringify({ payouts: payouts.length, totalHalalas, skipped, manual, at: now.toISOString() }).slice(0, 1000) },
   }).catch(e => console.error('[affiliate] settlement marker:', (e as Error).message));
 
-  const waitingProfile = skipped.profile_incomplete ?? 0;
+  // الآيبان جزءٌ من الملف المطلوب (profileStatus) و`payoutCandidates` يفحصه قبل بقيّة الملف — فمن بلا آيبان
+  // ينتظر إكمال ملفه أيضاً، وإلا غاب أكثرهم عن الملخّص (ولم يُرسل بريدٌ إن لم يُنتظر غيرهم)
+  const waitingProfile = (skipped.profile_incomplete ?? 0) + (skipped.no_iban ?? 0);
   const waitingIban = skipped.iban_failed ?? 0;
   if (payouts.length || (!manual && (waitingProfile || waitingIban))) {
     mailOwnerSettlementSummary({

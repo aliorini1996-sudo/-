@@ -346,19 +346,19 @@ model AffiliateClickDaily {
 | `POST /click` | عام، محدّد | `{code}` ⇒ 204 (يزيد `AffiliateClickDaily`) |
 | `GET /me` | سفير | `{user (بلا ibanEnc/passwordHash، + partnerType, companyName, socialLinks, documents, profileComplete, missing), settings(disclosureText, rateBps, holdDays, minPayoutHalalas, nextSettlementAt, settlementEveryDays), link: /signup?ref=CODE}` |
 | `PUT /me` | سفير | `{city?, marketingConsent?, vatNumber?, partnerType?, companyName?, socialLinks?}` |
-| `POST /documents` · `GET/DELETE /documents/:kind` | سفير | رفع الهوية/السجل (يستبدل)، ومعاينته، وحذفه (v2) |
+| `POST /documents` · `GET/DELETE /documents/:kind` | سفير approved (بالشروط الحالية) | رفع الهوية/السجل (يستبدل)، ومعاينته، وحذفه (v2). المعاينة خلف حدّ التنزيل (٦٠/ساعة لكلّ سفير، ومتزامنان لكلّ سفير وأربعة للخادم) |
 | `GET /dashboard` | سفير approved | `{clicks30d, signups, paidCompanies, pendingHalalas, approvedHalalas, paidHalalas}` + v2: `totalEarnedHalalas, pendingSettlementHalalas, activeReferrals, conversionRate, earningsByMonth, nextSettlementAt, steps` |
-| `GET /companies` | سفير approved | `[{tenantName, source, status: 'trial'|'paid'|'disputed'|'void', signedUpAt, firstPaidAt?, commission?:{status, commissionHalalas, eligibleAt}}]` |
+| `GET /companies` | سفير approved | `[{id, tenantName, source, refVia: 'link'|'typed'|null /*signup_code وحده*/, activation, status: 'trial'|'paid'|'disputed'|'void'|'expired', signedUpAt, firstPaymentDeadline, firstPaidAt?, commission?:{status, commissionHalalas, eligibleAt}}]` |
 | `POST /claims` | سفير approved | `{companyName, crNumber, city?, how, note?}` ⇒ 201 `{id}` + رسالة موحّدة |
 | `GET /claims` | سفير approved | `[{id, companyName, crNumber, status, lockedUntil?, submittedAt}]` (بلا reasonNote) |
 | `POST /claims/:id/withdraw` | سفير approved | يسحب ترشيحه `under_review` |
-| `POST /trials` | سفير approved + محدِّدٌ لكلّ سفير | `{companyName, countryCode?, adminName, adminEmail, adminPhone, crNumber?, consent:true, dryRun?}` ⇒ **202 موحّد** — حسابٌ تجريبي بلا كلمة مرور ورابط تفعيل لبريد المسؤول وحده (§3.1) |
+| `POST /trials` | سفير approved + محدِّدٌ لكلّ سفير + ١٠ لكلّ IP في يوم الرياض (`trial_ip_daily_cap`؛ الإعادة بعدّادٍ مثله منفصل) | `{companyName, countryCode?, adminName, adminEmail, adminPhone, crNumber?, consent:true, dryRun?}` ⇒ **202 موحّد** — حسابٌ تجريبي بلا كلمة مرور ورابط تفعيل لبريد المسؤول وحده (§3.1) |
 | `POST /trials/:id/resend` · `POST /trials/:id/withdraw` | سفير approved | رابط تفعيلٍ جديد للبريد المسجَّل · سحب حسابٍ لم يُفعَّل |
 | `GET /commissions` | سفير approved | `[{tenantName, commissionHalalas, paymentAmountHalalas, status, eligibleAt, reasonNote?, paidAt?}]` |
 | `GET /payouts` | سفير approved | v2: كلّ دفعاته عدا الملغاة `[{id, status: draft|recorded|failed, commissionsHalalas, adjustmentsHalalas, netHalalas, periodStart, periodEnd, transferredAt, bankReference, ibanLast4, failedReason}]` |
-| `PUT /payout-profile` | سفير (v2: **دائماً**) | `{iban, holderName, bankName?}` — 409 مع مسودّة دفعة قائمة |
-| `POST /missed-claims` · `GET /missed-claims` · `POST /missed-claims/:id/withdraw` | سفير approved | المطالبة بإحالة فائتة (v2) |
-| `GET /materials` · `GET /materials/:id/file` | سفير approved | المواد التسويقية (v2) |
+| `PUT /payout-profile` | سفير approved (بالشروط الحالية — v2: بلا شرط «بعد أول عمولة») | `{iban, holderName, bankName?}` — 409 مع مسودّة دفعة قائمة |
+| `POST /missed-claims` · `GET /missed-claims` · `POST /missed-claims/:id/withdraw` | سفير approved | المطالبة بإحالة فائتة (v2) — 400 `invalid`/`contact_in_text`/`invalid_phone`/`invalid_cr` · 429 `too_many_open_missed_claims` (٢٠ مفتوحة) · السحب 404 `not_found`/409 `not_under_review` |
+| `GET /materials` · `GET /materials/:id/file` | سفير approved | المواد التسويقية (v2) — الملف `{dataUrl}` خلف حدّ التنزيل نفسه (429؛ `file_busy` للمتزامن) |
 
 ### 6.2 المالك — `backend/src/routes/affiliateAdmin.ts` مركّب على `/api/affiliate-admin` خلف `platformGate` (المالك وموظفو المنصّة بالمفاتيح `affiliates.view|manage|payouts|iban` — كلّ مسارٍ مصنَّف في `services/platformAccess.ts`)
 

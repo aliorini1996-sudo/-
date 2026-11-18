@@ -385,7 +385,8 @@ export const INSTANT_PROMOTION_MARKER = 'ax-v2-instant';
 /**
  * ترقية الإرث **مرّةً واحدة** عند الإقلاع: علامة OpsMarker `ax-v2-instant` تُحجز ذرّياً (نسختان تقلعان معاً لا ترقّيان
  * مرّتين)، ثمّ updateMany لكلّ pending_* ⇒ approved وحدثٌ ملخّص `system` بالعدد. الفشل يحرّر العلامة فيُعاد في الإقلاع
- * التالي (والدخول يرقّي صاحبه في الأثناء). **لا ترمي أبداً** — آمنةٌ في مسار الإقلاع.
+ * التالي (والدخول يرقّي صاحبه في الأثناء). **لا ترمي أبداً** — آمنةٌ في مسار الإقلاع. وبعد الالتزام بريد «قُبل طلبك» لمن كان
+ * pending_review وحده (notifyLegacyReviewApproved — أفضل جهدٍ بفاصل، ولا يُنتظر).
  *
  * يوصلها الوكيل B في index.ts بعد الإقلاع: `void promoteLegacyPendingAffiliates();` — تُعيد عدد المرقَّين، أو null إن
  * سبقتها نسخةٌ أو إقلاعٌ سابق أو فشلت.
@@ -395,17 +396,21 @@ export async function promoteLegacyPendingAffiliates(): Promise<number | null> {
     const won = await prisma.opsMarker.create({ data: { key: INSTANT_PROMOTION_MARKER, value: 'running' } }).then(() => true, () => false);
     if (!won) return null;
     try {
-      const count = await prisma.$transaction(async tx => {
+      const { count, reviewIds } = await prisma.$transaction(async tx => {
+        // «قيد المراجعة» وحدهم يُبلَّغون بعد الالتزام (notifyLegacyReviewApproved) — pending_email لا يُراسَل
+        const review = await tx.affiliateUser.findMany({ where: { status: 'pending_review' }, select: { id: true } });
         const r = await tx.affiliateUser.updateMany({
           where: { status: { in: [...LEGACY_PENDING_STATUSES] } },
           data: { status: 'approved', reviewedAt: new Date(), reviewedBy: 'system' },
         });
         await logEvent(tx, {
           entity: 'user', entityId: INSTANT_PROMOTION_MARKER, action: 'legacy_pending_promoted', toState: 'approved',
-          actorType: 'system', reason: 'الانضمام فوريّ (v2)', meta: { count: r.count },
+          actorType: 'system', reason: 'الانضمام فوريّ (v2)', meta: { count: r.count, pendingReview: review.length },
         });
-        return r.count;
+        return { count: r.count, reviewIds: review.map(x => x.id) };
       });
+      // بعد الالتزام مباشرةً — قبل العلامة: إن فشل تحديثها وأُعيدت الترقية في الإقلاع التالي فلا pending_review باقٍ يُراسَل مرّتين
+      if (reviewIds.length) void notifyLegacyReviewApproved(reviewIds);
       await prisma.opsMarker.update({ where: { key: INSTANT_PROMOTION_MARKER }, data: { value: `done:${count}` } });
       if (count) console.log(`[affiliate] v2: promoted ${count} legacy pending ambassadors to approved`);
       return count;
@@ -419,7 +424,10 @@ export async function promoteLegacyPendingAffiliates(): Promise<number | null> {
   }
 }
 
-/** ترقية صاحب الحساب نفسه عند دخوله الناجح (أو استعادته كلمة المرور) — مشروطةٌ بحالته فلا تكتب فوق إيقافٍ متزامن */
+/**
+ * ترقية صاحب الحساب نفسه عند دخوله الناجح (أو استعادته كلمة المرور، أو جلسته القائمة في axAuth) — مشروطةٌ بحالته فلا تكتب
+ * فوق إيقافٍ متزامن ولا تُرقّي مرّتين (الإقلاع والدخول معاً: يفوز أحدهما). وpending_review يُبلَّغ بالبريد كترقية الإقلاع.
+ */
 export async function promoteLegacyAffiliate(id: string, fromStatus: string): Promise<boolean> {
   if (!(LEGACY_PENDING_STATUSES as readonly string[]).includes(fromStatus)) return false;
   const won = await prisma.affiliateUser.updateMany({
@@ -428,7 +436,38 @@ export async function promoteLegacyAffiliate(id: string, fromStatus: string): Pr
   });
   if (won.count !== 1) return false;
   logEventSafe({ entity: 'user', entityId: id, action: 'legacy_pending_promoted', fromState: fromStatus, toState: 'approved', actorType: 'system', reason: 'الانضمام فوريّ (v2)' });
+  if (fromStatus === 'pending_review') void notifyLegacyReviewApproved([id]);
   return true;
+}
+
+/** الفاصل بين رسائل «قُبل طلبك» بعد ترقية الإقلاع — دفعةٌ كبيرة لا تُرسَل دفعةً واحدة ولا تستنفد حصّة الإرسال */
+export const LEGACY_MAIL_GAP_MS = 2000;
+
+/**
+ * بريد «قُبل طلبك» لمن رُقّي من **pending_review** وحده (المراجعة #20): شاشة v1 وعدته «سيصلك بريدٌ بالقرار»، وبريده مؤكَّد
+ * (لم يكن يبلغ pending_review إلا بعد تأكيده). **pending_email لا يُراسَل أبداً** — عنوانه لم تثبت ملكيّته، وترقيته لا تعني أنّ
+ * صاحب البريد سجّل. يُرسَل بعد الالتزام (خارج أيّ معاملة) لمن رقّاه النظام فعلاً (`reviewedBy='system'` — قرار المالك اليدويّ
+ * للإرث يُرسل بريده بنفسه)، واحداً بعد آخر بفاصل، و**لا يرمي أبداً** (أفضل جهد). يُعيد عدد ما أُرسل.
+ */
+export async function notifyLegacyReviewApproved(ids: readonly string[], gapMs: number = LEGACY_MAIL_GAP_MS): Promise<number> {
+  try {
+    if (!ids.length) return 0;
+    const rows = await prisma.affiliateUser.findMany({
+      where: { id: { in: [...ids] }, status: 'approved', reviewedBy: 'system' }, select: { email: true, code: true },
+    });
+    // استيرادٌ عند الحاجة: mail.ts يستورد من هذا الملف
+    const { mailLegacyApproved } = await import('./mail');
+    let sent = 0;
+    for (const r of rows) {
+      if (sent) await new Promise<void>(resolve => { setTimeout(resolve, gapMs).unref(); });
+      mailLegacyApproved(r.email, referralLink(r.code));
+      sent++;
+    }
+    return sent;
+  } catch (e) {
+    console.error('[affiliate] legacy approval mail failed:', (e as Error).message);
+    return 0;
+  }
 }
 
 // ───────────────────────────── المصادقة ─────────────────────────────

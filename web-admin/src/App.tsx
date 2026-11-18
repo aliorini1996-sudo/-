@@ -181,6 +181,7 @@ function LocaleSync() {
     if (isAppRoute(pathname)) return;
     // مسارا التحويل من صفحة السفراء إلى البوابة (/ambassadors/join و/ambassadors/login): لا يشتقّان لغة — وإلا فُرضت
     // العربية لحظة التحويل على زائر /en/ambassadors أو /fr/ambassadors، والبوابة (مسار تطبيق) تتبع اللغة القائمة.
+    // وبتحميلٍ كامل (تبويبٌ جديد) يقرأ initialLangFor في i18n/lang.ts اللغة المحفوظة لهما (AMBASSADORS_REDIRECT).
     if (/^\/ambassadors\/(join|login)\/?$/.test(pathname)) return;
     // صفحات الطبقة متعددة اللغات: لغة الواجهة (عناصر التطبيق المشتركة كشاشة التحميل) من الخمس — الإنجليزية لغير الخمس.
     // لغة المستند واتجاهه تضبطهما الصفحة نفسها، وapplyDoc لا يمسّهما على هذه المسارات (lang.ts) —

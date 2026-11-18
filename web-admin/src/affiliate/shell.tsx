@@ -1,7 +1,7 @@
 // ============================================================================
 // هيكل التنقّل في البوابة (V2_SPEC §7 — الجوال أولاً، مثل ركاز):
 //   · الجوال: شريطٌ سفليّ ثابت بأربعة (الرئيسية · شركاتي · أرباحي · المزيد)، و«المزيد» ورقةٌ
-//     منزلقة من الأسفل بالباقي تُغلق بعد الاختيار (وبلمسة الخلفية وEsc وتغيّر العنوان).
+//     منزلقة من الأسفل بالباقي تُغلق بعد الاختيار (وبلمسة الخلفية وEsc وتغيّر العنوان وبلوغ ≥lg).
 //   · الحاسوب (≥lg): شريطٌ جانبيّ بالكل.
 //   · زرّ واتساب الدعم العائم فوق الشريط السفليّ.
 // التبويب يبقى من `#hash` (./nav) — هنا العرض وحده، والانتقال يمرّره AffiliateApp.
@@ -14,6 +14,7 @@ import {
 import { useAxT, type AxKey } from './i18n';
 import { BOTTOM_TABS, isMoreTab, type Tab } from './nav';
 import { supportWhatsappUrl } from './format';
+import { LG_MEDIA, onMediaMatch } from './media';
 
 export const NAV: Record<Tab, { label: AxKey; Icon: LucideIcon }> = {
   home: { label: 'tab.home', Icon: Home },
@@ -121,9 +122,13 @@ export function MoreSheet({ open, tabs, active, onSelect, onClose, onLogout }: {
     panel.current?.focus();
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
+    // الورقة مخفيّةٌ بـCSS وحدها على ≥lg: تدوير جهازٍ لوحيّ أو تكبير النافذة وهي مفتوحة كان يُخفيها
+    // ويُبقي التمرير موقوفاً وزرّ الدعم غائباً بلا زرّ إغلاقٍ ظاهر — فتُغلق عند بلوغ lg (فيُعاد التمرير)
+    const stopLg = onMediaMatch(LG_MEDIA, onClose);
     return () => {
       document.body.style.overflow = prevOverflow;
       window.removeEventListener('keydown', onKey);
+      stopLg();
       prevFocus?.focus?.();
     };
   }, [open, onClose]);

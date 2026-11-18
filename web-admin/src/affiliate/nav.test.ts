@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   AUTH_VIEWS, TAB_IDS, BOTTOM_TABS, MORE_TABS, linkTokenFromSearch, viewFromSearch, tabFromHash, authViewSearch, tabHash,
-  authTarget, tabTarget, showLinkScreen, isLegacyAuthLink, isMoreTab, visibleTabs,
+  authTarget, tabTarget, showLinkScreen, isLegacyAuthLink, isMoreTab, visibleTabs, sessionTarget,
 } from './nav';
 import { errorCode, errorStatus, errorText, fieldErrorMsg, isEmailTaken, isTermsOutdated, localizedServerText } from './errors';
 import { AX_DICT } from './i18n';
@@ -110,6 +110,33 @@ test('AffiliateApp: الشاشة والتبويب من العنوان، والا
   const tabBody = s.match(/const setTab = useCallback\([\s\S]*?\}, \[/);
   assert.ok(tabBody, 'دالّة setTab غير موجودة');
   assert.doesNotMatch(tabBody![0], /replace: true/, 'setTab تستبدل بدل أن تدفع');
+});
+
+test('رابط بريدٍ عميق (/ax#profile) بلا جلسة: يبقى التبويب بعد الدخول وبعد 401 — والخروج والتسجيل يبدآن من الرئيسية', () => {
+  // بريد «تعذّر تحويل مستحقّاتك» ⇒ /ax#profile: الدخول ثم «ملفي» لا الرئيسية
+  assert.equal(sessionTarget('', '#profile'), null, 'العنوان على وجهته — لا تنقّل يُسقط الوسم');
+  assert.equal(tabFromHash('#profile'), 'profile');
+  assert.equal(sessionTarget('', '#earnings'), null);
+  assert.deepEqual(sessionTarget('?view=forgot', '#profile'), { search: '', hash: '#profile' });
+  assert.deepEqual(sessionTarget('?verify=x', '#profile'), { search: '', hash: '#profile' }, 'رابط v1 القديم مع وسم');
+  // الاستعادة وبلا وسم ⇒ الرئيسية نظيفة
+  assert.deepEqual(sessionTarget('?view=reset', ''), { search: '', hash: '' });
+  assert.equal(sessionTarget('', ''), null);
+  assert.equal(sessionTarget('?', '#'), null);
+  // وسمٌ مجهول يُمسح، والتسجيل يبدأ من الرئيسية دائماً (V2_SPEC §7)
+  assert.deepEqual(sessionTarget('', '#nope'), { search: '', hash: '' });
+  assert.deepEqual(sessionTarget('?view=register', '#profile'), { search: '', hash: '' });
+  for (const t of TAB_IDS) assert.equal(sessionTarget('', tabHash(t)), null, t);
+
+  const app = readFileSync(new URL('./AffiliateApp.tsx', import.meta.url), 'utf8');
+  const loggedIn = app.match(/const onLoggedIn = useCallback\([\s\S]*?\}, \[/);
+  assert.ok(loggedIn, 'onLoggedIn غير موجود');
+  assert.match(loggedIn![0], /toSession\(\);/, 'الدخول يُسقط وسم التبويب');
+  assert.doesNotMatch(loggedIn![0], /toRoot\(\)/);
+  assert.match(app, /const target = sessionTarget\(location\.search, location\.hash\);\s*if \(target\) navigate\(\{ pathname: location\.pathname, \.\.\.target \}, \{ replace: true \}\);/);
+  assert.match(app, /if \(keepTab\) toSession\(\); else toRoot\(\);/);
+  assert.match(app, /onUnauthorized\(\(\) => \{\s*resetSession\(true\);/, '401 يُسقط التبويب');
+  assert.match(app, /clearToken\(\);\s*resetSession\(false\);/, 'الخروج الصريح لا يمسح التبويب');
 });
 
 test('شاشة الدخول: رسالة الخادم الموحّدة تُعرض كما هي بلا تفريع على نصّها', () => {

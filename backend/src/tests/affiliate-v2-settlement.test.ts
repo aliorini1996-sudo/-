@@ -20,6 +20,13 @@ const stub = (rel: string, exports: Record<string, unknown>): void => {
 type Marker = { key: string; value: string; updatedAt: Date; createdAt: Date };
 const markers = new Map<string, Marker>();
 let markerCreateFails: Error | null = null;
+/** ما اعتمده النظام أو المالك بلحظته — النبضة الساعية والدورة تختمان approvedAt بـ`now` نفسه */
+let approvals: Array<{ approvedBy: string; approvedAt: Date }> = [];
+let countFails: Error | null = null;
+const countWheres: Array<{ approvedBy: string; approvedAt: { gt: Date; lte: Date } }> = [];
+type MissedRow = { id: string; affiliateId: string; companyName: string; contactPhone: string | null; crNumber: string | null; note: string | null; status: string; reasonNote: string | null; submittedAt: Date; reviewedAt: Date | null; reviewedBy: string | null; tenantId: string | null };
+let missedRows: MissedRow[] = [];
+let tenants: Array<{ id: string; name: string; createdAt: Date; cr: string }> = [];
 const fakePrisma = {
   opsMarker: {
     async create(a: { data: { key: string; value?: string } }) {
@@ -44,6 +51,33 @@ const fakePrisma = {
     },
     async findUnique(a: { where: { key: string } }) { return markers.get(a.where.key) ?? null; },
   },
+  // «اعتُمدت تلقائياً» منذ الدورة السابقة: عدّ عمولات النظام بنافذة approvedAt (settlement.ts)
+  affiliateCommission: {
+    async count(a: { where: { approvedBy: string; approvedAt: { gt: Date; lte: Date } } }) {
+      if (countFails) throw countFails;
+      countWheres.push(a.where);
+      const w = a.where;
+      return approvals.filter(x => x.approvedBy === w.approvedBy && x.approvedAt.getTime() > w.approvedAt.gt.getTime() && x.approvedAt.getTime() <= w.approvedAt.lte.getTime()).length;
+    },
+  },
+  // المطالبات الفائتة: القائمة واقتراحاتها بالسجل، وفحص القبول — بقاعدة المهلة نفسها
+  affiliateMissedClaim: {
+    async findMany() { return missedRows.map(c => ({ ...c, affiliate: { id: c.affiliateId, fullName: 'سفير', code: 'CODEAAAA' } })); },
+    async findUnique(a: { where: { id: string } }) { return missedRows.find(c => c.id === a.where.id) ?? null; },
+  },
+  tenant: {
+    async findMany(a: { where: { id?: { in: string[] } } }) {
+      return a.where.id ? tenants.filter(t => a.where.id!.in.includes(t.id)).map(t => ({ id: t.id, name: t.name })) : [];
+    },
+    async findUnique(a: { where: { id: string } }) { const t = tenants.find(x => x.id === a.where.id); return t ? { createdAt: t.createdAt } : null; },
+  },
+  companySettings: {
+    async findMany(a: { where: { commercialReg?: { contains: string } } }) {
+      const cr = a.where.commercialReg?.contains;
+      return cr ? tenants.filter(t => t.cr === cr).map(t => ({ commercialReg: t.cr, phone: null, tenant: { id: t.id, name: t.name, createdAt: t.createdAt } })) : [];
+    },
+  },
+  tenantAttribution: { async findMany() { return []; } },
   affiliatePayout: {
     async aggregate(a: { where: { cycleKey: string } }) {
       const rows = created.filter(c => c.cycleKey === a.where.cycleKey);
@@ -57,12 +91,15 @@ stub('config/database', { default: fakePrisma });
 class LedgerError extends Error { constructor(public status: number, message: string, public code?: string) { super(message); } }
 type Cand = { affiliate: { id: string; fullName: string; code: string; email: string }; netHalalas: number; eligible: boolean; blockedBy: string | null };
 let candidates: Cand[] = [];
+let autoApproveNow = 0;
 let created: Array<{ id: string; affiliateId: string; cycleKey: string; netHalalas: number; ibanLast4: string }> = [];
 const calls: string[] = [];
 stub('services/affiliate/ledger', {
   LedgerError,
+  SYSTEM_ID: 'system',
   async reconcile() { calls.push('reconcile'); return { accrued: 0, synced: 0 }; },
-  async autoApproveEligible() { calls.push('autoApprove'); return { approved: 2, skipped: 1 }; },
+  // نداء الدورة يجد صفراً عادةً: نبضة الساعة نفسها اعتمدت قبلها بـ`now` نفسه (المجدول)
+  async autoApproveEligible() { calls.push('autoApprove'); return { approved: autoApproveNow, skipped: 1 }; },
   async payoutCandidates() { calls.push('candidates'); return candidates; },
   async createCyclePayout(affiliateId: string, cycle: { cycleKey: string; periodStart: Date; periodEnd: Date }) {
     calls.push(`create:${affiliateId}`);
@@ -74,9 +111,10 @@ stub('services/affiliate/ledger', {
     return row;
   },
 });
-const mails: Array<{ payouts: unknown[]; totalHalalas: number; waitingProfile: number; cycleKey: string }> = [];
+type SummaryMail = { payouts: unknown[]; totalHalalas: number; waitingProfile: number; waitingIban: number; autoApproved: number; cycleKey: string };
+const mails: SummaryMail[] = [];
 stub('services/affiliate/settlementMail', {
-  mailOwnerSettlementSummary(s: { payouts: unknown[]; totalHalalas: number; waitingProfile: number; cycleKey: string }) { mails.push(s); },
+  mailOwnerSettlementSummary(s: SummaryMail) { mails.push(s); },
   mailPayoutFailed() { /* لا شيء */ },
 });
 
@@ -87,7 +125,10 @@ const materials = require('../services/affiliate/materials') as typeof import('.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const missed = require('../services/affiliate/missedClaims') as typeof import('../services/affiliate/missedClaims');
 
-const reset = () => { markers.clear(); markerCreateFails = null; created = []; calls.length = 0; mails.length = 0; };
+const reset = () => {
+  markers.clear(); markerCreateFails = null; created = []; calls.length = 0; mails.length = 0;
+  approvals = []; countFails = null; countWheres.length = 0; autoApproveNow = 0;
+};
 const aff = (id: string) => ({ id, fullName: `سفير ${id}`, code: `CODE${id}`.toUpperCase().padEnd(8, 'X').slice(0, 8), email: `${id}@x.co` });
 
 // ═══════════════════ حدود الدورة ═══════════════════
@@ -149,6 +190,13 @@ const NOW = new Date('2026-11-12T03:00:00Z'); // بعد نهاية دورة ١١
 
 test('الدورة التلقائية: مصالحة ثمّ اعتماد ثمّ مسودّات للمؤهَّلين وحدهم، وملخّصٌ للمالك', async () => {
   reset();
+  // اعتمادات النظام: نبضةٌ ساعية في منتصف الدورة، ونبضة الدورة نفسها بـ`now` قبل دخولها — وما قبل الدورة واعتماد المالك لا يُعدّان
+  approvals = [
+    { approvedBy: 'system', approvedAt: new Date('2026-11-05T09:00:00Z') },
+    { approvedBy: 'system', approvedAt: NOW },
+    { approvedBy: 'system', approvedAt: new Date('2026-10-25T09:00:00Z') },
+    { approvedBy: 'o1', approvedAt: new Date('2026-11-06T09:00:00Z') },
+  ];
   candidates = [
     { affiliate: aff('a'), netHalalas: 8970, eligible: true, blockedBy: null },
     { affiliate: aff('b'), netHalalas: 2000, eligible: false, blockedBy: 'below_min' },
@@ -162,12 +210,16 @@ test('الدورة التلقائية: مصالحة ثمّ اعتماد ثمّ �
   assert.deepEqual(calls.slice(0, 3), ['reconcile', 'autoApprove', 'candidates'], 'الترتيب: المصالحة ثمّ الاعتماد ثمّ المرشّحون');
   assert.deepEqual(created.map(c => c.affiliateId), ['a', 'd'], 'المؤهَّلون وحدهم — ما دون الحدّ يُرحَّل');
   assert.equal(r.totalHalalas, 13970);
-  assert.equal(r.autoApproved, 2);
+  assert.equal(r.autoApproved, 2, 'ما اعتمده النظام منذ بداية الدورة (لا علامة سابقة) — لا صفر نداء الدورة');
+  assert.equal(countWheres[0].approvedAt.gt.toISOString(), '2026-10-31T21:00:00.000Z', 'بلا علامةٍ سابقة: من بداية الدورة');
+  assert.equal(countWheres[0].approvedAt.lte.getTime(), NOW.getTime());
   assert.deepEqual(r.skipped, { profile_incomplete: 1, iban_failed: 1 }, 'ما دون الحدّ لا يُعدّ حجباً');
   assert.equal(mails.length, 1);
   assert.equal(mails[0].payouts.length, 2);
   assert.equal(mails[0].totalHalalas, 13970);
   assert.equal(mails[0].waitingProfile, 1);
+  assert.equal(mails[0].waitingIban, 1);
+  assert.equal(mails[0].autoApproved, 2);
   const m = markers.get('ax-settle:2026-11-11')!;
   assert.notEqual(m.value, 'running', 'العلامة تُختم منجزةً بملخّصها');
   assert.equal(JSON.parse(m.value).payouts, 2);
@@ -219,6 +271,82 @@ test('علامة «running» قديمة (نسخةٌ ماتت في منتصف ا�
   await assert.rejects(() => settlement.runSettlementCycle(NOW), /unreachable/, 'تُعاد المحاولة في النبضة التالية');
   assert.equal(markers.size, 0);
   assert.equal(created.length, 0);
+});
+
+test('«اعتُمدت تلقائياً» = ما اعتمده النظام منذ تشغيل الدورة السابقة: لا صفرٌ بعد نبضة الساعة، ولا عدٌّ مرّتين', async () => {
+  reset();
+  candidates = [{ affiliate: aff('a'), netHalalas: 8970, eligible: true, blockedBy: null }];
+  // الدورة السابقة (١ نوفمبر) شُغّلت 2026-10-31T21:30Z — نداؤها ختم ما اعتمده بلحظتها فعدّته هي
+  const prevAt = new Date('2026-10-31T21:30:00Z');
+  markers.set('ax-settle:2026-11-01', { key: 'ax-settle:2026-11-01', value: JSON.stringify({ payouts: 1, totalHalalas: 1, skipped: {}, manual: false, at: prevAt.toISOString() }), updatedAt: prevAt, createdAt: prevAt });
+  // نبضة 21:30 للدورة الحالية: النبضة اعتمدت B بـ`now` قبل أن تدخل الدورة، فنداء الدورة صفر (autoApproveNow = 0)
+  const at = new Date('2026-11-10T21:30:00Z');
+  approvals = [
+    { approvedBy: 'system', approvedAt: prevAt }, // عدّته الدورة السابقة
+    { approvedBy: 'system', approvedAt: new Date('2026-10-31T21:10:00Z') }, // قبل تشغيل السابقة
+    { approvedBy: 'system', approvedAt: new Date('2026-11-04T08:00:00Z') }, // A: نبضةٌ ساعية بين الدورتين
+    { approvedBy: 'system', approvedAt: at }, // B: نبضة الدورة نفسها
+    { approvedBy: 'system', approvedAt: new Date('2026-11-10T22:30:00Z') }, // بعد هذا التشغيل
+  ];
+  const r = await settlement.runSettlementCycle(at);
+  assert.equal(r.cycleKey, '2026-11-11');
+  assert.equal(r.autoApproved, 2, 'A وB — وكلاهما في مسودّة هذه الدورة');
+  assert.equal(countWheres[0].approvedBy, 'system');
+  assert.equal(countWheres[0].approvedAt.gt.getTime(), prevAt.getTime(), 'من لحظة الدورة السابقة');
+  assert.equal(mails[0].autoApproved, 2);
+  // الدورة التالية تبدأ من لحظة هذه (`at` في علامتها) فلا تعدّ B ثانيةً
+  assert.equal(JSON.parse(markers.get('ax-settle:2026-11-11')!.value).at, at.toISOString());
+  const next = await settlement.runSettlementCycle(new Date('2026-11-20T21:30:00Z'));
+  assert.equal(next.cycleKey, '2026-11-21');
+  assert.equal(next.autoApproved, 1, 'ما بعد تشغيل هذه وحده');
+
+  // علامةٌ سابقة بلا ملخّصٍ مقروء ⇒ من بداية الدورة؛ وفشل العدّ لا يُسقط الدورة (يُعاد عدّ النداء)
+  reset();
+  candidates = [{ affiliate: aff('a'), netHalalas: 8970, eligible: true, blockedBy: null }];
+  markers.set('ax-settle:2026-11-01', { key: 'ax-settle:2026-11-01', value: 'running', updatedAt: NOW, createdAt: NOW });
+  approvals = [{ approvedBy: 'system', approvedAt: new Date('2026-11-01T08:00:00Z') }];
+  assert.equal((await settlement.runSettlementCycle(NOW)).autoApproved, 1);
+  assert.equal(countWheres[0].approvedAt.gt.toISOString(), '2026-10-31T21:00:00.000Z');
+  reset();
+  candidates = [{ affiliate: aff('a'), netHalalas: 8970, eligible: true, blockedBy: null }];
+  countFails = new Error('count failed');
+  autoApproveNow = 4;
+  const failed = await settlement.runSettlementCycle(NOW);
+  assert.equal(failed.ran, true);
+  assert.equal(failed.autoApproved, 4);
+  assert.equal(created.length, 1, 'الدفعات تُنشأ رغم فشل العدّ');
+});
+
+test('من بلا آيبان ينتظر إكمال ملفه أيضاً: يُعدّ في الملخّص، ويُرسل البريد ولو لم يُنتظر غيره', async () => {
+  reset();
+  candidates = [
+    { affiliate: aff('a'), netHalalas: 30000, eligible: false, blockedBy: 'no_iban' },
+    { affiliate: aff('b'), netHalalas: 15000, eligible: false, blockedBy: 'no_iban' },
+    { affiliate: aff('c'), netHalalas: 2000, eligible: false, blockedBy: 'below_min' },
+  ];
+  const r = await settlement.runSettlementCycle(NOW);
+  assert.equal(r.ran, true);
+  assert.equal(r.payouts.length, 0);
+  assert.deepEqual(r.skipped, { no_iban: 2 });
+  assert.equal(mails.length, 1, 'لا دفعات لكنّ رصيدَين بلغا الحدّ ينتظران — يعرفه المالك');
+  assert.equal(mails[0].waitingProfile, 2);
+  assert.equal(mails[0].waitingIban, 0);
+
+  // مع profile_incomplete يُجمعان في سطرٍ واحد (النوع والآيبان والهوية)
+  reset();
+  candidates = [
+    { affiliate: aff('a'), netHalalas: 30000, eligible: false, blockedBy: 'no_iban' },
+    { affiliate: aff('d'), netHalalas: 30000, eligible: false, blockedBy: 'profile_incomplete' },
+    { affiliate: aff('e'), netHalalas: 30000, eligible: true, blockedBy: null },
+  ];
+  await settlement.runSettlementCycle(NOW);
+  assert.equal(mails[0].waitingProfile, 2);
+
+  // اليدويّ بلا دفعاتٍ جديدة لا يرسل بريداً ولو انتُظر ملف
+  reset();
+  candidates = [{ affiliate: aff('a'), netHalalas: 30000, eligible: false, blockedBy: 'no_iban' }];
+  await settlement.runSettlementCycle(NOW, { by: { actorType: 'owner', actorId: 'o1' } });
+  assert.equal(mails.length, 0);
 });
 
 // ═══════════════════ المواد التسويقية: البايتات هي الحَكَم ═══════════════════
@@ -303,6 +431,46 @@ test('المطالبة الفائتة: الاسم والملاحظة بلا جو
   assert.equal(missed.MISSED_CLAIM_WINDOW_DAYS, 30, 'الشروط v4: خلال ٣٠ يوماً من تسجيل الشركة');
   assert.deepEqual([...missed.MISSED_CLAIM_STATUSES], ['under_review', 'accepted', 'rejected', 'withdrawn']);
   assert.deepEqual([...materials.MATERIAL_CATEGORIES], ['image', 'video', 'document', 'text', 'link']);
+});
+
+test('مهلة المطالبة الفائتة قاعدةٌ واحدة: ما تعرضه القائمة «داخل المهلة» يقبله القبول، وما خارجها يُرفض claim_late', async () => {
+  const created0 = new Date('2026-10-01T10:00:00Z');
+  const d = (iso: string) => missed.missedClaimDays(new Date(iso), created0);
+  assert.equal(d('2026-10-31T18:00:00Z'), 30, '٣٠ يوماً و٨ ساعات');
+  assert.equal(d('2026-11-01T10:00:00Z'), 31);
+  assert.equal(d('2026-09-30T10:00:00Z'), -1, 'قبل التسجيل');
+  assert.equal(missed.withinMissedClaimWindow(30), true, 'اليوم الثلاثون داخلها');
+  assert.equal(missed.withinMissedClaimWindow(31), false);
+  assert.equal(missed.withinMissedClaimWindow(-1), true);
+
+  tenants = [{ id: 't1', name: 'شركة النور', createdAt: created0, cr: '1010123456' }];
+  const row = (id: string, submittedAt: string): MissedRow => ({
+    id, affiliateId: 'a1', companyName: 'النور', contactPhone: null, crNumber: '1010123456', note: null,
+    status: 'under_review', reasonNote: null, submittedAt: new Date(submittedAt), reviewedAt: null, reviewedBy: null, tenantId: null,
+  });
+  const cases: Array<[string, string, boolean]> = [
+    ['m30', '2026-10-31T18:00:00Z', true], // سيناريو المراجعة: كانت القائمة «داخل» والقبول claim_late
+    ['m30b', '2026-11-01T09:59:59Z', true],
+    ['m31', '2026-11-01T10:00:00Z', false],
+    ['m5', '2026-10-06T10:00:00Z', true],
+  ];
+  missedRows = cases.map(([id, at]) => row(id, at));
+  const list = await missed.listMissedClaimsForOwner('under_review');
+  for (const [id, , inside] of cases) {
+    const sug = list.find(c => c.id === id)!.suggestions;
+    assert.equal(sug.length, 1, `${id}: اقتراحٌ بالسجل`);
+    assert.equal(sug[0].withinWindow, inside, `${id}: القائمة`);
+    const accepted = await missed.prepareMissedClaimAccept(id, 't1').then(() => true, (e: unknown) => {
+      assert.ok(e instanceof LedgerError && e.code === 'claim_late', `${id}: ${(e as Error).message}`);
+      return false;
+    });
+    assert.equal(accepted, inside, `${id}: القبول يوافق القائمة`);
+  }
+  // لا مقارنةٌ ثانية بالميلّي ثانية في القبول — الدالّتان نفسهما في الموضعين
+  const src = strip(read('services', 'affiliate', 'missedClaims.ts'));
+  assert.doesNotMatch(src, /MISSED_CLAIM_WINDOW_DAYS \* DAY_MS/);
+  assert.equal((src.match(/withinMissedClaimWindow\(/g) ?? []).length, 3, 'التعريف والقائمة والقبول');
+  missedRows = []; tenants = [];
 });
 
 // ═══════════════════ حرّاس الوصل ═══════════════════

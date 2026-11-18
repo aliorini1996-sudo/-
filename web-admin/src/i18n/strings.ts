@@ -885,7 +885,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'عرض السفراء والإسنادات والعمولات': { en: 'View ambassadors, attributions and commissions', fr: 'Voir les ambassadeurs les attributions et les commissions', tr: 'Elçileri, atamaları ve komisyonları görüntüleme', zh: '查看推广大使、归属与佣金' },
   'قبول السفراء ورفضهم وإيقافهم والإسنادات والإعدادات': { en: 'Approve, reject and suspend ambassadors, plus attributions and settings', fr: 'Accepter refuser et suspendre les ambassadeurs ainsi que les attributions et réglages', tr: 'Elçileri onaylama, reddetme ve askıya alma, atamalar ve ayarlar', zh: '批准、拒绝、暂停推广大使，管理归属与设置' },
   'اعتماد العمولات والدفعات والتسويات': { en: 'Approve commissions, payouts and adjustments', fr: 'Valider les commissions les versements et les ajustements', tr: 'Komisyonları, ödemeleri ve düzeltmeleri onaylama', zh: '审批佣金、付款与调整' },
-  'كشف رقم الآيبان': { en: 'Reveal IBAN', fr: 'Afficher l IBAN', tr: 'IBAN numarasını gösterme', zh: '显示 IBAN 号码' },
+  'كشف الآيبان وعرض مستندات الهوية والسجل التجاري': { en: 'Reveal IBAN and view ID and commercial registration documents', fr: 'Afficher l IBAN et les documents d identité et du registre du commerce', tr: 'IBAN numarasını ve kimlik ile ticaret sicili belgelerini görüntüleme', zh: '显示 IBAN 号码并查看身份证件与商业登记文件' },
   'عرض سجل عروض الأسعار': { en: 'View the quotes log', fr: 'Voir le registre des devis', tr: 'Teklif kaydını görüntüleme', zh: '查看报价记录' },
   'حذف عرض سعر': { en: 'Delete a quote', fr: 'Supprimer un devis', tr: 'Teklif silme', zh: '删除报价' },
   'تعديل محتوى الصفحة والبروفايل': { en: 'Edit site content and profile', fr: 'Modifier le contenu du site et le profil', tr: 'Site içeriğini ve profili düzenleme', zh: '编辑网站内容与资料页' },

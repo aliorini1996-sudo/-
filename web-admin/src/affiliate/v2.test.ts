@@ -7,9 +7,13 @@ import {
 } from './format';
 import { base64Bytes, dataUrlParts, dataUrlToBlob, docFileError, needsDownscale, safeFileName, DOC_MAX_BYTES } from './files';
 import { dashboardView } from './dashboard';
-import { profileProgress, needsCommercialReg } from './profile';
+import { profileProgress, needsCommercialReg, mergeMeUser } from './profile';
 import { AX_DICT } from './i18n';
 import { FAQ_KEYS } from './faq';
+import { materialParts } from './materials';
+import { LG_MEDIA, onMediaMatch } from './media';
+import { errorText } from './errors';
+import { AMBASSADORS_REDIRECT, initialLangFor } from '../i18n/lang';
 
 /**
  * حرّاس بوابة السفير v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦ — docs/affiliate/V2_SPEC.md §3 و§6.1 و§7):
@@ -189,8 +193,159 @@ test('«ملفي»: الحساب البنكي متاحٌ دائماً، والم
 
 test('المواد التسويقية: الرابط http(s) وحده، والنصّ نصٌّ، والملف يُجلب عند الطلب', () => {
   const s = read('./screens/MaterialsScreen.tsx');
-  assert.match(s, /const url = safeHttpUrl\(m\.url\);/);
+  assert.match(s, /const \{ file, url, text, textIsMain \} = materialParts\(m\);/);
+  assert.match(read('./materials.ts'), /url: safeHttpUrl\(m\.url\)/, 'الرابط لا يمرّ بـsafeHttpUrl');
   assert.doesNotMatch(s, /dangerouslySetInnerHTML/);
   assert.match(s, /affiliateApi\.materialFile\(m\.id\)/);
   assert.doesNotMatch(s, /useQuery\(\{[^}]*materialFile/, 'الملفات لا تُحمَّل مسبقاً');
+});
+
+test('المادّة تُعرض من بياناتها لا فئتها: فيديو الرابط يُفتح بلا «تنزيل»، والتعليق المرافق يُنسخ لأيّ فئة', () => {
+  const row = (o: Partial<Parameters<typeof materialParts>[0]>) => ({
+    category: 'image' as const, fileName: null, mime: null, sizeBytes: null, url: null, textBody: null, ...o,
+  });
+  // فيديو أُضيف رابطاً (mime=null بلا ملف): «فتح الرابط/نسخ» لا «تنزيل/مشاركة» ترتدّ بـ404
+  const vUrl = materialParts(row({ category: 'video', url: 'https://youtu.be/xyz' }));
+  assert.equal(vUrl.file, false, 'فيديو الرابط بزرّ تنزيلٍ يرتدّ بـ404');
+  assert.equal(vUrl.url, 'https://youtu.be/xyz', 'رابط الفيديو لا يظهر');
+  // فيديو ملفٌّ قصير: تنزيل/مشاركة بلا رابط
+  const vFile = materialParts(row({ category: 'video', fileName: 'promo.mp4', mime: 'video/mp4', sizeBytes: 1_000_000 }));
+  assert.deepEqual([vFile.file, vFile.url], [true, null]);
+  // الملف من أيّ حقلٍ من حقوله الثلاثة
+  assert.equal(materialParts(row({ mime: 'image/png' })).file, true);
+  assert.equal(materialParts(row({ fileName: 'a.pdf', category: 'document' })).file, true);
+  assert.equal(materialParts(row({ sizeBytes: 10 })).file, true);
+  assert.equal(materialParts(row({ sizeBytes: 0 })).file, false);
+  // الرابط http(s) وحده، لأيّ فئة
+  assert.equal(materialParts(row({ category: 'link', url: 'javascript:alert(1)' })).url, null);
+  assert.equal(materialParts(row({ category: 'link', url: 'https://fieldsa.net/x' })).url, 'https://fieldsa.net/x');
+  // التعليق المرافق: لصورةٍ ورابطٍ وفيديو ومستند — نسخه ثانويّ؛ ولفئة «نصّ» المحتوى الأساسيّ
+  for (const category of ['image', 'video', 'document', 'link'] as const) {
+    const p = materialParts(row({ category, mime: 'image/png', textBody: 'اكسب ٣٠٪… سجّل الآن' }));
+    assert.equal(p.text, 'اكسب ٣٠٪… سجّل الآن', `${category}: التعليق لا يظهر`);
+    assert.equal(p.textIsMain, false, category);
+  }
+  const txt = materialParts(row({ category: 'text', textBody: 'نصٌّ جاهز\nسطرٌ ثانٍ' }));
+  assert.deepEqual([txt.text, txt.textIsMain, txt.file, txt.url], ['نصٌّ جاهز\nسطرٌ ثانٍ', true, false, null]);
+  assert.equal(materialParts(row({ category: 'text', textBody: '   ' })).text, null, 'نصٌّ فارغ');
+
+  // البطاقة: الملف والرابط والنصّ بشروطها لا بالفئة
+  const s = read('./screens/MaterialsScreen.tsx');
+  assert.match(s, /\{file && <FileActions m=\{m\} \/>\}/);
+  assert.match(s, /\{url && \(/);
+  assert.match(s, /\{text && \(/);
+  assert.match(s, /primary=\{textIsMain\}/);
+  assert.doesNotMatch(s, /m\.category === '(text|link)' &&/, 'العرض ما زال مشروطاً بالفئة');
+  assert.doesNotMatch(s, /const isFile = /);
+  assert.match(s, /label=\{t\('mat\.copyLink'\)\}/);
+  assert.equal(AX_DICT['mat.copyLink'].en, 'Copy link');
+});
+
+test('بعد حفظ «ملفي» أو قبول الشروط: المستخدم يُدمج فتبقى المستندات والاكتمال حتى تصل /me', () => {
+  const doc = { kind: 'national_id' as const, mime: 'image/jpeg', sizeBytes: 100, createdAt: '2026-11-18T00:00:00.000Z' };
+  const old = {
+    id: 'a1', email: 'a@b.c', fullName: 'سفير', phone: null, city: null, code: 'AB12', status: 'approved' as const, statusReason: null,
+    vatNumber: null, marketingConsent: false, termsVersion: 'v1', payout: null, createdAt: '2026-11-01T00:00:00.000Z',
+    partnerType: 'individual' as const, companyName: null, socialLinks: null,
+    documents: [doc], profileComplete: false, missing: ['iban' as const],
+  };
+  // ردّ PUT /payout-profile (publicUser): بلا documents ولا missing ولا profileComplete
+  const { documents: _d, missing: _m, profileComplete: _c, ...bare } = old;
+  const put = { ...bare, payout: { holderName: 'سفير', bankName: null, ibanLast4: '1234', updatedAt: '2026-11-18T00:00:00.000Z' } };
+  const merged = mergeMeUser(old, put);
+  assert.deepEqual(merged.documents, [doc], 'الهوية المرفوعة تظهر «لم تُرفع»');
+  assert.deepEqual(merged.missing, ['iban']);
+  assert.equal(merged.profileComplete, false);
+  assert.equal(merged.payout?.ibanLast4, '1234', 'الحفظ لم يصل');
+  // اكتمالٌ متّسق (لا ١٠٠٪ «ناقص»)
+  const p = profileProgress(merged);
+  assert.equal(p.complete, false);
+  assert.ok(p.percent < 100, `النسبة ${p.percent}٪ مع ملفٍّ ناقص`);
+  // ردٌّ كامل (خادمٌ يرسل الحقول) يغلب
+  const full = mergeMeUser(old, { ...put, documents: [], missing: [], profileComplete: true });
+  assert.deepEqual([full.documents, full.missing, full.profileComplete], [[], [], true]);
+  // AffiliateApp يدمج لا يستبدل
+  const app = read('./AffiliateApp.tsx');
+  assert.match(app, /user: mergeMeUser\(old\.user, u\)/);
+  assert.doesNotMatch(app, /\{ \.\.\.old, user: u \}/, 'المستخدم يُستبدل بردّ التعديل');
+});
+
+test('أخطاء المطالبة الفائتة الموثّقة (API.md) مترجمة بلغات العرض: open_limit وnot_under_review وتحقّق 400', () => {
+  const e = (status: number, code: string, message = 'رسالة عربية من الخادم') => ({ isAxiosError: true, response: { status, data: { message, code } } });
+  const cases: Array<[number, string, keyof typeof AX_DICT]> = [
+    [409, 'open_limit', 'err.tooManyMissedClaims'],
+    [429, 'too_many_open_missed_claims', 'err.tooManyMissedClaims'],
+    [409, 'not_under_review', 'err.notUnderReview'],
+    [400, 'contact_in_text', 'err.contactInText'],
+    [400, 'invalid_phone', 'val.contactPhone'],
+    [400, 'invalid_cr', 'val.cr'],
+  ];
+  for (const [status, code, key] of cases) {
+    for (const l of ['en', 'fr', 'tr', 'zh'] as const) {
+      assert.equal(errorText(e(status, code), l, 'missed.failed'), AX_DICT[key][l], `${code} · ${l}`);
+    }
+    // العربية: رسالة الخادم كما هي
+    assert.equal(errorText(e(status, code), 'ar', 'missed.failed'), 'رسالة عربية من الخادم');
+  }
+  for (const k of ['err.notUnderReview', 'err.contactInText'] as const) {
+    for (const l of ['ar', 'en', 'fr', 'tr', 'zh'] as const) assert.ok(AX_DICT[k][l].trim(), `${k}.${l}`);
+  }
+});
+
+test('ورقة «المزيد» تُغلق عند بلوغ ≥lg (تدوير جهازٍ لوحيّ وهي مفتوحة) — فلا يبقى التمرير موقوفاً', () => {
+  type Cb = (e: { matches: boolean }) => void;
+  const fakeWin = (matches: boolean, legacy = false) => {
+    const cbs = new Set<Cb>();
+    const mq = legacy
+      ? { matches, addListener: (cb: Cb) => cbs.add(cb), removeListener: (cb: Cb) => cbs.delete(cb) }
+      : { matches, addEventListener: (_: 'change', cb: Cb) => cbs.add(cb), removeEventListener: (_: 'change', cb: Cb) => cbs.delete(cb) };
+    const queries: string[] = [];
+    return { win: { matchMedia: (q: string) => { queries.push(q); return mq; } }, fire: (m: boolean) => cbs.forEach((cb) => cb({ matches: m })), cbs, queries };
+  };
+  for (const legacy of [false, true]) {
+    // مفتوحة على الجوال ثم دُوِّر الجهاز إلى ≥1024px
+    const w = fakeWin(false, legacy);
+    let closed = 0;
+    const stop = onMediaMatch(LG_MEDIA, () => { closed += 1; }, w.win);
+    assert.deepEqual(w.queries, ['(min-width: 1024px)']);
+    assert.equal(closed, 0, 'تُغلق على الجوال بلا سبب');
+    w.fire(false);
+    assert.equal(closed, 0);
+    w.fire(true);
+    assert.equal(closed, 1, `legacy=${legacy}: لا تُغلق عند بلوغ lg`);
+    stop();
+    assert.equal(w.cbs.size, 0, 'المستمع باقٍ بعد الإغلاق');
+    // فُتحت وهي على ≥lg أصلاً ⇒ تُغلق فوراً
+    const wide = fakeWin(true, legacy);
+    let now = 0;
+    onMediaMatch(LG_MEDIA, () => { now += 1; }, wide.win)();
+    assert.equal(now, 1);
+  }
+  // بيئةٌ بلا matchMedia لا تنكسر
+  assert.doesNotThrow(() => onMediaMatch(LG_MEDIA, () => {}, {})());
+  const shell = read('./shell.tsx');
+  assert.match(shell, /const stopLg = onMediaMatch\(LG_MEDIA, onClose\);/, '«المزيد» لا تُراقب نقطة lg');
+  assert.match(shell, /stopLg\(\);/);
+  assert.match(shell, /<div className="lg:hidden fixed inset-0 z-40">/, 'الورقة ليست للجوال وحده');
+});
+
+test('الانضمام من /en|fr/ambassadors بتحميلٍ كامل: مسارا التحويل يتبعان اللغة المحفوظة فتُفتح البوابة بلغة الصفحة', () => {
+  // LocaleSync على /fr/ambassadors حفظ «fr»؛ فتح «انضم الآن» في تبويبٍ جديد يحمّل /ambassadors/join/ كاملاً
+  for (const p of ['/ambassadors/join', '/ambassadors/join/', '/ambassadors/login', '/ambassadors/login/']) {
+    assert.equal(initialLangFor(p, 'fr'), 'fr', p);
+    assert.equal(initialLangFor(p, 'en'), 'en', p);
+    assert.equal(initialLangFor(p, null), 'ar', `${p}: بلا لغةٍ محفوظة ⇒ العربية`);
+    assert.equal(initialLangFor(p, 'xx'), 'ar', `${p}: قيمةٌ مجهولة`);
+  }
+  // البوابة نفسها كما كانت، والصفحة العلنية تشتقّ لغتها من المسار لا المحفوظ
+  assert.equal(initialLangFor('/ax', 'fr'), 'fr');
+  assert.equal(initialLangFor('/ambassadors', 'fr'), 'ar');
+  assert.equal(initialLangFor('/ambassadors/', 'en'), 'ar');
+  assert.equal(initialLangFor('/en/ambassadors', 'ar'), 'en');
+  assert.equal(initialLangFor('/fr/ambassadors/', 'ar'), 'fr');
+  assert.equal(initialLangFor('/ambassadors/joinx', 'fr'), 'ar');
+  assert.equal(AMBASSADORS_REDIRECT.test('/en/ambassadors/join'), false);
+  // LocaleSync ما زال لا يشتقّ لغةً من مساري التحويل (يدهس اللغة القائمة بالعربية)
+  const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
+  assert.match(app, /if \(\/\^\\\/ambassadors\\\/\(join\|login\)\\\/\?\$\/\.test\(pathname\)\) return;/);
 });

@@ -13,7 +13,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
-import { z } from 'zod';
+import { z, ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import {
@@ -33,7 +33,7 @@ import { pendingActivationTenantIds } from '../services/trialCompany';
 import { listDocuments, parseDocumentDataUrl, saveDocument, deleteDocument, documentDataUrl, refreshProfileCompletion } from '../services/affiliate/documents';
 import { LIVE_COMMISSION_STATUSES, earningsByMonth, monthsWindowStart, conversionRate, earningsTotals } from '../services/affiliate/portalStats';
 import { nextSettlementAt } from '../services/affiliate/settlement';
-import { createMissedClaim, listMissedClaims, withdrawMissedClaim } from '../services/affiliate/missedClaims';
+import { createMissedClaim, listMissedClaims, withdrawMissedClaim, normalizeMissedClaim, MISSED_CLAIM_OPEN_LIMIT } from '../services/affiliate/missedClaims';
 import { listMaterials, materialFile } from '../services/affiliate/materials';
 
 const router = Router();
@@ -62,6 +62,22 @@ const axTrialLimiter = rateLimit({
   keyGenerator: (req) => `ax-trial:${(req as AxRequest).affiliate?.id ?? 'anon'}`,
   message: { success: false, message: 'طلباتٌ كثيرة من حسابك — حاول بعد ساعة' },
 });
+
+/**
+ * …و**لكلّ IP في يوم الرياض** فوق حدّ السفير (المراجعة #1): الانضمام فوريّ (v2) فالحساب الجديد يكلّف طلباً واحداً، وحدود
+ * السفير وحدها (أعلاه، و١٠/يوم و٢٠ منتظراً في portalTrial.ts) صارت تُضرب في عدد الحسابات الرخيصة — شركاتٌ وبُرُد تفعيلٍ رسمية
+ * لعناوين لم تطلبها. اليوم جزءٌ من المفتاح فيبدأ العدّاد من الصفر منتصف الليل بتوقيت الرياض. الفتح وإعادة الإرسال بعدّادين
+ * منفصلين (إعادة إرسال رابط شركةٍ حقيقية لا تُحجب لأنّ السفير فتح عشراً اليوم). **لا يشترط ملفاً مكتملاً** — قرار المالك: الملف
+ * شرطٌ للصرف وحده، والحساب التجريبي متاحٌ لكلّ سفيرٍ مقبول.
+ */
+const TRIAL_IP_DAILY_LIMIT = 10;
+const trialIpLimiter = (kind: 'new' | 'resend') => rateLimit({
+  ...limiterBase, windowMs: DAY_MS, limit: TRIAL_IP_DAILY_LIMIT,
+  keyGenerator: (req) => `ax-trial-ip:${kind}:${riyadhDay()}:${req.ip ?? 'unknown'}`,
+  message: { success: false, message: 'طلباتٌ كثيرة لفتح الحسابات من هذه الشبكة اليوم — حاول غداً', code: 'trial_ip_daily_cap' },
+});
+const axTrialIpLimiter = trialIpLimiter('new');
+const axTrialResendIpLimiter = trialIpLimiter('resend');
 
 /** أخطاء الخدمة تحمل حالتها ورسالتها ورمزها — والباقي لمعالج الأخطاء العام */
 function ledgerFail(res: Response, e: unknown): boolean {
@@ -485,6 +501,8 @@ router.get('/companies', axAuth, requireApproved, async (req: AxRequest, res, ne
       id: a.id,
       tenantName: a.tenantNameSnapshot,
       source: a.source,
+      // عمود «الطريقة» (V2_SPEC §7): رابطه أم رمزه المكتوب — للتسجيل الذاتيّ وحده، وما سواه بلا قناة (المراجعة #18)
+      refVia: a.source === 'signup_code' ? a.refVia : null,
       // المسحوب (void) بلا حالة تفعيل: مديره المعطَّل يحمل حارساً فيُقرأ «منتظراً» خطأً
       activation: a.source === 'portal' && a.status !== 'void' ? (pendingTenants.has(a.tenantId) ? 'pending' : 'active') : null,
       status: a.status === 'void' ? 'void'
@@ -586,7 +604,7 @@ const trialSchema = z.object({
  * المسؤول وحده (services/affiliate/portalTrial.ts). بريد السفير أو جواله مكان المسؤول يُرفض صراحةً —
  * المقارنة ببياناته هو فلا تكشف شيئاً.
  */
-router.post('/trials', axAuth, requireApproved, axTrialLimiter, async (req: AxRequest, res, next) => {
+router.post('/trials', axAuth, requireApproved, axTrialLimiter, axTrialIpLimiter, async (req: AxRequest, res, next) => {
   try {
     if (!portalTrialEnabled()) { res.status(403).json(TRIAL_DISABLED); return; }
     const b = trialSchema.parse(req.body);
@@ -613,7 +631,7 @@ router.post('/trials', axAuth, requireApproved, axTrialLimiter, async (req: AxRe
 });
 
 /** إعادة إرسال رابط التفعيل إلى البريد المسجَّل وحده — بمهلةٍ وسقف، ويُبطل كلّ رابطٍ أقدم */
-router.post('/trials/:id/resend', axAuth, requireApproved, axTrialLimiter, async (req: AxRequest, res, next) => {
+router.post('/trials/:id/resend', axAuth, requireApproved, axTrialLimiter, axTrialResendIpLimiter, async (req: AxRequest, res, next) => {
   try {
     if (!portalTrialEnabled()) { res.status(403).json(TRIAL_DISABLED); return; }
     await resendPortalActivation(aid(req), String(req.params.id));
@@ -708,6 +726,48 @@ const axDocLimiter = rateLimit({
   message: { success: false, message: 'رفعٌ كثير من حسابك — حاول بعد ساعة' },
 });
 
+/**
+ * تنزيل الملفات — المادّة (≤ ٨ ميغابايت) والمستند (≤ ٥) — يقرأ الملف كاملاً من القاعدة ويبني data URL في الذاكرة (العقد
+ * `{dataUrl}` تعتمد عليه البوابة)، أي عشرات الميغابايت لكلّ طلبٍ قائم. والحساب صار فورياً (v2)، فبلا حدٍّ كان طلبٌ صغيرٌ من
+ * حسابٍ عمره دقيقة يكفي لإغراق ذاكرة الخادم المشترك بين كلّ الشركات (المراجعة #7). حدّان:
+ * - **لكلّ سفير** ٦٠ تنزيلاً في الساعة (بمعرّفه من التوكن، عدّادٌ واحد للمواد والمستندات).
+ * - **التنزيلات المتزامنة**: اثنان لكلّ سفير وأربعة للخادم كلّه — الحدّ بالعدد وحده لا يمنع دفعةً متزامنة من عشرين طلباً.
+ *   المقعد يُحرَّر حين يُغلق الردّ (اكتمل أو انقطع) لا حين ينتهي المعالج: البايتات تبقى في الذاكرة حتى يأخذها العميل.
+ */
+const axFileLimiter = rateLimit({
+  ...limiterBase, windowMs: 60 * 60_000, limit: 60,
+  keyGenerator: (req) => `ax-file:${(req as AxRequest).affiliate?.id ?? 'anon'}`,
+  message: { success: false, message: 'تنزيلاتٌ كثيرة من حسابك — حاول بعد ساعة' },
+});
+const FILE_INFLIGHT_MAX = 4;
+const FILE_INFLIGHT_PER_AFFILIATE = 2;
+let fileInflight = 0;
+const fileInflightBy = new Map<string, number>();
+const FILE_BUSY = { success: false, message: 'تنزيلاتٌ كثيرة جارية الآن — حاول بعد لحظات', code: 'file_busy' };
+
+function fileSlot(req: AxRequest, res: Response, next: NextFunction): void {
+  const id = aid(req);
+  const mine = fileInflightBy.get(id) ?? 0;
+  if (fileInflight >= FILE_INFLIGHT_MAX || mine >= FILE_INFLIGHT_PER_AFFILIATE) {
+    res.set('Retry-After', '5');
+    res.status(429).json(FILE_BUSY);
+    return;
+  }
+  fileInflight++;
+  fileInflightBy.set(id, mine + 1);
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    fileInflight--;
+    const left = (fileInflightBy.get(id) ?? 1) - 1;
+    if (left > 0) fileInflightBy.set(id, left); else fileInflightBy.delete(id);
+  };
+  res.once('finish', release);
+  res.once('close', release);
+  next();
+}
+
 const docKindParam = (req: Request) => {
   const k = String(req.params.kind);
   return isDocKind(k) ? k : null;
@@ -729,7 +789,7 @@ router.post('/documents', axAuth, requireApproved, axDocLimiter, async (req: AxR
 });
 
 /** معاينة ما رفعه هو — مستنده وحده (المعرّف من التوكن) */
-router.get('/documents/:kind', axAuth, requireApproved, async (req: AxRequest, res, next) => {
+router.get('/documents/:kind', axAuth, requireApproved, axFileLimiter, fileSlot, async (req: AxRequest, res, next) => {
   try {
     const kind = docKindParam(req);
     if (!kind) { res.status(400).json(BAD_KIND); return; }
@@ -752,11 +812,25 @@ router.delete('/documents/:kind', axAuth, requireApproved, async (req: AxRequest
 
 // ───────────────────────────── المطالبة بإحالة فائتة (v2) ─────────────────────────────
 
-const MAX_OPEN_MISSED_CLAIMS = 20;
+/** حدّ المطالبات المفتوحة — ردٌّ واحد سواءٌ التقطه عدّ المسار أو فحص الخدمة في سباق إرسالين (409 `open_limit` هناك) */
+const TOO_MANY_OPEN_MISSED = { success: false, message: 'لديك مطالباتٌ كثيرة قيد المراجعة — انتظر البتّ فيها', code: 'too_many_open_missed_claims' };
+
+/** 400 من zod **برمز `invalid`** وبشكل errorHandler نفسه (`errors` لكلّ حقل) — فتبقى رسائل الحقول المترجمة في البوابة */
+function zodInvalid(res: Response, e: unknown): boolean {
+  if (!(e instanceof ZodError)) return false;
+  const errors = e.flatten().fieldErrors;
+  const fields = Object.keys(errors);
+  res.status(400).json({ success: false, message: fields.length ? `بيانات غير صحيحة ${fields.join('، ')}` : 'بيانات غير صحيحة', code: 'invalid', errors });
+  return true;
+}
 
 /**
  * شركةٌ أحالها ثمّ سجّلت دون رابطه أو رمزه (V2_SPEC §6.1): يرفع مطالبةً خلال ٣٠ يوماً من تسجيلها (الشروط v4 §٣) فيراجعها
  * المالك ويسندها يدوياً أو يرفض. الاسم والملاحظة بلا جوالٍ ولا بريد (الجوال في خانته)، وحتى ٢٠ مطالبة مفتوحة.
+ *
+ * الرموز كما في API.md (المراجعة #13 و#21): التحقّق من `normalizeMissedClaim` نفسها لا نسخةٍ هنا — كانت النسخة تردّ 400 بلا
+ * رمز فلا يصل `contact_in_text`/`invalid_phone`/`invalid_cr` الموثّقة أبداً. و`invalid` لشكل الجسم (zod)، و429
+ * `too_many_open_missed_claims` للحدّ.
  */
 router.post('/missed-claims', axAuth, requireApproved, async (req: AxRequest, res, next) => {
   try {
@@ -766,21 +840,17 @@ router.post('/missed-claims', axAuth, requireApproved, async (req: AxRequest, re
       crNumber: z.string().max(30).optional().nullable(),
       note: z.string().trim().max(200).optional().nullable(),
     }).parse(req.body);
-    const contactPhone = b.contactPhone?.trim() ? normContactPhone(b.contactPhone) : null;
-    if (b.contactPhone?.trim() && !contactPhone) { res.status(400).json({ success: false, message: 'رقم التواصل غير صحيح' }); return; }
-    const cr = b.crNumber?.trim() ? normCR(b.crNumber) : null;
-    if (b.crNumber?.trim() && !cr) { res.status(400).json({ success: false, message: 'السجل التجاري 10 أرقام' }); return; }
-    if (containsContactInfo(b.companyName) || containsContactInfo(b.note)) {
-      res.status(400).json({ success: false, message: 'أدخل رقم التواصل في خانته — ولا تكتب أرقاماً أو بريداً في الاسم أو الملاحظة' }); return;
-    }
+    const v = normalizeMissedClaim(b);
     const id = aid(req);
     const open = await prisma.affiliateMissedClaim.count({ where: { affiliateId: id, status: 'under_review' } });
-    if (open >= MAX_OPEN_MISSED_CLAIMS) {
-      res.status(429).json({ success: false, message: 'لديك مطالباتٌ كثيرة قيد المراجعة — انتظر البتّ فيها', code: 'too_many_open_missed_claims' }); return;
-    }
-    const row = await createMissedClaim(id, { companyName: b.companyName, contactPhone, crNumber: cr, note: b.note || null });
+    if (open >= MISSED_CLAIM_OPEN_LIMIT) { res.status(429).json(TOO_MANY_OPEN_MISSED); return; }
+    const row = await createMissedClaim(id, v);
     res.status(201).json({ success: true, data: { id: row.id, message: 'استلمنا المطالبة وستُراجع' } });
-  } catch (e) { if (!ledgerFail(res, e)) next(e); }
+  } catch (e) {
+    if (zodInvalid(res, e)) return;
+    if (e instanceof LedgerError && e.code === 'open_limit') { res.status(429).json(TOO_MANY_OPEN_MISSED); return; }
+    if (!ledgerFail(res, e)) next(e);
+  }
 });
 
 router.get('/missed-claims', axAuth, requireApproved, async (req: AxRequest, res, next) => {
@@ -805,7 +875,8 @@ router.get('/materials', axAuth, requireApproved, async (_req: AxRequest, res, n
   } catch (e) { next(e); }
 });
 
-router.get('/materials/:id/file', axAuth, requireApproved, async (req: AxRequest, res, next) => {
+/** الملف `{dataUrl}` — خلف حدّ التنزيل لكلّ سفير وسقف المتزامن (axFileLimiter وfileSlot أعلاه) */
+router.get('/materials/:id/file', axAuth, requireApproved, axFileLimiter, fileSlot, async (req: AxRequest, res, next) => {
   try {
     const f = await materialFile(String(req.params.id));
     if (!f) { res.status(404).json({ success: false, message: 'الملف غير موجود' }); return; }

@@ -525,7 +525,8 @@ test('البوابة: الدخول بعدّادٍ ذرّي، والتسجيل ا
   const mail = strip(src('services', 'affiliate', 'mail.ts'));
   // v2: mailVerify حُذف (لا تأكيد بريد) — بريد الترحيب بدله يصل عنواناً لم تثبت ملكيّته أيضاً، فتحت الحارس نفسه
   assert.doesNotMatch(mail, /export function mailVerify/);
-  for (const sig of ['export function mailWelcome', 'export function mailReset']) {
+  // و«قُبل طلبك» لإرث pending_review (المراجعة #20) تحت الحارس نفسه: لا اسم ولا نصّ كتبه الطالب
+  for (const sig of ['export function mailWelcome', 'export function mailReset', 'export function mailLegacyApproved']) {
     assert.doesNotMatch(fnBody(mail, sig), /escapeHtml\(name\)|\$\{name\}|fullName|companyName/, `${sig}: نصّ الطالب في بريدٍ رسميٍّ لعنوانٍ لم تثبت ملكيّته`);
   }
 });

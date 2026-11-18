@@ -73,9 +73,17 @@ const CODE_KEYS: Record<string, AxKey> = {
   not_found: 'err.notFound',
   // سحب حسابٍ دفعت عنه الشركة (POST /trials/:id/withdraw — 409)
   has_payment: 'err.hasPayment',
-  // المطالبة بإحالة فائتة: حدّ ٢٠ مفتوحة (قاعدة عمل لا محدِّد — الرمزان مقبولان)
+  // المطالبة بإحالة فائتة: حدّ ٢٠ مفتوحة (قاعدة عمل لا محدِّد — الرموز كلها مقبولة:
+  // 429 من المسار، و409 `open_limit` من الخدمة حين يتسابق إرسالان عند ١٩ مفتوحة — API.md)
   too_many_missed_claims: 'err.tooManyMissedClaims',
   too_many_open_missed_claims: 'err.tooManyMissedClaims',
+  open_limit: 'err.tooManyMissedClaims',
+  // سحب مطالبةٍ بُتّ فيها والقائمة قديمة (409)
+  not_under_review: 'err.notUnderReview',
+  // رموز تحقّق المطالبة الموثّقة في API.md (400) — بنصوص التحقّق نفسها التي تعرضها الشاشة قبل الإرسال
+  contact_in_text: 'err.contactInText',
+  invalid_phone: 'val.contactPhone',
+  invalid_cr: 'val.cr',
 };
 
 /**
@@ -121,7 +129,7 @@ export function fieldErrorMsg(err: unknown): AxMsg | null {
  * نصّ خطأٍ بلغة العرض:
  *  1. 400 بحقلٍ مرفوض من zod ⇒ رسالة التحقّق المطابقة (بكل اللغات، العربية منها).
  *  2. العربية + رسالة خادم ⇒ الرسالة كما هي (سلوك البوابة الأصلي).
- *  3. رمز خطأ معروف (email_taken · terms_outdated · too_many_open_claims) ⇒ نصّه
+ *  3. رمز خطأ معروف (email_taken · terms_outdated · too_many_open_claims · open_limit · not_under_review…) ⇒ نصّه
  *     المترجم — **قبل** فرع 429 العام، فرمز قاعدة العمل لا يُبتلع في «محاولات كثيرة».
  *  4. 429 بلا رمز (المحدِّد) ⇒ «محاولات كثيرة»، وانقطاع ⇒ «تعذّر الاتصال».
  *  5. `known` — حالةٌ تعرفها الشاشة (401 الدخول، رابطٌ غير صالح) ⇒ نصّها المترجم.

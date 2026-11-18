@@ -49,6 +49,21 @@ export function mailWelcome(to: string, referralUrl: string): void {
   ], { label: 'دخول البوابة', url: portal() }));
 }
 
+/**
+ * «قُبل طلبك» لطلبٍ كان **قيد المراجعة** في v1 ثمّ رقّاه النظام بالانضمام الفوريّ (v2 — core.ts notifyLegacyReviewApproved،
+ * المراجعة #20): شاشة v1 وعدته ببريدٍ بالقرار. لا يصل pending_email أبداً. كالترحيب: رابطه (رمزٌ يولّده الخادم) ورابط البوابة،
+ * بلا اسمٍ ولا نصٍّ كتبه.
+ */
+export function mailLegacyApproved(to: string, referralUrl: string): void {
+  send(to, 'قُبل طلبك — سفير فيلد سيلز', layout('قُبل طلبك', [
+    'مرحباً،',
+    'قُبل طلب انضمامك إلى برنامج سفير فيلد سيلز، وحسابك مفتوحٌ الآن ورابطك الخاص جاهزٌ للمشاركة:',
+    `<span dir="ltr" style="word-break:break-all">${escapeHtml(referralUrl)}</span>`,
+    'تكسب ٣٠٪ من أوّل دفعة لكل شركة تشترك عبر رابطك. ادخل البوابة بالبريد وكلمة المرور اللذين سجّلت بهما، وأكمل ملفك (نوعك، الحساب البنكي، صورة الهوية) لتدخل أرباحك دورة التسوية.',
+    'إن نسيت كلمة المرور فاستعدها من صفحة الدخول في البوابة.',
+  ], { label: 'دخول البوابة', url: portal() }));
+}
+
 export function mailReset(to: string, _name: string, token: string): void {
   const url = `${portal()}?reset=${encodeURIComponent(token)}`;
   send(to, 'استعادة كلمة المرور — سفير فيلد سيلز', layout('استعادة كلمة المرور', [

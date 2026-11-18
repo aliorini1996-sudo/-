@@ -329,14 +329,28 @@ export function attributionActions(row: { status: AttributionStatus; commission:
 }
 
 export type CommissionAction = 'approve' | 'hold' | 'release' | 'decline';
+/**
+ * v2: المعتمدة تُوقف أيضاً (`holdCommission` يقبل pending وapproved — V2_SPEC §0: «ويبقى للمالك الاعتماد
+ * والإيقاف اليدويّان»). الاعتماد التلقائي كلّ ساعة يُخرج العمولة من «معلّقة» بعد حجزها بقليل، فبلا هذا لا
+ * يبقى للمالك ما يوقفها به قبل أن تدخل مسودّة الدورة.
+ */
 export const COMMISSION_ACTIONS: Record<CommissionStatus, CommissionAction[]> = {
   pending: ['approve', 'hold', 'decline'],
   on_hold: ['release', 'decline'],
-  approved: [],
+  approved: ['hold'],
   paid: [],
   reversed: [],
   declined: [],
 };
+
+/**
+ * إجراءات صفّ عمولة: بحسب الحالة، وما في مسودّة دفعة (`payoutId`) لا يُعتمد ولا يُوقف ولا يُرفض — الخادم
+ * يرفضها (`in_draft`)؛ تُلغى المسودّة أولاً فتعود العمولة «معتمدة» بلا دفعة.
+ */
+export function commissionActions(c: { status: CommissionStatus; payoutId?: string | null }): CommissionAction[] {
+  const list = COMMISSION_ACTIONS[c.status] ?? [];
+  return c.payoutId ? list.filter((a) => a === 'release') : [...list];
+}
 
 // ─── الأرقام ───────────────────────────────────────────────────────────────
 
@@ -865,7 +879,9 @@ export function groupIban(iban: string): string {
 
 export const PORTAL_URL = 'https://fieldsa.net/ax';
 /** صفحة البرنامج العلنية المفهرسة (V2_SPEC §9) — تُشارَك بدل رابط البوابة */
-export const PUBLIC_PAGE_URL = 'https://fieldsa.net/ambassadors';
+// بالشرطة الأخيرة: الصفحة مجلّدٌ مصيَّرٌ مسبقاً (dist/ambassadors/index.html) وRender لا يخدمه إلا بها — وبدونها
+// يردّ غلاف الرئيسية (عنوانها وog وcanonical «/») فتُعرض معاينة الرابط في واتساب وX ولينكدإن صفحةً رئيسية
+export const PUBLIC_PAGE_URL = 'https://fieldsa.net/ambassadors/';
 
 // ─── ملف السفير (v2) ───────────────────────────────────────────────────────
 
@@ -1003,10 +1019,13 @@ export function daysText(n: number): string {
   return `${d} يوماً`;
 }
 
-/** ملاحظة تبويب العمولات: الاعتماد تلقائيّ بعد الحجز، ويبقى اليدوي */
+/**
+ * ملاحظة تبويب العمولات: الاعتماد تلقائيّ خلال نحو ساعةٍ من انتهاء الحجز (نبضة المجدول كلّ ساعة — لا دورة
+ * التسوية)، ويبقى اليدوي، والإيقاف للمعلّقة والمعتمدة ما لم تدخل مسودّة دفعة.
+ */
 export function autoApproveNote(holdDays?: number | null): string {
   const hold = typeof holdDays === 'number' && Number.isFinite(holdDays) ? daysText(holdDays) : daysText(10);
-  return `تُعتمد العمولة تلقائياً بعد انتهاء فترة حجزها (${hold} في الشروط الحالية) في دورة التسوية التالية ما لم تكن موقوفة — ويبقى لك الاعتماد اليدوي متى انتهى الحجز`;
+  return `تُعتمد العمولة تلقائياً خلال نحو ساعة من انتهاء فترة حجزها (${hold} في الشروط الحالية) ما لم تكن موقوفة — ويبقى لك الاعتماد اليدوي متى انتهى الحجز، والإيقاف ما لم تدخل مسودّة دفعة`;
 }
 
 /**
@@ -1054,7 +1073,8 @@ export function settlementRunMessage(r: SettlementRunResult | null | undefined):
   if (r?.ran === false) {
     return { text: `دورة التسوية${cycle} أُنجزت أو تجري الآن — لا دفعات جديدة. أعد المحاولة بعد دقائق أو أنشئ دفعةً يدوية من «المرشّحون للصرف»`, warn: true };
   }
-  const auto = typeof r?.autoApproved === 'number' && r.autoApproved > 0 ? ` · اعتُمدت تلقائياً ${r.autoApproved} عمولة` : '';
+  // الخادم يعدّ ما اعتمده النظام منذ الدورة السابقة (لا ما اعتمده هذا التشغيل وحده)
+  const auto = typeof r?.autoApproved === 'number' && r.autoApproved > 0 ? ` · اعتُمدت تلقائياً ${r.autoApproved} عمولة منذ الدورة السابقة` : '';
   const skip = skippedText(r?.skipped);
   const skipPart = skip ? ` · تُخطّي: ${skip}` : '';
   const n = countOf(r?.payouts);
@@ -1096,8 +1116,9 @@ export function validateMissedAccept(tenantId: string | null | undefined, reason
 }
 
 /**
- * أيامٌ من تسجيل الشركة حتى تقديم المطالبة — بالصيغة نفسها في الخادم (`floor((submittedAt − createdAt)/يوم)`)
- * لشركةٍ اختارها المالك بالبحث (الاقتراحات تحملها جاهزة `daysFromSignup`). غير الصالح ⇒ null.
+ * أيامٌ من تسجيل الشركة حتى تقديم المطالبة — بالقاعدة الواحدة في الخادم (missedClaims.ts: `missedClaimDays`
+ * = `floor((submittedAt − createdAt)/يوم)`، وبها يحكم القائمة **والقبول** `claim_late`) لشركةٍ اختارها المالك
+ * بالبحث (الاقتراحات تحملها جاهزة `daysFromSignup`). غير الصالح ⇒ null.
  */
 export function daysFromSignup(submittedAt: string | null | undefined, tenantCreatedAt: string | null | undefined): number | null {
   const a = Date.parse(String(submittedAt ?? ''));
@@ -1106,7 +1127,10 @@ export function daysFromSignup(submittedAt: string | null | undefined, tenantCre
   return Math.floor((a - b) / 86_400_000);
 }
 
-/** شارة مهلة المطالبة: داخل ٣٠ يوماً من تسجيل الشركة أو خارجها (الخادم يرفض المتأخرة بـ`claim_late`) */
+/**
+ * شارة مهلة المطالبة: داخل ٣٠ يوماً من تسجيل الشركة أو خارجها — `days ≤ 30` كما `withinMissedClaimWindow` في
+ * الخادم (اليوم الثلاثون بساعاته داخلها)، فما تعرضه «داخل المهلة» يقبله الخادم وما تعرضه خارجها يرفضه بـ`claim_late`.
+ */
 export function missedWindowLabel(days: number | null | undefined, withinWindow?: boolean | null): Label | null {
   if (typeof days !== 'number' || !Number.isFinite(days)) return null;
   if (days < 0) return { label: 'قُدّمت قبل تسجيل الشركة', tone: 'green' };
