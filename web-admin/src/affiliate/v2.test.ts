@@ -354,3 +354,21 @@ test('الانضمام من /en|fr/ambassadors بتحميلٍ كامل: مسار
   const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
   assert.match(app, /if \(\/\^\\\/ambassadors\\\/\(join\|login\)\\\/\?\$\/\.test\(pathname\)\) return;/);
 });
+
+test('«اعرف النظام» داخل «المواد التسويقية» بالخمس لغات، وآخره رابط صفحة الفيديوهات التعليمية (طلب المالك ١٨ نوفمبر)', async () => {
+  const { AX_DICT } = await import('./i18n');
+  const keys = ['guide.title', 'guide.intro', 'guide.videos.t', 'guide.videos.d', 'guide.videos.cta',
+    ...[1, 2, 3, 4, 5, 6, 7, 8, 9].flatMap((n) => [`guide.s${n}.t`, `guide.s${n}.b`])];
+  for (const k of keys) {
+    const e = (AX_DICT as Record<string, Record<string, string>>)[k];
+    assert.ok(e, k);
+    for (const l of ['ar', 'en', 'fr', 'tr', 'zh']) assert.ok(e[l]?.trim(), `${k}.${l}`);
+  }
+  const src = readFileSync(new URL('./screens/MaterialsScreen.tsx', import.meta.url), 'utf8');
+  assert.match(src, /<SystemGuide \/>/, 'الشرح أعلى تبويب المواد');
+  assert.match(src, /export const TUTORIAL_PATH = '\/tutorial';/);
+  assert.match(src, /href=\{TUTORIAL_PATH\} target="_blank"/);
+  assert.ok(src.indexOf('guide.videos.t') > src.indexOf('GUIDE_SECTIONS.map'), 'رابط الفيديوهات بعد الأقسام');
+  const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
+  assert.match(app, /<Route path="\/tutorial" element=\{<TutorialPage \/>\} \/>/, 'صفحة الفيديوهات موجودة');
+});

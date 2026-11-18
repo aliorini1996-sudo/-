@@ -8,12 +8,12 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Download, ExternalLink, FileText, Film, Image, Link2, Share2, Type, type LucideIcon } from 'lucide-react';
+import { BookOpen, ChevronDown, Download, ExternalLink, FileText, Film, Image, Link2, PlayCircle, Share2, Type, type LucideIcon } from 'lucide-react';
 import { affiliateApi, qk } from '../api';
 import { errorText } from '../errors';
 import { canShareFile, dataUrlToFile, downloadDataUrl, safeFileName } from '../files';
 import { formatBytes, formatDay } from '../format';
-import { useAxT } from '../i18n';
+import { useAxT, type AxKey } from '../i18n';
 import { MATERIAL_CATEGORY, MATERIAL_CATEGORY_ORDER, textOf } from '../labels';
 import { materialParts } from '../materials';
 import type { MaterialCategory, MaterialRow, MeResponse } from '../types';
@@ -102,6 +102,52 @@ function MaterialCard({ m }: { m: MaterialRow }) {
   );
 }
 
+/** أقسام «اعرف النظام» بترتيبها — العنوان والنصّ من القاموس (السطر الجديد = نقطة) */
+export const GUIDE_SECTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
+/** صفحة الفيديوهات التعليمية (TutorialPage في App.tsx) — آخر «اعرف النظام» */
+export const TUTORIAL_PATH = '/tutorial';
+
+/**
+ * «اعرف النظام» (طلب المالك ١٨ نوفمبر ٢٠٢٦): شرح المنصة داخل «المواد التسويقية» ليفهمها السفير قبل الترويج لها،
+ * وفي آخره رابط صفحة الفيديوهات التعليمية. القسم الأول مفتوح والباقي يُفتح بالنقر — مريحٌ على الجوال.
+ */
+export function SystemGuide() {
+  const { t } = useAxT();
+  return (
+    <section aria-labelledby="ax-guide-title" className="space-y-2.5">
+      <div className="flex items-center gap-2">
+        <BookOpen size={19} className="text-[#E15A30] shrink-0" />
+        <h2 id="ax-guide-title" className="text-[16px] font-bold text-[#1F1A13]">{t('guide.title')}</h2>
+      </div>
+      <p className="text-[13px] text-[#6E6557] leading-relaxed">{t('guide.intro')}</p>
+      {GUIDE_SECTIONS.map((n, i) => (
+        <details key={n} className="group bg-white rounded-2xl border border-[#E9E1D3] open:border-[#E15A30]/40" open={i === 0}>
+          <summary className="flex items-center justify-between gap-3 cursor-pointer list-none px-4 py-3.5 text-[14px] font-bold text-[#1F1A13] [&::-webkit-details-marker]:hidden">
+            <span>{t(`guide.s${n}.t` as AxKey)}</span>
+            <ChevronDown size={18} className="shrink-0 text-[#8A8072] transition-transform group-open:rotate-180" />
+          </summary>
+          <ul className="px-4 pb-4 -mt-1 space-y-1.5 list-disc ps-8 text-[13px] text-[#44403a] leading-7">
+            {t(`guide.s${n}.b` as AxKey).split(/\n/).map((line) => <li key={line}>{line}</li>)}
+          </ul>
+        </details>
+      ))}
+      <a
+        href={TUTORIAL_PATH} target="_blank" rel="noopener noreferrer"
+        className="flex items-center gap-3 rounded-2xl bg-[#1F1A13] text-[#FAF7F0] p-4 hover:brightness-110"
+      >
+        <PlayCircle size={30} className="text-[#E15A30] shrink-0" />
+        <span className="flex-1 min-w-0">
+          <span className="block text-[14px] font-bold">{t('guide.videos.t')}</span>
+          <span className="block text-[12px] opacity-80 leading-relaxed">{t('guide.videos.d')}</span>
+        </span>
+        <span className="shrink-0 inline-flex items-center gap-1 text-[12px] font-bold text-[#F5A588]">
+          {t('guide.videos.cta')} <ExternalLink size={14} />
+        </span>
+      </a>
+    </section>
+  );
+}
+
 export function MaterialsTab({ refreshMe }: TabProps) {
   const { t, lang } = useAxT();
   const q = useAxQuery(qk.materials, affiliateApi.materials, refreshMe);
@@ -116,7 +162,8 @@ export function MaterialsTab({ refreshMe }: TabProps) {
 
   return (
     <div className="space-y-4">
-      <div>
+      <SystemGuide />
+      <div className="pt-2">
         <SectionTitle>{t('tab.materials')}</SectionTitle>
         <p className="text-[13px] text-[#6E6557] leading-relaxed -mt-1">{t('mat.intro')}</p>
       </div>
