@@ -19,7 +19,7 @@ import { filterFlat, filterNested } from '../lib/reportSearch';
 import { groupCollectionsByRep, collectionTotals, CollReceiptLike, CollRepGroup } from '../lib/collectionsByRep';
 import { companyMethodLabel } from '../lib/paymentMethodsConfig';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Download, TrendingUp, Users, UserCheck, UserX, MapPin, FileText, Search, X, Wallet, AlertTriangle, Pencil, Upload, Receipt } from 'lucide-react';
+import { Download, TrendingUp, Users, UserCheck, UserX, MapPin, FileText, Search, X, Wallet, AlertTriangle, Pencil, Upload, Receipt, ShoppingCart, Coins, Percent } from 'lucide-react';
 import { shareOrDownloadExcel, num, ExcelSheet } from '../utils/excel';
 import { mergeRuns } from '../lib/mergeRuns';
 import { attendanceDayCells, breakOf, compactMinutes, periodsOf, punchDetailRows, punchInUrl, punchOutUrl, periodOutside, placeLabel, entryLabel, type WorkPeriodLike } from '../lib/workPeriods';
@@ -30,8 +30,15 @@ import { baseQtyText, docQtyText, hasBigUnit } from '../lib/adminUnits';
 import { factorOf, primaryUnitOf, productQtyText, type UnitDef } from '../lib/units';
 import { LOT_BLOCK_KIND_LABELS, LOT_STATUS_LABELS, docLotsFrom, lotFlagsOf, type InvoiceItemLotDto } from '../lib/lots';
 import { docLotsText, groupLotSales, uncertainSold, type LotSalesReportDto, type LotSalesRowDto } from '../lib/invoiceLots';
+import { isTaxOff } from '../lib/taxMode';
+import { useAuthStore } from '../store/authStore';
+import PurchasesReport, { PurchasesGroupBySelect, type PurchasesExport } from '../components/reports/PurchasesReport';
+import ProfitReport, { PROFIT_GROUPS, profitGroupOf, type ProfitExport } from '../components/reports/ProfitReport';
+import TaxReport, { TAX_GROUP_OPTIONS, TAX_SEARCH_PLACEHOLDER, normalizeTaxGroupBy, type TaxExport } from '../components/reports/TaxReport';
 
-type Tab = 'sales' | 'collections' | 'balances' | 'performance';
+/* «المشتريات» و«الربح» و«الضرائب» (طلب المالك ١٧ نوفمبر ٢٠٢٦): تبويباتٌ ماليّة بعد القائمة، كلٌّ في مكوّنه (components/reports)
+ * يطلب تقريره ويسلّم الصفحة أوراق تصديره الجاهزة — فالصفحة تملك الفلاتر وزرَّي Excel/PDF وحدها */
+type Tab = 'sales' | 'collections' | 'balances' | 'performance' | 'purchases' | 'profit' | 'tax';
 
 // زيارة **مدموجة**: سجلّ المؤقّت وسجلّ الملاحظة للعميل الواحد وقفةٌ واحدة
 interface WorkVisit { customerName: string; start: string; end: string | null; durationSec: number | null; hasNote: boolean; parts: number; lat?: number | null; lng?: number | null }
@@ -132,7 +139,6 @@ export default function ReportsPage() {
   const { on: accountingOn, ready: accountingReady } = useAccountingOn();
 
   const [tabState, setTab] = useState<Tab>('sales');
-  const tab: Tab = accountingOn ? tabState : (tabState === 'sales' || tabState === 'collections' ? 'balances' : tabState);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [groupBy, setGroupBy] = useState('rep');
@@ -163,9 +169,31 @@ export default function ReportsPage() {
   // نوع تقرير المبيعات: التجميعة كما كانت، أو قائمة الطلبات (فواتير بتاريخ تسليم)
   const companyQ = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { attendanceEnabled?: boolean; paymentMethodsConfig?: unknown; lotTrackingEnabled?: boolean; lotOnInvoice?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { attendanceEnabled?: boolean; paymentMethodsConfig?: unknown; lotTrackingEnabled?: boolean; lotOnInvoice?: boolean; warehouseEnabled?: boolean; taxDisabled?: boolean } | null,
     staleTime: 300_000,
   });
+  /* التبويبات الماليّة الجديدة تتبع المحاسبة كالمبيعات، و«المشتريات» تزيد مخزونَ الشركة وصلاحيةَ المستودع (حرّاس خادمها نفسها:
+   * WAREHOUSE_NOT_ENABLED وcanManageVanStock)، و«الضرائب» تُخفى لشركةٍ أزالت ضريبتها. تبويبٌ محفوظ لم يعد مسموحاً يسقط إلى العملاء */
+  const me = useAuthStore(s => s.user);
+  const purchasesOn = accountingOn && companyQ.data?.warehouseEnabled === true && me?.canManageVanStock !== false;
+  /* «الربح» بشرطَي المشتريات نفسيهما: تكلفته من وارد المستودع المسعَّر وحده (أو لقطات الدفاتر المبنية عليه)، فشركةٌ بلا «مخزون
+   * الشركة» (الافتراضي) يصير كل صنفٍ فيها «بلا تكلفة» وهامشها ١٠٠٪ بإرشادٍ لا يُنفَّذ (صفحتا المستودع والموردين مخفيّتان)؛ وتكلفة
+   * كل صنف ÷ كميته تكلفة شراء الوحدة، فبصلاحية المستودع (الخادم يردّ ٤٠٣ بحارس المشتريات والضرائب نفسه canSeePurchaseCost) */
+  const profitOn = accountingOn && companyQ.data?.warehouseEnabled === true && me?.canManageVanStock !== false;
+  const taxOn = accountingOn && !!companyQ.data && !isTaxOff(companyQ.data);
+  const tabAllowed = (t: Tab) => t === 'purchases' ? purchasesOn : t === 'profit' ? profitOn : t === 'tax' ? taxOn
+    : t === 'sales' || t === 'collections' ? accountingOn : true;
+  const tab: Tab = tabAllowed(tabState) ? tabState : 'balances';
+  // «تجميع حسب» لكل تبويبٍ جديد بحالته: تجميع المبيعات المشترك افتراضيّه المندوب وفيه القناة والمنطقة اللتان لا تعرفها هذه التقارير
+  const [purchGroupBy, setPurchGroupBy] = useState('vendor');
+  const [profitGroupBy, setProfitGroupBy] = useState('product');
+  const [taxGroupBy, setTaxGroupBy] = useState('month');
+  // أوراق التصدير الجاهزة من مكوّن التبويب النشط (null بلا صفوف أو بعد الخروج منه) — Excel وPDF منها معاً
+  const [purchExport, setPurchExport] = useState<PurchasesExport | null>(null);
+  const [profitExport, setProfitExport] = useState<ProfitExport | null>(null);
+  const [taxExport, setTaxExport] = useState<TaxExport | null>(null);
+  const slicedExport = tab === 'purchases' ? purchExport : tab === 'profit' ? profitExport : tab === 'tax' ? taxExport : null;
+  const slicedTab = tab === 'purchases' || tab === 'profit' || tab === 'tax';
   /* «تتبّع اللوط» (ميزةٌ يفعّلها المالك): تقرير «المبيعات حسب التشغيلة» وتشغيلات بنود المرتجع — مطفأةً لا خيار ولا عمود ولا
    * طلب (§١٠.١)، ونوعٌ محفوظ «حسب التشغيلة» يسقط إلى التجميعة */
   const lotOn = lotFlagsOf(companyQ.data).on;
@@ -188,6 +216,9 @@ export default function ReportsPage() {
     ] : []),
     { id: 'balances', label: tr('العملاء'), icon: Users },
     { id: 'performance', label: tr('أداء المناديب'), icon: UserCheck },
+    ...(purchasesOn ? [{ id: 'purchases' as Tab, label: tr('المشتريات'), icon: ShoppingCart }] : []),
+    ...(profitOn ? [{ id: 'profit' as Tab, label: tr('الربح'), icon: Coins }] : []),
+    ...(taxOn ? [{ id: 'tax' as Tab, label: tr('الضرائب'), icon: Percent }] : []),
   ];
 
   /* البند ٩: بلا مدى يقصر الخادم المبيعات على تسعين يوماً — والتجميعات مصفوفاتٌ لا تحمل ذلك، فالمدى المطبَّق في `meta`
@@ -649,6 +680,8 @@ export default function ReportsPage() {
 
   // يبني أوراق بيانات التبويب النشط (مشتركة بين Excel وPDF)
   const buildSheets = (): { sheets: ExcelSheet[]; fname: string } | null => {
+    // المشتريات والربح والضرائب: أوراق مكوّنها كما سلّمها (المعروض بعد البحث، بترتيب أعمدة الشاشة، والمبالغ أرقام)
+    if (slicedTab) return slicedExport ? { sheets: slicedExport.sheets, fname: slicedExport.fname } : null;
     let sheets: ExcelSheet[] | null = null;
     let fname = tr('تقرير');
     if (tab === 'performance' && perfType === 'hours' && hoursRows?.length) {
@@ -912,6 +945,7 @@ export default function ReportsPage() {
         : salesType === 'returns' ? returnsQ.data?.applied : lotSalesQ.data?.applied)
       : tab === 'performance' && perfType === 'hours' ? hoursData?.applied
       : tab === 'performance' && perfType === 'ranking' ? rankingQ.data?.applied
+      : slicedTab ? slicedExport?.applied
       : null
   ) ?? null;
   /* البند ٧: قصّ سقف الأمان للتقرير المعروض نصّاً — تنبيه الشاشة نفسه يُطبع تحت رأس PDF ويُكتب في ورقة «الفترة»، فلا يخرج
@@ -930,6 +964,8 @@ export default function ReportsPage() {
           : perfType === 'ranking' ? truncText(rankingQ.data?.trunc, 'newest')
           : null)
         : tab === 'balances' && custType === 'visits' ? truncText(visitsData?.trunc, 'newest')
+        // المشتريات والربح والضرائب: ملاحظة ملف مكوّنها (تنبيه القصّ، ومصدر التكلفة، وسبب غياب المدخلات)
+        : slicedTab ? (slicedExport?.note ?? null)
         : null;
   /* تنبيهات الشاشة لكل تقرير (البندان ٩ و٧) بلون تنبيه التسعين يوماً القائم: النافذة الافتراضية بتاريخيها كما طبّقها الخادم،
    * وخادمٌ أقدم بلا المدى المُعلَن ⇒ تنبيه المرتجع والتشغيلات القائم كما كان (والطلبات بعَلَمها القائم rangeApplied) */
@@ -972,7 +1008,8 @@ export default function ReportsPage() {
   // «ورقة لكل فريق»: أوراق المستندات تُقسَم بعمود الفريق (lib/teamReport.ts) — حين لا فلتر فريق
   const exportSheets = (sheets: ExcelSheet[]) => (teamsOn && !teamFilter && splitByTeam ? splitSheetsByTeam(sheets, tr('الفريق')) : sheets);
   // أرصدة العملاء لا تنقسم بالفريق (العملاء مشتركون) — فلا يُكتب اسم فريقٍ على ملفٍ لم يُفلتر به
-  const exportTeamName = tab === 'balances' && custType !== 'visits' ? '' : teamFilterName;
+  // والمشتريات والضرائب لا فريق لها (الفلتر مخفيّ فيهما)
+  const exportTeamName = (tab === 'balances' && custType !== 'visits') || tab === 'purchases' || tab === 'tax' ? '' : teamFilterName;
   const withTeam = (name: string) => (exportTeamName ? `${name} - ${exportTeamName}` : name);
   const handleExport = async () => {
     const built = buildSheets();
@@ -1136,7 +1173,7 @@ export default function ReportsPage() {
       <div className="page-header">
         <h1 className="page-title">{tr('التقارير')}</h1>
         <div className="flex items-center gap-2 flex-wrap">
-          {teamsOn && !teamFilter && (
+          {teamsOn && !teamFilter && !slicedTab && (
             <label className="flex items-center gap-1.5 text-xs text-[#6E6557] cursor-pointer" title={tr('أوراق المستندات تقسم ورقة لكل فريق')}>
               <input type="checkbox" checked={splitByTeam} onChange={e => setSplitByTeam(e.target.checked)} className="w-4 h-4 accent-[#E15A30]" />
               {tr('ورقة لكل فريق')}
@@ -1148,7 +1185,7 @@ export default function ReportsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-4 bg-white rounded-xl p-1 border border-gray-100 w-fit">
+      <div className="flex flex-wrap gap-1 mb-4 bg-white rounded-xl p-1 border border-gray-100 w-fit max-w-full">
         {tabs.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${tab === t.id ? 'bg-[#E15A30] text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
@@ -1176,7 +1213,8 @@ export default function ReportsPage() {
             <p className="text-xs text-gray-400 pb-2">{tr('الأرصدة لحظية تعكس وضع المديونية الآن لا فترة محددة')}</p>
           )}
           {/* «فرق العمل»: الفريق — المستندات بوسمها والمناديب بعضويتهم؛ أرصدة العملاء لا تنقسم (العملاء مشتركون) */}
-          {teamsOn && !(tab === 'balances' && custType !== 'visits') && (
+          {/* والمشتريات (حركات مستودع الشركة) والضرائب (إقرار الشركة كلها) بلا فريق — والربح يقبله بوسم الفاتورة كالمبيعات */}
+          {teamsOn && !(tab === 'balances' && custType !== 'visits') && tab !== 'purchases' && tab !== 'tax' && (
             <div>
               <label className="label">{tr('الفريق')}</label>
               <select className="input w-44" value={teamFilter} onChange={e => setTeamFilter(e.target.value)}>
@@ -1196,7 +1234,8 @@ export default function ReportsPage() {
                   className="input ps-9 pe-8 w-full"
                   value={search}
                   onChange={e => setSearch(e.target.value)}
-                  placeholder={tr('اسم العميل أو المندوب')} />
+                  placeholder={tab === 'purchases' ? tr('اسم المورد أو الصنف') : tab === 'profit' ? tr('اسم الصنف أو العميل أو المندوب')
+                    : tab === 'tax' ? tr(TAX_SEARCH_PLACEHOLDER) : tr('اسم العميل أو المندوب')} />
                 {search && (
                   <button type="button" onClick={() => setSearch('')} title={tr('مسح البحث')}
                     className="absolute top-1/2 -translate-y-1/2 end-2 text-gray-400 hover:text-gray-600">
@@ -1260,12 +1299,30 @@ export default function ReportsPage() {
               </select>
             </div>
           )}
+          {tab === 'purchases' && <PurchasesGroupBySelect value={purchGroupBy} onChange={setPurchGroupBy} />}
+          {tab === 'profit' && (
+            <div>
+              <label className="label">{tr('تجميع حسب')}</label>
+              <select className="input w-36" value={profitGroupOf(profitGroupBy)} onChange={e => setProfitGroupBy(e.target.value)}>
+                {PROFIT_GROUPS.map(g => <option key={g.id} value={g.id}>{tr(g.label)}</option>)}
+              </select>
+            </div>
+          )}
+          {tab === 'tax' && (
+            <div>
+              <label className="label">{tr('تجميع حسب')}</label>
+              <select className="input w-44" value={normalizeTaxGroupBy(taxGroupBy)} onChange={e => setTaxGroupBy(e.target.value)}>
+                {TAX_GROUP_OPTIONS.map(g => <option key={g.value} value={g.value}>{tr(g.label)}</option>)}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
       {/* حصيلة البحث: بلا هذا السطر يبدو الفراغُ الناتج عن بحثٍ ضيّق كأنه
           غيابُ بيانات — وهي رسالةٌ مختلفة تماماً تدفع المشرف لمطاردة عطلٍ لا وجود له. */}
-      {q && (() => {
+      {/* المشتريات والربح والضرائب تعرض حصيلة بحثها في مكوّنها («لا نتائج مطابقة للبحث») ومجاميعها تتبع المعروض */}
+      {q && !slicedTab && (() => {
         const shown = tab === 'sales' ? (salesType === 'orders' ? orderRows.length : salesType === 'returns' ? returnRows.length : salesType === 'lots' ? lotSalesRows.length : (Array.isArray(salesRows) ? salesRows.length : 0))
           : tab === 'collections' ? collRepShown.length
           : tab === 'balances' ? (custType === 'visits' ? custGroups.length : custType === 'unvisited' ? unvisitedRows.length : balanceRows.length)
@@ -2407,6 +2464,18 @@ export default function ReportsPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* المشتريات والربح والضرائب — المكوّن يُركَّب للتبويب النشط وحده فلا يُطلب تقريرٌ غير ظاهر، ويمسح أوراق تصديره عند الخروج */}
+      {tab === 'purchases' && (
+        <PurchasesReport from={from} to={to} search={search} groupBy={purchGroupBy} onExport={setPurchExport} />
+      )}
+      {tab === 'profit' && (
+        <ProfitReport from={from} to={to} search={search} groupBy={profitGroupBy} teamId={teamFilter || undefined}
+          onExportRows={setProfitExport} enabled={accountingReady && profitOn} />
+      )}
+      {tab === 'tax' && (
+        <TaxReport from={from} to={to} search={search} groupBy={taxGroupBy} onExportRows={setTaxExport} enabled={accountingReady && taxOn} />
       )}
     </div>
   );

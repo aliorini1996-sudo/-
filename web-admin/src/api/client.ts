@@ -310,6 +310,12 @@ export const reportApi = {
   unvisitedCustomers: (params?: Record<string, string>) => api.get('/reports/unvisited-customers', { params }),
   // «طرق الدفع»: تحصيل كل مندوب لكل طريقة دفع في الفترة (from/to بأيام الشركة، teamId اختياري) — ميزة يفعّلها المالك
   paymentMethods: (params?: Record<string, string>) => api.get('/reports/payment-methods', { params }),
+  // «المشتريات»: فواتير الموردين ومرتجعاتها (groupBy vendor|product|day|month) — مخزون الشركة وصلاحية المستودع
+  purchases: (params?: Record<string, string>) => api.get('/reports/purchases', { params }),
+  // «الربح»: مجمل الربح قبل المصروفات (groupBy product|rep|customer|month) — صافي المبيعات ناقص تكلفتها
+  profit: (params?: Record<string, string>) => api.get('/reports/profit', { params }),
+  // «الضرائب»: ضريبة المخرجات والمدخلات وصافي المستحق (groupBy month|quarter|rate) — بيانٌ فارغ لشركةٍ أزالت ضريبتها
+  tax: (params?: Record<string, string>) => api.get('/reports/tax', { params }),
 };
 
 export const notificationApi = {
