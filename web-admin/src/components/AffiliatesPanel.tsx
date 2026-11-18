@@ -1290,6 +1290,185 @@ function ClaimsTab({ status, setStatus }: { status: string; setStatus: (v: strin
   );
 }
 
+// ─── ٣ب) المطالبات الفائتة (v2) ─────────────────────────────────────────────
+
+/**
+ * قبول مطالبة بإحالة فائتة: شركةٌ يختارها المالك (من الاقتراحات أو بالبحث) وسببٌ يُحفظ — `POST /missed-claims/:id/accept`
+ * يُنشئ إسناداً يدوياً للشركة إلى صاحب المطالبة من لحظة تسجيلها، فإن كانت دفعتها الأولى قد تمّت أُنشئت العمولة.
+ */
+function AcceptMissedDialog({ claim, initial, actions, onClose }: {
+  claim: L.MissedClaimRow; initial: L.TenantHit | null; actions: Actions; onClose: () => void;
+}) {
+  const [tenant, setTenant] = useState<L.TenantHit | null>(initial);
+  const [reason, setReason] = useState('');
+  const [touched, setTouched] = useState(false);
+  const err = L.validateMissedAccept(tenant?.id, reason);
+  const sug = tenant ? claim.suggestions.find((s) => s.tenantId === tenant.id) : undefined;
+  const days = sug?.daysFromSignup ?? (tenant ? L.daysFromSignup(claim.submittedAt, tenant.createdAt) : null);
+  const win = L.missedWindowLabel(days, sug?.withinWindow);
+  const key = `missed:accept:${claim.id}`;
+  const submit = async () => {
+    setTouched(true);
+    if (err || !tenant) return;
+    const t = tenant;
+    // تبقى النافذة مفتوحة عند الرفض (إسنادٌ قائم، مطالبة متأخرة) ليختار المالك غيرها أو يلغي
+    const ok = await actions.run(key, () => affApi.acceptMissedClaim(claim.id, { tenantId: t.id, reason: reason.trim() }),
+      (r) => L.missedAcceptMessage(claim.companyName, t.name, claim.affiliate.fullName, r));
+    if (ok) onClose();
+  };
+  return (
+    <div className="fixed inset-0 z-[70] bg-black/40 flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 pt-5">
+          <h3 className="text-base font-bold text-[#1F1A13]">قبول مطالبة «{claim.companyName}»</h3>
+          <p className="text-[12px] text-[#6E6557] mt-1">
+            السفير <b className="text-[#1F1A13]">{claim.affiliate.fullName}</b> <span className="font-mono" dir="ltr">{claim.affiliate.code}</span> · قُدّمت {day(claim.submittedAt)}.
+            القبول <b>إسنادٌ يدويّ</b> للشركة المختارة إليه من لحظة تسجيلها، ويُسجَّل حدثاً بسببك.
+          </p>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <TenantSearchBox selected={tenant} onSelect={setTenant} warnAttributed />
+          {tenant && win && <div><Chip tone={win.tone}>{win.label}</Chip></div>}
+          {tenant?.attributed && (
+            <Note tone="warn">للشركة إسنادٌ قائم — سيرفض الخادم القبول. إن كان متنازعاً عليه أو مُبطلاً فانقله بـ«إعادة إسناد» من تبويب الإسناد.</Note>
+          )}
+          {tenant && win?.tone === 'red' && (
+            <Note tone="warn">قُدّمت المطالبة بعد مهلة {L.MISSED_CLAIM_WINDOW_DAYS} يوماً من تسجيل الشركة — سيرفضها الخادم. الإسناد اليدوي من تبويب الإسناد يبقى متاحاً إن قرّرت ذلك.</Note>
+          )}
+          <div>
+            <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">سبب القبول * (يُحفظ في سجلّ الإسناد)</label>
+            <textarea rows={3} maxLength={L.MISSED_ACCEPT_REASON_MAX} className="input w-full resize-none" value={reason}
+              onChange={(e) => setReason(e.target.value)} placeholder="مثال: أكّدت الشركة بالهاتف أن السفير أحالها" />
+          </div>
+          {touched && err && <p className="text-[12px] text-red-600">{err}</p>}
+        </div>
+        <div className="flex gap-2 p-5 pt-0">
+          <button onClick={submit} disabled={actions.busy === key}
+            className="flex-1 justify-center py-2.5 rounded-xl text-white text-sm font-semibold flex items-center gap-2 bg-[#1E7A52] hover:bg-[#186444] disabled:opacity-50">
+            <CheckCircle2 className="w-4 h-4" /> {actions.busy === key ? 'يقبل…' : 'قبول وإسناد'}
+          </button>
+          <button onClick={onClose} className="btn-secondary">إلغاء</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MissedClaimsTab({ status, setStatus }: { status: string; setStatus: (v: string) => void }) {
+  // القبول والرفض: affiliates.manage — العرض affiliates.view
+  const canManage = usePlatformAccess().can('affiliates.manage');
+  const actions = useActions();
+  const [acceptFor, setAcceptFor] = useState<{ claim: L.MissedClaimRow; tenant: L.TenantHit | null } | null>(null);
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: [KEY, 'missed-claims', status],
+    queryFn: () => affApi.missedClaims(status),
+  });
+
+  return (
+    <div className="space-y-3">
+      <StatusFilter values={L.MISSED_CLAIM_STATUSES} map={L.MISSED_CLAIM_STATUS_LABEL} value={status} onChange={setStatus} />
+      <Note>
+        «مطالبة بإحالة فائتة»: شركةٌ يقول السفير إنها جاءت عن طريقه وسجّلت <b>دون رمزه</b>. تُقبل إن قُدّمت خلال {L.MISSED_CLAIM_WINDOW_DAYS} يوماً من تسجيل الشركة،
+        والقبول <b>إسنادٌ يدويّ</b> للشركة إلى السفير من لحظة تسجيلها (بقيود الإسناد كلّها: لا إسناد قائم للشركة، والسفير معتمد) — فإن تمّت دفعتها الأولى أُنشئت العمولة.
+        تحقّق قبل القبول (اتصل بالشركة إن لزم). والرفض بسببٍ يراه السفير.
+      </Note>
+
+      {isLoading ? <Loading /> : isError ? <Failed onRetry={() => refetch()} /> : !data || data.length === 0 ? (
+        <Empty>لا مطالبات{status ? ` بحالة «${L.labelOf(L.MISSED_CLAIM_STATUS_LABEL, status)}»` : ''}</Empty>
+      ) : (
+        <div className="space-y-2.5">
+          {data.map((c) => {
+            const can = L.missedClaimActions(c);
+            return (
+              <article key={c.id} className="rounded-xl border border-[#E7DECD] bg-white p-3.5">
+                <div className="flex flex-wrap items-start gap-3">
+                  <div className="flex-1 min-w-[220px]">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="text-[14px] font-bold text-[#1F1A13]">{c.companyName}</h4>
+                      <StatusChip map={L.MISSED_CLAIM_STATUS_LABEL} value={c.status} />
+                    </div>
+                    {(c.crNumber || c.contactPhone) && (
+                      <p className="text-[12px] text-[#6E6557] mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                        {c.crNumber && <span>سجل تجاري <span className="font-mono" dir="ltr">{c.crNumber}</span></span>}
+                        {c.contactPhone && (
+                          <span className="inline-flex items-center gap-1">
+                            <Phone className="w-3.5 h-3.5 shrink-0" />
+                            {L.telHref(c.contactPhone)
+                              ? <a href={L.telHref(c.contactPhone)!} className="font-mono text-[#E15A30] hover:underline" dir="ltr">{L.phoneDisplay(c.contactPhone)}</a>
+                              : <span className="font-mono" dir="ltr">{L.phoneDisplay(c.contactPhone)}</span>}
+                          </span>
+                        )}
+                      </p>
+                    )}
+                    {c.note && <p className="text-[12px] text-[#1F1A13] mt-1 bg-[#FAF7F0] rounded-lg px-2 py-1">«{c.note}»</p>}
+                    <p className="text-[11px] text-[#9A8F7E] mt-1">
+                      من <b className="text-[#1F1A13]">{c.affiliate.fullName}</b> <span className="font-mono" dir="ltr">{c.affiliate.code}</span>
+                      {' '}· قُدّمت {day(c.submittedAt)}
+                      {c.reviewedAt ? ` · رُوجعت ${day(c.reviewedAt)}` : ''}
+                    </p>
+                    {c.reasonNote && <p className="text-[12px] text-[#6E6557] mt-1">السبب: {c.reasonNote}</p>}
+                    {c.tenantId && (
+                      <p className="text-[12px] text-green-700 mt-1 flex items-center gap-1"><Building2 className="w-3.5 h-3.5" /> أُسندت {c.tenantName ?? c.tenantId}</p>
+                    )}
+                  </div>
+                  {canManage && (can.accept || can.reject) && (
+                    <div className="flex flex-wrap gap-1">
+                      {can.accept && (
+                        <ActionBtn tone="good" icon={Link2} onClick={() => setAcceptFor({ claim: c, tenant: null })}>قبول بربط شركة</ActionBtn>
+                      )}
+                      {can.reject && (
+                        <ActionBtn tone="bad" icon={XCircle}
+                          onClick={() => actions.ask({
+                            key: `missed:reject:${c.id}`, title: `رفض مطالبة «${c.companyName}»`, confirmLabel: 'رفض المطالبة', danger: true, mode: 'text',
+                            hint: 'يرى السفير الحالة والسبب في البوابة — لا تكشف فيه بيانات الشركة الخاصة.',
+                            action: (reason) => affApi.rejectMissedClaim(c.id, reason), success: 'رُفضت المطالبة',
+                          })}>
+                          رفض
+                        </ActionBtn>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {c.suggestions.length > 0 && (
+                  <div className="mt-2.5 rounded-lg border border-[#E7DECD] bg-[#FAF7F0] p-2.5">
+                    <p className="text-[11.5px] font-bold text-[#1F1A13] mb-1 flex items-center gap-1"><Building2 className="w-3.5 h-3.5" /> شركات مسجّلة مطابقة</p>
+                    <ul className="space-y-1">
+                      {c.suggestions.map((s) => {
+                        const win = L.missedWindowLabel(s.daysFromSignup, s.withinWindow);
+                        return (
+                          <li key={s.tenantId} className="flex flex-wrap items-center gap-2 text-[12px]">
+                            <span className="text-[#1F1A13] font-semibold">{s.tenantName}</span>
+                            <Chip tone={s.match === 'name' ? 'amber' : 'green'}>{L.labelOf(L.MISSED_MATCH_LABEL, s.match)}</Chip>
+                            {s.createdAt && <span className="text-[10.5px] text-[#9A8F7E]">سجّلت {day(s.createdAt)}</span>}
+                            {win && <Chip tone={win.tone}>{win.label}</Chip>}
+                            {s.attributed && <Chip tone="red">مُسندة لسفير</Chip>}
+                            {canManage && can.accept && (
+                              <button
+                                onClick={() => setAcceptFor({ claim: c, tenant: { id: s.tenantId, name: s.tenantName, commercialReg: null, createdAt: s.createdAt ?? '', attributed: s.attributed === true } })}
+                                className="mr-auto text-[11px] font-bold text-[#E15A30] hover:underline"
+                              >قبول بهذه الشركة</button>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      {acceptFor && canManage && (
+        <AcceptMissedDialog claim={acceptFor.claim} initial={acceptFor.tenant} actions={actions} onClose={() => setAcceptFor(null)} />
+      )}
+      {actions.dialog}
+    </div>
+  );
+}
+
 // ─── ٤) الإسناد ────────────────────────────────────────────────────────────
 
 function useAffiliateOptions() {
@@ -1612,6 +1791,7 @@ function CommissionsTab({ status, setStatus }: { status: string; setStatus: (v: 
   // اعتماد العمولة وإيقافها وتحريرها ورفضها: affiliates.payouts
   const canPayouts = usePlatformAccess().can('affiliates.payouts');
   const actions = useActions();
+  const { data: settings } = useQuery({ queryKey: [KEY, 'settings'], queryFn: affApi.settings });
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: [KEY, 'commissions', status],
     queryFn: () => affApi.commissions(status),
@@ -1621,8 +1801,10 @@ function CommissionsTab({ status, setStatus }: { status: string; setStatus: (v: 
     <div className="space-y-3">
       <StatusFilter values={L.COMMISSION_STATUSES} map={L.COMMISSION_STATUS_LABEL} value={status} onChange={setStatus} />
       <Note>
-        الأساس <b>كامل مبلغ الدفعة الأولى شاملاً الضريبة</b>. العمولة لا تُعتمد قبل انتهاء فترة الحجز، وعند الاعتماد
-        يُعاد فحص رابط الدفع — إن لم يعد «مدفوعاً» تُعكس العمولة ويظهر السبب.
+        {/* v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): الاعتماد تلقائيّ بعد الحجز — والاعتماد اليدوي باقٍ */}
+        <b>{L.autoApproveNote(settings?.holdDays)}.</b> الأساس <b>كامل مبلغ الدفعة الأولى شاملاً الضريبة</b>، ولا تُعتمد عمولة قبل انتهاء حجزها.
+        وعند الاعتماد (تلقائياً أو يدوياً) يُعاد فحص رابط الدفع — إن لم يعد «مدفوعاً» تُعكس العمولة ويظهر السبب.
+        ما بقي «جاهزاً للاعتماد» بعد الحجز لم يجتز فحصاً تلقائياً — قرارك.
       </Note>
 
       {isLoading ? <Loading /> : isError ? <Failed onRetry={() => refetch()} /> : !data || data.length === 0 ? (
@@ -1671,7 +1853,7 @@ function CommissionsTab({ status, setStatus }: { status: string; setStatus: (v: 
                     {list.includes('approve') && (
                       <ActionBtn tone="good" icon={CheckCircle2}
                         disabled={!c.readyToApprove || actions.busy === k('approve')}
-                        title={c.readyToApprove ? 'اعتماد العمولة' : `في فترة الحجز حتى ${day(c.eligibleAt)}`}
+                        title={c.readyToApprove ? 'اعتماد يدوي الآن (وإلا تُعتمد تلقائياً في النبضة التالية)' : `في فترة الحجز حتى ${day(c.eligibleAt)}`}
                         onClick={() => actions.run(k('approve'), () => affApi.commissionAction(c.id, 'approve'), 'اعتُمدت العمولة — تدخل أول دفعة تُنشئها')}>
                         اعتماد
                       </ActionBtn>
@@ -1769,26 +1951,121 @@ function RecordPayoutDialog({ payout, actions, onClose }: { payout: L.PayoutRow;
   );
 }
 
+/** أسبابٌ جاهزة لفشل التحويل — تُعبّئ الحقل ويبقى قابلاً للتعديل */
+const FAIL_REASON_PRESETS = ['الآيبان غير صحيح', 'اسم المستفيد لا يطابق الحساب', 'الحساب مغلق أو موقوف', 'ارتدّت الحوالة من البنك'];
+
+/** «فشل التحويل» (v2): `POST /payouts/:id/fail {reason 3..300}` — تُفكّ عمولات المسودّة وتعود للدورة التالية */
+function FailPayoutDialog({ payout, actions, onClose }: { payout: L.PayoutRow; actions: Actions; onClose: () => void }) {
+  const [reason, setReason] = useState('');
+  const [touched, setTouched] = useState(false);
+  const err = L.validateFailReason(reason);
+  const key = `pay:fail:${payout.id}`;
+  const submit = async () => {
+    setTouched(true);
+    if (err) return;
+    // كتسجيل التحويل: تُغلق النافذة في النجاح والفشل (الاستعلامات تُحدَّث في الحالتين) — لا تبقى على بيانات قديمة
+    await actions.run(key, () => affApi.failPayout(payout.id, reason.trim()),
+      `سُجّل فشل تحويل دفعة ${payout.affiliate.fullName} — عادت عمولاتها «معتمدة» وأُبلغ السفير ليصحّح بياناته`);
+    onClose();
+  };
+  return (
+    <div className="fixed inset-0 z-[70] bg-black/40 flex items-center justify-center p-4" dir="rtl" {...backdropClose(onClose)}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 pt-5">
+          <h3 className="text-base font-bold text-[#1F1A13]">فشل التحويل</h3>
+          <p className="text-[12.5px] text-[#6E6557] mt-1">
+            {payout.affiliate.fullName} · <b className="tabular-nums text-[#1F1A13]">{L.formatHalalas(payout.netHalalas)}</b> ·
+            {' '}{payout.holderName} <span className="font-mono" dir="ltr">•••• {payout.ibanLast4}</span>
+          </p>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <Note tone="warn">
+            استعمله حين يرتدّ تحويلٌ بدأته أو يرفضه البنك. تصير الدفعة «فشل التحويل»، وتعود عمولاتها وتصحيحاتها <b>«معتمدة»</b> بلا دفعة،
+            ويصل السفيرَ بريد «تعذّر التحويل — تحقّق من بيانات الآيبان». تدخل الدورة التالية تلقائياً بعد أن يحدّث بيانات استلامه.
+            لم تحوّل شيئاً بعد وتريد التراجع؟ استعمل «إلغاء» بدلاً منه.
+          </Note>
+          <div className="flex flex-wrap gap-1.5">
+            {FAIL_REASON_PRESETS.map((r) => (
+              <button key={r} type="button" onClick={() => setReason(r)}
+                className={`px-2.5 py-1 rounded-full text-[11.5px] font-semibold border ${reason === r ? 'bg-[#1F1A13] text-white border-[#1F1A13]' : 'bg-white text-[#6E6557] border-[#E7DECD] hover:bg-[#F1EADD]'}`}>
+                {r}
+              </button>
+            ))}
+          </div>
+          <div>
+            <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">السبب * (يظهر للسفير مع الدفعة)</label>
+            <textarea autoFocus rows={3} maxLength={L.FAIL_REASON_MAX} className="input w-full resize-none" value={reason}
+              onChange={(e) => setReason(e.target.value)} placeholder="مثال: ارتدّت الحوالة — الآيبان لا يطابق اسم المستفيد" />
+            {touched && err && <p className="text-[11px] text-red-600 mt-1">{err}</p>}
+          </div>
+        </div>
+        <div className="flex gap-2 p-5 pt-0">
+          <button onClick={submit} disabled={actions.busy === key}
+            className="flex-1 justify-center py-2.5 rounded-xl text-white text-sm font-semibold flex items-center gap-2 bg-[#C0392B] hover:bg-[#a8311f] disabled:opacity-50">
+            <AlertOctagon className="w-4 h-4" /> {actions.busy === key ? 'يسجّل…' : 'تسجيل فشل التحويل'}
+          </button>
+          <button onClick={onClose} className="btn-secondary">إلغاء</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PayoutsTab({ status, setStatus }: { status: string; setStatus: (v: string) => void }) {
-  // إنشاء الدفعة وتسجيل تحويلها وإلغاؤها: affiliates.payouts — الآيبان الكامل: affiliates.iban
+  // إنشاء الدفعة وتسجيل تحويلها وفشله وإلغاؤها وتشغيل الدورة: affiliates.payouts — الآيبان الكامل: affiliates.iban
   const access = usePlatformAccess();
   const canPayouts = access.can('affiliates.payouts');
   const canIban = access.can('affiliates.iban');
   const actions = useActions();
   const [recordFor, setRecordFor] = useState<L.PayoutRow | null>(null);
+  const [failFor, setFailFor] = useState<L.PayoutRow | null>(null);
   const [revealFor, setRevealFor] = useState<string | null>(null);
   const { data: settings } = useQuery({ queryKey: [KEY, 'settings'], queryFn: affApi.settings });
+  const { data: overview } = useQuery({ queryKey: [KEY, 'overview'], queryFn: affApi.overview });
   const cand = useQuery({ queryKey: [KEY, 'payout-candidates'], queryFn: affApi.candidates });
   const pays = useQuery({ queryKey: [KEY, 'payouts', status], queryFn: () => affApi.payouts(status) });
+  const nextKey = L.nextSettlementKey(overview?.nextSettlementAt);
+
+  const runCycle = () => actions.ask({
+    key: 'settle:run', title: 'تشغيل دورة التسوية الآن', confirmLabel: 'تشغيل الدورة', mode: 'none',
+    hint: (
+      <>
+        يُشغّل دورة <b>آخر نهايةٍ مرّت</b>{overview?.lastCycle?.cycleKey ? <> (<span dir="ltr">{overview.lastCycle.cycleKey}</span>)</> : null} بمفتاحها نفسه:
+        اعتمادٌ تلقائي لما انتهى حجزه، ثم <b>مسودّة دفعة</b> لكل سفيرٍ مؤهَّل لم تُنشأ له دفعة في هذه الدورة.
+        آمنٌ للتكرار — لا دفعتان لسفيرٍ في دورة واحدة، ويلتقط من أكمل ملفه بعد مرورها. <b>لا يحوّل أي مال.</b>
+      </>
+    ),
+    action: () => affApi.runSettlement(),
+    success: (r) => L.settlementRunMessage(r as L.SettlementRunResult),
+  });
+
+  const createdMsg = (p: unknown) => `أُنشئت مسودّة دفعة ${L.formatHalalas((p as L.PayoutRow | undefined)?.netHalalas)} — حوّلها من بنكك ثم سجّل المرجع`;
 
   return (
     <div className="space-y-4">
       <Note tone="money">
-        <b>الصرف يدوي بالكامل — المنصّة لا تحرّك أي مال.</b> الخطوات: (١) «إنشاء دفعة» يجمّد العمولات المعتمدة والتصحيحات في مسودّة
-        <b> صافيها ثابت لا يتغيّر</b> — أي استرداد يصل بعدها يصير قيد تصحيح سالباً في الدفعة التالية.
-        (٢) تحوّل أنت الصافي من حسابك البنكي إلى آيبان السفير. (٣) تسجّل مرجع التحويل وتاريخه هنا فتصير العمولات «مدفوعة».
-        {settings && <> الحدّ الأدنى للصرف {L.formatHalalas(settings.minPayoutHalalas)}، ولا تُنشأ دفعة بصافٍ صفر أو سالب.</>}
+        <b>دورة التسوية كل ١٠ أيام (١ و١١ و٢١ من كل شهر، منتصف الليل بتوقيت الرياض).</b> في كل دورة تُعتمد العمولات المنتهي حجزها تلقائياً،
+        وتُنشأ <b>مسودّة دفعة</b> لكل سفيرٍ معتمد صافيه لا يقلّ عن الحدّ الأدنى وملفه مكتمل (النوع والآيبان والهوية، والسجل للشركة) — وما دون الحدّ يُرحَّل للدورة التالية — ويصلك بريدٌ بالملخّص.
+        <b> المنصّة لا تحرّك أي مال:</b> تحوّل أنت صافي كل مسودّة من حسابك البنكي ثم «تسجيل التحويل» بمرجعه، أو «فشل التحويل» بسببه فتعود عمولاتها للدورة التالية.
+        المسودّة <b>صافيها ثابت لا يتغيّر</b> — أي استرداد يصل بعدها يصير قيد تصحيح سالباً في الدفعة التالية.
+        {settings && <> الحدّ الأدنى في الشروط الحالية {L.formatHalalas(settings.minPayoutHalalas)} (ولكل سفير حدّ الشروط التي قبلها)، ولا تُنشأ دفعة بصافٍ صفر أو سالب.</>}
       </Note>
+
+      <section className="rounded-xl border border-[#E7DECD] bg-white p-4 flex flex-wrap items-center gap-x-6 gap-y-3">
+        <div className="flex items-center gap-3 flex-1 min-w-[220px]">
+          <div className="w-10 h-10 rounded-xl bg-[#FBEBE2] flex items-center justify-center shrink-0"><CalendarClock className="w-5 h-5 text-[#E15A30]" /></div>
+          <div>
+            <p className="text-[11.5px] font-semibold text-gray-500">التسوية القادمة</p>
+            <p className="text-base font-bold text-[#1F1A13]">{formatDayOnly(nextKey)}</p>
+            <p className="text-[11px] text-[#6E6557]">{L.lastCycleText(overview?.lastCycle)}</p>
+          </div>
+        </div>
+        {canPayouts && (
+          <button onClick={runCycle} disabled={actions.busy === 'settle:run'} className="btn-primary disabled:opacity-50">
+            <Play className="w-4 h-4" /> {actions.busy === 'settle:run' ? 'يشغّل…' : 'تشغيل الدورة الآن'}
+          </button>
+        )}
+      </section>
 
       <section className="space-y-2">
         <div className="flex items-center justify-between">
@@ -1805,6 +2082,14 @@ function PayoutsTab({ status, setStatus }: { status: string; setStatus: (v: stri
               const blocker = L.candidateBlocker(c, settings?.minPayoutHalalas);
               const can = L.canCreatePayout(c); // ولو بلا عمولات: تصحيحٌ موجب وحده يكفي
               const key = `pay:create:${c.affiliate.id}`;
+              const create = () => (c.blockedBy === 'iban_failed'
+                // فشل آخر تحويلٍ ولم يحدّث السفير الآيبان: الدورة تتخطّاه، واليدوي بتأكيد
+                ? actions.ask({
+                  key, title: `دفعة يدوية لـ${c.affiliate.fullName}`, confirmLabel: 'إنشاء الدفعة', mode: 'none',
+                  hint: 'فشل آخر تحويلٍ لهذا السفير ولم يحدّث بيانات استلامه بعده — لذلك تتخطّاه الدورة التلقائية. أنشئها يدوياً فقط إن تحقّقت من الآيبان معه.',
+                  action: () => affApi.createPayout(c.affiliate.id), success: createdMsg,
+                })
+                : actions.run(key, () => affApi.createPayout(c.affiliate.id), createdMsg));
               return (
                 <tr key={c.affiliate.id}>
                   <Td>
@@ -1820,11 +2105,14 @@ function PayoutsTab({ status, setStatus }: { status: string; setStatus: (v: stri
                   <Td className="text-[11.5px] whitespace-nowrap">
                     {c.hasPayout ? <>{c.holderName} <span className="font-mono" dir="ltr">•••• {c.ibanLast4}</span></> : <span className="text-red-600">بلا آيبان</span>}
                   </Td>
-                  <Td>{can ? <Chip tone="green">مؤهّل</Chip> : <Chip tone="amber">{blocker ?? 'غير مؤهّل'}</Chip>}</Td>
+                  <Td>
+                    {blocker === null ? <Chip tone="green">مؤهّل</Chip> : <Chip tone={c.blockedBy === 'iban_failed' ? 'red' : 'amber'}>{blocker}</Chip>}
+                    {c.blockedBy === 'profile_incomplete' && (c.missing?.length ?? 0) > 0 && (
+                      <p className="text-[10.5px] text-[#9A8F7E] mt-1 max-w-[200px]">{L.profileState({ profileComplete: false, missing: c.missing }).label}</p>
+                    )}
+                  </Td>
                   {canPayouts && <Td>
-                    <ActionBtn tone="brand" icon={Plus} disabled={!can || actions.busy === key}
-                      onClick={() => actions.run(key, () => affApi.createPayout(c.affiliate.id),
-                        (p) => `أُنشئت مسودّة دفعة ${L.formatHalalas(p.netHalalas)} — حوّلها من بنكك ثم سجّل المرجع`)}>
+                    <ActionBtn tone="brand" icon={Plus} disabled={!can || actions.busy === key} onClick={create}>
                       إنشاء دفعة
                     </ActionBtn>
                   </Td>}
@@ -1844,63 +2132,77 @@ function PayoutsTab({ status, setStatus }: { status: string; setStatus: (v: stri
           <Empty>لا دفعات{status ? ` بحالة «${L.labelOf(L.PAYOUT_STATUS_LABEL, status)}»` : ''}</Empty>
         ) : (
           <Table head={<>
-            <Th>السفير</Th><Th>المكوّنات</Th><Th>الصافي</Th><Th>المستفيد</Th><Th>الحالة</Th><Th>التحويل</Th>{canPayouts && <Th>إجراءات</Th>}
+            <Th>السفير</Th><Th>الفترة</Th><Th>المكوّنات</Th><Th>الصافي</Th><Th>المستفيد</Th><Th>الحالة</Th><Th>التحويل</Th>{canPayouts && <Th>إجراءات</Th>}
           </>}>
-            {pays.data.map((p) => (
-              <tr key={p.id}>
-                <Td><AffCell a={p.affiliate} /><p className="text-[10.5px] text-[#9A8F7E]">أُنشئت {day(p.createdAt)}</p></Td>
-                <Td className="text-[11.5px] whitespace-nowrap tabular-nums">
-                  <p>{p.commissionCount} عمولة · {L.formatHalalas(p.commissionsHalalas)}</p>
-                  <p className={p.adjustmentsHalalas < 0 ? 'text-red-600' : 'text-[#9A8F7E]'}>تصحيحات {L.formatHalalas(p.adjustmentsHalalas)}</p>
-                </Td>
-                <Td className="whitespace-nowrap tabular-nums font-bold text-[#1F1A13]">{L.formatHalalas(p.netHalalas)}</Td>
-                <Td className="text-[11.5px]">
-                  <p>{p.holderName}</p>
-                  <p className="font-mono" dir="ltr">•••• {p.ibanLast4}</p>
-                  {p.status === 'draft' && canIban && (
-                    <div className="mt-1">
-                      {revealFor === p.id ? <RevealIban affiliateId={p.affiliate.id} /> : (
-                        <button onClick={() => setRevealFor(p.id)} className="text-[11px] text-amber-800 hover:underline inline-flex items-center gap-1"><Lock className="w-3 h-3" /> الآيبان الكامل للتحويل</button>
-                      )}
-                    </div>
-                  )}
-                </Td>
-                <Td>
-                  <StatusChip map={L.PAYOUT_STATUS_LABEL} value={p.status} />
-                  {p.voidReason && <p className="text-[10.5px] text-[#9A8F7E] mt-1 max-w-[160px]">{p.voidReason}</p>}
-                </Td>
-                <Td className="text-[11.5px] whitespace-nowrap">
-                  {p.bankReference ? <p className="font-mono" dir="ltr">{p.bankReference}</p> : <p className="text-gray-400">—</p>}
-                  {p.transferredAt && <p className="text-[#9A8F7E]">{dayOnly(p.transferredAt)}</p>}
-                </Td>
-                {canPayouts && <Td>
-                  {p.status === 'draft' ? (
-                    <div className="flex flex-wrap gap-1">
-                      <ActionBtn tone="good" icon={CheckCircle2} onClick={() => setRecordFor(p)}>تسجيل التحويل</ActionBtn>
-                      <ActionBtn tone="bad" icon={Ban}
-                        onClick={() => actions.ask({
-                          key: `pay:void:${p.id}`, title: `إلغاء دفعة ${p.affiliate.fullName}`, confirmLabel: 'إلغاء الدفعة', danger: true, mode: 'text',
-                          hint: 'تُفكّ العمولات والتصحيحات وتعود «معتمدة» للدورة القادمة. لا تلغِ دفعة حوّلت مبلغها فعلاً.',
-                          action: (reason) => affApi.voidPayout(p.id, reason), success: 'أُلغيت الدفعة',
-                        })}>
-                        إلغاء
-                      </ActionBtn>
-                    </div>
-                  ) : <span className="text-[11px] text-gray-400">—</span>}
-                </Td>}
-              </tr>
-            ))}
+            {pays.data.map((p) => {
+              const per = L.payoutPeriod(p);
+              return (
+                <tr key={p.id}>
+                  <Td><AffCell a={p.affiliate} /><p className="text-[10.5px] text-[#9A8F7E]">أُنشئت {day(p.createdAt)}{p.createdBy === 'system' ? ' · آلياً' : ''}</p></Td>
+                  <Td className="text-[11.5px] whitespace-nowrap">
+                    {per ? (
+                      <>
+                        <p>{formatDayOnly(per.from)} ← {formatDayOnly(per.to)}</p>
+                        {p.cycleKey && <p className="text-[10.5px] text-[#9A8F7E]">دورة <span dir="ltr">{p.cycleKey}</span></p>}
+                      </>
+                    ) : <p className="text-[#9A8F7E]">دفعة يدوية</p>}
+                  </Td>
+                  <Td className="text-[11.5px] whitespace-nowrap tabular-nums">
+                    <p>{p.commissionCount} عمولة · {L.formatHalalas(p.commissionsHalalas)}</p>
+                    <p className={p.adjustmentsHalalas < 0 ? 'text-red-600' : 'text-[#9A8F7E]'}>تصحيحات {L.formatHalalas(p.adjustmentsHalalas)}</p>
+                  </Td>
+                  <Td className="whitespace-nowrap tabular-nums font-bold text-[#1F1A13]">{L.formatHalalas(p.netHalalas)}</Td>
+                  <Td className="text-[11.5px]">
+                    <p>{p.holderName}</p>
+                    <p className="font-mono" dir="ltr">•••• {p.ibanLast4}</p>
+                    {p.status === 'draft' && canIban && (
+                      <div className="mt-1">
+                        {revealFor === p.id ? <RevealIban affiliateId={p.affiliate.id} /> : (
+                          <button onClick={() => setRevealFor(p.id)} className="text-[11px] text-amber-800 hover:underline inline-flex items-center gap-1"><Lock className="w-3 h-3" /> الآيبان الكامل للتحويل</button>
+                        )}
+                      </div>
+                    )}
+                  </Td>
+                  <Td>
+                    <StatusChip map={L.PAYOUT_STATUS_LABEL} value={p.status} />
+                    {p.voidReason && <p className="text-[10.5px] text-[#9A8F7E] mt-1 max-w-[160px]">{p.voidReason}</p>}
+                    {p.failedReason && <p className="text-[10.5px] text-red-700 mt-1 max-w-[180px]">{p.failedReason}{p.failedAt ? ` · ${day(p.failedAt)}` : ''}</p>}
+                  </Td>
+                  <Td className="text-[11.5px] whitespace-nowrap">
+                    {p.bankReference ? <p className="font-mono" dir="ltr">{p.bankReference}</p> : <p className="text-gray-400">—</p>}
+                    {p.transferredAt && <p className="text-[#9A8F7E]">{dayOnly(p.transferredAt)}</p>}
+                  </Td>
+                  {canPayouts && <Td>
+                    {p.status === 'draft' ? (
+                      <div className="flex flex-wrap gap-1">
+                        <ActionBtn tone="good" icon={CheckCircle2} onClick={() => setRecordFor(p)}>تسجيل التحويل</ActionBtn>
+                        <ActionBtn tone="bad" icon={AlertOctagon} onClick={() => setFailFor(p)}>فشل التحويل</ActionBtn>
+                        <ActionBtn tone="bad" icon={Ban}
+                          onClick={() => actions.ask({
+                            key: `pay:void:${p.id}`, title: `إلغاء دفعة ${p.affiliate.fullName}`, confirmLabel: 'إلغاء الدفعة', danger: true, mode: 'text',
+                            hint: 'تُفكّ العمولات والتصحيحات وتعود «معتمدة» للدورة القادمة. لا تلغِ دفعة حوّلت مبلغها فعلاً — وإن ارتدّ التحويل فاستعمل «فشل التحويل».',
+                            action: (reason) => affApi.voidPayout(p.id, reason), success: 'أُلغيت الدفعة',
+                          })}>
+                          إلغاء
+                        </ActionBtn>
+                      </div>
+                    ) : <span className="text-[11px] text-gray-400">—</span>}
+                  </Td>}
+                </tr>
+              );
+            })}
           </Table>
         )}
       </section>
 
       {recordFor && canPayouts && <RecordPayoutDialog payout={recordFor} actions={actions} onClose={() => setRecordFor(null)} />}
+      {failFor && canPayouts && <FailPayoutDialog payout={failFor} actions={actions} onClose={() => setFailFor(null)} />}
       {actions.dialog}
     </div>
   );
 }
 
-// ─── ٧) التصحيحات ──────────────────────────────────────────────────────────
+/ ─── ٧) التصحيحات ──────────────────────────────────────────────────────────
 
 function AdjustmentsTab() {
   const actions = useActions();
@@ -1961,6 +2263,200 @@ function AdjustmentsTab() {
   );
 }
 
+// ─── ٧ب) المواد التسويقية (v2) ──────────────────────────────────────────────
+
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result ?? ''));
+    r.onerror = () => reject(r.error ?? new Error('read'));
+    r.readAsDataURL(file);
+  });
+}
+
+/** رفع مادةٍ: ملفٌّ (≤ ٨ ميغابايت) أو رابطٌ أو نصٌّ جاهز بعنوانٍ وفئة — `POST /materials` (affiliates.manage) */
+function MaterialUploadForm({ actions }: { actions: Actions }) {
+  const [title, setTitle] = useState('');
+  const [category, setCategory] = useState<L.MaterialCategory | ''>('');
+  const [url, setUrl] = useState('');
+  const [textBody, setTextBody] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [fileKey, setFileKey] = useState(0); // يُصفّر حقل الملف بعد الحفظ
+  const [error, setError] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
+  const need = category ? L.materialNeeds(category) : null;
+  const form: L.MaterialForm = { title, category, url, textBody, file: file ? { name: file.name, size: file.size, type: file.type } : null };
+  const busy = reading || actions.busy === 'material:create';
+
+  const submit = async () => {
+    const err = L.validateMaterial(form);
+    setError(err);
+    if (err) return;
+    let dataUrl: string | null = null;
+    if (file && need && need.file !== 'none') {
+      setReading(true);
+      try { dataUrl = await readAsDataUrl(file); } catch { setError('تعذّرت قراءة الملف'); return; } finally { setReading(false); }
+    }
+    const body = L.buildMaterialBody(form, dataUrl);
+    const ok = await actions.run('material:create', () => affApi.createMaterial(body), `أُضيفت «${body.title}» — تظهر للسفراء في بوابتهم الآن`);
+    if (ok) { setTitle(''); setUrl(''); setTextBody(''); setFile(null); setFileKey((k) => k + 1); setError(null); }
+  };
+
+  return (
+    <section className="rounded-xl border border-[#E7DECD] bg-white p-4 space-y-3">
+      <h3 className="text-sm font-bold text-[#1F1A13] flex items-center gap-1.5"><Upload className="w-4 h-4 text-[#E15A30]" /> إضافة مادة</h3>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">العنوان *</label>
+          <input className="input w-full" maxLength={L.MATERIAL_TITLE_MAX} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="مثال: صورة الحملة — ٣٠٪ للسفراء" />
+        </div>
+        <div>
+          <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">الفئة *</label>
+          <select className="input w-full" value={category} onChange={(e) => setCategory(e.target.value as L.MaterialCategory | '')}>
+            <option value="">اختر الفئة</option>
+            {L.MATERIAL_CATEGORIES.map((c) => <option key={c} value={c}>{L.MATERIAL_CATEGORY_LABEL[c]}</option>)}
+          </select>
+        </div>
+      </div>
+      {need && need.file !== 'none' && (category === 'image' || category === 'video' || category === 'document') && (
+        <div>
+          <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">
+            الملف {need.file === 'required' ? '*' : '(أو رابط أدناه)'} — حتى ٨ ميغابايت
+          </label>
+          <input key={fileKey} type="file" accept={L.MATERIAL_ACCEPT[category]} className="block w-full text-[12px]"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          {file && <p className="text-[11px] text-[#9A8F7E] mt-1" dir="ltr">{file.name} · {L.formatBytes(file.size)}</p>}
+        </div>
+      )}
+      {need && need.url !== 'none' && (
+        <div>
+          <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">الرابط {need.url === 'required' ? '*' : '(بدل الملف)'}</label>
+          <input className="input w-full" dir="ltr" maxLength={L.MATERIAL_URL_MAX} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://" />
+        </div>
+      )}
+      {need && (
+        <div>
+          <label className="block text-[12px] font-bold text-[#1F1A13] mb-1">
+            {need.text === 'required' ? 'النصّ الجاهز *' : 'نصٌّ مرافق (اختياري — يُنسخ مع المادة)'}
+          </label>
+          <textarea rows={need.text === 'required' ? 5 : 2} maxLength={L.MATERIAL_TEXT_MAX} className="input w-full resize-y" value={textBody}
+            onChange={(e) => setTextBody(e.target.value)} placeholder="نصٌّ يشاركه السفير كما هو — بلا أسعار تتغيّر ولا وعود غير موثّقة" />
+          <p className="text-[10.5px] text-[#9A8F7E] mt-0.5 tabular-nums">{textBody.trim().length} / {L.MATERIAL_TEXT_MAX}</p>
+        </div>
+      )}
+      {error && <p className="text-[12px] text-red-600">{error}</p>}
+      <div className="flex justify-end">
+        <button onClick={submit} disabled={busy} className="btn-primary disabled:opacity-50">
+          <Upload className="w-4 h-4" /> {reading ? 'يقرأ الملف…' : actions.busy === 'material:create' ? 'يرفع…' : 'إضافة المادة'}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function MaterialsTab() {
+  // الرفع والحذف: affiliates.manage — العرض والتنزيل: affiliates.view
+  const canManage = usePlatformAccess().can('affiliates.manage');
+  const actions = useActions();
+  const [filter, setFilter] = useState('');
+  const [opening, setOpening] = useState<string | null>(null);
+  const { data, isLoading, isError, refetch } = useQuery({ queryKey: [KEY, 'materials'], queryFn: affApi.materials });
+  const list = (data ?? []).filter((m) => !filter || m.category === filter);
+  const filterMap: Record<string, L.Label> = Object.fromEntries(L.MATERIAL_CATEGORIES.map((c) => [c, { label: L.MATERIAL_CATEGORY_LABEL[c], tone: 'gray' as L.Tone }]));
+
+  // تنزيل الملف كما رُفع: من data URL إلى blob: (Chrome يمنع تنزيل data: الكبيرة)
+  const download = async (m: L.MaterialRow) => {
+    setOpening(m.id);
+    try {
+      const { dataUrl } = await affApi.materialFile(m.id);
+      const bytes = L.dataUrlToBytes(dataUrl);
+      if (!bytes) throw new Error('bad');
+      const mime = m.mime || /^data:([^;,]+)/.exec(dataUrl)?.[1] || 'application/octet-stream';
+      const href = URL.createObjectURL(new Blob([bytes.buffer as ArrayBuffer], { type: mime }));
+      const link = document.createElement('a');
+      link.href = href; link.download = m.fileName || m.title; document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
+    } catch (e) {
+      toast.error(L.apiErrorMessage(e, 'تعذّر جلب الملف'));
+    } finally {
+      setOpening(null);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Note>
+        مكتبة المواد التسويقية تظهر لكل السفراء في بوابتهم (تبويب «المواد التسويقية»): صور وفيديوهات ومستندات للتنزيل والمشاركة،
+        وروابط، ونصوص جاهزة للنسخ. التزم بحرّاس التسويق نفسها: لا أسعار تتغيّر، ولا «أعلى نسبة في السوق»، ولا أسماء منافسين.
+      </Note>
+      {canManage && <MaterialUploadForm actions={actions} />}
+
+      <section className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2 justify-between">
+          <h3 className="text-sm font-bold text-[#1F1A13]">المكتبة{data ? ` (${data.length})` : ''}</h3>
+          <StatusFilter values={L.MATERIAL_CATEGORIES} map={filterMap} value={filter} onChange={setFilter} />
+        </div>
+        {isLoading ? <Loading /> : isError ? <Failed onRetry={() => refetch()} /> : list.length === 0 ? (
+          <Empty>{filter ? 'لا مواد بهذه الفئة' : 'لا مواد بعد — أضف أول صورة أو نصّ جاهز للسفراء'}</Empty>
+        ) : (
+          <div className="grid sm:grid-cols-2 gap-2.5">
+            {list.map((m) => {
+              const href = L.safeHttpUrl(m.url);
+              return (
+                <article key={m.id} className="rounded-xl border border-[#E7DECD] bg-white p-3.5 flex flex-col gap-2">
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-[13.5px] font-bold text-[#1F1A13] break-words">{m.title}</h4>
+                      <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                        <Chip tone="blue">{L.labelOf(L.MATERIAL_CATEGORY_LABEL, m.category)}</Chip>
+                        <span className="text-[10.5px] text-[#9A8F7E]">{day(m.createdAt)}</span>
+                      </div>
+                    </div>
+                    {canManage && (
+                      <button
+                        onClick={() => actions.ask({
+                          key: `material:delete:${m.id}`, title: `حذف «${m.title}»`, confirmLabel: 'حذف نهائي', danger: true, mode: 'none',
+                          hint: 'تختفي المادة من بوابات السفراء فوراً، ويُحذف ملفها حذفاً حقيقياً لا يُستعاد.',
+                          action: () => affApi.deleteMaterial(m.id), success: 'حُذفت المادة',
+                        })}
+                        className="p-1.5 rounded-lg hover:bg-red-50" title="حذف"
+                      ><Trash2 className="w-4 h-4 text-red-600" /></button>
+                    )}
+                  </div>
+                  {m.fileName && (
+                    <div className="flex flex-wrap items-center gap-2 text-[11.5px]">
+                      <FileText className="w-3.5 h-3.5 text-[#9A8F7E]" />
+                      <span className="font-mono truncate max-w-[220px]" dir="ltr" title={m.fileName}>{m.fileName}</span>
+                      <span className="text-[#9A8F7E]">{L.formatBytes(m.sizeBytes)}</span>
+                      <span className="mr-auto">
+                        <ActionBtn icon={Download} disabled={opening === m.id} onClick={() => download(m)}>{opening === m.id ? 'يجلب…' : 'تنزيل'}</ActionBtn>
+                      </span>
+                    </div>
+                  )}
+                  {m.url && (
+                    href
+                      ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-mono text-[#E15A30] hover:underline truncate inline-flex items-center gap-1" dir="ltr"><Globe className="w-3.5 h-3.5 shrink-0" />{m.url}</a>
+                      : <span className="text-[11.5px] font-mono text-[#6E6557] truncate" dir="ltr">{m.url}</span>
+                  )}
+                  {m.textBody && (
+                    <div className="rounded-lg bg-[#FAF7F0] p-2 text-[12px] text-[#1F1A13] max-h-32 overflow-y-auto" style={{ whiteSpace: 'pre-wrap' }}>
+                      {m.textBody}
+                      <div className="mt-1">
+                        <button onClick={() => copyText(m.textBody ?? '', 'نُسخ النصّ')} className="text-[11px] text-[#E15A30] hover:underline inline-flex items-center gap-1"><Copy className="w-3 h-3" /> نسخ</button>
+                      </div>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+      {actions.dialog}
+    </div>
+  );
+}
+
 // ─── ٨) الإعدادات والشروط ──────────────────────────────────────────────────
 
 function SettingsForm({ s, actions, readOnly = false }: { s: L.AffiliateSettings; actions: Actions; readOnly?: boolean }) {
@@ -1999,8 +2495,8 @@ function SettingsForm({ s, actions, readOnly = false }: { s: L.AffiliateSettings
 
       <label className={`flex items-center justify-between gap-3 rounded-lg bg-[#FAF7F0] px-3 py-2.5 ${readOnly ? '' : 'cursor-pointer'}`}>
         <div>
-          <p className="text-[13px] font-bold text-[#1F1A13]">استقبال طلبات انضمام جديدة</p>
-          <p className="text-[11px] text-[#6E6557]">عند الإغلاق يرفض التسجيل في البوابة، ويبقى السفراء الحاليون كما هم.</p>
+          <p className="text-[13px] font-bold text-[#1F1A13]">استقبال تسجيلات جديدة</p>
+          <p className="text-[11px] text-[#6E6557]">الانضمام فوريّ: من يسجّل يدخل مباشرةً. عند الإغلاق يُرفض التسجيل الجديد في البوابة، ويبقى السفراء الحاليون كما هم.</p>
         </div>
         <button
           type="button" role="switch" aria-checked={draft.intakeOpen} disabled={readOnly} onClick={() => setDraft((d) => ({ ...d, intakeOpen: !d.intakeOpen }))}
@@ -2052,8 +2548,8 @@ function SettingsForm({ s, actions, readOnly = false }: { s: L.AffiliateSettings
 function RuleInputsGrid({ inputs, onChange }: { inputs: L.RuleInputs; onChange: (k: L.TermsRuleKey, v: string) => void }) {
   const meta: Record<L.TermsRuleKey, { suffix: string; hint: string }> = {
     rateBps: { suffix: '%', hint: 'من أول دفعة شاملة الضريبة (0–100)' },
-    holdDays: { suffix: 'يوماً', hint: 'قبل جواز الاعتماد (0–365)' },
-    minPayoutHalalas: { suffix: 'ر.س', hint: 'صافي الدفعة الأدنى (0–1,000,000)' },
+    holdDays: { suffix: 'يوماً', hint: 'ثم تُعتمد العمولة تلقائياً (0–365)' },
+    minPayoutHalalas: { suffix: 'ر.س', hint: 'أدنى صافٍ يدخل دورة التسوية، وما دونه يُرحَّل (0–1,000,000)' },
     refWindowDays: { suffix: 'يوماً', hint: 'من آخر نقرة (1–365)' },
     claimLockDays: { suffix: 'يوماً', hint: 'حجز الترشيح المعتمد (1–365)' },
     firstPaymentWithinDays: { suffix: 'يوماً', hint: 'بعدها لا تُحتسب عمولة (1–730)' },
@@ -2186,15 +2682,28 @@ function SettingsTab() {
 
   return (
     <div className="space-y-4">
-      <section className="rounded-xl border border-[#F3C9B6] bg-white p-4">
-        <h3 className="text-sm font-bold text-[#1F1A13] mb-2">رابط بوابة السفراء</h3>
-        <div className="flex items-center gap-2">
-          <code className="flex-1 rounded-lg bg-[#FAF7F0] border border-[#E7DECD] px-3 py-2 text-[13px] font-mono" dir="ltr">{L.PORTAL_URL}</code>
-          <button onClick={() => copyText(L.PORTAL_URL, 'نُسخ رابط البوابة')} className="btn-secondary"><Copy className="w-4 h-4" /> نسخ</button>
-        </div>
-        <p className="text-[11.5px] text-[#6E6557] mt-2 flex items-start gap-1.5">
-          <Lock className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          رابط <b>غير مُدرج</b>: لا يظهر في محركات البحث ولا توجد روابط إليه من الموقع. أرسله لمن تدعوه فقط — وكل طلب انضمام ينتظر موافقتك.
+      <section className="rounded-xl border border-[#F3C9B6] bg-white p-4 space-y-3">
+        <h3 className="text-sm font-bold text-[#1F1A13]">روابط البرنامج</h3>
+        {[
+          { label: 'البوابة', url: L.PORTAL_URL, done: 'نُسخ رابط البوابة', hint: 'دخول السفراء وتسجيلهم — تطبيقٌ غير مُدرج في محركات البحث' },
+          { label: 'صفحة البرنامج العلنية', url: L.PUBLIC_PAGE_URL, done: 'نُسخ رابط الصفحة', hint: 'الصفحة التي تُشارَك وتظهر في البحث وتذييل الموقع، وفيها «انضم الآن»' },
+        ].map((r) => (
+          <div key={r.url}>
+            <p className="text-[12px] font-bold text-[#1F1A13] mb-1">{r.label}</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 min-w-0 truncate rounded-lg bg-[#FAF7F0] border border-[#E7DECD] px-3 py-2 text-[13px] font-mono" dir="ltr">{r.url}</code>
+              <a href={r.url} target="_blank" rel="noopener noreferrer" className="btn-secondary" title="فتح"><ExternalLink className="w-4 h-4" /></a>
+              <button onClick={() => copyText(r.url, r.done)} className="btn-secondary"><Copy className="w-4 h-4" /> نسخ</button>
+            </div>
+            <p className="text-[10.5px] text-[#9A8F7E] mt-0.5">{r.hint}</p>
+          </div>
+        ))}
+        <p className="text-[11.5px] text-[#6E6557] flex items-start gap-1.5">
+          <UserCheck className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <span>
+            البوابة: fieldsa.net/ax — صفحة البرنامج العلنية: fieldsa.net/ambassadors — <b>الانضمام فوريّ بلا موافقة</b>: من يسجّل يدخل مباشرةً ويأخذ رابطه،
+            ولك إيقاف أي سفير لاحقاً من تبويب المسوّقين، وإغلاق استقبال التسجيلات من الإعدادات أدناه متى شئت.
+          </span>
         </p>
       </section>
 
