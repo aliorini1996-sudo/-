@@ -12,19 +12,20 @@
  * كل كمية بوحدة الأساس (D22) وبأربع خانات (isLotQty) عدا الإعادة (R6).
  */
 import type { LotDb, LotTx } from './lotsDb';
-import { LOT_LOCK_TIMEOUT, companyDay, loadLotMetas, lockLotProducts, placeViews } from './lotsDb';
+import { LOT_LOCK_TIMEOUT, companyDay, loadLotMetas, lockLotProducts, placeViews, returnGuessCandidates } from './lotsDb';
 import {
-  ClientRefRace, LOT_HOLD_MIRRORS, LotError,
-  allocateOutLines, allocateReturnFromHistory, allocateReturnFromSale, asLockBusy, invEffect, isLotQty, lotBaseQty, lotErr, lotRemovalsOf,
-  parseLotHint, parseLotRefsStrict, removalKeepsLots, replayMoment, stampFromRows,
+  ClientRefRace, LOT_EPS, LOT_HOLD_MIRRORS, LOT_ROW_FLAGS, LotError,
+  allocateOutLines, allocateReturnFromHistory, allocateReturnFromSale, asLockBusy, attributeUnnamedReturnRows, floorLot, invEffect, isLotQty,
+  lotBaseQty, lotErr, lotRemovalsOf, parseLotHint, parseLotRefsStrict, removalKeepsLots, replayMoment, roundLot, stampFromRows,
   type AllocRow, type InvoiceLotAllocation, type InvoiceLotLine, type InvoiceLotPlan, type ItemExpiryStamp, type LotActor,
-  type LotCertainty, type LotMeta, type LotRef, type LotRemovalItem, type LotWarning, type SaleLotRow,
+  type LotCertainty, type LotMeta, type LotRef, type LotRemovalItem, type LotRowFlag, type LotWarning, type SaleLotRow,
 } from './lots';
 import { factorOf } from './units';
 import { isDamagedVanReturn } from './vanDamaged';
 
 type LineAlloc = { rows: AllocRow[]; stamp: ItemExpiryStamp | null };
-type Allocated = { lines: Map<number, LineAlloc>; warnings: LotWarning[] };
+/** `explicit`: أسطر المرتجع التي حسمها اختيار المستخدم (T0) — لا يخمّن لها T3 ولو اختار «غير المسمّى» صراحةً */
+type Allocated = { lines: Map<number, LineAlloc>; warnings: LotWarning[]; explicit?: ReadonlySet<number> };
 
 /** D17 (افتراض المالك): البيع من غير المسمّى مسموح بعد نفاد المسمّى المؤهَّل، بيقين UNKNOWN، ولا يُنقص دون الصفر (I2) */
 export const LOT_ALLOW_UNKNOWN = true;
@@ -97,7 +98,7 @@ export async function lotTrackingEnabledFor(db: LotDb, tid: string): Promise<boo
 
 /**
  * توزيع أسطر البيع المتتبَّعة على تشغيلات سيارة المندوب، لكل صنفٍ بأسطره (allocateOutLines): الصريح (الإدارة/المفتاح) يُحلَّل
- * بصرامة لكل سطر، والتلميح (المندوب مع الإعادة) بتسامح، والمندوب حيّاً يوزّع الخادم. لا allocateOut على المجموع ثم
+ * بصرامة لكل سطر ويُصرف «أولاً» لا «حصراً» (SPILL، طلب المالك ١٦ نوفمبر ٢٠٢٦)، والتلميح (المندوب مع الإعادة) بتسامح، والمندوب حيّاً يوزّع الخادم. لا allocateOut على المجموع ثم
  * distributeToLines: ذاك يشقّ كرتون «٢ كرتون + ٥ حبة» بلا وسم ويعيد توزيع التلميح فيخالف لوطُ السطر ورقته.
  */
 async function allocateSale(db: LotDb, plan: InvoiceLotPlan, lines: InvoiceLotLine[]): Promise<Allocated> {
@@ -131,6 +132,11 @@ async function allocateSale(db: LotDb, plan: InvoiceLotPlan, lines: InvoiceLotLi
       productId: pid, productName: own[0].productName,
       lines: own.map((l) => ({ idx: l.idx, qty: l.qty, unitFactor: l.unitFactor, explicit: explicitOf.get(l.idx) ?? null, hint: hintOf.get(l.idx) ?? null })),
       view, day: plan.day, mode: 'SALE', allowUnknown: plan.allowUnknown, replay: plan.replay, lookup,
+      // طلب المالك ١٦ نوفمبر ٢٠٢٦ («لا مانع من أن يأخذ من LOT آخر»): صريح الإدارة والمفتاح في البيع «ابدأ بها» لا «لا غيرها» —
+      // يُصرف من التشغيلة المسمّاة ما تعطيه شرعاً (لا شيء من موقوفة أو منتهية، I4) ويُكمل الباقي FEFO ثم غير المسمّى بوسم
+      // EXPLICIT_FALLBACK وتحذير LOT_EXPLICIT_FALLBACK، ولا رفض إلا إن نقص الصنف كله (409 المسار التلقائي نفسه). المرحلتان معاً:
+      // الفحص المسبق والمعاملة يمرّان من هنا، واللوط خارج XML الهيئة فلا يضرّ اختلاف تشغيلة الباقي بينهما
+      ...(strict && { explicitShort: 'SPILL' as const }),
     });
     if (!r.ok) throw new LotError(r.error.code, r.error.message, r.error.status, { ...(r.error.detail ?? {}), lines: own.map((l) => l.idx) });
     warnings.push(...r.warnings);
@@ -169,13 +175,68 @@ async function returnedBySource(db: LotDb, tid: string, rowIds: string[], opts?:
   return out;
 }
 
+/** صفوف لوطٍ أرسلها الطالب فعلاً (الغائب والفارغ = «تلقائي») */
+const hasLotsRaw = (raw: unknown): boolean => raw !== undefined && raw !== null && !(Array.isArray(raw) && raw.length === 0);
+/** يضيف وسماً لصفوف سطرٍ بلا تكرار، بترتيب LOT_ROW_FLAGS المجمَّد (لا يتغيّر نصّ العمود بترتيب الإضافة) */
+const withFlag = (rows: AllocRow[], f: LotRowFlag): AllocRow[] =>
+  rows.map((r) => (r.flags.includes(f) ? r : { ...r, flags: LOT_ROW_FLAGS.filter((x) => x === f || r.flags.includes(x)) }));
+
+/**
+ * رفض صريح المرتجع المرتبط (المرحلة ب): رمز LOT_QTY_INVALID (422) وسببه الدقيق في detail.reason — LOT_NOT_IN_SALE تشغيلةٌ ليست
+ * من صفوف بند البيع نفسه، وLOT_OVER_RETURNABLE أكثر مما بقي منها للإرجاع (المباع − ما أرجعه المرتبط والإشعار قبله).
+ */
+function linkedLotRefused(reason: 'LOT_NOT_IN_SALE' | 'LOT_OVER_RETURNABLE', l: InvoiceLotLine, detail: Record<string, unknown>): LotError {
+  const message = reason === 'LOT_NOT_IN_SALE'
+    ? 'التشغيلة المختارة ليست من تشغيلات بند فاتورة البيع'
+    : 'الكمية المختارة من التشغيلة أكبر من المتبقي منها للإرجاع في فاتورة البيع';
+  return new LotError('LOT_QTY_INVALID', message, 422, { reason, productId: l.productId, line: l.idx, ...detail });
+}
+
+/**
+ * T0 للمرتجع المرتبط (طلب المالك ١٦ نوفمبر ٢٠٢٦، المرحلة ب): اختيار المستخدم بين تشغيلات بند البيع **نفسه** وحدها — لكل صفٍّ
+ * صريح صفوف البيع بالتشغيلة نفسها (null = الجزء غير المسمّى من البيع) بترتيب إنشائها، كلٌّ حتى المتبقي منه للإرجاع (`returned`
+ * المرتبطُ وحده، ومعه ما أخذته أسطر هذا المستند قبله). المسمّى CONFIRMED (اختاره المستخدم من بيعه)، ومصدره صفّ البيع نفسه —
+ * فلا يمسّ «المتاح للإرجاع» لفاتورةٍ أخرى. قطعةٌ مسمّاة من صفٍّ أدقّ من الشبكة تأخذ أرضيته (I1 عبر الطيّ المقرَّب).
+ */
+function linkedExplicitRows(l: InvoiceLotLine, refs: LotRef[], saleRows: SaleLotRow[], returned: ReadonlyMap<string, number>): AllocRow[] {
+  const rows: AllocRow[] = [];
+  const used = new Map<string, number>();
+  for (const ref of refs) {
+    const own = saleRows.filter((r) => r.lotId === ref.lotId);
+    if (!own.length) throw linkedLotRefused('LOT_NOT_IN_SALE', l, { lotId: ref.lotId });
+    let left = ref.qty;
+    for (const r of own) {
+      if (left <= LOT_EPS) break;
+      const avail = r.quantity - (returned.get(r.id) ?? 0) - (used.get(r.id) ?? 0);
+      const cap = ref.lotId != null ? floorLot(avail) : avail;
+      if (!(cap > LOT_EPS)) continue;
+      const t = cap >= left - LOT_EPS ? left : cap;
+      left = t === left ? 0 : roundLot(left - t);
+      used.set(r.id, (used.get(r.id) ?? 0) + t);
+      rows.push({
+        lotId: ref.lotId, qty: t, certainty: ref.lotId != null ? 'CONFIRMED' : 'UNKNOWN', flags: [],
+        expiryDate: ref.lotId != null ? r.expiryDate : null, sourceItemLotId: r.id,
+      });
+    }
+    if (left > LOT_EPS) {
+      const returnable = own.reduce((s, r) => s + Math.max(0, r.quantity - (returned.get(r.id) ?? 0)), 0);
+      throw linkedLotRefused('LOT_OVER_RETURNABLE', l, { lotId: ref.lotId, wanted: ref.qty, returnable: roundLot(returnable) });
+    }
+  }
+  return rows;
+}
+
 /**
  * وراثة صفوف توزيع البيع (فاتورة البيع مقفلةٌ عند المستدعي): المتاح لكل صفّ = كميته − ما أُرجع منه، بالترتيب الهجين (ن١-٢)،
  * وسطران على بند بيعٍ واحد يتتابعان (الثاني يرى ما أخذه الأول). الختم من الصفوف المسمّاة بيوم المرتجع (D6: المنتهي يوجّه البند
  * كله)، وإلا اللقطة القائمة (linkedExpiry) — وفاتورة البيع في expirySaleInvoiceId.
+ * صريحٌ على السطر (أي فاعل، المرحلة ب): حيّاً يُقبل من تشغيلات بند البيع نفسه وحدها (linkedExplicitRows، وإلا 422)، وفي الإعادة
+ * يُتجاهل بتحذير (LOT_HINT_REJECTED ووسم HINT_REJECTED) فيرث السطر كما لو لم يُرسل — والمستند لا يُرفض. ما بقي «غير معروف» يأخذه
+ * T3 بعد ذلك (allocateTracked).
  */
 async function allocateLinkedReturn(db: LotDb, plan: InvoiceLotPlan, lines: InvoiceLotLine[]): Promise<Allocated> {
   const out = new Map<number, LineAlloc>();
+  const warnings: LotWarning[] = [];
   const tid = plan.tenantId;
   const returnDay = plan.returnDay ?? plan.day;
   const saleItemIds = uniq(lines.map((l) => l.saleItemId));
@@ -197,9 +258,25 @@ async function allocateLinkedReturn(db: LotDb, plan: InvoiceLotPlan, lines: Invo
     rowsByItem.set(r.invoiceItemId, list);
   }
   const returned = await returnedBySource(db, tid, saleRowsRaw.map((r) => r.id), { linkedOnly: true });
+  const ignored = new Map<string, number[]>();
+  const explicit = new Set<number>();
   for (const l of lines) {
     const saleRows = l.saleItemId ? rowsByItem.get(l.saleItemId) ?? [] : [];
-    const rows = allocateReturnFromSale({ qty: l.qty, returnDay, saleRows, returnedBySource: returned });
+    let rows: AllocRow[] | null = null;
+    let hintIgnored = false;
+    if (hasLotsRaw(l.lotsRaw)) {
+      if (plan.replay) hintIgnored = true;
+      else {
+        const refs = parseLotRefsStrict(l.lotsRaw, l.qty);
+        if (refs instanceof LotError) throw withLine(refs, l);
+        if (refs.length) { rows = linkedExplicitRows(l, refs, saleRows, returned); explicit.add(l.idx); }
+      }
+    }
+    if (!rows) rows = allocateReturnFromSale({ qty: l.qty, returnDay, saleRows, returnedBySource: returned });
+    if (hintIgnored) {
+      rows = withFlag(rows, 'HINT_REJECTED');
+      ignored.set(l.productId, [...(ignored.get(l.productId) ?? []), l.idx]);
+    }
     for (const r of rows) if (r.sourceItemLotId) returned.set(r.sourceItemLotId, (returned.get(r.sourceItemLotId) ?? 0) + r.qty);
     const s = stampFromRows(rows, returnDay);
     const fallback = plan.fallbackStamps.get(l.idx) ?? null;
@@ -209,7 +286,11 @@ async function allocateLinkedReturn(db: LotDb, plan: InvoiceLotPlan, lines: Invo
       stamp: s ? { expiresAt: dayDate(s.expiresAt), returnExpired: s.returnExpired, expirySaleInvoiceId: saleInvoiceId } : fallback,
     });
   }
-  return { lines: out, warnings: [] };
+  for (const [productId, idxs] of ignored) {
+    warnings.push({ code: 'LOT_HINT_REJECTED', productId, detail: { lines: idxs, reason: 'LINKED_REPLAY' } });
+    warnings.push({ code: 'LOT_REPLAY_FLAGGED', productId, detail: { flags: ['HINT_REJECTED'] } });
+  }
+  return { lines: out, warnings, explicit };
 }
 
 // ═══ المرتجع الحرّ (§٤.١١) ═══
@@ -245,7 +326,7 @@ const SALE_DOC_TYPES = ['CASH', 'CREDIT'];
 /**
  * صفوف توزيع مبيعات العميل السابقة لأصنافٍ، لكل صنفٍ فواتيره من الأحدث (تاريخ الفاتورة ثم إنشاؤها) وصفوف كلٍّ بترتيب إنشائها —
  * بيعٌ نقدي أو آجل غير ملغى وليس إشعاراً، **لحظته حتى حدّ المرتجع** (`asOf`: تاريخ مستنده أو نهاية يومه، ولحظة جهازه في الإعادة؛
- * ولحظة البيع لحظة جهازه إن صدر دون اتصال وإلا تاريخه — لا يُرجَع من بيعٍ بعده)، وصفوفه **في الحقبة الحالية** (D25: بعد max(حقبة الشركة،
+ * ولحظة البيع LEAST(لحظة جهازه، لحظة رفعه) إن صدر من جهاز وإلا تاريخه — لا يُرجَع من بيعٍ بعده)، **المسمّاة وحدها** (T2)، وصفوفه **في الحقبة الحالية** (D25: بعد max(حقبة الشركة،
  * حقبة الصنف) كشرط الطيّ — صفوف ما قبل إعادة التفعيل لا تُعاد لوطاً مسمّى، ومبيعات فترة الإطفاء قبلها أصلاً). داخل معاملة
  * الإصدار بعد قفل الأصناف.
  */
@@ -259,14 +340,25 @@ async function customerSaleHistory(db: LotDb, tid: string, customerId: string, p
   const sinceOf = new Map(products.map((p) => [p.id, later(tenant?.lotTrackingSince ?? null, p.lotTrackedSince ?? null)]));
   const all = await Promise.all(productIds.map((pid) => db.invoiceItemLot.findMany({
     where: {
-      tenantId: tid, productId: pid,
+      // المسمّى أولاً (طلب المالك ١٦ نوفمبر ٢٠٢٦، T2): صفّ بيعٍ «غير معروف» ليس دليلاً على تشغيلة — كان أحدثُه يحجب شراءً مسمّى
+      // أقدم (يرث المرتجع منه UNKNOWN) ويستهلك نافذة الـ٢٠٠ صفّ. ما فاق المسمّى يأخذه T3 بعد ذلك
+      tenantId: tid, productId: pid, lotId: { not: null },
       ...(sinceOf.get(pid) && { createdAt: { gte: sinceOf.get(pid)! } }),
       invoiceItem: {
         invoice: {
           tenantId: tid, customerId, type: { in: SALE_DOC_TYPES }, status: { not: 'CANCELLED' },
           OR: [{ documentKind: null }, { documentKind: { notIn: ['CREDIT_NOTE', 'DEBIT_NOTE'] } }],
-          // لحظة البيع الفعلية: لحظة جهازه إن صدر دون اتصال (تاريخ فاتورته لحظة رفعه)، وإلا تاريخه — كلحظة المرتجع في الإعادة
-          ...(asOf && { AND: [{ OR: [{ clientCreatedAt: { lte: asOf } }, { clientCreatedAt: null, invoiceDate: { lte: asOf } }] }] }),
+          // لحظة البيع الفعلية = LEAST(لحظة جهازه، لحظة رفعه) إن صدر من جهاز، وإلا تاريخه: ساعة جهازٍ مسرعة دقائق كانت تجعل بيعاً
+          // حيّاً للتوّ «بعد» حدّ المرتجع (لحظة الخادم) فيُتخطّى ويخرج مرتجع الاستبدال UNKNOWN. وفي الإعادة يُقارن بلحظة جهاز المرتجع
+          ...(asOf && {
+            AND: [{
+              OR: [
+                { clientCreatedAt: { lte: asOf } },
+                { clientCreatedAt: { not: null }, createdAt: { lte: asOf } },
+                { clientCreatedAt: null, invoiceDate: { lte: asOf } },
+              ],
+            }],
+          }),
         },
       },
     },
@@ -288,23 +380,43 @@ async function customerSaleHistory(db: LotDb, tid: string, customerId: string, p
 }
 
 /**
- * بلا صريح (المندوب دائماً، والإدارة والمفتاح حين لا يرسلان تشغيلة): يحدّد النظام التشغيلة من مبيعات العميل السابقة للصنف —
+ * بلا صريح (أي فاعلٍ لم يرسل تشغيلة، وتلميح إعادةٍ مرفوض): يحدّد النظام التشغيلة من مبيعات العميل السابقة للصنف —
  * آخر فاتورة بيعٍ أولاً وفيها الترتيب الهجين، والمتاح كمية الصفّ − ما أُرجع منه، فالمسمّى ASSUMED، وما فاق المبيعات «غير معروف»
  * (allocateReturnFromHistory، طلب المالك ١ نوفمبر ٢٠٢٦ بدل «غير معروف بلا نقرة» في D5). سطران للصنف يتتابعان على المتاح.
- * والموروثة الموقوفة تدخل معزولةً بتحذير LOT_INTO_BLOCKED. الإدارة والمفتاح: صريحٌ اختياري — التشغيلة من الشركة والصنف، Σ =
- * الكمية الأساسية، بلا فحص رصيد (زيادة)، والموقوفة تُقبل بالتحذير نفسه، واليقين CONFIRMED. الختم من الصفوف المسمّاة، وإلا لقطة
- * «آخر بيع» المحسوبة قبل المعاملة (fallbackStamps، ن١-٣) — ومعها فاتورة البيع الموروث منها.
+ * والموروثة الموقوفة تدخل معزولةً بتحذير LOT_INTO_BLOCKED. صريحٌ اختياري للإدارة والمفتاح والمندوب حيّاً (وتلميحٌ للمندوب في
+ * الإعادة، طلب المالك ١٦ نوفمبر ٢٠٢٦) — التشغيلة من الشركة والصنف، Σ = الكمية الأساسية، بلا فحص رصيد (زيادة)، والموقوفة تُقبل
+ * بالتحذير نفسه، واليقين CONFIRMED. الختم من الصفوف المسمّاة، وإلا لقطة «آخر بيع» المحسوبة قبل المعاملة (fallbackStamps، ن١-٣) —
+ * ومعها فاتورة البيع الموروث منها. وما بقي «غير معروف» من الاستنتاج يأخذه T3 بعد ذلك (allocateTracked).
  */
 async function allocateFreeReturn(db: LotDb, plan: InvoiceLotPlan, lines: InvoiceLotLine[]): Promise<Allocated> {
   const out = new Map<number, LineAlloc>();
   const warnings: LotWarning[] = [];
   const returnDay = plan.returnDay ?? plan.day;
   const refs = new Map<number, LotRef[]>();
-  if (plan.actor !== 'REP') {
+  // T0 (طلب المالك ١٦ نوفمبر ٢٠٢٦ يغيّر D5 «المندوب لا يختار»): المندوب حيّاً يختار بصرامة الإدارة نفسها (CONFIRMED، وخطؤه 422)،
+  // وفي الإعادة دون اتصال تلميحاً: صفوفٌ مفهومة مجموعها كمية السطر وتشغيلاتها من الشركة وللصنف تُقبل كالصريح، وما سواها يُتجاهل
+  // بتحذير ووسم HINT_REJECTED فيكمل السطر بالاستنتاج — والمستند المُعاد لا يُرفض لسبب لوط أبداً (الورقة سُلّمت)
+  const replayHints = plan.actor === 'REP' && plan.replay != null;
+  const hints = new Map<number, LotRef[] | null>();
+  for (const l of lines) {
+    if (replayHints) {
+      if (hasLotsRaw(l.lotsRaw)) hints.set(l.idx, parseLotHint(l.lotsRaw));
+      continue;
+    }
+    const r = parseLotRefsStrict(l.lotsRaw, l.qty);
+    if (r instanceof LotError) throw withLine(r, l);
+    if (r.length) refs.set(l.idx, r);
+  }
+  const hintRejected = new Set<number>();
+  if (hints.size) {
+    const ids = uniq([...hints.values()].flatMap((rs) => (rs ?? []).map((r) => r.lotId)));
+    const hm: Map<string, LotMeta> = ids.length ? await loadLotMetas(db, plan.tenantId, { lotIds: ids }) : new Map();
     for (const l of lines) {
-      const r = parseLotRefsStrict(l.lotsRaw, l.qty);
-      if (r instanceof LotError) throw withLine(r, l);
-      if (r.length) refs.set(l.idx, r);
+      if (!hints.has(l.idx)) continue;
+      const h = hints.get(l.idx);
+      const ok = !!h && Math.abs(h.reduce((sum, r) => sum + r.qty, 0) - l.qty) <= LOT_EPS
+        && h.every((r) => r.lotId == null || hm.get(r.lotId)?.productId === l.productId);
+      if (ok) refs.set(l.idx, h!); else hintRejected.add(l.idx);
     }
   }
   // الأسطر بلا صريح: سجلّ مبيعات العميل لأصنافها وما أُرجع من صفوفه
@@ -317,9 +429,15 @@ async function allocateFreeReturn(db: LotDb, plan: InvoiceLotPlan, lines: Invoic
   const invoiceOfRow = new Map([...history.values()].flatMap((gs) => gs.flatMap((g) => g.rows.map((r) => [r.id, g.invoiceId] as const))));
   const inferredRows = new Map<number, AllocRow[]>();
   for (const l of inferred) {
-    const rows = allocateReturnFromHistory({ qty: l.qty, returnDay, sales: (history.get(l.productId) ?? []).map((g) => g.rows), returnedBySource: returned });
-    for (const r of rows) if (r.sourceItemLotId) returned.set(r.sourceItemLotId, (returned.get(r.sourceItemLotId) ?? 0) + r.qty);
-    inferredRows.set(l.idx, rows);
+    const got = allocateReturnFromHistory({ qty: l.qty, returnDay, sales: (history.get(l.productId) ?? []).map((g) => g.rows), returnedBySource: returned });
+    for (const r of got) if (r.sourceItemLotId) returned.set(r.sourceItemLotId, (returned.get(r.sourceItemLotId) ?? 0) + r.qty);
+    inferredRows.set(l.idx, hintRejected.has(l.idx) ? withFlag(got, 'HINT_REJECTED') : got);
+  }
+  const rejectedBy = new Map<string, number[]>();
+  for (const l of lines) if (hintRejected.has(l.idx)) rejectedBy.set(l.productId, [...(rejectedBy.get(l.productId) ?? []), l.idx]);
+  for (const [productId, idxs] of rejectedBy) {
+    warnings.push({ code: 'LOT_HINT_REJECTED', productId, detail: { lines: idxs } });
+    warnings.push({ code: 'LOT_REPLAY_FLAGGED', productId, detail: { flags: ['HINT_REJECTED'] } });
   }
 
   const lotIds = uniq([...[...refs.values()].flatMap((rs) => rs.map((r) => r.lotId)), ...[...inferredRows.values()].flatMap((rs) => rs.map((r) => r.lotId))]);
@@ -372,7 +490,7 @@ async function allocateFreeReturn(db: LotDb, plan: InvoiceLotPlan, lines: Invoic
       stamp: s ? { expiresAt: dayDate(s.expiresAt), returnExpired: s.returnExpired, expirySaleInvoiceId: null } : (plan.fallbackStamps.get(l.idx) ?? null),
     });
   }
-  return { lines: out, warnings };
+  return { lines: out, warnings, explicit: new Set(refs.keys()) };
 }
 
 /** التوزيع على مجموعة الأصناف المتتبَّعة — يرمي LotError عند الرفض (يشترك فيه الإصدار والفحص المسبق) */
@@ -385,9 +503,40 @@ async function allocateTracked(db: LotDb, plan: InvoiceLotPlan, tracked: Readonl
       if (!isLotQty(l.qty)) throw lotErr('LOT_QTY_INVALID', {}, { productId: l.productId, line: l.idx, wanted: l.qty, decimals: 4 });
     }
   }
-  if (plan.link !== 'NONE') return allocateLinkedReturn(db, plan, lines);
-  if (plan.docType === 'RETURN') return allocateFreeReturn(db, plan, lines);
+  if (plan.link !== 'NONE') return attributeUnnamedReturns(db, plan, lines, await allocateLinkedReturn(db, plan, lines));
+  if (plan.docType === 'RETURN') return attributeUnnamedReturns(db, plan, lines, await allocateFreeReturn(db, plan, lines));
   return allocateSale(db, plan, lines);
+}
+
+// ═══ T3: تشغيلةٌ لما بقي «غير معروف» من المرتجع (طلب المالك ١٦ نوفمبر ٢٠٢٦) ═══
+
+/**
+ * T3 لكل صفٍّ بقي بلا تشغيلة في المرتجع الحرّ والمرتبط (لا لسطرٍ حسمه اختيار المستخدم، `explicit`): مرشّحو الصنف بالطبقات
+ * (returnGuessCandidates: ما اشتراه العميل، ثم ما رأته سيارة المستند، ثم ما تحرّك في الشركة — كله في الحقبة الحالية D25)، ويختار
+ * attributeUnnamedReturnRows الصرفة أولهم بترتيب الحالة والانتهاء داخل الطبقة، فيصير الصفّ ASSUMED بوسم طبقته (والغبار خارج الشبكة
+ * يبقى UNKNOWN). لا مرشّح ⇒ يبقى UNKNOWN (لا تشغيلة مسمّاة للصنف في الحقبة: D25 كما هو). الختم لا يتغيّر (D6/D12): حُسب من الصفوف
+ * قبل التخمين، فالمخمَّن لا يقلب returnExpired ولا expiresAt ولا الحاوية. والكمية والمصدر لا يتغيّران (I3، returnedBySource):
+ * غير المسمّى مشتقّ (D3) فيرتفع المسمّى بقدر ما كان يرتفع به غير المسمّى. والموقوفة المخمَّنة تدخل معزولةً بتحذير LOT_INTO_BLOCKED.
+ */
+async function attributeUnnamedReturns(db: LotDb, plan: InvoiceLotPlan, lines: InvoiceLotLine[], res: Allocated): Promise<Allocated> {
+  const skip = res.explicit ?? new Set<number>();
+  const open = lines.filter((l) => !skip.has(l.idx) && (res.lines.get(l.idx)?.rows ?? []).some((r) => r.lotId == null && r.qty > LOT_EPS));
+  if (!open.length) return res;
+  const cands = await returnGuessCandidates(db, plan.tenantId, {
+    customerId: plan.customerId || null, vanKey: plan.vanKey, productIds: uniq(open.map((l) => l.productId)),
+    // حدّ T2 نفسه: مرتجعٌ ورقيّ بتاريخٍ مضى لا يُخمَّن له ما اشتراه العميل بعده
+    asOf: plan.historyAsOf ?? null,
+  });
+  if (!cands.size) return res;
+  const flat = open.flatMap((l) => res.lines.get(l.idx)!.rows.map((r) => ({ ...r, productId: l.productId, line: l.idx })));
+  const got = attributeUnnamedReturnRows(flat, cands, plan.returnDay ?? plan.day);
+  const byLine = new Map<number, AllocRow[]>();
+  for (const { productId: _p, line, ...r } of got.rows) byLine.set(line, [...(byLine.get(line) ?? []), r]);
+  for (const l of open) res.lines.set(l.idx, { rows: byLine.get(l.idx) ?? [], stamp: res.lines.get(l.idx)!.stamp });
+  // تحذير الموقوفة مرةً لكل تشغيلة: ما حذّر منه الاستنتاج أو الصريح قبله لا يتكرّر
+  const warned = new Set(res.warnings.filter((w) => w.code === 'LOT_INTO_BLOCKED').map((w) => String(w.detail?.lotId ?? '')));
+  const extra = got.warnings.filter((w) => w.code !== 'LOT_INTO_BLOCKED' || !warned.has(String(w.detail?.lotId ?? '')));
+  return { lines: res.lines, warnings: [...res.warnings, ...extra], explicit: res.explicit };
 }
 
 /** التحذيرات التي تستحق إشعار الإدارة: صرفٌ من موقوف أو مسحوب أو منتهٍ، أو حصر اللحظة، أو تلميحٌ مرفوض (§٣.٣) */

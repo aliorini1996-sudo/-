@@ -160,6 +160,34 @@ function rawQuery(sql: string, values: unknown[]): unknown[] {
     const saleItems = new Set(db.invoiceItems.filter((it) => it.invoiceId === values[0]).map((it) => it.id));
     return [{ n: db.invoiceItems.filter((it) => saleItems.has(it.returnOfItemId) && invoiceOf(it.invoiceId)?.status !== 'CANCELLED').length }];
   }
+  // مرشّحو T3 (طلب المالك ١٦ نوفمبر ٢٠٢٦، lotsDb.returnGuessCandidates): ما اشتراه العميل، ثم ما رأته سيارة المستند، ثم الشركة —
+  // مشاهداتٌ مسمّاة في الحقبة بلحظتها (lastAt)، فيجمعها seenNewestFirst. قبل فرع van_load_item_lots العام: استعلامٌ مختلف الشكل
+  if (sql.includes('AS "lastAt"')) {
+    const named = (r: Row) => typeof r.lotId === 'string' && r.tenantId === 't1' && strs.has(r.productId) && r.createdAt.getTime() >= epochOf(r.productId);
+    const isSale = (inv: Row | null | undefined) => !!inv && ['CASH', 'CREDIT'].includes(inv.type) && inv.status !== 'CANCELLED'
+      && !['CREDIT_NOTE', 'DEBIT_NOTE'].includes(inv.documentKind);
+    const seen: Row[] = [];
+    if (sql.includes('i."customerId" =')) {
+      for (const r of db.invoiceItemLots) {
+        const inv = invoiceOf(r.invoiceId);
+        if (!named(r) || !isSale(inv) || !strs.has(inv!.customerId)) continue;
+        const at = inv!.clientCreatedAt ? Math.min(+new Date(inv!.clientCreatedAt), +new Date(inv!.createdAt)) : +new Date(inv!.invoiceDate);
+        const asOf = values.find((v): v is Date => v instanceof Date);   // حدّ T2 نفسه
+        if (asOf && at > +asOf) continue;
+        seen.push({ productId: r.productId, lotId: r.lotId, lastAt: new Date(at) });
+      }
+      return seen;
+    }
+    const van = sql.includes('l."vanKey" =') ? (r: Row) => strs.has(r.vanKey) : null;
+    for (const r of db.vanLoadItemLots) if (named(r) && r.qty > 0 && (!van || van(r))) seen.push({ productId: r.productId, lotId: r.lotId, lastAt: r.createdAt });
+    if (van) {
+      for (const r of db.invoiceItemLots) {
+        const inv = invoiceOf(r.invoiceId);
+        if (named(r) && van(r) && isSale(inv) && inv!.status === 'CONFIRMED') seen.push({ productId: r.productId, lotId: r.lotId, lastAt: r.createdAt });
+      }
+    }
+    return seen;
+  }
   if (sql.includes('FROM van_load_item_lots')) {
     const rows = db.vanLoadItemLots.filter((r) => r.tenantId === 't1' && strs.has(r.productId) && r.createdAt.getTime() >= epochOf(r.productId)
       && (!sql.includes('"viaWarehouse" = true') || (r.viaWarehouse && (r.moveType === 'LOAD' || r.moveType === 'UNLOAD'))));
@@ -426,6 +454,9 @@ type Line = { productId: string; qty: number; unitId?: string; lots?: unknown; i
 const sale = (items: Line[], o: Row = {}): Row => ({ customerId: 'c1', salesRepId: 'r1', type: 'CASH', items: items.map((i) => ({ unitPrice: 10, ...i })), ...o });
 const post = (body: Row, headers?: Record<string, string>) => call('POST', '/api/invoices', { body, headers });
 const rowsOf = (r: Reply, idx = 0) => ((r.body.data.items[idx].lots ?? []) as Row[]).map((x) => [x.lotId, x.quantity, x.certainty, x.flags ?? null]);
+/** صفٌّ خمّن T3 تشغيلته (طلب المالك ١٦ نوفمبر ٢٠٢٦): تشغيلةٌ من المرشّحين، ASSUMED بوسم طبقته — والأحدث بينها يتبع لحظات الفاتورات */
+const guessRow = (row: unknown[] | undefined, qty: number, tier: string, lots = ['l1', 'l2']) =>
+  assert.ok(!!row && lots.includes(row[0] as string) && row[1] === qty && row[2] === 'ASSUMED' && row[3] === tier, JSON.stringify(row));
 // أقفال اللوط وحدها (مفاتيح bigint) — قفل دلاء السيارة (D10 والبند ٩: hashtext('van-…')) ليس منها
 const lockCalls = () => calls.filter((c) => c.includes('pg_advisory_xact_lock') && !c.includes('hashtext'));
 const LOT_TX = { maxWait: 10_000, timeout: 20_000 };
@@ -633,9 +664,16 @@ test('الصريح للإدارة والمفتاح: يُكتب كما هو CONFI
   assert.equal(ok.status, 201, JSON.stringify(ok.body));
   assert.deepEqual(rowsOf(ok, 0), [['l2', 5, 'CONFIRMED', null]]);
   assert.deepEqual(rowsOf(ok, 1).map((x) => [x[0], x[1]]), [['l1', 2]]);
+  // طلب المالك ١٦ نوفمبر ٢٠٢٦ («لا مانع من أن يأخذ من LOT آخر»): الموقوفة والمنتهية لا تمنع البيع — تُمنح صفراً (I4) ويُكمل
+  // الباقي بالأقرب انتهاءً (l1) بوسم EXPLICIT_FALLBACK وتحذيرٍ بسببه
+  for (const [lotId, reason] of [['lb', 'BLOCKED'], ['lx', 'EXPIRED']]) {
+    const r = await post(sale([{ productId: 'pM', qty: 1, lots: [{ lotId, qty: 1 }] }]));
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.deepEqual(rowsOf(r).map((x) => [x[0], x[1], x[3]]), [['l1', 1, 'EXPLICIT_FALLBACK']], lotId);
+    const w = (r.body.warnings as Row[]).filter((x) => x.code === 'LOT_EXPLICIT_FALLBACK');
+    assert.deepEqual(w.map((x) => [x.detail.lotId, x.detail.reason, x.detail.requested, x.detail.taken]), [[lotId, reason, 1, 0]]);
+  }
   const cases: [unknown, number, string][] = [
-    [[{ lotId: 'lb', qty: 1 }], 422, 'LOT_BLOCKED'],
-    [[{ lotId: 'lx', qty: 1 }], 422, 'LOT_EXPIRED'],
     [[{ lotId: 'lo', qty: 1 }], 422, 'LOT_PRODUCT_MISMATCH'],
     [[{ lotId: 'nope', qty: 1 }], 422, 'LOT_NOT_FOUND'],
     [[{ lotId: 'l1', qty: 0.5 }], 422, 'LOT_QTY_INVALID'],
@@ -645,8 +683,15 @@ test('الصريح للإدارة والمفتاح: يُكتب كما هو CONFI
     const r = await post(sale([{ productId: 'pM', qty: 1, lots }]));
     assert.deepEqual([r.status, r.body.code], [status, code], JSON.stringify(lots));
   }
-  const tooMuch = await post(sale([{ productId: 'pM', qty: 5, lots: [{ lotId: 'l1', qty: 5 }] }, { productId: 'pM', qty: 2, lots: [{ lotId: 'l1', qty: 2 }] }]));
-  assert.deepEqual([tooMuch.status, tooMuch.body.code], [409, 'LOT_STOCK_INSUFFICIENT'], 'التجميع على الأسطر قبل المقارنة (D26): ٧ > ٤');
+  // الباقي: l1 2 وl2 7 وغير المسمّى 2 = 11. الرفض الوحيد نقص الصنف كله، بالتجميع على الأسطر (D26): ٨ + ٤ > ١١ وكلٌّ وحده يكفيه
+  const tooMuch = await post(sale([{ productId: 'pM', qty: 8, lots: [{ lotId: 'l1', qty: 8 }] }, { productId: 'pM', qty: 4, lots: [{ lotId: 'l1', qty: 4 }] }]));
+  assert.deepEqual([tooMuch.status, tooMuch.body.code, tooMuch.body.detail?.lines], [409, 'LOT_STOCK_INSUFFICIENT', [0, 1]], 'التجميع على الأسطر قبل المقارنة (D26)');
+  // وما لا تكفيه التشغيلة المسمّاة يُصرف منها ما عندها ثم يُكمل من غيرها
+  const short = await post(sale([{ productId: 'pM', qty: 5, lots: [{ lotId: 'l1', qty: 5 }] }]));
+  assert.equal(short.status, 201, JSON.stringify(short.body));
+  assert.deepEqual(rowsOf(short), [['l1', 2, 'CONFIRMED', null], ['l2', 3, 'ASSUMED', 'EXPLICIT_FALLBACK']], 'المختار مؤكَّد، وما اختاره النظام من مصادر عدّة تقديري');
+  assert.deepEqual((short.body.warnings as Row[]).filter((x) => x.code === 'LOT_EXPLICIT_FALLBACK').map((x) => [x.detail.reason, x.detail.requested, x.detail.taken, x.detail.spilled]),
+    [['SHORT', 5, 2, [{ lotId: 'l2', qty: 3 }]]]);
   const decimals = await post(sale([{ productId: 'pM', qty: 1.00005 }]));
   assert.deepEqual([decimals.status, decimals.body.code], [422, 'LOT_QTY_INVALID'], 'أربع خانات في المسار الحيّ');
   reset(API); VAN();
@@ -685,11 +730,14 @@ test('الإعادة دون اتصال (R6): يوم البيع من لحظة ا�
   assert.equal(clamped.status, 201, JSON.stringify(clamped.body));
   assert.ok(rowsOf(clamped).every((x) => String(x[3]).includes('REPLAY_CLAMPED')), 'الحصر بسبعة أيام موسوم');
   assert.equal(db.notifications.filter((n) => n.type === 'LOT_REPLAY_FLAGGED').length, 2);
-  // المفتاح لا ينال الإعادة: ترويسته تُمحى، فيُقاس يوم الخادم والصريح صارم
+  // المفتاح لا ينال الإعادة: ترويسته تُمحى، فيُقاس يوم الخادم — lx منتهيةٌ اليوم فتُمنح صفراً ويُكمل من l2 (SPILL، طلب المالك
+  // ١٦ نوفمبر ٢٠٢٦)؛ ولو قُبلت الإعادة لصُرفت من lx (صالحةٌ يوم البيع قبل ثلاثة أيام)
   reset(API);
   load('pM', [{ lotId: 'lx', qty: 5 }, { lotId: 'l2', qty: 10 }]);
   const key = await post(sale([{ productId: 'pM', qty: 1, lots: [{ lotId: 'lx', qty: 1 }] }], { clientRef: crypto.randomUUID(), clientCreatedAt: at(-3) }), replay);
-  assert.deepEqual([key.status, key.body.code], [422, 'LOT_EXPIRED']);
+  assert.equal(key.status, 201, JSON.stringify(key.body));
+  assert.deepEqual(rowsOf(key).map((x) => [x[0], x[1], x[3]]), [['l2', 1, 'EXPLICIT_FALLBACK']]);
+  assert.deepEqual((key.body.warnings as Row[]).filter((x) => x.code === 'LOT_EXPLICIT_FALLBACK').map((x) => x.detail.reason), ['EXPIRED']);
 });
 
 test('D20: إعادةٌ لا يكفيها رصيد الصنف الفعلي ⇒ 409 LOT_REPLAY_HELD بلا فاتورة ولا سالب، وإشعارٌ واحد لكل clientRef', async () => {
@@ -844,17 +892,23 @@ test('المرتجع المرتبط الهجين: صفٌّ منتهٍ يوم ا�
   assert.equal(item.returnExpired, true, 'المنتهي يدخل دلو المنتهي لا المتاح');
 });
 
-test('المرتجع الحرّ: المندوب يرث تشغيلة آخر بيعٍ للعميل وختمه منها، والإدارة صريحٌ إلى موقوفة بتحذير', async () => {
+test('المرتجع الحرّ: المندوب يرث تشغيلة آخر بيعٍ للعميل وختمه منها أو يختارها، والإدارة صريحٌ إلى موقوفة بتحذير', async () => {
   reset(); VAN();
   const s = await post(sale([{ productId: 'pM', qty: 3 }]));
   assert.equal(s.status, 201);
   currentUser = REP;
-  const r = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 2, unitPrice: 10, lots: [{ lotId: 'l2', qty: 2 }] }] });
+  const r = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 2, unitPrice: 10 }] });
   assert.equal(r.status, 201, JSON.stringify(r.body));
-  assert.deepEqual(rowsOf(r), [['l1', 2, 'ASSUMED', null]], 'المندوب: النظام يحدّد التشغيلة من البيع السابق (طلب المالك ١ نوفمبر ٢٠٢٦) — صفوفه مُهملة');
+  assert.deepEqual(rowsOf(r), [['l1', 2, 'ASSUMED', null]], 'المندوب بلا اختيار: النظام يحدّد التشغيلة من البيع السابق (طلب المالك ١ نوفمبر ٢٠٢٦)');
   const item = db.invoiceItems.find((it) => it.invoiceId === r.body.data.id)!;
   assert.deepEqual([new Date(item.expiresAt).toISOString().slice(0, 10), item.returnExpired, item.expirySaleInvoiceId],
     [addDays(TODAY, 10), false, s.body.data.id], 'الختم من التشغيلة الموروثة بفاتورة بيعها');
+  // طلب المالك ١٦ نوفمبر ٢٠٢٦ (يغيّر D5): المندوب حيّاً يختار تشغيلة المرتجع الحرّ بصرامة الإدارة — CONFIRMED وخطؤه 422
+  const picked = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 2, unitPrice: 10, lots: [{ lotId: 'l2', qty: 2 }] }] });
+  assert.equal(picked.status, 201, JSON.stringify(picked.body));
+  assert.deepEqual(rowsOf(picked), [['l2', 2, 'CONFIRMED', null]]);
+  const repBad = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 1, unitPrice: 10, lots: [{ lotId: 'lo', qty: 1 }] }] });
+  assert.deepEqual([repBad.status, repBad.body.code], [422, 'LOT_PRODUCT_MISMATCH']);
   currentUser = ADMIN;
   const a = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 2, unitPrice: 10, lots: [{ lotId: 'lb', qty: 2 }] }] });
   assert.equal(a.status, 201, JSON.stringify(a.body));
@@ -869,10 +923,10 @@ test('المرتجع الحرّ: المندوب يرث تشغيلة آخر بي�
   // كل زيادةٍ لصنفٍ متتبَّع بأربع خانات (I1 مع تقريب الطيّ): مرتجعٌ بخمسٍ يُرفض حيّاً
   const fine = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 1.00005, unitPrice: 10 }] });
   assert.deepEqual([fine.status, fine.body.code], [422, 'LOT_QTY_INVALID']);
-  assert.equal(db.invoices.filter((i) => i.type === 'RETURN').length, 2, 'المرفوضة بلا مستند');
+  assert.equal(db.invoices.filter((i) => i.type === 'RETURN').length, 3, 'المرفوضة بلا مستند');
 });
 
-test('المرتجع الحرّ يحدّد النظام تشغيلته من مبيعات العميل: آخر فاتورةٍ أولاً ثم التي قبلها، والمُرجَع لا يُرجَع مرتين، وما فاق المبيعات «غير معروف»', async () => {
+test('المرتجع الحرّ يحدّد النظام تشغيلته من مبيعات العميل: آخر فاتورةٍ أولاً ثم التي قبلها، والمُرجَع لا يُرجَع مرتين، وما فاق المبيعات تشغيلةٌ مقدّرة (T3)', async () => {
   reset();
   load('pM', [{ lotId: 'l1', qty: 3 }, { lotId: 'l2', qty: 10 }]);
   const s1 = await post(sale([{ productId: 'pM', qty: 3 }]));
@@ -886,7 +940,9 @@ test('المرتجع الحرّ يحدّد النظام تشغيلته من مب
   assert.equal(r1.status, 201, JSON.stringify(r1.body));
   assert.deepEqual(rowsOf(r1), [['l2', 4, 'ASSUMED', null], ['l1', 1, 'ASSUMED', null]], 'آخر فاتورة (l2) ثم التي قبلها (l1)');
   const r2 = await ret(3);
-  assert.deepEqual(rowsOf(r2), [['l1', 2, 'ASSUMED', null], [null, 1, 'UNKNOWN', null]], 'ما بقي من المبيعات ثم «غير معروف»');
+  assert.deepEqual(rowsOf(r2)[0], ['l1', 2, 'ASSUMED', null], 'ما بقي من المبيعات');
+  assert.equal(rowsOf(r2).length, 2);
+  guessRow(rowsOf(r2)[1], 1, 'RETURN_GUESS_CUSTOMER');   // ثم ما اشتراه العميل تقديراً لا «غير معروف» (T3)
   const src = new Map(db.invoiceItemLots.filter((r) => r.invoiceId === s1.body.data.id || r.invoiceId === s2.body.data.id).map((r) => [r.lotId, r.id]));
   assert.deepEqual(db.invoiceItemLots.filter((r) => r.invoiceId === r1.body.data.id).map((r) => r.sourceItemLotId), [src.get('l2'), src.get('l1')], 'يُستهلك من صفّ البيع');
   // والمرتجع المرتبط بعدها يرث لوط بيعه المؤكَّد كما هو: استنتاج الحرّ لا يُنقص ما يرثه المرتبط (linkedOnly)
@@ -894,20 +950,24 @@ test('المرتجع الحرّ يحدّد النظام تشغيلته من مب
   const linked = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', originalInvoiceId: s1.body.data.id, items: [{ productId: 'pM', invoiceItemId: s1.body.data.items[0].id, qty: 1, unitPrice: 10 }] });
   assert.equal(linked.status, 201, JSON.stringify(linked.body));
   assert.deepEqual(rowsOf(linked), [['l1', 1, 'ASSUMED', null]], 'يقين صفّ البيع نفسه (البيع من سيارةٍ فيها لوطان)');
-  // والحرّ بعده يرى كل ما أُرجع (مرتبطاً وحرّاً): لا شيء باقٍ من صفوف العميل ⇒ «غير معروف»
+  // والحرّ بعده يرى كل ما أُرجع (مرتبطاً وحرّاً): لا شيء باقٍ من صفوف العميل ⇒ تشغيلةٌ اشتراها تقديراً (T3)
   currentUser = REP;
-  assert.deepEqual(rowsOf(await ret(1)), [[null, 1, 'UNKNOWN', null]]);
-  // والإدارة بلا صريح ترث كذلك، وعميلٌ بلا مبيعات «غير معروف»
+  const none = rowsOf(await ret(1));
+  assert.equal(none.length, 1);
+  guessRow(none[0], 1, 'RETURN_GUESS_CUSTOMER');
+  // والإدارة بلا صريح ترث كذلك، وعميلٌ بلا مبيعات ⇒ تشغيلة سيارة المستند تقديراً (T3)
   currentUser = ADMIN;
   db.customers.push({ id: 'c2', tenantId: 't1', name: 'محل', status: 'ACTIVE', balance: 0, creditLimit: 0 });
   const fresh = await post({ customerId: 'c2', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 2, unitPrice: 10 }] });
   assert.equal(fresh.status, 201, JSON.stringify(fresh.body));
-  assert.deepEqual(rowsOf(fresh), [[null, 2, 'UNKNOWN', null]]);
+  assert.equal(rowsOf(fresh).length, 1);
+  guessRow(rowsOf(fresh)[0], 2, 'RETURN_GUESS_VAN');
   // والبيع الملغى لا يُورَث منه
   const s3 = await post(sale([{ productId: 'pM', qty: 2 }]));
   assert.equal((await call('PATCH', `/api/invoices/${s3.body.data.id}/cancel`, { body: {} })).status, 200);
   const r3 = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 1, unitPrice: 10 }] });
-  assert.deepEqual(rowsOf(r3), [[null, 1, 'UNKNOWN', null]], 'لا بيع غير ملغى باقٍ للعميل');
+  assert.equal(rowsOf(r3).length, 1, 'لا بيع غير ملغى باقٍ للعميل');
+  guessRow(rowsOf(r3)[0], 1, 'RETURN_GUESS_CUSTOMER');
 });
 
 test('المرتجع الحرّ: لا يرث من بيعٍ بعد تاريخ مستنده، ولا من صفوف حقبةٍ سابقة (D25)، والختم بفاتورة صفّ الانتهاء المختار', async () => {
@@ -921,7 +981,8 @@ test('المرتجع الحرّ: لا يرث من بيعٍ بعد تاريخ م�
   // مرتجعٌ ورقيّ بتاريخٍ قبل البيع الثاني: من البيع الأول وحده (l1)، والزائد «غير معروف»
   const back = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', invoiceDate: d(-3), items: [{ productId: 'pM', qty: 4, unitPrice: 10 }] });
   assert.equal(back.status, 201, JSON.stringify(back.body));
-  assert.deepEqual(rowsOf(back), [['l1', 3, 'ASSUMED', null], [null, 1, 'UNKNOWN', null]], 'لا يُرجَع من بيعٍ بعد المرتجع');
+  assert.deepEqual(rowsOf(back), [['l1', 3, 'ASSUMED', null], ['l1', 1, 'ASSUMED', 'RETURN_GUESS_CUSTOMER']],
+    'لا يُرجَع من بيعٍ بعد المرتجع، والزائد يُقدَّر مما اشتراه العميل حتى تاريخه (l1) لا بعده (l2)');
   // الختم: الأقرب انتهاءً (l1 من البيع الأول) وفاتورته — لا أول صفٍّ مسمّى
   const now = await post({ customerId: 'c1', salesRepId: 'r1', type: 'RETURN', items: [{ productId: 'pM', qty: 2, unitPrice: 10 }] });
   assert.deepEqual(rowsOf(now), [['l2', 2, 'ASSUMED', null]]);
@@ -999,12 +1060,25 @@ test('إلغاء المرتجع: بيعت بضاعته من تشغيلةٍ مس�
 });
 
 test('إلغاء المرتجع: الفارغ وبندٌ بلا صفوف (قبل التتبّع) على غير المسمّى (I2)، وإلغاء البيع بلا قفل لوط', async () => {
+  // طلب المالك ١٦ نوفمبر ٢٠٢٦ (T3): مرتجعٌ بلا دليل والسيارة رأت l2 ⇒ يأخذ l2 تقديراً، فإلغاؤه بعد بيعها يُرفض بها
   reset(REP);
   load('pM', [{ lotId: 'l2', qty: 5 }]);
+  const guessed = await freeReturn(2);
+  assert.equal(guessed.status, 201, JSON.stringify(guessed.body));
+  assert.deepEqual(rowsOf(guessed), [['l2', 2, 'ASSUMED', 'RETURN_GUESS_VAN']]);
+  currentUser = ADMIN;
+  assert.equal((await post(sale([{ productId: 'pM', qty: 7 }]))).status, 201, 'l2 ٧');
+  const cg = await cancel(guessed.body.data.id);
+  assert.deepEqual([cg.status, cg.body.code], [409, 'LOT_STOCK_INSUFFICIENT'], JSON.stringify(cg.body));
+  assert.match(cg.body.message, /L2/);
+  // وبلا تشغيلةٍ مسمّاة للصنف في الحقبة يبقى «غير معروف» (D25)، فإلغاؤه بعد بيع غير المسمّى يكسر I2
+  reset(REP);
+  load('pM', [{ lotId: null, qty: 5 }]);
   const ret = await freeReturn(2);
   assert.equal(ret.status, 201, JSON.stringify(ret.body));
+  assert.deepEqual(rowsOf(ret), [[null, 2, 'UNKNOWN', null]]);
   currentUser = ADMIN;
-  assert.equal((await post(sale([{ productId: 'pM', qty: 7 }]))).status, 201, 'l2 ٥ ثم غير المسمّى ٢');
+  assert.equal((await post(sale([{ productId: 'pM', qty: 7 }]))).status, 201, 'غير المسمّى ٧');
   const c = await cancel(ret.body.data.id);
   assert.deepEqual([c.status, c.body.code], [409, 'LOT_STOCK_INSUFFICIENT'], JSON.stringify(c.body));
   assert.match(c.body.message, /الرصيد غير المسمّى/);

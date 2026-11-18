@@ -43,3 +43,11 @@ export function distributeAmount(target: number, weights: number[], decimals = 2
   }
   return floors.map(v => v / f);
 }
+
+/**
+ * نفي مبلغٍ مطروح للعرض بلا «‎-0»: ‎-0 (نفيُ صفر) يطبعه Intl.NumberFormat «‎-٠٫٠٠» — كسطر المرتجعات الصفري في «ملخص الإقرار»،
+ * وهو الحال الغالبة (لا مرتجع في الفترة).
+ */
+export function negAmount(x: number): number {
+  return x === 0 ? 0 : -x;
+}

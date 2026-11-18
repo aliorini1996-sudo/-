@@ -311,6 +311,12 @@ export const reportApi = {
   unvisitedCustomers: (params?: Record<string, string>) => api.get('/reports/unvisited-customers', { params }),
   // «طرق الدفع»: تحصيل كل مندوب لكل طريقة دفع في الفترة (from/to بأيام الشركة، teamId اختياري) — ميزة يفعّلها المالك
   paymentMethods: (params?: Record<string, string>) => api.get('/reports/payment-methods', { params }),
+  // «المشتريات»: فواتير الموردين ومرتجعاتها (groupBy vendor|product|day|month) — مخزون الشركة وصلاحية المستودع
+  purchases: (params?: Record<string, string>) => api.get('/reports/purchases', { params }),
+  // «الربح»: مجمل الربح قبل المصروفات (groupBy product|rep|customer|month) — صافي المبيعات ناقص تكلفتها
+  profit: (params?: Record<string, string>) => api.get('/reports/profit', { params }),
+  // «الضرائب»: ضريبة المخرجات والمدخلات وصافي المستحق (groupBy month|quarter|rate) — بيانٌ فارغ لشركةٍ أزالت ضريبتها
+  tax: (params?: Record<string, string>) => api.get('/reports/tax', { params }),
 };
 
 export const notificationApi = {
@@ -897,6 +903,9 @@ export const lotsApi = {
   vanLotBalances: (salesRepId?: string) => api.get('/van-stock/lot-balances', { params: salesRepId ? { salesRepId } : {} }),
   // المباع والمرتجع والصافي وعدد العملاء لكل تشغيلة في الفترة (from/to بأيام الشركة) — بصلاحية التقارير وبالنطاق
   lotSales: (params: { from?: string; to?: string; productId?: string; lotId?: string }) => api.get('/reports/lot-sales', { params }),
+  // تشغيلات الصنف التي اشتراها العميل (الحقبة الحالية، الأحدث أولاً، ≤ ٥٠) — لمنتقي تشغيلة المرتجع (طلب المالك ١٦ نوفمبر ٢٠٢٦).
+  // بصلاحية الفواتير وبنطاق العميل؛ الميزة أو الصنف غير متتبَّع ⇒ []
+  customerHistory: (params: { customerId: string; productId: string }) => api.get('/lots/customer-history', { params }),
 };
 
 // تعديل بصمات الحضور إدارياً ورفعها من Excel (backend/src/routes/attendanceAdmin.ts) — كل كتابةٍ بسببٍ مكتوب وفي سجلّ التدقيق

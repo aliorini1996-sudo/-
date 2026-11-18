@@ -116,7 +116,8 @@ const BODY_VARS = ['custRef', 'isReturn', 'saleType', 'salePlan', 'returnReason'
   'canSwitchList', 'listsOn', 'docDefault', 'listId', 'lines', 'deliveryDate', 'signatureOn', 'signatures', 'insCount', 'insFirst', 'insPeriod'];
 const buildBody = compile<(ctx: Record<string, unknown>) => Record<string, unknown>>(
   `const buildBody = (ctx: any) => {\n const { ${BODY_VARS.join(', ')} } = ctx;\n${BODY}\nreturn body;\n};`,
-  'buildBody', { repReturnPolicyFields, invoiceItemUnit });
+  // retLotsOf: تشغيلة سطر المرتجع الحرّ التي اختارها المندوب (طلب المالك ١٦ نوفمبر ٢٠٢٦) — بلا اختيار لا مفتاح lots فالجسم كما كان
+  'buildBody', { repReturnPolicyFields, invoiceItemUnit, retLotsOf: () => ({}) });
 const CTX = {
   custRef: { customerId: 'c-1' }, returnReason: 'NORMAL', activeTeam: null, saleRef: null, retPhase2: false, manualRef: null, noteReasonText: '',
   canSwitchList: true, listsOn: true, docDefault: 'l-cash', lines: [{ productId: 'p-1', qty: 2, unitPrice: 11.5, discountPct: 0, taxPct: 15, unit: 'حبة' }],

@@ -28,9 +28,12 @@ import type { UnitDef } from '../../lib/units';
 import {
   LOT_CERTAINTY_LABELS, LOT_STATUS_LABELS, LOT_WARNING_LABELS, lotErrorOf, lotFlagsOf, lotWarningsOf, type ProductLotDto, type VanLotSnapshotDto,
 } from '../../lib/lots';
-import { lotErrorText, returnableLotsOf, saleLineLots, withDocLots, withFreeReturnLots, type SaleLotRow } from '../../lib/invoiceLots';
 import {
-  clearSaleLotPicks, lotErrorLineIdx, saleLotErrorText, saleLotProblems, saleLotSources, withSaleLots, type SaleLotPick,
+  customerLotHistoryOf, freeReturnLotOptions, linkedReturnBaseQty, linkedReturnLotChoices, linkedReturnLotProblem, lotErrorText, returnableLotsOf,
+  saleLineLots, withDocLots, withFreeReturnLots, withLinkedReturnLots, type FreeReturnLotOption, type SaleLotRow,
+} from '../../lib/invoiceLots';
+import {
+  clearSaleLotPicks, lotErrorLineIdx, saleLotErrorText, saleLotFallback, saleLotProblems, saleLotSources, withSaleLots, type SaleLotPick,
 } from '../../lib/saleLots';
 import SaleLotPicker, { saleLotProblemText, type SaleLotState } from '../SaleLotPicker';
 import { useAuthStore } from '../../store/authStore';
@@ -135,36 +138,50 @@ function calcLine(qty: number, price: number, discPct: number, taxPct: number) {
 }
 
 /**
- * «تتبّع اللوط» — تشغيلة سطر المرتجع الحرّ من الإدارة (D5): صريحةٌ اختيارية للسطر كله، والفارغ «تلقائي» (لا يُرسل شيء): يحدّدها
- * الخادم من مبيعات العميل السابقة للصنف، آخر فاتورةٍ أولاً (allocateReturnFromHistory — طلب المالك ١ نوفمبر ٢٠٢٦ بدل «غير معروف»
- * دائماً)، وما فاق مبيعاته «غير معروف». الموقوفة مقبولة وتدخل معزولة (LOT_INTO_BLOCKED). القائمة بصلاحية مخزون السيارات: تعذّرها
- * يُبقي «تلقائي» وحده.
+ * «تتبّع اللوط» — تشغيلة سطر المرتجع الحرّ من الإدارة (D5): صريحةٌ اختيارية للسطر كله، والفارغ «تلقائي» (لا يُرسل شيء): ينسبها
+ * الخادم من مبيعات العميل السابقة للصنف، ثم تقديراً (طلب المالك ١٦ نوفمبر ٢٠٢٦ بدل «غير مسمّى»): ما اشتراه العميل، ثم تشغيلات
+ * السيارة، ثم الشركة — ASSUMED. والقائمة تبدأ بما اشتراه **هذا العميل** من الصنف (/lots/customer-history، بصلاحية الفواتير) ثم
+ * تشغيلات الصنف الأخرى (/lots، بصلاحية مخزون السيارات وحدها: ٤٠٣ لا تُعاد). الموقوفة مقبولة وتدخل معزولة (LOT_INTO_BLOCKED).
  */
-function FreeReturnLotPicker({ productId, value, onChange, disabled, lotOn }: {
-  productId: string; value: string; onChange: (lotId: string) => void; disabled?: boolean; lotOn: boolean;
+function FreeReturnLotPicker({ productId, customerId, value, onChange, disabled, lotOn, canListLots }: {
+  productId: string; customerId: string; value: string; onChange: (lotId: string) => void; disabled?: boolean; lotOn: boolean; canListLots: boolean;
 }) {
   const tr = useTr();
+  const histQ = useQuery({
+    queryKey: ['lots-customer-history', customerId, productId],
+    enabled: lotOn && !!productId && !!customerId,
+    staleTime: 60_000,
+    retry: false,
+    queryFn: async () => customerLotHistoryOf((await lotsApi.customerHistory({ customerId, productId })).data.data),
+  });
   const { data: lots, isFetching } = useQuery({
     queryKey: ['lots-of-product', productId],
-    enabled: lotOn && !!productId,
+    enabled: lotOn && !!productId && canListLots,
     staleTime: 60_000,
-    // بلا صلاحية مخزون السيارات ٤٠٣ لا تتغيّر بالإعادة — يبقى «تلقائي» وحده فوراً
+    // بلا صلاحية مخزون السيارات ٤٠٣ لا تتغيّر بالإعادة — تبقى تشغيلات العميل و«تلقائي»
     retry: false,
     queryFn: async () => (await lotsApi.list({ productId, limit: 200 })).data.data as ProductLotDto[],
   });
-  const picked = (lots ?? []).find(l => l.id === value);
+  const options = freeReturnLotOptions(histQ.data, lots, productId);
+  const mine = options.filter(o => o.group === 'CUSTOMER');
+  const others = options.filter(o => o.group === 'OTHER');
+  const picked = options.find(o => o.lotId === value);
+  const optionEl = (o: FreeReturnLotOption) => (
+    <option key={o.lotId} value={o.lotId}>
+      {o.lotNumber}{o.expiryDate ? ` · ${formatDayOnly(o.expiryDate)}` : ''}{o.status === 'BLOCKED' ? ` · ${tr(LOT_STATUS_LABELS.BLOCKED)}` : ''}
+    </option>
+  );
   return (
     <div className="mt-1">
       <select className="input py-1 text-xs w-auto max-w-[14rem]" value={value} disabled={disabled} aria-label={tr('تشغيلة الصنف المرتجع')}
         title={tr('تشغيلة الصنف المرتجع')} onChange={e => onChange(e.target.value)}>
         <option value="">{tr('التشغيلة')}: {tr('تلقائي من مبيعات العميل السابقة')}</option>
-        {(lots ?? []).map(l => (
-          <option key={l.id} value={l.id}>
-            {l.lotNumber}{l.expiryDate ? ` · ${formatDayOnly(l.expiryDate)}` : ''}{l.status === 'BLOCKED' ? ` · ${tr(LOT_STATUS_LABELS.BLOCKED)}` : ''}
-          </option>
-        ))}
+        {mine.length > 0 && <optgroup label={tr('اشتراها هذا العميل')}>{mine.map(optionEl)}</optgroup>}
+        {others.length > 0 && (mine.length > 0 ? <optgroup label={tr('تشغيلات أخرى للصنف')}>{others.map(optionEl)}</optgroup> : others.map(optionEl))}
+        {/* اختيارٌ قائم غاب عن القائمتين (عميلٌ آخر، أو حُذفت) يبقى ظاهراً فلا يُرسل ما لا يُرى */}
+        {value && !picked && <option value={value}>{tr('تشغيلة لم تعد متاحة')}</option>}
       </select>
-      {isFetching && !lots && <span className="ms-1 text-[10px] text-gray-400">{tr('جاري التحميل')}</span>}
+      {(histQ.isFetching || isFetching) && !options.length && <span className="ms-1 text-[10px] text-gray-400">{tr('جاري التحميل')}</span>}
       {picked?.status === 'BLOCKED' && <p className="text-[10px] text-amber-700 mt-0.5">{tr('تدخل الكمية تشغيلة موقوفة فتبقى معزولة لا تباع')}</p>}
     </div>
   );
@@ -327,6 +344,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   const [saleLots, setSaleLots] = useState<Map<string, SaleLotRow[]>>(() => new Map());
   // تشغيلة كل سطر مرتجعٍ حرّ بمفتاح السطر (الصنف ووحدته) — الفارغ «تلقائي» من مبيعات العميل السابقة (يحدّدها الخادم)
   const [freeLots, setFreeLots] = useState<Record<string, string>>({});
+  // تشغيلة سطر المرتجع المرتبط بمعرّف بند البيع (طلب المالك ١٦ نوفمبر ٢٠٢٦، المرحلة B) — من صفوف البند نفسه، والفارغ «تلقائي» (الوراثة)
+  const [linkedLots, setLinkedLots] = useState<Record<string, string>>({});
   const trackedIds = new Set(lotOn ? (products || []).filter(p => p.lotTracked === true).map(p => p.id) : []);
   /* تشغيلة سطر البيع (طلب المالك ٢ نوفمبر ٢٠٢٦): المصادر من لقطة سيارة المندوب المختار — تُجلب حين الميزة مفعّلة وفي البيع
    * سطرٌ متتبَّع وللمستخدم صلاحية مخزون السيارات (مسار /van-stock خلفها)، وتُعاد بتغيّر المندوب (المفتاح). مطفأةً أو بلا سطرٍ
@@ -395,7 +414,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     queryFn: async () => (await invoiceApi.returnableSales(customerId)).data.data as ReturnableSaleRow[],
   });
 
-  const unlinkSale = () => { pickSeq.current++; setLinked(null); setLoadingSaleId(null); setSaleLots(new Map()); setManualRef(false); };
+  const unlinkSale = () => { pickSeq.current++; setLinked(null); setLoadingSaleId(null); setSaleLots(new Map()); setLinkedLots({}); setManualRef(false); };
 
   /** بنود فاتورة البيع المختارة (والمندوب منها إن لم يُختر بعد: المرتجع يدخل سيارة المندوب المحدَّد هنا) */
   const pickSale = async (saleId: string) => {
@@ -416,6 +435,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
       if (problem) { toast.error(tr(problem.key) + (problem.detail ? ` — ${problem.detail}` : '')); return; }
       setLinked(sale);
       setSaleLots(returnableLotsOf(r.data.data));
+      setLinkedLots({});
       const saleRep = (detail?.data?.data as { salesRepId?: string } | undefined)?.salesRepId;
       if (saleRep && salesReps?.some(x => x.id === saleRep)) setSalesRepId(prev => prev || saleRep);
     } catch (err) {
@@ -607,6 +627,9 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
           setLotLineErr(keys.length ? { keys, text } : null);
           // المتاح تغيّر على الخادم (بيعٌ أو تحميلٌ سبق): تُعاد اللقطة فيرى المدير المتاح الجديد بجانب سطره
           qc.invalidateQueries({ queryKey: ['invoice-van-lots'] });
+        } else if (linked && le.code === 'LOT_QTY_INVALID' && le.detail?.reason === 'LOT_OVER_RETURNABLE') {
+          // تشغيلة المرتجع المرتبط (المرحلة B): مرتجعٌ آخر سبق فأنقص المتاح إرجاعه منها — تُعاد بنود البيع وصفوفها فيرى المدير الجديد
+          void refreshLinked(linked);
         }
         return;
       }
@@ -757,6 +780,14 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     if (problem) { toast.error(tr(problem)); return; }
     const head: ReturnHead = { customerId, salesRepId, returnReason, notes, invoiceDate, phase2, noteReason, ...(taxOff && { taxOff: true }) };
     // خانات عملة الشركة: سعر وحدة المرتجع (حبّةٌ من كرتون) يُشتقّ من مبلغه بها كما يحسبه الخادم (linkedUnitPrice)
+    /* «تتبّع اللوط» (طلب المالك ١٦ نوفمبر ٢٠٢٦، المرحلة B): سطرٌ مرتبط اختيرت تشغيلته من صفوف بند البيع يحمل lots بكميته الأساسية،
+     * وما فاق المتاح إرجاعه منها يُقال قبل الإرسال (الخادم يردّه 422). وبلا اختيار الجسم كما كان حرفاً (السطر التالي) */
+    if (linked && lotOn && linked.lines.some(l => l.qty > 0 && linkedLots[l.saleItemId])) {
+      const bad = linked.lines.find(l => l.qty > 0 && linkedReturnLotProblem(saleLots.get(l.saleItemId), linkedLots[l.saleItemId], linkedReturnBaseQty(l)));
+      if (bad) { toast.error(`${tr('تشغيلة السطر')} «${bad.name}»: ${tr('الكمية أكبر من المتاح إرجاعه من هذه التشغيلة')}`, { duration: 7000 }); return; }
+      mutation.mutate(withLinkedReturnLots(buildLinkedReturnPayload(head, linked, retDec), linked.lines, sid => linkedLots[sid]));
+      return;
+    }
     if (linked) { mutation.mutate(buildLinkedReturnPayload(head, linked, retDec)); return; }
     // «تتبّع اللوط» (D5): المرتجع الحرّ لصنفٍ متتبَّع بتشغيلته المختارة للسطر كله، وإلا يحدّدها الخادم من مبيعات العميل السابقة —
     // والمطفأة الجسم كما كان.
@@ -782,7 +813,8 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
     if (plan === 'INSTALLMENT' && insPreview.length === 0) {
       toast.error(tr('المبلغ لا يكفي لتقسيمه على هذا العدد من الأقساط')); return;
     }
-    // «تتبّع اللوط»: تشغيلةٌ مختارة لا تطابق كمية سطرها (تقسيمٌ تغيّرت كميته أو وحدته، أو فوق المتاح) — لا إصدار ولا تحجيم صامت
+    // «تتبّع اللوط»: تشغيلةٌ مختارة لا تطابق كمية سطرها (تقسيمٌ تغيّرت كميته أو وحدته) — لا إصدار ولا تحجيم صامت. أما فوق متاحها
+    // أو موقوفة أو منتهية فلا تمنع (طلب المالك ١٦ نوفمبر ٢٠٢٦): الخادم يُكمل الباقي من غيرها والمنتقي ينبّه
     const badLot = saleLotIssues.findIndex(p => p !== null);
     if (badLot >= 0) {
       const bl = lines[badLot];
@@ -1101,7 +1133,20 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                                   {s.certainty !== 'CONFIRMED' && <span className="text-gray-400"> · {tr(LOT_CERTAINTY_LABELS[s.certainty])}</span>}
                                 </p>
                               ))}
-                              <p className="text-[10px] text-gray-400">{tr('يوزع المرتجع على تشغيلات البيع تلقائيا')}</p>
+                              {/* المرحلة B (طلب المالك ١٦ نوفمبر ٢٠٢٦): اختيار تشغيلةٍ من صفوف البند نفسه — «تلقائي» الافتراضي (الوراثة) */}
+                              {linkedReturnLotChoices(saleLots.get(l.saleItemId)).length > 0 && (
+                                <select className="input py-1 text-xs mt-0.5 w-auto max-w-[14rem]" value={linkedLots[l.saleItemId] ?? ''}
+                                  disabled={!open || mutation.isPending} aria-label={tr('تشغيلة الصنف المرتجع')} title={tr('تشغيلة الصنف المرتجع')}
+                                  onChange={e => setLinkedLots(m => ({ ...m, [l.saleItemId]: e.target.value }))}>
+                                  <option value="">{tr('التشغيلة')}: {tr('تلقائي')}</option>
+                                  {linkedReturnLotChoices(saleLots.get(l.saleItemId)).map(s => (
+                                    <option key={s.lotId} value={s.lotId}>{s.lotNumber ?? ''}{s.expiryDate ? ` · ${formatDayOnly(s.expiryDate)}` : ''}</option>
+                                  ))}
+                                </select>
+                              )}
+                              {linkedLots[l.saleItemId] && l.qty > 0 && linkedReturnLotProblem(saleLots.get(l.saleItemId), linkedLots[l.saleItemId], linkedReturnBaseQty(l))
+                                ? <p className="text-[10px] text-red-600">{tr('الكمية أكبر من المتاح إرجاعه من هذه التشغيلة')}</p>
+                                : !linkedLots[l.saleItemId] && <p className="text-[10px] text-gray-400">{tr('يوزع المرتجع على تشغيلات البيع تلقائيا')}</p>}
                             </div>
                           )}
                         </td>
@@ -1201,7 +1246,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                         )}
                         {/* «تتبّع اللوط» (D5): المرتجع الحرّ من الإدارة بتشغيلة صريحة اختيارية — والبيع بمنتقيه أدناه (SaleLotPicker) */}
                         {isReturn && trackedIds.has(l.productId) && (
-                          <FreeReturnLotPicker productId={l.productId} lotOn={lotOn} disabled={mutation.isPending}
+                          <FreeReturnLotPicker productId={l.productId} customerId={customerId} lotOn={lotOn} canListLots={canVanStock} disabled={mutation.isPending}
                             value={freeLots[lineKey(l)] ?? ''} onChange={v => setFreeLots(m => ({ ...m, [lineKey(l)]: v }))} />
                         )}
                         {/* «تتبّع اللوط» (طلب المالك ٢ نوفمبر ٢٠٢٦): تشغيلة سطر البيع — «تلقائي — الأقرب انتهاءً» افتراضاً (الجسم كما كان)،
@@ -1210,6 +1255,7 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
                           <SaleLotPicker line={l} prod={p ?? null} state={saleLotState} disabled={mutation.isPending}
                             sources={saleLotState === 'READY' ? saleLotSources(vanLots, lines, i) : null}
                             problem={saleLotIssues[i] ?? null}
+                            fallback={saleLotState === 'READY' ? saleLotFallback(lines, vanLots, i) : null}
                             serverError={lotLineErr?.keys.includes(lineKey(l)) ? lotLineErr.text : null}
                             onChange={pick => setLinePick(i, pick)} />
                         )}

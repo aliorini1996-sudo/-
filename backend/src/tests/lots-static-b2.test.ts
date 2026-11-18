@@ -30,7 +30,7 @@ test('B2: المسارات بعلامتي اقتباس مفردتين، والث
   const segs = routeSegments(ROUTER);
   const paths = segs.map((s) => `${s.method.toUpperCase()} ${s.path}`);
   assert.deepEqual(paths, [
-    'GET /', 'GET /balances', 'GET /fefo', 'GET /health', 'POST /', 'POST /relabel', 'POST /products/tracking', 'PUT /settings',
+    'GET /customer-history', 'GET /', 'GET /balances', 'GET /fefo', 'GET /health', 'POST /', 'POST /relabel', 'POST /products/tracking', 'PUT /settings',
     'GET /:id', 'PATCH /:id', 'PATCH /:id/status', 'DELETE /:id', 'GET /:id/trace', 'GET /:id/unload-plan', 'GET /:id/events',
   ]);
   const firstParam = paths.findIndex((p) => p.includes(':'));
@@ -40,6 +40,10 @@ test('B2: المسارات بعلامتي اقتباس مفردتين، والث
   let at = -1;
   for (const frag of order) { const i = ROUTER.indexOf(frag); assert.ok(i > at, `الترتيب: ${frag}`); at = i; }
   assert.ok(at < ROUTER.indexOf("router.get('/'"), 'الحرّاس قبل أول مسار');
+  // الاستثناء الوحيد قبل الحرّاس: «تشغيلات العميل» (طلب المالك ١٦ نوفمبر ٢٠٢٦) يقرؤه المندوب لعملائه، بحرّاسه على المسار نفسه
+  const ch = ROUTER.indexOf("router.get('/customer-history'");
+  assert.ok(ch > ROUTER.indexOf('router.use(authenticate);') && ch < ROUTER.indexOf("req.user?.role === 'SALES_REP'"), 'تشغيلات العميل بعد المصادقة وقبل حاجز المندوب');
+  assert.match(ROUTER.slice(ch, ch + 200), /requireAccounting, requireAdminPermission\('canManageInvoices'\)/);
   const index = stripComments(read('index.ts'));
   assert.match(index, /^import lotsRouter from '\.\/routes\/lots';$/m);
   assert.match(index, /^app\.use\('\/api\/lots', lotsRouter\);/m);

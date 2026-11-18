@@ -437,13 +437,17 @@ export interface ReturnItemLine {
   expectedBase?: string | null;
   /** «مرجع السطر» كما قبله مخطّط POST /invoices — يُكتب على بند الإشعار الذي يُحلّ إليه هذا البند (noteLineRefs) */
   lineRef?: string | null;
+  /** «تتبّع اللوط» (المرحلة ب): تشغيلات البند كما أُرسلت [{lotId, qty أساسية}] — ترافقه إلى بند الإشعار (noteLineLots) */
+  lots?: unknown;
 }
 
 /** «مرجع السطر» يرافق سطر الطلب (POST /:id/credit-note وdebit-note) — لا يقرؤه compliance/zatca/notes.ts، بل noteLineRefs هنا */
 interface LineRefField { lineRef?: string | null }
+/** «تتبّع اللوط» (المرحلة ب): تشغيلات سطر الدائن كما أُرسلت — لا يقرؤها compliance/zatca/notes.ts، بل noteLineLots هنا */
+interface LineLotsField { lots?: unknown }
 
 /** بنود الإشعار الدائن: 'FULL' كامل، أو قائمة ببنود الأصل، أو بنود مرتجعٍ تُحلّ إلى بنود الأصل. */
-export type CreditLinesInput = 'FULL' | readonly (CreditLineRequest & LineRefField)[] | { fromReturnItems: readonly ReturnItemLine[] };
+export type CreditLinesInput = 'FULL' | readonly (CreditLineRequest & LineRefField & LineLotsField)[] | { fromReturnItems: readonly ReturnItemLine[] };
 
 export interface NoteContextBase {
   tenantId: string;
@@ -623,6 +627,21 @@ export function noteLineRefs(
   return lines.map((l) => (l.invoiceItemId ? byItem.get(l.invoiceItemId)?.shift() ?? null : null));
 }
 
+/**
+ * «تتبّع اللوط» (المرحلة ب، طلب المالك ١٦ نوفمبر ٢٠٢٦): تشغيلات كل بند إشعارٍ دائن كما أرسلها سطر طلبه — بالمقابلة نفسها التي
+ * يقابل بها noteLineRefs «مرجع السطر» (بند الأصل، وسطوره بترتيب طلبها). 'FULL' أو بلا سطور طلب ⇒ لا اختيار («تلقائي»).
+ */
+export function noteLineLots(input: CreditLinesInput, request: CreditLinesRequest | undefined, note: Pick<PreparedNote, 'lines'>): unknown[] {
+  const lines = note.lines;
+  if (!Array.isArray(request) || input === 'FULL') return lines.map(() => undefined);
+  const src: readonly LineLotsField[] = Array.isArray(input)
+    ? (input as readonly LineLotsField[])
+    : (input as { fromReturnItems: readonly ReturnItemLine[] }).fromReturnItems;
+  const byItem = new Map<string, unknown[]>();
+  request.forEach((r, i) => byItem.set(r.invoiceItemId, [...(byItem.get(r.invoiceItemId) ?? []), src[i]?.lots]));
+  return lines.map((l) => (l.invoiceItemId ? byItem.get(l.invoiceItemId)?.shift() : undefined));
+}
+
 /** أعمدة بند الإشعار القديمة (ما يكتبه المسار القديم لكل بند) — مأخوذة من ناتج المحرّك. */
 export function legacyNoteItem(
   kind: NoteKind, line: { productId: string | null; creditUnitName?: string | null; creditUnitFactor?: number | null } | null, calc: {
@@ -665,6 +684,8 @@ export function creditNoteLotPlan(
   at: {
     tenantId: string; customerId: string; vanKey: string | null; day: string; clientRef: string | null; actor: LotActor;
     replay?: InvoiceLotPlan['replay']; stamps?: ReadonlyMap<string, ItemExpiryStamp>;
+    /** تشغيلات كل بند إشعارٍ بموضعه (noteLineLots) — المرحلة ب: حيّاً من تشغيلات بند الأصل وحدها، وفي الإعادة تُتجاهل بتحذير */
+    lotsRaw?: readonly unknown[];
   },
 ): InvoiceLotPlan | null {
   const lines: InvoiceLotLine[] = [];
@@ -675,7 +696,7 @@ export function creditNoteLotPlan(
     lines.push({
       idx, productId: l.productId, productName: l.itemName ?? '',
       qty: lotBaseQty({ qty, unitFactor: l.creditUnitFactor }), unitFactor: factorOf({ unitFactor: l.creditUnitFactor }),
-      saleItemId: l.invoiceItemId,
+      saleItemId: l.invoiceItemId, lotsRaw: at.lotsRaw?.[idx],
     });
     const s = at.stamps?.get(l.invoiceItemId);
     if (s) fallbackStamps.set(idx, s);
@@ -778,6 +799,7 @@ async function issueNote(
     const prePlan = lots ? creditNoteLotPlan(preview.prepared, {
       tenantId: ctx.tenantId, customerId: loaded.original.customerId, vanKey: creditVanOf(ctx, loaded.original),
       day: lots.day, clientRef: ctx.clientRef ?? null, actor: lots.actor, replay: lots.replay, stamps: lots.stamps,
+      ...(kind === 'CREDIT_NOTE' && { lotsRaw: noteLineLots((ctx as CreditNoteContext).lines, preview.request, preview.prepared) }),
     }) : null;
     // رفضٌ لطلبٍ صدر توأمه بالـclientRef لا يُرمى (lotPrecheck): يمضي فيلتقطه سباق P2002 داخل المعاملة
     const pre = lots && prePlan ? await lotPrecheck(lots.hooks, deps.db, prePlan) : null;
@@ -866,6 +888,7 @@ async function stampNote(
             const lotPlan = lots && kind === 'CREDIT_NOTE' ? creditNoteLotPlan(prepared, {
               tenantId: ctx.tenantId, customerId: locked.original.customerId, vanKey: lotVan,
               day: lots.day, clientRef: ctx.clientRef ?? null, actor: lots.actor, replay: lots.replay, stamps: lots.stamps,
+              lotsRaw: noteLineLots((ctx as CreditNoteContext).lines, build.request, prepared),
             }) : null;
             // انتظار قفل اللوط ⇒ LOT_BUSY 503 (D14) — مسار POST /:id/credit-note لا يحوّل غير LotError
             const alloc = lots && lotPlan ? await allocateLotsInTx(lots.hooks, t, lotPlan) : null;

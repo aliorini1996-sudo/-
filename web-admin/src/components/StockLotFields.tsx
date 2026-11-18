@@ -11,10 +11,10 @@ import { Plus, Trash2, Layers } from 'lucide-react';
 import { lotsApi } from '../api/client';
 import { useTr } from '../i18n/strings';
 import { formatDayOnly } from '../utils/format';
-import { LOT_BLOCK_KIND_LABELS, LOT_STATUS_LABELS, normalizeLotNumber, roundLot, type LotRef, type ProductLotDto } from '../lib/lots';
+import { LOT_BLOCK_KIND_LABELS, LOT_FALLBACK_NOTICE, LOT_STATUS_LABELS, normalizeLotNumber, roundLot, type LotRef, type ProductLotDto } from '../lib/lots';
 import {
   draftRemaining, entryLotModes, lotRowEquivalent, lotSmallUnitOf, sourceKey, splitDraft, withKnownLotDates,
-  type DraftProblem, type EntryLotDraft, type EntryLotKind, type EntryLotMode, type EntryLotProblem, type LotBalancesResponse, type LotRowDraft, type LotSource,
+  type DraftProblem, type EntryLotDraft, type EntryLotKind, type EntryLotMode, type EntryLotProblem, type LotBalancesResponse, type LotFallbackPlan, type LotRowDraft, type LotSource,
 } from '../lib/stockLots';
 import type { UnitDef } from '../lib/units';
 
@@ -97,6 +97,36 @@ export function AutoPullPreview({ rows, sources }: { rows: readonly LotRef[] | n
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * تنبيه «يُكمَل من غيرها» (طلب المالك ١٦ نوفمبر ٢٠٢٦) لبيعٍ أو تحميلٍ من المستودع بتشغيلةٍ مختارة لا تكفي أو صارت منتهية أو
+ * موقوفة: كهرمانيٌّ لا يمنع — الخادم يأخذ ما فيها ثم يُكمل بالأقرب انتهاءً (explicitShort: 'SPILL'). يذكر المنتهية والموقوفة
+ * بأرقامها، ومعاينة الإكمال من `explicitFallback` بأسماء المصادر. ونقص الصنف كله (`plan.short`) سطرٌ أحمر بنصّ المكان
+ * (`shortText`) — وهو وحده ما يرفضه الخادم.
+ */
+export function LotFallbackNote({ plan, sources, shortText }: { plan: LotFallbackPlan; sources: readonly LotSource[]; shortText: string }) {
+  const tr = useTr();
+  const byKey = new Map(sources.map((s) => [sourceKey(s.lotId), s]));
+  const why = plan.events
+    .filter((e) => e.reason === 'EXPIRED' || e.reason === 'BLOCKED')
+    .map((e) => `${e.lotNumber ?? ''} ${tr(e.reason === 'EXPIRED' ? 'منتهية' : LOT_STATUS_LABELS.BLOCKED)}`.trim());
+  return (
+    <div className="mt-0.5 space-y-0.5 text-[10px]" data-lot-fallback="">
+      <p className="text-amber-700">{tr(LOT_FALLBACK_NOTICE)}{why.length ? ` · ${why.join('، ')}` : ''}</p>
+      {plan.short
+        ? <p className="text-red-600">{shortText}</p>
+        : plan.preview.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {plan.preview.map((a) => (
+              <span key={sourceKey(a.lotId)} className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-amber-800">
+                {byKey.get(sourceKey(a.lotId))?.lotNumber ?? tr('غير مسمى')} ×<b>{fmtLotQty(a.qty)}</b>
+              </span>
+            ))}
+          </div>
+        )}
     </div>
   );
 }

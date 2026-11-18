@@ -630,8 +630,10 @@ test('الحرّاس بالترتيب: المصادقة، ثم رفض المند
   const stack = (lotsRouter as unknown as { stack: { route?: { path: string; methods: Row }; handle: unknown }[] }).stack;
   assert.equal(stack[0].handle, fakeAuth, 'authenticate أولاً');
   assert.equal(stack[0].route, undefined);
-  assert.equal(stack[2].handle, realAuth.requireLots, 'requireLots بعد رفض المندوب');
-  assert.ok(!stack[1].route && !stack[3].route, 'رفض المندوب وcanManageVanStock وسيطان على الموجّه');
+  // «تشغيلات العميل» (طلب المالك ١٦ نوفمبر ٢٠٢٦) قبل حاجز المندوب عمداً: يقرؤه المندوب لعملائه، وحرّاسه على المسار نفسه
+  assert.equal(stack[1].route?.path, '/customer-history', 'تشغيلات العميل وحدها قبل حاجز المندوب');
+  assert.equal(stack[3].handle, realAuth.requireLots, 'requireLots بعد رفض المندوب');
+  assert.ok(!stack[2].route && !stack[4].route, 'رفض المندوب وcanManageVanStock وسيطان على الموجّه');
   const routes = stack.filter((l) => l.route).map((l) => `${Object.keys(l.route!.methods)[0].toUpperCase()} ${l.route!.path}`);
   const firstParam = routes.findIndex((r) => r.includes('/:id'));
   assert.ok(firstParam > 0);
