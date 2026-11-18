@@ -8,6 +8,7 @@ import type { PrintTextsV1 } from '../lib/print/printTextsCore';
 import type { PaymentMethodsConfigInput } from '../lib/paymentMethodsCore';
 import type { RepTargetComboInput, RepTargetInput } from '../lib/repTargets';
 import type { SalesInboxParams, SalesUpdate } from '../lib/salesCrm';
+import type { ChatRequest as AiAccountantChatRequest } from '../lib/aiAccountant';
 import type {
   LotCreateRequest, LotListParams, LotRef, LotRelabelRequest, LotStatusRequest, LotTrackingRequest, LotUpdateRequest,
 } from '../lib/lots';
@@ -310,6 +311,12 @@ export const reportApi = {
   unvisitedCustomers: (params?: Record<string, string>) => api.get('/reports/unvisited-customers', { params }),
   // «طرق الدفع»: تحصيل كل مندوب لكل طريقة دفع في الفترة (from/to بأيام الشركة، teamId اختياري) — ميزة يفعّلها المالك
   paymentMethods: (params?: Record<string, string>) => api.get('/reports/payment-methods', { params }),
+  // «المشتريات»: فواتير الموردين ومرتجعاتها (groupBy vendor|product|day|month) — مخزون الشركة وصلاحية المستودع
+  purchases: (params?: Record<string, string>) => api.get('/reports/purchases', { params }),
+  // «الربح»: مجمل الربح قبل المصروفات (groupBy product|rep|customer|month) — صافي المبيعات ناقص تكلفتها
+  profit: (params?: Record<string, string>) => api.get('/reports/profit', { params }),
+  // «الضرائب»: ضريبة المخرجات والمدخلات وصافي المستحق (groupBy month|quarter|rate) — بيانٌ فارغ لشركةٍ أزالت ضريبتها
+  tax: (params?: Record<string, string>) => api.get('/reports/tax', { params }),
 };
 
 export const notificationApi = {
@@ -474,6 +481,13 @@ export const aiRepApi = {
   // المحلات المخفية عن المسح («أُغلق نهائياً / لم أجده» مؤكَّداً) و«أعد إظهاره»
   hiddenOutlets: () => api.get('/ai-rep/admin/hidden-outlets'),
   unhideOutlet: (id: string) => api.post(`/ai-rep/admin/hidden-outlets/${encodeURIComponent(id)}/unhide`),
+};
+
+// المحاسب الذكي AI — الحالة والمحادثة وسجلّ القيود التي رحّلها (خامل حتى يفعّله المالك للشركة)؛ العكس عبر مسار الدفاتر القائم
+export const aiAccountantApi = {
+  status: () => api.get('/ai-accountant/status'),
+  chat: (body: AiAccountantChatRequest) => api.post('/ai-accountant/chat', body),
+  posts: (limit = 50) => api.get('/ai-accountant/posts', { params: { limit } }),
 };
 
 export const petroappApi = {
@@ -889,6 +903,9 @@ export const lotsApi = {
   vanLotBalances: (salesRepId?: string) => api.get('/van-stock/lot-balances', { params: salesRepId ? { salesRepId } : {} }),
   // المباع والمرتجع والصافي وعدد العملاء لكل تشغيلة في الفترة (from/to بأيام الشركة) — بصلاحية التقارير وبالنطاق
   lotSales: (params: { from?: string; to?: string; productId?: string; lotId?: string }) => api.get('/reports/lot-sales', { params }),
+  // تشغيلات الصنف التي اشتراها العميل (الحقبة الحالية، الأحدث أولاً، ≤ ٥٠) — لمنتقي تشغيلة المرتجع (طلب المالك ١٦ نوفمبر ٢٠٢٦).
+  // بصلاحية الفواتير وبنطاق العميل؛ الميزة أو الصنف غير متتبَّع ⇒ []
+  customerHistory: (params: { customerId: string; productId: string }) => api.get('/lots/customer-history', { params }),
 };
 
 // تعديل بصمات الحضور إدارياً ورفعها من Excel (backend/src/routes/attendanceAdmin.ts) — كل كتابةٍ بسببٍ مكتوب وفي سجلّ التدقيق

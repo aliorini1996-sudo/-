@@ -74,10 +74,13 @@ export function formatCurrency(amount: number | string, currency?: string, maxDe
   const cur = currency || activeCurrency;
   const base = currencyDecimals(cur);
   const dec = maxDecimals != null ? Math.max(base, maxDecimals) : base;
+  // ما يُعرض صفراً يُعرض بلا إشارة: Intl يطبع ‎-0 (نفيُ مبلغٍ صفري) والسالب الذي يُقرَّب صفراً «‎-٠٫٠٠»
+  const n = Number(amount);
+  const shown = Math.abs(n) < 0.5 / Math.pow(10, dec) ? 0 : n;
   return new Intl.NumberFormat(locale(), {
     style: 'currency', currency: cur,
     minimumFractionDigits: base, maximumFractionDigits: dec,
-  }).format(Number(amount));
+  }).format(shown);
 }
 
 /**

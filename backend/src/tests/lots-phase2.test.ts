@@ -600,6 +600,8 @@ test('R6 على خدمة B5 نفسها: كمية أساسٍ بأكثر من أر
     product: { findMany: async () => [{ id: 'p1' }] },
     invoiceItemLot: { findMany: async () => [] },
     invoiceItem: { findMany: async () => [] },
+    // مرشّحو T3 (طلب المالك ١٦ نوفمبر ٢٠٢٦): الإعادة تبلغ تخمين ما بقي غير مسمّى — بلا مشاهدات هنا فيبقى UNKNOWN
+    $queryRaw: async () => [],
   };
   const live = creditNoteLotPlan(note, at);
   assert.ok(live);

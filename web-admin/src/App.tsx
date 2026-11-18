@@ -53,6 +53,8 @@ const CompanyUsersPage = lazy(() => import('./pages/CompanyUsersPage'));
 const ErpIntegrationPage = lazy(() => import('./pages/ErpIntegrationPage'));
 const PetroappPage = lazy(() => import('./pages/PetroappPage'));
 const AiRepPage = lazy(() => import('./pages/AiRepPage'));
+// «المحاسب الذكي AI»: صفحةٌ كسولة على مستوى /app لا تحت /app/ledger — LedgerRoute يشترط الدفاتر، والقراءة لكل شركة فعّلها لها المالك
+const AiAccountantPage = lazy(() => import('./pages/AiAccountantPage'));
 const PaylinkPage = lazy(() => import('./pages/PaylinkPage'));
 const HatifPage = lazy(() => import('./pages/HatifPage'));
 const CatalogPage = lazy(() => import('./pages/CatalogPage'));
@@ -397,6 +399,8 @@ export default function App() {
           <Route path="company" element={<PermissionRoute permission="canManageCompanySettings"><CompanySettingsPage /></PermissionRoute>} />
           {/* الدفاتر: الهيكل (قوائم LedgerLayout) ثم صفوف LEDGER_ROUTES أبناءً — children بخاصية لا بوسوم متداخلة كي يبقى السطر ذاتي الإغلاق لحارس ledgerGate.test */}
           <Route path="ledger" element={<LedgerRoute perm="canViewLedger"><LedgerLayout /></LedgerRoute>} children={ledgerChildRoutes} />
+          {/* «المحاسب الذكي AI» بعد الدفاتر بصلاحية التقارير؛ وعَلَم الشركة والمحاسبة والنطاق يفرضها الخادم (٤٠٣) والمحادثة تعرض رفضه */}
+          <Route path="ai-accountant" element={<PermissionRoute permission="canViewReports"><AiAccountantPage /></PermissionRoute>} />
           <Route path="notifications" element={<NotificationsPage />} />
           {/* مسار لوحة مجهول (رابط قديم أو خطأ كتابة) يعود للوحة لا لصفحة 404 العامة */}
           <Route path="*" element={<Navigate to="/app" replace />} />

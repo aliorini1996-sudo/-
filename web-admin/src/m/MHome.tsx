@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { DollarSign, CreditCard, ShoppingCart, TrendingUp, Users, AlertTriangle, Trophy, ChevronLeft, UserCog, Package, BarChart3, Warehouse, Layers, Truck } from 'lucide-react';
+import { DollarSign, CreditCard, ShoppingCart, TrendingUp, Users, AlertTriangle, Trophy, ChevronLeft, UserCog, Package, BarChart3, Warehouse, Layers, Truck, BrainCircuit } from 'lucide-react';
 import { dashboardApi } from '../api/client';
 import { DashboardStats } from '../types';
 import { formatCurrency } from '../utils/format';
@@ -19,12 +19,12 @@ const MSalesChart = lazy(() => import('./MSalesChart'));
  *  - «أفضل العملاء/المناديب» **أزرارٌ تنقل**، لا نصّاً ميتاً: تطبيق «بإجراءات
  *    كاملة» لا يليق به طريق مسدود.
  *  - أسفل الشاشة بلاطات أقسام الإدارة (المناديب · المنتجات · التقارير ·
- *    مخزون الشركة · تتبّع اللوط) — وهي
+ *    مخزون الشركة · الموردون · المحاسب الذكي · تتبّع اللوط) — وهي
  *    المدخل الوحيد إليها، إذ امتلأت مقاعد الشريط السفليّ الخمسة.
  *  - الاستطلاع مشروط بحياة الشاشة (بطارية وباقة).
  */
 /** أقسام الإدارة التي تُفتح من الرئيسية صفحاتٍ كاملة */
-export type HomeSection = 'reps' | 'products' | 'reports' | 'warehouse' | 'suppliers' | 'lots';
+export type HomeSection = 'reps' | 'products' | 'reports' | 'warehouse' | 'suppliers' | 'aiAccountant' | 'lots';
 
 const SECTION_TILES: { id: HomeSection; label: string; icon: React.ElementType }[] = [
   { id: 'reps', label: 'المناديب', icon: UserCog },
@@ -32,6 +32,8 @@ const SECTION_TILES: { id: HomeSection; label: string; icon: React.ElementType }
   { id: 'reports', label: 'التقارير', icon: BarChart3 },
   { id: 'warehouse', label: 'مخزون الشركة', icon: Warehouse },
   { id: 'suppliers', label: 'الموردون', icon: Truck },
+  // «المحاسب الذكي AI» في الخانة الفارغة بجانب «الموردون» (قرار المالك) — تسمح بها القوقعة بعَلَم الشركة وصلاحية التقارير
+  { id: 'aiAccountant', label: 'المحاسب الذكي', icon: BrainCircuit },
   // «تتبّع اللوط» — تظهر حين تسمح بها القوقعة وحدها (الصلاحية والمحاسبة وعلم الشركة)، والميزة المطفأة لا بلاطة لها
   { id: 'lots', label: 'تتبع LOT', icon: Layers },
 ];

@@ -9,6 +9,7 @@ import { NEWEST_FIRST, VISIT_BATCH_SIZE, VISIT_RAW_CEILING, olderThan, readNewes
 import { COLLECTED_CASH_SALE } from '../services/paymentMethodsReport';
 import { CASH_VOID_KEEP_COLLECTION_NOTE } from '../lib/ledgerNotes';
 import { MERGE_TOLERANCE_MS, mergeVisits, type MergedVisit, type VisitLike } from '../services/workDay';
+import { addDays, todayLocal } from '../services/gl/dates';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -251,6 +252,9 @@ const models: Record<string, Record<string, (a: Row) => unknown>> = {
     findMany: () => [],
   },
   tenant: { findUnique: () => ({ accountingEnabled: true }) },
+  // منطقة الشركة (companyDay): بلا منطقة دفاتر ⇒ بلد الشركة السعودية ⇒ الرياض
+  glSettings: { findUnique: () => null },
+  companySettings: { findUnique: () => ({ countryCode: 'SA' }) },
 };
 const db = new Proxy({}, {
   get: (_t, model: string) => {
@@ -548,15 +552,15 @@ test('الطلبات: الملخّص تجميعٌ على كل طلبات الم�
 
 // ═══ البند ٩: المبيعات بكل تجميعاتها ═══
 
-test('المبيعات: كل تجميعٍ وملخّصه يحمل meta.appliedRange — الافتراضيّ ٩٠ يوماً بأيام UTC، والصريح كما طُلب، والطرف الغائب null', async () => {
+test('المبيعات: كل تجميعٍ وملخّصه يحمل meta.appliedRange — الافتراضيّ ٩٠ يوماً بأيام الشركة تنتهي اليوم، والصريح كما طُلب، والطرف الغائب null', async () => {
   reset();
   INVOICES = []; // المدى وحده موضع الاختبار — التجميعات نفسها لها net-sales.test
   for (const groupBy of ['rep', 'customer', 'product', 'channel', 'region', 'team', undefined]) {
     const body = await run('/sales', groupBy ? { groupBy } : {});
-    const now = Date.now();
+    const today = todayLocal(new Date(), 'Asia/Riyadh');
     assert.equal(body.meta.appliedRange.defaulted, true, String(groupBy));
-    assert.equal(body.meta.appliedRange.to, null, 'النافذة الافتراضية بلا حدٍّ أعلى');
-    assert.equal(body.meta.appliedRange.from, new Date(now - 90 * 86_400_000).toISOString().slice(0, 10));
+    assert.equal(body.meta.appliedRange.to, today, 'النافذة الافتراضية تنتهي اليوم بأيام الشركة');
+    assert.equal(body.meta.appliedRange.from, addDays(today, -89), 'تسعون يوماً شاملةً اليوم');
   }
   const explicit = await run('/sales', { ...RANGE, groupBy: 'rep' });
   assert.deepEqual(explicit.meta, { appliedRange: { from: '2026-11-01', to: '2026-11-10', defaulted: false } });
@@ -564,6 +568,58 @@ test('المبيعات: كل تجميعٍ وملخّصه يحمل meta.appliedRa
   assert.deepEqual(oneSided.meta.appliedRange, { from: '2026-11-01', to: null, defaulted: false });
   const summary = await run('/sales', {});
   assert.equal(summary.data.summary.defaultRangeDays, 90, 'الحقل القائم باقٍ');
+});
+
+test('المبيعات والمرتجع بأيام الشركة لا UTC — حدودهما حدود تبويب الربح حرفاً، فيطابق الصافي على الفلتر نفسه', async () => {
+  reset();
+  const doc = (id: string, at: string, type = 'CASH', total = 115, taxAmt = 15) => inv({
+    id, number: id, type, total, taxAmt, salesRepId: 'r2', invoiceDate: D(at), createdAt: D(at), documentKind: null, notes: null,
+    returnReason: null, returnToStock: true, originalInvoice: null, team: null,
+    customer: { id: 'c1', name: 'بقالة', phone: '', city: null, channel: 'TT' }, salesRep: { id: 'r2', name: 'خالد' },
+  });
+  INVOICES = [
+    doc('in-start', '2026-10-31T22:30:00Z'), // ١ نوفمبر ٠١:٣٠ بتوقيت الرياض: داخل نوفمبر (كان خارجه بحدّ UTC)
+    doc('out-before', '2026-10-31T20:59:00Z'), // ٣١ أكتوبر ٢٣:٥٩ بتوقيت الرياض: خارج
+    doc('in-end', '2026-11-30T20:30:00Z'), // ٣٠ نوفمبر ٢٣:٣٠ بتوقيت الرياض: داخل
+    doc('out-after', '2026-11-30T22:00:00Z'), // ١ ديسمبر ٠١:٠٠ بتوقيت الرياض: خارج (كان داخله بحدّ UTC)
+    doc('ret-in', '2026-10-31T21:10:00Z', 'RETURN', 23, 3),
+  ];
+  const q = { from: '2026-11-01', to: '2026-11-30' };
+  const body = await run('/sales', q);
+  assert.deepEqual(body.data.invoices.map((i: Row) => i.id), ['in-start', 'in-end']);
+  assert.deepEqual([body.data.summary.total, body.data.summary.taxTotal, body.data.summary.returnsTotal], [230 - 23, 30 - 3, 23]);
+  const w = calls.find((c) => c.model === 'invoice' && c.op === 'findMany')!.args.where.invoiceDate;
+  // بعد تثبيت Prisma المزيّف (لا يُحمَّل عميلٌ حقيقي)
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { profitRange } = require('../services/reports/profitReport') as typeof import('../services/reports/profitReport');
+  const pr = profitRange(q.from, q.to, 'Asia/Riyadh');
+  assert.ok(pr.ok);
+  if (pr.ok) {
+    assert.equal(w.gte.toISOString(), pr.gte!.toISOString(), 'بداية المدى = بداية الربح');
+    assert.equal(w.lt.toISOString(), pr.lt.toISOString(), 'نهاية المدى = نهاية الربح');
+  }
+  assert.equal(w.gte.toISOString(), '2026-10-31T21:00:00.000Z');
+  // صافي الربح قبل الضريبة = total − taxTotal في تبويب المبيعات
+  assert.equal(body.data.summary.total - body.data.summary.taxTotal, 200 - 20);
+
+  const ret = await run('/returns', q);
+  assert.deepEqual(ret.data.returns.map((r: Row) => r.id), ['ret-in'], 'المرتجع بالأيام نفسها');
+  assert.deepEqual(ret.meta.appliedRange, { from: '2026-11-01', to: '2026-11-30', defaulted: false });
+  const rw = calls.filter((c) => c.model === 'invoice' && c.op === 'findMany').at(-1)!.args.where.invoiceDate;
+  assert.equal(rw.lt.toISOString(), '2026-11-30T21:00:00.000Z');
+
+  // اليوم الفاسد والمصفوفة و«من» بعد «إلى» ٤٠٠ بلا قراءة (كان new Date الفاسد يرمي ٥٠٠ من القاعدة)
+  for (const bad of [{ from: '2026-02-30' }, { from: ['2026-11-01'] }, { from: '2026-11-30', to: '2026-11-01' }, { to: '0001-01-01' }]) {
+    for (const route of ['/sales', '/returns']) {
+      calls = [];
+      let status = 200;
+      const layer = (reports as { stack: Row[] }).stack.find((l) => l.route?.path === route && l.route.methods.get)!;
+      const res = { status(c: number) { status = c; return this; }, json() { return this; } };
+      await layer.route.stack.slice(-1)[0].handle({ query: bad, params: {}, user: { id: 'a1', role: 'ADMIN', tenantId: 't1' } }, res, () => {});
+      assert.equal(status, 400, `${route} ${JSON.stringify(bad)}`);
+      assert.equal(calls.filter((c) => c.model === 'invoice').length, 0);
+    }
+  }
 });
 
 // ═══ حارس نصّي: لا سقفٌ صامت باقٍ في قراءات الزيارات ═══

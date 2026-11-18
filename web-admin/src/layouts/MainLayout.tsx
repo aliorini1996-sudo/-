@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import { PhoneCall, Fuel, LayoutDashboard, Users, Package, UserCheck, FileText, Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap, CreditCard, ClipboardCheck, Landmark, Sparkles, Wallet, MapPinned, Layers, Trash2, Archive, Handshake } from 'lucide-react';
+import { PhoneCall, Fuel, LayoutDashboard, Users, Package, UserCheck, FileText, Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap, CreditCard, ClipboardCheck, Landmark, Sparkles, Wallet, MapPinned, Layers, Trash2, Archive, Handshake, BrainCircuit } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -25,7 +25,8 @@ import { useLiveInvoiceUpdates } from '../lib/liveInvoices';
 // و«طرق الدفع» كذلك: أرقامها كلها من سندات القبض وفواتير البيع النقدي.
 // و«لوكيشن» كذلك: ما تختمه وتجمعه فواتيرُ وتحميلات سيارات — والخادم يردّها ACCOUNTING_NOT_ALLOWED قبل عَلَمها.
 // و«تتبّع اللوط» كذلك: أرصدة المستودع والسيارات وفواتير العملاء — وrequireLots يفحص المحاسبة قبل عَلَمه.
-const ACCOUNTING_PAGES = ['/app/products', '/app/van-stock', '/app/warehouse', '/app/suppliers', '/app/invoices', '/app/receipts', '/app/paylink', '/app/payment-methods', '/app/locations', '/app/lots'];
+// و«المحاسب الذكي» كذلك: تقاريره وقيوده كلها مالية — وrequireAiAccountant يفحص المحاسبة قبل عَلَمه.
+const ACCOUNTING_PAGES = ['/app/products', '/app/van-stock', '/app/warehouse', '/app/suppliers', '/app/invoices', '/app/receipts', '/app/paylink', '/app/payment-methods', '/app/locations', '/app/lots', '/app/ai-accountant'];
 
 const navItems = [
   { to: '/app', icon: LayoutDashboard, label: 'nav.dashboard', exact: true, permission: 'canAccessDashboard' },
@@ -50,6 +51,10 @@ const navItems = [
   { to: '/app/reports', icon: BarChart3, label: 'nav.reports', permission: 'canViewReports' },
   // الدفاتر: بلا permission عامّ (قاعدته `!== false` تحجب المالك) — يُفحص بـcanLedger في الفلتر
   { to: '/app/ledger', icon: Landmark, label: 'nav.ledger' },
+  // «المحاسب الذكي AI» تحت «الدفاتر» مباشرة (قرار المالك) بصلاحية التقارير: يظهر حين يفعّله المالك للشركة (aiAccountantEnabled === true)
+  // ولا يظهر للمقيَّد النطاق (إلا في جلسة المالك): الخادم يرفضه AI_ACCOUNTANT_SCOPED — أرقامه على مستوى الشركة كلها؛
+  // ومن الصفحات المحاسبية: requireAiAccountant يردّ ACCOUNTING_NOT_ALLOWED قبل عَلَمه
+  { to: '/app/ai-accountant', icon: BrainCircuit, label: 'nav.aiAccountant', permission: 'canViewReports' },
   { to: '/app/company-users', icon: UserCog, label: 'nav.companyUsers', permission: 'canManageCompanyUsers' },
   { to: '/app/erp', icon: DatabaseZap, label: 'nav.erp', permission: 'canManageCompanySettings' },
   // لا يظهر للمستخدم المقيَّد النطاق (إلا في جلسة المالك): إعداداته وتعلّمه تحتاج صلاحية غير مقيدة والخادم يرفضها
@@ -72,7 +77,7 @@ export default function MainLayout() {
   // ضبط عملة العرض من إعدادات دولة الشركة (تُطبَّق على كل شاشات لوحة الأدمن)
   const { data: companyCfg } = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; logo?: string | null; erpEnabled?: boolean; petroappEnabled?: boolean; hatifEnabled?: boolean; paylinkEnabled?: boolean; warehouseEnabled?: boolean; accountingEnabled?: boolean; dailyReportEnabled?: boolean; accountingSuiteEnabled?: boolean; ledgerRetentionActive?: boolean; aiRepEnabled?: boolean; apiEnabled?: boolean; locationsEnabled?: boolean; paymentMethodsEnabled?: boolean; lotTrackingEnabled?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; logo?: string | null; erpEnabled?: boolean; petroappEnabled?: boolean; hatifEnabled?: boolean; paylinkEnabled?: boolean; warehouseEnabled?: boolean; accountingEnabled?: boolean; dailyReportEnabled?: boolean; accountingSuiteEnabled?: boolean; ledgerRetentionActive?: boolean; aiRepEnabled?: boolean; apiEnabled?: boolean; locationsEnabled?: boolean; paymentMethodsEnabled?: boolean; lotTrackingEnabled?: boolean; aiAccountantEnabled?: boolean } | null,
     staleTime: 300_000,
   });
   useEffect(() => {
@@ -137,7 +142,7 @@ export default function MainLayout() {
 
         {/* Nav */}
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false) && (item.to !== '/app/petroapp' || companyCfg?.petroappEnabled === true) && (item.to !== '/app/ai-rep' || (companyCfg?.aiRepEnabled === true && (user?.scopeEnabled !== true || !!impersonating))) && (item.to !== '/app/hatif' || companyCfg?.hatifEnabled === true) && (item.to !== '/app/paylink' || companyCfg?.paylinkEnabled === true) && ((item.to !== '/app/warehouse' && item.to !== '/app/suppliers') || companyCfg?.warehouseEnabled === true) && (item.to !== '/app/lots' || companyCfg?.lotTrackingEnabled === true) && (item.to !== '/app/daily-reports' || companyCfg?.dailyReportEnabled === true) && (item.to !== '/app/payment-methods' || companyCfg?.paymentMethodsEnabled === true) && (item.to !== '/app/locations' || (companyCfg?.locationsEnabled === true && locationsPageAllowed(user, !!impersonating))) &&(!ACCOUNTING_PAGES.includes(item.to) || companyCfg?.accountingEnabled !== false) && (item.to !== '/app/ledger' || (((companyCfg?.accountingSuiteEnabled === true && companyCfg?.accountingEnabled !== false) || companyCfg?.ledgerRetentionActive === true) && canLedger(user, 'canViewLedger')))).map(item => (
+          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false) && (item.to !== '/app/petroapp' || companyCfg?.petroappEnabled === true) && (item.to !== '/app/ai-rep' || (companyCfg?.aiRepEnabled === true && (user?.scopeEnabled !== true || !!impersonating))) && (item.to !== '/app/ai-accountant' || (companyCfg?.aiAccountantEnabled === true && (user?.scopeEnabled !== true || !!impersonating))) && (item.to !== '/app/hatif' || companyCfg?.hatifEnabled === true) && (item.to !== '/app/paylink' || companyCfg?.paylinkEnabled === true) && ((item.to !== '/app/warehouse' && item.to !== '/app/suppliers') || companyCfg?.warehouseEnabled === true) && (item.to !== '/app/lots' || companyCfg?.lotTrackingEnabled === true) && (item.to !== '/app/daily-reports' || companyCfg?.dailyReportEnabled === true) && (item.to !== '/app/payment-methods' || companyCfg?.paymentMethodsEnabled === true) && (item.to !== '/app/locations' || (companyCfg?.locationsEnabled === true && locationsPageAllowed(user, !!impersonating))) &&(!ACCOUNTING_PAGES.includes(item.to) || companyCfg?.accountingEnabled !== false) && (item.to !== '/app/ledger' || (((companyCfg?.accountingSuiteEnabled === true && companyCfg?.accountingEnabled !== false) || companyCfg?.ledgerRetentionActive === true) && canLedger(user, 'canViewLedger')))).map(item => (
             <NavLink
               key={item.to}
               to={item.to}

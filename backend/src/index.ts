@@ -61,6 +61,7 @@ import apiKeysRouter from './routes/apiKeys';
 import apiV1Router from './routes/apiV1';
 import petroappRouter from './routes/petroapp';
 import aiRepRouter from './routes/aiRep';
+import aiAccountantRouter from './routes/aiAccountant';
 import { publicScanHealth } from './ai-rep/publicMaps';
 import workNumbersRouter, { telephonyWebhookRouter } from './routes/workNumbers';
 import publicCatalogRouter from './routes/publicCatalog';
@@ -92,6 +93,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter, bridgeLimiter } from './middleware/rateLimits';
 // «اشتراط تفعيل الموقع» — قفل العمل على عميل: لا يغيّر المندوب المقيَّد بياناً على عميل إلا ظاهراً على الخريطة الآن بموقعٍ دقيق
 import { requireRepLiveLocation } from './middleware/repLiveLocation';
+import { apiRejectLog } from './services/apiRejectLog';
 // ZATCA المرحلة الثانية (Z5.7): رمز رابط المشتري لا يُكتب في سطر morgan — يُقنَّع قبل التوجيه
 import { redactShareTokensInLogs } from './middleware/shareUrlPrivacy';
 
@@ -218,6 +220,8 @@ app.use('/api', apiLimiter);
 // تُصنَّف كل بادئةٍ جديدة تُركَّب هنا.
 app.use('/api', requireRepLiveLocation);
 
+// «سطر رفض مفتاح الربط» (١٦ نوفمبر ٢٠٢٦): كل 4xx لمفتاح API على مخزون السيارة والمستودع والأصناف سطرٌ واحد بلا جسم (services/apiRejectLog.ts)
+app.use(['/api/van-stock', '/api/warehouse', '/api/products'], apiRejectLog());
 app.use('/api/auth', authRouter);
 app.use('/api/customers', customersRouter);
 app.use('/api/products', productsRouter);
@@ -264,6 +268,7 @@ app.use('/api/api-keys', apiKeysRouter); // «الربط البرمجي API» �
 app.use('/api/v1', apiV1Router); // مزامنة «الربط البرمجي API» لمفاتيح الشركة (services/apiSync.ts)
 app.use('/api/petroapp', petroappRouter);
 app.use('/api/ai-rep', aiRepRouter); // المندوب الذكي AI — خامل حتى يفعّله المالك لكل شركة
+app.use('/api/ai-accountant', aiAccountantRouter); // «المحاسب الذكي AI» — لمدير الشركة غير المقيَّد؛ خامل حتى يفعّله المالك لكل شركة
 app.use('/api/work-numbers', workNumbersRouter);
 app.use('/api/public', publicCatalogRouter); // منيو المنتجات العام — بلا مصادقة، خلف محدد المعدل العام
 // ZATCA المرحلة الثانية (Z5.7) — رابط المشتري: `/api/public/einvoice/:token` بلا مصادقة، الرمز وحده هو الإذن

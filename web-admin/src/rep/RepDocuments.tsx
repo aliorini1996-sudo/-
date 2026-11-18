@@ -8,7 +8,7 @@ import { adjustTotals, receiveTotalQty, uncostedCount, isCosted, noticeRef, qtyB
 import { factorOf, formatQty, primaryUnitOf, roundQty, type UnitDef } from '../lib/units';
 import { stockRequestToLabel, stockRequestApproverLabel, stockRequestTotalQty, type StockRequestTo, type StockRequestLine } from '../lib/stockRequest';
 import { docLotsFrom, type DocLotLine } from '../lib/lots';
-import { docLotRows, invoiceLotsOf, lotCellText, lotLineText, noticeHasLots, warehouseLineLots } from './docLots';
+import { docLotRows, invoiceLotsOf, lotCellText, lotFlagNotes, lotLineText, noticeHasLots, warehouseLineLots } from './docLots';
 import { useTr } from '../i18n/strings';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
 import { buildZatcaQr, zatcaTimestamp } from './zatca';
@@ -2589,7 +2589,13 @@ function InvoiceLotsStrip({ doc }: { doc: InvoiceDoc }) {
       {rows.map(({ it, lots }, i) => (
         <div key={i} className={`py-1.5 ${i ? 'border-t border-[#F1EBDF]' : ''}`}>
           <p className="font-semibold text-[#6E6557]">{it.name}</p>
-          {lots.map((l, k) => <p key={k} className="text-[#1F1A13]">{lotLineText(l, { tr, unitFactor: it.unitFactor })}</p>)}
+          {/* وسوم الإكمال من تشغيلة أخرى وتقدير تشغيلة المرتجع (طلب المالك ١٦ نوفمبر ٢٠٢٦) — للإدارة هنا، لا على ورقة العميل */}
+          {lots.map((l, k) => (
+            <p key={k} className="text-[#1F1A13]">
+              {lotLineText(l, { tr, unitFactor: it.unitFactor })}
+              {l.flags?.length ? <span className="text-amber-700">{lotFlagNotes(l, tr)}</span> : null}
+            </p>
+          ))}
         </div>
       ))}
     </div>

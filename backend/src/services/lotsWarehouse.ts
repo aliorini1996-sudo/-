@@ -10,10 +10,10 @@ import type { LotDb, LotEventActor, LotTx } from './lotsDb';
 import { companyDay, loadLotMetas, lockLotProducts, placeViews, resolveOrCreateLot } from './lotsDb';
 import {
   LOT_EPS, LOT_UNKNOWN_KEY, LotError, aggregateRequest, isLotQty, lotDatesProblem, lotErr, lotRemovalsOf, normalizeLotNumber, pickOutFefoLines, pickOutSources,
-  refsOfByLot, removalKeepsLots, roundLot, splitAvailability,
+  refsOfByLot, removalKeepsLots, roundLot, splitAvailability, zeroBuckets,
   type LotActor, type LotMeta, type LotRef, type LotRemovalItem, type LotSource, type LotWarning, type PlaceLotView, type WarehouseEntryPlan, type WarehouseEntryPlanInput,
 } from './lots';
-import { lotOnUntrackedError } from './lotsVan';
+import { lenientTakeLines, lotOnUntrackedError } from './lotsVan';
 import { shelfLifeOf, type ShelfLifeSettings } from './shelfLife';
 import { baseQtyOf } from './units';
 
@@ -90,6 +90,14 @@ export interface WarehouseEntryPlanOptions {
   locked?: LotLocks | null;
   /** فاعل سجل التدقيق؛ الغائب ⇒ من actor وcreatedBy */
   eventActor?: LotEventActor | null;
+  /**
+   * «حركات مفتاح الربط لا تُرفض باللوط» (طلب المالك ١٦ نوفمبر ٢٠٢٦) — المسار يمرّره لمفتاح API وحده، وغيابه السلوك القائم حرفياً
+   * (الواجهة، والمرتجع والإلغاء في warehouseBills). رقمٌ أو معرّفٌ مجهول أو لصنفٍ آخر ⇒ سحبٌ تلقائي في النقص ورقمٌ تلقائي في الزيادة
+   * بتحذير LOT_NUMBER_UNKNOWN؛ والكسر الخامس يُقرَّب؛ وتشغيلةٌ أُنشئت LOT_CREATED؛ ونقص التشغيلة في الإنقاص: المفضَّلة ثم الأقرب
+   * انتهاءً ثم غير المسمّى، والزائد يُحصر بالمتاح (LOT_CLAMPED) حين `clamp` — لا يُحصر المرتجع المسعَّر (قيده بكميته المرسلة) فيبقى
+   * نقصه 409. ما تغيّرت كميته أو قُسّم يعود في splitByLine (صفوفٌ بالأساس مجموعها المطبَّق؛ [] ⇒ لا بند).
+   */
+  lenient?: { clamp: boolean } | null;
 }
 
 type PlanLine = WarehouseEntryPlanInput['lines'][number];
@@ -157,13 +165,31 @@ export async function planWarehouseEntryInTx(tx: LotTx, input: WarehouseEntryPla
 
   // D9 تحت القفل (كـplanVanMovementInTx): صنفٌ أُطفئ تتبّعه بين القراءة المسبقة والقفل وسطره يحمل تشغيلة ⇒ 422 لا سطرٌ بلا لوط
   // يُنقص الصنف ويُبقي رصيد التشغيلة (المسار يرفض ما رآه غير متتبَّع قبل المعاملة)
-  const stray = input.lines.find((l) => !tracked.has(l.productId) && warehouseLineCarriesLot(l));
-  if (stray) throw lotOnUntrackedError(stray.productName, stray.productId, stray.idx);
+  const lenient = input.lenient ?? null;
+  for (const s of input.lines.filter((l) => !tracked.has(l.productId) && warehouseLineCarriesLot(l))) {
+    // مفتاح الربط: تشغيلةٌ لصنفٍ غير متتبَّع تُهمل بتحذير (الصنف يتحرّك بلا لوط) لا رفض الحركة كلها
+    if (!lenient) throw lotOnUntrackedError(s.productName, s.productId, s.idx);
+    warnings.push({ code: 'LOT_NUMBER_UNKNOWN', productId: s.productId, detail: { idx: s.idx, reason: 'NOT_TRACKED', fallback: 'IGNORED' } });
+  }
 
   const ins: PlanLine[] = [];
   const outs: PlanLine[] = [];
-  for (const l of input.lines) {
+  /** مفتاح الربط: سطرٌ قُرّب كسره الخامس — يُكتب بكميته المقرَّبة بالأساس (splitByLine) */
+  const rounded = new Set<number>();
+  for (const l0 of input.lines) {
+    let l = l0;
     if (!tracked.has(l.productId)) { lotIdByLine.set(l.idx, null); continue; }
+    if (lenient && Number.isFinite(l.qty) && !isLotQty(Math.abs(l.qty))) {
+      const r = roundLot(Math.abs(l.qty));
+      warnings.push({ code: 'LOT_CLAMPED', productId: l.productId, detail: { idx: l.idx, reason: 'DECIMALS', requested: l.qty, applied: Math.sign(l.qty) * r } });
+      if (!(r > LOT_EPS)) { lotIdByLine.set(l.idx, null); splitByLine.set(l.idx, []); continue; }
+      l = { ...l, qty: Math.sign(l.qty) * r };
+      rounded.add(l.idx);
+    }
+    if (lenient && l.lotId === LOT_UNKNOWN_KEY) {
+      warnings.push({ code: 'LOT_NUMBER_UNKNOWN', productId: l.productId, detail: { idx: l.idx, lotId: l.lotId, reason: 'NOT_FOUND', fallback: l.qty < 0 ? 'FEFO' : 'AUTO_LOT' } });
+      l = { ...l, lotId: undefined };
+    }
     // الوارد لا ينقص، والمرتجع للمورّد (RETURN) لا يزيد: سطرٌ موجب فيه كان يُنشئ تشغيلةً أو يزيدها من «مرتجع»
     if (!Number.isFinite(l.qty) || !isLotQty(Math.abs(l.qty)) || (input.type === 'RECEIVE' && l.qty < 0) || (input.type === 'RETURN' && l.qty > 0)) {
       throw lotErr('LOT_QTY_INVALID', {}, { productId: l.productId, productName: l.productName, idx: l.idx, qty: l.qty, decimals: 4 });
@@ -172,6 +198,21 @@ export async function planWarehouseEntryInTx(tx: LotTx, input: WarehouseEntryPla
     // (مفتاحٌ أجنبي بلا صفّ ⇒ 500). غير المسمّى يُطلب بـnull الصريح وحده
     if (l.lotId === LOT_UNKNOWN_KEY) throw lotErr('LOT_NOT_FOUND', {}, { productId: l.productId, productName: l.productName, idx: l.idx, lotId: l.lotId });
     (l.qty > 0 ? ins : outs).push(l);
+  }
+  // مفتاح الربط: معرّف تشغيلةٍ لا تعرفه الشركة أو لصنفٍ آخر ⇒ يُترك (سحبٌ تلقائي في النقص، ورقمٌ تلقائي في الزيادة) بتحذير — داخل
+  // الشركة وحدها (loadLotMetas)، فمعرّف شركةٍ أخرى «غير موجود» ولا يُكشف
+  if (lenient) {
+    const ids = uniq([...ins, ...outs].map((l) => l.lotId).filter((x): x is string => typeof x === 'string' && x.length > 0));
+    const known = ids.length ? await loadLotMetas(tx, tid, { lotIds: ids }) : new Map<string, LotMeta>();
+    for (const list of [ins, outs]) {
+      list.forEach((l, k) => {
+        if (!(typeof l.lotId === 'string' && l.lotId)) return;
+        const m = known.get(l.lotId);
+        if (m && m.productId === l.productId) return;
+        warnings.push({ code: 'LOT_NUMBER_UNKNOWN', productId: l.productId, detail: { idx: l.idx, lotId: l.lotId, reason: m ? 'PRODUCT_MISMATCH' : 'NOT_FOUND', fallback: l.qty < 0 ? 'FEFO' : 'AUTO_LOT' } });
+        list[k] = { ...l, lotId: undefined };
+      });
+    }
   }
 
   // ── النقص: التسوية السالبة من عرض المستودع تحت القفل (I1، I2) ──
@@ -194,6 +235,11 @@ export async function planWarehouseEntryInTx(tx: LotTx, input: WarehouseEntryPla
       else if (!blank(l.lotNumber)) {
         const num = normalizeLotNumber(l.lotNumber);
         const id = num ? found.get(`${l.productId}|${num}`) : undefined;
+        if (!id && lenient) {
+          // مفتاح الربط: رقمٌ لا تعرفه الشركة (رقم Odoo لتشغيلةٍ رقّمها فيلد تلقائياً) ⇒ سحبٌ تلقائي بالأقرب انتهاءً بتحذير
+          warnings.push({ code: 'LOT_NUMBER_UNKNOWN', productId: l.productId, detail: { idx: l.idx, lotNumber: num ?? String(l.lotNumber), reason: 'NOT_FOUND', fallback: 'FEFO' } });
+          continue;
+        }
         if (!id) throw lotErr('LOT_NOT_FOUND', {}, { productId: l.productId, productName: l.productName, idx: l.idx, lotNumber: num ?? l.lotNumber });
         refOf.set(l.idx, { lotId: id, qty: q });
       } else if (l.lotId === null) {
@@ -206,11 +252,9 @@ export async function planWarehouseEntryInTx(tx: LotTx, input: WarehouseEntryPla
     const explicitIds = uniq([...refOf.values()].map((r) => r.lotId).filter((x): x is string => x != null));
     const lookup: ReadonlyMap<string, LotMeta> | null = explicitIds.length ? await loadLotMetas(tx, tid, { lotIds: explicitIds }) : null;
     const groups = aggregateRequest(outs.map((l) => ({ idx: l.idx, productId: l.productId, qty: Math.abs(l.qty), refs: refOf.has(l.idx) ? [refOf.get(l.idx)!] : null })));
-    for (const [pid, g] of groups) {
-      const view = views.warehouse.get(pid);
-      const lines = outs.filter((l) => l.productId === pid);
-      const name = lines[0]?.productName ?? '';
-      if (!view) throw lotErr('LOT_STOCK_INSUFFICIENT', { name, place: 'المستودع', available: 0 }, { productId: pid, wanted: g.qty });
+    /** المسار الصارم لصنفٍ واحد (كما كان حرفياً): الصريح مجمَّعاً، ثم التلقائي مما بقي، ثم الفحص المجمَّع (D26) — أي نقصٍ LotError */
+    const strictGroup = (view: PlaceLotView, g: { qty: number; byLot: Map<string, number> }, lines: PlanLine[], name: string): void => {
+      const pid = view.productId;
       // الأسطر بلا لوط: سحبٌ تلقائي **مما بقي بعد صريح الصنف** (كـpickPlan في السيارة) بالأقرب انتهاءً أولاً ثم غير المسمّى
       // (pickOutFefoLines، طلب المالك ١ نوفمبر ٢٠٢٦ بدل LOT_REQUIRED لأكثر من مصدر). الصريح يُفحص مجمَّعاً أولاً ثم يُطرح من العرض،
       // وسطرٌ سُحب من أكثر من تشغيلة يُكتب بنداً لكلٍّ (splitByLine)
@@ -239,7 +283,48 @@ export async function planWarehouseEntryInTx(tx: LotTx, input: WarehouseEntryPla
       // الطلب مجمَّعاً على كل (لوط أو غير المسمّى) قبل المقارنة (D26): سطران على لوطٍ واحد يُفحصان معاً لا كلٌّ وحده
       const all = pickOutSources(view, 'SELLABLE', g.qty, refsOfByLot(g.byLot), lookup);
       if (!all.ok) throw named(all.error, name);
+    };
+    for (const [pid, g] of groups) {
+      const lines = outs.filter((l) => l.productId === pid);
+      const name = lines[0]?.productName ?? '';
+      const view0 = views.warehouse.get(pid);
+      if (lenient) {
+        // مفتاح الربط: المسار الصارم أولاً بحالته كلها (الكرتون وD26)؛ فإن رفض بخطأ لوط ⇒ تُستعاد حالة أسطر الصنف ويُسحب بالتسامح
+        const snapRef = new Map(lines.map((l) => [l.idx, refOf.get(l.idx)]));
+        const snapSplit = new Map(lines.map((l) => [l.idx, splitByLine.get(l.idx)]));
+        const wlen = warnings.length;
+        try {
+          if (!view0) throw lotErr('LOT_STOCK_INSUFFICIENT', { name, place: 'المستودع', available: 0 }, { productId: pid, wanted: g.qty });
+          strictGroup(view0, g, lines, name);
+          continue;
+        } catch (e) {
+          if (!(e instanceof LotError)) throw e;
+          for (const l of lines) {
+            const r = snapRef.get(l.idx);
+            if (r) refOf.set(l.idx, r); else refOf.delete(l.idx);
+            const s = snapSplit.get(l.idx);
+            if (s) splitByLine.set(l.idx, s); else splitByLine.delete(l.idx);
+          }
+          warnings.splice(wlen);
+          const view: PlaceLotView = view0 ?? { productId: pid, place: 'WAREHOUSE', vanKey: null, total: zeroBuckets(), lots: [], unknown: zeroBuckets(), unknownUsable: zeroBuckets(), deficits: [], firstInAt: new Map(), approximate: false };
+          const got = lenientTakeLines(view, 'SELLABLE', lines.map((l) => ({ idx: l.idx, qty: Math.abs(l.qty), prefs: refOf.has(l.idx) ? [refOf.get(l.idx)!] : null })));
+          // المرتجع المسعَّر لا يُحصر: قيده بكميته المرسلة — نقصه 409 كما كان
+          if (!lenient.clamp && lines.some((l) => (got.applied.get(l.idx) ?? 0) < Math.abs(l.qty) - LOT_EPS)) throw e;
+          warnings.push(...got.warnings);
+          for (const l of lines) {
+            const rows = got.lines.get(l.idx) ?? [];
+            const applied = got.applied.get(l.idx) ?? 0;
+            if (rows.length === 1 && Math.abs(applied - Math.abs(l.qty)) <= LOT_EPS) { refOf.set(l.idx, { lotId: rows[0].lotId, qty: applied }); splitByLine.delete(l.idx); }
+            else { refOf.delete(l.idx); splitByLine.set(l.idx, rows.map((r) => ({ lotId: r.lotId, qty: r.qty }))); }
+          }
+          continue;
+        }
+      }
+      if (!view0) throw lotErr('LOT_STOCK_INSUFFICIENT', { name, place: 'المستودع', available: 0 }, { productId: pid, wanted: g.qty });
+      strictGroup(view0, g, lines, name);
     }
+    // كسرٌ قُرّب (مفتاح الربط): بندٌ بالأساس بكميته المقرَّبة — صفّه الوحيد في splitByLine إن لم يُقسَم
+    for (const l of outs) if (rounded.has(l.idx) && !splitByLine.has(l.idx)) splitByLine.set(l.idx, [{ lotId: refOf.get(l.idx)?.lotId ?? null, qty: Math.abs(l.qty) }]);
     for (const l of outs) lotIdByLine.set(l.idx, splitByLine.has(l.idx) ? null : refOf.get(l.idx)?.lotId ?? null);
   }
 
@@ -250,7 +335,11 @@ export async function planWarehouseEntryInTx(tx: LotTx, input: WarehouseEntryPla
     if (!hasId && !hasNumber) {
       // التسوية بالزيادة تقبل غير المسمّى صراحةً (null)؛ وغيرها بلا رقم ⇒ لوطٌ جديد برقمٍ تلقائي LOT… في resolveOrCreateLot
       // (طلب المالك ١١ نوفمبر ٢٠٢٦ — بدل LOT_REQUIRED)
-      if (input.type === 'ADJUST' && l.lotId === null && input.allowUnknown) { lotIdByLine.set(l.idx, null); continue; }
+      if (input.type === 'ADJUST' && l.lotId === null && input.allowUnknown) {
+        lotIdByLine.set(l.idx, null);
+        if (rounded.has(l.idx)) splitByLine.set(l.idx, [{ lotId: null, qty: Math.abs(l.qty) }]);
+        continue;
+      }
     }
     const production = blank(l.productionDate) ? null : String(l.productionDate);
     const expiry = blank(l.expiryDate) ? null : String(l.expiryDate);
@@ -268,7 +357,10 @@ export async function planWarehouseEntryInTx(tx: LotTx, input: WarehouseEntryPla
     if (r.meta.status !== 'ACTIVE') {
       warnings.push({ code: 'LOT_INTO_BLOCKED', productId: l.productId, detail: { idx: l.idx, lotId: r.meta.id, lotNumber: r.meta.lotNumber, blockKind: r.meta.blockKind } });
     }
+    // مفتاح الربط: تشغيلةٌ لم تعرفها الشركة أُنشئت من حركته — تحذيرٌ يقول ذلك (رقم Odoo الجديد، أو رقمٌ تلقائي LOT…)
+    if (lenient && r.created) warnings.push({ code: 'LOT_CREATED', productId: l.productId, detail: { idx: l.idx, lotId: r.meta.id, lotNumber: r.meta.lotNumber } });
     lotIdByLine.set(l.idx, r.meta.id);
+    if (rounded.has(l.idx)) splitByLine.set(l.idx, [{ lotId: r.meta.id, qty: Math.abs(l.qty) }]);
   }
 
   return { tracked, lotIdByLine, warnings, ...(splitByLine.size > 0 && { splitByLine }) };

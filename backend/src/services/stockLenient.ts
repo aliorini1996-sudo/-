@@ -6,8 +6,13 @@
 // وصنفٌ ليس في الشركة لا يُرفض ولا يُترك: يُنشأ صنفٌ مؤقّت بمعرّفه نفسه (placeholderProducts) ما لم يكن المعرّف لشركةٍ أخرى.
 //
 // ما **لا** يتساهل فيه هذا الملف ولا مستدعوه (يمنع فساد الكمية الصامت): حارس وحدة الأساس للصنف المحوَّل (BASE_UNIT_REQUIRED
-// وstaleClientBase)، وسباق PRODUCT_UNITS_CHANGED، ونقص رصيد التشغيلة في الإنقاص، وعزل الشركة والصلاحيات، ومنع التكرار clientRef.
+// وstaleClientBase)، وسباق PRODUCT_UNITS_CHANGED، وعزل الشركة والصلاحيات، ومنع التكرار clientRef.
 // ولا يضرب كميةً بمعاملٍ مخمَّن: وحدةٌ غير صالحة تُقرأ أساساً **فقط** حين لا خطر تحويل، وإلا يُترك سطرها بتحذير.
+//
+// التشغيلات (طلب المالك ١٦ نوفمبر ٢٠٢٦ — «تصفير مخزون السيارة في Odoo يبقى في فيلد كمية LOT»): لمفتاح الربط وحده صار نقص رصيد
+// التشغيلة في الإنقاص **حصراً بالمتاح** بتحذير LOT_CLAMPED لا رفضاً (services/lotsVan.ts lenientTakeLines، ومثلها المستودع)، ورقمٌ لا
+// تعرفه الشركة سحبٌ تلقائي (LOT_NUMBER_UNKNOWN) أو إنشاءٌ في الزيادة (LOT_CREATED)، وتشغيلةٌ لصنفٍ غير متتبَّع تُهمل (LOT_IGNORED).
+// ولا سالب أبداً: لا تشغيلة دون الصفر (I1) ولا غير المسمّى دون min(0، قبله) (I2). والواجهة و/m وتطبيق المندوب كما كانت حرفياً.
 // ============================================================================
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
@@ -28,6 +33,29 @@ export interface StockWarning {
 /** كل الأسطر صفرية: لا حركة ولا رفض */
 export const noQuantitiesWarning = (): StockWarning => ({
   code: 'NO_QUANTITIES', message: 'لا توجد كميات صالحة — كل الأسطر بكمية صفر فلم تُسجَّل حركة',
+});
+
+/**
+ * مفتاح الربط وحده: سطرٌ بكمية صفر بين أسطرٍ غير صفرية كان يُترك بصمت — تحذيرٌ لكل سطرٍ بموضعه. الصفر في الحركة بالفرق «لا شيء»؛
+ * والكمية المعدودة (والصفر منها) تُرسل بـmode: 'COUNT'. كل الأسطر صفرية ⇒ NO_QUANTITIES وحده كما كان (لا شيء هنا)
+ */
+export function zeroQtyIgnoredWarnings(items: readonly { qty: number; productId?: string }[]): StockWarning[] {
+  if (!items.some((i) => i.qty !== 0)) return [];
+  return items.flatMap((i, at) => (i.qty === 0 ? [{
+    code: 'ZERO_QTY_IGNORED', index: at, ...(i.productId && { productId: i.productId }),
+    message: `كمية السطر ${at + 1} صفر فلم يُسجَّل — لإرسال الكمية المعدودة (ومنها الصفر) استعمل mode: "COUNT"`,
+  }] : []));
+}
+
+/** مفتاح الربط: تشغيلةٌ لصنفٍ غير متتبَّع تُهمل ويتحرّك الصنف بكميته (كان 422 للمستند كله) */
+export const lotIgnoredWarning = (at: number, productId: string, name: string): StockWarning => ({
+  code: 'LOT_IGNORED', index: at, productId,
+  message: `الصنف${name ? ` «${name}»` : ''} غير متتبَّع بالتشغيلات — أُهملت بيانات التشغيلة في السطر ${at + 1}`,
+});
+
+/** الجرد يطابق رصيد السيارة: لا شيء يُكتب — إعادة الجرد نفسه آمنة (متكرّرٌ بالبناء) */
+export const countMatchesWarning = (): StockWarning => ({
+  code: 'COUNT_MATCHES', message: 'رصيد السيارة يطابق الجرد — لم تُسجَّل حركة',
 });
 
 /**

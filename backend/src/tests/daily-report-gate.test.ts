@@ -262,8 +262,16 @@ test('لا ثالث للجدولين المُشيرَين إلى Admin بلا FK
   /* القاعدة لا تحرس هذين العمودين، فحذفُ مستخدمٍ يترك صفّاً باسم رجلٍ لا حساب
    * له. والحصر هنا هو الحارس الحقيقيّ: جدولٌ ثالث يُضاف بعمود `adminId` بلا
    * علاقة يُسقِط هذا الاختبار، فيُقرَّر له تنظيفٌ بدل أن يُكتشف بعد شهر. */
-  const orphanTables = [...sch.matchAll(/model (\w+) \{([\s\S]*?)\n\}/g)]
-    .filter(([, , body]) => /\n\s*adminId\s+String/.test(body) && !/@relation\(fields: \[adminId\]/.test(body))
+  /* سجلّاتٌ تاريخية تبقى بعد حذف المستخدم **عمداً** وتحمل اسمه لقطةً (adminName) — كالقيد الذي يبقى بمُرحِّله:
+   * «قيود المحاسب الذكي» (AiAccountantPost، ١٨ نوفمبر ٢٠٢٦) سجلُّ من طلب كل قيد، فلا يُحذف مع حسابه. قرارٌ مسجَّل لا نسيان. */
+  const KEEP_HISTORY = new Set(['AiAccountantPost']);
+  const models = [...sch.matchAll(/model (\w+) \{([\s\S]*?)\n\}/g)];
+  for (const name of KEEP_HISTORY) {
+    const m = models.find(([, n]) => n === name);
+    assert.ok(m && /\n\s*adminName\s+String\?/.test(m[2]), `${name}: السجلّ الباقي يحمل اسم المستخدم لقطةً`);
+  }
+  const orphanTables = models
+    .filter(([, name, body]) => !KEEP_HISTORY.has(name) && /\n\s*adminId\s+String/.test(body) && !/@relation\(fields: \[adminId\]/.test(body))
     .map(([, name]) => name)
     .sort();
   assert.deepEqual(orphanTables, ['DailyReportDigestViewer', 'DailyReportLevelOwner'],
