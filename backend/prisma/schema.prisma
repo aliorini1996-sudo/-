@@ -2900,10 +2900,35 @@ model SalesContact {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// سجلّ الملاحظات كملاحظات الشركات في لوحة المالك (طلب المالك ١٦ نوفمبر ٢٠٢٦) — note أعلاه ملاحظة قديمة مفردة تبقى للعرض
+  notes     SalesContactNote[]
+  /// «مسؤول الصفقة» (طلب المالك ١٧ نوفمبر ٢٠٢٦): أول موظف منصة غيّر الحالة أو كتب ملاحظة — يُثبَّت مرة واحدة، والمالك لا يُسنَد
+  ownerStaffId String?
+  ownerName    String?
+  ownerAt      DateTime?
+
   @@unique([channel, sourceRef])
   @@index([lastAt])
   @@index([stage])
   @@map("sales_contacts")
+}
+
+/// ملاحظات «إدارة المبيعات» لكل جهة تواصل — بالكاتب والوقت، وسطرٌ آلي (STAGE) عند تغيير الحالة؛ تُحذف مع جهة التواصل
+model SalesContactNote {
+  id         String       @id @default(uuid())
+  contactId  String
+  contact    SalesContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  /// NOTE ملاحظة مكتوبة، STAGE سطرٌ آلي عند تغيير الحالة
+  kind       String       @default("NOTE")
+  body       String
+  /// OWNER أو STAFF — ومعرّفه واسمه وقت الكتابة
+  authorKind String
+  authorId   String
+  authorName String
+  createdAt  DateTime     @default(now())
+
+  @@index([contactId, createdAt])
+  @@map("sales_contact_notes")
 }
 
 // سجلّ رسائل واتساب (صادر/وارد) — يغذّي الحدّ اليومي وتتبّع التسليم/القراءة ومطابقة الردود.

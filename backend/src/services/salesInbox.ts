@@ -387,19 +387,60 @@ export interface SalesRow {
   id: string; channel: string; name: string | null; company: string | null; phone: string | null; email: string | null;
   country: string | null; message: string | null; origin: string | null; tenantId: string | null; stage: string;
   note: string | null; firstAt: string; lastAt: string;
+  /** عدد الملاحظات (السجلّ + الملاحظة القديمة المفردة إن وُجدت) — لعدّاد الأيقونة */
+  notesCount: number;
+  /** آخر ملاحظة مكتوبة (لا سطور الحالة الآلية) لتُقرأ في القائمة — أو الملاحظة القديمة المفردة بلا كاتب */
+  lastNote: { body: string; authorName: string | null; createdAt: string | null } | null;
+  /** مسؤول الصفقة: أول موظف غيّر الحالة أو كتب ملاحظة */
+  owner: { name: string; at: string | null } | null;
 }
 
 export function toSalesRow(r: {
   id: string; channel: string; name: string | null; company: string | null; phone: string | null; email: string | null;
   country: string | null; message: string | null; origin: string | null; tenantId: string | null; stage: string;
-  note: string | null; firstAt: Date; lastAt: Date;
-}): SalesRow {
+  note: string | null; firstAt: Date; lastAt: Date; ownerName?: string | null; ownerAt?: Date | null;
+}, logged = 0, last: LastNote | null = null): SalesRow {
   return {
     id: r.id, channel: r.channel, name: r.name ?? null, company: r.company ?? null, phone: r.phone ?? null,
     email: r.email ?? null, country: r.country ?? null, message: r.message ?? null, origin: r.origin ?? null,
     tenantId: r.tenantId ?? null, stage: r.stage, note: r.note ?? null,
     firstAt: new Date(r.firstAt).toISOString(), lastAt: new Date(r.lastAt).toISOString(),
+    notesCount: logged + (r.note && r.note.trim() ? 1 : 0),
+    lastNote: last
+      ? { body: last.body, authorName: last.authorName, createdAt: new Date(last.createdAt).toISOString() }
+      : r.note && r.note.trim() ? { body: r.note, authorName: null, createdAt: null } : null,
+    owner: r.ownerName ? { name: r.ownerName, at: r.ownerAt ? new Date(r.ownerAt).toISOString() : null } : null,
   };
+}
+
+/**
+ * يُسنِد الصفقة لأول موظف منصة يعمل عليها (حالة أو ملاحظة) — مرة واحدة: الشرط ownerStaffId = null في التحديث نفسه فلا يسبق
+ * موظفٌ آخر في الوقت ذاته. المالك لا يُسنَد (يرى ويوجّه)، فالصفقة تبقى بلا مسؤول حتى يعمل عليها موظف.
+ */
+async function claimSalesOwner(db: Db, id: string, author: SalesNoteAuthor | undefined): Promise<void> {
+  if (!author || author.authorKind !== 'STAFF') return;
+  await db.salesContact.updateMany({ where: { id, ownerStaffId: null }, data: { ownerStaffId: author.authorId, ownerName: author.authorName, ownerAt: new Date() } });
+}
+
+type LastNote = { contactId: string; body: string; authorName: string; createdAt: Date };
+
+/** آخر ملاحظة مكتوبة لكل جهة تواصل في الصفحة — استعلامٌ واحد (distinct) لا استعلام لكل صفّ */
+async function lastNotesOf(db: Db, ids: string[]): Promise<Map<string, LastNote>> {
+  if (!ids.length) return new Map();
+  const rows = await db.salesContactNote.findMany({
+    where: { contactId: { in: ids }, kind: 'NOTE' },
+    orderBy: [{ contactId: 'asc' }, { createdAt: 'desc' }],
+    distinct: ['contactId'],
+    select: { contactId: true, body: true, authorName: true, createdAt: true },
+  });
+  return new Map(rows.map((r) => [r.contactId, r]));
+}
+
+/** عدد ملاحظات السجلّ لكل جهة تواصل — تجميعٌ واحد للصفحة (لا استعلام لكل صفّ) */
+async function notesCountOf(db: Db, ids: string[]): Promise<Map<string, number>> {
+  if (!ids.length) return new Map();
+  const g = await db.salesContactNote.groupBy({ by: ['contactId'], where: { contactId: { in: ids } }, _count: { _all: true } });
+  return new Map(g.map((x) => [x.contactId, x._count._all]));
 }
 
 /** الصفوف بالأحدث تواصلاً، والعدّادات على كل ما يراه الطالب لا على الصفحة المرشَّحة وحدها */
@@ -418,7 +459,9 @@ export async function listSalesInbox(p: SalesListParams, includeWhatsapp: boolea
   for (const g of byChannel) channels[g.channel] = g._count._all;
   const stages: Record<string, number> = Object.fromEntries(SALES_STAGES.map((s) => [s, 0]));
   for (const g of byStage) stages[g.stage] = g._count._all;
-  return { rows: rows.map(toSalesRow), total, counts: { byChannel: channels, byStage: stages } };
+  const ids = rows.map((r) => r.id);
+  const [logged, last] = await Promise.all([notesCountOf(db, ids), lastNotesOf(db, ids)]);
+  return { rows: rows.map((r) => toSalesRow(r, logged.get(r.id) ?? 0, last.get(r.id) ?? null)), total, counts: { byChannel: channels, byStage: stages } };
 }
 
 /** تعديل المرحلة والملاحظة وحدهما — الملاحظة الفارغة تُمسح (null) */
@@ -430,12 +473,57 @@ export const salesUpdateSchema = z.object({
 export type SalesUpdate = z.infer<typeof salesUpdateSchema>;
 
 /** null = غير موجود لهذا الطالب (صفّ واتساب لمن لا يملك محادثات البوت كأنه غير موجود ⇒ ٤٠٤) */
-export async function updateSalesContact(id: string, body: SalesUpdate, includeWhatsapp: boolean, db: Db = prisma): Promise<SalesRow | null> {
+export async function updateSalesContact(
+  id: string, body: SalesUpdate, includeWhatsapp: boolean, db: Db = prisma, author?: SalesNoteAuthor,
+): Promise<SalesRow | null> {
   const cur = await db.salesContact.findUnique({ where: { id } });
   if (!cur || (!includeWhatsapp && cur.channel === 'WHATSAPP')) return null;
   const data: { stage?: string; note?: string | null } = {};
   if (body.stage !== undefined) data.stage = body.stage;
   if (body.note !== undefined) data.note = body.note;
-  if (!Object.keys(data).length) return toSalesRow(cur);
-  return toSalesRow(await db.salesContact.update({ where: { id }, data }));
+  const logged = async () => (await notesCountOf(db, [id])).get(id) ?? 0;
+  const last = async () => (await lastNotesOf(db, [id])).get(id) ?? null;
+  if (!Object.keys(data).length) return toSalesRow(cur, await logged(), await last());
+  await claimSalesOwner(db, id, author);
+  const row = await db.salesContact.update({ where: { id }, data });
+  // تغيير الحالة فعلاً ⇒ سطرٌ في سجلّ الملاحظات بالاسم والوقت (كحالة الصفقة في لوحة المالك)
+  if (author && body.stage !== undefined && body.stage !== cur.stage) {
+    await db.salesContactNote.create({ data: { contactId: id, kind: 'STAGE', body: `غيّر الحالة إلى «${SALES_STAGE_LABELS[body.stage]}»`, ...author } });
+  }
+  return toSalesRow(row, await logged(), await last());
+}
+
+// ═══ سجلّ الملاحظات ═══
+
+export const SALES_STAGE_LABELS: Record<SalesStage, string> = {
+  NEW: 'جديد', CONTACTED: 'تم التواصل', MEETING: 'تم الاجتماع', NEGOTIATION: 'المفاوضة', WON: 'مشتري', LOST: 'تم خسارة العميل', NOT_FIT: 'غير مناسب',
+};
+
+export interface SalesNoteAuthor { authorKind: 'OWNER' | 'STAFF'; authorId: string; authorName: string }
+export const salesNoteBodySchema = z.object({ body: z.string().trim().min(1, 'اكتب الملاحظة').max(5000, 'الملاحظة أطول من ٥٠٠٠ حرف') });
+const noteSelect = { id: true, kind: true, body: true, authorKind: true, authorName: true, createdAt: true } as const;
+
+/** جهة التواصل كما يراها الطالب (صفّ واتساب لمن لا يملك محادثات البوت كأنه غير موجود) */
+async function visibleContact(db: Db, id: string, includeWhatsapp: boolean) {
+  const c = await db.salesContact.findUnique({ where: { id }, select: { id: true, channel: true, note: true } });
+  return !c || (!includeWhatsapp && c.channel === 'WHATSAPP') ? null : c;
+}
+
+/** السجلّ الأحدث أولاً، والملاحظة القديمة المفردة (إن وُجدت) منفصلة للعرض */
+export async function listSalesNotes(id: string, includeWhatsapp: boolean, db: Db = prisma) {
+  const c = await visibleContact(db, id, includeWhatsapp);
+  if (!c) return null;
+  const notes = await db.salesContactNote.findMany({ where: { contactId: id }, orderBy: { createdAt: 'desc' }, take: 500, select: noteSelect });
+  return { notes, legacyNote: c.note && c.note.trim() ? c.note : null };
+}
+
+export async function addSalesNote(id: string, body: string, author: SalesNoteAuthor, includeWhatsapp: boolean, db: Db = prisma) {
+  if (!(await visibleContact(db, id, includeWhatsapp))) return null;
+  await claimSalesOwner(db, id, author);
+  return db.salesContactNote.create({ data: { contactId: id, kind: 'NOTE', body, ...author }, select: noteSelect });
+}
+
+export async function removeSalesNote(id: string, noteId: string, includeWhatsapp: boolean, db: Db = prisma): Promise<boolean> {
+  if (!(await visibleContact(db, id, includeWhatsapp))) return false;
+  return (await db.salesContactNote.deleteMany({ where: { id: noteId, contactId: id } })).count > 0;
 }

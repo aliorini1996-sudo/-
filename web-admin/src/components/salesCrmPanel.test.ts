@@ -77,18 +77,18 @@ test('SalesCrmPanel: شاشة كاملة كالعملاء المحتملين، �
   assert.match(panel, /c\.value !== 'WHATSAPP' \|\| data\?\.whatsapp\.included !== false/);
   // الأعمدة السبعة بالترتيب
   const heads = [...panel.matchAll(/<th[^>]*>\{tr\('([^']+)'\)\}<\/th>/g)].map((m) => m[1]);
-  assert.deepEqual(heads, ['العميل', 'الجوال', 'البريد', 'من أين أتى', 'التاريخ', 'الحالة', 'ملاحظة']);
+  assert.deepEqual(heads, ['العميل', 'الجوال', 'البريد', 'من أين أتى', 'التاريخ', 'الحالة', 'مسؤول الصفقة', 'الملاحظات']);
   // الروابط: tel: وwa.me وmailto: من الأدوات الصرفة
   assert.match(panel, /telHref\(row\.phone\)/);
   assert.match(panel, /const wa = waHrefForRow\(row\);/);
   assert.doesNotMatch(panel, /dialOf\(row\.country\)/, 'الدولة نصّاً في نموذج الاشتراك لا رمزاً');
   assert.match(panel, /mailHref\(row\.email\)/);
   assert.match(panel, /target="_blank" rel="noopener noreferrer"/);
-  // الحالة تُحفظ عند الاختيار، والملاحظة عند مغادرة الحقل — كلتاهما PUT
+  // الحالة تُحفظ عند الاختيار (PUT)، والملاحظات سجلٌّ بأيقونة وعدّاد كملاحظات الشركات (SalesNotesModal، ١٦ نوفمبر)
   assert.match(panel, /mutationFn: \(body: SalesUpdate\) => salesApi\.update\(row\.id, body\)/);
   assert.match(panel, /onChange=\{\(e\) => m\.mutate\(\{ stage: e\.target\.value as SalesUpdate\['stage'\] \}\)\}/);
-  assert.match(panel, /onBlur=\{commit\}/);
-  assert.match(panel, /maxLength=\{SALES_NOTE_MAX\}/);
+  assert.match(panel, /<SalesNotesButton row=\{row\} onClick=\{\(\) => setNotesOpen\(true\)\} \/>/);
+  assert.match(panel, /<SalesNotesModal row=\{row\} onClose=\{\(\) => setNotesOpen\(false\)\} \/>/);
   // الصفّ المحفوظ يُكتب في الذاكرة قبل التحديث — فلا ترجع الحالة القديمة حتى تعود المزامنة
   const success = panel.match(/onSuccess: \(res\) => \{([\s\S]*?)\n {4}\},/);
   assert.ok(success, 'onSuccess لا يستلم ردّ الحفظ');
