@@ -641,6 +641,23 @@ const DICT = {
     zh: '逐步讲解管理后台的教学视频——在第一次向客户演示前先看一遍。',
   },
   'guide.videos.cta': { ar: 'صفحة الفيديوهات التعليمية', en: 'Tutorial videos page', fr: 'Page des vidéos tutoriels', tr: 'Eğitim videoları sayfası', zh: '教学视频页面' },
+  // ── «حقيبة السفير الجاهزة» (طلب المالك ١٩ نوفمبر ٢٠٢٦) — المحتوى في public/ambassador-kit/kit.json ──
+  'kit.title': { ar: 'حقيبة السفير الجاهزة', en: 'Ready-made ambassador kit', fr: 'Kit prêt de l’ambassadeur', tr: 'Hazır elçi kiti', zh: '大使现成素材包' },
+  'kit.intro': {
+    ar: 'صور ومنشورات ورسائل من فيلد سيلز جاهزة للنشر — رابطك يُضاف تلقائياً إلى كل نصٍّ تنسخه أو تشاركه.',
+    en: 'Images, posts and messages from FieldSales, ready to publish — your link is added automatically to every text you copy or share.',
+    fr: 'Images, publications et messages de FieldSales prêts à publier — votre lien est ajouté automatiquement à chaque texte copié ou partagé.',
+    tr: 'FieldSales’ten yayına hazır görseller, gönderiler ve mesajlar — kopyaladığınız veya paylaştığınız her metne bağlantınız otomatik eklenir.',
+    zh: '来自 FieldSales 的现成图片、帖子和消息——您复制或分享的每段文字都会自动加上您的链接。',
+  },
+  'kit.images': { ar: 'صور ومنشورات وقصص', en: 'Images, posts and stories', fr: 'Images, publications et stories', tr: 'Görseller, gönderiler ve hikâyeler', zh: '图片、帖子和快拍' },
+  'kit.docs': { ar: 'ملفات وفيديو', en: 'Files and video', fr: 'Fichiers et vidéo', tr: 'Dosyalar ve video', zh: '文件与视频' },
+  'kit.texts': { ar: 'رسائل جاهزة للنسخ', en: 'Ready-to-copy messages', fr: 'Messages prêts à copier', tr: 'Kopyalamaya hazır mesajlar', zh: '可直接复制的消息' },
+  'kit.download': { ar: 'تنزيل', en: 'Download', fr: 'Télécharger', tr: 'İndir', zh: '下载' },
+  'kit.share': { ar: 'مشاركة', en: 'Share', fr: 'Partager', tr: 'Paylaş', zh: '分享' },
+  'kit.open': { ar: 'فتح', en: 'Open', fr: 'Ouvrir', tr: 'Aç', zh: '打开' },
+  'kit.copyCaption': { ar: 'نسخ النص مع رابطك', en: 'Copy text with your link', fr: 'Copier le texte avec votre lien', tr: 'Metni bağlantınızla kopyala', zh: '复制带链接的文字' },
+  'kit.whatsapp': { ar: 'إرسال بواتساب', en: 'Send on WhatsApp', fr: 'Envoyer sur WhatsApp', tr: 'WhatsApp ile gönder', zh: '通过 WhatsApp 发送' },
 } satisfies Record<string, Entry>;
 
 export type AxKey = keyof typeof DICT;

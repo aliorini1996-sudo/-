@@ -372,3 +372,28 @@ test('«اعرف النظام» داخل «المواد التسويقية» ب�
   const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
   assert.match(app, /<Route path="\/tutorial" element=\{<TutorialPage \/>\} \/>/, 'صفحة الفيديوهات موجودة');
 });
+
+test('«حقيبة السفير الجاهزة»: الملفات موجودة، و{link} في كل نصّ، وبلا أسعار ولا مسار البوابة (طلب المالك ١٩ نوفمبر)', async () => {
+  const { existsSync } = await import('node:fs');
+  const kit = JSON.parse(readFileSync(new URL('../../public/ambassador-kit/kit.json', import.meta.url), 'utf8')) as { items: Array<Record<string, any>> };
+  assert.ok(kit.items.length >= 10);
+  const ids = new Set<string>();
+  for (const i of kit.items) {
+    assert.ok(!ids.has(i.id), `معرّف مكرّر ${i.id}`); ids.add(i.id);
+    assert.ok(i.title?.ar && i.title?.en, `${i.id}: عنوان عربي وإنجليزي`);
+    if (i.file) assert.ok(existsSync(new URL(`../../public${i.file}`, import.meta.url)), `${i.id}: الملف ${i.file}`);
+    const texts = [i.caption?.ar, i.caption?.en, i.text?.ar, i.text?.en].filter(Boolean) as string[];
+    assert.ok(texts.length >= 2, `${i.id}: نصّ بالعربية والإنجليزية`);
+    for (const s of texts) {
+      assert.match(s, /\{link\}/, `${i.id}: رابط السفير`);
+      assert.doesNotMatch(s, /\d\s*(ر\.?\s?س|ريال|SAR|SR)\b/, `${i.id}: لا أسعار`);
+      assert.doesNotMatch(s, /\/ax\b/, `${i.id}: لا مسار البوابة`);
+    }
+  }
+  const { fillLink, pickLang } = await import('./screens/AmbassadorKit');
+  assert.equal(fillLink('a {link} b {link}', 'L'), 'a L b L');
+  assert.equal(pickLang({ ar: 'ع', en: 'E' }, 'fr'), 'E');
+  assert.equal(pickLang({ ar: 'ع', en: 'E' }, 'ar'), 'ع');
+  const mat = readFileSync(new URL('./screens/MaterialsScreen.tsx', import.meta.url), 'utf8');
+  assert.match(mat, /<AmbassadorKit link=\{me\.link\} \/>/);
+});
