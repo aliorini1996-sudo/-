@@ -13,7 +13,7 @@ import { supportedCountries } from '../i18n/countries';
 import { ARAB_DIAL, WORLD_DIAL, flagOf, dialOf } from '../i18n/dialCodes';
 import { readRef, clearRef, normalizeRef, refFromSearch } from '../lib/referral';
 
-// التسجيل الذاتي للتجربة المجانية — ينشئ شركة بتجربة 14 يوماً ويدخل مباشرة
+// التسجيل الذاتي للتجربة المجانية — ينشئ شركة بتجربة 5 أيام (TRIAL_PERIOD_DAYS في الخادم) ويدخل مباشرة
 export default function SignupPage() {
   const { login } = useAuthStore();
   const t = useT();

@@ -108,7 +108,7 @@ const T: Record<Lang, Record<string, string>> = {
     shareText: 'أداة مجانية تنشئ فاتورة ضريبية احترافية برمز QR متوافق ZATCA خلال ثوان وتحملها PDF بلا تسجيل',
     ctaTitle: 'أتعبك إصدارها يدويا لكل عميل',
     ctaBody: 'مع Field Sales يصدرها مندوبك تلقائيا من جواله في الميدان فاتورة برمز QR وطباعة حرارية وخصم فوري من المخزون',
-    cta: 'جرب Field Sales مجانا 10 أيام بلا بطاقة',
+    cta: 'جرب Field Sales مجانا 5 أيام بلا بطاقة',
     generating: 'جار التوليد',
     downloaded: 'تم تحميل الفاتورة PDF ✓',
     needFields: 'أدخل اسم الشركة واسم العميل وبندا واحدا على الأقل',
@@ -144,7 +144,7 @@ const T: Record<Lang, Record<string, string>> = {
     shareText: 'A free tool that creates a professional tax invoice with a ZATCA-compliant QR code in seconds and downloads it as a PDF no signup',
     ctaTitle: 'Tired of issuing them manually for every customer?',
     ctaBody: 'With Field Sales your rep issues them automatically from their phone in the field QR invoice thermal printing and instant stock deduction',
-    cta: 'Try Field Sales free 10 days no card',
+    cta: 'Try Field Sales free 5 days no card',
     generating: 'Generating',
     downloaded: 'Invoice PDF downloaded ✓',
     needFields: 'Enter company name customer name and at least one item',
@@ -180,7 +180,7 @@ const T: Record<Lang, Record<string, string>> = {
     shareText: 'Un outil gratuit qui crée une facture fiscale professionnelle avec code QR conforme ZATCA en quelques secondes et la télécharge en PDF sans inscription',
     ctaTitle: 'Fatigué de les émettre manuellement pour chaque client ?',
     ctaBody: 'Avec Field Sales votre commercial les émet automatiquement depuis son téléphone facture QR impression thermique et stock déduit instantanément',
-    cta: 'Essayez Field Sales gratuitement 10 jours sans carte',
+    cta: 'Essayez Field Sales gratuitement 5 jours sans carte',
     generating: 'Génération',
     downloaded: 'PDF téléchargé ✓',
     needFields: 'Entrez le nom de l entreprise du client et au moins une ligne',
@@ -249,7 +249,7 @@ const faqItems = (lang: Lang): { q: string; a: string }[] => (
         { q: 'ما الفرق بين الفاتورة الضريبية والفاتورة الضريبية المبسطة', a: 'المبسطة تصدر للمستهلك الأفراد B2C بلا رقم ضريبي للمشتري والضريبية العادية B2B تتضمن الرقم الضريبي للمشتري والمولد يبدل بينهما تلقائيا حسب إدخالك رقم العميل الضريبي' },
         { q: 'ما الدول التي يدعمها المولد', a: 'نسب الضريبة والعملات جاهزة ل50 دولة كل الدول العربية وأسواق أخرى السعودية 15% مصر 14% الإمارات 5% وغيرها وكلها قابلة للتعديل' },
         { q: 'هل هذا برنامج محاسبة مجاني', a: 'هذه أداة فوترة مجانية بالكامل وبلا تسجيل تنشئ فاتورة ضريبية نظامية برمز QR وتحملها PDF لكنها ليست برنامج محاسبة كاملا لا تتضمن دفتر أستاذ ولا قوائم مالية ولا إقرارات ضريبية إن كان ما تحتاجه إصدار فواتير نظامية فقط فهذه الأداة تكفيك مجانا بلا اشتراك وإن كنت تبحث عن محاسبة كاملة فستحتاج برنامج محاسبة متخصصا' },
-        { q: 'هل أحتاج اشتراكا أو بطاقة لاستخدام المولد', a: 'لا المولد مجاني بالكامل بلا تسجيل ولا بطاقة ولا حد لعدد الفواتير أما منصة FieldSales لإدارة مناديب التوزيع فواتير من الميدان تحصيل مخزون سيارة تتبع فهي منتج مدفوع بتجربة مجانية 10 أيام دون بطاقة' },
+        { q: 'هل أحتاج اشتراكا أو بطاقة لاستخدام المولد', a: 'لا المولد مجاني بالكامل بلا تسجيل ولا بطاقة ولا حد لعدد الفواتير أما منصة FieldSales لإدارة مناديب التوزيع فواتير من الميدان تحصيل مخزون سيارة تتبع فهي منتج مدفوع بتجربة مجانية 5 أيام دون بطاقة' },
   ]);
 
 // تقريب نصف-لأعلى على التمثيل العشري (1.005 → 1.01 لا 1.00 بضوضاء الطفو)

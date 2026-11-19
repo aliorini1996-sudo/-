@@ -345,17 +345,17 @@ export function pricingDescription(lang, plans) {
   const caps = planTiers(plans).map((p) => p.cap).filter(Boolean).map(String);
   if (lang === 'en') {
     return caps.length
-      ? `Field Sales plans are per company, not per user, for teams of up to ${joinWith(caps, 'and')} reps. No setup fees, 10-day free trial. Request a quote.`
-      : 'Field Sales plans are per company, not per user. No setup fees, 10-day free trial. Request a quote.';
+      ? `Field Sales plans are per company, not per user, for teams of up to ${joinWith(caps, 'and')} reps. No setup fees, 5-day free trial. Request a quote.`
+      : 'Field Sales plans are per company, not per user. No setup fees, 5-day free trial. Request a quote.';
   }
   if (lang === 'fr') {
     return caps.length
       ? `Offres Field Sales par entreprise et non par utilisateur, jusqu’à ${joinWith(caps, 'et')} commerciaux. Sans frais de mise en service. Sur devis.`
-      : 'Offres Field Sales par entreprise et non par utilisateur. Sans frais de mise en service, essai de 10 jours. Sur devis.';
+      : 'Offres Field Sales par entreprise et non par utilisateur. Sans frais de mise en service, essai de 5 jours. Sur devis.';
   }
   return caps.length
-    ? `باقات Field Sales لكل شركة لا لكل مستخدم للفرق حتى ${joinAr(caps)} مناديب، بلا رسوم تأسيس، وتجربة ١٠ أيام بلا بطاقة. اطلب عرض سعر.`
-    : 'باقات Field Sales لكل شركة لا لكل مستخدم، بلا رسوم تأسيس، وتجربة ١٠ أيام بلا بطاقة. اطلب عرض سعر.';
+    ? `باقات Field Sales لكل شركة لا لكل مستخدم للفرق حتى ${joinAr(caps)} مناديب، بلا رسوم تأسيس، وتجربة ٥ أيام بلا بطاقة. اطلب عرض سعر.`
+    : 'باقات Field Sales لكل شركة لا لكل مستخدم، بلا رسوم تأسيس، وتجربة ٥ أيام بلا بطاقة. اطلب عرض سعر.';
 }
 
 /** رابط نموذج «طلب عرض سعر» بلغة الصفحة (‎?type=quote يغيّر عنوان النموذج وبريد الإدارة) */
@@ -542,7 +542,7 @@ export function aboutContent(lang) {
         },
         {
           h2: 'التسعير',
-          paras: ['الاشتراك شهري لكل شركة لا لكل مستخدم، والسعر بعرض سعر حسب عدد مناديبك. وتجربة مجانية عشرة أيام بلا بطاقة ائتمان.'],
+          paras: ['الاشتراك شهري لكل شركة لا لكل مستخدم، والسعر بعرض سعر حسب عدد مناديبك. وتجربة مجانية خمسة أيام بلا بطاقة ائتمان.'],
           links: [{ href: '/pricing/', label: 'الباقات' }, { href: quoteHref('ar'), label: 'اطلب عرض سعر' }],
         },
         {
@@ -579,7 +579,7 @@ export function aboutContent(lang) {
         },
         {
           h2: 'Pricing',
-          paras: ['Priced per company, not per user; request a quote for your number of reps. A 10-day free trial needs no credit card.'],
+          paras: ['Priced per company, not per user; request a quote for your number of reps. A 5-day free trial needs no credit card.'],
           links: [{ href: '/en/pricing/', label: 'Plans' }, { href: quoteHref('en'), label: 'Request a quote' }],
         },
         {
@@ -615,7 +615,7 @@ export function aboutContent(lang) {
         },
         {
           h2: 'Tarifs',
-          paras: ['Abonnement par entreprise et non par utilisateur, sur devis selon le nombre de commerciaux. Essai gratuit de 10 jours sans carte bancaire.'],
+          paras: ['Abonnement par entreprise et non par utilisateur, sur devis selon le nombre de commerciaux. Essai gratuit de 5 jours sans carte bancaire.'],
           links: [{ href: '/fr/pricing/', label: 'Offres' }, { href: quoteHref('fr'), label: 'Demander un devis' }],
         },
         {

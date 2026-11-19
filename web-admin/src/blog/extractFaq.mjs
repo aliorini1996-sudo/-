@@ -178,20 +178,20 @@ export function pricingFaq(lang, _plans) {
       ['كم سعر برنامج مندوبين المبيعات؟', 'السعر حسب الباقة التي تناسب عدد مناديبك، ويكون لكل شركة لا لكل مستخدم. اطلب عرض سعر ونرسله لك.'],
       ['هل السعر لكل مندوب أم لكل شركة؟', 'لكل شركة. إضافة مندوب جديد ضمن حدّ الباقة لا تزيد فاتورتك الشهرية.'],
       ['هل هناك رسوم تأسيس أو إعداد؟', 'لا رسوم تأسيس ولا رسوم إعداد.'],
-      ['هل التجربة تحتاج بطاقة ائتمان؟', 'لا. التجربة عشرة أيام بلا بطاقة ائتمان.'],
+      ['هل التجربة تحتاج بطاقة ائتمان؟', 'لا. التجربة خمسة أيام بلا بطاقة ائتمان.'],
       ['هل يدعم النظام الفاتورة الإلكترونية؟', 'نعم. يُصدر فاتورة ضريبية برمز QR، وندعم ربط المرحلة الثانية مع منصة فاتورة التابعة لهيئة الزكاة والضريبة والجمارك. والهيئة لا تعتمد مزوّدي البرمجيات.'],
     ],
     en: [
       ['How much does field sales software cost?', 'It depends on the plan that fits your number of reps, and it is priced per company rather than per user. Request a quote and we will send it to you.'],
       ['Is it priced per rep or per company?', 'Per company. Adding a rep within your plan limit does not increase your monthly bill.'],
       ['Are there setup fees?', 'No setup or onboarding fees.'],
-      ['Does the trial need a credit card?', 'No. The 10-day trial needs no credit card.'],
+      ['Does the trial need a credit card?', 'No. The 5-day trial needs no credit card.'],
     ],
     fr: [
       ['Combien coûte un logiciel de vente terrain ?', 'Cela dépend de l’offre adaptée à votre nombre de commerciaux, facturée par entreprise et non par utilisateur. Demandez un devis et nous vous l’enverrons.'],
       ['Le prix est-il par commercial ou par entreprise ?', 'Par entreprise. Ajouter un commercial dans la limite de votre offre n’augmente pas votre facture mensuelle.'],
       ['Y a-t-il des frais de mise en service ?', 'Aucuns frais de mise en service ni d’intégration.'],
-      ['L’essai demande-t-il une carte bancaire ?', 'Non. L’essai de 10 jours se fait sans carte bancaire.'],
+      ['L’essai demande-t-il une carte bancaire ?', 'Non. L’essai de 5 jours se fait sans carte bancaire.'],
     ],
   }[lang];
   if (!list) return [];

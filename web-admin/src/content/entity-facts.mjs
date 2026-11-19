@@ -263,10 +263,10 @@ export const normalizeProfileUrl = (u) => String(u).trim()
   .replace(/\/+$/, '');
 
 /**
- * التجربة المجانية (نقد GEO، البند ١٩): عشرة أيام بلا بطاقة ائتمان. المصدر: answers.mjs (جواب السعر)،
+ * التجربة المجانية (نقد GEO، البند ١٩): خمسة أيام بلا بطاقة ائتمان (قرار المالك ١٩ نوفمبر ٢٠٢٦، كانت عشرة). المصدر: answers.mjs (جواب السعر)،
  * وأجسام homeMeta في scripts/prerender.mjs، ووصف index.html. بقاؤها في كل الأسطح أو إزالتها منها كلها قرار المالك.
  */
-export const TRIAL = { days: 10, creditCard: false, signupPath: '/signup/', ownerDecision: 'pending' };
+export const TRIAL = { days: 5, creditCard: false, signupPath: '/signup/', ownerDecision: 'pending' };
 
 /**
  * السعر: لا سعر ظاهر في الموقع (قرار المالك ٢٧ أكتوبر)، والأرقام من CMS وحده (scripts/pricing-source.mjs)

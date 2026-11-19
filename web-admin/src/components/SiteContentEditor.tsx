@@ -280,6 +280,9 @@ function fixWhere(path: string): string {
   if (m) return `/${m[2] ? 'en/' : ''}blog/${m[1]}/ · ${FIX_FIELD_LABEL[m[3]] ?? m[3]}`;
   if (path.startsWith('faq.')) return 'الرئيسية · الأسئلة الشائعة';
   if (path.startsWith('features.')) return 'الرئيسية · المميزات';
+  if (path.startsWith('finalCta.')) return 'الرئيسية · الدعوة الأخيرة';
+  if (path.startsWith('pages.terms.')) return 'صفحة الشروط والأحكام';
+  if (/^profile(V\d+)?\./.test(path)) return `البروفايل · ${path}`;
   return path;
 }
 
@@ -310,7 +313,8 @@ function FixReport({ results, onClose }: { results: CmsFixResult[]; onClose: () 
       <div className="flex-1 overflow-y-auto p-5 space-y-5">
         <div className="bg-[#FBEBE2] border border-[#F1D9CC] rounded-xl p-3 text-xs text-[#8A4B33] leading-relaxed">
           التصحيحات طُبّقت على المسودة فقط ولم يُحفظ شيء. راجع المقالات ثم اضغط «حفظ المحتوى ونشره»، أو «إلغاء» للتراجع.
-          البند لا يُطبّق إلا إن وُجد نصه الحالي مرة واحدة بالضبط، فما حرّرته بنفسك لا يُمسّ.
+          البند لا يُطبّق إلا إن وُجد نصه الحالي مرة واحدة بالضبط، فما حرّرته بنفسك لا يُمسّ — عدا عبارات مدة التجربة
+          (١٠ أيام ← ٥ أيام) فتُستبدل في كل حقل تَرِد فيه.
         </div>
         {applied.length > 0 && (
           <section>
@@ -387,7 +391,8 @@ export default function SiteContentEditor({ onClose }: { onClose: () => void }) 
   };
 
   // «تصحيحات الظهور»: استبدالات حرفية مُعدّة سلفاً (نفي المرحلة الثانية، «المرحلة الأولى»، جمل السعر بلا 399،
-  // وعود دون اتصال بلا قيد، «يمنع» حدّ الائتمان) — تُطبَّق على المسوّدة وحدها، والحفظ بزرّ الحفظ نفسه.
+  // وعود دون اتصال بلا قيد، «يمنع» حدّ الائتمان، ومدة التجربة ١٠ ← ٥ أيام بالبنود الكاسحة) — تُطبَّق على المسوّدة وحدها،
+  // والحفظ بزرّ الحفظ نفسه.
   const [fixReport, setFixReport] = useState<CmsFixResult[] | null>(null);
   // عدّاد الزر: البنود التي تنطبق الآن على المسوّدة (تشغيل جافّ بلا نسخ، يتبع كل تعديل)
   const pendingFixes = useMemo(() => (draft ? planCmsFixes(draft).filter(r => r.status === 'applied').length : 0), [draft]);

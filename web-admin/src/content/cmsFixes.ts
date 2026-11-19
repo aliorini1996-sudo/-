@@ -33,7 +33,14 @@
  * الطبقة شيئاً. لذا هذا الملف بلا استيرادات (تحوّله السكربتات بـesbuild transformSync).
  */
 
-export type CmsFixGroup = 'phase2' | 'offline' | 'price' | 'credit';
+/*
+ * البنود الكاسحة (CMS_SWEEPS بعد القائمة، ١٩ نوفمبر ٢٠٢٦): مدة التجربة صارت ٥ أيام بعد ١٠ (قرار المالك)، وعبارتها في
+ * نحو ١٢٠ حقلاً من CMS الحيّ (دعوة الإجراء في كل مقال، وملاحظة الرئيسية، والشروط، والبروفايل) — بندٌ حرفيّ لكل
+ * حقل يضخّم القائمة. فالبند الكاسح عبارةٌ ثابتة تخصّ التجربة وحدها تُستبدل **في كل حقل نصّي يحملها وبكل
+ * مواضعها**، وكل حقل نتيجةٌ مستقلة في التقرير بمساره (فتختم الطبقة العامة تاريخ المقال كما تفعل بالحرفي).
+ * عباراتٌ تذكر التجربة صراحةً لا «10 أيام» عارية: حجز عمولة السفير وتسويته «كل 10 أيام» ليسا التجربة.
+ */
+export type CmsFixGroup = 'phase2' | 'offline' | 'price' | 'credit' | 'trial';
 
 export interface CmsFix {
   /** معرّف ثابت للبند (يظهر في تقرير التطبيق) */
@@ -45,6 +52,8 @@ export interface CmsFix {
   from: string;
   /** النص الجديد */
   to: string;
+  /** معرّف البند الكاسح الذي وَلّد هذه النتيجة لحقلٍ بعينه (CMS_SWEEPS) — غائب في بنود القائمة الحرفية */
+  sweep?: string;
 }
 
 export const CMS_FIX_GROUP_LABEL: Record<CmsFixGroup, string> = {
@@ -52,6 +61,7 @@ export const CMS_FIX_GROUP_LABEL: Record<CmsFixGroup, string> = {
   offline: 'قيد دون اتصال',
   price: 'الأسعار',
   credit: 'حد الائتمان',
+  trial: 'مدة التجربة',
 };
 
 // ── الصيغ الموحّدة ────────────────────────────────────────────────────────────
@@ -624,7 +634,7 @@ export const CMS_FIXES: CmsFix[] = [
   {
     id: 'einvoicing-dist-cta', group: 'phase2', path: blog('zatca-einvoicing-distribution', 'contentHtml'),
     from: '<p><strong>ابدأ تجربتك المجانية 10 أيام وأصدر أول فاتورة متوافقة خلال دقائق.</strong></p>',
-    to: '<p><strong>ابدأ تجربتك المجانية 10 أيام وأصدر أول فاتورة برمز QR من جوال مندوبك.</strong></p>',
+    to: '<p><strong>ابدأ تجربتك المجانية 5 أيام وأصدر أول فاتورة برمز QR من جوال مندوبك.</strong></p>',
   },
 
   // ═══ order-to-cash-cycle ═══
@@ -689,6 +699,49 @@ export const CMS_FIXES: CmsFix[] = [
     from: 'واجعل النظام <strong>يمنع المندوب تلقائياً</strong> من إصدار فاتورة آجلة جديدة إذا تجاوز العميل حدّه. هذا يحوّل الانضباط من قرار بشري (يُجامَل فيه) إلى قاعدة نظام لا تُكسر. العميل الذي يريد بضاعة أكثر يجب أن يسدّد أولاً',
     to: 'واجعل النظام <strong>ينبّه الإدارة فوراً</strong> حين تتجاوز فاتورة آجلة حدّ العميل، وامنح صلاحية البيع الآجل لمن يستحقها من المناديب فقط. هذا ينقل الانضباط من قرار بشري (يُجامَل فيه) إلى تنبيه موثّق باسم العميل والمندوب. والعميل الذي يريد بضاعة أكثر يسدّد أولاً',
   },
+];
+
+/** بند كاسح: عبارة تُستبدل في كل حقل نصّي يحملها وبكل مواضعها (رأس الملف) */
+export interface CmsSweep {
+  id: string;
+  group: CmsFixGroup;
+  from: string;
+  to: string;
+}
+
+/**
+ * مدة التجربة ١٠ ← ٥ أيام (قرار المالك ١٩ نوفمبر ٢٠٢٦). العبارات كما قِيست في CMS الحيّ يومها (GET العامّ
+ * /api/site-content: ١٩٦ موضعاً في المقالات العربية والإنجليزية وfinalCta.note وpages.terms.body وprofileV3)،
+ * وصيغ المحتوى الافتراضي التي بُذر منها CMS. الحرفي يسبقها (einvoicing-dist-cta يكتب ٥ بنفسه).
+ * لا تحتوي عبارةٌ أخرى، فالترتيب لا يغيّر النتيجة؛ وبعد القائمة كاملة لم يبقَ في اللقطة الحيّة ذكرٌ للعشرة.
+ */
+export const CMS_SWEEPS: CmsSweep[] = [
+  // العربية بأرقام لاتينية
+  { id: 'trial-yours', group: 'trial', from: 'تجربتك المجانية 10 أيام', to: 'تجربتك المجانية 5 أيام' },
+  { id: 'trial-the', group: 'trial', from: 'التجربة المجانية 10 أيام', to: 'التجربة المجانية 5 أيام' },
+  { id: 'trial-free', group: 'trial', from: 'تجربة مجانية 10 أيام', to: 'تجربة مجانية 5 أيام' },
+  { id: 'trial-and', group: 'trial', from: 'وتجربة 10 أيام', to: 'وتجربة 5 أيام' },
+  { id: 'trial-lasts', group: 'trial', from: 'مدتها 10 أيام', to: 'مدتها 5 أيام' },
+  { id: 'trial-gratis-a', group: 'trial', from: 'مجاناً 10 أيام', to: 'مجاناً 5 أيام' },
+  { id: 'trial-gratis-b', group: 'trial', from: 'مجانًا 10 أيام', to: 'مجانًا 5 أيام' },
+  { id: 'trial-gratis-c', group: 'trial', from: 'مجانا 10 أيام', to: 'مجانا 5 أيام' },
+  // العربية بأرقام هندية
+  { id: 'trial-free-hi', group: 'trial', from: 'تجربة مجانية ١٠ أيام', to: 'تجربة مجانية ٥ أيام' },
+  { id: 'trial-terms-hi', group: 'trial', from: 'تجربة مجانية لمدة ١٠ أيام', to: 'تجربة مجانية لمدة ٥ أيام' },
+  { id: 'trial-note-hi', group: 'trial', from: '١٠ أيام مجان', to: '٥ أيام مجان' },
+  { id: 'trial-start-hi', group: 'trial', from: 'مجانا ١٠ أيام', to: 'مجانا ٥ أيام' },
+  // العربية بالحروف (البروفايل)
+  { id: 'trial-words', group: 'trial', from: 'عشرة أيّام مجّاناً', to: 'خمسة أيّام مجّاناً' },
+  // الإنجليزية
+  { id: 'trial-en-free', group: 'trial', from: 'free 10-day trial', to: 'free 5-day trial' },
+  { id: 'trial-en-day', group: 'trial', from: '10-day free trial', to: '5-day free trial' },
+  { id: 'trial-en-for', group: 'trial', from: 'free for 10 days', to: 'free for 5 days' },
+  { id: 'trial-en-words', group: 'trial', from: 'ten-day free trial', to: 'five-day free trial' },
+  // الفرنسية والتركية والصينية (البروفايل)
+  { id: 'trial-fr-words', group: 'trial', from: 'essai gratuit de dix jours', to: 'essai gratuit de cinq jours' },
+  { id: 'trial-tr-words', group: 'trial', from: 'On gün ücretsiz deneme', to: 'Beş gün ücretsiz deneme' },
+  { id: 'trial-tr-words-lc', group: 'trial', from: 'on günlük ücretsiz deneme', to: 'beş günlük ücretsiz deneme' },
+  { id: 'trial-zh-words', group: 'trial', from: '十天免费试用', to: '五天免费试用' },
 ];
 
 // ── التطبيق ──────────────────────────────────────────────────────────────────
@@ -786,7 +839,37 @@ export function planPrices(content: unknown): string[] {
   return plans.map((p) => toLatin(String(p?.price ?? '')).trim()).filter((p) => /^\d+$/.test(p));
 }
 
-function run(content: unknown, fixes: CmsFix[]) {
+/**
+ * كل حقل نصّي يحلّه locate بمساره: عنصر المصفوفة بـ[slug=…] إن حمل slug فريداً (فيعرف postOfPath مقاله)،
+ * وإلا برقمه. النص المباشر داخل مصفوفة لا يُعدّ (locate لا يحلّ مساراً ينتهي بعنصر)، ولا مفتاح فيه نقطة أو قوس.
+ */
+function stringFields(root: unknown): { path: string; holder: Record<string, unknown>; key: string }[] {
+  const out: { path: string; holder: Record<string, unknown>; key: string }[] = [];
+  const safe = (k: string) => k !== '' && !/[.[\]]/.test(k);
+  const walk = (node: unknown, path: string) => {
+    if (Array.isArray(node)) {
+      const slugs = node.map((x) => (x && typeof x === 'object' ? (x as Record<string, unknown>).slug : undefined));
+      node.forEach((item, i) => {
+        if (!item || typeof item !== 'object') return;
+        const s = slugs[i];
+        const bySlug = typeof s === 'string' && /^[^\]]+$/.test(s) && slugs.filter((x) => x === s).length === 1;
+        walk(item, `${path}[${bySlug ? `slug=${s}` : i}]`);
+      });
+      return;
+    }
+    if (!node || typeof node !== 'object') return;
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      if (!safe(k)) continue;
+      const p = path ? `${path}.${k}` : k;
+      if (typeof v === 'string') out.push({ path: p, holder: node as Record<string, unknown>, key: k });
+      else walk(v, p);
+    }
+  };
+  walk(root, '');
+  return out;
+}
+
+function run(content: unknown, fixes: CmsFix[], sweeps: CmsSweep[] = []) {
   const live = new Set(planPrices(content));
   const current = new Map<string, string>(); // المسار ← نصّه بعد البنود السابقة عليه
   const results: CmsFixResult[] = [];
@@ -804,20 +887,41 @@ function run(content: unknown, fixes: CmsFix[]) {
     current.set(fix.path, text.replace(fix.from, () => fix.to));
     results.push({ fix, status: 'applied' });
   }
+  if (!sweeps.length) return { results, current };
+  // البنود الكاسحة بعد الحرفية. الحقل يُعرَّف بحاويته ومفتاحه لا بنصّ مساره: بندٌ حرفيّ بمحدِّد [q=…] وحقلٌ مولَّد
+  // برقمه قد يكونان الحقل نفسه، فيُكمل الكاسح على نصّ الحرفي ويُكتب تحت مساره هو (وإلا محا أحدهما الآخر)
+  const known = new Map<Record<string, unknown>, Map<string, string>>();
+  for (const p of current.keys()) {
+    const loc = locate(content, p);
+    if (!loc) continue;
+    if (!known.has(loc.holder)) known.set(loc.holder, new Map());
+    known.get(loc.holder)!.set(loc.key, p);
+  }
+  const fields = stringFields(content).map((f) => ({ ...f, path: known.get(f.holder)?.get(f.key) ?? f.path }));
+  for (const s of sweeps) {
+    for (const f of fields) {
+      const text = current.get(f.path) ?? (f.holder[f.key] as string);
+      const fix: CmsFix = { id: `${s.id}@${f.path}`, group: s.group, path: f.path, from: s.from, to: s.to, sweep: s.id };
+      if (text.includes(s.from)) {
+        current.set(f.path, text.split(s.from).join(s.to));
+        results.push({ fix, status: 'applied' });
+      } else if (text.includes(s.to)) results.push({ fix, status: 'already' });
+    }
+  }
   return { results, current };
 }
 
 /** تشغيل جافّ: ما سيحدث لكل بند دون لمس المحتوى (لعدّاد الزر) */
-export function planCmsFixes(content: unknown, fixes: CmsFix[] = CMS_FIXES): CmsFixResult[] {
-  return run(content, fixes).results;
+export function planCmsFixes(content: unknown, fixes: CmsFix[] = CMS_FIXES, sweeps: CmsSweep[] = CMS_SWEEPS): CmsFixResult[] {
+  return run(content, fixes, sweeps).results;
 }
 
 /**
  * يطبّق البنود على **نسخة** من المحتوى ويعيدها مع تقرير لكل بند. الأصل لا يُمسّ؛ وإن لم يطابق
- * أي بند فالقيمة المعادة مساوية للأصل.
+ * أي بند فالقيمة المعادة مساوية للأصل. البنود الكاسحة (CMS_SWEEPS) تُطبَّق بعد الحرفية، ونتيجتها لكل حقل.
  */
-export function applyCmsFixes<T>(content: T, fixes: CmsFix[] = CMS_FIXES): { value: T; results: CmsFixResult[]; applied: number } {
-  const { results, current } = run(content, fixes);
+export function applyCmsFixes<T>(content: T, fixes: CmsFix[] = CMS_FIXES, sweeps: CmsSweep[] = CMS_SWEEPS): { value: T; results: CmsFixResult[]; applied: number } {
+  const { results, current } = run(content, fixes, sweeps);
   if (!current.size) return { value: content, results, applied: 0 };
   const value = structuredClone(content);
   for (const [path, text] of current) {
@@ -833,8 +937,9 @@ export function applyCmsFixes<T>(content: T, fixes: CmsFix[] = CMS_FIXES): { val
  * تاريخ نشر القائمة على الموقع العام بالطبقة أدناه — **ثابت لا «اليوم»**: يصير lastmod المقال في الخريطة
  * وdateModified في Article لكل مقال يحمل نصّ القائمة. يُرفع يدوياً مع تعديل جوهري للقائمة نفسها
  * (بند جديد أو نص جديد) لا مع كل بناء، وإلا تجدّدت التواريخ بلا تغيير فيكفّ جوجل عن الوثوق بها.
+ * 2026-11-19: البنود الكاسحة لمدة التجربة (٥ أيام) — تغيّر نصّ كل مقال تقريباً فعلاً.
  */
-export const CMS_FIXES_VERSION = '2026-10-26';
+export const CMS_FIXES_VERSION = '2026-11-19';
 
 export interface PublicCmsPost {
   slug: string;
@@ -869,9 +974,9 @@ function postOfPath(path: string): { slug: string; lang: 'ar' | 'en' } | null {
  * (قِيس على CMS الحيّ في ٢٦ أكتوبر)، والمقالات العربية المصحّحة وحدها بلا نسخة إنجليزية.
  * لا يستعملها المحرّران: المالك يحرّر CMS الخام (cmsFixes.test.ts يحرس ذلك).
  */
-export function publicCmsContent<T>(content: T, fixes: CmsFix[] = CMS_FIXES): PublicCmsFixes<T> {
+export function publicCmsContent<T>(content: T, fixes: CmsFix[] = CMS_FIXES, sweeps: CmsSweep[] = CMS_SWEEPS): PublicCmsFixes<T> {
   if (!content || typeof content !== 'object') return { value: content, results: [], applied: 0, posts: [], home: { touched: false, applied: false } };
-  const { value, results, applied } = applyCmsFixes(content, fixes);
+  const { value, results, applied } = applyCmsFixes(content, fixes, sweeps);
   const posts = new Map<string, PublicCmsPost>();
   const home = { touched: false, applied: false };
   for (const r of results) {

@@ -50,7 +50,7 @@ export const defaultContentTr = {
   },
   pricing: {
     title: 'Şirketinizle birlikte büyüyen planlar',
-    subtitle: '10 gün ücretsiz başlayın — kredi kartı gerekmez.',
+    subtitle: '5 gün ücretsiz başlayın — kredi kartı gerekmez.',
     plans: [
       { name: 'Başlangıç', price: '299', limit: '5 temsilciye kadar · 1 yönetici' },
       { name: 'Büyüme', price: '399', limit: '10 temsilciye kadar · 2 yönetici' },
@@ -72,7 +72,7 @@ export const defaultContentTr = {
     title: 'Saha ekibinizin verimliliğini ikiye katlamaya hazır mısınız?',
     subtitle: 'Vergi faturalarınızı düzenleyin, tahsilatınızı yapın ve saha ekibinizi izleyin — hepsi tek bir platformdan.',
     ctaSecondary: 'Demo talep edin',
-    note: '10 gün ücretsiz · Kredi kartı gerekmez · İstediğiniz zaman iptal edin',
+    note: '5 gün ücretsiz · Kredi kartı gerekmez · İstediğiniz zaman iptal edin',
   },
   footer: {
     desc: 'Dağıtım saha satışlarını yönetmek için eksiksiz bir platform — siparişten tahsilata.',
@@ -107,7 +107,7 @@ Platform, saha dağıtım temsilcilerini yönetmeye yönelik bir bulut sistemidi
 • Hesabınızın yetkisiz kullanımını derhal bize bildirmelisiniz.
 
 4. Ücretsiz Deneme ve Abonelik
-• Kredi kartı gerektirmeyen 10 günlük ücretsiz deneme sunuyoruz.
+• Kredi kartı gerektirmeyen 5 günlük ücretsiz deneme sunuyoruz.
 • Deneme sonrasında kullanıma devam etmek, seçilen plana göre ücretli abonelik gerektirir.
 • Fiyatlar, önceden bildirimle ve ödenmiş bir dönemi etkilemeksizin gelecekte değişebilir.
 

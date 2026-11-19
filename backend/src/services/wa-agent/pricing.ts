@@ -40,7 +40,7 @@ export const OFFER = {
 } as const;
 
 /** التجربة المجانية — الوعد الوحيد المسموح بشأن التفعيل */
-export const TRIAL = { days: 10, requiresCard: false } as const;
+export const TRIAL = { days: 5, requiresCard: false } as const;
 
 /** السطر الوحيد المسموح لوصف العرض */
 export function offerLine(): string {

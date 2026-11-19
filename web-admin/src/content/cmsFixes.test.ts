@@ -5,7 +5,7 @@ import { checkText, norm, DATE_OR_NUMBER, PHASE2, RULES, findViolations } from '
 import { loadCmsFixes } from '../../scripts/cms-content.mjs';
 import { lastModifiedOf } from '../blog/posts';
 import { defaultContent } from '../landing/defaultContent';
-import { CMS_FIXES, CMS_FIXES_VERSION, applyCmsFixes, planCmsFixes, publicCmsContent, pricesIn, planPrices, type CmsFix } from './cmsFixes';
+import { CMS_FIXES, CMS_FIXES_VERSION, CMS_SWEEPS, applyCmsFixes, planCmsFixes, publicCmsContent, pricesIn, planPrices, type CmsFix } from './cmsFixes';
 
 /**
  * حرّاس مساعد تصحيح CMS (cmsFixes.ts).
@@ -130,7 +130,8 @@ function synthetic(fixes: CmsFix[] = CMS_FIXES) {
 test('القائمة كاملة تنطبق مرة واحدة بلا تداخل، والإعادة لا تغيّر شيئاً', () => {
   const content = synthetic();
   const first = applyCmsFixes(content);
-  const bad = first.results.filter((r) => r.status !== 'applied').map((r) => `${r.fix.id}:${r.status}`);
+  // نتائج البنود الكاسحة (مدة التجربة) لها اختبارها أدناه — هنا القائمة الحرفية وحدها
+  const bad = first.results.filter((r) => !r.fix.sweep && r.status !== 'applied').map((r) => `${r.fix.id}:${r.status}`);
   assert.deepEqual(bad, [], 'بنود لم تنطبق على نصوصها نفسها (تداخل في الحقل نفسه أو مسار لا يُحلّ)');
   assert.equal(first.applied, CMS_FIXES.length);
   const second = applyCmsFixes(first.value);
@@ -215,6 +216,100 @@ test('لا مصطلح «المرحلة الثانية» في بند وصف — �
   // والقاعدة تعضّ فعلاً: الوصف القديم بجملة الربط في آخره كان يُفشل البناء
   const dated = RULES.find((r) => r.id === 'zatca-phase2-dated')!;
   assert.ok(findViolations(dated, articleLdText('', `How field reps issue simplified QR tax invoices. We support Phase 2 integration with ZATCA’s Fatoora platform.`)).length > 0);
+});
+
+// ── البنود الكاسحة: مدة التجربة ١٠ ← ٥ أيام (قرار المالك ١٩ نوفمبر ٢٠٢٦) ─────────────────────
+
+/** ذكر التجربة بعشرة أيام بأي صيغة رأيناها في CMS الحيّ (رقماً لاتينياً أو هندياً أو حروفاً، بالخمس لغات) */
+const TRIAL_10 = /(?:تجرب|مجان|مدتها)[^<>]{0,25}(?:10|١٠)\s*أيام|(?:10|١٠)\s*أيام\s*مجان|عشرة أيّام مجّاناً|10-day|free for 10 days|ten-day|dix jours|\b[Oo]n gün(?:lük)? ücretsiz|十天免费/;
+
+test('البنود الكاسحة سليمة: معرّفات فريدة، والقديم يذكر العشرة والجديد الخمسة، وتجتاز قواعد الادّعاءات', () => {
+  assert.ok(CMS_SWEEPS.length >= 10);
+  const ids = CMS_SWEEPS.map((s) => s.id);
+  assert.deepEqual(ids.filter((id, i) => ids.indexOf(id) !== i), [], 'معرّف مكرّر');
+  for (const s of CMS_SWEEPS) {
+    assert.equal(s.group, 'trial', s.id);
+    // الصينية كثيفة: «十天免费试用» ستة أحرف عبارةٌ كاملة («عشرة أيام تجربة مجانية»)
+    assert.ok(s.from.trim().length >= (/[一-鿿]/.test(s.from) ? 6 : 8), `${s.id}: عبارة قصيرة تلتبس`);
+    assert.match(s.from, /10|١٠|عشرة|ten-|dix|\b[Oo]n gün|十天/, `${s.id}: لا تذكر العشرة`);
+    assert.match(s.to, /(?<![\d٠-٩])(?:5|٥)(?![\d٠-٩])|خمسة|five-|cinq|Beş|beş|五天/, `${s.id}: لا تذكر الخمسة`);
+    assert.doesNotMatch(s.to, /10|١٠|عشرة|ten-|dix|十天/, `${s.id}: بقيت العشرة في الجديد`);
+    assert.ok(!s.to.includes(s.from), `${s.id}: الجديد يحوي القديم فيُستبدل بلا نهاية`);
+    assert.deepEqual(checkText(s.to), [], `${s.id}: «${s.to}»`);
+    assert.doesNotMatch(norm(s.to), DATE_OR_NUMBER, `${s.id}: رقم من صنف المواعيد`);
+  }
+  // ولا بند حرفيّ يكتب العشرة من جديد
+  for (const f of CMS_FIXES) assert.doesNotMatch(f.to, TRIAL_10, `${f.id}: نصّ جديد بتجربة عشرة أيام`);
+});
+
+test('الكاسح يستبدل مدة التجربة في كل حقل وبكل مواضعها، ولا يمسّ «كل 10 أيام» غير التجربة، والإعادة «مطبَّق»', () => {
+  const content = {
+    ...structuredClone(PLANS),
+    finalCta: { note: '١٠ أيام مجانًا · بدون بطاقة ائتمان · إلغاء في أي وقت' },
+    pages: { terms: { body: '٤. التجربة المجانية\n• نوفّر تجربة مجانية لمدة ١٠ أيام دون بطاقة ائتمان.' } },
+    faq: { items: [{ q: 'كيف أبدأ؟', a: 'سجّل وابدأ تجربتك المجانية 10 أيام.' }] },
+    blog: [
+      {
+        slug: 'cash-van-software-saudi', date: '2026-08-04',
+        excerpt: 'بسعر معلن وتجربة 10 أيام بلا بطاقة.',
+        contentHtml: '<p>مع تجربة مجانية 10 أيام بلا بطاقة.</p><p>تجربة مجانية 10 أيام بلا بطاقة ائتمانية.</p><p><strong>جرّبها مجاناً 10 أيام.</strong></p>',
+        en: { contentHtml: '<p><a href="/signup">start a free 10-day trial</a> — or <strong>Try it free for 10 days.</strong></p>' },
+      },
+      { slug: 'ambassadors-note', date: '2026-08-04', contentHtml: '<p>تُحجز العمولة 10 أيام ثم تُسوّى كل 10 أيام.</p>' },
+    ],
+    profileV3: {
+      ar: { ask_items: 'سجّل تجربة عشرة أيّام مجّاناً من الموقع بلا بطاقة' },
+      en: { model_items: 'A ten-day free trial, no card and no commitment' },
+      fr: { ask_items: 'Ouvrez un essai gratuit de dix jours depuis le site' },
+      tr: { model_items: 'On gün ücretsiz deneme; kart yok', ask_items: 'Siteden kartsız, on günlük ücretsiz denemeyi başlatın' },
+      zh: { ask_items: '在官网开通十天免费试用，无需银行卡' },
+    },
+  };
+  const snapshot = structuredClone(content);
+  const first = applyCmsFixes(content, []);
+  assert.deepEqual(content, snapshot, 'الأصل تغيّر');
+  const v = first.value as typeof content;
+  assert.doesNotMatch(JSON.stringify(v), TRIAL_10, 'بقي ذكر لتجربة العشرة أيام');
+  assert.equal(v.finalCta.note, '٥ أيام مجانًا · بدون بطاقة ائتمان · إلغاء في أي وقت');
+  assert.match(v.pages.terms.body, /تجربة مجانية لمدة ٥ أيام/);
+  assert.equal(v.faq.items[0].a, 'سجّل وابدأ تجربتك المجانية 5 أيام.');
+  assert.equal(v.blog[0].excerpt, 'بسعر معلن وتجربة 5 أيام بلا بطاقة.');
+  assert.equal(v.blog[0].contentHtml.split('تجربة مجانية 5 أيام').length - 1, 2, 'الموضعان في الحقل نفسه');
+  assert.match(v.blog[0].contentHtml, /جرّبها مجاناً 5 أيام/);
+  assert.match(v.blog[0].en.contentHtml, /free 5-day trial[\s\S]*free for 5 days/);
+  assert.equal(v.blog[1].contentHtml, snapshot.blog[1].contentHtml, 'حجز السفير وتسويته ليسا التجربة');
+  assert.equal(v.profileV3.tr.model_items, 'Beş gün ücretsiz deneme; kart yok');
+  assert.match(v.profileV3.zh.ask_items, /五天免费试用/);
+  assert.ok(first.results.every((r) => r.fix.sweep && r.fix.group === 'trial' && r.status === 'applied'));
+  // نتيجة لكل حقل بمساره القابل للحلّ (المقال بمعرّفه كي تختم الطبقة العامة تاريخه)
+  assert.ok(first.results.some((r) => r.fix.path === 'blog[slug=cash-van-software-saudi].en.contentHtml'));
+  assert.ok(first.results.some((r) => r.fix.path === 'faq.items[0].a'));
+  const ids = first.results.map((r) => r.fix.id);
+  assert.deepEqual(ids.filter((id, i) => ids.indexOf(id) !== i), [], 'معرّف نتيجة مكرّر (مفتاح صفّ التقرير)');
+  // التشغيل الجافّ يطابق، والإعادة على المحفوظ لا تغيّر شيئاً
+  assert.deepEqual(planCmsFixes(content, []).map((r) => r.status), first.results.map((r) => r.status));
+  const second = applyCmsFixes(v, []);
+  assert.equal(second.applied, 0);
+  assert.deepEqual(second.value, v);
+  assert.ok(second.results.length > 0 && second.results.every((r) => r.status === 'already'));
+  // الطبقة العامة تختم المقال المتغيّر وحده، والرئيسية «مسّها» بند
+  const pub = publicCmsContent(content, []);
+  const [post, untouched] = (pub.value as typeof content).blog as { modified?: string }[];
+  assert.equal(post.modified, CMS_FIXES_VERSION);
+  assert.equal(untouched.modified, undefined);
+  assert.deepEqual(pub.posts, [{ slug: 'cash-van-software-saudi', langs: ['ar', 'en'], applied: true }]);
+  assert.deepEqual(pub.home, { touched: true, applied: true });
+});
+
+test('الكاسح بعد الحرفي في الحقل نفسه: يكمل على نصّه ولا يمحوه وإن اختلف شكل المسار', () => {
+  const fix: CmsFix = { id: 'x-faq', group: 'phase2', path: 'faq.items[q=كيف أبدأ؟].a', from: 'نص قديم طويل', to: 'نص جديد طويل' };
+  const content = { faq: { items: [{ q: 'كيف أبدأ؟', a: 'نص قديم طويل — ابدأ تجربتك المجانية 10 أيام.' }] } };
+  const { value, results } = applyCmsFixes(content, [fix]);
+  assert.equal((value as typeof content).faq.items[0].a, 'نص جديد طويل — ابدأ تجربتك المجانية 5 أيام.');
+  assert.deepEqual(results.map((r) => [r.fix.sweep ?? r.fix.id, r.fix.path, r.status]), [
+    ['x-faq', fix.path, 'applied'],
+    ['trial-yours', fix.path, 'applied'],
+  ]);
 });
 
 // ── الطبقة العامة: المنشور مصحَّحاً، والمحرّر خام ──────────────────────────────

@@ -174,7 +174,7 @@ export default function SubscriptionRequestPage() {
               </button>
               <p className="text-[11px] text-[#9A8F7E] text-center leading-relaxed">
                 {tr('أو ابدأ فورا بنفسك عبر', 'Or start right away with the', 'Ou commencez immédiatement avec l’')}{' '}
-                <Link to="/signup/" className="text-[#E15A30] font-semibold hover:underline">{tr('التجربة المجانية 10 أيام', 'free 10-day trial', 'essai gratuit de 10 jours')}</Link>
+                <Link to="/signup/" className="text-[#E15A30] font-semibold hover:underline">{tr('التجربة المجانية 5 أيام', 'free 5-day trial', 'essai gratuit de 5 jours')}</Link>
               </p>
             </form>
           )}

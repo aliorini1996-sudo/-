@@ -31,7 +31,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 // ───────────────────────────── الإنشاء ─────────────────────────────
 
-export const TRIAL_PERIOD_DAYS = 10;
+/** مدة التجربة المجانية للحسابات الجديدة — ٥ أيام (قرار المالك ١٩ نوفمبر ٢٠٢٦، كانت ١٠)؛ الحسابات القائمة تبقى بتاريخ انتهائها المحفوظ. */
+export const TRIAL_PERIOD_DAYS = 5;
 export const TRIAL_LIMITS = { maxSalesReps: 5, maxAdminUsers: 1 } as const;
 
 /**

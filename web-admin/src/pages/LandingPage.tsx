@@ -729,31 +729,31 @@ export default function LandingPage() {
     ar: {
       title: 'FieldSales فيلد سيلز | نظام مبيعات المناديب والتوزيع',
       // ≤155 حرفاً + الكلمة المفتاحية في المقدّمة — مطابق لوصف index.html (المصدر الذي يقرؤه الزاحف)
-      description: 'نظام مبيعات المناديب والتوزيع فواتير ضريبية تحصيل مخزون السيارة وتتبع GPS للسعودية ومصر والخليج جرب مجانا 10 أيام',
+      description: 'نظام مبيعات المناديب والتوزيع فواتير ضريبية تحصيل مخزون السيارة وتتبع GPS للسعودية ومصر والخليج جرب مجانا 5 أيام',
       keywords: 'نظام مبيعات ميدانية, إدارة مناديب التوزيع, نظام توزيع, برنامج توزيع, فواتير ضريبية, ZATCA, الفوترة الإلكترونية, فاتورة ضريبية مبسطة, تحصيل المدفوعات, إدارة الذمم المدينة, سندات قبض, مخزون سيارة المندوب, البيع المتنقل van sales, تتبع المناديب GPS, إدارة العملاء وحدود الائتمان, كتالوج المنتجات والأسعار, تكامل ERP, نظام مبيعات لكل دول العالم, نظام مبيعات مصر, نظام توزيع المغرب, برنامج مناديب الجزائر وتونس وليبيا, نظام مبيعات السعودية, فيلد سيلز',
       locale: 'ar' as const,
     },
     en: {
       title: 'FieldSales | Field Sales & Distribution Management Software',
-      description: 'Field sales software for distribution companies in any country: invoices with a QR code, collection, van stock and rep GPS tracking. Free 10-day trial.',
+      description: 'Field sales software for distribution companies in any country: invoices with a QR code, collection, van stock and rep GPS tracking. Free 5-day trial.',
       keywords: 'field sales system, sales rep management software, distribution management software, route accounting, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales software, van stock management, GPS rep tracking, customer management, product catalog, ERP integration',
       locale: 'en' as const,
     },
     fr: {
       title: 'FieldSales | Logiciel de vente terrain et de distribution',
-      description: 'Logiciel de vente terrain pour distributeurs de tous pays : prévente et vente en tournée, factures, encaissement et suivi GPS. Essai gratuit 10 jours.',
+      description: 'Logiciel de vente terrain pour distributeurs de tous pays : prévente et vente en tournée, factures, encaissement et suivi GPS. Essai gratuit 5 jours.',
       keywords: 'logiciel de vente terrain, application de prévente, logiciel de vente en tournée, logiciel de gestion des commerciaux, logiciel de gestion de distribution, facturation électronique, facture fiscale, encaissement, gestion des créances, stock du véhicule, suivi GPS des commerciaux, gestion des clients, catalogue produits, intégration ERP',
       locale: 'fr' as const,
     },
     tr: {
       title: 'FieldSales | Saha Satış ve Dağıtım Yönetim Yazılımı',
-      description: 'Her ülkedeki dağıtım şirketleri için saha satış ve plasiyer yazılımı: QR kodlu faturalar, tahsilat, araç stoku ve GPS takibi. 10 gün ücretsiz deneme.',
+      description: 'Her ülkedeki dağıtım şirketleri için saha satış ve plasiyer yazılımı: QR kodlu faturalar, tahsilat, araç stoku ve GPS takibi. 5 gün ücretsiz deneme.',
       keywords: 'saha satış sistemi saha ekibi yönetimi dağıtım yönetim yazılımı rota muhasebesi e-fatura vergi faturası tahsilat cari hesap araç stoku yönetimi GPS temsilci takibi müşteri yönetimi ürün kataloğu ERP entegrasyonu',
       locale: 'tr' as const,
     },
     zh: {
       title: 'FieldSales | 外勤销售与分销管理软件',
-      description: '面向各国分销企业的外勤销售系统：带二维码的发票、收款、车载库存与业务员 GPS 追踪。免费试用 10 天。',
+      description: '面向各国分销企业的外勤销售系统：带二维码的发票、收款、车载库存与业务员 GPS 追踪。免费试用 5 天。',
       keywords: '外勤销售系统 业务员管理软件 分销管理系统 路线销售管理 ZATCA 电子发票 收款管理 应收账款 车销库存管理 GPS 业务员追踪 客户管理 产品目录 ERP 集成',
       locale: 'zh' as const,
     },

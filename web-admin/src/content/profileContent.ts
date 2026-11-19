@@ -176,7 +176,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       المتوسّطة حتى عشرة مناديب ومستخدمَين إداريَّين
       الاحترافيّة حتى عشرين مندوباً وخمسة مستخدمين إداريين بصلاحيات موسّعة
       سعر كل باقة بعرض سعر نرسله لك، وما زاد على عشرين مندوباً نجهّز له عرضاً يناسب حجمك
-      تجربة عشرة أيّام مجّاناً بلا بطاقة ولا التزام، وبياناتك تبقى ملكك`,
+      تجربة خمسة أيّام مجّاناً بلا بطاقة ولا التزام، وبياناتك تبقى ملكك`,
 
     numbers_title: 'أرقام من الإنتاج لا من العروض',
     numbers_items: `١٦ | شركة شغّلت أعمالها على المنصّة
@@ -192,7 +192,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
 
     partners_title: 'شركاء نثق بهم ويثقون بنا',
     ask_title: 'ابدأ اليوم في ثلاث خطوات',
-    ask_items: `سجّل تجربة عشرة أيّام مجّاناً من الموقع بلا بطاقة
+    ask_items: `سجّل تجربة خمسة أيّام مجّاناً من الموقع بلا بطاقة
       استورد عملاءك ومنتجاتك من ملفّ إكسل في دقائق
       درّب مندوبيك في جلسة واحدة وابدأ الفوترة من الغد`,
 
@@ -261,7 +261,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       Growth for up to ten reps and two admin users
       Advanced for up to twenty reps and five admin users, with extended permissions
       Each plan is priced by quote — request one and we will send it; beyond twenty reps we tailor an offer to your size
-      A ten-day free trial, no card and no commitment, and your data stays yours`,
+      A five-day free trial, no card and no commitment, and your data stays yours`,
 
     numbers_title: 'Numbers from production, not from decks',
     numbers_items: `16 | companies have run their work on the platform
@@ -277,7 +277,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
 
     partners_title: 'Partners we trust, and who trust us',
     ask_title: 'Start today in three steps',
-    ask_items: `Sign up for a ten-day free trial from the website, no card needed
+    ask_items: `Sign up for a five-day free trial from the website, no card needed
       Import your customers and products from an Excel file in minutes
       Train your reps in one session and start invoicing tomorrow`,
 
@@ -362,7 +362,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
 
     partners_title: 'Des partenaires de confiance, réciproque',
     ask_title: 'Commencez aujourd’hui en trois étapes',
-    ask_items: `Ouvrez un essai gratuit de dix jours depuis le site, sans carte
+    ask_items: `Ouvrez un essai gratuit de cinq jours depuis le site, sans carte
       Importez vos clients et vos produits depuis un fichier Excel en quelques minutes
       Formez vos commerciaux en une séance et facturez dès demain`,
 
@@ -431,7 +431,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       Büyüme paketi, on temsilci ve iki yönetici hesabına kadar
       Gelişmiş paket, yirmi temsilci ve beş yönetici hesabına kadar; genişletilmiş yetkiler
       Her paketin fiyatı teklifle belirlenir — teklif isteyin, size gönderelim; yirmi temsilcinin üzerinde ölçeğinize uygun bir teklif hazırlarız
-      On gün ücretsiz deneme; kart yok, taahhüt yok ve verileriniz sizin kalır`,
+      Beş gün ücretsiz deneme; kart yok, taahhüt yok ve verileriniz sizin kalır`,
 
     numbers_title: 'Sunumlardan değil, üretimden gelen rakamlar',
     numbers_items: `16 | şirket işini platform üzerinde yürüttü
@@ -447,7 +447,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
 
     partners_title: 'Güvendiğimiz ve bize güvenen iş ortakları',
     ask_title: 'Bugün üç adımda başlayın',
-    ask_items: `Siteden kartsız, on günlük ücretsiz denemeyi başlatın
+    ask_items: `Siteden kartsız, beş günlük ücretsiz denemeyi başlatın
       Müşterilerinizi ve ürünlerinizi Excel dosyasından dakikalar içinde aktarın
       Temsilcilerinizi tek oturumda eğitin ve yarın faturalamaya başlayın`,
 
@@ -516,7 +516,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
       成长版：最多 10 位业务员和 2 个管理账号
       进阶版：最多 20 位业务员和 5 个管理账号，权限更广
       各套餐价格以报价为准 —— 索取报价，我们发送给您；超过 20 位业务员按您的规模定制方案
-      十天免费试用，无需银行卡、无需承诺，数据始终属于您`,
+      五天免费试用，无需银行卡、无需承诺，数据始终属于您`,
 
     numbers_title: '来自生产环境的数字，而非演示文稿',
     numbers_items: `16 | 家企业已在平台上开展业务
@@ -532,7 +532,7 @@ export const PROFILE_DEFAULTS: ProfileContent = {
 
     partners_title: '彼此信赖的合作伙伴',
     ask_title: '三步即可开始',
-    ask_items: `在官网开通十天免费试用，无需银行卡
+    ask_items: `在官网开通五天免费试用，无需银行卡
       几分钟内从 Excel 文件导入客户与商品
       一次培训即可让业务员上手，次日开始开票`,
 

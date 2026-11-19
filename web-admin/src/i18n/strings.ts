@@ -24,7 +24,7 @@ export const DICT: Record<string, { ar: string; en: string; fr: string; tr: stri
   'login.collectToday': { ar: 'التحصيل اليوم', en: "Today's collection", fr: 'Encaissement du jour', tr: 'Bugünkü tahsilat', zh: '今日收款' },
 
   // التسجيل الذاتي
-  'signup.badge': { ar: 'تجربة مجانية 10 أيام', en: '10-day free trial', fr: 'Essai gratuit de 10 jours', tr: '10 gün ücretsiz deneme', zh: '10 天免费试用' },
+  'signup.badge': { ar: 'تجربة مجانية 5 أيام', en: '5-day free trial', fr: 'Essai gratuit de 5 jours', tr: '5 gün ücretsiz deneme', zh: '5 天免费试用' },
   'signup.title': { ar: 'ابدأ تجربتك المجانية', en: 'Start your free trial', fr: 'Démarrez votre essai gratuit', tr: 'Ücretsiz denemenizi başlatın', zh: '开启免费试用' },
   'signup.subtitle': { ar: 'أنشئ حساب شركتك في دقيقة بدون بطاقة ائتمان', en: 'Create your company account in a minute — no credit card required', fr: 'Créez le compte de votre entreprise en une minute sans carte bancaire', tr: 'Şirket hesabınızı bir dakikada oluşturun, kredi kartı gerekmez', zh: '一分钟创建企业账户，无需信用卡' },
   'signup.company': { ar: 'اسم الشركة', en: 'Company name', fr: 'Nom de l entreprise', tr: 'Şirket adı', zh: '企业名称' },
@@ -45,7 +45,7 @@ export const DICT: Record<string, { ar: string; en: string; fr: string; tr: stri
   'signup.haveAccount': { ar: 'هل لديك حساب بالفعل', en: 'Already have an account?', fr: 'Vous avez déjà un compte ?', tr: 'Zaten hesabınız var mı', zh: '已有账户' },
   'signup.signin': { ar: 'تسجيل الدخول', en: 'Sign in', fr: 'Se connecter', tr: 'Giriş yap', zh: '登录' },
   'signup.heroLead': { ar: 'جرب المنصة كاملة مجانا وأدر فريقك الميداني من أول يوم', en: 'Try the full platform free and run your field team from day one', fr: 'Essayez la plateforme complète gratuitement et pilotez votre équipe terrain dès le premier jour', tr: 'Platformun tamamını ücretsiz deneyin, saha ekibinizi ilk günden itibaren yönetin', zh: '免费体验完整平台，第一天就能管好外勤团队' },
-  'signup.perk1': { ar: '10 أيام مجانا بالكامل', en: '10 days, completely free', fr: '10 jours entièrement gratuits', tr: '10 gün tamamen ücretsiz', zh: '整整 10 天全免费' },
+  'signup.perk1': { ar: '5 أيام مجانا بالكامل', en: '5 days, completely free', fr: '5 jours entièrement gratuits', tr: '5 gün tamamen ücretsiz', zh: '整整 5 天全免费' },
   'signup.perk2': { ar: 'بدون بطاقة ائتمان', en: 'No credit card', fr: 'Sans carte bancaire', tr: 'Kredi kartı gerekmez', zh: '无需信用卡' },
   'signup.perk3': { ar: 'كل المميزات مفعلة', en: 'All features enabled', fr: 'Toutes les fonctionnalités activées', tr: 'Tüm özellikler aktif', zh: '全部功能开放' },
   'signup.perk4': { ar: 'إلغاء في أي وقت', en: 'Cancel anytime', fr: 'Annulation à tout moment', tr: 'İstediğiniz zaman iptal edin', zh: '随时取消' },

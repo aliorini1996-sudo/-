@@ -50,7 +50,7 @@ export const defaultContentFr = {
   },
   pricing: {
     title: 'Des offres qui grandissent avec votre entreprise',
-    subtitle: 'Commencez gratuitement pendant 10 jours — sans carte bancaire.',
+    subtitle: 'Commencez gratuitement pendant 5 jours — sans carte bancaire.',
     plans: [
       { name: 'Débutant', price: '299', limit: 'Jusqu’à 5 commerciaux · 1 utilisateur admin' },
       { name: 'Croissance', price: '399', limit: 'Jusqu’à 10 commerciaux · 2 utilisateurs admin' },
@@ -72,7 +72,7 @@ export const defaultContentFr = {
     title: 'Prêt à doubler l’efficacité de votre équipe terrain ?',
     subtitle: 'Émettez vos factures fiscales, encaissez vos paiements et suivez votre équipe terrain — le tout depuis une seule plateforme.',
     ctaSecondary: 'Réserver une démo',
-    note: '10 jours gratuits · Sans carte bancaire · Annulable à tout moment',
+    note: '5 jours gratuits · Sans carte bancaire · Annulable à tout moment',
   },
   footer: {
     desc: 'Une plateforme complète pour gérer les ventes terrain de distribution — de la commande à l’encaissement.',
@@ -107,7 +107,7 @@ La plateforme est un système cloud de gestion des commerciaux de distribution s
 • Vous devez nous informer immédiatement de toute utilisation non autorisée de votre compte.
 
 4. Essai gratuit et abonnement
-• Nous offrons un essai gratuit de 10 jours, sans carte bancaire.
+• Nous offrons un essai gratuit de 5 jours, sans carte bancaire.
 • À l’issue de l’essai, la poursuite du service nécessite un abonnement payant selon l’offre choisie.
 • Les prix peuvent évoluer à l’avenir moyennant un préavis, sans incidence sur une période déjà réglée.
 
