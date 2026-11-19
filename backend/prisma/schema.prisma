@@ -3996,6 +3996,10 @@ model AffiliateSettings {
   firstPaymentWithinDays Int     @default(180)
   currentTermsVersion   String   @default("2026-09-v1")
   disclosureText        String   @default("أحصل على عمولة من فيلد سيلز إذا اشتركت عبر رابطي")
+  /// قرار المالك (19 نوفمبر 2026): أسعار الباقات التي يراها السفراء ونسبة خصم سفراء اليمن —
+  /// { packagePrices: { starter?: { monthly?, yearly? }, … }, yemenDiscountPct } بالريال الصحيح شاملاً الضريبة.
+  /// null = الكتالوج الرسمي والخصم الافتراضيّ ٣٣٪ (services/affiliate/pricing.ts). عمودٌ إضافيّ nullable فقط
+  pricingJson           Json?
   updatedBy             String?
   updatedAt             DateTime @updatedAt
   @@map("affiliate_settings")

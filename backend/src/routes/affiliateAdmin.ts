@@ -13,8 +13,11 @@ import { AuthRequest } from '../types';
 import {
   getSettings, logEvent, logEventSafe, platformActor, decryptIban, isUniqueViolation, riyadhDay, DEFAULT_TERMS_VERSION, DEFAULT_SETTINGS,
   BUILTIN_TERMS_VERSIONS, builtinTermsBody, builtinTermsRules,
-  TERMS_RULE_KEYS, TERMS_RULE_RANGES, TermsRuleKey, parseTermsRules, pickRules, rulesFor,
+  TERMS_RULE_KEYS, TERMS_RULE_RANGES, TermsRuleKey, parseTermsRules, pickRules, rulesFor, settingsColumns,
 } from '../services/affiliate/core';
+import {
+  PACKAGE_IDS, AMB_PRICE_MIN, AMB_PRICE_MAX, YEMEN_PCT_MIN, YEMEN_PCT_MAX, cleanPackagePrices, ambassadorPricingJson, packageCatalog,
+} from '../services/affiliate/pricing';
 import { canTransition, normCompanyName, normCR } from '../services/affiliate/rules';
 import {
   LedgerError, reconcile, approveCommission, holdCommission, releaseCommission, declineCommission,
@@ -94,31 +97,70 @@ router.get('/overview', handle(async (_req, res) => {
 
 router.get('/settings', handle(async (_req, res) => {
   const row = await prisma.affiliateSettings.findUnique({ where: { id: 'global' } });
-  res.json({ success: true, data: { ...(await getSettings()), updatedBy: row?.updatedBy ?? null, updatedAt: row?.updatedAt ?? null } });
+  // packageCatalog: الأسعار الرسمية بجانب حقول «أسعار الباقات في بوابة السفير» (قرار المالك 19 نوفمبر 2026)
+  res.json({ success: true, data: { ...(await getSettings()), packageCatalog: packageCatalog(), updatedBy: row?.updatedBy ?? null, updatedAt: row?.updatedAt ?? null } });
 }));
 
 const ruleNumber = (k: TermsRuleKey) => z.number().int().min(TERMS_RULE_RANGES[k][0]).max(TERMS_RULE_RANGES[k][1]);
 const rulesSchema = z.object(Object.fromEntries(TERMS_RULE_KEYS.map(k => [k, ruleNumber(k).optional()])) as Record<TermsRuleKey, z.ZodOptional<z.ZodNumber>>);
 
 /**
+ * قرار المالك (19 نوفمبر 2026): أسعار الباقات التي يراها السفراء. `packagePrices` **يستبدل الخريطة كلّها**:
+ * الباقة الغائبة أو السعر null = الكتالوج الرسمي (هكذا يُرجَع السعر الرسمي). معرّفٌ خارج الكتالوج أو مفتاحٌ
+ * غير monthly/yearly يُرفض (strict) لا يُهمل، والسعر ريالٌ صحيح شامل الضريبة.
+ */
+const ambPrice = z.number({ invalid_type_error: 'سعر الباقة رقمٌ بالريال' })
+  .int('سعر الباقة بالريال الصحيح بلا كسور')
+  .min(AMB_PRICE_MIN, `سعر الباقة من ${AMB_PRICE_MIN} إلى ${AMB_PRICE_MAX.toLocaleString('en-US')} ريال`)
+  .max(AMB_PRICE_MAX, `سعر الباقة من ${AMB_PRICE_MIN} إلى ${AMB_PRICE_MAX.toLocaleString('en-US')} ريال`);
+const packagePriceSchema = z.object({ monthly: ambPrice.nullable().optional(), yearly: ambPrice.nullable().optional() }).strict();
+const packagePricesSchema = z.object(
+  Object.fromEntries(PACKAGE_IDS.map(id => [id, packagePriceSchema.nullable().optional()])) as Record<string, z.ZodOptional<z.ZodNullable<typeof packagePriceSchema>>>,
+).strict('باقةٌ غير معروفة في الأسعار');
+const yemenPct = z.number({ invalid_type_error: 'نسبة خصم سفراء اليمن رقم' })
+  .int('نسبة خصم سفراء اليمن عددٌ صحيح')
+  .min(YEMEN_PCT_MIN, `نسبة خصم سفراء اليمن من ${YEMEN_PCT_MIN} إلى ${YEMEN_PCT_MAX}`)
+  .max(YEMEN_PCT_MAX, `نسبة خصم سفراء اليمن من ${YEMEN_PCT_MIN} إلى ${YEMEN_PCT_MAX}`);
+
+/**
  * الإعدادات التشغيلية فقط. القيم الماليّة تنصّ عليها الشروط، فتغييرها هنا كان
  * سيطبّق على سفيرٍ ما لم يقبله (الشروط §٧) — مكانها نشر إصدارٍ جديد.
+ * وأسعار الباقات المعروضة للسفراء ونسبة خصم سفراء اليمن (قرار المالك 19 نوفمبر 2026) تشغيليّةٌ هنا:
+ * عرضٌ في البوابة لا يمسّ عمولةً ولا شرطاً.
  */
 router.put('/settings', handle(async (req, res) => {
   const b = z.object({
     intakeOpen: z.boolean().optional(),
     disclosureText: z.string().trim().min(10, 'نصّ الإفصاح ١٠ أحرف على الأقل').max(300).optional(),
+    packagePrices: packagePricesSchema.optional(),
+    yemenDiscountPct: yemenPct.optional(),
   }).merge(rulesSchema).parse(req.body);
   const before = await getSettings();
   const changedRules = TERMS_RULE_KEYS.filter(k => b[k] !== undefined && b[k] !== before[k]);
   if (changedRules.length) throw new LedgerError(409, 'النسبة والحجز والحدود جزءٌ من الشروط — تتغيّر بنشر إصدارٍ جديد من الشروط', 'terms_bound');
+  const pricingTouched = b.packagePrices !== undefined || b.yemenDiscountPct !== undefined;
+  const pricing = {
+    packagePrices: b.packagePrices !== undefined ? cleanPackagePrices(b.packagePrices) : before.packagePrices,
+    yemenDiscountPct: b.yemenDiscountPct ?? before.yemenDiscountPct,
+  };
   const ops = { ...(b.intakeOpen !== undefined ? { intakeOpen: b.intakeOpen } : {}), ...(b.disclosureText !== undefined ? { disclosureText: b.disclosureText } : {}) };
+  const data = { ...ops, ...(pricingTouched ? { pricingJson: ambassadorPricingJson(pricing) } : {}) };
   const row = await prisma.affiliateSettings.upsert({
     where: { id: 'global' },
-    create: { id: 'global', ...before, ...ops, updatedBy: owner(req) },
-    update: { ...ops, updatedBy: owner(req) },
+    create: { id: 'global', ...settingsColumns(before), ...data, updatedBy: owner(req) },
+    update: { ...data, updatedBy: owner(req) },
   });
-  logEventSafe({ entity: 'settings', entityId: 'global', action: 'updated', ...platformActor(req), meta: { changes: { ...ops } } });
+  logEventSafe({
+    entity: 'settings', entityId: 'global', action: 'updated', ...platformActor(req),
+    meta: {
+      changes: {
+        ...ops,
+        ...(b.packagePrices !== undefined ? { packagePrices: pricing.packagePrices } : {}),
+        ...(b.yemenDiscountPct !== undefined ? { yemenDiscountPct: pricing.yemenDiscountPct } : {}),
+      },
+      ...(pricingTouched ? { previous: { packagePrices: before.packagePrices, yemenDiscountPct: before.yemenDiscountPct } } : {}),
+    },
+  });
   res.json({ success: true, data: row });
 }));
 
@@ -147,7 +189,7 @@ router.post('/terms', handle(async (req, res) => {
       const row = await tx.affiliateTerms.create({ data: { version: b.version, body: b.body, rulesJson: rules, publishedBy: owner(req) } });
       await tx.affiliateSettings.upsert({
         where: { id: 'global' },
-        create: { id: 'global', ...settings, ...rules, currentTermsVersion: b.version, updatedBy: owner(req) },
+        create: { id: 'global', ...settingsColumns(settings), ...rules, currentTermsVersion: b.version, updatedBy: owner(req) },
         update: { ...rules, currentTermsVersion: b.version, updatedBy: owner(req) },
       });
       await logEvent(tx, { entity: 'terms', entityId: b.version, action: 'published', ...platformActor(req), meta: { previous: settings.currentTermsVersion, rules } });

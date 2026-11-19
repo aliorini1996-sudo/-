@@ -11,6 +11,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { Prisma } from '@prisma/client';
 import prisma from '../../config/database';
+import { PackagePriceOverrides, DEFAULT_YEMEN_DISCOUNT_PCT, parseAmbassadorPricing } from './pricing';
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -26,6 +27,23 @@ export interface AffiliateSettingsValue {
   firstPaymentWithinDays: number;
   currentTermsVersion: string;
   disclosureText: string;
+  /**
+   * قرار المالك (19 نوفمبر 2026): سعر كل باقة يراه السفراء في بوابتهم (ريالات صحيحة شاملة الضريبة) —
+   * الغائب = الكتالوج الرسمي. يُخزَّن مع النسبة التالية في عمود `pricingJson` (services/affiliate/pricing.ts)
+   */
+  packagePrices: PackagePriceOverrides;
+  /** نسبة خصم سفراء اليمن (+967) فوق السعر المعروض — 0..90، الافتراضيّ ٣٣ */
+  yemenDiscountPct: number;
+}
+
+/**
+ * أعمدة صفّ الإعدادات من قيمتها لإنشائه (upsert create): أسعار السفراء ليست أعمدة — تُكتب صراحةً في
+ * `pricingJson` حين يغيّرها المالك وحده، فلا تُنسخ الافتراضيات إلى الصفّ ولا يصل Prisma حقلٌ مجهول.
+ */
+export function settingsColumns(s: AffiliateSettingsValue): Omit<AffiliateSettingsValue, 'packagePrices' | 'yemenDiscountPct'> {
+  const { packagePrices, yemenDiscountPct, ...cols } = s;
+  void packagePrices; void yemenDiscountPct;
+  return cols;
 }
 
 /**
@@ -60,11 +78,13 @@ export const DEFAULT_SETTINGS: AffiliateSettingsValue = {
   ...BUILTIN_TERMS_RULES[DEFAULT_TERMS_VERSION],
   currentTermsVersion: DEFAULT_TERMS_VERSION,
   disclosureText: 'أحصل على عمولة من فيلد سيلز إذا اشتركت عبر رابطي',
+  packagePrices: {},
+  yemenDiscountPct: DEFAULT_YEMEN_DISCOUNT_PCT,
 };
 
 export async function getSettings(db: Db = prisma): Promise<AffiliateSettingsValue> {
   const row = await db.affiliateSettings.findUnique({ where: { id: 'global' } });
-  if (!row) return { ...DEFAULT_SETTINGS };
+  if (!row) return { ...DEFAULT_SETTINGS, packagePrices: {} };
   // صفٌّ حُفظ وإصداره الحالي مدمجٌ أقدم (قبل تحديث النصّ في الشيفرة) يُرقّى للمدمج الأحدث؛
   // الإصدارات التي نشرها المالك من لوحته لا تُمسّ
   const builtinIdx = (BUILTIN_TERMS_VERSIONS as readonly string[]).indexOf(row.currentTermsVersion);
@@ -82,6 +102,8 @@ export async function getSettings(db: Db = prisma): Promise<AffiliateSettingsVal
     firstPaymentWithinDays: fixed?.firstPaymentWithinDays ?? row.firstPaymentWithinDays,
     currentTermsVersion,
     disclosureText: row.disclosureText,
+    // عمودٌ إضافيّ nullable: صفٌّ قديم بلا أسعار (أو تالف) = الكتالوج والخصم الافتراضيّ
+    ...parseAmbassadorPricing(row.pricingJson),
   };
 }
 

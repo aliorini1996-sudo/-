@@ -723,9 +723,9 @@ export function validateDisclosure(text: string): string | null {
   return null;
 }
 
-/** ما يقبله PUT /settings وحده */
+/** ما يقبله PUT /settings وحده — وأسعار السفراء (PricingBody) بقرار المالك 19 نوفمبر 2026 */
 export interface SettingsDraft { intakeOpen: boolean; disclosureText: string }
-export type SettingsBody = Partial<SettingsDraft>;
+export type SettingsBody = Partial<SettingsDraft> & PricingBody;
 
 export function settingsDraftOf(s: { intakeOpen: boolean; disclosureText: string }): SettingsDraft {
   return { intakeOpen: !!s.intakeOpen, disclosureText: s.disclosureText ?? '' };
@@ -750,6 +750,159 @@ export function sameDraft(a: SettingsDraft, b: SettingsDraft): boolean {
  */
 export function syncSettingsDraft(draft: SettingsDraft, prevBase: SettingsDraft, nextBase: SettingsDraft): SettingsDraft {
   return sameDraft(draft, prevBase) ? nextBase : draft;
+}
+
+// ─── أسعار الباقات في بوابة السفير ─────────────────────────────────────────
+// قرار المالك (19 نوفمبر 2026): المالك يحدّد سعر كل باقة يراه السفراء في تبويب «الباقات والأسعار»
+// (شهرياً وسنوياً، ريالٌ صحيح شاملٌ الضريبة — الفارغ = السعر الرسمي) ونسبة خصم سفراء اليمن (0–90).
+// الحدود تطابق PUT /settings في backend/src/routes/affiliateAdmin.ts (services/affiliate/pricing.ts).
+
+export const AMB_PRICE_MIN = 1;
+export const AMB_PRICE_MAX = 1_000_000;
+export const YEMEN_PCT_MIN = 0;
+export const YEMEN_PCT_MAX = 90;
+export const YEMEN_PCT_DEFAULT = 33;
+export const PRICE_CYCLES = ['monthly', 'yearly'] as const;
+export type PriceCycle = (typeof PRICE_CYCLES)[number];
+/** نصّا الخطأ ثابتان (مفتاحان في PHRASES) — بلا أرقامٍ تُدرج وقت العرض */
+export const AMB_PRICE_ERROR = 'سعر الباقة عدد صحيح بالريال من 1 إلى 1,000,000';
+export const YEMEN_PCT_ERROR = 'نسبة خصم سفراء اليمن عدد صحيح من 0 إلى 90';
+
+export type PackagePrices = Record<string, { monthly?: number; yearly?: number }>;
+/** الكتالوج الرسمي كما يرسله GET /settings (بالريال شاملاً الضريبة) */
+export interface PackageCatalogItem { id: string; name: string; monthly: number; yearly: number }
+type PricingSource = { packagePrices?: PackagePrices | null; yemenDiscountPct?: number | null; packageCatalog?: PackageCatalogItem[] | null };
+
+/** جسم الأسعار في PUT /settings: `packagePrices` **يستبدل الخريطة كلّها** (الغائب = الرسمي) */
+export interface PricingBody { packagePrices?: PackagePrices; yemenDiscountPct?: number }
+export interface PricingValue { packagePrices: PackagePrices; yemenDiscountPct: number }
+export interface PricingDraft { prices: Record<string, Record<PriceCycle, string>>; yemenPct: string }
+
+/** '' ⇒ null (السعر الرسمي)، وإلا ريالٌ صحيح 1..1,000,000 — يقبل الأرقام العربية وفاصل الآلاف */
+export function parseAmbPrice(raw: string): Parsed<number | null> {
+  const s = normalizeNumeric(String(raw ?? '').replace(/[,٬]/g, ''));
+  if (!s) return { ok: true, value: null };
+  if (!/^\d+$/.test(s)) return { ok: false, error: AMB_PRICE_ERROR };
+  const n = Number(s);
+  if (!Number.isSafeInteger(n) || n < AMB_PRICE_MIN || n > AMB_PRICE_MAX) return { ok: false, error: AMB_PRICE_ERROR };
+  return { ok: true, value: n };
+}
+
+/** نسبة خصم اليمن: عددٌ صحيح 0..90 (الفارغ خطأ — الصفر يلغي الخصم صراحةً) */
+export function parseYemenPct(raw: string): Parsed<number> {
+  const s = normalizeNumeric(String(raw ?? '').replace(/[%٪]/g, ''));
+  if (!/^\d+$/.test(s)) return { ok: false, error: YEMEN_PCT_ERROR };
+  const n = Number(s);
+  if (!Number.isSafeInteger(n) || n < YEMEN_PCT_MIN || n > YEMEN_PCT_MAX) return { ok: false, error: YEMEN_PCT_ERROR };
+  return { ok: true, value: n };
+}
+
+const validPrice = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= AMB_PRICE_MIN && v <= AMB_PRICE_MAX;
+
+/** خريطة الخادم نظيفةً بترتيب الكتالوج (الغائب والتالف = الرسمي، ولا باقة بلا سعر) */
+export function cleanPackagePrices(raw: PackagePrices | null | undefined, ids: readonly string[]): PackagePrices {
+  const out: PackagePrices = {};
+  for (const id of ids) {
+    const e = raw && Object.prototype.hasOwnProperty.call(raw, id) ? raw[id] : undefined;
+    if (!e) continue;
+    const o: { monthly?: number; yearly?: number } = {};
+    if (validPrice(e.monthly)) o.monthly = e.monthly;
+    if (validPrice(e.yearly)) o.yearly = e.yearly;
+    if (o.monthly !== undefined || o.yearly !== undefined) out[id] = o;
+  }
+  return out;
+}
+
+export function pricingDraftOf(s: PricingSource): PricingDraft {
+  const catalog = s.packageCatalog ?? [];
+  const prices = cleanPackagePrices(s.packagePrices, catalog.map((c) => c.id));
+  const draft: PricingDraft = { prices: {}, yemenPct: String(s.yemenDiscountPct ?? YEMEN_PCT_DEFAULT) };
+  for (const c of catalog) {
+    const o = prices[c.id];
+    draft.prices[c.id] = { monthly: o?.monthly !== undefined ? String(o.monthly) : '', yearly: o?.yearly !== undefined ? String(o.yearly) : '' };
+  }
+  return draft;
+}
+
+export function setPackagePrice(d: PricingDraft, id: string, cycle: PriceCycle, value: string): PricingDraft {
+  const row = d.prices[id] ?? { monthly: '', yearly: '' };
+  return { ...d, prices: { ...d.prices, [id]: { ...row, [cycle]: value } } };
+}
+
+/** «السعر الرسمي»: يفرّغ حقلي الباقة فيعود السفراء للكتالوج بعد الحفظ */
+export function resetPackagePrice(d: PricingDraft, id: string): PricingDraft {
+  return { ...d, prices: { ...d.prices, [id]: { monthly: '', yearly: '' } } };
+}
+
+/** للباقة سعرٌ خاصّ في المسودّة (يُفعَّل به زرّ «السعر الرسمي») */
+export function hasCustomPrice(d: PricingDraft, id: string): boolean {
+  const row = d.prices[id];
+  return !!row && (row.monthly.trim() !== '' || row.yearly.trim() !== '');
+}
+
+/** المسودّة ⇒ القيمة، أو الخطأ والحقول غير الصالحة (`starter.monthly`، `yemenPct`) لتلوينها */
+export function validatePricingDraft(d: PricingDraft): { ok: true; value: PricingValue } | { ok: false; error: string; invalid: string[] } {
+  const packagePrices: PackagePrices = {};
+  const invalid: string[] = [];
+  let error = '';
+  for (const [id, row] of Object.entries(d.prices)) {
+    const o: { monthly?: number; yearly?: number } = {};
+    for (const cy of PRICE_CYCLES) {
+      const r = parseAmbPrice(row[cy]);
+      if (!r.ok) { invalid.push(`${id}.${cy}`); error = error || r.error; continue; }
+      if (r.value !== null) o[cy] = r.value;
+    }
+    if (o.monthly !== undefined || o.yearly !== undefined) packagePrices[id] = o;
+  }
+  const pct = parseYemenPct(d.yemenPct);
+  if (!pct.ok) return { ok: false, error: error || pct.error, invalid: [...invalid, 'yemenPct'] };
+  if (invalid.length) return { ok: false, error, invalid };
+  return { ok: true, value: { packagePrices, yemenDiscountPct: pct.value } };
+}
+
+const samePrices = (a: PackagePrices, b: PackagePrices): boolean => {
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  return ka.every((k) => !!b[k] && a[k].monthly === b[k].monthly && a[k].yearly === b[k].yearly);
+};
+
+/** جسم PUT /settings بالمتغيّر من الأسعار فقط — `packagePrices` كاملةً حين تتغيّر (الخادم يستبدل الخريطة) */
+export function pricingDiff(value: PricingValue, server: PricingSource): PricingBody {
+  const ids = (server.packageCatalog ?? []).map((c) => c.id);
+  const body: PricingBody = {};
+  if (!samePrices(value.packagePrices, cleanPackagePrices(server.packagePrices, ids))) body.packagePrices = value.packagePrices;
+  if (value.yemenDiscountPct !== (server.yemenDiscountPct ?? YEMEN_PCT_DEFAULT)) body.yemenDiscountPct = value.yemenDiscountPct;
+  return body;
+}
+
+/** صيغةٌ قانونية للمقارنة: «٢٥٠» و« 250 » واحد، والتالف كما كُتب */
+const canonPrice = (raw: string) => { const r = parseAmbPrice(raw); return r.ok ? String(r.value ?? '') : raw.trim(); };
+const canonPct = (raw: string) => { const r = parseYemenPct(raw); return r.ok ? String(r.value) : raw.trim(); };
+
+/** مفتاحٌ نصّيّ للمسودّة (للمقارنة ولتبعيّات الأثر) */
+export function pricingDraftKey(d: PricingDraft): string {
+  const ids = Object.keys(d.prices).sort();
+  return JSON.stringify([ids.map((id) => [id, canonPrice(d.prices[id].monthly), canonPrice(d.prices[id].yearly)]), canonPct(d.yemenPct)]);
+}
+
+export function samePricingDraft(a: PricingDraft, b: PricingDraft): boolean {
+  return pricingDraftKey(a) === pricingDraftKey(b);
+}
+
+/** كـsyncSettingsDraft: المسودّة النظيفة تتبنّى قيم الخادم الجديدة، والمعدَّلة تبقى */
+export function syncPricingDraft(draft: PricingDraft, prevBase: PricingDraft, nextBase: PricingDraft): PricingDraft {
+  return samePricingDraft(draft, prevBase) ? nextBase : draft;
+}
+
+/** سعرٌ بعد خصم اليمن بالريال — تقريب الخادم نفسه (discountedHalalas: لأقرب ريال، النصف لأعلى) */
+export function regionalPrice(riyals: number, pct: number): number {
+  return Math.round((riyals * (100 - pct)) / 100);
+}
+
+/** ما سيراه سفير اليمن لهذه الباقة من المسودّة (السعر الخاصّ الصالح أو الرسمي، ثم الخصم) */
+export function yemenPreview(row: Record<PriceCycle, string> | undefined, c: PackageCatalogItem, pct: number): Record<PriceCycle, number> {
+  const pick = (cy: PriceCycle) => { const r = parseAmbPrice(row?.[cy] ?? ''); return r.ok && r.value !== null ? r.value : c[cy]; };
+  return { monthly: regionalPrice(pick('monthly'), pct), yearly: regionalPrice(pick('yearly'), pct) };
 }
 
 // ─── التواريخ ──────────────────────────────────────────────────────────────
@@ -1287,6 +1440,8 @@ export interface AffiliateSettings {
   intakeOpen: boolean; rateBps: number; holdDays: number; minPayoutHalalas: number;
   refWindowDays: number; claimLockDays: number; firstPaymentWithinDays: number;
   currentTermsVersion?: string; disclosureText: string; updatedAt?: string; updatedBy?: string | null;
+  /** قرار المالك 19 نوفمبر 2026 — اختيارية: خادمٌ أقدم لا يرسلها فيُخفى قسم الأسعار */
+  packagePrices?: PackagePrices; yemenDiscountPct?: number; packageCatalog?: PackageCatalogItem[];
 }
 
 export interface TermsVersion { version: string; body: string; publishedAt: string; publishedBy: string; rules?: TermsRules }

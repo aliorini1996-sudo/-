@@ -381,10 +381,11 @@ router.get('/me', axAuth, async (req: AxRequest, res, next) => {
   } catch (e) { next(e); }
 });
 
-// الباقات والأسعار كما يعرضها السفير — من كتالوج الخادم، وبخصم سفير اليمن (مفتاح جواله +967)
+// الباقات والأسعار كما يعرضها السفير — من كتالوج الخادم أو السعر الذي حدّده المالك للسفراء (قرار المالك
+// 19 نوفمبر 2026: إعدادات السفراء في لوحته)، وبخصم سفير اليمن (مفتاح جواله +967) بالنسبة التي يحدّدها المالك
 router.get('/pricing', axAuth, async (req: AxRequest, res, next) => {
   try {
-    res.json({ success: true, data: affiliatePricing(req.affiliate!.phone) });
+    res.json({ success: true, data: affiliatePricing(req.affiliate!.phone, await getSettings()) });
   } catch (e) { next(e); }
 });
 

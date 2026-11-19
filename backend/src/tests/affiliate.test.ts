@@ -714,5 +714,7 @@ test('أسعار البوابة: سفير اليمن (+967) بخصم ٣٣٪ مق
 test('مسار الأسعار خلف جلسة السفير', () => {
   const portal = strip(src('routes', 'affiliate.ts'));
   assert.match(portal, /router\.get\('\/pricing', axAuth,/);
-  assert.match(portal, /affiliatePricing\(req\.affiliate!\.phone\)/);
+  // قرار المالك (19 نوفمبر 2026): المسار يمرّر إعدادات المالك — أسعار الباقات للسفراء ونسبة خصم اليمن — وكان
+  // `affiliatePricing(req.affiliate!.phone)` بالكتالوج وحده. السلوك في affiliate-pricing-settings.test.ts
+  assert.match(portal, /affiliatePricing\(req\.affiliate!\.phone, await getSettings\(\)\)/);
 });
