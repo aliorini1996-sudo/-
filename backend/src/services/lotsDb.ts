@@ -395,8 +395,12 @@ export interface AggVanTotalLoad { productId: string; vanKey: string; type: stri
 /** held: بندٌ في مستندٍ محجوز (D24) — للمحجوز الكلي (vanHeldFromAgg)؛ لا يمسّ رصيد الصنف */
 export interface AggVanTotalInv { productId: string; vanKey: string; type: string; returnToStock: boolean | null; returnExpired: boolean | null; damaged: boolean; held?: boolean; qty: number }
 
-/** حركات van_load_items لسيارات مناديب قائمين بمرشّحات computeStock (vanStock.ts:174-184) — كل التاريخ (لا حقبة) */
-async function aggVanLoadTotals(db: LotDb, tid: string, pids: string[], keys: string[], before: Date | null): Promise<AggVanTotalLoad[]> {
+/**
+ * حركات van_load_items لسيارات مناديب قائمين بمرشّحات computeStock (vanStock.ts:174-184) — كل التاريخ (لا حقبة).
+ * مُصدَّرة لـ«تصفير المخزون» (services/stockZero.ts): يقرأ البنود مع لوطاتها بـaggVanInvoices (عبارةٌ واحدة) فيأخذ الحركات من هنا.
+ * المعرّفات فريدةٌ غير فارغة (يضمنها المستدعي).
+ */
+export async function aggVanLoadTotals(db: LotDb, tid: string, pids: string[], keys: string[], before: Date | null): Promise<AggVanTotalLoad[]> {
   const loadBefore = before ? Prisma.sql` AND vl."createdAt" < ${before}` : Prisma.empty;
   const loads = await db.$queryRaw<{ productId: string; vanKey: string; type: string; qty: number | null }[]>`
     SELECT vli."productId", vl."salesRepId" AS "vanKey", vl.type, SUM(${BASE_QTY_SQL})::float8 AS qty

@@ -9,6 +9,7 @@ import type { PaymentMethodsConfigInput } from '../lib/paymentMethodsCore';
 import type { RepTargetComboInput, RepTargetInput } from '../lib/repTargets';
 import type { SalesInboxParams, SalesUpdate } from '../lib/salesCrm';
 import type { ChatRequest as AiAccountantChatRequest } from '../lib/aiAccountant';
+import type { AcctDocPatch } from '../lib/aiAccountantDocs';
 import type {
   LotCreateRequest, LotListParams, LotRef, LotRelabelRequest, LotStatusRequest, LotTrackingRequest, LotUpdateRequest,
 } from '../lib/lots';
@@ -484,10 +485,24 @@ export const aiRepApi = {
 };
 
 // المحاسب الذكي AI — الحالة والمحادثة وسجلّ القيود التي رحّلها (خامل حتى يفعّله المالك للشركة)؛ العكس عبر مسار الدفاتر القائم
+// المستندات (طلب المالك ١٨ نوفمبر): الرفع خامٌ بنوعه المفحوص في الجهاز (PDF/JPEG/PNG — lib/aiAccountantDocs.ts prepareFile)،
+// واسم الملف مرمّزاً URI في X-File-Name، ونصّ QR الزكوي كما قُرئ في الجهاز في X-Zatca-Qr إن وُجد — لا قارئ آلي ولا خروج
+// للوثيقة من المنصة. ردّ الرفع 201 {document, deduped}، والتصحيح PATCH بحقولٍ عشرية (buildDocPatch)، والمحتوى blob لصاحبه.
 export const aiAccountantApi = {
   status: () => api.get('/ai-accountant/status'),
   chat: (body: AiAccountantChatRequest) => api.post('/ai-accountant/chat', body),
   posts: (limit = 50) => api.get('/ai-accountant/posts', { params: { limit } }),
+  documents: {
+    upload: (file: Blob, name: string, qr?: string | null, onUploadProgress?: (e: { loaded: number; total?: number }) => void) =>
+      api.post('/ai-accountant/documents', file, {
+        headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-File-Name': encodeURIComponent(name), ...(qr ? { 'X-Zatca-Qr': qr } : {}) },
+        onUploadProgress,
+      }),
+    get: (id: string) => api.get(`/ai-accountant/documents/${encodeURIComponent(id)}`),
+    content: (id: string) => api.get<Blob>(`/ai-accountant/documents/${encodeURIComponent(id)}/content`, { responseType: 'blob' }),
+    patch: (id: string, body: AcctDocPatch) => api.patch(`/ai-accountant/documents/${encodeURIComponent(id)}`, body),
+    remove: (id: string) => api.delete(`/ai-accountant/documents/${encodeURIComponent(id)}`),
+  },
 };
 
 export const petroappApi = {

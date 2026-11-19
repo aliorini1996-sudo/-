@@ -13,6 +13,8 @@
  *   - warehouseOn = المستودع مفعّل والمحاسبة غير مطفأة و«إدارة المخزون» (canManageVanStock) غير مسحوبة من المستخدم — كحارس
  *     /api/warehouse و/api/suppliers (requireAdminPermission: false الصريحة تمنع، وجلسة المالك تمرّ).
  * الدالة acctCtxFrom صرفة (مختبَرة بلا قاعدة)، وloadAcctCtx تقرأ الصفوف الأربعة ثم تستدعيها.
+ * مستندات المحادثة (documents، docTurn) لا يبنيها acctCtxFrom: تُضاف في chat.ts لدورةٍ تحمل رسائلها docIds فقط (شكل السياق
+ * النصّي كما هو حرفياً).
  */
 import prisma from '../../config/database';
 import type { AdvisorTool } from '../../ai-rep/advisor';
@@ -22,6 +24,7 @@ import { companyTimeZone } from '../erpPayload';
 import { DEFAULT_TIMEZONE, isValidTimeZone, todayLocal as localToday } from '../gl/dates';
 import { isTaxOff } from '../taxMode';
 import { amountsInText } from './posting';
+import type { AcctDocView } from './documents/types';
 
 /** أداة المحاسب = أداة حلقة المستشار نفسها (ai-rep/advisor.ts): {spec, run(args) ⇒ {data, summaryAr} | {error}} */
 export type Tool = AdvisorTool;
@@ -60,6 +63,13 @@ export interface AcctCtx {
   posted: PostedMove[];
   /** تنبيهات للمستخدم (فترة مقفلة، بيانات دفاتر متأخرة…) */
   warnings: string[];
+  /**
+   * مستندات المحادثة (رفع المستندات، طلب المالك ١٨ نوفمبر ٢٠٢٦): ما أُرفق في رسائل النافذة بمراجعها D1..Dn بترتيب أول ظهور —
+   * محمّلة بالشركة والرافع نفسه وحدهما (اختياري: الغياب = لا مستندات). أداة document_facts تقرؤها، ولا يرى النموذج بايتاً.
+   */
+  documents?: AcctDocView[];
+  /** آخر رسالة تحمل مستندات ⇒ لا تُعرض أدوات الكتابة في هذه الدورة (الترحيل من بطاقة المستند وحدها) */
+  docTurn?: boolean;
 }
 
 export type AiReport = {
@@ -77,7 +87,8 @@ export type PostedMove = {
   moveId: string;
   moveNumber: string | null;
   ref: string;
-  kind: 'EXPENSE' | 'SALARIES' | 'SALARIES_SETTLE';
+  /** PREPAID/PREPAID_AMORT/ASSET من المستندات (EXPENSE لمصروف المستند كمصروف المحادثة) */
+  kind: 'EXPENSE' | 'SALARIES' | 'SALARIES_SETTLE' | 'PREPAID' | 'PREPAID_AMORT' | 'ASSET';
   amount: number;
   date: string;
   summaryAr: string;
@@ -85,6 +96,19 @@ export type PostedMove = {
   reversed: boolean;
   createdAt: string;
   adminName: string | null;
+  // ── قيود المستندات وحدها (الغياب في قيود المحادثة النصّية) ──
+  /** المستند الذي رُحّل منه القيد */
+  docId?: string;
+  /** مرفق المستند على القيد في الدفاتر (يُفتح من لوحة القيد) */
+  hasAttachment?: boolean;
+  /** قسط إطفاء ⇐ صفّ قيد الدفع المقدّم */
+  parentPostId?: string;
+  /** تقدّم إطفاء المدفوع مقدماً: الأقساط المرحّلة من عدد الأشهر، وتوقّفه، وموعد القسط التالي، والأشهر المقفلة */
+  prepaid?: { posted: number; months: number; stopped?: boolean; nextDate?: string | null; lockedMonths?: string[] };
+  /** قسط الإطفاء k من n (PREPAID_AMORT) ⇐ مرجعه وجدول قيد الدفع المقدّم أبيه — «الشهر k من n» في البطاقة */
+  amort?: { parentPostId: string; index: number; months: number };
+  /** تنبيه عربي (عُكس قيد الدفع بعد أقساط حيّة، فترة مقفلة تُخطّيت، أصلٌ يحتاج إهلاكاً) */
+  warning?: string;
 };
 
 // ───────────── مفاتيح البيئة (الغياب = مفعّل) ─────────────
@@ -148,6 +172,12 @@ export const WRITE_INTENT_RE = /سج[ّ]?ل|رح[ّ]?ل|دفع|صرف|سد[ّ]?�
 export function writeIntentIn(text: string): boolean {
   return WRITE_INTENT_RE.test(text || '');
 }
+
+/**
+ * نصّ الإرسال الافتراضي لمستندٍ بلا كلام (الويب يرسله): قراءةٌ وتلخيص — لا يطابق WRITE_INTENT_RE عمداً («…واقترح قيده»
+ * كانت تطابق «قيد» فتُعرض أدوات الترحيل على رفعٍ مجرد). الترحيل من بطاقة المستند وحدها.
+ */
+export const DOC_READ_DEFAULT_TEXT = 'اقرأ المستند المرفق ولخّص بياناته';
 
 /** طلب تقرير صريح — ردٌّ بهذا لا يرث نيّة التسجيل من الرسالة السابقة */
 export const REPORT_INTENT_RE = /قائمة|ميزان|تقرير|ملخص|ذمم|أعلى|مبيعات|تحصيل|ربح|أرباح|خسار|كشف|مشتريات|مخزون|مصروفات|\b(?:report|statement|balance|summary)\b/i;

@@ -1,18 +1,34 @@
 import { AlertTriangle, BrainCircuit, CircleAlert, RotateCcw } from 'lucide-react';
 import { useTr } from '../../../i18n/strings';
-import { plainText, type AiStatus, type ChatEntry } from '../../../lib/aiAccountant';
+import { plainText, type AiStatus, type ChatEntry, type DocRefusal } from '../../../lib/aiAccountant';
 import ReportCard from '../report/ReportCard';
 import PostedMoveCard from '../posts/PostedMoveCard';
+import DocCard, { DocCardDeleted, DocCardStub, type DocCardEnv } from '../docs/DocCard';
+import { SentDocChips } from '../docs/DocChips';
+import type { ViewerDoc } from '../docs/DocViewer';
 
 /**
  * فقاعات المحادثة. اتجاه RTL: رسائل المستخدم في الطرف المقابل (justify-end) بلون العلامة، وردود المحاسب في البداية
- * بيضاء ومعها بطاقات التقارير والقيود بعرض العمود كاملاً (الجداول تحتاج المساحة).
+ * بيضاء ومعها بطاقات المستندات والتقارير والقيود بعرض العمود كاملاً (الجداول تحتاج المساحة).
  *
  * النصّ يُعرض نصّاً صرفاً بأسطره (plainText تنزع علامات Markdown، وReact يهرّب الباقي) و`dir="auto"`: ردٌّ إنجليزي في
  * واجهة عربية لا تنقلب علامات ترقيمه.
+ *
+ * المستندات: فقاعة المستخدم تعرض شرائح ما أُرفق بها (تُفتح في العارض)، وردّ المحاسب يعرض بطاقة كل مستندٍ ذكره — كاملةً في
+ * أحدث ردٍّ يملكها (cardOwners)، وسطراً مختصراً فيما قبله وفي ردّ «رُحّل»، و«حُذف المستند» لما حُذف.
  */
 
-export function UserBubble({ entry, compact }: { entry: ChatEntry; compact?: boolean }) {
+/** ما يحتاجه ردّ المحاسب لرسم بطاقات المستندات (تمرّره المحادثة) */
+export interface BubbleDocs {
+  env: DocCardEnv;
+  /** المستند ⇐ الفقاعة صاحبة بطاقته الكاملة */
+  owners: Readonly<Record<string, string>>;
+  /** آخر رفضٍ لترحيل كل مستند */
+  refusals: Readonly<Record<string, DocRefusal>>;
+  deleted: Readonly<Record<string, true>>;
+}
+
+export function UserBubble({ entry, compact, onOpenDoc }: { entry: ChatEntry; compact?: boolean; onOpenDoc?: (d: ViewerDoc) => void }) {
   const tr = useTr();
   return (
     <div className="flex justify-end">
@@ -23,6 +39,7 @@ export function UserBubble({ entry, compact }: { entry: ChatEntry; compact?: boo
         >
           {entry.text}
         </div>
+        {!!entry.attachments?.length && <SentDocChips docs={entry.attachments} onOpen={onOpenDoc} compact={compact} />}
         {entry.failed && (
           <p className="mt-0.5 text-[11px] text-[#C0392B] flex items-center gap-1 justify-end">
             <CircleAlert size={11} /> {tr('لم ترسل')}
@@ -33,31 +50,47 @@ export function UserBubble({ entry, compact }: { entry: ChatEntry; compact?: boo
   );
 }
 
-export function AssistantBubble({ entry, compact, canRetry, onRetry, onReversed }: {
+export function AssistantBubble({ entry, compact, canRetry, onRetry, onReversed, docs }: {
   entry: ChatEntry;
   compact?: boolean;
   canRetry?: boolean;
   onRetry?: () => void;
   onReversed: (moveId: string) => void;
+  /** بطاقات المستندات — بغيابه لا تُرسم (المحادثة بلا رفع) */
+  docs?: BubbleDocs;
 }) {
   const tr = useTr();
   const pad = compact ? 'px-3 py-2 text-[13px]' : 'px-4 py-2.5 text-sm';
+  const documents = docs ? entry.documents ?? [] : [];
+  const docCards = docs && documents.map(v => (
+    <div key={`d${v.id}`} className={compact ? '' : 'ps-9'}>
+      {docs.deleted[v.id]
+        ? <DocCardDeleted fileName={v.fileName} />
+        : docs.owners[v.id] === entry.id
+          ? <DocCard view={v} env={docs.env} refusal={docs.refusals[v.id] ?? null} compact={compact} />
+          : <DocCardStub view={v} onOpen={docs.env.onOpen} />}
+    </div>
+  ));
 
   if (entry.error) {
+    // ردٌّ تعذّر لرسالة رفع (الحدّ اليومي مثلاً): بطاقات مستنداتها تحت الإشعار — «سجّل القيد» لا يحتاج النموذج
     return (
-      <div className="flex justify-start">
-        <div className={`max-w-[90%] rounded-2xl rounded-ss-md border border-[#F3C9BF] bg-[#FDF1EE] text-[#8E2B1F] ${pad}`}>
-          <p className="flex items-start gap-1.5">
-            <AlertTriangle size={15} className="shrink-0 mt-0.5" />
-            <span>{tr(entry.error)}</span>
-          </p>
-          {canRetry && onRetry && (
-            <button type="button" onClick={onRetry}
-              className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#C94E28] hover:text-[#E15A30]">
-              <RotateCcw size={12} /> {tr('إعادة المحاولة')}
-            </button>
-          )}
+      <div className="w-full min-w-0 space-y-2">
+        <div className="flex justify-start">
+          <div className={`max-w-[90%] rounded-2xl rounded-ss-md border border-[#F3C9BF] bg-[#FDF1EE] text-[#8E2B1F] ${pad}`}>
+            <p className="flex items-start gap-1.5">
+              <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+              <span>{tr(entry.error)}</span>
+            </p>
+            {canRetry && onRetry && (
+              <button type="button" onClick={onRetry}
+                className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#C94E28] hover:text-[#E15A30]">
+                <RotateCcw size={12} /> {tr('إعادة المحاولة')}
+              </button>
+            )}
+          </div>
         </div>
+        {docCards}
       </div>
     );
   }
@@ -66,8 +99,8 @@ export function AssistantBubble({ entry, compact, canRetry, onRetry, onReversed 
   const reports = entry.reports ?? [];
   const posted = entry.posted ?? [];
   const warnings = entry.warnings ?? [];
-  // ردٌّ فارغٌ تماماً (لا نصّ ولا تقرير ولا قيد) — يُقال بدل فقاعةٍ خالية
-  const empty = !text && !reports.length && !posted.length && !warnings.length;
+  // ردٌّ فارغٌ تماماً (لا نصّ ولا مستند ولا تقرير ولا قيد) — يُقال بدل فقاعةٍ خالية
+  const empty = !text && !documents.length && !reports.length && !posted.length && !warnings.length;
 
   return (
     <div className="flex justify-start">
@@ -85,6 +118,7 @@ export function AssistantBubble({ entry, compact, canRetry, onRetry, onReversed 
             </div>
           </div>
         )}
+        {docCards}
         {reports.map((r, i) => (
           <div key={`r${i}`} className={compact ? '' : 'ps-9'}>
             <ReportCard report={r} />

@@ -11,8 +11,21 @@
  *    التكرار بـref مشتقّ منه — فمهلةٌ انقطعت بعد الترحيل ثم إعادةٌ بمرجعٍ جديد كانت ستسجّل المصروف مرّتين.
  *  - قوالب الترحيل («سجّل مصروف»/«سجّل رواتب») لا تظهر إلا لمن يرحّل (status.canPost)، وقوالب القراءة لا تظهر إلا وأداتها
  *    مبنيّة له (تقارير الدفاتر لمن يراها، والمخزون لشركةٍ فعّلته).
+ *  - رفع المستندات (طلب المالك ١٨ نوفمبر): رسالة المستخدم تحمل docIds مستنداتها، ورسالة «سجّل القيد» من البطاقة تحمل docConfirm
+ *    — كلاهما يُضاف للجسم بوجوده وحده، فجسم المحادثة النصّية يبقى {clientRef, messages:[{role,text}]} حرفاً بحرف. عقد المستندات
+ *    ومنطقها الصرف في lib/aiAccountantDocs.ts.
  */
 import { newUuid } from './uuid';
+import {
+  normalizeDocAction, normalizeDocConfirm, normalizeDocIds, normalizeDocRefusal, normalizeDocViews, normalizeDocsStatus,
+  postedDocFields,
+  type AcctDocConfirm, type AcctDocView, type AiAmortRef, type AiDocsStatus, type AiPrepaidProgress, type ChatAttachment,
+  type DocChatAction, type DocRefusal,
+} from './aiAccountantDocs';
+
+export type {
+  AcctDocConfirm, AcctDocView, AiAmortRef, AiDocsStatus, AiPrepaidProgress, ChatAttachment, DocChatAction, DocRefusal,
+} from './aiAccountantDocs';
 
 // ─── عقد الخادم ───
 
@@ -45,7 +58,8 @@ export interface AiReport {
   estimated?: boolean;
 }
 
-export type PostedMoveKind = 'EXPENSE' | 'SALARIES' | 'SALARIES_SETTLE';
+/** PREPAID قيد دفعٍ مقدّم (115001/115002)، وPREPAID_AMORT إطفاؤه الشهري المجدول، وASSET أصلٌ ثابت بلا إهلاك (رفع المستندات) */
+export type PostedMoveKind = 'EXPENSE' | 'SALARIES' | 'SALARIES_SETTLE' | 'PREPAID' | 'PREPAID_AMORT' | 'ASSET';
 
 export interface PostedMoveLine {
   accountCode: string;
@@ -67,6 +81,19 @@ export interface PostedMove {
   reversed: boolean;
   createdAt: string;
   adminName: string | null;
+  // ── قيود المستندات وحدها (غائبةٌ في قيود المحادثة النصّية — postedDocFields) ──
+  /** المستند الذي رُحّل منه القيد */
+  docId?: string;
+  /** ملف المستند مرفقٌ بالقيد في الدفاتر (يفتحه «المستند» في البطاقة) */
+  hasAttachment?: boolean;
+  /** قسط إطفاء ⇐ صفّ قيد الدفع المقدّم */
+  parentPostId?: string;
+  /** قيد الدفع المقدّم: الأقساط المرحّلة من عدد الأشهر */
+  prepaid?: AiPrepaidProgress;
+  /** قيد إطفاءٍ شهري: ترتيبه من أشهره (حين يرسله الخادم) */
+  amort?: AiAmortRef;
+  /** تنبيهات الخادم على القيد (warning في الخادم ⇒ قائمة هنا) */
+  warnings?: string[];
 }
 
 export type BooksMode = 'NONE' | 'MANUAL' | 'LINKED' | 'LEGACY';
@@ -89,17 +116,23 @@ export interface AiStatus {
   /** اليوم بتقويم الشركة المحلي YYYY-MM-DD */
   todayLocal: string;
   companyName: string | null;
+  /** رفع المستندات: 📎 لمن docs.enabled وحده (خادمٌ أقدم بلا الكتلة ⇒ مطفأ) */
+  docs: AiDocsStatus;
 }
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
+  /** مستندات رسالة المستخدم (UUID، ٣ على الأكثر) — يُضاف بوجوده وحده */
+  docIds?: string[];
 }
 
 /** جسم POST /api/ai-accountant/chat */
 export interface ChatRequest {
   messages: ChatMessage[];
   clientRef: string;
+  /** «سجّل القيد» من بطاقة المستند — docId من docIds آخر رسالة؛ يُضاف بوجوده وحده */
+  docConfirm?: AcctDocConfirm;
 }
 
 /** نتيجة حارس الأرقام في runAdvisor — TEMPLATE = نصٌّ احتياطي بدل ردٍّ رُفض */
@@ -112,6 +145,11 @@ export interface ChatResponse {
   reports: AiReport[];
   posted: PostedMove[];
   warnings: string[];
+  /** بطاقات المستندات المذكورة في الدورة — تُضاف بوجودها وحده (خادمٌ أقدم لا يرسلها) */
+  documents?: AcctDocView[];
+  /** نتيجة دورة «سجّل القيد»: رُحّل أو رُفض */
+  action?: DocChatAction;
+  refusal?: DocRefusal;
 }
 
 // ─── حدود الطلب (مطابقة zod الخادم) ───
@@ -138,6 +176,16 @@ export interface ChatEntry {
   warnings?: string[];
   guard?: string;
   turnId?: string | null;
+  /** رسالة المستخدم: معرّفات مستنداتها — تُرسَل معها في كل طلبٍ ما دامت في نافذة السياق */
+  docIds?: string[];
+  /** رسالة «سجّل القيد» من البطاقة: بنيتها تُرسَل معها (والإعادة بالمرجع نفسه) — docId من docIds الرسالة نفسها */
+  docConfirm?: AcctDocConfirm;
+  /** شرائح المرفقات في فقاعة المستخدم — للعرض وحده، لا تُرسَل */
+  attachments?: ChatAttachment[];
+  /** ردّ المحاسب: بطاقات المستندات */
+  documents?: AcctDocView[];
+  action?: DocChatAction;
+  refusal?: DocRefusal;
 }
 
 /** المعرّف المحلي للفقاعة (مفتاح React) — لا علاقة له بالخادم */
@@ -155,37 +203,74 @@ export const isUuid = (s: unknown): s is string => typeof s === 'string' && UUID
  * `keepFailedId`: رسالة فاشلة تُعاد الآن فتدخل السياق (هي الأخيرة).
  */
 export function historyForRequest(entries: readonly ChatEntry[], keepFailedId?: string): ChatMessage[] | null {
-  const msgs: ChatMessage[] = [];
+  return pickHistory(entries, keepFailedId)?.map(p => p.msg) ?? null;
+}
+
+/** السياق مع مدخل كل رسالة — آخره مدخل الإرسال نفسه (منه docConfirm) */
+function pickHistory(entries: readonly ChatEntry[], keepFailedId?: string): { entry: ChatEntry; msg: ChatMessage }[] | null {
+  const picked: { entry: ChatEntry; msg: ChatMessage }[] = [];
   for (const e of entries) {
     if (e.error && e.role === 'assistant') continue;
     if (e.failed && e.id !== keepFailedId) continue;
     const text = (e.text ?? '').trim();
     if (!text) continue;
-    msgs.push({ role: e.role, text: text.slice(0, MAX_TEXT) });
+    const msg: ChatMessage = { role: e.role, text: text.slice(0, MAX_TEXT) };
+    // مستندات رسالة المستخدم وحدها، بوجودها وحده — رسالةٌ بلا مستند تبقى {role, text}
+    if (e.role === 'user') {
+      const ids = normalizeDocIds(e.docIds);
+      if (ids.length) msg.docIds = ids;
+    }
+    picked.push({ entry: e, msg });
   }
-  const last = msgs.slice(-MAX_MESSAGES);
-  if (!last.length || last[last.length - 1].role !== 'user') return null;
+  const last = picked.slice(-MAX_MESSAGES);
+  if (!last.length || last[last.length - 1].msg.role !== 'user') return null;
   return last;
 }
 
-/** جسم الطلب كاملاً — المرجع إلزامي وبصيغة UUID */
+/**
+ * جسم الطلب كاملاً — المرجع إلزامي وبصيغة UUID. docConfirm من مدخل الإرسال (آخر رسالة) بوجوده وحده؛ وتأكيدٌ ناقص الشكل أو
+ * لمستندٍ ليس في docIds الرسالة نفسها ⇒ null (لا يُرسَل: الخادم يرفضه DOC_NOT_ATTACHED، والنصّ وحده لا يرحّل شيئاً).
+ */
 export function buildChatBody(entries: readonly ChatEntry[], clientRef: string, keepFailedId?: string): ChatRequest | null {
   if (!isUuid(clientRef)) return null;
-  const messages = historyForRequest(entries, keepFailedId);
-  return messages ? { messages, clientRef } : null;
+  const picked = pickHistory(entries, keepFailedId);
+  if (!picked) return null;
+  const messages = picked.map(p => p.msg);
+  const sending = picked[picked.length - 1];
+  if (sending.entry.docConfirm == null) return { messages, clientRef };
+  const docConfirm = normalizeDocConfirm(sending.entry.docConfirm);
+  if (!docConfirm || !(sending.msg.docIds ?? []).includes(docConfirm.docId)) return null;
+  return { messages, clientRef, docConfirm };
 }
 
 /** ردّ الخادم بعد تطبيعٍ دفاعي — حقلٌ غائب من خادمٍ أقدم لا يُسقط الصفحة */
 export function normalizeChatResponse(raw: unknown): ChatResponse {
-  const d = (raw && typeof raw === 'object' ? raw : {}) as Partial<ChatResponse>;
-  return {
+  const d = (raw && typeof raw === 'object' ? raw : {}) as Partial<Record<keyof ChatResponse, unknown>>;
+  const out: ChatResponse = {
     text: typeof d.text === 'string' ? d.text : '',
     guard: typeof d.guard === 'string' ? d.guard : 'PASS',
     turnId: typeof d.turnId === 'string' ? d.turnId : null,
     reports: Array.isArray(d.reports) ? d.reports.filter(isReportShape) : [],
-    posted: Array.isArray(d.posted) ? d.posted.filter(isPostedShape) : [],
+    posted: Array.isArray(d.posted) ? d.posted.filter(isPostedShape).map(withPostedDocFields) : [],
     warnings: Array.isArray(d.warnings) ? d.warnings.filter((w): w is string => typeof w === 'string' && !!w.trim()) : [],
   };
+  // حقول المستندات بوجودها الصالح وحده — ردّ خادمٍ أقدم يبقى بمفاتيحه الستّ
+  const documents = normalizeDocViews(d.documents);
+  if (documents.length) out.documents = documents;
+  const action = normalizeDocAction(d.action);
+  if (action) out.action = action;
+  const refusal = normalizeDocRefusal(d.refusal);
+  if (refusal) out.refusal = refusal;
+  return out;
+}
+
+const POSTED_DOC_KEYS = ['docId', 'hasAttachment', 'parentPostId', 'prepaid', 'amort', 'warning', 'warnings'] as const;
+
+/** حقول المستند على القيد بعد تطبيعها: الخام منها يُسقط ويُعاد الصالح وحده (postedDocFields) */
+function withPostedDocFields(m: PostedMove): PostedMove {
+  const out = { ...m } as PostedMove & Record<string, unknown>;
+  for (const k of POSTED_DOC_KEYS) delete out[k];
+  return Object.assign(out, postedDocFields(m));
 }
 
 const isReportShape = (r: unknown): r is AiReport =>
@@ -209,10 +294,27 @@ export function plainText(s: string): string {
     .trim();
 }
 
-/** وسم قيدٍ معكوس في كل الفقاعات (البطاقة تُرسم «معكوساً» بعد نجاح العكس) */
+/**
+ * وسم قيدٍ معكوس في كل الفقاعات (البطاقة تُرسم «معكوساً» بعد نجاح العكس) — وبطاقة المستند المرحّل فيه تصير «غير حيّ»
+ * فيُتاح إعادة ترحيله. الفقاعة التي لا تذكره تبقى هي نفسها.
+ */
 export function markReversed(entries: readonly ChatEntry[], moveId: string): ChatEntry[] {
-  return entries.map(e => (e.posted?.some(m => m.moveId === moveId)
-    ? { ...e, posted: e.posted.map(m => (m.moveId === moveId ? { ...m, reversed: true } : m)) }
+  return entries.map(e => {
+    const inPosted = !!e.posted?.some(m => m.moveId === moveId);
+    const inDocs = !!e.documents?.some(d => d.posted?.moveId === moveId && d.posted.live);
+    if (!inPosted && !inDocs) return e;
+    return {
+      ...e,
+      ...(inPosted ? { posted: e.posted!.map(m => (m.moveId === moveId ? { ...m, reversed: true } : m)) } : {}),
+      ...(inDocs ? { documents: e.documents!.map(d => (d.posted?.moveId === moveId ? { ...d, posted: { ...d.posted, live: false } } : d)) } : {}),
+    };
+  });
+}
+
+/** بطاقة مستندٍ تغيّرت (تصحيح PATCH أو قراءة GET) ⇒ تُستبدل في كل فقاعة تذكرها، وما سواها يبقى هو نفسه */
+export function replaceDocView(entries: readonly ChatEntry[], view: AcctDocView): ChatEntry[] {
+  return entries.map(e => (e.documents?.some(d => d.id === view.id)
+    ? { ...e, documents: e.documents.map(d => (d.id === view.id ? view : d)) }
     : e));
 }
 
@@ -440,7 +542,7 @@ export function normalizeStatus(
   fallback: Partial<Pick<AiStatus, 'canViewLedger' | 'warehouseOn'>> = {},
 ): AiStatus | null {
   if (!raw || typeof raw !== 'object') return null;
-  const d = raw as Partial<AiStatus>;
+  const d = raw as Partial<Omit<AiStatus, 'docs'>> & { docs?: unknown };
   const mode = d.booksMode;
   return {
     enabled: d.enabled === true,
@@ -453,5 +555,6 @@ export function normalizeStatus(
     timezone: typeof d.timezone === 'string' ? d.timezone : '',
     todayLocal: isValidDay(d.todayLocal) ? d.todayLocal : browserToday(),
     companyName: typeof d.companyName === 'string' && d.companyName.trim() ? d.companyName : null,
+    docs: normalizeDocsStatus(d.docs, d.canPost === true),
   };
 }

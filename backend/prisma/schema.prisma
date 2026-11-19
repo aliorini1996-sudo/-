@@ -222,8 +222,9 @@ model Tenant {
   aiLessons             AiLesson[]
   aiLearningRuns        AiLearningRun[]
 
-  // المحاسب الذكي AI — علاقة عكسية فقط
+  // المحاسب الذكي AI — علاقات عكسية فقط
   aiAccountantPosts     AiAccountantPost[]
+  aiAccountantDocuments AiAccountantDocument[] // مستندات المحادثة (طلب المالك ١٨ نوفمبر ٢٠٢٦)
 
   // لوحة المنصة وحدها (طلب المالك ٩ نوفمبر ٢٠٢٦): ملاحظات المالك والموظفين وحالة الصفقة — لا تصل الشركة أبداً
   platformNotes         TenantNote[]
@@ -5222,10 +5223,51 @@ model AiAccountantPost {
   dateLocal   String // YYYY-MM-DD بتوقيت الشركة (تاريخ القيد)
   summaryAr   String
   createdAt   DateTime @default(now())
+  // مستندات المحادثة (طلب المالك ١٨ نوفمبر ٢٠٢٦) — أعمدة اختيارية وفهارس عادية فقط (جدول قائم: لا @@unique يوقف db push)
+  docId        String? // AiAccountantDocument.id لقيدٍ رُحّل من مستند (بلا علاقة كـmoveId)
+  parentPostId String? // PREPAID_AMORT ⇐ صفّ قيد الدفع المقدّم (PREPAID) الذي يُطفأ
+  meta         Json? // جدول الإطفاء لقيد PREPAID {months, monthlyMilli, lastMilli, startYm, prepaidCode, expenseCode}
 
   @@unique([tenantId, ref])
   @@index([tenantId, createdAt])
+  @@index([tenantId, docId])
+  @@index([tenantId, parentPostId])
   @@map("ai_accountant_posts")
+}
+
+// مستندٌ رفعه مدير الشركة في محادثة «المحاسب الذكي» (طلب المالك ١٨ نوفمبر ٢٠٢٦): الحقائق المعتمدة وحالتها؛ الملف نفسه في
+// gl_attachments (entityType 'AI_DOC' ومعرّفه entityId ما دام غير مرحّل، ثم 'MOVE'/<moveId> داخل معاملة الترحيل).
+// لا قارئ ذكاء اصطناعي: الحقائق من رمز QR الزكوي أو من إدخال المستخدم. actorRef = adminId | OWNER:<id> (actorRefOf).
+// attachmentId وmoveId نصّان بلا علاقة (كـAiAccountantPost.moveId). «مرحَّل» مشتقّ: moveId مضبوط وقيده حيّ (لا يُخزَّن).
+// جدول جديد ⇒ @@unique آمن لـdb push: الرافع نفسه والملف نفسه صفٌّ واحد (إعادة الرفع تعيده deduped).
+model AiAccountantDocument {
+  id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actorRef     String // الرافع: adminId أو OWNER:<id> لجلسة المالك — لا يرى غيره مستنداته غير المرحّلة
+  attachmentId String // GlAttachment.id
+  sha256       String
+  fileName     String
+  mimeType     String // application/pdf | image/jpeg | image/png (من البايتات)
+  sizeBytes    Int
+  status       String // UPLOADED | EXTRACTED | NEEDS_REVIEW | FAILED
+  manualEntry  Boolean  @default(false) // بلا QR ⇒ البطاقة تفتح للتحرير
+  factsSource  String? // QR | USER | QR+USER
+  facts        Json? // AcctDocFacts (المبالغ نصوص عشرية)
+  qrRaw        String? // نص QR الزكوي كما وصل (≤ 2048 — سقف الفكّ في compliance/zatca/qr.ts)
+  qrVerified   Boolean  @default(false)
+  checks       Json     @default("[]") // AcctDocCheck[]
+  suggestion   Json? // AcctDocSuggestion
+  moveId       String? // آخر قيد رُحّل من المستند (حيّ أو معكوس — يُحسب عند العرض)
+  postId       String? // AiAccountantPost.id لذلك القيد
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([tenantId, actorRef, sha256])
+  @@index([tenantId, actorRef, createdAt])
+  @@index([tenantId, sha256])
+  @@index([tenantId, updatedAt]) // جمع غير المرحّل بآخر نشاط (documents/gc.ts)
+  @@map("ai_accountant_documents")
 }
 
 // ═══ «ربط الدفاتر» L4 (M4، طلب المالك ١٣ نوفمبر ٢٠٢٦): تسويات ذمم العملاء من الدفاتر — شطب دينٍ معدوم واسترداد رصيدٍ دائن ═══

@@ -10,7 +10,7 @@ import {
   AI_POST_AUDIT_ACTION, EXPENSE_CATEGORIES, EXPENSE_CATEGORY_KEYS, MAX_POSTS_PER_REQUEST,
   AiPostRefusal, aiRefOf, amountInUserText, amountsInText, buildExpensePlan, buildSalariesPlan, buildSettlePlan, cashCandidates,
   chooseAiRef, executeAiPost, expenseCandidates, linesFingerprint, listAiPostsWith, normalizeAmountText, parseAmountArg,
-  postingDateProblem, refusalFromError, resolveSalaryMonth, vatOnTopProblem,
+  postedMoveOf, postingDateProblem, refusalFromError, resolveSalaryMonth, vatOnTopProblem,
   type AiPostDeps, type AiPostPlan, type AiPostRow, type AiRefusal, type ExpenseInput, type PlanEnv, type PlanOutcome, type ResolvedMonth,
 } from '../services/aiAccountant/posting';
 import {
@@ -1037,6 +1037,108 @@ test('listAiPosts: الأحدث بحدّ 1..200، السطور بأرقام ور
   assert.equal(calls[0].args.take, 50);
 });
 
+// ═══ قيود المستندات (رفع المستندات في المحادثة — الحزمة P3) ═══
+
+test('صفّ القيد: قيد المحادثة النصّية بلا أعمدة المستندات (docId/meta/parentPostId)، وقيد المستند يحملها وخطّافاته بترتيبها داخل المعاملة', async () => {
+  const plain = store();
+  await executeAiPost(plain.tx, request(buildRent), plain.deps);
+  for (const k of ['docId', 'meta', 'parentPostId']) assert.ok(!(k in plain.rows[0]), `لا ${k} في صفّ المحادثة النصّية`);
+  assert.deepEqual(plain.posts[0].opts.auditExtra, { aiAccountant: true, clientRef: CLIENT, ref: `AI-${CLIENT}-1`, kind: 'EXPENSE' });
+
+  const s = store();
+  const hooks = {
+    refusal: async () => { s.log.push('hook:dup'); return null; },
+    relink: async (_tx: GlDb, p: { moveId: string; moveNumber: string }) => { s.log.push(`hook:relink:${p.moveId}:${p.moveNumber}`); },
+    linkDoc: async (_tx: GlDb, l: { moveId: string; postId: string }) => { s.log.push(`hook:link:${l.moveId}:${l.postId}`); },
+  };
+  const docRent = (lc: LedgerContext): PlanOutcome => {
+    const out = buildRent(lc);
+    return out.ok ? { ok: true, plan: { ...out.plan, docId: 'doc-1' } } : out;
+  };
+  const r = await executeAiPost(s.tx, request(docRent, { doc: hooks }), s.deps);
+  assert.deepEqual(s.log, ['lock', 'context', 'moves', 'rows', 'hook:dup', 'post', 'hook:relink:mv1:CSH1/2026/00001', 'row', 'hook:link:mv1:ap1']);
+  assert.equal(s.rows[0].docId, 'doc-1');
+  assert.equal(r.move.docId, 'doc-1');
+  assert.equal(r.move.hasAttachment, true);
+  assert.equal((s.posts[0].opts.auditExtra as Record<string, unknown>).docId, 'doc-1');
+  // رفضٌ من طبقات التكرار ⇒ لا ترحيل ولا نقل ولا صفّ
+  const d = store();
+  await assert.rejects(executeAiPost(d.tx, request(docRent, {
+    doc: { ...hooks, refusal: async () => ({ code: 'DOC_ALREADY_POSTED', message: 'مرحّل' }) },
+  }), d.deps), (e: unknown) => e instanceof AiPostRefusal && e.refusal.code === 'DOC_ALREADY_POSTED');
+  assert.equal(d.posts.length, 0);
+  assert.equal(d.rows.length, 0);
+  // إعادة إرسال قيد المستند: الصفّ بمعرّفه فتُطابق البصمة (والمستند الآخر لا)
+  const again = await executeAiPost(s.tx, request(docRent, { doc: hooks }), s.deps);
+  assert.equal(again.replayed, true);
+  assert.equal(again.move.hasAttachment, true);
+  const other = await executeAiPost(s.tx, request((lc) => { const o = buildRent(lc); return o.ok ? { ok: true, plan: { ...o.plan, docId: 'doc-2' } } : o; }, { doc: hooks }), s.deps);
+  assert.equal(other.replayed, false, 'مستندٌ آخر بالمبلغ نفسه لا يأخذ قيد الأول');
+  assert.equal(other.move.ref, `AI-${CLIENT}-2`);
+});
+
+test('postedMoveOf: الأنواع الجديدة كما هي والمجهول مصروف، وحقول المستند لصفوفه وحدها', () => {
+  const base: AiPostRow = {
+    id: 'p1', adminId: 'a1', adminName: null, moveId: 'm1', moveNumber: null, ref: 'r', kind: 'PREPAID', amountMilli: 1_000n,
+    dateLocal: '2026-11-18', summaryAr: 's', createdAt: new Date('2026-11-18T00:00:00Z'),
+  };
+  for (const k of ['PREPAID', 'PREPAID_AMORT', 'ASSET', 'SALARIES']) assert.equal(postedMoveOf({ ...base, kind: k }, [], () => null, false).kind, k);
+  assert.equal(postedMoveOf({ ...base, kind: 'WHATEVER' }, [], () => null, false).kind, 'EXPENSE');
+  const plain = postedMoveOf({ ...base, kind: 'EXPENSE' }, [], () => null, false);
+  for (const k of ['docId', 'hasAttachment', 'prepaid', 'warning', 'parentPostId']) assert.ok(!(k in plain), k);
+  const doc = postedMoveOf({ ...base, docId: 'd1' }, [], () => null, false, { prepaid: { posted: 2, months: 12 } });
+  assert.deepEqual([doc.docId, doc.hasAttachment, doc.prepaid], ['d1', false, { posted: 2, months: 12 }]);
+});
+
+test('listAiPosts للمستندات: المرفق على القيد، وتقدّم الإطفاء، و«يحتاج إهلاكاً» للأصل الحيّ — والقائمة النصّية بلا استعلامات إضافية', async () => {
+  const calls: string[] = [];
+  const row = (id: string, moveId: string, kind: string, extra: Partial<AiPostRow> = {}): AiPostRow & { tenantId: string } => ({
+    id, tenantId: 't1', adminId: 'a1', adminName: 'سارة', moveId, moveNumber: `MISC/${id}`, ref: `AI-x-${id}`, kind, amountMilli: 1_500_000n,
+    dateLocal: '2026-11-18', summaryAr: 'قيد', createdAt: new Date('2026-11-18T10:00:00Z'), ...extra,
+  });
+  const meta = { months: 12, baseMilli: '12000000', monthlyMilli: '1000000', lastMilli: '1000000', startYm: '2026-11', prepaidCode: '115002', expenseCode: '621004', what: 'إيجار', lockedSkip: null };
+  const db = {
+    aiAccountantPost: {
+      findMany: async (args: { where: Record<string, unknown> }) => {
+        calls.push(`post:${Object.keys(args.where).sort().join(',')}`);
+        assert.equal(args.where.tenantId, 't1');
+        if ('parentPostId' in args.where) return [{ id: 'c1', parentPostId: 'pp', moveId: 'mc1', ref: 'AI-AMORT-pp-1' }, { id: 'c2', parentPostId: 'pp', moveId: 'mc2', ref: 'AI-AMORT-pp-2' }];
+        return [row('pp', 'mp', 'PREPAID', { docId: 'd1', meta }), row('pa', 'ma', 'ASSET', { docId: 'd2' }), row('pe', 'me', 'EXPENSE', { docId: 'd3' })];
+      },
+    },
+    glMove: {
+      findMany: async (args: { where: Record<string, unknown> }) => {
+        calls.push('move');
+        if ('reversedMoveId' in args.where) return [];
+        return ['mp', 'ma', 'me', 'mc1', 'mc2'].map((id) => ({ id, state: 'POSTED', lines: [] }));
+      },
+    },
+    glAccount: { findMany: async () => [] },
+    glAttachment: {
+      findMany: async (args: { where: Record<string, unknown> }) => {
+        calls.push('att');
+        assert.deepEqual(args.where, { tenantId: 't1', entityType: 'MOVE', entityId: { in: ['mp', 'ma', 'me'] } });
+        return [{ entityId: 'mp' }, { entityId: 'ma' }];
+      },
+    },
+  };
+  const out = await listAiPostsWith(db as never, 't1', 50);
+  const by = new Map(out.map((p) => [p.id, p]));
+  assert.deepEqual(by.get('pp')?.prepaid, { posted: 2, months: 12, stopped: false, nextDate: '2027-01-31' });
+  assert.equal(by.get('pp')?.hasAttachment, true);
+  assert.equal(by.get('pp')?.warning, undefined);
+  assert.equal(by.get('pa')?.warning, 'يحتاج إهلاكاً يسجّله المحاسب');
+  assert.equal(by.get('pe')?.hasAttachment, false, 'المرفق حُذف من الدفاتر بعد الترحيل');
+  assert.ok(calls.includes('att'));
+  assert.ok(calls.includes('post:parentPostId,tenantId'));
+});
+
+test('دورة المستند (آخر رسالة تحمل مستندات): لا أدوات كتابة ولو طلب المستخدم التسجيل — الترحيل من البطاقة وحدها', () => {
+  assert.deepEqual(toolsFor(acctCtx({ docTurn: true, userText: 'سجّل هذه الفاتورة 1500 نقداً' })).tools, []);
+  assert.equal(toolsFor(acctCtx({ docTurn: false })).tools.length, 3);
+  assert.deepEqual(toolsFor(acctCtx({ documents: [] })).tools.map((t) => t.spec.function.name), [...AI_WRITE_TOOL_NAMES], 'القائمة الثابتة لم تتغيّر');
+});
+
 // ═══ حراس ثابتة على المصدر ═══
 
 const SRC = path.join(__dirname, '..', 'services', 'aiAccountant');
@@ -1058,6 +1160,10 @@ test('المصدر: المعاملة كـPOST /clearing (prisma.$transaction + P
   const post = exec.indexOf('deps.postMove(tx, draft');
   const row = exec.indexOf('tx.aiAccountantPost.create');
   assert.ok(lock > 0 && lock < lookup && lookup < post && post < row, 'القفل ⇒ البحث ⇒ الترحيل ⇒ الصفّ');
+  // مرفق المستند يُنقل داخل المعاملة بعد postMove (لا مسودة) وقبل الصفّ، والمستند يُربط بعد الصفّ
+  const relink = exec.indexOf('req.doc.relink(tx');
+  const link = exec.indexOf('req.doc.linkDoc(tx');
+  assert.ok(post < relink && relink < row && row < link, 'postMove ⇒ نقل المرفق ⇒ الصفّ ⇒ ربط المستند');
   assert.match(exec, /reversedMoveId: null/);
   assert.match(exec, /validationMode: 'MANUAL'/);
   assert.match(exec, /lockPolicy: 'REJECT'/);

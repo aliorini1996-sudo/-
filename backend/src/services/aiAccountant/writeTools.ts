@@ -10,6 +10,7 @@
  * بوابات القاعدة ⇒ prisma.$transaction(executeAiPost, POST_TX_OPTIONS) كمسار POST /api/ledger/clearing.
  * tenantId والمستخدم من السياق وحده — لا وسيط للشركة في أي أداة (عزل الشركات وحقن التعليمات).
  * الرفض نتيجةُ أداة «لم يُرحَّل» برسالة عربية تُشرح للمستخدم (أرقامها مسموحة للحارس) — لا مبلغ متوهَّم يُعاد فيها.
+ * دورةٌ تحمل إحدى آخر رسالتين فيها مستندات (ctx.docTurn) لا تُعرض فيها هذه الأدوات: المستند يُرحَّل من بطاقته (documents/post.ts) وحدها.
  */
 import { z } from 'zod';
 import prisma from '../../config/database';
@@ -502,6 +503,8 @@ export function buildWriteTools(ctx: AcctCtx, deps: Partial<WriteToolDeps> = {})
   const d = depsOf(deps);
   if (!writeToolsAllowed(ctx, d.env)) return [];
   if (!(ctx.writeIntent ?? writeIntentIn(ctx.userText))) return [];
+  // مستندٌ في آخر رسالتين (chat.ts docWindowTurn): لا مسار مكتوب يرحّل الفاتورة المرفقة بلا مستندها — الترحيل من بطاقته وحدها («سجّل القيد»)
+  if (ctx.docTurn === true) return [];
   return [expenseTool(ctx, d), salariesTool(ctx, d), settleTool(ctx, d)];
 }
 
