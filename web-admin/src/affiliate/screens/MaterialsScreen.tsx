@@ -16,6 +16,7 @@ import { formatBytes, formatDay } from '../format';
 import { useAxT, type AxKey } from '../i18n';
 import { MATERIAL_CATEGORY, MATERIAL_CATEGORY_ORDER, textOf } from '../labels';
 import { materialParts } from '../materials';
+import { AmbassadorKit } from './AmbassadorKit';
 import type { MaterialCategory, MaterialRow, MeResponse } from '../types';
 import { Chips, CopyButton, Empty, ErrorBox, Loading, SectionTitle, Spinner } from '../ui';
 import { useAxQuery } from '../useAx';
@@ -148,7 +149,7 @@ export function SystemGuide() {
   );
 }
 
-export function MaterialsTab({ refreshMe }: TabProps) {
+export function MaterialsTab({ me, refreshMe }: TabProps) {
   const { t, lang } = useAxT();
   const q = useAxQuery(qk.materials, affiliateApi.materials, refreshMe);
   const [filter, setFilter] = useState<Filter>('all');
@@ -163,6 +164,7 @@ export function MaterialsTab({ refreshMe }: TabProps) {
   return (
     <div className="space-y-4">
       <SystemGuide />
+      <AmbassadorKit link={me.link} />
       <div className="pt-2">
         <SectionTitle>{t('tab.materials')}</SectionTitle>
         <p className="text-[13px] text-[#6E6557] leading-relaxed -mt-1">{t('mat.intro')}</p>
