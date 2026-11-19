@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  ArrowLeft, ArrowRight, BadgePercent, Briefcase, Building2, CalendarClock, Check, CheckCircle2, ChevronDown, Copy,
+  ArrowLeft, ArrowRight, BadgePercent, Briefcase, Building2, Calculator, CalendarClock, CheckCircle2, ChevronDown,
   FlaskConical, Images, Languages, Link2, LogIn, Megaphone, Share2, Smartphone, User, UserPlus, Wallet, Zap,
   type LucideIcon,
 } from 'lucide-react';
@@ -10,7 +11,7 @@ import { localeFromPath, pathForLocale, seoUrls } from '../i18n/locale';
 import { useSeo } from '../lib/seo';
 import {
   AMBASSADORS_LANGS, AMBASSADORS_LANG_LABEL, AMBASSADORS_PATH, AMBASSADORS_TEXT, ambassadorsJoinHref, ambassadorsLoginHref,
-  ambassadorsJsonLd, ambassadorsPathFor, type AmbLang,
+  ambassadorsJsonLd, ambassadorsPathFor, commissionOf, parseAmount, type AmbLang,
 } from './ambassadorsText';
 
 /**
@@ -45,6 +46,41 @@ function Headline({ text, accent }: { text: string; accent: string }) {
       <span className="text-[#E15A30] whitespace-nowrap">{accent}</span>
       {text.slice(i + accent.length)}
     </>
+  );
+}
+
+const NUM_LOCALE: Record<AmbLang, string> = { ar: 'ar-u-nu-arab', en: 'en-US', fr: 'fr-FR' };
+
+function CommissionCalculator({ L }: { L: AmbLang }) {
+  const t = AMBASSADORS_TEXT[L].calc;
+  const [raw, setRaw] = useState('');
+  const amount = parseAmount(raw);
+  const fmt = (n: number) => new Intl.NumberFormat(NUM_LOCALE[L], { maximumFractionDigits: 2 }).format(n);
+  return (
+    <div className="relative mx-auto w-full max-w-[420px]">
+      <div aria-hidden="true" className="absolute -inset-3 sm:-inset-5 rounded-[36px] bg-[#E15A30]/10 rotate-[-3deg]" />
+      <div className="relative rounded-[28px] bg-[#1F1A13] text-[#FAF7F0] p-5 sm:p-6 shadow-[0_30px_60px_rgba(31,26,19,0.25)]">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[15px] font-bold text-[#FAF7F0]">{t.title}</h2>
+          <span aria-hidden="true" className="w-8 h-8 rounded-xl bg-[#E15A30] flex items-center justify-center"><Calculator size={16} /></span>
+        </div>
+        <label htmlFor="amb-calc-amount" className="block mt-4 text-[13px] font-semibold text-[#C9BFAE]">{t.label}</label>
+        <input
+          id="amb-calc-amount" data-amb-calc="" type="text" inputMode="decimal" autoComplete="off" dir="auto"
+          value={raw} onChange={(e) => setRaw(e.target.value.slice(0, 20))} placeholder={t.placeholder}
+          className="mt-2 w-full h-14 rounded-2xl bg-white/5 border border-white/15 px-4 text-[22px] font-bold text-[#FAF7F0] placeholder:text-[#8A8072] placeholder:text-[16px] placeholder:font-semibold outline-none focus:border-[#E15A30]"
+        />
+        <div aria-live="polite" className="mt-4 rounded-2xl bg-[#FAF7F0] text-[#1F1A13] p-4">
+          <div className="text-[13px] font-semibold text-[#5C5347]">{t.result}</div>
+          {amount ? (
+            <div data-amb-calc-result="" className="mt-1 text-[34px] sm:text-4xl font-extrabold text-[#E15A30] leading-tight break-all">{fmt(commissionOf(amount))}</div>
+          ) : (
+            <div className="mt-1 text-[14px] text-[#8A8072] leading-relaxed">{t.empty}</div>
+          )}
+        </div>
+        <p className="mt-4 text-[12.5px] leading-relaxed text-[#C9BFAE]">{t.note}</p>
+      </div>
+    </div>
   );
 }
 
@@ -122,37 +158,8 @@ export default function AmbassadorsPage() {
             </ul>
           </div>
 
-          {/* بطاقة توضيحية لِما يراه السفير فور تسجيله (زخرفة لا بيانات) */}
-          <div aria-hidden="true" className="relative mx-auto w-full max-w-[420px]">
-            <div className="absolute -inset-3 sm:-inset-5 rounded-[36px] bg-[#E15A30]/10 rotate-[-3deg]" />
-            <div className="relative rounded-[28px] bg-[#1F1A13] text-[#FAF7F0] p-5 sm:p-6 shadow-[0_30px_60px_rgba(31,26,19,0.25)]">
-              <div className="flex items-center justify-between">
-                <span className="text-[13px] font-semibold text-[#C9BFAE]">{t.card.title}</span>
-                <span className="w-8 h-8 rounded-xl bg-[#E15A30] flex items-center justify-center"><Link2 size={16} /></span>
-              </div>
-              <div dir="ltr" className="mt-3 rounded-2xl bg-white/5 border border-white/10 px-4 py-3 font-mono text-[13px] sm:text-sm text-[#FAF7F0] truncate">
-                fieldsa.net/signup?ref=K7M2Q9XR
-              </div>
-              <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
-                <span className="h-11 rounded-xl bg-[#E15A30] flex items-center justify-center gap-2 text-sm font-bold"><Share2 size={16} />{t.card.share}</span>
-                <span className="h-11 px-4 rounded-xl border border-white/15 flex items-center justify-center gap-1.5 text-sm font-semibold"><Copy size={15} />{t.card.copy}</span>
-              </div>
-              <div className="mt-5 rounded-2xl bg-[#FAF7F0] text-[#1F1A13] p-4 flex items-center gap-4">
-                <span className="text-4xl font-extrabold text-[#E15A30] whitespace-nowrap">{t.card.earnTitle}</span>
-                <span className="text-[13px] leading-snug text-[#5C5347]">{t.card.earnBody}</span>
-              </div>
-              <ol className="mt-5 space-y-2.5">
-                {t.card.steps.map((s, i) => (
-                  <li key={s} className="flex items-center gap-3 text-sm">
-                    <span className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${i === 0 ? 'bg-[#1E7A52] text-white' : 'border border-white/25 text-[#C9BFAE]'}`}>
-                      {i === 0 ? <Check size={15} /> : num(i)}
-                    </span>
-                    <span className={i === 0 ? 'text-[#FAF7F0]' : 'text-[#C9BFAE]'}>{s}</span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </div>
+          {/* حاسبة العمولة (طلب المالك ١٩ نوفمبر ٢٠٢٦): السفير يكتب أي مبلغ فيرى عمولته — بلا أسعار باقات */}
+          <CommissionCalculator L={L} />
         </section>
 
         {/* ── الخطوات ── */}

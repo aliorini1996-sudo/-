@@ -16,6 +16,24 @@ export type AmbLang = 'ar' | 'en' | 'fr';
 /** لغات الصفحة — ثلاثية كالخريطة (TRILINGUAL_PATHS في i18n/locale.ts وlangsFor في gen-sitemap) */
 export const AMBASSADORS_LANGS: readonly AmbLang[] = ['ar', 'en', 'fr'];
 
+/** نسبة العمولة المعروضة في الحاسبة — تطابق الافتراضي في الخادم (rateBps 3000 في services/affiliate/core.ts) */
+export const AMB_COMMISSION_RATE = 0.3;
+
+/** مبلغٌ كتبه الزائر (أرقام عربية-هندية أو لاتينية، وفواصل آلاف) ← رقم موجب أو null */
+export function parseAmount(input: string): number | null {
+  const s = String(input ?? '')
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/[٬,\s]/g, '')
+    .replace('٫', '.');
+  if (!/^\d{1,12}(\.\d{0,2})?$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** العمولة مقرّبةً لخانتين */
+export const commissionOf = (amount: number) => Math.round(amount * AMB_COMMISSION_RATE * 100) / 100;
+
 /** المسار العربي للصفحة (بلا بادئة لغة) */
 export const AMBASSADORS_PATH = '/ambassadors';
 /** زرّ «انضم الآن» — يحوّله App.tsx إلى شاشة التسجيل في البوابة */
@@ -47,7 +65,8 @@ export interface AmbText {
   login: string;
   loginShort: string;
   stats: { v: string; l: string }[];
-  card: { title: string; share: string; copy: string; earnTitle: string; earnBody: string; steps: string[] };
+  /** حاسبة العمولة في البطل (طلب المالك ١٩ نوفمبر ٢٠٢٦): السفير يكتب أي مبلغ فيرى ٣٠٪ منه — بلا أسعار باقات */
+  calc: { title: string; label: string; placeholder: string; result: string; empty: string; note: string };
   stepsTitle: string;
   stepsSub: string;
   steps: AmbItem[];
@@ -89,13 +108,13 @@ export const AMBASSADORS_TEXT: Record<AmbLang, AmbText> = {
       { v: '١٠ أيام', l: 'حجزٌ ثم تسوية كل ١٠ أيام' },
       { v: 'فوري', l: 'انضمام بلا انتظار موافقة' },
     ],
-    card: {
-      title: 'رابطك الخاص جاهز',
-      share: 'مشاركة رابطي',
-      copy: 'نسخ',
-      earnTitle: '٣٠٪',
-      earnBody: 'عمولتك من أول دفعة لكل شركة تشترك عبرك',
-      steps: ['أُنشئ حسابك', 'شارك رابطك', 'أول شركة تدفع'],
+    calc: {
+      title: 'احسب عمولتك',
+      label: 'مبلغ أول دفعة تدفعها الشركة',
+      placeholder: 'اكتب أي مبلغ',
+      result: 'عمولتك',
+      empty: 'اكتب مبلغاً لترى عمولتك',
+      note: 'العمولة ٣٠٪ من أول دفعة مؤكَّدة تدفعها الشركة، بالعملة نفسها.',
     },
     stepsTitle: 'ثلاث خطوات فقط',
     stepsSub: 'من التسجيل إلى أول أرباحك',
@@ -165,13 +184,13 @@ export const AMBASSADORS_TEXT: Record<AmbLang, AmbText> = {
       { v: '10 days', l: 'hold, then settlement every 10 days' },
       { v: 'Instant', l: 'joining with no approval wait' },
     ],
-    card: {
-      title: 'Your personal link is ready',
-      share: 'Share my link',
-      copy: 'Copy',
-      earnTitle: '30%',
-      earnBody: 'your commission on the first payment of every company that subscribes through you',
-      steps: ['Account created', 'Share your link', 'First company pays'],
+    calc: {
+      title: 'Calculate your commission',
+      label: 'The company’s first payment',
+      placeholder: 'Type any amount',
+      result: 'Your commission',
+      empty: 'Type an amount to see your commission',
+      note: 'The commission is 30% of the first confirmed payment the company makes, in the same currency.',
     },
     stepsTitle: 'Just three steps',
     stepsSub: 'From sign-up to your first earnings',
@@ -241,13 +260,13 @@ export const AMBASSADORS_TEXT: Record<AmbLang, AmbText> = {
       { v: '10 jours', l: 'de blocage, puis un règlement tous les 10 jours' },
       { v: 'Immédiat', l: 'inscription sans attente de validation' },
     ],
-    card: {
-      title: 'Votre lien personnel est prêt',
-      share: 'Partager mon lien',
-      copy: 'Copier',
-      earnTitle: '30 %',
-      earnBody: 'votre commission sur le premier paiement de chaque entreprise abonnée grâce à vous',
-      steps: ['Compte créé', 'Partagez votre lien', 'Première entreprise qui paie'],
+    calc: {
+      title: 'Calculez votre commission',
+      label: 'Premier paiement de l’entreprise',
+      placeholder: 'Saisissez un montant',
+      result: 'Votre commission',
+      empty: 'Saisissez un montant pour voir votre commission',
+      note: 'La commission est de 30 % du premier paiement confirmé de l’entreprise, dans la même devise.',
     },
     stepsTitle: 'Trois étapes seulement',
     stepsSub: 'De l’inscription à vos premiers gains',

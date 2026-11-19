@@ -43,7 +43,9 @@ test('النصوص بثلاث لغات وبالشكل نفسه: ٣ خطوات و
     assert.equal(t.tools.length, 6, `${L}: الأدوات`);
     assert.equal(t.who.length, 4, `${L}: لمن`);
     assert.equal(t.stats.length, 3, `${L}: الأرقام`);
-    assert.equal(t.card.steps.length, 3, `${L}: خطوات البطاقة`);
+    // البطاقة الزخرفية صارت حاسبة العمولة (طلب المالك ١٩ نوفمبر ٢٠٢٦)
+    assert.ok(t.calc.title && t.calc.label && t.calc.result && t.calc.empty && t.calc.note, `${L}: نصوص الحاسبة`);
+    assert.match(t.calc.note, /30|٣٠/, `${L}: النسبة في ملاحظة الحاسبة`);
     assert.ok(t.faq.length >= 6, `${L}: الأسئلة`);
     assert.equal(t.faq.length, AMBASSADORS_TEXT.ar.faq.length, `${L}: عدد الأسئلة يخالف العربية`);
     assert.ok(t.h1.includes(t.h1Accent), `${L}: الجزء المرجاني ليس داخل H1`);
@@ -218,4 +220,25 @@ test('الخريطة وllms والحرّاس: الصفحة بلغاتها الث
   const re = new RegExp(rx![1].slice(1, -1));
   for (const p of ['/ambassadors/join', '/ambassadors/login/']) assert.equal(re.test(p), true, p);
   assert.equal(re.test('/ambassadors/'), false, 'الصفحة نفسها ليست مسار تطبيق — غيابها عطل يُكشف');
+});
+
+test('حاسبة العمولة: أي مبلغ يكتبه السفير ⇒ ٣٠٪ منه، بالأرقام العربية واللاتينية، وبلا أسعار باقات (طلب المالك ١٩ نوفمبر)', async () => {
+  const { parseAmount, commissionOf, AMB_COMMISSION_RATE } = await import('./ambassadorsText');
+  assert.equal(AMB_COMMISSION_RATE, 0.3);
+  const core = read('..', 'backend', 'src', 'services', 'affiliate', 'core.ts');
+  assert.match(core, /rateBps: 3000/, 'النسبة تطابق افتراضي الخادم');
+  assert.equal(parseAmount('1000'), 1000);
+  assert.equal(parseAmount('١٢٣٤'), 1234);
+  assert.equal(parseAmount('1,500.50'), 1500.5);
+  assert.equal(parseAmount('٢٬٥٠٠٫٥'), 2500.5);
+  for (const bad of ['', '0', '-5', 'abc', '1.234', '1e5']) assert.equal(parseAmount(bad), null, bad);
+  assert.equal(commissionOf(1000), 300);
+  assert.equal(commissionOf(333.33), 100);
+  const page = read('src', 'pages', 'AmbassadorsPage.tsx');
+  assert.match(page, /<CommissionCalculator L=\{L\} \/>/);
+  assert.doesNotMatch(page, /K7M2Q9XR/, 'البطاقة الزخرفية أُزيلت');
+  for (const [p, L] of [['/ambassadors', 'ar'], ['/en/ambassadors', 'en']] as const) {
+    const html = renderToStaticMarkup(createElement(StaticRouter, { location: p }, createElement(AmbassadorsPage)));
+    assert.ok(html.includes(AMBASSADORS_TEXT[L].calc.title) && html.includes('id="amb-calc-amount"'), `${p}: الحاسبة مرسومة`);
+  }
 });
