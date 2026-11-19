@@ -4,7 +4,7 @@
 >
 > فيلد سيلز (FieldSales) منصة سحابية لإدارة مناديب المبيعات والتوزيع الميداني لشركات التوزيع في أنحاء العالم، يصدر فيها المندوب من جواله الفاتورة وسند القبض ويطبعهما أمام العميل، ويسجّل زيارته بموقعها وصورها، ويرى مخزون سيارته لكل صنف، وتتابع الإدارة المبيعات والتحصيل وأرصدة العملاء لحظة حدوثها.
 
-Last updated: 2026-11-11
+Last updated: 2026-11-19
 
 Key facts:
 - Also known as: فيلد سيلز, Field Sales, Fieldsa (fieldsa.net). Other products share the generic name “Field Sales”; this file describes only FieldSales at fieldsa.net.
