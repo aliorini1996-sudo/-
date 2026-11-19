@@ -41,6 +41,13 @@ import {
   materialNeeds, validateMaterial, buildMaterialBody, materialBodyBytes, MATERIAL_MAX_BYTES, JSON_BODY_LIMIT_BYTES,
   normalizeOverview,
 } from './affiliatesPanelLogic';
+// أسعار الباقات في بوابة السفير (قرار المالك 19 نوفمبر 2026)
+import {
+  AMB_PRICE_MIN, AMB_PRICE_MAX, YEMEN_PCT_MIN, YEMEN_PCT_MAX, YEMEN_PCT_DEFAULT, AMB_PRICE_ERROR, YEMEN_PCT_ERROR,
+  parseAmbPrice, parseYemenPct, pricingDraftOf, setPackagePrice, resetPackagePrice, hasCustomPrice, validatePricingDraft,
+  pricingDiff, samePricingDraft, syncPricingDraft, regionalPrice, yemenPreview, cleanPackagePrices,
+  type PackageCatalogItem, type SettingsBody,
+} from './affiliatesPanelLogic';
 
 const ARABIC = /[؀-ۿ]/;
 
@@ -615,7 +622,9 @@ test('قواعد الشروط: وصف التغييرات لنافذة التأك
   assert.equal(formatRule('refWindowDays', undefined), '—');
 });
 
-test('الإعدادات: PUT /settings يحمل intakeOpen وdisclosureText فقط، والإفصاح 10 أحرف على الأقل', () => {
+// قرار المالك (19 نوفمبر 2026): PUT /settings صار يحمل أسعار السفراء أيضاً (packagePrices/yemenDiscountPct) عبر
+// pricingDiff — وكان عنوان هذا الاختبار «يحمل intakeOpen وdisclosureText فقط». settingsDiff نفسه باقٍ كما هو: لا قيم شروط
+test('الإعدادات: settingsDiff يحمل intakeOpen وdisclosureText وحدهما (والأسعار عبر pricingDiff)، والإفصاح 10 أحرف على الأقل', () => {
   const server = { intakeOpen: true, disclosureText: 'أحصل على عمولة إن اشتركت عبر رابطي', ...CURRENT_RULES };
   const draft = settingsDraftOf(server);
   assert.deepEqual(draft, { intakeOpen: true, disclosureText: 'أحصل على عمولة إن اشتركت عبر رابطي' });
@@ -624,6 +633,7 @@ test('الإعدادات: PUT /settings يحمل intakeOpen وdisclosureText ف�
   assert.deepEqual(settingsDiff({ ...draft, disclosureText: '  نصّ جديد للإفصاح  ' }, server), { disclosureText: 'نصّ جديد للإفصاح' });
   const full = settingsDiff({ intakeOpen: false, disclosureText: 'x'.repeat(20) }, server);
   for (const k of TERMS_RULE_KEYS) assert.ok(!(k in full), `${k} لا يُرسل`);
+  for (const k of ['packagePrices', 'yemenDiscountPct']) assert.ok(!(k in full), `${k} من pricingDiff وحده`);
 
   assert.equal(DISCLOSURE_MIN, 10);
   assert.ok(validateDisclosure('قصير جداً'));
@@ -1021,4 +1031,171 @@ test('v2: لوحة المالك — بلا موافقة طلبات، وبالت�
   // التصديرات التي تستوردها نافذة روابط الدفع
   assert.match(src, /export function TenantSearchBox/);
   assert.match(src, /export function LinkPaymentTenantDialog/);
+});
+
+// ─── أسعار الباقات في بوابة السفير (قرار المالك 19 نوفمبر 2026) ───────────
+// المالك يحدّد من إعدادات السفراء سعر كل باقة يراه السفراء (شهرياً وسنوياً، ريالٌ صحيح شاملٌ الضريبة —
+// الفارغ = الرسمي) ونسبة خصم سفراء اليمن (0–90). يُحفظ بزرّ «حفظ الإعدادات» نفسه عبر PUT /settings.
+
+const CATALOG: PackageCatalogItem[] = [
+  { id: 'starter', name: 'المبتدئة', monthly: 299, yearly: 2990 },
+  { id: 'growth', name: 'المتوسطة', monthly: 399, yearly: 3990 },
+  { id: 'pro', name: 'الاحترافية', monthly: 599, yearly: 5990 },
+];
+const readRepo = (...p: string[]) => fs.readFileSync(fileURLToPath(new URL(`../../../${p.join('/')}`, import.meta.url)), 'utf8');
+
+test('أسعار السفراء: الحدود والنسبة الافتراضية والتقريب تطابق الخادم', () => {
+  const svc = readRepo('backend', 'src', 'services', 'affiliate', 'pricing.ts');
+  assert.match(svc, new RegExp(`AMB_PRICE_MIN = ${AMB_PRICE_MIN};`));
+  assert.equal(AMB_PRICE_MAX, 1_000_000);
+  assert.match(svc, /AMB_PRICE_MAX = 1_000_000;/);
+  assert.match(svc, new RegExp(`YEMEN_PCT_MIN = ${YEMEN_PCT_MIN};`));
+  assert.match(svc, new RegExp(`YEMEN_PCT_MAX = ${YEMEN_PCT_MAX};`));
+  assert.match(svc, new RegExp(`dialPrefix: '967', pct: ${YEMEN_PCT_DEFAULT} `));
+  assert.match(svc, /Math\.round\(\(riyals \* \(100 - pct\)\) \/ 100\) \* 100/, 'معاينة اللوحة بتقريب الخادم نفسه');
+});
+
+test('أسعار السفراء: السعر ريالٌ صحيح 1..1,000,000 والفارغ = الرسمي، والنسبة عددٌ صحيح 0..90', () => {
+  assert.deepEqual(parseAmbPrice(''), { ok: true, value: null });
+  assert.deepEqual(parseAmbPrice('   '), { ok: true, value: null });
+  assert.deepEqual(parseAmbPrice('250'), { ok: true, value: 250 });
+  assert.deepEqual(parseAmbPrice('٢٥٠'), { ok: true, value: 250 });
+  assert.deepEqual(parseAmbPrice('2,990'), { ok: true, value: 2990 });
+  assert.deepEqual(parseAmbPrice('1000000'), { ok: true, value: 1_000_000 });
+  for (const bad of ['0', '-5', '249.5', '٢٤٩٫٥', '1000001', 'abc', '1e3']) {
+    assert.deepEqual(parseAmbPrice(bad), { ok: false, error: AMB_PRICE_ERROR }, bad);
+  }
+  assert.deepEqual(parseYemenPct('33'), { ok: true, value: 33 });
+  assert.deepEqual(parseYemenPct('0'), { ok: true, value: 0 });
+  assert.deepEqual(parseYemenPct('٩٠٪'), { ok: true, value: 90 });
+  for (const bad of ['', '91', '-1', '12.5', 'x']) assert.deepEqual(parseYemenPct(bad), { ok: false, error: YEMEN_PCT_ERROR }, bad);
+});
+
+test('أسعار السفراء: المسودّة من الخادم، والتحقّق، والجسم بالمتغيّر فقط (packagePrices كاملةً، و{} = الكلّ رسمي)', () => {
+  const server = { packagePrices: { starter: { monthly: 250 }, enterprise: { monthly: 1 } }, yemenDiscountPct: 33, packageCatalog: CATALOG };
+  const d = pricingDraftOf(server);
+  assert.deepEqual(d, {
+    prices: { starter: { monthly: '250', yearly: '' }, growth: { monthly: '', yearly: '' }, pro: { monthly: '', yearly: '' } },
+    yemenPct: '33',
+  }, 'المعرّف خارج الكتالوج يُهمل');
+  const v0 = validatePricingDraft(d);
+  assert.ok(v0.ok);
+  if (v0.ok) assert.deepEqual(pricingDiff(v0.value, server), {}, 'لا تغيير ⇒ لا جسم');
+
+  const d1 = setPackagePrice(d, 'pro', 'yearly', '٤٩٩٠');
+  const v1 = validatePricingDraft(d1);
+  assert.ok(v1.ok);
+  if (v1.ok) {
+    const body: SettingsBody = pricingDiff(v1.value, server);
+    assert.deepEqual(body, { packagePrices: { starter: { monthly: 250 }, pro: { yearly: 4990 } } }, 'الخريطة كاملةً — الخادم يستبدلها');
+  }
+
+  assert.ok(hasCustomPrice(d1, 'starter'));
+  const d2 = resetPackagePrice(d1, 'starter');
+  assert.equal(hasCustomPrice(d2, 'starter'), false);
+  assert.deepEqual(d2.prices.starter, { monthly: '', yearly: '' });
+  const v2 = validatePricingDraft(d2);
+  assert.ok(v2.ok);
+  if (v2.ok) assert.deepEqual(pricingDiff(v2.value, server), { packagePrices: { pro: { yearly: 4990 } } });
+  const all = validatePricingDraft(resetPackagePrice(d, 'starter'));
+  assert.ok(all.ok);
+  if (all.ok) assert.deepEqual(pricingDiff(all.value, server), { packagePrices: {} });
+
+  const v3 = validatePricingDraft({ ...d, yemenPct: '0' });
+  assert.ok(v3.ok);
+  if (v3.ok) assert.deepEqual(pricingDiff(v3.value, server), { yemenDiscountPct: 0 }, 'النسبة وحدها');
+
+  const bad = validatePricingDraft({ ...setPackagePrice(setPackagePrice(d, 'growth', 'monthly', '-1'), 'pro', 'yearly', '1.5'), yemenPct: '95' });
+  assert.equal(bad.ok, false);
+  if (!bad.ok) {
+    assert.equal(bad.error, AMB_PRICE_ERROR);
+    assert.deepEqual(bad.invalid, ['growth.monthly', 'pro.yearly', 'yemenPct']);
+  }
+  const badPct = validatePricingDraft({ ...d, yemenPct: '' });
+  assert.equal(badPct.ok, false);
+  if (!badPct.ok) {
+    assert.equal(badPct.error, YEMEN_PCT_ERROR);
+    assert.deepEqual(badPct.invalid, ['yemenPct']);
+  }
+
+  // خادمٌ أقدم بلا كتالوج: لا حقول (القسم مخفيّ) ولا جسم
+  assert.deepEqual(pricingDraftOf({}), { prices: {}, yemenPct: String(YEMEN_PCT_DEFAULT) });
+  assert.deepEqual(cleanPackagePrices({ starter: { monthly: 0, yearly: 2.5 } }, ['starter']), {});
+});
+
+test('أسعار السفراء: إعادة الجلب لا تمحو تعديلاً غير محفوظ، و«٢٥٠» = « 250 »', () => {
+  const a = pricingDraftOf({ packagePrices: {}, yemenDiscountPct: 33, packageCatalog: CATALOG });
+  const b = pricingDraftOf({ packagePrices: { growth: { monthly: 349 } }, yemenDiscountPct: 25, packageCatalog: CATALOG });
+  assert.deepEqual(syncPricingDraft(a, a, b), b, 'النظيفة تتبنّى الجديد');
+  const edited = setPackagePrice(a, 'starter', 'monthly', '200');
+  assert.deepEqual(syncPricingDraft(edited, a, b), edited, 'المعدَّلة تبقى');
+  assert.ok(samePricingDraft(setPackagePrice(a, 'starter', 'monthly', '٢٥٠'), setPackagePrice(a, 'starter', 'monthly', ' 250 ')));
+  assert.ok(!samePricingDraft(a, edited));
+});
+
+test('أسعار السفراء: معاينة سفير اليمن في اللوحة بتقريب الخادم (لأقرب ريال، النصف لأعلى)', () => {
+  assert.equal(regionalPrice(299, 33), 200);
+  assert.equal(regionalPrice(250, 33), 168, '١٦٧٫٥ ⇒ ١٦٨');
+  assert.equal(regionalPrice(2990, 25), 2243, '٢٢٤٢٫٥ ⇒ ٢٢٤٣');
+  assert.deepEqual(yemenPreview({ monthly: '250', yearly: '' }, CATALOG[0], 33), { monthly: 168, yearly: 2003 });
+  assert.deepEqual(yemenPreview({ monthly: '-1', yearly: 'x' }, CATALOG[0], 33), { monthly: 200, yearly: 2003 }, 'التالف = الرسمي');
+  assert.deepEqual(yemenPreview(undefined, CATALOG[2], 0), { monthly: 599, yearly: 5990 });
+});
+
+test('أسعار السفراء في اللوحة: كل نصٍّ عبر tr() ومترجمٌ في PHRASES بلغاته الأربع، ويُحفظ بزرّ الإعدادات نفسه', () => {
+  const panel = fs.readFileSync(fileURLToPath(new URL('./AffiliatesPanel.tsx', import.meta.url)), 'utf8');
+  const start = panel.indexOf('function PackagePricesSection(');
+  assert.ok(start > 0, 'PackagePricesSection غير موجود');
+  const section = panel.slice(start, panel.indexOf('\n}\n', start));
+  const strings = fs.readFileSync(fileURLToPath(new URL('../i18n/strings.ts', import.meta.url)), 'utf8');
+  const phrases = strings.slice(strings.indexOf('export const PHRASES'));
+  const entryOf = (k: string): Record<string, string> | null => {
+    const esc = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const m = phrases.match(new RegExp(`^\\s*'${esc}'\\s*:\\s*\\{([^\\n]*)\\},?\\s*$`, 'm'));
+    if (!m) return null;
+    const out: Record<string, string> = {};
+    for (const lang of ['en', 'fr', 'tr', 'zh']) {
+      const v = m[1].match(new RegExp(`\\b${lang}:\\s*(['"])((?:(?!\\1)[^\\\\]|\\\\.)*)\\1`));
+      if (!v) return null;
+      out[lang] = v[2];
+    }
+    return out;
+  };
+
+  const keys = new Set<string>([
+    ...[...section.matchAll(/\btr\(\s*'((?:[^'\\]|\\.)*)'\s*\)/g)].map((m) => m[1]),
+    ...CATALOG.map((c) => c.name), // tr(c.name) — الأسماء من كتالوج الخادم
+    AMB_PRICE_ERROR, YEMEN_PCT_ERROR, // tr(error)
+  ]);
+  assert.ok(keys.size >= 16, `نصوص أقل من المتوقّع (${keys.size})`);
+  const missing: string[] = [];
+  const bad: string[] = [];
+  for (const k of keys) {
+    const e = entryOf(k);
+    if (!e) { missing.push(k); continue; }
+    for (const [lang, v] of Object.entries(e)) if (!v.trim() || ARABIC.test(v)) bad.push(`${k} (${lang})`);
+  }
+  assert.deepEqual(missing, [], `بلا ترجمة في PHRASES: ${missing.join(' | ')}`);
+  assert.deepEqual(bad, [], `ترجمة فارغة أو عربية: ${bad.join(' | ')}`);
+  // لا نصّ عربيّ خارج tr() في القسم
+  const bare = section.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '').replace(/\btr\(\s*'(?:[^'\\]|\\.)*'\s*\)/g, '');
+  assert.ok(!ARABIC.test(bare), 'نصٌّ عربيّ خارج tr() في قسم الأسعار');
+
+  // أسماء الكتالوج هنا = كتالوج الخادم
+  const quotes = readRepo('backend', 'src', 'services', 'quotes.ts');
+  for (const c of CATALOG) assert.ok(quotes.includes(`${c.id}: { name: '${c.name}', total: ${c.monthly}, yearly: ${c.yearly},`), c.id);
+
+  // الحفظ بالزرّ نفسه وPUT /settings نفسه، والقسم يُخفى أمام خادمٍ أقدم
+  const form = panel.slice(panel.indexOf('function SettingsForm('), start);
+  assert.match(form, /L\.pricingDiff\(priced\.value, s\)/);
+  assert.match(form, /if \(err \|\| !priced\.ok\) return;/);
+  assert.match(form, /actions\.run\('settings:save', \(\) => affApi\.saveSettings\(diff\)/);
+  assert.match(form, /\{!!s\.packageCatalog\?\.length && \(\s*<PackagePricesSection/);
+  assert.match(form, /useEffect\(\(\) => \{\s*if \(L\.samePricingDraft\(pricingServer, pricingBase\)\) return;/, 'إعادة الجلب لا تمحو التعديل');
+});
+
+test('بوابة السفير: المشطوب سعر السفراء قبل خصم المنطقة (base) لا الكتالوج', () => {
+  const screen = fs.readFileSync(fileURLToPath(new URL('../affiliate/screens/PricingScreen.tsx', import.meta.url)), 'utf8');
+  assert.match(screen, /listH=\{pkg\.baseMonthlyHalalas \?\? pkg\.listMonthlyHalalas\}/);
+  assert.match(screen, /listH=\{pkg\.baseYearlyHalalas \?\? pkg\.listYearlyHalalas\}/);
 });

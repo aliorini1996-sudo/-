@@ -327,6 +327,9 @@ export interface PricingResponse {
     id: PricingPackageId;
     listMonthlyHalalas: number;
     listYearlyHalalas: number;
+    /** سعر السفراء قبل الخصم الإقليميّ (سعر المالك أو الكتالوج) — اختياريّ: خادمٌ أقدم لا يرسله فيُشطب المعلن */
+    baseMonthlyHalalas?: number;
+    baseYearlyHalalas?: number;
     monthlyHalalas: number;
     yearlyHalalas: number;
   }>;

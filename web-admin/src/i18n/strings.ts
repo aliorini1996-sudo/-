@@ -8170,6 +8170,21 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'أراضٍ ومبانٍ': { en: 'Land and buildings', fr: 'Terrains et bâtiments', tr: 'Arazi ve binalar', zh: '土地及建筑' },
   'أدخل عدد أشهر الإطفاء (من 1 إلى {n}) أو فترة الخدمة': { en: 'Enter the amortization months (1 to {n}) or the service period', fr: 'Saisissez le nombre de mois d’étalement (de 1 à {n}) ou la période de service', tr: 'İtfa ay sayısını (1 ile {n} arası) veya hizmet dönemini girin', zh: '请输入摊销月数（1 至 {n}）或服务期间' },
   'يُطفأ شهرياً على حساب {account}': { en: 'Amortized monthly to account {account}', fr: 'Étalé chaque mois sur le compte {account}', tr: 'Her ay {account} hesabına itfa edilir', zh: '每月摊销至科目 {account}' },
+  // «أسعار الباقات في بوابة السفير» — لوحة المالك › السفراء › الإعدادات (قرار المالك 19 نوفمبر 2026)
+  'أسعار الباقات في بوابة السفير': { en: 'Plan prices in the ambassador portal', fr: 'Prix des offres dans le portail ambassadeur', tr: 'Elçi portalındaki paket fiyatları', zh: '推广大使门户中的套餐价格' },
+  'السعر الذي يراه السفراء في تبويب «الباقات والأسعار» بالريال شاملاً الضريبة — اترك الحقل فارغاً ليظهر السعر الرسمي': { en: 'The price ambassadors see in the “Plans & pricing” tab, in riyals including VAT — leave a field empty to show the official price', fr: 'Le prix que voient les ambassadeurs dans l’onglet « Offres et tarifs », en riyals TVA comprise — laissez le champ vide pour afficher le prix officiel', tr: 'Elçilerin “Paketler ve fiyatlar” sekmesinde gördüğü fiyat, KDV dahil riyal olarak — resmi fiyatı göstermek için alanı boş bırakın', zh: '推广大使在“套餐与价格”标签中看到的价格（里亚尔，含增值税）— 留空则显示官方价格' },
+  'الباقة': { en: 'Plan', fr: 'Offre', tr: 'Paket', zh: '套餐' },
+  'إرجاع للسعر الرسمي': { en: 'Reset to the official price', fr: 'Revenir au prix officiel', tr: 'Resmi fiyata dön', zh: '恢复官方价格' },
+  'المبتدئة': { en: 'Starter', fr: 'Débutant', tr: 'Başlangıç', zh: '入门版' },
+  'المتوسطة': { en: 'Growth', fr: 'Croissance', tr: 'Büyüme', zh: '成长版' },
+  'الاحترافية': { en: 'Professional', fr: 'Professionnel', tr: 'Profesyonel', zh: '专业版' },
+  'لسفراء اليمن': { en: 'For ambassadors in Yemen', fr: 'Pour les ambassadeurs au Yémen', tr: 'Yemen’deki elçiler için', zh: '也门推广大使' },
+  'الرسمي': { en: 'Official', fr: 'Officiel', tr: 'Resmi', zh: '官方' },
+  'السعر الرسمي': { en: 'Official price', fr: 'Prix officiel', tr: 'Resmi fiyat', zh: '官方价格' },
+  'نسبة خصم سفراء اليمن (+967)': { en: 'Discount for ambassadors in Yemen (+967)', fr: 'Remise pour les ambassadeurs au Yémen (+967)', tr: 'Yemen’deki elçiler için indirim (+967)', zh: '也门推广大使折扣（+967）' },
+  'يُطبَّق على السعر المعروض أعلاه ويُقرَّب لأقرب ريال — من 0 إلى 90، والصفر يلغي الخصم': { en: 'Applied on top of the price shown above and rounded to the nearest riyal — 0 to 90; zero turns the discount off', fr: 'S’applique au prix affiché ci-dessus, arrondi au riyal le plus proche — de 0 à 90 ; zéro désactive la remise', tr: 'Yukarıda gösterilen fiyatın üzerine uygulanır ve en yakın riyale yuvarlanır — 0 ile 90 arası; sıfır indirimi kapatır', zh: '在上方显示的价格基础上计算并四舍五入到最接近的里亚尔 — 0 到 90，0 表示不打折' },
+  'سعر الباقة عدد صحيح بالريال من 1 إلى 1,000,000': { en: 'The plan price must be a whole number of riyals from 1 to 1,000,000', fr: 'Le prix de l’offre doit être un nombre entier de riyals de 1 à 1 000 000', tr: 'Paket fiyatı 1 ile 1.000.000 arasında tam sayı riyal olmalıdır', zh: '套餐价格须为 1 到 1,000,000 之间的整数里亚尔' },
+  'نسبة خصم سفراء اليمن عدد صحيح من 0 إلى 90': { en: 'The Yemen ambassador discount must be a whole number from 0 to 90', fr: 'La remise des ambassadeurs au Yémen doit être un nombre entier de 0 à 90', tr: 'Yemen elçi indirimi 0 ile 90 arasında tam sayı olmalıdır', zh: '也门推广大使折扣须为 0 到 90 之间的整数' },
 };
 
 // ثابتة الهوية ما لم تتغيّر اللغة — كـuseT (انظر سببه هناك)

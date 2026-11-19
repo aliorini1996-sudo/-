@@ -12,6 +12,7 @@ import api from '../api/client';
 import { backdropClose } from '../lib/backdropClose';
 import { usePlatformAccess } from '../lib/platformAccess';
 import { formatDate, formatDateTime, formatDayOnly } from '../utils/format';
+import { useTr } from '../i18n/strings';
 import * as L from './affiliatesPanelLogic';
 
 /**
@@ -38,7 +39,7 @@ const affApi = {
   /** v2 يضيف السفراء الجدد والملفات الناقصة والمطالبات الفائتة والتسوية القادمة وآخر دورة */
   overview: async () => L.normalizeOverview(await unwrap<L.Overview>(api.get(`${A}/overview`))),
   settings: () => unwrap<L.AffiliateSettings>(api.get(`${A}/settings`)),
-  /** يقبل `intakeOpen` و`disclosureText` فقط — القواعد الست تتغيّر بنشر شروط (publishTerms) */
+  /** يقبل `intakeOpen` و`disclosureText` وأسعار السفراء (`packagePrices`/`yemenDiscountPct`) — القواعد الست تتغيّر بنشر شروط (publishTerms) */
   saveSettings: (body: L.SettingsBody) => unwrap<L.AffiliateSettings>(api.put(`${A}/settings`, body)),
   terms: () => unwrap<L.TermsVersion[]>(api.get(`${A}/terms`)),
   /** ينشر إصداراً ويطبّق قواعده (المتغيّرة فقط) ذرّياً */
@@ -2475,13 +2476,28 @@ function SettingsForm({ s, actions, readOnly = false }: { s: L.AffiliateSettings
     // نراقب قيم الخادم لا مرجع الكائن
   }, [server.intakeOpen, server.disclosureText]);
 
-  const diff = L.settingsDiff(draft, s);
-  const dirty = Object.keys(diff).length > 0;
+  // أسعار الباقات في بوابة السفير (قرار المالك 19 نوفمبر 2026) — مسودّةٌ بالسلوك نفسه، تُحفظ بالزرّ نفسه
+  const pricingServer = L.pricingDraftOf(s);
+  const pricingServerKey = L.pricingDraftKey(pricingServer);
+  const [pricing, setPricing] = useState<L.PricingDraft>(pricingServer);
+  const [pricingBase, setPricingBase] = useState<L.PricingDraft>(pricingServer);
+  const [pricingError, setPricingError] = useState<{ error: string; invalid: string[] } | null>(null);
+  useEffect(() => {
+    if (L.samePricingDraft(pricingServer, pricingBase)) return;
+    setPricing((d) => L.syncPricingDraft(d, pricingBase, pricingServer));
+    setPricingBase(pricingServer);
+  }, [pricingServerKey]);
+  const priced = L.validatePricingDraft(pricing);
+  const pricingDirty = !L.samePricingDraft(pricing, pricingServer);
+
+  const diff: L.SettingsBody = { ...L.settingsDiff(draft, s), ...(priced.ok ? L.pricingDiff(priced.value, s) : {}) };
+  const dirty = Object.keys(diff).length > 0 || pricingDirty;
 
   const save = async () => {
     const err = L.validateDisclosure(draft.disclosureText);
     setError(err);
-    if (err) return;
+    setPricingError(priced.ok ? null : { error: priced.error, invalid: priced.invalid });
+    if (err || !priced.ok) return;
     if (!dirty) { toast('لا تغييرات للحفظ'); return; }
     await actions.run('settings:save', () => affApi.saveSettings(diff), 'حُفظت الإعدادات');
   };
@@ -2532,6 +2548,14 @@ function SettingsForm({ s, actions, readOnly = false }: { s: L.AffiliateSettings
         <p className="text-[11px] text-[#6E6557] mt-2">هذه القيم جزء من الشروط — تتغيّر بنشر إصدار جديد</p>
       </div>
 
+      {!!s.packageCatalog?.length && (
+        <PackagePricesSection
+          catalog={s.packageCatalog} draft={pricing} readOnly={readOnly}
+          onChange={(d) => { setPricing(d); setPricingError(null); }}
+          invalid={pricingError?.invalid ?? []} error={pricingError?.error ?? null}
+        />
+      )}
+
       {/* الحفظ PUT /settings: affiliates.manage — بدونه يُعرض النموذج قراءةً */}
       {!readOnly && <>
         {dirty && <p className="text-[12px] text-amber-800 font-semibold">لديك تعديلات غير محفوظة</p>}
@@ -2543,6 +2567,98 @@ function SettingsForm({ s, actions, readOnly = false }: { s: L.AffiliateSettings
         </div>
       </>}
     </section>
+  );
+}
+
+/**
+ * «أسعار الباقات في بوابة السفير» (قرار المالك 19 نوفمبر 2026): السعر الذي يراه السفراء في تبويب
+ * «الباقات والأسعار» لكل باقة شهرياً وسنوياً — الفارغ = السعر الرسمي (يظهر باهتاً داخل الحقل) — ونسبة
+ * خصم سفراء اليمن فوقه. النصوص عبر tr() ومفاتيحها في PHRASES بلغات العرض الأربع.
+ */
+function PackagePricesSection({ catalog, draft, onChange, readOnly, invalid, error }: {
+  catalog: L.PackageCatalogItem[]; draft: L.PricingDraft; onChange: (d: L.PricingDraft) => void;
+  readOnly: boolean; invalid: string[]; error: string | null;
+}) {
+  const tr = useTr();
+  const pct = L.parseYemenPct(draft.yemenPct);
+  const cycleLabel: Record<L.PriceCycle, string> = { monthly: tr('شهري'), yearly: tr('سنوي') };
+  const bad = (k: string) => (invalid.includes(k) ? ' border-red-400 bg-red-50' : '');
+  return (
+    <div className="rounded-lg border border-[#E7DECD] p-3 space-y-3">
+      <div>
+        <div className="flex items-center gap-1.5 text-[12px] font-bold text-[#1F1A13]">
+          <BadgePercent className="w-3.5 h-3.5 text-[#E15A30]" /> {tr('أسعار الباقات في بوابة السفير')}
+        </div>
+        <p className="text-[11px] text-[#6E6557] mt-0.5">{tr('السعر الذي يراه السفراء في تبويب «الباقات والأسعار» بالريال شاملاً الضريبة — اترك الحقل فارغاً ليظهر السعر الرسمي')}</p>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-[12.5px]">
+          <thead>
+            <tr className="text-[11px] text-[#6E6557]">
+              <th className="text-start font-semibold pb-1">{tr('الباقة')}</th>
+              {L.PRICE_CYCLES.map((cy) => <th key={cy} className="text-start font-semibold pb-1 px-1">{cycleLabel[cy]}</th>)}
+              <th className="pb-1"><span className="sr-only">{tr('إرجاع للسعر الرسمي')}</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {catalog.map((c) => {
+              const row = draft.prices[c.id] ?? { monthly: '', yearly: '' };
+              const ye = pct.ok && pct.value > 0 ? L.yemenPreview(row, c, pct.value) : null;
+              return (
+                <tr key={c.id} className="border-t border-[#F1EBDF] align-top">
+                  <td className="py-1.5 pe-2">
+                    <p className="font-bold text-[#1F1A13]">{tr(c.name)}</p>
+                    {ye && (
+                      <p className="text-[10.5px] text-[#9A8F7E] tabular-nums">
+                        {tr('لسفراء اليمن')}: <bdi dir="ltr">{ye.monthly.toLocaleString('en-US')} / {ye.yearly.toLocaleString('en-US')}</bdi>
+                      </p>
+                    )}
+                  </td>
+                  {L.PRICE_CYCLES.map((cy) => (
+                    <td key={cy} className="py-1.5 px-1">
+                      <input
+                        type="text" inputMode="numeric" dir="ltr" readOnly={readOnly}
+                        aria-label={`${tr(c.name)} — ${cycleLabel[cy]}`}
+                        className={`input w-full min-w-[84px] tabular-nums${bad(`${c.id}.${cy}`)}`}
+                        placeholder={c[cy].toLocaleString('en-US')} value={row[cy]}
+                        onChange={(e) => onChange(L.setPackagePrice(draft, c.id, cy, e.target.value))}
+                      />
+                      <p className="text-[10px] text-[#9A8F7E] mt-0.5 tabular-nums">{tr('الرسمي')} <bdi dir="ltr">{c[cy].toLocaleString('en-US')}</bdi></p>
+                    </td>
+                  ))}
+                  <td className="py-1.5 ps-1 text-end">
+                    {!readOnly && (
+                      <button
+                        type="button" disabled={!L.hasCustomPrice(draft, c.id)} onClick={() => onChange(L.resetPackagePrice(draft, c.id))}
+                        className="btn-secondary !px-2 !py-1 text-[11.5px] whitespace-nowrap disabled:opacity-40" title={tr('إرجاع للسعر الرسمي')}
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" /> {tr('السعر الرسمي')}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div>
+        <label className="block text-[12px] font-bold text-[#1F1A13] mb-1" htmlFor="aff-yemen-pct">{tr('نسبة خصم سفراء اليمن (+967)')}</label>
+        <div className="flex items-center gap-2 max-w-[160px]">
+          <input
+            id="aff-yemen-pct" type="text" inputMode="numeric" dir="ltr" readOnly={readOnly}
+            className={`input w-full tabular-nums${bad('yemenPct')}`} placeholder={String(L.YEMEN_PCT_DEFAULT)} value={draft.yemenPct}
+            onChange={(e) => onChange({ ...draft, yemenPct: e.target.value })}
+          />
+          <span className="text-[12px] text-[#6E6557]">%</span>
+        </div>
+        <p className="text-[10.5px] text-[#9A8F7E] mt-0.5">{tr('يُطبَّق على السعر المعروض أعلاه ويُقرَّب لأقرب ريال — من 0 إلى 90، والصفر يلغي الخصم')}</p>
+      </div>
+
+      {error && <p className="text-[12px] text-red-600">{tr(error)}</p>}
+    </div>
   );
 }
 
