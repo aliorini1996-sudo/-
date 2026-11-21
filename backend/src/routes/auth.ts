@@ -6,7 +6,7 @@ import prisma from '../config/database';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { sendMail } from '../services/mailer';
-import { authLimiter, signupLimiter, mailLimiter, renewLimiter } from '../middleware/rateLimits';
+import { authLimiter, signupLimiter, mailLimiter, renewLimiter, resetLimiter } from '../middleware/rateLimits';
 import { getCountryTax } from '../config/countries';
 import { attachSignupAttribution } from '../services/affiliate/ledger';
 import { ipHash } from '../services/affiliate/core';
@@ -16,6 +16,7 @@ import {
   activationPreview, activateCompany, ActivationError,
 } from '../services/trialCompany';
 import { convertBaseUiCode, type ConvertBaseUiCode } from '../services/convertBaseAccess';
+import { requestPasswordReset, recoverByCompanyPhone, resetPreview, resetPassword, ResetError, findAdminByEmail } from '../services/passwordReset';
 
 const router = Router();
 
@@ -181,6 +182,35 @@ function tenantBlockReason(tenant: { isActive: boolean; subscriptionEndsAt: Date
   return null;
 }
 
+/**
+ * رسائل رفض الدخول (طلب المالك ٢١ نوفمبر ٢٠٢٦): تبيّن الخطأ بالضبط — كلمة المرور خطأ، الحساب موقوف، بانتظار التفعيل،
+ * أو أنّ الحساب لمندوب/لإدارة فيُرشد لبابه — إلا «لا يوجد حساب بهذا البريد» فلا تُقال (قرار المالك): البريد أو اسم
+ * المستخدم غير المسجّل يأخذ الرسالة العامة. الرمز `code` لتعرض الواجهة الفعل المناسب (نسيت كلمة المرور، رابط التطبيق…)
+ */
+export const LOGIN_REFUSALS = {
+  admin: {
+    INVALID_CREDENTIALS: 'البريد أو كلمة المرور غير صحيحة',
+    WRONG_PASSWORD: 'كلمة المرور غير صحيحة',
+    ACCOUNT_DISABLED: 'حسابك موقوف — تواصل مع مدير شركتك',
+    PENDING_ACTIVATION: 'حسابك لم يُفعَّل بعد — افتح رابط التفعيل الذي وصل إلى بريدك',
+    REP_ACCOUNT: 'هذا حساب مندوب — ادخل من تطبيق المندوب',
+  },
+  rep: {
+    INVALID_CREDENTIALS: 'اسم المستخدم أو كلمة المرور غير صحيحة',
+    WRONG_PASSWORD: 'كلمة المرور غير صحيحة — اطلب من مدير شركتك إعادة تعيينها',
+    ACCOUNT_DISABLED: 'حسابك موقوف — تواصل مع مدير شركتك',
+    ADMIN_ACCOUNT: 'هذا حساب إدارة — ادخل من صفحة الشركة',
+  },
+} as const;
+type AdminRefusal = keyof typeof LOGIN_REFUSALS.admin;
+type RepRefusal = keyof typeof LOGIN_REFUSALS.rep;
+function loginRefused(res: Response, status: number, code: AdminRefusal): void;
+function loginRefused(res: Response, status: number, code: RepRefusal, who: 'rep'): void;
+function loginRefused(res: Response, status: number, code: string, who: 'admin' | 'rep' = 'admin'): void {
+  const msgs = LOGIN_REFUSALS[who] as Record<string, string>;
+  res.status(status).json({ success: false, code, message: msgs[code] });
+}
+
 router.post('/login', authLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { username, password, role } = loginSchema.parse(req.body);
@@ -197,13 +227,23 @@ router.post('/login', authLimiter, async (req: Request, res: Response, next: Nex
     }
 
     if (role === 'admin') {
-      const admin = await prisma.admin.findUnique({ where: { email: username }, include: { tenant: true } });
-      if (!admin || !admin.isActive || !(await bcrypt.compare(password, admin.passwordHash))) {
-        res.status(401).json({ success: false, message: 'بيانات الدخول غير صحيحة' });
+      // البريد كما خُزّن، وإلا بحالة أحرفٍ أخرى أو بلا مسافة طرفية إن طابق حساباً واحداً (الحرف الأول الكبير من لوحة الجوال) —
+      // المطابقة نفسها التي يرسل بها «نسيت كلمة المرور» رابطه، فلا ينجح التعيين ثم يُرفض الدخول بالبريد نفسه
+      const exact = await prisma.admin.findUnique({ where: { email: username }, include: { tenant: true } });
+      const loose = exact ? null : await findAdminByEmail(username);
+      const admin = exact ?? (loose ? await prisma.admin.findUnique({ where: { id: loose.id }, include: { tenant: true } }) : null);
+      if (!admin) {
+        // اسم مستخدم مندوبٍ في صفحة الشركة ⇒ يُرشد لتطبيقه. وإلا رسالةٌ لا تقول «لا يوجد حساب بهذا البريد» (قرار المالك)
+        const isRep = !username.includes('@') && !!(await prisma.salesRep.findUnique({ where: { username }, select: { id: true } }));
+        loginRefused(res, 401, isRep ? 'REP_ACCOUNT' : 'INVALID_CREDENTIALS');
         return;
       }
+      if (!admin.isActive) { loginRefused(res, 403, 'ACCOUNT_DISABLED'); return; }
+      // حسابٌ فتحه سفير ولم يُفعَّل: لا كلمة مرور له بعد — رابط التفعيل في بريده
+      if (isPendingActivationHash(admin.passwordHash)) { loginRefused(res, 403, 'PENDING_ACTIVATION'); return; }
+      if (!(await bcrypt.compare(password, admin.passwordHash))) { loginRefused(res, 401, 'WRONG_PASSWORD'); return; }
       const block = tenantBlockReason(admin.tenant);
-      if (block) { res.status(403).json({ success: false, message: block }); return; }
+      if (block) { res.status(403).json({ success: false, code: 'TENANT_BLOCKED', message: block }); return; }
       const token = signToken({ id: admin.id, role: admin.role, name: admin.name, tenantId: admin.tenantId });
       res.json({
         success: true,
@@ -225,12 +265,16 @@ router.post('/login', authLimiter, async (req: Request, res: Response, next: Nex
     }
 
     const rep = await prisma.salesRep.findUnique({ where: { username }, include: { tenant: true } });
-    if (!rep || !rep.isActive || !(await bcrypt.compare(password, rep.passwordHash))) {
-      res.status(401).json({ success: false, message: 'بيانات الدخول غير صحيحة' });
+    if (!rep) {
+      // بريد مديرٍ في تطبيق المندوب ⇒ يُرشد لصفحة الشركة
+      const isAdmin = username.includes('@') && !!(await prisma.admin.findUnique({ where: { email: username }, select: { id: true } }));
+      loginRefused(res, 401, isAdmin ? 'ADMIN_ACCOUNT' : 'INVALID_CREDENTIALS', 'rep');
       return;
     }
+    if (!rep.isActive) { loginRefused(res, 403, 'ACCOUNT_DISABLED', 'rep'); return; }
+    if (!(await bcrypt.compare(password, rep.passwordHash))) { loginRefused(res, 401, 'WRONG_PASSWORD', 'rep'); return; }
     const block = tenantBlockReason(rep.tenant);
-    if (block) { res.status(403).json({ success: false, message: block }); return; }
+    if (block) { res.status(403).json({ success: false, code: 'TENANT_BLOCKED', message: block }); return; }
     const token = signToken({ id: rep.id, role: 'SALES_REP', name: rep.name, tenantId: rep.tenantId });
     res.json({ success: true, data: { token, user: { ...repSessionUser(rep), role: 'SALES_REP', companyName: rep.tenant.name } } });
   } catch (err) { next(err); }
@@ -462,6 +506,75 @@ router.post('/activate', authLimiter, async (req: Request, res: Response, next: 
     });
   } catch (err) {
     if (err instanceof ActivationError) { res.status(err.status).json({ success: false, message: err.message, code: err.code }); return; }
+    next(err);
+  }
+});
+
+/**
+ * «نسيت كلمة المرور» لمستخدمي الشركات (طلب المالك ٢١ نوفمبر ٢٠٢٦): رابط استعادة إلى البريد — والردّ واحدٌ وُجد البريد أم لا
+ * (قرار المالك: لا «لا يوجد حساب بهذا البريد»). حسابٌ ينتظر التفعيل يصله رابط التفعيل بدلها (services/passwordReset.ts).
+ */
+export const FORGOT_SENT = 'إن كان البريد مسجلاً لدينا فسيصلك رابط إعادة تعيين كلمة المرور خلال دقائق — افحص صندوق الوارد والرسائل غير المرغوبة';
+export const RECOVER_FOUND = 'أرسلنا رابط الاستعادة إلى بريد مدير الشركة';
+export const RECOVER_UNKNOWN = 'إن كان الرقم مسجلاً لشركة فسيصل رابط الاستعادة إلى بريد مديرها — وإن لم يصلك شيء فتواصل مع الدعم';
+
+router.post('/forgot-password', mailLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { email } = z.object({ email: z.string().trim().min(3, 'اكتب بريداً إلكترونياً صحيحاً').max(200).email('اكتب بريداً إلكترونياً صحيحاً') }).parse(req.body);
+    await requestPasswordReset(email);
+    res.json({ success: true, message: FORGOT_SENT });
+  } catch (err) { next(err); }
+});
+
+// «نسيت بريدي»: رقم جوال الشركة ⇒ رابط الاستعادة إلى بريد مديرها، ويُعاد البريد مقنّعاً ليعرفه
+router.post('/recover-email', mailLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { phone } = z.object({ phone: z.string().trim().min(7, 'اكتب رقم جوال الشركة').max(30, 'اكتب رقم جوال الشركة') }).parse(req.body);
+    const emails = await recoverByCompanyPhone(phone);
+    res.json({ success: true, message: emails.length ? RECOVER_FOUND : RECOVER_UNKNOWN, data: { emails } });
+  } catch (err) { next(err); }
+});
+
+router.post('/reset-password/preview', resetLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { token } = z.object({ token: z.string().min(1).max(2000) }).parse(req.body);
+    res.json({ success: true, data: await resetPreview(token) });
+  } catch (err) {
+    if (err instanceof ResetError) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
+    next(err);
+  }
+});
+
+// تعيين كلمة المرور الجديدة ثم الدخول مباشرةً بجلسةٍ كالدخول تماماً (والشركة الموقوفة: تغيّرت كلمة المرور ولا جلسة)
+router.post('/reset-password', resetLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const b = z.object({
+      token: z.string().min(1).max(2000),
+      password: z.string().min(8, 'كلمة المرور 8 أحرف على الأقل').max(128),
+    }).parse(req.body);
+    const admin = await resetPassword(b.token, b.password);
+    if (!admin || !admin.isActive) { res.status(400).json({ success: false, code: 'invalid', message: 'رابط إعادة التعيين غير صالح أو منتهي الصلاحية' }); return; }
+    const block = tenantBlockReason(admin.tenant);
+    if (block) { res.status(403).json({ success: false, code: 'TENANT_BLOCKED', message: block }); return; }
+    const token = signToken({ id: admin.id, role: admin.role, name: admin.name, tenantId: admin.tenantId });
+    res.json({
+      success: true,
+      data: {
+        token,
+        user: {
+          id: admin.id,
+          name: admin.name,
+          email: admin.email,
+          role: admin.role,
+          tenantId: admin.tenantId,
+          companyName: admin.tenant.name,
+          emailVerified: true,
+          ...adminPermissionFields(admin),
+        },
+      },
+    });
+  } catch (err) {
+    if (err instanceof ResetError) { res.status(err.status).json({ success: false, code: err.code, message: err.message }); return; }
     next(err);
   }
 });

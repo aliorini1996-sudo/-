@@ -37,13 +37,17 @@ api.interceptors.request.use(config => {
   return config;
 });
 
+/** مسارات الاستعادة العامة (بلا جلسة) — ٤٠١/٤٠٣ منها لا يُقرأ «انتهت الجلسة» فلا يُمحى شيء ولا يُنقل أحد */
+const PUBLIC_AUTH_PATHS = ['/auth/forgot-password', '/auth/recover-email', '/auth/reset-password'];
+
 api.interceptors.response.use(
   r => r,
   err => {
     // لا نتعامل مع 401 لطلب تسجيل الدخول نفسه (لتظهر رسالة «بيانات غير صحيحة» في مكانها بلا إعادة توجيه)
     // — ومنه دخول موظف المنصة: كلمة مرورٍ خاطئة ليست انتهاء جلسة (وكانت تمحو علامة الانتحال)
     const url = err.config?.url as string | undefined;
-    const isLogin = !!url && (url.includes('/auth/login') || url.includes('/staff-auth/login'));
+    // ومسارات الاستعادة العامة (نسيت كلمة المرور / البريد، ورابط إعادة التعيين): ردّها خطأ إدخال أو رابط، لا انتهاء جلسة
+    const isLogin = !!url && (url.includes('/auth/login') || url.includes('/staff-auth/login') || PUBLIC_AUTH_PATHS.some((p) => url.includes(p)));
     if (err.response?.status === 401 && !isLogin) {
       // الوجهة قبل المحو: «دخولٌ» إلى شركة أسقطه الخادم (IMPERSONATION_ENDED) يعود إلى لوحة من دخل (/staff أو /platform)
       // لا إلى /login — وعلامة من دخل يمحوها sessionExpired
@@ -338,6 +342,13 @@ export const authApi = {
   // تفعيل حساب شركةٍ فتحه «سفير فيلد سيلز» (/activate): الرمز من رابط بريد المسؤول، يُرسل في الجسم
   // لا في الرابط. preview يقرأ حالته وبيانات العرض، وactivate يضبط كلمة المرور ويُعيد جلسة الدخول.
   activationPreview: (token: string) => api.post('/auth/activation/preview', { token }),
+  // استعادة الحساب بالبريد (طلب المالك ٢١ نوفمبر ٢٠٢٦) — كلها بلا جلسة، والردّ واحدٌ وُجد الحساب أم لا (لا كشف للبريد):
+  // نسيت كلمة المرور ⇐ رابطٌ إلى البريد · نسيت البريد ⇐ رقم جوال الشركة فيصل الرابط بريد مديرها (والردّ بريدٌ مُقنَّع)
+  forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
+  recoverEmail: (phone: string) => api.post('/auth/recover-email', { phone }),
+  // رابط إعادة التعيين (/reset-password#t=…): الرمز في الجسم لا في الرابط. preview يعرض صاحبه، وreset يضبط كلمة المرور ويُعيد جلسة الدخول
+  resetPreview: (token: string) => api.post('/auth/reset-password/preview', { token }),
+  resetPassword: (data: { token: string; password: string }) => api.post('/auth/reset-password', data),
   activate: (data: { token: string; password: string; acceptTerms: true; phone: string }) => api.post('/auth/activate', data),
 };
 

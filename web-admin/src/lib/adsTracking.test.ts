@@ -32,7 +32,7 @@ test('الوسم ممنوع داخل التطبيق والبوابات الخا�
   const denied = [
     '/app', '/app/', '/app/customers', '/app/ledger/moves', '/platform', '/owner', '/login', '/verify-email',
     '/staff', '/staff/', '/staff/login', // لوحة موظفي المنصة ودخولها
-    '/activate', '/activate/',
+    '/activate', '/activate/', '/reset-password', '/reset-password/',
     '/rep', '/rep/', '/m', '/m/', '/ax', '/ax/', '/hx', '/q-fs7k2m', '/qt',
     '/ambassadors/join', '/ambassadors/login', '/en/ambassadors/join', // تحويلٌ إلى بوابة السفير لا صفحة هبوط
     '/pos', '/kds', '/app-r', // مسارات المطعم — خارج القائمة تلقائياً
@@ -74,7 +74,7 @@ test('كل مسارات App.tsx مصنّفة صراحةً، والتصنيف ي�
     '/free', '/free/:tool', '/blog', '/blog/:slug',
   ]);
   const PRIVATE = new Set([
-    '/rep', '/m', '/hx', '/ax', '/q-fs7k2m', '/hookb', '/login', '/owner', '/verify-email', '/activate',
+    '/rep', '/m', '/hx', '/ax', '/q-fs7k2m', '/hookb', '/login', '/owner', '/verify-email', '/activate', '/reset-password',
     '/rep-app', '/payment/success', '/c/:tenantId/:repId', '/pay/:token', '/e/:token', '/platform', '/app',
     '/staff', '/staff/login',
     // زرّا صفحة السفراء العلنية — تحويلٌ استبدالاً إلى بوابة السفير (V2_SPEC §9)

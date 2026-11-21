@@ -41,6 +41,8 @@ import { BrandIcon } from '../components/BrandLogo';
 import CompanyBrand from '../components/CompanyBrand';
 import AppIntro from '../components/AppIntro';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
+import LoginErrorBox from '../components/LoginErrorBox';
+import { loginErrorOf, type LoginError } from '../lib/loginErrors';
 import SearchableSelect from '../components/SearchableSelect';
 import BarcodeScanner from './BarcodeScanner';
 import LaserScanField, { readLaserPref, writeLaserPref } from './LaserScanField';
@@ -179,17 +181,21 @@ function RepLogin({ onLogin, onBack }: { onLogin: (token: string, user: RepUser)
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  // رفض الدخول برسالة الخادم الدقيقة وفعلها (طلب المالك ٢١ نوفمبر ٢٠٢٦): كلمة مرور خاطئة ⇐ «نسيت كلمة المرور؟» (عبر المدير)،
+  // وبريد مديرٍ هنا ⇐ رابط صفحة الشركة
+  const [error, setError] = useState<LoginError | null>(null);
   const [showForgot, setShowForgot] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true); setError('');
+    // خانةٌ فارغة لا تُرسل — كان الخادم يردّها بنصّ تحقّقٍ عربيّ لا يُترجم
+    if (!username.trim() || !password) { setError({ code: null, message: null, action: null, offline: false }); return; }
+    setLoading(true); setError(null);
     try {
       const res = await repApi.post('/auth/login', { username, password, role: 'sales_rep' });
       onLogin(res.data.data.token, res.data.data.user);
-    } catch {
-      setError(t('rep.badCreds'));
+    } catch (err) {
+      setError(loginErrorOf(err));
     } finally { setLoading(false); }
   };
 
@@ -219,19 +225,19 @@ function RepLogin({ onLogin, onBack }: { onLogin: (token: string, user: RepUser)
           <div className="space-y-3">
             <div className="relative">
               <User size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
-              <input className="input pr-9" placeholder={t('rep.username')} dir="ltr"
-                value={username} onChange={e => setUsername(e.target.value)} />
+              <input className="input pr-9" placeholder={t('rep.username')} dir="ltr" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+                value={username} onChange={e => { setUsername(e.target.value); setError(null); }} />
             </div>
             <div className="relative">
               <input className="input pr-3 pl-9" type={showPass ? 'text' : 'password'} placeholder={t('login.password')} dir="ltr"
-                value={password} onChange={e => setPassword(e.target.value)} />
+                value={password} onChange={e => { setPassword(e.target.value); setError(null); }} />
               <button type="button" className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]"
                 onClick={() => setShowPass(s => !s)}>
                 {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
           </div>
-          {error && <p className="text-[#C0392B] text-xs mt-2">{error}</p>}
+          {error && <LoginErrorBox error={error} fallback={t('rep.badCreds')} onForgot={() => setShowForgot(true)} />}
           <button type="submit" disabled={loading}
             className="w-full bg-[#E15A30] hover:bg-[#C94E28] text-white font-bold py-3 rounded-xl mt-5 flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
             {loading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}

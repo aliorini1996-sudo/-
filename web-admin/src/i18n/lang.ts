@@ -15,7 +15,8 @@ export function isAppRoute(p: string): boolean {
   // `activate` (تفعيل حساب شركةٍ فتحه سفير) بحدّ نهاية: مبدّل اللغة فيها يضبط اللغة بلا تنقّل
   // إلى /en… — فالرمز المحفوظ في الذاكرة لا يضيع بإعادة تحميل.
   // `staff` (لوحة موظف المنصة ودخوله) بحدّ نهاية: غيابه كان يقذف مبدّل اللغة إلى /en/staff (٤٠٤) ويفرض LocaleSync العربية.
-  return /^\/(app|rep|pos|kds|platform|owner|login|signup|verify)/.test(p) || /^\/(m|ax|activate|staff)(\/|$)/.test(p);
+  // `reset-password` (رابط «نسيت كلمة المرور») كـ`activate`: مبدّل اللغة لا ينقل إلى /en… فلا يضيع الرمز المحفوظ في الذاكرة.
+  return /^\/(app|rep|pos|kds|platform|owner|login|signup|verify)/.test(p) || /^\/(m|ax|activate|reset-password|staff)(\/|$)/.test(p);
 }
 
 /**

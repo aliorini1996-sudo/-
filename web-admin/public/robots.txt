@@ -99,6 +99,7 @@ Disallow: /login
 Disallow: /signup
 Disallow: /verify-email
 Disallow: /activate
+Disallow: /reset-password
 
 # دليل الموقع لنماذج الذكاء الاصطناعي: https://fieldsa.net/llms.txt
 Sitemap: https://fieldsa.net/sitemap.xml
