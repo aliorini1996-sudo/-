@@ -24,7 +24,7 @@ test('كل دفعةٍ تُوجَّه على الشوارع وتُوصل بلا �
     const a = wps[0], b = wps[wps.length - 1];
     return [a, { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 + 0.001 }, b];
   };
-  const r = await planRoadPath(Array.from({ length: 20 }, (_, i) => P(i)), 'tenant-1', fake);
+  const r = await planRoadPath(Array.from({ length: 20 }, (_, i) => P(i)), 'tenant-1', fake, async () => null);
   assert.ok(r);
   assert.equal(r!.degraded, false);
   assert.equal(keys.length, 2);
@@ -34,13 +34,13 @@ test('كل دفعةٍ تُوجَّه على الشوارع وتُوصل بلا �
 });
 
 test('تعذّر التوجيه ⇒ خطٌّ مستقيم بين المحطّات و degraded، وأقلّ من محطّتين ⇒ null', async () => {
-  const r = await planRoadPath([P(0), P(1), P(2)], 't', async () => null);
+  const r = await planRoadPath([P(0), P(1), P(2)], 't', async () => null, async () => null);
   assert.deepEqual(r, { points: [P(0), P(1), P(2)], degraded: true });
-  assert.equal(await planRoadPath([P(0)], 't', async () => null), null);
-  const thrown = await planRoadPath([P(0), P(1)], 't', async () => { throw new Error('x'); });
+  assert.equal(await planRoadPath([P(0)], 't', async () => null, async () => null), null);
+  const thrown = await planRoadPath([P(0), P(1)], 't', async () => { throw new Error('x'); }, async () => { throw new Error('y'); });
   assert.equal(thrown!.degraded, true);
   // ما بعد السقف يبقى مستقيماً معلَناً
-  const many = await planRoadPath(Array.from({ length: MAX_PLAN_STOPS + 5 }, (_, i) => P(i)), 't', async (w) => w);
+  const many = await planRoadPath(Array.from({ length: MAX_PLAN_STOPS + 5 }, (_, i) => P(i)), 't', async (w) => w, async () => null);
   assert.equal(many!.degraded, true);
   assert.deepEqual(many!.points[many!.points.length - 1], P(MAX_PLAN_STOPS + 4));
 });
@@ -49,4 +49,19 @@ test('مصدر: /rep-routes/mine يعيد roadPath للإدارة وحدها ب�
   const src = fs.readFileSync(path.join(process.cwd(), 'src', 'routes', 'repRoutes.ts'), 'utf8');
   assert.match(src, /const roadPath = !isRep && req\.query\.shape === '1'/);
   assert.match(src, /\.\.\.\(roadPath !== undefined \? \{ roadPath \} : \{\}\)/);
+});
+
+test('محطّةٌ بعيدة عن الطريق: Geoapify يرفض الدفعة ⇒ بديل TomTom للدفعة كاملة، وإلا أزواجٌ متتالية والمتعذّر وحده مستقيم (٢١ نوفمبر)', async () => {
+  const bad = P(0); // «لا طريق قريب» في المزوّد الأول
+  const geo = async (w: { lat: number; lng: number }[]) => (w.some(p => p.lat === bad.lat) ? null : [w[0], { lat: 99, lng: 99 }, w[w.length - 1]]);
+  // البديل ينجح ⇒ يُستعمل للدفعة
+  const viaTT = await planRoadPath([P(0), P(1), P(2)], 't', geo, async (w) => [w[0], { lat: 77, lng: 77 }, w[w.length - 1]]);
+  assert.equal(viaTT!.degraded, false);
+  assert.ok(viaTT!.points.some(p => p.lat === 77));
+  // البديل يفشل ⇒ أزواج: (٠←١) مستقيم، (١←٢) على الطريق
+  const pairs = await planRoadPath([P(0), P(1), P(2)], 't', geo, async () => null);
+  assert.equal(pairs!.degraded, true);
+  assert.deepEqual(pairs!.points[0], P(0));
+  assert.ok(pairs!.points.some(p => p.lat === 99), 'الزوج الممكن تبع الطريق');
+  assert.deepEqual(pairs!.points[pairs!.points.length - 1], P(2));
 });
