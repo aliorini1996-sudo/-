@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import { apiKeyFromHeaders, isWellFormedApiKey, hashApiKey, isLiveKeyHash, API_KEY_RATE_PER_MINUTE } from '../services/apiKeys';
 
 // حدود معدّل الطلبات — حماية ضد التخمين والسبام وإساءة الاستخدام.
-// ملاحظة: يتطلب app.set('trust proxy', 1) خلف بروكسي Render لاحتساب IP الحقيقي.
+// ملاحظة: req.ip هو عنوان المستخدم الحقيقي خلف Cloudflare وRender بفضل app.set('trust proxy', trustProxy) — middleware/trustProxy.ts.
 
 const base: Partial<Options> = {
   standardHeaders: true,
