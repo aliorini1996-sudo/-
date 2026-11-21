@@ -95,11 +95,12 @@ import { apiLimiter, bridgeLimiter } from './middleware/rateLimits';
 import { requireRepLiveLocation } from './middleware/repLiveLocation';
 import { apiRejectLog } from './services/apiRejectLog';
 // ZATCA المرحلة الثانية (Z5.7): رمز رابط المشتري لا يُكتب في سطر morgan — يُقنَّع قبل التوجيه
+import { trustProxy } from './middleware/trustProxy';
 import { redactShareTokensInLogs } from './middleware/shareUrlPrivacy';
 
 const app = express();
-// خلف بروكسي Render — لاحتساب IP الحقيقي في حدود المعدّل
-app.set('trust proxy', 1);
+// خلف Cloudflare ثم بروكسي Render — req.ip = المستخدم الحقيقي لحدود المعدّل (middleware/trustProxy.ts، إصلاح ٢١ نوفمبر)
+app.set('trust proxy', trustProxy);
 const server = http.createServer(app);
 
 // الأصول المسموح بها: FRONTEND_URL (قائمة مفصولة بفواصل) أو * للسماح للجميع.
