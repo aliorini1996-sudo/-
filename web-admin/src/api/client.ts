@@ -673,7 +673,8 @@ export const repRouteApi = {
   /** خط سير المندوب اليوم — بيوم جهازه لا يوم الخادم */
   /** خط سير مندوبٍ بعينه ليومٍ بعينه — للوحة الإدارة (خلف صلاحية التتبّع) */
   mineFor: (salesRepId: string, date: string) => api.get('/rep-routes/mine', {
-    params: { salesRepId, date, tzOffsetMin: -new Date().getTimezoneOffset() },
+    // shape=1: الخطّ المخطَّط على الشوارع (roadPath) لخريطة التتبّع
+    params: { salesRepId, date, tzOffsetMin: -new Date().getTimezoneOffset(), shape: 1 },
   }),
   mine: () => api.get('/rep-routes/mine', {
     params: { date: dayKeyLocal(), tzOffsetMin: -new Date().getTimezoneOffset() },

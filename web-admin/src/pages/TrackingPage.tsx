@@ -98,6 +98,8 @@ interface PlanRoute {
   stops: PlanStop[]; doneCount: number; total: number;
   /** محطّات حجبها نطاق القارئ — تُقال ولا تُخفى */
   hiddenByScope?: number;
+  /** الخطّ المخطَّط على الشوارع بترتيب المحطّات (‎?shape=1) — يغيب ⇒ خطوطٌ مستقيمة كما كان */
+  roadPath?: { points: { lat: number; lng: number }[]; degraded: boolean } | null;
 }
 
 function customerIcon() {
@@ -252,6 +254,10 @@ export default function TrackingPage() {
   const planStops = (plan?.stops ?? []).filter(p => p.lat != null && p.lng != null);
   const planLatLng = planStops.map(p => [p.lat as number, p.lng as number] as [number, number]);
   const planMissing = (plan?.stops.length ?? 0) - planStops.length;
+  // الخطّ المخطَّط على الشوارع إن أعاده الخادم، وإلا المستقيم بين المحطّات (طلب المالك ٢١ نوفمبر)
+  const planPath: [number, number][] = plan?.roadPath?.points?.length
+    ? plan.roadPath.points.map(p => [p.lat, p.lng] as [number, number])
+    : planLatLng;
 
   const customerLocsQ = useQuery({
     queryKey: ['customer-locations'],
@@ -688,7 +694,7 @@ export default function TrackingPage() {
                 {/* خط السير المخطَّط — بنفسجيّ متقطّع يميّزه عن المسار المرصود */}
                 {selected && planLatLng.length > 1 && (
                   <Polyline
-                    positions={planLatLng}
+                    positions={planPath}
                     pathOptions={{ color: '#7C3AED', weight: 3.5, opacity: 0.85, dashArray: '8 6' }}
                   />
                 )}

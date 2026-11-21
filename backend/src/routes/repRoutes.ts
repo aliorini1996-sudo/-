@@ -13,6 +13,7 @@ import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '..
 import { AuthRequest } from '../types';
 import { canAccessRep, canAccessCustomerAsAdmin, adminRepFilter } from '../services/adminScope';
 import { canAccessCustomer } from '../services/customerScope';
+import { planRoadPath } from '../services/planRoadPath';
 
 const router = Router();
 router.use(authenticate);
@@ -160,6 +161,15 @@ router.get('/mine', async (req: AuthRequest, res: Response, next: NextFunction) 
     });
     const doneAt = new Map(visits.map(v => [v.customerId, v.createdAt]));
 
+    // خريطة الإدارة (?shape=1): الخطّ المخطَّط على الشوارع بترتيب المحطّات — طلب المالك ٢١ نوفمبر (services/planRoadPath.ts)
+    const roadPath = !isRep && req.query.shape === '1'
+      ? await planRoadPath(
+          visible.filter(s => s.customer.lat != null && s.customer.lng != null)
+            .map(s => ({ lat: Number(s.customer.lat), lng: Number(s.customer.lng) })),
+          tid,
+        )
+      : undefined;
+
     res.json({
       success: true,
       data: {
@@ -178,6 +188,7 @@ router.get('/mine', async (req: AuthRequest, res: Response, next: NextFunction) 
         // محطّاتٌ حجبها نطاقُ القارئ — تُقال ولا تُخفى، وإلا رأى خطّاً أقصر
         // من المخطَّط وظنّه كاملاً
         hiddenByScope: hidden,
+        ...(roadPath !== undefined ? { roadPath } : {}),
       },
     });
   } catch (err) { next(err); }
