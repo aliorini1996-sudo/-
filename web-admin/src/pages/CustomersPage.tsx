@@ -6,7 +6,7 @@ import { Customer } from '../types';
 import { formatCurrency, formatDate, statusLabels } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { SALES_CHANNELS, channelLabel } from '../lib/channels';
-import { Plus, Search, Edit, FileText, FileBarChart2, Trash2, ChevronLeft, ChevronRight, Download, Images } from 'lucide-react';
+import { Plus, Search, Edit, FileText, FileBarChart2, Trash2, ChevronLeft, ChevronRight, Download, Archive } from 'lucide-react';
 import { shareOrDownloadExcel, num } from '../utils/excel';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/authStore';
@@ -48,7 +48,7 @@ export default function CustomersPage() {
   const [docResult, setDocResult] = useState<StatementDoc | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Customer | null>(null);
-  // «استديو العميل» (طلب المالك ١٣ نوفمبر ٢٠٢٦): وثائقه وصور زياراته ومرفقات سنداته
+  // «أرشيف العميل» (كان «الاستديو» ١٣ نوفمبر، وصار أرشيفاً بسجلٍّ زمني ٢١ نوفمبر ٢٠٢٦): زياراته بملاحظاتها وصورها ووثائقه ومرفقات سنداته
   const [studioFor, setStudioFor] = useState<{ id: string; name: string } | null>(null);
   const [buyerBucket, setBuyerBucket] = useState<BuyerBucket>('');
   const [bucketCursors, setBucketCursors] = useState<(string | null)[]>([null]);
@@ -406,8 +406,8 @@ export default function CustomersPage() {
                         <Edit size={14} />
                       </button>
                       <button onClick={() => setStudioFor({ id: c.id, name: c.name })} className="p-1.5 hover:bg-amber-50 rounded text-[#8A6D1F]"
-                        title={tr('استديو العميل')} aria-label={tr('استديو العميل')} data-customer-studio="">
-                        <Images size={14} />
+                        title={tr('أرشيف العميل')} aria-label={tr('أرشيف العميل')} data-customer-studio="">
+                        <Archive size={14} />
                       </button>
                       {/* كشف الحساب فعلٌ محاسبي: زرّاه يختفيان مع المحاسبة */}
                       {accountingOn && !bucketMode && (

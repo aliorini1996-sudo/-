@@ -221,7 +221,7 @@ export default function CustomerModal({ customer, onClose, onSave: save, loading
             {customer ? (
               <button type="button" onClick={onOpenStudio}
                 className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#8A6D1F] border border-[#EDE3CF] bg-[#FBF7EF] rounded-lg px-3 py-2 hover:border-[#8A6D1F]/50">
-                <Images size={15} /> {tr('فتح استديو العميل')}
+                <Images size={15} /> {tr('فتح أرشيف العميل')}
               </button>
             ) : (
               <>

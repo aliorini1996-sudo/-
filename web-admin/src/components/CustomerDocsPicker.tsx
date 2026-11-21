@@ -92,7 +92,7 @@ export default function CustomerDocsPicker({ docs, onChange, taxOff = false, max
         </div>
       )}
       <p className="text-[10px] text-gray-400 mt-1.5">
-        {working ? tr('جاري تجهيز الصور') : tr('السجل التجاري أو الهوية أو صورة المحل وغيرها — تظهر في استديو العميل')} ({docs.length}/{max})
+        {working ? tr('جاري تجهيز الصور') : tr('السجل التجاري أو الهوية أو صورة المحل وغيرها — تظهر في أرشيف العميل')} ({docs.length}/{max})
       </p>
       {msg && <p className="text-[11px] text-red-500 mt-1">{msg}</p>}
     </div>
