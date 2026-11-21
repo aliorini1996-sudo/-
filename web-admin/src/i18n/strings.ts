@@ -546,6 +546,7 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'المدينة': { en: 'City', fr: 'Ville', tr: 'Şehir', zh: '城市' },
   'الرصيد': { en: 'Balance', fr: 'Solde', tr: 'Bakiye', zh: '余额' },
   'الحد الائتماني': { en: 'Credit limit', fr: 'Limite de crédit', tr: 'Kredi limiti', zh: '信用额度' },
+  'فتح صفحة العميل': { en: 'Open customer page', fr: 'Ouvrir la fiche client', tr: 'Müşteri sayfasını aç', zh: '打开客户页面' },
   'لا توجد نتائج': { en: 'No results', fr: 'Aucun résultat', tr: 'Sonuç bulunamadı', zh: '暂无结果' },
   'كشف حساب عرض': { en: 'View statement', fr: 'Relevé afficher', tr: 'Hesap ekstresi görüntüle', zh: '查看对账单' },
   'كشف حساب PDF': { en: 'Statement PDF', fr: 'Relevé PDF', tr: 'Hesap ekstresi PDF', zh: '对账单 PDF' },

@@ -126,3 +126,13 @@ test('حارس ثابت: القيد في نافذة المندوب بلوحة ا
   assert.ok(read('pages', 'TrackingPage.tsx').includes(NOTE));
   assert.ok(read('m', 'MTracking.tsx').includes(NOTE));
 });
+
+test('خط السير: اسم العميل زرٌّ يفتح صفحته، وأرقام رأس صفحته (الرصيد/الحد الائتماني/فترة السداد) من قائمته المخزّنة نفسها (طلب المالك ٢١ نوفمبر)', () => {
+  const route = read('rep', 'RepRouteScreen.tsx');
+  const app = read('rep', 'RepApp.tsx');
+  assert.match(route, /onClick=\{\(\) => onOpenCustomer\?\.\(s\.customerId\)\}/);
+  assert.match(route, /cacheGet<any\[\]>\('customers'\)/);
+  for (const k of ["tr('الرصيد')", "tr('الحد الائتماني')", "tr('فترة السداد')"]) assert.ok(route.includes(k), k);
+  assert.match(route, /\{accountingOn && finance\[s\.customerId\] &&/, 'تغيب الأرقام عند إطفاء المحاسبة ولعميلٍ ليس في قائمة المندوب');
+  assert.ok(app.includes("onOpenCustomer={openCustomerById} accountingOn={accountingOn} />}"), 'الربط بفتح صفحة العميل');
+});
