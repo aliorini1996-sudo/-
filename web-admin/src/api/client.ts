@@ -690,6 +690,16 @@ export const repRouteApi = {
   mine: () => api.get('/rep-routes/mine', {
     params: { date: dayKeyLocal(), tzOffsetMin: -new Date().getTimezoneOffset() },
   }),
+  /** «طريقة توزيع الخطوط» لمندوب (طلب المالك ٢٢ نوفمبر ٢٠٢٦): الطريقة وخطوطه الدائمة بترتيب الدورة وخطّ يومه — بيوم الجهاز */
+  schedule: (salesRepId: string) => api.get(`/rep-routes/schedule/${salesRepId}`, {
+    params: { date: dayKeyLocal(), tzOffsetMin: -new Date().getTimezoneOffset() },
+  }),
+  /** 'single' يحذف الجدول (خطٌّ دائمٌ واحد كما كان)، و'weekdays'/'rotation' تُنشئه أو تعدّله */
+  setSchedule: (salesRepId: string, body: { mode: 'single' | 'weekdays' | 'rotation'; rotationStart?: string | null; offDays?: number[] }) =>
+    api.put(`/rep-routes/schedule/${salesRepId}`, body, { params: { date: dayKeyLocal(), tzOffsetMin: -new Date().getTimezoneOffset() } }),
+  /** ترتيب دورة التناوب — كل خطوط المندوب الدائمة بترتيبها الجديد */
+  setOrder: (salesRepId: string, ids: string[]) =>
+    api.put(`/rep-routes/order/${salesRepId}`, { ids }, { params: { date: dayKeyLocal(), tzOffsetMin: -new Date().getTimezoneOffset() } }),
 };
 
 /** مفتاح يوم الجهاز 'YYYY-MM-DD' بلا انزلاق منطقة زمنية */

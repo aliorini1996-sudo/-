@@ -164,6 +164,7 @@ model Tenant {
 
   RepVisit             RepVisit[]
   repRoutes            RepRoute[]
+  repRouteSchedules    RepRouteSchedule[]
   RepSession           RepSession[]
   RepAttendance        RepAttendance[]
   attendanceAudits     AttendanceAudit[]
@@ -620,6 +621,7 @@ model SalesRep {
   settlements   RepSettlement[]
   RepVisit      RepVisit[]
   repRoutes     RepRoute[]
+  routeSchedule RepRouteSchedule? // طريقة توزيع خطوطه على الأيام (طلب المالك ٢٢ نوفمبر ٢٠٢٦)
   RepSession    RepSession[]
   attendance    RepAttendance[]
   pushSubscriptions RepPushSubscription[]
@@ -3750,6 +3752,12 @@ model RepRoute {
 
   isActive Boolean @default(true)
 
+  /// «حسب أيام الأسبوع» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): أيام هذا الخطّ الدائم 0=الأحد..6=السبت.
+  /// لا يُقرأ إلا وللمندوب جدولٌ بنمط weekdays (RepRouteSchedule) — services/routeSchedule.ts
+  weekdays Int[] @default([])
+  /// «تناوب بالترتيب»: موضع الخطّ في دورة المندوب — الأصغر أوّلاً ثم الأقدم إنشاءً
+  rotationOrder Int @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -3780,6 +3788,29 @@ model RepRouteStop {
   @@unique([routeId, customerId]) // العميل مرّة واحدة في الخط الواحد
   @@index([tenantId, customerId])
   @@map("rep_route_stops")
+}
+
+/// طريقة توزيع خطوط المندوب الدائمة على الأيام (طلب المالك ٢٢ نوفمبر ٢٠٢٦) — جدولٌ جديد.
+/// غيابُ الصفّ = «خط واحد يومياً» (السلوك القديم: خطٌّ دائمٌ واحد). صفٌّ واحد لكل مندوب.
+model RepRouteSchedule {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId String   @unique
+  salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+
+  mode          String // 'weekdays' | 'rotation'
+  /// بداية التناوب 'YYYY-MM-DD' — يومها لأوّل خطٍّ في الترتيب. نصٌّ كـrouteDate بلا انزلاق منطقة زمنية
+  rotationStart String?
+  /// أيام الراحة التي يتخطّاها التناوب (0=الأحد..6=السبت) — الجمعة افتراضاً
+  offDays       Int[]    @default([5])
+  updatedBy     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("rep_route_schedules")
 }
 
 // ============================================================================
