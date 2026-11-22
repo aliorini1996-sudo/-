@@ -8104,7 +8104,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
  {
   "key": "field",
   "title": "الزيارات والتتبع وخطوط السير",
-  "overview": "ثلاثة موجّهات: /visits لزيارات المناديب الميدانية مع صورها، و/tracking للخريطة الحية وخط سير المندوب الفعلي وإعداد التتبع، و/rep-routes لخطوط السير المخططة (قائمة عملاء مرتبة ليوم معيّن أو دائمة). المفتاح يعمل بهوية المستخدم الذي أصدره وأدواره وصلاحياته ونطاقه. المفتاح «قراءة فقط» يُرفض في POST وPATCH وDELETE برمز 403 API_KEY_FORBIDDEN. حد الطلبات 120 طلباً في الدقيقة لكل مفتاح، ويُرجع رأسي X-RateLimit-Limit وX-RateLimit-Remaining، وعند تجاوزه 429 API_RATE_LIMIT. شكل الرد دائماً {success, data} ولا يوجد ترقيم صفحات (pagination) في هذه المجموعة، والقوائم مسقوفة داخلياً. أخطاء التحقق من الحقول ترجع 400 بالشكل {success:false, message, errors}. انتبه للأيام: في /visits و/tracking اليوم يُحسب بتوقيت UTC، أي من الساعة 3 فجراً إلى 3 فجراً بتوقيت الرياض. أما /rep-routes فتقبل tzOffsetMin بالدقائق شرق UTC (الرياض 180). نقاط المندوب الخاصة بتطبيق الجوال (إرسال الموقع والنبضة وبصمة الحضور) لا يستعملها المفتاح\nوموجّه رابع /attendance-admin لتعديل بصمات الحضور إدارياً ورفعها دفعة واحدة: يشترط صلاحية canManageTracking وتفعيل ميزة بصمة الحضور للشركة (attendanceEnabled في GET /company، وإلا 403 ATTENDANCE_DISABLED). كل كتابة فيه تشترط سبباً مكتوباً من 3 إلى 300 حرف ويُدوَّن في سجل التدقيق باسم صاحب المفتاح، وتداخل الفترات يرجع 409 ATTENDANCE_OVERLAP مع conflict. والأيام فيه بمعامل tz بالدقائق شرق UTC (الرياض 180)، وافتراضه 0 أي أيام UTC",
+  "overview": "ثلاثة موجّهات: /visits لزيارات المناديب الميدانية مع صورها، و/tracking للخريطة الحية وخط سير المندوب الفعلي وإعداد التتبع، و/rep-routes لخطوط السير المخططة (قائمة عملاء مرتبة ليوم معيّن أو دائمة، وللمندوب عدة خطوط دائمة توزّعها على الأيام طريقة توزيعه: حسب أيام الأسبوع أو تناوب بالترتيب). المفتاح يعمل بهوية المستخدم الذي أصدره وأدواره وصلاحياته ونطاقه. المفتاح «قراءة فقط» يُرفض في POST وPATCH وDELETE برمز 403 API_KEY_FORBIDDEN. حد الطلبات 120 طلباً في الدقيقة لكل مفتاح، ويُرجع رأسي X-RateLimit-Limit وX-RateLimit-Remaining، وعند تجاوزه 429 API_RATE_LIMIT. شكل الرد دائماً {success, data} ولا يوجد ترقيم صفحات (pagination) في هذه المجموعة، والقوائم مسقوفة داخلياً. أخطاء التحقق من الحقول ترجع 400 بالشكل {success:false, message, errors}. انتبه للأيام: في /visits و/tracking اليوم يُحسب بتوقيت UTC، أي من الساعة 3 فجراً إلى 3 فجراً بتوقيت الرياض. أما /rep-routes فتقبل tzOffsetMin بالدقائق شرق UTC (الرياض 180). نقاط المندوب الخاصة بتطبيق الجوال (إرسال الموقع والنبضة وبصمة الحضور) لا يستعملها المفتاح\nوموجّه رابع /attendance-admin لتعديل بصمات الحضور إدارياً ورفعها دفعة واحدة: يشترط صلاحية canManageTracking وتفعيل ميزة بصمة الحضور للشركة (attendanceEnabled في GET /company، وإلا 403 ATTENDANCE_DISABLED). كل كتابة فيه تشترط سبباً مكتوباً من 3 إلى 300 حرف ويُدوَّن في سجل التدقيق باسم صاحب المفتاح، وتداخل الفترات يرجع 409 ATTENDANCE_OVERLAP مع conflict. والأيام فيه بمعامل tz بالدقائق شرق UTC (الرياض 180)، وافتراضه 0 أي أيام UTC",
   "endpoints": [
    {
     "method": "POST",
@@ -8411,8 +8411,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "body": [],
     "response": "{success:true, data:null} إن لم يوجد خط. وإلا {success:true, data:{id, name, isPermanent, routeDate, day, stops:[{id, seq, note, customerId, customerName, phone, address, lat, lng, done, doneAt}], doneCount, total, hiddenByScope}}",
     "rules": [
-     "الخط المؤقت لهذا اليوم يتقدم على الخط الدائم",
-     "الخط الدائم لا يسري على يوم سابق لتاريخ إنشائه",
+     "الخط المؤقت لهذا اليوم يتقدم على الخط الدائم في كل طريقة توزيع، ولو في يوم راحة، ولا يزيح دورة التناوب: يأخذ دور يومه وحده",
+     "للمندوب عدة خطوط دائمة، وخط اليوم منها بطريقة توزيعه (GET /rep-routes/schedule/:salesRepId): بلا طريقة («خط واحد يومياً») أول خط دائم كما كان. و«حسب أيام الأسبوع» (weekdays) الخط الذي تشمل أيامه يوم الأسبوع (0=الأحد … 6=السبت)، وإلا data:null. و«تناوب بالترتيب» (rotation) يوم عمل لكل خط بترتيب rotationOrder بدءاً من rotationStart متخطياً أيام الراحة offDays، ويوم الراحة أو ما قبل rotationStart يرجع data:null",
+     "الخط الدائم لا يسري على يوم سابق لتاريخ إنشائه (createdAt)، فدورة التناوب ليوم ماضٍ تُحسب بالخطوط التي كانت موجودة فيه. والخط المُعدَّل بـreplacesId يرث تاريخ إنشاء سلفه",
      "done يعني وجود زيارة للعميل من هذا المندوب داخل يوم المندوب بحسب tzOffsetMin، فالإنجاز مشتق من الزيارات ولا يُخزّن"
     ],
     "example": ""
@@ -8430,7 +8431,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "date",
       "type": "string YYYY-MM-DD",
       "required": false,
-      "desc": "اليوم المرجعي لحساب doneToday"
+      "desc": "اليوم المرجعي لحساب isToday وdoneToday"
      },
      {
       "name": "tzOffsetMin",
@@ -8440,12 +8441,139 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, name, isPermanent, routeDate, salesRepId, salesRepName, total, doneToday}]}. doneToday بقيمة null للخط المؤقت الخاص بيوم غير اليوم المرجعي",
+    "response": "{success:true, data:[{id, name, isPermanent, routeDate, salesRepId, salesRepName, weekdays, rotationOrder, scheduleMode, isToday, total, doneToday}]}",
     "rules": [
-     "لا ترقيم صفحات. يعيد كل الخطوط النشطة، ومنها خطوط مؤقتة لأيام ماضية ما لم تُوقف",
-     "الترتيب: الخطوط المؤقتة أولاً، ثم routeDate تنازلياً، ثم createdAt تنازلياً"
+     "isToday=true لخط اليوم المرجعي وحده لكل مندوب، محسوباً كما يحسبه GET /rep-routes/mine: المؤقت لليوم يفوز، ثم طريقة توزيع المندوب. فمع عدة خطوط دائمة لا يكون كل دائم خط اليوم: في «حسب أيام الأسبوع» الخط الذي تشمل أيامه يومه، وفي التناوب الخط الذي عليه الدور. وقد لا يكون للمندوب خط اليوم أصلاً (يوم راحة أو يوم بلا خط) فكل خطوطه isToday=false",
+     "doneToday عدد عملاء الخط الذين زارهم المندوب في اليوم المرجعي، ويُحسب للخط الذي isToday=true وحده. وغيره null ولو كان خطاً دائماً",
+     "weekdays أيام الخط الدائم (0=الأحد … 6=السبت) وتُقرأ في «حسب أيام الأسبوع» وحدها، وrotationOrder موضعه في دورة التناوب (الأصغر أولاً ثم الأقدم إنشاءً)، وscheduleMode طريقة توزيع مندوبه: 'weekdays' أو 'rotation'، أو null لـ«خط واحد يومياً»",
+     "لا ترقيم صفحات. يعيد كل الخطوط النشطة، ومنها خطوط مؤقتة لأيام ماضية ما لم تُحذف",
+     "الترتيب: الخطوط المؤقتة أولاً بـrouteDate تنازلياً، ثم الدائمة بـrotationOrder ثم createdAt تصاعدياً"
     ],
     "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/rep-routes/schedule/:salesRepId",
+    "purpose": "طريقة توزيع خطوط المندوب الدائمة على الأيام، وخطوطه الدائمة بترتيب دورة التناوب، وخط يومه",
+    "permission": "requireAdmin مع canManageTracking",
+    "gates": [
+     "المندوب خارج نطاق المستخدم أو في شركة أخرى أو بمعرّف غير صالح يرجع 404 «المندوب غير موجود»"
+    ],
+    "query": [
+     {
+      "name": "date",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "اليوم المرجعي لحساب today. إن غاب أو خالف الصيغة يُحسب من tzOffsetMin"
+     },
+     {
+      "name": "tzOffsetMin",
+      "type": "number",
+      "required": false,
+      "desc": "إزاحة المنطقة الزمنية بالدقائق شرق UTC، والرياض 180"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{day, schedule:{mode, rotationStart, offDays, updatedAt}|null, routes:[{id, name, weekdays, rotationOrder}], today:{routeId, name, isPermanent}|null}}",
+    "rules": [
+     "schedule:null يعني «خط واحد يومياً»: خط دائم واحد للمندوب كل يوم (السلوك القديم). وmode إما 'weekdays' («حسب أيام الأسبوع») أو 'rotation' («تناوب بالترتيب»)",
+     "routes خطوط المندوب الدائمة النشطة وحدها بترتيب الدورة (rotationOrder ثم الأقدم إنشاءً)، ولا يدخلها الخط المؤقت",
+     "today خط اليوم المرجعي كما يقرؤه المندوب في GET /rep-routes/mine، ومنه المؤقت لذلك اليوم (isPermanent=false). وnull في يوم الراحة أو يوم بلا خط",
+     "rotationStart تاريخ 'YYYY-MM-DD' يومه لأول خط في الترتيب، وoffDays أيام الراحة (0=الأحد … 6=السبت) والجمعة افتراضاً"
+    ],
+    "example": ""
+   },
+   {
+    "method": "PUT",
+    "path": "/rep-routes/schedule/:salesRepId",
+    "purpose": "تغيير طريقة توزيع خطوط المندوب الدائمة: خط واحد يومياً، أو حسب أيام الأسبوع، أو تناوب بالترتيب",
+    "permission": "requireAdmin مع canManageTracking",
+    "gates": [
+     "مفتاح القراءة فقط يُرفض",
+     "المندوب خارج نطاق المستخدم أو في شركة أخرى أو بمعرّف غير صالح يرجع 404 «المندوب غير موجود»"
+    ],
+    "query": [
+     {
+      "name": "date",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "يوم الطلب: بداية التناوب الافتراضية، واليوم المرجعي لـtoday في الرد"
+     },
+     {
+      "name": "tzOffsetMin",
+      "type": "number",
+      "required": false,
+      "desc": "إزاحة المنطقة الزمنية بالدقائق شرق UTC، والرياض 180"
+     }
+    ],
+    "body": [
+     {
+      "name": "mode",
+      "type": "'single' | 'weekdays' | 'rotation'",
+      "required": true,
+      "desc": "'single' يحذف طريقة التوزيع فيعود المندوب إلى خط دائم واحد، و'weekdays' و'rotation' تُنشئها أو تعدّلها"
+     },
+     {
+      "name": "rotationStart",
+      "type": "string YYYY-MM-DD | null",
+      "required": false,
+      "desc": "بداية التناوب، ويومها لأول خط في الترتيب. إن غاب بقيت البداية السابقة، وإلا فيوم الطلب في 'rotation'"
+     },
+     {
+      "name": "offDays",
+      "type": "array of integer 0..6",
+      "required": false,
+      "desc": "أيام الراحة التي يتخطاها التناوب (0=الأحد … 6=السبت) بلا تكرار، وأقل من سبعة أيام. إن غابت بقيت السابقة، وإلا [5] أي الجمعة"
+     }
+    ],
+    "response": "{success:true, data} بشكل GET /rep-routes/schedule/:salesRepId نفسه بعد الحفظ",
+    "rules": [
+     "ما لم يُرسل من rotationStart وoffDays يبقى كما كان، فالتنقل بين الطريقتين لا يمحو إعداد الأخرى",
+     "'single' وللمندوب أكثر من خط دائم واحد يرجع 409 MULTIPLE_PERMANENT ولا يُحذف شيء: احذف الخطوط الدائمة الزائدة أولاً",
+     "'weekdays' وكل خطوط المندوب الدائمة بلا أيام (weekdays=[]) يرجع 409 NO_WEEKDAYS {success:false, code, message, routes:[{id, name}]}، والرسالة تسمّي الخطوط وتطلب تحديد أيام كل خط، لأن المندوب لن يجد خطاً في أي يوم. حدّد الأيام بـPOST /rep-routes مع replacesId ثم أعد الطلب. وللمندوب بلا خطوط دائمة أصلاً يُقبل",
+     "'weekdays' وخطان دائمان للمندوب يشتركان في يوم يرجع 409 WEEKDAY_CONFLICT برسالة تسمّي اليوم والخطين: لكل يوم خط واحد",
+     "rotationStart تاريخ غير صالح، أو offDays فيها يوم مكرر أو خارج 0..6 أو الأيام السبعة كلها، أو mode غير معروف، يرجع 400"
+    ],
+    "example": "{\"mode\":\"rotation\",\"rotationStart\":\"2026-11-22\",\"offDays\":[5]}"
+   },
+   {
+    "method": "PUT",
+    "path": "/rep-routes/order/:salesRepId",
+    "purpose": "ترتيب دورة التناوب: خطوط المندوب الدائمة بترتيبها الجديد",
+    "permission": "requireAdmin مع canManageTracking",
+    "gates": [
+     "مفتاح القراءة فقط يُرفض",
+     "المندوب خارج نطاق المستخدم أو في شركة أخرى أو بمعرّف غير صالح يرجع 404 «المندوب غير موجود»"
+    ],
+    "query": [
+     {
+      "name": "date",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "اليوم المرجعي لـtoday في الرد"
+     },
+     {
+      "name": "tzOffsetMin",
+      "type": "number",
+      "required": false,
+      "desc": "إزاحة المنطقة الزمنية بالدقائق شرق UTC، والرياض 180"
+     }
+    ],
+    "body": [
+     {
+      "name": "ids",
+      "type": "array of string (uuid), 1..200",
+      "required": true,
+      "desc": "معرّفات كل خطوط المندوب الدائمة النشطة، كل خط مرة واحدة، بالترتيب المطلوب. يُكتب لكل خط موضعه rotationOrder من 0"
+     }
+    ],
+    "response": "{success:true, data} بشكل GET /rep-routes/schedule/:salesRepId نفسه بعد الحفظ",
+    "rules": [
+     "ids يجب أن تطابق خطوط المندوب الدائمة الحالية تماماً، وإلا يرجع 400 ORDER_MISMATCH ولا يُكتب شيء: قائمة ناقصة أو زائدة، أو فيها خط مؤقت أو خط مندوب آخر. اقرأ routes من GET /rep-routes/schedule/:salesRepId قبل الإرسال، فخط أُضيف أو حُذف بعد قراءتك يُفشل القائمة القديمة",
+     "معرّف مكرر أو قائمة فارغة يرجع 400",
+     "لا يغيّر غير موضع الخط في الدورة. والخط الدائم الجديد يُضاف آخر الدورة تلقائياً، والمعدَّل بـreplacesId يبقى في موضعه"
+    ],
+    "example": "{\"ids\":[\"5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e\",\"1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d\"]}"
    },
    {
     "method": "GET",
@@ -8457,9 +8585,10 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:{id, name, isPermanent, routeDate, salesRepId, stops:[{customerId, seq, note, customerName}]}}",
+    "response": "{success:true, data:{id, name, isPermanent, routeDate, salesRepId, weekdays, rotationOrder, stops:[{customerId, seq, note, customerName}]}}",
     "rules": [
-     "لا يرشّح على isActive، فيمكن قراءة خط أُوقف أو استُبدل بمعرّفه",
+     "يقرأ الخط النشط وحده: الخط المحذوف أو المستبدل بـreplacesId (حذفهما فعلي) يرجع 404 «خط السير غير موجود»",
+     "weekdays أيام الخط الدائم (0=الأحد … 6=السبت) وrotationOrder موضعه في دورة التناوب، كما في GET /rep-routes",
      "الرد لا يتضمن الحقل isActive"
     ],
     "example": ""
@@ -8504,7 +8633,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "replacesId",
       "type": "string (uuid) | null",
       "required": false,
-      "desc": "معرّف الخط الذي يحل هذا محلّه، ويُوقف داخل المعاملة نفسها"
+      "desc": "معرّف الخط الذي يحل هذا محلّه، ويُحذف فعلياً داخل المعاملة نفسها"
+     },
+     {
+      "name": "weekdays",
+      "type": "array of integer 0..6",
+      "required": false,
+      "desc": "أيام الخط الدائم: 0=الأحد … 6=السبت بلا تكرار. تُقرأ حين تكون طريقة توزيع المندوب «حسب أيام الأسبوع»، ويمكن إرسالها في أي طريقة تمهيداً لها. غيابها عند التعديل بـreplacesId يُبقي أيام الخط المستبدل، وتُهمل للخط المؤقت"
      },
      {
       "name": "stops",
@@ -8527,8 +8662,11 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "response": "201 بالشكل {success:true, data:{id}, warning?}. يظهر warning مثل «2 عميل خارج نطاقك لم يُضَف» حين تُسقط محطات",
     "rules": [
-     "خط واحد لكل حالة: إنشاء خط دائم يوقف تلقائياً الخط الدائم النشط السابق للمندوب، وخط مؤقت يوقف المؤقت النشط لنفس المندوب ونفس اليوم",
-     "replacesId يوقف ذلك الخط أيضاً ولو تغيّر نوعه أو تاريخه أو مندوبه، وهو طريقة التعديل",
+     "خط مؤقت واحد لكل مندوب ويوم: حفظه يحذف فعلياً المؤقت السابق لنفس المندوب ونفس اليوم",
+     "الخط الدائم: للمندوب بلا طريقة توزيع («خط واحد يومياً»، schedule:null في GET /rep-routes/schedule/:salesRepId) يحذف الحفظ فعلياً كل خطوطه الدائمة السابقة فيبقى دائم واحد. وللمندوب بطريقة «حسب أيام الأسبوع» أو «تناوب بالترتيب» تبقى خطوطه الدائمة الأخرى كما هي، ولا يُستبدل إلا الخط المذكور في replacesId، والدائم الجديد يُضاف آخر دورة التناوب (أكبر rotationOrder + 1)",
+     "replacesId يحذف ذلك الخط فعلياً ولو تغيّر نوعه أو تاريخه أو مندوبه، وهو طريقة التعديل، والمعرّف الناتج جديد. والخط الدائم المُعدَّل لنفس المندوب يحتفظ بموضعه rotationOrder وبتاريخ إنشائه createdAt (فلا تنتقل خطة الأيام الماضية إلى خط آخر)، وبأيامه ما لم تُرسل weekdays",
+     "409 WEEKDAY_CONFLICT بالشكل {success:false, code, message, conflict:{day, routeId, name}} حين تُرسل weekdays فيها يوم يستعمله خط دائم آخر للمندوب يبقى بعد الحفظ، أياً كانت طريقة التوزيع، ولا يُكتب شيء: لكل يوم خط واحد. وفي «حسب أيام الأسبوع» تُفحص أيضاً الأيام الباقية من الخط المستبدل. وللمندوب بلا طريقة توزيع لا تعارض، لأن الحفظ يستبدل دائمه",
+     "weekdays فيها يوم مكرر أو خارج 0..6 يرجع 400",
      "seq يُرقّم من 1 بحسب موضع المحطة في المصفوفة",
      "العملاء غير الموجودين في الشركة أو خارج نطاق المستخدم يُسقطون بصمت مع warning. إن لم يبقَ أحد يرجع 400 «لا عملاء صالحين في خط السير»",
      "تكرار customerId في stops يصطدم بالقيد الفريد (routeId, customerId) فتُلغى المعاملة كلها ويرجع 409 «السجل موجود مسبقا»",
@@ -8540,7 +8678,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
    {
     "method": "DELETE",
     "path": "/rep-routes/:id",
-    "purpose": "إيقاف خط سير. هذا تعطيل وليس حذفاً، فالسجل يبقى",
+    "purpose": "حذف خط سير حذفاً فعلياً مع محطاته",
     "permission": "requireAdmin مع canManageTracking",
     "gates": [
      "مفتاح القراءة فقط يُرفض",
@@ -8550,8 +8688,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "body": [],
     "response": "{success:true}",
     "rules": [
-     "يضبط isActive=false فقط. استدعاؤه على خط موقوف مسبقاً ينجح أيضاً",
-     "الخط غير الموجود يرجع 404 «خط السير غير موجود»"
+     "حذف فعلي لا تراجع عنه ولا نسخة موقوفة تبقى، ويُطابَق في مورد المزامنة routes بـ/ids كأي حذف فعلي. والإنجاز يُقرأ من سجل الزيارات فلا تضيع الزيارات",
+     "الخط غير الموجود، ومنه المحذوف قبلاً، يرجع 404 «خط السير غير موجود»",
+     "لا يغيّر طريقة توزيع المندوب، ودورة التناوب تُحسب بعده بخطوطه الدائمة الباقية"
     ],
     "example": ""
    },

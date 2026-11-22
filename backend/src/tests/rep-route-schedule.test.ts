@@ -460,7 +460,7 @@ test('POST تعديل دائمٍ (replacesId) لمندوبٍ له جدول: يُ
   assert.deepEqual(st.routes.find((x) => x.id === b.body.data.id)!.rotationOrder, 1);
 });
 
-test('POST بأيام الأسبوع: يومٌ يستعمله خطٌّ آخر للمندوب ⇒ 409 WEEKDAY_CONFLICT بالعربية ولا يُكتب شيء؛ وفي التناوب أو بلا جدول لا فحص', async () => {
+test('POST بأيام الأسبوع: يومٌ يستعمله خطٌّ آخر للمندوب ⇒ 409 WEEKDAY_CONFLICT بالعربية ولا يُكتب شيء', async () => {
   reset();
   sched(REP1, { mode: 'weekdays' });
   const before = { routes: st.routes.length, stops: st.stops.length };
@@ -474,12 +474,99 @@ test('POST بأيام الأسبوع: يومٌ يستعمله خطٌّ آخر ل
   const b = await call('post', '/', { body: { salesRepId: REP1, name: 'ب', isPermanent: true, replacesId: RB, weekdays: [1, 2], stops: [{ customerId: C1 }] } });
   assert.equal(b.status, 409);
   assert.ok(st.routes.some((x) => x.id === RB), 'المرفوض لا يحذف المُحرَّر');
-  // في التناوب الأيام لا تُفحص
-  st.schedules[0].mode = 'rotation';
-  assert.equal((await call('post', '/', { body: { salesRepId: REP1, name: 'ج', isPermanent: true, weekdays: [0], stops: [{ customerId: C1 }] } })).status, 201);
   // والأيام المكرّرة أو خارج 0..6 مرفوضة بالتحقّق
   await assert.rejects(() => call('post', '/', { body: { salesRepId: REP1, name: 'د', isPermanent: true, weekdays: [1, 1], stops: [{ customerId: C1 }] } }), ZodError);
   await assert.rejects(() => call('post', '/', { body: { salesRepId: REP1, name: 'د', isPermanent: true, weekdays: [7], stops: [{ customerId: C1 }] } }), ZodError);
+});
+
+test('مراجعة ٢٢ نوفمبر: WEEKDAY_CONFLICT يُفحص متى أُرسلت الأيام أيّاً كانت الطريقة — في التناوب كذلك، وبلا جدولٍ لا تعارض لأن دائمه يُستبدل', async () => {
+  reset();
+  sched(REP1, { mode: 'rotation', rotationStart: '2026-11-22' });
+  const before = { routes: st.routes.length, stops: st.stops.length };
+  // التناوب: أيامٌ تُحدَّد تمهيداً لـ«حسب أيام الأسبوع» لا تُخزَّن متعارضة فيُرفض التحويل بعدها
+  const clash = await call('post', '/', { body: { salesRepId: REP1, name: 'ج', isPermanent: true, weekdays: [0], stops: [{ customerId: C1 }] } });
+  assert.equal(clash.status, 409, JSON.stringify(clash.body));
+  assert.equal(clash.body.code, 'WEEKDAY_CONFLICT');
+  assert.deepEqual(clash.body.conflict, { day: 0, routeId: RA, name: 'خط a1' });
+  assert.deepEqual({ routes: st.routes.length, stops: st.stops.length }, before, 'المرفوض لا يكتب');
+  // يومٌ حرّ يُقبل في التناوب ويبقى الدائمان الآخران
+  const free = await call('post', '/', { body: { salesRepId: REP1, name: 'ج', isPermanent: true, weekdays: [6], stops: [{ customerId: C1 }] } });
+  assert.equal(free.status, 201, JSON.stringify(free.body));
+  assert.equal(permsOf(REP1).length, 3);
+  // تعديل B في التناوب بلا أيامٍ مرسَلة: أيامه الباقية لا تُفحص (ليست إدخالاً جديداً)
+  st.routes.find((r) => r.id === RB)!.weekdays = [1]; // تعارضٌ قديم مع A كتبه مسارٌ سابق
+  const keep = await call('post', '/', { body: { salesRepId: REP1, name: 'ب', isPermanent: true, replacesId: RB, stops: [{ customerId: C1 }] } });
+  assert.equal(keep.status, 201, JSON.stringify(keep.body));
+  assert.deepEqual(st.routes.find((x) => x.id === keep.body.data.id)!.weekdays, [1]);
+  // بلا جدول («خط واحد يومياً»): الحفظ يستبدل دوائم المندوب كلّها، فيوم A ليس محجوزاً
+  reset();
+  const single = await call('post', '/', { body: { salesRepId: REP1, name: 'وحيد', isPermanent: true, weekdays: [0, 1], stops: [{ customerId: C1 }] } });
+  assert.equal(single.status, 201, JSON.stringify(single.body));
+  assert.deepEqual(permsOf(REP1).map((x) => [x.id, x.weekdays]), [[single.body.data.id, [0, 1]]]);
+});
+
+test('مراجعة ٢٢ نوفمبر: PUT /schedule إلى «حسب أيام الأسبوع» ودوائم المندوب كلّها بلا أيام ⇒ 409 NO_WEEKDAYS بأسمائها ولا كتابة', async () => {
+  reset();
+  sched(REP1, { mode: 'rotation', rotationStart: '2026-11-22' });
+  for (const r of permsOf(REP1)) r.weekdays = [];
+  const r = await call('put', `/schedule/${REP1}`, { body: { mode: 'weekdays' } });
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.equal(r.body.code, 'NO_WEEKDAYS');
+  assert.match(r.body.message, /«حسب أيام الأسبوع» يحتاج أياماً لكل خط/);
+  assert.match(r.body.message, /«خط a1»/);
+  assert.match(r.body.message, /«خط a2»/);
+  assert.doesNotMatch(r.body.message, /[A-Za-z]{4,}/, 'رسالةٌ بالعربية');
+  assert.deepEqual(r.body.routes.map((x: Row) => x.id), [RA, RB]);
+  assert.equal(st.schedules[0].mode, 'rotation', 'المرفوض لا يكتب');
+  // مندوبٌ بلا جدولٍ ودائمُه الوحيد بلا أيام: كذلك — ولا يُنشأ جدول
+  const two = await call('put', `/schedule/${REP2}`, { body: { mode: 'weekdays' } });
+  assert.equal(two.status, 409);
+  assert.equal(two.body.code, 'NO_WEEKDAYS');
+  assert.deepEqual(st.schedules.map((s) => s.salesRepId), [REP1]);
+  // بعضها بأيام: يُقبل (النافذة تسأل المالك وتسمّي الباقي)
+  st.routes.find((x) => x.id === RA)!.weekdays = [0];
+  const some = await call('put', `/schedule/${REP1}`, { body: { mode: 'weekdays' } });
+  assert.equal(some.status, 200, JSON.stringify(some.body));
+  assert.equal(st.schedules[0].mode, 'weekdays');
+  // بلا دوائم أصلاً: لا خطّة تُطفأ — تُعدّ الطريقة قبل الخطوط
+  st.routes = st.routes.filter((x) => x.id !== R2);
+  const none = await call('put', `/schedule/${REP2}`, { body: { mode: 'weekdays' } });
+  assert.equal(none.status, 200, JSON.stringify(none.body));
+  assert.equal(st.schedules.find((s) => s.salesRepId === REP2)?.mode, 'weekdays');
+});
+
+test('مراجعة ٢٢ نوفمبر: تعديل دائمٍ يرث تاريخ إنشاء سلفه — فخطّة الأيام الماضية في التناوب وأيام الأسبوع لا تنتقل إلى خطٍّ آخر', async () => {
+  reset();
+  // التناوب من الثلاثاء ٣ نوفمبر بلا راحة: ٣ ⇒ A، ٤ ⇒ B، ٥ ⇒ A (والخطّان موجودان منذ ١ و٢ نوفمبر)
+  sched(REP1, { mode: 'rotation', rotationStart: '2026-11-03', offDays: [] });
+  const rep = { user: { id: REP1, role: 'SALES_REP', tenantId: T } };
+  const mine = async (date: string) => (await call('get', '/mine', { ...rep, query: { date } })).body.data?.id ?? null;
+  assert.deepEqual([await mine('2026-11-03'), await mine('2026-11-04'), await mine('2026-11-05')], [RA, RB, RA]);
+  const born = st.routes.find((x) => x.id === RA)!.createdAt as Date;
+  const r = await call('post', '/', { body: { salesRepId: REP1, name: 'أ معدَّل', isPermanent: true, replacesId: RA, stops: [{ customerId: C2 }] } });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const nw = st.routes.find((x) => x.id === r.body.data.id)!;
+  assert.equal((nw.createdAt as Date).getTime(), born.getTime(), 'تاريخ الإنشاء لم يُورَث');
+  assert.equal(nw.rotationOrder, 0);
+  // بتاريخٍ جديد كان ٥ نوفمبر يصير لـB (الخطّ المعدَّل «لم يكن موجوداً») — الآن يبقى للخطّ نفسه
+  assert.deepEqual([await mine('2026-11-03'), await mine('2026-11-04'), await mine('2026-11-05')], [nw.id, RB, nw.id]);
+  // «حسب أيام الأسبوع»: الأحد الماضي (٨ نوفمبر) يبقى للخطّ المعدَّل
+  st.schedules[0] = { ...st.schedules[0], mode: 'weekdays' };
+  assert.equal(await mine('2026-11-08'), nw.id);
+  // وبلا جدول (دائمٌ واحد): تعديل دائم REP2 يرث تاريخه كذلك
+  const born2 = st.routes.find((x) => x.id === R2)!.createdAt as Date;
+  const r2 = await call('post', '/', { body: { salesRepId: REP2, name: 'م٢', isPermanent: true, replacesId: R2, stops: [{ customerId: C1 }] } });
+  assert.equal((st.routes.find((x) => x.id === r2.body.data.id)!.createdAt as Date).getTime(), born2.getTime());
+  // خطٌّ جديد (لا replacesId) أو مؤقّتٌ صار دائماً لا يرث شيئاً
+  const fresh = await call('post', '/', { body: { salesRepId: REP1, name: 'جديد', isPermanent: true, weekdays: [6], stops: [{ customerId: C1 }] } });
+  assert.ok((st.routes.find((x) => x.id === fresh.body.data.id)!.createdAt as Date).getTime() > born.getTime());
+  const fromDated = await call('post', '/', { body: { salesRepId: REP1, name: 'من مؤقّت', isPermanent: true, replacesId: RD, weekdays: [4], stops: [{ customerId: C1 }] } });
+  assert.equal(fromDated.status, 201, JSON.stringify(fromDated.body));
+  assert.ok((st.routes.find((x) => x.id === fromDated.body.data.id)!.createdAt as Date).getTime() > born.getTime());
+  // ولا يرث خطٌّ نُقل إلى مندوبٍ آخر تاريخَ سلفه
+  const moved = await call('post', '/', { body: { salesRepId: REP2, name: 'منقول', isPermanent: true, replacesId: RB, stops: [{ customerId: C1 }] } });
+  assert.equal(moved.status, 201, JSON.stringify(moved.body));
+  assert.ok((st.routes.find((x) => x.id === moved.body.data.id)!.createdAt as Date).getTime() > born.getTime());
 });
 
 test('POST دائم بلا جدول: السلوك القديم — دائمٌ واحد للمندوب، والسابق يُحذف فعلياً', async () => {

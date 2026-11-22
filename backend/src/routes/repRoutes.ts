@@ -385,6 +385,17 @@ router.put('/schedule/:salesRepId', async (req: AuthRequest, res: Response, next
     }
 
     if (body.mode === 'weekdays') {
+      /* خطوطٌ دائمة كلّها بلا أيام ⇒ لا خطّ للمندوب في أي يوم: التحويل يُطفئ خطّته صامتاً (مراجعة ٢٢ نوفمبر ٢٠٢٦).
+       * يُرفض حتى يحدّد المالك أيام كل خطّ. وبلا دوائم أصلاً لا شيء يُطفأ — فيُقبل ليُعدّ الطريقة قبل الخطوط. */
+      const bare = perms.filter(r => !r.weekdays?.length);
+      if (perms.length && bare.length === perms.length) {
+        res.status(409).json({
+          success: false, code: 'NO_WEEKDAYS',
+          message: `«حسب أيام الأسبوع» يحتاج أياماً لكل خط — ${bare.length === 1 ? 'خطّ المندوب' : 'خطوط المندوب'} ${bare.map(r => `«${r.name}»`).join('، ')} بلا أيام فلن يظهر له خطٌّ في أي يوم. حدّد أيام كل خطٍّ من «تعديل» أولاً`,
+          routes: bare.map(r => ({ id: r.id, name: r.name })),
+        });
+        return;
+      }
       // خطّان على يومٍ واحد يجعلان «خطّ اليوم» بجوابين — يُرفض التحويل حتى يُصلح المالك أيامهما
       const c = firstInternalConflict(perms);
       if (c) {
@@ -497,7 +508,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const replaced = body.replacesId
       ? await prisma.repRoute.findFirst({
         where: { id: body.replacesId, tenantId: tid },
-        select: { id: true, salesRepId: true, isPermanent: true, weekdays: true, rotationOrder: true },
+        select: { id: true, salesRepId: true, isPermanent: true, weekdays: true, rotationOrder: true, createdAt: true },
       })
       : null;
     const replacedId = replaced && (await canAccessRep(req, tid, replaced.salesRepId)) ? replaced.id : null;
@@ -507,12 +518,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const schedule = body.isPermanent
       ? await prisma.repRouteSchedule.findFirst({ where: { tenantId: tid, salesRepId: body.salesRepId }, select: { mode: true } })
       : null;
-    // تعديل دائمٍ للمندوب نفسه يُبقي موضعه في الدورة وأيامه (ما لم تُرسَل أيامٌ جديدة) — لا يقفز إلى آخر الترتيب
+    // تعديل دائمٍ للمندوب نفسه يُبقي موضعه في الدورة وأيامه (ما لم تُرسَل أيامٌ جديدة) وتاريخ إنشائه — لا يقفز إلى آخر الترتيب
     const kept = replaced && replacedId && replaced.isPermanent && replaced.salesRepId === body.salesRepId ? replaced : null;
     const weekdays = body.isPermanent ? [...(body.weekdays ?? kept?.weekdays ?? [])].sort((a, b) => a - b) : [];
-    if (schedule?.mode === 'weekdays' && weekdays.length) {
-      // «حسب أيام الأسبوع»: لكل يومٍ خطٌّ واحد — يومٌ يستعمله خطٌّ آخر للمندوب يُرفض بدل أن يصير لليوم خطّان
-      const others = (await permanentRoutesOf(prisma, tid, body.salesRepId)).filter(r => r.id !== replacedId);
+    /* لكل يومٍ خطٌّ واحد — يومٌ يستعمله خطٌّ آخر للمندوب يُرفض بدل أن يصير لليوم خطّان. يُفحص **متى أُرسلت الأيام
+     * أيّاً كانت الطريقة** (مراجعة ٢٢ نوفمبر ٢٠٢٦): أيامٌ تُحدَّد في التناوب تمهيداً لـ«حسب أيام الأسبوع» لا تُخزَّن
+     * متعارضةً فيُرفض التحويل بعدها؛ وفي «حسب أيام الأسبوع» تُفحص أيام المُحرَّر الباقية كذلك كما كانت.
+     * والمقارنة بما يبقى بعد الحفظ وحده: بلا جدولٍ يُستبدل كل دائمٍ للمندوب (أدناه) فلا يبقى ما يُعارَض. */
+    if (body.isPermanent && weekdays.length && (body.weekdays !== undefined || schedule?.mode === 'weekdays')) {
+      const others = schedule ? (await permanentRoutesOf(prisma, tid, body.salesRepId)).filter(r => r.id !== replacedId) : [];
       const clash = weekdayConflict(others, weekdays);
       if (clash) {
         res.status(409).json({ success: false, code: 'WEEKDAY_CONFLICT', message: weekdayConflictMessage(clash.day, clash.name), conflict: clash });
@@ -555,6 +569,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           isPermanent: body.isPermanent,
           routeDate: body.isPermanent ? null : body.routeDate!,
           weekdays, rotationOrder,
+          /* الدائم المُحرَّر يرث تاريخ إنشاء سلفه (مراجعة ٢٢ نوفمبر ٢٠٢٦): الدائم لا يسري على يومٍ سبق إنشاءه، فتاريخٌ
+           * جديد كان يُسقطه من الأيام الماضية — فتنتقل خطّة يومٍ مضى في التناوب (أو «أوّل دائم») إلى خطٍّ آخر */
+          ...(kept && { createdAt: kept.createdAt }),
         },
       });
       // الترتيب من موضع العميل في المصفوفة — هو ما رتّبه المالك بعينه

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  ALL_DAYS, DEFAULT_OFF_DAYS, DIST_MODES, WEEKDAYS_AR, daysText, groupByRep, modeOf, moveItem, sameList, takenDays, toggleDay,
+  ALL_DAYS, DEFAULT_OFF_DAYS, DIST_MODES, WEEKDAYS_AR, byIds, daysText, editorTakenDays, groupByRep, mergeOrder, modeOf, moveItem,
+  planOrderSave, routesWithoutDays, sameList, sameMembers, takenDays, toggleDay, weekdaysGate,
 } from './routeSchedule';
 import { PHRASES } from '../i18n/strings';
 
@@ -96,14 +97,103 @@ test('الواجهة: خطّ اليوم من الخادم لا من حسابٍ �
   const ui = read('src', 'pages', 'RepRoutesPage.tsx');
   assert.match(ui, /r\.isToday &&/, 'علامة «خط اليوم» على الصفّ');
   assert.doesNotMatch(ui, /pickRouteForDay|getDay\(\)/, 'حسابٌ محلّي لخطّ اليوم يخالف الخادم');
-  assert.match(ui, /\.\.\.\(isPermanent && repMode === 'weekdays' && \{ weekdays \}\)/);
+  // أيام الدائم تُرسَل أيّاً كانت الطريقة (مراجعة ٢٢ نوفمبر) — وخطٌّ تعذّر تحميله لا يمحو أيامه
+  assert.match(ui, /\.\.\.\(isPermanent && !loadFailed && \{ weekdays \}\)/);
+  assert.doesNotMatch(ui, /repMode === 'weekdays' && \{ weekdays \}/);
   assert.match(ui, /repRouteApi\.setSchedule\(salesRepId,/);
-  assert.match(ui, /repRouteApi\.setOrder\(salesRepId, order\.map\(r => r\.id\)\)/);
-  // الحقول تُملأ مرّةً لا عند كل إعادة جلب (عيب المحرّر نفسه — repRoutesFixes.test.ts)
-  assert.match(ui, /useEffect\(\(\) => \{ if \(q\.data && !view\) apply\(q\.data\); \}, \[q\.data, view\]\);/);
+  // الترتيب مبنيٌّ على خطوط الخادم الحاليّة لا على قائمة النافذة (مراجعة ٢٢ نوفمبر: ORDER_MISMATCH)
+  assert.match(ui, /repRouteApi\.setOrder\(salesRepId, plan\.ids\)/);
+  assert.doesNotMatch(ui, /setOrder\(salesRepId, order\.map/, 'قائمة النافذة القديمة تُرسَل');
+  // كل جلبٍ جديد يُعاد ملؤه ما لم يغيّر المالك شيئاً — لا مرّةً واحدة (مراجعة ٢٢ نوفمبر)
+  assert.match(ui, /useEffect\(\(\) => \{ if \(q\.data && !dirty\) apply\(q\.data\); \}, \[q\.dataUpdatedAt\]\);/);
+  assert.doesNotMatch(ui, /!view\) apply\(q\.data\)/);
   assert.match(ui, /type="date" className="input w-40" value=\{start\}/, 'بداية التناوب تاريخٌ ميلاديّ');
   const api = read('src', 'api', 'client.ts');
   assert.match(api, /api\.get\(`\/rep-routes\/schedule\/\$\{salesRepId\}`/);
   assert.match(api, /api\.put\(`\/rep-routes\/schedule\/\$\{salesRepId\}`, body/);
   assert.match(api, /api\.put\(`\/rep-routes\/order\/\$\{salesRepId\}`, \{ ids \}/);
+});
+
+// ═══════════ مراجعة ٢٢ نوفمبر ٢٠٢٦ ═══════════
+
+test('ترتيب التناوب عند الحفظ: لا كتابة ما لم يحرّك المالك شيئاً، والمُرسَل مبنيٌّ على خطوط الخادم الحاليّة، وتغيّرها يُعرض للمراجعة', () => {
+  // دمج ترتيب المالك بخطوط الخادم: المحذوف يسقط، والجديد آخراً بترتيب الخادم
+  assert.deepEqual(mergeOrder(['B', 'A', 'C'], ['A', 'B', 'D', 'E']), ['B', 'A', 'D', 'E']);
+  assert.deepEqual(mergeOrder([], ['A', 'B']), ['A', 'B']);
+  assert.deepEqual(mergeOrder(['A'], []), []);
+  assert.equal(sameMembers(['A', 'B'], ['B', 'A']), true);
+  assert.equal(sameMembers(['A', 'B'], ['A', 'C']), false);
+  assert.equal(sameMembers(['A'], ['A', 'B']), false);
+  assert.equal(sameMembers(['A', 'A'], ['A', 'B']), false);
+  // لم يحرّك شيئاً ⇒ لا كتابة — ولو تغيّرت خطوط الخادم أو رتّبها غيره (لا تُدهَس بقائمةٍ قديمة)
+  assert.deepEqual(planOrderSave(['A', 'B'], ['A', 'B'], ['A', 'B', 'C']), { kind: 'none' });
+  assert.deepEqual(planOrderSave(['A', 'B'], ['A', 'B'], ['B', 'A']), { kind: 'none' });
+  assert.deepEqual(planOrderSave(['A', 'B'], ['A', 'B'], ['A']), { kind: 'none' });
+  // حرّك والخطوط نفسها ⇒ يُرسَل ترتيبه
+  assert.deepEqual(planOrderSave(['A', 'B', 'C'], ['C', 'A', 'B'], ['A', 'B', 'C']), { kind: 'send', ids: ['C', 'A', 'B'] });
+  // …ولا شيء إن كان ترتيب الخادم هو ما أراده أصلاً
+  assert.deepEqual(planOrderSave(['A', 'B'], ['B', 'A'], ['B', 'A']), { kind: 'none' });
+  // حرّك وحُذف خطٌّ أو أُضيف ⇒ لا إرسال، ومراجعةٌ بترتيبه على الخطوط الحاليّة
+  assert.deepEqual(planOrderSave(['A', 'B', 'C'], ['C', 'B', 'A'], ['A', 'C']), { kind: 'review', ids: ['C', 'A'] });
+  assert.deepEqual(planOrderSave(['A', 'B'], ['B', 'A'], ['A', 'B', 'D']), { kind: 'review', ids: ['B', 'A', 'D'] });
+  // ثم الحفظ الثاني بعد المراجعة: الأساس صار خطوط الخادم ⇒ يُرسَل المدموج
+  assert.deepEqual(planOrderSave(['A', 'B', 'D'], ['B', 'A', 'D'], ['A', 'B', 'D']), { kind: 'send', ids: ['B', 'A', 'D'] });
+  // لا قائمةٌ قديمة أبداً: كل «إرسال» يطابق خطوط الخادم الحاليّة عضواً بعضو (ما يقبله PUT /order)
+  const ids = ['A', 'B', 'C', 'D'];
+  const perms = (l: string[]): string[][] => (l.length <= 1 ? [l] : l.flatMap((x, i) => perms([...l.slice(0, i), ...l.slice(i + 1)]).map(p => [x, ...p])));
+  let sent = 0;
+  for (const start of perms(ids.slice(0, 3))) {
+    for (const current of perms(ids.slice(0, 3))) {
+      for (const fresh of [['A', 'B', 'C'], ['C', 'B', 'A'], ['A', 'B'], ['A', 'B', 'C', 'D'], ['D']]) {
+        const p = planOrderSave(start, current, fresh);
+        if (p.kind === 'send') { sent += 1; assert.ok(sameMembers(p.ids, fresh), `${start}|${current}|${fresh}`); }
+        if (sameList(current, start)) assert.equal(p.kind, 'none');
+      }
+    }
+  }
+  assert.ok(sent > 10, `إرسالٌ قليل: ${sent}`);
+  assert.deepEqual(byIds([{ id: 'A', n: 1 }, { id: 'B', n: 2 }], ['B', 'X', 'A']).map(x => x.n), [2, 1]);
+});
+
+test('«حسب أيام الأسبوع» وخطوطٌ بلا أيام: كلّها ⇒ منع، وبعضها ⇒ سؤالٌ بأسمائها، وبلا دوائم ⇒ لا شيء', () => {
+  const r = (name: string, weekdays: number[] | null) => ({ id: name, name, weekdays });
+  assert.deepEqual(routesWithoutDays([r('أ', [1]), r('ب', []), r('ج', null)]).map(x => x.name), ['ب', 'ج']);
+  assert.deepEqual(weekdaysGate([r('أ', []), r('ب', null)]), { block: true, missing: ['أ', 'ب'] });
+  assert.deepEqual(weekdaysGate([r('أ', [0]), r('ب', [])]), { block: false, missing: ['ب'] });
+  assert.deepEqual(weekdaysGate([r('أ', [0])]), { block: false, missing: [] });
+  assert.deepEqual(weekdaysGate([]), { block: false, missing: [] });
+});
+
+test('أيام الخطّ في المحرّر أيّاً كانت الطريقة: أيام الخطوط الباقية محجوزة، و«خط واحد يومياً» يستبدل دائمه فلا يحجز', () => {
+  const routes = [{ id: 'A', name: 'الشمال', weekdays: [0, 1] }, { id: 'B', name: 'الجنوب', weekdays: [2] }];
+  assert.deepEqual([...editorTakenDays('rotation', routes, 'A').entries()], [[2, 'الجنوب']]);
+  assert.deepEqual([...editorTakenDays('weekdays', routes).keys()].sort(), [0, 1, 2]);
+  assert.equal(editorTakenDays('single', routes).size, 0);
+});
+
+test('الواجهة (مراجعة ٢٢ نوفمبر): الأسهم والطريقة والبداية والراحة تُعلِّم التغيير، وORDER_MISMATCH يُراجَع، و«حسب الأيام» يمنع أو يسأل، والأيام في المحرّر لكل دائم', () => {
+  const ui = read('src', 'pages', 'RepRoutesPage.tsx');
+  const panel = ui.slice(ui.indexOf('function RepSchedulePanel('), ui.indexOf('function RouteEditor('));
+  assert.ok(panel.length > 1000);
+  // كل تغييرٍ من المالك يُعلِّم dirty — الطريقة والبداية وأيام الراحة والسهمان
+  assert.match(panel, /const touch = \(\) => \{ setDirty\(true\); setMsg\(null\); \};/);
+  assert.match(panel, /setMode\(m\.mode\); touch\(\);/);
+  assert.match(panel, /setStart\(e\.target\.value\); touch\(\);/);
+  assert.match(panel, /setOffDays\(v => toggleDay\(v, d\)\); touch\(\);/);
+  assert.equal((panel.match(/setOrder\(v => moveItem\(v, i, -?1\)\); touch\(\);/g) || []).length, 2, 'السهمان');
+  // الحفظ: الخطّة من الأساس الذي بدأ منه المالك وردّ الخادم الطازج، وسباق ORDER_MISMATCH يُجلب ويُراجَع
+  assert.match(panel, /planOrderSave\(startIds, order\.map\(r => r\.id\), v\.routes\.map\(r => r\.id\)\)/);
+  assert.match(panel, /if \(errCode\(e\) !== 'ORDER_MISMATCH'\) throw e;/);
+  assert.match(panel, /setMsg\(\{ tone: 'err', text: tr\('تغيرت خطوط المندوب أثناء التعديل/);
+  assert.match(panel, /apply\(v\);\s*\n\s*setDirty\(false\);/, 'الحفظ الناجح يعيد التتبّع للخادم');
+  // «حسب أيام الأسبوع»: المنع حين لا أيام لأي خط، والسؤال بالأسماء حين لبعضها
+  assert.match(panel, /const gate = weekdaysGate\(order\);/);
+  assert.match(panel, /mode === 'weekdays' \? !gate\.block/);
+  assert.match(panel, /window\.confirm\(`\$\{tr\('هذه الخطوط بلا أيام ولن تظهر للمندوب'\)\}: \$\{gate\.missing\.join\('، '\)\}/);
+  assert.match(panel, /onClick=\{submit\}/);
+  // المحرّر: الأيام لكل دائمٍ أيّاً كانت الطريقة، والمحجوز من الخطوط الباقية
+  const editor = ui.slice(ui.indexOf('function RouteEditor('));
+  assert.match(editor, /\{isPermanent && salesRepId && \(\s*\n\s*<div className="mt-3">\s*\n\s*<p className="label text-xs">\{tr\('أيام الخط'\)\}/);
+  assert.doesNotMatch(editor, /isPermanent && salesRepId && repMode === 'weekdays' &&/);
+  assert.match(editor, /editorTakenDays\(repMode, schedQ\.data\?\.routes \?\? \[\], id\)/);
 });

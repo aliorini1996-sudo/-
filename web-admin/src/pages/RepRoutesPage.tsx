@@ -9,7 +9,8 @@ import { useTr } from '../i18n/strings';
 import { backdropClose } from '../lib/backdropClose';
 import { orderByDistance } from '../lib/routeOrder';
 import {
-  ALL_DAYS, DEFAULT_OFF_DAYS, DIST_MODES, WEEKDAYS_AR, daysText, groupByRep, modeOf, moveItem, sameList, takenDays, toggleDay,
+  ALL_DAYS, DEFAULT_OFF_DAYS, DIST_MODES, WEEKDAYS_AR, byIds, daysText, editorTakenDays, groupByRep, mergeOrder, modeOf, moveItem,
+  planOrderSave, toggleDay, weekdaysGate,
   type DistMode, type RouteListRow,
 } from '../lib/routeSchedule';
 
@@ -41,6 +42,7 @@ interface ScheduleView {
   today: { routeId: string; name: string; isPermanent: boolean } | null;
 }
 const errText = (e: unknown): string | undefined => (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+const errCode = (e: unknown): string | undefined => (e as { response?: { data?: { code?: string } } })?.response?.data?.code;
 interface Stop { customerId: string; customerName: string; note?: string | null }
 interface Named { id: string; name: string; businessName?: string | null }
 /** موقع عميل من /customers/locations — المفتاح نفسه الذي تقرؤه خريطة التتبّع فيُعاد استعمال ما جُلب */
@@ -210,8 +212,12 @@ export default function RepRoutesModal({ onClose }: { onClose: () => void }) {
 
 /**
  * «طريقة توزيع الخطوط» لمندوب: خطٌّ واحد يومياً، أو حسب أيام الأسبوع، أو تناوبٌ بالترتيب (بدايته وأيام راحته
- * وترتيب خطوطه بالأسهم). الحقول تُملأ **مرّةً** من الخادم ثم من ردّ الحفظ — لا عند كل إعادة جلب، كي لا يمحو
- * رجوعُ التركيز إلى النافذة ما غيّره المالك ولم يحفظه (عيبُ المحرّر الذي أُصلح قبلاً).
+ * وترتيب خطوطه بالأسهم).
+ *
+ * **الحقول تتبع الخادم ما لم يغيّر المالك شيئاً** (مراجعة ٢٢ نوفمبر ٢٠٢٦): كل جلبٍ جديد (حذف خطٍّ من القائمة،
+ * إضافةٌ من المحرّر، حفظٌ من نافذةٍ أخرى) يُعاد ملؤه — وكانت تُملأ مرّةً فتبقى خطوطٌ محذوفة في الترتيب ويُرسَل
+ * ترتيبٌ قديم يردّه الخادم 400 ORDER_MISMATCH. وما إن يلمس المالك الطريقة أو البداية أو أيام الراحة أو الأسهم
+ * (`dirty`) لا يمحو جلبٌ ما غيّره ولم يحفظه (عيبُ المحرّر الذي أُصلح قبلاً).
  */
 function RepSchedulePanel({ salesRepId, onChanged }: { salesRepId: string; onChanged: () => void }) {
   const tr = useTr();
@@ -225,34 +231,73 @@ function RepSchedulePanel({ salesRepId, onChanged }: { salesRepId: string; onCha
   const [start, setStart] = useState('');
   const [offDays, setOffDays] = useState<number[]>(DEFAULT_OFF_DAYS);
   const [order, setOrder] = useState<ScheduleView['routes']>([]);
+  /** ترتيب الخطوط كما بدأ منه المالك (آخر ما ملأه الخادم) — الأسهم تُقاس عليه عند الحفظ */
+  const [startIds, setStartIds] = useState<string[]>([]);
+  /** غيّر المالك شيئاً لم يُحفظ بعد — فلا يُعاد الملء من الخادم فوقه */
+  const [dirty, setDirty] = useState(false);
   const [msg, setMsg] = useState<{ text: string; tone: 'ok' | 'err' } | null>(null);
-  const apply = (v: ScheduleView) => {
+  /** `ids`: ترتيبٌ يُعرض بدل ترتيب الخادم (ترتيب المالك مدموجاً بالخطوط الحاليّة ليراجعه) */
+  const apply = (v: ScheduleView, ids?: string[]) => {
     setView(v);
     setMode(modeOf(v.schedule));
     setStart(v.schedule?.rotationStart || v.day);
     setOffDays(v.schedule?.offDays ?? DEFAULT_OFF_DAYS);
-    setOrder(v.routes);
+    setStartIds(v.routes.map(r => r.id));
+    setOrder(ids ? byIds(v.routes, ids) : v.routes);
   };
-  useEffect(() => { if (q.data && !view) apply(q.data); }, [q.data, view]);
+  // كل جلبٍ جديد (dataUpdatedAt) يُعاد ملؤه ما لم يغيّر المالك شيئاً — لا مرّةً واحدة
+  useEffect(() => { if (q.data && !dirty) apply(q.data); }, [q.dataUpdatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** كل تغييرٍ من المالك يمرّ هنا */
+  const touch = () => { setDirty(true); setMsg(null); };
 
   const save = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (): Promise<{ v: ScheduleView; review?: string[] }> => {
       let v = (await repRouteApi.setSchedule(salesRepId, mode === 'rotation' ? { mode, rotationStart: start || null, offDays } : { mode })).data.data as ScheduleView;
-      // الترتيب يُكتب بعد الطريقة وحين تغيّر وحده — الخادم يرفض قائمةً ناقصة أو زائدة فيظهر السبب
-      if (mode === 'rotation' && !sameList(order.map(r => r.id), v.routes.map(r => r.id))) {
-        v = (await repRouteApi.setOrder(salesRepId, order.map(r => r.id))).data.data as ScheduleView;
+      if (mode !== 'rotation') return { v };
+      /* الترتيب يُكتب بعد الطريقة وحين حرّك المالك الأسهم وحده، مبنيّاً على خطوط الخادم الحاليّة (ردّ الحفظ) — لا قائمةٌ
+       * قديمة أبداً؛ وإن تغيّرت الخطوط منذ بدأ يراجع ترتيبه قبل أن يُكتب (lib/routeSchedule.ts planOrderSave) */
+      const plan = planOrderSave(startIds, order.map(r => r.id), v.routes.map(r => r.id));
+      if (plan.kind === 'review') return { v, review: plan.ids };
+      if (plan.kind === 'send') {
+        try {
+          v = (await repRouteApi.setOrder(salesRepId, plan.ids)).data.data as ScheduleView;
+        } catch (e) {
+          if (errCode(e) !== 'ORDER_MISMATCH') throw e;
+          // تغيّرت الخطوط بين الطلبين: يُجلب الحاليّ ويراجع المالك ترتيبه عليه
+          const fresh = (await repRouteApi.schedule(salesRepId)).data.data as ScheduleView;
+          return { v: fresh, review: mergeOrder(order.map(r => r.id), fresh.routes.map(r => r.id)) };
+        }
       }
-      return v;
+      return { v };
     },
-    onSuccess: (v) => { apply(v); setMsg({ tone: 'ok', text: tr('تم الحفظ') }); onChanged(); },
+    onSuccess: ({ v, review }) => {
+      onChanged();
+      if (review) {
+        // الطريقة حُفظت والترتيب لا: يبقى ما غيّره المالك معروضاً على الخطوط الحاليّة حتى يحفظه
+        apply(v, review);
+        setDirty(true);
+        setMsg({ tone: 'err', text: tr('تغيرت خطوط المندوب أثناء التعديل — حفظت الطريقة ولم يحفظ الترتيب، راجع الترتيب ثم احفظ') });
+        return;
+      }
+      apply(v);
+      setDirty(false);
+      setMsg({ tone: 'ok', text: tr('تم الحفظ') });
+    },
     onError: (e: unknown) => setMsg({ tone: 'err', text: errText(e) || tr('تعذر الحفظ') }),
   });
 
   if (q.isLoading || (!view && !q.isError)) return <div className="card text-center text-xs text-gray-400 py-4">{tr('جار التحميل')}</div>;
   if (!view) return <div className="card text-center text-xs text-amber-700 py-4">{tr('تعذر جلب طريقة التوزيع')}</div>;
 
-  const noDays = order.filter(r => !r.weekdays?.length);
-  const ready = mode !== 'rotation' || (!!start && offDays.length < 7);
+  // «حسب أيام الأسبوع» وخطوطٌ بلا أيام: كلّها ⇒ يُمنع الحفظ (لا خطّ في أي يوم)، وبعضها ⇒ يُسأل المالك بأسمائها
+  const gate = weekdaysGate(order);
+  const ready = mode === 'rotation' ? (!!start && offDays.length < 7) : mode === 'weekdays' ? !gate.block : true;
+  const submit = () => {
+    setMsg(null);
+    if (mode === 'weekdays' && gate.missing.length
+      && !window.confirm(`${tr('هذه الخطوط بلا أيام ولن تظهر للمندوب')}: ${gate.missing.join('، ')}\n${tr('حفظ الطريقة رغم ذلك؟')}`)) return;
+    save.mutate();
+  };
 
   return (
     <div className="card space-y-3 border-[#F7D9CC]">
@@ -261,7 +306,7 @@ function RepSchedulePanel({ salesRepId, onChanged }: { salesRepId: string; onCha
         <div className="inline-flex rounded-xl border border-[#F1EBDF] overflow-hidden">
           {DIST_MODES.map(m => (
             <button
-              key={m.mode} type="button" onClick={() => { setMode(m.mode); setMsg(null); }}
+              key={m.mode} type="button" onClick={() => { setMode(m.mode); touch(); }}
               className={`px-3 py-1.5 text-xs font-semibold ${mode === m.mode ? 'bg-[#E15A30] text-white' : 'bg-white text-[#6E6557] hover:bg-[#FAF7F0]'}`}
             >
               {tr(m.label)}
@@ -295,7 +340,14 @@ function RepSchedulePanel({ salesRepId, onChanged }: { salesRepId: string; onCha
               ))}
             </div>
           )}
-          {noDays.length > 0 && <p className="text-[11px] text-amber-700">{tr('خط بلا أيام لا يظهر للمندوب')}</p>}
+          {/* الخطوط بلا أيام بأسمائها: كلّها ⇒ الحفظ ممنوع (الخادم يردّ 409 NO_WEEKDAYS)، وبعضها ⇒ يُسأل المالك */}
+          {gate.block ? (
+            <p className="text-[11px] text-red-700 bg-red-50 rounded-lg px-3 py-2">
+              {tr('لا أيام لأي خط من خطوط المندوب — حدد أيام كل خط من تعديل الخط قبل اختيار هذه الطريقة')}: {gate.missing.join('، ')}
+            </p>
+          ) : gate.missing.length > 0 && (
+            <p className="text-[11px] text-amber-700">{tr('هذه الخطوط بلا أيام ولن تظهر للمندوب')}: {gate.missing.join('، ')}</p>
+          )}
         </div>
       )}
 
@@ -306,7 +358,7 @@ function RepSchedulePanel({ salesRepId, onChanged }: { salesRepId: string; onCha
             <div>
               <label className="label text-xs">{tr('بداية التناوب')}</label>
               {/* تاريخٌ ميلاديّ 'YYYY-MM-DD' — يومه لأوّل خطٍّ في الترتيب */}
-              <input type="date" className="input w-40" value={start} onChange={e => setStart(e.target.value)} />
+              <input type="date" className="input w-40" value={start} onChange={e => { setStart(e.target.value); touch(); }} />
             </div>
             <div>
               <label className="label text-xs">{tr('أيام الراحة')}</label>
@@ -315,7 +367,7 @@ function RepSchedulePanel({ salesRepId, onChanged }: { salesRepId: string; onCha
                   const on = offDays.includes(d);
                   return (
                     <button
-                      key={d} type="button" aria-pressed={on} onClick={() => setOffDays(v => toggleDay(v, d))}
+                      key={d} type="button" aria-pressed={on} onClick={() => { setOffDays(v => toggleDay(v, d)); touch(); }}
                       className={`px-2.5 py-1 rounded-full text-xs border ${on ? 'bg-[#1F1A13] text-white border-[#1F1A13]' : 'bg-white text-[#6E6557] border-[#F1EBDF] hover:border-[#E15A30]'}`}
                     >
                       {tr(WEEKDAYS_AR[d])}
@@ -335,8 +387,8 @@ function RepSchedulePanel({ salesRepId, onChanged }: { salesRepId: string; onCha
                   <div key={r.id} className="flex items-center gap-2 px-3 py-2">
                     <span className="w-6 h-6 rounded-full bg-[#FFF1EA] text-[#E15A30] text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
                     <span className="flex-1 text-sm text-[#1F1A13] truncate">{r.name}</span>
-                    <button type="button" onClick={() => setOrder(v => moveItem(v, i, -1))} disabled={i === 0} className="p-1 text-[#6E6557] disabled:opacity-30" aria-label={tr('تحريك لأعلى')}><ArrowUp size={14} /></button>
-                    <button type="button" onClick={() => setOrder(v => moveItem(v, i, 1))} disabled={i === order.length - 1} className="p-1 text-[#6E6557] disabled:opacity-30" aria-label={tr('تحريك لأسفل')}><ArrowDown size={14} /></button>
+                    <button type="button" onClick={() => { setOrder(v => moveItem(v, i, -1)); touch(); }} disabled={i === 0} className="p-1 text-[#6E6557] disabled:opacity-30" aria-label={tr('تحريك لأعلى')}><ArrowUp size={14} /></button>
+                    <button type="button" onClick={() => { setOrder(v => moveItem(v, i, 1)); touch(); }} disabled={i === order.length - 1} className="p-1 text-[#6E6557] disabled:opacity-30" aria-label={tr('تحريك لأسفل')}><ArrowDown size={14} /></button>
                   </div>
                 ))}
               </div>
@@ -347,7 +399,7 @@ function RepSchedulePanel({ salesRepId, onChanged }: { salesRepId: string; onCha
 
       {msg && <p className={`text-xs rounded-lg px-3 py-2 ${msg.tone === 'ok' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'}`}>{msg.text}</p>}
       <div className="flex gap-2">
-        <button type="button" className="btn-primary text-xs" disabled={!ready || save.isPending} onClick={() => { setMsg(null); save.mutate(); }}>
+        <button type="button" className="btn-primary text-xs" disabled={!ready || save.isPending} onClick={submit}>
           {save.isPending ? tr('جار الحفظ') : tr('حفظ الطريقة')}
         </button>
       </div>
@@ -361,7 +413,7 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
   const [name, setName] = useState('');
   const [isPermanent, setIsPermanent] = useState(true);
   const [routeDate, setRouteDate] = useState('');
-  /** أيام الخطّ — تُرسَل حين يوزّع المندوب خطوطه «حسب أيام الأسبوع» وحده */
+  /** أيام الخطّ الدائم — تُحدَّد وتُرسَل أيّاً كانت طريقة المندوب، وتُقرأ حين يوزّع خطوطه «حسب أيام الأسبوع» */
   const [weekdays, setWeekdays] = useState<number[]>([]);
   const [stops, setStops] = useState<Stop[]>([]);
   const [search, setSearch] = useState('');
@@ -408,15 +460,17 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
     enabled: !!salesRepId && isPermanent,
   });
   const repMode: DistMode = modeOf(schedQ.data?.schedule);
-  const taken = useMemo(() => takenDays(schedQ.data?.routes ?? [], id), [schedQ.data, id]);
+  // أيام خطوط المندوب الأخرى الباقية بعد الحفظ — في «خط واحد يومياً» يُستبدل دائمه فلا يحجز يوماً (كالخادم)
+  const taken = useMemo(() => editorTakenDays(repMode, schedQ.data?.routes ?? [], id), [schedQ.data, id, repMode]);
   const otherPerms = (schedQ.data?.routes ?? []).filter(r => r.id !== id);
 
   const save = useMutation({
     mutationFn: () => repRouteApi.save({
       salesRepId, name: name.trim(), isPermanent,
       routeDate: isPermanent ? null : routeDate,
-      // الأيام تُرسَل في «حسب أيام الأسبوع» وحده — وغيابها في التعديل يُبقي أيام الخطّ كما هي
-      ...(isPermanent && repMode === 'weekdays' && { weekdays }),
+      /* أيام الدائم تُرسَل أيّاً كانت الطريقة (مراجعة ٢٢ نوفمبر ٢٠٢٦): تُعدّ في التناوب تمهيداً لـ«حسب أيام الأسبوع»،
+       * والخادم يفحص تعارضها متى أُرسلت. وخطٌّ تعذّر تحميله لا يُرسل أياماً فارغة تمحو أيامه — غيابها يُبقيها */
+      ...(isPermanent && !loadFailed && { weekdays }),
       // الخطّ المُحرَّر يُحذف فعلياً بمعرّفه لا بمفاتيحه: تغييرُ التاريخ أو النوع أو
       // المندوب كان يُنشئ خطّاً ثانياً ويترك الأول نشطاً يعمل عليه المندوب
       ...(id && { replacesId: id }),
@@ -538,9 +592,12 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
               : repMode === 'rotation' ? tr('يظهر للمندوب في دوره من التناوب، وعلامة الإنجاز تبدأ من جديد كل صباح')
                 : tr('يظهر للمندوب كل يوم، وعلامة الإنجاز تبدأ من جديد كل صباح')}
         </p>
-        {isPermanent && salesRepId && repMode === 'weekdays' && (
+        {/* أيام الخطّ لكل دائمٍ أيّاً كانت طريقة المندوب (مراجعة ٢٢ نوفمبر ٢٠٢٦) — كانت في «حسب أيام الأسبوع» وحده،
+            فلا يُحوَّل مندوبٌ إليها إلا بخطوطٍ بلا أيام لا تظهر له */}
+        {isPermanent && salesRepId && (
           <div className="mt-3">
             <p className="label text-xs">{tr('أيام الخط')}</p>
+            {repMode !== 'weekdays' && <p className="text-[11px] text-[#9A8F7E] mb-1">{tr('تستعمل الأيام حين تكون طريقة توزيع خطوط المندوب حسب أيام الأسبوع')}</p>}
             <div className="flex gap-1 flex-wrap">
               {ALL_DAYS.map(d => {
                 const on = weekdays.includes(d);
@@ -561,7 +618,7 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
               })}
             </div>
             {taken.size > 0 && <p className="text-[11px] text-[#9A8F7E] mt-1">{tr('الأيام المشطوبة لخطوط أخرى لهذا المندوب')}</p>}
-            {!weekdays.length && <p className="text-[11px] text-amber-700 mt-1">{tr('خط بلا أيام لا يظهر للمندوب')}</p>}
+            {repMode === 'weekdays' && !weekdays.length && <p className="text-[11px] text-amber-700 mt-1">{tr('خط بلا أيام لا يظهر للمندوب')}</p>}
           </div>
         )}
         {isPermanent && salesRepId && repMode === 'rotation' && !id && (
