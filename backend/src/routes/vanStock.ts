@@ -37,7 +37,7 @@ import {
 } from '../services/baseGuard';
 // «تتبّع اللوط»: حركات السيارة بالتشغيلات (§٤.٧) — كلها خلف علم الشركة وعلم الصنف؛ المطفأ والصنف غير المتتبَّع كما كانا حرفياً
 import { LotError, asLotBusy, lotErr, lotErrorBody, lotHttpError } from '../services/lots';
-import { acquireLotQueue, companyDay, lockLotProducts } from '../services/lotsDb';
+import { acquireLotQueue, companyDay, lockLotProducts, type LotEventActor } from '../services/lotsDb';
 import {
   VAN_LOT_ALLOW_UNKNOWN, VanCountPostcondition, VanPlanNoop, executeVanCountInTx, lotOnUntrackedError, planVanMovementInTx, vanAppliedItemFields,
   vanItemLotColumns, vanLineCarriesLot, vanLotSnapshot, vanPlanWritesNothing, type VanCountLine, type VanMovementPlanResult,
@@ -47,6 +47,12 @@ import { lotEventActorOf } from '../services/lotsWarehouse';
 // D25 للمسار غير المتتبَّع: إعادة قراءة التتبّع FOR KEY SHARE وحدها (لا حارس ولا قفل لوط) — الدالّة نفسها لإلغاء المرتجع وإعادته
 import { assertReturnStillUntracked as assertStillUntracked } from '../services/lotsInvoice';
 import { shelfLifeOf } from '../services/shelfLife';
+// «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): التحميل المعلّق وقبوله وتوقيعه — الحركة نفسها بمسار POST /loads وحده
+import {
+  PENDING_LINE_ALTERING, PENDING_SELECT, PENDING_STATUSES, PendingLinesChanged, PendingLoadSettled, VanDryRun, notifyPendingLoad,
+  pendingAcceptSchema, pendingActorName, pendingCancelSchema, pendingDisputeSchema, pendingEventActor, pendingLinesView, pendingLoadLockKey,
+  pendingLoadView, pendingRefusal, vanLoadAcceptanceOn, type PendingLoadCode, type PendingRow, type PendingVanLoadView,
+} from '../services/vanPendingLoads';
 
 const router = Router();
 router.use(authenticate);
@@ -345,6 +351,34 @@ const VAN_LINE_PRODUCT_SELECT = {
   lotTracked: true, shelfLifeEnabled: true, shelfLifeValue: true, shelfLifeUnit: true, deletedAt: true,
 } as const;
 
+type LoadBody = z.infer<typeof loadSchema>;
+/** ردّ مسار الحركة: Express Response، أو ملتقِطٌ يقرأ منه قبولُ التحميل المعلّق الحكمَ بلا إرسال */
+interface VanReply { status(code: number): { json(body: unknown): unknown } }
+interface CapturedReply extends VanReply { code: number | null; body: Record<string, unknown> | null }
+function captureReply(): CapturedReply {
+  const r: CapturedReply = {
+    code: null, body: null,
+    status(c: number) { r.code = c; return { json(b: unknown) { r.body = b as Record<string, unknown>; return r; } }; },
+  };
+  return r;
+}
+/**
+ * «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): مداخل مسار الحركة لتجربة الإرسال وللقبول — غائبةٌ كلها ⇒ الحركة كما
+ * كانت حرفياً (POST /loads نفسه)
+ */
+interface VanMovementOptions {
+  /** قبول المعلّق: حركةٌ كأن الإدارة أنشأتها لسيارة هذا المندوب (isRep=false) بفاعل المرسِل */
+  asAdmin?: { salesRepId: string; actorId: string; eventActor: LotEventActor };
+  /** أول ما في كل معاملة كتابة (داخل refGate قبل مرجع D8): قفل صفّ المعلّق وحالته */
+  gate?: (tx: Prisma.TransactionClient) => Promise<void>;
+  /** داخل المعاملة قبل نداء الإنشاء الوحيد بكل التحذيرات (التساهل ثم خطة اللوط) — يرمي ليُلغي المعاملة */
+  beforeCreate?: (warnings: ReadonlyArray<{ code: string }>) => void;
+  /** ختم القبول على الحركة */
+  stamp?: { acceptedAt: Date; pendingLoadId: string };
+  /** بعد الإنشاء في المعاملة نفسها */
+  afterCreate?: (tx: Prisma.TransactionClient, load: { id: string }) => Promise<void>;
+}
+
 // تسجيل حركة تحميل/تنزيل/تسوية لسيارة المندوب
 router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -358,12 +392,25 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
       });
       return;
     }
+    // «قبول المندوب للتحميل» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): تحميل الإدارة والميزة مفعّلة ⇒ معلّقٌ بلا أثر حتى يقبله المندوب ويوقّعه
+    if (await pendingLoadWanted(req, tid, data)) { await createPendingLoad(req, res, data); return; }
+    await executeVanMovement(req, res, data);
+  } catch (err) { next(err); }
+});
+
+/**
+ * حركة السيارة بالفرق (DELTA): التحميل والتنزيل والتسوية والإزالة — جسم POST /loads كما كان حرفياً، ومعه قبول التحميل المعلّق
+ * وتجربة إرساله (opts). الأخطاء التي لها ردّ تُردّ هنا، وغيرها يُرمى لمعالج الموجّه
+ */
+async function executeVanMovement(req: AuthRequest, res: VanReply, data: LoadBody, opts: VanMovementOptions = {}): Promise<void> {
+  try {
+    const tid = tenantId(req);
     // «ربط الدفاتر» L1: سبب التسوية يُحكم عليه قبل أي قراءة — الواجهة بسببٍ مجهول 400 بلا عمل، ومفتاح API تحذيرٌ يُضمّ لردّ النجاح
     const reasonWarnings: StockWarning[] = [];
     const adjustReason = data.type === 'ADJUST' ? resolveAdjustReason(data.reason, VAN_ADJUST_REASONS, !!req.user?.apiKeyId, reasonWarnings) : null;
     // «تتبّع اللوط» D30: سيارة مندوبٍ محذوف مفتاحها معرّفه المحفوظ — لا مندوب يُحلّ ولا نطاق (إداري غير مقيّد وحده)
     const gone = data.deletedSalesRepId !== undefined ? await deletedVanOf(req, tid, data) : null;
-    const { salesRepId, isRep } = gone ? { salesRepId: gone.vanKey, isRep: false } : resolveRep(req, data.salesRepId);
+    const { salesRepId, isRep } = gone ? { salesRepId: gone.vanKey, isRep: false } : opts.asAdmin ? { salesRepId: opts.asAdmin.salesRepId, isRep: false } : resolveRep(req, data.salesRepId);
 
     // التنقيص/التسوية (الكميات السالبة و UNLOAD/ADJUST) متاح للإدارة فقط؛ المندوب يُحمّل موجباً فقط
     if (isRep && (data.type !== 'LOAD' || data.items.some(i => i.qty < 0))) {
@@ -398,6 +445,8 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     if (prior0) { res.status(200).json({ success: true, data: prior0, replay: true, idempotent: true }); return; }
     /** أول ما في كل معاملة كتابة: قفل المرجع ثم البحث به — وُجد ⇒ تُجهَض المعاملة بلا كتابة ويُردّ القائم (ClientRefReplay) */
     const refGate = async (tx: Prisma.TransactionClient) => {
+      // «قبول المندوب للتحميل»: قفل صفّ المعلّق وحالته قبل كل شيء — غائبٌ ⇒ كما كان
+      if (opts.gate) await opts.gate(tx);
       if (!clientRef) return;
       await lockClientRef(tx, 'van-load', tid, clientRef);
       const prior = await priorOf(tx);
@@ -508,40 +557,50 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
       if (sellOut) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'van-sellable:' + salesRepId}))`;
     };
 
-    // نداء الإنشاء الوحيد (locations.test.ts): الحركة وبنودها — وتوزيع البند على التشغيلات حين تحمل الخطة صفوفه (D2: البند لا يُشطر)
-    const createLoad = (db: Prisma.TransactionClient | typeof prisma, plan: VanMovementPlanResult | null = null) => db.vanLoad.create({
-      data: {
-        tenantId: tid, salesRepId: gone ? null : salesRepId, type: data.type, note: data.note,
-        // سبب التسوية بالنشر الشرطيّ — غائبٌ ⇒ العمود null والحركة كما كانت حرفياً
-        ...(adjustReason && { reason: adjustReason }),
-        // D30: تنزيل سيارة مندوبٍ محذوف بمعرّفه المحفوظ، كما يكتبه حذف المندوب على حركاته
-        ...(gone && { deletedSalesRepId: gone.vanKey }),
-        ...(loadLocationId && { locationId: loadLocationId }),
-        // D8: مرجع منع التكرار بالنشر الشرطيّ — غائبٌ ⇒ العمود null كما كان
-        ...(clientRef && { clientRef }),
-        createdBy: isRep ? 'REP' : 'ADMIN',
-        // لقطة الوحدة + الكمية بالأساس؛ والمقترَح والمتنبَّأ به بالأساس كما أخرجهما المحرّك
-        items: {
-          // مفتاح الربط: سطرٌ حصرته خطة اللوط (LOT_CLAMPED) أو قرّبت كسره يُكتب بكميته المطبَّقة (vanAppliedItemFields بعد unitFields
-          // فتغلبها)، والمحصور إلى صفر لا يُكتب. غير المفتاح: applied فارغة فالبنود كما كانت حرفياً
-          create: items.flatMap((i, idx) => (Math.abs(plan?.applied?.get(i.at) ?? 1) <= 1e-9 ? [] : [{
-            productId: i.productId, ...unitFields(i.qty, units[idx]), ...vanAppliedItemFields(plan, i.at, units[idx]), suggestedQty: i.suggestedQty ?? null, expectedQty: i.expectedQty ?? null,
-            // «مرجع السطر» بالنشر الشرطيّ: غائبٌ أو فارغٌ بعد القصّ ⇒ لا مفتاح فيبقى العمود null والبند كما كان حرفياً. في كل الأنواع
-            // ومنها تنزيل سيارة المندوب المحذوف (D30)، وتوزيع البند على تشغيلاته لا يشطره (D2) فالمرجع على البند الواحد
-            ...(i.lineRef && { lineRef: i.lineRef }),
-            ...(plan && vanItemLotColumns(plan, i.at, { tenantId: tid, productId: i.productId, vanKey: salesRepId, moveType: data.type })),
-          }])),
+    // نداء الإنشاء الوحيد (locations.test.ts): الحركة وبنودها — وتوزيع البند على التشغيلات حين تحمل الخطة صفوفه (D2: البند لا يُشطر).
+    // «قبول المندوب للتحميل»: beforeCreate يرى كل التحذيرات قبله (تجربة الإرسال تُجهض هنا، والقبول يرفض ما يغيّر الأسطر)، وafterCreate
+    // يختم الصفّ المعلّق في المعاملة نفسها — غائبان ⇒ الإنشاء كما كان
+    const createLoad = async (db: Prisma.TransactionClient | typeof prisma, plan: VanMovementPlanResult | null = null) => {
+      opts.beforeCreate?.([...warnings, ...(plan?.warnings ?? [])]);
+      const load = await db.vanLoad.create({
+        data: {
+          tenantId: tid, salesRepId: gone ? null : salesRepId, type: data.type, note: data.note,
+          // سبب التسوية بالنشر الشرطيّ — غائبٌ ⇒ العمود null والحركة كما كانت حرفياً
+          ...(adjustReason && { reason: adjustReason }),
+          // D30: تنزيل سيارة مندوبٍ محذوف بمعرّفه المحفوظ، كما يكتبه حذف المندوب على حركاته
+          ...(gone && { deletedSalesRepId: gone.vanKey }),
+          ...(loadLocationId && { locationId: loadLocationId }),
+          // D8: مرجع منع التكرار بالنشر الشرطيّ — غائبٌ ⇒ العمود null كما كان
+          ...(clientRef && { clientRef }),
+          // «قبول المندوب للتحميل»: لحظة القبول ومعرّف صفّ الإقرار الموقَّع — غائبان ⇒ العمودان null كما كانا
+          ...(opts.stamp && { acceptedAt: opts.stamp.acceptedAt, pendingLoadId: opts.stamp.pendingLoadId }),
+          createdBy: isRep ? 'REP' : 'ADMIN',
+          // لقطة الوحدة + الكمية بالأساس؛ والمقترَح والمتنبَّأ به بالأساس كما أخرجهما المحرّك
+          items: {
+            // مفتاح الربط: سطرٌ حصرته خطة اللوط (LOT_CLAMPED) أو قرّبت كسره يُكتب بكميته المطبَّقة (vanAppliedItemFields بعد unitFields
+            // فتغلبها)، والمحصور إلى صفر لا يُكتب. غير المفتاح: applied فارغة فالبنود كما كانت حرفياً
+            create: items.flatMap((i, idx) => (Math.abs(plan?.applied?.get(i.at) ?? 1) <= 1e-9 ? [] : [{
+              productId: i.productId, ...unitFields(i.qty, units[idx]), ...vanAppliedItemFields(plan, i.at, units[idx]), suggestedQty: i.suggestedQty ?? null, expectedQty: i.expectedQty ?? null,
+              // «مرجع السطر» بالنشر الشرطيّ: غائبٌ أو فارغٌ بعد القصّ ⇒ لا مفتاح فيبقى العمود null والبند كما كان حرفياً. في كل الأنواع
+              // ومنها تنزيل سيارة المندوب المحذوف (D30)، وتوزيع البند على تشغيلاته لا يشطره (D2) فالمرجع على البند الواحد
+              ...(i.lineRef && { lineRef: i.lineRef }),
+              ...(plan && vanItemLotColumns(plan, i.at, { tenantId: tid, productId: i.productId, vanKey: salesRepId, moveType: data.type })),
+            }])),
+          },
         },
-      },
-      include: { items: { include: { product: { select: { id: true, name: true, unit: true, primaryUnitId: true } }, ...(plan && { lots: ITEM_LOTS_INCLUDE }) } } },
-    });
+        include: { items: { include: { product: { select: { id: true, name: true, unit: true, primaryUnitId: true } }, ...(plan && { lots: ITEM_LOTS_INCLUDE }) } } },
+      });
+      if (opts.afterCreate) await opts.afterCreate(db as Prisma.TransactionClient, load);
+      return load;
+    };
 
     // «تتبّع اللوط» (§٤.٧): في الحركة صنفٌ متتبَّع — يوم الشركة قبل المعاملة، ثم الطابور، ثم معاملةٌ بمهلة اللوط (D13) فيها
     // بالترتيب: قفل الدلو للإزالة، ثم قفل الأصناف (lockLotProducts)، ثم فحص رصيد الإزالة القائم، ثم خطة التوزيع التي تمنع
     // السالب على مستوى اللوط (planVanMovementInTx)، ثم نداء الإنشاء الوحيد. وبلا صنفٍ متتبَّع: المسار القائم أدناه حرفياً
     if (preTracked.size) {
       const byId = new Map((lotProducts ?? []).map(p => [p.id, p]));
-      const by = actorOf(req);
+      // قبول المعلّق: المرسِل فاعل الحركة وسجل اللوط لا المندوب
+      const by = opts.asAdmin?.actorId ?? actorOf(req);
       const { day } = await companyDay(prisma, tid);
       const release = await acquireLotQueue(tid, preTracked);
       try {
@@ -570,7 +629,7 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
                 reason: i.lotReason == null ? null : String(i.lotReason),
               };
             }),
-          }, { locked, eventActor: lotEventActorOf(req.user), lenient: !!req.user?.apiKeyId });
+          }, { locked, eventActor: opts.asAdmin?.eventActor ?? lotEventActorOf(req.user), lenient: !!req.user?.apiKeyId });
           // مفتاح الربط: كل الأسطر حُصرت إلى صفر (لا شيء في السيارة يُنقص) ⇒ 200 بلا حركة بتحذيراتها، لا حركةٌ بلا بنود
           if (vanPlanWritesNothing(plan, items.map(i => i.at))) throw new VanPlanNoop([...warnings, ...plan.warnings]);
           return { load: await createLoad(tx, plan), warnings: plan.warnings };
@@ -640,9 +699,9 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     if ((err as { code?: unknown })?.code === 'CLIENT_REF_REUSED') { res.status(409).json({ success: false, code: 'CLIENT_REF_REUSED', message: (err as Error).message }); return; }
     // «ربط الدفاتر» L1: سبب تسويةٍ غير معروف من الواجهة ⇒ 400 ADJUST_REASON_INVALID بلا حركة
     if (isSupplierError(err)) { res.status(err.status).json(supplierErrorBody(err)); return; }
-    next(err);
+    throw err;
   }
-});
+}
 
 // المخزون الحالي لمندوب (المندوب=سيارته، الأدمن=يمرّر salesRepId)
 router.get('/current', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -1007,6 +1066,8 @@ router.get('/movements', async (req: AuthRequest, res: Response, next: NextFunct
       ...loads.map(l => ({
         // «تصفير المخزون»: معرّف التشغيلة لحركة التصفير (null لغيرها؛ والفواتير أدناه null دائماً)
         kind: l.type, date: l.createdAt, ref: l.note || '', by: l.createdBy, zeroRunId: l.zeroRunId ?? null,
+        // «قبول المندوب للتحميل»: التحميل الذي قبله المندوب ووقّعه بمعرّف إقراره ولحظته — وغيره كما كان حرفاً
+        ...(l.pendingLoadId && { pendingLoadId: l.pendingLoadId, acceptedAt: l.acceptedAt }),
         // «ربط الدفاتر» L1: سبب التسوية (COUNT | DAMAGE | EXPIRY | SHORTAGE_REP | SAMPLE | OTHER) حين سُجّل وحده — والحركة بلا سبب كما كانت حرفاً
         ...(l.reason != null && { reason: l.reason }),
         items: l.items.map(i => ({ name: i.product.name, unit: i.unitName ?? i.product.unit, qty: i.qty, baseQty: baseQtyOf(i), ...primaryOf(i.product), lineRef: i.lineRef ?? null, ...(withLots && { lots: (i as { lots?: unknown }).lots ?? [] }) })),
@@ -1349,6 +1410,410 @@ router.post('/zero', async (req: AuthRequest, res: Response, next: NextFunction)
       salesRepId: data.salesRepId, type: 'ADJUST', deleted: false, clientRef: data.clientRef ?? null, note: data.note ?? null,
       scope: 'VAN', includeUnsellable: data.includeUnsellable ?? true, items: [], zero: true,
     });
+  } catch (err) { next(err); }
+});
+
+// ═══ «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦) ═══
+// الإدارة ترفع التحميل والميزة مفعّلة (CompanySettings.vanLoadAcceptance) ⇒ صفٌّ معلّق (PendingVanLoad) بلا أثرٍ في أي مخزون، ثم يقبله
+// المندوب ويوقّع فتُسجَّل الحركة بمسار POST /loads نفسه (executeVanMovement) كأن الإدارة أنشأتها — أو يعترض بسببٍ فتعدّله الإدارة أو
+// تلغيه. كل المسارات ترفض مفتاح API (403 API_KEY_FORBIDDEN)، والمطفأة لا تبلغ شيئاً منها (POST /loads كما كان حرفياً).
+
+/** هل يصير هذا الطلب تحميلاً معلّقاً؟ الشروط الرخيصة أولاً، والإعداد آخراً (قراءة واحدة لتحميل الإدارة وحده) */
+async function pendingLoadWanted(req: AuthRequest, tid: string, data: LoadBody): Promise<boolean> {
+  if (data.type !== 'LOAD') return false;
+  if (req.user?.role === 'SALES_REP') return false;
+  if (req.user?.apiKeyId) return false;
+  // إعادة رفعٍ من صندوقٍ دون اتصال: مستندٌ سُجّل على الجهاز يُكتب كما كان
+  if (String(req.headers['x-fs-replay'] || '') === '1') return false;
+  if (data.deletedSalesRepId !== undefined) return false;
+  return vanLoadAcceptanceOn(tid);
+}
+
+const PENDING_CLIENT_REF_REUSED = 'مرجع الحفظ clientRef مستعملٌ لحركةٍ أخرى — ولّد مرجعاً جديداً لكل حفظ';
+const pendingRefuse = (res: Response, status: number, code: PendingLoadCode, extra: Record<string, unknown> = {}): void => {
+  res.status(status).json(pendingRefusal(code, extra));
+};
+/** المسارات كلها للوحة وتطبيق المندوب: المفتاح البرمجي مرفوض قبل أي قراءة */
+const pendingApiKeyRefused = (req: AuthRequest, res: Response): boolean => {
+  if (!req.user?.apiKeyId) return false;
+  pendingRefuse(res, 403, 'API_KEY_FORBIDDEN');
+  return true;
+};
+
+/** الصفوف بعقد العرض — أسطرها بقراءتين للصفوف كلها */
+async function pendingViews(tid: string, rows: PendingRow[], opts: { admin: boolean; withSignature: boolean }): Promise<PendingVanLoadView[]> {
+  const lines = await pendingLinesView(tid, rows);
+  return rows.map((r) => pendingLoadView(r, lines.get(r.id), opts));
+}
+
+/**
+ * صفّ المعلّق لمستدعيه — null ⇒ 404. المندوب صفوفه وحده (بمعرّفه من التوكن)، والإدارة بنطاقها: مندوب الصفّ في نطاقها، وصفّ مندوبٍ
+ * محذوف لغير المقيّد وحده (لا يُعرف نطاق مندوبٍ لم يعد موجوداً — كبطاقة سيارات المحذوفين)
+ */
+async function pendingRowFor(req: AuthRequest, tid: string, id: string, mode: 'rep' | 'admin', withSignature = false): Promise<PendingRow | null> {
+  const select = withSignature ? { ...PENDING_SELECT, signature: true } : PENDING_SELECT;
+  if (mode === 'rep') {
+    return (await prisma.pendingVanLoad.findFirst({ where: { id, tenantId: tid, salesRepId: req.user!.id }, select })) as PendingRow | null;
+  }
+  const row = (await prisma.pendingVanLoad.findFirst({ where: { id, tenantId: tid }, select })) as PendingRow | null;
+  if (!row) return null;
+  if (row.salesRepId ? !(await canAccessRep(req, tid, row.salesRepId)) : await adminScopeEnabled(req)) return null;
+  return row;
+}
+
+/**
+ * تجربة الحركة بلا كتابة: مسار executeVanMovement كله (الأصناف والوحدات والتشغيلات ورصيد المستودع تحت أقفاله) حتى نداء الإنشاء، ثم
+ * تُجهَض معاملته. ردّ المسار إن ردّ قبله (4xx، 422 WAREHOUSE_INSUFFICIENT، 200 بلا حركة…)، وإلا تحذيراته. وغير ذلك يُرمى كما كان
+ */
+async function dryRunVanLoad(req: AuthRequest, data: LoadBody): Promise<{ reply: CapturedReply } | { warnings: { code: string }[] }> {
+  const cap = captureReply();
+  try {
+    await executeVanMovement(req, cap, { ...data, clientRef: undefined }, { beforeCreate: (w) => { throw new VanDryRun([...w]); } });
+  } catch (e) {
+    if (!(e instanceof VanDryRun)) throw e;
+    return { warnings: e.warnings };
+  }
+  return { reply: cap };
+}
+
+/** تحذيرات التجربة التي تغيّر سطراً عند التسجيل (PENDING_LINE_ALTERING) — تمنع الإرسال: المندوب يوقّع على ما أُرسل حرفياً */
+const alteringOf = (ws: unknown): { code: string }[] =>
+  (Array.isArray(ws) ? ws : []).filter((w): w is { code: string } => !!w && typeof (w as { code?: unknown }).code === 'string' && PENDING_LINE_ALTERING.has((w as { code: string }).code));
+
+/** ردّ التجربة حين لم تبلغ الإنشاء: «لا شيء يُكتب» بأسطرٍ تُركت ⇒ 422 كتحذيرات الإنشاء، وما سواه ردّ المسار نفسه */
+function sendDryReply(res: Response, cap: CapturedReply): void {
+  if (cap.code === null || !cap.body) throw new Error('van movement produced no reply');
+  const bad = cap.code === 200 && cap.body.noop === true ? alteringOf(cap.body.warnings) : [];
+  if (bad.length) { pendingRefuse(res, 422, 'PENDING_LOAD_LINES_CHANGED', { warnings: bad }); return; }
+  res.status(cap.code).json(cap.body);
+}
+
+/** POST /loads والميزة مفعّلة: تحميل الإدارة يُجرَّب بلا كتابة ثم يُحفظ معلّقاً ويُنبَّه المندوب — 201 { pending: true } */
+async function createPendingLoad(req: AuthRequest, res: Response, data: LoadBody): Promise<void> {
+  const tid = tenantId(req);
+  if (!data.salesRepId) throw Object.assign(new Error('يجب تحديد المندوب'), { status: 400 });
+  const salesRepId = data.salesRepId;
+  await assertRepInScope(req, tid, salesRepId);
+  const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, select: { id: true, name: true, isActive: true } });
+  if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+  if (rep.isActive === false) { pendingRefuse(res, 409, 'PENDING_LOAD_REP_INACTIVE'); return; }
+  const { clientRef, ...body } = data;
+  const admin = { admin: true, withSignature: false };
+  const replayed = async (prior: PendingRow) => {
+    res.status(200).json({ success: true, pending: true, data: (await pendingViews(tid, [prior], admin))[0], replay: true, idempotent: true });
+  };
+  const reused = () => res.status(409).json({ success: false, code: 'CLIENT_REF_REUSED', message: PENDING_CLIENT_REF_REUSED });
+  if (clientRef) {
+    // D8: إعادة إرسالٍ بمرجعٍ حُفظ معلّقاً ⇒ الصفّ القائم 200 بلا كتابة؛ ولسيارةٍ أخرى ⇒ 409
+    const prior = (await prisma.pendingVanLoad.findFirst({ where: { tenantId: tid, clientRef }, orderBy: { createdAt: 'asc' }, select: PENDING_SELECT })) as PendingRow | null;
+    if (prior) { if (prior.salesRepId === salesRepId) await replayed(prior); else reused(); return; }
+    // ومرجعٌ سُجّلت به حركةٌ مباشرة (قبل تفعيل الميزة) ⇒ مسار الحركة نفسه يعيدها 200 أو يرفض المرجع — لا معلّقٌ مكرَّر
+    if (await prisma.vanLoad.findFirst({ where: { tenantId: tid, clientRef }, select: { id: true } })) { await executeVanMovement(req, res, data); return; }
+  }
+  const dry = await dryRunVanLoad(req, { ...body, salesRepId });
+  if ('reply' in dry) { sendDryReply(res, dry.reply); return; }
+  const bad = alteringOf(dry.warnings);
+  if (bad.length) { pendingRefuse(res, 422, 'PENDING_LOAD_LINES_CHANGED', { warnings: bad }); return; }
+  const actor = actorOf(req);
+  let row: PendingRow;
+  try {
+    row = await prisma.$transaction(async (tx) => {
+      if (clientRef) {
+        // التفرّد بلا قيدٍ فريد: قفل المرجع ثم البحث به داخل المعاملة (كحركات السيارة)
+        await lockClientRef(tx, 'pending-van-load', tid, clientRef);
+        const prior = (await tx.pendingVanLoad.findFirst({ where: { tenantId: tid, clientRef }, orderBy: { createdAt: 'asc' }, select: PENDING_SELECT })) as PendingRow | null;
+        if (prior) {
+          if (prior.salesRepId !== salesRepId) throw Object.assign(new Error(PENDING_CLIENT_REF_REUSED), { status: 409, code: 'CLIENT_REF_REUSED' });
+          throw new ClientRefReplay(prior);
+        }
+      }
+      return (await tx.pendingVanLoad.create({
+        data: {
+          tenantId: tid, salesRepId, repName: rep.name, status: 'PENDING',
+          // JSON صرف: المفاتيح الغائبة (undefined) لا تُحفظ، فالجسم المحفوظ هو ما سيُعاد تحليله بـloadSchema عند القبول
+          body: JSON.parse(JSON.stringify({ ...body, type: 'LOAD', salesRepId })) as Prisma.InputJsonValue,
+          note: body.note?.trim() || null, clientRef: clientRef ?? null,
+          createdById: actor, createdByName: pendingActorName(actor, req.user?.name),
+        },
+        select: PENDING_SELECT,
+      })) as PendingRow;
+    });
+  } catch (e) {
+    if (e instanceof ClientRefReplay) { await replayed(e.row as PendingRow); return; }
+    if ((e as { code?: unknown })?.code === 'CLIENT_REF_REUSED') { reused(); return; }
+    throw e;
+  }
+  notifyPendingLoad(salesRepId);
+  const [view] = await pendingViews(tid, [row], admin);
+  res.status(201).json({ success: true, pending: true, data: view, ...(dry.warnings.length > 0 && { warnings: dry.warnings }) });
+}
+
+const PENDING_LIST_MAX = 100;
+const PENDING_RECENT_DAYS = { admin: 7, rep: 3 } as const;
+
+/**
+ * التحميلات المعلّقة: المندوب صفوفه وحده، والإدارة بنطاقها (و?salesRepId). بلا status: المفتوحة (PENDING وDISPUTED) أحدثها أولاً،
+ * ثم المقبولة حديثاً (٧ أيام للإدارة و٣ للمندوب). status: open | PENDING | DISPUTED | ACCEPTED | CANCELLED وحده (وغيره يُهمل).
+ * withSignature=1 (للإدارة): التوقيع على المقبول للمصغّرة. counts: عدّ المعلّق والمعترَض عليه بالقيد نفسه
+ */
+router.get('/pending-loads', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (pendingApiKeyRefused(req, res)) return;
+    const tid = tenantId(req);
+    const isRep = req.user?.role === 'SALES_REP';
+    const q = typeof req.query.status === 'string' ? req.query.status : '';
+    const status = q === 'open' || (PENDING_STATUSES as readonly string[]).includes(q) ? q : null;
+    const limit = Math.min(PENDING_LIST_MAX, Math.max(1, parseInt(String(req.query.limit)) || 50));
+    let base: Prisma.PendingVanLoadWhereInput;
+    if (isRep) base = { tenantId: tid, salesRepId: req.user!.id };
+    else {
+      const repId = queryRepId(req);
+      if (repId) await assertRepInScope(req, tid, repId);
+      base = { tenantId: tid, ...(repId && { salesRepId: repId }), ...(await scopedRepRecordWhere(req)) };
+    }
+    const withSig = !isRep && (req.query.withSignature === '1' || req.query.withSignature === 'true');
+    const select = withSig ? { ...PENDING_SELECT, signature: true } : PENDING_SELECT;
+    const find = (where: Prisma.PendingVanLoadWhereInput, orderBy: Prisma.PendingVanLoadOrderByWithRelationInput, take: number) =>
+      prisma.pendingVanLoad.findMany({ where: { ...base, ...where }, orderBy, take, select }) as Promise<PendingRow[]>;
+    let rows: PendingRow[];
+    if (status && status !== 'open') {
+      const orderBy = status === 'ACCEPTED' ? { acceptedAt: 'desc' as const } : status === 'CANCELLED' ? { cancelledAt: 'desc' as const } : { createdAt: 'desc' as const };
+      rows = await find({ status }, orderBy, limit);
+    } else {
+      const open = await find({ status: { in: ['PENDING', 'DISPUTED'] } }, { createdAt: 'desc' }, limit);
+      const since = new Date(Date.now() - (isRep ? PENDING_RECENT_DAYS.rep : PENDING_RECENT_DAYS.admin) * 86_400_000);
+      rows = status === 'open' ? open : [...open, ...(await find({ status: 'ACCEPTED', acceptedAt: { gte: since } }, { acceptedAt: 'desc' }, 20))];
+    }
+    const [pending, disputed] = await Promise.all([
+      prisma.pendingVanLoad.count({ where: { ...base, status: 'PENDING' } }),
+      prisma.pendingVanLoad.count({ where: { ...base, status: 'DISPUTED' } }),
+    ]);
+    const views = await pendingViews(tid, rows, { admin: !isRep, withSignature: false });
+    res.json({
+      success: true,
+      data: views.map((v, n) => (withSig && rows[n].status === 'ACCEPTED' ? { ...v, signature: rows[n].signature ?? null } : v)),
+      counts: { pending, disputed },
+    });
+  } catch (err) { next(err); }
+});
+
+/** تحميلٌ معلّق بتوقيعه — للمندوب صفّه وحده وللإدارة بنطاقها؛ والمقبول ومعه حركته (vanLoad) لطباعة إقرار الاستلام */
+router.get('/pending-loads/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (pendingApiKeyRefused(req, res)) return;
+    const tid = tenantId(req);
+    const isRep = req.user?.role === 'SALES_REP';
+    const row = await pendingRowFor(req, tid, String(req.params.id), isRep ? 'rep' : 'admin', true);
+    if (!row) { pendingRefuse(res, 404, 'PENDING_LOAD_NOT_FOUND'); return; }
+    const [view] = await pendingViews(tid, [row], { admin: !isRep, withSignature: true });
+    let vanLoad: unknown = null;
+    if (row.status === 'ACCEPTED' && row.vanLoadId) {
+      // تشغيلات البنود والميزة مفعّلة — قراءة العلم هنا لا withLotsOf (معاملٌ لا يخصّ هذا المسار)
+      const lotsOn = (await prisma.tenant.findUnique({ where: { id: tid }, select: { lotTrackingEnabled: true } }))?.lotTrackingEnabled === true;
+      vanLoad = await prisma.vanLoad.findFirst({
+        where: { id: row.vanLoadId, tenantId: tid },
+        include: { items: { include: { product: { select: { id: true, name: true, unit: true, primaryUnitId: true } }, ...(lotsOn && { lots: ITEM_LOTS_INCLUDE }) } } },
+      });
+    }
+    res.json({ success: true, data: { ...view, ...(row.status === 'ACCEPTED' && { vanLoad }) } });
+  } catch (err) { next(err); }
+});
+
+/**
+ * قبول المندوب وتوقيعه: الحركة بالجسم المحفوظ بمسار POST /loads نفسه كأن الإدارة أنشأتها (فاعلها المرسِل)، في معاملته وتحت قفل
+ * الصفّ أولاً — الحالة PENDING والمراجعة التي رآها المندوب، ثم الحركة مختومةً بلحظة القبول، ثم الصفّ ACCEPTED بتوقيعه ومعرّف الحركة.
+ * ما يغيّر سطراً الآن (صنفٌ حُذف، وحدةٌ تبدّلت، تشغيلةٌ نفدت) أو رصيد مستودعٍ لا يكفي ⇒ 409 بلا حركة ويبقى معلّقاً. والإعادة ⇒ 200
+ */
+router.post('/pending-loads/:id/accept', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (pendingApiKeyRefused(req, res)) return;
+    if (req.user?.role !== 'SALES_REP') { pendingRefuse(res, 403, 'PENDING_LOAD_REP_ONLY'); return; }
+    // إقرارٌ بتوقيعٍ حيّ: لا يُقبل من صندوق دون اتصال (المستند يُكتب لاحقاً بحالٍ لم يرها المندوب)
+    if (String(req.headers['x-fs-replay'] || '') === '1') { pendingRefuse(res, 400, 'PENDING_LOAD_ONLINE_ONLY'); return; }
+    const parsed = pendingAcceptSchema.safeParse(req.body ?? {});
+    if (!parsed.success) { pendingRefuse(res, 400, 'PENDING_LOAD_SIGNATURE_REQUIRED'); return; }
+    const { signature, revision, lat, lng } = parsed.data;
+    const tid = tenantId(req);
+    const id = String(req.params.id);
+    const viewOf = async (r: PendingRow) => (await pendingViews(tid, [r], { admin: false, withSignature: false }))[0];
+    const reread = async () => { const r = await pendingRowFor(req, tid, id, 'rep'); return r ? viewOf(r) : null; };
+    const row = await pendingRowFor(req, tid, id, 'rep');
+    if (!row) { pendingRefuse(res, 404, 'PENDING_LOAD_NOT_FOUND'); return; }
+    if (row.status === 'ACCEPTED') { res.json({ success: true, data: await viewOf(row), replay: true }); return; }
+    if (row.status !== 'PENDING') { pendingRefuse(res, 409, 'PENDING_LOAD_NOT_PENDING', { data: await viewOf(row) }); return; }
+    if (row.revision !== revision) { pendingRefuse(res, 409, 'PENDING_LOAD_REVISED', { data: await viewOf(row) }); return; }
+    const body = loadSchema.safeParse(row.body);
+    if (!body.success || body.data.type !== 'LOAD' || !row.salesRepId) { pendingRefuse(res, 409, 'PENDING_LOAD_CHANGED'); return; }
+    const salesRepId = row.salesRepId;
+    const now = new Date();
+    const cap = captureReply();
+    try {
+      await executeVanMovement(req, cap, { ...body.data, type: 'LOAD', salesRepId, clientRef: undefined, deletedSalesRepId: undefined, mode: undefined }, {
+        asAdmin: { salesRepId, actorId: row.createdById ?? actorOf(req), eventActor: pendingEventActor(row.createdById, row.createdByName) },
+        gate: async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${pendingLoadLockKey(id)}))`;
+          const cur = await tx.pendingVanLoad.findFirst({ where: { id, tenantId: tid }, select: { status: true, revision: true } });
+          if (cur?.status === 'ACCEPTED') throw new PendingLoadSettled('ACCEPTED');
+          if (!cur || cur.status !== 'PENDING') throw new PendingLoadSettled('NOT_PENDING');
+          if (cur.revision !== revision) throw new PendingLoadSettled('REVISED');
+        },
+        beforeCreate: (w) => {
+          const bad = w.filter((x) => PENDING_LINE_ALTERING.has(x.code));
+          if (bad.length) throw new PendingLinesChanged([...bad]);
+        },
+        stamp: { acceptedAt: now, pendingLoadId: id },
+        afterCreate: async (tx, load) => {
+          await tx.pendingVanLoad.update({
+            where: { id },
+            data: { status: 'ACCEPTED', acceptedAt: now, signature, acceptedLat: lat ?? null, acceptedLng: lng ?? null, vanLoadId: load.id },
+          });
+        },
+      });
+    } catch (e) {
+      if (e instanceof PendingLoadSettled) {
+        const data = await reread();
+        if (e.state === 'ACCEPTED') { res.json({ success: true, data, replay: true }); return; }
+        pendingRefuse(res, 409, e.state === 'REVISED' ? 'PENDING_LOAD_REVISED' : 'PENDING_LOAD_NOT_PENDING', data ? { data } : {});
+        return;
+      }
+      if (e instanceof PendingLinesChanged) {
+        // تشغيلاتٌ لم تعد كما أُرسلت (صريحٌ لا يكفيه صالحه، أو كسرٌ يُقرَّب) غير صنفٍ أو وحدةٍ تبدّلت
+        const lotsOnly = e.warnings.every((w) => w.code.startsWith('LOT_'));
+        pendingRefuse(res, 409, lotsOnly ? 'PENDING_LOAD_LOTS_SHORT' : 'PENDING_LOAD_CHANGED', { warnings: e.warnings });
+        return;
+      }
+      if (e instanceof LotError) {
+        // الانشغال (503 LOT_BUSY) يمرّ فيعيد المندوب، وما سواه تشغيلاتٌ لم تعد كما أُرسلت
+        const h = lotHttpError(e)!;
+        if (h.status === 503) { res.status(503).json(h.body); return; }
+        pendingRefuse(res, 409, 'PENDING_LOAD_LOTS_SHORT', { lot: h.body });
+        return;
+      }
+      if (e instanceof UnitInvalidError || (e as { code?: unknown })?.code === 'UNIT_INVALID') { pendingRefuse(res, 409, 'PENDING_LOAD_CHANGED'); return; }
+      const st = (e as { status?: unknown })?.status;
+      if (e instanceof Error && typeof st === 'number' && st >= 400 && st < 500) { res.status(st).json({ success: false, message: e.message }); return; }
+      next(e);
+      return;
+    }
+    const code = cap.code ?? 500;
+    const out = cap.body ?? {};
+    if (code === 201) {
+      res.json({ success: true, data: await reread(), load: out.data, ...(Array.isArray(out.warnings) && out.warnings.length > 0 && { warnings: out.warnings }) });
+      return;
+    }
+    if (code === 422 && out.code === 'WAREHOUSE_INSUFFICIENT') { pendingRefuse(res, 409, 'PENDING_LOAD_STOCK_SHORT', { lines: out.lines }); return; }
+    // تبدّل أساس صنفٍ أثناء الحفظ، أو «لا شيء يُكتب» (أسطرٌ تُركت كلها) ⇒ تغيّر التحميل منذ إرساله
+    if ((code === 409 && out.code === 'PRODUCT_UNITS_CHANGED') || code === 200) { pendingRefuse(res, 409, 'PENDING_LOAD_CHANGED'); return; }
+    res.status(code).json(out);
+  } catch (err) { next(err); }
+});
+
+/** اعتراض المندوب بسببٍ إلزامي ⇒ DISPUTED تراه الإدارة فتعدّله أو تلغيه. الاعتراض ثانيةً يحدّث سببه، والمقبول والملغى 409 */
+router.post('/pending-loads/:id/dispute', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (pendingApiKeyRefused(req, res)) return;
+    if (req.user?.role !== 'SALES_REP') { pendingRefuse(res, 403, 'PENDING_LOAD_REP_ONLY'); return; }
+    const parsed = pendingDisputeSchema.safeParse(req.body ?? {});
+    if (!parsed.success) { pendingRefuse(res, 400, 'PENDING_LOAD_NOTE_REQUIRED'); return; }
+    const tid = tenantId(req);
+    const id = String(req.params.id);
+    if (!(await pendingRowFor(req, tid, id, 'rep'))) { pendingRefuse(res, 404, 'PENDING_LOAD_NOT_FOUND'); return; }
+    const out = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${pendingLoadLockKey(id)}))`;
+      const cur = await tx.pendingVanLoad.findFirst({ where: { id, tenantId: tid }, select: { status: true } });
+      if (!cur) return 'GONE' as const;
+      if (cur.status === 'ACCEPTED' || cur.status === 'CANCELLED') return cur.status;
+      await tx.pendingVanLoad.update({ where: { id }, data: { status: 'DISPUTED', disputeNote: parsed.data.note, disputedAt: new Date() } });
+      return 'OK' as const;
+    });
+    if (out === 'GONE') { pendingRefuse(res, 404, 'PENDING_LOAD_NOT_FOUND'); return; }
+    if (out === 'ACCEPTED') { pendingRefuse(res, 409, 'PENDING_LOAD_ACCEPTED'); return; }
+    if (out === 'CANCELLED') { pendingRefuse(res, 409, 'PENDING_LOAD_CANCELLED'); return; }
+    const row = await pendingRowFor(req, tid, id, 'rep');
+    res.json({ success: true, data: row ? (await pendingViews(tid, [row], { admin: false, withSignature: false }))[0] : null });
+  } catch (err) { next(err); }
+});
+
+/** تعديل الإدارة: الجسم كاملاً بمراجعته (revision) — تجربةٌ بلا كتابة كالإرسال ثم PENDING بمراجعةٍ جديدة ويُمحى الاعتراض */
+const pendingEditSchema = loadSchema.extend({ revision: z.number().int().positive() });
+
+router.put('/pending-loads/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (pendingApiKeyRefused(req, res)) return;
+    if (req.user?.role === 'SALES_REP') { pendingRefuse(res, 403, 'PENDING_LOAD_ADMIN_ONLY'); return; }
+    const data = pendingEditSchema.parse(req.body);
+    if (data.type !== 'LOAD' || data.mode !== undefined || data.deletedSalesRepId !== undefined) { pendingRefuse(res, 400, 'PENDING_LOAD_TYPE_INVALID'); return; }
+    const tid = tenantId(req);
+    const id = String(req.params.id);
+    const row = await pendingRowFor(req, tid, id, 'admin');
+    if (!row) { pendingRefuse(res, 404, 'PENDING_LOAD_NOT_FOUND'); return; }
+    if (row.salesRepId == null) { pendingRefuse(res, 409, 'PENDING_LOAD_REP_GONE'); return; }
+    if (data.salesRepId !== undefined && data.salesRepId !== row.salesRepId) { pendingRefuse(res, 400, 'PENDING_LOAD_REP_FIXED'); return; }
+    if (row.status === 'ACCEPTED') { pendingRefuse(res, 409, 'PENDING_LOAD_ACCEPTED'); return; }
+    if (row.status === 'CANCELLED') { pendingRefuse(res, 409, 'PENDING_LOAD_CANCELLED'); return; }
+    const salesRepId = row.salesRepId;
+    // المرجع لا يتغيّر بالتعديل (مرجع الإرسال الأول)
+    const { revision, clientRef: _ref, ...rest } = data;
+    void _ref;
+    const body: LoadBody = { ...rest, type: 'LOAD', salesRepId };
+    const dry = await dryRunVanLoad(req, body);
+    if ('reply' in dry) { sendDryReply(res, dry.reply); return; }
+    const bad = alteringOf(dry.warnings);
+    if (bad.length) { pendingRefuse(res, 422, 'PENDING_LOAD_LINES_CHANGED', { warnings: bad }); return; }
+    const out = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${pendingLoadLockKey(id)}))`;
+      const cur = await tx.pendingVanLoad.findFirst({ where: { id, tenantId: tid }, select: { status: true, revision: true } });
+      if (!cur) return 'GONE' as const;
+      if (cur.status === 'ACCEPTED' || cur.status === 'CANCELLED') return cur.status;
+      if (cur.revision !== revision) return 'REVISED' as const;
+      await tx.pendingVanLoad.update({
+        where: { id },
+        data: {
+          body: JSON.parse(JSON.stringify(body)) as Prisma.InputJsonValue, note: body.note?.trim() || null, revision: { increment: 1 },
+          status: 'PENDING', disputeNote: null, disputedAt: null,
+        },
+      });
+      return 'OK' as const;
+    });
+    if (out === 'GONE') { pendingRefuse(res, 404, 'PENDING_LOAD_NOT_FOUND'); return; }
+    if (out === 'ACCEPTED') { pendingRefuse(res, 409, 'PENDING_LOAD_ACCEPTED'); return; }
+    if (out === 'CANCELLED') { pendingRefuse(res, 409, 'PENDING_LOAD_CANCELLED'); return; }
+    if (out === 'REVISED') { pendingRefuse(res, 409, 'PENDING_LOAD_REVISED'); return; }
+    notifyPendingLoad(salesRepId);
+    const fresh = await pendingRowFor(req, tid, id, 'admin');
+    res.json({
+      success: true, data: fresh ? (await pendingViews(tid, [fresh], { admin: true, withSignature: false }))[0] : null,
+      ...(dry.warnings.length > 0 && { warnings: dry.warnings }),
+    });
+  } catch (err) { next(err); }
+});
+
+/** إلغاء الإدارة للمعلّق أو المعترَض عليه (لا أثر يُعكس — لم يُكتب شيء). المقبول 409، والملغى ثانيةً 200 */
+router.post('/pending-loads/:id/cancel', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (pendingApiKeyRefused(req, res)) return;
+    if (req.user?.role === 'SALES_REP') { pendingRefuse(res, 403, 'PENDING_LOAD_ADMIN_ONLY'); return; }
+    const { reason } = pendingCancelSchema.parse(req.body ?? {});
+    const tid = tenantId(req);
+    const id = String(req.params.id);
+    if (!(await pendingRowFor(req, tid, id, 'admin'))) { pendingRefuse(res, 404, 'PENDING_LOAD_NOT_FOUND'); return; }
+    const actor = actorOf(req);
+    const out = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${pendingLoadLockKey(id)}))`;
+      const cur = await tx.pendingVanLoad.findFirst({ where: { id, tenantId: tid }, select: { status: true } });
+      if (!cur) return 'GONE' as const;
+      if (cur.status === 'ACCEPTED' || cur.status === 'CANCELLED') return cur.status;
+      // سبب الاعتراض يبقى كما كتبه المندوب؛ وسبب الإلغاء (إن كُتب) في الملاحظة — جسم التحميل يحفظ ملاحظته الأصلية
+      await tx.pendingVanLoad.update({
+        where: { id },
+        data: { status: 'CANCELLED', cancelledAt: new Date(), cancelledById: actor, cancelledByName: pendingActorName(actor, req.user?.name), ...(reason && { note: reason }) },
+      });
+      return 'OK' as const;
+    });
+    if (out === 'GONE') { pendingRefuse(res, 404, 'PENDING_LOAD_NOT_FOUND'); return; }
+    if (out === 'ACCEPTED') { pendingRefuse(res, 409, 'PENDING_LOAD_ACCEPTED'); return; }
+    const row = await pendingRowFor(req, tid, id, 'admin');
+    res.json({ success: true, data: row ? (await pendingViews(tid, [row], { admin: true, withSignature: false }))[0] : null });
   } catch (err) { next(err); }
 });
 

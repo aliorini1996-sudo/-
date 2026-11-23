@@ -1,12 +1,12 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api, { vanStockApi, productApi, salesRepApi, companyApi, lotsApi, warehouseApi } from '../api/client';
+import api, { vanStockApi, productApi, salesRepApi, companyApi, lotsApi, warehouseApi, pendingLoadsApi } from '../api/client';
 import { formatDate, activeLocale, formatDayOnly } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { useLang } from '../i18n/lang';
 import { countText } from '../lib/arCount';
 import SearchableSelect from '../components/SearchableSelect';
-import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar, Sparkles, AlertTriangle, Target, Download, Wrench, Layers, ChevronDown, ChevronUp, Info, Eraser } from 'lucide-react';
+import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar, Sparkles, AlertTriangle, Target, Download, Wrench, Layers, ChevronDown, ChevronUp, Info, Eraser, PenLine } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DocumentModal from '../components/DocumentModal';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -42,6 +42,12 @@ import {
 } from '../lib/vanStockFlags';
 // «ربط الدفاتر» L1: سبب تسوية السيارة (VanLoad.reason)
 import { VAN_DESTROY_REASON } from '../components/purchases/purchaseCalc';
+// «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦)
+import PendingVanLoadsPanel from '../components/PendingVanLoadsPanel';
+import {
+  PENDING_LOADS_KEY, PENDING_LOAD_TEXT, acceptanceOf, fetchPendingDetail, isPendingLoadResponse, pendingEditLines, pendingErrorText, pendingLoadErrorOf,
+  vanLoadAcceptanceOn, type LoadNoticeAcceptance, type PendingVanLoadView,
+} from '../lib/pendingLoads';
 
 /*
  * الوحدات المتعددة: كل كمية تأتي من الخادم هنا **بوحدة الأساس** (`unit` اسمها) — الرصيد والمحمّل والمباع والاقتراح —
@@ -163,6 +169,8 @@ interface Movement {
   zeroRunId?: string | null;
   /** #11 (إضافتان قد تغيبان): مرتجعٌ لا يعود للمخزون، أو عاد منتهي الصلاحية — movementKey يقرؤهما */
   returnToStock?: boolean; returnExpired?: boolean;
+  /** «قبول المندوب للتحميل»: تحميلٌ كتبه قبول المندوب وتوقيعه — معرّف صفّ الإقرار ولحظة القبول (غائبان لغيره) */
+  pendingLoadId?: string | null; acceptedAt?: string | null;
 }
 
 /** صنفٌ كما يردّه /products — علم اللوط وحقول الصلاحية لتحميل الصنف المتتبَّع */
@@ -209,6 +217,10 @@ export default function VanStockPage() {
   const [showLoad, setShowLoad] = useState(false);
   const [showAccuracy, setShowAccuracy] = useState(false);
   const [noticeMv, setNoticeMv] = useState<Movement | null>(null);
+  // «قبول المندوب للتحميل»: إقرار المندوب الموقَّع على إشعار حركةٍ كتبها قبوله (يُجلب حين يُصدَّر إشعارها) — null لغيرها
+  const [noticeAcceptance, setNoticeAcceptance] = useState<LoadNoticeAcceptance | null>(null);
+  // التحميل المرسل للمندوب قيد التعديل (نافذة التحميل نفسها بأسطره) — null ⇒ تسجيل تحميلٍ جديد
+  const [editPending, setEditPending] = useState<PendingVanLoadView | null>(null);
   const [toolsRep, setToolsRep] = useState<RepSummary | null>(null);
   // D9: عهدة مندوبٍ محذوف مفتوحةٌ للاستلام
   const [toolsGone, setToolsGone] = useState<DeletedToolHolder | null>(null);
@@ -243,6 +255,8 @@ export default function VanStockPage() {
   // «تتبّع اللوط» — نسخةٌ بلا العلم تُعامَل إطفاءً، فلا جلب ولا عمود
   const lotOn = lotFlagsOf(companyFlags).on;
   const whOn = companyFlags?.warehouseEnabled === true;
+  // «قبول المندوب للتحميل وتوقيعه»: مطفأة (أو خادمٌ أقدم بلا العلم) ⇒ لا قسم ولا جلب ولا تلميح — الصفحة كما كانت
+  const acceptanceOn = vanLoadAcceptanceOn(companyQ.data);
 
   const summaryQ = useQuery({
     // المدّة جزء من المفتاح، وإلا خدَم الكاشُ أرقامَ مدّة سابقة. ومعها عهد أدوات المناديب المحذوفين (D9: deletedTools — إضافةٌ قد تغيب)
@@ -358,6 +372,18 @@ export default function VanStockPage() {
   const anyExpiredField = reps.some(r => typeof r.totalExpired === 'number');
   // «لوكيشن» (ميزةٌ يفعّلها المالك): «سجل التحميلات» بعمود الموقع وتصفيته — مطفأةً لا جديد في الصفحة
   const locOn = companyFlags?.locationsEnabled === true;
+
+  /** إشعار الحركة: تحميلٌ كتبه قبول المندوب يُطبع بإقراره وتوقيعه (يُجلب صفّه الآن)، وتعذّره لا يمنع — الإشعار كما كان */
+  const exportNotice = async (m: Movement) => {
+    setNoticeAcceptance(null);
+    if (m.kind === 'LOAD' && m.pendingLoadId) {
+      try {
+        const d = await fetchPendingDetail(pendingLoadsApi, m.pendingLoadId);
+        setNoticeAcceptance(acceptanceOf(d?.view, repName));
+      } catch { toast.error(tr('تعذر تحميل البيانات')); }
+    }
+    setNoticeMv(m);
+  };
 
   if (!accountingReady) return null;
   if (!accountingOn) return <AccountingOffNotice />;
@@ -627,7 +653,7 @@ export default function VanStockPage() {
               <div className="p-8 text-center text-gray-400 text-sm">{tr('لا توجد حركة بعد')}</div>
             ) : (
               <div className="max-h-[420px] overflow-y-auto divide-y divide-[#F1EBDF]">
-                {(movementsQ.data || []).map((m, i) => <MovementRow key={i} m={m} onExport={setNoticeMv} />)}
+                {(movementsQ.data || []).map((m, i) => <MovementRow key={i} m={m} onExport={exportNotice} />)}
               </div>
             )}
           </div>
@@ -636,11 +662,17 @@ export default function VanStockPage() {
 
       {locOn && <VanLoadsLog reps={reps} />}
 
-      {showLoad && <LoadModal preselectRep={selected} lotOn={lotOn} whOn={whOn} onClose={() => setShowLoad(false)} />}
+      {acceptanceOn && <PendingVanLoadsPanel company={companyQ.data ?? null} onEdit={setEditPending} />}
+
+      {showLoad && <LoadModal preselectRep={selected} lotOn={lotOn} whOn={whOn} acceptanceOn={acceptanceOn} onClose={() => setShowLoad(false)} />}
+      {editPending && (
+        <LoadModal key={`${editPending.id}:${editPending.revision}`} preselectRep={editPending.salesRepId ?? ''} lotOn={lotOn} whOn={whOn}
+          acceptanceOn pending={editPending} onClose={() => setEditPending(null)} />
+      )}
       {showAccuracy && <AccuracyModal preselectRep={selected} qv={qv} onClose={() => setShowAccuracy(false)} />}
       {showZero && canZeroStock && <StockZeroModal onClose={() => setShowZero(false)} />}
       {zeroRep && canZeroStock && <StockZeroModal salesRepId={zeroRep.id} repName={zeroRep.name} onClose={() => setZeroRep(null)} />}
-      {noticeMv && <DocumentModal doc={withMovementLots(loadNoticeDocFromData(repName, noticeMv, companyQ.data ?? null), noticeMv, lotOn)} onClose={() => setNoticeMv(null)} />}
+      {noticeMv && <DocumentModal doc={withMovementLots(loadNoticeDocFromData(repName, noticeMv, companyQ.data ?? null, noticeAcceptance), noticeMv, lotOn)} onClose={() => { setNoticeMv(null); setNoticeAcceptance(null); }} />}
       {toolsRep && <ToolsModal repId={toolsRep.salesRepId} repName={toolsRep.repName} onClose={() => setToolsRep(null)} />}
       {toolsGone && <ToolsModal deleted repId={toolsGone.deletedSalesRepId} repName={tr('مندوب محذوف')} onClose={() => setToolsGone(null)} />}
       {removing && (
@@ -864,6 +896,12 @@ function MovementRow({ m, onExport }: { m: Movement; onExport?: (m: Movement) =>
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2">
           <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${meta.color}`}>{tr(meta.label)}</span>
+          {/* «قبول المندوب للتحميل»: تحميلٌ دخل السيارة بقبول المندوب وتوقيعه — إشعاره يحمل إقراره */}
+          {m.pendingLoadId && (
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded border text-[#1E7A52] bg-[#E4F1EA] border-[#cfe8db] flex items-center gap-1">
+              <PenLine size={10} /> {tr(PENDING_LOAD_TEXT.signedBadge)}
+            </span>
+          )}
           {onExport && canExport && (
             <button onClick={() => onExport(m)} title={tr('إشعار PDF')}
               className="text-[11px] text-slate-600 hover:text-slate-800 flex items-center gap-1 font-semibold">
@@ -1024,17 +1062,47 @@ interface LoadRow {
 let loadRowSeq = 0;
 const loadRowId = () => `l${++loadRowSeq}`;
 
-// نموذج تسجيل تحميل بضاعة لمندوب (للأدمن)
-function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: string; lotOn: boolean; whOn: boolean; onClose: () => void }) {
+/**
+ * أسطر نافذة التحميل من تحميلٍ مرسلٍ للمندوب («قبول المندوب للتحميل»، للتعديل): الجسم كما حُفظ (الصنف والوحدة والكمية والأساس
+ * المرسَل)، وتوزيع التشغيلات الصريح مسوّدةً قابلة للتعديل (المستودع مفعّل) أو تشغيلة التحميل المباشر (بلا مستودع، D4)
+ */
+function loadRowsFromPending(view: PendingVanLoadView, whOn: boolean, deletedName: string): LoadRow[] {
+  return pendingEditLines(view).map(l => ({
+    rowId: loadRowId(), productId: l.productId, name: l.name || deletedName, unit: l.unitName, unitId: l.unitId, baseUnit: l.baseUnitName ?? '',
+    qty: String(l.qty),
+    ...(l.suggestedQty != null && { suggestedQty: l.suggestedQty }),
+    ...(l.expectedQty != null && { expectedQty: l.expectedQty }),
+    lotEdit: whOn && l.lots?.length ? draftFromRows(l.lots) : null,
+    lotEntry: whOn ? emptyEntryLot() : entryLotFromPending(l),
+  }));
+}
+/** تشغيلة التحميل المباشر من بند الجسم: قائمةٌ (أو غير مسمّى) بصفٍّ واحد، أو جديدةٌ برقمها وتاريخيها — وإلا فارغة */
+function entryLotFromPending(l: { lots?: { lotId: string | null; qty: number }[]; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null }): EntryLotDraft {
+  if (l.lots?.length === 1) return l.lots[0].lotId ? { ...emptyEntryLot('EXISTING'), lotId: l.lots[0].lotId } : emptyEntryLot('UNKNOWN');
+  if (l.lotNumber || l.productionDate || l.expiryDate) {
+    return { ...emptyEntryLot('NEW'), lotNumber: l.lotNumber ?? '', productionDate: l.productionDate ?? '', expiryDate: l.expiryDate ?? '' };
+  }
+  return emptyEntryLot();
+}
+
+// نموذج تسجيل تحميل بضاعة لمندوب (للأدمن) — و«قبول المندوب للتحميل»: تعديل تحميلٍ مرسلٍ للمندوب (pending) بالنافذة نفسها
+function LoadModal({ preselectRep, lotOn, whOn, acceptanceOn = false, pending = null, onClose }: {
+  preselectRep: string; lotOn: boolean; whOn: boolean;
+  /** الميزة مفعّلة: تلميحٌ أن التحميل يُرسل للمندوب ولا يمسّ المخزون حتى يقبله */
+  acceptanceOn?: boolean;
+  /** تحميلٌ مرسلٌ للمندوب قيد التعديل: مندوبه ثابت، والكميات موجبة وحدها، والحفظ PUT بمراجعته (لا POST) */
+  pending?: PendingVanLoadView | null;
+  onClose: () => void;
+}) {
   const qc = useQueryClient();
   const tr = useTr();
-  const [repId, setRepId] = useState(preselectRep);
-  const [note, setNote] = useState('');
+  const [repId, setRepId] = useState(pending?.salesRepId ?? preselectRep);
+  const [note, setNote] = useState(() => (pending ? String(pending.body?.note ?? pending.note ?? '') : ''));
   // suggestedQty يُحفَظ على الصفّ ليُرسَل مع الحركة — به تُقاس جودة الاقتراح لاحقاً (بالأساس دائماً مهما كانت وحدة الصفّ).
   // الوحدات المتعددة: صفٌّ لكل صنف (كتطبيق المندوب) بوحدةٍ تُختار عليه — `unit` اسمها والكمية بها، و`unitId`
   // (null = الأساس) يُرسل فيحلّه الخادم إلى معامله؛ والتنزيل (الكمية السالبة) يحمل الوحدة نفسها (splitVanMovement).
   // والفهرسة بـrowId («تتبّع اللوط»): تشغيلات كل سطرٍ معه
-  const [rows, setRows] = useState<LoadRow[]>([]);
+  const [rows, setRows] = useState<LoadRow[]>(() => (pending ? loadRowsFromPending(pending, whOn, tr('صنف محذوف')) : []));
   const [showSuggest, setShowSuggest] = useState(false);
   const [windowDays, setWindowDays] = useState(28);
   const [bufferPct, setBufferPct] = useState(15);
@@ -1220,7 +1288,16 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
   };
 
   const save = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (): Promise<{ warnings: LotWarning[]; replayed: boolean; pendingSent?: boolean; unloaded?: boolean; edited?: boolean }> => {
+      // «قبول المندوب للتحميل»: تعديل التحميل المرسل — جسم التحميل نفسه (أسطرٌ موجبة وحدها) بمراجعة الصفّ التي بدأ منها التعديل
+      // (عدّلته الإدارة من جهازٍ آخر أو قبله المندوب ⇒ 409 برمزه فلا يُكتب فوقه)
+      if (pending) {
+        const items = withBaseUnitNames(rows.map(r => ({ productId: r.productId, qty: Number(r.qty), unitId: r.unitId, suggestedQty: r.suggestedQty, expectedQty: r.expectedQty, ...lotFields(r) })), pid => rows.find(r => r.productId === pid)?.baseUnit);
+        const res = await pendingLoadsApi.update(pending.id, {
+          type: 'LOAD', salesRepId: repId, note: note.trim() || undefined, revision: pending.revision, items: splitVanMovement(items).out,
+        });
+        return { warnings: lotWarningsOf((res?.data as { warnings?: unknown } | undefined)?.warnings), replayed: false, edited: true };
+      }
       // موجب = تحميل للسيارة، سالب = تنزيل للمستودع (يعود بكلفة خروجه).
       //
       // والسالب يُرسَل **بقيمته المطلقة** بنوع UNLOAD لا سالباً كما هو: النوعان يقرآن
@@ -1237,6 +1314,7 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
       const trimmed = note.trim() || undefined;
       const warnings: LotWarning[] = [];
       let replayed = false;
+      let pendingSent = false;
       if (out.length) {
         // D8: مرجع المحاولة — المحتوى نفسه بعد ضياع الردّ يعود بالحركة الأولى (200) لا بثانية
         const body = { salesRepId: repId, type: 'LOAD', note: trimmed, items: out };
@@ -1244,7 +1322,9 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
         const ref = refs.current.load.ref;
         // ردٌّ ضاع: يُسأل الخادم عن المرجع نفسه — محفوظٌ ⇒ كالإعادة، فلا تُكتب الحركة مرّتين (المراجعة F1)
         const res = await sendWithRefRecovery(() => vanStockApi.createLoad(withClientRef(body, ref)), () => vanStockApi.loadsByClientRef(ref, repId));
-        replayed = replayed || isReplayResponse(res);
+        // «قبول المندوب للتحميل» مفعّلة: لم تُكتب حركة — أُرسل للمندوب بانتظار قبوله (والمرجع نفسه بعد ضياع الردّ يعود بالصفّ نفسه)
+        pendingSent = isPendingLoadResponse(res);
+        replayed = replayed || (!pendingSent && isReplayResponse(res));
         warnings.push(...lotWarningsOf((res?.data as { warnings?: unknown } | undefined)?.warnings));
         // وثيقة التحميل كُتبت فعلاً: تُسقَط أسطرها فوراً كي لا تُكتب مرّتين لو سقط التنزيل بعدها وأعاد المستخدم المحاولة
         // (نمط MRepLoad — كانت هذه الشاشة تعيد إرسال التحميل كله مع كل محاولة)
@@ -1260,11 +1340,15 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
         warnings.push(...lotWarningsOf((res?.data as { warnings?: unknown } | undefined)?.warnings));
         refs.current.unload = undefined;
       }
-      return { warnings, replayed };
+      return { warnings, replayed, pendingSent, unloaded: back.length > 0 };
     },
-    onSuccess: ({ warnings, replayed }) => {
+    onSuccess: ({ warnings, replayed, pendingSent, unloaded, edited }) => {
       invalidateAfterMove();
-      toast.success(tr('تم حفظ الحركة'));
+      if (pendingSent || edited) qc.invalidateQueries({ queryKey: [PENDING_LOADS_KEY] });
+      // المرسَل للمندوب ليس حركةً بعد: رسالته وحده، و«تم حفظ الحركة» لشقّ التنزيل إن كان (يُكتب فوراً كما كان)
+      if (edited) toast.success(tr(PENDING_LOAD_TEXT.edited));
+      else if (pendingSent) toast.success(tr(PENDING_LOAD_TEXT.sent), { duration: 6000 });
+      if (!edited && (!pendingSent || unloaded)) toast.success(tr('تم حفظ الحركة'));
       // إعادةٌ بعد انقطاع: الحركة كانت قد حُفظت — يُقال فلا يُظنّ أنها سُجّلت مرّتين
       if (replayed) toast(tr(VAN_MOVE_TEXT.replay), { icon: 'ℹ️' });
       // تحذيرات اللوط لا تمنع (أكثر من تشغيلة في السيارة، صرفٌ من غير المسمّى، وحدةٌ مقسومة) — تُقال بعد الحفظ مرةً لكل رمز
@@ -1275,6 +1359,14 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
       // حتى الفشل يُبطِل المفاتيح: الشقّ الأوّل من الحركة المختلطة قد يكون كُتب
       invalidateAfterMove();
       setConfirmOver(false);
+      // «قبول المندوب للتحميل»: رفضٌ برمز المعلّق (أسطرٌ ستتغيّر عند التسجيل، مندوبٌ موقوف، صفٌّ عُدّل أو قُبل أو أُلغي) — عبارته،
+      // وصفٌّ تغيّر على الخادم يُعاد جلبه
+      const pe = pendingLoadErrorOf(e);
+      if (pe?.code && (pe.code.startsWith('PENDING_LOAD_') || pe.code === 'API_KEY_FORBIDDEN')) {
+        if (pending) qc.invalidateQueries({ queryKey: [PENDING_LOADS_KEY] });
+        toast.error(pendingErrorText(e, tr, 'تعذر الحفظ'), { duration: 8000 });
+        return;
+      }
       // بلا جوابٍ حاسم: الإعادة بالمحتوى نفسه مسموحة ولو قال رصيد المستودع المحدَّث غير ذلك
       if (isIndeterminateError(e)) setUncertain(true);
       // D2: التحميل فوق رصيد المستودع (422 WAREHOUSE_INSUFFICIENT) — لا شيء كُتب، ومتاح كل صنفٍ كما رآه الخادم على سطره
@@ -1329,7 +1421,9 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
   };
 
   const valid = !!repId && rows.length > 0 && !vanPending && !whPending && overWhIds.size === 0
-    && rows.every(r => { const q = Number(r.qty); return !Number.isNaN(q) && q !== 0 && !lotIssue(r) && !archivedLoad(r); });
+    && rows.every(r => { const q = Number(r.qty); return !Number.isNaN(q) && q !== 0 && !lotIssue(r) && !archivedLoad(r); })
+    // التحميل المرسل للمندوب تحميلٌ وحده (LOAD): لا سطر تنزيلٍ في تعديله
+    && (!pending || rows.every(r => Number(r.qty) > 0));
   /** خيار المنتقي (S3): «(محذوف)/(موقوف)» في الاسم، و«اسم مكرر — كود X» و«تنزيل فقط» في التلميح */
   const pickOption = (e: PickEntry<ProductPick>): SelectOption => ({
     value: e.p.id,
@@ -1342,17 +1436,28 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
-          <h2 className="text-lg font-bold text-[#1F1A13] flex items-center gap-2"><ArrowDownToLine size={20} className="text-[#E15A30]" /> {tr('تحميل / تنقيص مخزون السيارة')}</h2>
+          <h2 className="text-lg font-bold text-[#1F1A13] flex items-center gap-2"><ArrowDownToLine size={20} className="text-[#E15A30]" /> {pending ? tr(PENDING_LOAD_TEXT.editTitle) : tr('تحميل / تنقيص مخزون السيارة')}</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
 
         <div className="p-5 space-y-4 overflow-y-auto">
           <div>
             <label className="label">{tr('المندوب')}</label>
+            {/* التحميل المرسل مندوبه ثابت (الخادم يرفض غيره PENDING_LOAD_REP_FIXED) — يُلغى ويُرسل جديدٌ لغيره */}
+            {pending ? (
+              <p className="input bg-[#FAF7F0] text-[#1F1A13] font-semibold">{pending.repName || repsQ.data?.find(r => r.id === repId)?.name || '—'}</p>
+            ) : (
             <SearchableSelect
               options={(repsQ.data || []).map(r => ({ value: r.id, label: r.name }))}
               value={repId} onChange={changeRep} placeholder={tr('اختر المندوب')} />
+            )}
           </div>
+          {/* «قبول المندوب للتحميل»: اعتراض المندوب فوق أسطره — تُعدَّل على ضوئه */}
+          {pending?.disputeNote && (
+            <p className="text-xs rounded-lg border border-red-200 bg-red-50 text-red-800 px-3 py-2">
+              <b>{tr(PENDING_LOAD_TEXT.disputeNote)}:</b> {pending.disputeNote}
+            </p>
+          )}
           <div>
             <label className="label">{tr('إضافة صنف')}</label>
             {/* S3/D3: المحذوف لا يُعرض للتحميل — يظهر «تنزيل فقط» ما دام له رصيدٌ في سيارة المندوب، والموقوف موسومٌ ويُحمَّل كما كان */}
@@ -1442,7 +1547,15 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
             )}
           </div>
 
-          <p className="text-[11px] text-[#9A8F7E] bg-[#FAF7F0] rounded-lg px-3 py-2">{tr('أدخل كمية موجبة للتحميل أو سالبة للتنقيص استخدم زر ± أو اكتب مثل ‎-5')}</p>
+          {pending
+            ? <p className="text-[11px] text-[#9A8F7E] bg-[#FAF7F0] rounded-lg px-3 py-2">{tr(PENDING_LOAD_TEXT.editLoadOnly)}</p>
+            : <p className="text-[11px] text-[#9A8F7E] bg-[#FAF7F0] rounded-lg px-3 py-2">{tr('أدخل كمية موجبة للتحميل أو سالبة للتنقيص استخدم زر ± أو اكتب مثل ‎-5')}</p>}
+          {/* «قبول المندوب للتحميل» مفعّلة: التحميل يصل المندوب ولا يمسّ المخزون حتى يقبله ويوقّع (التنزيل والتسوية كما كانا) */}
+          {acceptanceOn && !pending && (
+            <p className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-1.5">
+              <PenLine size={13} className="shrink-0 mt-0.5" /> {tr(PENDING_LOAD_TEXT.hint)}
+            </p>
+          )}
           {rows.length > 0 && (
             <div className="border border-[#F1EBDF] rounded-xl divide-y divide-[#F1EBDF]">
               {rows.map(r => {
@@ -1489,9 +1602,11 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
                         {choices.map(c => <option key={c.id ?? 'base'} value={c.id ?? ''}>{c.name}{c.factor > 1 ? ` (${c.factor})` : ''}{primId && c.id === primId ? ` · ${tr('رئيسية')}` : ''}</option>)}
                       </select>
                     )}
+                    {!pending && (
                     <button type="button" title={tr('عكس الإشارة تحميل/تنقيص')}
                       onClick={() => patchRow(r.rowId, { qty: String(-(Number(r.qty) || 0)), lotEdit: null })}
                       className="w-9 h-9 rounded-lg border border-[#E9E1D3] text-base font-bold text-[#6E6557] shrink-0 hover:bg-gray-50">±</button>
+                    )}
                     <input type="number" step="any" value={r.qty}
                       onChange={e => patchRow(r.rowId, { qty: e.target.value })}
                       className={`input w-24 text-center py-1.5 ${neg ? 'border-red-300 text-red-600 font-bold' : ''}`} />
@@ -1527,7 +1642,7 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
         <div className="flex gap-3 p-5 border-t border-[#E9E1D3]">
           <button onClick={onSave} disabled={!valid || save.isPending} className="btn-primary flex-1 justify-center py-2.5 disabled:opacity-60">
             {save.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ArrowDownToLine size={16} />}
-            {tr('حفظ الحركة')}
+            {pending ? tr('حفظ التعديل') : tr('حفظ الحركة')}
           </button>
           <button onClick={onClose} className="btn-secondary">{tr('إلغاء')}</button>
         </div>

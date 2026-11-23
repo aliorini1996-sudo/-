@@ -10,6 +10,7 @@ import type { RepTargetComboInput, RepTargetInput } from '../lib/repTargets';
 import type { SalesInboxParams, SalesUpdate } from '../lib/salesCrm';
 import type { ChatRequest as AiAccountantChatRequest } from '../lib/aiAccountant';
 import type { AcctDocPatch } from '../lib/aiAccountantDocs';
+import { pendingLoadsClient } from '../lib/pendingLoads';
 import type {
   LotCreateRequest, LotListParams, LotRef, LotRelabelRequest, LotStatusRequest, LotTrackingRequest, LotUpdateRequest,
 } from '../lib/lots';
@@ -398,6 +399,13 @@ export const companyApi = {
     get: () => api.get('/company/buyer-relax'),
     set: (enabled: boolean) => api.patch('/company/buyer-relax', { enabled }),
   },
+  // «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦) — /api/company/van-load-acceptance: { enabled, openCount } لمستخدم
+  // الشركة الإداري، والتبديل بصلاحية إعدادات الشركة لغير المقيّد بنطاق (403 VAN_LOAD_ACCEPTANCE_SCOPED، والمفتاح 403 دائماً)؛ الإيقاف
+  // ما دامت تحميلاتٌ بانتظار القبول أو معترضٌ عليها 409 VAN_LOAD_ACCEPTANCE_OPEN_LOADS بعددها. والعلم نفسه في GET /company (vanLoadAcceptance)
+  vanLoadAcceptance: {
+    get: () => api.get('/company/van-load-acceptance'),
+    set: (enabled: boolean) => api.patch('/company/van-load-acceptance', { enabled }),
+  },
 };
 
 // «نموذج الشركة المطبوع مسبقاً» (طلب المالك ١٠–١١ نوفمبر ٢٠٢٦) — /api/company/print-forms: صورة النموذج الفارغ بعد تصحيحها
@@ -733,6 +741,12 @@ export const dailyReportApi = {
   repHistory: (salesRepId: string, params?: { from?: string; to?: string }) =>
     api.get(`/daily-reports/rep/${salesRepId}`, { params: { ...(params?.from && { from: params.from }), ...(params?.to && { to: params.to }) } }),
 };
+
+/**
+ * «قبول المندوب للتحميل وتوقيعه»: تحميلات الإدارة المعلّقة حتى يقبلها المندوب ويوقّع (lib/pendingLoads.ts — العقد والعميل المشترك
+ * مع تطبيق المندوب الذي يبنيه على repApi). للإدارة: القائمة بفلتري الحالة والمندوب، والتعديل (PUT بمراجعة الصفّ) والإلغاء
+ */
+export const pendingLoadsApi = pendingLoadsClient(api);
 
 export const vanStockApi = {
   summary: (params?: { from?: string; to?: string }) => api.get('/van-stock/summary', { params: { ...(params?.from && { from: params.from }), ...(params?.to && { to: params.to }) } }),

@@ -11,7 +11,7 @@ import type { Prisma } from '@prisma/client';
 export const CLIENT_REF_SCHEMA = z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/, 'clientRef: حروف لاتينية وأرقام و - و _ حتى 64');
 
 /** نوع الحركة في مفتاح القفل — فلا يتزاحم مرجع تحميلٍ ومرجع وارد */
-export type StockRefKind = 'van-load' | 'warehouse-entry';
+export type StockRefKind = 'van-load' | 'warehouse-entry' | 'pending-van-load';
 
 /** قفل المرجع داخل المعاملة (قفل معاملة لا جلسة) — أول ما في المعاملة، قبل أقفال الأصناف والمستودع */
 export async function lockClientRef(tx: Pick<Prisma.TransactionClient, '$executeRaw'>, kind: StockRefKind, tid: string, ref: string): Promise<void> {

@@ -106,6 +106,9 @@ import { OUTLET_TYPE_OPTIONS } from './aiRepLogic';
 import { dayMinutes, nextPunch, shiftMinutes, shiftsOf, type AttendanceState } from './attendanceDay';
 import { installGeoReconnect } from './geoReconnect';
 import RepTargetsCard from './RepTargetsCard';
+// «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): تحميل الإدارة لا يدخل السيارة حتى يقبله المندوب ويوقّعه
+import RepPendingLoads, { PendingLoadsHomeCard, PendingLoadsStrip } from './RepPendingLoads';
+import { PENDING_LOADS_SCREEN } from './vanLoadAcceptance';
 import { fetchMyTargets, markTargetsFetched, resetTargetsFetch, targetsFetchNeeded, targetsSession } from './repTargetsFetch';
 import type { RepTargetsData } from '../lib/repTargets';
 import { defaultFormImageLoader, formBackgroundRefsOf, prefetchFormImages } from '../lib/print/formImage';
@@ -132,7 +135,7 @@ class AiRepBoundary extends Component<{ onBack: () => void; children: ReactNode 
   }
 }
 
-type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum' | 'dailyreport' | 'route' | 'attendance' | 'airep';
+type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum' | 'dailyreport' | 'route' | 'attendance' | 'airep' | 'vanloads';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'editCustomer' | 'logVisit' | 'buyerData';
 
 interface RepUser {
@@ -826,7 +829,7 @@ function MenuLinkCard({ repId }: { repId: string }) {
   );
 }
 
-function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true, settingsReady = true, dailyReportOn, attendanceOn, aiRepOn, refreshKey = 0 }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean; accountingOn?: boolean; /** وصلت إعدادات الشركة؟ لا نطلب رقماً قبل معرفة المفتاح */ settingsReady?: boolean; dailyReportOn?: boolean; attendanceOn?: boolean; aiRepOn?: boolean; /** مفتاح تحديث الرئيسية (مستندٌ صدر أو مزامنةٌ رفعت) — بطاقة «هدف الشهر» تجلب فوراً حين يتغيّر */ refreshKey?: number }) {
+function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true, settingsReady = true, dailyReportOn, attendanceOn, aiRepOn, refreshKey = 0, vanLoadsOn = false }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean; accountingOn?: boolean; /** وصلت إعدادات الشركة؟ لا نطلب رقماً قبل معرفة المفتاح */ settingsReady?: boolean; dailyReportOn?: boolean; attendanceOn?: boolean; aiRepOn?: boolean; /** مفتاح تحديث الرئيسية (مستندٌ صدر أو مزامنةٌ رفعت) — بطاقة «هدف الشهر» تجلب فوراً حين يتغيّر */ refreshKey?: number; /** «قبول المندوب للتحميل»: الشركة فعّلت الميزة (والمحاسبة) — بطاقة «تحميل بانتظار قبولك»، ومطفأةً لا طلب ولا بطاقة */ vanLoadsOn?: boolean }) {
   const tr = useTr();
   // `null` = **لا نعرف بعد**، وهو غير الصفر. كان الجلب الفاشل يُبتلع في `catch`
   // فتبقى القيم الابتدائية أصفاراً وتُعرَض كأنّها حقيقة: مندوبٌ بذمّته خمسة عشر
@@ -1021,6 +1024,9 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
           <button onClick={() => { void load(); void loadTargets(true); }} className="shrink-0 font-semibold underline">{tr('تحديث')}</button>
         </div>
       )}
+
+      {/* «قبول المندوب للتحميل وتوقيعه»: تحميلٌ أرسلته الإدارة ينتظر قبوله وتوقيعه — أعلى الرئيسية، فالبضاعة لا تدخل سيارته قبلها */}
+      {vanLoadsOn && <PendingLoadsHomeCard onOpen={() => onQuick('vanloads')} />}
 
       {/* رصيد التحصيل المتراكم — لا يُصفّر يوميًا، ينقص فقط عند تسليمه للإدارة (اختياري حسب صلاحية المندوب) */}
       {accountingOn && stats?.collectShow && (
@@ -5328,12 +5334,19 @@ export default function RepApp() {
         sp.delete('screen');
         const q = sp.toString();
         window.history.replaceState(null, '', window.location.pathname + (q ? `?${q}` : '') + window.location.hash);
+      } else if (s === PENDING_LOADS_SCREEN) {
+        // «تحميل بانتظار قبولك» (notifyPendingLoad): الإشعار يفتح شاشة قبول التحميل
+        setScreen('vanloads');
+        sp.delete('screen');
+        const q = sp.toString();
+        window.history.replaceState(null, '', window.location.pathname + (q ? `?${q}` : '') + window.location.hash);
       }
     } catch { /* رابطٌ غريب: الرئيسية */ }
     const onMsg = (e: MessageEvent) => {
       if (e.data?.type !== 'OPEN_SCREEN') return;
       if (e.data.screen === 'attendance') setScreen('attendance');
       else if (e.data.screen === 'presence') fetchPresence();
+      else if (e.data.screen === PENDING_LOADS_SCREEN) setScreen('vanloads');
     };
     navigator.serviceWorker?.addEventListener('message', onMsg);
     // تطبيق الآيفون (iosPush.ts): الإشعار يصل التطبيق لا عامل الخدمة — حدثٌ منه بالرسالة نفسها، وما وصل قبل تحميل الصفحة
@@ -6026,6 +6039,8 @@ export default function RepApp() {
   const attendanceOn = (company as { attendanceEnabled?: boolean } | null)?.attendanceEnabled === true;
   // المندوب الذكي: الخادم يُرجع العلم مقيّداً بنطاق المندوب (مناديب محدّدون) — مطفأ افتراضياً
   const aiRepOn = (company as { aiRepEnabled?: boolean } | null)?.aiRepEnabled === true;
+  // «قبول المندوب للتحميل وتوقيعه»: مطفأ افتراضياً (=== true) — ومسارات /van-stock خلف المحاسبة، فلا بطاقة ولا شريط ولا طلب بدونها
+  const vanLoadsOn = accountingOn && (company as { vanLoadAcceptance?: boolean } | null)?.vanLoadAcceptance === true;
   const ACCOUNTING_TABS: Screen[] = ['invoices', 'receipts', 'vanstock'];
   const tabs: { id: Screen; label: string; icon: React.ElementType }[] = [
     { id: 'home', label: 'الرئيسية', icon: Home },
@@ -6047,6 +6062,8 @@ export default function RepApp() {
     // بعد وصول إعدادات الشركة وحدها: تنبيه الحضور يفتح التطبيق المغلق على شاشة البصمة قبل وصولها
     if (companyReady && !attendanceOn && screen === 'attendance') setScreen('home');
     if (!aiRepOn && screen === 'airep') setScreen('home');
+    // شاشة قبول التحميل لا تبويب لها، ومساراتها خلف المحاسبة — لا تُشرط بعلم الميزة: رابط الإشعار يسبق تحديث إعدادات الشركة
+    if (!accountingOn && screen === 'vanloads') setScreen('home');
   }, [accountingOn, dailyReportOn, attendanceOn, aiRepOn, screen, companyReady]);
   // تنبيهات الآيفون (تطبيق المندوب الأصلي): من أذن من قبل يُعاد حفظ رمز جهازه لهذا المندوب مرّةً لكل جلسة — بلا سؤال.
   // ولو كانت البصمة مطفأة لشركته: الخادم يردّ 403 ويُطلق الجهاز (يحذف صفّاً تركه مندوبٌ قبله)، فلا تصل تنبيهات غيره جوالَه
@@ -6220,13 +6237,27 @@ export default function RepApp() {
               ))}
               {/* Body */}
               <div className="flex-1 overflow-hidden">
-                {screen === 'home' && <RepHome key={refreshKey} refreshKey={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} attendanceOn={attendanceOn} aiRepOn={aiRepOn} />}
+                {screen === 'home' && <RepHome key={refreshKey} refreshKey={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} attendanceOn={attendanceOn} aiRepOn={aiRepOn} vanLoadsOn={vanLoadsOn} />}
+                {screen === 'vanloads' && (
+                  <RepPendingLoads key={`vanloads-${refreshKey}`} onBack={() => setScreen('home')}
+                    // البيع يعرف التشغيلات التي دخلت السيارة للتوّ (لقطة اللوط بجلبٍ يبدأ بعد القبول)
+                    onAccepted={() => { void refreshVanLots(0, true); }}
+                    onOpenVanStock={() => setScreen('vanstock')} />
+                )}
                 {screen === 'dailyreport' && <RepDailyReport key={refreshKey} onDone={() => setScreen('home')} />}
                 {screen === 'route' && <RepRouteScreen key={`route-${refreshKey}`} onBack={() => setScreen('home')} onOpenCustomer={openCustomerById} accountingOn={accountingOn} />}
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" company={company} onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => { setDocBack(null); setDocResult(receiptDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => { setAiPrefill(null); setModal('addCustomer'); }} accountingOn={accountingOn} zatcaCollect={zatcaCollect} buyerRelax={buyerRelax} />}
-                {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} canRequest={(company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true} />}
+                {screen === 'vanstock' && (vanLoadsOn ? (
+                  // «قبول المندوب للتحميل»: شريط «تحميل بانتظار قبولك» أعلى «مخزون سيارتي» — والشاشة كما هي تحته
+                  <div className="h-full flex flex-col">
+                    <PendingLoadsStrip onOpen={() => setScreen('vanloads')} />
+                    <div className="flex-1 min-h-0">
+                      <RepVanStock canLoad={user.canManageVanStock !== false} canRequest={(company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true} />
+                    </div>
+                  </div>
+                ) : <RepVanStock canLoad={user.canManageVanStock !== false} canRequest={(company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true} />)}
                 {screen === 'fuel' && <RepFuel accountingOn={accountingOn} />}
                 {screen === 'worknum' && <RepWorkNumber />}
                 {screen === 'attendance' && <RepAttendance atCustomer={user.requirePunchAtCustomer === true} boundDevice={user.requireBoundDevice === true} presenceOn={user.requirePresenceCheck === true} />}

@@ -141,6 +141,7 @@ model Tenant {
   erpSyncLogs          ErpSyncLog[]
   vanLoads             VanLoad[]
   repStockRequests     RepStockRequest[]
+  pendingVanLoads      PendingVanLoad[] // «قبول المندوب للتحميل وتوقيعه»
   vanToolMoves         VanToolMove[]
   repTargets           RepTarget[] // «هدف الشهر» للمناديب
   teams                Team[]
@@ -613,6 +614,7 @@ model SalesRep {
   receipts      Receipt[]
   notifications Notification[]
   vanLoads      VanLoad[]
+  pendingVanLoads PendingVanLoad[] // «قبول المندوب للتحميل وتوقيعه»
   stockRequests RepStockRequest[]
   vanToolMoves  VanToolMove[]
   repTargets    RepTarget[] // «هدف الشهر»
@@ -1539,6 +1541,9 @@ model CompanySettings {
   taxModeChangedBy          String?
   // «أنواع الأسعار»: اسم زرّ السعر الافتراضي (Product.basePrice) — null = «السعر الأساسي». يغيّره مدير الشركة
   basePriceLabel            String?
+  // «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): تحميل الإدارة يُرسل للمندوب معلّقاً (PendingVanLoad) بلا أثرٍ في
+  // أي مخزون حتى يقبله ويوقّع — مطفأ افتراضياً، والمطفأة كما كانت حرفياً. يقلبه PATCH /api/company/van-load-acceptance
+  vanLoadAcceptance         Boolean   @default(false)
 
   // --- التدويل (المرحلة 0): أعمدة إضافية بقيم افتراضية — لا فقد بيانات ---
   countryCode      String  @default("SA") // ISO alpha-2: دولة الشركة
@@ -1926,6 +1931,10 @@ model VanLoad {
   /// مفتاح منع التكرار (مراجعة المخزون D8): يولّده العميل لكل محاولة حفظ ويعيده عند الإعادة — المكرَّر يردّ الحركة القائمة بلا كتابة.
   /// ⚠️ بلا @@unique (كـCustomer.clientRef): القيد على جدولٍ مأهول يوقف db push. التفرّد في التطبيق تحت قفلٍ استشاري (routes/vanStock.ts)
   clientRef  String?
+  /// «قبول المندوب للتحميل وتوقيعه»: لحظة قبول المندوب وتوقيعه، ومعرّف صفّ الإقرار (PendingVanLoad) — null لكل حركةٍ أخرى.
+  /// بلا مفتاح أجنبي ولا قيد فريد (عمودان إضافيان على جدولٍ مأهول)
+  acceptedAt    DateTime?
+  pendingLoadId String?
   createdAt  DateTime @default(now())
   /// طابع التعديل — للمزامنة (/api/v1/sync): حذف المندوب يغيّر salesRepId/deletedSalesRepId بعد الإنشاء.
   /// @default(now()) يجعله إضافياً على جدولٍ مأهول
@@ -2026,6 +2035,53 @@ model RepStockRequestItem {
 
   @@unique([requestId, productId])
   @@map("rep_stock_request_items")
+}
+
+/// «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): تحميلٌ أرسلته الإدارة لسيارة مندوب والميزة مفعّلة للشركة
+/// (CompanySettings.vanLoadAcceptance). صفٌّ لا حركة: لا يمسّ مخزون المستودع ولا السيارة ولا التكلفة ولا الدفاتر ولا التقارير ولا
+/// المزامنة ولا التنبّؤ حتى يقبله المندوب ويوقّع — فتُسجَّل حينها الحركة (VanLoad) بمسار التحميل القائم نفسه وتُختم بمعرّف هذا الصفّ.
+/// اعتراض المندوب يعيده للإدارة (DISPUTED) فتعدّله (PENDING بمراجعةٍ جديدة) أو تلغيه. والموقَّع إقرار استلامٍ مطبوع.
+/// جدولٌ جديد بلا @@unique: تفرّد clientRef في التطبيق تحت قفلٍ استشاري كـVanLoad (routes/vanStock.ts)
+model PendingVanLoad {
+  id              String    @id @default(uuid())
+  tenantId        String
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// SetNull: حذف المندوب لا يمحو إقراراً موقَّعاً
+  salesRepId      String?
+  salesRep        SalesRep? @relation(fields: [salesRepId], references: [id], onDelete: SetNull)
+  /// لقطة اسم المندوب وقت الإرسال
+  repName         String?
+  status          String    @default("PENDING") // PENDING | DISPUTED | ACCEPTED | CANCELLED
+  /// جسم POST /van-stock/loads (LOAD) كما تحقّق منه الخادم، بلا clientRef — يُعاد تشغيله عند القبول كما أرسلته الإدارة
+  body            Json
+  /// يزيد مع كل تعديلٍ إداري: المندوب يوقّع على مراجعةٍ بعينها (PENDING_LOAD_REVISED إن تغيّرت)
+  revision        Int       @default(1)
+  note            String?
+  /// منع تكرار الإرسال — فريدٌ في التطبيق تحت قفلٍ استشاري
+  clientRef       String?
+  /// المرسِل: actorOf(req) واسمه («الدعم الفني» لجلسة المالك)
+  createdById     String?
+  createdByName   String?
+  /// اعتراض المندوب: سببه ولحظته
+  disputeNote     String?
+  disputedAt      DateTime?
+  /// القبول: لحظته وتوقيع المندوب (data:image/png;base64 ≤ 300_000 حرف) وموقعه إن أرسله
+  acceptedAt      DateTime?
+  signature       String?
+  acceptedLat     Float?
+  acceptedLng     Float?
+  /// حركة القبول (VanLoad) — بلا مفتاح أجنبي
+  vanLoadId       String?
+  cancelledAt     DateTime?
+  cancelledById   String?
+  cancelledByName String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, salesRepId, status])
+  @@index([tenantId, clientRef])
+  @@map("pending_van_loads")
 }
 
 // عهدة أدوات سيارة المندوب (طلب المالك ١٥ أكتوبر ٢٠٢٦): عربة تحميل، سلة… — **دفتر حركات** لا قائمة تُعدَّل: تسليمٌ
