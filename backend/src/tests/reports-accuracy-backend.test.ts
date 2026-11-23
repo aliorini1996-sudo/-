@@ -235,6 +235,8 @@ const models: Record<string, Record<string, (a: Row) => unknown>> = {
   },
   repSession: { findMany: () => [] },
   repAttendance: { findMany: () => [] },
+  // «عمر الدين» (٢٣ نوفمبر ٢٠٢٦): قيود التسوية المدينة لمن رصيده أكبر من فواتيره المفتوحة — لا تسويات في هذه البيانات
+  accountEntry: { findMany: () => [] },
   repVisit: { findMany: (a) => sortBy(VISITS.filter((v) => matches(v, a.where)), a.orderBy).slice(0, a.take ?? Infinity) },
   invoice: {
     findMany: (a) => sortBy(INVOICES.filter((i) => matches(i, a.where)), a.orderBy).slice(0, a.take ?? Infinity),
@@ -385,6 +387,12 @@ test('أرصدة العملاء: كل غير محذوف بدينه — المح�
   assert.deepEqual(q.where.status, { not: 'DELETED' });
   assert.equal(q.select.status, true);
   assert.equal('meta' in body, false, 'لا meta لتقريرٍ بلا مدى ولا سقف');
+  // «عمر الدين» (٢٣ نوفمبر ٢٠٢٦): لكل مدينٍ عمره — والمحظور والموقوف كغيرهما — ومجموع شرائحه وما بلا تاريخ = رصيده المعروض
+  for (const c of body.data) {
+    assert.ok(c.aging, `${c.id}: عمر الدين`);
+    const sum = Object.values(c.aging.bands as Record<string, number>).reduce((t, x) => t + x, 0) + c.aging.undated;
+    assert.equal(Math.round(sum * 1e6) / 1e6, c.balance, `${c.id}: الشرائح = الرصيد`);
+  }
 });
 
 // ═══ البند ٦ + ٧: أداء المناديب ═══

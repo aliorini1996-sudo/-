@@ -4535,7 +4535,8 @@ function SimpleList({ endpoint, kind, company, onOpen }: { endpoint: string; kin
 
 // طلب بضاعة المندوب كما يعيده الخادم (/rep-stock-requests/mine): requestedQty ما كتبه، وqty ما اعتمدته الإدارة
 interface MyStockRequest {
-  id: string; status: 'PENDING' | 'SENT' | 'REJECTED'; note: string | null; updatedAt: string; decidedAt: string | null;
+  // LOADED: حمّلته الإدارة إلى سيارته مباشرة من نافذة «طلب مخزون» (٢٣ نوفمبر ٢٠٢٦)
+  id: string; status: 'PENDING' | 'SENT' | 'REJECTED' | 'LOADED'; note: string | null; updatedAt: string; decidedAt: string | null;
   /** unitName/unitFactor لقطة وحدة البند (الوحدات المتعددة) — غائبة ⇒ وحدة الأساس. `unit` وحدة السطر (لقطته وإلا وحدة الصنف)،
    * و`baseQty`/`requestedBaseQty` الكميتان بالأساس `baseUnit`، و`units` وحدات الصنف لعرضها «٢ كرتون و٣ حبة» */
   items: {
@@ -4991,8 +4992,8 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
           <span className="flex-1">{tr('طلب بضاعة قيد مراجعة الإدارة')} ({myReq.pending.items.filter(i => i.requestedQty > 0).length})</span>
         </button>
       ) : myReq?.last && myReq.last.decidedAt && Date.now() - new Date(myReq.last.decidedAt).getTime() < DECIDED_SHOWN_MS ? (
-        <div className={`mx-3 mt-3 text-xs rounded-lg px-3 py-2 ${myReq.last.status === 'SENT' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-          {myReq.last.status === 'SENT' ? tr('أرسلت الإدارة طلبك ضمن طلب المخزون') : tr('رفضت الإدارة طلبك الأخير')} · {formatDate(myReq.last.decidedAt)}
+        <div className={`mx-3 mt-3 text-xs rounded-lg px-3 py-2 ${myReq.last.status === 'REJECTED' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+          {myReq.last.status === 'LOADED' ? tr('حملت الإدارة طلبك إلى سيارتك') : myReq.last.status === 'SENT' ? tr('أرسلت الإدارة طلبك ضمن طلب المخزون') : tr('رفضت الإدارة طلبك الأخير')} · {formatDate(myReq.last.decidedAt)}
         </div>
       ) : (
         <div className="mx-3 mt-3 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">{tr('لا تملك صلاحية التحميل اطلب ما تحتاجه من زر طلب بضاعة')}</div>

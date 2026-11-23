@@ -22,6 +22,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Download, TrendingUp, Users, UserCheck, UserX, MapPin, FileText, Search, X, Wallet, AlertTriangle, Pencil, Upload, Receipt, ShoppingCart, Coins, Percent } from 'lucide-react';
 import { shareOrDownloadExcel, num, ExcelSheet } from '../utils/excel';
 import { mergeRuns } from '../lib/mergeRuns';
+import { DEBT_AGE_BANDS, DEBT_AGE_BAND_LABELS, debtAgeParts, debtAgeSplit, debtAgeTone, debtAgingOf } from '../lib/debtAging';
 import { attendanceDayCells, breakOf, compactMinutes, periodsOf, punchDetailRows, PUNCH_DETAIL_WIDTHS, punchInUrl, punchOutUrl, periodOutside, periodAutoOut, placeLabel, entryLabel, type WorkPeriodLike } from '../lib/workPeriods';
 import { elementsToPdfBlob, downloadPdf } from '../rep/pdf';
 import toast from 'react-hot-toast';
@@ -66,7 +67,8 @@ interface PerfRow {
   cashSalesTotal?: number;
 }
 /** صفّ «أرصدة العملاء» — `status` (ACTIVE | INACTIVE | BLOCKED) منذ ١٣ نوفمبر ٢٠٢٦: المحظور والموقوف مدينون يدخلون الإجمالي بشارة */
-interface BalanceRow { id: string; name: string; phone: string; balance: number; creditLimit: number; status?: string }
+/** `aging` («عمر الدين»، ٢٣ نوفمبر ٢٠٢٦) يحسبه الخادم لكل مدين — يُقرأ عبر debtAgingOf (خادمٌ أقدم بلاه ⇒ عمودٌ فارغ) */
+interface BalanceRow { id: string; name: string; phone: string; balance: number; creditLimit: number; status?: string; aging?: unknown }
 interface RecvCustomer { id: string; name: string; businessName: string | null; phone: string; city: string | null; balance: number; lastPaymentAt: string | null }
 interface RecvRow { id: string; name: string; customersCount: number; debtorsCount: number; totalBalance: number; customers: RecvCustomer[] }
 interface CustVisit { id: string; customerId: string; customerName: string; repName: string; teamName?: string | null; createdAt: string; durationSec: number | null; note: string; mapsUrl: string }
@@ -881,10 +883,39 @@ export default function ReportsPage() {
       fname = tr('زيارات العملاء');
     } else if (tab === 'balances' && custType === 'balances' && balanceRows?.length) {
       // «الحالة» آخر الأعمدة (البند ٢): المحظور والموقوف داخل الإجمالي فيُعرفان في الملف — وردٌّ أقدم بلا الحالة ⇒ الملف كما كان
-      sheets = [{ name: tr('أرصدة العملاء'), rows: balanceRows.map(c => ({
-        [tr('العميل')]: c.name, [tr('الجوال')]: c.phone, [tr('الرصيد')]: num(c.balance), [tr('الحد الائتماني')]: num(c.creditLimit),
-        ...(balHasStatus && { [tr('الحالة')]: tr(customerStatusLabel(c.status)) }),
-      })), colWidths: balHasStatus ? [24, 16, 14, 16, 12] : [24, 16, 14, 16] }];
+      // «عمر الدين» بعد الحد الائتماني كالشاشة: الأيام وأقدم يوم والتأخّر ثم الشرائح بمبالغها (مجموعها = الرصيد) — وخادمٌ أقدم
+      // بلا الحقل ⇒ الملف كما كان بلا أعمدتها
+      const balHasAging = balanceRows.some(c => debtAgingOf(c) != null);
+      sheets = [{ name: tr('أرصدة العملاء'), rows: balanceRows.map(c => {
+        const a = debtAgingOf(c);
+        return {
+          [tr('العميل')]: c.name, [tr('الجوال')]: c.phone, [tr('الرصيد')]: num(c.balance), [tr('الحد الائتماني')]: num(c.creditLimit),
+          ...(balHasAging && {
+            [tr('عمر الدين (يوم)')]: a?.ageDays ?? '',
+            [tr('أقدم دين منذ')]: a?.oldestDay ?? '',
+            [tr('أيام التأخير')]: a ? a.overdueDays : '',
+            [tr('المتأخر عن السداد')]: num(a?.overdueAmount ?? 0),
+            ...Object.fromEntries(DEBT_AGE_BANDS.map(k => [tr(DEBT_AGE_BAND_LABELS[k]), num(a?.bands[k] ?? 0)])),
+            [tr('بلا تاريخ')]: num(a?.undated ?? 0),
+          }),
+          ...(balHasStatus && { [tr('الحالة')]: tr(customerStatusLabel(c.status)) }),
+        };
+      }), colWidths: [24, 16, 14, 16, ...(balHasAging ? [14, 14, 12, 16, 14, 14, 14, 16, 12] : []), ...(balHasStatus ? [12] : [])],
+      // PDF: أعمدة Excel الأربعة عشر على عرض الصفحة تكسر الأرقام في منتصفها — فيُطبع العمر وتأخّره ومبلغه، والشرائح نصّاً واحداً
+      // ينكسر بين الكلمات لا داخل الأرقام (تسعة أعمدة كحدٍّ أقصى)
+      ...(balHasAging && { pdfRows: balanceRows.map(c => {
+        const a = debtAgingOf(c);
+        return {
+          [tr('العميل')]: c.name, [tr('الجوال')]: c.phone, [tr('الرصيد')]: num(c.balance), [tr('الحد الائتماني')]: num(c.creditLimit),
+          [tr('عمر الدين (يوم)')]: a ? (a.ageDays ?? tr('بلا تاريخ')) : '',
+          [tr('أيام التأخير')]: a ? a.overdueDays : '',
+          [tr('المتأخر عن السداد')]: num(a?.overdueAmount ?? 0),
+          [tr('توزيع الأعمار')]: a ? debtAgeParts(a).map(p => `${tr(p.label)}: ${num(p.amount)}`).join(' · ') : '',
+          ...(balHasStatus && { [tr('الحالة')]: tr(customerStatusLabel(c.status)) }),
+        };
+      }),
+      // العميل، الجوال (جوالٌ دوليّ كاملاً بلا انكسار)، الرصيد، الحد، العمر، أيام التأخير، المتأخّر، توزيع الأعمار (نصٌّ ينكسر بين كلماته)، الحالة
+      pdfColWidths: [17, 14, 10, 9, 6, 6, 9, 21, ...(balHasStatus ? [8] : [])] }) }];
       if (balanceTotal) sheets.unshift({ name: tr('الإجمالي'), rows: [{
         [tr('إجمالي مديونية الشركة')]: num(balanceTotal.total), [tr('عدد العملاء المدينين')]: balanceTotal.count,
       }], colWidths: [28, 20] });
@@ -1044,7 +1075,9 @@ export default function ReportsPage() {
     };
     const els: HTMLElement[] = [];
     let firstEl = true;
-    for (const sh of sheets) {
+    for (const sheet of sheets) {
+      // ورقةٌ لها صفوف PDF أضيق (pdfRows) تُطبع بها — Excel يبقي الأعمدة كاملة
+      const sh = sheet.pdfRows ? { ...sheet, rows: sheet.pdfRows } : sheet;
       const cols = (sh.rows.length ? Object.keys(sh.rows[0]) : []).filter(c => c !== linksCol);
       const thead = `<tr>${cols.map(c => `<th style="border:1px solid #ddd;padding:6px 8px;background:#FAF7F0;font-size:11px;text-align:right;font-weight:700">${esc(c)}</th>`).join('')}</tr>`;
       // كل شريحة صفحةٌ مستقلّة تحمل رأس الجدول ثانيةً، فلا تُقرأ الأرقام بلا عناوينها
@@ -1066,7 +1099,11 @@ export default function ReportsPage() {
             return td(m.value, Math.min(m.to, i + ROWS_PER_SLICE - 1) - top + 1);
           }).join('')}</tr>`;
         }).join('');
-        const inner = `<h3 style="font-size:13px;margin:16px 0 6px;color:#1F1A13">${esc(sh.name)}${cont}</h3><table style="width:100%;border-collapse:collapse;table-layout:fixed">${thead}${tbody}</table>`;
+        // عروضٌ نسبية للأعمدة إن طلبتها الورقة (pdfColWidths بعدد الأعمدة)، وإلا متساوية كما كانت
+        const w = sh.pdfColWidths && sh.pdfColWidths.length === cols.length && sh.pdfColWidths.every(x => x > 0) ? sh.pdfColWidths : null;
+        const wSum = w ? w.reduce((a, b) => a + b, 0) : 0;
+        const colgroup = w ? `<colgroup>${w.map(x => `<col style="width:${((x / wSum) * 100).toFixed(2)}%">`).join('')}</colgroup>` : '';
+        const inner = `<h3 style="font-size:13px;margin:16px 0 6px;color:#1F1A13">${esc(sh.name)}${cont}</h3><table style="width:100%;border-collapse:collapse;table-layout:fixed">${colgroup}${thead}${tbody}</table>`;
         els.push(wrap(inner, firstEl));
         firstEl = false;
       }
@@ -1811,7 +1848,7 @@ export default function ReportsPage() {
           <div className="table-wrapper">
             <table className="table">
               <thead>
-                <tr><th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('الرصيد')}</th><th>{tr('الحد الائتماني')}</th><th>{tr('نسبة الاستخدام')}</th></tr>
+                <tr><th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('الرصيد')}</th><th>{tr('الحد الائتماني')}</th><th title={tr('من أقدم دين لم يسدد بعد احتساب السندات والمرتجعات، وتوزيع الرصيد على أعمار الديون')}>{tr('عمر الدين')}</th><th>{tr('نسبة الاستخدام')}</th></tr>
               </thead>
               <tbody>
                 {balanceRows.map(c => (
@@ -1830,6 +1867,35 @@ export default function ReportsPage() {
                       {formatCurrency(c.balance)}
                     </td>
                     <td className="text-gray-500">{formatCurrency(c.creditLimit)}</td>
+                    {/* «عمر الدين»: من أقدم دينٍ قائم (الخادم يطابق الفواتير المفتوحة برصيد العميل)، وتأخّره عن مهلة السداد، وتوزيع
+                      * الرصيد على الأعمار حين يقع في أكثر من شريحة — مجموع الشرائح = الرصيد في الصفّ نفسه */}
+                    <td className="min-w-[150px]">
+                      {(() => {
+                        const a = debtAgingOf(c);
+                        if (!a) return <span className="text-gray-300">—</span>;
+                        const tone = debtAgeTone(a);
+                        return (
+                          <div className="leading-tight">
+                            <span className={`font-semibold tabular-nums ${tone === 'bad' ? 'text-red-600' : tone === 'warn' ? 'text-amber-600' : 'text-gray-700'}`}>
+                              {a.ageDays == null ? tr('بلا تاريخ') : `${formatNumber(a.ageDays)} ${tr('يوماً')}`}
+                            </span>
+                            {a.oldestDay && <span className="block text-[11px] text-gray-400">{tr('منذ')} {formatDayOnly(a.oldestDay)}</span>}
+                            {a.overdueDays > 0 && (
+                              <span className="block text-[11px] text-red-500">{tr('متأخر عن السداد')} {formatNumber(a.overdueDays)} {tr('يوماً')}</span>
+                            )}
+                            {debtAgeSplit(a) && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {debtAgeParts(a).map(p => (
+                                  <span key={p.key} className={`rounded px-1.5 py-px text-[10px] whitespace-nowrap ${p.key === 'd90_plus' ? 'bg-[#FBEAE7] text-[#B42318]' : 'bg-gray-100 text-gray-600'}`}>
+                                    {tr(p.label)}: <b className="tabular-nums">{formatCurrency(p.amount)}</b>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td>
                       {Number(c.creditLimit) > 0 && (
                         <div className="flex items-center gap-2">

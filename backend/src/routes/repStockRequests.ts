@@ -3,6 +3,7 @@
 // المندوب الذي لا يملك صلاحية التحميل يرفع من «مخزون سيارتي» ما يحتاجه من كل صنف، فيظهر
 // للإدارة في نافذة «طلب مخزون» بصفحة مخزون الشركة: تعدّل طلب كل مندوب، ثم ترسل الطلب العام
 // (PDF للمشتريات/الإنتاج) فتُعلَّم الطلبات المشمولة «أُرسلت». طلبٌ لا حركة: لا يمسّ أي رصيد.
+// أو يحمّل طلب مندوبٍ إلى سيارته مباشرة (٢٣ نوفمبر ٢٠٢٦): الحركة بمسار التحميل القائم، ثم /:id/loaded يعلّمه «حُمِّل».
 //
 // كل كتابة — من المندوب أو الإدارة أو الإرسال — تمرّ تحت قفلٍ استشاريّ واحد للشركة، فلا يُكرَّر
 // الطلب المعلّق للمندوب، ولا يُرسَل طلبٌ عدّله صاحبه بعد أن رآه الإداري (فحص updatedAt داخل القفل).
@@ -131,7 +132,7 @@ router.get('/mine', repOnly, async (req: AuthRequest, res: Response, next: NextF
     const me = req.user!.id;
     const [pending, last] = await Promise.all([
       prisma.repStockRequest.findFirst({ where: { tenantId: tid, salesRepId: me, status: 'PENDING' }, include: ITEMS_INCLUDE }),
-      prisma.repStockRequest.findFirst({ where: { tenantId: tid, salesRepId: me, status: { in: ['SENT', 'REJECTED'] } }, orderBy: { decidedAt: 'desc' }, include: ITEMS_INCLUDE }),
+      prisma.repStockRequest.findFirst({ where: { tenantId: tid, salesRepId: me, status: { in: ['SENT', 'REJECTED', 'LOADED'] } }, orderBy: { decidedAt: 'desc' }, include: ITEMS_INCLUDE }),
     ]);
     res.json({ success: true, data: { pending: pending && shape(pending), last: last && shape(last) } });
   } catch (err) { fail(err, res, next); }
@@ -329,6 +330,42 @@ router.post('/:id/reject', companyOnly, async (req: AuthRequest, res: Response, 
       const cur = await pendingForEdit(tx, req, tid, String(req.params.id), data.updatedAt);
       await tx.repStockRequest.update({ where: { id: cur.id }, data: { status: 'REJECTED', decidedAt: new Date(), decidedBy: deciderName(req) } });
     });
+    res.json({ success: true });
+  } catch (err) { fail(err, res, next); }
+});
+
+// «تحميل مباشر» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): الإداري يحمّل طلب المندوب إلى سيارته من نافذة «طلب مخزون» نفسها. الحركة تُكتب
+// بمسار التحميل القائم POST /van-stock/loads بكل حرّاسه (رصيد المستودع والتشغيلات ووحدات الأصناف ومنع التكرار clientRef) — لا
+// منطق تحميلٍ موازٍ هنا — ثم يُعلَّم الطلب «حُمِّل» بمعرّف تلك الحركة (sentRef)، بنسخته التي حُمِّلت (updatedAt) تحت قفل الشركة.
+// والحركة لسيارة صاحب الطلب وتحميلٌ لا غيره، وإلا 400. وعدّله المندوب بعد التحميل ⇒ يبقى معلّقاً ليراجع الإداري ما أضافه، لكن
+// يُكتب عليه معرّف الحركة (sentRef على طلبٍ معلّق = «حُمِّلت منه نسخةٌ سابقة») ثم 409 REQUEST_CHANGED_AFTER_LOAD — فتراه النافذة
+// ولو أُعيد فتحها، ولا يُحمَّل كاملاً مرةً ثانية ولا يدخل الطلب العام بما حُمِّل دون تنبيه
+const loadedSchema = versionSchema.extend({ vanLoadId: z.string().min(1).max(64) });
+
+router.post('/:id/loaded', companyOnly, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const data = loadedSchema.parse(req.body);
+    const outcome = await prisma.$transaction(async (tx) => {
+      await lockTenant(tx, tid);
+      const cur = await tx.repStockRequest.findFirst({
+        where: { id: String(req.params.id), tenantId: tid, status: 'PENDING', ...(await repScopeWhere(req)) }, select: { id: true, salesRepId: true, updatedAt: true },
+      });
+      if (!cur) throw notFound();
+      const load = await tx.vanLoad.findFirst({ where: { id: data.vanLoadId, tenantId: tid, salesRepId: cur.salesRepId, type: 'LOAD' }, select: { id: true } });
+      if (!load) throw Object.assign(new Error('حركة التحميل ليست لسيارة صاحب الطلب'), { status: 400, code: 'VAN_LOAD_MISMATCH' });
+      // نسخةٌ غير التي حُمِّلت: العلامة تُحفظ (لا رمي داخل المعاملة فتُلغى معها) والطلب يبقى معلّقاً
+      if (cur.updatedAt.toISOString() !== data.updatedAt) {
+        await tx.repStockRequest.update({ where: { id: cur.id }, data: { sentRef: load.id, updatedAt: cur.updatedAt } });
+        return 'CHANGED' as const;
+      }
+      await tx.repStockRequest.update({ where: { id: cur.id }, data: { status: 'LOADED', decidedAt: new Date(), decidedBy: deciderName(req), sentRef: load.id } });
+      return 'LOADED' as const;
+    });
+    if (outcome === 'CHANGED') {
+      res.status(409).json({ success: false, code: 'REQUEST_CHANGED_AFTER_LOAD', message: 'حُمِّل الطلب لكن المندوب عدّله بعد ذلك فبقي معلّقاً — راجع ما أضافه' });
+      return;
+    }
     res.json({ success: true });
   } catch (err) { fail(err, res, next); }
 });

@@ -965,6 +965,8 @@ export const repStockRequestApi = {
   // unitId حين غيّر الإداري الوحدة (null للأساس)؛ baseUnitName («الوحدة الرئيسية» §2.9) الأساس كما رآه النموذج لسطرٍ بالأساس
   update: (id: string, data: { updatedAt: string; items: { productId: string; qty: number; unitId?: string | null; baseUnitName?: string | null }[] }) => api.put(`/rep-stock-requests/${id}`, data),
   reject: (id: string, updatedAt: string) => api.post(`/rep-stock-requests/${id}/reject`, { updatedAt }),
+  // «تحميل مباشر»: بعد كتابة التحميل بـvanStockApi.createLoad يُعلَّم الطلب «حُمِّل» بمعرّف الحركة ونسخته التي حُمِّلت
+  loaded: (id: string, data: { updatedAt: string; vanLoadId: string }) => api.post(`/rep-stock-requests/${id}/loaded`, data),
   send: (data: { ref: string; requests: { id: string; updatedAt: string }[] }) => api.post('/rep-stock-requests/send', data),
 };
 

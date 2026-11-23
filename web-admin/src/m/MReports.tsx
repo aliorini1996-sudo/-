@@ -26,6 +26,7 @@ import { useIsLive, livePoll } from './useLiveQuery';
 import { hasBigUnit, qtyText } from './mUnits';
 import { anyPrimary, qtyTotalLabel } from './mPrimaryUnit';
 import type { UnitDef } from '../lib/units';
+import { debtAgingOf } from '../lib/debtAging';
 import { breakOf, compactMinutes, formatPeriods, hasPunchLocation, periodsOf, punchInUrl, punchOutUrl, periodOutside, periodAutoOut, type WorkPeriodLike } from '../lib/workPeriods';
 import {
   appliedRangeOf, truncationOf, defaultedRangeNote, truncationNote, customerStatusBadge, perfHasCash, perfCompanyRate, type Truncation,
@@ -88,6 +89,8 @@ interface BalanceRow {
   paymentDays: number; totalSales: number; totalCollected: number;
   /** ACTIVE | INACTIVE | BLOCKED منذ ١٣ نوفمبر ٢٠٢٦ — المحظور والموقوف مدينان يدخلان الإجمالي بشارة (البند ٢) */
   status?: string;
+  /** «عمر الدين» (٢٣ نوفمبر ٢٠٢٦) — يُقرأ عبر debtAgingOf، وخادمٌ أقدم بلاه ⇒ لا سطر عمر */
+  aging?: unknown;
 }
 
 interface VisitLoc { customerName: string; createdAt: string; lat: number; lng: number; mapsUrl: string }
@@ -883,6 +886,15 @@ function BalancesReport({ customer }: { customer: FilterPick | null }) {
     total: rows.reduce((s, c) => s + c.balance, 0),
     exceeded: rows.filter(c => c.creditLimit > 0 && c.balance > c.creditLimit).length,
   }), [rows]);
+  const ageText = (c: BalanceRow): string | null => {
+    const a = debtAgingOf(c);
+    if (!a) return null;
+    return `${tr('عمر الدين')} ${a.ageDays == null ? tr('بلا تاريخ') : `${formatNumber(a.ageDays)} ${tr('يوماً')}`}`;
+  };
+  const overdueText = (c: BalanceRow): string | null => {
+    const a = debtAgingOf(c);
+    return a && a.overdueDays > 0 ? `${tr('متأخر عن السداد')} ${formatNumber(a.overdueDays)} ${tr('يوماً')}` : null;
+  };
 
   return (
     <Pane onScroll={onScroll}>
@@ -910,9 +922,11 @@ function BalancesReport({ customer }: { customer: FilterPick | null }) {
                 title={badge
                   ? <span className="flex items-center gap-1.5 min-w-0"><span className="truncate min-w-0">{c.name}</span><span className={`shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold ${c.status === 'BLOCKED' ? 'bg-[#FBEAE7] text-[#B42318]' : 'bg-[#F1EBDF] text-[#6E6557]'}`}>{tr(badge)}</span></span>
                   : c.name}
-                subtitle={[c.phone, c.creditLimit > 0 ? `${tr('الحد')} ${formatCurrency(c.creditLimit)}` : null]
+                // «عمر الدين» من أقدم دينٍ قائم (الخادم)، والتأخّر عن مهلة السداد بجانب تجاوز الحد — كلاهما **أوّل** سطره: السطران
+                // مقصوصان بنقاط، فالقصّ يُسقط الأقل أهمية (الحد، تجاوزه الظاهر بلون المبلغ) لا رقم العمر
+                subtitle={[ageText(c), c.phone, c.creditLimit > 0 ? `${tr('الحد')} ${formatCurrency(c.creditLimit)}` : null]
                   .filter(Boolean).join(' · ')}
-                note={over ? tr('تجاوز الحد الائتماني') : undefined}
+                note={[overdueText(c), over ? tr('تجاوز الحد الائتماني') : null].filter(Boolean).join(' · ') || undefined}
                 trailing={<Amount value={formatCurrency(c.balance)} tone={over ? 'bad' : 'warn'} />} />
             );
           })}
