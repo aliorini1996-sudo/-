@@ -360,7 +360,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
               <RadiusInput label={tr('مهلة الرد قبل الانصراف التلقائي (دقيقة)')} min={IDLE_GRACE_MIN} max={IDLE_GRACE_MAX}
                 error={errors.idlePunchOutGraceMinutes?.message} {...register('idlePunchOutGraceMinutes', idleGraceRules)} />
             </>)}
-            <p className="text-xs text-gray-400 mt-2 leading-relaxed">{tr('عند التفعيل اذا بقي المندوب حاضرا بلا نشاط في التطبيق ولا تنقل (انتقال اكثر من 150 م) طوال دقائق الخمول يصله اشعار يذكره بتسجيل الانصراف، وان لم يرد خلال المهلة يسجل له انصراف تلقائي بوقت آخر نشاط له ويظهر في تقرير ساعات العمل موسوما انصراف تلقائي')}</p>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">{tr('عند التفعيل اذا بقي المندوب حاضرا بلا استخدام للتطبيق ولا موقع يصل من جواله طوال دقائق الخمول يصله اشعار يذكره بتسجيل الانصراف وتظهر له نافذة هل ما زلت تعمل بعد تنازلي للمهلة، وبعد التذكير لا يلغي الانصراف التلقائي إلا ما زلت أعمل أو تنقل فعلي (اكثر من 150 م) أو إصدار مستند (فاتورة أو مرتجع أو سند أو زيارة) ولا يلغيه فتح التطبيق، والا يسجل له عند انتهاء المهلة انصراف تلقائي بوقت آخر نشاط له قبل التذكير ويظهر في تقرير ساعات العمل موسوما انصراف تلقائي')}</p>
             <div className="grid grid-cols-1 gap-3 mt-3">
               <PermToggle label={tr('عرض خط السير على الخريطة')} {...register('showRouteOnMap')} />
             </div>

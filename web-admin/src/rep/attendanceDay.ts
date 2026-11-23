@@ -6,7 +6,7 @@ export interface PunchShift {
   checkInAt: string; checkOutAt: string | null;
   /** «خارج النطاق» لبصمةٍ قُبلت بوسم (المندوب المقيَّد ببصمةٍ عند عميل) — غائبٌ من خادمٍ أقدم */
   checkInOutside?: boolean | null; checkOutOutside?: boolean | null;
-  /** «انصراف تلقائي» بعد خمولٍ بلا ردٍّ على التذكير (lib/idlePunchOut.ts) — بوقت آخر نشاط، وغائبٌ من خادمٍ أقدم */
+  /** «انصراف تلقائي» بعد خمولٍ بلا ردٍّ على التذكير (lib/idlePunchOut.ts) — بوقت آخر نشاطٍ سبق التذكير، وغائبٌ من خادمٍ أقدم */
   checkOutAuto?: boolean | null;
 }
 

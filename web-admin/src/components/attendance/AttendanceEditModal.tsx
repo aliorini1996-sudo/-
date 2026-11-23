@@ -149,7 +149,7 @@ export default function AttendanceEditModal({ rep, date, onClose }: { rep: { id:
                         {r.checkOutDevice && r.checkOutDevice !== r.checkInDevice && <span>{tr('جهاز الانصراف')}: <b dir="ltr">{r.checkOutDevice}</b></span>}
                         {r.source !== 'APP' && <span className="rounded bg-blue-50 text-blue-700 px-1.5 py-0.5 font-bold">{r.source === 'IMPORT' ? tr('مرفوعة من Excel') : tr('إدخال إداري')}</span>}
                         {r.checkOutAt && r.checkOutAuto === true && (
-                          <span data-auto-checkout className="rounded bg-amber-100 text-amber-800 px-1.5 py-0.5 font-bold" title={tr('سجله النظام بوقت آخر نشاط للمندوب بعد تذكير خمول بلا رد')}>{tr('انصراف تلقائي')}</span>
+                          <span data-auto-checkout className="rounded bg-amber-100 text-amber-800 px-1.5 py-0.5 font-bold" title={tr('سجله النظام بوقت آخر نشاط للمندوب قبل تذكير خمول لم يلغه ما زلت أعمل ولا تنقل ولا مستند')}>{tr('انصراف تلقائي')}</span>
                         )}
                         {/* ختم النظام وحده (انصرافٌ تلقائي لم يُعدَّل) ليس «آخر تعديل» — الوسم بجانبه يقوله */}
                         {humanEditOf(r) && <span>{tr('آخر تعديل')}: {humanEditOf(r)}{r.editedAt ? ` · ${clock(r.editedAt)}` : ''}</span>}

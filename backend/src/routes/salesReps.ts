@@ -305,13 +305,13 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const updateData: Record<string, unknown> = { ...rest, email: rest.email || null };
     Object.assign(updateData, priced.data);
     if (password) updateData.passwordHash = await bcrypt.hash(password, 10);
-    // «تذكير بالانصراف عند الخمول»: تبديل المفتاح يمحو تذكير النوبة المفتوحة — وإلا عدّ تذكيرٌ أُرسل قبل الإطفاء «مُذكَّراً» بعد
+    // «تذكير بالانصراف عند الخمول»: تبديل المفتاح يمحو تذكير النوبة المفتوحة وختمه — وإلا عدّ تذكيرٌ أُرسل قبل الإطفاء «قائماً» بعد
     // إعادة التفعيل فانصرف المندوب تلقائياً في أوّل دورةٍ بلا تذكيرٍ في فترة التفعيل الجديدة. يُمحى قبل كتابة المفتاح: والقيد مطفأ
     // لا تمسّ الدورة النوبة (تختار المفعَّلين)، فلا تسبق المحوَ إلى انصراف؛ ومحوُ تذكير مندوبٍ يُطفأ قيده لا أثر له
     if (rest.idlePunchOutEnabled !== undefined && rest.idlePunchOutEnabled !== current.idlePunchOutEnabled) {
       await prisma.repAttendance.updateMany({
-        where: { tenantId: tid, salesRepId: current.id, checkOutAt: null, idleRemindedAt: { not: null } },
-        data: { idleRemindedAt: null },
+        where: { tenantId: tid, salesRepId: current.id, checkOutAt: null, OR: [{ idleRemindedAt: { not: null } }, { idleLastActiveAt: { not: null } }] },
+        data: { idleRemindedAt: null, idleLastActiveAt: null },
       });
     }
     // إطفاء «ربط البصمة بجهاز واحد» يفكّ الجهاز المربوط: ربطٌ نائم يبقى بعد الإطفاء يتيح ربط الجوال نفسه بمندوبٍ آخر،

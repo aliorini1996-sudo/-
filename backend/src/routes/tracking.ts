@@ -218,8 +218,9 @@ router.post('/heartbeat', async (req: AuthRequest, res: Response, next: NextFunc
 
     // «التحقق العشوائي من التواجد»: طلبٌ أُرسل ولم يُجب — يصل التطبيق المفتوح بلا تنبيهات مفعّلة (الإشعار هو الطريق الأول)
     const presence = beat.requirePresenceCheck && (await attendanceEnabled(tid)) ? await pendingPresence(tid, repId, now) : null;
-    // «تذكير بالانصراف عند الخمول» (services/idlePunchOut.ts): تذكيرٌ معلّق ⇒ «هل ما زلت تعمل؟» في التطبيق — للمقيَّد وحده.
-    // والنبضة نفسها نشاطٌ يلغي الانصراف التلقائي؛ السؤال يبقى حتى «ما زلت أعمل» أو الانصراف أو انقضاء المهلة.
+    // «تذكير بالانصراف عند الخمول» (services/idlePunchOut.ts): تذكيرٌ معلّق ⇒ «هل ما زلت تعمل؟» بعدٍّ تنازليّ في التطبيق (serverNow
+    // يصحّح ساعة الجوال) — للمقيَّد وحده. والنبضة بعد التذكير لا تلغي الانصراف التلقائي (قرار المالك): يلغيه «ما زلت أعمل» أو تنقّلٌ
+    // فعلي أو مستندٌ يصدره، وإلا يبقى السؤال حتى الانصراف أو انقضاء المهلة.
     // الحقل حاضرٌ دائماً (null = لا تذكير) فيعرف التطبيق خادماً يدعم الميزة من خادمٍ أقدم بلا الحقل
     const idlePunchOutReminder = beat.idlePunchOutEnabled && (await attendanceEnabled(tid)) ? await pendingIdleReminder(tid, repId, now) : null;
     res.json({ success: true, data: { presence, idlePunchOutReminder } });
@@ -579,9 +580,9 @@ router.post('/attendance/checkout', async (req: AuthRequest, res: Response, next
   }
 });
 
-// «ما زلت أعمل» — ردّ المندوب على تذكير الخمول (services/idlePunchOut.ts): نشاطٌ الآن (آخر ظهور) يعيد دورة الخمول من أوّلها
-// ويمسح التذكير المعلّق. تحت قفل بصمات المندوب كالانصراف التلقائي: إمّا سبقه فلا انصراف، وإمّا سبقه الانصراف (أو انصرف من
-// جهازٍ آخر) فيُردّ 409 NO_OPEN_SHIFT — رمز الانصراف نفسه — ومعه autoCheckedOut: true وآخر نوبة (last) حين أغلقها الانصراف
+// «ما زلت أعمل» — ردّ المندوب على تذكير الخمول (services/idlePunchOut.ts)، وأحد ثلاثةٍ وحدها تلغي الانصراف التلقائي بعد التذكير
+// (مع التنقّل الفعلي وإصدار مستند): نشاطٌ الآن (آخر ظهور) يعيد دورة الخمول من أوّلها ويمسح التذكير المعلّق وختمه. تحت قفل
+// بصمات المندوب كالانصراف التلقائي: إمّا سبقه فلا انصراف، وإمّا سبقه الانصراف (أو انصرف من جهازٍ آخر) فيُردّ 409 NO_OPEN_SHIFT — رمز الانصراف نفسه — ومعه autoCheckedOut: true وآخر نوبة (last) حين أغلقها الانصراف
 // التلقائي، فيعرض التطبيق «انصراف تلقائي» ويتيح حضوراً جديداً.
 router.post('/attendance/still-working', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -593,7 +594,7 @@ router.post('/attendance/still-working', async (req: AuthRequest, res: Response,
       if (!current) return null;
       const now = new Date();
       await tx.salesRep.update({ where: { id: repId }, data: { lastSeenAt: now } });
-      await tx.repAttendance.update({ where: { id: current.id }, data: { idleRemindedAt: null } });
+      await tx.repAttendance.update({ where: { id: current.id }, data: { idleRemindedAt: null, idleLastActiveAt: null } });
       return current;
     }, REP_LOCK_TX);
     if (!shift) {
@@ -607,7 +608,7 @@ router.post('/attendance/still-working', async (req: AuthRequest, res: Response,
         res.status(409).json({
           success: false, code: 'NO_OPEN_SHIFT', autoCheckedOut: true,
           last: { checkInAt: last.checkInAt, checkOutAt: last.checkOutAt, checkOutAuto: true },
-          message: 'سُجّل انصرافك تلقائياً بوقت آخر نشاط لك — سجّل حضورك من جديد إن كنت ما زلت تعمل',
+          message: 'سُجّل انصرافك تلقائياً بوقت آخر نشاطٍ لك قبل التذكير — سجّل حضورك من جديد إن كنت ما زلت تعمل',
         });
         return;
       }

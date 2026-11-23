@@ -1,34 +1,46 @@
 // «هل ما زلت تعمل؟» — تذكير الانصراف عند الخمول (طلب المالك ٢٣ نوفمبر ٢٠٢٦؛ الخادم: services/idlePunchOut.ts، والمنطق
 // الصرف في lib/idlePunchOut.ts).
 //
-// المندوب المقيَّد بالقيد إن بقي حاضراً بلا نشاطٍ في التطبيق ولا تنقّلٍ (انتقالٌ فوق ١٥٠ م من تتبّع الخلفية) «دقائق الخمول» يصله
-// إشعارٌ، والتذكير المعلّق يصل التطبيق المفتوح أيضاً في ردّ النبضة (useHeartbeat ⇒ onHeartbeat، الحقل idlePunchOutReminder) فتظهر
-// هذه النافذة. زرّان: «ما زلت أعمل» يسجّل نشاطاً ويمحو التذكير، و«سجّل الانصراف الآن» يفتح شاشة البصمة بانصرافها العادي (موقعه
-// وجهازه وقيوده كما هي — لا انصرافٌ من هنا).
-// ولا عدّ تنازليّ هنا: النافذة لا تظهر إلا من ردّ نبضة، والنبضة نفسها نشاطٌ (آخر ظهور) يلغي الانصراف التلقائي لهذا التذكير في الخادم
-// — فلا يُعرض موعدٌ لن يقع. ومن أغلق التطبيق بلا ردٍّ وبقي خاملاً يُذكَّر من جديد بعد خمولٍ كامل، ثم ينصرف تلقائياً بعد المهلة.
-// ولا ردٌّ تلقائي: الجوال المتروك لا يجيب عن صاحبه.
-import { useState } from 'react';
+// المندوب المقيَّد بالقيد إن بقي حاضراً بلا استخدامٍ للتطبيق ولا موقعٍ يصل من جواله «دقائق الخمول» يصله إشعارٌ، والتذكير المعلّق
+// يصل التطبيق المفتوح أيضاً في ردّ النبضة (useHeartbeat ⇒ onHeartbeat، الحقل idlePunchOutReminder) فتظهر هذه النافذة بعدٍّ تنازليّ
+// حقيقيّ إلى الانصراف التلقائي: لحظة التذكير + مهلة الرد بساعة الخادم (serverNow في الردّ يصحّح ساعة الجوال — idleRemainingMs).
+// فتح التطبيق (النبضة) لا يلغيه (قرار المالك): لا يلغيه إلا «ما زلت أعمل» هنا، أو تنقّلٌ فعلي، أو إصدار مستند — والأخيران تمحو
+// الدورة بهما التذكير فتُغلق النافذة من ردّ النبضة التالي (idleAfterBeat). وإلا ينصرف تلقائياً بوقت آخر نشاطٍ سبق التذكير.
+// زرّان: «ما زلت أعمل» يسجّل نشاطاً ويمحو التذكير، و«سجّل الانصراف الآن» يفتح شاشة البصمة بانصرافها العادي (موقعه وجهازه وقيوده
+// كما هي — لا انصرافٌ من هنا). ولا ردٌّ تلقائي: الجوال المتروك لا يجيب عن صاحبه.
+import { useEffect, useState } from 'react';
 import { Hourglass } from 'lucide-react';
 import repApi from './repApi';
 import { useTr } from '../i18n/strings';
-import { ATTENDANCE_REFRESH_EVENT, IDLE_STILL_WORKING_PATH, idleClosedKind, withCount, type IdleReminder } from '../lib/idlePunchOut';
+import {
+  ATTENDANCE_REFRESH_EVENT, IDLE_STILL_WORKING_PATH, fmtCountdown, idleClosedKind, idleRemainingMs, withCount, type IdleReminder,
+} from '../lib/idlePunchOut';
 
 /** شاشة البصمة المفتوحة تعيد قراءة حالتها (نوبةٌ أُغلقت تلقائياً تظهر «انصراف تلقائي» لا «حاضر») */
 const refreshAttendance = () => { try { window.dispatchEvent(new Event(ATTENDANCE_REFRESH_EVENT)); } catch { /* تجاهل */ } };
 
-export default function IdlePunchOutModal({ reminder, onStillWorking, onPunchOut }: {
+export default function IdlePunchOutModal({ reminder, onStillWorking, onPunchOut, onSettled }: {
   reminder: IdleReminder;
   /** أُرسل «ما زلت أعمل» وقبله الخادم — تُغلق النافذة ولا يُعاد فتح هذا التذكير */
   onStillWorking: () => void;
   /** «سجّل الانصراف الآن» (أو نوبةٌ أُغلقت قبل الردّ) — تُغلق النافذة وتُفتح شاشة البصمة */
   onPunchOut: () => void;
+  /** النافذة تعرض نتيجة ردٍّ مرفوض (انصرافٌ تلقائي سبق، أو لا نوبة) — فلا يُغلقها ردّ نبضةٍ بلا تذكير قبل أن يقرأها */
+  onSettled?: () => void;
 }) {
   const tr = useTr();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   // النوبة أُغلقت قبل الردّ: 'auto' سبقه الانصراف التلقائي، و'closed' انصرف من جهازٍ آخر — لا «ما زلت أعمل»، حضورٌ جديد إن كان يعمل
   const [closed, setClosed] = useState<'auto' | 'closed' | null>(null);
+  // العدّ التنازليّ: ساعة الجوال كل ثانية، والباقي بساعة الخادم (فرق الساعتين من ردّ النبضة)
+  const [phoneNow, setPhoneNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setPhoneNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => { if (closed) onSettled?.(); }, [closed, onSettled]);
+  const remaining = idleRemainingMs(reminder, phoneNow);
 
   const stillWorking = async () => {
     if (busy) return;
@@ -58,7 +70,7 @@ export default function IdlePunchOutModal({ reminder, onStillWorking, onPunchOut
             <h2 className="text-xl font-bold text-[#1F1A13]">{closed === 'auto' ? tr('انصراف تلقائي') : tr('لا نوبة مفتوحة')}</h2>
             <p className="text-sm text-[#5C5346] leading-relaxed">
               {closed === 'auto'
-                ? tr('سجل انصرافك تلقائيا بوقت آخر نشاط لك وان كنت تعمل سجل حضورا جديدا')
+                ? tr('سجل انصرافك تلقائيا بوقت آخر نشاط لك قبل التذكير وان كنت تعمل سجل حضورا جديدا')
                 : tr('سجل انصرافك من قبل وان كنت تعمل سجل حضورا جديدا')}
             </p>
             <button onClick={onPunchOut} className="w-full rounded-2xl bg-[#E15A30] py-3.5 text-white font-bold">{tr('فتح شاشة البصمة')}</button>
@@ -67,8 +79,20 @@ export default function IdlePunchOutModal({ reminder, onStillWorking, onPunchOut
           <>
             <h2 className="text-xl font-bold text-[#1F1A13]">{tr('هل ما زلت تعمل؟')}</h2>
             <p className="text-sm text-[#5C5346] leading-relaxed">
-              {withCount(tr('لم يرصد لك نشاط ولا تنقل منذ {n} دقيقة'), reminder.idleMinutes)}
+              {withCount(tr('بلا استخدام للتطبيق ولا موقع يصل من جوالك منذ {n} دقيقة'), reminder.idleMinutes)}
             </p>
+            {/* العدّ الحقيقيّ إلى الانصراف التلقائي (التذكير + مهلة الرد بساعة الخادم) — وبعد انقضائه تُجريه الدورة خلال لحظات */}
+            <div className="rounded-2xl bg-[#FBEBE2] px-4 py-3" data-idle-countdown="">
+              {remaining > 0 ? (
+                <>
+                  <p className="text-xs font-semibold text-[#8A4B2F]">{tr('الوقت المتبقي قبل الانصراف التلقائي')}</p>
+                  <p className="text-3xl font-bold tabular-nums text-[#E15A30]" dir="ltr" role="timer">{fmtCountdown(remaining)}</p>
+                </>
+              ) : (
+                <p className="text-sm font-bold text-[#C0392B]">{tr('انتهت المهلة ويسجل انصرافك تلقائيا خلال لحظات')}</p>
+              )}
+            </div>
+            <p className="text-xs text-[#5C5346] leading-relaxed">{tr('لا يلغي الانصراف التلقائي إلا ما زلت أعمل أو تنقل فعلي أو إصدار مستند')}</p>
             <p className="text-xs font-semibold text-[#B7791F]">{tr('ان انتهى عملك سجل بصمة الانصراف الآن')}</p>
             {err && <p className="text-xs text-[#C0392B]">{err}</p>}
             <button onClick={stillWorking} disabled={busy} className="w-full rounded-2xl bg-[#E15A30] py-3.5 text-white text-lg font-bold disabled:opacity-60">

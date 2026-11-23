@@ -4233,7 +4233,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "idlePunchOutEnabled",
       "type": "boolean",
       "required": false,
-      "desc": "تذكير بالانصراف عند الخمول ثم انصراف تلقائي (false افتراضاً): نوبة مفتوحة بلا نشاط في التطبيق (نبضة التطبيق المفتوح ونقاط موقع الصفحة) ولا تنقّل (نقاط تتبّع الخلفية لا تُحسب نشاطاً إلا بانتقالٍ أكثر من 150 م، بوقت استلامها في الخادم) مدة idlePunchOutMinutes ⇒ إشعار يذكّر المندوب بالانصراف، وبلا رد خلال idlePunchOutGraceMinutes ⇒ انصراف يسجّله النظام بوقت آخر نشاط له، موسوم checkOutAuto في البصمات وoutAuto في فترات تقرير ساعات العمل"
+      "desc": "تذكير بالانصراف عند الخمول ثم انصراف تلقائي (false افتراضاً): نوبة مفتوحة والمندوب بلا استخدام للتطبيق ولا موقع يصل من جواله (نبضة التطبيق المفتوح، وأي نقطة موقع من تتبّع الخلفية أو من الصفحة ساكنةً أو متحرّكة، بوقت استلامها في الخادم) مدة idlePunchOutMinutes ⇒ إشعار يذكّره بالانصراف ونافذة «هل ما زلت تعمل؟» بعدٍّ تنازلي للمهلة. وبعد التذكير لا يلغي الانصراف التلقائي إلا «ما زلت أعمل» أو تنقّل فعلي (انتقال أكثر من 150 م وأكثر من هامشَي خطأ النقطتين، يصل إلى الخادم بعد التذكير) أو إصدار مستند من المندوب (فاتورة أو مرتجع أو سند قبض أو زيارة) — لا فتح التطبيق ولا نقاط الموقع الساكنة؛ وإلا عند انقضاء idlePunchOutGraceMinutes انصراف يسجّله النظام بوقت آخر نشاط له قبل التذكير، موسوم checkOutAuto في البصمات وoutAuto في فترات تقرير ساعات العمل"
      },
      {
       "name": "idlePunchOutMinutes",
@@ -8751,7 +8751,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{rows:[{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy, checkOutAuto}], audit:[{id, attendanceId, action, before, after, reason, actorName, createdAt}]}}. checkOutAuto = true: انصراف سجّله النظام بوقت آخر نشاط بعد تذكير خمول بلا رد (لا بصمة المندوب)، وسطره في audit بالإجراء AUTO_CHECKOUT باسم «النظام». تعديل وقت انصرافه يُسقط الوسم",
+    "response": "{success:true, data:{rows:[{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy, checkOutAuto}], audit:[{id, attendanceId, action, before, after, reason, actorName, createdAt}]}}. checkOutAuto = true: انصراف سجّله النظام بوقت آخر نشاط للمندوب قبل تذكير خمول لم يلغه «ما زلت أعمل» ولا تنقّل ولا مستند (لا بصمة المندوب)، وسطره في audit بالإجراء AUTO_CHECKOUT باسم «النظام». تعديل وقت انصرافه يُسقط الوسم",
     "rules": [
      "الصفوف بالحضور تصاعدياً وحتى 500، والسجل الأحدث أولاً وحتى 100",
      "source: APP (بصمة التطبيق) أو ADMIN (أُضيفت يدوياً) أو IMPORT (من الرفع)، وeditedAt/editedBy لما عُدّل"

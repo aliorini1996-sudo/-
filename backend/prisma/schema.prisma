@@ -567,8 +567,9 @@ model SalesRep {
   // مرّتين إلى ثلاث في اليوم بأوقاتٍ عشوائية أثناء نوبته، ويردّ خلال دقيقتين بقراءة موقعٍ طازجة (services/presenceChecks.ts)
   requirePresenceCheck Boolean @default(false)
   // «تذكير بالانصراف عند الخمول ثم انصراف تلقائي» (طلب المالك، ٢٣ نوفمبر ٢٠٢٦) — قيدٌ يُفعَّل ويُطفأ لكل مندوب: نوبةٌ مفتوحة
-  // ومندوبٌ بلا نشاطٍ ولا حركة منذ idlePunchOutMinutes ⇒ إشعار «سجّل بصمة الانصراف إن انتهى عملك»، وبلا ردٍّ خلال
-  // idlePunchOutGraceMinutes ⇒ انصرافٌ تلقائي بوقت آخر نشاط (services/idlePunchOut.ts). المدّتان تحدّدهما الإدارة كالمسافة،
+  // ومندوبٌ بلا استخدامٍ للتطبيق ولا موقعٍ يصل من جواله منذ idlePunchOutMinutes ⇒ إشعار «سجّل بصمة الانصراف إن انتهى عملك»،
+  // وبعده لا يلغي الانصراف إلا «ما زلت أعمل» أو تنقّلٌ فعلي أو إصدار مستند خلال idlePunchOutGraceMinutes ⇒ وإلا انصرافٌ تلقائي
+  // بوقت آخر نشاطٍ سبق التذكير (services/idlePunchOut.ts). المدّتان تحدّدهما الإدارة كالمسافة،
   // والحدّان ١٠–٤٨٠ و٥–١٢٠ دقيقة في التحقّق (salesReps.ts). false افتراضاً = السلوك قبله حرفياً
   idlePunchOutEnabled      Boolean @default(false)
   idlePunchOutMinutes      Int     @default(45)
@@ -1437,6 +1438,7 @@ model Receipt {
   @@unique([tenantId, clientRef])
   @@index([tenantId])
   @@index([tenantId, teamId, receiptDate]) // تقارير الفرق
+  @@index([tenantId, salesRepId, createdAt]) // «الانصراف التلقائي عند الخمول»: سندٌ أصدره المندوب بعد التذكير (services/idlePunchOut.ts)
   @@map("receipts")
 }
 
@@ -2751,10 +2753,12 @@ model RepAttendance {
   checkOutOutside   Boolean?
   checkOutDistanceM Int?
   // «الانصراف التلقائي عند الخمول» (services/idlePunchOut.ts، طلب المالك ٢٣ نوفمبر ٢٠٢٦): لحظة إرسال تذكير الخمول في هذه النوبة
-  // (null = لم يُذكَّر، أو ضغط «ما زلت أعمل»)، وانصرافٌ سجّله النظام بوقت آخر نشاطٍ بعد تذكيرٍ بلا ردّ — لا بصمة المندوب.
-  // إضافيّان: الصفوف القائمة null وfalse
-  idleRemindedAt DateTime?
-  checkOutAuto   Boolean   @default(false)
+  // (null = لا تذكير قائم: لم يُذكَّر، أو ضغط «ما زلت أعمل»، أو ألغاه تنقّلٌ فعلي أو مستندٌ أصدره)، وآخر نشاطٍ سبق التذكير مختوماً
+  // معه (idleLastActiveAt) — وقت الانصراف التلقائي، فلا تمحوه نبضةٌ بعد التذكير؛ وبلا تذكيرٍ قائم هو لحظة ما ألغاه (أرضيّة الدورة
+  // الجديدة). وانصرافٌ سجّله النظام بعد تذكيرٍ بلا ردّ — لا بصمة المندوب (checkOutAuto). إضافيّةٌ: الصفوف القائمة null وfalse
+  idleRemindedAt   DateTime?
+  idleLastActiveAt DateTime?
+  checkOutAuto     Boolean   @default(false)
   // مصدر الصف: APP (بصمة المندوب) | ADMIN (أضافها أو عدّلها مستخدم الشركة) | IMPORT (رُفعت من Excel) — وكل تعديل
   // إداري في AttendanceAudit
   source   String    @default("APP")

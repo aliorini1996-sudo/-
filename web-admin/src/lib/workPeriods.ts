@@ -27,7 +27,7 @@ export interface WorkPeriodLike {
   /** أُضيفت أو عُدّلت إدارياً أو رُفعت من Excel */
   edited?: boolean;
   entry?: 'APP' | 'ADMIN' | 'IMPORT';
-  /** «انصراف تلقائي»: الانصراف الذي أنهى الفترة سجّله النظام بوقت آخر نشاطٍ بعد تذكير خمولٍ بلا ردّ (backend services/idlePunchOut.ts)
+  /** «انصراف تلقائي»: الانصراف الذي أنهى الفترة سجّله النظام بوقت آخر نشاطٍ سبق تذكير خمولٍ لم يُلغَ (backend services/idlePunchOut.ts)
    *  — حاضرٌ true وحده، وغائبٌ من خادمٍ أقدم */
   outAuto?: boolean;
 }
@@ -155,7 +155,7 @@ export function punchDetailRows(
       [tr('موقع الحضور')]: punchInUrl(p) ?? tr('بلا موقع'),
       [tr('نطاق الحضور')]: placeLabel(p.inOutside, p.inDistanceM, tr),
       [tr('جهاز الحضور')]: p.inDevice || '—',
-      // «انصراف تلقائي» بجانب وقته: سجّله النظام بوقت آخر نشاطٍ بعد تذكير خمولٍ بلا ردّ — لا بصمة المندوب
+      // «انصراف تلقائي» بجانب وقته: سجّله النظام بوقت آخر نشاطٍ سبق تذكير خمولٍ لم يُلغَ — لا بصمة المندوب
       [tr('الانصراف')]: p.end ? endText(p, p.end, fx.clock, tr('انصراف تلقائي')) : tr('لم ينصرف'),
       [tr('موقع الانصراف')]: p.end ? punchOutUrl(p) ?? tr('بلا موقع') : '—',
       [tr('نطاق الانصراف')]: p.end ? placeLabel(p.outOutside, p.outDistanceM, tr) : '—',

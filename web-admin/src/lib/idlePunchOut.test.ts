@@ -5,7 +5,8 @@ import path from 'node:path';
 import {
   IDLE_GRACE_DEFAULT, IDLE_MINUTES_DEFAULT, IDLE_REMINDER_KEY, IDLE_STILL_WORKING_PATH, IDLE_NO_OPEN_SHIFT,
   ATTENDANCE_REFRESH_EVENT, AUTO_CHECKOUT_EDITOR, AUTO_CHECKOUT_REASON, humanEditOf, idleClosedKind, idleFieldNum, idleGraceOk,
-  idleMinutesOk, idleReminderOf, idleSaveFields, idleSettingsOf, withCount,
+  idleMinutesOk, idleReminderOf, idleSaveFields, idleSettingsOf, withCount, fmtCountdown, idleAfterBeat, idleDeadlineMs, idleRemainingMs,
+  type IdleReminder, type IdleShown,
 } from './idlePunchOut';
 import { attendanceDayCells, formatPeriods, periodAutoOut, punchDetailRows, PUNCH_DETAIL_WIDTHS, type WorkDayLike } from './workPeriods';
 
@@ -38,7 +39,7 @@ test('جسم الحفظ: المطفأ لا يرسل دقيقتيه (قيمةٌ �
   assert.deepEqual(idleSaveFields(on), on);
 });
 
-test('التذكير من ردّ الخادم: الغائب لا يغيّر شيئاً، وnull لا تذكير، والمفتاح idlePunchOutReminder', () => {
+test('التذكير من ردّ الخادم: الغائب لا يغيّر شيئاً، وnull لا تذكير، والمفتاح idlePunchOutReminder، وفرق الساعتين من serverNow', () => {
   const at = '2026-11-23T08:00:00.000Z';
   assert.equal(idleReminderOf({ presence: null }), undefined, 'خادمٌ قبل الميزة');
   assert.equal(idleReminderOf(null), undefined);
@@ -46,13 +47,65 @@ test('التذكير من ردّ الخادم: الغائب لا يغيّر شي
   assert.equal(idleReminderOf({ presence: null, idlePunchOutReminder: null }), null);
   assert.equal(idleReminderOf({ idlePunchOutReminder: { remindedAt: 'أمس', idleMinutes: 45, graceMinutes: 15 } }), null, 'لحظةٌ لا تُقرأ ⇒ لا نافذة');
   assert.equal(idleReminderOf({ idle: { remindedAt: at, idleMinutes: 45, graceMinutes: 15 } }), undefined, 'مفتاحٌ غير مفتاح الخادم');
-  // serverNow من الخادم لا يُقرأ: لا عدّ تنازليّ في النافذة
-  const r = idleReminderOf({ presence: null, idlePunchOutReminder: { remindedAt: at, idleMinutes: 60, graceMinutes: 20, serverNow: Date.parse(at) + 2 * MIN } })!;
-  assert.deepEqual(r, { remindedAt: at, idleMinutes: 60, graceMinutes: 20 });
-  // أعدادٌ فاسدة ⇒ الافتراض
-  assert.deepEqual(idleReminderOf({ idlePunchOutReminder: { remindedAt: at, idleMinutes: 0, graceMinutes: 'x' } }),
-    { remindedAt: at, idleMinutes: 45, graceMinutes: 15 });
+  // serverNow ساعة الخادم لحظة الردّ: جوالٌ ساعته متأخّرة ٧ دقائق ⇒ فرقٌ موجب ٧ دقائق
+  const serverNow = Date.parse(at) + 2 * MIN;
+  const r = idleReminderOf({ presence: null, idlePunchOutReminder: { remindedAt: at, idleMinutes: 60, graceMinutes: 20, serverNow } }, serverNow - 7 * MIN)!;
+  assert.deepEqual(r, { remindedAt: at, idleMinutes: 60, graceMinutes: 20, clockOffsetMs: 7 * MIN });
+  // أعدادٌ فاسدة ⇒ الافتراض، وبلا serverNow (أو فاسدٍ) لا تصحيح
+  assert.deepEqual(idleReminderOf({ idlePunchOutReminder: { remindedAt: at, idleMinutes: 0, graceMinutes: 'x' } }, 123),
+    { remindedAt: at, idleMinutes: 45, graceMinutes: 15, clockOffsetMs: 0 });
+  assert.equal(idleReminderOf({ idlePunchOutReminder: { remindedAt: at, idleMinutes: 45, graceMinutes: 15, serverNow: 'x' } }, 123)!.clockOffsetMs, 0);
   assert.equal(withCount('منذ {n} دقيقة', 7), 'منذ 7 دقيقة');
+});
+
+test('العدّ التنازليّ الحقيقيّ: الانصراف عند التذكير + المهلة بساعة الخادم، وساعة الجوال مصحّحة بفرقها', () => {
+  const at = '2026-11-23T08:00:00.000Z';
+  const T = Date.parse(at);
+  // الردّ وصل عند التذكير + ٣ دقائق بساعة الخادم، وساعة الجوال متقدّمة ١٠ دقائق
+  const phoneAtReply = T + 3 * MIN + 10 * MIN;
+  const r = idleReminderOf({ idlePunchOutReminder: { remindedAt: at, idleMinutes: 45, graceMinutes: 15, serverNow: T + 3 * MIN } }, phoneAtReply)!;
+  assert.equal(idleDeadlineMs(r), T + 15 * MIN);
+  assert.equal(idleRemainingMs(r, phoneAtReply), 12 * MIN, 'لا يُنقص تقدّم ساعة الجوال من المهلة');
+  assert.equal(idleRemainingMs(r, phoneAtReply + 11 * MIN + 30_000), 30_000);
+  assert.equal(idleRemainingMs(r, phoneAtReply + 13 * MIN), 0, 'لا سالب بعد انقضائه');
+  // «د:ث» بثوانٍ مقرّبةٍ لأعلى، والدقائق فوق ٥٩ للمهلة الطويلة
+  assert.equal(fmtCountdown(12 * MIN), '12:00');
+  assert.equal(fmtCountdown(30_000), '00:30');
+  assert.equal(fmtCountdown(1), '00:01', 'لا 00:00 والمهلة لم تنقضِ');
+  assert.equal(fmtCountdown(0), '00:00');
+  assert.equal(fmtCountdown(-5), '00:00');
+  assert.equal(fmtCountdown(120 * MIN), '120:00');
+});
+
+test('النافذة بعد ردّ النبضة: تُفتح وتُحدَّث بالتذكير، ويغلقها ردٌّ بلا تذكير قبل انقضاء العدّ (ألغاه الخادم) لا بعده', () => {
+  const at = '2026-11-23T08:00:00.000Z';
+  const T = Date.parse(at);
+  const mk = (serverNow: number, phone = serverNow): IdleReminder =>
+    idleReminderOf({ idlePunchOutReminder: { remindedAt: at, idleMinutes: 45, graceMinutes: 15, serverNow } }, phone)!;
+  const none = new Set<string>();
+  // خادمٌ بلا الحقل: لا تغيير
+  assert.equal(idleAfterBeat(null, undefined, T, none), null);
+  // أوّل ردٍّ بالتذكير يفتحها
+  const open = idleAfterBeat(null, mk(T + MIN), T + MIN, none)!;
+  assert.equal(open.remindedAt, at);
+  assert.equal(open.beatAt, T + MIN);
+  // التذكير نفسه من نبضةٍ تالية يُحدّث فرق الساعتين (بلا إعادة تركيب: المفتاح remindedAt نفسه)
+  const again = idleAfterBeat(open, mk(T + 2 * MIN, T + 2 * MIN - 5_000), T + 2 * MIN, none)!;
+  assert.equal(again.clockOffsetMs, 5_000);
+  assert.equal(again.remindedAt, open.remindedAt);
+  // ردٌّ بلا تذكير والعدّ جارٍ: ألغاه الخادم (تنقّلٌ فعلي أو مستند أو «ما زلت أعمل» من جهازٍ آخر) ⇒ تُغلق
+  assert.equal(idleAfterBeat(again, null, T + 3 * MIN, none, T + 3 * MIN), null);
+  // ردٌّ من نبضةٍ أُطلقت قبل التي أكّدته لا يغلقه
+  assert.equal(idleAfterBeat(again, null, T + MIN, none, T + 3 * MIN), again);
+  // بعد انقضاء العدّ تبقى (الأرجح أنّ الانصراف التلقائي وقع: يعرفه المندوب بضغطه)، وكذا وهي تعرض نتيجة ردّ
+  assert.equal(idleAfterBeat(again, null, T + 16 * MIN, none, T + 16 * MIN), again);
+  const settled: IdleShown = { ...again, settled: true };
+  assert.equal(idleAfterBeat(settled, null, T + 3 * MIN, none, T + 3 * MIN), settled);
+  assert.equal(idleAfterBeat(settled, mk(T + 4 * MIN), T + 4 * MIN, none)!.settled, true, 'التحديث يُبقي عرض النتيجة');
+  // تذكيرٌ أُجيب لا يُعاد فتحه، وتذكيرٌ جديدٌ آخر يحلّ محلّه
+  assert.equal(idleAfterBeat(null, mk(T + 5 * MIN), T + 5 * MIN, new Set([at])), null);
+  const next = idleReminderOf({ idlePunchOutReminder: { remindedAt: '2026-11-23T09:00:00.000Z', idleMinutes: 45, graceMinutes: 15, serverNow: T + 61 * MIN } }, T + 61 * MIN)!;
+  assert.equal(idleAfterBeat(again, next, T + 61 * MIN, none)!.remindedAt, '2026-11-23T09:00:00.000Z');
 });
 
 test('ردّ «ما زلت أعمل» المرفوض: انصرافٌ تلقائي سبق ⇒ auto، ولا نوبة مفتوحة ⇒ closed، وغيرهما خطأٌ يُعاد فيه الضغط', () => {
@@ -111,10 +164,11 @@ test('حارس الإعداد: نافذة اللوحة وشاشة الجوال �
   assert.doesNotMatch(m.slice(m.indexOf('type PermKey'), m.indexOf(';', m.indexOf('type PermKey'))), /idlePunchOut/);
 });
 
-test('حارس تطبيق المندوب: التذكير من ردّ النبضة، والنافذة تُرسل «ما زلت أعمل» وتُحدّث شاشة البصمة، و«انصراف تلقائي» في الشاشة', () => {
+test('حارس تطبيق المندوب: التذكير من ردّ النبضة، والنافذة تعدّ تنازلياً وتُرسل «ما زلت أعمل» وتُحدّث شاشة البصمة، و«انصراف تلقائي» في الشاشة', () => {
   const app = read('src', 'rep', 'RepApp.tsx');
-  assert.match(app, /useEffect\(\(\) => onHeartbeat\(\(d\) => \{\s*const r = idleReminderOf\(d\);/);
+  assert.match(app, /useEffect\(\(\) => onHeartbeat\(\(d, beatAt\) => \{\s*const r = idleReminderOf\(d\);\s*setIdleReminder\(\(cur\) => idleAfterBeat\(cur, r, beatAt, handledIdle\.current\)\);/);
   assert.match(app, /<IdlePunchOutModal key=\{idleReminder\.remindedAt\} reminder=\{idleReminder\}/);
+  assert.match(app, /onSettled=\{settleIdle\}/);
   assert.match(app, /window\.addEventListener\(ATTENDANCE_REFRESH_EVENT, load\);/);
   assert.match(app, /state\.last\.checkOutAuto === true/);
   assert.match(app, /sh\.checkOutAt && sh\.checkOutAuto === true/);
@@ -123,10 +177,24 @@ test('حارس تطبيق المندوب: التذكير من ردّ النبض�
   assert.match(modal, /await repApi\.post\(IDLE_STILL_WORKING_PATH, \{\}\);/);
   assert.match(modal, /window\.dispatchEvent\(new Event\(ATTENDANCE_REFRESH_EVENT\)\)/);
   assert.doesNotMatch(modal, /useEffect\([^)]*stillWorking\(\)/, 'لا ردّ تلقائي: الجوال المتروك لا يجيب عن صاحبه');
-  // لا عدّ تنازليّ إلى انصرافٍ لن يقع: النبضة التي أظهرت النافذة نشاطٌ ألغى انصراف هذا التذكير في الخادم
-  assert.doesNotMatch(modal, /idleMinutesLeft|idleAutoOutAt|setInterval|يسجل انصرافك تلقائيا بعد|انتهت مهلة الرد/);
-  assert.match(modal, /tr\('لم يرصد لك نشاط ولا تنقل منذ \{n\} دقيقة'\)/);
+  // عدٌّ تنازليّ حقيقيّ إلى الانصراف التلقائي (النبضة لا تلغيه — قرار المالك): ساعة الجوال كل ثانية مصحّحةً بساعة الخادم
+  assert.match(modal, /setInterval\(\(\) => setPhoneNow\(Date\.now\(\)\), 1000\)/);
+  assert.match(modal, /const remaining = idleRemainingMs\(reminder, phoneNow\);/);
+  assert.match(modal, /\{fmtCountdown\(remaining\)\}/);
+  assert.match(modal, /tr\('الوقت المتبقي قبل الانصراف التلقائي'\)/);
+  assert.match(modal, /tr\('انتهت المهلة ويسجل انصرافك تلقائيا خلال لحظات'\)/);
+  assert.match(modal, /withCount\(tr\('بلا استخدام للتطبيق ولا موقع يصل من جوالك منذ \{n\} دقيقة'\), reminder\.idleMinutes\)/);
+  assert.match(modal, /tr\('لا يلغي الانصراف التلقائي إلا ما زلت أعمل أو تنقل فعلي أو إصدار مستند'\)/);
   assert.match(modal, /tr\('ان انتهى عملك سجل بصمة الانصراف الآن'\)/);
+  assert.match(modal, /tr\('ما زلت أعمل'\)/);
+  assert.match(modal, /tr\('سجل الانصراف الآن'\)/);
+  assert.doesNotMatch(modal, /ولا تنقل منذ/, 'النصّ القديم: الخمول ليس «بلا تنقّل»');
+  // وقت الانصراف التلقائي آخر نشاطٍ **سبق التذكير**: النافذة تُعرض بعد فتح التطبيق (نشاطٌ لا يلغيه) فلا «آخر نشاط» مطلقاً
+  assert.match(modal, /tr\('سجل انصرافك تلقائيا بوقت آخر نشاط لك قبل التذكير وان كنت تعمل سجل حضورا جديدا'\)/);
+  assert.match(app, /tr\('لم ترد على التذكير ولم يرصد تنقل ولا مستند فسجل انصرافك بوقت آخر نشاط لك قبل التذكير'\)/);
+  for (const [name, src] of [['IdlePunchOutModal', modal], ['RepApp', app]] as const) {
+    assert.doesNotMatch(src, /بوقت آخر نشاط لك وان كنت|لم يرصد لك نشاط/, `${name}: النصّ القديم`);
+  }
   assert.equal(ATTENDANCE_REFRESH_EVENT, 'rep:attendance-refresh');
   const hb = read('src', 'rep', 'useHeartbeat.ts');
   assert.match(hb, /beatListeners\.forEach\(\(fn\) => \{ try \{ fn\(d as Record<string, unknown>, beatAt\); \} catch/);
@@ -157,6 +225,13 @@ test('حارس الوسم: «انصراف تلقائي» في جدول الوي�
   assert.doesNotMatch(edit, /\{r\.editedBy && <span>/, 'ختم النظام يُعرض «آخر تعديل»');
   assert.match(edit, /a\.actorName === AUTO_CHECKOUT_EDITOR \? tr\('النظام'\)/);
   assert.match(edit, /a\.reason === AUTO_CHECKOUT_REASON \? tr\('انصراف تلقائي بعد خمول'\)/);
+  // تلميح الوسم يصف القاعدة: آخر نشاطٍ قبل التذكير، ولم يلغه «ما زلت أعمل» ولا تنقّلٌ ولا مستند
+  const tip = "title={tr('سجله النظام بوقت آخر نشاط للمندوب قبل تذكير خمول لم يلغه ما زلت أعمل ولا تنقل ولا مستند')}";
+  const reports = read('src', 'pages', 'ReportsPage.tsx');
+  for (const [name, src] of [['ReportsPage', reports], ['AttendanceEditModal', edit]] as const) {
+    assert.ok(src.includes(tip), `${name}: التلميح`);
+    assert.doesNotMatch(src, /بعد تذكير خمول بلا رد/, `${name}: التلميح القديم`);
+  }
 });
 
 test('عقد الخادم (متى وُجد في الشجرة): مسار «ما زلت أعمل» ومفتاح التذكير ورموز الرفض وحقول المندوب كما يقرؤها التطبيق', (t) => {
@@ -185,4 +260,27 @@ test('عقد الخادم (متى وُجد في الشجرة): مسار «ما �
   assert.match(svc, /actorName: IDLE_ACTOR_NAME/);
   const reps = read('..', 'backend', 'src', 'routes', 'salesReps.ts');
   for (const k of ['idlePunchOutEnabled', 'idlePunchOutMinutes', 'idlePunchOutGraceMinutes']) assert.match(reps, new RegExp(`\\b${k}: `), k);
+  // بيانات العدّ التنازليّ في التذكير المعلّق: ساعة الخادم لحظة الردّ
+  assert.match(svc, /serverNow: now\.getTime\(\)/);
+});
+
+test('نصوص القاعدة: الإعداد في اللوحة والجوال والتوثيق يصف الخمول «بلا استخدام للتطبيق ولا موقع يصل من جواله» وما يلغي الانصراف بعد التذكير', () => {
+  const hint = 'عند التفعيل اذا بقي المندوب حاضرا بلا استخدام للتطبيق ولا موقع يصل من جواله طوال دقائق الخمول';
+  const modal = read('src', 'components', 'forms', 'SalesRepModal.tsx');
+  const m = read('src', 'm', 'MSalesReps.tsx');
+  for (const [name, src] of [['SalesRepModal', modal], ['MSalesReps', m]] as const) {
+    assert.ok(src.includes(`tr('${hint}`), `${name}: التلميح الجديد`);
+    assert.ok(src.includes('لا يلغي الانصراف التلقائي إلا ما زلت أعمل أو تنقل فعلي (اكثر من 150 م) أو إصدار مستند'), `${name}: ما يلغيه بعد التذكير`);
+    assert.doesNotMatch(src, /بلا نشاط في التطبيق ولا تنقل/, `${name}: التلميح القديم`);
+  }
+  const docs = read('src', 'lib', 'apiDocsCatalog.ts');
+  assert.ok(docs.includes('بلا استخدام للتطبيق ولا موقع يصل من جواله'));
+  assert.ok(docs.includes('لا يلغي الانصراف التلقائي إلا «ما زلت أعمل» أو تنقّل فعلي'));
+  assert.ok(!docs.includes('نقاط تتبّع الخلفية لا تُحسب نشاطاً إلا بانتقالٍ'), 'التوثيق القديم');
+  // checkOutAuto في التوثيق: بوقت آخر نشاطٍ قبل التذكير، لا «بعد تذكير خمول بلا رد»
+  const data = read('src', 'lib', 'apiDocsData.ts');
+  for (const [name, src] of [['apiDocsCatalog', docs], ['apiDocsData', data]] as const) {
+    assert.ok(src.includes('سجّله النظام بوقت آخر نشاط للمندوب قبل تذكير خمول لم يلغه «ما زلت أعمل» ولا تنقّل ولا مستند'), `${name}: checkOutAuto`);
+    assert.ok(!src.includes('بعد تذكير خمول بلا رد'), `${name}: الوصف القديم`);
+  }
 });

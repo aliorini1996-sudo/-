@@ -62,7 +62,7 @@ import { startNativeTrackingOnPunch, stopNativeTracking } from './nativeTracking
 import { useHeartbeat, onHeartbeat } from './useHeartbeat';
 import PresenceCheckModal from './PresenceCheck';
 import IdlePunchOutModal from './IdlePunchOutModal';
-import { ATTENDANCE_REFRESH_EVENT, idleReminderOf, type IdleReminder } from '../lib/idlePunchOut';
+import { ATTENDANCE_REFRESH_EVENT, idleAfterBeat, idleReminderOf, type IdleShown } from '../lib/idlePunchOut';
 import { installPresenceAlarmUnlock } from './presenceAlarm';
 import type { PendingPresence } from './presencePhase';
 import { PRESENCE_AWAY_TEXTS, type PresenceAwayView } from './presenceRefusal';
@@ -494,10 +494,10 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
                 <p className="text-xs text-[#8A8072] font-semibold mb-1">{tr('خارج العمل الآن')}</p>
                 <p className="text-[10px] text-[#8A8072]">{tr('آخر انصراف')}</p>
                 <p className="text-2xl font-bold text-[#1F1A13] tabular-nums" dir="ltr">{clockTime(state.last.checkOutAt)}</p>
-                {/* «الانصراف التلقائي» بعد خمولٍ بلا ردّ: الوقت آخر نشاطٍ رُصد له لا لحظة التسجيل */}
+                {/* «الانصراف التلقائي»: تذكيرٌ لم يلغه «ما زلت أعمل» ولا تنقّلٌ ولا مستند — الوقت آخر نشاطٍ سبق التذكير لا لحظة التسجيل */}
                 {state.last.checkOutAuto === true && (
                   <p data-auto-checkout className="mt-1 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-1.5">
-                    <b>{tr('انصراف تلقائي')}</b> — {tr('لم يرصد لك نشاط ولم ترد على التذكير فسجل انصرافك بوقت آخر نشاط لك')}
+                    <b>{tr('انصراف تلقائي')}</b> — {tr('لم ترد على التذكير ولم يرصد تنقل ولا مستند فسجل انصرافك بوقت آخر نشاط لك قبل التذكير')}
                   </p>
                 )}
                 <p className="text-[11px] text-[#8A8072] mt-1">{tr('إن عدت إلى العمل سجّل حضوراً جديداً فتُحسب فترةً أخرى')}</p>
@@ -5335,17 +5335,19 @@ export default function RepApp() {
       return v;
     });
   }, []);
-  // «هل ما زلت تعمل؟» (IdlePunchOutModal، طلب المالك ٢٣ نوفمبر ٢٠٢٦) — التذكير المعلّق من ردّ النبضة. يبقى ظاهراً حتى يردّ
-  // المندوب: ردّ «لا تذكير» لا يغلقه (النبضة نفسها نشاطٌ قد يمحو التذكير في الخادم، فإغلاقه بها يُخفي السؤال قبل قراءته).
+  // «هل ما زلت تعمل؟» (IdlePunchOutModal، طلب المالك ٢٣ نوفمبر ٢٠٢٦) — التذكير المعلّق من ردّ النبضة بعدٍّ تنازليّ إلى الانصراف
+  // التلقائي (فرق ساعة الجوال عن الخادم يُحسب لحظة استلام الردّ). النبضة لا تلغي التذكير في الخادم، فيبقى حتى يردّ المندوب — أو
+  // يلغيه الخادم بتنقّلٍ فعلي أو مستند فيأتي الردّ بلا تذكير فيُغلق قبل انقضاء العدّ (idleAfterBeat: لا عدّ إلى انصرافٍ لن يقع).
   // handledIdle: تذكيرٌ أُجيب (بلحظة إرساله) لا يُعاد فتحه بنبضةٍ كانت في الطريق
-  const [idleReminder, setIdleReminder] = useState<IdleReminder | null>(null);
+  const [idleReminder, setIdleReminder] = useState<IdleShown | null>(null);
   const handledIdle = useRef(new Set<string>());
-  useEffect(() => onHeartbeat((d) => {
+  useEffect(() => onHeartbeat((d, beatAt) => {
     const r = idleReminderOf(d);
-    if (!r || handledIdle.current.has(r.remindedAt)) return;
-    setIdleReminder((cur) => (cur?.remindedAt === r.remindedAt ? cur : r));
+    setIdleReminder((cur) => idleAfterBeat(cur, r, beatAt, handledIdle.current));
   }), []);
-  const answerIdle = (r: IdleReminder, punchOut: boolean) => {
+  // النافذة تعرض نتيجة ردٍّ مرفوض (انصرافٌ تلقائي سبق، أو لا نوبة): ردّ نبضةٍ بلا تذكير لا يُخفيها قبل أن تُقرأ
+  const settleIdle = useCallback(() => setIdleReminder((cur) => (cur && !cur.settled ? { ...cur, settled: true } : cur)), []);
+  const answerIdle = (r: IdleShown, punchOut: boolean) => {
     handledIdle.current.add(r.remindedAt);
     setIdleReminder(null);
     if (punchOut) setScreen('attendance'); // الانصراف العادي من شاشة البصمة — بموقعه وجهازه وقيوده
@@ -6116,7 +6118,7 @@ export default function RepApp() {
           {idleReminder && !presence && token && user && (
             <IdlePunchOutModal key={idleReminder.remindedAt} reminder={idleReminder}
               onStillWorking={() => answerIdle(idleReminder, false)}
-              onPunchOut={() => answerIdle(idleReminder, true)} />
+              onPunchOut={() => answerIdle(idleReminder, true)} onSettled={settleIdle} />
           )}
           {/* نتيجة التحصيل بالبطاقة بعد الرجوع من وحدة الدفع — فوق الشاشات، والخادم يحسم ويُصدر السند */}
           {cardPayView && token && user && (!cardPayView.pending?.repId || cardPayView.pending.repId === user.id) && (

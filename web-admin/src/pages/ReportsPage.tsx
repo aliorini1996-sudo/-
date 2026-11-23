@@ -2252,10 +2252,10 @@ export default function ReportsPage() {
                                           {p.source === 'PUNCH' && (p.edited || (p.entry && p.entry !== 'APP')) && (
                                             <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">{entryLabel(p, tr)}</span>
                                           )}
-                                          {/* «انصراف تلقائي»: سجّله النظام بوقت آخر نشاطٍ بعد تذكير خمولٍ بلا ردّ — لا بصمة المندوب */}
+                                          {/* «انصراف تلقائي»: سجّله النظام بوقت آخر نشاطٍ سبق تذكير خمولٍ لم يُلغَ — لا بصمة المندوب */}
                                           {periodAutoOut(p) && (
                                             <span data-auto-checkout className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800"
-                                              title={tr('سجله النظام بوقت آخر نشاط للمندوب بعد تذكير خمول بلا رد')}>
+                                              title={tr('سجله النظام بوقت آخر نشاط للمندوب قبل تذكير خمول لم يلغه ما زلت أعمل ولا تنقل ولا مستند')}>
                                               {tr('انصراف تلقائي')}
                                             </span>
                                           )}

@@ -151,7 +151,7 @@ router.put('/rows/:id', async (req: AuthRequest, res: Response, next: NextFuncti
         // ونوبةٌ أعادها المستخدم مفتوحةً تبدأ دورة الخمول من أوّلها: تذكيرٌ قديم فيها كان سيصرفها في الدورة التالية فوراً
         data: {
           checkInAt: s.checkInAt, checkOutAt: s.checkOutAt, editedAt: now, editedBy: name, checkOutAuto: keepAuto,
-          ...(s.checkOutAt == null ? { idleRemindedAt: null } : {}),
+          ...(s.checkOutAt == null ? { idleRemindedAt: null, idleLastActiveAt: null } : {}),
         },
         select: ROW_SELECT,
       });

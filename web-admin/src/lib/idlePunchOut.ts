@@ -1,10 +1,11 @@
 // «تذكير بالانصراف عند الخمول ثم انصراف تلقائي» (طلب المالك ٢٣ نوفمبر ٢٠٢٦) — منطقٌ صرف يُختبر وحده، مشتركٌ بين نافذة
 // المندوب في اللوحة (SalesRepModal) وشاشة صلاحياته في الجوال (MSalesReps) وتطبيق المندوب (IdlePunchOutModal).
 //
-// القيد في الخادم (services/idlePunchOut.ts): نوبةٌ مفتوحة بلا نشاطٍ في التطبيق ولا تنقّلٍ (انتقالٌ فوق ١٥٠ م من تتبّع الخلفية —
-// نقاطها والجوال ساكن لا تُحسب) مدّة «دقائق الخمول» ⇒ إشعارٌ يذكّر
-// المندوب بالانصراف، وبلا ردٍّ خلال «مهلة الرد» ⇒ انصرافٌ تلقائي بوقت آخر نشاطٍ له، موسومٌ «انصراف تلقائي» في التقارير.
-// والدقيقتان قابلتان للتغيير لكل مندوب كالمسافة، وحدودهما هنا حدود الخادم نفسها (رسالة 400 بالعربية هناك).
+// القيد في الخادم (services/idlePunchOut.ts) بقرار المالك: نوبةٌ مفتوحة بلا استخدامٍ للتطبيق ولا موقعٍ يصل من جوال المندوب (نقاط
+// الخلفية والصفحة، ساكنةً أو متحرّكة) مدّة «دقائق الخمول» ⇒ إشعارٌ يذكّره بالانصراف ونافذة «هل ما زلت تعمل؟» بعدٍّ تنازليّ. وبعد
+// التذكير لا يلغي الانصراف التلقائي إلا «ما زلت أعمل» أو تنقّلٌ فعلي (أكثر من ١٥٠ م) أو إصدار مستند (فاتورة أو مرتجع أو سند أو
+// زيارة) — لا فتح التطبيق ولا موقعٌ ساكن — وإلا بانقضاء «مهلة الرد» انصرافٌ تلقائي بوقت آخر نشاطٍ سبق التذكير، موسومٌ
+// «انصراف تلقائي» في التقارير. والدقيقتان قابلتان للتغيير لكل مندوب كالمسافة، وحدودهما هنا حدود الخادم نفسها (رسالة 400 بالعربية هناك).
 
 /** دقائق الخمول قبل التذكير: ١٠–٤٨٠، و٤٥ افتراضاً */
 export const IDLE_MINUTES_MIN = 10;
@@ -55,13 +56,18 @@ export function idleSaveFields<T extends IdlePunchOutFields>(data: T): T {
 /**
  * التذكير المعلّق كما يرسله الخادم (services/idlePunchOut.ts ⇒ pendingIdleReminder) في ردّ النبضة
  * (POST /tracking/heartbeat ⇒ data.idlePunchOutReminder) وفي حالة الحضور (GET /tracking/attendance/today، للنوبة المفتوحة).
- * والتطبيق يقرؤه من ردّ النبضة وحده: النبضة تنطلق فور فتح التطبيق وبكل عودةٍ إلى المقدّمة (لمس الإشعار)، فلا مصدرين يتسابقان
+ * والتطبيق يقرؤه من ردّ النبضة وحده: النبضة تنطلق فور فتح التطبيق وبكل عودةٍ إلى المقدّمة (لمس الإشعار) وكل دقيقة، فلا مصدرين يتسابقان
  */
 export interface IdleReminder {
   /** لحظة إرسال التذكير (ISO بساعة الخادم) — مفتاحه: تذكيرٌ أُجيب لا يُعاد فتحه بنبضةٍ لاحقة */
   remindedAt: string;
   idleMinutes: number;
   graceMinutes: number;
+  /**
+   * فرق ساعة الخادم عن ساعة الجوال لحظة استلام الردّ (serverNow − ساعة الجوال، ms): به يُعدّ التنازل إلى الانصراف التلقائي بساعة
+   * الخادم ولو تقدّمت ساعة الجوال أو تأخّرت. صفرٌ إن لم يرسل الخادم serverNow
+   */
+  clockOffsetMs: number;
 }
 
 /** مفتاح التذكير في ردّ الخادم */
@@ -72,19 +78,63 @@ const posInt = (v: unknown): number | null => (typeof v === 'number' && Number.i
 /**
  * التذكير من ردّ الخادم: الحقل غائب (خادمٌ قبل الميزة) ⇒ undefined فلا يتغيّر شيء، وnull ⇒ لا تذكير معلّق،
  * وشكلٌ فاسد (لحظةٌ لا تُقرأ) ⇒ null — لا نافذة بلا مفتاحٍ يُعرف به التذكير المُجاب.
- * ولا عدّ تنازليّ من graceMinutes في النافذة: النبضة التي حملت التذكير نشاطٌ يلغي انصرافه التلقائي في الخادم (IdlePunchOutModal)
+ * و`phoneNow` ساعة الجوال لحظة استلام الردّ: منها ومن serverNow فرقُ الساعتين للعدّ التنازليّ (idleRemainingMs)
  */
-export function idleReminderOf(data: unknown): IdleReminder | null | undefined {
+export function idleReminderOf(data: unknown, phoneNow: number = Date.now()): IdleReminder | null | undefined {
   if (!data || typeof data !== 'object' || !(IDLE_REMINDER_KEY in data)) return undefined;
   const v = (data as Record<string, unknown>)[IDLE_REMINDER_KEY];
   if (!v || typeof v !== 'object') return null;
   const r = v as Record<string, unknown>;
   if (typeof r.remindedAt !== 'string' || !Number.isFinite(Date.parse(r.remindedAt))) return null;
+  const serverNow = typeof r.serverNow === 'number' && Number.isFinite(r.serverNow) && r.serverNow > 0 ? r.serverNow : null;
   return {
     remindedAt: r.remindedAt,
     idleMinutes: posInt(r.idleMinutes) ?? IDLE_MINUTES_DEFAULT,
     graceMinutes: posInt(r.graceMinutes) ?? IDLE_GRACE_DEFAULT,
+    clockOffsetMs: serverNow != null && Number.isFinite(phoneNow) ? serverNow - phoneNow : 0,
   };
+}
+
+// ───────── العدّ التنازليّ إلى الانصراف التلقائي ─────────
+
+/** لحظة الانصراف التلقائي بساعة الخادم: التذكير + مهلة الرد — تُجريه دورة الخادم (كل دقيقة) عندها أو بعدها بدقيقة على الأكثر */
+export const idleDeadlineMs = (r: Pick<IdleReminder, 'remindedAt' | 'graceMinutes'>): number =>
+  Date.parse(r.remindedAt) + r.graceMinutes * 60_000;
+
+/** الباقي حتى الانصراف التلقائي (ms، لا أقلّ من صفر) — ساعة الجوال مصحّحةً بفرقها عن ساعة الخادم */
+export const idleRemainingMs = (r: IdleReminder, phoneNow: number = Date.now()): number =>
+  Math.max(0, idleDeadlineMs(r) - (phoneNow + r.clockOffsetMs));
+
+/** العدّ «د:ث» — الثواني مقرّبةٌ لأعلى فلا يظهر 00:00 والمهلة لم تنقضِ، والدقائق قد تتجاوز ٥٩ (المهلة حتى ١٢٠ دقيقة) */
+export function fmtCountdown(ms: number): string {
+  const sec = Math.max(0, Math.ceil(ms / 1000));
+  return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
+}
+
+/** التذكير الظاهر في التطبيق: ومعه لحظة إطلاق آخر نبضةٍ أكّدته، وsettled حين تعرض النافذة نتيجة ردٍّ (انصرافٌ تلقائي سبق، أو لا نوبة) */
+export type IdleShown = IdleReminder & { beatAt: number; settled?: boolean };
+
+/**
+ * النافذة بعد ردّ نبضة (حكمٌ صرف لـRepApp):
+ *  • خادمٌ بلا الحقل (undefined) أو ردٌّ من نبضةٍ أُطلقت قبل التي أكّدت الظاهر ⇒ لا تغيير.
+ *  • تذكيرٌ أُجيب (handled) ⇒ لا يُعاد فتحه. والتذكير نفسه ⇒ يُحدَّث (فرق الساعتين) بلا إعادة تركيب، وتذكيرٌ آخر ⇒ يحلّ محلّه.
+ *  • null (لا تذكير معلّق في الخادم): أُلغي هناك — تنقّلٌ فعلي أو مستندٌ أو «ما زلت أعمل» من جهازٍ آخر أو انصراف — فتُغلق النافذة
+ *    ولا يبقى عدٌّ إلى انصرافٍ لن يقع. إلا بعد انقضاء العدّ (الأرجح أنّ الانصراف التلقائي وقع: تبقى ليعرف المندوب النتيجة بضغطه)
+ *    أو والنافذة تعرض نتيجة ردٍّ (settled).
+ */
+export function idleAfterBeat(
+  cur: IdleShown | null, incoming: IdleReminder | null | undefined, beatAt: number, handled: ReadonlySet<string>,
+  phoneNow: number = Date.now(),
+): IdleShown | null {
+  if (incoming === undefined) return cur;
+  if (cur && beatAt < cur.beatAt) return cur;
+  if (incoming === null) {
+    if (!cur || cur.settled || idleRemainingMs(cur, phoneNow) <= 0) return cur;
+    return null;
+  }
+  if (handled.has(incoming.remindedAt)) return cur;
+  if (cur && cur.remindedAt === incoming.remindedAt) return { ...incoming, beatAt, settled: cur.settled };
+  return { ...incoming, beatAt };
 }
 
 /** نصٌّ بعدده: «{n}» في الترجمة يُستبدل بالعدد بعد tr — فالمفتاح ثابتٌ في القاموس */

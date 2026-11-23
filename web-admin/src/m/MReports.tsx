@@ -1477,7 +1477,7 @@ function HoursDetail({ row, onClose }: { row: WorkHoursRow; onClose: () => void 
                   // وسما اليوم (طلب المالك ٢١ أكتوبر ٢٠٢٦): بصمةٌ قُبلت خارج النطاق، وفترةٌ عُدّلت أو أُضيفت إدارياً
                   periodsOf(d).some(periodOutside) ? tr('خارج النطاق') : '',
                   periodsOf(d).some(p => p.source === 'PUNCH' && (p.edited || (p.entry && p.entry !== 'APP'))) ? tr('معدلة') : '',
-                  // «انصراف تلقائي» بعد خمولٍ بلا ردّ — سجّله النظام بوقت آخر نشاط
+                  // «انصراف تلقائي» بعد تذكير خمولٍ لم يُلغَ — سجّله النظام بوقت آخر نشاطٍ سبق التذكير
                   periodsOf(d).some(periodAutoOut) ? tr('انصراف تلقائي') : '',
                   presenceNote(d.date),
                 ].filter(Boolean).join(' · ') || undefined}
