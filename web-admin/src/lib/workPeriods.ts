@@ -27,6 +27,9 @@ export interface WorkPeriodLike {
   /** أُضيفت أو عُدّلت إدارياً أو رُفعت من Excel */
   edited?: boolean;
   entry?: 'APP' | 'ADMIN' | 'IMPORT';
+  /** «انصراف تلقائي»: الانصراف الذي أنهى الفترة سجّله النظام بوقت آخر نشاطٍ بعد تذكير خمولٍ بلا ردّ (backend services/idlePunchOut.ts)
+   *  — حاضرٌ true وحده، وغائبٌ من خادمٍ أقدم */
+  outAuto?: boolean;
 }
 
 /** وسم النطاق كما يُكتب: «داخل النطاق (١٢ م)»، «خارج النطاق (٤٠٠ م)»، و«—» لمندوبٍ غير مقيَّد */
@@ -45,6 +48,9 @@ export function entryLabel(p: WorkPeriodLike, tr: Tr): string {
 
 /** فترةٌ فيها بصمة خارج النطاق (حضوراً أو انصرافاً) */
 export const periodOutside = (p: WorkPeriodLike): boolean => p.inOutside === true || p.outOutside === true;
+
+/** فترةٌ أنهاها «انصراف تلقائي» — لا لفترةٍ مفتوحة ولا ليومٍ بلا بصمة */
+export const periodAutoOut = (p: WorkPeriodLike): boolean => p.source !== 'ACTIVITY' && p.end != null && p.outAuto === true;
 
 /** رابط خرائط Google لموقع — null متى غاب أحد الإحداثيين أو فسد (لا رابطٌ يفتح المحيط) */
 export function mapsUrl(lat: number | null | undefined, lng: number | null | undefined): string | null {
@@ -87,10 +93,14 @@ export function dayEnd(d: WorkDayLike): string | null {
   return d.lastActivity;
 }
 
-/** «٠٩:٠٠ ص – ٠١:٠٠ م · ٠٥:٠٠ م – ٠٩:٠٠ م» — والمفتوحة تنتهي بـ`openLabel` */
-export function formatPeriods(periods: readonly WorkPeriodLike[], clock: (iso: string) => string, openLabel: string): string {
-  return periods.map(p => `${clock(p.start)} – ${p.end ? clock(p.end) : openLabel}`).join(' · ');
+/** «٠٩:٠٠ ص – ٠١:٠٠ م · ٠٥:٠٠ م – ٠٩:٠٠ م» — والمفتوحة تنتهي بـ`openLabel`، وما أنهاه «انصراف تلقائي» يُتبع بـ`autoLabel` إن مُرِّر */
+export function formatPeriods(periods: readonly WorkPeriodLike[], clock: (iso: string) => string, openLabel: string, autoLabel?: string): string {
+  return periods.map(p => `${clock(p.start)} – ${p.end ? endText(p, p.end, clock, autoLabel) : openLabel}`).join(' · ');
 }
+
+/** وقت الانصراف كما يُكتب في الأوراق: «٠٥:٠٠ م» و«٠٥:٠٠ م (انصراف تلقائي)» */
+const endText = (p: WorkPeriodLike, end: string, clock: (iso: string) => string, autoLabel?: string): string =>
+  autoLabel && periodAutoOut(p) ? `${clock(end)} (${autoLabel})` : clock(end);
 
 /** مدّةٌ مختصرة بلا أصفار: «٤ س»، «٤ س ٣٠ د»، «٤٥ د» */
 export function compactMinutes(min: number, tr: Tr): string {
@@ -116,7 +126,7 @@ export function attendanceDayCells(d: WorkDayLike, fx: {
   return {
     [tr('بداية العمل')]: d.absent ? tr('لا نشاط') : fx.clock(d.firstActivity),
     [tr('نهاية العمل')]: d.absent ? tr('لا نشاط') : end ? fx.clock(end) : tr('لم ينصرف'),
-    [tr('فترات العمل')]: d.absent ? '—' : formatPeriods(periodsOf(d), fx.clock, tr('لم ينصرف')),
+    [tr('فترات العمل')]: d.absent ? '—' : formatPeriods(periodsOf(d), fx.clock, tr('لم ينصرف'), tr('انصراف تلقائي')),
     [tr('الاستراحة')]: brk > 0 ? compactMinutes(brk, tr) : '—',
     [tr('إجمالي وقت العمل')]: d.absent ? '—' : fx.minutes(d.spanMinutes),
     [tr('نشاط التطبيق')]: d.absent ? '—' : fx.minutes(d.appMinutes),
@@ -145,7 +155,8 @@ export function punchDetailRows(
       [tr('موقع الحضور')]: punchInUrl(p) ?? tr('بلا موقع'),
       [tr('نطاق الحضور')]: placeLabel(p.inOutside, p.inDistanceM, tr),
       [tr('جهاز الحضور')]: p.inDevice || '—',
-      [tr('الانصراف')]: p.end ? fx.clock(p.end) : tr('لم ينصرف'),
+      // «انصراف تلقائي» بجانب وقته: سجّله النظام بوقت آخر نشاطٍ بعد تذكير خمولٍ بلا ردّ — لا بصمة المندوب
+      [tr('الانصراف')]: p.end ? endText(p, p.end, fx.clock, tr('انصراف تلقائي')) : tr('لم ينصرف'),
       [tr('موقع الانصراف')]: p.end ? punchOutUrl(p) ?? tr('بلا موقع') : '—',
       [tr('نطاق الانصراف')]: p.end ? placeLabel(p.outOutside, p.outDistanceM, tr) : '—',
       [tr('جهاز الانصراف')]: p.end ? p.outDevice || '—' : '—',
@@ -158,3 +169,10 @@ export function punchDetailRows(
     { cols: [tr('التاريخ')], keyOf: (i: number) => items[i].day },
   ]);
 }
+
+/**
+ * عرض أعمدة ورقة «تفاصيل البصمات» (بالحروف، بلا عمود المندوب — يُسبق بعرضه حين withRep) بترتيب punchDetailRows عموداً عموداً:
+ * التاريخ، الحضور، موقعه، نطاقه، جهازه، الانصراف (يتّسع لـ«٠٥:٠٠ م (انصراف تلقائي)» — لا التفاف في الخلية)، موقعه، نطاقه، جهازه،
+ * المدة، المصدر
+ */
+export const PUNCH_DETAIL_WIDTHS: readonly number[] = [12, 10, 42, 22, 18, 28, 42, 22, 18, 12, 16];

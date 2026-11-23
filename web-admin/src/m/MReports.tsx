@@ -26,7 +26,7 @@ import { useIsLive, livePoll } from './useLiveQuery';
 import { hasBigUnit, qtyText } from './mUnits';
 import { anyPrimary, qtyTotalLabel } from './mPrimaryUnit';
 import type { UnitDef } from '../lib/units';
-import { breakOf, compactMinutes, formatPeriods, hasPunchLocation, periodsOf, punchInUrl, punchOutUrl, periodOutside, type WorkPeriodLike } from '../lib/workPeriods';
+import { breakOf, compactMinutes, formatPeriods, hasPunchLocation, periodsOf, punchInUrl, punchOutUrl, periodOutside, periodAutoOut, type WorkPeriodLike } from '../lib/workPeriods';
 import {
   appliedRangeOf, truncationOf, defaultedRangeNote, truncationNote, customerStatusBadge, perfHasCash, perfCompanyRate, type Truncation,
 } from '../lib/reportsAccuracy';
@@ -1477,6 +1477,8 @@ function HoursDetail({ row, onClose }: { row: WorkHoursRow; onClose: () => void 
                   // وسما اليوم (طلب المالك ٢١ أكتوبر ٢٠٢٦): بصمةٌ قُبلت خارج النطاق، وفترةٌ عُدّلت أو أُضيفت إدارياً
                   periodsOf(d).some(periodOutside) ? tr('خارج النطاق') : '',
                   periodsOf(d).some(p => p.source === 'PUNCH' && (p.edited || (p.entry && p.entry !== 'APP'))) ? tr('معدلة') : '',
+                  // «انصراف تلقائي» بعد خمولٍ بلا ردّ — سجّله النظام بوقت آخر نشاط
+                  periodsOf(d).some(periodAutoOut) ? tr('انصراف تلقائي') : '',
                   presenceNote(d.date),
                 ].filter(Boolean).join(' · ') || undefined}
                 trailing={d.absent
@@ -1521,6 +1523,7 @@ function PunchLine({ p, first }: { p: WorkPeriodLike; first: boolean }) {
       {p.end
         ? time(p.end, punchOutUrl(p), 'text-[#C0392B]', tr('موقع الانصراف'))
         : <span className="text-[#9A8F7E]">{tr('لم ينصرف')}</span>}
+      {periodAutoOut(p) && <span data-auto-checkout className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-bold text-amber-800 whitespace-nowrap">{tr('انصراف تلقائي')}</span>}
       <span className="tabular-nums text-[#2E6FB0] font-semibold w-16 text-end">
         {p.end ? compactMinutes(Math.max(0, Math.round((Date.parse(p.end) - Date.parse(p.start)) / 60000)), tr) : '—'}
       </span>

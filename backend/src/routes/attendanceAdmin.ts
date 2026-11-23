@@ -45,6 +45,8 @@ const ROW_SELECT = {
   checkInDevice: true, checkOutDevice: true,
   checkInOutside: true, checkInDistanceM: true, checkOutOutside: true, checkOutDistanceM: true,
   source: true, editedAt: true, editedBy: true,
+  // «انصراف تلقائي» بعد خمولٍ بلا ردّ (services/idlePunchOut.ts) — سجّله النظام لا المندوب
+  checkOutAuto: true,
 } as const;
 
 /** المندوب في الشركة وفي نطاق المستخدم — وإلّا 404 (لا يكشف الردّ وجود مندوبٍ خارج النطاق) */
@@ -137,13 +139,20 @@ router.put('/rows/:id', async (req: AuthRequest, res: Response, next: NextFuncti
     const name = auditActorName(req);
     const row = await prisma.$transaction(async (tx) => {
       await lockRepAttendance(tx, found.salesRepId);
-      const before = await tx.repAttendance.findFirst({ where: { id: found.id, tenantId: tid }, select: { checkInAt: true, checkOutAt: true } });
+      const before = await tx.repAttendance.findFirst({ where: { id: found.id, tenantId: tid }, select: { checkInAt: true, checkOutAt: true, checkOutAuto: true } });
       if (!before) throw new EditError(404, 'البصمة غير موجودة');
       const now = new Date();
       assertShiftOk(s, await shiftsAround(tx, tid, found.salesRepId, s, now), now, found.id);
+      // وسم «انصراف تلقائي» يبقى ما بقي وقت الانصراف الذي سجّله النظام؛ وقتٌ آخر (أو إعادة فتح النوبة) قرارُ المستخدم لا النظام
+      const keepAuto = before.checkOutAuto === true && before.checkOutAt != null && s.checkOutAt != null
+        && before.checkOutAt.getTime() === s.checkOutAt.getTime();
       const updated = await tx.repAttendance.update({
         where: { id: found.id },
-        data: { checkInAt: s.checkInAt, checkOutAt: s.checkOutAt, editedAt: now, editedBy: name },
+        // ونوبةٌ أعادها المستخدم مفتوحةً تبدأ دورة الخمول من أوّلها: تذكيرٌ قديم فيها كان سيصرفها في الدورة التالية فوراً
+        data: {
+          checkInAt: s.checkInAt, checkOutAt: s.checkOutAt, editedAt: now, editedBy: name, checkOutAuto: keepAuto,
+          ...(s.checkOutAt == null ? { idleRemindedAt: null } : {}),
+        },
         select: ROW_SELECT,
       });
       await tx.attendanceAudit.create({

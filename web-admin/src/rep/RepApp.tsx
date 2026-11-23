@@ -59,8 +59,10 @@ import RepRouteScreen, { fetchMyRoute, RouteToday } from './RepRouteScreen';
 import RepDailyReport from './RepDailyReport';
 import { useRepTracking } from './useRepTracking';
 import { startNativeTrackingOnPunch, stopNativeTracking } from './nativeTracking';
-import { useHeartbeat } from './useHeartbeat';
+import { useHeartbeat, onHeartbeat } from './useHeartbeat';
 import PresenceCheckModal from './PresenceCheck';
+import IdlePunchOutModal from './IdlePunchOutModal';
+import { ATTENDANCE_REFRESH_EVENT, idleReminderOf, type IdleReminder } from '../lib/idlePunchOut';
 import { installPresenceAlarmUnlock } from './presenceAlarm';
 import type { PendingPresence } from './presencePhase';
 import { PRESENCE_AWAY_TEXTS, type PresenceAwayView } from './presenceRefusal';
@@ -148,6 +150,10 @@ interface RepUser {
   requireBoundDevice?: boolean;
   /** «التحقق العشوائي من التواجد» — يصله «أثبت تواجدك» مرّتين إلى ثلاث يومياً (PresenceCheck.tsx) */
   requirePresenceCheck?: boolean;
+  /** «تذكير بالانصراف عند الخمول ثم انصراف تلقائي» — تذكيره يصل بالإشعار، فشاشة البصمة تنبّه إن كانت التنبيهات مطفأة */
+  idlePunchOutEnabled?: boolean;
+  idlePunchOutMinutes?: number;
+  idlePunchOutGraceMinutes?: number;
   id: string; name: string; phone?: string;
   canAddCustomer?: boolean;
   /** «تعديل بيانات العميل» — افتراضه في الخادم مُطفأ، فلا يظهر زرّ التعديل إلا بـtrue صريحة */
@@ -330,7 +336,7 @@ const PUNCH_LOW_ACCURACY_MSG = 'موقعك غير دقيق الآن (±{acc} م)
 const withAcc = (text: string, acc: number): string => text.replace('{acc}', String(Math.round(acc)));
 
 // atCustomer: «بصمة الحضور بموقع عميل» — موقع البصمة قراءةٌ طازجة بأفضل دقّة لا قراءةٌ مخبّأة (punchFix.ts)
-function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = false }: { atCustomer?: boolean; boundDevice?: boolean; presenceOn?: boolean }) {
+function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = false, idleOn = false }: { atCustomer?: boolean; boundDevice?: boolean; presenceOn?: boolean; idleOn?: boolean }) {
   const tr = useTr();
   // رفض «جهازٍ آخر» — على آيفون غالباً لأن سفاري وتطبيق الشاشة الرئيسية تخزينان معزولان فمعرّفان مختلفان
   const [deviceRefused, setDeviceRefused] = useState(false);
@@ -379,6 +385,11 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
   }, [tr, tzOffsetMin]);
 
   useEffect(() => { load(); }, [load]);
+  // «هل ما زلت تعمل؟» كشف نوبةً أُغلقت (انصرافٌ تلقائي سبق ردّه) — الحالة تُقرأ من جديد فلا تبقى «حاضر» (IdlePunchOutModal)
+  useEffect(() => {
+    window.addEventListener(ATTENDANCE_REFRESH_EVENT, load);
+    return () => window.removeEventListener(ATTENDANCE_REFRESH_EVENT, load);
+  }, [load]);
 
   const punch = async (kind: 'checkin' | 'checkout') => {
     // ضغطةٌ ثانية قبل أن يُرسم التعطيل تُهمل — والخادم بدوره يعيد النوبة المفتوحة ولا يفتح ثانية
@@ -483,6 +494,12 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
                 <p className="text-xs text-[#8A8072] font-semibold mb-1">{tr('خارج العمل الآن')}</p>
                 <p className="text-[10px] text-[#8A8072]">{tr('آخر انصراف')}</p>
                 <p className="text-2xl font-bold text-[#1F1A13] tabular-nums" dir="ltr">{clockTime(state.last.checkOutAt)}</p>
+                {/* «الانصراف التلقائي» بعد خمولٍ بلا ردّ: الوقت آخر نشاطٍ رُصد له لا لحظة التسجيل */}
+                {state.last.checkOutAuto === true && (
+                  <p data-auto-checkout className="mt-1 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-1.5">
+                    <b>{tr('انصراف تلقائي')}</b> — {tr('لم يرصد لك نشاط ولم ترد على التذكير فسجل انصرافك بوقت آخر نشاط لك')}
+                  </p>
+                )}
                 <p className="text-[11px] text-[#8A8072] mt-1">{tr('إن عدت إلى العمل سجّل حضوراً جديداً فتُحسب فترةً أخرى')}</p>
               </>
             ) : (
@@ -537,6 +554,7 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
                       </span>
                     </span>
                     {(sh.checkInOutside || sh.checkOutOutside) && <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 rounded px-1.5 py-0.5 whitespace-nowrap">{tr('خارج النطاق')}</span>}
+                    {sh.checkOutAt && sh.checkOutAuto === true && <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 rounded px-1.5 py-0.5 whitespace-nowrap">{tr('انصراف تلقائي')}</span>}
                     {sh.checkOutAt && <span className="text-[11px] text-[#8A8072] whitespace-nowrap">{fmtWorkMinutes(shiftMinutes(sh), tr)}</span>}
                   </li>
                 ))}
@@ -565,6 +583,10 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
           {/* «التحقق العشوائي من التواجد» يصل بالإشعار: بلا تنبيهات لا يعلم به إلا والتطبيق مفتوح، فيُحسب «بلا ردّ» */}
           {presenceOn && pushSt != null && pushSt !== 'on' && (
             <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">{tr('الادارة فعلت التحقق من تواجدك فعل التنبيهات ليصلك طلب اثبت تواجدك والا سجل بلا رد')}</p>
+          )}
+          {/* «تذكير بالانصراف عند الخمول» يصل بالإشعار والتطبيق مغلق: بلا تنبيهات لا يعلم به فيُسجَّل انصرافه تلقائياً بعد المهلة */}
+          {idleOn && pushSt != null && pushSt !== 'on' && (
+            <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">{tr('الادارة فعلت تذكير الانصراف عند الخمول فعل التنبيهات ليصلك التذكير والا سجل انصرافك تلقائيا بعد المهلة')}</p>
           )}
 
           <p className="text-[11px] text-[#8A8072] text-center leading-relaxed">
@@ -5313,6 +5335,23 @@ export default function RepApp() {
       return v;
     });
   }, []);
+  // «هل ما زلت تعمل؟» (IdlePunchOutModal، طلب المالك ٢٣ نوفمبر ٢٠٢٦) — التذكير المعلّق من ردّ النبضة. يبقى ظاهراً حتى يردّ
+  // المندوب: ردّ «لا تذكير» لا يغلقه (النبضة نفسها نشاطٌ قد يمحو التذكير في الخادم، فإغلاقه بها يُخفي السؤال قبل قراءته).
+  // handledIdle: تذكيرٌ أُجيب (بلحظة إرساله) لا يُعاد فتحه بنبضةٍ كانت في الطريق
+  const [idleReminder, setIdleReminder] = useState<IdleReminder | null>(null);
+  const handledIdle = useRef(new Set<string>());
+  useEffect(() => onHeartbeat((d) => {
+    const r = idleReminderOf(d);
+    if (!r || handledIdle.current.has(r.remindedAt)) return;
+    setIdleReminder((cur) => (cur?.remindedAt === r.remindedAt ? cur : r));
+  }), []);
+  const answerIdle = (r: IdleReminder, punchOut: boolean) => {
+    handledIdle.current.add(r.remindedAt);
+    setIdleReminder(null);
+    if (punchOut) setScreen('attendance'); // الانصراف العادي من شاشة البصمة — بموقعه وجهازه وقيوده
+  };
+  // تبدّل المندوب على الجوال نفسه (خروجٌ ثم دخول): تذكير صاحب الجلسة السابقة لا يُعرض على غيره
+  useEffect(() => { setIdleReminder(null); }, [user?.id]);
   const fetchPresence = useCallback(() => {
     if (!localStorage.getItem('rep_token')) return;
     repApi.get('/tracking/presence', { background: true }).then((r) => showPresence(r.data?.data)).catch(() => { /* لا طلب أو الميزة مطفأة */ });
@@ -6073,6 +6112,12 @@ export default function RepApp() {
               onClose={() => { answeredPresence.current.add(presence.id); setPresence(null); }}
               onDismiss={() => setPresence(null)} />
           )}
+          {/* «هل ما زلت تعمل؟» — بعد «أثبت تواجدك» إن اجتمعا، ولصاحب الجلسة وحده (مندوبٌ آخر دخل من الجوال نفسه لا يراه) */}
+          {idleReminder && !presence && token && user && (
+            <IdlePunchOutModal key={idleReminder.remindedAt} reminder={idleReminder}
+              onStillWorking={() => answerIdle(idleReminder, false)}
+              onPunchOut={() => answerIdle(idleReminder, true)} />
+          )}
           {/* نتيجة التحصيل بالبطاقة بعد الرجوع من وحدة الدفع — فوق الشاشات، والخادم يحسم ويُصدر السند */}
           {cardPayView && token && user && (!cardPayView.pending?.repId || cardPayView.pending.repId === user.id) && (
             <CardPayResult pending={cardPayView.pending} unsupported={cardPayView.unsupported} test={company?.cardPayTest === true}
@@ -6229,7 +6274,7 @@ export default function RepApp() {
                 {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} canRequest={(company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true} />}
                 {screen === 'fuel' && <RepFuel accountingOn={accountingOn} />}
                 {screen === 'worknum' && <RepWorkNumber />}
-                {screen === 'attendance' && <RepAttendance atCustomer={user.requirePunchAtCustomer === true} boundDevice={user.requireBoundDevice === true} presenceOn={user.requirePresenceCheck === true} />}
+                {screen === 'attendance' && <RepAttendance atCustomer={user.requirePunchAtCustomer === true} boundDevice={user.requireBoundDevice === true} presenceOn={user.requirePresenceCheck === true} idleOn={user.idlePunchOutEnabled === true} />}
                 {screen === 'airep' && aiRepOn && (
                   <AiRepBoundary onBack={() => setScreen('home')}>
                     <Suspense fallback={<p className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</p>}>

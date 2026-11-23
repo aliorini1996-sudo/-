@@ -566,6 +566,13 @@ model SalesRep {
   // «التحقق العشوائي من التواجد» (طلب المالك، ٢٢ أكتوبر ٢٠٢٦) — تقييديّ كسابقيه: مفعّلٌ ⇒ يصله إشعار «أثبت تواجدك»
   // مرّتين إلى ثلاث في اليوم بأوقاتٍ عشوائية أثناء نوبته، ويردّ خلال دقيقتين بقراءة موقعٍ طازجة (services/presenceChecks.ts)
   requirePresenceCheck Boolean @default(false)
+  // «تذكير بالانصراف عند الخمول ثم انصراف تلقائي» (طلب المالك، ٢٣ نوفمبر ٢٠٢٦) — قيدٌ يُفعَّل ويُطفأ لكل مندوب: نوبةٌ مفتوحة
+  // ومندوبٌ بلا نشاطٍ ولا حركة منذ idlePunchOutMinutes ⇒ إشعار «سجّل بصمة الانصراف إن انتهى عملك»، وبلا ردٍّ خلال
+  // idlePunchOutGraceMinutes ⇒ انصرافٌ تلقائي بوقت آخر نشاط (services/idlePunchOut.ts). المدّتان تحدّدهما الإدارة كالمسافة،
+  // والحدّان ١٠–٤٨٠ و٥–١٢٠ دقيقة في التحقّق (salesReps.ts). false افتراضاً = السلوك قبله حرفياً
+  idlePunchOutEnabled      Boolean @default(false)
+  idlePunchOutMinutes      Int     @default(45)
+  idlePunchOutGraceMinutes Int     @default(15)
   // «عرض خط السير على الخريطة» (طلب المالك، ٢٣ أكتوبر ٢٠٢٦) — إعداد عرضٍ للإدارة لا قيد: مطفأٌ ⇒ لا يُرسم أثر GPS للمندوب
   // على خريطة التتبّع ولا يعيده /tracking/route، ويبقى موقعه الحالي وبصمته وزياراته وخطّه المخطَّط. التسجيل مستمرّ،
   // فيعود خطّه كاملاً بإعادة التفعيل. true افتراضاً = السلوك قبله حرفياً
@@ -2743,6 +2750,11 @@ model RepAttendance {
   checkInDistanceM  Int?
   checkOutOutside   Boolean?
   checkOutDistanceM Int?
+  // «الانصراف التلقائي عند الخمول» (services/idlePunchOut.ts، طلب المالك ٢٣ نوفمبر ٢٠٢٦): لحظة إرسال تذكير الخمول في هذه النوبة
+  // (null = لم يُذكَّر، أو ضغط «ما زلت أعمل»)، وانصرافٌ سجّله النظام بوقت آخر نشاطٍ بعد تذكيرٍ بلا ردّ — لا بصمة المندوب.
+  // إضافيّان: الصفوف القائمة null وfalse
+  idleRemindedAt DateTime?
+  checkOutAuto   Boolean   @default(false)
   // مصدر الصف: APP (بصمة المندوب) | ADMIN (أضافها أو عدّلها مستخدم الشركة) | IMPORT (رُفعت من Excel) — وكل تعديل
   // إداري في AttendanceAudit
   source   String    @default("APP")
@@ -2762,7 +2774,7 @@ model AttendanceAudit {
   tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   salesRepId   String
   attendanceId String?
-  action       String // CREATE | UPDATE | DELETE | IMPORT | UNBIND_DEVICE
+  action       String // CREATE | UPDATE | DELETE | IMPORT | UNBIND_DEVICE | AUTO_CHECKOUT (النظام: انصراف تلقائي بعد خمول)
   before       Json?
   after        Json?
   reason       String?

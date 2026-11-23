@@ -4,6 +4,19 @@ import { outboxAllOrNull } from './offlineDb';
 import { heartbeatPayload } from './outboxReview';
 import { BUILD_ID } from '../lib/buildId';
 
+/** مشترِكٌ في ردّ النبضة كاملاً (data) ولحظة إطلاقها */
+export type BeatListener = (data: Record<string, unknown>, beatAt: number) => void;
+const beatListeners = new Set<BeatListener>();
+
+/**
+ * الاشتراك في ردّ كل نبضة — «تذكير بالانصراف عند الخمول» (idlePunchOutReminder في الردّ نفسه، lib/idlePunchOut.ts ⇒ idleReminderOf) يصل
+ * التطبيقَ المفتوح هكذا كما يصل «أثبت تواجدك». يعيد دالّة الإلغاء (لـuseEffect).
+ */
+export function onHeartbeat(fn: BeatListener): () => void {
+  beatListeners.add(fn);
+  return () => { beatListeners.delete(fn); };
+}
+
 /**
  * نبضة حضور: تُعلم الخادم أن تطبيق المندوب مفتوح ومتصل — لحساب ساعات العمل.
  * مستقلّة تماماً عن تتبّع GPS؛ تعمل ما دام المندوب مسجّلاً دخوله والتطبيق مفتوحاً،
@@ -24,7 +37,12 @@ export function useHeartbeat(active: boolean, onPresence?: (p: unknown, beatAt: 
       outboxAllOrNull()
         .then((docs) => repApi.post('/tracking/heartbeat', heartbeatPayload(BUILD_ID, docs), { background: true }))
         // presence حاضرٌ في الردّ (null = لا طلب معلّق) — خادمٌ أقدم بلا الحقل لا يُغلق شيئاً
-        .then((r) => { const d = r?.data?.data; if (d && 'presence' in d) presenceCb.current?.(d.presence ?? null, beatAt); })
+        .then((r) => {
+          const d = r?.data?.data;
+          if (d && 'presence' in d) presenceCb.current?.(d.presence ?? null, beatAt);
+          // ثمّ الردّ كاملاً للمشتركين — مشترِكٌ يرمي لا يُسقط غيره
+          if (d && typeof d === 'object') beatListeners.forEach((fn) => { try { fn(d as Record<string, unknown>, beatAt); } catch { /* تجاهل */ } });
+        })
         .catch(() => { /* تجاهل */ });
     };
     beat(); // فور فتح التطبيق

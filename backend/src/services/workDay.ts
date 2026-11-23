@@ -216,6 +216,8 @@ export interface WorkPeriod {
   edited?: boolean;
   /** مصدر الصفّ: APP | ADMIN | IMPORT (للمدموجة: أيّها لم يكن من التطبيق) */
   entry?: 'APP' | 'ADMIN' | 'IMPORT';
+  /** «انصراف تلقائي»: الانصراف الذي أنهى الفترة سجّله النظام بعد خمولٍ بلا ردّ (services/idlePunchOut.ts) — حاضرٌ true وحده */
+  outAuto?: boolean;
 }
 
 export interface WorkDay {
@@ -278,12 +280,21 @@ export interface AttendanceShift {
   checkInDevice?: string | null; checkOutDevice?: string | null;
   checkInOutside?: boolean | null; checkInDistanceM?: number | null;
   checkOutOutside?: boolean | null; checkOutDistanceM?: number | null;
-  source?: string | null; editedAt?: Date | null;
+  source?: string | null; editedAt?: Date | null; editedBy?: string | null;
+  /** «انصراف تلقائي» بعد خمولٍ بلا ردّ (services/idlePunchOut.ts) */
+  checkOutAuto?: boolean | null;
 }
+
+/**
+ * منفّذ الانصراف التلقائي في editedBy (وفي سجلّ التدقيق): يختم النظام editedAt لحظة الانصراف كي تلتقطه المزامنة (وقت الانصراف
+ * نفسه آخر نشاطٍ مضى، فلا يقع بعد مؤشّرها) — وختمه وحده ليس «تعديلاً إدارياً»
+ */
+export const AUTO_CHECKOUT_EDITOR = 'النظام';
 
 /** مصدر صفّ البصمة كما يُعرض: ما ليس ADMIN ولا IMPORT بصمةٌ من التطبيق */
 const entryOf = (s: AttendanceShift): 'APP' | 'ADMIN' | 'IMPORT' => (s.source === 'ADMIN' || s.source === 'IMPORT' ? s.source : 'APP');
-const editedOf = (s: AttendanceShift): boolean => entryOf(s) !== 'APP' || s.editedAt != null;
+const systemStampOnly = (s: AttendanceShift): boolean => s.checkOutAuto === true && s.editedBy === AUTO_CHECKOUT_EDITOR;
+const editedOf = (s: AttendanceShift): boolean => entryOf(s) !== 'APP' || (s.editedAt != null && !systemStampOnly(s));
 
 /** إحداثيّان معاً أو لا شيء: نصفُ موقعٍ لا يُفتح على خريطة */
 const coordPair = (lat: number | null | undefined, lng: number | null | undefined): [number, number] | [null, null] =>
@@ -330,6 +341,7 @@ export function attendanceByDay(shifts: readonly AttendanceShift[], tzOffsetMin:
           cur.outDevice = s.checkOutDevice ?? null;
           cur.outOutside = s.checkOutOutside ?? null;
           cur.outDistanceM = s.checkOutDistanceM ?? null;
+          if (s.checkOutAuto === true) cur.outAuto = true; else delete cur.outAuto;
         } else if (s.checkOutOutside === true) {
           cur.outOutside = true;
         }
@@ -347,6 +359,7 @@ export function attendanceByDay(shifts: readonly AttendanceShift[], tzOffsetMin:
           inOutside: s.checkInOutside ?? null, inDistanceM: s.checkInDistanceM ?? null,
           outOutside: s.checkOutAt ? s.checkOutOutside ?? null : null, outDistanceM: s.checkOutAt ? s.checkOutDistanceM ?? null : null,
           edited: editedOf(s), entry: entryOf(s),
+          ...(s.checkOutAt && s.checkOutAuto === true ? { outAuto: true } : {}),
         });
       }
     }

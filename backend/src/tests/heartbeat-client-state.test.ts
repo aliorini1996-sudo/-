@@ -45,7 +45,9 @@ test('المسار: كتابة repSession واحدة (تحديث أو إنشاء
   const body = src.slice(start, src.indexOf('\n});', start));
   const calls = [...body.matchAll(/prisma\.(\w+)\.(\w+)\(/g)].map(m => `${m[1]}.${m[2]}`);
   assert.deepEqual(calls, ['repSession.findFirst', 'repSession.update', 'repSession.create', 'salesRep.update']);
-  assert.match(body, /await prisma\.salesRep\.update\(\{\s*where: \{ id: repId \}, data: \{ lastSeenAt: now, \.\.\.heartbeatClientState\(req\.body, now\) \}, select: \{ requirePresenceCheck: true \},\s*\}\);/);
+  assert.match(body, /await prisma\.salesRep\.update\(\{\s*where: \{ id: repId \}, data: \{ lastSeenAt: now, \.\.\.heartbeatClientState\(req\.body, now\) \}, select: \{ requirePresenceCheck: true, idlePunchOutEnabled: true \},\s*\}\);/);
+  // «تذكير بالانصراف عند الخمول»: استعلامٌ إضافي للمقيَّد بالقيد وحده (تذكيره المعلّق) — الحقل حاضرٌ دائماً null لغيره
+  assert.match(body, /const idlePunchOutReminder = beat\.idlePunchOutEnabled && \(await attendanceEnabled\(tid\)\) \? await pendingIdleReminder\(tid, repId, now\) : null;/);
   // «التحقق العشوائي من التواجد»: استعلامٌ إضافي للمقيَّد وحده (طلبه المعلّق) — غيره نبضته كما كانت
   assert.match(body, /const presence = beat\.requirePresenceCheck && \(await attendanceEnabled\(tid\)\) \? await pendingPresence\(tid, repId, now\) : null;/);
   assert.match(body, /if \(last && .*\) \{\n\s*await prisma\.repSession\.update\(.*\n\s*\} else \{\n\s*await prisma\.repSession\.create\(/);

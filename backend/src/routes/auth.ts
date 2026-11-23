@@ -638,6 +638,8 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
           canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
           requireCustomerProximity: true, requireLocationOn: true, requirePunchAtCustomer: true,
           proximityRadiusM: true, punchRadiusM: true, requireBoundDevice: true, requirePresenceCheck: true,
+          // «تذكير بالانصراف عند الخمول»: التطبيق يعرف القيد ومدّتيه (نصّ «هل ما زلت تعمل؟» وتلميح شاشة البصمة)
+          idlePunchOutEnabled: true, idlePunchOutMinutes: true, idlePunchOutGraceMinutes: true,
           // «الفرق»: فرق المندوب الفعّالة — حين فعّلتها الشركة وحدها
           tenant: { select: { settings: { select: { teamsEnabled: true } } } },
           teamMemberships: { where: { team: { isActive: true } }, select: { team: { select: { id: true, name: true } } } } }

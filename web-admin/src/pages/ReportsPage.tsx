@@ -22,7 +22,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Download, TrendingUp, Users, UserCheck, UserX, MapPin, FileText, Search, X, Wallet, AlertTriangle, Pencil, Upload, Receipt, ShoppingCart, Coins, Percent } from 'lucide-react';
 import { shareOrDownloadExcel, num, ExcelSheet } from '../utils/excel';
 import { mergeRuns } from '../lib/mergeRuns';
-import { attendanceDayCells, breakOf, compactMinutes, periodsOf, punchDetailRows, punchInUrl, punchOutUrl, periodOutside, placeLabel, entryLabel, type WorkPeriodLike } from '../lib/workPeriods';
+import { attendanceDayCells, breakOf, compactMinutes, periodsOf, punchDetailRows, PUNCH_DETAIL_WIDTHS, punchInUrl, punchOutUrl, periodOutside, periodAutoOut, placeLabel, entryLabel, type WorkPeriodLike } from '../lib/workPeriods';
 import { elementsToPdfBlob, downloadPdf } from '../rep/pdf';
 import toast from 'react-hot-toast';
 import { useAccountingOn } from '../components/AccountingGate';
@@ -722,7 +722,7 @@ export default function ReportsPage() {
         })), colWidths: [22, 12, 12, 14, 12, 14, 12, 18, 18] },
         { name: tr('الحضور اليومي'), rows: daily.rows, merges: daily.merges, colWidths: [22, 12, 12, 12, 30, 10, 14, 14, 12, 16] },
         ...(punches.rows.length ? [{ name: tr('تفاصيل البصمات'), rows: punches.rows, merges: punches.merges,
-          colWidths: [22, 12, 10, 42, 10, 42, 12], pdfLinkLabel: tr('فتح الخريطة') }] : []),
+          colWidths: [22, ...PUNCH_DETAIL_WIDTHS], pdfLinkLabel: tr('فتح الخريطة') }] : []),
         { name: tr('تفاصيل الزيارات'), rows: visits.rows, merges: visits.merges, colWidths: [22, 12, 24, 34, 12, 12, 12, 12, 16] },
       ];
       fname = tr('ساعات العمل');
@@ -1124,7 +1124,7 @@ export default function ReportsPage() {
     const [daily, visits] = repHoursSheets(r);
     const p = punchDetailRows([r], false, dayCellFx);
     return p.rows.length
-      ? [daily, { name: tr('تفاصيل البصمات'), rows: p.rows, merges: p.merges, colWidths: [12, 10, 42, 10, 42, 12], pdfLinkLabel: tr('فتح الخريطة') }, visits]
+      ? [daily, { name: tr('تفاصيل البصمات'), rows: p.rows, merges: p.merges, colWidths: [...PUNCH_DETAIL_WIDTHS], pdfLinkLabel: tr('فتح الخريطة') }, visits]
       : [daily, visits];
   };
   const exportRepPerf = async (r: PerfRow) => {
@@ -2251,6 +2251,13 @@ export default function ReportsPage() {
                                           )}
                                           {p.source === 'PUNCH' && (p.edited || (p.entry && p.entry !== 'APP')) && (
                                             <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">{entryLabel(p, tr)}</span>
+                                          )}
+                                          {/* «انصراف تلقائي»: سجّله النظام بوقت آخر نشاطٍ بعد تذكير خمولٍ بلا ردّ — لا بصمة المندوب */}
+                                          {periodAutoOut(p) && (
+                                            <span data-auto-checkout className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800"
+                                              title={tr('سجله النظام بوقت آخر نشاط للمندوب بعد تذكير خمول بلا رد')}>
+                                              {tr('انصراف تلقائي')}
+                                            </span>
                                           )}
                                         </span>
                                       </Fragment>

@@ -3959,7 +3959,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[مندوب], pagination:{total, page, limit, pages}} مرتبة بالاسم تصاعدياً. حقول المندوب: id, name, phone, email, username, isActive, canCreateInvoice, canSellOnCredit, canSellOnInstallment, canSellInCash, canEditInvoice, canDeleteInvoice, canCancelInvoice, canChangePrice, maxDiscountPct, canSellBelowPrice, canChangePriceList, defaultPriceListId, allowedPriceTypes, canCreateReceipt, canEditReceipt, canCancelReceipt, canManageVanStock, canAddCustomer, canEditCustomer, canViewStatement, showCollectionBalance, cashSaleCollected, requireCustomerProximity, requireLocationOn, requirePunchAtCustomer, proximityRadiusM, punchRadiusM, punchOutsideAction, requireBoundDevice, boundDeviceName, boundDeviceAt, requirePresenceCheck, showRouteOnMap, shiftStart, shiftEnd, shiftDays, locationId, createdAt",
+    "response": "{success:true, data:[مندوب], pagination:{total, page, limit, pages}} مرتبة بالاسم تصاعدياً. حقول المندوب: id, name, phone, email, username, isActive, canCreateInvoice, canSellOnCredit, canSellOnInstallment, canSellInCash, canEditInvoice, canDeleteInvoice, canCancelInvoice, canChangePrice, maxDiscountPct, canSellBelowPrice, canChangePriceList, defaultPriceListId, allowedPriceTypes, canCreateReceipt, canEditReceipt, canCancelReceipt, canManageVanStock, canAddCustomer, canEditCustomer, canViewStatement, showCollectionBalance, cashSaleCollected, requireCustomerProximity, requireLocationOn, requirePunchAtCustomer, proximityRadiusM, punchRadiusM, punchOutsideAction, requireBoundDevice, boundDeviceName, boundDeviceAt, requirePresenceCheck, idlePunchOutEnabled, idlePunchOutMinutes, idlePunchOutGraceMinutes, showRouteOnMap, shiftStart, shiftEnd, shiftDays, locationId, createdAt",
     "rules": [
      "لا تُعاد كلمة المرور ولا حقول التتبع والموقع ولا canSellWithoutStock ولا canBeTracked",
      "pages = ceil(total/limit) من utils/helpers.ts",
@@ -4230,6 +4230,24 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "التحقق العشوائي من التواجد أثناء الدوام"
      },
      {
+      "name": "idlePunchOutEnabled",
+      "type": "boolean",
+      "required": false,
+      "desc": "تذكير بالانصراف عند الخمول ثم انصراف تلقائي (false افتراضاً): نوبة مفتوحة بلا نشاط في التطبيق (نبضة التطبيق المفتوح ونقاط موقع الصفحة) ولا تنقّل (نقاط تتبّع الخلفية لا تُحسب نشاطاً إلا بانتقالٍ أكثر من 150 م، بوقت استلامها في الخادم) مدة idlePunchOutMinutes ⇒ إشعار يذكّر المندوب بالانصراف، وبلا رد خلال idlePunchOutGraceMinutes ⇒ انصراف يسجّله النظام بوقت آخر نشاط له، موسوم checkOutAuto في البصمات وoutAuto في فترات تقرير ساعات العمل"
+     },
+     {
+      "name": "idlePunchOutMinutes",
+      "type": "integer",
+      "required": false,
+      "desc": "دقائق الخمول قبل التذكير: عدد صحيح من 10 إلى 480 (45 افتراضاً)، وإلا 400 IDLE_PUNCH_OUT_RANGE"
+     },
+     {
+      "name": "idlePunchOutGraceMinutes",
+      "type": "integer",
+      "required": false,
+      "desc": "مهلة الرد بعد التذكير قبل الانصراف التلقائي: عدد صحيح من 5 إلى 120 (15 افتراضاً)، وإلا 400 IDLE_PUNCH_OUT_RANGE"
+     },
+     {
       "name": "requireBoundDevice",
       "type": "boolean",
       "required": false,
@@ -4307,7 +4325,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "canCreateInvoice ... shiftDays",
       "type": "boolean / number",
       "required": false,
-      "desc": "نفس حقول POST وكلها اختيارية: الصلاحيات (ومنها canChangePriceList «تبديل قائمة الأسعار»)، وdefaultPriceListId وallowedPriceTypes (المرسل منهما يُفحص مع المحفوظ من الآخر: الافتراضية من القوائم المسموحة حين تُقيَّد، و'base' فيها إن كان الافتراضي السعر الأساسي، وإلا 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED)، وmaxDiscountPct من 0 إلى 100، وproximityRadiusM وpunchRadiusM أعداد صحيحة من 10 إلى 5000، وpunchOutsideAction وrequireBoundDevice وrequirePresenceCheck وshowRouteOnMap وshiftStart وshiftEnd وshiftDays"
+      "desc": "نفس حقول POST وكلها اختيارية: الصلاحيات (ومنها canChangePriceList «تبديل قائمة الأسعار»)، وdefaultPriceListId وallowedPriceTypes (المرسل منهما يُفحص مع المحفوظ من الآخر: الافتراضية من القوائم المسموحة حين تُقيَّد، و'base' فيها إن كان الافتراضي السعر الأساسي، وإلا 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED)، وmaxDiscountPct من 0 إلى 100، وproximityRadiusM وpunchRadiusM أعداد صحيحة من 10 إلى 5000، وpunchOutsideAction وrequireBoundDevice وrequirePresenceCheck وshowRouteOnMap وshiftStart وshiftEnd وshiftDays، وidlePunchOutEnabled وidlePunchOutMinutes (10 إلى 480) وidlePunchOutGraceMinutes (5 إلى 120) — المرسل منهما خارج حدّه 400 IDLE_PUNCH_OUT_RANGE"
      }
     ],
     "response": "{success:true, data:{id, name, phone, username, isActive}} أو 404 'المندوب غير موجود'",
@@ -8733,7 +8751,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{rows:[{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy}], audit:[{id, attendanceId, action, before, after, reason, actorName, createdAt}]}}",
+    "response": "{success:true, data:{rows:[{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy, checkOutAuto}], audit:[{id, attendanceId, action, before, after, reason, actorName, createdAt}]}}. checkOutAuto = true: انصراف سجّله النظام بوقت آخر نشاط بعد تذكير خمول بلا رد (لا بصمة المندوب)، وسطره في audit بالإجراء AUTO_CHECKOUT باسم «النظام». تعديل وقت انصرافه يُسقط الوسم",
     "rules": [
      "الصفوف بالحضور تصاعدياً وحتى 500، والسجل الأحدث أولاً وحتى 100",
      "source: APP (بصمة التطبيق) أو ADMIN (أُضيفت يدوياً) أو IMPORT (من الرفع)، وeditedAt/editedBy لما عُدّل"
@@ -8779,7 +8797,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "سبب الإضافة، ويُدوَّن في السجل"
      }
     ],
-    "response": "201 {success:true, data:{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy}} بمصدر ADMIN",
+    "response": "201 {success:true, data:{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy, checkOutAuto}} بمصدر ADMIN",
     "rules": [
      "لا مستقبل، والانصراف بعد الحضور، ولا فترة فوق 24 ساعة، ولا أقدم من 400 يوم — وإلا 400 برسالة القاعدة",
      "التداخل مع فترة قائمة للمندوب 409 ATTENDANCE_OVERLAP مع conflict:{checkInAt, checkOutAt}"
@@ -8819,7 +8837,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "سبب التعديل"
      }
     ],
-    "response": "{success:true, data:{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy}}",
+    "response": "{success:true, data:{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy, checkOutAuto}}",
     "rules": [
      "الحقلان يُرسلان معاً دائماً (كتابة كاملة للفترة)",
      "السجل يحفظ القيمتين قبل وبعد، وبصمة التطبيق المعدّلة تبقى موسومة editedAt"
@@ -9522,7 +9540,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, name, totalMinutes, hours, minutes, sessions, firstSeen, lastSeen, fieldMinutesTotal, workedDays, absentDays, visitsTotal, avgDayMinutes, days:[{date, firstActivity, lastActivity, spanMinutes, periods:[{start, end, source:'PUNCH'|'ACTIVITY', inLat?, inLng?, outLat?, outLng?}], breakMinutes, appMinutes, visits:[{customerName, start, end, durationSec, hasNote, parts, lat, lng, sources}], visitsCount, visitsSec, absent}]}], meta:{tzOffsetMin, rangeClamped?:31, truncated:boolean, limit:200000, appliedRange:{from, to, defaulted}}}",
+    "response": "{success:true, data:[{id, name, totalMinutes, hours, minutes, sessions, firstSeen, lastSeen, fieldMinutesTotal, workedDays, absentDays, visitsTotal, avgDayMinutes, days:[{date, firstActivity, lastActivity, spanMinutes, periods:[{start, end, source:'PUNCH'|'ACTIVITY', inLat?, inLng?, outLat?, outLng?, outAuto?:true}], breakMinutes, appMinutes, visits:[{customerName, start, end, durationSec, hasNote, parts, lat, lng, sources}], visitsCount, visitsSec, absent}]}], meta:{tzOffsetMin, rangeClamped?:31, truncated:boolean, limit:200000, appliedRange:{from, to, defaulted}}}",
     "rules": [
      "بلا from يكون المدى 7 أيام تنتهي عند to أو الآن",
      "الحد الأقصى 31 يوماً، والزائد يُقصّ من البداية ويُعلن بـ meta.rangeClamped=31",

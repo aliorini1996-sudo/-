@@ -1309,6 +1309,8 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
           checkInDevice: true, checkOutDevice: true,
           checkInOutside: true, checkInDistanceM: true, checkOutOutside: true, checkOutDistanceM: true,
           source: true, editedAt: true,
+          // «انصراف تلقائي» بعد خمول (period.outAuto) — وختم النظام editedAt/editedBy لا يُعدّ تعديلاً إدارياً
+          editedBy: true, checkOutAuto: true,
         },
       }),
     ]);
