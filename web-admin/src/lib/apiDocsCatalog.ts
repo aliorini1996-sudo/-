@@ -6072,6 +6072,44 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الطلب المرفوض لا يعود معلّقاً، والمندوب يرفع طلباً جديداً"
     ],
     "example": "{\"updatedAt\":\"2026-10-27T08:15:02.114Z\"}"
+   },
+   {
+    "method": "POST",
+    "path": "/rep-stock-requests/:id/loaded",
+    "purpose": "«تحميل مباشر»: تعليم طلب مندوب معلّق «حُمِّل» بعد تحميل كمياته إلى سيارته، فيراه المندوب في تطبيقه",
+    "permission": "canManageVanStock",
+    "gates": [
+     "مستخدم شركة لا مندوب (403 «غير مسموح» للمندوب)",
+     "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
+     "صلاحية canManageVanStock (403 بلا code)",
+     "warehouseEnabled يجب أن يكون true وإلا 403 WAREHOUSE_NOT_ENABLED «ميزة مخزون الشركة غير مفعلة لهذه الشركة»",
+     "نطاق المستخدم: طلبات مناديبه وحدها",
+     "مفتاح قراءة فقط مرفوض 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "updatedAt",
+      "type": "string (ISO)",
+      "required": true,
+      "desc": "نسخة الطلب التي حمّلتها كما قرأتها (أو كما ردّها حفظ التعديل)"
+     },
+     {
+      "name": "vanLoadId",
+      "type": "string",
+      "required": true,
+      "desc": "معرّف حركة التحميل التي كتبتها بـPOST /van-stock/loads (type LOAD) لسيارة صاحب الطلب"
+     }
+    ],
+    "response": "{success:true}",
+    "rules": [
+     "هذا المسار لا يحرّك مخزوناً: حمّل أولاً بـPOST /van-stock/loads بـsalesRepId صاحب الطلب وكمياته المعتمدة (ومعها clientRef لإعادة آمنة)، ثم علّم الطلب هنا بمعرّف الحركة",
+     "400 VAN_LOAD_MISMATCH لحركة ليست تحميلاً LOAD لسيارة صاحب الطلب في شركتك، ولا يُكتب شيء",
+     "404 لطلب غير معلّق أو خارج النطاق. و409 REQUEST_CHANGED_AFTER_LOAD إن عدّله المندوب بعد النسخة التي حمّلتها: يبقى معلّقاً لتراجع ما أضافه، ويُكتب معرّف الحركة في sentRef للطلب المعلّق علامةً على أن نسخةً منه حُمِّلت (فلا تحمّله كاملاً مرة ثانية)",
+     "الطلب المحمَّل لا يعود معلّقاً ولا يدخل الطلب العام، ومعرّف الحركة في sentRef",
+     "لإعادة آمنة اجعل clientRef التحميل ثابتاً لنسخة الطلب (معرّفه مع updatedAt): إعادة الإرسال تعيد الحركة نفسها بدل تحميلٍ ثانٍ"
+    ],
+    "example": "{\"updatedAt\":\"2026-11-23T08:15:02.114Z\",\"vanLoadId\":\"4f2b8c10-6a7e-4d21-9b3c-0e5f7a8d9c12\"}"
    }
   ]
  },

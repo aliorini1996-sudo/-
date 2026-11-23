@@ -6,7 +6,7 @@ import {
   parseRequestQty, isInvalidRequestQty, stockRequestLines, stockRequestTotalQty, stockRequestRef,
   stockRequestToLabel, stockRequestApproverLabel, shortFirst, requestCandidates,
   repItemQty, repRequestDirty, repRequestTotals, withRequestedProducts, requestedFirst, type RepStockRequest,
-  requestUnitOf, defaultRequestUnit, prefillInUnit, stockRequestTotalText, repLineUnitId, repItemUnit, repEditItems, convertRepQty,
+  requestUnitOf, defaultRequestUnit, prefillInUnit, stockRequestTotalText, repLineUnitId, repItemUnit, repEditItems, convertRepQty, repLoadItems, repLoadRef,
 } from './stockRequest';
 import { qtyByUnit, unitTotalsText } from '../rep/warehouseNoticeFacts';
 
@@ -206,4 +206,26 @@ test('حفظ تعديل الإداري: unitId حين تغيّرت الوحدة 
 test('صنفٌ طلبه مندوب خارج جدول المستودع يُلحق بوحدة الأساس ووحداته — لا بوحدة سطر المندوب', () => {
   const all = withRequestedProducts([], [unitReq('a', 'كرتون', 24, 2)]);
   assert.deepEqual(all, [{ productId: 'w', name: 'ماء', code: undefined, unit: 'حبة', onHand: 0, units: ctn }]);
+});
+
+test('«تحميل مباشر»: بنود التحميل من الطلب المحفوظ بوحدة سطره وأساسه، والصفر خارجها، والوحدة الموقوفة بالأساس', () => {
+  // كرتونان بوحدة السطر النشطة ⇒ unitId الكرتون والكمية نفسها، و«٣ حبة» ⇒ الأساس null
+  assert.deepEqual(repLoadItems(unitReq('a', 'كرتون', 24, 2)), [{ productId: 'w', qty: 2, unitId: 'u-ctn', baseUnitName: 'حبة' }]);
+  assert.deepEqual(repLoadItems(unitReq('b', null, 1, 3)), [{ productId: 'w', qty: 3, unitId: null, baseUnitName: 'حبة' }]);
+  // صنفٌ صفّره الإداري لا يُحمَّل
+  assert.deepEqual(repLoadItems(unitReq('c', 'كرتون', 24, 0)), []);
+  // وحدة السطر لم تعد بين النشطة (معاملها ١٢ والكرتون الآن ٢٤) ⇒ الكمية نفسها بالأساس، لا «٢ كرتون» بمعاملٍ آخر
+  assert.deepEqual(repLoadItems(unitReq('d', 'كرتون', 12, 2)), [{ productId: 'w', qty: 24, unitId: null, baseUnitName: 'حبة' }]);
+  // خادمٌ قبل «الوحدة الرئيسية» بلا baseUnit ⇒ لا baseUnitName (الجسم كما كان)
+  const old = unitReq('e', null, 1, 5); delete (old.items[0] as { baseUnit?: string }).baseUnit;
+  assert.deepEqual(repLoadItems(old), [{ productId: 'w', qty: 5, unitId: null }]);
+});
+
+test('«تحميل مباشر»: مرجع منع التكرار ثابتٌ لنسخة الطلب — النسخة نفسها المرجع نفسه، ونسخةٌ جديدة مرجعٌ جديد، وحروفه وطوله كما يقبل الخادم', () => {
+  const id = '9c1e7a52-3d4b-4f60-8a21-5b6c7d8e9f00';
+  const a = repLoadRef({ id, updatedAt: '2026-11-23T08:15:02.114Z' });
+  assert.equal(a, repLoadRef({ id, updatedAt: '2026-11-23T08:15:02.114Z' }));
+  assert.notEqual(a, repLoadRef({ id, updatedAt: '2026-11-23T08:15:03.000Z' }));
+  assert.match(a, /^[A-Za-z0-9_-]{1,64}$/);
+  assert.match(repLoadRef({ id: 'x'.repeat(80), updatedAt: 'غير تاريخ' }), /^[A-Za-z0-9_-]{1,64}$/);
 });

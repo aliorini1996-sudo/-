@@ -146,7 +146,7 @@ test('مسارات المندوب له وحده، ومعرّفه من توكنه
 
 test('مسارات الإدارة لغير المندوب، ومقيّدة بالشركة ونطاق المستخدم، وتحت قفل الشركة مع فحص النسخة', () => {
   const s = route();
-  for (const sig of ["router.get('/', companyOnly,", "router.post('/send', companyOnly,", "router.put('/:id', companyOnly,", "router.post('/:id/reject', companyOnly,"]) {
+  for (const sig of ["router.get('/', companyOnly,", "router.post('/send', companyOnly,", "router.put('/:id', companyOnly,", "router.post('/:id/reject', companyOnly,", "router.post('/:id/loaded', companyOnly,"]) {
     const h = handler(s, sig);
     assert.match(h, /tenantId: tid|pendingForEdit\(tx, req, tid/, `${sig} بلا عزل شركة`);
     assert.match(h, /repScopeWhere\(req\)|pendingForEdit\(/, `${sig} بلا نطاق المستخدم`);
@@ -157,6 +157,26 @@ test('مسارات الإدارة لغير المندوب، ومقيّدة با�
   assert.match(handler(s, "router.post('/send'"), /rows\.length !== want\.size \|\| rows\.some\(\(r\) => r\.updatedAt\.toISOString\(\) !== want\.get\(r\.id\)\)/);
   // /send قبل /:id
   assert.ok(s.indexOf("router.post('/send'") < s.indexOf("router.put('/:id'"));
+});
+
+test('«تحميل مباشر»: يُعلَّم الطلب «حُمِّل» بحركة تحميلٍ قائمة لسيارة صاحبه وحدها، بنسخته وتحت القفل — والمندوب يراه', () => {
+  const s = route();
+  const h = handler(s, "router.post('/:id/loaded'");
+  // الحركة من الشركة نفسها، ولسيارة صاحب الطلب، وتحميلٌ لا تنزيلٌ أو تسوية — وإلا 400 بلا كتابة
+  assert.match(h, /tx\.vanLoad\.findFirst\(\{ where: \{ id: data\.vanLoadId, tenantId: tid, salesRepId: cur\.salesRepId, type: 'LOAD' \}/);
+  assert.match(h, /status: 400, code: 'VAN_LOAD_MISMATCH'/);
+  // الطلب المعلّق في نطاق المستخدم يُقرأ بعد القفل، ثم الحالة ومعرّف الحركة بالنسخة التي حُمِّلت
+  assert.ok(h.indexOf('await lockTenant(tx, tid);') < h.indexOf('tx.repStockRequest.findFirst('));
+  assert.match(h, /tenantId: tid, status: 'PENDING', \.\.\.\(await repScopeWhere\(req\)\)/);
+  assert.match(h, /status: 'LOADED', decidedAt: new Date\(\), decidedBy: deciderName\(req\), sentRef: load\.id/);
+  // عدّله المندوب بعد التحميل: يبقى معلّقاً بعلامة الحركة (تُكتب ولا يُرمى داخل المعاملة فتُلغى) ثم 409 برمزه
+  assert.match(h, /if \(cur\.updatedAt\.toISOString\(\) !== data\.updatedAt\) \{\s*await tx\.repStockRequest\.update\(\{ where: \{ id: cur\.id \}, data: \{ sentRef: load\.id, updatedAt: cur\.updatedAt \} \}\);\s*return 'CHANGED' as const;/);
+  assert.match(h, /res\.status\(409\)\.json\(\{ success: false, code: 'REQUEST_CHANGED_AFTER_LOAD'/);
+  assert.ok(h.indexOf("throw Object.assign(new Error('حركة التحميل") < h.indexOf("return 'CHANGED'"), 'الحركة تُفحص قبل العلامة');
+  // لا منطق تحميلٍ موازٍ: الموجّه لا يكتب حركة مخزون
+  assert.doesNotMatch(s, /vanLoad\.create|vanLoadItem\.create/);
+  // آخر طلبٍ حُسم يراه المندوب في تطبيقه — ومنه المحمَّل
+  assert.match(handler(s, "router.get('/mine'"), /status: \{ in: \['SENT', 'REJECTED', 'LOADED'\] \}/);
 });
 
 test('كتابة المندوب تحت قفل الشركة نفسه: طلبٌ معلّق واحد لا يتكرّر', () => {

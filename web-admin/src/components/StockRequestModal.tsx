@@ -1,14 +1,17 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ClipboardList, FileDown, Search, X, Truck, Save, Ban } from 'lucide-react';
+import { ClipboardList, FileDown, Search, X, Truck, Save, Ban, PackageCheck, AlertTriangle } from 'lucide-react';
 import { useTr } from '../i18n/strings';
-import { repStockRequestApi } from '../api/client';
+import { repStockRequestApi, vanStockApi } from '../api/client';
+import { isReplayResponse, sendWithRefRecovery, warehouseInsufficientOf, withClientRef, fillNames, VAN_MOVE_TEXT } from '../lib/vanStockFlags';
+import { LOT_WARNING_CODES, LOT_WARNING_LABELS, lotWarningsOf } from '../lib/lots';
+import { STOCK_CACHE_KEYS } from '../m/mLotsLogic';
 import { formatDateTime } from '../utils/format';
 import DocumentModal from './DocumentModal';
 import type { Company, StockRequestDoc } from '../rep/RepDocuments';
 import {
   stockRequestLines, stockRequestTotalText, stockRequestRef, stockRequestToLabel, isInvalidRequestQty, isShort,
-  repItemQty, repRequestDirty, repRequestTotals, withRequestedProducts, requestedFirst, parseRequestQty,
+  repItemQty, repRequestDirty, repRequestTotals, withRequestedProducts, requestedFirst, parseRequestQty, repLoadItems, repLoadRef,
   requestUnitOf, defaultRequestUnit, prefillInUnit, repLineUnitId, repItemUnit, repEditItems, convertRepQty, isStaleUnitsError, requestCandidates,
   type StockRequestTo, type StockRequestSourceRow, type RepStockRequest, type RepRequestItem, type RepUnitEdits,
 } from '../lib/stockRequest';
@@ -66,10 +69,8 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
   const [sent, setSent] = useState(false);
 
   // طلبات المناديب المعلّقة، وتعديلات الإداري عليها قبل الحفظ، والمستبعَد من هذا الإرسال
-  const reqQ = useQuery({
-    queryKey: ['rep-stock-requests'],
-    queryFn: async () => (await repStockRequestApi.pending()).data.data as RepStockRequest[],
-  });
+  const fetchPending = async () => (await repStockRequestApi.pending()).data.data as RepStockRequest[];
+  const reqQ = useQuery({ queryKey: ['rep-stock-requests'], queryFn: fetchPending });
   const reqs = useMemo(() => reqQ.data ?? [], [reqQ.data]);
   const [edits, setEdits] = useState<Record<string, Record<string, string>>>({});
   // وحدة بنود المناديب التي بدّلها الإداري (غيابها = وحدة سطر المندوب، null = الأساس)
@@ -77,8 +78,11 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
   // وحدة الطلب العام لكل صنف اختارها الإداري — غيابها ⇒ defaultRequestUnit (الأكبر، أو ما ينقسم عليه مجموع المناديب)
   const [reqUnit, setReqUnit] = useState<Record<string, string | null>>({});
   const [excluded, setExcluded] = useState<Record<string, boolean>>({});
-  const [busy, setBusy] = useState<string | null>(null); // 'send' أو معرّف الطلب الجاري حفظه/رفضه
+  const [busy, setBusy] = useState<string | null>(null); // 'send' أو معرّف الطلب الجاري حفظه/رفضه، أو 'load:'+معرّفه للتحميل المباشر
   const [error, setError] = useState('');
+  // ما تمّ بنجاح (التحميل المباشر) — سطرٌ أخضر بجانب الأخطاء، وملاحظات الخادم على أسطر التحميل سطرٌ كهرماني
+  const [notice, setNotice] = useState('');
+  const [warn, setWarn] = useState('');
 
   const included = reqs.filter(r => !excluded[r.id]);
   // بالأساس: «٥ كرتون» من مندوب و«٣ حبة» من آخر = ١٢٣ حبة، لا «٨»
@@ -135,16 +139,18 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
   const replaceReq = (saved: RepStockRequest) => qc.setQueryData<RepStockRequest[]>(['rep-stock-requests'],
     list => (list ?? []).map(x => (x.id === saved.id ? { ...x, ...saved } : x)));
 
-  /** يحفظ تعديل طلبٍ ويعيد نسخته الجديدة — الإرسال يُرسل ما في الخادم لا ما في الشاشة وحدها */
-  const saveReq = async (r: RepStockRequest): Promise<string> => {
+  /** يحفظ تعديل طلبٍ ويعيده كما صار في الخادم — والتحميل المباشر يحمّل المحفوظ لا ما في الخانات وحدها */
+  const saveReqFull = async (r: RepStockRequest): Promise<RepStockRequest> => {
     // ما تغيّرت كميته أو وحدته — و`unitId` لما تغيّرت وحدته وحدها (repEditItems)
     const items = repEditItems(r, edits[r.id], unitEdits[r.id]);
     const { data } = await repStockRequestApi.update(r.id, { updatedAt: r.updatedAt, items });
-    const saved = data.data as RepStockRequest;
+    const saved = { ...r, ...(data.data as RepStockRequest) };
     replaceReq(saved);
     dropEdits(r.id);
-    return saved.updatedAt;
+    return saved;
   };
+  /** يحفظ تعديل طلبٍ ويعيد نسخته الجديدة — الإرسال يُرسل ما في الخادم لا ما في الشاشة وحدها */
+  const saveReq = async (r: RepStockRequest): Promise<string> => (await saveReqFull(r)).updatedAt;
 
   const save = async (r: RepStockRequest) => {
     setError(''); setBusy(r.id);
@@ -168,8 +174,82 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
     setBusy(null);
   };
 
+  /**
+   * «تحميل مباشر» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): طلب المندوب كما اعتُمد يُحمَّل إلى سيارته من هنا بلا فتح «مخزون السيارات».
+   * ١) تعديلات الإداري تُحفظ أولاً (نسخةٌ جديدة بفحص نسختها في الخادم)، وبلا تعديلٍ يُقرأ الطلب من الخادم الآن: سحبه المندوب
+   *    أو عدّله أو حسمه إداريٌّ آخر منذ فُتحت النافذة ⇒ لا تحميل («راجعه»). ٢) التحميل بمسار التحميل القائم بكل حرّاسه (رصيد
+   *    المستودع، والتشغيلات بالأقرب انتهاءً، ووحدات الأصناف) بمرجعٍ ثابت **لنسخة الطلب** (repLoadRef): مديران معاً، أو إعادةٌ
+   *    بعد تعثّر، أو نافذةٌ أُعيد فتحها ⇒ الحركة الأولى نفسها (200 replay) لا ثانية. ٣) الطلب يُعلَّم «حُمِّل» بمعرّفها ونسخته:
+   *    404 بعد إعادةٍ ⇒ حُمِّل وعُلِّم من قبل، و404 بعد حركةٍ جديدة ⇒ الطلب لم يعد معلّقاً فالتحميل يُراجَع، و409 ⇒ عدّله المندوب
+   *    بعد التحميل فبقي معلّقاً بعلامة الحركة (sentRef)، وتعثّرٌ آخر ⇒ الضغط ثانيةً يعلّمه بلا تحميلٍ ثانٍ (المرجع ثابت).
+   */
+  const loadDirect = async (r: RepStockRequest) => {
+    const prior = r.sentRef ? `${tr('حملت نسخة سابقة من هذا الطلب ثم عدله المندوب عدل الكميات إلى ما أضافه فقط')}\n` : '';
+    if (!window.confirm(`${prior}${fillNames(tr('تحميل طلب المندوب {names} مباشرة إلى سيارته؟'), [r.repName])} ${tr('تخصم الكميات من مخزون الشركة')}`)) return;
+    setError(''); setNotice(''); setWarn(''); setBusy('load:' + r.id);
+    let loaded = false;
+    try {
+      let saved: RepStockRequest;
+      if (repRequestDirty(r, edits[r.id], unitEdits[r.id])) saved = await saveReqFull(r);
+      else {
+        const fresh = (await qc.fetchQuery({ queryKey: ['rep-stock-requests'], queryFn: fetchPending, staleTime: 0 })).find(x => x.id === r.id);
+        if (!fresh || fresh.updatedAt !== r.updatedAt) { setError(tr('تغير طلب المندوب منذ فتح النافذة راجعه ثم حمله')); return; }
+        saved = { ...r, ...fresh };
+      }
+      const items = repLoadItems(saved);
+      if (!items.length) { setError(tr('لا كميات للتحميل في هذا الطلب')); return; }
+      const body = { salesRepId: r.salesRepId, type: 'LOAD', note: `طلب بضاعة المندوب ${r.repName}`, items };
+      const ref = repLoadRef(saved);
+      const res = await sendWithRefRecovery(
+        () => vanStockApi.createLoad(withClientRef(body, ref)),
+        () => vanStockApi.loadsByClientRef(ref, r.salesRepId),
+      );
+      const out = (res?.data ?? {}) as { data?: { id?: string } | null; warnings?: unknown };
+      const vanLoadId = out.data?.id;
+      if (!vanLoadId) { setError(tr('تعذر الحفظ')); return; }
+      loaded = true;
+      const replayed = isReplayResponse(res);
+      // ملاحظات التشغيلات بأسمائها، وما سواها (سطرٌ تُرك أو حُمِّل بالأساس لأن وحدات الصنف تغيّرت) بأسماء أصنافه وتنبيهٍ ظاهر
+      const lotNotes = [...new Set(lotWarningsOf(out.warnings).map(w => w.code))].map(c => tr(LOT_WARNING_LABELS[c])).filter(Boolean);
+      const lotCodes = new Set<string>(LOT_WARNING_CODES);
+      const other = (Array.isArray(out.warnings) ? out.warnings : []) as { code?: string; productId?: string }[];
+      const otherNames = [...new Set(other.filter(w => w && !lotCodes.has(String(w.code))).map(w => r.items.find(i => i.productId === w.productId)?.name ?? ''))];
+      if (otherNames.length) setWarn(fillNames(tr('حمل الطلب مع ملاحظات من الخادم على {names} راجع حركة التحميل في مخزون السيارات'), otherNames));
+      try {
+        await repStockRequestApi.loaded(r.id, { updatedAt: saved.updatedAt, vanLoadId });
+      } catch (e) {
+        const status = (e as { response?: { status?: number } })?.response?.status;
+        // حُمِّل؛ لكن المندوب عدّل طلبه بعده فبقي معلّقاً بعلامة الحركة — لا يُعاد تحميل ما حُمِّل
+        if (status === 409) { setError(tr('تم التحميل لكن المندوب عدل طلبه بعده فبقي معلقا راجع ما أضافه')); return; }
+        if (status !== 404) throw e;
+        // لم يعد معلّقاً: بعد إعادةٍ ⇒ حُمِّل وعُلِّم من قبل (لا تحميل ثانٍ)، وبعد حركةٍ جديدة ⇒ سحبه المندوب أو حسمه غيرك أثناء التحميل
+        if (!replayed) { setError(tr('تم التحميل لكن الطلب لم يعد معلقا سحبه المندوب أو حسمه غيرك راجع حركة التحميل في مخزون السيارات')); return; }
+        setNotice(`${tr('سبق تحميل هذا الطلب فلم يتكرر')} · ${r.repName}`);
+        return;
+      }
+      setNotice([fillNames(tr('حمل طلب المندوب {names} إلى سيارته'), [r.repName]), ...(replayed ? [tr(VAN_MOVE_TEXT.replay)] : []), ...lotNotes].join(' · '));
+    } catch (e) {
+      // التحميل فوق رصيد المستودع (422 WAREHOUSE_INSUFFICIENT): لا شيء كُتب — بأسماء أصنافه من الطلب
+      const wi = warehouseInsufficientOf(e);
+      if (wi) {
+        const names = wi.lines.map(l => r.items.find(i => i.productId === l.productId)?.name ?? '');
+        setError(names.some(Boolean) ? fillNames(tr(VAN_MOVE_TEXT.whInsufficient), names) : wi.message || tr(VAN_MOVE_TEXT.whLine));
+      } else {
+        // المرجع ثابتٌ لنسخة الطلب: الضغط ثانيةً يعيد الحركة نفسها ويعلّمه، لا تحميلٌ ثانٍ
+        setError(loaded ? tr('تم التحميل لكن تعذر تعليم الطلب اضغط تحميل مباشر مرة أخرى ليعلم دون تحميل ثان') : errMsg(e, tr('تعذر الحفظ')));
+        if (isStaleUnitsError(e)) dropEdits(r.id);
+      }
+    } finally {
+      // الرصيد تغيّر (أو قد يكون): كمفاتيح «مخزون السيارات» بعد أي حركة (#20) ومعها التشغيلات والمواقع والطلبات
+      for (const key of [...STOCK_CACHE_KEYS, 'rep-stock-requests', 'locations-summary', 'van-lot-balances', 'lot-balances-load', 'lot-balances-van', 'lot-balances-wh', 'lot-fefo']) {
+        qc.invalidateQueries({ queryKey: [key] });
+      }
+      setBusy(null);
+    }
+  };
+
   const issue = async () => {
-    setError('');
+    setError(''); setNotice('');
     const now = new Date();
     const ref = stockRequestRef(now);
     const sending = included;
@@ -316,6 +396,9 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
                   {reqs.map(r => {
                     const isIn = !excluded[r.id];
                     const dirty = repRequestDirty(r, edits[r.id], unitEdits[r.id]);
+                    // التحميل المباشر: كميةٌ موجبة واحدة على الأقل، وخاناته كلها مفهومة
+                    const canLoad = r.items.some(i => repItemQty(i.qty, edits[r.id]?.[i.productId]) > 0)
+                      && !Object.values(edits[r.id] ?? {}).some(isInvalidRequestQty);
                     return (
                       <div key={r.id} className={`border rounded-xl ${isIn ? 'border-[#E9E1D3]' : 'border-dashed border-gray-300 opacity-60'}`}>
                         <div className="flex items-center gap-2 px-3 py-2 bg-[#FAF7F0] rounded-t-xl flex-wrap">
@@ -329,10 +412,23 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
                               <Save size={13} /> {tr('حفظ التعديل')}
                             </button>
                           )}
+                          <button onClick={() => loadDirect(r)} disabled={busy !== null || !canLoad}
+                            title={tr('تحميل الكميات المعتمدة إلى سيارة المندوب الآن')}
+                            className="text-xs font-semibold text-[#C94E28] flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-[#FBEBE2] disabled:opacity-50">
+                            {busy === 'load:' + r.id
+                              ? <span className="w-3 h-3 border-2 border-[#C94E28]/30 border-t-[#C94E28] rounded-full animate-spin" />
+                              : <PackageCheck size={13} />}
+                            {' '}{tr('تحميل مباشر')}
+                          </button>
                           <button onClick={() => reject(r)} disabled={busy !== null} className="text-xs font-semibold text-red-600 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-red-50 disabled:opacity-50">
                             <Ban size={13} /> {tr('رفض')}
                           </button>
                         </div>
+                        {r.sentRef && (
+                          <p className="px-3 pt-2 text-xs text-amber-700 font-semibold flex items-center gap-1">
+                            <AlertTriangle size={13} className="shrink-0" /> {tr('حملت نسخة سابقة من هذا الطلب ثم عدله المندوب عدل الكميات إلى ما أضافه فقط')}
+                          </p>
+                        )}
                         {r.note && <p className="px-3 pt-2 text-xs text-[#6E6557]">{tr('ملاحظة')}: {r.note}</p>}
                         <div className="divide-y divide-[#F1EBDF]">
                           {r.items.map(i => {
@@ -385,6 +481,8 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
             </div>
             {anyInvalid && <p className="text-xs text-red-600">{tr('الكمية يجب أن تكون رقما موجبا')}</p>}
             {error && <p className="text-xs text-red-600">{error}</p>}
+            {notice && <p className="text-xs text-[#1E7A52] font-semibold">{notice}</p>}
+            {warn && <p className="text-xs text-amber-700 font-semibold">{warn}</p>}
             <div className="flex gap-3">
               <button onClick={issue} disabled={lines.length === 0 || anyInvalid || busy !== null}
                 className="btn-primary flex-1 justify-center py-2.5 disabled:opacity-60">
