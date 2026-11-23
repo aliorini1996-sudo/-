@@ -1992,7 +1992,7 @@ model RepStockRequest {
   tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   salesRepId String
   salesRep   SalesRep  @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
-  status     String    @default("PENDING") // PENDING | SENT | REJECTED | CANCELLED
+  status     String    @default("PENDING") // PENDING | SENT | REJECTED | CANCELLED | LOADED (حُمِّل إلى السيارة مباشرة، sentRef معرّف الحركة)
   note       String?
   /// وقت إرساله ضمن الطلب العام أو رفضه، ومَن فعل، ومرجع الطلب العام (SR-…) حين أُرسل
   decidedAt  DateTime?
