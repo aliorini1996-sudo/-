@@ -9318,12 +9318,15 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, name, phone, status:'ACTIVE'|'INACTIVE'|'BLOCKED', balance, creditLimit, paymentDays, totalSales, totalCollected}]} مرتبة تنازلياً حسب balance",
+    "response": "{success:true, data:[{id, name, phone, status:'ACTIVE'|'INACTIVE'|'BLOCKED', balance, creditLimit, paymentDays, totalSales, totalCollected, aging:{oldestDay, ageDays, overdueDays, overdueAmount, bands:{d0_30, d31_60, d61_90, d90_plus}, undated}|null}]} مرتبة تنازلياً حسب balance",
     "rules": [
      "كل عميل حالته غير DELETED: ACTIVE وINACTIVE وBLOCKED. فالموقوف والمحظور المدينان داخلان في القائمة وفي أي مجموع تحسبه منها (إجمالي مديونية الشركة)، وstatus في كل صف ليميّزهما. ونطاق المستخدم المقيّد كما هو",
      "الرصيد هنا هو القيمة المخزنة customer.balance، وليس المحسوب من قيود الحساب كما في rep-receivables",
      "overdue لا تفحص paymentDays ولا تاريخ الاستحقاق، بل الرصيد الموجب فقط مع تجاهل كسور أصغر من 1e-6",
      "exceeded تُفلتر في الذاكرة بعد جلب كل من له سقف",
+     "aging (عمر الدين) لكل عميل رصيده أكبر من 1e-6، وnull لغيره: مصدره الفواتير الآجلة المؤكدة المفتوحة بمتبقيها remainingAmt، مطابَقةً بالرصيد المعروض balance. فإن كان الرصيد أقل من مجموعها (سند غير موزع أو مرتجع غير مربوط) أطفأ الفرق الأقدم أولاً، وإن كان أكبر (رصيد افتتاحي أو تسوية مدينة) أُرّخ الفرق بقيود ADJUSTMENT_DEBIT من الأحدث إلى الأقدم وما بقي في undated. فمجموع bands مع undated يساوي balance دائماً",
+     "الأيام بيوم الشركة (منطقة الدفاتر ثم دولة الشركة): ageDays من أقدم يوم قائم oldestDay إلى اليوم، والشرائح 0-30 و31-60 و61-90 وأكثر من 90 بعمر كل جزء. والتأخر overdueDays وoverdueAmount من يوم الاستحقاق: dueDate الفاتورة إن وُجد، وإلا يومها + paymentDays العميل. والاستحقاق اليوم ليس متأخراً",
+     "فاتورة التقسيط تُوزَّع على أقساطها: المسدد (total − remainingAmt) يطفئ الأقساط بترتيبها، وكل قسط باقٍ بيوم الفاتورة (العمر والشرائح) واستحقاقه هو (التأخر). وقيد إلغاء شطب الذمة وقيد رد الرصيد الدائن الملغى لا يؤرخان شيئاً، والرصيد الافتتاحي المستورد بلا تاريخ (بلحظة الاستيراد لا أول يوم) يدخل undated",
      "لا ترقيم ولا حد للصفوف"
     ],
     "example": ""

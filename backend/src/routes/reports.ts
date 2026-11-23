@@ -23,6 +23,7 @@ import { saleInvoiceStatsMap } from '../services/unvisitedInvoicesDb';
 import { NEWEST_FIRST, VISIT_RAW_CEILING, olderThan, readNewestFirst, utcAppliedRange, utcDay, type AppliedRange } from '../services/reportBatches';
 import { locationDocWhere, locationFilterOf } from '../services/locations';
 import { purchasesReportHandler } from '../services/reports/purchasesReport';
+import { loadCustomerAging } from '../services/customerAgingDb';
 import { profitReportHandler } from '../services/reports/profitReport';
 import { taxReportHandler } from '../services/reports/taxReport';
 
@@ -935,7 +936,10 @@ router.get('/balances', async (req: AuthRequest, res: Response, next: NextFuncti
       ? customers.filter(c => Number(c.balance) > Number(c.creditLimit))
       : customers;
 
-    res.json({ success: true, data: result });
+    // «عمر الدين» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): لكل مدينٍ عمر دينه وتوزيع رصيده على شرائح العمر من فواتيره المفتوحة مطابَقةً
+    // برصيده المعروض (services/customerAging.ts) — وغير المدين null. حقلٌ إضافيّ، وبقية الصفّ كما كان
+    const aging = await loadCustomerAging(prisma, tid, result, await tenantTz(tid));
+    res.json({ success: true, data: result.map(c => ({ ...c, aging: aging.get(c.id) ?? null })) });
   } catch (err) { next(err); }
 });
 
