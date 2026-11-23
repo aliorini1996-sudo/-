@@ -70,7 +70,10 @@ test('العملاء الساقطون خارج النطاق يُخبَر بهم 
 
 test('«أنجز اليوم» شرطةٌ لخطٍّ ليس خطَّ اليوم', () => {
   const s = routes();
-  assert.match(s, /const isToday = r\.isPermanent \|\| r\.routeDate === day/, 'العدّاد يُحسب لكل خط بلا تمييز');
+  // طلب المالك ٢٢ نوفمبر ٢٠٢٦ (عدّة خطوطٍ دائمة للمندوب): «خطّ اليوم» لم يعد «كل دائم أو مؤقّت اليوم» بل ما يختاره
+  // جدول المندوب بالدالّة النقيّة نفسها التي يقرؤها تطبيقه — فالحارس يتبع المصدر الجديد ولا يُحذف
+  assert.match(s, /const t = pickRouteForDay\(day, scheduleOf\.get\(repId\) \?\? null, list\);/, 'خطّ اليوم لا يُحسب بجدول المندوب');
+  assert.match(s, /const isToday = todayIds\.has\(r\.id\);/, 'العدّاد يُحسب لكل خط بلا تمييز');
   assert.match(s, /doneToday: isToday \?/, 'خطٌّ ليوم آخر يجب أن يعطي null');
   const ui = read('src', 'pages', 'RepRoutesPage.tsx');
   assert.match(ui, /r\.doneToday === null/, 'الواجهة لا تعرض الشرطة');

@@ -141,6 +141,8 @@ const COVERED_ROUTERS = [
   ...(MOUNTS.get('/company/tax-mode') ?? []),
   // «ربط الدفاتر بكامل النظام» (L2، ١٤ نوفمبر ٢٠٢٦): ملف الربط وحده من موجّه /ledger — مساراته كلها ترفض المفتاح فمستثناة أدناه
   'ledger/linking',
+  // «طريقة توزيع الخطوط» (٢٢ نوفمبر ٢٠٢٦): مسارا الجدول والترتيب الجديدان لا يسقطان من الدليل
+  'repRoutes',
 ];
 const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'PUT /company/teams/:id/supervisors': 'يرفض مفاتيح API دائماً بـ403 (API_KEY_FORBIDDEN بعد فحص صلاحيتي الإعدادات والمستخدمين) — نطاق مستخدمي الشركة من اللوحة وحدها، ومذكورٌ في مقدمة مجموعة الفرق',
@@ -2100,4 +2102,60 @@ test('جوال العميل اختياري حرّ (٧ نوفمبر): المست�
   const route = routeFile('customers');
   assert.match(route, /phone: z\.string\(\)\.trim\(\)\.max\(CUSTOMER_PHONE_MAX\)\.nullish\(\),/);
   assert.match(read(path.join(BACKEND, 'services', 'importMatch.ts')), /export const CUSTOMER_PHONE_MAX = 30;/);
+});
+
+/**
+ * «طريقة توزيع الخطوط» (طلب المالك ٢٢ نوفمبر ٢٠٢٦، ومراجعته): عدّة خطوطٍ دائمة للمندوب وكل يومٍ يُوجَّه إلى واحدٍ منها. المستند يتبع
+ * الموجّه: مساراه الثلاثة بحرّاسهما ونطاق المندوب، ورموز الرفض الأربعة، وأجسام الكتابة بحقول مخطّطات zod، ومعنى isToday/doneToday.
+ */
+test('«طريقة توزيع الخطوط»: مسارات /rep-routes كلها بترتيب الموجّه، والجدول والترتيب بحرّاسهما ونطاقهما، والرموز والحقول كما في الخادم', () => {
+  const src = routeFile('repRoutes');
+  const group = API_DOC_GROUPS.find((g) => g.key === 'field');
+  assert.ok(group, 'مجموعة field غائبة');
+  const server = [...src.matchAll(/router\.(get|post|put|patch|delete)\('([^']+)'/g)].map((m) => `${m[1].toUpperCase()} /rep-routes${m[2] === '/' ? '' : m[2]}`);
+  assert.ok(server.length >= 8, `قُرئ ${server.length} مساراً فقط`);
+  const docs = group!.endpoints.filter((e) => e.path.startsWith('/rep-routes'));
+  assert.deepEqual(docs.map((e) => `${e.method} ${e.path}`), server, 'كل مسار بترتيب الموجّه (الثابتة قبل /:id)');
+  // الثلاثة الجديدة: بعد حارس الأدمن وصلاحية التتبّع، ونطاق المندوب ⇒ 404 «المندوب غير موجود»، والكتابة ترفض مفتاح القراءة
+  const guard = src.indexOf("router.use(requireAdmin, requireAdminPermission('canManageTracking'))");
+  assert.ok(guard > 0, 'حارس الأدمن');
+  assert.match(src.slice(src.indexOf('async function repInScope('), src.indexOf('async function scheduleView(')), /canAccessRep\(req, tid, salesRepId\)/);
+  for (const [method, sub] of [['GET', '/schedule/:salesRepId'], ['PUT', '/schedule/:salesRepId'], ['PUT', '/order/:salesRepId']]) {
+    const e = endpointOf(method, `/rep-routes${sub}`);
+    const at = src.indexOf(`router.${method.toLowerCase()}('${sub}'`);
+    assert.ok(at > guard, `${method} ${sub} قبل الحارس`);
+    const block = src.slice(at, src.indexOf('\n});', at));
+    assert.match(block, /if \(!\(await repInScope\(req, tid, salesRepId\)\)\) \{ res\.status\(404\)\.json\(\{ success: false, message: 'المندوب غير موجود' \}\)/, `${method} ${sub} بلا نطاق`);
+    assert.equal(e.permission, 'requireAdmin مع canManageTracking');
+    assert.ok(e.gates.some((g) => g.includes('404 «المندوب غير موجود»')), `${method} ${sub}: بوابة النطاق`);
+    assert.equal(e.gates.includes('مفتاح القراءة فقط يُرفض'), method !== 'GET', `${method} ${sub}: مفتاح القراءة`);
+  }
+  // كل رمزٍ يرسله الموجّه موثّقٌ في مساراته، والأربعة الجديدة منها
+  const text = JSON.stringify(docs);
+  const codes = [...new Set([...src.matchAll(/code: '([A-Z][A-Z0-9_]+)'/g)].map((m) => m[1]))];
+  for (const c of ['WEEKDAY_CONFLICT', 'MULTIPLE_PERMANENT', 'ORDER_MISMATCH', 'NO_WEEKDAYS']) assert.ok(codes.includes(c), `${c} لا يرسله الخادم`);
+  assert.deepEqual(codes.filter((c) => !text.includes(c)), [], 'رموز الموجّه غائبة عن المستند');
+  assert.match(JSON.stringify(endpointOf('PUT', '/rep-routes/schedule/:salesRepId').rules), /409 NO_WEEKDAYS/);
+  assert.match(JSON.stringify(endpointOf('PUT', '/rep-routes/order/:salesRepId').rules), /400 ORDER_MISMATCH/);
+  assert.match(JSON.stringify(endpointOf('POST', '/rep-routes').rules), /409 WEEKDAY_CONFLICT[^"]*أياً كانت طريقة التوزيع/);
+  // أجسام الكتابة بحقول مخطّطاتها حرفياً (routeSchema حتى refine: ما بعده رسالة التحقّق لا حقول)
+  assert.deepEqual(topBody('PUT', '/rep-routes/schedule/:salesRepId'), zodKeys(src, 'scheduleSchema').sort());
+  assert.deepEqual(topBody('PUT', '/rep-routes/order/:salesRepId'), zodKeys(src, 'orderSchema').sort());
+  const rs = src.slice(src.indexOf('const routeSchema = z.object({'), src.indexOf('}).refine(', src.indexOf('const routeSchema = z.object({')));
+  assert.deepEqual(topBody('POST', '/rep-routes'), [...rs.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1]).sort());
+  // الحقول الجديدة في ردود القائمة والتفاصيل كما يكتبها الخادم، ومعنى isToday/doneToday تحت الجداول
+  for (const f of ['weekdays', 'rotationOrder', 'scheduleMode', 'isToday', 'doneToday']) {
+    assert.ok(src.includes(`${f}:`) || src.includes(`${f},`), `${f} لا يرسله الخادم`);
+    assert.match(endpointOf('GET', '/rep-routes').response, new RegExp(`[{, ]${f}[,}]`), `${f} غائب عن ردّ القائمة`);
+  }
+  assert.match(endpointOf('GET', '/rep-routes/:id').response, /weekdays, rotationOrder/);
+  const list = endpointOf('GET', '/rep-routes').rules.join('\n');
+  assert.match(list, /isToday=true لخط اليوم المرجعي وحده لكل مندوب/);
+  assert.match(list, /doneToday[^\n]*للخط الذي isToday=true وحده/);
+  assert.match(src, /doneToday: isToday \?/, 'الخادم يحسب doneToday لغير خطّ اليوم');
+  // الحذف فعليّ في المستند كما في الخادم — لا «تعطيل» ولا «يوقف» في مسارات خطوط السير
+  assert.doesNotMatch(text, /تعطيل وليس حذفاً|يضبط isActive=false|يوقف تلقائياً/);
+  // تعديل الدائم يرث createdAt في الخادم والمستند
+  assert.match(src, /\.\.\.\(kept && \{ createdAt: kept\.createdAt \}\)/);
+  assert.match(JSON.stringify(endpointOf('POST', '/rep-routes').rules), /وبتاريخ إنشائه createdAt/);
 });

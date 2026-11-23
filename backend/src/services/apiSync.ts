@@ -427,7 +427,7 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
   },
   {
     name: 'routes', model: 'repRoute', mode: 'updated', permission: 'canManageTracking', tenantPath: 'direct', hardDeletes: true,
-    select: { ...pick('id', 'salesRepId', 'name', 'isPermanent', 'routeDate', 'isActive', 'createdAt', 'updatedAt'), stops: { select: pick('customerId', 'seq', 'note'), orderBy: { seq: 'asc' } } },
+    select: { ...pick('id', 'salesRepId', 'name', 'isPermanent', 'routeDate', 'isActive', 'weekdays', 'rotationOrder', 'createdAt', 'updatedAt'), stops: { select: pick('customerId', 'seq', 'note'), orderBy: { seq: 'asc' } } },
     denied: { tenantId: 'معروف من المفتاح' },
   },
 ] as SyncResource[]);
