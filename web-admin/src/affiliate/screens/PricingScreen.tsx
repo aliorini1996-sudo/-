@@ -1,6 +1,6 @@
 // ============================================================================
 // «الباقات والأسعار» — ما يعرضه السفير على المنشآت.
-// الأسعار من الخادم (كتالوج الأسعار المعتمد + الخصم الإقليميّ لسفير اليمن)، والأسماء
+// الأسعار من الخادم (كتالوج الأسعار المعتمد أو سعر المالك للسفراء + الخصم الإقليميّ لسفير اليمن)، والأسماء
 // والحدود من القاموس بلغة العرض. كل الأسعار شاملة الضريبة.
 // ============================================================================
 import { BadgePercent, Info } from 'lucide-react';
@@ -70,8 +70,10 @@ export function PricingTab({ me, refreshMe }: TabProps) {
                 )}
               </div>
               <div className="space-y-1.5 border-t border-[#F1EBDF] pt-3">
-                <PriceLine label={t('pricing.monthly')} h={pkg.monthlyHalalas} listH={pkg.listMonthlyHalalas} discounted={discounted} />
-                <PriceLine label={t('pricing.yearly')} h={pkg.yearlyHalalas} listH={pkg.listYearlyHalalas} discounted={discounted} />
+                {/* المشطوب = سعر السفراء قبل خصم المنطقة (قرار المالك 19 نوفمبر 2026: سعرٌ يحدّده المالك قد يخالف الكتالوج،
+                    فشطب الكتالوج كان سيُظهر فرقاً لا يطابق شارة الخصم) */}
+                <PriceLine label={t('pricing.monthly')} h={pkg.monthlyHalalas} listH={pkg.baseMonthlyHalalas ?? pkg.listMonthlyHalalas} discounted={discounted} />
+                <PriceLine label={t('pricing.yearly')} h={pkg.yearlyHalalas} listH={pkg.baseYearlyHalalas ?? pkg.listYearlyHalalas} discounted={discounted} />
               </div>
             </div>
           );

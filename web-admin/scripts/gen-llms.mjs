@@ -235,7 +235,9 @@ async function main() {
   const known = (u) => { KNOWN.add(u); return u; };
   for (const p of ['/', '/en/', '/fr/', '/tr/', '/zh/', '/about/', '/en/about/', '/fr/about/', '/contact/', '/en/contact/', '/fr/contact/',
     '/calculator/', '/en/calculator/', '/fr/calculator/', '/invoice-generator/', '/en/invoice-generator/', '/fr/invoice-generator/',
-    '/pricing/', '/en/pricing/', '/fr/pricing/', '/blog/', '/en/blog/', '/fr/blog/', '/rep-app/', '/free/', '/مزايا/', '/قطاعات/', '/نماذج/']) known(abs(p));
+    '/pricing/', '/en/pricing/', '/fr/pricing/', '/blog/', '/en/blog/', '/fr/blog/', '/rep-app/', '/free/', '/مزايا/', '/قطاعات/', '/نماذج/',
+    // صفحة «سفراء فيلد سيلز» العلنية بلغاتها الثلاث (١٨ نوفمبر ٢٠٢٦) — بوابة السفير نفسها غير مُدرجة ولا تُذكر هنا
+    '/ambassadors/', '/en/ambassadors/', '/fr/ambassadors/']) known(abs(p));
   const featureUrl = (ft) => known(abs(`/مزايا/${ft.slug}/`));
   const sectorUrl = (s) => known(abs(`/قطاعات/${s.slug}/`));
   const templateUrl = (t) => known(abs(`/نماذج/${t.slug}/`));
@@ -305,7 +307,7 @@ Key facts:
 - Government e-invoicing: Saudi Arabia is the only country where a government integration is live (see Saudi e-invoicing below). In every other country invoices are standard invoices in the company’s currency and tax rate, and connection to the national e-invoicing platform is arranged on request.
 - Country guides (blog): currently ${COUNTRIES.length + NEW_GUIDES.length} countries in the Middle East, Africa and Asia, each with currency, VAT rate and tax authority.
 - Languages: the apps run in Arabic (right to left), English, French, Turkish and Chinese, and only in these five. The website has pages in ${5 + i18nNew.length} languages: the full site in Arabic, English and French, and product pages in Turkish, Chinese${i18nNew.length ? ` and ${i18nNew.length} more languages for information (see Languages below)` : ''}.
-- Pricing: ${PRICING_LINE} No setup fees. Free 10-day trial, no credit card; sign-up form: ${ORIGIN}/signup/
+- Pricing: ${PRICING_LINE} No setup fees. Free 5-day trial, no credit card; sign-up form: ${ORIGIN}/signup/
 - Rep app: runs in any smartphone browser and is on Google Play and the App Store; a thermal printer is optional.
 - Saudi e-invoicing: We support Phase 2 integration with ZATCA’s Fatoora platform, for companies in Saudi Arabia: UBL 2.1 XML with a UUID, an ECDSA cryptographic stamp, a QR code, an ICV/PIH hash chain, clearance for standard and reporting for simplified invoices, and EGS onboarding with a CSID obtained through a Fatoora portal OTP. ZATCA does not certify software vendors, so FieldSales claims no certification.
 - Working offline: receipts, visits and new customers work without a connection and sync automatically without duplicates, and companies without the integration also issue invoices offline. Saudi companies with Phase 2 integration enabled need a connection at the moment of issue for invoices (standard and simplified) and returns.
@@ -414,6 +416,7 @@ ${answersFor('en', { tiers, countries: registry.count }).map(answerLine).join(''
 - [About](${abs('/about/')}): who is behind FieldSales. English: ${abs('/en/about/')}
 - [Contact](${abs('/contact/')}): sales and support. English: ${abs('/en/contact/')}
 - [Blog (Arabic)](${abs('/blog/')}): practical guides on field sales, van sales, collection and e-invoicing for distribution companies. English: ${abs('/en/blog/')} · French: ${abs('/fr/blog/')}
+- [FieldSales Ambassadors (Arabic)](${abs('/ambassadors/')}): referral program, instant joining; 30% of each referred company’s first confirmed payment, settled every 10 days. English: ${abs('/en/ambassadors/')} · French: ${abs('/fr/ambassadors/')}
 
 ## Company
 
@@ -501,6 +504,7 @@ ${SECTORS.map((s) => `- [برنامج مناديب لموزعي ${s.name}](${sec
 ${FREE_TOOLS.map((t) => `- [${t.title}](${toolUrl(t)}): ${t.desc}`).join('\n')}
 ${TEMPLATES.map((t) => `- [${t.title}](${templateUrl(t)}): ${t.purpose}`).join('\n')}
 - [Free tax invoice generator](${abs('/invoice-generator/')}) · [Revenue leak calculator](${abs('/calculator/')})
+- [FieldSales Ambassadors](${abs('/ambassadors/')}): referral program, 30% of each referred company’s first confirmed payment · [English](${abs('/en/ambassadors/')}) · [French](${abs('/fr/ambassadors/')})
 `);
   const section = (label, list, L) => {
     addF(`\n## ${label}\n\n`);

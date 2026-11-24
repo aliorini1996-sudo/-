@@ -211,10 +211,13 @@ const PCT_KEY = /penetration|pct/i;
 /**
  * كل الأرقام في قيمة JSON (القيم العددية والأرقام داخل النصوص). النسب بين 0 و1 تُضاف بصيغة مئوية أيضاً.
  * حقول المراجع والترتيب لا تُدخل أرقامها (رقم المرجع P7 ليس كمية).
+ * signless (اختياري، للمحاسب الذكي وحده): القيمة السالبة تُضاف بقيمتها المطلقة أيضاً — الرد يكتب «خسارة 3,000» والحارس
+ * يقرأ أرقام النص بلا إشارة؛ وبغيابه السلوك كما كان حرفياً (المندوب الذكي).
  */
-export function numbersIn(value: unknown, acc: Set<number> = new Set(), key = ''): Set<number> {
+export function numbersIn(value: unknown, acc: Set<number> = new Set(), key = '', signless = false): Set<number> {
   const add = (n: number) => {
     if (!Number.isFinite(n)) return;
+    if (signless && n < 0) add(-n);
     acc.add(round1(n));
     if (Number.isInteger(n)) acc.add(n);
     // النسبة المئوية لحقول النسب وحدها (لا تصير كل قيمة بين ٠ و١ «نسبة» مسموحة)
@@ -224,9 +227,9 @@ export function numbersIn(value: unknown, acc: Set<number> = new Set(), key = ''
   };
   if (typeof value === 'number') add(value);
   else if (typeof value === 'string') extractNumbers(value).forEach(add);
-  else if (Array.isArray(value)) value.forEach(v => numbersIn(v, acc, key));
+  else if (Array.isArray(value)) value.forEach(v => numbersIn(v, acc, key, signless));
   else if (value && typeof value === 'object') {
-    for (const [k, v] of Object.entries(value)) if (!SKIP_KEYS.has(k)) numbersIn(v, acc, k);
+    for (const [k, v] of Object.entries(value)) if (!SKIP_KEYS.has(k)) numbersIn(v, acc, k, signless);
   }
   return acc;
 }
@@ -283,8 +286,16 @@ export async function runAdvisor(opts: {
   tools: Record<string, AdvisorTool>;
   llm: (req: LlmRequest) => Promise<LlmResult>;
   maxHops?: number;
+  /** القالب الحتمي حين يسقط الحارس أو تكثر أخطاء الأدوات — افتراضاً نصّ المندوب الذكي (المحاسب الذكي يمرّر نصّه). */
+  fallbackText?: (summaries: string[]) => string;
+  /**
+   * أرقام الأدوات السالبة مسموحة بقيمتها المطلقة أيضاً (المحاسب الذكي: صافي خسارة، تدفق نقدي سالب، أرصدة دائنة) — الرد
+   * يكتب الرقم بلا إشارة. افتراضاً false فلا يتغيّر حارس المندوب الذكي.
+   */
+  signless?: boolean;
 }): Promise<AdvisorResult | AdvisorError> {
   const maxHops = opts.maxHops ?? MAX_HOPS;
+  const fallbackText = opts.fallbackText ?? repFallbackText;
   const toolSpecs = Object.values(opts.tools).map(t => t.spec);
   const messages: LlmMessage[] = [
     { role: 'system', content: opts.system },
@@ -350,7 +361,7 @@ export async function runAdvisor(opts: {
           continue;
         }
         toolNames.push(call.name);
-        numbersIn(out.data, allowed);
+        numbersIn(out.data, allowed, '', opts.signless === true);
         summaries.push(out.summaryAr);
         (out.refs ?? []).forEach(r => refs.add(r));
         messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(out.data) });
@@ -416,7 +427,7 @@ export function isMalformed(res: Extract<LlmResult, { ok: true }>): boolean {
   return !t || looksMalformed(t);
 }
 
-function fallbackText(summaries: string[]): string {
+function repFallbackText(summaries: string[]): string {
   if (!summaries.length) return 'لا أملك رقماً موثوقاً لهذا السؤال. اسألني عن محلٍّ محدّد من قائمة «القريبة» لأحسب لك المتوقع من بيانات شركتك.';
   return summaries.join('\n');
 }

@@ -8,7 +8,7 @@ import path from 'node:path';
 import {
   SALE_LOT_SPLIT, clearSaleLotPicks, initialSplitRows, lotErrorLineIdx, lotQtyInLineUnit, pickedByOtherLines, saleLineBaseQty,
   saleLotProblem, saleLotProblems, saleLotRefs, saleLotSources, saleLotView, withSaleLots, type SaleLotLine, type SaleLotPick,
-  asDraftProblem, saleLotErrorText, saleLotPickable,
+  asDraftProblem, saleLotErrorText, saleLotPickable, saleLotFallback,
 } from './saleLots';
 import { lotErrorText } from './invoiceLots';
 import type { LotErrorInfo, VanLotSnapshotDto } from './lots';
@@ -83,27 +83,52 @@ test('تقسيم: الصفوف كما كُتبت (بالأساس) — والصن
 });
 
 test('الفرق: تقسيمٌ تغيّرت كمية سطره أو وحدته يُكشف (LOT_QTY_INVALID) ولا يُعاد تحجيمه بصمت', () => {
-  const s = saleLotSources(snap(), [{ productId: 'p1', qty: 2, unitFactor: 10 }], 0)!;
   const rows = [{ key: 'a', source: 'L1', qty: '15' }, { key: 'b', source: 'L2', qty: '5' }];
   const l: SaleLotLine = { productId: 'p1', qty: 2, unitFactor: 10, lotPick: { mode: 'SPLIT', rows } };
-  assert.equal(saleLotProblem(l, s.eligible), null, 'المجموع ٢٠ = كرتونان');
-  assert.equal(saleLotProblem({ ...l, qty: 3 }, s.eligible), 'LOT_QTY_INVALID', 'الكمية صارت ٣ كراتين');
-  assert.equal(saleLotProblem({ ...l, unitFactor: 1 }, s.eligible), 'LOT_QTY_INVALID', 'الوحدة صارت الحبة');
+  assert.equal(saleLotProblem(l), null, 'المجموع ٢٠ = كرتونان');
+  assert.equal(saleLotProblem({ ...l, qty: 3 }), 'LOT_QTY_INVALID', 'الكمية صارت ٣ كراتين');
+  assert.equal(saleLotProblem({ ...l, unitFactor: 1 }), 'LOT_QTY_INVALID', 'الوحدة صارت الحبة');
   assert.deepEqual((l.lotPick as { rows: unknown }).rows, rows, 'الصفوف كما هي');
-  // صفٌّ بلا تشغيلة، وتشغيلة مكرّرة، وفوق المتاح
-  assert.equal(saleLotProblem({ ...l, lotPick: { mode: 'SPLIT', rows: [{ key: 'a', source: '', qty: '20' }] } }, s.eligible), 'LOT_SOURCE_MISSING');
-  assert.equal(saleLotProblem({ ...l, lotPick: { mode: 'SPLIT', rows: [{ key: 'a', source: 'L1', qty: '10' }, { key: 'b', source: 'L1', qty: '10' }] } }, s.eligible), 'LOT_SOURCE_DUPLICATE');
-  assert.equal(saleLotProblem({ ...l, lotPick: { mode: 'SPLIT', rows: [{ key: 'a', source: 'L3', qty: '20' }] } }, s.eligible), 'LOT_OVER_SOURCE');
-  // الواحدة فوق متاح تشغيلتها (L3 فيها ٥ والسطر ٢٠)، والموقوفة والمنتهية ليستا مصدراً يُختار
-  assert.equal(saleLotProblem({ ...l, lotPick: { mode: 'ONE', lotId: 'L3' } }, s.eligible), 'LOT_OVER_SOURCE');
-  assert.equal(saleLotProblem({ ...l, qty: 0.5, lotPick: { mode: 'ONE', lotId: 'L3' } }, s.eligible), null, 'نصف كرتون = ٥');
-  assert.equal(saleLotProblem({ ...l, qty: 1, unitFactor: 1, lotPick: { mode: 'ONE', lotId: 'LB' } }, s.eligible), 'LOT_OVER_SOURCE');
-  assert.equal(saleLotProblem({ ...l, qty: 1, unitFactor: 1, lotPick: { mode: 'ONE', lotId: 'LX' } }, s.eligible), 'LOT_OVER_SOURCE');
-  // بلا لقطة: الشكل والمجموع وحدهما
-  assert.equal(saleLotProblem({ ...l, lotPick: { mode: 'ONE', lotId: 'L3' } }, null), null);
-  assert.equal(saleLotProblem({ ...l, qty: 3 }, null), 'LOT_QTY_INVALID');
+  // صفٌّ بلا تشغيلة، وتشغيلة مكرّرة — الشكل يمنع
+  assert.equal(saleLotProblem({ ...l, lotPick: { mode: 'SPLIT', rows: [{ key: 'a', source: '', qty: '20' }] } }), 'LOT_SOURCE_MISSING');
+  assert.equal(saleLotProblem({ ...l, lotPick: { mode: 'SPLIT', rows: [{ key: 'a', source: 'L1', qty: '10' }, { key: 'b', source: 'L1', qty: '10' }] } }), 'LOT_SOURCE_DUPLICATE');
+  assert.equal(saleLotProblem({ ...l, lotPick: { mode: 'ONE', lotId: '' } }), 'LOT_SOURCE_MISSING');
+  // طلب المالك ١٦ نوفمبر ٢٠٢٦: فوق متاح التشغيلة (L3 فيها ٥ والسطر ٢٠)، والموقوفة والمنتهية — لا تمنع؛ يُكمَل الباقي من غيرها
+  assert.equal(saleLotProblem({ ...l, lotPick: { mode: 'SPLIT', rows: [{ key: 'a', source: 'L3', qty: '20' }] } }), null);
+  assert.equal(saleLotProblem({ ...l, lotPick: { mode: 'ONE', lotId: 'L3' } }), null);
+  assert.equal(saleLotProblem({ ...l, qty: 1, unitFactor: 1, lotPick: { mode: 'ONE', lotId: 'LB' } }), null);
+  assert.equal(saleLotProblem({ ...l, qty: 1, unitFactor: 1, lotPick: { mode: 'ONE', lotId: 'LX' } }), null);
   // «تلقائي» لا مشكلة له أبداً
-  assert.equal(saleLotProblem({ productId: 'p1', qty: 999, unitFactor: 10 }, s.eligible), null);
+  assert.equal(saleLotProblem({ productId: 'p1', qty: 999, unitFactor: 10 }), null);
+});
+
+test('saleLotFallback: المختارة تُستعمل أولاً ثم الأقرب انتهاءً ثم غير المسمّى، ونقص الصنف كله وحده يُنذر بالرفض', () => {
+  const l = (lotPick: SaleLotPick, qty = 20, unitFactor = 1): SaleLotLine => ({ productId: 'p1', qty, unitFactor, lotPick });
+  // L3 فيها ٥ والسطر ٢٠: ٥ منها و١٥ من L1 (الأقرب انتهاءً)
+  const a = saleLotFallback([l({ mode: 'ONE', lotId: 'L3' })], snap(), 0)!;
+  assert.deepEqual(a.events, [{ lotId: 'L3', lotNumber: 'A-03', reason: 'SHORT', requested: 20, taken: 5 }]);
+  assert.equal(a.fromPicked, 5);
+  assert.equal(a.remainder, 15);
+  assert.deepEqual(a.preview, [{ lotId: 'L1', qty: 15 }]);
+  assert.equal(a.short, false);
+  // تشغيلةٌ نفدت فغابت عن اللقطة: نقصٌ كامل لا خطأ
+  const gone = saleLotFallback([l({ mode: 'ONE', lotId: 'LZ' }, 3)], snap(), 0)!;
+  assert.deepEqual(gone.events.map((e) => [e.reason, e.taken, e.lotNumber]), [['SHORT', 0, null]]);
+  assert.deepEqual(gone.preview, [{ lotId: 'L1', qty: 3 }]);
+  // الصنف كله لا يكفي (مؤهَّلة ٦٠، والسطر ٧٠، وغير المسمّى ممنوع في هذه اللقطة) ⇒ short
+  assert.equal(saleLotFallback([l({ mode: 'ONE', lotId: 'L3' }, 70)], snap(), 0)!.short, true);
+  // ومع السماح بغير المسمّى (٤) يكفي ٦٤ ويأتي آخراً
+  const open = { ...snap(), allowUnknown: true };
+  const u = saleLotFallback([l({ mode: 'ONE', lotId: 'L3' }, 64)], open, 0)!;
+  assert.equal(u.short, false);
+  assert.deepEqual(u.preview[u.preview.length - 1], { lotId: null, qty: 4 });
+  // قاعدة الكرتون في الإكمال: كرتونان × ٢٤ من L3 (٥) ⇒ الباقي ٤٣ — كرتونٌ كامل من L1 قبل القِطع
+  const c = saleLotFallback([l({ mode: 'ONE', lotId: 'L3' }, 2, 24)], snap(), 0)!;
+  assert.equal(c.remainder, 43);
+  assert.equal(c.preview.reduce((t, r) => t + r.qty, 0), 43);
+  // مشكلة شكلٍ تمنع أصلاً ⇒ لا تنبيه
+  assert.equal(saleLotFallback([l({ mode: 'SPLIT', rows: [{ key: 'a', source: '', qty: '20' }] })], snap(), 0), null);
+  assert.equal(saleLotFallback([l({ mode: 'ONE', lotId: 'L3' })], null, 0), null, 'بلا لقطة لا حكم');
 });
 
 test('المصادر: المسمّاة وحدها، الموقوفة والمنتهية للعرض لا للاختيار، والمتاح بعد اختيار أسطر الصنف الأخرى', () => {
@@ -120,12 +145,14 @@ test('المصادر: المسمّاة وحدها، الموقوفة والمن�
   assert.deepEqual(s1.eligible.map((s) => s.lotId), ['L1', 'L2', 'L3'], 'الموقوفة والمنتهية خارج الاختيار');
   const s0 = saleLotSources(snap(), lines, 0)!;
   assert.equal(s0.all.find((s) => s.lotId === 'L1')!.usable, 25, 'السطر الأول يرى L1 كاملة');
-  // سطرٌ ثانٍ يختار من L1 فوق ما تركه الأول ⇒ فوق المتاح
+  // سطرٌ ثانٍ يختار من L1 فوق ما تركه الأول ⇒ لا منع (طلب المالك ١٦ نوفمبر ٢٠٢٦) بل تنبيه «يُكمَل من غيرها»
   const both = [...lines.slice(0, 2), { ...lines[1], unitFactor: 2, qty: 4, lotPick: { mode: 'ONE' as const, lotId: 'L1' } }];
-  const probs = saleLotProblems(both, snap(), tracked);
-  assert.equal(probs[2], 'LOT_OVER_SOURCE', '٨ حبات من L1 وقد بقي فيها ٥ بعد كرتوني السطر الأول');
-  assert.equal(probs[0], 'LOT_OVER_SOURCE', 'والأول يرى ما أخذه الثالث كذلك — الخادم يجمع الطلب لكل تشغيلة');
-  assert.equal(probs[1], null);
+  assert.deepEqual(saleLotProblems(both, snap(), tracked), [null, null, null]);
+  const fb = saleLotFallback(both, snap(), 2)!;
+  assert.deepEqual(fb.events, [{ lotId: 'L1', lotNumber: 'A-01', reason: 'SHORT', requested: 8, taken: 5 }], '٨ حبات من L1 وقد بقي فيها ٥ بعد كرتوني السطر الأول');
+  assert.equal(fb.remainder, 3);
+  assert.deepEqual(fb.preview, [{ lotId: 'L2', qty: 3 }], 'الباقي من الأقرب انتهاءً المؤهَّلة');
+  assert.equal(saleLotFallback(both, snap(), 1), null, '«تلقائي» بلا تنبيه');
   // مجموعٌ ضمن المتاح ⇒ لا مشكلة
   const ok = [lines[0], { ...lines[1], qty: 5, lotPick: { mode: 'ONE' as const, lotId: 'L1' } }];
   assert.deepEqual(saleLotProblems(ok, snap(), tracked), [null, null]);
@@ -275,13 +302,20 @@ test('D2 lotErrorText: نقص تشغيلةٍ صريحة يذكر رقمها وم
     'لا يلغى المرتجع لأن بضاعته بيعت من: التشغيلة A-03');
 });
 
-test('D3 تشغيلةٌ مختارة صارت موقوفة أو منتهية: LOT_NOT_SELLABLE لا «أكبر من المتاح»', () => {
+test('D3 تشغيلةٌ مختارة صارت موقوفة أو منتهية: لا منع — تنبيهٌ بسببها والكمية من غيرها (طلب المالك ١٦ نوفمبر ٢٠٢٦)', () => {
   const one = (lotId: string): SaleLotLine => ({ productId: 'p1', qty: 1, unitFactor: 1, lotPick: { mode: 'ONE', lotId } });
-  assert.deepEqual(saleLotProblems([one('LB')], snap(), tracked), ['LOT_NOT_SELLABLE'], 'موقوفة');
-  assert.deepEqual(saleLotProblems([one('LX')], snap(), tracked), ['LOT_NOT_SELLABLE'], 'منتهية');
+  assert.deepEqual(saleLotProblems([one('LB')], snap(), tracked), [null], 'موقوفة');
+  assert.deepEqual(saleLotProblems([one('LX')], snap(), tracked), [null], 'منتهية');
+  assert.deepEqual(saleLotFallback([one('LB')], snap(), 0)!.events.map((e) => [e.reason, e.taken]), [['BLOCKED', 0]], 'لا يؤخذ من الموقوفة شيء (I4)');
+  assert.deepEqual(saleLotFallback([one('LX')], snap(), 0)!.events.map((e) => [e.reason, e.taken]), [['EXPIRED', 0]]);
+  assert.deepEqual(saleLotFallback([one('LX')], snap(), 0)!.preview, [{ lotId: 'L1', qty: 1 }], 'الأقرب انتهاءً المؤهَّلة');
   assert.deepEqual(saleLotProblems([one('L1')], snap(), tracked), [null]);
+  assert.equal(saleLotFallback([one('L1')], snap(), 0), null, 'تكفي: لا تنبيه');
   const split: SaleLotLine = { productId: 'p1', qty: 2, unitFactor: 1, lotPick: { mode: 'SPLIT', rows: [{ key: 'a', source: 'L1', qty: '1' }, { key: 'b', source: 'LB', qty: '1' }] } };
-  assert.deepEqual(saleLotProblems([split], snap(), tracked), ['LOT_NOT_SELLABLE']);
+  assert.deepEqual(saleLotProblems([split], snap(), tracked), [null]);
+  const fs2 = saleLotFallback([split], snap(), 0)!;
+  assert.equal(fs2.fromPicked, 1);
+  assert.equal(fs2.remainder, 1);
   // رمز البيع لا يُمرَّر إلى محرّر الصفوف المشترك (يُعرض بنصّه خارجه)
   assert.equal(asDraftProblem('LOT_NOT_SELLABLE'), null);
   assert.equal(asDraftProblem('LOT_BASE_DECIMALS'), null);
@@ -328,21 +362,22 @@ test('D5 تشغيلةٌ استنفدتها أسطر الصنف الأخرى لا
 test('D6 كمية سطرٍ أساسية بأكثر من أربع خانات: LOT_BASE_DECIMALS للواحدة والتقسيم (لا «المجموع» ولا عبورٌ إلى الخادم)', () => {
   const el = saleLotSources(snap(), [{ productId: 'p1', qty: 1 }], 0)!.eligible;
   const base: SaleLotLine = { productId: 'p1', qty: 0.33333, unitFactor: 24 };
-  assert.equal(saleLotProblem({ ...base, lotPick: { mode: 'ONE', lotId: 'L2' } }, el), 'LOT_BASE_DECIMALS');
-  assert.equal(saleLotProblem({ ...base, lotPick: { mode: 'SPLIT', rows: [{ key: 'a', source: 'L2', qty: '7.9999' }] } }, el), 'LOT_BASE_DECIMALS');
+  assert.equal(el.length, 3);
+  assert.equal(saleLotProblem({ ...base, lotPick: { mode: 'ONE', lotId: 'L2' } }), 'LOT_BASE_DECIMALS');
+  assert.equal(saleLotProblem({ ...base, lotPick: { mode: 'SPLIT', rows: [{ key: 'a', source: 'L2', qty: '7.9999' }] } }), 'LOT_BASE_DECIMALS');
   // أربع خانات بالضبط تمرّ
-  assert.equal(saleLotProblem({ productId: 'p1', qty: 0.5, unitFactor: 1.5, lotPick: { mode: 'ONE', lotId: 'L2' } }, el), null);
+  assert.equal(saleLotProblem({ productId: 'p1', qty: 0.5, unitFactor: 1.5, lotPick: { mode: 'ONE', lotId: 'L2' } }), null);
   // «تلقائي» لا يُحجب هنا (الخادم يحكم كما اليوم)
-  assert.equal(saleLotProblem(base, el), null);
+  assert.equal(saleLotProblem(base), null);
 });
 
-test('D8 lotErrorLineIdx: نقص الصنف بلا تشغيلة يخصّ أسطر «تلقائي» لا السطر الصريح', () => {
+test('D8 lotErrorLineIdx: نقص الصنف بلا تشغيلة يخصّ كل أسطر الصنف — باقي الصريح يُكمَل مع «تلقائي» (طلب المالك ١٦ نوفمبر ٢٠٢٦)', () => {
   const lines: SaleLotLine[] = [
     { productId: 'p1', qty: 2, unitFactor: 1, lotPick: { mode: 'ONE', lotId: 'L1' } },
     { productId: 'p1', qty: 99, unitFactor: 1 },
   ];
   const err = (detail: Record<string, unknown>, code: LotErrorInfo['code'] = 'LOT_STOCK_INSUFFICIENT'): LotErrorInfo => ({ status: 409, code, message: null, detail });
-  assert.deepEqual(lotErrorLineIdx(err({ productId: 'p1', wanted: 101, available: 60, lines: [0, 1] }), lines), [1]);
+  assert.deepEqual(lotErrorLineIdx(err({ productId: 'p1', wanted: 101, available: 60, lines: [0, 1] }), lines), [0, 1]);
   // كل الأسطر صريحة ⇒ كلها؛ ورمزٌ آخر بلا تشغيلة لا يُضيَّق
   assert.deepEqual(lotErrorLineIdx(err({ productId: 'p1', lines: [0] }), lines.slice(0, 1)), [0]);
   assert.deepEqual(lotErrorLineIdx(err({ productId: 'p1', lines: [0, 1] }, 'LOT_BUSY'), lines), [0, 1]);

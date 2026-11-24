@@ -17,6 +17,8 @@ import LandingPage from './pages/LandingPage';
 import InfoPage from './pages/InfoPage';
 import ContactPage from './pages/ContactPage';
 import MeetingPage from './pages/MeetingPage';
+// «سفراء فيلد سيلز» — الصفحة العلنية المفهرسة للبرنامج (ع/إ/فر)، فورية كبقية الصفحات المُصيَّرة
+import AmbassadorsPage from './pages/AmbassadorsPage';
 import SignupPage from './pages/SignupPage';
 import LoginPage from './pages/LoginPage';
 import OwnerLoginPage from './pages/OwnerLoginPage';
@@ -51,6 +53,8 @@ const CompanyUsersPage = lazy(() => import('./pages/CompanyUsersPage'));
 const ErpIntegrationPage = lazy(() => import('./pages/ErpIntegrationPage'));
 const PetroappPage = lazy(() => import('./pages/PetroappPage'));
 const AiRepPage = lazy(() => import('./pages/AiRepPage'));
+// «المحاسب الذكي AI»: صفحةٌ كسولة على مستوى /app لا تحت /app/ledger — LedgerRoute يشترط الدفاتر، والقراءة لكل شركة فعّلها لها المالك
+const AiAccountantPage = lazy(() => import('./pages/AiAccountantPage'));
 const PaylinkPage = lazy(() => import('./pages/PaylinkPage'));
 const HatifPage = lazy(() => import('./pages/HatifPage'));
 const CatalogPage = lazy(() => import('./pages/CatalogPage'));
@@ -109,6 +113,8 @@ const AffiliateApp = lazy(() => import('./affiliate/AffiliateApp'));
 const HookBLandingPage = lazy(() => import('./pages/HookBLandingPage'));
 // تفعيل حساب شركةٍ فتحه سفير — يختار مسؤولها كلمة مروره من رابط بريده (كسولة: لا تدخل حزمة الزوّار)
 const ActivatePage = lazy(() => import('./pages/ActivatePage'));
+// إعادة تعيين كلمة مرور مستخدم الشركة من رابط بريد «نسيت كلمة المرور» (كسولة كـ/activate)
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
 
 // شاشة تحميل بسيطة أثناء جلب الحِزَم الكسولة — تظهر على كل مسار كسول،
 // فنصّها العربي المثبَّت كان يومض بالعربية أمام كل مستخدم أجنبي
@@ -177,6 +183,10 @@ function LocaleSync() {
   const setLang = useLang((s) => s.setLang);
   useEffect(() => {
     if (isAppRoute(pathname)) return;
+    // مسارا التحويل من صفحة السفراء إلى البوابة (/ambassadors/join و/ambassadors/login): لا يشتقّان لغة — وإلا فُرضت
+    // العربية لحظة التحويل على زائر /en/ambassadors أو /fr/ambassadors، والبوابة (مسار تطبيق) تتبع اللغة القائمة.
+    // وبتحميلٍ كامل (تبويبٌ جديد) يقرأ initialLangFor في i18n/lang.ts اللغة المحفوظة لهما (AMBASSADORS_REDIRECT).
+    if (/^\/ambassadors\/(join|login)\/?$/.test(pathname)) return;
     // صفحات الطبقة متعددة اللغات: لغة الواجهة (عناصر التطبيق المشتركة كشاشة التحميل) من الخمس — الإنجليزية لغير الخمس.
     // لغة المستند واتجاهه تضبطهما الصفحة نفسها، وapplyDoc لا يمسّهما على هذه المسارات (lang.ts) —
     // وإلا كتب localeFromPath('/es/') ⇒ ar لغةً عربية واتجاهاً RTL فوق الصفحة الإسبانية.
@@ -197,13 +207,14 @@ function LocaleSync() {
 //   الاشتراك (لا زبائن الشركات)، ولا يصل منها إلا المسار؛ معرّف الدفع في الاستعلام لا يُرسل.
 // - `/activate`: صفحة تفعيل حساب شركةٍ فتحه سفير — يصلها مسؤولها من رابط بريده (الرمز في `#t=`)،
 //   فهي باب حسابٍ لا زيارة موقع، كـ`/verify-email`.
+// - `/reset-password`: رابط «نسيت كلمة المرور» من البريد (الرمز في `#t=`) — بابُ حسابٍ كـ`/activate`.
 // `ax` يبقى آخر البدائل: affiliate/hiding.test.ts يفحص ذلك.
 // القاعدة نفسها حرفياً في HIDDEN_ON (components/WhatsAppFab.tsx) — حيث لا نسجّل زيارة
 // لا يظهر الزرّ العائم ولا ينشئ معرّف زائر؛ whatsappFab.test.ts يفرض التطابق.
 function VisitTracker() {
   const { pathname } = useLocation();
   useEffect(() => {
-    if (/^\/(app|platform|owner|staff|login|verify-email|activate|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/.test(pathname)) return;
+    if (/^\/(app|platform|owner|staff|login|verify-email|activate|reset-password|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/.test(pathname)) return;
     // نُرفق طبقة الإسناد (هوية مجهولة + جلسة + وسوم + أول لمسة) — وعند رفض التتبّع تُرسل {optOut:true} وحده
     analyticsApi.track({
       path: pathname,
@@ -238,7 +249,7 @@ function AdsTagLoader() {
 function ReferralCapture() {
   const { pathname, search } = useLocation();
   useEffect(() => {
-    if (/^\/(app|platform|owner|staff|login|verify-email|activate|rep|m|ax|hx)(\/|$)/.test(pathname)) return;
+    if (/^\/(app|platform|owner|staff|login|verify-email|activate|reset-password|rep|m|ax|hx)(\/|$)/.test(pathname)) return;
     captureRefFromUrl(search);
     // readRef يحذف الرمز المنتهي (٣٦٥ يوماً) — وإلا بقي في متصفّح من لم يصل /signup أبداً
     readRef();
@@ -272,6 +283,7 @@ export default function App() {
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/activate" element={<ActivatePage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         {/* الصفحات التعريفية الفرعية (عامة) */}
         <Route path="/about" element={<InfoPage pageKey="about" />} />
         <Route path="/terms" element={<InfoPage pageKey="terms" />} />
@@ -279,6 +291,11 @@ export default function App() {
         <Route path="/privacy" element={<InfoPage pageKey="privacy" />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/meeting" element={<MeetingPage />} />
+        <Route path="/ambassadors" element={<AmbassadorsPage />} />
+        {/* زرّا صفحة السفراء العلنية («انضم الآن» و«لديك حساب؟») — تحويلٌ استبدالاً إلى البوابة (V2_SPEC §9): الصفحات العامة
+            وprerender والخريطة لا تذكر مسار البوابة نفسه (affiliate/hiding.test.ts)، وهذان المساران وحدهما يعرفانه */}
+        <Route path="/ambassadors/join" element={<Navigate to="/ax?view=register" replace />} />
+        <Route path="/ambassadors/login" element={<Navigate to="/ax" replace />} />
         <Route path="/subscribe-request" element={<SubscriptionRequestPage />} />
         <Route path="/calculator" element={<LeakCalculatorPage />} />
         <Route path="/tutorial" element={<TutorialPage />} />
@@ -312,6 +329,7 @@ export default function App() {
         <Route path="/en/privacy" element={<InfoPage pageKey="privacy" />} />
         <Route path="/en/contact" element={<ContactPage />} />
         <Route path="/en/meeting" element={<MeetingPage />} />
+        <Route path="/en/ambassadors" element={<AmbassadorsPage />} />
         <Route path="/en/profile" element={<ProfilePage />} />
         <Route path="/en/subscribe-request" element={<SubscriptionRequestPage />} />
         <Route path="/en/calculator" element={<LeakCalculatorPage />} />
@@ -337,6 +355,7 @@ export default function App() {
         <Route path="/fr/privacy" element={<InfoPage pageKey="privacy" />} />
         <Route path="/fr/contact" element={<ContactPage />} />
         <Route path="/fr/meeting" element={<MeetingPage />} />
+        <Route path="/fr/ambassadors" element={<AmbassadorsPage />} />
         <Route path="/fr/profile" element={<ProfilePage />} />
         <Route path="/fr/subscribe-request" element={<SubscriptionRequestPage />} />
         <Route path="/fr/calculator" element={<LeakCalculatorPage />} />
@@ -384,6 +403,8 @@ export default function App() {
           <Route path="company" element={<PermissionRoute permission="canManageCompanySettings"><CompanySettingsPage /></PermissionRoute>} />
           {/* الدفاتر: الهيكل (قوائم LedgerLayout) ثم صفوف LEDGER_ROUTES أبناءً — children بخاصية لا بوسوم متداخلة كي يبقى السطر ذاتي الإغلاق لحارس ledgerGate.test */}
           <Route path="ledger" element={<LedgerRoute perm="canViewLedger"><LedgerLayout /></LedgerRoute>} children={ledgerChildRoutes} />
+          {/* «المحاسب الذكي AI» بعد الدفاتر بصلاحية التقارير؛ وعَلَم الشركة والمحاسبة والنطاق يفرضها الخادم (٤٠٣) والمحادثة تعرض رفضه */}
+          <Route path="ai-accountant" element={<PermissionRoute permission="canViewReports"><AiAccountantPage /></PermissionRoute>} />
           <Route path="notifications" element={<NotificationsPage />} />
           {/* مسار لوحة مجهول (رابط قديم أو خطأ كتابة) يعود للوحة لا لصفحة 404 العامة */}
           <Route path="*" element={<Navigate to="/app" replace />} />

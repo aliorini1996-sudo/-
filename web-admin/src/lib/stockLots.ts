@@ -183,6 +183,96 @@ export function splitDraft(rows: readonly LotRowDraft[], lineBaseQty: number, so
   return [...rows, { key: newRowId('d'), source: next ? sourceKey(next.lotId) : '', qty: String(roundLot(qty)) }];
 }
 
+// ─── «يُكمَل من غيرها» (طلب المالك ١٦ نوفمبر ٢٠٢٦: «لا مانع من أن يأخذ من LOT آخر في حال انتهت هذه التشغيلة») ───
+
+/** سبب إكمال صفٍّ صريح من غير تشغيلته — مرآة reason في تحذير الخادم LOT_EXPLICIT_FALLBACK */
+export type LotFallbackReason = 'SHORT' | 'EXPIRED' | 'BLOCKED' | 'UNKNOWN_SHORT';
+/** صفٌّ صريح لا تكفيه تشغيلته: المطلوب منها وما تعطيه فعلاً (الموقوفة والمنتهية صفراً) — بالأساس */
+export interface LotFallbackEvent { lotId: string | null; lotNumber: string | null; reason: LotFallbackReason; requested: number; taken: number }
+export interface LotFallbackPlan {
+  events: LotFallbackEvent[];
+  /** ما يؤخذ من التشغيلات المختارة نفسها */
+  fromPicked: number;
+  /** ما يُكمَل من غيرها */
+  remainder: number;
+  /** معاينة الإكمال: المؤهَّلة الباقية بالأقرب انتهاءً (وقاعدة الكرتون) ثم غير المسمّى — للعرض، والخادم يحسم */
+  preview: LotRef[];
+  /** الصنف كله لا يغطّي الباقي ⇒ الخادم يردّ LOT_STOCK_INSUFFICIENT كالتلقائي — الرفض الوحيد الباقي */
+  short: boolean;
+}
+
+/**
+ * مرآة explicitShort: 'SPILL' في الخادم (allocateOutLines) لصرفٍ بتشغيلةٍ صريحة — بيع الإدارة والتحميل من المستودع: التشغيلة
+ * المختارة «تُستعمل أولاً» لا «تُستعمل حتماً». كل صفٍّ يأخذ من تشغيلته حتى متاحها، والموقوفة والمنتهية لا تعطي شيئاً (I4: لا يُصرف
+ * منها أبداً)، وغير المسمّى حتى متاحه إن سُمح به (I2)، والمتاح مشتركٌ بين الصفوف بترتيبها. والباقي يُكمَل بالأقرب انتهاءً من المؤهَّلة
+ * ثم غير المسمّى — فتنبيهٌ لا منع، ويبقى المنع حين لا يكفي الصنف كله.
+ * `sources` كل مصادر المكان **بأي حالة** (outSourcesOf/snapshotSourcesOf) بالمتاح بعد الأسطر الأخرى، فيُعرف سبب كل صفّ.
+ * null = لا صفوف، أو تكفي كل تشغيلةٍ صفَّها (لا تنبيه).
+ */
+export function explicitFallback(
+  refs: readonly LotRef[] | null | undefined,
+  sources: readonly LotSource[],
+  opts: { allowUnknown: boolean; unitFactor?: number | null },
+): LotFallbackPlan | null {
+  if (!refs?.length) return null;
+  const pool = new Map(sources.map((s) => [sourceKey(s.lotId), s.usable]));
+  const events: LotFallbackEvent[] = [];
+  let fromPicked = 0;
+  let remainder = 0;
+  for (const r of refs) {
+    const q = roundLot(Math.abs(Number(r.qty) || 0));
+    if (q <= LOT_EPS) continue;
+    const key = sourceKey(r.lotId);
+    const src = sources.find((s) => s.lotId === r.lotId);
+    const free = Math.max(0, pool.get(key) ?? 0);
+    let reason: LotFallbackReason;
+    let g = 0;
+    if (r.lotId === null) {
+      reason = 'UNKNOWN_SHORT';
+      g = opts.allowUnknown ? Math.min(q, free) : 0;
+    } else if (src && src.status !== null && src.status !== 'ACTIVE') reason = 'BLOCKED';
+    else if (src?.expired) reason = 'EXPIRED';
+    else {
+      // تشغيلةٌ نفدت تختفي من اللقطة (المتاح صفر) — نقصٌ كاملٌ لا خطأ
+      reason = 'SHORT';
+      g = Math.min(q, free);
+    }
+    g = roundLot(g);
+    pool.set(key, roundLot((pool.get(key) ?? 0) - g));
+    fromPicked = roundLot(fromPicked + g);
+    const deficit = roundLot(q - g);
+    if (deficit > LOT_EPS) {
+      remainder = roundLot(remainder + deficit);
+      events.push({ lotId: r.lotId, lotNumber: src?.lotNumber ?? null, reason, requested: q, taken: g });
+    }
+  }
+  if (!events.length) return null;
+  // الإكمال من المؤهَّلة وحدها (نشطة غير منتهية) بما بقي فيها بعد المنح، ثم غير المسمّى إن سُمح به
+  const rest: { lotId: string | null; expiryDate: string | null; usable: number }[] = sources
+    .filter((s) => s.lotId !== null && s.status === 'ACTIVE' && !s.expired)
+    .map((s) => ({ lotId: s.lotId, expiryDate: s.expiryDate, usable: Math.max(0, pool.get(sourceKey(s.lotId)) ?? 0) }));
+  const uu = pool.get(UNKNOWN_KEY) ?? 0;
+  if (opts.allowUnknown && uu > LOT_EPS) rest.push({ lotId: null, expiryDate: null, usable: uu });
+  const pull = fefoAutoPull(rest, [{ qty: remainder, unitFactor: opts.unitFactor }]);
+  return { events, fromPicked, remainder, preview: pull.rows[0] ?? [], short: pull.short };
+}
+
+/**
+ * تحميلٌ من المستودع بتوزيعٍ معدَّل (طلب المالك ١٦ نوفمبر ٢٠٢٦): ما يمنع الحفظ هو الشكل وحده (مصدرٌ لكل صف بلا تكرار، وأربع
+ * خانات، والمجموع = كمية السطر) ونقص الصنف كله في المستودع. صفٌّ فوق متاح تشغيلته أو على تشغيلةٍ صارت موقوفة أو منتهية لم يعد
+ * يمنع: الخادم يأخذ ما فيها ويُكمل الباقي بالأقرب انتهاءً (`fallback` للتنبيه). `view` عرض المستودع للصنف.
+ */
+export function loadDraftCheck(
+  rows: readonly LotRowDraft[], lineBaseQty: number, view: PlaceLotViewDto | null | undefined, day: string, unitFactor?: number | null,
+): { problem: DraftProblem | null; short: boolean; fallback: LotFallbackPlan | null } {
+  const problem = draftProblem(rows, lineBaseQty, null);
+  if (problem) return { problem, short: false, fallback: null };
+  // بلا عرضٍ للمستودع لا حكم على المتاح (لا يُمنع على ظنّ) — الخادم يحكم
+  if (!view) return { problem: null, short: false, fallback: null };
+  const fallback = explicitFallback(draftRefs(rows), outSourcesOf(view, 'SELLABLE', day), { allowUnknown: true, unitFactor });
+  return { problem: null, short: fallback?.short ?? false, fallback };
+}
+
 // ─── تشغيلة سطر الوارد أو التسوية (سطرٌ = تشغيلةٌ واحدة، §٤.٤) ───
 
 /** NEW رقمٌ يُحلّ أو يُنشأ بتاريخيه؛ EXISTING تشغيلة قائمة؛ UNKNOWN غير مسمّى صراحةً؛ AUTO بلا تحديد (سحبٌ تلقائي للنقص بالأقرب انتهاءً أولاً) */

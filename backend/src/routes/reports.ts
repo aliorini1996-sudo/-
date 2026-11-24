@@ -22,6 +22,10 @@ import { lastVisitBeforeMap, visitedCustomerIds } from '../services/unvisitedCus
 import { saleInvoiceStatsMap } from '../services/unvisitedInvoicesDb';
 import { NEWEST_FIRST, VISIT_RAW_CEILING, olderThan, readNewestFirst, utcAppliedRange, utcDay, type AppliedRange } from '../services/reportBatches';
 import { locationDocWhere, locationFilterOf } from '../services/locations';
+import { purchasesReportHandler } from '../services/reports/purchasesReport';
+import { loadCustomerAging } from '../services/customerAgingDb';
+import { profitReportHandler } from '../services/reports/profitReport';
+import { taxReportHandler } from '../services/reports/taxReport';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canViewReports'));
@@ -173,6 +177,34 @@ export function reportIdFilters<K extends string>(q: Record<string, unknown>, ke
 }
 
 const badFilter = (res: Response): void => { res.status(400).json({ success: false, message: 'معامل غير صالح' }); };
+
+/** نافذة تقريرَي المبيعات والمرتجع بلا مدى — آخر ٩٠ يوماً بأيام الشركة تنتهي اليوم */
+const SALES_DEFAULT_DAYS = 90;
+
+/**
+ * مدى تقريرَي المبيعات والمرتجع بأيام الشركة لا UTC — كتقارير الربح والضرائب والمشتريات والتشغيلات، فيتطابق صافي المبيعات بين
+ * تبويبات الصفحة الواحدة على الفلتر نفسه (فاتورة ١ نوفمبر ٠١:٣٠ بتوقيت الرياض = ٣١ أكتوبر ٢٢:٣٠ UTC من نوفمبر في كليهما).
+ * «من» و«إلى» شاملان يومَيهما كاملين بتوقيت الشركة، والطرف الغائب بلا حدٍّ من جهته، وغيابهما آخر ٩٠ يوماً تنتهي اليوم (مُعلَنة
+ * defaulted بطرفيها). يومٌ فاسد (أو بسنةٍ خارج 1900–2099، أو مصفوفة qs) و«من» بعد «إلى» ⇒ null (٤٠٠ — كان new Date يرميه ٥٠٠).
+ */
+async function companyDayRange(
+  tid: string, rawFrom: unknown, rawTo: unknown,
+): Promise<{ filter: { gte?: Date; lt?: Date }; applied: AppliedRange; rangeApplied: boolean } | null> {
+  const dayOf = (v: unknown): string | undefined | false =>
+    (v === undefined || v === '' ? undefined : typeof v === 'string' && /^(19|20)\d\d-/.test(v) && isLocalDate(v) ? v : false);
+  const from = dayOf(rawFrom);
+  const to = dayOf(rawTo);
+  if (from === false || to === false || (from && to && from > to)) return null;
+  const { tz, day: today } = await companyDay(prisma, tid);
+  const rangeApplied = !!(from || to);
+  const f = rangeApplied ? from ?? null : addDays(today, -(SALES_DEFAULT_DAYS - 1));
+  const t = rangeApplied ? to ?? null : today;
+  return {
+    filter: { ...(f ? { gte: zonedStartOfDay(f, tz) } : {}), ...(t ? { lt: zonedStartOfDay(addDays(t, 1), tz) } : {}) },
+    applied: { from: f, to: t, defaulted: !rangeApplied },
+    rangeApplied,
+  };
+}
 
 /** معرّفات أصناف بنود مستندات — لوحداتها النشطة (activeUnitsByProduct) */
 const productIdsIn = (docs: ReadonlyArray<{ items: ReadonlyArray<{ product: { id: string } | null }> }>): string[] =>
@@ -453,35 +485,32 @@ const cleanRows = <T extends { total: number }>(rows: T[]): T[] => rows.map((r) 
 router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const { from, to, groupBy } = req.query as Record<string, string>;
+    const { groupBy } = req.query as Record<string, string>;
     // فلاتر المعرّفات نصوصٌ مقصوصة بحدّ ٦٤ — والموقع بختم الفاتورة وقت إصدارها (Invoice.locationId، و`none` = «بلا موقع» كقائمة الفواتير)
     const f = reportIdFilters(req.query, ['salesRepId', 'customerId', 'locationId']);
     if (!f) { badFilter(res); return; }
     const { salesRepId, customerId } = f;
     const team = reportTeamOf(req.query.teamId); // «الفرق»: فلتر الفريق (بوسم المستند)
     /**
-     * نطاق شامل ليوم «إلى» كاملاً (حتى منتصف ليلته) — يُصلح التصفية ليوم واحد وآخر يوم.
+     * نطاق شامل ليوم «إلى» كاملاً (حتى منتصف ليلته بتوقيت الشركة) — يُصلح التصفية ليوم واحد وآخر يوم، بأيام الشركة لا UTC
+     * (companyDayRange) فيطابق صافيه تبويب الربح والضرائب على الفلتر نفسه.
      *
      * **وسقفٌ افتراضيّ حين لا يُمرَّر مدى:** كان غيابُ المدى يعني سحب تاريخ
      * الشركة كاملاً ومعه بنودُ كل فاتورة ومنتجاتها في الذاكرة — وهو المسار
      * الذي تسلكه الصفحة عند أوّل فتح. على خطّة بذاكرة محدودة ينفجر ذلك مع
      * نموّ الشركة، والخادم يسقط للجميع لا لطالب التقرير وحده.
      * فإن لم يُحدَّد مدى نقصره على آخر ٩٠ يوماً ونُعلمه في الاستجابة.
+     *
+     * طرفٌ واحد يكفي: كان الشرط `from && to` يُسقط «من ١ يناير» بلا «إلى» **بصمت**، فيرى المستخدم كلّ السجلّ وهو يقرأ فلتراً
+     * مطبَّقاً على الشاشة. الطرف الغائب يعني «بلا حدّ من تلك الجهة» لا «ألغِ الفلتر».
      */
-    const DEFAULT_DAYS = 90;
-    // طرفٌ واحد يكفي: كان الشرط `from && to` يُسقط «من ١ يناير» بلا «إلى» **بصمت**،
-    // فيرى المستخدم كلّ السجلّ وهو يقرأ فلتراً مطبَّقاً على الشاشة. الطرف الغائب
-    // يعني «بلا حدّ من تلك الجهة» لا «ألغِ الفلتر».
-    const rangeApplied = !!(from || to);
-    const dateFilter = rangeApplied
-      ? {
-          ...(from ? { gte: new Date(from) } : {}),
-          ...(to ? { lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) } : {}),
-        }
-      : { gte: new Date(Date.now() - DEFAULT_DAYS * 24 * 60 * 60 * 1000) };
+    const DEFAULT_DAYS = SALES_DEFAULT_DAYS;
+    const range = await companyDayRange(tid, req.query.from, req.query.to);
+    if (!range) { badFilter(res); return; }
+    const { rangeApplied, filter: dateFilter } = range;
     // المدى المطبَّق فعلاً في `meta` لكل فرعٍ (البند ٩): التجميعات مصفوفاتٌ لا تحمل حقلاً، وكان defaultRangeDays في الملخّص
     // وحده — والواجهة تطلب التجميع دائماً، فكان عنوان «الفترة» يقول «كل الفترات» فوق آخر تسعين يوماً
-    const meta = { appliedRange: utcAppliedRange(!rangeApplied, dateFilter) };
+    const meta = { appliedRange: range.applied };
 
     // «إجمالي المبيعات» صافٍ (طلب المالك ٢٩ أكتوبر ٢٠٢٦): المرتجع المؤكَّد بالمدى والنطاق والفلاتر نفسها يُطرح من كل تجميع
     // ومن الملخّص — كحساب العميل وتقرير المواقع والدفاتر. العدد يبقى عدد فواتير البيع، وقائمة الفواتير بلا مرتجعات
@@ -707,17 +736,13 @@ router.get('/orders', async (req: AuthRequest, res: Response, next: NextFunction
 router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
-    const { from, to } = req.query as Record<string, string>;
     const f = reportIdFilters(req.query, ['salesRepId', 'customerId', 'locationId']);
     if (!f) { badFilter(res); return; }
-    const DEFAULT_DAYS = 90;
-    const rangeApplied = !!(from || to);
-    const dateFilter = rangeApplied
-      ? {
-        ...(from ? { gte: new Date(from) } : {}),
-        ...(to ? { lt: new Date(new Date(to).getTime() + 24 * 60 * 60 * 1000) } : {}),
-      }
-      : { gte: new Date(Date.now() - DEFAULT_DAYS * 24 * 60 * 60 * 1000) };
+    // بأيام الشركة كتقرير المبيعات (companyDayRange): مرتجع تبويب المبيعات يطابق ما طرحه ملخّصها على الفلتر نفسه
+    const DEFAULT_DAYS = SALES_DEFAULT_DAYS;
+    const range = await companyDayRange(tid, req.query.from, req.query.to);
+    if (!range) { badFilter(res); return; }
+    const { rangeApplied, filter: dateFilter } = range;
     // «الفرق»: الفريق جزءٌ من النطاق نفسه — فيطبَّق على المرتجعات وعلى مبيعات النسبة معاً. وكذا فلاتر المندوب والعميل والموقع:
     // نسبة مرتجع مندوبٍ على مبيعاته هو. مفاتيح عددية منفصلة لا تمحو مفتاح النطاق (AND)
     const picks = {
@@ -827,7 +852,7 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
         rangeApplied,
         defaultDays: rangeApplied ? null : DEFAULT_DAYS,
       },
-      meta: { truncated, limit: REPORT_LIST_LIMIT, appliedRange: utcAppliedRange(!rangeApplied, dateFilter) },
+      meta: { truncated, limit: REPORT_LIST_LIMIT, appliedRange: range.applied },
     });
   } catch (err) { next(err); }
 });
@@ -911,7 +936,10 @@ router.get('/balances', async (req: AuthRequest, res: Response, next: NextFuncti
       ? customers.filter(c => Number(c.balance) > Number(c.creditLimit))
       : customers;
 
-    res.json({ success: true, data: result });
+    // «عمر الدين» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): لكل مدينٍ عمر دينه وتوزيع رصيده على شرائح العمر من فواتيره المفتوحة مطابَقةً
+    // برصيده المعروض (services/customerAging.ts) — وغير المدين null. حقلٌ إضافيّ، وبقية الصفّ كما كان
+    const aging = await loadCustomerAging(prisma, tid, result, await tenantTz(tid));
+    res.json({ success: true, data: result.map(c => ({ ...c, aging: aging.get(c.id) ?? null })) });
   } catch (err) { next(err); }
 });
 
@@ -1285,6 +1313,8 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
           checkInDevice: true, checkOutDevice: true,
           checkInOutside: true, checkInDistanceM: true, checkOutOutside: true, checkOutDistanceM: true,
           source: true, editedAt: true,
+          // «انصراف تلقائي» بعد خمول (period.outAuto) — وختم النظام editedAt/editedBy لا يُعدّ تعديلاً إدارياً
+          editedBy: true, checkOutAuto: true,
         },
       }),
     ]);
@@ -1626,8 +1656,8 @@ const isReportDay = (v: string): boolean => /^(19|20)\d\d-/.test(v) && isLocalDa
  * - **النطاق والفرق** على الفاتورة كتقرير المرتجع: المقيَّد بالقوائم عميلُه **و**مندوبه، ومشرف الفرق موسومُ فرقه؛ ومنها عدد
  *   العملاء. والنطاق مفتاح AND والفريق مفتاح teamId فلا يمحو أحدهما الآخر. `scoped` يُعلِم الواجهة أن النتيجة مقيّدة.
  * - **المدى** بأيام الشركة على تاريخ الفاتورة: الطرف الغائب بلا حدّ، وغيابهما آخر ٩٠ يوماً تنتهي اليوم — مُعلَنة، والسنة
- *   1900–2099 وإلا ٤٠٠. **فرقٌ معروف:** /returns و/sales تقطعان بأيام UTC (`new Date(from)`) و٩٠×٢٤ ساعة متحرّكة، وتبقيان
- *   كما كانتا (§١٠.١)؛ فمستندٌ بين ٠٠:٠٠ و٠٣:٠٠ بتوقيت الرياض يقع في يومٍ مختلف بينهما — `range.timezone` يُعلن أساس هذا.
+ *   1900–2099 وإلا ٤٠٠ — كـ/sales و/returns (companyDayRange) فلا يقع مستندٌ بين ٠٠:٠٠ و٠٣:٠٠ بتوقيت الرياض في يومٍ مختلف بينها؛
+ *   و`range.timezone` يُعلن أساس الأيام.
  * - **العَلَم** requireLots: المحاسبة المطفأة ٤٠٣ ACCOUNTING_NOT_ALLOWED، ثم الميزة المطفأة ٤٠٣ LOTS_NOT_ALLOWED.
  * - **الصافي في مدى وقائعٌ لا رصيد**: قد يكون سالباً (مرتجعٌ فيه لبيعٍ قبله). لا يمسّ التقرير رصيداً ولا قفلاً.
  * - lotId=none يعرض «غير معروف» وحده.
@@ -1706,5 +1736,14 @@ router.get('/lot-sales', requireLots, async (req: AuthRequest, res: Response, ne
     });
   } catch (err) { next(err); }
 });
+
+/**
+ * تقارير المشتريات والربح والضرائب (طلب المالك ١٧ نوفمبر ٢٠٢٦) — خلف حرّاس الموجّه كتقارير المبيعات (authenticate + requireAdmin +
+ * canViewReports)، وكل معالجٍ يضيف حرّاسه (services/reports/*): المحاسبة المطفأة ٤٠٣، والمشتريات تشترط مخزون الشركة وcanManageVanStock
+ * وترفض المندوب، والربح والضرائب بنطاق المستخدم المقيَّد (scopedRecordWhere)، والضرائب بيانٌ فارغ لشركةٍ أزالت ضريبتها.
+ */
+router.get('/purchases', purchasesReportHandler);
+router.get('/profit', profitReportHandler);
+router.get('/tax', taxReportHandler);
 
 export default router;

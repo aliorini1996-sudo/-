@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Banknote, Check, Copy, Edit, Eye, EyeOff, KeyRound, Plus, ShieldCheck, UserCog, X, Filter, Trash2, Image as ImageIcon } from 'lucide-react';
+import { Banknote, Check, Copy, Edit, Eye, EyeOff, KeyRound, Plus, ShieldCheck, UserCog, X, Filter, Trash2, Image as ImageIcon, Megaphone } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { companyUserApi, companyApi } from '../api/client';
 import ConfirmDialog from '../components/ConfirmDialog';
+import PagePanelModal from '../components/PagePanelModal';
+import CircularsPanel from '../components/circulars/CircularsPanel';
 import ResetPasswordModal from '../components/ResetPasswordModal';
 import UserScopeModal from '../components/UserScopeModal';
 import { useAuthStore } from '../store/authStore';
@@ -105,6 +107,11 @@ export default function CompanyUsersPage() {
   const [custodyUser, setCustodyUser] = useState<CompanyUser | null>(null); // نافذة استلام عهدة مستخدم
   const [deleting, setDeleting] = useState<CompanyUser | null>(null);
   const purge = useOwnerBulkPurge('Admin');
+  // «التعميمات» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): قرارٌ إداريّ يظهر لمستخدمي الشركة حين يفتحون النظام حتى يضغطوا «تمت القراءة» —
+  // بصلاحية مستخدمي الشركة كما يشترطها الخادم لـUSERS. مسوّدةٌ لم تُنشر ⇒ تُسأل النافذة قبل الإغلاق
+  const circularsOn = user?.role === 'ADMIN' && user?.canManageCompanyUsers !== false;
+  const [circularsOpen, setCircularsOpen] = useState(false);
+  const circularsDirty = useRef(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['company-users'],
@@ -176,8 +183,20 @@ export default function CompanyUsersPage() {
           <h1 className="page-title">{tr('مستخدمي الشركة')}</h1>
           <p className="text-sm text-gray-500 mt-1">{tr('أضف أكثر من مستخدم للوحة إدارة الشركة وحدد دور كل حساب')}</p>
         </div>
-        <button className="btn-primary" onClick={() => { setSelected(null); setShowModal(true); }}><Plus size={16} />{tr('إضافة مستخدم')}</button>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {circularsOn && (
+            <button className="btn-secondary" onClick={() => setCircularsOpen(true)}><Megaphone size={16} />{tr('التعميمات')}</button>
+          )}
+          <button className="btn-primary" onClick={() => { setSelected(null); setShowModal(true); }}><Plus size={16} />{tr('إضافة مستخدم')}</button>
+        </div>
       </div>
+      {circularsOn && circularsOpen && (
+        <PagePanelModal title={tr('التعميمات')} icon={<Megaphone size={20} />}
+          onClose={() => { circularsDirty.current = false; setCircularsOpen(false); }}
+          confirmClose={() => !circularsDirty.current || window.confirm(tr('تجاهل مسودة التعميم؟'))}>
+          <CircularsPanel audience="USERS" onDirtyChange={(d) => { circularsDirty.current = d; }} />
+        </PagePanelModal>
+      )}
 
       {purge.bar}
       <div className="card p-0">

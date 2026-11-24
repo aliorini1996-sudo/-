@@ -60,9 +60,9 @@ const REGION = { code: 'REGION', ar: 'الأسواق العربية', en: 'world
 // ----------------------------------------------------------------------------
 const blogBase = (L) => (L === 'ar' ? '/blog' : `/${L}/blog`);
 const cta = (L) => P(L,
-  `<p><a href="/signup"><strong>ابدأ تجربتك المجانية 10 أيام مع منصة FieldSales</strong></a> فواتير ضريبية تحصيل مخزون سيارة وتقارير لحظية من تطبيق واحد للمندوب </p>`,
-  `<p><a href="/signup"><strong>Start your free 10-day trial with FieldSales</strong></a> — tax invoices, collection, van stock and live reports from one rep app.</p>`,
-  `<p><a href="/signup"><strong>Commencez votre essai gratuit de 10 jours avec FieldSales</strong></a> — factures, encaissement, stock du véhicule et rapports en temps réel depuis une seule application.</p>`);
+  `<p><a href="/signup"><strong>ابدأ تجربتك المجانية 5 أيام مع منصة FieldSales</strong></a> فواتير ضريبية تحصيل مخزون سيارة وتقارير لحظية من تطبيق واحد للمندوب </p>`,
+  `<p><a href="/signup"><strong>Start your free 5-day trial with FieldSales</strong></a> — tax invoices, collection, van stock and live reports from one rep app.</p>`,
+  `<p><a href="/signup"><strong>Commencez votre essai gratuit de 5 jours avec FieldSales</strong></a> — factures, encaissement, stock du véhicule et rapports en temps réel depuis une seule application.</p>`);
 /**
  * دعوة أدلة الدول (countryGuides.mjs: الجديدة والمرقّاة) — محايدة بلا «ضريبية/tax» كالفرنسية أعلاه. ملف الدولة
  * المراجَع يقول ما يصدره FieldSales فيها فعلاً، ووعد «فواتير ضريبية» في ذيله يناقضه: في باكستان تصدر فاتورة
@@ -70,9 +70,9 @@ const cta = (L) => P(L,
  * (honesty.mustNotSay في الحقائق المدقّقة). يحرسه countryGuides.test.ts.
  */
 const guideCta = (L) => P(L,
-  `<p><a href="/signup"><strong>ابدأ تجربتك المجانية 10 أيام مع منصة FieldSales</strong></a> فواتير وتحصيل ومخزون سيارة وتقارير لحظية من تطبيق واحد للمندوب </p>`,
-  `<p><a href="/signup"><strong>Start your free 10-day trial with FieldSales</strong></a> — invoices, collection, van stock and live reports from one rep app.</p>`,
-  `<p><a href="/signup"><strong>Commencez votre essai gratuit de 10 jours avec FieldSales</strong></a> — factures, encaissement, stock du véhicule et rapports en temps réel depuis une seule application.</p>`);
+  `<p><a href="/signup"><strong>ابدأ تجربتك المجانية 5 أيام مع منصة FieldSales</strong></a> فواتير وتحصيل ومخزون سيارة وتقارير لحظية من تطبيق واحد للمندوب </p>`,
+  `<p><a href="/signup"><strong>Start your free 5-day trial with FieldSales</strong></a> — invoices, collection, van stock and live reports from one rep app.</p>`,
+  `<p><a href="/signup"><strong>Commencez votre essai gratuit de 5 jours avec FieldSales</strong></a> — factures, encaissement, stock du véhicule et rapports en temps réel depuis une seule application.</p>`);
 
 // جملة الضريبة/الفوترة حسب الدولة (تتكيّف مع وجود/غياب ضريبة القيمة المضافة)
 const taxLine = (c, L) => {
@@ -256,9 +256,9 @@ const genericFaq = (c, L) => ({
       `No — a smartphone and an optional thermal printer are enough for field invoicing.`,
       `Non : un smartphone et une imprimante thermique optionnelle suffisent.`) },
   trial: { q: P(L, `هل توجد تجربة مجانية`, `Is there a free trial?`, `Y a-t-il un essai gratuit ?`),
-    a: P(L, `نعم تجربة مجانية 10 أيام تبدأ خلال دقائق دون بطاقة`,
-      `Yes — a free 10-day trial that starts in minutes, no card required.`,
-      `Oui — un essai gratuit de 10 jours qui démarre en quelques minutes, sans carte.`) },
+    a: P(L, `نعم تجربة مجانية 5 أيام تبدأ خلال دقائق دون بطاقة`,
+      `Yes — a free 5-day trial that starts in minutes, no card required.`,
+      `Oui — un essai gratuit de 5 jours qui démarre en quelques minutes, sans carte.`) },
 });
 
 // خطوات عملية كبيانات منظّمة (تُغذّي HowTo schema) — تقتبسها محركات AI لأسئلة «كيف تبدأ»
@@ -946,15 +946,15 @@ const S = {
       `<h2>كيف تقارن بين الأنظمة المتاحة ${c.inAr}</h2>
      <p>عند تقييم أي نظام مبيعات ميدانية ${c.inAr} قارن على معايير يمكن فحصها قبل الشراء لا على قائمة ميزات وهذه أهمها وما يقدمه FieldSales في كل منها </p>
      ${table}
-     <p>وما يمكن التحقق منه في FieldSales قبل الالتزام السعر لكل الشركة لا لكل مستخدم ومعلن في <a href="/pricing/">صفحة الأسعار</a> وتجربة مجانية 10 أيام دون بطاقة تكفي لتشغيل دورة بيع حقيقية كاملة من الطلب إلى التحصيل وهذه الدورة هي الاختبار الحاسم لأي نظام </p>`,
+     <p>وما يمكن التحقق منه في FieldSales قبل الالتزام السعر لكل الشركة لا لكل مستخدم ومعلن في <a href="/pricing/">صفحة الأسعار</a> وتجربة مجانية 5 أيام دون بطاقة تكفي لتشغيل دورة بيع حقيقية كاملة من الطلب إلى التحصيل وهذه الدورة هي الاختبار الحاسم لأي نظام </p>`,
       `<h2>How to compare the systems available ${c.inEn}</h2>
      <p>When evaluating any field sales system ${c.inEn}, compare on criteria you can check before buying rather than on a feature list. These matter most, with what FieldSales offers on each:</p>
      ${table}
-     <p>What you can verify about FieldSales before committing: pricing is per company, not per user, and published on the <a href="/en/pricing/">pricing page</a>; and a free 10-day trial with no card is enough to run one complete real sales cycle, from order to collection — the decisive test for any system.</p>`,
+     <p>What you can verify about FieldSales before committing: pricing is per company, not per user, and published on the <a href="/en/pricing/">pricing page</a>; and a free 5-day trial with no card is enough to run one complete real sales cycle, from order to collection — the decisive test for any system.</p>`,
       `<h2>Comment comparer les systèmes disponibles ${c.inFr} ?</h2>
      <p>Pour évaluer un système de vente terrain ${c.inFr}, comparez des critères vérifiables avant l’achat plutôt qu’une liste de fonctionnalités. Voici les principaux, avec ce que propose FieldSales :</p>
      ${table}
-     <p>Ce que vous pouvez vérifier chez FieldSales avant de vous engager : un prix par entreprise et non par utilisateur, publié sur la <a href="/fr/pricing/">page des tarifs</a>, et un essai gratuit de 10 jours sans carte, suffisant pour un cycle de vente réel complet, de la commande à l’encaissement.</p>`);
+     <p>Ce que vous pouvez vérifier chez FieldSales avant de vous engager : un prix par entreprise et non par utilisateur, publié sur la <a href="/fr/pricing/">page des tarifs</a>, et un essai gratuit de 5 jours sans carte, suffisant pour un cycle de vente réel complet, de la commande à l’encaissement.</p>`);
   },
 };
 
@@ -1389,9 +1389,9 @@ const TOPICS = [
   { id: 'best-field-sales-software', cs: true, rm: 8,
     question: svc('ما أفضل برنامج إدارة مناديب', 'What is the best field sales software?', 'Quel est le meilleur logiciel de vente terrain ?'),
     desc: (c, L) => P(L,
-      ['خمسة معايير تختبر بها أي نظام قبل الشراء وتجربة مجانية 10 أيام على دورة بيع حقيقية', 'خمسة معايير قبل الشراء وتجربة مجانية 10 أيام'],
-      ['five checks to test any system before you buy, and a free 10-day trial on a real sales cycle.', 'five checks before you buy and a free 10-day trial.'],
-      ['cinq critères pour tester un système avant d’acheter, et un essai gratuit de 10 jours.', 'cinq critères avant d’acheter et un essai gratuit de 10 jours.']),
+      ['خمسة معايير تختبر بها أي نظام قبل الشراء وتجربة مجانية 5 أيام على دورة بيع حقيقية', 'خمسة معايير قبل الشراء وتجربة مجانية 5 أيام'],
+      ['five checks to test any system before you buy, and a free 5-day trial on a real sales cycle.', 'five checks before you buy and a free 5-day trial.'],
+      ['cinq critères pour tester un système avant d’acheter, et un essai gratuit de 5 jours.', 'cinq critères avant d’acheter et un essai gratuit de 5 jours.']),
     label: svc('أفضل برنامج إدارة مناديب وتوزيع', 'Best Field Sales & Distribution Software', 'Meilleurs logiciels de vente terrain et distribution'),
     kw: (c, L) => P(L, `أفضل برنامج مبيعات ميدانية ${c.ar}, أفضل نظام توزيع ${c.ar}, مقارنة برامج المناديب, أفضل تطبيق فان سيلز ${c.ar}, برنامج مبيعات موصى به`, `best field sales software ${c.en}, top distribution system ${c.en}, van sales app comparison, recommended sales rep software ${c.en}`, `meilleur logiciel de vente terrain ${c.fr}, meilleur système de distribution ${c.fr}, comparatif applications commerciaux`),
     secs: ['best', 'features', 'tax', 'roi', 'faq', 'cta'] },
@@ -1552,13 +1552,13 @@ const descOf = (topic, c, L) => {
   // الذيل القديم ما دام الوصف ضمن الحد، وإلا ذيل أقصر، وإلا العنوان وحده (لا يُقصّ وصف في منتصف كلمة)
   const fallbacks = [
     P(L,
-      `${t} دليل عملي من FieldSales لشركات التوزيع فواتير ضريبية تحصيل مخزون سيارة تتبع وتقارير لحظية جرب مجانا 10 أيام`,
-      `${t}: a practical FieldSales guide for distributors — tax invoices, collection, van stock, tracking and live reports. Free 10-day trial.`,
-      `${t} : un guide FieldSales pour les distributeurs — factures, encaissement, stock, suivi et rapports en temps réel. Essai gratuit 10 jours.`),
+      `${t} دليل عملي من FieldSales لشركات التوزيع فواتير ضريبية تحصيل مخزون سيارة تتبع وتقارير لحظية جرب مجانا 5 أيام`,
+      `${t}: a practical FieldSales guide for distributors — tax invoices, collection, van stock, tracking and live reports. Free 5-day trial.`,
+      `${t} : un guide FieldSales pour les distributeurs — factures, encaissement, stock, suivi et rapports en temps réel. Essai gratuit 5 jours.`),
     P(L,
-      `${t} دليل عملي لشركات التوزيع من FieldSales جرب مجانا 10 أيام`,
-      `${t}: a practical FieldSales guide for distributors. Free 10-day trial.`,
-      `${t} : un guide FieldSales pour les distributeurs. Essai gratuit 10 jours.`),
+      `${t} دليل عملي لشركات التوزيع من FieldSales جرب مجانا 5 أيام`,
+      `${t}: a practical FieldSales guide for distributors. Free 5-day trial.`,
+      `${t} : un guide FieldSales pour les distributeurs. Essai gratuit 5 jours.`),
   ];
   return fallbacks.find((d) => d.length <= DESC_FALLBACK_MAX) || t;
 };

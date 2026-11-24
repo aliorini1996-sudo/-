@@ -275,7 +275,8 @@ test('ملفٌ فوق حدّ الصفوف يُرفض برسالةٍ تذكر ا�
   assert.ok(edit.REP_LOCK_TX.timeout > edit.IMPORT_TX.timeout + edit.IMPORT_TX.maxWait, 'البصمة تنتظر أطول رفع');
   const admin = fs.readFileSync(path.join(SRC, 'routes', 'attendanceAdmin.ts'), 'utf8');
   const tracking = fs.readFileSync(path.join(SRC, 'routes', 'tracking.ts'), 'utf8');
-  for (const [src, n] of [[admin, 4], [tracking, 2]] as const) {
+  // tracking: الحضور والانصراف و«ما زلت أعمل» (تذكير الخمول — services/idlePunchOut.ts)
+  for (const [src, n] of [[admin, 4], [tracking, 3]] as const) {
     const all = src.split('prisma.$transaction(async (tx) => {').length - 1;
     assert.equal(all, n);
     assert.equal((src.match(/\n    \}, (REP_LOCK_TX|IMPORT_TX)\);/g) ?? []).length, n, 'كل معاملةٍ تحت القفل بمهلتها');

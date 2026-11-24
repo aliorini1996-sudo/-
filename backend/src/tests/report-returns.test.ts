@@ -20,7 +20,12 @@ test('تقرير المرتجع: المؤكَّدة من نوع المرتجع �
   assert.match(h, /where: \{ tenantId: tid, \.\.\.scope, status: 'CONFIRMED', type: \{ not: 'RETURN' \}, invoiceDate: dateFilter \}/, 'مبيعات المدى نفسه');
   assert.match(h, /returnRate: salesTotal > 0 \?/, 'لا قسمة على صفر');
   assert.match(h, /where: \{ id: \{ in: saleItemIds \}, invoice: \{ tenantId: tid \} \}/, 'فاتورة البيع من الشركة نفسها');
-  assert.match(h, /: \{ gte: new Date\(Date\.now\(\) - DEFAULT_DAYS/, 'بلا مدى: ٩٠ يوماً لا كل التاريخ');
+  // بلا مدى: ٩٠ يوماً لا كل التاريخ — بأيام الشركة كتقرير المبيعات (companyDayRange)، لا ٩٠×٢٤ ساعة بحدود UTC
+  assert.match(h, /const range = await companyDayRange\(tid, req\.query\.from, req\.query\.to\);\n\s+if \(!range\) \{ badFilter\(res\); return; \}/, 'المدى بأيام الشركة والفاسد ٤٠٠');
+  assert.doesNotMatch(h, /new Date\(from\)|Date\.now\(\) - DEFAULT_DAYS/, 'لا حدود UTC');
+  const helper = src.slice(src.indexOf('async function companyDayRange('), src.indexOf("router.get('/sales'"));
+  assert.match(helper, /addDays\(today, -\(SALES_DEFAULT_DAYS - 1\)\)/, 'النافذة الافتراضية ٩٠ يوماً تنتهي اليوم');
+  assert.match(helper, /zonedStartOfDay\(addDays\(t, 1\), tz\)/, '«إلى» شاملٌ يومه حتى منتصف ليل الشركة');
 });
 
 test('الوحدات المتعددة: بند المرتجع بوحدته هو (لقطة البند) لا بوحدة الصنف اليوم، ومعه الكمية بالأساس', () => {

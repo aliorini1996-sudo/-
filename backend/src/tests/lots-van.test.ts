@@ -425,22 +425,15 @@ test('التحميل بالمستودع: FEFO من لوطات المستودع �
   assert.equal(v.van.unknown!.SELLABLE, 0, 'رصيد الصنف = Σ المسمّى');
 });
 
-test('التحميل بالمستودع: الصريح يُحقَّق — فوق صالح اللوط 409 ولا كتابة، ولوط صنفٍ آخر أو شركةٍ أخرى، والموقوف والمنتهي، وΣ ≠ الكمية', async () => {
+test('التحميل بالمستودع: الصريح «استعمله أولاً» (طلب المالك ١٦ نوفمبر ٢٠٢٦) — ما لا يكفيه صالحه، والموقوف والمنتهي (لا يُسحب منهما، I4)، يُكمَل بالأقرب انتهاءً بتحذير LOT_EXPLICIT_FALLBACK، ونقص الصنف كله 409 بلا كتابة، ولوط صنفٍ آخر أو شركةٍ أخرى وΣ ≠ الكمية 422', async () => {
   reset();
   lot('l1', 'pB', FAR1); lot('l2', 'pB', FAR2); lot('la', 'pA', FAR1); lot('lx', 'pB', FAR1, { tenantId: 'other' });
   lot('lb', 'pB', FAR1, { status: 'BLOCKED', blockKind: 'RECALL' }); lot('le', 'pB', PAST);
   for (const id of ['l1', 'l2', 'lb', 'le']) receive('pB', 10, id);
   const n0 = S.vanLoads.length;
-  const over = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 15, lots: [{ lotId: 'l2', qty: 15 }] }] });
-  assert.equal(over.statusCode, 409);
-  assert.equal(codeOf(over), 'LOT_STOCK_INSUFFICIENT');
-  assert.match(String(over.body!.message), /«عصير»/);
-  assert.equal(S.vanLoads.length, n0, 'الرفض لا يكتب حركة');
   const cases: [unknown[], number, string][] = [
     [[{ lotId: 'la', qty: 2 }], 422, 'LOT_PRODUCT_MISMATCH'],
     [[{ lotId: 'lx', qty: 2 }], 422, 'LOT_NOT_FOUND'],
-    [[{ lotId: 'lb', qty: 2 }], 422, 'LOT_BLOCKED'],
-    [[{ lotId: 'le', qty: 2 }], 422, 'LOT_EXPIRED'],
     [[{ lotId: 'l1', qty: 1 }], 422, 'LOT_QTY_INVALID'],
     [[{ lotId: 'l1', qty: 1.00005 }, { lotId: 'l2', qty: 0.99995 }], 422, 'LOT_QTY_INVALID'],
   ];
@@ -448,14 +441,31 @@ test('التحميل بالمستودع: الصريح يُحقَّق — فوق 
     const r = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 2, lots }] });
     assert.deepEqual([r.statusCode, codeOf(r)], [status, code], JSON.stringify(lots));
   }
-  const ok = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 10, lots: [{ lotId: 'l1', qty: 4 }, { lotId: 'l2', qty: 6 }] }] });
-  assert.equal(ok.statusCode, 201);
-  assert.deepEqual(lotRowsOf(lastLoad().id)[0].map((r) => [r.lotId, r.qty, r.certainty]), [['l1', 4, 'CONFIRMED'], ['l2', 6, 'CONFIRMED']]);
-  // سطران على التشغيلة نفسها يُجمعان قبل الفحص (D26): ٤ + ٣ > ٦ الباقية
+  assert.equal(S.vanLoads.length, n0, 'الرفض لا يكتب حركة');
+  const over = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 15, lots: [{ lotId: 'l2', qty: 15 }] }] });
+  assert.equal(over.statusCode, 201, JSON.stringify(over.body));
+  assert.deepEqual(lotRowsOf(lastLoad().id)[0].map((r) => [r.lotId, r.qty]), [['l2', 10], ['l1', 5]], 'المختارة أولاً ثم الأقرب انتهاءً — لا الموقوف ولا المنتهي');
+  assert.ok(warnCodes(over).includes('LOT_EXPLICIT_FALLBACK'));
+  // الباقي: l1 ٥ — سطران على l1 يُجمعان (D26): ٤ ثم ١ منها و٢ يكملهما غير المسمّى؟ لا غير مسمّى ولا مؤهَّل ⇒ نقص الصنف كله 409
+  const n1 = S.vanLoads.length;
   const both = await post({ salesRepId: 'r1', type: 'LOAD', items: [
     { productId: 'pB', qty: 4, lots: [{ lotId: 'l1', qty: 4 }] }, { productId: 'pB', qty: 3, lots: [{ lotId: 'l1', qty: 3 }] },
   ] });
-  assert.deepEqual([both.statusCode, codeOf(both)], [409, 'LOT_STOCK_INSUFFICIENT']);
+  assert.deepEqual([both.statusCode, codeOf(both)], [409, 'LOT_STOCK_INSUFFICIENT'], 'نقص الصنف كله (٧ > ٥ المؤهَّلة) يُرفض كالتلقائي');
+  assert.match(String(both.body!.message), /«عصير»/);
+  assert.equal(S.vanLoads.length, n1);
+  const blocked = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 2, lots: [{ lotId: 'lb', qty: 2 }] }] });
+  assert.equal(blocked.statusCode, 201, JSON.stringify(blocked.body));
+  assert.deepEqual(lotRowsOf(lastLoad().id)[0].map((r) => [r.lotId, r.qty]), [['l1', 2]], 'الموقوف يمنح صفراً');
+  const expired = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 1, lots: [{ lotId: 'le', qty: 1 }] }] });
+  assert.equal(expired.statusCode, 201, JSON.stringify(expired.body));
+  assert.deepEqual(lotRowsOf(lastLoad().id)[0].map((r) => [r.lotId, r.qty]), [['l1', 1]], 'المنتهي يمنح صفراً');
+  const v = await views('pB');
+  assert.deepEqual([usableOf(v.wh, 'l1'), usableOf(v.wh, 'l2'), usableOf(v.wh, 'lb'), usableOf(v.wh, 'le')], [2, 0, 10, 10]);
+  const ok = await post({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 2, lots: [{ lotId: 'l1', qty: 2 }] }] });
+  assert.equal(ok.statusCode, 201);
+  assert.deepEqual(lotRowsOf(lastLoad().id)[0].map((r) => [r.lotId, r.qty, r.certainty]), [['l1', 2, 'CONFIRMED']]);
+  assert.ok(!warnCodes(ok).includes('LOT_EXPLICIT_FALLBACK'), 'الكافي بلا تحذير');
 });
 
 test('D18: التحميل قبل وارد التشغيلة يُرفض 409 «سجّل وارد التشغيلة أولاً»، ورصيد ما قبل التفعيل يُحمَّل غير مسمّى بتحذير ولا يُنقص دون الصفر', async () => {

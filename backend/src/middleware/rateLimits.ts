@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import { apiKeyFromHeaders, isWellFormedApiKey, hashApiKey, isLiveKeyHash, API_KEY_RATE_PER_MINUTE } from '../services/apiKeys';
 
 // حدود معدّل الطلبات — حماية ضد التخمين والسبام وإساءة الاستخدام.
-// ملاحظة: يتطلب app.set('trust proxy', 1) خلف بروكسي Render لاحتساب IP الحقيقي.
+// ملاحظة: req.ip هو عنوان المستخدم الحقيقي خلف Cloudflare وRender بفضل app.set('trust proxy', trustProxy) — middleware/trustProxy.ts.
 
 const base: Partial<Options> = {
   standardHeaders: true,
@@ -17,6 +17,17 @@ export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
   message: { success: false, message: 'محاولات دخول كثيرة انتظر 15 دقيقة ثم حاول مجددا' },
+});
+
+/**
+ * رابط «إعادة تعيين كلمة المرور» (معاينةً وتعييناً — routes/auth.ts): دلوٌ مستقلّ عن `authLimiter` — صاحب الرابط غالباً
+ * أخطأ في الدخول مراراً، ومناديب مكتبه يدخلون بالعنوان نفسه، فلا يُحجب رابطه بدخولهم
+ */
+export const resetLimiter = rateLimit({
+  ...base,
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  message: { success: false, message: 'محاولات كثيرة انتظر 15 دقيقة ثم حاول مجددا' },
 });
 
 /**

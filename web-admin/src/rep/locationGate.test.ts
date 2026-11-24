@@ -29,9 +29,11 @@ test('حارس ثابت: الحاجز على صفحة العميل وحدها، 
   assert.match(gateFn, /tr\('لا تدخل صفحة اي عميل حتى يكون موقعك مفعلا ومحددا بدقة وانت متصل وظاهر على الخريطة — وبقية التطبيق متاحة لك'\)/);
   const gate = app.slice(app.indexOf('function LocationOffGate('), app.indexOf('function GeoGate('));
   assert.match(gate, /className="absolute inset-0 z-\[1300\]/, 'الحاجز يعلو كل طبقة (ماسح الباركود z-70، عارض الصور z-1200)');
-  // ولا طبقة في تطبيق المندوب تعلوه
+  // ولا طبقة في تطبيق المندوب تعلوه — إلا بوّابة «التعميمات» عمداً (طلب المالك ٢٣ نوفمبر ٢٠٢٦): نافذةٌ لا تُغلق إلا بـ«تمت القراءة»
+  // فوق الحاجز وتحت «أثبت تواجدك»، وحارس طبقتها في lib/circularGate.test.ts
   for (const f of ['RepApp.tsx', 'RepDocuments.tsx', 'BarcodeScanner.tsx', 'RepAiScreen.tsx', 'RepRouteScreen.tsx', 'RepDailyReport.tsx']) {
-    for (const m of read('rep', f).matchAll(/\bz-\[(\d+)\]/g)) assert.ok(Number(m[1]) <= 1300, `${f}: z-[${m[1]}] فوق الحاجز`);
+    const src = read('rep', f).replace(/<CircularGate\b[^>]*?zClass="z-\[\d+\]"/g, '<CircularGate');
+    for (const m of src.matchAll(/\bz-\[(\d+)\]/g)) assert.ok(Number(m[1]) <= 1300, `${f}: z-[${m[1]}] فوق الحاجز`);
   }
   // طبقة الحاجز تُدفع فوق طبقات صفحة العميل — وهذه لا تُسحب تحته (يبقى ترتيبها مع أوراقها الداخلية بعد انقطاعٍ لحظي)
   for (const m of ["useBackClose(modal === 'customerDetail', closeCustomerDetail);", 'useBackClose(!!docResult, closeDocResult);']) {
@@ -77,7 +79,7 @@ test('حارس ثابت: المقيَّد لا يقرأ موقعاً مخبّأ�
   // غير المقيَّد بـ«بصمة الحضور بموقع عميل» أفضل جهد؛ والمقيَّد به قراءةٌ طازجة دقيقة (punchFix.ts) — وكلاهما بلا «اشتراط تفعيل الموقع»
   assert.match(att, /loc = await grabLocation\(\);/);
   assert.doesNotMatch(att, /locationRequired|strictLiveFix/, 'البصمة لا يشترط لها القيد موقعاً');
-  assert.match(app, /<RepAttendance atCustomer=\{user\.requirePunchAtCustomer === true\} boundDevice=\{user\.requireBoundDevice === true\} presenceOn=\{user\.requirePresenceCheck === true\} \/>/);
+  assert.match(app, /<RepAttendance atCustomer=\{user\.requirePunchAtCustomer === true\} boundDevice=\{user\.requireBoundDevice === true\} presenceOn=\{user\.requirePresenceCheck === true\} idleOn=\{user\.idlePunchOutEnabled === true\} \/>/);
   // الملاحظة: القراءة لحظة الحفظ لا لحظة فتح النافذة
   const lv = app.slice(app.indexOf('function LogVisit('), app.indexOf('function CreateInvoice('));
   assert.match(lv, /const at = strict \? await grabLocation\(true\) : fix;/);
@@ -125,4 +127,14 @@ test('حارس ثابت: القيد في نافذة المندوب بلوحة ا
   const NOTE = "tr('المندوب المقيد باشتراط تفعيل الموقع يرسل موقعه دائما ولو كان التتبع متوقفا فعل التتبع لتراه على الخريطة')";
   assert.ok(read('pages', 'TrackingPage.tsx').includes(NOTE));
   assert.ok(read('m', 'MTracking.tsx').includes(NOTE));
+});
+
+test('خط السير: اسم العميل زرٌّ يفتح صفحته، وأرقام رأس صفحته (الرصيد/الحد الائتماني/فترة السداد) من قائمته المخزّنة نفسها (طلب المالك ٢١ نوفمبر)', () => {
+  const route = read('rep', 'RepRouteScreen.tsx');
+  const app = read('rep', 'RepApp.tsx');
+  assert.match(route, /onClick=\{\(\) => onOpenCustomer\?\.\(s\.customerId\)\}/);
+  assert.match(route, /cacheGet<any\[\]>\('customers'\)/);
+  for (const k of ["tr('الرصيد')", "tr('الحد الائتماني')", "tr('فترة السداد')"]) assert.ok(route.includes(k), k);
+  assert.match(route, /\{accountingOn && finance\[s\.customerId\] &&/, 'تغيب الأرقام عند إطفاء المحاسبة ولعميلٍ ليس في قائمة المندوب');
+  assert.ok(app.includes("onOpenCustomer={openCustomerById} accountingOn={accountingOn} />}"), 'الربط بفتح صفحة العميل');
 });

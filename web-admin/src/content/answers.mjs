@@ -55,13 +55,13 @@ const listEn = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(',
 function priceAnswer(lang, tiers) {
   const top = tiers.length ? tiers[tiers.length - 1].reps : null;
   if (lang === 'ar') {
-    const tail = 'لا رسوم تأسيس ولا التزام سنوي، والتجربة المجانية 10 أيام بلا بطاقة ائتمان.';
+    const tail = 'لا رسوم تأسيس ولا التزام سنوي، والتجربة المجانية 5 أيام بلا بطاقة ائتمان.';
     if (!tiers.length) return `في فيلد سيلز الاشتراك شهري لكل الشركة لا لكل مندوب، والأسعار منشورة في صفحة الأسعار شاملة ضريبة القيمة المضافة. ${tail}`;
     const list = listAr(tiers.map((t) => `${riyalAr(Number(t.price))}${t.reps ? ` حتى ${repsAr(t.reps)}` : ''}`));
     const above = top ? ` وما فوق ${repsAr(top)} يُحدَّد سعره بالمحادثة.` : '';
     return `في فيلد سيلز الاشتراك شهري لكل الشركة لا لكل مندوب، والأسعار شاملة ضريبة القيمة المضافة وهي ${list}.${above} ${tail}`;
   }
-  const tail = 'No setup fees, no annual lock-in, and a 10-day free trial without a credit card.';
+  const tail = 'No setup fees, no annual lock-in, and a 5-day free trial without a credit card.';
   if (!tiers.length) return `FieldSales is priced per company, not per user, with monthly plans published on the pricing page and VAT included. ${tail}`;
   const list = listEn(tiers.map((t, i) => `${t.price} SAR${i === 0 ? ' a month' : ''}${t.reps ? ` for up to ${t.reps} reps` : ''}`));
   const above = top ? ` Above ${top} reps the price is set in a conversation.` : '';

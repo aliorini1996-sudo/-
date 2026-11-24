@@ -8,8 +8,10 @@
 //     ويمنع الإصدار حتى يُصحَّح.
 // الجسم مرآة parseLotRefsStrict (backend/src/services/lots.ts): items[i].lots = [{lotId, qty}] والمجموع = الكمية الأساسية
 // للسطر (qty × معامل الوحدة). المصادر من لقطة سيارة المندوب (GET /van-stock/lot-balances): المسمّاة النشطة غير المنتهية
-// وحدها تُختار (الموقوفة والمنتهية يرفضها الخادم LOT_BLOCKED/LOT_EXPIRED)، والمتاح لكل سطر بعد ما اختارته أسطر الصنف
-// الأخرى (الخادم يجمع الطلب لكل (صنف، تشغيلة) — D26).
+// وحدها تُختار، والمتاح لكل سطر بعد ما اختارته أسطر الصنف الأخرى (الخادم يجمع الطلب لكل (صنف، تشغيلة) — D26).
+// طلب المالك ١٦ نوفمبر ٢٠٢٦ («لا مانع من أن يأخذ من LOT آخر في حال انتهت هذه التشغيلة»): التشغيلة المختارة «تُستعمل أولاً» لا
+// «تُستعمل حتماً» — متاحها دون كمية السطر، أو صارت موقوفة أو منتهية، لا يمنع الإصدار؛ الخادم يأخذ ما فيها ويُكمل الباقي بالأقرب
+// انتهاءً (explicitShort: 'SPILL') ويعيد تحذير LOT_EXPLICIT_FALLBACK. فالواجهة تنبّه (saleLotFallback) ولا تمنع إلا الشكل.
 // كل كمية هنا **بوحدة الأساس** (D22).
 // ============================================================================
 
@@ -18,8 +20,8 @@ import {
 } from './lots';
 import { lotErrorText, type LotErrorCtx } from './invoiceLots';
 import {
-  draftProblem, draftRefs, isFourDecimals, newRowId, snapshotSourcesOf, sourceKey,
-  type DraftProblem, type LotRowDraft, type LotSource,
+  draftProblem, draftRefs, explicitFallback, isFourDecimals, newRowId, snapshotSourcesOf, sourceKey,
+  type DraftProblem, type LotFallbackPlan, type LotRowDraft, type LotSource,
 } from './stockLots';
 import { factorOf } from './units';
 
@@ -123,8 +125,8 @@ export function saleLotSources(
 
 /**
  * مشكلة السطر: مشكلات المسوّدة (draftProblem) ورمزان للبيع —
- *  - LOT_NOT_SELLABLE: تشغيلةٌ مختارة صارت موقوفة أو منتهية في لقطةٍ أحدث (الخادم LOT_BLOCKED/LOT_EXPIRED) — لا «أكبر من المتاح».
  *  - LOT_BASE_DECIMALS: الكمية الأساسية للسطر أدقّ من أربع خانات (الخادم يردّ كل سطرٍ متتبَّع بها LOT_QTY_INVALID) — لا «المجموع».
+ *  - LOT_NOT_SELLABLE: باقٍ في النوع لنصّه وحده — لم يعد يُنتج (طلب المالك ١٦ نوفمبر ٢٠٢٦: الموقوفة والمنتهية تُكمَل من غيرها).
  */
 export type SaleLotProblem = DraftProblem | 'LOT_NOT_SELLABLE' | 'LOT_BASE_DECIMALS';
 const DRAFT_PROBLEMS: readonly string[] = ['LOT_SOURCE_MISSING', 'LOT_SOURCE_DUPLICATE', 'LOT_OVER_SOURCE', 'LOT_QTY_INVALID'];
@@ -133,40 +135,49 @@ export const asDraftProblem = (p: SaleLotProblem | null | undefined): DraftProbl
   (p && DRAFT_PROBLEMS.includes(p) ? (p as DraftProblem) : null);
 
 /**
- * مشكلة اختيار السطر قبل الإرسال (null = يُرسل): الواحدة صفٌّ بكمية السطر كلها، والتقسيم صفوفه — draftProblem نفسه:
- * مصدرٌ لكل صف بلا تكرار، وأربع خانات، والمجموع = الكمية الأساسية للسطر (LOT_QTY_INVALID)، وكل صفٍّ ≤ متاح تشغيلته
- * بعد الأسطر الأخرى (LOT_OVER_SOURCE). `eligible` null ⇒ بلا فحص المتاح. «تلقائي» أو سطرٌ بلا كمية ⇒ null.
- * وقبلها: كمية السطر الأساسية بأربع خانات (LOT_BASE_DECIMALS)، وتشغيلةٌ مختارة في `all` غير صالحة للبيع (LOT_NOT_SELLABLE).
+ * ما **يمنع** إصدار السطر (null = يُرسل): الشكل وحده — كمية السطر الأساسية بأربع خانات (LOT_BASE_DECIMALS)، ثم draftProblem
+ * بلا مصادر: مصدرٌ لكل صف بلا تكرار، وأربع خانات، والمجموع = الكمية الأساسية للسطر (LOT_QTY_INVALID). أما تشغيلةٌ متاحها دون
+ * صفّها أو صارت موقوفة أو منتهية فلم تعد مشكلة (طلب المالك ١٦ نوفمبر ٢٠٢٦): الخادم يُكمل الباقي من غيرها — saleLotFallback ينبّه.
+ * «تلقائي» أو سطرٌ واحدٌ بلا كمية ⇒ null.
  */
-export function saleLotProblem(
-  l: SaleLotLine, eligible: readonly LotSource[] | null, all?: readonly LotSource[] | null,
-): SaleLotProblem | null {
+export function saleLotProblem(l: SaleLotLine): SaleLotProblem | null {
   const p = l.lotPick;
   if (!p) return null;
   const base = saleLineBaseQty(l);
   if (p.mode === 'ONE' && base <= LOT_EPS) return null;
   if (base > LOT_EPS && !isFourDecimals(base)) return 'LOT_BASE_DECIMALS';
-  if (all) {
-    const picked = p.mode === 'ONE' ? [p.lotId] : p.rows.map((r) => r.source);
-    if (all.some((s) => s.lotId !== null && !saleLotEligible(s) && picked.includes(s.lotId))) return 'LOT_NOT_SELLABLE';
-  }
   if (p.mode === 'ONE') {
-    return draftProblem([{ key: 'one', source: sourceKey(p.lotId), qty: String(base) }], base, eligible);
+    return draftProblem([{ key: 'one', source: p.lotId ? sourceKey(p.lotId) : '', qty: String(base) }], base, null);
   }
-  return draftProblem(p.rows, base, eligible);
+  return draftProblem(p.rows, base, null);
 }
 
 /** مشكلات كل الأسطر بترتيبها (null لسطرٍ سليم أو «تلقائي» أو غير متتبَّع) — لحجب الإصدار برسالة السطر الأول */
 export function saleLotProblems(
   lines: readonly SaleLotLine[],
-  snap: VanLotSnapshotDto | null | undefined,
+  _snap: VanLotSnapshotDto | null | undefined,
   tracked: (productId: string) => boolean,
 ): (SaleLotProblem | null)[] {
-  return lines.map((l, i) => {
-    if (!l.lotPick || !tracked(l.productId)) return null;
-    const s = saleLotSources(snap, lines, i);
-    return saleLotProblem(l, s?.eligible ?? null, s?.all ?? null);
-  });
+  return lines.map((l) => (l.lotPick && tracked(l.productId) ? saleLotProblem(l) : null));
+}
+
+/**
+ * تنبيه «يُكمَل من غيرها» لسطرٍ اختار تشغيلته (طلب المالك ١٦ نوفمبر ٢٠٢٦): ما تعطيه التشغيلات المختارة وسبب نقص كلٍّ منها
+ * (نفدت SHORT، منتهية EXPIRED، موقوفة BLOCKED) والباقي ومعاينة إكماله بالأقرب انتهاءً من تشغيلات السيارة الأخرى ثم غير المسمّى
+ * (allowUnknown اللقطة) — بعد ما اختارته أسطر الصنف الأخرى. `short` = الصنف كله لا يكفي (الخادم يردّ 409 كالتلقائي).
+ * null = «تلقائي»، أو بلا لقطة، أو مشكلة شكلٍ تمنع أصلاً، أو تكفي المختارة.
+ */
+export function saleLotFallback(
+  lines: readonly SaleLotLine[],
+  snap: VanLotSnapshotDto | null | undefined,
+  idx: number,
+): LotFallbackPlan | null {
+  const l = lines[idx];
+  if (!l?.lotPick || !snap || saleLotProblem(l)) return null;
+  const s = saleLotSources(snap, lines, idx);
+  if (!s) return null;
+  const unnamed = snapshotSourcesOf(snap, l.productId).filter((x) => x.lotId === null);
+  return explicitFallback(saleLotRefs(l), [...s.all, ...unnamed], { allowUnknown: snap.allowUnknown === true, unitFactor: l.unitFactor });
 }
 
 /**
@@ -241,11 +252,9 @@ export function lotErrorLineIdx(info: LotErrorInfo | null | undefined, lines: re
     const lotId = d.lotId;
     const narrowed = idx.filter((i) => (saleLotRefs(lines[i]) ?? []).some((r) => r.lotId === lotId));
     if (narrowed.length) return narrowed;
-  } else if (info?.code === 'LOT_STOCK_INSUFFICIENT' && !('lotId' in d)) {
-    // نقص الصنف بلا تشغيلة (insufficient): الصريح خُدم أولاً، فالنقص في أسطر «تلقائي» — لا يُلوَّن سطرٌ اختار تشغيلته (مراجعة D8)
-    const autoIdx = idx.filter((i) => !saleLotRefs(lines[i]));
-    if (autoIdx.length) return autoIdx;
   }
+  // نقص الصنف بلا تشغيلة (insufficient) يخصّ **كل** أسطر الصنف: باقي السطر الصريح يُكمَل مع «تلقائي» من المتاح نفسه (طلب المالك
+  // ١٦ نوفمبر ٢٠٢٦، SPILL) — لم يعد الصريح مخدوماً كاملاً قبلها فيُستثنى (كان مراجعة D8)
   return idx;
 }
 

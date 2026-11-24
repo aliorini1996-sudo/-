@@ -32,13 +32,28 @@ export const LOT_BUCKETS = ['SELLABLE', 'EXPIRED', 'DAMAGED'] as const;
 export const LOT_PLACES = ['WAREHOUSE', 'VAN'] as const;
 export const LOT_SOURCES = ['RECEIVE', 'LOAD', 'OPENING_IMPORT', 'RELABEL', 'RETURN', 'MANUAL'] as const;
 export const LOT_RELABEL_REASONS = ['LABEL_EXISTING', 'RECLASSIFY', 'CORRECTION'] as const;
-export const LOT_ROW_FLAGS = ['REPLAY_BLOCKED', 'REPLAY_RECALLED', 'REPLAY_EXPIRED', 'REPLAY_CLAMPED', 'HINT_REJECTED', 'SPLIT_UNIT'] as const;
+/**
+ * وسوم صفّ التوزيع (مرآة الخادم حرفاً — اختبار المرآة يقارنهما). طلب المالك ١٦ نوفمبر ٢٠٢٦ أضاف أربعة:
+ *  - EXPLICIT_FALLBACK: تشغيلةٌ مختارة نفدت أو انتهت أو أوقفت فأُكمل الباقي من غيرها بالأقرب انتهاءً (صرفٌ لا يُرفض).
+ *  - RETURN_GUESS_*: مرتجعٌ بلا دليلٍ على تشغيلته نُسب إلى تشغيلةٍ مسمّاة تقديراً بدل «غير مسمّى» — من مشتريات العميل،
+ *    ثم تشغيلات السيارة، ثم تشغيلات الشركة؛ والصفّ ASSUMED دائماً فيُطبع «(تقديري)».
+ */
+export const LOT_ROW_FLAGS = [
+  'REPLAY_BLOCKED', 'REPLAY_RECALLED', 'REPLAY_EXPIRED', 'REPLAY_CLAMPED', 'HINT_REJECTED', 'SPLIT_UNIT',
+  'EXPLICIT_FALLBACK', 'RETURN_GUESS_CUSTOMER', 'RETURN_GUESS_VAN', 'RETURN_GUESS_COMPANY',
+] as const;
 export const LOT_EVENT_KINDS = ['CREATE', 'UPDATE_DATES', 'UPDATE_NOTE', 'BLOCK', 'UNBLOCK', 'DELETE', 'RELABEL', 'TRACKING_ON', 'TRACKING_OFF'] as const;
 export const LOT_VAN_REASONS = ['EXPIRED_UNSOLD_DESTROY'] as const;
 /** = loadSchema.type في الخادم — لا نوع حركة جديد للّوط */
 export const VAN_MOVE_TYPES = ['LOAD', 'UNLOAD', 'ADJUST', 'EXPIRED_OUT', 'DAMAGED_OUT'] as const;
-/** تحذيرات لا تمنع — تأتي في warnings[] من ردود الإصدار والحركة */
-export const LOT_WARNING_CODES = ['LOT_MULTI_IN_VAN', 'LOT_HINT_REJECTED', 'LOT_INTO_BLOCKED', 'LOT_SPLIT_UNIT', 'LOT_FROM_UNKNOWN', 'LOT_REPLAY_FLAGGED'] as const;
+/**
+ * تحذيرات لا تمنع — تأتي في warnings[] من ردود الإصدار والحركة. والأربعة الأخيرة (طلب المالك ١٦ نوفمبر ٢٠٢٦): إكمال تشغيلةٍ
+ * مختارة من غيرها، وقصّ إنقاصٍ من مفتاح الربط على المتاح، ورقم تشغيلةٍ مجهول صُرف بالأقرب انتهاءً، وتشغيلةٌ أُنشئت برقمها المرسل.
+ */
+export const LOT_WARNING_CODES = [
+  'LOT_MULTI_IN_VAN', 'LOT_HINT_REJECTED', 'LOT_INTO_BLOCKED', 'LOT_SPLIT_UNIT', 'LOT_FROM_UNKNOWN', 'LOT_REPLAY_FLAGGED',
+  'LOT_EXPLICIT_FALLBACK', 'LOT_CLAMPED', 'LOT_NUMBER_UNKNOWN', 'LOT_CREATED',
+] as const;
 /** رموز LotError كما يكتبها الخادم حرفياً (§٣.٣) */
 export const LOT_ERROR_CODES = [
   'LOTS_NOT_ALLOWED', 'LOTS_DISABLED', 'LOT_SCOPED_USER',
@@ -219,6 +234,10 @@ export const LOT_ROW_FLAG_LABELS: Record<LotRowFlag, string> = {
   REPLAY_CLAMPED: 'وقت الجهاز خارج المدى المقبول',
   HINT_REJECTED: 'رفض تلميح الجهاز ووزعت الكمية بالقاعدة',
   SPLIT_UNIT: 'وحدة موزعة على أكثر من تشغيلة',
+  EXPLICIT_FALLBACK: 'أكملت من تشغيلة أخرى',
+  RETURN_GUESS_CUSTOMER: 'تشغيلة مقدرة من مشتريات العميل',
+  RETURN_GUESS_VAN: 'تشغيلة مقدرة من تشغيلات السيارة',
+  RETURN_GUESS_COMPANY: 'تشغيلة مقدرة من تشغيلات الشركة',
 };
 export const LOT_EVENT_KIND_LABELS: Record<LotEventKind, string> = {
   CREATE: 'إنشاء التشغيلة', UPDATE_DATES: 'تعديل تواريخ التشغيلة', UPDATE_NOTE: 'تعديل ملاحظة التشغيلة',
@@ -232,7 +251,20 @@ export const LOT_WARNING_LABELS: Record<LotWarningCode, string> = {
   LOT_SPLIT_UNIT: 'وحدة موزعة على أكثر من تشغيلة',
   LOT_FROM_UNKNOWN: 'صرف جزء من الكمية من رصيد غير مسمى',
   LOT_REPLAY_FLAGGED: 'فاتورة دون اتصال صرفت بوسم مراجعة',
+  LOT_EXPLICIT_FALLBACK: 'نفدت التشغيلة المختارة أو انتهت فأكملت الكمية من تشغيلة أخرى',
+  LOT_CLAMPED: 'خفضت الكمية إلى المتاح لأن الرصيد لا يكفي',
+  LOT_NUMBER_UNKNOWN: 'رقم التشغيلة غير معروف فصرفت الكمية بالأقرب انتهاء',
+  LOT_CREATED: 'أنشئت تشغيلة جديدة برقمها المرسل',
 };
+
+/**
+ * تنبيه «يُكمَل من غيرها» (طلب المالك ١٦ نوفمبر ٢٠٢٦): تشغيلةٌ مختارة لبيعٍ أو تحميلٍ من المستودع متاحها دون كمية السطر، أو صارت
+ * منتهية أو موقوفة — لم تعد تمنع الإصدار؛ الخادم يأخذ ما فيها ثم يُكمل الباقي بالأقرب انتهاءً (explicitShort: 'SPILL'). نصٌّ واحد
+ * لنافذة الفاتورة ونافذة التحميل، ويُعرض بـtr.
+ */
+export const LOT_FALLBACK_NOTICE = 'التشغيلة المختارة لا تكفي — سيُكمَل الباقي من تشغيلة أخرى (الأقرب انتهاءً)';
+/** وسم التشغيلة المنسوبة تقديراً على الورقة المطبوعة — «(تقديري)» بجانب رقمها */
+export const LOT_ASSUMED_MARK = 'تقديري';
 
 // ─── مرايا القواعد ───
 
@@ -449,8 +481,16 @@ export function lotWarningsOf(raw: unknown): LotWarning[] {
     && typeof (w as LotWarning).productId === 'string');
 }
 
-/** سطر تشغيلةٍ على ورقة مطبوعة — lotNumber: null = «غير معروف»، والكمية أساسية مطلقة */
-export interface DocLotLine { lotNumber: string | null; qty: number; expiryDate?: string | null }
+/**
+ * سطر تشغيلةٍ على ورقة مطبوعة — lotNumber: null = «غير معروف»، والكمية أساسية مطلقة.
+ * `assumed` (طلب المالك ١٦ نوفمبر ٢٠٢٦): صفُّ مرتجعٍ نُسبت تشغيلته تقديراً (ASSUMED) فيُطبع «(تقديري)» بجانب رقمها — وغيابه
+ * الشكل كما كان. و`flags` وسوم الإكمال والتقدير وحدها (DOC_NOTE_FLAGS) لشريط الإدارة، وغيابها الشكل كما كان.
+ */
+export interface DocLotLine { lotNumber: string | null; qty: number; expiryDate?: string | null; assumed?: true; flags?: LotRowFlag[] }
+
+/** وسوم الصفّ التي تُذكر بجانب التشغيلة في شريط الإدارة — الإكمال من تشغيلة أخرى وتقدير تشغيلة المرتجع */
+export const DOC_NOTE_FLAGS: readonly LotRowFlag[] = ['EXPLICIT_FALLBACK', 'RETURN_GUESS_CUSTOMER', 'RETURN_GUESS_VAN', 'RETURN_GUESS_COMPANY'];
+const RETURN_GUESS_FLAGS: readonly LotRowFlag[] = ['RETURN_GUESS_CUSTOMER', 'RETURN_GUESS_VAN', 'RETURN_GUESS_COMPANY'];
 
 /**
  * صفوف توزيع بندٍ (فاتورة: quantity، أو حركة سيارة: qty بإشارتها) إلى أسطر الورقة. الانتهاء لقطة الصفّ إن حملها (صفّ
@@ -464,10 +504,17 @@ export function docLotsFrom(rows: unknown): DocLotLine[] | undefined {
     if (!r || typeof r !== 'object') continue;
     const q = Number(r.quantity ?? r.qty);
     if (!Number.isFinite(q) || Math.abs(q) <= LOT_EPS) continue;
+    const flags = parseLotFlags(typeof r.flags === 'string' ? r.flags : null);
+    const notes = flags.filter((f) => DOC_NOTE_FLAGS.includes(f));
+    /* «(تقديري)» لصفّ **مرتجع** مسمّى بيقين ASSUMED وحده: صفّ المرتجع يحمل sourceItemLotId (موروثٌ من بيعٍ) أو وسم تقديرٍ
+     * RETURN_GUESS_* — وصفّ البيع لا يحملهما أبداً، فورقة البيع (وفيها ASSUMED كثيرٌ من الأقرب انتهاءً) كما كانت حرفاً */
+    const isReturnRow = !!r.sourceItemLotId || flags.some((f) => RETURN_GUESS_FLAGS.includes(f));
     out.push({
       lotNumber: r.lotId ? r.lot?.lotNumber ?? null : null,
       qty: roundLot(Math.abs(q)),
       expiryDate: r.expiryDate !== undefined ? lotDay(r.expiryDate) : lotDay(r.lot?.expiryDate),
+      ...(r.lotId && r.certainty === 'ASSUMED' && isReturnRow ? { assumed: true as const } : {}),
+      ...(notes.length ? { flags: notes } : {}),
     });
   }
   return out.length ? out : undefined;

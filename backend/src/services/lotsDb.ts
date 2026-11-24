@@ -20,7 +20,7 @@ import {
   buildPlaceView, companyDayOf, foldVanLots, foldWarehouseLots, heldUnknownOf, lotDatesProblem, lotErr, normalizeLotNumber, roundLot,
   sortedLockKeys, zeroBuckets,
   type AggInvLot, type AggRelabel, type AggVanLot, type AggWhLot, type BucketQty, type LotBlockKind, type LotEventKind,
-  type LotMeta, type LotRaw, type LotSource, type LotStatus, type PlaceLotView, type VanMoveType,
+  type LotMeta, type LotRaw, type LotSource, type LotStatus, type PlaceLotView, type ReturnGuessCandidate, type ReturnGuessTier, type VanMoveType,
 } from './lots';
 
 export type LotTx = Prisma.TransactionClient;
@@ -395,8 +395,12 @@ export interface AggVanTotalLoad { productId: string; vanKey: string; type: stri
 /** held: بندٌ في مستندٍ محجوز (D24) — للمحجوز الكلي (vanHeldFromAgg)؛ لا يمسّ رصيد الصنف */
 export interface AggVanTotalInv { productId: string; vanKey: string; type: string; returnToStock: boolean | null; returnExpired: boolean | null; damaged: boolean; held?: boolean; qty: number }
 
-/** حركات van_load_items لسيارات مناديب قائمين بمرشّحات computeStock (vanStock.ts:174-184) — كل التاريخ (لا حقبة) */
-async function aggVanLoadTotals(db: LotDb, tid: string, pids: string[], keys: string[], before: Date | null): Promise<AggVanTotalLoad[]> {
+/**
+ * حركات van_load_items لسيارات مناديب قائمين بمرشّحات computeStock (vanStock.ts:174-184) — كل التاريخ (لا حقبة).
+ * مُصدَّرة لـ«تصفير المخزون» (services/stockZero.ts): يقرأ البنود مع لوطاتها بـaggVanInvoices (عبارةٌ واحدة) فيأخذ الحركات من هنا.
+ * المعرّفات فريدةٌ غير فارغة (يضمنها المستدعي).
+ */
+export async function aggVanLoadTotals(db: LotDb, tid: string, pids: string[], keys: string[], before: Date | null): Promise<AggVanTotalLoad[]> {
   const loadBefore = before ? Prisma.sql` AND vl."createdAt" < ${before}` : Prisma.empty;
   const loads = await db.$queryRaw<{ productId: string; vanKey: string; type: string; qty: number | null }[]>`
     SELECT vli."productId", vl."salesRepId" AS "vanKey", vl.type, SUM(${BASE_QTY_SQL})::float8 AS qty
@@ -721,4 +725,242 @@ export async function resolveOrCreateLot(tx: LotTx, tid: string, product: { id: 
 /** هل في العرض صالحٌ سالب (I1/I2 مكسور تاريخياً)؟ — لـ/lots/health والشارة */
 export function viewHasDeficit(view: PlaceLotView): boolean {
   return view.deficits.some((d) => d.qty < -LOT_EPS);
+}
+
+// ═══ مرشّحو تشغيلة المرتجع غير المسمّى (طلب المالك ١٦ نوفمبر ٢٠٢٦، T3) ═══
+//
+// لماذا: كل صفّ مرتجعٍ بلا تشغيلة يرفع رصيد «غير المسمّى» في السيارة فيراه المالك «LOT جديداً بلا اسم». فما بقي بلا تشغيلة بعد
+// الوراثة يُنسب إلى تشغيلةٍ مسمّاة مرئية في الحقبة الحالية (D25) بمستويات: ما اشتراه العميل، ثم ما رأته سيارة المستند، ثم ما
+// تحرّك في الشركة. لكل مستوى استعلامٌ مجمَّع واحد بشرط الحقبة EPOCH_SQL كتجميعات الطيّ، والشركة شرطٌ على كل جدول (I5).
+// الترتيب داخل المستوى (الأحدث أولاً) هنا، وترتيب الحالة والانتهاء في attributeUnnamedReturnRows الصرفة.
+
+/** لوطٌ رآه مستوى من مستويات النسبة: صنفه وآخر لحظةٍ رُئي فيها */
+export interface ReturnLotSeen { productId: string; lotId: string; lastAt: Date | null }
+
+/** صفوف المستوى ⇒ الأحدث أولاً، والتعادل بمعرّف اللوط (ترتيبٌ حتميّ فلا يختلف الفحص المسبق عن المعاملة بلا سبب) */
+function seenNewestFirst(rows: { productId: string; lotId: string | null; lastAt?: Date | string | null }[]): ReturnLotSeen[] {
+  const byKey = new Map<string, ReturnLotSeen>();
+  for (const r of rows) {
+    if (typeof r.lotId !== 'string' || !r.lotId || typeof r.productId !== 'string') continue;
+    const d = r.lastAt ? new Date(r.lastAt) : null;
+    const at = d && Number.isFinite(d.getTime()) ? d : null;
+    const k = `${r.productId}\u0000${r.lotId}`;
+    const prev = byKey.get(k);
+    if (!prev) byKey.set(k, { productId: r.productId, lotId: r.lotId, lastAt: at });
+    else if (at && (!prev.lastAt || at > prev.lastAt)) prev.lastAt = at;
+  }
+  const t = (d: Date | null) => (d ? d.getTime() : -Infinity);
+  return [...byKey.values()].sort((a, b) => t(b.lastAt) - t(a.lastAt) || (a.lotId < b.lotId ? -1 : a.lotId > b.lotId ? 1 : 0));
+}
+
+/** لحظة البيع الفعلية في SQL: LEAST(لحظة الجهاز، لحظة الرفع) إن صدر من جهاز، وإلا تاريخ الفاتورة — ساعة جهازٍ مسرعة لا تؤخّره */
+const SALE_MOMENT_SQL = Prisma.raw(`CASE WHEN i."clientCreatedAt" IS NULL THEN i."invoiceDate" ELSE LEAST(i."clientCreatedAt", i."createdAt") END`);
+
+/**
+ * المستوى (أ) RETURN_GUESS_CUSTOMER: التشغيلات المسمّاة التي اشتراها العميل لأصنافٍ — بيعٌ نقدي أو آجل غير ملغى وليس إشعاراً،
+ * وصفوفه في الحقبة الحالية، ولحظته حتى `asOf` إن أُعطي (حدّ T2 نفسه) — بآخر لحظة بيعٍ منها، الأحدث أولاً. اختيارٌ للتشغيلة فقط: لا يصير مصدراً (sourceItemLotId).
+ */
+export async function customerBoughtLots(db: LotDb, tid: string, q: { customerId: string; productIds: string[]; asOf?: Date | null }): Promise<ReturnLotSeen[]> {
+  const pids = uniq(q.productIds);
+  if (!pids.length || !q.customerId) return [];
+  const rows = await db.$queryRaw<{ productId: string; lotId: string | null; lastAt: Date | null }[]>`
+    SELECT il."productId", il."lotId", MAX(${SALE_MOMENT_SQL}) AS "lastAt"
+    FROM invoice_item_lots il
+    JOIN invoices i ON i.id = il."invoiceId"
+    JOIN products p ON p.id = il."productId"
+    JOIN tenants t ON t.id = il."tenantId"
+    WHERE il."tenantId" = ${tid} AND i."tenantId" = ${tid} AND i."customerId" = ${q.customerId}
+      AND i.type IN ('CASH', 'CREDIT') AND i.status <> 'CANCELLED'
+      AND (i."documentKind" IS NULL OR i."documentKind" NOT IN ('CREDIT_NOTE', 'DEBIT_NOTE'))
+      AND il."lotId" IS NOT NULL AND il."productId" = ANY(${pids}::text[])
+      AND il."createdAt" >= ${EPOCH_SQL}
+      ${q.asOf ? Prisma.sql`AND ${SALE_MOMENT_SQL} <= ${q.asOf}` : Prisma.empty}
+    GROUP BY 1, 2`;
+  return seenNewestFirst(rows);
+}
+
+/**
+ * المستوى (ب) RETURN_GUESS_VAN: التشغيلات التي رأتها سيارة المستند في الحقبة — دخولٌ موجب في van_load_item_lots، وتسميةٌ إليها في
+ * السيارة، وصفوف بيعٍ منها — بآخر حركة، الأحدث أولاً. لا يُعدّ مرتجعٌ سابق (نُسب تقديراً) دليلاً على نفسه.
+ */
+export async function vanSeenLots(db: LotDb, tid: string, q: { vanKey: string; productIds: string[] }): Promise<ReturnLotSeen[]> {
+  const pids = uniq(q.productIds);
+  if (!pids.length || !q.vanKey) return [];
+  const rows = await db.$queryRaw<{ productId: string; lotId: string | null; lastAt: Date | null }[]>`
+    SELECT x."productId", x."lotId", MAX(x.at) AS "lastAt" FROM (
+      SELECT l."productId", l."lotId", l."createdAt" AS at
+      FROM van_load_item_lots l
+      JOIN products p ON p.id = l."productId"
+      JOIN tenants t ON t.id = l."tenantId"
+      WHERE l."tenantId" = ${tid} AND l."vanKey" = ${q.vanKey} AND l."productId" = ANY(${pids}::text[])
+        AND l."lotId" IS NOT NULL AND l.qty > 0 AND l."createdAt" >= ${EPOCH_SQL}
+      UNION ALL
+      SELECT r."productId", r."toLotId" AS "lotId", r."createdAt" AS at
+      FROM lot_relabels r
+      JOIN products p ON p.id = r."productId"
+      JOIN tenants t ON t.id = r."tenantId"
+      WHERE r."tenantId" = ${tid} AND r.place = 'VAN' AND r."vanKey" = ${q.vanKey} AND r."productId" = ANY(${pids}::text[])
+        AND r."toLotId" IS NOT NULL AND r.qty > 0 AND r."createdAt" >= ${EPOCH_SQL}
+      UNION ALL
+      SELECT il."productId", il."lotId", il."createdAt" AS at
+      FROM invoice_item_lots il
+      JOIN invoices i ON i.id = il."invoiceId"
+      JOIN products p ON p.id = il."productId"
+      JOIN tenants t ON t.id = il."tenantId"
+      WHERE il."tenantId" = ${tid} AND i."tenantId" = ${tid} AND il."vanKey" = ${q.vanKey} AND i.status = 'CONFIRMED'
+        AND i.type IN ('CASH', 'CREDIT') AND il."lotId" IS NOT NULL AND il."productId" = ANY(${pids}::text[])
+        AND il."createdAt" >= ${EPOCH_SQL}
+    ) x
+    GROUP BY 1, 2`;
+  return seenNewestFirst(rows);
+}
+
+/**
+ * المستوى (ج) RETURN_GUESS_COMPANY: أي تشغيلةٍ للصنف تحرّكت في الحقبة — وارد المستودع الموجب، ودخول السيارات الموجب، والتسمية
+ * إليها — بآخر حركة، الأحدث أولاً.
+ */
+export async function companyFlowLots(db: LotDb, tid: string, q: { productIds: string[] }): Promise<ReturnLotSeen[]> {
+  const pids = uniq(q.productIds);
+  if (!pids.length) return [];
+  const rows = await db.$queryRaw<{ productId: string; lotId: string | null; lastAt: Date | null }[]>`
+    SELECT x."productId", x."lotId", MAX(x.at) AS "lastAt" FROM (
+      SELECT wi."productId", wi."lotId", we."createdAt" AS at
+      FROM warehouse_entry_items wi
+      JOIN warehouse_entries we ON we.id = wi."entryId"
+      JOIN products p ON p.id = wi."productId"
+      JOIN tenants t ON t.id = we."tenantId"
+      WHERE we."tenantId" = ${tid} AND wi."productId" = ANY(${pids}::text[])
+        AND wi."lotId" IS NOT NULL AND wi.qty > 0 AND we."createdAt" >= ${EPOCH_SQL}
+      UNION ALL
+      SELECT l."productId", l."lotId", l."createdAt" AS at
+      FROM van_load_item_lots l
+      JOIN products p ON p.id = l."productId"
+      JOIN tenants t ON t.id = l."tenantId"
+      WHERE l."tenantId" = ${tid} AND l."productId" = ANY(${pids}::text[])
+        AND l."lotId" IS NOT NULL AND l.qty > 0 AND l."createdAt" >= ${EPOCH_SQL}
+      UNION ALL
+      SELECT r."productId", r."toLotId" AS "lotId", r."createdAt" AS at
+      FROM lot_relabels r
+      JOIN products p ON p.id = r."productId"
+      JOIN tenants t ON t.id = r."tenantId"
+      WHERE r."tenantId" = ${tid} AND r."productId" = ANY(${pids}::text[])
+        AND r."toLotId" IS NOT NULL AND r.qty > 0 AND r."createdAt" >= ${EPOCH_SQL}
+    ) x
+    GROUP BY 1, 2`;
+  return seenNewestFirst(rows);
+}
+
+/** صفّ «تشغيلات العميل» لصنفٍ (GET /api/lots/customer-history) — الكميات بالأساس (D22) */
+export interface CustomerLotHistoryRow {
+  lotId: string; lotNumber: string; expiryDate: string | null; status: LotStatus; blockKind: LotBlockKind | null;
+  lastSoldAt: Date | null; soldBase: number; returnedBase: number;
+}
+
+/** سقف صفوف التوزيع المقروءة لعميلٍ وصنف — الأحدث أولاً، فما قبلها لا يغيّر أحدث ٥٠ تشغيلة عملياً */
+const CUSTOMER_HISTORY_ROWS = 5000;
+const NOTE_KINDS = ['CREDIT_NOTE', 'DEBIT_NOTE'];
+
+/**
+ * التشغيلات المسمّاة التي اشتراها عميلٌ لصنفٍ في الحقبة الحالية (D25) — لكلٍّ المباع والمُرجَع (صفوف مرتجعاته وإشعاراته غير
+ * الملغاة إلى التشغيلة نفسها) وآخر لحظة بيع (LEAST لحظة الجهاز ولحظة الرفع، وإلا تاريخ الفاتورة)، الأحدث أولاً، `limit` ≤ ٥٠.
+ * `invoiceWhere` قيد نطاق المستخدم على الفاتورة (scopedRecordWhere) — يُضمّ بـAND فلا يطغى على شرط الأنواع.
+ */
+export async function customerLotHistory(db: LotDb, tid: string, q: {
+  customerId: string; productId: string; invoiceWhere?: Record<string, unknown> | null; limit?: number;
+}): Promise<CustomerLotHistoryRow[]> {
+  const limit = Math.min(50, Math.max(1, Math.trunc(q.limit ?? 50)));
+  const [tenant, product] = await Promise.all([
+    db.tenant.findUnique({ where: { id: tid }, select: { lotTrackingSince: true } }),
+    db.product.findFirst({ where: { id: q.productId, tenantId: tid }, select: { lotTrackedSince: true } }),
+  ]);
+  if (!product) return [];
+  const a = tenant?.lotTrackingSince ?? null, b = product.lotTrackedSince ?? null;
+  const since = a && b ? (a.getTime() >= b.getTime() ? a : b) : (a ?? b);
+  const scope = q.invoiceWhere && Object.keys(q.invoiceWhere).length ? [q.invoiceWhere] : [];
+  const sold = await db.invoiceItemLot.findMany({
+    where: {
+      tenantId: tid, productId: q.productId, lotId: { not: null },
+      ...(since && { createdAt: { gte: since } }),
+      invoiceItem: {
+        invoice: {
+          tenantId: tid, customerId: q.customerId, type: { in: ['CASH', 'CREDIT'] }, status: { not: 'CANCELLED' },
+          AND: [{ OR: [{ documentKind: null }, { documentKind: { notIn: NOTE_KINDS } }] }, ...scope],
+        },
+      },
+    },
+    select: { lotId: true, quantity: true, invoiceItem: { select: { invoice: { select: { invoiceDate: true, clientCreatedAt: true, createdAt: true } } } } },
+    orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+    take: CUSTOMER_HISTORY_ROWS,
+  });
+  const acc = new Map<string, { sold: number; lastAt: Date | null }>();
+  for (const r of sold) {
+    if (!r.lotId) continue;
+    const inv = r.invoiceItem?.invoice;
+    const at = !inv ? null : inv.clientCreatedAt
+      ? new Date(Math.min(new Date(inv.clientCreatedAt).getTime(), new Date(inv.createdAt).getTime()))
+      : new Date(inv.invoiceDate);
+    const e = acc.get(r.lotId) ?? { sold: 0, lastAt: null };
+    e.sold += Number(r.quantity) || 0;
+    if (at && (!e.lastAt || at > e.lastAt)) e.lastAt = at;
+    acc.set(r.lotId, e);
+  }
+  const t = (d: Date | null) => (d ? d.getTime() : -Infinity);
+  const top = [...acc.entries()].sort((x, y) => t(y[1].lastAt) - t(x[1].lastAt) || (x[0] < y[0] ? -1 : 1)).slice(0, limit);
+  if (!top.length) return [];
+  const lotIds = top.map(([id]) => id);
+  const [metas, back] = await Promise.all([
+    loadLotMetas(db, tid, { lotIds }),
+    db.invoiceItemLot.findMany({
+      where: {
+        tenantId: tid, productId: q.productId, lotId: { in: lotIds },
+        ...(since && { createdAt: { gte: since } }),
+        invoiceItem: { invoice: { tenantId: tid, customerId: q.customerId, type: 'RETURN', status: { not: 'CANCELLED' }, ...(scope.length > 0 && { AND: scope }) } },
+      },
+      select: { lotId: true, quantity: true },
+    }),
+  ]);
+  const returned = new Map<string, number>();
+  for (const r of back) if (r.lotId) returned.set(r.lotId, (returned.get(r.lotId) ?? 0) + (Number(r.quantity) || 0));
+  const out: CustomerLotHistoryRow[] = [];
+  for (const [lotId, e] of top) {
+    const m = metas.get(lotId);
+    // بطاقةٌ من الشركة وللصنف نفسه وحدها (I5) — صفٌّ يشير إلى غيرها لا يُعرض
+    if (!m || m.productId !== q.productId) continue;
+    out.push({
+      lotId, lotNumber: m.lotNumber, expiryDate: m.expiryDate, status: m.status, blockKind: m.blockKind,
+      lastSoldAt: e.lastAt, soldBase: roundLot(e.sold), returnedBase: roundLot(returned.get(lotId) ?? 0),
+    });
+  }
+  return out;
+}
+
+/**
+ * مرشّحو T3 لكل صنفٍ بالطبقات بالترتيب (العميل ثم سيارة المستند ثم الشركة)، وفي كل طبقةٍ الأحدث أولاً، بلا تكرارٍ عبر الطبقات
+ * (التشغيلة في أعلى طبقةٍ رأتها). الطبقة تسبق الحالة بقرار المالك، فلا تُستعلم طبقةٌ لصنفٍ وجد مرشّحاً صالح البطاقة فيما قبلها
+ * (أول مرشّحٍ هو المختار)، والسيارة تُتخطّى بلا vanKey. البطاقات من الشركة وللصنف نفسه وحدها (loadLotMetas بالمستأجر، I5) —
+ * داخل معاملة الإصدار بعد قفل الأصناف، وفي الفحص المسبق بلا قفل.
+ */
+export async function returnGuessCandidates(db: LotDb, tid: string, q: { customerId: string | null; vanKey: string | null; productIds: string[]; asOf?: Date | null }):
+  Promise<Map<string, ReturnGuessCandidate[]>> {
+  const pids = uniq(q.productIds);
+  const out = new Map<string, ReturnGuessCandidate[]>();
+  const taken = new Set<string>();
+  const pending = () => pids.filter((p) => !out.has(p));
+  const add = async (tier: ReturnGuessTier, rows: ReturnLotSeen[]) => {
+    const lotIds = uniq(rows.map((r) => r.lotId).filter((id) => !taken.has(id)));
+    const metas = lotIds.length ? await loadLotMetas(db, tid, { lotIds }) : new Map<string, LotMeta>();
+    for (const r of rows) {
+      const m = metas.get(r.lotId);
+      if (!m || m.productId !== r.productId || taken.has(r.lotId)) continue;
+      taken.add(r.lotId);
+      const list = out.get(r.productId) ?? [];
+      list.push({ lotId: m.id, lotNumber: m.lotNumber, expiryDate: m.expiryDate, status: m.status, blockKind: m.blockKind, tier });
+      out.set(r.productId, list);
+    }
+  };
+  if (!pids.length) return out;
+  if (q.customerId) await add('RETURN_GUESS_CUSTOMER', await customerBoughtLots(db, tid, { customerId: q.customerId, productIds: pids, asOf: q.asOf ?? null }));
+  if (q.vanKey && pending().length) await add('RETURN_GUESS_VAN', await vanSeenLots(db, tid, { vanKey: q.vanKey, productIds: pending() }));
+  if (pending().length) await add('RETURN_GUESS_COMPANY', await companyFlowLots(db, tid, { productIds: pending() }));
+  return out;
 }

@@ -19,7 +19,7 @@ import {
   unitsByProduct, UnitInvalidError, UNIT_SELECT, assertWarehouseCovers, WarehouseInsufficientError, vanKeyOf,
 } from '../services/warehouseStock';
 // «الربط لا يُرفض» (أمر المالك ٩ نوفمبر ٢٠٢٦): الحركة تُقبل بما يمكن معالجته، والمتروك أو المعدَّل تحذيرٌ في ردّ النجاح
-import { lenientStockLines, noQuantitiesWarning, stockNoopBody, type StockWarning } from '../services/stockLenient';
+import { countMatchesWarning, lenientStockLines, lotIgnoredWarning, noQuantitiesWarning, stockNoopBody, zeroQtyIgnoredWarnings, type StockWarning } from '../services/stockLenient';
 // «ربط الدفاتر» L1: سبب تسوية السيارة (ADJUST) من قائمةٍ ثابتة — الفحص المشترك مع تسوية المستودع (الواجهة 400، ومفتاح API تحذير)
 import { VAN_ADJUST_REASONS } from '../services/suppliers/core';
 import { isSupplierError, supplierErrorBody } from '../services/suppliers/payments';
@@ -36,9 +36,12 @@ import {
   missingBaseForApi, staleClientBase,
 } from '../services/baseGuard';
 // «تتبّع اللوط»: حركات السيارة بالتشغيلات (§٤.٧) — كلها خلف علم الشركة وعلم الصنف؛ المطفأ والصنف غير المتتبَّع كما كانا حرفياً
-import { LotError, asLotBusy, lotErr, lotErrorBody, lotHttpError, type VanMovementPlan } from '../services/lots';
+import { LotError, asLotBusy, lotErr, lotErrorBody, lotHttpError } from '../services/lots';
 import { acquireLotQueue, companyDay, lockLotProducts } from '../services/lotsDb';
-import { VAN_LOT_ALLOW_UNKNOWN, lotOnUntrackedError, planVanMovementInTx, vanItemLotColumns, vanLineCarriesLot, vanLotSnapshot } from '../services/lotsVan';
+import {
+  VAN_LOT_ALLOW_UNKNOWN, VanCountPostcondition, VanPlanNoop, executeVanCountInTx, lotOnUntrackedError, planVanMovementInTx, vanAppliedItemFields,
+  vanItemLotColumns, vanLineCarriesLot, vanLotSnapshot, vanPlanWritesNothing, type VanCountLine, type VanMovementPlanResult,
+} from '../services/lotsVan';
 // فاعل سجل تدقيق اللوط بالمساعد نفسه للمستودع والاستيراد: جلسة «دخول» بمُصدِرها (STAFF/OWNER)، والمفتاح بمعرّفه
 import { lotEventActorOf } from '../services/lotsWarehouse';
 // D25 للمسار غير المتتبَّع: إعادة قراءة التتبّع FOR KEY SHARE وحدها (لا حارس ولا قفل لوط) — الدالّة نفسها لإلغاء المرتجع وإعادته
@@ -62,6 +65,12 @@ const loadSchema = z.object({
   deletedSalesRepId: z.string().optional(),
   // مفتاح منع التكرار (D8): واحدٌ لكل محاولة حفظ يُعاد مع إعادتها — المكرَّر يردّ الحركة القائمة 200 بلا كتابة. غائبٌ ⇒ كما كان
   clientRef: CLIENT_REF_SCHEMA.optional(),
+  // الجرد المطلق (طلب المالك ١٦ نوفمبر ٢٠٢٦، لمفتاح الربط وحده): type ADJUST وmode COUNT ⇒ qty الكمية المعدودة (والصفر ذو معنى)
+  // لا الفرق، وlots[] (اختياري، بالأساس) التشغيلات المعدودة وغير المذكورة صفر. scope VAN: كل صنفٍ في السيارة غير مذكور يصير صفراً،
+  // وincludeUnsellable يصفّر المنتهي والتالف معه. غائبٌ (DELTA) ⇒ الحركة كما كانت حرفياً
+  mode: z.enum(['DELTA', 'COUNT']).optional(),
+  scope: z.enum(['LINES', 'VAN']).optional(),
+  includeUnsellable: z.boolean().optional(),
   items: z.array(z.object({
     productId: z.string(),
     qty: z.number(), // موجب للتحميل/الإرجاع للمستودع؛ قد تكون سالبة لـADJUST — بوحدة البند
@@ -85,6 +94,8 @@ const loadSchema = z.object({
     productionDate: z.unknown().optional(),
     expiryDate: z.unknown().optional(),
     lotReason: z.unknown().optional(),
+    // معرّف تشغيلةٍ مسطَّح على البند (مفتاح الربط): كان يُحذف بصمت فيسحب الخادم غيرها — صار تفضيلاً للبند كله. الواجهة لا ترسله
+    lotId: z.unknown().optional(),
   })).min(1),
   // «ربط الدفاتر» L1: سبب التسوية ADJUST — COUNT | DAMAGE | EXPIRY | SHORTAGE_REP (عجز على المندوب) | SAMPLE | OTHER. لغير ADJUST يُهمل.
   // بلا تحقق نوعٍ هنا: غير الصالح ⇒ 400 ADJUST_REASON_INVALID للواجهة، ويُهمل بتحذير ADJUST_REASON_IGNORED لمفتاح API («الربط لا يُرفض»)
@@ -339,6 +350,14 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
   try {
     const tid = tenantId(req);
     const data = loadSchema.parse(req.body);
+    // الجرد المطلق (mode COUNT) مسارٌ مستقلّ بأقفاله وخطته (runVanCount أدناه) — والحركة بالفرق (DELTA، الغائب) كما كانت حرفياً
+    if (data.mode === 'COUNT') {
+      await runVanCount(req, res, {
+        salesRepId: data.salesRepId, type: data.type, deleted: data.deletedSalesRepId !== undefined, clientRef: data.clientRef ?? null, note: data.note ?? null,
+        scope: data.scope ?? 'LINES', includeUnsellable: data.includeUnsellable === true, items: data.items, zero: false,
+      });
+      return;
+    }
     // «ربط الدفاتر» L1: سبب التسوية يُحكم عليه قبل أي قراءة — الواجهة بسببٍ مجهول 400 بلا عمل، ومفتاح API تحذيرٌ يُضمّ لردّ النجاح
     const reasonWarnings: StockWarning[] = [];
     const adjustReason = data.type === 'ADJUST' ? resolveAdjustReason(data.reason, VAN_ADJUST_REASONS, !!req.user?.apiKeyId, reasonWarnings) : null;
@@ -408,10 +427,11 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     const lenient = await lenientStockLines(tid, nonZero, found, {
       archived: data.type === 'LOAD' ? 'LOAD' : null, select: VAN_LINE_PRODUCT_SELECT, replay,
       isApiKey: !!req.user?.apiKeyId, lotsOn, carriesLot: vanLineCarriesLot,
-      stripLot: (i) => ({ ...i, lots: undefined, lotNumber: undefined, productionDate: undefined, expiryDate: undefined, lotReason: undefined }),
+      stripLot: (i) => ({ ...i, lots: undefined, lotNumber: undefined, productionDate: undefined, expiryDate: undefined, lotReason: undefined, lotId: undefined }),
     });
     const { lines: items, units, products, warnings } = lenient;
-    warnings.push(...reasonWarnings);
+    // مفتاح الربط: سطرٌ بكمية صفر بين أسطرٍ أخرى كان يُترك بصمت — تحذيرٌ بموضعه يدلّ على mode COUNT (الصفر هناك ذو معنى)
+    warnings.push(...reasonWarnings, ...(req.user?.apiKeyId ? zeroQtyIgnoredWarnings(data.items) : []));
     // لم يبقَ سطرٌ يُكتب ⇒ 200 بلا حركة بتحذيراته (لا مرجع يُحفظ: إعادته تعيد الردّ نفسه)
     if (!items.length) { res.status(200).json(stockNoopBody(warnings)); return; }
     const productIds = [...new Set(items.map(i => i.productId))];
@@ -426,7 +446,9 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
       const haveById = new Map((await computeStock(tid, salesRepId)).map(s => [s.productId, s[bucket]]));
       // بالأساس: «٢ كرتون» تالفة لا تُزال من رصيد «٢ حبة» تالفة، وكرتونٌ وحبّةٌ من الصنف نفسه يُجمعان
       const want = new Map<string, number>();
-      items.forEach((i, idx) => want.set(i.productId, (want.get(i.productId) ?? 0) + toBase(i.qty, { unitFactor: units[idx].factor })));
+      // مفتاح الربط (١٦ نوفمبر ٢٠٢٦): الصنف المتتبَّع يحصره رصيد تشغيلاته في الخطة (LOT_CLAMPED) لا رفض المستند — فلا يُفحص هنا
+      const lotClamped = (pid: string) => !!req.user?.apiKeyId && preTracked.has(pid);
+      items.forEach((i, idx) => { if (!lotClamped(i.productId)) want.set(i.productId, (want.get(i.productId) ?? 0) + toBase(i.qty, { unitFactor: units[idx].factor })); });
       for (const [pid, q] of want) {
         const have = haveById.get(pid) ?? 0;
         if (q > have + 1e-9) {
@@ -461,6 +483,14 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     // «تتبّع اللوط» (D9) والميزة مفعّلة: بندٌ يحمل تشغيلةً لصنفٍ غير متتبَّع ⇒ 422 بموضع سطره لا إهمالٌ صامت (واجهةٌ قديمة لصنفٍ
     // أُطفئ تتبّعه: التنزيل بلا صفوف يُنقص الصنف ويُبقي رصيد اللوط فيتكرّر). بلا استعلام؛ والمطفأة (lotProducts null) تُهملها كما كانت
     if (lotProducts) {
+      // مفتاح الربط (١٦ نوفمبر ٢٠٢٦): تشغيلةٌ لصنفٍ غير متتبَّع تُهمل بتحذير LOT_IGNORED ويتحرّك الصنف كما هو — لا رفض المستند كله
+      if (req.user?.apiKeyId) {
+        items.forEach((i, k) => {
+          if (preTracked.has(i.productId) || !(vanLineCarriesLot(i) || (i.lotId != null && i.lotId !== ''))) return;
+          warnings.push(lotIgnoredWarning(i.at, i.productId, lotProducts.find(p => p.id === i.productId)?.name ?? ''));
+          items[k] = { ...i, lots: undefined, lotNumber: undefined, productionDate: undefined, expiryDate: undefined, lotReason: undefined, lotId: undefined };
+        });
+      }
       const stray = items.find(i => !preTracked.has(i.productId) && vanLineCarriesLot(i));
       if (stray) throw lotOnUntrackedError(lotProducts.find(p => p.id === stray.productId)?.name ?? '', stray.productId, stray.at);
     }
@@ -479,7 +509,7 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     };
 
     // نداء الإنشاء الوحيد (locations.test.ts): الحركة وبنودها — وتوزيع البند على التشغيلات حين تحمل الخطة صفوفه (D2: البند لا يُشطر)
-    const createLoad = (db: Prisma.TransactionClient | typeof prisma, plan: VanMovementPlan | null = null) => db.vanLoad.create({
+    const createLoad = (db: Prisma.TransactionClient | typeof prisma, plan: VanMovementPlanResult | null = null) => db.vanLoad.create({
       data: {
         tenantId: tid, salesRepId: gone ? null : salesRepId, type: data.type, note: data.note,
         // سبب التسوية بالنشر الشرطيّ — غائبٌ ⇒ العمود null والحركة كما كانت حرفياً
@@ -492,13 +522,15 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
         createdBy: isRep ? 'REP' : 'ADMIN',
         // لقطة الوحدة + الكمية بالأساس؛ والمقترَح والمتنبَّأ به بالأساس كما أخرجهما المحرّك
         items: {
-          create: items.map((i, idx) => ({
-            productId: i.productId, ...unitFields(i.qty, units[idx]), suggestedQty: i.suggestedQty ?? null, expectedQty: i.expectedQty ?? null,
+          // مفتاح الربط: سطرٌ حصرته خطة اللوط (LOT_CLAMPED) أو قرّبت كسره يُكتب بكميته المطبَّقة (vanAppliedItemFields بعد unitFields
+          // فتغلبها)، والمحصور إلى صفر لا يُكتب. غير المفتاح: applied فارغة فالبنود كما كانت حرفياً
+          create: items.flatMap((i, idx) => (Math.abs(plan?.applied?.get(i.at) ?? 1) <= 1e-9 ? [] : [{
+            productId: i.productId, ...unitFields(i.qty, units[idx]), ...vanAppliedItemFields(plan, i.at, units[idx]), suggestedQty: i.suggestedQty ?? null, expectedQty: i.expectedQty ?? null,
             // «مرجع السطر» بالنشر الشرطيّ: غائبٌ أو فارغٌ بعد القصّ ⇒ لا مفتاح فيبقى العمود null والبند كما كان حرفياً. في كل الأنواع
             // ومنها تنزيل سيارة المندوب المحذوف (D30)، وتوزيع البند على تشغيلاته لا يشطره (D2) فالمرجع على البند الواحد
             ...(i.lineRef && { lineRef: i.lineRef }),
             ...(plan && vanItemLotColumns(plan, i.at, { tenantId: tid, productId: i.productId, vanKey: salesRepId, moveType: data.type })),
-          })),
+          }])),
         },
       },
       include: { items: { include: { product: { select: { id: true, name: true, unit: true, primaryUnitId: true } }, ...(plan && { lots: ITEM_LOTS_INCLUDE }) } } },
@@ -534,11 +566,13 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
                 idx: i.at, productId: i.productId, productName: p?.name ?? '', shelfLifeOn: !!p && shelfLifeOf(p) !== null,
                 // الكمية الأساسية بإشارتها كما تُكتب في البند (unitFields)، ومعامل وحدته لقاعدة الكرتون (D22)
                 qty: unitFields(i.qty, units[n]).baseQty, unitFactor: units[n].factor,
-                lotsRaw: { lots: i.lots, lotNumber: i.lotNumber, productionDate: i.productionDate, expiryDate: i.expiryDate },
+                lotsRaw: { lots: i.lots, lotNumber: i.lotNumber, productionDate: i.productionDate, expiryDate: i.expiryDate, ...(req.user?.apiKeyId && { lotId: i.lotId }) },
                 reason: i.lotReason == null ? null : String(i.lotReason),
               };
             }),
-          }, { locked, eventActor: lotEventActorOf(req.user) });
+          }, { locked, eventActor: lotEventActorOf(req.user), lenient: !!req.user?.apiKeyId });
+          // مفتاح الربط: كل الأسطر حُصرت إلى صفر (لا شيء في السيارة يُنقص) ⇒ 200 بلا حركة بتحذيراتها، لا حركةٌ بلا بنود
+          if (vanPlanWritesNothing(plan, items.map(i => i.at))) throw new VanPlanNoop([...warnings, ...plan.warnings]);
           return { load: await createLoad(tx, plan), warnings: plan.warnings };
         }, { maxWait: 10_000, timeout: 20_000 });
         // تحذيرات «الربط لا يُرفض» ثم تحذيرات اللوط — بلا الأولى كما كان حرفياً
@@ -597,6 +631,8 @@ router.post('/loads', async (req: AuthRequest, res: Response, next: NextFunction
     const g = err instanceof ProductUnitsChangedError || err instanceof ProductUnitsBusyError
       ? baseGuardReply(err, String(req.headers['x-fs-replay'] || '') === '1') : null;
     if (g) { res.status(g.status).json(g.body); return; }
+    // مفتاح الربط: كل أسطر الحركة حُصرت إلى صفر في خطة اللوط ⇒ 200 noop بتحذيراتها (LOT_CLAMPED) — لا مرجع يُحفظ
+    if (err instanceof VanPlanNoop) { res.status(200).json(stockNoopBody(err.warnings as StockWarning[])); return; }
     // D2: التحميل فوق رصيد المستودع ⇒ 422 بأسطره (index وproductId وavailableBase وrequestedBase) بلا كتابة
     if (err instanceof WarehouseInsufficientError) { res.status(422).json(err.body()); return; }
     // D8: طلبٌ مكرَّر تزامن مع أصله فوجده القفل ⇒ الحركة القائمة كما في المسار السريع
@@ -1150,6 +1186,169 @@ router.post('/tools', requireAdmin, async (req: AuthRequest, res: Response, next
       return want.size;
     });
     res.status(201).json({ success: true, data: { count: created } });
+  } catch (err) { next(err); }
+});
+
+// ═══ الجرد المطلق وتصفير السيارة (طلب المالك ١٦ نوفمبر ٢٠٢٦: «تصفير مخزون السيارة في Odoo يبقى في فيلد كمية LOT») ═══
+
+type VanLoadItemBody = z.infer<typeof loadSchema>['items'][number];
+interface VanCountRequest {
+  salesRepId?: string; type: string; deleted: boolean; clientRef: string | null; note: string | null;
+  scope: 'LINES' | 'VAN'; includeUnsellable: boolean; items: VanLoadItemBody[]; zero: boolean;
+}
+/** أنواع الحركات التي يكتبها الجرد — مرجع clientRef لأيٍّ منها في السيارة نفسها إعادةٌ لا «حركةٌ أخرى» */
+const COUNT_LOAD_TYPES = ['ADJUST', 'EXPIRED_OUT', 'DAMAGED_OUT'];
+
+/** تشغيلات سطر الجرد المعدودة بالأساس: lots[] بمعرّف فيلد أو برقم التشغيلة، أو رقمٌ مسطَّح للسطر كله — null ⇒ بلا تشغيلات */
+function countLotsOf(i: VanLoadItemBody, base: number): VanCountLine['lots'] {
+  if (Array.isArray(i.lots)) {
+    const rows = i.lots.filter((r): r is Record<string, unknown> => !!r && typeof r === 'object' && !Array.isArray(r)).map((r) => ({
+      lotId: typeof r.lotId === 'string' && r.lotId ? r.lotId : null, lotNumber: r.lotNumber,
+      qty: Math.max(0, Number(r.qty) || 0),
+      productionDate: typeof r.productionDate === 'string' ? r.productionDate : null, expiryDate: typeof r.expiryDate === 'string' ? r.expiryDate : null,
+    })).filter((r) => r.lotId || (r.lotNumber != null && r.lotNumber !== ''));
+    return rows.length ? rows : null;
+  }
+  const lotId = typeof i.lotId === 'string' && i.lotId ? i.lotId : null;
+  if (!lotId && (i.lotNumber == null || i.lotNumber === '')) return null;
+  return [{
+    lotId, lotNumber: i.lotNumber, qty: Math.max(0, base),
+    productionDate: typeof i.productionDate === 'string' ? i.productionDate : null, expiryDate: typeof i.expiryDate === 'string' ? i.expiryDate : null,
+  }];
+}
+
+/**
+ * الجرد المطلق (POST /loads بـmode COUNT، لمفتاح الربط وحده) وتصفير السيارة (POST /zero، للمفتاح وللإدارة بصلاحية مخزون السيارة).
+ * Odoo يرسل الكمية المعدودة لا الفرق: الخادم يحسب الفرق تحت الأقفال (executeVanCountInTx) — حركة ADJUST واحدة بسبب COUNT، والإزالة
+ * حين includeUnsellable، وإعادة تسمية التشغيلات — ثم يعيد القراءة ويتحقّق. خطةٌ فارغة ⇒ 200 noop بتحذير COUNT_MATCHES (متكرّرٌ
+ * بالبناء)، وclientRef محفوظ ⇒ الحركة القائمة 200 (D8). سيارة مندوبٍ قائم وحده (لا D30)، وبنطاق المستخدم، ولا يصل إليه المندوب.
+ */
+async function runVanCount(req: AuthRequest, res: Response, q: VanCountRequest): Promise<void> {
+  const tid = tenantId(req);
+  const isApi = !!req.user?.apiKeyId;
+  if (req.user?.role === 'SALES_REP') { res.status(403).json({ success: false, message: 'جرد السيارة وتصفيرها متاحان للإدارة فقط' }); return; }
+  if (!q.zero && !isApi) {
+    res.status(403).json({ success: false, code: 'COUNT_API_KEY_ONLY', message: 'الجرد بالكمية المعدودة (mode COUNT) لمفتاح الربط — سجّل التسوية بالفرق من الواجهة' });
+    return;
+  }
+  if (!q.zero && q.type !== 'ADJUST') { res.status(400).json({ success: false, code: 'COUNT_TYPE_INVALID', message: 'الجرد بالكمية المعدودة نوعه ADJUST وحده' }); return; }
+  if (q.deleted) { res.status(400).json({ success: false, message: 'الجرد لسيارة مندوبٍ قائم — سيارة المندوب المحذوف تُفرَّغ بالتنزيل' }); return; }
+  const { salesRepId } = resolveRep(req, q.salesRepId);
+  await assertRepInScope(req, tid, salesRepId);
+  const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, include: { tenant: { select: { lotTrackingEnabled: true } } } });
+  if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+  const lotsOn = rep.tenant?.lotTrackingEnabled === true;
+  const include = { items: { include: { product: { select: { id: true, name: true, unit: true, primaryUnitId: true } }, ...(lotsOn && { lots: ITEM_LOTS_INCLUDE }) } } };
+  const priorOf = async (db: Prisma.TransactionClient | typeof prisma) => {
+    if (!q.clientRef) return null;
+    const prior = await db.vanLoad.findFirst({ where: { tenantId: tid, clientRef: q.clientRef }, orderBy: { createdAt: 'asc' }, include });
+    if (prior && (vanKeyOf(prior) !== salesRepId || !COUNT_LOAD_TYPES.includes(prior.type))) {
+      throw Object.assign(new Error('مرجع الحفظ clientRef مستعملٌ لحركةٍ أخرى — ولّد مرجعاً جديداً لكل حفظ'), { status: 409, code: 'CLIENT_REF_REUSED' });
+    }
+    return prior;
+  };
+  const replayed = (row: unknown) => res.status(200).json({ success: true, data: { mode: 'COUNT', zero: q.zero, loads: [row] }, replay: true, idempotent: true });
+  const prior0 = await priorOf(prisma);
+  if (prior0) { replayed(prior0); return; }
+
+  // الأسطر: الصفر ذو معنى هنا (لا ترشيح)، والسالب يُقرأ صفراً بتحذير. وscope VAN أو التصفير: كل صنفٍ له أثرٌ في السيارة غير مذكور ⇒ صفر
+  const warnings: StockWarning[] = [];
+  const raw = q.items.map((i, at) => {
+    if (!(i.qty < 0)) return { ...i, at };
+    warnings.push({ code: 'COUNT_NEGATIVE_AS_ZERO', index: at, productId: i.productId, message: `كمية الجرد في السطر ${at + 1} سالبة فقُرئت صفراً` });
+    return { ...i, qty: 0, at };
+  });
+  const scopeIds = q.scope === 'VAN' || q.zero ? (await computeStock(tid, salesRepId)).map((s) => s.productId) : [];
+  const lineIds = [...new Set(raw.map((i) => i.productId))];
+  const found = await prisma.product.findMany({ where: { id: { in: [...new Set([...lineIds, ...scopeIds])] }, tenantId: tid }, select: VAN_LINE_PRODUCT_SELECT });
+  const lenient = await lenientStockLines(tid, raw, found.filter((p) => lineIds.includes(p.id)), {
+    archived: null, select: VAN_LINE_PRODUCT_SELECT, replay: false, isApiKey: isApi, lotsOn, carriesLot: vanLineCarriesLot,
+    stripLot: (i) => ({ ...i, lots: undefined, lotNumber: undefined, productionDate: undefined, expiryDate: undefined, lotReason: undefined, lotId: undefined }),
+  });
+  warnings.push(...lenient.warnings);
+  const byId = new Map([...found, ...lenient.products].map((p) => [p.id, p]));
+  // «الوحدة الرئيسية» §3 كالحركة بالفرق: الأساس الذي حُلّت عليه الأسطر حيّاً ثم تحت القفل
+  const expected = expectedBasesOf(lenient.products);
+  const noBase = missingBaseForApi(isApi, lenient.lines, byId);
+  if (noBase) { const r = baseUnitRequiredReply(noBase); res.status(r.status).json(r.body); return; }
+  const stale = staleClientBase(lenient.lines, expected, new Map(lenient.products.map((p) => [p.id, p.baseConvertedAt])));
+  if (stale) throw new UnitInvalidError(`تغيّرت وحدات «${stale}» — حدّث قائمة الأصناف ثم أعد الحفظ`);
+  const targets = new Map<string, VanCountLine>();
+  const lineOf = (pid: string): VanCountLine | null => {
+    const p = byId.get(pid);
+    if (!p) return null;
+    let t = targets.get(pid);
+    if (!t) { t = { productId: pid, productName: p.name, shelfLifeOn: shelfLifeOf(p) !== null, qty: 0, lots: null, lineRef: null }; targets.set(pid, t); }
+    return t;
+  };
+  lenient.lines.forEach((i, n) => {
+    const t = lineOf(i.productId);
+    if (!t) return;
+    const base = unitFields(i.qty, lenient.units[n]).baseQty;
+    t.qty += base;
+    t.lineRef = t.lineRef ?? i.lineRef ?? null;
+    const lots = countLotsOf(i, base);
+    if (!lots) return;
+    // تشغيلاتٌ لصنفٍ غير متتبَّع (أو الميزة مطفأة) تُهمل بتحذير — الصنف يُجرد بكميته
+    if (lotsOn && byId.get(i.productId)?.lotTracked === true) t.lots = [...(t.lots ?? []), ...lots];
+    else warnings.push(lotIgnoredWarning(i.at, i.productId, t.productName));
+  });
+  for (const pid of scopeIds) lineOf(pid);
+  if (!targets.size) { res.status(200).json(stockNoopBody([...warnings, countMatchesWarning()])); return; }
+
+  const trackedPre = lotsOn ? [...targets.keys()].filter((pid) => byId.get(pid)?.lotTracked === true) : [];
+  const { day } = await companyDay(prisma, tid);
+  const release = trackedPre.length ? await acquireLotQueue(tid, trackedPre) : () => undefined;
+  try {
+    const out = await prisma.$transaction((tx) => executeVanCountInTx(tx, {
+      tenantId: tid, vanKey: salesRepId, day, actorId: actorOf(req) || null, note: q.note, clientRef: q.clientRef, includeUnsellable: q.includeUnsellable,
+      lines: [...targets.values()], include,
+      gate: async (t) => {
+        if (!q.clientRef) return;
+        await lockClientRef(t, 'van-load', tid, q.clientRef);
+        const prior = await priorOf(t);
+        if (prior) throw new ClientRefReplay(prior);
+      },
+      afterLock: (locked) => assertBasesUnchanged(expected, locked.units),
+    }, { eventActor: lotEventActorOf(req.user) }), { maxWait: 10_000, timeout: 30_000 });
+    if (out.noop) { res.status(200).json(stockNoopBody([...warnings, ...(out.warnings as StockWarning[]), countMatchesWarning()])); return; }
+    res.status(201).json({
+      success: true, data: { mode: 'COUNT', zero: q.zero, loads: out.loads, relabels: out.relabels, products: out.products }, warnings: [...warnings, ...out.warnings],
+    });
+  } catch (e) {
+    if (e instanceof ClientRefReplay) { replayed(e.row); return; }
+    if ((e as { code?: unknown })?.code === 'CLIENT_REF_REUSED') { res.status(409).json({ success: false, code: 'CLIENT_REF_REUSED', message: (e as Error).message }); return; }
+    if (e instanceof VanCountPostcondition) { res.status(503).json({ success: false, code: e.code, message: e.message, detail: e.detail }); return; }
+    const g = e instanceof ProductUnitsChangedError || e instanceof ProductUnitsBusyError ? baseGuardReply(e, false) : null;
+    if (g) { res.status(g.status).json(g.body); return; }
+    // LotError بحالته، وانتظار القفل أو مهلة المعاملة ⇒ 503 LOT_BUSY فيعيد المُكامِل
+    const h = lotHttpError(e);
+    if (h) { res.status(h.status).json(h.body); return; }
+    throw e;
+  } finally {
+    release();
+  }
+}
+
+const zeroSchema = z.object({
+  salesRepId: z.string().optional(),
+  clientRef: CLIENT_REF_SCHEMA.optional(),
+  // الافتراضي true: التصفير يُفرغ المنتهي والتالف المرتجعَين أيضاً (لا يعرفهما نظام المُكامِل)
+  includeUnsellable: z.boolean().optional(),
+  note: z.string().optional(),
+});
+
+/**
+ * تصفير سيارة مندوب: الجرد المطلق بنطاق السيارة كلها وكل صنفٍ صفر، وكل التشغيلات (والمنتهي والتالف ما لم يُرسل includeUnsellable: false).
+ * لمفتاح الربط وللإدارة بصلاحية مخزون السيارة (حارس الموجّه)، لا للمندوب. المحجوز (D24) يبقى بتحذير LOT_HELD_REMAINS
+ */
+router.post('/zero', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = zeroSchema.parse(req.body ?? {});
+    await runVanCount(req, res, {
+      salesRepId: data.salesRepId, type: 'ADJUST', deleted: false, clientRef: data.clientRef ?? null, note: data.note ?? null,
+      scope: 'VAN', includeUnsellable: data.includeUnsellable ?? true, items: [], zero: true,
+    });
   } catch (err) { next(err); }
 });
 

@@ -45,9 +45,10 @@ import { PUBLISHED, i18nPageAt } from '../i18n/i18nPublished';
 //   منهم «تواصل معنا» عند تعذّر التحقق أو انتهاء الرابط. المرجع فيها `payment-success` لأن
 //   `?ref=` في الاستعلام لا في المسار. دفع زبائن الشركات يعود إلى `/pay/<token>` لا إليها.
 // `activate` صفحة تفعيل حساب شركةٍ فتحه سفير — يصلها مسؤولها من رابط بريده، كـ`verify-email`.
+// `reset-password` رابط «نسيت كلمة المرور» من البريد — كـ`activate`.
 // القاعدة **نفسها حرفياً** في استثناءات VisitTracker في App.tsx — whatsappFab.test.ts
 // يفرض التطابق، و`ax` آخر البدائل لأن affiliate/hiding.test.ts يفحص ذلك.
-const HIDDEN_ON = /^\/(app|platform|owner|staff|login|verify-email|activate|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/;
+const HIDDEN_ON = /^\/(app|platform|owner|staff|login|verify-email|activate|reset-password|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/;
 
 /**
  * ref من المسار: /pricing/ ⇒ pricing · /blog/x/ ⇒ blog-x · / ⇒ home

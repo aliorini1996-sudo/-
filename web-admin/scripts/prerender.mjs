@@ -387,7 +387,7 @@ async function main() {
     .replace(/("offerCount"\s*:\s*)\d+/, `$1${numericCount}`)
     .replace(
       /("description"\s*:\s*")تجربة مجانية[^"]*(")/,
-      `$1تجربة مجانية 10 أيام بلا بطاقة ائتمان. الاشتراك شهري لكل شركة لا لكل مستخدم: ${pricing.arSummary}.$2`,
+      `$1تجربة مجانية 5 أيام بلا بطاقة ائتمان. الاشتراك شهري لكل شركة لا لكل مستخدم: ${pricing.arSummary}.$2`,
     )
     // لغات التواصل في ContactPoint = لغات **فريق المبيعات والدعم** (CONTACT.supportLanguages في entity-facts.mjs) لا لغات
     // الواجهة: من يردّ على الهاتف والبريد. مصدرها الواحد هناك يعدّله المالك، وما في index.html يُستبدل به في كل صفحة.
@@ -573,7 +573,7 @@ async function main() {
   const homeMeta = {
     en: {
       title: 'FieldSales | Field Sales & Distribution Management Software',
-      desc: 'Field sales software for distribution companies in any country: invoices with a QR code, collection, van stock and rep GPS tracking. Free 10-day trial.',
+      desc: 'Field sales software for distribution companies in any country: invoices with a QR code, collection, van stock and rep GPS tracking. Free 5-day trial.',
       // الكلمات المفتاحية بلغة الصفحة كما في seoByLang (بدونها ترث الصفحة كلمات القالب العربية)
       keywords: 'field sales system, sales rep management software, distribution management software, route accounting, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales software, van stock management, GPS rep tracking, customer management, product catalog, ERP integration',
       templateLd: enFaq.kept.length ? [faqPageNode(enFaq.kept)] : [],
@@ -590,13 +590,13 @@ async function main() {
 ${enFaqHtml}
 <h2>Contact &amp; subscription requests</h2>
 <p>Official email: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Head office: Riyadh, Saudi Arabia · <a href="/en/subscribe-request/">Submit a subscription request</a> or <a href="/signup">start the free trial</a> directly.</p>
-<p><a href="/signup">Start your free 10-day trial</a> — no credit card required. <a href="/en/blog">Read the blog</a> · <a href="/en/subscribe-request/?type=quote">Request a quote</a> · <a href="/en/about">About</a> · <a href="/en/contact">Contact</a> · <a href="/en/terms/">Terms</a> · <a href="/en/privacy/">Privacy</a> · <a href="/en/service-agreement/">Service agreement</a> · <a href="/languages/">Other languages</a></p>
+<p><a href="/signup">Start your free 5-day trial</a> — no credit card required. <a href="/en/blog">Read the blog</a> · <a href="/en/subscribe-request/?type=quote">Request a quote</a> · <a href="/en/about">About</a> · <a href="/en/contact">Contact</a> · <a href="/en/ambassadors/">Ambassadors</a> · <a href="/en/terms/">Terms</a> · <a href="/en/privacy/">Privacy</a> · <a href="/en/service-agreement/">Service agreement</a> · <a href="/languages/">Other languages</a></p>
 <p>Guides for Saudi distribution: <a href="/en/blog/sales-rep-management-sa/">Sales rep management in Saudi Arabia</a> · <a href="/en/blog/van-sales-app-sa/">Van sales app for Saudi Arabia</a> · <a href="/en/blog/distribution-management-system-sa/">Distributor management system (DMS) in Saudi Arabia</a> · <a href="/en/blog/field-sales-software-sa/">Field sales management software for Saudi Arabia</a> · <a href="/en/blog/collection-receivables-sa/">Collection and receivables in Saudi Arabia</a></p>
 <p>By topic: <a href="/en/blog/mobile-field-invoicing/">offline field sales app</a> · <a href="/en/blog/fmcg-distribution/">trade marketing and distribution</a> · <a href="/en/blog/wholesale-food-distributors/">dairy distribution</a> · <a href="/en/blog/van-sales-app/">van sales app</a> · <a href="/en/blog/collection-receivables/">collection and receivables</a></p></main>`,
     },
     fr: {
       title: 'FieldSales | Logiciel de vente terrain et de distribution',
-      desc: 'Logiciel de vente terrain pour distributeurs de tous pays : prévente et vente en tournée, factures, encaissement et suivi GPS. Essai gratuit 10 jours.',
+      desc: 'Logiciel de vente terrain pour distributeurs de tous pays : prévente et vente en tournée, factures, encaissement et suivi GPS. Essai gratuit 5 jours.',
       keywords: 'logiciel de vente terrain, application de prévente, logiciel de vente en tournée, logiciel de gestion des commerciaux, logiciel de gestion de distribution, facturation électronique, facture fiscale, encaissement, gestion des créances, stock du véhicule, suivi GPS des commerciaux, gestion des clients, catalogue produits, intégration ERP',
       body: `<main><h1>FieldSales — logiciel de vente terrain et de gestion de la distribution</h1>
 <p>FieldSales est une plateforme SaaS pour les entreprises de distribution : une application de prévente et de vente en tournée avec laquelle les commerciaux émettent des factures structurées à code QR, encaissent les paiements et gèrent le stock du véhicule, tandis que les gérants disposent de tableaux de bord en direct, du suivi GPS et de rapports. Chaque entreprise choisit son pays, sa devise et son taux de taxe, et l’application fonctionne en arabe, anglais, français, turc et chinois.</p>
@@ -605,12 +605,12 @@ ${enFaqHtml}
 <p>En Arabie saoudite, nous prenons en charge l’intégration phase 2 avec la plateforme Fatoora de la ZATCA. Dans les autres pays, le système émet des factures standard dans la devise et au taux de taxe de l’entreprise, et la connexion à la plateforme nationale de facturation électronique se fait sur demande.</p>
 <h2>Contact et demandes d'abonnement</h2>
 <p>E-mail officiel : <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Siège social : Arabie saoudite · <a href="/fr/subscribe-request/">Envoyez une demande d'abonnement</a> ou <a href="/signup">commencez l'essai gratuit</a>.</p>
-<p><a href="/signup">Essai gratuit de 10 jours</a> — sans carte bancaire. <a href="/fr/blog">Blog</a> · <a href="/fr/subscribe-request/?type=quote">Demander un devis</a> · <a href="/fr/invoice-generator/">Générateur de factures gratuit</a> · <a href="/fr/about">À propos</a> · <a href="/fr/contact">Contact</a> · <a href="/fr/terms/">Conditions</a> · <a href="/fr/privacy/">Confidentialité</a> · <a href="/fr/service-agreement/">Accord de service</a> · <a href="/languages/">Autres langues</a></p>
+<p><a href="/signup">Essai gratuit de 5 jours</a> — sans carte bancaire. <a href="/fr/blog">Blog</a> · <a href="/fr/subscribe-request/?type=quote">Demander un devis</a> · <a href="/fr/invoice-generator/">Générateur de factures gratuit</a> · <a href="/fr/about">À propos</a> · <a href="/fr/contact">Contact</a> · <a href="/fr/ambassadors/">Ambassadeurs</a> · <a href="/fr/terms/">Conditions</a> · <a href="/fr/privacy/">Confidentialité</a> · <a href="/fr/service-agreement/">Accord de service</a> · <a href="/languages/">Autres langues</a></p>
 <p>Par thème : <a href="/fr/blog/collection-receivables/">recouvrement de créances</a> · <a href="/fr/blog/collection-receivables-eg/">recouvrement de créances en Égypte</a> · <a href="/fr/blog/van-sales-app/">application de vente en tournée</a> · <a href="/fr/blog/collection-receivables-sa/">recouvrement de créances en Arabie saoudite</a> · <a href="/fr/blog/distribution-management-system/">système de gestion de la distribution</a></p></main>`,
     },
     tr: {
       title: 'FieldSales | Saha Satış ve Dağıtım Yönetim Yazılımı',
-      desc: 'Her ülkedeki dağıtım şirketleri için saha satış ve plasiyer yazılımı: QR kodlu faturalar, tahsilat, araç stoku ve GPS takibi. 10 gün ücretsiz deneme.',
+      desc: 'Her ülkedeki dağıtım şirketleri için saha satış ve plasiyer yazılımı: QR kodlu faturalar, tahsilat, araç stoku ve GPS takibi. 5 gün ücretsiz deneme.',
       keywords: 'saha satış sistemi saha ekibi yönetimi dağıtım yönetim yazılımı rota muhasebesi e-fatura vergi faturası tahsilat cari hesap araç stoku yönetimi GPS temsilci takibi müşteri yönetimi ürün kataloğu ERP entegrasyonu',
       body: `<main><h1>FieldSales — saha satış ve dağıtım yönetim yazılımı</h1>
 <p>FieldSales dağıtım şirketleri için bir SaaS platformudur: saha temsilcileri mobil uygulamadan QR kodlu yapılandırılmış faturalar keser, tahsilat yapar ve araç stokunu yönetir; yöneticiler canlı panolar, GPS takibi ve raporlar alır. Her şirket kendi ülkesini, para birimini ve vergi oranını seçer; uygulama Arapça, İngilizce, Fransızca, Türkçe ve Çince çalışır.</p>
@@ -619,11 +619,11 @@ ${enFaqHtml}
 <p>Suudi Arabistan’da ZATCA’nın Fatoora platformuyla 2. Aşama entegrasyonunu destekliyoruz. Diğer ülkelerde sistem şirketin para birimi ve vergi oranıyla standart faturalar keser; ulusal e-fatura platformu bağlantısı talep üzerine yapılır.</p>
 <h2>İletişim ve abonelik talepleri</h2>
 <p>Resmi e-posta: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Merkez: Suudi Arabistan · <a href="/en/subscribe-request/">Abonelik talebi gönderin (İngilizce)</a> · <a href="/tr/meeting/">Toplantı planlayın</a> veya <a href="/signup">ücretsiz denemeyi başlatın</a>.</p>
-<p><a href="/signup">10 günlük ücretsiz deneme</a> — kredi kartı gerekmez. <a href="/en/blog">Blog (İngilizce)</a> · <a href="/en/about/">Hakkında (İngilizce)</a> · <a href="/en/contact/">İletişim (İngilizce)</a> · <a href="/languages/">Diğer diller</a></p></main>`,
+<p><a href="/signup">5 günlük ücretsiz deneme</a> — kredi kartı gerekmez. <a href="/en/blog">Blog (İngilizce)</a> · <a href="/en/about/">Hakkında (İngilizce)</a> · <a href="/en/contact/">İletişim (İngilizce)</a> · <a href="/en/ambassadors/">Elçi programı (İngilizce)</a> · <a href="/languages/">Diğer diller</a></p></main>`,
     },
     zh: {
       title: 'FieldSales | 外勤销售与分销管理软件',
-      desc: '面向各国分销企业的外勤销售系统：带二维码的发票、收款、车载库存与业务员 GPS 追踪。免费试用 10 天。',
+      desc: '面向各国分销企业的外勤销售系统：带二维码的发票、收款、车载库存与业务员 GPS 追踪。免费试用 5 天。',
       keywords: '外勤销售系统 业务员管理软件 分销管理系统 路线销售管理 ZATCA 电子发票 收款管理 应收账款 车销库存管理 GPS 业务员追踪 客户管理 产品目录 ERP 集成',
       body: `<main><h1>FieldSales — 外勤销售与分销管理软件</h1>
 <p>FieldSales 是一套面向分销企业的 SaaS 平台：业务员通过手机应用开具带二维码的结构化发票、完成收款并管理车载库存；管理者则获得实时看板、GPS 追踪与报表。各国企业可自选国家、货币和税率，应用支持阿拉伯语、英语、法语、土耳其语和中文。</p>
@@ -632,7 +632,7 @@ ${enFaqHtml}
 <p>在沙特，我们支持与 ZATCA Fatoora 平台的第二阶段对接。其他国家使用本企业货币和税率的标准发票，如需对接本国政府电子发票平台，可按需办理。</p>
 <h2>联系我们与订阅申请</h2>
 <p>官方邮箱：<a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · 总部：沙特阿拉伯 · <a href="/en/subscribe-request/">提交订阅申请（英文）</a> · <a href="/zh/meeting/">预约会议</a>或直接<a href="/signup">开始免费试用</a>。</p>
-<p><a href="/signup">立即开始 10 天免费试用</a> — 无需信用卡。<a href="/en/blog">博客（英文）</a> · <a href="/en/about/">关于我们（英文）</a> · <a href="/en/contact/">联系我们（英文）</a> · <a href="/languages/">其他语言</a></p></main>`,
+<p><a href="/signup">立即开始 5 天免费试用</a> — 无需信用卡。<a href="/en/blog">博客（英文）</a> · <a href="/en/about/">关于我们（英文）</a> · <a href="/en/contact/">联系我们（英文）</a> · <a href="/en/ambassadors/">推广大使（英文）</a> · <a href="/languages/">其他语言</a></p></main>`,
     },
   };
   // الرئيسية المترجمة: hreflang خماسي (ع/إ/فر/تر/صيني) ثم رئيسيات اللغات الجديدة المنشورة — للتسويق فقط، والمدونة
@@ -707,6 +707,24 @@ ${enFaqHtml}
       // غير العربية بلا كلمات القالب العربية (لا مقابل لها بلغة الصفحة)
       lang: L, title: seo.title, description: seo.description, keywords: L === 'ar' ? undefined : false, canonical: canon(`${ORIGIN}${prefix}/profile`),
       image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: profileHreflang, bodyHtml: `<main>${parts.filter(Boolean).join('\n')}</main>`,
+    }));
+    n++;
+  }
+
+  // 3ب٣) «سفراء فيلد سيلز» بلغاتها الثلاث (V2_SPEC §9، طلب المالك ١٨ نوفمبر ٢٠٢٦): العنوان والوصف والكلمات وH1 والجسم
+  // وFAQPage كلها من src/pages/ambassadorsText.ts — الملف نفسه الذي يرسمه AmbassadorsPage.tsx ويمرّر منه useSeo (لا نسخة
+  // ثانية هنا: فخّ المصدر المزدوج). العنقود ثلاثي كالخريطة (TRILINGUAL_PATHS في src/i18n/locale.ts وlangsFor في gen-sitemap).
+  // الأزرار إلى مساري التحويل في App.tsx (انضمام ودخول) — لا يُذكر مسار البوابة في هذا الملف (affiliate/hiding.test.ts).
+  const amb = await loadTs('pages/ambassadorsText.ts');
+  const ambHreflang = trilingualHreflang(amb.AMBASSADORS_PATH);
+  for (const L of amb.AMBASSADORS_LANGS) {
+    const t = amb.AMBASSADORS_TEXT[L];
+    if (!t || !t.seoTitle || !t.seoDesc || !t.h1 || !t.faq?.length) throw new Error(`نصوص «سفراء فيلد سيلز» ناقصة للغة ${L} في src/pages/ambassadorsText.ts`);
+    const prefix = L === 'ar' ? '' : `/${L}`;
+    writeRoute(`${prefix}${amb.AMBASSADORS_PATH}`, buildPage({
+      lang: L, title: t.seoTitle, description: t.seoDesc, keywords: t.keywords, canonical: canon(`${ORIGIN}${prefix}${amb.AMBASSADORS_PATH}`),
+      image: `${ORIGIN}/og-image.png`, ogType: 'website', hreflang: ambHreflang, jsonLd: amb.ambassadorsJsonLd(L),
+      bodyHtml: amb.ambassadorsStaticHtml(L),
     }));
     n++;
   }
@@ -787,7 +805,7 @@ ${enFaqHtml}
       { q: 'ما الفرق بين الفاتورة الضريبية والمبسطة؟', a: 'الفاتورة الضريبية المبسطة تُصدر للمستهلك (B2C) بلا رقم ضريبي للمشتري، والفاتورة الضريبية العادية (B2B) تتضمن الرقم الضريبي للمشتري — والمولّد يبدّل بينهما تلقائياً.' },
       { q: 'ما الدول المدعومة؟', a: 'نِسب الضريبة والعملات جاهزة لـ12 دولة عربية: السعودية 15%، مصر 14%، الإمارات 5%، البحرين 10%، عُمان 5%، الأردن 16%، المغرب 20%، الجزائر وتونس 19% وغيرها — وكلها قابلة للتعديل.' },
       { q: 'هل هذا برنامج محاسبة مجاني؟', a: 'هذه أداة فوترة مجانية بالكامل وبلا تسجيل: تُنشئ فاتورة ضريبية نظامية برمز QR وتحمّلها PDF. لكنها ليست برنامج محاسبة كاملاً — لا تتضمّن دفتر أستاذ ولا قوائم مالية ولا إقرارات ضريبية. إن كان ما تحتاجه إصدار فواتير نظامية فقط فهذه الأداة تكفيك مجاناً بلا اشتراك؛ وإن كنت تبحث عن محاسبة كاملة فستحتاج برنامج محاسبة متخصّصاً.' },
-      { q: 'هل أحتاج اشتراكاً أو بطاقة لاستخدام المولّد؟', a: 'لا. المولّد مجاني بالكامل بلا تسجيل ولا بطاقة ولا حدّ لعدد الفواتير. أما منصّة FieldSales لإدارة مناديب التوزيع (فواتير من الميدان، تحصيل، مخزون سيارة، تتبّع) فهي منتج مدفوع بتجربة مجانية 10 أيام دون بطاقة.' },
+      { q: 'هل أحتاج اشتراكاً أو بطاقة لاستخدام المولّد؟', a: 'لا. المولّد مجاني بالكامل بلا تسجيل ولا بطاقة ولا حدّ لعدد الفواتير. أما منصّة FieldSales لإدارة مناديب التوزيع (فواتير من الميدان، تحصيل، مخزون سيارة، تتبّع) فهي منتج مدفوع بتجربة مجانية 5 أيام دون بطاقة.' },
     ],
     en: [
       { q: 'How do I create a tax invoice with a QR code for free?', a: 'Enter your company, customer and items in the free FieldSales generator — it instantly builds a professional bilingual tax invoice with a ZATCA-compliant QR code, downloadable as PDF, no signup.' },
@@ -873,7 +891,7 @@ ${enFaqHtml}
         d: pricingDescription('ar', pricing.plans),
         j: pricingLd('ar'),
         b: `<h1>باقات Field Sales — بلا رسوم خفية</h1>
-<p>السعر <strong>لكل شركة لا لكل مستخدم</strong>: إضافة مندوب ضمن حدّ باقتك لا تزيد فاتورتك الشهرية. بلا رسوم تأسيس، وبلا التزام سنوي، وتجربة عشرة أيام دون بطاقة ائتمان.</p>
+<p>السعر <strong>لكل شركة لا لكل مستخدم</strong>: إضافة مندوب ضمن حدّ باقتك لا تزيد فاتورتك الشهرية. بلا رسوم تأسيس، وبلا التزام سنوي، وتجربة خمسة أيام دون بطاقة ائتمان.</p>
 <table><caption>باقات Field Sales</caption><thead><tr><th>الباقة</th><th>الحدّ</th></tr></thead><tbody>${planRowsFor('ar')}</tbody></table>
 <p><a href="${quoteHref('ar')}">اطلب عرض سعر</a> لباقتك، أو <a href="${waHref}" rel="noopener">تحدّث معنا على واتساب</a>، أو <a href="/signup">ابدأ التجربة المجانية</a>.</p>
 ${sectionsHtml(pricingSections('ar', pricing.plans))}
@@ -887,7 +905,7 @@ ${pricingFaqHtml('ar')}`,
         d: pricingDescription('en', pricing.plans),
         j: pricingLd('en'),
         b: `<h1>Field Sales plans — no hidden fees</h1>
-<p>Priced <strong>per company, not per user</strong>: adding a rep within your plan limit does not raise your monthly bill. No setup fees, no annual lock-in, and a 10-day trial without a credit card.</p>
+<p>Priced <strong>per company, not per user</strong>: adding a rep within your plan limit does not raise your monthly bill. No setup fees, no annual lock-in, and a 5-day trial without a credit card.</p>
 <table><caption>Field Sales plans</caption><thead><tr><th>Plan</th><th>Limit</th></tr></thead><tbody>${planRowsFor('en')}</tbody></table>
 <p><a href="${quoteHref('en')}">Request a quote</a> for your plan, <a href="${waHref}" rel="noopener">talk to us on WhatsApp</a> or <a href="/signup">start the free trial</a>.</p>
 ${sectionsHtml(pricingSections('en', pricing.plans))}
@@ -901,7 +919,7 @@ ${pricingFaqHtml('en')}`,
         d: pricingDescription('fr', pricing.plans),
         j: pricingLd('fr'),
         b: `<h1>Offres Field Sales — sans frais cachés</h1>
-<p>Facturation <strong>par entreprise, pas par utilisateur</strong> : ajouter un commercial dans la limite de votre offre n’augmente pas la facture. Sans frais de mise en service ni engagement annuel, avec un essai de 10 jours sans carte bancaire.</p>
+<p>Facturation <strong>par entreprise, pas par utilisateur</strong> : ajouter un commercial dans la limite de votre offre n’augmente pas la facture. Sans frais de mise en service ni engagement annuel, avec un essai de 5 jours sans carte bancaire.</p>
 <table><caption>Offres Field Sales</caption><thead><tr><th>Offre</th><th>Limite</th></tr></thead><tbody>${planRowsFor('fr')}</tbody></table>
 <p><a href="${quoteHref('fr')}">Demandez un devis</a> pour votre offre ou <a href="${waHref}" rel="noopener">discutez avec nous</a>.</p>
 ${sectionsHtml(pricingSections('fr', pricing.plans))}
@@ -921,11 +939,11 @@ ${pricingFaqHtml('fr')}`,
     },
     contact: {
       ar: { t: 'تواصل مع فيلد سيلز – نظام إدارة المناديب | FieldSales', d: 'تواصل مع فريق FieldSales للاستفسارات والمبيعات والدعم الفني.',
-        b: '<h1>تواصل معنا</h1><p>للاستفسارات والمبيعات: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · للدعم الفني: <a href="mailto:help@fieldsa.net">help@fieldsa.net</a> · أو ابدأ <a href="/signup">تجربتك المجانية 10 أيام</a> مباشرةً.</p>' },
+        b: '<h1>تواصل معنا</h1><p>للاستفسارات والمبيعات: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · للدعم الفني: <a href="mailto:help@fieldsa.net">help@fieldsa.net</a> · أو ابدأ <a href="/signup">تجربتك المجانية 5 أيام</a> مباشرةً.</p>' },
       en: { t: 'Contact | FieldSales', d: 'Contact the FieldSales team for sales, questions and technical support.',
-        b: '<h1>Contact us</h1><p>Sales and questions: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Support: <a href="mailto:help@fieldsa.net">help@fieldsa.net</a> · or start your <a href="/signup">free 10-day trial</a> directly.</p>' },
+        b: '<h1>Contact us</h1><p>Sales and questions: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Support: <a href="mailto:help@fieldsa.net">help@fieldsa.net</a> · or start your <a href="/signup">free 5-day trial</a> directly.</p>' },
       fr: { t: 'Contact | FieldSales', d: 'Contactez l\'équipe FieldSales pour les ventes, les questions et le support.',
-        b: '<h1>Contactez-nous</h1><p>Ventes et questions : <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Support : <a href="mailto:help@fieldsa.net">help@fieldsa.net</a> · ou commencez votre <a href="/signup">essai gratuit de 10 jours</a>.</p>' },
+        b: '<h1>Contactez-nous</h1><p>Ventes et questions : <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · Support : <a href="mailto:help@fieldsa.net">help@fieldsa.net</a> · ou commencez votre <a href="/signup">essai gratuit de 5 jours</a>.</p>' },
     },
     calculator: {
       ar: { t: 'حاسبة تسريب الإيرادات لشركات التوزيع | FieldSales', d: 'أداة مجانية: احسب كم تخسر شركة التوزيع شهرياً من فواتير مفقودة وتحصيل غير موثّق وعجز مخزون سيارات المناديب.',
@@ -1046,7 +1064,7 @@ ${relHtml}
 <p>${esc(REP_APP.offline)}</p>
 <h2>حمّل التطبيق</h2>
 <p><a href="${REP_APP_STORES.play}" rel="noopener">Google Play</a> · <a href="${REP_APP_STORES.apple}" rel="noopener">App Store</a> · أو افتحه من متصفح الجوال بلا تنزيل.</p>
-<p>يعمل على أي هاتف ذكي، والطابعة الحرارية اختيارية. <a href="/signup">ابدأ تجربة مجانية ١٠ أيام</a> بلا بطاقة، أو <a href="/">تعرّف على المنصّة</a>.</p>
+<p>يعمل على أي هاتف ذكي، والطابعة الحرارية اختيارية. <a href="/signup">ابدأ تجربة مجانية ٥ أيام</a> بلا بطاقة، أو <a href="/">تعرّف على المنصّة</a>.</p>
 <h2>ماذا يفعل المندوب من جواله</h2>
 <ul>${REP_APP.cards.map((c) => `<li><strong>${esc(c.title)}</strong> — ${esc(c.desc)}</li>`).join('')}</ul>
 ${sectionsHtml(repAppSections())}
@@ -1278,7 +1296,7 @@ ${homeFaqHtml}
 <h2>للتواصل وطلبات الاشتراك</h2>
 <p>البريد الرسمي: <a href="mailto:info@fieldsa.net">info@fieldsa.net</a> · مقر الشركة: المملكة العربية السعودية · <a href="/subscribe-request/">سجّل طلب اشتراك جديد</a> أو <a href="/signup">ابدأ التجربة المجانية</a> مباشرةً.</p>
 <h2>روابط مفيدة</h2>
-<p><a href="/blog/">المدوّنة</a> · <a href="/calculator/">حاسبة تسريب الإيرادات</a> · <a href="/invoice-generator/">مولّد الفاتورة الضريبية المجاني</a> · <a href="/blog/distribution-terms-glossary/">قاموس مصطلحات التوزيع</a> · <a href="/blog/distribution-owners-questions/">أسئلة أصحاب شركات التوزيع</a> · <a href="/about/">عن المنصّة</a> · <a href="/contact/">تواصل معنا</a> · <a href="/en/">English</a> · <a href="/fr/">Français</a> · <a href="/languages/">لغات أخرى</a></p>
+<p><a href="/blog/">المدوّنة</a> · <a href="/calculator/">حاسبة تسريب الإيرادات</a> · <a href="/invoice-generator/">مولّد الفاتورة الضريبية المجاني</a> · <a href="/blog/distribution-terms-glossary/">قاموس مصطلحات التوزيع</a> · <a href="/blog/distribution-owners-questions/">أسئلة أصحاب شركات التوزيع</a> · <a href="/about/">عن المنصّة</a> · <a href="/contact/">تواصل معنا</a> · <a href="/ambassadors/">سفراء فيلد سيلز</a> · <a href="/en/">English</a> · <a href="/fr/">Français</a> · <a href="/languages/">لغات أخرى</a></p>
 <p>الشروط والسياسات: <a href="/terms/">الشروط والأحكام</a> · <a href="/privacy/">سياسة الخصوصية</a> · <a href="/service-agreement/">اتفاقية الخدمة</a></p>
 <p>صفحات المنصّة: <a href="/subscribe-request/?type=quote">طلب عرض سعر</a> · <a href="/rep-app/">تطبيق المندوب</a> · <a href="/نماذج/">نماذج Excel مجانية</a> · <a href="/free/">أدوات مجانية</a> · <a href="${PHASE2_FEATURE_HREF}">${esc(PHASE2_ANCHOR)}</a> · <a href="/tr/">Türkçe</a> · <a href="/zh/">中文</a></p>
 <p>القطاعات: ${SECTORS.map((sec) => `<a href="/قطاعات/${sec.slug}/">${esc(sec.name)}</a>`).join(' · ')} · <a href="/قطاعات/">كل القطاعات</a></p>
@@ -1356,7 +1374,7 @@ ${homeFaqHtml}
   })(DIST);
   console.log(`  تطبيع الشرطة الأخيرة: ${links} رابطاً في ${patched} ملف`);
 
-  console.log(`✅ prerender: ${n} صفحة ثابتة (${buildCatalog().length} مقال مولَّد ×3 + ${manual.length} مقال يدوي + فهارس + رئيسية و«احجز اجتماعاً» ع/إ/فر/تر/صيني + ${Object.keys(INFO).length} صفحة تعريفية ×3 + ${i18nCount} صفحة للطبقة متعددة اللغات) في dist/`);
+  console.log(`✅ prerender: ${n} صفحة ثابتة (${buildCatalog().length} مقال مولَّد ×3 + ${manual.length} مقال يدوي + فهارس + رئيسية و«احجز اجتماعاً» ع/إ/فر/تر/صيني + «سفراء فيلد سيلز» ع/إ/فر + ${Object.keys(INFO).length} صفحة تعريفية ×3 + ${i18nCount} صفحة للطبقة متعددة اللغات) في dist/`);
 }
 
 await main();

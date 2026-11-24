@@ -2,9 +2,10 @@ import { Router, Response, NextFunction } from 'express';
 import { z, ZodError } from 'zod';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
-import { authenticate, isOwnerSession, requireAdminPermission, requireLots, tenantId, type AdminPermission } from '../middleware/auth';
+import { authenticate, isOwnerSession, requireAccounting, requireAdminPermission, requireLots, tenantId, type AdminPermission } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { adminRepFilter, adminScopeEnabled, canAccessRep, scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
+import { canAccessCustomer } from '../services/customerScope';
 import { paginate, paginationMeta } from '../utils/helpers';
 import { shelfLifeOf } from '../services/shelfLife';
 import { addDays, isLocalDate } from '../services/gl/dates';
@@ -16,7 +17,7 @@ import {
   type AllocRow, type LotBalance, type LotWarning, type OutLine, type PlaceLotView,
 } from '../services/lots';
 import {
-  LOT_LOCK_TIMEOUT, acquireLotQueue, companyDay, lockLotProducts, lotMetaOf, lotNumberBlank, nextAutoLotNumber, placeViews, recordLotEvent, resolveOrCreateLot,
+  LOT_LOCK_TIMEOUT, acquireLotQueue, companyDay, customerLotHistory, lockLotProducts, lotMetaOf, lotNumberBlank, nextAutoLotNumber, placeViews, recordLotEvent, resolveOrCreateLot,
   type LotEventActor, type LotTx,
 } from '../services/lotsDb';
 import { relabelInTx } from '../services/lotsRelabel';
@@ -43,6 +44,38 @@ import {
  */
 const router = Router();
 router.use(authenticate);
+
+/**
+ * «تشغيلات العميل» لصنفٍ (طلب المالك ١٦ نوفمبر ٢٠٢٦): ما اشتراه العميل من تشغيلات الصنف المسمّاة في الحقبة الحالية، الأحدث أولاً
+ * (≤ ٥٠) — يغذّي اختيار تشغيلة المرتجع في الويب وتطبيق المندوب فيظهر ما اشتراه هذا العميل أولاً. قبل حاجز المندوب أدناه عمداً:
+ * يقرؤه المندوب لعميلٍ يصل إليه (canAccessCustomer، كـ/invoices/returnable-sales)، والإدارة بصلاحية الفواتير وبنطاقها (العميل،
+ * وفواتير نطاقها SHAPE_INVOICE_RECEIPT). الشركة شرطٌ في كل قراءة. الميزة أو الصنف غير متتبَّع ⇒ قائمةٌ فارغة لا خطأ.
+ */
+router.get('/customer-history', requireAccounting, requireAdminPermission('canManageInvoices'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const customerId = str(req.query.customerId);
+    const productId = str(req.query.productId);
+    if (!customerId || !productId) { res.status(400).json({ success: false, message: 'حدد العميل والصنف' }); return; }
+    const [tenant, customer, product] = await Promise.all([
+      prisma.tenant.findUnique({ where: { id: tid }, select: { lotTrackingEnabled: true } }),
+      prisma.customer.findFirst({ where: { id: customerId, tenantId: tid }, select: { id: true } }),
+      prisma.product.findFirst({ where: { id: productId, tenantId: tid }, select: { id: true, lotTracked: true } }),
+    ]);
+    if (!customer || !(await canAccessCustomer(req, tid, customerId))) { res.status(404).json({ success: false, message: 'العميل غير موجود' }); return; }
+    if (!product) { productGone(res); return; }
+    if (tenant?.lotTrackingEnabled !== true || product.lotTracked !== true) { res.json({ success: true, data: [] }); return; }
+    const invoiceWhere = req.user?.role === 'SALES_REP' ? null : await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
+    const rows = await customerLotHistory(prisma, tid, { customerId, productId, invoiceWhere, limit: 50 });
+    res.json({
+      success: true,
+      data: rows.map((r) => ({
+        lotId: r.lotId, lotNumber: r.lotNumber, expiryDate: r.expiryDate, status: r.status, blockKind: r.blockKind,
+        lastSoldAt: r.lastSoldAt ? r.lastSoldAt.toISOString() : null, soldBase: r.soldBase, returnedBase: r.returnedBase,
+      })),
+    });
+  } catch (err) { next(err); }
+});
 
 // موجّه اللوحة وحدها — المندوب يرى لوطات سيارته من /van-stock/lot-balances. requireAdminPermission يمرّره بلا فحص فيُمنع صراحةً
 router.use((req: AuthRequest, res: Response, next: NextFunction) => {

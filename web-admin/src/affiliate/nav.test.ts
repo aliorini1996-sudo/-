@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  AUTH_VIEWS, TAB_IDS, linkTokenFromSearch, viewFromSearch, tabFromHash, authViewSearch, tabHash,
-  authTarget, tabTarget, verifyOutcome, showLinkScreen,
+  AUTH_VIEWS, TAB_IDS, BOTTOM_TABS, MORE_TABS, linkTokenFromSearch, viewFromSearch, tabFromHash, authViewSearch, tabHash,
+  authTarget, tabTarget, showLinkScreen, isLegacyAuthLink, isMoreTab, visibleTabs, sessionTarget,
 } from './nav';
-import { errorCode, errorStatus, errorText, fieldErrorMsg, isTermsOutdated, localizedServerText, verifyErrorKind } from './errors';
+import { errorCode, errorStatus, errorText, fieldErrorMsg, isEmailTaken, isTermsOutdated, localizedServerText } from './errors';
 import { AX_DICT } from './i18n';
 
 /**
@@ -13,26 +13,43 @@ import { AX_DICT } from './i18n';
  * تُشتقّ من العنوان، وكل انتقالٍ مدخلٌ في السجل، بلا حلقة عند الشاشة الأولى.
  */
 
-test('الشاشة من العنوان: رمز البريد أولاً، ثم ?view=، وإلا الدخول', () => {
+test('الشاشة من العنوان: رمز الاستعادة أولاً، ثم ?view=، وإلا الدخول', () => {
   assert.equal(viewFromSearch(''), 'login');
   assert.equal(viewFromSearch('?view=register'), 'register');
   assert.equal(viewFromSearch('?view=forgot'), 'forgot');
-  assert.equal(viewFromSearch('?view=resend'), 'resend');
-  assert.equal(viewFromSearch('?view=verify'), 'verify');
   assert.equal(viewFromSearch('?view=reset'), 'reset');
   assert.equal(viewFromSearch('?view=admin'), 'login', 'قيمة مجهولة ⇒ الدخول');
-  assert.equal(viewFromSearch('?verify=abc'), 'verify');
   assert.equal(viewFromSearch('?reset=abc&view=register'), 'reset', 'رابط البريد يسبق view');
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦ — الانضمام فوريّ): لا شاشة تأكيد بريد ولا إعادة إرسال —
+  // روابط v1 القديمة تذهب للدخول بدل شاشةٍ لم تعد موجودة
+  assert.deepEqual([...AUTH_VIEWS], ['login', 'register', 'forgot', 'reset']);
+  assert.equal(viewFromSearch('?view=resend'), 'login');
+  assert.equal(viewFromSearch('?view=verify'), 'login');
+  assert.equal(viewFromSearch('?verify=abc'), 'login');
   for (const v of AUTH_VIEWS) assert.equal(viewFromSearch(authViewSearch(v)), v, `ذهاب وإياب ${v}`);
 });
 
-test('رمز رابط البريد يُقرأ من الاستعلام', () => {
-  assert.deepEqual(linkTokenFromSearch('?verify=T1'), { kind: 'verify', token: 'T1' });
+test('رمز رابط الاستعادة يُقرأ من الاستعلام — ورابط التأكيد القديم ليس رمزاً', () => {
   assert.deepEqual(linkTokenFromSearch('?reset=T2'), { kind: 'reset', token: 'T2' });
-  assert.deepEqual(linkTokenFromSearch('?verify=T1&reset=T2'), { kind: 'verify', token: 'T1' });
-  assert.equal(linkTokenFromSearch('?verify='), null);
-  assert.equal(linkTokenFromSearch('?view=verify'), null, 'الشاشة وحدها بلا رمز');
+  assert.deepEqual(linkTokenFromSearch('?verify=T1&reset=T2'), { kind: 'reset', token: 'T2' });
+  assert.equal(linkTokenFromSearch('?verify=T1'), null, 'v2: لا تأكيد بريد');
+  assert.equal(linkTokenFromSearch('?reset='), null);
+  assert.equal(linkTokenFromSearch('?view=reset'), null, 'الشاشة وحدها بلا رمز');
   assert.equal(linkTokenFromSearch(''), null);
+});
+
+test('روابط بريد v1 (تأكيد/إعادة إرسال) تُكتشف لتُستبدل بالدخول', () => {
+  for (const q of ['?verify=T1', '?verify=', '?view=verify', '?view=resend', '?view=verify&x=1']) {
+    assert.equal(isLegacyAuthLink(q), true, q);
+  }
+  for (const q of ['', '?view=register', '?view=forgot', '?reset=T', '?reset=T&verify=x', '?view=reset']) {
+    assert.equal(isLegacyAuthLink(q), false, q);
+  }
+  const app = readFileSync(new URL('./AffiliateApp.tsx', import.meta.url), 'utf8');
+  assert.match(app, /const legacyLink = isLegacyAuthLink\(location\.search\);/);
+  assert.match(app, /if \(legacyLink \|\| orphanToken\) navigate\(\{ pathname: location\.pathname, search: '', hash: '' \}, \{ replace: true \}\);/,
+    'رابط التأكيد القديم لا يُستبدل بالدخول');
+  assert.doesNotMatch(app, /VerifyScreen|ResendScreen/);
 });
 
 test('التبويب من الوسم — الرئيسية بلا وسم', () => {
@@ -52,10 +69,11 @@ test('الدخول هو /ax بلا معامل — الشاشة الأولى', ()
 test('الانتقال بين الشاشات مدخلٌ جديد — والنقرة المكرّرة لا تُضيف مدخلاً', () => {
   assert.deepEqual(authTarget('', '', 'register'), { search: '?view=register', hash: '' });
   assert.deepEqual(authTarget('?view=register', '', 'login'), { search: '', hash: '' });
-  assert.deepEqual(authTarget('?view=verify', '', 'resend'), { search: '?view=resend', hash: '' });
+  assert.deepEqual(authTarget('?view=forgot', '', 'register'), { search: '?view=register', hash: '' });
   assert.equal(authTarget('?view=register', '', 'register'), null);
   assert.equal(authTarget('', '', 'login'), null, 'الدخول من الدخول لا يُضيف مدخلاً');
-  assert.deepEqual(authTarget('?verify=T', '', 'verify'), { search: '?view=verify', hash: '' }, 'الرمز لا يبقى في الشريط');
+  assert.deepEqual(authTarget('?reset=T', '', 'reset'), { search: '?view=reset', hash: '' }, 'الرمز لا يبقى في الشريط');
+  assert.deepEqual(authTarget('?view=verify', '', 'login'), { search: '', hash: '' }, 'رابط v1 القديم ليس «الدخول نفسه»');
 
   assert.deepEqual(tabTarget('', '', 'claims'), { search: '', hash: '#claims' });
   assert.deepEqual(tabTarget('', '#claims', 'home'), { search: '', hash: '' });
@@ -65,13 +83,18 @@ test('الانتقال بين الشاشات مدخلٌ جديد — والنق�
   assert.deepEqual(tabTarget('?view=register', '', 'home'), { search: '', hash: '' }, 'معامل شاشة قديم يُنظَّف');
 });
 
-test('نتيجة رابط التأكيد حسب الحالة الفعلية — بلا وعد مراجعة لمرفوض أو موقوف', () => {
-  assert.equal(verifyOutcome('pending_review'), 'review');
-  assert.equal(verifyOutcome('approved'), 'approved');
-  assert.equal(verifyOutcome('rejected'), 'already');
-  assert.equal(verifyOutcome('suspended'), 'already');
-  assert.equal(verifyOutcome(undefined), 'already');
-  assert.equal(verifyOutcome('weird'), 'already');
+test('الشريط السفليّ (الرئيسية · شركاتي · أرباحي) و«المزيد» بالباقي — كل تبويبٍ في مكانٍ واحد', () => {
+  // v2 (V2_SPEC §7): على الجوال ثلاثة تبويبات و«المزيد»، وعلى الحاسوب الشريط الجانبيّ بالكل
+  assert.deepEqual([...BOTTOM_TABS], ['home', 'companies', 'earnings']);
+  assert.deepEqual([...MORE_TABS], ['link', 'claims', 'trial', 'missed', 'pricing', 'materials', 'faq', 'support', 'profile', 'terms']);
+  assert.deepEqual([...BOTTOM_TABS, ...MORE_TABS].sort(), [...TAB_IDS].sort(), 'تبويبٌ بلا مكان أو في مكانين');
+  for (const t of ['missed', 'materials', 'faq', 'support'] as const) assert.ok(TAB_IDS.includes(t), t);
+  for (const t of BOTTOM_TABS) assert.equal(isMoreTab(t), false, t);
+  for (const t of MORE_TABS) assert.equal(isMoreTab(t), true, t);
+  assert.deepEqual(visibleTabs(MORE_TABS, false).includes('trial'), false, 'التجريبيّ المطفأ لا يظهر في «المزيد»');
+  assert.deepEqual(visibleTabs(TAB_IDS, true), [...TAB_IDS]);
+  assert.equal(tabFromHash('#missed'), 'missed');
+  assert.equal(tabFromHash('#materials'), 'materials');
 });
 
 test('AffiliateApp: الشاشة والتبويب من العنوان، والانتقال دفعٌ لا استبدال', () => {
@@ -89,6 +112,33 @@ test('AffiliateApp: الشاشة والتبويب من العنوان، والا
   assert.doesNotMatch(tabBody![0], /replace: true/, 'setTab تستبدل بدل أن تدفع');
 });
 
+test('رابط بريدٍ عميق (/ax#profile) بلا جلسة: يبقى التبويب بعد الدخول وبعد 401 — والخروج والتسجيل يبدآن من الرئيسية', () => {
+  // بريد «تعذّر تحويل مستحقّاتك» ⇒ /ax#profile: الدخول ثم «ملفي» لا الرئيسية
+  assert.equal(sessionTarget('', '#profile'), null, 'العنوان على وجهته — لا تنقّل يُسقط الوسم');
+  assert.equal(tabFromHash('#profile'), 'profile');
+  assert.equal(sessionTarget('', '#earnings'), null);
+  assert.deepEqual(sessionTarget('?view=forgot', '#profile'), { search: '', hash: '#profile' });
+  assert.deepEqual(sessionTarget('?verify=x', '#profile'), { search: '', hash: '#profile' }, 'رابط v1 القديم مع وسم');
+  // الاستعادة وبلا وسم ⇒ الرئيسية نظيفة
+  assert.deepEqual(sessionTarget('?view=reset', ''), { search: '', hash: '' });
+  assert.equal(sessionTarget('', ''), null);
+  assert.equal(sessionTarget('?', '#'), null);
+  // وسمٌ مجهول يُمسح، والتسجيل يبدأ من الرئيسية دائماً (V2_SPEC §7)
+  assert.deepEqual(sessionTarget('', '#nope'), { search: '', hash: '' });
+  assert.deepEqual(sessionTarget('?view=register', '#profile'), { search: '', hash: '' });
+  for (const t of TAB_IDS) assert.equal(sessionTarget('', tabHash(t)), null, t);
+
+  const app = readFileSync(new URL('./AffiliateApp.tsx', import.meta.url), 'utf8');
+  const loggedIn = app.match(/const onLoggedIn = useCallback\([\s\S]*?\}, \[/);
+  assert.ok(loggedIn, 'onLoggedIn غير موجود');
+  assert.match(loggedIn![0], /toSession\(\);/, 'الدخول يُسقط وسم التبويب');
+  assert.doesNotMatch(loggedIn![0], /toRoot\(\)/);
+  assert.match(app, /const target = sessionTarget\(location\.search, location\.hash\);\s*if \(target\) navigate\(\{ pathname: location\.pathname, \.\.\.target \}, \{ replace: true \}\);/);
+  assert.match(app, /if \(keepTab\) toSession\(\); else toRoot\(\);/);
+  assert.match(app, /onUnauthorized\(\(\) => \{\s*resetSession\(true\);/, '401 يُسقط التبويب');
+  assert.match(app, /clearToken\(\);\s*resetSession\(false\);/, 'الخروج الصريح لا يمسح التبويب');
+});
+
 test('شاشة الدخول: رسالة الخادم الموحّدة تُعرض كما هي بلا تفريع على نصّها', () => {
   const s = readFileSync(new URL('./screens/AuthScreens.tsx', import.meta.url), 'utf8');
   const login = s.match(/export function LoginScreen[\s\S]*?\n\}\n/);
@@ -96,36 +146,37 @@ test('شاشة الدخول: رسالة الخادم الموحّدة تُعرض
   assert.doesNotMatch(login![0], /needsVerify/, 'فرع «لم يُؤكَّد بريدك» ما زال — سيظهر مع كل فشل');
   assert.doesNotMatch(login![0], /لم يُؤكَّد بريدك بعد/);
   assert.doesNotMatch(login![0], /أكّد\|أكد\|تأكيد/);
-  assert.match(login![0], /t\('login\.noVerifyMail'\)/, 'رابط إعادة الإرسال يجب أن يبقى ظاهراً دائماً');
-  assert.equal(AX_DICT['login.noVerifyMail'].ar, 'لم تصلك رسالة التأكيد؟');
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): لا تأكيد بريد — فلا رابط «لم تصلك رسالة التأكيد؟» ولا نصّ
+  // يطلب تأكيد البريد قبل الدخول (حسابات v1 المعلّقة تُرقّى عند أوّل دخولٍ ناجح)
+  assert.doesNotMatch(login![0], /go\('resend'\)|noVerifyMail/, 'رابط إعادة إرسال التأكيد ما زال في الدخول');
+  assert.ok(!('login.noVerifyMail' in AX_DICT));
+  for (const l of ['ar', 'en'] as const) assert.doesNotMatch(AX_DICT['login.invalid'][l], /أكّد بريدك|confirm your email/i);
+  assert.match(login![0], /t\('login\.apply'\)/, 'لا طريق للتسجيل من الدخول');
   assert.match(login![0], /errorText\(failure, lang, 'login\.failed', httpStatus\(failure\) === 401 \? 'login\.invalid' : undefined\)/);
 
   const api = readFileSync(new URL('./api.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(api, /423/, 'لا 423 في العقد الجديد');
 });
 
-test('تأكيد البريد: كلمة المرور إلزامية ولا إرسال تلقائي، و password_mismatch يعرض «قدّم طلب انضمام»', () => {
+test('التسجيل الفوريّ: 201 {token, user} يُخزَّن ويدخل الرئيسية — بلا شاشة تأكيد ولا مراجعة', () => {
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦ — V2_SPEC §6.1): الحارس البديل لحارس «تأكيد البريد بكلمة المرور»
   const s = readFileSync(new URL('./screens/AuthScreens.tsx', import.meta.url), 'utf8');
-  const verify = s.match(/export function VerifyScreen[\s\S]*?\n\}\n/);
-  assert.ok(verify, 'VerifyScreen غير موجود');
-  const v = verify![0];
-  assert.match(v, /subtitle=\{t\('verify\.subtitle'\)\}/);
-  assert.equal(AX_DICT['verify.subtitle'].ar, 'أدخل كلمة المرور التي اخترتها عند التسجيل لتأكيد بريدك');
-  assert.match(v, /affiliateApi\.verifyEmail\(token, password\)/, 'كلمة المرور لا تُرسل مع الرمز');
-  assert.doesNotMatch(v, /useEffect\(/, 'التأكيد يُرسل تلقائياً عند الفتح');
-  assert.match(v, /PasswordInput/);
-  assert.match(v, /verifyErrorKind\(err\)/);
-  assert.match(v, /go\('register'\)[^\n]*t\('login\.apply'\)/, 'لا طريق للتسجيل عند عدم تطابق كلمة المرور');
-  assert.equal(AX_DICT['login.apply'].ar, 'قدّم طلب انضمام');
-  assert.match(v, /go\('resend'\)/, 'لا إعادة إرسال للرابط غير الصالح');
-  assert.match(v, /verifyOutcome\(status\)/, 'نتيجة التأكيد لا تتبع الحالة الفعلية');
-  assert.equal(AX_DICT['verify.approved.title'].ar, 'بريدك مؤكَّد وحسابك مقبول');
-  assert.equal(AX_DICT['verify.already.title'].ar, 'بريدك مؤكَّد مسبقاً');
-  assert.match(s, /approved: \{ title: 'verify\.approved\.title'/);
-  assert.match(s, /already: \{ title: 'verify\.already\.title'/);
-
+  const reg = s.match(/export function RegisterScreen[\s\S]*?\n\}\n/);
+  assert.ok(reg, 'RegisterScreen غير موجود');
+  assert.match(reg![0], /onSuccess: \(r\) => \{\s*clearRegisterDraft\(\);\s*setEmail\(form\.email\.trim\(\)\);\s*setToken\(r\.token\);[\s\S]*?onLoggedIn\(\);/,
+    'التوكن لا يُخزَّن أو لا يدخل الرئيسية بعد التسجيل');
+  assert.doesNotMatch(reg![0], /doneMessage|reg\.doneTitle|go\('resend'\)/, 'شاشة «تم استلام طلبك» ما زالت');
+  // 409 email_taken ⇒ «سجّل الدخول»، و409 غيره ⇒ شروطٌ أحدث
+  assert.match(reg![0], /if \(isEmailTaken\(err\)\) \{ setTaken\(err\); return; \}/);
+  assert.match(reg![0], /<PartnerTypePicker value=\{form\.partnerType\}/, 'نوع السفير غير موجود في التسجيل');
+  assert.match(reg![0], /form\.partnerType === 'company' && \(/, 'اسم الشركة لا يظهر للشركة');
+  assert.doesNotMatch(s, /export function (VerifyScreen|ResendScreen)/, 'شاشة تأكيد/إعادة إرسال ما زالت');
+  const app = readFileSync(new URL('./AffiliateApp.tsx', import.meta.url), 'utf8');
+  assert.match(app, /case 'register': return <RegisterScreen \{\.\.\.nav\} onLoggedIn=\{onLoggedIn\} \/>;/);
   const api = readFileSync(new URL('./api.ts', import.meta.url), 'utf8');
-  assert.match(api, /axApi\.post\('\/verify-email', \{ token, password \}\)/);
+  assert.doesNotMatch(api, /verify-email|resend-verification/, 'مسارا التأكيد حُذفا من الخادم');
+  assert.match(api, /unwrap<\{ token: string; user: AffiliateMe \}>\(await axApi\.post\('\/register', body\)\)/);
+  for (const k of Object.keys(AX_DICT)) assert.doesNotMatch(k, /^(verify|resend)\./, `${k} نصٌّ لشاشةٍ حُذفت`);
 });
 
 test('تعيين كلمة المرور: الرمز المُعاد يُحفظ ax_token ويدخل البوابة مباشرة', () => {
@@ -139,14 +190,13 @@ test('تعيين كلمة المرور: الرمز المُعاد يُحفظ ax_
   assert.match(app, /<ResetScreen [^>]*onLoggedIn=\{onLoggedIn\}/);
 });
 
-test('شاشة رابط البريد مع جلسة قائمة: الرابط الطازج فقط، والعودة من السجل ⇒ البوابة', () => {
-  const base = { view: 'verify' as const, token: 'T', hasToken: false, freshLink: null };
-  assert.equal(showLinkScreen('verify', base), true, 'بلا جلسة تُعرض');
-  assert.equal(showLinkScreen('verify', { ...base, hasToken: true }), false, 'جلسة + من السجل ⇒ البوابة');
-  assert.equal(showLinkScreen('verify', { ...base, hasToken: true, freshLink: 'verify' }), true, 'رابطٌ فُتح للتوّ');
-  assert.equal(showLinkScreen('verify', { ...base, token: undefined }), false, 'بلا رمز في الذاكرة');
-  assert.equal(showLinkScreen('reset', base), false, 'شاشةٌ أخرى');
-  assert.equal(showLinkScreen('reset', { ...base, view: 'reset', hasToken: true, freshLink: 'verify' }), false);
+test('شاشة رابط الاستعادة مع جلسة قائمة: الرابط الطازج فقط، والعودة من السجل ⇒ البوابة', () => {
+  const base = { view: 'reset' as const, token: 'T', hasToken: false, freshLink: null };
+  assert.equal(showLinkScreen('reset', base), true, 'بلا جلسة تُعرض');
+  assert.equal(showLinkScreen('reset', { ...base, hasToken: true }), false, 'جلسة + من السجل ⇒ البوابة');
+  assert.equal(showLinkScreen('reset', { ...base, hasToken: true, freshLink: 'reset' }), true, 'رابطٌ فُتح للتوّ');
+  assert.equal(showLinkScreen('reset', { ...base, token: undefined }), false, 'بلا رمز في الذاكرة');
+  assert.equal(showLinkScreen('reset', { ...base, view: 'login' }), false, 'شاشةٌ أخرى');
 });
 
 test('403 terms_outdated: بوابة قبول الشروط لا خطأ ولا خروج', () => {
@@ -169,17 +219,18 @@ test('403 terms_outdated: بوابة قبول الشروط لا خطأ ولا خ
   assert.match(app, /onAccepted=\{onTermsAccepted\}/);
 });
 
-test('نوع فشل تأكيد البريد', () => {
+test('409 email_taken (التسجيل الفوريّ) غير 409 الشروط القديمة', () => {
+  // v2 (قرار المالك ١٨ نوفمبر ٢٠٢٦): بديل «نوع فشل تأكيد البريد» — التأكيد حُذف
   const e = (status: number, code?: string) => ({ response: { status, data: { message: 'x', ...(code ? { code } : {}) } } });
-  assert.equal(verifyErrorKind(e(400, 'password_mismatch')), 'mismatch');
-  assert.equal(verifyErrorKind(e(400)), 'invalid');
-  assert.equal(verifyErrorKind(e(409)), 'invalid', 'تغيّر الطلب للتوّ ⇒ رابط أحدث');
-  assert.equal(verifyErrorKind(e(429)), 'retry');
-  assert.equal(verifyErrorKind(e(500)), 'retry');
-  assert.equal(verifyErrorKind(new Error('network')), 'retry');
-  assert.equal(errorCode(e(400, 'password_mismatch')), 'password_mismatch');
+  assert.equal(isEmailTaken(e(409, 'email_taken')), true);
+  assert.equal(isEmailTaken(e(409, 'terms_outdated')), false, 'شروطٌ أحدث تُعيد تحميل الشروط لا «سجّل الدخول»');
+  assert.equal(isEmailTaken(e(409)), false);
+  assert.equal(isEmailTaken(e(400, 'email_taken')), false);
+  assert.equal(isEmailTaken(null), false);
+  assert.equal(errorCode(e(409, 'email_taken')), 'email_taken');
   assert.equal(errorCode(e(400)), undefined);
   assert.equal(errorStatus(e(403)), 403);
+  assert.equal(AX_DICT['reg.emailTaken'].ar, 'يوجد حساب بهذا البريد — سجّل الدخول', 'نصّ الخادم نفسه (V2_SPEC §6.1)');
 });
 
 test('نصوص الأخطاء: العربية تعرض رسالة الخادم كما هي، وغيرها يترجم الحالات المعروفة', () => {
@@ -195,15 +246,16 @@ test('نصوص الأخطاء: العربية تعرض رسالة الخادم �
   assert.equal(errorText(e(401, serverAr), 'en', 'login.failed', 'login.invalid'), AX_DICT['login.invalid'].en);
   assert.equal(errorText(e(429, 'محاولات كثيرة'), 'fr', 'err.generic'), AX_DICT['err.tooMany'].fr);
   assert.equal(errorText({ isAxiosError: true }, 'tr', 'err.generic'), AX_DICT['err.network'].tr);
-  assert.equal(errorText(e(400, 'كلمة المرور لا تطابق', 'password_mismatch'), 'zh', 'verify.invalid'), AX_DICT['verify.mismatch'].zh);
+  assert.equal(errorText(e(409, 'يوجد حساب بهذا البريد — سجّل الدخول', 'email_taken'), 'zh', 'reg.failed'), AX_DICT['reg.emailTaken'].zh);
+  assert.equal(errorText(e(429, 'مطالبات كثيرة', 'too_many_missed_claims'), 'fr', 'missed.failed'), AX_DICT['err.tooManyMissedClaims'].fr);
   assert.equal(errorText(e(403, 'نُشرت شروطٌ جديدة', 'terms_outdated'), 'en', 'err.generic'), AX_DICT['err.termsOutdated'].en);
   // رسالة خادمٍ غير معروفة: تُعرض كما هي (عربية) — وبلا رسالة البديل المترجم
   assert.equal(errorText(e(409, 'تغيّرت الحالة'), 'en', 'err.generic'), 'تغيّرت الحالة');
   assert.equal(errorText(e(500), 'en', 'err.generic'), AX_DICT['err.generic'].en);
 
   // نصوص النجاح من الخادم (202 · 201)
-  assert.equal(localizedServerText('ar', 'إن كانت البيانات صحيحة فستصلك رسالة', 'accepted.register'), 'إن كانت البيانات صحيحة فستصلك رسالة');
-  assert.equal(localizedServerText('ar', null, 'accepted.register'), AX_DICT['accepted.register'].ar);
+  assert.equal(localizedServerText('ar', 'إن كان البريد مسجّلاً فستصلك رسالة', 'accepted.forgot'), 'إن كان البريد مسجّلاً فستصلك رسالة');
+  assert.equal(localizedServerText('ar', null, 'accepted.forgot'), AX_DICT['accepted.forgot'].ar);
   assert.equal(localizedServerText('en', 'استلمنا الترشيح وسيُراجع', 'claims.received'), AX_DICT['claims.received'].en);
 });
 
@@ -236,6 +288,7 @@ test('400 من zod بحقلٍ مرفوض ⇒ رسالة التحقّق المط�
   const map: Record<string, string> = {
     fullName: 'val.fullName', email: 'val.email', phone: 'val.phone', password: 'val.passwordMin', city: 'val.cityTooLong',
     vatNumber: 'val.vat', companyName: 'val.companyName', crNumber: 'val.cr', contactPhone: 'val.contactPhone', note: 'val.noteTooLong',
+    partnerType: 'val.partnerType', socialLinks: 'val.socialUrl', dataUrl: 'val.docType',
   };
   for (const [field, key] of Object.entries(map)) {
     assert.equal(fieldErrorMsg(zod400({ [field]: ['x'] }))?.key, key, field);

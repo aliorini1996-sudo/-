@@ -8,6 +8,9 @@ import type { PrintTextsV1 } from '../lib/print/printTextsCore';
 import type { PaymentMethodsConfigInput } from '../lib/paymentMethodsCore';
 import type { RepTargetComboInput, RepTargetInput } from '../lib/repTargets';
 import type { SalesInboxParams, SalesUpdate } from '../lib/salesCrm';
+import type { CircularAudience, CircularCreateBody } from '../lib/circulars';
+import type { ChatRequest as AiAccountantChatRequest } from '../lib/aiAccountant';
+import type { AcctDocPatch } from '../lib/aiAccountantDocs';
 import type {
   LotCreateRequest, LotListParams, LotRef, LotRelabelRequest, LotStatusRequest, LotTrackingRequest, LotUpdateRequest,
 } from '../lib/lots';
@@ -35,13 +38,17 @@ api.interceptors.request.use(config => {
   return config;
 });
 
+/** مسارات الاستعادة العامة (بلا جلسة) — ٤٠١/٤٠٣ منها لا يُقرأ «انتهت الجلسة» فلا يُمحى شيء ولا يُنقل أحد */
+const PUBLIC_AUTH_PATHS = ['/auth/forgot-password', '/auth/recover-email', '/auth/reset-password'];
+
 api.interceptors.response.use(
   r => r,
   err => {
     // لا نتعامل مع 401 لطلب تسجيل الدخول نفسه (لتظهر رسالة «بيانات غير صحيحة» في مكانها بلا إعادة توجيه)
     // — ومنه دخول موظف المنصة: كلمة مرورٍ خاطئة ليست انتهاء جلسة (وكانت تمحو علامة الانتحال)
     const url = err.config?.url as string | undefined;
-    const isLogin = !!url && (url.includes('/auth/login') || url.includes('/staff-auth/login'));
+    // ومسارات الاستعادة العامة (نسيت كلمة المرور / البريد، ورابط إعادة التعيين): ردّها خطأ إدخال أو رابط، لا انتهاء جلسة
+    const isLogin = !!url && (url.includes('/auth/login') || url.includes('/staff-auth/login') || PUBLIC_AUTH_PATHS.some((p) => url.includes(p)));
     if (err.response?.status === 401 && !isLogin) {
       // الوجهة قبل المحو: «دخولٌ» إلى شركة أسقطه الخادم (IMPERSONATION_ENDED) يعود إلى لوحة من دخل (/staff أو /platform)
       // لا إلى /login — وعلامة من دخل يمحوها sessionExpired
@@ -310,6 +317,12 @@ export const reportApi = {
   unvisitedCustomers: (params?: Record<string, string>) => api.get('/reports/unvisited-customers', { params }),
   // «طرق الدفع»: تحصيل كل مندوب لكل طريقة دفع في الفترة (from/to بأيام الشركة، teamId اختياري) — ميزة يفعّلها المالك
   paymentMethods: (params?: Record<string, string>) => api.get('/reports/payment-methods', { params }),
+  // «المشتريات»: فواتير الموردين ومرتجعاتها (groupBy vendor|product|day|month) — مخزون الشركة وصلاحية المستودع
+  purchases: (params?: Record<string, string>) => api.get('/reports/purchases', { params }),
+  // «الربح»: مجمل الربح قبل المصروفات (groupBy product|rep|customer|month) — صافي المبيعات ناقص تكلفتها
+  profit: (params?: Record<string, string>) => api.get('/reports/profit', { params }),
+  // «الضرائب»: ضريبة المخرجات والمدخلات وصافي المستحق (groupBy month|quarter|rate) — بيانٌ فارغ لشركةٍ أزالت ضريبتها
+  tax: (params?: Record<string, string>) => api.get('/reports/tax', { params }),
 };
 
 export const notificationApi = {
@@ -330,6 +343,13 @@ export const authApi = {
   // تفعيل حساب شركةٍ فتحه «سفير فيلد سيلز» (/activate): الرمز من رابط بريد المسؤول، يُرسل في الجسم
   // لا في الرابط. preview يقرأ حالته وبيانات العرض، وactivate يضبط كلمة المرور ويُعيد جلسة الدخول.
   activationPreview: (token: string) => api.post('/auth/activation/preview', { token }),
+  // استعادة الحساب بالبريد (طلب المالك ٢١ نوفمبر ٢٠٢٦) — كلها بلا جلسة، والردّ واحدٌ وُجد الحساب أم لا (لا كشف للبريد):
+  // نسيت كلمة المرور ⇐ رابطٌ إلى البريد · نسيت البريد ⇐ رقم جوال الشركة فيصل الرابط بريد مديرها (والردّ بريدٌ مُقنَّع)
+  forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
+  recoverEmail: (phone: string) => api.post('/auth/recover-email', { phone }),
+  // رابط إعادة التعيين (/reset-password#t=…): الرمز في الجسم لا في الرابط. preview يعرض صاحبه، وreset يضبط كلمة المرور ويُعيد جلسة الدخول
+  resetPreview: (token: string) => api.post('/auth/reset-password/preview', { token }),
+  resetPassword: (data: { token: string; password: string }) => api.post('/auth/reset-password', data),
   activate: (data: { token: string; password: string; acceptTerms: true; phone: string }) => api.post('/auth/activate', data),
 };
 
@@ -444,6 +464,18 @@ export const companyUserApi = {
     api.delete(`/company-users/${id}/settlements/${settlementId}`),
 };
 
+// «التعميمات» — /api/circulars (طلب المالك ٢٣ نوفمبر ٢٠٢٦): قرارٌ أو إعلانٌ إداريّ للمناديب (REPS، صلاحية المناديب) أو لمستخدمي
+// الشركة (USERS، صلاحية مستخدمي الشركة) يظهر للموظف في نافذةٍ حين يفتح التطبيق حتى يضغط «تمت القراءة».
+// الإدارة: list/create/reads/withdraw — والموظف (مدير الشركة في اللوحة و/m): pending/ack (الإقرار متكرّرٌ بلا أثر، و٤٠٤ لغير المعلّق له)
+export const circularsApi = {
+  list: (audience: CircularAudience) => api.get('/circulars', { params: { audience } }),
+  create: (body: CircularCreateBody) => api.post('/circulars', body),
+  reads: (id: string) => api.get(`/circulars/${encodeURIComponent(id)}/reads`),
+  withdraw: (id: string) => api.post(`/circulars/${encodeURIComponent(id)}/withdraw`),
+  pending: () => api.get('/circulars/pending'),
+  ack: (id: string) => api.post(`/circulars/${encodeURIComponent(id)}/ack`),
+};
+
 // الربط البرمجي API — مفاتيح الشركة (إصدار/قائمة/إلغاء)؛ المفتاح الكامل يعود في ردّ الإصدار وحده
 export const apiKeysApi = {
   list: () => api.get('/api-keys'),
@@ -474,6 +506,27 @@ export const aiRepApi = {
   // المحلات المخفية عن المسح («أُغلق نهائياً / لم أجده» مؤكَّداً) و«أعد إظهاره»
   hiddenOutlets: () => api.get('/ai-rep/admin/hidden-outlets'),
   unhideOutlet: (id: string) => api.post(`/ai-rep/admin/hidden-outlets/${encodeURIComponent(id)}/unhide`),
+};
+
+// المحاسب الذكي AI — الحالة والمحادثة وسجلّ القيود التي رحّلها (خامل حتى يفعّله المالك للشركة)؛ العكس عبر مسار الدفاتر القائم
+// المستندات (طلب المالك ١٨ نوفمبر): الرفع خامٌ بنوعه المفحوص في الجهاز (PDF/JPEG/PNG — lib/aiAccountantDocs.ts prepareFile)،
+// واسم الملف مرمّزاً URI في X-File-Name، ونصّ QR الزكوي كما قُرئ في الجهاز في X-Zatca-Qr إن وُجد — لا قارئ آلي ولا خروج
+// للوثيقة من المنصة. ردّ الرفع 201 {document, deduped}، والتصحيح PATCH بحقولٍ عشرية (buildDocPatch)، والمحتوى blob لصاحبه.
+export const aiAccountantApi = {
+  status: () => api.get('/ai-accountant/status'),
+  chat: (body: AiAccountantChatRequest) => api.post('/ai-accountant/chat', body),
+  posts: (limit = 50) => api.get('/ai-accountant/posts', { params: { limit } }),
+  documents: {
+    upload: (file: Blob, name: string, qr?: string | null, onUploadProgress?: (e: { loaded: number; total?: number }) => void) =>
+      api.post('/ai-accountant/documents', file, {
+        headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-File-Name': encodeURIComponent(name), ...(qr ? { 'X-Zatca-Qr': qr } : {}) },
+        onUploadProgress,
+      }),
+    get: (id: string) => api.get(`/ai-accountant/documents/${encodeURIComponent(id)}`),
+    content: (id: string) => api.get<Blob>(`/ai-accountant/documents/${encodeURIComponent(id)}/content`, { responseType: 'blob' }),
+    patch: (id: string, body: AcctDocPatch) => api.patch(`/ai-accountant/documents/${encodeURIComponent(id)}`, body),
+    remove: (id: string) => api.delete(`/ai-accountant/documents/${encodeURIComponent(id)}`),
+  },
 };
 
 export const petroappApi = {
@@ -608,6 +661,10 @@ export const leadApi = {
 export const salesApi = {
   inbox: (params?: SalesInboxParams) => api.get('/leads/sales-inbox', { params }),
   update: (id: string, body: SalesUpdate) => api.put(`/leads/sales-inbox/${encodeURIComponent(id)}`, body),
+  // سجلّ ملاحظات جهة التواصل (كملاحظات الشركات في لوحة المالك)
+  notes: (id: string) => api.get(`/leads/sales-inbox/${encodeURIComponent(id)}/notes`),
+  addNote: (id: string, body: string) => api.post(`/leads/sales-inbox/${encodeURIComponent(id)}/notes`, { body }),
+  removeNote: (id: string, noteId: string) => api.delete(`/leads/sales-inbox/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`),
 };
 
 // الأدوات المجانية العامة — التقاط استخدام مولّد الفواتير كعميل محتمل (نقطة عامة بلا مصادقة)
@@ -640,11 +697,22 @@ export const repRouteApi = {
   /** خط سير المندوب اليوم — بيوم جهازه لا يوم الخادم */
   /** خط سير مندوبٍ بعينه ليومٍ بعينه — للوحة الإدارة (خلف صلاحية التتبّع) */
   mineFor: (salesRepId: string, date: string) => api.get('/rep-routes/mine', {
-    params: { salesRepId, date, tzOffsetMin: -new Date().getTimezoneOffset() },
+    // shape=1: الخطّ المخطَّط على الشوارع (roadPath) لخريطة التتبّع
+    params: { salesRepId, date, tzOffsetMin: -new Date().getTimezoneOffset(), shape: 1 },
   }),
   mine: () => api.get('/rep-routes/mine', {
     params: { date: dayKeyLocal(), tzOffsetMin: -new Date().getTimezoneOffset() },
   }),
+  /** «طريقة توزيع الخطوط» لمندوب (طلب المالك ٢٢ نوفمبر ٢٠٢٦): الطريقة وخطوطه الدائمة بترتيب الدورة وخطّ يومه — بيوم الجهاز */
+  schedule: (salesRepId: string) => api.get(`/rep-routes/schedule/${salesRepId}`, {
+    params: { date: dayKeyLocal(), tzOffsetMin: -new Date().getTimezoneOffset() },
+  }),
+  /** 'single' يحذف الجدول (خطٌّ دائمٌ واحد كما كان)، و'weekdays'/'rotation' تُنشئه أو تعدّله */
+  setSchedule: (salesRepId: string, body: { mode: 'single' | 'weekdays' | 'rotation'; rotationStart?: string | null; offDays?: number[] }) =>
+    api.put(`/rep-routes/schedule/${salesRepId}`, body, { params: { date: dayKeyLocal(), tzOffsetMin: -new Date().getTimezoneOffset() } }),
+  /** ترتيب دورة التناوب — كل خطوط المندوب الدائمة بترتيبها الجديد */
+  setOrder: (salesRepId: string, ids: string[]) =>
+    api.put(`/rep-routes/order/${salesRepId}`, { ids }, { params: { date: dayKeyLocal(), tzOffsetMin: -new Date().getTimezoneOffset() } }),
 };
 
 /** مفتاح يوم الجهاز 'YYYY-MM-DD' بلا انزلاق منطقة زمنية */
@@ -847,8 +915,9 @@ export interface WarehouseEntryPurchaseFields {
 // المعاينة أرقامٌ تُعرض قبل الكتابة؛ والتنفيذ بكلمة التأكيد «تصفير» وzeroRef (uuid) يُولَّد مرةً لكل فتحٍ للنافذة ويُعاد مع
 // كل محاولة — فإعادة الإرسال بعد انقطاعٍ تعود بنتيجة التصفير نفسه (idempotent) لا بتصفيرٍ ثانٍ
 export const stockZeroApi = {
-  preview: () => api.get('/stock-zero/preview'),
-  run: (confirm: string, zeroRef: string) => api.post('/stock-zero', { confirm, zeroRef }),
+  // salesRepId («تصفير سيارة مندوب واحدة»، طلب المالك ١٨ نوفمبر ٢٠٢٦): سيارته وحدها — غائبٌ = المستودع وكل السيارات
+  preview: (salesRepId?: string) => api.get('/stock-zero/preview', salesRepId ? { params: { salesRepId } } : undefined),
+  run: (confirm: string, zeroRef: string, salesRepId?: string) => api.post('/stock-zero', salesRepId ? { confirm, zeroRef, salesRepId } : { confirm, zeroRef }),
 };
 
 // «تتبّع اللوط» — /api/lots (ميزة يفعّلها المالك لكل شركة؛ ٤٠٣ LOTS_NOT_ALLOWED دونها، والمسارات بصلاحية مخزون السيارات).
@@ -885,6 +954,9 @@ export const lotsApi = {
   vanLotBalances: (salesRepId?: string) => api.get('/van-stock/lot-balances', { params: salesRepId ? { salesRepId } : {} }),
   // المباع والمرتجع والصافي وعدد العملاء لكل تشغيلة في الفترة (from/to بأيام الشركة) — بصلاحية التقارير وبالنطاق
   lotSales: (params: { from?: string; to?: string; productId?: string; lotId?: string }) => api.get('/reports/lot-sales', { params }),
+  // تشغيلات الصنف التي اشتراها العميل (الحقبة الحالية، الأحدث أولاً، ≤ ٥٠) — لمنتقي تشغيلة المرتجع (طلب المالك ١٦ نوفمبر ٢٠٢٦).
+  // بصلاحية الفواتير وبنطاق العميل؛ الميزة أو الصنف غير متتبَّع ⇒ []
+  customerHistory: (params: { customerId: string; productId: string }) => api.get('/lots/customer-history', { params }),
 };
 
 // تعديل بصمات الحضور إدارياً ورفعها من Excel (backend/src/routes/attendanceAdmin.ts) — كل كتابةٍ بسببٍ مكتوب وفي سجلّ التدقيق
@@ -906,6 +978,8 @@ export const repStockRequestApi = {
   // unitId حين غيّر الإداري الوحدة (null للأساس)؛ baseUnitName («الوحدة الرئيسية» §2.9) الأساس كما رآه النموذج لسطرٍ بالأساس
   update: (id: string, data: { updatedAt: string; items: { productId: string; qty: number; unitId?: string | null; baseUnitName?: string | null }[] }) => api.put(`/rep-stock-requests/${id}`, data),
   reject: (id: string, updatedAt: string) => api.post(`/rep-stock-requests/${id}/reject`, { updatedAt }),
+  // «تحميل مباشر»: بعد كتابة التحميل بـvanStockApi.createLoad يُعلَّم الطلب «حُمِّل» بمعرّف الحركة ونسخته التي حُمِّلت
+  loaded: (id: string, data: { updatedAt: string; vanLoadId: string }) => api.post(`/rep-stock-requests/${id}/loaded`, data),
   send: (data: { ref: string; requests: { id: string; updatedAt: string }[] }) => api.post('/rep-stock-requests/send', data),
 };
 

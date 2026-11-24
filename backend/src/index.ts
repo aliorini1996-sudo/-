@@ -18,7 +18,10 @@ import { startCardPayScheduler } from './services/cardPayment';
 import { startZatcaSweep } from './services/zatcaSubmit';
 import { startAttendanceAlerts } from './services/attendanceAlerts';
 import { startPresenceChecks } from './services/presenceChecks';
+import { startIdlePunchOut } from './services/idlePunchOut';
 import { startLedgerSyncScheduler, trackLedgerRequestLoad } from './services/gl/sync/scheduler';
+import { startAffiliateSettlementScheduler } from './services/affiliate/settlement';
+import { promoteLegacyPendingAffiliates } from './services/affiliate/core';
 
 import authRouter from './routes/auth';
 import customersRouter from './routes/customers';
@@ -54,11 +57,13 @@ import attendanceAdminRouter from './routes/attendanceAdmin';
 import visitsRouter from './routes/visits';
 import supportRouter from './routes/support';
 import companyUsersRouter from './routes/companyUsers';
+import circularsRouter from './routes/circulars';
 import erpRouter from './routes/erp';
 import apiKeysRouter from './routes/apiKeys';
 import apiV1Router from './routes/apiV1';
 import petroappRouter from './routes/petroapp';
 import aiRepRouter from './routes/aiRep';
+import aiAccountantRouter from './routes/aiAccountant';
 import { publicScanHealth } from './ai-rep/publicMaps';
 import workNumbersRouter, { telephonyWebhookRouter } from './routes/workNumbers';
 import publicCatalogRouter from './routes/publicCatalog';
@@ -90,12 +95,14 @@ import { errorHandler } from './middleware/errorHandler';
 import { apiLimiter, bridgeLimiter } from './middleware/rateLimits';
 // «اشتراط تفعيل الموقع» — قفل العمل على عميل: لا يغيّر المندوب المقيَّد بياناً على عميل إلا ظاهراً على الخريطة الآن بموقعٍ دقيق
 import { requireRepLiveLocation } from './middleware/repLiveLocation';
+import { apiRejectLog } from './services/apiRejectLog';
 // ZATCA المرحلة الثانية (Z5.7): رمز رابط المشتري لا يُكتب في سطر morgan — يُقنَّع قبل التوجيه
+import { trustProxy } from './middleware/trustProxy';
 import { redactShareTokensInLogs } from './middleware/shareUrlPrivacy';
 
 const app = express();
-// خلف بروكسي Render — لاحتساب IP الحقيقي في حدود المعدّل
-app.set('trust proxy', 1);
+// خلف Cloudflare ثم بروكسي Render — req.ip = المستخدم الحقيقي لحدود المعدّل (middleware/trustProxy.ts، إصلاح ٢١ نوفمبر)
+app.set('trust proxy', trustProxy);
 const server = http.createServer(app);
 
 // الأصول المسموح بها: FRONTEND_URL (قائمة مفصولة بفواصل) أو * للسماح للجميع.
@@ -216,6 +223,8 @@ app.use('/api', apiLimiter);
 // تُصنَّف كل بادئةٍ جديدة تُركَّب هنا.
 app.use('/api', requireRepLiveLocation);
 
+// «سطر رفض مفتاح الربط» (١٦ نوفمبر ٢٠٢٦): كل 4xx لمفتاح API على مخزون السيارة والمستودع والأصناف سطرٌ واحد بلا جسم (services/apiRejectLog.ts)
+app.use(['/api/van-stock', '/api/warehouse', '/api/products'], apiRejectLog());
 app.use('/api/auth', authRouter);
 app.use('/api/customers', customersRouter);
 app.use('/api/products', productsRouter);
@@ -257,11 +266,14 @@ app.use('/api/attendance-admin', attendanceAdminRouter); // تعديل البص�
 app.use('/api/visits', visitsRouter);
 app.use('/api/support', supportRouter);
 app.use('/api/company-users', companyUsersRouter);
+// «التعميمات» — قرارات الإدارة وإعلاناتها للمناديب ومستخدمي الشركة، ونافذة «تمت القراءة» عند فتح التطبيق (routes/circulars.ts)
+app.use('/api/circulars', circularsRouter);
 app.use('/api/erp', erpRouter);
 app.use('/api/api-keys', apiKeysRouter); // «الربط البرمجي API» — مفاتيح الشركة (services/apiKeys.ts)
 app.use('/api/v1', apiV1Router); // مزامنة «الربط البرمجي API» لمفاتيح الشركة (services/apiSync.ts)
 app.use('/api/petroapp', petroappRouter);
 app.use('/api/ai-rep', aiRepRouter); // المندوب الذكي AI — خامل حتى يفعّله المالك لكل شركة
+app.use('/api/ai-accountant', aiAccountantRouter); // «المحاسب الذكي AI» — لمدير الشركة غير المقيَّد؛ خامل حتى يفعّله المالك لكل شركة
 app.use('/api/work-numbers', workNumbersRouter);
 app.use('/api/public', publicCatalogRouter); // منيو المنتجات العام — بلا مصادقة، خلف محدد المعدل العام
 // ZATCA المرحلة الثانية (Z5.7) — رابط المشتري: `/api/public/einvoice/:token` بلا مصادقة، الرمز وحده هو الإذن
@@ -425,6 +437,11 @@ server.listen(PORT, async () => {
   startZatcaSweep(); // ZATCA_SWEEP_ENABLED=false للإطفاء — خامل بلا مستندات مرحلة ثانية
   startAttendanceAlerts(); // تنبيهات الحضور على جوال المندوب — ATTENDANCE_ALERTS_ENABLED=false للإطفاء
   startPresenceChecks(); // التحقق العشوائي من التواجد — PRESENCE_CHECKS_ENABLED=false للإطفاء
+  startIdlePunchOut(); // تذكير بالانصراف عند الخمول ثم انصراف تلقائي — IDLE_PUNCH_OUT_ENABLED=false للإطفاء
+  // سفير فيلد سيلز v2: ترقية طلبات الانضمام القديمة (pending_*) إلى «مقبول» مرّةً بعلامة OpsMarker —
+  // (الدالّة لا ترمي أبداً — تُعيد العدد أو null؛ الـcatch احتياطٌ إضافي)
+  void promoteLegacyPendingAffiliates().catch((e: unknown) => console.error('[affiliate] legacy promotion:', (e as Error).message));
+  startAffiliateSettlementScheduler(); // دورة تسوية السفراء ١ و١١ و٢١ + الاعتماد التلقائي — AX_SETTLEMENT_ENABLED=0 للإطفاء
 });
 
 export default app;

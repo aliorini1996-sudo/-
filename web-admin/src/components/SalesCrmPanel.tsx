@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X, Search, RefreshCw, TrendingUp, Phone, Mail, MessageCircle, AlertTriangle, Inbox } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { salesApi } from '../api/client';
+import { SalesNotesButton, SalesNotesModal } from './SalesNotesModal';
 import { useTr } from '../i18n/strings';
 import { flagOf } from '../i18n/dialCodes';
 import { formatDateTime, formatMoment, formatNumber } from '../utils/format';
 import {
-  SALES_CHANNELS, SALES_LIMIT_DEFAULT, SALES_LIMIT_MAX, SALES_NOTE_MAX, SALES_STAGES, channelOf, inboxParams, mailHref, stageOf,
+  SALES_CHANNELS, SALES_LIMIT_DEFAULT, SALES_LIMIT_MAX, SALES_STAGES, channelOf, inboxParams, mailHref, stageOf,
   telHref, waHrefForRow, type SalesInbox, type SalesRow, type SalesUpdate,
 } from '../lib/salesCrm';
 
@@ -120,16 +121,18 @@ export default function SalesCrmPanel({ onClose }: { onClose: () => void }) {
         {/* القائمة */}
         <div className="card p-0 overflow-hidden">
           <div className="table-wrapper border-0 rounded-none">
-            <table className="table">
+            {/* عرض ثابت بنِسَب للأعمدة: كل شيء ظاهر بلا تمرير أفقي، والنصوص الطويلة تلتفّ داخل خلاياها */}
+            <table className="table table-fixed">
               <thead>
                 <tr>
-                  <th className="min-w-[150px]">{tr('العميل')}</th>
-                  <th>{tr('الجوال')}</th>
-                  <th>{tr('البريد')}</th>
-                  <th>{tr('من أين أتى')}</th>
-                  <th>{tr('وقت التسجيل')}</th>
-                  <th>{tr('الحالة')}</th>
-                  <th className="min-w-[200px]">{tr('ملاحظة')}</th>
+                  <th className="w-[12%]">{tr('العميل')}</th>
+                  <th className="w-[12%]">{tr('الجوال')}</th>
+                  <th className="w-[11%]">{tr('البريد')}</th>
+                  <th className="w-[14%]">{tr('من أين أتى')}</th>
+                  <th className="w-[9%]">{tr('وقت التسجيل')}</th>
+                  <th className="w-[11%]">{tr('الحالة')}</th>
+                  <th className="w-[9%]">{tr('مسؤول الصفقة')}</th>
+                  <th className="w-[22%]">{tr('الملاحظات')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -179,6 +182,7 @@ function ChannelChip({ active, label, count, onClick }: { active: boolean; label
 /** صفّ عميل — الحالة تُحفظ عند الاختيار، والملاحظة عند مغادرة الحقل */
 function SalesRowView({ row }: { row: SalesRow }) {
   const tr = useTr();
+  const [notesOpen, setNotesOpen] = useState(false);
   const qc = useQueryClient();
   const m = useMutation({
     mutationFn: (body: SalesUpdate) => salesApi.update(row.id, body),
@@ -207,9 +211,9 @@ function SalesRowView({ row }: { row: SalesRow }) {
         {/* الدولة رمزاً (ISO) بعلمها، أو نصّاً كما كُتب في النموذج */}
         {row.country && <p className="text-[11px] text-gray-400">{/^[A-Za-z]{2}$/.test(row.country) ? `${flagOf(row.country)} ${row.country.toUpperCase()}` : row.country}</p>}
       </td>
-      <td className="text-sm whitespace-nowrap">
+      <td className="text-sm break-words">
         {row.phone ? (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {tel
               ? <a href={tel} dir="ltr" className="inline-flex items-center gap-1 text-gray-700 hover:text-[#E15A30]"><Phone size={12} />{row.phone}</a>
               : <span dir="ltr" className="text-gray-700">{row.phone}</span>}
@@ -222,16 +226,16 @@ function SalesRowView({ row }: { row: SalesRow }) {
       </td>
       <td className="text-sm">
         {row.email ? (mail
-          ? <a href={mail} dir="ltr" className="inline-flex items-center gap-1 max-w-[200px] truncate align-bottom text-blue-600 hover:underline"><Mail size={12} className="flex-shrink-0" />{row.email}</a>
+          ? <a href={mail} dir="ltr" className="inline-flex items-center gap-1 max-w-full break-all align-bottom text-blue-600 hover:underline"><Mail size={12} className="flex-shrink-0" />{row.email}</a>
           : <span dir="ltr" className="text-gray-600">{row.email}</span>) : <span className="text-gray-300">—</span>}
       </td>
-      <td className="text-sm max-w-[280px]">
+      <td className="text-sm break-words">
         <span className={`badge ${ch.cls}`}>{tr(ch.label)}</span>
         {row.origin && <p className="text-xs text-gray-600 mt-1">{row.origin}</p>}
         {row.message && <p className="text-xs text-gray-400 mt-0.5 line-clamp-2 break-words" title={row.message}>{row.message}</p>}
       </td>
       {/* «وقت التسجيل» (طلب المالك ١٦ نوفمبر ٢٠٢٦): أوّل ظهورٍ للعميل — وآخر تواصلٍ تحته إن اختلف */}
-      <td className="text-xs text-gray-500 whitespace-nowrap">
+      <td className="text-xs text-gray-500">
         {formatDateTime(row.firstAt)}
         {row.firstAt !== row.lastAt && <p className="text-[11px] text-gray-400 mt-0.5">{tr('آخر تواصل')} {formatDateTime(row.lastAt)}</p>}
       </td>
@@ -246,42 +250,26 @@ function SalesRowView({ row }: { row: SalesRow }) {
           {SALES_STAGES.map((s) => <option key={s.value} value={s.value}>{tr(s.label)}</option>)}
         </select>
       </td>
+      <td className="text-sm break-words" title={row.owner?.at ? formatDateTime(row.owner.at) : undefined}>
+        {row.owner ? <span className="font-medium text-[#1F1A13]">{row.owner.name}</span> : <span className="text-gray-300">—</span>}
+      </td>
       <td>
-        <NoteInput note={row.note} saving={m.isPending} onSave={(note) => m.mutate({ note })} />
+        <div className="flex items-start gap-2 min-w-0">
+          <SalesNotesButton row={row} onClick={() => setNotesOpen(true)} />
+          {/* آخر ملاحظة مقروءة من الخارج — والضغط عليها يفتح السجلّ كاملاً */}
+          <button onClick={() => setNotesOpen(true)} className="flex-1 min-w-0 text-right rounded-lg px-2 py-1 hover:bg-amber-50/70">
+            {row.lastNote ? (
+              <>
+                <p className="text-sm text-[#1F1A13] whitespace-pre-wrap break-words line-clamp-3" title={row.lastNote.body}>{row.lastNote.body}</p>
+                {row.lastNote.authorName && (
+                  <p className="text-[11px] text-gray-400 mt-0.5">{row.lastNote.authorName}{row.lastNote.createdAt ? ` · ${formatDateTime(row.lastNote.createdAt)}` : ''}</p>
+                )}
+              </>
+            ) : <span className="text-xs text-gray-400">{tr('أضف ملاحظة')}</span>}
+          </button>
+        </div>
+        {notesOpen && <SalesNotesModal row={row} onClose={() => setNotesOpen(false)} />}
       </td>
     </tr>
-  );
-}
-
-/** ملاحظة تُعدَّل في مكانها — تُحفظ عند مغادرة الحقل (أو Enter) إن تغيّرت، وEsc يتراجع */
-function NoteInput({ note, saving, onSave }: { note: string | null; saving: boolean; onSave: (note: string | null) => void }) {
-  const tr = useTr();
-  const [value, setValue] = useState(note ?? '');
-  const skipBlur = useRef(false);
-  // ما يصل من الخادم (بعد الحفظ أو التحديث) يحلّ محلّ المكتوب
-  useEffect(() => { setValue(note ?? ''); }, [note]);
-
-  const commit = () => {
-    if (skipBlur.current) { skipBlur.current = false; return; }
-    const next = value.trim();
-    if (next === (note ?? '').trim()) return;
-    onSave(next ? next : null);
-  };
-
-  return (
-    <input
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') e.currentTarget.blur();
-        if (e.key === 'Escape') { skipBlur.current = true; setValue(note ?? ''); e.currentTarget.blur(); }
-      }}
-      disabled={saving}
-      maxLength={SALES_NOTE_MAX}
-      placeholder={tr('أضف ملاحظة')}
-      aria-label={tr('ملاحظة')}
-      className="w-full text-xs border border-transparent hover:border-[#E9E1D3] focus:border-[#E15A30] rounded-lg px-2 py-1.5 bg-transparent focus:bg-white outline-none disabled:opacity-60"
-    />
   );
 }

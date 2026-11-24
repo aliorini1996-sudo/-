@@ -10,7 +10,7 @@ import { authenticate, requireAdminPermission, tenantId, isOwnerSession } from '
 import { AuthRequest } from '../types';
 import { computeWarehouseStock, tenantCurrencyDecimals, loadWarehouseInputs, composeWarehouse, summarizeVansStock, UnitInvalidError, UNIT_SELECT } from '../services/warehouseStock';
 // «الربط لا يُرفض» (أمر المالك ٩ نوفمبر ٢٠٢٦): الحركة تُقبل بما يمكن معالجته، والمتروك أو المعدَّل تحذيرٌ في ردّ النجاح
-import { lenientStockLines, noQuantitiesWarning, stockNoopBody, type StockWarning } from '../services/stockLenient';
+import { lenientStockLines, lotIgnoredWarning, noQuantitiesWarning, stockNoopBody, type StockWarning } from '../services/stockLenient';
 // «الوحدة الرئيسية» §3 (#5): الوارد والتسوية يكتبان كمية وتكلفةً بوحدة الأساس — تُقارَن بالأساس الذي يعرفه العميل حيّاً، ثم تحت القفل
 import {
   BASE_GUARD_TX, ProductUnitsBusyError, ProductUnitsChangedError, assertBasesUnchanged, baseGuardReply, baseUnitRequiredReply, expectedBasesOf, lockBases,
@@ -299,6 +299,14 @@ const entryNotFound = (res: Response) => res.status(404).json({ success: false, 
 /** أنواع حركة المستودع لفلتر السجلّ (?type=) — RETURN مرتجعٌ للمورّد («ربط الدفاتر» L1) */
 const ENTRY_TYPES: ReadonlySet<string> = new Set(['RECEIVE', 'ADJUST', 'RETURN']);
 
+/** مفتاح الربط: كل أسطر الحركة حُصرت إلى صفر في خطة اللوط (LOT_CLAMPED) ⇒ تُجهَض المعاملة ويُردّ 200 بلا حركة بتحذيراتها */
+class EntryNoop extends Error {
+  constructor(readonly lotWarnings: readonly LotWarning[]) { super('ENTRY_NOOP'); this.name = 'EntryNoop'; }
+}
+/** هل يُكتب من هذه الأسطر بندٌ واحد على الأقل؟ سطرٌ حصرته الخطة إلى صفر صفوفه [] في splitByLine فلا بند له */
+const writesAny = (plan: WarehouseEntryPlan, part: readonly { fi: number }[]): boolean =>
+  part.some((i) => { const s = plan.splitByLine?.get(i.fi); return !s || s.length > 0; });
+
 /** ملاحظة تسوية الإنقاص المكتوبة من أسطر وارد سالبة حين لا ملاحظة في الطلب */
 const NEGATIVE_RECEIVE_NOTE = 'تسوية إنقاص لأسطر وارد بكمية سالبة';
 /** ومرتجعها للمورّد حين تحمل مورّداً وسعراً («ربط الدفاتر» L1) */
@@ -393,6 +401,14 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
     // التشغيلة. بلا استعلام ولا معاملة؛ والمطفأة تُهملها كما كانت حرفياً (§١٠.١)
     if (lotsOn(req)) {
       const trackedNow = new Set(products.filter((p) => p.lotTracked === true).map((p) => p.id));
+      // مفتاح الربط (طلب المالك ١٦ نوفمبر ٢٠٢٦): تشغيلةٌ لصنفٍ غير متتبَّع تُهمل بتحذير LOT_IGNORED ويتحرّك الصنف كما هو — لا رفض الحركة
+      if (req.user?.apiKeyId) {
+        lines.forEach((i, k) => {
+          if (trackedNow.has(i.productId) || !warehouseLineCarriesLot(i)) return;
+          warnings.push(lotIgnoredWarning(i.at, i.productId, products.find((p) => p.id === i.productId)?.name ?? ''));
+          lines[k] = { ...i, lotId: undefined, lotNumber: undefined, productionDate: undefined, expiryDate: undefined };
+        });
+      }
       const stray = lines.find((i) => !trackedNow.has(i.productId) && warehouseLineCarriesLot(i));
       if (stray) throw lotOnUntrackedError(products.find((p) => p.id === stray.productId)?.name ?? '', stray.productId, stray.fi);
     }
@@ -561,11 +577,17 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
         // §3: الأساس تحت قفل lockLotProducts نفسه (صفوفه تحمل unit) — بلا قفلٍ ثانٍ، وقبل أي خطة أو كتابة
         assertBasesUnchanged(expected, locked.units);
         const planBase = { tenantId: tid, actor: lotActorOf(req.user), createdBy: by?.name ?? null, day, allowUnknown: true, locked, eventActor: lotEventActorOf(req.user) };
+        // مفتاح الربط وحده (طلب المالك ١٦ نوفمبر ٢٠٢٦): رقمٌ أو معرّفٌ مجهول ⇒ سحبٌ تلقائي أو رقمٌ تلقائي، ونقص التشغيلة في الإنقاص
+        // يُحصر بالمتاح (LOT_CLAMPED) — إلا المرتجع المسعَّر للمورّد: قيده بكميته المرسلة فنقصه 409 كما كان. الواجهة: null فكما كانت حرفياً
+        const lenientOf = (t: string) => (isApi ? { clamp: !(t === 'RETURN' && buy) } : null);
         // تسوية الإنقاص المفصولة (وارد مختلط) أولاً: نقصها على رصيد المستودع قبل تشغيلات الوارد — زيادةٌ في الطلب نفسه لا تغطّي نقصه
         // (كخطة اللوط نفسها)، ونقص تشغيلتها 409 LOT_STOCK_INSUFFICIENT كأي تسوية
-        const splitPlan = splitLines.length ? await planWarehouseEntryInTx(tx, { ...planBase, type: splitType, lines: planLinesOf(splitLines) }) : null;
-        const plan = await planWarehouseEntryInTx(tx, { ...planBase, type: entryType, lines: planLinesOf(mainLines) });
-        const adjustment = await createSplit(tx, splitPlan);
+        const splitPlan = splitLines.length ? await planWarehouseEntryInTx(tx, { ...planBase, type: splitType, lines: planLinesOf(splitLines), lenient: lenientOf(splitType) }) : null;
+        const plan = await planWarehouseEntryInTx(tx, { ...planBase, type: entryType, lines: planLinesOf(mainLines), lenient: lenientOf(entryType) });
+        // مفتاح الربط: كل أسطر الحركة حُصرت إلى صفر (لا شيء في المستودع يُنقص) ⇒ 200 بلا حركة بتحذيراتها، لا حركةٌ بلا بنود.
+        // والتسوية المفصولة المحصورة كلها لا تُكتب
+        if (!writesAny(plan, mainLines)) throw new EntryNoop([...(splitPlan?.warnings ?? []), ...plan.warnings]);
+        const adjustment = splitPlan && !writesAny(splitPlan, splitLines) ? null : await createSplit(tx, splitPlan);
         const entry = await tx.warehouseEntry.create({ data: entryData(plan.lotIdByLine, plan.splitByLine), include: entryInclude });
         const { payment } = await savePurchase(tx, entry, adjustment);
         const attachments = await saveAttachments(tx, entry.id);
@@ -573,6 +595,7 @@ router.post('/entries', async (req: AuthRequest, res: Response, next: NextFuncti
       }, { maxWait: 10_000, timeout: 20_000 });
       res.status(201).json(entryReply(out.entry, out.adjustment, out.warnings, out.attachments, out.payment));
     } catch (e) {
+      if (e instanceof EntryNoop) { res.status(200).json(stockNoopBody(noopWarnings([...warnings, ...e.lotWarnings] as StockWarning[]))); return; }
       // تبدّل الأساس (§3) يُفحص قبل asLotBusy فيمرّ كما هو إلى baseGuardReply أدناه — لا يُقرأ انشغالاً من اسم صنفٍ في رسالته.
       // وانشغال القفل أو مهلة المعاملة في مسار اللوط ⇒ 503 LOT_BUSY (D14) عبر معالج الموجّه أدناه
       if (e instanceof ProductUnitsChangedError) throw e;

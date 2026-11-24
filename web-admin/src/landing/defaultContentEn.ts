@@ -50,7 +50,7 @@ export const defaultContentEn = {
   },
   pricing: {
     title: 'Plans that grow with your company',
-    subtitle: 'Start free for 10 days — no credit card.',
+    subtitle: 'Start free for 5 days — no credit card.',
     plans: [
       { name: 'Starter', price: '299', limit: 'Up to 5 reps · 1 admin user' },
       { name: 'Growth', price: '399', limit: 'Up to 10 reps · 2 admin users' },
@@ -72,7 +72,7 @@ export const defaultContentEn = {
     title: 'Ready to double your field team’s efficiency?',
     subtitle: 'Issue your tax invoices, collect your payments, and track your field team — all from one platform.',
     ctaSecondary: 'Book a demo',
-    note: '10 days free · No credit card · Cancel anytime',
+    note: '5 days free · No credit card · Cancel anytime',
   },
   footer: {
     desc: 'A complete Saudi platform for managing distribution field sales — from order to collection.',
@@ -107,7 +107,7 @@ The platform is a cloud system for managing field distribution reps, including: 
 • You must notify us immediately of any unauthorized use of your account.
 
 4. Free Trial & Subscription
-• We offer a 10-day free trial with no credit card required.
+• We offer a 5-day free trial with no credit card required.
 • After the trial, continued use requires a paid subscription under the selected plan.
 • Prices may change in the future with prior notice, without affecting an already-paid period.
 

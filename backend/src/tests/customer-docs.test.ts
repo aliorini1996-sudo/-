@@ -7,6 +7,7 @@ import {
   docUploader, docsBatchRef, droppedDocsWarning, isServableImage, normalizeDocKind, parseCustomerDoc, parseCustomerDocs, sniffImageMime,
 } from '../services/customerDocs';
 import { customerBlockReason } from '../services/importLedger';
+import { archiveVisits } from '../services/customerArchive';
 import type { AuthRequest } from '../types';
 
 // «استديو العميل» وصور الوثائق مع إضافة العميل (طلب المالك ١٣ نوفمبر ٢٠٢٦)
@@ -98,6 +99,37 @@ test('مسارات الاستديو لمستخدمي الشركة وحدهم، �
   assert.ok(perm > 0 && mount > perm, 'الاستديو بعد صلاحية العملاء');
 });
 
+test('«أرشيف العميل»: كل الزيارات بقيد الزيارات نفسه وملاحظتها كاملة — ومعرّفات الصور وحدها بلا بياناتها، والسقف يُعلَم به', () => {
+  const studio = read('..', 'routes', 'customerStudio.ts');
+  const q = studio.slice(studio.indexOf('prisma.repVisit.findMany({'), studio.indexOf("take: ARCHIVE_VISITS_TAKE + 1"));
+  assert.match(q, /where: await visitWhereOf\(req, tid, customer\.id\)/, 'الأرشيف بلا قيد نطاق الزيارات');
+  assert.match(q, /photos: \{ select: \{ id: true \}/, 'صور الزيارة معرّفاتٌ وحدها');
+  assert.doesNotMatch(q, /data: true/, 'بيانات الصور لا تُحمَّل في القائمة');
+  assert.match(q, /note: true/);
+  assert.match(studio, /visits: archiveVisits\(visits\.slice\(0, ARCHIVE_VISITS_TAKE\)\)/);
+  assert.match(read('..', 'services', 'customerArchive.ts'), /mergeVisitsByRep\(rows\.map\(asVisitLike\)\)/, 'الأرشيف يعدّ السجلّات خاماً — الزيارة المؤقّتة تظهر مرّتين');
+  assert.match(studio, /visits: visits\.length > ARCHIVE_VISITS_TAKE/);
+});
+
+test('«أرشيف العميل»: المؤقّت وملاحظته وصورها وقفةٌ واحدة — ولا تُلصق ملاحظة مندوبٍ بمؤقّت زميله', () => {
+  const row = (id: string, rep: string, at: string, extra: Partial<Parameters<typeof archiveVisits>[0][number]> = {}) => ({
+    id, createdAt: new Date(at), note: null, durationSec: null, startedAt: null, endedAt: null, lat: null, lng: null,
+    customerId: 'c1', salesRepId: rep, salesRep: { name: rep === 'a' ? 'أحمد' : 'صالح' }, photos: [], ...extra,
+  });
+  const out = archiveVisits([
+    // مؤقّت ١٠:٠٠–١٠:٣٠ (طابعه نهايته) وملاحظةٌ بصورتين ١٠:٠٥ للمندوب نفسه
+    row('t1', 'a', '2026-11-20T10:30:00Z', { durationSec: 1800, startedAt: new Date('2026-11-20T10:00:00Z'), endedAt: new Date('2026-11-20T10:30:00Z') }),
+    row('n1', 'a', '2026-11-20T10:05:00Z', { note: 'وعد بالسداد', photos: [{ id: 'p1' }, { id: 'p2' }] }),
+    // زميلٌ في الوقت نفسه: زيارته وحدها
+    row('n2', 'b', '2026-11-20T10:06:00Z', { note: 'زيارة الزميل' }),
+  ]);
+  assert.equal(out.length, 2);
+  const a = out.find((v) => v.repId === 'a')!;
+  assert.deepEqual([a.id, a.note, a.durationSec, a.photoIds, a.at.toISOString()],
+    ['t1', 'وعد بالسداد', 1800, ['p1', 'p2'], '2026-11-20T10:00:00.000Z']);
+  assert.equal(out.find((v) => v.repId === 'b')!.note, 'زيارة الزميل');
+});
+
 test('إنشاء العميل يحفظ وثائقه معه ذرّياً ولا يُرفض لها، وإعادة الرفع لا تكرّرها', () => {
   const customers = read('..', 'routes', 'customers.ts');
   const post = customers.slice(customers.indexOf("router.post('/', async"), customers.indexOf('function keepableCustomerId'));
@@ -131,7 +163,7 @@ test('الرافع: جلسة «دخول» المالك ومفتاح الدعم �
 
 test('تراجع دفعة استيراد العملاء لا يمحو وثائق رُفعت للعميل بصمت', () => {
   const zero = { invoices: 0, receipts: 0, paymentLinks: 0, visits: 0 };
-  assert.equal(customerBlockReason({ ...zero, documents: 2 }), 'للعميل وثائق مرفوعة في استديو العميل');
+  assert.equal(customerBlockReason({ ...zero, documents: 2 }), 'للعميل وثائق مرفوعة في أرشيف العميل');
   assert.equal(customerBlockReason({ ...zero, documents: 0 }), null);
   assert.match(read('..', 'routes', 'import.ts'), /documents: await tx\.customerDocument\.count\(\{ where: \{ customerId: cid, tenantId: tid \} \}\),/);
 });

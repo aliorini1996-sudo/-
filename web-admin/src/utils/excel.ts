@@ -2,14 +2,25 @@
 import { currencyDecimals } from '../i18n/countries';
 import { getActiveCurrency } from './format';
 import type { CellMerge } from '../lib/mergeRuns';
+import { sheetNameOf } from './sheetName';
 
 export interface ExcelSheet {
-  name: string;                       // اسم الورقة (حد 31 حرفاً)
+  name: string;                       // اسم الورقة — يُنظَّف عند البناء (sheetNameOf: المحارف الممنوعة وحدّ 31 حرفاً والتكرار)
   rows: Record<string, unknown>[];    // الصفوف ككائنات (المفاتيح = عناوين الأعمدة)
   colWidths?: number[];               // عرض الأعمدة (اختياري)
   merges?: CellMerge[];               // خلايا موحّدة رأسياً (المندوب/اليوم) بدل تكرارها في كل صفّ
   /** في PDF وحده: خلية الرابط (http…) تُعرض بهذا النصّ القصير رابطاً قابلاً للنقر بدل الرابط الطويل — Excel يبقي الرابط */
   pdfLinkLabel?: string;
+  /**
+   * في PDF وحده: صفوفٌ أضيق تُطبع بدل `rows` (العدد نفسه والترتيب نفسه) — ورقةٌ أعمدتها كثيرة تُقسَم صفحة PDF عليها بالتساوي فتنكسر
+   * أرقامها في منتصفها، وExcel يبقي أعمدته كاملة («عمر الدين» في أرصدة العملاء)
+   */
+  pdfRows?: Record<string, unknown>[];
+  /**
+   * في PDF وحده: أوزانٌ نسبية لعرض الأعمدة بترتيب أعمدة الصفوف المطبوعة (تُطبَّع نسباً مئوية) — بلاها الأعمدة متساوية، وعددٌ لا
+   * يطابق الأعمدة يُهمل. يمنع انكسار جوالٍ دوليّ أو مبلغٍ داخل رقمه في جدولٍ أعمدته كثيرة
+   */
+  pdfColWidths?: number[];
 }
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -17,6 +28,7 @@ const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.s
 async function buildBlob(sheets: ExcelSheet[]): Promise<Blob> {
   const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
+  const taken = new Set<string>();
   for (const s of sheets) {
     const ws = XLSX.utils.json_to_sheet(s.rows.length ? s.rows : [{ ' ': 'لا توجد بيانات' }]);
     if (s.colWidths) ws['!cols'] = s.colWidths.map(w => ({ wch: w }));
@@ -44,7 +56,8 @@ async function buildBlob(sheets: ExcelSheet[]): Promise<Blob> {
         }
       }
     }
-    XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
+    // اسمٌ صالح وفريد: «:» في ترجمةٍ (أو اسمان يتطابقان بعد القصّ) كان يرمي خطأً يُسقط التصدير بصمت
+    XLSX.utils.book_append_sheet(wb, ws, sheetNameOf(s.name, taken));
   }
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   return new Blob([out], { type: XLSX_MIME });
@@ -82,5 +95,6 @@ export async function shareOrDownloadExcel(sheets: ExcelSheet[], filename: strin
 // الخانتان الثابتتان كانتا تفقدان الفلس الثالث في كشوف OMR/KWD/BHD المصدرة
 export function num(n: number | string | null | undefined, dec = currencyDecimals(getActiveCurrency())): number {
   const f = Math.pow(10, dec);
-  return Math.round((Number(n) || 0) * f) / f;
+  // ‎-0 (نفيُ صفرٍ أو سالبٌ يُقرَّب صفراً) صفرٌ صريح — لا «‎-0.00» في الخلية ولا في PDF المبنيّ من الأوراق
+  return Math.round((Number(n) || 0) * f) / f || 0;
 }

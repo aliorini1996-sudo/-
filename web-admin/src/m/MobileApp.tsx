@@ -1,6 +1,9 @@
 import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { Home, FileText, CreditCard, Users, MapPin, LogOut, Download, ClipboardCheck } from 'lucide-react';
-import { companyApi } from '../api/client';
+import api, { companyApi } from '../api/client';
+import CircularGate from '../components/circulars/CircularGate';
+import { CIRCULAR_ACK_TIMEOUT_MS, CIRCULAR_FETCH_TIMEOUT_MS, circularGateSkipped } from '../lib/circularGate';
+import { isImpersonationToken } from '../store/sessionAdoption';
 import { BrandIcon } from '../components/BrandLogo';
 import CompanyBrand from '../components/CompanyBrand';
 import AppIntro from '../components/AppIntro';
@@ -26,6 +29,8 @@ const MWarehouse = lazy(() => import('./MWarehouse'));
 const MSuppliers = lazy(() => import('./MSuppliers'));
 // «تتبّع اللوط»: شاشة التشغيلات قسمٌ من الرئيسية لا تبويبٌ سفلي (المقاعد خمسة وقد امتلأت — tabRules.test)
 const MLots = lazy(() => import('./MLots'));
+// «المحاسب الذكي AI»: قسمٌ من الرئيسية بجانب «الموردون» (قرار المالك)، كسولٌ — المحادثة والتقارير وPDF لا تدخل حزمة الإقلاع
+const MAiAccountant = lazy(() => import('./MAiAccountant'));
 import { lotFlagsOf } from '../lib/lots';
 import { MEmpty, MSpinner } from './mobileUi';
 import { can, PermKey } from './perms';
@@ -59,6 +64,11 @@ const TABS: Tab[] = [
   { id: 'tracking', label: 'm.tabTracking', icon: MapPin, perm: 'canManageTracking' },
 ];
 
+// «التعميمات» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): تعميمات مستخدمي الشركة المعلّقة لي وإقرار قراءتها — بعميل الجلسة (مساحة m_*)، بمهلة
+// (إقرارٌ معلّق على شبكة جوالٍ لا يمرّ فيها شيء كان يُبقي النافذة على «جار الحفظ» — بالمهلة رسالةٌ وإعادة)
+const fetchMyCirculars = async (): Promise<unknown> => (await api.get('/circulars/pending', { timeout: CIRCULAR_FETCH_TIMEOUT_MS })).data?.data;
+const ackMyCircular = (id: string) => api.post(`/circulars/${encodeURIComponent(id)}/ack`, undefined, { timeout: CIRCULAR_ACK_TIMEOUT_MS });
+
 /** حدث تثبيت PWA — غير معرَّف في lib.dom */
 interface InstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -91,6 +101,11 @@ export default function MobileApp() {
   /* «تتبّع اللوط» ميزة يفعّلها المالك لكل شركة — مطفأة افتراضياً، فالقراءة `=== true` (lotFlagsOf): نسخة إعداداتٍ
    * قديمة بلا العلم أو تعذّر قراءتها إطفاء، فلا بلاطة ولا مفتاح ولا جلب (§١٠.١). */
   const lotOn = lotFlagsOf(company as { lotTrackingEnabled?: unknown } | null).on;
+  /* «المحاسب الذكي AI» ميزة يفعّلها المالك لكل شركة — مطفأة افتراضياً، فالقراءة `=== true` (والخادم لا يُرسلها مفعّلةً للمندوب).
+   * وحارس موجّهه بترتيبه: النظام المحاسبيّ (ACCOUNTING_NOT_ALLOWED) ثمّ العلم ثمّ صلاحية التقارير ثمّ النطاق — والمقيَّد
+   * مرفوض (AI_ACCOUNTANT_SCOPED: أرقامه على مستوى الشركة كلها). وجلسة المالك scopeEnabled فيها false فتمرّ كالخادم. */
+  const aiAccountantOn = (company as { aiAccountantEnabled?: boolean } | null)?.aiAccountantEnabled === true;
+  const aiAccountantAllowed = accountingOn && aiAccountantOn && can(user, 'canViewReports') && user?.scopeEnabled !== true;
   /* «إزالة الضريبة» (طلب المالك ٧ نوفمبر ٢٠٢٦): علم الشركة (=== true وحدها) — يصل الشاشات بسياقٍ واحد (MTaxOffContext)، فتسقط
    * كل خانة ضريبة وعمودها ووسمها. وغيابه أو إعداداتٌ لم تصل = الشاشات كما كانت حرفاً */
   const taxOff = mTaxOffOf(company);
@@ -137,7 +152,7 @@ export default function MobileApp() {
   /* و«المنتجات» تسقط كاملةً حين يُطفأ النظام المحاسبي: الشاشة كلّها أسعارٌ
    * وشرائح تسعير، ومسار `/products` خلف `requireAccounting` في الخادم — فبلاطةٌ
    * تُفضي إلى ٤٠٣ تقول للمستخدم إنّ ثمّة أرقاماً حُجبت عنه، وذاك تسريبٌ بذاته. */
-  const allowedSections = useMemo<HomeSection[]>(() => {
+  const baseSections = useMemo<HomeSection[]>(() => {
     const out: HomeSection[] = [];
     if (can(user, 'canManageSalesReps')) out.push('reps');
     if (can(user, 'canManageProducts') && accountingOn) out.push('products');
@@ -153,6 +168,12 @@ export default function MobileApp() {
     if (can(user, 'canManageVanStock') && accountingOn && lotOn) out.push('lots');
     return out;
   }, [user, accountingOn, warehouseOn, lotOn]);
+  /* «المحاسب الذكي» بمذكَّرةٍ ثانية فوق الأولى (لا داخلها): علمه وصلاحيته تبعيّةٌ مستقلّة — وترتيب البلاطات من SECTION_TILES
+   * في MHome (بعد «الموردون»)، لا من ترتيب هذه القائمة. */
+  const allowedSections = useMemo<HomeSection[]>(
+    () => (aiAccountantAllowed ? [...baseSections, 'aiAccountant'] : baseSections),
+    [baseSections, aiAccountantAllowed]
+  );
 
   /* قسمٌ مفتوحٌ خرج من قائمة المسموح (وصلت إعدادات الشركة بعد فتحه) يُغلق —
    * وإلا بقيت شاشة المنتجات معروضةً فوق كل شيء بأسعارها. */
@@ -344,10 +365,17 @@ export default function MobileApp() {
                 : section === 'warehouse' ? <MWarehouse company={company} onBack={() => setSection(null)} />
                   : section === 'suppliers' ? <MSuppliers company={company} onBack={() => setSection(null)} />
                   : section === 'lots' ? <MLots company={company} onBack={() => setSection(null)} />
+                  : section === 'aiAccountant' ? <MAiAccountant onBack={() => setSection(null)} />
                     : <MReports accountingOn={accountingOn} company={company} onBack={() => setSection(null)} />}
           </Suspense>
         </div>
       )}
+
+      {/* «التعميمات» بعد الدخول وحده: آخر القوقعة وفوق الأقسام (z-[1350]) داخل إطار الجوال — لا تُغلق إلا بـ«تمت القراءة».
+          ونسخةُ توكن «دخول» تبنّاها التطبيق (المالك أو موظف المنصة) لا تُسأل — الخادم يردّها [] */}
+      <CircularGate key={user.id} userId={user.id} contained zClass="z-[1350]"
+        enabled={!circularGateSkipped({ role: user.role, impersonationToken: isImpersonationToken(token) })}
+        fetchPending={fetchMyCirculars} ack={ackMyCircular} />
     </>
   );
 }

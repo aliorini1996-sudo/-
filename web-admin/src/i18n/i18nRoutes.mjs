@@ -30,10 +30,10 @@ export const DEFAULT_CATEGORY_SLUG = 'van-sales-software';
  * الفحص ديناميكياً على App.tsx وpublic وdist، فلا تكفي هذه القائمة وحدها ولا تُعدّ نهائية.
  */
 export const RESERVED_SEGMENTS = Object.freeze([
-  'about', 'activate', 'app', 'app-r', 'assets', 'ax', 'blog', 'c', 'calculator', 'cities', 'contact', 'countries',
+  'about', 'activate', 'ambassadors', 'app', 'app-r', 'assets', 'ax', 'blog', 'c', 'calculator', 'cities', 'contact', 'countries',
   'data', 'delete-account', 'e', 'email', 'free', 'hookb', 'hx', 'icons', 'invoice-generator', 'kds', 'languages',
   'login', 'm', 'media', 'meeting', 'og', 'owner', 'pay', 'payment', 'platform', 'pos', 'pricing', 'privacy',
-  'profile', 'q-fs7k2m', 'rep', 'rep-app', 'restaurant', 'service-agreement', 'signup', 'staff', 'subscribe-request',
+  'profile', 'q-fs7k2m', 'rep', 'rep-app', 'reset-password', 'restaurant', 'service-agreement', 'signup', 'staff', 'subscribe-request',
   'terms', 'tutorial', 'verify-email', 'llms.txt', 'llms-full.txt', 'sitemap.xml', 'robots.txt',
   'manifest.webmanifest', 'sw.js', 'قطاعات', 'مزايا', 'نماذج',
 ]);
@@ -48,6 +48,8 @@ export const TIER_A_PAGES = Object.freeze([
 /** مقاطع محجوزة **داخل** اللغة: slug الفئة لا يساويها (يصادم صفحة أخرى للغة نفسها أو مساراً قديماً تحت en/fr) */
 const SLUG_RESERVED = new Set([
   'countries', 'about', 'contact', 'features', 'apps', 'quote', 'meeting', 'blog', 'pricing', 'subscribe-request', 'llms.txt',
+  // صفحة السفراء العلنية تحت /en/ و/fr/ (١٨ نوفمبر ٢٠٢٦) — slug فئة بالاسم نفسه يصادمها
+  'ambassadors',
 ]);
 
 /**
@@ -57,11 +59,11 @@ const SLUG_RESERVED = new Set([
  */
 // المصدر: isAppRoute في src/i18n/lang.ts (البديلان بالترتيب)
 const APP_ROUTE_A = /^\/(app|rep|pos|kds|platform|owner|login|signup|verify)/;
-const APP_ROUTE_B = /^\/(m|ax|activate|staff)(\/|$)/;
+const APP_ROUTE_B = /^\/(m|ax|activate|reset-password|staff)(\/|$)/;
 // المصدر: HIDDEN_ON في src/components/WhatsAppFab.tsx
-const WA_HIDDEN_ON = /^\/(app|platform|owner|staff|login|verify-email|activate|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/;
+const WA_HIDDEN_ON = /^\/(app|platform|owner|staff|login|verify-email|activate|reset-password|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/;
 // المصدر: استثناءات VisitTracker في src/App.tsx
-const VISIT_TRACKER_SKIP = /^\/(app|platform|owner|staff|login|verify-email|activate|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/;
+const VISIT_TRACKER_SKIP = /^\/(app|platform|owner|staff|login|verify-email|activate|reset-password|rep|m|q-fs7k2m|hx|c|pay|e|ax)(\/|$)/;
 
 const CODE_RE = /^[a-z]{2,3}(-[a-z]{2,4})?$/;
 

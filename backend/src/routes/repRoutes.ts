@@ -13,11 +13,19 @@ import { authenticate, requireAdmin, requireAdminPermission, tenantId } from '..
 import { AuthRequest } from '../types';
 import { canAccessRep, canAccessCustomerAsAdmin, adminRepFilter } from '../services/adminScope';
 import { canAccessCustomer } from '../services/customerScope';
+import { planRoadPath } from '../services/planRoadPath';
+import {
+  pickRouteForDay, orderRoutes, isValidDay, weekdayConflict, firstInternalConflict, weekdayConflictMessage, DEFAULT_OFF_DAYS, WEEKDAY_NAMES_AR,
+} from '../services/routeSchedule';
 
 const router = Router();
 router.use(authenticate);
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** أيام أسبوعٍ 0=الأحد..6=السبت بلا تكرار — أيام الخطّ وأيام الراحة */
+const weekdayList = (dup: string) => z.array(z.number().int().min(0, 'يوم الأسبوع بين 0 و6').max(6, 'يوم الأسبوع بين 0 و6'))
+  .refine(v => new Set(v).size === v.length, { message: dup });
 
 const routeSchema = z.object({
   salesRepId: z.string().uuid(),
@@ -26,6 +34,8 @@ const routeSchema = z.object({
   routeDate: z.string().regex(DAY).nullish(),
   /** خطٌّ يحلّ هذا محلّه — يُحذف فعلياً داخل المعاملة نفسها مهما تغيّرت مفاتيحه */
   replacesId: z.string().uuid().nullish(),
+  /** «حسب أيام الأسبوع» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): أيام هذا الخطّ الدائم — غيابه في التعديل يُبقي أيامه */
+  weekdays: weekdayList('يومٌ مكرَّر في أيام الخط').optional(),
   stops: z.array(z.object({
     customerId: z.string().uuid(),
     note: z.string().max(200).nullish(),
@@ -64,12 +74,38 @@ async function routeFor(tid: string, salesRepId: string, day: string) {
    * بلا هذا القيد كان خطٌّ أُنشئ اليوم يُرسم على الأسبوع الماضي بوصفه «ما كان
    * مطلوباً» حينها، وعدّاده «0 / N» يتّهم المندوب بتقصيرٍ في خطّةٍ لم تكن
    * موجودة أصلاً. والحدّ نهايةُ ذلك اليوم لا بدايته: خطّةٌ وُضعت صباحاً تسري
-   * على يومها. */
+   * على يومها. (والقيد نفسه في pickRouteForDay — هنا تضييقٌ للاستعلام.) */
   const endOfDay = new Date(new Date(`${day}T00:00:00.000Z`).getTime() + 86400000);
+  /* عدّة خطوطٍ دائمة (طلب المالك ٢٢ نوفمبر ٢٠٢٦): يُختار خطّ اليوم بجدول المندوب — أيام الأسبوع أو التناوب —
+   * بالدالّة النقيّة نفسها التي تقرؤها قائمة الإدارة ونافذة الجدول. بلا جدولٍ ⇒ أوّل دائمٍ كما كان. */
+  const [schedule, perms] = await Promise.all([
+    prisma.repRouteSchedule.findFirst({ where: { tenantId: tid, salesRepId }, select: { mode: true, rotationStart: true, offDays: true } }),
+    prisma.repRoute.findMany({
+      where: { tenantId: tid, salesRepId, isActive: true, isPermanent: true, createdAt: { lt: endOfDay } },
+      select: ROUTE_PICK_SELECT,
+      orderBy: [{ rotationOrder: 'asc' }, { createdAt: 'asc' }],
+    }),
+  ]);
+  const pick = pickRouteForDay(day, schedule, perms);
+  if (!pick) return null;
   return prisma.repRoute.findFirst({
-    where: { tenantId: tid, salesRepId, isActive: true, isPermanent: true, createdAt: { lt: endOfDay } },
+    where: { id: pick.id, tenantId: tid, isActive: true },
     include: { stops: { include: { customer: { select: { id: true, name: true, businessName: true, phone: true, address: true, lat: true, lng: true } } }, orderBy: { seq: 'asc' } } },
   });
+}
+
+/** أعمدة اختيار خطّ اليوم وعرض الجدول — لا محطّات */
+const ROUTE_PICK_SELECT = {
+  id: true, name: true, isPermanent: true, routeDate: true, isActive: true, createdAt: true, weekdays: true, rotationOrder: true,
+} as const;
+
+/** خطوط المندوب الدائمة النشطة بترتيب الدورة (rotationOrder ثم الأقدم) */
+async function permanentRoutesOf(db: Prisma.TransactionClient, tid: string, salesRepId: string) {
+  return orderRoutes(await db.repRoute.findMany({
+    where: { tenantId: tid, salesRepId, isActive: true, isPermanent: true },
+    select: ROUTE_PICK_SELECT,
+    orderBy: [{ rotationOrder: 'asc' }, { createdAt: 'asc' }],
+  }));
 }
 
 /**
@@ -160,6 +196,15 @@ router.get('/mine', async (req: AuthRequest, res: Response, next: NextFunction) 
     });
     const doneAt = new Map(visits.map(v => [v.customerId, v.createdAt]));
 
+    // خريطة الإدارة (?shape=1): الخطّ المخطَّط على الشوارع بترتيب المحطّات — طلب المالك ٢١ نوفمبر (services/planRoadPath.ts)
+    const roadPath = !isRep && req.query.shape === '1'
+      ? await planRoadPath(
+          visible.filter(s => s.customer.lat != null && s.customer.lng != null)
+            .map(s => ({ lat: Number(s.customer.lat), lng: Number(s.customer.lng) })),
+          tid,
+        )
+      : undefined;
+
     res.json({
       success: true,
       data: {
@@ -178,6 +223,7 @@ router.get('/mine', async (req: AuthRequest, res: Response, next: NextFunction) 
         // محطّاتٌ حجبها نطاقُ القارئ — تُقال ولا تُخفى، وإلا رأى خطّاً أقصر
         // من المخطَّط وظنّه كاملاً
         hiddenByScope: hidden,
+        ...(roadPath !== undefined ? { roadPath } : {}),
       },
     });
   } catch (err) { next(err); }
@@ -204,8 +250,26 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         salesRep: { select: { id: true, name: true } },
         stops: { select: { id: true, customerId: true, seq: true }, orderBy: { seq: 'asc' } },
       },
-      orderBy: [{ isPermanent: 'asc' }, { routeDate: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ isPermanent: 'asc' }, { routeDate: 'desc' }, { rotationOrder: 'asc' }, { createdAt: 'asc' }],
     });
+
+    /* «خطّ اليوم» لكل مندوب بجدوله (طلب المالك ٢٢ نوفمبر ٢٠٢٦) — الدالّة نفسها التي يقرؤها تطبيقه وخريطة
+     * التتبّع، فلا تُعلِّم القائمة خطّاً «لليوم» والمندوب يسير على غيره. */
+    const schedules = await prisma.repRouteSchedule.findMany({
+      where: { tenantId: tid, ...(scopedReps && { salesRepId: { in: scopedReps } }) },
+      select: { salesRepId: true, mode: true, rotationStart: true, offDays: true },
+    });
+    const scheduleOf = new Map(schedules.map(x => [x.salesRepId, x]));
+    const byRep = new Map<string, typeof routes>();
+    for (const r of routes) {
+      const list = byRep.get(r.salesRepId);
+      if (list) list.push(r); else byRep.set(r.salesRepId, [r]);
+    }
+    const todayIds = new Set<string>();
+    for (const [repId, list] of byRep) {
+      const t = pickRouteForDay(day, scheduleOf.get(repId) ?? null, list);
+      if (t) todayIds.add(t.id);
+    }
 
     // زياراتُ اليوم لكل المناديب دفعةً واحدة — لا استعلامٌ لكل خط
     const visits = await prisma.repVisit.findMany({
@@ -218,17 +282,167 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     res.json({
       success: true,
       data: routes.map(r => {
-        // خطٌّ مؤقّت ليومٍ آخر لا «أنجز اليوم» له: عدّ زيارات اليوم عليه يعطي
+        // خطٌّ ليس خطَّ اليوم لا «أنجز اليوم» له: عدّ زيارات اليوم عليه يعطي
         // رقماً صحيح الحساب كاذب المعنى — فيُرسَل null وتعرض الواجهة شرطة.
-        const isToday = r.isPermanent || r.routeDate === day;
+        // وخطّ اليوم من جدول المندوب لا «كل دائمٍ لليوم» (طلب المالك ٢٢ نوفمبر ٢٠٢٦: عدّة خطوطٍ دائمة)
+        const isToday = todayIds.has(r.id);
         return {
           id: r.id, name: r.name, isPermanent: r.isPermanent, routeDate: r.routeDate,
           salesRepId: r.salesRepId, salesRepName: r.salesRep.name,
+          weekdays: r.weekdays, rotationOrder: r.rotationOrder,
+          scheduleMode: scheduleOf.get(r.salesRepId)?.mode ?? null,
+          isToday,
           total: r.stops.length,
           doneToday: isToday ? r.stops.filter(s => seen.has(key(r.salesRepId, s.customerId))).length : null,
         };
       }),
     });
+  } catch (err) { next(err); }
+});
+
+// ═══════════ طريقة توزيع الخطوط على الأيام (طلب المالك ٢٢ نوفمبر ٢٠٢٦) ═══════════
+//
+// مندوبٌ له عدّة خطوطٍ دائمة يُوجَّه كل يومٍ إلى واحدٍ منها: «حسب أيام الأسبوع» أو «تناوب بالترتيب».
+// و«خط واحد يومياً» = لا جدول (السلوك القديم). الحرّاس هم حرّاس الراوتر نفسه (requireAdmin + صلاحية التتبّع)
+// ونطاق المندوب (canAccessRep) — مندوبٌ خارج النطاق أو الشركة «غير موجود» لا «ممنوع».
+
+const scheduleSchema = z.object({
+  mode: z.enum(['single', 'weekdays', 'rotation'], { errorMap: () => ({ message: 'طريقة التوزيع غير معروفة' }) }),
+  rotationStart: z.string().regex(DAY, 'التاريخ بصيغة YYYY-MM-DD').refine(isValidDay, 'تاريخ بداية التناوب غير صالح').nullish(),
+  offDays: weekdayList('يوم راحةٍ مكرَّر').refine(v => v.length < 7, 'لا بدّ من يوم عملٍ واحد على الأقل').optional(),
+});
+
+const orderSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1, 'لا خطوط في الترتيب').max(200)
+    .refine(v => new Set(v).size === v.length, { message: 'خطٌّ مكرَّر في الترتيب' }),
+});
+
+/** المندوب في هذه الشركة وفي نطاق المستخدم — وإلا فهو «غير موجود» لا «ممنوع» كي لا يكشف الردّ وجوده */
+async function repInScope(req: AuthRequest, tid: string, salesRepId: string): Promise<boolean> {
+  if (!z.string().uuid().safeParse(salesRepId).success) return false;
+  if (!(await canAccessRep(req, tid, salesRepId))) return false;
+  return !!(await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, select: { id: true } }));
+}
+
+/** حال الجدول كما تعرضه النافذة: الطريقة وخطوط المندوب الدائمة بترتيب الدورة وخطّ اليوم */
+async function scheduleView(tid: string, salesRepId: string, day: string) {
+  const [schedule, perms, dated] = await Promise.all([
+    prisma.repRouteSchedule.findFirst({
+      where: { tenantId: tid, salesRepId },
+      select: { mode: true, rotationStart: true, offDays: true, updatedAt: true },
+    }),
+    permanentRoutesOf(prisma, tid, salesRepId),
+    prisma.repRoute.findFirst({
+      where: { tenantId: tid, salesRepId, isActive: true, isPermanent: false, routeDate: day },
+      select: ROUTE_PICK_SELECT,
+    }),
+  ]);
+  const today = pickRouteForDay(day, schedule, dated ? [dated, ...perms] : perms);
+  return {
+    day,
+    schedule,
+    routes: perms.map(r => ({ id: r.id, name: r.name, weekdays: r.weekdays, rotationOrder: r.rotationOrder })),
+    today: today ? { routeId: today.id, name: today.name, isPermanent: today.isPermanent } : null,
+  };
+}
+
+/** طريقة توزيع خطوط مندوبٍ وخطّ يومه */
+router.get('/schedule/:salesRepId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const salesRepId = String(req.params.salesRepId);
+    if (!(await repInScope(req, tid, salesRepId))) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    res.json({ success: true, data: await scheduleView(tid, salesRepId, dayOf(req)) });
+  } catch (err) { next(err); }
+});
+
+/**
+ * تغيير الطريقة: 'single' يحذف الجدول فعلياً (عودةٌ إلى دائمٍ واحد)، و'weekdays'/'rotation' تُنشئه أو تعدّله.
+ * ما لم يُرسَل من بداية التناوب وأيام الراحة يبقى كما كان — فالتنقّل بين الطريقتين لا يمحو إعداد الأخرى.
+ */
+router.put('/schedule/:salesRepId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const body = scheduleSchema.parse(req.body);
+    const salesRepId = String(req.params.salesRepId);
+    if (!(await repInScope(req, tid, salesRepId))) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    const day = dayOf(req);
+    const perms = await permanentRoutesOf(prisma, tid, salesRepId);
+
+    if (body.mode === 'single') {
+      /* «خط واحد يومياً» يحفظ الدائم القادم بحذف بقيّة الدوائم (السلوك القديم) — فلا يُدخَل إليه ومعه عدّة
+       * دوائم: إمّا حذفٌ صامتٌ لاحقاً لخطوطٍ لم يقصدها المالك، أو «أوّل دائم» لا يعرف أيّها. يختار هو ما يحذف. */
+      if (perms.length > 1) {
+        res.status(409).json({
+          success: false, code: 'MULTIPLE_PERMANENT',
+          message: `للمندوب ${perms.length} خطوط دائمة — «خط واحد يومياً» يُبقي خطاً دائماً واحداً، فاحذف الخطوط الزائدة أولاً`,
+        });
+        return;
+      }
+      await prisma.repRouteSchedule.deleteMany({ where: { tenantId: tid, salesRepId } });
+      res.json({ success: true, data: await scheduleView(tid, salesRepId, day) });
+      return;
+    }
+
+    if (body.mode === 'weekdays') {
+      /* خطوطٌ دائمة كلّها بلا أيام ⇒ لا خطّ للمندوب في أي يوم: التحويل يُطفئ خطّته صامتاً (مراجعة ٢٢ نوفمبر ٢٠٢٦).
+       * يُرفض حتى يحدّد المالك أيام كل خطّ. وبلا دوائم أصلاً لا شيء يُطفأ — فيُقبل ليُعدّ الطريقة قبل الخطوط. */
+      const bare = perms.filter(r => !r.weekdays?.length);
+      if (perms.length && bare.length === perms.length) {
+        res.status(409).json({
+          success: false, code: 'NO_WEEKDAYS',
+          message: `«حسب أيام الأسبوع» يحتاج أياماً لكل خط — ${bare.length === 1 ? 'خطّ المندوب' : 'خطوط المندوب'} ${bare.map(r => `«${r.name}»`).join('، ')} بلا أيام فلن يظهر له خطٌّ في أي يوم. حدّد أيام كل خطٍّ من «تعديل» أولاً`,
+          routes: bare.map(r => ({ id: r.id, name: r.name })),
+        });
+        return;
+      }
+      // خطّان على يومٍ واحد يجعلان «خطّ اليوم» بجوابين — يُرفض التحويل حتى يُصلح المالك أيامهما
+      const c = firstInternalConflict(perms);
+      if (c) {
+        res.status(409).json({ success: false, code: 'WEEKDAY_CONFLICT', message: `يوم ${WEEKDAY_NAMES_AR[c.day]} في خطّي «${c.a}» و«${c.b}» — لكل يومٍ خطٌّ واحد، فعدّل أيام أحدهما أولاً` });
+        return;
+      }
+    }
+
+    const existing = await prisma.repRouteSchedule.findFirst({ where: { tenantId: tid, salesRepId }, select: { rotationStart: true, offDays: true } });
+    const rotationStart = body.rotationStart ?? existing?.rotationStart ?? (body.mode === 'rotation' ? day : null);
+    const offDays = [...(body.offDays ?? existing?.offDays ?? DEFAULT_OFF_DAYS)].sort((a, b) => a - b);
+    const data = { mode: body.mode, rotationStart, offDays, updatedBy: req.user!.id };
+    await prisma.repRouteSchedule.upsert({
+      where: { salesRepId },
+      create: { tenantId: tid, salesRepId, ...data },
+      update: data,
+    });
+    res.json({ success: true, data: await scheduleView(tid, salesRepId, day) });
+  } catch (err) { next(err); }
+});
+
+/**
+ * ترتيب دورة التناوب: `ids` هي خطوط المندوب الدائمة النشطة **كلّها** وحدها مرّةً واحدة، فيُكتب لكلٍّ موضعه
+ * 0..ن-1. قائمةٌ ناقصة أو زائدة (صفحةٌ قديمة بعد حذف خطٍّ أو إضافته) تُرفض بدل ترتيبٍ نصفه قديم.
+ * والكتابة الوحيدة على رأس الخطّ هي موضعه — لا تعطيل ولا تعديل غيره (الحذف فعليّ، أمر المالك ٧ نوفمبر).
+ */
+router.put('/order/:salesRepId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const tid = tenantId(req);
+    const body = orderSchema.parse(req.body);
+    const salesRepId = String(req.params.salesRepId);
+    if (!(await repInScope(req, tid, salesRepId))) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    const perms = await permanentRoutesOf(prisma, tid, salesRepId);
+    const have = new Set(perms.map(r => r.id));
+    if (body.ids.length !== have.size || body.ids.some(id => !have.has(id))) {
+      res.status(400).json({
+        success: false, code: 'ORDER_MISMATCH',
+        message: 'الترتيب يجب أن يشمل كل خطوط المندوب الدائمة مرة واحدة — حدّث الصفحة وأعد المحاولة',
+      });
+      return;
+    }
+    await prisma.$transaction(async tx => {
+      for (let i = 0; i < body.ids.length; i++) {
+        await tx.repRoute.updateMany({ where: { id: body.ids[i], tenantId: tid, salesRepId }, data: { rotationOrder: i } });
+      }
+    });
+    res.json({ success: true, data: await scheduleView(tid, salesRepId, dayOf(req)) });
   } catch (err) { next(err); }
 });
 
@@ -250,6 +464,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       success: true,
       data: {
         id: r.id, name: r.name, isPermanent: r.isPermanent, routeDate: r.routeDate, salesRepId: r.salesRepId,
+        weekdays: r.weekdays, rotationOrder: r.rotationOrder,
         stops: r.stops.map(s => ({
           customerId: s.customerId, seq: s.seq, note: s.note,
           customerName: s.customer.businessName || s.customer.name,
@@ -291,9 +506,33 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
      * ويُحفظ الجديد كما كان يُحفظ حين لا يطابق التعطيلُ شيئاً. ومندوب الخطّ لا يتغيّر بعد إنشائه (التعديل
      * إنشاءٌ جديد)، فلا سباق بين هذا الفحص والحذف داخل المعاملة. */
     const replaced = body.replacesId
-      ? await prisma.repRoute.findFirst({ where: { id: body.replacesId, tenantId: tid }, select: { id: true, salesRepId: true } })
+      ? await prisma.repRoute.findFirst({
+        where: { id: body.replacesId, tenantId: tid },
+        select: { id: true, salesRepId: true, isPermanent: true, weekdays: true, rotationOrder: true, createdAt: true },
+      })
       : null;
     const replacedId = replaced && (await canAccessRep(req, tid, replaced.salesRepId)) ? replaced.id : null;
+
+    /* عدّة خطوطٍ دائمة (طلب المالك ٢٢ نوفمبر ٢٠٢٦): مندوبٌ له جدول (أيام الأسبوع أو التناوب) لا يُحذف دائمُه
+     * الآخر حين يُحفظ دائم — يُستبدل المُحرَّر وحده بمعرّفه. ومن لا جدول له باقٍ على «دائمٍ واحد» كما كان. */
+    const schedule = body.isPermanent
+      ? await prisma.repRouteSchedule.findFirst({ where: { tenantId: tid, salesRepId: body.salesRepId }, select: { mode: true } })
+      : null;
+    // تعديل دائمٍ للمندوب نفسه يُبقي موضعه في الدورة وأيامه (ما لم تُرسَل أيامٌ جديدة) وتاريخ إنشائه — لا يقفز إلى آخر الترتيب
+    const kept = replaced && replacedId && replaced.isPermanent && replaced.salesRepId === body.salesRepId ? replaced : null;
+    const weekdays = body.isPermanent ? [...(body.weekdays ?? kept?.weekdays ?? [])].sort((a, b) => a - b) : [];
+    /* لكل يومٍ خطٌّ واحد — يومٌ يستعمله خطٌّ آخر للمندوب يُرفض بدل أن يصير لليوم خطّان. يُفحص **متى أُرسلت الأيام
+     * أيّاً كانت الطريقة** (مراجعة ٢٢ نوفمبر ٢٠٢٦): أيامٌ تُحدَّد في التناوب تمهيداً لـ«حسب أيام الأسبوع» لا تُخزَّن
+     * متعارضةً فيُرفض التحويل بعدها؛ وفي «حسب أيام الأسبوع» تُفحص أيام المُحرَّر الباقية كذلك كما كانت.
+     * والمقارنة بما يبقى بعد الحفظ وحده: بلا جدولٍ يُستبدل كل دائمٍ للمندوب (أدناه) فلا يبقى ما يُعارَض. */
+    if (body.isPermanent && weekdays.length && (body.weekdays !== undefined || schedule?.mode === 'weekdays')) {
+      const others = schedule ? (await permanentRoutesOf(prisma, tid, body.salesRepId)).filter(r => r.id !== replacedId) : [];
+      const clash = weekdayConflict(others, weekdays);
+      if (clash) {
+        res.status(409).json({ success: false, code: 'WEEKDAY_CONFLICT', message: weekdayConflictMessage(clash.day, clash.name), conflict: clash });
+        return;
+      }
+    }
 
     const saved = await prisma.$transaction(async tx => {
       // **خطٌّ واحد لكل حالة**: دائمٌ واحد للمندوب، ومؤقّتٌ واحد لليوم.
@@ -304,17 +543,35 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       // غُيّر أحدها (تاريخ أو نوع أو مندوب)، فيبقى القديم نشطاً ويعمل المندوب
       // على خطٍّ ظنّ المالك أنه بدّله — أو يراه مندوبان معاً في اليوم نفسه.
       if (replacedId) await deleteRoutes(tx, tid, { id: replacedId });
-      // بالمفاتيح بلا شرط isActive: يذهب النشط وما بقي موقوفاً من المسار القديم معاً
-      await deleteRoutes(tx, tid, body.isPermanent
-        ? { salesRepId: body.salesRepId, isPermanent: true }
-        : { salesRepId: body.salesRepId, isPermanent: false, routeDate: body.routeDate! });
+      // بالمفاتيح بلا شرط isActive: يذهب النشط وما بقي موقوفاً من المسار القديم معاً.
+      // والدائم بالمفاتيح لمن لا جدول له وحده — صاحب الجدول يجمع عدّة دوائم (طلب المالك ٢٢ نوفمبر ٢٠٢٦)
+      if (!body.isPermanent) {
+        await deleteRoutes(tx, tid, { salesRepId: body.salesRepId, isPermanent: false, routeDate: body.routeDate! });
+      } else if (!schedule) {
+        await deleteRoutes(tx, tid, { salesRepId: body.salesRepId, isPermanent: true });
+      }
       // وبقايا التعطيل القديم لهذا المندوب (خطوطٌ «أُوقفت» قبل أمر الحذف الفعليّ) — لا يقرؤها شيء
       await deleteRoutes(tx, tid, { salesRepId: body.salesRepId, isActive: false });
+      // موضع الدورة: المُحرَّر يبقى في موضعه، والجديد آخر الترتيب (الأكبر + 1)
+      let rotationOrder = 0;
+      if (body.isPermanent) {
+        if (kept) rotationOrder = kept.rotationOrder;
+        else {
+          const rest = await tx.repRoute.findMany({
+            where: { tenantId: tid, salesRepId: body.salesRepId, isPermanent: true }, select: { rotationOrder: true },
+          });
+          rotationOrder = rest.length ? Math.max(...rest.map(x => x.rotationOrder)) + 1 : 0;
+        }
+      }
       const r = await tx.repRoute.create({
         data: {
           tenantId: tid, salesRepId: body.salesRepId, name: body.name,
           isPermanent: body.isPermanent,
           routeDate: body.isPermanent ? null : body.routeDate!,
+          weekdays, rotationOrder,
+          /* الدائم المُحرَّر يرث تاريخ إنشاء سلفه (مراجعة ٢٢ نوفمبر ٢٠٢٦): الدائم لا يسري على يومٍ سبق إنشاءه، فتاريخٌ
+           * جديد كان يُسقطه من الأيام الماضية — فتنتقل خطّة يومٍ مضى في التناوب (أو «أوّل دائم») إلى خطٍّ آخر */
+          ...(kept && { createdAt: kept.createdAt }),
         },
       });
       // الترتيب من موضع العميل في المصفوفة — هو ما رتّبه المالك بعينه

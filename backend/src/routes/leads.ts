@@ -18,6 +18,7 @@ import { getEmailConfig, saveEmailConfig, runAutoEmailBatch } from '../services/
 import { getCommunityConfig, saveCommunityConfig, runCommunityHuntBatch } from '../services/communityHunter';
 import {
   syncSalesInbox, listSalesInbox, parseSalesListQuery, salesUpdateSchema, updateSalesContact,
+  listSalesNotes, addSalesNote, removeSalesNote, salesNoteBodySchema, type SalesNoteAuthor,
 } from '../services/salesInbox';
 
 // إدارة العملاء المحتملين (Leads) — لمالك المنصّة (السوبر أدمن) فقط
@@ -534,11 +535,47 @@ router.put('/sales-inbox/:id', async (req: AuthRequest, res: Response, next: Nex
   try {
     const parsed = salesUpdateSchema.safeParse(req.body ?? {});
     if (!parsed.success) { res.status(400).json({ success: false, message: 'حالة أو ملاحظة غير صالحة' }); return; }
-    const row = await updateSalesContact(String(req.params.id), parsed.data, staffHas(req, 'waInbox.view'));
+    const row = await updateSalesContact(String(req.params.id), parsed.data, staffHas(req, 'waInbox.view'), undefined, await salesAuthor(req));
     if (!row) { res.status(404).json({ success: false, message: 'جهة التواصل غير موجودة' }); return; }
     res.json({ success: true, data: row });
   } catch (err) { next(err); }
 });
+
+// سجلّ ملاحظات جهة التواصل (طلب المالك ١٦ نوفمبر ٢٠٢٦) — كملاحظات الشركات في لوحة المالك: الكاتب والوقت، والحذف
+router.get('/sales-inbox/:id/notes', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await listSalesNotes(String(req.params.id), staffHas(req, 'waInbox.view'));
+    if (!data) { res.status(404).json({ success: false, message: 'جهة التواصل غير موجودة' }); return; }
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+});
+
+router.post('/sales-inbox/:id/notes', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const parsed = salesNoteBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) { res.status(400).json({ success: false, message: parsed.error.issues[0]?.message || 'اكتب الملاحظة' }); return; }
+    const note = await addSalesNote(String(req.params.id), parsed.data.body, await salesAuthor(req), staffHas(req, 'waInbox.view'));
+    if (!note) { res.status(404).json({ success: false, message: 'جهة التواصل غير موجودة' }); return; }
+    res.status(201).json({ success: true, data: note });
+  } catch (err) { next(err); }
+});
+
+router.delete('/sales-inbox/:id/notes/:noteId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const ok = await removeSalesNote(String(req.params.id), String(req.params.noteId), staffHas(req, 'waInbox.view'));
+    if (!ok) { res.status(404).json({ success: false, message: 'الملاحظة غير موجودة' }); return; }
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+/** كاتب الملاحظة: الموظف من جلسته، والمالك باسمه في جدوله (كـplatformAuthor في routes/tenants.ts) */
+async function salesAuthor(req: AuthRequest): Promise<SalesNoteAuthor> {
+  const staff = (req as PlatformRequest).platformStaff;
+  if (staff) return { authorKind: 'STAFF', authorId: staff.id, authorName: staff.name };
+  const id = req.user!.id;
+  const owner = await prisma.superAdmin.findUnique({ where: { id }, select: { name: true } });
+  return { authorKind: 'OWNER', authorId: id, authorName: owner?.name || 'مالك المنصة' };
+}
 
 // ------------------------------- تفاصيل + أنشطة ------------------------------- //
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {

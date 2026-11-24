@@ -19,6 +19,7 @@ import type { UnitDef } from '../lib/units';
 import { compressImage } from './imageCompress';
 import CustomerDocsPicker from '../components/CustomerDocsPicker';
 import { PickedDoc, docsPayload, docsBatchRef } from '../lib/customerDocs';
+import { DEDUP_FIELDS, customerDupFormKey, customerDupOf, customerDupText, dedupChecksOf, type CustomerDupError, type DedupChecks } from '../lib/customerDedup';
 import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
 import { useBackClose } from '../lib/useBackClose';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
@@ -41,6 +42,8 @@ import { BrandIcon } from '../components/BrandLogo';
 import CompanyBrand from '../components/CompanyBrand';
 import AppIntro from '../components/AppIntro';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
+import LoginErrorBox from '../components/LoginErrorBox';
+import { loginErrorOf, type LoginError } from '../lib/loginErrors';
 import SearchableSelect from '../components/SearchableSelect';
 import BarcodeScanner from './BarcodeScanner';
 import LaserScanField, { readLaserPref, writeLaserPref } from './LaserScanField';
@@ -57,8 +60,10 @@ import RepRouteScreen, { fetchMyRoute, RouteToday } from './RepRouteScreen';
 import RepDailyReport from './RepDailyReport';
 import { useRepTracking } from './useRepTracking';
 import { startNativeTrackingOnPunch, stopNativeTracking } from './nativeTracking';
-import { useHeartbeat } from './useHeartbeat';
+import { useHeartbeat, onHeartbeat } from './useHeartbeat';
 import PresenceCheckModal from './PresenceCheck';
+import IdlePunchOutModal from './IdlePunchOutModal';
+import { ATTENDANCE_REFRESH_EVENT, idleAfterBeat, idleReminderOf, type IdleShown } from '../lib/idlePunchOut';
 import { installPresenceAlarmUnlock } from './presenceAlarm';
 import type { PendingPresence } from './presencePhase';
 import { PRESENCE_AWAY_TEXTS, type PresenceAwayView } from './presenceRefusal';
@@ -88,8 +93,13 @@ import {
   returnRefreshesSnapshot, snapProductOf, storedVanLotsOf, trackedIds, underLotReplayHeld, vanLotsEntry, withPosted, zeroQtyLine,
   type OfflineLotBlock, type PendingCatalogProduct, type PendingOut, type PlanLine, type PostedItem, type StoredVanLots,
 } from './vanLots';
-import { LOT_BLOCK_KIND_LABELS, LOT_EPS, docLotsFrom, isLotExpiredOn, lotFlagsOf, roundLot, toBaseQty } from '../lib/lots';
+import { LOT_BLOCK_KIND_LABELS, LOT_EPS, docLotsFrom, isLotExpiredOn, lotFlagsOf, roundLot, toBaseQty, type LotRef } from '../lib/lots';
 import { lotCellText, lotDayText, repInvoiceGetConfig } from './docLots';
+// «تتبّع اللوط» — تشغيلة المرتجع الحرّ يختارها المندوب اختيارياً (طلب المالك ١٦ نوفمبر ٢٠٢٦، المنطق الصرف في returnLots.ts)
+import {
+  CUSTOMER_LOT_HISTORY_PATH, customerLotHistoryOf, lotRejectLine, returnLineLots, returnLotLine, returnLotOptions, returnLotPickOf,
+  returnPickDocLots, withReturnPick, type CustomerLotRow, type ReturnLotOption,
+} from './returnLots';
 import { todayLocal } from '../lib/shelfLife';
 import { useLocationGate, strictLiveFix } from './locationGate';
 import { attemptClientRef, customerScopeOpen, deviceKind, liveSnapshot, onLiveRefused, requestLocationInGesture, resetLive, strictRepNow, LIVE_REFUSAL_MESSAGE, type LiveBlock } from './liveGate';
@@ -99,6 +109,9 @@ import { OUTLET_TYPE_OPTIONS } from './aiRepLogic';
 import { dayMinutes, nextPunch, shiftMinutes, shiftsOf, type AttendanceState } from './attendanceDay';
 import { installGeoReconnect } from './geoReconnect';
 import RepTargetsCard from './RepTargetsCard';
+import CircularGate from '../components/circulars/CircularGate';
+import { CIRCULAR_ACK_TIMEOUT_MS, CIRCULAR_FETCH_TIMEOUT_MS, circularGateSkipped } from '../lib/circularGate';
+import { isImpersonationToken } from '../store/sessionAdoption';
 import { fetchMyTargets, markTargetsFetched, resetTargetsFetch, targetsFetchNeeded, targetsSession } from './repTargetsFetch';
 import type { RepTargetsData } from '../lib/repTargets';
 import { defaultFormImageLoader, formBackgroundRefsOf, prefetchFormImages } from '../lib/print/formImage';
@@ -106,6 +119,13 @@ import { defaultFormImageLoader, formBackgroundRefsOf, prefetchFormImages } from
 installGeoReconnect();
 // المندوب الذكي كسول: لا تُحمَّل حزمته إلا لمن فُعّلت له الميزة وفتحها
 const RepAiScreen = lazy(() => import('./RepAiScreen'));
+/* «التعميمات» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): تعميمات المناديب المعلّقة لي وإقرار قراءتها. background: الجلب الدوريّ ورفع
+ * صفّ الإقرارات تلقائيّان — 401 عابرٌ منهما لا يُخرج المندوب (انظر معترض repApi). timeout: repApi بلا مهلة، وشبكةٌ لا يمرّ فيها
+ * شيء كانت تُبقي النافذة على «جار الحفظ» تحجب التطبيق — بالمهلة يُصفّ الإقرار ويمضي. readAt: لحظة الضغط لإقرارٍ من الصفّ */
+const fetchMyCirculars = async (): Promise<unknown> =>
+  (await repApi.get('/circulars/pending', { background: true, timeout: CIRCULAR_FETCH_TIMEOUT_MS })).data?.data;
+const ackMyCircular = (id: string, readAt?: number) =>
+  repApi.post(`/circulars/${encodeURIComponent(id)}/ack`, readAt ? { readAt } : {}, { background: true, timeout: CIRCULAR_ACK_TIMEOUT_MS });
 
 /** فشل تحميل حزمة الشاشة الكسولة (دون اتصال أو بعد نشر جديد) لا يُسقط التطبيق كله في شاشة بيضاء. */
 class AiRepBoundary extends Component<{ onBack: () => void; children: ReactNode }, { failed: boolean }> {
@@ -141,6 +161,14 @@ interface RepUser {
   requireBoundDevice?: boolean;
   /** «التحقق العشوائي من التواجد» — يصله «أثبت تواجدك» مرّتين إلى ثلاث يومياً (PresenceCheck.tsx) */
   requirePresenceCheck?: boolean;
+  /** «تذكير بالانصراف عند الخمول ثم انصراف تلقائي» — تذكيره يصل بالإشعار، فشاشة البصمة تنبّه إن كانت التنبيهات مطفأة */
+  idlePunchOutEnabled?: boolean;
+  idlePunchOutMinutes?: number;
+  idlePunchOutGraceMinutes?: number;
+  /** «منع تكرار العملاء عند فتح عميل جديد» — تقييديّ: حقول نموذجَي العميل المفحوصة تحمل تلميحها، والحارس في الخادم (409 CUSTOMER_DUPLICATE) */
+  dedupCustomerPhone?: boolean;
+  dedupCustomerName?: boolean;
+  dedupCustomerAddress?: boolean;
   id: string; name: string; phone?: string;
   canAddCustomer?: boolean;
   /** «تعديل بيانات العميل» — افتراضه في الخادم مُطفأ، فلا يظهر زرّ التعديل إلا بـtrue صريحة */
@@ -174,17 +202,21 @@ function RepLogin({ onLogin, onBack }: { onLogin: (token: string, user: RepUser)
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  // رفض الدخول برسالة الخادم الدقيقة وفعلها (طلب المالك ٢١ نوفمبر ٢٠٢٦): كلمة مرور خاطئة ⇐ «نسيت كلمة المرور؟» (عبر المدير)،
+  // وبريد مديرٍ هنا ⇐ رابط صفحة الشركة
+  const [error, setError] = useState<LoginError | null>(null);
   const [showForgot, setShowForgot] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true); setError('');
+    // خانةٌ فارغة لا تُرسل — كان الخادم يردّها بنصّ تحقّقٍ عربيّ لا يُترجم
+    if (!username.trim() || !password) { setError({ code: null, message: null, action: null, offline: false }); return; }
+    setLoading(true); setError(null);
     try {
       const res = await repApi.post('/auth/login', { username, password, role: 'sales_rep' });
       onLogin(res.data.data.token, res.data.data.user);
-    } catch {
-      setError(t('rep.badCreds'));
+    } catch (err) {
+      setError(loginErrorOf(err));
     } finally { setLoading(false); }
   };
 
@@ -214,19 +246,19 @@ function RepLogin({ onLogin, onBack }: { onLogin: (token: string, user: RepUser)
           <div className="space-y-3">
             <div className="relative">
               <User size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
-              <input className="input pr-9" placeholder={t('rep.username')} dir="ltr"
-                value={username} onChange={e => setUsername(e.target.value)} />
+              <input className="input pr-9" placeholder={t('rep.username')} dir="ltr" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+                value={username} onChange={e => { setUsername(e.target.value); setError(null); }} />
             </div>
             <div className="relative">
               <input className="input pr-3 pl-9" type={showPass ? 'text' : 'password'} placeholder={t('login.password')} dir="ltr"
-                value={password} onChange={e => setPassword(e.target.value)} />
+                value={password} onChange={e => { setPassword(e.target.value); setError(null); }} />
               <button type="button" className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]"
                 onClick={() => setShowPass(s => !s)}>
                 {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
           </div>
-          {error && <p className="text-[#C0392B] text-xs mt-2">{error}</p>}
+          {error && <LoginErrorBox error={error} fallback={t('rep.badCreds')} onForgot={() => setShowForgot(true)} />}
           <button type="submit" disabled={loading}
             className="w-full bg-[#E15A30] hover:bg-[#C94E28] text-white font-bold py-3 rounded-xl mt-5 flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
             {loading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
@@ -319,7 +351,7 @@ const PUNCH_LOW_ACCURACY_MSG = 'موقعك غير دقيق الآن (±{acc} م)
 const withAcc = (text: string, acc: number): string => text.replace('{acc}', String(Math.round(acc)));
 
 // atCustomer: «بصمة الحضور بموقع عميل» — موقع البصمة قراءةٌ طازجة بأفضل دقّة لا قراءةٌ مخبّأة (punchFix.ts)
-function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = false }: { atCustomer?: boolean; boundDevice?: boolean; presenceOn?: boolean }) {
+function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = false, idleOn = false }: { atCustomer?: boolean; boundDevice?: boolean; presenceOn?: boolean; idleOn?: boolean }) {
   const tr = useTr();
   // رفض «جهازٍ آخر» — على آيفون غالباً لأن سفاري وتطبيق الشاشة الرئيسية تخزينان معزولان فمعرّفان مختلفان
   const [deviceRefused, setDeviceRefused] = useState(false);
@@ -368,6 +400,11 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
   }, [tr, tzOffsetMin]);
 
   useEffect(() => { load(); }, [load]);
+  // «هل ما زلت تعمل؟» كشف نوبةً أُغلقت (انصرافٌ تلقائي سبق ردّه) — الحالة تُقرأ من جديد فلا تبقى «حاضر» (IdlePunchOutModal)
+  useEffect(() => {
+    window.addEventListener(ATTENDANCE_REFRESH_EVENT, load);
+    return () => window.removeEventListener(ATTENDANCE_REFRESH_EVENT, load);
+  }, [load]);
 
   const punch = async (kind: 'checkin' | 'checkout') => {
     // ضغطةٌ ثانية قبل أن يُرسم التعطيل تُهمل — والخادم بدوره يعيد النوبة المفتوحة ولا يفتح ثانية
@@ -472,6 +509,12 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
                 <p className="text-xs text-[#8A8072] font-semibold mb-1">{tr('خارج العمل الآن')}</p>
                 <p className="text-[10px] text-[#8A8072]">{tr('آخر انصراف')}</p>
                 <p className="text-2xl font-bold text-[#1F1A13] tabular-nums" dir="ltr">{clockTime(state.last.checkOutAt)}</p>
+                {/* «الانصراف التلقائي»: تذكيرٌ لم يلغه «ما زلت أعمل» ولا تنقّلٌ ولا مستند — الوقت آخر نشاطٍ سبق التذكير لا لحظة التسجيل */}
+                {state.last.checkOutAuto === true && (
+                  <p data-auto-checkout className="mt-1 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-1.5">
+                    <b>{tr('انصراف تلقائي')}</b> — {tr('لم ترد على التذكير ولم يرصد تنقل ولا مستند فسجل انصرافك بوقت آخر نشاط لك قبل التذكير')}
+                  </p>
+                )}
                 <p className="text-[11px] text-[#8A8072] mt-1">{tr('إن عدت إلى العمل سجّل حضوراً جديداً فتُحسب فترةً أخرى')}</p>
               </>
             ) : (
@@ -526,6 +569,7 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
                       </span>
                     </span>
                     {(sh.checkInOutside || sh.checkOutOutside) && <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 rounded px-1.5 py-0.5 whitespace-nowrap">{tr('خارج النطاق')}</span>}
+                    {sh.checkOutAt && sh.checkOutAuto === true && <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 rounded px-1.5 py-0.5 whitespace-nowrap">{tr('انصراف تلقائي')}</span>}
                     {sh.checkOutAt && <span className="text-[11px] text-[#8A8072] whitespace-nowrap">{fmtWorkMinutes(shiftMinutes(sh), tr)}</span>}
                   </li>
                 ))}
@@ -554,6 +598,10 @@ function RepAttendance({ atCustomer = false, boundDevice = false, presenceOn = f
           {/* «التحقق العشوائي من التواجد» يصل بالإشعار: بلا تنبيهات لا يعلم به إلا والتطبيق مفتوح، فيُحسب «بلا ردّ» */}
           {presenceOn && pushSt != null && pushSt !== 'on' && (
             <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">{tr('الادارة فعلت التحقق من تواجدك فعل التنبيهات ليصلك طلب اثبت تواجدك والا سجل بلا رد')}</p>
+          )}
+          {/* «تذكير بالانصراف عند الخمول» يصل بالإشعار والتطبيق مغلق: بلا تنبيهات لا يعلم به فيُسجَّل انصرافه تلقائياً بعد المهلة */}
+          {idleOn && pushSt != null && pushSt !== 'on' && (
+            <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">{tr('الادارة فعلت تذكير الانصراف عند الخمول فعل التنبيهات ليصلك التذكير والا سجل انصرافك تلقائيا بعد المهلة')}</p>
           )}
 
           <p className="text-[11px] text-[#8A8072] text-center leading-relaxed">
@@ -2586,6 +2634,46 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
     setPickSale(true);
   }, [retLinkOnly, online]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /* ─── «تتبّع اللوط» — تشغيلة المرتجع الحرّ (طلب المالك ١٦ نوفمبر ٢٠٢٦ «عالجها»): كان المرتجع يدخل السيارة «غير مسمّى» لأن المندوب
+   * لا يختار تشغيلة. الآن يختارها اختيارياً لسطر المرتجع الحرّ بصنفٍ متتبَّع — والافتراض «تلقائي» بلا حقلٍ كما كان، فيقرّر الخادم:
+   * ما اشتراه هذا العميل أولاً (متصلاً من الخادم) ثم تشغيلات الصنف في لقطة سيارته (وهي وحدها دون اتصال). المختار في items[i].lots
+   * من الحمولة نفسها التي يحفظها الصندوق الأوف‑لاين، فيقبله الخادم حيّاً بصرامة ويعامله في الإعادة تلميحاً لا يُرفض به المستند.
+   * والبيع وبند فاتورة البيع (يرث تشغيلات بيعه) لا يمرّان بشيءٍ هنا. والمرتجع المربوط بفاتورة بيع كله مربوط في الخادم (linkedLine:
+   * originalInvoiceId يجعل كل بنوده مربوطة، وصريحه مقصورٌ على صفوف بند البيع) — فلا منتقي ولا حقل فيه ولو بقي سطرٌ حرّ ─── */
+  const retLotOn = lotOn && isReturn && !saleRef;
+  const retStored = retLotOn ? lots?.stored ?? null : null;
+  // قائمة اللقطة هي المرجع، وبلاها علم الصنف في الكتالوج (كالبيع)
+  const retTracked = useMemo(() => (retLotOn ? trackedIds(retStored?.snap, products) : null), [retLotOn, retStored, products]);
+  const retLotShown = (l: any): boolean => returnLotLine(retLotOn, isReturn, l, retTracked);
+  // سجلّ العميل لكل صنفٍ كما قُرئ في هذه الشاشة — يبقى إن انقطع الاتصال بعدها، ولا يُطلب للصنف مرتين
+  const [retHistory, setRetHistory] = useState<Record<string, CustomerLotRow[]>>({});
+  const retAsked = useRef(new Set<string>());
+  const retPids = retLotOn ? [...new Set(lines.filter(retLotShown).map(l => String(l.productId)))].sort().join('|') : '';
+  useEffect(() => {
+    // عميلٌ أُنشئ دون اتصال لا معرّف خادمي له ولا مشتريات: تشغيلات السيارة وحدها
+    if (!retPids || !showCart || customer?._offline || !customer?.id || String(customer.id).startsWith('local-') || !navigator.onLine) return;
+    for (const pid of retPids.split('|')) {
+      if (retAsked.current.has(pid)) continue;
+      retAsked.current.add(pid);
+      repApi.get(CUSTOMER_LOT_HISTORY_PATH, { params: { customerId: customer.id, productId: pid }, background: true })
+        .then(res => { const rows = customerLotHistoryOf(res.data?.data); setRetHistory(h => ({ ...h, [pid]: rows })); })
+        // انقطاعٌ يُعاد مع عودة الاتصال؛ ورفض الخادم (خادمٌ أقدم بلا المسار، أو الميزة أُطفئت) لا يُعاد: «تلقائي» وتشغيلات السيارة تكفي
+        .catch(err => { if (isNetworkError(err)) retAsked.current.delete(pid); });
+    }
+  }, [retPids, showCart, customer?.id, online]); // eslint-disable-line react-hooks/exhaustive-deps
+  const retOptionsOf = (l: any): ReturnLotOption[] =>
+    returnLotOptions(retHistory[l.productId] ?? null, retStored?.snap ?? null, l.productId, l.retLot ?? null);
+  /** اختيار تشغيلة السطر i — '' يعيده «تلقائي» */
+  const setRetLot = (i: number, lotId: string) => {
+    const o = lotId && lines[i] ? retOptionsOf(lines[i]).find(x => x.lotId === lotId) : undefined;
+    setLines(prev => prev.map((x, j) => (j === i ? withReturnPick(x, o ? returnLotPickOf(o) : null) : x)));
+  };
+  /** حقل lots لبند المرتجع الحرّ في الحمولة — «تلقائي» أو غير المتتبَّع أو البيع: لا مفتاح، والجسم كما كان حرفاً */
+  const retLotsOf = (l: any): { lots?: LotRef[] } => {
+    const r = retLotShown(l) ? returnLineLots(l.retLot, l) : undefined;
+    return r ? { lots: r } : {};
+  };
+
   // معاينة جدول الأقساط من الإجمالي المحليّ — والخادم يكتب الجدول الحقيقي
   // من إجماليّه هو، فتتطابق المعاينة معه ما دام الإجمالي واحداً
   const insPreview = salePlan === 'INSTALLMENT'
@@ -2762,6 +2850,8 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         // وحدة البند ولقطتها — يحفظها الصندوق الأوف‑لاين مع الجسم وتُرفع معه. بند الأساس بلا حقل: الجسم كما كان
         ...invoiceItemUnit(l),
         ...(isReturn && saleRef && l.saleItemId && { invoiceItemId: l.saleItemId }),
+        // «تتبّع اللوط»: تشغيلة سطر المرتجع الحرّ التي اختارها المندوب [{lotId, qty أساسية}] — وبلا اختيار لا مفتاح (retLotsOf)
+        ...retLotsOf(l),
       })),
       ...(deliveryDate && { deliveryDate }), // اختياري — لا يُرسل إن لم يُحدد
       // يُهمَلان في الخادم إن أُطفئت الميزة
@@ -2925,6 +3015,14 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           payload.items = lotPlan.payloadItems;
           offlineItems = lotPlan.docItems;
         }
+        // «تتبّع اللوط» — المرتجع الحرّ بتشغيلةٍ اختارها المندوب: رقمها على الورقة (بشرط lotOnInvoice) من الحمولة المصفوفة نفسها
+        if (retLotOn) {
+          const sent = payload.items as { lots?: LotRef[] }[];
+          offlineItems = offlineItems.map((it, i) => {
+            const docLots = returnPickDocLots(lines[i]?.retLot, sent[i]?.lots);
+            return docLots ? { ...it, lots: docLots } : it;
+          });
+        }
         const localNumber = 'محلي-' + clientRef.slice(0, 8).toUpperCase();
         await outboxAdd({ clientRef, repId: currentRepId(), kind: 'invoice', payload, status: 'queued', clientCreatedAt, localNumber });
         const paid = saleType === 'CASH' && !isReturn ? total : 0;
@@ -2971,6 +3069,12 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         // يخالف وضعها الآن) — تُجلب /company وكاشها الآن فتنقلب السلّة إلى الوضع الجديد (مؤثّر taxOff ⇐ repRetaxLines: عند الإزالة النسب صفر
         // وغير المعدَّل بسعره الصافي، وعند العودة نسب الأصناف وغير المعدَّل بشامله من جديد)، برسالةٍ بلا ذكرٍ للضريبة، ثم يعيد المندوب الإصدار
         if (isTaxModeChanged(err)) { onCompanyStale?.(); setMsg(tr('تغيرت إعدادات الشركة راجع الأسعار ثم أعد الإصدار')); setLoading(false); return; }
+        // «تتبّع اللوط»: تشغيلةٌ اختارها المندوب للمرتجع رفضها الخادم حيّاً (حُذفت، أو لصنفٍ آخر) — رسالته تُعرض أدناه، وسطرها يعود
+        // «تلقائي» فيُعاد الإصدار بلا نقرةٍ على المنتقي (بنود الحمولة بترتيب أسطر السلّة)
+        if (retLotOn) {
+          const j = lotRejectLine(err?.response?.data, lines.length, lines.map(x => x.retLot?.lotId));
+          if (j != null && lines[j]?.retLot) setLines(prev => prev.map((x, k) => (k === j ? withReturnPick(x, null) : x)));
+        }
         setMsg(err?.response?.data?.message || tr('تعذر إصدار المستند حاول مجددا')); setLoading(false);
       }
     }
@@ -3341,6 +3445,32 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
                   const cap = l.saleItemId ? null : lotCapOf(l.productId);
                   return cap == null ? null : (
                     <p className="mb-2 text-[11px] text-gray-500">{tr('متاح في سيارتك')} {lotQtyText(products.find(x => x.id === l.productId) ?? l, cap)}</p>
+                  );
+                })()}
+                {/* «تتبّع اللوط» — تشغيلة سطر المرتجع الحرّ، اختيارية والافتراض «تلقائي»: ما اشتراه العميل ثم ما في سيارتك. والموقوفة
+                  * والمنتهية تُختار بعلامتها (مرتجع تشغيلةٍ مسحوبة يُسجَّل فيها معزولاً). بلا خياراتٍ لا منتقي: «تلقائي» وحده */}
+                {retLotShown(l) && (() => {
+                  const opts = retOptionsOf(l);
+                  if (!opts.length) return null;
+                  const label = (o: ReturnLotOption) => [
+                    o.lotNumber,
+                    o.expiryDate ? `${tr('ينتهي')} ${lotDayText(o.expiryDate)}` : '',
+                    o.status === 'BLOCKED' ? tr(LOT_BLOCK_KIND_LABELS[o.blockKind ?? 'HOLD']) : isLotExpiredOn(o, lotToday) ? tr('منتهية') : '',
+                  ].filter(Boolean).join(' · ');
+                  const optsOf = (src: ReturnLotOption['source']) => opts.filter(o => o.source === src)
+                    .map(o => <option key={o.lotId} value={o.lotId}>{label(o)}</option>);
+                  const cust = optsOf('CUSTOMER');
+                  const van = optsOf('VAN');
+                  return (
+                    <div className="mb-2" data-rep-return-lot="">
+                      <label className="text-[10px] text-gray-400 block mb-1">{tr('التشغيلة')} ({tr('اختياري')})</label>
+                      <select className="input !py-1.5 text-sm" value={l.retLot?.lotId ?? ''} onChange={e => setRetLot(i, e.target.value)}>
+                        <option value="">{tr('تلقائي')}</option>
+                        {optsOf('PICKED')}
+                        {cust.length > 0 && <optgroup label={tr('اشتراها العميل')}>{cust}</optgroup>}
+                        {van.length > 0 && <optgroup label={tr('في سيارتك')}>{van}</optgroup>}
+                      </select>
+                    </div>
                   );
                 })()}
                 {/* المرتجع من فاتورة بيع: المتاح منها وحالة صلاحية ما بيع اليوم */}
@@ -3927,8 +4057,55 @@ function RepPinFields({ pin, onCapture, onLink }: { pin: RepPinState; onCapture:
   );
 }
 
+// ============ منع تكرار العملاء: ردّ الخادم تحت حقله ============
+/**
+ * «منع تكرار العملاء عند فتح عميل جديد» (طلب المالك ٢٣ نوفمبر ٢٠٢٦، lib/customerDedup.ts): ردّ 409 CUSTOMER_DUPLICATE يُعرض تحت الحقل
+ * المكرَّر نفسه (رقم الجوال أو الاسم أو العنوان) بإطارٍ أحمر ويُمرَّر إليه، ويزول حين يغيّر المندوب ذلك الحقل — ورسالة النموذج أسفله
+ * كما كانت. واسم العميل الآخر من الخادم وحده (لمن يراه). والإضافة دون اتصال كما هي: الخادم لا يفحص إعادة رفع الصندوق.
+ * وموضع الرفض (dupAt) مفتاح حقل النموذج الذي يُعرض تحته — حقله نفسه افتراضاً، و«اسم المنشأة» لرفض الاسم في إضافةٍ بلا اسم
+ * (customerDupFormKey) — يُثبَّت لحظة الردّ
+ */
+function useCustomerDup() {
+  const [state, setState] = useState<{ dup: CustomerDupError; at: string | null } | null>(null);
+  useEffect(() => {
+    if (!state?.at) return;
+    document.querySelector(`[data-customer-dup="${state.at}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [state]);
+  const setDup = (dup: CustomerDupError | null, at: string | null = dup?.field ?? null) => setState(dup ? { dup, at } : null);
+  /** تغيير حقلٍ يُسقط الرفض إن كان موضعَه أو الحقلَ المفحوص نفسه (كتابة اسمٍ تنقل فحص الاسم إليه من اسم المنشأة) */
+  const clearOn = (k: string) => setState(s => (s && (s.at === k || s.dup.field === k) ? null : s));
+  return { dup: state?.dup ?? null, dupAt: state?.at ?? null, setDup, clearOn };
+}
+
+/** حقلٌ يفحصه «منع تكرار العملاء» لهذا المندوب؟ (الجوال والاسم والعنوان بمفاتيح النموذج نفسها) */
+const dedupChecked = (checks: DedupChecks | undefined, key: string): boolean =>
+  !!checks && (DEDUP_FIELDS as readonly string[]).includes(key) && checks[key as keyof DedupChecks];
+
+/** حقلٌ نصّيّ في نموذجَي العميل — وتحته تلميح الحقل المفحوص، ثم رفض التكرار إن كان حقله */
+function RepCustomerInput({ label, value, onChange, dup, dupAt, dupKey, unique, opts }: {
+  label: string; value: string; onChange: (v: string) => void; dup: CustomerDupError | null;
+  /** موضع الرفض في النموذج (useCustomerDup) — يُعرض تحت هذا الحقل إن كان مفتاحَه */
+  dupAt: string | null; dupKey: string;
+  /** الحقل مفحوصٌ بـ«منع تكرار العملاء» لهذا المندوب — تلميحٌ لا يمنع (الحكم للخادم) */
+  unique?: boolean;
+  opts?: { required?: boolean; type?: string; ltr?: boolean; maxLength?: number };
+}) {
+  const tr = useTr();
+  const dupHere = !!dup && dupAt === dupKey;
+  return (
+    <div data-customer-dup={dupHere ? dupKey : undefined}>
+      <label className="label">{label}{opts?.required && ' *'}</label>
+      <input className={`input${dupHere ? ' !border-red-500' : ''}`} type={opts?.type || 'text'} dir={opts?.ltr ? 'ltr' : 'rtl'} maxLength={opts?.maxLength}
+        aria-invalid={dupHere || undefined} value={value} onChange={e => onChange(e.target.value)} />
+      {dupHere
+        ? <p className="text-red-600 text-[11px] font-semibold mt-1 leading-relaxed">{customerDupText(dup, tr)}</p>
+        : unique && <p className="text-[10px] text-gray-400 mt-1">{tr('لا يقبل إن كان مسجلا لعميل آخر في الشركة')}</p>}
+    </div>
+  );
+}
+
 // ============ إضافة عميل جديد ============
-function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = false, buyerRelax = false, prefill = null, outletTypes, taxOff = false }: { onClose: () => void; onCreated: (c: any) => void; accountingOn?: boolean; zatcaCollect?: boolean; buyerRelax?: boolean; prefill?: AiAddPrefill | null; outletTypes?: { code: string; label: string }[]; /** «إزالة الضريبة»: لا حقل «الرقم الضريبي» (فارغٌ لا يُرسل) */ taxOff?: boolean }) {
+function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = false, buyerRelax = false, prefill = null, outletTypes, taxOff = false, uniqueFields }: { onClose: () => void; onCreated: (c: any) => void; accountingOn?: boolean; zatcaCollect?: boolean; buyerRelax?: boolean; prefill?: AiAddPrefill | null; outletTypes?: { code: string; label: string }[]; /** «إزالة الضريبة»: لا حقل «الرقم الضريبي» (فارغٌ لا يُرسل) */ taxOff?: boolean; /** «منع تكرار العملاء»: الحقول المفحوصة لهذا المندوب (تلميحٌ تحتها) */ uniqueFields?: DedupChecks }) {
   const tr = useTr();
   // من محلٍّ اقترحه المندوب الذكي: اسم المنشأة وعنوانها معبّآن من خرائط Google (لا يعيد المندوب كتابتهما)
   const [form, setForm] = useState({
@@ -3953,13 +4130,19 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
   const [docs, setDocs] = useState<PickedDoc[]>([]);
   const [docsBusy, setDocsBusy] = useState(false); // الضغط جارٍ: «حفظ العميل» ينتظر الصور ثم يحفظ وحده (waitDocs)
   const [waitDocs, setWaitDocs] = useState(false);
+  // «منع تكرار العملاء»: رفض الخادم تحت حقله (ورفض الاسم في إضافةٍ بلا اسم تحت «اسم المنشأة» — ما فحصه الخادم)، ويزول بتغيير ذلك الحقل
+  const { dup, dupAt, setDup, clearOn } = useCustomerDup();
 
-  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const set = (k: string, v: string) => {
+    setForm(f => ({ ...f, [k]: v }));
+    clearOn(k);
+  };
 
   const submit = async () => {
     // «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): لا اسم مطلوب — الفارغ يأخذ في الخادم بديلاً (اسم المنشأة ثم الجوال ثم «عميل»).
     // والجوال اختياري بلا حدّ أدنى ولا صيغة (٧ نوفمبر) — الفارغ يُرسَل '' (العمود NOT NULL)، وبيانات الفوترة تلميحٌ لا يمنع (buyerHints)
     setLoading(true); setMsg('');
+    setDup(null);
     const clientCreatedAt = new Date().toISOString();
     const body = {
       name: form.name.trim(),
@@ -4008,7 +4191,11 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
         }
         onCreated({ ...custPayload, name: shownName, id: 'local-' + clientRef, clientRef, _offline: true, balance: 0, creditLimit: payload.creditLimit ?? 0, status: 'ACTIVE' });
       } else {
-        setMsg(err?.response?.data?.message || tr('تعذر إضافة العميل'));
+        // «منع تكرار العملاء» (409 CUSTOMER_DUPLICATE): تحت الحقل المكرَّر وفي رسالة النموذج، بلغة المندوب — والاسم المُرسَل فارغاً
+        // فحص الخادمُ بدله اسم المنشأة، فالرفض تحته (customerDupFormKey)
+        const d = customerDupOf(err);
+        setDup(d, customerDupFormKey(d?.field ?? null, body.name));
+        setMsg(d ? customerDupText(d, tr) : (err?.response?.data?.message || tr('تعذر إضافة العميل')));
         setLoading(false);
       }
     }
@@ -4022,12 +4209,11 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
     void submit();
   }, [docsBusy, waitDocs]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // تلميح الحقل المفحوص: «اسم المنشأة» أيضاً ما دام «اسم العميل» فارغاً — الخادم يفحصه حينها بقاعدة الاسم
+  const uniqueHere = (key: string) =>
+    dedupChecked(uniqueFields, key) || (key === 'businessName' && !form.name.trim() && dedupChecked(uniqueFields, 'name'));
   const field = (label: string, key: string, opts?: { required?: boolean; type?: string; ltr?: boolean; maxLength?: number }) => (
-    <div>
-      <label className="label">{label}{opts?.required && ' *'}</label>
-      <input className="input" type={opts?.type || 'text'} dir={opts?.ltr ? 'ltr' : 'rtl'} maxLength={opts?.maxLength}
-        value={(form as any)[key]} onChange={e => set(key, e.target.value)} />
-    </div>
+    <RepCustomerInput label={label} value={(form as any)[key]} onChange={v => set(key, v)} dup={dup} dupAt={dupAt} dupKey={key} unique={uniqueHere(key)} opts={opts} />
   );
 
   return (
@@ -4126,8 +4312,10 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
  * من المندوب. والمقيَّد بـ«البيع داخل نطاق العميل» لا يحرّك موقع العميل (يفتح البوّابة على نفسه).
  * يلزمه اتصال: تعديلٌ يُكتب فوق سجلٍّ قائم لا يُطابَق من طابور.
  */
-function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = false, buyerRelax = false, taxOff = false }: {
+function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = false, buyerRelax = false, taxOff = false, uniqueFields }: {
   customer: any; pinLocked: boolean; onClose: () => void; onSaved: (c: any) => void;
+  /** «منع تكرار العملاء»: الحقول المفحوصة لهذا المندوب حين تتغيّر قيمتها (تلميحٌ تحتها) */
+  uniqueFields?: DedupChecks;
   /** «إزالة الضريبة»: لا حقل «الرقم الضريبي»، ولا يُرسل فيبقى المحفوظ كما هو */
   taxOff?: boolean;
   /** فوترة ZATCA (Z5.1a، D2): الشركة تجمع بيانات الفوترة؟ */
@@ -4147,8 +4335,13 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
   const hasPin = customer.lat != null && customer.lng != null;
   // موقعٌ جديد يختاره المندوب (التقاطٌ دقيق أو رابط — لا يجتمعان)؛ بلا اختيارٍ لا يُرسل شيء فيبقى المحفوظ كما هو
   const { pin, capturePin, pastePinLink } = useRepPin(null);
+  // «منع تكرار العملاء»: الخادم يفحص الحقل الذي تغيّر وحده (القيمة المحفوظة كما هي لا تمنع تعديل غيرها) — رفضه تحت حقله
+  const { dup, dupAt, setDup, clearOn } = useCustomerDup();
 
-  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const set = (k: string, v: string) => {
+    setForm(f => ({ ...f, [k]: v }));
+    clearOn(k);
+  };
   // الحقل الاختياري المُفرَّغ يُرسَل null فيُمحى فعلاً، لا undefined فيبقى القديم
   const opt = (v: string) => (v.trim() ? v.trim() : null);
   // فوترة ZATCA (Z5.1a، D2): حقول المشتري للشركة الجامعة وحدها — يُرسل المتغيّر منها فقط. «بلا قيود على العميل» (أمر المالك ٩ نوفمبر
@@ -4162,6 +4355,7 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
     // والجوال اختياري بلا حدّ أدنى ولا صيغة (٧ نوفمبر) — مسحه يُرسَل '' فيُمحى فعلاً (العمود NOT NULL فلا null)، وبيانات الفوترة تلميحٌ
     // لا يمنع (buyerHints). ويبقى «المندوب يُكمل ولا يُخفّض»: الخادم يردّ 403 CUSTOMER_BUYER_REP_RESTRICTED برسالته فتظهر هنا
     setLoading(true); setMsg('');
+    setDup(null);
     const payload: Record<string, unknown> = {
       name: form.name.trim(),
       businessName: opt(form.businessName),
@@ -4182,19 +4376,18 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
       const res = await repApi.put(`/customers/${customer.id}`, payload);
       onSaved(res.data.data);
     } catch (err: any) {
+      // «منع تكرار العملاء» (409 CUSTOMER_DUPLICATE): تحت الحقل المكرَّر وفي رسالة النموذج، بلغة المندوب
+      const d = customerDupOf(err);
+      setDup(d);
       setMsg(isNetworkError(err)
         ? tr('يلزم اتصال بالإنترنت لحفظ تعديل بيانات العميل')
-        : (err?.response?.data?.message || tr('تعذر حفظ التعديل')));
+        : d ? customerDupText(d, tr) : (err?.response?.data?.message || tr('تعذر حفظ التعديل')));
       setLoading(false);
     }
   };
 
   const field = (label: string, key: string, opts?: { required?: boolean; ltr?: boolean; type?: string; maxLength?: number }) => (
-    <div>
-      <label className="label">{label}{opts?.required && ' *'}</label>
-      <input className="input" type={opts?.type || 'text'} dir={opts?.ltr ? 'ltr' : 'rtl'} maxLength={opts?.maxLength}
-        value={(form as any)[key]} onChange={e => set(key, e.target.value)} />
-    </div>
+    <RepCustomerInput label={label} value={(form as any)[key]} onChange={v => set(key, v)} dup={dup} dupAt={dupAt} dupKey={key} unique={dedupChecked(uniqueFields, key)} opts={opts} />
   );
 
   return (
@@ -4420,7 +4613,8 @@ function SimpleList({ endpoint, kind, company, onOpen }: { endpoint: string; kin
 
 // طلب بضاعة المندوب كما يعيده الخادم (/rep-stock-requests/mine): requestedQty ما كتبه، وqty ما اعتمدته الإدارة
 interface MyStockRequest {
-  id: string; status: 'PENDING' | 'SENT' | 'REJECTED'; note: string | null; updatedAt: string; decidedAt: string | null;
+  // LOADED: حمّلته الإدارة إلى سيارته مباشرة من نافذة «طلب مخزون» (٢٣ نوفمبر ٢٠٢٦)
+  id: string; status: 'PENDING' | 'SENT' | 'REJECTED' | 'LOADED'; note: string | null; updatedAt: string; decidedAt: string | null;
   /** unitName/unitFactor لقطة وحدة البند (الوحدات المتعددة) — غائبة ⇒ وحدة الأساس. `unit` وحدة السطر (لقطته وإلا وحدة الصنف)،
    * و`baseQty`/`requestedBaseQty` الكميتان بالأساس `baseUnit`، و`units` وحدات الصنف لعرضها «٢ كرتون و٣ حبة» */
   items: {
@@ -4876,8 +5070,8 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
           <span className="flex-1">{tr('طلب بضاعة قيد مراجعة الإدارة')} ({myReq.pending.items.filter(i => i.requestedQty > 0).length})</span>
         </button>
       ) : myReq?.last && myReq.last.decidedAt && Date.now() - new Date(myReq.last.decidedAt).getTime() < DECIDED_SHOWN_MS ? (
-        <div className={`mx-3 mt-3 text-xs rounded-lg px-3 py-2 ${myReq.last.status === 'SENT' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-          {myReq.last.status === 'SENT' ? tr('أرسلت الإدارة طلبك ضمن طلب المخزون') : tr('رفضت الإدارة طلبك الأخير')} · {formatDate(myReq.last.decidedAt)}
+        <div className={`mx-3 mt-3 text-xs rounded-lg px-3 py-2 ${myReq.last.status === 'REJECTED' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+          {myReq.last.status === 'LOADED' ? tr('حملت الإدارة طلبك إلى سيارتك') : myReq.last.status === 'SENT' ? tr('أرسلت الإدارة طلبك ضمن طلب المخزون') : tr('رفضت الإدارة طلبك الأخير')} · {formatDate(myReq.last.decidedAt)}
         </div>
       ) : (
         <div className="mx-3 mt-3 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">{tr('لا تملك صلاحية التحميل اطلب ما تحتاجه من زر طلب بضاعة')}</div>
@@ -5220,6 +5414,25 @@ export default function RepApp() {
       return v;
     });
   }, []);
+  // «هل ما زلت تعمل؟» (IdlePunchOutModal، طلب المالك ٢٣ نوفمبر ٢٠٢٦) — التذكير المعلّق من ردّ النبضة بعدٍّ تنازليّ إلى الانصراف
+  // التلقائي (فرق ساعة الجوال عن الخادم يُحسب لحظة استلام الردّ). النبضة لا تلغي التذكير في الخادم، فيبقى حتى يردّ المندوب — أو
+  // يلغيه الخادم بتنقّلٍ فعلي أو مستند فيأتي الردّ بلا تذكير فيُغلق قبل انقضاء العدّ (idleAfterBeat: لا عدّ إلى انصرافٍ لن يقع).
+  // handledIdle: تذكيرٌ أُجيب (بلحظة إرساله) لا يُعاد فتحه بنبضةٍ كانت في الطريق
+  const [idleReminder, setIdleReminder] = useState<IdleShown | null>(null);
+  const handledIdle = useRef(new Set<string>());
+  useEffect(() => onHeartbeat((d, beatAt) => {
+    const r = idleReminderOf(d);
+    setIdleReminder((cur) => idleAfterBeat(cur, r, beatAt, handledIdle.current));
+  }), []);
+  // النافذة تعرض نتيجة ردٍّ مرفوض (انصرافٌ تلقائي سبق، أو لا نوبة): ردّ نبضةٍ بلا تذكير لا يُخفيها قبل أن تُقرأ
+  const settleIdle = useCallback(() => setIdleReminder((cur) => (cur && !cur.settled ? { ...cur, settled: true } : cur)), []);
+  const answerIdle = (r: IdleShown, punchOut: boolean) => {
+    handledIdle.current.add(r.remindedAt);
+    setIdleReminder(null);
+    if (punchOut) setScreen('attendance'); // الانصراف العادي من شاشة البصمة — بموقعه وجهازه وقيوده
+  };
+  // تبدّل المندوب على الجوال نفسه (خروجٌ ثم دخول): تذكير صاحب الجلسة السابقة لا يُعرض على غيره
+  useEffect(() => { setIdleReminder(null); }, [user?.id]);
   const fetchPresence = useCallback(() => {
     if (!localStorage.getItem('rep_token')) return;
     repApi.get('/tracking/presence', { background: true }).then((r) => showPresence(r.data?.data)).catch(() => { /* لا طلب أو الميزة مطفأة */ });
@@ -5980,11 +6193,24 @@ export default function RepApp() {
               onClose={() => { answeredPresence.current.add(presence.id); setPresence(null); }}
               onDismiss={() => setPresence(null)} />
           )}
+          {/* «هل ما زلت تعمل؟» — بعد «أثبت تواجدك» إن اجتمعا، ولصاحب الجلسة وحده (مندوبٌ آخر دخل من الجوال نفسه لا يراه) */}
+          {idleReminder && !presence && token && user && (
+            <IdlePunchOutModal key={idleReminder.remindedAt} reminder={idleReminder}
+              onStillWorking={() => answerIdle(idleReminder, false)}
+              onPunchOut={() => answerIdle(idleReminder, true)} onSettled={settleIdle} />
+          )}
           {/* نتيجة التحصيل بالبطاقة بعد الرجوع من وحدة الدفع — فوق الشاشات، والخادم يحسم ويُصدر السند */}
           {cardPayView && token && user && (!cardPayView.pending?.repId || cardPayView.pending.repId === user.id) && (
             <CardPayResult pending={cardPayView.pending} unsupported={cardPayView.unsupported} test={company?.cardPayTest === true}
               onClose={() => { if (!cardPayView.unsupported) clearPendingCardPay(); setCardPayView(null); }}
               onDone={() => setRefreshKey((k) => k + 1)} />
+          )}
+          {/* «التعميمات» بعد الدخول وحده: فوق حاجز الموقع وتحت «أثبت تواجدك» (طلبٌ بمهلة)، وخارج غلاف الحاجز الخامل — حارس
+              طبقتها في lib/circularGate.test.ts. لا تُغلق إلا بـ«تمت القراءة»؛ ودون اتصال يُصفّ الإقرار على الجهاز ويمضي، وتعذّر الجلب = لا نافذة */}
+          {token && user && (
+            <CircularGate key={user.id} userId={user.id} offlineQueue contained zClass="z-[1350]"
+              enabled={!circularGateSkipped({ impersonationToken: isImpersonationToken(token) })}
+              fetchPending={fetchMyCirculars} ack={ackMyCircular} />
           )}
           {/* «أعد المحاولة» يجدّد القيد من الخادم أولاً: مالكٌ أطفأه لمندوبٍ عالق يرفع الحاجز بلا إغلاق التطبيق */}
           {gateShown && <LocationOffGate block={liveBlock ?? 'locating'} onRetry={async () => { await refreshUser(); return checkLocation(); }} onExit={exitCustomerScope}
@@ -6043,6 +6269,7 @@ export default function RepApp() {
               onDone={(offline) => { setModal('customerDetail'); if (offline) setRefreshKey(k => k + 1); }} />
           ) : modal === 'editCustomer' && selectedCustomer ? (
             <EditCustomer customer={selectedCustomer} pinLocked={user.requireCustomerProximity === true} zatcaCollect={zatcaCollect} buyerRelax={buyerRelax} taxOff={isTaxOff(company)}
+              uniqueFields={dedupChecksOf(user)}
               onClose={() => setModal('customerDetail')}
               onSaved={(c) => {
                 // الردّ سجلُّ العميل من الخادم؛ نُبقي ما حسبه التطبيق فوقه (الرصيد وغيره) ونحدّث الكاش
@@ -6069,6 +6296,7 @@ export default function RepApp() {
               }} />
           ) : modal === 'addCustomer' ? (
             <AddCustomer onClose={() => { setModal(null); setAiPrefill(null); }} accountingOn={accountingOn} zatcaCollect={zatcaCollect} buyerRelax={buyerRelax} taxOff={isTaxOff(company)}
+              uniqueFields={dedupChecksOf(user)}
               prefill={aiPrefill} outletTypes={aiRepOn ? OUTLET_TYPE_OPTIONS : undefined}
               onCreated={(c) => { if (aiPrefill?.aiPlaceId) markConverted(aiPrefill.aiPlaceId, c._offline ? null : c.id); setAiPrefill(null); setModal('customerDetail'); setSelectedCustomer(c); }} />
           ) : (
@@ -6129,14 +6357,14 @@ export default function RepApp() {
               <div className="flex-1 overflow-hidden">
                 {screen === 'home' && <RepHome key={refreshKey} refreshKey={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} attendanceOn={attendanceOn} aiRepOn={aiRepOn} />}
                 {screen === 'dailyreport' && <RepDailyReport key={refreshKey} onDone={() => setScreen('home')} />}
-                {screen === 'route' && <RepRouteScreen key={`route-${refreshKey}`} onBack={() => setScreen('home')} />}
+                {screen === 'route' && <RepRouteScreen key={`route-${refreshKey}`} onBack={() => setScreen('home')} onOpenCustomer={openCustomerById} accountingOn={accountingOn} />}
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" company={company} onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => { setDocBack(null); setDocResult(receiptDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => { setAiPrefill(null); setModal('addCustomer'); }} accountingOn={accountingOn} zatcaCollect={zatcaCollect} buyerRelax={buyerRelax} />}
                 {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} canRequest={(company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true} />}
                 {screen === 'fuel' && <RepFuel accountingOn={accountingOn} />}
                 {screen === 'worknum' && <RepWorkNumber />}
-                {screen === 'attendance' && <RepAttendance atCustomer={user.requirePunchAtCustomer === true} boundDevice={user.requireBoundDevice === true} presenceOn={user.requirePresenceCheck === true} />}
+                {screen === 'attendance' && <RepAttendance atCustomer={user.requirePunchAtCustomer === true} boundDevice={user.requireBoundDevice === true} presenceOn={user.requirePresenceCheck === true} idleOn={user.idlePunchOutEnabled === true} />}
                 {screen === 'airep' && aiRepOn && (
                   <AiRepBoundary onBack={() => setScreen('home')}>
                     <Suspense fallback={<p className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</p>}>

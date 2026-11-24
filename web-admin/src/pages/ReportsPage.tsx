@@ -19,10 +19,11 @@ import { filterFlat, filterNested } from '../lib/reportSearch';
 import { groupCollectionsByRep, collectionTotals, CollReceiptLike, CollRepGroup } from '../lib/collectionsByRep';
 import { companyMethodLabel } from '../lib/paymentMethodsConfig';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Download, TrendingUp, Users, UserCheck, UserX, MapPin, FileText, Search, X, Wallet, AlertTriangle, Pencil, Upload, Receipt } from 'lucide-react';
+import { Download, TrendingUp, Users, UserCheck, UserX, MapPin, FileText, Search, X, Wallet, AlertTriangle, Pencil, Upload, Receipt, ShoppingCart, Coins, Percent } from 'lucide-react';
 import { shareOrDownloadExcel, num, ExcelSheet } from '../utils/excel';
 import { mergeRuns } from '../lib/mergeRuns';
-import { attendanceDayCells, breakOf, compactMinutes, periodsOf, punchDetailRows, punchInUrl, punchOutUrl, periodOutside, placeLabel, entryLabel, type WorkPeriodLike } from '../lib/workPeriods';
+import { DEBT_AGE_BANDS, DEBT_AGE_BAND_LABELS, debtAgeParts, debtAgeSplit, debtAgeTone, debtAgingOf } from '../lib/debtAging';
+import { attendanceDayCells, breakOf, compactMinutes, periodsOf, punchDetailRows, PUNCH_DETAIL_WIDTHS, punchInUrl, punchOutUrl, periodOutside, periodAutoOut, placeLabel, entryLabel, type WorkPeriodLike } from '../lib/workPeriods';
 import { elementsToPdfBlob, downloadPdf } from '../rep/pdf';
 import toast from 'react-hot-toast';
 import { useAccountingOn } from '../components/AccountingGate';
@@ -30,8 +31,15 @@ import { baseQtyText, docQtyText, hasBigUnit } from '../lib/adminUnits';
 import { factorOf, primaryUnitOf, productQtyText, type UnitDef } from '../lib/units';
 import { LOT_BLOCK_KIND_LABELS, LOT_STATUS_LABELS, docLotsFrom, lotFlagsOf, type InvoiceItemLotDto } from '../lib/lots';
 import { docLotsText, groupLotSales, uncertainSold, type LotSalesReportDto, type LotSalesRowDto } from '../lib/invoiceLots';
+import { isTaxOff } from '../lib/taxMode';
+import { useAuthStore } from '../store/authStore';
+import PurchasesReport, { PurchasesGroupBySelect, type PurchasesExport } from '../components/reports/PurchasesReport';
+import ProfitReport, { PROFIT_GROUPS, profitGroupOf, type ProfitExport } from '../components/reports/ProfitReport';
+import TaxReport, { TAX_GROUP_OPTIONS, TAX_SEARCH_PLACEHOLDER, normalizeTaxGroupBy, type TaxExport } from '../components/reports/TaxReport';
 
-type Tab = 'sales' | 'collections' | 'balances' | 'performance';
+/* «المشتريات» و«الربح» و«الضرائب» (طلب المالك ١٧ نوفمبر ٢٠٢٦): تبويباتٌ ماليّة بعد القائمة، كلٌّ في مكوّنه (components/reports)
+ * يطلب تقريره ويسلّم الصفحة أوراق تصديره الجاهزة — فالصفحة تملك الفلاتر وزرَّي Excel/PDF وحدها */
+type Tab = 'sales' | 'collections' | 'balances' | 'performance' | 'purchases' | 'profit' | 'tax';
 
 // زيارة **مدموجة**: سجلّ المؤقّت وسجلّ الملاحظة للعميل الواحد وقفةٌ واحدة
 interface WorkVisit { customerName: string; start: string; end: string | null; durationSec: number | null; hasNote: boolean; parts: number; lat?: number | null; lng?: number | null }
@@ -59,7 +67,8 @@ interface PerfRow {
   cashSalesTotal?: number;
 }
 /** صفّ «أرصدة العملاء» — `status` (ACTIVE | INACTIVE | BLOCKED) منذ ١٣ نوفمبر ٢٠٢٦: المحظور والموقوف مدينون يدخلون الإجمالي بشارة */
-interface BalanceRow { id: string; name: string; phone: string; balance: number; creditLimit: number; status?: string }
+/** `aging` («عمر الدين»، ٢٣ نوفمبر ٢٠٢٦) يحسبه الخادم لكل مدين — يُقرأ عبر debtAgingOf (خادمٌ أقدم بلاه ⇒ عمودٌ فارغ) */
+interface BalanceRow { id: string; name: string; phone: string; balance: number; creditLimit: number; status?: string; aging?: unknown }
 interface RecvCustomer { id: string; name: string; businessName: string | null; phone: string; city: string | null; balance: number; lastPaymentAt: string | null }
 interface RecvRow { id: string; name: string; customersCount: number; debtorsCount: number; totalBalance: number; customers: RecvCustomer[] }
 interface CustVisit { id: string; customerId: string; customerName: string; repName: string; teamName?: string | null; createdAt: string; durationSec: number | null; note: string; mapsUrl: string }
@@ -132,7 +141,6 @@ export default function ReportsPage() {
   const { on: accountingOn, ready: accountingReady } = useAccountingOn();
 
   const [tabState, setTab] = useState<Tab>('sales');
-  const tab: Tab = accountingOn ? tabState : (tabState === 'sales' || tabState === 'collections' ? 'balances' : tabState);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [groupBy, setGroupBy] = useState('rep');
@@ -163,9 +171,31 @@ export default function ReportsPage() {
   // نوع تقرير المبيعات: التجميعة كما كانت، أو قائمة الطلبات (فواتير بتاريخ تسليم)
   const companyQ = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { attendanceEnabled?: boolean; paymentMethodsConfig?: unknown; lotTrackingEnabled?: boolean; lotOnInvoice?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { attendanceEnabled?: boolean; paymentMethodsConfig?: unknown; lotTrackingEnabled?: boolean; lotOnInvoice?: boolean; warehouseEnabled?: boolean; taxDisabled?: boolean } | null,
     staleTime: 300_000,
   });
+  /* التبويبات الماليّة الجديدة تتبع المحاسبة كالمبيعات، و«المشتريات» تزيد مخزونَ الشركة وصلاحيةَ المستودع (حرّاس خادمها نفسها:
+   * WAREHOUSE_NOT_ENABLED وcanManageVanStock)، و«الضرائب» تُخفى لشركةٍ أزالت ضريبتها. تبويبٌ محفوظ لم يعد مسموحاً يسقط إلى العملاء */
+  const me = useAuthStore(s => s.user);
+  const purchasesOn = accountingOn && companyQ.data?.warehouseEnabled === true && me?.canManageVanStock !== false;
+  /* «الربح» بشرطَي المشتريات نفسيهما: تكلفته من وارد المستودع المسعَّر وحده (أو لقطات الدفاتر المبنية عليه)، فشركةٌ بلا «مخزون
+   * الشركة» (الافتراضي) يصير كل صنفٍ فيها «بلا تكلفة» وهامشها ١٠٠٪ بإرشادٍ لا يُنفَّذ (صفحتا المستودع والموردين مخفيّتان)؛ وتكلفة
+   * كل صنف ÷ كميته تكلفة شراء الوحدة، فبصلاحية المستودع (الخادم يردّ ٤٠٣ بحارس المشتريات والضرائب نفسه canSeePurchaseCost) */
+  const profitOn = accountingOn && companyQ.data?.warehouseEnabled === true && me?.canManageVanStock !== false;
+  const taxOn = accountingOn && !!companyQ.data && !isTaxOff(companyQ.data);
+  const tabAllowed = (t: Tab) => t === 'purchases' ? purchasesOn : t === 'profit' ? profitOn : t === 'tax' ? taxOn
+    : t === 'sales' || t === 'collections' ? accountingOn : true;
+  const tab: Tab = tabAllowed(tabState) ? tabState : 'balances';
+  // «تجميع حسب» لكل تبويبٍ جديد بحالته: تجميع المبيعات المشترك افتراضيّه المندوب وفيه القناة والمنطقة اللتان لا تعرفها هذه التقارير
+  const [purchGroupBy, setPurchGroupBy] = useState('vendor');
+  const [profitGroupBy, setProfitGroupBy] = useState('product');
+  const [taxGroupBy, setTaxGroupBy] = useState('month');
+  // أوراق التصدير الجاهزة من مكوّن التبويب النشط (null بلا صفوف أو بعد الخروج منه) — Excel وPDF منها معاً
+  const [purchExport, setPurchExport] = useState<PurchasesExport | null>(null);
+  const [profitExport, setProfitExport] = useState<ProfitExport | null>(null);
+  const [taxExport, setTaxExport] = useState<TaxExport | null>(null);
+  const slicedExport = tab === 'purchases' ? purchExport : tab === 'profit' ? profitExport : tab === 'tax' ? taxExport : null;
+  const slicedTab = tab === 'purchases' || tab === 'profit' || tab === 'tax';
   /* «تتبّع اللوط» (ميزةٌ يفعّلها المالك): تقرير «المبيعات حسب التشغيلة» وتشغيلات بنود المرتجع — مطفأةً لا خيار ولا عمود ولا
    * طلب (§١٠.١)، ونوعٌ محفوظ «حسب التشغيلة» يسقط إلى التجميعة */
   const lotOn = lotFlagsOf(companyQ.data).on;
@@ -188,6 +218,9 @@ export default function ReportsPage() {
     ] : []),
     { id: 'balances', label: tr('العملاء'), icon: Users },
     { id: 'performance', label: tr('أداء المناديب'), icon: UserCheck },
+    ...(purchasesOn ? [{ id: 'purchases' as Tab, label: tr('المشتريات'), icon: ShoppingCart }] : []),
+    ...(profitOn ? [{ id: 'profit' as Tab, label: tr('الربح'), icon: Coins }] : []),
+    ...(taxOn ? [{ id: 'tax' as Tab, label: tr('الضرائب'), icon: Percent }] : []),
   ];
 
   /* البند ٩: بلا مدى يقصر الخادم المبيعات على تسعين يوماً — والتجميعات مصفوفاتٌ لا تحمل ذلك، فالمدى المطبَّق في `meta`
@@ -649,6 +682,8 @@ export default function ReportsPage() {
 
   // يبني أوراق بيانات التبويب النشط (مشتركة بين Excel وPDF)
   const buildSheets = (): { sheets: ExcelSheet[]; fname: string } | null => {
+    // المشتريات والربح والضرائب: أوراق مكوّنها كما سلّمها (المعروض بعد البحث، بترتيب أعمدة الشاشة، والمبالغ أرقام)
+    if (slicedTab) return slicedExport ? { sheets: slicedExport.sheets, fname: slicedExport.fname } : null;
     let sheets: ExcelSheet[] | null = null;
     let fname = tr('تقرير');
     if (tab === 'performance' && perfType === 'hours' && hoursRows?.length) {
@@ -689,7 +724,7 @@ export default function ReportsPage() {
         })), colWidths: [22, 12, 12, 14, 12, 14, 12, 18, 18] },
         { name: tr('الحضور اليومي'), rows: daily.rows, merges: daily.merges, colWidths: [22, 12, 12, 12, 30, 10, 14, 14, 12, 16] },
         ...(punches.rows.length ? [{ name: tr('تفاصيل البصمات'), rows: punches.rows, merges: punches.merges,
-          colWidths: [22, 12, 10, 42, 10, 42, 12], pdfLinkLabel: tr('فتح الخريطة') }] : []),
+          colWidths: [22, ...PUNCH_DETAIL_WIDTHS], pdfLinkLabel: tr('فتح الخريطة') }] : []),
         { name: tr('تفاصيل الزيارات'), rows: visits.rows, merges: visits.merges, colWidths: [22, 12, 24, 34, 12, 12, 12, 12, 16] },
       ];
       fname = tr('ساعات العمل');
@@ -848,10 +883,39 @@ export default function ReportsPage() {
       fname = tr('زيارات العملاء');
     } else if (tab === 'balances' && custType === 'balances' && balanceRows?.length) {
       // «الحالة» آخر الأعمدة (البند ٢): المحظور والموقوف داخل الإجمالي فيُعرفان في الملف — وردٌّ أقدم بلا الحالة ⇒ الملف كما كان
-      sheets = [{ name: tr('أرصدة العملاء'), rows: balanceRows.map(c => ({
-        [tr('العميل')]: c.name, [tr('الجوال')]: c.phone, [tr('الرصيد')]: num(c.balance), [tr('الحد الائتماني')]: num(c.creditLimit),
-        ...(balHasStatus && { [tr('الحالة')]: tr(customerStatusLabel(c.status)) }),
-      })), colWidths: balHasStatus ? [24, 16, 14, 16, 12] : [24, 16, 14, 16] }];
+      // «عمر الدين» بعد الحد الائتماني كالشاشة: الأيام وأقدم يوم والتأخّر ثم الشرائح بمبالغها (مجموعها = الرصيد) — وخادمٌ أقدم
+      // بلا الحقل ⇒ الملف كما كان بلا أعمدتها
+      const balHasAging = balanceRows.some(c => debtAgingOf(c) != null);
+      sheets = [{ name: tr('أرصدة العملاء'), rows: balanceRows.map(c => {
+        const a = debtAgingOf(c);
+        return {
+          [tr('العميل')]: c.name, [tr('الجوال')]: c.phone, [tr('الرصيد')]: num(c.balance), [tr('الحد الائتماني')]: num(c.creditLimit),
+          ...(balHasAging && {
+            [tr('عمر الدين (يوم)')]: a?.ageDays ?? '',
+            [tr('أقدم دين منذ')]: a?.oldestDay ?? '',
+            [tr('أيام التأخير')]: a ? a.overdueDays : '',
+            [tr('المتأخر عن السداد')]: num(a?.overdueAmount ?? 0),
+            ...Object.fromEntries(DEBT_AGE_BANDS.map(k => [tr(DEBT_AGE_BAND_LABELS[k]), num(a?.bands[k] ?? 0)])),
+            [tr('بلا تاريخ')]: num(a?.undated ?? 0),
+          }),
+          ...(balHasStatus && { [tr('الحالة')]: tr(customerStatusLabel(c.status)) }),
+        };
+      }), colWidths: [24, 16, 14, 16, ...(balHasAging ? [14, 14, 12, 16, 14, 14, 14, 16, 12] : []), ...(balHasStatus ? [12] : [])],
+      // PDF: أعمدة Excel الأربعة عشر على عرض الصفحة تكسر الأرقام في منتصفها — فيُطبع العمر وتأخّره ومبلغه، والشرائح نصّاً واحداً
+      // ينكسر بين الكلمات لا داخل الأرقام (تسعة أعمدة كحدٍّ أقصى)
+      ...(balHasAging && { pdfRows: balanceRows.map(c => {
+        const a = debtAgingOf(c);
+        return {
+          [tr('العميل')]: c.name, [tr('الجوال')]: c.phone, [tr('الرصيد')]: num(c.balance), [tr('الحد الائتماني')]: num(c.creditLimit),
+          [tr('عمر الدين (يوم)')]: a ? (a.ageDays ?? tr('بلا تاريخ')) : '',
+          [tr('أيام التأخير')]: a ? a.overdueDays : '',
+          [tr('المتأخر عن السداد')]: num(a?.overdueAmount ?? 0),
+          [tr('توزيع الأعمار')]: a ? debtAgeParts(a).map(p => `${tr(p.label)}: ${num(p.amount)}`).join(' · ') : '',
+          ...(balHasStatus && { [tr('الحالة')]: tr(customerStatusLabel(c.status)) }),
+        };
+      }),
+      // العميل، الجوال (جوالٌ دوليّ كاملاً بلا انكسار)، الرصيد، الحد، العمر، أيام التأخير، المتأخّر، توزيع الأعمار (نصٌّ ينكسر بين كلماته)، الحالة
+      pdfColWidths: [17, 14, 10, 9, 6, 6, 9, 21, ...(balHasStatus ? [8] : [])] }) }];
       if (balanceTotal) sheets.unshift({ name: tr('الإجمالي'), rows: [{
         [tr('إجمالي مديونية الشركة')]: num(balanceTotal.total), [tr('عدد العملاء المدينين')]: balanceTotal.count,
       }], colWidths: [28, 20] });
@@ -912,6 +976,7 @@ export default function ReportsPage() {
         : salesType === 'returns' ? returnsQ.data?.applied : lotSalesQ.data?.applied)
       : tab === 'performance' && perfType === 'hours' ? hoursData?.applied
       : tab === 'performance' && perfType === 'ranking' ? rankingQ.data?.applied
+      : slicedTab ? slicedExport?.applied
       : null
   ) ?? null;
   /* البند ٧: قصّ سقف الأمان للتقرير المعروض نصّاً — تنبيه الشاشة نفسه يُطبع تحت رأس PDF ويُكتب في ورقة «الفترة»، فلا يخرج
@@ -930,6 +995,8 @@ export default function ReportsPage() {
           : perfType === 'ranking' ? truncText(rankingQ.data?.trunc, 'newest')
           : null)
         : tab === 'balances' && custType === 'visits' ? truncText(visitsData?.trunc, 'newest')
+        // المشتريات والربح والضرائب: ملاحظة ملف مكوّنها (تنبيه القصّ، ومصدر التكلفة، وسبب غياب المدخلات)
+        : slicedTab ? (slicedExport?.note ?? null)
         : null;
   /* تنبيهات الشاشة لكل تقرير (البندان ٩ و٧) بلون تنبيه التسعين يوماً القائم: النافذة الافتراضية بتاريخيها كما طبّقها الخادم،
    * وخادمٌ أقدم بلا المدى المُعلَن ⇒ تنبيه المرتجع والتشغيلات القائم كما كان (والطلبات بعَلَمها القائم rangeApplied) */
@@ -972,7 +1039,8 @@ export default function ReportsPage() {
   // «ورقة لكل فريق»: أوراق المستندات تُقسَم بعمود الفريق (lib/teamReport.ts) — حين لا فلتر فريق
   const exportSheets = (sheets: ExcelSheet[]) => (teamsOn && !teamFilter && splitByTeam ? splitSheetsByTeam(sheets, tr('الفريق')) : sheets);
   // أرصدة العملاء لا تنقسم بالفريق (العملاء مشتركون) — فلا يُكتب اسم فريقٍ على ملفٍ لم يُفلتر به
-  const exportTeamName = tab === 'balances' && custType !== 'visits' ? '' : teamFilterName;
+  // والمشتريات والضرائب لا فريق لها (الفلتر مخفيّ فيهما)
+  const exportTeamName = (tab === 'balances' && custType !== 'visits') || tab === 'purchases' || tab === 'tax' ? '' : teamFilterName;
   const withTeam = (name: string) => (exportTeamName ? `${name} - ${exportTeamName}` : name);
   const handleExport = async () => {
     const built = buildSheets();
@@ -1007,7 +1075,9 @@ export default function ReportsPage() {
     };
     const els: HTMLElement[] = [];
     let firstEl = true;
-    for (const sh of sheets) {
+    for (const sheet of sheets) {
+      // ورقةٌ لها صفوف PDF أضيق (pdfRows) تُطبع بها — Excel يبقي الأعمدة كاملة
+      const sh = sheet.pdfRows ? { ...sheet, rows: sheet.pdfRows } : sheet;
       const cols = (sh.rows.length ? Object.keys(sh.rows[0]) : []).filter(c => c !== linksCol);
       const thead = `<tr>${cols.map(c => `<th style="border:1px solid #ddd;padding:6px 8px;background:#FAF7F0;font-size:11px;text-align:right;font-weight:700">${esc(c)}</th>`).join('')}</tr>`;
       // كل شريحة صفحةٌ مستقلّة تحمل رأس الجدول ثانيةً، فلا تُقرأ الأرقام بلا عناوينها
@@ -1029,7 +1099,11 @@ export default function ReportsPage() {
             return td(m.value, Math.min(m.to, i + ROWS_PER_SLICE - 1) - top + 1);
           }).join('')}</tr>`;
         }).join('');
-        const inner = `<h3 style="font-size:13px;margin:16px 0 6px;color:#1F1A13">${esc(sh.name)}${cont}</h3><table style="width:100%;border-collapse:collapse;table-layout:fixed">${thead}${tbody}</table>`;
+        // عروضٌ نسبية للأعمدة إن طلبتها الورقة (pdfColWidths بعدد الأعمدة)، وإلا متساوية كما كانت
+        const w = sh.pdfColWidths && sh.pdfColWidths.length === cols.length && sh.pdfColWidths.every(x => x > 0) ? sh.pdfColWidths : null;
+        const wSum = w ? w.reduce((a, b) => a + b, 0) : 0;
+        const colgroup = w ? `<colgroup>${w.map(x => `<col style="width:${((x / wSum) * 100).toFixed(2)}%">`).join('')}</colgroup>` : '';
+        const inner = `<h3 style="font-size:13px;margin:16px 0 6px;color:#1F1A13">${esc(sh.name)}${cont}</h3><table style="width:100%;border-collapse:collapse;table-layout:fixed">${colgroup}${thead}${tbody}</table>`;
         els.push(wrap(inner, firstEl));
         firstEl = false;
       }
@@ -1087,7 +1161,7 @@ export default function ReportsPage() {
     const [daily, visits] = repHoursSheets(r);
     const p = punchDetailRows([r], false, dayCellFx);
     return p.rows.length
-      ? [daily, { name: tr('تفاصيل البصمات'), rows: p.rows, merges: p.merges, colWidths: [12, 10, 42, 10, 42, 12], pdfLinkLabel: tr('فتح الخريطة') }, visits]
+      ? [daily, { name: tr('تفاصيل البصمات'), rows: p.rows, merges: p.merges, colWidths: [...PUNCH_DETAIL_WIDTHS], pdfLinkLabel: tr('فتح الخريطة') }, visits]
       : [daily, visits];
   };
   const exportRepPerf = async (r: PerfRow) => {
@@ -1136,7 +1210,7 @@ export default function ReportsPage() {
       <div className="page-header">
         <h1 className="page-title">{tr('التقارير')}</h1>
         <div className="flex items-center gap-2 flex-wrap">
-          {teamsOn && !teamFilter && (
+          {teamsOn && !teamFilter && !slicedTab && (
             <label className="flex items-center gap-1.5 text-xs text-[#6E6557] cursor-pointer" title={tr('أوراق المستندات تقسم ورقة لكل فريق')}>
               <input type="checkbox" checked={splitByTeam} onChange={e => setSplitByTeam(e.target.checked)} className="w-4 h-4 accent-[#E15A30]" />
               {tr('ورقة لكل فريق')}
@@ -1148,7 +1222,7 @@ export default function ReportsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-4 bg-white rounded-xl p-1 border border-gray-100 w-fit">
+      <div className="flex flex-wrap gap-1 mb-4 bg-white rounded-xl p-1 border border-gray-100 w-fit max-w-full">
         {tabs.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${tab === t.id ? 'bg-[#E15A30] text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
@@ -1176,7 +1250,8 @@ export default function ReportsPage() {
             <p className="text-xs text-gray-400 pb-2">{tr('الأرصدة لحظية تعكس وضع المديونية الآن لا فترة محددة')}</p>
           )}
           {/* «فرق العمل»: الفريق — المستندات بوسمها والمناديب بعضويتهم؛ أرصدة العملاء لا تنقسم (العملاء مشتركون) */}
-          {teamsOn && !(tab === 'balances' && custType !== 'visits') && (
+          {/* والمشتريات (حركات مستودع الشركة) والضرائب (إقرار الشركة كلها) بلا فريق — والربح يقبله بوسم الفاتورة كالمبيعات */}
+          {teamsOn && !(tab === 'balances' && custType !== 'visits') && tab !== 'purchases' && tab !== 'tax' && (
             <div>
               <label className="label">{tr('الفريق')}</label>
               <select className="input w-44" value={teamFilter} onChange={e => setTeamFilter(e.target.value)}>
@@ -1196,7 +1271,8 @@ export default function ReportsPage() {
                   className="input ps-9 pe-8 w-full"
                   value={search}
                   onChange={e => setSearch(e.target.value)}
-                  placeholder={tr('اسم العميل أو المندوب')} />
+                  placeholder={tab === 'purchases' ? tr('اسم المورد أو الصنف') : tab === 'profit' ? tr('اسم الصنف أو العميل أو المندوب')
+                    : tab === 'tax' ? tr(TAX_SEARCH_PLACEHOLDER) : tr('اسم العميل أو المندوب')} />
                 {search && (
                   <button type="button" onClick={() => setSearch('')} title={tr('مسح البحث')}
                     className="absolute top-1/2 -translate-y-1/2 end-2 text-gray-400 hover:text-gray-600">
@@ -1260,12 +1336,30 @@ export default function ReportsPage() {
               </select>
             </div>
           )}
+          {tab === 'purchases' && <PurchasesGroupBySelect value={purchGroupBy} onChange={setPurchGroupBy} />}
+          {tab === 'profit' && (
+            <div>
+              <label className="label">{tr('تجميع حسب')}</label>
+              <select className="input w-36" value={profitGroupOf(profitGroupBy)} onChange={e => setProfitGroupBy(e.target.value)}>
+                {PROFIT_GROUPS.map(g => <option key={g.id} value={g.id}>{tr(g.label)}</option>)}
+              </select>
+            </div>
+          )}
+          {tab === 'tax' && (
+            <div>
+              <label className="label">{tr('تجميع حسب')}</label>
+              <select className="input w-44" value={normalizeTaxGroupBy(taxGroupBy)} onChange={e => setTaxGroupBy(e.target.value)}>
+                {TAX_GROUP_OPTIONS.map(g => <option key={g.value} value={g.value}>{tr(g.label)}</option>)}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
       {/* حصيلة البحث: بلا هذا السطر يبدو الفراغُ الناتج عن بحثٍ ضيّق كأنه
           غيابُ بيانات — وهي رسالةٌ مختلفة تماماً تدفع المشرف لمطاردة عطلٍ لا وجود له. */}
-      {q && (() => {
+      {/* المشتريات والربح والضرائب تعرض حصيلة بحثها في مكوّنها («لا نتائج مطابقة للبحث») ومجاميعها تتبع المعروض */}
+      {q && !slicedTab && (() => {
         const shown = tab === 'sales' ? (salesType === 'orders' ? orderRows.length : salesType === 'returns' ? returnRows.length : salesType === 'lots' ? lotSalesRows.length : (Array.isArray(salesRows) ? salesRows.length : 0))
           : tab === 'collections' ? collRepShown.length
           : tab === 'balances' ? (custType === 'visits' ? custGroups.length : custType === 'unvisited' ? unvisitedRows.length : balanceRows.length)
@@ -1754,7 +1848,7 @@ export default function ReportsPage() {
           <div className="table-wrapper">
             <table className="table">
               <thead>
-                <tr><th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('الرصيد')}</th><th>{tr('الحد الائتماني')}</th><th>{tr('نسبة الاستخدام')}</th></tr>
+                <tr><th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('الرصيد')}</th><th>{tr('الحد الائتماني')}</th><th title={tr('من أقدم دين لم يسدد بعد احتساب السندات والمرتجعات، وتوزيع الرصيد على أعمار الديون')}>{tr('عمر الدين')}</th><th>{tr('نسبة الاستخدام')}</th></tr>
               </thead>
               <tbody>
                 {balanceRows.map(c => (
@@ -1773,6 +1867,35 @@ export default function ReportsPage() {
                       {formatCurrency(c.balance)}
                     </td>
                     <td className="text-gray-500">{formatCurrency(c.creditLimit)}</td>
+                    {/* «عمر الدين»: من أقدم دينٍ قائم (الخادم يطابق الفواتير المفتوحة برصيد العميل)، وتأخّره عن مهلة السداد، وتوزيع
+                      * الرصيد على الأعمار حين يقع في أكثر من شريحة — مجموع الشرائح = الرصيد في الصفّ نفسه */}
+                    <td className="min-w-[150px]">
+                      {(() => {
+                        const a = debtAgingOf(c);
+                        if (!a) return <span className="text-gray-300">—</span>;
+                        const tone = debtAgeTone(a);
+                        return (
+                          <div className="leading-tight">
+                            <span className={`font-semibold tabular-nums ${tone === 'bad' ? 'text-red-600' : tone === 'warn' ? 'text-amber-600' : 'text-gray-700'}`}>
+                              {a.ageDays == null ? tr('بلا تاريخ') : `${formatNumber(a.ageDays)} ${tr('يوماً')}`}
+                            </span>
+                            {a.oldestDay && <span className="block text-[11px] text-gray-400">{tr('منذ')} {formatDayOnly(a.oldestDay)}</span>}
+                            {a.overdueDays > 0 && (
+                              <span className="block text-[11px] text-red-500">{tr('متأخر عن السداد')} {formatNumber(a.overdueDays)} {tr('يوماً')}</span>
+                            )}
+                            {debtAgeSplit(a) && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {debtAgeParts(a).map(p => (
+                                  <span key={p.key} className={`rounded px-1.5 py-px text-[10px] whitespace-nowrap ${p.key === 'd90_plus' ? 'bg-[#FBEAE7] text-[#B42318]' : 'bg-gray-100 text-gray-600'}`}>
+                                    {tr(p.label)}: <b className="tabular-nums">{formatCurrency(p.amount)}</b>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td>
                       {Number(c.creditLimit) > 0 && (
                         <div className="flex items-center gap-2">
@@ -2195,6 +2318,13 @@ export default function ReportsPage() {
                                           {p.source === 'PUNCH' && (p.edited || (p.entry && p.entry !== 'APP')) && (
                                             <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">{entryLabel(p, tr)}</span>
                                           )}
+                                          {/* «انصراف تلقائي»: سجّله النظام بوقت آخر نشاطٍ سبق تذكير خمولٍ لم يُلغَ — لا بصمة المندوب */}
+                                          {periodAutoOut(p) && (
+                                            <span data-auto-checkout className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800"
+                                              title={tr('سجله النظام بوقت آخر نشاط للمندوب قبل تذكير خمول لم يلغه ما زلت أعمل ولا تنقل ولا مستند')}>
+                                              {tr('انصراف تلقائي')}
+                                            </span>
+                                          )}
                                         </span>
                                       </Fragment>
                                     ))}
@@ -2407,6 +2537,18 @@ export default function ReportsPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* المشتريات والربح والضرائب — المكوّن يُركَّب للتبويب النشط وحده فلا يُطلب تقريرٌ غير ظاهر، ويمسح أوراق تصديره عند الخروج */}
+      {tab === 'purchases' && (
+        <PurchasesReport from={from} to={to} search={search} groupBy={purchGroupBy} onExport={setPurchExport} />
+      )}
+      {tab === 'profit' && (
+        <ProfitReport from={from} to={to} search={search} groupBy={profitGroupBy} teamId={teamFilter || undefined}
+          onExportRows={setProfitExport} enabled={accountingReady && profitOn} />
+      )}
+      {tab === 'tax' && (
+        <TaxReport from={from} to={to} search={search} groupBy={taxGroupBy} onExportRows={setTaxExport} enabled={accountingReady && taxOn} />
       )}
     </div>
   );

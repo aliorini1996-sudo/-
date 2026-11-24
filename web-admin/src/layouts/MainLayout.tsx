@@ -1,9 +1,12 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import { PhoneCall, Fuel, LayoutDashboard, Users, Package, UserCheck, FileText, Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap, CreditCard, ClipboardCheck, Landmark, Sparkles, Wallet, MapPinned, Layers, Trash2, Archive, Handshake } from 'lucide-react';
-import { useAuthStore } from '../store/authStore';
+import { PhoneCall, Fuel, LayoutDashboard, Users, Package, UserCheck, FileText, Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap, CreditCard, ClipboardCheck, Landmark, Sparkles, Wallet, MapPinned, Layers, Trash2, Archive, Handshake, BrainCircuit } from 'lucide-react';
+import { useAuthStore, isStaffImpersonationClient } from '../store/authStore';
+import { isImpersonationToken } from '../store/sessionAdoption';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { companyApi } from '../api/client';
+import api, { companyApi } from '../api/client';
+import CircularGate from '../components/circulars/CircularGate';
+import { CIRCULAR_ACK_TIMEOUT_MS, CIRCULAR_FETCH_TIMEOUT_MS, circularGateSkipped } from '../lib/circularGate';
 import { setActiveCurrency, setActiveNumerals } from '../utils/format';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import OwnerPurgeModal, { isOwnerIssuedSession } from '../components/OwnerPurgeModal';
@@ -25,7 +28,8 @@ import { useLiveInvoiceUpdates } from '../lib/liveInvoices';
 // و«طرق الدفع» كذلك: أرقامها كلها من سندات القبض وفواتير البيع النقدي.
 // و«لوكيشن» كذلك: ما تختمه وتجمعه فواتيرُ وتحميلات سيارات — والخادم يردّها ACCOUNTING_NOT_ALLOWED قبل عَلَمها.
 // و«تتبّع اللوط» كذلك: أرصدة المستودع والسيارات وفواتير العملاء — وrequireLots يفحص المحاسبة قبل عَلَمه.
-const ACCOUNTING_PAGES = ['/app/products', '/app/van-stock', '/app/warehouse', '/app/suppliers', '/app/invoices', '/app/receipts', '/app/paylink', '/app/payment-methods', '/app/locations', '/app/lots'];
+// و«المحاسب الذكي» كذلك: تقاريره وقيوده كلها مالية — وrequireAiAccountant يفحص المحاسبة قبل عَلَمه.
+const ACCOUNTING_PAGES = ['/app/products', '/app/van-stock', '/app/warehouse', '/app/suppliers', '/app/invoices', '/app/receipts', '/app/paylink', '/app/payment-methods', '/app/locations', '/app/lots', '/app/ai-accountant'];
 
 const navItems = [
   { to: '/app', icon: LayoutDashboard, label: 'nav.dashboard', exact: true, permission: 'canAccessDashboard' },
@@ -50,6 +54,10 @@ const navItems = [
   { to: '/app/reports', icon: BarChart3, label: 'nav.reports', permission: 'canViewReports' },
   // الدفاتر: بلا permission عامّ (قاعدته `!== false` تحجب المالك) — يُفحص بـcanLedger في الفلتر
   { to: '/app/ledger', icon: Landmark, label: 'nav.ledger' },
+  // «المحاسب الذكي AI» تحت «الدفاتر» مباشرة (قرار المالك) بصلاحية التقارير: يظهر حين يفعّله المالك للشركة (aiAccountantEnabled === true)
+  // ولا يظهر للمقيَّد النطاق (إلا في جلسة المالك): الخادم يرفضه AI_ACCOUNTANT_SCOPED — أرقامه على مستوى الشركة كلها؛
+  // ومن الصفحات المحاسبية: requireAiAccountant يردّ ACCOUNTING_NOT_ALLOWED قبل عَلَمه
+  { to: '/app/ai-accountant', icon: BrainCircuit, label: 'nav.aiAccountant', permission: 'canViewReports' },
   { to: '/app/company-users', icon: UserCog, label: 'nav.companyUsers', permission: 'canManageCompanyUsers' },
   { to: '/app/erp', icon: DatabaseZap, label: 'nav.erp', permission: 'canManageCompanySettings' },
   // لا يظهر للمستخدم المقيَّد النطاق (إلا في جلسة المالك): إعداداته وتعلّمه تحتاج صلاحية غير مقيدة والخادم يرفضها
@@ -60,8 +68,17 @@ const navItems = [
   { to: '/app/company', icon: Building2, label: 'nav.company', permission: 'canManageCompanySettings' },
 ];
 
+// «التعميمات» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): تعميمات مستخدمي الشركة المعلّقة لي وإقرار قراءتها — دالّتان ثابتتا الهوية، بمهلة
+// (عميل اللوحة بلا مهلة: إقرارٌ معلّق كان يُبقي النافذة على «جار الحفظ» — بالمهلة رسالةٌ وإعادة)
+const fetchMyCirculars = async (): Promise<unknown> => (await api.get('/circulars/pending', { timeout: CIRCULAR_FETCH_TIMEOUT_MS })).data?.data;
+const ackMyCircular = (id: string) => api.post(`/circulars/${encodeURIComponent(id)}/ack`, undefined, { timeout: CIRCULAR_ACK_TIMEOUT_MS });
+
 export default function MainLayout() {
   const { user, token, logout, impersonating, stopImpersonating } = useAuthStore();
+  // بوّابة «تمت القراءة» لموظف الشركة وحده — لا لجلسة «دخول» المالك أو موظف المنصة (الخادم يردّها [] ويرفض إقرارها 403)
+  const circularsOn = !!token && !!user && !circularGateSkipped({
+    role: user.role, impersonating, staffImpersonation: isStaffImpersonationClient(), impersonationToken: isImpersonationToken(token),
+  });
   const [purgeOpen, setPurgeOpen] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const t = useT();
@@ -72,7 +89,7 @@ export default function MainLayout() {
   // ضبط عملة العرض من إعدادات دولة الشركة (تُطبَّق على كل شاشات لوحة الأدمن)
   const { data: companyCfg } = useQuery({
     queryKey: ['company'],
-    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; logo?: string | null; erpEnabled?: boolean; petroappEnabled?: boolean; hatifEnabled?: boolean; paylinkEnabled?: boolean; warehouseEnabled?: boolean; accountingEnabled?: boolean; dailyReportEnabled?: boolean; accountingSuiteEnabled?: boolean; ledgerRetentionActive?: boolean; aiRepEnabled?: boolean; apiEnabled?: boolean; locationsEnabled?: boolean; paymentMethodsEnabled?: boolean; lotTrackingEnabled?: boolean } | null,
+    queryFn: async () => (await companyApi.get()).data.data as { currency?: string; logo?: string | null; erpEnabled?: boolean; petroappEnabled?: boolean; hatifEnabled?: boolean; paylinkEnabled?: boolean; warehouseEnabled?: boolean; accountingEnabled?: boolean; dailyReportEnabled?: boolean; accountingSuiteEnabled?: boolean; ledgerRetentionActive?: boolean; aiRepEnabled?: boolean; apiEnabled?: boolean; locationsEnabled?: boolean; paymentMethodsEnabled?: boolean; lotTrackingEnabled?: boolean; aiAccountantEnabled?: boolean } | null,
     staleTime: 300_000,
   });
   useEffect(() => {
@@ -137,7 +154,7 @@ export default function MainLayout() {
 
         {/* Nav */}
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false) && (item.to !== '/app/petroapp' || companyCfg?.petroappEnabled === true) && (item.to !== '/app/ai-rep' || (companyCfg?.aiRepEnabled === true && (user?.scopeEnabled !== true || !!impersonating))) && (item.to !== '/app/hatif' || companyCfg?.hatifEnabled === true) && (item.to !== '/app/paylink' || companyCfg?.paylinkEnabled === true) && ((item.to !== '/app/warehouse' && item.to !== '/app/suppliers') || companyCfg?.warehouseEnabled === true) && (item.to !== '/app/lots' || companyCfg?.lotTrackingEnabled === true) && (item.to !== '/app/daily-reports' || companyCfg?.dailyReportEnabled === true) && (item.to !== '/app/payment-methods' || companyCfg?.paymentMethodsEnabled === true) && (item.to !== '/app/locations' || (companyCfg?.locationsEnabled === true && locationsPageAllowed(user, !!impersonating))) &&(!ACCOUNTING_PAGES.includes(item.to) || companyCfg?.accountingEnabled !== false) && (item.to !== '/app/ledger' || (((companyCfg?.accountingSuiteEnabled === true && companyCfg?.accountingEnabled !== false) || companyCfg?.ledgerRetentionActive === true) && canLedger(user, 'canViewLedger')))).map(item => (
+          {navItems.filter(item => (!item.permission || user?.[item.permission as keyof typeof user] !== false) && (item.to !== '/app/erp' || companyCfg?.erpEnabled !== false) && (item.to !== '/app/petroapp' || companyCfg?.petroappEnabled === true) && (item.to !== '/app/ai-rep' || (companyCfg?.aiRepEnabled === true && (user?.scopeEnabled !== true || !!impersonating))) && (item.to !== '/app/ai-accountant' || (companyCfg?.aiAccountantEnabled === true && (user?.scopeEnabled !== true || !!impersonating))) && (item.to !== '/app/hatif' || companyCfg?.hatifEnabled === true) && (item.to !== '/app/paylink' || companyCfg?.paylinkEnabled === true) && ((item.to !== '/app/warehouse' && item.to !== '/app/suppliers') || companyCfg?.warehouseEnabled === true) && (item.to !== '/app/lots' || companyCfg?.lotTrackingEnabled === true) && (item.to !== '/app/daily-reports' || companyCfg?.dailyReportEnabled === true) && (item.to !== '/app/payment-methods' || companyCfg?.paymentMethodsEnabled === true) && (item.to !== '/app/locations' || (companyCfg?.locationsEnabled === true && locationsPageAllowed(user, !!impersonating))) &&(!ACCOUNTING_PAGES.includes(item.to) || companyCfg?.accountingEnabled !== false) && (item.to !== '/app/ledger' || (((companyCfg?.accountingSuiteEnabled === true && companyCfg?.accountingEnabled !== false) || companyCfg?.ledgerRetentionActive === true) && canLedger(user, 'canViewLedger')))).map(item => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -219,6 +236,8 @@ export default function MainLayout() {
     </div>
     {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
     {showSupport && <SupportModal onClose={() => setShowSupport(false)} />}
+    {/* «التعميمات»: آخر القوقعة وفوق كل نافذة (z-[2200]) — لا تُغلق إلا بـ«تمت القراءة» */}
+    <CircularGate key={user?.id ?? 'none'} enabled={circularsOn} userId={user?.id} fetchPending={fetchMyCirculars} ack={ackMyCircular} />
     </div>
   );
 }

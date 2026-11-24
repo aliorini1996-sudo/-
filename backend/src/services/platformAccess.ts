@@ -53,7 +53,8 @@ export const STAFF_PERMISSIONS = [
   { key: 'affiliates.view', group: 'السفراء', label: 'عرض السفراء والإسنادات والعمولات' },
   { key: 'affiliates.manage', group: 'السفراء', label: 'قبول السفراء ورفضهم وإيقافهم والإسنادات والإعدادات' },
   { key: 'affiliates.payouts', group: 'السفراء', label: 'اعتماد العمولات والدفعات والتسويات' },
-  { key: 'affiliates.iban', group: 'السفراء', label: 'كشف رقم الآيبان' },
+  // المفتاح نفسه يفتح مستندات الهوية/الإقامة والسجل مفكوكةً (v2 — قاعدة documents أدناه)، فالتسمية تقولها للمالك
+  { key: 'affiliates.iban', group: 'السفراء', label: 'كشف الآيبان وعرض مستندات الهوية والسجل التجاري' },
 
   // «إدارة المبيعات» (طلب المالك ١٦ نوفمبر ٢٠٢٦) بدل «عروض الأسعار» — سجلّ العروض صار للمالك وحده (/api/quotes/admin بلا قاعدة).
   // صفوف واتساب فيها لمن يملك waInbox.view أيضاً (routes/leads.ts)
@@ -126,6 +127,9 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   // «إدارة المبيعات» — حرفيّة قبل /api/leads/:id (وإلا أخذت leads.view)
   r('GET', '/api/leads/sales-inbox', 'sales.view'),
   r('PUT', `/api/leads/sales-inbox/${SEG}`, 'sales.view'),
+  r('GET', `/api/leads/sales-inbox/${SEG}/notes`, 'sales.view'),
+  r('POST', `/api/leads/sales-inbox/${SEG}/notes`, 'sales.view'),
+  r('DELETE', `/api/leads/sales-inbox/${SEG}/notes/${SEG}`, 'sales.view'),
   r('GET', '/api/leads/export/csv', 'leads.export', true),
   r('POST', '/api/leads', 'leads.edit'),
   r('GET', `/api/leads/${SEG}`, 'leads.view'),
@@ -148,16 +152,20 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   r('POST', `/api/payments/${SEG}/(refresh|link-tenant)`, 'payments.manage'),
 
   // ── السفراء /api/affiliate-admin ──
-  r('GET', `/api/affiliate-admin/(overview|settings|terms|affiliates|affiliates/${SEG}|claims|attributions|commissions|payouts/candidates|payouts|events|tenants/search)`, 'affiliates.view'),
+  r('GET', `/api/affiliate-admin/(overview|settings|terms|affiliates|affiliates/${SEG}|claims|attributions|commissions|payouts/candidates|payouts|events|tenants/search|missed-claims|materials|materials/${SEG}/file)`, 'affiliates.view'),
+  // v2 (١٨ نوفمبر ٢٠٢٦): مستند الهوية/السجل مفكوكاً — بمفتاح كشف الآيبان نفسه، وقراءةٌ حساسة تُسجَّل
+  r('GET', `/api/affiliate-admin/affiliates/${SEG}/documents/${SEG}`, 'affiliates.iban', true),
   r('PUT', '/api/affiliate-admin/settings', 'affiliates.manage'),
-  r('POST', '/api/affiliate-admin/(terms|attributions)', 'affiliates.manage'),
+  r('POST', '/api/affiliate-admin/(terms|attributions|materials)', 'affiliates.manage'),
+  r('DELETE', `/api/affiliate-admin/materials/${SEG}`, 'affiliates.manage'),
   r('POST', `/api/affiliate-admin/affiliates/${SEG}/(approve|reject|suspend|reactivate)`, 'affiliates.manage'),
   r('POST', `/api/affiliate-admin/affiliates/${SEG}/reveal-iban`, 'affiliates.iban'),
   r('POST', `/api/affiliate-admin/claims/${SEG}/(approve|reject|link-tenant)`, 'affiliates.manage'),
+  r('POST', `/api/affiliate-admin/missed-claims/${SEG}/(accept|reject)`, 'affiliates.manage'),
   r('POST', `/api/affiliate-admin/attributions/${SEG}/(void|activate|reassign|window)`, 'affiliates.manage'),
   r('POST', `/api/affiliate-admin/commissions/${SEG}/(approve|hold|release|decline)`, 'affiliates.payouts'),
-  r('POST', '/api/affiliate-admin/(payouts|adjustments)', 'affiliates.payouts'),
-  r('POST', `/api/affiliate-admin/payouts/${SEG}/(record|void)`, 'affiliates.payouts'),
+  r('POST', '/api/affiliate-admin/(payouts|adjustments|settlement/run)', 'affiliates.payouts'),
+  r('POST', `/api/affiliate-admin/payouts/${SEG}/(record|void|fail)`, 'affiliates.payouts'),
 
   // ── محتوى الموقع والبروفايل ──
   r('PUT', '/api/site-content', 'content.edit'),

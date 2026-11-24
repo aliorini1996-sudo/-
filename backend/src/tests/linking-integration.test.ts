@@ -114,7 +114,10 @@ test('مظلمة: الشيفرة الإنتاجية القائمة لا تستو
   }
   assert.deepEqual([...importers.keys()].sort(), [
     'routes/ledger/index.ts', 'routes/ledger/linking.ts', 'services/gl/builders/stock.ts', 'services/gl/opening.ts', 'services/gl/sync/scheduler.ts',
+    // تقرير «الربح» (١٨ نوفمبر ٢٠٢٦، 6d2cd88) يقرأ دوال التكلفة الصرفة وحدها (cogsImpactMilli وأنواع الحركات) — قراءةٌ لا ترحيل
+    'services/reports/profitReport.ts',
   ]);
+  assert.deepEqual(importers.get('services/reports/profitReport.ts')?.sort(), ['services/costing/accounts', 'services/costing/types']);
   // «ربط الدفاتر» L6: قيود المخزون تقرأ ثوابت الحسابات والأنواع، والمُجدوِل يكتب لقطات التكلفة — محروسة بـlinked وinventoryPosting
   assert.deepEqual(importers.get('services/gl/builders/stock.ts')?.sort(), ['services/costing/accounts', 'services/costing/types']);
   assert.deepEqual(importers.get('services/gl/sync/scheduler.ts'), ['services/costing/snapshots']);

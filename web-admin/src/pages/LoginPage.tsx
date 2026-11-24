@@ -5,6 +5,8 @@ import { authApi } from '../api/client';
 import { useAuthStore } from '../store/authStore';
 import { BrandIcon, BrandWordmark } from '../components/BrandLogo';
 import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
+import LoginErrorBox from '../components/LoginErrorBox';
+import { loginErrorOf, type LoginError } from '../lib/loginErrors';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT, useTr } from '../i18n/strings';
 import { useDir } from '../i18n/lang';
@@ -18,11 +20,13 @@ export default function LoginPage() {
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
+  // رفض الدخول برسالة الخادم الدقيقة وفعلها (طلب المالك ٢١ نوفمبر ٢٠٢٦) — يُمحى عند أي تعديل في الحقلين
+  const [error, setError] = useState<LoginError | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.username || !form.password) { toast.error(t('login.fillAll')); return; }
-    setLoading(true);
+    setLoading(true); setError(null);
     try {
       const res = await authApi.login({ ...form, role: 'admin' });
       const { token, user } = res.data.data;
@@ -31,8 +35,7 @@ export default function LoginPage() {
       // إعادة تحميل كاملة لمساحة الشركة — تضمن تهيئة الجلسة من token بلا أي تداخل
       window.location.replace('/app');
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || t('login.error');
-      toast.error(msg);
+      setError(loginErrorOf(err));
     } finally {
       setLoading(false);
     }
@@ -94,8 +97,8 @@ export default function LoginPage() {
               <label className="label">{t('login.email')}</label>
               <div className="relative">
                 <Mail size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
-                <input type="text" className="input pr-9" placeholder="admin@company.com"
-                  value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
+                <input type="text" className="input pr-9" placeholder="admin@company.com" autoCapitalize="none" autoCorrect="off" spellCheck={false} inputMode="email"
+                  value={form.username} onChange={e => { setForm(f => ({ ...f, username: e.target.value })); setError(null); }}
                   autoComplete="username" dir="ltr" />
               </div>
             </div>
@@ -105,7 +108,7 @@ export default function LoginPage() {
               <div className="relative">
                 <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
                 <input type={showPass ? 'text' : 'password'} className="input pr-9 pl-9" placeholder="••••••••"
-                  value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                  value={form.password} onChange={e => { setForm(f => ({ ...f, password: e.target.value })); setError(null); }}
                   autoComplete="current-password" dir="ltr" />
                 <button type="button" className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9A8F7E] hover:text-[#1F1A13]"
                   onClick={() => setShowPass(s => !s)}>
@@ -113,6 +116,8 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
+
+            {error && <LoginErrorBox error={error} fallback={t('login.error')} onForgot={() => setShowForgot(true)} />}
 
             <button type="submit" disabled={loading}
               className="w-full bg-[#E15A30] hover:bg-[#C94E28] disabled:bg-[#E89B7E] text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2 mt-2">
@@ -129,7 +134,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {showForgot && <ForgotPasswordDialog role="admin" onClose={() => setShowForgot(false)} />}
+      {showForgot && <ForgotPasswordDialog role="admin" initialEmail={form.username.includes('@') ? form.username : ''} onClose={() => setShowForgot(false)} />}
     </div>
   );
 }

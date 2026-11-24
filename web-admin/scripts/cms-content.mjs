@@ -93,11 +93,15 @@ export async function publicCms(raw, who = '') {
   }
   const fixes = mod.publicCmsContent(raw);
   const by = {};
-  for (const r of fixes.results) (by[r.status] ||= []).push(r.fix.id);
+  // نتائج البنود الكاسحة (مدة التجربة) لكل حقل — تُعدّ وحدها كي لا يُقرأ «طُبّق ٢٠٠ من ١١٣»
+  const literal = fixes.results.filter((r) => !r.fix.sweep);
+  for (const r of literal) (by[r.status] ||= []).push(r.fix.id);
+  const swept = new Set(fixes.results.filter((r) => r.fix.sweep && r.status === 'applied').map((r) => r.fix.path)).size;
   const total = mod.CMS_FIXES.length;
   const off = Object.entries(by).filter(([s]) => s !== 'applied' && s !== 'already');
   const changed = fixes.posts.filter((p) => p.applied).length;
-  console.log(`  ${tag}: طُبّق ${fixes.applied} من ${total} بنداً على المنشور (src/content/cmsFixes.ts، إصدار ${mod.CMS_FIXES_VERSION})`
+  console.log(`  ${tag}: طُبّق ${(by.applied || []).length} من ${total} بنداً على المنشور (src/content/cmsFixes.ts، إصدار ${mod.CMS_FIXES_VERSION})`
+    + `${swept ? ` + مدة التجربة في ${swept} حقلاً` : ''}`
     + `${by.already ? ` · محفوظ في CMS سلفاً ${by.already.length}` : ''} — ${changed} مقالاً تغيّر نصّه${fixes.home.applied ? ' + الرئيسية العربية' : ''}`);
   for (const [status, ids] of off) console.log(`  ⚠️ ${tag}: ${ids.length} بنداً لم ينطبق [${status}]: ${ids.join('، ')}`);
   return { data: fixes.value, fixes, version: mod.CMS_FIXES_VERSION };

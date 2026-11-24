@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
-import { CheckCircle2, Circle, MapPin, ChevronRight, Repeat, CalendarDays, Route as RouteIcon } from 'lucide-react';
+import { CheckCircle2, Circle, MapPin, ChevronRight, Repeat, CalendarDays, Route as RouteIcon, UserRound } from 'lucide-react';
 import repApi from './repApi';
 import { useTr } from '../i18n/strings';
-import { gregorianLocale } from '../utils/format';
+import { formatCurrency, gregorianLocale } from '../utils/format';
+import { cacheGet } from './offlineDb';
 
 /**
  * خط سير اليوم في تطبيق المندوب — العملاء بالترتيب، وعلامةٌ خضراء لمن زاره.
@@ -42,7 +43,19 @@ export async function fetchMyRoute(): Promise<RouteToday | null> {
   return (res.data?.data ?? null) as RouteToday | null;
 }
 
-export default function RepRouteScreen({ onBack }: { onBack: () => void }) {
+/** أرقام العميل المالية كما في رأس صفحته (الرصيد والحدّ الائتماني وفترة السداد) — من قائمة عملاء المندوب المخزّنة نفسها */
+export interface StopFinance { balance: unknown; creditLimit: unknown; paymentDays: unknown }
+
+/**
+ * طلب المالك (٢١ نوفمبر ٢٠٢٦): شريط كل عميل في خط السير يعرض أرقام رأس صفحة العميل نفسها، واسمه زرٌّ يفتح صفحته.
+ * المصدر قائمة عملاء المندوب المخزّنة (`customers`) — هي التي تفتح منها صفحة العميل — فلا رقم يخالف ما في صفحته،
+ * وعميلٌ ليس فيها (نُزع من المندوب) لا تظهر أرقامه كما تُخفيها صفحته. وعند إطفاء «النظام المحاسبي» تغيب كلّها.
+ */
+export default function RepRouteScreen({ onBack, onOpenCustomer, accountingOn = true }: {
+  onBack: () => void;
+  onOpenCustomer?: (customerId: string) => unknown;
+  accountingOn?: boolean;
+}) {
   const tr = useTr();
   const [route, setRoute] = useState<RouteToday | null>(null);
   const [loading, setLoading] = useState(true);
@@ -55,6 +68,17 @@ export default function RepRouteScreen({ onBack }: { onBack: () => void }) {
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
+  const [finance, setFinance] = useState<Record<string, StopFinance>>({});
+  useEffect(() => {
+    let alive = true;
+    cacheGet<any[]>('customers').then((hit) => {
+      if (!alive) return;
+      const m: Record<string, StopFinance> = {};
+      for (const c of Array.isArray(hit?.data) ? hit!.data : []) if (c?.id) m[c.id] = { balance: c.balance, creditLimit: c.creditLimit, paymentDays: c.paymentDays };
+      setFinance(m);
+    }).catch(() => { /* بلا كاش: تُعرض المحطات بلا أرقام */ });
+    return () => { alive = false; };
+  }, [route]);
 
   return (
     <div className="p-4 space-y-4 overflow-y-auto h-full pb-24">
@@ -118,9 +142,38 @@ export default function RepRouteScreen({ onBack }: { onBack: () => void }) {
                     : <span className="w-[22px] h-[22px] rounded-full bg-[#FFF1EA] text-[#E15A30] text-[11px] font-bold flex items-center justify-center">{s.seq}</span>}
                 </span>
                 <span className="flex-1 min-w-0">
-                  <span className={`block text-sm font-semibold truncate ${s.done ? 'text-green-800' : 'text-[#1F1A13]'}`}>
-                    {s.customerName}
-                  </span>
+                  {/* اسم العميل زرٌّ يفتح صفحته مباشرةً */}
+                  <button
+                    type="button"
+                    onClick={() => onOpenCustomer?.(s.customerId)}
+                    disabled={!onOpenCustomer}
+                    title={tr('فتح صفحة العميل')}
+                    className={`max-w-full inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-sm font-semibold border active:scale-[0.98] transition
+                      ${s.done ? 'bg-green-100/70 border-green-200 text-green-800' : 'bg-[#FFF1EA] border-[#F6D5C6] text-[#1F1A13]'}`}
+                  >
+                    <UserRound size={15} className={`shrink-0 ${s.done ? 'text-green-700' : 'text-[#E15A30]'}`} />
+                    <span className="truncate">{s.customerName}</span>
+                    <ChevronRight size={14} className="shrink-0 rotate-180 text-gray-400" />
+                  </button>
+                  {accountingOn && finance[s.customerId] && (() => {
+                    const f = finance[s.customerId];
+                    return (
+                      <span className="mt-2 grid grid-cols-3 gap-1.5 text-center">
+                        <span className="rounded-lg bg-gray-50 py-1">
+                          <span className={`block text-[12px] font-bold ${Number(f.balance) > 0 ? 'text-red-600' : 'text-green-700'}`}>{formatCurrency(f.balance as number)}</span>
+                          <span className="block text-[10px] text-gray-400">{tr('الرصيد')}</span>
+                        </span>
+                        <span className="rounded-lg bg-gray-50 py-1">
+                          <span className="block text-[12px] font-bold text-[#1F1A13]">{formatCurrency(f.creditLimit as number)}</span>
+                          <span className="block text-[10px] text-gray-400">{tr('الحد الائتماني')}</span>
+                        </span>
+                        <span className="rounded-lg bg-gray-50 py-1">
+                          <span className="block text-[12px] font-bold text-[#1F1A13]">{String(f.paymentDays ?? 0)} {tr('يوم')}</span>
+                          <span className="block text-[10px] text-gray-400">{tr('فترة السداد')}</span>
+                        </span>
+                      </span>
+                    );
+                  })()}
                   {s.address && (
                     <span className="block text-[11px] text-gray-400 truncate mt-0.5 flex items-center gap-1">
                       <MapPin size={10} className="shrink-0" /> {s.address}

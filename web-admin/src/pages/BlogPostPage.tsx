@@ -248,7 +248,7 @@ export default function BlogPostPage() {
     read: tr('دقائق قراءة', 'min read', 'min de lecture'),
     ctaTitle: tr('جاهز لإدارة فريقك الميداني باحتراف', 'Ready to run your field team professionally?', 'Prêt à gérer votre équipe terrain ?'),
     ctaText: tr('فواتير تحصيل مخزون السيارة وتقارير لحظية في منصة واحدة', 'Invoices, collection, van stock and real-time reports — in one platform.', 'Factures, encaissement, stock du véhicule et rapports en temps réel — sur une seule plateforme.'),
-    ctaBtn: tr('ابدأ تجربتك المجانية 10 أيام', 'Start your free 10-day trial', 'Commencez votre essai gratuit de 10 jours'),
+    ctaBtn: tr('ابدأ تجربتك المجانية 5 أيام', 'Start your free 5-day trial', 'Commencez votre essai gratuit de 5 jours'),
     share: tr('شارك المقال', 'Share this article', 'Partager'),
     copy: tr('نسخ الرابط', 'Copy link', 'Copier le lien'),
   };

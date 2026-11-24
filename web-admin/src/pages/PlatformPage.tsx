@@ -463,6 +463,12 @@ function TenantColumn({
                         </span>
                       );
                     })()}
+                    {/* شارة «المحاسب الذكي»: للشركات المفعّل لها وحدها (=== true) — فلا أثر مرئي لغيرها */}
+                    {t.aiAccountantEnabled === true && (
+                      <span className="block w-fit mt-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#FBEBE2] text-[#C94E28]">
+                        {tr('المحاسب الذكي')}
+                      </span>
+                    )}
                   </td>
                   {perms.crm && <td>
                     <div className="flex items-center gap-1">
@@ -1023,6 +1029,9 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
   // النظام المحاسبي المتكامل — مطفأ افتراضياً ⇒ `!!`. الخانة ظاهرة لكل الشركات والمالك يفعّلها
   // بنفسه (قرار المالك 17 سبتمبر 2026 بإزالة قائمة التجربة).
   const [accountingSuiteEnabled, setAccountingSuiteEnabled] = useState(!!tenant.accountingSuiteEnabled);
+  // «المحاسب الذكي AI» — مطفأ افتراضياً ⇒ `!!`. يقرأ لكل شركة يُفعَّل لها ويرحّل لمن فعّلت دفاترها وحدها،
+  // والخادم يرفضه ما دام النظام المحاسبي مطفأً (ACCOUNTING_NOT_ALLOWED) فالخانة تتعطّل معه كخانة الدفاتر
+  const [aiAccountantEnabled, setAiAccountantEnabled] = useState(!!tenant.aiAccountantEnabled);
   const [subscriptionEndsAt, setSubscriptionEndsAt] = useState(
     tenant.subscriptionEndsAt ? new Date(tenant.subscriptionEndsAt).toISOString().slice(0, 10) : ''
   );
@@ -1063,6 +1072,7 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
       nearpayMerchantId: nearpayMerchantId || null,
       accountingEnabled,
       accountingSuiteEnabled,
+      aiAccountantEnabled,
       subscriptionEndsAt: subscriptionEndsAt || null,
     }),
     onSuccess: () => { toast.success(tr('تم تحديث بيانات الشركة')); onSaved(); },
@@ -1277,6 +1287,12 @@ function EditTenantModal({ tenant, onClose, onSaved }: { tenant: Tenant; onClose
               {tr('النظام المحاسبي المتكامل (شجرة حسابات وقيود يومية وقوائم مالية)')}
             </label>
             <p className="text-xs text-gray-400 mt-1">{tr('يتطلب تفعيل النظام المحاسبي — الدفاتر لا تُحذف عند الإطفاء')}</p>
+            {/* «المحاسب الذكي AI» بعد صندوق الدفاتر (قرار المالك): القراءة لكل شركة مفعّلة، والترحيل لمن فعّلت دفاترها */}
+            <label className={`flex items-center gap-2.5 text-sm cursor-pointer select-none bg-[#FAF7F0] border border-[#E9E1D3] rounded-lg px-3 py-2.5 mt-2 ${accountingEnabled ? 'text-gray-700' : 'text-gray-400'}`}>
+              <input type="checkbox" className="w-4 h-4 accent-[#E15A30]" checked={aiAccountantEnabled} disabled={!accountingEnabled} onChange={e => setAiAccountantEnabled(e.target.checked)} />
+              {tr('تفعيل المحاسب الذكي AI لهذه الشركة')}
+            </label>
+            <p className="text-xs text-gray-400 mt-1">{tr('تظهر لمديري الشركة صفحة «المحاسب الذكي»: يجيب عن أرقام الشركة ويصدر قوائمها المالية بهويتها PDF، ويرحل المصروفات والرواتب مباشرة لمن فعلت دفاترها وكل قيد يعكس بزر — يتطلب تفعيل النظام المحاسبي')}</p>
           </div>
           {/* D2 (§8.1): يظهر حين ledgerActivatedAt مضبوط — حفظ مستقل عن زر حفظ التعديلات */}
           {canLedger && !!tenant.ledgerActivatedAt && <LedgerPaylinkFeeSection tenant={tenant} />}

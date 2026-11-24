@@ -98,6 +98,7 @@ model Tenant {
   zatcaPhase2Enabled        Boolean   @default(false) // تبويب ربط فوترة ZATCA المرحلة الثانية (/api/zatca) — يفعّله المالك لكل شركة سعودية؛ لا يغيّر إصدار الفواتير
   accountingSuiteEnabled    Boolean   @default(false) // النظام المحاسبي المتكامل — يفعّله المالك لكل شركة؛ لا يعمل إلا مع accountingEnabled !== false
   aiRepEnabled              Boolean   @default(false) // «المندوب الذكي AI» — محلات قريبة وتوقّع مشتريات كل محل ومسار؛ يفعّله المالك لكل شركة
+  aiAccountantEnabled       Boolean   @default(false) // «المحاسب الذكي AI» — محادثة تقارير وقيود لمدير الشركة؛ يفعّله المالك لكل شركة (routes/aiAccountant.ts)
   apiEnabled                Boolean   @default(false) // «الربط البرمجي API» — مفاتيح API لنظام الشركة الخاص؛ يفعّله المالك لكل شركة (services/apiKeys.ts)
   paymentMethodsEnabled     Boolean   @default(false) // صفحة «طرق الدفع» — تحصيل كل مندوب موزّعاً على النقدي والشبكة والتحويل والشيك والإلكتروني؛ يفعّلها المالك لكل شركة (services/paymentMethodsReport.ts)
   locationsEnabled          Boolean   @default(false) // «لوكيشن» — مواقع الشركة (فرع/مستودع/مدينة) ووسم الفواتير والتحميلات بموقع المندوب وقت الإصدار؛ يفعّلها المالك لكل شركة (services/locations.ts)
@@ -163,6 +164,7 @@ model Tenant {
 
   RepVisit             RepVisit[]
   repRoutes            RepRoute[]
+  repRouteSchedules    RepRouteSchedule[]
   RepSession           RepSession[]
   RepAttendance        RepAttendance[]
   attendanceAudits     AttendanceAudit[]
@@ -221,6 +223,10 @@ model Tenant {
   aiLessons             AiLesson[]
   aiLearningRuns        AiLearningRun[]
 
+  // المحاسب الذكي AI — علاقات عكسية فقط
+  aiAccountantPosts     AiAccountantPost[]
+  aiAccountantDocuments AiAccountantDocument[] // مستندات المحادثة (طلب المالك ١٨ نوفمبر ٢٠٢٦)
+
   // لوحة المنصة وحدها (طلب المالك ٩ نوفمبر ٢٠٢٦): ملاحظات المالك والموظفين وحالة الصفقة — لا تصل الشركة أبداً
   platformNotes         TenantNote[]
   platformDeal          TenantDeal?
@@ -230,6 +236,9 @@ model Tenant {
 
   // «النموذج المطبوع مسبقاً»: صور نماذج الشركة (علاقة عكسية فقط، بلا أعمدة)
   printFormImages       PrintFormImage[]
+
+  // «التعميمات» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): قرارات الإدارة وإعلاناتها للمناديب ومستخدمي الشركة (علاقة عكسية فقط، بلا أعمدة)
+  circulars             Circular[]
 
   @@map("tenants")
 }
@@ -525,6 +534,13 @@ model SalesRep {
   canAddCustomer           Boolean @default(false)
   canEditCustomer          Boolean @default(false)
   canViewStatement         Boolean @default(true)
+  // «منع تكرار العملاء عند فتح عميل جديد» (طلب المالك، ٢٣ نوفمبر ٢٠٢٦) — تقييديّ كسابقيه، أيّ تركيبةٍ منها: مفعّلٌ ⇒ لا يفتح
+  // المندوب عميلاً (ولا يغيّر الحقل في عميله) بجوالٍ أو اسمٍ أو عنوانٍ مسجَّلٍ لعميلٍ آخر في الشركة كلها (غير المحذوف)، بعد
+  // التطبيع (services/customerDedup.ts). «الموقع ضمن ٣٠ متراً» قاعدةٌ للشركة كلها لا عَلَم (services/customerLocationDup.ts).
+  // إضافيّة بـfalse افتراضاً = السلوك قبلها حرفياً
+  dedupCustomerPhone       Boolean @default(false)
+  dedupCustomerName        Boolean @default(false)
+  dedupCustomerAddress     Boolean @default(false)
   /// «البيع داخل نطاق العميل»: عَلَمٌ تقييديّ لا مانح — تفعيله يسلب لا يمنح.
   /// حين يكون true لا يفتح المندوب ملفّ العميل إلا وهو داخل ٥٠ متراً من موقعه
   /// المسجَّل، والعميل بلا إحداثيات يُمنع منعاً باتّاً. وحين يكون false يفتح
@@ -560,6 +576,14 @@ model SalesRep {
   // «التحقق العشوائي من التواجد» (طلب المالك، ٢٢ أكتوبر ٢٠٢٦) — تقييديّ كسابقيه: مفعّلٌ ⇒ يصله إشعار «أثبت تواجدك»
   // مرّتين إلى ثلاث في اليوم بأوقاتٍ عشوائية أثناء نوبته، ويردّ خلال دقيقتين بقراءة موقعٍ طازجة (services/presenceChecks.ts)
   requirePresenceCheck Boolean @default(false)
+  // «تذكير بالانصراف عند الخمول ثم انصراف تلقائي» (طلب المالك، ٢٣ نوفمبر ٢٠٢٦) — قيدٌ يُفعَّل ويُطفأ لكل مندوب: نوبةٌ مفتوحة
+  // ومندوبٌ بلا استخدامٍ للتطبيق ولا موقعٍ يصل من جواله منذ idlePunchOutMinutes ⇒ إشعار «سجّل بصمة الانصراف إن انتهى عملك»،
+  // وبعده لا يلغي الانصراف إلا «ما زلت أعمل» أو تنقّلٌ فعلي أو إصدار مستند خلال idlePunchOutGraceMinutes ⇒ وإلا انصرافٌ تلقائي
+  // بوقت آخر نشاطٍ سبق التذكير (services/idlePunchOut.ts). المدّتان تحدّدهما الإدارة كالمسافة،
+  // والحدّان ١٠–٤٨٠ و٥–١٢٠ دقيقة في التحقّق (salesReps.ts). false افتراضاً = السلوك قبله حرفياً
+  idlePunchOutEnabled      Boolean @default(false)
+  idlePunchOutMinutes      Int     @default(45)
+  idlePunchOutGraceMinutes Int     @default(15)
   // «عرض خط السير على الخريطة» (طلب المالك، ٢٣ أكتوبر ٢٠٢٦) — إعداد عرضٍ للإدارة لا قيد: مطفأٌ ⇒ لا يُرسم أثر GPS للمندوب
   // على خريطة التتبّع ولا يعيده /tracking/route، ويبقى موقعه الحالي وبصمته وزياراته وخطّه المخطَّط. التسجيل مستمرّ،
   // فيعود خطّه كاملاً بإعادة التفعيل. true افتراضاً = السلوك قبله حرفياً
@@ -615,6 +639,7 @@ model SalesRep {
   settlements   RepSettlement[]
   RepVisit      RepVisit[]
   repRoutes     RepRoute[]
+  routeSchedule RepRouteSchedule? // طريقة توزيع خطوطه على الأيام (طلب المالك ٢٢ نوفمبر ٢٠٢٦)
   RepSession    RepSession[]
   attendance    RepAttendance[]
   pushSubscriptions RepPushSubscription[]
@@ -1423,6 +1448,7 @@ model Receipt {
   @@unique([tenantId, clientRef])
   @@index([tenantId])
   @@index([tenantId, teamId, receiptDate]) // تقارير الفرق
+  @@index([tenantId, salesRepId, createdAt]) // «الانصراف التلقائي عند الخمول»: سندٌ أصدره المندوب بعد التذكير (services/idlePunchOut.ts)
   @@map("receipts")
 }
 
@@ -1985,7 +2011,7 @@ model RepStockRequest {
   tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   salesRepId String
   salesRep   SalesRep  @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
-  status     String    @default("PENDING") // PENDING | SENT | REJECTED | CANCELLED
+  status     String    @default("PENDING") // PENDING | SENT | REJECTED | CANCELLED | LOADED (حُمِّل إلى السيارة مباشرة، sentRef معرّف الحركة)
   note       String?
   /// وقت إرساله ضمن الطلب العام أو رفضه، ومَن فعل، ومرجع الطلب العام (SR-…) حين أُرسل
   decidedAt  DateTime?
@@ -2736,6 +2762,13 @@ model RepAttendance {
   checkInDistanceM  Int?
   checkOutOutside   Boolean?
   checkOutDistanceM Int?
+  // «الانصراف التلقائي عند الخمول» (services/idlePunchOut.ts، طلب المالك ٢٣ نوفمبر ٢٠٢٦): لحظة إرسال تذكير الخمول في هذه النوبة
+  // (null = لا تذكير قائم: لم يُذكَّر، أو ضغط «ما زلت أعمل»، أو ألغاه تنقّلٌ فعلي أو مستندٌ أصدره)، وآخر نشاطٍ سبق التذكير مختوماً
+  // معه (idleLastActiveAt) — وقت الانصراف التلقائي، فلا تمحوه نبضةٌ بعد التذكير؛ وبلا تذكيرٍ قائم هو لحظة ما ألغاه (أرضيّة الدورة
+  // الجديدة). وانصرافٌ سجّله النظام بعد تذكيرٍ بلا ردّ — لا بصمة المندوب (checkOutAuto). إضافيّةٌ: الصفوف القائمة null وfalse
+  idleRemindedAt   DateTime?
+  idleLastActiveAt DateTime?
+  checkOutAuto     Boolean   @default(false)
   // مصدر الصف: APP (بصمة المندوب) | ADMIN (أضافها أو عدّلها مستخدم الشركة) | IMPORT (رُفعت من Excel) — وكل تعديل
   // إداري في AttendanceAudit
   source   String    @default("APP")
@@ -2755,7 +2788,7 @@ model AttendanceAudit {
   tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   salesRepId   String
   attendanceId String?
-  action       String // CREATE | UPDATE | DELETE | IMPORT | UNBIND_DEVICE
+  action       String // CREATE | UPDATE | DELETE | IMPORT | UNBIND_DEVICE | AUTO_CHECKOUT (النظام: انصراف تلقائي بعد خمول)
   before       Json?
   after        Json?
   reason       String?
@@ -2900,10 +2933,35 @@ model SalesContact {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// سجلّ الملاحظات كملاحظات الشركات في لوحة المالك (طلب المالك ١٦ نوفمبر ٢٠٢٦) — note أعلاه ملاحظة قديمة مفردة تبقى للعرض
+  notes     SalesContactNote[]
+  /// «مسؤول الصفقة» (طلب المالك ١٧ نوفمبر ٢٠٢٦): أول موظف منصة غيّر الحالة أو كتب ملاحظة — يُثبَّت مرة واحدة، والمالك لا يُسنَد
+  ownerStaffId String?
+  ownerName    String?
+  ownerAt      DateTime?
+
   @@unique([channel, sourceRef])
   @@index([lastAt])
   @@index([stage])
   @@map("sales_contacts")
+}
+
+/// ملاحظات «إدارة المبيعات» لكل جهة تواصل — بالكاتب والوقت، وسطرٌ آلي (STAGE) عند تغيير الحالة؛ تُحذف مع جهة التواصل
+model SalesContactNote {
+  id         String       @id @default(uuid())
+  contactId  String
+  contact    SalesContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  /// NOTE ملاحظة مكتوبة، STAGE سطرٌ آلي عند تغيير الحالة
+  kind       String       @default("NOTE")
+  body       String
+  /// OWNER أو STAFF — ومعرّفه واسمه وقت الكتابة
+  authorKind String
+  authorId   String
+  authorName String
+  createdAt  DateTime     @default(now())
+
+  @@index([contactId, createdAt])
+  @@map("sales_contact_notes")
 }
 
 // سجلّ رسائل واتساب (صادر/وارد) — يغذّي الحدّ اليومي وتتبّع التسليم/القراءة ومطابقة الردود.
@@ -3720,6 +3778,12 @@ model RepRoute {
 
   isActive Boolean @default(true)
 
+  /// «حسب أيام الأسبوع» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): أيام هذا الخطّ الدائم 0=الأحد..6=السبت.
+  /// لا يُقرأ إلا وللمندوب جدولٌ بنمط weekdays (RepRouteSchedule) — services/routeSchedule.ts
+  weekdays Int[] @default([])
+  /// «تناوب بالترتيب»: موضع الخطّ في دورة المندوب — الأصغر أوّلاً ثم الأقدم إنشاءً
+  rotationOrder Int @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -3750,6 +3814,29 @@ model RepRouteStop {
   @@unique([routeId, customerId]) // العميل مرّة واحدة في الخط الواحد
   @@index([tenantId, customerId])
   @@map("rep_route_stops")
+}
+
+/// طريقة توزيع خطوط المندوب الدائمة على الأيام (طلب المالك ٢٢ نوفمبر ٢٠٢٦) — جدولٌ جديد.
+/// غيابُ الصفّ = «خط واحد يومياً» (السلوك القديم: خطٌّ دائمٌ واحد). صفٌّ واحد لكل مندوب.
+model RepRouteSchedule {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId String   @unique
+  salesRep   SalesRep @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+
+  mode          String // 'weekdays' | 'rotation'
+  /// بداية التناوب 'YYYY-MM-DD' — يومها لأوّل خطٍّ في الترتيب. نصٌّ كـrouteDate بلا انزلاق منطقة زمنية
+  rotationStart String?
+  /// أيام الراحة التي يتخطّاها التناوب (0=الأحد..6=السبت) — الجمعة افتراضاً
+  offDays       Int[]    @default([5])
+  updatedBy     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("rep_route_schedules")
 }
 
 // ============================================================================
@@ -3788,6 +3875,11 @@ model AffiliateUser {
   payoutUpdatedAt    DateTime?
   lastLoginAt        DateTime?
   lastMailAt         DateTime?                     // آخر بريد تأكيد/استعادة — مهلةٌ تمنع إغراق صندوقٍ بالطلبات
+  // ── v2 (١٨ نوفمبر ٢٠٢٦، docs/affiliate/V2_SPEC.md): التسجيل فوريّ بلا تأكيد بريد ولا موافقة، وملف السفير يُكمَل قبل الصرف ──
+  partnerType        String?                       // individual|company|influencer
+  companyName        String?                       // للشركة والوكالة
+  socialLinks        Json?                         // [{platform, url}] حتى ٨
+  profileCompletedAt DateTime?                     // اكتمل الملف (النوع + الآيبان + الهوية [+ السجل للشركة]) — شرط دخول دورة التسوية
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   claims       AffiliateClaim[]
@@ -3795,6 +3887,8 @@ model AffiliateUser {
   commissions  AffiliateCommission[]
   adjustments  AffiliateAdjustment[]
   payouts      AffiliatePayout[]
+  documents    AffiliateDocument[]
+  missedClaims AffiliateMissedClaim[]
   @@index([status])
   @@index([phone])
   @@map("affiliate_users")
@@ -3910,7 +4004,7 @@ model AffiliatePayout {
   commissionsHalalas Int
   adjustmentsHalalas Int
   netHalalas         Int
-  status             String        @default("draft") // draft|recorded|void
+  status             String        @default("draft") // draft|recorded|void|failed — draft = «قيد المعالجة»
   ibanLast4          String
   holderName         String
   transferredAt      DateTime?
@@ -3918,6 +4012,12 @@ model AffiliatePayout {
   createdBy          String
   recordedBy         String?
   voidReason         String?
+  // ── v2: دورة التسوية كل ١٠ أيام (cycleKey = تاريخ نهاية الدورة YYYY-MM-DD بتوقيت الرياض)، والفترة، وفشل التحويل ──
+  cycleKey           String?
+  periodStart        DateTime?
+  periodEnd          DateTime?
+  failedReason       String?
+  failedAt           DateTime?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
   commissions        AffiliateCommission[]
@@ -3953,6 +4053,10 @@ model AffiliateSettings {
   firstPaymentWithinDays Int     @default(180)
   currentTermsVersion   String   @default("2026-09-v1")
   disclosureText        String   @default("أحصل على عمولة من فيلد سيلز إذا اشتركت عبر رابطي")
+  /// قرار المالك (19 نوفمبر 2026): أسعار الباقات التي يراها السفراء ونسبة خصم سفراء اليمن —
+  /// { packagePrices: { starter?: { monthly?, yearly? }, … }, yemenDiscountPct } بالريال الصحيح شاملاً الضريبة.
+  /// null = الكتالوج الرسمي والخصم الافتراضيّ ٣٣٪ (services/affiliate/pricing.ts). عمودٌ إضافيّ nullable فقط
+  pricingJson           Json?
   updatedBy             String?
   updatedAt             DateTime @updatedAt
   @@map("affiliate_settings")
@@ -3973,6 +4077,76 @@ model AffiliateClickDaily {
   count Int      @default(0)
   @@id([code, day])
   @@map("affiliate_click_daily")
+}
+
+/// v2: مستندات ملف السفير (الهوية/الإقامة، والسجل التجاري للشركة) — البايتات **مشفّرة** AES-256-GCM في جدولٍ منفصل
+/// لا تُقرأ في القوائم. مستندٌ واحدٌ ساري لكل نوع (الأحدث يحلّ محلّ الأقدم ويُحذف). المالك يطّلع عليه بزرٍّ يُسجَّل حدثاً
+model AffiliateDocument {
+  id          String        @id @default(uuid())
+  affiliateId String
+  affiliate   AffiliateUser @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  kind        String        // national_id|commercial_reg
+  mime        String        // image/jpeg|image/png|image/webp|application/pdf (مفحوص بالبايتات)
+  sizeBytes   Int
+  sha256      String
+  createdAt   DateTime      @default(now())
+  blob        AffiliateDocumentBlob?
+  @@index([affiliateId, kind])
+  @@map("affiliate_documents")
+}
+
+model AffiliateDocumentBlob {
+  id         String            @id @default(uuid())
+  documentId String            @unique
+  document   AffiliateDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  enc        Bytes             // iv(12) + tag(16) + cipher
+  @@map("affiliate_document_blobs")
+}
+
+/// v2: «المطالبة بإحالة فائتة» — شركةٌ سجّلت دون رابط السفير أو رمزه؛ يراجعها المالك ويسندها يدوياً (أو يرفض بسبب)
+model AffiliateMissedClaim {
+  id           String        @id @default(uuid())
+  affiliateId  String
+  affiliate    AffiliateUser @relation(fields: [affiliateId], references: [id])
+  companyName  String
+  contactPhone String?
+  crNumber     String?
+  note         String?
+  status       String        @default("under_review") // under_review|accepted|rejected|withdrawn
+  tenantId     String?       // الشركة التي أُسندت عند القبول
+  reasonNote   String?
+  reviewedAt   DateTime?
+  reviewedBy   String?
+  submittedAt  DateTime      @default(now())
+  @@index([affiliateId, status])
+  @@index([status, submittedAt])
+  @@map("affiliate_missed_claims")
+}
+
+/// v2: مكتبة المواد التسويقية — يرفعها المالك (صورة/فيديو قصير/مستند) أو يضع رابطاً (فيديو طويل) أو نصّاً جاهزاً للنسخ
+model AffiliateMaterial {
+  id        String   @id @default(uuid())
+  title     String
+  category  String   // image|video|document|text|link
+  fileName  String?
+  mime      String?
+  sizeBytes Int?
+  url       String?  // للرابط الخارجي
+  textBody  String?  // للنصّ الجاهز
+  sortOrder Int      @default(0)
+  createdBy String
+  createdAt DateTime @default(now())
+  blob      AffiliateMaterialBlob?
+  @@index([category, sortOrder])
+  @@map("affiliate_materials")
+}
+
+model AffiliateMaterialBlob {
+  id         String            @id @default(uuid())
+  materialId String            @unique
+  material   AffiliateMaterial @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  bytes      Bytes
+  @@map("affiliate_material_blobs")
 }
 
 // عرض سعر صادر من الرابط الخاص /q-fs7k2m (المالك وموظّفو المبيعات بلا حسابات) —
@@ -5092,6 +5266,71 @@ model AiLearningRun {
   @@map("ai_learning_runs")
 }
 
+// ═══ المحاسب الذكي AI (طلب المالك ١٧ نوفمبر ٢٠٢٦) ═══
+// قيدٌ رحّله المحاسب الذكي بطلب مدير الشركة — لصفحة «قيود المحاسب الذكي». بلا نص محادثة.
+// adminId نصّ بلا علاقة (لا مفتاح أجنبي يعيق حذف المستخدم)، والقيد نفسه في gl_moves (moveId بلا علاقة كذلك).
+// ref = 'AI-'+clientRef+'-'+n فريد لكل شركة: عدم التكرار عند إعادة الإرسال. جدول جديد ⇒ @@unique آمن لـdb push.
+model AiAccountantPost {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  adminId     String
+  adminName   String?
+  moveId      String
+  moveNumber  String?
+  ref         String
+  kind        String // EXPENSE | SALARIES | SALARIES_SETTLE
+  amountMilli BigInt
+  dateLocal   String // YYYY-MM-DD بتوقيت الشركة (تاريخ القيد)
+  summaryAr   String
+  createdAt   DateTime @default(now())
+  // مستندات المحادثة (طلب المالك ١٨ نوفمبر ٢٠٢٦) — أعمدة اختيارية وفهارس عادية فقط (جدول قائم: لا @@unique يوقف db push)
+  docId        String? // AiAccountantDocument.id لقيدٍ رُحّل من مستند (بلا علاقة كـmoveId)
+  parentPostId String? // PREPAID_AMORT ⇐ صفّ قيد الدفع المقدّم (PREPAID) الذي يُطفأ
+  meta         Json? // جدول الإطفاء لقيد PREPAID {months, monthlyMilli, lastMilli, startYm, prepaidCode, expenseCode}
+
+  @@unique([tenantId, ref])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, docId])
+  @@index([tenantId, parentPostId])
+  @@map("ai_accountant_posts")
+}
+
+// مستندٌ رفعه مدير الشركة في محادثة «المحاسب الذكي» (طلب المالك ١٨ نوفمبر ٢٠٢٦): الحقائق المعتمدة وحالتها؛ الملف نفسه في
+// gl_attachments (entityType 'AI_DOC' ومعرّفه entityId ما دام غير مرحّل، ثم 'MOVE'/<moveId> داخل معاملة الترحيل).
+// لا قارئ ذكاء اصطناعي: الحقائق من رمز QR الزكوي أو من إدخال المستخدم. actorRef = adminId | OWNER:<id> (actorRefOf).
+// attachmentId وmoveId نصّان بلا علاقة (كـAiAccountantPost.moveId). «مرحَّل» مشتقّ: moveId مضبوط وقيده حيّ (لا يُخزَّن).
+// جدول جديد ⇒ @@unique آمن لـdb push: الرافع نفسه والملف نفسه صفٌّ واحد (إعادة الرفع تعيده deduped).
+model AiAccountantDocument {
+  id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actorRef     String // الرافع: adminId أو OWNER:<id> لجلسة المالك — لا يرى غيره مستنداته غير المرحّلة
+  attachmentId String // GlAttachment.id
+  sha256       String
+  fileName     String
+  mimeType     String // application/pdf | image/jpeg | image/png (من البايتات)
+  sizeBytes    Int
+  status       String // UPLOADED | EXTRACTED | NEEDS_REVIEW | FAILED
+  manualEntry  Boolean  @default(false) // بلا QR ⇒ البطاقة تفتح للتحرير
+  factsSource  String? // QR | USER | QR+USER
+  facts        Json? // AcctDocFacts (المبالغ نصوص عشرية)
+  qrRaw        String? // نص QR الزكوي كما وصل (≤ 2048 — سقف الفكّ في compliance/zatca/qr.ts)
+  qrVerified   Boolean  @default(false)
+  checks       Json     @default("[]") // AcctDocCheck[]
+  suggestion   Json? // AcctDocSuggestion
+  moveId       String? // آخر قيد رُحّل من المستند (حيّ أو معكوس — يُحسب عند العرض)
+  postId       String? // AiAccountantPost.id لذلك القيد
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([tenantId, actorRef, sha256])
+  @@index([tenantId, actorRef, createdAt])
+  @@index([tenantId, sha256])
+  @@index([tenantId, updatedAt]) // جمع غير المرحّل بآخر نشاط (documents/gc.ts)
+  @@map("ai_accountant_documents")
+}
+
 // ═══ «ربط الدفاتر» L4 (M4، طلب المالك ١٣ نوفمبر ٢٠٢٦): تسويات ذمم العملاء من الدفاتر — شطب دينٍ معدوم واسترداد رصيدٍ دائن ═══
 // المستند يكتب صفّ AccountEntry (ADJUSTMENT_*) وقيده وحدثه DONE في معاملة واحدة (routes/ledger/customerAdjustments.ts).
 // المعرّف = معرّف صفّ AccountEntry نفسه، فمفتاح الحدث AR_ENTRY:<id>:POST ومسار المالك في resolve.ts ownerActionFor يشيران إليه.
@@ -5144,4 +5383,55 @@ model CustomerAdjustmentAllocation {
   @@index([tenantId, invoiceId])
   @@index([adjustmentId])
   @@map("customer_adjustment_allocations")
+}
+
+// ═══ «التعميمات» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): قرارٌ أو إعلانٌ إداري تنشره إدارة الشركة للمناديب أو لمستخدمي الشركة ═══
+// يظهر للمستلم نافذةً صغيرة عند فتح التطبيق حتى يضغط «تمت القراءة» (routes/circulars.ts، services/circulars.ts).
+// جدولان جديدان ⇒ @@unique آمن لـdb push؛ ولا عمود يُضاف إلى جدولٍ قائم (Tenant يحمل علاقة عكسية وحدها).
+
+/// التعميم. audience: REPS (المناديب) | USERS (مستخدمو الشركة). targetAll: كل الأعضاء المفعّلين **الحاليين** من ذلك النوع
+/// (يُحسب عند كل طلب فيصل من يُضاف بعد النشر)، وإلا targetIds (معرّفات مناديب أو مستخدمين في الشركة نفسها).
+/// الناشر لا يصله تعميمه (USERS). status: ACTIVE | WITHDRAWN — المسحوب والمنتهي (expiresAt) لا يظهران لأحد.
+/// وبعد إغلاقه (withdrawnAt أو expiresAt الماضي) يُجمَّد «الكل» على من وُجد عند الإغلاق — من يُضاف بعده لا يُعدّ «لم يقرأه».
+model Circular {
+  id            String        @id @default(uuid())
+  tenantId      String
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  audience      String // REPS | USERS
+  title         String
+  body          String
+  targetAll     Boolean       @default(true)
+  targetIds     String[]      @default([])
+  status        String        @default("ACTIVE") // ACTIVE | WITHDRAWN
+  /// ناشره: ADMIN (مستخدم الشركة، createdById = معرّفه) | OWNER (جلسة «دخول» المالك أو موظف المنصة، createdById = مُصدِرها)
+  createdByKind String?
+  createdById   String?
+  createdByName String?
+  expiresAt     DateTime?
+  /// لحظة السحب (status = WITHDRAWN) — حدّ مستلمي «الكل» في العدّادات، وحدّ قبول إقرارٍ صُفّ دون اتصال قبلها
+  withdrawnAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  acks          CircularAck[]
+
+  @@index([tenantId, audience, createdAt])
+  @@map("circulars")
+}
+
+/// «تمت القراءة»: صفٌّ واحد لكل قارئ — الفريد يجعل التأكيد المكرّر (إعادة رفع التطبيق دون اتصال) بلا أثر.
+/// readerKind: REP (مندوب، readerId = SalesRep.id) | ADMIN (مستخدم شركة، readerId = Admin.id). readerName لقطة الاسم لحظة القراءة.
+/// readAt: لحظة الضغط — إقرارٌ صُفّ على الجهاز دون اتصال يحمل لحظته (مصحَّحةً بانحراف ساعته ومحصورةً)، وإلا لحظة الوصول.
+model CircularAck {
+  id         String   @id @default(uuid())
+  circularId String
+  circular   Circular @relation(fields: [circularId], references: [id], onDelete: Cascade)
+  tenantId   String
+  readerKind String // REP | ADMIN
+  readerId   String
+  readerName String?
+  readAt     DateTime @default(now())
+
+  @@unique([circularId, readerKind, readerId])
+  @@index([tenantId, readerKind, readerId])
+  @@map("circular_acks")
 }

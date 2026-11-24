@@ -132,12 +132,13 @@ export type AdminAccountRefusal = keyof typeof ADMIN_ACCOUNT_REFUSALS;
  * targetRole = دور الحساب قبل التعديل (null عند الإنشاء)، newRole = الدور المرسَل، password = أُرسلت كلمة مرور جديدة،
  * scope = يتغيّر تفعيل تقييد النطاق (PUT /:id/scope) — رفعه عن مدير مقيّد يفتح له بوابة /api/zatca وحقول البائع.
  */
-export interface AdminAccountChange { targetRole: string | null; newRole?: string; password?: boolean; scope?: boolean }
+export interface AdminAccountChange { targetRole: string | null; newRole?: string; password?: boolean; scope?: boolean; email?: boolean }
 
 /** تغيير يمسّ حساب «مدير الشركة»: إنشاء مدير أو الترقية إليه، أو خفض دور مدير أو تعيين كلمة مروره أو تغيير تقييد نطاقه. */
 export function changesAdminAccount(change: AdminAccountChange): boolean {
   if (change.newRole === 'ADMIN' && change.targetRole !== 'ADMIN') return true;
-  return change.targetRole === 'ADMIN' && ((change.newRole !== undefined && change.newRole !== 'ADMIN') || change.password === true || change.scope === true);
+  // البريد كلمة المرور نفسها منذ «نسيت كلمة المرور» (٢١ نوفمبر ٢٠٢٦): من نقل بريد المدير إلى بريده استعاد كلمة مروره ودخل به
+  return change.targetRole === 'ADMIN' && ((change.newRole !== undefined && change.newRole !== 'ADMIN') || change.password === true || change.scope === true || change.email === true);
 }
 
 /**
@@ -542,7 +543,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       res.status(403).json({ success: false, message: DELETE_GRANT_REFUSED });
       return;
     }
-    if (!(await guardAdminAccountChange(req, res, caller, { targetRole: current.role, newRole: data.role, password: !!password }))) return;
+    if (!(await guardAdminAccountChange(req, res, caller, { targetRole: current.role, newRole: data.role, password: !!password, email: emailChanges }))) return;
     if (password && password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
     if (data.email && await duplicateEmail(data.email, current.id)) {
       res.status(409).json({ success: false, message: 'البريد الإلكتروني مستخدم مسبقا' });

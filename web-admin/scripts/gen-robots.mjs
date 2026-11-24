@@ -61,12 +61,14 @@ export const RULE_LINES = [
   'Disallow: /signup',
   'Disallow: /verify-email',
   'Disallow: /activate',
+  'Disallow: /reset-password',
 ];
 
 /** قواعد التطبيق التي يجب أن تبقى (غياب أيّ منها يوقف التوليد) */
 const REQUIRED_RULES = [
   'Disallow: /app', 'Disallow: /platform', 'Disallow: /owner', 'Disallow: /staff', 'Allow: /rep-app', 'Disallow: /rep',
   'Disallow: /m$', 'Disallow: /m/', 'Disallow: /login', 'Disallow: /signup', 'Disallow: /verify-email', 'Disallow: /activate',
+  'Disallow: /reset-password',
 ];
 
 export function buildRobots() {

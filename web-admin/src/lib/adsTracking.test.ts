@@ -19,6 +19,7 @@ test('الوسم مسموح على كل صفحة تسويقية — ومنها �
   const allowed = [
     '/', '/pricing', '/pricing/', '/signup', '/about', '/terms', '/privacy', '/service-agreement',
     '/contact', '/meeting', '/en/meeting', '/subscribe-request', '/calculator', '/invoice-generator', '/tutorial', '/profile',
+    '/ambassadors', '/ambassadors/', '/en/ambassadors/', '/fr/ambassadors', // صفحة السفراء العلنية (١٨ نوفمبر ٢٠٢٦)
     '/blog', '/blog/field-sales-software-sa/', '/free', '/free/commission',
     enc('/قطاعات'), enc('/قطاعات/مواد-غذائية'), enc('/مزايا/الفوترة-بدون-انترنت'), enc('/نماذج/كشف-حساب-عميل'),
     '/en', '/en/', '/en/pricing/', '/en/blog/x', '/fr/pricing', '/fr/blog/x/', '/tr/pricing', '/zh/contact',
@@ -31,8 +32,9 @@ test('الوسم ممنوع داخل التطبيق والبوابات الخا�
   const denied = [
     '/app', '/app/', '/app/customers', '/app/ledger/moves', '/platform', '/owner', '/login', '/verify-email',
     '/staff', '/staff/', '/staff/login', // لوحة موظفي المنصة ودخولها
-    '/activate', '/activate/',
+    '/activate', '/activate/', '/reset-password', '/reset-password/',
     '/rep', '/rep/', '/m', '/m/', '/ax', '/ax/', '/hx', '/q-fs7k2m', '/qt',
+    '/ambassadors/join', '/ambassadors/login', '/en/ambassadors/join', // تحويلٌ إلى بوابة السفير لا صفحة هبوط
     '/pos', '/kds', '/app-r', // مسارات المطعم — خارج القائمة تلقائياً
     '/c/tenant1/rep1', '/pay/tok123', '/e/tok123', '/payment/success', '/rep-app', '/hookb',
     '/en/app', '/fr/login',
@@ -67,14 +69,16 @@ test('المسار العربي غير المفكوك لا يسقط من الق�
 test('كل مسارات App.tsx مصنّفة صراحةً، والتصنيف يطابق isAdsTagRoute', () => {
   const PUBLIC = new Set([
     '/', '/about', '/terms', '/service-agreement', '/privacy', '/contact', '/meeting', '/subscribe-request',
-    '/calculator', '/tutorial', '/profile', '/invoice-generator', '/pricing', '/signup',
+    '/calculator', '/tutorial', '/profile', '/invoice-generator', '/pricing', '/signup', '/ambassadors',
     '/قطاعات', '/قطاعات/:slug', '/مزايا', '/مزايا/:slug', '/نماذج', '/نماذج/:slug',
     '/free', '/free/:tool', '/blog', '/blog/:slug',
   ]);
   const PRIVATE = new Set([
-    '/rep', '/m', '/hx', '/ax', '/q-fs7k2m', '/hookb', '/login', '/owner', '/verify-email', '/activate',
+    '/rep', '/m', '/hx', '/ax', '/q-fs7k2m', '/hookb', '/login', '/owner', '/verify-email', '/activate', '/reset-password',
     '/rep-app', '/payment/success', '/c/:tenantId/:repId', '/pay/:token', '/e/:token', '/platform', '/app',
     '/staff', '/staff/login',
+    // زرّا صفحة السفراء العلنية — تحويلٌ استبدالاً إلى بوابة السفير (V2_SPEC §9)
+    '/ambassadors/join', '/ambassadors/login',
   ]);
   const src = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
   const paths = [...src.matchAll(/<Route\s+path="(\/[^"]*)"/g)].map((m) => m[1]);

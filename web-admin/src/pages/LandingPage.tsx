@@ -213,7 +213,7 @@ const CHROME_EN: [string, string][] = [
   ['>الحالة<', '>Status<'], ['تم الإرسال', 'Sent'], ['طلب #10428 قيد التنفيذ', 'Order #10428 in progress'],
   // التذييل
   ['>المنتج<', '>Product<'], ['تطبيق الجوال', 'Mobile app'],
-  ['>الشركة<', '>Company<'], ['>من نحن<', '>About us<'], ['>تواصل معنا<', '>Contact us<'],
+  ['>الشركة<', '>Company<'], ['>من نحن<', '>About us<'], ['>تواصل معنا<', '>Contact us<'], ['>سفراء فيلد سيلز<', '>Ambassadors<'],
   ['>قانوني<', '>Legal<'], ['>سياسة الخصوصية<', '>Privacy Policy<'],
   ['>الشروط والأحكام<', '>Terms & Conditions<'], ['>اتفاقية الخدمة<', '>Service Agreement<'],
   ['© ٢٠٢٦ Field Sales جميع الحقوق محفوظة', '© 2026 Field Sales — All rights reserved.'],
@@ -250,7 +250,7 @@ const CHROME_FR: [string, string][] = [
   ['>الحالة<', '>Statut<'], ['تم الإرسال', 'Envoyé'], ['طلب #10428 قيد التنفيذ', 'Commande #10428 en cours'],
   // التذييل
   ['>المنتج<', '>Produit<'], ['تطبيق الجوال', 'Application mobile'],
-  ['>الشركة<', '>Entreprise<'], ['>من نحن<', '>À propos<'], ['>تواصل معنا<', '>Contact<'],
+  ['>الشركة<', '>Entreprise<'], ['>من نحن<', '>À propos<'], ['>تواصل معنا<', '>Contact<'], ['>سفراء فيلد سيلز<', '>Ambassadeurs<'],
   ['>قانوني<', '>Légal<'], ['>سياسة الخصوصية<', '>Politique de confidentialité<'],
   ['>الشروط والأحكام<', '>Conditions générales<'], ['>اتفاقية الخدمة<', '>Contrat de service<'],
   ['© ٢٠٢٦ Field Sales جميع الحقوق محفوظة', '© 2026 Field Sales — Tous droits réservés.'],
@@ -325,6 +325,7 @@ const CHROME_TR: [string, string][] = [
   ['>الشركة<', '>Şirket<'],
   ['>من نحن<', '>Hakkımızda<'],
   ['>تواصل معنا<', '>İletişim<'],
+  ['>سفراء فيلد سيلز<', '>Elçi programı<'],
   ['>قانوني<', '>Yasal<'],
   ['>سياسة الخصوصية<', '>Gizlilik Politikası<'],
   ['>الشروط والأحكام<', '>Şartlar ve Koşullar<'],
@@ -402,6 +403,7 @@ const CHROME_ZH: [string, string][] = [
   ['>الشركة<', '>企业<'],
   ['>من نحن<', '>关于我们<'],
   ['>تواصل معنا<', '>联系我们<'],
+  ['>سفراء فيلد سيلز<', '>推广大使<'],
   ['>قانوني<', '>法律条款<'],
   ['>سياسة الخصوصية<', '>隐私政策<'],
   ['>الشروط والأحكام<', '>条款与条件<'],
@@ -651,7 +653,8 @@ function featureLinksRow(lang: Lang): string {
 // والوجهة من pathForLocale (i18n/locale.ts، المشتقّة من availableLangs): الصفحة بلغة الصفحة إن وُجدت بها، وإلا
 // نظيرها الإنجليزي — فلا يقود رابط من /tr/ أو /zh/ إلى مسار بلا صفحة (كان /tr/about يُخدَم قوقعة الرئيسية العربية).
 // /meeting هنا: زرّ «احجز اجتماعاً» في البطل كان يفتح الصفحة العربية من الرئيسيات الأربع.
-const LOCALIZED_PATHS = ['/about', '/contact', '/subscribe-request', '/meeting', '/pricing', '/blog', '/calculator', '/invoice-generator', '/privacy', '/terms', '/service-agreement'];
+// /ambassadors (رابط التذييل، ١٨ نوفمبر ٢٠٢٦): ثلاثية — من /tr/ و/zh/ تقود إلى النسخة الإنجليزية.
+const LOCALIZED_PATHS = ['/about', '/contact', '/subscribe-request', '/meeting', '/ambassadors', '/pricing', '/blog', '/calculator', '/invoice-generator', '/privacy', '/terms', '/service-agreement'];
 function localizeLinks(html: string, lang: Lang): string {
   if (lang === 'ar') return html;
   let out = html;
@@ -726,31 +729,31 @@ export default function LandingPage() {
     ar: {
       title: 'FieldSales فيلد سيلز | نظام مبيعات المناديب والتوزيع',
       // ≤155 حرفاً + الكلمة المفتاحية في المقدّمة — مطابق لوصف index.html (المصدر الذي يقرؤه الزاحف)
-      description: 'نظام مبيعات المناديب والتوزيع فواتير ضريبية تحصيل مخزون السيارة وتتبع GPS للسعودية ومصر والخليج جرب مجانا 10 أيام',
+      description: 'نظام مبيعات المناديب والتوزيع فواتير ضريبية تحصيل مخزون السيارة وتتبع GPS للسعودية ومصر والخليج جرب مجانا 5 أيام',
       keywords: 'نظام مبيعات ميدانية, إدارة مناديب التوزيع, نظام توزيع, برنامج توزيع, فواتير ضريبية, ZATCA, الفوترة الإلكترونية, فاتورة ضريبية مبسطة, تحصيل المدفوعات, إدارة الذمم المدينة, سندات قبض, مخزون سيارة المندوب, البيع المتنقل van sales, تتبع المناديب GPS, إدارة العملاء وحدود الائتمان, كتالوج المنتجات والأسعار, تكامل ERP, نظام مبيعات لكل دول العالم, نظام مبيعات مصر, نظام توزيع المغرب, برنامج مناديب الجزائر وتونس وليبيا, نظام مبيعات السعودية, فيلد سيلز',
       locale: 'ar' as const,
     },
     en: {
       title: 'FieldSales | Field Sales & Distribution Management Software',
-      description: 'Field sales software for distribution companies in any country: invoices with a QR code, collection, van stock and rep GPS tracking. Free 10-day trial.',
+      description: 'Field sales software for distribution companies in any country: invoices with a QR code, collection, van stock and rep GPS tracking. Free 5-day trial.',
       keywords: 'field sales system, sales rep management software, distribution management software, route accounting, ZATCA e-invoicing, tax invoice, payment collection, accounts receivable, van sales software, van stock management, GPS rep tracking, customer management, product catalog, ERP integration',
       locale: 'en' as const,
     },
     fr: {
       title: 'FieldSales | Logiciel de vente terrain et de distribution',
-      description: 'Logiciel de vente terrain pour distributeurs de tous pays : prévente et vente en tournée, factures, encaissement et suivi GPS. Essai gratuit 10 jours.',
+      description: 'Logiciel de vente terrain pour distributeurs de tous pays : prévente et vente en tournée, factures, encaissement et suivi GPS. Essai gratuit 5 jours.',
       keywords: 'logiciel de vente terrain, application de prévente, logiciel de vente en tournée, logiciel de gestion des commerciaux, logiciel de gestion de distribution, facturation électronique, facture fiscale, encaissement, gestion des créances, stock du véhicule, suivi GPS des commerciaux, gestion des clients, catalogue produits, intégration ERP',
       locale: 'fr' as const,
     },
     tr: {
       title: 'FieldSales | Saha Satış ve Dağıtım Yönetim Yazılımı',
-      description: 'Her ülkedeki dağıtım şirketleri için saha satış ve plasiyer yazılımı: QR kodlu faturalar, tahsilat, araç stoku ve GPS takibi. 10 gün ücretsiz deneme.',
+      description: 'Her ülkedeki dağıtım şirketleri için saha satış ve plasiyer yazılımı: QR kodlu faturalar, tahsilat, araç stoku ve GPS takibi. 5 gün ücretsiz deneme.',
       keywords: 'saha satış sistemi saha ekibi yönetimi dağıtım yönetim yazılımı rota muhasebesi e-fatura vergi faturası tahsilat cari hesap araç stoku yönetimi GPS temsilci takibi müşteri yönetimi ürün kataloğu ERP entegrasyonu',
       locale: 'tr' as const,
     },
     zh: {
       title: 'FieldSales | 外勤销售与分销管理软件',
-      description: '面向各国分销企业的外勤销售系统：带二维码的发票、收款、车载库存与业务员 GPS 追踪。免费试用 10 天。',
+      description: '面向各国分销企业的外勤销售系统：带二维码的发票、收款、车载库存与业务员 GPS 追踪。免费试用 5 天。',
       keywords: '外勤销售系统 业务员管理软件 分销管理系统 路线销售管理 ZATCA 电子发票 收款管理 应收账款 车销库存管理 GPS 业务员追踪 客户管理 产品目录 ERP 集成',
       locale: 'zh' as const,
     },

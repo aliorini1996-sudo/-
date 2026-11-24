@@ -127,7 +127,7 @@ test('التجربة تبدأ عند التفعيل ولا تُقصَّر أبد
   assert.equal(trialEndAfterActivation(new Date(now.getTime() - 5 * day), now)!.getTime(), now.getTime() + TRIAL_PERIOD_DAYS * day, 'انتهت قبل التفعيل');
   const paid = new Date(now.getTime() + 60 * day);
   assert.equal(trialEndAfterActivation(paid, now)!.getTime(), paid.getTime(), 'اشتراكٌ مدفوع لا يُقصَّر');
-  assert.equal(TRIAL_PERIOD_DAYS, 10);
+  assert.equal(TRIAL_PERIOD_DAYS, 5, 'مدة التجربة ٥ أيام (قرار المالك ١٩ نوفمبر ٢٠٢٦)');
   assert.deepEqual({ ...TRIAL_LIMITS }, { maxSalesReps: 5, maxAdminUsers: 1 });
 });
 

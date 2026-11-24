@@ -5,13 +5,14 @@ import { AuthRequest } from '../types';
 import { customerScope } from '../services/customerScope';
 import { scopedRecordWhere, SHAPE_VISIT, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { Prisma } from '@prisma/client';
+import { archiveVisits } from '../services/customerArchive';
 import {
   CUSTOMER_DOC_MAX_PER_CUSTOMER, CUSTOMER_DOC_MAX_PER_REQUEST, CustomerDocInput, docCreateRows, droppedDocsWarning, isServableImage,
   parseCustomerDocs,
 } from '../services/customerDocs';
 
 /**
- * «استديو العميل» (طلب المالك ١٣ نوفمبر ٢٠٢٦): كل صورةٍ رُفعت للعميل في مكانٍ واحد — وثائقه (السجل والهوية والشهادة وصورة المحل…)،
+ * «أرشيف العميل» (كان «استديو العميل» — طلب المالك ١٣ نوفمبر ٢٠٢٦، وصار أرشيفاً بسجلٍّ زمني ٢١ نوفمبر): كل صورةٍ رُفعت للعميل في مكانٍ واحد — وثائقه (السجل والهوية والشهادة وصورة المحل…)،
  * وصور زياراته الميدانية، ومرفقات سندات قبضه. لمستخدمي الشركة وحدهم (requireAdmin) بصلاحية «العملاء» (الموجّه الأب) وداخل نطاقهم:
  *  • العميل نفسه بنطاق العملاء (customerScope) — خارجَه 404 كأنه غير موجود.
  *  • صور الزيارات بقيد الزيارات نفسه (SHAPE_VISIT): زيارة مندوبٍ خارج نطاق المستخدم أو فريقه لا تظهر، كقائمة الزيارات.
@@ -23,6 +24,12 @@ export const customerStudioRouter = Router();
 
 /** سقف صور الزيارات ومرفقات السندات في القائمة (الأحدث أولاً) — وما زاد يُعلَم به (truncated) لا يُسقط بصمت */
 export const STUDIO_TAKE = 300;
+
+/**
+ * «أرشيف العميل» (طلب المالك ٢١ نوفمبر ٢٠٢٦): السجلّ الزمني لكل زيارات العميل — بصورٍ أو بلا صور — بملاحظاتها كاملةً ومندوبها
+ * ومدّتها وموقعها، فيعرف موظفٌ تسلّم العميل من أين توقّف سابقه. سقف الأحدث أولاً، وما زاد يُعلَم به (truncated) لا يُسقط بصمت
+ */
+export const ARCHIVE_VISITS_TAKE = 500;
 
 type Source = 'doc' | 'visit' | 'receipt';
 const SOURCES: readonly Source[] = ['doc', 'visit', 'receipt'];
@@ -78,10 +85,10 @@ customerStudioRouter.get('/:id/studio', requireAdmin, async (req: AuthRequest, r
     const customer = await studioCustomer(req, tid);
     if (!customer) { notFound(res); return; }
     const receiptsOk = await canSeeReceiptPhotos(req);
-    const [docs, visitPhotos, receiptPhotos] = await Promise.all([
+    const [docs, visitPhotos, receiptPhotos, visits] = await Promise.all([
       prisma.customerDocument.findMany({
         where: { tenantId: tid, customerId: customer.id },
-        select: { id: true, kind: true, sizeBytes: true, uploadedByKind: true, uploadedByName: true, createdAt: true },
+        select: { id: true, kind: true, sizeBytes: true, uploadedByKind: true, uploadedById: true, uploadedByName: true, createdAt: true },
         orderBy: { createdAt: 'desc' },
       }),
       prisma.visitPhoto.findMany({
@@ -93,16 +100,27 @@ customerStudioRouter.get('/:id/studio', requireAdmin, async (req: AuthRequest, r
       receiptsOk
         ? prisma.receiptPhoto.findMany({
           where: { receipt: await receiptWhereOf(req, tid, customer.id) },
-          select: { id: true, createdAt: true, receipt: { select: { id: true, number: true, status: true, receiptDate: true, salesRep: { select: { name: true } } } } },
+          select: { id: true, createdAt: true, receipt: { select: { id: true, number: true, status: true, receiptDate: true, salesRepId: true, salesRep: { select: { name: true } } } } },
           orderBy: { createdAt: 'desc' },
           take: STUDIO_TAKE + 1,
         })
         : Promise.resolve(null),
+      // الأرشيف: كل زيارة بقيد الزيارات نفسه (SHAPE_VISIT) — الملاحظة كاملةً، ومعرّفات صورها وحدها (الصورة تُطلب عند ظهورها)
+      prisma.repVisit.findMany({
+        where: await visitWhereOf(req, tid, customer.id),
+        select: {
+          id: true, createdAt: true, note: true, durationSec: true, startedAt: true, endedAt: true, lat: true, lng: true,
+          customerId: true, salesRepId: true, salesRep: { select: { name: true } },
+          photos: { select: { id: true }, orderBy: { createdAt: 'asc' } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: ARCHIVE_VISITS_TAKE + 1,
+      }),
     ]);
     const items = [
       ...docs.map((d) => ({
         source: 'doc' as const, id: d.id, kind: d.kind, sizeBytes: d.sizeBytes, at: d.createdAt,
-        by: d.uploadedByName, byKind: d.uploadedByKind,
+        by: d.uploadedByName, byKind: d.uploadedByKind, byId: d.uploadedById,
       })),
       ...visitPhotos.slice(0, STUDIO_TAKE).map((p) => ({
         source: 'visit' as const, id: p.id, at: p.visit.createdAt, by: p.visit.salesRep?.name ?? null,
@@ -110,7 +128,7 @@ customerStudioRouter.get('/:id/studio', requireAdmin, async (req: AuthRequest, r
       })),
       ...(receiptPhotos ?? []).slice(0, STUDIO_TAKE).map((p) => ({
         source: 'receipt' as const, id: p.id, at: p.receipt.receiptDate, by: p.receipt.salesRep?.name ?? null,
-        receiptId: p.receipt.id, number: p.receipt.number, cancelled: p.receipt.status === 'CANCELLED',
+        receiptId: p.receipt.id, number: p.receipt.number, cancelled: p.receipt.status === 'CANCELLED', repId: p.receipt.salesRepId,
       })),
     ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
     res.json({
@@ -118,8 +136,12 @@ customerStudioRouter.get('/:id/studio', requireAdmin, async (req: AuthRequest, r
       data: {
         customer: { id: customer.id, name: customer.name, businessName: customer.businessName },
         items,
+        visits: archiveVisits(visits.slice(0, ARCHIVE_VISITS_TAKE)),
         receiptsHidden: !receiptsOk,
-        truncated: { visit: visitPhotos.length > STUDIO_TAKE, receipt: (receiptPhotos?.length ?? 0) > STUDIO_TAKE },
+        truncated: {
+          visit: visitPhotos.length > STUDIO_TAKE, receipt: (receiptPhotos?.length ?? 0) > STUDIO_TAKE,
+          visits: visits.length > ARCHIVE_VISITS_TAKE,
+        },
         limits: { perRequest: CUSTOMER_DOC_MAX_PER_REQUEST, perCustomer: CUSTOMER_DOC_MAX_PER_CUSTOMER, docCount: docs.length },
       },
     });

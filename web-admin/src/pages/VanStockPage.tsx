@@ -6,7 +6,7 @@ import { useTr } from '../i18n/strings';
 import { useLang } from '../i18n/lang';
 import { countText } from '../lib/arCount';
 import SearchableSelect from '../components/SearchableSelect';
-import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar, Sparkles, AlertTriangle, Target, Download, Wrench, Layers, ChevronDown, ChevronUp, Info, Eraser } from 'lucide-react';
+import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar, Sparkles, AlertTriangle, Target, Download, Wrench, Layers, ChevronDown, ChevronUp, Info, Eraser, ClipboardCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DocumentModal from '../components/DocumentModal';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -15,6 +15,8 @@ import { splitVanMovement } from '../lib/vanMovement';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 import VanLoadsLog from '../components/VanLoadsLog';
 import StockZeroModal from '../components/StockZeroModal';
+import { stockCountLines, stockCountRef, type VanStockSource } from '../lib/stockCount';
+import type { StockCountDoc } from '../rep/RepDocuments';
 import { useAuthStore, isStaffImpersonationClient } from '../store/authStore';
 import { baseQtyText, hasBigUnit, productUnitLabel, suggestionChoice } from '../lib/adminUnits';
 import { anyBigUnit, fmtTotalQty, qtyText, qtyViewFor, totalsList, unitTotalsItems, type QtyView, type UnitTotal } from '../lib/qtyView';
@@ -30,10 +32,10 @@ import {
 } from '../lib/lots';
 import {
   directLoadLotFields, draftFromRows, draftProblem, draftRefs, emptyEntryLot, entryLotProblem, hasMultiLotWarning, isFourDecimals,
-  loadSourcesOf, outSourcesOf, shelfLifeOn,
+  loadDraftCheck, loadSourcesOf, outSourcesOf, shelfLifeOn,
   type EntryLotDraft, type LotBalancesResponse, type LotRowDraft, type PlaceViewWithAvailability,
 } from '../lib/stockLots';
-import { AutoPullPreview, EntryLotFields, LotRowsEditor, draftProblemText, entryProblemText, fetchLotBalances, fmtLotQty } from '../components/StockLotFields';
+import { AutoPullPreview, EntryLotFields, LotFallbackNote, LotRowsEditor, draftProblemText, entryProblemText, fetchLotBalances, fmtLotQty } from '../components/StockLotFields';
 import { STOCK_CACHE_KEYS } from '../m/mLotsLogic';
 import {
   DUP_NAME_TEXT, EXTRA_KIND_META, PRODUCT_FLAG_LABELS, VAN_MOVE_TEXT, archivedErrorOf, dupNameIds, fillCode, fillNames, isReplayResponse,
@@ -227,6 +229,11 @@ export default function VanStockPage() {
   // «دخول» موظف المنصة دوره ADMIN و`impersonating` قائم — يُستثنى من الفرعين فالخادم يرفضه دائماً (٤٠٣)، ومديرٌ نُزعت منه «تحميل مخزون السيارة» يرفضه كذلك
   const canZeroStock = !isStaffImpersonationClient() && ((me?.role === 'ADMIN' && !me?.scopeEnabled && me?.canManageVanStock !== false) || !!impersonating);
   const [showZero, setShowZero] = useState(false);
+  // «كشف جرد» سيارة مندوب (طلب المالك ٢٣ نوفمبر ٢٠٢٦): PDF للمطابقة الفعلية — رصيد النظام لحظة الإصدار وخاناتٌ للجرد
+  const [countDoc, setCountDoc] = useState<StockCountDoc | null>(null);
+  const [countBusy, setCountBusy] = useState<string | null>(null);
+  // «تصفير سيارة مندوب واحدة» (طلب المالك ١٨ نوفمبر ٢٠٢٦): من تفصيل المندوب المختار، بالشرط نفسه — النافذة نفسها بسيارته وحدها
+  const [zeroRep, setZeroRep] = useState<{ id: string; name: string } | null>(null);
 
   // مخزون السيارة بضاعةٌ وقيمة: صفحته تُمنع مع المحاسبة، ومسار /van-stock
   // محروسٌ بالخادم فكلّ طلبٍ هنا كان سيعود ٤٠٣ بلافتة خطأ.
@@ -310,6 +317,28 @@ export default function VanStockPage() {
         </button>}
       </span>
     ) : <span className="text-[#9A8F7E]">—</span>;
+  };
+
+  const openStockCount = async (r: RepSummary) => {
+    if (countBusy) return;
+    setCountBusy(r.salesRepId);
+    try {
+      // الرصيد لحظة الإصدار من الخادم دائماً — لا نسخةٌ قديمة من الذاكرة
+      const rows = await qc.fetchQuery({
+        queryKey: ['van-current', r.salesRepId],
+        queryFn: async () => (await vanStockApi.current(r.salesRepId)).data.data as StockRow[],
+        staleTime: 0,
+      });
+      const now = new Date();
+      setCountDoc({
+        kind: 'stockCount', company: companyQ.data ?? null, ref: stockCountRef(now), date: now.toISOString(),
+        repName: r.repName, by: me?.name, items: stockCountLines(rows as unknown as VanStockSource[]),
+      });
+    } catch {
+      toast.error(tr('تعذر تحميل مخزون السيارة حاول مجددا'));
+    } finally {
+      setCountBusy(null);
+    }
   };
 
   const currentQ = useQuery({
@@ -432,6 +461,7 @@ export default function VanStockPage() {
                       وسم الأساس ولو عُرضت الأعمدة الأخرى بالكبرى */}
                   {anyExpiredField && <th className="text-center font-semibold px-3 py-2.5" title={tr(crossSumLabel(hasPrimary))}>{tr('منتهي الصلاحية')}{(hasPrimary || majorSums) && <span className="block text-[9px] font-normal text-[#9A8F7E]">{tr('بالوحدات الصغرى')}</span>}</th>}
                   <th className="text-center font-semibold px-3 py-2.5" title={sumTitle}>{filtered ? tr('المتبقي بنهاية المدة') : tr('المتبقي')}{sumTag}</th>
+                  <th className="text-center font-semibold px-3 py-2.5" title={tr('كشف PDF برصيد السيارة الحالي للمطابقة الفعلية')}>{tr('كشف جرد')}</th>
                   <th className="text-center font-semibold px-3 py-2.5" title={lotOn ? tr('الأصناف المتتبعة بـLOT ممنوعة دائما من البيع بلا رصيد ولو سمح للمندوب') : undefined}>{tr('البيع بدون مخزون')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('آخر تحميل')}</th>
                 </tr>
@@ -476,6 +506,16 @@ export default function VanStockPage() {
                         </td>
                       );
                     })()}
+                    {/* «كشف جرد»: PDF برصيد السيارة الآن للمطابقة الفعلية — الرصيد الحالي لا رصيد نهاية المدة المختارة */}
+                    <td className="text-center px-3 py-3" onClick={e => e.stopPropagation()}>
+                      <button onClick={() => openStockCount(r)} disabled={countBusy !== null}
+                        title={tr('إصدار كشف جرد للسيارة')} aria-label={`${tr('إصدار كشف جرد للسيارة')} ${r.repName}`} data-stock-count=""
+                        className="inline-flex items-center justify-center w-9 h-9 rounded-full border border-[#E9E1D3] text-[#E15A30] hover:bg-[#FBEBE2] disabled:opacity-50">
+                        {countBusy === r.salesRepId
+                          ? <span className="w-4 h-4 border-2 border-[#E15A30]/30 border-t-[#E15A30] rounded-full animate-spin" />
+                          : <ClipboardCheck size={16} />}
+                      </button>
+                    </td>
                     <td className="text-center px-3 py-3" onClick={e => e.stopPropagation()}>
                       <button onClick={() => setSellPerm.mutate({ id: r.salesRepId, val: !r.canSellWithoutStock })}
                         disabled={setSellPerm.isPending}
@@ -525,6 +565,12 @@ export default function VanStockPage() {
           <div className="card p-0 overflow-hidden">
             <div className="px-5 py-3.5 border-b border-[#F1EBDF] font-bold text-[#1F1A13] text-sm flex items-center gap-2">
               <Package size={17} className="text-[#E15A30]" /> {tr('مخزون المندوب الحالي')} — {selectedRep.repName}
+              {canZeroStock && (
+                <button type="button" onClick={() => setZeroRep({ id: selectedRep.salesRepId, name: selectedRep.repName })}
+                  className="ms-auto inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-semibold text-[#C0392B] hover:bg-red-50">
+                  <Eraser size={14} /> {tr('تصفير هذه السيارة')}
+                </button>
+              )}
             </div>
             {currentQ.isLoading ? (
               <div className="p-8 text-center text-gray-400 text-sm">{tr('جار التحميل')}</div>
@@ -631,6 +677,8 @@ export default function VanStockPage() {
       {showLoad && <LoadModal preselectRep={selected} lotOn={lotOn} whOn={whOn} onClose={() => setShowLoad(false)} />}
       {showAccuracy && <AccuracyModal preselectRep={selected} qv={qv} onClose={() => setShowAccuracy(false)} />}
       {showZero && canZeroStock && <StockZeroModal onClose={() => setShowZero(false)} />}
+      {zeroRep && canZeroStock && <StockZeroModal salesRepId={zeroRep.id} repName={zeroRep.name} onClose={() => setZeroRep(null)} />}
+      {countDoc && <DocumentModal doc={countDoc} onClose={() => setCountDoc(null)} />}
       {noticeMv && <DocumentModal doc={withMovementLots(loadNoticeDocFromData(repName, noticeMv, companyQ.data ?? null), noticeMv, lotOn)} onClose={() => setNoticeMv(null)} />}
       {toolsRep && <ToolsModal repId={toolsRep.salesRepId} repName={toolsRep.repName} onClose={() => setToolsRep(null)} />}
       {toolsGone && <ToolsModal deleted repId={toolsGone.deletedSalesRepId} repName={tr('مندوب محذوف')} onClose={() => setToolsGone(null)} />}
@@ -1186,7 +1234,14 @@ function LoadModal({ preselectRep, lotOn, whOn, onClose }: { preselectRep: strin
         : tr('كمية الصنف المتتبع بأربع خانات عشرية على الأكثر بوحدة الأساس');
     }
     if (q > 0 && !whOn) return entryProblemText(entryLotProblem(r.lotEntry, { kind: 'INCREASE', expiryRequired: shelfLifeOn(productOf(r.productId)) }), tr);
-    if (q > 0) return r.lotEdit ? draftProblemText(draftProblem(r.lotEdit, base, loadSourcesOf(whViewOf(r.productId), day)), tr, productOf(r.productId)) : null;
+    // التحميل من المستودع بتوزيعٍ معدَّل (طلب المالك ١٦ نوفمبر ٢٠٢٦): الشكل ونقص الصنف كله يمنعان وحدهما — صفٌّ فوق متاح تشغيلته أو
+    // على منتهية أو موقوفة يُكمله الخادم من غيرها بالأقرب انتهاءً (تنبيهٌ كهرماني تحت المحرّر لا منع)
+    if (q > 0) {
+      if (!r.lotEdit) return null;
+      const c = loadDraftCheck(r.lotEdit, base, whViewOf(r.productId), day, factorOfRow(r));
+      if (c.problem) return draftProblemText(c.problem, tr, productOf(r.productId));
+      return c.short ? tr('الكمية أكبر من رصيد تشغيلات الصنف في المستودع') : null;
+    }
     if (balQ.isLoading) return tr('جار التحميل');
     const sources = outSourcesOf(vanViewOf(r.productId), 'SELLABLE', day);
     if (r.lotEdit) return draftProblemText(draftProblem(r.lotEdit, base, sources), tr, productOf(r.productId));
@@ -1570,6 +1625,7 @@ function LoadRowLots({ row, repId, whOn, factor, baseQty, baseUnit, prod, whView
   const box = 'mt-1.5 rounded-lg border border-[#F1EBDF] bg-[#FAF7F0] px-2 py-1.5 space-y-1';
   // المسوّدة المعدَّلة: محرّر الصفوف على مصادر المكان
   if (row.lotEdit !== null) {
+    const fallback = load ? loadDraftCheck(row.lotEdit, baseQty, whView, day, factor).fallback : null;
     return (
       <div className={box}>
         <div className="flex items-center justify-between gap-2">
@@ -1581,6 +1637,8 @@ function LoadRowLots({ row, repId, whOn, factor, baseQty, baseUnit, prod, whView
         </div>
         <LotRowsEditor rows={row.lotEdit} onChange={rs => onPatch({ lotEdit: rs })} sources={sources} lineBaseQty={baseQty} baseUnit={baseUnit} prod={prod} />
         {issue && <p className="text-[10px] text-red-600">{issue}</p>}
+        {/* «يُكمَل من غيرها» (طلب المالك ١٦ نوفمبر ٢٠٢٦): للتحميل وحده — التنزيل بتشغيلةٍ صريحة يبقى صارماً */}
+        {load && !issue && fallback && <LotFallbackNote plan={fallback} sources={outSourcesOf(whView, 'SELLABLE', day)} shortText={tr('الكمية أكبر من رصيد تشغيلات الصنف في المستودع')} />}
       </div>
     );
   }

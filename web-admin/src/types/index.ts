@@ -62,6 +62,7 @@ export interface Tenant {
   invoiceSignatureEnabled?: boolean; // توقيع المستلم اليدويّ على فواتير المندوب — يُفعّله المالك لكل شركة
   zatcaPhase2Enabled?: boolean;  // تبويب ربط فوترة ZATCA المرحلة الثانية — مطفأ افتراضياً، يُفعّله المالك لكل شركة سعودية
   aiRepEnabled?: boolean;        // المندوب الذكي AI — مطفأ افتراضياً، يُفعّله المالك لكل شركة
+  aiAccountantEnabled?: boolean; // «المحاسب الذكي AI» (محادثة تقارير وقيود لمدير الشركة) — مطفأ افتراضياً، يُفعّله المالك لكل شركة
   apiEnabled?: boolean;          // الربط البرمجي API — مطفأ افتراضياً، يُفعّله المالك لكل شركة
   paymentMethodsEnabled?: boolean; // صفحة «طرق الدفع» (تحصيل المناديب لكل طريقة دفع) — مطفأة افتراضياً، يُفعّلها المالك لكل شركة
   cardPayEnabled?: boolean;       // «التحصيل بالبطاقة» عبر NearPay — مطفأ افتراضياً، يُفعّله المالك لكل شركة
@@ -455,6 +456,15 @@ export interface SalesRep {
   punchOutsideAction?: 'REJECT' | 'FLAG'; // البصمة خارج النطاق: تُردّ، أو تُقبل بوسم «خارج النطاق»
   requireBoundDevice?: boolean; // «ربط البصمة بجهاز واحد» — تقييديّ ضد البصمة بالنيابة
   requirePresenceCheck?: boolean; // «التحقق العشوائي من التواجد» — «أثبت تواجدك» مرّتين إلى ثلاث يومياً
+  /** «تذكير بالانصراف عند الخمول ثم انصراف تلقائي» — تقييديّ (الغائب مطفأ): بلا استخدامٍ للتطبيق ولا موقع ⇒ تذكير، ثم بلا «ما زلت أعمل» ولا تنقّلٍ ولا مستند ⇒ انصراف تلقائي */
+  idlePunchOutEnabled?: boolean;
+  idlePunchOutMinutes?: number;      // دقائق الخمول قبل التذكير (١٠–٤٨٠، ٤٥ افتراضاً)
+  idlePunchOutGraceMinutes?: number; // مهلة الردّ قبل الانصراف التلقائي (٥–١٢٠، ١٥ افتراضاً)
+  /** «منع تكرار العملاء عند فتح عميل جديد» — تقييديّ (الغائب مطفأ): يُرفض فتح عميلٍ (وتعديله إلى قيمةٍ) مسجّلةٍ لعميلٍ آخر في الشركة
+   *  (409 CUSTOMER_DUPLICATE) — كلٌّ مستقلّ؛ والموقع ضمن ٣٠ متراً قاعدةٌ لكل المناديب خارجها (lib/customerDedup.ts) */
+  dedupCustomerPhone?: boolean;
+  dedupCustomerName?: boolean;
+  dedupCustomerAddress?: boolean;
   showRouteOnMap?: boolean; // «عرض خط السير على الخريطة» — مطفأٌ ⇒ لا يُرسم أثره على خريطة التتبّع (الغائب = مفعّل)
   boundDeviceName?: string | null; boundDeviceAt?: string | null; // الجهاز المربوط (يربطه أول بصمة)
   shiftStart?: string | null; shiftEnd?: string | null; // موعد الدوام "HH:MM" — للتنبيهات وحدها
