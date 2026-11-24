@@ -53,7 +53,8 @@ test('حارس ثابت: الإشعار يفتح الطلب فوراً، وال�
   const sw = read('public', 'sw.js');
   assert.match(sw, /data\.tag === 'presence'/);
   assert.match(sw, /w\.postMessage\(\{ type: 'OPEN_SCREEN', screen: 'presence' \}\)/);
-  assert.match(sw, /renotify: data\.tag === 'presence',/, 'الثاني ينبّه ولو حلّ محلّ الأول بالوسم نفسه');
+  // (ومعه وسم «تذكير الانصراف عند الخمول» idle-punch: إشعار «انصراف تلقائي» يحلّ محلّ التذكير فينبّه — lib/idlePunchOut.test.ts)
+  assert.match(sw, /renotify: data\.tag === 'presence'( \|\| data\.tag === 'idle-punch')?,/, 'الثاني ينبّه ولو حلّ محلّ الأول بالوسم نفسه');
   const hb = read('src', 'rep', 'useHeartbeat.ts');
   const app = read('src', 'rep', 'RepApp.tsx');
   assert.match(app, /useHeartbeat\(!!token && !!user, showPresence\);/);

@@ -3959,7 +3959,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[مندوب], pagination:{total, page, limit, pages}} مرتبة بالاسم تصاعدياً. حقول المندوب: id, name, phone, email, username, isActive, canCreateInvoice, canSellOnCredit, canSellOnInstallment, canSellInCash, canEditInvoice, canDeleteInvoice, canCancelInvoice, canChangePrice, maxDiscountPct, canSellBelowPrice, canChangePriceList, defaultPriceListId, allowedPriceTypes, canCreateReceipt, canEditReceipt, canCancelReceipt, canManageVanStock, canAddCustomer, canEditCustomer, canViewStatement, showCollectionBalance, cashSaleCollected, requireCustomerProximity, requireLocationOn, requirePunchAtCustomer, proximityRadiusM, punchRadiusM, punchOutsideAction, requireBoundDevice, boundDeviceName, boundDeviceAt, requirePresenceCheck, showRouteOnMap, shiftStart, shiftEnd, shiftDays, locationId, createdAt",
+    "response": "{success:true, data:[مندوب], pagination:{total, page, limit, pages}} مرتبة بالاسم تصاعدياً. حقول المندوب: id, name, phone, email, username, isActive, canCreateInvoice, canSellOnCredit, canSellOnInstallment, canSellInCash, canEditInvoice, canDeleteInvoice, canCancelInvoice, canChangePrice, maxDiscountPct, canSellBelowPrice, canChangePriceList, defaultPriceListId, allowedPriceTypes, canCreateReceipt, canEditReceipt, canCancelReceipt, canManageVanStock, canAddCustomer, canEditCustomer, canViewStatement, showCollectionBalance, cashSaleCollected, requireCustomerProximity, requireLocationOn, requirePunchAtCustomer, proximityRadiusM, punchRadiusM, punchOutsideAction, requireBoundDevice, boundDeviceName, boundDeviceAt, requirePresenceCheck, idlePunchOutEnabled, idlePunchOutMinutes, idlePunchOutGraceMinutes, showRouteOnMap, shiftStart, shiftEnd, shiftDays, locationId, createdAt",
     "rules": [
      "لا تُعاد كلمة المرور ولا حقول التتبع والموقع ولا canSellWithoutStock ولا canBeTracked",
      "pages = ceil(total/limit) من utils/helpers.ts",
@@ -4230,6 +4230,24 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "التحقق العشوائي من التواجد أثناء الدوام"
      },
      {
+      "name": "idlePunchOutEnabled",
+      "type": "boolean",
+      "required": false,
+      "desc": "تذكير بالانصراف عند الخمول ثم انصراف تلقائي (false افتراضاً): نوبة مفتوحة والمندوب بلا استخدام للتطبيق ولا موقع يصل من جواله (نبضة التطبيق المفتوح، وأي نقطة موقع من تتبّع الخلفية أو من الصفحة ساكنةً أو متحرّكة، بوقت استلامها في الخادم) مدة idlePunchOutMinutes ⇒ إشعار يذكّره بالانصراف ونافذة «هل ما زلت تعمل؟» بعدٍّ تنازلي للمهلة. وبعد التذكير لا يلغي الانصراف التلقائي إلا «ما زلت أعمل» أو تنقّل فعلي (انتقال أكثر من 150 م وأكثر من هامشَي خطأ النقطتين، يصل إلى الخادم بعد التذكير) أو إصدار مستند من المندوب (فاتورة أو مرتجع أو سند قبض أو زيارة) — لا فتح التطبيق ولا نقاط الموقع الساكنة؛ وإلا عند انقضاء idlePunchOutGraceMinutes انصراف يسجّله النظام بوقت آخر نشاط له قبل التذكير، موسوم checkOutAuto في البصمات وoutAuto في فترات تقرير ساعات العمل"
+     },
+     {
+      "name": "idlePunchOutMinutes",
+      "type": "integer",
+      "required": false,
+      "desc": "دقائق الخمول قبل التذكير: عدد صحيح من 10 إلى 480 (45 افتراضاً)، وإلا 400 IDLE_PUNCH_OUT_RANGE"
+     },
+     {
+      "name": "idlePunchOutGraceMinutes",
+      "type": "integer",
+      "required": false,
+      "desc": "مهلة الرد بعد التذكير قبل الانصراف التلقائي: عدد صحيح من 5 إلى 120 (15 افتراضاً)، وإلا 400 IDLE_PUNCH_OUT_RANGE"
+     },
+     {
       "name": "requireBoundDevice",
       "type": "boolean",
       "required": false,
@@ -4307,7 +4325,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "canCreateInvoice ... shiftDays",
       "type": "boolean / number",
       "required": false,
-      "desc": "نفس حقول POST وكلها اختيارية: الصلاحيات (ومنها canChangePriceList «تبديل قائمة الأسعار»)، وdefaultPriceListId وallowedPriceTypes (المرسل منهما يُفحص مع المحفوظ من الآخر: الافتراضية من القوائم المسموحة حين تُقيَّد، و'base' فيها إن كان الافتراضي السعر الأساسي، وإلا 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED)، وmaxDiscountPct من 0 إلى 100، وproximityRadiusM وpunchRadiusM أعداد صحيحة من 10 إلى 5000، وpunchOutsideAction وrequireBoundDevice وrequirePresenceCheck وshowRouteOnMap وshiftStart وshiftEnd وshiftDays"
+      "desc": "نفس حقول POST وكلها اختيارية: الصلاحيات (ومنها canChangePriceList «تبديل قائمة الأسعار»)، وdefaultPriceListId وallowedPriceTypes (المرسل منهما يُفحص مع المحفوظ من الآخر: الافتراضية من القوائم المسموحة حين تُقيَّد، و'base' فيها إن كان الافتراضي السعر الأساسي، وإلا 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED)، وmaxDiscountPct من 0 إلى 100، وproximityRadiusM وpunchRadiusM أعداد صحيحة من 10 إلى 5000، وpunchOutsideAction وrequireBoundDevice وrequirePresenceCheck وshowRouteOnMap وshiftStart وshiftEnd وshiftDays، وidlePunchOutEnabled وidlePunchOutMinutes (10 إلى 480) وidlePunchOutGraceMinutes (5 إلى 120) — المرسل منهما خارج حدّه 400 IDLE_PUNCH_OUT_RANGE"
      }
     ],
     "response": "{success:true, data:{id, name, phone, username, isActive}} أو 404 'المندوب غير موجود'",
@@ -6072,6 +6090,44 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الطلب المرفوض لا يعود معلّقاً، والمندوب يرفع طلباً جديداً"
     ],
     "example": "{\"updatedAt\":\"2026-10-27T08:15:02.114Z\"}"
+   },
+   {
+    "method": "POST",
+    "path": "/rep-stock-requests/:id/loaded",
+    "purpose": "«تحميل مباشر»: تعليم طلب مندوب معلّق «حُمِّل» بعد تحميل كمياته إلى سيارته، فيراه المندوب في تطبيقه",
+    "permission": "canManageVanStock",
+    "gates": [
+     "مستخدم شركة لا مندوب (403 «غير مسموح» للمندوب)",
+     "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
+     "صلاحية canManageVanStock (403 بلا code)",
+     "warehouseEnabled يجب أن يكون true وإلا 403 WAREHOUSE_NOT_ENABLED «ميزة مخزون الشركة غير مفعلة لهذه الشركة»",
+     "نطاق المستخدم: طلبات مناديبه وحدها",
+     "مفتاح قراءة فقط مرفوض 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "updatedAt",
+      "type": "string (ISO)",
+      "required": true,
+      "desc": "نسخة الطلب التي حمّلتها كما قرأتها (أو كما ردّها حفظ التعديل)"
+     },
+     {
+      "name": "vanLoadId",
+      "type": "string",
+      "required": true,
+      "desc": "معرّف حركة التحميل التي كتبتها بـPOST /van-stock/loads (type LOAD) لسيارة صاحب الطلب"
+     }
+    ],
+    "response": "{success:true}",
+    "rules": [
+     "هذا المسار لا يحرّك مخزوناً: حمّل أولاً بـPOST /van-stock/loads بـsalesRepId صاحب الطلب وكمياته المعتمدة (ومعها clientRef لإعادة آمنة)، ثم علّم الطلب هنا بمعرّف الحركة",
+     "400 VAN_LOAD_MISMATCH لحركة ليست تحميلاً LOAD لسيارة صاحب الطلب في شركتك، ولا يُكتب شيء",
+     "404 لطلب غير معلّق أو خارج النطاق. و409 REQUEST_CHANGED_AFTER_LOAD إن عدّله المندوب بعد النسخة التي حمّلتها: يبقى معلّقاً لتراجع ما أضافه، ويُكتب معرّف الحركة في sentRef للطلب المعلّق علامةً على أن نسخةً منه حُمِّلت (فلا تحمّله كاملاً مرة ثانية)",
+     "الطلب المحمَّل لا يعود معلّقاً ولا يدخل الطلب العام، ومعرّف الحركة في sentRef",
+     "لإعادة آمنة اجعل clientRef التحميل ثابتاً لنسخة الطلب (معرّفه مع updatedAt): إعادة الإرسال تعيد الحركة نفسها بدل تحميلٍ ثانٍ"
+    ],
+    "example": "{\"updatedAt\":\"2026-11-23T08:15:02.114Z\",\"vanLoadId\":\"4f2b8c10-6a7e-4d21-9b3c-0e5f7a8d9c12\"}"
    }
   ]
  },
@@ -8733,7 +8789,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{rows:[{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy}], audit:[{id, attendanceId, action, before, after, reason, actorName, createdAt}]}}",
+    "response": "{success:true, data:{rows:[{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy, checkOutAuto}], audit:[{id, attendanceId, action, before, after, reason, actorName, createdAt}]}}. checkOutAuto = true: انصراف سجّله النظام بوقت آخر نشاط للمندوب قبل تذكير خمول لم يلغه «ما زلت أعمل» ولا تنقّل ولا مستند (لا بصمة المندوب)، وسطره في audit بالإجراء AUTO_CHECKOUT باسم «النظام». تعديل وقت انصرافه يُسقط الوسم",
     "rules": [
      "الصفوف بالحضور تصاعدياً وحتى 500، والسجل الأحدث أولاً وحتى 100",
      "source: APP (بصمة التطبيق) أو ADMIN (أُضيفت يدوياً) أو IMPORT (من الرفع)، وeditedAt/editedBy لما عُدّل"
@@ -8779,7 +8835,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "سبب الإضافة، ويُدوَّن في السجل"
      }
     ],
-    "response": "201 {success:true, data:{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy}} بمصدر ADMIN",
+    "response": "201 {success:true, data:{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy, checkOutAuto}} بمصدر ADMIN",
     "rules": [
      "لا مستقبل، والانصراف بعد الحضور، ولا فترة فوق 24 ساعة، ولا أقدم من 400 يوم — وإلا 400 برسالة القاعدة",
      "التداخل مع فترة قائمة للمندوب 409 ATTENDANCE_OVERLAP مع conflict:{checkInAt, checkOutAt}"
@@ -8819,7 +8875,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "سبب التعديل"
      }
     ],
-    "response": "{success:true, data:{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy}}",
+    "response": "{success:true, data:{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy, checkOutAuto}}",
     "rules": [
      "الحقلان يُرسلان معاً دائماً (كتابة كاملة للفترة)",
      "السجل يحفظ القيمتين قبل وبعد، وبصمة التطبيق المعدّلة تبقى موسومة editedAt"
@@ -9318,12 +9374,15 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, name, phone, status:'ACTIVE'|'INACTIVE'|'BLOCKED', balance, creditLimit, paymentDays, totalSales, totalCollected}]} مرتبة تنازلياً حسب balance",
+    "response": "{success:true, data:[{id, name, phone, status:'ACTIVE'|'INACTIVE'|'BLOCKED', balance, creditLimit, paymentDays, totalSales, totalCollected, aging:{oldestDay, ageDays, overdueDays, overdueAmount, bands:{d0_30, d31_60, d61_90, d90_plus}, undated}|null}]} مرتبة تنازلياً حسب balance",
     "rules": [
      "كل عميل حالته غير DELETED: ACTIVE وINACTIVE وBLOCKED. فالموقوف والمحظور المدينان داخلان في القائمة وفي أي مجموع تحسبه منها (إجمالي مديونية الشركة)، وstatus في كل صف ليميّزهما. ونطاق المستخدم المقيّد كما هو",
      "الرصيد هنا هو القيمة المخزنة customer.balance، وليس المحسوب من قيود الحساب كما في rep-receivables",
      "overdue لا تفحص paymentDays ولا تاريخ الاستحقاق، بل الرصيد الموجب فقط مع تجاهل كسور أصغر من 1e-6",
      "exceeded تُفلتر في الذاكرة بعد جلب كل من له سقف",
+     "aging (عمر الدين) لكل عميل رصيده أكبر من 1e-6، وnull لغيره: مصدره الفواتير الآجلة المؤكدة المفتوحة بمتبقيها remainingAmt، مطابَقةً بالرصيد المعروض balance. فإن كان الرصيد أقل من مجموعها (سند غير موزع أو مرتجع غير مربوط) أطفأ الفرق الأقدم أولاً، وإن كان أكبر (رصيد افتتاحي أو تسوية مدينة) أُرّخ الفرق بقيود ADJUSTMENT_DEBIT من الأحدث إلى الأقدم وما بقي في undated. فمجموع bands مع undated يساوي balance دائماً",
+     "الأيام بيوم الشركة (منطقة الدفاتر ثم دولة الشركة): ageDays من أقدم يوم قائم oldestDay إلى اليوم، والشرائح 0-30 و31-60 و61-90 وأكثر من 90 بعمر كل جزء. والتأخر overdueDays وoverdueAmount من يوم الاستحقاق: dueDate الفاتورة إن وُجد، وإلا يومها + paymentDays العميل. والاستحقاق اليوم ليس متأخراً",
+     "فاتورة التقسيط تُوزَّع على أقساطها: المسدد (total − remainingAmt) يطفئ الأقساط بترتيبها، وكل قسط باقٍ بيوم الفاتورة (العمر والشرائح) واستحقاقه هو (التأخر). وقيد إلغاء شطب الذمة وقيد رد الرصيد الدائن الملغى لا يؤرخان شيئاً، والرصيد الافتتاحي المستورد بلا تاريخ (بلحظة الاستيراد لا أول يوم) يدخل undated",
      "لا ترقيم ولا حد للصفوف"
     ],
     "example": ""
@@ -9522,7 +9581,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, name, totalMinutes, hours, minutes, sessions, firstSeen, lastSeen, fieldMinutesTotal, workedDays, absentDays, visitsTotal, avgDayMinutes, days:[{date, firstActivity, lastActivity, spanMinutes, periods:[{start, end, source:'PUNCH'|'ACTIVITY', inLat?, inLng?, outLat?, outLng?}], breakMinutes, appMinutes, visits:[{customerName, start, end, durationSec, hasNote, parts, lat, lng, sources}], visitsCount, visitsSec, absent}]}], meta:{tzOffsetMin, rangeClamped?:31, truncated:boolean, limit:200000, appliedRange:{from, to, defaulted}}}",
+    "response": "{success:true, data:[{id, name, totalMinutes, hours, minutes, sessions, firstSeen, lastSeen, fieldMinutesTotal, workedDays, absentDays, visitsTotal, avgDayMinutes, days:[{date, firstActivity, lastActivity, spanMinutes, periods:[{start, end, source:'PUNCH'|'ACTIVITY', inLat?, inLng?, outLat?, outLng?, outAuto?:true}], breakMinutes, appMinutes, visits:[{customerName, start, end, durationSec, hasNote, parts, lat, lng, sources}], visitsCount, visitsSec, absent}]}], meta:{tzOffsetMin, rangeClamped?:31, truncated:boolean, limit:200000, appliedRange:{from, to, defaulted}}}",
     "rules": [
      "بلا from يكون المدى 7 أيام تنتهي عند to أو الآن",
      "الحد الأقصى 31 يوماً، والزائد يُقصّ من البداية ويُعلن بـ meta.rangeClamped=31",

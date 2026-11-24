@@ -107,6 +107,8 @@ const SALES_REP_COLS = [
   'canManageVanStock', 'canSellWithoutStock', 'canBeTracked', 'proximityRadiusM', 'punchRadiusM',
   'punchOutsideAction', 'requireBoundDevice', 'boundDeviceName', 'boundDeviceAt', 'shiftStart', 'shiftEnd', 'shiftDays',
   'requirePresenceCheck', 'showRouteOnMap',
+  // «تذكير بالانصراف عند الخمول ثم انصراف تلقائي»: المفتاح ودقائق الخمول ومهلة الردّ
+  'idlePunchOutEnabled', 'idlePunchOutMinutes', 'idlePunchOutGraceMinutes',
   // «البيع النقدي تحصيلٌ لدى المندوب»: فاتورته النقدية تُحسب في رصيد تحصيله بلا سند قبض
   'cashSaleCollected',
   // «لوكيشن»: موقع المندوب الحاليّ (معرّف SalesLocation — null = بلا موقع)
@@ -414,9 +416,13 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
   {
     name: 'attendance', model: 'repAttendance', mode: 'attendance', permission: 'canManageTracking', tenantPath: 'direct', hardDeletes: true,
     select: pick('id', 'salesRepId', 'checkInAt', 'checkInLat', 'checkInLng', 'checkOutAt', 'checkOutLat', 'checkOutLng', 'createdAt',
-      'checkInDevice', 'checkOutDevice', 'checkInOutside', 'checkInDistanceM', 'checkOutOutside', 'checkOutDistanceM', 'source', 'editedAt', 'editedBy'),
+      'checkInDevice', 'checkOutDevice', 'checkInOutside', 'checkInDistanceM', 'checkOutOutside', 'checkOutDistanceM', 'source', 'editedAt', 'editedBy',
+      // «انصراف تلقائي»: سجّله النظام بوقت آخر نشاطٍ سبق تذكير خمولٍ لم يلغه «ما زلت أعمل» ولا تنقّلٌ ولا مستند — لا بصمة المندوب
+      'checkOutAuto'),
     denied: {
       tenantId: 'معروف من المفتاح',
+      idleRemindedAt: 'حالة داخلية لدورة تذكير الخمول — الانصراف الناتج عنها في checkOutAuto',
+      idleLastActiveAt: 'حالة داخلية لدورة تذكير الخمول (آخر نشاطٍ سبق التذكير) — وقت الانصراف الناتج عنها في checkOutAt',
       checkInDeviceId: 'معرّف جهاز البصمة — كشفه يتيح انتحال الجهاز', checkOutDeviceId: 'معرّف جهاز البصمة — كشفه يتيح انتحال الجهاز',
     },
   },

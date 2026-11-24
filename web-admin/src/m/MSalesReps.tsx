@@ -22,6 +22,7 @@ import { MCard, MRow, MStat, MScreen, MHeader, MEmpty, MError, MSpinner } from '
 import { can } from './perms';
 import { expectArray, expectObject } from './shape';
 import { baseLabelOf, priceListsOf } from '../lib/priceLists';
+import { IDLE_GRACE_MAX, IDLE_GRACE_MIN, IDLE_MINUTES_MAX, IDLE_MINUTES_MIN, idleFieldNum, idleGraceOk, idleMinutesOk, idleSaveFields, idleSettingsOf } from '../lib/idlePunchOut';
 import {
   repPriceTypesOf, priceTypesWithin, togglePriceType, setDefaultPriceType, defaultOptionsOf, repPriceTypesBody, repPriceTypesDirty,
   type RepPriceTypesState,
@@ -790,6 +791,11 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
   const [shiftStart, setShiftStart] = useState(rep.shiftStart ?? '');
   const [shiftEnd, setShiftEnd] = useState(rep.shiftEnd ?? '');
   const [shiftDays, setShiftDays] = useState(rep.shiftDays ?? 31);
+  /* «تذكير بالانصراف عند الخمول ثم انصراف تلقائي» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): قيدٌ تقييديّ خارج PermKey — فلا يقلبه «تحديد الكل» —
+   * ودقيقتاه نصّاً كالمسافة. صفٌّ بلا الحقول (خادمٌ أقدم) مطفأٌ بـ٤٥/١٥ (idleSettingsOf) */
+  const [idleOn, setIdleOn] = useState(() => idleSettingsOf(rep).idlePunchOutEnabled);
+  const [idleMin, setIdleMin] = useState(() => String(idleSettingsOf(rep).idlePunchOutMinutes));
+  const [idleGrace, setIdleGrace] = useState(() => String(idleSettingsOf(rep).idlePunchOutGraceMinutes));
 
   /* «أنواع الأسعار على مستوى المندوب» (طلب المالك ٢ نوفمبر ٢٠٢٦): الأنواع التي يبدّل بينها (بصلاحية «تبديل نوع السعر») ونوعه
    * الافتراضي لعميلٍ بلا نوع — كنسخة اللوحة (SalesRepModal). القسم يظهر والشركة لها أنواع والمحاسبة مفعّلة (صلاحيات التسعير
@@ -849,6 +855,10 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
   // المسافة تُشترط صحيحةً حين يكون قيدها مفعّلاً وحده — المطفأ لا يُرسل مسافته فلا يعطّل الحفظ
   const proxOk = !perms.requireCustomerProximity || radiusOk(proxNum, proxRadius);
   const punchOk = !perms.requirePunchAtCustomer || radiusOk(punchNum, punchRadius);
+  // دقيقتا الانصراف التلقائي تُشترطان صحيحتين والقيد مفعّل وحده — والمطفأ لا يرسلهما (idleSaveFields)
+  const idleMinNum = idleFieldNum(idleMin);
+  const idleGraceNum = idleFieldNum(idleGrace);
+  const idleOk = !idleOn || (idleMinutesOk(idleMinNum) && idleGraceOk(idleGraceNum));
 
   const save = useMutation({
     mutationFn: () => salesRepApi.update(rep.id, {
@@ -857,6 +867,7 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
       ...(perms.requireCustomerProximity ? { proximityRadiusM: proxNum } : {}),
       ...(perms.requirePunchAtCustomer ? { punchRadiusM: punchNum, punchOutsideAction: outsideAction } : {}),
       shiftStart: shiftStart || null, shiftEnd: shiftEnd || null, shiftDays,
+      ...idleSaveFields({ idlePunchOutEnabled: idleOn, idlePunchOutMinutes: idleMinNum, idlePunchOutGraceMinutes: idleGraceNum }),
       ...(typesBody ?? {}),
       email: rep.email ?? '', // وإلا مسحه الخادم (انظر تعليق نموذج البيانات)
     }),
@@ -994,6 +1005,16 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
             checked={perms.requirePresenceCheck}
             onChange={v => set('requirePresenceCheck', v)}
             hint={tr('عند التفعيل يصل المندوب اشعار اثبت تواجدك مرتين الى ثلاث مرات في اليوم باوقات عشوائية بين بصمة الحضور وبصمة الانصراف فقط وضمن ساعات وأيام الدوام ان حددت، ويفتح التطبيق ويضغط اثبت تواجدي خلال دقيقتين فيسجل موقعه، وتظهر النتائج في تقرير ساعات العمل')} />
+          <MToggle label={tr('تذكير بالانصراف عند الخمول ثم انصراف تلقائي')}
+            checked={idleOn}
+            onChange={setIdleOn}
+            hint={tr('عند التفعيل اذا بقي المندوب حاضرا بلا استخدام للتطبيق ولا موقع يصل من جواله طوال دقائق الخمول يصله اشعار يذكره بتسجيل الانصراف وتظهر له نافذة هل ما زلت تعمل بعد تنازلي للمهلة، وبعد التذكير لا يلغي الانصراف التلقائي إلا ما زلت أعمل أو تنقل فعلي (اكثر من 150 م) أو إصدار مستند (فاتورة أو مرتجع أو سند أو زيارة) ولا يلغيه فتح التطبيق، والا يسجل له عند انتهاء المهلة انصراف تلقائي بوقت آخر نشاط له قبل التذكير ويظهر في تقرير ساعات العمل موسوما انصراف تلقائي')} />
+          {idleOn && (<>
+            <RadiusField label={tr('دقائق الخمول قبل التذكير')} value={idleMin} onChange={setIdleMin} ok={idleMinutesOk(idleMinNum)}
+              min={IDLE_MINUTES_MIN} max={IDLE_MINUTES_MAX} badText={tr('دقائق الخمول بين 10 و480')} />
+            <RadiusField label={tr('مهلة الرد قبل الانصراف التلقائي (دقيقة)')} value={idleGrace} onChange={setIdleGrace} ok={idleGraceOk(idleGraceNum)}
+              min={IDLE_GRACE_MIN} max={IDLE_GRACE_MAX} badText={tr('مهلة الرد بين 5 و120 دقيقة')} />
+          </>)}
           <MToggle label={tr(PERM_LABELS.showRouteOnMap)}
             checked={perms.showRouteOnMap}
             onChange={v => set('showRouteOnMap', v)}
@@ -1034,7 +1055,7 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
 
       <div className="flex-shrink-0 border-t border-[#E9E1D3] bg-white p-3"
         style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
-        <button onClick={() => save.mutate()} disabled={!discOk || !proxOk || !punchOk || save.isPending}
+        <button onClick={() => save.mutate()} disabled={!discOk || !proxOk || !punchOk || !idleOk || save.isPending}
           className="w-full bg-[#E15A30] text-white font-bold py-3.5 rounded-xl min-h-[50px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {save.isPending && <Loader2 size={16} className="animate-spin" />}
           {tr('حفظ الصلاحيات')}
@@ -1408,17 +1429,19 @@ function radiusOk(n: number, raw: string): boolean {
   return raw.trim() !== '' && Number.isInteger(n) && n >= RADIUS_MIN_M && n <= RADIUS_MAX_M;
 }
 
-/** مسافة قيد الموقع بالأمتار — تحت مفتاحه، تظهر حين يُفعَّل */
-function RadiusField({ label, value, onChange, ok }: { label: string; value: string; onChange: (v: string) => void; ok: boolean }) {
+/** مسافة قيد الموقع بالأمتار — تحت مفتاحه، تظهر حين يُفعَّل. ولغير المسافة (دقائق «الانصراف التلقائي») حدودها ونصّ خطئها */
+function RadiusField({ label, value, onChange, ok, min = RADIUS_MIN_M, max = RADIUS_MAX_M, badText }: {
+  label: string; value: string; onChange: (v: string) => void; ok: boolean; min?: number; max?: number; badText?: string;
+}) {
   const tr = useTr();
   return (
     <div className="px-3.5 py-2.5 border-b border-[#F1EBDF] last:border-0">
       <div className="flex items-center gap-3">
         <span className="flex-1 text-sm text-[#1F1A13]">{label}</span>
-        <input className="input w-28 text-center" dir="ltr" type="number" inputMode="numeric" min={RADIUS_MIN_M} max={RADIUS_MAX_M} step={1}
+        <input className="input w-28 text-center" dir="ltr" type="number" inputMode="numeric" min={min} max={max} step={1}
           value={value} onChange={e => onChange(e.target.value)} />
       </div>
-      {!ok && <Hint text={tr('المسافة بين 10 و5000 متر')} bad />}
+      {!ok && <Hint text={badText ?? tr('المسافة بين 10 و5000 متر')} bad />}
     </div>
   );
 }

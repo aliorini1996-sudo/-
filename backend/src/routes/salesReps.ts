@@ -24,6 +24,7 @@ import { assertRepDeletable, settlementTombstonesWithReceiver } from '../service
 // «ربط الدفاتر» (قرار المالك OD1): لا حذف لمستندٍ مرحَّل في شركةٍ دفاترها مربوطة — الحكم من المصدر الوحيد لوضع الدفاتر
 import { LINKED_NO_DELETE_CODE, LINKED_NO_DELETE_MESSAGE, tenantBooksLinked } from '../services/booksMode';
 import { BASE_PRICE_TYPE, PRICE_LIST_MESSAGES, allowedPriceTypesOf } from '../services/priceLists';
+import { idleSettingsError, IDLE_RANGE_CODE } from '../services/idlePunchOut';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canManageSalesReps'));
@@ -82,6 +83,11 @@ const repSchema = z.object({
   requireBoundDevice: z.boolean().optional(),
   // «التحقق العشوائي من التواجد» (services/presenceChecks.ts)
   requirePresenceCheck: z.boolean().optional(),
+  // «تذكير بالانصراف عند الخمول ثم انصراف تلقائي» (services/idlePunchOut.ts): المفتاح ومدّتاه بالدقائق — الحدّان (١٠–٤٨٠ و٥–١٢٠)
+  // يفحصهما idleSettingsError في المعالج برسالةٍ عربية (لا «بيانات غير صحيحة» عامّة)
+  idlePunchOutEnabled: z.boolean().optional(),
+  idlePunchOutMinutes: z.number().optional(),
+  idlePunchOutGraceMinutes: z.number().optional(),
   // «عرض خط السير على الخريطة» (routes/tracking.ts — /route)
   showRouteOnMap: z.boolean().optional(),
   // موعد الدوام للتنبيهات (services/attendanceAlerts.ts): "HH:MM" أو فارغ، وأيام العمل بتات الأحد=1 … السبت=64
@@ -110,6 +116,7 @@ const repSelect = {
   punchOutsideAction: true,
   requireBoundDevice: true, boundDeviceName: true, boundDeviceAt: true,
   requirePresenceCheck: true,
+  idlePunchOutEnabled: true, idlePunchOutMinutes: true, idlePunchOutGraceMinutes: true,
   showRouteOnMap: true,
   shiftStart: true, shiftEnd: true, shiftDays: true,
   // «لوكيشن»: موقع المندوب الحاليّ للقراءة وحدها — من يقرأ المناديب (ومنهم مفتاح API) يعرف موقع كلٍّ منهم بلا صفحة لوكيشن
@@ -225,6 +232,8 @@ router.post('/', noStaffCredentials, async (req: AuthRequest, res: Response, nex
     const { password, defaultPriceListId, allowedPriceTypes, ...rest } = repSchema.parse(req.body);
     if (!password) { res.status(400).json({ success: false, message: 'كلمة المرور مطلوبة' }); return; }
     if (password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
+    const idleErr = idleSettingsError(rest);
+    if (idleErr) { res.status(400).json({ success: false, code: IDLE_RANGE_CODE, message: idleErr }); return; }
     const priced = priceTypeWrite({ defaultPriceListId, allowedPriceTypes });
     if ('error' in priced) { refusePriceType(res, priced.error); return; }
 
@@ -277,6 +286,9 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     // ولا تضع كلمة مرور مندوبٍ قائم
     if (refuseStaffCredentials(req, res, !!password)) return;
     if (password && password.length < 8) { res.status(400).json({ success: false, message: 'كلمة المرور 8 أحرف على الأقل' }); return; }
+    // «تذكير بالانصراف عند الخمول»: المدّتان المرسلتان داخل حدّيهما
+    const idleErr = idleSettingsError(rest);
+    if (idleErr) { res.status(400).json({ success: false, code: IDLE_RANGE_CODE, message: idleErr }); return; }
     // «أنواع الأسعار على مستوى المندوب»: المرسل منهما يُفحص مع المحفوظ من الآخر (الافتراضي داخل المسموح)
     const priced = priceTypeWrite({ defaultPriceListId, allowedPriceTypes }, current);
     if ('error' in priced) { refusePriceType(res, priced.error); return; }
@@ -293,6 +305,15 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const updateData: Record<string, unknown> = { ...rest, email: rest.email || null };
     Object.assign(updateData, priced.data);
     if (password) updateData.passwordHash = await bcrypt.hash(password, 10);
+    // «تذكير بالانصراف عند الخمول»: تبديل المفتاح يمحو تذكير النوبة المفتوحة وختمه — وإلا عدّ تذكيرٌ أُرسل قبل الإطفاء «قائماً» بعد
+    // إعادة التفعيل فانصرف المندوب تلقائياً في أوّل دورةٍ بلا تذكيرٍ في فترة التفعيل الجديدة. يُمحى قبل كتابة المفتاح: والقيد مطفأ
+    // لا تمسّ الدورة النوبة (تختار المفعَّلين)، فلا تسبق المحوَ إلى انصراف؛ ومحوُ تذكير مندوبٍ يُطفأ قيده لا أثر له
+    if (rest.idlePunchOutEnabled !== undefined && rest.idlePunchOutEnabled !== current.idlePunchOutEnabled) {
+      await prisma.repAttendance.updateMany({
+        where: { tenantId: tid, salesRepId: current.id, checkOutAt: null, OR: [{ idleRemindedAt: { not: null } }, { idleLastActiveAt: { not: null } }] },
+        data: { idleRemindedAt: null, idleLastActiveAt: null },
+      });
+    }
     // إطفاء «ربط البصمة بجهاز واحد» يفكّ الجهاز المربوط: ربطٌ نائم يبقى بعد الإطفاء يتيح ربط الجوال نفسه بمندوبٍ آخر،
     // فإذا أُعيد القيد بصم الجوال الواحد لاثنين. وإعادة القيد تربط من جديد أوّل جهازٍ يبصم
     const unbind = rest.requireBoundDevice === false && current.boundDeviceId != null;

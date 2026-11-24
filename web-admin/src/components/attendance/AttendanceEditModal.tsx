@@ -5,6 +5,7 @@ import { attendanceAdminApi } from '../../api/client';
 import { useTr } from '../../i18n/strings';
 import { activeLocale } from '../../utils/format';
 import { mapsUrl } from '../../lib/workPeriods';
+import { AUTO_CHECKOUT_EDITOR, AUTO_CHECKOUT_REASON, humanEditOf } from '../../lib/idlePunchOut';
 
 /**
  * تعديل بصمات يومٍ لمندوب (طلب المالك، ٢١ أكتوبر ٢٠٢٦): إغلاق نوبةٍ نسي انصرافها على وقتها الحقيقي، أو تصحيح وقت،
@@ -17,6 +18,8 @@ interface AttRow {
   checkInDevice: string | null; checkOutDevice: string | null;
   checkInOutside: boolean | null; checkInDistanceM: number | null; checkOutOutside: boolean | null; checkOutDistanceM: number | null;
   source: string; editedAt: string | null; editedBy: string | null;
+  /** «انصراف تلقائي» سجّله النظام بعد خمولٍ بلا ردّ (يبقى ما بقي وقته؛ تغيير وقت الانصراف يجعله قرار المستخدم) — غائبٌ من خادمٍ أقدم */
+  checkOutAuto?: boolean;
 }
 interface AuditRow {
   id: string; action: string; reason: string | null; actorName: string | null; createdAt: string;
@@ -87,7 +90,7 @@ export default function AttendanceEditModal({ rep, date, onClose }: { rep: { id:
         {outside ? tr('خارج النطاق') : tr('داخل النطاق')}{dist != null ? ` · ${dist} ${tr('م')}` : ''}
       </span>;
   const actionLabel = (a: string) => a === 'CREATE' ? tr('إضافة') : a === 'UPDATE' ? tr('تعديل') : a === 'DELETE' ? tr('حذف')
-    : a === 'IMPORT' ? tr('رفع من Excel') : a === 'UNBIND_DEVICE' ? tr('فك ربط الجهاز') : a;
+    : a === 'IMPORT' ? tr('رفع من Excel') : a === 'UNBIND_DEVICE' ? tr('فك ربط الجهاز') : a === 'AUTO_CHECKOUT' ? tr('انصراف تلقائي') : a;
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" dir="rtl">
@@ -145,7 +148,11 @@ export default function AttendanceEditModal({ rep, date, onClose }: { rep: { id:
                         {placeTag(r.checkOutOutside, r.checkOutDistanceM)}
                         {r.checkOutDevice && r.checkOutDevice !== r.checkInDevice && <span>{tr('جهاز الانصراف')}: <b dir="ltr">{r.checkOutDevice}</b></span>}
                         {r.source !== 'APP' && <span className="rounded bg-blue-50 text-blue-700 px-1.5 py-0.5 font-bold">{r.source === 'IMPORT' ? tr('مرفوعة من Excel') : tr('إدخال إداري')}</span>}
-                        {r.editedBy && <span>{tr('آخر تعديل')}: {r.editedBy}{r.editedAt ? ` · ${clock(r.editedAt)}` : ''}</span>}
+                        {r.checkOutAt && r.checkOutAuto === true && (
+                          <span data-auto-checkout className="rounded bg-amber-100 text-amber-800 px-1.5 py-0.5 font-bold" title={tr('سجله النظام بوقت آخر نشاط للمندوب قبل تذكير خمول لم يلغه ما زلت أعمل ولا تنقل ولا مستند')}>{tr('انصراف تلقائي')}</span>
+                        )}
+                        {/* ختم النظام وحده (انصرافٌ تلقائي لم يُعدَّل) ليس «آخر تعديل» — الوسم بجانبه يقوله */}
+                        {humanEditOf(r) && <span>{tr('آخر تعديل')}: {humanEditOf(r)}{r.editedAt ? ` · ${clock(r.editedAt)}` : ''}</span>}
                       </div>
                     </div>
                   );
@@ -172,12 +179,13 @@ export default function AttendanceEditModal({ rep, date, onClose }: { rep: { id:
               <ul className="space-y-1.5 text-[11px] text-[#6E6557]">
                 {audit.map((a) => (
                   <li key={a.id} className="rounded-lg bg-[#FAF7F0] px-3 py-2">
-                    <b className="text-[#1F1A13]">{actionLabel(a.action)}</b> · {a.actorName || '—'} · {clock(a.createdAt)}
+                    {/* سطر «انصراف تلقائي» باسم النظام وسببه الثابت — يُترجمان (نصّا الخادم بالعربية) */}
+                    <b className="text-[#1F1A13]">{actionLabel(a.action)}</b> · {a.actorName === AUTO_CHECKOUT_EDITOR ? tr('النظام') : a.actorName || '—'} · {clock(a.createdAt)}
                     {a.before?.checkInAt && <> · {tr('قبل')}: <span dir="ltr">{clock(a.before.checkInAt)} – {clock(a.before.checkOutAt ?? null)}</span></>}
                     {a.after?.checkInAt && <> · {tr('بعد')}: <span dir="ltr">{clock(a.after.checkInAt)} – {clock(a.after.checkOutAt ?? null)}</span></>}
                     {a.after?.count != null && <> · {a.after.count} {tr('بصمة')}</>}
                     {a.before?.deviceName && <> · <span dir="ltr">{a.before.deviceName}</span></>}
-                    {a.reason && <div className="text-[#9A8F7E]">{tr('السبب')}: {a.reason}</div>}
+                    {a.reason && <div className="text-[#9A8F7E]">{tr('السبب')}: {a.reason === AUTO_CHECKOUT_REASON ? tr('انصراف تلقائي بعد خمول') : a.reason}</div>}
                   </li>
                 ))}
               </ul>

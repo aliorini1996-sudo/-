@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import { priceListApi, salesRepApi } from '../../api/client';
 import { formatDate } from '../../utils/format';
 import { BASE_PRICE_TYPE, baseLabelOf, priceListsOf, repAllowedTokensOf, repDefaultChoices, repPriceTypeTokens, repToggleAllowedType } from '../../lib/priceLists';
+import { IDLE_GRACE_MAX, IDLE_GRACE_MIN, IDLE_MINUTES_MAX, IDLE_MINUTES_MIN, idleGraceOk, idleMinutesOk, idleSaveFields, idleSettingsOf } from '../../lib/idlePunchOut';
 
 interface FormData extends Partial<SalesRep> { password?: string; }
 interface Props {
@@ -39,6 +40,7 @@ const WEEK_DAYS: { label: string; bit: number }[] = [
   { label: 'الأربعاء', bit: 8 }, { label: 'الخميس', bit: 16 }, { label: 'الجمعة', bit: 32 },
 ];
 
+// حقل عددٍ صحيح بعنوانه — حدوده للمسافة افتراضاً، وتُمرَّر min/max لغيرها (دقائق «الانصراف التلقائي»)
 const RadiusInput = forwardRef<HTMLInputElement, { label: string; error?: string } & React.InputHTMLAttributes<HTMLInputElement>>(
   ({ label, error, ...props }, ref) => (
     <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -91,6 +93,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
       punchOutsideAction: 'REJECT',
       requireBoundDevice: false,
       requirePresenceCheck: false,
+      idlePunchOutEnabled: false,
       showRouteOnMap: true,
       shiftStart: null,
       shiftEnd: null,
@@ -104,6 +107,8 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
       ...defaults, proximityRadiusM: defaults.proximityRadiusM ?? RADIUS_DEFAULT_M, punchRadiusM: defaults.punchRadiusM ?? RADIUS_DEFAULT_M,
       punchOutsideAction: defaults.punchOutsideAction ?? 'REJECT', shiftDays: defaults.shiftDays ?? SHIFT_DAYS_DEFAULT,
       defaultPriceListId: defaults.defaultPriceListId ?? null, allowedPriceTypes: defaults.allowedPriceTypes ?? null,
+      // «الانصراف التلقائي»: صفٌّ بلا الحقول (خادمٌ أقدم أو مندوبٌ جديد) مطفأٌ بـ٤٥/١٥ دقيقة
+      ...idleSettingsOf(defaults),
     },
   });
   /* «قوائم الأسعار» للمندوب (طلب المالك ٢ نوفمبر ٢٠٢٦): قائمته الافتراضية تُسعَّر بها فواتير العميل الذي لا قائمة له، والقوائم التي
@@ -130,6 +135,9 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
     valueAsNumber: true,
     validate: (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= RADIUS_MIN_M && v <= RADIUS_MAX_M) || tr('المسافة بين 10 و5000 متر'),
   } as const;
+  // دقيقتا «الانصراف التلقائي» تُفحصان والقيد مفعّل وحده (المخفيّ لا يُسجَّل)، والمطفأ لا يرسلهما أصلاً (idleSaveFields)
+  const idleMinutesRules = { valueAsNumber: true, validate: (v: unknown) => idleMinutesOk(v) || tr('دقائق الخمول بين 10 و480') } as const;
+  const idleGraceRules = { valueAsNumber: true, validate: (v: unknown) => idleGraceOk(v) || tr('مهلة الرد بين 5 و120 دقيقة') } as const;
 
   // يولّد كلمة مرور قوية عشوائية لتسهيل إنشاء الحساب
   const generatePassword = () => {
@@ -147,7 +155,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
           <h2 className="text-lg font-bold text-gray-800">{rep ? tr('تعديل مندوب') : tr('إضافة مندوب')}</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
-        <form onSubmit={handleSubmit(onSave)} className="p-5 space-y-5">
+        <form onSubmit={handleSubmit((d) => onSave(idleSaveFields(d)))} className="p-5 space-y-5">
           {/* Basic */}
           <div>
             <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('البيانات الأساسية')}</h3>
@@ -342,6 +350,17 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
               <PermToggle label={tr('التحقق العشوائي من التواجد')} {...register('requirePresenceCheck')} />
             </div>
             <p className="text-xs text-gray-400 mt-2 leading-relaxed">{tr('عند التفعيل يصل المندوب اشعار اثبت تواجدك مرتين الى ثلاث مرات في اليوم باوقات عشوائية بين بصمة الحضور وبصمة الانصراف فقط وضمن ساعات وأيام الدوام ان حددت، ويفتح التطبيق ويضغط اثبت تواجدي خلال دقيقتين فيسجل موقعه، وتظهر النتائج في تقرير ساعات العمل')}</p>
+            {/* «تذكير بالانصراف عند الخمول ثم انصراف تلقائي» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): الدقيقتان تظهران والقيد مفعّل وحده */}
+            <div className="grid grid-cols-1 gap-3 mt-3">
+              <PermToggle label={tr('تذكير بالانصراف عند الخمول ثم انصراف تلقائي')} {...register('idlePunchOutEnabled')} />
+            </div>
+            {watch('idlePunchOutEnabled') && (<>
+              <RadiusInput label={tr('دقائق الخمول قبل التذكير')} min={IDLE_MINUTES_MIN} max={IDLE_MINUTES_MAX}
+                error={errors.idlePunchOutMinutes?.message} {...register('idlePunchOutMinutes', idleMinutesRules)} />
+              <RadiusInput label={tr('مهلة الرد قبل الانصراف التلقائي (دقيقة)')} min={IDLE_GRACE_MIN} max={IDLE_GRACE_MAX}
+                error={errors.idlePunchOutGraceMinutes?.message} {...register('idlePunchOutGraceMinutes', idleGraceRules)} />
+            </>)}
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">{tr('عند التفعيل اذا بقي المندوب حاضرا بلا استخدام للتطبيق ولا موقع يصل من جواله طوال دقائق الخمول يصله اشعار يذكره بتسجيل الانصراف وتظهر له نافذة هل ما زلت تعمل بعد تنازلي للمهلة، وبعد التذكير لا يلغي الانصراف التلقائي إلا ما زلت أعمل أو تنقل فعلي (اكثر من 150 م) أو إصدار مستند (فاتورة أو مرتجع أو سند أو زيارة) ولا يلغيه فتح التطبيق، والا يسجل له عند انتهاء المهلة انصراف تلقائي بوقت آخر نشاط له قبل التذكير ويظهر في تقرير ساعات العمل موسوما انصراف تلقائي')}</p>
             <div className="grid grid-cols-1 gap-3 mt-3">
               <PermToggle label={tr('عرض خط السير على الخريطة')} {...register('showRouteOnMap')} />
             </div>
