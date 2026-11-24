@@ -31,6 +31,7 @@ import { useAccountingOn } from '../components/AccountingGate';
 import { useLedgerOn } from '../components/LedgerGate';
 import { ledgerConfigApi, ledgerKeys } from '../api/ledgerConfig';
 import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
+import { formatCustomerLabel, formatCustomerNumber } from '../lib/customerNumber';
 
 interface Creds { name: string; username: string; password: string; }
 
@@ -544,7 +545,7 @@ function AssignCustomersModal({ rep, isolationOn, onClose }: { rep: SalesRep; is
         <div className="p-4 pb-2 space-y-2">
           <div className="relative">
             <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input className="input pr-9" placeholder={tr('ابحث بالاسم أو الجوال أو الكود')}
+            <input className="input pr-9" placeholder={tr('ابحث بالاسم أو الجوال أو رقم العميل')}
               value={q} onChange={e => setQ(e.target.value)} disabled={onlyAssigned} />
           </div>
           <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer w-fit">
@@ -572,8 +573,12 @@ function AssignCustomersModal({ rep, isolationOn, onClose }: { rep: SalesRep; is
                   <label className="flex items-center gap-3 py-2.5 cursor-pointer hover:bg-gray-50 px-1 rounded">
                     <input type="checkbox" checked={isAssigned(c.id)} onChange={() => toggle(c.id)} disabled={!baseReady} />
                     <span className="flex-1 min-w-0">
-                      <span className="block text-sm text-gray-800 truncate">{c.name}</span>
-                      <span className="block text-xs text-gray-400 truncate">{c.businessName || c.phone || c.code}</span>
+                      {/* «رقم العميل» (٢٣ نوفمبر ٢٠٢٦) قبل الاسم — والرمز الآلي لم يعد يُعرض */}
+                      <span className="block text-sm text-gray-800 truncate">
+                        {c.number != null && <><span dir="ltr" className="tabular-nums text-gray-400">{formatCustomerNumber(c.number)}</span>{' · '}</>}
+                        {c.name}
+                      </span>
+                      <span className="block text-xs text-gray-400 truncate">{c.businessName || c.phone}</span>
                     </span>
                     {autoIds.has(c.id) && (
                       <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded shrink-0">{tr('فتحه بنفسه')}</span>
@@ -1250,7 +1255,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
                         : invoices.map(i => (
                           <tr key={i.id}>
                             <td className="font-mono text-xs text-[#E15A30] align-top">{i.number}</td>
-                            <td className="align-top">{i.customer.name}</td>
+                            <td className="align-top">{formatCustomerLabel(i.customer)}</td>
                             <td className="text-xs text-gray-600 align-top" style={{ maxWidth: 240 }}>
                               {i.items && i.items.length > 0
                                 ? <><span className="font-semibold text-gray-700">{i.items.length} {tr('صنف')}</span>: {itemsText(i)}</>
@@ -1298,7 +1303,7 @@ function RepStatementModal({ rep, onClose }: { rep: SalesRep; onClose: () => voi
                         : receipts.map(r => (
                           <tr key={r.id}>
                             <td className="font-mono text-xs text-[#1E7A52]">{r.number}</td>
-                            <td>{r.customer.name}</td>
+                            <td>{formatCustomerLabel(r.customer)}</td>
                             <td>{rcpMethod(r)}</td>
                             <td className="text-xs text-gray-500">{formatDate(r.receiptDate)}</td>
                             <td className="font-semibold text-[#1E7A52]">{formatCurrency(r.amount)}</td>

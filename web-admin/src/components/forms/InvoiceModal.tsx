@@ -50,6 +50,8 @@ import {
 import ConfirmDialog from '../ConfirmDialog';
 import { overAvailable, refFor, vanRemainingOf, withClientRef, type RefMemo } from '../../lib/vanStockFlags';
 import { joinCustomerHint } from '../../lib/customerPhoneField';
+import { visibleCustomerCode } from '../../lib/customerNumber';
+import { REMOTE_CUSTOMER_LIMIT, useCustomerSearchFallback } from '../../lib/customerSearchFallback';
 
 /**
  * بند الفاتورة في المحرّر. الوحدات المتعددة: `unit` اسم وحدة البند كما يُطبع، والكمية والسعر بها؛ و`unitId` وحدتها
@@ -240,13 +242,17 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
   const taxOff = isTaxOff(company);
 
   // نجلب القائمة كاملة لتعمل القائمة المنسدلة بالتصفية المحلية بالكتابة
-  const { data: customers } = useQuery({
+  const { data: loadedCustomers } = useQuery({
     queryKey: ['customers-all'],
     queryFn: async () => {
       const res = await customerApi.list({ limit: 1000 });
       return res.data.data as Customer[];
     },
   });
+  // القائمة بسقفها (١٠٠٠ بالأحدث) تفقد أقدم العملاء وهم أصحاب الأرقام الصغيرة (#1، #2…): ما يُكتب في المنتقي يُسأل عنه الخادم
+  // (يطابق الرقم تماماً) ويُضمّ إلى المجموعة فيُصفّى محلياً كالبقيّة، والمختار منه يُوجد فيها — lib/customerSearchFallback
+  const { pool: customers, onQueryChange: onCustomerQuery } = useCustomerSearchFallback(loadedCustomers,
+    async (term) => (await customerApi.list({ search: term, limit: REMOTE_CUSTOMER_LIMIT })).data.data as Customer[]);
 
   const { data: products } = useQuery({
     queryKey: ['products-all'],
@@ -885,17 +891,22 @@ export default function InvoiceModal({ onClose, onSaved }: Props) {
               <label className="label">{tr('العميل')} *</label>
               <SearchableSelect
                 placeholder={tr('اختر العميل')}
-                searchPlaceholder={tr('اكتب اسم أو جوال العميل')}
+                searchPlaceholder={tr('اكتب اسم أو جوال أو رقم العميل')}
                 value={customerId}
                 options={(customers || []).map(c => ({
                   value: c.id,
                   label: c.name,
+                  // «رقم العميل» (٢٣ نوفمبر ٢٠٢٦): يُعرض «#12 · » قبل الاسم ويُطابَق بالضبط — لا يدخل نصّ الاسم المُصفّى
+                  num: c.number,
                   // الجوال اختياريّ (٧ نوفمبر ٢٠٢٦): عميلٌ بلا جوال لا يبدأ تلميحه بفاصلٍ يتيم
                   hint: joinCustomerHint(c.phone, Number(c.balance) > 0 && `${tr('رصيد')} ${formatCurrency(c.balance)}`),
                   hintColor: Number(c.balance) > 0 ? 'text-red-500' : undefined,
+                  // تصفية محلية بالجوال والنشاط والرمز المخصّص (الرمز الآلي لا يُعرض ولا يُطابَق)
+                  keywords: [c.phone, c.businessName, visibleCustomerCode(c.code)],
                 }))}
                 // فاتورة البيع المربوطة لعميلٍ آخر يرفضها الخادم («فاتورة البيع لعميلٍ آخر») — تُفكّ مع تغيير العميل
                 onChange={(v) => { setCustomerId(v); setSelectedCustomer((customers || []).find(c => c.id === v) || null); unlinkSale(); pickCustomerList(v); }}
+                onQueryChange={onCustomerQuery}
               />
             </div>
             <div>

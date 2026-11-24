@@ -112,10 +112,14 @@ export function taxModeChecked(pending: boolean, requested: boolean | undefined,
 /** موضع عمود «الرقم الضريبي» في تصدير العملاء (بعد العنوان) */
 export const CUSTOMER_EXPORT_TAX_COL = 9;
 
-/** عروض أعمدة تصدير العملاء: كما اليوم حرفاً، وبلا عمود الرقم الضريبي لشركةٍ بلا ضريبة */
-export function customerExportColWidths(accountingOn: boolean, taxOff: boolean): number[] {
+/**
+ * عروض أعمدة تصدير العملاء: كما اليوم حرفاً، وبلا عمود الرقم الضريبي لشركةٍ بلا ضريبة. withCode: عمود «كود العميل» الأخير
+ * (٢٤ نوفمبر ٢٠٢٦) حين يحمل عميلٌ مُصدَّر كوداً مخصّصاً — فلا يزيح العمودُ الاختياري موضعَ الرقم الضريبي ولا عرضه
+ */
+export function customerExportColWidths(accountingOn: boolean, taxOff: boolean, withCode = false): number[] {
   const widths = accountingOn
     ? [26, 28, 24, 14, 14, 24, 14, 14, 28, 18, 16, 14, 14, 14, 10, 10, 40, 14]
     : [26, 28, 24, 14, 14, 24, 14, 14, 28, 18, 16, 14, 10, 40, 14];
-  return taxOff ? widths.filter((_, i) => i !== CUSTOMER_EXPORT_TAX_COL) : widths;
+  const out = taxOff ? widths.filter((_, i) => i !== CUSTOMER_EXPORT_TAX_COL) : widths;
+  return withCode ? [...out, 18] : out;
 }

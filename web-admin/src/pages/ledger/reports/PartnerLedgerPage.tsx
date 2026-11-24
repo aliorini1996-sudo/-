@@ -55,7 +55,8 @@ export default function PartnerLedgerPage() {
 
   const partnerName = data?.partner.name ?? state.partnerName;
   const pickerPlaceholder: Record<PartnerType, string> = {
-    customer: tr('ابحث عن عميل'),
+    // البحث في الخادم يطابق «رقم العميل» بالضبط (12 أو #12)
+    customer: tr('ابحث باسم العميل أو رقمه'),
     vendor: tr('ابحث عن مورّد'),
     rep: tr('ابحث عن مندوب'),
     user: tr('ابحث عن مستخدم'),

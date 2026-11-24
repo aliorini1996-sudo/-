@@ -116,6 +116,9 @@ model Tenant {
   /// D14-ب: «إضافة وحدة فرعية أصغر» لمديري هذه الشركة — يقلبه مالك المنصّة وحده. لا أثر له ما دامت بوابة الإطلاق مغلقة
   /// (CONVERT_BASE_OPEN_TO_COMPANY في services/convertBaseAccess.ts)
   convertBaseOpen           Boolean   @default(false)
+  // عدّاد «رقم العميل»: آخر رقمٍ مُنح لعملاء الشركة (services/customerNumber.ts يحجز التالي تحت قفل صفّ الشركة).
+  // لا ينقص أبداً فلا يُعاد رقم عميلٍ محذوف؛ يُكتب بـSQL خام فلا يتغيّر updatedAt الشركة
+  customerSeq               Int       @default(0)
   subscriptionEndsAt       DateTime? // تاريخ انتهاء الاشتراك (null = غير محدود)
   notes                     String?
   createdAt                 DateTime  @default(now())
@@ -993,6 +996,10 @@ model Customer {
   tenantId      String
   tenant        Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   code          String  @default(cuid())
+  // «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): رقمٌ تسلسليّ لكل شركة يبدأ من ١ ويُبحث به في كل مكان. يمنحه الخادم وحده
+  // (services/customerNumber.ts داخل معاملة الإنشاء) — لا يُعدَّل ولا يُعاد استعماله: حذف العميل يترك فجوة. null حتى
+  // يُرقَّم العميل القديم (المسح الدوريّ). ⚠️ بلا @@unique: قيدٌ فريد على جدول customers الحامل لبيانات يُفشل db push
+  number        Int?
   name          String
   businessName  String?
   commercialReg String?
@@ -1065,6 +1072,7 @@ model Customer {
   @@unique([tenantId, code])
   @@index([tenantId])
   @@index([tenantId, clientRef]) // فهرس عادي (لا قيد فريد) — يسرّع حلّ customerClientRef
+  @@index([tenantId, number]) // فهرس عادي (لا قيد فريد) — يسرّع البحث بـ«رقم العميل» والمسح
   @@map("customers")
 }
 

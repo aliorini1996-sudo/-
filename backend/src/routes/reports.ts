@@ -230,6 +230,8 @@ export function thenByOf(groupBy: unknown, thenBy: unknown): SalesLevel | undefi
  */
 export interface SalesSubRow {
   key: string; name: string; total: number;
+  /** «رقم العميل» (٢٣ نوفمبر ٢٠٢٦) — لصفّ مستوى العميل وحده (أباً أو فرعاً)، null لعميلٍ لم يُرقَّم بعد؛ غائبٌ للمندوب والصنف */
+  number?: number | null;
   count?: number;
   code?: string; qty?: number; baseQty?: number; unit?: string; units?: ReportUnit[]; primaryUnitId?: string | null;
 }
@@ -239,18 +241,21 @@ export interface SalesTwoLevelRow extends SalesSubRow { sub: SalesSubRow[] }
 export interface TwoLevelDoc {
   total: unknown;
   salesRep: { id: string; name: string } | null;
-  customer: { id: string; name: string } | null;
+  customer: { id: string; name: string; number?: number | null } | null;
   items: ReadonlyArray<SalesItemRow>;
 }
 
 type PartyLevel = Exclude<SalesLevel, 'product'>;
-/** صاحب المستند في مستوى المندوب/العميل — المندوب المحذوف (salesRepId فارغ) تحت «بلا مندوب» كتجميع المندوب المفرد */
-const partyOf = (level: PartyLevel, d: TwoLevelDoc): { key: string; name: string } =>
+/** صاحب المستند في مستوى المندوب/العميل — المندوب المحذوف (salesRepId فارغ) تحت «بلا مندوب» كتجميع المندوب المفرد.
+ *  ومستوى العميل يحمل «رقم العميل» ليجده بحث التقارير بالرقم (null قبل ترقيمه) — والمندوب بلا مفتاح number */
+const partyOf = (level: PartyLevel, d: TwoLevelDoc): { key: string; name: string; number?: number | null } =>
   level === 'rep'
     ? { key: d.salesRep?.id ?? '—', name: d.salesRep?.name ?? 'بلا مندوب' }
-    : { key: d.customer?.id ?? '—', name: d.customer?.name ?? '—' };
+    : { key: d.customer?.id ?? '—', name: d.customer?.name ?? '—', number: d.customer?.number ?? null };
 
-type Party = { key: string; name: string; sales: TwoLevelDoc[]; returns: TwoLevelDoc[] };
+type Party = { key: string; name: string; number?: number | null; sales: TwoLevelDoc[]; returns: TwoLevelDoc[] };
+/** «رقم العميل» في صفّ الطرف — حاضرٌ لمستوى العميل وحده، فصفوف المندوب كما كانت حرفاً */
+const partyNumber = (g: Party): { number?: number | null } => (g.number !== undefined ? { number: g.number } : {});
 /** شرائح المستندات بصاحبها — بترتيب الظهور (البيع ثم المرتجع) كالتجميعات المفردة */
 function partitionBy(level: PartyLevel, sales: ReadonlyArray<TwoLevelDoc>, returns: ReadonlyArray<TwoLevelDoc>): Map<string, Party> {
   const out = new Map<string, Party>();
@@ -270,7 +275,7 @@ const partyRow = (g: Party): SalesSubRow => {
   let total = 0;
   for (const d of g.sales) total += Number(d.total);
   for (const d of g.returns) total += -Number(d.total);
-  return { key: g.key, name: g.name, count: g.sales.length, total: cleanMoney(total) };
+  return { key: g.key, name: g.name, ...partyNumber(g), count: g.sales.length, total: cleanMoney(total) };
 };
 
 const productRowOf = (p: ReturnType<typeof salesByProduct>[number]): SalesSubRow => ({
@@ -322,7 +327,7 @@ export function salesTwoLevel(
       const parent = head.get(key);
       const list = subs.get(key) ?? [];
       list.push({
-        key: g.key, name: g.name, count: invoicesOf.get(key) ?? 0, qty: p.qty, baseQty: p.baseQty,
+        key: g.key, name: g.name, ...partyNumber(g), count: invoicesOf.get(key) ?? 0, qty: p.qty, baseQty: p.baseQty,
         unit: parent?.unit ?? p.unit, units: parent?.units ?? p.units, primaryUnitId: parent?.primaryUnitId ?? p.primaryUnitId, total: p.total,
       });
       subs.set(key, list);
@@ -526,7 +531,8 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
       ...teamDocWhere(team),
     };
     const salesInclude = {
-      customer: { select: { id: true, name: true, channel: true, city: true } },
+      // «رقم العميل» (٢٣ نوفمبر ٢٠٢٦): للتجميع بالعميل (المفرد والمتداخل) ولقائمة الفواتير — بحث التقارير يطابقه
+      customer: { select: { id: true, name: true, number: true, channel: true, city: true } },
       salesRep: { select: { id: true, name: true } },
       team: TEAM_NAME_SELECT,
       items: {
@@ -579,10 +585,11 @@ router.get('/sales', async (req: AuthRequest, res: Response, next: NextFunction)
     }
 
     if (groupBy === 'customer') {
-      const byCustomer: Record<string, { name: string; count: number; total: number }> = {};
+      // ومعه «رقم العميل» (null قبل ترقيمه) — البحث بالرقم في الواجهة وفي /m يطابقه تماماً لا جزءاً من نصّ
+      const byCustomer: Record<string, { name: string; count: number; total: number; number: number | null }> = {};
       signed.forEach(({ inv, sign }) => {
         const key = inv.customer.id;
-        if (!byCustomer[key]) byCustomer[key] = { name: inv.customer.name, count: 0, total: 0 };
+        if (!byCustomer[key]) byCustomer[key] = { name: inv.customer.name, count: 0, total: 0, number: inv.customer.number ?? null };
         if (sign > 0) byCustomer[key].count++;
         byCustomer[key].total += sign * Number(inv.total);
       });
@@ -694,7 +701,8 @@ router.get('/orders', async (req: AuthRequest, res: Response, next: NextFunction
           id: true, number: true, invoiceDate: true, deliveryDate: true,
           // remainingAmt المتبقي الفعلي: الإشعار الدائن ومرتجع المرحلة الأولى المربوط (البند ١١) يُنقصانه دون paidAmt
           total: true, paidAmt: true, remainingAmt: true, status: true, team: TEAM_NAME_SELECT,
-          customer: { select: { id: true, name: true, phone: true, city: true } },
+          // «رقم العميل» يُبحث به في التقرير (مطابقةٌ تامّة)
+          customer: { select: { id: true, name: true, number: true, phone: true, city: true } },
           salesRep: { select: { id: true, name: true } },
         },
         orderBy: { deliveryDate: 'asc' },   // الأقرب تسليماً أوّلاً — ترتيب العمل لا ترتيب الإصدار
@@ -763,7 +771,7 @@ router.get('/returns', async (req: AuthRequest, res: Response, next: NextFunctio
           id: true, number: true, invoiceDate: true, total: true, taxAmt: true,
           returnReason: true, returnToStock: true, documentKind: true, notes: true, createdAt: true, team: TEAM_NAME_SELECT,
           originalInvoice: { select: { number: true } },
-          customer: { select: { id: true, name: true, phone: true, city: true } },
+          customer: { select: { id: true, name: true, number: true, phone: true, city: true } },
           salesRep: { select: { id: true, name: true } },
           items: {
             select: {
@@ -886,7 +894,8 @@ router.get('/collections', async (req: AuthRequest, res: Response, next: NextFun
           ...teamDocWhere(reportTeamOf(req.query.teamId)),
         },
         include: {
-          customer: { select: { id: true, name: true } },
+          // «رقم العميل»: البحث في «التحصيل حسب المندوب» يجد سندات العميل برقمه
+          customer: { select: { id: true, name: true, number: true } },
           salesRep: { select: { id: true, name: true } },
           team: TEAM_NAME_SELECT,
         },
@@ -927,7 +936,8 @@ router.get('/balances', async (req: AuthRequest, res: Response, next: NextFuncti
     // بينما قائمة العملاء وكشف الحساب ومديونيات المندوب تُظهره. والحالة في كل صفّ لتَسِمه الواجهة «محظور» أو «غير نشط».
     const customers = await prisma.customer.findMany({
       where: { tenantId: tid, status: { not: 'DELETED' }, ...(await adminCustomerFilter(req)), ...where },
-      select: { id: true, name: true, phone: true, status: true, balance: true, creditLimit: true, paymentDays: true, totalSales: true, totalCollected: true },
+      // ومعه «رقم العميل» (null قبل ترقيمه) — يُبحث به ويُعرض بجانب الاسم
+      select: { id: true, name: true, number: true, phone: true, status: true, balance: true, creditLimit: true, paymentDays: true, totalSales: true, totalCollected: true },
       orderBy: { balance: 'desc' },
     });
 
@@ -993,7 +1003,7 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
         where: { AND: [visitWhere, olderThan(after)] },
         select: {
           id: true, salesRepId: true, customerId: true, createdAt: true, startedAt: true, durationSec: true,
-          lat: true, lng: true, customer: { select: { name: true } },
+          lat: true, lng: true, customer: { select: { name: true, number: true } },
         },
         orderBy: NEWEST_FIRST, take,
       })),
@@ -1017,7 +1027,7 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
       minutesByRep.set(s.salesRepId, (minutesByRep.get(s.salesRepId) || 0) + Math.max(0, (s.lastBeatAt.getTime() - s.startedAt.getTime()) / 60000));
     }
     const countByRep = new Map<string, number>();
-    const visitsByRep = new Map<string, { customerName: string; createdAt: Date; lat: number; lng: number; mapsUrl: string }[]>();
+    const visitsByRep = new Map<string, { customerName: string; customerNumber: number | null; createdAt: Date; lat: number; lng: number; mapsUrl: string }[]>();
     for (const m of mergeVisitsByRep(visitRows.map(asVisitLike))) {
       const rep = m.sources[0].salesRepId;
       countByRep.set(rep, (countByRep.get(rep) || 0) + 1);
@@ -1025,7 +1035,8 @@ router.get('/rep-performance', async (req: AuthRequest, res: Response, next: Nex
       const arr = visitsByRep.get(rep) || [];
       if (arr.length < 300) { // سقف معقول لروابط كل مندوب
         arr.push({
-          customerName: m.customerName, createdAt: m.start, lat: m.lat, lng: m.lng,
+          // «رقم العميل» من سجلّ الوقفة الأول (السجلّات المدموجة لعميلٍ واحد) — بحث التقرير يجد المندوب برقم عميلٍ زاره
+          customerName: m.customerName, customerNumber: m.sources[0].customer?.number ?? null, createdAt: m.start, lat: m.lat, lng: m.lng,
           mapsUrl: `https://www.google.com/maps?q=${m.lat},${m.lng}`,
         });
         visitsByRep.set(rep, arr);
@@ -1086,7 +1097,7 @@ router.get('/customer-visits', async (req: AuthRequest, res: Response, next: Nex
       select: {
         id: true, salesRepId: true, customerId: true, createdAt: true, startedAt: true,
         note: true, lat: true, lng: true, durationSec: true,
-        customer: { select: { name: true } },
+        customer: { select: { name: true, number: true } },
         salesRep: { select: { name: true } },
         team: TEAM_NAME_SELECT,
       },
@@ -1104,6 +1115,8 @@ router.get('/customer-visits', async (req: AuthRequest, res: Response, next: Nex
         id: head.id,
         customerId: head.customerId,
         customerName: m.customerName,
+        // «رقم العميل» (null قبل ترقيمه) — صفّ الزيارة ليس العميل فاسمه customerNumber
+        customerNumber: head.customer?.number ?? null,
         repName: head.salesRep?.name || '',
         teamName: head.team?.name ?? null,
         createdAt: m.start,
@@ -1128,7 +1141,7 @@ router.get('/unvisited-customers', async (req: AuthRequest, res: Response, next:
     const customers = await prisma.customer.findMany({
       where: { tenantId: tid, status: 'ACTIVE', createdAt: { lt: toEnd }, ...custScope },
       select: {
-        id: true, name: true, businessName: true, phone: true, city: true, createdAt: true,
+        id: true, name: true, number: true, businessName: true, phone: true, city: true, createdAt: true,
         // أسماء المناديب: النشطون وداخل نطاق المستخدم وحدهم — عميلٌ ظاهر لا يكشف اسم مندوبٍ خارج النطاق (قاعدة AND)
         assignments: { where: { salesRep: { isActive: true, ...repScope } }, select: { salesRep: { select: { id: true, name: true } } } },
       },
@@ -1172,7 +1185,7 @@ router.get('/rep-receivables', async (req: AuthRequest, res: Response, next: Nex
         where: { tenantId: tid, customer: { ...(await adminCustomerFilter(req)) } },
         select: {
           salesRepId: true,
-          customer: { select: { id: true, name: true, businessName: true, phone: true, city: true } },
+          customer: { select: { id: true, name: true, number: true, businessName: true, phone: true, city: true } },
         },
       }),
       // مجموعا كل عملاء الشركة دفعةً واحدة — أرخص من IN بآلاف المعرّفات
@@ -1192,7 +1205,8 @@ router.get('/rep-receivables', async (req: AuthRequest, res: Response, next: Nex
     const balanceOf = new Map(sums.map(s => [s.customerId, clean(Number(s._sum.debit ?? 0) - Number(s._sum.credit ?? 0))]));
     const lastPayOf = new Map(lastPays.map(p => [p.customerId, p._max.entryDate]));
 
-    type RecvCustomer = { id: string; name: string; businessName: string | null; phone: string; city: string | null; balance: number; lastPaymentAt: Date | null };
+    // «رقم العميل» (null قبل ترقيمه) — بحث المديونيات يطابقه تماماً
+    type RecvCustomer = { id: string; name: string; number: number | null; businessName: string | null; phone: string; city: string | null; balance: number; lastPaymentAt: Date | null };
     const byRep = new Map<string, RecvCustomer[]>();
     for (const a of assignments) {
       const arr = byRep.get(a.salesRepId) || [];
@@ -1279,7 +1293,7 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
       // زيارات آخر أيام الشهر لشركةٍ متوسطة، فتظهر أيامها بلا زيارات وvisitsTotal ناقصاً. حدّ الأمان وحده يُعلَن في meta
       readNewestFirst((after, take) => prisma.repVisit.findMany({
         where: { AND: [visitWhere, olderThan(after)] },
-        select: { id: true, salesRepId: true, createdAt: true, startedAt: true, durationSec: true, lat: true, lng: true, customer: { select: { name: true } } },
+        select: { id: true, salesRepId: true, createdAt: true, startedAt: true, durationSec: true, lat: true, lng: true, customer: { select: { name: true, number: true } } },
         orderBy: NEWEST_FIRST, take,
       })),
       // نقاط GPS تُختزل في القاعدة إلى (مندوب × يوم محلي → أول/آخر التقاط):
@@ -1329,6 +1343,8 @@ router.get('/work-hours', async (req: AuthRequest, res: Response, next: NextFunc
         pingRanges: (pingsByRep.get(r.id) || []).map(p => ({ day: p.day, min: p.min, max: p.max })),
         visits: (visitsByRep.get(r.id) || []).map(v => ({
           customerName: v.customer?.name || '—',
+          // «رقم العميل» يرافق الوقفة المدموجة (customerNumber) فيجد بحث التقرير المندوب برقم عميلٍ زاره
+          customerNumber: v.customer?.number ?? null,
           at: v.startedAt || v.createdAt,   // بداية المؤقّت أدقّ؛ زيارة الملاحظة بوقت تسجيلها
           durationSec: v.durationSec,
           lat: v.lat, lng: v.lng,

@@ -509,12 +509,12 @@ router.get('/:id/customers', async (req: AuthRequest, res: Response, next: NextF
     const tid = tenantId(req);
     const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
-    // نُرفق بيانات العميل كي تعرض النافذة المُسنَدين دون تحميل كل عملاء الشركة
+    // نُرفق بيانات العميل كي تعرض النافذة المُسنَدين دون تحميل كل عملاء الشركة — ومعها رقمه التسلسليّ (number) للعرض والبحث
     const rows = await prisma.customerAssignment.findMany({
       where: { tenantId: tid, salesRepId: req.params.id },
       select: {
         customerId: true, source: true,
-        customer: { select: { id: true, name: true, businessName: true, phone: true, code: true } },
+        customer: { select: { id: true, name: true, businessName: true, phone: true, code: true, number: true } },
       },
       orderBy: { createdAt: 'desc' },
     });

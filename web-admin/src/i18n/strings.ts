@@ -8312,6 +8312,20 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'حفظ الطريقة رغم ذلك؟': { en: 'Save the method anyway?', fr: 'Enregistrer le mode quand même ?', tr: 'Yöntem yine de kaydedilsin mi?', zh: '仍要保存该方式吗？' },
   'لا أيام لأي خط من خطوط المندوب — حدد أيام كل خط من تعديل الخط قبل اختيار هذه الطريقة': { en: 'None of the rep’s routes has days — set each route’s days from Edit route before choosing this method', fr: 'Aucun itinéraire du représentant n’a de jours — définissez les jours de chaque itinéraire via Modifier avant de choisir ce mode', tr: 'Temsilcinin hiçbir rotasının günü yok — bu yöntemi seçmeden önce her rotanın günlerini rotayı düzenleyerek belirleyin', zh: '该业务代表的路线都未设星期——选择此方式前，请在编辑路线中为每条路线设置星期' },
   'تستعمل الأيام حين تكون طريقة توزيع خطوط المندوب حسب أيام الأسبوع': { en: 'The days are used when the rep’s route distribution method is By weekday', fr: 'Les jours sont utilisés lorsque le mode de répartition du représentant est Selon les jours de la semaine', tr: 'Günler, temsilcinin rota dağıtım yöntemi Haftanın günlerine göre olduğunda kullanılır', zh: '当业务代表的路线分配方式为“按星期几”时使用这些星期' },
+  // «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): رقمٌ تسلسليّ لكل عميل في شركته بدل الكود الآلي، ويُبحث به في كل مكان
+  'رقم العميل': { en: 'Customer No.', fr: 'N° client', tr: 'Müşteri No.', zh: '客户编号' },
+  'بحث بالاسم أو الجوال أو رقم العميل': { en: 'Search by name, mobile or customer no.', fr: 'Rechercher par nom, mobile ou n° client', tr: 'Ad, cep telefonu veya müşteri no. ile ara', zh: '按名称、手机号或客户编号搜索' },
+  'ابحث بالاسم أو الجوال أو رقم العميل': { en: 'Search by name, mobile or customer no.', fr: 'Rechercher par nom, mobile ou n° client', tr: 'Ad, cep telefonu veya müşteri no. ile ara', zh: '按名称、手机号或客户编号搜索' },
+  'اكتب اسم أو جوال أو رقم العميل': { en: 'Type customer name, mobile or no.', fr: 'Saisir le nom, le mobile ou le n° du client', tr: 'Müşteri adı, cep numarası veya müşteri no. yazın', zh: '输入客户名称、手机号或客户编号' },
+  'اسم العميل أو رقمه أو المندوب': { en: 'Customer name or no., or rep', fr: 'Nom ou n° du client, ou représentant', tr: 'Müşteri adı veya no. ya da temsilci', zh: '客户名称或编号，或业务员' },
+  'رقم الفاتورة أو اسم العميل أو رقمه': { en: 'Invoice number, customer name or customer no.', fr: 'N° de facture, nom ou n° du client', tr: 'Fatura numarası, müşteri adı veya müşteri no.', zh: '发票号、客户名称或客户编号' },
+  'رقم السند أو اسم العميل أو رقمه': { en: 'Receipt number, customer name or customer no.', fr: 'N° de reçu, nom ou n° du client', tr: 'Makbuz numarası, müşteri adı veya müşteri no.', zh: '收款单号、客户名称或客户编号' },
+  'رقم العميل أو رمزه أو اسمه': { en: 'Customer no., code or name', fr: 'N° client, code ou nom', tr: 'Müşteri no., kodu veya adı', zh: '客户编号、编码或名称' },
+  // عمود الكود المخصّص في تصدير العملاء، وتنبيه الاستيراد: «رقم العميل» لا يُقرأ كوداً (٢٤ نوفمبر ٢٠٢٦)
+  'كود العميل': { en: 'Customer code', fr: 'Code client', tr: 'Müşteri kodu', zh: '客户编码' },
+  'عمود «رقم العميل» لا يُستورد: رقم العميل يمنحه النظام تلقائياً. لاستيراد كود العميل من نظام آخر سمِّ العمود «كود العميل»': { en: 'The “Customer No.” column is not imported: the system assigns customer numbers automatically. To import a customer code from another system, name the column “Customer code”', fr: 'La colonne « N° client » n’est pas importée : le système attribue les numéros clients automatiquement. Pour importer un code client depuis un autre système, nommez la colonne « Code client »', tr: '«Müşteri No.» sütunu içe aktarılmaz: müşteri numaralarını sistem otomatik olarak verir. Başka bir sistemden müşteri kodu aktarmak için sütunu «Müşteri kodu» olarak adlandırın', zh: '「客户编号」列不会导入：客户编号由系统自动分配。如需从其他系统导入客户编码，请将该列命名为「客户编码」' },
+  'ابحث باسم العميل أو رقمه': { en: 'Search by customer name or no.', fr: 'Rechercher par nom ou n° du client', tr: 'Müşteri adı veya no. ile ara', zh: '按客户名称或编号搜索' },
+  'كل العملاء — ابحث بالاسم أو الرقم': { en: 'All customers — search by name or no.', fr: 'Tous les clients — rechercher par nom ou n°', tr: 'Tüm müşteriler — ad veya no. ile ara', zh: '全部客户 — 按名称或编号搜索' },
 };
 
 // ثابتة الهوية ما لم تتغيّر اللغة — كـuseT (انظر سببه هناك)

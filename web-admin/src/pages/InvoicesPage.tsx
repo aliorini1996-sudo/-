@@ -28,6 +28,7 @@ import { baseQtyText } from '../lib/adminUnits';
 import { priceListsOf } from '../lib/priceLists';
 import { withLiveCompany } from '../rep/companyRefresh';
 import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
+import { formatCustomerNumber } from '../lib/customerNumber';
 
 /** جلب إعدادات الشركة — نفسه للاستعلام ولـensureQueryData عند فتح مستند قبل اكتمال تحميلها (D-G6) */
 const fetchCompany = async () => { const res = await companyApi.get(); return res.data.data as Company; };
@@ -233,6 +234,8 @@ export default function InvoicesPage() {
       if (!invoices.length) { toast.error(tr('لا توجد فواتير للتصدير')); setExporting(false); return; }
       const rows = invoices.map(inv => ({
         [tr('رقم الفاتورة')]: inv.number,
+        // «رقم العميل» (٢٣ نوفمبر ٢٠٢٦) عمودٌ قبل اسمه — فارغ لعميلٍ لم يُرقَّم بعد
+        [tr('رقم العميل')]: inv.customer.number ?? '',
         [tr('العميل')]: inv.customer.name,
         [tr('المندوب')]: inv.salesRep?.name ?? '—',
         // «لوكيشن»: عمودٌ بعد المندوب حين تُفعَّل الميزة — ختم الفاتورة وقت إصدارها
@@ -246,7 +249,7 @@ export default function InvoicesPage() {
         [tr('الحالة')]: tr(statusLabels[inv.status] || inv.status),
       }));
       const res2 = await shareOrDownloadExcel(
-        [{ name: tr('الفواتير'), rows, colWidths: locOn ? [18, 24, 16, 18, 10, 16, 10, 12, 12, 12, 10] : [18, 24, 16, 10, 16, 10, 12, 12, 12, 10] }],
+        [{ name: tr('الفواتير'), rows, colWidths: locOn ? [18, 12, 24, 16, 18, 10, 16, 10, 12, 12, 12, 10] : [18, 12, 24, 16, 10, 16, 10, 12, 12, 12, 10] }],
         `${tr('الفواتير')}-${new Date().toISOString().slice(0, 10)}`
       );
       toast.success(res2 === 'shared' ? tr('تمت المشاركة') : `${tr('تم تصدير')} ${rows.length} ${tr('فاتورة')}`);
@@ -289,7 +292,7 @@ export default function InvoicesPage() {
         <div className="flex gap-3 flex-wrap">
           <div className="relative flex-1 min-w-48">
             <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input className="input pr-9" placeholder={tr('رقم الفاتورة أو اسم العميل')} value={search}
+            <input className="input pr-9" placeholder={tr('رقم الفاتورة أو اسم العميل أو رقمه')} value={search}
               onChange={e => { setSearch(e.target.value); setPage(1); }} />
           </div>
           <select className="input w-36" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}>
@@ -357,7 +360,10 @@ export default function InvoicesPage() {
                 <tr key={inv.id}>
                   {purge.enabled && <td className="w-8 px-2">{purge.rowBox(inv.id)}</td>}
                   <td className="font-mono text-sm text-[#E15A30]">{inv.number}</td>
-                  <td className="font-medium text-gray-800">{inv.customer.name}</td>
+                  <td className="font-medium text-gray-800">
+                    {inv.customer.number != null && <><span dir="ltr" className="tabular-nums text-xs font-normal text-gray-400">{formatCustomerNumber(inv.customer.number)}</span>{' · '}</>}
+                    {inv.customer.name}
+                  </td>
                   <td className="text-gray-600 text-sm">{inv.salesRep?.name ?? '—'}</td>
                   {/* null لمندوبٍ بلا موقع ولكل فاتورةٍ قبل التفعيل — شرطةٌ لا انهيار */}
                   {locOn && <td className="text-gray-600 text-sm whitespace-nowrap">{inv.location?.name ?? <span className="text-gray-300">—</span>}</td>}

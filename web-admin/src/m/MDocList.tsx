@@ -13,6 +13,7 @@ import { useBackClose } from '../lib/useBackClose';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { MCard, MRow, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray } from './shape';
+import { formatCustomerLabel } from '../lib/customerNumber';
 
 const MDocScreen = lazy(() => import('./MDocScreen'));
 const MInvoiceCreate = lazy(() => import('./MInvoiceCreate'));
@@ -140,7 +141,8 @@ export default function MDocList({ kind, company, userName, onSwitchKind }: {
         <div className="relative flex-1 min-w-0">
           <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-[#9A8F7E]" />
           <input value={q} onChange={e => setQ(e.target.value)} className="input ps-9"
-            placeholder={kind === 'invoice' ? tr('ابحث برقم الفاتورة أو العميل') : tr('ابحث برقم السند أو العميل')} />
+            // البحث في الخادم يطابق «رقم العميل» بالضبط (12 أو #12) — فالتلميح يذكره
+            placeholder={kind === 'invoice' ? tr('رقم الفاتورة أو اسم العميل أو رقمه') : tr('رقم السند أو اسم العميل أو رقمه')} />
         </div>
         {/* التحويل إلى النوع الآخر — بأيقونته ولونه هو لا أيقونة الشاشة الحاليّة:
             الزرّ يعِد بوجهته. ونصّه معه لا وحدها: من فقد تبويب «التحصيل» يبحث
@@ -207,7 +209,9 @@ function DocRow({ kind, d, onOpen }: { kind: Kind; d: Record<string, unknown>; o
 
   // لحظة الإصدار الحقيقية: أوف‑لاين تسبق الرفع بساعات
   const issuedAt = String(d.clientCreatedAt || d.createdAt || '');
-  const customerName = (d.customer as { name?: string } | undefined)?.name || '—';
+  // «رقم العميل» قبل اسمه «#12 · الاسم» — البحث في الخادم يطابقه بالضبط فيرى المستخدم ما يكتبه
+  const cust = d.customer as { name?: string; number?: number | null } | undefined;
+  const customerName = cust?.name ? formatCustomerLabel({ name: cust.name, number: cust.number }) : '—';
   const repName = (d.salesRep as { name?: string } | undefined)?.name || tr('الإدارة');
   const amount = Number(d.total ?? d.amount ?? 0);
   const remaining = Number(d.remainingAmt ?? 0);

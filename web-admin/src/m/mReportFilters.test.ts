@@ -7,8 +7,8 @@ import {
   ymd, PRESETS, DEFAULT_PRESET, presetRange, activePreset,
   NO_FILTERS, FILTER_MODES, filterKeysFor, filterParams, clientPick, ignoredFilters, activeCount, filtersKey,
   normalizeSearch, matchesSearch, sortRows, viewRows, sortOf,
-  thenByChoices, effectiveThenBy, salesParams, isNested, viewNested, shareOf,
-  type FilterAvail, type ReportFilters, type SalesNestedRow, type SortOption,
+  thenByChoices, effectiveThenBy, salesParams, isNested, viewNested, shareOf, salesAccess, customerPickItems,
+  type FilterAvail, type ReportFilters, type SalesNestedRow, type SortOption, type RowAccess,
 } from './mReportFilters';
 
 const read = (...p: string[]) => fs.readFileSync(path.join(process.cwd(), 'src', ...p), 'utf8').replace(/\r\n/g, '\n');
@@ -196,6 +196,115 @@ test('بحثٌ يطابق الصفّ نفسه يبقيه بكل فروعه، و�
   assert.deepEqual(all.map(x => x.row.name), ['أحمد', 'خالد'], 'الأب بعدد الفواتير');
   assert.deepEqual(all[0].subs.map(s => s.name), ['ماء', 'بيبسي'], 'الفرع (صنف) بالكمية');
   assert.deepEqual(viewNested(nested, 'لا شيء', 'valueDesc', 'rep', 'product'), []);
+});
+
+// ═══ رقم العميل (طلب المالك ٢٣ نوفمبر ٢٠٢٦) ═══
+
+interface C { name: string; phone?: string; number?: number | null }
+// الجوالات مختارةٌ لا تحوي «12» ولا «10» ولا «120» — فكل مطابقةٍ رقمية أدناه من رقم العميل وحده
+const custs: C[] = [
+  { name: 'مؤسسة سمارة', phone: '0555000001', number: 12 },
+  { name: 'بقالة النور', phone: '0555000002', number: 120 },
+  { name: 'تموينات الخير', phone: '0533456789', number: 10 },
+  { name: 'عميل قديم', phone: '0540000000', number: null },
+  { name: 'عميل من خادم أقدم', phone: '0560000000' },
+];
+const CUST_ACC: RowAccess<C> = { name: c => c.name, extra: c => [c.phone], number: c => c.number };
+const names = (q: string, acc: RowAccess<C> = CUST_ACC) => viewRows(custs, q, 'default', acc).map(c => c.name);
+
+test('رقم العميل: «12» و«#12» و«١٢» و«＃ ١٢» و«۱۲» تجد العميل #12 مطابقةً تامة', () => {
+  for (const q of ['12', '#12', '١٢', '＃ ١٢', '  #12  ', '۱۲', '# 12']) {
+    assert.deepEqual(names(q), ['مؤسسة سمارة'], `«${q}»`);
+  }
+});
+
+test('رقم العميل مطابقةٌ تامة لا احتواء: «12» لا تجد #120، و«1» لا تجد #10 ولا #12', () => {
+  assert.ok(!names('12').includes('بقالة النور'), '«12» وجدت #120');
+  assert.deepEqual(names('120'), ['بقالة النور']);
+  assert.deepEqual(names('10'), ['تموينات الخير']);
+  // «1» تطابق جوال «…0001» بالاحتواء كما كانت — لكنها لا تطابق رقمَي #10 و#12
+  const one = names('1');
+  assert.deepEqual(one, ['مؤسسة سمارة'], 'بالجوال وحده');
+  assert.ok(!one.includes('تموينات الخير'), '«1» وجدت #10');
+  const nameOnly: RowAccess<C> = { name: c => c.name, number: c => c.number };
+  assert.deepEqual(names('1', nameOnly), [], 'بلا جوال: «1» لا تطابق #10 ولا #12');
+  assert.deepEqual(names('2', nameOnly), [], '«2» لا تطابق #12 ولا #120');
+});
+
+test('رقم العميل يُضمّ إلى بحث الاسم والجوال ولا يزيحه: الجوال المحتوي على الأرقام ما زال يُطابق', () => {
+  // «0533» لا تكون رقم عميلٍ (صفرٌ أوّل) فتبقى بحث جوالٍ بالاحتواء
+  assert.deepEqual(names('0533'), ['تموينات الخير']);
+  // «456» جزءٌ من جوال «تموينات الخير» ولا عميل برقم 456 — والاحتواء باقٍ
+  assert.deepEqual(names('456'), ['تموينات الخير']);
+  assert.deepEqual(names('0002'), ['بقالة النور']);
+  assert.deepEqual(names('سماره'), ['مؤسسة سمارة']);
+  assert.deepEqual(names('#0'), [], 'صفرٌ ليس رقم عميل');
+  assert.equal(names('').length, custs.length, 'بحثٌ فارغ يعرض الكل');
+});
+
+test('بلا مُوصِل رقمٍ (تقارير المناديب والأصناف) لا يطابق البحث الرقميّ رقمَ عميل — وما فوق الحدّ ليس رقماً', () => {
+  const noNum: RowAccess<C> = { name: c => c.name, extra: c => [c.phone] };
+  assert.deepEqual(names('12', noNum), [], 'بلا مُوصِل: «12» بحثٌ بالاحتواء وحده');
+  const big: C[] = [{ name: 'أخير', number: 2147483647 }];
+  const one = (q: string) => viewRows(big, q, 'default', CUST_ACC).length;
+  assert.equal(one('2147483647'), 1, 'أعلى رقمٍ ممكن يُطابق');
+  assert.equal(one('2147483648'), 0, 'فوق الحدّ ليس رقماً');
+});
+
+test('المبيعات: رقم العميل لمستوى العميل وحده — لا مستوى المندوب ولا الصنف', () => {
+  assert.ok(salesAccess('customer').number, 'مستوى العميل بلا مُوصِل رقم');
+  assert.equal(salesAccess('rep').number, undefined);
+  assert.equal(salesAccess('product').number, undefined);
+  const flat = [
+    { name: 'مؤسسة سمارة', total: 100, count: 2, number: 12 },
+    { name: 'بقالة النور', total: 50, count: 1, number: 120 },
+  ];
+  assert.deepEqual(viewRows(flat, '#12', 'valueDesc', salesAccess('customer')).map(r => r.name), ['مؤسسة سمارة']);
+  assert.deepEqual(viewRows(flat, '12', 'valueDesc', salesAccess('rep')).map(r => r.name), [], 'مستوى المندوب لا يقرأ رقماً');
+  // «extra» لا يحمل الرقم أبداً — وإلا وجدت «12» العميل #120 بالاحتواء
+  assert.deepEqual(salesAccess('customer').extra?.(flat[1]), []);
+});
+
+test('التجميعان: رقم العميل يطابق الصفّ الأب (حسب العميل) والصفوف الفرعية (ثم حسب العميل)', () => {
+  const byCust: SalesNestedRow[] = [
+    { key: 'c1', name: 'مؤسسة سمارة', number: 12, count: 2, total: 300, sub: [{ key: 'p1', name: 'بيبسي', code: 'P-1', qty: 5, total: 300 }] },
+    { key: 'c2', name: 'بقالة النور', number: 120, count: 1, total: 100, sub: [{ key: 'p1', name: 'بيبسي', code: 'P-1', qty: 2, total: 100 }] },
+  ];
+  const v = viewNested(byCust, '١٢', 'valueDesc', 'customer', 'product');
+  assert.deepEqual(v.map(x => [x.row.name, x.bySub]), [['مؤسسة سمارة', false]], 'الأب بكل فروعه');
+
+  const byRep: SalesNestedRow[] = [
+    { key: 'r1', name: 'أحمد', count: 3, total: 400, sub: [
+      { key: 'c1', name: 'مؤسسة سمارة', number: 12, count: 2, total: 300 },
+      { key: 'c2', name: 'بقالة النور', number: 120, count: 1, total: 100 },
+    ] },
+    { key: 'r2', name: 'خالد', count: 1, total: 120, sub: [{ key: 'c2', name: 'بقالة النور', number: 120, count: 1, total: 120 }] },
+  ];
+  const w = viewNested(byRep, '#12', 'valueDesc', 'rep', 'customer');
+  assert.deepEqual(w.map(x => [x.row.name, x.bySub, x.subs.map(s => s.name)]), [['أحمد', true, ['مؤسسة سمارة']]]);
+  // ثم حسب الصنف: رقمٌ لا يطابق صنفاً (المستوى بلا رقم)
+  assert.deepEqual(viewNested(byCust, '120', 'valueDesc', 'customer', 'product').map(x => x.row.name), ['بقالة النور']);
+});
+
+test('ورقة «اختر العميل»: «#N · الاسم» للشريحة، والرمز التلقائيّ لا يظهر والمخصّص يبقى، والمطابق رقماً أوّلاً', () => {
+  const list = [
+    { id: 'a', name: 'جوال يحوي 12', phone: '0512000000', number: 7, code: 'cm3x9q2k5v0000abcdefghij' },
+    { id: 'b', name: 'مؤسسة سمارة', phone: '0555000001', number: 12, code: 'ODOO-77', businessName: 'سمارة للتجارة' },
+    { id: 'c', name: 'بلا رقم بعد', phone: '', number: null, code: '' },
+    { id: 'd', name: 'خادم أقدم', phone: '0599' },
+  ];
+  const items = customerPickItems(list, '12');
+  assert.deepEqual(items.map(i => i.id), ['b', 'a', 'c', 'd'], 'المطابق رقماً أوّلاً والباقي بترتيب الخادم');
+  assert.equal(items[0].name, '#12 · مؤسسة سمارة');
+  assert.equal(items[0].sub, 'سمارة للتجارة · ODOO-77 · 0555000001', 'الرمز المخصّص يبقى');
+  assert.equal(items[1].sub, '0512000000', 'الرمز التلقائيّ (cuid) لا يظهر');
+  assert.equal(items[2].name, 'بلا رقم بعد', 'بلا رقمٍ: الاسم وحده');
+  assert.equal(items[2].sub, '');
+  assert.equal(items[3].name, 'خادم أقدم');
+  // بلا بحثٍ رقميّ: ترتيب الخادم كما وصل
+  assert.deepEqual(customerPickItems(list, 'سمارة').map(i => i.id), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(customerPickItems(list, '').map(i => i.id), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(customerPickItems(list, '١٢').map(i => i.id)[0], 'b', 'الأرقام الهندية');
 });
 
 test('الحصّة من الأب: موجبٌ وحده', () => {

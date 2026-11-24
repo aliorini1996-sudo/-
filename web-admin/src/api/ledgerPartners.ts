@@ -268,7 +268,8 @@ export interface PartnerReportParamsMap {
   'product-ledger': ProductLedgerParams;
 }
 
-export interface PartnerSearchItem { id: string; name: string; hint: string | null }
+/** number: «رقم العميل» التسلسليّ — للعملاء وحدهم ولا يصل إلا حين يُرقَّم (٢٣ نوفمبر ٢٠٢٦) */
+export interface PartnerSearchItem { id: string; name: string; hint: string | null; number?: number | null }
 
 export interface SourceAttachmentItem {
   kind: AttachmentKind;

@@ -25,6 +25,8 @@ import {
   assertManualOwned, assertReversalReason, deleteDraftMove, deleteDraftMoves, ownershipOfRecord, resetDraft, reverseMove,
 } from '../../services/gl/reverse';
 import { collectMoveIssues } from '../../services/gl/validate';
+// «رقم العميل»: بحث القيود وبنودها برقم العميل التسلسليّ مطابقةً تامّة
+import { customerNumberQuery } from '../../services/customerNumber';
 import { PrismaPostingTx } from '../../services/gl/sync/postingStore.prisma';
 import { RepostRejectedError, repostFromSource } from '../../services/gl/sync/repost';
 import { LedgerError, type LocalDate, type Milli } from '../../services/gl/types';
@@ -93,8 +95,23 @@ function dirOf(q: ListQuery, fallback: 'asc' | 'desc'): 'asc' | 'desc' {
   return d === 'asc' || d === 'desc' ? d : fallback;
 }
 
-/** فلاتر قائمة القيود (JE‑01/02): الحالة والدفتر والمصدر والمراجعة والتاريخ والشريك والحساب والبحث والمعرّفات. */
-export function moveListWhere(tenantId: string, q: ListQuery): Prisma.GlMoveWhereInput {
+/**
+ * «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): عملاء الشركة الذين يطابق رقمُهم بحثَ القائمة تماماً («12» أو «#١٢») — لقائمتي القيود
+ * وبنودها. customerId فيهما عمودٌ بلا علاقة (لا شرط { customer: { number } })، فتُقرأ المعرّفات أوّلاً على الفهرس (tenantId, number).
+ * [] لنصٍّ ليس رقماً بلا استعلام. (لا قيد فريد على الرقم: معرّفاتٌ لا معرّف — وحدّها ١٠ احتياطاً.)
+ */
+export async function searchCustomerIds(tenantId: string, q: ListQuery): Promise<string[]> {
+  const n = customerNumberQuery(strParam(q.search));
+  if (n == null) return [];
+  const rows = await prisma.customer.findMany({ where: { tenantId, number: n }, select: { id: true }, take: 10 });
+  return rows.map((r) => r.id);
+}
+
+/**
+ * فلاتر قائمة القيود (JE‑01/02): الحالة والدفتر والمصدر والمراجعة والتاريخ والشريك والحساب والبحث والمعرّفات.
+ * numberCustomerIds (searchCustomerIds): عملاء رقمُهم نصُّ البحث — قيودهم (رأساً أو سطراً) تُضاف بـ«أو» إلى شروط البحث القائمة.
+ */
+export function moveListWhere(tenantId: string, q: ListQuery, numberCustomerIds: readonly string[] = []): Prisma.GlMoveWhereInput {
   const and: Prisma.GlMoveWhereInput[] = [];
   const where: Prisma.GlMoveWhereInput = { tenantId };
   const states = listParam(q.state)?.filter((s) => s === 'DRAFT' || s === 'POSTED');
@@ -132,6 +149,9 @@ export function moveListWhere(tenantId: string, q: ListQuery): Prisma.GlMoveWher
         { ref: { contains: search, mode: 'insensitive' } },
         { narration: { contains: search, mode: 'insensitive' } },
         { lines: { some: { partnerName: { contains: search, mode: 'insensitive' } } } },
+        ...(numberCustomerIds.length
+          ? [{ customerId: { in: [...numberCustomerIds] } }, { lines: { some: { customerId: { in: [...numberCustomerIds] } } } }]
+          : []),
       ],
     });
   }
@@ -197,8 +217,8 @@ export function serializeMoveRow(m: MoveListRow) {
   };
 }
 
-/** فلاتر بنود اليومية (JI، `/items`). */
-export function itemListWhere(tenantId: string, q: ListQuery): Prisma.GlMoveLineWhereInput {
+/** فلاتر بنود اليومية (JI، `/items`). numberCustomerIds كما في moveListWhere: بنود عملاءٍ رقمُهم نصُّ البحث تُضاف بـ«أو». */
+export function itemListWhere(tenantId: string, q: ListQuery, numberCustomerIds: readonly string[] = []): Prisma.GlMoveLineWhereInput {
   const where: Prisma.GlMoveLineWhereInput = { tenantId };
   const and: Prisma.GlMoveLineWhereInput[] = [];
   const states = listParam(q.state)?.filter((s) => s === 'DRAFT' || s === 'POSTED');
@@ -230,6 +250,7 @@ export function itemListWhere(tenantId: string, q: ListQuery): Prisma.GlMoveLine
         { partnerName: { contains: search, mode: 'insensitive' } },
         { move: { number: { contains: search, mode: 'insensitive' } } },
         { move: { ref: { contains: search, mode: 'insensitive' } } },
+        ...(numberCustomerIds.length ? [{ customerId: { in: [...numberCustomerIds] } }] : []),
       ],
     });
   }
@@ -308,7 +329,7 @@ function serializePosted(p: PostedMove) {
 router.get('/moves', requireLedgerPermission('canViewLedger'), ledgerHandler(async (req, res) => {
   const { tenantId } = locals(res);
   const q = req.query as ListQuery;
-  const where = moveListWhere(tenantId, q);
+  const where = moveListWhere(tenantId, q, await searchCustomerIds(tenantId, q));
   const page = pagingOf(q);
   const [rows, total] = await Promise.all([
     prisma.glMove.findMany({ where, select: MOVE_LIST_SELECT, orderBy: moveListOrder(q), skip: page.offset, take: page.limit }),
@@ -1133,7 +1154,7 @@ router.get('/moves/:id/attachments/:attachmentId', requireLedgerPermission('canV
 router.get('/items', requireLedgerPermission('canViewLedger'), ledgerHandler(async (req, res) => {
   const { tenantId } = locals(res);
   const q = req.query as ListQuery;
-  const where = itemListWhere(tenantId, q);
+  const where = itemListWhere(tenantId, q, await searchCustomerIds(tenantId, q));
   const page = pagingOf(q);
   const [rows, total, sums] = await Promise.all([
     prisma.glMoveLine.findMany({ where, select: MOVE_ITEM_SELECT, orderBy: itemListOrder(q), skip: page.offset, take: page.limit }),

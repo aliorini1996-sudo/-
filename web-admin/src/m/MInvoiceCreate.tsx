@@ -32,9 +32,12 @@ import { can } from './perms';
 import MUnitChips from './MUnitChips';
 import { useLaserScanner, scanFeedback } from '../lib/useLaserScanner';
 import { findByScan, type ScanMatchable } from '../lib/laserScanner';
+import { formatCustomerLabel } from '../lib/customerNumber';
 
 interface Pick {
   id: string; name: string; code?: string; phone?: string; basePrice?: number; taxPct?: number; unit?: string;
+  /** «رقم العميل» لصفّ العميل (طلب المالك ٢٣ نوفمبر ٢٠٢٦) — يُعرض «#12 · الاسم» بدل الرمز؛ غائبٌ للمندوب ومن خادمٍ أقدم */
+  number?: number | null;
   /** «أنواع الأسعار»: نوع سعر العميل من ملفه (null = السعر الأساسي) — يردّه الخادم مع صفّ العميل */
   priceListId?: string | null;
   /** ولصفّ المندوب: نوعه الافتراضي لعميلٍ بلا نوع (null = السعر الأساسي) — يردّه الخادم مع قائمة المناديب */
@@ -481,7 +484,8 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
             <Field label={tr('العميل')} required>
               <div className="relative mb-2">
                 <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-[#9A8F7E]" />
-                <input value={cq} onChange={e => setCq(e.target.value)} className="input ps-9" placeholder={tr('ابحث عن عميل')} />
+                {/* البحث على الخادم: الاسم والجوال والرمز — و«رقم العميل» («12» أو «#12» أو «١٢») مطابقةً تامة */}
+                <input value={cq} onChange={e => setCq(e.target.value)} className="input ps-9" placeholder={tr('ابحث بالاسم أو الجوال أو رقم العميل')} />
               </div>
               <div className="rounded-xl border border-[#F1EBDF] bg-white max-h-56 overflow-y-auto divide-y divide-[#F1EBDF]">
                 {customersQ.isLoading ? <p className="text-center text-xs text-[#9A8F7E] py-5">{tr('جاري التحميل')}</p>
@@ -490,9 +494,10 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
                     // عميلٌ آخر: الفاتورة بنوع سعره هو (الرقاقة المختارة كانت للسابق)
                     <button key={c.id} onClick={() => { if (c.id !== customerId) setListChoice(undefined); setCustomerId(c.id); setPickedCustomer(c); }}
                       className={`w-full text-start px-3 py-3 min-h-[52px] flex items-center gap-2 ${customerId === c.id ? 'bg-[#FBEBE2]' : 'active:bg-[#FAF7F0]'}`}>
+                      {/* «#12 · الاسم» يُرى فيُكتب في البحث (الخادم يطابق الرقم تماماً) — والرمز التلقائيّ (cuid) لا يُعرض */}
                       <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold text-[#1F1A13] truncate">{c.name}</span>
-                        <span className="block text-[11px] text-[#9A8F7E] truncate">{[c.code, c.phone].filter(Boolean).join(' · ')}</span>
+                        <span className="block text-sm font-semibold text-[#1F1A13] truncate">{formatCustomerLabel(c)}</span>
+                        {c.phone && <span className="block text-[11px] text-[#9A8F7E] truncate">{c.phone}</span>}
                       </span>
                       {customerId === c.id && <Check size={16} className="text-[#E15A30] flex-shrink-0" />}
                     </button>
@@ -664,7 +669,7 @@ export default function MInvoiceCreate({ presetCustomerId, onClose, onCreated, c
         {step === 'review' && (
           <>
             <div className="rounded-2xl border border-[#F1EBDF] bg-white p-4 space-y-1.5 text-sm">
-              <Row k={tr('العميل')} v={customer?.name || '—'} />
+              <Row k={tr('العميل')} v={customer?.name ? formatCustomerLabel(customer) : '—'} />
               <Row k={tr('المندوب')} v={repsQ.data?.find(r => r.id === salesRepId)?.name || '—'} />
               <Row k={tr('النوع')} v={salePlan === 'INSTALLMENT' ? tr('تقسيط') : (saleType === 'CASH' ? tr('نقدي') : tr('آجل'))} />
               {listsOn && (

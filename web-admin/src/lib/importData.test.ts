@@ -28,7 +28,7 @@ import {
   headerSaysPriceIncludesTax, PRICE_INCL_TAX_SUGGESTED_NOTICE,
   TAX_PCT_INVALID, IMPORT_TEXT_MAX, TEXT_TOO_LONG,
   FUTURE_DATE_NOTICE, maxImportDateYmd, IMPORT_FUTURE_DATE_GRACE_DAYS,
-  PRODUCT_UNIT_INVALID, PRODUCT_UNIT_INCOMPLETE,
+  PRODUCT_UNIT_INVALID, PRODUCT_UNIT_INCOMPLETE, CUSTOMER_NUMBER_COLUMN_NOTICE,
 } from './importData';
 import { currencyDecimals } from '../i18n/countries';
 import { importResultView, importRowErrorKey, customerSkipReasonKey, classifyRevertFailure, CUSTOMER_CODE_NOT_FOUND_MESSAGE, IMPORT_MAX_ROWS, rowsOverMax, isClientOutdated } from './importRevert';
@@ -580,8 +580,8 @@ test('البند 13: مطابقة الأعمدة تستثني الأعمدة ا�
   // «اسم المحل، رصيد العميل» ⇒ الاسم ليس 1500
   const a = cust([{ 'اسم المحل': 'بقالة النور', 'رصيد العميل': 1500 }]);
   assert.equal(a.valid[0].name, 'بقالة النور');
-  // «رقم العميل، اسم الزبون» ⇒ الاسم ليس الكود
-  const b = cust([{ 'رقم العميل': '1001', 'اسم الزبون': 'مؤسسة الفجر' }]);
+  // «كود العميل، اسم الزبون» ⇒ الاسم ليس الكود
+  const b = cust([{ 'كود العميل': '1001', 'اسم الزبون': 'مؤسسة الفجر' }]);
   assert.deepEqual([b.valid[0].name, b.valid[0].code], ['مؤسسة الفجر', '1001']);
   // «Salesperson Name, Customer Name»
   const c = cust([{ 'Salesperson Name': 'Ali', 'Customer Name': 'Store A' }, { 'Salesperson Name': 'Ali', 'Customer Name': 'Store B' }]);
@@ -608,6 +608,40 @@ test('البند 13: مطابقة الأعمدة تستثني الأعمدة ا�
   // خريطة الأعمدة
   assert.deepEqual(e.columns?.find((x) => x.field === 'basePrice'), { field: 'basePrice', header: 'Sale Price' });
   assert.deepEqual(e.columns?.find((x) => x.field === 'unit'), { field: 'unit', header: null });
+});
+
+test('«رقم العميل» (تصدير صفحة العملاء) لا يُقرأ كوداً في أي استيراد — يُهمل بتنبيه، و«كود العميل» بلغات الواجهة يبقى الكود', () => {
+  // إعادة استيراد ملف التصدير: الرقم 12 لا يصير كوداً (كان يُربط «12» كوداً بعميلٍ كوده آلي أو يُنشئ مكرّراً)
+  const own = cust([{ 'رقم العميل': 12, 'العميل': 'مؤسسة سمارة', 'الجوال': '0551112233', 'كود العميل': '' }]);
+  assert.equal(own.valid.length, 1);
+  assert.equal(own.valid[0].code, undefined, 'رقم العميل قُرئ كوداً');
+  assert.equal(own.valid[0].name, 'مؤسسة سمارة');
+  assert.deepEqual(notice(own.notices, CUSTOMER_NUMBER_COLUMN_NOTICE), { key: CUSTOMER_NUMBER_COLUMN_NOTICE });
+  assert.equal(own.columns?.find((x) => x.field === 'code')?.header, 'كود العميل');
+  // الكود المخصّص المصدَّر يبقى كوداً عند الرجوع
+  assert.equal(cust([{ 'رقم العميل': 12, 'العميل': 'أ', 'كود العميل': 'RIF-7' }]).valid[0].code, 'RIF-7');
+  // ملف من نظامٍ آخر بعمود «رقم العميل» وحده: الاسم كما هو، بلا كود، والتنبيه يدلّ على «كود العميل»
+  const other = cust([{ 'رقم العميل': '1001', 'اسم الزبون': 'مؤسسة الفجر' }]);
+  assert.deepEqual([other.valid[0].name, other.valid[0].code], ['مؤسسة الفجر', undefined]);
+  assert.ok(notice(other.notices, CUSTOMER_NUMBER_COLUMN_NOTICE));
+  // الأرصدة والكشوف والأسعار: المطابقة بالاسم أو الجوال لا برمزٍ «12» (CODE_NOT_FOUND أو رصيدٌ على عميلٍ آخر)
+  const b = bal([{ 'رقم العميل': 12, 'العميل': 'أ', 'الرصيد': 50 }]);
+  assert.deepEqual([b.valid[0].customerName, b.valid[0].customerCode], ['أ', undefined]);
+  assert.ok(notice(b.notices, CUSTOMER_NUMBER_COLUMN_NOTICE));
+  const l = led([{ 'رقم العميل': 12, 'العميل': 'أ', 'التاريخ': '2026-02-01', 'مدين': 5 }]);
+  assert.equal(l.valid[0].customerCode, undefined);
+  const p = prc([{ 'رقم العميل': 12, 'العميل': 'أ', 'كود الصنف': 'P1', 'السعر الخاص': 8 }]);
+  assert.equal(p.valid[0].customerCode, undefined);
+  // ترجمة التصدير الإنجليزية «Customer No.» كذلك، و«Customer code» كودٌ كما كان
+  const en = cust([{ 'Customer No.': 12, 'Customer': 'Store A', 'Customer code': 'ERP-1' }]);
+  assert.deepEqual([en.valid[0].name, en.valid[0].code], ['Store A', 'ERP-1']);
+  assert.ok(notice(en.notices, CUSTOMER_NUMBER_COLUMN_NOTICE));
+  for (const h of ['Code client', 'Müşteri kodu', '客户编码']) assert.equal(cust([{ 'الاسم': 'أ', [h]: 'X9' }]).valid[0].code, 'X9', h);
+  // ملفٌّ بلا «رقم العميل» لا تنبيه فيه، ومواصفة الأصناف (كودها غير كود العميل) لا تعرفه
+  assert.equal(notice(cust([{ 'الاسم': 'أ', 'كود العميل': 'C1' }]).notices, CUSTOMER_NUMBER_COLUMN_NOTICE), undefined);
+  assert.equal(notice(prod([{ 'الاسم': 'ماء', 'رقم العميل': 3 }]).notices, CUSTOMER_NUMBER_COLUMN_NOTICE), undefined);
+  // التنبيه عبارةٌ مترجمة
+  assert.ok(phraseKeys().has(CUSTOMER_NUMBER_COLUMN_NOTICE), 'التنبيه بلا ترجمة في PHRASES');
 });
 
 test('البند 13: عمودان رقميان بالاحتواء بلا تطابق تام ⇒ مانع بالرؤوس، والرؤوس اتحاد أول 50 صفاً', () => {

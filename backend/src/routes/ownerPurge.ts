@@ -10,6 +10,8 @@ import { AuthRequest } from '../types';
 import { assertPurgeAllowedForBooks, assertPurgeKeepsSupplierBills, buildPurgePlan, delegateOf, executePurge, labelFieldsOf, PurgeRefused, targetableModels } from '../services/ownerPurge';
 import { findArchivedProducts, mergeArchivedProduct, MergeRefused } from '../services/productTwins';
 import { asLotBusy } from '../services/lots';
+// «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): بحث العميل برقمه التسلسليّ مطابقةً تامّة، والتسمية «#12 · …»
+import { customerNumberQuery, hoistExactCustomer } from '../services/customerNumber';
 
 const router = Router();
 
@@ -44,14 +46,33 @@ router.get('/search', async (req: AuthRequest, res: Response, next: NextFunction
     if (q) or.push({ id: q });
     const select: Record<string, true> = { id: true };
     for (const f of fields) select[f] = true;
-    const d = (prisma as unknown as Record<string, { findMany(a: unknown): Promise<Array<Record<string, unknown>>> }>)[delegateOf(model)];
-    const rows = await d.findMany({
+    // العميل: رقمه التسلسليّ يُقرأ دائماً للتسمية، ويُطابَق تامّاً حين يكون البحث رقماً صالحاً («12» أو «#١٢»)
+    const isCustomer = model === 'Customer';
+    const n = isCustomer ? customerNumberQuery(q) : null;
+    if (isCustomer) {
+      select.number = true;
+      if (n != null) or.push({ number: n });
+    }
+    type Row = Record<string, unknown> & { id: unknown };
+    const d = (prisma as unknown as Record<string, { findMany(a: unknown): Promise<Row[]> }>)[delegateOf(model)];
+    let rows = await d.findMany({
       where: { tenantId: tenantId(req), ...(or.length && { OR: or }) },
       select, take: 20,
     }).catch(() => d.findMany({ where: { tenantId: tenantId(req), ...(q && { id: q }) }, select: { id: true }, take: 20 }));
-    res.json({ success: true, data: rows.map((r) => ({ id: String(r.id), label: fields.map((f) => r[f]).filter((v) => v != null && v !== '').join(' · ') || String(r.id) })) });
+    // صاحب الرقم أوّل النتائج — وإلا قد تملأ العشرين أسماءٌ وأكوادٌ تحوي الأرقام نفسها قبله (بلا ترتيب)
+    if (n != null) {
+      const exact = await prisma.customer.findFirst({ where: { tenantId: tenantId(req), number: n }, select }).catch(() => null);
+      rows = hoistExactCustomer(rows, exact as Row | null, 20);
+    }
+    res.json({ success: true, data: rows.map((r) => ({ id: String(r.id), label: purgeSearchLabel(r, fields, isCustomer) })) });
   } catch (err) { next(err); }
 });
+
+/** تسمية نتيجة البحث: حقول التسمية بـ« · » (أو المعرّف)، والعميل المرقَّم تسبقها «#رقمه · » */
+export function purgeSearchLabel(r: Record<string, unknown>, fields: string[], isCustomer: boolean): string {
+  const label = fields.map((f) => r[f]).filter((v) => v != null && v !== '').join(' · ') || String(r.id);
+  return isCustomer && typeof r.number === 'number' ? `#${r.number} · ${label}` : label;
+}
 
 /**
  * ردّ رفض المحرّك: حالته ورمزه منه — 404 بلا رمز كما كان (غير موجود/غير معروف)، و409 BOOKS_LINKED_NO_DELETE للشركة المربوطة
@@ -170,7 +191,7 @@ router.get('/archived-customers', async (req: AuthRequest, res: Response, next: 
     const tid = tenantId(req);
     const rows = await prisma.customer.findMany({
       where: { tenantId: tid, status: 'DELETED' },
-      select: { id: true, name: true, code: true, phone: true, balance: true },
+      select: { id: true, name: true, code: true, number: true, phone: true, balance: true },
       orderBy: { name: 'asc' }, take: 5000,
     });
     const ids = rows.map((r) => r.id);
@@ -182,7 +203,7 @@ router.get('/archived-customers', async (req: AuthRequest, res: Response, next: 
     const recOf = new Map(rec.map((x) => [x.customerId, x._count._all]));
     res.json({
       success: true,
-      data: rows.map((r) => ({ id: r.id, name: r.name, code: r.code, phone: r.phone, balance: Number(r.balance), invoices: invOf.get(r.id) ?? 0, receipts: recOf.get(r.id) ?? 0 })),
+      data: rows.map((r) => ({ id: r.id, name: r.name, code: r.code, number: r.number ?? null, phone: r.phone, balance: Number(r.balance), invoices: invOf.get(r.id) ?? 0, receipts: recOf.get(r.id) ?? 0 })),
     });
   } catch (err) { next(err); }
 });

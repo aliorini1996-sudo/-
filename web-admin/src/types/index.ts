@@ -208,6 +208,8 @@ export interface ErpSyncLog {
 export interface Customer {
   id: string;
   code: string;
+  // «رقم العميل»: تسلسلٌ لكل شركة يمنحه الخادم وحده (قراءة فقط، لا يُرسل في أي نموذج) — null/غائب حتى يُرقَّم القديم
+  number?: number | null;
   name: string;
   businessName?: string;
   commercialReg?: string;
@@ -492,7 +494,8 @@ export interface InvoiceItem {
 export interface Invoice {
   id: string;
   number: string;
-  customer: { id: string; name: string; phone: string };
+  // number = «رقم العميل» (قراءة فقط من الخادم) — غير رقم الفاتورة أعلاه
+  customer: { id: string; name: string; phone: string; number?: number | null };
   // null حين يُحذف المندوب (onDelete: SetNull) — والقراءة بلا ?. كانت تُسقط الصفحة بيضاء
   salesRep: { id: string; name: string } | null;
   type: 'CASH' | 'CREDIT' | 'RETURN';
@@ -541,7 +544,8 @@ export interface Invoice {
 export interface Receipt {
   id: string;
   number: string;
-  customer: { id: string; name: string };
+  // number = «رقم العميل» (قراءة فقط من الخادم) — غير رقم السند أعلاه
+  customer: { id: string; name: string; number?: number | null };
   // null حين يُحذف المندوب (onDelete: SetNull) — والقراءة بلا ?. كانت تُسقط الصفحة بيضاء
   salesRep: { id: string; name: string } | null;
   receiptDate: string;
@@ -592,7 +596,8 @@ export interface DashboardStats {
   warehouseEnabled?: boolean;
   customers: { total: number; withBalance: number; creditExceeded: number };
   topReps: { id: string; name: string; invoicesCount: number; salesTotal: number; collectionsTotal: number }[];
-  topCustomers: { id: string; name: string; totalSales: number; balance: number }[];
+  // «رقم العميل» (٢٣ نوفمبر ٢٠٢٦): للقراءة فقط من الخادم — null لعميلٍ لم يُرقَّم بعد
+  topCustomers: { id: string; name: string; totalSales: number; balance: number; number?: number | null }[];
   recentInvoices: Invoice[];
 }
 

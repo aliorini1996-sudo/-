@@ -30,6 +30,7 @@ import { breakOf, compactMinutes, formatPeriods, hasPunchLocation, periodsOf, pu
 import {
   appliedRangeOf, truncationOf, defaultedRangeNote, truncationNote, customerStatusBadge, perfHasCash, perfCompanyRate, type Truncation,
 } from '../lib/reportsAccuracy';
+import { formatCustomerLabel, formatCustomerNumber } from '../lib/customerNumber';
 
 /**
  * شاشة التقارير التحليلية في تطبيق الإدارة على الجوال (سبعة تقارير).
@@ -68,13 +69,16 @@ interface SalesRow {
   /** مع التجميع الثاني (thenBy) وحده: مفتاح الصفّ («—» بلا مندوب، «unknown» صنف محذوف) وصفوفه الفرعية بالشكل نفسه */
   key?: string;
   sub?: SalesRowLike[];
+  /** «رقم العميل» لمستوى العميل (طلب المالك ٢٣ نوفمبر ٢٠٢٦) — غائبٌ من خادمٍ أقدم، وnull لعميلٍ لم يُرقَّم بعد */
+  number?: number | null;
 }
 
 interface ReceiptRow {
   id: string; number: string; receiptDate: string; amount: number; paymentMethod: string;
   /** «إدارة طرق الدفع»: مفتاح الطريقة المضافة — null لمدمجة */
   paymentMethodKey?: string | null;
-  customer: { id: string; name: string }; salesRep: { id: string; name: string } | null;
+  /** `customer.number` «رقم العميل» — و`number` أعلاه رقم السند لا العميل */
+  customer: { id: string; name: string; number?: number | null }; salesRep: { id: string; name: string } | null;
 }
 /** طريقةٌ في ملخّص التحصيل كما حلّها الخادم (المدمجة ثم المضافة بترتيب الشركة) — غائبة من خادمٍ أقدم */
 interface CollectionMethod { id: string; base: string; custom: boolean; label: string; companyLabel: string | null; amount: number }
@@ -88,9 +92,11 @@ interface BalanceRow {
   paymentDays: number; totalSales: number; totalCollected: number;
   /** ACTIVE | INACTIVE | BLOCKED منذ ١٣ نوفمبر ٢٠٢٦ — المحظور والموقوف مدينان يدخلان الإجمالي بشارة (البند ٢) */
   status?: string;
+  /** «رقم العميل» — غائبٌ من خادمٍ أقدم */
+  number?: number | null;
 }
 
-interface VisitLoc { customerName: string; createdAt: string; lat: number; lng: number; mapsUrl: string }
+interface VisitLoc { customerName: string; customerNumber?: number | null; createdAt: string; lat: number; lng: number; mapsUrl: string }
 interface PerfRow {
   id: string; name: string; invoicesCount: number; salesTotal: number; collectionsTotal: number;
   discountTotal: number; collectionRate: number; avgInvoice: number;
@@ -102,6 +108,7 @@ interface PerfRow {
 interface RecvCustomer {
   id: string; name: string; businessName: string | null; phone: string; city: string | null;
   balance: number; lastPaymentAt: string | null;
+  number?: number | null;
 }
 interface RecvRow {
   id: string; name: string; customersCount: number; debtorsCount: number;
@@ -109,7 +116,7 @@ interface RecvRow {
 }
 
 interface WorkVisit {
-  customerName: string; start: string; end: string | null;
+  customerName: string; customerNumber?: number | null; start: string; end: string | null;
   durationSec: number | null; hasNote: boolean; parts: number;
 }
 interface WorkDayRow {
@@ -130,6 +137,8 @@ interface WorkHoursRow {
 interface CustVisit {
   id: string; customerId: string; customerName: string; repName: string;
   createdAt: string; durationSec: number | null; note: string; mapsUrl: string;
+  /** «رقم العميل» صفّاً مسطّحاً لزيارة (customerNumber) — غائبٌ من خادمٍ أقدم */
+  customerNumber?: number | null;
 }
 /** «العملاء الذين لم تتم زيارتهم» — /reports/unvisited-customers: آخر زيارة قبل المدى، null = لم يُزر قبله */
 interface UnvisitedCust {
@@ -137,10 +146,11 @@ interface UnvisitedCust {
   reps: string[]; repIds?: string[]; lastVisitAt: string | null; createdAt: string;
   /** فواتير البيع في المدى بلا زيارة (علامة طلب المالك ١٣ نوفمبر ٢٠٢٦) — غيابها من خادمٍ أقدم = 0 */
   invoicesCount?: number; lastInvoiceAt?: string | null;
+  number?: number | null;
 }
 /** تجميع الزيارات بالعميل — يُشتقّ على الجهاز (الخادم يرسلها مسطّحة) */
 interface CustGroup {
-  customerId: string; customerName: string; visitsCount: number;
+  customerId: string; customerName: string; customerNumber: number | null; visitsCount: number;
   avgDurationSec: number | null; lastVisit: string; visits: CustVisit[];
 }
 
@@ -588,7 +598,8 @@ function qtyLine(r: SalesRowLike, owner: SalesRowLike, tr: Tr): string {
 function levelName(r: SalesRowLike, level: GroupBy, tr: Tr): string {
   if (r.key === '—' && level === 'rep') return tr('بلا مندوب');
   if (r.key === 'unknown' && level === 'product') return tr('صنف محذوف');
-  return r.name;
+  // «رقم العميل»: «#12 · الاسم» لمستوى العميل — بلا رقمٍ (أو صفّ «بلا عميل») الاسم وحده
+  return level === 'customer' ? formatCustomerLabel(r) : r.name;
 }
 
 /** ترتيب المبيعات: المبلغ (ترتيب الخادم) ثم العدد — الكمية للصنف وعدد الفواتير للمندوب والعميل */
@@ -742,7 +753,7 @@ function SalesReport({ from, to, fq, groupBy, onGroupBy, thenBy: thenByRaw, onTh
               })
               : flat.slice(0, limit).map((r, i) => (
                 <MRow key={`${r.name}-${i}`}
-                  title={r.name}
+                  title={levelName(r, groupBy, tr)}
                   subtitle={salesLine(r, groupBy, r, tr)}
                   trailing={<Amount value={formatCurrency(r.total)} />} />
               ))}
@@ -788,12 +799,13 @@ function SubLine({ s, level, parent, parentLevel }: {
 
 // ═══════════════ ٢) التحصيل ═══════════════
 
-/** السندات: ترتيب الخادم الأقدم أولاً (receiptDate تصاعدياً)، والبحث باسم العميل ورقم السند واسم المندوب */
+/** السندات: ترتيب الخادم الأقدم أولاً (receiptDate تصاعدياً)، والبحث باسم العميل ورقم السند واسم المندوب — ورقم العميل تامّاً */
 const COLL_SORTS: SortOption[] = [
   { id: 'default', label: 'الأقدم' }, { id: 'recent', label: 'الأحدث' }, ...BY_AMOUNT, BY_NAME,
 ];
 const COLL_ACC: RowAccess<ReceiptRow> = {
   name: r => r.customer.name, extra: r => [r.number, r.salesRep?.name], value: r => r.amount, date: r => r.receiptDate,
+  number: r => r.customer.number,
 };
 
 function CollectionsReport({ from, to, fq, company }: {
@@ -842,7 +854,7 @@ function CollectionsReport({ from, to, fq, company }: {
               {lv.view.slice(0, limit).map(r => (
                 <MRow key={r.id}
                   leading={<Initial name={r.customer.name} />}
-                  title={r.customer.name}
+                  title={formatCustomerLabel(r.customer)}
                   subtitle={`${r.number} · ${formatDate(r.receiptDate)} · ${methodLabel(r.paymentMethod, tr, company, r.paymentMethodKey)}`}
                   note={r.salesRep ? `${tr('المندوب')}: ${r.salesRep.name}` : undefined}
                   trailing={<Amount value={formatCurrency(r.amount)} tone="good" />} />
@@ -859,7 +871,7 @@ function CollectionsReport({ from, to, fq, company }: {
 // ═══════════════ ٣) أرصدة العملاء ═══════════════
 
 const BAL_SORTS: SortOption[] = [...BY_AMOUNT, BY_NAME];
-const BAL_ACC: RowAccess<BalanceRow> = { name: c => c.name, extra: c => [c.phone], value: c => c.balance };
+const BAL_ACC: RowAccess<BalanceRow> = { name: c => c.name, extra: c => [c.phone], value: c => c.balance, number: c => c.number };
 
 /**
  * المدينون وحدهم (`type=overdue`) — من رصيده صفر ليس بنداً في تقرير مديونية.
@@ -910,7 +922,8 @@ function BalancesReport({ customer }: { customer: FilterPick | null }) {
                 title={badge
                   ? <span className="flex items-center gap-1.5 min-w-0"><span className="truncate min-w-0">{c.name}</span><span className={`shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold ${c.status === 'BLOCKED' ? 'bg-[#FBEAE7] text-[#B42318]' : 'bg-[#F1EBDF] text-[#6E6557]'}`}>{tr(badge)}</span></span>
                   : c.name}
-                subtitle={[c.phone, c.creditLimit > 0 ? `${tr('الحد')} ${formatCurrency(c.creditLimit)}` : null]
+                // «رقم العميل» أوّل السطر الثاني: العنوان بشارته مثبَّتٌ كما هو
+                subtitle={[formatCustomerNumber(c.number), c.phone, c.creditLimit > 0 ? `${tr('الحد')} ${formatCurrency(c.creditLimit)}` : null]
                   .filter(Boolean).join(' · ')}
                 note={over ? tr('تجاوز الحد الائتماني') : undefined}
                 trailing={<Amount value={formatCurrency(c.balance)} tone={over ? 'bad' : 'warn'} />} />
@@ -1182,6 +1195,7 @@ const UNVISITED_SORTS: SortOption[] = [
 ];
 const UNVISITED_ACC: RowAccess<UnvisitedCust> = {
   name: c => c.name, extra: c => [c.businessName, c.phone, c.city, ...c.reps], count: c => c.invoicesCount ?? 0,
+  number: c => c.number,
 };
 
 /**
@@ -1224,7 +1238,7 @@ function UnvisitedReport({ from, to, rep, customer }: {
           {lv.view.slice(0, limit).map(c => (
             <MRow key={c.id}
               leading={<Initial name={c.name} />}
-              title={c.name || tr('عميل بلا اسم')}
+              title={formatCustomerLabel({ name: c.name || tr('عميل بلا اسم'), number: c.number })}
               subtitle={[c.reps.join('، '), c.city].filter(Boolean).join(' · ') || c.phone}
               note={(c.invoicesCount ?? 0) > 0
                 ? <span className="text-[#B7791F]" data-unvisited-mark="invoiced">{tr('فواتير بلا زيارة')} · {formatNumber(c.invoicesCount ?? 0)}{c.lastInvoiceAt ? ` — ${tr('آخر فاتورة')}: ${formatDate(c.lastInvoiceAt)}` : ''}</span>
@@ -1241,10 +1255,11 @@ function UnvisitedReport({ from, to, rep, customer }: {
 
 // ═══════════════ ٧) زيارات العملاء ═══════════════
 
-/** العملاء المزارون: الأكثر زيارات ثم الأحدث (ترتيب الشاشة)، والبحث باسم العميل ومن زاره */
+/** العملاء المزارون: الأكثر زيارات ثم الأحدث (ترتيب الشاشة)، والبحث باسم العميل ومن زاره — ورقم العميل تامّاً */
 const VISIT_SORTS: SortOption[] = [{ id: 'default', label: 'الأكثر زيارات' }, { id: 'recent', label: 'الأحدث' }, BY_NAME];
 const VISIT_ACC: RowAccess<CustGroup> = {
   name: g => g.customerName, extra: g => [...new Set(g.visits.map(v => v.repName))], date: g => g.lastVisit,
+  number: g => g.customerNumber,
 };
 
 /** المندوب والعميل والفريق في الخادم — الزيارة لا تُختم بموقع فلا مصفاة موقع */
@@ -1275,6 +1290,7 @@ function VisitsReport({ from, to, fq, onOpen }: {
       return {
         customerId: vs[0].customerId,
         customerName: vs[0].customerName,
+        customerNumber: vs[0].customerNumber ?? null,
         visitsCount: vs.length,
         avgDurationSec: durs.length ? Math.round(durs.reduce((s, d) => s + d, 0) / durs.length) : null,
         lastVisit: vs[0].createdAt,   // الخادم يرتّب تنازلياً ⇒ الأحدث أولاً
@@ -1309,7 +1325,7 @@ function VisitsReport({ from, to, fq, onOpen }: {
           {lv.view.slice(0, limit).map(g => (
             <MRow key={g.customerId}
               leading={<Initial name={g.customerName} />}
-              title={g.customerName || tr('عميل بلا اسم')}
+              title={formatCustomerLabel({ name: g.customerName || tr('عميل بلا اسم'), number: g.customerNumber })}
               subtitle={`${formatNumber(g.visitsCount)} ${tr('زيارة')} · ${tr('آخر زيارة')} ${formatDateTime(g.lastVisit)}`}
               trailing={<Amount value={fmtSec(g.avgDurationSec, tr) ?? tr('بلا توقيت')} chevron />}
               onClick={() => onOpen({ kind: 'cust', group: g })} />
@@ -1367,7 +1383,7 @@ function PerfDetail({ row, onClose }: { row: PerfRow; onClose: () => void }) {
             <MCard>
               {row.visits.slice(0, limit).map((v, i) => (
                 <MLinkRow key={`${v.createdAt}-${i}`} href={v.mapsUrl}
-                  title={v.customerName || tr('زيارة')}
+                  title={v.customerName ? formatCustomerLabel({ name: v.customerName, number: v.customerNumber }) : tr('زيارة')}
                   subtitle={formatDateTime(v.createdAt)}
                   trailing={<span className="text-[11px] font-semibold text-[#2563EB] flex-shrink-0">{tr('خريطة')}</span>} />
               ))}
@@ -1397,7 +1413,7 @@ function RecvDetail({ row, onClose }: { row: RecvRow; onClose: () => void }) {
           {row.customers.slice(0, limit).map(c => (
             <MRow key={c.id}
               leading={<Initial name={c.name} />}
-              title={c.businessName ? `${c.name} — ${c.businessName}` : c.name}
+              title={c.businessName ? `${formatCustomerLabel(c)} — ${c.businessName}` : formatCustomerLabel(c)}
               subtitle={[c.phone, c.city].filter(Boolean).join(' · ')}
               // «لم يحصل قط» هو عينُ التقصير الذي يبحث عنه المشرف، فيُرفع لسطر بارز
               note={c.lastPaymentAt
@@ -1534,7 +1550,7 @@ function VisitLine({ v }: { v: WorkVisit }) {
   return (
     <div className="flex items-center gap-2 text-[11px]">
       <span className="flex-1 min-w-0 truncate text-[#1F1A13] font-medium">
-        {v.customerName}
+        {formatCustomerLabel({ name: v.customerName, number: v.customerNumber })}
         {v.hasNote && <span className="ms-1 text-[#2E6FB0]">{tr('ملاحظة')}</span>}
       </span>
       <span className="tabular-nums text-[#1E7A52] font-semibold">{formatTime(v.start)}</span>
@@ -1554,7 +1570,7 @@ function CustDetail({ group, onClose }: { group: CustGroup; onClose: () => void 
   const { limit, onScroll, hidden } = useWindowed(group.customerId, group.visits.length);
   return (
     <div className="h-full flex flex-col bg-[#FAF7F0]">
-      <MHeader title={group.customerName || tr('عميل بلا اسم')} subtitle={tr('زيارات العميل')} onBack={onClose} />
+      <MHeader title={formatCustomerLabel({ name: group.customerName || tr('عميل بلا اسم'), number: group.customerNumber })} subtitle={tr('زيارات العميل')} onBack={onClose} />
       <Pane onScroll={onScroll}>
         <div className="grid grid-cols-2 gap-2.5">
           <MStat label={tr('عدد الزيارات')} value={formatNumber(group.visitsCount)} icon={MapPin} />

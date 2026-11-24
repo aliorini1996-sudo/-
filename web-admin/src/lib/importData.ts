@@ -647,7 +647,10 @@ const isTotalsRow = (name: string, code: string, phone: string): boolean => {
 
 /** أداة تحويل مشتركة: أعمدة الملف المحلولة، وقراءة الحقول، وأخطاء الأرقام، وعدّادات التنبيهات */
 function makeCtx(rows: Record<string, unknown>[], spec: ImportSpec, opts?: TransformOpts) {
-  const res = resolveColumns(headersOf(rows), spec);
+  const headers = headersOf(rows);
+  const res = resolveColumns(headers, spec);
+  // «رقم العميل» في ملفٍّ يُستورد إلى العملاء أو أرصدتهم أو حركاتهم أو أسعارهم (مواصفة CUST_ID): يُهمل بتنبيه لا يُقرأ كوداً
+  if (spec.code === CUST_ID.code && headers.some((h) => CUSTOMER_NUMBER_HEADERS.has(norm(h)))) res.notices.push({ key: CUSTOMER_NUMBER_COLUMN_NOTICE });
   const errors: ImportRowError[] = [];
   const counts = new Map<string, number>();
   const totals: string[] = [];
@@ -739,13 +742,23 @@ const NAME_EXCLUDE = ['كود', 'رقم', 'رصيد', 'نوع', 'مجموعه', 
   'جوال', 'هاتف', 'بريد', 'phone', 'mobile', 'email'];
 const PHONE_EXCLUDE = ['مندوب', 'بائع', 'sales', 'rep', 'فاكس', 'fax'];
 const CODE_EXCLUDE = ['باركود', 'barcode'];
+/**
+ * «رقم العميل» (٢٤ نوفمبر ٢٠٢٦) صار رقماً تسلسلياً يمنحه النظام لكل عميل، ويُصدَّر بهذا العنوان من صفحة العملاء — فلم يعد
+ * مرادفاً لكود العميل. لو بقي مرادفاً لقُرئ «12» كوداً عند إعادة استيراد ملف التصدير: يُربط الكود «12» بعميلٍ كوده آلي يطابقه
+ * جوالاً أو اسماً، أو يُنشأ مكرّرٌ لصاحب الكود المخصّص، ويُقيَّد رصيد ملف الأرصدة على عميلٍ كوده المخصّص «12» أو يُرفض صفّه.
+ * فالعمود يُهمل (لا يطابقه حقل) بتنبيه يدلّ من يستورد من نظامٍ آخر على تسمية عموده «كود العميل». والاستيراد لا يطابق بالرقم.
+ */
+export const CUSTOMER_NUMBER_COLUMN_NOTICE = 'عمود «رقم العميل» لا يُستورد: رقم العميل يمنحه النظام تلقائياً. لاستيراد كود العميل من نظام آخر سمِّ العمود «كود العميل»';
+/** عناوين «رقم العميل» (العربية وترجمة التصدير الإنجليزية) بعد التطبيع */
+const CUSTOMER_NUMBER_HEADERS = new Set(['رقم العميل', 'customer no', 'customer number'].map(norm));
 const CUST_ID: ImportSpec = {
   name: {
     aliases: ['اسم العرض', 'الاسم', 'اسم العميل', 'العميل', 'اسم الزبون', 'الزبون', 'اسم المحل', 'المحل', 'اسم المتجر', 'المتجر',
       'اسم الشريك', 'الشريك', 'partner', 'display name', 'customer name', 'name', 'customer', 'client'],
     exclude: NAME_EXCLUDE,
   },
-  code: { aliases: ['كود العميل', 'رقم العميل', 'customer code', 'account no', 'account number'], exclude: CODE_EXCLUDE },
+  // «رقم العميل» ليس مرادفاً هنا (انظر CUSTOMER_NUMBER_COLUMN_NOTICE)؛ و«كود العميل» بلغات الواجهة كما يكتبه تصدير صفحة العملاء
+  code: { aliases: ['كود العميل', 'customer code', 'account no', 'account number', 'code client', 'müşteri kodu', '客户编码'], exclude: CODE_EXCLUDE },
   phone: { aliases: ['رقم الهاتف', 'الجوال', 'رقم الجوال', 'الهاتف', 'هاتف', 'التلفون', 'phone', 'mobile', 'tel', 'telephone'], exclude: PHONE_EXCLUDE },
 };
 

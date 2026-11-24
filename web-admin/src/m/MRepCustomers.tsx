@@ -8,6 +8,7 @@ import { useTr } from '../i18n/strings';
 import { useBackClose } from '../lib/useBackClose';
 import { MCard, MRow, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray, expectObject } from './shape';
+import { formatCustomerNumber } from '../lib/customerNumber';
 
 /** سقف قائمة الاختيار — ما بعده يُوصَل إليه بالبحث لا بالتمرير */
 const PICKER_LIMIT = 100;
@@ -189,7 +190,7 @@ export default function MRepCustomers({ rep, onClose }: { rep: SalesRep; onClose
             <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-[#9A8F7E]" />
             <input className={`input ps-9 ${onlyAssigned ? 'opacity-50' : ''}`} value={q}
               onChange={e => setQ(e.target.value)} disabled={onlyAssigned}
-              placeholder={tr('ابحث بالاسم أو الجوال أو الكود')} />
+              placeholder={tr('ابحث بالاسم أو الجوال أو رقم العميل')} />
           </div>
 
           <MCard>
@@ -235,7 +236,8 @@ export default function MRepCustomers({ rep, onClose }: { rep: SalesRep; onClose
                     // الصفّ كلّه هدف اللمس، ويُعطَّل ما لم يصل الأساس (حفظٌ أعمى = إزالات خاطئة)
                     onClick={baseReady ? () => toggle(c.id) : undefined}
                     title={c.name}
-                    subtitle={c.businessName || c.phone || c.code}
+                    // «رقم العميل» أوّلاً (طلب المالك ٢٣ نوفمبر ٢٠٢٦) — والرمز التلقائيّ (cuid) لا يُعرض
+                    subtitle={[formatCustomerNumber(c.number), c.businessName || c.phone].filter(Boolean).join(' · ')}
                     trailing={
                       <span className="flex items-center gap-1.5 flex-shrink-0">
                         {autoIds.has(c.id) && (

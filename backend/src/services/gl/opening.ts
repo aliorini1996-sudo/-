@@ -41,6 +41,8 @@ import {
 } from './types';
 import { UNKNOWN_VAN, WH_LOCATION, isVanLocation, repOfLocation, type LocationTotals } from '../costing/types';
 import type { DerivedOpeningLinesInput } from './linking/types';
+// «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): مرجع عميل الذمم قد يكون رقمه التسلسليّ («12» أو «#١٢»)
+import { customerNumberQuery } from '../customerNumber';
 
 type GlDb = Prisma.TransactionClient;
 
@@ -966,7 +968,7 @@ export function buildOpeningMove(input: OpeningMoveInput): OpeningMoveResult {
 const partnerKey = (v: string) => v.trim().replace(/\s+/g, ' ').toLowerCase();
 
 /**
- * يحلّ عميل سطور الذمم (customerId قائم للشركة، أو رمز العميل، أو اسمه مطابقةً تامّة لا تتكرّر) ومندوب سطور
+ * يحلّ عميل سطور الذمم (customerId قائم للشركة، أو رمز العميل، أو رقمه التسلسليّ، أو اسمه مطابقةً تامّة لا تتكرّر) ومندوب سطور
  * العهدة (salesRepId قائم للشركة، أو اسمه). يكتب customerId/customerName/salesRepId في السطور نفسها، ويعيد
  * المخالفات بفهرس الصف (المعاينة تعرضها، والاعتماد يرفض بـ422) وأسماء المناديب للقطة partnerName.
  * العزل: كل استعلام مقيّد بـtenantId، فمعرّف عميل من شركة أخرى = CUSTOMER_NOT_FOUND.
@@ -980,13 +982,15 @@ export async function resolveManualPartners(
 
   const needCustomers = lines.some((l) => l.customerId || l.customerRef);
   if (needCustomers) {
-    const customers = await db.customer.findMany({ where: { tenantId }, select: { id: true, code: true, name: true } });
+    const customers = await db.customer.findMany({ where: { tenantId }, select: { id: true, code: true, name: true, number: true } });
     const byId = new Map(customers.map((c) => [c.id, c]));
     const byCode = new Map<string, typeof customers>();
+    const byNumber = new Map<number, typeof customers>();
     const byName = new Map<string, typeof customers>();
     for (const c of customers) {
       const ck = partnerKey(c.code ?? '');
       if (ck) byCode.set(ck, [...(byCode.get(ck) ?? []), c]);
+      if (c.number != null) byNumber.set(c.number, [...(byNumber.get(c.number) ?? []), c]);
       const nk = partnerKey(c.name ?? '');
       if (nk) byName.set(nk, [...(byName.get(nk) ?? []), c]);
     }
@@ -999,7 +1003,9 @@ export async function resolveManualPartners(
       }
       if (!l.customerRef) continue;
       const k = partnerKey(l.customerRef);
-      const hits = byCode.get(k) ?? byName.get(k) ?? [];
+      // الترتيب: الرمز التامّ، ثم رقم العميل (حين يكون المرجع رقماً صالحاً)، ثم الاسم التامّ
+      const n = customerNumberQuery(l.customerRef);
+      const hits = byCode.get(k) ?? (n != null ? byNumber.get(n) : undefined) ?? byName.get(k) ?? [];
       if (hits.length === 0) { push(l, 'CUSTOMER_NOT_FOUND'); continue; }
       if (hits.length > 1) { push(l, 'CUSTOMER_AMBIGUOUS'); continue; }
       l.customerId = hits[0].id;

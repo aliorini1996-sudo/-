@@ -35,7 +35,8 @@ test('الحارس موصول: الإنشاء داخل الإعفاء وقبل �
   const post = s.indexOf('const near = await findLocationDuplicate(tid, rest.lat, rest.lng);');
   const gate = s.indexOf('if (!phoneDupExempt(req)) {');
   assert.ok(gate > 0 && post > gate && post - gate < 200, 'داخل الإعفاء مباشرةً');
-  assert.ok(post < s.indexOf('const customer = await prisma.customer.create({', post), 'قبل الإنشاء');
+  // «رقم العميل» (٢٣ نوفمبر ٢٠٢٦): الإنشاء عبر مساعد الترقيم داخل معاملة — والفحص قبله كما كان
+  assert.ok(post < s.indexOf('const customer = await prisma.$transaction((tx) => createNumberedCustomer(tx, tid, {', post), 'قبل الإنشاء');
   assert.ok(s.includes('const near = await findLocationDuplicate(tid, data.lat, data.lng, req.params.id);'), 'التعديل يستثني العميل نفسه');
   assert.ok(s.includes('if (validPoint(data.lat, data.lng) && !phoneDupExempt(req)) {'));
   const svc = fs.readFileSync(path.join(__dirname, '..', 'services', 'customerLocationDup.ts'), 'utf8');

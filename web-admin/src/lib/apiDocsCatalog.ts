@@ -47,7 +47,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "search",
       "type": "string",
       "required": false,
-      "desc": "بحث جزئي في name وbusinessName وphone وcode، وهو حساس لحالة الأحرف اللاتينية"
+      "desc": "بحث جزئي في name وbusinessName وcode بلا تفريق لحالة الأحرف اللاتينية، وفي phone (والأرقام العربية-الهندية تطابق الجوال لاتينيةً)، ومعها رقم العميل number مطابقةً تامّة حين يكون النص رقماً: 12 أو #12 أو ١٢ (الأرقام العربية-الهندية مقبولة، و# في أوله اختيارية)، بلا صفر بادئ (فـ05 بادئة جوال لا رقم عميل) وحتى 2147483647. الرقم يُضاف إلى المطابقات ولا يحلّ محلّها: الجوال الذي يحوي الأرقام نفسها يطابق أيضاً، وcode ما زال يُبحث به"
      },
      {
       "name": "status",
@@ -63,11 +63,12 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[Customer], pagination:{total, page, limit, pages}}. صف العميل كامل ويشمل: id وcode وname وbusinessName وphone وaltPhone وemail وtaxNumber وcommercialReg وcity وdistrict وaddress وlat وlng وchannel وoutletType وaiPlaceId وstatus وpriceListId (قائمة أسعاره في «قوائم الأسعار» من GET /price-lists، وnull = بلا قائمة: فواتيره بالقائمة الافتراضية لمندوب الفاتورة، وإلا بالسعر الأساسي) وcreditLimit وpaymentDays وbalance وtotalSales وtotalCollected وclientRef وclientCreatedAt وcreatedBySalesRepId وbuyerType وbuyerIdScheme وbuyerIdValue وaddrStreet وaddrBuildingNo وaddrAdditionalNo وaddrPostalCode وcountryCode وcreatedAt وupdatedAt",
+    "response": "{success:true, data:[Customer], pagination:{total, page, limit, pages}}. صف العميل كامل ويشمل: id وcode وnumber («رقم العميل»: عدد صحيح تسلسليّ في الشركة للقراءة وحدها، وnull لعميلٍ لم يُرقَّم بعد) وname وbusinessName وphone وaltPhone وemail وtaxNumber وcommercialReg وcity وdistrict وaddress وlat وlng وchannel وoutletType وaiPlaceId وstatus وpriceListId (قائمة أسعاره في «قوائم الأسعار» من GET /price-lists، وnull = بلا قائمة: فواتيره بالقائمة الافتراضية لمندوب الفاتورة، وإلا بالسعر الأساسي) وcreditLimit وpaymentDays وbalance وtotalSales وtotalCollected وclientRef وclientCreatedAt وcreatedBySalesRepId وbuyerType وbuyerIdScheme وbuyerIdValue وaddrStreet وaddrBuildingNo وaddrAdditionalNo وaddrPostalCode وcountryCode وcreatedAt وupdatedAt",
     "rules": [
      "الترتيب حسب createdAt من الأحدث إلى الأقدم",
      "العملاء المؤرشفون (status=DELETED) مستبعدون ما لم تطلبهم صراحة عبر status",
      "balance هو المستحق على العميل (المدين ناقص الدائن)، تحدّثه الفواتير والسندات ويُقرأ فقط",
+     "number («رقم العميل»): يمنحه الخادم لكل عميل في شركته بالتسلسل ابتداءً من 1 داخل معاملة إنشائه، والعملاء الأقدم من الميزة رُقِّموا بترتيب إنشائهم. لا يتكرّر داخل الشركة، ولا يُعاد رقم عميلٍ محذوف (فقد تظهر فجوات)، ولا يُكتب: number في جسم POST أو PUT أو الاستيراد يُهمل بصمت، والاستيراد لا يطابق العملاء به. أما code (cuid الآلي أو رمزكم المخصّص) فباقٍ كما هو: يُخزَّن ويُصدَّر ويُبحث به",
      "pages = ceil(total / limit)"
     ],
     "example": ""
@@ -83,7 +84,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:[{id, name, businessName, phone, city, district, address, lat, lng}]}",
+    "response": "{success:true, data:[{id, number, name, businessName, phone, city, district, address, lat, lng}]}. number «رقم العميل» (للقراءة، وnull لعميلٍ لم يُرقَّم بعد)",
     "rules": [
      "يعيد فقط العملاء غير المحذوفين الذين lat وlng لديهم غير فارغين",
      "حد أقصى 5000 صف، بلا ترقيم وبلا ترتيب محدد"
@@ -117,7 +118,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "search",
       "type": "string",
       "required": false,
-      "desc": "بحث في الاسم واسم المنشأة والجوال والكود، يُقص إلى 100 حرف"
+      "desc": "بحث في الاسم واسم المنشأة والجوال والكود، ورقم العميل number مطابقةً تامّة حين يكون النص رقماً: 12 أو #12 أو ١٢ (الأرقام العربية-الهندية مقبولة، و# في أوله اختيارية)، بلا صفر بادئ (فـ05 بادئة جوال لا رقم عميل). يُقص إلى 100 حرف"
      },
      {
       "name": "repId",
@@ -145,7 +146,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[row], nextCursor: string|null, summary?:{effectiveB2b, complete, incomplete, unclassifiedWithSignals, scanned, truncated}}\nحقول row:\n- id وcode وname وbusinessName وphone وcity وdistrict وchannel وstatus وtaxNumber وcommercialReg وbuyerType وbuyerIdScheme وbuyerIdValue وaddrStreet وaddrBuildingNo وaddrAdditionalNo وaddrPostalCode وcountryCode\n- classification: business أو government أو individual أو unclassified\n- subtypeIfIssuedNow: 01 للضريبية أو 02 للمبسطة\n- complete وbucket وsuggestedType وsuggestionSource وmissingFields[]\n- issues[{rule, field, messageAr, severity, formField}]",
+    "response": "{success:true, data:[row], nextCursor: string|null, summary?:{effectiveB2b, complete, incomplete, unclassifiedWithSignals, scanned, truncated}}\nحقول row:\n- id وcode وnumber («رقم العميل»، للقراءة وnull لعميلٍ لم يُرقَّم بعد) وname وbusinessName وphone وcity وdistrict وchannel وstatus وtaxNumber وcommercialReg وbuyerType وbuyerIdScheme وbuyerIdValue وaddrStreet وaddrBuildingNo وaddrAdditionalNo وaddrPostalCode وcountryCode\n- classification: business أو government أو individual أو unclassified\n- subtypeIfIssuedNow: 01 للضريبية أو 02 للمبسطة\n- complete وbucket وsuggestedType وsuggestionSource وmissingFields[]\n- issues[{rule, field, messageAr, severity, formField}]",
     "rules": [
      "الترقيم بالمؤشر لا بالصفحات: أرسل nextCursor في cursor واستمر حتى يعود null",
      "الترتيب حسب name ثم id تصاعدياً",
@@ -498,6 +499,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "عند الإنشاء يعود 201 {success:true, data: Customer, warnings?:[{field, messageAr}]}، وإذا وُجد عميل بنفس clientRef يعود 200 {success:true, data: العميل القائم, idempotent:true}",
     "rules": [
      "code يولده الخادم تلقائياً (cuid، فريد داخل الشركة)، وbalance وtotalSales وtotalCollected تبدأ من 0 ولا تُقبل من الجسم",
+     "number («رقم العميل») يمنحه الخادم في معاملة الإنشاء نفسها: الرقم التالي في تسلسل الشركة، ويعود في data.number. لا يُقبل من الجسم (يُهمل بصمت ولو أُرسل)، ولا يُعاد رقم عميلٍ محذوف، والطلب المكرّر بـclientRef نفسه يعيد العميل القائم برقمه",
      "clientRef: إذا وُجد في الشركة عميل بنفس القيمة يُعاد كما هو، حتى لو كان مؤرشفاً، ولا تُطبَّق عليه البيانات الجديدة. لا يوجد قيد فريد في القاعدة، فلا ترسل طلبين متوازيين بنفس clientRef",
      "locationUrl: إذا نجح تحويله إلى إحداثيات يحل محل lat وlng، وإذا فشل يُتجاهل بصمت، إلا إذا أُرسل lat وlng معاً رقمين: عندها تُحفظ الإحداثيات الصريحة ولا يُحلّ الرابط (و0 و0 معاً تُعدّ خانةً فارغة فيُحلّ الرابط كما كان). وفي التعديل PUT /customers/:id يبقى الرابط مقدَّماً على أي إحداثيات مرسلة معه. لا تُتبع إلا روابط Google",
      "email وchannel وoutletType الفارغة تُحفظ null",
@@ -608,7 +610,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "زاتكا: الفحص يشمل الحقول المتغيرة مقارنة بالمحفوظ فقط، والخطأ يعود دائماً 400 CUSTOMER_ZATCA_INVALID بلا استثناء",
      "وحين فكّت الشركة القيد (buyerVatAddressRelaxed في GET /company) تصير أخطاء صيغة الرقم الضريبي ورقم المبنى والرمز البريدي تنبيهات في warnings لا 400 — وتبقى أخطاء المحارف والطول والدولة والمعرّف أخطاء",
      "تحويل العميل من ضريبية إلى مبسطة (بمسح الرقم الضريبي أو السجل، أو بضبط buyerType=INDIVIDUAL) مسموح للإدارة ويُسجَّل له سطر تدقيق",
-     "التعديل لا يغيّر code ولا balance، ولا يكتب أي قيد"
+     "التعديل لا يغيّر code ولا number («رقم العميل»: يُهمل إن أُرسل) ولا balance، ولا يكتب أي قيد"
     ],
     "example": "{\"phone\":\"0559876543\",\"creditLimit\":8000,\"paymentDays\":45,\"status\":\"ACTIVE\",\"email\":\"\"}"
    },
@@ -2505,7 +2507,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "search",
       "type": "string",
       "required": false,
-      "desc": "بحث جزئي في رقم الفاتورة أو اسم العميل (contains بلا تجاهل لحالة الأحرف)"
+      "desc": "بحث جزئي في رقم الفاتورة أو اسم العميل (contains بلا تجاهل لحالة الأحرف)، أو رقم العميل customer.number مطابقةً تامّة حين يكون النص رقماً: 12 أو #12 أو ١٢ (الأرقام العربية-الهندية مقبولة، و# في أوله اختيارية)، بلا صفر بادئ (فـ05 بادئة جوال لا رقم عميل)"
      },
      {
       "name": "status",
@@ -2563,7 +2565,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[...], pagination:{total, page, limit, pages}}. كل صف فيه أعمدة الفاتورة: id وnumber وtype وstatus وinvoiceDate وdueDate وdeliveryDate وpaymentPlan وpricesIncludeTax وtaxFree («إزالة الضريبة»: true = صدر المستند والشركة بلا ضريبة، وfalse = كما كان) وsubtotal وdiscountPct وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وremainingApplied (في مرتجع المرحلة الأولى المرتبط بفاتورة بيعٍ آجلة: ما أسقطه من متبقّيها لحظة إصداره، وnull لغيره) وreturnReason وreturnToStock وeinvoiceProvider وeinvoiceStatus وeinvoiceQr وclientRef وzatcaPhase وdocumentKind وinvoiceSubtype وissuedAt وoriginalInvoiceId وcreatedAt وlocationId وteamId وpriceListId (قائمة الأسعار التي سُعّر بها المستند، وnull = السعر الأساسي، أو قائمةٌ حُذفت بعدها، أو مستندٌ لا يُختم: الإشعار الدائن المرتبط بفاتورة والإشعار المدين — انظر قاعدة priceListId أدناه). ومعها customer{id,name,phone} وsalesRep{id,name} وlocation{id,name} (ختم موقع المندوب وقت الإصدار، أو null) و_count{items}، وitems عند طلب withItems (كل بند بـlineRef، ومعه lots مع withLots=1 والميزة مفعّلة). الحقل einvoiceSnapshot محذوف من صفوف القائمة. وكل صف يحمل currency (رمز عملة المستند لحظة إصداره، أو null للمستندات الأقدم = عملة الشركة الحالية)",
+    "response": "{success:true, data:[...], pagination:{total, page, limit, pages}}. كل صف فيه أعمدة الفاتورة: id وnumber وtype وstatus وinvoiceDate وdueDate وdeliveryDate وpaymentPlan وpricesIncludeTax وtaxFree («إزالة الضريبة»: true = صدر المستند والشركة بلا ضريبة، وfalse = كما كان) وsubtotal وdiscountPct وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وremainingApplied (في مرتجع المرحلة الأولى المرتبط بفاتورة بيعٍ آجلة: ما أسقطه من متبقّيها لحظة إصداره، وnull لغيره) وreturnReason وreturnToStock وeinvoiceProvider وeinvoiceStatus وeinvoiceQr وclientRef وzatcaPhase وdocumentKind وinvoiceSubtype وissuedAt وoriginalInvoiceId وcreatedAt وlocationId وteamId وpriceListId (قائمة الأسعار التي سُعّر بها المستند، وnull = السعر الأساسي، أو قائمةٌ حُذفت بعدها، أو مستندٌ لا يُختم: الإشعار الدائن المرتبط بفاتورة والإشعار المدين — انظر قاعدة priceListId أدناه). ومعها customer{id,name,phone,number} (number «رقم العميل» للقراءة، وnull لعميلٍ لم يُرقَّم بعد) وsalesRep{id,name} وlocation{id,name} (ختم موقع المندوب وقت الإصدار، أو null) و_count{items}، وitems عند طلب withItems (كل بند بـlineRef، ومعه lots مع withLots=1 والميزة مفعّلة). الحقل einvoiceSnapshot محذوف من صفوف القائمة. وكل صف يحمل currency (رمز عملة المستند لحظة إصداره، أو null للمستندات الأقدم = عملة الشركة الحالية)",
     "rules": [
      "الترتيب حسب createdAt تنازلياً، والترقيم بالأسلوب skip=(page-1)*limit",
      "هذه القائمة لا تشترط X-FS-Caps حتى للصفوف المربوطة بالمرحلة الثانية، بخلاف GET /invoices/:id",
@@ -3558,7 +3560,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
    {
     "method": "GET",
     "path": "/receipts",
-    "purpose": "قائمة سندات القبض النشطة مع فلترة بالمندوب والعميل والتاريخ وترقيم صفحات",
+    "purpose": "قائمة سندات القبض النشطة مع فلترة بالمندوب والعميل والتاريخ والبحث وترقيم صفحات",
     "permission": "canManageReceipts",
     "gates": [
      "requireAccounting (accountingEnabled != false)",
@@ -3600,10 +3602,16 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "type": "date string",
       "required": false,
       "desc": "إلى تاريخ السند، ويشمل اليوم كاملاً حتى 23:59:59.999 بتوقيت الخادم. يصح إرسال from أو to منفردين"
+     },
+     {
+      "name": "search",
+      "type": "string ≤ 100",
+      "required": false,
+      "desc": "بحث: رقم السند أو اسم العميل احتواءً بلا تفريق لحالة الأحرف، أو رقم العميل customer.number مطابقةً تامّة حين يكون النص رقماً: 12 أو #12 أو ١٢ (الأرقام العربية-الهندية مقبولة، و# في أوله اختيارية)، بلا صفر بادئ (فـ05 بادئة جوال لا رقم عميل). يُقصّ طرفاه ويؤخذ أول 100 حرف، ويعمل داخل نطاق المستخدم وفلاتر المندوب والعميل والتاريخ لا بدلها"
      }
     ],
     "body": [],
-    "response": "{ success: true, data: [سند], pagination: { total, page, limit, pages } }. كل سند يحمل حقوله: id وnumber وcustomerId وsalesRepId وreceiptDate وamount وpaymentMethod (الأساس المحاسبي) وpaymentMethodKey (مفتاح طريقة الشركة المخصّصة أو null) وchequeNumber وbankName وnotes وstatus وclientRef وclientCreatedAt وcreatedAt وupdatedAt وteamId (ميزة «الفرق»، null = بلا فريق). ويُضاف إليها customer {id, name} وsalesRep {id, name} (وsalesRep وsalesRepId = null لسند مندوب حُذف: السند يبقى)، وinvoiceItems وكل عنصر فيها {id, receiptId, invoiceId, amount, invoice: {number}}. المرفقات photos لا تأتي في القائمة",
+    "response": "{ success: true, data: [سند], pagination: { total, page, limit, pages } }. كل سند يحمل حقوله: id وnumber وcustomerId وsalesRepId وreceiptDate وamount وpaymentMethod (الأساس المحاسبي) وpaymentMethodKey (مفتاح طريقة الشركة المخصّصة أو null) وchequeNumber وbankName وnotes وstatus وclientRef وclientCreatedAt وcreatedAt وupdatedAt وteamId (ميزة «الفرق»، null = بلا فريق). ويُضاف إليها customer {id, name, number} (number «رقم العميل» للقراءة، وnull لعميلٍ لم يُرقَّم بعد) وsalesRep {id, name} (وsalesRep وsalesRepId = null لسند مندوب حُذف: السند يبقى)، وinvoiceItems وكل عنصر فيها {id, receiptId, invoiceId, amount, invoice: {number}}. المرفقات photos لا تأتي في القائمة",
     "rules": [
      "تُعرض السندات ACTIVE وحدها، والملغاة لا تظهر في القائمة أبداً ولا يوجد باراميتر status",
      "الترتيب حسب createdAt تنازلياً أي الأحدث أولاً، وليس حسب receiptDate",
@@ -4455,7 +4463,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:{customerIds:[id], autoIds:[id], customers:[{id, name, businessName, phone, code}]}}",
+    "response": "{success:true, data:{customerIds:[id], autoIds:[id], customers:[{id, name, businessName, phone, code, number}]}}. number «رقم العميل» (للقراءة، وnull لعميلٍ لم يُرقَّم بعد)",
     "rules": [
      "autoIds هي الإسنادات التي نشأت بإضافة المندوب للعميل بنفسه (source AUTO) والباقي MANUAL من الإدارة",
      "مرتبة بالأحدث إسناداً ولا ترقيم صفحات"
@@ -8409,12 +8417,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:null} إن لم يوجد خط. وإلا {success:true, data:{id, name, isPermanent, routeDate, day, stops:[{id, seq, note, customerId, customerName, phone, address, lat, lng, done, doneAt}], doneCount, total, hiddenByScope}}",
+    "response": "{success:true, data:null} إن لم يوجد خط. وإلا {success:true, data:{id, name, isPermanent, routeDate, day, stops:[{id, seq, note, customerId, customerName, customerNumber, phone, address, lat, lng, done, doneAt}], doneCount, total, hiddenByScope}}",
     "rules": [
      "الخط المؤقت لهذا اليوم يتقدم على الخط الدائم في كل طريقة توزيع، ولو في يوم راحة، ولا يزيح دورة التناوب: يأخذ دور يومه وحده",
      "للمندوب عدة خطوط دائمة، وخط اليوم منها بطريقة توزيعه (GET /rep-routes/schedule/:salesRepId): بلا طريقة («خط واحد يومياً») أول خط دائم كما كان. و«حسب أيام الأسبوع» (weekdays) الخط الذي تشمل أيامه يوم الأسبوع (0=الأحد … 6=السبت)، وإلا data:null. و«تناوب بالترتيب» (rotation) يوم عمل لكل خط بترتيب rotationOrder بدءاً من rotationStart متخطياً أيام الراحة offDays، ويوم الراحة أو ما قبل rotationStart يرجع data:null",
      "الخط الدائم لا يسري على يوم سابق لتاريخ إنشائه (createdAt)، فدورة التناوب ليوم ماضٍ تُحسب بالخطوط التي كانت موجودة فيه. والخط المُعدَّل بـreplacesId يرث تاريخ إنشاء سلفه",
-     "done يعني وجود زيارة للعميل من هذا المندوب داخل يوم المندوب بحسب tzOffsetMin، فالإنجاز مشتق من الزيارات ولا يُخزّن"
+     "done يعني وجود زيارة للعميل من هذا المندوب داخل يوم المندوب بحسب tzOffsetMin، فالإنجاز مشتق من الزيارات ولا يُخزّن",
+     "customerNumber «رقم العميل» التسلسليّ لعميل المحطة للعرض والبحث (للقراءة، وnull لعميلٍ لم يُرقَّم بعد)"
     ],
     "example": ""
    },
@@ -8585,7 +8594,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:{id, name, isPermanent, routeDate, salesRepId, weekdays, rotationOrder, stops:[{customerId, seq, note, customerName}]}}",
+    "response": "{success:true, data:{id, name, isPermanent, routeDate, salesRepId, weekdays, rotationOrder, stops:[{customerId, seq, note, customerName, customerNumber}]}}. customerNumber «رقم العميل» لعميل المحطة (للقراءة، وnull لعميلٍ لم يُرقَّم بعد)",
     "rules": [
      "يقرأ الخط النشط وحده: الخط المحذوف أو المستبدل بـreplacesId (حذفهما فعلي) يرجع 404 «خط السير غير موجود»",
      "weekdays أيام الخط الدائم (0=الأحد … 6=السبت) وrotationOrder موضعه في دورة التناوب، كما في GET /rep-routes",
@@ -9030,7 +9039,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "بدون groupBy: {success:true, data:{invoices:[صف الفاتورة كاملاً بكل أعمدتها ومنها number وtype وinvoiceDate وsubtotal وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وpricesIncludeTax وteamId وpriceListId (قائمة الأسعار التي سُعّرت بها، null = السعر الأساسي)، مع customer{id,name,channel,city} وsalesRep{id,name} أو null وteam{id,name} أو null وitems[صف البند كاملاً ومنه qty وunitPrice وunitCost وdiscountAmt وtaxPct وtaxAmt وlineTotal وunitName وunitFactor وbaseQty مع product{id,name,code,unit,primaryUnitId} أو null]], summary:{total, count, taxTotal, discountTotal, returnsTotal, returnsCount, defaultRangeDays?}}}. مع groupBy=product تكون data مصفوفة [{productId, name, code, qty, baseQty, unit, units:[{id, name, factor}], primaryUnitId(null أو معرّف من units — للعرض وحده), total}] حيث total مجموع lineTotal. ومع rep أو customer أو channel أو region أو team تكون data مصفوفة [{name, count, total}] (total صافٍ وقد يكون سالباً، وcount فواتير البيع وحدها). كل التجميعات مرتبة تنازلياً حسب total. وفي كل الأشكال (التفصيلي وكل groupBy) بجانب data: meta:{appliedRange:{from, to, defaulted}}",
+    "response": "بدون groupBy: {success:true, data:{invoices:[صف الفاتورة كاملاً بكل أعمدتها ومنها number وtype وinvoiceDate وsubtotal وdiscountAmt وtaxAmt وtotal وpaidAmt وremainingAmt وpricesIncludeTax وteamId وpriceListId (قائمة الأسعار التي سُعّرت بها، null = السعر الأساسي)، مع customer{id,name,number,channel,city} وsalesRep{id,name} أو null وteam{id,name} أو null وitems[صف البند كاملاً ومنه qty وunitPrice وunitCost وdiscountAmt وtaxPct وtaxAmt وlineTotal وunitName وunitFactor وbaseQty مع product{id,name,code,unit,primaryUnitId} أو null]], summary:{total, count, taxTotal, discountTotal, returnsTotal, returnsCount, defaultRangeDays?}}}. مع groupBy=product تكون data مصفوفة [{productId, name, code, qty, baseQty, unit, units:[{id, name, factor}], primaryUnitId(null أو معرّف من units — للعرض وحده), total}] حيث total مجموع lineTotal. ومع rep أو customer أو channel أو region أو team تكون data مصفوفة [{name, count, total}] (total صافٍ وقد يكون سالباً، وcount فواتير البيع وحدها، ومع customer يُضاف number «رقم العميل» أو null). كل التجميعات مرتبة تنازلياً حسب total. وفي كل الأشكال (التفصيلي وكل groupBy) بجانب data: meta:{appliedRange:{from, to, defaulted}}",
     "rules": [
      "الحالة CONFIRMED وحدها. قائمة invoices فواتير بيع (RETURN مستثنى منها)، أما الإجماليات والتجميعات فصافية: يُطرح منها المرتجع المؤكَّد بالمدى والفلاتر نفسها (كميةً ومبلغاً في تجميع الصنف، وقد يظهر صفّ سالب)، وsummary.total وtaxTotal وdiscountTotal صافية، وsummary.returnsTotal وreturnsCount للمرتجع، وcount عدد فواتير البيع وحدها",
      "بلا from ولا to يُقصر التقرير على آخر 90 يوماً بأيام الشركة تنتهي اليوم، ويُعلن ذلك في كل الأشكال بـmeta.appliedRange وdefaulted = true (from = اليوم ناقص 89 يوماً، وto = اليوم)، ومعه summary.defaultRangeDays=90 في الوضع التفصيلي كما كان",
@@ -9075,7 +9084,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{orders:[{id, number, invoiceDate, deliveryDate, total, paidAmt, remainingAmt, status, customer{id,name,phone,city}, salesRep{id,name} أو null}], summary:{count, total, paid, remaining}, rangeApplied:boolean, defaultDays:90 أو null}, meta:{truncated:boolean, limit:5000, appliedRange:{from, to, defaulted}}} وremainingAmt وsummary.remaining المتبقي الفعلي الذي يُنقصه الإشعار الدائن والمرتجع المربوط دون paidAmt",
+    "response": "{success:true, data:{orders:[{id, number, invoiceDate, deliveryDate, total, paidAmt, remainingAmt, status, customer{id,name,number,phone,city}, salesRep{id,name} أو null}], summary:{count, total, paid, remaining}, rangeApplied:boolean, defaultDays:90 أو null}, meta:{truncated:boolean, limit:5000, appliedRange:{from, to, defaulted}}} وremainingAmt وsummary.remaining المتبقي الفعلي الذي يُنقصه الإشعار الدائن والمرتجع المربوط دون paidAmt",
     "rules": [
      "الشرط الأساسي أن يكون deliveryDate غير فارغ",
      "تُستثنى الحالة CANCELLED فقط، فتدخل المسودات DRAFT، ولا يوجد فلتر على نوع المستند",
@@ -9123,7 +9132,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{returns:[{id, number, invoiceDate, total, taxAmt, reason, returnToStock, toDamagedStock, creditNote, notes, saleInvoices:[number], customer{id,name,phone,city}, salesRep{id,name}, items:[{name, unit, qty, unitFactor, baseQty, baseUnit, primaryUnitId(null أو معرّف الوحدة الرئيسية لصنف البند — للعرض وحده), lineTotal, returnExpired, expiresAt}]}], summary:{count, total, salesTotal, returnRate, byReason:{NORMAL|DAMAGED|EXCHANGE:{count,total}}, expiredLines}, rangeApplied, defaultDays}, meta:{truncated:boolean, limit:5000, appliedRange:{from, to, defaulted}}}",
+    "response": "{success:true, data:{returns:[{id, number, invoiceDate, total, taxAmt, reason, returnToStock, toDamagedStock, creditNote, notes, saleInvoices:[number], customer{id,name,number,phone,city}, salesRep{id,name}, items:[{name, unit, qty, unitFactor, baseQty, baseUnit, primaryUnitId(null أو معرّف الوحدة الرئيسية لصنف البند — للعرض وحده), lineTotal, returnExpired, expiresAt}]}], summary:{count, total, salesTotal, returnRate, byReason:{NORMAL|DAMAGED|EXCHANGE:{count,total}}, expiredLines}, rangeApplied, defaultDays}, meta:{truncated:boolean, limit:5000, appliedRange:{from, to, defaulted}}}",
     "rules": [
      "returnRate = total المرتجع ÷ summary.salesTotal × 100 بمنزلة عشرية واحدة، وnull بلا مبيعات. وsummary.salesTotal هنا إجمالي فواتير البيع المؤكدة في المدى والنطاق والفريق نفسها بلا طرح المرتجع (مقام النسبة)، خلافاً لـsummary.total في GET /reports/sales فهو صافٍ",
      "saleInvoices أرقام فواتير البيع: الأصل للإشعار الدائن، أو فواتير البنود المرتبطة للمرتجع من فاتورة بيع في المرحلة الأولى",
@@ -9243,7 +9252,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{receipts:[صف السند كاملاً بكل أعمدته ومنها number وamount وpaymentMethod وreceiptDate وstatus، مع customer{id,name} وsalesRep{id,name} أو null], summary:{total, count, byMethod:{CASH?:number, BANK_TRANSFER?:number, POS?:number, CHEQUE?:number, ONLINE?:number} بالأساس المحاسبي, byMethodKey:{معرّف الطريقة: number} حيث المعرّف رمز الطريقة المدمجة أو مفتاح طريقة الشركة المخصّصة, methods:[{id, base, key, custom, label, companyLabel, icon, active, manual, amount, count}]}}}",
+    "response": "{success:true, data:{receipts:[صف السند كاملاً بكل أعمدته ومنها number وamount وpaymentMethod وreceiptDate وstatus، مع customer{id,name,number} وsalesRep{id,name} أو null], summary:{total, count, byMethod:{CASH?:number, BANK_TRANSFER?:number, POS?:number, CHEQUE?:number, ONLINE?:number} بالأساس المحاسبي, byMethodKey:{معرّف الطريقة: number} حيث المعرّف رمز الطريقة المدمجة أو مفتاح طريقة الشركة المخصّصة, methods:[{id, base, key, custom, label, companyLabel, icon, active, manual, amount, count}]}}}",
     "rules": [
      "السندات ذات الحالة ACTIVE فقط، فالملغاة لا تدخل",
      "لا يوجد مدى افتراضي هنا خلافاً لتقرير المبيعات، فبلا from وto يرجع كل السجل",
@@ -9318,7 +9327,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, name, phone, status:'ACTIVE'|'INACTIVE'|'BLOCKED', balance, creditLimit, paymentDays, totalSales, totalCollected}]} مرتبة تنازلياً حسب balance",
+    "response": "{success:true, data:[{id, name, number, phone, status:'ACTIVE'|'INACTIVE'|'BLOCKED', balance, creditLimit, paymentDays, totalSales, totalCollected}]} مرتبة تنازلياً حسب balance",
     "rules": [
      "كل عميل حالته غير DELETED: ACTIVE وINACTIVE وBLOCKED. فالموقوف والمحظور المدينان داخلان في القائمة وفي أي مجموع تحسبه منها (إجمالي مديونية الشركة)، وstatus في كل صف ليميّزهما. ونطاق المستخدم المقيّد كما هو",
      "الرصيد هنا هو القيمة المخزنة customer.balance، وليس المحسوب من قيود الحساب كما في rep-receivables",
@@ -9360,7 +9369,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, name, invoicesCount, salesTotal, collectionsTotal, cashSalesTotal, discountTotal, collectionRate ((collectionsTotal + cashSalesTotal) ÷ صافي المبيعات × 100 نسبة صحيحة، و0 حين الصافي صفر أو سالب), avgInvoice (صافي المبيعات ÷ عدد فواتير البيع مقرّباً لعدد صحيح), workMinutes, workHours, workMins, visitsCount, visits:[{customerName, createdAt, lat, lng, mapsUrl}]}], meta:{truncated:boolean, limit:200000}} مرتبة تنازلياً حسب salesTotal",
+    "response": "{success:true, data:[{id, name, invoicesCount, salesTotal, collectionsTotal, cashSalesTotal, discountTotal, collectionRate ((collectionsTotal + cashSalesTotal) ÷ صافي المبيعات × 100 نسبة صحيحة، و0 حين الصافي صفر أو سالب), avgInvoice (صافي المبيعات ÷ عدد فواتير البيع مقرّباً لعدد صحيح), workMinutes, workHours, workMins, visitsCount, visits:[{customerName, customerNumber, createdAt, lat, lng, mapsUrl}]}], meta:{truncated:boolean, limit:200000}} مرتبة تنازلياً حسب salesTotal",
     "rules": [
      "فلتر التاريخ على المبيعات والتحصيل لا يُطبَّق إلا إذا أُرسل from وto معاً، وإلا تُحسب على كل السجل",
      "جلسات العمل والزيارات تستعمل from وحده (أو بداية الزمن) وto وحده (أو الآن) كلّاً على حدة",
@@ -9406,7 +9415,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{count, visits:[{id, customerId, customerName, repName, createdAt, durationSec, note, mapsUrl}]}, meta:{truncated:boolean, limit:200000}} مرتبة من الأحدث",
+    "response": "{success:true, data:{count, visits:[{id, customerId, customerName, customerNumber, repName, createdAt, durationSec, note, mapsUrl}]}, meta:{truncated:boolean, limit:200000}} مرتبة من الأحدث",
     "rules": [
      "تُقرأ كل سجلّات المدى الخام دفعاتٍ الأحدث أولاً ثم تُدمج في وقفات، حتى حدّ أمان 200000 سجل: بلوغه يُبقي الأحدث ويُعلَن بـmeta.truncated = true (وmeta.limit = 200000)، فضيّق المدى. وبلا from يُقرأ كل التاريخ",
      "createdAt في الصف هو بداية الوقفة (startedAt أو createdAt)، وid معرّف أول سجل فيها",
@@ -9441,7 +9450,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{totalCustomers, count, invoicedCount, customers:[{id, name, businessName, phone, city, reps:[اسم المندوب], lastVisitAt, createdAt, invoicesCount, lastInvoiceAt}]}} من لم يُزر قط أولاً ثم الأقدم زيارة",
+    "response": "{success:true, data:{totalCustomers, count, invoicedCount, customers:[{id, name, number, businessName, phone, city, reps:[اسم المندوب], lastVisitAt, createdAt, invoicesCount, lastInvoiceAt}]}} من لم يُزر قط أولاً ثم الأقدم زيارة",
     "rules": [
      "مكمّل GET /reports/customer-visits بتعريف المدى نفسه: عميل له زيارة واحدة في المدى من أي مندوب لا يظهر",
      "العملاء النشطون (status=ACTIVE) الموجودون قبل نهاية المدى وحدهم، وtotalCustomers عددهم",
@@ -9474,7 +9483,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, name, customersCount, debtorsCount, totalBalance, customers:[{id, name, businessName, phone, city, balance, lastPaymentAt}]}]} المناديب مرتبون تنازلياً حسب totalBalance والعملاء داخل كل مندوب تنازلياً حسب balance",
+    "response": "{success:true, data:[{id, name, customersCount, debtorsCount, totalBalance, customers:[{id, name, number, businessName, phone, city, balance, lastPaymentAt}]}]} المناديب مرتبون تنازلياً حسب totalBalance والعملاء داخل كل مندوب تنازلياً حسب balance",
     "rules": [
      "الرصيد لحظي ويُحسب مجموع المدين ناقص مجموع الدائن من قيود حساب العميل AccountEntry مقرّباً لست خانات، ولا يتأثر بأي تاريخ",
      "lastPaymentAt أحدث entryDate لقيد من نوع RECEIPT_CREDIT أو null",
@@ -9522,7 +9531,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, name, totalMinutes, hours, minutes, sessions, firstSeen, lastSeen, fieldMinutesTotal, workedDays, absentDays, visitsTotal, avgDayMinutes, days:[{date, firstActivity, lastActivity, spanMinutes, periods:[{start, end, source:'PUNCH'|'ACTIVITY', inLat?, inLng?, outLat?, outLng?}], breakMinutes, appMinutes, visits:[{customerName, start, end, durationSec, hasNote, parts, lat, lng, sources}], visitsCount, visitsSec, absent}]}], meta:{tzOffsetMin, rangeClamped?:31, truncated:boolean, limit:200000, appliedRange:{from, to, defaulted}}}",
+    "response": "{success:true, data:[{id, name, totalMinutes, hours, minutes, sessions, firstSeen, lastSeen, fieldMinutesTotal, workedDays, absentDays, visitsTotal, avgDayMinutes, days:[{date, firstActivity, lastActivity, spanMinutes, periods:[{start, end, source:'PUNCH'|'ACTIVITY', inLat?, inLng?, outLat?, outLng?}], breakMinutes, appMinutes, visits:[{customerName, customerNumber, start, end, durationSec, hasNote, parts, lat, lng, sources}], visitsCount, visitsSec, absent}]}], meta:{tzOffsetMin, rangeClamped?:31, truncated:boolean, limit:200000, appliedRange:{from, to, defaulted}}}",
     "rules": [
      "بلا from يكون المدى 7 أيام تنتهي عند to أو الآن",
      "الحد الأقصى 31 يوماً، والزائد يُقصّ من البداية ويُعلن بـ meta.rangeClamped=31",
@@ -9705,7 +9714,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{groupBy, rows:[{key, name, count, netSales, cost, grossProfit, marginPct, noCost, code?, qty?, unit?, units?:[{id, name, factor}], primaryUnitId?, noCostQty?}], summary:{netSales, cost, grossProfit, marginPct, salesTotal, returnsTotal, invoicesCount, returnsCount, noCostProducts, noCostList:[{key, productId, name, code, qty}], costSource:'SNAPSHOT'|'AVERAGE'|'MIXED'|'NONE'}, taxOff:boolean, currencyDecimals, linked:boolean}, meta:{appliedRange:{from, to, defaulted}, truncated:boolean, limit:20000}}",
+    "response": "{success:true, data:{groupBy, rows:[{key, name, count, netSales, cost, grossProfit, marginPct, noCost, number? (groupBy=customer: «رقم العميل» أو null), code?, qty?, unit?, units?:[{id, name, factor}], primaryUnitId?, noCostQty?}], summary:{netSales, cost, grossProfit, marginPct, salesTotal, returnsTotal, invoicesCount, returnsCount, noCostProducts, noCostList:[{key, productId, name, code, qty}], costSource:'SNAPSHOT'|'AVERAGE'|'MIXED'|'NONE'}, taxOff:boolean, currencyDecimals, linked:boolean}, meta:{appliedRange:{from, to, defaulted}, truncated:boolean, limit:20000}}",
     "rules": [
      "صافي المبيعات = فواتير البيع المؤكدة ناقص المرتجع المؤكد في المدى والنطاق والفلاتر نفسها، قبل الضريبة (قيمة السطر ناقص ضريبته)، وcount عدد فواتير البيع وحدها",
      "التكلفة لشركةٍ دفاترها مربوطة من قيد تكلفة كل سطر بيع أو مرتجع إن وُجد (linked = true)، وإلا بمتوسط سعر الشراء المرجح لوحدة الأساس من الوارد المسعّر المرحَّل حتى نهاية الفترة، والمرتجع يعيد تكلفته بالمتوسط نفسه. والكمية التي لم تُعرف تكلفتها لحظة البيع في قيد التكلفة (بيعٌ قبل وصول الصنف مسعَّراً) تُكمَّل بالمتوسط نفسه. وcostSource يقول أيهما استُعمل (MIXED لكليهما)",
@@ -9778,7 +9787,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:{accountingEnabled, today:{salesTotal, invoicesCount, collectionsTotal, receiptsCount}, warehouseEnabled, month:{salesTotal, invoicesCount, collectionsTotal, receiptsCount, purchasesTotal, purchaseEntriesCount}, customers:{total, withBalance, creditExceeded}, topReps:[{id, name, invoicesCount, salesTotal}], topCustomers:[{id, name, totalSales, balance}], recentInvoices:[صف الفاتورة كاملاً مع customer{name} وsalesRep{name}]}}",
+    "response": "{success:true, data:{accountingEnabled, today:{salesTotal, invoicesCount, collectionsTotal, receiptsCount}, warehouseEnabled, month:{salesTotal, invoicesCount, collectionsTotal, receiptsCount, purchasesTotal, purchaseEntriesCount}, customers:{total, withBalance, creditExceeded}, topReps:[{id, name, invoicesCount, salesTotal}], topCustomers:[{id, name, number, totalSales, balance}], recentInvoices:[صف الفاتورة كاملاً مع customer{name, number} وsalesRep{name}]}}",
     "rules": [
      "المبيعات صافية: فواتير CONFIRMED ناقص المرتجع المؤكَّد في اليوم أو الشهر نفسه، والعدد فواتير البيع وحدها، والتحصيل سندات ACTIVE",
      "حدود اليوم والشهر محسوبة بتوقيت الخادم المحلي عبر new Date(y,m,d) وليس بتوقيت الرياض صراحةً",
@@ -10888,7 +10897,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "step5",
       "type": "{rows:[…]} حتى 5000 صف",
       "required": false,
-      "desc": "الأرصدة الافتتاحية اليدوية: لكل صفّ accountCode وdebit أو credit، ومعها حسب الحساب vendorId أو vendorName وdueDate وsalesRepId أو salesRepName وcustomerId أو customerRef وlabel"
+      "desc": "الأرصدة الافتتاحية اليدوية: لكل صفّ accountCode وdebit أو credit، ومعها حسب الحساب vendorId أو vendorName وdueDate وsalesRepId أو salesRepName وcustomerId أو customerRef (رمز العميل، ثم رقمه التسلسليّ number مثل 12 أو #12 أو ١٢، ثم اسمه — مطابقةً تامّة بلا تفريق لحالة الأحرف وبهذا الترتيب) وlabel"
      },
      {
       "name": "rebaseImportDates",
@@ -11805,12 +11814,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "q",
       "type": "string ≤ 100",
       "required": false,
-      "desc": "نصّ البحث: الاسم (وللعميل الجوال والرمز، وللمورد والمندوب الجوال). فارغ ⇒ أول 20 بالاسم"
+      "desc": "نصّ البحث: الاسم، وللعميل الجوال والرمز ورقم العميل مطابقةً تامّة حين يكون النص رقماً (12 أو #12 أو ١٢، بلا صفر بادئ)، وللمورد والمندوب الجوال. فارغ ⇒ أول 20 بالاسم"
      }
     ],
     "body": [],
-    "response": "{success:true, data:{type, items:[{id, name, hint}]}}",
+    "response": "{success:true, data:{type, items:[{id, name, hint, number?}]}}",
     "rules": [
+     "number: «رقم العميل» للعميل المرقَّم وحده — الحقل غائب لغير العميل ولعميلٍ لم يُرقَّم بعد",
      "hint: جوال العميل أو المورد أو المندوب، ودور مستخدم الشركة (لا البريد)، وnull للصنف",
      "شركة الطلب وحدها، ومرتّبة بالاسم"
     ],

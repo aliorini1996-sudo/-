@@ -44,6 +44,9 @@ import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
 import LoginErrorBox from '../components/LoginErrorBox';
 import { loginErrorOf, type LoginError } from '../lib/loginErrors';
 import SearchableSelect from '../components/SearchableSelect';
+// «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): يُعرض ويُبحث به في قائمة العملاء المخزّنة — فيعمل دون اتصال
+import { formatCustomerNumber, visibleCustomerCode } from '../lib/customerNumber';
+import { REMOTE_CUSTOMER_LIMIT, useCustomerSearchFallback } from '../lib/customerSearchFallback';
 import BarcodeScanner from './BarcodeScanner';
 import LaserScanField, { readLaserPref, writeLaserPref } from './LaserScanField';
 import { useLaserScanner, scanFeedback } from '../lib/useLaserScanner';
@@ -1139,6 +1142,11 @@ function RepCustomers({ onSelect, canAdd, onAdd, accountingOn = true, zatcaColle
       setLoading(false);
     })();
   }, []);
+  // الكاش بسقفه (١٠٠٠ بالأحدث) يفقد أقدم العملاء وهم أصحاب الأرقام الصغيرة (#1، #2…): متصلاً يُسأل الخادم عمّا يُكتب في المنتقي
+  // (بنطاق المندوب وعزله نفسيهما) ويُضمّ إلى خياراته وحدها — ودون اتصال الكاش وحده كما كان، ولا يُكتب في الكاش شيء
+  const { pool, onQueryChange } = useCustomerSearchFallback(customers,
+    async (term) => (await repApi.get('/customers', { params: { search: term, limit: REMOTE_CUSTOMER_LIMIT } })).data.data,
+    { enabled: typeof navigator === 'undefined' || navigator.onLine });
 
   return (
     <div className="h-full flex flex-col">
@@ -1146,17 +1154,23 @@ function RepCustomers({ onSelect, canAdd, onAdd, accountingOn = true, zatcaColle
         <div className="flex-1">
           <SearchableSelect
             placeholder={tr('اختر العميل')}
-            searchPlaceholder={tr('اكتب اسم أو جوال العميل')}
+            searchPlaceholder={tr('اكتب اسم أو جوال أو رقم العميل')}
             value=""
             resetOnSelect
-            options={customers.map(c => ({
+            options={pool.map(c => ({
               value: c.id,
               label: c.name,
+              // «رقم العميل»: بادئة «#12 · » ويُطابَق بالضبط في المنتقي نفسه (الكاش المحلي ⇒ يعمل دون اتصال). كاشٌ قديم بلا الحقل
+              // أو عميلٌ أُضيف دون اتصال (لا رقم محلياً أبداً) ⇒ بلا بادئة حتى الجلب التالي
+              num: c.number ?? null,
               // الرصيد مال: حين يُطفأ «النظام المحاسبي» يعود التلميح جوّالاً لا رصيداً
               hint: accountingOn && Number(c.balance) > 0 ? `${tr('رصيد')} ${formatCurrency(c.balance)}` : c.phone,
               hintColor: accountingOn && Number(c.balance) > 0 ? 'text-red-500' : undefined,
+              // يُبحث بالجوال ولو كان التلميح رصيداً، وبالاسم التجاري والكود المخصّص (الآلي لا يُطابَق — حلّ محلّه الرقم)
+              keywords: [c.phone, c.businessName, visibleCustomerCode(c.code)],
             }))}
-            onChange={(v) => { const c = customers.find(x => x.id === v); if (c) onSelect(c); }}
+            onChange={(v) => { const c = pool.find(x => x.id === v); if (c) onSelect(c); }}
+            onQueryChange={onQueryChange}
           />
         </div>
         {canAdd && (
@@ -1186,7 +1200,11 @@ function RepCustomers({ onSelect, canAdd, onAdd, accountingOn = true, zatcaColle
               {c.name.charAt(0)}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-semibold text-gray-800 text-sm truncate">{c.name}</p>
+              <p className="font-semibold text-gray-800 text-sm truncate">
+                {/* «رقم العميل» قبل الاسم «#12 · الاسم» كي يعرف المندوب ما يكتبه في البحث — ولا شيء قبل أن يُرقَّم */}
+                {formatCustomerNumber(c.number) && <><span dir="ltr" className="tabular-nums font-normal text-gray-400">{formatCustomerNumber(c.number)}</span><span className="font-normal text-gray-400">{' · '}</span></>}
+                {c.name}
+              </p>
               {/* الجوال اختياري (أمر المالك ٧ نوفمبر ٢٠٢٦): الفارغ يسقط بفاصله */}
               {customerSubline(c.phone, c.city) && <p className="text-xs text-gray-400">{customerSubline(c.phone, c.city)}</p>}
               {zatcaCollect && buyerBadge(c) && (
@@ -1494,6 +1512,10 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
           <div className={`flex items-start justify-between gap-3 ${accountingOn ? 'mb-4' : ''}`}>
             <div className="min-w-0">
               <p className="font-bold text-lg">{customer.name}</p>
+              {/* «رقم العميل» تحت الاسم — الذي يُبحث به في التطبيق والتقارير؛ العميل المضاف دون اتصال بلا رقم حتى يرفعه الخادم */}
+              {formatCustomerNumber(customer.number) && (
+                <p className="text-[#E8C9BC] text-xs">{tr('رقم العميل')} <span dir="ltr" className="tabular-nums">{formatCustomerNumber(customer.number)}</span></p>
+              )}
               {customer.businessName && <p className="text-[#E8C9BC] text-sm">{customer.businessName}</p>}
               {customer.phone && <p className="text-[#E8C9BC] text-xs">{customer.phone}</p>}
             </div>

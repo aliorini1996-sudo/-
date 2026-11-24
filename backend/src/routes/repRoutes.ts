@@ -59,6 +59,11 @@ function dayOf(req: AuthRequest): string {
   return new Date(t).toISOString().slice(0, 10);
 }
 
+/** عميل المحطّة في خطّ اليوم — number: رقم العميل التسلسليّ يُعاد customerNumber (طلب المالك ٢٣ نوفمبر ٢٠٢٦) */
+const STOP_CUSTOMER_SELECT = {
+  id: true, name: true, number: true, businessName: true, phone: true, address: true, lat: true, lng: true,
+} as const;
+
 /**
  * خط سير هذا المندوب في هذا اليوم: **المؤقّت يفوز على الدائم**.
  * تخصيصُ يومٍ بعينه أحدثُ قصداً من خطّةٍ عامّة وُضعت قبل شهر.
@@ -66,7 +71,7 @@ function dayOf(req: AuthRequest): string {
 async function routeFor(tid: string, salesRepId: string, day: string) {
   const dated = await prisma.repRoute.findFirst({
     where: { tenantId: tid, salesRepId, isActive: true, isPermanent: false, routeDate: day },
-    include: { stops: { include: { customer: { select: { id: true, name: true, businessName: true, phone: true, address: true, lat: true, lng: true } } }, orderBy: { seq: 'asc' } } },
+    include: { stops: { include: { customer: { select: STOP_CUSTOMER_SELECT } }, orderBy: { seq: 'asc' } } },
   });
   if (dated) return dated;
   /* الخطّ الدائم لا يسري على يومٍ **سبق إنشاءه**.
@@ -90,7 +95,7 @@ async function routeFor(tid: string, salesRepId: string, day: string) {
   if (!pick) return null;
   return prisma.repRoute.findFirst({
     where: { id: pick.id, tenantId: tid, isActive: true },
-    include: { stops: { include: { customer: { select: { id: true, name: true, businessName: true, phone: true, address: true, lat: true, lng: true } } }, orderBy: { seq: 'asc' } } },
+    include: { stops: { include: { customer: { select: STOP_CUSTOMER_SELECT } }, orderBy: { seq: 'asc' } } },
   });
 }
 
@@ -213,6 +218,7 @@ router.get('/mine', async (req: AuthRequest, res: Response, next: NextFunction) 
           id: s.id, seq: s.seq, note: s.note,
           customerId: s.customerId,
           customerName: s.customer.businessName || s.customer.name,
+          customerNumber: s.customer.number ?? null,
           phone: s.customer.phone, address: s.customer.address,
           lat: s.customer.lat, lng: s.customer.lng,
           done: doneAt.has(s.customerId),
@@ -453,7 +459,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const r = await prisma.repRoute.findFirst({
       // النسخ المعطَّلة القديمة (قبل الحذف الحقيقي، أمر المالك ٧ نوفمبر) لا تُقرأ — المحذوف محذوف
       where: { id: String(req.params.id), tenantId: tid, isActive: true },
-      include: { stops: { orderBy: { seq: 'asc' }, include: { customer: { select: { id: true, name: true, businessName: true } } } } },
+      include: { stops: { orderBy: { seq: 'asc' }, include: { customer: { select: { id: true, name: true, number: true, businessName: true } } } } },
     });
     // النطاق يسبق: خطُّ مندوبٍ لا يراه المستخدم = غير موجود لا «ممنوع»،
     // كي لا يكشف الردّ وجودَ مندوبٍ خارج نطاقه
@@ -468,6 +474,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
         stops: r.stops.map(s => ({
           customerId: s.customerId, seq: s.seq, note: s.note,
           customerName: s.customer.businessName || s.customer.name,
+          customerNumber: s.customer.number ?? null,
         })),
       },
     });

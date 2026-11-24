@@ -32,6 +32,10 @@ import { findLocationDuplicate, locationDupBody, validPoint } from '../services/
 import { DEVICE_NOW_HEADER, headerText, offlineInvoiceDate } from '../services/offlineInvoiceDate';
 import { parseCustomerDocs, droppedDocsWarning, docCreateRows, docsBatchRef } from '../services/customerDocs';
 import { customerStudioRouter } from './customerStudio';
+// «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): رقمٌ تسلسليّ لكل عميل في شركته يُمنح في معاملة الإنشاء نفسها تحت قفل صفّ الشركة
+// (services/customerNumber.ts — الموضع الوحيد الذي يُنشأ فيه عميل)، ويُبحث به بالمطابقة التامّة
+import { CUSTOMER_NUMBER_TX, createNumberedCustomer, customerNumberOr, exactNumberFirstPage, lockTenantForCustomerNumbers } from '../services/customerNumber';
+import type { Customer } from '@prisma/client';
 // «الوحدة الرئيسية» §2.10: أسعار العميل لوحدة الأساس تُكتب تحت قفل صفّ الصنف مقارنةً بالأساس الذي كُتبت له
 import {
   ProductUnitsBusyError, ProductUnitsChangedError, baseGuardReply, lockBases, missingBaseForApi, staleClientBase, type ExpectedBases,
@@ -72,6 +76,8 @@ const looseNumber = z.preprocess((v) => {
   const n = Number(v);
   return Number.isFinite(n) && n >= 0 ? n : undefined;
 }, z.number().optional());
+// «رقم العميل» (number) ليس في المخطّط عمداً ولا يُضاف: يمنحه الخادم وحده ولا يعدّله أحد — zod يُسقط المفاتيح المجهولة،
+// فرقمٌ في جسم الإنشاء أو التعديل (اللوحة والمندوب ومفتاح API) لا أثر له، والمساعد يكتب فوق أي رقم في بيانات الإنشاء
 const customerSchema = z.object({
   // الرقم المرجعي للعميل في نظام المُرسِل (Odoo وغيره) يُحفظ كوداً للعميل — customerRefOf يقرأ أسماءه الشائعة أيضاً
   code: looseText,
@@ -116,6 +122,7 @@ const customerSchema = z.object({
 });
 
 /** «الرقم المرجعي من عندهم» (أمر المالك ٩ نوفمبر ٢٠٢٦): code أو ref أو reference أو externalRef/externalId أو erpRef/odooRef/odooId */
+// ولا «number» بينها: رقم العميل في نظامنا ليس مرجع المُرسِل — مكامِلٌ يرسله لا يُطابَق به عميلٌ ولا يُكتب كوداً ولا رقماً
 const CUSTOMER_REF_KEYS = ['code', 'ref', 'reference', 'externalRef', 'externalId', 'erpRef', 'odooRef', 'odooId', 'refCode'] as const;
 function customerRefOf(body: unknown): string | null {
   const b = (body ?? {}) as Record<string, unknown>;
@@ -131,6 +138,12 @@ function customerByRef(tid: string, ref: string, exceptId?: string) {
     where: { tenantId: tid, code: { equals: ref, mode: 'insensitive' }, ...(exceptId ? { id: { not: exceptId } } : {}) },
     select: { id: true },
   });
+}
+
+/** أرقام البحث العربية-الهندية (٠-٩) والفارسية (۰-۹) إلى لاتينية — ما سواها كما هو */
+function asciiDigits(s: string): string {
+  // U+0660–0669 وU+06F0–06F9: الخانات الأربع الدنيا من رمز المحرف هي قيمة الرقم نفسها
+  return s.replace(/[\u0660-\u0669\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) & 0xf));
 }
 
 /** الاسم الفارغ لا يرفض العميل: اسم المنشأة، ثم الجوال، ثم «عميل» */
@@ -186,6 +199,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const search = req.query.search as string | undefined;
     const status = req.query.status as string | undefined;
     const channel = req.query.channel as string | undefined;
+    // الأرقام العربية-الهندية في البحث (٠٥٥…) تطابق الجوال المخزَّن بأرقام لاتينية — شرطٌ إضافيّ لا بدل الخام
+    const searchAscii = typeof search === 'string' ? asciiDigits(search) : search;
 
     const where = {
       tenantId: tid,
@@ -197,6 +212,10 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
           { businessName: { contains: search, mode: 'insensitive' as const } },
           { phone: { contains: search } },
           { code: { contains: search, mode: 'insensitive' as const } },
+          ...(searchAscii && searchAscii !== search ? [{ phone: { contains: searchAscii } }] : []),
+          // «رقم العميل»: بحثٌ أرقامٌ كلّه (12 أو #12 أو ١٢) يطابق رقم العميل تماماً — مع الاسم والجوال والكود لا بدلها،
+          // فجوالٌ يحوي الأرقام نفسها يطابق كما كان. والنطاق والعزل والشركة خارج OR كما هي
+          ...customerNumberOr(search),
         ],
       }),
       // «جميع الحالات» تعني الأحياء جميعاً لا المحذوفين — والحالة المطلوبة
@@ -205,12 +224,19 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       ...(channel && { channel }),
     };
 
+    const { skip, take } = paginate(page, limit);
     const [total, customers] = await Promise.all([
       prisma.customer.count({ where }),
-      prisma.customer.findMany({
-        where,
-        ...paginate(page, limit),
-        orderBy: { createdAt: 'desc' },
+      // «رقم العميل»: صاحب الرقم المطابق تماماً أوّل الصفحة الأولى ولو كان أقدم العملاء — وإلا سبقه كل جوالٍ يحوي الأرقام نفسها
+      // (createdAt desc) فسقط خارجها. وبقيّة الصفحات مُزاحةٌ صفّاً بلاه، والمجموع كما هو (services/customerNumber.ts)
+      exactNumberFirstPage({
+        search, skip, take,
+        findExact: (n) => prisma.customer.findFirst({ where: { ...where, number: n } }),
+        findPage: (s, t, notId) => prisma.customer.findMany({
+          where: notId ? { ...where, id: { not: notId } } : where,
+          skip: s, take: t,
+          orderBy: { createdAt: 'desc' },
+        }),
       }),
     ]);
 
@@ -224,7 +250,8 @@ router.get('/locations', async (req: AuthRequest, res: Response, next: NextFunct
     const tid = tenantId(req);
     const customers = await prisma.customer.findMany({
       where: { tenantId: tid, ...NOT_DELETED, lat: { not: null }, lng: { not: null }, ...(await customerScope(req, tid)) },
-      select: { id: true, name: true, businessName: true, phone: true, city: true, district: true, address: true, lat: true, lng: true },
+      // «رقم العميل» مع الاسم في نافذة الخريطة
+      select: { id: true, number: true, name: true, businessName: true, phone: true, city: true, district: true, address: true, lat: true, lng: true },
       take: 5000,
     });
     res.json({ success: true, data: customers });
@@ -282,23 +309,23 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (creatorRepId) delete data.priceListId;
     else if (!(await priceListOwned(tid, data.priceListId))) data.priceListId = null; // نوعٌ غريب يُهمل لا يرفض العميل
 
-    // idempotency: عميل سبق رفعه (نفس clientRef) يُعاد بدل إنشاء مكرّر
+    // idempotency: عميل سبق رفعه (نفس clientRef) يُعاد بدل إنشاء مكرّر — الردّ نفسه هنا وتحت قفل الشركة قبل الإدراج (أدناه)
+    const replyReplayed = async (existing: Customer): Promise<void> => {
+      // حارس تصعيد صلاحية: إعادة الرفع بـclientRef لعميل أنشأه مندوب آخر يجب ألا
+      // تمنح المُرسِل إسناداً ولا تكشف بيانات العميل. الإسناد يُضمن لمنشئه فقط.
+      const isMine = !!creatorRepId && existing.createdBySalesRepId === creatorRepId;
+      if (creatorRepId && !isMine && !(await canAccessCustomer(req, tid, existing.id))) {
+        res.status(403).json({ success: false, message: 'هذا العميل غير مسند لك' });
+        return;
+      }
+      if (isMine) await ensureAssignment(tid, existing.id, creatorRepId!);
+      res.status(200).json({ success: true, data: existing, idempotent: true });
+    };
     if (data.clientRef) {
       const existing = await prisma.customer.findFirst({
         where: { tenantId: tid, clientRef: data.clientRef },
       });
-      if (existing) {
-        // حارس تصعيد صلاحية: إعادة الرفع بـclientRef لعميل أنشأه مندوب آخر يجب ألا
-        // تمنح المُرسِل إسناداً ولا تكشف بيانات العميل. الإسناد يُضمن لمنشئه فقط.
-        const isMine = !!creatorRepId && existing.createdBySalesRepId === creatorRepId;
-        if (creatorRepId && !isMine && !(await canAccessCustomer(req, tid, existing.id))) {
-          res.status(403).json({ success: false, message: 'هذا العميل غير مسند لك' });
-          return;
-        }
-        if (isMine) await ensureAssignment(tid, existing.id, creatorRepId!);
-        res.status(200).json({ success: true, data: existing, idempotent: true });
-        return;
-      }
+      if (existing) { await replyReplayed(existing); return; }
     }
 
     // فوترة ZATCA (Z5.1a): حقول المشتري للشركة الجامعة وحدها (البوابة لا تُقرأ إلا إن حمل الجسم حقلاً منها أو الرقم الضريبي/السجل).
@@ -369,9 +396,20 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // R6: عميل صندوق المندوب بلحظة إضافته على الجهاز (replayCustomerCreatedAt) — وغيره ساعة الخادم كما كان
     const addedAt = await replayCustomerCreatedAt(req, tid, clientCreatedAt);
     // idempotency على مستوى التطبيق (لا قيد فريد على clientRef في customers — انظر المخطّط).
-    // المزامنة متسلسلة على جهاز واحد فلا تكرار متزامن؛ والفحص أعلاه يمنع إعادة الرفع.
-    const customer = await prisma.customer.create({
-      data: {
+    // «رقم العميل»: الرقم التالي للشركة يُحجز ويُكتب في معاملة الإنشاء نفسها (قفل صفّ الشركة) — إنشاءٌ يفشل يعيد العدّاد معه.
+    // ومسارٌ واحد لكل منشئ: اللوحة والمندوب متصلاً وصندوقه (X-FS-Replay) ومفتاح API وموصل ERP و«أضف المحل عميلاً».
+    // والإسناد وتوقّعات المندوب الذكي بعد الالتزام: تكتبها اتصالاتٌ أخرى لا ترى صفّاً لم يُلتزم بعد
+    const outcome = await prisma.$transaction(async (tx) => {
+      // سباق إعادة الرفع: فحص clientRef أعلاه خارج أي قفل، وبينه وبين الإدراج انتظاراتٌ (بوابة المشتري، رابط Google عبر الشبكة،
+      // فحص الموقع، قفل الشركة) — فرفعان متزامنان للمستند نفسه (تبويبان يتشاركان صندوق IndexedDB، لكلٍّ علَم syncing خاصّ) كانا
+      // يجتازانه معاً فيُنشأ عميلان ويُستهلك رقمان. وكل إنشاءٍ مرقَّم للشركة يمرّ تحت قفل صفّها متسلسلاً، فإعادة الفحص تحته لا تُسابَق:
+      // الثاني يرى صفّ الأوّل الملتزم ويُعاد كما يُعاد أعلاه
+      if (data.clientRef) {
+        await lockTenantForCustomerNumbers(tx, tid);
+        const replayed = await tx.customer.findFirst({ where: { tenantId: tid, clientRef: data.clientRef } });
+        if (replayed) return { replayed, created: null };
+      }
+      const created = await createNumberedCustomer(tx, tid, {
         // الجوال اختياريّ والعمود NOT NULL ⇒ '' حين يغيب (أمر المالك ٧ نوفمبر)
         ...rest, phone: rest.phone ?? '', email: data.email || null, channel: data.channel || null, outletType: data.outletType || null, aiPlaceId: data.aiPlaceId || null, tenantId: tid,
         ...(data.priceListId !== undefined && { priceListId: data.priceListId || null }),
@@ -379,8 +417,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         ...(addedAt && { createdAt: addedAt }),
         ...(creatorRepId && { createdBySalesRepId: creatorRepId }),
         ...docsCreate,
-      } as any,
-    });
+      } as any);
+      return { replayed: null, created };
+    }, CUSTOMER_NUMBER_TX);
+    if (outcome.replayed) { await replyReplayed(outcome.replayed); return; }
+    const customer = outcome.created;
     // العميل الذي يفتحه المندوب يظهر له فوراً (سجلّ إسناد تلقائي؛ للإدارة نزعه لاحقاً)
     if (creatorRepId) await ensureAssignment(tid, customer.id, creatorRepId);
     // المندوب الذكي: محلٌّ مقترح صار عميلاً ⇒ يُعلَّم في سجلّ الشركة وتُحفظ لقطة توقّعه (لا يُسقط الإنشاء إن فشل)
@@ -469,16 +510,15 @@ async function createMissingOnPut(
   const createdAtDevice = clientCreatedAt ? new Date(clientCreatedAt) : null;
   // R6: وإنشاءٌ هنا من صندوق المندوب يُؤرَّخ كـPOST حرفياً (replayCustomerCreatedAt) — وغيره ساعة الخادم
   const addedAt = await replayCustomerCreatedAt(req, tid, clientCreatedAt);
-  const customer = await prisma.customer.create({
-    data: {
-      ...(keepId && { id: requestedId }),
-      ...rest, phone: rest.phone ?? '', email: rest.email || null, channel: rest.channel || null, outletType: rest.outletType || null, tenantId: tid,
-      ...(rest.priceListId !== undefined && { priceListId: rest.priceListId || null }),
-      clientCreatedAt: createdAtDevice && !Number.isNaN(createdAtDevice.getTime()) ? createdAtDevice : undefined,
-      ...(addedAt && { createdAt: addedAt }),
-      ...(creatorRepId && { createdBySalesRepId: creatorRepId }),
-    } as any,
-  }).catch((err: unknown) => {
+  // «رقم العميل» كـPOST: في معاملة الإنشاء نفسها — وتصادم المعرّف (P2002) يُلغي المعاملة كلها فلا يُستهلك رقمٌ لسباقٍ خاسر
+  const customer = await prisma.$transaction((tx) => createNumberedCustomer(tx, tid, {
+    ...(keepId && { id: requestedId }),
+    ...rest, phone: rest.phone ?? '', email: rest.email || null, channel: rest.channel || null, outletType: rest.outletType || null, tenantId: tid,
+    ...(rest.priceListId !== undefined && { priceListId: rest.priceListId || null }),
+    clientCreatedAt: createdAtDevice && !Number.isNaN(createdAtDevice.getTime()) ? createdAtDevice : undefined,
+    ...(addedAt && { createdAt: addedAt }),
+    ...(creatorRepId && { createdBySalesRepId: creatorRepId }),
+  } as any), CUSTOMER_NUMBER_TX).catch((err: unknown) => {
     if (keepId && isIdConflict(err)) return null;
     throw err;
   });
