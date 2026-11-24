@@ -1,5 +1,6 @@
 import type { PriceListItemWrite, PriceRuleInput } from '../types';
 import axios from 'axios';
+import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { sessionSpace, expiredDestination, useAuthStore } from '../store/authStore';
 import { FS_CAPS_HEADER, FS_CAPS_VALUE } from './caps';
 import { removeUnitParams } from './unitParams';
@@ -982,6 +983,25 @@ export const repStockRequestApi = {
   loaded: (id: string, data: { updatedAt: string; vanLoadId: string }) => api.post(`/rep-stock-requests/${id}/loaded`, data),
   send: (data: { ref: string; requests: { id: string; updatedAt: string }[] }) => api.post('/rep-stock-requests/send', data),
 };
+
+/**
+ * «طلبات المنيو» (طلب المالك ٢٤ نوفمبر ٢٠٢٦): العميل يطلب من منيو المنتجات العام فيصل الطلب مندوبَ الرابط. المسارات للمندوب وحده
+ * (SALES_REP، وغيره 403) — فتطبيقه يبنيها على repApi بـcatalogOrdersApiOf (توكن rep_token وتجديده، و`background` لجلبٍ دوريّ لا
+ * يُخرجه بـ401 عابر)، و`catalogOrdersApi` على جلسة هذه المساحة للتوقيع المشترك وحده. الحالة في الخادم: NEW | SEEN | DONE | CANCELLED
+ */
+type CatalogOrdersHttp = Pick<AxiosInstance, 'get' | 'post'>;
+export const catalogOrdersApiOf = (http: CatalogOrdersHttp) => ({
+  /** طلباتي، الأحدث أولاً بحدّ ١٠٠ — open: الجديدة والمطّلع عليها (NEW|SEEN)، all: كلها. كلٌّ ببنوده و`matchedCustomer` */
+  mine: (status: 'open' | 'all' = 'open', config?: AxiosRequestConfig) => http.get('/catalog-orders/mine', { ...config, params: { status } }),
+  /** { open, fresh } — المفتوحة والجديدة منها: بطاقة «طلب جديد» في الرئيسية لا تظهر إلا بمفتوحٍ واحد على الأقل */
+  count: (config?: AxiosRequestConfig) => http.get('/catalog-orders/mine/count', config),
+  /** فتح الطلب: NEW ⇒ SEEN (متكرّرها لا يضرّ) */
+  seen: (id: string) => http.post(`/catalog-orders/${encodeURIComponent(id)}/seen`),
+  /** إنجازه أو إلغاؤه من NEW|SEEN وحدهما (وإلا 409) — invoiceId فاتورةٌ أصدرها المندوب نفسه في الشركة (وإلا 400) */
+  setStatus: (id: string, status: 'DONE' | 'CANCELLED', invoiceId?: string) =>
+    http.post(`/catalog-orders/${encodeURIComponent(id)}/status`, { status, ...(invoiceId ? { invoiceId } : {}) }),
+});
+export const catalogOrdersApi = catalogOrdersApiOf(api);
 
 // محتوى الصفحة التعريفية التسويقية (CMS) — القراءة عامة، التحرير للمالك
 export const siteContentApi = {

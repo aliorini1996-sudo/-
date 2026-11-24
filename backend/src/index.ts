@@ -67,6 +67,7 @@ import aiAccountantRouter from './routes/aiAccountant';
 import { publicScanHealth } from './ai-rep/publicMaps';
 import workNumbersRouter, { telephonyWebhookRouter } from './routes/workNumbers';
 import publicCatalogRouter from './routes/publicCatalog';
+import catalogOrdersRouter from './routes/catalogOrders';
 import publicEinvoiceRouter from './routes/publicEinvoice';
 import leadsRouter from './routes/leads';
 import leadsCronRouter from './routes/leadsCron';
@@ -276,6 +277,8 @@ app.use('/api/ai-rep', aiRepRouter); // المندوب الذكي AI — خام�
 app.use('/api/ai-accountant', aiAccountantRouter); // «المحاسب الذكي AI» — لمدير الشركة غير المقيَّد؛ خامل حتى يفعّله المالك لكل شركة
 app.use('/api/work-numbers', workNumbersRouter);
 app.use('/api/public', publicCatalogRouter); // منيو المنتجات العام — بلا مصادقة، خلف محدد المعدل العام
+// «طلب من المنيو» — طلبات عملاء المنيو كما يراها المندوب صاحب الرابط (authenticate وSALES_REP داخل الموجّه، routes/catalogOrders.ts)
+app.use('/api/catalog-orders', catalogOrdersRouter);
 // ZATCA المرحلة الثانية (Z5.7) — رابط المشتري: `/api/public/einvoice/:token` بلا مصادقة، الرمز وحده هو الإذن
 app.use('/api/public', publicEinvoiceRouter);
 app.use('/api/leads', leadsRouter);

@@ -1,4 +1,5 @@
 import rateLimit, { Options } from 'express-rate-limit';
+import { isIPv6 } from 'net';
 import jwt from 'jsonwebtoken';
 import { apiKeyFromHeaders, isWellFormedApiKey, hashApiKey, isLiveKeyHash, API_KEY_RATE_PER_MINUTE } from '../services/apiKeys';
 
@@ -93,6 +94,79 @@ export const quoteLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   limit: 60,
   message: { success: false, message: 'عروض كثيرة خلال ساعة حاول لاحقا' },
+});
+
+/** بادئة شبكة IPv6 التي تُعدّ عنواناً واحداً — كافتراض express-rate-limit 8 (ipv6Subnet: 56) */
+export const IPV6_SUBNET_BITS = 56;
+
+/** مجموعات IPv6 الثماني (بلا منطقة %…، والذيل IPv4 مجموعتان) — أو null لعنوانٍ لا يُفهم */
+function ipv6Groups(ip: string): number[] | null {
+  let s = ip.split('%')[0];
+  const v4 = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(s);
+  if (v4) {
+    const [a, b, c, d] = v4.slice(1).map(Number);
+    s = `${s.slice(0, v4.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return null;
+  const part = (x: string) => (x ? x.split(':') : []);
+  const left = part(halves[0]);
+  const right = halves.length === 2 ? part(halves[1]) : [];
+  const gap = 8 - left.length - right.length;
+  if (halves.length === 1 ? gap !== 0 : gap < 0) return null;
+  const groups = [...left, ...Array<string>(halves.length === 2 ? gap : 0).fill('0'), ...right].map((h) => (/^[0-9a-f]{1,4}$/i.test(h) ? parseInt(h, 16) : NaN));
+  return groups.length === 8 && groups.every((n) => Number.isInteger(n)) ? groups : null;
+}
+
+/**
+ * مفتاح عنوان العميل لحدّ المعدّل: IPv4 كما هو (و«::ffff:1.2.3.4» المعيَّن عنوانَه الرابع)، وIPv6 **بشبكته** (/56) لا بعنوانه.
+ * فالمشترك الواحد يُعطى من مزوّده شبكة /56 أو /64 كاملة — ملايين العناوين — فلو عُدّ كل عنوانٍ وحده لبدّل المهاجم عنوانه مع كل
+ * طلبٍ فلا يبلغ الحدّ أبداً. (express-rate-limit 7.5 المثبّت هنا بلا خيار ipv6Subnet — جاء في الإصدار ٨ — فيُحسب هنا)
+ */
+export function ipRateKey(ip: string | null | undefined, v6Bits: number = IPV6_SUBNET_BITS): string {
+  const raw = String(ip ?? '');
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(raw);
+  if (mapped) return mapped[1];
+  if (!isIPv6(raw)) return raw;
+  const g = ipv6Groups(raw);
+  if (!g) return raw;
+  const bits = Math.max(0, Math.min(128, Math.floor(v6Bits)));
+  const masked = g.map((n, i) => {
+    const keep = Math.max(0, Math.min(16, bits - i * 16));
+    return keep === 0 ? 0 : n & ((0xffff << (16 - keep)) & 0xffff);
+  });
+  return `${masked.map((n) => n.toString(16)).join(':')}/${bits}`;
+}
+
+/**
+ * «طلب من المنيو» — إرسال طلب العميل من منيو المنتجات العام بلا دخول (routes/publicCatalog.ts): خمسة طلباتٍ كل عشر دقائق
+ * لكل IP. العميل الحقيقي يرسل طلباً أو اثنين (وإعادة المحاولة بالمرجع نفسه)، ومن يغرق المندوب بطلباتٍ وهمية يتوقّف هنا —
+ * وفوقه سقف الطلبات المفتوحة لكل مندوب في المسار نفسه. دلوٌ مستقلّ عن الحدّ العام فلا يمسّ تصفّح المنيو.
+ * وIPv6 يُعدّ بشبكته /56 (ipRateKey) لا بعنوانه: وإلا بدّل المهاجم عنوانه داخل شبكته مع كل طلب
+ */
+export const catalogOrderLimiter = rateLimit({
+  ...base,
+  windowMs: 10 * 60 * 1000,
+  limit: 5,
+  keyGenerator: (req) => `catalog-order:${ipRateKey(req.ip)}`,
+  message: { success: false, code: 'RATE_LIMITED', message: 'طلبات كثيرة حاول بعد قليل' },
+});
+
+/** سقف طلبات المنيو لكل مندوبٍ في الساعة — فوق حدّ IP */
+export const CATALOG_ORDERS_PER_REP_PER_HOUR = 30;
+
+/**
+ * «طلب من المنيو» — الحدّ الثاني لكل **مندوب** (req.params.repId) بعد حدّ IP: مهاجمٌ يملك عناوين كثيرة (شبكات IPv6 أو بروكسيات)
+ * يتجاوز حدّ IP فيملأ سقف المئة طلبٍ مفتوح للمندوب بطلباتٍ وهمية في دقائق فتُحجب طلبات عملائه الحقيقيين حتى يغلقها واحداً
+ * واحداً. هنا يتوقّف عند ثلاثين في الساعة مهما بدّل عنوانه — ومندوبٌ حقيقي لا يصله من منيوه هذا العدد في ساعة. والردّ 429
+ * بالرمز CATALOG_ORDER_LIMIT نفسه الذي تعرض به الصفحة «طلبات كثيرة — حاول بعد قليل». يُركَّب على المسار نفسه (req.params معبّأة)
+ */
+export const catalogOrderRepLimiter = rateLimit({
+  ...base,
+  windowMs: 60 * 60 * 1000,
+  limit: CATALOG_ORDERS_PER_REP_PER_HOUR,
+  keyGenerator: (req) => `catalog-order-rep:${String(req.params?.repId ?? '')}`,
+  message: { success: false, code: 'CATALOG_ORDER_LIMIT', message: 'طلبات كثيرة حاول بعد قليل' },
 });
 
 /**

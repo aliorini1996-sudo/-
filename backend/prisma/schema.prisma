@@ -240,6 +240,9 @@ model Tenant {
   // «التعميمات» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): قرارات الإدارة وإعلاناتها للمناديب ومستخدمي الشركة (علاقة عكسية فقط، بلا أعمدة)
   circulars             Circular[]
 
+  // «طلب من المنيو» (طلب المالك ٢٤ نوفمبر ٢٠٢٦): طلبات عملاء الشركة من منيو المنتجات العام (علاقة عكسية فقط، بلا أعمدة)
+  catalogOrders         CatalogOrder[]
+
   @@map("tenants")
 }
 
@@ -653,6 +656,7 @@ model SalesRep {
   paymentLinks        CustomerPaymentLink[]
   cardPayments        CardPayment[]
   dailyReports        DailyReport[]
+  catalogOrders       CatalogOrder[] // «طلب من المنيو»: ما أرسله عملاء رابط منيوه (علاقة عكسية فقط)
 
   @@index([tenantId])
   @@index([lastSeenAt])
@@ -931,6 +935,8 @@ model Product {
   repTargets          RepTarget[]
   // «هدف الشهر»: أصناف هدف الكمية الإضافية (هدفٌ بعدة أصناف — طلب المالك ١١ نوفمبر ٢٠٢٦)
   repTargetProducts   RepTargetProduct[]
+  /// «طلب من المنيو»: أسطر طلبات العملاء — SetNull: حذف الصنف يُبقي السطر بلقطة اسمه (productName)
+  catalogOrderItems   CatalogOrderItem[]
 
 
   // ZATCA المرحلة الثانية — الفئة الضريبية
@@ -5434,4 +5440,54 @@ model CircularAck {
   @@unique([circularId, readerKind, readerId])
   @@index([tenantId, readerKind, readerId])
   @@map("circular_acks")
+}
+
+/// «طلب من المنيو» (طلب المالك ٢٤ نوفمبر ٢٠٢٦): عميل الشركة يفتح منيو المنتجات العام (fieldsa.net/c/{tenantId}/{repId})
+/// فيختار أصنافاً ويرسل طلباً يصل المندوب صاحب الرابط؛ وفي تطبيق المندوب أيقونة «طلب جديد» ما دام له طلبٌ مفتوح.
+/// طلبٌ لا مستند: لا يمسّ مخزوناً ولا رصيداً — الفاتورة تصدر من التطبيق بقواعد التسعير العادية ثم تُربط به (invoiceId).
+/// المنطق الصافي في services/catalogOrders.ts، والعلن في routes/publicCatalog.ts، والمندوب في routes/catalogOrders.ts.
+model CatalogOrder {
+  id            String    @id @default(uuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salesRepId    String
+  salesRep      SalesRep  @relation(fields: [salesRepId], references: [id], onDelete: Cascade)
+  /// customer-side idempotency key (uuid generated per checkout by the page)
+  clientRef     String
+  customerName  String
+  customerPhone String
+  /// phoneKey(customerPhone) from services/phoneKey.ts, for matching an existing customer
+  phoneKey      String?
+  note          String?
+  status        String    @default("NEW") // NEW | SEEN | DONE | CANCELLED
+  invoiceId     String?
+  decidedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  items         CatalogOrderItem[]
+
+  @@unique([tenantId, clientRef])
+  @@index([tenantId, salesRepId, status])
+  @@map("catalog_orders")
+}
+
+/// سطر طلب المنيو: لقطة الصنف ووحدته وسعره لحظة الطلب من القاعدة — لا من العميل أبداً
+model CatalogOrderItem {
+  id          String       @id @default(uuid())
+  orderId     String
+  order       CatalogOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String?
+  product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName String
+  unitName    String?      // null = base unit
+  unitFactor  Float        @default(1)
+  qty         Float        // in the line's unit
+  unitPrice   Float        // net (before tax) price of ONE line unit at order time, as shown in the menu
+  taxPct      Float        @default(0)
+
+  // فهرسا المفتاحين الأجنبيين: PostgreSQL لا يفهرسهما تلقائياً — أسطر الطلب تُقرأ بطلبها في كل قائمة للمندوب،
+  // وحذف الصنف حذفاً حقيقياً (SetNull) يبحث عن أسطره بمعرّفه فلا يمسح الجدول كله
+  @@index([orderId])
+  @@index([productId])
+  @@map("catalog_order_items")
 }
