@@ -1646,6 +1646,8 @@ router.post('/pending-loads/:id/accept', async (req: AuthRequest, res: Response,
     if (!body.success || body.data.type !== 'LOAD' || !row.salesRepId) { pendingRefuse(res, 409, 'PENDING_LOAD_CHANGED'); return; }
     const salesRepId = row.salesRepId;
     const now = new Date();
+    // الموقع زوجٌ كامل أو لا شيء — إحداثيةٌ وحدها لا تدلّ على مكان
+    const fix = lat != null && lng != null ? { lat, lng } : null;
     const cap = captureReply();
     try {
       await executeVanMovement(req, cap, { ...body.data, type: 'LOAD', salesRepId, clientRef: undefined, deletedSalesRepId: undefined, mode: undefined }, {
@@ -1665,7 +1667,7 @@ router.post('/pending-loads/:id/accept', async (req: AuthRequest, res: Response,
         afterCreate: async (tx, load) => {
           await tx.pendingVanLoad.update({
             where: { id },
-            data: { status: 'ACCEPTED', acceptedAt: now, signature, acceptedLat: lat ?? null, acceptedLng: lng ?? null, vanLoadId: load.id },
+            data: { status: 'ACCEPTED', acceptedAt: now, signature, acceptedLat: fix?.lat ?? null, acceptedLng: fix?.lng ?? null, vanLoadId: load.id },
           });
         },
       });

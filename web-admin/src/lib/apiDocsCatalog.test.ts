@@ -143,6 +143,8 @@ const COVERED_ROUTERS = [
   'ledger/linking',
   // «طريقة توزيع الخطوط» (٢٢ نوفمبر ٢٠٢٦): مسارا الجدول والترتيب الجديدان لا يسقطان من الدليل
   'repRoutes',
+  // «قبول المندوب للتحميل وتوقيعه» (٢٤ نوفمبر ٢٠٢٦): موجّه الإعداد /company/van-load-acceptance — ومسارات المعلّق في vanStock مستثناة أدناه
+  'companyVanLoadAcceptance',
 ];
 const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'PUT /company/teams/:id/supervisors': 'يرفض مفاتيح API دائماً بـ403 (API_KEY_FORBIDDEN بعد فحص صلاحيتي الإعدادات والمستخدمين) — نطاق مستخدمي الشركة من اللوحة وحدها، ومذكورٌ في مقدمة مجموعة الفرق',
@@ -159,6 +161,13 @@ const NOT_DOCUMENTED: Readonly<Record<string, string>> = {
   'GET /ledger/linking/previews': 'يرفض مفاتيح API دائماً بـ403 (LEDGER_LINKING_INTERACTIVE_ONLY بعد حرّاس الدفاتر وcanConfigureLedger) — آخر معاينات ربط الدفاتر لمالك الشركة من لوحة التحكم وحدها',
   'GET /ledger/linking/preflight': 'يرفض مفاتيح API دائماً بـ403 (LEDGER_LINKING_INTERACTIVE_ONLY بعد حرّاس الدفاتر وcanConfigureLedger) — الفحوص المسبقة لربط الدفاتر لمالك الشركة من لوحة التحكم وحدها',
   'GET /ledger/linking/conversion': 'يرفض مفاتيح API دائماً بـ403 (LEDGER_LINKING_INTERACTIVE_ONLY بعد حرّاس الدفاتر وcanConfigureLedger) — حالة تحويل الدفاتر اليدوية وقيودها المكرّرة لمالك الشركة من لوحة التحكم وحدها',
+  'PATCH /company/van-load-acceptance': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — «قبول المندوب للتحميل وتوقيعه» قرارٌ للشركة كلها من لوحة التحكم بصلاحية إعدادات الشركة لغير المقيّد بنطاق، ومذكورٌ في GET /company/van-load-acceptance',
+  'GET /van-stock/pending-loads': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — «تحميلات بانتظار القبول» لصفحة مخزون السيارات وتطبيق الإدارة على الجوال وتطبيق المندوب وحدها، والتحميل المرسل ليس حركةً حتى يقبله المندوب (مذكورٌ في POST /van-stock/loads وGET /van-stock/loads)',
+  'GET /van-stock/pending-loads/:id': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — تفصيل التحميل المرسل بتوقيع المندوب لإشعاره المطبوع من اللوحة وتطبيق المندوب',
+  'POST /van-stock/pending-loads/:id/accept': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — قبول المندوب المستلم وتوقيعه من تطبيقه وحده (والإدارة 403 PENDING_LOAD_REP_ONLY)، وحركته تصل المفتاح في GET /van-stock/loads بـacceptedAt وpendingLoadId',
+  'POST /van-stock/pending-loads/:id/dispute': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — اعتراض المندوب المستلم بملاحظته من تطبيقه وحده',
+  'PUT /van-stock/pending-loads/:id': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — تعديل التحميل المرسل من لوحة التحكم وتطبيق الإدارة على الجوال وحدهما (والمندوب 403 PENDING_LOAD_ADMIN_ONLY)',
+  'POST /van-stock/pending-loads/:id/cancel': 'يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN — إلغاء التحميل المرسل قبل قبوله من لوحة التحكم وتطبيق الإدارة على الجوال وحدهما',
   'POST /ledger/linking/commit': 'يرفض مفاتيح API دائماً بـ403 (LEDGER_LINKING_INTERACTIVE_ONLY بعد حرّاس الدفاتر وcanConfigureLedger) — اعتماد «ربط الدفاتر بالنظام» النهائي لمالك الشركة من لوحة التحكم وحدها باسم الشركة وإقرار «نهائي»',
 };
 
@@ -2158,4 +2167,52 @@ test('«طريقة توزيع الخطوط»: مسارات /rep-routes كلها 
   // تعديل الدائم يرث createdAt في الخادم والمستند
   assert.match(src, /\.\.\.\(kept && \{ createdAt: kept\.createdAt \}\)/);
   assert.match(JSON.stringify(endpointOf('POST', '/rep-routes').rules), /وبتاريخ إنشائه createdAt/);
+});
+
+/**
+ * «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): المستند يُسلَّم لمبرمج الشركة ومفتاحه لا يُعلَّق أبداً — فمسارات التحميل
+ * المرسل وقلب الإعداد مستثناة لا موثّقة، والسبب صادقٌ ما دام الخادم يرفض المفتاح في كل منها قبل أي قراءة، ويستثني المفتاح من التعليق.
+ * والمستند يقول ذلك في POST /van-stock/loads، ويوثّق العمودين acceptedAt وpendingLoadId والعلم وحاله في /company.
+ */
+test('قبول المندوب للتحميل: مسارات المعلّق والإعداد مستثناة لأن الخادم يرفض المفتاح فيها، وLOAD بالمفتاح لا يُعلَّق، والعمودان والعلم موثّقة', () => {
+  const src = routeFile('vanStock');
+  const routes = [...src.matchAll(/router\.(get|post|put|patch|delete)\('(\/pending-loads[^']*)'/g)];
+  const keys = routes.map((m) => `${m[1].toUpperCase()} /van-stock${m[2]}`);
+  assert.equal(keys.length, 6, 'ستة مسارات للتحميل المرسل');
+  assert.deepEqual([...keys].sort(), Object.keys(NOT_DOCUMENTED).filter((k) => k.includes(' /van-stock/pending-loads')).sort());
+  for (const k of keys) assert.ok(!documented.has(k), `${k} في المستند والمفتاح يُرفض فيه دائماً`);
+  // أول ما في كل معالج: حارسٌ يرفض المفتاح 403 API_KEY_FORBIDDEN
+  for (const m of routes) {
+    const body = src.slice(m.index!, src.indexOf('\nrouter.', m.index! + 1));
+    const guard = /try \{\s*if \((\w+)\(req, res\)\) return;/.exec(body);
+    assert.ok(guard, `${m[2]}: لا حارس مفتاح أول المعالج`);
+    const def = src.slice(src.indexOf(`const ${guard![1]} = `), src.indexOf('};', src.indexOf(`const ${guard![1]} = `)));
+    assert.ok(def.includes('req.user?.apiKeyId') && def.includes("'API_KEY_FORBIDDEN'"), `${guard![1]} لا يرفض المفتاح`);
+  }
+  // التعليق لا يكون لطلب المفتاح ولا للمندوب ولا لإعادة الرفع، ولغير LOAD
+  const wanted = src.slice(src.indexOf('async function pendingLoadWanted'), src.indexOf('\n}\n', src.indexOf('async function pendingLoadWanted')));
+  for (const s of ["if (data.type !== 'LOAD') return false;", "if (req.user?.role === 'SALES_REP') return false;", 'if (req.user?.apiKeyId) return false;']) {
+    assert.ok(wanted.includes(s), `pendingLoadWanted بلا: ${s}`);
+  }
+  // الإعداد: القراءة موثّقة (مسموحة للمفتاح)، والقلب مستثنى لأن المفتاح يُرفض فيه أولاً
+  assert.ok(MOUNTS.get('/company/van-load-acceptance')?.has('companyVanLoadAcceptance'), 'موجّه الإعداد غير مركّب تحت /company/van-load-acceptance');
+  const setting = routeFile('companyVanLoadAcceptance');
+  const patchBody = setting.slice(setting.indexOf("router.patch('/'"));
+  assert.match(patchBody, /try \{\s*\/\/[^\n]*\n\s*if \(req\.user\?\.apiKeyId\) \{ refuse\(res, 403, 'API_KEY_FORBIDDEN'\); return; \}/);
+  assert.ok('PATCH /company/van-load-acceptance' in NOT_DOCUMENTED && documented.has('GET /company/van-load-acceptance'));
+  assert.match(setting, /data: \{ enabled: row\?\.vanLoadAcceptance === true, openCount \}/);
+  assert.equal(endpointOf('GET', '/company/van-load-acceptance').response, '{success:true, data:{enabled, openCount}}');
+  assert.match(JSON.stringify(endpointOf('GET', '/company/van-load-acceptance').rules), /409 VAN_LOAD_ACCEPTANCE_OPEN_LOADS/);
+  assert.ok(setting.includes("'VAN_LOAD_ACCEPTANCE_OPEN_LOADS'"), 'الخادم لا يرسل VAN_LOAD_ACCEPTANCE_OPEN_LOADS');
+  // المستند: المفتاح يُكتب فوراً، والتعليق للوحة بردّه، والعمودان في السجلّ، والعلم في /company
+  const post = JSON.stringify(endpointOf('POST', '/van-stock/loads').rules);
+  assert.match(post, /pending:true/);
+  assert.match(post, /وطلب المفتاح لا يُعلَّق أبداً/);
+  assert.match(endpointOf('GET', '/van-stock/loads').response, /clientRef, acceptedAt, pendingLoadId, items/);
+  assert.match(JSON.stringify(endpointOf('GET', '/van-stock/loads').rules), /acceptedAt وpendingLoadId/);
+  assert.match(JSON.stringify(endpointOf('GET', '/company').rules), /vanLoadAcceptance/);
+  // والعمودان في ردّ السجلّ من الحركة نفسها (...l) كما يكتبهما القبول وحده، وفي الخط الزمني لحركة القبول وحدها
+  assert.ok(src.includes('...(opts.stamp && { acceptedAt: opts.stamp.acceptedAt, pendingLoadId: opts.stamp.pendingLoadId })'), 'القبول لا يختم الحركة');
+  assert.ok(src.includes('...(l.pendingLoadId && { pendingLoadId: l.pendingLoadId, acceptedAt: l.acceptedAt }),'), 'الخط الزمني بلا العمودين');
+  assert.match(JSON.stringify(endpointOf('GET', '/van-stock/movements').rules), /pendingLoadId وacceptedAt في حركة LOAD/);
 });

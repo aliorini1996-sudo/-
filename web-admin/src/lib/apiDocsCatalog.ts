@@ -4862,6 +4862,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "«تتبّع LOT» — الانشغال: 503 {code:'LOT_BUSY', detail:{cause|reason}} حين يكون الصنف مشغولاً بعملية تشغيلات أخرى، أو تبدّل تتبّعه أثناء الطلب (detail.reason = 'TRACKING_CHANGED')، أو طال انتظار المعاملة تحت الضغط — ومنه حركةٌ أصنافها كلها غير متتبَّعة والميزة مفعّلة للشركة. لا يُكتب شيء، فأعد الطلب (بالـclientRef نفسه إن أرسلته). والميزة مطفأة لا LOT_BUSY",
      "«تتبّع LOT» — شكل 409 LOT_STOCK_INSUFFICIENT (الكميات بالأساس): في الإنقاص من السيارة detail {productId, bucket, wanted, lines:[idx], sources:[{lotId, lotNumber, usable, status, expiryDate}]} — bucket دلو السيارة SELLABLE أو EXPIRED أو DAMAGED، وwanted ما طُلب منه للصنف، وlines مواضع أسطره في items كما أرسلتها، وsources مصادره الصالحة (lotId: null للرصيد غير المسمّى)، ولتشغيلة صريحة يضاف lotId وlotNumber. وفي التحميل من المستودع detail {productId, wanted, available, byLot:[{lotId, lotNumber, usable, status, expiryDate}], unknownUsable}، ومعه hint = 'RECEIVE_FIRST' حين لا شيء صالح في المستودع للصنف، ولتشغيلة صريحة {productId, lotId, lotNumber, wanted, usable}",
      "createdBy يُسجَّل ADMIN لكل طلب من غير المندوب",
+     "«قبول المندوب للتحميل وتوقيعه» (منذ ٢٤ نوفمبر ٢٠٢٦، إعدادٌ يفعّله مدير الشركة من لوحة التحكم — vanLoadAcceptance في GET /company): تحميل LOAD من لوحة التحكم أو تطبيق الإدارة على الجوال لا يُكتب حينها بل يُرسل للمندوب «بانتظار قبوله» (ردّه 201 {success:true, pending:true, data:<التحميل المرسل>} بلا حركة ولا أثر في أي رصيد) حتى يقبله المندوب ويوقّع عليه فتُكتب الحركة لحظة القبول. وطلب المفتاح لا يُعلَّق أبداً: LOAD بالمفتاح يُكتب فوراً بردّ الحركة المعتاد أعلاه ولو كانت الميزة مفعّلة، وكذلك UNLOAD وADJUST وكل حركات المندوب. فلا pending في ردود مفتاحك، والتحميل الذي كتبه قبول المندوب يصلك لحظة قبوله في GET /van-stock/loads (بـacceptedAt وpendingLoadId غير فارغين) وفي مزامنة van-loads حركةً جديدة",
      "EXPIRED_OUT وDAMAGED_OUT: كمياتٌ موجبة لا يتجاوز مجموعها بالأساس رصيد expired أو damaged للصنف في السيارة (وإلا 400)، ولا تمسّ remaining ولا المستودع",
      "منع التكرار بـclientRef الاختياري (انظر الحقل): أرسله فتصير إعادة المحاولة بعد انقطاعٍ أو مهلة آمنة، والمكرَّر 200 بالحركة القائمة وreplay:true. بلاه كل طلبٍ حركةٌ جديدة. ولا مسار تعديل أو حذف: التصحيح بحركة معاكسة أو تسوية",
      "إن غاب salesRepId يُرَدّ 400 برسالة «يجب تحديد المندوب»",
@@ -5226,7 +5227,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, reason, note, createdBy:'REP'|'ADMIN'|null, createdAt, zeroRunId, clientRef, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, lineRef, product:{id,name,unit,primaryUnitId}, lots?}], salesRep:{id,name}, location:{id,name}|null}], pagination?:{total, page, limit, pages}}",
+    "response": "{success:true, data:[{id, tenantId, salesRepId, deletedSalesRepId, locationId, type, reason, note, createdBy:'REP'|'ADMIN'|null, createdAt, zeroRunId, clientRef, acceptedAt, pendingLoadId, items:[{id, vanLoadId, productId, qty, unitName, unitFactor, baseQty, suggestedQty, expectedQty, lineRef, product:{id,name,unit,primaryUnitId}, lots?}], salesRep:{id,name}, location:{id,name}|null}], pagination?:{total, page, limit, pages}}",
     "rules": [
      "بلا page: آخر 100 حركة فقط، الأحدث أولاً، بلا pagination. ومع page: صفحات مرقّمة بحدّ 200. للتاريخ الكامل استعمل /v1/sync/van-loads",
      "location هو ختم موقع المندوب لحظة التحميل (حركات LOAD وحدها تُختم حين تفعّل الشركة ميزة «لوكيشن»)، ولا يتغيّر إن نُقل المندوب لاحقاً. وnull لما بلا ختم",
@@ -5236,7 +5237,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "lineRef «مرجع السطر» (لكل الشركات): ما أرسلته في items[].lineRef عند POST /van-stock/loads كما هو، وnull لما لم يُرسَل (ومنه حركات اللوحة وتطبيق المندوب)",
      "zeroRunId (string أو null): معرّف عملية «تصفير المخزون» التي كتبت الحركة، وnull لكل حركة غيرها. التصفير يكتب لكل سيارة مندوب قائم (ولو موقوفاً) فيها رصيد: ADJUST يُعيد الرصيد القابل للبيع إلى الصفر (والسالب بسطر موجب)، وDAMAGED_OUT لرصيد التالف، وEXPIRED_OUT لرصيد المنتهي، كلها بالملاحظة «تصفير المخزون» وcreatedBy='ADMIN' وبنود بوحدة الأساس، ومعها حركة ADJUST واحدة للمستودع بالمعرّف نفسه (GET /warehouse/entries). وسيارات المناديب المحذوفين لا تُمسّ. و«تصفير سيارة مندوب واحدة» (من صفحة «مخزون السيارات» في اللوحة، POST /stock-zero بـsalesRepId) يكتب حركات سيارته وحدها بمعرّف عمليته بلا حركة مستودع ولا حركة لغيرها. فاعرف حركات التصفير بـzeroRunId لا بنص الملاحظة",
      "التصفير نفسه (POST /stock-zero) من لوحة التحكم وحدها: يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN (ولتصفير سيارة مندوب واحدة بالمفتاح، ومنها الأصناف المتتبَّعة: POST /van-stock/zero، وحركته تسوية ADJUST بالسبب COUNT). والصنف المتتبَّع بالتشغيلة (و«تتبّع LOT» مفعّلة) يُصفَّر تشغيلةً تشغيلة: بنده الصافي نفسه في ADJUST وEXPIRED_OUT وDAMAGED_OUT ومعه items[].lots صفٌّ لكل تشغيلة (lotId) وصفٌّ لغير المسمّى (lotId: null) بكميته في اتجاه التصفير — فصفّ تشغيلةٍ رصيدها سالب موجبٌ داخل تسوية النقص — ومجموع الصفوف كمية البند، فيصير رصيد الصنف وكل تشغيلةٍ في السيارة صفراً. والمرتجع المنتهي بتشغيلته يُزال بـEXPIRED_OUT، والتشغيلة المنتهية غير المباعة تُسوّى في ADJUST كبقية المتاح",
-     "reason (string أو null): سبب تسوية السيارة ADJUST كما أُرسل في POST /van-stock/loads (COUNT | DAMAGE | EXPIRY | SHORTAGE_REP | SAMPLE | OTHER)، وnull لغير التسوية وللتسوية بلا سبب"
+     "reason (string أو null): سبب تسوية السيارة ADJUST كما أُرسل في POST /van-stock/loads (COUNT | DAMAGE | EXPIRY | SHORTAGE_REP | SAMPLE | OTHER)، وnull لغير التسوية وللتسوية بلا سبب",
+     "acceptedAt وpendingLoadId («قبول المندوب للتحميل وتوقيعه»، إعدادٌ للشركة من لوحة التحكم): تحميلٌ أرسلته الإدارة للمندوب فقبله ووقّع عليه — acceptedAt لحظة قبوله وتوقيعه (ISO-8601 بتوقيت UTC، والحركة تُكتب حينها) وpendingLoadId معرّف إقراره الموقَّع (مرجعٌ داخلي). وnull لكل حركة غيرها ومنها كل حركات المفتاح. والتحميل المرسل الذي لم يقبله المندوب بعد ليس حركةً فلا يظهر هنا ولا في أي رصيد"
     ],
     "example": ""
    },
@@ -5273,7 +5275,8 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "المرتجع يظهر هنا حتى لو لم يُعَد للمخزون (returnToStock=false)، والمرتجع التالف الداخل رصيد «المرتجع التالف» يظهر RETURN_DAMAGED، وبند بلا صنف يظهر باسم «صنف محذوف»",
      "لا تُعاد معرّفات للبنود أو الأصناف، فقط الاسم والوحدة والكمية: unit وحدة البند كما كُتب (لقطته، وإلا وحدة الصنف) وqty بها، وbaseQty الكمية بوحدة الأساس لمن يجمع",
      "zeroRunId (string أو null): في حركة السيارة معرّف عملية «تصفير المخزون» إن كتبتها (ADJUST وDAMAGED_OUT وEXPIRED_OUT بالملاحظة «تصفير المخزون» فيظهر ref «تصفير المخزون»)، وnull لكل حركة غيرها وللفواتير والمرتجعات دائماً. والتصفير يُطلق من لوحة التحكم وحدها (POST /stock-zero يرفض مفاتيح API دائماً بـ403 API_KEY_FORBIDDEN)",
-     "reason في حركة السيارة حين سُجّل لها سبب تسوية (POST /van-stock/loads بالنوع ADJUST): COUNT | DAMAGE | EXPIRY | SHORTAGE_REP (عجزٌ على المندوب) | SAMPLE | OTHER — وغائبٌ لحركةٍ بلا سبب وللفواتير"
+     "reason في حركة السيارة حين سُجّل لها سبب تسوية (POST /van-stock/loads بالنوع ADJUST): COUNT | DAMAGE | EXPIRY | SHORTAGE_REP (عجزٌ على المندوب) | SAMPLE | OTHER — وغائبٌ لحركةٍ بلا سبب وللفواتير",
+     "pendingLoadId وacceptedAt في حركة LOAD كتبها «قبول المندوب للتحميل وتوقيعه» (إعدادٌ للشركة من لوحة التحكم): معرّف إقرار المندوب الموقَّع ولحظة قبوله — وغائبان لكل حركةٍ غيرها. والتحميل المرسل الذي لم يقبله المندوب بعد لا يظهر هنا"
     ],
     "example": ""
    },
@@ -9923,6 +9926,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "اقرأ طرق الدفع من GET /company/payment-methods وإعدادات الطباعة من GET /company/print-settings ونصوص المطبوعات من GET /company/print-texts لا من الأعمدة الخام: المسارات تعيد الصورة المكتملة بالافتراضي، وتُهمل في الخام ما لا يصلح",
      "buyerVatAddressRelaxed (فكّ قيد الرقم الضريبي والعنوان الوطني، false افتراضياً): يضبطه مدير الشركة من لوحة التحكم وحدها ولا يمسّه PUT /company — وأثره في GET /company/buyer-relax",
      "taxDisabled («إزالة الضريبة» للمنشأة غير المسجّلة في ضريبة القيمة المضافة، false افتراضياً) وtaxModeChangedAt (لحظة آخر تبديل): يضبطه مدير الشركة من لوحة التحكم وحدها ولا يمسّه PUT /company — وأثره في GET /company/tax-mode وPOST /invoices. وdefaultVatPct ونسب الأصناف تبقى كما خُزّنت والشركة بلا ضريبة: لا تبنِ منها نسبة بندٍ جديد",
+     "vanLoadAcceptance («قبول المندوب للتحميل وتوقيعه»، false افتراضياً): يفعّله مدير الشركة من لوحة التحكم وحدها ولا يمسّه PUT /company — وحاله في GET /company/van-load-acceptance. لا يغيّر شيئاً في طلبات المفتاح (POST /van-stock/loads بالمفتاح يُكتب فوراً دائماً)",
      "basePriceLabel («قوائم الأسعار»): اسم السعر الأساسي كما سمّته الشركة، وnull = «السعر الأساسي». يضبطه PUT /price-lists/base-label ولا يمسّه PUT /company، ويعود كذلك في GET /price-lists"
     ],
     "example": ""
@@ -10111,6 +10115,28 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "التبديل PATCH /company/tax-mode {taxDisabled} لمدير الشركة غير المقيّد بنطاق (أو جلسة مالك المنصة) من لوحة التحكم بتحذيرٍ وتأكيد، ولا يُغيَّر بالمفتاح (403 API_KEY_FORBIDDEN). وإرسال القيمة الحالية نفسها لا يكتب شيئاً ولا يقدّم taxModeChangedAt",
      "«إزالة الضريبة» وربط الفوترة الإلكترونية (المرحلة الثانية مع الهيئة) لا يجتمعان: إزالتها والربط مفعّلٌ للشركة أو في بروفته أو مُسلَّحٌ أو حيّ تُرفض 409 TAX_MODE_ZATCA_CONFLICT ومعه reasons من TENANT_FLAG وLIVE وARMED وREHEARSAL، وإعادة الضريبة حرّة دائماً. وتفعيل الربط أو تسليحه أو تشغيله الحيّ والضريبة مزالة يُرفض 409 TAX_OFF_BLOCKS_ZATCA حتى تُعاد الضريبة",
      "القيمة نفسها في GET /company باسم taxDisabled ومعها taxModeChangedAt، ولا يعود فيه taxModeChangedBy (معرّف من بدّل، للتدقيق وحده)"
+    ],
+    "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/company/van-load-acceptance",
+    "purpose": "حال «قبول المندوب للتحميل وتوقيعه» للشركة: هل تحميل الإدارة من لوحة التحكم يُرسل للمندوب فيقبله ويوقّع عليه قبل أن يدخل سيارته",
+    "permission": "أي مستخدم شركة",
+    "gates": [
+     "authenticate",
+     "requireAdmin",
+     "مسموح لمفتاح القراءة فقط"
+    ],
+    "query": [],
+    "body": [],
+    "response": "{success:true, data:{enabled, openCount}}",
+    "rules": [
+     "enabled = true: تحميل LOAD من لوحة التحكم أو تطبيق الإدارة على الجوال يُرسل للمندوب بانتظار قبوله ولا يمسّ المستودع ولا السيارة حتى يقبله ويوقّع عليه، فتُكتب الحركة لحظة القبول بـacceptedAt وpendingLoadId (GET /van-stock/loads). وfalse أو غياب صفّ إعدادات الشركة = التحميل يُكتب فور حفظه كما كان",
+     "openCount: عدد التحميلات المرسلة بانتظار قبول المناديب أو المعترَض عليها — لم تُكتب بعد فلا أثر لها في أي رصيد أو تقرير أو مزامنة",
+     "طلبات المفتاح لا تتأثر: POST /van-stock/loads بالمفتاح يُكتب فوراً في الحالين، فاقرأ هذا لتعرف وحده لماذا قد تتأخر تحميلات اللوحة عن الظهور في مزامنة van-loads",
+     "التبديل لمدير الشركة غير المقيّد بنطاق بصلاحية إعدادات الشركة من لوحة التحكم، ولا يُغيَّر بالمفتاح (403 API_KEY_FORBIDDEN)، ولا يُطفأ ما دام openCount أكبر من صفر (409 VAN_LOAD_ACCEPTANCE_OPEN_LOADS)",
+     "القيمة نفسها في GET /company باسم vanLoadAcceptance"
     ],
     "example": ""
    },

@@ -349,5 +349,6 @@ test('السجلّ موصول: الفلتر والوقائع والأفعال و
   // سيارة المندوب: سبب التسوية أمام مرجع الحركة
   const v = read('MRepLoad.tsx');
   assert.ok(v.includes('const why = vanReasonLabel(m);'));
-  assert.ok(v.includes("subtitle={[why ? tr(why) : '', m.ref].filter(Boolean).join(' · ') || undefined}"));
+  // و«قبول المندوب للتحميل»: وسم «موقع من المندوب» قبله لحركة القبول وحدها
+  assert.ok(v.includes("subtitle={[m.pendingLoadId ? tr(PENDING_LOAD_TEXT.signedBadge) : '', why ? tr(why) : '', m.ref].filter(Boolean).join(' · ') || undefined}"));
 });

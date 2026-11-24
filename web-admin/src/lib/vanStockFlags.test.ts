@@ -175,7 +175,8 @@ test('الشاشتان: التحميل فوق المستودع لا يُحفظ،
   assert.match(page, /!vanPending && !whPending && overWhIds\.size === 0/, 'زرّ الحفظ لا يُعطَّل فوق المستودع');
   assert.match(page, /qc\.setQueriesData<SummaryBody>\(\{ queryKey: \['van-summary'\] \}/, 'التحديث المتفائل لا يصيب مفاتيح الملخّص');
   const m = read('m', 'MRepLoad.tsx');
-  assert.match(m, /disabled=\{!hasMovement \|\| lotBlocked \|\| stockBlocked \|\| save\.isPending\}/);
+  // «قبول المندوب للتحميل»: وتعديل التحميل المرسل بسطر تنزيلٍ محجوبٌ أيضاً (editBlocked) — وفوق المستودع كما كان
+  assert.match(m, /disabled=\{!hasMovement \|\| lotBlocked \|\| stockBlocked \|\| (?:editBlocked \|\| )?save\.isPending\}/);
 });
 
 test('نافذة الفاتورة: المرتجع بمرجع محاولته (D8)، والبيع يعرض متاح السيارة ويُؤكَّد فوقه (#17) — والبيع جسمه كما كان', () => {

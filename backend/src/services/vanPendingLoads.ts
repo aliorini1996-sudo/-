@@ -38,8 +38,9 @@ export const PNG_SIGNATURE_RE = /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/;
 export const pendingAcceptSchema = z.object({
   signature: z.string().max(300_000).regex(PNG_SIGNATURE_RE),
   revision: z.number().int().positive(),
-  lat: z.number().min(-90).max(90).optional(),
-  lng: z.number().min(-180).max(180).optional(),
+  // الموقع اختياري: غائبٌ أو null (جهازٌ بلا إذن موقع) سواء — لا يُرفض إقرارٌ موقَّع لأن الموقع لم يُلتقط
+  lat: z.number().min(-90).max(90).nullish(),
+  lng: z.number().min(-180).max(180).nullish(),
 });
 export const pendingDisputeSchema = z.object({ note: z.string().trim().min(1).max(1000) });
 export const pendingCancelSchema = z.object({ reason: z.string().trim().max(300).optional() });

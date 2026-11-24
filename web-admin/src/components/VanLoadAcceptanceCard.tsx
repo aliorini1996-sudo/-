@@ -3,6 +3,7 @@ import { AlertTriangle, PenLine } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { companyApi } from '../api/client';
 import { useTr } from '../i18n/strings';
+import { activeLocale } from '../utils/format';
 import { PENDING_LOADS_KEY, PENDING_LOAD_TEXT, pendingErrorText, pendingLoadErrorOf, vanLoadAcceptanceOn } from '../lib/pendingLoads';
 
 /**
@@ -64,7 +65,7 @@ export default function VanLoadAcceptanceCard({ company }: { company: unknown })
       {offBlocked && (
         <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-[11px] leading-relaxed flex items-start gap-1.5" role="note">
           <AlertTriangle size={13} className="shrink-0 mt-0.5" />
-          <span>{tr(PENDING_LOAD_TEXT.settingOpen)} ({openCount.toLocaleString()})</span>
+          <span>{tr(PENDING_LOAD_TEXT.settingOpen)} ({openCount.toLocaleString(activeLocale())})</span>
         </div>
       )}
     </div>

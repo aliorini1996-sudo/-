@@ -18,7 +18,6 @@ import {
 
 type Tr = (ar: string) => string;
 
-export const PENDING_LOADS_PATH = '/van-stock/pending-loads';
 /** شاشة التطبيق ووسيط رابط الإشعار (/rep?screen=vanloads — notifyPendingLoad في الخادم) */
 export const PENDING_LOADS_SCREEN = 'vanloads';
 

@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ArrowRight, Check, CheckCircle2, ChevronLeft, MessageSquareWarning, PenLine, RefreshCw, Truck, WifiOff } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Check, CheckCircle2, ChevronLeft, FileText, MessageSquareWarning, PenLine, RefreshCw, Truck, WifiOff } from 'lucide-react';
 import repApi from './repApi';
 import { cacheGet, cacheSet, currentRepId } from './offlineDb';
 import { isNetworkError } from './offlineSync';
 import SignaturePad from './SignaturePad';
+import { DocumentResult, loadNoticeDocFromData, type Company, type LoadNoticeDoc } from './RepDocuments';
 import { VAN_CURRENT_CACHE_PREFIX, type VanCurrentCache } from './vanStockOffline';
 import { useBackClose } from '../lib/useBackClose';
 import { useTr } from '../i18n/strings';
 import { activeLocale, formatDateTime } from '../utils/format';
 import {
-  fetchPendingList, normalizePendingList, normalizePendingLoad, pendingLoadsClient,
+  acceptanceOf, fetchPendingDetail, fetchPendingList, normalizePendingLoad, noticeMovementOf, pendingLoadsClient,
   type PendingLoadCounts, type PendingLoadList, type PendingVanLoadView,
 } from '../lib/pendingLoads';
 import {
-  DISPUTE_NOTE_MAX, PENDING_COUNTS_FRESH_MS, PENDING_LOADS_PATH, acceptBlocked, acceptBodyOf, disputeNoteOf, lineLotText, lineQtyText,
+  DISPUTE_NOTE_MAX, PENDING_COUNTS_FRESH_MS, acceptBlocked, acceptBodyOf, disputeNoteOf, lineLotText, lineQtyText,
   pendingCacheEntry, pendingCacheOf, pendingHomeCardOf, pendingLoadsCacheKey, repPendingFailureOf, repPendingFailureText, repPendingSections,
 } from './vanLoadAcceptance';
 
@@ -23,6 +24,7 @@ import {
  *   فالشركة المطفأة لا طلب لها ولا مظهر.
  * - الشاشة: الأصناف بكمياتها ووحداتها وتشغيلاتها، و«قبول وتوقيع» (لوحة التوقيع ونصّ الإقرار) أو «اعتراض» بسببٍ إلزامي.
  * - القبول والاعتراض متصلان وحدهما؛ ودون اتصال آخر قائمةٍ محفوظة بلا أزرار. وبعد القبول تُحدَّث أرصدة السيارة ولقطة اللوط.
+ * - المقبول مؤخراً: «إشعار PDF» نسخة المندوب مما وقّعه — إشعار التحميل نفسه بإقراره وتوقيعه ولحظة قبوله (كالإدارة حرفاً).
  * العقد والعميل المشتركان في lib/pendingLoads.ts، وما يخصّ المندوب (الأقسام والكاش والجسمان والرفض) في vanLoadAcceptance.ts.
  */
 
@@ -52,7 +54,7 @@ async function loadMyList(): Promise<PendingLoadList> {
 /** العدّاد بطلبٍ خلفيّ: فشلٌ عابر بـ401 لا يُخرج المندوب (بطاقةٌ تلقائية لا فعلٌ منه) */
 async function loadMyCounts(): Promise<PendingLoadCounts> {
   const me = currentRepId();
-  const list = normalizePendingList((await repApi.get(PENDING_LOADS_PATH, { background: true })).data);
+  const list = await fetchPendingList(client, {}, { background: true });
   keepList(me, list);
   return list.counts;
 }
@@ -177,11 +179,15 @@ export function PendingLoadsStrip({ onOpen }: { onOpen: () => void }) {
 type Active = { id: string; mode: 'accept' | 'dispute' } | null;
 type Net = { kind: 'ok' } | { kind: 'cached'; at: number } | { kind: 'none' };
 
-export default function RepPendingLoads({ onBack, onAccepted, onOpenVanStock }: {
+export default function RepPendingLoads({ onBack, onAccepted, onOpenVanStock, company = null, repName = '' }: {
   onBack: () => void;
   /** بعد قبولٍ نجح — التطبيق يحدّث لقطة اللوط (البيع يعرف التشغيلات التي دخلت السيارة) */
   onAccepted?: () => void;
   onOpenVanStock?: () => void;
+  /** إعدادات الشركة لترويسة إشعار التحميل الموقَّع */
+  company?: Company | null;
+  /** اسم المندوب — احتياطٌ لإقرار الإشعار إن غاب من ردّ الخادم */
+  repName?: string;
 }) {
   const tr = useTr();
   const [list, setList] = useState<PendingLoadList | null>(null);
@@ -196,7 +202,11 @@ export default function RepPendingLoads({ onBack, onAccepted, onOpenVanStock }: 
   // خطأ القبول على البطاقة نفسها — ومعه دعوة الاعتراض حين الخلل في المستودع أو الأصناف
   const [cardErr, setCardErr] = useState<{ id: string; text: string; dispute: boolean } | null>(null);
   const fix = useRef<{ lat: number; lng: number } | null>(null);
+  // إشعار التحميل المقبول (نسخة المندوب الموقَّعة) — يحلّ محلّ القائمة داخل الشاشة، والرجوع يعيدها
+  const [notice, setNotice] = useState<LoadNoticeDoc | null>(null);
+  const [printing, setPrinting] = useState<string | null>(null);
   useBackClose(active !== null, () => setActive(null));
+  useBackClose(notice !== null, () => setNotice(null));
 
   const fmt = (n: number) => Number(n.toFixed(3)).toLocaleString(activeLocale());
 
@@ -299,6 +309,23 @@ export default function RepPendingLoads({ onBack, onAccepted, onOpenVanStock }: 
     setBusy(false);
   };
 
+  /**
+   * «إشعار PDF» للمقبول: الصفّ بتوقيعه والحركة التي كتبها القبول (GET /pending-loads/:id — المندوب يقرأ صفوفه وحده)، ثم إشعار
+   * التحميل بإقراره وتوقيعه ولحظة قبوله — البانية نفسها التي تطبع بها الإدارة. يحتاج اتصالاً (التوقيع لا يُحفظ في الجهاز)
+   */
+  const openNotice = async (row: PendingVanLoadView) => {
+    setPrinting(row.id); setCardErr(null);
+    try {
+      const d = await fetchPendingDetail(client, row.id);
+      if (!d) throw new Error('missing');
+      const v = { ...d.view, repName: d.view.repName || row.repName || repName };
+      setNotice(loadNoticeDocFromData(v.repName, noticeMovementOf(v, d.vanLoad), company, acceptanceOf(v)));
+    } catch (e) {
+      setCardErr({ id: row.id, text: repPendingFailureText(e, tr, 'load'), dispute: false });
+    }
+    setPrinting(null);
+  };
+
   const sections = repPendingSections(list?.rows ?? []);
   const empty = !!list && sections.pending.length + sections.disputed.length + sections.accepted.length === 0;
   const actionsOn = online && net.kind === 'ok';
@@ -347,6 +374,8 @@ export default function RepPendingLoads({ onBack, onAccepted, onOpenVanStock }: 
       )}
     </div>
   );
+
+  if (notice) return <DocumentResult doc={notice} onClose={() => setNotice(null)} />;
 
   return (
     <div className="h-full flex flex-col">
@@ -514,6 +543,15 @@ export default function RepPendingLoads({ onBack, onAccepted, onOpenVanStock }: 
               <ChevronLeft size={16} className="text-gray-400 shrink-0" />
             </summary>
             <div className="mt-2">{lines(row)}</div>
+            {errBox(row)}
+            {/* نسخة المندوب مما وقّعه: إشعار التحميل بإقراره وتوقيعه — من الخادم، فبلا اتصال لا زرّ */}
+            {actionsOn && (
+              <button type="button" onClick={() => { void openNotice(row); }} disabled={printing !== null}
+                className="mt-2 w-full border border-[#cfe8db] bg-[#E4F1EA] text-[#1E7A52] disabled:opacity-60 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 text-sm">
+                {printing === row.id ? <span className="w-4 h-4 border-2 border-[#1E7A52]/30 border-t-[#1E7A52] rounded-full animate-spin" /> : <FileText size={16} />}
+                {tr('إشعار PDF')}
+              </button>
+            )}
           </details>
         ))}
       </div>

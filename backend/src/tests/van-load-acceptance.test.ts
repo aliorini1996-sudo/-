@@ -509,6 +509,18 @@ test('القبول مرّتين: الثانية 200 replay وحركةٌ واحد
   assert.equal(S.vanLoads.length, 1, 'حركةٌ واحدة');
 });
 
+test('القبول بلا موقع: lat/lng غائبان أو null يُقبل بلا إحداثيات، وإحداثيةٌ وحدها لا تُحفظ', async () => {
+  reset();
+  const a = await sendPending();
+  const r = await accept(a, { lat: null, lng: null });
+  assert.equal(r.statusCode, 200, JSON.stringify(r.body));
+  assert.deepEqual([S.pending[0].status, S.pending[0].acceptedLat, S.pending[0].acceptedLng], ['ACCEPTED', null, null]);
+  const b = await sendPending({ ...BODY, items: [{ productId: 'pA', qty: 1 }] });
+  assert.equal((await accept(b, { lat: 24.7 })).statusCode, 200);
+  const row = S.pending.find((p) => p.id === b)!;
+  assert.deepEqual([row.status, row.acceptedLat, row.acceptedLng], ['ACCEPTED', null, null]);
+});
+
 test('القبول يُرفض: مندوبٌ آخر 404، والإدارة 403، وبلا توقيع 400، ومراجعةٌ قديمة 409 REVISED، وإعادة الرفع 400 — بلا حركة', async () => {
   reset();
   const id = await sendPending();

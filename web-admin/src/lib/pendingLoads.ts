@@ -269,7 +269,8 @@ export const PENDING_LOAD_TEXT = {
   editLoadOnly: 'التحميل المرسل للمندوب كميات موجبة فقط — للتنزيل سجل حركة منفصلة',
   acceptedAt: 'وقت القبول',
   signedBadge: 'موقع من المندوب',
-  revised: 'مراجعة',
+  /** «الإصدار ٢»: عدّلته الإدارة بعد إرساله (revision) — لا «مراجعة» (ترجمتها Review) */
+  revised: 'الإصدار',
   /** الإقرار المطبوع على إشعار التحميل المقبول — {name} اسم المندوب */
   declaration: 'أقرّ أنا المندوب {name} باستلام البضاعة الموضحة أعلاه',
   declarationTitle: 'إقرار استلام المندوب',
@@ -321,7 +322,8 @@ export function pendingLoadErrorOf(e: unknown): { status: number; code: string |
 /** نصّ الخطأ للمستخدم مترجماً: رمزٌ معروف ⇒ عبارته، وإلا رسالة الخادم (مترجمةً إن كانت في القاموس)، وإلا البديل */
 export function pendingErrorText(e: unknown, tr: (ar: string) => string, fallback: string): string {
   const err = pendingLoadErrorOf(e);
-  if (err?.code && PENDING_LOAD_MESSAGES[err.code]) return tr(PENDING_LOAD_MESSAGES[err.code]);
+  // مفتاحٌ من الكائن نفسه لا من نموذجه: رمزٌ مثل «toString» كان يعيد دالةً بدل النصّ
+  if (err?.code && Object.prototype.hasOwnProperty.call(PENDING_LOAD_MESSAGES, err.code)) return tr(PENDING_LOAD_MESSAGES[err.code]);
   return err?.message ? tr(err.message) : tr(fallback);
 }
 
@@ -428,7 +430,8 @@ export interface PendingEditBody {
 /* ═══ العميل — أيّ عميلٍ بشكل axios (api للإدارة، repApi للمندوب) ═══ */
 
 export interface HttpLike {
-  get(url: string, config?: { params?: Record<string, unknown> }): Promise<{ data: unknown; status?: number }>;
+  /** background: طلبٌ خلفيّ لعميل المندوب (repApi) — فشله العابر بـ401 لا يُخرج الجلسة؛ وعميل الإدارة يتجاهله */
+  get(url: string, config?: { params?: Record<string, unknown>; background?: boolean }): Promise<{ data: unknown; status?: number }>;
   post(url: string, body?: unknown): Promise<{ data: unknown; status?: number }>;
   put(url: string, body?: unknown): Promise<{ data: unknown; status?: number }>;
 }
@@ -448,15 +451,19 @@ export interface PendingAcceptBody { signature: string; revision: number; lat?: 
 const P = '/van-stock/pending-loads';
 const one = (id: string) => `${P}/${encodeURIComponent(id)}`;
 
+/** خيارات الطلب لا وسائطه — background لعدّاد بطاقة المندوب (طلبٌ تلقائي لا فعلٌ منه) */
+export interface PendingRequestOpts { background?: boolean }
+
 export function pendingLoadsClient(http: HttpLike) {
   return {
-    list: (params: PendingListParams = {}) => http.get(P, {
+    list: (params: PendingListParams = {}, opts: PendingRequestOpts = {}) => http.get(P, {
       params: {
         ...(params.status && { status: params.status }),
         ...(params.salesRepId && { salesRepId: params.salesRepId }),
         ...(params.withSignature && { withSignature: '1' }),
         ...(params.limit && { limit: params.limit }),
       },
+      ...(opts.background && { background: true }),
     }),
     get: (id: string) => http.get(one(id)),
     accept: (id: string, body: PendingAcceptBody) => http.post(`${one(id)}/accept`, body),
@@ -468,8 +475,8 @@ export function pendingLoadsClient(http: HttpLike) {
 export type PendingLoadsClient = ReturnType<typeof pendingLoadsClient>;
 
 /** القائمة مقروءةً (صفوفٌ وعدّادات) */
-export async function fetchPendingList(client: PendingLoadsClient, params?: PendingListParams): Promise<PendingLoadList> {
-  return normalizePendingList((await client.list(params)).data);
+export async function fetchPendingList(client: PendingLoadsClient, params?: PendingListParams, opts?: PendingRequestOpts): Promise<PendingLoadList> {
+  return normalizePendingList((await client.list(params, opts)).data);
 }
 
 /** صفٌّ واحد بتوقيعه، والحركة التي كتبها القبول إن وُجدت (لإشعاره) */

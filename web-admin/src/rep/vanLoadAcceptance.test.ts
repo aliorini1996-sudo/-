@@ -6,12 +6,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import {
-  DISPUTE_NOTE_MAX, PENDING_LOADS_PATH, PENDING_LOADS_SCREEN, SIGNATURE_MAX, acceptBlocked, acceptBodyOf, disputeNoteOf, lineLotText,
+  DISPUTE_NOTE_MAX, PENDING_LOADS_SCREEN, SIGNATURE_MAX, acceptBlocked, acceptBodyOf, disputeNoteOf, lineLotText,
   lineQtyText, pendingCacheEntry, pendingCacheOf, pendingHomeCardOf, pendingLoadsCacheKey, repPendingFailureOf, repPendingFailureText,
   repPendingSections,
 } from './vanLoadAcceptance';
-import { PENDING_LOAD_MESSAGES, normalizePendingList, normalizePendingLoad } from '../lib/pendingLoads';
+import {
+  PENDING_LOAD_MESSAGES, acceptanceOf, fetchPendingDetail, normalizePendingList, normalizePendingLoad, noticeMovementOf, pendingLoadsClient,
+} from '../lib/pendingLoads';
+import { PrintableLoadNotice, loadNoticeDocFromData } from './RepDocuments';
 import { iosPushScreen, type IosPushEvent } from './iosPush';
 
 const read = (...p: string[]) => fs.readFileSync(path.join(process.cwd(), ...p), 'utf8').replace(/\r\n/g, '\n');
@@ -140,8 +145,52 @@ test('الرفض: الانقطاع برسالته لكل فعل، ورموز ا�
   assert.equal(repPendingFailureText(err(500, {}), tr, 'load'), 'تعذر تحميل البيانات');
 });
 
+test('نسخة المندوب الموقَّعة: تفصيل الخادم (GET /pending-loads/:id) ⇒ إشعار التحميل بإقراره وتوقيعه ولحظة قبوله، وغير المقبول بلا إقرار', async () => {
+  const acceptedAt = '2026-11-22T08:15:00.000Z';
+  const detail = {
+    success: true,
+    data: {
+      ...view({ status: 'ACCEPTED', acceptedAt, vanLoadId: 'vl1' }),
+      signature: SIG,
+      vanLoad: {
+        id: 'vl1', createdAt: acceptedAt, createdBy: 'ADMIN', note: 'حمّل صباحاً',
+        items: [
+          { qty: 3, unitName: 'كرتون', unitFactor: 24, baseQty: 72, product: { id: 'a', name: 'ماء', unit: 'حبة', primaryUnitId: null } },
+          { qty: 5, product: { id: 'b', name: 'عصير', unit: 'حبة', primaryUnitId: null } },
+        ],
+      },
+    },
+  };
+  const calls: string[] = [];
+  const http = {
+    get: async (url: string) => { calls.push(`GET ${url}`); return { data: detail }; },
+    post: async (url: string) => { calls.push(`POST ${url}`); return { data: {} }; },
+    put: async (url: string) => { calls.push(`PUT ${url}`); return { data: {} }; },
+  };
+  const d = await fetchPendingDetail(pendingLoadsClient(http), 'p1');
+  assert.deepEqual(calls, ['GET /van-stock/pending-loads/p1'], 'قراءةٌ وحدها — لا كتابة');
+  assert.ok(d);
+  // كما تبنيه الشاشة (openNotice): الاسم من الخادم، والحركة التي كتبها القبول، والإقرار من الصفّ المقبول
+  const v = { ...d.view, repName: d.view.repName || 'احتياط' };
+  const doc = loadNoticeDocFromData(v.repName, noticeMovementOf(v, d.vanLoad), { name: 'شركة الاختبار للتوزيع', countryCode: 'SA' }, acceptanceOf(v));
+  assert.equal(doc.kind, 'loadNotice');
+  assert.equal(doc.repName, 'سالم');
+  assert.deepEqual(doc.acceptance, { repName: 'سالم', signature: SIG, acceptedAt });
+  assert.deepEqual(doc.items.map((i) => i.name), ['ماء', 'عصير'], 'بنود الحركة التي دخلت السيارة');
+  const html = renderToStaticMarkup(createElement(PrintableLoadNotice, { doc }));
+  assert.ok(html.includes('data-load-acceptance'), 'كتلة الإقرار');
+  assert.ok(html.includes('أقرّ أنا المندوب سالم باستلام البضاعة الموضحة أعلاه'));
+  assert.ok(html.includes(`src="${SIG}"`), 'صورة التوقيع');
+
+  // غير المقبول، أو مقبولٌ بلا توقيعٍ صالح: بلا إقرار — والإشعار كما كان حرفاً
+  assert.equal(acceptanceOf(normalizePendingLoad(view())), null);
+  assert.equal(acceptanceOf(normalizePendingLoad({ ...view({ status: 'ACCEPTED', acceptedAt }), signature: 'https://evil/x.png' })), null);
+  const plain = loadNoticeDocFromData('سالم', noticeMovementOf(normalizePendingLoad(view())!), null, null);
+  assert.equal('acceptance' in plain, false);
+  assert.ok(!renderToStaticMarkup(createElement(PrintableLoadNotice, { doc: plain })).includes('data-load-acceptance'));
+});
+
 test('المسار وشاشة الإشعار — كما يرسلها الخادم', () => {
-  assert.equal(PENDING_LOADS_PATH, '/van-stock/pending-loads');
   assert.equal(PENDING_LOADS_SCREEN, 'vanloads');
   const e = (over: Partial<IosPushEvent>): IosPushEvent => ({ kind: 'open', id: 'i', tag: null, checkId: null, url: null, at: 1, ...over });
   assert.equal(iosPushScreen(e({ kind: 'open', tag: 'van-load', url: '/rep?screen=vanloads' })), 'vanloads', 'لمس إشعار الآيفون يفتح شاشة القبول');
@@ -175,6 +224,11 @@ test('حارس ثابت: RepApp — الشركة المطفأة كما كانت 
   assert.ok(app.includes("if (!accountingOn && screen === 'vanloads') setScreen('home');"));
   // بعد القبول: لقطة اللوط بجلبٍ يبدأ بعده
   assert.match(app, /onAccepted=\{\(\) => \{ void refreshVanLots\(0, true\); \}\}/);
+  // الشاشة لا تُعاد بمزامنةٍ رفعت صفّاً صادراً (refreshKey) — توقيعٌ قيد الرسم لا يُمحى؛ والشركة واسم المندوب لإشعاره الموقَّع
+  const screen = app.slice(app.indexOf("{screen === 'vanloads' && ("), app.indexOf("{screen === 'dailyreport' &&"));
+  assert.ok(screen.includes('<RepPendingLoads onBack='));
+  assert.doesNotMatch(screen, /key=/);
+  assert.ok(screen.includes('company={company} repName={user.name} />'));
   // الحرّاس القائمة لم تتغيّر
   assert.match(app, /if \(s === 'attendance' \|\| s === 'presence'\) \{\s*if \(s === 'attendance'\) setScreen\('attendance'\);/);
   assert.match(app, /<RepVanStock canLoad=\{user\.canManageVanStock !== false\} canRequest=\{\(company as \{ warehouseEnabled\?: boolean \} \| null\)\?\.warehouseEnabled === true\} \/>/);
@@ -199,6 +253,16 @@ test('حارس ثابت: RepPendingLoads — العميل المشترك، وا�
   assert.ok(acc.includes('void refreshVanCurrentCache();'), 'أرصدة السيارة المحفوظة بعد القبول');
   assert.ok(ui.includes('cacheSet<VanCurrentCache<unknown>>(VAN_CURRENT_CACHE_PREFIX + me, { v: 1, repId: me, fetchedAt: startedAt, rows })'));
   // العدّاد: طلبٌ خلفيّ لا يُخرج المندوب، ومحفوظٌ لكل مندوب
-  assert.ok(ui.includes('repApi.get(PENDING_LOADS_PATH, { background: true })'));
+  assert.ok(ui.includes('await fetchPendingList(client, {}, { background: true });'), 'عبر العميل المشترك لا نداءً مكرّراً');
+  assert.doesNotMatch(ui, /repApi\.(get|post|put)\([^)]*pending-loads/, 'لا مسار معلّقٍ خارج العميل المشترك');
   assert.ok(ui.includes('pendingCacheOf(hit?.data, me)'));
+  // «إشعار PDF» للمقبول: تفصيل الخادم بتوقيعه ثم البانية نفسها التي تطبع بها الإدارة — متصلٌ وحده، والرجوع يغلقه
+  assert.ok(ui.includes('const d = await fetchPendingDetail(client, row.id);'));
+  assert.ok(ui.includes('setNotice(loadNoticeDocFromData(v.repName, noticeMovementOf(v, d.vanLoad), company, acceptanceOf(v)));'));
+  assert.ok(ui.includes('if (notice) return <DocumentResult doc={notice} onClose={() => setNotice(null)} />;'));
+  assert.ok(ui.includes('useBackClose(notice !== null, () => setNotice(null));'));
+  const acceptedPart = ui.slice(ui.indexOf('{sections.accepted.map('));
+  assert.ok(acceptedPart.includes('{actionsOn && (') && acceptedPart.includes('onClick={() => { void openNotice(row); }}'), 'دون اتصال لا زرّ');
+  // الشاشة لا تقرأ التوقيع من الكاش ولا تحفظه: القائمة المحفوظة صفوف العرض وحدها (الخادم لا يرسل التوقيع في القائمة للمندوب)
+  assert.doesNotMatch(ui, /cacheSet\([^)]*signature/);
 });

@@ -6374,10 +6374,12 @@ export default function RepApp() {
               <div className="flex-1 overflow-hidden">
                 {screen === 'home' && <RepHome key={refreshKey} refreshKey={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} attendanceOn={attendanceOn} aiRepOn={aiRepOn} vanLoadsOn={vanLoadsOn} />}
                 {screen === 'vanloads' && (
-                  <RepPendingLoads key={`vanloads-${refreshKey}`} onBack={() => setScreen('home')}
+                  // بلا refreshKey في المفتاح: مزامنةٌ رفعت صفّاً صادراً لا تمسّ هذه القائمة — وإعادة التركيب كانت تمحو توقيعاً قيد الرسم
+                  <RepPendingLoads onBack={() => setScreen('home')}
                     // البيع يعرف التشغيلات التي دخلت السيارة للتوّ (لقطة اللوط بجلبٍ يبدأ بعد القبول)
                     onAccepted={() => { void refreshVanLots(0, true); }}
-                    onOpenVanStock={() => setScreen('vanstock')} />
+                    onOpenVanStock={() => setScreen('vanstock')}
+                    company={company} repName={user.name} />
                 )}
                 {screen === 'dailyreport' && <RepDailyReport key={refreshKey} onDone={() => setScreen('home')} />}
                 {screen === 'route' && <RepRouteScreen key={`route-${refreshKey}`} onBack={() => setScreen('home')} onOpenCustomer={openCustomerById} accountingOn={accountingOn} />}
