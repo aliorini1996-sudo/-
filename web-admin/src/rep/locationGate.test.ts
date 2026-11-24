@@ -29,9 +29,11 @@ test('حارس ثابت: الحاجز على صفحة العميل وحدها، 
   assert.match(gateFn, /tr\('لا تدخل صفحة اي عميل حتى يكون موقعك مفعلا ومحددا بدقة وانت متصل وظاهر على الخريطة — وبقية التطبيق متاحة لك'\)/);
   const gate = app.slice(app.indexOf('function LocationOffGate('), app.indexOf('function GeoGate('));
   assert.match(gate, /className="absolute inset-0 z-\[1300\]/, 'الحاجز يعلو كل طبقة (ماسح الباركود z-70، عارض الصور z-1200)');
-  // ولا طبقة في تطبيق المندوب تعلوه
+  // ولا طبقة في تطبيق المندوب تعلوه — إلا بوّابة «التعميمات» عمداً (طلب المالك ٢٣ نوفمبر ٢٠٢٦): نافذةٌ لا تُغلق إلا بـ«تمت القراءة»
+  // فوق الحاجز وتحت «أثبت تواجدك»، وحارس طبقتها في lib/circularGate.test.ts
   for (const f of ['RepApp.tsx', 'RepDocuments.tsx', 'BarcodeScanner.tsx', 'RepAiScreen.tsx', 'RepRouteScreen.tsx', 'RepDailyReport.tsx']) {
-    for (const m of read('rep', f).matchAll(/\bz-\[(\d+)\]/g)) assert.ok(Number(m[1]) <= 1300, `${f}: z-[${m[1]}] فوق الحاجز`);
+    const src = read('rep', f).replace(/<CircularGate\b[^>]*?zClass="z-\[\d+\]"/g, '<CircularGate');
+    for (const m of src.matchAll(/\bz-\[(\d+)\]/g)) assert.ok(Number(m[1]) <= 1300, `${f}: z-[${m[1]}] فوق الحاجز`);
   }
   // طبقة الحاجز تُدفع فوق طبقات صفحة العميل — وهذه لا تُسحب تحته (يبقى ترتيبها مع أوراقها الداخلية بعد انقطاعٍ لحظي)
   for (const m of ["useBackClose(modal === 'customerDetail', closeCustomerDetail);", 'useBackClose(!!docResult, closeDocResult);']) {

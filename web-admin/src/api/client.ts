@@ -8,6 +8,7 @@ import type { PrintTextsV1 } from '../lib/print/printTextsCore';
 import type { PaymentMethodsConfigInput } from '../lib/paymentMethodsCore';
 import type { RepTargetComboInput, RepTargetInput } from '../lib/repTargets';
 import type { SalesInboxParams, SalesUpdate } from '../lib/salesCrm';
+import type { CircularAudience, CircularCreateBody } from '../lib/circulars';
 import type { ChatRequest as AiAccountantChatRequest } from '../lib/aiAccountant';
 import type { AcctDocPatch } from '../lib/aiAccountantDocs';
 import type {
@@ -461,6 +462,18 @@ export const companyUserApi = {
     api.get(`/company-users/${id}/settlements/${settlementId}/photos`),
   deleteSettlement: (id: string, settlementId: string) =>
     api.delete(`/company-users/${id}/settlements/${settlementId}`),
+};
+
+// «التعميمات» — /api/circulars (طلب المالك ٢٣ نوفمبر ٢٠٢٦): قرارٌ أو إعلانٌ إداريّ للمناديب (REPS، صلاحية المناديب) أو لمستخدمي
+// الشركة (USERS، صلاحية مستخدمي الشركة) يظهر للموظف في نافذةٍ حين يفتح التطبيق حتى يضغط «تمت القراءة».
+// الإدارة: list/create/reads/withdraw — والموظف (مدير الشركة في اللوحة و/m): pending/ack (الإقرار متكرّرٌ بلا أثر، و٤٠٤ لغير المعلّق له)
+export const circularsApi = {
+  list: (audience: CircularAudience) => api.get('/circulars', { params: { audience } }),
+  create: (body: CircularCreateBody) => api.post('/circulars', body),
+  reads: (id: string) => api.get(`/circulars/${encodeURIComponent(id)}/reads`),
+  withdraw: (id: string) => api.post(`/circulars/${encodeURIComponent(id)}/withdraw`),
+  pending: () => api.get('/circulars/pending'),
+  ack: (id: string) => api.post(`/circulars/${encodeURIComponent(id)}/ack`),
 };
 
 // الربط البرمجي API — مفاتيح الشركة (إصدار/قائمة/إلغاء)؛ المفتاح الكامل يعود في ردّ الإصدار وحده

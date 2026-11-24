@@ -1,9 +1,12 @@
 import { Outlet, NavLink } from 'react-router-dom';
 import { PhoneCall, Fuel, LayoutDashboard, Users, Package, UserCheck, FileText, Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap, CreditCard, ClipboardCheck, Landmark, Sparkles, Wallet, MapPinned, Layers, Trash2, Archive, Handshake, BrainCircuit } from 'lucide-react';
-import { useAuthStore } from '../store/authStore';
+import { useAuthStore, isStaffImpersonationClient } from '../store/authStore';
+import { isImpersonationToken } from '../store/sessionAdoption';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { companyApi } from '../api/client';
+import api, { companyApi } from '../api/client';
+import CircularGate from '../components/circulars/CircularGate';
+import { CIRCULAR_ACK_TIMEOUT_MS, CIRCULAR_FETCH_TIMEOUT_MS, circularGateSkipped } from '../lib/circularGate';
 import { setActiveCurrency, setActiveNumerals } from '../utils/format';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import OwnerPurgeModal, { isOwnerIssuedSession } from '../components/OwnerPurgeModal';
@@ -65,8 +68,17 @@ const navItems = [
   { to: '/app/company', icon: Building2, label: 'nav.company', permission: 'canManageCompanySettings' },
 ];
 
+// «التعميمات» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): تعميمات مستخدمي الشركة المعلّقة لي وإقرار قراءتها — دالّتان ثابتتا الهوية، بمهلة
+// (عميل اللوحة بلا مهلة: إقرارٌ معلّق كان يُبقي النافذة على «جار الحفظ» — بالمهلة رسالةٌ وإعادة)
+const fetchMyCirculars = async (): Promise<unknown> => (await api.get('/circulars/pending', { timeout: CIRCULAR_FETCH_TIMEOUT_MS })).data?.data;
+const ackMyCircular = (id: string) => api.post(`/circulars/${encodeURIComponent(id)}/ack`, undefined, { timeout: CIRCULAR_ACK_TIMEOUT_MS });
+
 export default function MainLayout() {
   const { user, token, logout, impersonating, stopImpersonating } = useAuthStore();
+  // بوّابة «تمت القراءة» لموظف الشركة وحده — لا لجلسة «دخول» المالك أو موظف المنصة (الخادم يردّها [] ويرفض إقرارها 403)
+  const circularsOn = !!token && !!user && !circularGateSkipped({
+    role: user.role, impersonating, staffImpersonation: isStaffImpersonationClient(), impersonationToken: isImpersonationToken(token),
+  });
   const [purgeOpen, setPurgeOpen] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const t = useT();
@@ -224,6 +236,8 @@ export default function MainLayout() {
     </div>
     {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} />}
     {showSupport && <SupportModal onClose={() => setShowSupport(false)} />}
+    {/* «التعميمات»: آخر القوقعة وفوق كل نافذة (z-[2200]) — لا تُغلق إلا بـ«تمت القراءة» */}
+    <CircularGate key={user?.id ?? 'none'} enabled={circularsOn} userId={user?.id} fetchPending={fetchMyCirculars} ack={ackMyCircular} />
     </div>
   );
 }

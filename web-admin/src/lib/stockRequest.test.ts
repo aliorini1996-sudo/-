@@ -81,7 +81,7 @@ test('حارس ثابت: الزر بجانب «استلام / تسوية»، و�
   assert.match(head, /onClick=\{\(\) => setShowRequest\(true\)\}/, 'زر طلب المخزون ليس في رأس الصفحة قبل زر الاستلام');
   assert.match(page, /<StockRequestModal rows=\{rows\}/);
   const docs = read('rep', 'RepDocuments.tsx');
-  assert.match(docs, /\| StockRequestDoc;/, 'النوع خارج AnyDoc');
+  assert.match(docs, /export type AnyDoc = [^;]*\| StockRequestDoc[\s|;]/, 'النوع خارج AnyDoc');
   assert.match(docs, /if \(doc\.kind === 'stockRequest'\) return <PrintableStockRequest/);
   assert.match(docs, /doc\.kind === 'stockRequest' \? `\$\{tr\('طلب مخزون'\)\}-\$\{doc\.ref\}`/, 'اسم الملف');
 });

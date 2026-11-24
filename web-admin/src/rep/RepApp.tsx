@@ -109,6 +109,9 @@ import { OUTLET_TYPE_OPTIONS } from './aiRepLogic';
 import { dayMinutes, nextPunch, shiftMinutes, shiftsOf, type AttendanceState } from './attendanceDay';
 import { installGeoReconnect } from './geoReconnect';
 import RepTargetsCard from './RepTargetsCard';
+import CircularGate from '../components/circulars/CircularGate';
+import { CIRCULAR_ACK_TIMEOUT_MS, CIRCULAR_FETCH_TIMEOUT_MS, circularGateSkipped } from '../lib/circularGate';
+import { isImpersonationToken } from '../store/sessionAdoption';
 import { fetchMyTargets, markTargetsFetched, resetTargetsFetch, targetsFetchNeeded, targetsSession } from './repTargetsFetch';
 import type { RepTargetsData } from '../lib/repTargets';
 import { defaultFormImageLoader, formBackgroundRefsOf, prefetchFormImages } from '../lib/print/formImage';
@@ -116,6 +119,13 @@ import { defaultFormImageLoader, formBackgroundRefsOf, prefetchFormImages } from
 installGeoReconnect();
 // المندوب الذكي كسول: لا تُحمَّل حزمته إلا لمن فُعّلت له الميزة وفتحها
 const RepAiScreen = lazy(() => import('./RepAiScreen'));
+/* «التعميمات» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): تعميمات المناديب المعلّقة لي وإقرار قراءتها. background: الجلب الدوريّ ورفع
+ * صفّ الإقرارات تلقائيّان — 401 عابرٌ منهما لا يُخرج المندوب (انظر معترض repApi). timeout: repApi بلا مهلة، وشبكةٌ لا يمرّ فيها
+ * شيء كانت تُبقي النافذة على «جار الحفظ» تحجب التطبيق — بالمهلة يُصفّ الإقرار ويمضي. readAt: لحظة الضغط لإقرارٍ من الصفّ */
+const fetchMyCirculars = async (): Promise<unknown> =>
+  (await repApi.get('/circulars/pending', { background: true, timeout: CIRCULAR_FETCH_TIMEOUT_MS })).data?.data;
+const ackMyCircular = (id: string, readAt?: number) =>
+  repApi.post(`/circulars/${encodeURIComponent(id)}/ack`, readAt ? { readAt } : {}, { background: true, timeout: CIRCULAR_ACK_TIMEOUT_MS });
 
 /** فشل تحميل حزمة الشاشة الكسولة (دون اتصال أو بعد نشر جديد) لا يُسقط التطبيق كله في شاشة بيضاء. */
 class AiRepBoundary extends Component<{ onBack: () => void; children: ReactNode }, { failed: boolean }> {
@@ -6194,6 +6204,13 @@ export default function RepApp() {
             <CardPayResult pending={cardPayView.pending} unsupported={cardPayView.unsupported} test={company?.cardPayTest === true}
               onClose={() => { if (!cardPayView.unsupported) clearPendingCardPay(); setCardPayView(null); }}
               onDone={() => setRefreshKey((k) => k + 1)} />
+          )}
+          {/* «التعميمات» بعد الدخول وحده: فوق حاجز الموقع وتحت «أثبت تواجدك» (طلبٌ بمهلة)، وخارج غلاف الحاجز الخامل — حارس
+              طبقتها في lib/circularGate.test.ts. لا تُغلق إلا بـ«تمت القراءة»؛ ودون اتصال يُصفّ الإقرار على الجهاز ويمضي، وتعذّر الجلب = لا نافذة */}
+          {token && user && (
+            <CircularGate key={user.id} userId={user.id} offlineQueue contained zClass="z-[1350]"
+              enabled={!circularGateSkipped({ impersonationToken: isImpersonationToken(token) })}
+              fetchPending={fetchMyCirculars} ack={ackMyCircular} />
           )}
           {/* «أعد المحاولة» يجدّد القيد من الخادم أولاً: مالكٌ أطفأه لمندوبٍ عالق يرفع الحاجز بلا إغلاق التطبيق */}
           {gateShown && <LocationOffGate block={liveBlock ?? 'locating'} onRetry={async () => { await refreshUser(); return checkLocation(); }} onExit={exitCustomerScope}
