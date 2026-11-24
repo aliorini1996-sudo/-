@@ -6,11 +6,13 @@ export interface PunchShift {
   checkInAt: string; checkOutAt: string | null;
   /** «خارج النطاق» لبصمةٍ قُبلت بوسم (المندوب المقيَّد ببصمةٍ عند عميل) — غائبٌ من خادمٍ أقدم */
   checkInOutside?: boolean | null; checkOutOutside?: boolean | null;
+  /** «انصراف تلقائي» بعد خمولٍ بلا ردٍّ على التذكير (lib/idlePunchOut.ts) — بوقت آخر نشاطٍ سبق التذكير، وغائبٌ من خادمٍ أقدم */
+  checkOutAuto?: boolean | null;
 }
 
 export type AttendanceState =
   | { status: 'in'; shift: { checkInAt: string; checkInLat: number | null; checkInLng: number | null }; already?: boolean; shifts?: PunchShift[] }
-  | { status: 'out'; last: { checkInAt: string; checkOutAt: string } | null; shifts?: PunchShift[] }
+  | { status: 'out'; last: { checkInAt: string; checkOutAt: string; checkOutAuto?: boolean | null } | null; shifts?: PunchShift[] }
   | { status: 'none'; last?: null; shifts?: PunchShift[] };
 
 /**
@@ -20,7 +22,8 @@ export type AttendanceState =
 export function shiftsOf(s: AttendanceState): PunchShift[] {
   if (Array.isArray(s.shifts)) return [...s.shifts].sort((a, b) => Date.parse(a.checkInAt) - Date.parse(b.checkInAt));
   if (s.status === 'in') return [{ checkInAt: s.shift.checkInAt, checkOutAt: null }];
-  if (s.status === 'out' && s.last) return [{ checkInAt: s.last.checkInAt, checkOutAt: s.last.checkOutAt }];
+  // ووسم «انصراف تلقائي» يرافق آخر نوبة حين حمله الخادم وحده
+  if (s.status === 'out' && s.last) return [{ checkInAt: s.last.checkInAt, checkOutAt: s.last.checkOutAt, ...(s.last.checkOutAuto === true ? { checkOutAuto: true } : {}) }];
   return [];
 }
 

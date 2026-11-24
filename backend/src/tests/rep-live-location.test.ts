@@ -394,7 +394,10 @@ test('كل بادئةٍ تُركَّب بعد الحارس مصنَّفة: مح�
   // '/owner-purge' («حذف نهائي»): لجلسة «دخول» أصدرها مالك المنصة وحده (routes/ownerPurge.ts) — لا يبلغه المندوب أبداً
   // '/rep-targets' («هدف الشهر»): المندوب يقرأ أهدافه وحدها (GET /mine)، والكتابة إدارية (requireAdmin) — لا عمل على عميل
   // '/ai-accountant' («المحاسب الذكي AI»): إداريٌّ يرفض المندوب والمقيَّد صراحةً (routes/aiAccountant.ts) — تقارير وقيود دفاتر، لا عمل على عميل
-  const OPEN = ['/affiliate', '/affiliate-admin', '/ai-accountant', '/ai-rep', '/analytics', '/api-keys', '/attendance-admin', '/auth', '/company', '/company-users', '/contact', '/daily-reports',
+  // '/circulars' («التعميمات»): المندوب يقرأ ما وُجّه له ويؤكّد قراءته وحدهما، والنشر إداريّ (requireAdmin) — لا عمل على عميل
+  // '/catalog-orders' («طلب من المنيو»): المندوب يقرأ طلبات عملاء منيوه ويعلّمها «رآها/تم/أُلغي» وحدها — لا عمل على عميل، والفاتورة
+  // التي يصدرها منه تمرّ من '/invoices' المحروسة
+  const OPEN = ['/affiliate', '/affiliate-admin', '/ai-accountant', '/ai-rep', '/analytics', '/api-keys', '/attendance-admin', '/auth', '/catalog-orders', '/circulars', '/company', '/company-users', '/contact', '/daily-reports',
     '/dashboard', '/erp', '/finance', '/hunter', '/import', '/leads', '/leads-cron', '/ledger', '/live', '/locations', '/lots', '/notifications', '/owner-purge', '/payments',
     '/petroapp', '/platform-staff', '/price-lists', '/products', '/profile-deck', '/promo-videos', '/public', '/quotes', '/rep-routes', '/rep-stock-requests', '/rep-targets', '/reports', '/sales-reps',
     '/site-content', '/staff-auth', '/stock-zero', '/supplier-payments', '/suppliers', '/support', '/tenants', '/tracking', '/v1', '/van-stock', '/wa-inbox', '/warehouse',

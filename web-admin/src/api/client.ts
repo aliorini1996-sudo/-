@@ -1,5 +1,6 @@
 import type { PriceListItemWrite, PriceRuleInput } from '../types';
 import axios from 'axios';
+import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { sessionSpace, expiredDestination, useAuthStore } from '../store/authStore';
 import { FS_CAPS_HEADER, FS_CAPS_VALUE } from './caps';
 import { removeUnitParams } from './unitParams';
@@ -8,6 +9,7 @@ import type { PrintTextsV1 } from '../lib/print/printTextsCore';
 import type { PaymentMethodsConfigInput } from '../lib/paymentMethodsCore';
 import type { RepTargetComboInput, RepTargetInput } from '../lib/repTargets';
 import type { SalesInboxParams, SalesUpdate } from '../lib/salesCrm';
+import type { CircularAudience, CircularCreateBody } from '../lib/circulars';
 import type { ChatRequest as AiAccountantChatRequest } from '../lib/aiAccountant';
 import type { AcctDocPatch } from '../lib/aiAccountantDocs';
 import type {
@@ -461,6 +463,18 @@ export const companyUserApi = {
     api.get(`/company-users/${id}/settlements/${settlementId}/photos`),
   deleteSettlement: (id: string, settlementId: string) =>
     api.delete(`/company-users/${id}/settlements/${settlementId}`),
+};
+
+// «التعميمات» — /api/circulars (طلب المالك ٢٣ نوفمبر ٢٠٢٦): قرارٌ أو إعلانٌ إداريّ للمناديب (REPS، صلاحية المناديب) أو لمستخدمي
+// الشركة (USERS، صلاحية مستخدمي الشركة) يظهر للموظف في نافذةٍ حين يفتح التطبيق حتى يضغط «تمت القراءة».
+// الإدارة: list/create/reads/withdraw — والموظف (مدير الشركة في اللوحة و/m): pending/ack (الإقرار متكرّرٌ بلا أثر، و٤٠٤ لغير المعلّق له)
+export const circularsApi = {
+  list: (audience: CircularAudience) => api.get('/circulars', { params: { audience } }),
+  create: (body: CircularCreateBody) => api.post('/circulars', body),
+  reads: (id: string) => api.get(`/circulars/${encodeURIComponent(id)}/reads`),
+  withdraw: (id: string) => api.post(`/circulars/${encodeURIComponent(id)}/withdraw`),
+  pending: () => api.get('/circulars/pending'),
+  ack: (id: string) => api.post(`/circulars/${encodeURIComponent(id)}/ack`),
 };
 
 // الربط البرمجي API — مفاتيح الشركة (إصدار/قائمة/إلغاء)؛ المفتاح الكامل يعود في ردّ الإصدار وحده
@@ -965,8 +979,29 @@ export const repStockRequestApi = {
   // unitId حين غيّر الإداري الوحدة (null للأساس)؛ baseUnitName («الوحدة الرئيسية» §2.9) الأساس كما رآه النموذج لسطرٍ بالأساس
   update: (id: string, data: { updatedAt: string; items: { productId: string; qty: number; unitId?: string | null; baseUnitName?: string | null }[] }) => api.put(`/rep-stock-requests/${id}`, data),
   reject: (id: string, updatedAt: string) => api.post(`/rep-stock-requests/${id}/reject`, { updatedAt }),
+  // «تحميل مباشر»: بعد كتابة التحميل بـvanStockApi.createLoad يُعلَّم الطلب «حُمِّل» بمعرّف الحركة ونسخته التي حُمِّلت
+  loaded: (id: string, data: { updatedAt: string; vanLoadId: string }) => api.post(`/rep-stock-requests/${id}/loaded`, data),
   send: (data: { ref: string; requests: { id: string; updatedAt: string }[] }) => api.post('/rep-stock-requests/send', data),
 };
+
+/**
+ * «طلبات المنيو» (طلب المالك ٢٤ نوفمبر ٢٠٢٦): العميل يطلب من منيو المنتجات العام فيصل الطلب مندوبَ الرابط. المسارات للمندوب وحده
+ * (SALES_REP، وغيره 403) — فتطبيقه يبنيها على repApi بـcatalogOrdersApiOf (توكن rep_token وتجديده، و`background` لجلبٍ دوريّ لا
+ * يُخرجه بـ401 عابر)، و`catalogOrdersApi` على جلسة هذه المساحة للتوقيع المشترك وحده. الحالة في الخادم: NEW | SEEN | DONE | CANCELLED
+ */
+type CatalogOrdersHttp = Pick<AxiosInstance, 'get' | 'post'>;
+export const catalogOrdersApiOf = (http: CatalogOrdersHttp) => ({
+  /** طلباتي، الأحدث أولاً بحدّ ١٠٠ — open: الجديدة والمطّلع عليها (NEW|SEEN)، all: كلها. كلٌّ ببنوده و`matchedCustomer` */
+  mine: (status: 'open' | 'all' = 'open', config?: AxiosRequestConfig) => http.get('/catalog-orders/mine', { ...config, params: { status } }),
+  /** { open, fresh } — المفتوحة والجديدة منها: بطاقة «طلب جديد» في الرئيسية لا تظهر إلا بمفتوحٍ واحد على الأقل */
+  count: (config?: AxiosRequestConfig) => http.get('/catalog-orders/mine/count', config),
+  /** فتح الطلب: NEW ⇒ SEEN (متكرّرها لا يضرّ) */
+  seen: (id: string) => http.post(`/catalog-orders/${encodeURIComponent(id)}/seen`),
+  /** إنجازه أو إلغاؤه من NEW|SEEN وحدهما (وإلا 409) — invoiceId فاتورةٌ أصدرها المندوب نفسه في الشركة (وإلا 400) */
+  setStatus: (id: string, status: 'DONE' | 'CANCELLED', invoiceId?: string) =>
+    http.post(`/catalog-orders/${encodeURIComponent(id)}/status`, { status, ...(invoiceId ? { invoiceId } : {}) }),
+});
+export const catalogOrdersApi = catalogOrdersApiOf(api);
 
 // محتوى الصفحة التعريفية التسويقية (CMS) — القراءة عامة، التحرير للمالك
 export const siteContentApi = {

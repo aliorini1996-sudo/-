@@ -244,7 +244,9 @@ test('المنيو العام لشركةٍ بضريبتها: JSON العلن ح�
       data: {
         company: { name: 'شركة النور', logo: null, primaryColor: '#E15A30', currency: 'SAR' },
         rep: { name: 'خالد', contact: '0500000000' },
-        products: [{ name: 'ماء', unit: 'حبة', basePrice: 10, taxPct: 15, image: null, category: 'مشروبات', units: [] }],
+        // «طلب من المنيو» (٢٤ نوفمبر ٢٠٢٦): معرّف الصنف وعلم orderEnabled إضافتان — والباقي حرفاً كما كان
+        products: [{ id: 'P1', name: 'ماء', unit: 'حبة', basePrice: 10, taxPct: 15, image: null, category: 'مشروبات', units: [] }],
+        orderEnabled: true,
       },
     }));
     assert.equal(st.csSelects.length, 1);

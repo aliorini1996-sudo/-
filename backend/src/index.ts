@@ -19,6 +19,7 @@ import { startZatcaSweep } from './services/zatcaSubmit';
 import { startAttendanceAlerts } from './services/attendanceAlerts';
 import { startPresenceChecks } from './services/presenceChecks';
 import { startCustomerNumberSweep } from './services/customerNumber';
+import { startIdlePunchOut } from './services/idlePunchOut';
 import { startLedgerSyncScheduler, trackLedgerRequestLoad } from './services/gl/sync/scheduler';
 import { startAffiliateSettlementScheduler } from './services/affiliate/settlement';
 import { promoteLegacyPendingAffiliates } from './services/affiliate/core';
@@ -57,6 +58,7 @@ import attendanceAdminRouter from './routes/attendanceAdmin';
 import visitsRouter from './routes/visits';
 import supportRouter from './routes/support';
 import companyUsersRouter from './routes/companyUsers';
+import circularsRouter from './routes/circulars';
 import erpRouter from './routes/erp';
 import apiKeysRouter from './routes/apiKeys';
 import apiV1Router from './routes/apiV1';
@@ -66,6 +68,7 @@ import aiAccountantRouter from './routes/aiAccountant';
 import { publicScanHealth } from './ai-rep/publicMaps';
 import workNumbersRouter, { telephonyWebhookRouter } from './routes/workNumbers';
 import publicCatalogRouter from './routes/publicCatalog';
+import catalogOrdersRouter from './routes/catalogOrders';
 import publicEinvoiceRouter from './routes/publicEinvoice';
 import leadsRouter from './routes/leads';
 import leadsCronRouter from './routes/leadsCron';
@@ -265,6 +268,8 @@ app.use('/api/attendance-admin', attendanceAdminRouter); // تعديل البص�
 app.use('/api/visits', visitsRouter);
 app.use('/api/support', supportRouter);
 app.use('/api/company-users', companyUsersRouter);
+// «التعميمات» — قرارات الإدارة وإعلاناتها للمناديب ومستخدمي الشركة، ونافذة «تمت القراءة» عند فتح التطبيق (routes/circulars.ts)
+app.use('/api/circulars', circularsRouter);
 app.use('/api/erp', erpRouter);
 app.use('/api/api-keys', apiKeysRouter); // «الربط البرمجي API» — مفاتيح الشركة (services/apiKeys.ts)
 app.use('/api/v1', apiV1Router); // مزامنة «الربط البرمجي API» لمفاتيح الشركة (services/apiSync.ts)
@@ -273,6 +278,8 @@ app.use('/api/ai-rep', aiRepRouter); // المندوب الذكي AI — خام�
 app.use('/api/ai-accountant', aiAccountantRouter); // «المحاسب الذكي AI» — لمدير الشركة غير المقيَّد؛ خامل حتى يفعّله المالك لكل شركة
 app.use('/api/work-numbers', workNumbersRouter);
 app.use('/api/public', publicCatalogRouter); // منيو المنتجات العام — بلا مصادقة، خلف محدد المعدل العام
+// «طلب من المنيو» — طلبات عملاء المنيو كما يراها المندوب صاحب الرابط (authenticate وSALES_REP داخل الموجّه، routes/catalogOrders.ts)
+app.use('/api/catalog-orders', catalogOrdersRouter);
 // ZATCA المرحلة الثانية (Z5.7) — رابط المشتري: `/api/public/einvoice/:token` بلا مصادقة، الرمز وحده هو الإذن
 app.use('/api/public', publicEinvoiceRouter);
 app.use('/api/leads', leadsRouter);
@@ -435,6 +442,7 @@ server.listen(PORT, async () => {
   startAttendanceAlerts(); // تنبيهات الحضور على جوال المندوب — ATTENDANCE_ALERTS_ENABLED=false للإطفاء
   startPresenceChecks(); // التحقق العشوائي من التواجد — PRESENCE_CHECKS_ENABLED=false للإطفاء
   startCustomerNumberSweep(); // ترقيم العملاء القدامى بلا «رقم العميل» (ترحيل النشر ثم شبكة أمان) — CUSTOMER_NUMBER_SWEEP_ENABLED=false للإطفاء
+  startIdlePunchOut(); // تذكير بالانصراف عند الخمول ثم انصراف تلقائي — IDLE_PUNCH_OUT_ENABLED=false للإطفاء
   // سفير فيلد سيلز v2: ترقية طلبات الانضمام القديمة (pending_*) إلى «مقبول» مرّةً بعلامة OpsMarker —
   // (الدالّة لا ترمي أبداً — تُعيد العدد أو null؛ الـcatch احتياطٌ إضافي)
   void promoteLegacyPendingAffiliates().catch((e: unknown) => console.error('[affiliate] legacy promotion:', (e as Error).message));

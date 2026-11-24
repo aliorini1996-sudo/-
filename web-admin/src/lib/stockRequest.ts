@@ -195,6 +195,8 @@ export interface RepRequestItem {
 export interface RepStockRequest {
   id: string; salesRepId: string; repName: string; note: string | null;
   createdAt: string; updatedAt: string; items: RepRequestItem[];
+  /** على طلبٍ معلّق: معرّف حركة تحميلٍ مباشر سابقة لنسخةٍ منه عدّلها المندوب بعدها (POST /:id/loaded ⇒ 409) — null عادةً */
+  sentRef?: string | null;
 }
 
 /**
@@ -271,6 +273,37 @@ export function repEditItems(r: RepStockRequest, edits: Record<string, string> |
         ...(base && { baseUnitName: base }),
       };
     });
+}
+
+/**
+ * بنود «تحميل مباشر» لطلب مندوب (POST /van-stock/loads، طلب المالك ٢٣ نوفمبر ٢٠٢٦) من الطلب **كما حُفظ** في الخادم —
+ * النافذة تحفظ تعديلات الإداري أولاً فيُحمَّل ما اعتُمد لا ما في الخانات وحدها. كل بندٍ بكميته المعتمدة بوحدة سطره
+ * (`unitId` وحدته بين النشطة، وnull للأساس)، ووحدةٌ لم تعد نشطة (أُوقفت أو تغيّر معاملها) ⇒ الكمية نفسها بالأساس —
+ * لا تُنسب «٢» لوحدةٍ أخرى. و`baseUnitName` أساس الصنف كما رآه الإداري (§2.9) فيكشف الخادم تحويلاً جرى بعد فتح النافذة.
+ * والصفر لا يُحمَّل (صنفٌ حذفه الإداري من طلب المندوب).
+ */
+export function repLoadItems(r: Pick<RepStockRequest, 'items'>): { productId: string; qty: number; unitId: string | null; baseUnitName?: string }[] {
+  return r.items
+    .filter(i => Number(i.qty) > 0)
+    .map(i => {
+      const lineId = repLineUnitId(i);
+      const base = String(i.baseUnit ?? '').trim();
+      const unit = lineId === undefined
+        ? { qty: roundQty(toBase(Number(i.qty), { unitFactor: factorOf(i) })), unitId: null }
+        : { qty: Number(i.qty), unitId: lineId };
+      return { productId: i.productId, ...unit, ...(base && { baseUnitName: base }) };
+    });
+}
+
+/**
+ * مرجع منع التكرار (clientRef، D8) للتحميل المباشر: ثابتٌ **لنسخة الطلب** لا للمتصفح — مديران يضغطان معاً، أو إعادةٌ بعد تعثّر
+ * تعليم الطلب، أو نافذةٌ أُعيد فتحها: المرجع نفسه فيعيد الخادم الحركة الأولى (200 replay) لا ثانية. ونسخةٌ جديدة (عدّل الإداري
+ * أو المندوب) مرجعٌ جديد. حروف CLIENT_REF_SCHEMA وحدها ([A-Za-z0-9_-]) بحدّ ٦٤.
+ */
+export function repLoadRef(r: Pick<RepStockRequest, 'id' | 'updatedAt'>): string {
+  const ms = Date.parse(r.updatedAt);
+  const ver = Number.isFinite(ms) ? String(ms) : String(r.updatedAt);
+  return `rsr_${r.id}_${ver}`.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
 }
 
 /**

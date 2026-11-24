@@ -1,6 +1,9 @@
 import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { Home, FileText, CreditCard, Users, MapPin, LogOut, Download, ClipboardCheck } from 'lucide-react';
-import { companyApi } from '../api/client';
+import api, { companyApi } from '../api/client';
+import CircularGate from '../components/circulars/CircularGate';
+import { CIRCULAR_ACK_TIMEOUT_MS, CIRCULAR_FETCH_TIMEOUT_MS, circularGateSkipped } from '../lib/circularGate';
+import { isImpersonationToken } from '../store/sessionAdoption';
 import { BrandIcon } from '../components/BrandLogo';
 import CompanyBrand from '../components/CompanyBrand';
 import AppIntro from '../components/AppIntro';
@@ -60,6 +63,11 @@ const TABS: Tab[] = [
   { id: 'customers', label: 'm.tabCustomers', icon: Users, perm: 'canManageCustomers' },
   { id: 'tracking', label: 'm.tabTracking', icon: MapPin, perm: 'canManageTracking' },
 ];
+
+// «التعميمات» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): تعميمات مستخدمي الشركة المعلّقة لي وإقرار قراءتها — بعميل الجلسة (مساحة m_*)، بمهلة
+// (إقرارٌ معلّق على شبكة جوالٍ لا يمرّ فيها شيء كان يُبقي النافذة على «جار الحفظ» — بالمهلة رسالةٌ وإعادة)
+const fetchMyCirculars = async (): Promise<unknown> => (await api.get('/circulars/pending', { timeout: CIRCULAR_FETCH_TIMEOUT_MS })).data?.data;
+const ackMyCircular = (id: string) => api.post(`/circulars/${encodeURIComponent(id)}/ack`, undefined, { timeout: CIRCULAR_ACK_TIMEOUT_MS });
 
 /** حدث تثبيت PWA — غير معرَّف في lib.dom */
 interface InstallPromptEvent extends Event {
@@ -362,6 +370,12 @@ export default function MobileApp() {
           </Suspense>
         </div>
       )}
+
+      {/* «التعميمات» بعد الدخول وحده: آخر القوقعة وفوق الأقسام (z-[1350]) داخل إطار الجوال — لا تُغلق إلا بـ«تمت القراءة».
+          ونسخةُ توكن «دخول» تبنّاها التطبيق (المالك أو موظف المنصة) لا تُسأل — الخادم يردّها [] */}
+      <CircularGate key={user.id} userId={user.id} contained zClass="z-[1350]"
+        enabled={!circularGateSkipped({ role: user.role, impersonationToken: isImpersonationToken(token) })}
+        fetchPending={fetchMyCirculars} ack={ackMyCircular} />
     </>
   );
 }
