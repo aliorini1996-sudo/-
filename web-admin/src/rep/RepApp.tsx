@@ -19,6 +19,7 @@ import type { UnitDef } from '../lib/units';
 import { compressImage } from './imageCompress';
 import CustomerDocsPicker from '../components/CustomerDocsPicker';
 import { PickedDoc, docsPayload, docsBatchRef } from '../lib/customerDocs';
+import { DEDUP_FIELDS, customerDupFormKey, customerDupOf, customerDupText, dedupChecksOf, type CustomerDupError, type DedupChecks } from '../lib/customerDedup';
 import { previewInstallments, defaultFirstDue, MAX_INSTALLMENTS, type InstallmentPeriod } from '../lib/installments';
 import { useBackClose } from '../lib/useBackClose';
 import { getVisitTimer, setVisitTimer, clearVisitTimer, elapsedSec, fmtElapsed, type VisitTimer } from './visitTimer';
@@ -154,6 +155,10 @@ interface RepUser {
   idlePunchOutEnabled?: boolean;
   idlePunchOutMinutes?: number;
   idlePunchOutGraceMinutes?: number;
+  /** «منع تكرار العملاء عند فتح عميل جديد» — تقييديّ: حقول نموذجَي العميل المفحوصة تحمل تلميحها، والحارس في الخادم (409 CUSTOMER_DUPLICATE) */
+  dedupCustomerPhone?: boolean;
+  dedupCustomerName?: boolean;
+  dedupCustomerAddress?: boolean;
   id: string; name: string; phone?: string;
   canAddCustomer?: boolean;
   /** «تعديل بيانات العميل» — افتراضه في الخادم مُطفأ، فلا يظهر زرّ التعديل إلا بـtrue صريحة */
@@ -4042,8 +4047,55 @@ function RepPinFields({ pin, onCapture, onLink }: { pin: RepPinState; onCapture:
   );
 }
 
+// ============ منع تكرار العملاء: ردّ الخادم تحت حقله ============
+/**
+ * «منع تكرار العملاء عند فتح عميل جديد» (طلب المالك ٢٣ نوفمبر ٢٠٢٦، lib/customerDedup.ts): ردّ 409 CUSTOMER_DUPLICATE يُعرض تحت الحقل
+ * المكرَّر نفسه (رقم الجوال أو الاسم أو العنوان) بإطارٍ أحمر ويُمرَّر إليه، ويزول حين يغيّر المندوب ذلك الحقل — ورسالة النموذج أسفله
+ * كما كانت. واسم العميل الآخر من الخادم وحده (لمن يراه). والإضافة دون اتصال كما هي: الخادم لا يفحص إعادة رفع الصندوق.
+ * وموضع الرفض (dupAt) مفتاح حقل النموذج الذي يُعرض تحته — حقله نفسه افتراضاً، و«اسم المنشأة» لرفض الاسم في إضافةٍ بلا اسم
+ * (customerDupFormKey) — يُثبَّت لحظة الردّ
+ */
+function useCustomerDup() {
+  const [state, setState] = useState<{ dup: CustomerDupError; at: string | null } | null>(null);
+  useEffect(() => {
+    if (!state?.at) return;
+    document.querySelector(`[data-customer-dup="${state.at}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [state]);
+  const setDup = (dup: CustomerDupError | null, at: string | null = dup?.field ?? null) => setState(dup ? { dup, at } : null);
+  /** تغيير حقلٍ يُسقط الرفض إن كان موضعَه أو الحقلَ المفحوص نفسه (كتابة اسمٍ تنقل فحص الاسم إليه من اسم المنشأة) */
+  const clearOn = (k: string) => setState(s => (s && (s.at === k || s.dup.field === k) ? null : s));
+  return { dup: state?.dup ?? null, dupAt: state?.at ?? null, setDup, clearOn };
+}
+
+/** حقلٌ يفحصه «منع تكرار العملاء» لهذا المندوب؟ (الجوال والاسم والعنوان بمفاتيح النموذج نفسها) */
+const dedupChecked = (checks: DedupChecks | undefined, key: string): boolean =>
+  !!checks && (DEDUP_FIELDS as readonly string[]).includes(key) && checks[key as keyof DedupChecks];
+
+/** حقلٌ نصّيّ في نموذجَي العميل — وتحته تلميح الحقل المفحوص، ثم رفض التكرار إن كان حقله */
+function RepCustomerInput({ label, value, onChange, dup, dupAt, dupKey, unique, opts }: {
+  label: string; value: string; onChange: (v: string) => void; dup: CustomerDupError | null;
+  /** موضع الرفض في النموذج (useCustomerDup) — يُعرض تحت هذا الحقل إن كان مفتاحَه */
+  dupAt: string | null; dupKey: string;
+  /** الحقل مفحوصٌ بـ«منع تكرار العملاء» لهذا المندوب — تلميحٌ لا يمنع (الحكم للخادم) */
+  unique?: boolean;
+  opts?: { required?: boolean; type?: string; ltr?: boolean; maxLength?: number };
+}) {
+  const tr = useTr();
+  const dupHere = !!dup && dupAt === dupKey;
+  return (
+    <div data-customer-dup={dupHere ? dupKey : undefined}>
+      <label className="label">{label}{opts?.required && ' *'}</label>
+      <input className={`input${dupHere ? ' !border-red-500' : ''}`} type={opts?.type || 'text'} dir={opts?.ltr ? 'ltr' : 'rtl'} maxLength={opts?.maxLength}
+        aria-invalid={dupHere || undefined} value={value} onChange={e => onChange(e.target.value)} />
+      {dupHere
+        ? <p className="text-red-600 text-[11px] font-semibold mt-1 leading-relaxed">{customerDupText(dup, tr)}</p>
+        : unique && <p className="text-[10px] text-gray-400 mt-1">{tr('لا يقبل إن كان مسجلا لعميل آخر في الشركة')}</p>}
+    </div>
+  );
+}
+
 // ============ إضافة عميل جديد ============
-function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = false, buyerRelax = false, prefill = null, outletTypes, taxOff = false }: { onClose: () => void; onCreated: (c: any) => void; accountingOn?: boolean; zatcaCollect?: boolean; buyerRelax?: boolean; prefill?: AiAddPrefill | null; outletTypes?: { code: string; label: string }[]; /** «إزالة الضريبة»: لا حقل «الرقم الضريبي» (فارغٌ لا يُرسل) */ taxOff?: boolean }) {
+function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = false, buyerRelax = false, prefill = null, outletTypes, taxOff = false, uniqueFields }: { onClose: () => void; onCreated: (c: any) => void; accountingOn?: boolean; zatcaCollect?: boolean; buyerRelax?: boolean; prefill?: AiAddPrefill | null; outletTypes?: { code: string; label: string }[]; /** «إزالة الضريبة»: لا حقل «الرقم الضريبي» (فارغٌ لا يُرسل) */ taxOff?: boolean; /** «منع تكرار العملاء»: الحقول المفحوصة لهذا المندوب (تلميحٌ تحتها) */ uniqueFields?: DedupChecks }) {
   const tr = useTr();
   // من محلٍّ اقترحه المندوب الذكي: اسم المنشأة وعنوانها معبّآن من خرائط Google (لا يعيد المندوب كتابتهما)
   const [form, setForm] = useState({
@@ -4068,13 +4120,19 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
   const [docs, setDocs] = useState<PickedDoc[]>([]);
   const [docsBusy, setDocsBusy] = useState(false); // الضغط جارٍ: «حفظ العميل» ينتظر الصور ثم يحفظ وحده (waitDocs)
   const [waitDocs, setWaitDocs] = useState(false);
+  // «منع تكرار العملاء»: رفض الخادم تحت حقله (ورفض الاسم في إضافةٍ بلا اسم تحت «اسم المنشأة» — ما فحصه الخادم)، ويزول بتغيير ذلك الحقل
+  const { dup, dupAt, setDup, clearOn } = useCustomerDup();
 
-  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const set = (k: string, v: string) => {
+    setForm(f => ({ ...f, [k]: v }));
+    clearOn(k);
+  };
 
   const submit = async () => {
     // «بلا قيود على العميل» (أمر المالك ٩ نوفمبر ٢٠٢٦): لا اسم مطلوب — الفارغ يأخذ في الخادم بديلاً (اسم المنشأة ثم الجوال ثم «عميل»).
     // والجوال اختياري بلا حدّ أدنى ولا صيغة (٧ نوفمبر) — الفارغ يُرسَل '' (العمود NOT NULL)، وبيانات الفوترة تلميحٌ لا يمنع (buyerHints)
     setLoading(true); setMsg('');
+    setDup(null);
     const clientCreatedAt = new Date().toISOString();
     const body = {
       name: form.name.trim(),
@@ -4123,7 +4181,11 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
         }
         onCreated({ ...custPayload, name: shownName, id: 'local-' + clientRef, clientRef, _offline: true, balance: 0, creditLimit: payload.creditLimit ?? 0, status: 'ACTIVE' });
       } else {
-        setMsg(err?.response?.data?.message || tr('تعذر إضافة العميل'));
+        // «منع تكرار العملاء» (409 CUSTOMER_DUPLICATE): تحت الحقل المكرَّر وفي رسالة النموذج، بلغة المندوب — والاسم المُرسَل فارغاً
+        // فحص الخادمُ بدله اسم المنشأة، فالرفض تحته (customerDupFormKey)
+        const d = customerDupOf(err);
+        setDup(d, customerDupFormKey(d?.field ?? null, body.name));
+        setMsg(d ? customerDupText(d, tr) : (err?.response?.data?.message || tr('تعذر إضافة العميل')));
         setLoading(false);
       }
     }
@@ -4137,12 +4199,11 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
     void submit();
   }, [docsBusy, waitDocs]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // تلميح الحقل المفحوص: «اسم المنشأة» أيضاً ما دام «اسم العميل» فارغاً — الخادم يفحصه حينها بقاعدة الاسم
+  const uniqueHere = (key: string) =>
+    dedupChecked(uniqueFields, key) || (key === 'businessName' && !form.name.trim() && dedupChecked(uniqueFields, 'name'));
   const field = (label: string, key: string, opts?: { required?: boolean; type?: string; ltr?: boolean; maxLength?: number }) => (
-    <div>
-      <label className="label">{label}{opts?.required && ' *'}</label>
-      <input className="input" type={opts?.type || 'text'} dir={opts?.ltr ? 'ltr' : 'rtl'} maxLength={opts?.maxLength}
-        value={(form as any)[key]} onChange={e => set(key, e.target.value)} />
-    </div>
+    <RepCustomerInput label={label} value={(form as any)[key]} onChange={v => set(key, v)} dup={dup} dupAt={dupAt} dupKey={key} unique={uniqueHere(key)} opts={opts} />
   );
 
   return (
@@ -4241,8 +4302,10 @@ function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = f
  * من المندوب. والمقيَّد بـ«البيع داخل نطاق العميل» لا يحرّك موقع العميل (يفتح البوّابة على نفسه).
  * يلزمه اتصال: تعديلٌ يُكتب فوق سجلٍّ قائم لا يُطابَق من طابور.
  */
-function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = false, buyerRelax = false, taxOff = false }: {
+function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = false, buyerRelax = false, taxOff = false, uniqueFields }: {
   customer: any; pinLocked: boolean; onClose: () => void; onSaved: (c: any) => void;
+  /** «منع تكرار العملاء»: الحقول المفحوصة لهذا المندوب حين تتغيّر قيمتها (تلميحٌ تحتها) */
+  uniqueFields?: DedupChecks;
   /** «إزالة الضريبة»: لا حقل «الرقم الضريبي»، ولا يُرسل فيبقى المحفوظ كما هو */
   taxOff?: boolean;
   /** فوترة ZATCA (Z5.1a، D2): الشركة تجمع بيانات الفوترة؟ */
@@ -4262,8 +4325,13 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
   const hasPin = customer.lat != null && customer.lng != null;
   // موقعٌ جديد يختاره المندوب (التقاطٌ دقيق أو رابط — لا يجتمعان)؛ بلا اختيارٍ لا يُرسل شيء فيبقى المحفوظ كما هو
   const { pin, capturePin, pastePinLink } = useRepPin(null);
+  // «منع تكرار العملاء»: الخادم يفحص الحقل الذي تغيّر وحده (القيمة المحفوظة كما هي لا تمنع تعديل غيرها) — رفضه تحت حقله
+  const { dup, dupAt, setDup, clearOn } = useCustomerDup();
 
-  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const set = (k: string, v: string) => {
+    setForm(f => ({ ...f, [k]: v }));
+    clearOn(k);
+  };
   // الحقل الاختياري المُفرَّغ يُرسَل null فيُمحى فعلاً، لا undefined فيبقى القديم
   const opt = (v: string) => (v.trim() ? v.trim() : null);
   // فوترة ZATCA (Z5.1a، D2): حقول المشتري للشركة الجامعة وحدها — يُرسل المتغيّر منها فقط. «بلا قيود على العميل» (أمر المالك ٩ نوفمبر
@@ -4277,6 +4345,7 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
     // والجوال اختياري بلا حدّ أدنى ولا صيغة (٧ نوفمبر) — مسحه يُرسَل '' فيُمحى فعلاً (العمود NOT NULL فلا null)، وبيانات الفوترة تلميحٌ
     // لا يمنع (buyerHints). ويبقى «المندوب يُكمل ولا يُخفّض»: الخادم يردّ 403 CUSTOMER_BUYER_REP_RESTRICTED برسالته فتظهر هنا
     setLoading(true); setMsg('');
+    setDup(null);
     const payload: Record<string, unknown> = {
       name: form.name.trim(),
       businessName: opt(form.businessName),
@@ -4297,19 +4366,18 @@ function EditCustomer({ customer, pinLocked, onClose, onSaved, zatcaCollect = fa
       const res = await repApi.put(`/customers/${customer.id}`, payload);
       onSaved(res.data.data);
     } catch (err: any) {
+      // «منع تكرار العملاء» (409 CUSTOMER_DUPLICATE): تحت الحقل المكرَّر وفي رسالة النموذج، بلغة المندوب
+      const d = customerDupOf(err);
+      setDup(d);
       setMsg(isNetworkError(err)
         ? tr('يلزم اتصال بالإنترنت لحفظ تعديل بيانات العميل')
-        : (err?.response?.data?.message || tr('تعذر حفظ التعديل')));
+        : d ? customerDupText(d, tr) : (err?.response?.data?.message || tr('تعذر حفظ التعديل')));
       setLoading(false);
     }
   };
 
   const field = (label: string, key: string, opts?: { required?: boolean; ltr?: boolean; type?: string; maxLength?: number }) => (
-    <div>
-      <label className="label">{label}{opts?.required && ' *'}</label>
-      <input className="input" type={opts?.type || 'text'} dir={opts?.ltr ? 'ltr' : 'rtl'} maxLength={opts?.maxLength}
-        value={(form as any)[key]} onChange={e => set(key, e.target.value)} />
-    </div>
+    <RepCustomerInput label={label} value={(form as any)[key]} onChange={v => set(key, v)} dup={dup} dupAt={dupAt} dupKey={key} unique={dedupChecked(uniqueFields, key)} opts={opts} />
   );
 
   return (
@@ -6184,6 +6252,7 @@ export default function RepApp() {
               onDone={(offline) => { setModal('customerDetail'); if (offline) setRefreshKey(k => k + 1); }} />
           ) : modal === 'editCustomer' && selectedCustomer ? (
             <EditCustomer customer={selectedCustomer} pinLocked={user.requireCustomerProximity === true} zatcaCollect={zatcaCollect} buyerRelax={buyerRelax} taxOff={isTaxOff(company)}
+              uniqueFields={dedupChecksOf(user)}
               onClose={() => setModal('customerDetail')}
               onSaved={(c) => {
                 // الردّ سجلُّ العميل من الخادم؛ نُبقي ما حسبه التطبيق فوقه (الرصيد وغيره) ونحدّث الكاش
@@ -6210,6 +6279,7 @@ export default function RepApp() {
               }} />
           ) : modal === 'addCustomer' ? (
             <AddCustomer onClose={() => { setModal(null); setAiPrefill(null); }} accountingOn={accountingOn} zatcaCollect={zatcaCollect} buyerRelax={buyerRelax} taxOff={isTaxOff(company)}
+              uniqueFields={dedupChecksOf(user)}
               prefill={aiPrefill} outletTypes={aiRepOn ? OUTLET_TYPE_OPTIONS : undefined}
               onCreated={(c) => { if (aiPrefill?.aiPlaceId) markConverted(aiPrefill.aiPlaceId, c._offline ? null : c.id); setAiPrefill(null); setModal('customerDetail'); setSelectedCustomer(c); }} />
           ) : (

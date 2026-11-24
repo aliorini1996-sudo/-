@@ -506,6 +506,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "وحين فكّت الشركة القيد (buyerVatAddressRelaxed في GET /company) تصير أخطاء صيغة الرقم الضريبي ورقم المبنى والرمز البريدي تنبيهات في warnings لا 400 — وتبقى أخطاء المحارف والطول والدولة والمعرّف أخطاء",
      "الاستيراد الجماعي POST /import/customers بالمفتاح يمرّ بالفحص نفسه صفاً صفاً في الشركة التي تجمع البيانات: صفٌّ رقمه الضريبي أو سجله التجاري أو نصوصه غير صالحة يعود في data.errors بالشكل {row, code:'CUSTOMER_ZATCA_INVALID', field, value, message} (row = موضع الصف في rows + 2)، ولا يُكتب حينئذٍ أي صف من الدفعة كأخطاء المخطط. والسليم يُحفظ مطبَّعاً (أرقام لاتينية) كما في الإنشاء المفرد",
      "aiPlaceId المسجل لعميل آخر في الشركة يعود 409 AI_PLACE_ALREADY_CUSTOMER لطلب المفتاح دائماً. ترويسة X-FS-Replay تُمحى من طلبات المفتاح فلا ترسلها",
+     "«منع تكرار العملاء» (dedupCustomerPhone وdedupCustomerName وdedupCustomerAddress في /sales-reps) قيدٌ على المندوب من تطبيقه وحده: فتحه عميلاً برقم جوال أو اسم أو عنوان مسجّل لعميل آخر في الشركة يعود 409 {success:false, code:'CUSTOMER_DUPLICATE', field:'phone'|'name'|'address', message, existingId?, existingName?}. طلب المفتاح لا يُفحص ولا يصله هذا الرمز، ولا يُفحص مستخدمو الشركة",
      "إنشاء العميل لا يكتب أي قيد مالي ولا يغيّر أي رصيد"
     ],
     "example": "{\"name\":\"بقالة النخيل\",\"phone\":\"0551234567\",\"businessName\":\"مؤسسة النخيل التجارية\",\"taxNumber\":\"310123456700003\",\"commercialReg\":\"1010123456\",\"city\":\"الرياض\",\"district\":\"العليا\",\"address\":\"شارع التحلية\",\"lat\":24.7136,\"lng\":46.6753,\"channel\":\"TT\",\"creditLimit\":5000,\"paymentDays\":30,\"clientRef\":\"6f1c2a9e-3b7d-4c2e-9a51-2f0e8d7c4b10\"}"
@@ -604,6 +605,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "{success:true, data: Customer بعد التعديل, warnings?:[{field, messageAr}]}",
     "rules": [
      "الحقل الغائب لا يتغير",
+     "«منع تكرار العملاء» للمندوب من تطبيقه وحده (dedupCustomerPhone وdedupCustomerName وdedupCustomerAddress في /sales-reps): يُفحص الحقل الذي تغيّرت قيمته (بعد التطبيع) وحده فيعود 409 CUSTOMER_DUPLICATE بـfield، والقيمة المحفوظة كما هي لا تمنع تعديل غيرها، ومعرّفٌ لا يجده الخادم فيُنشئه يُفحص كـPOST /customers. طلب المفتاح لا يُفحص",
      "clientRef وclientCreatedAt وaiPlaceId تُتجاهل في التعديل، لكن clientRef ما زال يجب أن يكون بصيغة UUID إذا أُرسل",
      "زاتكا: الفحص يشمل الحقول المتغيرة مقارنة بالمحفوظ فقط، والخطأ يعود دائماً 400 CUSTOMER_ZATCA_INVALID بلا استثناء",
      "وحين فكّت الشركة القيد (buyerVatAddressRelaxed في GET /company) تصير أخطاء صيغة الرقم الضريبي ورقم المبنى والرمز البريدي تنبيهات في warnings لا 400 — وتبقى أخطاء المحارف والطول والدولة والمعرّف أخطاء",
@@ -3959,12 +3961,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[مندوب], pagination:{total, page, limit, pages}} مرتبة بالاسم تصاعدياً. حقول المندوب: id, name, phone, email, username, isActive, canCreateInvoice, canSellOnCredit, canSellOnInstallment, canSellInCash, canEditInvoice, canDeleteInvoice, canCancelInvoice, canChangePrice, maxDiscountPct, canSellBelowPrice, canChangePriceList, defaultPriceListId, allowedPriceTypes, canCreateReceipt, canEditReceipt, canCancelReceipt, canManageVanStock, canAddCustomer, canEditCustomer, canViewStatement, showCollectionBalance, cashSaleCollected, requireCustomerProximity, requireLocationOn, requirePunchAtCustomer, proximityRadiusM, punchRadiusM, punchOutsideAction, requireBoundDevice, boundDeviceName, boundDeviceAt, requirePresenceCheck, idlePunchOutEnabled, idlePunchOutMinutes, idlePunchOutGraceMinutes, showRouteOnMap, shiftStart, shiftEnd, shiftDays, locationId, createdAt",
+    "response": "{success:true, data:[مندوب], pagination:{total, page, limit, pages}} مرتبة بالاسم تصاعدياً. حقول المندوب: id, name, phone, email, username, isActive, canCreateInvoice, canSellOnCredit, canSellOnInstallment, canSellInCash, canEditInvoice, canDeleteInvoice, canCancelInvoice, canChangePrice, maxDiscountPct, canSellBelowPrice, canChangePriceList, defaultPriceListId, allowedPriceTypes, canCreateReceipt, canEditReceipt, canCancelReceipt, canManageVanStock, canAddCustomer, canEditCustomer, canViewStatement, showCollectionBalance, cashSaleCollected, requireCustomerProximity, requireLocationOn, requirePunchAtCustomer, proximityRadiusM, punchRadiusM, punchOutsideAction, requireBoundDevice, boundDeviceName, boundDeviceAt, requirePresenceCheck, idlePunchOutEnabled, idlePunchOutMinutes, idlePunchOutGraceMinutes, dedupCustomerPhone, dedupCustomerName, dedupCustomerAddress, showRouteOnMap, shiftStart, shiftEnd, shiftDays, locationId, createdAt",
     "rules": [
      "لا تُعاد كلمة المرور ولا حقول التتبع والموقع ولا canSellWithoutStock ولا canBeTracked",
      "pages = ceil(total/limit) من utils/helpers.ts",
      "لطلب المفتاح سقف الصفحة 200 صف. للسحب الكامل استعمل /v1/sync/sales-reps",
      "locationId موقع المندوب الحالي في ميزة «لوكيشن» (أو null) للقراءة وحدها — الإسناد من PUT /locations/reps/:salesRepId، واسم الموقع من GET /locations",
+     "«منع تكرار العملاء عند فتح عميل جديد»: dedupCustomerPhone وdedupCustomerName وdedupCustomerAddress قيود تقييدية مستقلة (false افتراضاً) على فتح المندوب عميلاً من تطبيقه برقم جوال أو اسم أو عنوان مسجّل لعميل آخر في الشركة (409 CUSTOMER_DUPLICATE)، ولا تمسّ طلبات المفتاح",
      "«قوائم الأسعار»: defaultPriceListId قائمة المندوب الافتراضية لعملائه بلا قائمة (null = السعر الأساسي)، وallowedPriceTypes القوائم التي يبدّل بينها بـcanChangePriceList (null = بلا قيد: كل القوائم والسعر الأساسي، وإلا مصفوفة معرّفات من GET /price-lists فيها 'base' إن أدرجت الشركة السعر الأساسي)"
     ],
     "example": ""
@@ -4248,6 +4251,24 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "مهلة الرد بعد التذكير قبل الانصراف التلقائي: عدد صحيح من 5 إلى 120 (15 افتراضاً)، وإلا 400 IDLE_PUNCH_OUT_RANGE"
      },
      {
+      "name": "dedupCustomerPhone",
+      "type": "boolean",
+      "required": false,
+      "desc": "منع تكرار العملاء برقم الجوال (false افتراضاً): يُرفض أن يفتح المندوب من تطبيقه عميلاً جديداً — أو يعدّل جوال عميل — برقمٍ مسجّل لعميل آخر في الشركة كلها (غير المحذوف)، والمقارنة بالرقم المطبَّع (+966 و00966 و05 والأرقام الهندية رقمٌ واحد) ⇒ 409 CUSTOMER_DUPLICATE بـfield: 'phone' على POST /customers وPUT /customers/:id. لا يمسّ طلبات المفتاح ولا مستخدمي الشركة"
+     },
+     {
+      "name": "dedupCustomerName",
+      "type": "boolean",
+      "required": false,
+      "desc": "منع تكرار العملاء بالاسم (false افتراضاً): كـdedupCustomerPhone للاسم بعد توحيد الكتابة (المسافات والتشكيل والتطويل، أ/إ/آ = ا، ة = ه، ى = ي، والحروف اللاتينية بلا حالة) ⇒ 409 CUSTOMER_DUPLICATE بـfield: 'name'"
+     },
+     {
+      "name": "dedupCustomerAddress",
+      "type": "boolean",
+      "required": false,
+      "desc": "منع تكرار العملاء بالعنوان (false افتراضاً): كـdedupCustomerName لحقل address ⇒ 409 CUSTOMER_DUPLICATE بـfield: 'address'. والمفاتيح الثلاثة مستقلة، وقاعدة الموقع (لا عميل ضمن 30 متراً من عميل آخر) قائمة لكل المناديب خارجها"
+     },
+     {
       "name": "requireBoundDevice",
       "type": "boolean",
       "required": false,
@@ -4325,7 +4346,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "canCreateInvoice ... shiftDays",
       "type": "boolean / number",
       "required": false,
-      "desc": "نفس حقول POST وكلها اختيارية: الصلاحيات (ومنها canChangePriceList «تبديل قائمة الأسعار»)، وdefaultPriceListId وallowedPriceTypes (المرسل منهما يُفحص مع المحفوظ من الآخر: الافتراضية من القوائم المسموحة حين تُقيَّد، و'base' فيها إن كان الافتراضي السعر الأساسي، وإلا 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED)، وmaxDiscountPct من 0 إلى 100، وproximityRadiusM وpunchRadiusM أعداد صحيحة من 10 إلى 5000، وpunchOutsideAction وrequireBoundDevice وrequirePresenceCheck وshowRouteOnMap وshiftStart وshiftEnd وshiftDays، وidlePunchOutEnabled وidlePunchOutMinutes (10 إلى 480) وidlePunchOutGraceMinutes (5 إلى 120) — المرسل منهما خارج حدّه 400 IDLE_PUNCH_OUT_RANGE"
+      "desc": "نفس حقول POST وكلها اختيارية: الصلاحيات (ومنها canChangePriceList «تبديل قائمة الأسعار»)، وdefaultPriceListId وallowedPriceTypes (المرسل منهما يُفحص مع المحفوظ من الآخر: الافتراضية من القوائم المسموحة حين تُقيَّد، و'base' فيها إن كان الافتراضي السعر الأساسي، وإلا 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED)، وmaxDiscountPct من 0 إلى 100، وproximityRadiusM وpunchRadiusM أعداد صحيحة من 10 إلى 5000، وpunchOutsideAction وrequireBoundDevice وrequirePresenceCheck وshowRouteOnMap وshiftStart وshiftEnd وshiftDays، وidlePunchOutEnabled وidlePunchOutMinutes (10 إلى 480) وidlePunchOutGraceMinutes (5 إلى 120) — المرسل منهما خارج حدّه 400 IDLE_PUNCH_OUT_RANGE، وdedupCustomerPhone وdedupCustomerName وdedupCustomerAddress (منع تكرار العملاء عند فتح المندوب عميلاً)"
      }
     ],
     "response": "{success:true, data:{id, name, phone, username, isActive}} أو 404 'المندوب غير موجود'",

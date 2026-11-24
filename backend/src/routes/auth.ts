@@ -636,6 +636,8 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
           canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
           canManageVanStock: true,
           canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
+          // «منع تكرار العملاء»: التطبيق يعرف الحقول المفحوصة عند فتح عميل (تلميح النموذج) — الحارس في الخادم
+          dedupCustomerPhone: true, dedupCustomerName: true, dedupCustomerAddress: true,
           requireCustomerProximity: true, requireLocationOn: true, requirePunchAtCustomer: true,
           proximityRadiusM: true, punchRadiusM: true, requireBoundDevice: true, requirePresenceCheck: true,
           // «تذكير بالانصراف عند الخمول»: التطبيق يعرف القيد ومدّتيه (نصّ «هل ما زلت تعمل؟» وتلميح شاشة البصمة)

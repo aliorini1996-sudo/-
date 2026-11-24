@@ -29,6 +29,7 @@ import { PRICE_LIST_MESSAGES } from '../services/priceLists';
 import { CUSTOMER_PHONE_MAX } from '../services/importMatch';
 import { phoneDupExempt } from '../services/customerPhoneDup';
 import { findLocationDuplicate, locationDupBody, validPoint } from '../services/customerLocationDup';
+import { DEDUP_REP_SELECT, changedDedupChecks, customerDupBody, findCustomerDuplicate, repDedupChecks, type DedupChecks } from '../services/customerDedup';
 import { DEVICE_NOW_HEADER, headerText, offlineInvoiceDate } from '../services/offlineInvoiceDate';
 import { parseCustomerDocs, droppedDocsWarning, docCreateRows, docsBatchRef } from '../services/customerDocs';
 import { customerStudioRouter } from './customerStudio';
@@ -259,14 +260,20 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   try {
     const tid = tenantId(req);
     // المندوب يحتاج صلاحية "إضافة عميل"؛ الإدارة مسموح لها دائماً
+    // و«منع تكرار العملاء» من إعداداته (services/customerDedup.ts): فحوصه المفعَّلة لهذا الطلب، أو null (الإدارة والمعفى وبلا عَلَم)
+    let dedup: DedupChecks | null = null;
     if (req.user?.role === 'SALES_REP') {
-      const rep = await prisma.salesRep.findUnique({ where: { id: req.user.id }, select: { canAddCustomer: true } });
+      const rep = await prisma.salesRep.findUnique({ where: { id: req.user.id }, select: { canAddCustomer: true, ...DEDUP_REP_SELECT } });
       if (!rep?.canAddCustomer) {
         res.status(403).json({ success: false, message: 'ليس لديك صلاحية إضافة عملاء' });
         return;
       }
+      dedup = repDedupChecks(req, rep);
     }
     const data = customerSchema.parse(req.body);
+    // اسم «منع تكرار العملاء»: المكتوب أو اسم المنشأة — لا بديل الجوال (وإلا صار عَلَم الاسم منعاً للجوال لمن لم تختره الشركة)،
+    // والبديل الأخير «عميل» تافهٌ لا يُطابَق
+    const dedupName = customerNameFallback({ ...data, phone: null });
     data.name = customerNameFallback(data);
     const ref = customerRefOf(req.body);
     if (ref) data.code = ref; else delete data.code;
@@ -359,12 +366,19 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const geo = await resolveLocationUrl(locationUrl, { googleOnly: true });
       if (geo) { rest.lat = geo.lat; rest.lng = geo.lng; }
     }
-    // جوال العميل حرٌّ: فكّ المالك قيد تكراره داخل الشركة (١٤ نوفمبر ٢٠٢٦ — كان 27d8ce1)، فعميلان بجوالٍ واحد مقبولان.
+    // جوال العميل حرٌّ: فكّ المالك قيد تكراره داخل الشركة (١٤ نوفمبر ٢٠٢٦ — كان 27d8ce1)، فعميلان بجوالٍ واحد مقبولان —
+    // إلا مندوبٌ فعّلت له الشركة «منع تكرار العملاء» في إعداداته (أدناه، services/customerDedup.ts).
     // ويبقى «منع تكرار الموقع داخل الشركة» (طلب المالك ١٣ نوفمبر ٢٠٢٦): عميلٌ آخر ضمن ٣٠ متراً ⇒ 409 CUSTOMER_LOCATION_EXISTS —
     // إلا مفتاح API وإعادة رفع صندوق المندوب (services/customerPhoneDup.ts phoneDupExempt)
     if (!phoneDupExempt(req)) {
       const near = await findLocationDuplicate(tid, rest.lat, rest.lng);
       if (near) { res.status(409).json(locationDupBody(near, await canAccessCustomer(req, tid, near.id))); return; }
+    }
+    // «منع تكرار العملاء» في إعدادات المندوب (طلب المالك ٢٣ نوفمبر ٢٠٢٦): جوالٌ أو اسمٌ (المكتوب أو اسم المنشأة — dedupName) أو
+    // عنوانٌ مسجَّلٌ لعميلٍ آخر في الشركة كلها ⇒ 409 CUSTOMER_DUPLICATE — للحقول التي اختارتها الشركة وحدها، واسم الآخر لمن يراه وحده
+    if (dedup) {
+      const dup = await findCustomerDuplicate(tid, { phone: rest.phone, name: dedupName, address: rest.address }, { checks: dedup });
+      if (dup) { res.status(409).json(customerDupBody(dup, await canAccessCustomer(req, tid, dup.id))); return; }
     }
     // R6: عميل صندوق المندوب بلحظة إضافته على الجهاز (replayCustomerCreatedAt) — وغيره ساعة الخادم كما كان
     const addedAt = await replayCustomerCreatedAt(req, tid, clientCreatedAt);
@@ -429,7 +443,7 @@ const isIdConflict = (err: unknown): boolean => {
  * ومعرّف مكان Google (aiPlaceId) لا يُربط هنا — كالتعديل؛ ربطه لإنشاء المندوب الذكي عبر POST وحده
  */
 async function createMissingOnPut(
-  req: AuthRequest, res: Response, tid: string, perms: { canAdd: boolean; canEdit: boolean },
+  req: AuthRequest, res: Response, tid: string, perms: { canAdd: boolean; canEdit: boolean; dedup: DedupChecks | null },
 ): Promise<'DONE' | 'RACED'> {
   const requestedId = String(req.params.id);
   const holder = await prisma.customer.findUnique({ where: { id: requestedId }, select: { tenantId: true } });
@@ -448,6 +462,7 @@ async function createMissingOnPut(
   const keepId = !holder && keepableCustomerId(requestedId);
 
   const data = customerSchema.parse(req.body ?? {});
+  const dedupName = customerNameFallback({ ...data, phone: null }); // كـPOST: لا بديل الجوال في «منع تكرار العملاء»
   data.name = customerNameFallback(data);
   if (ref && !(await customerByRef(tid, ref))) data.code = ref; else delete data.code;
   const creatorRepId = req.user?.role === 'SALES_REP' ? req.user.id : null;
@@ -464,6 +479,11 @@ async function createMissingOnPut(
   if (locationUrl && !explicitPinWins(rest)) {
     const geo = await resolveLocationUrl(locationUrl, { googleOnly: true });
     if (geo) { rest.lat = geo.lat; rest.lng = geo.lng; }
+  }
+  // «منع تكرار العملاء» للمندوب: إنشاءٌ هنا فتحُ عميلٍ كـPOST حرفياً
+  if (perms.dedup) {
+    const dup = await findCustomerDuplicate(tid, { phone: rest.phone, name: dedupName, address: rest.address }, { checks: perms.dedup });
+    if (dup) { res.status(409).json(customerDupBody(dup, await canAccessCustomer(req, tid, dup.id))); return 'DONE'; }
   }
   // لحظة الإنشاء على الجهاز: تاريخٌ لا يُقرأ يُهمل لا يُسقط العميل
   const createdAtDevice = clientCreatedAt ? new Date(clientCreatedAt) : null;
@@ -503,8 +523,10 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     // المندوب يحتاج صلاحية "تعديل العميل" للتعديل، و"إضافة عميل" لإنشاء معرّفٍ لا يجده (upsert)؛ الإدارة مسموح لها دائماً
     const isRep = req.user?.role === 'SALES_REP';
     const rep = isRep
-      ? await prisma.salesRep.findUnique({ where: { id: req.user!.id }, select: { canEditCustomer: true, canAddCustomer: true, requireCustomerProximity: true } })
+      ? await prisma.salesRep.findUnique({ where: { id: req.user!.id }, select: { canEditCustomer: true, canAddCustomer: true, requireCustomerProximity: true, ...DEDUP_REP_SELECT } })
       : null;
+    // «منع تكرار العملاء» من إعدادات المندوب: فحوصه المفعَّلة لهذا الطلب، أو null (الإدارة والمعفى وبلا عَلَم)
+    const dedup = repDedupChecks(req, rep);
     // بلا الصلاحيتين معاً: الرفض كما كان قبل أي سؤال عن العميل
     if (isRep && !rep?.canEditCustomer && !rep?.canAddCustomer) {
       res.status(403).json({ success: false, message: 'ليس لديك صلاحية تعديل العملاء' });
@@ -514,12 +536,13 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const scope = await customerScope(req, tid);
     const findExisting = () => prisma.customer.findFirst({
       where: { id: req.params.id, tenantId: tid, ...scope },
-      select: { id: true, phone: true },
+      // والاسم والعنوان المحفوظان لمقارنة «منع تكرار العملاء» حين يُفحص (changedDedupChecks) — وإلا السؤال كما كان
+      select: { id: true, phone: true, ...(dedup && { name: true, address: true }) },
     });
     let exists = await findExisting();
     // لا يجده ⇒ يُنشأ (createMissingOnPut)؛ وسباقٌ أنشأه بالمعرّف نفسه في الأثناء ⇒ يُعاد البحث فيُعدَّل كأيّ عميل
     for (let attempt = 0; !exists && attempt < 2; attempt++) {
-      const outcome = await createMissingOnPut(req, res, tid, { canAdd: !isRep || rep?.canAddCustomer === true, canEdit: !isRep || rep?.canEditCustomer === true });
+      const outcome = await createMissingOnPut(req, res, tid, { canAdd: !isRep || rep?.canAddCustomer === true, canEdit: !isRep || rep?.canEditCustomer === true, dedup });
       if (outcome === 'DONE') return;
       exists = await findExisting();
     }
@@ -553,7 +576,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       }
     }
     void _cr; void _cc; void _ap; // معرّف مكان Google يُربط عند الإنشاء وحده
-    // جوال العميل حرٌّ في التعديل كذلك: لا فحص تكرار (فكّ المالك القيد ١٤ نوفمبر ٢٠٢٦)
+    // جوال العميل حرٌّ في التعديل كذلك: لا فحص تكرار (فكّ المالك القيد ١٤ نوفمبر ٢٠٢٦) — إلا «منع تكرار العملاء» للمندوب (أدناه)
     // «تعديل بيانات العميل» للمندوب يشمل البيانات الوصفية لا الشروط المالية: الحدّ الائتمانيّ
     // وفترة السداد وحالة العميل قرارُ الإدارة — وإلا رفع المندوب حدّ عميله ليتجاوز ضابط الائتمان
     if (req.user?.role === 'SALES_REP') {
@@ -581,6 +604,13 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (validPoint(data.lat, data.lng) && !phoneDupExempt(req)) {
       const near = await findLocationDuplicate(tid, data.lat, data.lng, req.params.id);
       if (near) { res.status(409).json(locationDupBody(near, await canAccessCustomer(req, tid, near.id))); return; }
+    }
+    // «منع تكرار العملاء» للمندوب: الحقل المفعَّل حين تتغيّر قيمته المطبَّعة وحدها (changedDedupChecks) — القيمة نفسها لا تُفحص،
+    // فتكرارٌ قديم لا يمنع تعديل غيره — والعميل نفسه مستثنى
+    const editDedup = changedDedupChecks(dedup, { phone: data.phone, name: data.name, address: data.address }, exists);
+    if (editDedup) {
+      const dup = await findCustomerDuplicate(tid, { phone: data.phone, name: data.name, address: data.address }, { exceptId: req.params.id, checks: editDedup });
+      if (dup) { res.status(409).json(customerDupBody(dup, await canAccessCustomer(req, tid, dup.id))); return; }
     }
     let customer = await prisma.customer.update({
       where: { id: req.params.id },

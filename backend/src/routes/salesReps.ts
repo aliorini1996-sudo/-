@@ -68,6 +68,10 @@ const repSchema = z.object({
   canAddCustomer: z.boolean().optional(),
   canEditCustomer: z.boolean().optional(),
   canViewStatement: z.boolean().optional(),
+  // «منع تكرار العملاء عند فتح عميل جديد» (services/customerDedup.ts): الجوال والاسم والعنوان — أيّ تركيبة، والمطفأ كاليوم
+  dedupCustomerPhone: z.boolean().optional(),
+  dedupCustomerName: z.boolean().optional(),
+  dedupCustomerAddress: z.boolean().optional(),
   showCollectionBalance: z.boolean().optional(),
   // «البيع النقدي تحصيلٌ لدى المندوب»: فاتورته النقدية تُحسب مبلغاً محصَّلاً لديه بلا سند قبض (يسري على ما يصدر بعده)
   cashSaleCollected: z.boolean().optional(),
@@ -106,6 +110,7 @@ const repSelect = {
   canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
   canManageVanStock: true,
   canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
+  dedupCustomerPhone: true, dedupCustomerName: true, dedupCustomerAddress: true,
   showCollectionBalance: true,
   cashSaleCollected: true,
   requireCustomerProximity: true,

@@ -23,6 +23,7 @@ import { can } from './perms';
 import { expectArray, expectObject } from './shape';
 import { baseLabelOf, priceListsOf } from '../lib/priceLists';
 import { IDLE_GRACE_MAX, IDLE_GRACE_MIN, IDLE_MINUTES_MAX, IDLE_MINUTES_MIN, idleFieldNum, idleGraceOk, idleMinutesOk, idleSaveFields, idleSettingsOf } from '../lib/idlePunchOut';
+import { DEDUP_FIELDS, DEDUP_LABELS, dedupAnyOn, dedupChecksOf, dedupColumns, dedupToggleMaster, type DedupChecks } from '../lib/customerDedup';
 import {
   repPriceTypesOf, priceTypesWithin, togglePriceType, setDefaultPriceType, defaultOptionsOf, repPriceTypesBody, repPriceTypesDirty,
   type RepPriceTypesState,
@@ -796,6 +797,11 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
   const [idleOn, setIdleOn] = useState(() => idleSettingsOf(rep).idlePunchOutEnabled);
   const [idleMin, setIdleMin] = useState(() => String(idleSettingsOf(rep).idlePunchOutMinutes));
   const [idleGrace, setIdleGrace] = useState(() => String(idleSettingsOf(rep).idlePunchOutGraceMinutes));
+  /* «منع تكرار العملاء عند فتح عميل جديد» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): قيدٌ تقييديّ خارج PermKey — فلا يقلبه «تحديد الكل». الخانات
+   * الثلاث ما يُحفظ، والمفتاح الرئيس حالة شاشةٍ فوقها: تشغيله بلا خانةٍ يختار «رقم الجوال» وإطفاؤه يُفرغها (dedupToggleMaster) */
+  const [dedupChecks, setDedupChecks] = useState<DedupChecks>(() => dedupChecksOf(rep));
+  const [dedupOn, setDedupOn] = useState(() => dedupAnyOn(dedupChecksOf(rep)));
+  const toggleDedup = (on: boolean) => { setDedupOn(on); setDedupChecks(c => dedupToggleMaster(c, on)); };
 
   /* «أنواع الأسعار على مستوى المندوب» (طلب المالك ٢ نوفمبر ٢٠٢٦): الأنواع التي يبدّل بينها (بصلاحية «تبديل نوع السعر») ونوعه
    * الافتراضي لعميلٍ بلا نوع — كنسخة اللوحة (SalesRepModal). القسم يظهر والشركة لها أنواع والمحاسبة مفعّلة (صلاحيات التسعير
@@ -868,6 +874,7 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
       ...(perms.requirePunchAtCustomer ? { punchRadiusM: punchNum, punchOutsideAction: outsideAction } : {}),
       shiftStart: shiftStart || null, shiftEnd: shiftEnd || null, shiftDays,
       ...idleSaveFields({ idlePunchOutEnabled: idleOn, idlePunchOutMinutes: idleMinNum, idlePunchOutGraceMinutes: idleGraceNum }),
+      ...dedupColumns(dedupChecks),
       ...(typesBody ?? {}),
       email: rep.email ?? '', // وإلا مسحه الخادم (انظر تعليق نموذج البيانات)
     }),
@@ -911,6 +918,34 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
             ))}
           </Group>
         ))}
+
+        {/* «منع تكرار العملاء عند فتح عميل جديد»: المفتاح الرئيس وتحته الخانات الثلاث (كخانات قوائم الأسعار)، وسطر الموقع إعلاميّ —
+            قاعدة الشركة القائمة لكل المناديب (ضمن ٣٠ متراً) لا خيارٌ هنا */}
+        <Group title={tr('منع تكرار العملاء')} flush>
+          <MToggle label={tr('منع تكرار العملاء عند فتح عميل جديد')} checked={dedupOn} onChange={toggleDedup}
+            hint={tr('عند التفعيل لا يفتح المندوب عميلا جديدا ولا يعدل عميلا إلى رقم جوال أو اسم أو عنوان مما تختاره مسجل لعميل آخر في الشركة، والمقارنة بعد توحيد الكتابة والهمزات وصيغ الجوال، ولا يمس الإدارة ولا العميل المضاف دون اتصال')} />
+          {dedupOn && (
+            <div data-m-rep-customer-dedup="" role="group" aria-label={tr('منع تكرار العملاء عند فتح عميل جديد')}>
+              {DEDUP_FIELDS.map(f => {
+                const on = dedupChecks[f];
+                return (
+                  <button key={f} type="button" role="checkbox" aria-checked={on}
+                    onClick={() => setDedupChecks(c => ({ ...c, [f]: !c[f] }))}
+                    className="w-full flex items-center gap-3 ps-8 pe-3.5 py-2.5 min-h-[48px] text-start border-b border-[#F1EBDF] active:bg-[#FAF7F0]">
+                    <span className={`h-5 w-5 flex-shrink-0 rounded-md border flex items-center justify-center ${on ? 'bg-[#E15A30] border-[#E15A30]' : 'bg-white border-[#CFC5B3]'}`}>
+                      {on && <Check size={13} className="text-white" />}
+                    </span>
+                    <span className="min-w-0 flex-1 text-sm text-[#1F1A13]">{tr(DEDUP_LABELS[f])}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className="px-3.5 pt-1 pb-3">
+            {dedupOn && !dedupAnyOn(dedupChecks) && <Hint text={tr('لم تختر حقلا فلا يمنع أي تكرار')} bad />}
+            <Hint text={tr('الموقع (ضمن 30 متراً): مفعّل لكل المناديب')} />
+          </div>
+        </Group>
 
         {/* «أنواع الأسعار»: خانة لكل نوع والسعر الأساسي باسمه عند الشركة (الأسماء بيانات لا tr) — لا اختيار = كل الأنواع (null)،
             و«النوع الافتراضي» من المختارة وحدها */}

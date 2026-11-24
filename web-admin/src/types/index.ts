@@ -460,6 +460,11 @@ export interface SalesRep {
   idlePunchOutEnabled?: boolean;
   idlePunchOutMinutes?: number;      // دقائق الخمول قبل التذكير (١٠–٤٨٠، ٤٥ افتراضاً)
   idlePunchOutGraceMinutes?: number; // مهلة الردّ قبل الانصراف التلقائي (٥–١٢٠، ١٥ افتراضاً)
+  /** «منع تكرار العملاء عند فتح عميل جديد» — تقييديّ (الغائب مطفأ): يُرفض فتح عميلٍ (وتعديله إلى قيمةٍ) مسجّلةٍ لعميلٍ آخر في الشركة
+   *  (409 CUSTOMER_DUPLICATE) — كلٌّ مستقلّ؛ والموقع ضمن ٣٠ متراً قاعدةٌ لكل المناديب خارجها (lib/customerDedup.ts) */
+  dedupCustomerPhone?: boolean;
+  dedupCustomerName?: boolean;
+  dedupCustomerAddress?: boolean;
   showRouteOnMap?: boolean; // «عرض خط السير على الخريطة» — مطفأٌ ⇒ لا يُرسم أثره على خريطة التتبّع (الغائب = مفعّل)
   boundDeviceName?: string | null; boundDeviceAt?: string | null; // الجهاز المربوط (يربطه أول بصمة)
   shiftStart?: string | null; shiftEnd?: string | null; // موعد الدوام "HH:MM" — للتنبيهات وحدها
