@@ -237,6 +237,9 @@ model Tenant {
   // «النموذج المطبوع مسبقاً»: صور نماذج الشركة (علاقة عكسية فقط، بلا أعمدة)
   printFormImages       PrintFormImage[]
 
+  // «التعميمات» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): قرارات الإدارة وإعلاناتها للمناديب ومستخدمي الشركة (علاقة عكسية فقط، بلا أعمدة)
+  circulars             Circular[]
+
   @@map("tenants")
 }
 
@@ -5357,4 +5360,55 @@ model CustomerAdjustmentAllocation {
   @@index([tenantId, invoiceId])
   @@index([adjustmentId])
   @@map("customer_adjustment_allocations")
+}
+
+// ═══ «التعميمات» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): قرارٌ أو إعلانٌ إداري تنشره إدارة الشركة للمناديب أو لمستخدمي الشركة ═══
+// يظهر للمستلم نافذةً صغيرة عند فتح التطبيق حتى يضغط «تمت القراءة» (routes/circulars.ts، services/circulars.ts).
+// جدولان جديدان ⇒ @@unique آمن لـdb push؛ ولا عمود يُضاف إلى جدولٍ قائم (Tenant يحمل علاقة عكسية وحدها).
+
+/// التعميم. audience: REPS (المناديب) | USERS (مستخدمو الشركة). targetAll: كل الأعضاء المفعّلين **الحاليين** من ذلك النوع
+/// (يُحسب عند كل طلب فيصل من يُضاف بعد النشر)، وإلا targetIds (معرّفات مناديب أو مستخدمين في الشركة نفسها).
+/// الناشر لا يصله تعميمه (USERS). status: ACTIVE | WITHDRAWN — المسحوب والمنتهي (expiresAt) لا يظهران لأحد.
+/// وبعد إغلاقه (withdrawnAt أو expiresAt الماضي) يُجمَّد «الكل» على من وُجد عند الإغلاق — من يُضاف بعده لا يُعدّ «لم يقرأه».
+model Circular {
+  id            String        @id @default(uuid())
+  tenantId      String
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  audience      String // REPS | USERS
+  title         String
+  body          String
+  targetAll     Boolean       @default(true)
+  targetIds     String[]      @default([])
+  status        String        @default("ACTIVE") // ACTIVE | WITHDRAWN
+  /// ناشره: ADMIN (مستخدم الشركة، createdById = معرّفه) | OWNER (جلسة «دخول» المالك أو موظف المنصة، createdById = مُصدِرها)
+  createdByKind String?
+  createdById   String?
+  createdByName String?
+  expiresAt     DateTime?
+  /// لحظة السحب (status = WITHDRAWN) — حدّ مستلمي «الكل» في العدّادات، وحدّ قبول إقرارٍ صُفّ دون اتصال قبلها
+  withdrawnAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  acks          CircularAck[]
+
+  @@index([tenantId, audience, createdAt])
+  @@map("circulars")
+}
+
+/// «تمت القراءة»: صفٌّ واحد لكل قارئ — الفريد يجعل التأكيد المكرّر (إعادة رفع التطبيق دون اتصال) بلا أثر.
+/// readerKind: REP (مندوب، readerId = SalesRep.id) | ADMIN (مستخدم شركة، readerId = Admin.id). readerName لقطة الاسم لحظة القراءة.
+/// readAt: لحظة الضغط — إقرارٌ صُفّ على الجهاز دون اتصال يحمل لحظته (مصحَّحةً بانحراف ساعته ومحصورةً)، وإلا لحظة الوصول.
+model CircularAck {
+  id         String   @id @default(uuid())
+  circularId String
+  circular   Circular @relation(fields: [circularId], references: [id], onDelete: Cascade)
+  tenantId   String
+  readerKind String // REP | ADMIN
+  readerId   String
+  readerName String?
+  readAt     DateTime @default(now())
+
+  @@unique([circularId, readerKind, readerId])
+  @@index([tenantId, readerKind, readerId])
+  @@map("circular_acks")
 }

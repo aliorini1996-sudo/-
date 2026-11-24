@@ -79,6 +79,8 @@ export default function LaserScanField({ onScan, onUseCamera }: {
         if (!el || !el.isConnected || a === el) return;
         // التركيز في حقل كتابةٍ آخر (كمية، بحث) أو قائمة يستعملها المندوب: يُترك له
         if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable)) return;
+        // التركيز داخل ما وُسم data-laser-ignore (كنافذة «التعميمات» الحاجبة): يُترك هناك — وإلا انتزعه الحقل من تحتها فبلغ المسحُ الفاتورة
+        if (a?.closest?.('[data-laser-ignore]')) return;
         el.focus({ preventScroll: true });
       }, 0);
     };

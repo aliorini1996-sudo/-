@@ -56,6 +56,7 @@ import attendanceAdminRouter from './routes/attendanceAdmin';
 import visitsRouter from './routes/visits';
 import supportRouter from './routes/support';
 import companyUsersRouter from './routes/companyUsers';
+import circularsRouter from './routes/circulars';
 import erpRouter from './routes/erp';
 import apiKeysRouter from './routes/apiKeys';
 import apiV1Router from './routes/apiV1';
@@ -264,6 +265,8 @@ app.use('/api/attendance-admin', attendanceAdminRouter); // تعديل البص�
 app.use('/api/visits', visitsRouter);
 app.use('/api/support', supportRouter);
 app.use('/api/company-users', companyUsersRouter);
+// «التعميمات» — قرارات الإدارة وإعلاناتها للمناديب ومستخدمي الشركة، ونافذة «تمت القراءة» عند فتح التطبيق (routes/circulars.ts)
+app.use('/api/circulars', circularsRouter);
 app.use('/api/erp', erpRouter);
 app.use('/api/api-keys', apiKeysRouter); // «الربط البرمجي API» — مفاتيح الشركة (services/apiKeys.ts)
 app.use('/api/v1', apiV1Router); // مزامنة «الربط البرمجي API» لمفاتيح الشركة (services/apiSync.ts)
