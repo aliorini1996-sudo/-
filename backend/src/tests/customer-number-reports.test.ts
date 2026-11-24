@@ -106,6 +106,8 @@ const db = new Proxy({
     },
   },
   accountEntry: {
+    // «عمر الدين» في /balances (services/customerAgingDb.ts): قيود التسوية المدينة — لا شيء هنا
+    async findMany(a: Row) { log('accountEntry', 'findMany', a); return []; },
     async groupBy(a: Row) {
       log('accountEntry', 'groupBy', a);
       if (a._max) return [];
@@ -120,6 +122,8 @@ const db = new Proxy({
       return Object.keys(cursor).length ? [] : VISITS;
     },
   },
+  // «عمر الدين» في /balances (services/customerAgingDb.ts): التسويات اليدوية — لا شيء هنا
+  customerAdjustment: { ...empty, async findMany(a: Row) { log('customerAdjustment', 'findMany', a); return []; } },
   repSession: { async findMany(a: Row) { log('repSession', 'findMany', a); return []; } },
   repAttendance: { async findMany(a: Row) { log('repAttendance', 'findMany', a); return []; } },
   salesRep: {

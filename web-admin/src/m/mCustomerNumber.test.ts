@@ -80,13 +80,15 @@ test('بحث التقارير في /m: كل تقريرٍ صفوفه عملاء �
   assert.match(f, /const hit = subs\.filter\(s => rowHit\(q, s, sa\)\);/, 'التجميع المتداخل: الفروع');
 });
 
-test('عرض رقم العميل في قوائم التقارير: «#N · الاسم» حيث الصفّ عميل، والأرصدة في سطرها الثاني (العنوان بشارته مثبَّت)', () => {
+test('عرض رقم العميل في قوائم التقارير: «#N · الاسم» حيث الصفّ عميل، والأرصدة في عنوانها قبل الاسم (العمر أوّل السطر الثاني)', () => {
   const s = read('m', 'MReports.tsx');
-  assert.match(s, /import \{ formatCustomerLabel, formatCustomerNumber \} from '\.\.\/lib\/customerNumber';/);
+  assert.match(s, /import \{ formatCustomerLabel \} from '\.\.\/lib\/customerNumber';/);
   assert.match(s, /return level === 'customer' \? formatCustomerLabel\(r\) : r\.name;/, 'المبيعات حسب العميل');
   assert.match(s, /title=\{levelName\(r, groupBy, tr\)\}/, 'الصفوف المسطّحة بالاسم الخام');
   assert.match(s, /title=\{formatCustomerLabel\(r\.customer\)\}/, 'التحصيل');
-  assert.match(s, /subtitle=\{\[formatCustomerNumber\(c\.number\), c\.phone, /, 'الأرصدة');
+  // الأرصدة: السطر الثاني للعمر أوّلاً («عمر الدين»)، فالرقم في العنوان قبل الاسم
+  assert.match(s, /<span className="truncate min-w-0">\{formatCustomerLabel\(c\)\}<\/span>/, 'الأرصدة (بشارة)');
+  assert.match(s, /subtitle=\{\[ageText\(c\), c\.phone, /, 'الأرصدة: العمر أوّل السطر الثاني');
   assert.match(s, /title=\{formatCustomerLabel\(\{ name: c\.name \|\| tr\('عميل بلا اسم'\), number: c\.number \}\)\}/, 'لم تتم زيارتهم');
   assert.match(s, /title=\{formatCustomerLabel\(\{ name: g\.customerName \|\| tr\('عميل بلا اسم'\), number: g\.customerNumber \}\)\}/, 'الزيارات');
   // Initial (الحرف الأول) من الاسم لا من «#»

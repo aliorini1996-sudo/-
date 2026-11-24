@@ -31,7 +31,7 @@ import { breakOf, compactMinutes, formatPeriods, hasPunchLocation, periodsOf, pu
 import {
   appliedRangeOf, truncationOf, defaultedRangeNote, truncationNote, customerStatusBadge, perfHasCash, perfCompanyRate, type Truncation,
 } from '../lib/reportsAccuracy';
-import { formatCustomerLabel, formatCustomerNumber } from '../lib/customerNumber';
+import { formatCustomerLabel } from '../lib/customerNumber';
 
 /**
  * شاشة التقارير التحليلية في تطبيق الإدارة على الجوال (سبعة تقارير).
@@ -931,12 +931,13 @@ function BalancesReport({ customer }: { customer: FilterPick | null }) {
                 leading={<Initial name={c.name} />}
                 // المحظور والموقوف مدينان داخل الإجمالي — شارةٌ بجانب الاسم تميّزهما لا تُخفيهما (البند ٢). الاسم وحده يُقصّ
                 // والشارة لا تنكمش: سطر MRow مقصوصٌ بنقاط، فاسمٌ تجاريٌّ طويل كان يدفعها إلى ما بعد «…» على شاشة ٣٧٥px
+                // «رقم العميل» في العنوان قبل الاسم ('#12 · الاسم') — السطر الثاني للعمر أوّلاً كما هو
                 title={badge
-                  ? <span className="flex items-center gap-1.5 min-w-0"><span className="truncate min-w-0">{c.name}</span><span className={`shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold ${c.status === 'BLOCKED' ? 'bg-[#FBEAE7] text-[#B42318]' : 'bg-[#F1EBDF] text-[#6E6557]'}`}>{tr(badge)}</span></span>
-                  : c.name}
+                  ? <span className="flex items-center gap-1.5 min-w-0"><span className="truncate min-w-0">{formatCustomerLabel(c)}</span><span className={`shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold ${c.status === 'BLOCKED' ? 'bg-[#FBEAE7] text-[#B42318]' : 'bg-[#F1EBDF] text-[#6E6557]'}`}>{tr(badge)}</span></span>
+                  : formatCustomerLabel(c)}
                 // «عمر الدين» من أقدم دينٍ قائم (الخادم)، والتأخّر عن مهلة السداد بجانب تجاوز الحد — كلاهما **أوّل** سطره: السطران
-                // مقصوصان بنقاط، فالقصّ يُسقط الأقل أهمية (الحد، تجاوزه الظاهر بلون المبلغ) لا رقم العمر. ثم «رقم العميل» قبل الجوال
-                subtitle={[ageText(c), formatCustomerNumber(c.number), c.phone, c.creditLimit > 0 ? `${tr('الحد')} ${formatCurrency(c.creditLimit)}` : null]
+                // مقصوصان بنقاط، فالقصّ يُسقط الأقل أهمية (الحد، تجاوزه الظاهر بلون المبلغ) لا رقم العمر
+                subtitle={[ageText(c), c.phone, c.creditLimit > 0 ? `${tr('الحد')} ${formatCurrency(c.creditLimit)}` : null]
                   .filter(Boolean).join(' · ')}
                 note={[overdueText(c), over ? tr('تجاوز الحد الائتماني') : null].filter(Boolean).join(' · ') || undefined}
                 trailing={<Amount value={formatCurrency(c.balance)} tone={over ? 'bad' : 'warn'} />} />

@@ -16,7 +16,7 @@ import {
 import { useTr } from '../i18n/strings';
 import { channelLabel } from '../lib/channels';
 import { filterFlat, filterNested } from '../lib/reportSearch';
-import { formatCustomerLabel, formatCustomerNumber } from '../lib/customerNumber';
+import { formatCustomerNumber } from '../lib/customerNumber';
 import { groupCollectionsByRep, collectionTotals, CollReceiptLike, CollRepGroup } from '../lib/collectionsByRep';
 import { companyMethodLabel } from '../lib/paymentMethodsConfig';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -935,8 +935,7 @@ export default function ReportsPage() {
       ...(balHasAging && { pdfRows: balanceRows.map(c => {
         const a = debtAgingOf(c);
         return {
-          // «رقم العميل» داخل خانة العميل ('#12 · الاسم') لا عموداً: الصفحة بلغت حدّها من الأعمدة
-          [tr('العميل')]: formatCustomerLabel(c), [tr('الجوال')]: c.phone, [tr('الرصيد')]: num(c.balance), [tr('الحد الائتماني')]: num(c.creditLimit),
+          [tr('العميل')]: c.name, [tr('الجوال')]: c.phone, [tr('الرصيد')]: num(c.balance), [tr('الحد الائتماني')]: num(c.creditLimit),
           [tr('عمر الدين (يوم)')]: a ? (a.ageDays ?? tr('بلا تاريخ')) : '',
           [tr('أيام التأخير')]: a ? a.overdueDays : '',
           [tr('المتأخر عن السداد')]: num(a?.overdueAmount ?? 0),

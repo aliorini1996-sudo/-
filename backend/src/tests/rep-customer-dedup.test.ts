@@ -608,7 +608,7 @@ test('«الموقع ضمن ٣٠ متراً» باقٍ للجميع كما هو:
   const s = read('routes', 'customers.ts');
   const loc = s.indexOf('const near = await findLocationDuplicate(tid, rest.lat, rest.lng);');
   const dd = s.indexOf('const dup = await findCustomerDuplicate(tid, { phone: rest.phone, name: dedupName, address: rest.address }, { checks: dedup });');
-  assert.ok(loc > 0 && dd > loc && dd < s.indexOf('const customer = await prisma.customer.create({', dd), 'الموقع أوّلاً، ثم التكرار، ثم الإنشاء');
+  assert.ok(loc > 0 && dd > loc && dd < s.indexOf('const created = await createNumberedCustomer(tx, tid, {', dd), 'الموقع أوّلاً، ثم التكرار، ثم الإنشاء');
 });
 
 // ═══ (٦) الإعدادات ═══
