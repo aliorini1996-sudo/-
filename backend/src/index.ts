@@ -18,6 +18,7 @@ import { startCardPayScheduler } from './services/cardPayment';
 import { startZatcaSweep } from './services/zatcaSubmit';
 import { startAttendanceAlerts } from './services/attendanceAlerts';
 import { startPresenceChecks } from './services/presenceChecks';
+import { startIdlePunchOut } from './services/idlePunchOut';
 import { startLedgerSyncScheduler, trackLedgerRequestLoad } from './services/gl/sync/scheduler';
 import { startAffiliateSettlementScheduler } from './services/affiliate/settlement';
 import { promoteLegacyPendingAffiliates } from './services/affiliate/core';
@@ -56,6 +57,7 @@ import attendanceAdminRouter from './routes/attendanceAdmin';
 import visitsRouter from './routes/visits';
 import supportRouter from './routes/support';
 import companyUsersRouter from './routes/companyUsers';
+import circularsRouter from './routes/circulars';
 import erpRouter from './routes/erp';
 import apiKeysRouter from './routes/apiKeys';
 import apiV1Router from './routes/apiV1';
@@ -264,6 +266,8 @@ app.use('/api/attendance-admin', attendanceAdminRouter); // تعديل البص�
 app.use('/api/visits', visitsRouter);
 app.use('/api/support', supportRouter);
 app.use('/api/company-users', companyUsersRouter);
+// «التعميمات» — قرارات الإدارة وإعلاناتها للمناديب ومستخدمي الشركة، ونافذة «تمت القراءة» عند فتح التطبيق (routes/circulars.ts)
+app.use('/api/circulars', circularsRouter);
 app.use('/api/erp', erpRouter);
 app.use('/api/api-keys', apiKeysRouter); // «الربط البرمجي API» — مفاتيح الشركة (services/apiKeys.ts)
 app.use('/api/v1', apiV1Router); // مزامنة «الربط البرمجي API» لمفاتيح الشركة (services/apiSync.ts)
@@ -433,6 +437,7 @@ server.listen(PORT, async () => {
   startZatcaSweep(); // ZATCA_SWEEP_ENABLED=false للإطفاء — خامل بلا مستندات مرحلة ثانية
   startAttendanceAlerts(); // تنبيهات الحضور على جوال المندوب — ATTENDANCE_ALERTS_ENABLED=false للإطفاء
   startPresenceChecks(); // التحقق العشوائي من التواجد — PRESENCE_CHECKS_ENABLED=false للإطفاء
+  startIdlePunchOut(); // تذكير بالانصراف عند الخمول ثم انصراف تلقائي — IDLE_PUNCH_OUT_ENABLED=false للإطفاء
   // سفير فيلد سيلز v2: ترقية طلبات الانضمام القديمة (pending_*) إلى «مقبول» مرّةً بعلامة OpsMarker —
   // (الدالّة لا ترمي أبداً — تُعيد العدد أو null؛ الـcatch احتياطٌ إضافي)
   void promoteLegacyPendingAffiliates().catch((e: unknown) => console.error('[affiliate] legacy promotion:', (e as Error).message));

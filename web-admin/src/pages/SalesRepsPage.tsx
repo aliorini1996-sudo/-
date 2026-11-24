@@ -1,9 +1,9 @@
-import { useState, useEffect, lazy, Suspense, useMemo } from 'react';
+import { useState, useEffect, lazy, Suspense, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { salesRepApi, invoiceApi, receiptApi, customerApi, companyApi, dailyReportApi, priceListApi } from '../api/client';
 import { SalesRep, Invoice, Receipt, Customer } from '../types';
-import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck, Image as ImageIcon, ClipboardList, UserX, CreditCard, UsersRound, Target } from 'lucide-react';
+import { Plus, Search, Edit, Check, X as XIcon, Copy, KeyRound, UserCheck, FileBarChart2, Download, Printer, X, Trash2, Banknote, Users, ShieldCheck, Image as ImageIcon, ClipboardList, UserX, CreditCard, UsersRound, Target, Megaphone } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SalesRepModal from '../components/forms/SalesRepModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
@@ -14,6 +14,7 @@ import CardTerminalsModal from '../components/CardTerminalsModal';
 import RepTargetsModal from '../components/RepTargetsModal';
 import PagePanelModal from '../components/PagePanelModal';
 import TeamsTabBoundary from '../components/teams/TeamsTabBoundary';
+import CircularsPanel from '../components/circulars/CircularsPanel';
 import { formatCurrency, formatDate, formatDayOnly, formatTime, formatNumber, statusLabels, paymentMethodLabels, getActiveCurrency } from '../utils/format';
 import { totalsByUnit, docQtyText } from '../lib/adminUnits';
 import { methodLabelFor, type CompanyWithMethods } from '../lib/paymentMethodsConfig';
@@ -165,6 +166,11 @@ export default function SalesRepsPage() {
   // «إعادة المحاولة» بعد فشل تحميل حزمة اللوحة: مكوّن كسول جديد لكل محاولة (React.lazy يحفظ الوعد المرفوض)
   const [teamsAttempt, setTeamsAttempt] = useState(0);
   const TeamsPanel = useMemo(() => lazy(loadTeamsPanel), [teamsAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
+  // «التعميمات» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): قرارٌ إداريّ يظهر للمندوب حين يفتح التطبيق حتى يضغط «تمت القراءة» — بصلاحية
+  // المناديب كما يشترطها الخادم لـREPS. مسوّدةٌ لم تُنشر ⇒ تُسأل النافذة قبل الإغلاق
+  const circularsOn = user?.role !== 'SALES_REP' && user?.canManageSalesReps !== false;
+  const [circularsOpen, setCircularsOpen] = useState(false);
+  const circularsDirty = useRef(false);
 
   // المحاسبة مطفأة ⇒ تختفي صلاحيات الفوترة والتسعير والتحصيل ومخزون السيارة
   // من الجدول ومن نافذة المندوب، ويختفي زرّا «استلام تحصيل» و«كشف الأداء
@@ -188,9 +194,12 @@ export default function SalesRepsPage() {
     <div>
       <div className="page-header">
         <h1 className="page-title">{tr('إدارة المناديب')}</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           {teamsOn && (
             <button className="btn-secondary" onClick={() => setTeamsOpen(true)}><UsersRound size={16} />{tr('فرق العمل')}</button>
+          )}
+          {circularsOn && (
+            <button className="btn-secondary" onClick={() => setCircularsOpen(true)}><Megaphone size={16} />{tr('التعميمات')}</button>
           )}
           {cardPayOn && (
             <button className="btn-secondary" onClick={() => setCardTerminalsOpen(true)}><CreditCard size={16} />{tr('نقاط البيع بالبطاقة')}</button>
@@ -205,6 +214,13 @@ export default function SalesRepsPage() {
               <TeamsPanel />
             </Suspense>
           </TeamsTabBoundary>
+        </PagePanelModal>
+      )}
+      {circularsOn && circularsOpen && (
+        <PagePanelModal title={tr('التعميمات')} icon={<Megaphone size={20} />}
+          onClose={() => { circularsDirty.current = false; setCircularsOpen(false); }}
+          confirmClose={() => !circularsDirty.current || window.confirm(tr('تجاهل مسودة التعميم؟'))}>
+          <CircularsPanel audience="REPS" onDirtyChange={(d) => { circularsDirty.current = d; }} />
         </PagePanelModal>
       )}
       {cardTerminalsOpen && <CardTerminalsModal test={companyCfg?.cardPayTest === true} onClose={() => setCardTerminalsOpen(false)} />}

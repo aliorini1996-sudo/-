@@ -156,8 +156,10 @@ self.addEventListener('push', (event) => {
     badge: '/icons/icon-192.png',
     tag: typeof data.tag === 'string' ? data.tag : undefined,
     // «أثبت تواجدك» ينبّه كل مرّة (صوتٌ واهتزاز ولو حلّ محلّ سابقه بالوسم نفسه) ويبقى حتى يُلمس — مهلته دقيقتان
-    renotify: data.tag === 'presence',
-    requireInteraction: data.tag === 'presence',
+    // و«انصراف تلقائي» يحلّ محلّ «هل ما زلت تعمل؟» بالوسم نفسه (idle-punch) — فينبّه هو أيضاً، وإلا استبدله بصمتٍ فلا يعلم به
+    renotify: data.tag === 'presence' || data.tag === 'idle-punch',
+    // و«هل ما زلت تعمل؟» (تذكير الانصراف عند الخمول، الوسم idle-punch) يبقى حتى يُلمس أيضاً: بلا ردٍّ خلال المهلة يُسجَّل انصرافٌ تلقائي
+    requireInteraction: data.tag === 'presence' || data.tag === 'idle-punch',
     vibrate: data.tag === 'presence' ? PRESENCE_VIBRATE_PUSH : undefined,
     dir: 'auto',
     // معرّف الطلب: التطبيق يُغلق إشعار طلبه وحده، لا إشعار طلبٍ أحدث وصل وهو في الخلفية

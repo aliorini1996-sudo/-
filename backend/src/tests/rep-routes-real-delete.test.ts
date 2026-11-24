@@ -8,10 +8,15 @@ import path from 'node:path';
 const SRC = path.join(__dirname, '..');
 const read = (...p: string[]) => fs.readFileSync(path.join(SRC, ...p), 'utf8').replace(/\r\n/g, '\n');
 
-test('لا تعطيل في خطوط السير: لا isActive:false يُكتب، ولا update/updateMany على الخطّ — الحذف بمحرّكٍ واحد يحذف المحطّات ثم الرأس', () => {
+test('لا تعطيل في خطوط السير: لا isActive:false يُكتب، ولا update/updateMany على الخطّ إلا موضع الدورة — الحذف بمحرّكٍ واحد يحذف المحطّات ثم الرأس', () => {
   const s = read('routes', 'repRoutes.ts');
   assert.doesNotMatch(s, /data:\s*\{\s*isActive:\s*false/, 'خطّ السير ما زال يُعطَّل بدل أن يُحذف');
-  assert.doesNotMatch(s, /repRoute\.(update|updateMany)\(/, 'كتابة تعديلٍ على رأس الخطّ — الاستبدال والحذف حذفٌ فعليّ');
+  // طلب المالك ٢٢ نوفمبر ٢٠٢٦ («تناوب بالترتيب»): الكتابة الوحيدة المسموحة على رأس الخطّ موضعُه في الدورة (rotationOrder)
+  // بمعرّفه وشركته ومندوبه — لا تعطيل ولا تعديلٌ لغيره، فالاستبدال والحذف باقيان حذفاً فعلياً.
+  assert.doesNotMatch(s, /repRoute\.update\(/, 'كتابة تعديلٍ على رأس الخطّ — الاستبدال والحذف حذفٌ فعليّ');
+  const writes = [...s.matchAll(/repRoute\.updateMany\(([^;]*)\);/g)].map((m) => m[1]);
+  assert.equal(writes.length, 1, 'كتابة تعديلٍ على رأس الخطّ غير ترتيب الدورة');
+  assert.match(writes[0], /^\{ where: \{ id: body\.ids\[i\], tenantId: tid, salesRepId \}, data: \{ rotationOrder: i \} \}$/, 'تعديل رأس الخطّ غير موضعه في الدورة');
   const fn = s.slice(s.indexOf('async function deleteRoutes('), s.indexOf('function dayBounds('));
   const stops = fn.indexOf('tx.repRouteStop.deleteMany(');
   const head = fn.indexOf('tx.repRoute.deleteMany(');
@@ -114,6 +119,8 @@ db.$transaction = async (fn: (tx: Row) => Promise<unknown>) => {
   const snap = { routes: st.routes.map((r) => ({ ...r })), stops: st.stops.map((s) => ({ ...s })) };
   try { return await fn(db); } catch (e) { st.routes = snap.routes; st.stops = snap.stops; throw e; }
 };
+// جدول «طريقة توزيع الخطوط» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): هذه الحالات كلها لمندوبين بلا جدول = السلوك القديم (دائمٌ واحد)
+db.repRouteSchedule = { async findFirst() { return null; } };
 stub('config/database', { default: db });
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires

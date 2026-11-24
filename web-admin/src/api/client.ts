@@ -8,6 +8,7 @@ import type { PrintTextsV1 } from '../lib/print/printTextsCore';
 import type { PaymentMethodsConfigInput } from '../lib/paymentMethodsCore';
 import type { RepTargetComboInput, RepTargetInput } from '../lib/repTargets';
 import type { SalesInboxParams, SalesUpdate } from '../lib/salesCrm';
+import type { CircularAudience, CircularCreateBody } from '../lib/circulars';
 import type { ChatRequest as AiAccountantChatRequest } from '../lib/aiAccountant';
 import type { AcctDocPatch } from '../lib/aiAccountantDocs';
 import { pendingLoadsClient } from '../lib/pendingLoads';
@@ -471,6 +472,18 @@ export const companyUserApi = {
     api.delete(`/company-users/${id}/settlements/${settlementId}`),
 };
 
+// «التعميمات» — /api/circulars (طلب المالك ٢٣ نوفمبر ٢٠٢٦): قرارٌ أو إعلانٌ إداريّ للمناديب (REPS، صلاحية المناديب) أو لمستخدمي
+// الشركة (USERS، صلاحية مستخدمي الشركة) يظهر للموظف في نافذةٍ حين يفتح التطبيق حتى يضغط «تمت القراءة».
+// الإدارة: list/create/reads/withdraw — والموظف (مدير الشركة في اللوحة و/m): pending/ack (الإقرار متكرّرٌ بلا أثر، و٤٠٤ لغير المعلّق له)
+export const circularsApi = {
+  list: (audience: CircularAudience) => api.get('/circulars', { params: { audience } }),
+  create: (body: CircularCreateBody) => api.post('/circulars', body),
+  reads: (id: string) => api.get(`/circulars/${encodeURIComponent(id)}/reads`),
+  withdraw: (id: string) => api.post(`/circulars/${encodeURIComponent(id)}/withdraw`),
+  pending: () => api.get('/circulars/pending'),
+  ack: (id: string) => api.post(`/circulars/${encodeURIComponent(id)}/ack`),
+};
+
 // الربط البرمجي API — مفاتيح الشركة (إصدار/قائمة/إلغاء)؛ المفتاح الكامل يعود في ردّ الإصدار وحده
 export const apiKeysApi = {
   list: () => api.get('/api-keys'),
@@ -698,6 +711,16 @@ export const repRouteApi = {
   mine: () => api.get('/rep-routes/mine', {
     params: { date: dayKeyLocal(), tzOffsetMin: -new Date().getTimezoneOffset() },
   }),
+  /** «طريقة توزيع الخطوط» لمندوب (طلب المالك ٢٢ نوفمبر ٢٠٢٦): الطريقة وخطوطه الدائمة بترتيب الدورة وخطّ يومه — بيوم الجهاز */
+  schedule: (salesRepId: string) => api.get(`/rep-routes/schedule/${salesRepId}`, {
+    params: { date: dayKeyLocal(), tzOffsetMin: -new Date().getTimezoneOffset() },
+  }),
+  /** 'single' يحذف الجدول (خطٌّ دائمٌ واحد كما كان)، و'weekdays'/'rotation' تُنشئه أو تعدّله */
+  setSchedule: (salesRepId: string, body: { mode: 'single' | 'weekdays' | 'rotation'; rotationStart?: string | null; offDays?: number[] }) =>
+    api.put(`/rep-routes/schedule/${salesRepId}`, body, { params: { date: dayKeyLocal(), tzOffsetMin: -new Date().getTimezoneOffset() } }),
+  /** ترتيب دورة التناوب — كل خطوط المندوب الدائمة بترتيبها الجديد */
+  setOrder: (salesRepId: string, ids: string[]) =>
+    api.put(`/rep-routes/order/${salesRepId}`, { ids }, { params: { date: dayKeyLocal(), tzOffsetMin: -new Date().getTimezoneOffset() } }),
 };
 
 /** مفتاح يوم الجهاز 'YYYY-MM-DD' بلا انزلاق منطقة زمنية */
@@ -969,6 +992,8 @@ export const repStockRequestApi = {
   // unitId حين غيّر الإداري الوحدة (null للأساس)؛ baseUnitName («الوحدة الرئيسية» §2.9) الأساس كما رآه النموذج لسطرٍ بالأساس
   update: (id: string, data: { updatedAt: string; items: { productId: string; qty: number; unitId?: string | null; baseUnitName?: string | null }[] }) => api.put(`/rep-stock-requests/${id}`, data),
   reject: (id: string, updatedAt: string) => api.post(`/rep-stock-requests/${id}/reject`, { updatedAt }),
+  // «تحميل مباشر»: بعد كتابة التحميل بـvanStockApi.createLoad يُعلَّم الطلب «حُمِّل» بمعرّف الحركة ونسخته التي حُمِّلت
+  loaded: (id: string, data: { updatedAt: string; vanLoadId: string }) => api.post(`/rep-stock-requests/${id}/loaded`, data),
   send: (data: { ref: string; requests: { id: string; updatedAt: string }[] }) => api.post('/rep-stock-requests/send', data),
 };
 

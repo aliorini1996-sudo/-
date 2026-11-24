@@ -6,7 +6,7 @@ import { useTr } from '../i18n/strings';
 import { useLang } from '../i18n/lang';
 import { countText } from '../lib/arCount';
 import SearchableSelect from '../components/SearchableSelect';
-import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar, Sparkles, AlertTriangle, Target, Download, Wrench, Layers, ChevronDown, ChevronUp, Info, Eraser, PenLine } from 'lucide-react';
+import { Truck, Package, TrendingDown, Plus, X, Trash2, ArrowDownToLine, Boxes, Calendar, Sparkles, AlertTriangle, Target, Download, Wrench, Layers, ChevronDown, ChevronUp, Info, Eraser, ClipboardCheck, PenLine } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DocumentModal from '../components/DocumentModal';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -15,6 +15,8 @@ import { splitVanMovement } from '../lib/vanMovement';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 import VanLoadsLog from '../components/VanLoadsLog';
 import StockZeroModal from '../components/StockZeroModal';
+import { stockCountLines, stockCountRef, type VanStockSource } from '../lib/stockCount';
+import type { StockCountDoc } from '../rep/RepDocuments';
 import { useAuthStore, isStaffImpersonationClient } from '../store/authStore';
 import { baseQtyText, hasBigUnit, productUnitLabel, suggestionChoice } from '../lib/adminUnits';
 import { anyBigUnit, fmtTotalQty, qtyText, qtyViewFor, totalsList, unitTotalsItems, type QtyView, type UnitTotal } from '../lib/qtyView';
@@ -239,6 +241,9 @@ export default function VanStockPage() {
   // «دخول» موظف المنصة دوره ADMIN و`impersonating` قائم — يُستثنى من الفرعين فالخادم يرفضه دائماً (٤٠٣)، ومديرٌ نُزعت منه «تحميل مخزون السيارة» يرفضه كذلك
   const canZeroStock = !isStaffImpersonationClient() && ((me?.role === 'ADMIN' && !me?.scopeEnabled && me?.canManageVanStock !== false) || !!impersonating);
   const [showZero, setShowZero] = useState(false);
+  // «كشف جرد» سيارة مندوب (طلب المالك ٢٣ نوفمبر ٢٠٢٦): PDF للمطابقة الفعلية — رصيد النظام لحظة الإصدار وخاناتٌ للجرد
+  const [countDoc, setCountDoc] = useState<StockCountDoc | null>(null);
+  const [countBusy, setCountBusy] = useState<string | null>(null);
   // «تصفير سيارة مندوب واحدة» (طلب المالك ١٨ نوفمبر ٢٠٢٦): من تفصيل المندوب المختار، بالشرط نفسه — النافذة نفسها بسيارته وحدها
   const [zeroRep, setZeroRep] = useState<{ id: string; name: string } | null>(null);
 
@@ -326,6 +331,28 @@ export default function VanStockPage() {
         </button>}
       </span>
     ) : <span className="text-[#9A8F7E]">—</span>;
+  };
+
+  const openStockCount = async (r: RepSummary) => {
+    if (countBusy) return;
+    setCountBusy(r.salesRepId);
+    try {
+      // الرصيد لحظة الإصدار من الخادم دائماً — لا نسخةٌ قديمة من الذاكرة
+      const rows = await qc.fetchQuery({
+        queryKey: ['van-current', r.salesRepId],
+        queryFn: async () => (await vanStockApi.current(r.salesRepId)).data.data as StockRow[],
+        staleTime: 0,
+      });
+      const now = new Date();
+      setCountDoc({
+        kind: 'stockCount', company: companyQ.data ?? null, ref: stockCountRef(now), date: now.toISOString(),
+        repName: r.repName, by: me?.name, items: stockCountLines(rows as unknown as VanStockSource[]),
+      });
+    } catch {
+      toast.error(tr('تعذر تحميل مخزون السيارة حاول مجددا'));
+    } finally {
+      setCountBusy(null);
+    }
   };
 
   const currentQ = useQuery({
@@ -460,6 +487,7 @@ export default function VanStockPage() {
                       وسم الأساس ولو عُرضت الأعمدة الأخرى بالكبرى */}
                   {anyExpiredField && <th className="text-center font-semibold px-3 py-2.5" title={tr(crossSumLabel(hasPrimary))}>{tr('منتهي الصلاحية')}{(hasPrimary || majorSums) && <span className="block text-[9px] font-normal text-[#9A8F7E]">{tr('بالوحدات الصغرى')}</span>}</th>}
                   <th className="text-center font-semibold px-3 py-2.5" title={sumTitle}>{filtered ? tr('المتبقي بنهاية المدة') : tr('المتبقي')}{sumTag}</th>
+                  <th className="text-center font-semibold px-3 py-2.5" title={tr('كشف PDF برصيد السيارة الحالي للمطابقة الفعلية')}>{tr('كشف جرد')}</th>
                   <th className="text-center font-semibold px-3 py-2.5" title={lotOn ? tr('الأصناف المتتبعة بـLOT ممنوعة دائما من البيع بلا رصيد ولو سمح للمندوب') : undefined}>{tr('البيع بدون مخزون')}</th>
                   <th className="text-center font-semibold px-3 py-2.5">{tr('آخر تحميل')}</th>
                 </tr>
@@ -504,6 +532,16 @@ export default function VanStockPage() {
                         </td>
                       );
                     })()}
+                    {/* «كشف جرد»: PDF برصيد السيارة الآن للمطابقة الفعلية — الرصيد الحالي لا رصيد نهاية المدة المختارة */}
+                    <td className="text-center px-3 py-3" onClick={e => e.stopPropagation()}>
+                      <button onClick={() => openStockCount(r)} disabled={countBusy !== null}
+                        title={tr('إصدار كشف جرد للسيارة')} aria-label={`${tr('إصدار كشف جرد للسيارة')} ${r.repName}`} data-stock-count=""
+                        className="inline-flex items-center justify-center w-9 h-9 rounded-full border border-[#E9E1D3] text-[#E15A30] hover:bg-[#FBEBE2] disabled:opacity-50">
+                        {countBusy === r.salesRepId
+                          ? <span className="w-4 h-4 border-2 border-[#E15A30]/30 border-t-[#E15A30] rounded-full animate-spin" />
+                          : <ClipboardCheck size={16} />}
+                      </button>
+                    </td>
                     <td className="text-center px-3 py-3" onClick={e => e.stopPropagation()}>
                       <button onClick={() => setSellPerm.mutate({ id: r.salesRepId, val: !r.canSellWithoutStock })}
                         disabled={setSellPerm.isPending}
@@ -672,6 +710,7 @@ export default function VanStockPage() {
       {showAccuracy && <AccuracyModal preselectRep={selected} qv={qv} onClose={() => setShowAccuracy(false)} />}
       {showZero && canZeroStock && <StockZeroModal onClose={() => setShowZero(false)} />}
       {zeroRep && canZeroStock && <StockZeroModal salesRepId={zeroRep.id} repName={zeroRep.name} onClose={() => setZeroRep(null)} />}
+      {countDoc && <DocumentModal doc={countDoc} onClose={() => setCountDoc(null)} />}
       {noticeMv && <DocumentModal doc={withMovementLots(loadNoticeDocFromData(repName, noticeMv, companyQ.data ?? null, noticeAcceptance), noticeMv, lotOn)} onClose={() => { setNoticeMv(null); setNoticeAcceptance(null); }} />}
       {toolsRep && <ToolsModal repId={toolsRep.salesRepId} repName={toolsRep.repName} onClose={() => setToolsRep(null)} />}
       {toolsGone && <ToolsModal deleted repId={toolsGone.deletedSalesRepId} repName={tr('مندوب محذوف')} onClose={() => setToolsGone(null)} />}

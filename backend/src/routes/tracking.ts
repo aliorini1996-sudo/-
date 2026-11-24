@@ -19,6 +19,7 @@ import { readLiveVerdict } from '../middleware/repLiveLocation';
 import { pingLimiter } from '../middleware/rateLimits';
 import { publishLocationsChanged } from '../services/liveEvents';
 import { pendingPresence, presenceOutcome, PRESENCE_TAP_HOLD_MS } from '../services/presenceChecks';
+import { pendingIdleReminder, IDLE_AUTO_OUT_RECENT_MS } from '../services/idlePunchOut';
 import {
   issueTrackToken, nativeTrackActive, nativeTrackFlags, nativeTrackSeenAt, nativeTrackStopped, repTrackingOff, deviceTrackDecision,
   LOCATION_SOURCE_DEVICE, NATIVE_RECENT_WINDOW_MS, NATIVE_ROW_LOOKBACK_MS, type LocationSource,
@@ -212,12 +213,17 @@ router.post('/heartbeat', async (req: AuthRequest, res: Response, next: NextFunc
     // آخر ظهور = الآن (يجعل مؤشّر «متصل» يعكس فتح التطبيق حتى بلا GPS)
     // + حالة الجهاز الاختيارية من الحزمة الحديثة (Z5.0: الحزمة وعدّا الصفّ الصادر) في التحديث نفسه — جسم غائب ⇒ كما كان
     const beat = await prisma.salesRep.update({
-      where: { id: repId }, data: { lastSeenAt: now, ...heartbeatClientState(req.body, now) }, select: { requirePresenceCheck: true },
+      where: { id: repId }, data: { lastSeenAt: now, ...heartbeatClientState(req.body, now) }, select: { requirePresenceCheck: true, idlePunchOutEnabled: true },
     });
 
     // «التحقق العشوائي من التواجد»: طلبٌ أُرسل ولم يُجب — يصل التطبيق المفتوح بلا تنبيهات مفعّلة (الإشعار هو الطريق الأول)
     const presence = beat.requirePresenceCheck && (await attendanceEnabled(tid)) ? await pendingPresence(tid, repId, now) : null;
-    res.json({ success: true, data: { presence } });
+    // «تذكير بالانصراف عند الخمول» (services/idlePunchOut.ts): تذكيرٌ معلّق ⇒ «هل ما زلت تعمل؟» بعدٍّ تنازليّ في التطبيق (serverNow
+    // يصحّح ساعة الجوال) — للمقيَّد وحده. والنبضة بعد التذكير لا تلغي الانصراف التلقائي (قرار المالك): يلغيه «ما زلت أعمل» أو تنقّلٌ
+    // فعلي أو مستندٌ يصدره، وإلا يبقى السؤال حتى الانصراف أو انقضاء المهلة.
+    // الحقل حاضرٌ دائماً (null = لا تذكير) فيعرف التطبيق خادماً يدعم الميزة من خادمٍ أقدم بلا الحقل
+    const idlePunchOutReminder = beat.idlePunchOutEnabled && (await attendanceEnabled(tid)) ? await pendingIdleReminder(tid, repId, now) : null;
+    res.json({ success: true, data: { presence, idlePunchOutReminder } });
   } catch (err) { next(err); }
 });
 
@@ -450,7 +456,8 @@ async function dayShifts(tid: string, repId: string, since: Date) {
     where: { tenantId: tid, salesRepId: repId, OR: [{ checkInAt: { gte: since } }, { checkOutAt: { gte: since } }, { checkOutAt: null }] },
     orderBy: { checkInAt: 'desc' },
     take: 50,
-    select: { checkInAt: true, checkOutAt: true, checkInOutside: true, checkOutOutside: true },
+    // checkOutAuto: «انصراف تلقائي» سجّله النظام بعد خمولٍ بلا ردّ (services/idlePunchOut.ts) — لا بصمة المندوب
+    select: { checkInAt: true, checkOutAt: true, checkInOutside: true, checkOutOutside: true, checkOutAuto: true },
   });
   return rows.reverse();
 }
@@ -463,12 +470,17 @@ router.get('/attendance/today', async (req: AuthRequest, res: Response, next: Ne
     const { tid, repId } = ctx;
     const since = repDayStart(req.query.tzOffsetMin);
     const [open, shifts] = await Promise.all([openShift(prisma, tid, repId), dayShifts(tid, repId, since)]);
-    if (open) { res.json({ success: true, data: { status: 'in', shift: open, shifts } }); return; }
+    // idlePunchOutReminder: تذكير خمولٍ معلّق (services/idlePunchOut.ts) — إشعاره يفتح هذه الشاشة فتسأل «هل ما زلت تعمل؟»
+    if (open) {
+      res.json({ success: true, data: { status: 'in', shift: open, shifts, idlePunchOutReminder: await pendingIdleReminder(tid, repId) } });
+      return;
+    }
     // آخر نوبة انتهت اليوم (يوم المندوب بإزاحته) — لعرض «خرجت الساعة …» بدل «لم تسجّل حضورك» فوراً بعد الانصراف
     const last = await prisma.repAttendance.findFirst({
       where: { tenantId: tid, salesRepId: repId, checkOutAt: { gte: since } },
       orderBy: { checkOutAt: 'desc' },
-      select: { checkInAt: true, checkOutAt: true },
+      // checkOutAuto: «انصراف تلقائي» — يعرضه التطبيق بدل «خرجت الساعة …» كأنه بصمته
+      select: { checkInAt: true, checkOutAt: true, checkOutAuto: true },
     });
     res.json({ success: true, data: { status: last ? 'out' : 'none', last, shifts } });
   } catch (err) { next(err); }
@@ -557,7 +569,7 @@ router.post('/attendance/checkout', async (req: AuthRequest, res: Response, next
           checkOutDeviceId: device.id, checkOutDevice: device.name,
           checkOutOutside: place.outside, checkOutDistanceM: place.distanceM,
         },
-        select: { checkInAt: true, checkOutAt: true },
+        select: { checkInAt: true, checkOutAt: true, checkOutAuto: true },
       });
     }, REP_LOCK_TX);
     if (!shift) { res.status(409).json({ success: false, code: 'NO_OPEN_SHIFT', message: 'لم تسجّل حضوراً بعد' }); return; }
@@ -566,6 +578,45 @@ router.post('/attendance/checkout', async (req: AuthRequest, res: Response, next
     if (err instanceof PunchRefused) { res.status(409).json({ success: false, ...err.refusal }); return; }
     next(err);
   }
+});
+
+// «ما زلت أعمل» — ردّ المندوب على تذكير الخمول (services/idlePunchOut.ts)، وأحد ثلاثةٍ وحدها تلغي الانصراف التلقائي بعد التذكير
+// (مع التنقّل الفعلي وإصدار مستند): نشاطٌ الآن (آخر ظهور) يعيد دورة الخمول من أوّلها ويمسح التذكير المعلّق وختمه. تحت قفل
+// بصمات المندوب كالانصراف التلقائي: إمّا سبقه فلا انصراف، وإمّا سبقه الانصراف (أو انصرف من جهازٍ آخر) فيُردّ 409 NO_OPEN_SHIFT — رمز الانصراف نفسه — ومعه autoCheckedOut: true وآخر نوبة (last) حين أغلقها الانصراف
+// التلقائي، فيعرض التطبيق «انصراف تلقائي» ويتيح حضوراً جديداً.
+router.post('/attendance/still-working', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const ctx = await ensureRepAttendance(req, res); if (!ctx) return;
+    const { tid, repId } = ctx;
+    const shift = await prisma.$transaction(async (tx) => {
+      await lockRepAttendance(tx, repId);
+      const current = await openShift(tx, tid, repId);
+      if (!current) return null;
+      const now = new Date();
+      await tx.salesRep.update({ where: { id: repId }, data: { lastSeenAt: now } });
+      await tx.repAttendance.update({ where: { id: current.id }, data: { idleRemindedAt: null, idleLastActiveAt: null } });
+      return current;
+    }, REP_LOCK_TX);
+    if (!shift) {
+      const last = await prisma.repAttendance.findFirst({
+        where: { tenantId: tid, salesRepId: repId, checkOutAt: { not: null } },
+        orderBy: { checkOutAt: 'desc' },
+        select: { checkInAt: true, checkOutAt: true, checkOutAuto: true, editedAt: true },
+      });
+      // انصرافٌ تلقائي حديث وحده (ختمه editedAt لحظة القرار): وسمُ نوبةٍ أُغلقت تلقائياً قبل أيام لا يفسّر ردّ اليوم
+      if (last?.checkOutAuto && last.editedAt && Date.now() - last.editedAt.getTime() <= IDLE_AUTO_OUT_RECENT_MS) {
+        res.status(409).json({
+          success: false, code: 'NO_OPEN_SHIFT', autoCheckedOut: true,
+          last: { checkInAt: last.checkInAt, checkOutAt: last.checkOutAt, checkOutAuto: true },
+          message: 'سُجّل انصرافك تلقائياً بوقت آخر نشاطٍ لك قبل التذكير — سجّل حضورك من جديد إن كنت ما زلت تعمل',
+        });
+        return;
+      }
+      res.status(409).json({ success: false, code: 'NO_OPEN_SHIFT', autoCheckedOut: false, message: 'لم تسجّل حضوراً بعد' });
+      return;
+    }
+    res.json({ success: true, data: { status: 'in', shift, idlePunchOutReminder: null } });
+  } catch (err) { next(err); }
 });
 
 // ═══ التحقق العشوائي من التواجد (طلب المالك، ٢٢ أكتوبر ٢٠٢٦) — services/presenceChecks.ts ═══

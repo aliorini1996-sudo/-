@@ -506,6 +506,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "وحين فكّت الشركة القيد (buyerVatAddressRelaxed في GET /company) تصير أخطاء صيغة الرقم الضريبي ورقم المبنى والرمز البريدي تنبيهات في warnings لا 400 — وتبقى أخطاء المحارف والطول والدولة والمعرّف أخطاء",
      "الاستيراد الجماعي POST /import/customers بالمفتاح يمرّ بالفحص نفسه صفاً صفاً في الشركة التي تجمع البيانات: صفٌّ رقمه الضريبي أو سجله التجاري أو نصوصه غير صالحة يعود في data.errors بالشكل {row, code:'CUSTOMER_ZATCA_INVALID', field, value, message} (row = موضع الصف في rows + 2)، ولا يُكتب حينئذٍ أي صف من الدفعة كأخطاء المخطط. والسليم يُحفظ مطبَّعاً (أرقام لاتينية) كما في الإنشاء المفرد",
      "aiPlaceId المسجل لعميل آخر في الشركة يعود 409 AI_PLACE_ALREADY_CUSTOMER لطلب المفتاح دائماً. ترويسة X-FS-Replay تُمحى من طلبات المفتاح فلا ترسلها",
+     "«منع تكرار العملاء» (dedupCustomerPhone وdedupCustomerName وdedupCustomerAddress في /sales-reps) قيدٌ على المندوب من تطبيقه وحده: فتحه عميلاً برقم جوال أو اسم أو عنوان مسجّل لعميل آخر في الشركة يعود 409 {success:false, code:'CUSTOMER_DUPLICATE', field:'phone'|'name'|'address', message, existingId?, existingName?}. طلب المفتاح لا يُفحص ولا يصله هذا الرمز، ولا يُفحص مستخدمو الشركة",
      "إنشاء العميل لا يكتب أي قيد مالي ولا يغيّر أي رصيد"
     ],
     "example": "{\"name\":\"بقالة النخيل\",\"phone\":\"0551234567\",\"businessName\":\"مؤسسة النخيل التجارية\",\"taxNumber\":\"310123456700003\",\"commercialReg\":\"1010123456\",\"city\":\"الرياض\",\"district\":\"العليا\",\"address\":\"شارع التحلية\",\"lat\":24.7136,\"lng\":46.6753,\"channel\":\"TT\",\"creditLimit\":5000,\"paymentDays\":30,\"clientRef\":\"6f1c2a9e-3b7d-4c2e-9a51-2f0e8d7c4b10\"}"
@@ -604,6 +605,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "response": "{success:true, data: Customer بعد التعديل, warnings?:[{field, messageAr}]}",
     "rules": [
      "الحقل الغائب لا يتغير",
+     "«منع تكرار العملاء» للمندوب من تطبيقه وحده (dedupCustomerPhone وdedupCustomerName وdedupCustomerAddress في /sales-reps): يُفحص الحقل الذي تغيّرت قيمته (بعد التطبيع) وحده فيعود 409 CUSTOMER_DUPLICATE بـfield، والقيمة المحفوظة كما هي لا تمنع تعديل غيرها، ومعرّفٌ لا يجده الخادم فيُنشئه يُفحص كـPOST /customers. طلب المفتاح لا يُفحص",
      "clientRef وclientCreatedAt وaiPlaceId تُتجاهل في التعديل، لكن clientRef ما زال يجب أن يكون بصيغة UUID إذا أُرسل",
      "زاتكا: الفحص يشمل الحقول المتغيرة مقارنة بالمحفوظ فقط، والخطأ يعود دائماً 400 CUSTOMER_ZATCA_INVALID بلا استثناء",
      "وحين فكّت الشركة القيد (buyerVatAddressRelaxed في GET /company) تصير أخطاء صيغة الرقم الضريبي ورقم المبنى والرمز البريدي تنبيهات في warnings لا 400 — وتبقى أخطاء المحارف والطول والدولة والمعرّف أخطاء",
@@ -3959,12 +3961,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[مندوب], pagination:{total, page, limit, pages}} مرتبة بالاسم تصاعدياً. حقول المندوب: id, name, phone, email, username, isActive, canCreateInvoice, canSellOnCredit, canSellOnInstallment, canSellInCash, canEditInvoice, canDeleteInvoice, canCancelInvoice, canChangePrice, maxDiscountPct, canSellBelowPrice, canChangePriceList, defaultPriceListId, allowedPriceTypes, canCreateReceipt, canEditReceipt, canCancelReceipt, canManageVanStock, canAddCustomer, canEditCustomer, canViewStatement, showCollectionBalance, cashSaleCollected, requireCustomerProximity, requireLocationOn, requirePunchAtCustomer, proximityRadiusM, punchRadiusM, punchOutsideAction, requireBoundDevice, boundDeviceName, boundDeviceAt, requirePresenceCheck, showRouteOnMap, shiftStart, shiftEnd, shiftDays, locationId, createdAt",
+    "response": "{success:true, data:[مندوب], pagination:{total, page, limit, pages}} مرتبة بالاسم تصاعدياً. حقول المندوب: id, name, phone, email, username, isActive, canCreateInvoice, canSellOnCredit, canSellOnInstallment, canSellInCash, canEditInvoice, canDeleteInvoice, canCancelInvoice, canChangePrice, maxDiscountPct, canSellBelowPrice, canChangePriceList, defaultPriceListId, allowedPriceTypes, canCreateReceipt, canEditReceipt, canCancelReceipt, canManageVanStock, canAddCustomer, canEditCustomer, canViewStatement, showCollectionBalance, cashSaleCollected, requireCustomerProximity, requireLocationOn, requirePunchAtCustomer, proximityRadiusM, punchRadiusM, punchOutsideAction, requireBoundDevice, boundDeviceName, boundDeviceAt, requirePresenceCheck, idlePunchOutEnabled, idlePunchOutMinutes, idlePunchOutGraceMinutes, dedupCustomerPhone, dedupCustomerName, dedupCustomerAddress, showRouteOnMap, shiftStart, shiftEnd, shiftDays, locationId, createdAt",
     "rules": [
      "لا تُعاد كلمة المرور ولا حقول التتبع والموقع ولا canSellWithoutStock ولا canBeTracked",
      "pages = ceil(total/limit) من utils/helpers.ts",
      "لطلب المفتاح سقف الصفحة 200 صف. للسحب الكامل استعمل /v1/sync/sales-reps",
      "locationId موقع المندوب الحالي في ميزة «لوكيشن» (أو null) للقراءة وحدها — الإسناد من PUT /locations/reps/:salesRepId، واسم الموقع من GET /locations",
+     "«منع تكرار العملاء عند فتح عميل جديد»: dedupCustomerPhone وdedupCustomerName وdedupCustomerAddress قيود تقييدية مستقلة (false افتراضاً) على فتح المندوب عميلاً من تطبيقه برقم جوال أو اسم أو عنوان مسجّل لعميل آخر في الشركة (409 CUSTOMER_DUPLICATE)، ولا تمسّ طلبات المفتاح",
      "«قوائم الأسعار»: defaultPriceListId قائمة المندوب الافتراضية لعملائه بلا قائمة (null = السعر الأساسي)، وallowedPriceTypes القوائم التي يبدّل بينها بـcanChangePriceList (null = بلا قيد: كل القوائم والسعر الأساسي، وإلا مصفوفة معرّفات من GET /price-lists فيها 'base' إن أدرجت الشركة السعر الأساسي)"
     ],
     "example": ""
@@ -4230,6 +4233,42 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "التحقق العشوائي من التواجد أثناء الدوام"
      },
      {
+      "name": "idlePunchOutEnabled",
+      "type": "boolean",
+      "required": false,
+      "desc": "تذكير بالانصراف عند الخمول ثم انصراف تلقائي (false افتراضاً): نوبة مفتوحة والمندوب بلا استخدام للتطبيق ولا موقع يصل من جواله (نبضة التطبيق المفتوح، وأي نقطة موقع من تتبّع الخلفية أو من الصفحة ساكنةً أو متحرّكة، بوقت استلامها في الخادم) مدة idlePunchOutMinutes ⇒ إشعار يذكّره بالانصراف ونافذة «هل ما زلت تعمل؟» بعدٍّ تنازلي للمهلة. وبعد التذكير لا يلغي الانصراف التلقائي إلا «ما زلت أعمل» أو تنقّل فعلي (انتقال أكثر من 150 م وأكثر من هامشَي خطأ النقطتين، يصل إلى الخادم بعد التذكير) أو إصدار مستند من المندوب (فاتورة أو مرتجع أو سند قبض أو زيارة) — لا فتح التطبيق ولا نقاط الموقع الساكنة؛ وإلا عند انقضاء idlePunchOutGraceMinutes انصراف يسجّله النظام بوقت آخر نشاط له قبل التذكير، موسوم checkOutAuto في البصمات وoutAuto في فترات تقرير ساعات العمل"
+     },
+     {
+      "name": "idlePunchOutMinutes",
+      "type": "integer",
+      "required": false,
+      "desc": "دقائق الخمول قبل التذكير: عدد صحيح من 10 إلى 480 (45 افتراضاً)، وإلا 400 IDLE_PUNCH_OUT_RANGE"
+     },
+     {
+      "name": "idlePunchOutGraceMinutes",
+      "type": "integer",
+      "required": false,
+      "desc": "مهلة الرد بعد التذكير قبل الانصراف التلقائي: عدد صحيح من 5 إلى 120 (15 افتراضاً)، وإلا 400 IDLE_PUNCH_OUT_RANGE"
+     },
+     {
+      "name": "dedupCustomerPhone",
+      "type": "boolean",
+      "required": false,
+      "desc": "منع تكرار العملاء برقم الجوال (false افتراضاً): يُرفض أن يفتح المندوب من تطبيقه عميلاً جديداً — أو يعدّل جوال عميل — برقمٍ مسجّل لعميل آخر في الشركة كلها (غير المحذوف)، والمقارنة بالرقم المطبَّع (+966 و00966 و05 والأرقام الهندية رقمٌ واحد) ⇒ 409 CUSTOMER_DUPLICATE بـfield: 'phone' على POST /customers وPUT /customers/:id. لا يمسّ طلبات المفتاح ولا مستخدمي الشركة"
+     },
+     {
+      "name": "dedupCustomerName",
+      "type": "boolean",
+      "required": false,
+      "desc": "منع تكرار العملاء بالاسم (false افتراضاً): كـdedupCustomerPhone للاسم بعد توحيد الكتابة (المسافات والتشكيل والتطويل، أ/إ/آ = ا، ة = ه، ى = ي، والحروف اللاتينية بلا حالة) ⇒ 409 CUSTOMER_DUPLICATE بـfield: 'name'"
+     },
+     {
+      "name": "dedupCustomerAddress",
+      "type": "boolean",
+      "required": false,
+      "desc": "منع تكرار العملاء بالعنوان (false افتراضاً): كـdedupCustomerName لحقل address ⇒ 409 CUSTOMER_DUPLICATE بـfield: 'address'. والمفاتيح الثلاثة مستقلة، وقاعدة الموقع (لا عميل ضمن 30 متراً من عميل آخر) قائمة لكل المناديب خارجها"
+     },
+     {
       "name": "requireBoundDevice",
       "type": "boolean",
       "required": false,
@@ -4307,7 +4346,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "canCreateInvoice ... shiftDays",
       "type": "boolean / number",
       "required": false,
-      "desc": "نفس حقول POST وكلها اختيارية: الصلاحيات (ومنها canChangePriceList «تبديل قائمة الأسعار»)، وdefaultPriceListId وallowedPriceTypes (المرسل منهما يُفحص مع المحفوظ من الآخر: الافتراضية من القوائم المسموحة حين تُقيَّد، و'base' فيها إن كان الافتراضي السعر الأساسي، وإلا 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED)، وmaxDiscountPct من 0 إلى 100، وproximityRadiusM وpunchRadiusM أعداد صحيحة من 10 إلى 5000، وpunchOutsideAction وrequireBoundDevice وrequirePresenceCheck وshowRouteOnMap وshiftStart وshiftEnd وshiftDays"
+      "desc": "نفس حقول POST وكلها اختيارية: الصلاحيات (ومنها canChangePriceList «تبديل قائمة الأسعار»)، وdefaultPriceListId وallowedPriceTypes (المرسل منهما يُفحص مع المحفوظ من الآخر: الافتراضية من القوائم المسموحة حين تُقيَّد، و'base' فيها إن كان الافتراضي السعر الأساسي، وإلا 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED)، وmaxDiscountPct من 0 إلى 100، وproximityRadiusM وpunchRadiusM أعداد صحيحة من 10 إلى 5000، وpunchOutsideAction وrequireBoundDevice وrequirePresenceCheck وshowRouteOnMap وshiftStart وshiftEnd وshiftDays، وidlePunchOutEnabled وidlePunchOutMinutes (10 إلى 480) وidlePunchOutGraceMinutes (5 إلى 120) — المرسل منهما خارج حدّه 400 IDLE_PUNCH_OUT_RANGE، وdedupCustomerPhone وdedupCustomerName وdedupCustomerAddress (منع تكرار العملاء عند فتح المندوب عميلاً)"
      }
     ],
     "response": "{success:true, data:{id, name, phone, username, isActive}} أو 404 'المندوب غير موجود'",
@@ -6072,6 +6111,44 @@ export const API_DOC_GROUPS: DocGroup[] = [
      "الطلب المرفوض لا يعود معلّقاً، والمندوب يرفع طلباً جديداً"
     ],
     "example": "{\"updatedAt\":\"2026-10-27T08:15:02.114Z\"}"
+   },
+   {
+    "method": "POST",
+    "path": "/rep-stock-requests/:id/loaded",
+    "purpose": "«تحميل مباشر»: تعليم طلب مندوب معلّق «حُمِّل» بعد تحميل كمياته إلى سيارته، فيراه المندوب في تطبيقه",
+    "permission": "canManageVanStock",
+    "gates": [
+     "مستخدم شركة لا مندوب (403 «غير مسموح» للمندوب)",
+     "accountingEnabled ليس false وإلا 403 ACCOUNTING_NOT_ALLOWED",
+     "صلاحية canManageVanStock (403 بلا code)",
+     "warehouseEnabled يجب أن يكون true وإلا 403 WAREHOUSE_NOT_ENABLED «ميزة مخزون الشركة غير مفعلة لهذه الشركة»",
+     "نطاق المستخدم: طلبات مناديبه وحدها",
+     "مفتاح قراءة فقط مرفوض 403 API_KEY_FORBIDDEN"
+    ],
+    "query": [],
+    "body": [
+     {
+      "name": "updatedAt",
+      "type": "string (ISO)",
+      "required": true,
+      "desc": "نسخة الطلب التي حمّلتها كما قرأتها (أو كما ردّها حفظ التعديل)"
+     },
+     {
+      "name": "vanLoadId",
+      "type": "string",
+      "required": true,
+      "desc": "معرّف حركة التحميل التي كتبتها بـPOST /van-stock/loads (type LOAD) لسيارة صاحب الطلب"
+     }
+    ],
+    "response": "{success:true}",
+    "rules": [
+     "هذا المسار لا يحرّك مخزوناً: حمّل أولاً بـPOST /van-stock/loads بـsalesRepId صاحب الطلب وكمياته المعتمدة (ومعها clientRef لإعادة آمنة)، ثم علّم الطلب هنا بمعرّف الحركة",
+     "400 VAN_LOAD_MISMATCH لحركة ليست تحميلاً LOAD لسيارة صاحب الطلب في شركتك، ولا يُكتب شيء",
+     "404 لطلب غير معلّق أو خارج النطاق. و409 REQUEST_CHANGED_AFTER_LOAD إن عدّله المندوب بعد النسخة التي حمّلتها: يبقى معلّقاً لتراجع ما أضافه، ويُكتب معرّف الحركة في sentRef للطلب المعلّق علامةً على أن نسخةً منه حُمِّلت (فلا تحمّله كاملاً مرة ثانية)",
+     "الطلب المحمَّل لا يعود معلّقاً ولا يدخل الطلب العام، ومعرّف الحركة في sentRef",
+     "لإعادة آمنة اجعل clientRef التحميل ثابتاً لنسخة الطلب (معرّفه مع updatedAt): إعادة الإرسال تعيد الحركة نفسها بدل تحميلٍ ثانٍ"
+    ],
+    "example": "{\"updatedAt\":\"2026-11-23T08:15:02.114Z\",\"vanLoadId\":\"4f2b8c10-6a7e-4d21-9b3c-0e5f7a8d9c12\"}"
    }
   ]
  },
@@ -8104,7 +8181,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
  {
   "key": "field",
   "title": "الزيارات والتتبع وخطوط السير",
-  "overview": "ثلاثة موجّهات: /visits لزيارات المناديب الميدانية مع صورها، و/tracking للخريطة الحية وخط سير المندوب الفعلي وإعداد التتبع، و/rep-routes لخطوط السير المخططة (قائمة عملاء مرتبة ليوم معيّن أو دائمة). المفتاح يعمل بهوية المستخدم الذي أصدره وأدواره وصلاحياته ونطاقه. المفتاح «قراءة فقط» يُرفض في POST وPATCH وDELETE برمز 403 API_KEY_FORBIDDEN. حد الطلبات 120 طلباً في الدقيقة لكل مفتاح، ويُرجع رأسي X-RateLimit-Limit وX-RateLimit-Remaining، وعند تجاوزه 429 API_RATE_LIMIT. شكل الرد دائماً {success, data} ولا يوجد ترقيم صفحات (pagination) في هذه المجموعة، والقوائم مسقوفة داخلياً. أخطاء التحقق من الحقول ترجع 400 بالشكل {success:false, message, errors}. انتبه للأيام: في /visits و/tracking اليوم يُحسب بتوقيت UTC، أي من الساعة 3 فجراً إلى 3 فجراً بتوقيت الرياض. أما /rep-routes فتقبل tzOffsetMin بالدقائق شرق UTC (الرياض 180). نقاط المندوب الخاصة بتطبيق الجوال (إرسال الموقع والنبضة وبصمة الحضور) لا يستعملها المفتاح\nوموجّه رابع /attendance-admin لتعديل بصمات الحضور إدارياً ورفعها دفعة واحدة: يشترط صلاحية canManageTracking وتفعيل ميزة بصمة الحضور للشركة (attendanceEnabled في GET /company، وإلا 403 ATTENDANCE_DISABLED). كل كتابة فيه تشترط سبباً مكتوباً من 3 إلى 300 حرف ويُدوَّن في سجل التدقيق باسم صاحب المفتاح، وتداخل الفترات يرجع 409 ATTENDANCE_OVERLAP مع conflict. والأيام فيه بمعامل tz بالدقائق شرق UTC (الرياض 180)، وافتراضه 0 أي أيام UTC",
+  "overview": "ثلاثة موجّهات: /visits لزيارات المناديب الميدانية مع صورها، و/tracking للخريطة الحية وخط سير المندوب الفعلي وإعداد التتبع، و/rep-routes لخطوط السير المخططة (قائمة عملاء مرتبة ليوم معيّن أو دائمة، وللمندوب عدة خطوط دائمة توزّعها على الأيام طريقة توزيعه: حسب أيام الأسبوع أو تناوب بالترتيب). المفتاح يعمل بهوية المستخدم الذي أصدره وأدواره وصلاحياته ونطاقه. المفتاح «قراءة فقط» يُرفض في POST وPATCH وDELETE برمز 403 API_KEY_FORBIDDEN. حد الطلبات 120 طلباً في الدقيقة لكل مفتاح، ويُرجع رأسي X-RateLimit-Limit وX-RateLimit-Remaining، وعند تجاوزه 429 API_RATE_LIMIT. شكل الرد دائماً {success, data} ولا يوجد ترقيم صفحات (pagination) في هذه المجموعة، والقوائم مسقوفة داخلياً. أخطاء التحقق من الحقول ترجع 400 بالشكل {success:false, message, errors}. انتبه للأيام: في /visits و/tracking اليوم يُحسب بتوقيت UTC، أي من الساعة 3 فجراً إلى 3 فجراً بتوقيت الرياض. أما /rep-routes فتقبل tzOffsetMin بالدقائق شرق UTC (الرياض 180). نقاط المندوب الخاصة بتطبيق الجوال (إرسال الموقع والنبضة وبصمة الحضور) لا يستعملها المفتاح\nوموجّه رابع /attendance-admin لتعديل بصمات الحضور إدارياً ورفعها دفعة واحدة: يشترط صلاحية canManageTracking وتفعيل ميزة بصمة الحضور للشركة (attendanceEnabled في GET /company، وإلا 403 ATTENDANCE_DISABLED). كل كتابة فيه تشترط سبباً مكتوباً من 3 إلى 300 حرف ويُدوَّن في سجل التدقيق باسم صاحب المفتاح، وتداخل الفترات يرجع 409 ATTENDANCE_OVERLAP مع conflict. والأيام فيه بمعامل tz بالدقائق شرق UTC (الرياض 180)، وافتراضه 0 أي أيام UTC",
   "endpoints": [
    {
     "method": "POST",
@@ -8411,8 +8488,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "body": [],
     "response": "{success:true, data:null} إن لم يوجد خط. وإلا {success:true, data:{id, name, isPermanent, routeDate, day, stops:[{id, seq, note, customerId, customerName, phone, address, lat, lng, done, doneAt}], doneCount, total, hiddenByScope}}",
     "rules": [
-     "الخط المؤقت لهذا اليوم يتقدم على الخط الدائم",
-     "الخط الدائم لا يسري على يوم سابق لتاريخ إنشائه",
+     "الخط المؤقت لهذا اليوم يتقدم على الخط الدائم في كل طريقة توزيع، ولو في يوم راحة، ولا يزيح دورة التناوب: يأخذ دور يومه وحده",
+     "للمندوب عدة خطوط دائمة، وخط اليوم منها بطريقة توزيعه (GET /rep-routes/schedule/:salesRepId): بلا طريقة («خط واحد يومياً») أول خط دائم كما كان. و«حسب أيام الأسبوع» (weekdays) الخط الذي تشمل أيامه يوم الأسبوع (0=الأحد … 6=السبت)، وإلا data:null. و«تناوب بالترتيب» (rotation) يوم عمل لكل خط بترتيب rotationOrder بدءاً من rotationStart متخطياً أيام الراحة offDays، ويوم الراحة أو ما قبل rotationStart يرجع data:null",
+     "الخط الدائم لا يسري على يوم سابق لتاريخ إنشائه (createdAt)، فدورة التناوب ليوم ماضٍ تُحسب بالخطوط التي كانت موجودة فيه. والخط المُعدَّل بـreplacesId يرث تاريخ إنشاء سلفه",
      "done يعني وجود زيارة للعميل من هذا المندوب داخل يوم المندوب بحسب tzOffsetMin، فالإنجاز مشتق من الزيارات ولا يُخزّن"
     ],
     "example": ""
@@ -8430,7 +8508,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "date",
       "type": "string YYYY-MM-DD",
       "required": false,
-      "desc": "اليوم المرجعي لحساب doneToday"
+      "desc": "اليوم المرجعي لحساب isToday وdoneToday"
      },
      {
       "name": "tzOffsetMin",
@@ -8440,12 +8518,139 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, name, isPermanent, routeDate, salesRepId, salesRepName, total, doneToday}]}. doneToday بقيمة null للخط المؤقت الخاص بيوم غير اليوم المرجعي",
+    "response": "{success:true, data:[{id, name, isPermanent, routeDate, salesRepId, salesRepName, weekdays, rotationOrder, scheduleMode, isToday, total, doneToday}]}",
     "rules": [
-     "لا ترقيم صفحات. يعيد كل الخطوط النشطة، ومنها خطوط مؤقتة لأيام ماضية ما لم تُوقف",
-     "الترتيب: الخطوط المؤقتة أولاً، ثم routeDate تنازلياً، ثم createdAt تنازلياً"
+     "isToday=true لخط اليوم المرجعي وحده لكل مندوب، محسوباً كما يحسبه GET /rep-routes/mine: المؤقت لليوم يفوز، ثم طريقة توزيع المندوب. فمع عدة خطوط دائمة لا يكون كل دائم خط اليوم: في «حسب أيام الأسبوع» الخط الذي تشمل أيامه يومه، وفي التناوب الخط الذي عليه الدور. وقد لا يكون للمندوب خط اليوم أصلاً (يوم راحة أو يوم بلا خط) فكل خطوطه isToday=false",
+     "doneToday عدد عملاء الخط الذين زارهم المندوب في اليوم المرجعي، ويُحسب للخط الذي isToday=true وحده. وغيره null ولو كان خطاً دائماً",
+     "weekdays أيام الخط الدائم (0=الأحد … 6=السبت) وتُقرأ في «حسب أيام الأسبوع» وحدها، وrotationOrder موضعه في دورة التناوب (الأصغر أولاً ثم الأقدم إنشاءً)، وscheduleMode طريقة توزيع مندوبه: 'weekdays' أو 'rotation'، أو null لـ«خط واحد يومياً»",
+     "لا ترقيم صفحات. يعيد كل الخطوط النشطة، ومنها خطوط مؤقتة لأيام ماضية ما لم تُحذف",
+     "الترتيب: الخطوط المؤقتة أولاً بـrouteDate تنازلياً، ثم الدائمة بـrotationOrder ثم createdAt تصاعدياً"
     ],
     "example": ""
+   },
+   {
+    "method": "GET",
+    "path": "/rep-routes/schedule/:salesRepId",
+    "purpose": "طريقة توزيع خطوط المندوب الدائمة على الأيام، وخطوطه الدائمة بترتيب دورة التناوب، وخط يومه",
+    "permission": "requireAdmin مع canManageTracking",
+    "gates": [
+     "المندوب خارج نطاق المستخدم أو في شركة أخرى أو بمعرّف غير صالح يرجع 404 «المندوب غير موجود»"
+    ],
+    "query": [
+     {
+      "name": "date",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "اليوم المرجعي لحساب today. إن غاب أو خالف الصيغة يُحسب من tzOffsetMin"
+     },
+     {
+      "name": "tzOffsetMin",
+      "type": "number",
+      "required": false,
+      "desc": "إزاحة المنطقة الزمنية بالدقائق شرق UTC، والرياض 180"
+     }
+    ],
+    "body": [],
+    "response": "{success:true, data:{day, schedule:{mode, rotationStart, offDays, updatedAt}|null, routes:[{id, name, weekdays, rotationOrder}], today:{routeId, name, isPermanent}|null}}",
+    "rules": [
+     "schedule:null يعني «خط واحد يومياً»: خط دائم واحد للمندوب كل يوم (السلوك القديم). وmode إما 'weekdays' («حسب أيام الأسبوع») أو 'rotation' («تناوب بالترتيب»)",
+     "routes خطوط المندوب الدائمة النشطة وحدها بترتيب الدورة (rotationOrder ثم الأقدم إنشاءً)، ولا يدخلها الخط المؤقت",
+     "today خط اليوم المرجعي كما يقرؤه المندوب في GET /rep-routes/mine، ومنه المؤقت لذلك اليوم (isPermanent=false). وnull في يوم الراحة أو يوم بلا خط",
+     "rotationStart تاريخ 'YYYY-MM-DD' يومه لأول خط في الترتيب، وoffDays أيام الراحة (0=الأحد … 6=السبت) والجمعة افتراضاً"
+    ],
+    "example": ""
+   },
+   {
+    "method": "PUT",
+    "path": "/rep-routes/schedule/:salesRepId",
+    "purpose": "تغيير طريقة توزيع خطوط المندوب الدائمة: خط واحد يومياً، أو حسب أيام الأسبوع، أو تناوب بالترتيب",
+    "permission": "requireAdmin مع canManageTracking",
+    "gates": [
+     "مفتاح القراءة فقط يُرفض",
+     "المندوب خارج نطاق المستخدم أو في شركة أخرى أو بمعرّف غير صالح يرجع 404 «المندوب غير موجود»"
+    ],
+    "query": [
+     {
+      "name": "date",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "يوم الطلب: بداية التناوب الافتراضية، واليوم المرجعي لـtoday في الرد"
+     },
+     {
+      "name": "tzOffsetMin",
+      "type": "number",
+      "required": false,
+      "desc": "إزاحة المنطقة الزمنية بالدقائق شرق UTC، والرياض 180"
+     }
+    ],
+    "body": [
+     {
+      "name": "mode",
+      "type": "'single' | 'weekdays' | 'rotation'",
+      "required": true,
+      "desc": "'single' يحذف طريقة التوزيع فيعود المندوب إلى خط دائم واحد، و'weekdays' و'rotation' تُنشئها أو تعدّلها"
+     },
+     {
+      "name": "rotationStart",
+      "type": "string YYYY-MM-DD | null",
+      "required": false,
+      "desc": "بداية التناوب، ويومها لأول خط في الترتيب. إن غاب بقيت البداية السابقة، وإلا فيوم الطلب في 'rotation'"
+     },
+     {
+      "name": "offDays",
+      "type": "array of integer 0..6",
+      "required": false,
+      "desc": "أيام الراحة التي يتخطاها التناوب (0=الأحد … 6=السبت) بلا تكرار، وأقل من سبعة أيام. إن غابت بقيت السابقة، وإلا [5] أي الجمعة"
+     }
+    ],
+    "response": "{success:true, data} بشكل GET /rep-routes/schedule/:salesRepId نفسه بعد الحفظ",
+    "rules": [
+     "ما لم يُرسل من rotationStart وoffDays يبقى كما كان، فالتنقل بين الطريقتين لا يمحو إعداد الأخرى",
+     "'single' وللمندوب أكثر من خط دائم واحد يرجع 409 MULTIPLE_PERMANENT ولا يُحذف شيء: احذف الخطوط الدائمة الزائدة أولاً",
+     "'weekdays' وكل خطوط المندوب الدائمة بلا أيام (weekdays=[]) يرجع 409 NO_WEEKDAYS {success:false, code, message, routes:[{id, name}]}، والرسالة تسمّي الخطوط وتطلب تحديد أيام كل خط، لأن المندوب لن يجد خطاً في أي يوم. حدّد الأيام بـPOST /rep-routes مع replacesId ثم أعد الطلب. وللمندوب بلا خطوط دائمة أصلاً يُقبل",
+     "'weekdays' وخطان دائمان للمندوب يشتركان في يوم يرجع 409 WEEKDAY_CONFLICT برسالة تسمّي اليوم والخطين: لكل يوم خط واحد",
+     "rotationStart تاريخ غير صالح، أو offDays فيها يوم مكرر أو خارج 0..6 أو الأيام السبعة كلها، أو mode غير معروف، يرجع 400"
+    ],
+    "example": "{\"mode\":\"rotation\",\"rotationStart\":\"2026-11-22\",\"offDays\":[5]}"
+   },
+   {
+    "method": "PUT",
+    "path": "/rep-routes/order/:salesRepId",
+    "purpose": "ترتيب دورة التناوب: خطوط المندوب الدائمة بترتيبها الجديد",
+    "permission": "requireAdmin مع canManageTracking",
+    "gates": [
+     "مفتاح القراءة فقط يُرفض",
+     "المندوب خارج نطاق المستخدم أو في شركة أخرى أو بمعرّف غير صالح يرجع 404 «المندوب غير موجود»"
+    ],
+    "query": [
+     {
+      "name": "date",
+      "type": "string YYYY-MM-DD",
+      "required": false,
+      "desc": "اليوم المرجعي لـtoday في الرد"
+     },
+     {
+      "name": "tzOffsetMin",
+      "type": "number",
+      "required": false,
+      "desc": "إزاحة المنطقة الزمنية بالدقائق شرق UTC، والرياض 180"
+     }
+    ],
+    "body": [
+     {
+      "name": "ids",
+      "type": "array of string (uuid), 1..200",
+      "required": true,
+      "desc": "معرّفات كل خطوط المندوب الدائمة النشطة، كل خط مرة واحدة، بالترتيب المطلوب. يُكتب لكل خط موضعه rotationOrder من 0"
+     }
+    ],
+    "response": "{success:true, data} بشكل GET /rep-routes/schedule/:salesRepId نفسه بعد الحفظ",
+    "rules": [
+     "ids يجب أن تطابق خطوط المندوب الدائمة الحالية تماماً، وإلا يرجع 400 ORDER_MISMATCH ولا يُكتب شيء: قائمة ناقصة أو زائدة، أو فيها خط مؤقت أو خط مندوب آخر. اقرأ routes من GET /rep-routes/schedule/:salesRepId قبل الإرسال، فخط أُضيف أو حُذف بعد قراءتك يُفشل القائمة القديمة",
+     "معرّف مكرر أو قائمة فارغة يرجع 400",
+     "لا يغيّر غير موضع الخط في الدورة. والخط الدائم الجديد يُضاف آخر الدورة تلقائياً، والمعدَّل بـreplacesId يبقى في موضعه"
+    ],
+    "example": "{\"ids\":[\"5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e\",\"1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d\"]}"
    },
    {
     "method": "GET",
@@ -8457,9 +8662,10 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "query": [],
     "body": [],
-    "response": "{success:true, data:{id, name, isPermanent, routeDate, salesRepId, stops:[{customerId, seq, note, customerName}]}}",
+    "response": "{success:true, data:{id, name, isPermanent, routeDate, salesRepId, weekdays, rotationOrder, stops:[{customerId, seq, note, customerName}]}}",
     "rules": [
-     "لا يرشّح على isActive، فيمكن قراءة خط أُوقف أو استُبدل بمعرّفه",
+     "يقرأ الخط النشط وحده: الخط المحذوف أو المستبدل بـreplacesId (حذفهما فعلي) يرجع 404 «خط السير غير موجود»",
+     "weekdays أيام الخط الدائم (0=الأحد … 6=السبت) وrotationOrder موضعه في دورة التناوب، كما في GET /rep-routes",
      "الرد لا يتضمن الحقل isActive"
     ],
     "example": ""
@@ -8504,7 +8710,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "replacesId",
       "type": "string (uuid) | null",
       "required": false,
-      "desc": "معرّف الخط الذي يحل هذا محلّه، ويُوقف داخل المعاملة نفسها"
+      "desc": "معرّف الخط الذي يحل هذا محلّه، ويُحذف فعلياً داخل المعاملة نفسها"
+     },
+     {
+      "name": "weekdays",
+      "type": "array of integer 0..6",
+      "required": false,
+      "desc": "أيام الخط الدائم: 0=الأحد … 6=السبت بلا تكرار. تُقرأ حين تكون طريقة توزيع المندوب «حسب أيام الأسبوع»، ويمكن إرسالها في أي طريقة تمهيداً لها. غيابها عند التعديل بـreplacesId يُبقي أيام الخط المستبدل، وتُهمل للخط المؤقت"
      },
      {
       "name": "stops",
@@ -8527,8 +8739,11 @@ export const API_DOC_GROUPS: DocGroup[] = [
     ],
     "response": "201 بالشكل {success:true, data:{id}, warning?}. يظهر warning مثل «2 عميل خارج نطاقك لم يُضَف» حين تُسقط محطات",
     "rules": [
-     "خط واحد لكل حالة: إنشاء خط دائم يوقف تلقائياً الخط الدائم النشط السابق للمندوب، وخط مؤقت يوقف المؤقت النشط لنفس المندوب ونفس اليوم",
-     "replacesId يوقف ذلك الخط أيضاً ولو تغيّر نوعه أو تاريخه أو مندوبه، وهو طريقة التعديل",
+     "خط مؤقت واحد لكل مندوب ويوم: حفظه يحذف فعلياً المؤقت السابق لنفس المندوب ونفس اليوم",
+     "الخط الدائم: للمندوب بلا طريقة توزيع («خط واحد يومياً»، schedule:null في GET /rep-routes/schedule/:salesRepId) يحذف الحفظ فعلياً كل خطوطه الدائمة السابقة فيبقى دائم واحد. وللمندوب بطريقة «حسب أيام الأسبوع» أو «تناوب بالترتيب» تبقى خطوطه الدائمة الأخرى كما هي، ولا يُستبدل إلا الخط المذكور في replacesId، والدائم الجديد يُضاف آخر دورة التناوب (أكبر rotationOrder + 1)",
+     "replacesId يحذف ذلك الخط فعلياً ولو تغيّر نوعه أو تاريخه أو مندوبه، وهو طريقة التعديل، والمعرّف الناتج جديد. والخط الدائم المُعدَّل لنفس المندوب يحتفظ بموضعه rotationOrder وبتاريخ إنشائه createdAt (فلا تنتقل خطة الأيام الماضية إلى خط آخر)، وبأيامه ما لم تُرسل weekdays",
+     "409 WEEKDAY_CONFLICT بالشكل {success:false, code, message, conflict:{day, routeId, name}} حين تُرسل weekdays فيها يوم يستعمله خط دائم آخر للمندوب يبقى بعد الحفظ، أياً كانت طريقة التوزيع، ولا يُكتب شيء: لكل يوم خط واحد. وفي «حسب أيام الأسبوع» تُفحص أيضاً الأيام الباقية من الخط المستبدل. وللمندوب بلا طريقة توزيع لا تعارض، لأن الحفظ يستبدل دائمه",
+     "weekdays فيها يوم مكرر أو خارج 0..6 يرجع 400",
      "seq يُرقّم من 1 بحسب موضع المحطة في المصفوفة",
      "العملاء غير الموجودين في الشركة أو خارج نطاق المستخدم يُسقطون بصمت مع warning. إن لم يبقَ أحد يرجع 400 «لا عملاء صالحين في خط السير»",
      "تكرار customerId في stops يصطدم بالقيد الفريد (routeId, customerId) فتُلغى المعاملة كلها ويرجع 409 «السجل موجود مسبقا»",
@@ -8540,7 +8755,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
    {
     "method": "DELETE",
     "path": "/rep-routes/:id",
-    "purpose": "إيقاف خط سير. هذا تعطيل وليس حذفاً، فالسجل يبقى",
+    "purpose": "حذف خط سير حذفاً فعلياً مع محطاته",
     "permission": "requireAdmin مع canManageTracking",
     "gates": [
      "مفتاح القراءة فقط يُرفض",
@@ -8550,8 +8765,9 @@ export const API_DOC_GROUPS: DocGroup[] = [
     "body": [],
     "response": "{success:true}",
     "rules": [
-     "يضبط isActive=false فقط. استدعاؤه على خط موقوف مسبقاً ينجح أيضاً",
-     "الخط غير الموجود يرجع 404 «خط السير غير موجود»"
+     "حذف فعلي لا تراجع عنه ولا نسخة موقوفة تبقى، ويُطابَق في مورد المزامنة routes بـ/ids كأي حذف فعلي. والإنجاز يُقرأ من سجل الزيارات فلا تضيع الزيارات",
+     "الخط غير الموجود، ومنه المحذوف قبلاً، يرجع 404 «خط السير غير موجود»",
+     "لا يغيّر طريقة توزيع المندوب، ودورة التناوب تُحسب بعده بخطوطه الدائمة الباقية"
     ],
     "example": ""
    },
@@ -8594,7 +8810,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:{rows:[{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy}], audit:[{id, attendanceId, action, before, after, reason, actorName, createdAt}]}}",
+    "response": "{success:true, data:{rows:[{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy, checkOutAuto}], audit:[{id, attendanceId, action, before, after, reason, actorName, createdAt}]}}. checkOutAuto = true: انصراف سجّله النظام بوقت آخر نشاط للمندوب قبل تذكير خمول لم يلغه «ما زلت أعمل» ولا تنقّل ولا مستند (لا بصمة المندوب)، وسطره في audit بالإجراء AUTO_CHECKOUT باسم «النظام». تعديل وقت انصرافه يُسقط الوسم",
     "rules": [
      "الصفوف بالحضور تصاعدياً وحتى 500، والسجل الأحدث أولاً وحتى 100",
      "source: APP (بصمة التطبيق) أو ADMIN (أُضيفت يدوياً) أو IMPORT (من الرفع)، وeditedAt/editedBy لما عُدّل"
@@ -8640,7 +8856,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "سبب الإضافة، ويُدوَّن في السجل"
      }
     ],
-    "response": "201 {success:true, data:{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy}} بمصدر ADMIN",
+    "response": "201 {success:true, data:{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy, checkOutAuto}} بمصدر ADMIN",
     "rules": [
      "لا مستقبل، والانصراف بعد الحضور، ولا فترة فوق 24 ساعة، ولا أقدم من 400 يوم — وإلا 400 برسالة القاعدة",
      "التداخل مع فترة قائمة للمندوب 409 ATTENDANCE_OVERLAP مع conflict:{checkInAt, checkOutAt}"
@@ -8680,7 +8896,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "desc": "سبب التعديل"
      }
     ],
-    "response": "{success:true, data:{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy}}",
+    "response": "{success:true, data:{id, salesRepId, checkInAt, checkOutAt, checkInLat, checkInLng, checkOutLat, checkOutLng, checkInDevice, checkOutDevice, checkInOutside, checkInDistanceM, checkOutOutside, checkOutDistanceM, source, editedAt, editedBy, checkOutAuto}}",
     "rules": [
      "الحقلان يُرسلان معاً دائماً (كتابة كاملة للفترة)",
      "السجل يحفظ القيمتين قبل وبعد، وبصمة التطبيق المعدّلة تبقى موسومة editedAt"
@@ -9179,12 +9395,15 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, name, phone, status:'ACTIVE'|'INACTIVE'|'BLOCKED', balance, creditLimit, paymentDays, totalSales, totalCollected}]} مرتبة تنازلياً حسب balance",
+    "response": "{success:true, data:[{id, name, phone, status:'ACTIVE'|'INACTIVE'|'BLOCKED', balance, creditLimit, paymentDays, totalSales, totalCollected, aging:{oldestDay, ageDays, overdueDays, overdueAmount, bands:{d0_30, d31_60, d61_90, d90_plus}, undated}|null}]} مرتبة تنازلياً حسب balance",
     "rules": [
      "كل عميل حالته غير DELETED: ACTIVE وINACTIVE وBLOCKED. فالموقوف والمحظور المدينان داخلان في القائمة وفي أي مجموع تحسبه منها (إجمالي مديونية الشركة)، وstatus في كل صف ليميّزهما. ونطاق المستخدم المقيّد كما هو",
      "الرصيد هنا هو القيمة المخزنة customer.balance، وليس المحسوب من قيود الحساب كما في rep-receivables",
      "overdue لا تفحص paymentDays ولا تاريخ الاستحقاق، بل الرصيد الموجب فقط مع تجاهل كسور أصغر من 1e-6",
      "exceeded تُفلتر في الذاكرة بعد جلب كل من له سقف",
+     "aging (عمر الدين) لكل عميل رصيده أكبر من 1e-6، وnull لغيره: مصدره الفواتير الآجلة المؤكدة المفتوحة بمتبقيها remainingAmt، مطابَقةً بالرصيد المعروض balance. فإن كان الرصيد أقل من مجموعها (سند غير موزع أو مرتجع غير مربوط) أطفأ الفرق الأقدم أولاً، وإن كان أكبر (رصيد افتتاحي أو تسوية مدينة) أُرّخ الفرق بقيود ADJUSTMENT_DEBIT من الأحدث إلى الأقدم وما بقي في undated. فمجموع bands مع undated يساوي balance دائماً",
+     "الأيام بيوم الشركة (منطقة الدفاتر ثم دولة الشركة): ageDays من أقدم يوم قائم oldestDay إلى اليوم، والشرائح 0-30 و31-60 و61-90 وأكثر من 90 بعمر كل جزء. والتأخر overdueDays وoverdueAmount من يوم الاستحقاق: dueDate الفاتورة إن وُجد، وإلا يومها + paymentDays العميل. والاستحقاق اليوم ليس متأخراً",
+     "فاتورة التقسيط تُوزَّع على أقساطها: المسدد (total − remainingAmt) يطفئ الأقساط بترتيبها، وكل قسط باقٍ بيوم الفاتورة (العمر والشرائح) واستحقاقه هو (التأخر). وقيد إلغاء شطب الذمة وقيد رد الرصيد الدائن الملغى لا يؤرخان شيئاً، والرصيد الافتتاحي المستورد بلا تاريخ (بلحظة الاستيراد لا أول يوم) يدخل undated",
      "لا ترقيم ولا حد للصفوف"
     ],
     "example": ""
@@ -9383,7 +9602,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[{id, name, totalMinutes, hours, minutes, sessions, firstSeen, lastSeen, fieldMinutesTotal, workedDays, absentDays, visitsTotal, avgDayMinutes, days:[{date, firstActivity, lastActivity, spanMinutes, periods:[{start, end, source:'PUNCH'|'ACTIVITY', inLat?, inLng?, outLat?, outLng?}], breakMinutes, appMinutes, visits:[{customerName, start, end, durationSec, hasNote, parts, lat, lng, sources}], visitsCount, visitsSec, absent}]}], meta:{tzOffsetMin, rangeClamped?:31, truncated:boolean, limit:200000, appliedRange:{from, to, defaulted}}}",
+    "response": "{success:true, data:[{id, name, totalMinutes, hours, minutes, sessions, firstSeen, lastSeen, fieldMinutesTotal, workedDays, absentDays, visitsTotal, avgDayMinutes, days:[{date, firstActivity, lastActivity, spanMinutes, periods:[{start, end, source:'PUNCH'|'ACTIVITY', inLat?, inLng?, outLat?, outLng?, outAuto?:true}], breakMinutes, appMinutes, visits:[{customerName, start, end, durationSec, hasNote, parts, lat, lng, sources}], visitsCount, visitsSec, absent}]}], meta:{tzOffsetMin, rangeClamped?:31, truncated:boolean, limit:200000, appliedRange:{from, to, defaulted}}}",
     "rules": [
      "بلا from يكون المدى 7 أيام تنتهي عند to أو الآن",
      "الحد الأقصى 31 يوماً، والزائد يُقصّ من البداية ويُعلن بـ meta.rangeClamped=31",

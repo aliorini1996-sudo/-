@@ -7,6 +7,7 @@ import { periodShape, statementFinalBalance, statementZone } from './statementFa
 import { adjustTotals, receiveTotalQty, uncostedCount, isCosted, noticeRef, qtyByUnit, unitTotalsText } from './warehouseNoticeFacts';
 import { factorOf, formatQty, primaryUnitOf, roundQty, type UnitDef } from '../lib/units';
 import { stockRequestToLabel, stockRequestApproverLabel, stockRequestTotalQty, type StockRequestTo, type StockRequestLine } from '../lib/stockRequest';
+import { STOCK_COUNT_BLANK_ROWS, type StockCountLine } from '../lib/stockCount';
 import { docLotsFrom, type DocLotLine } from '../lib/lots';
 import { PENDING_LOAD_TEXT, acceptanceSentence, safeSignature, type LoadNoticeAcceptance } from '../lib/pendingLoads';
 import { docLotRows, invoiceLotsOf, lotCellText, lotFlagNotes, lotLineText, noticeHasLots, warehouseLineLots } from './docLots';
@@ -416,7 +417,23 @@ export interface StockRequestDoc {
   reps?: { name: string; items: { name: string; unit?: string; qty: number }[] }[];
 }
 
-export type AnyDoc = InvoiceDoc | ReceiptDoc | StatementDoc | SettlementLogDoc | LoadNoticeDoc | WarehouseNoticeDoc | StockRequestDoc;
+/**
+ * «كشف جرد» سيارة المندوب (طلب المالك ٢٣ نوفمبر ٢٠٢٦) — ورقة مطابقة: رصيد النظام لكل صنفٍ في السيارة وخاناتٌ فارغة للكمية
+ * الفعلية والفرق، تُطبع ويجرد بها المشرف السيارة. لا حركة ولا سجلّ في الخادم — انظر `lib/stockCount.ts`.
+ */
+export interface StockCountDoc {
+  kind: 'stockCount';
+  company?: Company | null;
+  /** `SC-…` من لحظة الإصدار */
+  ref: string;
+  date: string;
+  repName: string;
+  /** المستخدم الذي أصدر الكشف */
+  by?: string;
+  items: StockCountLine[];
+}
+
+export type AnyDoc = InvoiceDoc | ReceiptDoc | StatementDoc | SettlementLogDoc | LoadNoticeDoc | WarehouseNoticeDoc | StockRequestDoc | StockCountDoc;
 
 /**
  * «إزالة الضريبة» (lib/taxMode.ts، طلب المالك ٧ نوفمبر ٢٠٢٦): هل يُرسم المستند بلا أي ذكرٍ للضريبة؟ الفاتورة والمرتجع بختمهما
@@ -2248,6 +2265,125 @@ export const PrintableStockRequest = forwardRef<HTMLDivElement, { doc: StockRequ
 });
 PrintableStockRequest.displayName = 'PrintableStockRequest';
 
+/** كمية «كشف الجرد» بوحدات الصنف «٢ كرتون و٣ حبة» حين تكون له وحدات أكبر، وإلا الرقم ووحدته — والعجز بإشارة الطرح */
+export function stockCountQtyText(qty: number, it: StockCountLine): string {
+  const big = (it.units ?? []).some((u) => Number(u.factor) > 1 && u.isActive !== false);
+  const abs = Math.abs(qty);
+  const txt = big ? formatQty(abs, it.units ?? [], it.baseUnit || it.unit, primaryUnitOf(it)) : `${fmtNoticeQty(abs)}${it.unit ? ` ${it.unit}` : ''}`;
+  return qty < 0 ? `−${txt}` : txt;
+}
+
+export const PrintableStockCount = forwardRef<HTMLDivElement, { doc: StockCountDoc }>(({ doc: issued }, ref) => {
+  const doc = taxFreeView(issued);
+  const tr = useTr();
+  const sheet = useSheet();
+  const brand = brandColor(doc.company);
+  const th: React.CSSProperties = { background: brand, color: '#fff', padding: '9px 6px', fontSize: 12, fontWeight: 600, textAlign: 'center' };
+  const td: React.CSSProperties = { padding: '8px 6px', fontSize: 11.5, textAlign: 'center', borderBottom: '1px solid #e5e7eb' };
+  // خانة يكتب فيها الجارد بيده — مربّعٌ فارغ بحدٍّ منقّط
+  const box: React.CSSProperties = { ...td, minWidth: 70, background: '#fcfcfd', borderLeft: '1px dashed #d1d5db', borderRight: '1px dashed #d1d5db' };
+  const anyUnsellable = doc.items.some((it) => it.unsellable > 1e-9);
+  const cols = anyUnsellable ? 7 : 6;
+  const deficits = doc.items.filter((it) => it.onHand < -1e-9).length;
+  const qtyDir = (s: string) => (/[؀-ۿ]/.test(s) ? 'rtl' : 'ltr');
+
+  return (
+    <div ref={ref} style={sheet.style} {...sheet.attrs}>
+      <CompanyTextsHeader title={tr('كشف جرد سيارة')} company={doc.company} />
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 16 }}>
+        <div style={{ flex: 1, background: '#f8fafc', borderRadius: 10, padding: 14 }}>
+          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('بيانات الكشف')}</div>
+          <InfoBox label={tr('رقم الكشف')} value={doc.ref} />
+          <InfoBox label={tr('التاريخ')} value={formatDate(doc.date)} />
+          <InfoBox label={tr('الوقت')} value={formatTime(doc.date)} />
+          {doc.by && <InfoBox label={tr('أصدره')} value={doc.by} />}
+        </div>
+        <div style={{ flex: 1, background: '#fff7ed', borderRadius: 10, padding: 14 }}>
+          <div style={{ fontWeight: 700, color: brand, marginBottom: 8, fontSize: 14 }}>{tr('السيارة')}</div>
+          <InfoBox label={tr('المندوب')} value={doc.repName} />
+          <InfoBox label={tr('عدد الأصناف')} value={String(doc.items.length)} />
+          {deficits > 0 && <InfoBox label={tr('أصناف بعجز')} value={String(deficits)} />}
+        </div>
+      </div>
+
+      <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10, padding: '9px 14px', marginBottom: 14, fontSize: 12, color: '#0c4a6e' }}>
+        {tr('اكتب الكمية الموجودة فعلا في السيارة لكل صنف ثم الفرق عن رصيد النظام (الفعلي ناقص النظام)')}
+      </div>
+
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
+        <thead>
+          <tr>
+            <th style={{ ...th, borderRadius: '0 8px 0 0', width: 28 }}>#</th>
+            <th style={{ ...th, textAlign: 'right' }}>{tr('الصنف')}</th>
+            <th style={th}>{tr('رصيد النظام')}</th>
+            {anyUnsellable && <th style={th}>{tr('تالف ومنتهي')}</th>}
+            <th style={th}>{tr('الكمية الفعلية')}</th>
+            <th style={th}>{tr('الفرق')}</th>
+            <th style={{ ...th, borderRadius: '8px 0 0 0' }}>{tr('ملاحظات')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {doc.items.length === 0 && (
+            <tr><td style={{ ...td, padding: 18, color: '#9ca3af' }} colSpan={cols}>{tr('لا توجد أصناف في السيارة حسب النظام')}</td></tr>
+          )}
+          {doc.items.map((it, i) => {
+            const sys = stockCountQtyText(it.onHand, it);
+            return (
+              <tr key={it.productId}>
+                <td style={td}>{i + 1}</td>
+                <td style={{ ...td, textAlign: 'right' }}>
+                  <div style={{ fontWeight: 600 }}>{it.name}</div>
+                  {it.code && <div style={{ fontSize: 10, color: '#9ca3af' }}>{it.code}</div>}
+                </td>
+                <td style={{ ...td, fontWeight: 700, color: it.onHand < 0 ? '#dc2626' : '#111827' }} dir={qtyDir(sys)}>{sys}</td>
+                {anyUnsellable && (
+                  <td style={{ ...td, color: '#b45309' }}>{it.unsellable > 1e-9 ? stockCountQtyText(it.unsellable, it) : '—'}</td>
+                )}
+                <td style={box} />
+                <td style={box} />
+                <td style={{ ...box, minWidth: 90 }} />
+              </tr>
+            );
+          })}
+          {/* أصنافٌ وُجدت في السيارة وليست في رصيد النظام */}
+          <tr>
+            <td style={{ ...td, textAlign: 'right', background: '#f8fafc', color: '#6b7280', fontSize: 11, fontWeight: 600 }} colSpan={cols}>
+              {tr('أصناف موجودة في السيارة وغير مسجلة في النظام')}
+            </td>
+          </tr>
+          {Array.from({ length: STOCK_COUNT_BLANK_ROWS }).map((_, i) => (
+            <tr key={`blank-${i}`}>
+              <td style={{ ...td, color: '#d1d5db' }}>{doc.items.length + i + 1}</td>
+              <td style={{ ...box, height: 26 }} />
+              <td style={{ ...td, color: '#d1d5db' }}>0</td>
+              {anyUnsellable && <td style={td} />}
+              <td style={box} />
+              <td style={box} />
+              <td style={box} />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* التوقيعات: المندوب وأمين المستودع والمشرف */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 28, marginTop: 28 }}>
+        {[tr('توقيع المندوب'), tr('توقيع أمين المستودع'), tr('توقيع المشرف')].map((label) => (
+          <div key={label} style={{ flex: 1, textAlign: 'center', color: '#6b7280', fontSize: 12 }}>
+            <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: 8, marginTop: 44 }}>{label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
+        {doc.company?.name || ''} — {tr('رصيد النظام لحظة الإصدار')} {formatDateTime(doc.date)}
+      </div>
+      {sheet.css}
+    </div>
+  );
+});
+PrintableStockCount.displayName = 'PrintableStockCount';
+
 function Row({ label, value, color }: { label: React.ReactNode; value: string; color?: string }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', color: color || '#374151' }}>
@@ -2805,6 +2941,7 @@ export function DocumentResult({ doc: issued, onClose, showLotsStrip = false }: 
   const subjectName = (doc.kind === 'settlement' || doc.kind === 'loadNotice') ? doc.repName
     : doc.kind === 'warehouseNotice' ? (doc.supplier || tr('مخزون الشركة'))
     : doc.kind === 'stockRequest' ? `${tr('موجه إلى')} ${tr(stockRequestToLabel(doc.to))}`
+    : doc.kind === 'stockCount' ? doc.repName
     : doc.customer.name;
   const warehouseLabel = doc.kind === 'warehouseNotice'
     ? (doc.entryType === 'RECEIVE' ? tr('إشعار وارد') : doc.entryType === 'RETURN' ? tr('إشعار مرتجع للمورد') : tr('إشعار تسوية'))
@@ -2818,6 +2955,7 @@ export function DocumentResult({ doc: issued, onClose, showLotsStrip = false }: 
     : doc.kind === 'loadNotice' ? `${noticeLabel} — ${doc.repName}`
     : doc.kind === 'warehouseNotice' ? `${warehouseLabel} — ${doc.ref}`
     : doc.kind === 'stockRequest' ? `${tr('طلب مخزون')} — ${doc.ref}`
+    : doc.kind === 'stockCount' ? `${tr('كشف جرد')} — ${doc.repName}`
     : `${tr('كشف حساب')} — ${doc.customer.name}`;
   const filename = (doc.kind === 'invoice' ? `${zDecision?.kind === 'deliveryNote' ? tr('سند تسليم') : isReturnDoc ? tr('مرتجع') : tr('فاتورة')}-${doc.number}`
     : doc.kind === 'receipt' ? `${tr('سند قبض')}-${doc.number}`
@@ -2825,9 +2963,11 @@ export function DocumentResult({ doc: issued, onClose, showLotsStrip = false }: 
     : doc.kind === 'loadNotice' ? `${noticeLabel}-${doc.repName}`
     : doc.kind === 'warehouseNotice' ? `${warehouseLabel}-${doc.ref}`
     : doc.kind === 'stockRequest' ? `${tr('طلب مخزون')}-${doc.ref}`
+    : doc.kind === 'stockCount' ? `${tr('كشف جرد')}-${doc.repName}-${doc.ref}`
     : `${tr('كشف حساب')}-${doc.customer.name}`) + '.pdf';
   const confirmText = isSettlement ? tr('سجل التحصيل جاهز') : (isLoadNotice || isWarehouseNotice) ? tr('الإشعار جاهز')
     : doc.kind === 'stockRequest' ? tr('طلب المخزون جاهز')
+    : doc.kind === 'stockCount' ? tr('كشف الجرد جاهز')
     : isStatement ? tr('كشف الحساب جاهز') : tr(zDecision ? zDecision.confirmText : 'تم الإصدار بنجاح');
 
   const renderDoc = (refProp?: React.Ref<HTMLDivElement>) => {
@@ -2837,6 +2977,7 @@ export function DocumentResult({ doc: issued, onClose, showLotsStrip = false }: 
     if (doc.kind === 'loadNotice') return <PrintableLoadNotice ref={refProp} doc={doc} />;
     if (doc.kind === 'warehouseNotice') return <PrintableWarehouseNotice ref={refProp} doc={doc} />;
     if (doc.kind === 'stockRequest') return <PrintableStockRequest ref={refProp} doc={doc} />;
+    if (doc.kind === 'stockCount') return <PrintableStockCount ref={refProp} doc={doc} />;
     return <PrintableStatement ref={refProp} doc={doc} />;
   };
 
