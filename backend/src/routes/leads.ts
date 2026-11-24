@@ -19,6 +19,7 @@ import { getCommunityConfig, saveCommunityConfig, runCommunityHuntBatch } from '
 import {
   syncSalesInbox, listSalesInbox, parseSalesListQuery, salesUpdateSchema, updateSalesContact,
   listSalesNotes, addSalesNote, removeSalesNote, salesNoteBodySchema, type SalesNoteAuthor,
+  salesManualSchema, createManualContact,
 } from '../services/salesInbox';
 
 // إدارة العملاء المحتملين (Leads) — لمالك المنصّة (السوبر أدمن) فقط
@@ -527,6 +528,16 @@ router.get('/sales-inbox', async (req: AuthRequest, res: Response, next: NextFun
     const { whatsapp, syncedAt } = await syncSalesInbox({ includeWhatsapp });
     const data = await listSalesInbox(parseSalesListQuery(req.query as Record<string, unknown>), includeWhatsapp);
     res.json({ success: true, data: { ...data, whatsapp, syncedAt: syncedAt.toISOString() } });
+  } catch (err) { next(err); }
+});
+
+// إضافة جهة تواصل يدوياً (طلب المالك ٢٤ نوفمبر ٢٠٢٦) — قناة MANUAL، بصلاحية sales.view نفسها (platformAccess)
+router.post('/sales-inbox', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const parsed = salesManualSchema.safeParse(req.body ?? {});
+    if (!parsed.success) { res.status(400).json({ success: false, message: parsed.error.issues[0]?.message || 'بيانات غير صالحة' }); return; }
+    const row = await createManualContact(parsed.data, await salesAuthor(req));
+    res.status(201).json({ success: true, data: row });
   } catch (err) { next(err); }
 });
 

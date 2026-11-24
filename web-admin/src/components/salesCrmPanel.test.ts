@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   SALES_CHANNELS, SALES_STAGES, SALES_NOTE_MAX, SALES_LIMIT_DEFAULT, SALES_LIMIT_MAX, channelOf, stageOf, inboxParams, intlDigits,
+  emptyManualForm, manualFormProblem, manualPayload,
   mailHref, telHref, waHref, waHrefForRow, dialForCountry,
 } from '../lib/salesCrm';
 
@@ -111,7 +112,7 @@ test('SalesCrmPanel: شاشة كاملة كالعملاء المحتملين، �
   assert.doesNotMatch(panel, /invoice-tool|invoiceTool|مولد الفواتير/);
 });
 
-test('القنوات السبع والحالات السبع بمفاتيح الخادم وأسمائها', () => {
+test('القنوات الثماني والحالات الثماني بمفاتيح الخادم وأسمائها', () => {
   assert.deepEqual(SALES_CHANNELS.map((c) => [c.value, c.label]), [
     ['TRIAL', 'تسجيل تجريبي'],
     ['AMBASSADOR_TRIAL', 'تجربة عبر سفير'],
@@ -120,8 +121,10 @@ test('القنوات السبع والحالات السبع بمفاتيح ال�
     ['SUBSCRIPTION', 'طلب اشتراك'],
     ['QUOTE_REQUEST', 'طلب عرض سعر'],
     ['WHATSAPP', 'واتساب'],
+    ['MANUAL', 'إضافة يدوية'],
   ]);
-  assert.deepEqual(SALES_STAGES.map((s) => s.value), ['NEW', 'CONTACTED', 'MEETING', 'NEGOTIATION', 'WON', 'LOST', 'NOT_FIT']);
+  assert.deepEqual(SALES_STAGES.map((s) => s.value), ['NEW', 'CONTACTED', 'FOLLOW_UP', 'MEETING', 'NEGOTIATION', 'WON', 'LOST', 'NOT_FIT']);
+  assert.equal(stageOf('FOLLOW_UP').label, 'يحتاج متابعة');
   assert.equal(SALES_NOTE_MAX, 2000);
   // مجهولٌ من خادمٍ أحدث يُعرض بمفتاحه لا ينهار
   assert.deepEqual([channelOf('EMAIL').label, stageOf('X').label], ['EMAIL', 'X']);
@@ -278,3 +281,16 @@ function walk(dir: string): string[] {
     return /\.tsx?$/.test(e.name) && !e.name.endsWith('.test.ts') ? [full] : [];
   });
 }
+
+test('«إضافة عميل» يدوياً: التحقق كالخادم (الاسم ومعه جوال أو بريد صالح)، والحقول الفارغة لا تُرسل، والزر والنافذة في اللوحة', () => {
+  const f = emptyManualForm();
+  assert.equal(manualFormProblem(f), 'اكتب الاسم');
+  assert.equal(manualFormProblem({ ...f, name: 'سالم' }), 'اكتب الجوال أو البريد');
+  assert.equal(manualFormProblem({ ...f, name: 'سالم', email: 'x' }), 'البريد غير صالح');
+  assert.equal(manualFormProblem({ ...f, name: 'سالم', phone: '0501' }), null);
+  assert.deepEqual(manualPayload({ ...f, name: ' سالم ', phone: ' 0501 ', company: '  ' }), { name: 'سالم', stage: 'NEW', phone: '0501', country: 'SA' });
+  const panel = read('components', 'SalesCrmPanel.tsx');
+  assert.match(panel, /onClick=\{\(\) => setAdding\(true\)\}/);
+  assert.match(panel, /salesApi\.create\(manualPayload\(form\)\)/);
+  assert.match(panel, /qc\.invalidateQueries\(\{ queryKey: \['sales-inbox'\] \}\)/);
+});
