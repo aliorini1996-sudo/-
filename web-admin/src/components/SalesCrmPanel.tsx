@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { X, Search, RefreshCw, TrendingUp, Phone, Mail, MessageCircle, AlertTriangle, Inbox } from 'lucide-react';
+import { X, Search, RefreshCw, TrendingUp, Phone, Mail, MessageCircle, AlertTriangle, Inbox, UserPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { salesApi } from '../api/client';
 import { SalesNotesButton, SalesNotesModal } from './SalesNotesModal';
 import { useTr } from '../i18n/strings';
-import { flagOf } from '../i18n/dialCodes';
+import { ALL_DIAL, flagOf } from '../i18n/dialCodes';
 import { formatDateTime, formatMoment, formatNumber } from '../utils/format';
 import {
   SALES_CHANNELS, SALES_LIMIT_DEFAULT, SALES_LIMIT_MAX, SALES_STAGES, channelOf, inboxParams, mailHref, stageOf,
   telHref, waHrefForRow, type SalesInbox, type SalesRow, type SalesUpdate,
+  emptyManualForm, manualFormProblem, manualPayload, type SalesManualForm,
 } from '../lib/salesCrm';
 
 /**
@@ -32,6 +33,8 @@ export default function SalesCrmPanel({ onClose }: { onClose: () => void }) {
   const [q, setQ] = useState('');
   // حجم الصفحة: افتراضي الخادم، و«عرض المزيد» يرفعه إلى سقفه
   const [limit, setLimit] = useState(SALES_LIMIT_DEFAULT);
+  // نافذة «إضافة عميل» يدوياً
+  const [adding, setAdding] = useState(false);
 
   // البحث بعد توقّف الكتابة
   useEffect(() => {
@@ -69,6 +72,11 @@ export default function SalesCrmPanel({ onClose }: { onClose: () => void }) {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* إضافة عميل يدوياً (طلب المالك ٢٤ نوفمبر ٢٠٢٦) — قناة «إضافة يدوية» */}
+            <button onClick={() => setAdding(true)} className="bg-[#E15A30] hover:bg-[#C94E28] text-white rounded-lg px-3 py-1.5 text-sm font-semibold flex items-center gap-1.5"
+              title={tr('إضافة عميل')} aria-label={tr('إضافة عميل')}>
+              <UserPlus size={16} /> <span className="hidden sm:inline">{tr('إضافة عميل')}</span>
+            </button>
             <button onClick={() => refetch()} disabled={isFetching} className="text-slate-300 hover:text-white p-2 disabled:opacity-60" title={tr('تحديث')} aria-label={tr('تحديث')}>
               <RefreshCw size={18} className={isFetching ? 'animate-spin' : ''} />
             </button>
@@ -161,6 +169,89 @@ export default function SalesCrmPanel({ onClose }: { onClose: () => void }) {
               )}
             </div>
           )}
+        </div>
+      </div>
+      {adding && <AddSalesContactModal onClose={() => setAdding(false)} />}
+    </div>
+  );
+}
+
+/**
+ * «إضافة عميل» يدوياً (طلب المالك ٢٤ نوفمبر ٢٠٢٦): الاسم ومعه جوال أو بريد، والشركة والدولة وتفاصيل وحالة أولى اختيارية.
+ * يُحفظ بقناة «إضافة يدوية» ويظهر في القائمة فوراً (إبطال مفتاحها)، ومن أضافه في «من أين أتى» وسجلّ الملاحظات
+ */
+function AddSalesContactModal({ onClose }: { onClose: () => void }) {
+  const tr = useTr();
+  const qc = useQueryClient();
+  const [form, setForm] = useState<SalesManualForm>(emptyManualForm);
+  const [error, setError] = useState('');
+  const set = (k: keyof SalesManualForm) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const save = useMutation({
+    mutationFn: () => salesApi.create(manualPayload(form)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sales-inbox'] });
+      toast.success(tr('أضيف العميل'));
+      onClose();
+    },
+    onError: (e) => setError(errMsg(e, tr('تعذر الحفظ'))),
+  });
+  const submit = () => {
+    const problem = manualFormProblem(form);
+    if (problem) { setError(tr(problem)); return; }
+    setError('');
+    save.mutate();
+  };
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" dir="rtl" onClick={(e) => { if (e.target === e.currentTarget && !save.isPending) onClose(); }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-5 border-b border-[#E9E1D3]">
+          <h2 className="font-bold text-[#1F1A13] flex items-center gap-2"><UserPlus size={18} className="text-[#E15A30]" /> {tr('إضافة عميل')}</h2>
+          <button onClick={onClose} disabled={save.isPending} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500" aria-label={tr('إغلاق')}><X size={18} /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="label">{tr('الاسم')} *</label>
+            <input className="input" value={form.name} onChange={set('name')} maxLength={200} autoFocus />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label className="label">{tr('الجوال')}</label>
+              <input className="input" dir="ltr" inputMode="tel" placeholder="+9665…" value={form.phone} onChange={set('phone')} maxLength={40} />
+            </div>
+            <div>
+              <label className="label">{tr('البريد')}</label>
+              <input className="input" dir="ltr" type="email" value={form.email} onChange={set('email')} maxLength={200} />
+            </div>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label className="label">{tr('الشركة')}</label>
+              <input className="input" value={form.company} onChange={set('company')} maxLength={200} />
+            </div>
+            <div>
+              <label className="label">{tr('الدولة')}</label>
+              <select className="input" value={form.country} onChange={set('country')}>
+                {ALL_DIAL.map((c) => <option key={c.code} value={c.code}>{flagOf(c.code)} {c.ar}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="label">{tr('الحالة')}</label>
+            <select className="input" value={form.stage} onChange={set('stage')}>
+              {SALES_STAGES.map((s) => <option key={s.value} value={s.value}>{tr(s.label)}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">{tr('تفاصيل')}</label>
+            <textarea className="input min-h-[80px]" value={form.message} onChange={set('message')} maxLength={2000} />
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+        </div>
+        <div className="p-5 border-t border-[#E9E1D3] flex gap-3">
+          <button onClick={submit} disabled={save.isPending} className="btn-primary flex-1 justify-center py-2.5 disabled:opacity-60">
+            {save.isPending ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <UserPlus size={16} />} {tr('إضافة')}
+          </button>
+          <button onClick={onClose} disabled={save.isPending} className="btn-secondary">{tr('إلغاء')}</button>
         </div>
       </div>
     </div>

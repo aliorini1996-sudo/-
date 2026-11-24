@@ -7950,6 +7950,13 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'في دفاترك {count} قيداً يدوياً منذ {date} يمسّ حسابات يرحّلها النظام آلياً — أقرّ بعكسها ثم اربط': { en: 'Your books have {count} manual entries since {date} touching accounts the system posts automatically — acknowledge their reversal, then link', fr: 'Votre comptabilité contient {count} écritures manuelles depuis le {date} touchant des comptes que le système comptabilise automatiquement — confirmez leur extourne, puis liez', tr: 'Defterlerinizde {date} tarihinden beri sistemin otomatik kaydettiği hesaplara dokunan {count} manuel kayıt var — ters çevrilmesini onaylayın, sonra bağlayın', zh: '您的账簿中自 {date} 起有 {count} 条手工分录涉及系统自动过账的科目——请确认冲销后再关联' },
   // «إدارة المبيعات» (طلب المالك ١٦ نوفمبر ٢٠٢٦) — لوحة المالك: كل من تواصل مع المنصة في قائمة واحدة (components/SalesCrmPanel.tsx)
   'إدارة المبيعات': { en: 'Sales management', fr: 'Gestion des ventes', tr: 'Satış yönetimi', zh: '销售管理' },
+  // «إضافة عميل» يدوياً في إدارة المبيعات (طلب المالك ٢٤ نوفمبر ٢٠٢٦)
+  'إضافة يدوية': { en: 'Added manually', fr: 'Ajout manuel', tr: 'Elle eklendi', zh: '手动添加' },
+  'اكتب الاسم': { en: 'Enter the name', fr: 'Saisissez le nom', tr: 'Adı girin', zh: '请输入姓名' },
+  'اكتب الجوال أو البريد': { en: 'Enter a mobile number or an email', fr: 'Saisissez un mobile ou un e-mail', tr: 'Bir cep telefonu veya e-posta girin', zh: '请输入手机号或邮箱' },
+  'البريد غير صالح': { en: 'Invalid email', fr: 'E-mail invalide', tr: 'Geçersiz e-posta', zh: '邮箱无效' },
+  'تفاصيل': { en: 'Details', fr: 'Détails', tr: 'Ayrıntılar', zh: '详情' },
+  'أضيف العميل': { en: 'Customer added', fr: 'Client ajouté', tr: 'Müşteri eklendi', zh: '客户已添加' },
   'كل من تواصل مع المنصة في مكان واحد ومن أين أتى': { en: 'Everyone who contacted the platform in one place, and where they came from', fr: 'Tous ceux qui ont contacté la plateforme au même endroit, avec leur provenance', tr: 'Platformla iletişime geçen herkes tek yerde ve nereden geldikleri', zh: '所有联系过平台的人集中在一处，并显示其来源' },
   'بحث بالاسم أو الشركة أو الجوال أو البريد': { en: 'Search by name, company, mobile or email', fr: 'Rechercher par nom, entreprise, mobile ou e-mail', tr: 'Ad, şirket, cep telefonu veya e-posta ile ara', zh: '按姓名、公司、手机或邮箱搜索' },
   'مسح الكل': { en: 'Clear all', fr: 'Tout effacer', tr: 'Tümünü temizle', zh: '全部清除' },

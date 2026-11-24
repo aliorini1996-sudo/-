@@ -662,6 +662,8 @@ export const leadApi = {
 export const salesApi = {
   inbox: (params?: SalesInboxParams) => api.get('/leads/sales-inbox', { params }),
   update: (id: string, body: SalesUpdate) => api.put(`/leads/sales-inbox/${encodeURIComponent(id)}`, body),
+  // إضافة جهة تواصل يدوياً (طلب المالك ٢٤ نوفمبر ٢٠٢٦) — manualPayload في lib/salesCrm.ts
+  create: (body: Record<string, string>) => api.post('/leads/sales-inbox', body),
   // سجلّ ملاحظات جهة التواصل (كملاحظات الشركات في لوحة المالك)
   notes: (id: string) => api.get(`/leads/sales-inbox/${encodeURIComponent(id)}/notes`),
   addNote: (id: string, body: string) => api.post(`/leads/sales-inbox/${encodeURIComponent(id)}/notes`, { body }),
