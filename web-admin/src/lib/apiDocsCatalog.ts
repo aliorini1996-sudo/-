@@ -3969,13 +3969,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
      }
     ],
     "body": [],
-    "response": "{success:true, data:[مندوب], pagination:{total, page, limit, pages}} مرتبة بالاسم تصاعدياً. حقول المندوب: id, name, phone, email, username, isActive, canCreateInvoice, canSellOnCredit, canSellOnInstallment, canSellInCash, canEditInvoice, canDeleteInvoice, canCancelInvoice, canChangePrice, maxDiscountPct, canSellBelowPrice, canChangePriceList, defaultPriceListId, allowedPriceTypes, canCreateReceipt, canEditReceipt, canCancelReceipt, canManageVanStock, canAddCustomer, canEditCustomer, canViewStatement, showCollectionBalance, cashSaleCollected, requireCustomerProximity, requireLocationOn, requirePunchAtCustomer, proximityRadiusM, punchRadiusM, punchOutsideAction, requireBoundDevice, boundDeviceName, boundDeviceAt, requirePresenceCheck, idlePunchOutEnabled, idlePunchOutMinutes, idlePunchOutGraceMinutes, dedupCustomerPhone, dedupCustomerName, dedupCustomerAddress, showRouteOnMap, shiftStart, shiftEnd, shiftDays, locationId, createdAt",
+    "response": "{success:true, data:[مندوب], pagination:{total, page, limit, pages}} مرتبة بالاسم تصاعدياً. حقول المندوب: id, name, phone, email, username, isActive, canCreateInvoice, canSellOnCredit, canSellOnInstallment, canSellInCash, canEditInvoice, canDeleteInvoice, canCancelInvoice, canChangePrice, maxDiscountPct, canSellBelowPrice, canChangePriceList, defaultPriceListId, allowedPriceTypes, canCreateReceipt, canEditReceipt, canCancelReceipt, canManageVanStock, canAddCustomer, canEditCustomer, canViewStatement, showCollectionBalance, cashSaleCollected, requireCustomerProximity, requireLocationOn, requirePunchAtCustomer, proximityRadiusM, punchRadiusM, punchOutsideAction, requireBoundDevice, boundDeviceName, boundDeviceAt, requirePresenceCheck, idlePunchOutEnabled, idlePunchOutMinutes, idlePunchOutGraceMinutes, dedupCustomerPhone, dedupCustomerName, dedupCustomerAddress, dedupCustomerLocation, showRouteOnMap, shiftStart, shiftEnd, shiftDays, locationId, createdAt",
     "rules": [
      "لا تُعاد كلمة المرور ولا حقول التتبع والموقع ولا canSellWithoutStock ولا canBeTracked",
      "pages = ceil(total/limit) من utils/helpers.ts",
      "لطلب المفتاح سقف الصفحة 200 صف. للسحب الكامل استعمل /v1/sync/sales-reps",
      "locationId موقع المندوب الحالي في ميزة «لوكيشن» (أو null) للقراءة وحدها — الإسناد من PUT /locations/reps/:salesRepId، واسم الموقع من GET /locations",
-     "«منع تكرار العملاء عند فتح عميل جديد»: dedupCustomerPhone وdedupCustomerName وdedupCustomerAddress قيود تقييدية مستقلة (false افتراضاً) على فتح المندوب عميلاً من تطبيقه برقم جوال أو اسم أو عنوان مسجّل لعميل آخر في الشركة (409 CUSTOMER_DUPLICATE)، ولا تمسّ طلبات المفتاح",
+     "«منع تكرار العملاء عند فتح عميل جديد»: dedupCustomerPhone وdedupCustomerName وdedupCustomerAddress وdedupCustomerLocation (الموقع ضمن 30 متراً) قيود تقييدية مستقلة (false افتراضاً) على فتح المندوب عميلاً من تطبيقه برقم جوال أو اسم أو عنوان مسجّل لعميل آخر في الشركة (409 CUSTOMER_DUPLICATE)، ولا تمسّ طلبات المفتاح",
      "«قوائم الأسعار»: defaultPriceListId قائمة المندوب الافتراضية لعملائه بلا قائمة (null = السعر الأساسي)، وallowedPriceTypes القوائم التي يبدّل بينها بـcanChangePriceList (null = بلا قيد: كل القوائم والسعر الأساسي، وإلا مصفوفة معرّفات من GET /price-lists فيها 'base' إن أدرجت الشركة السعر الأساسي)"
     ],
     "example": ""
@@ -4274,7 +4274,13 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "dedupCustomerAddress",
       "type": "boolean",
       "required": false,
-      "desc": "منع تكرار العملاء بالعنوان (false افتراضاً): كـdedupCustomerName لحقل address ⇒ 409 CUSTOMER_DUPLICATE بـfield: 'address'. والمفاتيح الثلاثة مستقلة، وقاعدة الموقع (لا عميل ضمن 30 متراً من عميل آخر) قائمة لكل المناديب خارجها"
+      "desc": "منع تكرار العملاء بالعنوان (false افتراضاً): كـdedupCustomerName لحقل address ⇒ 409 CUSTOMER_DUPLICATE بـfield: 'address'. والمفاتيح مستقلة"
+     },
+     {
+      "name": "dedupCustomerLocation",
+      "type": "boolean",
+      "required": false,
+      "desc": "منع فتح عميلٍ ضمن 30 متراً من موقع عميلٍ آخر في الشركة (false افتراضاً، منذ ٢٥ نوفمبر ٢٠٢٦ — كان قاعدةً لكل المناديب): المندوب المفعَّل له يُرفض 409 CUSTOMER_LOCATION_EXISTS عند الإنشاء أو نقل الموقع، والإدارة ومفتاح API لا يمسّهما"
      },
      {
       "name": "requireBoundDevice",
@@ -4354,7 +4360,7 @@ export const API_DOC_GROUPS: DocGroup[] = [
       "name": "canCreateInvoice ... shiftDays",
       "type": "boolean / number",
       "required": false,
-      "desc": "نفس حقول POST وكلها اختيارية: الصلاحيات (ومنها canChangePriceList «تبديل قائمة الأسعار»)، وdefaultPriceListId وallowedPriceTypes (المرسل منهما يُفحص مع المحفوظ من الآخر: الافتراضية من القوائم المسموحة حين تُقيَّد، و'base' فيها إن كان الافتراضي السعر الأساسي، وإلا 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED)، وmaxDiscountPct من 0 إلى 100، وproximityRadiusM وpunchRadiusM أعداد صحيحة من 10 إلى 5000، وpunchOutsideAction وrequireBoundDevice وrequirePresenceCheck وshowRouteOnMap وshiftStart وshiftEnd وshiftDays، وidlePunchOutEnabled وidlePunchOutMinutes (10 إلى 480) وidlePunchOutGraceMinutes (5 إلى 120) — المرسل منهما خارج حدّه 400 IDLE_PUNCH_OUT_RANGE، وdedupCustomerPhone وdedupCustomerName وdedupCustomerAddress (منع تكرار العملاء عند فتح المندوب عميلاً)"
+      "desc": "نفس حقول POST وكلها اختيارية: الصلاحيات (ومنها canChangePriceList «تبديل قائمة الأسعار»)، وdefaultPriceListId وallowedPriceTypes (المرسل منهما يُفحص مع المحفوظ من الآخر: الافتراضية من القوائم المسموحة حين تُقيَّد، و'base' فيها إن كان الافتراضي السعر الأساسي، وإلا 400 PRICE_TYPE_DEFAULT_NOT_ALLOWED)، وmaxDiscountPct من 0 إلى 100، وproximityRadiusM وpunchRadiusM أعداد صحيحة من 10 إلى 5000، وpunchOutsideAction وrequireBoundDevice وrequirePresenceCheck وshowRouteOnMap وshiftStart وshiftEnd وshiftDays، وidlePunchOutEnabled وidlePunchOutMinutes (10 إلى 480) وidlePunchOutGraceMinutes (5 إلى 120) — المرسل منهما خارج حدّه 400 IDLE_PUNCH_OUT_RANGE، وdedupCustomerPhone وdedupCustomerName وdedupCustomerAddress وdedupCustomerLocation (منع تكرار العملاء عند فتح المندوب عميلاً)"
      }
     ],
     "response": "{success:true, data:{id, name, phone, username, isActive}} أو 404 'المندوب غير موجود'",

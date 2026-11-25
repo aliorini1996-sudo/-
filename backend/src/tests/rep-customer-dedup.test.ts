@@ -235,7 +235,7 @@ function emulateDedupSql(rows: Row[], r: Raw): unknown {
   return list.slice(0, Number(limit)).map(x => ({ id: x.id, name: x.name, phone: x.phone, address: x.address ?? null }));
 }
 
-type Flags = { dedupCustomerPhone?: boolean; dedupCustomerName?: boolean; dedupCustomerAddress?: boolean };
+type Flags = { dedupCustomerPhone?: boolean; dedupCustomerName?: boolean; dedupCustomerAddress?: boolean; dedupCustomerLocation?: boolean };
 
 /**
  * عالمٌ في الشركة T1: c1 عميل المندوب (مُسنَد له)، وc2 عميل مندوبٍ آخر (غير مُسنَد)، وc-del محذوف، وc-t2 في شركة أخرى.
@@ -348,8 +348,11 @@ test('جدول الطيّ في SQL يطابق foldText حرفياً: translate �
 
 test('repDedupChecks: المندوب الحيّ بأعلامه وحده — الإدارة ومفتاح API وإعادة رفع الصندوق والمندوب بلا عَلَم ⇒ لا فحص', () => {
   const rep = { role: 'SALES_REP' };
-  assert.deepEqual(repDedupChecks({ headers: {}, user: rep }, { dedupCustomerName: true }), { phone: false, name: true, address: false });
-  assert.deepEqual(repDedupChecks({ headers: {}, user: rep }, ALL), { phone: true, name: true, address: true });
+  assert.deepEqual(repDedupChecks({ headers: {}, user: rep }, { dedupCustomerName: true }), { phone: false, name: true, address: false, location: false });
+  assert.deepEqual(repDedupChecks({ headers: {}, user: rep }, ALL), { phone: true, name: true, address: true, location: false });
+  // «الموقع ضمن ٣٠ متراً» عَلَمٌ رابع (طلب المالك ٢٥ نوفمبر ٢٠٢٦): وحده يكفي ليُفحص
+  assert.deepEqual(repDedupChecks({ headers: {}, user: rep }, { dedupCustomerLocation: true }), { phone: false, name: false, address: false, location: true });
+  assert.equal(repDedupChecks({ headers: {}, user: { role: 'ADMIN' } }, { dedupCustomerLocation: true }), null, 'الإدارة لا يمسّها الموقع');
   assert.equal(repDedupChecks({ headers: {}, user: rep }, {}), null, 'بلا عَلَم');
   assert.equal(repDedupChecks({ headers: {}, user: rep }, null), null);
   assert.equal(repDedupChecks({ headers: {}, user: { role: 'ADMIN' } }, ALL), null, 'الإدارة');
@@ -359,13 +362,15 @@ test('repDedupChecks: المندوب الحيّ بأعلامه وحده — ال
 });
 
 test('changedDedupChecks: المتغيّر المطبَّع وحده — الشكل الآخر للقيمة نفسها والغائب والممسوح لا يُفحص', () => {
-  const all = { phone: true, name: true, address: true };
+  const all = { phone: true, name: true, address: true, location: true };
   const stored = { phone: '0551234567', name: 'بقالة النور', address: 'حي الملز' };
   assert.equal(changedDedupChecks(all, { phone: '+966551234567', name: 'بقاله  النور', address: ' حي الملز ' }, stored), null, 'الشكل الآخر للقيمة نفسها');
   assert.equal(changedDedupChecks(all, {}, stored), null, 'الغائب');
   assert.equal(changedDedupChecks(all, { phone: null, name: null, address: '' }, stored), null, 'الممسوح');
-  assert.deepEqual(changedDedupChecks(all, { name: 'بقالة الحي', phone: '0551234567' }, stored), { phone: false, name: true, address: false });
-  assert.deepEqual(changedDedupChecks({ phone: false, name: false, address: true }, { name: 'آخر', address: 'حي النسيم' }, stored), { phone: false, name: false, address: true });
+  assert.deepEqual(changedDedupChecks(all, { name: 'بقالة الحي', phone: '0551234567' }, stored), { phone: false, name: true, address: false, location: false });
+  assert.deepEqual(changedDedupChecks({ phone: false, name: false, address: true, location: false }, { name: 'آخر', address: 'حي النسيم' }, stored), { phone: false, name: false, address: true, location: false });
+  // الموقع وحده لا يُحمل هنا (findLocationDuplicate يعرف أن الموقع لم يتحرّك)
+  assert.equal(changedDedupChecks({ phone: false, name: false, address: false, location: true }, { name: 'آخر' }, stored), null);
   assert.equal(changedDedupChecks(null, { name: 'آخر' }, stored), null);
 });
 
@@ -598,12 +603,19 @@ test('التعديل: الإدارة لا يمسّها القيد، والمند
 
 // ═══ (٥) قاعدة الموقع للشركة كلها كما هي ═══
 
-test('«الموقع ضمن ٣٠ متراً» باقٍ للجميع كما هو: المندوب بلا عَلَم والإدارة ⇒ 409 CUSTOMER_LOCATION_EXISTS', async () => {
-  for (const [user, flags] of [[REP, {}], [ADMIN, {}], [REP, ALL]] as const) {
-    const w = world({ user, flags });
+test('«الموقع ضمن ٣٠ متراً» عَلَمٌ للمندوب (طلب المالك ٢٥ نوفمبر ٢٠٢٦): المفعَّل له ⇒ 409، والمندوب بلاه والإدارة يفتحون العميل', async () => {
+  for (const flags of [{ dedupCustomerLocation: true }, { ...ALL, dedupCustomerLocation: true }] as const) {
+    const w = world({ user: REP, flags });
     const r = await call('POST', '/api/customers', { name: 'محل جديد كلياً', lat: 24.70005, lng: 46.70005 });
     assert.deepEqual([r.status, r.body.code], [409, 'CUSTOMER_LOCATION_EXISTS'], JSON.stringify(r.body));
     assert.equal(w.created.length, 0);
+  }
+  // كان للجميع: المندوب بلا العَلَم (ولو بالأعلام الثلاثة الأخرى) والإدارة لا يمسّهم الموقع بعد اليوم
+  for (const [user, flags] of [[REP, {}], [ADMIN, {}], [REP, ALL]] as const) {
+    const w = world({ user, flags });
+    const r = await call('POST', '/api/customers', { name: 'محل جديد كلياً', lat: 24.70005, lng: 46.70005 });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(w.created.length, 1);
   }
   const s = read('routes', 'customers.ts');
   const loc = s.indexOf('const near = await findLocationDuplicate(tid, rest.lat, rest.lng);');

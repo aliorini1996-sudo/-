@@ -542,11 +542,13 @@ model SalesRep {
   canViewStatement         Boolean @default(true)
   // «منع تكرار العملاء عند فتح عميل جديد» (طلب المالك، ٢٣ نوفمبر ٢٠٢٦) — تقييديّ كسابقيه، أيّ تركيبةٍ منها: مفعّلٌ ⇒ لا يفتح
   // المندوب عميلاً (ولا يغيّر الحقل في عميله) بجوالٍ أو اسمٍ أو عنوانٍ مسجَّلٍ لعميلٍ آخر في الشركة كلها (غير المحذوف)، بعد
-  // التطبيع (services/customerDedup.ts). «الموقع ضمن ٣٠ متراً» قاعدةٌ للشركة كلها لا عَلَم (services/customerLocationDup.ts).
+  // التطبيع (services/customerDedup.ts). و«الموقع ضمن ٣٠ متراً» صار عَلَماً رابعاً للمندوب (طلب المالك ٢٥ نوفمبر ٢٠٢٦) بعد أن كان
+  // قاعدةً للشركة كلها (services/customerLocationDup.ts).
   // إضافيّة بـfalse افتراضاً = السلوك قبلها حرفياً
   dedupCustomerPhone       Boolean @default(false)
   dedupCustomerName        Boolean @default(false)
   dedupCustomerAddress     Boolean @default(false)
+  dedupCustomerLocation    Boolean @default(false)
   /// «البيع داخل نطاق العميل»: عَلَمٌ تقييديّ لا مانح — تفعيله يسلب لا يمنح.
   /// حين يكون true لا يفتح المندوب ملفّ العميل إلا وهو داخل ٥٠ متراً من موقعه
   /// المسجَّل، والعميل بلا إحداثيات يُمنع منعاً باتّاً. وحين يكون false يفتح

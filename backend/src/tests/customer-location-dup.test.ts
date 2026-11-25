@@ -30,15 +30,17 @@ test('ردّ 409: اسم العميل والمسافة لمن يراه وحده'
   assert.equal((hidden as { existingId?: string }).existingId, undefined);
 });
 
-test('الحارس موصول: الإنشاء داخل الإعفاء وقبل الكتابة، والتعديل حين يتحرّك الموقع وحده، وبالإعفاءين نفسيهما', () => {
+test('الحارس موصول بعَلَم المندوب وحده (طلب المالك ٢٥ نوفمبر ٢٠٢٦): الإنشاء قبل الكتابة، والتعديل حين يتحرّك الموقع وحده — والإدارة والمعفى لا يمسّهم', () => {
   const s = fs.readFileSync(path.join(__dirname, '..', 'routes', 'customers.ts'), 'utf8').replace(/\r\n/g, '\n');
   const post = s.indexOf('const near = await findLocationDuplicate(tid, rest.lat, rest.lng);');
-  const gate = s.indexOf('if (!phoneDupExempt(req)) {');
-  assert.ok(gate > 0 && post > gate && post - gate < 200, 'داخل الإعفاء مباشرةً');
+  const gate = s.indexOf('if (dedup?.location) {');
+  assert.ok(gate > 0 && post > gate && post - gate < 200, 'داخل عَلَم المندوب مباشرةً');
   // «رقم العميل» (٢٣ نوفمبر ٢٠٢٦): الإنشاء عبر مساعد الترقيم داخل معاملة — والفحص قبله كما كان
   assert.ok(post < s.indexOf('const customer = await prisma.$transaction((tx) => createNumberedCustomer(tx, tid, {', post), 'قبل الإنشاء');
   assert.ok(s.includes('const near = await findLocationDuplicate(tid, data.lat, data.lng, req.params.id);'), 'التعديل يستثني العميل نفسه');
-  assert.ok(s.includes('if (validPoint(data.lat, data.lng) && !phoneDupExempt(req)) {'));
+  assert.ok(s.includes('if (validPoint(data.lat, data.lng) && dedup?.location) {'));
+  // لا قاعدة للشركة كلها بعد اليوم: لا فحص موقعٍ خارج عَلَم المندوب
+  assert.doesNotMatch(s, /phoneDupExempt\(req\)\) \{\s*const near/);
   const svc = fs.readFileSync(path.join(__dirname, '..', 'services', 'customerLocationDup.ts'), 'utf8');
   assert.match(svc, /tenantId: tid, status: \{ not: 'DELETED' \}/, 'داخل الشركة، والمحذوف لا يُعدّ');
   assert.equal(LOCATION_DUP_RADIUS_M, 30);

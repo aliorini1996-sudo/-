@@ -115,7 +115,7 @@ const SALES_REP_COLS = [
   // «البيع النقدي تحصيلٌ لدى المندوب»: فاتورته النقدية تُحسب في رصيد تحصيله بلا سند قبض
   'cashSaleCollected',
   // «منع تكرار العملاء عند فتح عميل جديد»: الجوال والاسم والعنوان (أيّ تركيبة)
-  'dedupCustomerPhone', 'dedupCustomerName', 'dedupCustomerAddress',
+  'dedupCustomerPhone', 'dedupCustomerName', 'dedupCustomerAddress', 'dedupCustomerLocation',
   // «لوكيشن»: موقع المندوب الحاليّ (معرّف SalesLocation — null = بلا موقع)
   'locationId',
   // «أنواع الأسعار على مستوى المندوب»: نوعه الافتراضي (null = السعر الأساسي) والأنواع التي يبدّل بينها (null = كلها؛ وإلا

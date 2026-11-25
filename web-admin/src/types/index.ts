@@ -467,6 +467,7 @@ export interface SalesRep {
   dedupCustomerPhone?: boolean;
   dedupCustomerName?: boolean;
   dedupCustomerAddress?: boolean;
+  dedupCustomerLocation?: boolean;
   showRouteOnMap?: boolean; // «عرض خط السير على الخريطة» — مطفأٌ ⇒ لا يُرسم أثره على خريطة التتبّع (الغائب = مفعّل)
   boundDeviceName?: string | null; boundDeviceAt?: string | null; // الجهاز المربوط (يربطه أول بصمة)
   shiftStart?: string | null; shiftEnd?: string | null; // موعد الدوام "HH:MM" — للتنبيهات وحدها

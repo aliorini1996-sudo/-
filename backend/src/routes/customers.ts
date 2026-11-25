@@ -27,7 +27,6 @@ import { patchSessionOutlet } from '../ai-rep/session';
 import { UnitInvalidError } from '../services/warehouseStock';
 import { PRICE_LIST_MESSAGES } from '../services/priceLists';
 import { CUSTOMER_PHONE_MAX } from '../services/importMatch';
-import { phoneDupExempt } from '../services/customerPhoneDup';
 import { findLocationDuplicate, locationDupBody, validPoint } from '../services/customerLocationDup';
 import { DEDUP_REP_SELECT, changedDedupChecks, customerDupBody, findCustomerDuplicate, repDedupChecks, type DedupChecks } from '../services/customerDedup';
 import { DEVICE_NOW_HEADER, headerText, offlineInvoiceDate } from '../services/offlineInvoiceDate';
@@ -395,9 +394,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     }
     // جوال العميل حرٌّ: فكّ المالك قيد تكراره داخل الشركة (١٤ نوفمبر ٢٠٢٦ — كان 27d8ce1)، فعميلان بجوالٍ واحد مقبولان —
     // إلا مندوبٌ فعّلت له الشركة «منع تكرار العملاء» في إعداداته (أدناه، services/customerDedup.ts).
-    // ويبقى «منع تكرار الموقع داخل الشركة» (طلب المالك ١٣ نوفمبر ٢٠٢٦): عميلٌ آخر ضمن ٣٠ متراً ⇒ 409 CUSTOMER_LOCATION_EXISTS —
-    // إلا مفتاح API وإعادة رفع صندوق المندوب (services/customerPhoneDup.ts phoneDupExempt)
-    if (!phoneDupExempt(req)) {
+    // و«منع تكرار الموقع» (ضمن ٣٠ متراً ⇒ 409 CUSTOMER_LOCATION_EXISTS): كان للشركة كلها (١٣ نوفمبر ٢٠٢٦) فألغاه المالك وجعله قيداً
+    // في إعدادات المندوب (٢٥ نوفمبر ٢٠٢٦، dedupCustomerLocation): المندوب المفعَّل له وحده — والإدارة ومفتاح API وإعادة رفع صندوق
+    // المندوب لا يمسّها (repDedupChecks ⇒ null لهم)
+    if (dedup?.location) {
       const near = await findLocationDuplicate(tid, rest.lat, rest.lng);
       if (near) { res.status(409).json(locationDupBody(near, await canAccessCustomer(req, tid, near.id))); return; }
     }
@@ -639,9 +639,9 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       const geo = await resolveLocationUrl(locationUrl, { googleOnly: true });
       if (geo) { data.lat = geo.lat; data.lng = geo.lng; }
     }
-    // «منع تكرار الموقع داخل الشركة»: موقعٌ تحرّك إلى ٣٠ متراً من عميلٍ آخر ⇒ 409 — والموقع نفسه بلا تغيير (صدى النموذج) لا يُمنع:
-    // findLocationDuplicate يقرأ صفّ العميل نفسه في الاستعلام ذاته فيعرف أنه لم يتحرّك (تكرارٌ قديم لا يمنع تعديلاً)
-    if (validPoint(data.lat, data.lng) && !phoneDupExempt(req)) {
+    // «منع تكرار الموقع» للمندوب المفعَّل له وحده (٢٥ نوفمبر ٢٠٢٦، dedupCustomerLocation): موقعٌ تحرّك إلى ٣٠ متراً من عميلٍ آخر ⇒ 409 —
+    // والموقع نفسه بلا تغيير (صدى النموذج) لا يُمنع: findLocationDuplicate يقرأ صفّ العميل نفسه في الاستعلام ذاته فيعرف أنه لم يتحرّك
+    if (validPoint(data.lat, data.lng) && dedup?.location) {
       const near = await findLocationDuplicate(tid, data.lat, data.lng, req.params.id);
       if (near) { res.status(409).json(locationDupBody(near, await canAccessCustomer(req, tid, near.id))); return; }
     }
