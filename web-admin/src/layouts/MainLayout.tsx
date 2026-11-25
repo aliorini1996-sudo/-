@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import { PhoneCall, Fuel, LayoutDashboard, Users, Package, UserCheck, FileText, Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap, CreditCard, ClipboardCheck, Landmark, Sparkles, Wallet, MapPinned, Layers, Trash2, Archive, Handshake, BrainCircuit } from 'lucide-react';
+import { PhoneCall, Fuel, LayoutDashboard, Users, Package, UserCheck, FileText, Receipt, BarChart3, Bell, LogOut, ChevronLeft, Building2, Eye, ArrowRight, KeyRound, Truck, Warehouse, MapPin, LifeBuoy, UserCog, DatabaseZap, CreditCard, ClipboardCheck, Landmark, Sparkles, Wallet, MapPinned, Layers, Trash2, Archive, Handshake, BrainCircuit, BookOpen } from 'lucide-react';
 import { useAuthStore, isStaffImpersonationClient } from '../store/authStore';
 import { isImpersonationToken } from '../store/sessionAdoption';
 import { useEffect, useState } from 'react';
@@ -16,6 +16,17 @@ import EmailVerifyBanner from '../components/EmailVerifyBanner';
 import CompanyBrand from '../components/CompanyBrand';
 import LanguageToggle from '../components/LanguageToggle';
 import { useT } from '../i18n/strings';
+import { useLang } from '../i18n/lang';
+
+// «التعليمات»: مركز المساعدة الثابت (شروحات بالفيديو) — عربي على /help/ وإنجليزي على /en/help/؛
+// بقية اللغات تُحال إلى الإنجليزي لأنه لا نسخة لها بعد.
+const HELP_CENTER = {
+  ar: { href: '/help/', label: 'التعليمات' },
+  en: { href: '/en/help/', label: 'Help center' },
+  fr: { href: '/en/help/', label: "Centre d'aide" },
+  tr: { href: '/en/help/', label: 'Yardım merkezi' },
+  zh: { href: '/en/help/', label: '帮助中心' },
+} as const;
 import { canLedger } from '../lib/ledgerPerms';
 import { locationsPageAllowed } from '../lib/locations';
 import { useLiveInvoiceUpdates } from '../lib/liveInvoices';
@@ -82,6 +93,7 @@ export default function MainLayout() {
   const [purgeOpen, setPurgeOpen] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const t = useT();
+  const help = HELP_CENTER[useLang((s) => s.lang)] ?? HELP_CENTER.en;
   const [collapsed, setCollapsed] = useState(false);
   // «المدفوع» لحظيّ: سندٌ من جوال مندوب أو من إداريٍّ آخر يظهر هنا دون إعادة تحميل
   useLiveInvoiceUpdates(!!token && !!user && user.role !== 'SALES_REP' && user.role !== 'SUPER_ADMIN', token);
@@ -200,6 +212,16 @@ export default function MainLayout() {
               {!collapsed && <span>{t('nav.changePassword')}</span>}
             </button>
           )}
+          <a
+            href={help.href}
+            target="_blank"
+            rel="noopener"
+            className={`sidebar-link w-full ${collapsed ? 'justify-center px-2' : ''}`}
+            title={collapsed ? help.label : undefined}
+          >
+            <BookOpen size={18} />
+            {!collapsed && <span>{help.label}</span>}
+          </a>
           <button
             onClick={() => setShowSupport(true)}
             className={`sidebar-link w-full ${collapsed ? 'justify-center px-2' : ''}`}
