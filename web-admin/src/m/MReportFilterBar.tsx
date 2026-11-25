@@ -7,7 +7,8 @@ import { useTr } from '../i18n/strings';
 import { MEmpty, MError, MSpinner } from './mobileUi';
 import { expectArray } from './shape';
 import {
-  FILTER_LABELS, NO_TEAM, matchesSearch, type FilterKey, type FilterPick, type ReportFilters, type SortId, type SortOption,
+  FILTER_LABELS, NO_TEAM, matchesSearch, customerPickItems,
+  type CustomerPickLite, type FilterKey, type FilterPick, type ReportFilters, type SortId, type SortOption,
 } from './mReportFilters';
 
 /**
@@ -19,7 +20,6 @@ import {
 export interface RepLite { id: string; name: string; phone?: string | null; isActive?: boolean; locationId?: string | null }
 /** فريقٌ أو موقعٌ: المؤرشف يبقى قابلاً للاختيار موسوماً (مستنداته القديمة تحمل وسمه) */
 export interface NamedLite { id: string; name: string; isActive?: boolean }
-interface CustLite { id: string; name: string; businessName?: string | null; phone?: string | null; code?: string | null }
 
 // ═══════════════ شريط الشرائح ═══════════════
 
@@ -99,15 +99,14 @@ export function PickerSheet({ kind, value, reps, teams, locations, onPick, onClo
 
   const custQ = useQuery({
     queryKey: ['m-report-pick-customers', dq],
-    queryFn: async () => expectArray<CustLite>((await customerApi.list({ search: dq, limit: 40 })).data?.data, 'العملاء'),
+    queryFn: async () => expectArray<CustomerPickLite>((await customerApi.list({ search: dq, limit: 40 })).data?.data, 'العملاء'),
     enabled: kind === 'customer',
   });
 
   const archived = (n: NamedLite) => (n.isActive === false ? ` (${tr('مؤرشف')})` : '');
   const items: Item[] = useMemo(() => {
-    if (kind === 'customer') {
-      return (custQ.data ?? []).map(c => ({ id: c.id, name: c.name, sub: [c.businessName, c.code, c.phone].filter(Boolean).join(' · ') }));
-    }
+    // العملاء: «#12 · الاسم» والمطابق رقماً أوّلاً، بلا الرمز التلقائيّ (mReportFilters.customerPickItems)
+    if (kind === 'customer') return customerPickItems(custQ.data ?? [], dq);
     if (kind === 'rep') {
       // النشطون أولاً — الموقوف يبقى قابلاً للاختيار (فواتيره القديمة في المدى) موسوماً
       const list = [...(reps.data ?? [])].sort((a, b) => Number(b.isActive !== false) - Number(a.isActive !== false));
@@ -118,7 +117,7 @@ export function PickerSheet({ kind, value, reps, teams, locations, onPick, onClo
     const named = src.filter(n => matchesSearch(q, [n.name])).map(n => ({ id: n.id, name: `${n.name}${archived(n)}` }));
     // «بلا فريق»: المستندات بلا وسم فريق والمناديب بلا عضوية — الخادم يفهمها (reportTeamOf)
     return kind === 'team' && matchesSearch(q, [tr('بلا فريق')]) ? [{ id: NO_TEAM, name: tr('بلا فريق') }, ...named] : named;
-  }, [kind, custQ.data, reps.data, teams, locations, q, tr]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [kind, custQ.data, dq, reps.data, teams, locations, q, tr]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // البحث يظهر حيث يلزم: العملاء والمناديب دائماً، والفرق والمواقع حين تطول القائمة
   const searchable = kind === 'customer' || kind === 'rep' || (kind === 'team' ? teams.length : locations.length) > 8;
@@ -140,7 +139,7 @@ export function PickerSheet({ kind, value, reps, teams, locations, onPick, onClo
           <div className="relative flex-shrink-0">
             <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-[#9A8F7E]" />
             <input value={q} onChange={e => setQ(e.target.value)} className="input ps-9"
-              placeholder={tr(kind === 'customer' ? 'ابحث عن عميل' : kind === 'rep' ? 'ابحث عن مندوب' : 'بحث')} />
+              placeholder={tr(kind === 'customer' ? 'ابحث بالاسم أو الجوال أو رقم العميل' : kind === 'rep' ? 'ابحث عن مندوب' : 'بحث')} />
           </div>
         )}
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-xl border border-[#F1EBDF] divide-y divide-[#F1EBDF]">

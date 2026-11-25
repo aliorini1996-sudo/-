@@ -34,6 +34,8 @@ import prisma from '../config/database';
 import { AuthRequest } from '../types';
 import { actorOf, authenticate, requireAdmin, requireAdminPermission, requireSalesRep, tenantId } from '../middleware/auth';
 import { customerScope, isolationEnabled } from '../services/customerScope';
+// «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): بحث «تصنيف المحلات» برقم العميل التسلسليّ مطابقةً تامّة
+import { customerNumberOr, exactNumberFirstPage } from '../services/customerNumber';
 import { adminScopeEnabled } from '../services/adminScope';
 import { OUTLET_TYPES, OUTLET_TYPE_CODES, googleTypesFor, isOutletType, outletTypeFromGoogle, outletTypeLabel, suggestOutletType } from '../ai-rep/taxonomy';
 import { aiRepSettingsSchema, NO_SELECTED_REPS, repInScope, settingsView, AiRepSettingsView } from '../ai-rep/settings';
@@ -1478,19 +1480,25 @@ admin.get('/classify', requireAdminPermission('canManageCustomers'), async (req:
       status: { not: 'BLOCKED' },
       ...(await customerScope(req, tid)),
       ...(filter === 'unclassified' && { outletType: null }),
-      ...(search && { OR: [{ name: { contains: search } }, { businessName: { contains: search } }] }),
+      ...(search && { OR: [{ name: { contains: search } }, { businessName: { contains: search } }, ...customerNumberOr(search)] }),
     };
+    // «رقم العميل»: صاحب الرقم المطابق تماماً أوّل الصفحة الأولى (لا يسبقه اسمٌ يحوي الأرقام نفسها بالترتيب الأبجدي)،
+    // وبقيّة الصفحات مُزاحةٌ صفّاً بلاه — services/customerNumber.ts exactNumberFirstPage
+    const select = { id: true, name: true, number: true, businessName: true, district: true, city: true, outletType: true, lat: true, lng: true } as const;
     const [rows, total] = await Promise.all([
-      prisma.customer.findMany({
-        where, skip: (page - 1) * limit, take: limit, orderBy: { name: 'asc' },
-        select: { id: true, name: true, businessName: true, district: true, city: true, outletType: true, lat: true, lng: true },
+      exactNumberFirstPage({
+        search, skip: (page - 1) * limit, take: limit,
+        findExact: (n) => prisma.customer.findFirst({ where: { ...where, number: n }, select }),
+        findPage: (skip, take, notId) => prisma.customer.findMany({
+          where: notId ? { ...where, id: { not: notId } } : where, skip, take, orderBy: { name: 'asc' }, select,
+        }),
       }),
       prisma.customer.count({ where }),
     ]);
     res.json({
       success: true,
       data: rows.map(r => ({
-        id: r.id, name: r.name, businessName: r.businessName, district: r.district, city: r.city,
+        id: r.id, name: r.name, number: r.number ?? null, businessName: r.businessName, district: r.district, city: r.city,
         outletType: r.outletType, suggested: r.outletType ? null : suggestOutletType(r.businessName, r.name),
         hasLocation: r.lat != null && r.lng != null,
       })),

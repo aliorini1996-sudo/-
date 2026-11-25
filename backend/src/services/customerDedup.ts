@@ -7,7 +7,8 @@ import { phoneDupExempt } from './customerPhoneDup';
  * «منع تكرار العملاء عند فتح عميل جديد» — قيدٌ في إعدادات المندوب (طلب المالك ٢٣ نوفمبر ٢٠٢٦): الشركة تختار لكل مندوب
  * الجوال أو الاسم أو العنوان (أيّ تركيبة) فلا يفتح عميلاً بقيمةٍ مسجَّلةٍ لعميلٍ آخر في الشركة كلها — لا عملاءه وحدهم —
  * والمحذوف (status DELETED) لا يُعدّ. والتعديل يُفحص فيه الحقل المفعَّل حين تتغيّر قيمته وحدها (changedDedupChecks)، فتكرارٌ
- * قديم لا يمنع تعديل غيره. و«الموقع ضمن ٣٠ متراً» قاعدةٌ للشركة كلها كما هي (services/customerLocationDup.ts) لا عَلَمٌ هنا.
+ * قديم لا يمنع تعديل غيره. و«الموقع ضمن ٣٠ متراً» عَلَمٌ رابع (location، طلب المالك ٢٥ نوفمبر ٢٠٢٦ — كان قاعدةً للشركة كلها):
+ * يفحصه المسار بـfindLocationDuplicate (services/customerLocationDup.ts) لا هذا الملف.
  *
  * المطابقة بعد التطبيع: الجوال بـnormImportPhone (+966 و00966 و05 والأرقام الهندية رقمٌ واحد)، والاسم والعنوان بـfoldText:
  * قصّ الطرفين وضمّ المسافات، وحذف التشكيل والتطويل وعلامات الاتجاه الخفية، وأ/إ/آ/ٱ ⇒ ا، وة ⇒ ه، وى/ی ⇒ ي، وک ⇒ ك،
@@ -23,13 +24,16 @@ import { phoneDupExempt } from './customerPhoneDup';
 export const CUSTOMER_DUPLICATE = 'CUSTOMER_DUPLICATE';
 
 export type DedupField = 'phone' | 'name' | 'address';
-export interface DedupChecks { phone: boolean; name: boolean; address: boolean }
+/** location: «الموقع ضمن ٣٠ متراً» — يفحصه مسار العملاء بـfindLocationDuplicate لا findCustomerDuplicate */
+export interface DedupChecks { phone: boolean; name: boolean; address: boolean; location: boolean }
 export interface DedupValues { phone?: string | null; name?: string | null; address?: string | null }
 export interface CustomerDuplicate { field: DedupField; id: string; name: string }
 
 /** أعمدة القيد في صفّ المندوب — select موحَّد لمسارات العملاء */
-export const DEDUP_REP_SELECT = { dedupCustomerPhone: true, dedupCustomerName: true, dedupCustomerAddress: true } as const;
-export interface DedupRepFlags { dedupCustomerPhone?: boolean | null; dedupCustomerName?: boolean | null; dedupCustomerAddress?: boolean | null }
+export const DEDUP_REP_SELECT = { dedupCustomerPhone: true, dedupCustomerName: true, dedupCustomerAddress: true, dedupCustomerLocation: true } as const;
+export interface DedupRepFlags {
+  dedupCustomerPhone?: boolean | null; dedupCustomerName?: boolean | null; dedupCustomerAddress?: boolean | null; dedupCustomerLocation?: boolean | null;
+}
 
 // ═══ التطبيع ═══
 
@@ -107,8 +111,9 @@ export function repDedupChecks(
   if (req.user?.role !== 'SALES_REP' || phoneDupExempt(req)) return null;
   const checks: DedupChecks = {
     phone: rep?.dedupCustomerPhone === true, name: rep?.dedupCustomerName === true, address: rep?.dedupCustomerAddress === true,
+    location: rep?.dedupCustomerLocation === true,
   };
-  return checks.phone || checks.name || checks.address ? checks : null;
+  return checks.phone || checks.name || checks.address || checks.location ? checks : null;
 }
 
 const phoneKey = (v: unknown): string | null => normImportPhone(v);
@@ -120,7 +125,8 @@ const KEY_OF: Record<DedupField, (v: unknown) => string | null> = { phone: phone
  */
 export function changedDedupChecks(checks: DedupChecks | null, sent: DedupValues, stored: DedupValues | null | undefined): DedupChecks | null {
   if (!checks) return null;
-  const out: DedupChecks = { phone: false, name: false, address: false };
+  // الموقع خارجها: findLocationDuplicate يعرف بنفسه أن الموقع لم يتحرّك (صدى النموذج) — فلا يُحمل هنا
+  const out: DedupChecks = { phone: false, name: false, address: false, location: false };
   for (const f of ['phone', 'name', 'address'] as const) {
     if (!checks[f] || sent[f] === undefined) continue;
     const key = KEY_OF[f](sent[f]);

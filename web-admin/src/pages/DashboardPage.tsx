@@ -3,6 +3,7 @@ import { dashboardApi, companyApi } from '../api/client';
 import { formatCurrency, formatDate, statusLabels, gregorianLocale } from '../utils/format';
 import { useTr } from '../i18n/strings';
 import { DashboardStats } from '../types';
+import { formatCustomerLabel } from '../lib/customerNumber';
 import {
   TrendingUp, ShoppingCart, DollarSign, Users,
   FileText, CreditCard, AlertTriangle, Trophy,
@@ -157,7 +158,7 @@ export default function DashboardPage() {
               <div key={inv.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                 <div>
                   <p className="text-sm font-medium text-gray-800">{inv.number}</p>
-                  <p className="text-xs text-gray-400">{inv.customer.name} • {inv.salesRep?.name ?? '—'}</p>
+                  <p className="text-xs text-gray-400">{formatCustomerLabel(inv.customer)} • {inv.salesRep?.name ?? '—'}</p>
                 </div>
                 <div className="text-left">
                   <p className="text-sm font-semibold text-gray-800">{formatCurrency(inv.total)}</p>
@@ -180,7 +181,8 @@ export default function DashboardPage() {
                   {i + 1}
                 </span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-800 truncate">{c.name}</p>
+                  {/* «#12 · الاسم» متى حمل الصفّ رقم العميل (٢٣ نوفمبر ٢٠٢٦) — وإلا الاسم وحده */}
+                  <p className="text-sm font-medium text-gray-800 truncate">{formatCustomerLabel(c)}</p>
                   <p className="text-xs text-gray-400">{tr('الرصيد')}: {formatCurrency(c.balance)}</p>
                 </div>
                 <span className="text-sm font-semibold text-orange-600 whitespace-nowrap">

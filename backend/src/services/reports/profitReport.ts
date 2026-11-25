@@ -267,6 +267,8 @@ export interface ProfitNames {
   products: ReadonlyMap<string, ProfitProductInfo>;
   reps: ReadonlyMap<string, string>;
   customers: ReadonlyMap<string, string>;
+  /** «رقم العميل» (٢٣ نوفمبر ٢٠٢٦) لتجميع العميل وحده — خريطةٌ موازية للأسماء فلا يتغيّر شكل `customers`؛ غيابها ⇒ null */
+  customerNumbers?: ReadonlyMap<string, number | null>;
 }
 
 /** مفتاحا الصفّين الخاصّين: بلا مندوب، وبنود الإشعارات المدينة (تعديل سعرٍ بلا صنف) */
@@ -278,6 +280,8 @@ export interface ProfitRow {
   name: string;
   /** للصنف: كوده ووحداته و«الوحدة الرئيسية» للعارض؛ الكمية صافيةٌ بالأساس (البيع − المرتجع) */
   code?: string | null;
+  /** لتجميع العميل وحده: «رقم العميل» (null قبل ترقيمه) — يُعرض بجانب الاسم ويطابقه البحث تماماً */
+  number?: number | null;
   qty?: number;
   unit?: string;
   units?: ReportUnitOut[];
@@ -392,6 +396,8 @@ export function buildProfitReport(lines: readonly ProfitLineIn[], groupBy: Profi
         noCostQty: roundQty(a.noCostQty) || 0,
       });
     }
+    // صفّ العميل يحمل رقمه — مفتاحه معرّف العميل (groupOf)
+    if (groupBy === 'customer') row.number = names.customerNumbers?.get(a.key) ?? null;
     return row;
   });
   if (groupBy === 'month') rows.sort((x, y) => x.key.localeCompare(y.key));
@@ -565,7 +571,7 @@ export async function profitReportHandler(req: AuthRequest, res: Response, next:
         ? prisma.salesRep.findMany({ where: { tenantId: tid, id: { in: repIds } }, select: { id: true, name: true } })
         : Promise.resolve([]),
       groupBy === 'customer' && customerIds.length
-        ? prisma.customer.findMany({ where: { tenantId: tid, id: { in: customerIds } }, select: { id: true, name: true } })
+        ? prisma.customer.findMany({ where: { tenantId: tid, id: { in: customerIds } }, select: { id: true, name: true, number: true } })
         : Promise.resolve([]),
     ]);
     const unitsOf = new Map<string, ReportUnitOut[]>();
@@ -578,6 +584,7 @@ export async function profitReportHandler(req: AuthRequest, res: Response, next:
       products: new Map(productRows.map((p) => [p.id, { name: p.name, code: p.code ?? null, unit: p.unit ?? '', primaryUnitId: p.primaryUnitId ?? null, units: unitsOf.get(p.id) ?? [] }])),
       reps: new Map(repRows.map((r) => [r.id, r.name])),
       customers: new Map(customerRows.map((c) => [c.id, c.name])),
+      customerNumbers: new Map(customerRows.map((c) => [c.id, c.number ?? null])),
     };
 
     const nets = lineNetsOf(items, dec);

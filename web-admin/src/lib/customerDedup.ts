@@ -5,7 +5,8 @@
 // والعنوان، أيّها أو بعضها أو كلها — تمنعه أن يفتح عميلاً جديداً (أو يعدّل عميلاً إلى قيمةٍ جديدة) مسجّلةً لعميلٍ آخر في الشركة كلها
 // (لا عملاؤه وحدهم، والمحذوف لا يُعدّ)، بعد توحيد الكتابة: المسافات والتشكيل والتطويل والهمزات (أ/إ/آ ⇒ ا) والتاء المربوطة والألف
 // المقصورة وحالة الحروف اللاتينية، والجوال بصيغه (+966 و00966 و05 والأرقام الهندية رقمٌ واحد). القيمة الفارغة لا تُطابَق.
-// والموقع (ضمن ٣٠ متراً) قاعدةٌ قائمة للشركة كلها ولكل المناديب قبل الميزة، فيُعرض سطراً إعلامياً لا خياراً.
+// والموقع (ضمن ٣٠ متراً) كان قاعدةً للشركة كلها، فألغاه المالك وجعله خياراً رابعاً هنا (٢٥ نوفمبر ٢٠٢٦، dedupCustomerLocation):
+// يرفضه الخادم برمزه CUSTOMER_LOCATION_EXISTS لا CUSTOMER_DUPLICATE، وتطبيق المندوب يعرض رسالته كما كان.
 // معفيّان كمنع الموقع: طلب مفتاح API وإعادة رفع صندوق المندوب دون اتصال (عميلٌ سُجّل دون اتصال قد يحمل فواتيره) — فلا يُفحصان.
 // والإدارة لا يمسّها القيد. والافتراض مطفأ: مندوبٌ بلا المفاتيح (أو صفّ خادمٍ أقدم بلاها) يعمل كما اليوم.
 
@@ -13,25 +14,26 @@
 export const CUSTOMER_DUPLICATE = 'CUSTOMER_DUPLICATE';
 
 /** الحقول التي يُمنع تكرارها — بترتيب العرض */
-export type DedupField = 'phone' | 'name' | 'address';
-export const DEDUP_FIELDS: readonly DedupField[] = ['phone', 'name', 'address'];
+export type DedupField = 'phone' | 'name' | 'address' | 'location';
+export const DEDUP_FIELDS: readonly DedupField[] = ['phone', 'name', 'address', 'location'];
 
 /** حقول القيد على صفّ المندوب — اختياريةٌ: صفّ خادمٍ أقدم لا يحملها */
 export interface CustomerDedupFields {
   dedupCustomerPhone?: boolean;
   dedupCustomerName?: boolean;
   dedupCustomerAddress?: boolean;
+  dedupCustomerLocation?: boolean;
 }
 
 /** عمود كل حقلٍ في صفّ المندوب (prisma SalesRep) */
 export const DEDUP_KEYS: Readonly<Record<DedupField, keyof CustomerDedupFields>> = {
-  phone: 'dedupCustomerPhone', name: 'dedupCustomerName', address: 'dedupCustomerAddress',
+  phone: 'dedupCustomerPhone', name: 'dedupCustomerName', address: 'dedupCustomerAddress', location: 'dedupCustomerLocation',
 };
 
 /** عنوان خانة كل حقلٍ في الإعداد (يُمرَّر بـtr) */
-export const DEDUP_LABELS: Readonly<Record<DedupField, string>> = { phone: 'رقم الجوال', name: 'الاسم', address: 'العنوان' };
+export const DEDUP_LABELS: Readonly<Record<DedupField, string>> = { phone: 'رقم الجوال', name: 'الاسم', address: 'العنوان', location: 'الموقع (ضمن 30 متراً)' };
 
-/** مسافة قاعدة الموقع القائمة بالأمتار (services/customerLocationDup.ts LOCATION_DUP_RADIUS_M) — للسطر الإعلامي وحده */
+/** مسافة قيد الموقع بالأمتار (services/customerLocationDup.ts LOCATION_DUP_RADIUS_M) */
 export const LOCATION_DUP_RADIUS_M = 30;
 
 export type DedupChecks = Record<DedupField, boolean>;
@@ -42,6 +44,7 @@ export function dedupChecksOf(rep: CustomerDedupFields | null | undefined): Dedu
     phone: rep?.dedupCustomerPhone === true,
     name: rep?.dedupCustomerName === true,
     address: rep?.dedupCustomerAddress === true,
+    location: rep?.dedupCustomerLocation === true,
   };
 }
 
@@ -54,13 +57,13 @@ export const dedupAnyOn = (c: DedupChecks): boolean => DEDUP_FIELDS.some((f) => 
  * والمفتاح مفعّلٌ بعد إفراغ خاناته كلها يدويّاً يُحفظ مطفأً (لا منع بلا حقل)، وتنبّه الشاشة إلى ذلك تحت الخانات
  */
 export function dedupToggleMaster(c: DedupChecks, on: boolean): DedupChecks {
-  if (!on) return { phone: false, name: false, address: false };
+  if (!on) return { phone: false, name: false, address: false, location: false };
   return dedupAnyOn(c) ? c : { ...c, phone: true };
 }
 
 /** الأعمدة الثلاثة صريحةً دائماً (لا غائب يُقرأ «كما هو» في الخادم) — لقيم النموذج الافتراضية ولجسم الحفظ */
 export function dedupColumns(c: DedupChecks): Required<CustomerDedupFields> {
-  return { dedupCustomerPhone: c.phone, dedupCustomerName: c.name, dedupCustomerAddress: c.address };
+  return { dedupCustomerPhone: c.phone, dedupCustomerName: c.name, dedupCustomerAddress: c.address, dedupCustomerLocation: c.location };
 }
 
 // ───────── تطبيق المندوب: ردّ الخادم 409 CUSTOMER_DUPLICATE ─────────

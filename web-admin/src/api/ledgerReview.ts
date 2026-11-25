@@ -149,6 +149,8 @@ export interface InvoicePostingRow {
   remainingAmt: number;
   customerId: string;
   customerName: string | null;
+  /** «رقم العميل» (٢٣ نوفمبر ٢٠٢٦): للقراءة فقط — null لعميلٍ لم يُرقَّم بعد */
+  customerNumber?: number | null;
   salesRepId: string | null;
   salesRepName: string | null;
   posting: Posting;
@@ -165,6 +167,8 @@ export interface ReceiptPostingRow {
   amount: number;
   customerId: string;
   customerName: string | null;
+  /** «رقم العميل» (٢٣ نوفمبر ٢٠٢٦): للقراءة فقط — null لعميلٍ لم يُرقَّم بعد */
+  customerNumber?: number | null;
   salesRepId: string | null;
   salesRepName: string | null;
   paylinkId: string | null;
@@ -253,6 +257,8 @@ export interface PaylinkEntryRow {
   number?: string;
   status?: string;
   customerName?: string | null;
+  /** «رقم العميل» (٢٣ نوفمبر ٢٠٢٦): للقراءة فقط */
+  customerNumber?: number | null;
   paylinkStatus?: string | null;
   feeNet?: number | null;
   feeVat?: number | null;

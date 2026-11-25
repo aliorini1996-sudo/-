@@ -129,7 +129,8 @@ test('حارس ثابت: /customers و/products و/prices تحجز reserveMaster
   assert.match(fn, /catch \(e\) \{\s*if \(!isImportHttpError\(e\) && isLockBusyError\(e\)\) throw new ImportHttpError\(409, 'IMPORT_LEDGER_BUSY', LEDGER_BUSY_MESSAGE\);\s*throw e;/);
   assert.match(src, /const IMPORT_MASTER_LOCK_PREFIX = 'import-master:';/);
   const kinds: [string, string, string][] = [
-    ["router.post('/customers'", 'customers', 'tx.customer.create('],
+    // «رقم العميل» (٢٣ نوفمبر ٢٠٢٦): العميل يُنشأ عبر مساعد الترقيم في معاملة الشريحة
+    ["router.post('/customers'", 'customers', 'createNumberedCustomer(tx, tid, {'],
     ["router.post('/products'", 'products', 'tx.productCategory.create('],
     ["router.post('/prices'", 'prices', 'tx.customerPrice.upsert('],
   ];

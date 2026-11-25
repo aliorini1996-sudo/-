@@ -7,7 +7,7 @@ import { ledgerExportLimiter } from '../../middleware/rateLimits';
 import { LedgerLocals } from './context';
 import { LedgerHttpError, ledgerHandler } from './errors';
 import {
-  MOVE_ITEM_SELECT, MOVE_LIST_SELECT, itemListWhere, listParam, moveListWhere, serializeItemRow, serializeMoveRow,
+  MOVE_ITEM_SELECT, MOVE_LIST_SELECT, itemListWhere, listParam, moveListWhere, searchCustomerIds, serializeItemRow, serializeMoveRow,
   taxNamesFor, type ListQuery,
 } from './moves';
 import { appendAudit, canonicalJson, ledgerActor } from '../../services/gl/audit';
@@ -118,7 +118,8 @@ export function accountListWhere(tenantId: string, q: ListQuery): Prisma.GlAccou
 export async function exportRows(tenantId: string, list: ExportableList, q: ListQuery): Promise<unknown[]> {
   if (exportIdsOf(q.ids) === 'EMPTY') return [];
   if (list === 'moves') {
-    const where = moveListWhere(tenantId, q);
+    // «رقم العميل»: التصدير بشروط القائمة نفسها (searchCustomerIds)
+    const where = moveListWhere(tenantId, q, await searchCustomerIds(tenantId, q));
     assertUnderCap(await prisma.glMove.count({ where }));
     const rows = await readBatched((page) => prisma.glMove.findMany({
       where, select: MOVE_LIST_SELECT, orderBy: [{ date: 'asc' }, { id: 'asc' }], ...page,
@@ -126,7 +127,7 @@ export async function exportRows(tenantId: string, list: ExportableList, q: List
     return rows.map(serializeMoveRow);
   }
   if (list === 'items') {
-    const where = itemListWhere(tenantId, q);
+    const where = itemListWhere(tenantId, q, await searchCustomerIds(tenantId, q));
     assertUnderCap(await prisma.glMoveLine.count({ where }));
     const rows = await readBatched((page) => prisma.glMoveLine.findMany({
       where, select: MOVE_ITEM_SELECT, orderBy: [{ date: 'asc' }, { moveId: 'asc' }, { seq: 'asc' }, { id: 'asc' }], ...page,

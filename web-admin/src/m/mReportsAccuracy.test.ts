@@ -20,8 +20,8 @@ const body = (s: string, fn: string) => {
 test('البند ٢: الأرصدة بشارة «محظور/غير نشط» بجانب الاسم، والإجمالي من كل الصفوف كما يرسلها الخادم', () => {
   const b = body(src(), 'BalancesReport');
   assert.match(b, /const badge = customerStatusBadge\(c\.status\);/);
-  // الاسم وحده يُقصّ والشارة لا تنكمش (سطر MRow مقصوص): اسمٌ تجاريٌّ طويل لا يدفعها إلى ما بعد «…»
-  assert.match(b, /title=\{badge\s*\n?\s*\? <span className="flex items-center gap-1\.5 min-w-0"><span className="truncate min-w-0">\{c\.name\}<\/span><span className=\{`shrink-0 /);
+  // الاسم وحده يُقصّ والشارة لا تنكمش (سطر MRow مقصوص): اسمٌ تجاريٌّ طويل لا يدفعها إلى ما بعد «…» — والاسم بـ«رقم العميل» قبله (#12 · الاسم)
+  assert.match(b, /title=\{badge\s*\n?\s*\? <span className="flex items-center gap-1\.5 min-w-0"><span className="truncate min-w-0">\{formatCustomerLabel\(c\)\}<\/span><span className=\{`shrink-0 /);
   assert.match(b, /total: rows\.reduce\(\(s, c\) => s \+ c\.balance, 0\)/, 'الإجمالي يجمع الصفوف كلها — المحظور والموقوف منها');
   assert.ok(!/status === 'ACTIVE'|filter\(c => c\.status/.test(b), 'لا تُستبعد حالةٌ على الجهاز');
 });

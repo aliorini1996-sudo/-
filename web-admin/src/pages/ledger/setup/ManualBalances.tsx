@@ -8,6 +8,8 @@ import { exportExcel } from '../../../utils/excel';
 import LedgerAmount from '../../../components/ledger/LedgerAmount';
 import { ledgerSetupApi, type ManualBalanceIssue, type ManualBalanceRowInput } from '../../../api/ledgerSetup';
 import { customerApi, salesRepApi } from '../../../api/client';
+import { formatCustomerNumber, visibleCustomerCode } from '../../../lib/customerNumber';
+import { REMOTE_CUSTOMER_LIMIT, useCustomerSearchFallback } from '../../../lib/customerSearchFallback';
 import { AccountSelect, useAllAccounts } from '../config/parts/configUi';
 import {
   cleanManualRows, isBlankRow, MANUAL_BALANCE_MAX_ROWS, manualTotalsMilli, milliText, OPENING_BALANCE_TEMPLATE_COLUMNS,
@@ -25,7 +27,7 @@ import { StepFooter, type StepProps } from './SetupSteps';
  */
 
 const PAGE = 50;
-interface PickCustomer { id: string; name: string; code?: string | null }
+interface PickCustomer { id: string; name: string; code?: string | null; number?: number | null }
 interface PickRep { id: string; name: string }
 
 const blank = (): ManualBalanceRowInput => ({ accountCode: '', debit: '', credit: '' });
@@ -66,7 +68,10 @@ export default function ManualBalances({ state, canWrite, busy, onSave, onBack }
     staleTime: 5 * 60_000,
     queryFn: async () => ((await salesRepApi.list({ limit: 500 })).data?.data ?? []) as PickRep[],
   });
-  const customers = customersQ.data ?? [];
+  // القائمة بسقفها (١٠٠٠ بالأحدث) تفقد أقدم العملاء: ما يُكتب في خانة العميل يُسأل عنه الخادم وتُضمّ نتائجه إلى الاقتراحات.
+  // المرجع المكتوب يحلّه الخادم عند الحفظ على كل العملاء أيّاً كانت الاقتراحات — lib/customerSearchFallback
+  const { pool: customers, onQueryChange: onCustomerQuery } = useCustomerSearchFallback(customersQ.data,
+    async (term) => ((await customerApi.list({ search: term, limit: REMOTE_CUSTOMER_LIMIT })).data?.data ?? []) as PickCustomer[]);
   const reps = repsQ.data ?? [];
   /** فهرس الصف المرسَل ⇒ فهرسه في الجدول (الفارغة لا تُرسل) */
   const sentToRow = useMemo(() => rows.map((r, i) => (isBlankRow(r) ? -1 : i)).filter(i => i >= 0), [rows]);
@@ -212,8 +217,8 @@ export default function ManualBalances({ state, canWrite, busy, onSave, onBack }
                       {isAr ? (
                         <input className={`input ${!String(r.customerRef ?? '').trim() && !r.customerId ? '!border-amber-400' : ''}`} list="opening-balance-customers"
                           value={String(r.customerRef ?? (r.customerId ? customers.find(c => c.id === r.customerId)?.name ?? '' : ''))} disabled={ro}
-                          placeholder={tr('رمز العميل أو اسمه')} maxLength={200}
-                          onChange={e => update(i, { customerRef: e.target.value, customerId: null })} />
+                          placeholder={tr('رقم العميل أو رمزه أو اسمه')} maxLength={200}
+                          onChange={e => { update(i, { customerRef: e.target.value, customerId: null }); onCustomerQuery?.(e.target.value); }} />
                       ) : isCustody ? (
                         <select className={`input ${!r.salesRepId && !String(r.salesRepName ?? '').trim() ? '!border-amber-400' : ''}`} value={r.salesRepId ?? ''} disabled={ro}
                           onChange={e => update(i, { salesRepId: e.target.value || null, salesRepName: null })}>
@@ -240,7 +245,8 @@ export default function ManualBalances({ state, canWrite, busy, onSave, onBack }
             </tbody>
           </table>
           <datalist id="opening-balance-customers">
-            {customers.map(c => <option key={c.id} value={c.name}>{c.code ?? ''}</option>)}
+            {/* التسمية «#12» (رقم العميل، ٢٣ نوفمبر ٢٠٢٦) أو الرمز المخصّص — لا الرمز الآلي. والخادم يحلّ المرجع رمزاً ثم رقماً ثم اسماً */}
+            {customers.map(c => <option key={c.id} value={c.name}>{formatCustomerNumber(c.number) || visibleCustomerCode(c.code)}</option>)}
           </datalist>
         </div>
         <div className="flex flex-wrap items-center gap-2">

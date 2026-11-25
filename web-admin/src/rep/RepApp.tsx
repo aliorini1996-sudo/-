@@ -45,6 +45,9 @@ import ForgotPasswordDialog from '../components/ForgotPasswordDialog';
 import LoginErrorBox from '../components/LoginErrorBox';
 import { loginErrorOf, type LoginError } from '../lib/loginErrors';
 import SearchableSelect from '../components/SearchableSelect';
+// «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): يُعرض ويُبحث به في قائمة العملاء المخزّنة — فيعمل دون اتصال
+import { formatCustomerNumber, visibleCustomerCode } from '../lib/customerNumber';
+import { REMOTE_CUSTOMER_LIMIT, useCustomerSearchFallback } from '../lib/customerSearchFallback';
 import BarcodeScanner from './BarcodeScanner';
 import LaserScanField, { readLaserPref, writeLaserPref } from './LaserScanField';
 import { useLaserScanner, scanFeedback } from '../lib/useLaserScanner';
@@ -84,7 +87,7 @@ import BuyerDataFields from '../components/BuyerDataFields';
 import { BuyerFormValues, buyerBadge, buyerCreatePayload, buyerFormHints, buyerFormValues, buyerRelaxWarnings, buyerUpdatePayload } from '../lib/zatca/buyerForm';
 import { RepBuyerBanner, RepBuyerDataForm, fetchIncompleteBuyers } from './RepBuyerData';
 import { Component, createContext, lazy, Suspense, useContext, useMemo, useReducer, useRef, type ReactNode } from 'react';
-import { Sparkles, MapPinOff, Wrench } from 'lucide-react';
+import { Sparkles, MapPinOff, Wrench, ShoppingBag } from 'lucide-react';
 import { cacheUpdate, outboxAll } from './offlineDb';
 import { onInvoicesSynced } from './offlineSync';
 import {
@@ -115,6 +118,13 @@ import { isImpersonationToken } from '../store/sessionAdoption';
 import { fetchMyTargets, markTargetsFetched, resetTargetsFetch, targetsFetchNeeded, targetsSession } from './repTargetsFetch';
 import type { RepTargetsData } from '../lib/repTargets';
 import { defaultFormImageLoader, formBackgroundRefsOf, prefetchFormImages } from '../lib/print/formImage';
+// «طلبات المنيو» (طلب المالك ٢٤ نوفمبر ٢٠٢٦): بطاقة «طلب جديد» وشاشة الطلبات وتعبئة الفاتورة منها — المنطق الصرف في catalogOrders.ts
+import { catalogOrdersApiOf } from '../api/client';
+import {
+  catalogOrdersCountOf, catalogOrdersOf, isOpenOrder, orderAge, orderLineTotal, orderTelHref, orderTotal, orderUnitGross, ordersBadgeText,
+  planPrefill, prefillOf, sortOrdersNewest, withOrderStatus, type CatalogOrder, type CatalogPrefill,
+} from './catalogOrders';
+import { fillNames } from '../lib/vanStockFlags';
 // داخل تطبيق أندرويد: كل طلبات الموقع تمرّ بمالكٍ يعيد فتح الاتصال إن سكت (عملية التطبيق ماتت والصفحة مفتوحة) — قبل أي طلب موقع
 installGeoReconnect();
 // المندوب الذكي كسول: لا تُحمَّل حزمته إلا لمن فُعّلت له الميزة وفتحها
@@ -126,6 +136,8 @@ const fetchMyCirculars = async (): Promise<unknown> =>
   (await repApi.get('/circulars/pending', { background: true, timeout: CIRCULAR_FETCH_TIMEOUT_MS })).data?.data;
 const ackMyCircular = (id: string, readAt?: number) =>
   repApi.post(`/circulars/${encodeURIComponent(id)}/ack`, readAt ? { readAt } : {}, { background: true, timeout: CIRCULAR_ACK_TIMEOUT_MS });
+/* «طلبات المنيو»: مسارات المندوب على repApi لا على api الإدارة — توكن rep_token وتجديده (api يقرأ توكن مساحةٍ أخرى) */
+const catalogOrders = catalogOrdersApiOf(repApi);
 
 /** فشل تحميل حزمة الشاشة الكسولة (دون اتصال أو بعد نشر جديد) لا يُسقط التطبيق كله في شاشة بيضاء. */
 class AiRepBoundary extends Component<{ onBack: () => void; children: ReactNode }, { failed: boolean }> {
@@ -145,7 +157,8 @@ class AiRepBoundary extends Component<{ onBack: () => void; children: ReactNode 
   }
 }
 
-type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum' | 'dailyreport' | 'route' | 'attendance' | 'airep';
+// 'orders': «طلبات المنيو» — شاشةٌ بلا تبويب تُفتح من بطاقة «طلب جديد» أو من إشعار الطلب (/rep?screen=orders)
+type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum' | 'dailyreport' | 'route' | 'attendance' | 'airep' | 'orders';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'editCustomer' | 'logVisit' | 'buyerData';
 
 interface RepUser {
@@ -169,6 +182,7 @@ interface RepUser {
   dedupCustomerPhone?: boolean;
   dedupCustomerName?: boolean;
   dedupCustomerAddress?: boolean;
+  dedupCustomerLocation?: boolean;
   id: string; name: string; phone?: string;
   canAddCustomer?: boolean;
   /** «تعديل بيانات العميل» — افتراضه في الخادم مُطفأ، فلا يظهر زرّ التعديل إلا بـtrue صريحة */
@@ -863,6 +877,257 @@ function MenuLinkCard({ repId }: { repId: string }) {
   );
 }
 
+// ═══ «طلبات المنيو» (طلب المالك ٢٤ نوفمبر ٢٠٢٦) — بطاقة «طلب جديد» في الرئيسية، وشاشة الطلبات وورقة الطلب ═══
+/** دقيقةٌ بين جلبَي العدد ما دامت الرئيسية ظاهرة — والإشعار (sendPushToRep) يسبقها حين يصل */
+const ORDERS_POLL_MS = 60_000;
+/** آخر عددٍ عُرف لكل مندوب: الرئيسية تُركَّب مع كل تبديل تبويب، فلا تختفي البطاقة لحظةً ثم تعود بعد الجلب (ومندوبٌ آخر لا يرثه) */
+let ordersCountMemo: { repId: string; open: number } | null = null;
+const ORDERS_OFFLINE_MSG = 'طلبات المنيو تحتاج اتصالا بالإنترنت اتصل ثم أعد المحاولة';
+
+/**
+ * طلبات عملاء المنيو المفتوحة (جديدة أو مطّلع عليها): الاسم وعمر الطلب وعدد الأصناف والإجمالي التقريبي، و«جديد» مميَّز. فتح الطلب
+ * يعلّمه «مطّلعاً عليه»، وورقته: اتصال وواتساب، الملاحظة، البنود، ثم «إنشاء فاتورة» (معبّأة بأصنافه) أو «تم» أو «إلغاء الطلب».
+ * تلزمها الشبكة: دون اتصال لافتةٌ ولا صفّ — حالة الطلب قرارٌ يراه الخادم الآن لا مستندٌ يُرفع لاحقاً
+ */
+function RepCatalogOrders({ onBack, onInvoice, moneyOn, invoiceOn, canAddCustomer }: {
+  onBack: () => void;
+  /** «إنشاء فاتورة»: عميلٌ مطابق ⇒ فاتورته معبّأة، وإلا «إضافة عميل» بالاسم والجوال ثم فاتورته — نصّ خطأٍ يُعرض أو null (انتقل) */
+  onInvoice: (o: CatalogOrder) => Promise<string | null>;
+  /** «النظام المحاسبي» مفعّل: الأسعار والإجماليات تُعرض — وإلا تغيب كبقية المال في التطبيق */
+  moneyOn: boolean;
+  /** الفاتورة متاحة لهذا المندوب: المحاسبة مفعّلة وصلاحية الإصدار ونوع بيعٍ واحد على الأقل (كزرّ «فاتورة جديدة» في ملف العميل) */
+  invoiceOn: boolean;
+  canAddCustomer: boolean;
+}) {
+  const tr = useTr();
+  const [orders, setOrders] = useState<CatalogOrder[]>([]);
+  const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [online, setOnline] = useState(() => navigator.onLine);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const dec = currencyDecimals(getActiveCurrency());
+  // آخر جلبٍ بدأ: ردٌّ أبطأ من جلبٍ أحدث (تحديثٌ يدويّ أو عودة الاتصال) لا يكتب فوقه
+  const loadSeq = useRef(0);
+  const loadOrders = useCallback(async () => {
+    const n = ++loadSeq.current;
+    if (!navigator.onLine) { setOnline(false); return; }
+    try {
+      const res = await catalogOrders.mine('open');
+      if (n !== loadSeq.current) return;
+      setOrders(sortOrdersNewest(catalogOrdersOf(res.data?.data).filter(isOpenOrder)));
+      setPhase('ready');
+    } catch {
+      if (n !== loadSeq.current) return;
+      // ما عُرض يبقى (لا تُمحى قائمةٌ قائمة بعطلٍ عابر)، وأول جلبٍ فاشل يقول ذلك
+      setPhase(p => (p === 'ready' ? p : 'error'));
+    }
+  }, []);
+  useEffect(() => { void loadOrders(); }, [loadOrders]);
+  useEffect(() => {
+    const up = () => { setOnline(true); void loadOrders(); };
+    const down = () => setOnline(false);
+    window.addEventListener('online', up);
+    window.addEventListener('offline', down);
+    return () => { window.removeEventListener('online', up); window.removeEventListener('offline', down); };
+  }, [loadOrders]);
+
+  const current = openId ? orders.find(o => o.id === openId) ?? null : null;
+  useBackClose(!!current, () => setOpenId(null));
+
+  /** فتح الطلب: الجديد يصير «مطّلعاً عليه» هنا فوراً وفي الخادم بلا انتظار — فشله لا يضرّ (يبقى جديداً حتى الفتح التالي) */
+  const openOrder = (o: CatalogOrder) => {
+    setMsg(''); setOpenId(o.id);
+    if (o.status !== 'NEW') return;
+    setOrders(cur => withOrderStatus(cur, o.id, 'SEEN'));
+    catalogOrders.seen(o.id).catch(() => { /* يبقى جديداً في الخادم ويُعلَّم في الفتح التالي */ });
+  };
+
+  const decide = async (o: CatalogOrder, status: 'DONE' | 'CANCELLED') => {
+    if (status === 'CANCELLED' && !window.confirm(`${tr('إلغاء الطلب')}؟`)) return;
+    setBusy(true); setMsg('');
+    try {
+      await catalogOrders.setStatus(o.id, status);
+      setOrders(cur => withOrderStatus(cur, o.id, status));
+      setOpenId(null);
+    } catch (e) {
+      // 409: حُسم الطلب من قبل (جهازٌ آخر للمندوب، أو فاتورةٌ أنجزته) — القائمة من الخادم الآن بدل رسالةٍ عن طلبٍ لم يعد مفتوحاً
+      if ((e as { response?: { status?: number } })?.response?.status === 409) { setOpenId(null); void loadOrders(); }
+      else setMsg(tr('تعذر حفظ حالة الطلب تحقق من الاتصال'));
+    }
+    setBusy(false);
+  };
+
+  const invoiceOrder = async (o: CatalogOrder) => {
+    setBusy(true); setMsg('');
+    const err = await onInvoice(o).catch(() => tr('تعذر فتح ملف العميل تحقق من الاتصال'));
+    // النجاح يبدّل الشاشة (ملف العميل أو فاتورته أو إضافته) فيُفكّ هذا المكوّن — فلا حالة تُكتب بعده
+    if (err) { setMsg(err); setBusy(false); }
+  };
+
+  const qtyText = (n: number) => n.toLocaleString(activeLocale(), { maximumFractionDigits: 3 });
+  const ageText = (createdAt: string) => {
+    const a = orderAge(createdAt, Date.now());
+    if (a.unit === 'now') return tr('الآن');
+    if (a.unit === 'min') return tr('منذ {n} د').replace('{n}', String(a.n));
+    if (a.unit === 'hour') return tr('منذ {n} س').replace('{n}', String(a.n));
+    return formatDate(createdAt);
+  };
+  const tel = current ? orderTelHref(current.customerPhone) : null;
+  // الجوال من صفحةٍ عامة وحرّ الصيغة: ما لا يصلح هدفاً لواتساب يفتح جهات الاتصال فيختار المندوب (customerWaHref)
+  const waHref = current ? customerWaHref(current.customerPhone, '') : '#';
+  const noAddForNew = !!current && !current.matchedCustomer && !canAddCustomer;
+
+  return (
+    <div className="p-4 space-y-3 overflow-y-auto h-full pb-24">
+      <div className="flex items-center gap-2">
+        <button onClick={onBack} className="p-2 -mr-2 text-gray-500" aria-label={tr('رجوع')}><ArrowRight size={20} /></button>
+        <p className="flex-1 font-bold text-[#1F1A13] flex items-center gap-1.5">
+          <ShoppingBag size={17} className="text-emerald-700" /> {tr('طلبات المنيو')}
+        </p>
+        <button onClick={() => { void loadOrders(); }} disabled={!online} className="p-2 text-gray-500 disabled:opacity-40" aria-label={tr('تحديث')}>
+          <RefreshCw size={16} />
+        </button>
+      </div>
+
+      {!online && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl px-4 py-3 text-xs leading-relaxed" role="status">
+          {tr(ORDERS_OFFLINE_MSG)}
+        </div>
+      )}
+
+      {phase === 'loading' ? (
+        online && <p className="text-center text-gray-400 py-10 text-sm">{tr('جاري التحميل')}</p>
+      ) : phase === 'error' ? (
+        <div className="text-center py-10 space-y-3">
+          <p className="text-sm text-gray-500">{tr('تعذر تحميل الطلبات')}</p>
+          <button onClick={() => { void loadOrders(); }} disabled={!online} className="rounded-xl bg-[#1F1A13] text-white px-4 py-2 text-sm font-semibold disabled:opacity-50">{tr('اعد المحاولة')}</button>
+        </div>
+      ) : orders.length === 0 ? (
+        <p className="text-center text-gray-400 py-10 text-sm">{tr('لا طلبات مفتوحة الآن')}</p>
+      ) : (
+        <div className="space-y-2">
+          {orders.map(o => (
+            <button key={o.id} onClick={() => openOrder(o)}
+              className={`w-full text-right rounded-2xl px-4 py-3 border flex items-center gap-3 ${o.status === 'NEW' ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-gray-100'}`}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-bold text-[#1F1A13] truncate">{o.customerName || '—'}</p>
+                  {o.status === 'NEW' && <span className="shrink-0 rounded-full bg-red-600 text-white text-[10px] font-bold px-2 py-0.5">{tr('جديد')}</span>}
+                </div>
+                <p className="text-[11px] text-gray-500 mt-0.5">{ageText(o.createdAt)} · {o.items.length} {tr('صنف')}</p>
+              </div>
+              {moneyOn && (
+                <div className="text-left shrink-0">
+                  <p className="text-sm font-bold text-[#E15A30]">{formatCurrency(orderTotal(o, dec))}</p>
+                  <p className="text-[10px] text-gray-400">{tr('تقريبي')}</p>
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {current && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={() => { if (!busy) setOpenId(null); }}>
+          <div className="bg-white rounded-t-3xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()} data-catalog-order-sheet="">
+            <div className="p-4 border-b border-gray-100 flex items-center gap-3">
+              <span className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0"><ShoppingBag size={18} /></span>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-sm truncate">{current.customerName || '—'}</p>
+                <p className="text-[11px] text-gray-400 text-right" dir="ltr">{current.customerPhone}</p>
+              </div>
+              <button onClick={() => setOpenId(null)} disabled={busy} className="text-gray-400" aria-label={tr('إغلاق')}><X size={20} /></button>
+            </div>
+
+            <div className="p-4 overflow-y-auto flex-1 space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                {tel ? (
+                  <a href={tel} className="bg-[#1F1A13] text-white rounded-xl py-2.5 font-semibold text-sm flex items-center justify-center gap-2">
+                    <PhoneCall size={16} /> {tr('اتصال')}
+                  </a>
+                ) : (
+                  <span className="bg-gray-100 text-gray-400 rounded-xl py-2.5 font-semibold text-sm flex items-center justify-center gap-2">
+                    <PhoneCall size={16} /> {tr('اتصال')}
+                  </span>
+                )}
+                <a href={waHref} target="_blank" rel="noreferrer" className="bg-green-600 text-white rounded-xl py-2.5 font-semibold text-sm flex items-center justify-center gap-2">
+                  <MessageCircle size={16} /> {tr('واتساب')}
+                </a>
+              </div>
+              {!hasWaTarget(current.customerPhone) && <p className="text-[11px] text-amber-600 leading-relaxed">{tr('لا يوجد جوال صالح للعميل اختر جهة الاتصال في واتساب')}</p>}
+
+              {/* العميل في قائمة المندوب بالجوال نفسه؟ ففاتورته مباشرة — وإلا يُضاف أولاً بالاسم والجوال */}
+              <p className="text-[11px] text-gray-500 leading-relaxed">
+                {current.matchedCustomer
+                  ? fillNames(tr('مسجل في عملائك باسم {names}'), [current.matchedCustomer.name])
+                  : tr('ليس في عملائك يضاف عميلا جديدا قبل فاتورته')}
+              </p>
+
+              {current.note && (
+                <div className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                  <p className="text-[10px] font-semibold text-amber-800">{tr('ملاحظة')}</p>
+                  <p className="text-xs text-gray-700 whitespace-pre-wrap break-words">{current.note}</p>
+                </div>
+              )}
+
+              <div className="border border-gray-100 rounded-2xl divide-y divide-gray-100">
+                {current.items.map((it, i) => (
+                  <div key={it.id || i} className="px-3 py-2.5 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-[#1F1A13] break-words">{it.productName}</p>
+                      <p className="text-[11px] text-gray-500">
+                        {qtyText(it.qty)}{it.unitName ? ` ${it.unitName}` : ''}{moneyOn ? ` × ${formatCurrency(orderUnitGross(it, dec))}` : ''}
+                      </p>
+                      {!it.productId && <p className="text-[10px] text-amber-700">{tr('حذف هذا الصنف بعد الطلب')}</p>}
+                    </div>
+                    {moneyOn && <span className="text-sm font-bold text-[#1F1A13] shrink-0">{formatCurrency(orderLineTotal(it, dec))}</span>}
+                  </div>
+                ))}
+              </div>
+
+              {moneyOn && (
+                <>
+                  <div className="flex items-center justify-between bg-[#FBEBE2] border border-[#F5DACE] rounded-xl px-3 py-2">
+                    <span className="text-xs text-gray-600">{tr('الإجمالي التقريبي')}</span>
+                    <span className="text-base font-extrabold text-[#E15A30]">{formatCurrency(orderTotal(current, dec))}</span>
+                  </div>
+                  {/* سعر المنيو للعلم: الفاتورة تُسعَّر بأسعار المندوب وقوائمه وقواعده كأي فاتورة */}
+                  <p className="text-[10px] text-gray-400 leading-relaxed">{tr('أسعار المنيو للعلم وتسعر الفاتورة بأسعارك المعتادة')}</p>
+                </>
+              )}
+              {!online && <p className="text-[11px] text-amber-700 leading-relaxed">{tr(ORDERS_OFFLINE_MSG)}</p>}
+              {msg && <p className="bg-red-50 text-red-600 text-xs rounded-xl p-3">{msg}</p>}
+            </div>
+
+            <div className="p-4 border-t border-gray-100 space-y-2">
+              {invoiceOn && (
+                <>
+                  <button onClick={() => { void invoiceOrder(current); }} disabled={busy || !online || noAddForNew}
+                    className="w-full bg-[#E15A30] disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2">
+                    {busy ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <FileText size={16} />} {tr('إنشاء فاتورة')}
+                  </button>
+                  {noAddForNew && <p className="text-[11px] text-amber-700 leading-relaxed">{tr('لا تملك صلاحية إضافة عميل اطلب من الإدارة إضافته ثم أنشئ فاتورته')}</p>}
+                </>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => { void decide(current, 'DONE'); }} disabled={busy || !online}
+                  className="bg-green-600 disabled:bg-gray-300 disabled:text-gray-500 text-white rounded-xl py-2.5 font-semibold text-sm flex items-center justify-center gap-2">
+                  <Check size={16} /> {tr('تم')}
+                </button>
+                <button onClick={() => { void decide(current, 'CANCELLED'); }} disabled={busy || !online}
+                  className="border border-red-300 text-red-600 disabled:opacity-50 rounded-xl py-2.5 font-semibold text-sm flex items-center justify-center gap-2">
+                  <X size={16} /> {tr('إلغاء الطلب')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true, settingsReady = true, dailyReportOn, attendanceOn, aiRepOn, refreshKey = 0 }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean; accountingOn?: boolean; /** وصلت إعدادات الشركة؟ لا نطلب رقماً قبل معرفة المفتاح */ settingsReady?: boolean; dailyReportOn?: boolean; attendanceOn?: boolean; aiRepOn?: boolean; /** مفتاح تحديث الرئيسية (مستندٌ صدر أو مزامنةٌ رفعت) — بطاقة «هدف الشهر» تجلب فوراً حين يتغيّر */ refreshKey?: number }) {
   const tr = useTr();
   // `null` = **لا نعرف بعد**، وهو غير الصفر. كان الجلب الفاشل يُبتلع في `catch`
@@ -1005,6 +1270,31 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
   // مزامنةٌ رفعت فواتير الصندوق في الخلفية ⇒ تقدّم الهدف تغيّر
   useEffect(() => (settingsReady && accountingOn ? onInvoicesSynced(() => { void loadTargets(true); }) : undefined), [settingsReady, accountingOn, loadTargets]);
 
+  /* «طلب جديد» (طلب المالك ٢٤ نوفمبر ٢٠٢٦: «لا تظهر إلا إذا جاء طلب»): عدد طلبات المنيو المفتوحة — للشركة المفعَّل لها المنيو
+   * وحدها، والميزة مطفأة لا طلب أصلاً (الرئيسية كما كانت حرفاً). يُجلب عند التركيب ومع كل تحديث (refreshKey) وكل دقيقة ما دامت
+   * الصفحة ظاهرة، وفور العودة إليها. خلفيّ: فشله صامت ويبقى آخر عددٍ معروف (لا تومض البطاقة)، و401 عابرٌ منه لا يُخرج المندوب */
+  const [ordersOpen, setOrdersOpen] = useState(() => (menuOn && ordersCountMemo?.repId === user.id ? ordersCountMemo.open : 0));
+  useEffect(() => {
+    if (!menuOn) { setOrdersOpen(0); return; }
+    let alive = true;
+    const loadOrdersCount = () => {
+      if (document.visibilityState !== 'visible' || !navigator.onLine) return;
+      catalogOrders.count({ background: true })
+        .then((res) => {
+          if (!alive) return;
+          const { open } = catalogOrdersCountOf(res.data?.data);
+          ordersCountMemo = { repId: user.id, open };
+          setOrdersOpen(open);
+        })
+        .catch(() => { /* دون اتصال أو خادمٌ أقدم بلا المسار: يبقى آخر عددٍ معروف */ });
+    };
+    loadOrdersCount();
+    const iv = window.setInterval(loadOrdersCount, ORDERS_POLL_MS);
+    const onVisible = () => { if (document.visibilityState === 'visible') loadOrdersCount(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { alive = false; window.clearInterval(iv); document.removeEventListener('visibilitychange', onVisible); };
+  }, [menuOn, refreshKey, user.id]);
+
   const stat = (label: string, value: string, icon: React.ElementType, color: string, bg: string) => {
     const Icon = icon;
     return (
@@ -1132,6 +1422,17 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
           {fuelOn && quick(tr('الوقود'), Fuel, 'text-blue-600', 'bg-blue-50 border-blue-100', 'fuel')}
           {workNumOn && quick(tr('رقم عملي'), PhoneCall, 'text-teal-700', 'bg-teal-50 border-teal-100', 'worknum')}
           {dailyReportOn && quick(tr('تقرير اليوم'), ClipboardCheck, 'text-indigo-600', 'bg-indigo-50 border-indigo-100', 'dailyreport')}
+          {/* «طلب جديد»: بعد «تقرير اليوم» (موضعها في لقطة المالك)، وبطلبٍ مفتوحٍ واحد على الأقل وحده — وشارةٌ حمراء بعددها */}
+          {menuOn && ordersOpen > 0 && (
+            <button onClick={() => onQuick('orders')} data-catalog-orders-tile=""
+              className="relative bg-emerald-50 border-emerald-100 rounded-2xl py-4 flex flex-col items-center gap-1.5 border">
+              <ShoppingBag size={26} className="text-emerald-700" />
+              <span className="text-xs font-semibold text-emerald-700">{tr('طلب جديد')}</span>
+              <span className="absolute top-1.5 left-1.5 min-w-[20px] h-5 px-1.5 rounded-full bg-red-600 text-white text-[11px] font-bold flex items-center justify-center">
+                {ordersBadgeText(ordersOpen)}
+              </span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1176,6 +1477,11 @@ function RepCustomers({ onSelect, canAdd, onAdd, accountingOn = true, zatcaColle
       setLoading(false);
     })();
   }, []);
+  // الكاش بسقفه (١٠٠٠ بالأحدث) يفقد أقدم العملاء وهم أصحاب الأرقام الصغيرة (#1، #2…): متصلاً يُسأل الخادم عمّا يُكتب في المنتقي
+  // (بنطاق المندوب وعزله نفسيهما) ويُضمّ إلى خياراته وحدها — ودون اتصال الكاش وحده كما كان، ولا يُكتب في الكاش شيء
+  const { pool, onQueryChange } = useCustomerSearchFallback(customers,
+    async (term) => (await repApi.get('/customers', { params: { search: term, limit: REMOTE_CUSTOMER_LIMIT } })).data.data,
+    { enabled: typeof navigator === 'undefined' || navigator.onLine });
 
   return (
     <div className="h-full flex flex-col">
@@ -1183,17 +1489,23 @@ function RepCustomers({ onSelect, canAdd, onAdd, accountingOn = true, zatcaColle
         <div className="flex-1">
           <SearchableSelect
             placeholder={tr('اختر العميل')}
-            searchPlaceholder={tr('اكتب اسم أو جوال العميل')}
+            searchPlaceholder={tr('اكتب اسم أو جوال أو رقم العميل')}
             value=""
             resetOnSelect
-            options={customers.map(c => ({
+            options={pool.map(c => ({
               value: c.id,
               label: c.name,
+              // «رقم العميل»: بادئة «#12 · » ويُطابَق بالضبط في المنتقي نفسه (الكاش المحلي ⇒ يعمل دون اتصال). كاشٌ قديم بلا الحقل
+              // أو عميلٌ أُضيف دون اتصال (لا رقم محلياً أبداً) ⇒ بلا بادئة حتى الجلب التالي
+              num: c.number ?? null,
               // الرصيد مال: حين يُطفأ «النظام المحاسبي» يعود التلميح جوّالاً لا رصيداً
               hint: accountingOn && Number(c.balance) > 0 ? `${tr('رصيد')} ${formatCurrency(c.balance)}` : c.phone,
               hintColor: accountingOn && Number(c.balance) > 0 ? 'text-red-500' : undefined,
+              // يُبحث بالجوال ولو كان التلميح رصيداً، وبالاسم التجاري والكود المخصّص (الآلي لا يُطابَق — حلّ محلّه الرقم)
+              keywords: [c.phone, c.businessName, visibleCustomerCode(c.code)],
             }))}
-            onChange={(v) => { const c = customers.find(x => x.id === v); if (c) onSelect(c); }}
+            onChange={(v) => { const c = pool.find(x => x.id === v); if (c) onSelect(c); }}
+            onQueryChange={onQueryChange}
           />
         </div>
         {canAdd && (
@@ -1223,7 +1535,11 @@ function RepCustomers({ onSelect, canAdd, onAdd, accountingOn = true, zatcaColle
               {c.name.charAt(0)}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-semibold text-gray-800 text-sm truncate">{c.name}</p>
+              <p className="font-semibold text-gray-800 text-sm truncate">
+                {/* «رقم العميل» قبل الاسم «#12 · الاسم» كي يعرف المندوب ما يكتبه في البحث — ولا شيء قبل أن يُرقَّم */}
+                {formatCustomerNumber(c.number) && <><span dir="ltr" className="tabular-nums font-normal text-gray-400">{formatCustomerNumber(c.number)}</span><span className="font-normal text-gray-400">{' · '}</span></>}
+                {c.name}
+              </p>
               {/* الجوال اختياري (أمر المالك ٧ نوفمبر ٢٠٢٦): الفارغ يسقط بفاصله */}
               {customerSubline(c.phone, c.city) && <p className="text-xs text-gray-400">{customerSubline(c.phone, c.city)}</p>}
               {zatcaCollect && buyerBadge(c) && (
@@ -1531,6 +1847,10 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
           <div className={`flex items-start justify-between gap-3 ${accountingOn ? 'mb-4' : ''}`}>
             <div className="min-w-0">
               <p className="font-bold text-lg">{customer.name}</p>
+              {/* «رقم العميل» تحت الاسم — الذي يُبحث به في التطبيق والتقارير؛ العميل المضاف دون اتصال بلا رقم حتى يرفعه الخادم */}
+              {formatCustomerNumber(customer.number) && (
+                <p className="text-[#E8C9BC] text-xs">{tr('رقم العميل')} <span dir="ltr" className="tabular-nums">{formatCustomerNumber(customer.number)}</span></p>
+              )}
               {customer.businessName && <p className="text-[#E8C9BC] text-sm">{customer.businessName}</p>}
               {customer.phone && <p className="text-[#E8C9BC] text-xs">{customer.phone}</p>}
             </div>
@@ -1980,7 +2300,7 @@ function docCustomerOf<C>(c: C): C {
   return postal && !raw?.postalCode ? { ...c, postalCode: postal } : c;
 }
 
-function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone, onPermsStale, onCompanyStale, laserBlocked = false }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; onDone: (doc: InvoiceDoc) => void; /** صلاحيات المندوب ونوعه الافتراضي وأنواعه المسموحة من /auth/me الآن (refreshUser) — بعد رفضٍ سعريّ */ onPermsStale?: () => void; /** إعدادات الشركة من الخادم الآن (/company وكاشها) — بعد 409 TAX_MODE_CHANGED */ onCompanyStale?: () => void; /** «قارئ الليزر»: الفاتورة مغطّاة (حاجز الموقع أو «أثبت تواجدك») — القارئ لا يعدّل سلّةً تحت الغطاء ولا يُسمع «نجاحاً» لا يُرى */ laserBlocked?: boolean }) {
+function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClose, onDone, onPermsStale, onCompanyStale, prefill = null, laserBlocked = false }: { customer: any; repName: string; company: Company | null; mode?: 'sale' | 'return'; perms: RepUser; onClose: () => void; /** issued: معرّف الفاتورة على الخادم (null لفاتورةٍ صُفّت دون اتصال) — به يُنجَز «طلب المنيو» الذي عُبّئت منه */ onDone: (doc: InvoiceDoc, issued?: { invoiceId: string | null }) => void; /** «طلبات المنيو»: أصناف طلب عميل المنيو تُضاف بعد وصول الكتالوج (للبيع وحده) */ prefill?: CatalogPrefill | null; /** صلاحيات المندوب ونوعه الافتراضي وأنواعه المسموحة من /auth/me الآن (refreshUser) — بعد رفضٍ سعريّ */ onPermsStale?: () => void; /** إعدادات الشركة من الخادم الآن (/company وكاشها) — بعد 409 TAX_MODE_CHANGED */ onCompanyStale?: () => void; /** «قارئ الليزر»: الفاتورة مغطّاة (حاجز الموقع أو «أثبت تواجدك») — القارئ لا يعدّل سلّةً تحت الغطاء ولا يُسمع «نجاحاً» لا يُرى */ laserBlocked?: boolean }) {
   const tr = useTr();
   const lots = useContext(RepLotsContext); // «تتبّع اللوط» (§٦.٣)
   const isReturn = mode === 'return';
@@ -2417,6 +2737,32 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
 
   // خانات عملة الشركة لمبلغ استرداد المرتجع المرتبط — كما يقيسه الخادم (refundInCurrency)
   const retDec = () => currencyDecimals(getActiveCurrency());
+
+  /* «طلبات المنيو» (طلب المالك ٢٤ نوفمبر ٢٠٢٦): فاتورةٌ من طلب عميل المنيو تُفتح بأصنافه — مرّةً واحدة بعد وصول الكتالوج، وبمسار
+   * «+١» المعتاد نفسه (addLine: سعر المندوب ومرجعه بقوائمه وقواعده ونسبة ضريبة الشركة) لا بسعر المنيو، ثم الكمية كما طلبها العميل
+   * (فيُعاد تسعير قواعد الحدّ الأدنى للكمية بمؤثّر qtyKey). الوحدة بالاسم والمعامل وإلا الأساس بالكمية × المعامل (planPrefill)، والصنف
+   * المحذوف أو غير المتاح للمندوب الآن (فريقه الحالي، قيوده، غير نشط) يُتخطّى ويُسمّى. وكمية صنفٍ متتبَّع فوق رصيد السيارة تبقى كما
+   * طُلبت ويحكم فيها الإصدار كعادته (الخادم متصلاً، والفحص النهائي دون اتصال) — لا قصٌّ صامت لطلب العميل */
+  const prefillDone = useRef(false);
+  const [prefillNote, setPrefillNote] = useState('');
+  useEffect(() => {
+    if (!prefill || isReturn || prefillDone.current || loadingProducts) return;
+    prefillDone.current = true;
+    // «fill» لا «plan»: plan في هذه الشاشة خطة السداد المختارة (حارس repCashOnly.test.ts)
+    const fill = planPrefill(prefill.items, teamProducts, (p) => repUnitChoices(p, repAction));
+    let rows = cartRef.current;
+    for (const { product: p, choice: c, qty } of fill.lines) {
+      const at = rows.findIndex(l => l.productId === p.id && !l.saleItemId && sameUnit(l, { unitId: c.id }));
+      if (at >= 0) { rows = rows.map((l, i) => (i === at ? { ...l, qty: roundLot((Number(l.qty) || 0) + qty) } : l)); continue; }
+      rows = addLine(rows, p, c); // سطرٌ جديد (نسخةٌ جديدة من السلّة) بكمية ١ ومرجع سعره — ثم كمية الطلب
+      rows[rows.length - 1] = { ...rows[rows.length - 1], qty };
+    }
+    cartRef.current = rows;
+    setLines(rows);
+    const skipped = [...prefill.missing, ...fill.skipped];
+    setPrefillNote(skipped.length ? fillNames(tr('لم تضف أصناف غير متاحة للبيع الآن: {names}'), skipped) : '');
+    if (fill.lines.length) setShowCart(true); // المراجعة مباشرةً: المندوب يرى ما عُبّئ ويعدّله قبل الإصدار
+  }, [loadingProducts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* تبديل وحدة بند: السعر والأرضية يُعادان معاً بالوحدة الجديدة (سعر الحبّة على بند كرتون أرضيةٌ كاذبة)، والكمية
    * تبقى رقمها. وبند فاتورة بيع: وحدته من وحدات بيعه وحدها، ومتاحه وسعر استرداده يُعاد التعبير عنهما بها */
@@ -2929,7 +3275,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           ...docDueDate(row.dueDate),
           // «إزالة الضريبة»: ختم الخادم (Invoice.taxFree) — الورقة بلا أي ذكرٍ للضريبة؛ غيابه = كما كانت
           ...(row.taxFree === true && { taxFree: true }),
-        });
+        }, { invoiceId: typeof row.id === 'string' ? row.id : null });
         return;
       }
       const inv = res.data.data;
@@ -2990,7 +3336,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         ...docDueDate(inv.dueDate),
         // «إزالة الضريبة»: ورقة الإصدار بختم الخادم نفسه (Invoice.taxFree) كورقة إعادة الفتح (invoiceDocFromDetail)؛ غيابه = كما كانت
         ...(inv.taxFree === true && { taxFree: true }),
-      });
+      }, { invoiceId: typeof inv.id === 'string' ? inv.id : null });
     } catch (err: any) {
       // انقطاع الشبكة ⇒ نلتقط الفاتورة في الصفّ الصادر ونطبع برقم مؤقّت (ترتفع عند الاتصال)
       if (isNetworkError(err)) {
@@ -3036,7 +3382,7 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
           // «إزالة الضريبة»: الشركة بلا ضريبة وكل بنود الحمولة صفر ⇒ ورقةٌ بلا أي ذكرٍ لها، كما يختمها الخادم حين يُرفع الصندوق (X-FS-Replay)
           // — والحمولة المصفوفة تحمل builtTaxFree (الوضع نفسه) فيُختم كذلك ولو انقلب وضع الشركة قبل الرفع أو خالفت ساعة الجهاز (E1)
           ...(repOfflineTaxFree(company, payload.items) && { taxFree: true }),
-        });
+        }, { invoiceId: null });
       } else {
         // 426: لا فائدة من إعادة المحاولة بالحزمة نفسها — يُعرض زرّ التحديث تحت الرسالة
         if (isZatcaOutdatedClient(err)) setNeedsUpdate(true);
@@ -3168,6 +3514,15 @@ function CreateInvoice({ customer, repName, company, mode = 'sale', perms, onClo
         <button onClick={() => showCart ? setShowCart(false) : onClose()}><ArrowRight size={20} /></button>
         <span className="font-bold">{showCart ? tr('مراجعة الأصناف') : isReturn ? tr('فاتورة إرجاع') : tr('فاتورة جديدة')}</span>
       </div>
+      {/* «طلبات المنيو»: فاتورةٌ عُبّئت من طلب عميل المنيو — وما لم يُضف منه يُسمّى (يضيفه المندوب بيده إن شاء) */}
+      {prefill && !isReturn && (
+        <div className="px-3 pt-3" data-catalog-prefill="">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 text-[11px] text-emerald-800 leading-5">
+            <p className="font-semibold flex items-center gap-1.5"><ShoppingBag size={13} /> {tr('فاتورة من طلب المنيو')}</p>
+            {prefillNote && <p className="text-amber-800 mt-0.5" role="status">{prefillNote}</p>}
+          </div>
+        </div>
+      )}
 
       {/* ===== شاشة اختيار المنتجات (شبكة أيقونات) ===== */}
       {!showCart ? (
@@ -4105,11 +4460,11 @@ function RepCustomerInput({ label, value, onChange, dup, dupAt, dupKey, unique, 
 }
 
 // ============ إضافة عميل جديد ============
-function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = false, buyerRelax = false, prefill = null, outletTypes, taxOff = false, uniqueFields }: { onClose: () => void; onCreated: (c: any) => void; accountingOn?: boolean; zatcaCollect?: boolean; buyerRelax?: boolean; prefill?: AiAddPrefill | null; outletTypes?: { code: string; label: string }[]; /** «إزالة الضريبة»: لا حقل «الرقم الضريبي» (فارغٌ لا يُرسل) */ taxOff?: boolean; /** «منع تكرار العملاء»: الحقول المفحوصة لهذا المندوب (تلميحٌ تحتها) */ uniqueFields?: DedupChecks }) {
+function AddCustomer({ onClose, onCreated, accountingOn = true, zatcaCollect = false, buyerRelax = false, prefill = null, contact = null, outletTypes, taxOff = false, uniqueFields }: { onClose: () => void; onCreated: (c: any) => void; accountingOn?: boolean; zatcaCollect?: boolean; buyerRelax?: boolean; prefill?: AiAddPrefill | null; /** «طلبات المنيو»: اسم صاحب الطلب وجواله كما كتبهما في المنيو — يُعبّآن ويعدّلهما المندوب قبل الحفظ */ contact?: { name: string; phone: string } | null; outletTypes?: { code: string; label: string }[]; /** «إزالة الضريبة»: لا حقل «الرقم الضريبي» (فارغٌ لا يُرسل) */ taxOff?: boolean; /** «منع تكرار العملاء»: الحقول المفحوصة لهذا المندوب (تلميحٌ تحتها) */ uniqueFields?: DedupChecks }) {
   const tr = useTr();
   // من محلٍّ اقترحه المندوب الذكي: اسم المنشأة وعنوانها معبّآن من خرائط Google (لا يعيد المندوب كتابتهما)
   const [form, setForm] = useState({
-    name: '', businessName: prefill?.businessName ?? '', phone: '', commercialReg: '', taxNumber: '',
+    name: contact?.name ?? '', businessName: prefill?.businessName ?? '', phone: contact?.phone ?? '', commercialReg: '', taxNumber: '',
     city: '', district: '', address: prefill?.address ?? '', creditLimit: '', paymentDays: '30',
   });
   // فوترة ZATCA (Z5.1a، D2): حقول المشتري للشركة الجامعة وحدها — تبقى مع العميل في الصفّ دون اتصال. «بلا قيود على العميل» (أمر المالك
@@ -5449,11 +5804,19 @@ export default function RepApp() {
         const q = sp.toString();
         window.history.replaceState(null, '', window.location.pathname + (q ? `?${q}` : '') + window.location.hash);
       }
+      // «طلبات المنيو»: إشعار «طلب جديد من المنيو» (/rep?screen=orders) يفتح شاشة الطلبات — والمنيو مطفأٌ يعيده الحارس للرئيسية
+      if (s === 'orders') {
+        setScreen('orders');
+        sp.delete('screen');
+        const q = sp.toString();
+        window.history.replaceState(null, '', window.location.pathname + (q ? `?${q}` : '') + window.location.hash);
+      }
     } catch { /* رابطٌ غريب: الرئيسية */ }
     const onMsg = (e: MessageEvent) => {
       if (e.data?.type !== 'OPEN_SCREEN') return;
       if (e.data.screen === 'attendance') setScreen('attendance');
       else if (e.data.screen === 'presence') fetchPresence();
+      else if (e.data.screen === 'orders') setScreen('orders');
     };
     navigator.serviceWorker?.addEventListener('message', onMsg);
     // تطبيق الآيفون (iosPush.ts): الإشعار يصل التطبيق لا عامل الخدمة — حدثٌ منه بالرسالة نفسها، وما وصل قبل تحميل الصفحة
@@ -5507,6 +5870,12 @@ export default function RepApp() {
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   // المندوب الذكي: «أضفه عميلاً» يفتح إضافة العميل معبّأةً بنوع المحل ومعرّفه وموقع المندوب
   const [aiPrefill, setAiPrefill] = useState<AiAddPrefill | null>(null);
+  /* «طلبات المنيو»: فاتورة طلبٍ لعميلٍ بعينه — تُعبّأ بها «فاتورة جديدة» لذلك العميل حتى تصدر أو يخرج المندوب من صفحته؛ وطلبٌ بلا
+   * عميلٍ مطابق يمرّ بـ«إضافة عميل» بالاسم والجوال أولاً (orderContact) ثم فاتورته */
+  const [orderInvoice, setOrderInvoice] = useState<{ customerId: string; prefill: CatalogPrefill } | null>(null);
+  const [orderContact, setOrderContact] = useState<{ name: string; phone: string; prefill: CatalogPrefill } | null>(null);
+  // الخروج من صفحة العميل (لا نافذة) يُسقطهما: فتح العميل نفسه لاحقاً من قائمته لا يعبّئ فاتورته بطلبٍ قديم
+  useEffect(() => { if (modal === null) { setOrderInvoice(null); setOrderContact(null); } }, [modal]);
   // «البيع داخل نطاق العميل»: عَلَمٌ تقييديّ يُقرأ بـ=== true — غيابه يعني غير مقيَّد
   const proximityOn = user?.requireCustomerProximity === true;
   // «اشتراط تفعيل الموقع»: تقييديّ يُقرأ بـ=== true — قفل صفحة العميل (liveGate.ts): المقيَّد يستعمل التطبيق، وما لم يكن موقعه
@@ -6109,13 +6478,49 @@ export default function RepApp() {
     clearRenewRejection(); // دخولٌ جديد: أي رفض تجديد سابق لم يعد قائماً
     setToken(t); setUser(u);
   };
-  // المندوب الذكي: فتح ملف عميلٍ قائم من المحل المقترح — من الكاش أولاً ثم من الخادم (يحترم عزل العملاء)
-  const openCustomerById = async (id: string) => {
+  // المندوب الذكي: فتح ملف عميلٍ قائم من المحل المقترح — من الكاش أولاً ثم من الخادم (يحترم عزل العملاء)؛ و«طلبات المنيو» بالقراءة نفسها
+  const customerById = async (id: string): Promise<any | null> => {
     const hit = await cacheGet<any[]>('customers');
     let c = Array.isArray(hit?.data) ? hit!.data.find(x => x.id === id) : null;
     if (!c) { try { c = (await repApi.get(`/customers/${id}`)).data.data; } catch { c = null; } }
+    return c ?? null;
+  };
+  const openCustomerById = async (id: string) => {
+    const c = await customerById(id);
     if (c) { setSelectedCustomer(c); setModal('customerDetail'); return true; }
     return false;
+  };
+  /* «طلبات المنيو» — «إنشاء فاتورة» من الطلب: العميل المطابق (بالجوال، ويحترم عزل العملاء) يُفتح من كاشه أو الخادم، وإلا «إضافة عميل»
+   * بالاسم والجوال ثم فاتورته. والمقيَّد بـ«البيع داخل نطاق العميل» يمرّ بملف العميل أولاً: حكم القرب (GeoGate) هناك وحده والخادم لا
+   * يعيده، ففتح الفاتورة مباشرةً كان يتجاوزه — و«فاتورة جديدة» من الملف تحمل الطلب نفسه */
+  const startOrderInvoice = (c: any, prefill: CatalogPrefill) => {
+    setOrderInvoice({ customerId: String(c.id), prefill });
+    setSelectedCustomer(c);
+    setModal(proximityOn ? 'customerDetail' : 'createInvoice');
+  };
+  const invoiceFromOrder = async (o: CatalogOrder): Promise<string | null> => {
+    const prefill = prefillOf(o);
+    if (o.matchedCustomer) {
+      const c = await customerById(o.matchedCustomer.id);
+      if (!c) return tr('تعذر فتح ملف العميل تحقق من الاتصال');
+      startOrderInvoice(c, prefill);
+      return null;
+    }
+    if (!user?.canAddCustomer) return tr('لا تملك صلاحية إضافة عميل اطلب من الإدارة إضافته ثم أنشئ فاتورته');
+    setAiPrefill(null);
+    setOrderContact({ name: o.customerName, phone: o.customerPhone, prefill });
+    setModal('addCustomer');
+    return null;
+  };
+  /** فاتورة الطلب صدرت (أو صُفّت دون اتصال): الطلب «تم» بمعرّفها — والخادم يردّ فاتورةً لا يعرفها (400) فيُنجَز بلاها. خلفيّ وصامت:
+   *  فشله (دون اتصال) يُبقي الطلب مفتوحاً فيُنجزه المندوب بـ«تم» */
+  const finishOrder = (orderId: string, invoiceId: string | null) => {
+    void catalogOrders.setStatus(orderId, 'DONE', invoiceId ?? undefined)
+      .catch((e) => {
+        if (invoiceId && (e as { response?: { status?: number } })?.response?.status === 400) return catalogOrders.setStatus(orderId, 'DONE');
+        return undefined;
+      })
+      .catch(() => { /* يبقى مفتوحاً في شاشة الطلبات */ });
   };
   const logout = async () => {
     // التتبّع الخلفي في تطبيق الجوال يتوقف أولاً — داخل لمسة «الخروج» نفسها (أندرويد لا يفتح رابط التطبيق بلا إيماءة)
@@ -6168,6 +6573,12 @@ export default function RepApp() {
     if (companyReady && !attendanceOn && screen === 'attendance') setScreen('home');
     if (!aiRepOn && screen === 'airep') setScreen('home');
   }, [accountingOn, dailyReportOn, attendanceOn, aiRepOn, screen, companyReady]);
+  // «طلبات المنيو» شاشةٌ بلا تبويب كالتقرير اليومي: المنيو أُطفئ والمندوب عليها (أو فتحها إشعارٌ قديم) ⇒ الرئيسية — بعد وصول
+  // إعدادات الشركة وحدها، فإشعار الطلب يفتح التطبيق المغلق على الشاشة قبل أن تصل
+  const menuOn = (company as { catalogEnabled?: boolean } | null)?.catalogEnabled === true;
+  useEffect(() => {
+    if (companyReady && !menuOn && screen === 'orders') setScreen('home');
+  }, [companyReady, menuOn, screen]);
   // تنبيهات الآيفون (تطبيق المندوب الأصلي): من أذن من قبل يُعاد حفظ رمز جهازه لهذا المندوب مرّةً لكل جلسة — بلا سؤال.
   // ولو كانت البصمة مطفأة لشركته: الخادم يردّ 403 ويُطلق الجهاز (يحذف صفّاً تركه مندوبٌ قبله)، فلا تصل تنبيهات غيره جوالَه
   useEffect(() => { if (token && user?.id) void refreshIosPush(); }, [token, user?.id, attendanceOn]);
@@ -6256,7 +6667,12 @@ export default function RepApp() {
           ) : modal === 'createInvoice' && selectedCustomer ? (
             <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} perms={user} onPermsStale={() => { void refreshUser(); }} onCompanyStale={() => pullCompanyRef.current()} onClose={() => setModal('customerDetail')}
               laserBlocked={gateShown || !!presence}
-              onDone={(doc) => { setModal(null); setRefreshKey(k => k + 1); setDocResult(doc); }} />
+              // «طلبات المنيو»: فاتورة هذا العميل تُعبّأ بطلبه المعلّق، وصدورها يُنجز الطلب بمعرّفها
+              prefill={orderInvoice && orderInvoice.customerId === String(selectedCustomer.id) ? orderInvoice.prefill : null}
+              onDone={(doc, issued) => {
+                if (orderInvoice && orderInvoice.customerId === String(selectedCustomer.id)) finishOrder(orderInvoice.prefill.orderId, issued?.invoiceId ?? null);
+                setModal(null); setRefreshKey(k => k + 1); setDocResult(doc);
+              }} />
           ) : modal === 'createReturn' && selectedCustomer ? (
             <CreateInvoice customer={selectedCustomer} repName={user.name} company={company} mode="return" perms={user} onPermsStale={() => { void refreshUser(); }} onCompanyStale={() => pullCompanyRef.current()} onClose={() => setModal('customerDetail')}
               laserBlocked={gateShown || !!presence}
@@ -6298,7 +6714,12 @@ export default function RepApp() {
             <AddCustomer onClose={() => { setModal(null); setAiPrefill(null); }} accountingOn={accountingOn} zatcaCollect={zatcaCollect} buyerRelax={buyerRelax} taxOff={isTaxOff(company)}
               uniqueFields={dedupChecksOf(user)}
               prefill={aiPrefill} outletTypes={aiRepOn ? OUTLET_TYPE_OPTIONS : undefined}
-              onCreated={(c) => { if (aiPrefill?.aiPlaceId) markConverted(aiPrefill.aiPlaceId, c._offline ? null : c.id); setAiPrefill(null); setModal('customerDetail'); setSelectedCustomer(c); }} />
+              contact={orderContact}
+              onCreated={(c) => {
+                // «طلبات المنيو»: العميل أُضيف من الطلب ⇒ فاتورته معبّأةً بالطلب (عبر ملفه للمقيَّد بالنطاق)
+                if (orderContact) { const o = orderContact; setOrderContact(null); startOrderInvoice(c, o.prefill); return; }
+                if (aiPrefill?.aiPlaceId) markConverted(aiPrefill.aiPlaceId, c._offline ? null : c.id); setAiPrefill(null); setModal('customerDetail'); setSelectedCustomer(c);
+              }} />
           ) : (
             <>
               {/* Top bar */}
@@ -6357,6 +6778,11 @@ export default function RepApp() {
               <div className="flex-1 overflow-hidden">
                 {screen === 'home' && <RepHome key={refreshKey} refreshKey={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} attendanceOn={attendanceOn} aiRepOn={aiRepOn} />}
                 {screen === 'dailyreport' && <RepDailyReport key={refreshKey} onDone={() => setScreen('home')} />}
+                {screen === 'orders' && menuOn && (
+                  <RepCatalogOrders key={`orders-${refreshKey}`} onBack={() => setScreen('home')} onInvoice={invoiceFromOrder}
+                    moneyOn={accountingOn} canAddCustomer={!!user.canAddCustomer}
+                    invoiceOn={accountingOn && user.canCreateInvoice !== false && (user.canSellOnCredit !== false || user.canSellInCash !== false)} />
+                )}
                 {screen === 'route' && <RepRouteScreen key={`route-${refreshKey}`} onBack={() => setScreen('home')} onOpenCustomer={openCustomerById} accountingOn={accountingOn} />}
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" company={company} onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => { setDocBack(null); setDocResult(receiptDocFromDetail(d, user.name, company)); }} />}

@@ -37,11 +37,15 @@ export function unvisitedRange(from: unknown, to: unknown, now: Date = new Date(
 
 export interface UnvisitedCustomerIn {
   id: string; name: string; businessName: string | null; phone: string; city: string | null; createdAt: Date;
+  /** «رقم العميل» (٢٣ نوفمبر ٢٠٢٦) — null قبل ترقيمه */
+  number?: number | null;
   assignments: { salesRep: { id?: string; name: string } | null }[];
 }
 
 export interface UnvisitedRow {
   id: string; name: string; businessName: string | null; phone: string; city: string | null;
+  /** «رقم العميل» — يُعرض بجانب الاسم ويُبحث به (مطابقةٌ تامّة)؛ null قبل ترقيمه */
+  number?: number | null;
   /** المناديب المُسنَدون للعميل (من أضافه أو أسندته الإدارة) — فارغ لعميلٍ بلا إسناد */
   reps: string[];
   /** معرّفات المناديب المُسنَدين (فلتر المندوب بالمعرّف) */
@@ -75,7 +79,7 @@ export function buildUnvisitedRows(
     const repIds = [...new Set(c.assignments.map(a => a.salesRep?.id || '').filter(Boolean))];
     const inv = invoiceStats.get(c.id);
     rows.push({
-      id: c.id, name: c.name, businessName: c.businessName, phone: c.phone, city: c.city,
+      id: c.id, name: c.name, number: c.number ?? null, businessName: c.businessName, phone: c.phone, city: c.city,
       reps, repIds, lastVisitAt: lastVisitBefore.get(c.id) ?? null, createdAt: c.createdAt,
       invoicesCount: inv?.count ?? 0, lastInvoiceAt: inv?.lastAt ?? null,
     });

@@ -14,7 +14,7 @@ import { ledgerErrorMessage } from '../../../lib/ledger/errors';
 import { ledgerHref } from '../routes';
 import { companyApi } from '../../../api/client';
 import { companyMethodLabel, type CompanyWithMethods } from '../../../lib/paymentMethodsConfig';
-import { NotActivatedNotice, ManualLedgerNotice, postingFilterDefs, postingParamsOf } from './postingFilters';
+import { NotActivatedNotice, ManualLedgerNotice, customerCell, postingFilterDefs, postingParamsOf } from './postingFilters';
 
 /**
  * «العملاء ← سندات القبض» (M3، INV‑01، §8.2): السندات القائمة للقراءة بطريقة القبض وحالة ترحيلها (RECEIPT:<id>:POST/REVERSE)،
@@ -65,7 +65,7 @@ export default function ReceiptPostingList() {
     { key: 'date', label: tr('التاريخ'), render: r => <span className="whitespace-nowrap">{formatDayOnly(r.date)}</span> },
     { key: 'number', label: tr('الرقم'), render: r => <bdi className="font-semibold tabular-nums">{r.number}</bdi> },
     { key: 'method', label: tr('طريقة القبض'), render: methodCell },
-    { key: 'customer', label: tr('العميل'), render: r => r.customerName ?? '' },
+    { key: 'customer', label: tr('العميل'), render: customerCell },
     { key: 'rep', label: tr('المندوب'), render: r => r.salesRepName ?? '' },
     { key: 'amount', label: tr('المبلغ'), align: 'end', render: r => <LedgerAmount value={r.amount} decimals={decimals} colored={false} /> },
     { key: 'status', label: tr('حالة المستند'), render: r => <span className={r.status === 'CANCELLED' ? 'text-[#C0392B]' : ''}>{r.status === 'CANCELLED' ? tr('ملغى') : tr('نشط')}</span> },

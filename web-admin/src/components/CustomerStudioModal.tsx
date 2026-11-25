@@ -12,6 +12,7 @@ import { compressImage } from '../rep/imageCompress';
 import { backdropClose } from '../lib/backdropClose';
 import { CustomerDocKind, DOC_COMPRESS, docKindLabel, docKindsFor } from '../lib/customerDocs';
 import { useAuthStore } from '../store/authStore';
+import { formatCustomerNumber } from '../lib/customerNumber';
 import { buildEntries, filterEntries, handoversOf, lastOf, repsOf, sortEntries, type ArchiveEntry, type ArchiveItem, type ArchiveVisit } from '../lib/customerArchive';
 
 /**
@@ -444,7 +445,8 @@ function TimelineCard({ e, customerId, taxOff, onOpenPhotos }: {
 }
 
 export default function CustomerStudioModal({ customer, onClose, taxOff = false }: {
-  customer: { id: string; name: string };
+  /** number: «رقم العميل» التسلسليّ (٢٣ نوفمبر ٢٠٢٦) يُعرض في الرأس متى رُقِّم */
+  customer: { id: string; name: string; number?: number | null };
   onClose: () => void;
   /** «إزالة الضريبة»: لا نوع «الشهادة الضريبية» في الرفع */
   taxOff?: boolean;
@@ -547,7 +549,14 @@ export default function CustomerStudioModal({ customer, onClose, taxOff = false 
             </div>
             <div className="min-w-0">
               <h2 className="text-lg font-bold text-[#1F1A13]">{tr('أرشيف العميل')}</h2>
-              <p className="text-sm text-[#6E6557] truncate">{customer.name}</p>
+              <p className="text-sm text-[#6E6557] truncate">
+                {customer.name}
+                {customer.number != null && (
+                  <span className="mr-2 text-xs text-[#9A8F7E] whitespace-nowrap">
+                    {tr('رقم العميل')} <span dir="ltr" className="tabular-nums">{formatCustomerNumber(customer.number)}</span>
+                  </span>
+                )}
+              </p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500" aria-label={tr('إغلاق')}><X size={18} /></button>

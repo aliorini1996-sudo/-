@@ -25,6 +25,7 @@ import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
 import { isTaxOff } from '../lib/taxMode';
 import { customerExportColWidths } from './taxOffScreens1';
 import { customerPhoneText } from '../lib/customerPhoneField';
+import { customerNumberCell, visibleCustomerCode } from '../lib/customerNumber';
 
 /** جلب إعدادات الشركة — نفسه للاستعلام ولـensureQueryData عند فتح كشف قبل اكتمال تحميلها (كالفواتير والسندات، D-G6) */
 const fetchCompany = async () => { const res = await companyApi.get(); return res.data.data as Company; };
@@ -49,7 +50,7 @@ export default function CustomersPage() {
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Customer | null>(null);
   // «أرشيف العميل» (كان «الاستديو» ١٣ نوفمبر، وصار أرشيفاً بسجلٍّ زمني ٢١ نوفمبر ٢٠٢٦): زياراته بملاحظاتها وصورها ووثائقه ومرفقات سنداته
-  const [studioFor, setStudioFor] = useState<{ id: string; name: string } | null>(null);
+  const [studioFor, setStudioFor] = useState<{ id: string; name: string; number?: number | null } | null>(null);
   const [buyerBucket, setBuyerBucket] = useState<BuyerBucket>('');
   const [bucketCursors, setBucketCursors] = useState<(string | null)[]>([null]);
   const [picked, setPicked] = useState<string[]>([]);
@@ -234,8 +235,12 @@ export default function CustomersPage() {
         if (rows.length < PAGE || all.length >= total) break;
       }
       if (!all.length) { toast.error(tr('لا يوجد عملاء للتصدير')); return; }
+      // «رقم العميل» مكان «الكود» في موضعه نفسه (٢٣ نوفمبر ٢٠٢٦): العروض كما هي ورقم الضريبة يبقى العاشر.
+      // والكود المخصّص (أودو/نظامٌ سابق) عمود «كود العميل» أخيرٌ حين يحمله عميلٌ مُصدَّر — فيبقى مع الملف ويُطابَق به عند إعادة
+      // استيراده (الآلي لا يُصدَّر؛ و«رقم العميل» لا يُقرأ كوداً في الاستيراد)
+      const withCode = all.some(c => visibleCustomerCode(c.code) !== '');
       const rows = all.map(c => ({
-        [tr('الكود')]: c.code,
+        [tr('رقم العميل')]: c.number ?? '',
         [tr('العميل')]: c.name,
         [tr('النشاط التجاري')]: c.businessName || '',
         [tr('الجوال')]: c.phone,
@@ -255,9 +260,10 @@ export default function CustomersPage() {
         [tr('الحالة')]: tr(statusLabels[c.status] || c.status),
         [tr('الموقع')]: c.lat != null && c.lng != null ? `https://www.google.com/maps?q=${c.lat},${c.lng}` : '',
         [tr('تاريخ الإضافة')]: formatDate(c.createdAt),
+        ...(withCode ? { [tr('كود العميل')]: visibleCustomerCode(c.code) } : {}),
       }));
       const out = await shareOrDownloadExcel(
-        [{ name: tr('العملاء'), rows, colWidths: customerExportColWidths(accountingOn, taxOff) }],
+        [{ name: tr('العملاء'), rows, colWidths: customerExportColWidths(accountingOn, taxOff, withCode) }],
         `${tr('العملاء')}-${new Date().toISOString().slice(0, 10)}`,
       );
       toast.success(out === 'shared' ? tr('تمت المشاركة') : `${tr('تم تصدير')} ${rows.length} ${tr('عميل')}`);
@@ -283,7 +289,7 @@ export default function CustomersPage() {
         <div className="flex gap-3 flex-wrap">
           <div className="relative flex-1 min-w-48">
             <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input className="input pr-9" placeholder={tr('بحث بالاسم أو الجوال أو الكود')} value={search}
+            <input className="input pr-9" placeholder={tr('بحث بالاسم أو الجوال أو رقم العميل')} value={search}
               onChange={e => { setSearch(e.target.value); setPage(1); }} />
           </div>
           <select className="input w-40" value={status} onChange={e => { setStatus(e.target.value); setPage(1); setBucketCursors([null]); }}>
@@ -339,7 +345,7 @@ export default function CustomersPage() {
               <tr>
                 {purge.enabled && <th className="w-8 px-2">{purge.headerBox((rows ?? []).map(r => r.id))}</th>}
                 {bucketMode && <th />}
-                <th>{tr('الكود')}</th><th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('المدينة')}</th><th>{tr('القناة')}</th>
+                <th>{tr('رقم العميل')}</th><th>{tr('العميل')}</th><th>{tr('الجوال')}</th><th>{tr('المدينة')}</th><th>{tr('القناة')}</th>
                 {accountingOn && !bucketMode && <th>{tr('الرصيد')}</th>}
                 {accountingOn && !bucketMode && <th>{tr('الحد الائتماني')}</th>}
                 {bucketMode && <th>{tr('نواقص الفاتورة الضريبية')}</th>}
@@ -368,7 +374,9 @@ export default function CustomersPage() {
                       )}
                     </td>
                   )}
-                  <td className="font-mono text-xs text-gray-500">{c.code}</td>
+                  {/* «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): رقمٌ تسلسليّ للشركة يُبحث به في كل مكان — «—» حتى يُرقَّم؛
+                      الرمز (الآلي أو المخصّص) لا يُعرض في القائمة ويبقى محفوظاً ويُبحث به في الخادم. صفوف قائمة الفوترة تحمله أيضاً */}
+                  <td className="text-sm text-gray-600 whitespace-nowrap"><span dir="ltr" className="tabular-nums">{customerNumberCell(c.number)}</span></td>
                   <td>
                     <p className="font-medium text-gray-800">{c.name}</p>
                     {c.businessName && <p className="text-xs text-gray-400">{c.businessName}</p>}
@@ -405,7 +413,7 @@ export default function CustomersPage() {
                       <button onClick={() => openEditRow(c)} className="p-1.5 hover:bg-[#FBEBE2] rounded text-[#E15A30]" title={tr('تعديل')}>
                         <Edit size={14} />
                       </button>
-                      <button onClick={() => setStudioFor({ id: c.id, name: c.name })} className="p-1.5 hover:bg-amber-50 rounded text-[#8A6D1F]"
+                      <button onClick={() => setStudioFor({ id: c.id, name: c.name, number: c.number })} className="p-1.5 hover:bg-amber-50 rounded text-[#8A6D1F]"
                         title={tr('أرشيف العميل')} aria-label={tr('أرشيف العميل')} data-customer-studio="">
                         <Archive size={14} />
                       </button>
@@ -469,7 +477,7 @@ export default function CustomersPage() {
           buyerRelax={buyerRelax}
           taxOff={taxOff}
           customer={selected}
-          onOpenStudio={selected ? () => setStudioFor({ id: selected.id, name: selected.name }) : undefined}
+          onOpenStudio={selected ? () => setStudioFor({ id: selected.id, name: selected.name, number: selected.number }) : undefined}
           onClose={() => { setShowModal(false); setSelected(null); }}
           onSave={saveMutation.mutate}
           loading={saveMutation.isPending}

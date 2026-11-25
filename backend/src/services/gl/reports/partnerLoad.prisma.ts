@@ -21,6 +21,8 @@ import type { AgingItem } from './aging';
 import type { LateArrivalMoveInput } from './lateArrivals';
 import type { ProductLedgerLineInput } from './productLedger';
 import type { PartnerReclassInput } from './balanceSheet';
+// «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): منتقي العميل يطابق رقمه التسلسليّ مطابقةً تامّة
+import { customerNumberOr, customerNumberQuery, hoistExactCustomer } from '../../customerNumber';
 
 export type PartnerDb = GlDb;
 
@@ -107,20 +109,28 @@ export const PARTNER_SEARCH_LIMIT = 20;
 export const PARTNER_SEARCH_TYPES = ['customer', 'vendor', 'rep', 'user', 'product'] as const;
 export type PartnerSearchType = (typeof PARTNER_SEARCH_TYPES)[number];
 
-/** منتقي الشريك (والصنف): بحث بالاسم (وبالجوال/الرمز حيث وُجد) بحدّ 20، مقيّداً بالشركة */
+/** منتقي الشريك (والصنف): بحث بالاسم (وبالجوال/الرمز حيث وُجد، وبرقم العميل مطابقةً تامّة) بحدّ 20، مقيّداً بالشركة.
+ * number للعميل المرقَّم وحده (حقلٌ غائب لا null) — يعرضه المنتقي «#12 · الاسم» */
 export async function searchPartners(
   db: PartnerDb, tenantId: string, type: PartnerSearchType, q: string,
-): Promise<{ id: string; name: string; hint: string | null }[]> {
+): Promise<{ id: string; name: string; hint: string | null; number?: number }[]> {
   const term = q.trim().slice(0, 100);
   const has = term !== '';
   const contains = { contains: term, mode: 'insensitive' as const };
   switch (type) {
     case 'customer': {
-      const rows = await db.customer.findMany({
-        where: { tenantId, ...(has ? { OR: [{ name: contains }, { phone: { contains: term } }, { code: contains }] } : {}) },
-        select: { id: true, name: true, phone: true }, orderBy: { name: 'asc' }, take: PARTNER_SEARCH_LIMIT,
-      });
-      return rows.map((r) => ({ id: r.id, name: r.name, hint: r.phone || null }));
+      const select = { id: true, name: true, phone: true, number: true } as const;
+      // «رقم العميل»: صاحب الرقم المطابق تماماً أوّل النتائج — وإلا سبقه بالاسم كل جوالٍ يحوي الأرقام نفسها فسقط خارج العشرين
+      const n = has ? customerNumberQuery(term) : null;
+      const [found, exact] = await Promise.all([
+        db.customer.findMany({
+          where: { tenantId, ...(has ? { OR: [{ name: contains }, { phone: { contains: term } }, { code: contains }, ...customerNumberOr(term)] } : {}) },
+          select, orderBy: { name: 'asc' }, take: PARTNER_SEARCH_LIMIT,
+        }),
+        n == null ? null : db.customer.findFirst({ where: { tenantId, number: n }, select }),
+      ]);
+      const rows = hoistExactCustomer(found, exact, PARTNER_SEARCH_LIMIT);
+      return rows.map((r) => ({ id: r.id, name: r.name, hint: r.phone || null, ...(r.number != null && { number: r.number }) }));
     }
     case 'vendor': {
       const rows = await db.glVendor.findMany({

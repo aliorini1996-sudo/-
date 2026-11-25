@@ -172,10 +172,11 @@ test('الرفع المؤجَّل من صندوق المندوب (clientRef) ب�
   assert.equal(r.status, 201, JSON.stringify(r.body));
   assert.equal(w.written[0].phone, '');
   assert.equal(w.written[0].createdBySalesRepId, 'rep-1');
-  // استعلام التكرار الوحيد قبل الإنشاء بـclientRef — لا يُسأل عن عميلٍ بالجوال (الفارغ لا يساوي فارغاً آخر)
+  // استعلاما التكرار قبل الإنشاء بـclientRef وحده (الفحص الأوّل، وإعادته تحت قفل الشركة في معاملة الإنشاء — «رقم العميل») —
+  // لا يُسأل عن عميلٍ بالجوال (الفارغ لا يساوي فارغاً آخر)
   const dedupe = w.customerQueries.filter((q) => q?.where?.clientRef);
-  assert.equal(dedupe.length, 1);
-  assert.deepEqual(dedupe[0].where, { tenantId: TENANT, clientRef });
+  assert.equal(dedupe.length, 2);
+  for (const q of dedupe) assert.deepEqual(q.where, { tenantId: TENANT, clientRef });
   assert.ok(w.customerQueries.every((q) => !('phone' in (q?.where ?? {}))), 'لا مطابقة بالجوال');
 });
 

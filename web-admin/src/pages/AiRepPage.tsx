@@ -7,6 +7,7 @@ import { useAiRepTr } from '../i18n/aiRepPhrases';
 import { activeLocale } from '../utils/format';
 import { useAuthStore } from '../store/authStore';
 import AiLearningPanel from './AiLearningPanel';
+import { formatCustomerNumber } from '../lib/customerNumber';
 
 /**
  * المندوب الذكي AI — صفحة إدارة الشركة:
@@ -34,7 +35,8 @@ interface Overview {
   settings: Settings; outletTypes: { code: string; label: string }[]; placesConfigured: boolean; mapsConfigured?: boolean; advisorConfigured?: boolean;
   readiness: { window: { from: string; to: string }; unclassified: number; classifiedWithoutLocation: number; perType: TypeRow[] };
 }
-interface ClassRow { id: string; name: string; businessName: string | null; district: string | null; city: string | null; outletType: string | null; suggested: string | null; hasLocation: boolean }
+// number: «رقم العميل» التسلسليّ (٢٣ نوفمبر ٢٠٢٦) — للعرض بجانب الاسم، والبحث في الخادم يطابقه بالضبط
+interface ClassRow { id: string; name: string; number?: number | null; businessName: string | null; district: string | null; city: string | null; outletType: string | null; suggested: string | null; hasLocation: boolean }
 
 const RADII = [500, 1000, 2000, 3000, 5000, 10000];
 
@@ -486,7 +488,10 @@ function ClassifySection({ outletTypes, onSaved }: { outletTypes: { code: string
               {data.rows.map(row => (
                 <tr key={row.id} className="border-b border-[#F4EEE3]">
                   <td className="py-2">
-                    <p className="font-medium">{row.name}</p>
+                    <p className="font-medium">
+                      {row.number != null && <><span dir="ltr" className="tabular-nums text-xs font-normal text-[#8A8178]">{formatCustomerNumber(row.number)}</span>{' · '}</>}
+                      {row.name}
+                    </p>
                     {row.businessName && <p className="text-[11px] text-[#8A8178]">{row.businessName}</p>}
                   </td>
                   <td className="py-2 text-xs text-[#6E6557]">{[row.district, row.city].filter(Boolean).join('، ') || '—'}</td>

@@ -7,7 +7,7 @@ import { methodIdentity, methodLabelFor } from '../lib/paymentMethodsConfig';
 import PaymentMethodIcon from '../components/PaymentMethodIcon';
 import { useTr } from '../i18n/strings';
 import { invalidateAfterReceipt } from '../lib/receiptEffects';
-import { Plus, XCircle, ChevronLeft, ChevronRight, FileText, Download } from 'lucide-react';
+import { Plus, XCircle, ChevronLeft, ChevronRight, FileText, Download, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ReceiptModal from '../components/forms/ReceiptModal';
 import DocumentModal from '../components/DocumentModal';
@@ -17,6 +17,7 @@ import { shareOrDownloadExcel, num } from '../utils/excel';
 import { useAccountingOn, AccountingOffNotice } from '../components/AccountingGate';
 import { withLiveCompany } from '../rep/companyRefresh';
 import { useOwnerBulkPurge } from '../components/OwnerBulkPurge';
+import { formatCustomerNumber } from '../lib/customerNumber';
 // «ربط الدفاتر» C11: من أين رُدّ مال سند العهدة المُسلَّم؟ — للدفاتر المربوطة وحدها، وغيرها يُلغى بلا جسم كما كان
 import { ledgerOpsKeys, type ReceiptCancelOptions } from '../api/ledgerOps';
 import { cancelRefundSourceLabels, receiptCancelCodeLabels } from '../lib/ledger/labels';
@@ -31,6 +32,8 @@ export default function ReceiptsPage() {
   const qc = useQueryClient();
   const tr = useTr();
   const [page, setPage] = useState(1);
+  // «رقم العميل» (٢٣ نوفمبر ٢٠٢٦): بحثٌ في الخادم (GET /receipts?search) برقم السند أو اسم العميل أو رقمه بالضبط — كصفحة الفواتير
+  const [search, setSearch] = useState('');
   const [salesRepId, setSalesRepId] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -56,6 +59,7 @@ export default function ReceiptsPage() {
 
   const filters = () => {
     const f: Record<string, string | number> = {};
+    if (search.trim()) f.search = search.trim();
     if (salesRepId) f.salesRepId = salesRepId;
     // كلٌّ على حدة (راجع صفحة الفواتير): الطرف الغائب = بلا حدّ لا إلغاءَ للتصفية
     if (from) f.from = from;
@@ -64,7 +68,7 @@ export default function ReceiptsPage() {
   };
 
   const { data, isLoading } = useQuery({
-    queryKey: ['receipts', salesRepId, from, to, page],
+    queryKey: ['receipts', search.trim(), salesRepId, from, to, page],
     queryFn: async () => {
       const res = await receiptApi.list({ ...filters(), page, limit: 15 });
       return res.data as { data: Receipt[]; pagination: { total: number; pages: number } };
@@ -81,6 +85,8 @@ export default function ReceiptsPage() {
       if (!receipts.length) { toast.error(tr('لا توجد سندات للتصدير')); setExporting(false); return; }
       const rows = receipts.map(r => ({
         [tr('رقم السند')]: r.number,
+        // «رقم العميل» عمودٌ قبل اسمه — فارغ لعميلٍ لم يُرقَّم بعد
+        [tr('رقم العميل')]: r.customer.number ?? '',
         [tr('العميل')]: r.customer.name,
         [tr('المندوب')]: r.salesRep?.name ?? '—',
         [tr('المبلغ')]: num(r.amount),
@@ -91,7 +97,7 @@ export default function ReceiptsPage() {
         [tr('الحالة')]: r.status === 'ACTIVE' ? tr('نشط') : tr('ملغي'),
       }));
       const out = await shareOrDownloadExcel(
-        [{ name: tr('سندات القبض'), rows, colWidths: [18, 24, 16, 12, 14, 16, 10, 10] }],
+        [{ name: tr('سندات القبض'), rows, colWidths: [18, 12, 24, 16, 12, 14, 16, 10, 10] }],
         `${tr('سندات القبض')}-${new Date().toISOString().slice(0, 10)}`
       );
       toast.success(out === 'shared' ? tr('تمت المشاركة') : `${tr('تم تصدير')} ${rows.length} ${tr('سند')}`);
@@ -176,6 +182,11 @@ export default function ReceiptsPage() {
       {/* Filters */}
       <div className="card mb-4">
         <div className="flex gap-3 flex-wrap items-end">
+          <div className="relative flex-1 min-w-48">
+            <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input className="input pr-9" placeholder={tr('رقم السند أو اسم العميل أو رقمه')} value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1); }} />
+          </div>
           <select className="input w-40" value={salesRepId} onChange={e => { setSalesRepId(e.target.value); setPage(1); }}>
             <option value="">{tr('كل المناديب')}</option>
             {reps?.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
@@ -188,8 +199,8 @@ export default function ReceiptsPage() {
             <label className="label text-xs">{tr('إلى تاريخ')}</label>
             <input type="date" className="input w-40" value={to} onChange={e => { setTo(e.target.value); setPage(1); }} />
           </div>
-          {(from || to || salesRepId) && (
-            <button className="btn-secondary" onClick={() => { setFrom(''); setTo(''); setSalesRepId(''); setPage(1); }}>{tr('مسح الفلاتر')}</button>
+          {(from || to || salesRepId || search) && (
+            <button className="btn-secondary" onClick={() => { setFrom(''); setTo(''); setSalesRepId(''); setSearch(''); setPage(1); }}>{tr('مسح الفلاتر')}</button>
           )}
         </div>
       </div>
@@ -214,7 +225,10 @@ export default function ReceiptsPage() {
                 <tr key={r.id}>
                   {purge.enabled && <td className="w-8 px-2">{purge.rowBox(r.id)}</td>}
                   <td className="font-mono text-sm text-green-600">{r.number}</td>
-                  <td className="font-medium text-gray-800">{r.customer.name}</td>
+                  <td className="font-medium text-gray-800">
+                    {r.customer.number != null && <><span dir="ltr" className="tabular-nums text-xs font-normal text-gray-400">{formatCustomerNumber(r.customer.number)}</span>{' · '}</>}
+                    {r.customer.name}
+                  </td>
                   <td className="text-gray-600 text-sm">{r.salesRep?.name ?? '—'}</td>
                   <td className="font-bold text-green-700">{formatCurrency(r.amount)}</td>
                   <td>{methodBadge(r.paymentMethod, r.paymentMethodKey)}</td>

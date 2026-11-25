@@ -63,6 +63,22 @@ export async function canAccessCustomer(req: AuthRequest, tid: string, customerI
   return found !== null;
 }
 
+/**
+ * canAccessCustomer لدفعة معرّفات باستعلامٍ واحد: null ⇒ بلا قيد (الكل مرئي)، وإلا مجموعة المرئي منها.
+ * لمن يحكم على عدّة عملاء معاً (مطابقة طلبات المنيو بالجوال) — فلا يفحص المسار مفاتيح النطاق بنفسه
+ * (حارس adminScope.test.ts)، والفحص على المفتاحين معاً كما في canAccessCustomer.
+ */
+export async function visibleCustomerIds(req: AuthRequest, tid: string, ids: readonly string[]): Promise<Set<string> | null> {
+  const scope = await customerScope(req, tid);
+  if (!scope.assignments && !scope.adminScopes) return null;
+  if (ids.length === 0) return new Set();
+  const rows = await prisma.customer.findMany({
+    where: { id: { in: [...ids] }, tenantId: tid, ...scope },
+    select: { id: true },
+  });
+  return new Set(rows.map((c) => c.id));
+}
+
 // حقول العميل الحيّة الحسّاسة: لا يحتاجها المندوب لطباعة مستند قديم أصدره بنفسه،
 // وكشفها لمندوب نُزع عنه العميل تسريبٌ مالي/موقعي.
 const SENSITIVE_CUSTOMER_FIELDS = ['balance', 'creditLimit', 'totalSales', 'totalCollected', 'paymentDays', 'lat', 'lng'] as const;

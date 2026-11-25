@@ -48,7 +48,7 @@ export default function ProductLedgerPage() {
         type="customer"
         value={state.customerId ? { id: state.customerId, name: state.customerName } : null}
         onChange={p => setState({ ...state, customerId: p?.id ?? null, customerName: p?.name ?? null })}
-        placeholder={tr('كل العملاء — ابحث عن عميل')}
+        placeholder={tr('كل العملاء — ابحث بالاسم أو الرقم')}
         ariaLabel={tr('العميل')}
       />
       {/* وثائق العميل المفلتر به («استديو العميل») — تُحمَّل عند الفتح وحده */}

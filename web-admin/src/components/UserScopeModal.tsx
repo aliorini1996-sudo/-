@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { companyUserApi, customerApi, salesRepApi } from '../api/client';
 import { useTr } from '../i18n/strings';
 import { backdropClose } from '../lib/backdropClose';
+import { formatCustomerNumber } from '../lib/customerNumber';
 
 /**
  * نطاق مستخدم الشركة — تحديد العملاء والمناديب الذين يراهم.
@@ -20,7 +21,8 @@ import { backdropClose } from '../lib/backdropClose';
 
 const PICKER_LIMIT = 100;
 
-interface Pick { id: string; name: string; businessName?: string | null; phone?: string | null; code?: string | null }
+// number: «رقم العميل» التسلسليّ (عملاء فقط) — يُعرض بدل الرمز الآلي، والخادم يبحث به
+interface Pick { id: string; name: string; businessName?: string | null; phone?: string | null; code?: string | null; number?: number | null }
 
 export default function UserScopeModal({ userId, userName, onClose }: {
   userId: string; userName: string; onClose: () => void;
@@ -158,7 +160,7 @@ export default function UserScopeModal({ userId, userName, onClose }: {
               <div className="relative">
                 <Search size={15} className="absolute top-2.5 start-3 text-gray-400" />
                 <input value={q} onChange={e => setQ(e.target.value)} className="input ps-9"
-                  placeholder={tab === 'customers' ? tr('ابحث عن عميل') : tr('ابحث عن مندوب')} />
+                  placeholder={tab === 'customers' ? tr('ابحث بالاسم أو الجوال أو رقم العميل') : tr('ابحث عن مندوب')} />
               </div>
 
               {scopeQ.isLoading ? (
@@ -183,7 +185,9 @@ export default function UserScopeModal({ userId, userName, onClose }: {
                         <span className="min-w-0 flex-1">
                           <span className="block text-sm font-semibold text-[#1F1A13] truncate">{item.name}</span>
                           <span className="block text-[11px] text-[#9A8F7E] truncate">
-                            {[item.code, item.businessName, item.phone].filter(Boolean).join(' · ') || '—'}
+                            {(tab === 'customers'
+                              ? [formatCustomerNumber(item.number), item.businessName, item.phone]
+                              : [item.code, item.businessName, item.phone]).filter(Boolean).join(' · ') || '—'}
                           </span>
                         </span>
                       </button>

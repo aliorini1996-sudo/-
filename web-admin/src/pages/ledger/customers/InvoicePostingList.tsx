@@ -12,7 +12,7 @@ import { ledgerErrorOf } from '../../../api/ledgerConfig';
 import { ledgerReviewApi, ledgerReviewKeys, type InvoicePostingRow, type PostingListParams } from '../../../api/ledgerReview';
 import { ledgerErrorMessage } from '../../../lib/ledger/errors';
 import { ledgerHref } from '../routes';
-import { NotActivatedNotice, ManualLedgerNotice, postingFilterDefs, postingParamsOf } from './postingFilters';
+import { NotActivatedNotice, ManualLedgerNotice, customerCell, postingFilterDefs, postingParamsOf } from './postingFilters';
 
 /**
  * «العملاء ← الفواتير والمرتجعات» (M3، INV‑01، §8.2): الفواتير القائمة للقراءة مع حالة ترحيلها في الأستاذ
@@ -52,7 +52,7 @@ export default function InvoicePostingList() {
     { key: 'date', label: tr('التاريخ'), render: r => <span className="whitespace-nowrap">{formatDayOnly(r.date)}</span> },
     { key: 'number', label: tr('الرقم'), render: r => <bdi className="font-semibold tabular-nums">{r.number}</bdi> },
     { key: 'type', label: tr('النوع'), render: r => typeLabel(r.type) },
-    { key: 'customer', label: tr('العميل'), render: r => r.customerName ?? '' },
+    { key: 'customer', label: tr('العميل'), render: customerCell },
     { key: 'rep', label: tr('المندوب'), render: r => r.salesRepName ?? '' },
     { key: 'tax', label: tr('الضريبة'), align: 'end', optional: true, render: r => <LedgerAmount value={r.taxAmt} decimals={decimals} colored={false} /> },
     { key: 'total', label: tr('الإجمالي'), align: 'end', render: r => <LedgerAmount value={r.type === 'RETURN' ? -r.total : r.total} decimals={decimals} /> },

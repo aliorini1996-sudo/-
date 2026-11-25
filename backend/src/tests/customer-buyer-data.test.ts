@@ -630,7 +630,8 @@ test('customers.ts: مخطّط zod بلا حقول المرحلة الثانية
   const post = src.slice(src.indexOf("router.post('/',"), src.indexOf("router.put('/:id',"));
   const idem = post.indexOf('if (data.clientRef) {');
   const gate = post.indexOf("const buyerGate = await applyBuyerGateToWrite(buyerDataDeps, req, tid, data as Record<string, unknown>, { customerId: null, replay: !!data.clientRef && !req.user?.apiKeyId });");
-  const create = post.indexOf('prisma.customer.create(');
+  // «رقم العميل» (٢٣ نوفمبر ٢٠٢٦): الإنشاء عبر مساعد الترقيم داخل معاملة
+  const create = post.indexOf('createNumberedCustomer(tx, tid, {');
   assert.ok(idem > 0 && idem < gate && gate < create, 'POST: بعد التكرار وقبل الإنشاء');
   assert.match(post.slice(gate), /^[^\n]*\n\s*if \(!buyerGate\.ok\) \{ res\.status\(buyerGate\.status\)\.json\(buyerGate\.body\); return; \}/);
   // تحذيرات البوابة تعود مع تحذير الرقم المرجعي المأخوذ (CUSTOMER_REF_TAKEN، ٩ نوفمبر ٢٠٢٦)
@@ -654,7 +655,7 @@ test('import.ts: استيراد العملاء بمفتاح API بلا رفض (�
   const schemaErrors = post.indexOf('if (result.errors.length) {');
   const gate = post.indexOf('if (req.user?.apiKeyId) buyer = (await importBuyerRowsLenient(prisma, tid, rows)).slice(0, 500);');
   const reserve = post.indexOf('await reserveMasterBatch(');
-  const create = post.indexOf('tx.customer.create(');
+  const create = post.indexOf('createNumberedCustomer(tx, tid, {'); // «رقم العميل»: إنشاء الشريحة عبر المساعد
   assert.ok(schemaErrors > 0 && gate > schemaErrors && gate < reserve && reserve < create, 'التنبيهات بعد المخطط وقبل الحجز والكتابة');
   // لا بوابة رافضة بعد اليوم
   assert.equal(src.split('importBuyerRowsGate(').length - 1, 0);

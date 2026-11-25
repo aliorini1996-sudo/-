@@ -72,6 +72,8 @@ const repSchema = z.object({
   dedupCustomerPhone: z.boolean().optional(),
   dedupCustomerName: z.boolean().optional(),
   dedupCustomerAddress: z.boolean().optional(),
+  // «الموقع ضمن ٣٠ متراً» (طلب المالك ٢٥ نوفمبر ٢٠٢٦): كان للشركة كلها، وصار قيداً لكل مندوب مطفأً افتراضاً
+  dedupCustomerLocation: z.boolean().optional(),
   showCollectionBalance: z.boolean().optional(),
   // «البيع النقدي تحصيلٌ لدى المندوب»: فاتورته النقدية تُحسب مبلغاً محصَّلاً لديه بلا سند قبض (يسري على ما يصدر بعده)
   cashSaleCollected: z.boolean().optional(),
@@ -110,7 +112,7 @@ const repSelect = {
   canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
   canManageVanStock: true,
   canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
-  dedupCustomerPhone: true, dedupCustomerName: true, dedupCustomerAddress: true,
+  dedupCustomerPhone: true, dedupCustomerName: true, dedupCustomerAddress: true, dedupCustomerLocation: true,
   showCollectionBalance: true,
   cashSaleCollected: true,
   requireCustomerProximity: true,
@@ -535,12 +537,12 @@ router.get('/:id/customers', async (req: AuthRequest, res: Response, next: NextF
     const tid = tenantId(req);
     const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
-    // نُرفق بيانات العميل كي تعرض النافذة المُسنَدين دون تحميل كل عملاء الشركة
+    // نُرفق بيانات العميل كي تعرض النافذة المُسنَدين دون تحميل كل عملاء الشركة — ومعها رقمه التسلسليّ (number) للعرض والبحث
     const rows = await prisma.customerAssignment.findMany({
       where: { tenantId: tid, salesRepId: req.params.id },
       select: {
         customerId: true, source: true,
-        customer: { select: { id: true, name: true, businessName: true, phone: true, code: true } },
+        customer: { select: { id: true, name: true, businessName: true, phone: true, code: true, number: true } },
       },
       orderBy: { createdAt: 'desc' },
     });

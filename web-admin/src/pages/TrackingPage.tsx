@@ -16,6 +16,7 @@ import { formatMoment } from '../utils/format';
 import { repLiveState, repLiveText, noteServerNow, serverClockNow, STATE_COLOR, type RepLiveState } from '../lib/liveRepStatus';
 import { useNow } from '../lib/useNow';
 import { readLiveReps } from '../lib/trackingLive';
+import { formatCustomerNumber } from '../lib/customerNumber';
 
 interface LiveRep {
   id: string; name: string; phone: string; isActive: boolean;
@@ -45,7 +46,7 @@ interface VisitDetail extends Visit {
   photos: { id: string; data: string }[];
 }
 interface CustomerLoc {
-  id: string; name: string; businessName: string | null; phone: string | null;
+  id: string; name: string; number?: number | null; businessName: string | null; phone: string | null;
   city: string | null; district: string | null; address: string | null; lat: number; lng: number;
 }
 
@@ -90,7 +91,8 @@ function punchIcon(kind: 'in' | 'out') {
 // دبّوس موقع عميل (أزرق مميّز عن المناديب والزيارات)
 /** محطّة في خط السير المخطَّط كما يعيدها الخادم */
 interface PlanStop {
-  customerId: string; customerName: string; seq: number;
+  /** customerNumber: «رقم العميل» التسلسليّ (٢٣ نوفمبر ٢٠٢٦) — للعرض بجانب الاسم */
+  customerId: string; customerName: string; customerNumber?: number | null; seq: number;
   address: string | null; lat: number | null; lng: number | null; done: boolean;
 }
 interface PlanRoute {
@@ -702,7 +704,9 @@ export default function TrackingPage() {
                   <Marker key={`plan-${p.customerId}`} position={[p.lat as number, p.lng as number]} icon={planStopIcon(p.seq, p.done)}>
                     <Popup>
                       <div className="text-xs">
-                        <p className="font-bold text-[#1F1A13]">{p.seq}. {p.customerName}</p>
+                        <p className="font-bold text-[#1F1A13]">
+                          {p.seq}. {p.customerNumber != null && <><span dir="ltr" className="tabular-nums font-normal text-[#6E6557]">{formatCustomerNumber(p.customerNumber)}</span>{' · '}</>}{p.customerName}
+                        </p>
                         {p.address && <p className="text-[#6E6557] mt-0.5">{p.address}</p>}
                         <p className={`mt-1 font-semibold ${p.done ? 'text-green-700' : 'text-[#7C3AED]'}`}>
                           {p.done ? tr('تمت زيارته') : tr('لم تتم زيارته بعد')}
@@ -716,6 +720,8 @@ export default function TrackingPage() {
                   <Marker key={`cust-${c.id}`} position={[c.lat, c.lng]} icon={customerIcon()}>
                     <Popup>
                       <div style={{ direction: 'rtl', minWidth: 150 }}>
+                        {/* «رقم العميل» (٢٣ نوفمبر ٢٠٢٦) قبل الاسم متى رُقِّم */}
+                        {c.number != null && <><span dir="ltr" style={{ color: '#6E6557', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>{formatCustomerNumber(c.number)}</span>{' · '}</>}
                         <strong style={{ color: '#2563EB' }}>{c.name}</strong>
                         {c.businessName ? <><br /><span style={{ fontSize: 12 }}>{c.businessName}</span></> : null}
                         {(c.city || c.district || c.address) && (

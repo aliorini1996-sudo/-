@@ -8,7 +8,8 @@
  *  2. **المصافي** (المندوب والعميل والفريق والموقع): أيّها يقرؤه الخادم لكل تقرير فيُرسَل معاملاً، وأيّها يُطبَّق على
  *     الجهاز لأن صفوف التقرير صفوف مندوبين أو عملاء أصلاً، وأيّها لا معنى له فيُخفى — مصفاةٌ ظاهرة فوق تقريرٍ لا يقرؤها
  *     كذبٌ صامت (الدرس نفسه في إخفاء مصفاة التاريخ عن الأرصدة اللحظية).
- *  3. **البحث والترتيب** داخل النتائج: بحثٌ يتسامح مع الهمزات والتشكيل والأرقام الهندية، وترتيبٌ مستقرّ.
+ *  3. **البحث والترتيب** داخل النتائج: بحثٌ يتسامح مع الهمزات والتشكيل والأرقام الهندية، وترتيبٌ مستقرّ — ورقم العميل
+ *     («#12» أو «١٢») يطابق صفّ عميله مطابقةً تامة لا احتواءً (طلب المالك ٢٣ نوفمبر ٢٠٢٦).
  *  4. **التجميعان المتداخلان** في المبيعات (`thenBy`): «كم باع كل مندوب من كل صنف» — البحث يصل الصفوف الفرعية.
  *
  * ═══ الثابت الحاكم ═══
@@ -17,6 +18,7 @@
  */
 
 import type { UnitDef } from '../lib/units';
+import { formatCustomerLabel, matchesCustomerNumber, visibleCustomerCode } from '../lib/customerNumber';
 
 /** معرّفات تقارير /m — مطابقة لـREPORTS في MReports.tsx */
 export type MReportId = 'sales' | 'collections' | 'balances' | 'performance' | 'receivables' | 'hours' | 'visits' | 'unvisited';
@@ -164,6 +166,29 @@ export function filtersKey(f: ReportFilters): string {
   return FILTER_KEYS.map(k => f[k]?.id ?? '').join('|');
 }
 
+/** عميلٌ كما يردّه GET /customers لورقة «اختر العميل» — `number` غائبٌ من خادمٍ أقدم، وnull لعميلٍ لم يُرقَّم بعد */
+export interface CustomerPickLite {
+  id: string; name: string; businessName?: string | null; phone?: string | null; code?: string | null; number?: number | null;
+}
+/** صفّ في ورقة الاختيار: `name` يُحفظ في المختار فتعرضه الشريحة */
+export interface PickItem { id: string; name: string; sub?: string }
+
+/**
+ * صفوف ورقة «اختر العميل» («رقم العميل»، طلب المالك ٢٣ نوفمبر ٢٠٢٦): الاسم «#12 · الاسم» فتحمله الشريحة بعد الاختيار،
+ * والسطر الثاني المنشأة والرمز **المخصّص** والجوال — بلا الرمز التلقائيّ (cuid) الذي لا يقرؤه أحد. البحث على الخادم (يطابق
+ * الرقم تماماً مع الاسم والجوال)، وهنا يُقدَّم صفّ الرقم المطابق تماماً: «12» تجد العميل #12 وجوالاتٍ تحوي 12، فلا يُدفن
+ * المقصود بينها. وما عداه بترتيب الخادم كما وصل.
+ */
+export function customerPickItems(list: ReadonlyArray<CustomerPickLite>, q: string): PickItem[] {
+  const exact = list.filter(c => matchesCustomerNumber(q, c.number));
+  const rest = exact.length ? list.filter(c => !exact.includes(c)) : list;
+  return [...exact, ...rest].map(c => ({
+    id: c.id,
+    name: formatCustomerLabel(c),
+    sub: [c.businessName, visibleCustomerCode(c.code), c.phone].filter(Boolean).join(' · '),
+  }));
+}
+
 // ═══════════════ ٣) البحث والترتيب ═══════════════
 
 /**
@@ -209,6 +234,16 @@ export interface RowAccess<T> {
   count?: (r: T) => number;
   /** تاريخ ISO للترتيب «الأحدث» */
   date?: (r: T) => string | null | undefined;
+  /**
+   * «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): صفٌّ هو عميلٌ أو يخصّه — بحثٌ رقميّ («12» أو «#12» أو «١٢») يطابقه **مطابقةً
+   * تامة** (matchesCustomerNumber) مضمومةً إلى بحث الاسم. ولا يُوضع الرقم في `extra` أبداً: ذاك بحثٌ بالاحتواء فيجد «12» العميلَ #120
+   */
+  number?: (r: T) => number | null | undefined;
+}
+
+/** الصفّ يطابق البحث: كل كلماته في الاسم والحقول الإضافية، أو رقم عميله يساوي البحث تماماً */
+function rowHit<T>(q: string, r: T, acc: RowAccess<T>): boolean {
+  return matchesSearch(q, [acc.name(r), ...(acc.extra?.(r) ?? [])]) || matchesCustomerNumber(q, acc.number?.(r));
 }
 
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -228,7 +263,7 @@ export function sortRows<T>(rows: ReadonlyArray<T>, sort: SortId, acc: RowAccess
 
 /** البحث ثم الترتيب — ما تعرضه القائمة */
 export function viewRows<T>(rows: ReadonlyArray<T>, q: string, sort: SortId, acc: RowAccess<T>): T[] {
-  const hit = normalizeSearch(q) ? rows.filter(r => matchesSearch(q, [acc.name(r), ...(acc.extra?.(r) ?? [])])) : rows;
+  const hit = normalizeSearch(q) ? rows.filter(r => rowHit(q, r, acc)) : rows;
   return sortRows(hit, sort, acc);
 }
 
@@ -248,6 +283,8 @@ export const SALES_LEVELS: ReadonlyArray<SalesLevel> = ['rep', 'customer', 'prod
  */
 export interface SalesRowLike {
   key?: string; name: string; total: number; count?: number; code?: string;
+  /** رقم العميل — لمستوى العميل وحده (غائبٌ من خادمٍ أقدم، وnull لعميلٍ لم يُرقَّم بعد) */
+  number?: number | null;
   qty?: number; baseQty?: number; unit?: string;
   units?: UnitDef[];
   primaryUnitId?: string | null;
@@ -275,13 +312,17 @@ export function isNested(rows: ReadonlyArray<SalesNestedRow>): boolean {
   return rows.some(r => Array.isArray(r.sub));
 }
 
-/** مُوصِل صفوف المبيعات لمستوى — البحث بالاسم (والرمز للصنف)، والعدد = الفواتير أو الكمية بالأساس */
+/**
+ * مُوصِل صفوف المبيعات لمستوى — البحث بالاسم (والرمز للصنف، ورقم العميل مطابقةً تامة لمستوى العميل)، والعدد = الفواتير أو
+ * الكمية بالأساس
+ */
 export function salesAccess(level: SalesLevel): RowAccess<SalesRowLike> {
   return {
     name: r => r.name ?? '',
     extra: r => (level === 'product' ? [r.code] : []),
     value: r => r.total,
     count: r => (level === 'product' ? num(r.baseQty ?? r.qty) : num(r.count)),
+    ...(level === 'customer' ? { number: (r: SalesRowLike) => r.number } : {}),
   };
 }
 
@@ -307,11 +348,11 @@ export function viewNested<R extends SalesNestedRow>(
   const out: NestedView<R>[] = [];
   for (const row of rows) {
     const subs = row.sub ?? [];
-    if (!searching || matchesSearch(q, [pa.name(row), ...(pa.extra?.(row) ?? [])])) {
+    if (!searching || rowHit(q, row, pa)) {
       out.push({ row, subs: sortRows(subs, sort, sa), bySub: false });
       continue;
     }
-    const hit = subs.filter(s => matchesSearch(q, [sa.name(s), ...(sa.extra?.(s) ?? [])]));
+    const hit = subs.filter(s => rowHit(q, s, sa));
     if (hit.length) out.push({ row, subs: sortRows(hit, sort, sa), bySub: true });
   }
   return sortRows(out, sort, {

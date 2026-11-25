@@ -19,13 +19,17 @@ export const SALES_CHANNELS = [
   { value: 'SUBSCRIPTION', label: 'طلب اشتراك', cls: 'bg-green-50 text-green-700' },
   { value: 'QUOTE_REQUEST', label: 'طلب عرض سعر', cls: 'bg-purple-50 text-purple-700' },
   { value: 'WHATSAPP', label: 'واتساب', cls: 'bg-[#E7F8EE] text-[#128C7E]' },
+  // أضافه موظف المبيعات أو المالك يدوياً (طلب المالك ٢٤ نوفمبر ٢٠٢٦)
+  { value: 'MANUAL', label: 'إضافة يدوية', cls: 'bg-teal-50 text-teal-700' },
 ] as const;
 export type SalesChannel = typeof SALES_CHANNELS[number]['value'];
 
-/** مراحل المتابعة السبع — PUT يرفض غيرها (400) */
+/** مراحل المتابعة الثماني — PUT يرفض غيرها (400) */
 export const SALES_STAGES = [
   { value: 'NEW', label: 'جديد', cls: 'bg-slate-100 text-slate-700 border-slate-200' },
   { value: 'CONTACTED', label: 'تم التواصل', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  // «يحتاج متابعة» (طلب المالك ٢٤ نوفمبر ٢٠٢٦)
+  { value: 'FOLLOW_UP', label: 'يحتاج متابعة', cls: 'bg-amber-50 text-amber-800 border-amber-200' },
   { value: 'MEETING', label: 'تم الاجتماع', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
   { value: 'NEGOTIATION', label: 'المفاوضة', cls: 'bg-orange-50 text-orange-700 border-orange-200' },
   { value: 'WON', label: 'مشتري', cls: 'bg-green-50 text-green-700 border-green-200' },
@@ -77,6 +81,31 @@ export interface SalesInbox {
 
 export interface SalesInboxParams { channel?: string; stage?: string; q?: string; limit?: number }
 export interface SalesUpdate { stage?: SalesStage; note?: string | null }
+
+/** نموذج «إضافة عميل» يدوياً كما يُكتب في النافذة (POST /api/leads/sales-inbox) */
+export interface SalesManualForm { name: string; company: string; phone: string; email: string; country: string; message: string; stage: SalesStage }
+export const emptyManualForm = (): SalesManualForm => ({ name: '', company: '', phone: '', email: '', country: 'SA', message: '', stage: 'NEW' });
+
+/**
+ * تحقّق النموذج قبل الإرسال كما يتحقق الخادم (salesManualSchema): الاسم إلزامي ومعه جوال أو بريد، والبريد صالح.
+ * يعيد رسالة الخطأ (عربية، تُعرض بـtr) أو null.
+ */
+export function manualFormProblem(f: SalesManualForm): string | null {
+  if (!f.name.trim()) return 'اكتب الاسم';
+  if (!f.phone.trim() && !f.email.trim()) return 'اكتب الجوال أو البريد';
+  if (f.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.trim())) return 'البريد غير صالح';
+  return null;
+}
+
+/** جسم الإرسال: الحقول الفارغة لا تُرسل، والدولة رمزها ISO */
+export function manualPayload(f: SalesManualForm): Record<string, string> {
+  const out: Record<string, string> = { name: f.name.trim(), stage: f.stage };
+  for (const k of ['company', 'phone', 'email', 'country', 'message'] as const) {
+    const v = f[k].trim();
+    if (v) out[k] = v;
+  }
+  return out;
+}
 
 /** القناة بمفتاحها — والمجهولة (خادمٌ أحدث) تُعرض بمفتاحها كما هو بشارة محايدة */
 export function channelOf(value: string): { value: string; label: string; cls: string } {

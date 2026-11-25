@@ -8,6 +8,7 @@ import { repRouteApi, salesRepApi, customerApi } from '../api/client';
 import { useTr } from '../i18n/strings';
 import { backdropClose } from '../lib/backdropClose';
 import { orderByDistance } from '../lib/routeOrder';
+import { formatCustomerNumber, matchesCustomerNumber } from '../lib/customerNumber';
 import {
   ALL_DAYS, DEFAULT_OFF_DAYS, DIST_MODES, WEEKDAYS_AR, byIds, daysText, editorTakenDays, groupByRep, mergeOrder, modeOf, moveItem,
   planOrderSave, toggleDay, weekdaysGate,
@@ -43,8 +44,10 @@ interface ScheduleView {
 }
 const errText = (e: unknown): string | undefined => (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
 const errCode = (e: unknown): string | undefined => (e as { response?: { data?: { code?: string } } })?.response?.data?.code;
-interface Stop { customerId: string; customerName: string; note?: string | null }
-interface Named { id: string; name: string; businessName?: string | null }
+/* «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): للعرض وحده بجانب الاسم — customerName يبقى الاسم الخالص،
+ * والحفظ يرسل customerId وحده. المحطّات المحفوظة تحمله customerNumber من GET /rep-routes/:id */
+interface Stop { customerId: string; customerName: string; customerNumber?: number | null; note?: string | null }
+interface Named { id: string; name: string; businessName?: string | null; number?: number | null }
 /** موقع عميل من /customers/locations — المفتاح نفسه الذي تقرؤه خريطة التتبّع فيُعاد استعمال ما جُلب */
 interface CustomerLoc { id: string; lat: number; lng: number }
 
@@ -446,7 +449,7 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
         setSalesRepId(d.salesRepId); setName(d.name);
         setIsPermanent(d.isPermanent); setRouteDate(d.routeDate || '');
         setWeekdays(Array.isArray(d.weekdays) ? d.weekdays : []);
-        setStops(d.stops.map((s: Stop) => ({ customerId: s.customerId, customerName: s.customerName, note: s.note })));
+        setStops(d.stops.map((s: Stop) => ({ customerId: s.customerId, customerName: s.customerName, customerNumber: s.customerNumber ?? null, note: s.note })));
       } catch { if (alive) setLoadFailed(true); }
     })();
     return () => { alive = false; };
@@ -523,7 +526,7 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
         setSortMsg({ tone: 'info', text: tr('يلزم ثلاثة عملاء على الأقل لهم موقع على الخريطة') });
       } else if (r.changed) {
         setBeforeSort(stops);
-        setStops(r.ordered.map(({ customerId, customerName, note }) => ({ customerId, customerName, note })));
+        setStops(r.ordered.map(({ customerId, customerName, customerNumber, note }) => ({ customerId, customerName, customerNumber, note })));
         setSortMsg({ tone: 'ok', text: `${tr('رتب بأقصر مسار تقريبي')}: ${km(r.afterKm)} ${tr('كم')} ${tr('بدل')} ${km(r.beforeKm)} ${tr('كم')}${missingNote}` });
       } else {
         setSortMsg({ tone: 'info', text: `${tr('الترتيب الحالي هو الأقصر')}: ${km(r.beforeKm)} ${tr('كم')}${missingNote}` });
@@ -655,7 +658,10 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
               {stops.map((s, i) => (
                 <div key={s.customerId} className="flex items-center gap-2 px-3 py-2.5">
                   <span className="w-6 h-6 rounded-full bg-[#FFF1EA] text-[#E15A30] text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
-                  <span className="flex-1 text-sm text-[#1F1A13] truncate">{s.customerName}</span>
+                  <span className="flex-1 text-sm text-[#1F1A13] truncate">
+                    {s.customerNumber != null && <><span dir="ltr" className="tabular-nums text-[#9A8F7E]">{formatCustomerNumber(s.customerNumber)}</span>{' · '}</>}
+                    {s.customerName}
+                  </span>
                   <button onClick={() => move(i, -1)} disabled={i === 0} className="p-1 text-[#6E6557] disabled:opacity-30"><ArrowUp size={14} /></button>
                   <button onClick={() => move(i, 1)} disabled={i === stops.length - 1} className="p-1 text-[#6E6557] disabled:opacity-30"><ArrowDown size={14} /></button>
                   <button onClick={() => setStops(v => v.filter(x => x.customerId !== s.customerId))} className="p-1 text-red-600"><Trash2 size={13} /></button>
@@ -672,7 +678,7 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
               <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 className="input w-full pr-9 text-sm" value={search}
-                onChange={e => setSearch(e.target.value)} placeholder={tr('ابحث عن عميل')}
+                onChange={e => setSearch(e.target.value)} placeholder={tr('ابحث بالاسم أو الجوال أو رقم العميل')}
               />
             </div>
           </div>
@@ -684,17 +690,21 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
                 <p className="p-6 text-center text-xs text-amber-700">{tr('تعذر جلب العملاء — تحقق من صلاحية العملاء')}</p>
               )
               : !custQ.data?.length ? <p className="p-6 text-center text-xs text-gray-400">{tr('لا نتائج')}</p>
-              : custQ.data.map(c => {
+              // البحث في الخادم يطابق «رقم العميل» بالضبط (وقبله الاسم والجوال) — والمطابق بالرقم يتصدّر النتائج
+              : [...custQ.data].sort((a, b) => Number(matchesCustomerNumber(search, b.number)) - Number(matchesCustomerNumber(search, a.number))).map(c => {
                 const on = chosen.has(c.id);
                 const label = c.businessName || c.name;
                 return (
                   <button
                     key={c.id} disabled={on}
-                    onClick={() => setStops(v => [...v, { customerId: c.id, customerName: label }])}
+                    onClick={() => setStops(v => [...v, { customerId: c.id, customerName: label, customerNumber: c.number ?? null }])}
                     className={`w-full text-right px-4 py-2.5 text-sm flex items-center gap-2 ${on ? 'bg-[#F7FBF8] text-gray-400' : 'hover:bg-[#FAF7F0] text-[#1F1A13]'}`}
                   >
                     {on ? <CheckCircle2 size={14} className="text-green-600 shrink-0" /> : <Plus size={14} className="text-[#E15A30] shrink-0" />}
-                    <span className="truncate">{label}</span>
+                    <span className="truncate">
+                      {c.number != null && <><span dir="ltr" className="tabular-nums text-[#9A8F7E]">{formatCustomerNumber(c.number)}</span>{' · '}</>}
+                      {label}
+                    </span>
                   </button>
                 );
               })}

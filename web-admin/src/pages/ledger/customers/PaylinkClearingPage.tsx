@@ -13,7 +13,7 @@ import { ledgerErrorOf } from '../../../api/ledgerConfig';
 import { ledgerReviewApi, ledgerReviewKeys, type PaylinkEntryKind, type PaylinkEntryRow } from '../../../api/ledgerReview';
 import { ledgerErrorMessage } from '../../../lib/ledger/errors';
 import { ledgerHref } from '../routes';
-import { NotActivatedNotice, ManualLedgerNotice } from './postingFilters';
+import { NotActivatedNotice, ManualLedgerNotice, customerCell } from './postingFilters';
 
 /**
  * «العملاء ← أمانات الدفع الإلكتروني» (M3، PAY‑01، §5.5 P5/P6/P9/P10، §5.9 C5): رصيد 112005 في الأستاذ مقابل رصيد
@@ -50,7 +50,8 @@ export default function PaylinkClearingPage() {
     { key: 'date', label: tr('التاريخ'), render: r => <span className="whitespace-nowrap">{formatDayOnly(r.date)}</span> },
     ...(kind === 'ONLINE' ? [
       { key: 'number', label: tr('الرقم'), render: (r: PaylinkEntryRow) => <bdi className="font-semibold tabular-nums">{r.number}</bdi> },
-      { key: 'customer', label: tr('العميل'), render: (r: PaylinkEntryRow) => r.customerName ?? '' },
+      // «#12 · الاسم» كقائمتَي الفواتير والسندات (customerNumber للقراءة من الخادم)
+      { key: 'customer', label: tr('العميل'), render: (r: PaylinkEntryRow) => customerCell(r) },
       { key: 'status', label: tr('حالة المستند'), render: (r: PaylinkEntryRow) => (r.status === 'CANCELLED' ? <span className="text-[#C0392B]">{tr('ملغى')}</span> : tr('نشط')) },
       { key: 'link', label: tr('رابط الدفع'), render: (r: PaylinkEntryRow) => (r.paylinkStatus ? <bdi className="font-mono text-[11px]">{r.paylinkStatus}</bdi> : '') },
     ] : []),

@@ -95,6 +95,8 @@ import {
 import {
   listLineRef, listPerBaseHint, listPriceOf, qtyPrimaryOf, type ListPriceResult, type PriceRuleProduct, type PriceRuleRow,
 } from '../services/priceRules';
+// «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): البحث برقم العميل التسلسليّ مطابقةً تامّة — يُنثر في OR البحث القائم وحده
+import { customerRelNumberOr } from '../services/customerNumber';
 
 const router = Router();
 router.use(authenticate);
@@ -884,6 +886,9 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         OR: [
           { number: { contains: search } },
           { customer: { name: { contains: search } } },
+          // رقم العميل («12» أو «#١٢») مطابقةً تامّة — لا شيء لغير الرقم (فـ«05» بادئة جوال لا رقم عميل)؛
+          // مقيّداً بالشركة فيمرّ الاستعلام الفرعيّ على الفهرس (tenantId, number) لا على عملاء كل الشركات
+          ...customerRelNumberOr(search, tid),
         ],
       }),
       // فلترة التاريخ: تقبل «من» أو «إلى» منفردة، و«إلى» تشمل كامل ذلك اليوم
@@ -900,7 +905,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       prisma.invoice.findMany({
         where,
         include: {
-          customer: { select: { id: true, name: true, phone: true } },
+          // number: رقم العميل التسلسليّ يُعرض بجوار اسمه في القائمة (للقراءة وحدها)
+          customer: { select: { id: true, name: true, phone: true, number: true } },
           salesRep: { select: { id: true, name: true } },
           // «لوكيشن»: اسم الموقع المختوم (عمود القائمة وتصديرها) — null لما بلا ختم
           location: { select: { id: true, name: true } },
