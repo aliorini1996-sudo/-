@@ -79,7 +79,8 @@ router.use('/buyer-relax', companyBuyerRelaxRouter);
 // لمدير الشركة غير المقيّد أو جلسة المالك بلا مفتاح API، ومحروسٌ بربط المرحلة الثانية. مسارٌ مستقلّ — PUT /api/company وcompanySchema كما هما
 router.use('/tax-mode', companyTaxModeRouter);
 // «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦) — /api/company/van-load-acceptance (routes/companyVanLoadAcceptance.ts):
-// القراءة لكل مستخدم شركة والقلب بصلاحية إعدادات الشركة لغير المقيّد بلا مفتاح API، والإطفاء مرفوض والتحميلات مفتوحة. مسارٌ مستقلّ —
+// القراءة لكل مستخدم شركة والقلب لمدير الشركة وحده (أو جلسة المالك) بصلاحية إعدادات الشركة لغير المقيّد بلا مفتاح API، والإطفاء
+// مرفوض والتحميلات مفتوحة. مسارٌ مستقلّ —
 // PUT /api/company وcompanySchema كما هما، والعلم vanLoadAcceptance يصل في GET /api/company
 router.use('/van-load-acceptance', companyVanLoadAcceptanceRouter);
 

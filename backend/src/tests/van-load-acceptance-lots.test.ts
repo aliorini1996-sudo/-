@@ -100,6 +100,29 @@ test('اللوط بلا مستودع (D4): التشغيلة الجديدة لا 
   assert.deepEqual([ev.actorType, ev.actorId, ev.actorName], ['ADMIN', 'adm1', 'مدير'], 'فاعل التشغيلة المرسِل لا المندوب');
 });
 
+test('جلسة موظف المنصة: فاعل سجل التشغيلة عند القبول كما كان سيكتبه المسار المباشر لحظة الإرسال (بمعرّفه لا بمعرّف مدير الشركة المنتحَل)', async () => {
+  reset({ warehouse: false }); freshPending();
+  const S = st();
+  const staff = { ...ADMIN, impersonated: true, byKind: 'STAFF', by: 'st9' };
+  const r = await call('/loads', { salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pB', qty: 2, lotNumber: 'NEW-S', expiryDate: FAR1 }] }, staff);
+  assert.equal(r.statusCode, 201, JSON.stringify(r.body));
+  assert.deepEqual(pending[0].createdByActor, { type: 'STAFF', id: 'st9', name: 'موظف المنصة' }, 'lotEventActorOf لحظة الإرسال');
+  assert.ok(!('createdByActor' in (r.body!.data as Row)), 'داخليٌّ لا يصل الردّ');
+  const a = await accept((r.body!.data as Row).id);
+  assert.equal(a.statusCode, 200, JSON.stringify(a.body));
+  const ev = S.events.find((e) => e.kind === 'CREATE')!;
+  assert.deepEqual([ev.actorType, ev.actorId, ev.actorName], ['STAFF', 'st9', 'موظف المنصة']);
+  // صفٌّ أقدم بلا الفاعل المحفوظ ⇒ من المرسِل كما كان
+  reset({ warehouse: false }); freshPending();
+  const S2 = st();
+  const r2 = await send([{ productId: 'pB', qty: 1, lotNumber: 'NEW-O', expiryDate: FAR1 }]);
+  assert.equal(r2.statusCode, 201, JSON.stringify(r2.body));
+  delete pending[0].createdByActor;
+  assert.equal((await accept((r2.body!.data as Row).id)).statusCode, 200);
+  const ev2 = S2.events.find((e) => e.kind === 'CREATE')!;
+  assert.deepEqual([ev2.actorType, ev2.actorId, ev2.actorName], ['ADMIN', 'adm1', 'مدير']);
+});
+
 test('اللوط عند القبول: الصريح لم يعد يكفي ⇒ 409 PENDING_LOAD_LOTS_SHORT بتحذيره، ونقص الصنف كله كذلك — بلا كتابة ويبقى معلّقاً', async () => {
   reset(); freshPending();
   const S = st();

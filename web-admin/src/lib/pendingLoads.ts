@@ -278,7 +278,12 @@ export const PENDING_LOAD_TEXT = {
   settingHint: 'تحميل الإدارة يصل المندوب فيراجعه ويقبله ويوقع عليه قبل أن يدخل سيارته — والإشعار الموقع إثبات للتحميل وإقرار باستلامه',
   settingOn: 'فعل اشتراط قبول المندوب للتحميل',
   settingOff: 'أوقف اشتراط قبول المندوب — التحميل يدخل السيارة فور حفظه',
-  settingOpen: 'لا تتوقف الميزة ما دامت تحميلات بانتظار القبول أو معترضا عليها — اقبلها أو ألغها أولا',
+  /** لمدير الشركة الذي يحاول الإيقاف: المفتوح يُحسم أولاً — المعلّق يقبله مندوبه أو يُلغى، والمعترض عليه يُعدَّل فيُقبل أو يُلغى */
+  settingOpen: 'لا يمكن إيقاف الميزة ما دامت تحميلات بانتظار قبول المناديب أو معترضا عليها — يحسم كل تحميل أولا بقبول مندوبه له أو بإلغائه',
+  /** تعديل الإدارة لتحميلٍ تغيّر منذ فُتح المحرّر (عُدّل من جهازٍ آخر أو اختفى) — عبارةٌ للإدارة لا «وقّع من جديد» */
+  editStale: 'تغيّر هذا التحميل منذ فتحته — أعد فتحه من «تحميلات بانتظار القبول»',
+  /** اعترض المندوب بعد فتح المحرّر (409 PENDING_LOAD_DISPUTED) — العبارة نفسها التي يرسلها الخادم */
+  editDisputed: 'اعترض المندوب على هذا التحميل بعد فتحك له — راجع ملاحظته ثم أعد فتحه من «تحميلات بانتظار القبول»',
 } as const;
 
 /**
@@ -305,9 +310,12 @@ export const PENDING_LOAD_MESSAGES: Readonly<Record<string, string>> = {
   PENDING_LOAD_REP_GONE: 'مندوب هذا التحميل محذوف — ألغِ التحميل',
   PENDING_LOAD_REP_FIXED: 'لا يتغيّر مندوب التحميل المرسل — ألغِه وأرسل تحميلاً جديداً',
   PENDING_LOAD_TYPE_INVALID: 'التحميل المرسل للمندوب نوعه تحميل (LOAD) وحده',
+  PENDING_LOAD_QTY_NEGATIVE: 'التحميل المرسل للمندوب كميات موجبة فقط — للتنزيل سجل حركة منفصلة',
+  PENDING_LOAD_DISPUTED: 'اعترض المندوب على هذا التحميل بعد فتحك له — راجع ملاحظته ثم أعد فتحه من «تحميلات بانتظار القبول»',
   VAN_LOAD_ACCEPTANCE_SCOPED: 'حسابك مقيد بنطاق محدد — هذا الإعداد للشركة كلها',
+  VAN_LOAD_ACCEPTANCE_ADMIN_ONLY: 'اشتراط قبول المندوب للتحميل لمدير الشركة وحده',
   VAN_LOAD_ACCEPTANCE_INVALID: 'قيمة الإعداد غير صحيحة — enabled: true أو false',
-  VAN_LOAD_ACCEPTANCE_OPEN_LOADS: 'توجد تحميلات بانتظار قبول المناديب — اقبلها أو ألغِها قبل إيقاف الميزة',
+  VAN_LOAD_ACCEPTANCE_OPEN_LOADS: 'توجد تحميلات بانتظار قبول المناديب أو معترض عليها — لا تتوقف الميزة حتى يقبلها المناديب أو تلغيها',
   COMPANY_SETTINGS_MISSING: 'احفظ بيانات الشركة أولا',
 };
 
@@ -342,6 +350,28 @@ export function pendingRefusalText(e: unknown, tr: (ar: string) => string, fallb
   const names = pendingChangedProductIds(e).map((id) => (nameOf(id) ?? '').trim()).filter(Boolean);
   const text = pendingErrorText(e, tr, fallback);
   return names.length ? `${text} — ${[...new Set(names)].join('، ')}` : text;
+}
+
+/** رموز رفض تعديل الإدارة التي تعني أن التحميل تغيّر منذ فُتح المحرّر — مراجعته قديمة فكل إعادةٍ منه تُرفض */
+export const PENDING_EDIT_STALE_CODES: ReadonlySet<string> = new Set([
+  'PENDING_LOAD_REVISED', 'PENDING_LOAD_DISPUTED', 'PENDING_LOAD_ACCEPTED', 'PENDING_LOAD_CANCELLED', 'PENDING_LOAD_NOT_FOUND',
+]);
+
+/**
+ * رفض تعديل الإدارة لأن التحميل تغيّر منذ فُتح المحرّر ⇒ نصٌّ للإدارة (لا عبارة المندوب «… ثم وقّع من جديد» التي يحملها
+ * PENDING_LOAD_REVISED)، فيُغلق المحرّر وتُعاد القائمة: المقبول والملغى بعبارتيهما، والاعتراض بملاحظة المندوب من الصفّ المردود،
+ * وما سواهما «تغيّر منذ فتحته». غير ذلك (أو انقطاع) ⇒ null فيُعرض الرفض المعتاد ويبقى المحرّر
+ */
+export function pendingEditStaleText(e: unknown, tr: (ar: string) => string): string | null {
+  const err = pendingLoadErrorOf(e);
+  if (!err?.code || !PENDING_EDIT_STALE_CODES.has(err.code)) return null;
+  if (err.code === 'PENDING_LOAD_ACCEPTED' || err.code === 'PENDING_LOAD_CANCELLED') return tr(PENDING_LOAD_MESSAGES[err.code]);
+  if (err.code === 'PENDING_LOAD_DISPUTED') {
+    const text = tr(PENDING_LOAD_TEXT.editDisputed);
+    const note = str(rec(err.body.data)?.disputeNote);
+    return note ? `${text} — ${tr(PENDING_LOAD_TEXT.disputeNote)}: ${note}` : text;
+  }
+  return tr(PENDING_LOAD_TEXT.editStale);
 }
 
 /* ═══ الإشعار المطبوع ═══ */
@@ -438,9 +468,12 @@ export function pendingEditLines(view: PendingVanLoadView): PendingEditLine[] {
   });
 }
 
-/** جسم PUT /van-stock/pending-loads/:id — جسم التحميل نفسه بمراجعة الصفّ التي بدأ منها التعديل */
+/**
+ * جسم PUT /van-stock/pending-loads/:id — جسم التحميل نفسه بمراجعة الصفّ التي بدأ منها التعديل، ولحظته (updatedAt) كما فُتح عليها:
+ * اعترض المندوب بعدها ⇒ 409 PENDING_LOAD_DISPUTED فلا يُمحى اعتراضٌ لم يره الإداري
+ */
 export interface PendingEditBody {
-  type: 'LOAD'; salesRepId: string; note?: string; revision: number;
+  type: 'LOAD'; salesRepId: string; note?: string; revision: number; updatedAt?: string;
   items: PendingBodyItem[];
 }
 

@@ -48,7 +48,7 @@ import { vanReasonLabel } from './MPurchaseLogic';
 import MPendingLoads from './MPendingLoads';
 import {
   PENDING_LOADS_KEY, PENDING_LOAD_TEXT, acceptanceOf, fetchPendingDetail, isPendingLoadResponse, noticeMovementOf, pendingEditLines,
-  pendingErrorText, pendingLoadErrorOf, pendingRefusalText, vanLoadAcceptanceOn,
+  pendingEditStaleText, pendingErrorText, pendingLoadErrorOf, pendingRefusalText, vanLoadAcceptanceOn,
   type LoadNoticeAcceptance, type NoticeMovement, type PendingEditLine, type PendingVanLoadView,
 } from '../lib/pendingLoads';
 
@@ -571,7 +571,9 @@ export default function MRepLoad({ rep, company, onClose }: {
       const trimmed = note.trim() || undefined;
       // «قبول المندوب للتحميل»: تعديل التحميل المرسل — أسطرٌ موجبة وحدها بمراجعة الصفّ التي بدأ منها التعديل (PUT)
       if (editing) {
-        const res = await pendingLoadsApi.update(editing.id, { type: 'LOAD', salesRepId: rep.id, note: trimmed, revision: editing.revision, items: out });
+        const res = await pendingLoadsApi.update(editing.id, {
+          type: 'LOAD', salesRepId: rep.id, note: trimmed, revision: editing.revision, updatedAt: editing.updatedAt ?? undefined, items: out,
+        });
         return { warnings: lotWarningsOf((res.data as { warnings?: unknown } | undefined)?.warnings), replayed: false, edited: true };
       }
       // «تتبّع اللوط»: تحذيرات الوثيقتين (تشغيلتان في السيارة، كرتونٌ مقسوم، رصيدٌ غير مسمّى) — لا تمنع لكنها تُقال
@@ -629,6 +631,10 @@ export default function MRepLoad({ rep, company, onClose }: {
       const pe = pendingLoadErrorOf(e);
       if (pe?.code && (pe.code.startsWith('PENDING_LOAD_') || pe.code === 'API_KEY_FORBIDDEN')) {
         if (editing) qc.invalidateQueries({ queryKey: [PENDING_LOADS_KEY] });
+        // تعديل تحميلٍ تغيّر منذ فُتح (عُدّل من جهازٍ آخر، أو اعترض عليه المندوب، أو قُبل أو أُلغي): عبارةٌ للإدارة لا للمندوب،
+        // ويُترك التعديل (كـ«إلغاء التعديل») — مراجعته قديمة فكل إعادةٍ منه تُرفض؛ والقسم يُعاد بحاله وملاحظة المندوب
+        const stale = editing ? pendingEditStaleText(e, tr) : null;
+        if (stale) { toast.error(stale, { duration: 10000 }); setEditing(null); setRows([]); setNote(''); return; }
         // أسطرٌ ستتغيّر عند التسجيل: تُسمّى أصنافها (warnings[].productId) فيعرف المدير ما يراجع
         toast.error(pendingRefusalText(e, tr, 'تعذر الحفظ', pid => rows.find(r => r.productId === pid)?.name), { duration: 8000 });
         return;
@@ -749,6 +755,8 @@ export default function MRepLoad({ rep, company, onClose }: {
       if (editing?.id === v.id) stopEdit();
       setCancelling(null);
       qc.invalidateQueries({ queryKey: [PENDING_LOADS_KEY] });
+      // طلب المندوب المحمَّل «تحميلاً مباشراً» بهذا التحميل يعود معلّقاً مع الإلغاء (الخادم) — قائمة الطلبات تُعاد
+      qc.invalidateQueries({ queryKey: ['rep-stock-requests'] });
     },
     onError: (e: unknown) => {
       setCancelling(null);

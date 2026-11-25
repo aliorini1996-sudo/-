@@ -82,6 +82,7 @@ export const PENDING_LOAD_MESSAGES = Object.freeze({
   PENDING_LOAD_REP_FIXED: 'لا يتغيّر مندوب التحميل المرسل — ألغِه وأرسل تحميلاً جديداً',
   PENDING_LOAD_TYPE_INVALID: 'التحميل المرسل للمندوب نوعه تحميل (LOAD) وحده',
   PENDING_LOAD_QTY_NEGATIVE: 'التحميل المرسل للمندوب كميات موجبة فقط — للتنزيل سجل حركة منفصلة',
+  PENDING_LOAD_DISPUTED: 'اعترض المندوب على هذا التحميل بعد فتحك له — راجع ملاحظته ثم أعد فتحه من «تحميلات بانتظار القبول»',
 });
 export type PendingLoadCode = keyof typeof PENDING_LOAD_MESSAGES;
 
@@ -115,6 +116,43 @@ export function storedEventActor(v: unknown): LotEventActor | null {
   const { type, id, name } = v as Record<string, unknown>;
   if (typeof type !== 'string' || !EVENT_ACTOR_TYPES.has(type) || !nullableStr(id) || !nullableStr(name)) return null;
   return { type: type as LotEventActor['type'], id, name };
+}
+
+/** قفل طلبات بضاعة المناديب للشركة — المفتاح نفسه في routes/repStockRequests.ts (lockTenant) لكل كتابةٍ على الطلبات */
+export const repStockRequestLockKey = (tid: string): string => 'rep-stock-request:' + tid;
+
+/**
+ * إلغاء تحميلٍ معلّق أُرسل من «تحميل مباشر» لطلب بضاعة المندوب: الطلب عُلِّم «حُمِّل» بمعرّف هذا الصفّ (sentRef، POST
+ * /rep-stock-requests/:id/loaded) قبل أن يقبله المندوب، ولم يصل السيارة شيءٌ منه ⇒ يعود الطلب كما كان قبل التحميل:
+ *   • «حُمِّل» (LOADED) ⇒ معلّقٌ (PENDING) بلا علامةٍ ولا قرار — يراه الإداري في «طلب مخزون» ويدخل الطلب العام كما كان.
+ *     وللمندوب طلبٌ معلّقٌ أحدث (رفعه بعد التحميل) ⇒ لا يصير له معلّقان (طلبٌ معلّق واحد لكل مندوب): يُعلَّم القديم «رُفض» بلحظة
+ *     الإلغاء وباسم من ألغى — فيعرف المندوب أنه لم يُحمَّل، ويبقى طلبه الأحدث قائماً.
+ *   • معلّقٌ بعلامة «حُمِّلت منه نسخةٌ سابقة» (sentRef على PENDING) ⇒ تُمحى العلامة وتبقى نسخته (updatedAt) كما هي.
+ * داخل معاملة الإلغاء بعد قفل الصفّ: قفل طلبات الشركة ثم القراءة — الترتيب «صفّ المعلّق ثم الطلبات» دائماً، و/loaded يأخذ قفل الطلبات
+ * وحده ويقرأ المعلّق قراءةً، فلا تعانق: إن علّم الطلب قبلنا رأيناه هنا، وإن جاء بعدنا رأى الصفّ ملغى فرفض (400 VAN_LOAD_MISMATCH)
+ */
+export async function reopenRepRequestsOf(tx: Prisma.TransactionClient, tid: string, pendingId: string, decidedBy: string | null): Promise<number> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${repStockRequestLockKey(tid)}))`;
+  const rows = await tx.repStockRequest.findMany({
+    where: { tenantId: tid, sentRef: pendingId, status: { in: ['LOADED', 'PENDING'] } },
+    select: { id: true, salesRepId: true, status: true, updatedAt: true },
+  });
+  for (const r of rows) {
+    if (r.status === 'PENDING') {
+      await tx.repStockRequest.update({ where: { id: r.id }, data: { sentRef: null, updatedAt: r.updatedAt } });
+      continue;
+    }
+    const newer = await tx.repStockRequest.findFirst({
+      where: { tenantId: tid, salesRepId: r.salesRepId, status: 'PENDING', id: { not: r.id } }, select: { id: true },
+    });
+    await tx.repStockRequest.update({
+      where: { id: r.id },
+      data: newer
+        ? { status: 'REJECTED', sentRef: null, decidedAt: new Date(), decidedBy }
+        : { status: 'PENDING', sentRef: null, decidedAt: null, decidedBy: null },
+    });
+  }
+  return rows.length;
 }
 
 /** اسم المرسِل كما يُحفظ: جلسة المالك «الدعم الفني» لا باسم مدير الشركة (كعهدة الأدوات) */

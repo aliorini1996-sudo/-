@@ -111,7 +111,7 @@ import { installGeoReconnect } from './geoReconnect';
 import RepTargetsCard from './RepTargetsCard';
 // «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): تحميل الإدارة لا يدخل السيارة حتى يقبله المندوب ويوقّعه
 import RepPendingLoads, { PendingLoadsHomeCard, PendingLoadsStrip } from './RepPendingLoads';
-import { PENDING_LOADS_SCREEN } from './vanLoadAcceptance';
+import { PENDING_LOADS_SCREEN, myRequestStatusText, requestLoadAwaiting } from './vanLoadAcceptance';
 import CircularGate from '../components/circulars/CircularGate';
 import { CIRCULAR_ACK_TIMEOUT_MS, CIRCULAR_FETCH_TIMEOUT_MS, circularGateSkipped } from '../lib/circularGate';
 import { isImpersonationToken } from '../store/sessionAdoption';
@@ -4621,6 +4621,8 @@ function SimpleList({ endpoint, kind, company, onOpen }: { endpoint: string; kin
 interface MyStockRequest {
   // LOADED: حمّلته الإدارة إلى سيارته مباشرة من نافذة «طلب مخزون» (٢٣ نوفمبر ٢٠٢٦)
   id: string; status: 'PENDING' | 'SENT' | 'REJECTED' | 'LOADED'; note: string | null; updatedAt: string; decidedAt: string | null;
+  /** «قبول المندوب للتحميل»: LOADED بتحميلٍ أُرسل له ولم يدخل سيارته بعد — حاله (PENDING/DISPUTED/ACCEPTED)، وnull لحركةٍ مباشرة */
+  pendingStatus?: string | null;
   /** unitName/unitFactor لقطة وحدة البند (الوحدات المتعددة) — غائبة ⇒ وحدة الأساس. `unit` وحدة السطر (لقطته وإلا وحدة الصنف)،
    * و`baseQty`/`requestedBaseQty` الكميتان بالأساس `baseUnit`، و`units` وحدات الصنف لعرضها «٢ كرتون و٣ حبة» */
   items: {
@@ -5076,8 +5078,9 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
           <span className="flex-1">{tr('طلب بضاعة قيد مراجعة الإدارة')} ({myReq.pending.items.filter(i => i.requestedQty > 0).length})</span>
         </button>
       ) : myReq?.last && myReq.last.decidedAt && Date.now() - new Date(myReq.last.decidedAt).getTime() < DECIDED_SHOWN_MS ? (
-        <div className={`mx-3 mt-3 text-xs rounded-lg px-3 py-2 ${myReq.last.status === 'REJECTED' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
-          {myReq.last.status === 'LOADED' ? tr('حملت الإدارة طلبك إلى سيارتك') : myReq.last.status === 'SENT' ? tr('أرسلت الإدارة طلبك ضمن طلب المخزون') : tr('رفضت الإدارة طلبك الأخير')} · {formatDate(myReq.last.decidedAt)}
+        <div className={`mx-3 mt-3 text-xs rounded-lg px-3 py-2 ${myReq.last.status === 'REJECTED' ? 'bg-red-50 text-red-700' : requestLoadAwaiting(myReq.last) ? 'bg-amber-50 text-amber-800' : 'bg-green-50 text-green-700'}`}>
+          {/* «قبول المندوب للتحميل»: «حُمِّل» بتحميلٍ لم يقبله بعد ⇒ «بانتظار قبولك وتوقيعك» لا «حملت الإدارة طلبك» */}
+          {myRequestStatusText(myReq.last, tr)} · {formatDate(myReq.last.decidedAt)}
         </div>
       ) : (
         <div className="mx-3 mt-3 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">{tr('لا تملك صلاحية التحميل اطلب ما تحتاجه من زر طلب بضاعة')}</div>

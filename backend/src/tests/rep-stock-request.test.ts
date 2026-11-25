@@ -183,6 +183,24 @@ test('«تحميل مباشر»: يُعلَّم الطلب «حُمِّل» بح
   assert.match(handler(s, "router.get('/mine'"), /status: \{ in: \['SENT', 'REJECTED', 'LOADED'\] \}/);
 });
 
+test('«قبول المندوب للتحميل»: «حُمِّل» بتحميلٍ معلّق يقول للمندوب حاله (pendingStatus)، وإلغاؤه يعيد الطلب تحت قفل الطلبات نفسه', () => {
+  const s = route();
+  const mine = handler(s, "router.get('/mine'");
+  // حال التحميل المرسل لصفّ المندوب نفسه وحده — قراءةً، وللمحمَّل وحده (الردّ كما كان لغيره)
+  assert.match(mine, /last\?\.status === 'LOADED' && last\.sentRef/);
+  assert.match(mine, /prisma\.pendingVanLoad\.findFirst\(\{ where: \{ id: last\.sentRef, tenantId: tid, salesRepId: me \}, select: \{ status: true \} \}\)/);
+  assert.match(mine, /\.\.\.\(last\.status === 'LOADED' && \{ pendingStatus \}\)/);
+  // إلغاء التحميل المعلّق (vanStock.ts) يأخذ قفل الطلبات بالمفتاح نفسه بعد قفل صفّه ثم يعيد الطلب — لا كتابة طلبٍ بلا هذا القفل
+  assert.match(s, /pg_advisory_xact_lock\(hashtext\(\$\{'rep-stock-request:' \+ tid\}\)\)/);
+  const svc = read('services', 'vanPendingLoads.ts');
+  assert.match(svc, /export const repStockRequestLockKey = \(tid: string\): string => 'rep-stock-request:' \+ tid;/);
+  const reopen = svc.slice(svc.indexOf('export async function reopenRepRequestsOf'));
+  assert.ok(reopen.indexOf('pg_advisory_xact_lock(hashtext(${repStockRequestLockKey(tid)}))') < reopen.indexOf('tx.repStockRequest.findMany('), 'القفل قبل القراءة');
+  const van = read('routes', 'vanStock.ts');
+  const cancel = van.slice(van.indexOf("router.post('/pending-loads/:id/cancel'"));
+  assert.ok(cancel.indexOf('pendingLoadLockKey(id)') < cancel.indexOf('reopenRepRequestsOf(tx, tid, id,'), 'قفل الصفّ ثم الطلبات');
+});
+
 test('كتابة المندوب تحت قفل الشركة نفسه: طلبٌ معلّق واحد لا يتكرّر', () => {
   const h = handler(route(), "router.put('/mine'");
   const lock = h.indexOf('await lockTenant(tx, tid);');

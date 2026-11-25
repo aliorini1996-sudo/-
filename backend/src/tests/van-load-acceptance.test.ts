@@ -33,6 +33,8 @@ interface State {
   log: string[]; seq: number; tick: number; settingsReads: number; pushes: { id: string; payload: Row }[];
   /** نطاق الإداري المقيّد: مناديبه */
   scoped: boolean; scopeReps: Set<string>;
+  /** طلبات بضاعة المناديب (sentRef ⇐ «تحميل مباشر») وحسابات مستخدمي الشركة (دورهم من القاعدة) */
+  requests: Row[]; admins: Record<string, { role: string; tenantId: string; isActive: boolean }>;
 }
 let S: State;
 const T = 't1';
@@ -59,6 +61,14 @@ function reset(opts: { acceptance?: boolean; warehouse?: boolean } = {}): void {
       { productId: 'pC', tenantId: T, qty: 30, unitFactor: 1, baseQty: 30 },
     ],
     log: [], seq: 0, tick: 0, settingsReads: 0, pushes: [], scoped: false, scopeReps: new Set(),
+    requests: [],
+    admins: {
+      adm1: { role: 'ADMIN', tenantId: T, isActive: true },
+      mgr1: { role: 'MANAGER', tenantId: T, isActive: true },
+      acc1: { role: 'ACCOUNTANT', tenantId: T, isActive: true },
+      off1: { role: 'ADMIN', tenantId: T, isActive: false },
+      oth1: { role: 'ADMIN', tenantId: 't2', isActive: true },
+    },
   };
 }
 reset();
@@ -87,6 +97,9 @@ function pendingMatch(r: Row, where: Row): boolean {
   }
   return true;
 }
+/** شرط طلب البضاعة: مساواةٌ، و{in}، و{not} */
+const reqMatch = (r: Row, where: Row): boolean => Object.entries(where).every(([k, v]) =>
+  (v && typeof v === 'object' && !(v instanceof Date) ? ('in' in v ? (v.in as unknown[]).includes(r[k]) : 'not' in v ? r[k] !== v.not : true) : r[k] === v));
 const pendingOut = (r: Row, select?: Row) => {
   const out: Row = { ...r, body: clone(r.body), salesRep: S.reps.find((x) => x.id === r.salesRepId) ? { name: S.reps.find((x) => x.id === r.salesRepId)!.name } : null };
   if (select && !select.signature) delete out.signature;
@@ -123,6 +136,21 @@ function makeDb(inTx: boolean, held: (() => void)[] = [], undo: (() => void)[] =
       return 1;
     },
     tenant: { findUnique: async ({ where }: { where: { id: string } }) => ({ ...S.tenants[where.id] }) },
+    admin: { findUnique: async ({ where }: { where: { id: string } }) => (S.admins[where.id] ? { ...S.admins[where.id] } : null) },
+    repStockRequest: {
+      findMany: async ({ where }: { where: Row }) => S.requests.filter((r) => reqMatch(r, where)).map((r) => ({ ...r })),
+      findFirst: async ({ where }: { where: Row }) => { const r = S.requests.find((x) => reqMatch(x, where)); return r ? { ...r } : null; },
+      update: async ({ where, data }: { where: { id: string }; data: Row }) => {
+        const r = S.requests.find((x) => x.id === where.id);
+        assert.ok(r, 'تحديث طلبٍ غير موجود');
+        const before = { ...r };
+        Object.assign(r, data);
+        // @updatedAt: يتجدّد ما لم يُكتب صراحةً
+        if (!('updatedAt' in data)) r.updatedAt = clock();
+        write(() => { Object.keys(r).forEach((k) => delete r[k]); Object.assign(r, before); });
+        return { ...r };
+      },
+    },
     glSettings: { findUnique: async () => null },
     companySettings: {
       findUnique: async ({ where }: { where: { tenantId: string } }) => { S.settingsReads++; return S.settings[where.tenantId] ? { ...S.settings[where.tenantId] } : null; },
@@ -371,6 +399,9 @@ test('مفعّل: تحميل الإدارة معلّقٌ 201 { pending: true } �
   const row = S.pending[0];
   assert.deepEqual([row.status, row.revision, row.salesRepId, row.repName, row.clientRef, row.createdById, row.createdByName, row.note], ['PENDING', 1, 'r1', 'سالم', 'ref-1', 'adm1', 'مدير', 'تحميل الصباح']);
   assert.ok(!('clientRef' in row.body), 'الجسم بلا مرجع');
+  // فاعل سجل تدقيق اللوط كما كان سيكتبه المسار المباشر — داخليٌّ لا يصل أي ردّ
+  assert.deepEqual(row.createdByActor, { type: 'ADMIN', id: 'adm1', name: 'مدير' });
+  assert.ok(!('createdByActor' in (r.body!.data as Row)));
   assert.equal(row.body.type, 'LOAD');
   assert.deepEqual(row.body.items, BODY.items);
   // العقد: الأسطر بوحداتها وأساسها، والجسم للإدارة
@@ -388,7 +419,7 @@ test('مفعّل: تحميل الإدارة معلّقٌ 201 { pending: true } �
   assert.deepEqual(S.pushes.map((p) => [p.id, p.payload.url, p.payload.tag]), [['r1', '/rep?screen=vanloads', 'van-load']]);
 });
 
-test('مفعّل: المندوب ومفتاح API وإعادة الرفع والتنزيل والتسوية والمندوب المحذوف — مباشرةً كما كانت، والإعداد لا يُقرأ لغير تحميل الإدارة', async () => {
+test('مفعّل: المندوب (ومنه صندوقه دون اتصال) ومفتاح API والتنزيل والتسوية والمندوب المحذوف — مباشرةً كما كانت، والإعداد لا يُقرأ لغير تحميل الإدارة', async () => {
   reset();
   const direct = async (label: string, r: Res) => {
     assert.ok(!r.body?.pending, `${label}: ${JSON.stringify(r.body)}`);
@@ -401,9 +432,10 @@ test('مفعّل: المندوب ومفتاح API وإعادة الرفع وال
   const api = await postLoad({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pA', qty: 1 }] }, API);
   assert.equal(api.statusCode, 201);
   await direct('مفتاح API', api);
-  const replay = await postLoad({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pA', qty: 1 }] }, ADMIN, { 'x-fs-replay': '1' });
-  assert.equal(replay.statusCode, 201);
-  await direct('إعادة الرفع', replay);
+  // إعادة رفع صندوق المندوب دون اتصال: مستندٌ سُجّل على جهازه يُكتب كما كان (المندوب معفى بدوره)
+  const replay = await postLoad({ type: 'LOAD', items: [{ productId: 'pA', qty: 1 }] }, REP1, { 'x-fs-replay': '1' });
+  assert.equal(replay.statusCode, 201, JSON.stringify(replay.body));
+  await direct('إعادة رفع المندوب', replay);
   assert.equal(S.settingsReads, 0, 'الشروط الرخيصة قبل قراءة الإعداد');
   const unload = await postLoad({ salesRepId: 'r1', type: 'UNLOAD', items: [{ productId: 'pA', qty: 1 }] });
   assert.equal(unload.statusCode, 201, JSON.stringify(unload.body));
@@ -416,6 +448,38 @@ test('مفعّل: المندوب ومفتاح API وإعادة الرفع وال
   await direct('المندوب المحذوف', gone);
   assert.equal(S.settingsReads, 0);
   assert.equal(S.vanLoads.length, 5);
+});
+
+test('مفعّل: ترويسة إعادة الرفع من مستخدم الشركة لا تُعفي — تحميل الإدارة (وجلسة المالك) معلّقٌ 201 pending بلا حركة', async () => {
+  reset();
+  // صندوق الأوف‑لاين لتطبيق المندوب وحده: الترويسة من اللوحة طلبٌ حيّ كغيره — لا تدخل البضاعة السيارة بلا قبولٍ ولا توقيع
+  const r = await postLoad({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pA', qty: 1 }] }, ADMIN, { 'x-fs-replay': '1' });
+  assert.equal(r.statusCode, 201, JSON.stringify(r.body));
+  assert.equal(r.body!.pending, true);
+  const owner = await postLoad({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pA', qty: 2 }] }, { ...ADMIN, impersonated: true }, { 'x-fs-replay': '1' });
+  assert.equal(owner.statusCode, 201, JSON.stringify(owner.body));
+  assert.equal(owner.body!.pending, true);
+  assert.equal(S.vanLoads.length, 0, 'لا حركة');
+  assert.equal(S.pending.length, 2);
+  assert.equal(S.settingsReads, 2, 'الإعداد قُرئ لتحميل الإدارة');
+});
+
+test('مفعّل: كمياتٌ موجبة وحدها — سطرٌ سالب في الإرسال أو التعديل ⇒ 400 PENDING_LOAD_QTY_NEGATIVE بلا كتابة', async () => {
+  reset();
+  const r = await postLoad({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pA', qty: 2 }, { productId: 'pC', qty: -1 }] });
+  assert.deepEqual([r.statusCode, r.body!.code], [400, 'PENDING_LOAD_QTY_NEGATIVE'], JSON.stringify(r.body));
+  assert.equal(r.body!.message, svc.PENDING_LOAD_MESSAGES.PENDING_LOAD_QTY_NEGATIVE);
+  assert.equal(S.pending.length, 0);
+  assert.equal(S.vanLoads.length, 0);
+  const id = await sendPending();
+  const e = await edit(id, { salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pA', qty: 3 }, { productId: 'pC', qty: -2 }], revision: 1 });
+  assert.deepEqual([e.statusCode, e.body!.code], [400, 'PENDING_LOAD_QTY_NEGATIVE']);
+  assert.deepEqual([S.pending[0].revision, S.pending[0].body.items], [1, BODY.items], 'الصفّ كما أُرسل');
+  // والصفر ليس سالباً: يُهمل كما كان (لا يُعرض ولا يُسجَّل)
+  const z = await postLoad({ salesRepId: 'r1', type: 'LOAD', items: [{ productId: 'pA', qty: 1 }, { productId: 'pC', qty: 0 }] });
+  assert.equal(z.statusCode, 201, JSON.stringify(z.body));
+  assert.equal(((z.body!.data as Row).lines as Row[]).length, 1);
+  assert.equal(S.vanLoads.length, 0);
 });
 
 test('مفعّل: رصيد المستودع لا يكفي ⇒ 422 WAREHOUSE_INSUFFICIENT كما كان بلا صفّ، والمندوب الموقوف 409، والمندوب مطلوب', async () => {
@@ -630,6 +694,40 @@ test('التعديل: المعترَض عليه ⇒ PENDING بمراجعة ٢ و
   assert.deepEqual([late.statusCode, late.body!.code], [409, 'PENDING_LOAD_ACCEPTED']);
 });
 
+test('التعديل واعتراضٌ بعد فتحه: updatedAt الذي فُتح عليه — اعترض المندوب بعده (أو بدّل سببه) ⇒ 409 PENDING_LOAD_DISPUTED بملاحظته ولا يُمحى', async () => {
+  reset();
+  const id = await sendPending();
+  const opened = async () => ((await call('get', '/pending-loads/:id', { params: { id } })).body!.data as Row).updatedAt as Date;
+  const body = { salesRepId: 'r1', type: 'LOAD', note: 'بعد التصحيح', items: [{ productId: 'pA', qty: 3 }] };
+  // فتح الإداري التعديل والتحميل بانتظار القبول، ثم اعترض المندوب
+  const seen = await opened();
+  assert.equal((await dispute(id, 'الماء ناقص')).statusCode, 200);
+  await settle();
+  S.pushes = [];
+  const r = await edit(id, { ...body, revision: 1, updatedAt: seen.toISOString() });
+  assert.deepEqual([r.statusCode, r.body!.code], [409, 'PENDING_LOAD_DISPUTED'], JSON.stringify(r.body));
+  assert.equal(r.body!.message, svc.PENDING_LOAD_MESSAGES.PENDING_LOAD_DISPUTED);
+  assert.deepEqual([(r.body!.data as Row).status, (r.body!.data as Row).disputeNote], ['DISPUTED', 'الماء ناقص'], 'الصفّ بملاحظته ليراها');
+  assert.deepEqual([S.pending[0].status, S.pending[0].disputeNote, S.pending[0].revision], ['DISPUTED', 'الماء ناقص', 1], 'الاعتراض باقٍ');
+  await settle();
+  assert.equal(S.pushes.length, 0, 'لا تنبيه');
+  // فُتح على المعترَض عليه ثم بدّل المندوب سببه ⇒ 409 كذلك
+  const seen2 = await opened();
+  assert.equal((await dispute(id, 'والحليب أيضاً')).statusCode, 200);
+  assert.equal((await edit(id, { ...body, revision: 1, updatedAt: seen2.toISOString() })).body!.code, 'PENDING_LOAD_DISPUTED');
+  assert.equal(S.pending[0].disputeNote, 'والحليب أيضاً');
+  // رآه الإداري ⇒ التعديل يمضي: PENDING بمراجعة ٢ ويُمحى الاعتراض
+  const ok = await edit(id, { ...body, revision: 1, updatedAt: (await opened()).toISOString() });
+  assert.equal(ok.statusCode, 200, JSON.stringify(ok.body));
+  assert.deepEqual([S.pending[0].status, S.pending[0].revision, S.pending[0].disputeNote], ['PENDING', 2, null]);
+  assert.ok(!('updatedAt' in S.pending[0].body), 'لحظة الفتح لا تدخل جسم التحميل');
+  // المعلّق بلا اعتراض لا يُقارن بلحظته، وبلا updatedAt (عميلٌ لا يرسله) كما كان
+  assert.equal((await edit(id, { ...body, revision: 2, updatedAt: '2000-01-01T00:00:00.000Z' })).statusCode, 200, 'المعلّق بلا اعتراض لا يُرفض');
+  await dispute(id, 'ناقص');
+  assert.equal((await edit(id, { ...body, revision: 3 })).statusCode, 200, 'بلا updatedAt');
+  assert.equal(S.pending[0].status, 'PENDING');
+});
+
 test('الإلغاء: المعلّق ⇒ CANCELLED باسم المُلغي، والإعادة 200، والمقبول 409، والقبول بعد الإلغاء 409', async () => {
   reset();
   const id = await sendPending();
@@ -649,6 +747,46 @@ test('الإلغاء: المعلّق ⇒ CANCELLED باسم المُلغي، و�
   const c = await cancel(id2);
   assert.deepEqual([c.statusCode, c.body!.code], [409, 'PENDING_LOAD_ACCEPTED']);
   assert.equal(S.vanLoads.length, 1);
+});
+
+test('الإلغاء و«تحميل مباشر» لطلب المندوب: الطلب المعلَّم «حُمِّل» بالتحميل الملغى يعود معلّقاً — وللمندوب طلبٌ أحدث ⇒ «رُفض» — تحت قفل الطلبات بعد قفل الصفّ', async () => {
+  reset();
+  const a = await sendPending();
+  const b = await sendPending({ ...BODY, salesRepId: 'r2' });
+  const t0 = new Date(T0);
+  const req = (id: string, salesRepId: string, status: string, sentRef: string | null) =>
+    ({ id, tenantId: T, salesRepId, status, sentRef, decidedAt: status === 'PENDING' ? null : t0, decidedBy: status === 'PENDING' ? null : 'مدير', updatedAt: t0 });
+  S.requests = [
+    req('q1', 'r1', 'LOADED', a),
+    req('q2', 'r2', 'LOADED', b), req('q3', 'r2', 'PENDING', null),
+    // حركةٌ مباشرة (الميزة مطفأة حينها) لا يمسّها إلغاء معلّق
+    req('q9', 'r1', 'LOADED', 'vl-direct'),
+  ];
+  S.log = [];
+  assert.equal((await cancel(a)).statusCode, 200);
+  const q = (id: string) => S.requests.find((x) => x.id === id)!;
+  assert.deepEqual([q('q1').status, q('q1').sentRef, q('q1').decidedAt, q('q1').decidedBy], ['PENDING', null, null, null], 'يعود معلّقاً للإدارة والطلب العام');
+  assert.deepEqual(S.log.filter((x) => x.startsWith('lock:')), ['lock:pending-van-load', 'lock:rep-stock-request'], 'قفل الصفّ ثم قفل الطلبات');
+  assert.deepEqual([q('q9').status, q('q9').sentRef], ['LOADED', 'vl-direct']);
+  // للمندوب الثاني طلبٌ معلّق أحدث: لا معلّقان له — القديم «رُفض» بلحظة الإلغاء وباسم من ألغى، والأحدث كما هو
+  assert.equal((await cancel(b, {}, { ...ADMIN, id: 'mgr1', name: 'مشرف' })).statusCode, 200);
+  assert.deepEqual([q('q2').status, q('q2').sentRef, q('q2').decidedBy], ['REJECTED', null, 'مشرف']);
+  assert.ok(q('q2').decidedAt instanceof Date && +q('q2').decidedAt > +t0);
+  assert.deepEqual([q('q3').status, q('q3').sentRef, +q('q3').updatedAt], ['PENDING', null, +t0]);
+  // معلّقٌ بعلامة «حُمِّلت منه نسخةٌ سابقة» (sentRef على PENDING): تُمحى العلامة وتبقى نسخته
+  const c = await sendPending({ ...BODY, items: [{ productId: 'pA', qty: 1 }] });
+  Object.assign(q('q1'), { sentRef: c, updatedAt: t0 });
+  assert.equal((await cancel(c)).statusCode, 200);
+  assert.deepEqual([q('q1').status, q('q1').sentRef, +q('q1').updatedAt], ['PENDING', null, +t0], 'النسخة لم تتغيّر');
+  // الإلغاء ثانيةً والمقبول: لا مساس بالطلبات
+  S.requests.push(req('q5', 'r1', 'LOADED', a));
+  assert.equal((await cancel(a)).statusCode, 200);
+  assert.equal(q('q5').status, 'LOADED', 'الإلغاء ثانيةً بلا كتابة');
+  const d = await sendPending({ ...BODY, items: [{ productId: 'pA', qty: 1 }] });
+  assert.equal((await accept(d)).statusCode, 200);
+  S.requests.push(req('q6', 'r1', 'LOADED', d));
+  assert.equal((await cancel(d)).statusCode, 409);
+  assert.deepEqual([q('q6').status, q('q6').sentRef], ['LOADED', d], 'المقبول دخل السيارة فعلاً');
 });
 
 // ═══ ٥) القراءة والنطاق ومفتاح API ═══
@@ -716,9 +854,10 @@ test('مفتاح API مرفوض في كل مسارات التحميل المعل
 
 test('الإعداد: القراءة بالعدد المفتوح، والقلب بلا مفتاح API ولا نطاق، والإطفاء مرفوض والتحميلات مفتوحة، وبلا صفّ شركة 409', async () => {
   reset({ acceptance: false });
+  const audits: string[] = [];
   const settings = createVanLoadAcceptanceRouter({
     db: db as never, scopeEnabled: async () => S.scoped, tenantId: (req) => req.user!.tenantId!,
-    permission: (_q, _s, next) => next(),
+    permission: (_q, _s, next) => next(), audit: (l) => audits.push(l),
   });
   const get = () => call('get', '/', { on: settings });
   const patch = (body: unknown, user: unknown = ADMIN) => call('patch', '/', { on: settings, body, user });
@@ -744,11 +883,51 @@ test('الإعداد: القراءة بالعدد المفتوح، والقلب 
   assert.equal(S.settings[T].vanLoadAcceptance, false);
   delete S.settings[T];
   assert.deepEqual([(await patch({ enabled: true })).statusCode, (await patch({ enabled: true })).body!.code], [409, 'COMPANY_SETTINGS_MISSING']);
+  // سطر تدقيقٍ لكل تغييرٍ كُتب: معرّفاتٌ وحالةٌ وحدها — لا أسماء
+  assert.deepEqual(audits.map((l) => JSON.parse(l)), [
+    { event: 'VAN_LOAD_ACCEPTANCE', tenantId: T, actorId: 'adm1', role: 'ADMIN', impersonated: true, enabled: true },
+    { event: 'VAN_LOAD_ACCEPTANCE', tenantId: T, actorId: 'adm1', role: 'ADMIN', impersonated: false, enabled: false },
+  ]);
+  assert.ok(!audits.some((l) => l.includes('مدير')), 'لا اسم في سطر التدقيق');
+});
+
+test('الإعداد: القلب لمدير الشركة وحده (دوره من القاعدة) أو جلسة المالك — مدير المبيعات والمحاسب والموقوف ومن شركةٍ أخرى 403 بلا كتابة', async () => {
+  reset({ acceptance: true });
+  const audits: string[] = [];
+  const settings = createVanLoadAcceptanceRouter({
+    db: db as never, scopeEnabled: async () => false, tenantId: (req) => req.user!.tenantId!,
+    permission: (_q, _s, next) => next(), audit: (l) => audits.push(l),
+  });
+  const patch = (user: unknown, enabled = false) => call('patch', '/', { on: settings, body: { enabled }, user });
+  for (const id of ['mgr1', 'acc1', 'off1', 'oth1', 'ghost']) {
+    // التوكن يقول ADMIN — والقاعدة هي الحكم
+    const r = await patch({ ...ADMIN, id });
+    assert.deepEqual([r.statusCode, r.body!.code], [403, 'VAN_LOAD_ACCEPTANCE_ADMIN_ONLY'], id);
+    assert.equal(r.body!.message, 'اشتراط قبول المندوب للتحميل لمدير الشركة وحده');
+  }
+  assert.equal(S.settings[T].vanLoadAcceptance, true, 'لم يُطفأ ضابط التوقيع');
+  assert.equal(audits.length, 0);
+  // جلسة المالك تمرّ ولو كان المنتحَل مدير مبيعات، ومدير الشركة يمرّ
+  assert.equal((await patch({ ...ADMIN, id: 'mgr1', role: 'MANAGER', impersonated: true })).statusCode, 200);
+  assert.equal(S.settings[T].vanLoadAcceptance, false);
+  assert.equal((await patch(ADMIN, true)).statusCode, 200);
+  assert.deepEqual(audits.map((l) => JSON.parse(l)).map((x) => [x.actorId, x.role, x.impersonated, x.enabled]), [
+    ['mgr1', 'MANAGER', true, false], ['adm1', 'ADMIN', false, true],
+  ]);
+  // والقراءة لكل مستخدم شركة كما كانت
+  assert.equal((await call('get', '/', { on: settings, user: { ...ADMIN, id: 'mgr1', role: 'MANAGER' } })).statusCode, 200);
 });
 
 // ═══ ٧) الخدمة نقيّاً ═══
 
 test('الخدمة: فاعل اللوط من المرسِل (جلسة المالك «الدعم الفني»)، ورموز التحذير المغيِّرة، ونمط التوقيع', () => {
+  // المحفوظ لحظة الإرسال (lotEventActorOf) أولاً، وشكلٌ غير صالح ⇒ null فيُبنى من المرسِل
+  assert.deepEqual(svc.storedEventActor({ type: 'STAFF', id: 'st9', name: 'موظف المنصة' }), { type: 'STAFF', id: 'st9', name: 'موظف المنصة' });
+  assert.deepEqual(svc.storedEventActor({ type: 'OWNER', id: null, name: null }), { type: 'OWNER', id: null, name: null });
+  for (const bad of [null, undefined, 'ADMIN', [], {}, { type: 'ROOT', id: 'x', name: null }, { type: 'ADMIN', id: 5, name: null }, { type: 'ADMIN', id: 'a' }]) {
+    assert.equal(svc.storedEventActor(bad), null, JSON.stringify(bad));
+  }
+  assert.equal(svc.repStockRequestLockKey('t1'), 'rep-stock-request:t1');
   assert.deepEqual(svc.pendingEventActor('OWNER:o1', 'مدير'), { type: 'OWNER', id: 'o1', name: 'الدعم الفني' });
   assert.deepEqual(svc.pendingEventActor('adm1', 'مدير'), { type: 'ADMIN', id: 'adm1', name: 'مدير' });
   assert.equal(svc.pendingActorName('OWNER:o1', 'مدير'), 'الدعم الفني');

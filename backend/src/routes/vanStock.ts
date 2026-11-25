@@ -51,7 +51,8 @@ import { shelfLifeOf } from '../services/shelfLife';
 import {
   PENDING_LINE_ALTERING, PENDING_SELECT, PENDING_STATUSES, PendingLinesChanged, PendingLoadSettled, VanDryRun, notifyPendingLoad,
   pendingAcceptSchema, pendingActorName, pendingCancelSchema, pendingDisputeSchema, pendingEventActor, pendingLinesView, pendingLoadLockKey,
-  pendingLoadView, pendingRefusal, vanLoadAcceptanceOn, type PendingLoadCode, type PendingRow, type PendingVanLoadView,
+  pendingLoadView, pendingRefusal, reopenRepRequestsOf, storedEventActor, vanLoadAcceptanceOn, type PendingLoadCode, type PendingRow,
+  type PendingVanLoadView,
 } from '../services/vanPendingLoads';
 
 const router = Router();
@@ -1418,16 +1419,21 @@ router.post('/zero', async (req: AuthRequest, res: Response, next: NextFunction)
 // المندوب ويوقّع فتُسجَّل الحركة بمسار POST /loads نفسه (executeVanMovement) كأن الإدارة أنشأتها — أو يعترض بسببٍ فتعدّله الإدارة أو
 // تلغيه. كل المسارات ترفض مفتاح API (403 API_KEY_FORBIDDEN)، والمطفأة لا تبلغ شيئاً منها (POST /loads كما كان حرفياً).
 
-/** هل يصير هذا الطلب تحميلاً معلّقاً؟ الشروط الرخيصة أولاً، والإعداد آخراً (قراءة واحدة لتحميل الإدارة وحده) */
+/**
+ * هل يصير هذا الطلب تحميلاً معلّقاً؟ الشروط الرخيصة أولاً، والإعداد آخراً (قراءة واحدة لتحميل الإدارة وحده).
+ * ترويسة إعادة الرفع (X-FS-Replay) لا تُعفي: صندوق الأوف‑لاين لتطبيق المندوب وحده (والمندوب معفى بدوره، والمفتاح تُمحى ترويسته) —
+ * فهي من مستخدم الشركة طلبٌ حيّ كغيره، ولو أعفته لدخلت البضاعة السيارة بلا قبولٍ ولا توقيع والميزة مفعّلة
+ */
 async function pendingLoadWanted(req: AuthRequest, tid: string, data: LoadBody): Promise<boolean> {
   if (data.type !== 'LOAD') return false;
   if (req.user?.role === 'SALES_REP') return false;
   if (req.user?.apiKeyId) return false;
-  // إعادة رفعٍ من صندوقٍ دون اتصال: مستندٌ سُجّل على الجهاز يُكتب كما كان
-  if (String(req.headers['x-fs-replay'] || '') === '1') return false;
   if (data.deletedSalesRepId !== undefined) return false;
   return vanLoadAcceptanceOn(tid);
 }
+
+/** سطرٌ سالب في التحميل المرسل إزالةٌ من السيارة لا «استلام» يوقّع عليه المندوب — يُرفض (التنزيل حركةٌ منفصلة) */
+const hasNegativeQty = (items: readonly { qty: number }[]): boolean => items.some((i) => i.qty < 0);
 
 const PENDING_CLIENT_REF_REUSED = 'مرجع الحفظ clientRef مستعملٌ لحركةٍ أخرى — ولّد مرجعاً جديداً لكل حفظ';
 const pendingRefuse = (res: Response, status: number, code: PendingLoadCode, extra: Record<string, unknown> = {}): void => {
@@ -1497,6 +1503,7 @@ async function createPendingLoad(req: AuthRequest, res: Response, data: LoadBody
   const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, select: { id: true, name: true, isActive: true } });
   if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
   if (rep.isActive === false) { pendingRefuse(res, 409, 'PENDING_LOAD_REP_INACTIVE'); return; }
+  if (hasNegativeQty(data.items)) { pendingRefuse(res, 400, 'PENDING_LOAD_QTY_NEGATIVE'); return; }
   const { clientRef, ...body } = data;
   const admin = { admin: true, withSignature: false };
   const replayed = async (prior: PendingRow) => {
@@ -1534,6 +1541,8 @@ async function createPendingLoad(req: AuthRequest, res: Response, data: LoadBody
           body: JSON.parse(JSON.stringify({ ...body, type: 'LOAD', salesRepId })) as Prisma.InputJsonValue,
           note: body.note?.trim() || null, clientRef: clientRef ?? null,
           createdById: actor, createdByName: pendingActorName(actor, req.user?.name),
+          // فاعل سجل تدقيق اللوط كما كان سيكتبه المسار المباشر الآن (موظف المنصة والمالك بمعرّفيهما) — يُمرَّر للحركة عند القبول
+          createdByActor: lotEventActorOf(req.user) as unknown as Prisma.InputJsonValue,
         },
         select: PENDING_SELECT,
       })) as PendingRow;
@@ -1645,13 +1654,17 @@ router.post('/pending-loads/:id/accept', async (req: AuthRequest, res: Response,
     const body = loadSchema.safeParse(row.body);
     if (!body.success || body.data.type !== 'LOAD' || !row.salesRepId) { pendingRefuse(res, 409, 'PENDING_LOAD_CHANGED'); return; }
     const salesRepId = row.salesRepId;
+    // فاعل سجل تدقيق اللوط المحفوظ لحظة الإرسال (lotEventActorOf كالمسار المباشر) — لا يُقرأ في PENDING_SELECT ولا يصل أي ردّ؛
+    // وصفٌّ بلاه (أقدم) يُبنى من المرسِل
+    const sent = await prisma.pendingVanLoad.findFirst({ where: { id, tenantId: tid }, select: { createdByActor: true } });
+    const eventActor = storedEventActor(sent?.createdByActor) ?? pendingEventActor(row.createdById, row.createdByName);
     const now = new Date();
     // الموقع زوجٌ كامل أو لا شيء — إحداثيةٌ وحدها لا تدلّ على مكان
     const fix = lat != null && lng != null ? { lat, lng } : null;
     const cap = captureReply();
     try {
       await executeVanMovement(req, cap, { ...body.data, type: 'LOAD', salesRepId, clientRef: undefined, deletedSalesRepId: undefined, mode: undefined }, {
-        asAdmin: { salesRepId, actorId: row.createdById ?? actorOf(req), eventActor: pendingEventActor(row.createdById, row.createdByName) },
+        asAdmin: { salesRepId, actorId: row.createdById ?? actorOf(req), eventActor },
         gate: async (tx) => {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${pendingLoadLockKey(id)}))`;
           const cur = await tx.pendingVanLoad.findFirst({ where: { id, tenantId: tid }, select: { status: true, revision: true } });
@@ -1736,8 +1749,12 @@ router.post('/pending-loads/:id/dispute', async (req: AuthRequest, res: Response
   } catch (err) { next(err); }
 });
 
-/** تعديل الإدارة: الجسم كاملاً بمراجعته (revision) — تجربةٌ بلا كتابة كالإرسال ثم PENDING بمراجعةٍ جديدة ويُمحى الاعتراض */
-const pendingEditSchema = loadSchema.extend({ revision: z.number().int().positive() });
+/**
+ * تعديل الإدارة: الجسم كاملاً بمراجعته (revision) — تجربةٌ بلا كتابة كالإرسال ثم PENDING بمراجعةٍ جديدة ويُمحى الاعتراض.
+ * updatedAt (اختياري): لحظة الصفّ كما فُتح عليها التعديل — اعترض المندوب بعدها (أو حدّث سبب اعتراضه) ⇒ 409 PENDING_LOAD_DISPUTED
+ * بالصفّ وملاحظته، فلا يُمحى اعتراضٌ لم يره الإداري (الاعتراض لا يغيّر revision)
+ */
+const pendingEditSchema = loadSchema.extend({ revision: z.number().int().positive(), updatedAt: z.string().max(64).optional() });
 
 router.put('/pending-loads/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -1745,6 +1762,7 @@ router.put('/pending-loads/:id', async (req: AuthRequest, res: Response, next: N
     if (req.user?.role === 'SALES_REP') { pendingRefuse(res, 403, 'PENDING_LOAD_ADMIN_ONLY'); return; }
     const data = pendingEditSchema.parse(req.body);
     if (data.type !== 'LOAD' || data.mode !== undefined || data.deletedSalesRepId !== undefined) { pendingRefuse(res, 400, 'PENDING_LOAD_TYPE_INVALID'); return; }
+    if (hasNegativeQty(data.items)) { pendingRefuse(res, 400, 'PENDING_LOAD_QTY_NEGATIVE'); return; }
     const tid = tenantId(req);
     const id = String(req.params.id);
     const row = await pendingRowFor(req, tid, id, 'admin');
@@ -1755,7 +1773,7 @@ router.put('/pending-loads/:id', async (req: AuthRequest, res: Response, next: N
     if (row.status === 'CANCELLED') { pendingRefuse(res, 409, 'PENDING_LOAD_CANCELLED'); return; }
     const salesRepId = row.salesRepId;
     // المرجع لا يتغيّر بالتعديل (مرجع الإرسال الأول)
-    const { revision, clientRef: _ref, ...rest } = data;
+    const { revision, clientRef: _ref, updatedAt: seenAt, ...rest } = data;
     void _ref;
     const body: LoadBody = { ...rest, type: 'LOAD', salesRepId };
     const dry = await dryRunVanLoad(req, body);
@@ -1764,10 +1782,12 @@ router.put('/pending-loads/:id', async (req: AuthRequest, res: Response, next: N
     if (bad.length) { pendingRefuse(res, 422, 'PENDING_LOAD_LINES_CHANGED', { warnings: bad }); return; }
     const out = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${pendingLoadLockKey(id)}))`;
-      const cur = await tx.pendingVanLoad.findFirst({ where: { id, tenantId: tid }, select: { status: true, revision: true } });
+      const cur = await tx.pendingVanLoad.findFirst({ where: { id, tenantId: tid }, select: { status: true, revision: true, updatedAt: true } });
       if (!cur) return 'GONE' as const;
       if (cur.status === 'ACCEPTED' || cur.status === 'CANCELLED') return cur.status;
       if (cur.revision !== revision) return 'REVISED' as const;
+      // معترَضٌ عليه بعد أن فُتح التعديل (أو تبدّل سببه): لا يُمحى اعتراضٌ لم يره الإداري
+      if (cur.status === 'DISPUTED' && seenAt !== undefined && Date.parse(seenAt) !== cur.updatedAt.getTime()) return 'DISPUTED' as const;
       await tx.pendingVanLoad.update({
         where: { id },
         data: {
@@ -1781,6 +1801,11 @@ router.put('/pending-loads/:id', async (req: AuthRequest, res: Response, next: N
     if (out === 'ACCEPTED') { pendingRefuse(res, 409, 'PENDING_LOAD_ACCEPTED'); return; }
     if (out === 'CANCELLED') { pendingRefuse(res, 409, 'PENDING_LOAD_CANCELLED'); return; }
     if (out === 'REVISED') { pendingRefuse(res, 409, 'PENDING_LOAD_REVISED'); return; }
+    if (out === 'DISPUTED') {
+      const now = await pendingRowFor(req, tid, id, 'admin');
+      pendingRefuse(res, 409, 'PENDING_LOAD_DISPUTED', now ? { data: (await pendingViews(tid, [now], { admin: true, withSignature: false }))[0] } : {});
+      return;
+    }
     notifyPendingLoad(salesRepId);
     const fresh = await pendingRowFor(req, tid, id, 'admin');
     res.json({
@@ -1790,7 +1815,10 @@ router.put('/pending-loads/:id', async (req: AuthRequest, res: Response, next: N
   } catch (err) { next(err); }
 });
 
-/** إلغاء الإدارة للمعلّق أو المعترَض عليه (لا أثر يُعكس — لم يُكتب شيء). المقبول 409، والملغى ثانيةً 200 */
+/**
+ * إلغاء الإدارة للمعلّق أو المعترَض عليه (لا أثر يُعكس — لم يُكتب شيء). المقبول 409، والملغى ثانيةً 200.
+ * وطلب بضاعة المندوب المعلَّم «حُمِّل» بهذا الصفّ («تحميل مباشر») يعود كما كان في المعاملة نفسها (reopenRepRequestsOf)
+ */
 router.post('/pending-loads/:id/cancel', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (pendingApiKeyRefused(req, res)) return;
@@ -1810,6 +1838,8 @@ router.post('/pending-loads/:id/cancel', async (req: AuthRequest, res: Response,
         where: { id },
         data: { status: 'CANCELLED', cancelledAt: new Date(), cancelledById: actor, cancelledByName: pendingActorName(actor, req.user?.name), ...(reason && { note: reason }) },
       });
+      // لم يصل السيارة شيء ⇒ طلب المندوب المعلَّم «حُمِّل» بهذا الصفّ يعود كما كان (قفل الطلبات بعد قفل الصفّ)
+      await reopenRepRequestsOf(tx, tid, id, pendingActorName(actor, req.user?.name));
       return 'OK' as const;
     });
     if (out === 'GONE') { pendingRefuse(res, 404, 'PENDING_LOAD_NOT_FOUND'); return; }

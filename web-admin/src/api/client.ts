@@ -401,7 +401,8 @@ export const companyApi = {
     set: (enabled: boolean) => api.patch('/company/buyer-relax', { enabled }),
   },
   // «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦) — /api/company/van-load-acceptance: { enabled, openCount } لمستخدم
-  // الشركة الإداري، والتبديل بصلاحية إعدادات الشركة لغير المقيّد بنطاق (403 VAN_LOAD_ACCEPTANCE_SCOPED، والمفتاح 403 دائماً)؛ الإيقاف
+  // الشركة الإداري، والتبديل لمدير الشركة وحده (403 VAN_LOAD_ACCEPTANCE_ADMIN_ONLY) بصلاحية إعدادات الشركة لغير المقيّد بنطاق
+  // (403 VAN_LOAD_ACCEPTANCE_SCOPED، والمفتاح 403 دائماً)؛ الإيقاف
   // ما دامت تحميلاتٌ بانتظار القبول أو معترضٌ عليها 409 VAN_LOAD_ACCEPTANCE_OPEN_LOADS بعددها. والعلم نفسه في GET /company (vanLoadAcceptance)
   vanLoadAcceptance: {
     get: () => api.get('/company/van-load-acceptance'),

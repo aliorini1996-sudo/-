@@ -10,9 +10,10 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   DISPUTE_NOTE_MAX, PENDING_LOADS_SCREEN, SIGNATURE_MAX, acceptBlocked, acceptBodyOf, activeRowStale, disputeNoteOf, lineLotText,
-  lineQtyText, pendingCacheEntry, pendingCacheOf, pendingHomeCardOf, pendingLoadsCacheKey, repPendingFailureOf, repPendingFailureText,
-  repPendingSections,
+  lineQtyText, myRequestStatusText, pendingCacheEntry, pendingCacheOf, pendingHomeCardOf, pendingLoadsCacheKey, repPendingFailureOf, repPendingFailureText,
+  repPendingSections, requestLoadAwaiting,
 } from './vanLoadAcceptance';
+import { PHRASES } from '../i18n/strings';
 import {
   PENDING_LOAD_MESSAGES, acceptanceOf, fetchPendingDetail, normalizePendingList, normalizePendingLoad, noticeMovementOf, pendingLoadsClient,
 } from '../lib/pendingLoads';
@@ -218,6 +219,30 @@ test('المسار وشاشة الإشعار — كما يرسلها الخاد�
       assert.ok(routes.includes(r), r);
     }
   }
+});
+
+test('«مخزون سيارتي»: طلبٌ «حُمِّل» بتحميلٍ أُرسل ولم يُقبل بعد ⇒ «بانتظار قبولك وتوقيعك» لا «حملت الإدارة طلبك» — وما سواه كما كان', () => {
+  assert.equal(myRequestStatusText({ status: 'LOADED', pendingStatus: 'PENDING' }, tr), 'أرسلت الإدارة طلبك للتحميل — بانتظار قبولك وتوقيعك');
+  assert.equal(myRequestStatusText({ status: 'LOADED', pendingStatus: 'DISPUTED' }, tr), 'اعترضت على تحميل طلبك — بانتظار تعديل الإدارة');
+  // المقبول (دخل السيارة)، والحركة المباشرة (null)، وخادمٌ أقدم بلا الحقل: كما كان
+  for (const pendingStatus of ['ACCEPTED', null, undefined]) {
+    assert.equal(myRequestStatusText({ status: 'LOADED', pendingStatus }, tr), 'حملت الإدارة طلبك إلى سيارتك', String(pendingStatus));
+    assert.equal(requestLoadAwaiting({ status: 'LOADED', pendingStatus }), false);
+  }
+  assert.equal(myRequestStatusText({ status: 'SENT' }, tr), 'أرسلت الإدارة طلبك ضمن طلب المخزون');
+  assert.equal(myRequestStatusText({ status: 'REJECTED' }, tr), 'رفضت الإدارة طلبك الأخير');
+  assert.equal(requestLoadAwaiting({ status: 'LOADED', pendingStatus: 'PENDING' }), true);
+  assert.equal(requestLoadAwaiting({ status: 'LOADED', pendingStatus: 'DISPUTED' }), true);
+  assert.equal(requestLoadAwaiting({ status: 'SENT', pendingStatus: 'PENDING' }), false);
+  for (const k of ['أرسلت الإدارة طلبك للتحميل — بانتظار قبولك وتوقيعك', 'اعترضت على تحميل طلبك — بانتظار تعديل الإدارة']) {
+    for (const lang of ['en', 'fr', 'tr', 'zh'] as const) assert.ok(PHRASES[k]?.[lang] && !/[؀-ۿ]/.test(PHRASES[k][lang]), `${k} (${lang})`);
+    assert.ok(!PHRASES[k].fr.includes("'"), k);
+  }
+  // RepApp يعرض العبارة من الدالّة نفسها، والمنتظر بلون الانتظار
+  const app = read('src', 'rep', 'RepApp.tsx');
+  assert.ok(app.includes('{myRequestStatusText(myReq.last, tr)} · {formatDate(myReq.last.decidedAt)}'));
+  assert.ok(app.includes("requestLoadAwaiting(myReq.last) ? 'bg-amber-50 text-amber-800'"));
+  assert.ok(app.includes('pendingStatus?: string | null;'));
 });
 
 test('حارس ثابت: RepApp — الشركة المطفأة كما كانت حرفاً، والبطاقة والشريط خلف العلم، والإشعار يفتح الشاشة', () => {

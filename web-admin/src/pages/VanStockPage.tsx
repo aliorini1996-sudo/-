@@ -47,8 +47,8 @@ import { VAN_DESTROY_REASON } from '../components/purchases/purchaseCalc';
 // «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦)
 import PendingVanLoadsPanel from '../components/PendingVanLoadsPanel';
 import {
-  PENDING_LOADS_KEY, PENDING_LOAD_TEXT, acceptanceOf, fetchPendingDetail, isPendingLoadResponse, pendingEditLines, pendingLoadErrorOf,
-  pendingRefusalText, vanLoadAcceptanceOn, type LoadNoticeAcceptance, type PendingVanLoadView,
+  PENDING_LOADS_KEY, PENDING_LOAD_TEXT, acceptanceOf, fetchPendingDetail, isPendingLoadResponse, pendingEditLines, pendingEditStaleText,
+  pendingLoadErrorOf, pendingRefusalText, vanLoadAcceptanceOn, type LoadNoticeAcceptance, type PendingVanLoadView,
 } from '../lib/pendingLoads';
 
 /*
@@ -435,6 +435,9 @@ export default function VanStockPage() {
         </div>
       </div>
 
+      {/* «قبول المندوب للتحميل»: أول ما في الصفحة — المعترض عليه ينتظر قرار الإدارة (تعديلٌ أو إلغاء) فلا يُدفن تحت الجداول */}
+      {acceptanceOn && <PendingVanLoadsPanel company={companyQ.data ?? null} onEdit={setEditPending} />}
+
       {/* تصفية بالمدّة */}
       <div className="card">
         <div className="flex gap-3 flex-wrap items-end">
@@ -699,8 +702,6 @@ export default function VanStockPage() {
       )}
 
       {locOn && <VanLoadsLog reps={reps} />}
-
-      {acceptanceOn && <PendingVanLoadsPanel company={companyQ.data ?? null} onEdit={setEditPending} />}
 
       {showLoad && <LoadModal preselectRep={selected} lotOn={lotOn} whOn={whOn} acceptanceOn={acceptanceOn} onClose={() => setShowLoad(false)} />}
       {editPending && (
@@ -1333,7 +1334,8 @@ function LoadModal({ preselectRep, lotOn, whOn, acceptanceOn = false, pending = 
       if (pending) {
         const items = withBaseUnitNames(rows.map(r => ({ productId: r.productId, qty: Number(r.qty), unitId: r.unitId, suggestedQty: r.suggestedQty, expectedQty: r.expectedQty, ...lotFields(r) })), pid => rows.find(r => r.productId === pid)?.baseUnit);
         const res = await pendingLoadsApi.update(pending.id, {
-          type: 'LOAD', salesRepId: repId, note: note.trim() || undefined, revision: pending.revision, items: splitVanMovement(items).out,
+          type: 'LOAD', salesRepId: repId, note: note.trim() || undefined, revision: pending.revision, updatedAt: pending.updatedAt ?? undefined,
+          items: splitVanMovement(items).out,
         });
         return { warnings: lotWarningsOf((res?.data as { warnings?: unknown } | undefined)?.warnings), replayed: false, edited: true };
       }
@@ -1403,6 +1405,10 @@ function LoadModal({ preselectRep, lotOn, whOn, acceptanceOn = false, pending = 
       const pe = pendingLoadErrorOf(e);
       if (pe?.code && (pe.code.startsWith('PENDING_LOAD_') || pe.code === 'API_KEY_FORBIDDEN')) {
         if (pending) qc.invalidateQueries({ queryKey: [PENDING_LOADS_KEY] });
+        // تعديل تحميلٍ تغيّر منذ فُتح (عُدّل من جهازٍ آخر، أو اعترض عليه المندوب، أو قُبل أو أُلغي): عبارةٌ للإدارة لا للمندوب،
+        // ويُغلق المحرّر — مراجعته قديمة فكل إعادةٍ منه تُرفض؛ والقسم أعلى الصفحة يُعاد بحاله وملاحظة المندوب
+        const stale = pending ? pendingEditStaleText(e, tr) : null;
+        if (stale) { toast.error(stale, { duration: 10000 }); onClose(); return; }
         // أسطرٌ ستتغيّر عند التسجيل: تُسمّى أصنافها (warnings[].productId) فيعرف المدير ما يراجع
         toast.error(pendingRefusalText(e, tr, 'تعذر الحفظ', pid => productOf(pid)?.name ?? rows.find(r => r.productId === pid)?.name), { duration: 8000 });
         return;

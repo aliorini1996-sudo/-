@@ -53,6 +53,29 @@ export function pendingHomeCardOf(c: PendingLoadCounts | null | undefined): { ki
   return null;
 }
 
+// ───────── طلب البضاعة الذي حمّلته الإدارة «تحميلاً مباشراً» (مخزون سيارتي) ─────────
+
+/** آخر طلب بضاعةٍ حُسم كما يردّه GET /rep-stock-requests/mine — ومعه حال التحميل المرسل له (pendingStatus) إن كان */
+export interface DecidedRequestLike { status: string; pendingStatus?: string | null }
+
+/** «حُمِّل» بتحميلٍ أُرسل للمندوب ولم يدخل سيارته بعد: بانتظار قبوله وتوقيعه، أو معترَضٌ عليه */
+export const requestLoadAwaiting = (last: DecidedRequestLike): boolean =>
+  last.status === 'LOADED' && (last.pendingStatus === 'PENDING' || last.pendingStatus === 'DISPUTED');
+
+/**
+ * عبارة آخر طلبٍ حُسم للمندوب. «قبول المندوب للتحميل» مفعّلة: «حُمِّل» بتحميلٍ أُرسل له ولم يقبله بعد ⇒ «بانتظار قبولك وتوقيعك» —
+ * لا «حملت الإدارة طلبك إلى سيارتك» والبضاعة لم تدخلها — والمعترَض عليه «بانتظار تعديل الإدارة». المقبول والحركة المباشرة (null)
+ * وخادمٌ أقدم بلا الحقل كما كانت
+ */
+export function myRequestStatusText(last: DecidedRequestLike, tr: (ar: string) => string): string {
+  if (last.status === 'LOADED') {
+    if (last.pendingStatus === 'PENDING') return tr('أرسلت الإدارة طلبك للتحميل — بانتظار قبولك وتوقيعك');
+    if (last.pendingStatus === 'DISPUTED') return tr('اعترضت على تحميل طلبك — بانتظار تعديل الإدارة');
+    return tr('حملت الإدارة طلبك إلى سيارتك');
+  }
+  return last.status === 'SENT' ? tr('أرسلت الإدارة طلبك ضمن طلب المخزون') : tr('رفضت الإدارة طلبك الأخير');
+}
+
 /** صنفٌ حُذف بعد الإرسال: القبول سيُرفض PENDING_LOAD_CHANGED — لا يُفتح التوقيع، والاعتراض يبلّغ الإدارة */
 export const acceptBlocked = (row: Pick<PendingVanLoadView, 'lines'>): boolean => row.lines.some((l) => l.missing);
 

@@ -134,7 +134,15 @@ router.get('/mine', repOnly, async (req: AuthRequest, res: Response, next: NextF
       prisma.repStockRequest.findFirst({ where: { tenantId: tid, salesRepId: me, status: 'PENDING' }, include: ITEMS_INCLUDE }),
       prisma.repStockRequest.findFirst({ where: { tenantId: tid, salesRepId: me, status: { in: ['SENT', 'REJECTED', 'LOADED'] } }, orderBy: { decidedAt: 'desc' }, include: ITEMS_INCLUDE }),
     ]);
-    res.json({ success: true, data: { pending: pending && shape(pending), last: last && shape(last) } });
+    // «قبول المندوب للتحميل»: «حُمِّل» بمعرّف تحميلٍ أُرسل له (sentRef = PendingVanLoad) ولم يقبله بعد ⇒ حاله (PENDING/DISPUTED/ACCEPTED)
+    // فيقول التطبيق «بانتظار قبولك وتوقيعك» لا «حملت الإدارة طلبك». حركةٌ مباشرة (الميزة مطفأة) ⇒ null — والردّ كما كان لغير LOADED
+    const pendingStatus = last?.status === 'LOADED' && last.sentRef
+      ? (await prisma.pendingVanLoad.findFirst({ where: { id: last.sentRef, tenantId: tid, salesRepId: me }, select: { status: true } }))?.status ?? null
+      : null;
+    res.json({
+      success: true,
+      data: { pending: pending && shape(pending), last: last && { ...shape(last), ...(last.status === 'LOADED' && { pendingStatus }) } },
+    });
   } catch (err) { fail(err, res, next); }
 });
 
@@ -343,7 +351,8 @@ router.post('/:id/reject', companyOnly, async (req: AuthRequest, res: Response, 
 // «قبول المندوب للتحميل وتوقيعه» (CompanySettings.vanLoadAcceptance): تحميل الإدارة يردّه POST /van-stock/loads صفّاً معلّقاً
 // (pending:true) لا حركة — فالمعرّف المرسل هنا معرّف PendingVanLoad لسيارة صاحب الطلب (غير ملغى) يُعلَّم به الطلب «حُمِّل» كذلك:
 // أُرسل للمندوب، والبضاعة تدخل سيارته حين يقبله ويوقّع (والحركة تحمل pendingLoadId هذا). يُقرأ حين لا حركة بالمعرّف وحده، ولغير
-// مفتاح API (تحميل المفتاح لا يُعلَّق أبداً) — فالشركة المطفأة ميزتها والمفتاح كما كانا حرفياً
+// مفتاح API (تحميل المفتاح لا يُعلَّق أبداً) — فالشركة المطفأة ميزتها والمفتاح كما كانا حرفياً. وإلغاء الإدارة لذلك التحميل قبل
+// قبوله يعيد الطلب معلّقاً في معاملة الإلغاء (services/vanPendingLoads.ts reopenRepRequestsOf، تحت قفل الطلبات نفسه)
 const loadedSchema = versionSchema.extend({ vanLoadId: z.string().min(1).max(64) });
 
 router.post('/:id/loaded', companyOnly, async (req: AuthRequest, res: Response, next: NextFunction) => {

@@ -46,6 +46,8 @@ export default function PendingVanLoadsPanel({ company, onEdit }: {
       toast.success(tr(PENDING_LOAD_TEXT.cancelled));
       setCancelling(null);
       qc.invalidateQueries({ queryKey: [PENDING_LOADS_KEY] });
+      // طلب المندوب المحمَّل «تحميلاً مباشراً» بهذا التحميل يعود معلّقاً مع الإلغاء (الخادم) — قائمة الطلبات تُعاد
+      qc.invalidateQueries({ queryKey: ['rep-stock-requests'] });
     },
     onError: (e: unknown) => {
       setCancelling(null);

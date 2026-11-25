@@ -19,7 +19,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   PENDING_LOADS_KEY, PENDING_LOAD_MESSAGES, PENDING_LOAD_TEXT, PENDING_STATUS_LABELS, acceptanceOf, acceptanceSentence, fetchPendingDetail,
   fetchPendingList, isPendingLoadResponse, noticeMovementOf, normalizePendingList, normalizePendingLoad, pendingChangedProductIds, pendingEditLines,
-  pendingErrorText, pendingLoadErrorOf, pendingLoadsClient, pendingRefusalText, pendingSections, safeSignature, vanLoadAcceptanceOn, type HttpLike,
+  pendingEditStaleText, pendingErrorText, pendingLoadErrorOf, pendingLoadsClient, pendingRefusalText, pendingSections, safeSignature, vanLoadAcceptanceOn,
+  type HttpLike,
   type PendingLoadList,
   type PendingVanLoadView,
 } from './pendingLoads';
@@ -161,7 +162,15 @@ test('نصّ الرفض: الرمز المعروف بعبارته مترجمةً
   assert.equal(pendingErrorText(revised, id, 'تعذر الحفظ'), PENDING_LOAD_MESSAGES.PENDING_LOAD_REVISED, 'العبارة من الرمز لا من الرسالة');
   assert.equal(pendingErrorText(revised, en, 'تعذر الحفظ'), 'Management has changed this load — review the items and sign again');
   assert.equal(pendingErrorText(err(409, { code: 'VAN_LOAD_ACCEPTANCE_OPEN_LOADS', message: 'x', count: 2 }), en, 'تعذر الحفظ'),
-    'Some loads are awaiting rep acceptance — have them accepted or cancel them before turning the feature off');
+    'Some loads are awaiting rep acceptance or disputed — the feature cannot be turned off until the reps accept them or you cancel them');
+  // عبارتا الإيقاف لمدير الشركة: لا «اقبلها» (القبول للمندوب) — المفتوح يحسمه قبول مندوبه أو إلغاء الإدارة، والمعترض عليه منه
+  for (const s of [PENDING_LOAD_MESSAGES.VAN_LOAD_ACCEPTANCE_OPEN_LOADS, PENDING_LOAD_TEXT.settingOpen]) {
+    assert.doesNotMatch(s, /اقبلها/, s);
+    assert.match(s, /معترض/, s);
+    assert.match(s, /إلغائه|تلغيها/, s);
+  }
+  assert.equal(pendingErrorText(err(403, { code: 'VAN_LOAD_ACCEPTANCE_ADMIN_ONLY', message: 'x' }), en, 'تعذر الحفظ'),
+    'Only the company admin can change the rep load-acceptance requirement');
   assert.equal(pendingErrorText(err(422, { code: 'WAREHOUSE_INSUFFICIENT', message: 'رصيد المستودع لا يكفي' }), id, 'تعذر الحفظ'), 'رصيد المستودع لا يكفي');
   assert.equal(pendingErrorText(err(500, {}), id, 'تعذر الحفظ'), 'تعذر الحفظ');
   assert.equal(pendingErrorText(new Error('Network Error'), en, 'تعذر الحفظ'), en('تعذر الحفظ'));
@@ -195,6 +204,50 @@ test('رفض «أسطرٌ ستتغيّر عند التسجيل»: أصناف war
   assert.ok(read('m', 'MRepLoad.tsx').includes("toast.error(pendingRefusalText(e, tr, 'تعذر الحفظ', pid => rows.find(r => r.productId === pid)?.name), { duration: 8000 });"));
 });
 
+test('تعديل الإدارة لتحميلٍ تغيّر منذ فُتح: عبارةٌ للإدارة لا «وقّع من جديد» — والاعتراض بملاحظة المندوب، وغيره الرفض المعتاد (null)', () => {
+  const err = (status: number, data: unknown) => ({ response: { status, data } });
+  const revised = err(409, { code: 'PENDING_LOAD_REVISED', message: PENDING_LOAD_MESSAGES.PENDING_LOAD_REVISED });
+  assert.equal(pendingEditStaleText(revised, id), PENDING_LOAD_TEXT.editStale);
+  assert.doesNotMatch(pendingEditStaleText(revised, id)!, /وقّع/, 'لا عبارة المندوب');
+  assert.equal(pendingEditStaleText(err(404, { code: 'PENDING_LOAD_NOT_FOUND' }), id), PENDING_LOAD_TEXT.editStale);
+  assert.equal(pendingEditStaleText(err(409, { code: 'PENDING_LOAD_ACCEPTED' }), id), PENDING_LOAD_MESSAGES.PENDING_LOAD_ACCEPTED);
+  assert.equal(pendingEditStaleText(err(409, { code: 'PENDING_LOAD_CANCELLED' }), id), PENDING_LOAD_MESSAGES.PENDING_LOAD_CANCELLED);
+  const disputed = err(409, { code: 'PENDING_LOAD_DISPUTED', data: serverRow({ status: 'DISPUTED', disputeNote: 'الماء ناقص' }) });
+  assert.equal(pendingEditStaleText(disputed, id), `${PENDING_LOAD_TEXT.editDisputed} — ${PENDING_LOAD_TEXT.disputeNote}: الماء ناقص`);
+  assert.equal(PENDING_LOAD_TEXT.editDisputed, PENDING_LOAD_MESSAGES.PENDING_LOAD_DISPUTED, 'عبارة الخادم نفسها');
+  assert.equal(pendingEditStaleText(err(409, { code: 'PENDING_LOAD_DISPUTED' }), id), PENDING_LOAD_TEXT.editDisputed, 'بلا صفٍّ: العبارة وحدها');
+  assert.equal(pendingEditStaleText(revised, en), 'This load has changed since you opened it — reopen it from Loads awaiting acceptance');
+  assert.equal(pendingEditStaleText(disputed, en), 'The rep disputed this load after you opened it — read the rep’s note, then reopen it from Loads awaiting acceptance — Rep’s note: الماء ناقص');
+  // رفضٌ لا يعني «تغيّر منذ فُتح»: الرفض المعتاد ويبقى المحرّر
+  for (const e of [err(422, { code: 'PENDING_LOAD_LINES_CHANGED' }), err(400, { code: 'PENDING_LOAD_QTY_NEGATIVE' }), err(422, { code: 'WAREHOUSE_INSUFFICIENT' }), new Error('Network Error')]) {
+    assert.equal(pendingEditStaleText(e, id), null);
+  }
+  // الشاشتان: التعديل يرسل لحظة الصفّ التي فُتح عليها، والرفض «تغيّر منذ فُتح» يغلق المحرّر قبل الرفض المعتاد
+  const page = read('pages', 'VanStockPage.tsx');
+  assert.ok(page.includes('revision: pending.revision, updatedAt: pending.updatedAt ?? undefined,'));
+  assert.ok(page.includes('const stale = pending ? pendingEditStaleText(e, tr) : null;'));
+  assert.ok(page.includes('if (stale) { toast.error(stale, { duration: 10000 }); onClose(); return; }'));
+  assert.ok(page.indexOf('if (stale) {') < page.indexOf("toast.error(pendingRefusalText(e, tr, 'تعذر الحفظ'"), 'قبل الرفض المعتاد');
+  const m = read('m', 'MRepLoad.tsx');
+  assert.ok(m.includes('revision: editing.revision, updatedAt: editing.updatedAt ?? undefined, items: out,'));
+  assert.ok(m.includes('const stale = editing ? pendingEditStaleText(e, tr) : null;'));
+  assert.ok(m.includes("if (stale) { toast.error(stale, { duration: 10000 }); setEditing(null); setRows([]); setNote(''); return; }"));
+  assert.ok(m.indexOf('if (stale) {') < m.indexOf("toast.error(pendingRefusalText(e, tr, 'تعذر الحفظ'"));
+});
+
+test('القسم في صفحة مخزون السيارات أول ما فيها: بعد الترويسة وقبل «تصفية بالمدّة» — المعترض عليه لا يُدفن تحت الجداول', () => {
+  const page = read('pages', 'VanStockPage.tsx');
+  const panel = page.indexOf('{acceptanceOn && <PendingVanLoadsPanel company={companyQ.data ?? null} onEdit={setEditPending} />}');
+  assert.ok(panel > page.indexOf("{tr('مخزون سيارات المناديب')}"), 'بعد الترويسة');
+  assert.ok(panel < page.indexOf('{/* تصفية بالمدّة */}'), 'قبل تصفية المدّة');
+  assert.ok(panel < page.indexOf('{/* ملخّص المناديب */}'));
+  // الإلغاء يعيد طلب المندوب المحمَّل «تحميلاً مباشراً» معلّقاً (الخادم) — اللوحة و/m يعيدان قائمة الطلبات بعده
+  for (const s of [read('components', 'PendingVanLoadsPanel.tsx'), read('m', 'MRepLoad.tsx')]) {
+    const ok = s.slice(s.indexOf('pendingLoadsApi.cancel('), s.indexOf('onError', s.indexOf('pendingLoadsApi.cancel(')));
+    assert.ok(ok.includes("qc.invalidateQueries({ queryKey: ['rep-stock-requests'] });"));
+  }
+});
+
 test('العميل: المسارات والوسائط كما يقرؤها الخادم — والإدارة والمندوب يمرّران عميلهما', async () => {
   const calls: unknown[][] = [];
   const http: HttpLike = {
@@ -210,7 +263,7 @@ test('العميل: المسارات والوسائط كما يقرؤها الخ
   await c.get('a/b');
   await c.accept('p1', { signature: SIG, revision: 2, lat: 24.7, lng: 46.6 });
   await c.dispute('p1', 'نقص');
-  await c.update('p1', { type: 'LOAD', salesRepId: 'r1', revision: 1, items: [{ productId: 'pa', qty: 1 }] });
+  await c.update('p1', { type: 'LOAD', salesRepId: 'r1', revision: 1, updatedAt: '2026-11-24T06:00:00.000Z', items: [{ productId: 'pa', qty: 1 }] });
   await c.cancel('p1');
   await c.cancel('p1', 'خطأ');
   assert.deepEqual(calls, [
@@ -220,7 +273,7 @@ test('العميل: المسارات والوسائط كما يقرؤها الخ
     ['GET', '/van-stock/pending-loads/a%2Fb', undefined],
     ['POST', '/van-stock/pending-loads/p1/accept', { signature: SIG, revision: 2, lat: 24.7, lng: 46.6 }],
     ['POST', '/van-stock/pending-loads/p1/dispute', { note: 'نقص' }],
-    ['PUT', '/van-stock/pending-loads/p1', { type: 'LOAD', salesRepId: 'r1', revision: 1, items: [{ productId: 'pa', qty: 1 }] }],
+    ['PUT', '/van-stock/pending-loads/p1', { type: 'LOAD', salesRepId: 'r1', revision: 1, updatedAt: '2026-11-24T06:00:00.000Z', items: [{ productId: 'pa', qty: 1 }] }],
     ['POST', '/van-stock/pending-loads/p1/cancel', {}],
     ['POST', '/van-stock/pending-loads/p1/cancel', { reason: 'خطأ' }],
   ]);
@@ -531,9 +584,30 @@ test('«تحميل مباشر» لطلب المندوب والميزة مفعّ�
   // التأكيد: مفعّلةً تلميح الإرسال مكان «تخصم الكميات»، ومطفأةً العبارة كما كانت
   assert.ok(modal.includes("const effect = vanLoadAcceptanceOn(company) ? tr(PENDING_LOAD_TEXT.hint) : tr('تخصم الكميات من مخزون الشركة');"));
   // المعرّف (حركةٌ أو معلّق) يعلّم الطلب بالمسار نفسه — /loaded يقبل معرّف المعلّق لسيارة صاحبه (repStockRequests.ts)
-  assert.ok(modal.includes('const pendingSent = isPendingLoadResponse(res);'));
-  assert.ok(modal.indexOf('const pendingSent = isPendingLoadResponse(res);') < modal.indexOf('await repStockRequestApi.loaded(r.id, { updatedAt: saved.updatedAt, vanLoadId });'));
+  assert.ok(modal.includes('pendingSent = isPendingLoadResponse(res);'));
+  assert.ok(modal.indexOf('pendingSent = isPendingLoadResponse(res);') < modal.indexOf('await repStockRequestApi.loaded(r.id, { updatedAt: saved.updatedAt, vanLoadId });'));
   assert.ok(modal.includes("pendingSent ? `${tr(PENDING_LOAD_TEXT.sent)} · ${r.repName}` : fillNames(tr('حمل طلب المندوب {names} إلى سيارته'), [r.repName]),"));
+  // ما بعد الإرسال لا يقول «تم التحميل» ولا «راجع حركة التحميل»: كل رسالةٍ بنظيرتها «أُرسل… تحميلات بانتظار القبول» — ومنها خطأ
+  // التعليم في catch (فالعلم خارج try)
+  assert.ok(modal.indexOf('let pendingSent = false;') < modal.indexOf('    try {', modal.indexOf('let pendingSent = false;')));
+  for (const [sent, loaded] of [
+    ['أرسل الطلب للمندوب مع ملاحظات من الخادم على {names} راجعه في تحميلات بانتظار القبول', 'حمل الطلب مع ملاحظات من الخادم على {names} راجع حركة التحميل في مخزون السيارات'],
+    ['أرسل التحميل للمندوب لكنه عدل طلبه بعده فبقي معلقا راجع ما أضافه', 'تم التحميل لكن المندوب عدل طلبه بعده فبقي معلقا راجع ما أضافه'],
+    ['أرسل التحميل للمندوب لكن الطلب لم يعد معلقا سحبه المندوب أو حسمه غيرك راجع تحميلات بانتظار القبول', 'تم التحميل لكن الطلب لم يعد معلقا سحبه المندوب أو حسمه غيرك راجع حركة التحميل في مخزون السيارات'],
+    ['سبق إرسال هذا الطلب للمندوب فلم يتكرر', 'سبق تحميل هذا الطلب فلم يتكرر'],
+    ['أرسل التحميل للمندوب لكن تعذر تعليم الطلب اضغط تحميل مباشر مرة أخرى ليعلم دون إرسال ثان', 'تم التحميل لكن تعذر تعليم الطلب اضغط تحميل مباشر مرة أخرى ليعلم دون تحميل ثان'],
+  ]) {
+    const at = modal.indexOf(`tr('${sent}')`);
+    assert.ok(at > 0, sent);
+    assert.ok(modal.lastIndexOf('pendingSent', at) > modal.lastIndexOf(`tr('${loaded}')`, at), `${sent}: بشرط pendingSent`);
+    assert.ok(modal.includes(`tr('${loaded}')`), `المطفأة كما كانت: ${loaded}`);
+    for (const lang of ['en', 'fr', 'tr', 'zh'] as const) {
+      assert.ok(PHRASES[sent]?.[lang] && !/[؀-ۿ]/.test(PHRASES[sent][lang]), `${sent} (${lang})`);
+    }
+    assert.ok(!PHRASES[sent].fr.includes("'"), `${sent} (fr) بفاصلةٍ عليا لاتينية`);
+  }
+  assert.ok(modal.includes("...(replayed ? [pendingSent ? tr('سبق إرسال هذا الطلب للمندوب فلم يتكرر') : tr(VAN_MOVE_TEXT.replay)] : []), ...lotNotes,"),
+    'المرسَل نفسه بعد إعادةٍ لا يقول «سبق حفظ هذه الحركة»');
   assert.ok(/'lot-fefo', PENDING_LOADS_KEY\]\) \{/.test(modal), 'قسم «تحميلات بانتظار القبول» يُعاد');
   const backend = path.resolve(process.cwd(), '..', 'backend', 'src', 'routes', 'repStockRequests.ts');
   if (fs.existsSync(backend)) {

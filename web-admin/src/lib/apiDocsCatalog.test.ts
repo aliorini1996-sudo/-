@@ -2189,11 +2189,12 @@ test('قبول المندوب للتحميل: مسارات المعلّق وال
     const def = src.slice(src.indexOf(`const ${guard![1]} = `), src.indexOf('};', src.indexOf(`const ${guard![1]} = `)));
     assert.ok(def.includes('req.user?.apiKeyId') && def.includes("'API_KEY_FORBIDDEN'"), `${guard![1]} لا يرفض المفتاح`);
   }
-  // التعليق لا يكون لطلب المفتاح ولا للمندوب ولا لإعادة الرفع، ولغير LOAD
+  // التعليق لا يكون لطلب المفتاح ولا للمندوب، ولغير LOAD — وترويسة إعادة الرفع لا تُعفي (صندوق المندوب وحده، وتُمحى لطلب المفتاح)
   const wanted = src.slice(src.indexOf('async function pendingLoadWanted'), src.indexOf('\n}\n', src.indexOf('async function pendingLoadWanted')));
   for (const s of ["if (data.type !== 'LOAD') return false;", "if (req.user?.role === 'SALES_REP') return false;", 'if (req.user?.apiKeyId) return false;']) {
     assert.ok(wanted.includes(s), `pendingLoadWanted بلا: ${s}`);
   }
+  assert.ok(!wanted.includes('x-fs-replay'), 'ترويسة إعادة الرفع من مستخدم الشركة تُعفي تحميله من القبول');
   // الإعداد: القراءة موثّقة (مسموحة للمفتاح)، والقلب مستثنى لأن المفتاح يُرفض فيه أولاً
   assert.ok(MOUNTS.get('/company/van-load-acceptance')?.has('companyVanLoadAcceptance'), 'موجّه الإعداد غير مركّب تحت /company/van-load-acceptance');
   const setting = routeFile('companyVanLoadAcceptance');
@@ -2203,6 +2204,8 @@ test('قبول المندوب للتحميل: مسارات المعلّق وال
   assert.match(setting, /data: \{ enabled: row\?\.vanLoadAcceptance === true, openCount \}/);
   assert.equal(endpointOf('GET', '/company/van-load-acceptance').response, '{success:true, data:{enabled, openCount}}');
   assert.match(JSON.stringify(endpointOf('GET', '/company/van-load-acceptance').rules), /409 VAN_LOAD_ACCEPTANCE_OPEN_LOADS/);
+  assert.match(JSON.stringify(endpointOf('GET', '/company/van-load-acceptance').rules), /403 VAN_LOAD_ACCEPTANCE_ADMIN_ONLY/);
+  assert.ok(setting.includes("refuse(res, 403, 'VAN_LOAD_ACCEPTANCE_ADMIN_ONLY')"), 'الخادم لا يرسل VAN_LOAD_ACCEPTANCE_ADMIN_ONLY');
   assert.ok(setting.includes("'VAN_LOAD_ACCEPTANCE_OPEN_LOADS'"), 'الخادم لا يرسل VAN_LOAD_ACCEPTANCE_OPEN_LOADS');
   // المستند: المفتاح يُكتب فوراً، والتعليق للوحة بردّه، والعمودان في السجلّ، والعلم في /company
   const post = JSON.stringify(endpointOf('POST', '/van-stock/loads').rules);
