@@ -339,7 +339,11 @@ export const SYNC_RESOURCES: readonly SyncResource[] = Object.freeze([
     // «تتبّع اللوط»: معرّف البند للشركة المفعّلة — به تُربط صفوف van-load-item-lots (vanLoadItemId) ببندها — وتوزيعه على التشغيلات
     // مضمّناً فيه ببطاقتها (Σ qty لبندٍ = baseQty البند بإشارته). والمطفأة بلا تغيير (§١٠.١): البند يُعرَّف عندها بحركته وصنفه كما كان
     lotSelect: { items: { select: { ...pick('id'), lots: VAN_ITEM_LOTS } } },
-    denied: { tenantId: 'معروف من المفتاح' },
+    denied: {
+      tenantId: 'معروف من المفتاح',
+      acceptedAt: '«قبول المندوب للتحميل»: لحظة قبوله وتوقيعه — داخلي، والحركة نفسها تُزامَن عند القبول',
+      pendingLoadId: 'مرجع داخلي لصفّ إقرار المندوب الموقَّع',
+    },
     nested: {
       items: { model: 'vanLoadItem', denied: { vanLoadId: PARENT } },
       'items.lots': { model: 'vanLoadItemLot', lots: true, denied: { ...LINE_LOT_DENIED, vanLoadItemId: PARENT } },

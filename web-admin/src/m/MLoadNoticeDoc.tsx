@@ -1,4 +1,5 @@
 import { DocumentResult, loadNoticeDocFromData, Company } from '../rep/RepDocuments';
+import type { LoadNoticeAcceptance } from '../lib/pendingLoads';
 
 /**
  * إشعار حركة سيارة (تحميل · تنزيل · تسوية) — غلاف كسول حول عارض المستندات،
@@ -16,7 +17,7 @@ import { DocumentResult, loadNoticeDocFromData, Company } from '../rep/RepDocume
  * بتشغيلتها، بالأساس D22)، والبانية تضمّها إلى بنود الإشعار فيُطبع عمود «التشغيلة / الانتهاء» متى وُجدت تشغيلة. والمطفأة
  * بلا `lots` فالإشعار كما كان حرفاً. لا جلب هنا ولا نسخةٌ ثانية للتحويل.
  */
-export default function MLoadNoticeDoc({ repName, movement, company, onClose }: {
+export default function MLoadNoticeDoc({ repName, movement, company, acceptance = null, onClose }: {
   repName: string;
   /**
    * الحركة كما يردّها `movements`: البند بلقطة وحدته (`unit` = unitName البند) وكميته بالأساس (`baseQty`) — فيطبع
@@ -26,11 +27,13 @@ export default function MLoadNoticeDoc({ repName, movement, company, onClose }: 
   movement: Parameters<typeof loadNoticeDocFromData>[1];
   /** إعدادات الشركة للترويسة — `null` يعطي إشعاراً بلا اسمٍ ولا رقمٍ ضريبيّ */
   company: unknown;
+  /** «قبول المندوب للتحميل»: إقرار المندوب الموقَّع لتحميلٍ قبله — يُطبع بتوقيعه ولحظة قبوله، وغيابه الإشعار كما كان */
+  acceptance?: LoadNoticeAcceptance | null;
   onClose: () => void;
 }) {
   return (
     <DocumentResult
-      doc={loadNoticeDocFromData(repName, movement, (company as Company | null) ?? null)}
+      doc={loadNoticeDocFromData(repName, movement, (company as Company | null) ?? null, acceptance)}
       onClose={onClose}
     />
   );

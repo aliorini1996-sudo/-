@@ -9,6 +9,7 @@ import { factorOf, formatQty, primaryUnitOf, roundQty, type UnitDef } from '../l
 import { stockRequestToLabel, stockRequestApproverLabel, stockRequestTotalQty, type StockRequestTo, type StockRequestLine } from '../lib/stockRequest';
 import { STOCK_COUNT_BLANK_ROWS, type StockCountLine } from '../lib/stockCount';
 import { docLotsFrom, type DocLotLine } from '../lib/lots';
+import { PENDING_LOAD_TEXT, acceptanceSentence, safeSignature, type LoadNoticeAcceptance } from '../lib/pendingLoads';
 import { docLotRows, invoiceLotsOf, lotCellText, lotFlagNotes, lotLineText, noticeHasLots, warehouseLineLots } from './docLots';
 import { useTr } from '../i18n/strings';
 import { elementToPdfBlob, shareOrDownloadPdf } from './pdf';
@@ -327,6 +328,9 @@ export interface LoadNoticeDoc {
   note?: string;
   by?: string;
   items: LoadNoticeItem[];
+  /** «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): تحميلٌ قبله المندوب ووقّع — الإقرار وصورة التوقيع ولحظة القبول
+   *  تُطبع مكان سطر «توقيع المندوب». غائبٌ ⇒ الإشعار كما كان حرفاً */
+  acceptance?: LoadNoticeAcceptance;
 }
 
 /** سطر إشعار المستودع — القيمة من الخادم (`lineCost`) لا تُحسب هنا */
@@ -1859,6 +1863,8 @@ export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeD
   // «تتبّع اللوط»: عمود «التشغيلة / الانتهاء» متى وُجدت تشغيلة — سطرٌ لكل تشغيلة، وكمّيتها حين يتوزّع البند
   const withLots = noticeHasLots(doc.items);
   const cols = withLots ? 5 : 4;
+  // «قبول المندوب للتحميل»: إقرارٌ بتوقيعٍ صالح (PNG مضمّن) لتحميلٍ وحده — وإلا سطرا التوقيع كما كانا
+  const acceptance = loadNoticeAcceptance(doc);
 
   return (
     <div ref={ref} style={sheet.style} {...sheet.attrs}>
@@ -1923,7 +1929,10 @@ export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeD
         </tfoot>
       </table>
 
-      {/* توقيعا التسليم والاستلام */}
+      {/* توقيعا التسليم والاستلام — والتحميل الذي قبله المندوب ووقّعه: إقراره بتوقيعه ولحظة قبوله مكان سطر توقيعه الفارغ */}
+      {acceptance ? (
+        <LoadAcceptanceBlock acceptance={acceptance} repName={doc.repName} brand={brand} />
+      ) : (
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 40, marginTop: 24 }}>
         <div style={{ flex: 1, textAlign: 'center', color: '#6b7280', fontSize: 12 }}>
           <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: 8, marginTop: 44 }}>{tr('توقيع المندوب')}</div>
@@ -1932,6 +1941,7 @@ export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeD
           <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: 8, marginTop: 44 }}>{tr('توقيع المستودع')}</div>
         </div>
       </div>
+      )}
 
       <div style={{ marginTop: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12, borderTop: '1px solid #eef2f7', paddingTop: 12 }}>
         {doc.company?.name || ''} — {tr('تاريخ الحركة')} {formatDateTime(doc.date)}
@@ -1941,6 +1951,44 @@ export const PrintableLoadNotice = forwardRef<HTMLDivElement, { doc: LoadNoticeD
   );
 });
 PrintableLoadNotice.displayName = 'PrintableLoadNotice';
+
+/** إقرار الإشعار إن صلح للطباعة: تحميلٌ (LOAD أو بلا نوع) بتوقيع PNG مضمّن ولحظة قبول — وإلا null فيُطبع كما كان */
+export function loadNoticeAcceptance(doc: Pick<LoadNoticeDoc, 'acceptance' | 'movementKind'>): LoadNoticeAcceptance | null {
+  const a = doc.acceptance;
+  if (!a || (doc.movementKind && doc.movementKind !== 'LOAD')) return null;
+  const signature = safeSignature(a.signature);
+  return signature && a.acceptedAt ? { ...a, signature } : null;
+}
+
+/**
+ * «قبول المندوب للتحميل وتوقيعه»: «أقرّ أنا المندوب … باستلام البضاعة الموضحة أعلاه» بتوقيعه ولحظة قبوله (ميلادية — formatDate/
+ * formatTime بـca-gregory)، وسطر «توقيع المستودع» كما كان بجانبه — فالورقة إثباتٌ للتحميل وإقرارٌ بقبوله
+ */
+function LoadAcceptanceBlock({ acceptance, repName, brand }: { acceptance: LoadNoticeAcceptance; repName: string; brand: string }) {
+  const tr = useTr();
+  const name = acceptance.repName || repName;
+  return (
+    <div data-load-acceptance="" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'stretch', gap: 24, marginTop: 20 }}>
+      <div style={{ flex: 2, border: `1px solid ${brand}`, borderRadius: 10, padding: 12 }}>
+        <div style={{ fontWeight: 700, color: brand, fontSize: 13, marginBottom: 6 }}>{tr(PENDING_LOAD_TEXT.declarationTitle)}</div>
+        <div style={{ fontSize: 12.5, color: '#1f2937', lineHeight: 1.7 }}>{acceptanceSentence(tr(PENDING_LOAD_TEXT.declaration), name)}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginTop: 8 }}>
+          <div style={{ textAlign: 'center' }}>
+            <img src={acceptance.signature} alt={tr('توقيع المندوب')} style={{ height: 64, maxWidth: 200, objectFit: 'contain', display: 'block', margin: '0 auto' }} />
+            <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: 4, fontSize: 11, color: '#6b7280' }}>{tr('توقيع المندوب')}</div>
+          </div>
+          <div style={{ fontSize: 11.5, color: '#374151', minWidth: 120 }}>
+            <InfoBox label={tr('التاريخ')} value={formatDate(acceptance.acceptedAt)} />
+            <InfoBox label={tr(PENDING_LOAD_TEXT.acceptedAt)} value={formatTime(acceptance.acceptedAt)} />
+          </div>
+        </div>
+      </div>
+      <div style={{ flex: 1, textAlign: 'center', color: '#6b7280', fontSize: 12, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+        <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: 8 }}>{tr('توقيع المستودع')}</div>
+      </div>
+    </div>
+  );
+}
 
 /** كمّية بلا أصفارٍ زائدة — الوحدات الموزونة قد تحمل كسوراً */
 const fmtNoticeQty = (n: number) => String(Number(Number(n).toFixed(2)));
@@ -2566,6 +2614,8 @@ export function loadNoticeDocFromData(
   // lots («تتبّع اللوط»): صفوف توزيع البند كما يضمّها /van-stock/loads أو /movements بـwithLots=1 (VanLoadItemLotDto)
   movement: { kind: string; date: string; ref?: string; by?: string | null; items: { name: string; qty: number; unit?: string; unitName?: string | null; unitFactor?: number | null; baseQty?: number | null; primaryUnitId?: string | null; lots?: unknown }[] },
   company?: Company | null,
+  // «قبول المندوب للتحميل»: إقرار المندوب الموقَّع (acceptanceOf) — غائبٌ أو null ⇒ المستند كما كان حرفاً
+  acceptance?: LoadNoticeAcceptance | null,
 ): LoadNoticeDoc {
   return {
     kind: 'loadNotice',
@@ -2575,6 +2625,7 @@ export function loadNoticeDocFromData(
     movementKind: movement.kind,
     note: movement.ref || undefined,
     by: movement.by || undefined,
+    ...(acceptance && { acceptance }),
     /* لقطة وحدة السطر أوّلاً (VanLoadItem.unitName)، ثم ما أرسلته الحركة. والمعامل من لقطته، وإلا من الكمية بالأساس
      * التي يرسلها /van-stock/movements مع كل سطر — به يعرف الإشعار أنّ وحداته اختلطت فلا يجمعها رقماً واحداً */
     items: movement.items.map((i) => {

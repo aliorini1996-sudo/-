@@ -112,6 +112,9 @@ import { OUTLET_TYPE_OPTIONS } from './aiRepLogic';
 import { dayMinutes, nextPunch, shiftMinutes, shiftsOf, type AttendanceState } from './attendanceDay';
 import { installGeoReconnect } from './geoReconnect';
 import RepTargetsCard from './RepTargetsCard';
+// «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): تحميل الإدارة لا يدخل السيارة حتى يقبله المندوب ويوقّعه
+import RepPendingLoads, { PendingLoadsHomeCard, PendingLoadsStrip } from './RepPendingLoads';
+import { PENDING_LOADS_SCREEN, myRequestStatusText, requestLoadAwaiting } from './vanLoadAcceptance';
 import CircularGate from '../components/circulars/CircularGate';
 import { CIRCULAR_ACK_TIMEOUT_MS, CIRCULAR_FETCH_TIMEOUT_MS, circularGateSkipped } from '../lib/circularGate';
 import { isImpersonationToken } from '../store/sessionAdoption';
@@ -158,7 +161,7 @@ class AiRepBoundary extends Component<{ onBack: () => void; children: ReactNode 
 }
 
 // 'orders': «طلبات المنيو» — شاشةٌ بلا تبويب تُفتح من بطاقة «طلب جديد» أو من إشعار الطلب (/rep?screen=orders)
-type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum' | 'dailyreport' | 'route' | 'attendance' | 'airep' | 'orders';
+type Screen = 'home' | 'invoices' | 'receipts' | 'customers' | 'vanstock' | 'fuel' | 'worknum' | 'dailyreport' | 'route' | 'attendance' | 'airep' | 'vanloads' | 'orders';
 type Modal = null | 'customerDetail' | 'createInvoice' | 'createReceipt' | 'createReturn' | 'addCustomer' | 'editCustomer' | 'logVisit' | 'buyerData';
 
 interface RepUser {
@@ -1128,7 +1131,7 @@ function RepCatalogOrders({ onBack, onInvoice, moneyOn, invoiceOn, canAddCustome
   );
 }
 
-function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true, settingsReady = true, dailyReportOn, attendanceOn, aiRepOn, refreshKey = 0 }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean; accountingOn?: boolean; /** وصلت إعدادات الشركة؟ لا نطلب رقماً قبل معرفة المفتاح */ settingsReady?: boolean; dailyReportOn?: boolean; attendanceOn?: boolean; aiRepOn?: boolean; /** مفتاح تحديث الرئيسية (مستندٌ صدر أو مزامنةٌ رفعت) — بطاقة «هدف الشهر» تجلب فوراً حين يتغيّر */ refreshKey?: number }) {
+function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true, settingsReady = true, dailyReportOn, attendanceOn, aiRepOn, refreshKey = 0, vanLoadsOn = false }: { user: RepUser; onQuick: (s: Screen) => void; fuelOn?: boolean; workNumOn?: boolean; menuOn?: boolean; accountingOn?: boolean; /** وصلت إعدادات الشركة؟ لا نطلب رقماً قبل معرفة المفتاح */ settingsReady?: boolean; dailyReportOn?: boolean; attendanceOn?: boolean; aiRepOn?: boolean; /** مفتاح تحديث الرئيسية (مستندٌ صدر أو مزامنةٌ رفعت) — بطاقة «هدف الشهر» تجلب فوراً حين يتغيّر */ refreshKey?: number; /** «قبول المندوب للتحميل»: الشركة فعّلت الميزة (والمحاسبة) — بطاقة «تحميل بانتظار قبولك»، ومطفأةً لا طلب ولا بطاقة */ vanLoadsOn?: boolean }) {
   const tr = useTr();
   // `null` = **لا نعرف بعد**، وهو غير الصفر. كان الجلب الفاشل يُبتلع في `catch`
   // فتبقى القيم الابتدائية أصفاراً وتُعرَض كأنّها حقيقة: مندوبٌ بذمّته خمسة عشر
@@ -1348,6 +1351,9 @@ function RepHome({ user, onQuick, fuelOn, workNumOn, menuOn, accountingOn = true
           <button onClick={() => { void load(); void loadTargets(true); }} className="shrink-0 font-semibold underline">{tr('تحديث')}</button>
         </div>
       )}
+
+      {/* «قبول المندوب للتحميل وتوقيعه»: تحميلٌ أرسلته الإدارة ينتظر قبوله وتوقيعه — أعلى الرئيسية، فالبضاعة لا تدخل سيارته قبلها */}
+      {vanLoadsOn && <PendingLoadsHomeCard onOpen={() => onQuick('vanloads')} />}
 
       {/* رصيد التحصيل المتراكم — لا يُصفّر يوميًا، ينقص فقط عند تسليمه للإدارة (اختياري حسب صلاحية المندوب) */}
       {accountingOn && stats?.collectShow && (
@@ -4970,6 +4976,8 @@ function SimpleList({ endpoint, kind, company, onOpen }: { endpoint: string; kin
 interface MyStockRequest {
   // LOADED: حمّلته الإدارة إلى سيارته مباشرة من نافذة «طلب مخزون» (٢٣ نوفمبر ٢٠٢٦)
   id: string; status: 'PENDING' | 'SENT' | 'REJECTED' | 'LOADED'; note: string | null; updatedAt: string; decidedAt: string | null;
+  /** «قبول المندوب للتحميل»: LOADED بتحميلٍ أُرسل له ولم يدخل سيارته بعد — حاله (PENDING/DISPUTED/ACCEPTED)، وnull لحركةٍ مباشرة */
+  pendingStatus?: string | null;
   /** unitName/unitFactor لقطة وحدة البند (الوحدات المتعددة) — غائبة ⇒ وحدة الأساس. `unit` وحدة السطر (لقطته وإلا وحدة الصنف)،
    * و`baseQty`/`requestedBaseQty` الكميتان بالأساس `baseUnit`، و`units` وحدات الصنف لعرضها «٢ كرتون و٣ حبة» */
   items: {
@@ -5425,8 +5433,9 @@ function RepVanStock({ canLoad, canRequest }: { canLoad: boolean; canRequest: bo
           <span className="flex-1">{tr('طلب بضاعة قيد مراجعة الإدارة')} ({myReq.pending.items.filter(i => i.requestedQty > 0).length})</span>
         </button>
       ) : myReq?.last && myReq.last.decidedAt && Date.now() - new Date(myReq.last.decidedAt).getTime() < DECIDED_SHOWN_MS ? (
-        <div className={`mx-3 mt-3 text-xs rounded-lg px-3 py-2 ${myReq.last.status === 'REJECTED' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
-          {myReq.last.status === 'LOADED' ? tr('حملت الإدارة طلبك إلى سيارتك') : myReq.last.status === 'SENT' ? tr('أرسلت الإدارة طلبك ضمن طلب المخزون') : tr('رفضت الإدارة طلبك الأخير')} · {formatDate(myReq.last.decidedAt)}
+        <div className={`mx-3 mt-3 text-xs rounded-lg px-3 py-2 ${myReq.last.status === 'REJECTED' ? 'bg-red-50 text-red-700' : requestLoadAwaiting(myReq.last) ? 'bg-amber-50 text-amber-800' : 'bg-green-50 text-green-700'}`}>
+          {/* «قبول المندوب للتحميل»: «حُمِّل» بتحميلٍ لم يقبله بعد ⇒ «بانتظار قبولك وتوقيعك» لا «حملت الإدارة طلبك» */}
+          {myRequestStatusText(myReq.last, tr)} · {formatDate(myReq.last.decidedAt)}
         </div>
       ) : (
         <div className="mx-3 mt-3 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">{tr('لا تملك صلاحية التحميل اطلب ما تحتاجه من زر طلب بضاعة')}</div>
@@ -5803,6 +5812,12 @@ export default function RepApp() {
         sp.delete('screen');
         const q = sp.toString();
         window.history.replaceState(null, '', window.location.pathname + (q ? `?${q}` : '') + window.location.hash);
+      } else if (s === PENDING_LOADS_SCREEN) {
+        // «تحميل بانتظار قبولك» (notifyPendingLoad): الإشعار يفتح شاشة قبول التحميل
+        setScreen('vanloads');
+        sp.delete('screen');
+        const q = sp.toString();
+        window.history.replaceState(null, '', window.location.pathname + (q ? `?${q}` : '') + window.location.hash);
       }
       // «طلبات المنيو»: إشعار «طلب جديد من المنيو» (/rep?screen=orders) يفتح شاشة الطلبات — والمنيو مطفأٌ يعيده الحارس للرئيسية
       if (s === 'orders') {
@@ -5816,6 +5831,7 @@ export default function RepApp() {
       if (e.data?.type !== 'OPEN_SCREEN') return;
       if (e.data.screen === 'attendance') setScreen('attendance');
       else if (e.data.screen === 'presence') fetchPresence();
+      else if (e.data.screen === PENDING_LOADS_SCREEN) setScreen('vanloads');
       else if (e.data.screen === 'orders') setScreen('orders');
     };
     navigator.serviceWorker?.addEventListener('message', onMsg);
@@ -6551,6 +6567,8 @@ export default function RepApp() {
   const attendanceOn = (company as { attendanceEnabled?: boolean } | null)?.attendanceEnabled === true;
   // المندوب الذكي: الخادم يُرجع العلم مقيّداً بنطاق المندوب (مناديب محدّدون) — مطفأ افتراضياً
   const aiRepOn = (company as { aiRepEnabled?: boolean } | null)?.aiRepEnabled === true;
+  // «قبول المندوب للتحميل وتوقيعه»: مطفأ افتراضياً (=== true) — ومسارات /van-stock خلف المحاسبة، فلا بطاقة ولا شريط ولا طلب بدونها
+  const vanLoadsOn = accountingOn && (company as { vanLoadAcceptance?: boolean } | null)?.vanLoadAcceptance === true;
   const ACCOUNTING_TABS: Screen[] = ['invoices', 'receipts', 'vanstock'];
   const tabs: { id: Screen; label: string; icon: React.ElementType }[] = [
     { id: 'home', label: 'الرئيسية', icon: Home },
@@ -6572,6 +6590,8 @@ export default function RepApp() {
     // بعد وصول إعدادات الشركة وحدها: تنبيه الحضور يفتح التطبيق المغلق على شاشة البصمة قبل وصولها
     if (companyReady && !attendanceOn && screen === 'attendance') setScreen('home');
     if (!aiRepOn && screen === 'airep') setScreen('home');
+    // شاشة قبول التحميل لا تبويب لها، ومساراتها خلف المحاسبة — لا تُشرط بعلم الميزة: رابط الإشعار يسبق تحديث إعدادات الشركة
+    if (!accountingOn && screen === 'vanloads') setScreen('home');
   }, [accountingOn, dailyReportOn, attendanceOn, aiRepOn, screen, companyReady]);
   // «طلبات المنيو» شاشةٌ بلا تبويب كالتقرير اليومي: المنيو أُطفئ والمندوب عليها (أو فتحها إشعارٌ قديم) ⇒ الرئيسية — بعد وصول
   // إعدادات الشركة وحدها، فإشعار الطلب يفتح التطبيق المغلق على الشاشة قبل أن تصل
@@ -6776,7 +6796,15 @@ export default function RepApp() {
               ))}
               {/* Body */}
               <div className="flex-1 overflow-hidden">
-                {screen === 'home' && <RepHome key={refreshKey} refreshKey={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} attendanceOn={attendanceOn} aiRepOn={aiRepOn} />}
+                {screen === 'home' && <RepHome key={refreshKey} refreshKey={refreshKey} user={user} onQuick={setScreen} fuelOn={fuelOn} workNumOn={workNumOn} menuOn={!!(company as { catalogEnabled?: boolean } | null)?.catalogEnabled} accountingOn={accountingOn} settingsReady={companyReady} dailyReportOn={dailyReportOn} attendanceOn={attendanceOn} aiRepOn={aiRepOn} vanLoadsOn={vanLoadsOn} />}
+                {screen === 'vanloads' && (
+                  // بلا refreshKey في المفتاح: مزامنةٌ رفعت صفّاً صادراً لا تمسّ هذه القائمة — وإعادة التركيب كانت تمحو توقيعاً قيد الرسم
+                  <RepPendingLoads onBack={() => setScreen('home')}
+                    // البيع يعرف التشغيلات التي دخلت السيارة للتوّ (لقطة اللوط بجلبٍ يبدأ بعد القبول)
+                    onAccepted={() => { void refreshVanLots(0, true); }}
+                    onOpenVanStock={() => setScreen('vanstock')}
+                    company={company} repName={user.name} />
+                )}
                 {screen === 'dailyreport' && <RepDailyReport key={refreshKey} onDone={() => setScreen('home')} />}
                 {screen === 'orders' && menuOn && (
                   <RepCatalogOrders key={`orders-${refreshKey}`} onBack={() => setScreen('home')} onInvoice={invoiceFromOrder}
@@ -6787,7 +6815,15 @@ export default function RepApp() {
                 {screen === 'invoices' && <SimpleList key={`invoices-${refreshKey}`} endpoint="/invoices" kind="invoice" company={company} onOpen={(d) => { setDocBack(null); setDocResult(invoiceDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'receipts' && <SimpleList key={`receipts-${refreshKey}`} endpoint="/receipts" kind="receipt" onOpen={(d) => { setDocBack(null); setDocResult(receiptDocFromDetail(d, user.name, company)); }} />}
                 {screen === 'customers' && <RepCustomers onSelect={c => { setSelectedCustomer(c); setModal('customerDetail'); }} canAdd={!!user.canAddCustomer} onAdd={() => { setAiPrefill(null); setModal('addCustomer'); }} accountingOn={accountingOn} zatcaCollect={zatcaCollect} buyerRelax={buyerRelax} />}
-                {screen === 'vanstock' && <RepVanStock canLoad={user.canManageVanStock !== false} canRequest={(company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true} />}
+                {screen === 'vanstock' && (vanLoadsOn ? (
+                  // «قبول المندوب للتحميل»: شريط «تحميل بانتظار قبولك» أعلى «مخزون سيارتي» — والشاشة كما هي تحته
+                  <div className="h-full flex flex-col">
+                    <PendingLoadsStrip onOpen={() => setScreen('vanloads')} />
+                    <div className="flex-1 min-h-0">
+                      <RepVanStock canLoad={user.canManageVanStock !== false} canRequest={(company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true} />
+                    </div>
+                  </div>
+                ) : <RepVanStock canLoad={user.canManageVanStock !== false} canRequest={(company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true} />)}
                 {screen === 'fuel' && <RepFuel accountingOn={accountingOn} />}
                 {screen === 'worknum' && <RepWorkNumber />}
                 {screen === 'attendance' && <RepAttendance atCustomer={user.requirePunchAtCustomer === true} boundDevice={user.requireBoundDevice === true} presenceOn={user.requirePresenceCheck === true} idleOn={user.idlePunchOutEnabled === true} />}

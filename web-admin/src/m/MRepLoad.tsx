@@ -2,10 +2,10 @@ import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search, Plus, Trash2, Loader2, Package, Truck, Sparkles, AlertTriangle,
-  ArrowDownToLine, TrendingDown, Download, Eraser,
+  ArrowDownToLine, TrendingDown, Download, Eraser, PenLine,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { vanStockApi, productApi, lotsApi, warehouseApi } from '../api/client';
+import { vanStockApi, productApi, lotsApi, warehouseApi, pendingLoadsApi } from '../api/client';
 import { SalesRep } from '../types';
 import { activeLocale, formatDate, formatTime, formatNumber } from '../utils/format';
 import { useTr } from '../i18n/strings';
@@ -44,6 +44,13 @@ import MLotFields, { useProductLots } from './MLotFields';
 import { anyPrimary, fill, qtyTotalLabel, refetchUnitsOn, withBaseUnitName, backWithBaseNames } from './mPrimaryUnit';
 // «ربط الدفاتر» L1 (طلب المالك ١٣ نوفمبر ٢٠٢٦): وسم سبب تسوية السيارة في حركتها
 import { vanReasonLabel } from './MPurchaseLogic';
+// «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦)
+import MPendingLoads from './MPendingLoads';
+import {
+  PENDING_LOADS_KEY, PENDING_LOAD_TEXT, acceptanceOf, fetchPendingDetail, isPendingLoadResponse, noticeMovementOf, pendingEditLines,
+  pendingEditStaleText, pendingErrorText, pendingLoadErrorOf, pendingRefusalText, vanLoadAcceptanceOn,
+  type LoadNoticeAcceptance, type NoticeMovement, type PendingEditLine, type PendingVanLoadView,
+} from '../lib/pendingLoads';
 
 /**
  * تسجيل تحميل بضاعة لسيارة مندوب — من تطبيق الإدارة على الجوال.
@@ -121,6 +128,8 @@ interface Movement {
   /** `unit` لقطة وحدة البند و`qty` بها، و`baseQty` كميته بالأساس — لمن يجمع بنوداً تختلف وحداتها.
    *  و`lots` صفوف تشغيلات البند (withLots=1 والميزة مفعّلة وحدها) — للإشعار المطبوع */
   items: { name: string; unit: string; qty: number; baseQty?: number | null; lots?: unknown; primaryUnitId?: string | null }[];
+  /** «قبول المندوب للتحميل»: تحميلٌ كتبه قبول المندوب وتوقيعه — معرّف صفّ الإقرار ولحظة القبول (غائبان لغيره) */
+  pendingLoadId?: string | null; acceptedAt?: string | null;
 }
 
 /**
@@ -143,6 +152,18 @@ interface Row extends StockLineUnit {
   outLots?: LotRef[];
   /** «الوحدة الرئيسية» للصنف كما عرفها كتالوج الشاشة حين أُضيف السطر — عرض الرصيد بها وحده، لا يدخل الجسم (D1) */
   primaryUnitId?: string | null;
+  /** «قبول المندوب للتحميل»: توزيع التشغيلات الصريح لسطرٍ من تحميلٍ مرسلٍ قيد التعديل (من اللوحة) — يُرسل كما هو ما بقيت كمية
+   *  السطر ووحدته كما كانتا، وإلا يوزّع الخادم بالأقرب انتهاءً (هذه الشاشة لا تحرّر توزيع التحميل) */
+  keepLots?: { qty: string; unitId: string | null; lots: LotRef[] };
+}
+
+/** تشغيلة التحميل المباشر (D4) من بند تحميلٍ مرسل: قائمةٌ أو «غير مسمى» بصفٍّ واحد، أو جديدةٌ برقمها وتاريخيها — وإلا فارغة */
+function lotDraftFromPending(l: PendingEditLine) {
+  if (l.lots?.length === 1) return { ...emptyLotDraft(), pick: l.lots[0].lotId ?? 'UNNAMED' };
+  if (l.lotNumber || l.productionDate || l.expiryDate) {
+    return { pick: 'NEW', lotNumber: l.lotNumber ?? '', productionDate: l.productionDate ?? '', expiryDate: l.expiryDate ?? '' };
+  }
+  return emptyLotDraft();
 }
 
 /**
@@ -220,10 +241,22 @@ export default function MRepLoad({ rep, company, onClose }: {
   const warehouseOn = (company as { warehouseEnabled?: boolean } | null)?.warehouseEnabled === true;
 
   const [rows, setRows] = useState<Row[]>([]);
-  // إشعار حركةٍ واحدة معروضٌ الآن — طبقةٌ فوق هذه الشاشة
-  const [noticeMv, setNoticeMv] = useState<Movement | null>(null);
+  // إشعار حركةٍ واحدة معروضٌ الآن — طبقةٌ فوق هذه الشاشة (ومنه إشعار تحميلٍ مقبول من قسم «بانتظار القبول»)
+  const [noticeMv, setNoticeMv] = useState<NoticeMovement | null>(null);
+  // «قبول المندوب للتحميل»: إقرار المندوب الموقَّع على الإشعار المعروض — null لغير التحميل المقبول
+  const [noticeAcceptance, setNoticeAcceptance] = useState<LoadNoticeAcceptance | null>(null);
+  const closeNotice = () => { setNoticeMv(null); setNoticeAcceptance(null); };
 
-  useBackClose(!!noticeMv, () => setNoticeMv(null));
+  useBackClose(!!noticeMv, closeNotice);
+
+  /* «قبول المندوب للتحميل وتوقيعه»: مفعّلة ⇒ التحميل يُرسل للمندوب بانتظار قبوله (لا حركة)، وقسم «بانتظار القبول» بإجراءاته؛
+   * ومطفأة (أو خادمٌ أقدم بلا العلم) ⇒ الشاشة كما كانت حرفاً */
+  const acceptanceOn = vanLoadAcceptanceOn(company);
+  // التحميل المرسل المفتوح في النموذج للتعديل (الحفظ PUT بمراجعته)، والمنتظر تأكيد استبدال الأسطر به، والمنتظر تأكيد إلغائه
+  const [editing, setEditing] = useState<PendingVanLoadView | null>(null);
+  const [editAsk, setEditAsk] = useState<PendingVanLoadView | null>(null);
+  const [cancelling, setCancelling] = useState<PendingVanLoadView | null>(null);
+  const [printingId, setPrintingId] = useState<string | null>(null);
 
   /* «تصفير سيارة مندوب واحدة» (طلب المالك ١٨ نوفمبر ٢٠٢٦): نافذة اللوحة نفسها (StockZeroModal) بسيارة هذا المندوب وحدها، وبشرط
    * إظهار صفحة «مخزون السيارات» حرفاً — مدير الشركة غير المقيَّد وله «تحميل مخزون السيارة»، أو جلسة المالك، لا «دخول» موظف المنصة.
@@ -399,6 +432,8 @@ export default function MRepLoad({ rep, company, onClose }: {
 
   const lotPartOf = (r: Row): { lots?: LotRef[]; lotNumber?: string; productionDate?: string | null; expiryDate?: string | null } => {
     const n = Number(r.qty);
+    // «قبول المندوب للتحميل»: توزيع التحميل المرسل الصريح يبقى ما بقي السطر كما كان (الخادم تحقّق منه عند الإرسال)
+    if (r.keepLots && warehouseOn && n > 0 && r.keepLots.qty === r.qty && r.keepLots.unitId === r.unitId) return { lots: r.keepLots.lots };
     if (!trackedOf(r.productId) || !Number.isFinite(n) || n === 0) return {};
     if (n > 0) return warehouseOn ? {} : loadLotFields(r.lot ?? emptyLotDraft(), lineBaseQty(n, r.unitFactor));
     // التنزيل: اليدوي بصفوفه، والتلقائي بلا lots فيسحب الخادم بالأقرب انتهاءً أولاً
@@ -531,12 +566,20 @@ export default function MRepLoad({ rep, company, onClose }: {
   };
 
   const save = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (): Promise<{ warnings: LotWarning[]; replayed: boolean; pendingSent?: boolean; unloaded?: boolean; edited?: boolean }> => {
       const { out, back } = split;
       const trimmed = note.trim() || undefined;
+      // «قبول المندوب للتحميل»: تعديل التحميل المرسل — أسطرٌ موجبة وحدها بمراجعة الصفّ التي بدأ منها التعديل (PUT)
+      if (editing) {
+        const res = await pendingLoadsApi.update(editing.id, {
+          type: 'LOAD', salesRepId: rep.id, note: trimmed, revision: editing.revision, updatedAt: editing.updatedAt ?? undefined, items: out,
+        });
+        return { warnings: lotWarningsOf((res.data as { warnings?: unknown } | undefined)?.warnings), replayed: false, edited: true };
+      }
       // «تتبّع اللوط»: تحذيرات الوثيقتين (تشغيلتان في السيارة، كرتونٌ مقسوم، رصيدٌ غير مسمّى) — لا تمنع لكنها تُقال
       const warnings: LotWarning[] = [];
       let replayed = false;
+      let pendingSent = false;
       if (out.length) {
         // D8: مرجع محاولة وثيقة التحميل — المحتوى نفسه بعد ضياع الردّ يعود بالحركة الأولى (200) لا بثانية
         const body = { salesRepId: rep.id, type: 'LOAD', note: trimmed, items: out };
@@ -544,7 +587,9 @@ export default function MRepLoad({ rep, company, onClose }: {
         const ref = refs.current.load.ref;
         // ردٌّ ضاع: يُسأل الخادم عن المرجع نفسه — محفوظٌ ⇒ كالإعادة، فلا تُكتب الحركة مرّتين (المراجعة F1)
         const res = await sendWithRefRecovery(() => vanStockApi.createLoad(withClientRef(body, ref)), () => vanStockApi.loadsByClientRef(ref, rep.id));
-        replayed = replayed || isReplayResponse(res);
+        // «قبول المندوب للتحميل» مفعّلة: لم تُكتب حركة — أُرسل للمندوب بانتظار قبوله (والمرجع نفسه بعد ضياع الردّ يعود بالصفّ نفسه)
+        pendingSent = isPendingLoadResponse(res);
+        replayed = replayed || (!pendingSent && isReplayResponse(res));
         warnings.push(...lotWarningsOf((res.data as { warnings?: unknown } | undefined)?.warnings));
         // وثيقة التحميل كُتبت فعلاً: تُسقَط أسطرها فوراً كي لا تُكتب مرّتين لو
         // سقط التنزيل بعدها وأعاد المستخدم المحاولة
@@ -561,22 +606,39 @@ export default function MRepLoad({ rep, company, onClose }: {
         warnings.push(...lotWarningsOf((res.data as { warnings?: unknown } | undefined)?.warnings));
         refs.current.unload = undefined;
       }
-      return { warnings, replayed };
+      return { warnings, replayed, pendingSent, unloaded: back.length > 0 };
     },
-    onSuccess: ({ warnings, replayed }) => {
+    onSuccess: ({ warnings, replayed, pendingSent, unloaded, edited }) => {
       invalidateVanStock();
-      toast.success(tr('تم حفظ الحركة'));
+      if (pendingSent || edited) qc.invalidateQueries({ queryKey: [PENDING_LOADS_KEY] });
+      // المرسَل للمندوب ليس حركةً بعد: رسالته وحده، و«تم حفظ الحركة» لشقّ التنزيل إن كان (يُكتب فوراً كما كان)
+      if (edited) toast.success(tr(PENDING_LOAD_TEXT.edited));
+      else if (pendingSent) toast.success(tr(PENDING_LOAD_TEXT.sent), { duration: 6000 });
+      if (!edited && (!pendingSent || unloaded)) toast.success(tr('تم حفظ الحركة'));
       if (replayed) toast(tr(VAN_MOVE_TEXT.replay));
       [...new Set(warnings.map(w => w.code))].forEach(c => toast(tr(LOT_WARNING_LABELS[c])));
       setRows([]);
       setNote('');
       setConfirm(null);
+      setEditing(null);
     },
     onError: (e: unknown) => {
       // حتى الفشل يُبطِل المفاتيح: الشقّ الأوّل من الحركة المختلطة قد يكون كُتب،
       // وعرضُ رصيدٍ قديم بعده يخفي عن المستخدم ما صار في السيارة حقّاً
       invalidateVanStock();
       setConfirm(null);
+      // «قبول المندوب للتحميل»: رفضٌ برمز المعلّق (أسطرٌ ستتغيّر عند التسجيل، مندوبٌ موقوف، صفٌّ عُدّل أو قُبل أو أُلغي) — عبارته
+      const pe = pendingLoadErrorOf(e);
+      if (pe?.code && (pe.code.startsWith('PENDING_LOAD_') || pe.code === 'API_KEY_FORBIDDEN')) {
+        if (editing) qc.invalidateQueries({ queryKey: [PENDING_LOADS_KEY] });
+        // تعديل تحميلٍ تغيّر منذ فُتح (عُدّل من جهازٍ آخر، أو اعترض عليه المندوب، أو قُبل أو أُلغي): عبارةٌ للإدارة لا للمندوب،
+        // ويُترك التعديل (كـ«إلغاء التعديل») — مراجعته قديمة فكل إعادةٍ منه تُرفض؛ والقسم يُعاد بحاله وملاحظة المندوب
+        const stale = editing ? pendingEditStaleText(e, tr) : null;
+        if (stale) { toast.error(stale, { duration: 10000 }); setEditing(null); setRows([]); setNote(''); return; }
+        // أسطرٌ ستتغيّر عند التسجيل: تُسمّى أصنافها (warnings[].productId) فيعرف المدير ما يراجع
+        toast.error(pendingRefusalText(e, tr, 'تعذر الحفظ', pid => rows.find(r => r.productId === pid)?.name), { duration: 8000 });
+        return;
+      }
       // بلا جوابٍ حاسم: الإعادة بالمحتوى نفسه مسموحة ولو قال رصيد المستودع المحدَّث غير ذلك
       if (isIndeterminateError(e)) setUncertain(true);
       // D2: التحميل فوق رصيد المستودع (422 WAREHOUSE_INSUFFICIENT) — لا شيء كُتب، والمتاح كما رآه الخادم على أسطر صنفه
@@ -660,13 +722,81 @@ export default function MRepLoad({ rep, company, onClose }: {
 
   const suggestRows = (suggestQ.data?.rows ?? []).filter(r => r.suggested > 0);
 
+  /* ═══ «قبول المندوب للتحميل وتوقيعه» ═══ */
+  /** أسطر النموذج من تحميلٍ مرسل: الصنف والوحدة (بوحدات الصنف الآن) والكمية والأساس المرسَل، وتشغيلاته (D4 أو توزيعٌ محفوظ) */
+  const rowsFromPending = (v: PendingVanLoadView): Row[] => pendingEditLines(v).map(l => {
+    const base = l.baseUnitName ?? '';
+    const p = { unit: base, units: l.units, primaryUnitId: l.primaryUnitId };
+    const c = unitChoices(p).find(o => o.id === l.unitId) ?? { id: l.unitId, name: l.unitName || base, factor: l.unitFactor, price: null };
+    return {
+      rowId: newRowId(), productId: l.productId, name: l.name || tr('صنف محذوف'), qty: String(l.qty),
+      ...stockLineUnit(p, c), primaryUnitId: l.primaryUnitId,
+      ...(l.suggestedQty != null && { suggestedQty: l.suggestedQty }),
+      ...(l.expectedQty != null && { expectedQty: l.expectedQty }),
+      ...(!warehouseOn && { lot: lotDraftFromPending(l) }),
+      ...(warehouseOn && l.lots?.length ? { keepLots: { qty: String(l.qty), unitId: l.unitId, lots: l.lots } } : {}),
+    };
+  });
+  const openEdit = (v: PendingVanLoadView) => {
+    setEditing(v);
+    setRows(rowsFromPending(v));
+    setNote(String(v.body?.note ?? v.note ?? ''));
+    refs.current = {};
+    setEditAsk(null);
+    setShowSuggest(false);
+  };
+  // أسطرٌ مكتوبة في النموذج تُستبدل بتأكيد — لا تضيع كتابةٌ بنقرة
+  const askEdit = (v: PendingVanLoadView) => { if (rows.length && editing?.id !== v.id) setEditAsk(v); else openEdit(v); };
+  const stopEdit = () => { setEditing(null); setRows([]); setNote(''); };
+  const cancelPending = useMutation({
+    mutationFn: (v: PendingVanLoadView) => pendingLoadsApi.cancel(v.id),
+    onSuccess: (_r, v) => {
+      toast.success(tr(PENDING_LOAD_TEXT.cancelled));
+      if (editing?.id === v.id) stopEdit();
+      setCancelling(null);
+      qc.invalidateQueries({ queryKey: [PENDING_LOADS_KEY] });
+      // طلب المندوب المحمَّل «تحميلاً مباشراً» بهذا التحميل يعود معلّقاً مع الإلغاء (الخادم) — قائمة الطلبات تُعاد
+      qc.invalidateQueries({ queryKey: ['rep-stock-requests'] });
+    },
+    onError: (e: unknown) => {
+      setCancelling(null);
+      qc.invalidateQueries({ queryKey: [PENDING_LOADS_KEY] });
+      toast.error(pendingErrorText(e, tr, 'تعذر الحفظ'));
+    },
+  });
+  /** إشعار التحميل المقبول بإقرار المندوب — الصفّ بتوقيعه والحركة التي كتبها القبول */
+  const printPending = async (v: PendingVanLoadView) => {
+    setPrintingId(v.id);
+    try {
+      const d = await fetchPendingDetail(pendingLoadsApi, v.id);
+      if (!d) throw new Error('missing');
+      const view = { ...d.view, repName: d.view.repName || rep.name };
+      setNoticeAcceptance(acceptanceOf(view, rep.name));
+      setNoticeMv(noticeMovementOf(view, d.vanLoad));
+    } catch (e) {
+      toast.error(pendingErrorText(e, tr, 'تعذر تحميل البيانات'));
+    } finally {
+      setPrintingId(null);
+    }
+  };
+  /** إشعار حركةٍ من السجل: تحميلٌ كتبه قبول المندوب يُطبع بإقراره (يُجلب صفّه الآن)، وتعذّره لا يمنع الإشعار */
+  const exportMovement = async (m: Movement) => {
+    setNoticeAcceptance(null);
+    if (m.kind === 'LOAD' && m.pendingLoadId) {
+      try { setNoticeAcceptance(acceptanceOf((await fetchPendingDetail(pendingLoadsApi, m.pendingLoadId))?.view, rep.name)); } catch { toast.error(tr('تعذر تحميل البيانات')); }
+    }
+    setNoticeMv(m);
+  };
+  // التحميل المرسل للمندوب تحميلٌ وحده: لا سطر تنزيلٍ في تعديله
+  const editBlocked = !!editing && split.back.length > 0;
+
   /* تصدير حركةٍ واحدة: نعرض إشعارها ملء الشاشة بدل شاشة التحميل — مطابقةً
    * للوحة، ولأن عارض المستندات يحتاج الشاشة كلّها ليُخرج PDF بمقاس A4. */
   if (noticeMv) {
     return (
       <Suspense fallback={<MSpinner />}>
-        <MLoadNoticeDoc repName={rep.name} movement={noticeMv} company={company}
-          onClose={() => setNoticeMv(null)} />
+        <MLoadNoticeDoc repName={rep.name} movement={noticeMv} company={company} acceptance={noticeAcceptance}
+          onClose={closeNotice} />
       </Suspense>
     );
   }
@@ -676,6 +806,23 @@ export default function MRepLoad({ rep, company, onClose }: {
       <MHeader title={tr('تسجيل تحميل بضاعة')} subtitle={rep.name} onBack={onClose} />
 
       <div className="flex-1 overflow-y-auto overscroll-contain p-3 space-y-4">
+
+        {/* ─────────── «قبول المندوب للتحميل»: المرسَل للمندوب ───────────
+            والميزة مفعّلة وحدها، ولا شيء بلا صفوف — والتعديل يفتح أسطره في النموذج نفسه أدناه */}
+        {acceptanceOn && (
+          <MPendingLoads repId={rep.id} editingId={editing?.id ?? null} printingId={printingId}
+            onEdit={askEdit} onCancel={setCancelling} onPrint={(v) => void printPending(v)} />
+        )}
+        {editing && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-[12px] text-amber-900 space-y-1.5" data-m-pending-editing="">
+            <p className="font-bold">{tr(PENDING_LOAD_TEXT.editTitle)}</p>
+            {editing.disputeNote && <p><b>{tr(PENDING_LOAD_TEXT.disputeNote)}:</b> {editing.disputeNote}</p>}
+            <p className="text-[11px]">{tr(PENDING_LOAD_TEXT.editLoadOnly)}</p>
+            <button type="button" onClick={stopEdit} className="min-h-[36px] px-3 rounded-xl border border-amber-300 bg-white text-[11px] font-bold">
+              {tr('إلغاء التعديل')}
+            </button>
+          </div>
+        )}
 
         {/* ─────────── رصيد السيارة الآن ───────────
             قبل النموذج لا بعده: مَن لا يرى المتبقّي يُحمّل فوق حمولةٍ قائمة */}
@@ -1063,10 +1210,10 @@ export default function MRepLoad({ rep, company, onClose }: {
                       </span>
                     )}
                     title={`${meta.sign}${mixed ?? fmtQty(Math.abs(qty))} · ${m.items.length} ${tr('صنف')}`}
-                    subtitle={[why ? tr(why) : '', m.ref].filter(Boolean).join(' · ') || undefined}
+                    subtitle={[m.pendingLoadId ? tr(PENDING_LOAD_TEXT.signedBadge) : '', why ? tr(why) : '', m.ref].filter(Boolean).join(' · ') || undefined}
                     note={`${formatDate(m.date)} · ${formatTime(m.date)}`}
                     trailing={EXPORTABLE.includes(m.kind) ? (
-                      <button onClick={() => setNoticeMv(m)} aria-label={tr('إشعار PDF')}
+                      <button onClick={() => void exportMovement(m)} aria-label={tr('إشعار PDF')}
                         className="p-2.5 -m-1 rounded-xl text-[#6E6557] active:bg-[#F1EBDF] flex-shrink-0">
                         <Download size={16} />
                       </button>
@@ -1096,12 +1243,37 @@ export default function MRepLoad({ rep, company, onClose }: {
           </p>
         )}
         {uncertain && <p className="text-[11px] text-amber-700 font-semibold mb-2 px-0.5">{tr(VAN_MOVE_TEXT.uncertain)}</p>}
-        <button onClick={onSave} disabled={!hasMovement || lotBlocked || stockBlocked || save.isPending}
+        {editBlocked && <p className="text-[11px] text-[#C0392B] font-semibold mb-2 px-0.5">{tr(PENDING_LOAD_TEXT.editLoadOnly)}</p>}
+        {/* «قبول المندوب للتحميل» مفعّلة: التحميل يصل المندوب ولا يمسّ المخزون حتى يقبله ويوقّع (التنزيل كما كان) */}
+        {acceptanceOn && !editing && split.out.length > 0 && (
+          <p className="text-[11px] text-amber-800 mb-2 px-0.5 flex items-start gap-1"><PenLine size={12} className="shrink-0 mt-0.5" /> {tr(PENDING_LOAD_TEXT.hint)}</p>
+        )}
+        <button onClick={onSave} disabled={!hasMovement || lotBlocked || stockBlocked || editBlocked || save.isPending}
           className="w-full bg-[#E15A30] text-white font-bold py-3.5 rounded-xl min-h-[50px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {save.isPending ? <Loader2 size={16} className="animate-spin" /> : <ArrowDownToLine size={16} />}
-          {tr('حفظ الحركة')}
+          {editing ? tr('حفظ التعديل') : tr('حفظ الحركة')}
         </button>
       </div>
+
+      {editAsk && (
+        <MConfirm
+          title={tr(PENDING_LOAD_TEXT.editTitle)}
+          message={tr('سيستبدل ما أدخلته بأسطر التحميل المرسل')}
+          confirmLabel={tr('تعديل')}
+          onConfirm={() => openEdit(editAsk)}
+          onClose={() => setEditAsk(null)} />
+      )}
+
+      {cancelling && (
+        <MConfirm
+          title={tr('إلغاء التحميل')}
+          message={tr(PENDING_LOAD_TEXT.cancelConfirm)}
+          confirmLabel={tr('إلغاء التحميل')}
+          danger
+          loading={cancelPending.isPending}
+          onConfirm={() => cancelPending.mutate(cancelling)}
+          onClose={() => { if (!cancelPending.isPending) setCancelling(null); }} />
+      )}
 
       {confirm === 'apply' && (
         <MConfirm

@@ -19,6 +19,7 @@ import { baseQtyText, hasBigUnit, productUnitLabel } from '../lib/adminUnits';
 import { unitChoices } from '../rep/repUnits';
 import { primaryUnitOf, roundQty } from '../lib/units';
 import { fmtTotalQty } from '../lib/qtyView';
+import { PENDING_LOADS_KEY, PENDING_LOAD_TEXT, isPendingLoadResponse, vanLoadAcceptanceOn } from '../lib/pendingLoads';
 
 // حتى أربع منازل (مراجعة المخزون #19): رصيدٌ بقيت منه ٠٫٠٠٤ لا يُطبع «0» — وكميات الطلب بخانتيها كما هي
 const fmtQty = (n: number) => fmtTotalQty(roundQty(n));
@@ -185,9 +186,14 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
    */
   const loadDirect = async (r: RepStockRequest) => {
     const prior = r.sentRef ? `${tr('حملت نسخة سابقة من هذا الطلب ثم عدله المندوب عدل الكميات إلى ما أضافه فقط')}\n` : '';
-    if (!window.confirm(`${prior}${fillNames(tr('تحميل طلب المندوب {names} مباشرة إلى سيارته؟'), [r.repName])} ${tr('تخصم الكميات من مخزون الشركة')}`)) return;
+    // «قبول المندوب للتحميل» مفعّلة: لا يُخصم شيءٌ الآن — يُرسل للمندوب فيقبله ويوقّع عليه أولاً
+    const effect = vanLoadAcceptanceOn(company) ? tr(PENDING_LOAD_TEXT.hint) : tr('تخصم الكميات من مخزون الشركة');
+    if (!window.confirm(`${prior}${fillNames(tr('تحميل طلب المندوب {names} مباشرة إلى سيارته؟'), [r.repName])} ${effect}`)) return;
     setError(''); setNotice(''); setWarn(''); setBusy('load:' + r.id);
     let loaded = false;
+    // «قبول المندوب للتحميل» مفعّلة: ردّ pending:true — لم تُكتب حركة بل أُرسل للمندوب بانتظار قبوله، فرسائل ما بعده لا تقول «تم
+    // التحميل» ولا «راجع حركة التحميل» بل تشير إلى «تحميلات بانتظار القبول» (ومنها رسالة الخطأ في catch، فخارج try)
+    let pendingSent = false;
     try {
       let saved: RepStockRequest;
       if (repRequestDirty(r, edits[r.id], unitEdits[r.id])) saved = await saveReqFull(r);
@@ -208,26 +214,46 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
       const vanLoadId = out.data?.id;
       if (!vanLoadId) { setError(tr('تعذر الحفظ')); return; }
       loaded = true;
+      // «قبول المندوب للتحميل» مفعّلة: لم تُكتب حركة — أُرسل للمندوب بانتظار قبوله، ومعرّفه معرّف التحميل المعلّق (يقبله /loaded كذلك)
+      pendingSent = isPendingLoadResponse(res);
       const replayed = isReplayResponse(res);
       // ملاحظات التشغيلات بأسمائها، وما سواها (سطرٌ تُرك أو حُمِّل بالأساس لأن وحدات الصنف تغيّرت) بأسماء أصنافه وتنبيهٍ ظاهر
       const lotNotes = [...new Set(lotWarningsOf(out.warnings).map(w => w.code))].map(c => tr(LOT_WARNING_LABELS[c])).filter(Boolean);
       const lotCodes = new Set<string>(LOT_WARNING_CODES);
       const other = (Array.isArray(out.warnings) ? out.warnings : []) as { code?: string; productId?: string }[];
       const otherNames = [...new Set(other.filter(w => w && !lotCodes.has(String(w.code))).map(w => r.items.find(i => i.productId === w.productId)?.name ?? ''))];
-      if (otherNames.length) setWarn(fillNames(tr('حمل الطلب مع ملاحظات من الخادم على {names} راجع حركة التحميل في مخزون السيارات'), otherNames));
+      if (otherNames.length) {
+        setWarn(fillNames(pendingSent
+          ? tr('أرسل الطلب للمندوب مع ملاحظات من الخادم على {names} راجعه في تحميلات بانتظار القبول')
+          : tr('حمل الطلب مع ملاحظات من الخادم على {names} راجع حركة التحميل في مخزون السيارات'), otherNames));
+      }
       try {
         await repStockRequestApi.loaded(r.id, { updatedAt: saved.updatedAt, vanLoadId });
       } catch (e) {
         const status = (e as { response?: { status?: number } })?.response?.status;
         // حُمِّل؛ لكن المندوب عدّل طلبه بعده فبقي معلّقاً بعلامة الحركة — لا يُعاد تحميل ما حُمِّل
-        if (status === 409) { setError(tr('تم التحميل لكن المندوب عدل طلبه بعده فبقي معلقا راجع ما أضافه')); return; }
+        if (status === 409) {
+          setError(pendingSent
+            ? tr('أرسل التحميل للمندوب لكنه عدل طلبه بعده فبقي معلقا راجع ما أضافه')
+            : tr('تم التحميل لكن المندوب عدل طلبه بعده فبقي معلقا راجع ما أضافه'));
+          return;
+        }
         if (status !== 404) throw e;
         // لم يعد معلّقاً: بعد إعادةٍ ⇒ حُمِّل وعُلِّم من قبل (لا تحميل ثانٍ)، وبعد حركةٍ جديدة ⇒ سحبه المندوب أو حسمه غيرك أثناء التحميل
-        if (!replayed) { setError(tr('تم التحميل لكن الطلب لم يعد معلقا سحبه المندوب أو حسمه غيرك راجع حركة التحميل في مخزون السيارات')); return; }
-        setNotice(`${tr('سبق تحميل هذا الطلب فلم يتكرر')} · ${r.repName}`);
+        if (!replayed) {
+          setError(pendingSent
+            ? tr('أرسل التحميل للمندوب لكن الطلب لم يعد معلقا سحبه المندوب أو حسمه غيرك راجع تحميلات بانتظار القبول')
+            : tr('تم التحميل لكن الطلب لم يعد معلقا سحبه المندوب أو حسمه غيرك راجع حركة التحميل في مخزون السيارات'));
+          return;
+        }
+        setNotice(`${pendingSent ? tr('سبق إرسال هذا الطلب للمندوب فلم يتكرر') : tr('سبق تحميل هذا الطلب فلم يتكرر')} · ${r.repName}`);
         return;
       }
-      setNotice([fillNames(tr('حمل طلب المندوب {names} إلى سيارته'), [r.repName]), ...(replayed ? [tr(VAN_MOVE_TEXT.replay)] : []), ...lotNotes].join(' · '));
+      setNotice([
+        pendingSent ? `${tr(PENDING_LOAD_TEXT.sent)} · ${r.repName}` : fillNames(tr('حمل طلب المندوب {names} إلى سيارته'), [r.repName]),
+        // المرسَل نفسه بعد إعادةٍ: «لم يتكرر الإرسال» لا «سبق حفظ هذه الحركة» (لا حركة بعد)
+        ...(replayed ? [pendingSent ? tr('سبق إرسال هذا الطلب للمندوب فلم يتكرر') : tr(VAN_MOVE_TEXT.replay)] : []), ...lotNotes,
+      ].join(' · '));
     } catch (e) {
       // التحميل فوق رصيد المستودع (422 WAREHOUSE_INSUFFICIENT): لا شيء كُتب — بأسماء أصنافه من الطلب
       const wi = warehouseInsufficientOf(e);
@@ -236,12 +262,14 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
         setError(names.some(Boolean) ? fillNames(tr(VAN_MOVE_TEXT.whInsufficient), names) : wi.message || tr(VAN_MOVE_TEXT.whLine));
       } else {
         // المرجع ثابتٌ لنسخة الطلب: الضغط ثانيةً يعيد الحركة نفسها ويعلّمه، لا تحميلٌ ثانٍ
-        setError(loaded ? tr('تم التحميل لكن تعذر تعليم الطلب اضغط تحميل مباشر مرة أخرى ليعلم دون تحميل ثان') : errMsg(e, tr('تعذر الحفظ')));
+        setError(!loaded ? errMsg(e, tr('تعذر الحفظ'))
+          : pendingSent ? tr('أرسل التحميل للمندوب لكن تعذر تعليم الطلب اضغط تحميل مباشر مرة أخرى ليعلم دون إرسال ثان')
+          : tr('تم التحميل لكن تعذر تعليم الطلب اضغط تحميل مباشر مرة أخرى ليعلم دون تحميل ثان'));
         if (isStaleUnitsError(e)) dropEdits(r.id);
       }
     } finally {
       // الرصيد تغيّر (أو قد يكون): كمفاتيح «مخزون السيارات» بعد أي حركة (#20) ومعها التشغيلات والمواقع والطلبات
-      for (const key of [...STOCK_CACHE_KEYS, 'rep-stock-requests', 'locations-summary', 'van-lot-balances', 'lot-balances-load', 'lot-balances-van', 'lot-balances-wh', 'lot-fefo']) {
+      for (const key of [...STOCK_CACHE_KEYS, 'rep-stock-requests', 'locations-summary', 'van-lot-balances', 'lot-balances-load', 'lot-balances-van', 'lot-balances-wh', 'lot-fefo', PENDING_LOADS_KEY]) {
         qc.invalidateQueries({ queryKey: [key] });
       }
       setBusy(null);

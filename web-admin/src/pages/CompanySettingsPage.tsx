@@ -15,6 +15,7 @@ import ZatcaTabBoundary from '../components/zatca/ZatcaTabBoundary';
 import PrintTabBoundary from '../components/print/PrintTabBoundary';
 import PrintTextsCard from '../components/print/PrintTextsCard';
 import ReturnPolicyCard from '../components/ReturnPolicyCard';
+import VanLoadAcceptanceCard from '../components/VanLoadAcceptanceCard';
 import VatRateEditor from '../components/VatRateEditor';
 import SupportModal from '../components/SupportModal';
 import { isZatcaPhase2Live } from '../lib/zatcaRegime';
@@ -239,6 +240,9 @@ export default function CompanySettingsPage() {
   // «اشتراط اختيار فاتورة البيع للمرتجع» (طلب المالك ٣١ أكتوبر ٢٠٢٦): لمدير الشركة غير المقيَّد وحده كتبويب «الفرق» — في الإعدادات
   // العامة لا تبويب الفوترة (شركات المرحلة الأولى تحتاجه أيضاً)، ويُحفظ فوراً بمساره المستقل (PUT /company/return-policy)
   const returnPolicyCardOn = role === 'ADMIN' && !scopeEnabled;
+  // «اشتراط قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): لمدير الشركة غير المقيَّد والمحاسبة مفعّلة (مخزون السيارات
+  // معها) — يُحفظ فوراً بمساره المستقل (PATCH /company/van-load-acceptance)، والخادم يرفض المقيَّد والمفتاح وإيقافاً فوق تحميلاتٍ مفتوحة
+  const vanLoadAcceptanceCardOn = accountingOn && role === 'ADMIN' && !scopeEnabled;
   // «إزالة الضريبة»: لمدير الشركة غير المقيَّد (وجلسة المالك تعمل كحسابه) — يُحفظ فوراً بمساره المستقل (PATCH /company/tax-mode)،
   // والخادم يرفض غيره ويرفض الإزالة ما دام ربط المرحلة الثانية مفعّلاً (409 TAX_MODE_ZATCA_CONFLICT)
   const taxModeCardOn = role === 'ADMIN' && !scopeEnabled;
@@ -499,6 +503,7 @@ export default function CompanySettingsPage() {
 
           {buyerRelaxCardOn && <BuyerRelaxCard value={(data as { buyerVatAddressRelaxed?: unknown } | null | undefined)?.buyerVatAddressRelaxed === true} />}
           {returnPolicyCardOn && <ReturnPolicyCard company={data} />}
+          {vanLoadAcceptanceCardOn && <VanLoadAcceptanceCard company={data} />}
           {taxModeCardOn && <TaxModeCard company={data} />}
           {booksLinkingCardOn && booksLinking && <BooksLinkingCard status={booksLinking} companyName={data?.name ?? ''} />}
 

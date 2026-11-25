@@ -220,14 +220,14 @@ export async function iosPushReady(w: unknown = pageWindow(), timeoutMs: number 
 
 /**
  * الشاشة التي يفتحها الحدث — كعامل الخدمة: وصول «أثبت تواجدك» والتطبيق ظاهر يفتح الطلب، ولمس الإشعار يفتح شاشة رابطه
- * (screen=presence|attendance)، وتغيّر الرمز لا شاشة له
+ * (screen=presence|attendance، و«تحميل بانتظار قبولك» screen=vanloads)، وتغيّر الرمز لا شاشة له
  */
-export function iosPushScreen(ev: IosPushEvent): 'presence' | 'attendance' | null {
+export function iosPushScreen(ev: IosPushEvent): 'presence' | 'attendance' | 'vanloads' | null {
   try {
     if (ev.kind === 'receive') return ev.tag === 'presence' ? 'presence' : null;
     if (ev.kind !== 'open' || !ev.url) return null;
     const s = new URL(ev.url, 'https://fieldsa.net').searchParams.get('screen');
-    return s === 'presence' || s === 'attendance' ? s : null;
+    return s === 'presence' || s === 'attendance' || s === 'vanloads' ? s : null;
   } catch { return null; }
 }
 
