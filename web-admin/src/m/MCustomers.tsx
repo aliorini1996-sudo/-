@@ -18,6 +18,7 @@ import { buyerRelaxOn, zatcaCollectOn, type ZatcaCompanyLike } from '../lib/zatc
 import { BuyerRowLike, customerBuyerStatus, missingBuyerFormFields } from '../lib/zatca/buyerData';
 import { BUYER_CLASSIFICATION_LABELS_AR, BUYER_FIELD_UI_LABELS_AR as BUYER_FIELD_LABELS_AR, buyerBadge, buyerRelaxSimplified } from '../lib/zatca/buyerForm';
 import { useMTaxOff } from './mTaxMode';
+import { formatCustomerNumber } from '../lib/customerNumber';
 
 const MInvoiceCreate = lazy(() => import('./MInvoiceCreate'));
 const MReceiptCreate = lazy(() => import('./MReceiptCreate'));
@@ -109,12 +110,13 @@ export default function MCustomers({ accountingOn = true, company }: {
 
   return (
     <div className="h-full flex flex-col bg-[#FAF7F0]">
-      {/* البحث — على الخادم لا محلياً، فيصل لأي عميل مهما طالت القائمة */}
+      {/* البحث — على الخادم لا محلياً، فيصل لأي عميل مهما طالت القائمة. و«رقم العميل» («12» أو «#12» أو «١٢») يطابقه
+          الخادم تماماً مع الاسم والجوال (طلب المالك ٢٣ نوفمبر ٢٠٢٦) — والرمز المخصّص ما زال يُبحث وإن لم يُعرض */}
       <div className="flex-shrink-0 p-3 pb-2 flex items-center gap-2">
         <div className="relative flex-1">
           <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-[#9A8F7E]" />
           <input value={q} onChange={e => setQ(e.target.value)} className="input ps-9"
-            placeholder={tr('ابحث باسم أو جوال أو كود')} />
+            placeholder={tr('ابحث بالاسم أو الجوال أو رقم العميل')} />
         </div>
         <button onClick={() => setEditing(null)}
           className="w-11 h-11 rounded-xl bg-[#E15A30] text-white flex items-center justify-center flex-shrink-0"
@@ -165,7 +167,8 @@ function CustomerRow({ c, accountingOn, zatcaCollect = false, buyerRelax = false
         </span>
       }
       title={c.name}
-      subtitle={[c.code, c.phone, c.city].filter(Boolean).join(' · ') || tr('بلا بيانات')}
+      // «رقم العميل» بدل الرمز (طلب المالك ٢٣ نوفمبر ٢٠٢٦): «#12» يُكتب في أي بحث — والرمز التلقائيّ (cuid) لا يُعرض
+      subtitle={[formatCustomerNumber(c.number), c.phone, c.city].filter(Boolean).join(' · ') || tr('بلا بيانات')}
       trailing={
         <span className="flex items-center gap-1 flex-shrink-0">
           {badge && (
@@ -246,7 +249,7 @@ function MCustomerDetail({ customer, accountingOn, zatcaCollect = false, buyerRe
 
   return (
     <div className="h-full flex flex-col bg-[#FAF7F0]">
-      <MHeader title={c.name} subtitle={c.code} onBack={onClose}
+      <MHeader title={c.name} subtitle={c.number != null ? `${tr('رقم العميل')} #${c.number}` : '—'} onBack={onClose}
         action={
           <button onClick={onEdit} className="p-2 text-[#9A8F7E] hover:text-white" aria-label={tr('تعديل')}>
             <Pencil size={18} />

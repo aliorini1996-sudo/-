@@ -20,6 +20,7 @@ import { activeLocale, formatCurrency, formatNumber, gregorianLocale } from '../
 import { num, type ExcelSheet } from '../../utils/excel';
 import { appliedRangeOf, defaultedRangeNote, truncationNote, truncationOf, type AppliedRange, type Truncation } from '../../lib/reportsAccuracy';
 import { filterFlat } from '../../lib/reportSearch';
+import { formatCustomerNumber } from '../../lib/customerNumber';
 import { baseQtyText, hasBigUnit } from '../../lib/adminUnits';
 import { roundHalfUp } from '../../lib/money';
 import type { UnitDef } from '../../lib/units';
@@ -46,6 +47,8 @@ export interface ProfitRowDto {
   key: string;
   name: string;
   code?: string | null;
+  /** لتجميع العميل: «رقم العميل» (٢٣ نوفمبر ٢٠٢٦) — null قبل ترقيمه، وغائبٌ لغيره ومن خادمٍ أقدم */
+  number?: number | null;
   /** للصنف: صافي الكمية بالأساس (البيع − المرتجع) */
   qty?: number;
   unit?: string;
@@ -137,9 +140,9 @@ const plainQty = (n: number) => String(Number(n.toFixed(3)));
 const qtyText = (r: ProfitRowDto) => (hasBigUnit(r.units) ? baseQtyText(Number(r.qty) || 0, r, plainQty) : plainQty(Number(r.qty) || 0));
 const pctText = (m: number | null) => (m == null ? '—' : `${formatNumber(m)}%`);
 
-/** الصفوف بعد البحث — باسم العرض أو الاسم المخزَّن أو الكود */
+/** الصفوف بعد البحث — باسم العرض أو الاسم المخزَّن أو الكود، وتجميع العميل برقمه أيضاً (مطابقةٌ تامّة لا جزءٌ من نصّ) */
 export function filterProfitRows(rows: ProfitRowDto[], q: string, group: ProfitGroup, tr: Tr): ProfitRowDto[] {
-  return filterFlat(rows, q, (r) => [profitRowName(r, group, tr), r.name, r.code]);
+  return filterFlat(rows, q, (r) => [profitRowName(r, group, tr), r.name, r.code], (r) => (group === 'customer' ? [r.number] : []));
 }
 
 export interface ProfitTotals { netSales: number; cost: number; grossProfit: number; marginPct: number | null }
@@ -185,10 +188,13 @@ export function profitExportSheets(data: ProfitReportDto, shown: ProfitRowDto[],
   const group = profitGroupOf(data.groupBy);
   const label = tr(PROFIT_GROUPS.find((g) => g.id === group)?.label ?? 'الصنف');
   const isProduct = group === 'product';
+  // التجميع بالعميل: «رقم العميل» (٢٣ نوفمبر ٢٠٢٦) أوّلاً كما في الشاشة «#12 · الاسم» — فارغٌ قبل ترقيمه
+  const isCustomer = group === 'customer';
   const multi = isProduct && shown.some((r) => hasBigUnit(r.units));
   const t = profitTotals(data, shown, !!q.trim());
   const yes = tr('نعم');
   const rows: Record<string, unknown>[] = shown.map((r) => ({
+    ...(isCustomer && { [tr('رقم العميل')]: r.number ?? '' }),
     [label]: profitRowName(r, group, tr),
     ...(isProduct && { [tr('الكود')]: r.code || '' }),
     ...(isProduct ? { [tr('الكمية')]: Number(r.qty) || 0 } : { [tr('عدد الفواتير')]: r.count }),
@@ -200,6 +206,7 @@ export function profitExportSheets(data: ProfitReportDto, shown: ProfitRowDto[],
     [tr('بلا تكلفة')]: r.noCost ? yes : '',
   }));
   rows.push({
+    ...(isCustomer && { [tr('رقم العميل')]: '' }),
     [label]: tr('الإجمالي'),
     ...(isProduct && { [tr('الكود')]: '' }),
     ...(isProduct ? { [tr('الكمية')]: '' } : { [tr('عدد الفواتير')]: '' }),
@@ -210,7 +217,7 @@ export function profitExportSheets(data: ProfitReportDto, shown: ProfitRowDto[],
     [tr('هامش الربح %')]: t.marginPct ?? '',
     [tr('بلا تكلفة')]: '',
   });
-  const widths = [28, ...(isProduct ? [12] : []), 14, ...(multi ? [22] : []), 16, 16, 16, 12, 10];
+  const widths = [...(isCustomer ? [12] : []), 28, ...(isProduct ? [12] : []), 14, ...(multi ? [22] : []), 16, 16, 16, 12, 10];
   const sheets: ExcelSheet[] = [{ name: tr('مجمل الربح'), rows, colWidths: widths }];
   const list = data.summary.noCostList ?? [];
   if (list.length) {
@@ -377,6 +384,10 @@ export default function ProfitReport({ search = '', onExportRows, enabled = true
                   {shown.map((r) => (
                     <tr key={r.key}>
                       <td className="font-medium text-gray-800 break-words">
+                        {/* «رقم العميل» بادئةً في تجميع العميل — «#12 · الاسم» كمنتقيات العملاء: الرقم وحده ltr بأرقامٍ غربية والفاصل خارجه */}
+                        {group === 'customer' && formatCustomerNumber(r.number) && (
+                          <><span dir="ltr" className="tabular-nums font-normal text-gray-400">{formatCustomerNumber(r.number)}</span><span className="font-normal text-gray-400">{' · '}</span></>
+                        )}
                         <span>{profitRowName(r, group, tr)}</span>
                         {isProduct && r.code && <span className="block text-[11px] text-gray-400 tabular-nums">{r.code}</span>}
                         {r.noCost && (

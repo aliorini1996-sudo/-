@@ -82,6 +82,9 @@ const CUSTOMER_COLS = [
   'buyerIdValue', 'addrStreet', 'addrBuildingNo', 'addrAdditionalNo', 'addrPostalCode', 'countryCode',
   // «أنواع الأسعار»: نوع سعر العميل (null = السعر الأساسي) — أسماء الأنواع من GET /api/price-lists
   'priceListId',
+  // «رقم العميل»: تسلسلٌ لكل شركة يمنحه الخادم وحده (قراءة فقط؛ null حتى يُرقَّم القديم). ترقيم القدامى بـSQL خام لا يغيّر
+  // updatedAt فلا يُعاد دفع العملاء كلهم — يصل الرقم مع أوّل تعديلٍ تالٍ للعميل أو في لقطة كاملة
+  'number',
 ];
 const PRODUCT_COLS = [
   'id', 'code', 'name', 'barcode', 'unit', 'basePrice', 'taxPct', 'itemCode', 'itemCodeType', 'unitCode', 'status',
@@ -112,7 +115,7 @@ const SALES_REP_COLS = [
   // «البيع النقدي تحصيلٌ لدى المندوب»: فاتورته النقدية تُحسب في رصيد تحصيله بلا سند قبض
   'cashSaleCollected',
   // «منع تكرار العملاء عند فتح عميل جديد»: الجوال والاسم والعنوان (أيّ تركيبة)
-  'dedupCustomerPhone', 'dedupCustomerName', 'dedupCustomerAddress',
+  'dedupCustomerPhone', 'dedupCustomerName', 'dedupCustomerAddress', 'dedupCustomerLocation',
   // «لوكيشن»: موقع المندوب الحاليّ (معرّف SalesLocation — null = بلا موقع)
   'locationId',
   // «أنواع الأسعار على مستوى المندوب»: نوعه الافتراضي (null = السعر الأساسي) والأنواع التي يبدّل بينها (null = كلها؛ وإلا

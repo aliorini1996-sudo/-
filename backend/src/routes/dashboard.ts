@@ -67,12 +67,13 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         // المحذوف يسقط من «أفضل العملاء» كما سقط من قوائمهم
         where: { tenantId: tid, ...custScope, status: { not: 'DELETED' } },
         take: 5, orderBy: { totalSales: 'desc' },
-        select: { id: true, name: true, totalSales: true, balance: true },
+        // number: رقم العميل التسلسليّ للعرض بجوار اسمه (طلب المالك ٢٣ نوفمبر ٢٠٢٦)
+        select: { id: true, name: true, number: true, totalSales: true, balance: true },
       }),
       prisma.invoice.findMany({
         where: { tenantId: tid, ...recScope, status: 'CONFIRMED', type: { not: 'RETURN' } },
         take: 10, orderBy: { createdAt: 'desc' },
-        include: { customer: { select: { name: true } }, salesRep: { select: { name: true } } },
+        include: { customer: { select: { name: true, number: true } }, salesRep: { select: { name: true } } },
       }),
       // «إجمالي المبيعات» صافٍ (طلب المالك ٢٩ أكتوبر ٢٠٢٦): مرتجع اليوم والشهر في النطاق نفسه يُطرح من مبيعاتهما
       prisma.invoice.aggregate({

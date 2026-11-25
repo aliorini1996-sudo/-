@@ -127,7 +127,7 @@ export interface OutboxDoc {
   localNumber?: string;           // رقم مؤقّت للعرض/الطباعة
   error?: string;                 // سبب الرفض إن وُجد
   rejectCode?: string;            // رمز الرفض من الخادم — زيارةٌ لا تُقبل أبداً لا تُعرض لها «إعادة المحاولة» (visitLocation.ts)
-  serverNumber?: string;          // الرقم النهائي بعد الرفع
+  serverNumber?: string | number; // الرقم النهائي بعد الرفع — رقم المستند، أو «رقم العميل» (عدد) لمستند عميلٍ أُضيف دون اتصال
   serverId?: string;
   // فوترة ZATCA (Z5.0، خامل حتى Z5.8): مستند دون اتصال من قبل التفعيل ينتظر مراجعة الإدارة — يبقى مصفوفاً (لا «مرفوض»)
   reviewCode?: string;            // ZATCA_CUTOVER_REVIEW، أو LOT_REPLAY_HELD («تتبّع اللوط» D20: بانتظار الإدارة لتسجيل تحميلٍ ناقص)

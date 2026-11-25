@@ -176,9 +176,10 @@ type RuleDto = ReturnType<typeof ruleDtoOf>;
 
 /**
  * قواعد قوائمٍ بعينها للأجهزة — جملةٌ واحدة: القاعدة وأساس صنفها في لقطةٍ واحدة (كأسعار القائمة في /prices؛ التحويل يقسم
- * basePrice على F ويغيّر الأساس في معاملةٍ واحدة). قواعد الأصناف المؤرشفة خارجها. بلا قوائم لا استعلام
+ * basePrice على F ويغيّر الأساس في معاملةٍ واحدة). قواعد الأصناف المؤرشفة خارجها. بلا قوائم لا استعلام.
+ * ومُصدَّرةٌ لمنيو المنتجات العام (routes/publicCatalog.ts): يسعّر بقائمة المندوب الافتراضية بالقواعد نفسها التي يقرؤها تطبيقه
  */
-async function rulesOfLists(tid: string, ids: string[]): Promise<RuleDto[]> {
+export async function rulesOfLists(tid: string, ids: string[]): Promise<RuleDto[]> {
   if (!ids.length) return [];
   const rows = await prisma.$queryRaw<RuleSource[]>`
     SELECT r.id, r."priceListId", r.scope, r."productId", r."categoryId", r.kind, r."basePrice", r."primaryPrice", r.percent,

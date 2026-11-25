@@ -126,6 +126,7 @@ export const ROUTE_RULES: readonly RouteRule[] = [
   r('GET', '/api/leads/invoice-tool', 'invoiceTool.view', true),
   // «إدارة المبيعات» — حرفيّة قبل /api/leads/:id (وإلا أخذت leads.view)
   r('GET', '/api/leads/sales-inbox', 'sales.view'),
+  r('POST', '/api/leads/sales-inbox', 'sales.view'),
   r('PUT', `/api/leads/sales-inbox/${SEG}`, 'sales.view'),
   r('GET', `/api/leads/sales-inbox/${SEG}/notes`, 'sales.view'),
   r('POST', `/api/leads/sales-inbox/${SEG}/notes`, 'sales.view'),

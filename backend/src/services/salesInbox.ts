@@ -17,9 +17,11 @@ import { fetchWaBot, WaBotResult } from './waBotInbox';
 
 // ───────────────────────────── القنوات والمراحل ─────────────────────────────
 
-export const SALES_CHANNELS = ['TRIAL', 'AMBASSADOR_TRIAL', 'MEETING', 'CONTACT', 'SUBSCRIPTION', 'QUOTE_REQUEST', 'WHATSAPP'] as const;
+// MANUAL: أضافه موظف المبيعات أو المالك يدوياً من الصفحة (طلب المالك ٢٤ نوفمبر ٢٠٢٦) — لا مزامنة له
+export const SALES_CHANNELS = ['TRIAL', 'AMBASSADOR_TRIAL', 'MEETING', 'CONTACT', 'SUBSCRIPTION', 'QUOTE_REQUEST', 'WHATSAPP', 'MANUAL'] as const;
 export type SalesChannel = typeof SALES_CHANNELS[number];
-export const SALES_STAGES = ['NEW', 'CONTACTED', 'MEETING', 'NEGOTIATION', 'WON', 'LOST', 'NOT_FIT'] as const;
+// FOLLOW_UP «يحتاج متابعة» (طلب المالك ٢٤ نوفمبر ٢٠٢٦) — بعد «تم التواصل» في ترتيب القائمة
+export const SALES_STAGES = ['NEW', 'CONTACTED', 'FOLLOW_UP', 'MEETING', 'NEGOTIATION', 'WON', 'LOST', 'NOT_FIT'] as const;
 export type SalesStage = typeof SALES_STAGES[number];
 
 const TRIAL_CHANNELS: SalesChannel[] = ['TRIAL', 'AMBASSADOR_TRIAL'];
@@ -496,7 +498,7 @@ export async function updateSalesContact(
 // ═══ سجلّ الملاحظات ═══
 
 export const SALES_STAGE_LABELS: Record<SalesStage, string> = {
-  NEW: 'جديد', CONTACTED: 'تم التواصل', MEETING: 'تم الاجتماع', NEGOTIATION: 'المفاوضة', WON: 'مشتري', LOST: 'تم خسارة العميل', NOT_FIT: 'غير مناسب',
+  NEW: 'جديد', CONTACTED: 'تم التواصل', FOLLOW_UP: 'يحتاج متابعة', MEETING: 'تم الاجتماع', NEGOTIATION: 'المفاوضة', WON: 'مشتري', LOST: 'تم خسارة العميل', NOT_FIT: 'غير مناسب',
 };
 
 export interface SalesNoteAuthor { authorKind: 'OWNER' | 'STAFF'; authorId: string; authorName: string }
@@ -526,4 +528,50 @@ export async function addSalesNote(id: string, body: string, author: SalesNoteAu
 export async function removeSalesNote(id: string, noteId: string, includeWhatsapp: boolean, db: Db = prisma): Promise<boolean> {
   if (!(await visibleContact(db, id, includeWhatsapp))) return false;
   return (await db.salesContactNote.deleteMany({ where: { id: noteId, contactId: id } })).count > 0;
+}
+
+// ═══ إضافة يدوية (طلب المالك ٢٤ نوفمبر ٢٠٢٦) ═══
+
+/** «من أين أتى» للصفّ اليدوي — ومن أضافه بعده */
+export const MANUAL_ORIGIN = 'إضافة يدوية';
+
+const optText = (max: number) => z.string().trim().max(max).optional().nullable()
+  .transform((v) => (v ?? '').trim() || null);
+
+/**
+ * جسم الإضافة اليدوية: الاسم إلزامي، ومعه جوالٌ أو بريد على الأقل (جهة تواصلٍ بلا وسيلة تواصل لا تُتابَع)، والحالة الأولى
+ * اختيارية (الافتراض «جديد»). الحدود كحدود صفوف النماذج (formFields)
+ */
+export const salesManualSchema = z.object({
+  name: z.string().trim().min(1, 'اكتب الاسم').max(200),
+  company: optText(200),
+  phone: optText(40),
+  email: z.string().trim().max(200).optional().nullable()
+    .transform((v) => (v ?? '').trim() || null)
+    .refine((v) => v === null || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), 'البريد غير صالح'),
+  country: z.string().trim().max(2).optional().nullable()
+    .transform((v) => ((v ?? '').trim().toUpperCase() || null))
+    .refine((v) => v === null || /^[A-Z]{2}$/.test(v), 'الدولة غير صالحة'),
+  message: optText(2000),
+  stage: z.enum(SALES_STAGES).optional(),
+}).refine((b) => !!(b.phone || b.email), { message: 'اكتب الجوال أو البريد', path: ['phone'] });
+export type SalesManual = z.infer<typeof salesManualSchema>;
+
+/**
+ * ينشئ جهة تواصل يدوية: قناة MANUAL بمرجعٍ عشوائي (لا تمسّها المزامنة)، و«من أين أتى» باسم من أضافها، ويُثبَّت مسؤول الصفقة
+ * إن كان موظفاً (كأول تغيير حالة)، وسطرٌ في السجلّ «أُضيف يدوياً» بالاسم والوقت
+ */
+export async function createManualContact(body: SalesManual, author: SalesNoteAuthor, db: Db = prisma, now: Date = new Date()): Promise<SalesRow> {
+  const row = await db.salesContact.create({
+    data: {
+      channel: 'MANUAL', sourceRef: crypto.randomUUID(),
+      name: body.name, company: body.company, phone: body.phone, email: body.email, country: body.country, message: body.message,
+      origin: `${MANUAL_ORIGIN} — ${author.authorName}`.slice(0, 200), tenantId: null,
+      stage: body.stage ?? 'NEW', firstAt: now, lastAt: now,
+    },
+  });
+  await claimSalesOwner(db, row.id, author);
+  await db.salesContactNote.create({ data: { contactId: row.id, kind: 'STAGE', body: 'أُضيف يدوياً', ...author } });
+  const fresh = await db.salesContact.findUnique({ where: { id: row.id } });
+  return toSalesRow(fresh ?? row, 1, null);
 }

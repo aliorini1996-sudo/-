@@ -14,8 +14,10 @@ import {
   METHOD_CHOICE_UNAVAILABLE, choicePayload, pickChoice, receiptChoicesFor, type CompanyWithMethods, type ManualBase,
 } from '../lib/paymentMethodsConfig';
 import { methodIconComponent } from '../components/PaymentMethodIcon';
+import { formatCustomerLabel } from '../lib/customerNumber';
 
-interface Pick { id: string; name: string; code?: string; phone?: string }
+/** `number` «رقم العميل» لصفّ العميل (طلب المالك ٢٣ نوفمبر ٢٠٢٦) — غائبٌ للمندوب ومن خادمٍ أقدم */
+interface Pick { id: string; name: string; code?: string; phone?: string; number?: number | null }
 
 /** أيقونات المدمجة في هذه الشاشة كما اليوم — والمضافة بأيقونتها من إعداد الشركة (methodIconComponent) */
 const BUILTIN_ICONS: Record<ManualBase, typeof Banknote> = { CASH: Banknote, BANK_TRANSFER: Landmark, POS: CreditCard, CHEQUE: FileText };
@@ -188,7 +190,8 @@ export default function MReceiptCreate({ presetCustomerId, company, onClose, onC
           <label className="label">{tr('العميل')} *</label>
           <div className="relative mb-2">
             <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-[#9A8F7E]" />
-            <input value={cq} onChange={e => setCq(e.target.value)} className="input ps-9" placeholder={tr('ابحث عن عميل')} />
+            {/* البحث على الخادم: الاسم والجوال والرمز — و«رقم العميل» («12» أو «#12» أو «١٢») مطابقةً تامة */}
+            <input value={cq} onChange={e => setCq(e.target.value)} className="input ps-9" placeholder={tr('ابحث بالاسم أو الجوال أو رقم العميل')} />
           </div>
           <div className="rounded-xl border border-[#F1EBDF] bg-white max-h-52 overflow-y-auto divide-y divide-[#F1EBDF]">
             {customersQ.isLoading ? <p className="text-center text-xs text-[#9A8F7E] py-5">{tr('جاري التحميل')}</p>
@@ -196,9 +199,10 @@ export default function MReceiptCreate({ presetCustomerId, company, onClose, onC
               : customersQ.data.map(c => (
                 <button key={c.id} onClick={() => { setCustomerId(c.id); setAlloc({}); }}
                   className={`w-full text-start px-3 py-3 min-h-[52px] flex items-center gap-2 ${customerId === c.id ? 'bg-[#E9F6EF]' : 'active:bg-[#FAF7F0]'}`}>
+                  {/* «#12 · الاسم» يُرى فيُكتب في البحث (الخادم يطابق الرقم تماماً) — والرمز التلقائيّ (cuid) لا يُعرض */}
                   <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold text-[#1F1A13] truncate">{c.name}</span>
-                    <span className="block text-[11px] text-[#9A8F7E] truncate">{[c.code, c.phone].filter(Boolean).join(' · ')}</span>
+                    <span className="block text-sm font-semibold text-[#1F1A13] truncate">{formatCustomerLabel(c)}</span>
+                    {c.phone && <span className="block text-[11px] text-[#9A8F7E] truncate">{c.phone}</span>}
                   </span>
                   {customerId === c.id && <Check size={16} className="text-[#2F855A] flex-shrink-0" />}
                 </button>

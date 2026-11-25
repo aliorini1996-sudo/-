@@ -10,6 +10,8 @@ import { X, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SearchableSelect from '../SearchableSelect';
 import { joinCustomerHint } from '../../lib/customerPhoneField';
+import { visibleCustomerCode } from '../../lib/customerNumber';
+import { REMOTE_CUSTOMER_LIMIT, useCustomerSearchFallback } from '../../lib/customerSearchFallback';
 import { METHOD_CHOICE_UNAVAILABLE, choicePayload, pickChoice, receiptChoicesFor } from '../../lib/paymentMethodsConfig';
 
 interface Props { onClose: () => void; onSaved: (doc: ReceiptDoc) => void; }
@@ -50,13 +52,17 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
   const { chosen, unavailable: methodUnavailable } = pickChoice(methodChoices, methodId);
   const paymentMethod = chosen?.base ?? null;
 
-  const { data: customers } = useQuery({
+  const { data: loadedCustomers } = useQuery({
     queryKey: ['customers-all'],
     queryFn: async () => {
       const res = await customerApi.list({ limit: 1000 });
       return res.data.data as Customer[];
     },
   });
+  // القائمة بسقفها (١٠٠٠ بالأحدث) تفقد أقدم العملاء وهم أصحاب الأرقام الصغيرة (#1، #2…): ما يُكتب في المنتقي يُسأل عنه الخادم
+  // (يطابق الرقم تماماً) ويُضمّ إلى المجموعة فيُصفّى محلياً كالبقيّة، والمختار منه يُوجد فيها — lib/customerSearchFallback
+  const { pool: customers, onQueryChange: onCustomerQuery } = useCustomerSearchFallback(loadedCustomers,
+    async (term) => (await customerApi.list({ search: term, limit: REMOTE_CUSTOMER_LIMIT })).data.data as Customer[]);
 
   const {
     data: openInvoices, isError: invoicesFailed,
@@ -172,15 +178,20 @@ export default function ReceiptModal({ onClose, onSaved }: Props) {
             <label className="label">{tr('العميل')} *</label>
             <SearchableSelect
               placeholder={tr('اختر العميل')}
-              searchPlaceholder={tr('اكتب اسم أو جوال العميل')}
+              searchPlaceholder={tr('اكتب اسم أو جوال أو رقم العميل')}
               value={customerId}
               options={(customers || []).map(c => ({
                 value: c.id,
                 label: c.name,
+                // «رقم العميل» (٢٣ نوفمبر ٢٠٢٦): «#12 · » قبل الاسم ومطابقته بالضبط — لا يدخل نصّ الاسم المُصفّى
+                num: c.number,
                 hint: Number(c.balance) > 0 ? `${tr('رصيد')} ${formatCurrency(c.balance)}` : joinCustomerHint(c.phone),
                 hintColor: Number(c.balance) > 0 ? 'text-red-500' : undefined,
+                // الجوال كلمةُ بحثٍ دائماً — كان المدين (تلميحه الرصيد) لا يُوجد بجواله
+                keywords: [c.phone, c.businessName, visibleCustomerCode(c.code)],
               }))}
               onChange={(v) => { setCustomerId(v); setSelectedCustomer((customers || []).find(c => c.id === v) || null); setAllocations({}); }}
+              onQueryChange={onCustomerQuery}
             />
           </div>
 

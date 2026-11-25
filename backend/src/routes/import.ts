@@ -47,6 +47,9 @@ import {
 import {
   CUSTOMER_NAME_PLACEHOLDER, buildCustomerMatcher, customerImportName, customerImportPlanner, type CustomerImportDecision, type CustomerSkipReason,
 } from '../services/importMatch';
+// «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): العميل المستورد يأخذ رقمه التالي في معاملة شريحته — والمطابقة لا تقرأ الرقم أبداً
+// (الكود ثم الجوال ثم الاسم كما كانت): كودٌ رقميّ من نظام سابق لا يلتصق برقم عميلٍ آخر
+import { createNumberedCustomer } from '../services/customerNumber';
 import { loadBuyerGate, type ImportBuyerRowError } from './customersZatca';
 import { BUYER_PHASE2_FIELDS, bodyTouchesBuyerGate, normalizeBuyerFields, validateBuyerChanges } from '../compliance/zatca/buyerData';
 import {
@@ -592,25 +595,24 @@ router.post('/customers', requireImportAccess('customers'), async (req: AuthRequ
         chunks: planImportChunks(creates, () => 1, importChunkTarget(creates.length)),
         runTx: <X>(fn: (tx: Prisma.TransactionClient) => Promise<X>) => prisma.$transaction(async tx => fn(tx), IMPORT_WRITE_TX),
         writeItem: async (tx: Prisma.TransactionClient, { r, phone }) => {
-          const c = await tx.customer.create({
-            data: {
-              tenantId: tid,
-              name: r.name || CUSTOMER_NAME_PLACEHOLDER,
-              phone,
-              email: r.email || null,
-              businessName: r.businessName || null,
-              commercialReg: r.commercialReg || null,
-              taxNumber: r.taxNumber || null,
-              city: r.city || null,
-              district: r.district || null,
-              address: r.address || null,
-              channel: r.channel && CHANNELS.includes(r.channel) ? r.channel : null,
-              creditLimit: r.creditLimit ?? 0,
-              paymentDays: r.paymentDays ?? 30,
-              ...(r.code ? { code: r.code } : {}),
-            } as never,
-            select: { id: true },
-          });
+          // «رقم العميل»: داخل معاملة الشريحة نفسها — تراجعها أو إعادتها صفاً صفاً يعيد عدّاد الشركة معها، والتراجع عن
+          // الدفعة لاحقاً يترك فجوةً لا يعيد الرقم
+          const c = await createNumberedCustomer(tx, tid, {
+            tenantId: tid,
+            name: r.name || CUSTOMER_NAME_PLACEHOLDER,
+            phone,
+            email: r.email || null,
+            businessName: r.businessName || null,
+            commercialReg: r.commercialReg || null,
+            taxNumber: r.taxNumber || null,
+            city: r.city || null,
+            district: r.district || null,
+            address: r.address || null,
+            channel: r.channel && CHANNELS.includes(r.channel) ? r.channel : null,
+            creditLimit: r.creditLimit ?? 0,
+            paymentDays: r.paymentDays ?? 30,
+            ...(r.code ? { code: r.code } : {}),
+          } as never);
           return c.id;
         },
         // المعرّفات في آخر معاملة الشريحة نفسها (البند 6)

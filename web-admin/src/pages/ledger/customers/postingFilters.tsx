@@ -1,7 +1,9 @@
+import type { ReactNode } from 'react';
 import { Hourglass } from 'lucide-react';
 import { useTr } from '../../../i18n/strings';
 import type { LedgerFilterDef } from '../../../components/ledger/LedgerListView';
 import type { PostingListParams } from '../../../api/ledgerReview';
+import { formatCustomerNumber } from '../../../lib/customerNumber';
 
 /**
  * أجزاء مشتركة لقوائم «العملاء» (M3) — ليست صفحة مسار (لا صف لها في LEDGER_ROUTES).
@@ -19,6 +21,15 @@ export function postingFilterDefs(tr: Tr): LedgerFilterDef[] {
     { key: 'posting:HELD', label: tr('موقوف'), group: 'posting' },
     { key: 'posting:SKIPPED', label: tr('متخطّى'), group: 'posting' },
   ];
+}
+
+/**
+ * خانة العميل في قوائم «العملاء» (الفواتير والسندات وأمانات الدفع الإلكتروني): «رقم العميل» (٢٣ نوفمبر ٢٠٢٦) قبل اسمه «#12 · الاسم»
+ * والبحث في الخادم يطابقه بالضبط. صفٌّ بلا رقم (عميلٌ لم يُرقَّم بعد أو ردٌّ من خادمٍ أقدم) يعرض الاسم وحده كما كان
+ */
+export function customerCell(r: { customerName?: string | null; customerNumber?: number | null }): ReactNode {
+  if (r.customerNumber == null) return r.customerName ?? '';
+  return <span><bdi dir="ltr" className="tabular-nums text-[#9A8F7E]">{formatCustomerNumber(r.customerNumber)}</bdi>{' · '}{r.customerName ?? ''}</span>;
 }
 
 export function postingParamsOf(filters: readonly string[]): PostingListParams {

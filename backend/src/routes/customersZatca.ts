@@ -26,6 +26,8 @@ import type { PrismaClient } from '@prisma/client';
 import type { AuthRequest } from '../types';
 import { zatcaCollectOn } from '../compliance/zatca/regime';
 import { ZATCA_ERROR_CATALOGUE } from '../compliance/zatca/errors';
+// «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): يظهر في القائمة ويُبحث به بالمطابقة التامّة
+import { customerNumberOr, customerNumberQuery } from '../services/customerNumber';
 import {
   BUSINESS_CHANNELS, BUSINESS_ID_SCHEMES, BUYER_BILLING_FIELDS, BUYER_PHASE2_FIELDS, BuyerField, BuyerFieldError, BuyerPatch, BuyerRowLike,
   BuyerStatus, CUSTOMER_FIELD_MAP, bodyTouchesBuyerGate, buyerDowngrade, clearedBuyerFields, customerBuyerStatus, missingBuyerFormFields,
@@ -60,14 +62,14 @@ export const BUYER_DOWNGRADE_AUDIT_EVENT = 'ZATCA_BUYER_DOWNGRADE';
 const COMPANY_ROLES = ['ADMIN', 'MANAGER', 'ACCOUNTANT'];
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** أعمدة الفوترة التي تُقرأ للفحص والقائمة (~19 عموداً، بلا مال ولا موقع). */
+/** أعمدة الفوترة التي تُقرأ للفحص والقائمة (~20 عموداً، بلا مال ولا موقع) — ورقم العميل للعرض وحده (لا يُكتب هنا). */
 export const BUYER_ROW_SELECT = Object.freeze({
-  id: true, code: true, name: true, businessName: true, phone: true, city: true, district: true, channel: true, status: true,
+  id: true, code: true, number: true, name: true, businessName: true, phone: true, city: true, district: true, channel: true, status: true,
   taxNumber: true, commercialReg: true, buyerType: true, buyerIdScheme: true, buyerIdValue: true, addrStreet: true, addrBuildingNo: true,
   addrAdditionalNo: true, addrPostalCode: true, countryCode: true,
 } as const);
 
-type BuyerRow = BuyerRowLike & { id: string; code?: string | null; phone?: string | null; status?: string | null };
+type BuyerRow = BuyerRowLike & { id: string; code?: string | null; number?: number | null; phone?: string | null; status?: string | null };
 
 // ─── البوابة ───
 
@@ -234,7 +236,8 @@ export function buyerListWhere(o: { tid: string; scope: Record<string, unknown>;
   if (Object.keys(o.scope).length > 0) and.push(o.scope);
   if (o.status !== 'ALL') and.push({ status: o.status });
   if (o.search) {
-    and.push({ OR: [{ name: { contains: o.search, mode: 'insensitive' as const } }, { businessName: { contains: o.search, mode: 'insensitive' as const } }, { phone: { contains: o.search } }, { code: { contains: o.search, mode: 'insensitive' as const } }] });
+    // «رقم العميل»: بحثٌ أرقامٌ كلّه يطابقه تماماً — داخل عنصر OR نفسه، فالنطاق والمرشّحات في AND لا تُمسّ
+    and.push({ OR: [{ name: { contains: o.search, mode: 'insensitive' as const } }, { businessName: { contains: o.search, mode: 'insensitive' as const } }, { phone: { contains: o.search } }, { code: { contains: o.search, mode: 'insensitive' as const } }, ...customerNumberOr(o.search)] });
   }
   if (o.repId) and.push({ assignments: { some: { salesRepId: o.repId } } });
   return { tenantId: o.tid, AND: and };
@@ -277,10 +280,28 @@ export interface BuyerScanResult {
   summary: BuyerListSummary | null;
 }
 
-/** مسح بالمؤشّر (select محدود، دفعات) — الملخّص يمسح الكل حتى الحدّ، والصفحة تتوقّف عند امتلائها. */
+/**
+ * «رقم العميل»: صاحب الرقم المطابق تماماً لبحثٍ أرقامٍ كلّه — بالشرط نفسه (النطاق والحالة والمندوب والبحث) وفي الدلو المطلوب —
+ * ليُثبَّت أوّل الصفحة الأولى (scanBuyerData pinned): الترتيب بالاسم ومسح الدفعات يُسقطانه خلف كل جوالٍ يحوي الأرقام نفسها.
+ * null لنصٍّ ليس رقماً، أو صفحةٍ أصغر من صفّين (المؤشّر لا يُبنى على صفٍّ مثبَّت)، أو صاحب رقمٍ خارج الدلو.
+ * القاعدة حتميّة بمعاملات الطلب وحدها، فكل صفحات القائمة الواحدة تتّفق على استثنائه من المسح.
+ */
+export async function pinnedBuyerRow(
+  db: Pick<PrismaClient, 'customer'>, where: Record<string, unknown>, search: string, bucket: BuyerListBucket, limit: number,
+): Promise<BuyerRow | null> {
+  const n = customerNumberQuery(search);
+  if (n == null || limit < 2) return null;
+  const row = (await db.customer.findFirst({ where: { ...where, number: n }, select: BUYER_ROW_SELECT })) as BuyerRow | null;
+  return row && bucketMatches(bucket, customerBuyerStatus(row)) ? row : null;
+}
+
+/**
+ * مسح بالمؤشّر (select محدود، دفعات) — الملخّص يمسح الكل حتى الحدّ، والصفحة تتوقّف عند امتلائها.
+ * pinned (pinnedBuyerRow): يُستثنى من المسح في كل الصفحات، ويُوضع أوّل الصفحة الأولى ويُعدّ في ملخّصها — فلا يتكرّر ولا يسقط.
+ */
 export async function scanBuyerData(
   db: Pick<PrismaClient, 'customer'>, where: Record<string, unknown>,
-  o: { bucket: BuyerListBucket; limit: number; cursor: string | null; withSummary: boolean },
+  o: { bucket: BuyerListBucket; limit: number; cursor: string | null; withSummary: boolean; pinned?: BuyerRow | null },
   limits: Readonly<BuyerListLimits> = BUYER_LIST_LIMITS,
 ): Promise<BuyerScanResult> {
   const rows: Record<string, unknown>[] = [];
@@ -292,9 +313,22 @@ export async function scanBuyerData(
   let lastScanned: string | null = null;
   let exhausted = false;
   const budget = o.withSummary ? limits.summaryScanMax : limits.pageScanBudget;
+  const pinned = o.pinned && o.limit >= 2 ? o.pinned : null;
+  const scanWhere = pinned ? { ...where, id: { not: pinned.id } } : where;
+  if (pinned && o.cursor === null) {
+    const st = customerBuyerStatus(pinned);
+    rows.push(buyerRowView(pinned, st));
+    if (summary) {
+      summary.scanned++;
+      if (st.subtypeIfIssuedNow === '01') summary.effectiveB2b++;
+      if (st.bucket === 'complete') summary.complete++;
+      else if (st.bucket === 'incomplete') summary.incomplete++;
+      else if (st.bucket === 'unclassified') summary.unclassifiedWithSignals++;
+    }
+  }
   scan: for (;;) {
     const batch = (await db.customer.findMany({
-      where,
+      where: scanWhere,
       select: BUYER_ROW_SELECT,
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
       take: limits.chunk,
@@ -321,7 +355,7 @@ export async function scanBuyerData(
     after = lastScanned;
   }
   if (summary) {
-    summary.scanned = scanned;
+    summary.scanned += scanned;
     summary.truncated = !exhausted;
   }
   const nextCursor = filledAt ?? (exhausted || o.limit === 0 ? null : lastScanned);
@@ -366,15 +400,20 @@ export function createCustomerBuyerDataRouter(deps: CustomerBuyerDataDeps): Rout
     const cursorRaw = str(req.query.cursor, 64);
     const cursor = ID_RE.test(cursorRaw) ? cursorRaw : null;
     const repRaw = str(req.query.repId, 64);
+    const search = str(req.query.search, 100);
     const where = buyerListWhere({
       tid,
       scope: await deps.customerScope(req, tid),
       status: parseStatus(req.query.status),
-      search: str(req.query.search, 100),
+      search,
       repId: isCompany && ID_RE.test(repRaw) ? repRaw : null,
     });
+    const bucket = parseBucket(req.query.bucket);
+    const limit = parseLimit(req.query.limit);
+    // «رقم العميل»: صاحب الرقم المطابق تماماً أوّل الصفحة الأولى (pinnedBuyerRow)
+    const pinned = await pinnedBuyerRow(deps.db, where, search, bucket, limit);
     const r = await scanBuyerData(deps.db, where, {
-      bucket: parseBucket(req.query.bucket), limit: parseLimit(req.query.limit), cursor, withSummary: cursor === null && req.query.summary !== '0',
+      bucket, limit, cursor, withSummary: cursor === null && req.query.summary !== '0', pinned,
     });
     res.json({ success: true, data: r.rows, nextCursor: r.nextCursor, ...(r.summary ? { summary: r.summary } : {}) });
   }));

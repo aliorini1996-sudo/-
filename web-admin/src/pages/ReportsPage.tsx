@@ -16,6 +16,7 @@ import {
 import { useTr } from '../i18n/strings';
 import { channelLabel } from '../lib/channels';
 import { filterFlat, filterNested } from '../lib/reportSearch';
+import { formatCustomerNumber } from '../lib/customerNumber';
 import { groupCollectionsByRep, collectionTotals, CollReceiptLike, CollRepGroup } from '../lib/collectionsByRep';
 import { companyMethodLabel } from '../lib/paymentMethodsConfig';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -41,8 +42,10 @@ import TaxReport, { TAX_GROUP_OPTIONS, TAX_SEARCH_PLACEHOLDER, normalizeTaxGroup
  * يطلب تقريره ويسلّم الصفحة أوراق تصديره الجاهزة — فالصفحة تملك الفلاتر وزرَّي Excel/PDF وحدها */
 type Tab = 'sales' | 'collections' | 'balances' | 'performance' | 'purchases' | 'profit' | 'tax';
 
+/* «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): حقلٌ اختياريّ في كل صفٍّ يحمل عميلاً — `number` حين الصفّ هو العميل،
+ * و`customerNumber` حين الصفّ زيارة. غائبٌ من خادمٍ أقدم و null قبل ترقيم العميل؛ والبحث يطابقه تماماً (lib/reportSearch) */
 // زيارة **مدموجة**: سجلّ المؤقّت وسجلّ الملاحظة للعميل الواحد وقفةٌ واحدة
-interface WorkVisit { customerName: string; start: string; end: string | null; durationSec: number | null; hasNote: boolean; parts: number; lat?: number | null; lng?: number | null }
+interface WorkVisit { customerName: string; customerNumber?: number | null; start: string; end: string | null; durationSec: number | null; hasNote: boolean; parts: number; lat?: number | null; lng?: number | null }
 interface WorkDayRow {
   date: string; firstActivity: string; lastActivity: string;
   spanMinutes: number; appMinutes: number;   // spanMinutes = وقت العمل بلا الاستراحات
@@ -58,7 +61,7 @@ interface WorkHoursRow {
   workedDays: number; absentDays: number; visitsTotal: number; avgDayMinutes: number;
   days: WorkDayRow[];
 }
-interface VisitLoc { customerName: string; createdAt: string; lat: number; lng: number; mapsUrl: string }
+interface VisitLoc { customerName: string; customerNumber?: number | null; createdAt: string; lat: number; lng: number; mapsUrl: string }
 interface PerfRow {
   id: string; name: string; invoicesCount: number; salesTotal: number; collectionsTotal: number; collectionRate: number; avgInvoice: number;
   workMinutes: number; workHours: number; workMins: number; visitsCount: number; visits: VisitLoc[];
@@ -68,17 +71,17 @@ interface PerfRow {
 }
 /** صفّ «أرصدة العملاء» — `status` (ACTIVE | INACTIVE | BLOCKED) منذ ١٣ نوفمبر ٢٠٢٦: المحظور والموقوف مدينون يدخلون الإجمالي بشارة */
 /** `aging` («عمر الدين»، ٢٣ نوفمبر ٢٠٢٦) يحسبه الخادم لكل مدين — يُقرأ عبر debtAgingOf (خادمٌ أقدم بلاه ⇒ عمودٌ فارغ) */
-interface BalanceRow { id: string; name: string; phone: string; balance: number; creditLimit: number; status?: string; aging?: unknown }
-interface RecvCustomer { id: string; name: string; businessName: string | null; phone: string; city: string | null; balance: number; lastPaymentAt: string | null }
+interface BalanceRow { id: string; name: string; number?: number | null; phone: string; balance: number; creditLimit: number; status?: string; aging?: unknown }
+interface RecvCustomer { id: string; name: string; number?: number | null; businessName: string | null; phone: string; city: string | null; balance: number; lastPaymentAt: string | null }
 interface RecvRow { id: string; name: string; customersCount: number; debtorsCount: number; totalBalance: number; customers: RecvCustomer[] }
-interface CustVisit { id: string; customerId: string; customerName: string; repName: string; teamName?: string | null; createdAt: string; durationSec: number | null; note: string; mapsUrl: string }
+interface CustVisit { id: string; customerId: string; customerName: string; customerNumber?: number | null; repName: string; teamName?: string | null; createdAt: string; durationSec: number | null; note: string; mapsUrl: string }
 /** فاتورةٌ حُدّد لها تاريخ تسليم — صفّ «تقرير الطلبات». */
 interface OrderRow {
   id: string; number: string; invoiceDate: string; deliveryDate: string;
   total: number; paidAmt: number; status: string;
   /** المتبقي الفعلي (الإشعار الدائن والمرتجع المربوط يُنقصانه دون المدفوع) — غيابه من خادمٍ أقدم ⇒ الإجمالي − المدفوع */
   remainingAmt?: number;
-  customer: { id: string; name: string; phone: string; city: string | null } | null;
+  customer: { id: string; name: string; number?: number | null; phone: string; city: string | null } | null;
   salesRep: { id: string; name: string } | null;
   team?: { id: string; name: string } | null;
 }
@@ -92,7 +95,7 @@ interface ReturnRow {
   /** تالفٌ يدخل رصيد «المرتجع التالف» في السيارة (لا يُباع) مهما كانت returnToStock — منذ ١٥ أكتوبر ٢٠٢٦ */
   toDamagedStock?: boolean;
   saleInvoices: string[];
-  customer: { id: string; name: string; phone: string; city: string | null } | null;
+  customer: { id: string; name: string; number?: number | null; phone: string; city: string | null } | null;
   salesRep: { id: string; name: string } | null;
   team?: { id: string; name: string } | null;
   // الوحدات المتعددة: `unit` لقطة وحدة البند والكمية بها، و`unitFactor` معاملها و`baseQty`/`baseUnit` بالأساس (routes/reports returnLineView)
@@ -109,18 +112,18 @@ interface ReturnRow {
  * صفّ «المبيعات حسب الصنف»: `qty` **بالأساس** (`unit` اسمها) و`units` وحدات الصنف — يُعرض «٢ كرتون و٣ حبة».
  * و`primaryUnitId` (الوحدة الرئيسية) يجعل العرض يقف عندها «52 كرتون و2 قارورة» (baseQtyText، R1) — null أو غائب ⇒ القائم
  */
-type SalesRow = { name: string; total: number; count?: number; qty?: number; code?: string; unit?: string; units?: UnitDef[]; primaryUnitId?: string | null };
+type SalesRow = { name: string; number?: number | null; total: number; count?: number; qty?: number; code?: string; unit?: string; units?: UnitDef[]; primaryUnitId?: string | null };
 /** أرقام الكمية في التقارير كما كانت (بلا منسّق محلّي) — formatQty يُطبَّق عليها وحدها */
 const plainQty = (n: number) => String(Number(n.toFixed(3)));
 interface ReturnsSummary { count: number; total: number; salesTotal: number; returnRate: number | null; byReason: Record<string, { count: number; total: number }>; expiredLines: number }
 const RETURN_REASON_LABELS: Record<string, string> = { NORMAL: 'مرتجع عادي', DAMAGED: 'بضاعة تالفة', EXCHANGE: 'استبدال' };
 /** «العملاء الذين لم تتم زيارتهم» — صفّ الخادم (/reports/unvisited-customers): آخر زيارة قبل الفترة، null = لم يُزر قبلها */
 interface UnvisitedCust {
-  id: string; name: string; businessName: string | null; phone: string; city: string | null; reps: string[]; lastVisitAt: string | null; createdAt: string;
+  id: string; name: string; number?: number | null; businessName: string | null; phone: string; city: string | null; reps: string[]; lastVisitAt: string | null; createdAt: string;
   /** فواتير البيع في الفترة بلا زيارة (علامة طلب المالك ١٣ نوفمبر ٢٠٢٦) — غيابها من خادمٍ أقدم = 0 */
   invoicesCount?: number; lastInvoiceAt?: string | null;
 }
-interface CustGroup { customerId: string; customerName: string; visitsCount: number; avgDurationSec: number | null; lastVisit: string; visits: CustVisit[] }
+interface CustGroup { customerId: string; customerName: string; customerNumber?: number | null; visitsCount: number; avgDurationSec: number | null; lastVisit: string; visits: CustVisit[] }
 /* سند القبض وتجميعةُ المندوب: أنواع وحدة `lib/collectionsByRep` نفسها —
    نسخةٌ ثانية منهما تنحرف عن الحساب الذي تختبره وحدتُه. */
 type CollReceipt = CollReceiptLike;
@@ -129,6 +132,13 @@ type CollRepRow = CollRepGroup<CollReceipt>;
 interface CollMethod { id: string; base: string; key: string | null; custom: boolean; label: string; companyLabel: string | null; amount: number }
 /** أعمدة الأسس الأربعة في جدول «التحصيل حسب المندوب» — حاضرةٌ دائماً كما قبل الميزة */
 const COLL_BASE_COLS = ['CASH', 'POS', 'BANK_TRANSFER', 'CHEQUE'];
+
+/** «رقم العميل» بادئةً قبل اسمه في الجداول — «#12 · الاسم» كمنتقيات العملاء (SearchableSelect): الرقم وحده في عنصرٍ ltr بأرقامٍ
+ *  غربية جدولية والفاصل خارجه (داخله يظهر في الجهة البعيدة عن الاسم). ولا شيء قبل ترقيم العميل أو من خادمٍ أقدم */
+function CustNo({ n }: { n: number | null | undefined }) {
+  const t = formatCustomerNumber(n);
+  return t ? <><span dir="ltr" className="tabular-nums font-normal text-gray-400">{t}</span><span className="font-normal text-gray-400">{' · '}</span></> : null;
+}
 
 export default function ReportsPage() {
   const tr = useTr();
@@ -463,22 +473,27 @@ export default function ReportsPage() {
    * فيجد المشرفُ العميلَ ويعرف مَن يتولّاه.
    */
   const q = search.trim();
+  /** التقارير التي تسرد عملاء (أو سنداتهم وزياراتهم) ويطابق بحثُها «رقم العميل» تماماً — خانة البحث تذكره فيها وحدها */
+  const searchByCustomerNo = tab === 'balances' || tab === 'collections'
+    || (tab === 'sales' && (salesType === 'orders' || salesType === 'returns' || (salesType === 'summary' && groupBy === 'customer')))
+    || (tab === 'performance' && perfType !== 'ranking');
   const salesRows = useMemo(() => {
     if (!Array.isArray(salesData)) return salesData;
-    const rows = salesData as { name: string; total: number; count?: number; qty?: number; code?: string }[];
-    return filterFlat(rows, q, r => [r.name, displayName(r.name), r.code]);
+    const rows = salesData as { name: string; total: number; count?: number; qty?: number; code?: string; number?: number | null }[];
+    // التجميع بالعميل: «رقم العميل» مطابقةٌ تامّة بجانب الاسم (لا يدخل حقول النصّ)
+    return filterFlat(rows, q, r => [r.name, displayName(r.name), r.code], r => (groupBy === 'customer' ? [r.number] : []));
   }, [salesData, q, groupBy]);
 
-  // البحث: رقم الطلب أو العميل أو المندوب أو المدينة
+  // البحث: رقم الطلب أو العميل (اسمه أو رقمه تماماً) أو المندوب أو المدينة
   const orderRows = useMemo(
-    () => filterFlat(ordersQ.data?.orders || [], q, o => [o.number, o.customer?.name, o.customer?.phone, o.customer?.city, o.salesRep?.name]),
+    () => filterFlat(ordersQ.data?.orders || [], q, o => [o.number, o.customer?.name, o.customer?.phone, o.customer?.city, o.salesRep?.name], o => [o.customer?.number]),
     [ordersQ.data, q],
   );
-  // البحث: رقم المرتجع أو فاتورة بيعه أو العميل أو المندوب أو المدينة أو اسم صنف فيه
+  // البحث: رقم المرتجع أو فاتورة بيعه أو العميل (اسمه أو رقمه تماماً) أو المندوب أو المدينة أو اسم صنف فيه
   const returnRows = useMemo(
     () => filterFlat(returnsQ.data?.returns || [], q, r => [
       r.number, ...r.saleInvoices, r.customer?.name, r.customer?.phone, r.customer?.city, r.salesRep?.name, ...r.items.map(i => i.name),
-    ]),
+    ], r => [r.customer?.number]),
     [returnsQ.data, q],
   );
   // «حسب التشغيلة»: البحث باسم الصنف أو كوده أو رقم التشغيلة، والعرض مجمَّعٌ بالصنف بترتيب الخادم
@@ -524,7 +539,7 @@ export default function ReportsPage() {
     () => filterFlat(balancesData || [], q, c => {
       const badge = customerStatusBadge(c.status);
       return [c.name, c.phone, badge ? tr(badge) : null];
-    }),
+    }, c => [c.number]),
     [balancesData, q, tr],
   );
 
@@ -544,9 +559,10 @@ export default function ReportsPage() {
     [collectData, collKnownKeys],
   );
 
-  // البحث يصفّي بالمندوب **أو** بعميلٍ في سنداته — فيعرف المشرف من حصّل من ذاك العميل
+  // البحث يصفّي بالمندوب **أو** بعميلٍ في سنداته (اسمه أو رقمه تماماً) — فيعرف المشرف من حصّل من ذاك العميل
   const collRepShown = useMemo(
-    () => filterFlat(collRepRows, q, r => [collRepName(r), ...r.receipts.map(rc => rc.customer?.name), ...r.receipts.map(rc => rc.receiptNumber)]),
+    () => filterFlat(collRepRows, q, r => [collRepName(r), ...r.receipts.map(rc => rc.customer?.name), ...r.receipts.map(rc => rc.receiptNumber)],
+      r => r.receipts.map(rc => rc.customer?.number)),
     [collRepRows, q, tr],
   );
   // مجاميع المعروض — تُقارَن بالبطاقة أعلى الشاشة فيُكشف أيّ سقوطٍ في التجميع
@@ -561,12 +577,12 @@ export default function ReportsPage() {
   }, [balanceRows]);
 
   const visitRows = useMemo(
-    () => filterFlat(visitsData?.visits || [], q, v => [v.customerName, v.repName, v.note]),
+    () => filterFlat(visitsData?.visits || [], q, v => [v.customerName, v.repName, v.note], v => [v.customerNumber]),
     [visitsData, q],
   );
-  // البحث باسم العميل أو نشاطه أو جواله أو مدينته أو مندوبه المُسنَد
+  // البحث باسم العميل أو رقمه (تماماً) أو نشاطه أو جواله أو مدينته أو مندوبه المُسنَد
   const unvisitedRows = useMemo(
-    () => filterFlat(unvisitedData?.customers || [], q, c => [c.name, c.businessName, c.phone, c.city, ...c.reps]),
+    () => filterFlat(unvisitedData?.customers || [], q, c => [c.name, c.businessName, c.phone, c.city, ...c.reps], c => [c.number]),
     [unvisitedData, q],
   );
   // بلا آخر زيارة: «قبل الفترة» إن حُدّد «من»، و«حتى نهاية الفترة» إن حُدّد «إلى» وحده (قد يكون زِير بعدها)، و«قط» بلا تواريخ
@@ -590,6 +606,7 @@ export default function ReportsPage() {
       return {
         customerId: visits[0].customerId,
         customerName: visits[0].customerName,
+        customerNumber: visits[0].customerNumber ?? null,
         visitsCount: visits.length,
         avgDurationSec: avg,
         lastVisit: visits[0].createdAt, // الخادم يرتّب تنازلياً ⇒ الأحدث أولاً
@@ -600,8 +617,9 @@ export default function ReportsPage() {
     return groups;
   }, [visitRows]);
 
+  // المندوب باسمه أو باسم عميلٍ زاره أو برقمه (تماماً)
   const perfRows = useMemo(
-    () => filterFlat(perfData || [], q, r => [r.name, ...r.visits.map(v => v.customerName)]),
+    () => filterFlat(perfData || [], q, r => [r.name, ...r.visits.map(v => v.customerName)], r => r.visits.map(v => v.customerNumber)),
     [perfData, q],
   );
   /* البند ٦: «مبيعات نقدية محصّلة» بجانب «التحصيل» — السندات تبقى عموداً كتقرير التحصيل، والبيع النقدي المحصَّل لحظة البيع
@@ -627,7 +645,8 @@ export default function ReportsPage() {
   // ساعات العمل: **إيجادٌ لا تقطيع** — مقاييس اليوم تصف اليوم كلّه ولا تُشتقّ
   // من زياراتٍ مُنتقاة، فقصُّها مع إبقاء الرقم يُنتج صفحةً أرقامُها لا تشرح جدولها.
   const hoursRows = useMemo(
-    () => filterFlat(hoursData?.rows || [], q, r => [r.name, ...r.days.flatMap(d => d.visits.map(v => v.customerName))]),
+    () => filterFlat(hoursData?.rows || [], q, r => [r.name, ...r.days.flatMap(d => d.visits.map(v => v.customerName))],
+      r => r.days.flatMap(d => d.visits.map(v => v.customerNumber))),
     [hoursData, q],
   );
 
@@ -653,7 +672,7 @@ export default function ReportsPage() {
         customersCount: kept.length,
         debtorsCount: kept.filter(c => c.balance > 0).length,
         totalBalance: Math.round(kept.reduce((a, c) => a + c.balance, 0) * 100) / 100,
-      })),
+      }), { childNums: c => [c.number] }),
     [recvData, q],
   );
 
@@ -697,7 +716,7 @@ export default function ReportsPage() {
       // زيارةٌ واحدة لكل وقفة: بداية ونهاية صريحتان بدل صفَّين لعميلٍ واحد
       const visitItems = hoursRows.flatMap((r, ri) => r.days.flatMap(d => d.visits.map(v => ({ rep: String(ri), day: d.date, row: {
           [tr('المندوب')]: r.name, [tr('التاريخ')]: d.date,
-          [tr('اسم العميل')]: v.customerName,
+          [tr('رقم العميل')]: v.customerNumber ?? '', [tr('اسم العميل')]: v.customerName,
           [tr('رابط الموقع')]: v.lat != null && v.lng != null ? `https://www.google.com/maps?q=${v.lat},${v.lng}` : '',
           [tr('بداية الزيارة')]: fmtClock(v.start),
           [tr('نهاية الزيارة')]: v.end ? fmtClock(v.end) : tr('بلا توقيت'),
@@ -725,7 +744,7 @@ export default function ReportsPage() {
         { name: tr('الحضور اليومي'), rows: daily.rows, merges: daily.merges, colWidths: [22, 12, 12, 12, 30, 10, 14, 14, 12, 16] },
         ...(punches.rows.length ? [{ name: tr('تفاصيل البصمات'), rows: punches.rows, merges: punches.merges,
           colWidths: [22, ...PUNCH_DETAIL_WIDTHS], pdfLinkLabel: tr('فتح الخريطة') }] : []),
-        { name: tr('تفاصيل الزيارات'), rows: visits.rows, merges: visits.merges, colWidths: [22, 12, 24, 34, 12, 12, 12, 12, 16] },
+        { name: tr('تفاصيل الزيارات'), rows: visits.rows, merges: visits.merges, colWidths: [22, 12, 12, 24, 34, 12, 12, 12, 12, 16] },
       ];
       fname = tr('ساعات العمل');
     } else if (tab === 'performance' && perfType === 'receivables' && recvRows?.some(r => r.customersCount > 0)) {
@@ -736,12 +755,12 @@ export default function ReportsPage() {
         })), colWidths: [22, 16, 16, 18] },
         (() => {
           const items = recvRows.flatMap((r, ri) => r.customers.map(c => ({ rep: String(ri), row: {
-            [tr('المندوب')]: r.name, [tr('العميل')]: c.name, [tr('النشاط التجاري')]: c.businessName || '',
+            [tr('المندوب')]: r.name, [tr('رقم العميل')]: c.number ?? '', [tr('العميل')]: c.name, [tr('النشاط التجاري')]: c.businessName || '',
             [tr('الجوال')]: c.phone, [tr('المدينة')]: c.city || '', [tr('الرصيد')]: num(c.balance),
             [tr('آخر تحصيل')]: c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : tr('لم يحصل قط'),
           } as Record<string, unknown> })));
           const m = mergeRuns(items.map(x => x.row), [{ cols: [tr('المندوب')], keyOf: i => items[i].rep }]);
-          return { name: tr('تفاصيل المديونيات'), rows: m.rows, merges: m.merges, colWidths: [22, 24, 20, 16, 14, 14, 16] };
+          return { name: tr('تفاصيل المديونيات'), rows: m.rows, merges: m.merges, colWidths: [22, 12, 24, 20, 16, 14, 14, 16] };
         })(),
       ];
       // ورقة «إجمالي المُسنَدين» — تُضاف دائماً (الميزة عامّة لكل الشركات)
@@ -772,16 +791,19 @@ export default function ReportsPage() {
       sheets = [{ name: tr('أداء المناديب'), rows: perfRows.map(r => perfSheetRow(r, perfCash)), colWidths: perfColWidths(perfCash) }];
       // ورقة مواقع الزيارات (روابط خرائط Google)
       const locItems = perfRows.flatMap((r, ri) => r.visits.map(v => ({ rep: String(ri), row: {
-        [tr('المندوب')]: r.name, [tr('العميل')]: v.customerName, [tr('الوقت')]: fmtDateTime(v.createdAt), [tr('رابط الموقع')]: v.mapsUrl,
+        [tr('المندوب')]: r.name, [tr('رقم العميل')]: v.customerNumber ?? '', [tr('العميل')]: v.customerName,
+        [tr('الوقت')]: fmtDateTime(v.createdAt), [tr('رابط الموقع')]: v.mapsUrl,
       } as Record<string, unknown> })));
       const loc = mergeRuns(locItems.map(x => x.row), [{ cols: [tr('المندوب')], keyOf: i => locItems[i].rep }]);
-      if (loc.rows.length) sheets.push({ name: tr('مواقع الزيارات'), rows: loc.rows, merges: loc.merges, colWidths: [22, 22, 18, 40] });
+      if (loc.rows.length) sheets.push({ name: tr('مواقع الزيارات'), rows: loc.rows, merges: loc.merges, colWidths: [22, 12, 22, 18, 40] });
       fname = tr('أداء المناديب');
     } else if (tab === 'sales' && salesType === 'returns' && returnRows.length) {
       sheets = [
         { name: tr('المرتجعات'), rows: returnRows.map(r => ({
           [tr('رقم المرتجع')]: r.number,
           [tr('التاريخ')]: fmtDay(r.invoiceDate),
+          // «رقم العميل» (٢٣ نوفمبر ٢٠٢٦) قبل اسمه في كل ورقةٍ تحمل عميلاً — كما يظهر في الشاشة ويُبحث به؛ فارغٌ قبل ترقيمه
+          [tr('رقم العميل')]: r.customer?.number ?? '',
           [tr('العميل')]: r.customer?.name || '—',
           [tr('المندوب')]: r.salesRep?.name || '—',
           ...(teamsOn && { [tr('الفريق')]: r.team?.name || tr('بلا فريق') }),
@@ -789,10 +811,11 @@ export default function ReportsPage() {
           [tr('يعود للمخزون')]: r.toDamagedStock ? tr('تالف بالسيارة') : r.returnToStock ? tr('نعم') : tr('لا'),
           [tr('من فاتورة البيع')]: r.saleInvoices.join('، '),
           [tr('الإجمالي')]: num(r.total),
-        })), colWidths: [16, 12, 24, 20, 14, 12, 18, 14] },
+        })), colWidths: [16, 12, 12, 24, 20, 14, 12, 18, 14] },
         { name: tr('تفاصيل الأصناف'), rows: returnRows.flatMap(r => r.items.map(i => ({
           [tr('رقم المرتجع')]: r.number,
           [tr('التاريخ')]: fmtDay(r.invoiceDate),
+          [tr('رقم العميل')]: r.customer?.number ?? '',
           [tr('العميل')]: r.customer?.name || '—',
           ...(teamsOn && { [tr('الفريق')]: r.team?.name || tr('بلا فريق') }),
           [tr('الصنف')]: i.name,
@@ -803,7 +826,7 @@ export default function ReportsPage() {
           [tr('منتهي الصلاحية')]: i.returnExpired === true ? tr('نعم') : i.returnExpired === false ? tr('لا') : '',
           // «تتبّع اللوط»: تشغيلات البند بالأساس — عمودٌ حين تُفعَّل الميزة
           ...(lotOn && { [tr('التشغيلات')]: returnLotsText(i) }),
-        }))), colWidths: [...(returnsMultiUnit ? [16, 12, 24, 26, 10, 12, 14, 14] : [16, 12, 24, 26, 10, 14, 14]), ...(lotOn ? [34] : [])] },
+        }))), colWidths: [...(returnsMultiUnit ? [16, 12, 12, 24, 26, 10, 12, 14, 14] : [16, 12, 12, 24, 26, 10, 14, 14]), ...(lotOn ? [34] : [])] },
       ];
       /* القائمة مقطوعة عند سقفها (البند ٧): مجموع عمود الملف ناقص — فإجماليّ الشاشة (ملخّص الخادم على المدى كله) ورقةٌ في أوّله
        * كما في الأرصدة، وتنبيه القصّ في الملف يحيل إليها. بطاقات الشاشة نفسها: العدد والقيمة والنسبة وعدد كل سبب */
@@ -834,6 +857,7 @@ export default function ReportsPage() {
     } else if (tab === 'sales' && salesType === 'orders' && orderRows.length) {
       sheets = [{ name: tr('تقرير الطلبات'), rows: orderRows.map(o => ({
         [tr('رقم الفاتورة')]: o.number,
+        [tr('رقم العميل')]: o.customer?.number ?? '',
         [tr('العميل')]: o.customer?.name || '—',
         [tr('الجوال')]: o.customer?.phone || '',
         [tr('المدينة')]: o.customer?.city || '',
@@ -843,7 +867,7 @@ export default function ReportsPage() {
         [tr('تاريخ التسليم')]: fmtDay(o.deliveryDate),
         [tr('الإجمالي')]: num(Number(o.total || 0)),
         [tr('المتبقي')]: num(orderRemaining(o)),
-      })), colWidths: [16, 24, 16, 14, 20, 14, 14, 14, 14] }];
+      })), colWidths: [16, 12, 24, 16, 14, 20, 14, 14, 14, 14] }];
       // كالمرتجع: القائمة مقطوعة ⇒ إجماليّ الشاشة (ملخّص الخادم) ورقةٌ في أوّل الملف
       if (ordersQ.data?.trunc.truncated) sheets.unshift({ name: tr('الإجمالي'), rows: [{
         [tr('عدد الطلبات')]: orderTotals.count,
@@ -854,14 +878,18 @@ export default function ReportsPage() {
     } else if (tab === 'sales' && salesType === 'summary' && Array.isArray(salesRows) && salesRows.length) {
       // حسب الصنف بوحدات: الكمية بالأساس رقماً (للجمع في Excel) ومعها اسم الأساس ونصّها مفكَّكاً «٢ كرتون و٣ حبة»
       const multi = groupBy === 'product' && (salesRows as SalesRow[]).some(r => hasBigUnit(r.units));
+      // التجميع بالعميل: «رقم العميل» أوّلاً كما في الشاشة (#12 · الاسم) — وبقيّة التجميعات كما كانت حرفاً
+      const byCustomer = groupBy === 'customer';
       sheets = [{ name: tr('المبيعات'), rows: (salesRows as SalesRow[]).map(r => ({
+        ...(byCustomer && { [tr('رقم العميل')]: r.number ?? '' }),
         [tr('الاسم')]: groupBy === 'team' ? displayName(r.name) : r.name, [tr('العدد/الكمية')]: r.count ?? r.qty ?? '',
         ...(multi && { [tr('الوحدة')]: r.unit || '', [tr('الكمية بوحداتها')]: baseQtyText(Number(r.qty) || 0, r, plainQty) }),
         [tr('الإجمالي')]: num(r.total),
-      })), colWidths: multi ? [28, 14, 12, 24, 16] : [28, 14, 16] }];
+      })), colWidths: [...(byCustomer ? [12] : []), ...(multi ? [28, 14, 12, 24, 16] : [28, 14, 16])] }];
       fname = tr('تقارير المبيعات');
     } else if (tab === 'balances' && custType === 'unvisited' && unvisitedRows.length) {
-      sheets = [{ name: tr('العملاء الذين لم تتم زيارتهم'), colWidths: [26, 22, 16, 14, 24, 22, 14, 18], rows: unvisitedRows.map(c => ({
+      sheets = [{ name: tr('العملاء الذين لم تتم زيارتهم'), colWidths: [12, 26, 22, 16, 14, 24, 22, 14, 18], rows: unvisitedRows.map(c => ({
+        [tr('رقم العميل')]: c.number ?? '',
         [tr('العميل')]: c.name, [tr('النشاط التجاري')]: c.businessName || '', [tr('الجوال')]: customerPhoneText(c.phone),
         [tr('المدينة')]: c.city || '', [tr('المندوب')]: c.reps.join('، '),
         [tr('الحالة')]: unvisitedMarkText(c), [tr('آخر فاتورة')]: c.lastInvoiceAt ? fmtDay(c.lastInvoiceAt) : '',
@@ -870,12 +898,12 @@ export default function ReportsPage() {
       fname = tr('العملاء الذين لم تتم زيارتهم');
     } else if (tab === 'balances' && custType === 'visits' && visitRows?.length) {
       sheets = [
-        { name: tr('ملخص العملاء'), colWidths: [26, 14, 16, 22], rows: custGroups.map(g => ({
-          [tr('العميل')]: g.customerName, [tr('عدد الزيارات')]: g.visitsCount,
+        { name: tr('ملخص العملاء'), colWidths: [12, 26, 14, 16, 22], rows: custGroups.map(g => ({
+          [tr('رقم العميل')]: g.customerNumber ?? '', [tr('العميل')]: g.customerName, [tr('عدد الزيارات')]: g.visitsCount,
           [tr('متوسط مدة الزيارة')]: fmtVisitDur(g.avgDurationSec) || tr('بلا توقيت'), [tr('آخر زيارة')]: fmtDateTime(g.lastVisit),
         })) },
-        { name: tr('كل الزيارات'), colWidths: [24, 20, 20, 14, 24, 40], rows: visitRows.map(v => ({
-          [tr('العميل')]: v.customerName, [tr('المندوب')]: v.repName, ...(teamsOn && { [tr('الفريق')]: v.teamName || tr('بلا فريق') }),
+        { name: tr('كل الزيارات'), colWidths: [12, 24, 20, 20, 14, 24, 40], rows: visitRows.map(v => ({
+          [tr('رقم العميل')]: v.customerNumber ?? '', [tr('العميل')]: v.customerName, [tr('المندوب')]: v.repName, ...(teamsOn && { [tr('الفريق')]: v.teamName || tr('بلا فريق') }),
           [tr('التاريخ والوقت')]: fmtDateTime(v.createdAt),
           [tr('مدة الزيارة')]: fmtVisitDur(v.durationSec) || tr('بلا توقيت'), [tr('ملاحظة')]: v.note, [tr('الموقع')]: v.mapsUrl,
         })) },
@@ -889,6 +917,7 @@ export default function ReportsPage() {
       sheets = [{ name: tr('أرصدة العملاء'), rows: balanceRows.map(c => {
         const a = debtAgingOf(c);
         return {
+          [tr('رقم العميل')]: c.number ?? '',
           [tr('العميل')]: c.name, [tr('الجوال')]: c.phone, [tr('الرصيد')]: num(c.balance), [tr('الحد الائتماني')]: num(c.creditLimit),
           ...(balHasAging && {
             [tr('عمر الدين (يوم)')]: a?.ageDays ?? '',
@@ -900,7 +929,7 @@ export default function ReportsPage() {
           }),
           ...(balHasStatus && { [tr('الحالة')]: tr(customerStatusLabel(c.status)) }),
         };
-      }), colWidths: [24, 16, 14, 16, ...(balHasAging ? [14, 14, 12, 16, 14, 14, 14, 16, 12] : []), ...(balHasStatus ? [12] : [])],
+      }), colWidths: [12, 24, 16, 14, 16, ...(balHasAging ? [14, 14, 12, 16, 14, 14, 14, 16, 12] : []), ...(balHasStatus ? [12] : [])],
       // PDF: أعمدة Excel الأربعة عشر على عرض الصفحة تكسر الأرقام في منتصفها — فيُطبع العمر وتأخّره ومبلغه، والشرائح نصّاً واحداً
       // ينكسر بين الكلمات لا داخل الأرقام (تسعة أعمدة كحدٍّ أقصى)
       ...(balHasAging && { pdfRows: balanceRows.map(c => {
@@ -944,10 +973,11 @@ export default function ReportsPage() {
           ...(teamsOn && { [tr('الفريق')]: rc.team?.name || tr('بلا فريق') }),
           [tr('رقم السند')]: rc.receiptNumber,
           [tr('التاريخ')]: fmtDateTime(rc.receiptDate),
+          [tr('رقم العميل')]: rc.customer?.number ?? '',
           [tr('العميل')]: rc.customer?.name || '—',
           [tr('طريقة الدفع')]: methodLabel(rc.paymentMethod, rc.paymentMethodKey),
           [tr('المبلغ')]: num(Number(rc.amount) || 0),
-        }))), colWidths: [24, 16, 18, 24, 14, 14] },
+        }))), colWidths: [24, 16, 18, 12, 24, 14, 14] },
       ];
       // صفّ الإجماليّ في رأس الملفّ: من يفتح الورقة يقرأ الحصيلة قبل الصفوف
       sheets.unshift({ name: tr('الإجمالي'), rows: [{
@@ -1134,8 +1164,10 @@ export default function ReportsPage() {
     const sheets: ExcelSheet[] = [{ name: tr('أداء المندوب'), rows, colWidths: perfColWidths(withCash) }];
     if (r.visits.length) sheets.push({
       name: tr('مواقع الزيارات'),
-      rows: r.visits.map(v => ({ [tr('العميل')]: v.customerName, [tr('الوقت')]: fmtDateTime(v.createdAt), [tr('رابط الموقع')]: v.mapsUrl })),
-      colWidths: [22, 18, 40],
+      rows: r.visits.map(v => ({
+        [tr('رقم العميل')]: v.customerNumber ?? '', [tr('العميل')]: v.customerName, [tr('الوقت')]: fmtDateTime(v.createdAt), [tr('رابط الموقع')]: v.mapsUrl,
+      })),
+      colWidths: [12, 22, 18, 40],
     });
     return sheets;
   };
@@ -1144,7 +1176,7 @@ export default function ReportsPage() {
       rows: r.days.map(d => ({ [tr('التاريخ')]: d.date, ...attendanceDayCells(d, dayCellFx) })) },
     (() => {
       const items = r.days.flatMap(d => d.visits.map(v => ({ day: d.date, row: {
-        [tr('التاريخ')]: d.date, [tr('اسم العميل')]: v.customerName,
+        [tr('التاريخ')]: d.date, [tr('رقم العميل')]: v.customerNumber ?? '', [tr('اسم العميل')]: v.customerName,
         [tr('رابط الموقع')]: v.lat != null && v.lng != null ? `https://www.google.com/maps?q=${v.lat},${v.lng}` : '',
         [tr('بداية الزيارة')]: fmtClock(v.start),
         [tr('نهاية الزيارة')]: v.end ? fmtClock(v.end) : tr('بلا توقيت'),
@@ -1153,7 +1185,7 @@ export default function ReportsPage() {
         [tr('إجمالي وقت العمل لليوم')]: fmtMin(d.spanMinutes),
       } as Record<string, unknown> })));
       const m = mergeRuns(items.map(x => x.row), [{ cols: [tr('التاريخ'), tr('إجمالي وقت العمل لليوم')], keyOf: i => items[i].day }]);
-      return { name: tr('تفاصيل الزيارات'), colWidths: [12, 24, 34, 12, 12, 12, 12, 16], rows: m.rows, merges: m.merges };
+      return { name: tr('تفاصيل الزيارات'), colWidths: [12, 12, 24, 34, 12, 12, 12, 12, 16], rows: m.rows, merges: m.merges };
     })(),
   ];
   // ملف المندوب الواحد: «تفاصيل البصمات» بعد «الحضور اليومي» متى بصم في المدى (بلا عمود المندوب)
@@ -1176,9 +1208,9 @@ export default function ReportsPage() {
   const exportRepHoursPdf = (r: WorkHoursRow) => sheetsToPdf(repHoursSheetsAll(r), `${tr('ساعات العمل')} - ${r.name}`);
   // تصدير مديونيات مندوب واحد (باسمه) — الورقة نفسها التي يراها على الشاشة
   const repRecvSheets = (r: RecvRow) => [{
-    name: tr('مديونيات المندوب'), colWidths: [24, 20, 16, 14, 14, 16],
+    name: tr('مديونيات المندوب'), colWidths: [12, 24, 20, 16, 14, 14, 16],
     rows: r.customers.map(c => ({
-      [tr('العميل')]: c.name, [tr('النشاط التجاري')]: c.businessName || '', [tr('الجوال')]: c.phone,
+      [tr('رقم العميل')]: c.number ?? '', [tr('العميل')]: c.name, [tr('النشاط التجاري')]: c.businessName || '', [tr('الجوال')]: c.phone,
       [tr('المدينة')]: c.city || '', [tr('الرصيد')]: num(c.balance),
       [tr('آخر تحصيل')]: c.lastPaymentAt ? fmtDay(c.lastPaymentAt) : tr('لم يحصل قط'),
     })),
@@ -1272,7 +1304,8 @@ export default function ReportsPage() {
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   placeholder={tab === 'purchases' ? tr('اسم المورد أو الصنف') : tab === 'profit' ? tr('اسم الصنف أو العميل أو المندوب')
-                    : tab === 'tax' ? tr(TAX_SEARCH_PLACEHOLDER) : tr('اسم العميل أو المندوب')} />
+                    : tab === 'tax' ? tr(TAX_SEARCH_PLACEHOLDER)
+                    : searchByCustomerNo ? tr('اسم العميل أو رقمه أو المندوب') : tr('اسم العميل أو المندوب')} />
                 {search && (
                   <button type="button" onClick={() => setSearch('')} title={tr('مسح البحث')}
                     className="absolute top-1/2 -translate-y-1/2 end-2 text-gray-400 hover:text-gray-600">
@@ -1411,7 +1444,7 @@ export default function ReportsPage() {
                     <tbody>
                       {(salesRows as SalesRow[]).map((row, i) => (
                         <tr key={i}>
-                          <td className="font-medium text-gray-800">{displayName(row.name)}</td>
+                          <td className="font-medium text-gray-800">{groupBy === 'customer' && <CustNo n={row.number} />}{displayName(row.name)}</td>
                           {/* حسب الصنف: الكمية بالأساس من الخادم — مفكَّكةً «٢ كرتون و٣ حبة» لصنفٍ له وحدات، والرقم كما كان لغيره */}
                           <td className="text-gray-600">{groupBy === 'product' && hasBigUnit(row.units) ? baseQtyText(Number(row.qty) || 0, row, plainQty) : (row.count ?? row.qty ?? '-')}</td>
                           <td className="font-semibold text-[#E15A30]">{formatCurrency(row.total)}</td>
@@ -1492,7 +1525,7 @@ export default function ReportsPage() {
                             {r.number}
                             {r.creditNote && <span className="ms-1.5 text-[10px] text-[#5B4B9C]">{tr('إشعار دائن')}</span>}
                           </td>
-                          <td className="text-gray-700">{r.customer?.name || '—'}</td>
+                          <td className="text-gray-700"><CustNo n={r.customer?.number} />{r.customer?.name || '—'}</td>
                           <td className="text-gray-600">{r.salesRep?.name || '—'}</td>
                           <td className="text-gray-500 text-sm">{fmtDay(r.invoiceDate)}</td>
                           <td className="text-sm">
@@ -1686,7 +1719,7 @@ export default function ReportsPage() {
                           <tr key={o.id}>
                             <td className="text-gray-400">{i + 1}</td>
                             <td className="font-medium text-gray-800" dir="ltr">{o.number}</td>
-                            <td className="text-gray-700">{o.customer?.name || '—'}</td>
+                            <td className="text-gray-700"><CustNo n={o.customer?.number} />{o.customer?.name || '—'}</td>
                             <td className="text-gray-600">{o.salesRep?.name || '—'}</td>
                             <td className="text-gray-500 text-sm">{fmtDay(o.invoiceDate)}</td>
                             <td className={`text-sm font-semibold ${late ? 'text-[#C0392B]' : 'text-[#1E7A52]'}`}>
@@ -1803,7 +1836,7 @@ export default function ReportsPage() {
                                               <td className="py-1.5 px-3 text-gray-400">{j + 1}</td>
                                               <td className="py-1.5 px-3 font-medium text-gray-700" dir="ltr">{rc.receiptNumber}</td>
                                               <td className="py-1.5 px-3 text-gray-500">{fmtDateTime(rc.receiptDate)}</td>
-                                              <td className="py-1.5 px-3 text-gray-700">{rc.customer?.name || '—'}</td>
+                                              <td className="py-1.5 px-3 text-gray-700"><CustNo n={rc.customer?.number} />{rc.customer?.name || '—'}</td>
                                               <td className="py-1.5 px-3 text-gray-500">{methodLabel(rc.paymentMethod, rc.paymentMethodKey)}</td>
                                               <td className="py-1.5 px-3 tabular-nums font-semibold text-green-600">{formatCurrency(Number(rc.amount) || 0)}</td>
                                             </tr>
@@ -1854,6 +1887,7 @@ export default function ReportsPage() {
                 {balanceRows.map(c => (
                   <tr key={c.id}>
                     <td className="font-medium text-gray-800">
+                      <CustNo n={c.number} />
                       {c.name}
                       {/* المحظور والموقوف مدينان داخل الإجمالي — الشارة تميّزهما لا تُخفيهما (البند ٢) */}
                       {customerStatusBadge(c.status) && (
@@ -1959,7 +1993,7 @@ export default function ReportsPage() {
                       <td className="font-medium text-gray-800">
                         <span className="inline-flex items-center gap-1.5">
                           <span className="text-[#E15A30] text-xs w-3">{expandedCust === g.customerId ? '▲' : '▾'}</span>
-                          {g.customerName || '—'}
+                          <span><CustNo n={g.customerNumber} />{g.customerName || '—'}</span>
                         </span>
                       </td>
                       <td><span className="inline-flex items-center gap-1 font-bold text-[#2563EB]"><MapPin size={13} /> {g.visitsCount}</span></td>
@@ -2065,6 +2099,7 @@ export default function ReportsPage() {
                   <tr key={c.id}>
                     <td className="text-gray-400">{i + 1}</td>
                     <td className="font-medium text-gray-800">
+                      <CustNo n={c.number} />
                       {c.name || '—'}
                       {c.businessName && c.businessName !== c.name && <span className="block text-[11px] font-normal text-[#9A8F7E]">{c.businessName}</span>}
                     </td>
@@ -2183,7 +2218,7 @@ export default function ReportsPage() {
                                 <a key={i} href={v.mapsUrl} target="_blank" rel="noreferrer"
                                   className="flex items-center gap-1.5 text-xs bg-white border border-[#F1EBDF] rounded-lg px-2.5 py-1.5 hover:border-[#2563EB]">
                                   <MapPin size={12} className="text-[#2563EB] shrink-0" />
-                                  <span className="font-medium text-[#1F1A13] truncate">{v.customerName || tr('زيارة')}</span>
+                                  <span className="font-medium text-[#1F1A13] truncate"><CustNo n={v.customerNumber} />{v.customerName || tr('زيارة')}</span>
                                   <span className="text-[#9A8F7E] shrink-0">{fmtDateTime(v.createdAt)}</span>
                                 </a>
                               ))}
@@ -2368,6 +2403,7 @@ export default function ReportsPage() {
                                     {d.visits.map((v, i) => (
                                       <tr key={i}>
                                         <td className="font-medium text-gray-800">
+                                          <CustNo n={v.customerNumber} />
                                           {v.customerName}
                                           {v.hasNote && <span className="ms-1.5 text-[10px] text-[#2E6FB0]" title={tr('رافقتها ملاحظة أو صور')}>📝</span>}
                                         </td>
@@ -2514,7 +2550,7 @@ export default function ReportsPage() {
                         {r.customers.map(c => (
                           <tr key={c.id}>
                             <td>
-                              <p className="font-medium text-gray-800">{c.name}</p>
+                              <p className="font-medium text-gray-800"><CustNo n={c.number} />{c.name}</p>
                               {c.businessName && <p className="text-[11px] text-gray-400">{c.businessName}</p>}
                             </td>
                             <td className="text-gray-600 font-mono text-xs" dir="ltr">{customerPhoneText(c.phone)}</td>

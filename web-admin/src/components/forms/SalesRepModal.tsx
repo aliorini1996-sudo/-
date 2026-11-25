@@ -117,8 +117,8 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
   /* «منع تكرار العملاء عند فتح عميل جديد» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): الخانات الثلاث حقول النموذج فهي ما يُحفظ، والمفتاح الرئيس حالة
    * شاشةٍ فوقها — يُفتح مفعّلاً إن حُفظت خانة، وتشغيله بلا خانةٍ يختار «رقم الجوال» وإطفاؤه يُفرغها (dedupToggleMaster) */
   const [dedupOn, setDedupOn] = useState(() => dedupAnyOn(dedupChecksOf(defaults)));
-  const [dedupPhone, dedupName, dedupAddress] = watch(['dedupCustomerPhone', 'dedupCustomerName', 'dedupCustomerAddress']);
-  const dedupChecks = dedupChecksOf({ dedupCustomerPhone: dedupPhone, dedupCustomerName: dedupName, dedupCustomerAddress: dedupAddress });
+  const [dedupPhone, dedupName, dedupAddress, dedupLocation] = watch(['dedupCustomerPhone', 'dedupCustomerName', 'dedupCustomerAddress', 'dedupCustomerLocation']);
+  const dedupChecks = dedupChecksOf({ dedupCustomerPhone: dedupPhone, dedupCustomerName: dedupName, dedupCustomerAddress: dedupAddress, dedupCustomerLocation: dedupLocation });
   const toggleDedup = (on: boolean) => {
     setDedupOn(on);
     const next = dedupToggleMaster(dedupChecks, on);
@@ -307,8 +307,8 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
               <PermToggle label={tr('تعديل بيانات العميل')} {...register('canEditCustomer')} />
               {accountingOn && <PermToggle label={tr('عرض كشف الحساب')} {...register('canViewStatement')} />}
             </div>
-            {/* «منع تكرار العملاء عند فتح عميل جديد»: المفتاح الرئيس وتحته الخانات الثلاث، وسطر الموقع إعلاميّ — قاعدة الشركة القائمة لكل
-                المناديب (ضمن ٣٠ متراً) لا خيارٌ هنا */}
+            {/* «منع تكرار العملاء عند فتح عميل جديد»: المفتاح الرئيس وتحته الخانات الأربع — والموقع (ضمن ٣٠ متراً) صار خانةً رابعة
+                (طلب المالك ٢٥ نوفمبر ٢٠٢٦) بعد أن كان قاعدةً لكل المناديب */}
             <div className="mt-4" data-rep-customer-dedup="">
               <PermToggle label={tr('منع تكرار العملاء عند فتح عميل جديد')} checked={dedupOn} onChange={e => toggleDedup(e.target.checked)} />
               {dedupOn && (
@@ -317,7 +317,6 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
                 </div>
               )}
               {dedupOn && !dedupAnyOn(dedupChecks) && <p className="text-xs text-amber-700 mt-1 ms-6">{tr('لم تختر حقلا فلا يمنع أي تكرار')}</p>}
-              <p className="text-xs text-gray-500 mt-2">{tr('الموقع (ضمن 30 متراً): مفعّل لكل المناديب')}</p>
               <p className="text-xs text-gray-400 mt-1 leading-relaxed">{tr('عند التفعيل لا يفتح المندوب عميلا جديدا ولا يعدل عميلا إلى رقم جوال أو اسم أو عنوان مما تختاره مسجل لعميل آخر في الشركة، والمقارنة بعد توحيد الكتابة والهمزات وصيغ الجوال، ولا يمس الإدارة ولا العميل المضاف دون اتصال')}</p>
             </div>
           </div>

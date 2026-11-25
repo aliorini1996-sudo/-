@@ -19,6 +19,8 @@ import { isLinked as booksLinked, isManualBooks as booksManual } from '../../ser
 import { custodyExplain } from '../../services/gl/custody';
 import { loadUserCustodyInputsMany } from '../../services/gl/sync/postingStore.prisma';
 import { foldUserCustody, type UserCustodyInputs } from '../../services/userCustodyCore';
+// «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): بحث القوائم برقم العميل التسلسليّ مطابقةً تامّة، ويُعاد customerNumber في الصفوف
+import { customerRelNumberOr } from '../../services/customerNumber';
 
 /**
  * قائمة «العملاء» في الدفاتر (M3، DESIGN.md §8.2، INV‑01، PAY‑01، §5.5 custodyComponents، §5.9 C4/C4b/C5).
@@ -246,7 +248,7 @@ router.get('/customers/invoices', VIEW, ledgerHandler(async (req, res) => {
   if (range) where.invoiceDate = range;
   for (const k of ['customerId', 'salesRepId'] as const) { const v = str(q[k]); if (v) where[k] = v; }
   const search = str(q.search);
-  if (search) and.push({ OR: [{ number: { contains: search, mode: 'insensitive' } }, { customer: { name: { contains: search, mode: 'insensitive' } } }] });
+  if (search) and.push({ OR: [{ number: { contains: search, mode: 'insensitive' } }, { customer: { name: { contains: search, mode: 'insensitive' } } }, ...customerRelNumberOr(search, tenantId)] });
   const posting = listOf(q.posting, POSTING_FILTER_STATUSES);
   let postingFilterCapped = false;
   if (posting.length) {
@@ -262,7 +264,7 @@ router.get('/customers/invoices', VIEW, ledgerHandler(async (req, res) => {
       select: {
         id: true, number: true, type: true, status: true, invoiceDate: true, createdAt: true, subtotal: true, discountAmt: true,
         taxAmt: true, total: true, remainingAmt: true, customerId: true, salesRepId: true,
-        customer: { select: { name: true } }, salesRep: { select: { name: true } },
+        customer: { select: { name: true, number: true } }, salesRep: { select: { name: true } },
       },
     }),
     prisma.invoice.count({ where }),
@@ -276,7 +278,8 @@ router.get('/customers/invoices', VIEW, ledgerHandler(async (req, res) => {
         id: r.id, number: r.number, type: r.type, status: r.status,
         date: localDate(r.invoiceDate, f.timezone), invoiceDate: r.invoiceDate, createdAt: r.createdAt,
         subtotal: r.subtotal, discountAmt: r.discountAmt, taxAmt: r.taxAmt, total: r.total, remainingAmt: r.remainingAmt,
-        customerId: r.customerId, customerName: r.customer?.name ?? null, salesRepId: r.salesRepId, salesRepName: r.salesRep?.name ?? null,
+        customerId: r.customerId, customerName: r.customer?.name ?? null, customerNumber: r.customer?.number ?? null,
+        salesRepId: r.salesRepId, salesRepName: r.salesRep?.name ?? null,
         posting: postings.get(r.id),
       })),
     },
@@ -304,7 +307,7 @@ router.get('/customers/receipts', VIEW, ledgerHandler(async (req, res) => {
   if (range) where.receiptDate = range;
   for (const k of ['customerId', 'salesRepId'] as const) { const v = str(q[k]); if (v) where[k] = v; }
   const search = str(q.search);
-  if (search) and.push({ OR: [{ number: { contains: search, mode: 'insensitive' } }, { customer: { name: { contains: search, mode: 'insensitive' } } }] });
+  if (search) and.push({ OR: [{ number: { contains: search, mode: 'insensitive' } }, { customer: { name: { contains: search, mode: 'insensitive' } } }, ...customerRelNumberOr(search, tenantId)] });
   const posting = listOf(q.posting, POSTING_FILTER_STATUSES);
   let postingFilterCapped = false;
   if (posting.length) {
@@ -319,7 +322,7 @@ router.get('/customers/receipts', VIEW, ledgerHandler(async (req, res) => {
       where, orderBy: [{ receiptDate: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }], skip: page.offset, take: page.limit,
       select: {
         id: true, number: true, paymentMethod: true, paymentMethodKey: true, status: true, receiptDate: true, createdAt: true, amount: true,
-        customerId: true, salesRepId: true, customer: { select: { name: true } }, salesRep: { select: { name: true } },
+        customerId: true, salesRepId: true, customer: { select: { name: true, number: true } }, salesRep: { select: { name: true } },
       },
     }),
     prisma.receipt.count({ where }),
@@ -340,7 +343,8 @@ router.get('/customers/receipts', VIEW, ledgerHandler(async (req, res) => {
         // paymentMethodKey للاسم المعروض وحده (طريقة الشركة المخصّصة) — الفلتر والترحيل على الأساس paymentMethod
         id: r.id, number: r.number, paymentMethod: r.paymentMethod, paymentMethodKey: r.paymentMethodKey, status: r.status,
         date: localDate(r.receiptDate, f.timezone), receiptDate: r.receiptDate, createdAt: r.createdAt, amount: r.amount,
-        customerId: r.customerId, customerName: r.customer?.name ?? null, salesRepId: r.salesRepId, salesRepName: r.salesRep?.name ?? null,
+        customerId: r.customerId, customerName: r.customer?.name ?? null, customerNumber: r.customer?.number ?? null,
+        salesRepId: r.salesRepId, salesRepName: r.salesRep?.name ?? null,
         paylinkId: linkOf.get(r.id)?.id ?? null, paylinkStatus: linkOf.get(r.id)?.status ?? null,
         posting: postings.get(r.id),
       })),
@@ -452,7 +456,7 @@ router.get('/customers/paylink/entries', VIEW, ledgerHandler(async (req, res) =>
     const [rows, total] = await Promise.all([
       prisma.receipt.findMany({
         where, orderBy: [{ receiptDate: 'desc' }, { id: 'desc' }], skip: page.offset, take: page.limit,
-        select: { id: true, number: true, status: true, receiptDate: true, amount: true, customerId: true, customer: { select: { name: true } }, salesRepId: true },
+        select: { id: true, number: true, status: true, receiptDate: true, amount: true, customerId: true, customer: { select: { name: true, number: true } }, salesRepId: true },
       }),
       prisma.receipt.count({ where }),
     ]);
@@ -468,7 +472,7 @@ router.get('/customers/paylink/entries', VIEW, ledgerHandler(async (req, res) =>
         ...f.meta, activated: f.activated, kind, total, ...page,
         rows: rows.map((r) => ({
           id: r.id, number: r.number, status: r.status, date: localDate(r.receiptDate, f.timezone), amount: r.amount,
-          customerId: r.customerId, customerName: r.customer?.name ?? null, salesRepId: r.salesRepId,
+          customerId: r.customerId, customerName: r.customer?.name ?? null, customerNumber: r.customer?.number ?? null, salesRepId: r.salesRepId,
           paylinkId: linkOf.get(r.id)?.id ?? null, paylinkStatus: linkOf.get(r.id)?.status ?? null, posting: postings.get(r.id),
         })),
       },

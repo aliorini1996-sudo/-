@@ -31,6 +31,8 @@ export interface VisitLike {
   lng?: number | null;
   /** معرّف العميل — أدقّ من الاسم في المطابقة (عميلان بالاسم نفسه) حين يُمرَّر */
   customerId?: string | null;
+  /** «رقم العميل» (٢٣ نوفمبر ٢٠٢٦) — للعرض والبحث وحدهما، لا يدخل المطابقة. يُنقل إلى الوقفة المدموجة متى مُرِّر */
+  customerNumber?: number | null;
 }
 
 /**
@@ -48,6 +50,8 @@ export interface VisitLike {
  */
 export interface MergedVisit<T extends VisitLike = VisitLike> {
   customerName: string;
+  /** «رقم العميل» — حاضرٌ متى حمله أحد السجلّات المدموجة (تقرير ساعات العمل)، وغائبٌ تماماً لمن لا يمرّره (الشكل كما كان) */
+  customerNumber?: number | null;
   start: Date;
   /** نهاية الزيارة (بداية + مدّة) — null لزيارة بلا توقيت */
   end: Date | null;
@@ -80,8 +84,13 @@ export function mergeVisits<T extends VisitLike>(visits: T[]): MergedVisit<T>[] 
   const sorted = [...visits].sort((a, b) => a.at.getTime() - b.at.getTime());
   const isTimed = (v: VisitLike) => !!v.durationSec && v.durationSec > 0;
 
+  /** «رقم العميل» بمفتاحه متى مرّره السجلّ — نثرٌ شرطيّ فلا يتغيّر شكل الوقفة لمن لا يمرّره */
+  const numberOf = (v: VisitLike): { customerNumber?: number | null } =>
+    (v.customerNumber !== undefined ? { customerNumber: v.customerNumber } : {});
+
   const out: MergedVisit<T>[] = sorted.filter(isTimed).map((v) => ({
     customerName: v.customerName,
+    ...numberOf(v),
     start: v.at,
     end: new Date(v.at.getTime() + (v.durationSec as number) * 1000),
     durationSec: v.durationSec,
@@ -136,9 +145,11 @@ export function mergeVisits<T extends VisitLike>(visits: T[]): MergedVisit<T>[] 
       host.sources.push(u);
       // سجلّ الملاحظة يحمل موقعاً أحياناً والمؤقّت لا — فلا يُهدَر الموقع الوحيد
       if (host.lat == null && u.lat != null) { host.lat = u.lat; host.lng = u.lng ?? null; }
+      // وكذا «رقم العميل»: العميل نفسه (sameCustomer)، فرقمُ الملاحظة يسدّ غيابه من المؤقّت
+      if (host.customerNumber == null && u.customerNumber != null) host.customerNumber = u.customerNumber;
     } else {
       out.push({
-        customerName: u.customerName, start: u.at, end: null, durationSec: null,
+        customerName: u.customerName, ...numberOf(u), start: u.at, end: null, durationSec: null,
         hasNote: true, parts: 1, lat: u.lat ?? null, lng: u.lng ?? null, sources: [u],
       });
     }

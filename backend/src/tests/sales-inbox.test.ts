@@ -400,8 +400,10 @@ test('تعذّر المزامنة لا يرمي: القاعدة المعطّلة
 
 // ═══════════════════ التعديل والمعاملات ═══════════════════
 
-test('salesUpdateSchema: المراحل السبع وحدها، والملاحظة ≤ ٢٠٠٠ والفارغة تُمسح', () => {
-  assert.deepEqual([...si.SALES_STAGES], ['NEW', 'CONTACTED', 'MEETING', 'NEGOTIATION', 'WON', 'LOST', 'NOT_FIT']);
+test('salesUpdateSchema: المراحل الثماني وحدها، والملاحظة ≤ ٢٠٠٠ والفارغة تُمسح', () => {
+  // «يحتاج متابعة» بعد «تم التواصل» (طلب المالك ٢٤ نوفمبر ٢٠٢٦)
+  assert.deepEqual([...si.SALES_STAGES], ['NEW', 'CONTACTED', 'FOLLOW_UP', 'MEETING', 'NEGOTIATION', 'WON', 'LOST', 'NOT_FIT']);
+  assert.equal(si.SALES_STAGE_LABELS.FOLLOW_UP, 'يحتاج متابعة');
   for (const stage of si.SALES_STAGES) assert.equal(si.salesUpdateSchema.safeParse({ stage }).success, true, stage);
   for (const stage of ['QUALIFIED', 'won', '', 7, null]) assert.equal(si.salesUpdateSchema.safeParse({ stage }).success, false, String(stage));
   assert.equal(si.salesUpdateSchema.safeParse({ note: 'x'.repeat(2001) }).success, false);
@@ -453,8 +455,8 @@ test('GET /sales-inbox: المالك يرى كل القنوات وواتساب،
   assert.equal(typeof d.syncedAt, 'string');
   assert.deepEqual(d.rows.map((r: Row) => r.channel), ['WHATSAPP', 'MEETING', 'AMBASSADOR_TRIAL', 'TRIAL', 'TRIAL'], 'الأحدث أولاً');
   assert.equal(d.total, 5);
-  assert.deepEqual(d.counts.byChannel, { TRIAL: 2, AMBASSADOR_TRIAL: 1, MEETING: 1, CONTACT: 0, SUBSCRIPTION: 0, QUOTE_REQUEST: 0, WHATSAPP: 1 });
-  assert.deepEqual(d.counts.byStage, { NEW: 5, CONTACTED: 0, MEETING: 0, NEGOTIATION: 0, WON: 0, LOST: 0, NOT_FIT: 0 });
+  assert.deepEqual(d.counts.byChannel, { TRIAL: 2, AMBASSADOR_TRIAL: 1, MEETING: 1, CONTACT: 0, SUBSCRIPTION: 0, QUOTE_REQUEST: 0, WHATSAPP: 1, MANUAL: 0 });
+  assert.deepEqual(d.counts.byStage, { NEW: 5, CONTACTED: 0, FOLLOW_UP: 0, MEETING: 0, NEGOTIATION: 0, WON: 0, LOST: 0, NOT_FIT: 0 });
   assert.deepEqual(Object.keys(d.rows[0]).sort(), ['channel', 'company', 'country', 'email', 'firstAt', 'id', 'lastAt', 'message', 'lastNote', 'name', 'note', 'notesCount', 'origin', 'owner', 'phone', 'stage', 'tenantId'].sort());
 
   // المرشّح يضيّق الصفوف والعدّادات على الكل
@@ -627,4 +629,44 @@ test('المصدر: التسجيل قبل sendMail داخل try/catch في كل 
   // مولد الفواتير مستثنى بقرار المالك: لا قناة له
   assert.equal((si.SALES_CHANNELS as readonly string[]).some((c) => /invoice|tool/i.test(c)), false);
   assert.doesNotMatch(svc, /invoice-tool/);
+});
+
+// ═══════════════════ الإضافة اليدوية (٢٤ نوفمبر ٢٠٢٦) ═══════════════════
+
+test('salesManualSchema: الاسم إلزامي ومعه جوال أو بريد، والبريد والدولة صالحان، والحالة من المراحل', () => {
+  assert.equal(si.salesManualSchema.safeParse({ name: 'سالم', phone: '+966500000001' }).success, true);
+  assert.equal(si.salesManualSchema.safeParse({ name: 'سالم', email: 'a@b.co' }).success, true);
+  assert.equal(si.salesManualSchema.safeParse({ name: '  ', phone: '+966500000001' }).success, false, 'بلا اسم');
+  assert.equal(si.salesManualSchema.safeParse({ name: 'سالم' }).success, false, 'بلا جوال ولا بريد');
+  assert.equal(si.salesManualSchema.safeParse({ name: 'سالم', email: 'ليس-بريداً' }).success, false);
+  assert.equal(si.salesManualSchema.safeParse({ name: 'سالم', phone: '1', country: 'SAU' }).success, false);
+  assert.equal(si.salesManualSchema.safeParse({ name: 'سالم', phone: '1', stage: 'QUALIFIED' }).success, false);
+  assert.deepEqual(si.salesManualSchema.parse({ name: ' سالم ', phone: ' 0501 ', country: 'sa', stage: 'FOLLOW_UP', company: '' }),
+    { name: 'سالم', phone: '0501', country: 'SA', stage: 'FOLLOW_UP', company: null, email: null, message: null });
+});
+
+test('POST /sales-inbox: يضيف جهة تواصل يدوية بقناة MANUAL ومن أضافها وسطر سجلّ، والموظف يصير مسؤول الصفقة، وبلا صلاحية ٤٠٣', async () => {
+  reset();
+  const bad = await call('POST', '/api/leads/sales-inbox', owner(), { name: 'سالم' });
+  assert.equal(bad.status, 400);
+  const o = await call('POST', '/api/leads/sales-inbox', owner(), { name: 'سالم', phone: '+966500000077', company: 'متجر', stage: 'FOLLOW_UP' });
+  assert.equal(o.status, 201);
+  assert.equal(o.body.data.channel, 'MANUAL');
+  assert.equal(o.body.data.stage, 'FOLLOW_UP');
+  assert.match(String(o.body.data.origin), /^إضافة يدوية — /);
+  const made = contacts.find((c) => c.id === o.body.data.id)!;
+  assert.equal(made.channel, 'MANUAL');
+  assert.ok(String(made.sourceRef).length >= 32, 'مرجعٌ عشوائي');
+  assert.equal(salesNotes.filter((n) => n.contactId === made.id && n.kind === 'STAGE').length, 1);
+  // الموظف بـsales.view: يُضاف ويُثبَّت مسؤولاً
+  const s = await call('POST', '/api/leads/sales-inbox', staffWith('sales.view'), { name: 'خالد', email: 'k@x.co' });
+  assert.equal(s.status, 201);
+  assert.equal(contacts.find((c) => c.id === s.body.data.id)!.ownerName, 'موظف');
+  // بلا الصلاحية ٤٠٣، وبلا جلسة ٤٠١، والقاعدة sales.view
+  assert.equal((await call('POST', '/api/leads/sales-inbox', staffWith('leads.view'), { name: 'x', phone: '1' })).status, 403);
+  assert.equal((await call('POST', '/api/leads/sales-inbox', null, { name: 'x', phone: '1' })).status, 401);
+  assert.equal(pa.ruleFor('POST', '/api/leads/sales-inbox')?.key, 'sales.view');
+  // المزامنة لا تمسّه: القناة اليدوية ليست من قنوات التجربة
+  const leads = read('routes', 'leads.ts');
+  assert.ok(leads.indexOf("router.post('/sales-inbox'") > 0 && leads.indexOf("router.post('/sales-inbox'") < leads.indexOf("router.post('/'"));
 });

@@ -1,5 +1,6 @@
 ﻿import { Router, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { resolveDocTeam, supervisorViewerOf, teamMembershipSelectFor } from '../services/teams';
 import { REP_COLLECTED_CASH_SALE } from '../services/repCashCollection';
@@ -26,6 +27,8 @@ import { postsFromOperations } from '../services/booksMode';
 import { CancelRefundRejected, applyCancelRefundInTx, cancelRefundOptions, resolveCancelRefund } from '../services/receiptCancelSource';
 import { cancelCustodyAccessFor } from '../services/receiptCancelSource';
 import { adminScopeEnabled } from '../services/adminScope';
+// «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): البحث برقم العميل التسلسليّ مطابقةً تامّة
+import { customerRelNumberOr } from '../services/customerNumber';
 
 const router = Router();
 router.use(authenticate);
@@ -79,6 +82,25 @@ const RECEIPT_LINKS = {
   invoiceItems: { select: { amount: true, invoice: { select: { id: true, number: true } } } },
 } as const;
 
+/** عناصر AND من قيد النطاق (scopedRecordWhere يعيد `{ AND: [...] }` أو `{}`) — تُحفظ كما هي ويُلحق بها البحث */
+export function receiptScopeAnd(scope: Record<string, unknown>): Prisma.ReceiptWhereInput[] {
+  const and = scope.AND as Prisma.ReceiptWhereInput | Prisma.ReceiptWhereInput[] | undefined | null;
+  if (and == null) return [];
+  return Array.isArray(and) ? and : [and];
+}
+
+/**
+ * OR بحث قائمة السندات: رقم السند واسم العميل احتواءً بلا حساسية حالة، ورقم العميل مطابقةً تامّة (لا شيء لغير الرقم).
+ * شرطا العميل مقيّدان بالشركة: شرط العلاقة استعلامٌ فرعيّ على customers — وبلا tenantId يمسح عملاء كل الشركات.
+ */
+export function receiptSearchOr(search: string, tid: string): Prisma.ReceiptWhereInput[] {
+  return [
+    { number: { contains: search, mode: 'insensitive' } },
+    { customer: { tenantId: tid, name: { contains: search, mode: 'insensitive' } } },
+    ...customerRelNumberOr(search, tid),
+  ];
+}
+
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -89,10 +111,15 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
     const isSalesRep = req.user?.role === 'SALES_REP';
+    // بحث القائمة (تُرسله /m): رقم السند أو اسم العميل احتواءً، أو رقم العميل مطابقةً تامّة — نصٌّ وحده بحدّ ١٠٠
+    const search = typeof req.query.search === 'string' ? req.query.search.trim().slice(0, 100) : '';
+    const scope = await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT);
 
     const where = {
       tenantId: tid,
-      ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)),
+      ...scope,
+      // البحث عنصرٌ في AND **بعد** عناصر النطاق لا مفتاح OR في المستوى الأعلى — فلا يمحو قيد النطاق ولا يمحوه
+      ...(search && { AND: [...receiptScopeAnd(scope), { OR: receiptSearchOr(search, tid) }] }),
       ...(isSalesRep && { salesRepId: req.user!.id }),
       ...(salesRepId && !isSalesRep && { salesRepId }),
       ...(customerId && { customerId }),
@@ -111,7 +138,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       prisma.receipt.findMany({
         where,
         include: {
-          customer: { select: { id: true, name: true } },
+          // number: رقم العميل التسلسليّ يُعرض بجوار اسمه (للقراءة وحدها)
+          customer: { select: { id: true, name: true, number: true } },
           salesRep: { select: { id: true, name: true } },
           invoiceItems: { include: { invoice: { select: { number: true } } } },
         },

@@ -265,7 +265,7 @@ test('تصدير العملاء: بلا عمود الرقم الضريبي ول�
   const row = page.slice(page.indexOf('const rows = all.map(c => ({'), page.indexOf('const out = await shareOrDownloadExcel('));
   const keys = [...row.matchAll(/\[tr\('([^']+)'\)\]:/g)].map((x) => x[1]);
   assert.equal(keys.indexOf('الرقم الضريبي'), CUSTOMER_EXPORT_TAX_COL);
-  assert.ok(page.includes('colWidths: customerExportColWidths(accountingOn, taxOff)'));
+  assert.ok(page.includes('colWidths: customerExportColWidths(accountingOn, taxOff, withCode)'));
   assert.ok(page.includes('taxOff={taxOff}'), 'نافذة العميل لا تعرف الوضع');
 });
 

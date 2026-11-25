@@ -14,7 +14,8 @@ export interface CollReceiptLike {
   /** «إدارة طرق الدفع»: مفتاح الطريقة المضافة (c_…) — null لمدمجة؛ paymentMethod يبقى أساسها */
   paymentMethodKey?: string | null;
   receiptDate: string;
-  customer: { id: string; name: string } | null;
+  /** `number` «رقم العميل» (٢٣ نوفمبر ٢٠٢٦) — يُبحث به ويُعرض بجانب الاسم؛ غائبٌ من خادمٍ أقدم و null قبل ترقيمه */
+  customer: { id: string; name: string; number?: number | null } | null;
   salesRep: { id: string; name: string } | null;
   /** «فرق العمل»: فريق السند (وسمه) — null بلا فريق */
   team?: { id: string; name: string } | null;

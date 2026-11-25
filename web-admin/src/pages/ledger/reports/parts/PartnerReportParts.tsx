@@ -12,6 +12,7 @@ import { ledgerErrorOf } from '../../../../api/ledgerConfig';
 import { ledgerErrorMessage } from '../../../../lib/ledger/errors';
 import { sourceDocumentHref, sourceTypeLabels } from '../../../../lib/ledger/sync';
 import AttachmentLinks from './AttachmentLinks';
+import { formatCustomerNumber } from '../../../../lib/customerNumber';
 import {
   AGING_BUCKET_KEYS, agingBasisLabels, agingColumnLabels, agingParams, agingRowBalanced, agingSearch, cleanPartnerParams,
   ledgerMoveHref, ledgerPartnersApi, ledgerPartnersKeys, parseAgingBucketsInput, partnerLedgerHref, partnerReportCodeLabels,
@@ -188,6 +189,8 @@ export function PartnerPicker({ type, value, onChange, placeholder, ariaLabel }:
   const [draft, setDraft] = useState('');
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
+  // «رقم العميل» للشريحة: رقم آخر عميلٍ اختير هنا (الحالة في الرابط تحمل المعرّف والاسم وحدهما) — فبعد إعادة فتح الرابط الاسمُ وحده
+  const [pickedNo, setPickedNo] = useState<{ id: string; number: number } | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -213,7 +216,8 @@ export function PartnerPicker({ type, value, onChange, placeholder, ariaLabel }:
     return () => document.removeEventListener('mousedown', h);
   }, [open]);
 
-  const pick = (it: { id: string; name: string }) => {
+  const pick = (it: { id: string; name: string; number?: number | null }) => {
+    setPickedNo(type === 'customer' && it.number != null ? { id: it.id, number: it.number } : null);
     onChange({ id: it.id, name: it.name });
     setOpen(false);
     setDraft('');
@@ -221,9 +225,11 @@ export function PartnerPicker({ type, value, onChange, placeholder, ariaLabel }:
   };
 
   if (value && !open) {
+    const chipNo = type === 'customer' && pickedNo?.id === value.id ? pickedNo.number : null;
     return (
       <span className="inline-flex items-center gap-1 rounded-lg border border-[#E8E0D2] bg-white px-2 py-1 text-xs">
         <button type="button" className="max-w-[14rem] truncate text-start text-[#1F1A13] hover:text-[#E15A30]" title={tr('تغيير')} onClick={() => setOpen(true)}>
+          {chipNo != null && <><bdi dir="ltr" className="tabular-nums text-[#9A8F7E]">{formatCustomerNumber(chipNo)}</bdi>{' · '}</>}
           <bdi>{value.name ?? value.id}</bdi>
         </button>
         <button type="button" aria-label={tr('إزالة')} className="text-[#9A8F7E] hover:text-[#C0392B]" onClick={() => onChange(null)}>
@@ -272,7 +278,11 @@ export function PartnerPicker({ type, value, onChange, placeholder, ariaLabel }:
               onMouseEnter={() => setActive(i)}
               onClick={() => pick(it)}
             >
-              <bdi className="truncate">{it.name}</bdi>
+              {/* «رقم العميل» (٢٣ نوفمبر ٢٠٢٦) قبل اسم العميل متى رُقِّم — والبحث في الخادم يطابقه بالضبط */}
+              <bdi className="truncate">
+                {type === 'customer' && it.number != null && <><bdi dir="ltr" className="tabular-nums text-[#9A8F7E]">{formatCustomerNumber(it.number)}</bdi>{' · '}</>}
+                {it.name}
+              </bdi>
               {it.hint ? <bdi className="shrink-0 text-[10px] text-[#9A8F7E]">{partnerHintText(type, it.hint, tr)}</bdi> : null}
             </button>
           ))}

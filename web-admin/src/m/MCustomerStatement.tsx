@@ -9,6 +9,7 @@ import { useBackClose } from '../lib/useBackClose';
 import { MCard, MScreen, MHeader, MEmpty, MError, MSpinner } from './mobileUi';
 import { expectObject } from './shape';
 import { statementItemText } from './mUnits';
+import { formatCustomerLabel } from '../lib/customerNumber';
 
 /* المستند في حزمة مستقلّة — يجرّ jspdf وhtml2canvas وqrcode معه */
 const MStatementDoc = lazy(() => import('./MStatementDoc'));
@@ -119,7 +120,8 @@ export default function MCustomerStatement({ customer, company, repName, onClose
 
   return (
     <MScreen header={
-      <MHeader title={tr('كشف حساب')} subtitle={customer.name} onBack={onClose}
+      /* «#12 · الاسم» في الترويسة (طلب المالك ٢٣ نوفمبر ٢٠٢٦) — الورقة المطبوعة كما هي */
+      <MHeader title={tr('كشف حساب')} subtitle={formatCustomerLabel(customer)} onBack={onClose}
         action={
           /* التصدير لا يظهر قبل وصول البيانات: زرٌّ يبني مستنداً من لا شيء
              يعطي ورقةً فارغة باسم العميل، وهي أسوأ من غياب الزرّ. */

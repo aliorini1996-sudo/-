@@ -106,9 +106,10 @@ test('findArchivedProducts: المؤرشفة وحدها، بتوأمها ورص�
 });
 
 // «هدف الشهر» (RepTarget): هدف كمية الصنف يتبعه إلى توأمه كبنود فواتيره — فيبقى تقدّمه يُقاس على ما صار باسم B،
-// وكذا صنفه الإضافي في هدفٍ بعدة أصناف (RepTargetProduct — طلب المالك ١١ نوفمبر ٢٠٢٦)
+// وكذا صنفه الإضافي في هدفٍ بعدة أصناف (RepTargetProduct — طلب المالك ١١ نوفمبر ٢٠٢٦).
+// وسطر طلب المنيو (CatalogOrderItem — ٢٤ نوفمبر ٢٠٢٦) تاريخٌ يتبع صنفه إلى B، لا يفقد ربطه بحذف A (SetNull)
 const REPOINT = [
-  'GlMoveLine', 'InvoiceItem', 'InvoiceItemLot', 'LotEvent', 'LotRelabel', 'ProductLot', 'RepStockRequestItem', 'RepTarget', 'RepTargetProduct',
+  'CatalogOrderItem', 'GlMoveLine', 'InvoiceItem', 'InvoiceItemLot', 'LotEvent', 'LotRelabel', 'ProductLot', 'RepStockRequestItem', 'RepTarget', 'RepTargetProduct',
   'VanLoadItem', 'VanLoadItemLot', 'WarehouseEntryItem',
 ];
 
@@ -118,7 +119,7 @@ test('خطة الجداول من نموذج Prisma: التاريخ والحرك�
   assert.deepEqual(plan.unhandled, []);
   for (const t of plan.repoint) assert.ok(!CONFIG_MODELS.has(t.model), t.model);
   const kind = Object.fromEntries(plan.repoint.map((t) => [t.model, t.kind]));
-  for (const m of ['InvoiceItem', 'VanLoadItem', 'WarehouseEntryItem', 'RepStockRequestItem', 'ProductLot', 'RepTarget', 'RepTargetProduct']) assert.equal(kind[m], 'FK', m);
+  for (const m of ['CatalogOrderItem', 'InvoiceItem', 'VanLoadItem', 'WarehouseEntryItem', 'RepStockRequestItem', 'ProductLot', 'RepTarget', 'RepTargetProduct']) assert.equal(kind[m], 'FK', m);
   for (const m of ['VanLoadItemLot', 'InvoiceItemLot', 'LotRelabel', 'LotEvent', 'GlMoveLine']) assert.equal(kind[m], 'PLAIN', m);
   const special = Object.fromEntries(plan.repoint.map((t) => [t.model, t.special]));
   assert.equal(special.ProductLot, 'LOTS');
@@ -220,7 +221,7 @@ test('الدمج: لـA لقطات تكلفة مجمَّدة ⇒ COSTING_HISTORY
   const models = dmmfFromSchema(SCHEMA_TEXT);
   // A مطويّ في المحرّك
   {
-    const { tx, log } = fakeTx({ products: [A, B], lotClash: 1 });
+    const { tx, log } = fakeTx({ products: [A, B], costed: 1 });
     await assert.rejects(
       mergeArchivedProduct(tx as never, 't1', 'A', 'B', { models: models as never, purge: async () => ({ counts: {}, nullCounts: {} }) }),
       (e: unknown) => e instanceof MergeRefused && e.code === 'COSTING_HISTORY',
@@ -257,7 +258,7 @@ test('combineRequestItems: الوحدة نفسها تُجمع كما هي، وو
 /** معاملة وهمية تسجّل كل نداء: القفل الخام، والقراءات، والكتابات */
 function fakeTx(opts: {
   products: Array<{ id: string; tenantId: string; name: string; unit: string; deletedAt: Date | null }>;
-  lotsA?: Array<{ lotNumber: string }>; lotClash?: number;
+  lotsA?: Array<{ lotNumber: string }>; lotClash?: number; costed?: number;
   reqA?: Array<Record<string, unknown>>; reqB?: Array<Record<string, unknown>>;
   /** «ربط الدفاتر»: إعدادات دفاتر الشركة (null = لم تُفعَّل) */
   books?: { setupMethod: string | null; activatedAt: Date | null } | null;
@@ -279,7 +280,8 @@ function fakeTx(opts: {
           if (name === 'repStockRequestItem') return a.where.productId === 'A' ? (opts.reqA ?? []) : (opts.reqB ?? []);
           return [];
         },
-        count: async (a: unknown) => { log.push({ op: 'count', model: name, arg: a }); return opts.lotClash ?? 0; },
+        // لكل فحصٍ عدّه: التشغيلات المتعارضة (lotClash) لجدول التشغيلات، ولقطات محرّك التكلفة (costed) لجداول gl_cost_* — فحالة LOTS_CONFLICT لا يسبقها COSTING_HISTORY
+        count: async (a: unknown) => { log.push({ op: 'count', model: name, arg: a }); return name === 'productLot' ? (opts.lotClash ?? 0) : /^glCost/.test(name) ? (opts.costed ?? 0) : 0; },
         updateMany: async (a: unknown) => { log.push({ op: 'updateMany', model: name, arg: a }); return { count: 2 }; },
         update: async (a: unknown) => { log.push({ op: 'update', model: name, arg: a }); return {}; },
         delete: async (a: unknown) => { log.push({ op: 'delete', model: name, arg: a }); return {}; },

@@ -16,31 +16,32 @@ import { PHRASES } from '../i18n/strings';
 
 const read = (...p: string[]) => fs.readFileSync(path.resolve(process.cwd(), ...p), 'utf8').replace(/\r\n/g, '\n');
 const id = (s: string) => s; // tr العربية: النصّ نفسه
-const NONE = { phone: false, name: false, address: false };
+const NONE = { phone: false, name: false, address: false, location: false };
 
 test('الخانات من صفّ المندوب: الغائب والقيمة غير المنطقية مطفأة (تقييديّ يُقرأ بـ=== true)، والمفتاح الرئيس = أيّ خانة', () => {
   assert.deepEqual(dedupChecksOf(undefined), NONE);
   assert.deepEqual(dedupChecksOf(null), NONE);
   assert.deepEqual(dedupChecksOf({}), NONE, 'صفّ خادمٍ أقدم بلا الأعمدة');
-  assert.deepEqual(dedupChecksOf({ dedupCustomerPhone: true, dedupCustomerAddress: true }), { phone: true, name: false, address: true });
+  assert.deepEqual(dedupChecksOf({ dedupCustomerPhone: true, dedupCustomerAddress: true }), { phone: true, name: false, address: true, location: false });
+  assert.deepEqual(dedupChecksOf({ dedupCustomerLocation: true }), { ...NONE, location: true }, 'الموقع خانةٌ رابعة (٢٥ نوفمبر ٢٠٢٦)');
   assert.deepEqual(dedupChecksOf({ dedupCustomerName: 'true' as unknown as boolean }), NONE, 'نصٌّ لا يُفعّل قيداً');
   assert.equal(dedupAnyOn(NONE), false);
   for (const f of DEDUP_FIELDS) assert.equal(dedupAnyOn({ ...NONE, [f]: true }), true, f);
   // الأعمدة والعناوين بالترتيب المعروض
-  assert.deepEqual([...DEDUP_FIELDS], ['phone', 'name', 'address']);
-  assert.deepEqual(DEDUP_KEYS, { phone: 'dedupCustomerPhone', name: 'dedupCustomerName', address: 'dedupCustomerAddress' });
-  assert.deepEqual(DEDUP_LABELS, { phone: 'رقم الجوال', name: 'الاسم', address: 'العنوان' });
+  assert.deepEqual([...DEDUP_FIELDS], ['phone', 'name', 'address', 'location']);
+  assert.deepEqual(DEDUP_KEYS, { phone: 'dedupCustomerPhone', name: 'dedupCustomerName', address: 'dedupCustomerAddress', location: 'dedupCustomerLocation' });
+  assert.deepEqual(DEDUP_LABELS, { phone: 'رقم الجوال', name: 'الاسم', address: 'العنوان', location: 'الموقع (ضمن 30 متراً)' });
   assert.equal(CUSTOMER_DUPLICATE, 'CUSTOMER_DUPLICATE');
   assert.equal(LOCATION_DUP_RADIUS_M, 30);
 });
 
 test('المفتاح الرئيس: تشغيله بلا خانة يختار «رقم الجوال» ومعها يُبقيها، وإطفاؤه يُفرغ الثلاث — والأعمدة صريحةً دائماً', () => {
-  assert.deepEqual(dedupToggleMaster(NONE, true), { phone: true, name: false, address: false });
-  assert.deepEqual(dedupToggleMaster({ phone: false, name: true, address: true }, true), { phone: false, name: true, address: true }, 'المختار قبلاً يبقى');
-  assert.deepEqual(dedupToggleMaster({ phone: true, name: true, address: true }, false), NONE);
-  assert.deepEqual(dedupColumns({ phone: true, name: false, address: true }),
-    { dedupCustomerPhone: true, dedupCustomerName: false, dedupCustomerAddress: true });
-  assert.deepEqual(dedupColumns(NONE), { dedupCustomerPhone: false, dedupCustomerName: false, dedupCustomerAddress: false }, 'false صريحة لا غياب');
+  assert.deepEqual(dedupToggleMaster(NONE, true), { phone: true, name: false, address: false, location: false });
+  assert.deepEqual(dedupToggleMaster({ phone: false, name: true, address: true, location: true }, true), { phone: false, name: true, address: true, location: true }, 'المختار قبلاً يبقى');
+  assert.deepEqual(dedupToggleMaster({ phone: true, name: true, address: true, location: true }, false), NONE);
+  assert.deepEqual(dedupColumns({ phone: true, name: false, address: true, location: true }),
+    { dedupCustomerPhone: true, dedupCustomerName: false, dedupCustomerAddress: true, dedupCustomerLocation: true });
+  assert.deepEqual(dedupColumns(NONE), { dedupCustomerPhone: false, dedupCustomerName: false, dedupCustomerAddress: false, dedupCustomerLocation: false }, 'false صريحة لا غياب');
 });
 
 test('ردّ الخادم: 409 CUSTOMER_DUPLICATE وحده يُقرأ، والحقل المجهول null، والاسم من الخادم وحده (مقصوصاً، والفارغ null)', () => {
@@ -89,7 +90,7 @@ test('موضع الرفض في «إضافة عميل»: رفض الاسم وال
 
 test('الترجمة: كل نصٍّ جديد في القاموس بلغاته الأربع، والفرنسية بلا فاصلةٍ عليا لاتينية', () => {
   const keys = [
-    'منع تكرار العملاء عند فتح عميل جديد', 'منع تكرار العملاء', 'لم تختر حقلا فلا يمنع أي تكرار', 'الموقع (ضمن 30 متراً): مفعّل لكل المناديب',
+    'منع تكرار العملاء عند فتح عميل جديد', 'منع تكرار العملاء', 'لم تختر حقلا فلا يمنع أي تكرار',
     'عند التفعيل لا يفتح المندوب عميلا جديدا ولا يعدل عميلا إلى رقم جوال أو اسم أو عنوان مما تختاره مسجل لعميل آخر في الشركة، والمقارنة بعد توحيد الكتابة والهمزات وصيغ الجوال، ولا يمس الإدارة ولا العميل المضاف دون اتصال',
     'رقم الجوال مسجل للعميل «{name}»', 'رقم الجوال مسجل لعميل آخر في الشركة', 'اسم العميل مسجل للعميل «{name}»', 'يوجد عميل آخر بالاسم نفسه في الشركة',
     'العنوان مسجل للعميل «{name}»', 'يوجد عميل آخر بالعنوان نفسه في الشركة', 'يوجد عميل آخر بالبيانات نفسها في الشركة',
@@ -104,7 +105,7 @@ test('الترجمة: كل نصٍّ جديد في القاموس بلغاته ا
   }
 });
 
-test('حارس الإعداد في اللوحة: المفتاح الرئيس فوق الخانات الثلاث المسجّلة في النموذج، وسطر الموقع، والقيم صريحةً لكل مندوب', () => {
+test('حارس الإعداد في اللوحة: المفتاح الرئيس فوق الخانات الأربع المسجّلة في النموذج (والموقع منها)، والقيم صريحةً لكل مندوب', () => {
   const modal = read('src', 'components', 'forms', 'SalesRepModal.tsx');
   const block = modal.slice(modal.indexOf('data-rep-customer-dedup'), modal.indexOf('</div>\n          </div>', modal.indexOf('data-rep-customer-dedup')));
   assert.ok(modal.indexOf("tr('صلاحيات العملاء')") < modal.indexOf('data-rep-customer-dedup'), 'في قسم صلاحيات العملاء');
@@ -112,13 +113,15 @@ test('حارس الإعداد في اللوحة: المفتاح الرئيس ف�
   assert.match(block, /<PermToggle label=\{tr\('منع تكرار العملاء عند فتح عميل جديد'\)\} checked=\{dedupOn\} onChange=\{e => toggleDedup\(e\.target\.checked\)\} \/>/);
   assert.match(block, /\{dedupOn && \([\s\S]{0,200}DEDUP_FIELDS\.map\(f => <PermToggle key=\{f\} label=\{tr\(DEDUP_LABELS\[f\]\)\} \{\.\.\.register\(DEDUP_KEYS\[f\]\)\} \/>\)/);
   assert.match(block, /\{dedupOn && !dedupAnyOn\(dedupChecks\) && <p [^>]*>\{tr\('لم تختر حقلا فلا يمنع أي تكرار'\)\}<\/p>\}/);
-  assert.ok(block.includes("tr('الموقع (ضمن 30 متراً): مفعّل لكل المناديب')"), 'سطر الموقع الإعلامي');
+  // الموقع خانةٌ رابعة (طلب المالك ٢٥ نوفمبر ٢٠٢٦) لا سطرٌ إعلامي «لكل المناديب»
+  assert.ok(!block.includes('مفعّل لكل المناديب'), 'لا سطر إعلامي');
   // الخانات حقول النموذج (ما يُحفظ)، والقيم الافتراضية صريحة، وقلب المفتاح الرئيس يكتبها كلها
   assert.match(modal, /\.\.\.dedupColumns\(dedupChecksOf\(defaults\)\),/);
   assert.match(modal, /const \[dedupOn, setDedupOn\] = useState\(\(\) => dedupAnyOn\(dedupChecksOf\(defaults\)\)\);/);
   assert.match(modal, /const next = dedupToggleMaster\(dedupChecks, on\);\s*DEDUP_FIELDS\.forEach\(f => setValue\(DEDUP_KEYS\[f\], next\[f\], \{ shouldDirty: true \}\)\);/);
-  // لا خيار موقعٍ جديد: قاعدة الشركة القائمة لا تُضبط من هنا
-  assert.doesNotMatch(modal, /dedupCustomerLocation|register\('dedupCustomer/);
+  // الخانة الرابعة مراقَبة كالثلاث (watch) فيقرأ المفتاح الرئيس حالها
+  assert.match(modal, /watch\(\['dedupCustomerPhone', 'dedupCustomerName', 'dedupCustomerAddress', 'dedupCustomerLocation'\]\)/);
+  assert.doesNotMatch(modal, /register\('dedupCustomer/);
 });
 
 test('حارس الإعداد في الجوال: مجموعةٌ بمفتاحٍ رئيس وخاناتٍ ثلاث خارج PermKey («تحديد الكل» لا يمسّها)، والحفظ يرسل الأعمدة صريحةً', () => {
@@ -126,7 +129,7 @@ test('حارس الإعداد في الجوال: مجموعةٌ بمفتاحٍ �
   assert.match(m, /<Group title=\{tr\('منع تكرار العملاء'\)\} flush>\s*<MToggle label=\{tr\('منع تكرار العملاء عند فتح عميل جديد'\)\} checked=\{dedupOn\} onChange=\{toggleDedup\}/);
   assert.match(m, /const toggleDedup = \(on: boolean\) => \{ setDedupOn\(on\); setDedupChecks\(c => dedupToggleMaster\(c, on\)\); \};/);
   assert.match(m, /DEDUP_FIELDS\.map\(f => \{\s*const on = dedupChecks\[f\];[\s\S]{0,200}role="checkbox" aria-checked=\{on\}\s*onClick=\{\(\) => setDedupChecks\(c => \(\{ \.\.\.c, \[f\]: !c\[f\] \}\)\)\}/);
-  assert.ok(m.includes("<Hint text={tr('الموقع (ضمن 30 متراً): مفعّل لكل المناديب')} />"));
+  assert.ok(!m.includes('مفعّل لكل المناديب'), 'الموقع خانةٌ رابعة لا سطرٌ إعلامي');
   assert.ok(m.includes("{dedupOn && !dedupAnyOn(dedupChecks) && <Hint text={tr('لم تختر حقلا فلا يمنع أي تكرار')} bad />}"));
   const save = m.slice(m.indexOf('const save = useMutation({', m.indexOf('function RepPerms(')), m.indexOf('onSuccess:', m.indexOf('const save = useMutation({', m.indexOf('function RepPerms('))));
   assert.match(save, /\.\.\.dedupColumns\(dedupChecks\),/);
@@ -168,7 +171,7 @@ test('حارس تطبيق المندوب: رفض التكرار تحت حقله 
   assert.match(hook, /s\.at === k \|\| s\.dup\.field === k/, 'يزول بتغيير موضعه أو الحقل المفحوص');
   // الحقول المفحوصة من إعدادات المندوب (GET /auth/me) — تلميحٌ لا يمنع، والحكم للخادم
   assert.equal(app.split('uniqueFields={dedupChecksOf(user)}').length - 1, 2, 'الإضافة والتعديل');
-  for (const k of ['dedupCustomerPhone', 'dedupCustomerName', 'dedupCustomerAddress']) {
+  for (const k of ['dedupCustomerPhone', 'dedupCustomerName', 'dedupCustomerAddress', 'dedupCustomerLocation']) {
     const repUser = app.slice(app.indexOf('interface RepUser {'), app.indexOf('\n}', app.indexOf('interface RepUser {')));
     assert.match(repUser, new RegExp(`\\b${k}\\?: boolean;`), `RepUser.${k}`);
   }

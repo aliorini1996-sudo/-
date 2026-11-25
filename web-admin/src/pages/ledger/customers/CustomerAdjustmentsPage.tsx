@@ -24,6 +24,7 @@ import {
   type AdjustmentDraftInput,
 } from '../../../lib/ledger/sync';
 import { defaultMethodLabel } from '../../../lib/paymentMethodsConfig';
+import { formatCustomerNumber } from '../../../lib/customerNumber';
 import { ConfigModal, WriteButton, useLedgerCan } from '../config/parts/configUi';
 import { ledgerHref } from '../routes';
 
@@ -238,10 +239,14 @@ function CustomerPicker({ value, onChange, disabled }: { value: PartnerSearchIte
     enabled: open,
     staleTime: 30_000,
   });
+  // «رقم العميل» (٢٣ نوفمبر ٢٠٢٦): «#12 · الاسم» في المختار والنتائج — والبحث في الخادم يطابقه بالضبط
+  const numPrefix = (n: number | null | undefined) => n != null
+    ? <><bdi dir="ltr" className="tabular-nums text-[#9A8F7E]">{formatCustomerNumber(n)}</bdi>{' · '}</>
+    : null;
   if (value) {
     return (
       <div className="input flex items-center gap-2">
-        <span className="truncate flex-1">{value.name}</span>
+        <span className="truncate flex-1">{numPrefix(value.number)}{value.name}</span>
         {!disabled && <button type="button" className="p-0.5 rounded hover:bg-[#F1EBDF]" aria-label={tr('مسح')} onClick={() => onChange(null)}><X size={13} /></button>}
       </div>
     );
@@ -249,7 +254,7 @@ function CustomerPicker({ value, onChange, disabled }: { value: PartnerSearchIte
   return (
     <div ref={ref} className="relative">
       <Search size={14} className="absolute start-3 top-1/2 -translate-y-1/2 text-[#9A8F7E]" />
-      <input className="input ps-8" placeholder={tr('ابحث بالاسم أو الجوال')} value={text} disabled={disabled}
+      <input className="input ps-8" placeholder={tr('ابحث بالاسم أو الجوال أو رقم العميل')} value={text} disabled={disabled}
         onFocus={() => setOpen(true)} onChange={e => { setText(e.target.value); setOpen(true); }} />
       {open && (
         <div className="absolute z-40 mt-1 inset-x-0 bg-white rounded-xl shadow-xl border border-[#E8E0D2] max-h-64 overflow-y-auto">
@@ -258,7 +263,7 @@ function CustomerPicker({ value, onChange, disabled }: { value: PartnerSearchIte
           {q.data?.map(c => (
             <button key={c.id} type="button" className="w-full text-start px-3 py-1.5 text-sm hover:bg-[#FBEBE2]"
               onClick={() => { onChange(c); setOpen(false); setText(''); }}>
-              <span className="block truncate">{c.name}</span>
+              <span className="block truncate">{numPrefix(c.number)}{c.name}</span>
               {c.hint && <bdi dir="ltr" className="block text-[11px] text-[#9A8F7E]">{c.hint}</bdi>}
             </button>
           ))}

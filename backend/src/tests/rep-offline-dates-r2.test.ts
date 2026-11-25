@@ -394,7 +394,8 @@ test('R6 حارس ثابت: التأريخ بـofflineInvoiceDate بالتروي
   const put = src.slice(src.indexOf('async function createMissingOnPut('), src.indexOf("router.put('/:id',"));
   for (const [name, h] of [['POST', post], ['PUT', put]] as const) {
     const at = h.indexOf('const addedAt = await replayCustomerCreatedAt(req, tid, clientCreatedAt);');
-    assert.ok(at > 0 && at < h.indexOf('prisma.customer.create('), `${name}: التأريخ قبل الإنشاء`);
+    // «رقم العميل» (٢٣ نوفمبر ٢٠٢٦): الإنشاء عبر مساعد الترقيم داخل معاملة
+    assert.ok(at > 0 && at < h.indexOf('createNumberedCustomer(tx, tid, {'), `${name}: التأريخ قبل الإنشاء`);
     assert.ok(h.includes('...(addedAt && { createdAt: addedAt }),'), `${name}: createdAt المحصور`);
   }
 });

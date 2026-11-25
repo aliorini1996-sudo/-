@@ -18,6 +18,7 @@ import { startCardPayScheduler } from './services/cardPayment';
 import { startZatcaSweep } from './services/zatcaSubmit';
 import { startAttendanceAlerts } from './services/attendanceAlerts';
 import { startPresenceChecks } from './services/presenceChecks';
+import { startCustomerNumberSweep } from './services/customerNumber';
 import { startIdlePunchOut } from './services/idlePunchOut';
 import { startLedgerSyncScheduler, trackLedgerRequestLoad } from './services/gl/sync/scheduler';
 import { startAffiliateSettlementScheduler } from './services/affiliate/settlement';
@@ -67,6 +68,7 @@ import aiAccountantRouter from './routes/aiAccountant';
 import { publicScanHealth } from './ai-rep/publicMaps';
 import workNumbersRouter, { telephonyWebhookRouter } from './routes/workNumbers';
 import publicCatalogRouter from './routes/publicCatalog';
+import catalogOrdersRouter from './routes/catalogOrders';
 import publicEinvoiceRouter from './routes/publicEinvoice';
 import leadsRouter from './routes/leads';
 import leadsCronRouter from './routes/leadsCron';
@@ -276,6 +278,8 @@ app.use('/api/ai-rep', aiRepRouter); // المندوب الذكي AI — خام�
 app.use('/api/ai-accountant', aiAccountantRouter); // «المحاسب الذكي AI» — لمدير الشركة غير المقيَّد؛ خامل حتى يفعّله المالك لكل شركة
 app.use('/api/work-numbers', workNumbersRouter);
 app.use('/api/public', publicCatalogRouter); // منيو المنتجات العام — بلا مصادقة، خلف محدد المعدل العام
+// «طلب من المنيو» — طلبات عملاء المنيو كما يراها المندوب صاحب الرابط (authenticate وSALES_REP داخل الموجّه، routes/catalogOrders.ts)
+app.use('/api/catalog-orders', catalogOrdersRouter);
 // ZATCA المرحلة الثانية (Z5.7) — رابط المشتري: `/api/public/einvoice/:token` بلا مصادقة، الرمز وحده هو الإذن
 app.use('/api/public', publicEinvoiceRouter);
 app.use('/api/leads', leadsRouter);
@@ -437,6 +441,7 @@ server.listen(PORT, async () => {
   startZatcaSweep(); // ZATCA_SWEEP_ENABLED=false للإطفاء — خامل بلا مستندات مرحلة ثانية
   startAttendanceAlerts(); // تنبيهات الحضور على جوال المندوب — ATTENDANCE_ALERTS_ENABLED=false للإطفاء
   startPresenceChecks(); // التحقق العشوائي من التواجد — PRESENCE_CHECKS_ENABLED=false للإطفاء
+  startCustomerNumberSweep(); // ترقيم العملاء القدامى بلا «رقم العميل» (ترحيل النشر ثم شبكة أمان) — CUSTOMER_NUMBER_SWEEP_ENABLED=false للإطفاء
   startIdlePunchOut(); // تذكير بالانصراف عند الخمول ثم انصراف تلقائي — IDLE_PUNCH_OUT_ENABLED=false للإطفاء
   // سفير فيلد سيلز v2: ترقية طلبات الانضمام القديمة (pending_*) إلى «مقبول» مرّةً بعلامة OpsMarker —
   // (الدالّة لا ترمي أبداً — تُعيد العدد أو null؛ الـcatch احتياطٌ إضافي)

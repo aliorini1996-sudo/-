@@ -4,6 +4,7 @@ import repApi from './repApi';
 import { useTr } from '../i18n/strings';
 import { formatCurrency, gregorianLocale } from '../utils/format';
 import { cacheGet } from './offlineDb';
+import { formatCustomerNumber } from '../lib/customerNumber';
 
 /**
  * خط سير اليوم في تطبيق المندوب — العملاء بالترتيب، وعلامةٌ خضراء لمن زاره.
@@ -19,6 +20,8 @@ import { cacheGet } from './offlineDb';
 export interface RouteStop {
   id: string; seq: number; note: string | null;
   customerId: string; customerName: string;
+  // «رقم العميل» من الخادم (GET /rep-routes/mine) — غائبٌ في ردٍّ أقدم فيُؤخذ من قائمة العملاء المخزّنة
+  customerNumber?: number | null;
   phone: string | null; address: string | null;
   lat: number | null; lng: number | null;
   done: boolean; doneAt: string | null;
@@ -69,13 +72,21 @@ export default function RepRouteScreen({ onBack, onOpenCustomer, accountingOn = 
   }, []);
   useEffect(() => { load(); }, [load]);
   const [finance, setFinance] = useState<Record<string, StopFinance>>({});
+  // «رقم العميل» من القائمة المخزّنة نفسها — احتياطٌ لردّ خطٍّ بلا customerNumber
+  const [cachedNums, setCachedNums] = useState<Record<string, number>>({});
   useEffect(() => {
     let alive = true;
     cacheGet<any[]>('customers').then((hit) => {
       if (!alive) return;
       const m: Record<string, StopFinance> = {};
-      for (const c of Array.isArray(hit?.data) ? hit!.data : []) if (c?.id) m[c.id] = { balance: c.balance, creditLimit: c.creditLimit, paymentDays: c.paymentDays };
+      const nums: Record<string, number> = {};
+      for (const c of Array.isArray(hit?.data) ? hit!.data : []) {
+        if (!c?.id) continue;
+        m[c.id] = { balance: c.balance, creditLimit: c.creditLimit, paymentDays: c.paymentDays };
+        if (typeof c.number === 'number') nums[c.id] = c.number;
+      }
       setFinance(m);
+      setCachedNums(nums);
     }).catch(() => { /* بلا كاش: تُعرض المحطات بلا أرقام */ });
     return () => { alive = false; };
   }, [route]);
@@ -152,7 +163,8 @@ export default function RepRouteScreen({ onBack, onOpenCustomer, accountingOn = 
                       ${s.done ? 'bg-green-100/70 border-green-200 text-green-800' : 'bg-[#FFF1EA] border-[#F6D5C6] text-[#1F1A13]'}`}
                   >
                     <UserRound size={15} className={`shrink-0 ${s.done ? 'text-green-700' : 'text-[#E15A30]'}`} />
-                    <span className="truncate">{s.customerName}</span>
+                    {/* «#12 · الاسم»: رقم العميل الذي يُبحث به — ولا بادئة لعميلٍ لم يُرقَّم بعد */}
+                    <span className="truncate">{stopNumberPrefix(s.customerNumber ?? cachedNums[s.customerId])}{s.customerName}</span>
                     <ChevronRight size={14} className="shrink-0 rotate-180 text-gray-400" />
                   </button>
                   {accountingOn && finance[s.customerId] && (() => {
@@ -225,6 +237,13 @@ export default function RepRouteScreen({ onBack, onOpenCustomer, accountingOn = 
       )}
     </div>
   );
+}
+
+/** بادئة «#12 · » قبل اسم العميل: الرقم وحده في عنصرٍ ltr بأرقامٍ جدولية والفاصل خارجه (كمنتقي العملاء) — ولا شيء بلا رقم */
+function stopNumberPrefix(n: number | null | undefined) {
+  const s = formatCustomerNumber(n);
+  if (!s) return null;
+  return <><span dir="ltr" className="tabular-nums font-normal text-gray-500">{s}</span><span className="font-normal text-gray-500">{' · '}</span></>;
 }
 
 /** أيقونة الشاشة — مستقلّة كي لا يُستورد الملفّ كلّه لأجلها */
