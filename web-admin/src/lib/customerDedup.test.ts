@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  CUSTOMER_DUPLICATE, DEDUP_FIELDS, DEDUP_KEYS, DEDUP_LABELS, LOCATION_DUP_RADIUS_M, customerDupFormKey, customerDupOf, customerDupText, dedupAnyOn,
-  dedupChecksOf, dedupColumns, dedupToggleMaster,
+  CUSTOMER_DUPLICATE, DEDUP_FIELDS, DEDUP_KEYS, DEDUP_LABELS, LOCATION_DUP_MAX_M, LOCATION_DUP_MIN_M, LOCATION_DUP_RADIUS_M, customerDupFormKey,
+  customerDupOf, customerDupText, dedupAnyOn, dedupChecksOf, dedupColumns, dedupToggleMaster, locationRadiusOf, locationRadiusOk,
+  locationRadiusSaveFields,
 } from './customerDedup';
 import { API_DOC_GROUPS } from './apiDocsCatalog';
 import { API_SYNC_RESOURCES } from './apiDocsData';
@@ -30,9 +31,29 @@ test('الخانات من صفّ المندوب: الغائب والقيمة غ�
   // الأعمدة والعناوين بالترتيب المعروض
   assert.deepEqual([...DEDUP_FIELDS], ['phone', 'name', 'address', 'location']);
   assert.deepEqual(DEDUP_KEYS, { phone: 'dedupCustomerPhone', name: 'dedupCustomerName', address: 'dedupCustomerAddress', location: 'dedupCustomerLocation' });
-  assert.deepEqual(DEDUP_LABELS, { phone: 'رقم الجوال', name: 'الاسم', address: 'العنوان', location: 'الموقع (ضمن 30 متراً)' });
+  assert.deepEqual(DEDUP_LABELS, { phone: 'رقم الجوال', name: 'الاسم', address: 'العنوان', location: 'الموقع' });
   assert.equal(CUSTOMER_DUPLICATE, 'CUSTOMER_DUPLICATE');
   assert.equal(LOCATION_DUP_RADIUS_M, 30);
+});
+
+test('مدى «الموقع» (طلب المالك ٢٥ نوفمبر ٢٠٢٦): عددٌ صحيح من ٥ إلى ١٠٠٠، والغائب أو غير الصالح ٣٠، ويُرسل مع خانة الموقع وحدها', () => {
+  assert.deepEqual([LOCATION_DUP_MIN_M, LOCATION_DUP_MAX_M], [5, 1000]);
+  for (const v of [5, 30, 250, 1000]) assert.equal(locationRadiusOk(v), true, String(v));
+  for (const v of [4, 1001, 12.5, 0, -30, Number.NaN, '50', null, undefined]) assert.equal(locationRadiusOk(v), false, String(v));
+  assert.equal(locationRadiusOf({ dedupCustomerLocationM: 120 }), 120);
+  for (const r of [undefined, null, {}, { dedupCustomerLocationM: null }, { dedupCustomerLocationM: 4000 }]) assert.equal(locationRadiusOf(r), 30, JSON.stringify(r));
+  assert.deepEqual(locationRadiusSaveFields({ dedupCustomerLocation: true, dedupCustomerLocationM: 80, name: 'خالد' }), { dedupCustomerLocation: true, dedupCustomerLocationM: 80, name: 'خالد' });
+  assert.deepEqual(locationRadiusSaveFields({ dedupCustomerLocation: false, dedupCustomerLocationM: Number.NaN, name: 'خالد' }), { dedupCustomerLocation: false, name: 'خالد' }, 'المطفأة لا ترسل مداها');
+  // الحدود نفسها في الخادم متى وُجد في الشجرة
+  const svc = path.resolve(process.cwd(), '..', 'backend', 'src', 'services', 'customerLocationDup.ts');
+  if (fs.existsSync(svc)) {
+    const s = fs.readFileSync(svc, 'utf8');
+    assert.ok(s.includes(`export const LOCATION_DUP_MIN_M = ${LOCATION_DUP_MIN_M};`) && s.includes(`export const LOCATION_DUP_MAX_M = ${LOCATION_DUP_MAX_M};`));
+    assert.ok(s.includes(`export const LOCATION_DUP_RADIUS_M = ${LOCATION_DUP_RADIUS_M};`));
+  }
+  for (const k of ['مدى الموقع بالمتر', 'مدى الموقع بين 5 و1000 متر', 'لا يفتح المندوب عميلا ضمن هذا المدى من موقع عميل آخر في الشركة، والافتراضي 30 مترا']) {
+    assert.ok(PHRASES[k], `ترجمة: ${k}`);
+  }
 });
 
 test('المفتاح الرئيس: تشغيله بلا خانة يختار «رقم الجوال» ومعها يُبقيها، وإطفاؤه يُفرغ الثلاث — والأعمدة صريحةً دائماً', () => {
@@ -121,7 +142,12 @@ test('حارس الإعداد في اللوحة: المفتاح الرئيس ف�
   assert.match(modal, /const next = dedupToggleMaster\(dedupChecks, on\);\s*DEDUP_FIELDS\.forEach\(f => setValue\(DEDUP_KEYS\[f\], next\[f\], \{ shouldDirty: true \}\)\);/);
   // الخانة الرابعة مراقَبة كالثلاث (watch) فيقرأ المفتاح الرئيس حالها
   assert.match(modal, /watch\(\['dedupCustomerPhone', 'dedupCustomerName', 'dedupCustomerAddress', 'dedupCustomerLocation'\]\)/);
-  assert.doesNotMatch(modal, /register\('dedupCustomer/);
+  assert.doesNotMatch(modal, /register\('dedupCustomer(Phone|Name|Address|Location)'/);
+  // مدى «الموقع» (٢٥ نوفمبر ٢٠٢٦): حقلٌ تحت الخانات حين يُختار الموقع، بقيمةٍ افتراضية من صفّ المندوب، ولا يُرسل والخانة مطفأة
+  assert.match(block, /\{dedupOn && dedupChecks\.location && \([\s\S]{0,200}<RadiusInput label=\{tr\('مدى الموقع بالمتر'\)\} min=\{LOCATION_DUP_MIN_M\} max=\{LOCATION_DUP_MAX_M\}\s*error=\{errors\.dedupCustomerLocationM\?\.message\} \{\.\.\.register\('dedupCustomerLocationM', locationRadiusRules\)\} \/>/);
+  assert.match(modal, /dedupCustomerLocationM: locationRadiusOf\(defaults\),/);
+  assert.match(modal, /validate: \(v: unknown\) => locationRadiusOk\(v\) \|\| tr\('مدى الموقع بين 5 و1000 متر'\)/);
+  assert.ok(modal.includes('onSubmit={handleSubmit((d) => onSave(locationRadiusSaveFields(idleSaveFields(d))))}'));
 });
 
 test('حارس الإعداد في الجوال: مجموعةٌ بمفتاحٍ رئيس وخاناتٍ ثلاث خارج PermKey («تحديد الكل» لا يمسّها)، والحفظ يرسل الأعمدة صريحةً', () => {
@@ -133,6 +159,12 @@ test('حارس الإعداد في الجوال: مجموعةٌ بمفتاحٍ �
   assert.ok(m.includes("{dedupOn && !dedupAnyOn(dedupChecks) && <Hint text={tr('لم تختر حقلا فلا يمنع أي تكرار')} bad />}"));
   const save = m.slice(m.indexOf('const save = useMutation({', m.indexOf('function RepPerms(')), m.indexOf('onSuccess:', m.indexOf('const save = useMutation({', m.indexOf('function RepPerms('))));
   assert.match(save, /\.\.\.dedupColumns\(dedupChecks\),/);
+  // مدى «الموقع» (٢٥ نوفمبر ٢٠٢٦): يُرسل مع خانته وحدها، ويعطّل الحفظ غير صالحٍ وهي مختارة
+  assert.match(save, /\.\.\.\(dedupChecks\.location \? \{ dedupCustomerLocationM: locNum \} : \{\}\),/);
+  assert.ok(m.includes('const [locRadius, setLocRadius] = useState(() => String(locationRadiusOf(rep)));'));
+  assert.ok(m.includes('const locOk = !dedupChecks.location || locationRadiusOk(locNum);'));
+  assert.match(m, /disabled=\{[^}]*!locOk[^}]*\}/);
+  assert.match(m, /\{dedupOn && dedupChecks\.location && \([\s\S]{0,120}<RadiusField label=\{tr\('مدى الموقع بالمتر'\)\} value=\{locRadius\} onChange=\{setLocRadius\} ok=\{locOk\}/);
   for (const [name, at] of [['PermKey', 'type PermKey'], ['GRANTS', 'const GRANTS = [']] as const) {
     const s = m.slice(m.indexOf(at), m.indexOf(';', m.indexOf(at)));
     assert.doesNotMatch(s, /dedup/i, `${name}: قيدٌ يسلب لا يُقلب مع «تحديد الكل»`);
@@ -194,6 +226,13 @@ test('النوع والمستند: الأعمدة الثلاثة في SalesRep �
     assert.ok(r && /المفتاح لا يُفحص/.test(r), `${m} ${p}: الرمز للمندوب وحده`);
   }
   assert.match(ep('POST', '/customers').rules.find((x) => x.includes('CUSTOMER_DUPLICATE'))!, /field:'phone'\|'name'\|'address', message, existingId\?, existingName\?/);
+  // مدى «الموقع» (٢٥ نوفمبر ٢٠٢٦): في النوع والجسم والقائمة والتعديل والمزامنة
+  assert.match(rep, /\bdedupCustomerLocationM\?: number;/);
+  const m = ep('POST', '/sales-reps').body.find((b) => b.name === 'dedupCustomerLocationM');
+  assert.ok(m && m.type === 'integer' && m.required === false && /من 5 إلى 1000/.test(m.desc) && /30 افتراضاً/.test(m.desc));
+  assert.ok(ep('PUT', '/sales-reps/:id').body.some((b) => b.desc.includes('dedupCustomerLocationM')));
+  assert.match(ep('GET', '/sales-reps').response, /\bdedupCustomerLocationM\b/);
+  assert.match(API_SYNC_RESOURCES.find((r) => r.name === 'sales-reps')!.what, /dedupCustomerLocationM/);
 });
 
 test('عقد الخادم (متى وُجد في الشجرة): الرمز وقوالب الرسائل كما يقرؤها التطبيق، والأعمدة في مخطّط المندوب واختياره و/auth/me والمزامنة', (t) => {

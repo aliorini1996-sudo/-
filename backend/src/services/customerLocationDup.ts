@@ -8,6 +8,12 @@ import prisma from '../config/database';
  */
 export const CUSTOMER_LOCATION_EXISTS = 'CUSTOMER_LOCATION_EXISTS';
 export const LOCATION_DUP_RADIUS_M = 30;
+/** حدّا المدى الذي تضبطه الإدارة لكل مندوب (SalesRep.dedupCustomerLocationM — طلب المالك ٢٥ نوفمبر ٢٠٢٦) */
+export const LOCATION_DUP_MIN_M = 5;
+export const LOCATION_DUP_MAX_M = 1000;
+/** مدى المندوب المحفوظ، والغائب أو الخارج عن الحدّين ٣٠ (القيمة قبل الضبط) */
+export const locationDupRadius = (m: unknown): number =>
+  typeof m === 'number' && Number.isInteger(m) && m >= LOCATION_DUP_MIN_M && m <= LOCATION_DUP_MAX_M ? m : LOCATION_DUP_RADIUS_M;
 
 const EARTH_M = 6371000;
 const rad = (d: number) => (d * Math.PI) / 180;
@@ -42,7 +48,8 @@ export async function findLocationDuplicate(tid: string, lat: unknown, lng: unkn
       lat: { gte: p.lat - dLat, lte: p.lat + dLat }, lng: { gte: p.lng - dLng, lte: p.lng + dLng },
     },
     select: { id: true, name: true, lat: true, lng: true },
-    take: 200,
+    // المدى يبلغ ١٠٠٠ متر فيتّسع المربّع — سقفٌ أوسع كي لا تُقصى الأقرب في حيٍّ مزدحم
+    take: 2000,
   });
   const self = exceptId ? (rows ?? []).find((r) => r.id === exceptId) : undefined;
   if (self && validPoint(self.lat, self.lng) && distanceM(p, { lat: self.lat as number, lng: self.lng as number }) <= 1) return null;
@@ -56,13 +63,13 @@ export async function findLocationDuplicate(tid: string, lat: unknown, lng: unkn
 }
 
 /** جسم ردّ 409 — اسم العميل الآخر لمن يراه وحده (عزل عملاء المناديب لا يُكشف به عميلٌ غير مُسنَد) */
-export function locationDupBody(dup: { id: string; name: string; distanceM: number }, canSee: boolean) {
+export function locationDupBody(dup: { id: string; name: string; distanceM: number }, canSee: boolean, radiusM: number = LOCATION_DUP_RADIUS_M) {
   return {
     success: false as const,
     code: CUSTOMER_LOCATION_EXISTS,
     message: canSee
       ? `يوجد عميل مسجل في نفس الموقع (على بعد ${dup.distanceM} متر): «${dup.name}»`
-      : `يوجد عميل آخر مسجل في نفس الموقع (ضمن ${LOCATION_DUP_RADIUS_M} متر)`,
+      : `يوجد عميل آخر مسجل في نفس الموقع (ضمن ${radiusM} متر)`,
     ...(canSee && { existingId: dup.id, existingName: dup.name, distanceM: dup.distanceM }),
   };
 }

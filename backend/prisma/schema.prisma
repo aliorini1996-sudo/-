@@ -550,6 +550,8 @@ model SalesRep {
   dedupCustomerName        Boolean @default(false)
   dedupCustomerAddress     Boolean @default(false)
   dedupCustomerLocation    Boolean @default(false)
+  // مدى «الموقع» بالمتر (طلب المالك ٢٥ نوفمبر ٢٠٢٦: «٣٠ متراً أو أقل أو أكثر») — ٣٠ افتراضاً = السلوك قبله حرفياً
+  dedupCustomerLocationM   Int     @default(30)
   /// «البيع داخل نطاق العميل»: عَلَمٌ تقييديّ لا مانح — تفعيله يسلب لا يمنح.
   /// حين يكون true لا يفتح المندوب ملفّ العميل إلا وهو داخل ٥٠ متراً من موقعه
   /// المسجَّل، والعميل بلا إحداثيات يُمنع منعاً باتّاً. وحين يكون false يفتح

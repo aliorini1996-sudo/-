@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { normImportPhone } from './importMatch';
 import { phoneDupExempt } from './customerPhoneDup';
+import { locationDupRadius } from './customerLocationDup';
 
 /**
  * «منع تكرار العملاء عند فتح عميل جديد» — قيدٌ في إعدادات المندوب (طلب المالك ٢٣ نوفمبر ٢٠٢٦): الشركة تختار لكل مندوب
@@ -25,14 +26,15 @@ export const CUSTOMER_DUPLICATE = 'CUSTOMER_DUPLICATE';
 
 export type DedupField = 'phone' | 'name' | 'address';
 /** location: «الموقع ضمن ٣٠ متراً» — يفحصه مسار العملاء بـfindLocationDuplicate لا findCustomerDuplicate */
-export interface DedupChecks { phone: boolean; name: boolean; address: boolean; location: boolean }
+export interface DedupChecks { phone: boolean; name: boolean; address: boolean; location: boolean; /** مدى «الموقع» بالمتر (dedupCustomerLocationM) */ locationM?: number }
 export interface DedupValues { phone?: string | null; name?: string | null; address?: string | null }
 export interface CustomerDuplicate { field: DedupField; id: string; name: string }
 
 /** أعمدة القيد في صفّ المندوب — select موحَّد لمسارات العملاء */
-export const DEDUP_REP_SELECT = { dedupCustomerPhone: true, dedupCustomerName: true, dedupCustomerAddress: true, dedupCustomerLocation: true } as const;
+export const DEDUP_REP_SELECT = { dedupCustomerPhone: true, dedupCustomerName: true, dedupCustomerAddress: true, dedupCustomerLocation: true, dedupCustomerLocationM: true } as const;
 export interface DedupRepFlags {
   dedupCustomerPhone?: boolean | null; dedupCustomerName?: boolean | null; dedupCustomerAddress?: boolean | null; dedupCustomerLocation?: boolean | null;
+  dedupCustomerLocationM?: number | null;
 }
 
 // ═══ التطبيع ═══
@@ -111,7 +113,7 @@ export function repDedupChecks(
   if (req.user?.role !== 'SALES_REP' || phoneDupExempt(req)) return null;
   const checks: DedupChecks = {
     phone: rep?.dedupCustomerPhone === true, name: rep?.dedupCustomerName === true, address: rep?.dedupCustomerAddress === true,
-    location: rep?.dedupCustomerLocation === true,
+    location: rep?.dedupCustomerLocation === true, locationM: locationDupRadius(rep?.dedupCustomerLocationM),
   };
   return checks.phone || checks.name || checks.address || checks.location ? checks : null;
 }

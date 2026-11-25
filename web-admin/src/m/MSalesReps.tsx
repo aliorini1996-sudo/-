@@ -23,7 +23,10 @@ import { can } from './perms';
 import { expectArray, expectObject } from './shape';
 import { baseLabelOf, priceListsOf } from '../lib/priceLists';
 import { IDLE_GRACE_MAX, IDLE_GRACE_MIN, IDLE_MINUTES_MAX, IDLE_MINUTES_MIN, idleFieldNum, idleGraceOk, idleMinutesOk, idleSaveFields, idleSettingsOf } from '../lib/idlePunchOut';
-import { DEDUP_FIELDS, DEDUP_LABELS, dedupAnyOn, dedupChecksOf, dedupColumns, dedupToggleMaster, type DedupChecks } from '../lib/customerDedup';
+import {
+  DEDUP_FIELDS, DEDUP_LABELS, LOCATION_DUP_MAX_M, LOCATION_DUP_MIN_M, dedupAnyOn, dedupChecksOf, dedupColumns, dedupToggleMaster, locationRadiusOf,
+  locationRadiusOk, type DedupChecks,
+} from '../lib/customerDedup';
 import {
   repPriceTypesOf, priceTypesWithin, togglePriceType, setDefaultPriceType, defaultOptionsOf, repPriceTypesBody, repPriceTypesDirty,
   type RepPriceTypesState,
@@ -802,6 +805,8 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
   const [dedupChecks, setDedupChecks] = useState<DedupChecks>(() => dedupChecksOf(rep));
   const [dedupOn, setDedupOn] = useState(() => dedupAnyOn(dedupChecksOf(rep)));
   const toggleDedup = (on: boolean) => { setDedupOn(on); setDedupChecks(c => dedupToggleMaster(c, on)); };
+  // ومدى «الموقع» بالمتر نصّاً كالمسافة (طلب المالك ٢٥ نوفمبر ٢٠٢٦) — ٣٠ افتراضاً ولصفّ خادمٍ أقدم بلاه
+  const [locRadius, setLocRadius] = useState(() => String(locationRadiusOf(rep)));
 
   /* «أنواع الأسعار على مستوى المندوب» (طلب المالك ٢ نوفمبر ٢٠٢٦): الأنواع التي يبدّل بينها (بصلاحية «تبديل نوع السعر») ونوعه
    * الافتراضي لعميلٍ بلا نوع — كنسخة اللوحة (SalesRepModal). القسم يظهر والشركة لها أنواع والمحاسبة مفعّلة (صلاحيات التسعير
@@ -865,6 +870,9 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
   const idleMinNum = idleFieldNum(idleMin);
   const idleGraceNum = idleFieldNum(idleGrace);
   const idleOk = !idleOn || (idleMinutesOk(idleMinNum) && idleGraceOk(idleGraceNum));
+  // مدى «الموقع» يُشترط صحيحاً وخانته مختارة وحدها — والمطفأة لا ترسله فيبقى المحفوظ
+  const locNum = Number(locRadius);
+  const locOk = !dedupChecks.location || locationRadiusOk(locNum);
 
   const save = useMutation({
     mutationFn: () => salesRepApi.update(rep.id, {
@@ -875,6 +883,7 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
       shiftStart: shiftStart || null, shiftEnd: shiftEnd || null, shiftDays,
       ...idleSaveFields({ idlePunchOutEnabled: idleOn, idlePunchOutMinutes: idleMinNum, idlePunchOutGraceMinutes: idleGraceNum }),
       ...dedupColumns(dedupChecks),
+      ...(dedupChecks.location ? { dedupCustomerLocationM: locNum } : {}),
       ...(typesBody ?? {}),
       email: rep.email ?? '', // وإلا مسحه الخادم (انظر تعليق نموذج البيانات)
     }),
@@ -939,6 +948,14 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
                   </button>
                 );
               })}
+            </div>
+          )}
+          {/* مدى «الموقع» بالمتر — تحت الخانات حين تُختار (طلب المالك ٢٥ نوفمبر ٢٠٢٦: «٣٠ متراً أو أقل أو أكثر») */}
+          {dedupOn && dedupChecks.location && (
+            <div data-m-rep-dedup-location-radius="">
+              <RadiusField label={tr('مدى الموقع بالمتر')} value={locRadius} onChange={setLocRadius} ok={locOk}
+                min={LOCATION_DUP_MIN_M} max={LOCATION_DUP_MAX_M} badText={tr('مدى الموقع بين 5 و1000 متر')} />
+              <div className="px-3.5"><Hint text={tr('لا يفتح المندوب عميلا ضمن هذا المدى من موقع عميل آخر في الشركة، والافتراضي 30 مترا')} /></div>
             </div>
           )}
           <div className="px-3.5 pt-1 pb-3">
@@ -1089,7 +1106,7 @@ function RepPerms({ rep, accountingOn, onClose, onSaved }: {
 
       <div className="flex-shrink-0 border-t border-[#E9E1D3] bg-white p-3"
         style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
-        <button onClick={() => save.mutate()} disabled={!discOk || !proxOk || !punchOk || !idleOk || save.isPending}
+        <button onClick={() => save.mutate()} disabled={!discOk || !proxOk || !punchOk || !idleOk || !locOk || save.isPending}
           className="w-full bg-[#E15A30] text-white font-bold py-3.5 rounded-xl min-h-[50px] flex items-center justify-center gap-2 disabled:bg-[#E89B7E]">
           {save.isPending && <Loader2 size={16} className="animate-spin" />}
           {tr('حفظ الصلاحيات')}

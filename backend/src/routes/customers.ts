@@ -397,9 +397,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // و«منع تكرار الموقع» (ضمن ٣٠ متراً ⇒ 409 CUSTOMER_LOCATION_EXISTS): كان للشركة كلها (١٣ نوفمبر ٢٠٢٦) فألغاه المالك وجعله قيداً
     // في إعدادات المندوب (٢٥ نوفمبر ٢٠٢٦، dedupCustomerLocation): المندوب المفعَّل له وحده — والإدارة ومفتاح API وإعادة رفع صندوق
     // المندوب لا يمسّها (repDedupChecks ⇒ null لهم)
+    // والمدى (٣٠ متراً افتراضاً) تضبطه الإدارة لكل مندوب (dedupCustomerLocationM — طلب المالك ٢٥ نوفمبر ٢٠٢٦)
     if (dedup?.location) {
-      const near = await findLocationDuplicate(tid, rest.lat, rest.lng);
-      if (near) { res.status(409).json(locationDupBody(near, await canAccessCustomer(req, tid, near.id))); return; }
+      const near = await findLocationDuplicate(tid, rest.lat, rest.lng, undefined, dedup.locationM);
+      if (near) { res.status(409).json(locationDupBody(near, await canAccessCustomer(req, tid, near.id), dedup.locationM)); return; }
     }
     // «منع تكرار العملاء» في إعدادات المندوب (طلب المالك ٢٣ نوفمبر ٢٠٢٦): جوالٌ أو اسمٌ (المكتوب أو اسم المنشأة — dedupName) أو
     // عنوانٌ مسجَّلٌ لعميلٍ آخر في الشركة كلها ⇒ 409 CUSTOMER_DUPLICATE — للحقول التي اختارتها الشركة وحدها، واسم الآخر لمن يراه وحده
@@ -639,11 +640,11 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       const geo = await resolveLocationUrl(locationUrl, { googleOnly: true });
       if (geo) { data.lat = geo.lat; data.lng = geo.lng; }
     }
-    // «منع تكرار الموقع» للمندوب المفعَّل له وحده (٢٥ نوفمبر ٢٠٢٦، dedupCustomerLocation): موقعٌ تحرّك إلى ٣٠ متراً من عميلٍ آخر ⇒ 409 —
+    // «منع تكرار الموقع» للمندوب المفعَّل له وحده (٢٥ نوفمبر ٢٠٢٦، dedupCustomerLocation): موقعٌ تحرّك إلى مداه (٣٠ متراً افتراضاً، dedupCustomerLocationM) من عميلٍ آخر ⇒ 409 —
     // والموقع نفسه بلا تغيير (صدى النموذج) لا يُمنع: findLocationDuplicate يقرأ صفّ العميل نفسه في الاستعلام ذاته فيعرف أنه لم يتحرّك
     if (validPoint(data.lat, data.lng) && dedup?.location) {
-      const near = await findLocationDuplicate(tid, data.lat, data.lng, req.params.id);
-      if (near) { res.status(409).json(locationDupBody(near, await canAccessCustomer(req, tid, near.id))); return; }
+      const near = await findLocationDuplicate(tid, data.lat, data.lng, req.params.id, dedup.locationM);
+      if (near) { res.status(409).json(locationDupBody(near, await canAccessCustomer(req, tid, near.id), dedup.locationM)); return; }
     }
     // «منع تكرار العملاء» للمندوب: الحقل المفعَّل حين تتغيّر قيمته المطبَّعة وحدها (changedDedupChecks) — القيمة نفسها لا تُفحص،
     // فتكرارٌ قديم لا يمنع تعديل غيره — والعميل نفسه مستثنى

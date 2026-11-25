@@ -5,7 +5,8 @@
 // والعنوان، أيّها أو بعضها أو كلها — تمنعه أن يفتح عميلاً جديداً (أو يعدّل عميلاً إلى قيمةٍ جديدة) مسجّلةً لعميلٍ آخر في الشركة كلها
 // (لا عملاؤه وحدهم، والمحذوف لا يُعدّ)، بعد توحيد الكتابة: المسافات والتشكيل والتطويل والهمزات (أ/إ/آ ⇒ ا) والتاء المربوطة والألف
 // المقصورة وحالة الحروف اللاتينية، والجوال بصيغه (+966 و00966 و05 والأرقام الهندية رقمٌ واحد). القيمة الفارغة لا تُطابَق.
-// والموقع (ضمن ٣٠ متراً) كان قاعدةً للشركة كلها، فألغاه المالك وجعله خياراً رابعاً هنا (٢٥ نوفمبر ٢٠٢٦، dedupCustomerLocation):
+// والموقع (ضمن ٣٠ متراً) كان قاعدةً للشركة كلها، فألغاه المالك وجعله خياراً رابعاً هنا (٢٥ نوفمبر ٢٠٢٦، dedupCustomerLocation)
+// بمدى تضبطه الإدارة لكل مندوب (dedupCustomerLocationM، ٣٠ افتراضاً):
 // يرفضه الخادم برمزه CUSTOMER_LOCATION_EXISTS لا CUSTOMER_DUPLICATE، وتطبيق المندوب يعرض رسالته كما كان.
 // معفيّان كمنع الموقع: طلب مفتاح API وإعادة رفع صندوق المندوب دون اتصال (عميلٌ سُجّل دون اتصال قد يحمل فواتيره) — فلا يُفحصان.
 // والإدارة لا يمسّها القيد. والافتراض مطفأ: مندوبٌ بلا المفاتيح (أو صفّ خادمٍ أقدم بلاها) يعمل كما اليوم.
@@ -31,10 +32,33 @@ export const DEDUP_KEYS: Readonly<Record<DedupField, keyof CustomerDedupFields>>
 };
 
 /** عنوان خانة كل حقلٍ في الإعداد (يُمرَّر بـtr) */
-export const DEDUP_LABELS: Readonly<Record<DedupField, string>> = { phone: 'رقم الجوال', name: 'الاسم', address: 'العنوان', location: 'الموقع (ضمن 30 متراً)' };
+export const DEDUP_LABELS: Readonly<Record<DedupField, string>> = { phone: 'رقم الجوال', name: 'الاسم', address: 'العنوان', location: 'الموقع' };
 
-/** مسافة قيد الموقع بالأمتار (services/customerLocationDup.ts LOCATION_DUP_RADIUS_M) */
+/**
+ * مدى قيد الموقع بالأمتار: ٣٠ افتراضاً، وتضبطه الإدارة لكل مندوب من ٥ إلى ١٠٠٠ (طلب المالك ٢٥ نوفمبر ٢٠٢٦: «٣٠ متراً أو أقل أو
+ * أكثر» — SalesRep.dedupCustomerLocationM). الحدود نفسها في الخادم (services/customerLocationDup.ts)
+ */
 export const LOCATION_DUP_RADIUS_M = 30;
+export const LOCATION_DUP_MIN_M = 5;
+export const LOCATION_DUP_MAX_M = 1000;
+
+/** مدى صالح: عددٌ صحيح بين الحدّين */
+export const locationRadiusOk = (m: unknown): m is number =>
+  typeof m === 'number' && Number.isInteger(m) && m >= LOCATION_DUP_MIN_M && m <= LOCATION_DUP_MAX_M;
+
+/** مدى المندوب المحفوظ، والغائب (صفّ خادمٍ أقدم) أو غير الصالح ٣٠ */
+export const locationRadiusOf = (rep: { dedupCustomerLocationM?: number | null } | null | undefined): number =>
+  locationRadiusOk(rep?.dedupCustomerLocationM) ? rep!.dedupCustomerLocationM as number : LOCATION_DUP_RADIUS_M;
+
+/**
+ * المدى يُرسل مع خانة الموقع المختارة وحدها — والمطفأة لا ترسله فقيمةٌ ناقصة في حقلٍ مخفيّ لا تعطّل الحفظ (كـidleSaveFields)،
+ * ويبقى المحفوظ في الخادم كما هو
+ */
+export function locationRadiusSaveFields<T extends { dedupCustomerLocation?: boolean; dedupCustomerLocationM?: number | null }>(data: T): T {
+  if (data.dedupCustomerLocation === true) return data;
+  const { dedupCustomerLocationM: _m, ...rest } = data;
+  return rest as T;
+}
 
 export type DedupChecks = Record<DedupField, boolean>;
 
