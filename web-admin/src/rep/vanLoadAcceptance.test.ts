@@ -247,7 +247,7 @@ test('«مخزون سيارتي»: طلبٌ «حُمِّل» بتحميلٍ أُ
 
 test('حارس ثابت: RepApp — الشركة المطفأة كما كانت حرفاً، والبطاقة والشريط خلف العلم، والإشعار يفتح الشاشة', () => {
   const app = read('src', 'rep', 'RepApp.tsx');
-  assert.match(app, /type Screen = [^;]*\| 'vanloads';/);
+  assert.match(app, /type Screen = [^;]*\| 'vanloads'[\s|;]/); // عضوٌ في الاتحاد أينما كان (لا آخره بالضرورة: «طلبات المنيو» بعده)
   assert.ok(app.includes("const vanLoadsOn = accountingOn && (company as { vanLoadAcceptance?: boolean } | null)?.vanLoadAcceptance === true;"),
     'مطفأ افتراضياً (=== true) وخلف المحاسبة');
   const home = app.slice(app.indexOf('function RepHome('), app.indexOf('function RepCustomers('));
