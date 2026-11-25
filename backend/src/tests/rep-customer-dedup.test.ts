@@ -235,7 +235,7 @@ function emulateDedupSql(rows: Row[], r: Raw): unknown {
   return list.slice(0, Number(limit)).map(x => ({ id: x.id, name: x.name, phone: x.phone, address: x.address ?? null }));
 }
 
-type Flags = { dedupCustomerPhone?: boolean; dedupCustomerName?: boolean; dedupCustomerAddress?: boolean; dedupCustomerLocation?: boolean };
+type Flags = { dedupCustomerPhone?: boolean; dedupCustomerName?: boolean; dedupCustomerAddress?: boolean; dedupCustomerLocation?: boolean; dedupCustomerLocationM?: number | null };
 
 /**
  * عالمٌ في الشركة T1: c1 عميل المندوب (مُسنَد له)، وc2 عميل مندوبٍ آخر (غير مُسنَد)، وc-del محذوف، وc-t2 في شركة أخرى.
@@ -348,10 +348,14 @@ test('جدول الطيّ في SQL يطابق foldText حرفياً: translate �
 
 test('repDedupChecks: المندوب الحيّ بأعلامه وحده — الإدارة ومفتاح API وإعادة رفع الصندوق والمندوب بلا عَلَم ⇒ لا فحص', () => {
   const rep = { role: 'SALES_REP' };
-  assert.deepEqual(repDedupChecks({ headers: {}, user: rep }, { dedupCustomerName: true }), { phone: false, name: true, address: false, location: false });
-  assert.deepEqual(repDedupChecks({ headers: {}, user: rep }, ALL), { phone: true, name: true, address: true, location: false });
+  assert.deepEqual(repDedupChecks({ headers: {}, user: rep }, { dedupCustomerName: true }), { phone: false, name: true, address: false, location: false, locationM: 30 });
+  assert.deepEqual(repDedupChecks({ headers: {}, user: rep }, ALL), { phone: true, name: true, address: true, location: false, locationM: 30 });
   // «الموقع ضمن ٣٠ متراً» عَلَمٌ رابع (طلب المالك ٢٥ نوفمبر ٢٠٢٦): وحده يكفي ليُفحص
-  assert.deepEqual(repDedupChecks({ headers: {}, user: rep }, { dedupCustomerLocation: true }), { phone: false, name: false, address: false, location: true });
+  assert.deepEqual(repDedupChecks({ headers: {}, user: rep }, { dedupCustomerLocation: true }), { phone: false, name: false, address: false, location: true, locationM: 30 });
+  // ومداه تضبطه الإدارة (طلب المالك ٢٥ نوفمبر ٢٠٢٦)، والغائب أو الخارج عن ٥–١٠٠٠ أو الكسري ٣٠ كما كان
+  for (const [m, want] of [[120, 120], [5, 5], [1000, 1000], [null, 30], [undefined, 30], [4, 30], [1001, 30], [12.5, 30]] as const) {
+    assert.equal(repDedupChecks({ headers: {}, user: rep }, { dedupCustomerLocation: true, dedupCustomerLocationM: m })?.locationM, want, String(m));
+  }
   assert.equal(repDedupChecks({ headers: {}, user: { role: 'ADMIN' } }, { dedupCustomerLocation: true }), null, 'الإدارة لا يمسّها الموقع');
   assert.equal(repDedupChecks({ headers: {}, user: rep }, {}), null, 'بلا عَلَم');
   assert.equal(repDedupChecks({ headers: {}, user: rep }, null), null);
@@ -618,9 +622,36 @@ test('«الموقع ضمن ٣٠ متراً» عَلَمٌ للمندوب (طل�
     assert.equal(w.created.length, 1);
   }
   const s = read('routes', 'customers.ts');
-  const loc = s.indexOf('const near = await findLocationDuplicate(tid, rest.lat, rest.lng);');
+  const loc = s.indexOf('const near = await findLocationDuplicate(tid, rest.lat, rest.lng, undefined, dedup.locationM);');
   const dd = s.indexOf('const dup = await findCustomerDuplicate(tid, { phone: rest.phone, name: dedupName, address: rest.address }, { checks: dedup });');
   assert.ok(loc > 0 && dd > loc && dd < s.indexOf('const created = await createNumberedCustomer(tx, tid, {', dd), 'الموقع أوّلاً، ثم التكرار، ثم الإنشاء');
+});
+
+test('مدى «الموقع» تضبطه الإدارة لكل مندوب (طلب المالك ٢٥ نوفمبر ٢٠٢٦): أضيق من ٣٠ يقبل الجار القريب، وأوسع يمنع البعيد، والرسالة بمداه', async () => {
+  // c1 عند 24.70,46.70 — والنقطة الأولى على ~٧٫٥ متر منه، والثانية على ~١٠٠ متر
+  const NEAR = { lat: 24.70005, lng: 46.70005 };
+  const FAR = { lat: 24.7009, lng: 46.70 };
+  const cases: [number | null, { lat: number; lng: number }, number][] = [
+    [5, NEAR, 201], [null, NEAR, 409], [30, FAR, 201], [null, FAR, 201], [150, FAR, 409],
+  ];
+  for (const [m, pt, want] of cases) {
+    const w = world({ user: REP, flags: { dedupCustomerLocation: true, dedupCustomerLocationM: m } });
+    const r = await call('POST', '/api/customers', { name: 'محل جديد كلياً', ...pt });
+    assert.equal(r.status, want, `${m} ⇒ ${JSON.stringify(r.body)}`);
+    assert.equal(w.created.length, want === 201 ? 1 : 0);
+  }
+  // المندوب لا يرى c2 (غير مُسنَد مع العزل) فتذكر الرسالة المدى المضبوط لا ٣٠
+  const w = world({ user: REP, flags: { dedupCustomerLocation: true, dedupCustomerLocationM: 200 }, isolation: true });
+  const r = await call('POST', '/api/customers', { name: 'محل جديد كلياً', lat: 24.8009, lng: 46.80 });
+  assert.deepEqual([r.status, r.body.code], [409, 'CUSTOMER_LOCATION_EXISTS'], JSON.stringify(r.body));
+  assert.match(r.body.message, /ضمن 200 متر/);
+  assert.equal(r.body.existingId, undefined);
+  assert.equal(w.created.length, 0);
+  // والتعديل بالمدى نفسه
+  const e = world({ user: REP, flags: { dedupCustomerLocation: true, dedupCustomerLocationM: 150 } });
+  const u = await call('PUT', '/api/customers/c1', { lat: 24.8009, lng: 46.80 });
+  assert.equal(u.status, 409, JSON.stringify(u.body));
+  assert.equal(e.updated.length, 0);
 });
 
 // ═══ (٦) الإعدادات ═══
@@ -646,10 +677,19 @@ test('إعدادات المندوب: الحقول الثلاثة تُكتب إن
   assert.deepEqual([updates[0].data.dedupCustomerPhone, updates[0].data.dedupCustomerName, 'dedupCustomerAddress' in updates[0].data], [false, true, false]);
   const bad = await call('PUT', '/api/sales-reps/rep-1', { dedupCustomerName: 'yes' });
   assert.equal(bad.status, 400, 'قيمةٌ غير منطقية تُرفض');
+  // مدى «الموقع» (٢٥ نوفمبر ٢٠٢٦): عددٌ صحيح من ٥ إلى ١٠٠٠، وما عداه 400 لا يُكتب
+  const m = await call('PUT', '/api/sales-reps/rep-1', { dedupCustomerLocation: true, dedupCustomerLocationM: 120 });
+  assert.equal(m.status, 200, JSON.stringify(m.body));
+  assert.deepEqual([updates[1].data.dedupCustomerLocation, updates[1].data.dedupCustomerLocationM], [true, 120]);
+  for (const v of [4, 1001, 12.5, '50', -30]) {
+    const r = await call('PUT', '/api/sales-reps/rep-1', { dedupCustomerLocationM: v });
+    assert.equal(r.status, 400, `${v} يُرفض`);
+  }
+  assert.equal(updates.length, 2, 'المرفوض لا يُكتب');
   assert.equal((await call('GET', '/api/sales-reps')).status, 200);
   assert.equal((await call('GET', '/api/sales-reps/rep-1')).status, 200);
   assert.ok(selects.length >= 2);
-  for (const s of selects.slice(-2)) assert.deepEqual([s.dedupCustomerPhone, s.dedupCustomerName, s.dedupCustomerAddress], [true, true, true]);
+  for (const s of selects.slice(-2)) assert.deepEqual([s.dedupCustomerPhone, s.dedupCustomerName, s.dedupCustomerAddress, s.dedupCustomerLocationM], [true, true, true, true]);
 
   world({ user: REP });
   let meSelect: any = null;
@@ -659,7 +699,7 @@ test('إعدادات المندوب: الحقول الثلاثة تُكتب إن
   };
   const me = await call('GET', '/api/auth/me');
   assert.equal(me.status, 200, JSON.stringify(me.body));
-  assert.deepEqual([meSelect.dedupCustomerPhone, meSelect.dedupCustomerName, meSelect.dedupCustomerAddress], [true, true, true]);
+  assert.deepEqual([meSelect.dedupCustomerPhone, meSelect.dedupCustomerName, meSelect.dedupCustomerAddress, meSelect.dedupCustomerLocationM], [true, true, true, true]);
   assert.deepEqual([me.body.data.dedupCustomerPhone, me.body.data.dedupCustomerName, me.body.data.dedupCustomerAddress], [true, false, true]);
 });
 
@@ -675,7 +715,8 @@ test('المخطّط إضافيّ بـfalse بلا قيد فريد جديد، و
   const reps = SYNC_RESOURCES.find(r => r.model === 'salesRep');
   assert.ok(reps, 'مورد المناديب');
   const sel = reps!.select as Record<string, unknown>;
-  for (const k of ['dedupCustomerPhone', 'dedupCustomerName', 'dedupCustomerAddress']) assert.equal(sel[k], true, `المزامنة: ${k}`);
+  for (const k of ['dedupCustomerPhone', 'dedupCustomerName', 'dedupCustomerAddress', 'dedupCustomerLocation', 'dedupCustomerLocationM']) assert.equal(sel[k], true, `المزامنة: ${k}`);
+  assert.match(model, /\n  dedupCustomerLocationM\s+Int\s+@default\(30\)\n/, 'المدى ٣٠ افتراضاً = السلوك قبله');
   const s = read('routes', 'customers.ts');
   assert.equal((s.match(/\.\.\.DEDUP_REP_SELECT/g) ?? []).length, 2, 'الإنشاء والتعديل يقرآن الأعلام');
   assert.equal((s.match(/customerDupBody\(dup, await canAccessCustomer\(req, tid, dup\.id\)\)/g) ?? []).length, 3, 'الإنشاء والإنشاء بالمعرّف والتعديل');

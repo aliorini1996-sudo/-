@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import { CUSTOMER_LOCATION_EXISTS, LOCATION_DUP_RADIUS_M, distanceM, locationDupBody, validPoint } from '../services/customerLocationDup';
+import {
+  CUSTOMER_LOCATION_EXISTS, LOCATION_DUP_MAX_M, LOCATION_DUP_MIN_M, LOCATION_DUP_RADIUS_M, distanceM, locationDupBody, locationDupRadius, validPoint,
+} from '../services/customerLocationDup';
 
 // «منع تكرار موقع العميل داخل الشركة» — نصف قطر ٣٠ متراً (طلب المالك ١٣ نوفمبر ٢٠٢٦)
 
@@ -28,16 +30,27 @@ test('ردّ 409: اسم العميل والمسافة لمن يراه وحده'
   const hidden = locationDupBody({ id: 'c1', name: 'سوبر ماركت الواحة', distanceM: 12 }, false);
   assert.doesNotMatch(hidden.message, /الواحة/);
   assert.equal((hidden as { existingId?: string }).existingId, undefined);
+  assert.match(hidden.message, /ضمن 30 متر/, 'المدى الافتراضي');
+  // مدى المندوب المضبوط (٢٥ نوفمبر ٢٠٢٦) يظهر في الرسالة المخفيّة لا ٣٠
+  assert.match(locationDupBody({ id: 'c1', name: 'x', distanceM: 80 }, false, 100).message, /ضمن 100 متر/);
+});
+
+test('مدى المندوب: عددٌ صحيح من ٥ إلى ١٠٠٠، وما عداه ٣٠ (القيمة قبل الضبط)', () => {
+  assert.deepEqual([LOCATION_DUP_MIN_M, LOCATION_DUP_MAX_M], [5, 1000]);
+  for (const [m, want] of [[5, 5], [30, 30], [250, 250], [1000, 1000], [4, 30], [1001, 30], [7.5, 30], [null, 30], [undefined, 30], ['50', 30], [Number.NaN, 30]] as const) {
+    assert.equal(locationDupRadius(m), want, String(m));
+  }
 });
 
 test('الحارس موصول بعَلَم المندوب وحده (طلب المالك ٢٥ نوفمبر ٢٠٢٦): الإنشاء قبل الكتابة، والتعديل حين يتحرّك الموقع وحده — والإدارة والمعفى لا يمسّهم', () => {
   const s = fs.readFileSync(path.join(__dirname, '..', 'routes', 'customers.ts'), 'utf8').replace(/\r\n/g, '\n');
-  const post = s.indexOf('const near = await findLocationDuplicate(tid, rest.lat, rest.lng);');
+  const post = s.indexOf('const near = await findLocationDuplicate(tid, rest.lat, rest.lng, undefined, dedup.locationM);');
   const gate = s.indexOf('if (dedup?.location) {');
   assert.ok(gate > 0 && post > gate && post - gate < 200, 'داخل عَلَم المندوب مباشرةً');
   // «رقم العميل» (٢٣ نوفمبر ٢٠٢٦): الإنشاء عبر مساعد الترقيم داخل معاملة — والفحص قبله كما كان
   assert.ok(post < s.indexOf('const customer = await prisma.$transaction((tx) => createNumberedCustomer(tx, tid, {', post), 'قبل الإنشاء');
-  assert.ok(s.includes('const near = await findLocationDuplicate(tid, data.lat, data.lng, req.params.id);'), 'التعديل يستثني العميل نفسه');
+  assert.ok(s.includes('const near = await findLocationDuplicate(tid, data.lat, data.lng, req.params.id, dedup.locationM);'), 'التعديل يستثني العميل نفسه بمدى المندوب');
+  assert.equal((s.match(/locationDupBody\(near, await canAccessCustomer\(req, tid, near\.id\), dedup\.locationM\)/g) ?? []).length, 2, 'الرسالة بمدى المندوب في الإنشاء والتعديل');
   assert.ok(s.includes('if (validPoint(data.lat, data.lng) && dedup?.location) {'));
   // لا قاعدة للشركة كلها بعد اليوم: لا فحص موقعٍ خارج عَلَم المندوب
   assert.doesNotMatch(s, /phoneDupExempt\(req\)\) \{\s*const near/);

@@ -9,7 +9,10 @@ import { priceListApi, salesRepApi } from '../../api/client';
 import { formatDate } from '../../utils/format';
 import { BASE_PRICE_TYPE, baseLabelOf, priceListsOf, repAllowedTokensOf, repDefaultChoices, repPriceTypeTokens, repToggleAllowedType } from '../../lib/priceLists';
 import { IDLE_GRACE_MAX, IDLE_GRACE_MIN, IDLE_MINUTES_MAX, IDLE_MINUTES_MIN, idleGraceOk, idleMinutesOk, idleSaveFields, idleSettingsOf } from '../../lib/idlePunchOut';
-import { DEDUP_FIELDS, DEDUP_KEYS, DEDUP_LABELS, dedupAnyOn, dedupChecksOf, dedupColumns, dedupToggleMaster } from '../../lib/customerDedup';
+import {
+  DEDUP_FIELDS, DEDUP_KEYS, DEDUP_LABELS, LOCATION_DUP_MAX_M, LOCATION_DUP_MIN_M, dedupAnyOn, dedupChecksOf, dedupColumns, dedupToggleMaster,
+  locationRadiusOf, locationRadiusOk, locationRadiusSaveFields,
+} from '../../lib/customerDedup';
 
 interface FormData extends Partial<SalesRep> { password?: string; }
 interface Props {
@@ -112,6 +115,8 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
       ...idleSettingsOf(defaults),
       // «منع تكرار العملاء»: الخانات الثلاث صريحةً — الغائب مطفأ، فالخانة غير المرسومة (المفتاح الرئيس مطفأ) تُرسل false لا undefined
       ...dedupColumns(dedupChecksOf(defaults)),
+      // ومدى «الموقع» (٣٠ افتراضاً، ولصفّ خادمٍ أقدم بلاه)
+      dedupCustomerLocationM: locationRadiusOf(defaults),
     },
   });
   /* «منع تكرار العملاء عند فتح عميل جديد» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): الخانات الثلاث حقول النموذج فهي ما يُحفظ، والمفتاح الرئيس حالة
@@ -149,6 +154,8 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
     validate: (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= RADIUS_MIN_M && v <= RADIUS_MAX_M) || tr('المسافة بين 10 و5000 متر'),
   } as const;
   // دقيقتا «الانصراف التلقائي» تُفحصان والقيد مفعّل وحده (المخفيّ لا يُسجَّل)، والمطفأ لا يرسلهما أصلاً (idleSaveFields)
+  // مدى «الموقع» يُفحص وخانته مختارة وحدها (المخفيّ لا يُسجَّل)، والمطفأة لا ترسله (locationRadiusSaveFields)
+  const locationRadiusRules = { valueAsNumber: true, validate: (v: unknown) => locationRadiusOk(v) || tr('مدى الموقع بين 5 و1000 متر') } as const;
   const idleMinutesRules = { valueAsNumber: true, validate: (v: unknown) => idleMinutesOk(v) || tr('دقائق الخمول بين 10 و480') } as const;
   const idleGraceRules = { valueAsNumber: true, validate: (v: unknown) => idleGraceOk(v) || tr('مهلة الرد بين 5 و120 دقيقة') } as const;
 
@@ -168,7 +175,7 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
           <h2 className="text-lg font-bold text-gray-800">{rep ? tr('تعديل مندوب') : tr('إضافة مندوب')}</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"><X size={18} /></button>
         </div>
-        <form onSubmit={handleSubmit((d) => onSave(idleSaveFields(d)))} className="p-5 space-y-5">
+        <form onSubmit={handleSubmit((d) => onSave(locationRadiusSaveFields(idleSaveFields(d))))} className="p-5 space-y-5">
           {/* Basic */}
           <div>
             <h3 className="text-sm font-semibold text-gray-500 mb-3 uppercase">{tr('البيانات الأساسية')}</h3>
@@ -314,6 +321,14 @@ export default function SalesRepModal({ rep, onClose, onSave, loading, accountin
               {dedupOn && (
                 <div className="mt-2 ms-6 flex flex-wrap gap-x-6 gap-y-2">
                   {DEDUP_FIELDS.map(f => <PermToggle key={f} label={tr(DEDUP_LABELS[f])} {...register(DEDUP_KEYS[f])} />)}
+                </div>
+              )}
+              {/* مدى «الموقع» بالمتر (طلب المالك ٢٥ نوفمبر ٢٠٢٦: «٣٠ متراً أو أقل أو أكثر») — تحت الخانات حين تُختار */}
+              {dedupOn && dedupChecks.location && (
+                <div className="ms-6" data-rep-dedup-location-radius="">
+                  <RadiusInput label={tr('مدى الموقع بالمتر')} min={LOCATION_DUP_MIN_M} max={LOCATION_DUP_MAX_M}
+                    error={errors.dedupCustomerLocationM?.message} {...register('dedupCustomerLocationM', locationRadiusRules)} />
+                  <p className="text-xs text-gray-400 mt-1">{tr('لا يفتح المندوب عميلا ضمن هذا المدى من موقع عميل آخر في الشركة، والافتراضي 30 مترا')}</p>
                 </div>
               )}
               {dedupOn && !dedupAnyOn(dedupChecks) && <p className="text-xs text-amber-700 mt-1 ms-6">{tr('لم تختر حقلا فلا يمنع أي تكرار')}</p>}

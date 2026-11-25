@@ -25,6 +25,7 @@ import { assertRepDeletable, settlementTombstonesWithReceiver } from '../service
 import { LINKED_NO_DELETE_CODE, LINKED_NO_DELETE_MESSAGE, tenantBooksLinked } from '../services/booksMode';
 import { BASE_PRICE_TYPE, PRICE_LIST_MESSAGES, allowedPriceTypesOf } from '../services/priceLists';
 import { idleSettingsError, IDLE_RANGE_CODE } from '../services/idlePunchOut';
+import { LOCATION_DUP_MIN_M, LOCATION_DUP_MAX_M } from '../services/customerLocationDup';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canManageSalesReps'));
@@ -74,6 +75,8 @@ const repSchema = z.object({
   dedupCustomerAddress: z.boolean().optional(),
   // «الموقع ضمن ٣٠ متراً» (طلب المالك ٢٥ نوفمبر ٢٠٢٦): كان للشركة كلها، وصار قيداً لكل مندوب مطفأً افتراضاً
   dedupCustomerLocation: z.boolean().optional(),
+  // ومداه بالمتر تضبطه الإدارة (طلب المالك ٢٥ نوفمبر ٢٠٢٦: «٣٠ متراً أو أقل أو أكثر») — عددٌ صحيح من ٥ إلى ١٠٠٠
+  dedupCustomerLocationM: z.number().int().min(LOCATION_DUP_MIN_M).max(LOCATION_DUP_MAX_M).optional(),
   showCollectionBalance: z.boolean().optional(),
   // «البيع النقدي تحصيلٌ لدى المندوب»: فاتورته النقدية تُحسب مبلغاً محصَّلاً لديه بلا سند قبض (يسري على ما يصدر بعده)
   cashSaleCollected: z.boolean().optional(),
@@ -112,7 +115,7 @@ const repSelect = {
   canCreateReceipt: true, canEditReceipt: true, canCancelReceipt: true,
   canManageVanStock: true,
   canAddCustomer: true, canEditCustomer: true, canViewStatement: true,
-  dedupCustomerPhone: true, dedupCustomerName: true, dedupCustomerAddress: true, dedupCustomerLocation: true,
+  dedupCustomerPhone: true, dedupCustomerName: true, dedupCustomerAddress: true, dedupCustomerLocation: true, dedupCustomerLocationM: true,
   showCollectionBalance: true,
   cashSaleCollected: true,
   requireCustomerProximity: true,

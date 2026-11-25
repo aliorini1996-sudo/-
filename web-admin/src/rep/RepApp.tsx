@@ -183,6 +183,7 @@ interface RepUser {
   dedupCustomerName?: boolean;
   dedupCustomerAddress?: boolean;
   dedupCustomerLocation?: boolean;
+  dedupCustomerLocationM?: number;
   id: string; name: string; phone?: string;
   canAddCustomer?: boolean;
   /** «تعديل بيانات العميل» — افتراضه في الخادم مُطفأ، فلا يظهر زرّ التعديل إلا بـtrue صريحة */

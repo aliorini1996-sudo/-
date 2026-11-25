@@ -153,13 +153,14 @@ test('حارس الإعداد: نافذة اللوحة وشاشة الجوال �
   const modal = read('src', 'components', 'forms', 'SalesRepModal.tsx');
   assert.match(modal, /<PermToggle label=\{tr\('تذكير بالانصراف عند الخمول ثم انصراف تلقائي'\)\} \{\.\.\.register\('idlePunchOutEnabled'\)\} \/>/);
   assert.match(modal, /\{watch\('idlePunchOutEnabled'\) && \(<>[\s\S]{0,200}register\('idlePunchOutMinutes', idleMinutesRules\)[\s\S]{0,300}register\('idlePunchOutGraceMinutes', idleGraceRules\)/);
-  assert.match(modal, /<form onSubmit=\{handleSubmit\(\(d\) => onSave\(idleSaveFields\(d\)\)\)\}/);
+  // ومدى «الموقع» يُلفّ فوقه (locationRadiusSaveFields — ٢٥ نوفمبر ٢٠٢٦) فيبقى idleSaveFields على النموذج كله
+  assert.match(modal, /<form onSubmit=\{handleSubmit\(\(d\) => onSave\(locationRadiusSaveFields\(idleSaveFields\(d\)\)\)\)\}/);
   assert.match(modal, /\.\.\.idleSettingsOf\(defaults\),/);
   const m = read('src', 'm', 'MSalesReps.tsx');
   assert.match(m, /<MToggle label=\{tr\('تذكير بالانصراف عند الخمول ثم انصراف تلقائي'\)\}\s*checked=\{idleOn\}/);
   assert.match(m, /\{idleOn && \(<>[\s\S]{0,400}tr\('دقائق الخمول قبل التذكير'\)[\s\S]{0,400}tr\('مهلة الرد قبل الانصراف التلقائي \(دقيقة\)'\)/);
   assert.match(m, /\.\.\.idleSaveFields\(\{ idlePunchOutEnabled: idleOn, idlePunchOutMinutes: idleMinNum, idlePunchOutGraceMinutes: idleGraceNum \}\),/);
-  assert.match(m, /disabled=\{!discOk \|\| !proxOk \|\| !punchOk \|\| !idleOk \|\| save\.isPending\}/);
+  assert.match(m, /disabled=\{!discOk \|\| !proxOk \|\| !punchOk \|\| !idleOk \|\| !locOk \|\| save\.isPending\}/);
   // قيدٌ تقييديّ: خارج PermKey فلا يقلبه «تحديد الكل»
   assert.doesNotMatch(m.slice(m.indexOf('type PermKey'), m.indexOf(';', m.indexOf('type PermKey'))), /idlePunchOut/);
 });
