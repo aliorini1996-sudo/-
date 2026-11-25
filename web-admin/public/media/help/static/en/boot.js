@@ -1,0 +1,1 @@
+(function(){try{var d=document.documentElement;if(localStorage.getItem('fs-hc-theme')==='dark')d.setAttribute('data-theme','dark');if(localStorage.getItem('fs-hc-view')==='list')d.setAttribute('data-view','list');}catch(e){}})();

@@ -1,0 +1,25 @@
+WEBVTT
+
+1
+00:00:00.300 --> 00:00:03.846
+How do I record a receipt (collection) from a customer in Field Sales?
+
+2
+00:00:04.667 --> 00:00:08.108
+In the sidebar, click Receipts to see the list of issued receipts.
+
+3
+00:00:09.033 --> 00:00:13.531
+Click the New receipt button at the top of the page, and the Issue receipt dialog opens.
+
+4
+00:00:14.433 --> 00:00:17.444
+Choose the customer, then the sales rep who received the money.
+
+5
+00:00:18.367 --> 00:00:26.608
+Type the amount received and choose the payment method. If the customer has open invoices, allocate the amount to them, or click Auto-allocate to oldest.
+
+6
+00:00:27.533 --> 00:00:34.954
+Finally, click Issue receipt. The receipt is saved, the amount is deducted from the customer's balance, and the receipt document opens.

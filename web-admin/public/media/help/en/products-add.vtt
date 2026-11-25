@@ -1,0 +1,25 @@
+WEBVTT
+
+1
+00:00:00.300 --> 00:00:03.730
+How do I add a new item in Field Sales and set its price and unit?
+
+2
+00:00:04.533 --> 00:00:09.897
+In the sidebar, click Products. The Product management page opens with the table of your items.
+
+3
+00:00:10.800 --> 00:00:15.091
+Click the Add item button at the top of the page, and the Add new item window appears.
+
+4
+00:00:16.000 --> 00:00:19.902
+Enter the item code and the item name, and add the barcode if the item has one.
+
+5
+00:00:20.833 --> 00:00:25.255
+Set the main unit, such as carton or piece, then enter the main unit price.
+
+6
+00:00:26.167 --> 00:00:32.197
+Finally, click the Add item button at the bottom of the window. The item is saved and appears in the products table.

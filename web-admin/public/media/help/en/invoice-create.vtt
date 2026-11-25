@@ -1,0 +1,25 @@
+WEBVTT
+
+1
+00:00:00.300 --> 00:00:03.735
+How do I issue a new sales invoice from the dashboard in Field Sales?
+
+2
+00:00:04.567 --> 00:00:08.341
+In the sidebar, click Invoices to open the Invoice management page.
+
+3
+00:00:09.267 --> 00:00:14.139
+At the top of the page, click the New invoice button, and the Create new invoice window appears.
+
+4
+00:00:15.067 --> 00:00:23.209
+Choose the customer by typing their name or mobile number, then choose the sales rep, and set the invoice type: Credit, Cash or Installments.
+
+5
+00:00:24.133 --> 00:00:32.050
+In the Items section, click Add an item and type the item name or code to select it, then adjust the quantity, price and discount if needed.
+
+6
+00:00:32.967 --> 00:00:40.745
+Review the grand total at the bottom of the window, then click Issue invoice. The invoice is saved and its document opens, ready to print.
