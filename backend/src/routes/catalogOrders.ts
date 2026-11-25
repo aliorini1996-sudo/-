@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { authenticate, tenantId } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { customerScope } from '../services/customerScope';
+import { visibleCustomerIds } from '../services/customerScope';
 import {
   CATALOG_ORDER_CODES as CODES, MINE_LIST_LIMIT, OPEN_STATUSES, isUuid, matchableKey, openCounts, parseStatusBody, phoneTail,
   pickMatchedCustomer, shapeOrder, type CustomerCandidate,
@@ -56,17 +56,8 @@ async function matchCustomers(req: AuthRequest, tid: string, orders: readonly { 
     ORDER BY "createdAt" DESC, id DESC
     LIMIT ${Prisma.raw(String(CANDIDATES_LIMIT))}`;
   const candidates = rows ?? [];
-  let visible: Set<string> | null = null; // null = بلا قيد
-  if (candidates.length > 0) {
-    const scope = await customerScope(req, tid);
-    if (scope.assignments || scope.adminScopes) {
-      const ok = await prisma.customer.findMany({
-        where: { id: { in: candidates.map((c) => c.id) }, tenantId: tid, ...scope },
-        select: { id: true },
-      });
-      visible = new Set(ok.map((c) => c.id));
-    }
-  }
+  // null = بلا قيد. الحكم في customerScope.ts (visibleCustomerIds) لا هنا: لا يفحص مسارٌ مفاتيح النطاق بنفسه
+  const visible = candidates.length > 0 ? await visibleCustomerIds(req, tid, candidates.map((c) => c.id)) : null;
   const canSee = (id: string) => visible === null || visible.has(id);
   for (const o of orders) out.set(o.id, pickMatchedCustomer(o.phoneKey, candidates, canSee));
   return out;
