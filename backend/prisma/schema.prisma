@@ -2083,6 +2083,9 @@ model PendingVanLoad {
   /// المرسِل: actorOf(req) واسمه («الدعم الفني» لجلسة المالك)
   createdById     String?
   createdByName   String?
+  /// فاعل سجل تدقيق اللوط كما كان سيُكتب لو حُمِّل مباشرة (lotEventActorOf لحظة الإرسال: موظف المنصة أو المالك بمعرّفه الحقيقي) —
+  /// يُمرَّر للحركة عند القبول. داخليّ: لا يُقرأ في PENDING_SELECT ولا يصل أي ردّ
+  createdByActor  Json?
   /// اعتراض المندوب: سببه ولحظته
   disputeNote     String?
   disputedAt      DateTime?

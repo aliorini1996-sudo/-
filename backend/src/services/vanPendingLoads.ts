@@ -2,8 +2,9 @@
 // «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): «يقوم اداري الشركة برفع التحميل ثم يقوم المندوب بالقبول واقرار
 // التحميل والتوقيع على التحميل بحيث يكون المستند اثبات للتحميل و اقرار قبول للتحميل».
 //   • الإعداد CompanySettings.vanLoadAcceptance (مطفأ افتراضاً، routes/companyVanLoadAcceptance.ts). المطفأة كما كانت حرفياً.
-//   • مفعّلاً: تحميل الإدارة (LOAD من اللوحة، لا المندوب ولا مفتاح API ولا إعادة رفع) يُتحقَّق منه بمسار الحركة القائم نفسه
+//   • مفعّلاً: تحميل الإدارة (LOAD من اللوحة، لا المندوب ولا مفتاح API) يُتحقَّق منه بمسار الحركة القائم نفسه
 //     **تجربةً بلا كتابة** ثم يُحفظ صفّاً معلّقاً (PendingVanLoad) — لا أثر له في أي مخزون أو تكلفة أو دفتر أو تقرير أو مزامنة أو تنبّؤ.
+//     وترويسة إعادة الرفع (X-FS-Replay) من مستخدم الشركة طلبٌ حيّ كغيره: صندوق الأوف‑لاين للمندوب وحده، فلا تُعفي تحميل الإدارة.
 //   • قبول المندوب وتوقيعه يشغّل مسار الحركة نفسه (routes/vanStock.ts executeVanMovement) بالجسم المحفوظ كأن الإدارة أنشأته، داخل
 //     معاملته وتحت قفل الصفّ — حركةٌ واحدة تُختم بلحظة القبول ومعرّف الصفّ. لا نداء إنشاء حركةٍ هنا (locations.test.ts).
 //   • ما يغيّر أسطر التحميل بين الإرسال والقبول (PENDING_LINE_ALTERING) يرفضه: المندوب يوقّع على ما أرسلته الإدارة حرفياً.
@@ -80,6 +81,7 @@ export const PENDING_LOAD_MESSAGES = Object.freeze({
   PENDING_LOAD_REP_GONE: 'مندوب هذا التحميل محذوف — ألغِ التحميل',
   PENDING_LOAD_REP_FIXED: 'لا يتغيّر مندوب التحميل المرسل — ألغِه وأرسل تحميلاً جديداً',
   PENDING_LOAD_TYPE_INVALID: 'التحميل المرسل للمندوب نوعه تحميل (LOAD) وحده',
+  PENDING_LOAD_QTY_NEGATIVE: 'التحميل المرسل للمندوب كميات موجبة فقط — للتنزيل سجل حركة منفصلة',
 });
 export type PendingLoadCode = keyof typeof PENDING_LOAD_MESSAGES;
 
@@ -98,6 +100,21 @@ export function pendingEventActor(createdById: string | null | undefined, create
   const id = createdById ?? '';
   if (id.startsWith('OWNER:')) return { type: 'OWNER', id: id.slice('OWNER:'.length) || null, name: 'الدعم الفني' };
   return { type: 'ADMIN', id: id || null, name: createdByName ?? null };
+}
+
+const EVENT_ACTOR_TYPES: ReadonlySet<string> = new Set(['ADMIN', 'OWNER', 'STAFF', 'API_KEY', 'SYSTEM']);
+const nullableStr = (v: unknown): v is string | null => v === null || typeof v === 'string';
+
+/**
+ * فاعل سجل تدقيق اللوط المحفوظ لحظة الإرسال (createdByActor = lotEventActorOf(req.user)) — به يُكتب القبول كما كان سيُكتب المسار
+ * المباشر حرفياً (موظف المنصة STAFF بمعرّفه، والمالك بمعرّفه لا بمعرّف مدير الشركة المنتحَل). شكلٌ غير صالح أو صفٌّ أقدم بلاه ⇒ null
+ * فيُبنى من المرسِل (pendingEventActor)
+ */
+export function storedEventActor(v: unknown): LotEventActor | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const { type, id, name } = v as Record<string, unknown>;
+  if (typeof type !== 'string' || !EVENT_ACTOR_TYPES.has(type) || !nullableStr(id) || !nullableStr(name)) return null;
+  return { type: type as LotEventActor['type'], id, name };
 }
 
 /** اسم المرسِل كما يُحفظ: جلسة المالك «الدعم الفني» لا باسم مدير الشركة (كعهدة الأدوات) */

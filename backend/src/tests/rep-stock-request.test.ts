@@ -165,6 +165,10 @@ test('«تحميل مباشر»: يُعلَّم الطلب «حُمِّل» بح
   // الحركة من الشركة نفسها، ولسيارة صاحب الطلب، وتحميلٌ لا تنزيلٌ أو تسوية — وإلا 400 بلا كتابة
   assert.match(h, /tx\.vanLoad\.findFirst\(\{ where: \{ id: data\.vanLoadId, tenantId: tid, salesRepId: cur\.salesRepId, type: 'LOAD' \}/);
   assert.match(h, /status: 400, code: 'VAN_LOAD_MISMATCH'/);
+  // «قبول المندوب للتحميل»: بلا حركةٍ بالمعرّف ⇒ تحميلٌ معلّق غير ملغى لسيارة صاحب الطلب (ردّ pending:true) — لغير مفتاح API، وقراءةً لا كتابة
+  assert.match(h, /\?\? \(req\.user\?\.apiKeyId \? null : await tx\.pendingVanLoad\.findFirst\(\{\s*where: \{ id: data\.vanLoadId, tenantId: tid, salesRepId: cur\.salesRepId, status: \{ not: 'CANCELLED' \} \}, select: \{ id: true \},/);
+  assert.ok(h.indexOf('tx.vanLoad.findFirst(') < h.indexOf('tx.pendingVanLoad.findFirst('), 'الحركة أولاً — المطفأة كما كانت');
+  assert.doesNotMatch(s, /pendingVanLoad\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(/);
   // الطلب المعلّق في نطاق المستخدم يُقرأ بعد القفل، ثم الحالة ومعرّف الحركة بالنسخة التي حُمِّلت
   assert.ok(h.indexOf('await lockTenant(tx, tid);') < h.indexOf('tx.repStockRequest.findFirst('));
   assert.match(h, /tenantId: tid, status: 'PENDING', \.\.\.\(await repScopeWhere\(req\)\)/);

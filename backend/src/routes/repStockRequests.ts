@@ -340,6 +340,10 @@ router.post('/:id/reject', companyOnly, async (req: AuthRequest, res: Response, 
 // والحركة لسيارة صاحب الطلب وتحميلٌ لا غيره، وإلا 400. وعدّله المندوب بعد التحميل ⇒ يبقى معلّقاً ليراجع الإداري ما أضافه، لكن
 // يُكتب عليه معرّف الحركة (sentRef على طلبٍ معلّق = «حُمِّلت منه نسخةٌ سابقة») ثم 409 REQUEST_CHANGED_AFTER_LOAD — فتراه النافذة
 // ولو أُعيد فتحها، ولا يُحمَّل كاملاً مرةً ثانية ولا يدخل الطلب العام بما حُمِّل دون تنبيه
+// «قبول المندوب للتحميل وتوقيعه» (CompanySettings.vanLoadAcceptance): تحميل الإدارة يردّه POST /van-stock/loads صفّاً معلّقاً
+// (pending:true) لا حركة — فالمعرّف المرسل هنا معرّف PendingVanLoad لسيارة صاحب الطلب (غير ملغى) يُعلَّم به الطلب «حُمِّل» كذلك:
+// أُرسل للمندوب، والبضاعة تدخل سيارته حين يقبله ويوقّع (والحركة تحمل pendingLoadId هذا). يُقرأ حين لا حركة بالمعرّف وحده، ولغير
+// مفتاح API (تحميل المفتاح لا يُعلَّق أبداً) — فالشركة المطفأة ميزتها والمفتاح كما كانا حرفياً
 const loadedSchema = versionSchema.extend({ vanLoadId: z.string().min(1).max(64) });
 
 router.post('/:id/loaded', companyOnly, async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -352,7 +356,10 @@ router.post('/:id/loaded', companyOnly, async (req: AuthRequest, res: Response, 
         where: { id: String(req.params.id), tenantId: tid, status: 'PENDING', ...(await repScopeWhere(req)) }, select: { id: true, salesRepId: true, updatedAt: true },
       });
       if (!cur) throw notFound();
-      const load = await tx.vanLoad.findFirst({ where: { id: data.vanLoadId, tenantId: tid, salesRepId: cur.salesRepId, type: 'LOAD' }, select: { id: true } });
+      const load = (await tx.vanLoad.findFirst({ where: { id: data.vanLoadId, tenantId: tid, salesRepId: cur.salesRepId, type: 'LOAD' }, select: { id: true } }))
+        ?? (req.user?.apiKeyId ? null : await tx.pendingVanLoad.findFirst({
+          where: { id: data.vanLoadId, tenantId: tid, salesRepId: cur.salesRepId, status: { not: 'CANCELLED' } }, select: { id: true },
+        }));
       if (!load) throw Object.assign(new Error('حركة التحميل ليست لسيارة صاحب الطلب'), { status: 400, code: 'VAN_LOAD_MISMATCH' });
       // نسخةٌ غير التي حُمِّلت: العلامة تُحفظ (لا رمي داخل المعاملة فتُلغى معها) والطلب يبقى معلّقاً
       if (cur.updatedAt.toISOString() !== data.updatedAt) {

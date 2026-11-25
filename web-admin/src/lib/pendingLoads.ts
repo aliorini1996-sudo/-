@@ -327,6 +327,23 @@ export function pendingErrorText(e: unknown, tr: (ar: string) => string, fallbac
   return err?.message ? tr(err.message) : tr(fallback);
 }
 
+/**
+ * أصناف الأسطر التي «ستتغيّر عند التسجيل» من ردّ الرفض (422 PENDING_LOAD_LINES_CHANGED عند الإرسال أو التعديل، و409 PENDING_LOAD_CHANGED
+ * عند القبول): warnings[].productId بلا تكرار — بها تُسمّى الأسطر في رسالة الرفض فيعرف المدير ما يراجع. غيرها (أو بلا warnings) ⇒ []
+ */
+export function pendingChangedProductIds(e: unknown): string[] {
+  const w = pendingLoadErrorOf(e)?.body.warnings;
+  if (!Array.isArray(w)) return [];
+  return [...new Set(w.map((x) => str(rec(x)?.productId)).filter((v): v is string => v !== null))];
+}
+
+/** نصّ الرفض (pendingErrorText) وبعده أسماء أصناف الأسطر المتغيّرة إن عُرفت — «… — سكر، أرز» */
+export function pendingRefusalText(e: unknown, tr: (ar: string) => string, fallback: string, nameOf: (productId: string) => string | null | undefined): string {
+  const names = pendingChangedProductIds(e).map((id) => (nameOf(id) ?? '').trim()).filter(Boolean);
+  const text = pendingErrorText(e, tr, fallback);
+  return names.length ? `${text} — ${[...new Set(names)].join('، ')}` : text;
+}
+
 /* ═══ الإشعار المطبوع ═══ */
 
 /** إقرار المندوب على إشعار التحميل المقبول — يطبعه PrintableLoadNotice تحت الأصناف */

@@ -9,7 +9,7 @@ import path from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
-  DISPUTE_NOTE_MAX, PENDING_LOADS_SCREEN, SIGNATURE_MAX, acceptBlocked, acceptBodyOf, disputeNoteOf, lineLotText,
+  DISPUTE_NOTE_MAX, PENDING_LOADS_SCREEN, SIGNATURE_MAX, acceptBlocked, acceptBodyOf, activeRowStale, disputeNoteOf, lineLotText,
   lineQtyText, pendingCacheEntry, pendingCacheOf, pendingHomeCardOf, pendingLoadsCacheKey, repPendingFailureOf, repPendingFailureText,
   repPendingSections,
 } from './vanLoadAcceptance';
@@ -104,6 +104,21 @@ test('جسم القبول: توقيع PNG إلزاميٌّ ضمن الحدّ وr
   assert.equal(acceptBodyOf(`data:image/png;base64,${'A'.repeat(SIGNATURE_MAX)}`, 1), null, 'فوق حدّ الخادم لا يُرسل');
   assert.equal(acceptBodyOf(SIG, 0), null);
   assert.equal(acceptBodyOf(SIG, 1.5), null);
+});
+
+test('اللوحة المفتوحة والقائمة تتجدّد تحتها: صفٌّ عدّلته الإدارة أو لم يعد مفتوحاً يُغلقها — فلا يُقبل بتوقيعٍ رُسم على غير المعروض', () => {
+  const acc = { mode: 'accept' as const, revision: 1 };
+  const dis = { mode: 'dispute' as const, revision: 1 };
+  assert.equal(activeRowStale(acc, { status: 'PENDING', revision: 1 }), false, 'كما هو: تبقى بتوقيعها');
+  assert.equal(activeRowStale(acc, { status: 'PENDING', revision: 2 }), true, 'عدّلته الإدارة: يوقّع من جديد');
+  assert.equal(activeRowStale(acc, undefined), true, 'اختفى من القائمة (أُلغي)');
+  assert.equal(activeRowStale(acc, null), true);
+  for (const s of ['DISPUTED', 'ACCEPTED', 'CANCELLED'] as const) assert.equal(activeRowStale(acc, { status: s, revision: 1 }), true, s);
+  assert.equal(activeRowStale(dis, { status: 'PENDING', revision: 1 }), false);
+  assert.equal(activeRowStale(dis, { status: 'DISPUTED', revision: 1 }), false, 'تعديل الاعتراض على صفّه المعترَض عليه');
+  assert.equal(activeRowStale(dis, { status: 'PENDING', revision: 2 }), true, 'عدّلته الإدارة بعد الاعتراض');
+  assert.equal(activeRowStale(dis, { status: 'ACCEPTED', revision: 1 }), true);
+  assert.equal(activeRowStale(dis, { status: 'CANCELLED', revision: 1 }), true);
 });
 
 test('سبب الاعتراض: إلزاميٌّ بعد القصّ وضمن الحدّ', () => {
@@ -263,6 +278,12 @@ test('حارس ثابت: RepPendingLoads — العميل المشترك، وا�
   assert.ok(ui.includes('useBackClose(notice !== null, () => setNotice(null));'));
   const acceptedPart = ui.slice(ui.indexOf('{sections.accepted.map('));
   assert.ok(acceptedPart.includes('{actionsOn && (') && acceptedPart.includes('onClick={() => { void openNotice(row); }}'), 'دون اتصال لا زرّ');
+  // اللوحة تحفظ revision صفّها لحظة فتحها، والقائمة إذا تجدّدت تحتها بصفٍّ عدّلته الإدارة تُغلقها وتمحو التوقيع
+  assert.ok(ui.includes("setActive({ id: row.id, mode, revision: row.revision }); setSignature(null);"));
+  const stale = ui.slice(ui.indexOf('if (!activeRowStale(active, row)) return;'));
+  assert.ok(stale.indexOf('setActive(null); setSignature(null);') >= 0 && stale.indexOf('setActive(null); setSignature(null);') < stale.indexOf('}, [list]);'));
+  // رجوع التطبيق إلى الواجهة يعيد القائمة — لا أثناء قبولٍ جارٍ
+  assert.ok(ui.includes("const onVisible = () => { if (document.visibilityState === 'visible' && !busyRef.current) void load(); };"));
   // الشاشة لا تقرأ التوقيع من الكاش ولا تحفظه: القائمة المحفوظة صفوف العرض وحدها (الخادم لا يرسل التوقيع في القائمة للمندوب)
   assert.doesNotMatch(ui, /cacheSet\([^)]*signature/);
 });

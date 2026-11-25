@@ -56,6 +56,19 @@ export function pendingHomeCardOf(c: PendingLoadCounts | null | undefined): { ki
 /** صنفٌ حُذف بعد الإرسال: القبول سيُرفض PENDING_LOAD_CHANGED — لا يُفتح التوقيع، والاعتراض يبلّغ الإدارة */
 export const acceptBlocked = (row: Pick<PendingVanLoadView, 'lines'>): boolean => row.lines.some((l) => l.missing);
 
+/**
+ * لوحة القبول أو الاعتراض المفتوحة لم تعد على الصفّ المعروض بعد تجدّد القائمة؟ — اختفى (أُلغي أو قُبل خارج حدّ القائمة)،
+ * أو عدّلته الإدارة (revision آخر)، أو لم يعد بانتظار القبول (والاعتراض يبقى على صفّه المعترَض عليه). صحيح ⇒ تُغلق ويُمحى التوقيع
+ */
+export function activeRowStale(
+  active: { mode: 'accept' | 'dispute'; revision: number },
+  row: Pick<PendingVanLoadView, 'status' | 'revision'> | null | undefined,
+): boolean {
+  if (!row || row.revision !== active.revision) return true;
+  if (row.status === 'PENDING') return false;
+  return !(active.mode === 'dispute' && row.status === 'DISPUTED');
+}
+
 // ───────── الكاش: آخر قائمة لهذا المندوب (تُعرض دون اتصال بلا أزرار) ─────────
 
 export interface PendingLoadsCache { v: 1; repId: string; at: number; list: PendingLoadList }

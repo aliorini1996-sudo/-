@@ -19,6 +19,7 @@ import { baseQtyText, hasBigUnit, productUnitLabel } from '../lib/adminUnits';
 import { unitChoices } from '../rep/repUnits';
 import { primaryUnitOf, roundQty } from '../lib/units';
 import { fmtTotalQty } from '../lib/qtyView';
+import { PENDING_LOADS_KEY, PENDING_LOAD_TEXT, isPendingLoadResponse, vanLoadAcceptanceOn } from '../lib/pendingLoads';
 
 // حتى أربع منازل (مراجعة المخزون #19): رصيدٌ بقيت منه ٠٫٠٠٤ لا يُطبع «0» — وكميات الطلب بخانتيها كما هي
 const fmtQty = (n: number) => fmtTotalQty(roundQty(n));
@@ -185,7 +186,9 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
    */
   const loadDirect = async (r: RepStockRequest) => {
     const prior = r.sentRef ? `${tr('حملت نسخة سابقة من هذا الطلب ثم عدله المندوب عدل الكميات إلى ما أضافه فقط')}\n` : '';
-    if (!window.confirm(`${prior}${fillNames(tr('تحميل طلب المندوب {names} مباشرة إلى سيارته؟'), [r.repName])} ${tr('تخصم الكميات من مخزون الشركة')}`)) return;
+    // «قبول المندوب للتحميل» مفعّلة: لا يُخصم شيءٌ الآن — يُرسل للمندوب فيقبله ويوقّع عليه أولاً
+    const effect = vanLoadAcceptanceOn(company) ? tr(PENDING_LOAD_TEXT.hint) : tr('تخصم الكميات من مخزون الشركة');
+    if (!window.confirm(`${prior}${fillNames(tr('تحميل طلب المندوب {names} مباشرة إلى سيارته؟'), [r.repName])} ${effect}`)) return;
     setError(''); setNotice(''); setWarn(''); setBusy('load:' + r.id);
     let loaded = false;
     try {
@@ -208,6 +211,8 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
       const vanLoadId = out.data?.id;
       if (!vanLoadId) { setError(tr('تعذر الحفظ')); return; }
       loaded = true;
+      // «قبول المندوب للتحميل» مفعّلة: لم تُكتب حركة — أُرسل للمندوب بانتظار قبوله، ومعرّفه معرّف التحميل المعلّق (يقبله /loaded كذلك)
+      const pendingSent = isPendingLoadResponse(res);
       const replayed = isReplayResponse(res);
       // ملاحظات التشغيلات بأسمائها، وما سواها (سطرٌ تُرك أو حُمِّل بالأساس لأن وحدات الصنف تغيّرت) بأسماء أصنافه وتنبيهٍ ظاهر
       const lotNotes = [...new Set(lotWarningsOf(out.warnings).map(w => w.code))].map(c => tr(LOT_WARNING_LABELS[c])).filter(Boolean);
@@ -227,7 +232,10 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
         setNotice(`${tr('سبق تحميل هذا الطلب فلم يتكرر')} · ${r.repName}`);
         return;
       }
-      setNotice([fillNames(tr('حمل طلب المندوب {names} إلى سيارته'), [r.repName]), ...(replayed ? [tr(VAN_MOVE_TEXT.replay)] : []), ...lotNotes].join(' · '));
+      setNotice([
+        pendingSent ? `${tr(PENDING_LOAD_TEXT.sent)} · ${r.repName}` : fillNames(tr('حمل طلب المندوب {names} إلى سيارته'), [r.repName]),
+        ...(replayed ? [tr(VAN_MOVE_TEXT.replay)] : []), ...lotNotes,
+      ].join(' · '));
     } catch (e) {
       // التحميل فوق رصيد المستودع (422 WAREHOUSE_INSUFFICIENT): لا شيء كُتب — بأسماء أصنافه من الطلب
       const wi = warehouseInsufficientOf(e);
@@ -241,7 +249,7 @@ export default function StockRequestModal({ rows, company, by, onClose }: {
       }
     } finally {
       // الرصيد تغيّر (أو قد يكون): كمفاتيح «مخزون السيارات» بعد أي حركة (#20) ومعها التشغيلات والمواقع والطلبات
-      for (const key of [...STOCK_CACHE_KEYS, 'rep-stock-requests', 'locations-summary', 'van-lot-balances', 'lot-balances-load', 'lot-balances-van', 'lot-balances-wh', 'lot-fefo']) {
+      for (const key of [...STOCK_CACHE_KEYS, 'rep-stock-requests', 'locations-summary', 'van-lot-balances', 'lot-balances-load', 'lot-balances-van', 'lot-balances-wh', 'lot-fefo', PENDING_LOADS_KEY]) {
         qc.invalidateQueries({ queryKey: [key] });
       }
       setBusy(null);

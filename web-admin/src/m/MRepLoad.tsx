@@ -48,7 +48,7 @@ import { vanReasonLabel } from './MPurchaseLogic';
 import MPendingLoads from './MPendingLoads';
 import {
   PENDING_LOADS_KEY, PENDING_LOAD_TEXT, acceptanceOf, fetchPendingDetail, isPendingLoadResponse, noticeMovementOf, pendingEditLines,
-  pendingErrorText, pendingLoadErrorOf, vanLoadAcceptanceOn,
+  pendingErrorText, pendingLoadErrorOf, pendingRefusalText, vanLoadAcceptanceOn,
   type LoadNoticeAcceptance, type NoticeMovement, type PendingEditLine, type PendingVanLoadView,
 } from '../lib/pendingLoads';
 
@@ -629,7 +629,8 @@ export default function MRepLoad({ rep, company, onClose }: {
       const pe = pendingLoadErrorOf(e);
       if (pe?.code && (pe.code.startsWith('PENDING_LOAD_') || pe.code === 'API_KEY_FORBIDDEN')) {
         if (editing) qc.invalidateQueries({ queryKey: [PENDING_LOADS_KEY] });
-        toast.error(pendingErrorText(e, tr, 'تعذر الحفظ'), { duration: 8000 });
+        // أسطرٌ ستتغيّر عند التسجيل: تُسمّى أصنافها (warnings[].productId) فيعرف المدير ما يراجع
+        toast.error(pendingRefusalText(e, tr, 'تعذر الحفظ', pid => rows.find(r => r.productId === pid)?.name), { duration: 8000 });
         return;
       }
       // بلا جوابٍ حاسم: الإعادة بالمحتوى نفسه مسموحة ولو قال رصيد المستودع المحدَّث غير ذلك

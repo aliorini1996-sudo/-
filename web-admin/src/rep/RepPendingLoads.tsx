@@ -10,11 +10,11 @@ import { useBackClose } from '../lib/useBackClose';
 import { useTr } from '../i18n/strings';
 import { activeLocale, formatDateTime } from '../utils/format';
 import {
-  acceptanceOf, fetchPendingDetail, fetchPendingList, normalizePendingLoad, noticeMovementOf, pendingLoadsClient,
+  PENDING_LOAD_MESSAGES, acceptanceOf, fetchPendingDetail, fetchPendingList, normalizePendingLoad, noticeMovementOf, pendingLoadsClient,
   type PendingLoadCounts, type PendingLoadList, type PendingVanLoadView,
 } from '../lib/pendingLoads';
 import {
-  DISPUTE_NOTE_MAX, PENDING_COUNTS_FRESH_MS, acceptBlocked, acceptBodyOf, disputeNoteOf, lineLotText, lineQtyText,
+  DISPUTE_NOTE_MAX, PENDING_COUNTS_FRESH_MS, acceptBlocked, acceptBodyOf, activeRowStale, disputeNoteOf, lineLotText, lineQtyText,
   pendingCacheEntry, pendingCacheOf, pendingHomeCardOf, pendingLoadsCacheKey, repPendingFailureOf, repPendingFailureText, repPendingSections,
 } from './vanLoadAcceptance';
 
@@ -176,7 +176,8 @@ export function PendingLoadsStrip({ onOpen }: { onOpen: () => void }) {
 
 // ───────── الشاشة ─────────
 
-type Active = { id: string; mode: 'accept' | 'dispute' } | null;
+/** اللوحة المفتوحة — ومعها revision الصفّ لحظة فتحها: القائمة تتجدّد تحتها، فصفٌّ عدّلته الإدارة يُغلقها */
+type Active = { id: string; mode: 'accept' | 'dispute'; revision: number } | null;
 type Net = { kind: 'ok' } | { kind: 'cached'; at: number } | { kind: 'none' };
 
 export default function RepPendingLoads({ onBack, onAccepted, onOpenVanStock, company = null, repName = '' }: {
@@ -236,6 +237,27 @@ export default function RepPendingLoads({ onBack, onAccepted, onOpenVanStock, co
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, [load]);
 
+  // رجوع التطبيق إلى الواجهة (لمس إشعار «تحميل بانتظار قبولك» والشاشة مفتوحة، أو عودةٌ بعد مدة) ⇒ القائمة من الخادم —
+  // لا أثناء قبولٍ أو اعتراضٍ جارٍ
+  const busyRef = useRef(false);
+  busyRef.current = busy;
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible' && !busyRef.current) void load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [load]);
+
+  // القائمة تجدّدت واللوحة مفتوحة: صفٌّ عدّلته الإدارة (revision آخر) أو لم يعد مفتوحاً ⇒ تُغلق اللوحة ويُمحى التوقيع —
+  // فلا يُقبل بتوقيعٍ رُسم والأصناف المعروضة غير التي يقرّ بها الآن (الخادم يحرس revision المرسَل، وهذا يحرس المرسِل)
+  useEffect(() => {
+    if (!active || !list) return;
+    const row = list.rows.find((r) => r.id === active.id);
+    if (!activeRowStale(active, row)) return;
+    setActive(null); setSignature(null);
+    setMsg({ ok: false, text: tr(row?.status === 'PENDING' ? PENDING_LOAD_MESSAGES.PENDING_LOAD_REVISED : PENDING_LOAD_MESSAGES.PENDING_LOAD_NOT_PENDING) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list]);
+
   // الموقع اختياريٌّ مع القبول: قراءةٌ تبدأ بفتح لوحة التوقيع فلا ينتظرها الإرسال — وتعذّرها لا يمنع شيئاً
   useEffect(() => {
     fix.current = null;
@@ -251,8 +273,8 @@ export default function RepPendingLoads({ onBack, onAccepted, onOpenVanStock, co
     return () => { alive = false; };
   }, [active]);
 
-  const open = (id: string, mode: 'accept' | 'dispute', initialNote = '') => {
-    setActive({ id, mode }); setSignature(null); setNote(initialNote); setMsg(null); setCardErr(null);
+  const open = (row: PendingVanLoadView, mode: 'accept' | 'dispute', initialNote = '') => {
+    setActive({ id: row.id, mode, revision: row.revision }); setSignature(null); setNote(initialNote); setMsg(null); setCardErr(null);
   };
 
   const replaceRow = (row: PendingVanLoadView | null) => {
@@ -370,7 +392,7 @@ export default function RepPendingLoads({ onBack, onAccepted, onOpenVanStock, co
     <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl px-3 py-2 space-y-1.5">
       <p className="flex items-start gap-1.5"><AlertTriangle size={14} className="shrink-0 mt-0.5" /> <span>{cardErr.text}</span></p>
       {cardErr.dispute && actionsOn && (
-        <button type="button" onClick={() => open(row.id, 'dispute')} className="font-bold underline">{tr('اعتراض')}</button>
+        <button type="button" onClick={() => open(row, 'dispute')} className="font-bold underline">{tr('اعتراض')}</button>
       )}
     </div>
   );
@@ -481,11 +503,11 @@ export default function RepPendingLoads({ onBack, onAccepted, onOpenVanStock, co
                 </div>
               ) : (
                 <div className="flex gap-2 pt-1">
-                  <button type="button" onClick={() => open(row.id, 'accept')} disabled={!actionsOn || busy || blocked}
+                  <button type="button" onClick={() => open(row, 'accept')} disabled={!actionsOn || busy || blocked}
                     className="flex-1 bg-[#E15A30] disabled:bg-[#E89B7E] text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 text-sm">
                     <PenLine size={18} /> {tr('قبول وتوقيع')}
                   </button>
-                  <button type="button" onClick={() => open(row.id, 'dispute')} disabled={!actionsOn || busy}
+                  <button type="button" onClick={() => open(row, 'dispute')} disabled={!actionsOn || busy}
                     className="px-4 rounded-xl border-2 border-red-200 text-red-600 disabled:opacity-50 text-sm font-bold flex items-center gap-1.5">
                     <MessageSquareWarning size={16} /> {tr('اعتراض')}
                   </button>
@@ -521,7 +543,7 @@ export default function RepPendingLoads({ onBack, onAccepted, onOpenVanStock, co
                   </div>
                 </div>
               ) : actionsOn && (
-                <button type="button" onClick={() => open(row.id, 'dispute', row.disputeNote ?? '')} className="text-xs font-semibold text-amber-800 underline">
+                <button type="button" onClick={() => open(row, 'dispute', row.disputeNote ?? '')} className="text-xs font-semibold text-amber-800 underline">
                   {tr('تعديل الاعتراض')}
                 </button>
               )}

@@ -47,8 +47,8 @@ import { VAN_DESTROY_REASON } from '../components/purchases/purchaseCalc';
 // «قبول المندوب للتحميل وتوقيعه» (طلب المالك ٢٢ نوفمبر ٢٠٢٦)
 import PendingVanLoadsPanel from '../components/PendingVanLoadsPanel';
 import {
-  PENDING_LOADS_KEY, PENDING_LOAD_TEXT, acceptanceOf, fetchPendingDetail, isPendingLoadResponse, pendingEditLines, pendingErrorText, pendingLoadErrorOf,
-  vanLoadAcceptanceOn, type LoadNoticeAcceptance, type PendingVanLoadView,
+  PENDING_LOADS_KEY, PENDING_LOAD_TEXT, acceptanceOf, fetchPendingDetail, isPendingLoadResponse, pendingEditLines, pendingLoadErrorOf,
+  pendingRefusalText, vanLoadAcceptanceOn, type LoadNoticeAcceptance, type PendingVanLoadView,
 } from '../lib/pendingLoads';
 
 /*
@@ -1403,7 +1403,8 @@ function LoadModal({ preselectRep, lotOn, whOn, acceptanceOn = false, pending = 
       const pe = pendingLoadErrorOf(e);
       if (pe?.code && (pe.code.startsWith('PENDING_LOAD_') || pe.code === 'API_KEY_FORBIDDEN')) {
         if (pending) qc.invalidateQueries({ queryKey: [PENDING_LOADS_KEY] });
-        toast.error(pendingErrorText(e, tr, 'تعذر الحفظ'), { duration: 8000 });
+        // أسطرٌ ستتغيّر عند التسجيل: تُسمّى أصنافها (warnings[].productId) فيعرف المدير ما يراجع
+        toast.error(pendingRefusalText(e, tr, 'تعذر الحفظ', pid => productOf(pid)?.name ?? rows.find(r => r.productId === pid)?.name), { duration: 8000 });
         return;
       }
       // بلا جوابٍ حاسم: الإعادة بالمحتوى نفسه مسموحة ولو قال رصيد المستودع المحدَّث غير ذلك
