@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Route as RouteIcon, Plus, Trash2, ArrowUp, ArrowDown, Search, X, CheckCircle2, Repeat, CalendarDays, Navigation, Undo2,
-  ListOrdered, Shuffle, CalendarCheck, Sun,
+  ListOrdered, Shuffle, CalendarCheck, Sun, MapPin, MapPinOff,
 } from 'lucide-react';
 import { repRouteApi, salesRepApi, customerApi } from '../api/client';
 import { useTr } from '../i18n/strings';
@@ -46,8 +46,22 @@ const errText = (e: unknown): string | undefined => (e as { response?: { data?: 
 const errCode = (e: unknown): string | undefined => (e as { response?: { data?: { code?: string } } })?.response?.data?.code;
 /* «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): للعرض وحده بجانب الاسم — customerName يبقى الاسم الخالص،
  * والحفظ يرسل customerId وحده. المحطّات المحفوظة تحمله customerNumber من GET /rep-routes/:id */
-interface Stop { customerId: string; customerName: string; customerNumber?: number | null; note?: string | null }
-interface Named { id: string; name: string; businessName?: string | null; number?: number | null }
+/** hasLoc: له موقع محفوظ (يُعرف من قائمة الاختيار لحظة الإضافة) — للعرض وحده، لا يُرسل مع الحفظ */
+interface Stop { customerId: string; customerName: string; customerNumber?: number | null; note?: string | null; hasLoc?: boolean }
+interface Named { id: string; name: string; businessName?: string | null; number?: number | null; lat?: number | null; lng?: number | null }
+
+/**
+ * علامة «الموقع» بجانب العميل في محرّر خط السير (طلب المالك ٢٥ نوفمبر ٢٠٢٦): دبّوس أخضر = له موقع محفوظ (لوكيشن)،
+ * ودبّوس مشطوب رمادي = بلا موقع — فيعرف المشرف من يُرتَّب بالمسافة ويظهر على الخريطة ومن يحتاج تثبيت موقعه.
+ * on=undefined (المواقع لم تُجلب بعد أو تعذّرت) لا يُرسم شيئاً: لا نقول «بلا موقع» عن عميلٍ لم نعرف حاله.
+ */
+function LocMark({ on, tr }: { on: boolean | undefined; tr: (s: string) => string }) {
+  if (on === undefined) return null;
+  const label = on ? tr('له موقع محفوظ') : tr('بلا موقع');
+  return on
+    ? <MapPin size={14} className="text-green-600 shrink-0" aria-label={label} role="img" data-loc="on"><title>{label}</title></MapPin>
+    : <MapPinOff size={14} className="text-gray-400 shrink-0" aria-label={label} role="img" data-loc="off"><title>{label}</title></MapPinOff>;
+}
 /** موقع عميل من /customers/locations — المفتاح نفسه الذي تقرؤه خريطة التتبّع فيُعاد استعمال ما جُلب */
 interface CustomerLoc { id: string; lat: number; lng: number }
 
@@ -430,6 +444,17 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
     queryKey: ['customers-for-route', search],
     queryFn: async () => (await customerApi.list({ search, limit: 50 })).data.data as Named[],
   });
+  /* مواقع العملاء المحفوظة لعلامة «الموقع» في «ترتيب الزيارة» — المفتاح نفسه الذي يقرؤه «ترتيب بالمسافة» وخريطة التتبّع،
+   * فلا جلب مكرّر. وقائمة الاختيار تعرف موقع كل عميل من صفّه نفسه (lat/lng) */
+  const locQ = useQuery({
+    queryKey: ['customer-locations'],
+    queryFn: async () => (await customerApi.locations()).data.data as CustomerLoc[],
+    staleTime: 60_000,
+  });
+  const locatedIds = useMemo(() => new Set((locQ.data ?? []).map(l => l.id)), [locQ.data]);
+  // المسار يعيد ٥٠٠٠ موقعاً على الأكثر: قائمةٌ بلغت السقف قد تُسقط عميلاً له موقع، فلا نحكم بـ«بلا موقع» حينها
+  const locComplete = locQ.isSuccess && (locQ.data?.length ?? 0) < 5000;
+  const stopHasLoc = (s: Stop): boolean | undefined => (s.hasLoc || locatedIds.has(s.customerId) ? true : locComplete ? false : undefined);
   /**
     * التحميل الابتدائيّ في تأثيرٍ يعمل **مرّة واحدة**، لا في queryFn.
     *
@@ -650,6 +675,14 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
         <div className="card p-0 overflow-hidden">
           <div className="px-4 py-3 border-b border-[#F1EBDF] font-bold text-sm">
             {tr('ترتيب الزيارة')} ({stops.length})
+            {(() => {
+              const missing = stops.filter(s => stopHasLoc(s) === false).length;
+              return missing > 0 && (
+                <span className="ms-2 text-[11px] font-normal text-[#9A8F7E] inline-flex items-center gap-1" data-loc-missing="">
+                  <MapPinOff size={12} /> {missing} {tr('بلا موقع')}
+                </span>
+              );
+            })()}
           </div>
           {!stops.length ? (
             <p className="p-6 text-center text-xs text-gray-400">{tr('أضف عملاء من القائمة المجاورة')}</p>
@@ -662,6 +695,7 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
                     {s.customerNumber != null && <><span dir="ltr" className="tabular-nums text-[#9A8F7E]">{formatCustomerNumber(s.customerNumber)}</span>{' · '}</>}
                     {s.customerName}
                   </span>
+                  <LocMark on={stopHasLoc(s)} tr={tr} />
                   <button onClick={() => move(i, -1)} disabled={i === 0} className="p-1 text-[#6E6557] disabled:opacity-30"><ArrowUp size={14} /></button>
                   <button onClick={() => move(i, 1)} disabled={i === stops.length - 1} className="p-1 text-[#6E6557] disabled:opacity-30"><ArrowDown size={14} /></button>
                   <button onClick={() => setStops(v => v.filter(x => x.customerId !== s.customerId))} className="p-1 text-red-600"><Trash2 size={13} /></button>
@@ -694,17 +728,19 @@ function RouteEditor({ id, onDone }: { id?: string; onDone: () => void }) {
               : [...custQ.data].sort((a, b) => Number(matchesCustomerNumber(search, b.number)) - Number(matchesCustomerNumber(search, a.number))).map(c => {
                 const on = chosen.has(c.id);
                 const label = c.businessName || c.name;
+                const hasLoc = c.lat != null && c.lng != null;
                 return (
                   <button
                     key={c.id} disabled={on}
-                    onClick={() => setStops(v => [...v, { customerId: c.id, customerName: label, customerNumber: c.number ?? null }])}
+                    onClick={() => setStops(v => [...v, { customerId: c.id, customerName: label, customerNumber: c.number ?? null, hasLoc }])}
                     className={`w-full text-right px-4 py-2.5 text-sm flex items-center gap-2 ${on ? 'bg-[#F7FBF8] text-gray-400' : 'hover:bg-[#FAF7F0] text-[#1F1A13]'}`}
                   >
                     {on ? <CheckCircle2 size={14} className="text-green-600 shrink-0" /> : <Plus size={14} className="text-[#E15A30] shrink-0" />}
-                    <span className="truncate">
+                    <span className="truncate flex-1">
                       {c.number != null && <><span dir="ltr" className="tabular-nums text-[#9A8F7E]">{formatCustomerNumber(c.number)}</span>{' · '}</>}
                       {label}
                     </span>
+                    <LocMark on={hasLoc} tr={tr} />
                   </button>
                 );
               })}

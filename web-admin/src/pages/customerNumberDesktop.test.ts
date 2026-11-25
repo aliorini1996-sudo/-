@@ -116,12 +116,12 @@ for (const [file, anchor] of [
 test('خطوط السير: الرقم بجانب الاسم في النتائج والمختارين، والاسم خالص، والحفظ بالمعرّف وحده', () => {
   const s = read('pages', 'RepRoutesPage.tsx');
   assert.match(s, /import \{ formatCustomerNumber, matchesCustomerNumber \} from '\.\.\/lib\/customerNumber';/);
-  assert.match(s, /interface Stop \{ customerId: string; customerName: string; customerNumber\?: number \| null; note\?: string \| null \}/);
-  assert.match(s, /interface Named \{ id: string; name: string; businessName\?: string \| null; number\?: number \| null \}/);
+  assert.match(s, /interface Stop \{ customerId: string; customerName: string; customerNumber\?: number \| null; note\?: string \| null(; hasLoc\?: boolean)? \}/);
+  assert.match(s, /interface Named \{ id: string; name: string; businessName\?: string \| null; number\?: number \| null(; lat\?: number \| null; lng\?: number \| null)? \}/);
   // المحفوظة: customerNumber من GET /rep-routes/:id
   assert.ok(s.includes('customerNumber: s.customerNumber ?? null'));
   // المضاف من البحث: الاسم (أو النشاط) خالصاً والرقم في حقله
-  assert.ok(s.includes('{ customerId: c.id, customerName: label, customerNumber: c.number ?? null }'));
+  assert.ok(s.includes('{ customerId: c.id, customerName: label, customerNumber: c.number ?? null, hasLoc }'), 'الرقم يُحمل مع المختار (وعلامة الموقع للعرض)');
   assert.ok(s.includes('const label = c.businessName || c.name;'), 'customerName صار يحمل الرقم');
   // «ترتيب بالمسافة» لا يُسقط الرقم
   assert.ok(s.includes('r.ordered.map(({ customerId, customerName, customerNumber, note }) => ({ customerId, customerName, customerNumber, note }))'));

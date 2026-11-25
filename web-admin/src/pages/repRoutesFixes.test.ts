@@ -93,3 +93,19 @@ test('حذف العميل لا يُمنع بمحطّة في خط سير', () => 
   // محطّةٌ ليست سجلّاً مالياً، وRestrict كان يمنع حذف العميل أبداً برسالة خام
   assert.match(block, /references: \[id\], onDelete: Cascade/, 'حذف العميل ما زال ممنوعاً بمحطّة');
 });
+
+test('علامة «الموقع» في محرّر خط السير: دبّوس لكل عميل في القائمتين، ولا «بلا موقع» قبل معرفة الحال (طلب المالك ٢٥ نوفمبر ٢٠٢٦)', () => {
+  const s = read('src', 'pages', 'RepRoutesPage.tsx');
+  // قائمة الاختيار تعرف الموقع من صفّ العميل نفسه، وتحمله إلى «ترتيب الزيارة» عند الإضافة
+  assert.match(s, /const hasLoc = c\.lat != null && c\.lng != null;/);
+  assert.match(s, /customerNumber: c\.number \?\? null, hasLoc \}/);
+  assert.match(s, /<LocMark on=\{hasLoc\} tr=\{tr\} \/>/);
+  // «ترتيب الزيارة» من مواقع العملاء المحفوظة (مفتاح «ترتيب بالمسافة» والخريطة نفسه) — ومجهول الحال لا يُرسم
+  assert.match(s, /queryKey: \['customer-locations'\]/);
+  assert.match(s, /<LocMark on=\{stopHasLoc\(s\)\} tr=\{tr\} \/>/);
+  assert.match(s, /if \(on === undefined\) return null;/);
+  // سقف المسار ٥٠٠٠: قائمةٌ بلغته لا يُحكم منها بـ«بلا موقع»
+  assert.match(s, /locQ\.isSuccess && \(locQ\.data\?\.length \?\? 0\) < 5000/);
+  // العلامة للعرض وحده: الحفظ يرسل customerId وnote فقط
+  assert.match(s, /stops: stops\.map\(s => \(\{ customerId: s\.customerId, note: s\.note \?\? null \}\)\)/);
+});

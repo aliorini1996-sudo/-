@@ -3088,6 +3088,8 @@ export const PHRASES: Record<string, { en: string; fr: string; tr: string; zh: s
   'بلا مدى محدد يعرض الخادم آخر تسعين يوما فقط': { en: 'With no range set the server returns the last ninety days only', fr: 'Sans periode definie le serveur affiche uniquement les quatre-vingt-dix derniers jours', tr: 'Aralik belirtilmezse sunucu yalnizca son doksan gunu gosterir', zh: '未设定区间时服务器仅显示最近九十天' },
   'بلا مدى محدد يعرض الخادم آخر سبعة أيام': { en: 'With no range set the server returns the last seven days', fr: 'Sans periode definie le serveur affiche les sept derniers jours', tr: 'Aralik belirtilmezse sunucu son yedi gunu gosterir', zh: '未设定区间时服务器显示最近七天' },
   'بلا موقع': { en: 'No location', fr: 'Sans position', tr: 'Konumsuz', zh: '无位置' },
+  // علامة «الموقع» في محرّر خط السير (طلب المالك ٢٥ نوفمبر ٢٠٢٦) — pages/RepRoutesPage.tsx LocMark
+  'له موقع محفوظ': { en: 'Has a saved location', fr: 'Position enregistrée', tr: 'Kayıtlı konumu var', zh: '已保存位置' },
   'بلا نشاط': { en: 'No activity', fr: 'Sans activite', tr: 'Etkinlik yok', zh: '无活动' },
   'بيانات الصنف': { en: 'Item details', fr: 'Informations article', tr: 'Urun bilgileri', zh: '商品资料' },
   'تحديد الكل وإلغاء الكل لا يمسان قيد الموقع لأنه يسلب لا يمنح': { en: 'Select all and Deselect all do not affect the location restriction, since it limits the rep rather than granting a permission', fr: 'Tout selectionner et tout effacer ne touchent pas la restriction de position car elle retire au lieu de accorder', tr: 'Tumunu sec ve tumunu kaldir konum kisitina dokunmaz cunku bu kisit yetki vermez, geri alir', zh: '全选与全不选不影响位置限制，因为它是收回权限而非授予权限' },
