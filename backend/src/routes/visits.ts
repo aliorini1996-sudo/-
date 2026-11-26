@@ -12,6 +12,11 @@ import { readLivePoint } from '../middleware/repLiveLocation';
 import {
   DEVICE_CLOCK_SKEW_TOLERANCE_MS, DEVICE_NOW_HEADER, OFFLINE_INVOICE_DATE_MAX_AGE_MS, deviceClockSkewMs, headerText,
 } from '../services/offlineInvoiceDate';
+// «أرشيف العميل — السجل الزمني»: كل زيارة حدثٌ في سجلّ عميلها الثابت — بلحظةٍ محصورة (boundedActivityAt)
+import { activityMeta, boundedActivityAt, recordActivityInTx } from '../services/customerActivityEvents';
+
+/** مهلة معاملة حفظ الزيارة وحدثها — الصور (حتى ٨ × ٢٫٥ م.ب) تُكتب داخلها، فمهلة Prisma الافتراضية (٥ ث) تضيق عنها */
+const VISIT_TX = { maxWait: 10_000, timeout: 60_000 } as const;
 
 /**
  * الزيارات الميدانية — يسجّلها المندوب عند العميل (ملاحظة + صور + موقع GPS)، وتراها
@@ -110,6 +115,24 @@ export function repVisitMoment(sent: unknown, deviceNow: string | null, now: Dat
   return { createdAt: new Date(now.getTime()), shiftMs: now.getTime() - raw };
 }
 
+/**
+ * لحظة زيارةٍ تسجّلها الإدارة أو مفتاح API (body.createdAt): التسجيل المتأخّر مقبولٌ كما كان (زيارة الشهر الماضي تُكتب بلحظتها —
+ * اختبار R4)، **إلا المستقبل**: لحظةٌ بعد «الآن» بأكثر من خمس دقائق (DEVICE_CLOCK_SKEW_TOLERANCE_MS) تصير «الآن» وshiftMs ما نُقلت به
+ * (يُنقل به طابعا المؤقّت معها فتبقى مدّتها)، والتالفة أو الغائبة null ⇒ ساعة الخادم (كانت Invalid Date تُسقط الطلب ٥٠٠).
+ * وسطر «أرشيف العميل» لا يأخذ لحظةً أقدم من نافذة العمل دون اتصال (boundedActivityAt) — المتأخّر يُسجَّل بلحظة تسجيله ولحظته في
+ * التفاصيل. نقيّة.
+ */
+export function staffVisitMoment(sent: unknown, now: Date): { createdAt: Date | null; shiftMs: number } {
+  const raw = typeof sent === 'string' && sent.trim() !== '' ? new Date(sent).getTime() : NaN;
+  if (!Number.isFinite(raw)) return { createdAt: null, shiftMs: 0 };
+  const n = now.getTime();
+  if (raw > n + DEVICE_CLOCK_SKEW_TOLERANCE_MS) return { createdAt: new Date(n), shiftMs: n - raw };
+  return { createdAt: new Date(raw), shiftMs: 0 };
+}
+
+/** طابعٌ لا يتجاوز «الآن» بأكثر من تسامح ساعة الجهاز — لطابعَي مؤقّت زيارة الإدارة ومفتاح API */
+const notFuture = (t: number, now: Date): boolean => Number.isFinite(t) && t <= now.getTime() + DEVICE_CLOCK_SKEW_TOLERANCE_MS;
+
 // المندوب يسجّل زيارة (مع صورها) — أو الإدارة نيابةً بتحديد المندوب
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -166,11 +189,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       return;
     }
 
-    // R4: لحظة زيارة المندوب بنافذتها (repVisitMoment) — والإدارة ومفتاح API كما كانا (لحظتهما كما أُرسلت). null ⇒ ليست للمندوب
+    // R4: لحظة زيارة المندوب بنافذتها (repVisitMoment) — والإدارة ومفتاح API لحظتهما كما أُرسلت إلا المستقبل والتالفة
+    // (staffVisitMoment). moment null ⇒ ليست للمندوب
     const clockNow = new Date();
     const moment = req.user!.role === 'SALES_REP' && !req.user?.apiKeyId
       ? repVisitMoment(body.createdAt, headerText(req.headers[DEVICE_NOW_HEADER]), clockNow) : null;
-    const visitCreatedAt = moment ? moment.createdAt : (body.createdAt ? new Date(body.createdAt) : null);
+    const staffMoment = moment ? null : staffVisitMoment(body.createdAt, clockNow);
+    const visitCreatedAt = moment ? moment.createdAt : (staffMoment?.createdAt ?? null);
 
     // مدّة الزيارة تُحسب على الخادم من الطابعين — لا يُوثَق برقم العميل.
     // إن غاب أحد الطابعين فهي زيارة ملاحظة عادية بلا توقيت.
@@ -183,10 +208,14 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       });
       // المندوب: الطابعان يُنقلان مع لحظة الزيارة (المدّة لا تتغيّر) ويُحصران بنافذتها — وإلا نقل مؤقّتٌ بطابعين يختارهما زيارتَه
       // إلى شهرٍ آخر في تقارير الساعات (حقل التجميع startedAt) فيُهمل كالمدّة الفاسدة
-      const shift = moment?.shiftMs ?? 0;
+      // والإدارة ومفتاح API: يُنقلان مع لحظةٍ مستقبلية صُحّحت، وطابعٌ مستقبليّ بعدها يُهمل المؤقّت كذلك
+      const shift = moment?.shiftMs ?? staffMoment?.shiftMs ?? 0;
       const s = new Date(new Date(body.startedAt).getTime() + shift);
       const e = new Date(new Date(body.endedAt).getTime() + shift);
-      if (d.ok && (!moment || (inRepVisitWindow(s.getTime(), clockNow) && inRepVisitWindow(e.getTime(), clockNow)))) {
+      const inBounds = moment
+        ? inRepVisitWindow(s.getTime(), clockNow) && inRepVisitWindow(e.getTime(), clockNow)
+        : notFuture(s.getTime(), clockNow) && notFuture(e.getTime(), clockNow);
+      if (d.ok && inBounds) {
         startedAt = s;
         endedAt = e;
         durationSec = d.durationSec;
@@ -197,28 +226,58 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     // الفرق: فريق الزيارة كفريق الفاتورة والسند — المُرسل إن كان من فرق المندوب، وإلا فريقه الوحيد، وإلا «بلا فريق»
     // (مؤقّت زيارةٍ بدأ قبل وصول الفرق للتطبيق يُرسل بلا فريق فيُحسب لفريقه الوحيد)
-    const visitTeamId = resolveDocTeam(await prisma.salesRep.findFirst({
+    // واسم المندوب في السؤال نفسه: حدث الزيارة في «أرشيف العميل» يسمّيه (والإدارة قد تسجّلها نيابةً عنه)
+    const visitRep = await prisma.salesRep.findFirst({
       where: { id: salesRepId, tenantId: tid },
-      select: { tenant: { select: { settings: { select: { teamsEnabled: true } } } }, teamMemberships: { select: teamMembershipSelectFor(supervisorViewerOf(req.user)) } },
-    }), body.teamId);
-    const visit = await prisma.repVisit.create({
-      data: {
-        tenantId: tid,
-        salesRepId,
-        ...(visitTeamId && { teamId: visitTeamId }),
-        customerId,
-        note: body.note || null,
-        lat: body.lat ?? null,
-        lng: body.lng ?? null,
-        clientRef: body.clientRef,
-        startedAt,
-        endedAt,
-        durationSec,
-        ...(visitCreatedAt && { createdAt: visitCreatedAt }),
-        photos: body.photos?.length ? { create: body.photos.map((data) => ({ data })) } : undefined,
-      },
-      include: { _count: { select: { photos: true } } },
+      select: { name: true, tenant: { select: { settings: { select: { teamsEnabled: true } } } }, teamMemberships: { select: teamMembershipSelectFor(supervisorViewerOf(req.user)) } },
     });
+    const visitTeamId = resolveDocTeam(visitRep, body.teamId);
+    // الزيارة وصورها وحدثها في «أرشيف العميل» معاملةٌ واحدة (QA ٢٧ نوفمبر): يُلتزمان معاً أو يُتراجعان معاً — لا زيارة بلا حدثها
+    // (كان الحدث بعد الالتزام فيضيع لو تعذّر) ولا حدث لزيارةٍ لم تُحفظ. ورفعٌ متزامن بـclientRef نفسه يصطدم بالفريد فتتراجع
+    // معاملته كلها بحدثها. والمقبض باسم prisma داخلها: كل كتابةٍ أدناه بمقبض المعاملة. مهلةٌ أوسع للصور (حتى ٨ صور)
+    const visit = await prisma.$transaction(async (prisma) => {
+      const created = await prisma.repVisit.create({
+        data: {
+          tenantId: tid,
+          salesRepId,
+          ...(visitTeamId && { teamId: visitTeamId }),
+          customerId,
+          note: body.note || null,
+          lat: body.lat ?? null,
+          lng: body.lng ?? null,
+          clientRef: body.clientRef,
+          startedAt,
+          endedAt,
+          durationSec,
+          ...(visitCreatedAt && { createdAt: visitCreatedAt }),
+          photos: body.photos?.length ? { create: body.photos.map((data) => ({ data })) } : undefined,
+        },
+        include: { _count: { select: { photos: true } } },
+      });
+
+      // «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): الزيارة حدثٌ في سجلّ العميل بلحظتها (لحظة الجهاز للمحفوظة دون
+      // اتصال) ومدّتها وملاحظتها وعدد صورها — في معاملة كتابتها نفسها؛ وتعذّر الحدث يُلغي الزيارة فيعيدها الجهاز (clientRef).
+      // ولحظة السطر محصورةٌ بنافذة العمل دون اتصال (boundedActivityAt): زيارةٌ سجّلتها الإدارة أو المفتاح متأخّرةً تُسجَّل بلحظة تسجيلها
+      // ولحظتها في التفاصيل (visitAt) — فلا يصنع مُرسِلٌ سطراً أقدم من تاريخ العميل يُخفي اشتقاقه، ولا سطراً يعلو الخطّ الزمني أبداً
+      const visitAt = created.createdAt instanceof Date ? created.createdAt : null;
+      const logAt = boundedActivityAt(visitAt, clockNow);
+      await recordActivityInTx(prisma, {
+        tenantId: tid, customerId, action: 'VISIT_RECORDED', ...activityMeta(req), refType: 'VISIT', refId: created.id,
+        ...(logAt && { at: logAt }),
+        data: {
+          ...(visitAt && !logAt && { visitAt, backdated: true }),
+          salesRepId, ...(visitRep?.name && { repName: visitRep.name }),
+          ...(durationSec != null && { durationSec }),
+          ...(startedAt && { startedAt }), ...(endedAt && { endedAt }),
+          ...(body.note && { note: body.note }),
+          photosCount: created._count?.photos ?? body.photos?.length ?? 0,
+          ...(hasVisitCoords({ lat: body.lat, lng: body.lng }) && { hasLocation: true }),
+          ...(visitTeamId && { teamId: visitTeamId }),
+          ...(replay && { offline: true }),
+        },
+      });
+      return created;
+    }, VISIT_TX);
 
     res.status(201).json({ success: true, data: visit });
   } catch (err) { next(err); }

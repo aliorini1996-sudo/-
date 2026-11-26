@@ -29,6 +29,8 @@ import { cancelCustodyAccessFor } from '../services/receiptCancelSource';
 import { adminScopeEnabled } from '../services/adminScope';
 // «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): البحث برقم العميل التسلسليّ مطابقةً تامّة
 import { customerRelNumberOr } from '../services/customerNumber';
+// «أرشيف العميل — السجل الزمني»: إصدار السند وإلغاؤه يُلحقان بسجلّ العميل داخل معاملتيهما
+import { docActivityMeta, receiptEventInput, recordDocActivity } from '../services/customerActivityDocs';
 
 const router = Router();
 router.use(authenticate);
@@ -326,8 +328,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       // تلقائياً على فاتورة لم تعتمدها الهيئة بعد
       where: { tenantId: tid, customerId, status: 'CONFIRMED', type: 'CREDIT', remainingAmt: { gt: 0.004 }, ...ALLOCATION_ALLOWED_WHERE },
       orderBy: { invoiceDate: 'asc' },
-      select: { id: true, remainingAmt: true, invoiceDate: true },
+      // number: رقم كل فاتورةٍ في توزيع السند لحدثه في سجلّ العميل («أرشيف العميل») — من الاستعلام نفسه بلا قراءةٍ زائدة
+      select: { id: true, remainingAmt: true, invoiceDate: true, number: true },
     });
+    const invoiceNoById = new Map(openInvoices.map(i => [i.id, i.number ?? null]));
     const filled = fillAllocationsFifo(
       body.amount,
       allocations as { invoiceId: string; amount: number }[],
@@ -338,6 +342,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     // D11: السند المؤرَّخ بلحظة الجهاز يأخذ تسلسل شهره بتوقيت الشركة (utils/helpers prefixFor) — وغيره كما كان
     const numTz = offlineAt ? await tenantTz(tid).catch(() => undefined) : undefined;
+    // «أرشيف العميل»: فاعل الطلب ومصدره لحدث السند داخل المعاملة أدناه
+    const receiptActivity = docActivityMeta(req);
     const receipt = await withNumberRetry(async () => {
     const number = await generateReceiptNumber(tid, docDate, numTz); // البادئة من تاريخ السند لا وقت الرفع
     return prisma.$transaction(async tx => {
@@ -425,6 +431,18 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       }
 
       await postReceiptEntries(tx as never, tid, rcp.id, customerId, body.amount, docDate);
+      // «أرشيف العميل»: السند بفاعله وتوزيعه (وما سُدّد به كاملاً) — يلتزم مع السند أو يُلغى معه؛ ولحظته لحظة الجهاز للمرفوع دون اتصال
+      await recordDocActivity(tx, receiptEventInput({
+        tenantId: tid, action: 'RECEIPT_ISSUED', meta: receiptActivity, receipt: rcp, at: offlineAt,
+        allocations: allocations.map(a => ({
+          invoiceId: a.invoiceId, invoiceNo: invoiceNoById.get(a.invoiceId) ?? null, amount: a.amount,
+          settled: clean((remainingById.get(a.invoiceId) ?? 0) - a.amount) <= 0.004,
+        })),
+        data: {
+          ...(body.photos?.length && { photosCount: body.photos.length }),
+          ...(offlineAt && { offline: true }),
+        },
+      }));
       return rcp;
     });
     });
@@ -434,7 +452,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // عمدا وbest-effort: فشل الإماتة لا يفشل سندا صحيحا، والتأكيد يعالج الفائض
     if (allocations.length) {
       import('../services/paylink')
-        .then(m => Promise.all(allocations.map(a => m.expireStaleLinks(tid, a.invoiceId))))
+        .then(m => Promise.all(allocations.map(a => m.expireStaleLinks(tid, a.invoiceId, undefined, { activity: receiptActivity, reason: 'COLLECTED' }))))
         .catch(() => { /* best-effort */ });
     }
 
@@ -495,7 +513,8 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
     const tid = tenantId(req);
     const receipt = await prisma.receipt.findFirst({
       where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) },
-      include: { invoiceItems: true },
+      // رقم فاتورة كل تخصيص لحدث الإلغاء في سجلّ العميل («أرشيف العميل») — من الاستعلام نفسه
+      include: { invoiceItems: { include: { invoice: { select: { number: true } } } } },
     });
     if (!receipt) { res.status(404).json({ success: false, message: 'السند غير موجود' }); return; }
     if (receipt.status === 'CANCELLED') { res.status(400).json({ success: false, message: 'السند ملغى مسبقا' }); return; }
@@ -510,6 +529,7 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
     // null ⇒ لا كتابة: الإلغاء حرفياً كما كان (غير المربوطة بلا حقلٍ في الجسم، والسند الإلكتروني)
     const refund = await resolveCancelRefund(prisma, tid, receipt, { body: req.body, role: req.user?.role, access: cancelAccessOf(req) });
 
+    const cancelActivity = docActivityMeta(req);
     const updated = await prisma.$transaction(async tx => {
       // الفحص أعلاه على قراءةٍ سابقة للمعاملة: مقارنةٌ وتبديل على الحالة أولاً، وإلا أعاد طلبان متقاربان المبلغ مرّتين
       if (!(await claimReceiptCancel(tx, tid, receipt.id))) throw new CancelRefused('السند ملغى مسبقا');
@@ -528,6 +548,15 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
           data: JSON.stringify({ receiptId: rcp.id }),
         },
       });
+      // «أرشيف العميل»: الإلغاء بفاعله، وما أُعيد من تخصيصه إلى الفواتير، ومن أين رُدّ المال — في معاملة الإلغاء نفسها
+      await recordDocActivity(tx, receiptEventInput({
+        tenantId: tid, action: 'RECEIPT_CANCELLED', meta: cancelActivity, receipt: rcp,
+        allocations: receipt.invoiceItems.map(a => ({ invoiceId: a.invoiceId, invoiceNo: a.invoice?.number ?? null, amount: Number(a.amount) })),
+        data: {
+          ...(refund && { refundFrom: refund.cancelRefundFrom }),
+          ...(typeof req.body?.reason === 'string' && { reason: req.body.reason.trim().slice(0, 300) }),
+        },
+      }));
       return rcp;
     });
 

@@ -23,6 +23,9 @@ import { chainFrom } from '../services/baseConversions';
 import { duplicateNameMatches, duplicateNameWarnings, productNameKey } from '../services/productNames';
 import { bucketRemaining, foldStock } from './vanStock';
 import { composeWarehouse, UNIT_SELECT } from '../services/warehouseStock';
+// «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): حذف الصنف يحذف أسعار العملاء الخاصة له، وتحويل وحدة أساسه يقسمها على
+// المعامل — حدثٌ لكل عميلٍ له سعرٌ خاصّ للصنف، في معاملة الإجراء نفسها
+import { activityMeta, productBaseConvertedPriceEvents, productDeletedPriceEvents, recordActivityInTx } from '../services/customerActivityEvents';
 
 const router = Router();
 router.use(authenticate); // القراءة متاحة للمندوب (للبحث عند إصدار الفاتورة)؛ الكتابة للإدارة فقط
@@ -1245,6 +1248,8 @@ router.delete('/:id', requireAdmin, async (req: AuthRequest, res: Response, next
       if (!locked.length) return null;
       // «ربط الدفاتر» (قرار المالك OD1): بعد القفل — فلا يُكتب بندٌ للصنف بين الفحص والحذف
       if (await linkedProductDeleteBlocked(tx, tid, req.params.id)) return LINKED_BLOCKED;
+      // «أرشيف العميل»: أسعار العملاء الخاصة للصنف تُحذف معه — حدثٌ لكل عميلٍ قبل الحذف وفي معاملته
+      await recordActivityInTx(tx, await productDeletedPriceEvents(tx, tid, req.params.id, activityMeta(req)));
       return hardDeleteLocked(tx, tid, req.params.id);
     }, { maxWait: 10_000, timeout: 60_000 }); // قد ينتظر القفلُ عمليةَ لوطٍ جارية (D13)، والحذف يمسّ حركات الصنف
     if (archived === null) { res.status(404).json({ success: false, message: 'الصنف غير موجود' }); return; }
@@ -1867,10 +1872,15 @@ router.post('/:id/convert-base', requireAdmin, async (req: AuthRequest, res: Res
       // وحدود الشرائح بالأساس × F؛ والشريحة التي لم يملأها الترحيل بعد (baseMinQty = 0 وminQty ≠ 0) تُحسب من القديم.
       // والحدّان القديمان (minQty/maxQty، للعرض القائم) × F أيضاً — كلاهما بالأساس؛ والطرف الأيمن في SQL يقرأ القيم القديمة،
       // فشرط CASE لـbaseMinQty يرى minQty قبل ضربه
+      // «أرشيف العميل»: سعر كل عميلٍ خاصّ للصنف قبل القسمة — حدثٌ لكل عميل بالسعر قبل وبعد والوحدتين، في المعاملة نفسها
+      const priceEvents = await productBaseConvertedPriceEvents(tx, tid, pid, activityMeta(req), {
+        factor: F, fromUnit: oldUnit, toUnit: body.newBaseName.trim(),
+      });
       const customerPrices = await tx.customerPrice.updateMany({
         where: { productId: pid, product: { tenantId: tid } },
         data: { price: { divide: F } },
       });
+      await recordActivityInTx(tx, priceEvents);
       // «أنواع الأسعار»: سعر الصنف في كل نوعٍ لوحدة الأساس كسعر العميل — ÷ F بلا تقريب فيبقى سعر كرتونه في النوع كما هو
       const priceListItems = await tx.priceListItem.updateMany({
         where: { productId: pid, tenantId: tid },

@@ -11,6 +11,7 @@
 import prisma from '../config/database';
 import { AuthRequest } from '../types';
 import { adminCustomerFilter } from './adminScope';
+import { SYSTEM_ACTOR, recordActivityInTx, type ActivityMeta } from './customerActivityEvents';
 
 /**
  * قيد Prisma على العملاء.
@@ -97,11 +98,45 @@ export function redactCustomer<T>(customer: T): T {
 /**
  * يضمن وجود سجلّ إسناد بين المندوب والعميل (يُستدعى عند إنشاء المندوب لعميل).
  * آمن للتكرار: القيد الفريد [customerId, salesRepId] يمنع الازدواج.
+ *
+ * «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): الإسناد الجديد وحده حدث CUSTOMER_ASSIGNED في سجلّ العميل (AUTO)
+ * بفاعل الطلب (المندوب الذي فتح العميل)، وإلا «النظام». و«جديد» تقوله الكتابة نفسها لا نافذةٌ زمنية (كانت ٥ ثوانٍ على createdAt
+ * فتعدّ إعادة رفعٍ بعد ثانيتين إسناداً جديداً وتكرّر حدثه في سجلٍّ لا يُمحى):
+ *   • createdNow — العميل أنشأه هذا الطلب نفسه (التزم إنشاؤه للتوّ): الإسناد التلقائي جزءٌ من إنشائه فحدثه هنا مرّةً واحدة،
+ *     وupsert آمنٌ للتكرار.
+ *   • غيره (إعادة رفعٍ بـclientRef لعميلٍ قائم) — إدراجٌ ذرّي ON CONFLICT DO NOTHING (createMany skipDuplicates): count = 1 ⇒ هذا
+ *     النداء أنشأ الإسناد (إنشاءٌ سابقٌ انقطع قبل إسناده) فحدثه؛ ٠ ⇒ قائمٌ لا حدث له.
+ * يبقى سباقٌ ضيّق واحد: إعادة رفعٍ تُدرج الإسناد في أجزاء الثانية بين التزام الإنشاء الأصليّ وإسناده ⇒ حدثان (والبديل حذف حدث
+ * الإعادة يُضيّع إسناد إنشاءٍ انقطع قبل إسناده — والفجوة في سجلٍّ «بلا استثناء» أسوأ من سطرٍ مكرّر).
+ * الإسناد يُكتب بعد التزام إنشاء العميل (لا داخل معاملته — اتصالٌ آخر)، لكن **الإسناد وحدثه معاملةٌ واحدة** (QA ٢٧ نوفمبر): يُلتزمان
+ * معاً أو يُتراجعان معاً — لا إسناد بلا حدثه (كان الحدث بعد الالتزام فيضيع لو تعذّر)، وتعذّر الحدث يُلغي الإسناد فتُعيده إعادة الرفع.
+ * واسم المندوب يُقرأ قبل المعاملة (تعذّره لا يُفشل شيئاً: الحدث بلا اسم).
  */
-export async function ensureAssignment(tid: string, customerId: string, salesRepId: string): Promise<void> {
-  await prisma.customerAssignment.upsert({
-    where: { customerId_salesRepId: { customerId, salesRepId } },
-    create: { tenantId: tid, customerId, salesRepId, source: 'AUTO' },
-    update: {},
+export async function ensureAssignment(
+  tid: string, customerId: string, salesRepId: string, meta?: ActivityMeta | null, opts: { createdNow?: boolean } = {},
+): Promise<void> {
+  const m = meta ?? { actor: SYSTEM_ACTOR, source: 'system' };
+  const rep = await prisma.salesRep.findFirst({ where: { id: salesRepId, tenantId: tid }, select: { name: true } }).catch(() => null);
+  await prisma.$transaction(async (tx) => {
+    let created: boolean;
+    if (opts.createdNow) {
+      await tx.customerAssignment.upsert({
+        where: { customerId_salesRepId: { customerId, salesRepId } },
+        create: { tenantId: tid, customerId, salesRepId, source: 'AUTO' },
+        update: {},
+      });
+      created = true;
+    } else {
+      const r = await tx.customerAssignment.createMany({
+        data: [{ tenantId: tid, customerId, salesRepId, source: 'AUTO' }],
+        skipDuplicates: true,
+      });
+      created = (r as { count?: unknown } | null | undefined)?.count === 1;
+    }
+    if (!created) return;
+    await recordActivityInTx(tx, {
+      tenantId: tid, customerId, action: 'CUSTOMER_ASSIGNED', actor: m.actor, source: m.source, refType: 'ASSIGNMENT', refId: salesRepId,
+      data: { salesRepId, ...(rep?.name && { repName: rep.name }), mode: 'AUTO' },
+    });
   });
 }

@@ -36,6 +36,9 @@ import { actorOf, authenticate, requireAdmin, requireAdminPermission, requireSal
 import { customerScope, isolationEnabled } from '../services/customerScope';
 // «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): بحث «تصنيف المحلات» برقم العميل التسلسليّ مطابقةً تامّة
 import { customerNumberOr, exactNumberFirstPage } from '../services/customerNumber';
+// «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): تصنيف نوع المنفذ تعديلٌ لبطاقة العميل — حدثٌ لكل عميلٍ تغيّر نوعه؛
+// ونتيجة المندوب الذكي عند محلٍّ هو عميلٌ قائم حدثٌ في سجلّ ذلك العميل
+import { activityMeta, boundedActivityAt, hasActivityTable, recordActivityInTx } from '../services/customerActivityEvents';
 import { adminScopeEnabled } from '../services/adminScope';
 import { OUTLET_TYPES, OUTLET_TYPE_CODES, googleTypesFor, isOutletType, outletTypeFromGoogle, outletTypeLabel, suggestOutletType } from '../ai-rep/taxonomy';
 import { aiRepSettingsSchema, NO_SELECTED_REPS, repInScope, settingsView, AiRepSettingsView } from '../ai-rep/settings';
@@ -371,6 +374,28 @@ export function outcomePlace(session: { lat: number; lng: number } | null | unde
   return null;
 }
 
+type OutcomeCustomerDb = { customer: { findFirst(a: unknown): Promise<unknown> } };
+
+/**
+ * «أرشيف العميل»: عميل الشركة الذي هو هذا المحلّ — من حقيقة الخادم وحدها، لا من relation الجهاز ولا «عميلٌ محتمل» بالقرب:
+ * المحلّ المحوَّل (convertedCustomerId، والعميل ما زال في الشركة)، وإلا عميلٌ مربوطٌ بمعرّف المكان نفسه (aiPlaceId). وإلا null
+ */
+export async function outcomeCustomerId(
+  tx: unknown, tid: string, existing: { convertedCustomerId?: string | null } | null, placeId: string | null | undefined,
+): Promise<string | null> {
+  const db = tx as OutcomeCustomerDb;
+  if (typeof db?.customer?.findFirst !== 'function') return null;
+  const one = async (where: Record<string, unknown>): Promise<string | null> => {
+    const c = (await db.customer.findFirst({ where: { tenantId: tid, status: { not: 'DELETED' }, ...where }, select: { id: true } })) as { id?: string } | null;
+    return typeof c?.id === 'string' ? c.id : null;
+  };
+  if (existing?.convertedCustomerId) {
+    const id = await one({ id: existing.convertedCustomerId });
+    if (id) return id;
+  }
+  return placeId ? one({ aiPlaceId: placeId }) : null;
+}
+
 rep.post('/outcomes', async (req: AuthRequest, res: Response, next: NextFunction) => {
   let reserved: RepCtx | null = null;
   try {
@@ -397,18 +422,38 @@ rep.post('/outcomes', async (req: AuthRequest, res: Response, next: NextFunction
     const door = gps ? atDoor({ ...gps, accuracyM: b.accuracyM ?? null }, outcomePlace(so, b.placeId, sent, gps)) : null;
     const relation = so?.relation ?? b.relation ?? null;
     const obj = outcomeObjection(b.kind, (b.objection ?? null) as never, b.note);
+    // «أرشيف العميل»: فاعل النتيجة (المندوب) — ولحظة السطر محصورةٌ بنافذة العمل دون اتصال، والأقدم بلحظة رفعه ولحظته في التفاصيل
+    const meta = activityMeta(req);
+    const logAt = boundedActivityAt(occurredAt, new Date(now));
 
     const result = await prisma.$transaction(async tx => {
       const existing = b.placeId ? await tx.aiOutlet.findUnique({ where: { tenantId_placeId: { tenantId: c.tid, placeId: b.placeId } } }) : null;
       // المحوَّل عميلٌ في الحقيقة ولو رآه المندوب جديداً (عزل) — فلا تدخل زيارته إحصاء الفرص
       const rel = existing?.status === 'CONVERTED' ? 'CUSTOMER' : relation;
-      const event = (outletId: string) => tx.aiOutletEvent.create({
-        data: {
-          tenantId: c.tid, outletId, salesRepId: c.repId, kind: b.kind, note: b.note ?? null,
-          lat: gps?.lat ?? null, lng: gps?.lng ?? null, accuracyM: b.accuracyM ?? null, clientRef: b.clientRef, occurredAt,
-          objection: obj.objection, objectionSource: obj.source, atDoor: door, relation: rel,
-        },
-      });
+      // «أرشيف العميل» (بلا استثناء): نتيجةٌ عند محلٍّ هو عميلٌ قائم حدث SMART_REP_OUTCOME في سجلّ ذلك العميل — في معاملة النتيجة نفسها
+      // (تكرار clientRef يعود قبل المعاملة، وسباقه P2002 يُلغيها مع الحدث). ومقبضٌ بلا جدول السجل (المزيّف القديم) لا يسأل
+      const customerId = hasActivityTable(tx) ? await outcomeCustomerId(tx, c.tid, existing, b.placeId) : null;
+      const event = async (outletId: string) => {
+        const ev = await tx.aiOutletEvent.create({
+          data: {
+            tenantId: c.tid, outletId, salesRepId: c.repId, kind: b.kind, note: b.note ?? null,
+            lat: gps?.lat ?? null, lng: gps?.lng ?? null, accuracyM: b.accuracyM ?? null, clientRef: b.clientRef, occurredAt,
+            objection: obj.objection, objectionSource: obj.source, atDoor: door, relation: rel,
+          },
+        });
+        if (customerId) {
+          await recordActivityInTx(tx, {
+            tenantId: c.tid, customerId, action: 'SMART_REP_OUTCOME', actor: meta.actor, source: meta.source, refId: ev.id,
+            ...(logAt && { at: logAt }),
+            data: {
+              via: 'AI_REP', kind: b.kind, outletId, outletType: b.outletType,
+              ...(b.note && { note: b.note }), ...(obj.objection && { objection: obj.objection }),
+              ...(door != null && { atDoor: door }), ...(!logAt && { occurredAt, backdated: true }),
+            },
+          });
+        }
+        return ev;
+      };
       if (existing && !outcomeWritesMemory(existing, occurredAt)) {
         const ev = await event(existing.id);
         return { eventId: ev.id, outletId: existing.id, applied: false };
@@ -1519,8 +1564,10 @@ admin.post('/classify', requireAdminPermission('canManageCustomers'), async (req
     const tid = tenantId(req);
     const { items } = classifySchema.parse(req.body);
     const scope = await customerScope(req, tid);
-    const allowed = await prisma.customer.findMany({ where: { tenantId: tid, id: { in: items.map(i => i.customerId) }, ...scope }, select: { id: true } });
+    // ونوع المنفذ الحاليّ في السؤال نفسه: حدث «أرشيف العميل» لمن تغيّر نوعه وحده (من → إلى)
+    const allowed = await prisma.customer.findMany({ where: { tenantId: tid, id: { in: items.map(i => i.customerId) }, ...scope }, select: { id: true, outletType: true } });
     const ok = new Set(allowed.map(a => a.id));
+    const prevType = new Map(allowed.map(a => [a.id, a.outletType ?? null]));
     // تجميع حسب النوع: تحديثٌ واحد لكل نوع بدل صفّ صفّ
     const byType = new Map<string | null, string[]>();
     for (const it of items) {
@@ -1530,10 +1577,26 @@ admin.post('/classify', requireAdminPermission('canManageCustomers'), async (req
       byType.set(it.outletType, list);
     }
     let updated = 0;
+    const meta = activityMeta(req);
     await prisma.$transaction(async tx => {
+      // «أرشيف العميل»: نوع المنفذ «قبل» يُعاد قراءته تحت قفل صفوف العملاء (FOR UPDATE بترتيب المعرّف) — تعديلٌ موازٍ التزم بعد السؤال
+      // أعلاه لا يُنسب لهذا الفاعل، ومن حُذف في الأثناء لا يُقفل ولا حدث له. والمقبض بلا SQL خام (المزيّف) يبقى على السؤال أعلاه
+      const all = [...new Set([...byType.values()].flat())].sort();
+      const raw = (tx as { $queryRaw?: unknown }).$queryRaw;
+      const lockedRows = typeof raw === 'function' && all.length
+        ? await tx.$queryRaw<{ id: string; outletType: string | null }[]>`SELECT id, "outletType" FROM customers WHERE "tenantId" = ${tid} AND id = ANY(${all}::text[]) ORDER BY id FOR UPDATE`
+        : null;
+      const locked = Array.isArray(lockedRows) && lockedRows.length ? new Map(lockedRows.map(r => [r.id, r.outletType ?? null])) : null;
+      const prevOf = (id: string) => (locked ? locked.get(id) ?? null : prevType.get(id) ?? null);
       for (const [outletType, ids] of byType) {
         const r = await tx.customer.updateMany({ where: { tenantId: tid, id: { in: ids } }, data: { outletType } });
         updated += r.count;
+        // «أرشيف العميل»: عميلٌ تغيّر نوع منفذه فعلاً — حدث تعديلٍ بالحقل من → إلى، في معاملة التصنيف نفسها
+        await recordActivityInTx(tx, ids.filter(id => (!locked || locked.has(id)) && prevOf(id) !== outletType).map(id => ({
+          tenantId: tid, customerId: id, action: 'CUSTOMER_UPDATED' as const, actor: meta.actor, source: meta.source,
+          refType: 'CUSTOMER' as const, refId: id,
+          data: { changes: [{ field: 'outletType', from: prevOf(id), to: outletType }], via: 'AI_CLASSIFY' },
+        })));
       }
     });
     invalidateEstimateData(tid);

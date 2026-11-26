@@ -24,6 +24,8 @@
  */
 import prisma from '../config/database';
 import { AuthRequest } from '../types';
+// «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): إدخال العميل في نطاق مستخدم شركةٍ أو إخراجه منه حدثٌ في سجلّه
+import { SYSTEM_ACTOR, recordActivityInTx, type ActivityMeta } from './customerActivityEvents';
 
 /** قيد Prisma على العملاء. غياب المفتاح = بلا تقييد (رؤية كاملة). */
 export type AdminCustomerFilter = { adminScopes?: { some: { adminId: string } } };
@@ -134,6 +136,7 @@ export async function setAdminScope(
   adminId: string,
   customerIds: string[] | null,
   salesRepIds: string[] | null,
+  meta?: ActivityMeta | null,
 ): Promise<{ customers: number; reps: number }> {
   if (customerIds) {
     // نتحقّق أن كل المعرّفات تخصّ هذه الشركة — حارس ضدّ تسريب عابر للشركات
@@ -145,11 +148,24 @@ export async function setAdminScope(
     const have = new Set(current.map((r) => r.customerId));
     const toAdd = [...want].filter((id) => !have.has(id));
     const toRemove = [...have].filter((id) => !want.has(id));
-    if (toRemove.length) await prisma.adminCustomerScope.deleteMany({ where: { adminId, customerId: { in: toRemove } } });
-    if (toAdd.length) {
-      await prisma.adminCustomerScope.createMany({
-        data: toAdd.map((customerId) => ({ tenantId: tid, adminId, customerId })),
-        skipDuplicates: true,
+    if (toAdd.length || toRemove.length) {
+      // «أرشيف العميل»: من دخل نطاق المستخدم ومن خرج منه — حدثٌ لكل عميل باسم المستخدم، في معاملة الكتابة نفسها: الحذف والإضافة
+      // وأحداثهما يلتزمون معاً أو يُلغون معاً. اسم المستخدم يُقرأ قبلها (قراءةٌ متعذّرة لا تُفشل شيئاً)
+      const m = meta ?? { actor: SYSTEM_ACTOR, source: 'system' };
+      const who = await prisma.admin.findFirst({ where: { id: adminId, tenantId: tid }, select: { name: true } }).catch(() => null);
+      const info = { kind: 'ADMIN_SCOPE', adminId, ...(who?.name && { adminName: who.name }) };
+      await prisma.$transaction(async (tx) => {
+        if (toRemove.length) await tx.adminCustomerScope.deleteMany({ where: { adminId, customerId: { in: toRemove } } });
+        if (toAdd.length) {
+          await tx.adminCustomerScope.createMany({
+            data: toAdd.map((customerId) => ({ tenantId: tid, adminId, customerId })),
+            skipDuplicates: true,
+          });
+        }
+        await recordActivityInTx(tx, [
+          ...toAdd.map((customerId) => ({ tenantId: tid, customerId, action: 'CUSTOMER_ASSIGNED' as const, actor: m.actor, source: m.source, data: info })),
+          ...toRemove.map((customerId) => ({ tenantId: tid, customerId, action: 'CUSTOMER_UNASSIGNED' as const, actor: m.actor, source: m.source, data: info })),
+        ]);
       });
     }
   }

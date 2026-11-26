@@ -224,6 +224,8 @@ const PHASE1_POST_CALLS = [
   'invoice.findUnique', 'salesRep.findFirst', 'admin.findUnique', 'customer.findFirst', 'admin.findUnique', 'product.findMany',
   'companySettings.findUnique', 'invoice.findFirst', '$transaction', '$queryRaw', '$executeRaw', '$queryRaw', '$executeRaw',
   'invoice.create', 'accountEntry.aggregate', 'accountEntry.create', 'accountEntry.create', 'customer.update',
+  // «أرشيف العميل — السجل الزمني» (٢٦ نوفمبر ٢٠٢٦): حدث الإصدار في سجلّ العميل آخر ما في المعاملة نفسها
+  'customerActivity.createMany',
 ];
 const PHASE1_POST_CALLS_WITH_CUSTOMER_LOCK = (() => {
   const withLock = [...PHASE1_POST_CALLS];

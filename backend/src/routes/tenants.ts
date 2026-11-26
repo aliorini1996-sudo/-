@@ -28,6 +28,7 @@ import { listMerchants, nearpayConfigured } from '../services/nearpay';
 import { recordLotEvent, type LotEventActor } from '../services/lotsDb';
 import { CONVERT_BASE_OPEN_TO_COMPANY } from '../services/convertBaseAccess';
 import { rankTopReps } from '../services/topReps';
+import { allowActivityPurge } from '../services/customerActivityGuard';
 
 // إدارة الشركات المشتركة — لمالك المنصّة (السوبر أدمن) فقط
 const router = Router();
@@ -615,6 +616,9 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
         await tx.companySettings.deleteMany({ where: { tenantId: tid } });
         await tx.salesRep.deleteMany({ where: { tenantId: tid } });
         await tx.admin.deleteMany({ where: { tenantId: tid } });
+        // «سجلّ العميل» الثابت: مُطلِق القاعدة يرفض حذف أسطره إلا بإذن هذه المعاملة وحدها — تعاقب حذف صفّ الشركة يحذفها
+        // (allowActivityPurge محليٌّ للمعاملة فيموت بالتزامها أو تراجعها، services/customerActivityGuard.ts)
+        await allowActivityPurge(tx);
         await tx.tenant.delete({ where: { id: tid } });
       }, { timeout: 120_000, maxWait: 30_000 });
     } catch (e) {

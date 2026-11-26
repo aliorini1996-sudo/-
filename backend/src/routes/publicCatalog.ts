@@ -10,8 +10,13 @@ import { companyDayOf } from '../services/lots';
 import { rulesOfLists } from './priceLists';
 import {
   CATALOG_ORDER_CODES as CODES, OPEN_STATUSES, isHoneypotHit, menuPriceOf, mergeOrderLines, openCapReached, orderBodyTooLarge, orderPhoneKey,
-  orderPushPayload, parseOrderBody, priceOrderLines, type MenuPriceList,
+  orderPushPayload, parseOrderBody, priceOrderLines, type MenuPriceList, type PricedLine,
 } from '../services/catalogOrders';
+// «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): طلب المنيو حدثٌ في سجلّ عميل الشركة الوحيد المطابق بجواله
+// (matchCatalogCustomerUnique — قاعدة النسبة الواحدة في services/customerActivityEvents.ts)، بفاعلٍ «العميل» غير موثَّق
+import { customerActor } from '../services/customerActivity';
+import { hasActivityTable, matchCatalogCustomerUnique, recordActivityInTx, type ActivityInput } from '../services/customerActivityEvents';
+import { catalogOrderEstimate } from '../services/customerActivityCatalog';
 
 /**
  * منيو المنتجات العام — رابط يشاركه المندوب مع عملائه:
@@ -207,15 +212,25 @@ router.post('/catalog/:tenantId/:repId/orders', catalogOrderLimiter, catalogOrde
     const open = await prisma.catalogOrder.count({ where: { tenantId, salesRepId: repId, status: { in: [...OPEN_STATUSES] } } });
     if (openCapReached(open)) { res.status(429).json({ success: false, code: CODES.LIMIT }); return; }
 
+    // «أرشيف العميل»: الطلب في سجلّ عميل الشركة **الوحيد** الذي يطابقه الجوال (عميلان بالجوال نفسه ⇒ لا نسبة: لا يُلصق طلبٌ بغير صاحبه)
+    // — بفاعلٍ «العميل» باسمه كما كتبه وunverified: الصفحة علنيّة بلا مصادقة، فالاسم والملاحظة ما ادّعاه المُرسِل لا هويةٌ موثّقة.
+    // ومبلغه التقديريّ كما رآه. والطلب وسطره معاملةٌ واحدة (QA ٢٧ نوفمبر): يُلتزمان معاً أو يُتراجعان معاً — كان السطر بعد الردّ فيضيع
+    // لو تعذّر. والمطابقة قبل المعاملة لكل طلبٍ صالح (مطابقاً كان الجوال أو لا: الاستعلام نفسه، فلا يفرق زمن الردّ إلا بإدراج سطرٍ
+    // واحد)، وتعذّرها لا يُفشل الطلب (بلا سطر). والسطر نهائيّ: إغلاق الطلب وحذفه مع مندوبه يتبعان عميله (catalogOrderCustomer)
+    const placedFor = await placedOrderCustomer(tenantId, input.phone);
     let order: { id: string };
     try {
-      order = await prisma.catalogOrder.create({
-        data: {
-          tenantId, salesRepId: repId, clientRef: input.clientRef,
-          customerName: input.name, customerPhone: input.phone, phoneKey: orderPhoneKey(input.phone), note: input.note,
-          items: { create: priced.lines },
-        },
-        select: { id: true },
+      order = await prisma.$transaction(async (tx) => {
+        const created = await tx.catalogOrder.create({
+          data: {
+            tenantId, salesRepId: repId, clientRef: input.clientRef,
+            customerName: input.name, customerPhone: input.phone, phoneKey: orderPhoneKey(input.phone), note: input.note,
+            items: { create: priced.lines },
+          },
+          select: { id: true },
+        });
+        if (placedFor) await recordActivityInTx(tx, placedOrderEvent(tenantId, placedFor, created.id, input, priced.lines, { id: repId, name: rep.name }));
+        return created;
       });
     } catch (e) {
       // إرسالان متزامنان بالمرجع نفسه (نقرتان، أو إعادة محاولةٍ قبل وصول الردّ): الثاني يصطدم بالفريد فيُجاب بالطلب الأول
@@ -229,7 +244,37 @@ router.post('/catalog/:tenantId/:repId/orders', catalogOrderLimiter, catalogOrde
     sendPushToRep(repId, orderPushPayload(input.name, priced.lines.length)).catch((err) => {
       console.error('[catalog-order] push failed:', (err as Error)?.message ?? err);
     });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (res.headersSent) { console.error('[catalog-order] after reply:', (err as Error)?.message ?? err); return; }
+    next(err);
+  }
 });
+
+/** عميل الطلب الوحيد المطابق بجواله قبل الكتابة — أو null (لا جدول سجل، لا مطابقٌ وحيد، أو تعذّر الاستعلام: الطلب يُحفظ بلا سطر) */
+async function placedOrderCustomer(tenantId: string, phone: string): Promise<string | null> {
+  try {
+    if (!hasActivityTable(prisma)) return null;
+    return await matchCatalogCustomerUnique(prisma, tenantId, orderPhoneKey(phone));
+  } catch (e) {
+    console.error('[customer-activity] تعذّرت مطابقة عميل طلب المنيو:', (e as Error)?.message ?? e);
+    return null;
+  }
+}
+
+/** سطر CATALOG_ORDER_PLACED لطلبٍ يُحفظ — يُكتب في معاملة الطلب نفسها */
+function placedOrderEvent(
+  tenantId: string, customerId: string, orderId: string, input: { name: string; phone: string; note: string | null },
+  lines: readonly PricedLine[], rep: { id: string; name: string },
+): ActivityInput {
+  return {
+    tenantId, customerId, action: 'CATALOG_ORDER_PLACED', actor: customerActor(input.name), source: 'public',
+    refType: 'CATALOG_ORDER', refId: orderId, amount: catalogOrderEstimate(lines),
+    data: {
+      unverified: true, itemsCount: lines.length, salesRepId: rep.id, repName: rep.name,
+      ...(input.note && { note: input.note }),
+      items: lines.slice(0, 30).map((l) => ({ productName: l.productName, unitName: l.unitName, qty: l.qty })),
+    },
+  };
+}
 
 export default router;

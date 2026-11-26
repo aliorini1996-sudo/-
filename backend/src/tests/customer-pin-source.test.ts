@@ -121,8 +121,10 @@ function world(o: { user?: User; pinLocked?: boolean; stored?: { lat: number | n
     'salesRep.findUnique': () => ({ canAddCustomer: true, canEditCustomer: true, requireCustomerProximity: o.pinLocked === true }),
     'admin.findUnique': () => ({ scopeEnabled: false, isActive: true }),
     'customer.findFirst': (args) => {
-      if (args?.select?.lat) { pinQueries.push(args); return args.where?.id === 'c1' ? { ...stored } : null; }
-      return args?.where?.id === 'c1' ? { id: 'c1', phone: '0500000000' } : null;
+      // سؤال وجود العميل في التعديل يحمل صورته قبل الكتابة لحدث «أرشيف العميل» (CUSTOMER_ACTIVITY_SELECT ومنها الموقع) — ليس سؤالاً
+      // عن الموقع المحفوظ لقرار الدبّوس، ويُعرف بالجوال في اختياره (طلب المالك ٢٦ نوفمبر ٢٠٢٦)
+      if (args?.select?.lat && !args?.select?.phone) { pinQueries.push(args); return args.where?.id === 'c1' ? { ...stored } : null; }
+      return args?.where?.id === 'c1' ? { id: 'c1', phone: '0500000000', ...stored } : null;
     },
     'customer.create': (args) => { written.push(args.data); return { id: 'c-new', ...args.data }; },
     'customer.update': (args) => { written.push(args.data); return { id: 'c1', ...args.data }; },

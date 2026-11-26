@@ -20,6 +20,7 @@ import {
   loadC3Input, loadC5Input, loadPendingPartners, loadRepCustodyFacts, runChecks, type CheckStore,
 } from '../../services/gl/checks/run';
 import { createPrismaCheckStore } from '../../services/gl/checks/store.prisma';
+import { docActivityMeta, recordLedgerJournalActivity } from '../../services/customerActivityDocs';
 import {
   CHECK_KEYS, isCheckKey, isControlAdjustableCheck, type CheckKey, type ControlAdjustableCheck,
 } from '../../services/gl/checks/types';
@@ -209,6 +210,14 @@ router.post('/checks/:key/control-adjustment', CONFIGURE, ledgerHandler(async (r
         },
         now,
       });
+      // «سجلّ العميل»: قيد تصحيح ذمم العملاء (C3) سطره على حساب العميل نفسه — يمسّ رصيده فهو حدثٌ في سجلّه، بمعاملة القيد نفسها
+      if (key === 'C3') {
+        await recordLedgerJournalActivity(tx, {
+          tenantId, moveId: move.id, action: 'LEDGER_JOURNAL_POSTED', meta: docActivityMeta(req),
+          // السبب في بيان القيد (narration) نفسه — لا يتكرّر
+          data: { controlAdjustment: true, checkKey: key },
+        });
+      }
       // §5.9: إشعار للأدمن الرئيسي
       await tx.notification.create({
         data: {

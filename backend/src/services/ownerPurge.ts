@@ -24,6 +24,8 @@ import prisma from '../config/database';
 import { clean, currentBalance } from './accounting';
 import { restoreAllocations } from './docCancel';
 import { LINKED_NO_DELETE_CODE, LINKED_NO_DELETE_MESSAGE, tenantBooksLinked, type BookModeDb } from './booksMode';
+// قرار المالك (٢٧ نوفمبر ٢٠٢٦): «بعد حذف العميل يحذف سجله معه» — إذن المعاملة لمُطلِق السجلّ (services/customerActivityGuard.ts)
+import { allowActivityPurge } from './customerActivityGuard';
 
 type Tx = Prisma.TransactionClient;
 type DmmfModel = (typeof Prisma.dmmf.datamodel.models)[number];
@@ -54,6 +56,10 @@ const NOT_TARGETABLE: ReadonlySet<string> = new Set([
   'Tenant',
   ...MODELS.filter((m) => isLedgerModel(m.name)).map((m) => m.name),
   'SupplierLedgerEntry', 'SupplierPaymentAllocation', 'InvoiceRestockLog', 'SalesContact',
+  // «سجلّ العميل» ثابتٌ لا يُحذف منه سطرٌ بذاته ولا لمالك المنصة (أمر المالك ٢٦ نوفمبر ٢٠٢٦: «لا يمكن لاحد تغيير اي شيء فيه نهائيا»)
+  // — ومُطلِق القاعدة يرفضه على كل حال (services/customerActivityGuard.ts). ولا علاقة واردة إليه فلا يمسّه حذفُ غيره، إلا حذف
+  // العميل نفسه: سجلّه كله يُحذف معه في معاملته (قرار المالك ٢٧ نوفمبر ٢٠٢٦ — purgeInTx أدناه)
+  'CustomerActivity',
 ]);
 
 /**
@@ -398,13 +404,21 @@ export async function executePurge(tenantId: string, model: string, id: string |
  * الحذف داخل معاملةٍ قائمة — يستعمله الحذف النهائي للمالك، وحذف الصنف العادي (حذفٌ حقيقي بلا أرشفة، أمر المالك ٥ نوفمبر):
  * الخطة ثم إعادة مبالغ التخصيص ثم التفريغ ثم الحذف من الأبناء إلى الآباء ثم تصحيح الأرصدة
  */
-export async function purgeInTx(tx: Tx, tenantId: string, model: string, id: string | readonly string[]): Promise<PurgeResult> {
+export async function purgeInTx(
+  tx: Tx, tenantId: string, model: string, id: string | readonly string[],
+  /**
+   * «أرشيف العميل»: يُستدعى بالخطة نفسها بعد حارسَي الرفض وقبل أي كتابة، في المعاملة نفسها — فيقرأ المستدعي ما سيُحذف (الفواتير
+   * والسندات المتسلسلة وتخصيصاتها) ويُلحق أثره بسجلّ كل عميل، فيلتزم مع الحذف أو يُلغى معه. لا يُستدعى لحذف الرؤوس الفارغة التابع
+   */
+  opts?: { beforeWrite?: (plan: PurgePlan) => Promise<void> },
+): Promise<PurgeResult> {
   {
     const plan = await buildPurgePlan(tx, tenantId, model, id);
     // الشركة المربوطة: لا حذف لمستندٍ مرحَّل ولا تفريغ مفتاحٍ فيه — قبل أي كتابة (قرار المالك OD1)
     await assertPurgeAllowedForBooks(tx, tenantId, plan);
     // وكل شركة: فاتورة المورّد لا تُحذف ولا تُبتر أسطرها بحذف غيرها (الصنف) — قبل أي كتابة
     await assertPurgeKeepsSupplierBills(tx, tenantId, plan);
+    if (opts?.beforeWrite) await opts.beforeWrite(plan);
     const deltas = await totalsDelta(tx, plan);
     const customers = await touchedCustomers(tx, plan);
 
@@ -446,6 +460,15 @@ export async function purgeInTx(tx: Tx, tenantId: string, model: string, id: str
       } else {
         for (const key of rows) await d[delegateOf(m)].deleteMany({ where: key });
       }
+    }
+
+    // قرار المالك (٢٧ نوفمبر ٢٠٢٦): «بعد حذف العميل يحذف سجله معه» — العميل المحذوف بالمحرّك (حذف المدير له، أو حذف المالك
+    // النهائي فرداً أو جماعة) يُحذف سجلّه كله في معاملة حذفه نفسها: إذن المعاملة لمُطلِق السجلّ (يموت بالتزامها أو تراجعها) ثم
+    // أسطر هؤلاء العملاء وحدهم. وبعد beforeWrite فلا يبقى لهم سطرٌ كُتب في المعاملة نفسها
+    const goneCustomers = (keysOf.get('Customer') ?? []).map((k) => String(k.id));
+    if (goneCustomers.length) {
+      await allowActivityPurge(tx);
+      await tx.customerActivity.deleteMany({ where: { tenantId, customerId: { in: goneCustomers } } });
     }
 
     // رأس حركةٍ لم يبقَ له بند: مستندٌ فارغ لا يقبله النظام إنشاءً — يُحذف هو أيضاً (بالمحرّك نفسه)

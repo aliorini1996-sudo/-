@@ -8,6 +8,8 @@ import { tenantTz } from '../services/invoiceExpiry';
 import { paymentMethodsRange } from '../services/paymentMethodsReport';
 import { LOCATION_NAME_MAX, buildLocationsSummary, locationName, locationPointProblem, type ProductInfo } from '../services/locations';
 import { baseQtyOf } from '../services/units';
+// «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): حذف الموقع يفكّ ختمه عن فواتير العملاء — حدثٌ مجمَّع لكل عميل
+import { activityMeta, countByCustomer, hasActivityTable, perCustomerEvents, recordActivityInTx } from '../services/customerActivityEvents';
 
 /**
  * «لوكيشن» (طلب المالك ٢١ أكتوبر ٢٠٢٦) — /api/locations: مواقع الشركة، وإسناد كل مندوبٍ لموقعٍ واحد، وملخّص الفواتير
@@ -233,6 +235,16 @@ router.delete('/:id', managePerm, async (req: AuthRequest, res: Response, next: 
       const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM sales_locations WHERE id = ${id} AND "tenantId" = ${tid} FOR UPDATE`;
       if (!locked?.length) return null;
       const linked = { tenantId: tid, locationId: id };
+      // «أرشيف العميل»: فواتير كل عميلٍ تفقد ختم الموقع — حدث «تعديل فاتورة» مجمَّع لكل عميل (عددها واسم الموقع)، قبل التفريغ وفي
+      // المعاملة نفسها. مقبضٌ بلا جدول السجل (المزيّف القديم) لا يُقرأ له شيء
+      if (hasActivityTable(tx)) {
+        const loc = await tx.salesLocation.findFirst({ where: { id, tenantId: tid }, select: { name: true } });
+        const byCustomer = await tx.invoice.groupBy({ by: ['customerId'], where: linked, _count: { _all: true } });
+        await recordActivityInTx(tx, perCustomerEvents(tid, countByCustomer(byCustomer), 'INVOICE_UPDATED', activityMeta(req), {
+          kind: 'LOCATION_UNLINKED', locationId: id, ...(loc?.name && { locationName: loc.name }),
+          changes: [{ field: 'locationId', from: loc?.name ?? id, to: null }], reason: 'LOCATION_DELETED',
+        }, 'INVOICE'));
+      }
       const reps = await tx.salesRep.updateMany({ where: linked, data: { locationId: null } });
       const invoices = await tx.invoice.updateMany({ where: linked, data: { locationId: null } });
       const vanLoads = await tx.vanLoad.updateMany({ where: linked, data: { locationId: null } });

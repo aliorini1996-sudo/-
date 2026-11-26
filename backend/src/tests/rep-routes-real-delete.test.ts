@@ -38,6 +38,7 @@ const REP2 = '22222222-2222-4222-8222-222222222222';
 const REPX = '99999999-9999-4999-8999-999999999999'; // مندوب شركةٍ أخرى
 const C1 = 'c1111111-1111-4111-8111-111111111111';
 const C2 = 'c2222222-2222-4222-8222-222222222222';
+const C3 = 'c3333333-3333-4333-8333-333333333333';
 const R_PERM = 'a1111111-1111-4111-8111-111111111111'; // دائمٌ لـREP1
 const R_DAY = 'a2222222-2222-4222-8222-222222222222'; // مؤقّت REP1 ليوم 2026-11-07
 const R_DAY2 = 'a3333333-3333-4333-8333-333333333333'; // مؤقّت REP1 ليوم 2026-11-08
@@ -51,7 +52,7 @@ const stub = (r: string, exports: Record<string, unknown>): void => {
   require.cache[id] = { id, filename: id, loaded: true, exports: { __esModule: true, ...exports }, children: [], paths: [] } as unknown as NodeJS.Module;
 };
 
-let st: { routes: Row[]; stops: Row[]; reps: Row[]; customers: Row[] };
+let st: { routes: Row[]; stops: Row[]; reps: Row[]; customers: Row[]; activity: Row[] };
 let scope: Set<string> | null = null; // null = مستخدمٌ بلا نطاق
 let n = 0;
 function reset(): void {
@@ -60,8 +61,8 @@ function reset(): void {
   const route = (id: string, tenantId: string, salesRepId: string, isPermanent: boolean, routeDate: string | null, isActive = true) =>
     ({ id, tenantId, salesRepId, name: id.slice(0, 4), isPermanent, routeDate, isActive, createdAt: new Date('2026-11-01T00:00:00Z') });
   st = {
-    reps: [{ id: REP1, tenantId: T }, { id: REP2, tenantId: T }, { id: REPX, tenantId: 'OTHER' }],
-    customers: [{ id: C1, tenantId: T }, { id: C2, tenantId: T }],
+    reps: [{ id: REP1, tenantId: T, name: 'أحمد' }, { id: REP2, tenantId: T, name: 'سالم' }, { id: REPX, tenantId: 'OTHER', name: 'غريب' }],
+    customers: [{ id: C1, tenantId: T }, { id: C2, tenantId: T }, { id: C3, tenantId: T }],
     routes: [
       route(R_PERM, T, REP1, true, null),
       route(R_DAY, T, REP1, false, '2026-11-07'),
@@ -72,6 +73,7 @@ function reset(): void {
       route(R_X, 'OTHER', REPX, true, null),
     ],
     stops: [],
+    activity: [],
   };
   for (const r of st.routes) {
     st.stops.push({ id: `s-${r.id}-1`, tenantId: r.tenantId, routeId: r.id, customerId: C1, seq: 1, note: null });
@@ -87,7 +89,10 @@ const match = (row: Row, w: Row): boolean => Object.entries(w).every(([k, v]) =>
 });
 
 const db: Row = {
-  salesRep: { async findFirst(a: Row) { return st.reps.find((r) => match(r, a.where)) ?? null; } },
+  salesRep: {
+    async findFirst(a: Row) { return st.reps.find((r) => match(r, a.where)) ?? null; },
+    async findMany(a: Row) { return st.reps.filter((r) => match(r, a.where)).map((r) => ({ id: r.id, name: r.name })); },
+  },
   customer: { async findMany(a: Row) { return st.customers.filter((c) => match(c, a.where)).map((c) => ({ id: c.id })); } },
   repRoute: {
     async findFirst(a: Row) { const r = st.routes.find((x) => match(x, a.where)); return r ? { ...r } : null; },
@@ -105,8 +110,11 @@ const db: Row = {
     async update() { throw new Error('repRoute.update ممنوع — الحذف فعليّ'); },
     async updateMany() { throw new Error('repRoute.updateMany ممنوع — الحذف فعليّ'); },
   },
+  // «أرشيف العميل»: سجلّ العميل إلحاقيّ — إدراجٌ وحده
+  customerActivity: { async createMany(a: Row) { st.activity.push(...a.data); return { count: a.data.length }; } },
   repRouteStop: {
     async create(a: Row) { const row = { id: `NS-${++n}`, ...a.data }; st.stops.push(row); return row; },
+    async findMany(a: Row) { return st.stops.filter((x) => match(x, a.where)).map((x) => ({ customerId: x.customerId, routeId: x.routeId })); },
     async deleteMany(a: Row) {
       const before = st.stops.length;
       st.stops = st.stops.filter((x) => !match(x, a.where));
@@ -116,8 +124,8 @@ const db: Row = {
 };
 // معاملةٌ ذرّية: فشلٌ في أثنائها يعيد الحالة كما كانت
 db.$transaction = async (fn: (tx: Row) => Promise<unknown>) => {
-  const snap = { routes: st.routes.map((r) => ({ ...r })), stops: st.stops.map((s) => ({ ...s })) };
-  try { return await fn(db); } catch (e) { st.routes = snap.routes; st.stops = snap.stops; throw e; }
+  const snap = { routes: st.routes.map((r) => ({ ...r })), stops: st.stops.map((s) => ({ ...s })), activity: [...st.activity] };
+  try { return await fn(db); } catch (e) { st.routes = snap.routes; st.stops = snap.stops; st.activity = snap.activity; throw e; }
 };
 // جدول «طريقة توزيع الخطوط» (طلب المالك ٢٢ نوفمبر ٢٠٢٦): هذه الحالات كلها لمندوبين بلا جدول = السلوك القديم (دائمٌ واحد)
 db.repRouteSchedule = { async findFirst() { return null; } };
@@ -246,4 +254,62 @@ test('POST: فشلٌ أثناء الإنشاء يُرجع الحذف كلّه (�
   assert.equal(st.routes.length, 7);
   assert.equal(st.stops.length, 14);
   assert.ok(st.routes.some((x) => x.id === R_PERM) && st.routes.some((x) => x.id === R_DAY));
+  assert.deepEqual(st.activity, [], 'لا حدث لحفظٍ تراجع');
+});
+
+// ═══ «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦) ═══
+
+const brief = (a: Row) => [a.action, a.customerId, a.refType, a.refId, a.data?.reason ?? null];
+
+test('«أرشيف العميل»: حفظ الخطّ يسجّل من دخل ومن خرج وحده — الباقي (ولو تغيّر ترتيبه) بلا حدث، بفاعل الطلب ومندوب الخطّ', async () => {
+  reset();
+  const r = await call('post', '/', {
+    body: { salesRepId: REP1, name: 'خطّ معدَّل', routeDate: '2026-11-09', replacesId: R_DAY, stops: [{ customerId: C3 }, { customerId: C2 }] },
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const newId = r.body.data.id;
+  assert.deepEqual(st.activity.map(brief).sort(), [
+    ['ROUTE_STOP_ADDED', C3, 'ROUTE', newId, null],
+    ['ROUTE_STOP_REMOVED', C1, 'ROUTE', R_DAY, 'ROUTE_SAVED'],
+  ].sort());
+  for (const a of st.activity) {
+    assert.deepEqual([a.tenantId, a.actorKind, a.actorId], [T, 'ADMIN', 'ADM']);
+    assert.equal(a.data.salesRepId, REP1);
+    assert.equal(a.data.repName, 'أحمد');
+  }
+  const added = st.activity.find((a) => a.action === 'ROUTE_STOP_ADDED')!;
+  assert.deepEqual([added.data.routeName, added.data.seq, added.data.routeDate, added.data.isPermanent], ['خطّ معدَّل', 1, '2026-11-09', false]);
+  // حفظٌ ثانٍ لليوم نفسه (يستبدل خطّه بالمفاتيح) بالعملاء أنفسهم بترتيبٍ آخر ⇒ لا حدث
+  st.activity = [];
+  const again = await call('post', '/', {
+    body: { salesRepId: REP1, name: 'خطّ معدَّل', routeDate: '2026-11-09', stops: [{ customerId: C2 }, { customerId: C3 }] },
+  });
+  assert.equal(again.status, 201);
+  assert.ok(!st.routes.some((x) => x.id === newId), 'خطّ اليوم استُبدل');
+  assert.deepEqual(st.activity, [], 'إعادة الترتيب ليست دخولاً ولا خروجاً');
+});
+
+test('«أرشيف العميل»: نقل الخطّ إلى مندوبٍ آخر يُخرج عملاءه من خطّ الأوّل ويُدخلهم خطّ الثاني', async () => {
+  reset();
+  const r = await call('post', '/', {
+    body: { salesRepId: REP2, name: 'منقول', routeDate: '2026-11-20', replacesId: R_DAY, stops: [{ customerId: C1 }] },
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const rows = st.activity.map((a) => [a.action, a.customerId, a.data.salesRepId]).sort();
+  assert.deepEqual(rows, [
+    ['ROUTE_STOP_ADDED', C1, REP2],
+    ['ROUTE_STOP_REMOVED', C1, REP1],
+    ['ROUTE_STOP_REMOVED', C2, REP1],
+  ].sort());
+});
+
+test('«أرشيف العميل»: حذف الخطّ يسجّل خروج كل عملائه مرّةً واحدة (وبقايا التعطيل القديم لا تُعدّ) في معاملة الحذف', async () => {
+  reset();
+  const r = await call('delete', '/:id', { params: { id: R_PERM } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(st.activity.map(brief).sort(), [
+    ['ROUTE_STOP_REMOVED', C1, 'ROUTE', R_PERM, 'ROUTE_DELETED'],
+    ['ROUTE_STOP_REMOVED', C2, 'ROUTE', R_PERM, 'ROUTE_DELETED'],
+  ].sort());
+  assert.ok(st.activity.every((a) => a.data.repName === 'أحمد' && a.data.routeName === R_PERM.slice(0, 4)));
 });

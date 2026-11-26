@@ -35,7 +35,13 @@ import { customerStudioRouter } from './customerStudio';
 // «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): رقمٌ تسلسليّ لكل عميل في شركته يُمنح في معاملة الإنشاء نفسها تحت قفل صفّ الشركة
 // (services/customerNumber.ts — الموضع الوحيد الذي يُنشأ فيه عميل)، ويُبحث به بالمطابقة التامّة
 import { CUSTOMER_NUMBER_TX, createNumberedCustomer, customerNumberOr, exactNumberFirstPage, lockTenantForCustomerNumbers } from '../services/customerNumber';
-import type { Customer } from '@prisma/client';
+import type { Customer, Prisma } from '@prisma/client';
+// «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): كل إضافةٍ وتعديلٍ وحذفٍ وسعرٍ خاصّ للعميل حدثٌ في سجلّه الثابت —
+// في معاملة الإجراء نفسها (والتعديل معاملةٌ تقفل صفّ العميل فتقرأ صورته «قبل» تحت القفل)
+import {
+  CUSTOMER_ACTIVITY_SELECT, CUSTOMER_EDIT_TX, activityMeta, hasActivityTable, lockCustomerImage,
+  recordActivityInTx, recordCustomerEdit, writtenImage, type ActivityMeta,
+} from '../services/customerActivityEvents';
 // «الوحدة الرئيسية» §2.10: أسعار العميل لوحدة الأساس تُكتب تحت قفل صفّ الصنف مقارنةً بالأساس الذي كُتبت له
 import {
   ProductUnitsBusyError, ProductUnitsChangedError, baseGuardReply, lockBases, missingBaseForApi, staleClientBase, type ExpectedBases,
@@ -132,12 +138,29 @@ function customerRefOf(body: unknown): string | null {
   }
   return null;
 }
-/** عميل الشركة بهذا الرقم المرجعي (بلا تفريق أحرف) — غير المستثنى */
+/**
+ * عميل الشركة بهذا الرقم المرجعي (بلا تفريق أحرف) — غير المستثنى. وصورته قبل التعديل (CUSTOMER_ACTIVITY_SELECT) في الاستعلام
+ * نفسه: تعديل عميلٍ قائم بالرقم المرجعي حدثٌ في سجلّه بما تغيّر
+ */
 function customerByRef(tid: string, ref: string, exceptId?: string) {
   return prisma.customer.findFirst({
     where: { tenantId: tid, code: { equals: ref, mode: 'insensitive' }, ...(exceptId ? { id: { not: exceptId } } : {}) },
-    select: { id: true },
+    select: CUSTOMER_ACTIVITY_SELECT,
   });
+}
+
+/**
+ * «أرشيف العميل»: وثائق الإضافة نفسها (المتداخلة في إنشاء العميل) — حدث DOCUMENT_ADDED لكل وثيقة بمعرّفها ولحظة الإضافة، في معاملة
+ * الإنشاء نفسها
+ */
+async function recordCreationDocs(tx: Prisma.TransactionClient, tid: string, created: { id: string; createdAt?: Date | null } | null, meta: ActivityMeta): Promise<void> {
+  if (!created?.id) return;
+  const docs = await tx.customerDocument.findMany({ where: { tenantId: tid, customerId: created.id }, select: { id: true, kind: true, sizeBytes: true } });
+  await recordActivityInTx(tx, (docs ?? []).map((d) => ({
+    tenantId: tid, customerId: created.id, action: 'DOCUMENT_ADDED' as const, actor: meta.actor, source: meta.source,
+    refType: 'DOCUMENT' as const, refId: d.id, ...(created.createdAt instanceof Date && { at: created.createdAt }),
+    data: { kind: d.kind, sizeBytes: d.sizeBytes, withCustomer: true },
+  })));
 }
 
 /** أرقام البحث العربية-الهندية (٠-٩) والفارسية (۰-۹) إلى لاتينية — ما سواها كما هو */
@@ -311,6 +334,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     // المندوب الذي ينشئ العميل (إن كان الطالب مندوباً) — يُوثَّق ويُسنَد له العميل تلقائياً
     const creatorRepId = req.user?.role === 'SALES_REP' ? req.user.id : null;
+    // «أرشيف العميل»: فاعل الطلب ومصدره لأحداث الإضافة والوثائق والإسناد
+    const meta = activityMeta(req);
     // «أنواع الأسعار»: نوع سعر العميل قرار الإدارة — المندوب لا يضعه لعميلٍ يفتحه (وإلا سعّر بأرخص نوعٍ بلا «تبديل نوع السعر»)
     if (creatorRepId) delete data.priceListId;
     else if (!(await priceListOwned(tid, data.priceListId))) data.priceListId = null; // نوعٌ غريب يُهمل لا يرفض العميل
@@ -324,7 +349,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         res.status(403).json({ success: false, message: 'هذا العميل غير مسند لك' });
         return;
       }
-      if (isMine) await ensureAssignment(tid, existing.id, creatorRepId!);
+      // إعادة رفعٍ لعميلٍ قائم: الإسناد يُضمن، وحدثه لمن أنشأه هذا النداء فعلاً (ensureAssignment بلا createdNow)
+      if (isMine) await ensureAssignment(tid, existing.id, creatorRepId!, meta);
       res.status(200).json({ success: true, data: existing, idempotent: true });
     };
     if (data.clientRef) {
@@ -366,14 +392,19 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (byRef && !creatorRepId) {
         const { clientRef: _c, aiPlaceId: _a, ...upd } = rest;
         void _c; void _a;
-        const updated = await prisma.customer.update({
-          where: { id: byRef.id },
-          data: {
-            ...upd, phone: upd.phone === undefined ? undefined : (upd.phone ?? ''), email: upd.email === undefined ? undefined : (upd.email || null),
-            channel: upd.channel === undefined ? undefined : (upd.channel || null), outletType: upd.outletType === undefined ? undefined : (upd.outletType || null),
-            ...(upd.priceListId !== undefined && { priceListId: upd.priceListId || null }),
-          } as any,
-        });
+        const refWrite = {
+          ...upd, phone: upd.phone === undefined ? undefined : (upd.phone ?? ''), email: upd.email === undefined ? undefined : (upd.email || null),
+          channel: upd.channel === undefined ? undefined : (upd.channel || null), outletType: upd.outletType === undefined ? undefined : (upd.outletType || null),
+          ...(upd.priceListId !== undefined && { priceListId: upd.priceListId || null }),
+        };
+        // «أرشيف العميل»: تعديل العميل القائم بالرقم المرجعي حدثٌ بما تغيّر (مزامنةٌ لم تغيّر شيئاً لا حدث لها) — في معاملة الكتابة نفسها:
+        // صورته «قبل» تحت قفل صفّه و«بعد» بالحقول التي كتبتها المزامنة وحدها (لا يُنسب لها تعديلٌ موازٍ)
+        const updated = await prisma.$transaction(async (tx) => {
+          const before = (await lockCustomerImage(tx, tid, byRef.id)) ?? byRef;
+          const row = await tx.customer.update({ where: { id: byRef.id }, data: refWrite as any });
+          await recordCustomerEdit(tx, tid, before, writtenImage(row as unknown as Record<string, unknown>, refWrite), meta, { extra: { via: 'ref' } });
+          return row;
+        }, CUSTOMER_EDIT_TX);
         // عميلٌ قائم بالرقم المرجعي (مزامنة نظامٍ خارجي): الوثائق لا تُضاف هنا — كل مزامنة كانت ستكرّرها بلا سقف ولا نطاق.
         // تُرفع من «استديو العميل» (بقفل الصفّ وسقف العميل)
         const ignoredDocs = docsIn.docs.length + docsIn.dropped;
@@ -414,6 +445,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // «رقم العميل»: الرقم التالي للشركة يُحجز ويُكتب في معاملة الإنشاء نفسها (قفل صفّ الشركة) — إنشاءٌ يفشل يعيد العدّاد معه.
     // ومسارٌ واحد لكل منشئ: اللوحة والمندوب متصلاً وصندوقه (X-FS-Replay) ومفتاح API وموصل ERP و«أضف المحل عميلاً».
     // والإسناد وتوقّعات المندوب الذكي بعد الالتزام: تكتبها اتصالاتٌ أخرى لا ترى صفّاً لم يُلتزم بعد
+    // «أرشيف العميل»: حدث الإضافة يكتبه مساعد الترقيم في معاملة الإنشاء نفسها (الموضع الوحيد الذي يُنشأ فيه عميل) بفاعل الطلب
+    const creationLog = {
+      ...meta,
+      data: {
+        ...(docsIn.docs.length > 0 && { documentsCount: docsIn.docs.length }),
+        // أُضيف دون اتصال ورُفع من صندوق المندوب (X-FS-Replay) — لحظة الحدث لحظة إضافته على الجهاز (createdAt)
+        ...(String(req.headers['x-fs-replay'] || '') === '1' && !req.user?.apiKeyId && { offline: true }),
+      },
+    };
     const outcome = await prisma.$transaction(async (tx) => {
       // سباق إعادة الرفع: فحص clientRef أعلاه خارج أي قفل، وبينه وبين الإدراج انتظاراتٌ (بوابة المشتري، رابط Google عبر الشبكة،
       // فحص الموقع، قفل الشركة) — فرفعان متزامنان للمستند نفسه (تبويبان يتشاركان صندوق IndexedDB، لكلٍّ علَم syncing خاصّ) كانا
@@ -432,13 +472,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         ...(addedAt && { createdAt: addedAt }),
         ...(creatorRepId && { createdBySalesRepId: creatorRepId }),
         ...docsCreate,
-      } as any);
+      } as any, creationLog);
+      // «أرشيف العميل»: وثائق الإضافة نفسها (المتداخلة في الإنشاء) حدثٌ لكل وثيقة بمعرّفها — في المعاملة نفسها
+      if (docsIn.docs.length > 0) await recordCreationDocs(tx, tid, created, meta);
       return { replayed: null, created };
     }, CUSTOMER_NUMBER_TX);
     if (outcome.replayed) { await replyReplayed(outcome.replayed); return; }
     const customer = outcome.created;
-    // العميل الذي يفتحه المندوب يظهر له فوراً (سجلّ إسناد تلقائي؛ للإدارة نزعه لاحقاً)
-    if (creatorRepId) await ensureAssignment(tid, customer.id, creatorRepId);
+    // العميل الذي يفتحه المندوب يظهر له فوراً (سجلّ إسناد تلقائي؛ للإدارة نزعه لاحقاً) — وحدثه في سجلّ العميل (أنشأه هذا الطلب)
+    if (creatorRepId) await ensureAssignment(tid, customer.id, creatorRepId, meta, { createdNow: true });
     // المندوب الذكي: محلٌّ مقترح صار عميلاً ⇒ يُعلَّم في سجلّ الشركة وتُحفظ لقطة توقّعه (لا يُسقط الإنشاء إن فشل)
     if (customer.outletType) invalidateEstimateData(tid);
     if (customer.aiPlaceId) {
@@ -532,6 +574,9 @@ async function createMissingOnPut(
   // R6: وإنشاءٌ هنا من صندوق المندوب يُؤرَّخ كـPOST حرفياً (replayCustomerCreatedAt) — وغيره ساعة الخادم
   const addedAt = await replayCustomerCreatedAt(req, tid, clientCreatedAt);
   // «رقم العميل» كـPOST: في معاملة الإنشاء نفسها — وتصادم المعرّف (P2002) يُلغي المعاملة كلها فلا يُستهلك رقمٌ لسباقٍ خاسر
+  // «أرشيف العميل»: وحدث الإضافة في المعاملة نفسها (via: put — أُنشئ بمعرّف النظام الخارجي)
+  const meta = activityMeta(req);
+  const creationLog = { ...meta, data: { via: 'put' } };
   const customer = await prisma.$transaction((tx) => createNumberedCustomer(tx, tid, {
     ...(keepId && { id: requestedId }),
     ...rest, phone: rest.phone ?? '', email: rest.email || null, channel: rest.channel || null, outletType: rest.outletType || null, tenantId: tid,
@@ -539,12 +584,12 @@ async function createMissingOnPut(
     clientCreatedAt: createdAtDevice && !Number.isNaN(createdAtDevice.getTime()) ? createdAtDevice : undefined,
     ...(addedAt && { createdAt: addedAt }),
     ...(creatorRepId && { createdBySalesRepId: creatorRepId }),
-  } as any), CUSTOMER_NUMBER_TX).catch((err: unknown) => {
+  } as any, creationLog), CUSTOMER_NUMBER_TX).catch((err: unknown) => {
     if (keepId && isIdConflict(err)) return null;
     throw err;
   });
   if (!customer) return 'RACED';
-  if (creatorRepId) await ensureAssignment(tid, customer.id, creatorRepId);
+  if (creatorRepId) await ensureAssignment(tid, customer.id, creatorRepId, meta, { createdNow: true });
   if (customer.outletType) invalidateEstimateData(tid);
 
   const warnings: object[] = [...(buyerGate.warnings ?? [])];
@@ -577,8 +622,9 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const scope = await customerScope(req, tid);
     const findExisting = () => prisma.customer.findFirst({
       where: { id: req.params.id, tenantId: tid, ...scope },
-      // والاسم والعنوان المحفوظان لمقارنة «منع تكرار العملاء» حين يُفحص (changedDedupChecks) — وإلا السؤال كما كان
-      select: { id: true, phone: true, ...(dedup && { name: true, address: true }) },
+      // والاسم والعنوان المحفوظان لمقارنة «منع تكرار العملاء» حين يُفحص (changedDedupChecks)، وصورة العميل قبل التعديل لحدثه في
+      // «أرشيف العميل» (CUSTOMER_ACTIVITY_SELECT — يحوي الاسم والعنوان والجوال) — في السؤال نفسه بلا قراءةٍ زائدة
+      select: { ...CUSTOMER_ACTIVITY_SELECT, id: true, phone: true, ...(dedup && { name: true, address: true }) },
     });
     let exists = await findExisting();
     // لا يجده ⇒ يُنشأ (createMissingOnPut)؛ وسباقٌ أنشأه بالمعرّف نفسه في الأثناء ⇒ يُعاد البحث فيُعدَّل كأيّ عميل
@@ -653,14 +699,24 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       const dup = await findCustomerDuplicate(tid, { phone: data.phone, name: data.name, address: data.address }, { exceptId: req.params.id, checks: editDedup });
       if (dup) { res.status(409).json(customerDupBody(dup, await canAccessCustomer(req, tid, dup.id))); return; }
     }
-    let customer = await prisma.customer.update({
-      where: { id: req.params.id },
-      // البريد والقناة يُكتبان فقط إن أُرسلا: تعديلٌ جزئيّ (كتطبيق المندوب) لا يمحو بريد العميل.
-      // والجوال كذلك، ومسحه (null أو الفارغ) يُكتب '' لأن العمود NOT NULL (أمر المالك ٧ نوفمبر: الجوال اختياريّ)
-      data: { ...data, name: data.name ?? undefined, code: data.code ?? undefined, phone: data.phone === undefined ? undefined : (data.phone ?? ''), ...(data.email !== undefined && { email: data.email || null }), ...(data.channel !== undefined && { channel: data.channel || null }), ...(data.outletType !== undefined && { outletType: data.outletType || null }), ...(data.priceListId !== undefined && { priceListId: data.priceListId || null }) },
-    });
-    // «حُذف من قبل أو لم يُحذف يُقبل» (٩ نوفمبر ٢٠٢٦): عميلٌ مؤرشف قديم (status DELETED) يعود نشطاً حين يصله تعديل بلا حالة صريحة
-    if (data.status === undefined && customer.status === 'DELETED') customer = await prisma.customer.update({ where: { id: req.params.id }, data: { status: 'ACTIVE' } });
+    // البريد والقناة يُكتبان فقط إن أُرسلا: تعديلٌ جزئيّ (كتطبيق المندوب) لا يمحو بريد العميل.
+    // والجوال كذلك، ومسحه (null أو الفارغ) يُكتب '' لأن العمود NOT NULL (أمر المالك ٧ نوفمبر: الجوال اختياريّ)
+    const writeData = { ...data, name: data.name ?? undefined, code: data.code ?? undefined, phone: data.phone === undefined ? undefined : (data.phone ?? ''), ...(data.email !== undefined && { email: data.email || null }), ...(data.channel !== undefined && { channel: data.channel || null }), ...(data.outletType !== undefined && { outletType: data.outletType || null }), ...(data.priceListId !== undefined && { priceListId: data.priceListId || null }) };
+    // «أرشيف العميل»: الكتابة وحدثها في معاملةٍ واحدة — صورة العميل «قبل» تُعاد قراءتها تحت قفل صفّه (سؤال الوجود أعلاه سبقته
+    // انتظاراتٌ يلتزم فيها تعديلٌ موازٍ)، و«بعد» بالحقول التي كتبها هذا الطلب وحدها: ما تغيّر فعلاً (الحالة والموقع ونوع السعر وبيانات
+    // الفوترة وبقيّة الحقول) أحداثٌ بفاعل الطلب، والتعديل بلا تغيير لا حدث له، وتعذّر الحدث يُلغي التعديل (لا تعديل بلا أثره)
+    const meta = activityMeta(req);
+    // «prisma» داخل الدالة عميلُ المعاملة نفسها (يحجب العامّ عمداً): كل قراءةٍ وكتابةٍ هنا على اتصال القفل — والعامّ ينتظر القفل فيتعطّل
+    const customer = await prisma.$transaction(async (prisma) => {
+      const before = (await lockCustomerImage(prisma, tid, req.params.id)) ?? (exists as unknown as Record<string, unknown>);
+      let row = await prisma.customer.update({ where: { id: req.params.id }, data: writeData });
+      // «حُذف من قبل أو لم يُحذف يُقبل» (٩ نوفمبر ٢٠٢٦): عميلٌ مؤرشف قديم (status DELETED) يعود نشطاً حين يصله تعديل بلا حالة صريحة —
+      // والإحياء تغيّرٌ في الحالة بفاعل الطلب نفسه
+      const revived = data.status === undefined && row.status === 'DELETED';
+      if (revived) row = await prisma.customer.update({ where: { id: req.params.id }, data: { status: 'ACTIVE' } });
+      await recordCustomerEdit(prisma, tid, before, writtenImage(row as unknown as Record<string, unknown>, writeData, revived ? ['status'] : []), meta);
+      return row;
+    }, CUSTOMER_EDIT_TX);
     // نوع المنفذ أو الموقع تغيّر ⇒ توقّعات المحلات المشابهة تُعاد من القاعدة
     if (data.outletType !== undefined || data.lat !== undefined || data.lng !== undefined) invalidateEstimateData(tid);
     const putWarnings = [...(buyerGate.warnings ?? []), ...(refWarning ? [refWarning] : [])];
@@ -858,15 +914,37 @@ router.put('/:id/prices', requireAdmin, async (req: AuthRequest, res: Response, 
     const expected: ExpectedBases = new Map(owned.map(p => [p.id, { name: p.name, unit: p.unit }]));
     const stale = staleClientBase(prices, expected, new Map(owned.map(p => [p.id, p.baseConvertedAt])));
     if (stale) throw new UnitInvalidError(`تغيّرت وحدات «${stale}» — حدّث قائمة الأصناف ثم أعد الحفظ`);
+    // «أرشيف العميل»: الأسعار الخاصة التي تغيّرت فعلاً حدثٌ واحد في سجلّ العميل (الصنف والسعر قبل وبعد) — في المعاملة نفسها
+    const meta = activityMeta(req);
+    const productName = new Map(owned.map(p => [p.id, p.name]));
     // تحت قفل صفّ الصنف (FOR KEY SHARE): تحويلٌ التزم بعد القراءة أعلاه ⇒ 409 PRODUCT_UNITS_CHANGED بلا أي upsert
     await prisma.$transaction(async (tx) => {
       await lockBases(tx, tid, expected);
-      for (const p of prices) {
+      // الأسعار قبل الحفظ للمقارنة — ومقبضٌ بلا جدول السجل (المزيّف القديم) لا يسأل
+      const logged = hasActivityTable(tx);
+      const prevRows = logged ? await tx.customerPrice.findMany({ where: { customerId: req.params.id, productId: { in: productIds } }, select: { productId: true, price: true } }) : [];
+      const prev = new Map((prevRows ?? []).map(r => [r.productId, Number(r.price)]));
+      // آخر سعرٍ لكل صنف (صفٌّ مكرّر في الطلب يكتب الأخير) مقارنةً بما كان قبل الطلب
+      const last = new Map(prices.map(p => [p.productId, p.price]));
+      const changed = [...last].filter(([pid, price]) => prev.get(pid) !== price)
+        .map(([pid, price]) => ({ productId: pid, productName: productName.get(pid) ?? null, from: prev.has(pid) ? prev.get(pid)! : null, to: price }));
+      // «أرشيف العميل»: السعر الذي لم يتغيّر لا يُعاد كتابته — فيبقى طابعه (updatedAt) تاريخَ آخر تغييرٍ فعليّ، ولا يُقرأ حفظُ القائمة
+      // «تحديدَ سعرٍ» الآن (القارئ يشتقّ ما قبل بدء السجلّ من الطابع). والمقبض بلا جدول السجل (المزيّف القديم) يكتب كل صفٍّ كما كان
+      const writes = logged ? changed.map(c => ({ productId: c.productId, price: c.to })) : prices;
+      for (const p of writes) {
         await tx.customerPrice.upsert({
           where: { customerId_productId: { customerId: req.params.id, productId: p.productId } },
           create: { customerId: req.params.id, productId: p.productId, price: p.price },
           update: { price: p.price },
         });
+      }
+      if (logged && changed.length) {
+        // سطرٌ لكل صنفٍ تغيّر سعره، مرجعه الصنف (عرف PRICE): يطابقه القارئ بسطر ميلاده فلا يُشتقّ السعر نفسه ثانيةً ولو تفاوتت ساعتا
+        // الخادم والقاعدة لحظة بدء السجلّ — بشكل الحدث الواحد نفسه (count/items) الذي تعرضه الواجهة
+        await recordActivityInTx(tx, changed.map(c => ({
+          tenantId: tid, customerId: req.params.id, action: 'CUSTOMER_PRICE_SET' as const, actor: meta.actor, source: meta.source,
+          refType: 'PRICE' as const, refId: c.productId, data: { count: 1, items: [c] },
+        })));
       }
     }, { ...PRICES_TX, timeout: Math.max(PRICES_TX.timeout, prices.length * 12) }); // المهلة حرفياً في الاستدعاء: يراها فحص I10 الثابت
     res.json({ success: true });
@@ -909,6 +987,8 @@ router.delete('/:id', requireAdmin, async (req: AuthRequest, res: Response, next
         tx.accountEntry.count({ where: { customerId: customer.id } }),
       ]);
       if (invoices > 0 || receipts > 0 || entries > 0) return { invoices, receipts, entries };
+      // قرار المالك (٢٧ نوفمبر ٢٠٢٦): «بعد حذف العميل يحذف سجله معه» — لا حدث حذفٍ له (يُحذف معه)، والمحرّك يحذف سجلّه كله
+      // في هذه المعاملة نفسها بعد حذف صفّه (services/ownerPurge.ts purgeInTx: allowActivityPurge ثم customerActivity.deleteMany)
       await tx.notification.deleteMany({ where: { customerId: customer.id } });
       await purgeInTx(tx, tid, 'Customer', [customer.id]);
       return null;

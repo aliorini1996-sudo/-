@@ -25,7 +25,8 @@ services:
     # db push في preDeploy لا في start: فشل الترحيل يوقف النشر والقديم يواصل
     # الخدمة — بدل حلقة إقلاع فاشلة تساوي انقطاعا كاملا
     # الترحيل بعد المخطّط: يملأ baseQty للصفوف السابقة للوحدات المتعددة — آمنٌ للتكرار (WHERE IS NULL)
-    preDeployCommand: npx prisma db push && node dist/scripts/backfillBaseQty.js
+    # ثم حارس «سجلّ العميل» الثابت: مُطلِقٌ يرفض تعديل customer_activities وحذفها — آمنٌ للتكرار (scripts/ensureCustomerActivityGuard.ts)
+    preDeployCommand: npx prisma db push && node dist/scripts/backfillBaseQty.js && node dist/scripts/ensureCustomerActivityGuard.js
     startCommand: node dist/index.js
     # ── فلتر البناء: توفير دقائق Render (Build Pipeline Minutes) ───────────────
     # لا يُعاد بناء الباك-إند إلا حين يتغيّر كود backend/ فعلاً. قبل هذا الفلتر

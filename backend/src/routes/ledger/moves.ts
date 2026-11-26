@@ -9,8 +9,10 @@ import { LedgerLocals } from './context';
 import { LedgerHttpError, ledgerHandler } from './errors';
 import { appendAudit, ledgerActor, type GlActor } from '../../services/gl/audit';
 import {
-  BULK_MOVE_IDS_LIMIT, POST_TX_OPTIONS, isLedgerActivated, normalizeIds, postDraftsBatch, type AutoPostDb,
+  BULK_MOVE_IDS_LIMIT, POST_TX_OPTIONS, isLedgerActivated, normalizeIds, postDraftsBatch, type AutoPostDb, type PostDraftFn,
 } from '../../services/gl/autoPost';
+// «أرشيف العميل — السجل الزمني»: ترحيل القيد اليدوي على عملاء وعكسه و«إعادته إلى مسودة» أحداثٌ في سجلّ كل عميل داخل معاملاتها
+import { docActivityMeta, recordLedgerJournalActivity, type DocActivityMeta } from '../../services/customerActivityDocs';
 import { DEFAULT_TIMEZONE, fromDbDate, isLocalDate, startOfMonth, toDbDate, todayLocal, zonedStartOfDay } from '../../services/gl/dates';
 import {
   buildManualMoveDraft, draftRowsFromMoveDraft, priceIncludeGrossAmounts, saveDraftMove, type ManualLineInput,
@@ -756,11 +758,25 @@ async function assertLedgerActivated(tenantId: string): Promise<void> {
   }
 }
 
+/**
+ * «أرشيف العميل»: ترحيل مسودةٍ ثم أحداث عملائها (حدثٌ لكل عميلٍ في سطورها بصافي أثره) في معاملة الترحيل نفسها — يُلتزمان معاً أو
+ * يُلغيان معاً. يُمرَّر منفّذاً لـpostDraftsBatch (كل قيدٍ في معاملته)
+ */
+export function postDraftWithCustomerActivity(meta: DocActivityMeta): PostDraftFn {
+  return async (tx, opts) => {
+    const posted = await postDraftMove(tx, opts);
+    await recordLedgerJournalActivity(tx, { tenantId: opts.tenantId, moveId: opts.moveId, action: 'LEDGER_JOURNAL_POSTED', meta });
+    return posted;
+  };
+}
+
 router.post('/moves/post-drafts', requireLedgerPermission('canPostJournals'), ledgerHandler(async (req, res) => {
   const { tenantId } = locals(res);
   const ids = bulkIds(req.body);
-  // قبل التفعيل: كل معرّف في rejected بـLEDGER_NOT_SETUP؛ وبعده كل قيد في معاملته
-  const data = await postDraftsBatch(prisma as unknown as AutoPostDb, { tenantId, actor: actorOf(req, res), ids });
+  // قبل التفعيل: كل معرّف في rejected بـLEDGER_NOT_SETUP؛ وبعده كل قيد في معاملته (ومعه أحداث عملائه)
+  const data = await postDraftsBatch(prisma as unknown as AutoPostDb, {
+    tenantId, actor: actorOf(req, res), ids, post: postDraftWithCustomerActivity(docActivityMeta(req)),
+  });
   res.json({ success: true, data });
 }));
 
@@ -769,7 +785,13 @@ router.post('/moves/:id/post', requireLedgerPermission('canPostJournals'), ledge
   await assertLedgerActivated(tenantId);
   const actor = actorOf(req, res);
   const moveId = String(req.params.id);
-  const posted = await prisma.$transaction((tx) => postDraftMove(tx, { tenantId, actor, moveId }), POST_TX_OPTIONS);
+  const meta = docActivityMeta(req);
+  const posted = await prisma.$transaction(async (tx) => {
+    const p = await postDraftMove(tx, { tenantId, actor, moveId });
+    // «أرشيف العميل»: حدثٌ لكل عميلٍ في سطور القيد بصافي أثره — في معاملة الترحيل نفسها
+    await recordLedgerJournalActivity(tx, { tenantId, moveId, action: 'LEDGER_JOURNAL_POSTED', meta });
+    return p;
+  }, POST_TX_OPTIONS);
   res.json({ success: true, data: serializePosted(posted) });
 }));
 
@@ -836,9 +858,18 @@ router.post('/moves/:id/reverse', requireLedgerPermission('canPostJournals'), le
   await assertLedgerActivated(tenantId);
   const actor = actorOf(req, res);
   const moveId = String(req.params.id);
+  const meta = docActivityMeta(req);
   const r = await prisma.$transaction(async (tx) => {
     await assertManualOwned(tx, tenantId, moveId);
-    return reverseMove(tx, { tenantId, moveId, actor, reason, mode: 'MANUAL', requestedDate });
+    const rev = await reverseMove(tx, { tenantId, moveId, actor, reason, mode: 'MANUAL', requestedDate });
+    // «أرشيف العميل»: العكس الجديد وحده (لا المكرّر) — أثرٌ يُطرح من كل عميلٍ في سطور الأصل، في معاملة العكس نفسها
+    if (!rev.alreadyReversed) {
+      await recordLedgerJournalActivity(tx, {
+        tenantId, moveId, action: 'LEDGER_JOURNAL_REVERSED', meta, sign: -1,
+        data: { mode: 'REVERSAL', reason, ...(rev.reversal.number && { reversalNo: rev.reversal.number }) },
+      });
+    }
+    return rev;
   }, POST_TX_OPTIONS);
   res.json({
     success: true,
@@ -857,9 +888,15 @@ router.post('/moves/:id/reset-draft', requireLedgerPermission('canPostJournals')
   await assertLedgerActivated(tenantId);
   const actor = actorOf(req, res);
   const moveId = String(req.params.id);
+  const meta = docActivityMeta(req);
   const r = await prisma.$transaction(async (tx) => {
     await assertManualOwned(tx, tenantId, moveId);
-    return resetDraft(tx, { tenantId, moveId, actor, reason });
+    const reset = await resetDraft(tx, { tenantId, moveId, actor, reason });
+    // «أرشيف العميل»: خروج أثر القيد من الدفاتر (يعود مسودة) — أثرٌ يُطرح من كل عميلٍ في سطوره، في المعاملة نفسها
+    await recordLedgerJournalActivity(tx, {
+      tenantId, moveId, action: 'LEDGER_JOURNAL_REVERSED', meta, sign: -1, data: { mode: 'RESET_DRAFT', reason },
+    });
+    return reset;
   }, POST_TX_OPTIONS);
   res.json({ success: true, data: { draft: r.draft } });
 }));

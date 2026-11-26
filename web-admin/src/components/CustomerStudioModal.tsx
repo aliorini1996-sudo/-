@@ -1,26 +1,35 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  X, Camera, ImagePlus, ChevronLeft, ChevronRight, Download, Trash2, FileImage, MapPin, Receipt, Archive, Clock, Search,
-  ArrowDownUp, UserRound, ArrowLeftRight, Images, ListOrdered, MessageSquareText,
+  X, Camera, ImagePlus, ChevronLeft, ChevronRight, Download, Trash2, FileImage, MapPin, Receipt, Archive,
+  UserRound, ArrowLeftRight, Images, ListOrdered,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { customerApi } from '../api/client';
 import { useTr } from '../i18n/strings';
-import { activeLocale, formatDateTime, formatTime } from '../utils/format';
+import { activeLocale, formatDateTime } from '../utils/format';
 import { compressImage } from '../rep/imageCompress';
 import { backdropClose } from '../lib/backdropClose';
 import { CustomerDocKind, DOC_COMPRESS, docKindLabel, docKindsFor } from '../lib/customerDocs';
 import { useAuthStore } from '../store/authStore';
 import { formatCustomerNumber } from '../lib/customerNumber';
-import { buildEntries, filterEntries, handoversOf, lastOf, repsOf, sortEntries, type ArchiveEntry, type ArchiveItem, type ArchiveVisit } from '../lib/customerArchive';
+import { handoversOf, lastOf, repsOf, type ArchiveItem, type ArchiveVisit } from '../lib/customerArchive';
+import {
+  repWho, visitPhotoIdsOf, type ActivityItem, type ActivityPage, type ActivityView, type ActivityWho, type VisitPhotoIndex,
+} from '../lib/customerActivity';
+import ActivityTimeline from './customerActivity/ActivityTimeline';
+import { useAccountingOn } from './AccountingGate';
 
 /**
- * «أرشيف العميل» (كان «استديو العميل» — طلب المالك ١٣ نوفمبر ٢٠٢٦، وصار أرشيفاً ٢١ نوفمبر): كل ما سُجّل للعميل في مكانٍ واحد
- * بتسلسله الزمني — زياراته الميدانية بملاحظاتها كاملةً وصورها ومندوبها ومدّتها، ووثائقه، ومرفقات سندات قبضه — وفي أعلاه
- * «أين توقّفنا» (آخر زيارة ومن خدم العميل)، وعلامةٌ عند كل تغيّرٍ للمندوب: فموظفٌ تسلّم العميل يعرف من أين توقّف سابقه.
+ * «أرشيف العميل» (كان «استديو العميل» — طلب المالك ١٣ نوفمبر ٢٠٢٦، وصار أرشيفاً ٢١ نوفمبر): كل ما سُجّل للعميل في مكانٍ واحد.
+ * «السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦) سجلٌّ ثابت لكل إجراءٍ مع العميل من أيّ أحد — زيارات وفواتير ومرتجعات وسندات
+ * وروابط دفع ووثائق وتعديلات بياناته — من GET /customers/:id/activity (components/customerActivity/ActivityTimeline.tsx،
+ * المشترك مع تطبيق المندوب)، وتحت بند الزيارة صورها (مرّةً واحدة لكل وقفة) وموقع تسجيلها وتسلّم المندوب، وتحت السند مرفقاته.
+ * وفي أعلاه «أين توقّفنا» (آخر زيارة ومن خدم العميل — والنقر على مندوبٍ يرشّح السجلّ بعمله)، ثم البحث في الملاحظات والأرقام
+ * والأسماء و«من نفّذ» و«الأحدث/الأقدم أولاً» (كما كانت قبل السجلّ الثابت). السجلّ للقراءة وحدها: لا تعديل ولا حذف فيه، وعارض
+ * صوره بلا زرّ حذف.
  * وتبويب «الصور والوثائق» شبكة الصور كما كانت، مع رفع وثائق جديدة وحذفها. القائمة تصل بلا الصور، وكل صورة تُطلب حين تظهر.
- * القيود (النطاق، صلاحية السندات) في الخادم: routes/customerStudio.ts.
+ * القيود (النطاق، صلاحية السندات) في الخادم: routes/customerStudio.ts وroutes/customerActivity.ts.
  */
 
 type Source = ArchiveItem['source'];
@@ -38,8 +47,6 @@ type ApiErr = { response?: { status?: number; data?: { message?: string; code?: 
 
 /** صفحة الشبكة: تُعرض الصور دفعةً دفعة — كل دفعة طلباتٌ قليلة، فلا يستنفد تصفّح عميلٍ كثير الصور حدّ الطلبات ولا ذاكرة المتصفح */
 const PAGE = 40;
-/** صفحة السجلّ الزمني */
-const TL_PAGE = 30;
 /** مصغّرات البند الواحد في السجلّ — والباقي «+ن» يفتح العارض: زيارةٌ بثماني صور لا تُطلق ثمانية طلبات لكل بطاقة */
 const CARD_THUMBS = 4;
 
@@ -88,21 +95,6 @@ function itemTitle(it: StudioItem, tr: (s: string) => string, taxOff: boolean): 
 
 const SOURCE_ICON = { doc: FileImage, visit: MapPin, receipt: Receipt } as const;
 
-/** مدّة الزيارة كما في خريطة التتبّع: س:دد:ثث أو دد:ثث */
-function fmtDur(sec: number | null | undefined): string | null {
-  if (sec === null || sec === undefined || !Number.isFinite(sec) || sec <= 0) return null;
-  const s = Math.round(sec), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
-  const p = (n: number) => String(n).padStart(2, '0');
-  return h > 0 ? `${h}:${p(m)}:${p(ss)}` : `${m}:${p(ss)}`;
-}
-
-/** يوم اللحظة على جهاز القارئ — مفتاح تجميع السجلّ */
-const dayKey = (at: string) => { const d = new Date(at); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; };
-function dayHeader(at: string): string {
-  const d = new Date(at);
-  if (isNaN(d.getTime())) return '-';
-  return new Intl.DateTimeFormat(activeLocale(), { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(d);
-}
 /** «قبل ٣ أيام» بلغة الواجهة */
 function sinceText(at: string): string {
   const d = new Date(at);
@@ -219,141 +211,58 @@ function Viewer({ customerId, items, index, onIndex, onClose, onDelete, deleting
 
 // ═══ السجلّ الزمني ═══
 
-function Timeline({ data, customerId, taxOff, onOpenPhotos }: {
-  data: StudioData; customerId: string; taxOff: boolean; onOpenPhotos: (items: StudioItem[], index: number) => void;
-}) {
+/**
+ * «أين توقّفنا»: آخر زيارة وآخر ملاحظة مكتوبة ومن خدم العميل — من زيارات الأرشيف (أحدث ٥٠٠). النقر على مندوبٍ يرشّح السجلّ
+ * الزمني بعمله مع العميل، والنقر ثانيةً يلغي الترشيح
+ */
+function WhereWeLeftOff({ data, repFilter, onPickRep }: { data: StudioData; repFilter: string | null; onPickRep: (repId: string, name: string) => void }) {
   const tr = useTr();
-  const [repFilter, setRepFilter] = useState('');
-  const [q, setQ] = useState('');
-  const [order, setOrder] = useState<'desc' | 'asc'>('desc');
-  const [limit, setLimit] = useState(TL_PAGE);
-  const visits = data.visits ?? [];
+  const visits = useMemo(() => data.visits ?? [], [data]);
   const reps = useMemo(() => repsOf(visits), [visits]);
-  const handovers = useMemo(() => handoversOf(visits), [visits]);
-  const all = useMemo(() => buildEntries(data), [data]);
-  useEffect(() => { setLimit(TL_PAGE); }, [repFilter, q, order]);
-
-  const shown = useMemo(() => sortEntries(filterEntries(all, {
-    repId: repFilter, q,
-    labelOf: (e) => (e.type === 'doc' ? tr(docKindLabel(e.item.kind, taxOff)) : ''),
-  }), order), [all, repFilter, q, order, tr, taxOff]);
-
   const { last, lastNoted } = useMemo(() => lastOf(visits), [visits]);
-
-  const rows: ReactElement[] = [];
-  let prevDay = '';
-  for (const e of shown.slice(0, limit)) {
-    const dk = dayKey(e.at);
-    if (dk !== prevDay) {
-      rows.push(
-        <div key={`h-${e.key}`} className="sticky top-0 z-10 -mx-1 px-1 py-1.5 bg-[#FFFDF9]/95 backdrop-blur">
-          <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#1F1A13] bg-[#F4EEE3] rounded-full px-3 py-1">{dayHeader(e.at)}</span>
-        </div>,
-      );
-      prevDay = dk;
-    }
-    const handFrom = e.type === 'visit' && !repFilter ? handovers.get(e.v.id) : undefined;
-    const hand = handFrom !== undefined && e.type === 'visit' ? (
-      <div key={`ho-${e.key}`} className="flex items-center gap-2 my-1 text-[11px] font-semibold text-[#B4471F]">
-        <span className="flex-1 h-px bg-[#E15A30]/30" />
-        <span className="inline-flex items-center gap-1.5 bg-[#FBEBE2] rounded-full px-3 py-1">
-          <ArrowLeftRight size={12} className="flex-shrink-0" />
-          {/* dir="auto" يُحسب من نصّ القالب لا من الاسمين (المعزولين بـbdi): «X took over from Y» تبقى بترتيبها في الإنجليزية */}
-          <span dir="auto">
-            {tr('تسلم {to} العميل بعد {from}').split(/(\{to\}|\{from\})/).map((part, i) =>
-              part === '{to}' ? <bdi key={i}>{e.v.rep ?? '—'}</bdi> : part === '{from}' ? <bdi key={i}>{handFrom}</bdi> : part)}
-          </span>
-        </span>
-        <span className="flex-1 h-px bg-[#E15A30]/30" />
-      </div>
-    ) : null;
-    if (hand && order === 'asc') rows.push(hand);
-    rows.push(<TimelineCard key={e.key} e={e} customerId={customerId} taxOff={taxOff} onOpenPhotos={onOpenPhotos} />);
-    if (hand && order === 'desc') rows.push(hand);
-  }
-
   return (
-    <div className="space-y-4">
-      {/* أين توقّفنا */}
-      <div className="rounded-2xl border border-[#E9E1D3] bg-white p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <ListOrdered size={16} className="text-[#E15A30]" />
-          <h3 className="text-sm font-bold text-[#1F1A13]">{tr('أين توقفنا مع العميل')}</h3>
-        </div>
-        {last ? (
-          <div className="grid gap-3 sm:grid-cols-[1.3fr_1fr]">
-            <div className="rounded-xl bg-[#FBF7EF] p-3 min-w-0">
-              <p className="text-[11px] text-[#6E6557]">{tr('آخر زيارة')}</p>
-              <p className="text-sm font-bold text-[#1F1A13] mt-0.5" dir="auto">
-                {last.rep ?? '—'} · <span dir="ltr">{formatDateTime(last.at)}</span>
-                <span className="text-[11px] font-semibold text-[#E15A30] ms-2">{sinceText(last.at)}</span>
-              </p>
-              {lastNoted ? (
-                <div className="mt-2">
-                  <p className="text-[11px] text-[#6E6557]">
-                    {tr('آخر ملاحظة')}{lastNoted.id !== last.id ? <> · {lastNoted.rep ?? '—'} · <span dir="ltr">{formatDateTime(lastNoted.at)}</span></> : null}
-                  </p>
-                  <p className="text-sm text-[#1F1A13] whitespace-pre-wrap [overflow-wrap:anywhere] line-clamp-4 mt-0.5" dir="auto">{lastNoted.note}</p>
-                </div>
-              ) : <p className="text-xs text-[#6E6557] mt-2">{tr('لا توجد ملاحظات مكتوبة في الزيارات بعد')}</p>}
-            </div>
-            <div className="rounded-xl bg-[#FBF7EF] p-3 min-w-0">
-              <p className="text-[11px] text-[#6E6557] mb-1.5">{tr('من خدم العميل')} · {visits.length} {tr('زيارة')}</p>
-              <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                {reps.map((r) => (
-                  <button key={r.repId} type="button" onClick={() => setRepFilter((f) => (f === r.repId ? '' : r.repId))}
-                    className={`w-full flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-right border transition ${repFilter === r.repId ? 'border-[#E15A30] bg-white' : 'border-transparent hover:bg-white'}`}>
-                    <span className="flex items-center gap-1.5 min-w-0">
-                      <UserRound size={13} className="text-[#8A6D1F] flex-shrink-0" />
-                      <span className="text-xs font-semibold text-[#1F1A13] truncate" dir="auto">{r.rep}</span>
-                    </span>
-                    <span className="text-[10px] text-[#6E6557] flex-shrink-0">
-                      {r.count} {tr('زيارة')} · <span dir="ltr">{formatDateTime(r.last)}</span>
-                    </span>
-                  </button>
-                ))}
+    <div className="rounded-2xl border border-[#E9E1D3] bg-white p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <ListOrdered size={16} className="text-[#E15A30]" />
+        <h3 className="text-sm font-bold text-[#1F1A13]">{tr('أين توقفنا مع العميل')}</h3>
+      </div>
+      {last ? (
+        <div className="grid gap-3 sm:grid-cols-[1.3fr_1fr]">
+          <div className="rounded-xl bg-[#FBF7EF] p-3 min-w-0">
+            <p className="text-[11px] text-[#6E6557]">{tr('آخر زيارة')}</p>
+            <p className="text-sm font-bold text-[#1F1A13] mt-0.5" dir="auto">
+              {last.rep ?? '—'} · <span dir="ltr">{formatDateTime(last.at)}</span>
+              <span className="text-[11px] font-semibold text-[#E15A30] ms-2">{sinceText(last.at)}</span>
+            </p>
+            {lastNoted ? (
+              <div className="mt-2">
+                <p className="text-[11px] text-[#6E6557]">
+                  {tr('آخر ملاحظة')}{lastNoted.id !== last.id ? <> · {lastNoted.rep ?? '—'} · <span dir="ltr">{formatDateTime(lastNoted.at)}</span></> : null}
+                </p>
+                <p className="text-sm text-[#1F1A13] whitespace-pre-wrap [overflow-wrap:anywhere] line-clamp-4 mt-0.5" dir="auto">{lastNoted.note}</p>
               </div>
+            ) : <p className="text-xs text-[#6E6557] mt-2">{tr('لا توجد ملاحظات مكتوبة في الزيارات بعد')}</p>}
+          </div>
+          <div className="rounded-xl bg-[#FBF7EF] p-3 min-w-0">
+            <p className="text-[11px] text-[#6E6557] mb-1.5">{tr('من خدم العميل')} · {visits.length} {tr('زيارة')}</p>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+              {reps.map((r) => (
+                <button key={r.repId} type="button" onClick={() => onPickRep(r.repId, r.rep)} aria-pressed={repFilter === r.repId}
+                  className={`w-full flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-right border transition ${repFilter === r.repId ? 'border-[#E15A30] bg-white' : 'border-transparent bg-white/60 hover:bg-white'}`}>
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <UserRound size={13} className="text-[#8A6D1F] flex-shrink-0" />
+                    <span className="text-xs font-semibold text-[#1F1A13] truncate" dir="auto">{r.rep}</span>
+                  </span>
+                  <span className="text-[10px] text-[#6E6557] flex-shrink-0">
+                    {r.count} {tr('زيارة')} · <span dir="ltr">{formatDateTime(r.last)}</span>
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
-        ) : <p className="text-xs text-[#6E6557]">{tr('لم تسجل زيارات لهذا العميل بعد')}</p>}
-      </div>
-
-      {/* الفرز والبحث */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[180px]">
-          <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6E6557]" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('ابحث في الملاحظات')}
-            className="w-full text-sm border border-[#E9E1D3] rounded-lg pr-9 pl-3 py-2 bg-white outline-none focus:border-[#E15A30]" />
         </div>
-        <select value={repFilter} onChange={(e) => setRepFilter(e.target.value)} aria-label={tr('المندوب')}
-          className="text-sm border border-[#E9E1D3] rounded-lg px-2 py-2 bg-white outline-none focus:border-[#E15A30]">
-          <option value="">{tr('كل المناديب')}</option>
-          {reps.map((r) => <option key={r.repId} value={r.repId}>{r.rep}</option>)}
-        </select>
-        <button type="button" onClick={() => setOrder((o) => (o === 'desc' ? 'asc' : 'desc'))}
-          className="flex items-center gap-1.5 text-sm font-semibold rounded-lg px-3 py-2 border border-[#E9E1D3] bg-white text-[#1F1A13] hover:border-[#E15A30]">
-          <ArrowDownUp size={14} /> {order === 'desc' ? tr('الأحدث أولا') : tr('الأقدم أولا')}
-        </button>
-      </div>
-
-      {shown.length === 0 ? (
-        <div className="text-center py-12 text-[#6E6557]">
-          <Archive size={40} className="mx-auto text-[#E9E1D3] mb-3" />
-          <p className="font-semibold">{all.length === 0 ? tr('لا يوجد شيء في أرشيف هذا العميل بعد') : tr('لا نتائج مطابقة')}</p>
-        </div>
-      ) : (
-        <div className="relative pr-5 border-r-2 border-[#F1EBDF] space-y-2.5">{rows}</div>
-      )}
-      {shown.length > limit && (
-        <div className="text-center">
-          <button onClick={() => setLimit((n) => n + TL_PAGE)}
-            className="text-sm font-semibold rounded-lg px-4 py-2 border border-[#E9E1D3] bg-white text-[#1F1A13] hover:border-[#E15A30]">
-            {tr('عرض المزيد')} ({shown.length - limit})
-          </button>
-        </div>
-      )}
-      {data.truncated.visits && <p className="text-center text-[11px] text-[#6E6557]">{tr('يعرض الأرشيف أحدث 500 زيارة')}</p>}
-      {data.truncated.receipt && <p className="text-center text-[11px] text-[#6E6557]">{tr('تعرض أحدث 300 صورة من الزيارات والسندات')}</p>}
+      ) : <p className="text-xs text-[#6E6557]">{tr('لم تسجل زيارات لهذا العميل بعد')}</p>}
+      {data.truncated.visits && <p className="text-[11px] text-[#6E6557] mt-2">{tr('يعرض الأرشيف أحدث 500 زيارة')}</p>}
     </div>
   );
 }
@@ -376,72 +285,103 @@ function CardThumbs({ photos, customerId, taxOff, onOpenPhotos }: {
   );
 }
 
-function TimelineCard({ e, customerId, taxOff, onOpenPhotos }: {
-  e: ArchiveEntry; customerId: string; taxOff: boolean; onOpenPhotos: (items: StudioItem[], index: number) => void;
+/**
+ * وسائط الأرشيف مفهرسةً بمرجع بند السجلّ (refId): الوقفة المدموجة برأسها، وفهرس صور الزيارات (الوقفة ⇒ صورها، والصورة ⇒
+ * سجلّها، والسجلّ ⇒ صوره)، وكل صورة زيارةٍ بمعرّفها، والوثيقة، ومرفقات السند
+ */
+interface ArchiveMedia {
+  visits: Map<string, ArchiveVisit>;
+  photos: VisitPhotoIndex;
+  visitPhotoItems: Map<string, StudioItem>;
+  docs: Map<string, StudioItem>;
+  receipts: Map<string, StudioItem[]>;
+  handovers: Map<string, string>;
+}
+function archiveMedia(data: Pick<StudioData, 'items' | 'visits'> | undefined): ArchiveMedia {
+  const m: ArchiveMedia = {
+    visits: new Map(), photos: { stops: new Map(), photoSource: new Map(), sourcePhotos: new Map() }, visitPhotoItems: new Map(),
+    docs: new Map(), receipts: new Map(), handovers: new Map(),
+  };
+  if (!data) return m;
+  for (const v of data.visits ?? []) { m.visits.set(v.id, v); m.photos.stops.set(v.id, v.photoIds); }
+  for (const it of data.items) {
+    if (it.source === 'doc') m.docs.set(it.id, it);
+    else if (it.source === 'visit' && it.visitId) {
+      m.visitPhotoItems.set(it.id, it);
+      m.photos.photoSource.set(it.id, it.visitId);
+      m.photos.sourcePhotos.set(it.visitId, [...(m.photos.sourcePhotos.get(it.visitId) ?? []), it.id]);
+    } else if (it.source === 'receipt' && it.receiptId) m.receipts.set(it.receiptId, [...(m.receipts.get(it.receiptId) ?? []), it]);
+  }
+  m.handovers = handoversOf(data.visits ?? []);
+  return m;
+}
+
+/**
+ * صور بند الزيارة مرّةً واحدة لكل وقفة (visitPhotoIdsOf): الوقفة المدموجة (data.visitIds) تُرسم تحت بندها كاملةً، وصور ملاحظةٍ لها
+ * بندها المستقلّ لا تُعاد تحت بند المؤقّت. v: وقفة الأرشيف التي البند رأسها (موقعها وتسلّم المندوب)
+ */
+function visitStopPhotos(item: ActivityItem, media: ArchiveMedia): { v: ArchiveVisit | undefined; photos: StudioItem[] } {
+  const { headId, photoIds } = visitPhotoIdsOf(item, media.photos);
+  const v = headId ? media.visits.get(headId) : undefined;
+  const photos = photoIds.map((id): StudioItem => media.visitPhotoItems.get(id) ?? {
+    source: 'visit', id, at: v?.at ?? item.at, by: v?.rep ?? item.actor.name ?? null, visitId: headId ?? item.refId ?? undefined, note: v?.note ?? null,
+  });
+  return { v, photos };
+}
+
+/**
+ * ما يضيفه الأرشيف تحت بند السجلّ — للعرض وحده: صور الزيارة وموقع تسجيلها وعلامة تسلّم المندوب (من تسلّم العميل يعرف
+ * أين توقّف سابقه)، وصورة الوثيقة المرفوعة، ومرفقات سند القبض. ما حُذف من الأرشيف لا يُرسم وتبقى بنوده في السجلّ
+ */
+function TimelineExtra({ item, media, customerId, taxOff, onOpenPhotos }: {
+  item: ActivityItem; media: ArchiveMedia; customerId: string; taxOff: boolean; onOpenPhotos: (items: StudioItem[], index: number) => void;
 }) {
   const tr = useTr();
-  const dot = 'absolute -right-[27px] top-4 w-3.5 h-3.5 rounded-full border-2 border-white shadow';
-  if (e.type === 'visit') {
-    const v = e.v;
-    const dur = fmtDur(v.durationSec);
+  if (!item.refId) return null;
+  if (item.refType === 'VISIT' && item.action === 'VISIT_RECORDED') {
+    const { v, photos } = visitStopPhotos(item, media);
+    const handFrom = v ? media.handovers.get(v.id) : undefined;
+    const located = !!v && v.lat != null && v.lng != null;
+    if (photos.length === 0 && !located && handFrom === undefined) return null;
     return (
-      <div className="relative rounded-xl border border-[#E9E1D3] bg-white p-3.5">
-        <span className={`${dot} bg-[#E15A30]`} />
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="flex items-center gap-1.5 text-sm font-bold text-[#1F1A13]" dir="auto">
-            <MapPin size={14} className="text-[#E15A30]" /> {tr('زيارة')} · {v.rep ?? '—'}
-          </p>
-          <p className="flex items-center gap-2 text-[11px] text-[#6E6557]">
-            {dur && <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF4EE] text-[#1E7A52] font-semibold px-2 py-0.5"><Clock size={11} /> {tr('مدة الزيارة')} <span dir="ltr">{dur}</span></span>}
-            <span dir="ltr">{formatTime(v.at)}</span>
-          </p>
-        </div>
-        {v.note ? (
-          <p className="mt-2 text-sm text-[#1F1A13] whitespace-pre-wrap leading-relaxed flex gap-1.5" dir="auto">
-            <MessageSquareText size={14} className="text-[#8A6D1F] mt-1 flex-shrink-0" /><span className="min-w-0 [overflow-wrap:anywhere]">{v.note}</span>
-          </p>
-        ) : <p className="mt-2 text-xs text-[#A39A8B]">{tr('بلا ملاحظة')}</p>}
-        {e.photos.length > 0 && (
-          <div className="mt-2.5 flex flex-wrap gap-2">
-            <CardThumbs photos={e.photos} customerId={customerId} taxOff={taxOff} onOpenPhotos={onOpenPhotos} />
+      <div className="space-y-2">
+        {handFrom !== undefined && v && (
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#B4471F] bg-[#FBEBE2] rounded-full px-3 py-1">
+            <ArrowLeftRight size={12} className="flex-shrink-0" />
+            {/* dir="auto" يُحسب من نصّ القالب لا من الاسمين (المعزولين بـbdi): «X took over from Y» تبقى بترتيبها في الإنجليزية */}
+            <span dir="auto">
+              {tr('تسلم {to} العميل بعد {from}').split(/(\{to\}|\{from\})/).map((part, i) =>
+                part === '{to}' ? <bdi key={i}>{v.rep ?? '—'}</bdi> : part === '{from}' ? <bdi key={i}>{handFrom}</bdi> : part)}
+            </span>
+          </span>
+        )}
+        {photos.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            <CardThumbs photos={photos} customerId={customerId} taxOff={taxOff} onOpenPhotos={onOpenPhotos} />
           </div>
         )}
-        {v.lat != null && v.lng != null && (
-          <a href={`https://www.google.com/maps?q=${v.lat},${v.lng}`} target="_blank" rel="noopener noreferrer"
-            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#8A6D1F] hover:text-[#E15A30]">
+        {located && (
+          <a href={`https://www.google.com/maps?q=${v!.lat},${v!.lng}`} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#8A6D1F] hover:text-[#E15A30]">
             <MapPin size={11} /> {tr('موقع تسجيل الزيارة')}
           </a>
         )}
       </div>
     );
   }
-  if (e.type === 'doc') {
-    return (
-      <div className="relative rounded-xl border border-[#E9E1D3] bg-white p-3.5 flex items-center gap-3">
-        <span className={`${dot} bg-[#E0A02C]`} />
-        <Thumb small customerId={customerId} item={e.item} taxOff={taxOff} onOpen={() => onOpenPhotos([e.item], 0)} />
-        <div className="min-w-0">
-          <p className="flex items-center gap-1.5 text-sm font-bold text-[#1F1A13]"><FileImage size={14} className="text-[#E0A02C]" /> {tr('رفعت وثيقة')}: {tr(docKindLabel(e.item.kind, taxOff))}</p>
-          <p className="text-[11px] text-[#6E6557] mt-0.5" dir="auto">{e.item.by ? `${e.item.by} · ` : ''}<span dir="ltr">{formatTime(e.at)}</span></p>
-        </div>
-      </div>
-    );
+  if (item.refType === 'DOCUMENT' && item.action === 'DOCUMENT_ADDED') {
+    const doc = media.docs.get(item.refId);
+    return doc ? <Thumb small customerId={customerId} item={doc} taxOff={taxOff} onOpen={() => onOpenPhotos([doc], 0)} /> : null;
   }
-  return (
-    <div className="relative rounded-xl border border-[#E9E1D3] bg-white p-3.5">
-      <span className={`${dot} bg-[#1E7A52]`} />
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="flex items-center gap-1.5 text-sm font-bold text-[#1F1A13]" dir="auto">
-          <Receipt size={14} className="text-[#1E7A52]" /> {tr('مرفق سند قبض')} {e.number ?? ''}{e.by ? ` · ${e.by}` : ''}
-          {e.cancelled && <span className="text-[10px] font-bold bg-red-600 text-white rounded px-1.5">{tr('ملغى')}</span>}
-        </p>
-        <span className="text-[11px] text-[#6E6557]" dir="ltr">{formatTime(e.at)}</span>
+  if (item.refType === 'RECEIPT' && item.action === 'RECEIPT_ISSUED') {
+    const photos = media.receipts.get(item.refId) ?? [];
+    return photos.length > 0 ? (
+      <div className="flex flex-wrap gap-2">
+        <CardThumbs photos={photos} customerId={customerId} taxOff={taxOff} onOpenPhotos={onOpenPhotos} />
       </div>
-      <div className="mt-2.5 flex flex-wrap gap-2">
-        <CardThumbs photos={e.photos} customerId={customerId} taxOff={taxOff} onOpenPhotos={onOpenPhotos} />
-      </div>
-    </div>
-  );
+    ) : null;
+  }
+  return null;
 }
 
 export default function CustomerStudioModal({ customer, onClose, taxOff = false }: {
@@ -470,13 +410,36 @@ export default function CustomerStudioModal({ customer, onClose, taxOff = false 
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
   const [kind, setKind] = useState<CustomerDocKind>('OTHER');
   const [preparing, setPreparing] = useState(false);
+  // رفع وثيقةٍ أو حذفها يُسجَّل في السجلّ الثابت ⇒ يُعاد جلبه من أوّله ليظهر البند الجديد
+  const [tlRound, setTlRound] = useState(0);
   const kinds = docKindsFor(taxOff);
+  // المال في السجلّ (مبالغ الفواتير والسندات) لا يظهر حين يُطفأ النظام المحاسبي — ولا قبل معرفة الإعداد
+  const { on: accountingFlag, ready: accountingReady } = useAccountingOn();
+  const accountingOn = accountingReady && accountingFlag;
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['customer-studio', customer.id],
     queryFn: async () => (await customerApi.studio(customer.id)).data.data as StudioData,
   });
-  const refresh = () => qc.invalidateQueries({ queryKey: ['customer-studio', customer.id] });
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['customer-studio', customer.id] }); setTlRound((n) => n + 1); };
+
+  // السجلّ الثابت صفحةً صفحة — قراءةٌ وحدها (limit لصفحات التحميل التلقائي حين يُبحث أو يُرشَّح أو يُرتَّب)
+  const fetchActivity = useCallback(
+    async (before?: string, category?: string, limit?: number) =>
+      (await customerApi.activity(customer.id, { before, category, limit })).data.data as ActivityPage,
+    [customer.id],
+  );
+  const media = useMemo(() => archiveMedia(data), [data]);
+  const renderExtra = useCallback((item: ActivityItem) => (
+    <TimelineExtra item={item} media={media} customerId={customer.id} taxOff={taxOff} onOpenPhotos={(items, index) => setTlViewer({ items, index })} />
+  ), [media, customer.id, taxOff]);
+  // عرض السجلّ: البحث و«من نفّذ» والترتيب — في الواجهة وحدها، ويبقى عبر تبديل القسم وإعادة الجلب
+  const [tlView, setTlView] = useState<ActivityView>({});
+  // «من خدم العميل» خياراتٌ في «من نفّذ» — والنقر على أحدهم يرشّح السجلّ بعمله (ونقرةٌ ثانية تلغيه)
+  const knownWho = useMemo<ActivityWho[]>(() => repsOf(data?.visits ?? []).map((r) => repWho(r.repId, r.rep)), [data]);
+  const pickRep = useCallback((repId: string, name: string) => {
+    setTlView((v) => ({ ...v, who: v.who?.repId === repId ? null : repWho(repId, name) }));
+  }, []);
 
   const counts = useMemo(() => {
     const c = { all: 0, doc: 0, visit: 0, receipt: 0 };
@@ -534,7 +497,7 @@ export default function CustomerStudioModal({ customer, onClose, taxOff = false 
     { id: 'receipt', label: 'مرفقات السندات', hidden: data?.receiptsHidden },
   ];
   const VIEWS = [
-    { id: 'timeline' as const, label: 'السجل الزمني', icon: ListOrdered, n: data ? (data.visits?.length ?? 0) : null },
+    { id: 'timeline' as const, label: 'السجل الزمني', icon: ListOrdered, n: null },
     { id: 'gallery' as const, label: 'الصور والوثائق', icon: Images, n: data ? counts.all : null },
   ];
 
@@ -602,7 +565,18 @@ export default function CustomerStudioModal({ customer, onClose, taxOff = false 
 
         {/* المحتوى */}
         <div ref={setScrollRoot} className="flex-1 overflow-y-auto p-4 sm:p-5">
-          {isLoading ? (
+          {view === 'timeline' ? (
+            // السجلّ الثابت يُجلب وحده — فلا ينتظر الأرشيفَ ولا يسقط بسقوطه؛ و«أين توقّفنا» وصور البنود من الأرشيف متى وصل
+            <ScrollRootCtx.Provider value={scrollRoot}>
+              <div className="space-y-4">
+                {isLoading ? <div className="h-28 rounded-2xl bg-[#F1EBDF] animate-pulse" />
+                  : data ? <WhereWeLeftOff data={data} repFilter={tlView.who?.repId ?? null} onPickRep={pickRep} />
+                  : isError ? <p className="text-center text-xs text-red-500">{tr('تعذر تحميل أرشيف العميل')}</p> : null}
+                <ActivityTimeline key={`${customer.id}-${tlRound}`} fetchPage={fetchActivity} accountingOn={accountingOn} taxOff={taxOff} renderExtra={renderExtra}
+                  view={tlView} onViewChange={setTlView} knownWho={knownWho} />
+              </div>
+            </ScrollRootCtx.Provider>
+          ) : isLoading ? (
             <div className="space-y-3">
               {Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-24 rounded-xl bg-[#F1EBDF] animate-pulse" />)}
             </div>
@@ -610,9 +584,7 @@ export default function CustomerStudioModal({ customer, onClose, taxOff = false 
             <p className="text-center text-red-500 py-16">{tr('تعذر تحميل أرشيف العميل')}</p>
           ) : (
             <ScrollRootCtx.Provider value={scrollRoot}>
-              {view === 'timeline' ? (
-                <Timeline data={data} customerId={customer.id} taxOff={taxOff} onOpenPhotos={(items, index) => setTlViewer({ items, index })} />
-              ) : shown.length === 0 ? (
+              {shown.length === 0 ? (
                 <div className="text-center py-16 text-[#6E6557]">
                   <Images size={40} className="mx-auto text-[#E9E1D3] mb-3" />
                   <p className="font-semibold">{tab === 'all' ? tr('لا توجد صور أو وثائق لهذا العميل بعد') : tr('لا توجد صور في هذا القسم')}</p>
@@ -647,9 +619,10 @@ export default function CustomerStudioModal({ customer, onClose, taxOff = false 
         <Viewer customerId={customer.id} items={shown} index={viewerIndex} onIndex={(i) => setViewerKey(shown[i] ? keyOf(shown[i]) : null)}
           onClose={() => setViewerKey(null)} onDelete={onDelete} deleting={remove.isPending} canDelete={canDelete} taxOff={taxOff} />
       )}
+      {/* عارض صور بنود السجلّ الثابت: للعرض والتنزيل وحدهما — حذف الوثيقة من تبويب «الصور والوثائق» لا من السجلّ */}
       {tlViewer && (
         <Viewer customerId={customer.id} items={tlViewer.items} index={tlViewer.index} onIndex={(i) => setTlViewer((v) => (v ? { ...v, index: i } : v))}
-          onClose={() => setTlViewer(null)} onDelete={onDelete} deleting={remove.isPending} canDelete={canDelete} taxOff={taxOff} />
+          onClose={() => setTlViewer(null)} onDelete={onDelete} deleting={remove.isPending} canDelete={false} taxOff={taxOff} />
       )}
     </div>
   );

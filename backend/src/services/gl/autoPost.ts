@@ -13,6 +13,8 @@ import { addDays, todayLocal, toDbDate, fromDbDate, DEFAULT_TIMEZONE } from './d
 import { postDraftMove, type PostDraftOptions, type PostedMove } from './post';
 import { isGlNotFoundError } from './resolve';
 import { isLedgerError } from './types';
+// «أرشيف العميل — السجل الزمني»: الترحيل المجدول لمسودةٍ يدوية على عملاء حدثٌ في سجلّ كل عميل بفاعل النظام
+import { SYSTEM_META, recordLedgerJournalActivity } from '../customerActivityDocs';
 
 /** حد المعرّفات في الإجراءات الجماعية (§8.3). */
 export const BULK_MOVE_IDS_LIMIT = 100;
@@ -171,6 +173,18 @@ export interface AutoPostTickResult {
 const TRANSIENT_CODES = new Set(['LEDGER_MOVE_NOT_DRAFT', 'NOT_FOUND']);
 
 /**
+ * منفّذ المجدول الافتراضي: postDraftMove ثم «أرشيف العميل» — حدثٌ لكل عميلٍ في سطور المسودة بصافي أثره، بفاعل النظام وفي معاملة
+ * الترحيل نفسها (يُلتزمان معاً). المسودة بلا عميل لا تكتب شيئاً
+ */
+export const postScheduledDraft: PostDraftFn = async (tx, opts) => {
+  const posted = await postDraftMove(tx, opts);
+  await recordLedgerJournalActivity(tx, {
+    tenantId: opts.tenantId, moveId: opts.moveId, action: 'LEDGER_JOURNAL_POSTED', meta: SYSTEM_META, data: { scheduled: true },
+  });
+  return posted;
+};
+
+/**
  * دورة واحدة: المسودات التي حلّ autoPostOn لها (≤ اليوم بتوقيت الشركة) تُرحَّل كلٌّ في معاملته بالمنفّذ SYSTEM.
  * الشركة بلا activatedAt أو بميزة مطفأة تُتخطى كلها (§6.1، §5.7). الفشل غير العابر يوسم المسودة
  * needsAttention (بشرط state:'DRAFT' ورقمها المقروء) مع تدقيق، فلا تُعاد محاولتها كل ساعة. والمسودة المُعادة من مرحّل (برقمها)
@@ -181,7 +195,7 @@ export async function runAutoPostTick(
   opts: { now?: Date; post?: PostDraftFn; limit?: number } = {},
 ): Promise<AutoPostTickResult> {
   const now = opts.now ?? new Date();
-  const post = opts.post ?? postDraftMove;
+  const post = opts.post ?? postScheduledDraft;
   // أوسع منطقة زمنية متقدّمة (+14) لا تتجاوز يوماً بعد تاريخ UTC — يُضيَّق لكل شركة بتوقيتها
   const horizon = toDbDate(addDays(todayLocal(now, 'UTC'), 1));
   // الأهلية داخل الاستعلام: مسودات شركة غير مفعّلة أو مطفأة لا تحتل الدفعة فتجمّد المجدول لغيرها (العزل §9.4)

@@ -245,7 +245,12 @@ test('reusableSequenceNumber: الرقم يُعاد في مجموعته نفسه
 test('حارس ثابت: المسار يعيد القيد نفسه (لا عكس ولا نسخة)، والواجهة تبقى عليه وتمنع حذفه', () => {
   const read = (...p: string[]) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf8').replace(/\r\n/g, '\n');
   const route = read('routes', 'ledger', 'moves.ts');
-  const h = route.slice(route.indexOf("router.post('/moves/:id/reset-draft'"), route.indexOf("router.post('/moves/:id/reset-draft'") + 900);
+  // المعالج كاملاً حتى إغلاقه `}));` (لا نافذة أحرف ثابتة — سطر «أرشيف العميل» داخل المعاملة أطاله)
+  const hStart = route.indexOf("router.post('/moves/:id/reset-draft'");
+  assert.ok(hStart >= 0, 'مسار reset-draft موجود');
+  const hEnd = route.indexOf('}));', hStart);
+  assert.ok(hEnd > hStart, 'نهاية المعالج موجودة');
+  const h = route.slice(hStart, hEnd + 4);
   assert.match(h, /resetDraft\(tx, \{ tenantId, moveId, actor, reason \}\)/);
   assert.match(h, /res\.json\(\{ success: true, data: \{ draft: r\.draft \} \}\)/);
   assert.doesNotMatch(h, /reversal/);

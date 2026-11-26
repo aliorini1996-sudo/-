@@ -23,6 +23,8 @@ import { keyringFromEnv } from '../compliance/zatca/secrets';
 import { issuanceUnitMutex } from '../compliance/zatca/unitMutex';
 import { publishInvoicesChanged } from './liveEvents';
 import { submitDocumentNow } from './zatcaSubmit';
+// «أرشيف العميل — السجل الزمني»: إعادة الإصدار حدثٌ في سجلّ العميل داخل معاملة المحاولة الجديدة نفسها
+import { SYSTEM_META, invoiceEventInput, recordDocActivity, type DocActivityMeta } from './customerActivityDocs';
 
 /** مهل معاملة إعادة الإصدار — كمعاملة الإصدار نفسها (§2.2). */
 export const REISSUE_TX_MAX_WAIT_MS = 10_000;
@@ -33,6 +35,8 @@ export const REISSUE_SUBMIT_TIMEOUT_MS = 15_000;
 const INVOICE_REISSUE_SELECT = {
   id: true, tenantId: true, number: true, status: true, zatcaPhase: true, invoiceSubtype: true, einvoiceStatus: true,
   einvoiceSnapshot: true, issuedAt: true, customerId: true, salesRepId: true,
+  // «أرشيف العميل»: نوع المستند وإجماليه لحدث إعادة الإصدار
+  type: true, documentKind: true, total: true,
 } satisfies Prisma.InvoiceSelect;
 
 export interface ReissueOutcome {
@@ -48,7 +52,11 @@ export interface ReissueOutcome {
  * ويعيد القرار (لا رمي) حين لا تكون الفاتورة مؤهَّلة — المسار يحوّله إلى 409 برسالته العربية.
  */
 export async function reissuePhase2Invoice(
-  input: { tenantId: string; invoiceId: string; now?: Date; env?: NodeJS.ProcessEnv },
+  input: {
+    tenantId: string; invoiceId: string; now?: Date; env?: NodeJS.ProcessEnv;
+    /** «أرشيف العميل»: فاعل إعادة الإصدار (المسار) — غيابه = النظام */
+    activity?: DocActivityMeta | null;
+  },
 ): Promise<ReissueOutcome> {
   const now = input.now ?? new Date();
   const env = input.env ?? process.env;
@@ -87,21 +95,31 @@ export async function reissuePhase2Invoice(
   const result = await runIssuance<ReissueResult>({
     unitId: unit.id,
     transaction: () => prisma.$transaction(
-      async tx => reissueInTx<IssuanceTx>(tx as IssuanceTx, { chain: prismaIssuanceStore(), documents, now: () => now }, {
-        tenantId: input.tenantId,
-        invoiceId: input.invoiceId,
-        attemptNo: decision.attemptNo,
-        subtype: '02',
-        snapshot: decision.snapshot,
-        originalIssuedAt: decision.issuedAt,
-        signing,
-        sellerVat: seller?.taxNumber ?? null,
-        hooks: {
-          remirror: async (t, mirror) => {
-            await t.invoice.update({ where: { id: input.invoiceId }, data: { ...mirror } });
+      async tx => {
+        const out = await reissueInTx<IssuanceTx>(tx as IssuanceTx, { chain: prismaIssuanceStore(), documents, now: () => now }, {
+          tenantId: input.tenantId,
+          invoiceId: input.invoiceId,
+          attemptNo: decision.attemptNo,
+          subtype: '02',
+          snapshot: decision.snapshot,
+          originalIssuedAt: decision.issuedAt,
+          signing,
+          sellerVat: seller?.taxNumber ?? null,
+          hooks: {
+            remirror: async (t, mirror) => {
+              await t.invoice.update({ where: { id: input.invoiceId }, data: { ...mirror } });
+            },
           },
-        },
-      }),
+        });
+        // «أرشيف العميل»: المستند نفسه برقمه ومحاولةٍ جديدة — يلتزم الحدث مع المحاولة أو يُلغى معها
+        if (invoice) {
+          await recordDocActivity(tx, invoiceEventInput({
+            tenantId: input.tenantId, action: 'INVOICE_REISSUED', meta: input.activity ?? SYSTEM_META, invoice,
+            data: { attemptNo: decision.attemptNo },
+          }));
+        }
+        return out;
+      },
       { maxWait: REISSUE_TX_MAX_WAIT_MS, timeout: REISSUE_TX_TIMEOUT_MS },
     ),
   });

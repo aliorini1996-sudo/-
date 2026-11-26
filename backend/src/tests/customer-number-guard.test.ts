@@ -116,7 +116,8 @@ test('مسارات الإنشاء موصولة بالمساعد في معامل�
   const put = customers.slice(customers.indexOf('async function createMissingOnPut('), customers.indexOf("router.put('/:id',"));
   // POST: معاملةٌ بجسم — قفل الشركة ثم إعادة فحص clientRef تحته ثم الإنشاء (فرفعان متزامنان للمستند نفسه لا يُنشئان عميلين)
   assert.match(post, /const outcome = await prisma\.\$transaction\(async \(tx\) => \{/, 'POST: داخل معاملة');
-  assert.match(post, /\} as any\);\n\s*return \{ replayed: null, created \};\n\s*\}, CUSTOMER_NUMBER_TX\);/, 'POST: بمهلة الترقيم');
+  // «أرشيف العميل» (٢٦ نوفمبر ٢٠٢٦): المساعد يأخذ حدث الإضافة معاملاً رابعاً (creationLog) ويكتبه في المعاملة نفسها، ووثائق الإضافة بعده
+  assert.match(post, /\} as any, creationLog\);\n[\s\S]*?return \{ replayed: null, created \};\n\s*\}, CUSTOMER_NUMBER_TX\);/, 'POST: بمهلة الترقيم');
   const lockAt = post.indexOf('await lockTenantForCustomerNumbers(tx, tid);');
   const recheckAt = post.indexOf('await tx.customer.findFirst({ where: { tenantId: tid, clientRef: data.clientRef } })');
   const createAt = post.indexOf('await createNumberedCustomer(tx, tid, {');
@@ -124,7 +125,7 @@ test('مسارات الإنشاء موصولة بالمساعد في معامل�
     'POST: القفل ثم إعادة فحص clientRef ثم الإنشاء — كلها في المعاملة');
   assert.match(post, /if \(outcome\.replayed\) \{ await replyReplayed\(outcome\.replayed\); return; \}/, 'POST: المُعاد تحت القفل بردّ الفحص الأوّل نفسه');
   assert.match(put, /await prisma\.\$transaction\(\(tx\) => createNumberedCustomer\(tx, tid, \{/, 'PUT-create: داخل معاملة');
-  assert.match(put, /\} as any\), CUSTOMER_NUMBER_TX\)/, 'PUT-create: بمهلة الترقيم');
+  assert.match(put, /\} as any, creationLog\), CUSTOMER_NUMBER_TX\)/, 'PUT-create: بمهلة الترقيم');
   for (const [name, body] of [['POST', post], ['PUT-create', put]] as const) {
     assert.equal(body.split('createNumberedCustomer(tx, tid, {').length - 1, 1, `${name}: إنشاءٌ واحد بالمساعد`);
     // آثار الاتصال العامّ (الإسناد وتوقّعات المندوب الذكي) بعد الالتزام لا داخل المعاملة
@@ -143,6 +144,27 @@ test('مسارات الإنشاء موصولة بالمساعد في معامل�
   const write = route.slice(route.indexOf('writeItem: async (tx: Prisma.TransactionClient, { r, phone }) => {'), route.indexOf('flush: (tx, written)'));
   assert.match(write, /const c = await createNumberedCustomer\(tx, tid, \{/, 'الاستيراد في معاملة الشريحة');
   assert.match(write, /return c\.id;/);
+});
+
+test('«أرشيف العميل»: حدث الإضافة مرّةً واحدة أيّاً كان مسار الإنشاء — المعامل إلزاميّ في توقيع المساعد وكل مستدعٍ يقرّره صراحةً', () => {
+  const helper = read('services/customerNumber.ts');
+  // إلزاميّ (بلا ?): لا يُنسى في مسارٍ جديد — المترجم يرفض النداء بلاه
+  assert.match(helper, /export async function createNumberedCustomer\(tx: Tx, tenantId: string, data: CustomerCreateData, log: CustomerCreationLog \| null\): Promise<Customer>/);
+  assert.match(helper, /export async function createNumberedCustomers\(tx: Tx, tenantId: string, rows: CustomerCreateData\[\], log: CustomerCreationLog \| null\): Promise<Customer\[\]>/);
+  // الحدث بمقبض المعاملة نفسها بعد الإدراج
+  const one = helper.slice(helper.indexOf('export async function createNumberedCustomer('), helper.indexOf('export async function createNumberedCustomers('));
+  assert.ok(one.indexOf('tx.customer.create(') < one.indexOf('recordActivityInTx(tx, customerCreatedInput('), 'الحدث بعد الإدراج في المعاملة');
+  const customers = read('routes/customers.ts');
+  assert.equal(customers.split('} as any, creationLog)').length - 1, 2, 'POST وPUT-create بحدث الإضافة');
+  // الاستيراد: null في المساعد والحدث دفعةً واحدة لكل شريحة في flush (المعاملة نفسها)
+  const imp = read('routes/import.ts');
+  const route = imp.slice(imp.indexOf("router.post('/customers'"), imp.indexOf("router.post('/products'"));
+  assert.match(route, /\} as never, null\);/);
+  assert.match(route, /flush: \(tx, written\) => progress\.write\(tx, written\.map\(w => \(\{ records: \[w\.result\] \}\)\)\)\.then\(\(\) => recordActivityInTx\(tx, written\.map\(w => \(\{/);
+  assert.match(route, /action: 'CUSTOMER_IMPORTED' as const/);
+  // ولا موضع آخر في الخادم يستدعي المساعد
+  const callers = sourceFiles().filter((f) => f !== 'services/customerNumber.ts' && /createNumberedCustomers?\(tx/.test(read(f))).sort();
+  assert.deepEqual(callers, ['routes/customers.ts', 'routes/import.ts']);
 });
 
 test('رقم العميل للقراءة وحدها: ليس في مخطّط الإنشاء والتعديل ولا بين مفاتيح الرقم المرجعي — ولا مطابقة به في الاستيراد', () => {

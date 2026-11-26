@@ -8,6 +8,9 @@ import {
   CATALOG_ORDER_CODES as CODES, MINE_LIST_LIMIT, OPEN_STATUSES, isUuid, matchableKey, openCounts, parseStatusBody, phoneTail,
   pickMatchedCustomer, shapeOrder, type CustomerCandidate,
 } from '../services/catalogOrders';
+// «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): إغلاق طلب المنيو (تم/إلغاء) حدثٌ في سجلّ عميله — بقاعدة النسبة الواحدة
+// (catalogOrderCustomer): عميل أوّل سطرٍ للطلب في السجلّ، وإلا العميل الوحيد المطابق بجواله لحظة الطلب — لا عميل الفاتورة المربوطة
+import { activityMeta, catalogOrderCustomer, hasActivityTable, recordActivityInTx } from '../services/customerActivityEvents';
 
 /**
  * «طلب من المنيو» (طلب المالك ٢٤ نوفمبر ٢٠٢٦) — طلبات عملاء منيو المنتجات العام كما يراها المندوب صاحب الرابط، مُركَّبٌ على
@@ -123,17 +126,46 @@ router.post('/:id/status', async (req: AuthRequest, res: Response, next: NextFun
     if (!isUuid(id) || !(await catalogOn(tid))) { res.status(404).json({ success: false }); return; }
     const parsed = parseStatusBody(req.body);
     if (!parsed.ok) { res.status(400).json({ success: false, code: CODES.BAD_INPUT, field: parsed.field }); return; }
-    // الفاتورة المربوطة من الشركة نفسها وأصدرها هذا المندوب — لا يُلصق بطلبه معرّفُ فاتورة زميله أو شركةٍ أخرى
+    // الفاتورة المربوطة من الشركة نفسها وأصدرها هذا المندوب — لا يُلصق بطلبه معرّفُ فاتورة زميله أو شركةٍ أخرى.
+    // وعميلها ورقمها في السؤال نفسه: تفاصيل حدث الإغلاق في «أرشيف العميل» (وعميلها لطلبٍ لم يُنسب لأحد)
+    let linked: { id: string; customerId?: string | null; number?: string | null } | null = null;
     if (parsed.invoiceId) {
-      const inv = await prisma.invoice.findFirst({ where: { id: parsed.invoiceId, tenantId: tid, salesRepId: repId }, select: { id: true } });
-      if (!inv) { res.status(400).json({ success: false, code: CODES.INVOICE_INVALID }); return; }
+      linked = await prisma.invoice.findFirst({ where: { id: parsed.invoiceId, tenantId: tid, salesRepId: repId }, select: { id: true, customerId: true, number: true } });
+      if (!linked) { res.status(400).json({ success: false, code: CODES.INVOICE_INVALID }); return; }
     }
     const where = { id, tenantId: tid, salesRepId: repId };
+    // «أرشيف العميل»: حالة الطلب وجواله ولحظته قبل الإغلاق (للحدث وحده — ومقبضٌ بلا جدول السجل لا يسأل)
+    const before = hasActivityTable(prisma)
+      ? await prisma.catalogOrder.findFirst({ where, select: { status: true, phoneKey: true, createdAt: true } })
+      : null;
     const decidedAt = new Date();
-    // من NEW|SEEN وحدهما، والشرط في التحديث نفسه: إغلاقان متزامنان (تم وإلغاء من جهازين) يفوز أحدهما ويُردّ الآخر ٤٠٩
-    const r = await prisma.catalogOrder.updateMany({
-      where: { ...where, status: { in: [...OPEN_STATUSES] } },
-      data: { status: parsed.status, invoiceId: parsed.invoiceId, decidedAt },
+    // الإغلاق وحدثه في «أرشيف العميل» معاملةٌ واحدة (QA ٢٧ نوفمبر): يُلتزمان معاً أو يُتراجعان معاً — لا إغلاق بلا حدثه (كان الحدث
+    // بعد الالتزام فيضيع لو تعذّر)، وتعذّر الحدث أو قراءة عميله يُلغي الإغلاق فيعيده التطبيق (لا تُبتلع قراءةٌ فاشلة داخل المعاملة:
+    // معاملة PostgreSQL بعد خطأٍ لا تلتزم شيئاً)
+    const r = await prisma.$transaction(async (tx) => {
+      // من NEW|SEEN وحدهما، والشرط في التحديث نفسه: إغلاقان متزامنان (تم وإلغاء من جهازين) يفوز أحدهما ويُردّ الآخر ٤٠٩
+      const done = await tx.catalogOrder.updateMany({
+        where: { ...where, status: { in: [...OPEN_STATUSES] } },
+        data: { status: parsed.status, invoiceId: parsed.invoiceId, decidedAt },
+      });
+      // «أرشيف العميل»: الإغلاق حدث CATALOG_ORDER_UPDATED بفاعل المندوب على عميل الطلب بالقاعدة الواحدة (catalogOrderCustomer): عميل
+      // أوّل سطرٍ للطلب في السجلّ، وإلا العميل الوحيد المطابق بجواله لحظة الطلب — فاتورةٌ لعميلٍ آخر لا تنقل الطلب إليه فيظهر على عميلين.
+      // وطلبٌ لم يُنسب لأحد (لا سطر ولا مطابقٌ وحيد) وأُغلق بفاتورة: عميل الفاتورة — فيصير سطره الأوّل وعميلَه النهائيّ (لا يُشتقّ لغيره).
+      // والفاتورة في التفاصيل
+      if (done.count === 0 || !before) return done;
+      const customerId = (await catalogOrderCustomer(tx, tid, { id, phoneKey: before.phoneKey, createdAt: before.createdAt }))
+        ?? linked?.customerId ?? null;
+      if (customerId) {
+        const meta = activityMeta(req);
+        await recordActivityInTx(tx, {
+          tenantId: tid, customerId, action: 'CATALOG_ORDER_UPDATED', actor: meta.actor, source: meta.source, refType: 'CATALOG_ORDER', refId: id,
+          data: {
+            oldStatus: before.status, newStatus: parsed.status,
+            ...(linked && { invoiceId: linked.id, ...(linked.number && { invoiceNo: linked.number }) }),
+          },
+        });
+      }
+      return done;
     });
     if (r.count === 0) {
       const o = await prisma.catalogOrder.findFirst({ where, select: { status: true } });

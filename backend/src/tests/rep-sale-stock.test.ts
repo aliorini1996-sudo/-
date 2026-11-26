@@ -244,7 +244,8 @@ test('D10 (المراجعة F2/D10-W): سحب الإشعار الدائن يفح
   const src = read('routes/invoices.ts');
   const i = src.indexOf("router.post('/:id/einvoice/withdraw'");
   const body = src.slice(i, src.indexOf(NL + '});', i));
-  assert.match(body, /r = await withdrawPhase2Invoice\(\{ tenantId: tid, invoiceId: id, guardInTx \}\);/);
+  // «أرشيف العميل» (٢٦ نوفمبر ٢٠٢٦): ومعه فاعل الطلب لحدث الإبطال في سجلّ العميل داخل معاملة السحب نفسها
+  assert.match(body, /r = await withdrawPhase2Invoice\(\{ tenantId: tid, invoiceId: id, guardInTx, activity: docActivityMeta\(req\) \}\);/);
   assert.match(body, /await assertReturnRemovalKeepsVan\(tx, tid, id, 'CANCEL', lotSkip\);/);
   assert.ok(!body.includes('prisma.$transaction'), 'لا معاملة فحصٍ منفصلة قبل السحب');
   assert.match(body, /if \(e instanceof ReturnCancelStockShort\) \{ res\.status\(409\)\.json\(e\.body\(\)\); return; \}/);

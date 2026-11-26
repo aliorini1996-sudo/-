@@ -36,6 +36,9 @@ before(async () => {
       findFirst: async () => { throw new Error('findFirst يعيد أول تطابق اعتباطاً — المطابقة بالجوال تشترط عميلاً وحيداً'); },
     },
     callLog: { create: async ({ data }: { data: { customerId: string | null } }) => { calls.push({ customerId: data.customerId }); return data; } },
+    // المكالمة وحدث «أرشيف العميل» في معاملةٍ واحدة (services/telephony.ts): المعاملة المزيّفة تمرّر المقبض نفسه، والسجلّ يُبتلع
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma),
+    customerActivity: { createMany: async ({ data }: { data: unknown[] }) => ({ count: data.length }) },
   });
   ({ customerPhoneCandidates, recordCallEvent } = await import('../services/telephony'));
 });

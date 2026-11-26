@@ -8,6 +8,8 @@ import { claimReceiptCancel, restoreAllocations } from './docCancel';
 import { ALLOCATION_BLOCKED_MIRRORS } from '../compliance/zatca/status';
 import { ZATCA_ERROR_CATALOGUE } from '../compliance/zatca/errors';
 import { fetchIntent, nearpayConfigured, nearpayEnv, nearpayJwtConfigured, NearpayError, signTerminalJwt, type IntentSnapshot } from './nearpay';
+// «أرشيف العميل — السجل الزمني»: نجاح التحصيل بالبطاقة وفشله وعكسه أحداثٌ في سجلّ العميل داخل معاملة كل تبديل حالة
+import { SYSTEM_META, cardPaymentEventInput, cardPaymentMeta, receiptEventInput, recordDocActivity } from './customerActivityDocs';
 
 /**
  * «التحصيل بالبطاقة» — العميل يلمس بطاقته بجوال المندوب عبر NearPay (طلب المالك ٢٨ أكتوبر ٢٠٢٦).
@@ -319,7 +321,13 @@ export async function redeemLaunchToken(token: string): Promise<LaunchPayload> {
             : roundHalfUp(Number(inv.remainingAmt), 2) + 0.004 < row.amount ? 'تغيّر متبقي الفاتورة — ابدأ التحصيل من جديد'
               : null;
   if (stale) {
-    await prisma.cardPayment.updateMany({ where: { id: row.id, status: 'pending' }, data: { status: 'failed', statusDetail: stale } });
+    // «أرشيف العميل»: محاولةٌ ماتت قبل أن يتحرّك المال — حدث فشلٍ بسببه في معاملة التبديل نفسها (لمن بدّلها وحده)
+    await prisma.$transaction(async tx => {
+      const failed = await tx.cardPayment.updateMany({ where: { id: row.id, status: 'pending' }, data: { status: 'failed', statusDetail: stale } });
+      if (failed.count === 1) {
+        await recordDocActivity(tx, cardPaymentEventInput({ action: 'CARD_PAYMENT_FAILED', meta: cardPaymentMeta(row), payment: row, data: { status: 'failed', reason: stale } }));
+      }
+    });
     throw new CardPayError(stale, 409, 'CARD_PAY_STALE');
   }
   // الضبط قبل الاستهلاك: 503 هنا يُبقي الرمز صالحاً (الوحدة تعدّ 5xx قابلاً للإعادة)، والفاتورة لا تُحجز
@@ -362,11 +370,34 @@ async function view(id: string): Promise<CheckResult> {
 }
 
 /**
+ * «أرشيف العميل — السجل الزمني»: تبديل عمليةٍ إلى حالة فشل (انتهاءٌ أو رفض) في معاملةٍ واحدة مع حدثها — **فشلٌ واحد للمحاولة**:
+ * الحدث لأول خروجٍ من «قيد الانتظار» وحده (ولمن بدّلها وحده، فتكرار المجدول والجوال لا يكرّره)؛ والمنتهية التي يردّ المزوّد رفضها
+ * تُبدَّل حالتها بلا حدثٍ ثانٍ. الفاعل النظام: القرار من مزوّد الدفع أو المجدول لا من المندوب، والحالة وسببها في التفاصيل.
+ */
+async function failCardPaymentInTx(
+  row: Parameters<typeof cardPaymentEventInput>[0]['payment'],
+  id: string, from: readonly string[], status: 'expired' | 'declined', detail: string,
+): Promise<void> {
+  await prisma.$transaction(async tx => {
+    const fromPending = from.includes('pending')
+      ? await tx.cardPayment.updateMany({ where: { id, status: 'pending' }, data: { status, statusDetail: detail } })
+      : { count: 0 };
+    if (fromPending.count === 1) {
+      await recordDocActivity(tx, cardPaymentEventInput({ action: 'CARD_PAYMENT_FAILED', meta: SYSTEM_META, payment: row, data: { status, reason: detail } }));
+      return;
+    }
+    const rest = from.filter(s => s !== 'pending');
+    if (rest.length) await tx.cardPayment.updateMany({ where: { id, status: { in: [...rest] } }, data: { status, statusDetail: detail } });
+  });
+}
+
+/**
  * يسأل NearPay عن العملية ويتصرف بالقرار. آمنٌ للتكرار والتزامن: القيد محميّ بتبديلٍ ذرّي pending→approved داخل
  * المعاملة، وclientRef «cardpay:<id>» الفريد يمنع سندين، وtransactionUuid فريد يمنع حجز معاملة NearPay لعمليتين.
  */
 export async function checkCardPayment(id: string): Promise<CheckResult> {
-  const row = await prisma.cardPayment.findUnique({ where: { id } });
+  // اسم المندوب لفاعل حدث الفشل في سجلّ العميل («أرشيف العميل») — من الاستعلام نفسه
+  const row = await prisma.cardPayment.findUnique({ where: { id }, include: { salesRep: { select: { name: true } } } });
   if (!row) throw new CardPayError('العملية غير موجودة', 404);
   // الميت محلياً قد يكون وُوفق عليه في نافذة السباق — يُسأل عنه ثلاثة أيام من إنشائه (لا من آخر لمسة: الفحص يلمسه)، ثم يُعرض كما هو.
   // و«review» (خُصم لدى NearPay واختلف) يُسأل عنه كذلك: يُقيد إن زال الاختلاف (استُرد الخصم المكرر)، ويُعكس إن عاد المال.
@@ -385,17 +416,25 @@ export async function checkCardPayment(id: string): Promise<CheckResult> {
     case 'wait':
       return view(id);
     case 'expire':
-      await prisma.cardPayment.updateMany({ where: { id, status: 'pending' }, data: { status: 'expired', statusDetail: 'لم تُسجَّل العملية لدى مزوّد الدفع' } });
+      await failCardPaymentInTx(row, id, ['pending'], 'expired', 'لم تُسجَّل العملية لدى مزوّد الدفع');
       return view(id);
     case 'decline':
-      await prisma.cardPayment.updateMany({ where: { id, status: { in: ['pending', 'expired'] } }, data: { status: 'declined', statusDetail: neutralProviderText(d.detail).slice(0, 300) } });
+      await failCardPaymentInTx(row, id, ['pending', 'expired'], 'declined', neutralProviderText(d.detail).slice(0, 300));
       return view(id);
     case 'mismatch': {
       console.error(`CRITICAL cardpay ${id}: ${d.detail} — booking refused`);
       const detail = neutralProviderText(d.detail).slice(0, 300);
       // «review» لا «failed» (مراجعة ٣١ أكتوبر ٢٠٢٦): المال قد خُصم لدى NearPay — شاشة المندوب تقول «لا تحصّل ثانية»، والإنشاء
       // يُرفض على الفاتورة حتى تحسمه الإدارة؛ و«failed» يبقى لما لم يتحرّك فيه مال
-      const held = await prisma.cardPayment.updateMany({ where: { id, status: { in: ['pending', 'expired', 'declined'] } }, data: { status: 'review', statusDetail: detail } });
+      // «أرشيف العميل»: الإيقاف للمراجعة حدث «موقوف للمراجعة» (لا «فشل»: المال قد خُصم) بفاعل النظام، في معاملة التبديل نفسها
+      // ولمن بدّلها وحده — والمراجعة لا تُدخَل مرّتين (review ليست من حالات المصدر)
+      const held = await prisma.$transaction(async tx => {
+        const h = await tx.cardPayment.updateMany({ where: { id, status: { in: ['pending', 'expired', 'declined'] } }, data: { status: 'review', statusDetail: detail } });
+        if (h.count === 1) {
+          await recordDocActivity(tx, cardPaymentEventInput({ action: 'CARD_PAYMENT_HELD', meta: SYSTEM_META, payment: row, data: { status: 'review', reason: detail } }));
+        }
+        return h;
+      });
       // موافَقٌ قيد سنده (أو موقوفٌ للمراجعة) ثم ظهر سببٌ جديد: لا تُلمس حالته — يُدوَّن السبب ويُشعَر مرةً لكل سببٍ جديد
       const noted = held.count === 1 ? 0
         : (await prisma.cardPayment.updateMany({ where: { id, status: { in: ['approved', 'review'] }, NOT: { statusDetail: detail } }, data: { statusDetail: detail } })).count;
@@ -423,7 +462,8 @@ const TEST_NOTE = ' [عملية اختبار — بلا مال حقيقي]';
 async function bookApproved(id: string, snap: IntentSnapshot): Promise<void> {
   const row = await prisma.cardPayment.findUnique({
     where: { id },
-    include: { invoice: { select: { number: true, teamId: true, einvoiceStatus: true } } },
+    // salesRep.name: فاعل حدث التحصيل في سجلّ العميل («أرشيف العميل») من الاستعلام نفسه
+    include: { invoice: { select: { number: true, teamId: true, einvoiceStatus: true } }, salesRep: { select: { name: true } } },
   });
   if (!row || row.receiptId) return;
   const collected = roundHalfUp(row.amountHalalas / 100, 2);
@@ -479,6 +519,20 @@ async function bookApproved(id: string, snap: IntentSnapshot): Promise<void> {
         }
         await postReceiptEntries(tx as never, row.tenantId, rcp.id, row.customerId, collected);
         await tx.cardPayment.update({ where: { id: row.id }, data: { receiptId: rcp.id } });
+        // «أرشيف العميل»: نجاح التحصيل بالبطاقة وسند قبضه — بفاعل من بدأ العملية، في معاملة القيد نفسها (المطالِب الوحيد أعلاه
+        // يمنع التكرار). ملاحظة السند لا تُنقل (تحمل بيانات البطاقة المقنّعة)
+        const cardMeta = cardPaymentMeta(row);
+        await recordDocActivity(tx, [
+          cardPaymentEventInput({
+            action: 'CARD_PAYMENT_COMPLETED', meta: cardMeta, payment: { ...row, amount: collected },
+            data: { receiptNo: number, cardScheme: snap.cardScheme ?? null, ...(alloc < collected && { overpaid: clean(collected - alloc) }), ...(cardPayTestMode() && { test: true }) },
+          }),
+          receiptEventInput({
+            tenantId: row.tenantId, action: 'RECEIPT_ISSUED', meta: cardMeta, receipt: { ...rcp, notes: null },
+            allocations: alloc > 0 ? [{ invoiceId: row.invoiceId, invoiceNo: row.reference, amount: alloc, settled: clean(remaining - alloc) <= 0.004 }] : [],
+            data: { via: 'CARD', cardPaymentId: row.id },
+          }),
+        ]);
         await tx.notification.create({
           data: { tenantId: row.tenantId, type: 'CARDPAY_PAID', title: 'تحصيل بالبطاقة', body: `تحصيل ${collected} بالبطاقة لفاتورة ${row.reference} — سند ${number}${cardPayTestMode() ? TEST_NOTE : ''}` },
         }).catch(() => { /* كمالي */ });
@@ -502,10 +556,22 @@ export async function reverseCardPayment(id: string, rawReason: string): Promise
   if (!row) return;
   if (row.status !== 'approved' || !row.receiptId) {
     // الموقوف للمراجعة يُحسم بعودة المال كاملاً — لا سند له يُلغى
-    await prisma.cardPayment.updateMany({ where: { id, status: { in: ['pending', 'expired', 'review'] } }, data: { status: 'reversed', statusDetail: reason.slice(0, 300) } });
+    // «أرشيف العميل»: العكس من مزوّد الدفع حدث «عكس» (عاد المال — لا «فشل») بفاعل النظام في معاملة التبديل نفسها (لمن بدّلها وحده)
+    await prisma.$transaction(async tx => {
+      const moved = await tx.cardPayment.updateMany({ where: { id, status: { in: ['pending', 'expired', 'review'] } }, data: { status: 'reversed', statusDetail: reason.slice(0, 300) } });
+      if (moved.count === 1) {
+        await recordDocActivity(tx, cardPaymentEventInput({
+          action: 'CARD_PAYMENT_REVERSED', meta: SYSTEM_META, payment: row, data: { status: 'reversed', fromStatus: row.status, reason },
+        }));
+      }
+    });
     return;
   }
-  const receipt = await prisma.receipt.findUnique({ where: { id: row.receiptId }, include: { invoiceItems: true } });
+  // رقم فاتورة كل تخصيص لحدث إلغاء السند في سجلّ العميل («أرشيف العميل») — من الاستعلام نفسه
+  const receipt = await prisma.receipt.findUnique({
+    where: { id: row.receiptId },
+    include: { invoiceItems: { include: { invoice: { select: { number: true } } } } },
+  });
   await prisma.$transaction(async tx => {
     const claim = await tx.cardPayment.updateMany({ where: { id, status: 'approved' }, data: { status: 'reversed', statusDetail: reason.slice(0, 300) } });
     if (claim.count !== 1 || !receipt) return;
@@ -514,6 +580,22 @@ export async function reverseCardPayment(id: string, rawReason: string): Promise
       await restoreAllocations(tx, row.tenantId, receipt.invoiceItems);
       await reverseReceiptEntries(tx as never, row.tenantId, receipt.id, row.customerId, Number(receipt.amount));
     }
+    // «أرشيف العميل»: عكس التحصيل بعد قيده (بفاعل النظام) وإلغاء سنده إن أُلغي هنا — في معاملة العكس نفسها، وبرقم فاتورة كل تخصيص
+    await recordDocActivity(tx, [
+      cardPaymentEventInput({
+        action: 'CARD_PAYMENT_REVERSED', meta: SYSTEM_META, payment: row,
+        data: { status: 'reversed', fromStatus: 'approved', reason, receiptNo: receipt.number, ...(!cancelled && { receiptAlreadyCancelled: true }) },
+      }),
+      cancelled
+        ? receiptEventInput({
+          tenantId: row.tenantId, action: 'RECEIPT_CANCELLED', meta: SYSTEM_META, receipt: { ...receipt, notes: null },
+          allocations: receipt.invoiceItems.map(a => ({
+            invoiceId: a.invoiceId, invoiceNo: a.invoice?.number ?? (a.invoiceId === row.invoiceId ? row.invoice?.number : null), amount: Number(a.amount),
+          })),
+          data: { via: 'CARD_REVERSAL', cardPaymentId: row.id, reason },
+        })
+        : null,
+    ]);
     await tx.notification.create({
       data: {
         tenantId: row.tenantId, type: 'CARDPAY_REVERSED', title: 'عكس تحصيل بالبطاقة',

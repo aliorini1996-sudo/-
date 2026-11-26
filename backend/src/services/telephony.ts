@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 import prisma from '../config/database';
+// «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): مكالمةٌ نُسبت لعميلٍ حدثٌ في سجلّه بمندوبها
+import { SYSTEM_ACTOR, recordActivityInTx } from './customerActivityEvents';
 import { toE164 } from '../lib/phone';
 
 /**
@@ -230,23 +232,41 @@ export async function recordCallEvent(tenantId: string, ev: ParsedCallEvent): Pr
     });
     customerId = matches.length === 1 ? matches[0].id : null;
   }
+  // اسم مندوب القناة (لقطةٌ للحدث) يُقرأ قبل المعاملة — قراءةٌ متعذّرة لا تُفشل شيئاً ولا تُطيل المعاملة
+  const repId = channel?.assignedRepId ?? null;
+  const rep = customerId && repId
+    ? await prisma.salesRep.findFirst({ where: { id: repId, tenantId }, select: { name: true } }).catch(() => null)
+    : null;
   try {
-    await prisma.callLog.create({
-      data: {
-        tenantId,
-        workChannelId: channel?.id ?? null,
-        salesRepId: channel?.assignedRepId ?? null, // لقطة — لا تتغيّر بإعادة الإسناد لاحقاً
-        customerId,
-        direction: ev.direction,
-        fromE164: ev.fromE164,
-        toE164: ev.toE164,
-        startedAt: ev.startedAt,
-        durationSec: ev.durationSec,
-        recordingUrl: ev.recordingUrl,
-        transcript: ev.transcript,
-        aiSummary: ev.aiSummary,
-        providerCallId: ev.providerCallId,
-      },
+    // «أرشيف العميل»: المكالمة وحدث CALL_LOGGED في معاملةٍ واحدة — يلتزمان معاً أو يُلغيان معاً (لا مكالمة منسوبة بلا أثرها في
+    // سجلّ العميل). وإعادة إرسال الويبهوك تصطدم بالقيد الفريد داخلها فتتراجع بلا حدثٍ ثانٍ
+    await prisma.$transaction(async (tx) => {
+      const call = await tx.callLog.create({
+        data: {
+          tenantId,
+          workChannelId: channel?.id ?? null,
+          salesRepId: repId, // لقطة — لا تتغيّر بإعادة الإسناد لاحقاً
+          customerId,
+          direction: ev.direction,
+          fromE164: ev.fromE164,
+          toE164: ev.toE164,
+          startedAt: ev.startedAt,
+          durationSec: ev.durationSec,
+          recordingUrl: ev.recordingUrl,
+          transcript: ev.transcript,
+          aiSummary: ev.aiSummary,
+          providerCallId: ev.providerCallId,
+        },
+      });
+      // المكالمة المنسوبة لعميل حدثٌ بلحظة بدئها ومندوب القناة (لقطة الاسم)
+      if (customerId) {
+        await recordActivityInTx(tx, {
+          tenantId, customerId, action: 'CALL_LOGGED',
+          actor: repId ? { kind: 'REP', id: repId, name: rep?.name ?? null } : SYSTEM_ACTOR, source: 'system',
+          refType: 'CALL', refId: (call as { id?: string } | null)?.id ?? null, at: ev.startedAt,
+          data: { direction: ev.direction, durationSec: ev.durationSec, ...(repId && { salesRepId: repId }), ...(ev.aiSummary && { note: ev.aiSummary }) },
+        });
+      }
     });
     return 'created';
   } catch (e) {

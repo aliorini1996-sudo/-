@@ -26,6 +26,9 @@ import { LINKED_NO_DELETE_CODE, LINKED_NO_DELETE_MESSAGE, tenantBooksLinked } fr
 import { BASE_PRICE_TYPE, PRICE_LIST_MESSAGES, allowedPriceTypesOf } from '../services/priceLists';
 import { idleSettingsError, IDLE_RANGE_CODE } from '../services/idlePunchOut';
 import { LOCATION_DUP_MIN_M, LOCATION_DUP_MAX_M } from '../services/customerLocationDup';
+// «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): إسناد العميل لمندوبٍ ونزعه، وما يصيب مستنداته وزياراته بحذف المندوب،
+// أحداثٌ في سجلّ كل عميلٍ متأثّر — حدثٌ مجمَّع واحد لكل عميل، في معاملة الإجراء نفسها
+import { activityMeta, recordActivityInTx, repDeleteEvents } from '../services/customerActivityEvents';
 
 const router = Router();
 router.use(authenticate, requireAdmin, requireAdminPermission('canManageSalesReps'));
@@ -453,6 +456,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     const tid = tenantId(req);
     const rep = await prisma.salesRep.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true, name: true } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
+    const meta = activityMeta(req);
 
     // معاملة واحدة: تفريغ مرجع المندوب من السجلّات ثم حذف بياناته التشغيلية فالمندوب.
     // أولها حارس الدفاتر §5.3 (409 LEDGER_HISTORY_LOCKED، قفل المندوب FOR UPDATE) — التفصيل في assertRepDeletable.
@@ -464,6 +468,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
        * الإدراج المتزامن التزامَ الحذف ثم يفشل صريحاً (P2003)، والجاري قبله يُنتظَر فيراه التفريغ أدناه (قفلٌ مكرَّر في المعاملة نفسها
        * للشركة المفعّلة بلا أثر). الفحص الفعلي للتزامن خطوة يدوية على قاعدة حقيقية */
       await tx.$queryRaw`SELECT id FROM sales_reps WHERE id = ${req.params.id} AND "tenantId" = ${tid} FOR UPDATE`;
+      // «أرشيف العميل»: أثر الحذف على كل عميلٍ للمندوب — يُقرأ قبل التفريغ ويُكتب في المعاملة نفسها
+      await recordActivityInTx(tx, await repDeleteEvents(tx, tid, rep, meta, 'REP_DELETED'));
       await tx.invoice.updateMany({ where: { tenantId: tid, salesRepId: req.params.id }, data: { salesRepId: null } });
       /* «ربط الدفاتر» L1 (C18): السند يبقى بمرجعٍ مفرَّغ ومعرّفُ مندوبه في deletedSalesRepId — في الكتابة نفسها التي تفرّغ salesRepId
        * (كتحميلات السيارة واستلامات التحصيل أدناه). كان التفريغ يمحو أثر من قبض المال بلا رجعة، فلا تُعاد عهدة المندوب المحذوف
@@ -568,7 +574,7 @@ router.put('/:id/customers', async (req: AuthRequest, res: Response, next: NextF
   try {
     const tid = tenantId(req);
     const repId = req.params.id;
-    const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true } });
+    const rep = await prisma.salesRep.findFirst({ where: { id: repId, tenantId: tid, ...(await adminRepFilter(req)) }, select: { id: true, name: true } });
     if (!rep) { res.status(404).json({ success: false, message: 'المندوب غير موجود' }); return; }
 
     const body = z.object({
@@ -590,15 +596,42 @@ router.put('/:id/customers', async (req: AuthRequest, res: Response, next: NextF
       : [];
     const toAdd = valid.map(c => c.id);
 
-    await prisma.$transaction([
-      ...(toRemove.length ? [prisma.customerAssignment.deleteMany({
-        where: { tenantId: tid, salesRepId: repId, customerId: { in: toRemove } },
-      })] : []),
-      ...(toAdd.length ? [prisma.customerAssignment.createMany({
-        data: toAdd.map(customerId => ({ tenantId: tid, salesRepId: repId, customerId, source: 'MANUAL' })),
-        skipDuplicates: true,
-      })] : []),
-    ]);
+    // «أرشيف العميل»: الإسناد الجديد فعلاً والمنزوع فعلاً (لا ما كان على حاله) حدثٌ لكل عميل — في معاملة الكتابة نفسها
+    const meta = activityMeta(req);
+    await prisma.$transaction(async (tx) => {
+      // قفل صفّ المندوب أوّلاً: «ما كان مسنَداً» يُقرأ ثم يُكتب بلا سباق — حفظان متزامنان للمندوب نفسه يتسلسلان، والإسناد التلقائي
+      // (ensureAssignment) يأخذ بمفتاحه الأجنبي FOR KEY SHARE على الصفّ نفسه فينتظر هذا القفل أو يُنتظر — فلا يُسجَّل إسنادٌ أو نزعٌ
+      // لم تفعله هذه الكتابة (حدثٌ مكرّر في سجلٍّ لا يُمحى)
+      await tx.$queryRaw`SELECT id FROM sales_reps WHERE id = ${repId} AND "tenantId" = ${tid} FOR UPDATE`;
+      const touched = [...toRemove, ...toAdd];
+      const had = touched.length
+        ? new Set((await tx.customerAssignment.findMany({
+          where: { tenantId: tid, salesRepId: repId, customerId: { in: touched } }, select: { customerId: true },
+        })).map(r => r.customerId))
+        : new Set<string>();
+      if (toRemove.length) {
+        await tx.customerAssignment.deleteMany({
+          where: { tenantId: tid, salesRepId: repId, customerId: { in: toRemove } },
+        });
+      }
+      if (toAdd.length) {
+        await tx.customerAssignment.createMany({
+          data: toAdd.map(customerId => ({ tenantId: tid, salesRepId: repId, customerId, source: 'MANUAL' })),
+          skipDuplicates: true,
+        });
+      }
+      const info = { salesRepId: repId, repName: rep.name, mode: 'MANUAL' };
+      await recordActivityInTx(tx, [
+        ...toRemove.filter(id => had.has(id)).map(customerId => ({
+          tenantId: tid, customerId, action: 'CUSTOMER_UNASSIGNED' as const, actor: meta.actor, source: meta.source,
+          refType: 'ASSIGNMENT' as const, refId: repId, data: info,
+        })),
+        ...toAdd.filter(id => !had.has(id)).map(customerId => ({
+          tenantId: tid, customerId, action: 'CUSTOMER_ASSIGNED' as const, actor: meta.actor, source: meta.source,
+          refType: 'ASSIGNMENT' as const, refId: repId, data: info,
+        })),
+      ]);
+    }, { maxWait: 10_000, timeout: 60_000 }); // خمسون ألف معرّف في الطلب الواحد: إدراجٌ وحذفٌ وأحداثٌ دفعاتٍ في المعاملة
 
     const total = await prisma.customerAssignment.count({ where: { tenantId: tid, salesRepId: repId } });
     res.json({ success: true, data: { added: toAdd.length, removed: toRemove.length, total } });

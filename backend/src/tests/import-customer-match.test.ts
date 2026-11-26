@@ -271,7 +271,11 @@ test('حارس ثابت: /customers يكتب الكود المربوط بشرط 
   assert.match(customers, /select: \{ id: true, phone: true, code: true, name: true \}/);
   assert.match(customers, /planner\.commitAttach\(d\)/);
   assert.match(customers, /updateMany\(\{\s*where: \{ id: a\.customerId, tenantId: tid, \.\.\.\(a\.fromCode !== null \? \{ code: a\.fromCode \} : \{\}\) \}/);
-  const attachLoop = customers.slice(customers.indexOf('for (let k = 0; k < attaches.length'), customers.indexOf('} finally {'));
+  // شرائح الربط (runImportChunks بمعاملةٍ لكل شريحة، والحدث فيها) — الحارس على كتلتها هي لا على نصٍّ فارغ
+  const attachStart = customers.indexOf('chunks: planImportChunks(attaches');
+  assert.ok(attachStart > 0, 'كتلة ربط الكود غائبة');
+  const attachLoop = customers.slice(attachStart, customers.indexOf('} finally {', attachStart));
+  assert.match(attachLoop, /tx\.customer\.updateMany\(/, 'الربط بمقبض معاملة شريحته');
   assert.doesNotMatch(attachLoop, /progress\.(write|commit)\(/, 'العميل المربوط لا يدخل سجلات الدفعة فيحذفه التراجع');
 });
 

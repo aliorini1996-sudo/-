@@ -9,6 +9,8 @@ import { adminRepFilter, scopedRecordWhere, SHAPE_INVOICE_RECEIPT } from '../ser
 import { cardPayLaunchLimiter } from '../middleware/rateLimits';
 import { CardPayError, checkCardPayment, createCardPayment, neutralProviderText, redeemLaunchToken } from '../services/cardPayment';
 import { listMerchantTerminals, listMerchants, nearpayConfigured, nearpayEnv, NearpayError } from '../services/nearpay';
+// «أرشيف العميل — السجل الزمني»: حسم العملية الموقوفة للمراجعة حدثٌ في سجلّ العميل
+import { cardFailureLogged, cardPaymentEventInput, docActivityMeta, recordDocActivity } from '../services/customerActivityDocs';
 
 /**
  * «التحصيل بالبطاقة» عبر NearPay — مسارات /api/card-payments (services/cardPayment.ts يشرح المسار كاملاً).
@@ -136,13 +138,27 @@ router.post('/:id/close', requireAdmin, receiptsGate, async (req: AuthRequest, r
     const { note } = z.object({ note: z.string().trim().min(3).max(200) }).parse(req.body);
     const row = await prisma.cardPayment.findFirst({
       where: { id: String(req.params.id), tenantId: tid, invoice: await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT) },
-      select: { id: true, statusDetail: true },
+      // «أرشيف العميل»: عميل العملية ومبلغها ورقم فاتورتها لحدث الحسم في سجلّه
+      select: { id: true, statusDetail: true, tenantId: true, customerId: true, invoiceId: true, amount: true, reference: true },
     });
     if (!row) { res.status(404).json({ success: false, message: 'العملية غير موجودة' }); return; }
     const by = req.user?.name || 'الإدارة';
-    const closed = await prisma.cardPayment.updateMany({
-      where: { id: row.id, status: 'review' },
-      data: { status: 'failed', statusDetail: `أغلقت بعد المراجعة (${by}): ${note} — كان: ${neutralProviderText(row.statusDetail) || ''}`.slice(0, 300) },
+    const activity = docActivityMeta(req);
+    // الحسم وحدثه في معاملةٍ واحدة — لمن بدّل الحالة وحده. «فشلٌ واحد للمحاولة»: الإغلاق حدث «فشل» إن لم يُسجَّل للمحاولة فشلٌ قبله
+    // (دخلت المراجعة من «قيد الانتظار» مباشرة)، وإلا فهو حسمُ الإيقاف نفسه (HELD بحالة failed) بفاعله وملاحظته — لا فشلَ ثانٍ
+    const closed = await prisma.$transaction(async tx => {
+      const c = await tx.cardPayment.updateMany({
+        where: { id: row.id, status: 'review' },
+        data: { status: 'failed', statusDetail: `أغلقت بعد المراجعة (${by}): ${note} — كان: ${neutralProviderText(row.statusDetail) || ''}`.slice(0, 300) },
+      });
+      if (c.count === 1) {
+        const failedBefore = await cardFailureLogged(tx, tid, row.id);
+        await recordDocActivity(tx, cardPaymentEventInput({
+          action: failedBefore ? 'CARD_PAYMENT_HELD' : 'CARD_PAYMENT_FAILED', meta: activity, payment: row,
+          data: { status: 'failed', closedAfterReview: true, note },
+        }));
+      }
+      return c;
     });
     if (closed.count !== 1) { res.status(409).json({ success: false, code: 'CARD_PAY_NOT_IN_REVIEW', message: 'العملية ليست قيد المراجعة' }); return; }
     res.json({ success: true });

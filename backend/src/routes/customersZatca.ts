@@ -28,13 +28,47 @@ import { zatcaCollectOn } from '../compliance/zatca/regime';
 import { ZATCA_ERROR_CATALOGUE } from '../compliance/zatca/errors';
 // «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): يظهر في القائمة ويُبحث به بالمطابقة التامّة
 import { customerNumberOr, customerNumberQuery } from '../services/customerNumber';
+// «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): تغيّر بيانات الفوترة حدث CUSTOMER_TAX_DATA_UPDATED في سجلّ العميل —
+// في معاملة الكتابة نفسها: الصورة «قبل» تحت قفل الصفّ، و«بعد» بالحقول المكتوبة وحدها
+import {
+  CUSTOMER_EDIT_TX, activityMeta, lockCustomerImage, recordActivityInTx, recordCustomerEdit, writtenImage,
+} from '../services/customerActivityEvents';
 import {
   BUSINESS_CHANNELS, BUSINESS_ID_SCHEMES, BUYER_BILLING_FIELDS, BUYER_PHASE2_FIELDS, BuyerField, BuyerFieldError, BuyerPatch, BuyerRowLike,
   BuyerStatus, CUSTOMER_FIELD_MAP, bodyTouchesBuyerGate, buyerDowngrade, clearedBuyerFields, customerBuyerStatus, missingBuyerFormFields,
   normalizeBuyerFields, repCompleteOnlyDenied, validateBuyerChanges,
 } from '../compliance/zatca/buyerData';
 
-export type BuyerDataDb = Pick<PrismaClient, 'tenant' | 'customer' | 'salesRep' | 'product'>;
+export type BuyerDataDb = Pick<PrismaClient, 'tenant' | 'customer' | 'salesRep' | 'product'>
+  // معاملة الكتابة وحدثها في «أرشيف العميل» (الإنتاج: prisma) — والمقبض المزيّف بلاها يكتب مباشرةً بلا قفلٍ ولا حدث
+  & Partial<Pick<PrismaClient, '$transaction'>>;
+
+/** مقبض الكتابة داخل المعاملة (أو المقبض نفسه بلا معاملة) */
+type BuyerWriteDb = Pick<PrismaClient, 'customer'>;
+
+/**
+ * الكتابة وحدثها في معاملةٍ واحدة حين يحملها المقبض (prisma)، وإلا المقبض نفسه (المزيّف في الاختبارات) — فيُلتزم الحدث مع الكتابة
+ * أو يُلغى معها
+ */
+function inWriteTx<T>(db: BuyerDataDb, fn: (tx: BuyerWriteDb) => Promise<T>): Promise<T> {
+  if (typeof db.$transaction === 'function') {
+    // نداءٌ على العميل نفسه (لا دالةٌ منزوعة منه): $transaction يقرأ this
+    const client = db as unknown as { $transaction: (f: (tx: BuyerWriteDb) => Promise<T>, o?: unknown) => Promise<T> };
+    return client.$transaction(fn, CUSTOMER_EDIT_TX);
+  }
+  return fn(db);
+}
+
+/**
+ * يقفل (FOR UPDATE) من المرشّحين مَن ما زال بلا تصنيف ويعيد معرّفاتهم — ما صنّفه غيرُه بعد القراءة لا يُقفل ولا يُكتب ولا حدث له.
+ * null ⇒ مقبضٌ بلا SQL خام (المزيّف)
+ */
+async function lockUnclassified(tx: unknown, tid: string, ids: readonly string[]): Promise<string[] | null> {
+  const db = tx as { $queryRaw?: (q: TemplateStringsArray, ...v: unknown[]) => Promise<unknown> } | null;
+  if (typeof db?.$queryRaw !== 'function') return null;
+  const rows = await db.$queryRaw`SELECT id FROM customers WHERE "tenantId" = ${tid} AND id = ANY(${[...ids]}::text[]) AND "buyerType" IS NULL ORDER BY id FOR UPDATE`;
+  return Array.isArray(rows) ? rows.map((r: { id?: unknown }) => String(r?.id ?? '')).filter(Boolean) : [];
+}
 
 export interface CustomerBuyerDataDeps {
   db: BuyerDataDb;
@@ -436,7 +470,23 @@ export function createCustomerBuyerDataRouter(deps: CustomerBuyerDataDeps): Rout
     }).map(r => r.id);
     let updated = 0;
     if (targets.length > 0) {
-      updated = (await deps.db.customer.updateMany({ where: { tenantId: tid, id: { in: targets }, buyerType: null }, data: { buyerType: 'BUSINESS' } })).count;
+      // «أرشيف العميل»: الكتابة وحدثها في معاملةٍ واحدة، والحدث لمن صُنِّف **فعلاً** وحده: المرشّحون الباقون بلا تصنيف يُقفلون أوّلاً
+      // (ما صنّفه تبويبٌ آخر أو المندوب «فرداً» بعد القراءة أعلاه يخرج)، فتكتب الكتابة المقفولين بالضبط ولهم الحدث
+      const meta = activityMeta(req);
+      updated = await inWriteTx(deps.db, async (tx) => {
+        const locked = await lockUnclassified(tx, tid, targets);
+        const want = locked ?? targets;
+        if (want.length === 0) return 0;
+        const count = (await tx.customer.updateMany({ where: { tenantId: tid, id: { in: want }, buyerType: null }, data: { buyerType: 'BUSINESS' } })).count;
+        // بلا قفلٍ (مقبضٌ بلا SQL خام) لا يُعرف من كُتب حين كُتب بعضهم — فالحدث حين كُتبوا كلّهم وحده
+        const changed = locked ?? (count === want.length ? want : []);
+        await recordActivityInTx(tx, changed.map((id) => ({
+          tenantId: tid, customerId: id, action: 'CUSTOMER_TAX_DATA_UPDATED' as const, actor: meta.actor, source: meta.source,
+          refType: 'CUSTOMER' as const, refId: id,
+          data: { changes: [{ field: 'buyerType', from: null, to: 'BUSINESS' }], reason: 'APPLY_SUGGESTED' },
+        })));
+        return count;
+      });
     }
     res.json({ success: true, data: { updated, skipped: ids.length - updated } });
   }));
@@ -495,7 +545,15 @@ export function createCustomerBuyerDataRouter(deps: CustomerBuyerDataDeps): Rout
     if (changed.length > 0) {
       const write: BuyerPatch = {};
       for (const f of changed) write[f as BuyerField] = patch[f as BuyerField] ?? null;
-      row = (await deps.db.customer.update({ where: { id }, data: write, select: BUYER_ROW_SELECT })) as BuyerRow;
+      // «أرشيف العميل»: ما تغيّر من بيانات الفوترة حدثٌ واحد بفاعل الطلب (المندوب يُكمل أو الإدارة تعدّل) — في معاملة الكتابة نفسها،
+      // صورته «قبل» تحت قفل الصفّ (تعديلٌ موازٍ بعد القراءة أعلاه لا يُنسب لهذا الفاعل) و«بعد» بالحقول المكتوبة وحدها
+      const meta = activityMeta(req);
+      row = await inWriteTx(deps.db, async (tx) => {
+        const before = (await lockCustomerImage(tx, tid, id)) ?? (stored as unknown as Record<string, unknown>);
+        const r = (await tx.customer.update({ where: { id }, data: write, select: BUYER_ROW_SELECT })) as BuyerRow;
+        await recordCustomerEdit(tx, tid, before, writtenImage(r as unknown as Record<string, unknown>, write as Record<string, unknown>), meta, { taxOnly: true });
+        return r;
+      });
       if (!isRep && buyerDowngrade(stored, patch)) {
         audit(buyerDowngradeAuditLine({
           tenantId: tid, customerId: id, actorId: req.user?.id ?? '', role: req.user?.role ?? '', impersonated: req.user?.impersonated === true,

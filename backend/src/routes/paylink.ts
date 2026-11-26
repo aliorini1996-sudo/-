@@ -6,6 +6,8 @@ import { platformGate } from '../services/platformAccess';
 import { AuthRequest } from '../types';
 import { canAccessCustomer } from '../services/customerScope';
 import { issueLink, publicLinkView, confirmLinkPayment, paylinkConfigured, expireStaleLinks } from '../services/paylink';
+// «أرشيف العميل — السجل الزمني»: فاعل إصدار الرابط وإلغائه اليدويّ باسمه في سجلّ العميل
+import { docActivityMeta } from '../services/customerActivityDocs';
 import { scopedRecordWhere, adminScopeEnabled, SHAPE_PAYMENT_LINK, SHAPE_INVOICE_RECEIPT } from '../services/adminScope';
 import { roundHalfUp } from '../lib/money';
 import { settlementBalance, recordPayout } from '../services/settlement';
@@ -121,6 +123,7 @@ router.post('/issue', async (req: AuthRequest, res: Response, next: NextFunction
       // السند اللاحق يُنسب لمصدر الرابط إن كان مندوباً، وإلا لمندوب الفاتورة
       salesRepId: isRep ? req.user!.id : invoice.salesRepId ?? undefined,
       createdById: isRep ? undefined : req.user!.id,
+      activity: docActivityMeta(req),
     });
     if (!out.ok) { res.status(400).json({ success: false, message: out.message }); return; }
     res.json({ success: true, data: out.link, reused: out.reused ?? false });
@@ -255,8 +258,8 @@ router.post('/links/:id/cancel', requireAdmin, requireAdminPermission('canManage
     });
     if (!link) { res.status(404).json({ success: false, message: 'الرابط غير موجود' }); return; }
     if (link.status !== 'initiated') { res.status(400).json({ success: false, message: 'الرابط ليس قيد الانتظار' }); return; }
-    // إماتة كل روابط الفاتورة الحية (تشمل هذا) + إلغاء فواتير ميسر
-    await expireStaleLinks(tid, link.invoiceId);
+    // إماتة كل روابط الفاتورة الحية (تشمل هذا) + إلغاء فواتير ميسر — بفاعل الطلب في سجلّ العميل
+    await expireStaleLinks(tid, link.invoiceId, undefined, { activity: docActivityMeta(req), reason: 'MANUAL' });
     res.json({ success: true });
   } catch (err) { next(err); }
 });

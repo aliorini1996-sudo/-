@@ -60,6 +60,8 @@ import {
 // «الوحدة الرئيسية» I10 (§2.13): انتظار القفل وحده انشغالٌ (55P03/40P01)، وسجلّ «قيد التحويل» يردّ قبل الـmutex ورأس السلسلة
 import { asLockBusy } from '../services/lots';
 import { anyConverting } from '../services/baseGuard';
+// «أرشيف العميل — السجل الزمني»: حدث الإشعار داخل معاملة ختمه (services/customerActivityDocs.ts)
+import { invoiceIssuedInput, recordDocActivity, type DocActivityMeta } from '../services/customerActivityDocs';
 
 // ─── الاعتماديات ───
 
@@ -468,6 +470,11 @@ export interface NoteContextBase {
   viaApiKey?: boolean;
   /** صاحب الطلب (Q5) — يُفحص ثانيةً على **أثر** الإشعار لا على صيغته، قبل أيّ قفل أو ICV. */
   actor?: NoteActor;
+  /**
+   * «أرشيف العميل — السجل الزمني»: فاعل الطلب ومصدره (وحدثه حين يقرّره المستدعي: مرتجع التطبيق ⇒ RETURN_ISSUED) — حدث الإشعار
+   * يُكتب داخل معاملة ختمه بعد إدراجه. غائب ⇒ لا حدث (اختبارات الإشعارات القائمة).
+   */
+  activity?: DocActivityMeta | null;
 }
 
 export interface CreditNoteContext extends NoteContextBase {
@@ -933,6 +940,20 @@ async function stampNote(
               include: { items: alloc ? { include: ITEM_LOTS_INCLUDE } : true, customer: true },
             });
             created = row as unknown as Record<string, unknown> & { id: string };
+            // «أرشيف العميل»: الإشعار (أو مرتجع التطبيق إشعاراً دائناً) بفاعل الطلب ورقم أصله — يلتزم مع المستند أو يُلغى معه
+            if (ctx.activity) {
+              await recordDocActivity(t, invoiceIssuedInput({
+                tenantId: ctx.tenantId,
+                meta: { ...ctx.activity, action: ctx.activity.action ?? (kind === 'DEBIT_NOTE' ? 'DEBIT_NOTE_ISSUED' : 'CREDIT_NOTE_ISSUED') },
+                invoice: row,
+                data: {
+                  documentKind: kind,
+                  originalInvoiceId: locked.original.id,
+                  originalInvoiceNo: locked.original.number,
+                  ...(kind === 'CREDIT_NOTE' && ctx.lines === 'FULL' && { fullCredit: true }),
+                },
+              }));
+            }
             return { id: row.id };
           },
           // نقد 38: صفّ الأصل ثمّ دفتر العميل — آخر ما يُقفل، وبعد الختم وإدراج المستند

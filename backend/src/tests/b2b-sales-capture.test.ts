@@ -158,7 +158,8 @@ test('حذف المندوب: سنداته تبقى بمرجعٍ مفرَّغ و�
   // شرط الشركة في الكتابة: سند شركةٍ أخرى لا يُكتب عليه المعرّف (تفريغ SetNull في المزيّف بالمعرّف وحده كالقاعدة)
   assert.equal(byId('rcX').deletedSalesRepId, null, 'سند شركةٍ أخرى لا يُمسّ');
   // كتابةٌ واحدة تحمل الاثنين معاً (لا نافذة يُفرَّغ فيها المرجع بلا معرّفه)، وقبل حذف المندوب
-  const receiptWrites = calls.filter((c) => c.startsWith('receipt.'));
+  // الكتابات وحدها: «أرشيف العميل» يقرأ سندات المندوب لكل عميل (receipt.groupBy) قبل التفريغ — قراءةٌ لا كتابة
+  const receiptWrites = calls.filter((c) => /^receipt\.(update|delete|create|upsert)/.test(c));
   assert.deepEqual(receiptWrites, ['receipt.updateMany'], 'كتابةٌ واحدة على السندات');
   assert.ok(calls.indexOf('receipt.updateMany') < calls.indexOf('salesRep.delete'));
   assert.ok(calls.indexOf('glSettings.findUnique') < calls.indexOf('receipt.updateMany'), 'حارس الدفاتر أولاً');

@@ -6,6 +6,9 @@ import { requireAdmin, requireAdminPermission, tenantId } from '../middleware/au
 import { AuthRequest } from '../types';
 import { adminScopeEnabled } from '../services/adminScope';
 import { teamName } from '../services/teams';
+// «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): حذف الفريق يفرّغ وسمه عن فواتير العملاء وسنداتهم وزياراتهم — حدثٌ
+// مجمَّع واحد لكل عميلٍ متأثّر بكل نوع، في معاملة الحذف نفسها
+import { activityMeta, countByCustomer, hasActivityTable, perCustomerEvents, recordActivityInTx } from '../services/customerActivityEvents';
 
 /**
  * «الفرق» داخل الشركة (طلب المالك ١٧ أكتوبر ٢٠٢٦) — مُركَّبٌ تحت /api/company/teams (routes/company.ts).
@@ -137,13 +140,26 @@ router.delete('/:id', managePerm, async (req: AuthRequest, res: Response, next: 
   try {
     if (!(await guardManage(req, res))) return;
     const tid = tenantId(req);
+    const meta = activityMeta(req);
     const untagged = await prisma.$transaction(async (tx) => {
       const team = await tx.team.findFirst({
         where: { id: req.params.id, tenantId: tid },
-        select: { id: true, supervisors: { select: { adminId: true } }, products: { select: { productId: true } } },
+        select: { id: true, name: true, supervisors: { select: { adminId: true } }, products: { select: { productId: true } } },
       });
       if (!team) return null;
       const tagged = { tenantId: tid, teamId: team.id };
+      // «أرشيف العميل»: مستندات كل عميلٍ وزياراته التي تخرج من الفريق — تُعدّ قبل التفريغ وتُسجَّل في المعاملة نفسها
+      if (hasActivityTable(tx)) {
+        const moved = { kind: 'TEAM', fromTeamId: team.id, fromTeam: team.name, toTeam: null, reason: 'TEAM_DELETED' };
+        const inv = await tx.invoice.groupBy({ by: ['customerId'], where: tagged, _count: { _all: true } });
+        const rec = await tx.receipt.groupBy({ by: ['customerId'], where: tagged, _count: { _all: true } });
+        const vis = await tx.repVisit.groupBy({ by: ['customerId'], where: tagged, _count: { _all: true } });
+        await recordActivityInTx(tx, [
+          ...perCustomerEvents(tid, countByCustomer(inv), 'INVOICE_REASSIGNED', meta, moved, 'INVOICE'),
+          ...perCustomerEvents(tid, countByCustomer(rec), 'RECEIPT_REASSIGNED', meta, moved, 'RECEIPT'),
+          ...perCustomerEvents(tid, countByCustomer(vis), 'VISIT_REASSIGNED', meta, moved, 'VISIT'),
+        ]);
+      }
       const invoices = (await tx.invoice.updateMany({ where: tagged, data: { teamId: null } })).count;
       const receipts = (await tx.receipt.updateMany({ where: tagged, data: { teamId: null } })).count;
       const visits = (await tx.repVisit.updateMany({ where: tagged, data: { teamId: null } })).count;

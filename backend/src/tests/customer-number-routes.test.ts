@@ -2,7 +2,7 @@
 //   • الإنشاء (POST، وPUT لمعرّفٍ مجهول) يمرّ بمساعد الترقيم داخل معاملةٍ بمهلة CUSTOMER_NUMBER_TX، فيأخذ العميل الرقم التالي
 //     لشركته؛ و«number» في الجسم لا أثر له (للقراءة وحدها) في الإنشاء ولا التعديل.
 //   • فشل الإنشاء داخل المعاملة (تصادم المعرّف 'RACED'، أو نوع سعرٍ حُذف P2003) يُلغيها فلا يُستهلك رقم ولا تبقى فجوة منه.
-//   • الإسناد التلقائي للمندوب بعد الالتزام لا داخل المعاملة (اتصالٌ آخر لا يرى صفّاً لم يُلتزم).
+//   • الإسناد التلقائي للمندوب بعد الالتزام لا داخل معاملة الإنشاء (اتصالٌ آخر لا يرى صفّاً لم يُلتزم) — في معاملته الخاصة مع حدثه.
 //   • البحث: نصٌّ أرقامٌ كلّه (#١٢ أو 12) يضيف { number: N } إلى OR القائمة مع الاسم والجوال والكود — والجوال الخام أول شرط جوال كما كان؛
 //     و05 وabc والجوال الطويل بلا شرط رقم. وقائمة بيانات الفوترة كذلك داخل عنصر AND نفسه.
 // المساعد الحقيقي (قفل صفّ الشركة والـSQL الخام) يختبره customer-number.test.ts؛ هنا يُستبدل createNumberedCustomer وحده بعدّادٍ
@@ -207,7 +207,9 @@ test('POST من المندوب: الإسناد التلقائي بعد الال�
   assert.equal(r.body.data.createdBySalesRepId, 'rep-1');
   const assign = calls.filter((c) => c.op.startsWith('customerAssignment.'));
   assert.equal(assign.length, 1);
-  assert.equal(assign[0].inTx, false, 'ensureAssignment بعد الالتزام');
+  // بعد التزام الإنشاء في معاملته الخاصة مع حدثه في «سجلّ العميل» (ensureAssignment): معاملتان — الإنشاء ثم الإسناد
+  assert.equal(assign[0].inTx, true, 'ensureAssignment في معاملته الخاصة');
+  assert.equal(txOptions.length, 2, 'معاملة الإسناد مستقلّة بعد معاملة الإنشاء');
   const createAt = calls.findIndex((c) => c.op === 'customer.create');
   assert.ok(createAt >= 0 && calls.indexOf(assign[0]) > createAt);
 });
@@ -263,7 +265,8 @@ test('POST: رفعان متزامنان للمستند نفسه — الثاني
   assert.equal(mine.body.idempotent, true);
   const assign = calls.filter((c) => c.op.startsWith('customerAssignment.'));
   assert.equal(assign.length, 1);
-  assert.equal(assign[0].inTx, false, 'الإسناد بعد الالتزام');
+  assert.equal(assign[0].inTx, true, 'الإسناد في معاملته الخاصة');
+  assert.equal(txOptions.length, 2, 'معاملة الإسناد مستقلّة بعد معاملة إعادة الفحص');
   assert.equal(helperCalls.length, 0);
 
   // بلا clientRef: لا قفلٌ زائد ولا إعادة فحص — المساعد وحده يقفل

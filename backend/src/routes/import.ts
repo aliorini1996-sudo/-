@@ -50,6 +50,14 @@ import {
 // «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): العميل المستورد يأخذ رقمه التالي في معاملة شريحته — والمطابقة لا تقرأ الرقم أبداً
 // (الكود ثم الجوال ثم الاسم كما كانت): كودٌ رقميّ من نظام سابق لا يلتصق برقم عميلٍ آخر
 import { createNumberedCustomer } from '../services/customerNumber';
+// «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): كل عميلٍ يمسّه الاستيراد (إضافةٌ، رصيدٌ افتتاحي، قيود كشف، أسعارٌ خاصة،
+// ربط كود) أو التراجع عنه حدثٌ في سجلّه — دفعةً واحدة (createMany) لكل شريحة في معاملة كتابتها نفسها
+import {
+  activityMeta, hasActivityTable, productCustomerPriceEvents, recordActivityInTx,
+  type ActivityInput, type ActivityMeta,
+} from '../services/customerActivityEvents';
+// قرار المالك (٢٧ نوفمبر ٢٠٢٦): «بعد حذف العميل يحذف سجله معه» — إذن المعاملة لمُطلِق السجلّ عند حذف العميل بالتراجع
+import { allowActivityPurge } from '../services/customerActivityGuard';
 import { loadBuyerGate, type ImportBuyerRowError } from './customersZatca';
 import { BUYER_PHASE2_FIELDS, bodyTouchesBuyerGate, normalizeBuyerFields, validateBuyerChanges } from '../compliance/zatca/buyerData';
 import {
@@ -550,6 +558,24 @@ const customersBody = z.object({
   force: z.boolean().optional(),
 });
 
+/** «أرشيف العميل»: حدثٌ مجمَّع لكل عميل من صفوف شريحةٍ (أسعار الاستيراد والتراجع عنه) — بنوده في items حتى مئة */
+function perCustomerItems(
+  tid: string, rows: readonly { customerId: string; item: Record<string, unknown> }[], action: ActivityInput['action'], meta: ActivityMeta,
+  data: Record<string, unknown>,
+): ActivityInput[] {
+  const by = new Map<string, Record<string, unknown>[]>();
+  for (const r of rows) {
+    const list = by.get(r.customerId) ?? [];
+    list.push(r.item);
+    by.set(r.customerId, list);
+  }
+  return [...by].map(([customerId, items]) => ({
+    tenantId: tid, customerId, action, actor: meta.actor, source: meta.source, refType: 'PRICE' as const,
+    ...(items.length === 1 && typeof items[0].productId === 'string' && { refId: items[0].productId as string }),
+    data: { ...data, count: items.length, items: items.slice(0, 100), ...(items.length > 100 && { truncated: true }) },
+  }));
+}
+
 router.post('/customers', requireImportAccess('customers'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const tid = tenantId(req);
@@ -572,6 +598,8 @@ router.post('/customers', requireImportAccess('customers'), async (req: AuthRequ
     // البند 20: الدفعة محجوزة قبل أي كتابة (البصمة والاستيراد الجاري تحت قفل النوع)
     const progress = new ImportBatchProgress(
       await reserveMasterBatch(tid, 'customers', importContentHash('customers', rows), importedBy(req), body.force === true), 'customers');
+    // «أرشيف العميل»: فاعل الاستيراد ومصدره (import) لأحداث الإضافة وربط الكود
+    const meta = activityMeta(req, 'import');
     try {
       // البند 3: الكود وحده للصف ذي الكود (فروع السلاسل تُنشأ مع تنبيه)، والجوال الصالح ثم الاسم للصف بلا كود
       const existing = await prisma.customer.findMany({ where: { tenantId: tid }, select: { id: true, phone: true, code: true, name: true } });
@@ -612,11 +640,15 @@ router.post('/customers', requireImportAccess('customers'), async (req: AuthRequ
             creditLimit: r.creditLimit ?? 0,
             paymentDays: r.paymentDays ?? 30,
             ...(r.code ? { code: r.code } : {}),
-          } as never);
+          } as never, null); // «أرشيف العميل»: حدث الإضافة (CUSTOMER_IMPORTED) يُكتب دفعةً واحدة في flush أدناه — في المعاملة نفسها
           return c.id;
         },
-        // المعرّفات في آخر معاملة الشريحة نفسها (البند 6)
-        flush: (tx, written) => progress.write(tx, written.map(w => ({ records: [w.result] }))),
+        // المعرّفات في آخر معاملة الشريحة نفسها (البند 6)، ثم أحداث «أرشيف العميل» للشريحة كلها بإدراجٍ واحد
+        flush: (tx, written) => progress.write(tx, written.map(w => ({ records: [w.result] }))).then(() => recordActivityInTx(tx, written.map(w => ({
+          tenantId: tid, customerId: w.result, action: 'CUSTOMER_IMPORTED' as const, actor: meta.actor, source: meta.source,
+          refType: 'CUSTOMER' as const, refId: w.result,
+          data: { name: w.item.r.name || CUSTOMER_NAME_PLACEHOLDER, ...(w.item.r.code && { code: w.item.r.code }), row: w.item.row, batchId: progress.id },
+        })))),
         onCommitted: written => {
           progress.commit(written.map(w => ({ records: [w.result] })));
           result.created += written.length;
@@ -627,26 +659,39 @@ router.post('/customers', requireImportAccess('customers'), async (req: AuthRequ
       });
       // الكود الجديد لعميل قائم بكود تلقائي (مستورد سابقاً بلا كود): يُكتب فيه بشرط أن كوده لم يتغير، فتطابقه ملفات
       // الأرصدة والكشوف والأسعار. تعديل عميل قائم لا إنشاء: لا يدخل سجلات الدفعة (التراجع لا يحذف العميل ولا يعيد كوده)
-      for (let k = 0; k < attaches.length; k++) {
-        const a = attaches[k];
-        try {
-          const upd = await prisma.customer.updateMany({
+      // «أرشيف العميل»: كل ربطٍ نجح تعديلٌ لبطاقة العميل (الكود من → إلى) — حدثه في معاملة شريحته نفسها مع كتابته: يلتزمان معاً أو
+      // يُلغيان معاً. وفشل الشريحة يعيد كل ربطٍ منها في معاملةٍ وحده (runImportChunks) فيُنسب الخطأ إلى صفّه وحده
+      await runImportChunks({
+        chunks: planImportChunks(attaches, () => 1, importChunkTarget(attaches.length)),
+        runTx: <X>(fn: (tx: Prisma.TransactionClient) => Promise<X>) => prisma.$transaction(async tx => fn(tx), IMPORT_WRITE_TX),
+        writeItem: async (tx: Prisma.TransactionClient, a) => {
+          const upd = await tx.customer.updateMany({
             where: { id: a.customerId, tenantId: tid, ...(a.fromCode !== null ? { code: a.fromCode } : {}) },
             data: { code: a.code },
           });
-          if (upd.count === 1) {
-            if (attachedRows.length < 500) attachedRows.push({ row: a.row, code: a.code, matchedBy: a.matchedBy });
-            result.attached = (result.attached ?? 0) + 1;
-          } else {
-            result.skipped++;
-            if (skippedRows.length < 500) skippedRows.push({ row: a.row, reason: 'CODE_ATTACHABLE' });
+          return upd.count === 1;
+        },
+        // الأحداث وحدها في آخر المعاملة — والمربوط لا يدخل سجلات الدفعة
+        flush: (tx, written) => recordActivityInTx(tx, written.filter(w => w.result).map(({ item: a }) => ({
+          tenantId: tid, customerId: a.customerId, action: 'CUSTOMER_UPDATED' as const, actor: meta.actor, source: meta.source,
+          refType: 'CUSTOMER' as const, refId: a.customerId,
+          data: { changes: [{ field: 'code', from: a.fromCode, to: a.code }], via: 'import', matchedBy: a.matchedBy, row: a.row, batchId: progress.id },
+        }))),
+        onCommitted: written => {
+          for (const { item: a, result: attached } of written) {
+            if (attached) {
+              if (attachedRows.length < 500) attachedRows.push({ row: a.row, code: a.code, matchedBy: a.matchedBy });
+              result.attached = (result.attached ?? 0) + 1;
+            } else {
+              result.skipped++;
+              if (skippedRows.length < 500) skippedRows.push({ row: a.row, reason: 'CODE_ATTACHABLE' });
+            }
           }
-        } catch (e) {
-          if (isImportHttpError(e)) throw e;
-          result.errors.push(importWriteFailure(a.row, e));
-        }
-        if (k % 200 === 199) await progress.beat();
-      }
+        },
+        onItemError: (a, e) => { result.errors.push(importWriteFailure(a.row, e)); },
+        isFatal: isImportHttpError,
+        afterChunk: () => progress.beat(),
+      });
     } finally {
       result.batchId = await progress.finish();
     }
@@ -935,6 +980,7 @@ router.post('/balances', requireImportAccess('balances'), async (req: AuthReques
     // مراجعة 3 و7: الدفعة محجوزة قبل أي كتابة (البصمة والاستيراد الجاري تحت قفل الشركة)
     const progress = new ImportBatchProgress(
       await reserveEntryBatch(tid, 'balances', contentHash, importedBy(req), body.force === true, ctx.activated, ctx.timezone), 'balances');
+    const meta = activityMeta(req, 'import');
     try {
       // الدفعات السابقة وحدها (لا إضافة من هذا الطلب: العميل قيد واحد بعد الدمج)
       const idx = await loadImportedIndex(tid);
@@ -967,8 +1013,14 @@ router.post('/balances', requireImportAccess('balances'), async (req: AuthReques
           await tx.customer.update({ where: { id: cid }, data: { balance: clean(prev + amount) } });
           return { id: e.id };
         },
-        // معرّفات الشريحة في آخر معاملة كتابتها نفسها، دون شرط (البند 6)
-        flush: (tx, written) => progress.write(tx, written.map(w => ('id' in w.result ? { records: [w.result.id] } : {}))),
+        // معرّفات الشريحة في آخر معاملة كتابتها نفسها، دون شرط (البند 6)، ثم «أرشيف العميل»: رصيدٌ افتتاحيّ لكل عميلٍ كُتب له —
+        // المرجع ADJUSTMENT بمعرّف قيده، والمبلغ (موجبٌ مدين) وتاريخه
+        flush: (tx, written) => progress.write(tx, written.map(w => ('id' in w.result ? { records: [w.result.id] } : {}))).then(() => recordActivityInTx(tx,
+          written.flatMap(w => ('id' in w.result ? [{
+            tenantId: tid, customerId: w.item.customerId, action: 'OPENING_BALANCE_SET' as const, actor: meta.actor, source: meta.source,
+            refType: 'ADJUSTMENT' as const, refId: w.result.id, amount: w.item.amount,
+            data: { entryDate: w.item.date, description: OPENING_BALANCE_DESCRIPTION, batchId: progress.id },
+          }] : [])))),
         onCommitted: written => {
           progress.commit(written.map(w => ('id' in w.result ? { records: [w.result.id] } : {})));
           for (const { item, result: out } of written) {
@@ -1037,6 +1089,7 @@ router.post('/ledger', requireImportAccess('ledger'), async (req: AuthRequest, r
     // مراجعة 3 و7: الدفعة محجوزة قبل فحص التداخل وأي كتابة (لا استيراد قيود آخر يعمل معه)
     const progress = new ImportBatchProgress(
       await reserveEntryBatch(tid, 'ledger', contentHash, importedBy(req), body.force === true, ctx.activated, ctx.timezone), 'ledger');
+    const meta = activityMeta(req, 'import');
     let overlap: ReturnType<typeof detectLedgerOverlap> = [];
     try {
       // التداخل مع رصيد مستورد أو كشف سابق ⇒ 409 IMPORT_OVERLAP_CONFIRM قبل أي كتابة، ما لم يُرسل confirmOverlap (والحجز يُحذف)
@@ -1085,8 +1138,14 @@ router.post('/ledger', requireImportAccess('ledger'), async (req: AuthRequest, r
           await tx.customer.update({ where: { id: cid }, data: { balance: running } });
           return groupIds;
         },
-        // معرّفات الشريحة في آخر معاملة كتابتها نفسها، دون شرط (البند 6)
-        flush: (tx, written) => progress.write(tx, written.map(w => ({ records: w.result }))),
+        // معرّفات الشريحة في آخر معاملة كتابتها نفسها، دون شرط (البند 6)، ثم «أرشيف العميل»: كل قيدٍ مستورد حدثٌ بمعرّفه (المرجع
+        // ADJUSTMENT) ومبلغه (المدين − الدائن) وتاريخه وبيانه
+        flush: (tx, written) => progress.write(tx, written.map(w => ({ records: w.result }))).then(() => recordActivityInTx(tx,
+          written.flatMap(w => w.item.entries.map((e, i) => ({
+            tenantId: tid, customerId: w.item.cid, action: 'ADJUSTMENT_CREATED' as const, actor: meta.actor, source: meta.source,
+            refType: 'ADJUSTMENT' as const, refId: w.result[i] ?? null, amount: clean(e.debit - e.credit),
+            data: { kind: 'LEDGER_IMPORT', entryDate: e.date, debit: e.debit, credit: e.credit, description: e.description || 'قيد مستورد', batchId: progress.id },
+          }))))),
         onCommitted: written => {
           progress.commit(written.map(w => ({ records: w.result })));
           for (const w of written) result.created += w.result.length;
@@ -1214,6 +1273,7 @@ router.post('/prices', requireImportAccess('prices'), async (req: AuthRequest, r
     // البند 20: الدفعة محجوزة قبل أي كتابة
     const progress = new ImportBatchProgress(
       await reserveMasterBatch(tid, 'prices', importContentHash('prices', rows), importedBy(req), body.force === true), 'prices');
+    const meta = activityMeta(req, 'import');
     // البند 7: previous أول سعر قبل الدفعة، وimported آخر سعر كتبته — التراجع يقارن به قبل أن يمس شيئاً
     const priceDelta = (w: { id: string; previous: number | null; price: number }): ImportProgressDelta =>
       ({ records: [w.id], previous: [[w.id, w.previous]], imported: [[w.id, w.price]] });
@@ -1280,7 +1340,12 @@ router.post('/prices', requireImportAccess('prices'), async (req: AuthRequest, r
           });
           return { id: cp.id, previous: before ? before.price : null, price: w.price };
         },
-        flush: (tx, written) => progress.write(tx, written.map(x => priceDelta(x.result))),
+        // و«أرشيف العميل»: حدثٌ واحد لكل عميل في الشريحة بأسعاره التي تغيّرت (الصنف والسعر قبل وبعد) — ما كُتب بسعره نفسه لا حدث له
+        flush: (tx, written) => progress.write(tx, written.map(x => priceDelta(x.result))).then(() => recordActivityInTx(tx, perCustomerItems(tid,
+          written.filter(x => x.result.previous !== x.result.price).map(x => ({
+            customerId: x.item.customerId,
+            item: { productId: x.item.productId, productName: prodById.get(x.item.productId)?.name ?? null, from: x.result.previous, to: x.result.price },
+          })), 'CUSTOMER_PRICE_SET', meta, { via: 'import', batchId: progress.id }))),
         onCommitted: written => {
           progress.commit(written.map(x => priceDelta(x.result)));
           // البند 7: الزوج يُعدّ مرة واحدة — جديد (لا سعر قبل الدفعة) أو مستبدل
@@ -1618,6 +1683,8 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
     const done = new Set<string>();
     // البند 17: توابع العميل المحذوفة معه تُحصى وتُذكر في الرد — لا حذف صامت
     const customerRemoved = { removedEntries: 0, removedPrices: 0, removedNotifications: 0, removedAssignments: 0, removedScopes: 0 };
+    // «أرشيف العميل»: فاعل التراجع لأحداث ما يحذفه أو يعيده
+    const meta = activityMeta(req, 'import');
     // حصيلة شرائح الأسعار: تبقى بما التُزم حتى لو رُمي خطأ في شريحة لاحقة
     const priceTotals = newPricesRevertTotals();
 
@@ -1685,6 +1752,10 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
             // البند 17 (الإغلاقة): نطاقات مستخدمي الشركة (AdminCustomerScope، Cascade) كانت تُمحى بصمت — أثر
             // صلاحيات لا بيانات عمل، فلا يمنع الحذف، لكنه يُحذف صراحةً ويُعدّ ويُذكر في الرد كبقيّة التوابع
             const removedScopes = (await tx.adminCustomerScope.deleteMany({ where: { customerId: cid, tenantId: tid } })).count;
+            // قرار المالك (٢٧ نوفمبر ٢٠٢٦): «بعد حذف العميل يحذف سجله معه» — لا حدث حذفٍ له، وسجلّه كله يُحذف في معاملة حذفه
+            // نفسها: إذن المعاملة لمُطلِق السجلّ (يموت بالتزامها أو تراجعها) ثم أسطر هذا العميل وحده
+            await allowActivityPurge(tx);
+            await tx.customerActivity.deleteMany({ where: { tenantId: tid, customerId: cid } });
             await tx.customer.deleteMany({ where: { id: cid, tenantId: tid } });
             return { status: 'removed' as const, removedEntries, removedPrices, removedNotifications, removedAssignments, removedScopes };
           }, { maxWait: 10_000, timeout: 30_000 });
@@ -1728,6 +1799,8 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
             }) ?? await productLedgerBlockReason(tx, tid, pid);
             if (reason) return { status: 'blocked' as const, reason };
             await tx.priceTier.deleteMany({ where: { productId: pid } });
+            // «أرشيف العميل»: أسعار العملاء الخاصة للصنف تُحذف معه — حدثٌ لكل عميلٍ له سعر، قبل الحذف وفي معاملته
+            await recordActivityInTx(tx, await productCustomerPriceEvents(tx, tid, pid, meta, { action: 'CUSTOMER_PRICE_REMOVED', reason: 'IMPORT_REVERTED' }));
             await tx.customerPrice.deleteMany({ where: { productId: pid } });
             // وحداته (الحذف المتسلسل في القاعدة يكفي، والصراحة تحرسه إن تغيّر القيد)
             await tx.productUnit.deleteMany({ where: { productId: pid } });
@@ -1767,6 +1840,20 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
           if (glTombstones.length > 0) {
             await tx.glSourceEvent.createMany({ data: glTombstones as Prisma.GlSourceEventCreateManyInput[], skipDuplicates: true });
           }
+          // «أرشيف العميل»: قيود العميل المستوردة تُحذف بالتراجع — حدثٌ مجمَّع لكل عميل (عددها ومجموعاها، والمبلغ أثرها على رصيده)
+          {
+            const byCustomer = new Map<string, { n: number; debit: number; credit: number }>();
+            for (const e of entries) {
+              const a = byCustomer.get(e.customerId) ?? { n: 0, debit: 0, credit: 0 };
+              a.n++; a.debit += Number(e.debit); a.credit += Number(e.credit);
+              byCustomer.set(e.customerId, a);
+            }
+            await recordActivityInTx(tx, [...byCustomer].map(([customerId, a]) => ({
+              tenantId: tid, customerId, action: 'ADJUSTMENT_UPDATED' as const, actor: meta.actor, source: meta.source,
+              amount: clean(a.credit - a.debit),
+              data: { kind: 'IMPORT_REVERTED', batchKind: batch.kind, batchId: batch.id, entries: a.n, debit: clean(a.debit), credit: clean(a.credit) },
+            })));
+          }
           const del = await tx.accountEntry.deleteMany({ where: { id: { in: ids }, tenantId: tid } });
           removed = del.count;
           // إعادة الحساب بـSQL: الرصيد المتحرّك بدالة نافذة، ورصيد العميل مجموعَ قيوده الباقية — تحت قفل صفّه
@@ -1801,6 +1888,14 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
               WHERE cp.id IN (${Prisma.join(part.map(x => x.id))}) AND c."tenantId" = ${tid}
               ORDER BY cp.id FOR UPDATE OF cp`;
             const current = new Map(locked.map(r => [r.id, r]));
+            // «أرشيف العميل»: عميل كل سعرٍ وصنفه (بعد قفل الصفوف) — حدثٌ لكل عميل بما حُذف وما أُعيد في هذه الشريحة
+            const owners = hasActivityTable(tx)
+              ? new Map((await tx.customerPrice.findMany({
+                where: { id: { in: part.map(x => x.id) } }, select: { id: true, customerId: true, productId: true, product: { select: { name: true } } },
+              })).map(o => [o.id, o]))
+              : null;
+            const removedPrices: { customerId: string; item: Record<string, unknown> }[] = [];
+            const restoredPrices: { customerId: string; item: Record<string, unknown> }[] = [];
             const delta: PriceRevertChunkDelta = { done: [], blocked: [], restored: 0, deleted: 0 };
             const chunkDone = delta.done as string[];
             const chunkBlocked = delta.blocked as RevertBlocked[];
@@ -1824,10 +1919,22 @@ router.post('/batches/:id/revert', requireAdminPermission('canDelete'), async (r
                 chunkDone.push(item.id);
                 continue;
               }
-              if (action === 'delete') { delta.deleted += (await tx.customerPrice.deleteMany({ where: { id: item.id, customer: { tenantId: tid } } })).count; }
-              else if (action !== 'gone') { delta.restored += (await tx.customerPrice.updateMany({ where: { id: item.id, customer: { tenantId: tid } }, data: { price: action.restore } })).count; }
+              const owner = owners?.get(item.id);
+              if (action === 'delete') {
+                const n = (await tx.customerPrice.deleteMany({ where: { id: item.id, customer: { tenantId: tid } } })).count;
+                delta.deleted += n;
+                if (n && owner) removedPrices.push({ customerId: owner.customerId, item: { productId: owner.productId, productName: owner.product?.name ?? null, price: row ? Number(row.price) : null } });
+              } else if (action !== 'gone') {
+                const n = (await tx.customerPrice.updateMany({ where: { id: item.id, customer: { tenantId: tid } }, data: { price: action.restore } })).count;
+                delta.restored += n;
+                if (n && owner) restoredPrices.push({ customerId: owner.customerId, item: { productId: owner.productId, productName: owner.product?.name ?? null, from: row ? Number(row.price) : null, to: action.restore } });
+              }
               chunkDone.push(item.id);
             }
+            await recordActivityInTx(tx, [
+              ...perCustomerItems(tid, removedPrices, 'CUSTOMER_PRICE_REMOVED', meta, { reason: 'IMPORT_REVERTED', batchId: batch.id }),
+              ...perCustomerItems(tid, restoredPrices, 'CUSTOMER_PRICE_SET', meta, { reason: 'IMPORT_REVERTED', batchId: batch.id }),
+            ]);
             // آخر عبارة قبل الالتزام: المتبقّي (ومعه الممنوع) بسوابقه ومستورداته وحدها
             const remaining = remainingAfter(chunkDone);
             await tx.importBatch.update({

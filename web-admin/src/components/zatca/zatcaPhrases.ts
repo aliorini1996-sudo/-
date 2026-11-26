@@ -106,9 +106,8 @@ export const ZATCA_PHRASES: Record<string, { en: string; fr: string; tr: string;
   'نوع معرّف المنشأة': { en: 'Business identifier type', fr: 'Type d’identifiant de l’entreprise', tr: 'İşletme kimlik türü', zh: '企业标识类型' },
   'رقم المعرّف إن اختلف عن السجل التجاري': { en: 'Identifier number if different from the commercial registration', fr: 'Numéro d’identifiant s’il diffère du registre du commerce', tr: 'Ticaret sicilinden farklıysa kimlik numarası', zh: '标识号码（若与商业登记不同）' },
   'اسم الشارع': { en: 'Street name', fr: 'Nom de la rue', tr: 'Sokak adı', zh: '街道名称' },
-  'رقم المبنى': { en: 'Building number', fr: 'Numéro du bâtiment', tr: 'Bina numarası', zh: '楼号' },
-  'الرقم الإضافي': { en: 'Additional number', fr: 'Numéro complémentaire', tr: 'Ek numara', zh: '附加编号' },
-  // «الرمز البريدي» في القاموس العامّ منذ ٣ نوفمبر ٢٠٢٦ (صفّ «نصوص المطبوعات») — zatcaTranslate يرجع إليه
+  // «الرمز البريدي» في القاموس العامّ منذ ٣ نوفمبر ٢٠٢٦ (صفّ «نصوص المطبوعات») — zatcaTranslate يرجع إليه؛ و«رقم المبنى»
+  // و«الرقم الإضافي» فيه منذ ٢٦ نوفمبر ٢٠٢٦ («سجلّ العميل» يعرض تغيّرهما في بيانات الفوترة)
   'الرقم المميّز لعضو المجموعة الضريبية': { en: 'VAT group member TIN', fr: 'TIN du membre du groupe TVA', tr: 'KDV grubu üyesi TIN numarası', zh: '增值税集团成员 TIN' },
   'السجل التجاري (CRN)': { en: 'Commercial registration (CRN)', fr: 'Registre du commerce (CRN)', tr: 'Ticaret sicili (CRN)', zh: '商业登记（CRN）' },
   'ترخيص وزارة البلديات (MOM)': { en: 'Ministry of Municipalities license (MOM)', fr: 'Licence du ministère des Municipalités (MOM)', tr: 'Belediyeler Bakanlığı ruhsatı (MOM)', zh: '市政部许可证（MOM）' },

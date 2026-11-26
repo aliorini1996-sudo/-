@@ -87,7 +87,9 @@ import BuyerDataFields from '../components/BuyerDataFields';
 import { BuyerFormValues, buyerBadge, buyerCreatePayload, buyerFormHints, buyerFormValues, buyerRelaxWarnings, buyerUpdatePayload } from '../lib/zatca/buyerForm';
 import { RepBuyerBanner, RepBuyerDataForm, fetchIncompleteBuyers } from './RepBuyerData';
 import { Component, createContext, lazy, Suspense, useContext, useMemo, useReducer, useRef, type ReactNode } from 'react';
-import { Sparkles, MapPinOff, Wrench, ShoppingBag } from 'lucide-react';
+import { Sparkles, MapPinOff, Wrench, ShoppingBag, History } from 'lucide-react';
+// «السجل الزمني» للعميل (طلب المالك ٢٦ نوفمبر ٢٠٢٦): كل عملٍ لأيّ أحد مع العميل — قراءةٌ فقط
+import RepCustomerTimeline from './RepCustomerTimeline';
 import { cacheUpdate, outboxAll } from './offlineDb';
 import { onInvoicesSynced } from './offlineSync';
 import {
@@ -1738,6 +1740,11 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
   // الشركة على بيئة الاختبار: «تجريبي» على الزرّ ولافتةٌ في الورقة — لا مال حقيقي
   const cardPayTest = company?.cardPayTest === true;
   useBackClose(cardPayOpen, () => setCardPayOpen(false));
+  // «السجل الزمني»: ورقةٌ ملء الشاشة فوق ملفّ العميل — الرجوع يغلقها وحدها ومؤقّت الزيارة يبقى جارياً
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  useBackClose(timelineOpen, () => setTimelineOpen(false));
+  // إغلاقٌ ثابت الهوية: الورقة محفوظة (memo) فلا يعيد رسمَها عدّادُ الزيارة كل ثانية
+  const closeTimeline = useCallback(() => setTimelineOpen(false), []);
 
   // فتح مستند الحركة (فاتورة/سند) من كشف الحساب
   const openDoc = async (e: any) => {
@@ -1795,6 +1802,8 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
+      {/* «السجل الزمني» خارج حاوية التمرير: absolute على حاوية التطبيق فيغطّي الملفّ كلّه ولا يتمرّر معه */}
+      {timelineOpen && <RepCustomerTimeline customer={customer} accountingOn={accountingOn} canViewStatement={canViewStatement} taxOff={isTaxOff(company)} onClose={closeTimeline} />}
       <div className="bg-[#1F1A13] text-white p-4 flex items-center gap-3">
         <button onClick={onClose}><ArrowRight size={20} /></button>
         <span className="font-bold flex-1 truncate">{customer.name}</span>
@@ -1861,12 +1870,19 @@ function CustomerDetail({ customer, repName, company, perms, onClose, onInvoice,
               {customer.businessName && <p className="text-[#E8C9BC] text-sm">{customer.businessName}</p>}
               {customer.phone && <p className="text-[#E8C9BC] text-xs">{customer.phone}</p>}
             </div>
-            {canEdit && (
-              <button onClick={onEdit} aria-label={tr('تعديل بيانات العميل')}
-                className="flex-shrink-0 flex items-center gap-1.5 bg-white/15 hover:bg-white/25 border border-white/25 rounded-full px-3 py-1.5 text-xs font-bold active:scale-95 transition">
-                <Pencil size={13} /> {tr('تعديل')}
+            <div className="flex-shrink-0 flex items-center gap-2">
+              {/* «السجل الزمني» بجوار «تعديل»: لكل مندوبٍ فتح ملفّ العميل — كل ما جرى معه ومن أيّ أحد، قراءةٌ فقط */}
+              <button type="button" onClick={() => setTimelineOpen(true)} aria-label={tr('السجل الزمني')} title={tr('السجل الزمني')}
+                className="flex-shrink-0 flex items-center justify-center w-8 h-8 bg-white/15 hover:bg-white/25 border border-white/25 rounded-full active:scale-95 transition">
+                <History size={15} />
               </button>
-            )}
+              {canEdit && (
+                <button onClick={onEdit} aria-label={tr('تعديل بيانات العميل')}
+                  className="flex-shrink-0 flex items-center gap-1.5 bg-white/15 hover:bg-white/25 border border-white/25 rounded-full px-3 py-1.5 text-xs font-bold active:scale-95 transition">
+                  <Pencil size={13} /> {tr('تعديل')}
+                </button>
+              )}
+            </div>
           </div>
           {/* الأرقام المالية مخزّنة محلياً وقد تكون قديمة — نخفيها بعد نزع العميل بدل عرض رقم مضلّل.
               وحين يُطفأ «النظام المحاسبي» تغيب الشبكة كلّها بلا بديل: حتى جملة

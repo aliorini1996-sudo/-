@@ -60,6 +60,8 @@ import type { LineUnit } from './invoices';
 // «الوحدة الرئيسية» I10 (§2.13): سجلّ «قيد التحويل» في ذاكرة العملية يردّ أصناف تحويلٍ جارٍ قبل الـmutex ورأس السلسلة — فلا
 // يحبس تحويلٌ طويل إصدار الشركة كلّها
 import { anyConverting } from '../services/baseGuard';
+// «أرشيف العميل — السجل الزمني»: حدث إصدار المستند داخل معاملة الختم (services/customerActivityDocs.ts)
+import { invoiceIssuedInput, recordDocActivity, type DocActivityMeta } from '../services/customerActivityDocs';
 
 // ─── ترويسات قدرات العميل (نقد 1، 2) ───
 
@@ -670,6 +672,11 @@ export interface Phase2IssuanceContext {
    * (تغلبه صفوف اللوط). غائب ⇒ الختم اللاحق وحده كما كان.
    */
   expiryStamps?: ReadonlyMap<number, { expiresAt: Date; returnExpired: boolean | null; expirySaleInvoiceId: string | null }> | null;
+  /**
+   * «أرشيف العميل — السجل الزمني»: فاعل الطلب ومصدره (services/customerActivityDocs.ts docActivityMeta) — حدث الإصدار يُكتب داخل
+   * معاملة الختم نفسها بعد إدراج المستند. غائب ⇒ لا حدث (اختبارات الفرع القائمة).
+   */
+  activity?: DocActivityMeta | null;
 }
 
 /** ما يحمله الإشعار الدائن اليدويّ إلى نواة الإصدار — BT-25 وKSA-10 وBR-49 ونوعه الفرعي من تصنيف العميل الحيّ */
@@ -1014,6 +1021,8 @@ async function issueNow(
               },
             });
             created = row as Record<string, unknown> & { id: string };
+            // «أرشيف العميل»: الفاتورة (أو الإشعار الدائن اليدويّ مرتجعاً) بفاعل الطلب — تلتزم مع المستند أو تُلغى معه
+            if (ctx.activity) await recordDocActivity(t, invoiceIssuedInput({ tenantId: ctx.tenantId, meta: ctx.activity, invoice: row }));
             return { id: row.id };
           },
           // نقد 38: قيود دفتر العميل (وقفل صفّه) **بعد** الختم وإدراج المستند وتقدّم السلسلة

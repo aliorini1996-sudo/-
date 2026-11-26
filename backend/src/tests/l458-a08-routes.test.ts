@@ -595,8 +595,9 @@ test('C11 PATCH cancel: غير المربوطة بلا جسم ⇒ لا كتاب�
   }
   // تسلسل اليوم حرفاً + قراءة gl_settings واحدة قبل المعاملة
   const today = runs[0].calls.filter(c => c !== 'glSettings.findUnique');
+  // «أرشيف العميل — السجل الزمني» (٢٦ نوفمبر ٢٠٢٦): حدث الإلغاء في سجلّ العميل آخر ما في المعاملة نفسها
   assert.deepEqual(today, ['admin.findUnique', 'admin.findUnique', 'receipt.findFirst', '$transaction', 'receipt.updateMany', 'receipt.findUniqueOrThrow',
-    '$queryRaw', 'accountEntry.aggregate', 'accountEntry.create', 'customer.update', 'notification.create'], runs[0].calls.join(' → '));
+    '$queryRaw', 'accountEntry.aggregate', 'accountEntry.create', 'customer.update', 'notification.create', 'customerActivity.createMany'], runs[0].calls.join(' → '));
   assert.equal(runs[0].calls.filter(c => c === 'glSettings.findUnique').length, 1);
   assert.ok(runs[0].calls.indexOf('glSettings.findUnique') < runs[0].calls.indexOf('$transaction'));
   assert.equal(runs[0].body.data.cancelRefundFrom, undefined, 'لا حقل مكتوب');

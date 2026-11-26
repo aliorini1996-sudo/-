@@ -207,8 +207,9 @@ test('التعديل: جوالٌ محفوظ أطول من السقف يعود م
   assert.equal(same.status, 200, JSON.stringify(same.body));
   assert.equal(w.written[0].name, 'اسم جديد');
   assert.equal(w.written[0].phone, undefined, 'الجوال المحفوظ لا يُعاد كتابته');
-  // سؤال الوجود يحمل الجوال المحفوظ للمقارنة
-  assert.deepEqual(w.customerQueries[0].select, { id: true, phone: true });
+  // سؤال الوجود يحمل الجوال المحفوظ للمقارنة (ومعه صورة العميل قبل التعديل لحدث «أرشيف العميل» — CUSTOMER_ACTIVITY_SELECT)
+  assert.equal(w.customerQueries[0].select.id, true);
+  assert.equal(w.customerQueries[0].select.phone, true);
 
   // بلا قيود (٩ نوفمبر ٢٠٢٦): الجديد الأطول يُقبل أيضاً (يُترك المحفوظ بلا كتابة كما في حارس السقف القديم)، ولا رفض
   const changed = await call('PUT', '/api/customers/c1', { name: 'اسم جديد', phone: `${stored}9` });

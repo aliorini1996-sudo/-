@@ -14,6 +14,8 @@ import { QTY_EPS, primaryPriceOf, primaryUnitOf, type UnitDef } from '../service
 import { companyZoneOf } from '../services/invoiceExpiry';
 import { roundHalfUp } from '../lib/money';
 import { paginationMeta } from '../utils/helpers';
+// «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): تفريغ نوع السعر عن عميلٍ بحذف القائمة حدثٌ في سجلّه
+import { activityMeta, hasActivityTable, recordActivityInTx } from '../services/customerActivityEvents';
 
 /**
  * «قوائم الأسعار» (طلب المالك، ١ نوفمبر ٢٠٢٦؛ «أنواع الأسعار» حتى ٥ نوفمبر) — /api/price-lists: أسعارٌ مسمّاة تحدّدها الشركة
@@ -590,6 +592,20 @@ router.delete('/:id', ...manage, async (req: AuthRequest, res: Response, next: N
         return { status: 409, code: 'PRICE_LIST_IN_USE' as const, customersCount, repsCount, message };
       }
       const unstamp = { priceListId: null, updatedAt: new Date() };
+      // «أرشيف العميل»: العملاء الذين يُفرَّغ عنهم نوع السعر هنا (المؤرشفون قبل الحذف الحقيقي — الأحياء يمنعون الحذف أعلاه) — حدثٌ
+      // لكل عميل باسم القائمة، قبل التفريغ وفي المعاملة نفسها
+      if (hasActivityTable(tx)) {
+        const affected = await tx.customer.findMany({ where: { tenantId: tid, priceListId: id }, select: { id: true } });
+        if (affected.length) {
+          const list = await tx.priceList.findFirst({ where: { id, tenantId: tid }, select: { name: true } });
+          const meta = activityMeta(req);
+          await recordActivityInTx(tx, affected.map((c) => ({
+            tenantId: tid, customerId: c.id, action: 'CUSTOMER_PRICE_LIST_CHANGED' as const, actor: meta.actor, source: meta.source,
+            refType: 'CUSTOMER' as const, refId: c.id,
+            data: { from: id, ...(list?.name && { fromName: list.name }), to: null, reason: 'PRICE_LIST_DELETED' },
+          })));
+        }
+      }
       await tx.invoice.updateMany({ where: { tenantId: tid, priceListId: id }, data: unstamp });
       await tx.customer.updateMany({ where: { tenantId: tid, priceListId: id }, data: unstamp });
       await tx.priceList.deleteMany({ where: { id, tenantId: tid } }); // أسعارها وقواعدها معها (Cascade)

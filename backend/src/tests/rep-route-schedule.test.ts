@@ -246,6 +246,8 @@ const db: Row = {
   },
   repRouteStop: {
     async create(a: Row) { const row = { id: `NS-${++n}`, ...a.data }; st.stops.push(row); return row; },
+    // «أرشيف العميل»: محطّات الخطّ قبل حذفه (يقارن بها الحفظ من دخل ومن خرج)
+    async findMany(a: Row) { return st.stops.filter((x) => match(x, a.where)).map((x) => ({ ...x })); },
     async deleteMany(a: Row) {
       const before = st.stops.length;
       st.stops = st.stops.filter((x) => !match(x, a.where));

@@ -18,8 +18,21 @@
  */
 import { Prisma, PrismaClient, Customer } from '@prisma/client';
 import prisma from '../config/database';
+import { customerCreatedInput, recordActivityInTx, type ActivityMeta } from './customerActivityEvents';
 
 type Tx = Prisma.TransactionClient;
+
+/**
+ * «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): هذا الملف وحده يُنشئ العملاء، فحدث إضافتهم يُكتب هنا في معاملة
+ * الإنشاء نفسها — مرّةً واحدة أيّاً كان المسار. المعامل إلزاميّ في التوقيع: كل مستدعٍ يقرّر صراحةً — الفاعل والمصدر، أو null
+ * حين يكتب الحدث بنفسه في المعاملة ذاتها (الاستيراد: دفعةً واحدة لكل شريحة).
+ */
+export interface CustomerCreationLog extends ActivityMeta {
+  /** CUSTOMER_CREATED (الافتراضي) أو CUSTOMER_IMPORTED */
+  action?: 'CUSTOMER_CREATED' | 'CUSTOMER_IMPORTED';
+  /** تفاصيل إضافية في data (الوثائق المرفقة، المندوب المُسنَد…) */
+  data?: Record<string, unknown> | null;
+}
 
 /** مهلة معاملة الإنشاء المرقَّم: انتظار القفل والترقيم الأوّل للقدامى قد يطول قليلاً بعد النشر */
 export const CUSTOMER_NUMBER_TX: { maxWait: number; timeout: number } = { maxWait: 10_000, timeout: 30_000 };
@@ -123,19 +136,26 @@ function withNumber(tenantId: string, data: CustomerCreateData, n: number | unde
  * مثال: `await prisma.$transaction((tx) => createNumberedCustomer(tx, tid, data), CUSTOMER_NUMBER_TX)`.
  * الآثار الجانبية بالـprisma العام (الإسناد، إبطال التقديرات…) بعد الالتزام لا داخلها.
  */
-export async function createNumberedCustomer(tx: Tx, tenantId: string, data: CustomerCreateData): Promise<Customer> {
+export async function createNumberedCustomer(tx: Tx, tenantId: string, data: CustomerCreateData, log: CustomerCreationLog | null): Promise<Customer> {
   assertTenant(tenantId);
   const [n] = await reserveCustomerNumbers(tx, tenantId, 1);
-  return tx.customer.create({ data: withNumber(tenantId, data, n) });
+  const created = await tx.customer.create({ data: withNumber(tenantId, data, n) });
+  // «أرشيف العميل»: حدث الإضافة في المعاملة نفسها — يلتزم مع العميل أو يُلغى معه
+  if (log) await recordActivityInTx(tx, customerCreatedInput(tenantId, created as unknown as Record<string, unknown> & { id: string }, log, { action: log.action, data: log.data }));
+  return created;
 }
 
 /** إنشاء دفعة عملاء (الاستيراد): حجزٌ واحد لكتلة متتالية ثم إدراجٌ متسلسل بترتيب المُدخَل — يُعيد الصفوف المُنشأة بترتيبها */
-export async function createNumberedCustomers(tx: Tx, tenantId: string, rows: CustomerCreateData[]): Promise<Customer[]> {
+export async function createNumberedCustomers(tx: Tx, tenantId: string, rows: CustomerCreateData[], log: CustomerCreationLog | null): Promise<Customer[]> {
   assertTenant(tenantId);
   if (!rows.length) return [];
   const nums = await reserveCustomerNumbers(tx, tenantId, rows.length);
   const out: Customer[] = [];
   for (let i = 0; i < rows.length; i++) out.push(await tx.customer.create({ data: withNumber(tenantId, rows[i], nums[i]) }));
+  // «أرشيف العميل»: حدثٌ لكل عميل في إدراجٍ واحد (createMany) داخل المعاملة نفسها
+  if (log) {
+    await recordActivityInTx(tx, out.map((c) => customerCreatedInput(tenantId, c as unknown as Record<string, unknown> & { id: string }, log, { action: log.action ?? 'CUSTOMER_IMPORTED', data: log.data })));
+  }
   return out;
 }
 

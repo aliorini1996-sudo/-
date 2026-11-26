@@ -26,6 +26,8 @@ import { promoteLegacyPendingAffiliates } from './services/affiliate/core';
 
 import authRouter from './routes/auth';
 import customersRouter from './routes/customers';
+import customerActivityRouter from './routes/customerActivity';
+import { ensureCustomerActivityGuard } from './services/customerActivityGuard';
 import productsRouter from './routes/products';
 import priceListsRouter from './routes/priceLists';
 import salesRepsRouter from './routes/salesReps';
@@ -228,6 +230,9 @@ app.use('/api', requireRepLiveLocation);
 // «سطر رفض مفتاح الربط» (١٦ نوفمبر ٢٠٢٦): كل 4xx لمفتاح API على مخزون السيارة والمستودع والأصناف سطرٌ واحد بلا جسم (services/apiRejectLog.ts)
 app.use(['/api/van-stock', '/api/warehouse', '/api/products'], apiRejectLog());
 app.use('/api/auth', authRouter);
+// «سجلّ العميل» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): GET /:id/activity وحده — قبل موجّه العملاء، والمصادقة والصلاحية على المسار نفسه
+// (لا router.use) فلا يُصادَق طلبٌ لغيره مرّتين (routes/customerActivity.ts)
+app.use('/api/customers', customerActivityRouter);
 app.use('/api/customers', customersRouter);
 app.use('/api/products', productsRouter);
 app.use('/api/price-lists', priceListsRouter); // «أنواع الأسعار» — أسعارٌ مسمّاة للشركة ونوع سعر كل عميل (routes/priceLists.ts)
@@ -432,6 +437,8 @@ async function seedDefaults() {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
   console.log(`🚀 DSD API running on port ${PORT}`);
+  // «سجلّ العميل» الثابت: مُطلِق القاعدة يرفض تعديل أسطره وحذفها — بلا انتظار، ولا يرمي أبداً (preDeploy يثبّته قبل الخدمة أيضاً)
+  void ensureCustomerActivityGuard(prisma);
   await seedDefaults();
   startOpsScheduler();
   startPetroappScheduler();

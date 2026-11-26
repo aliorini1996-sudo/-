@@ -10,6 +10,8 @@ import {
   CUSTOMER_DOC_MAX_PER_CUSTOMER, CUSTOMER_DOC_MAX_PER_REQUEST, CustomerDocInput, docCreateRows, droppedDocsWarning, isServableImage,
   parseCustomerDocs,
 } from '../services/customerDocs';
+// «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): رفع الوثيقة وحذفها حدثان في سجلّ العميل — في معاملة الكتابة نفسها
+import { activityMeta, recordActivityInTx } from '../services/customerActivityEvents';
 
 /**
  * «أرشيف العميل» (كان «استديو العميل» — طلب المالك ١٣ نوفمبر ٢٠٢٦، وصار أرشيفاً بسجلٍّ زمني ٢١ نوفمبر): كل صورةٍ رُفعت للعميل في مكانٍ واحد — وثائقه (السجل والهوية والشهادة وصورة المحل…)،
@@ -61,7 +63,8 @@ const DOC_META = { id: true, kind: true, sizeBytes: true, uploadedByKind: true, 
 
 /**
  * إدراج وثائق تحت قفل صفّ العميل وسقفه (CUSTOMER_DOC_MAX_PER_CUSTOMER): رفعان متزامنان لا يتجاوزانه معاً. strict = رفضٌ كامل
- * حين لا تتّسع (الاستديو: المستخدم أمام الشاشة)، وإلا يُدرج ما يتّسع ويُعدّ الباقي مُسقطاً (صفّ المندوب: لا يُعدَم عمله)
+ * حين لا تتّسع (الاستديو: المستخدم أمام الشاشة)، وإلا يُدرج ما يتّسع ويُعدّ الباقي مُسقطاً (صفّ المندوب: لا يُعدَم عمله).
+ * «أرشيف العميل»: كل وثيقةٍ أُدرجت حدث DOCUMENT_ADDED بمعرّفها وفاعل الطلب في المعاملة نفسها
  */
 async function insertDocsCapped(tid: string, customerId: string, docs: CustomerDocInput[], req: AuthRequest,
   opts: { strict: boolean; clientRef?: string | null }) {
@@ -74,6 +77,11 @@ async function insertDocsCapped(tid: string, customerId: string, docs: CustomerD
     for (const r of docCreateRows(tid, docs.slice(0, room), req, opts.clientRef)) {
       out.push(await tx.customerDocument.create({ data: { ...r, customerId }, select: DOC_META }));
     }
+    const meta = activityMeta(req);
+    await recordActivityInTx(tx, out.filter((d) => d?.id).map((d) => ({
+      tenantId: tid, customerId, action: 'DOCUMENT_ADDED' as const, actor: meta.actor, source: meta.source, refType: 'DOCUMENT' as const, refId: d.id,
+      data: { kind: d.kind, sizeBytes: d.sizeBytes, ...(opts.clientRef && { offline: true }) },
+    })));
     return { over: null, created: out, skipped: docs.length - out.length };
   });
 }
@@ -205,7 +213,22 @@ customerStudioRouter.delete('/:id/documents/:docId', requireAdmin, async (req: A
     const tid = tenantId(req);
     const customer = await studioCustomer(req, tid);
     if (!customer) { notFound(res); return; }
-    const { count } = await prisma.customerDocument.deleteMany({ where: { id: String(req.params.docId), tenantId: tid, customerId: customer.id } });
+    // «أرشيف العميل»: الحذف وحدثه في معاملةٍ واحدة — ما حُذف (نوعه وحجمه ورافعه ولحظة رفعه) يبقى في السجلّ بعد الصورة
+    const meta = activityMeta(req);
+    const count = await prisma.$transaction(async (tx) => {
+      const doc = await tx.customerDocument.findFirst({
+        where: { id: String(req.params.docId), tenantId: tid, customerId: customer.id },
+        select: { id: true, kind: true, sizeBytes: true, uploadedByName: true, createdAt: true },
+      });
+      const { count: removed } = await tx.customerDocument.deleteMany({ where: { id: String(req.params.docId), tenantId: tid, customerId: customer.id } });
+      if (removed > 0 && doc) {
+        await recordActivityInTx(tx, {
+          tenantId: tid, customerId: customer.id, action: 'DOCUMENT_REMOVED', actor: meta.actor, source: meta.source, refType: 'DOCUMENT', refId: doc.id,
+          data: { kind: doc.kind, sizeBytes: doc.sizeBytes, ...(doc.uploadedByName && { uploadedByName: doc.uploadedByName }), uploadedAt: doc.createdAt },
+        });
+      }
+      return removed;
+    });
     if (count === 0) { res.status(404).json({ success: false, message: 'الوثيقة غير موجودة' }); return; }
     res.json({ success: true });
   } catch (err) { next(err); }

@@ -15,6 +15,7 @@ const stub = (rel: string, exports: Record<string, unknown>): void => {
 type Visit = { id: string; tenantId: string; salesRepId: string; customerId: string; lat: number | null; lng: number | null; clientRef?: string; _count: { photos: number } };
 let visits: Visit[] = [];
 let repReads: { id?: unknown; tenantId?: unknown }[] = [];
+let activity: Record<string, any>[] = [];
 // آخر نقطةٍ للمندوب على الخريطة — null = غائب (الافتراض في الاختبارات القديمة)
 let livePoint: { lat: number; lng: number; accuracy: number; capturedAt: Date; createdAt: Date } | null = null;
 // المندوبون: rep1 مقيَّد في t1، rep2 غير مقيَّد
@@ -50,6 +51,10 @@ const prisma = {
       return a.where.id ? { id: a.where.id } : null;
     },
   },
+  // «أرشيف العميل»: سجلّ العميل إلحاقيّ — إدراجٌ وحده (activity أدناه)
+  customerActivity: { async createMany(a: { data: Record<string, unknown>[] }) { activity.push(...a.data); return { count: a.data.length }; } },
+  // الزيارة وحدثها في معاملةٍ واحدة (routes/visits.ts) — المقبض نفسه بلا تراجع (يختبره customer-activity-tx.test.ts)
+  async $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> { return fn(prisma); },
 };
 stub('config/database', { default: prisma });
 stub('middleware/auth', {
@@ -84,7 +89,7 @@ async function post(body: Record<string, unknown>, opts: { user?: Record<string,
   return res;
 }
 const REF = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const reset = () => { visits = []; repReads = []; };
+const reset = () => { visits = []; repReads = []; activity = []; };
 
 test('المقيَّد بلا موقع ⇒ 409 LOCATION_REQUIRED ولا كتابة — غياباً وnull ونصف زوجٍ و(0،0)', async () => {
   reset();
@@ -210,4 +215,26 @@ test('حارس ثابت: الحارس بعد تحديد المندوب ونطا�
   const resolve = h.indexOf('body.customerClientRef) {');
   const write = h.indexOf('prisma.repVisit.create(');
   assert.ok(scope > 0 && guard > scope && resolve > guard && write > resolve);
+});
+
+test('«أرشيف العميل»: الزيارة المحفوظة حدث VISIT_RECORDED بعميلها ومرجعها ومدّتها وملاحظتها — والمرفوضة والمكرّرة بلا حدث', async () => {
+  reset();
+  const body = {
+    customerId: 'c1', note: 'الرفّ ممتلئ', lat: 24.7136, lng: 46.6753, clientRef: REF(9),
+    startedAt: new Date(Date.now() - 10 * 60000).toISOString(), endedAt: new Date(Date.now() - 5 * 60000).toISOString(),
+  };
+  const res = await post(body, { user: { role: 'SALES_REP', id: 'rep2', tenantId: 't1', name: 'سعد' } });
+  assert.equal(res.statusCode, 201, JSON.stringify(res.body));
+  assert.equal(activity.length, 1);
+  const a = activity[0];
+  assert.deepEqual([a.tenantId, a.customerId, a.action, a.refType, a.refId], ['t1', 'c1', 'VISIT_RECORDED', 'VISIT', visits[0].id]);
+  assert.deepEqual([a.actorKind, a.actorId, a.actorName, a.source], ['REP', 'rep2', 'سعد', 'rep']);
+  assert.equal(a.data.note, 'الرفّ ممتلئ');
+  assert.equal(a.data.durationSec, 300);
+  assert.equal(a.data.hasLocation, true);
+  assert.equal(a.data.salesRepId, 'rep2');
+  // إعادة الطلب نفسه (idempotent) لا حدث ثانٍ، والمرفوضة بلا موقع لا حدث لها
+  await post(body, { user: { role: 'SALES_REP', id: 'rep2', tenantId: 't1', name: 'سعد' } });
+  await post({ customerId: 'c1' });
+  assert.equal(activity.length, 1);
 });

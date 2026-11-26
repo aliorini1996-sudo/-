@@ -414,6 +414,8 @@ const db: Row = {
     if (sql.includes('FROM price_list_rules')) return st.listRules;
     return st.candidates;
   },
+  // الطلب وإغلاقه مع حدثهما في «أرشيف العميل» معاملةٌ واحدة — المقبض نفسه بلا تراجع (التراجع يختبره customer-activity-tx.test.ts)
+  async $transaction(fn: (tx: Row) => Promise<unknown>) { return fn(db); },
 };
 stub('config/database', { default: db });
 stub('services/webPush', {
@@ -846,4 +848,67 @@ test('مصدر الإرسال العلني: المصيدة قبل الفحص و�
   assert.match(h, /sendPushToRep\([^;]*\)\.catch\(/);
   assert.doesNotMatch(h, /req\.body\.(items|unitPrice|price|taxPct)/);
   assert.match(h, /items: \{ create: priced\.lines \}/);
+});
+
+// ─── «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦) ───
+
+/** سجلّ العميل في المزيّف (إلحاقيّ: إدراجٌ وحده) — يُركَّب للاختبار ثم يُنزع فتبقى بقيّة الاختبارات بلا جدول السجل */
+function withActivity(): { rows: Row[]; done: () => void } {
+  const rows: Row[] = [];
+  db.customerActivity = { async createMany(a: Row) { rows.push(...a.data); return { count: a.data.length }; } };
+  return { rows, done: () => { delete db.customerActivity; } };
+}
+
+test('«أرشيف العميل»: طلب المنيو حدث CATALOG_ORDER_PLACED في سجلّ العميل المطابق بجواله بفاعلٍ «العميل» — وبلا عميلٍ مطابق لا حدث', async () => {
+  const log = withActivity();
+  try {
+    reset({ candidates: [{ id: 'C-1', name: 'بقالة', phone: '0501234567', createdAt: new Date('2026-06-01') }] });
+    const r = await submit(validBody());
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.deepEqual(r.body, { success: true, data: { id: 'O-NEW', repName: 'خالد' } }, 'الردّ لا يكشف أن الجوال لعميلٍ مسجّل');
+    assert.equal(log.rows.length, 1);
+    const a = log.rows[0];
+    assert.deepEqual(
+      [a.tenantId, a.customerId, a.action, a.refType, a.refId, a.actorKind, a.actorName, a.source],
+      [T, 'C-1', 'CATALOG_ORDER_PLACED', 'CATALOG_ORDER', 'O-NEW', 'CUSTOMER', 'أبو محمد', 'public'],
+    );
+    assert.ok(Math.abs(Number(a.amount) - 54.63) < 0.001, `المبلغ التقديري كما رآه العميل: ${a.amount}`);
+    assert.equal(a.data.itemsCount, 2);
+    assert.equal(a.data.repName, 'خالد');
+    const q = calls('$queryRaw').find((c) => c.args.sql.includes('FROM customers'));
+    assert.ok(q && q.args.values.includes(T) && q.args.values.includes('01234567'), 'المطابقة بشركة الرابط وذيل الجوال');
+
+    log.rows.length = 0;
+    reset({ candidates: [] });
+    assert.equal((await submit(validBody())).status, 201);
+    assert.equal(log.rows.length, 0, 'لا عميل يُنسب إليه الطلب');
+  } finally { log.done(); }
+});
+
+test('«أرشيف العميل»: إغلاق الطلب حدث CATALOG_ORDER_UPDATED بفاعل المندوب — عميل الفاتورة المربوطة، وإلا المطابق بجواله؛ والمغلق سابقاً بلا حدث', async () => {
+  const log = withActivity();
+  const before = { status: 'SEEN', phoneKey: '966501234567', customerName: 'أبو محمد' };
+  try {
+    reset({ invoice: { id: 'INV-1', customerId: 'C-INV', number: 'INV-0001' }, found: before });
+    let r = await call(repRouter, 'post', '/:id/status', asRep({ params: { id: ORDER }, body: { status: 'DONE', invoiceId: 'INV-1' } }));
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(log.rows.length, 1);
+    const a = log.rows[0];
+    assert.deepEqual(
+      [a.customerId, a.action, a.refType, a.refId, a.actorKind, a.actorId, a.actorName, a.data.oldStatus, a.data.newStatus, a.data.invoiceNo],
+      ['C-INV', 'CATALOG_ORDER_UPDATED', 'CATALOG_ORDER', ORDER, 'REP', R, 'خالد', 'SEEN', 'DONE', 'INV-0001'],
+    );
+
+    log.rows.length = 0;
+    reset({ found: before, candidates: [{ id: 'C-1', name: 'بقالة', phone: '0501234567', createdAt: new Date('2026-06-01') }] });
+    r = await call(repRouter, 'post', '/:id/status', asRep({ params: { id: ORDER }, body: { status: 'CANCELLED' } }));
+    assert.equal(r.status, 200);
+    assert.deepEqual([log.rows[0]?.customerId, log.rows[0]?.data.newStatus], ['C-1', 'CANCELLED']);
+
+    log.rows.length = 0;
+    reset({ updateCount: 0, found: { ...before, status: 'CANCELLED' } });
+    r = await call(repRouter, 'post', '/:id/status', asRep({ params: { id: ORDER }, body: { status: 'DONE' } }));
+    assert.equal(r.status, 409);
+    assert.equal(log.rows.length, 0, 'إغلاقٌ لم يقع لا حدث له');
+  } finally { log.done(); }
 });

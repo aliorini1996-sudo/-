@@ -26,6 +26,8 @@ import { prismaZatcaDocumentStore, type DocumentStoreTx } from '../compliance/za
 import { CASH_VOID_KEEP_COLLECTION_NOTE } from '../lib/ledgerNotes';
 import { clean, currentBalance, lockCustomerRow, reverseInvoiceEntries, reverseCashInvoiceEntries, reverseReturnEntries } from './accounting';
 import { publishInvoicesChanged } from './liveEvents';
+// «أرشيف العميل — السجل الزمني»: الإبطال حدثٌ في سجلّ العميل داخل معاملة الإبطال نفسها (رفض الهيئة بفاعل النظام، والسحب بفاعله)
+import { SYSTEM_META, invoiceEventInput, recordDocActivity, type DocActivityMeta } from './customerActivityDocs';
 
 /** مقبض المعاملة الذي يحتاجه الإبطال (Prisma.TransactionClient الحقيقي يحقّقه كلّه). */
 export type VoidTx = Pick<Prisma.TransactionClient, '$queryRaw' | '$executeRaw' | 'invoice' | 'notification' | 'customer' | 'accountEntry'>;
@@ -150,6 +152,8 @@ export interface VoidInvoiceInput {
   mirror?: string;
   /** حارسٌ داخل المعاملة بعد قفل صفّ الفاتورة وقبل الكتابة (D10: رصيد السيارة) — رميُه يُجهض الإبطال كلّه. */
   guardInTx?: (tx: VoidTx) => Promise<void>;
+  /** «أرشيف العميل»: فاعل الإبطال — السحب الإداريّ بفاعل طلبه، وغيابه (رفض الهيئة من المسح والإرسال) = النظام */
+  activity?: DocActivityMeta | null;
 }
 
 export interface VoidOutcome {
@@ -204,6 +208,16 @@ export async function voidInvoiceInTx(tx: VoidTx, input: VoidInvoiceInput): Prom
       }),
     },
   });
+  // «أرشيف العميل»: إبطال المستند (رفض الهيئة أو السحب) بسببه — في معاملة الإبطال نفسها
+  await recordDocActivity(tx, invoiceEventInput({
+    tenantId: input.tenantId, action: 'INVOICE_VOIDED', meta: input.activity ?? SYSTEM_META, invoice: inv,
+    data: {
+      reason: input.reason,
+      ...(input.reason !== 'WITHDRAWN' && (input.errors ?? []).length > 0 && {
+        errors: (input.errors ?? []).slice(0, 3).map(e => ({ code: e.code, message: e.message ? String(e.message).slice(0, 200) : null })),
+      }),
+    },
+  }));
   return { voided: true, refusal: null, number: inv.number, reversal: decision.reversal };
 }
 
@@ -240,6 +254,8 @@ export async function withdrawPhase2Invoice(input: {
   tenantId: string; invoiceId: string; now?: Date;
   /** حارس المسار داخل معاملة السحب (بعد قرار الأهلية وقفل الفاتورة) — D10 */
   guardInTx?: (tx: VoidTx) => Promise<void>;
+  /** «أرشيف العميل»: فاعل السحب (المسار) — يُسجَّل الإبطال باسمه في معاملة السحب */
+  activity?: DocActivityMeta | null;
 }): Promise<WithdrawResult> {
   const now = input.now ?? new Date();
   const documents = prismaZatcaDocumentStore(prisma);
@@ -276,7 +292,7 @@ export async function withdrawPhase2Invoice(input: {
     if (!moved) return null;
     return voidInvoiceInTx(tx as unknown as VoidTx, {
       tenantId: input.tenantId, invoiceId: input.invoiceId, subtype: '01', reason: 'WITHDRAWN',
-      documentId, at: now, mirror: 'withdrawn', guardInTx: input.guardInTx,
+      documentId, at: now, mirror: 'withdrawn', guardInTx: input.guardInTx, activity: input.activity ?? null,
     });
   });
 

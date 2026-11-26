@@ -42,6 +42,9 @@ import {
 import { assertRoutingCustodyCashOnly, routingGuardApplies, wizardLinksBooks } from './paymentMethodMap';
 // «ربط الدفاتر» L7/L9: نوع الخطّافات وحده (يُمحى عند الترجمة) — وحدات الربط لا تُستورد قيمياً هنا (حارس «مظلمة»)
 import type { LinkingCommitHooks, LinkingPlan, RestatedOpening } from '../../services/gl/linking/activate';
+import { fromMilli } from '../../services/gl/money';
+// «أرشيف العميل — السجل الزمني»: الرصيد الافتتاحي لكل عميل حدثٌ في سجلّه داخل معاملة الاعتماد
+import { docActivityMeta, recordDocActivity } from '../../services/customerActivityDocs';
 
 /**
  * معالج الإعداد والقيد الافتتاحي والترحيل التاريخي — `/api/ledger/setup*` (M3، §5.6، §8.4 القسم 2، ملحق أ).
@@ -689,6 +692,8 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(setupCommitImpl = async (r
     throw parsed.error;
   }
   const actor = actorOf(req, res);
+  // «أرشيف العميل»: فاعل الاعتماد لأحداث الأرصدة الافتتاحية للعملاء
+  const setupActivity = docActivityMeta(req);
 
   const out = await prisma.$transaction(async (tx) => {
     // (1) قفل الترحيل أولاً (§5.6 الخطوة 6)
@@ -929,6 +934,25 @@ router.post('/setup/commit', CONFIGURE, ledgerHandler(setupCommitImpl = async (r
         now: dbNow,
       })
       : null;
+
+    // «أرشيف العميل — السجل الزمني»: رصيد العميل الافتتاحي (سطر ذمة يدوي باسمه) حدثٌ في سجلّه — بقيد الافتتاح المرحَّل وحده،
+    // وفي معاملة الاعتماد نفسها (تراجعها يُسقطه)
+    if (posted) {
+      await recordDocActivity(tx, manual.lines.filter((l) => !!l.customerId).map((l) => ({
+        tenantId, customerId: l.customerId as string, action: 'OPENING_BALANCE_SET' as const, actor: setupActivity.actor,
+        refId: `${posted.id}:${l.index}`, refNo: posted.number ?? null,
+        amount: fromMilli(l.debitMilli) - fromMilli(l.creditMilli),
+        data: {
+          openingDate: cut.openingDate, accountCode: l.account.code,
+          ...(l.debitMilli > 0n && { debit: fromMilli(l.debitMilli) }),
+          ...(l.creditMilli > 0n && { credit: fromMilli(l.creditMilli) }),
+          ...(l.dueDate && { dueDate: l.dueDate }),
+          ...(l.label && { note: l.label }),
+          ...(l.salesRepName && { salesRepName: l.salesRepName }),
+        },
+        source: setupActivity.source ?? null,
+      })));
+    }
 
     // (7) openingSnapshotAt = T0 (لا now()) وactivatedAt، ثم المؤشرات، ثم RUNNING
     const settings = await tx.glSettings.update({

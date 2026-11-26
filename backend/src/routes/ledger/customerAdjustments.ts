@@ -28,6 +28,8 @@ import {
   type CustomerAdjustmentKind, type CustomerAdjustmentPayload, type RefundMethod,
 } from '../../services/gl/builders/customerAdjustment';
 import { LedgerError, isNoMove, type LocalDate, type Milli } from '../../services/gl/types';
+// «أرشيف العميل — السجل الزمني»: إنشاء التسوية وإلغاؤها حدثان في سجلّ العميل داخل معاملتيهما
+import { SYSTEM_META, balanceEffect, docActivityMeta, num, recordDocActivity, type DocActivityMeta } from '../../services/customerActivityDocs';
 
 /**
  * «ربط الدفاتر» L4 — M4: تسويات ذمم العملاء (العقد §4.8، B17، E4.13–E4.15؛ الواجهة: الدفاتر ← العملاء ← «تسويات ذمم العملاء»).
@@ -391,10 +393,30 @@ const REFUND_DESCRIPTION = 'ردّ رصيد دائن للعميل';
 const CANCEL_PREFIX = 'إلغاء';
 
 /**
+ * «أرشيف العميل»: فاعل حدث التسوية — من الطلب حين يمرّره المسار، وإلا من فاعل الدفاتر (المستخدم، أو المالك في جلسة الدخول،
+ * أو النظام)
+ */
+export function adjustmentActivityMeta(actor: GlActor, activity?: DocActivityMeta | null): DocActivityMeta {
+  if (activity) return activity;
+  if (actor.actorType === 'SYSTEM' || !actor.actorId) return SYSTEM_META;
+  return { actor: { kind: actor.impersonated ? 'OWNER' : 'ADMIN', id: actor.actorId, name: actor.impersonated ? null : (actor.actorName ?? null) }, source: 'web' };
+}
+
+/**
+ * «أرشيف العميل»: أثر التسوية على رصيد العميل بعُرف السجلّ (مدين − دائن، services/customerActivityDocs.ts balanceEffect) — صفّها في
+ * كشف الحساب: الشطب دائنٌ ⇒ سالب، وردّ الرصيد الدائن مدينٌ ⇒ موجب
+ */
+export function adjustmentBalanceEffect(kind: string, amount: number): number {
+  return kind === 'BAD_DEBT_WRITEOFF' ? balanceEffect(0, amount) : balanceEffect(amount, 0);
+}
+
+/**
  * إنشاء التسوية كاملةً داخل معاملة tx (العقد §4.8 الخطوات 1–9). أي خطأ يُسقط المعاملة كلها.
  */
 export async function executeCreateAdjustment(
-  tx: AdjustmentTx, req: { tenantId: string; actor: GlActor; body: CreateAdjustmentBody }, deps: AdjustmentDeps = DEFAULT_ADJUSTMENT_DEPS,
+  tx: AdjustmentTx,
+  req: { tenantId: string; actor: GlActor; body: CreateAdjustmentBody; /** «أرشيف العميل»: فاعل الطلب */ activity?: DocActivityMeta | null },
+  deps: AdjustmentDeps = DEFAULT_ADJUSTMENT_DEPS,
 ): Promise<CustomerAdjustmentView> {
   const { tenantId, actor, body } = req;
   // (1) قفل الترحيل أولاً: المتبقّي والرصيد يُقرآن تحته، والمُرحِّل لا يتداخل مع المستند
@@ -535,6 +557,23 @@ export async function executeCreateAdjustment(
     allocations: allocations.map((a) => ({ invoiceId: a.invoiceId, invoiceNumber: invoiceNumber.get(a.invoiceId) ?? null, amount: fromMilli(a.amountMilli) })),
     createdBy: actor.actorId, createdAt: created.createdAt, cancelledAt: null, cancelReason: null,
   };
+  // «أرشيف العميل»: التسوية (شطب ذمة أو ردّ رصيد دائن) بفاعلها وتخصيصها — تلتزم مع المستند أو تُلغى معه. المبلغ أثرها الموقَّع على
+  // رصيد العميل (عُرف services/customerActivityDocs.ts: مدين − دائن — صفّ AccountEntry أعلاه نفسه): الشطب سالب، والردّ موجب
+  const activityMeta = adjustmentActivityMeta(actor, req.activity);
+  await recordDocActivity(tx, {
+    tenantId, customerId: customer.id, action: 'ADJUSTMENT_CREATED', actor: activityMeta.actor,
+    refType: 'ADJUSTMENT', refId: entry.id, refNo: posted.number ?? null, amount: adjustmentBalanceEffect(kind, amount),
+    data: {
+      kind, docDate,
+      ...(method && { method }),
+      ...(view.reference && { reference: view.reference }),
+      ...(view.note && { note: view.note }),
+      ...(view.allocations.length > 0 && {
+        allocations: view.allocations.map((a) => ({ invoiceId: a.invoiceId, invoiceNo: a.invoiceNumber, amount: num(a.amount) })),
+      }),
+    },
+    source: activityMeta.source ?? null,
+  });
   await deps.appendAudit(tx, {
     tenantId, actor, action: 'CUSTOMER_ADJUSTMENT', entityType: 'CUSTOMER_ADJUSTMENT', entityId: entry.id,
     summary: `${isWriteoff ? WRITEOFF_DESCRIPTIONS[counter] : REFUND_DESCRIPTION} للعميل ${customer.name} بالقيد ${posted.number}`,
@@ -567,7 +606,9 @@ const json = (v: unknown): Prisma.InputJsonValue => v as Prisma.InputJsonValue;
  * إلغاء التسوية داخل معاملة tx (العقد §4.8: الصفّ العاكس، ردّ المتبقّي، عكس القيد، SKIPPED(NETTED)، فكّ المطابقة، CANCELLED).
  */
 export async function executeCancelAdjustment(
-  tx: AdjustmentTx, req: { tenantId: string; actor: GlActor; id: string; body: CancelAdjustmentBody }, deps: AdjustmentDeps = DEFAULT_ADJUSTMENT_DEPS,
+  tx: AdjustmentTx,
+  req: { tenantId: string; actor: GlActor; id: string; body: CancelAdjustmentBody; /** «أرشيف العميل»: فاعل الطلب */ activity?: DocActivityMeta | null },
+  deps: AdjustmentDeps = DEFAULT_ADJUSTMENT_DEPS,
 ): Promise<CustomerAdjustmentView> {
   const { tenantId, actor, id } = req;
   const reason = req.body.reason.trim();
@@ -671,6 +712,18 @@ export async function executeCancelAdjustment(
 
   const moveNumbers = await tx.glMove.findMany({ where: { tenantId, id: { in: [adj.moveId, reversalId] } }, select: { id: true, number: true } });
   const numberOf = new Map(moveNumbers.map((m) => [m.id, m.number]));
+  // «أرشيف العميل»: إلغاء التسوية بفاعله وسببه — في معاملة الإلغاء نفسها. المبلغ أثر الإلغاء على الرصيد (الصفّ العاكس أعلاه) =
+  // سالب أثر التسوية الأصلي: إلغاء الشطب موجب، وإلغاء الردّ سالب
+  const activityMeta = adjustmentActivityMeta(actor, req.activity);
+  await recordDocActivity(tx, {
+    tenantId, customerId: customer.id, action: 'ADJUSTMENT_UPDATED', actor: activityMeta.actor,
+    refType: 'ADJUSTMENT', refId: id, refNo: numberOf.get(adj.moveId) ?? null, amount: -adjustmentBalanceEffect(adj.kind, amount),
+    data: {
+      kind: adj.kind, oldStatus: 'ACTIVE', newStatus: 'CANCELLED', reason,
+      ...(rev.reversal.number ?? numberOf.get(reversalId) ? { reverseMoveNo: rev.reversal.number ?? numberOf.get(reversalId) } : {}),
+    },
+    source: activityMeta.source ?? null,
+  });
   await deps.appendAudit(tx, {
     tenantId, actor, action: 'CUSTOMER_ADJUSTMENT', entityType: 'CUSTOMER_ADJUSTMENT', entityId: id,
     summary: `إلغاء ${isWriteoff ? 'شطب ذمة' : REFUND_DESCRIPTION} للعميل ${customer.name}: ${reason}`,
@@ -824,7 +877,8 @@ router.post('/customer-adjustments', POST, ledgerHandler(async (req, res) => {
   const { tenantId } = locals(res);
   const body = createAdjustmentSchema.parse(req.body ?? {});
   const actor = actorOf(req, res);
-  const data = await prisma.$transaction((tx) => executeCreateAdjustment(tx, { tenantId, actor, body }), POST_TX_OPTIONS);
+  const activity = docActivityMeta(req);
+  const data = await prisma.$transaction((tx) => executeCreateAdjustment(tx, { tenantId, actor, body, activity }), POST_TX_OPTIONS);
   res.status(201).json({ success: true, data });
 }));
 
@@ -832,8 +886,9 @@ router.post('/customer-adjustments/:id/cancel', POST, ledgerHandler(async (req, 
   const { tenantId } = locals(res);
   const body = cancelBodyOf(req.body);
   const actor = actorOf(req, res);
+  const activity = docActivityMeta(req);
   const data = await prisma.$transaction(
-    (tx) => executeCancelAdjustment(tx, { tenantId, actor, id: req.params.id, body }), POST_TX_OPTIONS,
+    (tx) => executeCancelAdjustment(tx, { tenantId, actor, id: req.params.id, body, activity }), POST_TX_OPTIONS,
   );
   res.json({ success: true, data });
 }));

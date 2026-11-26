@@ -247,6 +247,9 @@ model Tenant {
   // «طلب من المنيو» (طلب المالك ٢٤ نوفمبر ٢٠٢٦): طلبات عملاء الشركة من منيو المنتجات العام (علاقة عكسية فقط، بلا أعمدة)
   catalogOrders         CatalogOrder[]
 
+  // «سجلّ العميل» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): كل إجراءٍ على كل عميل، إلحاقيٌّ ثابت (علاقة عكسية فقط، بلا أعمدة)
+  customerActivities    CustomerActivity[]
+
   @@map("tenants")
 }
 
@@ -5561,4 +5564,36 @@ model CatalogOrderItem {
   @@index([orderId])
   @@index([productId])
   @@map("catalog_order_items")
+}
+
+/// «سجلّ العميل» — السجلّ الزمني الثابت لكل إجراءٍ على العميل (طلب المالك ٢٦ نوفمبر ٢٠٢٦: «كل اجراءات العميل سواء زيارة او فاتورة
+/// او سند او اي شئ بلا استثناء… من قبل اي شخص كان… ولا يمكن لاحد تغيير اي شيء فيه نهائيا»).
+/// إلحاقيٌّ فقط: يكتبه recordCustomerActivity (services/customerActivity.ts) داخل معاملة الإجراء نفسه، ولا مسار يعدّله أو يحذفه،
+/// ومُطلِق PostgreSQL يرفض كل UPDATE/DELETE (services/customerActivityGuard.ts) إلا حذف الشركة كلها أو حذف العميل (allowActivityPurge).
+/// customerId بلا علاقة بالعميل عمداً (لا تعاقب): حذف العميل يحذف سجلّه صراحةً في معاملة حذفه (قرار المالك ٢٧ نوفمبر ٢٠٢٦).
+/// جدولٌ جديد ⇒ لا عمود يُضاف إلى جدولٍ قائم (Tenant يحمل علاقة عكسية وحدها) ولا قيد فريد.
+model CustomerActivity {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId String // بلا علاقة: حذف العميل يحذف سجلّه صراحةً في معاملته (قرار المالك ٢٧ نوفمبر ٢٠٢٦)
+  at         DateTime @default(now())
+  action     String // CUSTOMER_ACTIONS في services/customerActivity.ts
+  actorKind  String // ADMIN | REP | OWNER | STAFF | API | CUSTOMER | SYSTEM
+  actorId    String?
+  actorName  String? // لقطة الاسم لحظة الإجراء
+  refType    String? // CUSTOMER | INVOICE | RECEIPT | VISIT | DOCUMENT | PAYLINK | CARD_PAYMENT | ADJUSTMENT | CATALOG_ORDER | CALL | ROUTE | PRICE | ASSIGNMENT
+  refId      String?
+  refNo      String? // رقم المستند (الفاتورة/السند) للعرض
+  amount     Decimal? @db.Decimal(18, 4)
+  data       Json? // التفاصيل (مقصوصة ≤ ٨ ك.ب) — لا أسرار ولا رموز ولا صور
+  source     String? // web | rep | m | api | import | public | system
+  /// لحظة الإدراج بساعة القاعدة — لا تُكتب من مُدخلٍ أبداً (activityRow لا يحملها): `at` لحظة الإجراء وقد تأتي من الجهاز (دون اتصال)
+  /// أو تُؤرَّخ يدوياً، أمّا «بدء سجلّ الشركة» (قاطع الاشتقاق التاريخي في routes/customerActivity.ts) فبهذه وحدها فلا يحرّكه تأريخ
+  recordedAt DateTime @default(now())
+
+  @@index([tenantId, customerId, at])
+  @@index([tenantId, refType, refId])
+  @@index([tenantId, recordedAt])
+  @@map("customer_activities")
 }

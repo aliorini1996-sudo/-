@@ -367,6 +367,8 @@ const PHASE1_POST_CALLS = [
   'accountEntry.create',   // نقدية: مدين ثم دائن
   'accountEntry.create',
   'customer.update',
+  // «أرشيف العميل — السجل الزمني» (٢٦ نوفمبر ٢٠٢٦): حدث الإصدار في سجلّ العميل — آخر ما في المعاملة نفسها
+  'customerActivity.createMany',
 ];
 
 /**
@@ -402,6 +404,25 @@ test('المرحلة الأولى: الردّ 201 بالحرف نفسه، وتس
   assert.equal(data.einvoiceStatus, 'generated');
   assertPhase1Calls(calls);
   assert.equal(phase2DepsCalls, 0, 'المرحلة الأولى لمست اعتماديات المرحلة الثانية');
+});
+
+test('«أرشيف العميل»: إصدار المرحلة الأولى يكتب حدثه في سجلّ العميل داخل المعاملة — فاتورة بيع ومرتجع بفاعل الطلب', async () => {
+  for (const type of ['CASH', 'RETURN'] as const) {
+    reset();
+    scriptBase({ customer: CUSTOMER_ROW(CUSTOMERS.individual as unknown as Record<string, unknown>), startedAt: null });
+    const written: Record<string, unknown>[] = [];
+    scripted['customerActivity.createMany'] = (a) => { written.push(...((a as { data: Record<string, unknown>[] }).data)); return { count: 1 }; };
+    const r = await call('POST', '/api/invoices', {
+      body: invoiceBody({ customerId: 'c-walkin', type, items: [{ productId: 'p-water', qty: 1, unitPrice: 5, discountPct: 0, taxPct: 15 }] }),
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(written.length, 1, `${type}: حدثٌ واحد للإصدار`);
+    const row = written[0];
+    assert.equal(row.action, type === 'RETURN' ? 'RETURN_ISSUED' : 'INVOICE_ISSUED');
+    assert.deepEqual([row.tenantId, row.customerId, row.refType, row.refId, row.actorKind, row.actorId], [Z5_TENANT, 'c-walkin', 'INVOICE', 'legacy-1', 'ADMIN', 'admin-1']);
+    // الحدث قبل التزام المعاملة: آخر نداءٍ فيها، بعد قيد العميل
+    assert.ok(calls.lastIndexOf('customerActivity.createMany') > calls.lastIndexOf('customer.update'));
+  }
 });
 
 test('المرحلة الأولى: ترويسة القدرات لا تغيّر شيئاً، والمرتجع يمرّ كما اليوم', async () => {

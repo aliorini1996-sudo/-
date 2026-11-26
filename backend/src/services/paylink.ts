@@ -10,6 +10,10 @@ import { claimReceiptCancel, restoreAllocations } from './docCancel';
 // ZATCA المرحلة الثانية (Z5.4، F2): فاتورةٌ لم تعتمدها الهيئة لا يُصدر لها رابط دفع، والمتبقّي يُقرأ مقفلاً (نقد 13)
 import { ALLOCATION_BLOCKED_MIRRORS } from '../compliance/zatca/status';
 import { ZATCA_ERROR_CATALOGUE } from '../compliance/zatca/errors';
+// «أرشيف العميل — السجل الزمني»: إصدار الرابط وسداده وإلغاؤه وانتهاؤه واسترداده أحداثٌ في سجلّ العميل داخل معاملة كل تبديل
+import {
+  SYSTEM_META, cardPaymentMeta, customerMeta, paylinkEventInput, receiptEventInput, recordDocActivity, type DocActivityMeta,
+} from './customerActivityDocs';
 
 /**
  * روابط دفع فواتير العملاء — «الدفع الإلكتروني» (ميزة اشتراك يفعّلها المالك).
@@ -57,6 +61,8 @@ export async function issueLink(params: {
   invoiceId: string;
   salesRepId?: string;
   createdById?: string;
+  /** «أرشيف العميل»: فاعل الإصدار من الطلب — وغيابه يُشتقّ من المُصدِر (الإداري، وإلا المندوب) */
+  activity?: DocActivityMeta | null;
 }): Promise<IssueResult> {
   if (!paylinkConfigured()) return { ok: false, message: 'بوابة الدفع غير مهيأة' };
 
@@ -107,8 +113,11 @@ export async function issueLink(params: {
     };
   }
 
+  // «أرشيف العميل»: فاعل الإصدار (ومعه إماتة القديم الذي يحلّ محلّه)
+  const activity = params.activity ?? cardPaymentMeta({ createdById: params.createdById ?? null, salesRepId: params.salesRepId ?? null });
+
   // متبقٍّ تغيّر يميت الروابط القديمة قبل إصدار الجديد — لا رابطين حيّين بمبلغين
-  await expireStaleLinks(params.tenantId, invoice.id, remaining);
+  await expireStaleLinks(params.tenantId, invoice.id, remaining, { activity, reason: 'REPLACED' });
 
   const token = newToken();
   const expiresAt = new Date(Date.now() + LINK_TTL_DAYS * 24 * 3600_000);
@@ -145,21 +154,29 @@ export async function issueLink(params: {
   }
 
   try {
-    const updated = await prisma.customerPaymentLink.update({
-      where: { id: row.id },
-      data: { moyasarInvoiceId: moyasar.id, url: moyasar.url },
-    });
+    // «أرشيف العميل»: ربط الرابط بالمزوّد وحدث إصداره في معاملة واحدة — والحدث للرابط الباقي وحده (لا لتوأم السباق الذي
+    // يُلغى أدناه ولم يصل أحداً)
+    const { updated, rival } = await prisma.$transaction(async tx => {
+      const updated = await tx.customerPaymentLink.update({
+        where: { id: row.id },
+        data: { moyasarInvoiceId: moyasar.id, url: moyasar.url },
+      });
 
-    // سباق الإصدار المزدوج (جهازان في نفس اللحظة): لا قيد فريد يمنع رابطين حيين
-    // بفاتورتي ميسر قابلتين للدفع معا. القاعدة: يبقى الأقدم — فإن وجدنا أقدم منا
-    // حيا بمبلغنا ألغينا أنفسنا وأعدناه، فيتقارب الطرفان على رابط واحد
-    const rival = await prisma.customerPaymentLink.findFirst({
-      where: {
-        tenantId: params.tenantId, invoiceId: invoice.id, status: 'initiated',
-        amount: remaining, url: { not: null }, id: { not: row.id },
-        createdAt: { lt: updated.createdAt },
-      },
-      orderBy: { createdAt: 'asc' },
+      // سباق الإصدار المزدوج (جهازان في نفس اللحظة): لا قيد فريد يمنع رابطين حيين
+      // بفاتورتي ميسر قابلتين للدفع معا. القاعدة: يبقى الأقدم — فإن وجدنا أقدم منا
+      // حيا بمبلغنا ألغينا أنفسنا وأعدناه، فيتقارب الطرفان على رابط واحد
+      const rival = await tx.customerPaymentLink.findFirst({
+        where: {
+          tenantId: params.tenantId, invoiceId: invoice.id, status: 'initiated',
+          amount: remaining, url: { not: null }, id: { not: row.id },
+          createdAt: { lt: updated.createdAt },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (!rival?.url) {
+        await recordDocActivity(tx, paylinkEventInput({ action: 'PAYLINK_CREATED', meta: activity, link: updated, invoiceNo: invoice.number, amount: remaining }));
+      }
+      return { updated, rival };
     });
     if (rival?.url) {
       await prisma.customerPaymentLink.update({ where: { id: row.id }, data: { status: 'canceled' } }).catch(() => { /* سباق */ });
@@ -188,16 +205,34 @@ export async function issueLink(params: {
  * إلغاء الفاتورة. «صلاحية الرابط تُفحص لحظة الدفع»: أقوى تطبيق لها إلغاء
  * فاتورة ميسر نفسها فلا يستطيع العميل الدفع أصلاً.
  */
-export async function expireStaleLinks(tenantId: string, invoiceId: string, keepAmount?: number): Promise<void> {
+export async function expireStaleLinks(
+  tenantId: string, invoiceId: string, keepAmount?: number,
+  /** «أرشيف العميل»: من أمات الروابط ولماذا — الغياب = النظام لتغيّر الفاتورة (تحصيلٌ أو إلغاءٌ أو إشعار) */
+  opts?: { activity?: DocActivityMeta | null; reason?: string },
+): Promise<void> {
   const stale = await prisma.customerPaymentLink.findMany({
     where: {
       tenantId, invoiceId, status: 'initiated',
       ...(keepAmount !== undefined ? { NOT: { amount: keepAmount } } : {}),
     },
-    select: { id: true, moyasarInvoiceId: true },
+    // عميل الرابط ومبلغه ورقم فاتورته لحدث الإلغاء في سجلّ العميل
+    select: { id: true, moyasarInvoiceId: true, tenantId: true, customerId: true, invoiceId: true, amount: true, invoice: { select: { number: true } } },
   });
+  const meta = opts?.activity ?? SYSTEM_META;
   for (const s of stale) {
-    await prisma.customerPaymentLink.update({ where: { id: s.id }, data: { status: 'canceled' } }).catch(() => { /* سباق */ });
+    // الإلغاء وحدثه في معاملة واحدة — **تبديلٌ مشروط** من «بانتظار الدفع» وحده (القراءة أعلاه خارج المعاملة): إماتتان متزامنتان على
+    // اللقطة نفسها يفوز بها واحد فلا يتكرّر الحدث، ورابطٌ سُدّد بعد القراءة لا يُدهس إلى «ملغى» ولا يُلحق بسداده إلغاء.
+    // فشل المعاملة يُبتلع كما كان (سباق)
+    const claimed = await prisma.$transaction(async tx => {
+      const r = await tx.customerPaymentLink.updateMany({ where: { id: s.id, status: 'initiated' }, data: { status: 'canceled' } });
+      if (r.count !== 1) return false;
+      await recordDocActivity(tx, paylinkEventInput({
+        action: 'PAYLINK_CANCELLED', meta, link: s, invoiceNo: s.invoice?.number ?? null, data: { reason: opts?.reason ?? 'INVOICE_CHANGED' },
+      }));
+      return true;
+    }).catch(() => null /* سباق — لا يُعرف من فاز */);
+    // رابطٌ أماته غيرنا أو سُدّد في الأثناء: لا إلغاء لفاتورته لدى ميسر من هنا (من أماته ألغاها، والمسدَّد لا يُلغى)
+    if (claimed === false) continue;
     // فشل إلغاء فاتورة ميسر يعني احتمال «دُفعت للتو» — لا يُبتلع صامتاً:
     // الصوت هنا + مسح الموتى-حديثاً في المجدول يحييان أي دفعة سبقت الإلغاء
     if (s.moyasarInvoiceId) {
@@ -223,6 +258,8 @@ export async function confirmLinkPayment(linkId: string): Promise<ConfirmResult>
     include: {
       invoice: { select: { id: true, number: true, customerId: true, paidAmt: true, remainingAmt: true, teamId: true } },
       tenant: { select: { paylinkFeePct: true, paylinkFeeFlat: true } },
+      // «أرشيف العميل»: الدافع هو العميل نفسه — باسمه فاعلاً لحدث السداد
+      customer: { select: { name: true } },
     },
   });
   if (!link?.moyasarInvoiceId) return { ok: false, state: 'no-link' };
@@ -237,9 +274,22 @@ export async function confirmLinkPayment(linkId: string): Promise<ConfirmResult>
   if (remote.status !== 'paid') {
     // انتهاء أو إلغاء لدى ميسر ينعكس عندنا — لكن لا نكتب فوق paid أبدا (درس الدهس)
     if (remote.status === 'expired' || remote.status === 'canceled') {
-      await prisma.customerPaymentLink.updateMany({
-        where: { id: link.id, status: { in: ['initiated', 'canceled', 'expired'] } },
-        data: { status: remote.status },
+      // «أرشيف العميل»: موت الرابط الحيّ حدثٌ بفاعل النظام — للانتقال من «بانتظار الدفع» وحده (المسح يعيد السؤال عن الميت
+      // ثلاثة أيام، فتبديلٌ بين حالتي الموت لا يُكرّر حدثاً). والأثر على الصفّ كما كان حرفاً: الحالة من المزوّد
+      const deadStatus = remote.status;
+      await prisma.$transaction(async tx => {
+        const fromLive = await tx.customerPaymentLink.updateMany({ where: { id: link.id, status: 'initiated' }, data: { status: deadStatus } });
+        if (fromLive.count === 1) {
+          await recordDocActivity(tx, paylinkEventInput({
+            action: deadStatus === 'expired' ? 'PAYLINK_EXPIRED' : 'PAYLINK_CANCELLED', meta: SYSTEM_META, link,
+            invoiceNo: link.invoice?.number ?? null, data: { reason: 'PROVIDER' },
+          }));
+          return;
+        }
+        await tx.customerPaymentLink.updateMany({
+          where: { id: link.id, status: { in: ['initiated', 'canceled', 'expired'] } },
+          data: { status: deadStatus },
+        });
       }).catch(() => { /* سباق */ });
     }
     return { ok: false, state: remote.status };
@@ -310,6 +360,21 @@ export async function confirmLinkPayment(linkId: string): Promise<ConfirmResult>
         },
       });
 
+      // «أرشيف العميل»: سداد العميل رابطَه وسندُ القبض الذي أنشأه — بفاعل العميل نفسه، في معاملة القيد الواحدة (clientRef الفريد
+      // يمنع تكرارها مع الويب هوك المكرّر)
+      const payer = customerMeta(link.customer?.name ?? null);
+      await recordDocActivity(tx, [
+        paylinkEventInput({
+          action: 'PAYLINK_PAID', meta: payer, link, invoiceNo: link.invoice.number, amount: collected,
+          data: { receiptNo: number, ...(alloc < collected && { overpaid: clean(collected - alloc) }) },
+        }),
+        receiptEventInput({
+          tenantId: link.tenantId, action: 'RECEIPT_ISSUED', meta: payer, receipt: rcp,
+          allocations: alloc > 0 ? [{ invoiceId: link.invoiceId, invoiceNo: link.invoice.number, amount: alloc, settled: clean(remaining - alloc) <= 0.004 }] : [],
+          data: { via: 'PAYLINK', paylinkId: link.id },
+        }),
+      ]);
+
       await tx.notification.create({
         data: {
           tenantId: link.tenantId,
@@ -345,6 +410,27 @@ const RECONCILE_INTERVAL_MS = 2 * 60_000; // كل دقيقتين
 const RECONCILE_BATCH = 40;
 
 /**
+ * انتهاء مهلة الرابط (أسبوعان) — الأثر على الصفّ كما كان حرفاً (expired)، و«أرشيف العميل»: حدث الانتهاء بفاعل النظام في المعاملة
+ * نفسها للانتقال من «بانتظار الدفع» وحده (التأكيد قبله قد يكون أماته بحالة المزوّد وسجّل حدثه).
+ */
+async function expireLinkAfterTtl(linkId: string): Promise<void> {
+  await prisma.$transaction(async tx => {
+    const fromLive = await tx.customerPaymentLink.updateMany({ where: { id: linkId, status: 'initiated' }, data: { status: 'expired' } });
+    if (fromLive.count !== 1) {
+      await tx.customerPaymentLink.update({ where: { id: linkId }, data: { status: 'expired' } });
+      return;
+    }
+    const l = await tx.customerPaymentLink.findUnique({
+      where: { id: linkId },
+      select: { id: true, tenantId: true, customerId: true, invoiceId: true, amount: true, invoice: { select: { number: true } } },
+    });
+    if (l) {
+      await recordDocActivity(tx, paylinkEventInput({ action: 'PAYLINK_EXPIRED', meta: SYSTEM_META, link: l, invoiceNo: l.invoice?.number ?? null, data: { reason: 'TTL' } }));
+    }
+  }).catch(() => { /* سباق */ });
+}
+
+/**
  * تسوية الروابط المعلقة: يمر على «بانتظار الدفع» فيؤكد المدفوع وينهي المنتهي.
  *
  * لماذا لا يكفي الويب هوك: إشعار ميسر قناة قد تتأخر أو لا تصل (تسجيلها في
@@ -370,7 +456,7 @@ export async function reconcilePendingLinks(): Promise<void> {
         // كانت تُمات ثم لا يحييها شيء، فالمال يؤخذ بلا سند
         const out = await confirmLinkPayment(link.id);
         if (out.state === 'paid' || out.state === 'already-paid') continue;
-        await prisma.customerPaymentLink.update({ where: { id: link.id }, data: { status: 'expired' } }).catch(() => { /* سباق */ });
+        await expireLinkAfterTtl(link.id);
         if (link.moyasarInvoiceId) {
           cancelInvoice(link.moyasarInvoiceId).catch((e: unknown) =>
             console.error(`paylink expire ${link.id}: cancel failed:`, (e as Error).message));
@@ -439,7 +525,8 @@ export async function reverseLinkPayment(linkId: string, reason: string): Promis
 
   const receipt = await prisma.receipt.findUnique({
     where: { id: link.receiptId },
-    include: { invoiceItems: true },
+    // رقم فاتورة كل تخصيص لحدث إلغاء السند في سجلّ العميل («أرشيف العميل») — من الاستعلام نفسه
+    include: { invoiceItems: { include: { invoice: { select: { number: true } } } } },
   });
   if (!receipt) return { ok: false, state: 'no-receipt' };
 
@@ -470,6 +557,23 @@ export async function reverseLinkPayment(linkId: string, reason: string): Promis
         body: `رُدَّ مبلغ ${Number(receipt.amount)} لفاتورة ${link.invoice.number} — ${receiptCancelled ? 'الغي' : 'كان ملغى'} سند ${receipt.number} (${reason})`,
       },
     }).catch(() => { /* كمالي */ });
+    // «أرشيف العميل»: استرداد دفعة الرابط (حدث «استرداد» — المال عاد للعميل، لا «إلغاء رابط») بفاعل النظام، وإلغاء سندها إن أُلغي
+    // هنا برقم فاتورة كل تخصيص — لمن فاز بتبديل الرابط وحده
+    await recordDocActivity(tx, [
+      paylinkEventInput({
+        action: 'PAYLINK_REFUNDED', meta: SYSTEM_META, link, invoiceNo: link.invoice.number, amount: Number(receipt.amount),
+        data: { status: 'refunded', reason, receiptNo: receipt.number, ...(!receiptCancelled && { receiptAlreadyCancelled: true }) },
+      }),
+      receiptCancelled
+        ? receiptEventInput({
+          tenantId: link.tenantId, action: 'RECEIPT_CANCELLED', meta: SYSTEM_META, receipt,
+          allocations: receipt.invoiceItems.map(a => ({
+            invoiceId: a.invoiceId, invoiceNo: a.invoice?.number ?? (a.invoiceId === link.invoiceId ? link.invoice.number : null), amount: Number(a.amount),
+          })),
+          data: { via: 'PAYLINK_REFUND', paylinkId: link.id, reason },
+        })
+        : null,
+    ]);
     return receiptCancelled;
   });
   if (reversed === null) return { ok: true, state: 'already-refunded' };

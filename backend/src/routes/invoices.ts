@@ -97,6 +97,8 @@ import {
 } from '../services/priceRules';
 // «رقم العميل» (طلب المالك ٢٣ نوفمبر ٢٠٢٦): البحث برقم العميل التسلسليّ مطابقةً تامّة — يُنثر في OR البحث القائم وحده
 import { customerRelNumberOr } from '../services/customerNumber';
+// «أرشيف العميل — السجل الزمني»: كل إصدار وإلغاء وإبطال وتعديل لمستند العميل يُلحق بسجلّه داخل معاملة المستند نفسها
+import { docActivityMeta, invoiceEventInput, invoiceIssuedInput, recordDocActivity } from '../services/customerActivityDocs';
 
 const router = Router();
 router.use(authenticate);
@@ -742,6 +744,21 @@ export async function recordRestockToggleInTx(
   if (flipped.count === 0) return false;
   await tx.invoiceRestockLog.create({ data: { tenantId: tid, invoiceId, previous: !returnToStock, returnToStock, changedBy } });
   return true;
+}
+
+/**
+ * «أرشيف العميل — السجل الزمني»: تبديل «إعادة المرتجع للمخزون» تعديلٌ على مستند العميل — يُلحق بسجلّه بعد recordRestockToggleInTx
+ * حين تغيّرت القيمة فعلاً وحده، في معاملة التبديل نفسها. رقم المرتجع وعميله يُقرآن هنا (القراءة المسبقة في المسار لا تحملهما).
+ */
+async function recordRestockActivity(
+  tx: Prisma.TransactionClient, tid: string, invoiceId: string, returnToStock: boolean, meta: ReturnType<typeof docActivityMeta>,
+): Promise<void> {
+  const row = await tx.invoice.findFirst({ where: { id: invoiceId, tenantId: tid }, select: { id: true, number: true, customerId: true, type: true, total: true } });
+  if (!row) return;
+  await recordDocActivity(tx, invoiceEventInput({
+    tenantId: tid, action: 'INVOICE_UPDATED', meta, invoice: row,
+    data: { changes: [{ field: 'returnToStock', from: !returnToStock, to: returnToStock }] },
+  }));
 }
 
 /**
@@ -1913,6 +1930,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         ...(lotsOn && { lotsOn }),
         // البند ٩: «البيع بدون مخزون» داخل معاملة الختم تحت قفل السيارة (VanStockShort يمرّ إلى catch أدناه)
         ...(sellGuard && { stockGuard: (t: unknown) => assertVanSellableInTx(t as Prisma.TransactionClient, tid, salesRepId, sellGuard!, new Set()) }),
+        // «أرشيف العميل»: حدث الإصدار بفاعل الطلب داخل معاملة الختم — والمرتجع (إشعاراً دائناً، يدوياً أو مرتبطاً) مرتجعٌ في السجل
+        activity: docActivityMeta(req, body.type === 'RETURN' ? 'RETURN_ISSUED' : undefined),
       };
       /* D3 (Z5.5): المرتجع في شركةٍ مربوطة ليس مستنداً سالباً بل **إشعارٌ دائن** يشير إلى فاتورته الأصلية —
        * بنوده وأسعاره وضريبته من بنود الأصل، وكميّاته محروسةٌ بما لم يُرجَع منها بعد. وبلا أصلٍ في الطلب يُردّ 422
@@ -1978,6 +1997,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           manualReturn,
           // D6: ختم صلاحية بنود الإشعار المرتبط داخل معاملته (يوم المرتجع: لحظة الجهاز، وإلا الآن — كالختم اللاحق)
           ...(tracksExpiry && { expiryStampsFor: linkedNoteExpiry(tid, deviceAt ? new Date(deviceAt) : new Date()) }),
+          // «أرشيف العميل»: المرتجع المرتبط إشعاراً دائناً حدثُ «مرتجع» بفاعل الطلب (والإشعار اليدويّ يحمله سياق الفاتورة أعلاه)
+          activity: phase2Ctx.activity,
         }, productionPhase2Deps());
         if (note && tracksExpiry) await stampExpiryAfterIssue(tid, note.status, note.body);
         if (note && note.status < 300) await noticeRebased(issuedNumberOf(note.body));
@@ -2103,6 +2124,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     let lotWarnings: LotWarning[] = [];
     // D11: المستند المؤرَّخ بلحظة الجهاز يأخذ تسلسل شهره بتوقيت الشركة (utils/helpers prefixFor) — وغيره كما كان
     const numTz = offlineAt ? await tenantTz(tid).catch(() => undefined) : undefined;
+    // «أرشيف العميل»: فاعل الطلب ومصدره لحدث الإصدار داخل المعاملة أدناه
+    const issueActivity = docActivityMeta(req);
     // الرقم يُولَّد داخل إعادة المحاولة: عند تصادم P2002 (طلبان متزامنان بنفس الرقم) يُعاد التوليد والإنشاء
     const invoice = await withNumberRetry(async () => {
     // البادئة تُشتقّ من تاريخ الفاتورة (docDate) لا وقت الرفع — يحفظ تسلسل الفترة للمستندات الأوف-لاين
@@ -2150,6 +2173,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       // البند ١١: ما يُسقطه المرتجع المرتبط من متبقّي فاتورة بيعه الآجلة، ومتبقّيها بعده — صفرٌ وnull لغيره
       let remainingApplied = 0;
       let saleRemainingAfter: number | null = null;
+      // «أرشيف العميل»: رقم فاتورة البيع التي رُدّ منها المرتجع المرتبط — لحدث إصداره (originalInvoiceNo كما تكتبه المرحلة الثانية)
+      let saleInvoiceNo: string | null = null;
       if (saleForReturn) {
         const saleLink = await assertReturnLinks(tx, { tenantId: tid, customerId, saleInvoiceId: saleForReturn, lines: saleLinkLines, lock: true });
         invLocationId = inheritedLocation(saleLink);
@@ -2157,11 +2182,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         const nowReturned = await returnedBySaleItem(tx, tid, refundSaleIds);
         if (returnedChanged(nowReturned, refundReturned, refundSaleIds)) priced = priceRefund(nowReturned);
         // البند ١١: متبقّي فاتورة البيع يُقرأ تحت قفلها (assertReturnLinks أعلاه، FOR UPDATE) وبعد إعادة التسعير — فسندٌ أو مرتجعٌ
-        // متزامن على الفاتورة نفسها ينتظر هذه المعاملة ثمّ يقرأ ما كتبته، ولا يُسقط مرتجعان معاً أكثر من المتبقّي
+        // متزامن على الفاتورة نفسها ينتظر هذه المعاملة ثمّ يقرأ ما كتبته، ولا يُسقط مرتجعان معاً أكثر من المتبقّي.
+        // ورقمها (number) من القراءة نفسها لحدث المرتجع في سجلّ العميل
         const saleDue = await tx.invoice.findFirst({
           where: { id: saleForReturn, tenantId: tid },
-          select: { type: true, status: true, remainingAmt: true },
+          select: { type: true, status: true, remainingAmt: true, number: true },
         });
+        saleInvoiceNo = saleDue?.number ?? null;
         remainingApplied = linkedReturnRemainingApplied(saleDue, priced.total);
         if (saleDue && remainingApplied > 0) saleRemainingAfter = clean(Math.max(0, Number(saleDue.remainingAmt) - remainingApplied));
       }
@@ -2286,6 +2313,23 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           });
         }
       }
+
+      // «أرشيف العميل — السجل الزمني»: فاتورة البيع أو المرتجع بفاعلها، في المعاملة نفسها (تلتزم معه أو تُلغى معه). لحظة الحدث
+      // لحظةُ الجهاز للمستند المرفوع دون اتصال (offlineAt المحصورة) — وإلا الآن
+      await recordDocActivity(tx, invoiceIssuedInput({
+        tenantId: tid,
+        meta: issueActivity,
+        invoice: inv,
+        at: offlineAt,
+        data: {
+          // فاتورة البيع التي رُدّ منها المرتجع المرتبط (المسار القديم لا يكتب أعمدة الإشعار — مفتاحٌ باسمٍ آخر عمداً)
+          ...(saleForReturn && { saleInvoiceId: saleForReturn }),
+          ...(saleForReturn && saleInvoiceNo && { originalInvoiceNo: saleInvoiceNo }),
+          ...(isReturn && !saleForReturn && body.originalInvoiceRef && { originalInvoiceNo: body.originalInvoiceRef.slice(0, 80) }),
+          ...(creditCheck && !isReturn && body.type !== 'CASH' && { creditLimitExceeded: true }),
+          ...(offlineAt && { offline: true }),
+        },
+      }));
 
       return inv;
     // «تتبّع اللوط» (D13): مهلة المعاملة الموسّعة للمستند المتتبَّع وحده؛ وغيره بلا خيار كما كان
@@ -2447,6 +2491,7 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
       if (lotCancel.length) releaseLots = await acquireLotQueue(tid, lotCancel);
     }
 
+    const cancelActivity = docActivityMeta(req);
     const updated = await prisma.$transaction(async tx => {
       // الفحوص أعلاه على قراءةٍ سابقة للمعاملة: القفل وإعادتها تحته أولاً، وإلا عكس طلبان متقاربان القيد مرّتين
       await lockInvoiceForCancel(tx, tid, invoice.id);
@@ -2480,6 +2525,11 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
           data: JSON.stringify({ invoiceId: inv.id }),
         },
       });
+      // «أرشيف العميل»: الإلغاء بفاعله في معاملة الإلغاء نفسها
+      await recordDocActivity(tx, invoiceEventInput({
+        tenantId: tid, action: 'INVOICE_CANCELLED', meta: cancelActivity, invoice: inv,
+        data: { ...(typeof req.body?.reason === 'string' && { reason: req.body.reason.trim().slice(0, 300) }) },
+      }));
       return inv;
     }, lotCancel.length ? LOT_TX_OPTIONS : undefined);
     releaseLots?.();
@@ -2488,7 +2538,7 @@ router.patch('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFu
     // فاتورة ملغاة لا تُدفع: نميت روابط دفعها الحية ونلغي فواتير ميسر نفسها —
     // كان الرابط يبقى قابلا للدفع بعد الإلغاء. خارج المعاملة عمدا (نداء شبكي)
     void import('../services/paylink')
-      .then(m => m.expireStaleLinks(tid, updated.id))
+      .then(m => m.expireStaleLinks(tid, updated.id, undefined, { activity: cancelActivity, reason: 'INVOICE_CANCELLED' }))
       .catch(e => console.error('invoice cancel: expire links failed:', (e as Error).message));
 
     publishInvoicesChanged(tid);
@@ -2734,6 +2784,8 @@ router.post('/:id/credit-note', async (req: AuthRequest, res: Response, next: Ne
       // D6: ختم صلاحية بنوده داخل معاملته — يوم المرتجع كالختم اللاحق: لحظة الجهاز المخزّنة وإلا الآن
       expiryStampsFor: linkedNoteExpiry(tid, !req.user?.apiKeyId && body.clientCreatedAt && !Number.isNaN(new Date(body.clientCreatedAt).getTime())
         ? new Date(body.clientCreatedAt) : new Date()),
+      // «أرشيف العميل»: حدث الإشعار الدائن بفاعل الطلب داخل معاملة ختمه
+      activity: docActivityMeta(req),
     }, productionPhase2Deps());
     if (!r) { res.status(409).json({ success: false, message: NOTES_NOT_ENABLED }); return; }
     await stampExpiryAfterIssue(tid, r.status, r.body);
@@ -2780,6 +2832,8 @@ router.post('/:id/debit-note', async (req: AuthRequest, res: Response, next: Nex
       clientRef: body.clientRef ?? null,
       clientCreatedAt: body.clientCreatedAt ?? null,
       viaApiKey: !!req.user?.apiKeyId,
+      // «أرشيف العميل»: حدث الإشعار المدين بفاعل الطلب داخل معاملة ختمه
+      activity: docActivityMeta(req),
     }, productionPhase2Deps());
     if (!r) { res.status(409).json({ success: false, message: NOTES_NOT_ENABLED }); return; }
     await stampExpiryAfterIssue(tid, r.status, r.body);
@@ -2827,7 +2881,8 @@ router.post('/:id/einvoice/withdraw', requireAdmin, async (req: AuthRequest, res
     };
     let r: Awaited<ReturnType<typeof withdrawPhase2Invoice>>;
     try {
-      r = await withdrawPhase2Invoice({ tenantId: tid, invoiceId: id, guardInTx });
+      // «أرشيف العميل»: السحب إبطالٌ بفاعل الطلب يُسجَّل في معاملة السحب نفسها (services/invoiceVoid.ts)
+      r = await withdrawPhase2Invoice({ tenantId: tid, invoiceId: id, guardInTx, activity: docActivityMeta(req) });
     } catch (e) {
       if (e instanceof ReturnCancelStockShort) { res.status(409).json(e.body()); return; }
       throw e;
@@ -2889,7 +2944,8 @@ router.post('/:id/einvoice/reissue', requireAdmin, async (req: AuthRequest, res:
     if (gate) { res.status(gate.status).json(gate.body()); return; }
     const id = await scopedInvoiceId(req, tid);
     if (!id) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
-    const r = await reissuePhase2Invoice({ tenantId: tid, invoiceId: id });
+    // «أرشيف العميل»: إعادة الإصدار بفاعل الطلب في معاملة المحاولة الجديدة نفسها (services/invoiceReissue.ts)
+    const r = await reissuePhase2Invoice({ tenantId: tid, invoiceId: id, activity: docActivityMeta(req) });
     if (!r.ok || !r.result) {
       const e = new ZatcaHttpError('ZATCA_REISSUE_NOT_ALLOWED', {
         messageAr: r.decision.ok ? undefined : r.decision.messageAr,
@@ -2928,6 +2984,8 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
     const { returnToStock } = z.object({ returnToStock: z.boolean() }).parse(req.body);
     // «ربط الدفاتر» L1: من بدّل — يُكتب في سجلّ التبديل (recordRestockToggleInTx) حين تتغيّر القيمة فعلاً
     const changedBy = restockActorOf(req.user);
+    // «أرشيف العميل»: فاعل التبديل لحدث «تعديل المستند» في سجلّ العميل (حين تتغيّر القيمة فعلاً)
+    const restockActivity = docActivityMeta(req);
     // عَلَم «تتبّع اللوط» في القراءة نفسها — لا استعلام زائد والميزة مطفأة (ن١-٢٠)
     const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, tenantId: tid, ...(await scopedRecordWhere(req, SHAPE_INVOICE_RECEIPT)) }, select: { id: true, type: true, tenant: { select: { lotTrackingEnabled: true } } } });
     if (!invoice) { res.status(404).json({ success: false, message: 'الفاتورة غير موجودة' }); return; }
@@ -2948,7 +3006,8 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
         // D10: وأصنافه غير المتتبَّعة — لا يصير المتاح في السيارة سالباً (بعد حارس اللوط: مفاتيح اللوط قبل قفل السيارة)
         await assertReturnRemovalKeepsVan(tx, tid, invoice.id, 'RESTOCK_OFF', new Set(lotOff));
         // «ربط الدفاتر» L1: سجلّ التبديل بعد الحرّاس وفي المعاملة نفسها (رفضٌ قبله لا يكتب شيئاً)
-        await recordRestockToggleInTx(tx, tid, invoice.id, returnToStock, changedBy);
+        const flipped = await recordRestockToggleInTx(tx, tid, invoice.id, returnToStock, changedBy);
+        if (flipped) await recordRestockActivity(tx, tid, invoice.id, returnToStock, restockActivity);
         return tx.invoice.update({ where: { id: invoice.id }, data: { returnToStock } });
       }, LOT_TX_OPTIONS);
       releaseLots();
@@ -2968,7 +3027,8 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
         // D25 أولاً (قفل الصفّ ثم الأصناف كما كان): صنفٌ صار متتبَّعاً ⇒ 503 فيُعاد بحارس اللوط — ثم المتاح تحت قفل السيارة
         if (lotPids.length) await assertReturnStillUntracked(tx, tid, lotPids);
         await assertReturnRemovalKeepsVan(tx, tid, invoice.id, 'RESTOCK_OFF');
-        await recordRestockToggleInTx(tx, tid, invoice.id, returnToStock, changedBy);
+        const flipped = await recordRestockToggleInTx(tx, tid, invoice.id, returnToStock, changedBy);
+        if (flipped) await recordRestockActivity(tx, tid, invoice.id, returnToStock, restockActivity);
         return tx.invoice.update({ where: { id: invoice.id }, data: { returnToStock } });
       });
       res.json({ success: true, data: off });
@@ -2976,7 +3036,8 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
     }
     if (lotPids.length) {
       const kept = await prisma.$transaction(async tx => {
-        await recordRestockToggleInTx(tx, tid, invoice.id, returnToStock, changedBy);
+        const flipped = await recordRestockToggleInTx(tx, tid, invoice.id, returnToStock, changedBy);
+        if (flipped) await recordRestockActivity(tx, tid, invoice.id, returnToStock, restockActivity);
         const row = await tx.invoice.update({ where: { id: invoice.id }, data: { returnToStock } });
         await assertReturnStillUntracked(tx, tid, lotPids);
         return row;
@@ -2987,7 +3048,8 @@ router.patch('/:id/restock', requireAdmin, async (req: AuthRequest, res: Respons
     /* التشغيل إلى true زيادةٌ خالصة: بلا قفل لوطٍ ولا حارس ولا مهلة جديدة كما كان — و«ربط الدفاتر» L1 يجعله معاملةً واحدة يُلحق
      * فيها سجلّ التبديل (حين تتغيّر القيمة فعلاً) ثم التحديث القائم نفسه، فلا يبقى تبديلٌ بلا صفّه ولا صفٌّ بلا تبديله */
     const updated = await prisma.$transaction(async tx => {
-      await recordRestockToggleInTx(tx, tid, invoice.id, returnToStock, changedBy);
+      const flipped = await recordRestockToggleInTx(tx, tid, invoice.id, returnToStock, changedBy);
+      if (flipped) await recordRestockActivity(tx, tid, invoice.id, returnToStock, restockActivity);
       return tx.invoice.update({ where: { id: invoice.id }, data: { returnToStock } });
     });
     res.json({ success: true, data: updated });

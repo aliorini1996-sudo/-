@@ -14,6 +14,7 @@ import { userSettlementTombstones } from '../services/gl/sync/tombstone';
 import type { Prisma } from '@prisma/client';
 import { noStaffCredentials, refuseStaffCredentials } from '../services/platformAccess';
 import { AuthRequest } from '../types';
+import { activityMeta } from '../services/customerActivityEvents';
 
 const router = Router();
 router.use(authenticate, requireAdmin);
@@ -816,7 +817,8 @@ router.put('/:id/scope', async (req: AuthRequest, res: Response, next: NextFunct
         ...(dropTeams ? [prisma.teamSupervisor.deleteMany({ where: { tenantId: tid, adminId: admin.id } })] : []),
       ]);
     }
-    const counts = await setAdminScope(tid, admin.id, body.customerIds ?? null, body.salesRepIds ?? null);
+    // «أرشيف العميل»: بفاعل الطلب — إدخال العميل في نطاق المستخدم وإخراجه منه حدثان في سجلّه
+    const counts = await setAdminScope(tid, admin.id, body.customerIds ?? null, body.salesRepIds ?? null, activityMeta(req));
     res.json({ success: true, data: counts });
   } catch (err) { next(err); }
 });

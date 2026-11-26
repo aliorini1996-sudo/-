@@ -13,6 +13,7 @@ import type { CircularAudience, CircularCreateBody } from '../lib/circulars';
 import type { ChatRequest as AiAccountantChatRequest } from '../lib/aiAccountant';
 import type { AcctDocPatch } from '../lib/aiAccountantDocs';
 import { pendingLoadsClient } from '../lib/pendingLoads';
+import { activityQuery } from '../lib/customerActivity';
 import type {
   LotCreateRequest, LotListParams, LotRef, LotRelabelRequest, LotStatusRequest, LotTrackingRequest, LotUpdateRequest,
 } from '../lib/lots';
@@ -95,6 +96,10 @@ export const customerApi = {
   studioItem: (id: string, source: string, itemId: string) => api.get(`/customers/${id}/studio/${source}/${itemId}`),
   addDocuments: (id: string, documents: { kind: string; data: string }[]) => api.post(`/customers/${id}/documents`, { documents }),
   removeDocument: (id: string, docId: string) => api.delete(`/customers/${id}/documents/${docId}`),
+  // «سجلّ العميل» الثابت (طلب المالك ٢٦ نوفمبر ٢٠٢٦): كل إجراءٍ مع العميل من أيّ أحد، صفحةً صفحة بمؤشّر before وقسم category —
+  // قراءةٌ وحدها: لا مسار لتعديل السجلّ أو حذفه (routes/customerActivity.ts وحارس قاعدة البيانات)
+  activity: (id: string, params?: { before?: string | null; category?: string | null; limit?: number | null }) =>
+    api.get(`/customers/${id}/activity`, { params: activityQuery(params) }),
 };
 
 export const productApi = {

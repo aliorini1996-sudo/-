@@ -17,6 +17,9 @@ import { planRoadPath } from '../services/planRoadPath';
 import {
   pickRouteForDay, orderRoutes, isValidDay, weekdayConflict, firstInternalConflict, weekdayConflictMessage, DEFAULT_OFF_DAYS, WEEKDAY_NAMES_AR,
 } from '../services/routeSchedule';
+// «أرشيف العميل — السجل الزمني» (طلب المالك ٢٦ نوفمبر ٢٠٢٦): دخول العميل خطّ سير مندوبٍ وخروجه منه حدثان في سجلّه — حدثٌ لكل
+// عميلٍ تغيّر حاله في الحفظ لا لكل محطّةٍ بقيت، في معاملة الحفظ أو الحذف نفسها
+import { activityMeta, diffRouteStops, keptStopDates, recordActivityInTx, type ActivityInput, type ActivityMeta, type RouteStopRef } from '../services/customerActivityEvents';
 
 const router = Router();
 router.use(authenticate);
@@ -124,11 +127,65 @@ async function permanentRoutesOf(db: Prisma.TransactionClient, tid: string, sale
  * `isActive` باقٍ في الجدول لصفوفٍ موقوفة كتبها المسار القديم: القراءة ما زالت تتجاهلها، وكل كتابةٍ لمندوبٍ
  * تحذف بقاياه (انظر POST وDELETE) — فلا يُنشئ هذا المسار صفّاً موقوفاً بعد اليوم.
  */
-async function deleteRoutes(tx: Prisma.TransactionClient, tid: string, where: Prisma.RepRouteWhereInput): Promise<number> {
-  const ids = (await tx.repRoute.findMany({ where: { ...where, tenantId: tid }, select: { id: true } })).map(r => r.id);
+async function deleteRoutes(tx: Prisma.TransactionClient, tid: string, where: Prisma.RepRouteWhereInput, track?: RouteTrack): Promise<number> {
+  const routes: { id: string; name: string | null; salesRepId: string | null; isActive: boolean }[] = await tx.repRoute.findMany({
+    where: { ...where, tenantId: tid },
+    select: { id: true, name: true, salesRepId: true, isActive: true },
+  });
+  const ids = routes.map(r => r.id);
   if (!ids.length) return 0;
+  // «أرشيف العميل»: محطّات الخطوط النشطة قبل حذفها — يجمعها الحفظ (collect) فيقارن بها خطّه الجديد، ويسجّل الحذف (record) خروج
+  // كل عميلٍ منها. بقايا التعطيل القديم (isActive=false) خرجت من الخطّ يوم أُوقفت فلا تُعدّ خروجاً الآن
+  if (track) {
+    const removed: RouteStopRef[] = [];
+    const live = new Map(routes.filter(r => r.isActive !== false).map(r => [r.id, r]));
+    if (live.size) {
+      const stops: { customerId: string; routeId: string; createdAt?: Date | null }[] = await tx.repRouteStop.findMany({
+        where: { routeId: { in: [...live.keys()] } }, select: { customerId: true, routeId: true, createdAt: true },
+      });
+      for (const s of stops ?? []) {
+        const r = live.get(s.routeId);
+        if (r) {
+          removed.push({
+            customerId: s.customerId, routeId: r.id, routeName: r.name ?? null, salesRepId: r.salesRepId ?? null,
+            ...(s.createdAt instanceof Date && { createdAt: s.createdAt }),
+          });
+        }
+      }
+    }
+    if (track.collect) track.collect.push(...removed);
+    if (track.record && removed.length) {
+      const reps = await repNamesOf(tx, tid, removed.map(s => s.salesRepId));
+      // عميلٌ مرّةً لكل مندوب (diffRouteStops مع خطٍّ فارغ)
+      const unique = diffRouteStops(removed, [], '').removed;
+      await recordActivityInTx(tx, stopRemovedEvents(tid, unique, track.record.meta, reps, track.record.reason));
+    }
+  }
   await tx.repRouteStop.deleteMany({ where: { routeId: { in: ids } } });
   return (await tx.repRoute.deleteMany({ where: { id: { in: ids }, tenantId: tid } })).count;
+}
+
+/** «أرشيف العميل»: ما يفعله deleteRoutes بمحطّات الخطوط النشطة المحذوفة — جمعها للمقارنة، أو تسجيل خروج عملائها بفاعلٍ وسبب */
+interface RouteTrack { collect?: RouteStopRef[]; record?: { meta: ActivityMeta; reason: string } }
+
+/** أسماء المناديب لأحداث خطوط السير — قراءةٌ واحدة لمن ورد منهم */
+async function repNamesOf(tx: Prisma.TransactionClient, tid: string, ids: readonly (string | null)[]): Promise<Map<string, string>> {
+  const want = [...new Set(ids.filter((x): x is string => typeof x === 'string' && x !== ''))];
+  if (!want.length) return new Map();
+  const rows = await tx.salesRep.findMany({ where: { tenantId: tid, id: { in: want } }, select: { id: true, name: true } });
+  return new Map((rows ?? []).map(r => [r.id, r.name]));
+}
+
+/** أحداث الخروج من الخطّ (ROUTE_STOP_REMOVED) لمحطّاتٍ حُذفت */
+function stopRemovedEvents(tid: string, removed: readonly RouteStopRef[], meta: ActivityMeta, reps: ReadonlyMap<string, string>, reason: string): ActivityInput[] {
+  return removed.map(s => ({
+    tenantId: tid, customerId: s.customerId, action: 'ROUTE_STOP_REMOVED' as const, actor: meta.actor, source: meta.source,
+    refType: 'ROUTE' as const, refId: s.routeId,
+    data: {
+      ...(s.routeName && { routeName: s.routeName }), ...(s.salesRepId && { salesRepId: s.salesRepId }),
+      ...(s.salesRepId && reps.get(s.salesRepId) && { repName: reps.get(s.salesRepId) }), reason,
+    },
+  }));
 }
 
 /** حدود اليوم بإزاحة الجهاز — الزيارة تُحتسب ليوم المندوب لا ليوم الخادم */
@@ -541,7 +598,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       }
     }
 
+    const meta = activityMeta(req);
     const saved = await prisma.$transaction(async tx => {
+      // «أرشيف العميل»: محطّات الخطوط النشطة التي يحذفها هذا الحفظ — يُقارن بها الخطّ الجديد (diffRouteStops)
+      const before: RouteStopRef[] = [];
       // **خطٌّ واحد لكل حالة**: دائمٌ واحد للمندوب، ومؤقّتٌ واحد لليوم.
       // خطّان يجعلان «ما خط سيري اليوم؟» سؤالاً بلا جواب — فيُستبدل القديم
       // بدل أن يتراكما صامتَين. والاستبدال **حذفٌ فعليّ** لا تعطيل: لا نسخةٌ
@@ -549,13 +609,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       // **الخطّ المُحرَّر يُحذف بمعرّفه**: الاستبدال بالمفاتيح وحده يفشل متى
       // غُيّر أحدها (تاريخ أو نوع أو مندوب)، فيبقى القديم نشطاً ويعمل المندوب
       // على خطٍّ ظنّ المالك أنه بدّله — أو يراه مندوبان معاً في اليوم نفسه.
-      if (replacedId) await deleteRoutes(tx, tid, { id: replacedId });
+      if (replacedId) await deleteRoutes(tx, tid, { id: replacedId }, { collect: before });
       // بالمفاتيح بلا شرط isActive: يذهب النشط وما بقي موقوفاً من المسار القديم معاً.
       // والدائم بالمفاتيح لمن لا جدول له وحده — صاحب الجدول يجمع عدّة دوائم (طلب المالك ٢٢ نوفمبر ٢٠٢٦)
       if (!body.isPermanent) {
-        await deleteRoutes(tx, tid, { salesRepId: body.salesRepId, isPermanent: false, routeDate: body.routeDate! });
+        await deleteRoutes(tx, tid, { salesRepId: body.salesRepId, isPermanent: false, routeDate: body.routeDate! }, { collect: before });
       } else if (!schedule) {
-        await deleteRoutes(tx, tid, { salesRepId: body.salesRepId, isPermanent: true });
+        await deleteRoutes(tx, tid, { salesRepId: body.salesRepId, isPermanent: true }, { collect: before });
       }
       // وبقايا التعطيل القديم لهذا المندوب (خطوطٌ «أُوقفت» قبل أمر الحذف الفعليّ) — لا يقرؤها شيء
       await deleteRoutes(tx, tid, { salesRepId: body.salesRepId, isActive: false });
@@ -581,11 +641,34 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           ...(kept && { createdAt: kept.createdAt }),
         },
       });
-      // الترتيب من موضع العميل في المصفوفة — هو ما رتّبه المالك بعينه
+      // الترتيب من موضع العميل في المصفوفة — هو ما رتّبه المالك بعينه. و«أرشيف العميل»: العميل الباقي في خطّ مندوبه يرث تاريخ
+      // دخوله (keptStopDates) — فإعادة الحفظ لا تجعل عضويته القديمة «دخولاً الآن» ولا تُسقط تاريخها قبل بدء السجلّ
+      const joined = keptStopDates(before, body.salesRepId);
       for (let i = 0; i < stops.length; i++) {
+        const since = joined.get(stops[i].customerId);
         await tx.repRouteStop.create({
-          data: { tenantId: tid, routeId: r.id, customerId: stops[i].customerId, seq: i + 1, note: stops[i].note ?? null },
+          data: {
+            tenantId: tid, routeId: r.id, customerId: stops[i].customerId, seq: i + 1, note: stops[i].note ?? null,
+            ...(since && { createdAt: since }),
+          },
         });
+      }
+      // «أرشيف العميل»: من دخل خطّ المندوب ومن خرج منه بهذا الحفظ — وإعادة الترتيب أو الملاحظة لعميلٍ باقٍ لا حدث لها
+      const { added, removed } = diffRouteStops(before, stops.map(s => s.customerId), body.salesRepId);
+      if (added.length || removed.length) {
+        const reps = await repNamesOf(tx, tid, [body.salesRepId, ...removed.map(s => s.salesRepId)]);
+        const seqOf = new Map(stops.map((s, i) => [s.customerId, i + 1]));
+        const routeInfo = {
+          routeName: body.name, salesRepId: body.salesRepId, ...(reps.get(body.salesRepId) && { repName: reps.get(body.salesRepId) }),
+          isPermanent: body.isPermanent, ...(body.isPermanent ? (weekdays.length ? { weekdays } : {}) : { routeDate: body.routeDate }),
+        };
+        await recordActivityInTx(tx, [
+          ...added.map(customerId => ({
+            tenantId: tid, customerId, action: 'ROUTE_STOP_ADDED' as const, actor: meta.actor, source: meta.source,
+            refType: 'ROUTE' as const, refId: r.id, data: { ...routeInfo, seq: seqOf.get(customerId) ?? null },
+          })),
+          ...stopRemovedEvents(tid, removed, meta, reps, 'ROUTE_SAVED'),
+        ]);
       }
       return r;
     });
@@ -608,7 +691,9 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     if (!r || !(await canAccessRep(req, tid, r.salesRepId))) {
       res.status(404).json({ success: false, message: 'خط السير غير موجود' }); return;
     }
-    await prisma.$transaction(tx => deleteRoutes(tx, tid, { OR: [{ id: r.id }, { salesRepId: r.salesRepId, isActive: false }] }));
+    // «أرشيف العميل»: حذف الخطّ يُخرج كل عملائه منه — حدث ROUTE_STOP_REMOVED لكل عميل في معاملة الحذف نفسها
+    const meta = activityMeta(req);
+    await prisma.$transaction(tx => deleteRoutes(tx, tid, { OR: [{ id: r.id }, { salesRepId: r.salesRepId, isActive: false }] }, { record: { meta, reason: 'ROUTE_DELETED' } }));
     res.json({ success: true });
   } catch (err) { next(err); }
 });
