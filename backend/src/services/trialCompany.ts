@@ -36,6 +36,27 @@ export const TRIAL_PERIOD_DAYS = 5;
 export const TRIAL_LIMITS = { maxSalesReps: 5, maxAdminUsers: 1 } as const;
 
 /**
+ * ميزات تُفتح لكل تجربة مجانية جديدة (طلب المالك ٢٦ نوفمبر ٢٠٢٦): مخزون الشركة، وبصمة الحضور، ومنيو المنتجات، وتوقيع المستلم،
+ * والنظام المحاسبي المتكامل — فوق ما كان مفعّلاً افتراضياً (النظام المحاسبي accountingEnabled وغيره بقيمه الافتراضية).
+ * الحسابات القائمة لا تُمسّ، والمالك يطفئ أيّها لأي شركة من لوحته كالمعتاد.
+ */
+export const TRIAL_FEATURES = {
+  warehouseEnabled: true,
+  attendanceEnabled: true,
+  catalogEnabled: true,
+  invoiceSignatureEnabled: true,
+  accountingSuiteEnabled: true,
+} as const;
+
+/**
+ * تبويب ربط فوترة ZATCA المرحلة الثانية للتجربة السعودية وحدها (مزوّدها zatca): العلم لا يغيّر إصدار الفواتير ولا يربط بالهيئة —
+ * الربط الفعلي (الشهادة ورمز OTP) تُجريه الشركة بنفسها من التبويب. وشركةٌ في دولةٍ أخرى لا معنى له عندها (regime.ts يشترط SA).
+ */
+export function trialZatcaPhase2(ct: Pick<CountryTax, 'code' | 'provider'>): boolean {
+  return ct.code === 'SA' && ct.provider === 'zatca';
+}
+
+/**
  * الشركة ومديرها وإعداداتها داخل معاملة المُستدعي — هو يقرّر ما يُكتب معها في المعاملة نفسها
  * (التسجيل الذاتيّ: لا شيء، والإسناد بعد الالتزام؛ البوابة: الإسناد في المعاملة نفسها).
  */
@@ -53,6 +74,8 @@ export async function createTrialCompanyTx(tx: Tx, i: {
       plan: 'trial',
       subscriptionEndsAt: trialEndsAt,
       ...TRIAL_LIMITS,
+      ...TRIAL_FEATURES,
+      zatcaPhase2Enabled: trialZatcaPhase2(ct),
     } as any,
   });
   const admin = await tx.admin.create({
