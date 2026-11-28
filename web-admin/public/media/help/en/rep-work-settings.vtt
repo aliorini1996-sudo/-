@@ -1,0 +1,25 @@
+WEBVTT
+
+1
+00:00:00.300 --> 00:00:04.801
+How do I set a rep's shift time, automatic check-out and route on the map in Field Sales?
+
+2
+00:00:05.633 --> 00:00:11.765
+In the sidebar, click Sales reps, then click the Edit icon on the rep's row. The Edit rep window opens.
+
+3
+00:00:12.667 --> 00:00:23.498
+Scroll down to Field location restrictions and turn on Idle check-out reminder, then automatic check-out. Then set the idle minutes before the reminder and the response window before automatic check-out.
+
+4
+00:00:24.400 --> 00:00:31.196
+Right below it is Show route on map. Keep it on to draw the rep's path on the tracking map, or turn it off to hide only the path.
+
+5
+00:00:32.100 --> 00:00:38.453
+In Shift time for alerts, choose the shift start and end times, then click the weekdays to set the rep's working days.
+
+6
+00:00:39.367 --> 00:00:43.453
+Click Save changes at the bottom of the window, and the new settings apply to the rep.

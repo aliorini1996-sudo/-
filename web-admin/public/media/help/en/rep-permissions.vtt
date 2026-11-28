@@ -1,0 +1,25 @@
+WEBVTT
+
+1
+00:00:00.300 --> 00:00:04.952
+How do I change an existing rep's sales, pricing and collection permissions in Field Sales?
+
+2
+00:00:05.767 --> 00:00:12.082
+In the sidebar, click Sales reps. Then, on the row of the rep you want, click the edit icon in the Actions column.
+
+3
+00:00:13.000 --> 00:00:21.859
+The Edit rep window opens. In the Sales permissions section, turn on or off what you need, such as Create invoice, Credit selling and Cash selling.
+
+4
+00:00:22.767 --> 00:00:30.532
+In the Pricing permissions section, choose whether the rep can change the price or sell below price, and enter the maximum discount they are allowed to give.
+
+5
+00:00:31.433 --> 00:00:37.139
+Scroll down to the Collection permissions section and choose whether the rep can issue, edit or cancel receipts.
+
+6
+00:00:38.067 --> 00:00:44.164
+Click Save changes at the bottom of the window. A Rep updated message appears, and the new permissions apply to the rep.
